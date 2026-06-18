@@ -58,10 +58,10 @@ func TestFileReadPosWithoutLineReadsFullFile(t *testing.T) {
 	}
 }
 
-func TestFileHandlerAppliesSixteenKiBOutputBudget(t *testing.T) {
+func TestFileHandlerTruncatesSingleReadToTextBudget(t *testing.T) {
 	root := t.TempDir()
 	target := filepath.Join(root, "large.txt")
-	if err := os.WriteFile(target, []byte(largeLineFileContent(260, 120)), 0o600); err != nil {
+	if err := os.WriteFile(target, []byte(largeLineFileContent(260, 240)), 0o600); err != nil {
 		t.Fatalf("write fixture: %v", err)
 	}
 
@@ -69,15 +69,18 @@ func TestFileHandlerAppliesSixteenKiBOutputBudget(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read_file returned error: %v", err)
 	}
-	payload, ok := got.(map[string]any)
+	content, ok := got.(string)
 	if !ok {
-		t.Fatalf("read_file result type = %T, want overflow envelope", got)
+		t.Fatalf("read_file result type = %T, want truncated string", got)
 	}
-	if payload["error_code"] != "result_too_large" {
-		t.Fatalf("error_code = %#v, want result_too_large", payload["error_code"])
+	if len([]byte(content)) > middleware.ToolBudget("file") {
+		t.Fatalf("read_file text bytes = %d, want <= %d", len([]byte(content)), middleware.ToolBudget("file"))
 	}
-	if payload["budget_bytes"] != middleware.ToolBudget("file") {
-		t.Fatalf("budget_bytes = %#v, want %d", payload["budget_bytes"], middleware.ToolBudget("file"))
+	if !strings.Contains(content, "truncated to fit output budget") {
+		t.Fatalf("read_file missing budget truncation hint: %q", content)
+	}
+	if !strings.Contains(content, `large.txt:`) || !strings.Contains(content, "to continue") {
+		t.Fatalf("read_file missing continuation hint: %q", content)
 	}
 }
 

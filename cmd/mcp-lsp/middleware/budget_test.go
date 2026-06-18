@@ -43,9 +43,29 @@ func TestGenericBudgetOverflowSetsSuccessFalse(t *testing.T) {
 	}
 }
 
+func TestOutputBudgetUsesFinalTextNotIntermediateJSON(t *testing.T) {
+	handler := WithOutputBudget("file", func(context.Context, json.RawMessage) (any, error) {
+		return strings.Repeat("line\n", 20), nil
+	}, Budget{MaxBytes: 100})
+
+	got, err := handler(context.Background(), nil)
+	if err != nil {
+		t.Fatalf("budget middleware error = %v", err)
+	}
+	if _, ok := got.(map[string]any); ok {
+		t.Fatalf("budget middleware returned overflow envelope for final text-sized output: %#v", got)
+	}
+}
+
 func TestGrepToolBudgetIsSixteenKiB(t *testing.T) {
 	if got := ToolBudget("grep"); got != 16*1024 {
 		t.Fatalf("ToolBudget(grep) = %d, want %d", got, 16*1024)
+	}
+}
+
+func TestFileToolBudgetIsFiftyKiB(t *testing.T) {
+	if got := ToolBudget("file"); got != 50*1024 {
+		t.Fatalf("ToolBudget(file) = %d, want %d", got, 50*1024)
 	}
 }
 

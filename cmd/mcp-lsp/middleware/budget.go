@@ -3,13 +3,15 @@ package middleware
 import (
 	"context"
 	"encoding/json"
+
+	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/common"
 )
 
 const defaultOutputBudget = 64 * 1024
 
 var defaultToolBudgets = map[string]int{
 	"grep":       16 * 1024,
-	"file":       16 * 1024,
+	"file":       50 * 1024,
 	"inspect":    8 * 1024,
 	"xref":       16 * 1024,
 	"structure":  16 * 1024,
@@ -55,8 +57,8 @@ func WithOutputBudget(toolName string, next Handler, budget Budget) Handler {
 }
 
 func fitsBudget(value any, maxBytes int) bool {
-	raw, err := json.Marshal(value)
-	return err == nil && len(raw) <= maxBytes
+	_, actualBytes, err := budgetTextBytes(value)
+	return err == nil && actualBytes <= maxBytes
 }
 
 func overflowEnvelope(toolName string, value any, maxBytes int) map[string]any {
@@ -64,11 +66,29 @@ func overflowEnvelope(toolName string, value any, maxBytes int) map[string]any {
 	if err != nil {
 		return structuredOverflow(toolName, nil, 0, maxBytes)
 	}
+	actualBytes := len(raw)
+	if text, err := common.ResolveToolResultText(value, raw); err == nil {
+		actualBytes = len([]byte(text))
+	}
 	var payload map[string]any
 	if err := json.Unmarshal(raw, &payload); err != nil {
-		return structuredOverflow(toolName, nil, len(raw), maxBytes)
+		return structuredOverflow(toolName, nil, actualBytes, maxBytes)
 	}
-	return structuredOverflow(toolName, payload, len(raw), maxBytes)
+	return structuredOverflow(toolName, payload, actualBytes, maxBytes)
+}
+
+// budgetTextBytes 按模型最终看到的文本计算输出大小，而不是 handler 的中间
+// JSON 表达；这样 string 结果不会因为换行转义被误判超预算。
+func budgetTextBytes(value any) ([]byte, int, error) {
+	raw, err := json.Marshal(value)
+	if err != nil {
+		return nil, 0, err
+	}
+	text, err := common.ResolveToolResultText(value, raw)
+	if err != nil {
+		return raw, len(raw), err
+	}
+	return raw, len([]byte(text)), nil
 }
 
 func structuredOverflow(toolName string, payload map[string]any, actualBytes, budgetBytes int) map[string]any {

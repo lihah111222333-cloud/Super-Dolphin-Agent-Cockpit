@@ -25,7 +25,7 @@ const (
 	maxReadFileLimit           = 2000
 	maxReadFileBytes           = 2 << 20
 	lspReadFileBatchMax        = 10
-	lspReadFileBatchPayloadMax = 16 * 1024
+	lspReadFileBatchPayloadMax = 50 * 1024
 	batchReadTruncatedHint     = "next: reduce file_paths or split into smaller read_file batches"
 )
 
@@ -244,10 +244,15 @@ func (h handlerBase) readSingle(ctx context.Context, req readFileRequest) (strin
 		warnFileReadFailure("read_file", root, req.rawPath, err)
 		return "", err
 	}
+	budget := middleware.ToolBudget("file")
 	if req.wantsLineWindow() {
-		return renderLineWindow(file.Path.DisplayPath, file.Content, req, lineWindowReasonExplicit), nil
+		return renderLineWindowWithinBudget(file.Path.DisplayPath, file.Content, req, lineWindowReasonExplicit, budget), nil
 	}
-	return h.renderFunctionOrFallback(ctx, file.Path, file.Content, req), nil
+	rendered := h.renderFunctionOrFallback(ctx, file.Path, file.Content, req, budget)
+	if fitsReadTextBudget(rendered, budget) {
+		return rendered, nil
+	}
+	return truncateRenderedReadText(rendered, file.Path.DisplayPath, req.line+1, budget), nil
 }
 
 // renderFunctionOrFallback tries to extract the enclosing function for
@@ -255,12 +260,12 @@ func (h handlerBase) readSingle(ctx context.Context, req readFileRequest) (strin
 // provider, line outside any function) we fall back to a default
 // line window and explain the reason in the footer so the model knows
 // whether retrying with a different line could help.
-func (h handlerBase) renderFunctionOrFallback(ctx context.Context, path search.PathInfo, content string, req readFileRequest) string {
+func (h handlerBase) renderFunctionOrFallback(ctx context.Context, path search.PathInfo, content string, req readFileRequest, budget int) string {
 	reason, ok := h.tryFunctionWindow(ctx, path, content, req)
 	if ok {
 		return reason
 	}
-	return renderLineWindow(path.DisplayPath, content, req, reason)
+	return renderLineWindowWithinBudget(path.DisplayPath, content, req, reason, budget)
 }
 
 // tryFunctionWindow returns (rendered, true) on a successful function
