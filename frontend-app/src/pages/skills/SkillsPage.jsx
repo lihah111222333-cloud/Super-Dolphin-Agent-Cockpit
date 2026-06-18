@@ -1041,19 +1041,10 @@ function SkillsPage({ copy = APP_COPY.zh.skills, projectPath, refreshKey = 0, re
         </button>
         <button
           type="button"
-          className={subTab === 'skills' ? 'active' : ''}
-          onClick={() => setSubTab('skills')}
-        >
-          {copy.tabs.skills}
-        </button>
-        <button
-          type="button"
-          className={subTab === 'library' ? 'active icon-only' : 'icon-only'}
-          aria-label={copy.localLibrary}
-          title={copy.localLibrary}
+          className={subTab === 'library' ? 'active' : ''}
           onClick={() => setSubTab('library')}
         >
-          <Sparkles size={16} aria-hidden="true" />
+          {copy.title}
         </button>
         <button
           type="button"
@@ -1737,10 +1728,16 @@ function PluginsSquareView({ copy, projectPath }) {
               <div className="mcp-tool-main">
                 <div className="mcp-tool-title-line">
                   <h2 title={tool.description}>{tool.title}</h2>
-                  <span className={`mcp-tool-status is-${status.tone}`} data-testid={tool.testId}>{status.label}</span>
                 </div>
-                {feedback ? <p className={`mcp-tool-notice${mcpServersIsError || error ? ' is-error' : ''}`} role={feedbackRole}>{feedback}</p> : null}
+                <p
+                  className={`mcp-tool-notice${mcpServersIsError || error ? ' is-error' : ''}${feedback ? '' : ' is-empty'}`}
+                  role={feedbackRole}
+                  aria-hidden={feedback ? undefined : true}
+                >
+                  {feedback}
+                </p>
               </div>
+              <span className={`mcp-tool-status is-${status.tone}`} data-testid={tool.testId}>{status.label}</span>
               <div className="mcp-tool-actions">
                 <button
                   type="button"
