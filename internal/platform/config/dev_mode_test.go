@@ -8,7 +8,7 @@ import (
 )
 
 func TestDevDSNRuntimeModeAcceptedFromTrustedEntrypoints(t *testing.T) {
-	for _, entrypoint := range []string{"run-debug.sh", "run-debug.ps1", "run-new-ui-desktop.sh", "make run-agent-terminal-debug", "make run-agent-terminal-debug-plain"} {
+	for _, entrypoint := range []string{"run-new-ui-desktop.sh", "run-new-ui-desktop.ps1", "goland", "make run-agent-terminal-debug", "make run-agent-terminal-debug-plain"} {
 		t.Run(entrypoint, func(t *testing.T) {
 			isolateConfigTestEnv(t)
 			t.Setenv("SUPER_DOLPHIN_RUNTIME_MODE", "dev")

@@ -6,7 +6,6 @@
   "scripts": {
     "dev": "vite --host 127.0.0.1 --port 5175 --strictPort",
     "desktop:dev": "cd .. && VITE_DEV_URL=http://127.0.0.1:5175 SUPER_DOLPHIN_HTTP_ADDR=127.0.0.1:4512 go run ./cmd/agent-terminal",
-    "desktop:hot": "cd .. && ./run-new-ui-desktop-hot.sh",
     "smoke:desktop": "npm run smoke:desktop:rpc",
     "smoke:desktop:rpc": "node scripts/desktop-smoke.mjs",
     "smoke:desktop:ux": "node scripts/desktop-ux-smoke.mjs",
@@ -15,7 +14,7 @@
     "audit:rpc-contracts": "node scripts/rpc-contract-audit.mjs",
     "lint": "eslint .",
     "preview": "vite preview --host 127.0.0.1 --port 4175",
-    "test": "vitest run"
+    "test": "vitest run --no-file-parallelism --maxWorkers=1"
   },
   "dependencies": {
     "@tanstack/react-query": "^5.100.14",

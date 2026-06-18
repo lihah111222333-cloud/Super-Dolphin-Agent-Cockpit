@@ -78,7 +78,7 @@ func collectSourceFilesFromDir(root, dir string) ([]string, error) {
 }
 
 func appendRootIndexedFiles(root string, files []string) []string {
-	for _, extra := range []string{"run-debug.sh", "Makefile"} {
+	for _, extra := range []string{"run-new-ui-desktop.sh", "run-new-ui-desktop.ps1", "Makefile"} {
 		p := filepath.Join(root, extra)
 		if fileExists(p) {
 			files = append(files, extra)

@@ -48,8 +48,8 @@
 
 ### 评审问题清单
 
-1. 当前推荐启动入口是否仍是 `run-new-ui-desktop.sh`？
-2. Windows 调试是否仍需要 `run-debug.ps1` 的 server mode？
+1. 当前推荐启动入口是否仍是 `run-new-ui-desktop.sh` 和 `run-new-ui-desktop.ps1`？
+2. GoLand 手动启动文档是否覆盖当前团队的 Windows/macOS 开发方式？
 3. `cmd/agent-terminal/frontend` 是否还需要维护，还是仅作为 legacy bundle？
 4. provider 登录态、密钥、配置和权限由谁维护？
 5. 生产或发布数据库是否允许人工 rollback，审批链是什么？

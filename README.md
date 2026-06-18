@@ -12,7 +12,7 @@ cmd/
 ├── mcp-orch/            # MCP orchestration peer (agent lifecycle, DAG, cron)
 └── mcp-lsp/             # MCP generic multi-language LSP peer (code intelligence)
 
-frontend-app/            # Current React/Vite new UI used by run-new-ui-desktop.sh
+frontend-app/            # Current React/Vite new UI used by run-new-ui-desktop.sh / .ps1
 
 internal/
 ├── contract/            # Cross-module interfaces & DTOs
@@ -48,12 +48,13 @@ export SUPER_DOLPHIN_SQLITE_PATH="$PWD/.super-dolphin/super-dolphin.db"
 
 # For the current new UI desktop dev flow:
 ( cd frontend-app && npm install )
+# macOS:
 ./run-new-ui-desktop.sh
 # Windows PowerShell:
 .\run-new-ui-desktop.ps1
 
-# For frontend HMR plus Go backend restart-on-change:
-./run-new-ui-desktop-hot.sh
+# Optional macOS backend restart-on-change:
+SUPER_DOLPHIN_BACKEND_HOT_RELOAD=1 ./run-new-ui-desktop.sh
 
 # Package/embed builds use frontend-app and copy dist into
 # cmd/agent-terminal/frontend/dist for Go embed:
@@ -108,9 +109,9 @@ Notes:
 ### Build & Run
 
 ```bash
-./run-new-ui-desktop.sh      # Run current React/Vite new UI in the desktop host
+./run-new-ui-desktop.sh      # macOS: run current React/Vite new UI in the desktop host
 .\run-new-ui-desktop.ps1     # Windows PowerShell equivalent
-./run-new-ui-desktop-hot.sh  # Same, with Vite HMR plus Go backend restart-on-change
+SUPER_DOLPHIN_BACKEND_HOT_RELOAD=1 ./run-new-ui-desktop.sh  # macOS: add Go backend restart-on-change
 make build-plain           # Build all Go binaries after preparing frontend-app embed assets
 make run-plain             # Run the desktop host after preparing frontend-app embed assets
 make build-agent-terminal  # Build the desktop UI binary (Wails + Frida)
@@ -128,15 +129,16 @@ go test -bench=. ./...     # Run benchmarks
 
 ### Hot Reload Dev Flow
 
-`./run-new-ui-desktop-hot.sh` keeps the React UI on the Vite dev server, so
-frontend edits use Vite HMR. It also watches backend source paths and restarts
-`cmd/agent-terminal` when Go, SQL, or runtime config files change.
+`run-new-ui-desktop.sh` keeps the React UI on the Vite dev server, so frontend
+edits use Vite HMR. On macOS, set `SUPER_DOLPHIN_BACKEND_HOT_RELOAD=1` to also
+watch backend source paths and restart `cmd/agent-terminal` when Go, SQL, or
+runtime config files change.
 
 Useful overrides:
 
 ```bash
-SUPER_DOLPHIN_HOT_POLL_INTERVAL=0.5 ./run-new-ui-desktop-hot.sh
-SUPER_DOLPHIN_HOT_WATCH_PATHS="cmd internal pkg go.mod go.sum" ./run-new-ui-desktop-hot.sh
+SUPER_DOLPHIN_BACKEND_HOT_RELOAD=1 SUPER_DOLPHIN_HOT_POLL_INTERVAL=0.5 ./run-new-ui-desktop.sh
+SUPER_DOLPHIN_BACKEND_HOT_RELOAD=1 SUPER_DOLPHIN_HOT_WATCH_PATHS="cmd internal pkg go.mod go.sum" ./run-new-ui-desktop.sh
 ```
 
 ### Notes for skill subsystem (post 2026-04-30 P4/P5/P6 cutover)

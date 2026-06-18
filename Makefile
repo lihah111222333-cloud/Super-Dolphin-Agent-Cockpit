@@ -74,9 +74,8 @@ frontend-legacy-deps:
 frontend-legacy-build: frontend-legacy-deps
 	cd $(LEGACY_FRONTEND_DIR) && $(NPM) run build
 
-# 推荐用 ./run-debug.sh：会跑 npm install/build、pre-flight 守卫
-# 这两个 target 只覆盖最小启动路径，前端 dist 必须先 build 过，否则 UI 是空的。
-# .env 由 internal/platform/config.loadDotEnv 自动加载，二者都能读到。
+# The root desktop scripts are the preferred dev launchers. These make targets
+# keep the minimal packaged-asset run path for CI and local checks.
 run: frontend-build
 	go run ./cmd/frida-bootstrap --frida-version "$(FRIDA_DEVKIT_VERSION)" -- \
 		go run -tags frida -ldflags "$(FRIDA_LDFLAGS)" ./cmd/agent-terminal
@@ -85,7 +84,7 @@ run-plain: frontend-build
 	go run ./cmd/agent-terminal
 
 dev-hot:
-	./run-new-ui-desktop-hot.sh
+	SUPER_DOLPHIN_BACKEND_HOT_RELOAD=1 ./run-new-ui-desktop.sh
 
 # Memory subsystem defaults (override on the command line if you really
 # want memory off, e.g. 'make run-agent-terminal-debug ENABLE_MEMORY_SYSTEM=0').

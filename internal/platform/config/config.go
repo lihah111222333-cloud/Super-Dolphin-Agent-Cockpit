@@ -88,7 +88,7 @@ func validateTrustedDevRuntimeMode(projectRoot string) error {
 
 func trustedDevEntrypoint(value string) bool {
 	switch strings.TrimSpace(value) {
-	case "run-debug.sh", "run-debug.ps1", "run-new-ui-desktop.sh", "make run-agent-terminal-debug", "make run-agent-terminal-debug-plain":
+	case "run-new-ui-desktop.sh", "run-new-ui-desktop.ps1", "goland", "make run-agent-terminal-debug", "make run-agent-terminal-debug-plain":
 		return true
 	default:
 		return false

@@ -2,7 +2,6 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
-HOT_SCRIPT="$ROOT_DIR/run-new-ui-desktop-hot.sh"
 DESKTOP_SCRIPT="$ROOT_DIR/run-new-ui-desktop.sh"
 
 fail() {
@@ -28,21 +27,17 @@ assert_contains() {
   fi
 }
 
-assert_file "$HOT_SCRIPT"
 assert_file "$DESKTOP_SCRIPT"
-assert_executable "$HOT_SCRIPT"
 
-bash -n "$HOT_SCRIPT"
 bash -n "$DESKTOP_SCRIPT"
 
-assert_contains "$HOT_SCRIPT" "SUPER_DOLPHIN_BACKEND_HOT_RELOAD=1"
-assert_contains "$HOT_SCRIPT" 'exec "$PROJECT_DIR/run-new-ui-desktop.sh" "$@"'
-
+assert_contains "$DESKTOP_SCRIPT" 'SUPER_DOLPHIN_BACKEND_HOT_RELOAD="${SUPER_DOLPHIN_BACKEND_HOT_RELOAD:-0}"'
 assert_contains "$DESKTOP_SCRIPT" "backend_hot_reload_enabled"
 assert_contains "$DESKTOP_SCRIPT" "snapshot_backend_watch_state"
 assert_contains "$DESKTOP_SCRIPT" "restart_desktop_backend"
 assert_contains "$DESKTOP_SCRIPT" "run_backend_hot_supervisor_loop"
 assert_contains "$DESKTOP_SCRIPT" "SUPER_DOLPHIN_HOT_WATCH_PATHS"
+assert_contains "$DESKTOP_SCRIPT" ".tmp/run-new-ui-desktop/hot-peers"
 assert_contains "$DESKTOP_SCRIPT" "go run ./cmd/agent-terminal"
 assert_contains "$DESKTOP_SCRIPT" "npm run dev"
 
