@@ -635,6 +635,42 @@ function registerBridgeEventHandlersForTest() {
     await expect(switchPromise).resolves.toBe(true);
   });
 
+  it('preserves a thread selected while project switch sidebar refresh is still in flight', async () => {
+    const sidebarRefresh = deferred();
+    resetClientStoreForTests({
+      cwd: '/repo/app',
+      projectScopeCwd: '/repo/app',
+      activeProject: '/repo/app',
+      projects: ['/repo/app', '/repo/other'],
+      activeThreadId: 'thread-old',
+      threads: [{ id: 'thread-old', name: 'Old project thread', provider: 'codex', status: 'idle', cwd: '/repo/app' }],
+    });
+    backend.setActiveProject.mockResolvedValue({ projects: ['/repo/app', '/repo/other'], active: '/repo/other' });
+    backend.getSidebarState.mockReturnValue(sidebarRefresh.promise);
+    backend.getThreadState.mockResolvedValue({
+      activeThreadId: 'thread-other',
+      threads: [{ id: 'thread-other', name: 'Other project thread', provider: 'codex', status: 'idle', cwd: '/repo/other' }],
+      timelinesByThread: {
+        'thread-other': [{ id: 'message-thread-other', role: 'assistant', text: 'other message', time: '2026-06-18T00:00:00Z' }],
+      },
+    });
+    backend.getThreadMessages.mockResolvedValue({ messages: [] });
+
+    await expect(useClientStore.getState().setActiveProjectPath('/repo/other', {
+      preserveActiveThreadId: true,
+    })).resolves.toBe(true);
+    await expect(useClientStore.getState().setActiveThread('thread-other')).resolves.toBe(true);
+    expect(useClientStore.getState().activeThreadId).toBe('thread-other');
+
+    sidebarRefresh.resolve({
+      activeThreadId: '',
+      threads: [{ id: 'thread-other', name: 'Other project thread', provider: 'codex', status: 'idle', cwd: '/repo/other' }],
+    });
+    await flushPromises();
+
+    expect(useClientStore.getState().activeThreadId).toBe('thread-other');
+  });
+
   it('starts a clear-surface sidebar refresh without waiting for a background refresh', async () => {
     const backgroundRefresh = deferred();
     const clearSurfaceRefresh = deferred();
