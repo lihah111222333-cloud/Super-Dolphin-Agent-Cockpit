@@ -1039,6 +1039,85 @@ async function showAllTraceDashboardEvents() {
     expect(within(appChats).getByTitle('App project chat')).toBeInTheDocument();
   });
 
+  it('refreshes a project instead of reusing the empty cache written during bootstrap', async () => {
+    const projects = deferred();
+    let superSidebarCalls = 0;
+    backend.readConfig.mockResolvedValue({ cwd: '/repo/super' });
+    backend.getProjects.mockReturnValue(projects.promise);
+    backend.getSidebarState.mockImplementation(({ cwd }) => {
+      if (cwd === '/repo/super') {
+        superSidebarCalls += 1;
+        return Promise.resolve(superSidebarCalls === 1 ? {
+          activeThreadId: 'thread-ai',
+          threads: [{ id: 'thread-ai', name: 'AI Chat', provider: 'codex', status: 'idle', cwd: '/repo/ai' }],
+        } : {
+          activeThreadId: '',
+          threads: [{ id: 'thread-super', name: 'Super Chat', provider: 'codex', status: 'idle', cwd: '/repo/super' }],
+        });
+      }
+      return Promise.resolve({ activeThreadId: '', threads: [] });
+    });
+
+    render(<App />);
+
+    const sidebar = await screen.findByTestId('app-sidebar');
+    const projectLists = () => Array.from(sidebar.querySelectorAll('.sidebar-project-thread-list'));
+    const projectButton = (name) => Array.from(sidebar.querySelectorAll('.sidebar-tree-folder'))
+      .find((button) => button.textContent === name);
+
+    await waitFor(() => expect(projectButton('super')).toBeTruthy());
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    projects.resolve({ projects: ['/repo/super', '/repo/ai'], active: '/repo/ai' });
+
+    await waitFor(() => expect(useClientStore.getState().bootstrapStatus).toBe('ready'));
+    expect(superSidebarCalls).toBe(1);
+
+    fireEvent.click(projectButton('super'));
+
+    await waitFor(() => expect(superSidebarCalls).toBe(2));
+    await waitFor(() => expect(within(projectLists()[0]).getByTitle('Super Chat')).toBeInTheDocument());
+  });
+
+  it('keeps the active project chat list when opening a thread returns a thread-scoped snapshot', async () => {
+    const threads = [
+      { id: 'thread-a', name: 'Thread A', provider: 'codex', status: 'idle', cwd: '/repo/app' },
+      { id: 'thread-b', name: 'Thread B', provider: 'codex', status: 'idle', cwd: '/repo/app' },
+    ];
+    backend.getProjects.mockResolvedValue({ projects: ['/repo/app'], active: '/repo/app' });
+    backend.getSidebarState.mockResolvedValue({
+      activeThreadId: 'thread-a',
+      threads,
+    });
+    backend.getThreadState.mockResolvedValue({
+      activeThreadId: 'thread-b',
+      threads: [threads[1]],
+      timelinesByThread: {
+        'thread-b': [{ id: 'message-thread-b', kind: 'assistant', text: 'thread b message', ts: '2026-05-30T00:00:00Z' }],
+      },
+    });
+    backend.getThreadMessages.mockResolvedValue({ messages: [] });
+
+    render(<App />);
+
+    const sidebar = await screen.findByTestId('app-sidebar');
+    const appChats = await within(sidebar).findByRole('list', { name: /app/ });
+    expect(within(appChats).getByTitle('Thread A')).toBeInTheDocument();
+    expect(within(appChats).getByTitle('Thread B')).toBeInTheDocument();
+
+    fireEvent.click(within(appChats).getByTitle('Thread B'));
+
+    await waitFor(() => expect(backend.getThreadState).toHaveBeenCalledWith({
+      cwd: '/repo/app',
+      threadId: 'thread-b',
+      includeDiff: false,
+    }));
+    expect(within(appChats).getByTitle('Thread A')).toBeInTheDocument();
+    expect(within(appChats).getByTitle('Thread B')).toBeInTheDocument();
+  });
+
   it('hides raw archived threads when expanding a cached sidebar project', async () => {
     let otherSidebarCalls = 0;
     backend.getProjects.mockResolvedValue({ projects: ['/repo/app', '/repo/other'], active: '/repo/app' });

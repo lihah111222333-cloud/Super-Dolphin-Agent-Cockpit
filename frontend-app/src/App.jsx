@@ -1082,15 +1082,23 @@ function SidebarProjectTree({ copy = APP_COPY.zh.workbench, projectPath, setActi
   useEffect(() => {
     const activeKey = projectTreeKey(activeProjectPath);
     if (!activeKey) return;
+    if (store?.bootstrapStatus !== 'ready') return;
     const loadingKey = projectTreeKey(store?.chatSurfaceLoadingCwd);
     if (loadingKey && loadingKey === activeKey) return;
+    // 只在全局 bootstrap 完成后同步可信来源，避免刷新初期把临时 activeProject 的空列表写成新鲜缓存。
+    const sidebarThreadCache = store?.sidebarThreadsByProject || {};
+    const hasSidebarThreads = Object.prototype.hasOwnProperty.call(sidebarThreadCache, activeKey);
+    const sidebarThreads = hasSidebarThreads ? sidebarThreadCache[activeKey] : null;
+    const hasStoreThreads = Array.isArray(store?.threads) && store.threads.length > 0;
+    if (!hasSidebarThreads && !hasStoreThreads) return;
+    const sourceThreads = hasSidebarThreads ? sidebarThreads : store?.threads;
     updateProjectThreadCache(activeProjectPath, {
-      threads: Array.isArray(store?.threads) ? store.threads : [],
+      threads: Array.isArray(sourceThreads) ? sourceThreads : [],
       loadedAt: Date.now(),
       loading: false,
       error: '',
     });
-  }, [activeProjectPath, store?.chatSurfaceLoadingCwd, store?.threads, updateProjectThreadCache]);
+  }, [activeProjectPath, store?.bootstrapStatus, store?.chatSurfaceLoadingCwd, store?.sidebarThreadsByProject, store?.threads, updateProjectThreadCache]);
   const addProject = () => runUIAction(async () => {
     const added = await store?.addProjectFromPicker?.();
     if (added) setActivePage('chat');
@@ -1150,9 +1158,13 @@ function SidebarProjectTree({ copy = APP_COPY.zh.workbench, projectPath, setActi
       </div>
       <div className="sidebar-tree-root">
         {projectItems.map((item) => {
+          const projectKey = projectTreeKey(item.path);
           const isActiveProject = item.path && item.path === activeProjectPath;
-          const cacheEntry = projectThreadCache[projectTreeKey(item.path)];
-          const sourceThreads = cacheEntry ? cacheEntry.threads : (isActiveProject ? store?.threads : []);
+          const cacheEntry = projectThreadCache[projectKey];
+          const sidebarThreads = store?.sidebarThreadsByProject?.[projectKey];
+          const sourceThreads = cacheEntry
+            ? cacheEntry.threads
+            : (Array.isArray(sidebarThreads) ? sidebarThreads : (isActiveProject ? store?.threads : []));
           const projectThreads = projectThreadItems(sourceThreads, item.path, cacheEntry ? item.path : activeProjectPath, {
             allowMissingCwdFallback: !cacheEntry,
           });

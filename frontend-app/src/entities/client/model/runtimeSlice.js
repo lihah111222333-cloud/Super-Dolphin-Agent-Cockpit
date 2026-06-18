@@ -198,6 +198,7 @@ function createThreadSyncActions(runtime, deps) {
           preferredActiveThreadId: id,
           preserveActiveThreadId: activeChanged || syncOptions.preserveActiveThreadId === true,
           includeArchivedActiveThread: syncOptions.includeArchived === true,
+          cacheSidebarThreads: false,
         });
         if (includeDiff) {
           runtime.set((state) => ({
