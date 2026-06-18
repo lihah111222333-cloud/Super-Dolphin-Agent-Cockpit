@@ -269,9 +269,15 @@ function PromptPageRoute({ copy, projectPath, refreshKey }) {
   return <PromptPage copy={copy.prompts} projectPath={projectPath} store={store} refreshKey={refreshKey} />;
 }
 
-function WorkflowPageRoute({ copy, projectPath, refreshKey }) {
+function workflowSubpageLabel(workflowView, copy) {
+  if (workflowView === 'templates') return copy.templatePageTitle;
+  if (workflowView === 'freeDesign') return copy.freeDesignPageTitle;
+  return '';
+}
+
+function WorkflowPageRoute({ copy, onWorkflowViewChange, projectPath, refreshKey }) {
   const store = useClientStore();
-  return <WorkflowPage copy={copy.workflow} projectPath={projectPath} store={store} refreshKey={refreshKey} />;
+  return <WorkflowPage copy={copy.workflow} onWorkflowViewChange={onWorkflowViewChange} projectPath={projectPath} store={store} refreshKey={refreshKey} />;
 }
 
 function FilesPageRoute({ copy, projectPath }) {
@@ -279,7 +285,7 @@ function FilesPageRoute({ copy, projectPath }) {
   return <FilesPage copy={copy.files} projectPath={projectPath} store={store} />;
 }
 
-function ActivePageContent({ activePage, copy, store, projectPath, memoryRevision, setMemoryPageSimilarCount, rightPanelOpen, setRightPanelOpen }) {
+function ActivePageContent({ activePage, copy, store, projectPath, memoryRevision, setMemoryPageSimilarCount, onWorkflowViewChange, rightPanelOpen, setRightPanelOpen }) {
   if (activePage === 'chat') {
     return (
       <ChatPageRoute
@@ -291,7 +297,7 @@ function ActivePageContent({ activePage, copy, store, projectPath, memoryRevisio
     );
   }
   if (activePage === 'prompts') return <PromptPageRoute copy={copy} projectPath={projectPath} refreshKey={store.promptRevision} />;
-  if (activePage === 'workflows') return <WorkflowPageRoute copy={copy} projectPath={projectPath} refreshKey={store.workflowRevision} />;
+  if (activePage === 'workflows') return <WorkflowPageRoute copy={copy} onWorkflowViewChange={onWorkflowViewChange} projectPath={projectPath} refreshKey={store.workflowRevision} />;
   if (activePage === 'skills') {
     return <SkillsPage copy={copy.skills} projectPath={projectPath} refreshKey={store.skillRevision} resolveLaunchPreferences={store.resolveLaunchPreferences} />;
   }
@@ -431,6 +437,12 @@ function workbenchSidebarNextKeyboardWidth(event, currentWidth) {
 function AppWindow({ memoryBadge, projectPath, store, theme, toggleTheme, rightPanelOpen, setRightPanelOpen, updateBanner }) {
   const { copy, locale, toggleLocale } = useAppLanguage();
   const activeLabel = copy.nav[store.activePage] || copy.nav.chat;
+  const [currentPageState, setCurrentPageState] = useState({ activePage: store.activePage, workflowView: 'automation' });
+  if (currentPageState.activePage !== store.activePage) {
+    setCurrentPageState({ activePage: store.activePage, workflowView: 'automation' });
+  }
+  const currentWorkflowView = currentPageState.activePage === store.activePage ? currentPageState.workflowView : 'automation';
+  const currentPageLabelOverride = store.activePage === 'workflows' ? workflowSubpageLabel(currentWorkflowView, copy.workflow) : '';
   const [sidebarOpen, setSidebarOpen] = useState(() => {
     const isTest = typeof globalThis !== 'undefined' && globalThis.process?.env?.NODE_ENV === 'test';
     if (isTest) return false;
@@ -443,11 +455,15 @@ function AppWindow({ memoryBadge, projectPath, store, theme, toggleTheme, rightP
   const closeSidebar = useCallback(() => setSidebarOpen(false), []);
   const setActivePageFromSidebar = useCallback((page) => {
     store.setActivePage(page);
+    setCurrentPageState({ activePage: page, workflowView: 'automation' });
     const isTest = typeof globalThis !== 'undefined' && globalThis.process?.env?.NODE_ENV === 'test';
     if (isTest || (typeof window !== 'undefined' && window.innerWidth <= 920)) {
       setSidebarOpen(false);
     }
   }, [store]);
+  const handleWorkflowViewChange = useCallback((workflowView) => {
+    setCurrentPageState({ activePage: 'workflows', workflowView: textValue(workflowView) || 'automation' });
+  }, []);
   const beginWorkbenchSidebarResize = useCallback((event) => {
     event.preventDefault();
     const startX = event.clientX;
@@ -535,11 +551,12 @@ function AppWindow({ memoryBadge, projectPath, store, theme, toggleTheme, rightP
               projectPath={projectPath}
               memoryRevision={memoryBadge.memoryRevision}
               setMemoryPageSimilarCount={memoryBadge.setMemoryPageSimilarCount}
+              onWorkflowViewChange={handleWorkflowViewChange}
               rightPanelOpen={rightPanelOpen}
               setRightPanelOpen={setRightPanelOpen}
             />
           </Suspense>
-          <span className="sr-only">{copy.currentPagePrefix}: {activeLabel}</span>
+          <span className="sr-only">{copy.currentPagePrefix}: {currentPageLabelOverride || activeLabel}</span>
         </main>
       </div>
     </div>
