@@ -2,10 +2,14 @@ import { expect, it, vi } from 'vitest';
 import {
   checkAppUpdate,
   createBackendApi,
+  createDatasourceDocument,
+  deleteDatasourceDocument,
   downloadAppUpdate,
   emitFrontendTraceEvent,
+  getDatasourceDocument,
   installAppUpdate,
   installLatestAppUpdate,
+  listDatasourceDocuments,
   listMCPServers,
   getVideoApiKey,
   RPC_METHODS,
@@ -14,6 +18,7 @@ import {
   startSQLiteMCPServer,
   stopPlaywrightMCPServer,
   stopSQLiteMCPServer,
+  updateDatasourceDocument,
 } from './backendApi.js';
 
 function expectInvalidInputDoesNotCall(callAPI, action, message) {
@@ -58,6 +63,54 @@ function expectInvalidInputDoesNotCall(callAPI, action, message) {
     expectInvalidInputDoesNotCall(callAPI, () => api.dispatchDagNode({ dagKey: 'dag-1', runId: 88, nodeKey: 'draft', assignedTo: '' }), 'assignedTo is required');
     expectInvalidInputDoesNotCall(callAPI, () => api.applyDagOps({ dagKey: 'dag-1', ops: [] }), 'baseVersion is required');
     expectInvalidInputDoesNotCall(callAPI, () => api.setVideoApiKey({ apiKey: '' }), 'apiKey is required');
+  });
+
+  it('wraps datasource_v2 CRUD RPC methods with strict payloads', async () => {
+    const callAPI = vi.fn().mockResolvedValue({ ok: true });
+    const api = createBackendApi({ callAPI });
+
+    await api.createDatasourceDocument({ source_path: ' C:\\data\\alpha.txt ' });
+    await api.listDatasourceDocuments({ keyword: 'alpha', limit: '25' });
+    await api.getDatasourceDocument({ document_id: '101' });
+    await api.updateDatasourceDocument({
+      documentId: 101,
+      sourcePath: ' C:\\data\\alpha-renamed.txt ',
+      fileName: ' alpha-renamed.txt ',
+      extension: ' .txt ',
+      sizeBytes: '42',
+    });
+    await api.deleteDatasourceDocument({ id: 101 });
+
+    expect(callAPI).toHaveBeenNthCalledWith(1, RPC_METHODS.DATASOURCE_V2_CREATE, {
+      sourcePath: 'C:\\data\\alpha.txt',
+    });
+    expect(callAPI).toHaveBeenNthCalledWith(2, RPC_METHODS.DATASOURCE_V2_LIST, {
+      keyword: 'alpha',
+      limit: 25,
+    });
+    expect(callAPI).toHaveBeenNthCalledWith(3, RPC_METHODS.DATASOURCE_V2_GET, {
+      documentId: 101,
+    });
+    expect(callAPI).toHaveBeenNthCalledWith(4, RPC_METHODS.DATASOURCE_V2_UPDATE, {
+      documentId: 101,
+      sourcePath: 'C:\\data\\alpha-renamed.txt',
+      fileName: 'alpha-renamed.txt',
+      extension: '.txt',
+      sizeBytes: 42,
+    });
+    expect(callAPI).toHaveBeenNthCalledWith(5, RPC_METHODS.DATASOURCE_V2_DELETE, {
+      documentId: 101,
+    });
+    expectInvalidInputDoesNotCall(callAPI, () => api.createDatasourceDocument({ sourcePath: '' }), 'sourcePath is required');
+    expectInvalidInputDoesNotCall(callAPI, () => api.listDatasourceDocuments({}), 'limit must be a positive integer');
+    expectInvalidInputDoesNotCall(callAPI, () => api.getDatasourceDocument({ documentId: 0 }), 'documentId is required');
+    expectInvalidInputDoesNotCall(callAPI, () => api.updateDatasourceDocument({ documentId: 101, sourcePath: 'C:\\data\\a.txt', sizeBytes: 1 }), 'fileName is required');
+    expectInvalidInputDoesNotCall(callAPI, () => api.deleteDatasourceDocument({ documentId: '' }), 'documentId is required');
+    expect(typeof createDatasourceDocument).toBe('function');
+    expect(typeof listDatasourceDocuments).toBe('function');
+    expect(typeof getDatasourceDocument).toBe('function');
+    expect(typeof updateDatasourceDocument).toBe('function');
+    expect(typeof deleteDatasourceDocument).toBe('function');
   });
 
   it('wraps app update RPC methods', async () => {

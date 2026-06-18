@@ -570,6 +570,34 @@ describe('wails bridge RPC trace log fields', () => {
   });
 });
 
+describe('wails bridge file picker helpers', () => {
+  beforeEach(resetWailsRuntimeMocks);
+
+  it('passes file filters through the ui/selectFiles RPC path', async () => {
+    const byID = vi.fn((methodID, method, payload) => {
+      if (methodID !== 2963398832 || method !== 'ui/selectFiles') {
+        throw new Error('filtered picker must use parameterized RPC path');
+      }
+      if (payload.filters?.[0]?.pattern !== '*.pdf;*.txt;*.text') {
+        throw new Error('missing datasource filter pattern');
+      }
+      return Promise.resolve({ paths: ['C:\\data\\manual.pdf'] });
+    });
+    vi.doMock(runtimeModule, () => ({
+      Call: { ByID: byID },
+      Events: { On: vi.fn() },
+    }));
+    const { selectFiles } = await import('./wailsBridge.js');
+
+    await expect(selectFiles({
+      filters: [{ displayName: 'PDF/TXT/TEXT', pattern: '*.pdf;*.txt;*.text' }],
+    })).resolves.toEqual(['C:\\data\\manual.pdf']);
+    expect(byID).toHaveBeenCalledWith(2963398832, 'ui/selectFiles', expect.objectContaining({
+      filters: [{ displayName: 'PDF/TXT/TEXT', pattern: '*.pdf;*.txt;*.text' }],
+    }));
+  });
+});
+
 describe('wails bridge non-RPC binding logs', () => {
   beforeEach(resetWailsRuntimeMocks);
 

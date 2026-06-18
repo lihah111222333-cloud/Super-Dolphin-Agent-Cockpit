@@ -131,6 +131,10 @@ func (a *App) SelectFiles() ([]string, error) {
 }
 
 func (a *App) selectFiles(defaultPath string) ([]string, error) {
+	return a.selectFilesWithFilters(defaultPath, nil)
+}
+
+func (a *App) selectFilesWithFilters(defaultPath string, filters []selectFileFilter) ([]string, error) {
 	dialog, err := a.newDialog()
 	if err != nil {
 		return nil, err
@@ -143,11 +147,32 @@ func (a *App) selectFiles(defaultPath string) ([]string, error) {
 		CanChooseDirectories(false).
 		CanChooseFiles(true).
 		ShowHiddenFiles(true)
+	for _, filter := range normalizeSelectFileFilters(filters) {
+		dialog = dialog.AddFilter(filter.DisplayName, filter.Pattern)
+	}
 	paths, err := dialog.PromptForMultipleSelection()
 	if isDialogCancelError(err) || len(paths) == 0 {
 		return []string{}, nil
 	}
 	return paths, err
+}
+
+// normalizeSelectFileFilters 清理前端传入的可选文件类型过滤器。
+// 空名称或空模式会被丢弃，避免原生 dialog 展示不可理解的过滤项。
+func normalizeSelectFileFilters(filters []selectFileFilter) []selectFileFilter {
+	normalized := make([]selectFileFilter, 0, len(filters))
+	for _, filter := range filters {
+		displayName := strings.TrimSpace(filter.DisplayName)
+		pattern := strings.TrimSpace(filter.Pattern)
+		if displayName == "" || pattern == "" {
+			continue
+		}
+		normalized = append(normalized, selectFileFilter{
+			DisplayName: displayName,
+			Pattern:     pattern,
+		})
+	}
+	return normalized
 }
 
 // saveTextFile 保存文本文件。

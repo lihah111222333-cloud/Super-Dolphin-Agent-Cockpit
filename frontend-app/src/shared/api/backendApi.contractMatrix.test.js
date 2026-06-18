@@ -68,6 +68,8 @@ describe('backend API contract matrix', () => {
       'OBSERVABILITY_SLOW_LIST',
       'OBSERVABILITY_ERROR_LIST',
       'OBSERVABILITY_STATUS',
+      'DATASOURCE_V2_LIST',
+      'DATASOURCE_V2_GET',
     ];
 
     for (const key of expectedP1Reads) {
