@@ -33,6 +33,36 @@ function isDangerousSvgAttributeValue(value) {
   );
 }
 
+function parseSvgViewBoxSize(viewBox) {
+  const parts = (viewBox || '').toString().trim().split(/[\s,]+/);
+  if (parts.length !== 4) return null;
+  const width = Number(parts[2]);
+  const height = Number(parts[3]);
+  if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) {
+    return null;
+  }
+  return { width: parts[2], height: parts[3] };
+}
+
+function isPercentageSvgDimension(value) {
+  return /%$/.test((value || '').toString().trim());
+}
+
+function ensureSvgImageDimensions(svgElement) {
+  const width = svgElement.getAttribute('width');
+  const height = svgElement.getAttribute('height');
+  const needsWidth = isPercentageSvgDimension(width);
+  const needsHeight = isPercentageSvgDimension(height) || (needsWidth && !height);
+  if (!needsWidth && !needsHeight) return;
+
+  const viewBoxSize = parseSvgViewBoxSize(svgElement.getAttribute('viewBox'));
+  if (!viewBoxSize) {
+    throw new Error('Mermaid SVG \u7f3a\u5c11\u53ef\u7528\u4e8e\u56fe\u7247\u5e03\u5c40\u7684 viewBox');
+  }
+  if (needsWidth) svgElement.setAttribute('width', viewBoxSize.width);
+  if (needsHeight) svgElement.setAttribute('height', viewBoxSize.height);
+}
+
 function sanitizeMermaidSvg(svg) {
   const value = (svg || '').toString();
   if (!value) return '';
@@ -44,6 +74,8 @@ function sanitizeMermaidSvg(svg) {
   if (documentNode.querySelector('parsererror')) {
     throw new Error('Mermaid SVG \u89e3\u6790\u5931\u8d25');
   }
+
+  ensureSvgImageDimensions(documentNode.documentElement);
 
   documentNode.querySelectorAll('script, foreignObject, iframe, object, embed').forEach((node) => {
     node.remove();
