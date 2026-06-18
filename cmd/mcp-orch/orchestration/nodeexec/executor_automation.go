@@ -68,6 +68,9 @@ func (ShellCommandRunner) RunCommandCard(ctx context.Context, card AutomationCom
 	if err != nil {
 		return AutomationCommandResult{}, err
 	}
+	if err := validateRenderedCommandShellSafety(command); err != nil {
+		return AutomationCommandResult{}, err
+	}
 	cmd := exec.CommandContext(ctx, "sh", "-c", command)
 	stdout := newCommandOutputBuffer("stdout", automationCommandStdoutLimitBytes)
 	stderr := newCommandOutputBuffer("stderr", automationCommandStderrLimitBytes)
@@ -445,6 +448,7 @@ func classifyAutomationError(err error) FailureClass {
 var (
 	automationValidationKeywords = []string{
 		"parse", "decode", "unmarshal", "marshal", "json", "template", "required", "missing key",
+		"unsafe shell metacharacter",
 	}
 	automationNotFoundKeywords  = []string{"not found", "no such command", "unknown command"}
 	automationTransientKeywords = []string{
@@ -494,6 +498,19 @@ func renderCommandTemplate(commandTemplate string, args json.RawMessage) (string
 		return "", nil, errors.New("rendered command is empty")
 	}
 	return command, normalizedArgs, nil
+}
+
+var unsafeRenderedShellTokens = []string{
+	"\x00", "\r", "\n", "$(", "`", "&&", "||", ";", "|", "&", ">", "<",
+}
+
+func validateRenderedCommandShellSafety(command string) error {
+	for _, token := range unsafeRenderedShellTokens {
+		if strings.Contains(command, token) {
+			return fmt.Errorf("unsafe shell metacharacter %q in rendered command", token)
+		}
+	}
+	return nil
 }
 
 // automationOutputsForbiddenKeys 是 automation 节点 outputs 中不得出现的「agent prompt

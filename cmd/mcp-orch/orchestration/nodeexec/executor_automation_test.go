@@ -61,6 +61,24 @@ func executeAutomationNode(t *testing.T, exec NodeExecutor, node Node, runCtx Ru
 	return out
 }
 
+func TestShellCommandRunnerRejectsRenderedShellInjection(t *testing.T) {
+	t.Parallel()
+	runner := NewShellCommandRunner()
+
+	result, err := runner.RunCommandCard(context.Background(), AutomationCommandCard{
+		CardKey:         "greet",
+		CommandTemplate: "printf 'hello %s' '{{.name}}'",
+		Enabled:         true,
+	}, json.RawMessage(`{"name":"dolphin'; printf 'pwned"}`))
+
+	if err == nil || !strings.Contains(err.Error(), "unsafe shell metacharacter") {
+		t.Fatalf("RunCommandCard() error = %v, want unsafe shell metacharacter rejection", err)
+	}
+	if strings.Contains(result.Stdout, "pwned") {
+		t.Fatalf("RunCommandCard() stdout = %q, want injected command not executed", result.Stdout)
+	}
+}
+
 func TestAutomationExecutor_Happy(t *testing.T) {
 	t.Parallel()
 	getter := &stubAutomationGetter{card: AutomationCommandCard{
