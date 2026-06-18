@@ -842,6 +842,14 @@ function useSidebarThreadActions(store, options = {}) {
     setEditingName('');
   }, [renamingThreadId]);
 
+  const handleRenameBlur = useCallback((event) => {
+    if (renamingThreadId) return;
+    const nextTarget = event.relatedTarget;
+    if (nextTarget && event.currentTarget.contains(nextTarget)) return;
+    setEditingThreadId('');
+    setEditingName('');
+  }, [renamingThreadId]);
+
   const submitRename = useCallback(async (thread, event) => {
     event?.preventDefault?.();
     event?.stopPropagation?.();
@@ -897,6 +905,7 @@ function useSidebarThreadActions(store, options = {}) {
     deletingThreadId,
     editingName,
     editingThreadId,
+    handleRenameBlur,
     renamingThreadId,
     setEditingName,
     submitRename,
@@ -937,7 +946,7 @@ function SidebarThreadRow({
   if (editing) {
     return (
       <li className="sidebar-thread-row sidebar-thread-row--editing">
-        <form className="sidebar-thread-rename" onSubmit={(event) => threadActions.submitRename(thread, event)}>
+        <form className="sidebar-thread-rename" onBlur={threadActions.handleRenameBlur} onSubmit={(event) => threadActions.submitRename(thread, event)}>
           <input
             aria-label={copy.conversationName}
             autoFocus

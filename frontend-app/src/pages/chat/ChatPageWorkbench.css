@@ -446,22 +446,35 @@
 }
 
 .composer-actions {
+  min-width: 0;
   margin-left: auto;
   display: inline-flex;
   align-items: center;
   gap: 12px;
-  flex: 0 0 auto;
+  flex: 1 1 0;
   justify-content: flex-end;
   padding-left: 18px;
 }
 
+.composer-model-wrap {
+  flex: 1 1 auto;
+  width: auto;
+  min-width: 0;
+  max-width: min(210px, 100%);
+}
+
 .composer-model {
-  min-width: 132px;
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
   justify-content: space-between;
   padding: 0 12px;
 }
 
 .composer-model span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
   white-space: nowrap;
 }
 
@@ -483,7 +496,9 @@
 }
 
 .composer .send {
+  flex: 0 0 42px;
   width: 42px;
+  min-width: 42px;
   height: 42px;
   margin-left: auto;
   border: 0;
@@ -541,7 +556,7 @@
   }
 
   .sa-window .composer-model {
-    min-width: min(210px, 42vw);
+    min-width: 0;
   }
 
   .sa-window .composer-attach {
