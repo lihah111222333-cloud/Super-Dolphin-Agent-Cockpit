@@ -671,6 +671,42 @@ function registerBridgeEventHandlersForTest() {
     expect(useClientStore.getState().activeThreadId).toBe('thread-other');
   });
 
+  it('does not shrink the sidebar project cache from a thread-scoped state sync', async () => {
+    const threads = [
+      { id: 'thread-a', name: 'Thread A', provider: 'codex', status: 'idle', cwd: '/repo/app' },
+      { id: 'thread-b', name: 'Thread B', provider: 'codex', status: 'idle', cwd: '/repo/app' },
+    ];
+    resetClientStoreForTests({
+      cwd: '/repo/app',
+      projectScopeCwd: '/repo/app',
+      activeProject: '/repo/app',
+      projects: ['/repo/app'],
+      activeThreadId: 'thread-a',
+      threads,
+      sidebarThreadsByProject: {
+        '/repo/app': threads,
+      },
+    });
+    backend.getThreadState.mockResolvedValue({
+      activeThreadId: 'thread-b',
+      threads: [threads[1]],
+      timelinesByThread: {
+        'thread-b': [{ id: 'message-thread-b', role: 'assistant', text: 'thread b message', time: '2026-06-18T00:00:00Z' }],
+      },
+    });
+    backend.getThreadMessages.mockResolvedValue({ messages: [] });
+
+    await expect(useClientStore.getState().setActiveThread('thread-b')).resolves.toBe(true);
+
+    expect(useClientStore.getState().threads).toEqual([
+      expect.objectContaining({ id: 'thread-b', name: 'Thread B' }),
+    ]);
+    expect(useClientStore.getState().sidebarThreadsByProject['/repo/app']).toEqual([
+      expect.objectContaining({ id: 'thread-a', name: 'Thread A' }),
+      expect.objectContaining({ id: 'thread-b', name: 'Thread B' }),
+    ]);
+  });
+
   it('starts a clear-surface sidebar refresh without waiting for a background refresh', async () => {
     const backgroundRefresh = deferred();
     const clearSurfaceRefresh = deferred();
@@ -2690,6 +2726,43 @@ function registerBridgeEventHandlersForTest() {
     expect(useClientStore.getState().threads[0]).toEqual(expect.objectContaining({
       id: 'agent_1780163711518420000',
       agentId: 'agent_1780163711518420000',
+    }));
+  });
+
+  it('keeps opened sidebar threads with zero archivedAt visible', () => {
+    resetClientStoreForTests({
+      cwd: '/repo/app',
+      activeProject: '/repo/app',
+      threads: [
+        {
+          id: 'thread-existing',
+          name: 'Existing chat',
+          provider: 'codex',
+          status: 'idle',
+          cwd: '/repo/app',
+          archived: false,
+          archivedAt: 0,
+        },
+      ],
+    });
+
+    useClientStore.getState().beginOpeningThread({
+      id: 'thread-existing',
+      agentId: 'thread-existing',
+      providerThreadId: '',
+      sessionId: '',
+      cwd: '/repo/app',
+      name: 'Existing chat',
+      provider: 'codex',
+      status: 'idle',
+      archived: false,
+      archivedAt: 0,
+    });
+
+    expect(useClientStore.getState().threads[0]).toEqual(expect.objectContaining({
+      id: 'thread-existing',
+      archived: false,
+      archivedAt: 0,
     }));
   });
 

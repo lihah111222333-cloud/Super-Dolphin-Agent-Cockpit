@@ -259,7 +259,7 @@ function normalizeTimestamp(value) {
   const text = normalizeString(value);
   if (!text) return 0;
   const asNumber = Number(text);
-  if (Number.isFinite(asNumber) && asNumber > 0) return asNumber;
+  if (Number.isFinite(asNumber)) return asNumber > 0 ? asNumber : 0;
   // 截断高精度时间戳中的多余小数秒，以兼容 JS Date.parse 的 3 位毫秒限制
   const sanitized = text.replace(/(\.\d{3})\d+/g, '$1');
   const parsed = Date.parse(sanitized);
@@ -1110,7 +1110,9 @@ function buildSnapshotState(state, payload = {}, options = {}) {
   const timelineState = snapshotTimelines(state, payload, nextThreads);
   const metrics = snapshotThreadMetrics(state, payload, nextThreads, activeThreadId);
   const diffState = snapshotDiffText(state, payload, nextThreads, activeThreadId);
-  const sidebarThreadsByProject = sidebarThreadsByProjectWith(state, maps.scopeCwd, nextThreads);
+  const sidebarThreadsByProject = options.cacheSidebarThreads === false
+    ? state.sidebarThreadsByProject
+    : sidebarThreadsByProjectWith(state, maps.scopeCwd, nextThreads);
   return {
     activeThreadId,
     threads: nextThreads,
@@ -1832,7 +1834,6 @@ function attachScopeRuntime(runtime) {
       return {
         activeThreadId,
         threads: preservedThreads,
-        sidebarThreadsByProject: sidebarThreadsByProjectWith(state, cwd, preservedThreads),
         pinnedThreadAtById: {},
         statuses: pickThreadScopedEntry(state.statuses, activeThreadId),
         activeTurnByThread: pickThreadScopedEntry(state.activeTurnByThread, activeThreadId),
