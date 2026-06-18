@@ -2,6 +2,7 @@ package skill
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -9,6 +10,39 @@ import (
 	"testing"
 	"time"
 )
+
+func TestExecCommandHelperProcess(t *testing.T) {
+	if os.Getenv("TEST_E2E_HELPER_PROCESS") != "1" {
+		return
+	}
+	args := os.Args
+	for len(args) > 0 && args[0] != "--" {
+		args = args[1:]
+	}
+	if len(args) < 2 {
+		os.Exit(2)
+	}
+	switch args[1] {
+	case "cwd":
+		cwd, err := os.Getwd()
+		if err != nil {
+			os.Exit(2)
+		}
+		fmt.Fprint(os.Stdout, cwd)
+	case "env":
+		if len(args) < 3 {
+			os.Exit(2)
+		}
+		value := os.Getenv(args[2])
+		fmt.Fprint(os.Stdout, value)
+		if value == "" {
+			os.Exit(1)
+		}
+	default:
+		os.Exit(2)
+	}
+	os.Exit(0)
+}
 
 func TestExecCommandRejectsShellMetacharacters(t *testing.T) {
 	t.Parallel()
@@ -51,7 +85,8 @@ func TestExecCommandFallsBackToProjectRoot(t *testing.T) {
 
 	root := t.TempDir()
 	svc := &service{projectRoot: root}
-	out, err := svc.ExecCommand(context.Background(), "pwd", nil, "", nil)
+	command, args, env := execTestHelperCommand(t, "cwd")
+	out, err := svc.ExecCommand(context.Background(), command, args, "", env)
 	if err != nil {
 		t.Fatalf("ExecCommand returned error: %v", err)
 	}
@@ -71,6 +106,16 @@ func normalizePWDOutput(output string) string {
 		return strings.ToUpper(output[1:2]) + `:\` + strings.ReplaceAll(output[3:], "/", `\`)
 	}
 	return output
+}
+
+func execTestHelperCommand(t *testing.T, mode string, extra ...string) (string, []string, map[string]string) {
+	t.Helper()
+	command, err := os.Executable()
+	if err != nil {
+		t.Fatalf("resolve test helper executable: %v", err)
+	}
+	args := append([]string{"-test.run=TestExecCommandHelperProcess", "--", mode}, extra...)
+	return command, args, map[string]string{"TEST_E2E_HELPER_PROCESS": "1"}
 }
 
 func TestBuildExecEnvDropsSensitiveProviderEnv(t *testing.T) {
@@ -99,14 +144,16 @@ func TestExecCommandInjectsWhitelistedEnv(t *testing.T) {
 	t.Setenv("UNRELATED_SKILL_ENV", "blocked")
 
 	svc := &service{}
-	allowed, err := svc.ExecCommand(context.Background(), "printenv", []string{"TEST_E2E_SKILL_ENV"}, "", nil)
+	command, args, env := execTestHelperCommand(t, "env", "TEST_E2E_SKILL_ENV")
+	allowed, err := svc.ExecCommand(context.Background(), command, args, "", env)
 	if err != nil {
 		t.Fatalf("ExecCommand allowed env returned error: %v", err)
 	}
 	if got := strings.TrimSpace(allowed.Stdout); got != "allowed" {
 		t.Fatalf("allowed env mismatch: got %q", got)
 	}
-	blocked, err := svc.ExecCommand(context.Background(), "printenv", []string{"UNRELATED_SKILL_ENV"}, "", nil)
+	command, args, env = execTestHelperCommand(t, "env", "UNRELATED_SKILL_ENV")
+	blocked, err := svc.ExecCommand(context.Background(), command, args, "", env)
 	if err != nil {
 		t.Fatalf("ExecCommand blocked env returned error: %v", err)
 	}
@@ -129,10 +176,10 @@ func TestExecCommandOverlaysAllowedEnv(t *testing.T) {
 	t.Setenv("TEST_E2E_SKILL_ENV", "base")
 	svc := &service{}
 
-	allowed, err := svc.ExecCommand(context.Background(), "printenv", []string{"TEST_E2E_SKILL_ENV"}, "", map[string]string{
-		"TEST_E2E_SKILL_ENV":  "override",
-		"UNRELATED_SKILL_ENV": "blocked",
-	})
+	command, args, env := execTestHelperCommand(t, "env", "TEST_E2E_SKILL_ENV")
+	env["TEST_E2E_SKILL_ENV"] = "override"
+	env["UNRELATED_SKILL_ENV"] = "blocked"
+	allowed, err := svc.ExecCommand(context.Background(), command, args, "", env)
 	if err != nil {
 		t.Fatalf("ExecCommand override env returned error: %v", err)
 	}
@@ -140,9 +187,9 @@ func TestExecCommandOverlaysAllowedEnv(t *testing.T) {
 		t.Fatalf("override env mismatch: got %q", got)
 	}
 
-	blocked, err := svc.ExecCommand(context.Background(), "printenv", []string{"UNRELATED_SKILL_ENV"}, "", map[string]string{
-		"UNRELATED_SKILL_ENV": "blocked",
-	})
+	command, args, env = execTestHelperCommand(t, "env", "UNRELATED_SKILL_ENV")
+	env["UNRELATED_SKILL_ENV"] = "blocked"
+	blocked, err := svc.ExecCommand(context.Background(), command, args, "", env)
 	if err != nil {
 		t.Fatalf("ExecCommand blocked overlay returned error: %v", err)
 	}

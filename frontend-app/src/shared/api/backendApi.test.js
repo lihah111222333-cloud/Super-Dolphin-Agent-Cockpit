@@ -7,6 +7,7 @@ import {
   downloadAppUpdate,
   emitFrontendTraceEvent,
   getDatasourceDocument,
+  importDatasourceLocalFile,
   installAppUpdate,
   installLatestAppUpdate,
   listDatasourceDocuments,
@@ -111,6 +112,19 @@ function expectInvalidInputDoesNotCall(callAPI, action, message) {
     expect(typeof getDatasourceDocument).toBe('function');
     expect(typeof updateDatasourceDocument).toBe('function');
     expect(typeof deleteDatasourceDocument).toBe('function');
+  });
+
+  it('maps user-selected datasource imports to the local file RPC', async () => {
+    const callAPI = vi.fn().mockResolvedValue({ ok: true });
+    const api = createBackendApi({ callAPI });
+
+    await api.importDatasourceLocalFile({ source_path: ' D:\\new\\fj.txt ' });
+
+    expect(callAPI).toHaveBeenCalledWith(RPC_METHODS.DATASOURCE_V2_IMPORT_LOCAL_FILE, {
+      sourcePath: 'D:\\new\\fj.txt',
+    });
+    expectInvalidInputDoesNotCall(callAPI, () => api.importDatasourceLocalFile({ sourcePath: '' }), 'sourcePath is required');
+    expect(typeof importDatasourceLocalFile).toBe('function');
   });
 
   it('wraps app update RPC methods', async () => {

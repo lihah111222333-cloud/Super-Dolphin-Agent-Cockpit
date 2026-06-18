@@ -48,6 +48,7 @@ type Handler struct {
 	// toolbridge 图会退回 peer 路径；当前 mcp-orch / mcp-lsp standalone 不加载
 	// toolbridge.Module。
 	hostTools          HostToolRegistry
+	skillTools         contract.SkillToolProvider
 	surfaceMu          sync.Mutex
 	surfaces           map[string]*codexToolSurface
 	proxyAuthToken     string
@@ -87,6 +88,7 @@ func NewHandler(in handlerIn) *Handler {
 		tracer:         in.Tracer,
 		dispatcher:     in.Dispatcher,
 		hostTools:      in.HostTools,
+		skillTools:     in.SkillTools,
 		surfaces:       make(map[string]*codexToolSurface),
 		proxyAuthToken: newProxyAuthToken(),
 	}

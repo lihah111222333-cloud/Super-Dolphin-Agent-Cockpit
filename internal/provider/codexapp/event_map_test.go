@@ -76,6 +76,33 @@ func TestTranslateCodexEventSuppressesAccountRateLimitsUpdated(t *testing.T) {
 	}
 }
 
+func TestTranslateCodexEventSuppressesRetryProgressErrorWarning(t *testing.T) {
+	var buf bytes.Buffer
+	old := pkglogger.Get()
+	pkglogger.InitWithConsoleWriter(&buf)
+	t.Cleanup(func() { pkglogger.SetForTest(old) })
+
+	translateCodexEvent(dto.RawProviderEvent{
+		EventType: "error",
+		Data: map[string]any{
+			"agentId":   "agent-1",
+			"threadId":  "thread-1",
+			"turnId":    "turn-1",
+			"willRetry": true,
+			"error": map[string]any{
+				"message":           "Reconnecting... 2/5",
+				"additionalDetails": "request timed out",
+			},
+		},
+	}, func(ev any) {
+		t.Fatalf("retry progress error published %#v, want no typed event", ev)
+	})
+
+	if output := buf.String(); strings.Contains(output, "unknown raw event") {
+		t.Fatalf("output = %q, want retry progress error warning suppressed", output)
+	}
+}
+
 func TestTranslateCodexEventMCPStartupStatusOnlyWarnsOnFailures(t *testing.T) {
 	var buf bytes.Buffer
 	old := pkglogger.Get()

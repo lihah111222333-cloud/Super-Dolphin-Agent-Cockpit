@@ -2,6 +2,7 @@ package codexapp
 
 import (
 	"encoding/json"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -24,6 +25,7 @@ func RegisterTranslators(dispatcher *unified.EventDispatcher) {
 }
 
 var outputDeltaTranslateLogSampler = pkglogger.NewEverySampler(1000)
+var retryProgressMessagePattern = regexp.MustCompile(`(?i)^\s*(reconnecting|retrying)(\.\.\.)?\s+\d+\s*/\s*\d+\s*$`)
 
 func buildAgentSessionHeader(payload map[string]any) shareddto.AgentSessionHeader {
 	agentID := payloadAgentID(payload)
@@ -95,6 +97,9 @@ func logCodexMCPStartupStatus(eventType string, payload map[string]any) bool {
 }
 
 func shouldWarnUnknownRawEvent(eventType string, payload map[string]any) bool {
+	if isRetryProgressRawError(eventType, payload) {
+		return false
+	}
 	switch strings.TrimSpace(eventType) {
 	case "item/started", "item_started", "agent/event/item_started",
 		"item/completed", "item_completed", "agent/event/item_completed", "rawResponseItem/completed",
@@ -124,6 +129,11 @@ func shouldWarnUnknownRawEvent(eventType string, payload map[string]any) bool {
 		"totalTokens", "total_tokens",
 		"contextWindowTokens", "context_window_tokens",
 	)
+}
+
+func isRetryProgressRawError(eventType string, payload map[string]any) bool {
+	message := shared.FirstNonEmpty(stringValue(payload, "message", "error", "reason"), stringValue(nestedValue(payload, "error"), "message"))
+	return strings.TrimSpace(eventType) == "error" && boolValue(payload, "willRetry", "will_retry") && retryProgressMessagePattern.MatchString(message)
 }
 
 func translateAgentEvent(eventType string, payload map[string]any) (any, bool) {

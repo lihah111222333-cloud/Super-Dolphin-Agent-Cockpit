@@ -64,6 +64,58 @@ func TestTurnCompleted_EndToEnd_AccumulatedResult(t *testing.T) {
 	}
 }
 
+func TestTranslateTurnEvent_MessageAliasPayloadReasoningStream(t *testing.T) {
+	payload := map[string]any{
+		"threadId": "thread-1",
+		"turnId":   "T-reasoning",
+		"stream":   "reasoning",
+		"delta":    "thinking text",
+	}
+
+	ev, ok := translateTurnEvent("message.delta", payload)
+	if !ok {
+		t.Fatal("expected message.delta to translate into TurnOutputDelta")
+	}
+	delta, ok := ev.(turndto.TurnOutputDelta)
+	if !ok {
+		t.Fatalf("event type = %T, want TurnOutputDelta", ev)
+	}
+	if delta.Stream != "reasoning" {
+		t.Fatalf("TurnOutputDelta.Stream = %q, want reasoning", delta.Stream)
+	}
+	if delta.Delta != "thinking text" {
+		t.Fatalf("TurnOutputDelta.Delta = %q, want reasoning text", delta.Delta)
+	}
+}
+
+func TestTurnCompleted_EndToEnd_ReasoningDeltaNotAccumulatedAsResult(t *testing.T) {
+	s := newAccumulatorTestSession()
+	rawDelta, err := json.Marshal(map[string]any{
+		"turnId": "T-reasoning",
+		"stream": "reasoning",
+		"delta":  "thinking text",
+	})
+	if err != nil {
+		t.Fatalf("marshal delta: %v", err)
+	}
+	_ = s.sniffTurnOutput("message.delta", rawDelta)
+
+	terminal, err := json.Marshal(map[string]any{
+		"turnId":  "T-reasoning",
+		"success": true,
+	})
+	if err != nil {
+		t.Fatalf("marshal terminal: %v", err)
+	}
+	completed, ok := sniffAndTranslate(t, s, "turn/completed", terminal)
+	if !ok {
+		t.Fatalf("expected turn/completed to translate into TurnCompleted DTO")
+	}
+	if completed.Result != "" {
+		t.Fatalf("TurnCompleted.Result = %q, want no reasoning text in final result", completed.Result)
+	}
+}
+
 // TestTurnCompleted_EndToEnd_TruncatedPropagatesButResultStillSet drives the
 // 1MB cap: when truncated, DTO carries the under-cap content and the helper
 // payload signals truncation through encodeEventPayload.
