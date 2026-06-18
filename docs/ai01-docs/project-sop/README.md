@@ -36,7 +36,7 @@
 ## 本次读取的主要证据
 
 - 项目入口和模块说明：`README.md`、`go.mod`、`Makefile`、`docs/doc/codemap/README.md`
-- 启动脚本：`run-new-ui-desktop.sh`、`run-debug.ps1`
+- 启动脚本：`run-new-ui-desktop.sh`、`run-new-ui-desktop.ps1`
 - 桌面和后端装配：`cmd/agent-terminal/main.go`、`internal/app/app.go`、`internal/app/modules.go`
 - 配置和数据库：`internal/platform/config/config.go`、`internal/platform/db/module.go`、`internal/store/module.go`
 - HTTP/RPC 桥：`internal/ui/wails/http_server.go`、`internal/platform/rpc/server.go`

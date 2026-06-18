@@ -403,9 +403,13 @@ func TestNewUIDesktopPowerShellScriptUsesSQLiteWithoutPostgresRuntime(t *testing
 	text := readRootScript(t, "../../run-new-ui-desktop.ps1")
 
 	required := []string{
+		`$script:DefaultSuperDolphinHome = Join-Path $script:RunLogDir 'super-dolphin-home'`,
 		`Set-DefaultEnv -Name 'SUPER_DOLPHIN_DEV_CODEX_MODEL_PROVIDER' -Value 'openai'`,
+		`function Protect-OwnerOnlyDirectory`,
 		`Ensure-SqliteRuntime`,
 		`Set-DefaultEnv -Name 'SUPER_DOLPHIN_SQLITE_PATH' -Value (Join-Path $env:SUPER_DOLPHIN_HOME 'super-dolphin.db')`,
+		`Set-DefaultEnv -Name 'SUPER_DOLPHIN_HOME' -Value $script:DefaultSuperDolphinHome`,
+		`Protect-OwnerOnlyDirectory -Path $parent`,
 		`Write-Host "  sqlite:       $($env:SUPER_DOLPHIN_SQLITE_PATH)"`,
 	}
 	for _, want := range required {
@@ -505,7 +509,7 @@ func TestNewUIDesktopScriptReadmeMatchesStartupOrder(t *testing.T) {
 
 	assertTextOrder(t, script, `wait_for_http "$FRONTEND_DEVSERVER_URL" "frontend-app vite"`, "\nstart_desktop_backend\n")
 	required := []string{
-		"The script starts this app's Vite server, waits for it to become ready, then launches `cmd/agent-terminal`",
+		"The selected root script starts this app's Vite server, waits for it to become ready, then launches `cmd/agent-terminal`",
 		"`FRONTEND_DEVSERVER_URL`",
 	}
 	for _, want := range required {
@@ -518,27 +522,27 @@ func TestNewUIDesktopScriptReadmeMatchesStartupOrder(t *testing.T) {
 	}
 }
 
-func TestNewUIWebScriptContract(t *testing.T) {
-	text := readRootScript(t, "../../run-new-ui-web.sh")
-
-	required := []string{
-		`PROJECT_DIR="$(cd "$(dirname "$0")" && pwd)"`,
-		`FRONTEND_DIR="$PROJECT_DIR/frontend"`,
-		`WEB_PORT="${WEB_PORT:-5178}"`,
-		`SUPER_DOLPHIN_HTTP_ADDR="${SUPER_DOLPHIN_HTTP_ADDR:-127.0.0.1:4511}"`,
-		`npm run dev -- --host "$WEB_HOST" --port "$WEB_PORT" --strictPort`,
-		`http://$WEB_HOST:$WEB_PORT/`,
-	}
-	for _, want := range required {
-		if !strings.Contains(text, want) {
-			t.Fatalf("run-new-ui-web.sh missing %q", want)
+func TestRootDevStartupScriptsAreScopedToMacOSAndWindows(t *testing.T) {
+	for _, rel := range []string{
+		"../../run-new-ui-desktop.sh",
+		"../../run-new-ui-desktop.ps1",
+	} {
+		if _, err := os.Stat(rel); err != nil {
+			t.Fatalf("expected startup script %s: %v", rel, err)
 		}
 	}
-	if strings.Contains(text, "go run ./cmd/agent-terminal") {
-		t.Fatal("run-new-ui-web.sh must not start another desktop backend")
-	}
-	if strings.Contains(text, "cmd/agent-terminal/frontend") {
-		t.Fatal("run-new-ui-web.sh must not start or mutate the legacy frontend package")
+	for _, rel := range []string{
+		"../../run-new-ui-web.sh",
+		"../../run-new-ui-desktop-hot.sh",
+		"../../run-new-ui-desktop.cmd",
+		"../../run-debug.sh",
+		"../../run-debug.ps1",
+	} {
+		if _, err := os.Stat(rel); err == nil {
+			t.Fatalf("obsolete startup script still exists: %s", rel)
+		} else if !os.IsNotExist(err) {
+			t.Fatalf("inspect obsolete startup script %s: %v", rel, err)
+		}
 	}
 }
 

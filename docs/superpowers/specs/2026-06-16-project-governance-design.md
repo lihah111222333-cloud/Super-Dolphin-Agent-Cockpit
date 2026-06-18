@@ -36,7 +36,7 @@ Scope: file management, documentation governance, archive policy, and safe shrin
 
 ### 2.3 当前不能直接删除的目录
 
-- `frontend/`: `run-new-ui-web.sh` 仍直接使用 `FRONTEND_DIR="$PROJECT_DIR/frontend"`。删除前必须先决定是否废弃或重写该 web-only 入口。
+- `frontend/` / `run-new-ui-web.sh`: 已按 Windows/macOS desktop dev flow 收敛方向退役；当前根启动入口只保留 `run-new-ui-desktop.sh` 和 `run-new-ui-desktop.ps1`。
 - `cmd/agent-terminal/frontend/**`: Go embed 和打包脚本仍依赖 `cmd/agent-terminal/frontend/dist`；当前它是 legacy/package-embed fallback，不应作为普通旧前端删除。
 - `.agent/skills/**`: README 和 AGENTS 明确这是项目 canonical skill 资产。
 - `third_party/kelindar-event/**`: `go.mod` 通过 `replace github.com/kelindar/event => ./third_party/kelindar-event` 绑定，且核心代码大量引用。
@@ -223,24 +223,16 @@ Scope: file management, documentation governance, archive policy, and safe shrin
 
 目标：决定根级旧 React web frontend 是否继续存在。
 
-当前事实：
+当前决策：
 
-- `run-new-ui-web.sh` 仍使用 `frontend/`。
-- `frontend/` 文件量不大，但会造成“当前 React UI 到底是 frontend 还是 frontend-app”的认知混乱。
-
-可选路径：
-
-1. 保留 `frontend/`，在 README 和 `frontend/README.md` 标记为 web-only legacy/dev harness。
-2. 把 `run-new-ui-web.sh` 改到 `frontend-app/`，然后删除 `frontend/`。
-3. 删除 `run-new-ui-web.sh` 和 `frontend/`，只保留 desktop dev flow。
-
-推荐先做 1，再单独开退役任务评估 2 或 3。
+- `run-new-ui-web.sh` 已删除。
+- 根启动入口只保留 macOS 的 `run-new-ui-desktop.sh` 和 Windows 的 `run-new-ui-desktop.ps1`。
+- `frontend-app/` 是当前 React UI，普通本地启动不再提供单独 web-only 根脚本。
 
 验证：
 
 - `rg -n "frontend/" README.md AGENTS.md Makefile scripts cmd internal docs`
-- 如果改脚本：运行对应 web smoke。
-- 如果删目录：确认 CI、Makefile、打包脚本和文档不再引用。
+- 确认 CI、Makefile、打包脚本和当前文档不再引用已退役的 web-only 根脚本。
 
 ### Batch E: legacy Vue embed 退役决策
 
