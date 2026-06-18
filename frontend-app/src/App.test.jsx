@@ -723,6 +723,21 @@ async function showAllTraceDashboardEvents() {
     expect(sidebar.querySelector('.sidebar-tree-folder svg')).toBeInTheDocument();
   });
 
+  it('keeps the workbench sidebar class stable while switching between chat and tools', async () => {
+    render(<App />);
+
+    const sidebar = await screen.findByTestId('app-sidebar');
+    expect(sidebar).not.toHaveClass('app-sidebar--chat');
+
+    fireEvent.click(screen.getByRole('button', { name: '插件与技能' }));
+    await waitFor(() => expect(screen.getByRole('button', { name: '插件与技能' })).toHaveClass('active'));
+    expect(sidebar).not.toHaveClass('app-sidebar--chat');
+
+    fireEvent.click(screen.getByRole('button', { name: '新对话' }));
+    await waitFor(() => expect(useClientStore.getState().activePage).toBe('chat'));
+    expect(sidebar).not.toHaveClass('app-sidebar--chat');
+  });
+
   it('wires the sidebar project directory to project and thread actions', async () => {
     backend.getSidebarState.mockImplementation(({ cwd }) => Promise.resolve(cwd === '/repo/other' ? {
       activeThreadId: 'thread-other',
