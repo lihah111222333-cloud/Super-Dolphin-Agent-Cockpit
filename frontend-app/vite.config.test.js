@@ -16,6 +16,19 @@ describe('frontend vite dev proxy', () => {
       target: `http://${backendAddr}`,
     });
   });
+
+  it('passes the dev session token through the websocket proxy', () => {
+    const proxy = createFrontendViteConfig({
+      SUPER_DOLPHIN_HTTP_ADDR: '127.0.0.1:4512',
+      GO_AGENT_CTL_SESSION_TOKEN: 'dev-token',
+    }).server.proxy['/wails/ws'];
+
+    expect(proxy).toEqual({
+      target: 'ws://127.0.0.1:4512',
+      ws: true,
+      headers: { Cookie: 'super_dolphin_wails_ws=dev-token' },
+    });
+  });
 });
 
 describe('frontend vite watch config', () => {
