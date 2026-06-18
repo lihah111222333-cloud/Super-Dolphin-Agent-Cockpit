@@ -1283,7 +1283,7 @@ function WorkbenchSidebar({
   return (
     <aside
       id="app-sidebar"
-      className={`app-sidebar${isOpen ? ' is-open' : ''}${activePage === 'chat' ? ' app-sidebar--chat' : ''}`}
+      className={`app-sidebar${isOpen ? ' is-open' : ''}`}
       data-testid="app-sidebar"
       aria-label={copy.workbench.ariaLabel}
       style={isOpen ? { marginLeft: 0 } : undefined}
