@@ -955,10 +955,6 @@ describe('workbench shell styles', () => {
     const thread = declarationsFor('.sidebar-project-thread');
     const threadTitle = declarationsFor('.sidebar-thread-title');
     const empty = declarationsFor('.sidebar-project-thread-empty');
-    const chatList = declarationsFor('.app-sidebar--chat .sidebar-project-thread-list');
-    const chatThread = declarationsFor('.app-sidebar--chat .sidebar-project-thread');
-    const chatProjectAdd = declarationsFor('.app-sidebar--chat .sidebar-icon-action');
-    const chatTreeActions = declarationsFor('.app-sidebar--chat .sidebar-tree-actions');
     const taskList = declarationsFor('.sidebar-task-list');
     const taskThread = declarationsFor('.sidebar-task-thread');
 
@@ -971,11 +967,7 @@ describe('workbench shell styles', () => {
     expect(threadTitle['text-overflow']).toBe('ellipsis');
     expect(threadTitle['white-space']).toBe('nowrap');
     expect(empty['font-style']).toBe('italic');
-    expect(chatList['margin-left']).toBe('14px');
-    expect(chatThread['min-height']).toBe('28px');
-    expect(chatProjectAdd.position).toBeUndefined();
-    expect(chatTreeActions.position).toBe('absolute');
-    expect(chatTreeActions.left).toBe('-10000px');
+    expect(css).not.toContain('.app-sidebar--chat');
     expect(taskList.display).toBe('grid');
     expect(taskThread['min-height']).toBe('28px');
     expect(taskThread['font-size']).toBe('13px');

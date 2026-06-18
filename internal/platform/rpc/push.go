@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
+	"regexp"
 	"strings"
 
 	"github.com/creachadair/jrpc2"
@@ -13,6 +14,8 @@ import (
 	platformbus "github.com/anthropic-ai/super-agent-v3/internal/platform/bus"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/eventsurface"
 )
+
+var retryProgressPushPattern = regexp.MustCompile(`(?i)^\s*(reconnecting|retrying)(\.\.\.)?\s+\d+\s*/\s*\d+\s*$`)
 
 // PushBridge bridges internal events into jrpc2 server push APIs.
 type PushBridge struct {
@@ -106,6 +109,9 @@ func subscribeRawProviderEventPushes(worker *pushNotificationWorker, dispatcher 
 
 func providerPushNotifications(raw providerdto.RawProviderEvent) []eventsurface.Notification {
 	method := normalizeRawProviderPushMethod(raw.EventType)
+	if shouldSuppressRetryProgressRawProviderPush(method, raw.Data) {
+		return nil
+	}
 	if shouldSuppressTypedRawProviderPush(method, raw.Data) {
 		return nil
 	}
@@ -113,6 +119,23 @@ func providerPushNotifications(raw providerdto.RawProviderEvent) []eventsurface.
 		return nil
 	}
 	return eventsurface.ExpandNotifications(method, raw.Data)
+}
+
+// shouldSuppressRetryProgressRawProviderPush 拦截 provider 内部重试进度，
+// 避免 Reconnecting... n/m 通过 raw push 触发前端错误展示或刷新。
+func shouldSuppressRetryProgressRawProviderPush(method string, data any) bool {
+	if normalizedRawProviderMethodKey(method) != "error" {
+		return false
+	}
+	payload, ok := clonePayloadMap(data)
+	if !ok || !payloadBool(payload, "willRetry", "will_retry") {
+		return false
+	}
+	message := firstPayloadString(payload, "message", "error", "reason")
+	if message == "" {
+		message = payloadString(nestedPayloadMap(payload, "error"), "message")
+	}
+	return retryProgressPushPattern.MatchString(message)
 }
 
 func shouldSuppressTypedRawProviderPush(method string, data any) bool {
@@ -233,6 +256,18 @@ func firstPayloadString(payload map[string]any, keys ...string) string {
 		}
 	}
 	return ""
+}
+
+func payloadBool(payload map[string]any, keys ...string) bool {
+	for _, key := range keys {
+		switch value := payload[key].(type) {
+		case bool:
+			return value
+		case string:
+			return strings.EqualFold(strings.TrimSpace(value), "true")
+		}
+	}
+	return false
 }
 
 func normalizeRawProviderPushMethod(method string) string {

@@ -2,10 +2,12 @@ package orchestration
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
 
+	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/orchestration/reportstore"
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	agentdto "github.com/anthropic-ai/super-agent-v3/internal/dto/agent"
 	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
@@ -95,6 +97,7 @@ func (s *service) hasRuntimeAgent(agentID string) bool {
 	return err == nil
 }
 
+// buildRuntimeFromPersistedBinding 从绑定、线程和 report 文件重建可继续提交 turn 的 runtime。
 func (s *service) buildRuntimeFromPersistedBinding(ctx context.Context, agentID string) (*agentRuntime, string, error) {
 	source, reason, err := s.loadPersistedRuntimeSource(ctx, agentID)
 	if err != nil {
@@ -110,7 +113,11 @@ func (s *service) buildRuntimeFromPersistedBinding(ctx context.Context, agentID 
 	if reason != "" {
 		return nil, reason, nil
 	}
-	return s.newPersistedRuntimeAgent(agentID, source, thread), "", nil
+	agent, err := s.newPersistedRuntimeAgent(agentID, source, thread)
+	if err != nil {
+		return nil, "report_lookup_failed", err
+	}
+	return agent, "", nil
 }
 
 type persistedRuntimeSource struct {
@@ -186,32 +193,56 @@ func persistedThreadInactive(thread *PersistedThread) bool {
 	return state == string(agentdto.StateStopped) || state == string(agentdto.StateFailed)
 }
 
-func (s *service) newPersistedRuntimeAgent(agentID string, source persistedRuntimeSource, thread *PersistedThread) *agentRuntime {
+// newPersistedRuntimeAgent 创建缺失的内存态 runtime，并把 persisted report seq 带回水位。
+func (s *service) newPersistedRuntimeAgent(agentID string, source persistedRuntimeSource, thread *PersistedThread) (*agentRuntime, error) {
 	now := persistedRuntimeTime(source.binding, thread)
+	report, err := persistedRuntimeReport(agentID, source, thread)
+	if err != nil {
+		return nil, err
+	}
 	agent := &agentRuntime{
-		id:              agentID,
-		name:            persistedRuntimeName(agentID, thread),
-		cwd:             persistedRuntimeCWD(source.binding, thread),
-		provider:        source.provider,
-		providerSource:  "persisted-binding",
-		runtimeProvider: source.provider,
-		runtimePort:     persistedRuntimePort(thread),
-		portSource:      "persisted-thread",
-		state:           agentdto.StateIdle,
-		threadID:        source.remoteThreadID,
-		remoteThreadID:  source.remoteThreadID,
-		remoteAgentID:   agentID,
-		startedAt:       now,
-		updatedAt:       now,
-		launchSeq:       1,
-		queue:           &SubmissionQueue{},
+		id:                  agentID,
+		name:                persistedRuntimeName(agentID, thread),
+		cwd:                 persistedRuntimeCWD(source.binding, thread),
+		provider:            source.provider,
+		providerSource:      "persisted-binding",
+		runtimeProvider:     source.provider,
+		runtimePort:         persistedRuntimePort(thread),
+		portSource:          "persisted-thread",
+		state:               agentdto.StateIdle,
+		threadID:            source.remoteThreadID,
+		remoteThreadID:      source.remoteThreadID,
+		remoteAgentID:       agentID,
+		lastReport:          report.Report,
+		lastReportSeq:       report.ReportSeq,
+		lastReportUpdatedAt: report.UpdatedAt,
+		startedAt:           now,
+		updatedAt:           now,
+		launchSeq:           1,
+		queue:               &SubmissionQueue{},
 	}
 	agent.sm = platformstatemachine.New(s.machineCfg, func() string {
 		return string(agent.state)
 	}, func(next string) {
 		agent.state = agentdto.AgentState(next)
 	})
-	return agent
+	return agent, nil
+}
+
+func persistedRuntimeReport(agentID string, source persistedRuntimeSource, thread *PersistedThread) (reportstore.PersistedRecord, error) {
+	record := reportstore.Record{
+		AgentID: agentID,
+		Name:    persistedRuntimeName(agentID, thread),
+		Cwd:     persistedRuntimeCWD(source.binding, thread),
+	}
+	report, err := reportstore.ReadPersistedRecord(record)
+	if err != nil {
+		if strings.TrimSpace(record.Cwd) == "" || errors.Is(err, reportstore.ErrNotFound) {
+			return reportstore.PersistedRecord{}, nil
+		}
+		return reportstore.PersistedRecord{}, err
+	}
+	return report, nil
 }
 
 // persistedThreadForBinding 为binding处理persisted线程。

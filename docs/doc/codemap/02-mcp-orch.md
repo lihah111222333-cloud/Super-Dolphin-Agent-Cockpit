@@ -91,7 +91,7 @@
 - `turn_lifecycle.go`：turn 完成 / 中断 / 用户输入审批的状态流转与兜底修复。
 - `hook_consumer.go`：bootstrap `after` hooks 消费器；同步 thread/state/turn/item/process 事件。
 - `runtime.go`：runtime port/provider 上报、provider 归一化、snapshot 组装。
-- `report.go`：agent report 聚合、report requester 跟踪、终态事件判定与 drain。
+- `report.go`：agent report 聚合、`report_seq`/`updated_at` 版本化、report requester 跟踪、终态事件判定与 drain；report 文件由 `reportstore/` 用 Markdown front matter 持久化版本元数据，老纯文本按 `report_seq=0` 兼容读取。
 - `dag.go`：DAG create/get/list/update 的 service 层映射，兼容旧 JSON 字段别名；Phase 3.5w 起 `UpdateNodeStatus` 在 `status="done"` 分支 type-assert `taskdag.NodeFlowStore` 走 `CompleteNodeAndScheduleDownstream` 自动入队下游 wakeup（不能 type-assert 时回退旧路径，兼容 mock store 测试）。**F4.1**（commit `13a81828` + merge `e89f9231`）起 `ApplyOps` add_node 真实业务实装：OCC 双重护栏（pre-check + bump 失锁 post-check）+ Kahn 环检测（`nodeexec/cycle.go` 的 `DetectCycle`）+ `applyTypedOps` helpers；**F4.2**（commits `7611c268` `65c977d8` `848f1188` + merge `d63a623d` + fix `6f333dd1`）起 `ApplyOps` update_node 真实业务，同批 add+update 串行执行、节点 status 门禁（done 节点不可改 config）；**F6.3**（commits `34240412` `05d93f96` + merge `7f51b91e`）起 `UpdateNodeStatus` done 分支走 store 同事务 `PromoteSingleNodePendingToReady`。
 - `dag_query.go`：DAG / Run / node 读查 + `applyTypedOps` 节点读 helpers；**F1.5** 起 task_get_dag DTO 透出 `spawning_thread_id`（commit `61d41a7a`）。
 - `nodeexec/` 子包：executor / typed ops / inputs / 环检测实现集中地。
@@ -304,7 +304,7 @@ sharedfile 三个 leaf helper 包不在 `cmd/mcp-orch/` 树下，但同时被 mc
 | `orchestration_send_message` | 给指定 agent 追加一条文本 turn。 | 自动把消息包装为 `[{type:"text", content: message}]`。 |
 | `orchestration_stop_agent` | 停止指定 agent。 | 远程 agent 走 `thread/stop`，本地 agent 走进程 kill + 等待退出。 |
 | `orchestration_list_agents` | 返回当前所有 agent snapshot。 | 包含 thread / runtime / report / state 等快照。 |
-| `orchestration_get_agent_report` | 读取指定 agent 的最后 report。 | 返回 `report + state + requester metadata`。 |
+| `orchestration_get_agent_report` | 读取指定 agent 的最后 report。 | 返回 `report + report_seq + updated_at + state + requester metadata`；`wait=true` 可传 `after_report_seq`，只在读到更大版本时返回，避免多轮操作读到旧 report。 |
 
 #### DAG / task 类
 

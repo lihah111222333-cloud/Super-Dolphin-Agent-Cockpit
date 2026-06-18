@@ -65,7 +65,8 @@ type handlerIn struct {
 	// HostTools is an fx optional field: in the agent-terminal graph it is
 	// filled by provideHostToolRegistry; tests or future no-provider graphs
 	// can leave it nil and the Handler falls back to the peer path.
-	HostTools HostToolRegistry `optional:"true"`
+	HostTools  HostToolRegistry           `optional:"true"`
+	SkillTools contract.SkillToolProvider `optional:"true"`
 }
 
 type hostToolRegistryIn struct {
