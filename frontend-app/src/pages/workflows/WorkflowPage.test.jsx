@@ -251,6 +251,11 @@ async function fillEnterpriseTemplateForm(title, sourceMaterials, reviewer) {
   fireEvent.change(screen.getByLabelText('复核人'), { target: { value: reviewer } });
 }
 
+async function openTemplateCatalog() {
+  fireEvent.click(await screen.findByRole('button', { name: '查看模板' }));
+  return screen.findByRole('heading', { name: '政企工作流模板库' });
+}
+
 describe('WorkflowPage module', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -1079,7 +1084,11 @@ describe('WorkflowPage module', () => {
 
     renderWorkflowPage();
 
-    expect(await screen.findByRole('heading', { name: '政企工作流模板库' })).toBeInTheDocument();
+    expect((await screen.findAllByText('Daily Brief')).length).toBeGreaterThanOrEqual(2);
+    expect(screen.queryByRole('heading', { name: '政企工作流模板库' })).not.toBeInTheDocument();
+    expect(await openTemplateCatalog()).toBeInTheDocument();
+    expect(screen.queryByText('Daily Brief')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '返回自动化' })).toBeInTheDocument();
     expect(backend.listWorkflowTemplates).toHaveBeenCalledWith({ category: 'government-enterprise' });
     expect(await screen.findByRole('button', { name: '选择宣传视频模板' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '选择日报/周报模板' })).toBeInTheDocument();
@@ -1096,23 +1105,36 @@ describe('WorkflowPage module', () => {
 
     renderWorkflowPage();
 
-    expect(await screen.findByRole('heading', { name: '政企工作流模板库' })).toBeInTheDocument();
+    expect(await screen.findByText('创建首个自动化')).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: '政企工作流模板库' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '每日简报' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '每周回顾' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '项目监控' })).not.toBeInTheDocument();
+    expect(await openTemplateCatalog()).toBeInTheDocument();
+    expect(screen.queryByText('创建首个自动化')).not.toBeInTheDocument();
     expect(await screen.findByRole('button', { name: '选择日报/周报模板' })).toBeInTheDocument();
     fireEvent.click(await screen.findByRole('button', { name: '选择审批材料模板' }));
     expect(await screen.findByRole('heading', { name: '审批材料' })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: '返回自动化' }));
+    expect(await screen.findByText('创建首个自动化')).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: '政企工作流模板库' })).not.toBeInTheDocument();
   });
 
-  it('starts the generic AI designer flow without sending a template brief', async () => {
-    mockWorkflowDag();
+  it('starts the generic AI designer flow in a returnable free-design view', async () => {
+    backend.getDashboardPage.mockResolvedValue({ dags: [] });
     backend.startThread.mockResolvedValue({ thread_id: 'thread-design' });
     const store = workflowDesignStore();
 
     renderWorkflowPage(store);
 
-    expect(await screen.findByRole('button', { name: '通过聊天创建' })).toBeInTheDocument();
+    expect(await screen.findByText('创建首个自动化')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '通过聊天创建' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: '抖音 5 点模板' })).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: '通过聊天创建' }));
+    fireEvent.click(screen.getByRole('button', { name: '自由设计' }));
 
+    expect(await screen.findByRole('heading', { name: '自由设计' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '返回自动化' })).toBeInTheDocument();
     await waitFor(() => {
       expect(backend.startThread).toHaveBeenCalledWith(expect.objectContaining({
         cwd: '/repo/app',
@@ -1123,8 +1145,14 @@ describe('WorkflowPage module', () => {
       }));
     });
     expect(backend.startTurn).not.toHaveBeenCalled();
-    expect(store.setActiveThread).toHaveBeenCalledWith('thread-design');
-    expect(store.setActivePage).toHaveBeenCalledWith('chat');
+    expect(store.setActiveThread).not.toHaveBeenCalled();
+    expect(store.setActivePage).not.toHaveBeenCalled();
+    expect(await screen.findByRole('status')).toHaveTextContent('AI 设计流程已创建');
+    expect(screen.getByRole('button', { name: '查看设计对话' })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: '返回自动化' }));
+    expect(await screen.findByText('创建首个自动化')).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: '自由设计' })).not.toBeInTheDocument();
   });
 
   it('selects a template before showing the parameter form and DAG preview', async () => {
@@ -1133,15 +1161,18 @@ describe('WorkflowPage module', () => {
     renderWorkflowPage();
 
     expect(screen.queryByRole('heading', { name: 'DAG 草案预览' })).not.toBeInTheDocument();
+    await openTemplateCatalog();
     fireEvent.click(await screen.findByRole('button', { name: '选择会议纪要模板' }));
 
     expect(await screen.findByRole('heading', { name: '会议纪要' })).toBeInTheDocument();
-    expect(screen.getByLabelText('主题名称')).toBeInTheDocument();
+    expect(await screen.findByLabelText('主题名称')).toBeInTheDocument();
     expect(screen.getByLabelText('输入材料')).toBeInTheDocument();
     expect(screen.getByLabelText('输出格式')).toHaveDisplayValue('DOCX');
     expect(screen.getByLabelText('复核人')).toBeInTheDocument();
     expect(screen.getByLabelText('保存目录')).toHaveValue('reports/workflows/government_enterprise_meeting_minutes/{{run_id}}/');
     expect(screen.getByRole('heading', { name: 'DAG 草案预览' })).toBeInTheDocument();
+    expect(screen.getByText('reports/workflows/government_enterprise_meeting_minutes/{{run_id}}/final.docx')).toBeInTheDocument();
+    expect(screen.queryByText('reports/workflows/government_enterprise_meeting_minutes/{{run_id}}/final.{{output_format}}')).not.toBeInTheDocument();
     expect(screen.getAllByText('复核').length).toBeGreaterThan(0);
     expect(screen.getAllByText('最终').length).toBeGreaterThan(0);
     expect(backend.startThread).not.toHaveBeenCalled();
@@ -1177,6 +1208,7 @@ describe('WorkflowPage module', () => {
 
     renderWorkflowPage(store);
 
+    await openTemplateCatalog();
     fireEvent.click(await screen.findByRole('button', { name: button }));
     await fillEnterpriseTemplateForm('模板主题', 'materials/source.md', '复核负责人');
     fireEvent.click(screen.getByRole('button', { name: '创建工作流' }));
@@ -1236,6 +1268,7 @@ describe('WorkflowPage module', () => {
 
     renderWorkflowPage(store);
 
+    await openTemplateCatalog();
     fireEvent.click(await screen.findByRole('button', { name: '选择审批材料模板' }));
     await fillEnterpriseTemplateForm('模板主题', 'materials/source.md', '复核负责人');
     fireEvent.click(screen.getByRole('button', { name: '创建工作流' }));
@@ -1253,6 +1286,7 @@ describe('WorkflowPage module', () => {
 
     renderWorkflowPage(store);
 
+    await openTemplateCatalog();
     fireEvent.click(await screen.findByRole('button', { name: '选择审批材料模板' }));
     await fillEnterpriseTemplateForm('模板主题', 'materials/source.md', '复核负责人');
     fireEvent.click(screen.getByRole('button', { name: '创建工作流' }));

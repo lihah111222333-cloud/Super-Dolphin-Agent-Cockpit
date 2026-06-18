@@ -1618,6 +1618,26 @@ async function toggleInlineTraceFromRecentLogs(table) {
     expect(window.location.pathname).toBe('/dags');
   });
 
+  it('announces workflow subpages as the current page label', async () => {
+    window.history.pushState({}, '', '/dags');
+    backend.getWindowBootstrap.mockResolvedValueOnce({ snapshot: { page: 'chat' } });
+
+    render(<App />);
+
+    const workflowButton = await screen.findByRole('button', { name: '自动化' });
+    await waitFor(() => expect(workflowButton).toHaveClass('active'));
+    expect(screen.getByText('当前页面: 自动化')).toBeInTheDocument();
+
+    fireEvent.click(await screen.findByRole('button', { name: '查看模板' }));
+    expect(await screen.findByRole('heading', { name: '政企工作流模板库' })).toBeInTheDocument();
+    expect(screen.getByText('当前页面: 模板')).toBeInTheDocument();
+    expect(screen.queryByText('当前页面: 自动化')).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: '返回自动化' }));
+    expect(await screen.findByText('当前页面: 自动化')).toBeInTheDocument();
+    expect(screen.queryByText('当前页面: 模板')).not.toBeInTheDocument();
+  });
+
   it.each(['/tasks', '/commands'])('falls back to chat for the removed %s route', async (pathname) => {
     window.history.pushState({}, '', pathname);
 
@@ -7140,6 +7160,7 @@ async function continueChatFromFinalSharedFile() {
     fireEvent.click(screen.getByLabelText('自动化'));
 
     expect((await screen.findAllByText('Daily Brief')).length).toBeGreaterThanOrEqual(2);
+    expect(screen.queryByRole('heading', { name: '政企工作流模板库' })).not.toBeInTheDocument();
     expect(screen.getByRole('tab', { name: '进行中 1' })).toBeInTheDocument();
     expect(screen.getByRole('tab', { name: '定时任务 1' })).toBeInTheDocument();
     expect(screen.getByRole('tab', { name: '历史记录 1' })).toBeInTheDocument();
@@ -7824,7 +7845,7 @@ async function deleteWorkflowDag() {
 }
 
 async function designWorkflowWithAi() {
-  fireEvent.click(screen.getByRole('button', { name: '通过聊天创建' }));
+  fireEvent.click(screen.getByRole('button', { name: '自由设计' }));
   await waitFor(() => {
     expect(backend.startThread).toHaveBeenCalledWith(expect.objectContaining({
       cwd: '/repo/app',
@@ -7853,11 +7874,9 @@ async function designWorkflowWithAi() {
     expect(designPayload.config.enabledTools).toContain('workflow_template_render_dag');
     expect(designPayload.config.enabledTools).not.toContain('task_update_node');
   });
+  expect(await screen.findByRole('status')).toHaveTextContent('AI 设计流程已创建');
+  fireEvent.click(screen.getByRole('button', { name: '查看设计对话' }));
   expect((await screen.findAllByText('AI 设计流程')).length).toBeGreaterThanOrEqual(1);
-  const designThreadCard = screen.getAllByText('AI 设计流程')
-    .map((node) => node.closest('.thread-card'))
-    .find(Boolean);
-  expect(designThreadCard).toHaveTextContent('codex');
   expect(screen.queryByText('unknown')).not.toBeInTheDocument();
 }
 

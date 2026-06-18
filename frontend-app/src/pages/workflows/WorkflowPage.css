@@ -14,6 +14,15 @@
   padding: 16px;
 }
 
+.workflow-return-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 36px;
+  padding: 0 14px;
+  border-radius: 999px;
+}
+
 .enterprise-workflow-templates {
   margin: 16px 16px 0;
   border: 1px solid var(--line);
