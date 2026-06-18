@@ -11,9 +11,11 @@ import (
 	"testing"
 	"time"
 
+	mcpdto "github.com/anthropic-ai/super-agent-v3/internal/dto/mcp"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/config"
 	"github.com/creachadair/jrpc2"
 	"github.com/creachadair/jrpc2/handler"
+	jrpcserver "github.com/creachadair/jrpc2/server"
 )
 
 func TestNewServerInitializesAddressAndState(t *testing.T) {
@@ -195,6 +197,58 @@ func TestServerRunPublishesActualControlRPCAddr(t *testing.T) {
 			t.Fatalf("timed out waiting for %s to be published; current=%q", controlRPCAddrEnv, got)
 		case <-time.After(10 * time.Millisecond):
 		}
+	}
+}
+
+func TestValidateControlRPCAddrAllowsOnlyLoopbackHosts(t *testing.T) {
+	t.Parallel()
+
+	for _, addr := range []string{"127.0.0.1:0", "localhost:4512", "[::1]:4512"} {
+		t.Run("allow_"+addr, func(t *testing.T) {
+			if err := validateControlRPCAddr(addr); err != nil {
+				t.Fatalf("validateControlRPCAddr(%q) error = %v", addr, err)
+			}
+		})
+	}
+
+	for _, addr := range []string{"0.0.0.0:4512", ":4512", "192.168.1.10:4512", "[::]:4512"} {
+		t.Run("reject_"+addr, func(t *testing.T) {
+			if err := validateControlRPCAddr(addr); err == nil || !strings.Contains(err.Error(), "loopback") {
+				t.Fatalf("validateControlRPCAddr(%q) error = %v, want loopback validation failure", addr, err)
+			}
+		})
+	}
+}
+
+func TestControlRPCConnectionAuthRequiresRegisterToken(t *testing.T) {
+	t.Parallel()
+
+	assigner := controlRPCAuthAssigner{
+		base: handler.Map{
+			mcpdto.MethodRegister: StrictHandler(func(_ context.Context, _ mcpdto.RegisterRequest) (map[string]bool, error) {
+				return map[string]bool{"ok": true}, nil
+			}),
+			"thread/start": StrictHandler(func(_ context.Context, _ struct{}) (map[string]bool, error) {
+				return map[string]bool{"ok": true}, nil
+			}),
+		},
+		auth: newControlRPCConnectionAuth("secret"),
+	}
+	local := jrpcserver.NewLocal(assigner, &jrpcserver.LocalOptions{Server: prepareServerOptions(nil, nil)})
+	defer local.Close()
+
+	var out map[string]bool
+	if err := local.Client.CallResult(context.Background(), "thread/start", map[string]any{}, &out); err == nil || !strings.Contains(err.Error(), "unauthorized") {
+		t.Fatalf("thread/start before register error = %v, want unauthorized", err)
+	}
+	if err := local.Client.CallResult(context.Background(), mcpdto.MethodRegister, mcpdto.RegisterRequest{SessionToken: "wrong"}, &out); err == nil || !strings.Contains(err.Error(), "unauthorized") {
+		t.Fatalf("register with wrong token error = %v, want unauthorized", err)
+	}
+	if err := local.Client.CallResult(context.Background(), mcpdto.MethodRegister, mcpdto.RegisterRequest{SessionToken: "secret"}, &out); err != nil {
+		t.Fatalf("register with correct token error = %v", err)
+	}
+	if err := local.Client.CallResult(context.Background(), "thread/start", map[string]any{}, &out); err != nil {
+		t.Fatalf("thread/start after register error = %v", err)
 	}
 }
 
