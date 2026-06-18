@@ -52,6 +52,7 @@ type Querier interface {
 	DeleteCommandCard(ctx context.Context, arg DeleteCommandCardParams) (int64, error)
 	DeleteCronJob(ctx context.Context, arg DeleteCronJobParams) error
 	DeleteDatasourceV2ChunksByDocumentID(ctx context.Context, arg DeleteDatasourceV2ChunksByDocumentIDParams) (int64, error)
+	DeleteDatasourceV2Document(ctx context.Context, arg DeleteDatasourceV2DocumentParams) (int64, error)
 	DeletePromptTemplate(ctx context.Context, arg DeletePromptTemplateParams) (int64, error)
 	DeletePromptTemplateSection(ctx context.Context, arg DeletePromptTemplateSectionParams) (int64, error)
 	DeleteSharedFile(ctx context.Context, arg DeleteSharedFileParams) (int64, error)
@@ -120,6 +121,7 @@ type Querier interface {
 	// owned by this scheduler instance, avoiding a full-table scan of cron_jobs.
 	ListCronJobsClaimedBy(ctx context.Context, arg ListCronJobsClaimedByParams) ([]CronJob, error)
 	ListDatasourceV2Chunks(ctx context.Context, arg ListDatasourceV2ChunksParams) ([]DatasourceV2TextChunk, error)
+	ListDatasourceV2Documents(ctx context.Context, arg ListDatasourceV2DocumentsParams) ([]DatasourceV2Document, error)
 	ListDefaultRuleSections(ctx context.Context, arg ListDefaultRuleSectionsParams) ([]ListDefaultRuleSectionsRow, error)
 	ListEnabledPromptRoutingTests(ctx context.Context) ([]PromptRoutingTest, error)
 	ListHookPendingReviewsByAgent(ctx context.Context, arg ListHookPendingReviewsByAgentParams) ([]ListHookPendingReviewsByAgentRow, error)
@@ -212,6 +214,7 @@ type Querier interface {
 	UpdateAgentThreadPromptSnapshot(ctx context.Context, arg UpdateAgentThreadPromptSnapshotParams) (int64, error)
 	UpdateAgentThreadStatus(ctx context.Context, arg UpdateAgentThreadStatusParams) error
 	UpdateCronJobSchedule(ctx context.Context, arg UpdateCronJobScheduleParams) error
+	UpdateDatasourceV2DocumentMetadata(ctx context.Context, arg UpdateDatasourceV2DocumentMetadataParams) (DatasourceV2Document, error)
 	UpdatePromptIntentDraftStatus(ctx context.Context, arg UpdatePromptIntentDraftStatusParams) (UpdatePromptIntentDraftStatusRow, error)
 	UpdateWorkspaceRunStatus(ctx context.Context, arg UpdateWorkspaceRunStatusParams) (WorkspaceRun, error)
 	// Codex identity columns use "'' preserves existing value" semantics so

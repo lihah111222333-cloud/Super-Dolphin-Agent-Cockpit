@@ -39,6 +39,23 @@ func TestNewRPCHandlersRegistersNativeDialogRoutes(t *testing.T) {
 	}
 }
 
+func TestSelectFilesFiltersNormalizeSupportedPatterns(t *testing.T) {
+	t.Parallel()
+
+	got := normalizeSelectFileFilters([]selectFileFilter{
+		{DisplayName: " PDF/TXT/TEXT ", Pattern: " *.pdf;*.txt;*.text "},
+		{DisplayName: "", Pattern: "*.exe"},
+		{DisplayName: "blank", Pattern: ""},
+	})
+
+	if len(got) != 1 {
+		t.Fatalf("filters len = %d, want 1", len(got))
+	}
+	if got[0].DisplayName != "PDF/TXT/TEXT" || got[0].Pattern != "*.pdf;*.txt;*.text" {
+		t.Fatalf("filter = %+v, want trimmed datasource filter", got[0])
+	}
+}
+
 func TestCurrentBuildInfoIncludesPackagedAppVersion(t *testing.T) {
 	t.Setenv("SUPER_DOLPHIN_UPDATE_VERSION", "1.0.2")
 

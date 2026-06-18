@@ -877,30 +877,54 @@ export async function selectProjectDirs() {
   return paths;
 }
 
-export async function selectFiles() {
-  writeBridgeLog('info', 'ui.selectFiles.start', {});
+function normalizeSelectFilesOptions(options = {}) {
+  if (!options || typeof options !== 'object' || Array.isArray(options)) return {};
+  const payload = {};
+  if (typeof options.defaultPath === 'string' && options.defaultPath.trim()) {
+    payload.defaultPath = options.defaultPath.trim();
+  }
+  if (Array.isArray(options.filters)) {
+    const filters = options.filters
+      .map((filter) => ({
+        displayName: (filter?.displayName || '').toString().trim(),
+        pattern: (filter?.pattern || '').toString().trim(),
+      }))
+      .filter((filter) => filter.displayName && filter.pattern);
+    if (filters.length > 0) payload.filters = filters;
+  }
+  return payload;
+}
+
+export async function selectFiles(options = {}) {
+  const payload = normalizeSelectFilesOptions(options);
+  const hasOptions = Object.keys(payload).length > 0;
+  writeBridgeLog('info', 'ui.selectFiles.start', {
+    filtered: Boolean(payload.filters?.length),
+  });
   const normalize = (raw) => {
     if (Array.isArray(raw)) return raw;
     if (raw && typeof raw === 'object' && Array.isArray(raw.paths)) return raw.paths;
     return null;
   };
 
-  try {
-    const values = await callByID(METHOD_IDS.SELECT_FILES);
-    const files = normalize(values);
-    if (files != null) {
-      writeBridgeLog('info', 'ui.selectFiles.done', {
-        count: files.length,
-        first: files[0] || '',
-      });
-      return files;
+  if (!hasOptions) {
+    try {
+      const values = await callByID(METHOD_IDS.SELECT_FILES);
+      const files = normalize(values);
+      if (files != null) {
+        writeBridgeLog('info', 'ui.selectFiles.done', {
+          count: files.length,
+          first: files[0] || '',
+        });
+        return files;
+      }
+    }
+    catch (error) {
+      writeBridgeLog('warn', 'ui.selectFiles.byId.failed', { error });
     }
   }
-  catch (error) {
-    writeBridgeLog('warn', 'ui.selectFiles.byId.failed', { error });
-  }
 
-  const raw = await callAPI('ui/selectFiles', {});
+  const raw = await callAPI('ui/selectFiles', payload);
   const files = normalize(raw) || [];
   writeBridgeLog('info', 'ui.selectFiles.done', {
     count: files.length,

@@ -65,8 +65,14 @@ type selectProjectDirParams struct {
 }
 
 type selectFilesParams struct {
-	DefaultPath string `json:"defaultPath,omitempty"`
+	DefaultPath string             `json:"defaultPath,omitempty"`
+	Filters     []selectFileFilter `json:"filters,omitempty"`
 	clientMetaParams
+}
+
+type selectFileFilter struct {
+	DisplayName string `json:"displayName"`
+	Pattern     string `json:"pattern"`
 }
 
 type saveClipboardImageParams struct {
@@ -154,7 +160,7 @@ func NewRPCHandlers(app *App, cfg *config.Config, uiState contract.UIProjectStat
 			return map[string][]string{"paths": paths}, nil
 		}),
 		"ui/selectFiles": rpc.StrictHandler(func(ctx context.Context, p selectFilesParams) (any, error) {
-			paths, err := app.selectFiles(p.DefaultPath)
+			paths, err := app.selectFilesWithFilters(p.DefaultPath, p.Filters)
 			if err != nil {
 				return nil, err
 			}
