@@ -1,10 +1,17 @@
 import React from 'react';
+import { homedir } from 'node:os';
 import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { TimelineLoadingPlaceholder, TimelineMessage, UserMessageAttachments } from './TimelineMessage.jsx';
 import { resolveAttachmentImageSrc } from './timelineMessageModel.js';
 
 const formatTime = () => '16:00';
+const screenshotName = '\u5c4f\u5e55\u622a\u56fe 2026-06-13 170324.png';
+
+function localScreenshotPath(separator) {
+  const home = separator === '\\' ? homedir().replace(/\//g, '\\') : homedir().replace(/\\/g, '/');
+  return [home, 'Pictures', 'Screenshots', screenshotName].join(separator);
+}
 
 describe('TimelineMessage', () => {
   it('renders user attachments as image previews and file pills', () => {
@@ -91,7 +98,7 @@ describe('TimelineMessage', () => {
 
 describe('UserMessageAttachments', () => {
   it('normalizes supported image sources and empty attachment lists', () => {
-    const screenshotPath = 'C:/Users/ai04/Pictures/Screenshots/\u5c4f\u5e55\u622a\u56fe 2026-06-13 170324.png';
+    const screenshotPath = localScreenshotPath('/');
     expect(resolveAttachmentImageSrc({ previewUrl: 'data:image/png;base64,abc' })).toBe('data:image/png;base64,abc');
     expect(resolveAttachmentImageSrc({ previewUrl: 'blob:screen-preview' })).toBe('blob:screen-preview');
     expect(resolveAttachmentImageSrc({ previewUrl: '/clipboard/a.png' })).toBe('/clipboard/a.png');
@@ -132,17 +139,17 @@ describe('UserMessageAttachments', () => {
   });
 
   it('renders normal local screenshot paths through the local image route', () => {
-    const screenshotPath = 'C:\\Users\\ai04\\Pictures\\Screenshots\\\u5c4f\u5e55\u622a\u56fe 2026-06-13 170324.png';
+    const screenshotPath = localScreenshotPath('\\');
 
     render(
       <UserMessageAttachments
         attachments={[
-          { path: screenshotPath, name: '\u5c4f\u5e55\u622a\u56fe 2026-06-13 170324.png' },
+          { path: screenshotPath, name: screenshotName },
         ]}
       />,
     );
 
-    const img = screen.getByRole('img', { name: '\u5c4f\u5e55\u622a\u56fe 2026-06-13 170324.png' });
+    const img = screen.getByRole('img', { name: screenshotName });
     expect(img).toHaveAttribute('src', `/local-image?path=${encodeURIComponent(screenshotPath)}`);
   });
 });

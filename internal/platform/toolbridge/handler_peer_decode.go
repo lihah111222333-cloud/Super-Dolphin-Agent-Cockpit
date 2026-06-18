@@ -192,14 +192,17 @@ func addMCPToolsToSurface(surface *codexToolSurface, out *[]contract.DynamicTool
 			continue
 		}
 		canonical := canonicalCodexToolName(family, tool.Name)
+		if shouldNamespaceExternalMCPTool(surface, family, canonical) {
+			canonical = wrappedMCPToolName(family, tool.Name)
+		}
 		entry := codexToolEntry{name: canonical, realName: tool.Name, executionKind: "stdio", family: strings.TrimSpace(family), client: client}
 		if err := addSurfaceTool(surface, out, tool, entry); err != nil {
 			return err
 		}
-		if err := addSurfaceAlias(surface, tool.Name, canonical); err != nil {
+		if err := addMCPToolAlias(surface, family, tool.Name, canonical); err != nil {
 			return err
 		}
-		if err := addSurfaceAlias(surface, "mcp__"+strings.TrimSpace(family)+"__"+tool.Name, canonical); err != nil {
+		if err := addSurfaceAlias(surface, wrappedMCPToolName(family, tool.Name), canonical); err != nil {
 			return err
 		}
 		for _, alias := range legacyCodexToolAliases(family, canonical) {
@@ -593,67 +596,4 @@ func hasPrivateScopeMetadata(payload map[string]json.RawMessage) bool {
 		}
 	}
 	return false
-}
-
-func requiresCodexToolSurface(name string) bool {
-	name = strings.TrimSpace(name)
-	if family, inner := mcpWrappedToolName(name); family != "" {
-		return requiresCodexSurfaceFamilyTool(family, inner)
-	}
-	if strings.HasPrefix(name, "lsp_") {
-		_, ok := legacyLSPToolAliases[name]
-		return ok
-	}
-	if strings.HasPrefix(name, "orchestration_") {
-		return requiresCanonicalCodexSurfaceTool(canonicalOrchestrationToolName(name))
-	}
-	return requiresCanonicalCodexSurfaceTool(name)
-}
-
-func mcpWrappedToolName(name string) (string, string) {
-	rest := strings.TrimPrefix(strings.TrimSpace(name), "mcp__")
-	if rest == name {
-		return "", ""
-	}
-	parts := strings.SplitN(rest, "__", 2)
-	if len(parts) != 2 {
-		return "", ""
-	}
-	return strings.TrimSpace(parts[0]), strings.TrimSpace(parts[1])
-}
-
-func requiresCodexSurfaceFamilyTool(family, name string) bool {
-	switch strings.TrimSpace(family) {
-	case mcpdto.ClientKindLSP:
-		return requiresCanonicalCodexSurfaceTool(canonicalToolName(name))
-	case mcpdto.ClientKindOrch:
-		return requiresCanonicalCodexSurfaceTool(canonicalOrchestrationToolName(name))
-	default:
-		return false
-	}
-}
-
-func requiresCanonicalCodexSurfaceTool(name string) bool {
-	_, ok := canonicalCodexSurfaceTools[strings.TrimSpace(name)]
-	return ok
-}
-
-var canonicalCodexSurfaceTools = map[string]struct{}{
-	"file":              {},
-	"inspect":           {},
-	"xref":              {},
-	"grep":              {},
-	"structure":         {},
-	"edit":              {},
-	"format_preview":    {},
-	"completion":        {},
-	"launch_agent":      {},
-	"send_message":      {},
-	"stop_agent":        {},
-	"list_agents":       {},
-	"get_agent_report":  {},
-	ToolNameMemoryRead:  {},
-	ToolNameMemoryWrite: {},
-	ToolNameReadSection: {},
-	"skill_expand_body": {},
 }
