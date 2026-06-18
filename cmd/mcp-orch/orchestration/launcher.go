@@ -115,11 +115,8 @@ type remoteLauncher struct {
 	heartbeatCancel context.CancelFunc
 }
 
-const (
-	remoteLauncherBinaryName               = "mcp-orch-remote-launcher"
-	remoteLauncherDefaultHeartbeatInterval = 10 * time.Second
-	remoteLauncherDefaultHeartbeatTimeout  = 5 * time.Second
-)
+const remoteLauncherBinaryName = "mcp-orch-remote-launcher"
+const remoteLauncherInterval = 10 * time.Second
 
 // remoteLauncher 通过 GO_AGENT_CTL_RPC_ADDR 调主控的 thread/* RPC。
 // 它不直接执行 agent，只拿回 thread_id 再交给 service 记录。
@@ -142,15 +139,13 @@ func (r *remoteLauncher) ensureClient(ctx context.Context) (*jrpc2.Client, error
 	r.stopHeartbeatLocked()
 	if client != nil {
 		_ = client.Close()
-		r.client = nil
 	}
+	r.client = nil
 	raw, err := new(net.Dialer).DialContext(ctx, "tcp", r.addr)
 	if err != nil {
 		return nil, err
 	}
-	next := jrpc2.NewClient(channel.Line(raw, raw), &jrpc2.ClientOptions{
-		OnNotify: r.handleNotify,
-	})
+	next := jrpc2.NewClient(channel.Line(raw, raw), &jrpc2.ClientOptions{OnNotify: r.handleNotify})
 	reg, err := r.registerClient(ctx, next)
 	if err != nil {
 		_ = next.Close()
@@ -178,22 +173,11 @@ func (r *remoteLauncher) registerClient(ctx context.Context, client *jrpc2.Clien
 	if token == "" {
 		return mcpdto.RegisterResponse{}, errors.New("remote launcher requires GO_AGENT_CTL_SESSION_TOKEN or GO_AGENT_MCP_SESSION_TOKEN")
 	}
-	instanceID := strings.TrimSpace(r.instanceID)
-	if instanceID == "" {
-		instanceID = shared.NewID("mcp_orch_remote_launcher")
-		r.instanceID = instanceID
-	}
-	req := mcpdto.RegisterRequest{
-		InstanceID:   instanceID,
-		BinaryName:   remoteLauncherBinaryName,
-		PID:          os.Getpid(),
-		SessionToken: token,
-		ClientKind:   mcpdto.ClientKindCustom,
-		PeerKind:     mcpdto.PeerKindTool,
-	}
+	r.instanceID = shared.FirstTrimmed(r.instanceID, shared.NewID("mcp_orch_remote_launcher"))
 	callCtx, cancel := platformconfig.WithRPCRequestTimeout(ctx)
 	defer cancel()
 	var resp mcpdto.RegisterResponse
+	req := mcpdto.RegisterRequest{InstanceID: r.instanceID, BinaryName: remoteLauncherBinaryName, PID: os.Getpid(), SessionToken: token, ClientKind: mcpdto.ClientKindCustom, PeerKind: mcpdto.PeerKindTool}
 	if err := client.CallResult(callCtx, mcpdto.MethodRegister, req, &resp); err != nil {
 		return mcpdto.RegisterResponse{}, err
 	}
@@ -208,94 +192,54 @@ func (r *remoteLauncher) registerClient(ctx context.Context, client *jrpc2.Clien
 }
 
 func remoteLauncherSessionToken() string {
-	for _, key := range []string{"GO_AGENT_CTL_SESSION_TOKEN", "GO_AGENT_MCP_SESSION_TOKEN"} {
-		if token := strings.TrimSpace(os.Getenv(key)); token != "" {
-			return token
-		}
+	if token := strings.TrimSpace(os.Getenv("GO_AGENT_CTL_SESSION_TOKEN")); token != "" {
+		return token
 	}
-	return ""
+	return strings.TrimSpace(os.Getenv("GO_AGENT_MCP_SESSION_TOKEN"))
 }
 
 // startHeartbeatLocked 维持 remoteLauncher 的 control-plane lease。
 // 这条连接还承载 turn/completed 推送，不能等 sweeper 因无心跳把它关闭。
 func (r *remoteLauncher) startHeartbeatLocked(client *jrpc2.Client, reg mcpdto.RegisterResponse) {
-	if client == nil {
-		return
-	}
 	r.stopHeartbeatLocked()
 	ctx, cancel := context.WithCancel(context.Background())
 	r.heartbeatCancel = cancel
 	lease := mcpdto.LeaseKey{InstanceID: strings.TrimSpace(reg.InstanceID), Generation: reg.Generation}
-	interval := remoteLauncherDuration(reg.HeartbeatIntervalMs, remoteLauncherDefaultHeartbeatInterval)
-	timeout := remoteLauncherHeartbeatTimeout(interval, remoteLauncherDuration(reg.HeartbeatTimeoutMs, remoteLauncherDefaultHeartbeatTimeout))
-	go r.runHeartbeat(ctx, client, lease, interval, timeout)
+	interval := time.Duration(reg.HeartbeatIntervalMs) * time.Millisecond
+	if interval <= 0 {
+		interval = remoteLauncherInterval
+	}
+	go remoteLauncherHeartbeat(ctx, client, lease, interval)
 }
 
 func (r *remoteLauncher) stopHeartbeatLocked() {
-	if r.heartbeatCancel == nil {
-		return
+	if r.heartbeatCancel != nil {
+		r.heartbeatCancel()
+		r.heartbeatCancel = nil
 	}
-	r.heartbeatCancel()
-	r.heartbeatCancel = nil
 }
 
-// runHeartbeat 周期性刷新 lease；失败只记录日志，下一次 RPC 会按 stopped client 重连。
-func (r *remoteLauncher) runHeartbeat(ctx context.Context, client *jrpc2.Client, lease mcpdto.LeaseKey, interval, timeout time.Duration) {
-	var seq uint64
-	for waitRemoteLauncherHeartbeat(ctx, interval) {
-		if client == nil || client.IsStopped() {
+// remoteLauncherHeartbeat 周期性刷新 lease；失败只记录日志，下一次 RPC 会按 stopped client 重连。
+func remoteLauncherHeartbeat(ctx context.Context, client *jrpc2.Client, lease mcpdto.LeaseKey, interval time.Duration) {
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	for seq := uint64(1); ; seq++ {
+		select {
+		case <-ctx.Done():
 			return
+		case <-ticker.C:
 		}
-		seq++
-		req := mcpdto.HeartbeatRequest{
-			InstanceID:   lease.InstanceID,
-			Generation:   lease.Generation,
-			HeartbeatSeq: seq,
-			Status:       mcpdto.StatusActive,
-		}
-		callCtx, cancel := platformconfig.WithPeerTimeout(ctx, timeout)
+		callCtx, cancel := platformconfig.WithPeerTimeout(ctx, 5*time.Second)
 		var resp mcpdto.HeartbeatResponse
-		err := client.CallResult(callCtx, mcpdto.MethodHeartbeat, req, &resp)
+		err := client.CallResult(callCtx, mcpdto.MethodHeartbeat, mcpdto.HeartbeatRequest{InstanceID: lease.InstanceID, Generation: lease.Generation, HeartbeatSeq: seq, Status: mcpdto.StatusActive}, &resp)
 		cancel()
 		if err != nil {
 			if ctx.Err() != nil || client.IsStopped() {
 				return
 			}
 			pkglogger.Warn("remoteLauncher: heartbeat failed", "lease", lease, "error", err)
-			continue
-		}
-		if resp.NextHeartbeatMs > 0 {
-			interval = remoteLauncherDuration(resp.NextHeartbeatMs, interval)
 		}
 	}
-}
-
-func waitRemoteLauncherHeartbeat(ctx context.Context, interval time.Duration) bool {
-	timer := time.NewTimer(interval)
-	defer timer.Stop()
-	select {
-	case <-ctx.Done():
-		return false
-	case <-timer.C:
-		return true
-	}
-}
-
-func remoteLauncherDuration(ms int, fallback time.Duration) time.Duration {
-	if ms <= 0 {
-		return fallback
-	}
-	return time.Duration(ms) * time.Millisecond
-}
-
-func remoteLauncherHeartbeatTimeout(interval, timeout time.Duration) time.Duration {
-	if timeout > 0 && timeout < interval {
-		return timeout
-	}
-	if interval/2 > time.Second {
-		return interval / 2
-	}
-	return time.Second
 }
 
 func rpcString(v any) string {
