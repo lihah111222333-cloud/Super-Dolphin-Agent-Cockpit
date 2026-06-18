@@ -24,7 +24,7 @@ func TestHTTPAssetRoutesExposePrometheusMetricsEndpoint(t *testing.T) {
 	mux := http.NewServeMux()
 	registerHTTPAssetRoutes(mux, nil, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "asset fallback should not handle /metrics", http.StatusTeapot)
-	}))
+	}), "")
 
 	rec := httptest.NewRecorder()
 	mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, metrics.PrometheusMetricsPath, nil))
@@ -92,6 +92,23 @@ func TestNewHTTPAssetServerUsesConfiguredAddr(t *testing.T) {
 	}
 }
 
+func TestNewHTTPAssetServerUsesDevSessionTokenForWebSocket(t *testing.T) {
+	t.Setenv("SUPER_DOLPHIN_WAILS_WS_TOKEN", "")
+	t.Setenv("GO_AGENT_CTL_SESSION_TOKEN", "dev-session-token")
+	t.Setenv("GO_AGENT_MCP_SESSION_TOKEN", "")
+
+	result := NewHTTPAssetServer(httpAssetServerParams{
+		Logger: slog.New(slog.NewTextHandler(io.Discard, nil)),
+	})
+	server, ok := result.Runner.(*httpAssetServer)
+	if !ok {
+		t.Fatalf("Runner = %T, want *httpAssetServer", result.Runner)
+	}
+	if server.wsToken != "dev-session-token" {
+		t.Fatalf("wsToken = %q, want dev session token", server.wsToken)
+	}
+}
+
 func TestHTTPAssetServerRejectsNonLoopbackConfiguredAddr(t *testing.T) {
 	t.Setenv("SUPER_DOLPHIN_HTTP_ADDR", "0.0.0.0:0")
 
@@ -128,5 +145,56 @@ func TestValidateHTTPAssetAddrAllowsOnlyLoopbackHosts(t *testing.T) {
 				t.Fatalf("validateHTTPAssetAddr(%q) error = %v, want loopback validation failure", addr, err)
 			}
 		})
+	}
+}
+
+func TestWailsWebSocketRequestGuardRejectsUntrustedHostAndOrigin(t *testing.T) {
+	t.Parallel()
+
+	for _, tt := range []struct {
+		name   string
+		host   string
+		origin string
+	}{
+		{name: "host", host: "evil.example:4511"},
+		{name: "origin", host: "127.0.0.1:4511", origin: "http://evil.example:4511"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodGet, "http://127.0.0.1:4511/wails/ws", nil)
+			req.Host = tt.host
+			if tt.origin != "" {
+				req.Header.Set("Origin", tt.origin)
+			}
+
+			if err := validateWailsWebSocketRequest(req); err == nil || !strings.Contains(err.Error(), "loopback") {
+				t.Fatalf("validateWailsWebSocketRequest() error = %v, want loopback validation failure", err)
+			}
+		})
+	}
+}
+
+func TestWailsWebSocketRequestGuardAllowsLoopbackHostAndOrigin(t *testing.T) {
+	t.Parallel()
+
+	req := httptest.NewRequest(http.MethodGet, "http://127.0.0.1:4511/wails/ws", nil)
+	req.Host = "127.0.0.1:4511"
+	req.Header.Set("Origin", "http://localhost:4511")
+
+	if err := validateWailsWebSocketRequest(req); err != nil {
+		t.Fatalf("validateWailsWebSocketRequest() error = %v", err)
+	}
+}
+
+func TestWailsWebSocketTokenRequiresMatchingCookie(t *testing.T) {
+	t.Parallel()
+
+	req := httptest.NewRequest(http.MethodGet, "http://127.0.0.1:4511/wails/ws", nil)
+	if err := validateWailsWebSocketToken(req, "token-1"); err == nil || !strings.Contains(err.Error(), "token") {
+		t.Fatalf("validateWailsWebSocketToken() error = %v, want token validation failure", err)
+	}
+
+	req.AddCookie(&http.Cookie{Name: wailsWebSocketCookieName, Value: "token-1"})
+	if err := validateWailsWebSocketToken(req, "token-1"); err != nil {
+		t.Fatalf("validateWailsWebSocketToken() error = %v", err)
 	}
 }
