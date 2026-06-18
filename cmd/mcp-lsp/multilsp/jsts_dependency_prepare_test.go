@@ -32,8 +32,8 @@ func TestJSTSEnsureClientRunsPnpmInstallWhenNodeModulesMissing(t *testing.T) {
 		t.Fatalf("EnsureClient() did not create node_modules via pnpm install")
 	}
 	log := readPnpmLog(t, logPath)
-	if !strings.Contains(log, root) || !strings.Contains(log, "install --frozen-lockfile") {
-		t.Fatalf("pnpm log = %q, want install --frozen-lockfile in %s", log, root)
+	if !strings.Contains(log, root) || !strings.Contains(log, "install --frozen-lockfile --ignore-scripts") {
+		t.Fatalf("pnpm log = %q, want install --frozen-lockfile --ignore-scripts in %s", log, root)
 	}
 }
 
@@ -85,7 +85,7 @@ func writeFakePnpmExecutable(t *testing.T, binDir string) {
 		path := filepath.Join(binDir, "pnpm.bat")
 		body := "@echo off\r\n" +
 			"echo %CD% %*>> \"%PNPM_LOG%\"\r\n" +
-			"if not \"%1 %2\"==\"install --frozen-lockfile\" exit /b 64\r\n" +
+			"if not \"%1 %2 %3\"==\"install --frozen-lockfile --ignore-scripts\" exit /b 64\r\n" +
 			"if not \"%PNPM_EXIT%\"==\"\" (\r\n" +
 			"  echo pnpm failed 1>&2\r\n" +
 			"  exit /b %PNPM_EXIT%\r\n" +
@@ -100,7 +100,7 @@ func writeFakePnpmExecutable(t *testing.T, binDir string) {
 	path := filepath.Join(binDir, "pnpm")
 	body := "#!/bin/sh\n" +
 		"printf '%s %s\\n' \"$PWD\" \"$*\" >> \"$PNPM_LOG\"\n" +
-		"if [ \"$1 $2\" != \"install --frozen-lockfile\" ]; then exit 64; fi\n" +
+		"if [ \"$1 $2 $3\" != \"install --frozen-lockfile --ignore-scripts\" ]; then exit 64; fi\n" +
 		"if [ -n \"$PNPM_EXIT\" ]; then echo pnpm failed >&2; exit \"$PNPM_EXIT\"; fi\n" +
 		"mkdir -p node_modules\n" +
 		"exit 0\n"

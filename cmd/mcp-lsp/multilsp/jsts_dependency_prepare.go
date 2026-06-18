@@ -138,7 +138,7 @@ func runJSTSPnpmInstall(ctx context.Context, installRoot string) error {
 	}
 	installCtx, cancel := platformconfig.WithTimeoutIfNone(ctx, jstsPnpmInstallTimeout)
 	defer cancel()
-	cmd := hiddenexec.CommandContext(installCtx, pnpmPath, "install", "--frozen-lockfile")
+	cmd := hiddenexec.CommandContext(installCtx, pnpmPath, "install", "--frozen-lockfile", "--ignore-scripts")
 	cmd.Dir = installRoot
 	output, err := cmd.CombinedOutput()
 	if err != nil {

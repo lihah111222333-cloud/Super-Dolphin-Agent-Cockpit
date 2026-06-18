@@ -20,6 +20,7 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/protocol"
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/search"
 	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/common"
+	platformshared "github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
@@ -542,6 +543,9 @@ func contextWithExplicitWorkDir(ctx context.Context, workDir string) (context.Co
 	if err != nil {
 		return ctx, "", err
 	}
+	if err := ensureExplicitWorkDirWithinWorkspaceRoots(ctx, normalized); err != nil {
+		return ctx, "", err
+	}
 	scope, _ := common.ToolScopeFromContext(ctx)
 	scope.CWD = normalized
 	scope.WorkspaceRoots = append(scope.WorkspaceRoots, normalized)
@@ -549,6 +553,19 @@ func contextWithExplicitWorkDir(ctx context.Context, workDir string) (context.Co
 		scope.Family = "lsp"
 	}
 	return common.WithToolScope(ctx, scope), normalized, nil
+}
+
+func ensureExplicitWorkDirWithinWorkspaceRoots(ctx context.Context, workDir string) error {
+	roots, err := common.WorkspaceRootsFromContextStrict(ctx)
+	if err != nil {
+		return fmt.Errorf("explicit work_dir requires trusted workspace roots: %w", err)
+	}
+	for _, root := range roots {
+		if platformshared.ContainsPath(root, workDir) {
+			return nil
+		}
+	}
+	return fmt.Errorf("work_dir %s is outside workspace roots [%s]", workDir, strings.Join(roots, ", "))
 }
 
 // normalizeExplicitWorkDir 规范化explicitwork目录。
