@@ -89,13 +89,11 @@ func TestToolsRPCReturnsMCPServerTools(t *testing.T) {
 	project := t.TempDir()
 	t.Chdir(project)
 	store := newMemoryMCPServerStore()
-	toolsServer, _ := newToolsListHTTPMCPTestServer(t, "")
-	defer toolsServer.Close()
 	store.seed(project, "my-search", ServerConfig{
 		Transport: "http",
-		URL:       toolsServer.URL,
+		URL:       "https://example.com/mcp",
 	})
-	server := newMCPServerTestServer(store)
+	server := newMCPServerTestServerWithHTTPClient(store, &scriptedMCPHTTPDoer{t: t})
 	payload, err := json.Marshal(ListServerToolsRequest{ServerName: "my-search"})
 	if err != nil {
 		t.Fatalf("marshal payload: %v", err)
@@ -264,5 +262,13 @@ func newMCPServerTestServer(store MCPServerConfigStore) *platformrpc.Server {
 func newMCPServerTestServerWithSQLitePath(store MCPServerConfigStore, sqlitePath string) *platformrpc.Server {
 	server := platformrpc.NewServer(platformrpc.Params{Config: &platformconfig.Config{RPCAddr: "127.0.0.1:0"}})
 	server.Register(NewHandlers(newServiceWithStoreInstallerAndSQLitePath(store, &recordingPostgresInstaller{}, sqlitePath)).Handlers)
+	return server
+}
+
+func newMCPServerTestServerWithHTTPClient(store MCPServerConfigStore, client mcpHTTPDoer) *platformrpc.Server {
+	svc := newServiceWithStoreInstallerAndSQLitePath(store, &recordingPostgresInstaller{}, "")
+	svc.httpClient = client
+	server := platformrpc.NewServer(platformrpc.Params{Config: &platformconfig.Config{RPCAddr: "127.0.0.1:0"}})
+	server.Register(NewHandlers(svc).Handlers)
 	return server
 }
