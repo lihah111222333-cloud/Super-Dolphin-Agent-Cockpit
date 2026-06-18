@@ -50,6 +50,7 @@ type Handler struct {
 	hostTools          HostToolRegistry
 	surfaceMu          sync.Mutex
 	surfaces           map[string]*codexToolSurface
+	proxyAuthToken     string
 	stdioClientFactory func(context.Context, providerdto.MCPBinary) (mcpClient, error)
 }
 
@@ -74,19 +75,20 @@ func NewHandler(in handlerIn) *Handler {
 		logger = pkglogger.Get()
 	}
 	handler := &Handler{
-		registry:     in.Registry,
-		emitter:      in.Emitter,
-		resolver:     in.Resolver,
-		diffFallback: in.DiffFallback,
-		bindingStore: in.BindingStore,
-		threadStore:  in.ThreadStore,
-		preferences:  in.Preferences,
-		cfg:          in.Config,
-		logger:       logger,
-		tracer:       in.Tracer,
-		dispatcher:   in.Dispatcher,
-		hostTools:    in.HostTools,
-		surfaces:     make(map[string]*codexToolSurface),
+		registry:       in.Registry,
+		emitter:        in.Emitter,
+		resolver:       in.Resolver,
+		diffFallback:   in.DiffFallback,
+		bindingStore:   in.BindingStore,
+		threadStore:    in.ThreadStore,
+		preferences:    in.Preferences,
+		cfg:            in.Config,
+		logger:         logger,
+		tracer:         in.Tracer,
+		dispatcher:     in.Dispatcher,
+		hostTools:      in.HostTools,
+		surfaces:       make(map[string]*codexToolSurface),
+		proxyAuthToken: newProxyAuthToken(),
 	}
 	handler.stdioClientFactory = handler.defaultStdioClientFactory
 	return handler

@@ -3,6 +3,7 @@ package rpc
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"maps"
 	"net"
 	"os"
@@ -28,6 +29,7 @@ type Server struct {
 	addr          string
 	methods       handler.Map
 	traceRecorder TraceRecorder
+	authToken     string
 
 	mu         sync.RWMutex
 	active     map[*jrpc2.Server]string
@@ -398,6 +400,14 @@ func (s *Server) NotifyAll(ctx context.Context, bridge *PushBridge, method strin
 
 // Run 启动平台RPC后台流程。
 func (s *Server) Run(ctx context.Context) error {
+	if err := validateControlRPCAddr(s.addr); err != nil {
+		return err
+	}
+	authToken, err := ensureControlRPCSessionToken()
+	if err != nil {
+		return err
+	}
+	s.setControlRPCAuthToken(authToken)
 	listener, err := net.Listen("tcp", s.addr)
 	if err != nil {
 		return err
@@ -412,6 +422,20 @@ func (s *Server) Run(ctx context.Context) error {
 		return err
 	}
 	return nil
+}
+
+func validateControlRPCAddr(addr string) error {
+	addr = strings.TrimSpace(addr)
+	host, _, err := net.SplitHostPort(addr)
+	if err != nil {
+		return fmt.Errorf("control rpc addr must be loopback: %w", err)
+	}
+	switch strings.ToLower(strings.TrimSpace(host)) {
+	case "localhost", "127.0.0.1", "::1":
+		return nil
+	default:
+		return fmt.Errorf("control rpc addr must be loopback, got %q", addr)
+	}
 }
 
 func (s *Server) acceptLoop(ctx context.Context, accepter jrpcserver.Accepter) error {
@@ -443,7 +467,8 @@ func (s *Server) serveConn(ctx context.Context, ch channel.Channel, wg *sync.Wai
 		rpcLog = tracker
 	}
 	opts := prepareServerOptions(rpcLog, nil)
-	srv := jrpc2.NewServer(s.methods, opts).Start(ch)
+	assigner := controlRPCAuthAssigner{base: s.methods, auth: newControlRPCConnectionAuth(s.controlRPCAuthToken())}
+	srv := jrpc2.NewServer(assigner, opts).Start(ch)
 	s.addActive(srv, dto.PeerKindTool)
 	defer s.removeActive(srv)
 	s.notifyConnected(srv)
