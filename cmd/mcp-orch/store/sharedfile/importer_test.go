@@ -130,6 +130,7 @@ func unsafeImportCases(sourcePath, sourceDir, symlinkPath, outsideRoot string) [
 		{name: "source_directory", params: ImportLocalFileParams{SourcePath: sourceDir, TargetPath: "dag/run-1/final.mp4"}, want: "directory"},
 		{name: "source_symlink", params: ImportLocalFileParams{SourcePath: symlinkPath, TargetPath: "dag/run-1/final.mp4"}, want: "symlink"},
 		{name: "over_max_bytes", params: ImportLocalFileParams{SourcePath: sourcePath, TargetPath: "dag/run-1/final.mp4", MaxBytes: 4}, want: "max_bytes"},
+		{name: "missing_allowed_source_roots", params: ImportLocalFileParams{SourcePath: sourcePath, TargetPath: "dag/run-1/final.mp4"}, want: "allowed_source_roots"},
 		{name: "outside_allowed_source_roots", params: ImportLocalFileParams{SourcePath: sourcePath, TargetPath: "dag/run-1/final.mp4", AllowedSourceRoots: []string{outsideRoot}}, want: "allowed_source_roots"},
 		{name: "extension_rejected", params: ImportLocalFileParams{SourcePath: sourcePath, TargetPath: "dag/run-1/final.mp4", AllowedExtensions: []string{".mov"}}, want: "allowed_extensions"},
 	}
@@ -156,9 +157,10 @@ func TestImportLocalFile_OverwriteFailRejectsExistingTarget(t *testing.T) {
 	}
 
 	_, err = sfStore.ImportLocalFile(context.Background(), ImportLocalFileParams{
-		SourcePath: sourcePath,
-		TargetPath: targetRel,
-		Overwrite:  "fail",
+		SourcePath:         sourcePath,
+		TargetPath:         targetRel,
+		AllowedSourceRoots: []string{sourceRoot},
+		Overwrite:          "fail",
 	})
 	if err == nil || !strings.Contains(err.Error(), "overwrite") {
 		t.Fatalf("ImportLocalFile() error = %v, want overwrite rejection", err)

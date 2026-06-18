@@ -27,10 +27,15 @@ func BuildManifest(ctx dto.ManifestContext) dto.MCPManifest {
 		serverName := string(fam)
 		if ctx.TransportMode != dto.ManifestTransportStdioOnly {
 			if proxyAddr := strings.TrimSpace(ctx.ProxyHTTPAddr); proxyAddr != "" {
+				var headers map[string]string
+				if token := strings.TrimSpace(ctx.ProxyHTTPToken); token != "" {
+					headers = map[string]string{"Authorization": "Bearer " + token}
+				}
 				bins = append(bins, dto.MCPBinary{
 					Name:        serverName,
 					Type:        "http",
 					URL:         "http://" + proxyAddr + "/mcp/" + string(fam) + "/" + ctx.AgentID,
+					Headers:     headers,
 					AutoApprove: append([]string(nil), autoApprove...),
 				})
 				continue

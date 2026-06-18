@@ -34,6 +34,22 @@ function boolLabel(value) {
   return value ? '1' : '0';
 }
 
+function resolveWailsWebSocketProxyHeaders(env) {
+  const token = (
+    env.SUPER_DOLPHIN_WAILS_WS_TOKEN ||
+    env.GO_AGENT_CTL_SESSION_TOKEN ||
+    env.GO_AGENT_MCP_SESSION_TOKEN ||
+    ''
+  ).trim();
+  if (!token) {
+    return undefined;
+  }
+  if (/[\r\n;]/.test(token)) {
+    throw new Error('wails websocket proxy token must not contain CR, LF, or semicolon');
+  }
+  return { Cookie: `super_dolphin_wails_ws=${token}` };
+}
+
 function resolveFrontendWatchUsePolling(env) {
   const superDolphinPolling = parseFrontendWatchBool(
     'SUPER_DOLPHIN_VITE_USE_POLLING',
@@ -61,6 +77,7 @@ function resolveFrontendWatchUsePolling(env) {
 export function createFrontendViteConfig(env = process.env) {
   const backendAddr = env.SUPER_DOLPHIN_HTTP_ADDR || '127.0.0.1:4512';
   const usePolling = resolveFrontendWatchUsePolling(env);
+  const wailsWebSocketProxyHeaders = resolveWailsWebSocketProxyHeaders(env);
 
   return defineConfig({
     plugins: [react()],
@@ -96,6 +113,7 @@ export function createFrontendViteConfig(env = process.env) {
         '/wails/ws': {
           target: `ws://${backendAddr}`,
           ws: true,
+          ...(wailsWebSocketProxyHeaders ? { headers: wailsWebSocketProxyHeaders } : {}),
         },
         '/generated-image': {
           target: `http://${backendAddr}`,

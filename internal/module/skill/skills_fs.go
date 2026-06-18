@@ -13,19 +13,16 @@ import (
 	"time"
 
 	skillidentity "github.com/anthropic-ai/super-agent-v3/internal/module/skill/identity"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/httpegress"
 )
 
 type skillNotFoundError string
 
 // Error 返回错误文本。
-func (e skillNotFoundError) Error() string {
-	return fmt.Sprintf("skill not found: %s", string(e))
-}
+func (e skillNotFoundError) Error() string { return fmt.Sprintf("skill not found: %s", string(e)) }
 
 // Unwrap 返回底层错误。
-func (skillNotFoundError) Unwrap() error {
-	return os.ErrNotExist
-}
+func (skillNotFoundError) Unwrap() error { return os.ErrNotExist }
 
 func requireCWDOrLog(ctx context.Context, op string) string {
 	cwd, err := requireCWD(ctx)
@@ -448,7 +445,11 @@ func (s *service) deletePersonalLocal(ctx context.Context, name, dir, scope, per
 
 // ReadRemote 读取remote。
 func (s *service) ReadRemote(ctx context.Context, url string) (any, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, strings.TrimSpace(url), nil)
+	targetURL, err := httpegress.ValidatePublicURL(url)
+	if err != nil {
+		return nil, err
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, targetURL, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -458,14 +459,13 @@ func (s *service) ReadRemote(ctx context.Context, url string) (any, error) {
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
-		body, _ := io.ReadAll(io.LimitReader(resp.Body, 8<<10))
-		return nil, fmt.Errorf("fetch remote skill failed status=%d body=%s", resp.StatusCode, strings.TrimSpace(string(body)))
+		return nil, fmt.Errorf("fetch remote skill failed status=%d", resp.StatusCode)
 	}
 	body, err := io.ReadAll(io.LimitReader(resp.Body, maxSkillFileBytes))
 	if err != nil {
 		return nil, err
 	}
-	return map[string]any{"skill": map[string]any{"url": url, "content": string(body)}}, nil
+	return map[string]any{"skill": map[string]any{"url": targetURL, "content": string(body)}}, nil
 }
 
 // WriteRemote 写入remote。

@@ -16,7 +16,7 @@ func TestUploadFileCopiesPDFAndTXTToWorkingDirUploadDir(t *testing.T) {
 	svc := NewService()
 	project := t.TempDir()
 	t.Chdir(project)
-	sourceDir := t.TempDir()
+	sourceDir := datasourceSourceDir(t, project)
 
 	tests := []struct {
 		name    string
@@ -70,7 +70,7 @@ func TestUploadFileOverwritesExistingTargetWithSameName(t *testing.T) {
 	svc := NewService()
 	project := t.TempDir()
 	t.Chdir(project)
-	sourceDir := t.TempDir()
+	sourceDir := datasourceSourceDir(t, project)
 	source := filepath.Join(sourceDir, "测试.txt")
 	if err := os.WriteFile(source, []byte("new datasource content"), 0o600); err != nil {
 		t.Fatalf("write source: %v", err)
@@ -107,7 +107,7 @@ func TestUploadFilePersistsExtractedTextContent(t *testing.T) {
 	svc := NewServiceWithStore(store)
 	project := t.TempDir()
 	t.Chdir(project)
-	sourceDir := t.TempDir()
+	sourceDir := datasourceSourceDir(t, project)
 	source := filepath.Join(sourceDir, "notes.txt")
 	if err := os.WriteFile(source, []byte("plain text source"), 0o600); err != nil {
 		t.Fatalf("write source: %v", err)
@@ -142,7 +142,7 @@ func TestUploadFilePersistsDecodedUTF16TextContent(t *testing.T) {
 	svc := NewServiceWithStore(store)
 	project := t.TempDir()
 	t.Chdir(project)
-	sourceDir := t.TempDir()
+	sourceDir := datasourceSourceDir(t, project)
 	source := filepath.Join(sourceDir, "notes.txt")
 	if err := os.WriteFile(source, utf16LEWithBOM("hello text datasource"), 0o600); err != nil {
 		t.Fatalf("write source: %v", err)
@@ -164,7 +164,7 @@ func TestUploadFileRejectsUnsupportedTextEncoding(t *testing.T) {
 	svc := NewService()
 	project := t.TempDir()
 	t.Chdir(project)
-	sourceDir := t.TempDir()
+	sourceDir := datasourceSourceDir(t, project)
 	source := filepath.Join(sourceDir, "bad.txt")
 	if err := os.WriteFile(source, []byte{0xff, 0xfe, 0xfd}, 0o600); err != nil {
 		t.Fatalf("write source: %v", err)
@@ -186,7 +186,7 @@ func TestUploadFilePersistsExtractedPDFTextContent(t *testing.T) {
 	svc := NewServiceWithStore(store)
 	project := t.TempDir()
 	t.Chdir(project)
-	sourceDir := t.TempDir()
+	sourceDir := datasourceSourceDir(t, project)
 	source := filepath.Join(sourceDir, "manual.pdf")
 	if err := os.WriteFile(source, minimalPDFWithText("Hello PDF datasource"), 0o600); err != nil {
 		t.Fatalf("write source: %v", err)
@@ -208,7 +208,7 @@ func TestUploadFileRejectsUnsupportedExtension(t *testing.T) {
 	svc := NewService()
 	project := t.TempDir()
 	t.Chdir(project)
-	sourceDir := t.TempDir()
+	sourceDir := datasourceSourceDir(t, project)
 	source := filepath.Join(sourceDir, "image.png")
 	if err := os.WriteFile(source, []byte{0x89, 'P', 'N', 'G'}, 0o600); err != nil {
 		t.Fatalf("write source: %v", err)
@@ -230,6 +230,24 @@ func TestUploadFileRequiresSourcePath(t *testing.T) {
 	_, err := svc.UploadFile(context.Background(), UploadFileRequest{})
 	if err == nil || !strings.Contains(err.Error(), "sourcePath is required") {
 		t.Fatalf("missing source path error = %v", err)
+	}
+}
+
+func TestUploadFileRejectsSourceOutsideWorkspace(t *testing.T) {
+	svc := NewService()
+	project := t.TempDir()
+	t.Chdir(project)
+	source := filepath.Join(t.TempDir(), "notes.txt")
+	if err := os.WriteFile(source, []byte("outside workspace"), 0o600); err != nil {
+		t.Fatalf("write source: %v", err)
+	}
+
+	_, err := svc.UploadFile(context.Background(), UploadFileRequest{SourcePath: source})
+	if err == nil || !strings.Contains(err.Error(), "outside workspace") {
+		t.Fatalf("UploadFile() error = %v, want outside workspace rejection", err)
+	}
+	if _, statErr := os.Stat(filepath.Join(project, ".agent", "datasources", "uploads")); !errors.Is(statErr, os.ErrNotExist) {
+		t.Fatalf("upload dir stat error = %v, want not exist", statErr)
 	}
 }
 
@@ -362,6 +380,15 @@ func (s *recordingDatasourceStore) ListDocuments(context.Context, string) ([]Dat
 
 func (s *recordingDatasourceStore) DeleteDocument(context.Context, string, string) error {
 	return nil
+}
+
+func datasourceSourceDir(t *testing.T, project string) string {
+	t.Helper()
+	dir := filepath.Join(project, "source-files")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatalf("create source dir: %v", err)
+	}
+	return dir
 }
 
 func minimalPDFWithText(text string) []byte {

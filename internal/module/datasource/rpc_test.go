@@ -15,7 +15,7 @@ import (
 func TestUploadRPCStoresAllowedFile(t *testing.T) {
 	project := t.TempDir()
 	t.Chdir(project)
-	sourceDir := t.TempDir()
+	sourceDir := datasourceSourceDir(t, project)
 	source := filepath.Join(sourceDir, "source.txt")
 	if err := os.WriteFile(source, []byte("source data"), 0o600); err != nil {
 		t.Fatalf("write source: %v", err)
@@ -44,7 +44,7 @@ func TestUploadRPCStoresAllowedFile(t *testing.T) {
 func TestUploadRPCPersistsTextFileContent(t *testing.T) {
 	project := t.TempDir()
 	t.Chdir(project)
-	sourceDir := t.TempDir()
+	sourceDir := datasourceSourceDir(t, project)
 	source := filepath.Join(sourceDir, "notes.md")
 	if err := os.WriteFile(source, []byte("# Datasource\nbody"), 0o600); err != nil {
 		t.Fatalf("write source: %v", err)

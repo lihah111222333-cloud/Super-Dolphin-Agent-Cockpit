@@ -3,7 +3,6 @@ package workflowtemplate
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -66,13 +65,13 @@ func NewHandlers(svc Service) platformrpc.HandlerMapResult {
 		"workflowTemplates/get": platformrpc.StrictHandler(func(_ context.Context, p getParams) (getResponse, error) {
 			id := p.templateID()
 			if id == "" {
-				return getResponse{}, errors.New("workflowTemplates/get: templateId is required")
+				return getResponse{}, platformrpc.ErrInvalidParams("workflowTemplates/get: templateId is required")
 			}
 			tpl, ok := svc.GetTemplate(id)
 			if !ok {
-				return getResponse{}, errors.New("workflowTemplates/get: template not found")
+				return getResponse{}, platformrpc.ErrNotFound("workflowTemplates/get: template not found")
 			}
-			if err := matchVersion(tpl, p.Version); err != nil {
+			if err := matchVersion("workflowTemplates/get", tpl, p.Version); err != nil {
 				return getResponse{}, err
 			}
 			return getResponse{Template: tpl}, nil
@@ -80,7 +79,14 @@ func NewHandlers(svc Service) platformrpc.HandlerMapResult {
 		"workflowTemplates/renderDag": platformrpc.StrictHandler(func(_ context.Context, p renderParams) (renderResponse, error) {
 			id := p.templateID()
 			if id == "" {
-				return renderResponse{}, errors.New("workflowTemplates/renderDag: templateId is required")
+				return renderResponse{}, platformrpc.ErrInvalidParams("workflowTemplates/renderDag: templateId is required")
+			}
+			tpl, ok := svc.GetTemplate(id)
+			if !ok {
+				return renderResponse{}, platformrpc.ErrNotFound("workflowTemplates/renderDag: template not found")
+			}
+			if err := matchVersion("workflowTemplates/renderDag", tpl, p.Version); err != nil {
+				return renderResponse{}, err
 			}
 			draft, err := svc.RenderDAGDraft(workflowtemplates.RenderRequest{
 				TemplateID:     id,
@@ -91,7 +97,7 @@ func NewHandlers(svc Service) platformrpc.HandlerMapResult {
 				TemplateLocale: p.Locale,
 			})
 			if err != nil {
-				return renderResponse{}, err
+				return renderResponse{}, platformrpc.ErrInvalidParams(err.Error())
 			}
 			return renderResponse{Draft: draft}, nil
 		}),
@@ -115,13 +121,13 @@ func firstNonEmpty(values ...string) string {
 	return ""
 }
 
-func matchVersion(tpl workflowtemplates.Template, version any) error {
+func matchVersion(method string, tpl workflowtemplates.Template, version any) error {
 	got := versionText(version)
 	if got == "" {
 		return nil
 	}
 	if got != strconv.Itoa(tpl.Version) {
-		return fmt.Errorf("workflowTemplates/get: template %q version %s not found", tpl.ID, got)
+		return platformrpc.ErrNotFound(fmt.Sprintf("%s: template %q version %s not found", method, tpl.ID, got))
 	}
 	return nil
 }

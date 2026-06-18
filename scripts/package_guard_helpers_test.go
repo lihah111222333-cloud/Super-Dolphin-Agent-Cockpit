@@ -578,6 +578,15 @@ func readScript(t *testing.T, path string) string {
 	return string(raw)
 }
 
+func readRepoFile(t *testing.T, path string) string {
+	t.Helper()
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read %s: %v", path, err)
+	}
+	return string(raw)
+}
+
 func shellSingleQuoted(value string) string {
 	return "'" + strings.ReplaceAll(value, "'", "'\\''") + "'"
 }

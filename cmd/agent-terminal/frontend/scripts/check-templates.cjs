@@ -3,7 +3,7 @@
 //
 // 用 jsdom 构造浏览器环境，import lib/vue.esm-browser.prod.js 本体的 compile
 // 函数（跟 Wails webview 里加载的是同一份代码），对所有 template 做编译
-// 检查。任何一个 template 编译挂，exit 1 → run-debug.sh abort，窗口不起。
+// 检查。任何一个 template 编译挂，exit 1 → desktop dev launcher abort，窗口不起。
 
 const { JSDOM } = require('jsdom');
 const jsdom = new JSDOM('<!doctype html><html><body></body></html>', {
@@ -138,6 +138,6 @@ function formatError(file, entry, err) {
     console.error(formatError(f.file, f.entry, f.err));
   }
   console.error('');
-  console.error('[check-templates] 修复上述问题后再启动 run-debug.sh');
+  console.error('[check-templates] 修复上述问题后再启动 run-new-ui-desktop.sh 或 run-new-ui-desktop.ps1');
   process.exit(1);
 })();

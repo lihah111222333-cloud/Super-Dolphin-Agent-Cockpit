@@ -3,6 +3,7 @@ package toolbridge
 import (
 	"bytes"
 	"context"
+	"crypto/subtle"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -21,13 +22,14 @@ import (
 )
 
 const (
-	jsonRPCCodeParseError   = -32700
-	jsonRPCCodeInvalidReq   = -32600
-	jsonRPCCodeMethodMiss   = -32601
-	jsonRPCCodeInvalidParam = -32602
-	jsonRPCCodeInternal     = -32603
-	proxyMaxBodyBytes       = 1 << 20
-	proxyToolCallTimeout    = 30 * time.Second
+	jsonRPCCodeParseError    = -32700
+	jsonRPCCodeInvalidReq    = -32600
+	jsonRPCCodeMethodMiss    = -32601
+	jsonRPCCodeInvalidParam  = -32602
+	jsonRPCCodeInternal      = -32603
+	proxyMaxBodyBytes        = 1 << 20
+	proxyToolCallTimeout     = 30 * time.Second
+	proxyAuthorizationHeader = "Authorization"
 )
 
 type proxyJSONRPCRequest struct {
@@ -72,9 +74,35 @@ func (h *Handler) ServeProxy(ln net.Listener) error {
 	return err
 }
 
+func newProxyAuthToken() string {
+	return platformshared.NewID("toolbridge_proxy")
+}
+
+func (h *Handler) authorizeProxyRequest(r *http.Request) bool {
+	if h == nil {
+		return false
+	}
+	token := strings.TrimSpace(h.proxyAuthToken)
+	if token == "" {
+		return true
+	}
+	want := "Bearer " + token
+	got := strings.TrimSpace(r.Header.Get(proxyAuthorizationHeader))
+	return subtle.ConstantTimeCompare([]byte(got), []byte(want)) == 1
+}
+
+func writeProxyUnauthorized(w http.ResponseWriter) {
+	w.Header().Set("WWW-Authenticate", `Bearer realm="toolbridge"`)
+	http.Error(w, "toolbridge proxy authorization required", http.StatusUnauthorized)
+}
+
 // handleProxyRequest 处理proxy请求。
 func (h *Handler) handleProxyRequest(w http.ResponseWriter, r *http.Request) {
 	h.debug("proxy: incoming request", "method", r.Method, "path", r.URL.Path, "remote", r.RemoteAddr)
+	if !h.authorizeProxyRequest(r) {
+		writeProxyUnauthorized(w)
+		return
+	}
 	if r.Method != http.MethodPost {
 		w.WriteHeader(http.StatusMethodNotAllowed)
 		return

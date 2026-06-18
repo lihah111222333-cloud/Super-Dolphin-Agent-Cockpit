@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
@@ -13,9 +14,9 @@ import (
 )
 
 func TestImportTextRPCStoresFileChunks(t *testing.T) {
-	t.Parallel()
-
-	source := filepath.Join(t.TempDir(), "notes.txt")
+	project := t.TempDir()
+	t.Chdir(project)
+	source := filepath.Join(project, "notes.txt")
 	if err := os.WriteFile(source, []byte("hello\nworld\n"), 0o600); err != nil {
 		t.Fatalf("write source: %v", err)
 	}
@@ -50,12 +51,7 @@ func TestImportTextRPCStoresFileChunks(t *testing.T) {
 }
 
 func TestCreateRPCAliasesImportText(t *testing.T) {
-	t.Parallel()
-
-	source := filepath.Join(t.TempDir(), "create.txt")
-	if err := os.WriteFile(source, []byte("created"), 0o600); err != nil {
-		t.Fatalf("write source: %v", err)
-	}
+	source := datasourceV2RPCWorkspaceSource(t, "create.txt", []byte("created"))
 	store := newRecordingDatasourceV2Store()
 	server := newDatasourceV2TestServer(NewService(store))
 	payload, err := json.Marshal(ImportFileTextRequest{SourcePath: source})
@@ -78,12 +74,7 @@ func TestCreateRPCAliasesImportText(t *testing.T) {
 }
 
 func TestCreateRPCStoresExtractedPDFChunks(t *testing.T) {
-	t.Parallel()
-
-	source := filepath.Join(t.TempDir(), "manual.pdf")
-	if err := os.WriteFile(source, minimalPDFWithText("Hello PDF datasource"), 0o600); err != nil {
-		t.Fatalf("write source: %v", err)
-	}
+	source := datasourceV2RPCWorkspaceSource(t, "manual.pdf", minimalPDFWithText("Hello PDF datasource"))
 	store := newRecordingDatasourceV2Store()
 	server := newDatasourceV2TestServer(NewService(store))
 	payload, err := json.Marshal(ImportFileTextRequest{SourcePath: source})
@@ -109,12 +100,7 @@ func TestCreateRPCStoresExtractedPDFChunks(t *testing.T) {
 }
 
 func TestCreateRPCRejectsUnsupportedExtension(t *testing.T) {
-	t.Parallel()
-
-	source := filepath.Join(t.TempDir(), "manual.docx")
-	if err := os.WriteFile(source, []byte("not supported"), 0o600); err != nil {
-		t.Fatalf("write source: %v", err)
-	}
+	source := datasourceV2RPCWorkspaceSource(t, "manual.docx", []byte("not supported"))
 	server := newDatasourceV2TestServer(NewService(newRecordingDatasourceV2Store()))
 	payload, err := json.Marshal(ImportFileTextRequest{SourcePath: source})
 	if err != nil {
@@ -166,11 +152,9 @@ func TestGetDocumentRPCReturnsChunks(t *testing.T) {
 }
 
 func TestUpdateDocumentRPCPersistsMetadata(t *testing.T) {
-	t.Parallel()
-
 	store := newReadyDatasourceV2Store()
 	server := newDatasourceV2TestServer(NewService(store))
-	sourcePath := filepath.Join(t.TempDir(), "updated.text")
+	sourcePath := datasourceV2RPCWorkspaceSource(t, "updated.text", []byte("updated"))
 	payload, err := json.Marshal(UpdateDocumentRequest{
 		DocumentID: 101,
 		SourcePath: sourcePath,
@@ -216,8 +200,6 @@ func TestDeleteDocumentRPCReturnsDocumentID(t *testing.T) {
 }
 
 func TestImportTextRPCRejectsRelativePath(t *testing.T) {
-	t.Parallel()
-
 	server := newDatasourceV2TestServer(NewService(newRecordingDatasourceV2Store()))
 	payload, err := json.Marshal(ImportFileTextRequest{SourcePath: "notes.txt"})
 	if err != nil {
@@ -229,10 +211,28 @@ func TestImportTextRPCRejectsRelativePath(t *testing.T) {
 	}
 }
 
-func TestImportTextRPCPreservesWhitespaceOnlyContent(t *testing.T) {
-	t.Parallel()
+func TestImportTextRPCRejectsSourceOutsideWorkspace(t *testing.T) {
+	project := t.TempDir()
+	t.Chdir(project)
+	source := filepath.Join(t.TempDir(), "notes.txt")
+	if err := os.WriteFile(source, []byte("outside workspace"), 0o600); err != nil {
+		t.Fatalf("write source: %v", err)
+	}
+	server := newDatasourceV2TestServer(NewService(newRecordingDatasourceV2Store()))
+	payload, err := json.Marshal(ImportFileTextRequest{SourcePath: source})
+	if err != nil {
+		t.Fatalf("marshal payload: %v", err)
+	}
 
-	source := filepath.Join(t.TempDir(), "blank.txt")
+	if _, err := server.Dispatch(context.Background(), "datasourceV2/importText", payload); err == nil || !strings.Contains(err.Error(), "outside workspace") {
+		t.Fatalf("Dispatch error = %v, want outside workspace rejection", err)
+	}
+}
+
+func TestImportTextRPCPreservesWhitespaceOnlyContent(t *testing.T) {
+	project := t.TempDir()
+	t.Chdir(project)
+	source := filepath.Join(project, "blank.txt")
 	if err := os.WriteFile(source, []byte(" \n\t"), 0o600); err != nil {
 		t.Fatalf("write source: %v", err)
 	}
@@ -264,6 +264,17 @@ func newDatasourceV2TestServer(svc Service) *platformrpc.Server {
 	server := platformrpc.NewServer(platformrpc.Params{Config: &platformconfig.Config{RPCAddr: "127.0.0.1:0"}})
 	server.Register(NewHandlers(svc).Handlers)
 	return server
+}
+
+func datasourceV2RPCWorkspaceSource(t *testing.T, name string, body []byte) string {
+	t.Helper()
+	project := t.TempDir()
+	t.Chdir(project)
+	source := filepath.Join(project, name)
+	if err := os.WriteFile(source, body, 0o600); err != nil {
+		t.Fatalf("write source: %v", err)
+	}
+	return source
 }
 
 type recordingDatasourceV2Store struct {

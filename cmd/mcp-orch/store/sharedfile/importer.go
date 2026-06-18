@@ -140,7 +140,7 @@ func ensureImportExtension(allowed []string, sourceAbs, targetRel string) error 
 // ensureImportSourceRoot 确保importsource根目录。
 func ensureImportSourceRoot(roots []string, sourceAbs string) error {
 	if len(roots) == 0 {
-		return nil
+		return importValidation("allowed_source_roots is required")
 	}
 	sourceReal, err := filepath.EvalSymlinks(sourceAbs)
 	if err != nil {

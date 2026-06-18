@@ -12,6 +12,7 @@ $script:ViteProcess = $null
 $script:DesktopProcess = $null
 $script:LocalPostgresStarted = $false
 $script:RunLogDir = Join-Path $ProjectDir '.tmp\run-new-ui-desktop'
+$script:DefaultSuperDolphinHome = Join-Path $script:RunLogDir 'super-dolphin-home'
 $script:CleanupDone = $false
 
 function ConvertFrom-DotEnvLine {
@@ -68,6 +69,34 @@ function Set-DefaultEnv {
     if ($null -eq $existing -or $existing.Trim() -eq '') {
         Set-Item -Path "Env:$Name" -Value $Value
     }
+}
+
+function Protect-OwnerOnlyDirectory {
+    param([Parameter(Mandatory)][string]$Path)
+
+    if ([System.Environment]::OSVersion.Platform -ne [System.PlatformID]::Win32NT) { return }
+
+    $userSid = [System.Security.Principal.WindowsIdentity]::GetCurrent().User.Value
+    $grants = @(
+        "*${userSid}:(OI)(CI)F",
+        '*S-1-5-32-544:(OI)(CI)F',
+        '*S-1-5-18:(OI)(CI)F'
+    )
+    $output = & icacls.exe $Path '/inheritance:r' '/grant:r' $grants 2>&1
+    if ($LASTEXITCODE -ne 0) {
+        throw "secure owner-only ACL for ${Path}: $output"
+    }
+}
+
+function Test-SamePath {
+    param(
+        [Parameter(Mandatory)][string]$Left,
+        [Parameter(Mandatory)][string]$Right
+    )
+
+    $leftFull = [IO.Path]::GetFullPath($Left).TrimEnd([IO.Path]::DirectorySeparatorChar, [IO.Path]::AltDirectorySeparatorChar)
+    $rightFull = [IO.Path]::GetFullPath($Right).TrimEnd([IO.Path]::DirectorySeparatorChar, [IO.Path]::AltDirectorySeparatorChar)
+    return [StringComparer]::OrdinalIgnoreCase.Equals($leftFull, $rightFull)
 }
 
 function Add-ProcessPathEntry {
@@ -625,6 +654,9 @@ function Ensure-SqliteRuntime {
         throw "SUPER_DOLPHIN_SQLITE_PATH must include a parent directory: $($env:SUPER_DOLPHIN_SQLITE_PATH)"
     }
     New-Item -ItemType Directory -Force -Path $parent | Out-Null
+    if (Test-SamePath -Left $parent -Right $script:DefaultSuperDolphinHome) {
+        Protect-OwnerOnlyDirectory -Path $parent
+    }
 }
 
 function Stop-StartedProcesses {
@@ -663,7 +695,7 @@ Set-DefaultEnv -Name 'GO_AGENT_PEER_BIN_DIR' -Value $ProjectDir
 Set-DefaultEnv -Name 'SUPER_DOLPHIN_RUNTIME_MODE' -Value 'dev'
 Set-DefaultEnv -Name 'SUPER_DOLPHIN_RUNTIME_RESOURCES_DIR' -Value $ProjectDir
 Set-DefaultEnv -Name 'SUPER_DOLPHIN_DEV_ENTRYPOINT' -Value 'run-new-ui-desktop.ps1'
-Set-DefaultEnv -Name 'SUPER_DOLPHIN_HOME' -Value (Join-Path $env:USERPROFILE '.super-dolphin')
+Set-DefaultEnv -Name 'SUPER_DOLPHIN_HOME' -Value $script:DefaultSuperDolphinHome
 Set-DefaultEnv -Name 'CODEX_HOME' -Value (Join-Path $env:USERPROFILE '.codex')
 Set-DefaultEnv -Name 'SUPER_DOLPHIN_BACKEND_LOG' -Value (Join-Path $script:RunLogDir 'backend.log')
 Set-DefaultEnv -Name 'SUPER_DOLPHIN_FRONTEND_LOG' -Value (Join-Path $script:RunLogDir 'frontend.log')
