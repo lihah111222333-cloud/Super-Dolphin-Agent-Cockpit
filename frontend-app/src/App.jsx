@@ -1120,13 +1120,20 @@ function SidebarProjectTree({ copy = APP_COPY.zh.workbench, projectPath, setActi
       setActivePage('chat');
     }, actionOptions);
   };
-  const selectThread = (threadId, path) => {
+  const selectThread = (thread, path) => {
+    const threadId = typeof thread === 'object' ? thread?.id : thread;
     if (!threadId) return;
+    const openingStarted = store?.beginOpeningThread?.(thread);
     setActivePage('chat');
     runUIAction(async () => {
       if (path && projectTreeKey(path) !== projectTreeKey(activeProjectPath)) {
-        const switched = await store?.setActiveProjectPath?.(path);
-        if (switched === false) return;
+        const switched = await store?.setActiveProjectPath?.(path, {
+          preserveActiveThreadId: true,
+        });
+        if (switched === false) {
+          if (openingStarted) void store?.setActiveThread?.('');
+          return;
+        }
       }
       return store?.setActiveThread?.(threadId);
     }, actionOptions);
@@ -1188,7 +1195,7 @@ function SidebarProjectTree({ copy = APP_COPY.zh.workbench, projectPath, setActi
                         active={active}
                         copy={copy}
                         label={label}
-                        onSelect={() => selectThread(thread.id, item.path)}
+                        onSelect={() => selectThread(thread, item.path)}
                         openLabel={`${copy.openProjectThread}：${label}`}
                         thread={thread}
                         threadActions={threadActions}
@@ -1200,7 +1207,7 @@ function SidebarProjectTree({ copy = APP_COPY.zh.workbench, projectPath, setActi
                       <button
                         type="button"
                         className={`sidebar-project-thread${active ? ' active' : ''}`}
-                        onClick={() => selectThread(thread.id, item.path)}
+                        onClick={() => selectThread(thread, item.path)}
                         aria-label={`${copy.openProjectThread}：${label}`}
                         title={label}
                       >
