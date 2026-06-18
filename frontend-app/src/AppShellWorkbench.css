@@ -485,8 +485,17 @@
   gap: 12px;
 }
 
+.sidebar-project-header {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+
 .sidebar-tree-folder {
-  width: 100%;
+  width: auto;
+  flex: 1 1 auto;
+  min-width: 0;
   border: 0;
   border-radius: 7px;
   padding: 0 8px;
@@ -508,6 +517,16 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.sidebar-project-new-thread {
+  flex: 0 0 auto;
+  opacity: 0.76;
+}
+
+.sidebar-project-new-thread:hover,
+.sidebar-project-new-thread:focus-visible {
+  opacity: 1;
 }
 
 .sidebar-tree-root .sidebar-tree-actions {
