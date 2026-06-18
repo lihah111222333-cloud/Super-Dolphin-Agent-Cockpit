@@ -60,7 +60,7 @@ var lspFileSchema = NewObjectSchema(map[string]schema{
 	"scope":      enumProp("Read mode override (default: function at line). Pass scope=lines to force a line-window read instead of function extraction.", "lines"),
 	"file_path":  stringProp("File path for open_file/diagnostics when pos is not used."),
 	"file_paths": arrayOfStringsProp("Multiple file paths for batch read or diagnostics"),
-	"limit":      integerProp("Max lines to return (default 300 for function mode, 250 for line-window; cap 2000). In function mode this caps the output without switching to line-window."),
+	"limit":      integerProp("Max lines to return (default 300 for function mode, 250 for line-window; cap 2000). Single-file read_file output is budgeted by final text at 50 KiB and may be truncated with a continuation hint."),
 	"work_dir":   lspWorkDirProp(),
 }, "action")
 

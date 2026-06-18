@@ -131,11 +131,33 @@ func (m *manager) WaitDiagnosticsStable(ctx context.Context, uris []string) erro
 	if err := m.refreshExistingDiagnosticTargets(ctx, uris, filter); err != nil {
 		return err
 	}
-	waiter, err := m.newDiagnosticStableWait(ctx, filter, uris)
+	waitCtx, cancel := m.diagnosticsStableWaitContext(ctx)
+	if cancel != nil {
+		defer cancel()
+	}
+	waiter, err := m.newDiagnosticStableWait(waitCtx, filter, uris)
 	if err != nil {
 		return err
 	}
 	return waiter.wait()
+}
+
+// diagnosticsStableWaitContext 给诊断稳定等待设置内部上限，避免外层MCP调用被拖到全局超时。
+func (m *manager) diagnosticsStableWaitContext(ctx context.Context) (context.Context, context.CancelFunc) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	maxWait := m.diagMaxWait
+	if maxWait <= 0 {
+		return ctx, nil
+	}
+	if m.diagPoll > 0 && maxWait < m.diagPoll {
+		maxWait = m.diagPoll
+	}
+	if deadline, ok := ctx.Deadline(); ok && time.Until(deadline) <= maxWait {
+		return ctx, nil
+	}
+	return context.WithTimeout(ctx, maxWait)
 }
 
 // CurrentDiagnosticGeneration 处理当前诊断代际。
