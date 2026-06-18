@@ -9,17 +9,20 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+
+	platformshared "github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 )
 
 var (
-	errMissingSourcePath         = errors.New("datasource: sourcePath is required")
-	errSourcePathMustBeAbsolute  = errors.New("datasource: sourcePath must be absolute")
-	errSourcePathMustBeFile      = errors.New("datasource: sourcePath must be a file")
-	errUnsupportedFileExtension  = errors.New("datasource: unsupported file extension")
-	errUnsupportedTextEncoding   = errors.New("datasource: unsupported text encoding")
-	errInvalidDatasourceFileName = errors.New("datasource: fileName must be a file name")
-	errDeleteTargetMustBeFile    = errors.New("datasource: delete target must be a file")
-	errDatasourceContentEmpty    = errors.New("datasource: extracted content is empty")
+	errMissingSourcePath          = errors.New("datasource: sourcePath is required")
+	errSourcePathMustBeAbsolute   = errors.New("datasource: sourcePath must be absolute")
+	errSourcePathOutsideWorkspace = errors.New("datasource: sourcePath outside workspace")
+	errSourcePathMustBeFile       = errors.New("datasource: sourcePath must be a file")
+	errUnsupportedFileExtension   = errors.New("datasource: unsupported file extension")
+	errUnsupportedTextEncoding    = errors.New("datasource: unsupported text encoding")
+	errInvalidDatasourceFileName  = errors.New("datasource: fileName must be a file name")
+	errDeleteTargetMustBeFile     = errors.New("datasource: delete target must be a file")
+	errDatasourceContentEmpty     = errors.New("datasource: extracted content is empty")
 )
 
 type Service interface {
@@ -311,7 +314,21 @@ func validateUploadRequest(req UploadFileRequest) (string, error) {
 	if !filepath.IsAbs(sourcePath) {
 		return "", errSourcePathMustBeAbsolute
 	}
+	if err := ensureUploadSourceInsideWorkspace(sourcePath); err != nil {
+		return "", err
+	}
 	return sourcePath, nil
+}
+
+func ensureUploadSourceInsideWorkspace(sourcePath string) error {
+	workspaceRoot, err := currentDatasourceWorkspaceRoot()
+	if err != nil {
+		return err
+	}
+	if !platformshared.ContainsPath(workspaceRoot, sourcePath) {
+		return fmt.Errorf("%w: %s", errSourcePathOutsideWorkspace, sourcePath)
+	}
+	return nil
 }
 
 // validateDeleteRequest 校验delete请求。

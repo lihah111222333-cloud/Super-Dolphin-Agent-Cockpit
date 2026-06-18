@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
@@ -13,9 +14,9 @@ import (
 )
 
 func TestImportTextRPCStoresFileChunks(t *testing.T) {
-	t.Parallel()
-
-	source := filepath.Join(t.TempDir(), "notes.txt")
+	project := t.TempDir()
+	t.Chdir(project)
+	source := filepath.Join(project, "notes.txt")
 	if err := os.WriteFile(source, []byte("hello\nworld\n"), 0o600); err != nil {
 		t.Fatalf("write source: %v", err)
 	}
@@ -50,8 +51,6 @@ func TestImportTextRPCStoresFileChunks(t *testing.T) {
 }
 
 func TestImportTextRPCRejectsRelativePath(t *testing.T) {
-	t.Parallel()
-
 	server := newDatasourceV2TestServer(NewService(newRecordingDatasourceV2Store()))
 	payload, err := json.Marshal(ImportFileTextRequest{SourcePath: "notes.txt"})
 	if err != nil {
@@ -63,10 +62,28 @@ func TestImportTextRPCRejectsRelativePath(t *testing.T) {
 	}
 }
 
-func TestImportTextRPCPreservesWhitespaceOnlyContent(t *testing.T) {
-	t.Parallel()
+func TestImportTextRPCRejectsSourceOutsideWorkspace(t *testing.T) {
+	project := t.TempDir()
+	t.Chdir(project)
+	source := filepath.Join(t.TempDir(), "notes.txt")
+	if err := os.WriteFile(source, []byte("outside workspace"), 0o600); err != nil {
+		t.Fatalf("write source: %v", err)
+	}
+	server := newDatasourceV2TestServer(NewService(newRecordingDatasourceV2Store()))
+	payload, err := json.Marshal(ImportFileTextRequest{SourcePath: source})
+	if err != nil {
+		t.Fatalf("marshal payload: %v", err)
+	}
 
-	source := filepath.Join(t.TempDir(), "blank.txt")
+	if _, err := server.Dispatch(context.Background(), "datasourceV2/importText", payload); err == nil || !strings.Contains(err.Error(), "outside workspace") {
+		t.Fatalf("Dispatch error = %v, want outside workspace rejection", err)
+	}
+}
+
+func TestImportTextRPCPreservesWhitespaceOnlyContent(t *testing.T) {
+	project := t.TempDir()
+	t.Chdir(project)
+	source := filepath.Join(project, "blank.txt")
 	if err := os.WriteFile(source, []byte(" \n\t"), 0o600); err != nil {
 		t.Fatalf("write source: %v", err)
 	}
