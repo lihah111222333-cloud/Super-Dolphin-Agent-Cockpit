@@ -152,6 +152,7 @@ func mcpServerRPCError(err error) error {
 		errors.Is(err, errMissingServerURL),
 		errors.Is(err, errInvalidServerURL),
 		errors.Is(err, errMissingServerCommand),
+		errors.Is(err, errUnsupportedStdioCommand),
 		errors.Is(err, errMissingServerArg),
 		errors.Is(err, errMissingServerEnvName),
 		errors.Is(err, errMissingServerEnvValue),
