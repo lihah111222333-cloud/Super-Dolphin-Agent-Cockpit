@@ -118,9 +118,8 @@ function waitForBackendThreadHeading() {
   return screen.findByRole('heading', { name: '后端线程' });
 }
 
-async function openSkillToolsPage() {
-  fireEvent.click(screen.getByLabelText('插件与技能'));
-  fireEvent.click(await screen.findByRole('button', { name: 'Skill工具' }));
+function getSidebarNavButton(name) {
+  return within(screen.getByTestId('sidebar-nav')).getByRole('button', { name });
 }
 
 function getBackendThreadText() {
@@ -735,8 +734,8 @@ async function showAllTraceDashboardEvents() {
     const sidebar = await screen.findByTestId('app-sidebar');
     expect(sidebar).not.toHaveClass('app-sidebar--chat');
 
-    fireEvent.click(screen.getByRole('button', { name: '插件与技能' }));
-    await waitFor(() => expect(screen.getByRole('button', { name: '插件与技能' })).toHaveClass('active'));
+    fireEvent.click(getSidebarNavButton('插件与技能'));
+    await waitFor(() => expect(getSidebarNavButton('插件与技能')).toHaveClass('active'));
     expect(sidebar).not.toHaveClass('app-sidebar--chat');
 
     fireEvent.click(screen.getByRole('button', { name: '新对话' }));
@@ -1766,9 +1765,9 @@ async function toggleInlineTraceFromRecentLogs(table) {
     const workflowButton = await screen.findByRole('button', { name: '自动化' });
     await waitFor(() => expect(workflowButton).toHaveClass('active'));
 
-    fireEvent.click(screen.getByRole('button', { name: '插件与技能' }));
+    fireEvent.click(getSidebarNavButton('插件与技能'));
 
-    await waitFor(() => expect(screen.getByRole('button', { name: '插件与技能' })).toHaveClass('active'));
+    await waitFor(() => expect(getSidebarNavButton('插件与技能')).toHaveClass('active'));
     expect(screen.getByText('当前页面: 插件与技能')).toBeInTheDocument();
     expect(window.location.pathname).toBe('/skills');
   });
@@ -1776,7 +1775,7 @@ async function toggleInlineTraceFromRecentLogs(table) {
   it('writes page navigation to browser history and restores it on popstate', async () => {
     render(<App skipBootstrap />);
 
-    fireEvent.click(screen.getByRole('button', { name: '插件与技能' }));
+    fireEvent.click(getSidebarNavButton('插件与技能'));
     await waitFor(() => expect(window.location.pathname).toBe('/skills'));
 
     fireEvent.click(screen.getByRole('button', { name: '设置' }));
@@ -1787,7 +1786,7 @@ async function toggleInlineTraceFromRecentLogs(table) {
       window.dispatchEvent(new PopStateEvent('popstate', { state: { activePage: 'skills' } }));
     });
 
-    await waitFor(() => expect(screen.getByRole('button', { name: '插件与技能' })).toHaveClass('active'));
+    await waitFor(() => expect(getSidebarNavButton('插件与技能')).toHaveClass('active'));
     expect(screen.getByText('当前页面: 插件与技能')).toBeInTheDocument();
   });
 
@@ -5381,15 +5380,10 @@ async function toggleInlineTraceFromRecentLogs(table) {
     expect(screen.queryByLabelText('命令')).not.toBeInTheDocument();
     expect(screen.getByLabelText('任务')).toHaveTextContent('暂无任务');
 
-    await openSkillToolsPage();
-    expect(await screen.findByText('插件与技能')).toBeInTheDocument();
-    expect(await screen.findByRole('heading', { name: 'Skill工具' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: '新增工具' })).toBeInTheDocument();
-    expect(screen.queryByText('本地技能库')).not.toBeInTheDocument();
-    expect(screen.queryByRole('heading', { name: '后端' })).not.toBeInTheDocument();
-    await waitFor(() => {
-      expect(backend.listSkillTools).toHaveBeenCalledWith({ cwd: '/repo/app', keyword: '', limit: 200 });
-    });
+    fireEvent.click(screen.getByLabelText('插件与技能'));
+    expect(await screen.findByRole('heading', { name: 'MCP工具' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Skill工具' })).not.toBeInTheDocument();
+    expect(backend.listSkillTools).not.toHaveBeenCalled();
     expect(backend.getDashboardPage).not.toHaveBeenCalledWith({ cwd: '/repo/app', page: 'skills' });
     expect(backend.listSkillResolutions).not.toHaveBeenCalled();
 
@@ -8157,7 +8151,7 @@ async function designWorkflowWithAi() {
     });
   });
 
-  it('shows database Skill tools from the Skill tools route', async () => {
+  it('does not expose database Skill tools from the Skills navigation', async () => {
     backend.listSkillTools.mockResolvedValueOnce({
       tools: [{
         id: 7,
@@ -8170,14 +8164,12 @@ async function designWorkflowWithAi() {
     });
     render(<App />);
     await screen.findByLabelText('插件与技能');
-    await openSkillToolsPage();
+    fireEvent.click(screen.getByLabelText('插件与技能'));
 
-    expect(await screen.findByRole('heading', { name: 'Skill工具' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: '新增工具' })).toBeInTheDocument();
-    expect(await screen.findByText('Format Go')).toBeInTheDocument();
-    expect(screen.queryByText('本地技能库')).not.toBeInTheDocument();
-    expect(screen.queryByRole('heading', { name: '后端' })).not.toBeInTheDocument();
-    expect(backend.listSkillTools).toHaveBeenCalledWith({ cwd: '/repo/app', keyword: '', limit: 200 });
+    expect(await screen.findByRole('heading', { name: 'MCP工具' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Skill工具' })).not.toBeInTheDocument();
+    expect(screen.queryByText('Format Go')).not.toBeInTheDocument();
+    expect(backend.listSkillTools).not.toHaveBeenCalled();
     expect(backend.getDashboardPage).not.toHaveBeenCalledWith({ cwd: '/repo/app', page: 'skills' });
     expect(backend.listSkillResolutions).not.toHaveBeenCalled();
   });
