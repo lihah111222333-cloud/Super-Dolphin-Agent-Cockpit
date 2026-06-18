@@ -23,7 +23,7 @@ func TestWaitDiagnosticsStableWaitsForDelayedColdStartDiagnostics(t *testing.T) 
 				WorkspaceRoot:                    root,
 				DiagnosticsInitialDelay:          time.Millisecond,
 				DiagnosticsPollInterval:          time.Millisecond,
-				DiagnosticsMaxWait:               time.Millisecond,
+				DiagnosticsMaxWait:               80 * time.Millisecond,
 				DisableInitialWorkspaceBootstrap: true,
 			})
 			ctx, cancel := context.WithTimeout(common.WithToolScope(context.Background(), common.ToolScope{
@@ -66,7 +66,7 @@ func TestDefinitionWaitsForColdStartDiagnosticsBeforeRequest(t *testing.T) {
 				ClientFactory:                    factory,
 				DiagnosticsInitialDelay:          time.Millisecond,
 				DiagnosticsPollInterval:          time.Millisecond,
-				DiagnosticsMaxWait:               time.Millisecond,
+				DiagnosticsMaxWait:               80 * time.Millisecond,
 				DisableInitialWorkspaceBootstrap: true,
 			}).(*manager)
 			defer func() { _ = mgr.Close() }()
