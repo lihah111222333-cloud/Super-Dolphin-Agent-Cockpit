@@ -1014,6 +1014,7 @@ describe('workbench shell styles', () => {
     const mediumConversation = mediaDeclarationsFor('(max-width: 1180px)', '.sa-window .conversation')[0];
     const mediumComposer = mediaDeclarationsFor('(max-width: 1180px)', '.sa-window .composer')[0];
     const mediumActions = mediaDeclarationsFor('(max-width: 1180px)', '.sa-window .composer-actions')[0];
+    const mediumModel = mediaDeclarationsFor('(max-width: 1180px)', '.sa-window .composer-model')[0];
     const tabletTitle = mediaDeclarationsFor('(max-width: 920px)', '.empty-chat h2')[0];
     const mobileMeta = mediaDeclarationsFor('(max-width: 640px)', '.sa-window .composer-meta')[0];
     const mobileProject = mediaDeclarationFor('(max-width: 640px)', '.sa-window .composer-meta .project-select-wrap', 'grid-column');
@@ -1024,6 +1025,7 @@ describe('workbench shell styles', () => {
     expect(mediumConversation['--conversation-content-width']).toBe('min(100%, calc(100% - 44px))');
     expect(mediumComposer.width).toBe('min(100%, calc(100% - 44px))');
     expect(mediumActions['min-width']).toBe('0');
+    expect(mediumModel['min-width']).toBe('0');
     expect(tabletTitle['white-space']).toBe('normal');
     expect(tabletTitle['overflow-wrap']).toBe('anywhere');
     expect(mobileMeta.display).toBe('grid');
@@ -1062,9 +1064,9 @@ describe('composer control styles', () => {
 
     expect(card.overflow).toBe('visible');
     expect(wrap.position).toBe('relative');
-    expect(wrap.width).toBe('fit-content');
-    expect(wrap['max-width']).toBe('min(150px, 42vw)');
-    expect(button.width).toBe('fit-content');
+    expect(wrap.width).toBe('auto');
+    expect(wrap['max-width']).toBe('min(210px, 100%)');
+    expect(button.width).toBe('100%');
     expect(button.padding).toBe('0 12px');
     expect(dropdown.position).toBe('absolute');
     expect(dropdown.inset).toBe('auto 0 calc(100% + 8px) auto');
@@ -1076,9 +1078,32 @@ describe('composer control styles', () => {
     expect(dropdown.overflow).toBe('visible');
   });
 
+  it('keeps the workbench composer send button visible when model text is long', () => {
+    const actions = topLevelDeclarationsFor('.composer-actions');
+    const wrap = topLevelDeclarationsFor('.composer-model-wrap');
+    const button = topLevelDeclarationsFor('.composer-model');
+    const label = topLevelDeclarationsFor('.composer-model span');
+    const send = topLevelDeclarationsFor('.composer .send');
+
+    expect(actions['min-width']).toBe('0');
+    expect(actions.flex).toBe('1 1 0');
+    expect(actions['justify-content']).toBe('flex-end');
+    expect(wrap.flex).toBe('1 1 auto');
+    expect(wrap['min-width']).toBe('0');
+    expect(wrap['max-width']).toBe('min(210px, 100%)');
+    expect(button.width).toBe('100%');
+    expect(button['min-width']).toBe('0');
+    expect(button['max-width']).toBe('100%');
+    expect(label['min-width']).toBe('0');
+    expect(label.overflow).toBe('hidden');
+    expect(label['text-overflow']).toBe('ellipsis');
+    expect(send.flex).toBe('0 0 42px');
+    expect(send['min-width']).toBe('42px');
+  });
+
   it('keeps attachment controls left while model controls sit on the right', () => {
-    const meta = firstDeclarationsFor('.composer-meta');
-    const actions = firstDeclarationsFor('.composer-actions');
+    const meta = topLevelDeclarationsFor('.composer-meta');
+    const actions = topLevelDeclarationsFor('.composer-actions');
     const provider = firstDeclarationsFor('.composer .provider');
 
     expect(meta['align-items']).toBe('center');
