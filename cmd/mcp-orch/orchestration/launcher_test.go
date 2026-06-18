@@ -309,6 +309,7 @@ func TestRemoteLauncher_SubmitTurn(t *testing.T) {
 }
 
 func TestRemoteLauncher_ReconnectOnStopped(t *testing.T) {
+	t.Setenv("GO_AGENT_CTL_SESSION_TOKEN", "session-secret")
 	addr, accepts := startRPCServer(t, handler.Map{
 		"thread/start": handler.New(func(_ context.Context, _ map[string]any) (map[string]any, error) {
 			return map[string]any{"thread": map[string]any{"id": "thread-1"}}, nil
@@ -607,6 +608,7 @@ func startRPCServerWithOptions(t *testing.T, methods handler.Map, opts *jrpc2.Se
 	if err != nil {
 		t.Fatalf("Listen() error = %v", err)
 	}
+	methods = withLauncherControlMethods(methods)
 	var accepts int32
 	go func() {
 		for {

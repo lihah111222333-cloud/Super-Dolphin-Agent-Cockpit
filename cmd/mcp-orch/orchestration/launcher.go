@@ -16,6 +16,7 @@ import (
 
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/orchestration/processctl"
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
+	mcpdto "github.com/anthropic-ai/super-agent-v3/internal/dto/mcp"
 	turndto "github.com/anthropic-ai/super-agent-v3/internal/dto/turn"
 	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/eventsurface"
@@ -106,16 +107,21 @@ func (l *localLauncher) IsRunning(_ context.Context, agent *agentRuntime) bool {
 }
 
 type remoteLauncher struct {
-	addr      string
-	mu        sync.Mutex
-	client    *jrpc2.Client
-	eventSink remoteLauncherEventSink
+	addr            string
+	mu              sync.Mutex
+	client          *jrpc2.Client
+	eventSink       remoteLauncherEventSink
+	instanceID      string
+	heartbeatCancel context.CancelFunc
 }
+
+const remoteLauncherBinaryName = "mcp-orch-remote-launcher"
+const remoteLauncherInterval = 10 * time.Second
 
 // remoteLauncher 通过 GO_AGENT_CTL_RPC_ADDR 调主控的 thread/* RPC。
 // 它不直接执行 agent，只拿回 thread_id 再交给 service 记录。
 func NewRemoteLauncher(addr string) AgentLauncher {
-	return &remoteLauncher{addr: strings.TrimSpace(addr)}
+	return &remoteLauncher{addr: strings.TrimSpace(addr), instanceID: shared.NewID("mcp_orch_remote_launcher")}
 }
 
 // 复用到主控的 jrpc2 连接；并发重连时只保留一个 client。
@@ -125,29 +131,29 @@ func (r *remoteLauncher) ensureClient(ctx context.Context) (*jrpc2.Client, error
 		return nil, errors.New("remote launcher rpc addr is required")
 	}
 	r.mu.Lock()
+	defer r.mu.Unlock()
 	client := r.client
-	r.mu.Unlock()
 	if client != nil && !client.IsStopped() {
 		return client, nil
 	}
+	r.stopHeartbeatLocked()
+	if client != nil {
+		_ = client.Close()
+	}
+	r.client = nil
 	raw, err := new(net.Dialer).DialContext(ctx, "tcp", r.addr)
 	if err != nil {
 		return nil, err
 	}
-	next := jrpc2.NewClient(channel.Line(raw, raw), &jrpc2.ClientOptions{
-		OnNotify: r.handleNotify,
-	})
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	if client = r.client; client == nil || client.IsStopped() {
-		if client != nil {
-			_ = client.Close()
-		}
-		r.client = next
-		return next, nil
+	next := jrpc2.NewClient(channel.Line(raw, raw), &jrpc2.ClientOptions{OnNotify: r.handleNotify})
+	reg, err := r.registerClient(ctx, next)
+	if err != nil {
+		_ = next.Close()
+		return nil, err
 	}
-	_ = next.Close()
-	return client, nil
+	r.client = next
+	r.startHeartbeatLocked(next, reg)
+	return next, nil
 }
 
 func rpcCall[T any](ctx context.Context, r *remoteLauncher, method string, params any) (out T, err error) {
@@ -158,6 +164,82 @@ func rpcCall[T any](ctx context.Context, r *remoteLauncher, method string, param
 		err = client.CallResult(callCtx, method, params, &out)
 	}
 	return out, err
+}
+
+// registerClient 先完成 control RPC 鉴权，再让同一条连接调用 thread/*。
+// 主控按连接记住认证状态，所以 remoteLauncher 不能只依赖进程级 bootstrap 注册。
+func (r *remoteLauncher) registerClient(ctx context.Context, client *jrpc2.Client) (mcpdto.RegisterResponse, error) {
+	token := remoteLauncherSessionToken()
+	if token == "" {
+		return mcpdto.RegisterResponse{}, errors.New("remote launcher requires GO_AGENT_CTL_SESSION_TOKEN or GO_AGENT_MCP_SESSION_TOKEN")
+	}
+	r.instanceID = shared.FirstTrimmed(r.instanceID, shared.NewID("mcp_orch_remote_launcher"))
+	callCtx, cancel := platformconfig.WithRPCRequestTimeout(ctx)
+	defer cancel()
+	var resp mcpdto.RegisterResponse
+	req := mcpdto.RegisterRequest{InstanceID: r.instanceID, BinaryName: remoteLauncherBinaryName, PID: os.Getpid(), SessionToken: token, ClientKind: mcpdto.ClientKindCustom, PeerKind: mcpdto.PeerKindTool}
+	if err := client.CallResult(callCtx, mcpdto.MethodRegister, req, &resp); err != nil {
+		return mcpdto.RegisterResponse{}, err
+	}
+	resp.InstanceID = shared.FirstTrimmed(resp.InstanceID, req.InstanceID)
+	if resp.Generation == 0 {
+		resp.Generation = resp.AcceptedGeneration
+	}
+	if strings.TrimSpace(resp.InstanceID) == "" || resp.Generation == 0 {
+		return mcpdto.RegisterResponse{}, errors.New("remote launcher: register response missing lease key")
+	}
+	return resp, nil
+}
+
+func remoteLauncherSessionToken() string {
+	if token := strings.TrimSpace(os.Getenv("GO_AGENT_CTL_SESSION_TOKEN")); token != "" {
+		return token
+	}
+	return strings.TrimSpace(os.Getenv("GO_AGENT_MCP_SESSION_TOKEN"))
+}
+
+// startHeartbeatLocked 维持 remoteLauncher 的 control-plane lease。
+// 这条连接还承载 turn/completed 推送，不能等 sweeper 因无心跳把它关闭。
+func (r *remoteLauncher) startHeartbeatLocked(client *jrpc2.Client, reg mcpdto.RegisterResponse) {
+	r.stopHeartbeatLocked()
+	ctx, cancel := context.WithCancel(context.Background())
+	r.heartbeatCancel = cancel
+	lease := mcpdto.LeaseKey{InstanceID: strings.TrimSpace(reg.InstanceID), Generation: reg.Generation}
+	interval := time.Duration(reg.HeartbeatIntervalMs) * time.Millisecond
+	if interval <= 0 {
+		interval = remoteLauncherInterval
+	}
+	go remoteLauncherHeartbeat(ctx, client, lease, interval)
+}
+
+func (r *remoteLauncher) stopHeartbeatLocked() {
+	if r.heartbeatCancel != nil {
+		r.heartbeatCancel()
+		r.heartbeatCancel = nil
+	}
+}
+
+// remoteLauncherHeartbeat 周期性刷新 lease；失败只记录日志，下一次 RPC 会按 stopped client 重连。
+func remoteLauncherHeartbeat(ctx context.Context, client *jrpc2.Client, lease mcpdto.LeaseKey, interval time.Duration) {
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	for seq := uint64(1); ; seq++ {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+		}
+		callCtx, cancel := platformconfig.WithPeerTimeout(ctx, 5*time.Second)
+		var resp mcpdto.HeartbeatResponse
+		err := client.CallResult(callCtx, mcpdto.MethodHeartbeat, mcpdto.HeartbeatRequest{InstanceID: lease.InstanceID, Generation: lease.Generation, HeartbeatSeq: seq, Status: mcpdto.StatusActive}, &resp)
+		cancel()
+		if err != nil {
+			if ctx.Err() != nil || client.IsStopped() {
+				return
+			}
+			pkglogger.Warn("remoteLauncher: heartbeat failed", "lease", lease, "error", err)
+		}
+	}
 }
 
 func rpcString(v any) string {
@@ -303,6 +385,7 @@ func (r *remoteLauncher) SupportsPersistedRuntimeRehydrate() bool {
 func (r *remoteLauncher) Close() error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	r.stopHeartbeatLocked()
 	if r.client == nil {
 		return nil
 	}

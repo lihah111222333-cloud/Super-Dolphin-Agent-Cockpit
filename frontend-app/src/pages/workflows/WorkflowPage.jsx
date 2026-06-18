@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import { isCancelledError, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Workflow, Clock, Bell, BookOpen, BarChart3, ChevronDown, ClipboardList, FileText, Presentation, ShieldCheck, Video } from 'lucide-react';
+import { Workflow, ArrowLeft, Clock, Bell, BarChart3, ClipboardList, FileText, Presentation, ShieldCheck, Video } from 'lucide-react';
 import { APP_COPY } from '../../shared/i18n/appI18n.js';
 import { FocusTrapDialog } from '../../shared/ui/FocusTrapDialog.jsx';
 import { appendCurrentModelOption, dashboardQueryErrorState, dashboardQueryKey, errorMessage, firstText, listToText, numberOrNull, objectValue, optionalSettingsCwd, queryHasSnapshot, SKILLS_REQUEST_TIMEOUT_MS, textValue, withTimeout, wordListFromText } from '../shared/pageShared.js';
@@ -53,12 +53,6 @@ const ENTERPRISE_TEMPLATE_ICON_BY_ID = Object.freeze({
   'government-enterprise/meeting-minutes': Bell,
   'government-enterprise/data-analysis-brief': BarChart3,
   'government-enterprise/approval-material': ShieldCheck,
-});
-
-const ENTERPRISE_TEMPLATE_PRESET_IDS = Object.freeze({
-  dailyBrief: 'government-enterprise/daily-weekly-report',
-  weeklyReview: 'government-enterprise/approval-material',
-  projectMonitor: 'government-enterprise/project-briefing',
 });
 
 const ENTERPRISE_TEMPLATE_DEFAULTS = Object.freeze({
@@ -228,6 +222,7 @@ function enterpriseOptionLabel(option) {
 
 function renderEnterpriseTemplatePreview(template, values = {}) {
   const dagTemplate = objectValue(template?.dag_template || template?.dagTemplate);
+  const finalOutput = objectValue(template?.final_output || template?.finalOutput);
   const nodes = Array.isArray(dagTemplate.nodes) ? dagTemplate.nodes : [];
   return {
     dag_key: renderEnterprisePlaceholders(dagTemplate.dag_key_template || dagTemplate.dagKeyTemplate || enterpriseTemplateId(template), values),
@@ -235,6 +230,7 @@ function renderEnterpriseTemplatePreview(template, values = {}) {
     description: renderEnterprisePlaceholders(dagTemplate.description_template || dagTemplate.descriptionTemplate || enterpriseTemplateDescription(template), values),
     trigger: textValue(dagTemplate.trigger || 'manual'),
     final_node_key: textValue(dagTemplate.final_node_key || dagTemplate.finalNodeKey),
+    final_output: renderEnterpriseValue(finalOutput, values),
     nodes: nodes.map((node) => ({
       node_key: enterpriseNodeKey(node),
       title: renderEnterprisePlaceholders(enterpriseNodeTitle(node), values),
@@ -1055,9 +1051,9 @@ function rootAssigneeWarning(nodes = []) {
   return names ? `首个步骤「${names}」缺少执行者，请先在高级设置中填写执行者。` : '首个步骤缺少执行者，请先在高级设置中填写执行者。';
 }
 
-function WorkflowPage({ copy = APP_COPY.zh.workflow, projectPath, store, refreshKey = 0 }) {
+function WorkflowPage({ copy = APP_COPY.zh.workflow, onWorkflowViewChange, projectPath, store, refreshKey = 0 }) {
   const model = useWorkflowPageController({ projectPath, refreshKey, store });
-  return <WorkflowPageView copy={copy} model={model} />;
+  return <WorkflowPageView copy={copy} model={model} onWorkflowViewChange={onWorkflowViewChange} />;
 }
 
 function useWorkflowPageController({ projectPath, refreshKey, store }) {
@@ -1622,9 +1618,10 @@ function useDispatchDagNodeAction({ actionState, derived, list, notices, refresh
 }
 
 function useStartDesignFlowAction({ actionState, notices, setDesignSession, store, workflowCwd }) {
-  return useCallback(async (template = null) => {
+  return useCallback(async (template = null, options = {}) => {
     if (!workflowCwd) return;
     const isEnterpriseTemplate = Boolean(template);
+    const stayOnWorkflow = Boolean(options.stayOnWorkflow);
     actionState.setActioning('design');
     actionState.setError('');
     notices.clearNotice();
@@ -1632,6 +1629,11 @@ function useStartDesignFlowAction({ actionState, notices, setDesignSession, stor
       setDesignSession?.(enterpriseDesignSessionSnapshot(template, {
         phase: 'starting',
         message: '正在启动 DAG 设计器',
+      }));
+    } else if (stayOnWorkflow) {
+      setDesignSession?.(freeDesignSessionSnapshot({
+        phase: 'starting',
+        message: '正在启动 AI 设计流程',
       }));
     }
     try {
@@ -1669,6 +1671,14 @@ function useStartDesignFlowAction({ actionState, notices, setDesignSession, stor
         }
       }
       if (isEnterpriseTemplate) return;
+      if (stayOnWorkflow) {
+        setDesignSession?.(freeDesignSessionSnapshot({
+          threadId,
+          phase: 'submitted',
+          message: threadId ? 'AI 设计流程已创建，可进入对话继续描述需求。' : 'AI 设计流程已创建。',
+        }));
+        return;
+      }
       if (threadId && typeof store?.setActiveThread === 'function') await store.setActiveThread(threadId);
       if (typeof store?.setActivePage === 'function') store.setActivePage('chat');
     } catch (err) {
@@ -1677,6 +1687,11 @@ function useStartDesignFlowAction({ actionState, notices, setDesignSession, stor
         setDesignSession?.(enterpriseDesignSessionSnapshot(template, {
           phase: 'failed',
           message: '启动政企模板失败：' + errorMessage(err),
+        }));
+      } else if (stayOnWorkflow) {
+        setDesignSession?.(freeDesignSessionSnapshot({
+          phase: 'failed',
+          message: '启动 AI 设计流程失败：' + errorMessage(err),
         }));
       }
     } finally {
@@ -1701,6 +1716,20 @@ function enterpriseDesignSessionSnapshot(template, patch = {}) {
   };
 }
 
+function freeDesignSessionSnapshot(patch = {}) {
+  return {
+    templateKey: 'free-design',
+    templateTitle: '自由设计',
+    outputFormat: 'dag',
+    phases: ['启动设计器', '创建对话', '描述需求', '生成方案', '创建自动化'],
+    phase: 'starting',
+    threadId: '',
+    message: '',
+    startedAt: Date.now(),
+    ...patch,
+  };
+}
+
 function workflowDesignThreadPayload(cwd, launchConfig, launchPayload) {
   return {
     cwd,
@@ -1714,31 +1743,29 @@ function workflowDesignThreadPayload(cwd, launchConfig, launchPayload) {
   };
 }
 
-function AutomationEmptyState({ copy, onSelectTemplate, onStartChat }) {
+function AutomationActionButtons({ copy, onStartChat, onViewTemplates }) {
+  return (
+    <div className="automation-presets-row">
+      <button type="button" className="preset-pill" onClick={onStartChat}>
+        <Workflow size={16} className="preset-icon" />
+        <span>{copy.freeDesignPageTitle}</span>
+      </button>
+      <button type="button" className="preset-pill" onClick={onViewTemplates}>
+        <ClipboardList size={16} className="preset-icon" />
+        <span>{copy.viewTemplates}</span>
+      </button>
+    </div>
+  );
+}
+
+function AutomationEmptyState({ copy, onStartChat, onViewTemplates }) {
   return (
     <div className="automation-empty-state">
       <div className="empty-clock-wrapper">
         <Clock size={40} className="empty-clock-icon" />
       </div>
       <h2>{copy.createFirst}</h2>
-      <div className="automation-presets-row">
-        <button type="button" className="preset-pill" onClick={() => onSelectTemplate(ENTERPRISE_TEMPLATE_PRESET_IDS.dailyBrief)}>
-          <Bell size={16} className="preset-icon bell" />
-          <span>{copy.dailyBrief}</span>
-        </button>
-        <button type="button" className="preset-pill" onClick={() => onSelectTemplate(ENTERPRISE_TEMPLATE_PRESET_IDS.weeklyReview)}>
-          <BookOpen size={16} className="preset-icon doc" />
-          <span>{copy.weeklyReview}</span>
-        </button>
-        <button type="button" className="preset-pill" onClick={() => onSelectTemplate(ENTERPRISE_TEMPLATE_PRESET_IDS.projectMonitor)}>
-          <BarChart3 size={16} className="preset-icon chart" />
-          <span>{copy.projectMonitor}</span>
-        </button>
-        <button type="button" className="preset-pill" onClick={onStartChat}>
-          <Workflow size={16} className="preset-icon" />
-          <span>自由设计</span>
-        </button>
-      </div>
+      <AutomationActionButtons copy={copy} onStartChat={onStartChat} onViewTemplates={onViewTemplates} />
     </div>
   );
 }
@@ -2002,6 +2029,7 @@ function EnterpriseTemplateInput({ commonProps, field, onChange, outputTypes, va
 
 function EnterpriseTemplatePreview({ draft, template }) {
   const nodes = Array.isArray(draft.nodes) ? draft.nodes : [];
+  const finalOutput = objectValue(draft.final_output || draft.finalOutput || template?.final_output || template?.finalOutput);
   return (
     <div className="enterprise-template-preview">
       <div className="enterprise-template-preview-head">
@@ -2018,7 +2046,7 @@ function EnterpriseTemplatePreview({ draft, template }) {
         </div>
         <div>
           <dt>最终输出</dt>
-          <dd>{textValue(template?.final_output?.path_template || template?.finalOutput?.pathTemplate)}</dd>
+          <dd>{textValue(finalOutput.path_template || finalOutput.pathTemplate)}</dd>
         </div>
       </dl>
       <ol className="enterprise-template-preview-nodes">
@@ -2054,11 +2082,12 @@ function EnterpriseDesignProgress({ designSession, store }) {
   if (!designSession) return null;
   const activeIndex = enterpriseDesignPhaseIndex(designSession.phase);
   const canOpenThread = Boolean(designSession.threadId);
+  const title = designSession.templateKey === 'free-design' ? '自由设计进度' : `${designSession.templateTitle}设计进度`;
   return (
     <section className={'enterprise-design-progress enterprise-design-progress-' + designSession.phase} aria-labelledby="enterprise-design-progress-title" role="status">
       <div className="enterprise-design-progress-heading">
         <div>
-          <h2 id="enterprise-design-progress-title">{designSession.templateTitle}设计进度</h2>
+          <h2 id="enterprise-design-progress-title">{title}</h2>
           <p>{designSession.message || '正在准备政企自动化设计。'}</p>
         </div>
         <span>{designSession.outputFormat.toUpperCase()}</span>
@@ -2097,76 +2126,113 @@ async function openEnterpriseDesignThread(store, threadId) {
   if (typeof store?.setActivePage === 'function') store.setActivePage('chat');
 }
 
-function WorkflowPageView({ copy, model }) {
+function WorkflowPageView({ copy, model, onWorkflowViewChange }) {
   const { derived, isProjectPending, list, actions, actionState } = model;
   const isEmpty = !isProjectPending && !derived.blockingLoadError && !list.loading && derived.overviewStats.total === 0;
   const templateSectionRef = useRef(null);
+  const [activeWorkflowView, setActiveWorkflowView] = useState('automation');
   const [selectedTemplateId, setSelectedTemplateId] = useState('');
   const handleViewTemplates = useCallback(() => {
+    setActiveWorkflowView('templates');
+    onWorkflowViewChange?.('templates');
+  }, [onWorkflowViewChange]);
+  const handleSelectTemplate = useCallback((templateId) => {
+    setActiveWorkflowView('templates');
+    onWorkflowViewChange?.('templates');
+    setSelectedTemplateId(templateId);
+  }, [onWorkflowViewChange]);
+  const handleStartFreeDesign = useCallback(() => {
+    setActiveWorkflowView('freeDesign');
+    onWorkflowViewChange?.('freeDesign');
+    void actions.startDesignFlow(null, { stayOnWorkflow: true });
+  }, [actions, onWorkflowViewChange]);
+  const handleReturnAutomation = useCallback(() => {
+    setActiveWorkflowView('automation');
+    onWorkflowViewChange?.('automation');
+    setSelectedTemplateId('');
+  }, [onWorkflowViewChange]);
+
+  useEffect(() => {
+    if (activeWorkflowView !== 'templates') return;
     const section = templateSectionRef.current;
     if (!section) return;
     if (typeof section.scrollIntoView === 'function') section.scrollIntoView({ block: 'start' });
     section.focus();
-  }, []);
-  const handleSelectTemplate = useCallback((templateId) => {
-    setSelectedTemplateId(templateId);
-    handleViewTemplates();
-  }, [handleViewTemplates]);
+  }, [activeWorkflowView, selectedTemplateId]);
+  if (activeWorkflowView === 'templates') {
+    return (
+      <section className="workflow-page">
+        <WorkflowSubpageHeader title={copy.templatePageTitle} onBack={handleReturnAutomation} />
+        <WorkflowMessages copy={copy} model={model} />
+        <EnterpriseWorkflowTemplates
+          onSelectTemplate={handleSelectTemplate}
+          sectionRef={templateSectionRef}
+          selectedTemplateId={selectedTemplateId}
+          templatesState={model.templates}
+        />
+        <EnterpriseTemplateWorkbench
+          onStartTemplate={(template) => actions.startDesignFlow(template)}
+          selectedTemplateId={selectedTemplateId}
+          starting={actionState.actioning === 'design'}
+        />
+        <EnterpriseDesignProgress designSession={model.designSession} store={model.store} />
+        <WorkflowModals model={model} />
+      </section>
+    );
+  }
+
+  if (activeWorkflowView === 'freeDesign') {
+    return (
+      <section className="workflow-page">
+        <WorkflowSubpageHeader title={copy.freeDesignPageTitle} onBack={handleReturnAutomation} />
+        <WorkflowMessages copy={copy} model={model} />
+        <EnterpriseDesignProgress designSession={model.designSession} store={model.store} />
+        <WorkflowModals model={model} />
+      </section>
+    );
+  }
 
   return (
     <section className="workflow-page">
-      <WorkflowHeader copy={copy} model={model} onViewTemplates={handleViewTemplates} />
+      <WorkflowHeader copy={copy} model={model} />
       <WorkflowMessages copy={copy} model={model} />
-      <EnterpriseWorkflowTemplates
-        onSelectTemplate={handleSelectTemplate}
-        sectionRef={templateSectionRef}
-        selectedTemplateId={selectedTemplateId}
-        templatesState={model.templates}
-      />
-      <EnterpriseTemplateWorkbench
-        onStartTemplate={(template) => actions.startDesignFlow(template)}
-        selectedTemplateId={selectedTemplateId}
-        starting={actionState.actioning === 'design'}
-      />
-      <EnterpriseDesignProgress designSession={model.designSession} store={model.store} />
       {isEmpty ? (
-        <AutomationEmptyState copy={copy} onSelectTemplate={handleSelectTemplate} onStartChat={() => { void actions.startDesignFlow(); }} />
+        <AutomationEmptyState copy={copy} onStartChat={handleStartFreeDesign} onViewTemplates={handleViewTemplates} />
       ) : (
-        <WorkflowGrid copy={copy} model={model} />
+        <>
+          <div className="automation-page-actions">
+            <AutomationActionButtons copy={copy} onStartChat={handleStartFreeDesign} onViewTemplates={handleViewTemplates} />
+          </div>
+          <WorkflowGrid copy={copy} model={model} />
+        </>
       )}
       <WorkflowModals model={model} />
     </section>
   );
 }
 
-function WorkflowHeader({ copy, model, onViewTemplates }) {
-  const { actionState, actions, isProjectPending } = model;
+function WorkflowHeader({ copy, model }) {
+  const { isProjectPending } = model;
   return (
     <PageHeader
       icon={Workflow}
       title={copy.title}
-      subtitle={
-        isProjectPending ? copy.connecting : (
-          <span>
-            {copy.subtitle} <button type="button" className="learn-more-link">{copy.learnMore}</button>
-          </span>
-        )
-      }
+      subtitle={isProjectPending ? copy.connecting : ''}
+      actions={null}
+    />
+  );
+}
+
+function WorkflowSubpageHeader({ onBack, title }) {
+  return (
+    <PageHeader
+      icon={Workflow}
+      title={title}
       actions={(
-        <div className="automation-header-actions">
-          <button type="button" className="btn-outline" onClick={onViewTemplates}>
-            {copy.viewTemplates}
-          </button>
-          <button
-            type="button"
-            className="btn-dark"
-            onClick={() => { void actions.startDesignFlow(); }}
-            disabled={isProjectPending || actionState.actioning === 'design'}
-          >
-            <span>{copy.createByChat}</span>
-            <ChevronDown size={14} className="dropdown-arrow-icon" />
-          </button>
-        </div>
+        <button type="button" className="btn-outline workflow-return-button" onClick={onBack}>
+          <ArrowLeft size={16} />
+          <span>返回自动化</span>
+        </button>
       )}
     />
   );
