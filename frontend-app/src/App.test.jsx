@@ -990,6 +990,62 @@ async function showAllTraceDashboardEvents() {
     })));
   });
 
+  it('cancels sidebar project thread rename when starting a new project chat', async () => {
+    backend.getProjects.mockResolvedValue({ projects: ['/repo/app'], active: '/repo/app' });
+    backend.getSidebarState.mockResolvedValue({
+      activeThreadId: 'thread-app',
+      threads: [{ id: 'thread-app', name: 'App project chat', provider: 'codex', status: 'idle', cwd: '/repo/app' }],
+    });
+    backend.setActiveProject.mockResolvedValue({ projects: ['/repo/app'], active: '/repo/app' });
+
+    render(<App />);
+
+    const sidebar = await screen.findByTestId('app-sidebar');
+    const appChats = await within(sidebar).findByRole('list', { name: /app/ });
+    const threadButton = await within(appChats).findByTitle('App project chat');
+    const newProjectThreadButton = within(sidebar).getByRole('button', { name: '新对话 app' });
+
+    fireEvent.doubleClick(threadButton);
+    const renameInput = within(appChats).getByLabelText('会话名称');
+    fireEvent.change(renameInput, {
+      target: { value: 'Unsaved sidebar rename' },
+    });
+    fireEvent.blur(renameInput, { relatedTarget: newProjectThreadButton });
+
+    expect(within(appChats).queryByLabelText('会话名称')).not.toBeInTheDocument();
+
+    fireEvent.click(newProjectThreadButton);
+
+    expect(backend.renameThread).not.toHaveBeenCalled();
+    await waitFor(() => expect(useClientStore.getState()).toEqual(expect.objectContaining({
+      activePage: 'chat',
+      activeThreadId: '',
+    })));
+  });
+
+  it('keeps sidebar project thread rename open when focus moves inside the rename form', async () => {
+    backend.getProjects.mockResolvedValue({ projects: ['/repo/app'], active: '/repo/app' });
+    backend.getSidebarState.mockResolvedValue({
+      activeThreadId: 'thread-app',
+      threads: [{ id: 'thread-app', name: 'App project chat', provider: 'codex', status: 'idle', cwd: '/repo/app' }],
+    });
+
+    render(<App />);
+
+    const sidebar = await screen.findByTestId('app-sidebar');
+    const appChats = await within(sidebar).findByRole('list', { name: /app/ });
+    const threadButton = await within(appChats).findByTitle('App project chat');
+
+    fireEvent.doubleClick(threadButton);
+    const renameInput = within(appChats).getByLabelText('会话名称');
+    const saveButton = within(appChats).getByLabelText('保存会话名称');
+
+    fireEvent.blur(renameInput, { relatedTarget: saveButton });
+
+    expect(within(appChats).getByLabelText('会话名称')).toBeInTheDocument();
+    expect(backend.renameThread).not.toHaveBeenCalled();
+  });
+
   it('keeps cached chats visible when multiple sidebar projects are expanded', async () => {
     backend.getProjects.mockResolvedValue({ projects: ['/repo/app', '/repo/other'], active: '/repo/app' });
     backend.setActiveProject.mockImplementation(({ path }) => Promise.resolve({ projects: ['/repo/app', '/repo/other'], active: path }));
