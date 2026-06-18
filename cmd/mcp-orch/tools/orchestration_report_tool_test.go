@@ -58,6 +58,70 @@ func TestGetAgentReportHandlerWaitsWhenRequested(t *testing.T) {
 	}
 }
 
+func TestGetAgentReportHandlerWaitsForReportAfterSeq(t *testing.T) {
+	ready := make(chan struct{})
+	handler := HandleGetAgentReport(&golden.OrchestrationStub{
+		GetReportFunc: func(_ context.Context, agentID string) (contract.AgentReportResult, error) {
+			select {
+			case <-ready:
+				return contract.AgentReportResult{AgentID: agentID, Report: "new", State: "idle", ReportSeq: 4}, nil
+			default:
+				return contract.AgentReportResult{AgentID: agentID, Report: "old", State: "idle", ReportSeq: 3}, nil
+			}
+		},
+	})
+	time.AfterFunc(75*time.Millisecond, func() { close(ready) })
+
+	started := time.Now()
+	result, err := handler(context.Background(), json.RawMessage(`{"agent_id":"agent-child","wait":true,"after_report_seq":3,"timeout_ms":500}`))
+	if err != nil {
+		t.Fatalf("HandleGetAgentReport() error = %v", err)
+	}
+	if elapsed := time.Since(started); elapsed < 50*time.Millisecond {
+		t.Fatalf("HandleGetAgentReport() returned after %s, want it to wait for a newer report", elapsed)
+	}
+	got := result.(contract.AgentReportResult)
+	if got.Report != "new" || got.ReportSeq != 4 {
+		t.Fatalf("HandleGetAgentReport() = %#v, want new report seq 4", got)
+	}
+}
+
+func TestGetAgentReportHandlerWaitWithoutAfterSeqKeepsOldBehavior(t *testing.T) {
+	handler := HandleGetAgentReport(&golden.OrchestrationStub{
+		GetReportFunc: func(_ context.Context, agentID string) (contract.AgentReportResult, error) {
+			return contract.AgentReportResult{AgentID: agentID, Report: "old", State: "idle", ReportSeq: 3}, nil
+		},
+	})
+
+	started := time.Now()
+	result, err := handler(context.Background(), json.RawMessage(`{"agent_id":"agent-child","wait":true,"timeout_ms":500}`))
+	if err != nil {
+		t.Fatalf("HandleGetAgentReport() error = %v", err)
+	}
+	if elapsed := time.Since(started); elapsed > 100*time.Millisecond {
+		t.Fatalf("HandleGetAgentReport() elapsed = %s, want immediate old behavior", elapsed)
+	}
+	got := result.(contract.AgentReportResult)
+	if got.Report != "old" || got.ReportSeq != 3 {
+		t.Fatalf("HandleGetAgentReport() = %#v, want current report", got)
+	}
+}
+
+func TestGetAgentReportHandlerTimeoutMentionsAfterSeq(t *testing.T) {
+	handler := HandleGetAgentReport(&golden.OrchestrationStub{
+		GetReportFunc: func(_ context.Context, agentID string) (contract.AgentReportResult, error) {
+			return contract.AgentReportResult{AgentID: agentID, Report: "old", State: "idle", ReportSeq: 3}, nil
+		},
+	})
+
+	_, err := handler(context.Background(), json.RawMessage(`{"agent_id":"agent-child","wait":true,"after_report_seq":3,"timeout_ms":50}`))
+	if err == nil ||
+		!strings.Contains(err.Error(), `timed out waiting 50ms for report from agent "agent-child"`) ||
+		!strings.Contains(err.Error(), "after report_seq 3") {
+		t.Fatalf("HandleGetAgentReport() error = %v, want timeout with agent and seq", err)
+	}
+}
+
 func TestGetAgentReportHandlerDefaultsToImmediateSnapshot(t *testing.T) {
 	calls := 0
 	handler := HandleGetAgentReport(&golden.OrchestrationStub{

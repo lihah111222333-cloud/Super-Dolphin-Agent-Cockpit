@@ -249,6 +249,7 @@ var canonicalCodexSurfaceTools = map[string]struct{}{
 	"stop_agent":        {},
 	"list_agents":       {},
 	"get_agent_report":  {},
+	"get_agent_reports": {},
 	ToolNameMemoryRead:  {},
 	ToolNameMemoryWrite: {},
 	ToolNameReadSection: {},

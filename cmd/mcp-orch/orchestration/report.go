@@ -50,14 +50,20 @@ func (s *service) persistedAgentReport(ctx context.Context, agentID string) (Age
 	if err != nil {
 		return AgentReportResult{}, err
 	}
-	report, err := reportstore.ReadPersisted(agentReportFileRecordFromSnapshot(snapshot))
+	report, err := reportstore.ReadPersistedRecord(agentReportFileRecordFromSnapshot(snapshot))
 	if err != nil {
 		if errors.Is(err, reportstore.ErrNotFound) {
 			return AgentReportResult{AgentID: snapshot.AgentID, State: snapshot.State}, fmt.Errorf("%w: persisted report missing for %s", errAgentNotFound, snapshot.AgentID)
 		}
 		return AgentReportResult{}, err
 	}
-	return AgentReportResult{AgentID: snapshot.AgentID, Report: normalizeDisplayReportText(report), State: snapshot.State}, nil
+	return AgentReportResult{
+		AgentID:   snapshot.AgentID,
+		Report:    normalizeDisplayReportText(report.Report),
+		ReportSeq: report.ReportSeq,
+		UpdatedAt: report.UpdatedAt,
+		State:     snapshot.State,
+	}, nil
 }
 
 // RememberReportRequest 处理rememberreport请求。
@@ -115,51 +121,65 @@ func (s *service) reportEventFallbackResult(ctx context.Context, agentID, eventT
 	if strings.TrimSpace(report) == "" && !isRuntimeLossStopEventType(eventType) {
 		return ReportEventResult{}, false
 	}
-	if !s.applyReportEventWithoutRuntime(ctx, agentID, eventType, report) {
+	result, ok := s.applyReportEventWithoutRuntime(ctx, agentID, eventType, report)
+	if !ok {
 		return ReportEventResult{}, false
 	}
-	return ReportEventResult{
-		Success:   true,
-		AgentID:   agentID,
-		EventType: eventType,
-		Report:    report,
-	}, true
+	return result, true
 }
 
-// applyReportEventWithoutRuntime 应用report事件without运行时。
-func (s *service) applyReportEventWithoutRuntime(ctx context.Context, agentID, eventType, report string) bool {
+// applyReportEventWithoutRuntime 在 runtime 丢失时把非空 report 写回单文件，并保留 seq 水位。
+func (s *service) applyReportEventWithoutRuntime(ctx context.Context, agentID, eventType, report string) (ReportEventResult, bool) {
 	snapshot, err := s.persistedAgentSnapshot(ctx, agentID)
 	if err != nil {
-		return false
+		return ReportEventResult{}, false
 	}
+	result := ReportEventResult{Success: true, AgentID: agentID, EventType: eventType, Report: report}
 	wroteReport := strings.TrimSpace(report) != ""
 	if wroteReport {
 		if strings.TrimSpace(snapshot.Cwd) == "" {
-			return false
+			return ReportEventResult{}, false
 		}
-		record := agentReportFileRecordFromSnapshot(snapshot)
-		record.Report = report
+		record, err := s.nextPersistedReportRecord(ctx, snapshot, report)
+		if err != nil {
+			return ReportEventResult{}, false
+		}
 		if s.persistAgentReportFileAndGC(ctx, record) != nil {
-			return false
+			return ReportEventResult{}, false
 		}
+		result.ReportSeq = record.ReportSeq
+		result.UpdatedAt = record.UpdatedAt
 	}
 	if s.agentThreads == nil || !isRuntimeLossStopEventType(eventType) {
-		return wroteReport
+		return result, wroteReport
 	}
 	threadID := strings.TrimSpace(platformshared.FirstNonEmpty(snapshot.ThreadID, agentID))
 	err = s.agentThreads.UpdateStatus(ctx, PersistedThreadStatusUpdate{ThreadID: threadID, Status: "stopped", UpdatedAt: resolveEventTime(ctx).Unix()})
-	return err == nil
+	return result, err == nil
 }
 
 func setReportLocked(ctx context.Context, agent *agentRuntime, report string) {
-	agent.lastReport = strings.TrimSpace(report)
-	agent.updatedAt = resolveEventTime(ctx, agent.updatedAt)
+	report = strings.TrimSpace(report)
+	if agent == nil || report == "" {
+		return
+	}
+	updatedAt := resolveEventTime(ctx)
+	agent.lastReport = report
+	agent.lastReportSeq++
+	agent.lastReportUpdatedAt = updatedAt
+	agent.updatedAt = updatedAt
 }
 
 // persistAgentReportFileAndGC 持久化代理report文件gc。
 func (s *service) persistAgentReportFileAndGC(ctx context.Context, record reportstore.Record) error {
-	if err := reportstore.Persist(record); err != nil || strings.TrimSpace(record.Report) == "" || strings.TrimSpace(record.Cwd) == "" || s == nil || s.agentThreads == nil {
+	if strings.TrimSpace(record.Report) == "" || strings.TrimSpace(record.Cwd) == "" {
+		return nil
+	}
+	if err := reportstore.Persist(record); err != nil {
 		return err
+	}
+	if s == nil || s.agentThreads == nil {
+		return nil
 	}
 	threads, err := s.agentThreads.ListAll(ctx)
 	if err != nil {
@@ -175,10 +195,12 @@ func agentReportFileRecordFromRuntime(agent *agentRuntime) reportstore.Record {
 		return reportstore.Record{}
 	}
 	return reportstore.Record{
-		AgentID: agent.id,
-		Name:    agent.name,
-		Cwd:     agent.cwd,
-		Report:  agent.lastReport,
+		AgentID:   agent.id,
+		Name:      agent.name,
+		Cwd:       agent.cwd,
+		Report:    agent.lastReport,
+		ReportSeq: agent.lastReportSeq,
+		UpdatedAt: agent.lastReportUpdatedAt,
 	}
 }
 
@@ -189,6 +211,18 @@ func agentReportFileRecordFromSnapshot(snapshot AgentSnapshot) reportstore.Recor
 		Cwd:     snapshot.Cwd,
 		Report:  snapshot.LastReport,
 	}
+}
+
+func (s *service) nextPersistedReportRecord(ctx context.Context, snapshot AgentSnapshot, report string) (reportstore.Record, error) {
+	record := agentReportFileRecordFromSnapshot(snapshot)
+	persisted, err := reportstore.ReadPersistedRecord(record)
+	if err != nil && !errors.Is(err, reportstore.ErrNotFound) {
+		return reportstore.Record{}, err
+	}
+	record.Report = report
+	record.ReportSeq = persisted.ReportSeq + 1
+	record.UpdatedAt = resolveEventTime(ctx)
+	return record, nil
 }
 
 // normalizeDisplayReportText 规范化显示report文本。
@@ -256,7 +290,14 @@ func agentReportLocked(agent *agentRuntime) AgentReportResult {
 	if len(requesters) > 0 {
 		metadata = &AgentReportMetadata{RequesterIDs: requesters}
 	}
-	return AgentReportResult{AgentID: agent.id, Report: normalizeDisplayReportText(agent.lastReport), State: string(agent.state), Metadata: metadata}
+	return AgentReportResult{
+		AgentID:   agent.id,
+		Report:    normalizeDisplayReportText(agent.lastReport),
+		ReportSeq: agent.lastReportSeq,
+		UpdatedAt: agent.lastReportUpdatedAt,
+		State:     string(agent.state),
+		Metadata:  metadata,
+	}
 }
 
 func rememberReportRequesterLocked(ctx context.Context, agent *agentRuntime, requesterID string) {

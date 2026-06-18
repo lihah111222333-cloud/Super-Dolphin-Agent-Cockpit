@@ -197,23 +197,34 @@ func sessionGuidanceAgentDelegationItem(enabled map[string]struct{}, flags map[s
 	return "Use `launch_agent` for child agents that should remain available in the UI as persistent conversations, and give them short, user-friendly task names."
 }
 
+// sessionGuidanceManagedAgentDelegationItem 生成父 agent 使用持久子 agent 的精简指引。
+// 这里仅描述单个 context 字段的写法和等待 report 的流程，不扩展工具 schema。
 func sessionGuidanceManagedAgentDelegationItem(enabled map[string]struct{}) string {
 	parts := []string{
 		"When creating a child agent for the user, use `launch_agent` with provider `codex` and a short, user-friendly task name.",
-		"Choose `context_mode=\"minimal\"` for prompt-only work, or `context_mode=\"focused\"` when the child needs caller-selected constraints, files, decisions, or task details.",
-		"In focused mode, pass only necessary context and do not copy the parent conversation history.",
+		"Choose `context_mode=\"minimal\"` for prompt-only work, or `context_mode=\"focused\"` when the child needs caller-selected task details.",
+		"In focused mode, keep one concise `context` field with background, confirmed decisions, relevant file paths, forbidden actions, return format, and known risks.",
+		"Prefer file paths, function names, line numbers, and constraints. Do not paste large code blocks unless the child cannot read them directly, and do not copy the parent conversation history.",
 		"The child agent is a leaf worker and must not delegate again.",
 		"Claude child-agent orchestration is not supported in this version; do not request it.",
 	}
-	if sessionGuidanceToolEnabled(enabled, "get_agent_report", "orchestration_get_agent_report") {
+	hasSingleReport := sessionGuidanceToolEnabled(enabled, "get_agent_report", "orchestration_get_agent_report")
+	hasBatchReport := sessionGuidanceToolEnabled(enabled, "get_agent_reports", "orchestration_get_agent_reports")
+	if hasSingleReport || hasBatchReport {
+		waitTool := "`get_agent_report(wait=true)`"
+		if hasSingleReport && hasBatchReport {
+			waitTool = "`get_agent_report(wait=true)` or `get_agent_reports(wait=true)`"
+		} else if hasBatchReport {
+			waitTool = "`get_agent_reports(wait=true)`"
+		}
 		parts = append(parts,
-			"After launch, use `get_agent_report(wait=true)` with the returned agent_id before reporting that the child is finished.",
+			"After launch, use "+waitTool+" with the returned agent_id before reporting that the child is finished.",
 			"Require the child report Markdown template: first line `状态: success | blocked | failed`, then `结论`, `证据`, `验证`, and `风险/待定`.",
 			"Verify key claims and integrate the report instead of copying it verbatim to the user.",
 		)
 	}
 	if sessionGuidanceToolEnabled(enabled, "send_message") {
-		parts = append(parts, "Use `send_message` only for targeted follow-up to a running child.")
+		parts = append(parts, "Use `send_message(wait_report=true)` only for targeted follow-up to an idle child when you need a new report.")
 	}
 	if sessionGuidanceToolEnabled(enabled, "stop_agent") {
 		parts = append(parts, "Use `stop_agent` only when cancellation is needed.")
