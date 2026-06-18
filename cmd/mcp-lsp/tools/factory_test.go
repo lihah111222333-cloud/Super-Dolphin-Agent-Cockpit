@@ -91,16 +91,12 @@ func TestRenderListResultEmptyEnvelope(t *testing.T) {
 	}
 }
 
-func TestWrapToolHandlerAllowsExplicitAbsoluteWorkDirOutsideWorkspaceRoots(t *testing.T) {
+func TestWrapToolHandlerRejectsExplicitAbsoluteWorkDirOutsideWorkspaceRoots(t *testing.T) {
 	staleRoot := t.TempDir()
 	explicitRoot := t.TempDir()
-	var gotScope common.ToolScope
+	handlerCalled := false
 	handler := wrapToolHandler("file", time.Second, func(ctx context.Context, _ json.RawMessage) (any, error) {
-		var ok bool
-		gotScope, ok = common.ToolScopeFromContext(ctx)
-		if !ok {
-			t.Fatal("ToolScopeFromContext() missing scope")
-		}
+		handlerCalled = true
 		return "ok", nil
 	})
 	payload, err := json.Marshal(map[string]any{
@@ -115,22 +111,11 @@ func TestWrapToolHandlerAllowsExplicitAbsoluteWorkDirOutsideWorkspaceRoots(t *te
 		Family:         "lsp",
 	})
 
-	if _, err := handler(ctx, payload); err != nil {
-		t.Fatalf("handler returned error: %v", err)
+	if _, err := handler(ctx, payload); err == nil || !strings.Contains(err.Error(), "outside workspace roots") {
+		t.Fatalf("handler error = %v, want outside workspace roots rejection", err)
 	}
-	want, err := filepath.EvalSymlinks(explicitRoot)
-	if err != nil {
-		t.Fatalf("eval explicit root: %v", err)
-	}
-	found := false
-	for _, root := range gotScope.WorkspaceRoots {
-		if root == filepath.Clean(want) {
-			found = true
-			break
-		}
-	}
-	if !found {
-		t.Fatalf("workspace roots = %#v, want explicit root %q", gotScope.WorkspaceRoots, want)
+	if handlerCalled {
+		t.Fatalf("handler should not run when work_dir is outside workspace roots")
 	}
 }
 

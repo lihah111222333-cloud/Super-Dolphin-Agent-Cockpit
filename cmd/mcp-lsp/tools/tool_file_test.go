@@ -233,7 +233,7 @@ func (m *readFileBestEffortSymbolManager) DocumentSymbolBestEffort(context.Conte
 	return m.bestEffortSymbols, nil
 }
 
-func TestFileReadAllowsExplicitAbsoluteWorkDirOutsideWorkspaceRoots(t *testing.T) {
+func TestFileReadRejectsExplicitAbsoluteWorkDirOutsideWorkspaceRoots(t *testing.T) {
 	staleRoot := t.TempDir()
 	explicitRoot := t.TempDir()
 	target := filepath.Join(explicitRoot, "sample.txt")
@@ -257,14 +257,10 @@ func TestFileReadAllowsExplicitAbsoluteWorkDirOutsideWorkspaceRoots(t *testing.T
 	})
 
 	got, err := handler(ctx, payload)
-	if err != nil {
-		t.Fatalf("file read returned error: %v", err)
+	if err == nil || !strings.Contains(err.Error(), "outside workspace roots") {
+		t.Fatalf("file read error = %v, want outside workspace roots rejection", err)
 	}
-	text, ok := got.(string)
-	if !ok {
-		t.Fatalf("file read result = %T, want string", got)
-	}
-	if !strings.Contains(text, "needle") {
-		t.Fatalf("file read result = %q, want explicit work_dir file contents", text)
+	if got != nil {
+		t.Fatalf("file read result = %#v, want nil on rejected work_dir", got)
 	}
 }
