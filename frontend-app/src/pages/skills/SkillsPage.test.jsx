@@ -49,7 +49,7 @@ function renderSkillsPage(projectPath = '/repo/app') {
 }
 
 function openSkillTools() {
-  fireEvent.click(screen.getByRole('button', { name: '本地技能库' }));
+  fireEvent.click(screen.getByRole('button', { name: '插件与技能' }));
 }
 
 function getOverviewMetric(overview, label) {
@@ -166,6 +166,8 @@ describe('SkillsPage backend migration', () => {
   it('renders default MCP controls and sends the start and stop RPC actions', async () => {
     renderSkillsPage();
 
+    expect(screen.getByRole('button', { name: '插件与技能' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Skill工具' })).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'MCP工具' }));
 
     expect(await screen.findByRole('heading', { name: 'MCP工具' })).toBeInTheDocument();
@@ -260,7 +262,7 @@ describe('SkillsPage backend migration', () => {
   it('frames the plugin entry around the current local skills surface', async () => {
     renderSkillsPage();
 
-    fireEvent.click(screen.getByRole('button', { name: '本地技能库' }));
+    fireEvent.click(screen.getByRole('button', { name: '插件与技能' }));
 
     expect(await screen.findByRole('heading', { name: '插件与技能' })).toBeInTheDocument();
     expect(screen.getByText('本地运行时')).toBeInTheDocument();
