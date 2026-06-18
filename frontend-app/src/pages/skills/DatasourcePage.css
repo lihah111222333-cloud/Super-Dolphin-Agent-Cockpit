@@ -1,122 +1,283 @@
 .datasource-container {
-  max-width: 780px;
+  max-width: 1040px;
   margin: 0 auto;
-  padding: 22px 0 64px;
+  padding: 20px 0 64px;
   display: flex;
   flex-direction: column;
-  gap: 34px;
+  gap: 18px;
   animation: fadeIn 0.3s ease;
 }
 
 .datasource-header {
   display: flex;
-  flex-direction: column;
-  gap: 12px;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
 }
 
 .datasource-header h1 {
-  font-size: 34px;
-  line-height: 1.12;
+  font-size: 30px;
+  line-height: 1.15;
   font-weight: 760;
   color: var(--text-pri);
   margin: 0;
 }
 
 .datasource-subtitle {
-  font-size: 16px;
+  font-size: 14px;
   color: var(--text-sec);
-  margin: 0;
+  margin: 8px 0 0;
 }
 
-.datasource-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 20px;
-}
-
-@media (max-width: 768px) {
-  .datasource-grid {
-    grid-template-columns: 1fr;
-  }
-}
-
-.datasource-card {
-  background: var(--surface);
+.datasource-icon-button,
+.datasource-actions button {
+  width: 34px;
+  height: 34px;
+  border-radius: 6px;
   border: 1px solid var(--border);
-  border-radius: 12px;
-  padding: 20px;
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-  box-shadow: 0 2px 8px color-mix(in srgb, var(--text-pri) 2%, transparent);
-  transition: all 0.3s cubic-bezier(0.2, 0.8, 0.2, 1);
-}
-
-.datasource-card:hover {
-  transform: translateY(-2px);
-  border-color: var(--border-strong);
-  box-shadow: 0 8px 24px color-mix(in srgb, var(--text-pri) 6%, transparent);
-}
-
-.datasource-card-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-}
-
-.datasource-icon-wrap {
-  width: 46px;
-  height: 46px;
-  border-radius: 10px;
-  display: flex;
+  background: var(--surface);
+  color: var(--text-sec);
+  display: inline-flex;
   align-items: center;
   justify-content: center;
 }
 
-.datasource-status-badge {
+.datasource-icon-button:hover,
+.datasource-actions button:hover {
+  color: var(--text-pri);
+  border-color: var(--border-strong);
+  background: var(--surface-2);
+}
+
+.datasource-import-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: end;
+}
+
+.datasource-path-field,
+.datasource-form-grid label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
   font-size: 12px;
-  font-weight: 600;
+  font-weight: 650;
+  color: var(--text-sec);
+}
+
+.datasource-path-field input,
+.datasource-form-grid input {
+  width: 100%;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--text-pri);
+  font-size: 14px;
+  padding: 10px 12px;
+  outline: none;
+}
+
+.datasource-path-field input[readonly] {
+  cursor: default;
+}
+
+.datasource-path-field input:focus,
+.datasource-form-grid input:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 18%, transparent);
+}
+
+.datasource-import-row button {
+  height: 40px;
+  border-radius: 6px;
+  padding: 0 14px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.datasource-notice,
+.datasource-error {
+  margin: 0;
+  border-radius: 6px;
+  padding: 10px 12px;
+  font-size: 13px;
+}
+
+.datasource-notice {
   color: var(--success);
   background: color-mix(in srgb, var(--success) 8%, var(--surface));
-  padding: 4px 10px;
-  border-radius: 12px;
-  border: 1px solid color-mix(in srgb, var(--success) 20%, transparent);
+  border: 1px solid color-mix(in srgb, var(--success) 24%, transparent);
 }
 
-.datasource-card-body h3 {
-  font-size: 17px;
-  font-weight: 700;
-  color: var(--text-pri);
-  margin: 0 0 8px 0;
+.datasource-error {
+  color: var(--danger);
+  background: color-mix(in srgb, var(--danger) 8%, var(--surface));
+  border: 1px solid color-mix(in srgb, var(--danger) 24%, transparent);
 }
 
-.datasource-card-body p {
-  font-size: 14px;
-  color: var(--text-sec);
-  margin: 0;
-  line-height: 1.5;
+.datasource-table-wrap {
+  overflow-x: auto;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
 }
 
-.datasource-card-footer {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-top: auto;
-  padding-top: 14px;
-  border-top: 1px solid var(--border);
+.datasource-table {
+  width: 100%;
+  border-collapse: collapse;
+  min-width: 760px;
 }
 
-.datasource-meta-tag {
-  font-size: 12px;
-  font-weight: 500;
+.datasource-table th,
+.datasource-table td {
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--border);
+  text-align: left;
+  vertical-align: middle;
+  font-size: 13px;
+}
+
+.datasource-table th {
   color: var(--text-muted);
   background: var(--surface-2);
-  padding: 4px 8px;
-  border-radius: 4px;
+  font-weight: 700;
 }
 
-.datasource-meta-size {
+.datasource-table tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+.datasource-file-cell {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 180px;
+  color: var(--text-pri);
+  font-weight: 650;
+}
+
+.datasource-path-text {
+  display: inline-block;
+  max-width: 360px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-sec);
+}
+
+.datasource-status {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  padding: 3px 8px;
   font-size: 12px;
-  font-weight: 600;
+  font-weight: 700;
+  border: 1px solid transparent;
+}
+
+.datasource-status-ready {
+  color: var(--success);
+  background: color-mix(in srgb, var(--success) 8%, var(--surface));
+  border-color: color-mix(in srgb, var(--success) 24%, transparent);
+}
+
+.datasource-status-pending {
+  color: var(--warning);
+  background: color-mix(in srgb, var(--warning) 10%, var(--surface));
+  border-color: color-mix(in srgb, var(--warning) 24%, transparent);
+}
+
+.datasource-status-failed {
+  color: var(--danger);
+  background: color-mix(in srgb, var(--danger) 8%, var(--surface));
+  border-color: color-mix(in srgb, var(--danger) 24%, transparent);
+}
+
+.datasource-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.datasource-modal {
+  max-width: min(720px, calc(100vw - 32px));
+}
+
+.datasource-detail-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px 16px;
+  margin: 14px 0;
+}
+
+.datasource-detail-grid div {
+  min-width: 0;
+}
+
+.datasource-detail-grid dt {
+  font-size: 12px;
+  font-weight: 700;
   color: var(--text-muted);
+}
+
+.datasource-detail-grid dd {
+  margin: 4px 0 0;
+  color: var(--text-pri);
+  overflow-wrap: anywhere;
+}
+
+.datasource-chunks h3 {
+  margin: 16px 0 8px;
+  font-size: 15px;
+}
+
+.datasource-chunks pre {
+  max-height: 220px;
+  overflow: auto;
+  margin: 0 0 10px;
+  padding: 12px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  color: var(--text-pri);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.datasource-form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin: 12px 0 18px;
+}
+
+.datasource-delete-target {
+  margin: 10px 0 18px;
+  padding: 10px 12px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  color: var(--text-pri);
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 720px) {
+  .datasource-header,
+  .datasource-import-row {
+    grid-template-columns: 1fr;
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .datasource-import-row button,
+  .datasource-icon-button {
+    width: 100%;
+  }
+
+  .datasource-detail-grid,
+  .datasource-form-grid {
+    grid-template-columns: 1fr;
+  }
 }

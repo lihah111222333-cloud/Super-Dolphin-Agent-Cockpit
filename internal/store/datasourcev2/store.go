@@ -11,10 +11,21 @@ import (
 )
 
 type querier interface {
+	ListDatasourceV2Documents(
+		ctx context.Context,
+		arg sqlc.ListDatasourceV2DocumentsParams,
+	) ([]sqlc.DatasourceV2Document, error)
+	GetDatasourceV2Document(ctx context.Context, arg sqlc.GetDatasourceV2DocumentParams) (sqlc.DatasourceV2Document, error)
+	ListDatasourceV2Chunks(ctx context.Context, arg sqlc.ListDatasourceV2ChunksParams) ([]sqlc.DatasourceV2TextChunk, error)
 	UpsertDatasourceV2DocumentImporting(
 		ctx context.Context,
 		arg sqlc.UpsertDatasourceV2DocumentImportingParams,
 	) (sqlc.DatasourceV2Document, error)
+	UpdateDatasourceV2DocumentMetadata(
+		ctx context.Context,
+		arg sqlc.UpdateDatasourceV2DocumentMetadataParams,
+	) (sqlc.DatasourceV2Document, error)
+	DeleteDatasourceV2Document(ctx context.Context, arg sqlc.DeleteDatasourceV2DocumentParams) (int64, error)
 	DeleteDatasourceV2ChunksByDocumentID(
 		ctx context.Context,
 		arg sqlc.DeleteDatasourceV2ChunksByDocumentIDParams,
@@ -34,7 +45,7 @@ type store struct {
 	runInTx txRunner
 }
 
-// NewStore 创建不带事务 runner 的 store，主要用于窄接口单元测试。
+// NewStore creates a datasource_v2 store without a transaction runner for narrow unit tests.
 func NewStore(q *sqlc.Queries) Store {
 	return newStore(q, q, nil)
 }
@@ -43,7 +54,7 @@ func newStore(q querier, queries *sqlc.Queries, runInTx txRunner) Store {
 	return &store{q: q, queries: queries, runInTx: runInTx}
 }
 
-// WithTx 在 SQLite 事务中执行 datasource_v2 写入流程。
+// WithTx runs the datasource_v2 write flow inside a SQLite transaction.
 func (s *store) WithTx(ctx context.Context, fn func(txStore Store) error) error {
 	if fn == nil {
 		return wrapDatasourceV2Error(errors.New("transaction callback is required"), "with_tx")
@@ -57,7 +68,55 @@ func (s *store) WithTx(ctx context.Context, fn func(txStore Store) error) error 
 	return wrapDatasourceV2Error(err, "with_tx")
 }
 
-// UpsertImporting 写入或重置文档元数据为 importing 状态。
+// ListDocuments reads datasource_v2 documents with an explicit limit.
+func (s *store) ListDocuments(ctx context.Context, params ListDocumentsParams) ([]Document, error) {
+	if err := validateListDocumentsParams(params); err != nil {
+		return nil, wrapDatasourceV2Error(err, "list_documents")
+	}
+	rows, err := s.q.ListDatasourceV2Documents(ctx, sqlc.ListDatasourceV2DocumentsParams{
+		Keyword: strings.TrimSpace(params.Keyword),
+		Limit:   int64(params.Limit),
+	})
+	if err != nil {
+		return nil, wrapDatasourceV2Error(err, "list_documents")
+	}
+	docs := make([]Document, 0, len(rows))
+	for _, row := range rows {
+		docs = append(docs, documentFromSQLC(row))
+	}
+	return docs, nil
+}
+
+// GetDocument reads one datasource_v2 document metadata row.
+func (s *store) GetDocument(ctx context.Context, documentID int64) (*Document, error) {
+	if documentID <= 0 {
+		return nil, wrapDatasourceV2Error(errors.New("document id is required"), "get_document")
+	}
+	row, err := s.q.GetDatasourceV2Document(ctx, sqlc.GetDatasourceV2DocumentParams{ID: documentID})
+	if err != nil {
+		return nil, wrapDatasourceV2Error(err, "get_document")
+	}
+	doc := documentFromSQLC(row)
+	return &doc, nil
+}
+
+// ListChunks reads persisted document text chunks in chunk order.
+func (s *store) ListChunks(ctx context.Context, documentID int64) ([]TextChunk, error) {
+	if documentID <= 0 {
+		return nil, wrapDatasourceV2Error(errors.New("document id is required"), "list_chunks")
+	}
+	rows, err := s.q.ListDatasourceV2Chunks(ctx, sqlc.ListDatasourceV2ChunksParams{DocumentID: documentID})
+	if err != nil {
+		return nil, wrapDatasourceV2Error(err, "list_chunks")
+	}
+	chunks := make([]TextChunk, 0, len(rows))
+	for _, row := range rows {
+		chunks = append(chunks, textChunkFromSQLC(row))
+	}
+	return chunks, nil
+}
+
+// UpsertImporting writes or resets document metadata to importing status.
 func (s *store) UpsertImporting(ctx context.Context, params UpsertDocumentParams) (*Document, error) {
 	if err := validateUpsertDocumentParams(params); err != nil {
 		return nil, wrapDatasourceV2Error(err, "upsert_importing")
@@ -75,7 +134,41 @@ func (s *store) UpsertImporting(ctx context.Context, params UpsertDocumentParams
 	return &doc, nil
 }
 
-// DeleteChunks 删除指定文档的旧正文分块。
+// UpdateDocument edits document metadata without touching chunks or ready status.
+func (s *store) UpdateDocument(ctx context.Context, params UpdateDocumentParams) (*Document, error) {
+	if err := validateUpdateDocumentParams(params); err != nil {
+		return nil, wrapDatasourceV2Error(err, "update_document")
+	}
+	row, err := s.q.UpdateDatasourceV2DocumentMetadata(ctx, sqlc.UpdateDatasourceV2DocumentMetadataParams{
+		SourcePath: strings.TrimSpace(params.SourcePath),
+		FileName:   strings.TrimSpace(params.FileName),
+		Extension:  strings.TrimSpace(params.Extension),
+		SizeBytes:  params.SizeBytes,
+		ID:         params.DocumentID,
+	})
+	if err != nil {
+		return nil, wrapDatasourceV2Error(err, "update_document")
+	}
+	doc := documentFromSQLC(row)
+	return &doc, nil
+}
+
+// DeleteDocument deletes a document and its cascade-owned text chunks.
+func (s *store) DeleteDocument(ctx context.Context, documentID int64) error {
+	if documentID <= 0 {
+		return wrapDatasourceV2Error(errors.New("document id is required"), "delete_document")
+	}
+	rows, err := s.q.DeleteDatasourceV2Document(ctx, sqlc.DeleteDatasourceV2DocumentParams{ID: documentID})
+	if err != nil {
+		return wrapDatasourceV2Error(err, "delete_document")
+	}
+	if rows == 0 {
+		return wrapDatasourceV2Error(platformdb.ErrNotFound, "delete_document")
+	}
+	return nil
+}
+
+// DeleteChunks deletes old text chunks for one document.
 func (s *store) DeleteChunks(ctx context.Context, documentID int64) error {
 	if documentID <= 0 {
 		return wrapDatasourceV2Error(errors.New("document id is required"), "delete_chunks")
@@ -86,7 +179,7 @@ func (s *store) DeleteChunks(ctx context.Context, documentID int64) error {
 	return wrapDatasourceV2Error(err, "delete_chunks")
 }
 
-// InsertChunk 写入单个正文分块。
+// InsertChunk persists one text chunk.
 func (s *store) InsertChunk(ctx context.Context, params InsertChunkParams) error {
 	if err := validateInsertChunkParams(params); err != nil {
 		return wrapDatasourceV2Error(err, "insert_chunk")
@@ -100,7 +193,7 @@ func (s *store) InsertChunk(ctx context.Context, params InsertChunkParams) error
 	}), "insert_chunk")
 }
 
-// MarkReady 把文档从 importing 标记为 ready，并记录正文摘要和分块统计。
+// MarkReady marks an importing document ready and writes text summary fields.
 func (s *store) MarkReady(ctx context.Context, params MarkReadyParams) (*Document, error) {
 	if err := validateMarkReadyParams(params); err != nil {
 		return nil, wrapDatasourceV2Error(err, "mark_ready")
@@ -119,8 +212,30 @@ func (s *store) MarkReady(ctx context.Context, params MarkReadyParams) (*Documen
 	return &doc, nil
 }
 
+func validateListDocumentsParams(params ListDocumentsParams) error {
+	if params.Limit <= 0 {
+		return errors.New("limit must be positive")
+	}
+	return nil
+}
+
 func validateUpsertDocumentParams(params UpsertDocumentParams) error {
 	switch {
+	case strings.TrimSpace(params.SourcePath) == "":
+		return errors.New("source path is required")
+	case strings.TrimSpace(params.FileName) == "":
+		return errors.New("file name is required")
+	case params.SizeBytes < 0:
+		return errors.New("size bytes must be non-negative")
+	default:
+		return nil
+	}
+}
+
+func validateUpdateDocumentParams(params UpdateDocumentParams) error {
+	switch {
+	case params.DocumentID <= 0:
+		return errors.New("document id is required")
 	case strings.TrimSpace(params.SourcePath) == "":
 		return errors.New("source path is required")
 	case strings.TrimSpace(params.FileName) == "":
@@ -178,6 +293,18 @@ func documentFromSQLC(row sqlc.DatasourceV2Document) Document {
 		ErrorMessage: stringFromPtr(row.ErrorMessage),
 		CreatedAt:    timeFromMillis(row.CreatedAt),
 		UpdatedAt:    timeFromMillis(row.UpdatedAt),
+	}
+}
+
+func textChunkFromSQLC(row sqlc.DatasourceV2TextChunk) TextChunk {
+	return TextChunk{
+		ID:         row.ID,
+		DocumentID: row.DocumentID,
+		ChunkIndex: row.ChunkIndex,
+		Content:    row.Content,
+		CharCount:  row.CharCount,
+		ByteCount:  row.ByteCount,
+		CreatedAt:  timeFromMillis(row.CreatedAt),
 	}
 }
 
