@@ -85,3 +85,43 @@ func TestEventDispatcherDispatchesCommonErrorEvents(t *testing.T) {
 		t.Fatalf("agent warning = %s", raw)
 	}
 }
+
+func TestEventDispatcherSuppressesRetryProgressErrorEvents(t *testing.T) {
+	var published []any
+	translateCommonRawEvent(dto.RawProviderEvent{
+		EventType: "error",
+		Data: map[string]any{
+			"agentId":   "agent-1",
+			"threadId":  "thread-1",
+			"turnId":    "turn-1",
+			"willRetry": true,
+			"error": map[string]any{
+				"message":           "Reconnecting... 2/5",
+				"additionalDetails": "request timed out",
+			},
+		},
+	}, func(ev any) {
+		published = append(published, ev)
+	})
+	if len(published) != 0 {
+		t.Fatalf("published events = %#v, want retry progress suppressed", published)
+	}
+
+	translateCommonRawEvent(dto.RawProviderEvent{
+		EventType: "error",
+		Data: map[string]any{
+			"agentId":   "agent-1",
+			"threadId":  "thread-1",
+			"turnId":    "turn-1",
+			"willRetry": true,
+			"error": map[string]any{
+				"message": "permission denied",
+			},
+		},
+	}, func(ev any) {
+		published = append(published, ev)
+	})
+	if len(published) != 1 {
+		t.Fatalf("published events = %#v, want non-progress retry error still visible", published)
+	}
+}

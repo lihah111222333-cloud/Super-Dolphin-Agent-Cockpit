@@ -242,6 +242,43 @@ describe('development Wails runtime shim', () => {
     }));
   });
 
+  it('retries event subscriptions when the initial websocket connect is refused', async () => {
+    vi.useFakeTimers();
+    const sockets = [];
+    const callback = vi.fn();
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    vi.stubGlobal('WebSocket', createTestWebSocketClass(sockets));
+
+    const runtime = await importFreshRuntimeShim();
+    runtime.Events.On('bridge-event', callback);
+    expect(sockets).toHaveLength(1);
+
+    sockets[0].error(new Error('connect ECONNREFUSED'));
+    await Promise.resolve();
+    expect(warn).toHaveBeenCalledWith(
+      expect.stringContaining('event bridge unavailable'),
+      expect.objectContaining({ message: expect.stringContaining('failed to connect') }),
+    );
+
+    await vi.advanceTimersByTimeAsync(500);
+    expect(sockets).toHaveLength(2);
+    sockets[1].open();
+    sockets[1].receive({
+      jsonrpc: '2.0',
+      method: 'thread/status/changed',
+      params: { threadId: 'thread-1', status: 'idle' },
+    });
+    await Promise.resolve();
+
+    expect(callback).toHaveBeenCalledWith(expect.objectContaining({
+      name: 'bridge-event',
+      data: expect.objectContaining({
+        method: 'thread/status/changed',
+        payload: expect.objectContaining({ threadId: 'thread-1' }),
+      }),
+    }));
+  });
+
   it('emits failure telemetry and clears pending calls on websocket error after open', async () => {
     const sockets = [];
     const telemetry = vi.fn();

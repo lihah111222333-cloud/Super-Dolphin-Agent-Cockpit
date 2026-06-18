@@ -12,6 +12,7 @@ import (
 	"github.com/creachadair/jrpc2/handler"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
+	"github.com/anthropic-ai/super-agent-v3/internal/module/skill/toolstore"
 	platformrpc "github.com/anthropic-ai/super-agent-v3/internal/platform/rpc"
 )
 
@@ -83,6 +84,12 @@ func skillRPCCommonError(err error) error {
 		return platformrpc.ErrConflict(err.Error())
 	case errors.Is(err, ErrInvalidSkillName), errors.Is(err, ErrInvalidSkillScope), errors.Is(err, ErrSkillSystemScopeRemoved):
 		return platformrpc.ErrInvalidParams(err.Error())
+	case toolstore.InvalidParamsError(err):
+		return platformrpc.ErrInvalidParams(err.Error())
+	case errors.Is(err, toolstore.ErrStoreNotConfigured):
+		return platformrpc.ErrInvalidState(err.Error())
+	case errors.Is(err, toolstore.ErrNotFound):
+		return platformrpc.ErrNotFound(err.Error())
 	default:
 		return nil
 	}
@@ -109,6 +116,12 @@ func NewSkillHandlers(deps skillHandlerDeps) platformrpc.HandlerMapResult {
 	return newSkillHandlers(deps.Service, deps.DreamExecutor)
 }
 
+// NewHandlersForService 为测试和轻量装配暴露 skill handler 注册表。
+// 生产路径仍通过 NewSkillHandlers 接收 fx 依赖。
+func NewHandlersForService(svc Service, dreams ...contract.DreamExecutor) platformrpc.HandlerMapResult {
+	return newSkillHandlers(svc, dreams...)
+}
+
 func newSkillHandlers(svc Service, dreams ...contract.DreamExecutor) platformrpc.HandlerMapResult {
 	var dream contract.DreamExecutor
 	if len(dreams) > 0 {
@@ -118,6 +131,7 @@ func newSkillHandlers(svc Service, dreams ...contract.DreamExecutor) platformrpc
 		skillCoreHandlers(svc),
 		skillLocalHandlers(svc),
 		skillRemoteHandlers(svc),
+		skillToolHandlers(svc),
 		skillPreviewHandlers(svc),
 		skillResolutionHandlers(svc),
 		skillSummarySuggestHandlers(dream),
@@ -153,6 +167,14 @@ func skillLocalHandlers(svc Service) handler.Map {
 		"skills/local/delete":    platformrpc.StrictHandler(skillLocalDeleteHandler(svc)),
 		"skills/create":          platformrpc.StrictHandler(skillCreateHandler(svc)),
 	}
+}
+
+func skillToolHandlers(svc Service) handler.Map {
+	impl, ok := svc.(*service)
+	if !ok || impl == nil {
+		return toolstore.Handlers(nil, nil, skillRPCError)
+	}
+	return toolstore.Handlers(impl.skillTools, impl.resolveSkillToolCWD, skillRPCError)
 }
 
 // skillCreateHandler is the host/UI RPC wrapper for project-scope skill

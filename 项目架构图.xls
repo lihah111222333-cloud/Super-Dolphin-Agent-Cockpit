@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<style>
+  body { font-family: Microsoft YaHei, Arial, sans-serif; }
+  h1 { color: #1f4e79; }
+  table { border-collapse: collapse; width: 100%; }
+  th { background: #1f4e79; color: white; font-weight: bold; }
+  td, th { border: 1px solid #999; padding: 8px; vertical-align: top; }
+  .layer { background: #ddebf7; font-weight: bold; }
+  .note { color: #666; }
+</style>
+</head>
+<body>
+<h1>Super-Dolphin 项目架构图</h1>
+<p class="note">基于 README.md 与 docs/doc/codemap 当前内容整理。</p>
+
+<h2>一、总体架构</h2>
+<table>
+<tr><th>层级</th><th>主要目录 / 组件</th><th>职责</th><th>上游 / 下游关系</th></tr>
+<tr><td class="layer">UI 与入口层</td><td>frontend-app<br/>cmd/agent-terminal<br/>cmd/agent-terminal/frontend</td><td>React/Vite 新 UI、Wails 桌面宿主、HTTP/RPC Bridge、Legacy Vue 嵌入前端</td><td>用户 → frontend-app → cmd/agent-terminal</td></tr>
+<tr><td class="layer">应用组装层</td><td>internal/app<br/>internal/contract</td><td>Fx 根装配；定义跨模块窄接口、DTO、错误边界</td><td>cmd/agent-terminal → internal/app → modules/platform/store/provider</td></tr>
+<tr><td class="layer">业务模块层</td><td>internal/module/dashboard<br/>internal/module/thread<br/>internal/module/turn<br/>internal/module/prompt<br/>internal/module/memory<br/>internal/module/skill<br/>internal/module/cron<br/>internal/module/uistate</td><td>dashboard 聚合、线程生命周期、回合编排、提示词组装、记忆、技能、定时任务、UI 投影</td><td>RPC/UI/Orchestration → internal/module/* → contract/store/provider</td></tr>
+<tr><td class="layer">基础设施层</td><td>internal/platform/config<br/>db<br/>bus<br/>rpc<br/>hooks<br/>mcpcontrol<br/>toolbridge<br/>runner</td><td>配置、SQLite、事件总线、jrpc2、Hooks、MCP 控制面、Host-direct tools、生命周期管理</td><td>业务模块与 provider 共享的基础设施</td></tr>
+<tr><td class="layer">Provider 集成层</td><td>internal/provider/unified<br/>internal/provider/claudecli<br/>internal/provider/codexapp</td><td>统一 provider 编排；适配 CLI 子进程与 WebSocket JSON-RPC 会话</td><td>thread/turn → unified → claudecli/codexapp → 事件回流 bus</td></tr>
+<tr><td class="layer">持久化层</td><td>internal/store<br/>SQLite super-dolphin.db</td><td>sqlc-backed 数据访问；保存 thread、prompt、memory、cron、sharedfile、tasktrace 等数据</td><td>modules/platform/mcp-orch → store → SQLite</td></tr>
+<tr><td class="layer">MCP / Sidecar</td><td>cmd/mcp-orch<br/>cmd/mcp-lsp<br/>cmd/mcp-ida</td><td>Agent 编排、DAG、workspace、sharedfile tools、多语言 LSP、IDA MCP peer</td><td>provider/tool runtime ↔ MCP sidecars ↔ desktop host</td></tr>
+</table>
+
+<h2>二、核心链路</h2>
+<table>
+<tr><th>步骤</th><th>调用链</th><th>说明</th></tr>
+<tr><td>1</td><td>用户 → frontend-app</td><td>用户在当前 React/Vite 新 UI 输入消息或操作。</td></tr>
+<tr><td>2</td><td>frontend-app → cmd/agent-terminal</td><td>通过 HTTP/RPC Bridge 进入 Wails 桌面宿主。</td></tr>
+<tr><td>3</td><td>cmd/agent-terminal → internal/app</td><td>Fx 根组装层连接 platform、store、module、provider。</td></tr>
+<tr><td>4</td><td>thread/turn → prompt + memory + skill</td><td>线程/回合模块组装输入、提示词快照、记忆和技能上下文。</td></tr>
+<tr><td>5</td><td>thread/turn → provider/unified</td><td>统一 provider 客户端解析并启动具体 provider 会话。</td></tr>
+<tr><td>6</td><td>provider → claudecli/codexapp</td><td>Claude CLI 使用 stdio stream-json；Codex App 使用 WebSocket JSON-RPC。</td></tr>
+<tr><td>7</td><td>provider events → bus → RPC/UI</td><td>provider 事件转成统一 DTO，经事件总线和 PushBridge 回到前端。</td></tr>
+<tr><td>8</td><td>modules/store → SQLite</td><td>线程、回合、binding、prompt、memory、DAG 等状态持久化。</td></tr>
+</table>
+
+<h2>三、简化 ASCII 图</h2>
+<pre>
+用户
+ │
+ ▼
+frontend-app ──▶ cmd/agent-terminal ──▶ internal/app + internal/contract
+                              │
+          ┌───────────────────┼───────────────────┐
+          ▼                   ▼                   ▼
+ internal/module        internal/platform     internal/store ──▶ SQLite
+ thread/turn/prompt     bus/rpc/db/hooks      sqlc stores
+ memory/skill/cron            │
+          │                   ▼
+          └──────────▶ internal/provider/unified
+                              │
+                  ┌───────────┴───────────┐
+                  ▼                       ▼
+          claudecli provider        codexapp provider
+          CLI + stdio               WS JSON-RPC
+
+Sidecars: cmd/mcp-orch / cmd/mcp-lsp / cmd/mcp-ida
+</pre>
+</body>
+</html>

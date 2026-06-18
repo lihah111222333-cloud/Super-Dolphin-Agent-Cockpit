@@ -1,0 +1,207 @@
+package datasourcev2
+
+import (
+	"bufio"
+	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"errors"
+	"fmt"
+	"io"
+	"math"
+	"os"
+	"strings"
+	"unicode"
+	"unicode/utf8"
+
+	datasourcev2store "github.com/anthropic-ai/super-agent-v3/internal/store/datasourcev2"
+)
+
+// writeSourceChunks 根据白名单后缀选择文本或 PDF 抽取路径。
+// 所有格式最终都写成 UTF-8 文本分块，后续入库和摘要逻辑保持一致。
+func writeSourceChunks(
+	ctx context.Context,
+	source importSource,
+	documentID int64,
+	store datasourcev2store.Store,
+) (summary chunkWriteSummary, err error) {
+	if source.extension == ".pdf" {
+		return writePDFChunks(ctx, source.path, documentID, store)
+	}
+	return writeTextChunks(ctx, source.path, documentID, store)
+}
+
+// writeTextChunks 打开源文件并把 UTF-8 正文流式写成数据库分块。
+// 文件关闭错误也会返回给调用方，确保导入成功只代表读取链路完整结束。
+func writeTextChunks(
+	ctx context.Context,
+	sourcePath string,
+	documentID int64,
+	store datasourcev2store.Store,
+) (summary chunkWriteSummary, err error) {
+	file, err := os.Open(sourcePath)
+	if err != nil {
+		return chunkWriteSummary{}, fmt.Errorf("open source file: %w", err)
+	}
+	defer func() {
+		if closeErr := file.Close(); closeErr != nil && err == nil {
+			err = fmt.Errorf("close source file: %w", closeErr)
+		}
+	}()
+
+	writer := newChunkWriter(documentID, store)
+	reader := bufio.NewReaderSize(file, datasourceV2ChunkTargetBytes)
+	if err := writeReaderRunes(ctx, reader, writer); err != nil {
+		return chunkWriteSummary{}, err
+	}
+	if err := writer.flush(ctx); err != nil {
+		return chunkWriteSummary{}, err
+	}
+	return writer.summary()
+}
+
+// writePDFChunks 先抽取 PDF 文本，再复用分块写入器入库。
+// PDF 没有可抽取文本时直接返回错误，避免把空数据源标记为 ready。
+func writePDFChunks(
+	ctx context.Context,
+	sourcePath string,
+	documentID int64,
+	store datasourcev2store.Store,
+) (chunkWriteSummary, error) {
+	text, err := extractPDFText(sourcePath)
+	if err != nil {
+		return chunkWriteSummary{}, err
+	}
+	writer := newChunkWriter(documentID, store)
+	reader := bufio.NewReaderSize(strings.NewReader(text), datasourceV2ChunkTargetBytes)
+	if err := writeReaderRunes(ctx, reader, writer); err != nil {
+		return chunkWriteSummary{}, err
+	}
+	if err := writer.flush(ctx); err != nil {
+		return chunkWriteSummary{}, err
+	}
+	return writer.summary()
+}
+
+// writeReaderRunes 按 UTF-8 rune 流式读取文件并交给 chunkWriter 聚合。
+// 它不缓存整篇文本；遇到非法编码会立即返回错误并中断导入。
+func writeReaderRunes(ctx context.Context, reader *bufio.Reader, writer *chunkWriter) error {
+	for {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		r, done, err := readTextRune(reader)
+		if err != nil {
+			return err
+		}
+		if done {
+			return nil
+		}
+		if err := writer.writeRune(ctx, r); err != nil {
+			return err
+		}
+	}
+}
+
+func readTextRune(reader *bufio.Reader) (rune, bool, error) {
+	r, size, err := reader.ReadRune()
+	if errors.Is(err, io.EOF) {
+		return 0, true, nil
+	}
+	if err != nil {
+		return 0, false, fmt.Errorf("read source file: %w", err)
+	}
+	if r == unicode.ReplacementChar && size == 1 {
+		return 0, false, errDatasourceV2InvalidUTF8
+	}
+	return r, false, nil
+}
+
+type chunkWriter struct {
+	documentID int64
+	store      datasourcev2store.Store
+	hash       hashWriter
+	builder    strings.Builder
+	chunkIndex int32
+	chunkBytes int32
+	chunkChars int32
+	totalChars int32
+}
+
+type hashWriter interface {
+	Write([]byte) (int, error)
+	Sum([]byte) []byte
+}
+
+func newChunkWriter(documentID int64, store datasourcev2store.Store) *chunkWriter {
+	return &chunkWriter{
+		documentID: documentID,
+		store:      store,
+		hash:       sha256.New(),
+	}
+}
+
+// writeRune 把一个合法 UTF-8 rune 追加到当前分块，并同步更新摘要。
+// 当前分块达到目标字节数时会立即 flush，避免大文件长期占用内存。
+func (w *chunkWriter) writeRune(ctx context.Context, r rune) error {
+	if w.chunkChars == math.MaxInt32 || w.totalChars == math.MaxInt32 {
+		return errDatasourceV2TextTooLarge
+	}
+	var encoded [utf8.UTFMax]byte
+	encodedBytes := utf8.EncodeRune(encoded[:], r)
+	if encodedBytes > math.MaxInt32-int(w.chunkBytes) {
+		return errDatasourceV2TextTooLarge
+	}
+	if _, err := w.hash.Write(encoded[:encodedBytes]); err != nil {
+		return err
+	}
+	w.builder.WriteRune(r)
+	w.chunkBytes += int32(encodedBytes)
+	w.chunkChars++
+	if w.chunkBytes >= datasourceV2ChunkTargetBytes {
+		return w.flush(ctx)
+	}
+	return nil
+}
+
+// flush 将当前分块写入数据库并重置内存缓冲。
+// 分块序号和总字符数在这里推进，防止写库失败时本地状态先行变化。
+func (w *chunkWriter) flush(ctx context.Context) error {
+	if w.chunkChars == 0 {
+		return nil
+	}
+	if int64(w.totalChars)+int64(w.chunkChars) > math.MaxInt32 {
+		return errDatasourceV2TextTooLarge
+	}
+	if w.chunkIndex == math.MaxInt32 {
+		return errDatasourceV2TextTooLarge
+	}
+	if err := w.store.InsertChunk(ctx, datasourcev2store.InsertChunkParams{
+		DocumentID: w.documentID,
+		ChunkIndex: w.chunkIndex,
+		Content:    w.builder.String(),
+		CharCount:  w.chunkChars,
+		ByteCount:  w.chunkBytes,
+	}); err != nil {
+		return err
+	}
+	w.totalChars += w.chunkChars
+	w.chunkIndex++
+	w.builder.Reset()
+	w.chunkBytes = 0
+	w.chunkChars = 0
+	return nil
+}
+
+// summary 返回整篇文件的摘要和分块统计。
+// 没有写入任何分块说明文件没有可用正文，调用方必须把导入视为失败。
+func (w *chunkWriter) summary() (chunkWriteSummary, error) {
+	if w.chunkIndex == 0 {
+		return chunkWriteSummary{}, errDatasourceV2ContentEmpty
+	}
+	return chunkWriteSummary{
+		contentHash: "sha256:" + hex.EncodeToString(w.hash.Sum(nil)),
+		chunkCount:  w.chunkIndex,
+		totalChars:  w.totalChars,
+	}, nil
+}
