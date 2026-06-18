@@ -754,12 +754,11 @@ function explicitThreadReplacementIds(thread, requestedId) {
 
 function upsertExplicitThread(threads, thread, requestedId) {
   const ids = explicitThreadReplacementIds(thread, requestedId);
-  const existing = threads.find((candidate) => ids.some((id) => threadMatchesIdentifier(candidate, id)));
-  const merged = existing ? { ...existing, ...thread } : thread;
-  return [
-    merged,
-    ...threads.filter((candidate) => !ids.some((id) => threadMatchesIdentifier(candidate, id))),
-  ];
+  const existingIndex = threads.findIndex((candidate) => ids.some((id) => threadMatchesIdentifier(candidate, id)));
+  if (existingIndex < 0) return [...threads, thread];
+  return threads.map((candidate, index) => (
+    index === existingIndex ? { ...candidate, ...thread } : candidate
+  ));
 }
 
 function pickThreadScopedEntry(map = {}, threadId = '') {
