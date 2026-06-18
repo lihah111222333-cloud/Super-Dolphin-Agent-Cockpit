@@ -179,9 +179,11 @@ export function useRuntimeSidePanelLayout({ activeThreadId, railWidth, store, vi
 function useRuntimePanelWidthSync({ maxWidth, open, resizedRef, setOpen, store, viewportWidth }) {
   useEffect(() => {
     if (!open) return;
-    const targetWidth = resizedRef.current
-      ? clampWidth(store.rightPanelWidth, 0, maxWidth)
-      : clampWidth(rightPanelDefaultWidth(viewportWidth), 0, maxWidth);
+    const savedWidth = clampWidth(store.rightPanelWidth, 0, maxWidth);
+    const defaultWidth = clampWidth(rightPanelDefaultWidth(viewportWidth), 0, maxWidth);
+    const targetWidth = resizedRef.current && savedWidth > RIGHT_PANEL_CLOSE_THRESHOLD
+      ? savedWidth
+      : defaultWidth;
     if (targetWidth <= 0) {
       store.setRightPanelWidth?.(0);
       setOpen(false);

@@ -3916,6 +3916,35 @@ async function toggleInlineTraceFromRecentLogs(table) {
     });
   });
 
+  it('reopens the right sidebar at its default width after dragging it flush to the right edge', async () => {
+    Object.defineProperty(window, 'innerWidth', { configurable: true, value: 1980 });
+
+    render(<App />);
+    await waitForBackendThreadHeading();
+
+    const layout = screen.getByTestId('chat-layout');
+
+    fireEvent.click(screen.getByRole('button', { name: '显示侧边栏' }));
+    const rightResizer = screen.getByTestId('right-panel-resizer');
+
+    dispatchPointer(rightResizer, 'pointerdown', 1100);
+    dispatchPointer(window, 'pointermove', 1480);
+
+    await waitFor(() => {
+      expect(screen.queryByTestId('runtime-panel')).not.toBeInTheDocument();
+      expect(useClientStore.getState().rightPanelWidth).toBe(0);
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: '显示侧边栏' }));
+
+    await waitFor(() => {
+      expect(screen.getByTestId('runtime-panel')).toBeInTheDocument();
+      expect(screen.getByTestId('right-panel-resizer')).toHaveAttribute('aria-valuenow', '380');
+      expect(layout).toHaveStyle({ gridTemplateColumns: 'minmax(0, 1fr) 6px 380px' });
+      expect(useClientStore.getState().rightPanelWidth).toBe(380);
+    });
+  });
+
   it('isolates right sidebar diff, warnings, and tool stats to the selected agent', async () => {
     backend.getSidebarState.mockResolvedValue({
       activeThreadId: 'thread-a',
