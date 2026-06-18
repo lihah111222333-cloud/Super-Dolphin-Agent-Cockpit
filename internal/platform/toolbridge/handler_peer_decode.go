@@ -285,6 +285,8 @@ func canonicalOrchestrationToolName(name string) string {
 		return "list_agents"
 	case "orchestration_get_agent_report":
 		return "get_agent_report"
+	case "orchestration_get_agent_reports":
+		return "get_agent_reports"
 	default:
 		return strings.TrimSpace(name)
 	}

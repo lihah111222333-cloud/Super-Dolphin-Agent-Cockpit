@@ -24,6 +24,8 @@ func legacyOrchName(canonical string) string {
 		return "orchestration_list_agents"
 	case "get_agent_report":
 		return "orchestration_get_agent_report"
+	case "get_agent_reports":
+		return "orchestration_get_agent_reports"
 	default:
 		return ""
 	}

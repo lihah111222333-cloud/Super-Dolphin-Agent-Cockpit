@@ -352,6 +352,8 @@ func (s *service) applyReportEventLocked(ctx context.Context, agent *agentRuntim
 		AgentID:              agent.id,
 		EventType:            eventType,
 		Report:               report,
+		ReportSeq:            agent.lastReportSeq,
+		UpdatedAt:            agent.lastReportUpdatedAt,
 		NotifiedRequesterIDs: notified,
 	}, nil
 }
