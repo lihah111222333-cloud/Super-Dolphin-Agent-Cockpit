@@ -154,6 +154,26 @@ func payloadToolName(payload map[string]any, fallbacks ...string) string {
 	return shared.FirstNonEmpty(values...)
 }
 
+// normalizedTurnOutputStream 把 provider 兼容事件里的 stream/kind/type 归一成 UI 认识的输出流，避免 message.delta 携带的 reasoning 进入最终回答。
+func normalizedTurnOutputStream(payload map[string]any, fallback string) string {
+	item := nestedValue(payload, "item")
+	raw := strings.ToLower(strings.TrimSpace(shared.FirstNonEmpty(stringValue(payload, "stream"), stringValue(item, "stream"), stringValue(payload, "kind", "type"), stringValue(item, "kind", "type"))))
+	if raw == "" {
+		return strings.TrimSpace(fallback)
+	}
+	exact := "|" + raw + "|"
+	switch {
+	case strings.Contains("|message|assistant|agentmessage|agent_message|", exact):
+		return "message"
+	case strings.Contains("|reasoning|thinking|reasoning_summary|summary|", exact) || strings.Contains(raw, "reasoning") || strings.Contains(raw, "thinking"):
+		return "reasoning"
+	case strings.Contains("|stdout|stderr|command|command_output|exec_output|", exact) || strings.Contains(raw, "command") || strings.Contains(raw, "stdout") || strings.Contains(raw, "stderr"):
+		return "stdout"
+	default:
+		return strings.TrimSpace(fallback)
+	}
+}
+
 func isTurnTerminalEvent(method string) bool {
 	switch strings.TrimSpace(method) {
 	case "turn/completed", "turn.completed",
@@ -381,7 +401,7 @@ func decodeThreadRPCResult(raw json.RawMessage) (*threadRPCResult, error) {
 func turnOutputDelta(payload map[string]any, stream string) turndto.TurnOutputDelta {
 	return turndto.TurnOutputDelta{
 		TurnHeader: buildTurnHeader(payload),
-		Stream:     strings.TrimSpace(stream),
+		Stream:     normalizedTurnOutputStream(payload, stream),
 		Delta:      stringValue(payload, "delta", "content"),
 	}
 }

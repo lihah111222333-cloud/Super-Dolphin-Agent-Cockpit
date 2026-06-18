@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"log/slog"
 	"reflect"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -174,6 +175,9 @@ func translateCommonRawEvent(raw dto.RawProviderEvent, publish func(ev any)) {
 		return
 	}
 	rawType := strings.TrimSpace(raw.EventType)
+	if isRetryProgressRawError(rawType, payload) {
+		return
+	}
 	switch {
 	case isWarningRawType(rawType):
 		publish(agentdto.AgentWarning{
@@ -336,6 +340,39 @@ func isErrorRawType(rawType string) bool {
 	default:
 		return false
 	}
+}
+
+// isRetryProgressRawError 识别 provider 自己的重试进度事件，避免把
+// "Reconnecting... 2/5" 这类状态当成用户可见错误写入时间线。
+func isRetryProgressRawError(rawType string, payload map[string]any) bool {
+	if !isErrorRawType(rawType) || !boolValue(payload, "willRetry", "will_retry") {
+		return false
+	}
+	message := shared.FirstNonEmpty(
+		stringValue(payload, "message", "error", "reason"),
+		stringValue(nestedMap(payload, "error"), "message"),
+	)
+	return isRetryProgressMessage(message)
+}
+
+func isRetryProgressMessage(message string) bool {
+	text := strings.ToLower(strings.TrimSpace(message))
+	if !strings.HasPrefix(text, "reconnecting") && !strings.HasPrefix(text, "retrying") {
+		return false
+	}
+	slash := strings.LastIndex(text, "/")
+	if slash <= 0 || slash >= len(text)-1 {
+		return false
+	}
+	if _, err := strconv.Atoi(strings.TrimSpace(text[slash+1:])); err != nil {
+		return false
+	}
+	fields := strings.Fields(strings.TrimSpace(text[:slash]))
+	if len(fields) == 0 {
+		return false
+	}
+	_, err := strconv.Atoi(strings.Trim(fields[len(fields)-1], "."))
+	return err == nil
 }
 
 func isPlanDeltaRawType(rawType string) bool {

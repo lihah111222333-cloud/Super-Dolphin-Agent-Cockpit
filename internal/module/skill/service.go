@@ -3,6 +3,7 @@ package skill
 import (
 	"context"
 	"crypto/sha256"
+	"database/sql"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -17,6 +18,7 @@ import (
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	uidto "github.com/anthropic-ai/super-agent-v3/internal/dto/ui"
+	"github.com/anthropic-ai/super-agent-v3/internal/module/skill/toolstore"
 	auditstore "github.com/anthropic-ai/super-agent-v3/internal/store/auditlog"
 )
 
@@ -41,6 +43,7 @@ type service struct {
 	approval           *ApprovalCache
 	auditStore         auditstore.Store
 	mirrorTargets      []SkillMirrorTarget
+	skillTools         *toolstore.Store
 
 	resolutionPreviewMu sync.Mutex
 	resolutionPreviews  map[string]skillResolutionStoredPreview
@@ -48,6 +51,7 @@ type service struct {
 
 var _ Service = (*service)(nil)
 var _ contract.SkillMirrorReconciler = (*service)(nil)
+var _ contract.SkillToolProvider = (*service)(nil)
 
 type SkillApprovalRequiredError = contract.SkillApprovalRequiredError
 
@@ -146,6 +150,51 @@ func NewService(projectRoot string) Service {
 		http:              &http.Client{Timeout: 15 * time.Second},
 		approval:          approvalCache,
 	}
+}
+
+// NewServiceWithDB 创建带数据库 Skill Tool CRUD 能力的 skill service。
+// 生产装配通过 fx 注入同一张 SQLite；测试可直接传内存 DB 验证懒建表行为。
+func NewServiceWithDB(projectRoot string, db *sql.DB) Service {
+	svc := NewService(projectRoot).(*service)
+	svc.skillTools = toolstore.New(db)
+	return svc
+}
+
+func (s *service) resolveSkillToolCWD(cwd string) (string, error) {
+	if strings.TrimSpace(cwd) == "" {
+		return "", ErrMissingCWD
+	}
+	return s.projectRootForCWD(cwd), nil
+}
+
+// ListSkillToolsForSurface 返回当前项目启用的 Skill 工具定义，供 Codex 动态工具面使用。
+func (s *service) ListSkillToolsForSurface(ctx context.Context, cwd string) ([]contract.SkillToolSurfaceTool, error) {
+	if s == nil {
+		return nil, toolstore.ErrStoreNotConfigured
+	}
+	return toolstore.ListForSurface(ctx, s.skillTools, s.resolveSkillToolCWD, cwd)
+}
+
+// CallSkillTool 按方法名读取对应 Skill 的完整 SKILL.md 文本并返回给模型。
+func (s *service) CallSkillTool(ctx context.Context, call contract.SkillToolCall) (string, error) {
+	if s == nil {
+		return "", toolstore.ErrStoreNotConfigured
+	}
+	return toolstore.CallForSurface(ctx, s.skillTools, s.resolveSkillToolCWD, s.readSkillToolContent, call)
+}
+
+func (s *service) readSkillToolContent(ctx context.Context, cwd, name string) (string, error) {
+	result, err := s.ReadLocal(WithCWD(ctx, cwd), name)
+	if err != nil {
+		return "", err
+	}
+	envelope, _ := result.(map[string]any)
+	skillData, _ := envelope["skill"].(map[string]any)
+	content, ok := skillData["content"].(string)
+	if !ok {
+		return "", fmt.Errorf("skill tool read returned invalid content for %s", name)
+	}
+	return content, nil
 }
 
 func (s *service) projectSkillsRootForCWD(cwd string) string {

@@ -28,6 +28,7 @@ type mcpClient interface {
 
 type codexToolSurface struct {
 	keys    []string
+	cwd     string
 	tools   map[string]codexToolEntry
 	aliases map[string]string
 	clients []mcpClient
@@ -51,10 +52,14 @@ func (h *Handler) PrepareCodexToolSurface(ctx context.Context, scope contract.Co
 	if err := h.addHostSurfaceTools(surface, &out); err != nil {
 		return nil, err
 	}
+	if err := h.addSkillSurfaceTools(ctx, scope, surface, &out); err != nil {
+		return nil, err
+	}
 	if err := h.addMCPSurfaceTools(ctx, scope, surface, &out); err != nil {
 		_ = surface.Close()
 		return nil, err
 	}
+	surface.cwd = normalizeToolCallCWD(scope.CWD)
 	surface.keys = codexSurfaceKeys(scope)
 	if err := h.storeCodexToolSurface(surface); err != nil {
 		h.removeCodexToolSurface(surface)
@@ -398,6 +403,10 @@ func (h *Handler) callCodexSurfaceTool(ctx context.Context, surface *codexToolSu
 	req = h.injectManagedLaunchContext(ctx, req)
 	if entry.executionKind == "host" {
 		result, err = h.callHostTool(ctx, req)
+		return result, err
+	}
+	if entry.executionKind == "skill" {
+		result, err = h.callSkillSurfaceTool(ctx, surface, req)
 		return result, err
 	}
 	result, err = entry.client.CallTool(ctx, entry.realName, req.Arguments, req)

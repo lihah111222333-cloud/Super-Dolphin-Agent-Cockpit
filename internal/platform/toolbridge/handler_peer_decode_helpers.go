@@ -182,6 +182,44 @@ func addMCPToolAlias(surface *codexToolSurface, family, alias, canonical string)
 	return addSurfaceAlias(surface, alias, canonical)
 }
 
+// addSkillSurfaceTools 把当前项目启用的 Skill 工具加入 Codex 动态工具面。
+// 它只负责 surface 暴露和冲突检测，真正读取 SKILL.md 的动作在调用阶段完成。
+func (h *Handler) addSkillSurfaceTools(
+	ctx context.Context,
+	scope contract.CodexToolSurfaceScope,
+	surface *codexToolSurface,
+	out *[]contract.DynamicToolSchema,
+) error {
+	if h == nil || h.skillTools == nil {
+		return nil
+	}
+	tools, err := h.skillTools.ListSkillToolsForSurface(ctx, scope.CWD)
+	if err != nil {
+		return fmt.Errorf("toolbridge: list skill tools for codex surface: %w", err)
+	}
+	for _, tool := range tools {
+		name := strings.TrimSpace(tool.Name)
+		entry := codexToolEntry{name: name, realName: name, executionKind: "skill", family: "skill"}
+		schema := mcpdto.MCPTool{
+			Name:         name,
+			Description:  strings.TrimSpace(tool.Description),
+			InputSchema:  skillToolInputSchema(tool.InputSchema),
+			OutputSchema: tool.OutputSchema,
+		}
+		if err := addSurfaceTool(surface, out, schema, entry); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func skillToolInputSchema(schema json.RawMessage) json.RawMessage {
+	if len(bytes.TrimSpace(schema)) != 0 {
+		return schema
+	}
+	return json.RawMessage(`{"type":"object","properties":{},"additionalProperties":false}`)
+}
+
 func surfaceAliasConflicts(surface *codexToolSurface, alias, canonical string) bool {
 	alias = strings.TrimSpace(alias)
 	canonical = strings.TrimSpace(canonical)
@@ -255,7 +293,7 @@ var canonicalCodexSurfaceTools = map[string]struct{}{
 	"skill_expand_body": {},
 }
 
-// setDynamicToolDeferLoading 设置dynamic工具deferloading。
+// setDynamicToolDeferLoading 设置 dynamic 工具 defer loading。
 func setDynamicToolDeferLoading(schema *contract.DynamicToolSchema, enabled bool) {
 	if schema == nil {
 		return
@@ -286,4 +324,28 @@ func callIDFromRawJSONRPCID(id json.RawMessage) string {
 		return strings.TrimSpace(number.String())
 	}
 	return strings.TrimSpace(string(trimmed))
+}
+
+// callSkillSurfaceTool 用准备好的 Codex surface 调用项目级 Skill 工具。
+// cwd 优先使用调用元数据，缺省时回退到 surface 准备阶段的 cwd，缺失会由 skill 模块报错。
+func (h *Handler) callSkillSurfaceTool(ctx context.Context, surface *codexToolSurface, req ToolCallRequest) (*ToolCallResult, error) {
+	if h == nil || h.skillTools == nil {
+		return nil, fmt.Errorf("toolbridge: skill tool provider is not configured")
+	}
+	cwd := normalizeToolCallCWD(req.CWD)
+	if cwd == "" && surface != nil {
+		cwd = normalizeToolCallCWD(surface.cwd)
+	}
+	content, err := h.skillTools.CallSkillTool(ctx, contract.SkillToolCall{
+		Name:     strings.TrimSpace(req.Name),
+		CWD:      cwd,
+		AgentID:  strings.TrimSpace(req.AgentID),
+		ThreadID: strings.TrimSpace(req.ThreadID),
+		TurnID:   strings.TrimSpace(req.TurnID),
+		CallID:   strings.TrimSpace(req.CallID),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("toolbridge: call skill tool %q: %w", strings.TrimSpace(req.Name), err)
+	}
+	return toolCallTextResult(true, content), nil
 }

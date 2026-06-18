@@ -56,6 +56,189 @@
   font-weight: 650;
 }
 
+.skill-tools-panel {
+  display: grid;
+  gap: 12px;
+  padding: 18px 28px;
+  border-bottom: 1px solid var(--line);
+  background: var(--surface);
+}
+
+.skill-tools-header,
+.skill-tools-actions,
+.skill-tools-row-actions,
+.skill-tool-enabled-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.skill-tools-header {
+  justify-content: space-between;
+}
+
+.skill-tools-header h2 {
+  margin: 0;
+  color: var(--text-pri);
+  font-size: 18px;
+  font-weight: 650;
+}
+
+.skill-tools-actions button,
+.skill-tools-row-actions button,
+.skill-tool-enabled-row button {
+  min-height: 34px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--surface-2);
+  color: var(--text-pri);
+  padding: 0 12px;
+}
+
+.skill-tools-actions button {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.skill-tools-actions button.ghost,
+.skill-tool-enabled-row button.ghost {
+  background: transparent;
+}
+
+.skill-tools-notice,
+.skill-tools-error,
+.skill-tools-empty {
+  margin: 0;
+  color: var(--muted);
+}
+
+.skill-tools-error {
+  color: var(--error);
+}
+
+.skill-tools-table-wrap {
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+}
+
+.skill-tools-table {
+  width: 100%;
+  border-collapse: collapse;
+  min-width: 680px;
+}
+
+.skill-tools-table th,
+.skill-tools-table td {
+  border-bottom: 1px solid var(--line);
+  padding: 10px 12px;
+  text-align: left;
+  vertical-align: top;
+}
+
+.skill-tools-table th {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.skill-tools-table tr:last-child td {
+  border-bottom: 0;
+}
+
+.skill-tool-name-cell {
+  display: grid;
+  gap: 4px;
+}
+
+.skill-tool-name-cell strong {
+  color: var(--text-pri);
+}
+
+.skill-tool-name-cell span {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.skill-tools-table code,
+.skill-tool-delete-target {
+  color: var(--text-sec);
+  font: 12px/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  overflow-wrap: anywhere;
+}
+
+.skill-tool-status {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 0 10px;
+  font-size: 12px;
+}
+
+.skill-tool-status.is-enabled {
+  border-color: color-mix(in srgb, var(--success) 44%, var(--border));
+  color: var(--success);
+}
+
+.skill-tool-status.is-disabled {
+  border-color: color-mix(in srgb, var(--muted) 42%, var(--border));
+  color: var(--muted);
+}
+
+.skill-tool-modal {
+  width: min(720px, 94vw);
+}
+
+.skill-tool-form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.skill-tool-form-grid label {
+  display: grid;
+  gap: 6px;
+  color: var(--text-muted);
+}
+
+.skill-tool-form-grid .skill-tool-enabled-row {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+}
+
+.skill-tool-form-grid .skill-tool-enabled-row input {
+  width: auto;
+}
+
+.skill-tool-form-grid .wide {
+  grid-column: 1 / -1;
+}
+
+.skill-tool-form-grid input,
+.skill-tool-form-grid textarea {
+  min-width: 0;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--surface-2);
+  color: var(--text-pri);
+  padding: 9px 10px;
+}
+
+.skill-tool-form-grid textarea {
+  min-height: 96px;
+  resize: vertical;
+  font: 12px/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+.skill-tool-enabled-row {
+  justify-content: flex-start;
+  margin-top: 12px;
+}
+
 .skills-toolbar label,
 .page-actions label {
   flex: 1;

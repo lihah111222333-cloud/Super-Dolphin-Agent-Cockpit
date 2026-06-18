@@ -54,6 +54,20 @@ func TestProviderPushNotificationsForwardsCriticalSurface(t *testing.T) {
 			},
 		},
 		{
+			name: "retry progress error is suppressed",
+			raw: providerdto.RawProviderEvent{
+				EventType: "error",
+				Data: map[string]any{
+					"threadId":  "thread-1",
+					"willRetry": true,
+					"error": map[string]any{
+						"message": "Reconnecting... 2/5",
+					},
+				},
+			},
+			want: []string{},
+		},
+		{
 			name: "token usage remains available",
 			raw: providerdto.RawProviderEvent{
 				EventType: "thread/tokenUsage/updated",

@@ -246,6 +246,25 @@ function Stop-StaleViteForPort {
     } catch {}
 }
 
+function Stop-StaleFrontendViteProcesses {
+    try {
+        $frontendPath = (Resolve-Path -LiteralPath $FrontendAppDir -ErrorAction Stop).Path
+        $frontendPathAlt = $frontendPath -replace '\\', '/'
+        $processes = @(Get-CimInstance Win32_Process -ErrorAction SilentlyContinue)
+        foreach ($proc in $processes) {
+            $commandLine = [string]$proc.CommandLine
+            if ([string]::IsNullOrWhiteSpace($commandLine)) { continue }
+            $isVite = $commandLine -match 'vite(\.js)?' -or $commandLine -match 'npm(\.cmd)?\s+run\s+dev'
+            if (-not $isVite) { continue }
+            $mentionsFrontendApp = $commandLine.IndexOf($frontendPath, [StringComparison]::OrdinalIgnoreCase) -ge 0 -or
+                $commandLine.IndexOf($frontendPathAlt, [StringComparison]::OrdinalIgnoreCase) -ge 0
+            if ($mentionsFrontendApp) {
+                Stop-ProcessTree -Label 'stale frontend-app vite' -ProcessId ([int]$proc.ProcessId)
+            }
+        }
+    } catch {}
+}
+
 function Get-LogTail {
     param(
         [Parameter(Mandatory)][string]$Path,
@@ -443,11 +462,23 @@ function Ensure-NodeDeps {
     $npm = Resolve-NpmCommand
     $nodeModules = Join-Path $Dir 'node_modules'
     $packageLock = Join-Path $Dir 'package-lock.json'
+    $npmInstallLock = Join-Path $nodeModules '.package-lock.json'
+    $viteShim = Join-Path $nodeModules '.bin\vite.cmd'
+    $vitePackageJson = Join-Path $nodeModules 'vite\package.json'
+    $viteCli = Join-Path $nodeModules 'vite\bin\vite.js'
 
     Push-Location -LiteralPath $Dir
     try {
         if (-not (Test-Path -LiteralPath $nodeModules -PathType Container)) {
             Write-Host "  -> npm ci ($Dir)"
+            & $npm ci "--registry=$NpmRegistry"
+            if ($LASTEXITCODE -ne 0) { throw 'npm ci failed' }
+        } elseif ((Test-Path -LiteralPath $packageLock -PathType Leaf) -and
+                  ((-not (Test-Path -LiteralPath $npmInstallLock -PathType Leaf)) -or
+                   (-not (Test-Path -LiteralPath $viteShim -PathType Leaf)) -or
+                   (-not (Test-Path -LiteralPath $vitePackageJson -PathType Leaf)) -or
+                   (-not (Test-Path -LiteralPath $viteCli -PathType Leaf)))) {
+            Write-Host '  -> npm ci (node_modules incomplete)'
             & $npm ci "--registry=$NpmRegistry"
             if ($LASTEXITCODE -ne 0) { throw 'npm ci failed' }
         } elseif ((Test-Path -LiteralPath $packageLock -PathType Leaf) -and
@@ -720,6 +751,7 @@ try {
     Add-CodexCliToPath
     Ensure-DevControlSessionToken
     Ensure-SqliteRuntime
+    Stop-StaleFrontendViteProcesses
     Stop-StaleViteForPort -Port $ViteDevPort
     Assert-PortFree -Address "$ViteDevHost`:$ViteDevPort"
     Assert-PortFree -Address $env:SUPER_DOLPHIN_HTTP_ADDR
