@@ -1152,6 +1152,57 @@ async function showAllTraceDashboardEvents() {
     await waitFor(() => expect(within(projectLists()[0]).getByTitle('Super Chat')).toBeInTheDocument());
   });
 
+  it('shows a new dot-project chat under the real current project immediately', async () => {
+    backend.readConfig.mockResolvedValue({ cwd: '/repo/sidebar-chat-consistency' });
+    backend.getProjects.mockResolvedValue({ projects: [], active: '.' });
+    backend.getSidebarState.mockResolvedValue({
+      activeThreadId: '',
+      threads: [],
+    });
+    backend.startThread.mockResolvedValue({ threadId: 'thread-dot' });
+    backend.startTurn.mockResolvedValue({ ok: true });
+    backend.getThreadState.mockResolvedValue({
+      activeThreadId: 'thread-dot',
+      threads: [{
+        id: 'thread-dot',
+        name: 'Dot project first chat',
+        provider: 'codex',
+        status: 'idle',
+        cwd: '/repo/sidebar-chat-consistency',
+      }],
+      timelinesByThread: {
+        'thread-dot': [{ id: 'message-thread-dot', kind: 'assistant', text: 'reply', ts: '2026-05-30T00:00:00Z' }],
+      },
+    });
+    backend.getThreadMessages.mockResolvedValue({ messages: [] });
+
+    render(<App />);
+
+    const sidebar = await screen.findByTestId('app-sidebar');
+    await within(sidebar).findByRole('list', { name: 'sidebar-chat-consistency 聊天记录' });
+    expect(within(sidebar).queryByRole('button', { name: '选择项目 .' })).not.toBeInTheDocument();
+
+    fireEvent.change(await screen.findByTestId('composer-input'), { target: { value: 'Dot project first chat' } });
+    fireEvent.click(screen.getByLabelText('发送消息'));
+
+    const projectChats = within(sidebar).getByRole('list', { name: 'sidebar-chat-consistency 聊天记录' });
+    await waitFor(() => expect(within(projectChats).getByTitle('Dot project first chat')).toBeInTheDocument());
+    expect(within(projectChats).queryByText('暂无聊天记录')).not.toBeInTheDocument();
+
+    fireEvent.click(within(projectChats).getByTitle('Dot project first chat'));
+
+    await waitFor(() => expect(backend.getThreadState).toHaveBeenCalledWith({
+      cwd: '/repo/sidebar-chat-consistency',
+      threadId: 'thread-dot',
+      includeDiff: false,
+    }));
+    expect(backend.setActiveProject).not.toHaveBeenCalledWith({
+      cwd: '/repo/sidebar-chat-consistency',
+      path: '/repo/sidebar-chat-consistency',
+    });
+    expect(within(projectChats).getByTitle('Dot project first chat')).toBeInTheDocument();
+  });
+
   it('keeps the active project chat list when opening a thread returns a thread-scoped snapshot', async () => {
     const threads = [
       { id: 'thread-a', name: 'Thread A', provider: 'codex', status: 'idle', cwd: '/repo/app' },

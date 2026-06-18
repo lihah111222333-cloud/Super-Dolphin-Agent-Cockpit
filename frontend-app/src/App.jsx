@@ -596,7 +596,7 @@ function projectDirectoryItems(projectPath, projects = [], activeProject = '') {
   const items = [];
   const add = (value) => {
     const path = textValue(value);
-    if (!path || path === '未选择项目' || seen.has(path)) return;
+    if (!path || path === '.' || path === '未选择项目' || seen.has(path)) return;
     seen.add(path);
     items.push({ path, name: projectNameFromPath(path) });
   };
@@ -608,6 +608,25 @@ function projectDirectoryItems(projectPath, projects = [], activeProject = '') {
 
 function projectTreeKey(value) {
   return textValue(value).replace(/\\/g, '/').replace(/\/+$/g, '').toLowerCase();
+}
+
+function sidebarActiveProjectPath(activeProject, projectPath) {
+  const active = textValue(activeProject);
+  return active && active !== '.' ? active : textValue(projectPath);
+}
+
+function mergeProjectThreadSources(...sources) {
+  const seen = new Set();
+  const threads = [];
+  for (const source of sources) {
+    for (const thread of Array.isArray(source) ? source : []) {
+      const id = textValue(thread?.id || thread?.threadId || thread?.thread_id || thread?.agentId || thread?.agent_id);
+      if (!id || seen.has(id)) continue;
+      seen.add(id);
+      threads.push(thread);
+    }
+  }
+  return threads;
 }
 
 const AUTOMATION_THREAD_MARKERS = Object.freeze(['automation', 'workflow', 'dag', 'cron', 'task']);
@@ -1006,7 +1025,7 @@ function SidebarProjectTree({ copy = APP_COPY.zh.workbench, projectPath, setActi
   const projectThreadCacheRef = useRef({});
   const actionOptions = uiActionOptions(store);
   const projectItems = projectDirectoryItems(projectPath, store?.projects, store?.activeProject);
-  const activeProjectPath = textValue(store?.activeProject || projectPath);
+  const activeProjectPath = sidebarActiveProjectPath(store?.activeProject, projectPath);
   useEffect(() => {
     projectThreadCacheRef.current = projectThreadCache;
   }, [projectThreadCache]);
@@ -1168,12 +1187,12 @@ function SidebarProjectTree({ copy = APP_COPY.zh.workbench, projectPath, setActi
       <div className="sidebar-tree-root">
         {projectItems.map((item) => {
           const projectKey = projectTreeKey(item.path);
-          const isActiveProject = item.path && item.path === activeProjectPath;
+          const isActiveProject = Boolean(item.path && projectKey === projectTreeKey(activeProjectPath));
           const cacheEntry = projectThreadCache[projectKey];
           const sidebarThreads = store?.sidebarThreadsByProject?.[projectKey];
           const sourceThreads = cacheEntry
-            ? cacheEntry.threads
-            : (Array.isArray(sidebarThreads) ? sidebarThreads : (isActiveProject ? store?.threads : []));
+            ? (isActiveProject ? mergeProjectThreadSources(store?.threads, cacheEntry.threads) : cacheEntry.threads)
+            : (isActiveProject ? mergeProjectThreadSources(store?.threads, sidebarThreads) : (Array.isArray(sidebarThreads) ? sidebarThreads : []));
           const projectThreads = projectThreadItems(sourceThreads, item.path, cacheEntry ? item.path : activeProjectPath, {
             allowMissingCwdFallback: !cacheEntry,
           });
