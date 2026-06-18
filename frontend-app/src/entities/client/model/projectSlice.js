@@ -12,10 +12,11 @@ function createActiveProjectActions(runtime, deps) {
   } = deps;
 
   return {
-    setActiveProjectPath: async (path) => {
+    setActiveProjectPath: async (path, options = {}) => {
       const target = normalizePath(path);
       if (!target) return false;
       const cwd = runtime.requireProjectScopeCwd('project.setActive');
+      const preserveActiveThreadId = options.preserveActiveThreadId === true;
       const previousActiveProject = normalizePath(runtime.get().activeProject);
       const previousProjects = Array.isArray(runtime.get().projects) ? [...runtime.get().projects] : [];
       try {
@@ -33,13 +34,13 @@ function createActiveProjectActions(runtime, deps) {
           activeProject: target,
         });
         const optimisticCwd = target && target !== '.' ? target : cwd;
-        runtime.refreshChatSurfaceForCwdInBackground(optimisticCwd);
+        runtime.refreshChatSurfaceForCwdInBackground(optimisticCwd, { preserveActiveThreadId });
         const projects = await setActiveProject({ cwd, path: target });
         runtime.applyProjects(projects, cwd);
         const selectedProject = normalizePath(runtime.get().activeProject);
         const selectedCwd = selectedProject && selectedProject !== '.' ? selectedProject : cwd;
         if (selectedCwd !== optimisticCwd) {
-          runtime.refreshChatSurfaceForCwdInBackground(selectedCwd);
+          runtime.refreshChatSurfaceForCwdInBackground(selectedCwd, { preserveActiveThreadId });
         }
         runtime.notifyAction(`已切换项目：${projectShortLabel(target)}`, 'success');
         return true;

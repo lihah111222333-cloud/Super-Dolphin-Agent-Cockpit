@@ -3,7 +3,7 @@ import { QueryClient, QueryClientProvider, useQuery, useQueryClient } from '@tan
 import { Brain, Check, CircleUserRound, Folder, FolderOpen, Menu, Moon, PanelLeftClose, PanelLeftOpen, Plus, Puzzle, RefreshCw, Search, Settings as SettingsIcon, SquarePlus, Sun, Trash2, X } from 'lucide-react';
 import { useShallow } from 'zustand/react/shallow';
 import { useClientStore } from './entities/client/model/useClientStore.js';
-import { checkAppUpdate, installLatestAppUpdate } from './shared/api/backendApi.js';
+import { checkAppUpdate, getSidebarState, installLatestAppUpdate } from './shared/api/backendApi.js';
 import { dashboardQueryKey, errorMessage, fetchMemoryDashboard, memoryHealth, normalizeMemorySnapshot, optionalSettingsCwd, useDashboardFocusInvalidation, textValue } from './pages/shared/pageShared.js';
 import { ProjectSelector } from './pages/chat/components/ProjectSelector.jsx';
 import { threadStatusBusy } from './pages/chat/adapters/threadStateAdapter.js';
@@ -408,6 +408,7 @@ const WORKBENCH_SIDEBAR_MIN_WIDTH = 280;
 const WORKBENCH_SIDEBAR_DEFAULT_WIDTH = 340;
 const WORKBENCH_SIDEBAR_MAX_WIDTH = 460;
 const WORKBENCH_SIDEBAR_KEY_STEP = 16;
+const PROJECT_THREAD_CACHE_TTL_MS = 45_000;
 
 function clampWorkbenchSidebarWidth(value) {
   const numeric = Number(value);
@@ -599,9 +600,9 @@ function projectDirectoryItems(projectPath, projects = [], activeProject = '') {
     seen.add(path);
     items.push({ path, name: projectNameFromPath(path) });
   };
+  projects.forEach(add);
   add(activeProject);
   add(projectPath);
-  projects.forEach(add);
   return items.length ? items : [{ path: '', name: APP_BRAND_NAME }];
 }
 
@@ -610,11 +611,60 @@ function projectTreeKey(value) {
 }
 
 const AUTOMATION_THREAD_MARKERS = Object.freeze(['automation', 'workflow', 'dag', 'cron', 'task']);
+const ARCHIVED_THREAD_STATUS = 'archived';
 
 function threadFieldValue(thread = {}, keys = []) {
   for (const key of keys) {
     const value = textValue(thread[key]);
     if (value) return value;
+  }
+  return '';
+}
+
+function projectThreadArchiveMap(snapshot = {}) {
+  return snapshot?.['threadArchives.chat'] ||
+    snapshot?.threadArchivesChat ||
+    snapshot?.archivedThreadAtById ||
+    snapshot?.threadArchives?.chat ||
+    snapshot?.thread_archives?.chat ||
+    {};
+}
+
+function archiveTimestamp(value) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
+}
+
+function projectThreadArchiveTimestamp(thread = {}, archiveMap = {}) {
+  for (const key of ['id', 'threadId', 'thread_id', 'agentId', 'agent_id']) {
+    const id = textValue(thread[key]);
+    const timestamp = id ? archiveTimestamp(archiveMap[id]) : 0;
+    if (timestamp > 0) return timestamp;
+  }
+  return 0;
+}
+
+function projectThreadStatusArchived(thread = {}) {
+  return ['status', 'state', 'lifecycleStatus', 'lifecycle_status', 'threadStatus', 'thread_status']
+    .some((key) => textValue(thread[key]).toLowerCase() === ARCHIVED_THREAD_STATUS);
+}
+
+function isProjectThreadArchived(thread = {}) {
+  return Boolean(thread?.archived || thread?.isArchived || thread?.archivedAt || projectThreadStatusArchived(thread));
+}
+
+function projectThreadRuntimeMap(snapshot = {}) {
+  const runtime = snapshot?.agentRuntimeById || snapshot?.agent_runtime_by_id || {};
+  return runtime && typeof runtime === 'object' && !Array.isArray(runtime) ? runtime : {};
+}
+
+function projectThreadRuntimeCwd(thread = {}, runtimeById = {}) {
+  for (const key of ['id', 'threadId', 'thread_id', 'agentId', 'agent_id', 'providerThreadId', 'provider_thread_id', 'sessionId', 'session_id', 'sessionUuid', 'session_uuid']) {
+    const id = textValue(thread[key]);
+    const runtime = id ? runtimeById[id] : null;
+    if (!runtime || typeof runtime !== 'object' || Array.isArray(runtime)) continue;
+    const cwd = textValue(runtime.cwd || runtime.CWD || runtime.workdir || runtime.workDir || runtime.work_dir);
+    if (cwd) return cwd;
   }
   return '';
 }
@@ -640,6 +690,25 @@ function threadProjectPath(thread = {}) {
   return '';
 }
 
+function sidebarSnapshotThreads(snapshot) {
+  const threads = Array.isArray(snapshot?.threads) ? snapshot.threads : [];
+  const archiveMap = projectThreadArchiveMap(snapshot);
+  const runtimeById = projectThreadRuntimeMap(snapshot);
+  return threads.map((thread) => {
+    const archivedAt = projectThreadArchiveTimestamp(thread, archiveMap);
+    const runtimeCwd = projectThreadRuntimeCwd(thread, runtimeById);
+    if (!archivedAt && !runtimeCwd && !isProjectThreadArchived(thread)) return thread;
+    return {
+      ...thread,
+      ...(runtimeCwd && !textValue(thread?.cwd) ? { cwd: runtimeCwd } : {}),
+      ...(archivedAt || isProjectThreadArchived(thread) ? {
+        archived: true,
+        archivedAt: thread?.archivedAt || archivedAt || 1,
+      } : {}),
+    };
+  });
+}
+
 function isAutomationThread(thread = {}) {
   const metadata = [
     threadFieldValue(thread, ['agentKey', 'agent_key']),
@@ -658,28 +727,19 @@ function isAutomationThread(thread = {}) {
     /^\[AI\s*Workflow Designer\]/i.test(label);
 }
 
-function projectThreadItems(threads = [], projectPath = '', activeProjectPath = '') {
+function projectThreadItems(threads = [], projectPath = '', activeProjectPath = '', options = {}) {
   const targetProjectKey = projectTreeKey(projectPath);
   const activeProjectKey = projectTreeKey(activeProjectPath);
+  const allowMissingCwdFallback = options.allowMissingCwdFallback !== false;
   if (!targetProjectKey) return [];
   return (threads || []).filter((thread) => {
-    if (!thread || thread.archived || thread.archivedAt) return false;
+    if (!thread || isProjectThreadArchived(thread)) return false;
     if (isAutomationThread(thread)) return false;
     const threadProjectKey = projectTreeKey(threadProjectPath(thread));
     if (threadProjectKey) return threadProjectKey === targetProjectKey;
+    if (!allowMissingCwdFallback) return false;
     return targetProjectKey === activeProjectKey;
   });
-}
-
-function projectThreadSource(store, projectPath = '', activeProjectPath = '') {
-  const targetProjectKey = projectTreeKey(projectPath);
-  if (!targetProjectKey) return [];
-  const cachedThreads = store?.sidebarThreadsByProject || {};
-  if (Object.prototype.hasOwnProperty.call(cachedThreads, targetProjectKey)) {
-    return cachedThreads[targetProjectKey] || [];
-  }
-  if (targetProjectKey === projectTreeKey(activeProjectPath)) return store?.threads || [];
-  return [];
 }
 
 function taskThreadItems(threads = []) {
@@ -743,7 +803,8 @@ function formatRelativeTime(dateString, copy = APP_COPY.zh.workbench.relativeTim
   return copy.month.replace('{count}', diffMonths);
 }
 
-function useSidebarThreadActions(store) {
+function useSidebarThreadActions(store, options = {}) {
+  const { onDeleteThreads, onRenameThread } = options;
   const [editingThreadId, setEditingThreadId] = useState('');
   const [editingName, setEditingName] = useState('');
   const [renamingThreadId, setRenamingThreadId] = useState('');
@@ -777,6 +838,7 @@ function useSidebarThreadActions(store) {
     try {
       const saved = await store?.renameThread?.(thread.id, nextName);
       if (saved) {
+        onRenameThread?.(thread.id, nextName);
         setEditingThreadId('');
         setEditingName('');
       }
@@ -784,7 +846,7 @@ function useSidebarThreadActions(store) {
     finally {
       setRenamingThreadId('');
     }
-  }, [cancelRename, editingName, renamingThreadId, store]);
+  }, [cancelRename, editingName, onRenameThread, renamingThreadId, store]);
 
   const beginDelete = useCallback((threadId, event) => {
     event?.stopPropagation?.();
@@ -803,8 +865,11 @@ function useSidebarThreadActions(store) {
     event?.stopPropagation?.();
     if (!threadId) return;
     setDeletingThreadId('');
-    runUIAction(() => store?.deleteStaleThreads?.([threadId]), uiActionOptions(store));
-  }, [store]);
+    runUIAction(async () => {
+      const result = await store?.deleteStaleThreads?.([threadId]);
+      if (!result || result.deleted > 0) onDeleteThreads?.([threadId]);
+    }, uiActionOptions(store));
+  }, [onDeleteThreads, store]);
 
   return {
     beginDelete,
@@ -928,29 +993,158 @@ function SidebarThreadRow({
 
 function SidebarProjectTree({ copy = APP_COPY.zh.workbench, projectPath, setActivePage, store }) {
   const [expandedProjects, setExpandedProjects] = useState({});
-  const threadActions = useSidebarThreadActions(store);
+  const [projectThreadCache, setProjectThreadCache] = useState({});
+  const projectThreadCacheRef = useRef({});
   const actionOptions = uiActionOptions(store);
-  const toggleExpandProject = (path) => {
-    setExpandedProjects((current) => ({
-      ...current,
-      [path]: !current[path],
-    }));
-  };
   const projectItems = projectDirectoryItems(projectPath, store?.projects, store?.activeProject);
   const activeProjectPath = textValue(store?.activeProject || projectPath);
+  useEffect(() => {
+    projectThreadCacheRef.current = projectThreadCache;
+  }, [projectThreadCache]);
+  const updateProjectThreadCache = useCallback((path, update) => {
+    const key = projectTreeKey(path);
+    if (!key) return;
+    setProjectThreadCache((current) => {
+      const previous = current[key] || { path, threads: [], loadedAt: 0, loading: false, error: '' };
+      const patch = typeof update === 'function' ? update(previous) : update;
+      return {
+        ...current,
+        [key]: {
+          ...previous,
+          path,
+          ...patch,
+        },
+      };
+    });
+  }, []);
+  const renameCachedProjectThread = useCallback((threadId, name) => {
+    const id = textValue(threadId);
+    if (!id) return;
+    setProjectThreadCache((current) => {
+      let changed = false;
+      const next = Object.fromEntries(Object.entries(current).map(([key, entry]) => {
+        const threads = Array.isArray(entry?.threads) ? entry.threads : [];
+        const nextThreads = threads.map((thread) => {
+          if (thread?.id !== id) return thread;
+          changed = true;
+          return { ...thread, name, title: name };
+        });
+        return [key, { ...entry, threads: nextThreads }];
+      }));
+      return changed ? next : current;
+    });
+  }, []);
+  const removeCachedProjectThreads = useCallback((threadIds = []) => {
+    const ids = new Set((Array.isArray(threadIds) ? threadIds : [threadIds]).map(textValue).filter(Boolean));
+    if (ids.size === 0) return;
+    setProjectThreadCache((current) => {
+      let changed = false;
+      const next = Object.fromEntries(Object.entries(current).map(([key, entry]) => {
+        const threads = Array.isArray(entry?.threads) ? entry.threads : [];
+        const nextThreads = threads.filter((thread) => !ids.has(textValue(thread?.id)));
+        if (nextThreads.length !== threads.length) changed = true;
+        return [key, { ...entry, threads: nextThreads }];
+      }));
+      return changed ? next : current;
+    });
+  }, []);
+  const threadActions = useSidebarThreadActions(store, {
+    onDeleteThreads: removeCachedProjectThreads,
+    onRenameThread: renameCachedProjectThread,
+  });
+  const refreshProjectThreadCache = useCallback((path, options = {}) => {
+    const key = projectTreeKey(path);
+    if (!key) return;
+    const current = projectThreadCacheRef.current[key];
+    if (!options.force && current && !current.error && Date.now() - current.loadedAt < PROJECT_THREAD_CACHE_TTL_MS) return;
+    updateProjectThreadCache(path, (previous) => ({
+      threads: Array.isArray(previous.threads) ? previous.threads : [],
+      loading: true,
+      error: '',
+    }));
+    getSidebarState({ cwd: path })
+      .then((snapshot) => {
+        updateProjectThreadCache(path, {
+          threads: sidebarSnapshotThreads(snapshot),
+          loadedAt: Date.now(),
+          loading: false,
+          error: '',
+        });
+      })
+      .catch((error) => {
+        updateProjectThreadCache(path, (previous) => ({
+          threads: Array.isArray(previous.threads) ? previous.threads : [],
+          loading: false,
+          error: error?.message || String(error),
+        }));
+      });
+  }, [updateProjectThreadCache]);
+  useEffect(() => {
+    const activeKey = projectTreeKey(activeProjectPath);
+    if (!activeKey) return;
+    if (store?.bootstrapStatus !== 'ready') return;
+    const loadingKey = projectTreeKey(store?.chatSurfaceLoadingCwd);
+    if (loadingKey && loadingKey === activeKey) return;
+    // 只在全局 bootstrap 完成后同步可信来源，避免刷新初期把临时 activeProject 的空列表写成新鲜缓存。
+    const sidebarThreadCache = store?.sidebarThreadsByProject || {};
+    const hasSidebarThreads = Object.prototype.hasOwnProperty.call(sidebarThreadCache, activeKey);
+    const sidebarThreads = hasSidebarThreads ? sidebarThreadCache[activeKey] : null;
+    const hasStoreThreads = Array.isArray(store?.threads) && store.threads.length > 0;
+    if (!hasSidebarThreads && !hasStoreThreads) return;
+    const sourceThreads = hasSidebarThreads ? sidebarThreads : store?.threads;
+    updateProjectThreadCache(activeProjectPath, {
+      threads: Array.isArray(sourceThreads) ? sourceThreads : [],
+      loadedAt: Date.now(),
+      loading: false,
+      error: '',
+    });
+  }, [activeProjectPath, store?.bootstrapStatus, store?.chatSurfaceLoadingCwd, store?.sidebarThreadsByProject, store?.threads, updateProjectThreadCache]);
   const addProject = () => runUIAction(async () => {
     const added = await store?.addProjectFromPicker?.();
     if (added) setActivePage('chat');
   }, actionOptions);
   const selectProject = (path) => {
     if (!path) return;
-    setActivePage('chat');
-    runUIAction(() => store?.setActiveProjectPath?.(path), actionOptions);
+    const hasExplicitState = Object.prototype.hasOwnProperty.call(expandedProjects, path);
+    const currentExpanded = hasExplicitState ? !!expandedProjects[path] : projectTreeKey(path) === projectTreeKey(activeProjectPath);
+    const nextExpanded = !currentExpanded;
+    setExpandedProjects((current) => {
+      return {
+        ...current,
+        [path]: nextExpanded,
+      };
+    });
+    if (nextExpanded) refreshProjectThreadCache(path);
   };
-  const selectThread = (threadId) => {
+  const startProjectThread = (path, event) => {
+    event?.stopPropagation?.();
+    if (!path) return;
+    runUIAction(async () => {
+      if (projectTreeKey(path) !== projectTreeKey(activeProjectPath)) {
+        const switched = await store?.setActiveProjectPath?.(path);
+        if (switched === false) return;
+      }
+      store?.newThread?.();
+      setActivePage('chat');
+    }, actionOptions);
+  };
+  const selectThread = (thread, path) => {
+    const threadId = typeof thread === 'object' ? thread?.id : thread;
     if (!threadId) return;
+    const openingStarted = store?.beginOpeningThread?.(thread);
     setActivePage('chat');
-    runUIAction(() => store?.setActiveThread?.(threadId), actionOptions);
+    runUIAction(async () => {
+      if (path && projectTreeKey(path) !== projectTreeKey(activeProjectPath)) {
+        const switched = await store?.setActiveProjectPath?.(path, {
+          preserveActiveThreadId: true,
+        });
+        if (switched === false) {
+          if (openingStarted) void store?.setActiveThread?.('');
+          return;
+        }
+      }
+      return store?.setActiveThread?.(threadId);
+    }, actionOptions);
   };
   return (
     <section className="sidebar-project-tree" aria-label={copy.projects}>
@@ -964,21 +1158,44 @@ function SidebarProjectTree({ copy = APP_COPY.zh.workbench, projectPath, setActi
       </div>
       <div className="sidebar-tree-root">
         {projectItems.map((item) => {
+          const projectKey = projectTreeKey(item.path);
           const isActiveProject = item.path && item.path === activeProjectPath;
-          const projectThreads = projectThreadItems(projectThreadSource(store, item.path, activeProjectPath), item.path, activeProjectPath);
-          const isExpanded = !!expandedProjects[item.path];
-          const visibleThreads = isExpanded ? projectThreads : projectThreads.slice(0, 5);
+          const cacheEntry = projectThreadCache[projectKey];
+          const sidebarThreads = store?.sidebarThreadsByProject?.[projectKey];
+          const sourceThreads = cacheEntry
+            ? cacheEntry.threads
+            : (Array.isArray(sidebarThreads) ? sidebarThreads : (isActiveProject ? store?.threads : []));
+          const projectThreads = projectThreadItems(sourceThreads, item.path, cacheEntry ? item.path : activeProjectPath, {
+            allowMissingCwdFallback: !cacheEntry,
+          });
+          const hasExplicitState = Object.prototype.hasOwnProperty.call(expandedProjects, item.path);
+          const isExpanded = hasExplicitState ? !!expandedProjects[item.path] : isActiveProject;
+          const visibleThreads = isExpanded ? projectThreads : [];
+          const showLoading = isExpanded && cacheEntry?.loading && visibleThreads.length === 0;
+          const newProjectThreadLabel = `${copy.newChat} ${item.name}`;
           return (
             <div className="sidebar-tree-project" key={item.path || item.name}>
-              <button
-                type="button"
-                className={`sidebar-tree-folder${isActiveProject ? ' active' : ''}`}
-                onClick={() => selectProject(item.path)}
-                aria-label={`${copy.selectProject} ${item.name}`}
-              >
-                <Folder size={18} aria-hidden="true" />
-                <span>{item.name}</span>
-              </button>
+              <div className="sidebar-project-header">
+                <button
+                  type="button"
+                  className={`sidebar-tree-folder${isActiveProject ? ' active' : ''}`}
+                  onClick={() => selectProject(item.path)}
+                  aria-expanded={isExpanded}
+                  aria-label={`${copy.selectProject} ${item.name}`}
+                >
+                  <Folder size={18} aria-hidden="true" />
+                  <span>{item.name}</span>
+                </button>
+                <button
+                  type="button"
+                  className="sidebar-icon-action sidebar-project-new-thread"
+                  onClick={(event) => startProjectThread(item.path, event)}
+                  aria-label={newProjectThreadLabel}
+                  title={newProjectThreadLabel}
+                >
+                  <SquarePlus size={16} aria-hidden="true" />
+                </button>
+              </div>
               <ul className="sidebar-project-thread-list" aria-label={`${item.name} ${copy.projectChatsSuffix}`}>
                 {visibleThreads.length > 0 ? visibleThreads.map((thread) => {
                   const label = projectThreadLabel(thread);
@@ -990,7 +1207,7 @@ function SidebarProjectTree({ copy = APP_COPY.zh.workbench, projectPath, setActi
                         active={active}
                         copy={copy}
                         label={label}
-                        onSelect={() => selectThread(thread.id)}
+                        onSelect={() => selectThread(thread, item.path)}
                         openLabel={`${copy.openProjectThread}：${label}`}
                         thread={thread}
                         threadActions={threadActions}
@@ -1002,7 +1219,7 @@ function SidebarProjectTree({ copy = APP_COPY.zh.workbench, projectPath, setActi
                       <button
                         type="button"
                         className={`sidebar-project-thread${active ? ' active' : ''}`}
-                        onClick={() => selectThread(thread.id)}
+                        onClick={() => selectThread(thread, item.path)}
                         aria-label={`${copy.openProjectThread}：${label}`}
                         title={label}
                       >
@@ -1013,19 +1230,10 @@ function SidebarProjectTree({ copy = APP_COPY.zh.workbench, projectPath, setActi
                       </button>
                     </li>
                   );
-                }) : (
-                  <li className="sidebar-project-thread-empty">{copy.emptyThreads}</li>
-                )}
-                {projectThreads.length > 5 && (
-                  <li className="thread-expand-item">
-                    <button
-                      type="button"
-                      className="thread-expand-btn"
-                      onClick={() => toggleExpandProject(item.path)}
-                    >
-                      {isExpanded ? copy.collapseMore : copy.showMore}
-                    </button>
-                  </li>
+                }) : showLoading ? (
+                  <li className="sidebar-project-thread-empty">{copy.loadingThreads}</li>
+                ) : (
+                  isExpanded ? <li className="sidebar-project-thread-empty">{copy.emptyThreads}</li> : null
                 )}
               </ul>
             </div>
