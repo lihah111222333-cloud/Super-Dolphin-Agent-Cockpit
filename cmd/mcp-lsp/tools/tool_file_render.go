@@ -24,6 +24,52 @@ func renderReadContent(content string, offset, limit int, _ bool) string {
 	return renderLineWindow("file", content, req, lineWindowReasonExplicit)
 }
 
+// renderLineWindowWithinBudget 在单文件读取超出输出预算时按整行缩短窗口。
+// 它保留普通 read_file 的行号和下一段读取提示，避免预算中间件把整段结果
+// 替换成 result_too_large。
+func renderLineWindowWithinBudget(displayPath, content string, req readFileRequest, reason string, budgetBytes int) string {
+	rendered := renderLineWindow(displayPath, content, req, reason)
+	if fitsReadTextBudget(rendered, budgetBytes) {
+		return rendered
+	}
+	lines := splitNormalizedLines(content)
+	if content == "" {
+		lines = []string{}
+	}
+	if len(lines) == 0 {
+		return truncateRenderedReadText(rendered, displayPath, 1, budgetBytes)
+	}
+	start := clampOffset(req.line, len(lines))
+	if req.line <= 0 {
+		start = 1
+	}
+	maxLines := len(lines) - start + 1
+	if req.limit > 0 && req.limit < maxLines {
+		maxLines = req.limit
+	}
+	best := ""
+	for low, high := 1, maxLines; low <= high; {
+		mid := (low + high) / 2
+		candidateReq := req
+		candidateReq.line = start
+		candidateReq.limit = mid
+		candidate := appendReadBudgetTruncation(renderLineWindow(displayPath, content, candidateReq, reason), budgetBytes)
+		if fitsReadTextBudget(candidate, budgetBytes) {
+			best = candidate
+			low = mid + 1
+			continue
+		}
+		high = mid - 1
+	}
+	if best != "" {
+		return best
+	}
+	candidateReq := req
+	candidateReq.line = start
+	candidateReq.limit = 1
+	return truncateRenderedReadText(appendReadBudgetTruncation(renderLineWindow(displayPath, content, candidateReq, reason), budgetBytes), displayPath, start+1, budgetBytes)
+}
+
 // renderLineWindow 渲染行window。
 func renderLineWindow(displayPath, content string, req readFileRequest, reason string) string {
 	lines := splitNormalizedLines(content)
@@ -57,6 +103,59 @@ func renderLineWindow(displayPath, content string, req readFileRequest, reason s
 	rendered := format.RenderLineNumberedText(segment, start)
 	footer := renderLineWindowFooter(displayPath, requestedStart, start, end, len(lines), req.limit, reason)
 	return fmt.Sprintf("TEXT\n%s\n\n%s", rendered, footer)
+}
+
+func fitsReadTextBudget(text string, budgetBytes int) bool {
+	return budgetBytes <= 0 || len([]byte(text)) <= budgetBytes
+}
+
+func appendReadBudgetTruncation(rendered string, budgetBytes int) string {
+	return fmt.Sprintf("%s\n[truncated to fit output budget %d bytes]", rendered, budgetBytes)
+}
+
+// truncateRenderedReadText 是极端长单行的兜底裁剪：整行无法放入预算时，
+// 先保住预算与下一段读取提示，再截断可见文本。
+func truncateRenderedReadText(rendered, displayPath string, nextLine int, budgetBytes int) string {
+	if fitsReadTextBudget(rendered, budgetBytes) {
+		return rendered
+	}
+	nextPath := strings.TrimSpace(displayPath)
+	if nextPath == "" {
+		nextPath = "file"
+	}
+	if nextLine <= 0 {
+		nextLine = 1
+	}
+	hint := fmt.Sprintf("\n[truncated to fit output budget %d bytes; use pos=%q to continue]", budgetBytes, fmt.Sprintf("%s:%d", nextPath, nextLine))
+	remaining := budgetBytes - len([]byte(hint))
+	if remaining <= 0 {
+		return truncateUTF8Bytes(hint, budgetBytes)
+	}
+	return truncateUTF8Bytes(rendered, remaining) + hint
+}
+
+// truncateUTF8Bytes 在字节上限内截断文本，并避免切断 UTF-8 rune；
+// 调用方负责把关键提示先预留进预算。
+func truncateUTF8Bytes(text string, maxBytes int) string {
+	if maxBytes <= 0 {
+		return ""
+	}
+	if len([]byte(text)) <= maxBytes {
+		return text
+	}
+	const suffix = "..."
+	if maxBytes <= len(suffix) {
+		return suffix[:maxBytes]
+	}
+	keep := maxBytes - len(suffix)
+	cut := 0
+	for idx := range text {
+		if idx > keep {
+			break
+		}
+		cut = idx
+	}
+	return text[:cut] + suffix
 }
 
 // renderLineWindowFooter 渲染行windowfooter。
