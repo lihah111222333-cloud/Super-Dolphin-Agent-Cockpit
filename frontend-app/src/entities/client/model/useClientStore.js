@@ -240,6 +240,20 @@ function sidebarThreadsByProjectWith(state, projectPath, threads) {
   };
 }
 
+function sidebarThreadsByProjectUpsert(state, projectPath, thread) {
+  const key = sidebarProjectKey(projectPath);
+  if (!key || !thread?.id) return state.sidebarThreadsByProject || {};
+  const current = objectRecord(state.sidebarThreadsByProject);
+  const threads = Array.isArray(current[key]) ? current[key] : [];
+  return {
+    ...current,
+    [key]: [
+      thread,
+      ...threads.filter((item) => item?.id !== thread.id),
+    ],
+  };
+}
+
 function mapSidebarThreadCache(state, mapThreads) {
   const current = objectRecord(state.sidebarThreadsByProject);
   let changed = false;
@@ -1426,6 +1440,16 @@ function promotedDraftThreadState(state, request, started) {
   }
   const provider = started.launchPreferences.modelProvider || started.launchPreferences.provider || DEFAULT_PROVIDER;
   const activeThreadId = state.activeThreadId === request.provisionalThreadId ? started.threadId : state.activeThreadId;
+  const promotedThread = {
+    id: started.threadId,
+    agentId: started.identity.agentId,
+    providerThreadId: started.identity.providerThreadId,
+    sessionId: started.identity.sessionId,
+    cwd: request.cwd,
+    name: sendDraftThreadName(request.text),
+    provider,
+    status: '工作中',
+  };
   return {
     activeThreadId,
     provider,
@@ -1435,16 +1459,9 @@ function promotedDraftThreadState(state, request, started) {
       ...state.threadTimelineReadyByThread,
       [started.threadId]: true,
     },
+    sidebarThreadsByProject: sidebarThreadsByProjectUpsert(state, request.cwd, promotedThread),
     threads: [
-      {
-        id: started.threadId,
-        agentId: started.identity.agentId,
-        providerThreadId: started.identity.providerThreadId,
-        sessionId: started.identity.sessionId,
-        name: sendDraftThreadName(request.text),
-        provider,
-        status: '工作中',
-      },
+      promotedThread,
       ...state.threads.filter((item) => item.id !== started.threadId),
     ],
   };
