@@ -125,8 +125,14 @@ export const RPC_METHODS = Object.freeze({
   SKILLS_RESOLUTION_LIST: 'skills/resolution_list',
   SKILLS_RESOLUTION_PREVIEW: 'skills/resolution_preview',
   SKILLS_RESOLUTION_APPLY: 'skills/resolution_apply',
+  SKILL_TOOLS_CREATE: 'skills/tools/create',
+  SKILL_TOOLS_LIST: 'skills/tools/list',
+  SKILL_TOOLS_GET: 'skills/tools/get',
+  SKILL_TOOLS_UPDATE: 'skills/tools/update',
+  SKILL_TOOLS_DELETE: 'skills/tools/delete',
 
   DATASOURCE_V2_CREATE: 'datasourceV2/create',
+  DATASOURCE_V2_IMPORT_LOCAL_FILE: 'datasourceV2/importLocalFile',
   DATASOURCE_V2_LIST: 'datasourceV2/list',
   DATASOURCE_V2_GET: 'datasourceV2/get',
   DATASOURCE_V2_UPDATE: 'datasourceV2/update',
@@ -976,6 +982,10 @@ function createDatasourceApi(callBackend) {
       RPC_METHODS.DATASOURCE_V2_CREATE,
       datasourceCreatePayload(RPC_METHODS.DATASOURCE_V2_CREATE, params),
     ),
+    importDatasourceLocalFile: (params) => callBackend(
+      RPC_METHODS.DATASOURCE_V2_IMPORT_LOCAL_FILE,
+      datasourceCreatePayload(RPC_METHODS.DATASOURCE_V2_IMPORT_LOCAL_FILE, params),
+    ),
     listDatasourceDocuments: (params = {}) => callBackend(
       RPC_METHODS.DATASOURCE_V2_LIST,
       datasourceListPayload(params),
@@ -1181,7 +1191,42 @@ function createSkillApi(callBackend) {
     }),
     applySkillResolution: (params) => applySkillResolutionPayload(callBackend, params),
     deleteSkill: (params) => deleteSkillPayload(callBackend, params),
+    createSkillTool: (params) => callBackend(RPC_METHODS.SKILL_TOOLS_CREATE, skillToolMutationPayload(RPC_METHODS.SKILL_TOOLS_CREATE, params)),
+    listSkillTools: (params) => callBackend(RPC_METHODS.SKILL_TOOLS_LIST, skillToolListPayload(params)),
+    getSkillTool: (params) => callBackend(RPC_METHODS.SKILL_TOOLS_GET, skillToolIDPayload(RPC_METHODS.SKILL_TOOLS_GET, params)),
+    updateSkillTool: (params) => callBackend(RPC_METHODS.SKILL_TOOLS_UPDATE, skillToolUpdatePayload(params)),
+    deleteSkillTool: (params) => callBackend(RPC_METHODS.SKILL_TOOLS_DELETE, skillToolIDPayload(RPC_METHODS.SKILL_TOOLS_DELETE, params)),
   };
+}
+
+function skillToolListPayload(params = {}) {
+  const method = RPC_METHODS.SKILL_TOOLS_LIST;
+  const payload = requireCwd(method, params);
+  const limit = normalizeOptionalLimit(method, payload);
+  if (!limit) throw new Error(`${method}: limit must be a positive integer`);
+  return cleanObject({ cwd: payload.cwd, keyword: normalizeString(payload.keyword), limit });
+}
+
+function skillToolIDPayload(method, params) {
+  const payload = requireCwd(method, params);
+  const id = Number(payload.id);
+  if (!Number.isInteger(id) || id <= 0) throw new Error(`${method}: id is required`);
+  return { cwd: payload.cwd, id };
+}
+
+function skillToolMutationPayload(method, params) {
+  const payload = requireCwd(method, params);
+  const methodName = normalizeString(payload.methodName || payload.method_name || payload.name);
+  const description = normalizeString(payload.description);
+  if (!methodName) throw new Error(`${method}: methodName is required`);
+  if (!description) throw new Error(`${method}: description is required`);
+  if (typeof payload.enabled !== 'boolean') throw new Error(`${method}: enabled is required`);
+  return { cwd: payload.cwd, methodName, description, enabled: payload.enabled };
+}
+
+function skillToolUpdatePayload(params) {
+  const method = RPC_METHODS.SKILL_TOOLS_UPDATE;
+  return { ...skillToolMutationPayload(method, params), id: skillToolIDPayload(method, params).id };
 }
 
 function createSkillPayload(callBackend, params) {
@@ -1535,7 +1580,13 @@ export const listSkillResolutions = backendApi.listSkillResolutions;
 export const previewSkillResolution = backendApi.previewSkillResolution;
 export const applySkillResolution = backendApi.applySkillResolution;
 export const deleteSkill = backendApi.deleteSkill;
+export const createSkillTool = backendApi.createSkillTool;
+export const listSkillTools = backendApi.listSkillTools;
+export const getSkillTool = backendApi.getSkillTool;
+export const updateSkillTool = backendApi.updateSkillTool;
+export const deleteSkillTool = backendApi.deleteSkillTool;
 export const createDatasourceDocument = backendApi.createDatasourceDocument;
+export const importDatasourceLocalFile = backendApi.importDatasourceLocalFile;
 export const listDatasourceDocuments = backendApi.listDatasourceDocuments;
 export const getDatasourceDocument = backendApi.getDatasourceDocument;
 export const updateDatasourceDocument = backendApi.updateDatasourceDocument;

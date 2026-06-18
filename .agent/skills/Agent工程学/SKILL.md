@@ -1,7 +1,7 @@
 ---
 name: "Agent工程学"
 display_name: "Agent工程学"
-description: "当你需要管理多代理工程流程、将复杂实现拆分为可验证的子任务，或制定评估优先和成本敏感的执行策略时使用。"
+description: "当你需要规划多步骤工程任务、拆分可验证的子代理工作，或管理多模型协同与评估优先的开发流程时使用。"
 trigger_words: ["agentic-engineering", "agent workflow", "subagent", "parallel agents", "eval-first", "cost-aware", "多代理", "子代理", "代理工程"]
 ---
 

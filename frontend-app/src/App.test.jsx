@@ -54,6 +54,7 @@ const backend = vi.hoisted(() => {
     listDags getDagDetail getDagRuns getDagRun startDag terminateDagRun deleteDag applyDagOps listWorkflowTemplates getWorkflowTemplate renderWorkflowTemplateDraft deleteSkill
     listCronJobs getCronJob createCronJob updateCronJob deleteCronJob runCronJobOnce setCronJobEnabled listCronJobRuns
     readSkill listSkillFiles createSkill writeSkill importSkillDirectories suggestSkillSummary selectProjectDir selectProjectDirs
+    createSkillTool listSkillTools getSkillTool updateSkillTool deleteSkillTool
     listMCPServers startSQLiteMCPServer stopSQLiteMCPServer startPlaywrightMCPServer stopPlaywrightMCPServer
     listSkillResolutions previewSkillResolution applySkillResolution readSharedFile deleteSharedFile getPreference
     startThread startTurn interruptTurn forceCompleteTurn compactThread recoverThread respondApproval resolveThreadIdentity archiveThread unarchiveThread
@@ -427,6 +428,11 @@ function mockSkillDefaults() {
   backend.selectProjectDir.mockResolvedValue('/repo/new');
   backend.selectProjectDirs.mockResolvedValue(['/imports/ImportedSkill']);
   backend.listSkillResolutions.mockResolvedValue({ items: [] });
+  backend.listSkillTools.mockResolvedValue({ tools: [] });
+  backend.createSkillTool.mockResolvedValue({ id: 1, name: 'Test Tool', command: 'echo', args: [], enabled: true });
+  backend.getSkillTool.mockResolvedValue({ id: 1, name: 'Test Tool', command: 'echo', args: [], enabled: true });
+  backend.updateSkillTool.mockResolvedValue({ id: 1, name: 'Test Tool', command: 'echo', args: [], enabled: true });
+  backend.deleteSkillTool.mockResolvedValue({ id: 1, deleted: true });
   backend.previewSkillResolution.mockResolvedValue({
     items: [{
       provider: 'codex',
@@ -721,6 +727,21 @@ async function showAllTraceDashboardEvents() {
     expect(sidebar.querySelector('.sidebar-brand img')?.getAttribute('src')).toContain('suiyuan-brand-icon.png');
     expect(sidebar.querySelector('.sidebar-tree-folder img')).toBeNull();
     expect(sidebar.querySelector('.sidebar-tree-folder svg')).toBeInTheDocument();
+  });
+
+  it('keeps the workbench sidebar class stable while switching between chat and tools', async () => {
+    render(<App />);
+
+    const sidebar = await screen.findByTestId('app-sidebar');
+    expect(sidebar).not.toHaveClass('app-sidebar--chat');
+
+    fireEvent.click(screen.getByRole('button', { name: '插件与技能' }));
+    await waitFor(() => expect(screen.getByRole('button', { name: '插件与技能' })).toHaveClass('active'));
+    expect(sidebar).not.toHaveClass('app-sidebar--chat');
+
+    fireEvent.click(screen.getByRole('button', { name: '新对话' }));
+    await waitFor(() => expect(useClientStore.getState().activePage).toBe('chat'));
+    expect(sidebar).not.toHaveClass('app-sidebar--chat');
   });
 
   it('wires the sidebar project directory to project and thread actions', async () => {
@@ -1135,6 +1156,57 @@ async function showAllTraceDashboardEvents() {
 
     await waitFor(() => expect(superSidebarCalls).toBe(2));
     await waitFor(() => expect(within(projectLists()[0]).getByTitle('Super Chat')).toBeInTheDocument());
+  });
+
+  it('shows a new dot-project chat under the real current project immediately', async () => {
+    backend.readConfig.mockResolvedValue({ cwd: '/repo/sidebar-chat-consistency' });
+    backend.getProjects.mockResolvedValue({ projects: [], active: '.' });
+    backend.getSidebarState.mockResolvedValue({
+      activeThreadId: '',
+      threads: [],
+    });
+    backend.startThread.mockResolvedValue({ threadId: 'thread-dot' });
+    backend.startTurn.mockResolvedValue({ ok: true });
+    backend.getThreadState.mockResolvedValue({
+      activeThreadId: 'thread-dot',
+      threads: [{
+        id: 'thread-dot',
+        name: 'Dot project first chat',
+        provider: 'codex',
+        status: 'idle',
+        cwd: '/repo/sidebar-chat-consistency',
+      }],
+      timelinesByThread: {
+        'thread-dot': [{ id: 'message-thread-dot', kind: 'assistant', text: 'reply', ts: '2026-05-30T00:00:00Z' }],
+      },
+    });
+    backend.getThreadMessages.mockResolvedValue({ messages: [] });
+
+    render(<App />);
+
+    const sidebar = await screen.findByTestId('app-sidebar');
+    await within(sidebar).findByRole('list', { name: 'sidebar-chat-consistency 聊天记录' });
+    expect(within(sidebar).queryByRole('button', { name: '选择项目 .' })).not.toBeInTheDocument();
+
+    fireEvent.change(await screen.findByTestId('composer-input'), { target: { value: 'Dot project first chat' } });
+    fireEvent.click(screen.getByLabelText('发送消息'));
+
+    const projectChats = within(sidebar).getByRole('list', { name: 'sidebar-chat-consistency 聊天记录' });
+    await waitFor(() => expect(within(projectChats).getByTitle('Dot project first chat')).toBeInTheDocument());
+    expect(within(projectChats).queryByText('暂无聊天记录')).not.toBeInTheDocument();
+
+    fireEvent.click(within(projectChats).getByTitle('Dot project first chat'));
+
+    await waitFor(() => expect(backend.getThreadState).toHaveBeenCalledWith({
+      cwd: '/repo/sidebar-chat-consistency',
+      threadId: 'thread-dot',
+      includeDiff: false,
+    }));
+    expect(backend.setActiveProject).not.toHaveBeenCalledWith({
+      cwd: '/repo/sidebar-chat-consistency',
+      path: '/repo/sidebar-chat-consistency',
+    });
+    expect(within(projectChats).getByTitle('Dot project first chat')).toBeInTheDocument();
   });
 
   it('keeps the active project chat list when opening a thread returns a thread-scoped snapshot', async () => {
@@ -5331,13 +5403,15 @@ async function toggleInlineTraceFromRecentLogs(table) {
 
     await openSkillToolsPage();
     expect(await screen.findByText('插件与技能')).toBeInTheDocument();
-    expect(await screen.findByText('后端')).toBeInTheDocument();
-    expect(screen.getByText('/repo/app/.agent/skills/backend')).toBeInTheDocument();
-    expect(screen.getByText('私人使用 1')).toBeInTheDocument();
-    expect(screen.getByText('项目共享 1')).toBeInTheDocument();
-    expect(screen.getByText('全部 2')).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: /刷新/ })).not.toBeInTheDocument();
-    expect(backend.getDashboardPage).toHaveBeenCalledWith({ cwd: '/repo/app', page: 'skills' });
+    expect(await screen.findByRole('heading', { name: 'Skill工具' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '新增工具' })).toBeInTheDocument();
+    expect(screen.queryByText('本地技能库')).not.toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: '后端' })).not.toBeInTheDocument();
+    await waitFor(() => {
+      expect(backend.listSkillTools).toHaveBeenCalledWith({ cwd: '/repo/app', keyword: '', limit: 200 });
+    });
+    expect(backend.getDashboardPage).not.toHaveBeenCalledWith({ cwd: '/repo/app', page: 'skills' });
+    expect(backend.listSkillResolutions).not.toHaveBeenCalled();
 
     fireEvent.click(screen.getByLabelText('共享文件'));
     expect(await screen.findByText('文件产物')).toBeInTheDocument();
@@ -8102,744 +8176,29 @@ async function designWorkflowWithAi() {
     });
   });
 
-  it('refreshes skills page from backend when skills changed event arrives', async () => {
-    render(<App />);
-    await waitForBackendThreadHeading();
-    await openSkillToolsPage();
-    expect(await screen.findByText('后端')).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: /刷新/ })).not.toBeInTheDocument();
-
-    backend.getDashboardPage.mockResolvedValueOnce({
-      skills: [{
-        name: 'security',
-        display_name: '安全工程师',
-        dir: '/repo/app/.agent/skills/security',
-        description: '安全审计',
-        trigger_words: ['security'],
-        scope: 'project',
+  it('shows database Skill tools from the Skill tools route', async () => {
+    backend.listSkillTools.mockResolvedValueOnce({
+      tools: [{
+        id: 7,
+        name: 'Format Go',
+        description: 'Run formatter',
+        command: 'gofmt',
+        args: ['-w', './internal/module/skill'],
+        enabled: true,
       }],
     });
-
-    act(() => {
-      bridgeCallback({ type: 'skills/changed', payload: { cwd: '/repo/app' } });
-    });
-
-    expect(await screen.findByText('安全工程师')).toBeInTheDocument();
-    expect(screen.queryByText('后端')).not.toBeInTheDocument();
-    expect(backend.getDashboardPage).toHaveBeenCalledTimes(2);
-
-    backend.getDashboardPage.mockResolvedValueOnce({
-      skills: [{
-        name: 'review-style',
-        display_name: '审查风格',
-        dir: '/repo/app/.agent/skills/review-style',
-        description: '先列风险',
-        trigger_words: ['review'],
-        scope: 'project',
-      }],
-    });
-
-    await act(async () => {
-      window.dispatchEvent(new Event('focus'));
-    });
-
-    expect(await screen.findByText('审查风格')).toBeInTheDocument();
-    expect(screen.queryByText('安全工程师')).not.toBeInTheDocument();
-    expect(backend.getDashboardPage).toHaveBeenCalledTimes(3);
-  });
-
-  it('does not repeat a skill description when summary is empty', async () => {
     render(<App />);
-    await waitForBackendThreadHeading();
-    await openSkillToolsPage();
-    const personalCard = (await screen.findByRole('heading', { name: 'personal-review' })).closest('article');
-
-    expect(within(personalCard).getAllByText('当你需要私人代码审查偏好时使用。')).toHaveLength(1);
-  });
-
-  it('shows skills filter counts and an empty search state', async () => {
-    render(<App />);
-    await waitForBackendThreadHeading();
+    await screen.findByLabelText('插件与技能');
     await openSkillToolsPage();
 
-    expect(await screen.findByText('共 2 个技能')).toBeInTheDocument();
-
-    fireEvent.click(screen.getByRole('button', { name: '私人使用 1' }));
-    expect(screen.getByText('显示 1 个，共 2 个技能')).toBeInTheDocument();
-
-    fireEvent.change(screen.getByPlaceholderText('搜索技能名称、简介、关键词...'), {
-      target: { value: 'does-not-exist' },
-    });
-
-    expect(screen.getByText('没有匹配技能')).toBeInTheDocument();
-    expect(screen.getByText('尝试更换关键词或切换使用范围，支持按名称、简介、关键词搜索')).toBeInTheDocument();
-    expect(screen.getByText('当前没有匹配技能，共 2 个')).toBeInTheDocument();
-    expect(screen.queryByText('暂无技能')).not.toBeInTheDocument();
-  });
-
-  it('keeps the skills route visible while project context resolves', async () => {
-    const config = deferred();
-    backend.readConfig.mockReturnValueOnce(config.promise);
-
-    render(<App />);
-    await openSkillToolsPage();
-
-    expect(await screen.findByRole('heading', { name: '插件与技能' })).toBeInTheDocument();
-    expect(await screen.findByText('正在连接本地项目...')).toBeInTheDocument();
-    expect(backend.getDashboardPage).not.toHaveBeenCalledWith({ cwd: '未选择项目', page: 'skills' });
-
-    await act(async () => {
-      config.resolve({ cwd: '/repo/app' });
-      await Promise.resolve();
-    });
-
-    expect(await screen.findByText('后端')).toBeInTheDocument();
-    expect(backend.getDashboardPage).toHaveBeenCalledWith({ cwd: '/repo/app', page: 'skills' });
-  });
-
-  it('keeps skills visible and exposes retry when a background sync fails', async () => {
-    render(<App />);
-    await waitForBackendThreadHeading();
-    await openSkillToolsPage();
-    expect(await screen.findByText('后端')).toBeInTheDocument();
-
-    backend.getDashboardPage.mockRejectedValueOnce(new Error('backend offline'));
-    await act(async () => {
-      bridgeCallback({ type: 'skills/changed', payload: { cwd: '/repo/app' } });
-      await Promise.resolve();
-    });
-
-    expect(screen.getByText('后端')).toBeInTheDocument();
-    expect(await screen.findByRole('alert')).toHaveTextContent('同步失败，显示的是上次成功的数据：backend offline');
-
-    backend.getDashboardPage.mockResolvedValueOnce({
-      skills: [{
-        name: 'security',
-        display_name: '安全工程师',
-        dir: '/repo/app/.agent/skills/security',
-        description: '安全审计',
-        trigger_words: ['security'],
-        scope: 'project',
-      }],
-    });
-    fireEvent.click(screen.getByRole('button', { name: '重试同步' }));
-
-    expect(await screen.findByText('安全工程师')).toBeInTheDocument();
-    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
-  });
-
-  it('keeps skills visible and exposes retry when the resolution payload is invalid', async () => {
-    backend.listSkillResolutions.mockResolvedValueOnce({});
-
-    render(<App />);
-    await waitForBackendThreadHeading();
-    await openSkillToolsPage();
-
-    expect(await screen.findByText('后端')).toBeInTheDocument();
-    expect(await screen.findByRole('alert')).toHaveTextContent('读取技能冲突失败：skill resolutions response items must be an array');
-
-    backend.listSkillResolutions.mockResolvedValueOnce({ items: [] });
-    fireEvent.click(screen.getByRole('button', { name: '重试同步' }));
-
-    await waitFor(() => {
-      expect(screen.queryByRole('alert')).not.toBeInTheDocument();
-    });
-    expect(screen.getByText('后端')).toBeInTheDocument();
-  });
-
-  it('keeps cached skills visible when navigating back and refreshes silently', async () => {
-    render(<App />);
-    await waitForBackendThreadHeading();
-    await openSkillToolsPage();
-    expect(await screen.findByText('后端')).toBeInTheDocument();
-
-    fireEvent.click(screen.getByLabelText('新对话'));
-    backend.getDashboardPage.mockResolvedValueOnce({
-      skills: [{
-        name: 'security',
-        display_name: '安全工程师',
-        dir: '/repo/app/.agent/skills/security',
-        description: '安全审计',
-        trigger_words: ['security'],
-        scope: 'project',
-      }],
-    });
-    await openSkillToolsPage();
-
-    expect(screen.queryByText('加载技能中...')).not.toBeInTheDocument();
-    expect(await screen.findByText('安全工程师')).toBeInTheDocument();
-    expect(screen.queryByText('后端')).not.toBeInTheDocument();
-  });
-
-  it('releases the skills loading state when the dashboard request hangs', async () => {
-    render(<App />);
-    await waitForBackendThreadHeading();
-
-    let rejectSkillsDashboard;
-    backend.getDashboardPage.mockImplementation(({ page }) => (
-      page === 'skills'
-        ? new Promise((_, reject) => {
-          rejectSkillsDashboard = reject;
-        })
-        : Promise.resolve({
-          memory: [],
-          finalOutputRefs: [],
-          sharedFileRetention: { items: [], protectedCount: 0, cleanupCandidateCount: 0 },
-        })
-    ));
-
-    fireEvent.click(screen.getByLabelText('插件与技能'));
-    const skillToolsTab = await screen.findByRole('button', { name: 'Skill工具' });
-
-    fireEvent.click(skillToolsTab);
-    expect(screen.getByText('加载技能中...')).toBeInTheDocument();
-
-    await act(async () => {
-      rejectSkillsDashboard(new Error('技能列表加载超时，请检查技能目录或后端状态。'));
-      await Promise.resolve();
-    });
-
-    expect(await screen.findByRole('alert')).toHaveTextContent('技能列表加载超时');
-    expect(screen.queryByText('加载技能中...')).not.toBeInTheDocument();
-
-    backend.getDashboardPage.mockImplementation(({ page }) => Promise.resolve(
-      page === 'skills'
-        ? {
-          skills: [{
-            name: 'security',
-            display_name: '安全工程师',
-            dir: '/repo/app/.agent/skills/security',
-            description: '安全审计',
-            trigger_words: ['security'],
-            scope: 'project',
-          }],
-        }
-        : {
-          memory: [],
-          finalOutputRefs: [],
-          sharedFileRetention: { items: [], protectedCount: 0, cleanupCandidateCount: 0 },
-        },
-    ));
-
-    await act(async () => {
-      window.dispatchEvent(new Event('focus'));
-      await Promise.resolve();
-    });
-
-    expect(await screen.findByText('安全工程师')).toBeInTheDocument();
-    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
-  });
-
-  it('shows a retryable blocking error instead of an empty skills state on initial load failure', async () => {
-    backend.getDashboardPage.mockImplementation(({ page }) => (
-      page === 'skills'
-        ? Promise.reject(new Error('skills backend offline'))
-        : Promise.resolve({
-          memory: [],
-          finalOutputRefs: [],
-          sharedFileRetention: { items: [], protectedCount: 0, cleanupCandidateCount: 0 },
-        })
-    ));
-
-    render(<App />);
-    await waitForBackendThreadHeading();
-    await openSkillToolsPage();
-
-    const alert = await screen.findByRole('alert');
-    expect(alert).toHaveTextContent('skills backend offline');
-    expect(screen.queryByText('暂无技能')).not.toBeInTheDocument();
-
-    backend.getDashboardPage.mockImplementation(({ page }) => Promise.resolve(
-      page === 'skills'
-        ? {
-          skills: [{
-            name: 'security',
-            display_name: '安全工程师',
-            dir: '/repo/app/.agent/skills/security',
-            description: '安全审计',
-            trigger_words: ['security'],
-            scope: 'project',
-          }],
-        }
-        : {
-          memory: [],
-          finalOutputRefs: [],
-          sharedFileRetention: { items: [], protectedCount: 0, cleanupCandidateCount: 0 },
-        },
-    ));
-    fireEvent.click(within(alert).getByRole('button', { name: '重试同步' }));
-
-    expect(await screen.findByText('安全工程师')).toBeInTheDocument();
-    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
-  });
-
-  it('deletes a skill through the legacy scoped API and refreshes the list', async () => {
-    render(<App />);
-    await waitForBackendThreadHeading();
-    await openSkillToolsPage();
-    expect(await screen.findByText('后端')).toBeInTheDocument();
-
-    backend.getDashboardPage.mockResolvedValueOnce({ skills: [] });
-    const backendCard = screen.getByText('后端').closest('article');
-    fireEvent.click(within(backendCard).getByRole('button', { name: '删除' }));
-    expect(await screen.findByRole('dialog', { name: '删除技能' })).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: '确认删除' }));
-
-    await waitFor(() => {
-      expect(backend.deleteSkill).toHaveBeenCalledWith({
-        cwd: '/repo/app',
-        name: 'backend',
-        scope: 'project',
-        personal_type: '',
-      });
-      expect(backend.getDashboardPage).toHaveBeenCalledTimes(2);
-    });
-    expect(await screen.findByText('暂无技能')).toBeInTheDocument();
-  });
-
-  it('creates a skill, suggests a summary, and saves through skills/create', async () => {
-    backend.suggestSkillSummary.mockResolvedValueOnce({ description: '当你需要部署服务时使用。' });
-    backend.getPreference.mockImplementation(({ key }) => Promise.resolve({
-      'settings.provider.active': 'codex',
-      'settings.provider.codex.model': 'gpt-5.5',
-      'settings.provider.codex.effort': 'xhigh',
-      'settings.provider.codex.codexHome': '~/.codex',
-      'settings.provider.codex.codexInstanceKey': 'default',
-      'settings.provider.codex.codexModelProvider': 'openrouter',
-    }[key] ?? null));
-
-    render(<App />);
-    await waitForBackendThreadHeading();
-    await openSkillToolsPage();
-    await screen.findByText('后端');
-
-    fireEvent.click(screen.getByRole('button', { name: '新建技能' }));
-    expect(await screen.findByRole('dialog', { name: '新建技能' })).toBeInTheDocument();
-    expect(screen.queryByLabelText('显示名称')).not.toBeInTheDocument();
-    fireEvent.change(screen.getByLabelText('技能名称'), { target: { value: '部署技能' } });
-    fireEvent.change(screen.getByLabelText('关键词'), { target: { value: 'deploy, ship' } });
-    fireEvent.change(screen.getByLabelText('技能内容'), { target: { value: '## 部署规则\n执行部署前检查环境。' } });
-    fireEvent.click(screen.getByRole('button', { name: '帮我生成' }));
-
-    const summarySuggestion = await screen.findByText(/当你需要部署服务时使用。/);
-    const scopeLabel = screen.getAllByText('使用范围').find((element) => element.tagName.toLowerCase() === 'span');
-    expect(summarySuggestion).toBeInTheDocument();
-    expect(screen.getByLabelText('技能简介').compareDocumentPosition(summarySuggestion) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect(summarySuggestion.compareDocumentPosition(scopeLabel) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    fireEvent.click(screen.getByRole('button', { name: '采用' }));
-    expect(screen.getByLabelText('技能简介')).toHaveValue('当你需要部署服务时使用。');
-    fireEvent.click(screen.getByRole('button', { name: '保存技能' }));
-
-    await waitFor(() => {
-      expect(backend.suggestSkillSummary).toHaveBeenCalledWith({
-        cwd: '/repo/app',
-        name: '部署技能',
-        description: '',
-        content: '## 部署规则\n执行部署前检查环境。',
-        scenario_words: ['deploy', 'ship'],
-        scope: 'project',
-        provider: 'codex',
-        model: 'gpt-5.5',
-        codexModelProvider: 'openrouter',
-      });
-      expect(backend.createSkill).toHaveBeenCalledWith(expect.objectContaining({
-        cwd: '/repo/app',
-        name: '部署技能',
-      }));
-    });
-    expect(backend.writeSkill).not.toHaveBeenCalledWith(expect.objectContaining({
-      path: '部署技能',
-      scope: 'project',
-    }));
-    const savePayload = backend.createSkill.mock.calls.at(-1)[0];
-    expect(savePayload.content).toContain('name: "部署技能"');
-    expect(savePayload.content).toContain('display_name: "部署技能"');
-    expect(savePayload.content).toContain('description: "当你需要部署服务时使用。"');
-    expect(savePayload.content).toContain('trigger_words: ["deploy", "ship"]');
-  });
-
-  it('opens an existing skill, loads related files, and saves edits', async () => {
-    render(<App />);
-    await waitForBackendThreadHeading();
-    await openSkillToolsPage();
-    await screen.findByText('后端');
-
-    const backendCard = screen.getByText('后端').closest('article');
-    fireEvent.click(within(backendCard).getByRole('button', { name: '编辑详情' }));
-
-    expect(await screen.findByRole('dialog', { name: '编辑技能' })).toBeInTheDocument();
-    expect(screen.queryByLabelText('显示名称')).not.toBeInTheDocument();
-    expect(screen.getByLabelText('技能名称')).toHaveValue('后端');
-    expect(backend.readSkill).toHaveBeenCalledWith({
-      cwd: '/repo/app',
-      path: '/repo/app/.agent/skills/backend/SKILL.md',
-    });
-    expect(backend.listSkillFiles).toHaveBeenCalledWith({
-      cwd: '/repo/app',
-      dir: '/repo/app/.agent/skills/backend',
-    });
-    expect(screen.getByLabelText('技能简介')).toHaveValue('当你需要 Go 后端开发时使用。');
-    expect(screen.getByText('guide.md')).toBeInTheDocument();
-    expect(screen.getByTestId('skills-editor-body-preview')).toBeInTheDocument();
-    expect(screen.queryByLabelText('技能内容')).not.toBeInTheDocument();
-    expect(screen.getByRole('button', { name: '编辑正文' })).toBeInTheDocument();
-
-    fireEvent.change(screen.getByLabelText('技能名称'), { target: { value: 'Go 后端' } });
-    fireEvent.change(screen.getByLabelText('技能简介'), { target: { value: '当你需要维护 Go 服务时使用。' } });
-    fireEvent.click(screen.getByRole('button', { name: '编辑正文' }));
-    expect(screen.getByLabelText('技能内容')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: '预览正文' })).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: '保存技能' }));
-
-    await waitFor(() => {
-      expect(backend.writeSkill).toHaveBeenCalledWith(expect.objectContaining({
-        cwd: '/repo/app',
-        path: '/repo/app/.agent/skills/backend/SKILL.md',
-        scope: 'project',
-        personal_type: '',
-      }));
-    });
-    const savedContent = backend.writeSkill.mock.calls.at(-1)[0].content;
-    expect(savedContent).toContain('name: "backend"');
-    expect(savedContent).toContain('display_name: "Go 后端"');
-    expect(savedContent).toContain('description: "当你需要维护 Go 服务时使用。"');
-  });
-
-  it('opens a linked skill subfile from the markdown preview', async () => {
-    backend.readSkill.mockImplementation(({ path }) => Promise.resolve({
-      skill: {
-        content: path.endsWith('/SKILL.md')
-          ? [
-            '---',
-            'name: "backend"',
-            'display_name: "后端"',
-            'description: "当你需要 Go 后端开发时使用。"',
-            'trigger_words: ["Go", "backend"]',
-            '---',
-            '',
-            '## 后端规则',
-            '',
-            '参考 [guide](references/guide.md)。',
-          ].join('\n')
-          : '## Guide Body',
-      },
-    }));
-
-    render(<App />);
-    await waitForBackendThreadHeading();
-    await openSkillToolsPage();
-    await screen.findByText('后端');
-
-    const backendCard = screen.getByText('后端').closest('article');
-    fireEvent.click(within(backendCard).getByRole('button', { name: '编辑详情' }));
-
-    expect(await screen.findByRole('dialog', { name: '编辑技能' })).toBeInTheDocument();
-    fireEvent.click(await screen.findByRole('button', { name: 'guide' }));
-
-    await waitFor(() => {
-      expect(backend.readSkill).toHaveBeenCalledWith({
-        cwd: '/repo/app',
-        path: '/repo/app/.agent/skills/backend/references/guide.md',
-      });
-    });
-    expect(await screen.findByText('Guide Body')).toBeInTheDocument();
-
-    fireEvent.click(screen.getByRole('button', { name: '编辑正文' }));
-    fireEvent.change(screen.getByLabelText('关联文件内容'), { target: { value: '## Updated Guide' } });
-    fireEvent.click(screen.getByRole('button', { name: '保存文件' }));
-
-    await waitFor(() => {
-      expect(backend.writeSkill).toHaveBeenCalledWith({
-        cwd: '/repo/app',
-        path: '/repo/app/.agent/skills/backend/references/guide.md',
-        content: '## Updated Guide',
-        scope: 'project',
-        personal_type: '',
-      });
-      expect(screen.getByText('文件已保存：guide.md')).toBeInTheDocument();
-    });
-  });
-
-  it('imports skill directories with selected scope through skills/local/importDir', async () => {
-    render(<App />);
-    await waitForBackendThreadHeading();
-    await openSkillToolsPage();
-    await screen.findByText('后端');
-
-    fireEvent.click(screen.getByRole('button', { name: '批量导入技能目录' }));
-    expect(await screen.findByRole('dialog', { name: '导入技能' })).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: '私人使用' }));
-
-    await waitFor(() => {
-      expect(backend.selectProjectDirs).toHaveBeenCalledTimes(1);
-      expect(backend.importSkillDirectories).toHaveBeenCalledWith({
-        cwd: '/repo/app',
-        paths: ['/imports/ImportedSkill'],
-        scope: 'personal',
-        personal_type: 'imported',
-      });
-      expect(backend.getDashboardPage).toHaveBeenCalledTimes(2);
-    });
-  });
-
-  it('surfaces duplicate import failures and same-name conflict drafts', async () => {
-    backend.importSkillDirectories.mockResolvedValueOnce({
-      imported: [{ name: 'ProjectConflict', skill_file: '/imports/ProjectConflict/SKILL.md' }],
-      failures: [{ source: '/imports/DupSkill', error: 'skill already exists: DupSkill' }],
-    });
-    backend.readSkill.mockRejectedValueOnce(new Error('skill same-name conflict: ProjectConflict'));
-
-    render(<App />);
-    await waitForBackendThreadHeading();
-    await openSkillToolsPage();
-    await screen.findByText('后端');
-
-    fireEvent.click(screen.getByRole('button', { name: '批量导入技能目录' }));
-    fireEvent.click(await screen.findByRole('button', { name: '项目共享' }));
-
-    expect(await screen.findByText(/项目共享里已存在：DupSkill，未重复导入。/)).toBeInTheDocument();
-    expect(screen.getByTestId('skills-import-summary-panel')).toHaveTextContent('导入后需要处理');
-    expect(screen.getByTestId('skills-import-summary-item-0')).toHaveTextContent('已导入，但与现有技能同名，暂未启用。请在冲突提示中选择使用哪个版本。');
-  });
-
-  it('shows import summary drafts and opens the imported skill with the suggested summary', async () => {
-    backend.readSkill.mockImplementation(({ path }) => Promise.resolve({
-      skill: {
-        content: path.includes('/imports/ImportedSkill')
-          ? [
-            '---',
-            'name: "ImportedSkill"',
-            'display_name: "Imported Skill"',
-            '---',
-            '',
-            '## 导入规则',
-          ].join('\n')
-          : [
-            '---',
-            'name: "backend"',
-            'display_name: "后端"',
-            'description: "当你需要 Go 后端开发时使用。"',
-            'trigger_words: ["Go", "backend"]',
-            '---',
-            '',
-            '## 后端规则',
-          ].join('\n'),
-      },
-    }));
-    backend.suggestSkillSummary.mockResolvedValueOnce('当你需要维护导入技能时使用。');
-
-    render(<App />);
-    await waitForBackendThreadHeading();
-    await openSkillToolsPage();
-    await screen.findByText('后端');
-
-    fireEvent.click(screen.getByRole('button', { name: '批量导入技能目录' }));
-    fireEvent.click(await screen.findByRole('button', { name: '私人使用' }));
-
-    expect(await screen.findByTestId('skills-import-summary-panel')).toBeInTheDocument();
-    expect(screen.getByText('ImportedSkill')).toBeInTheDocument();
-    expect(screen.getByText('当你需要维护导入技能时使用。')).toBeInTheDocument();
-    expect(backend.readSkill).toHaveBeenCalledWith({
-      cwd: '/repo/app',
-      path: '/imports/ImportedSkill/SKILL.md',
-    });
-    expect(backend.suggestSkillSummary).toHaveBeenCalledWith(expect.objectContaining({
-      cwd: '/repo/app',
-      name: 'ImportedSkill',
-      scope: 'personal',
-    }));
-
-    fireEvent.click(screen.getByTestId('skills-import-summary-apply-0'));
-    expect(await screen.findByRole('dialog', { name: '编辑技能' })).toBeInTheDocument();
-    expect(screen.getByLabelText('技能简介')).toHaveValue('当你需要维护导入技能时使用。');
-    expect(screen.getByTestId('skills-import-summary-item-0')).toHaveTextContent('已采用，保存后生效');
-    fireEvent.click(screen.getByTestId('skills-import-summary-dismiss-0'));
-    expect(screen.queryByTestId('skills-import-summary-panel')).not.toBeInTheDocument();
-  });
-
-  it('shows skill resolution conflicts and applies a previewed action', async () => {
-    backend.listSkillResolutions.mockResolvedValueOnce({
-      items: [{
-        conflict_id: 'conflict-1',
-        name: 'backend',
-        kind: 'mirror_drift',
-        scope: 'project',
-        provider: 'codex',
-        available_actions: ['view_diff', 'canonical_overwrite_mirror'],
-      }],
-    }).mockResolvedValue({ items: [] });
-    backend.previewSkillResolution.mockResolvedValueOnce({
-      items: [{
-        provider: 'codex',
-        preview_id: 'preview-1',
-        preview_hash: 'hash-1',
-        source_path: '/repo/app/.agent/skills/backend/SKILL.md',
-        target_path: '/Users/test/.codex/skills/backend/SKILL.md',
-        source_hash: '8b022cc49401abd24425d711fe24aed33d49ddb7dff41bbd2a6bc69e4909af22c',
-        target_hash: '854b60866d3b76b7c95ccbc4ec856459624dc622d34971865412b47b56fa840d',
-        diff: '--- source\n+++ target\n@@ -1 +1 @@\n-old\n+new',
-      }],
-    });
-
-    render(<App />);
-    await waitForBackendThreadHeading();
-    await openSkillToolsPage();
-
-    expect(await screen.findByText(/发现 1 个技能冲突/)).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: '用本项目内容覆盖外部版本' }));
-    expect(await screen.findByText('/Users/test/.codex/skills/backend/SKILL.md')).toBeInTheDocument();
-    expect(screen.getByText('外部版本号：8b022cc4')).toBeInTheDocument();
-    expect(screen.getByText('管理版本号：854b6086')).toBeInTheDocument();
-    expect(screen.getByText(/--- source/)).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: '确认应用' }));
-
-    await waitFor(() => {
-      expect(backend.previewSkillResolution).toHaveBeenCalledWith(expect.objectContaining({
-        cwd: '/repo/app',
-        conflict_id: 'conflict-1',
-        action: 'canonical_overwrite_mirror',
-      }));
-      expect(backend.applySkillResolution).toHaveBeenCalledWith(expect.objectContaining({
-        cwd: '/repo/app',
-        conflict_id: 'conflict-1',
-        action: 'canonical_overwrite_mirror',
-        preview_id: 'preview-1',
-        preview_hash: 'hash-1',
-      }));
-    });
-  });
-
-  it('shows legacy resolution guide and preview intro copy', async () => {
-    backend.listSkillResolutions.mockResolvedValueOnce({
-      items: [{
-        conflict_id: 'personal-project',
-        name: 'backend',
-        kind: 'external_personal_project_same_name',
-        scope: 'personal',
-        provider: 'codex',
-        available_actions: ['view_diff'],
-      }],
-    });
-
-    render(<App />);
-    await waitForBackendThreadHeading();
-    await openSkillToolsPage();
-
-    expect(await screen.findByText('检测到同名技能同时存在于私人使用和项目共享。请选择使用项目共享版本、继续私人使用，或另存为新私人技能。')).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: '查看两个版本' }));
-
-    expect(await screen.findByText('下面只说明两个版本分别在哪里，不会修改文件。')).toBeInTheDocument();
-    expect(screen.getByText('外部版本')).toBeInTheDocument();
-    expect(screen.getByText('本项目版本')).toBeInTheDocument();
-  });
-
-  it('shows manual resolution steps when same-name conflicts cannot be auto resolved', async () => {
-    backend.listSkillResolutions.mockResolvedValueOnce({
-      items: [{
-        conflict_id: 'same-manual',
-        name: 'backend',
-        kind: 'same_name',
-        scope: 'project',
-        available_actions: [],
-      }],
-    });
-
-    render(<App />);
-    await waitForBackendThreadHeading();
-    await openSkillToolsPage();
-
-    expect(await screen.findByText('要保留项目共享：编辑或删除同名私人技能。')).toBeInTheDocument();
-    expect(screen.getByText('要保留私人使用：编辑项目共享技能改名，或删除项目共享技能。')).toBeInTheDocument();
-    expect(screen.getByText('两边都要保留：把其中一个改成更明确的名字。')).toBeInTheDocument();
-  });
-
-  it('prompts for a new resolution skill name and sends provider source fields', async () => {
-    backend.listSkillResolutions.mockResolvedValueOnce({
-      items: [{
-        conflict_id: 'conflict-new',
-        name: 'backend',
-        kind: 'unmanaged_provider_skill',
-        scope: 'project',
-        provider_entries: [{
-          provider: 'codex',
-          source_path_id: 'codex://backend',
-          source_path: '/Users/test/.codex/skills/backend/SKILL.md',
-        }],
-        available_actions: ['save_as_new_skill'],
-      }],
-    });
-
-    render(<App />);
-    await waitForBackendThreadHeading();
-    await openSkillToolsPage();
-
-    expect(await screen.findByText(/发现 1 个技能冲突/)).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: '另存为新技能' }));
-    expect(await screen.findByLabelText('新技能名称')).toHaveValue('backend-copy');
-    fireEvent.change(screen.getByLabelText('新技能名称'), { target: { value: 'backend-v2' } });
-    fireEvent.click(screen.getByRole('button', { name: '生成预览' }));
-
-    await waitFor(() => {
-      expect(backend.previewSkillResolution).toHaveBeenCalledWith(expect.objectContaining({
-        cwd: '/repo/app',
-        conflict_id: 'conflict-new',
-        action: 'save_as_new_skill',
-        provider: 'codex',
-        source_provider: 'codex',
-        source_path_id: 'codex://backend',
-        new_name: 'backend-v2',
-      }));
-    });
-    expect(await screen.findByText('/Users/test/.codex/skills/backend/SKILL.md')).toBeInTheDocument();
-  });
-
-  it('auto-applies same-name keep-selected resolution with the selected source id', async () => {
-    backend.listSkillResolutions.mockResolvedValueOnce({
-      items: [{
-        conflict_id: 'same-1',
-        name: 'backend',
-        kind: 'same_name',
-        scope: 'project',
-        available_actions: ['keep_selected'],
-        sources: [
-          {
-            scope: 'project',
-            canonical_id: 'project/backend',
-            path: '/repo/app/.agent/skills/backend/SKILL.md',
-          },
-          {
-            scope: 'personal',
-            personal_type: 'user',
-            canonical_id: 'personal/user/backend',
-            path: '/Users/test/.super-dolphin/skills/personal/user/backend/SKILL.md',
-          },
-        ],
-      }],
-    }).mockResolvedValue({ items: [] });
-
-    render(<App />);
-    await waitForBackendThreadHeading();
-    await openSkillToolsPage();
-
-    expect(await screen.findByText(/发现 1 个技能冲突/)).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: '用项目共享版本，删除其他版本' }));
-
-    await waitFor(() => {
-      expect(backend.previewSkillResolution).toHaveBeenCalledWith(expect.objectContaining({
-        cwd: '/repo/app',
-        conflict_id: 'same-1',
-        action: 'keep_selected',
-        keep_source_id: 'project/backend',
-      }));
-      expect(backend.applySkillResolution).toHaveBeenCalledWith(expect.objectContaining({
-        cwd: '/repo/app',
-        conflict_id: 'same-1',
-        action: 'keep_selected',
-        keep_source_id: 'project/backend',
-        preview_id: 'preview-1',
-        preview_hash: 'hash-1',
-      }));
-    });
+    expect(await screen.findByRole('heading', { name: 'Skill工具' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '新增工具' })).toBeInTheDocument();
+    expect(await screen.findByText('Format Go')).toBeInTheDocument();
+    expect(screen.queryByText('本地技能库')).not.toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: '后端' })).not.toBeInTheDocument();
+    expect(backend.listSkillTools).toHaveBeenCalledWith({ cwd: '/repo/app', keyword: '', limit: 200 });
+    expect(backend.getDashboardPage).not.toHaveBeenCalledWith({ cwd: '/repo/app', page: 'skills' });
+    expect(backend.listSkillResolutions).not.toHaveBeenCalled();
   });
 
   it('keeps composer dock pinned inside the viewport', () => {

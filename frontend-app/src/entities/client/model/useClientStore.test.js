@@ -1466,6 +1466,42 @@ function registerBridgeEventHandlersForTest() {
     expect(useClientStore.getState().threadTimelineReadyByThread['thread-new']).toBe(true);
   });
 
+  it('stores a new dot-project thread under the real cwd sidebar cache', async () => {
+    resetClientStoreForTests({
+      cwd: '/repo/app',
+      projectScopeCwd: '/repo/app',
+      activeProject: '.',
+      projects: [],
+      activeThreadId: '',
+      draft: 'Hello from dot project',
+      attachments: [],
+      sidebarThreadsByProject: {
+        '/repo/app': [],
+      },
+    });
+    backend.startThread.mockResolvedValue({ threadId: 'thread-dot' });
+    backend.startTurn.mockResolvedValue({ ok: true });
+
+    await useClientStore.getState().sendDraft();
+
+    expect(backend.startThread).toHaveBeenCalledWith(expect.objectContaining({
+      cwd: '/repo/app',
+      name: 'Hello from dot project',
+    }));
+    expect(useClientStore.getState().threads[0]).toEqual(expect.objectContaining({
+      id: 'thread-dot',
+      cwd: '/repo/app',
+      name: 'Hello from dot project',
+    }));
+    expect(useClientStore.getState().sidebarThreadsByProject['/repo/app']).toEqual([
+      expect.objectContaining({
+        id: 'thread-dot',
+        cwd: '/repo/app',
+        name: 'Hello from dot project',
+      }),
+    ]);
+  });
+
   it('does not classify engineering intents into a frontend tool mode', async () => {
     resetClientStoreForTests({
       cwd: '/repo/app',

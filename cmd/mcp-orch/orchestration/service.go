@@ -119,7 +119,8 @@ type agentRuntime struct {
 	remoteAgentID, requestedAgentID, activeTurnID, lastReport                                 string
 	reportRequesters                                                                          []string
 	lastError                                                                                 string
-	startedAt, updatedAt                                                                      time.Time
+	lastReportSeq                                                                             int64
+	startedAt, updatedAt, lastReportUpdatedAt                                                 time.Time
 	exitedAt                                                                                  *time.Time
 	launchSeq, lastExitedSeq, monitoredSeq, sessionGeneration                                 uint64
 	autoRecoverCount                                                                          int

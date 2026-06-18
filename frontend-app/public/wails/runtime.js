@@ -605,6 +605,7 @@ export const Events = {
     callbacks.add(callback);
     ensureSocket().catch((error) => {
       console.warn(`[wails-dev-shim] event bridge unavailable for ${name}`, error);
+      scheduleEventReconnect(error);
     });
     return () => {
       const current = eventListeners.get(name);

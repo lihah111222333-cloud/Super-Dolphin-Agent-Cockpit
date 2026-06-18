@@ -12,11 +12,13 @@ const backend = vi.hoisted(() => ({
   deleteSkill: vi.fn(),
   getDashboardPage: vi.fn(),
   getDatasourceDocument: vi.fn(),
+  importDatasourceLocalFile: vi.fn(),
   importSkillDirectories: vi.fn(),
   listDatasourceDocuments: vi.fn(),
   listMCPServers: vi.fn(),
   listSkillFiles: vi.fn(),
   listSkillResolutions: vi.fn(),
+  listSkillTools: vi.fn(),
   previewSkillResolution: vi.fn(),
   readSkill: vi.fn(),
   selectFiles: vi.fn(),
@@ -47,7 +49,7 @@ function renderSkillsPage(projectPath = '/repo/app') {
 }
 
 function openSkillTools() {
-  fireEvent.click(screen.getByRole('button', { name: /Skill/ }));
+  fireEvent.click(screen.getByRole('button', { name: '本地技能库' }));
 }
 
 function getOverviewMetric(overview, label) {
@@ -69,6 +71,7 @@ beforeEach(() => {
     }],
   });
   backend.listSkillResolutions.mockResolvedValue({ items: [] });
+  backend.listSkillTools.mockResolvedValue({ tools: [] });
   backend.readSkill.mockResolvedValue({
     skill: {
       content: [
@@ -109,7 +112,7 @@ beforeEach(() => {
       contentHash: 'sha256:abc',
     }],
   });
-  backend.createDatasourceDocument.mockResolvedValue({
+  backend.importDatasourceLocalFile.mockResolvedValue({
     documentId: 102,
     sourcePath: 'C:\\data\\new.txt',
     fileName: 'new.txt',
@@ -169,9 +172,9 @@ describe('SkillsPage backend migration', () => {
     expect(screen.getByRole('heading', { name: 'SQLite MCP' })).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: 'Playwright MCP' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '开启 SQLite MCP' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: '关闭 SQLite MCP' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '开启 Playwright MCP' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: '关闭 Playwright MCP' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '关闭 SQLite MCP' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '关闭 Playwright MCP' })).not.toBeInTheDocument();
     expect(screen.queryByText('Slack')).not.toBeInTheDocument();
     const sqliteControl = screen.getByRole('region', { name: 'SQLite MCP 控制' });
     const playwrightControl = screen.getByRole('region', { name: 'Playwright MCP 控制' });
@@ -184,21 +187,25 @@ describe('SkillsPage backend migration', () => {
     await waitFor(() => expect(backend.startSQLiteMCPServer).toHaveBeenCalledTimes(1));
     await waitFor(() => expect(within(sqliteControl).getByTestId('sqlite-mcp-status')).toHaveTextContent('已开启'));
     expect(within(sqliteControl).getByRole('status')).toHaveTextContent('SQLite MCP 已开启');
+    expect(screen.getByRole('button', { name: '关闭 SQLite MCP' })).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: '关闭 SQLite MCP' }));
     await waitFor(() => expect(backend.stopSQLiteMCPServer).toHaveBeenCalledTimes(1));
     await waitFor(() => expect(within(sqliteControl).getByTestId('sqlite-mcp-status')).toHaveTextContent('已关闭'));
     expect(within(sqliteControl).getByRole('status')).toHaveTextContent('SQLite MCP 已关闭');
+    expect(screen.getByRole('button', { name: '开启 SQLite MCP' })).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: '开启 Playwright MCP' }));
     await waitFor(() => expect(backend.startPlaywrightMCPServer).toHaveBeenCalledTimes(1));
     await waitFor(() => expect(within(playwrightControl).getByTestId('playwright-mcp-status')).toHaveTextContent('已开启'));
     expect(within(playwrightControl).getByRole('status')).toHaveTextContent('Playwright MCP 已开启');
+    expect(screen.getByRole('button', { name: '关闭 Playwright MCP' })).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: '关闭 Playwright MCP' }));
     await waitFor(() => expect(backend.stopPlaywrightMCPServer).toHaveBeenCalledTimes(1));
     await waitFor(() => expect(within(playwrightControl).getByTestId('playwright-mcp-status')).toHaveTextContent('已关闭'));
     expect(within(playwrightControl).getByRole('status')).toHaveTextContent('Playwright MCP 已关闭');
+    expect(screen.getByRole('button', { name: '开启 Playwright MCP' })).toBeInTheDocument();
   });
 
   it('renders datasource_v2 rows and sends create, read, update, and delete actions', async () => {
@@ -214,7 +221,7 @@ describe('SkillsPage backend migration', () => {
       expect(backend.selectFiles).toHaveBeenCalledWith({
         filters: [{ displayName: 'PDF/TXT/TEXT', pattern: '*.pdf;*.txt;*.text' }],
       });
-      expect(backend.createDatasourceDocument).toHaveBeenCalledWith({ sourcePath: 'C:\\data\\new.pdf' });
+      expect(backend.importDatasourceLocalFile).toHaveBeenCalledWith({ sourcePath: 'C:\\data\\new.pdf' });
     });
 
     fireEvent.click(screen.getByTestId('datasource-view-101'));
@@ -253,7 +260,7 @@ describe('SkillsPage backend migration', () => {
   it('frames the plugin entry around the current local skills surface', async () => {
     renderSkillsPage();
 
-    fireEvent.click(screen.getByRole('button', { name: 'Skill工具' }));
+    fireEvent.click(screen.getByRole('button', { name: '本地技能库' }));
 
     expect(await screen.findByRole('heading', { name: '插件与技能' })).toBeInTheDocument();
     expect(screen.getByText('本地运行时')).toBeInTheDocument();

@@ -3,7 +3,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Database, Eye, FileText, MousePointer2, Pencil, Power, PowerOff, RefreshCw, Search, Sparkles, Trash2, Upload } from 'lucide-react';
 import { FocusTrapDialog } from '../../shared/ui/FocusTrapDialog.jsx';
 import { APP_COPY } from '../../shared/i18n/appI18n.js';
-import { applySkillResolution, createDatasourceDocument, createSkill, deleteDatasourceDocument, deleteSkill, getDashboardPage, getDatasourceDocument, importSkillDirectories, listDatasourceDocuments, listMCPServers, listSkillFiles, listSkillResolutions, previewSkillResolution, readSkill, selectFiles, selectProjectDirs, startPlaywrightMCPServer, startSQLiteMCPServer, stopPlaywrightMCPServer, stopSQLiteMCPServer, suggestSkillSummary, updateDatasourceDocument, writeSkill } from '../../shared/api/backendApi.js';
+import { applySkillResolution, createSkill, deleteDatasourceDocument, deleteSkill, getDashboardPage, getDatasourceDocument, importDatasourceLocalFile, importSkillDirectories, listDatasourceDocuments, listMCPServers, listSkillFiles, listSkillResolutions, listSkillTools, previewSkillResolution, readSkill, selectFiles, selectProjectDirs, startPlaywrightMCPServer, startSQLiteMCPServer, stopPlaywrightMCPServer, stopSQLiteMCPServer, suggestSkillSummary, updateDatasourceDocument, writeSkill } from '../../shared/api/backendApi.js';
 import { cleanScalar, dashboardQueryKey, errorMessage, listToText, optionalSettingsCwd, SKILLS_REQUEST_TIMEOUT_MS, textValue, withTimeout, wordListFromText } from '../shared/pageShared.js';
 import { PageHeader, RetryableSyncError } from '../shared/pageComponents.jsx';
 import './SkillsPage.css';
@@ -973,6 +973,24 @@ const DATASOURCE_LIST_LIMIT = 200;
 const DATASOURCE_IMPORT_FILTERS = Object.freeze([
   Object.freeze({ displayName: 'PDF/TXT/TEXT', pattern: '*.pdf;*.txt;*.text' }),
 ]);
+const SKILL_TOOLS_LIST_LIMIT = 200;
+
+const SKILL_TOOLS_UI = Object.freeze({
+  actions: '\u64cd\u4f5c',
+  create: '\u65b0\u589e\u5de5\u5177',
+  description: '\u63cf\u8ff0',
+  disabled: '\u5df2\u5173\u95ed',
+  enabled: '\u5df2\u542f\u7528',
+  empty: '\u6682\u65e0 Skill \u5de5\u5177',
+  errorPrefix: '\u8bfb\u53d6 Skill \u5de5\u5177\u5931\u8d25\uff1a',
+  loading: '\u8bfb\u53d6\u4e2d...',
+  methodName: '\u65b9\u6cd5\u540d',
+  refresh: '\u5237\u65b0',
+  sectionTitle: '\u63d2\u4ef6\u4e0e\u6280\u80fd',
+  status: '\u72b6\u6001',
+  title: 'Skill\u5de5\u5177',
+  waitingProject: '\u6b63\u5728\u8fde\u63a5\u672c\u5730\u9879\u76ee...',
+});
 
 const DATASOURCE_UI = Object.freeze({
   actions: '\u64cd\u4f5c',
@@ -1011,7 +1029,6 @@ const DATASOURCE_UI = Object.freeze({
 
 function SkillsPage({ copy = APP_COPY.zh.skills, projectPath, refreshKey = 0, resolveLaunchPreferences }) {
   const [subTab, setSubTab] = useState('plugins');
-  const model = useSkillsPageModel({ projectPath, refreshKey, resolveLaunchPreferences });
   return (
     <div className="skills-tabbed-container">
       <div className="skills-subtabs-header">
@@ -1031,6 +1048,15 @@ function SkillsPage({ copy = APP_COPY.zh.skills, projectPath, refreshKey = 0, re
         </button>
         <button
           type="button"
+          className={subTab === 'library' ? 'active icon-only' : 'icon-only'}
+          aria-label={copy.localLibrary}
+          title={copy.localLibrary}
+          onClick={() => setSubTab('library')}
+        >
+          <Sparkles size={16} aria-hidden="true" />
+        </button>
+        <button
+          type="button"
           className={subTab === 'datasource' ? 'active' : ''}
           onClick={() => setSubTab('datasource')}
         >
@@ -1042,11 +1068,132 @@ function SkillsPage({ copy = APP_COPY.zh.skills, projectPath, refreshKey = 0, re
           <PluginsSquareView copy={copy} projectPath={projectPath} />
         ) : subTab === 'datasource' ? (
           <DataSourceView copy={copy} />
+        ) : subTab === 'skills' ? (
+          <SkillToolsView projectPath={projectPath} />
         ) : (
-          <SkillsPageView copy={copy} model={model} />
+          <SkillsLibraryTab copy={copy} projectPath={projectPath} refreshKey={refreshKey} resolveLaunchPreferences={resolveLaunchPreferences} />
         )}
       </div>
     </div>
+  );
+}
+
+function SkillsLibraryTab({ copy, projectPath, refreshKey, resolveLaunchPreferences }) {
+  const model = useSkillsPageModel({ projectPath, refreshKey, resolveLaunchPreferences });
+  return <SkillsPageView copy={copy} model={model} />;
+}
+
+function skillToolsQueryKey(cwd) {
+  return ['skillTools', cwd];
+}
+
+function normalizeSkillTool(raw, index = 0) {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+    throw new Error(`skill tool ${index} must be an object`);
+  }
+  const id = Number(raw.id);
+  if (!Number.isInteger(id) || id <= 0) {
+    throw new Error(`skill tool ${index} is missing id`);
+  }
+  const methodName = cleanScalar(raw.methodName ?? raw.method_name ?? raw.name);
+  if (!methodName) {
+    throw new Error(`skill tool ${index} is missing methodName`);
+  }
+  return {
+    id,
+    methodName,
+    name: cleanScalar(raw.name) || methodName,
+    description: cleanScalar(raw.description),
+    command: cleanScalar(raw.command),
+    args: Array.isArray(raw.args) ? raw.args.flatMap((arg) => {
+      const value = cleanScalar(arg);
+      return value ? [value] : [];
+    }) : [],
+    enabled: raw.enabled !== false,
+  };
+}
+
+function normalizeSkillToolsResponse(response) {
+  if (!response || typeof response !== 'object' || Array.isArray(response)) {
+    throw new Error('skills/tools/list response must be an object');
+  }
+  if (!Array.isArray(response.tools)) {
+    throw new Error('skills/tools/list response.tools must be an array');
+  }
+  return response.tools.map(normalizeSkillTool);
+}
+
+function SkillToolsView({ projectPath }) {
+  const queryClient = useQueryClient();
+  const cwd = useMemo(() => {
+    try {
+      return normalizeSettingsCwd(projectPath);
+    } catch {
+      return '';
+    }
+  }, [projectPath]);
+  const {
+    data: tools = [],
+    error,
+    isError,
+    isFetching,
+    isLoading,
+  } = useQuery({
+    queryKey: skillToolsQueryKey(cwd),
+    enabled: Boolean(cwd),
+    queryFn: async () => normalizeSkillToolsResponse(await listSkillTools({ cwd, keyword: '', limit: SKILL_TOOLS_LIST_LIMIT })),
+  });
+  const refreshTools = () => {
+    if (cwd) void queryClient.invalidateQueries({ queryKey: skillToolsQueryKey(cwd) });
+  };
+
+  return (
+    <section className="skill-tools-panel" aria-label={SKILL_TOOLS_UI.title}>
+      <div className="skill-tools-header">
+        <div>
+          <span className="skill-tools-kicker">{SKILL_TOOLS_UI.sectionTitle}</span>
+          <h2>{SKILL_TOOLS_UI.title}</h2>
+        </div>
+        <div className="skill-tools-actions">
+          <button type="button">{SKILL_TOOLS_UI.create}</button>
+          <button type="button" className="ghost" onClick={refreshTools} disabled={!cwd || isFetching}>
+            <RefreshCw size={16} aria-hidden="true" />
+            <span>{SKILL_TOOLS_UI.refresh}</span>
+          </button>
+        </div>
+      </div>
+      {!cwd ? <p className="skill-tools-notice">{SKILL_TOOLS_UI.waitingProject}</p> : null}
+      {cwd && isLoading ? <p className="skill-tools-notice">{SKILL_TOOLS_UI.loading}</p> : null}
+      {isError ? <p className="skill-tools-error" role="alert">{SKILL_TOOLS_UI.errorPrefix}{errorMessage(error)}</p> : null}
+      {cwd && !isLoading && !isError && tools.length === 0 ? <p className="skill-tools-empty">{SKILL_TOOLS_UI.empty}</p> : null}
+      {tools.length > 0 ? (
+        <div className="skill-tools-table-wrap">
+          <table className="skill-tools-table">
+            <thead>
+              <tr>
+                <th>{SKILL_TOOLS_UI.methodName}</th>
+                <th>{SKILL_TOOLS_UI.description}</th>
+                <th>{SKILL_TOOLS_UI.status}</th>
+                <th>{SKILL_TOOLS_UI.actions}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {tools.map((tool) => (
+                <tr key={tool.id}>
+                  <td className="skill-tool-name-cell">
+                    <strong>{tool.name}</strong>
+                    {tool.methodName !== tool.name ? <span>{tool.methodName}</span> : null}
+                  </td>
+                  <td>{tool.description || '-'}</td>
+                  <td><span className={`skill-tool-status ${tool.enabled ? 'is-enabled' : 'is-disabled'}`}>{tool.enabled ? SKILL_TOOLS_UI.enabled : SKILL_TOOLS_UI.disabled}</span></td>
+                  <td><code>{[tool.command, ...tool.args].filter(Boolean).join(' ') || '-'}</code></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : null}
+    </section>
   );
 }
 
@@ -1204,7 +1351,7 @@ function DataSourceView({ copy }) {
       if (!selectedPath) return;
       setSourcePath(selectedPath);
       await runAction(async () => {
-        await createDatasourceDocument({ sourcePath: selectedPath });
+        await importDatasourceLocalFile({ sourcePath: selectedPath });
         setSourcePath('');
       }, DATASOURCE_UI.importSuccess);
     } catch (error) {
@@ -1570,46 +1717,41 @@ function PluginsSquareView({ copy, projectPath }) {
           const action = mcpActions[tool.id] || '';
           const notice = mcpNotices[tool.id] || '';
           const error = mcpErrors[tool.id] || '';
+          const isEnabled = status.tone === 'enabled';
+          const nextAction = isEnabled ? 'stop' : 'start';
+          const actionLabel = nextAction === 'start' ? '开启' : '关闭';
+          const busyLabel = nextAction === 'start' ? '开启中...' : '关闭中...';
+          const ActionIcon = nextAction === 'start' ? Power : PowerOff;
+          const feedback = !projectReady
+            ? '请选择项目后再管理 MCP 工具。'
+            : mcpServersIsError
+              ? `读取 ${tool.title} 状态失败：${errorMessage(mcpServersError)}`
+              : error || notice;
+          const feedbackRole = mcpServersIsError || error ? 'alert' : notice ? 'status' : undefined;
           const Icon = tool.Icon;
           return (
             <section className="mcp-tool-card" aria-label={`${tool.title} 控制`} key={tool.id}>
               <div className={`mcp-tool-icon ${tool.id}`} aria-hidden="true">
-                <Icon size={24} />
+                <Icon size={20} />
               </div>
               <div className="mcp-tool-main">
-                <div className="mcp-tool-head">
-                  <div>
-                    <h2>{tool.title}</h2>
-                    <p>{tool.description}</p>
-                  </div>
-                  <div className="mcp-tool-badges">
-                    <span className="mcp-tool-badge">stdio</span>
-                    <span className={`mcp-tool-state ${status.tone}`} data-testid={tool.testId}>{status.label}</span>
-                  </div>
+                <div className="mcp-tool-title-line">
+                  <h2 title={tool.description}>{tool.title}</h2>
+                  <span className={`mcp-tool-status is-${status.tone}`} data-testid={tool.testId}>{status.label}</span>
                 </div>
-                <div className="mcp-tool-actions">
-                  <button
-                    type="button"
-                    onClick={() => { void runMCPAction(tool, 'start'); }}
-                    disabled={!projectReady || Boolean(action)}
-                  >
-                    <Power size={16} aria-hidden="true" />
-                    <span>{action === 'start' ? '开启中...' : `开启 ${tool.title}`}</span>
-                  </button>
-                  <button
-                    type="button"
-                    className="ghost"
-                    onClick={() => { void runMCPAction(tool, 'stop'); }}
-                    disabled={!projectReady || Boolean(action)}
-                  >
-                    <PowerOff size={16} aria-hidden="true" />
-                    <span>{action === 'stop' ? '关闭中...' : `关闭 ${tool.title}`}</span>
-                  </button>
-                </div>
-                {!projectReady ? <p className="mcp-tool-hint">请选择项目后再管理 MCP 工具。</p> : null}
-                {mcpServersIsError ? <p className="mcp-tool-error" role="alert">读取 {tool.title} 状态失败：{errorMessage(mcpServersError)}</p> : null}
-                {notice ? <p className="mcp-tool-status" role="status">{notice}</p> : null}
-                {error ? <p className="mcp-tool-error" role="alert">{error}</p> : null}
+                {feedback ? <p className={`mcp-tool-notice${mcpServersIsError || error ? ' is-error' : ''}`} role={feedbackRole}>{feedback}</p> : null}
+              </div>
+              <div className="mcp-tool-actions">
+                <button
+                  type="button"
+                  aria-label={`${actionLabel} ${tool.title}`}
+                  className={nextAction === 'stop' ? 'is-stop' : ''}
+                  onClick={() => { void runMCPAction(tool, nextAction); }}
+                  disabled={!projectReady || Boolean(action)}
+                >
+                  <ActionIcon size={15} aria-hidden="true" />
+                  <span>{action ? busyLabel : actionLabel}</span>
+                </button>
               </div>
             </section>
           );
