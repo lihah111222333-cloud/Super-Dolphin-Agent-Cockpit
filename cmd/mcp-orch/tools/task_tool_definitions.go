@@ -18,7 +18,7 @@ func taskToolDefinitions(svc contract.OrchestrationService) []ToolDefinition {
 			"trigger":      StringSchema("Flat DAG trigger for action=update_dag."),
 			"cron_expr":    StringSchema("Flat DAG cron expression for action=update_dag."),
 			"owner_id":     StringSchema("Flat DAG owner id for action=update_dag."),
-			"node_type":    EnumStringSchema("Node type for action=add_node.", "agent", "automation", "hybrid"),
+			"node_type":    EnumStringSchema("Node type for action=add_node. Hybrid is reserved until runtime support is complete.", creatableNodeTypeEnum...),
 			"assigned_to":  StringSchema("Flat node assignee for action=update_node."),
 			"depends_on":   ArraySchema(StringSchema("Dependency node key."), "Flat node dependencies for add_node/update_node."),
 			"config":       RawObjectSchema("Flat node config for add_node/update_node."),
