@@ -211,14 +211,14 @@ func sessionGuidanceManagedAgentDelegationItem(enabled map[string]struct{}) stri
 	hasSingleReport := sessionGuidanceToolEnabled(enabled, "get_agent_report", "orchestration_get_agent_report")
 	hasBatchReport := sessionGuidanceToolEnabled(enabled, "get_agent_reports", "orchestration_get_agent_reports")
 	if hasSingleReport || hasBatchReport {
-		waitTool := "`get_agent_report(wait=true)`"
+		waitGuidance := "After launch, use `get_agent_report(wait=true)` with the returned agent_id before reporting that the child is finished."
 		if hasSingleReport && hasBatchReport {
-			waitTool = "`get_agent_report(wait=true)` or `get_agent_reports(wait=true)`"
+			waitGuidance = "After one launch, use `get_agent_report(wait=true)` with the returned agent_id. After multiple launches, use `get_agent_reports(wait=true)` with the returned agent_ids before reporting that the children are finished."
 		} else if hasBatchReport {
-			waitTool = "`get_agent_reports(wait=true)`"
+			waitGuidance = "After launch, use `get_agent_reports(wait=true)` with the returned agent_ids before reporting that the children are finished."
 		}
 		parts = append(parts,
-			"After launch, use "+waitTool+" with the returned agent_id before reporting that the child is finished.",
+			waitGuidance,
 			"Require the child report Markdown template: first line `状态: success | blocked | failed`, then `结论`, `证据`, `验证`, and `风险/待定`.",
 			"Verify key claims and integrate the report instead of copying it verbatim to the user.",
 		)

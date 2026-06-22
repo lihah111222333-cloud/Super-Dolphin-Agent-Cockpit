@@ -324,7 +324,7 @@ func (h *Handler) spawnAgentPolicyMessage(ctx context.Context, req ToolCallReque
 	if !required {
 		return "", nil
 	}
-	return "当前会话启用了 persistent_subagent_default：禁止使用 `spawn_agent` 创建临时子 agent。请改用 `launch_agent` 创建持续化 UI 子 agent，并用 `get_agent_report(wait=true)` 等待结果。", nil
+	return "当前会话启用了 persistent_subagent_default：禁止使用 `spawn_agent` 创建临时子 agent。请改用 `launch_agent` 创建持续化 UI 子 agent；等待单个子 agent 用 `get_agent_report(wait=true)`，等待多个子 agent 用 `get_agent_reports(wait=true)`。", nil
 }
 
 // childAgentDelegationPolicyMessage 拦截子 agent 的原生 spawn_agent 再委派。

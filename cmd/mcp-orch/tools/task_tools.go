@@ -186,7 +186,7 @@ func HandleUpdateNode(svc contract.OrchestrationService) ToolHandler {
 
 // HandleDispatchNode 是 task_dispatch_node MCP 工具的 handler（ADR-004 §Open Q1）。
 // 这是“启动某个节点”的入口：先补 assigned_to，再入队 wakeup。
-// 当前没有 task_start_node，别和 task_start_dag 的整图启动混用。
+// 当前没有旧版单节点启动工具，别和 task_start_dag 的整图启动混用。
 // 在 service.DispatchNode 返 ErrDispatchStoreUnset / ErrDispatchNodeIneligible
 // 时转中英双语错误，让使用者一眼看出不能继续的原因。
 //
