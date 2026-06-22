@@ -35,6 +35,62 @@ func TestNodeStatusConstants_NineStates(t *testing.T) {
 	}
 }
 
+func TestPersistedNodeStatuses_CurrentRuntimeContract(t *testing.T) {
+	t.Parallel()
+	want := []NodeStatus{
+		NodeStatusPending,
+		NodeStatusReady,
+		NodeStatusRunning,
+		NodeStatusRetrying,
+		NodeStatusDone,
+		NodeStatusFailed,
+		NodeStatusCancelled,
+		NodeStatusSkipped,
+		NodeStatusWaitingHuman,
+	}
+	got := persistedNodeStatuses()
+	if len(got) != len(want) {
+		t.Fatalf("persisted node status count = %d, want %d: %#v", len(got), len(want), got)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("persisted node status[%d] = %q, want %q", i, got[i], want[i])
+		}
+		if !isPersistedNodeStatus(string(want[i])) {
+			t.Fatalf("isPersistedNodeStatus(%q) = false, want true", want[i])
+		}
+	}
+}
+
+func TestPersistedNodeStatuses_RejectDerivedDisplayStates(t *testing.T) {
+	t.Parallel()
+	for _, status := range []string{
+		"waiting_for_assignee",
+		"waiting_timer",
+		"blocked_by_policy",
+		"awaiting_review",
+		"awaiting_acceptance",
+		"awaiting_verify",
+	} {
+		if isPersistedNodeStatus(status) {
+			t.Fatalf("isPersistedNodeStatus(%q) = true, want false", status)
+		}
+	}
+}
+
+func TestReservedNodeStatuses_AreMarkedReservedOrLegacy(t *testing.T) {
+	t.Parallel()
+	for _, status := range []string{
+		string(NodeStatusSkipped),
+		string(NodeStatusWaitingHuman),
+		"awaiting_verify",
+	} {
+		if !isReservedOrLegacyNodeStatus(status) {
+			t.Fatalf("isReservedOrLegacyNodeStatus(%q) = false, want true", status)
+		}
+	}
+}
+
 // TestFailureClassConstants_SevenClasses: 蓝图 v2 §8 七类失败。
 func TestFailureClassConstants_SevenClasses(t *testing.T) {
 	t.Parallel()

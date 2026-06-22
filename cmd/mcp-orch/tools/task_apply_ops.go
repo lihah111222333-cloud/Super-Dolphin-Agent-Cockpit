@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/orchestration/nodeexec"
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 )
 
@@ -45,7 +46,7 @@ func applyOpsPayloadFromInput(in ApplyOpsInput) (json.RawMessage, error) {
 		if !hasExplicitRawJSON(in.Ops) {
 			return nil, fmt.Errorf("ops is required when action is omitted")
 		}
-		return append(json.RawMessage(nil), in.Ops...), nil
+		return validatedApplyOpsPayload(append(json.RawMessage(nil), in.Ops...))
 	}
 	if _, err := requireEnum(action, "action", applyOpsActionEnum); err != nil {
 		return nil, err
@@ -54,7 +55,7 @@ func applyOpsPayloadFromInput(in ApplyOpsInput) (json.RawMessage, error) {
 		if !hasExplicitRawJSON(in.Ops) {
 			return nil, fmt.Errorf("ops is required when action=apply_ops_raw")
 		}
-		return append(json.RawMessage(nil), in.Ops...), nil
+		return validatedApplyOpsPayload(append(json.RawMessage(nil), in.Ops...))
 	}
 	if hasExplicitRawJSON(in.Ops) {
 		return nil, fmt.Errorf("ops cannot be combined with flat action %q", action)
@@ -63,7 +64,35 @@ func applyOpsPayloadFromInput(in ApplyOpsInput) (json.RawMessage, error) {
 	if err != nil {
 		return nil, err
 	}
-	return json.Marshal([]map[string]any{op})
+	raw, err := json.Marshal([]map[string]any{op})
+	if err != nil {
+		return nil, err
+	}
+	return validatedApplyOpsPayload(raw)
+}
+
+func validatedApplyOpsPayload(raw json.RawMessage) (json.RawMessage, error) {
+	if err := rejectReservedApplyOpsCapabilities(raw); err != nil {
+		return nil, err
+	}
+	return raw, nil
+}
+
+func rejectReservedApplyOpsCapabilities(raw json.RawMessage) error {
+	var ops nodeexec.Ops
+	if err := json.Unmarshal(raw, &ops); err != nil {
+		return err
+	}
+	for i, op := range ops {
+		add, ok := op.(nodeexec.OpAddNode)
+		if !ok {
+			continue
+		}
+		if err := validateCreatableNodeType(fmt.Sprintf("ops[%d].node.node_type", i), add.Node.NodeType); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // flatApplyOpFromInput 从input处理flat应用op。

@@ -864,7 +864,7 @@ describe('WorkflowPage module', () => {
     expect(patch.config).not.toHaveProperty('output_file');
   });
 
-  it('renders automation and hybrid nodes with their real exec schema fields', async () => {
+  it('renders historical hybrid nodes without exposing them in node config editing', async () => {
     const dag = {
       dag_key: 'daily-brief',
       title: 'Daily Brief',
@@ -906,11 +906,11 @@ describe('WorkflowPage module', () => {
     renderWorkflowPage();
 
     expect(await screen.findByDisplayValue('build_app')).toBeInTheDocument();
-    fireEvent.change(screen.getByLabelText('步骤'), { target: { value: 'verify' } });
-
-    expect(screen.getByDisplayValue('test_app')).toBeInTheDocument();
-    expect(screen.getByDisplayValue('reviewer')).toBeInTheDocument();
-    expect(screen.getByDisplayValue('reports/verify.md')).toBeInTheDocument();
+    expect(screen.getAllByText('Verify').length).toBeGreaterThan(0);
+    expect(screen.getByLabelText('步骤')).toHaveDisplayValue('Build');
+    expect(screen.queryByRole('option', { name: 'Verify' })).not.toBeInTheDocument();
+    expect(screen.queryByDisplayValue('test_app')).not.toBeInTheDocument();
+    expect(screen.queryByDisplayValue('reviewer')).not.toBeInTheDocument();
   });
 
   it('saves automation node settings through config.exec and outputs schema', async () => {
@@ -960,7 +960,7 @@ describe('WorkflowPage module', () => {
     expect(JSON.stringify(patch.config)).not.toContain('agent_key');
   });
 
-  it('saves hybrid node verifier settings with the backend-accepted nested schema', async () => {
+  it('does not expose hybrid-only DAGs as configurable runtime nodes', async () => {
     const dag = {
       dag_key: 'daily-brief',
       title: 'Daily Brief',
@@ -992,35 +992,10 @@ describe('WorkflowPage module', () => {
 
     renderWorkflowPage();
 
-    expect(await screen.findByDisplayValue('test_app')).toBeInTheDocument();
-    fireEvent.change(screen.getByLabelText('命令卡片'), { target: { value: 'test_app_v2' } });
-    fireEvent.change(screen.getByLabelText('Agent Key'), { target: { value: 'verifier_v2' } });
-    fireEvent.change(screen.getByLabelText('Prompt Key'), { target: { value: 'main/verifier_v2' } });
-    fireEvent.change(screen.getByLabelText('执行 cwd'), { target: { value: '/repo/review' } });
-    fireEvent.change(screen.getByLabelText('输出 sharedfile'), { target: { value: 'reports/review.md' } });
-    fireEvent.click(screen.getByRole('button', { name: '保存步骤' }));
-
-    await waitFor(() => expect(backend.applyDagOps).toHaveBeenCalled());
-    const patch = backend.applyDagOps.mock.calls[0][0].ops[0].patch;
-    expect(patch.config).toMatchObject({
-      exec: {
-        automation: {
-          kind: 'command_card',
-          command_ref: 'test_app_v2',
-        },
-        verifier: {
-          provider: 'claude',
-          model: 'opus',
-          agent_key: 'verifier_v2',
-          prompt_key: 'main/verifier_v2',
-          cwd: '/repo/review',
-        },
-      },
-      outputs: {
-        to_sharedfile: { path: 'reports/review.md', lock_mode: 'exclusive' },
-      },
-    });
-    expect(patch.config.exec).not.toHaveProperty('agent_key');
+    expect(await screen.findByText('暂无可配置步骤')).toBeInTheDocument();
+    expect(screen.queryByDisplayValue('test_app')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '保存步骤' })).not.toBeInTheDocument();
+    expect(backend.applyDagOps).not.toHaveBeenCalled();
   });
 
   it('fails fast before saving invalid node schema settings', async () => {
@@ -1037,15 +1012,10 @@ describe('WorkflowPage module', () => {
       nodes: [{
         node_key: 'verify',
         title: 'Verify',
-        node_type: 'hybrid',
+        node_type: 'automation',
         assigned_to: 'worker',
         depends_on: [],
-        config: {
-          exec: {
-            automation: { kind: 'command_card', command_ref: 'test_app' },
-            verifier: { agent_key: 'reviewer', cwd: '/repo/app' },
-          },
-        },
+        config: { exec: { kind: 'command_card', command_ref: 'test_app' } },
       }],
     });
     backend.getDagRuns.mockResolvedValue({ runs: [] });

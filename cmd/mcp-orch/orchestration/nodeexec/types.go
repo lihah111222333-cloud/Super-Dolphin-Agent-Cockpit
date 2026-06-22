@@ -3,6 +3,7 @@ package nodeexec
 import (
 	"context"
 	"encoding/json"
+	"strings"
 	"time"
 )
 
@@ -30,6 +31,50 @@ const (
 	NodeStatusSkipped      NodeStatus = "skipped"       // on_failure=skip 时跳过
 	NodeStatusWaitingHuman NodeStatus = "waiting_human" // HITL 暂停（enum 留位，骨架阶段未实现）
 )
+
+var persistedNodeStatusList = []NodeStatus{
+	NodeStatusPending,
+	NodeStatusReady,
+	NodeStatusRunning,
+	NodeStatusRetrying,
+	NodeStatusDone,
+	NodeStatusFailed,
+	NodeStatusCancelled,
+	NodeStatusSkipped,
+	NodeStatusWaitingHuman,
+}
+
+var persistedNodeStatusSet = map[NodeStatus]struct{}{
+	NodeStatusPending:      {},
+	NodeStatusReady:        {},
+	NodeStatusRunning:      {},
+	NodeStatusRetrying:     {},
+	NodeStatusDone:         {},
+	NodeStatusFailed:       {},
+	NodeStatusCancelled:    {},
+	NodeStatusSkipped:      {},
+	NodeStatusWaitingHuman: {},
+}
+
+var reservedOrLegacyNodeStatusSet = map[string]struct{}{
+	string(NodeStatusSkipped):      {},
+	string(NodeStatusWaitingHuman): {},
+	"awaiting_verify":              {},
+}
+
+func persistedNodeStatuses() []NodeStatus {
+	return append([]NodeStatus(nil), persistedNodeStatusList...)
+}
+
+func isPersistedNodeStatus(raw string) bool {
+	_, ok := persistedNodeStatusSet[NodeStatus(strings.TrimSpace(raw))]
+	return ok
+}
+
+func isReservedOrLegacyNodeStatus(raw string) bool {
+	_, ok := reservedOrLegacyNodeStatusSet[strings.TrimSpace(raw)]
+	return ok
+}
 
 // =====================================================
 // 失败分类 + 策略（智能重试 dispatcher 的核心，F12.1 真实分发）

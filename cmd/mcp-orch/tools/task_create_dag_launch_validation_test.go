@@ -424,6 +424,32 @@ func TestHandleCreateDAGRejectsCodexAgentNodeMissingIdentity(t *testing.T) {
 	}
 }
 
+func TestHandleCreateDAGRejectsHybridNodeType(t *testing.T) {
+	err := handleCreateDAGRejects(t, `{
+		"agent_id":"designer-1",
+		"dag_key":"dag-hybrid-reserved",
+		"title":"Hybrid reserved",
+		"nodes":[{
+			"node_key":"review",
+			"title":"Review",
+			"node_type":"hybrid",
+			"assigned_to":"agent-parent",
+			"config":{"exec":{
+				"automation":{"kind":"command_card","command_ref":"run_tests"},
+				"verifier":{
+					"provider":"codex",
+					"prompt_key":"main/review-task",
+					"cwd":"/repo/project",
+					"codex_home":"/tmp/codex-home",
+					"codex_instance_key":"default",
+					"codex_model_provider":"openai"
+				}
+			}}
+		}]
+	}`)
+	assertErrorContains(t, err, "node_type", "hybrid", "reserved")
+}
+
 func TestHandleCreateDAGRejectsHybridVerifierMissingLaunchIdentity(t *testing.T) {
 	err := handleCreateDAGRejects(t, `{
 		"agent_id":"designer-1",
@@ -446,7 +472,7 @@ func TestHandleCreateDAGRejectsHybridVerifierMissingLaunchIdentity(t *testing.T)
 			}}
 		}]
 	}`)
-	assertErrorContains(t, err, "nodes[0].config.exec.verifier.prompt_key", "nodes[0].config.exec.verifier.agent_key", "review")
+	assertErrorContains(t, err, "nodes[0].node_type", "hybrid", "reserved")
 }
 
 func TestHandleCreateDAGRejectsHybridVerifierMissingProvider(t *testing.T) {
@@ -468,7 +494,7 @@ func TestHandleCreateDAGRejectsHybridVerifierMissingProvider(t *testing.T) {
 			}}
 		}]
 	}`)
-	assertErrorContains(t, err, "nodes[0].config.exec.verifier.provider", "review", "claude", "codex")
+	assertErrorContains(t, err, "nodes[0].node_type", "hybrid", "reserved")
 }
 
 func TestHandleCreateDAGRejectsCodexHybridVerifierMissingIdentity(t *testing.T) {
@@ -491,7 +517,7 @@ func TestHandleCreateDAGRejectsCodexHybridVerifierMissingIdentity(t *testing.T) 
 			}}
 		}]
 	}`)
-	assertErrorContains(t, err, "review", "codex_home", "codex_instance_key", "codex_model_provider")
+	assertErrorContains(t, err, "nodes[0].node_type", "hybrid", "reserved")
 }
 
 func handleCreateDAGRejects(t *testing.T, raw string) error {
