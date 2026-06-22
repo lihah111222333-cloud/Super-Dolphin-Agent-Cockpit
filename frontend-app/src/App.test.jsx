@@ -747,6 +747,69 @@ async function showAllTraceDashboardEvents() {
     expect(sidebar).not.toHaveClass('app-sidebar--chat');
   });
 
+  it('keeps the sidebar project tree running indicator through stale sidebar refreshes', async () => {
+    Object.defineProperty(window, 'innerWidth', { configurable: true, value: 1400 });
+    backend.getSidebarState
+      .mockResolvedValueOnce({
+        activeThreadId: 'thread-1',
+        threads: [{ id: 'thread-1', name: 'Backend thread', provider: 'codex', status: 'idle', cwd: '/repo/app' }],
+      })
+      .mockResolvedValueOnce({
+        activeThreadId: 'thread-1',
+        threads: [{ id: 'thread-1', name: 'Backend thread', provider: 'codex', status: 'idle', cwd: '/repo/app' }],
+      });
+    backend.getThreadState.mockResolvedValue({
+      activeThreadId: 'thread-1',
+      timelinesByThread: {
+        'thread-1': [{ id: 'assistant-1', kind: 'assistant', text: 'backend message', ts: '2026-05-30T00:00:00Z' }],
+      },
+    });
+
+    render(<App />);
+
+    const sidebar = await screen.findByTestId('app-sidebar');
+    await screen.findByRole('heading', { name: 'Backend thread' });
+    await waitFor(() => {
+      expect(within(sidebar).getByTitle('Backend thread')).toBeInTheDocument();
+    });
+    expect(sidebar.querySelector('.thread-inline-spinner')).toBeNull();
+
+    act(() => {
+      bridgeCallback({
+        type: 'ui/thread/patch',
+        payload: {
+          threadId: 'thread-1',
+          sequence: '1',
+          status: 'running',
+          thread: { name: 'Backend thread' },
+        },
+      });
+    });
+
+    await waitFor(() => {
+      expect(useClientStore.getState().threads.find((thread) => thread.id === 'thread-1')).toEqual(expect.objectContaining({
+        status: 'running',
+      }));
+    });
+    await waitFor(() => {
+      expect(sidebar.querySelector('.thread-inline-spinner')).toBeInTheDocument();
+    });
+
+    act(() => {
+      bridgeCallback({
+        type: 'ui/sidebar/changed',
+        payload: { projection: 'sidebar', revision: 2 },
+      });
+    });
+
+    await waitFor(() => {
+      expect(backend.getSidebarState).toHaveBeenCalledTimes(2);
+    });
+    await waitFor(() => {
+      expect(sidebar.querySelector('.thread-inline-spinner')).toBeInTheDocument();
+    });
+  });
+
   it('wires the sidebar project directory to project and thread actions', async () => {
     backend.getSidebarState.mockImplementation(({ cwd }) => Promise.resolve(cwd === '/repo/other' ? {
       activeThreadId: 'thread-other',

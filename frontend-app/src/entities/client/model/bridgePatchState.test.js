@@ -97,6 +97,29 @@ describe('bridgePatchState', () => {
     });
   });
 
+  it('syncs patched running status into cached sidebar project threads', () => {
+    const patch = bridgePatchData('ui/thread/patch', {
+      status: 'running',
+      thread: { name: 'Main agent' },
+    }, 'thread-main', { normalizeThread });
+    const next = bridgePatchState({
+      ...baseState,
+      threads: [{ id: 'thread-main', name: 'Main agent', provider: 'codex', status: 'idle', cwd: '/repo/app' }],
+      sidebarThreadsByProject: {
+        '/repo/app': [
+          { id: 'thread-main', name: 'Main agent', provider: 'codex', status: 'idle', cwd: '/repo/app' },
+          { id: 'thread-other', name: 'Other agent', provider: 'codex', status: 'idle', cwd: '/repo/app' },
+        ],
+      },
+    }, patch, { threadMatchesIdentifier });
+
+    expect(next.threads[0]).toEqual(expect.objectContaining({ id: 'thread-main', status: 'running' }));
+    expect(next.sidebarThreadsByProject['/repo/app']).toEqual([
+      expect.objectContaining({ id: 'thread-main', status: 'running' }),
+      expect.objectContaining({ id: 'thread-other', status: 'idle' }),
+    ]);
+  });
+
   it('does not mark structural-only patches as timeline ready and clears completed active turns', () => {
     const patch = bridgePatchData('ui/thread/patch', {
       status: 'completed',

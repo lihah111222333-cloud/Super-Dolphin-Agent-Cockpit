@@ -147,6 +147,7 @@ function bridgePatchThreads(state, patch, deps = {}) {
     ...patch.patchedThread,
     name: bridgePatchThreadName(existingThread, patch.patchedThread),
     provider: patch.patchProvider || existingThread?.provider || patch.patchedThread.provider,
+    cwd: patch.patchedThread.cwd || existingThread?.cwd || '',
     status: patch.statusText || patch.patchedThread.status || existingThread?.status || '等待指示',
     pinned: Boolean(existingThread?.pinned || patch.patchedThread.pinned),
     pinnedAt: existingThread?.pinnedAt || patch.patchedThread.pinnedAt || 0,
@@ -159,6 +160,48 @@ function bridgePatchThreads(state, patch, deps = {}) {
     ];
   }
   return state.threads.map((thread) => (threadMatchesIdentifier(thread, patch.threadId) ? mergedThread : thread));
+}
+
+function bridgePatchMatchesThread(thread, patch, mergedThread, threadMatchesIdentifier) {
+  return [
+    patch.threadId,
+    mergedThread.id,
+    mergedThread.agentId,
+    mergedThread.providerThreadId,
+    mergedThread.sessionId,
+  ].filter(Boolean).some((id) => threadMatchesIdentifier(thread, id));
+}
+
+function bridgePatchSidebarThread(thread, mergedThread) {
+  const next = {
+    ...thread,
+    ...mergedThread,
+  };
+  if (!mergedThread.cwd && thread?.cwd) next.cwd = thread.cwd;
+  return next;
+}
+
+function bridgePatchSidebarThreadsByProject(state, patch, deps = {}, nextThreads = []) {
+  const current = state.sidebarThreadsByProject;
+  if (!current || typeof current !== 'object' || Array.isArray(current)) return current || {};
+  const threadMatchesIdentifier = deps.threadMatchesIdentifier || (() => false);
+  const mergedThread = nextThreads.find((thread) => bridgePatchMatchesThread(thread, patch, patch.patchedThread, threadMatchesIdentifier));
+  if (!mergedThread) return current;
+
+  let changed = false;
+  const next = {};
+  for (const [projectKey, threads] of Object.entries(current)) {
+    if (!Array.isArray(threads)) {
+      next[projectKey] = threads;
+      continue;
+    }
+    next[projectKey] = threads.map((thread) => {
+      if (!bridgePatchMatchesThread(thread, patch, mergedThread, threadMatchesIdentifier)) return thread;
+      changed = true;
+      return bridgePatchSidebarThread(thread, mergedThread);
+    });
+  }
+  return changed ? next : current;
 }
 
 function bridgePatchActivityThreadAt(state, patch, deps = {}) {
@@ -196,6 +239,7 @@ function bridgePatchActivityEntries(state, patch, deps = {}) {
 }
 
 function bridgePatchState(state, patch, deps = {}) {
+  const threads = bridgePatchThreads(state, patch, deps);
   const tokenUsageByThread = { ...state.tokenUsageByThread };
   if (patch.tokenUsage) tokenUsageByThread[patch.threadId] = patch.tokenUsage;
   const activityStatsByThread = { ...state.activityStatsByThread };
@@ -207,7 +251,8 @@ function bridgePatchState(state, patch, deps = {}) {
     threadDiffReadyByThread[patch.threadId] = true;
   }
   return {
-    threads: bridgePatchThreads(state, patch, deps),
+    threads,
+    sidebarThreadsByProject: bridgePatchSidebarThreadsByProject(state, patch, deps, threads),
     activityThreadAtById: bridgePatchActivityThreadAt(state, patch, deps),
     timelinesByThread: bridgePatchTimeline(state, patch),
     threadTimelineReadyByThread: bridgePatchHasVisibleTimelineItems(patch)
