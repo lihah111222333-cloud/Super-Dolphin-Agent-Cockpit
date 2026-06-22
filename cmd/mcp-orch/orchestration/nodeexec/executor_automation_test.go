@@ -30,7 +30,7 @@ type stubAutomationRunner struct {
 	err      error
 }
 
-func (s *stubAutomationRunner) RunCommandCard(_ context.Context, card AutomationCommandCard, args json.RawMessage) (AutomationCommandResult, error) {
+func (s *stubAutomationRunner) RunCommandCard(_ context.Context, card AutomationCommandCard, args json.RawMessage, _ ...AutomationCommandRunOptions) (AutomationCommandResult, error) {
 	s.called++
 	s.lastCard = card
 	s.lastArgs = append(json.RawMessage(nil), args...)
@@ -68,6 +68,7 @@ func TestShellCommandRunnerRejectsRenderedShellInjection(t *testing.T) {
 	result, err := runner.RunCommandCard(context.Background(), AutomationCommandCard{
 		CardKey:         "greet",
 		CommandTemplate: "printf 'hello %s' '{{.name}}'",
+		RiskLevel:       "high",
 		Enabled:         true,
 	}, json.RawMessage(`{"name":"dolphin'; printf 'pwned"}`))
 
@@ -84,6 +85,7 @@ func TestAutomationExecutor_Happy(t *testing.T) {
 	getter := &stubAutomationGetter{card: AutomationCommandCard{
 		CardKey:         "build_app",
 		CommandTemplate: "printf 'hello %s' '{{.name}}'",
+		RiskLevel:       "high",
 		Enabled:         true,
 	}}
 	exec := NewAutomationExecutor(getter, NewShellCommandRunner())
@@ -258,7 +260,7 @@ type captureRunner struct {
 	result   AutomationCommandResult
 }
 
-func (c *captureRunner) RunCommandCard(_ context.Context, _ AutomationCommandCard, args json.RawMessage) (AutomationCommandResult, error) {
+func (c *captureRunner) RunCommandCard(_ context.Context, _ AutomationCommandCard, args json.RawMessage, _ ...AutomationCommandRunOptions) (AutomationCommandResult, error) {
 	c.lastArgs = append(json.RawMessage(nil), args...)
 	return c.result, nil
 }

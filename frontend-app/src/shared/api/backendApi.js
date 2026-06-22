@@ -105,6 +105,8 @@ export const RPC_METHODS = Object.freeze({
   WORKFLOW_TEMPLATES_LIST: 'workflowTemplates/list',
   WORKFLOW_TEMPLATES_GET: 'workflowTemplates/get',
   WORKFLOW_TEMPLATES_RENDER_DAG: 'workflowTemplates/renderDag',
+  WORKFLOW_TEMPLATES_SAVE: 'workflowTemplates/save',
+  WORKFLOW_TEMPLATES_ROLLBACK: 'workflowTemplates/rollback',
 
   CRONJOB_LIST: 'cronjob/list',
   CRONJOB_GET: 'cronjob/get',
@@ -1109,7 +1111,29 @@ function createPromptDagApi(callBackend) {
       RPC_METHODS.WORKFLOW_TEMPLATES_RENDER_DAG,
       workflowTemplateRenderPayload(params),
     ),
+    saveWorkflowTemplate: (params) => callBackend(
+      RPC_METHODS.WORKFLOW_TEMPLATES_SAVE,
+      workflowTemplateSavePayload(params),
+    ),
+    rollbackWorkflowTemplate: (params) => callBackend(
+      RPC_METHODS.WORKFLOW_TEMPLATES_ROLLBACK,
+      workflowTemplateRollbackPayload(params),
+    ),
   };
+}
+
+function requirePositiveInteger(method, params, key) {
+  const payload = requireNumber(method, params, key);
+  if (!Number.isInteger(payload[key]) || payload[key] <= 0) {
+    throw new Error(`${method}: ${key} must be a positive integer`);
+  }
+  return payload;
+}
+
+function requireObjectField(method, payload, key) {
+  if (payload[key] == null || typeof payload[key] !== 'object' || Array.isArray(payload[key])) {
+    throw new Error(`${method}: ${key} must be an object`);
+  }
 }
 
 function workflowTemplateRenderPayload(params) {
@@ -1134,6 +1158,48 @@ function workflowTemplateRenderPayload(params) {
     user_inputs: payload.user_inputs,
     runtime_context: payload.runtime_context,
     locale: payload.locale,
+  };
+}
+
+function workflowTemplateSavePayload(params) {
+  const method = RPC_METHODS.WORKFLOW_TEMPLATES_SAVE;
+  const payload = requirePositiveInteger(
+    method,
+    requireKey(method, requireKey(method, assertPlainObject(method, params), 'templateId'), 'category'),
+    'version',
+  );
+  requireObjectField(method, payload, 'trust');
+  requireObjectField(method, payload, 'compatibility');
+  requireObjectField(method, payload, 'draft');
+  return cleanObject({
+    templateId: payload.templateId,
+    version: payload.version,
+    title: payload.title,
+    description: payload.description,
+    category: payload.category,
+    business_flow: payload.business_flow,
+    output_types: payload.output_types,
+    tags: payload.tags,
+    requires_review: payload.requires_review,
+    supports_schedule: payload.supports_schedule,
+    trust: payload.trust,
+    compatibility: payload.compatibility,
+    ui_schema: payload.ui_schema,
+    validation: payload.validation,
+    draft: payload.draft,
+  });
+}
+
+function workflowTemplateRollbackPayload(params) {
+  const method = RPC_METHODS.WORKFLOW_TEMPLATES_ROLLBACK;
+  const payload = requirePositiveInteger(
+    method,
+    requireKey(method, assertPlainObject(method, params), 'templateId'),
+    'version',
+  );
+  return {
+    templateId: payload.templateId,
+    version: payload.version,
   };
 }
 
@@ -1558,6 +1624,8 @@ export const applyDagOps = backendApi.applyDagOps;
 export const listWorkflowTemplates = backendApi.listWorkflowTemplates;
 export const getWorkflowTemplate = backendApi.getWorkflowTemplate;
 export const renderWorkflowTemplateDraft = backendApi.renderWorkflowTemplateDraft;
+export const saveWorkflowTemplate = backendApi.saveWorkflowTemplate;
+export const rollbackWorkflowTemplate = backendApi.rollbackWorkflowTemplate;
 export const listCronJobs = backendApi.listCronJobs;
 export const getCronJob = backendApi.getCronJob;
 export const createCronJob = backendApi.createCronJob;

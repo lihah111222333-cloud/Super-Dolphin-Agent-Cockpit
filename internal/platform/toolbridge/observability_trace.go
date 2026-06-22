@@ -3,6 +3,8 @@ package toolbridge
 import (
 	"context"
 	"encoding/json"
+	"sort"
+	"strings"
 	"sync/atomic"
 	"time"
 
@@ -47,6 +49,12 @@ func fillToolTrace(ctx context.Context, event *observability.TraceEvent) {
 	}
 	if event.SpanID == "" {
 		event.SpanID = nextToolTraceSpan(event.Method)
+	}
+	if event.TraceID != "" {
+		if event.Metadata == nil {
+			event.Metadata = map[string]any{}
+		}
+		event.Metadata["trace_id"] = event.TraceID
 	}
 	if shouldCaptureToolStack(event.Status) {
 		event.Stack = observability.CaptureStackForStatus(toolTraceStackConfig(), event.Status)
@@ -95,6 +103,7 @@ func toolTraceStackConfig() observability.Config {
 }
 
 func toolTraceBeginEvent(req ToolCallRequest) observability.TraceEvent {
+	metadata := toolTraceBeginMetadata(req)
 	return observability.TraceEvent{
 		Method:      "tool.call.begin",
 		ThreadID:    req.ThreadID,
@@ -105,10 +114,49 @@ func toolTraceBeginEvent(req ToolCallRequest) observability.TraceEvent {
 		ClientKind:  classifyTool(req.Name),
 		ClientRoute: req.ClientKind,
 		Status:      observability.StatusOK,
-		Metadata: map[string]any{
-			"argument_bytes": int64(len(req.Arguments)),
-		},
+		Metadata:    metadata,
 	}
+}
+
+func toolTraceBeginMetadata(req ToolCallRequest) map[string]any {
+	targetPeer := strings.TrimSpace(req.ClientKind)
+	if targetPeer == "" {
+		targetPeer = classifyTool(req.Name)
+	}
+	metadata := map[string]any{
+		"argument_bytes":   int64(len(req.Arguments)),
+		"redaction_policy": "metadata_only",
+		"source_actor":     strings.TrimSpace(req.AgentID),
+		"target_peer":      targetPeer,
+		"tool_name":        strings.TrimSpace(req.Name),
+	}
+	if keys := sensitiveToolArgumentKeys(req.Arguments); len(keys) > 0 {
+		metadata["sensitive_argument_keys"] = keys
+	}
+	return metadata
+}
+
+func sensitiveToolArgumentKeys(raw json.RawMessage) []string {
+	var args map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &args); err != nil {
+		return nil
+	}
+	keys := make([]string, 0, len(args))
+	for key := range args {
+		if isSensitiveToolArgumentKey(key) {
+			keys = append(keys, key)
+		}
+	}
+	sort.Strings(keys)
+	return keys
+}
+
+func isSensitiveToolArgumentKey(key string) bool {
+	normalized := strings.ToLower(strings.TrimSpace(key))
+	return strings.Contains(normalized, "api_key") ||
+		strings.Contains(normalized, "password") ||
+		strings.Contains(normalized, "secret") ||
+		strings.Contains(normalized, "token")
 }
 
 func toolTraceEndEvent(req ToolCallRequest, result any, callErr error, elapsed time.Duration, affectedFiles int) observability.TraceEvent {

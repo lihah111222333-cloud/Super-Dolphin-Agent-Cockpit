@@ -17,6 +17,8 @@ const backend = vi.hoisted(() => ({
   openSharedFile: vi.fn(),
   readSharedFile: vi.fn(),
   renderWorkflowTemplateDraft: vi.fn(),
+  rollbackWorkflowTemplate: vi.fn(),
+  saveWorkflowTemplate: vi.fn(),
   startDag: vi.fn(),
   startTurn: vi.fn(),
   startThread: vi.fn(),
@@ -161,6 +163,9 @@ function enterpriseTemplateDetail({ id, title, description, outputTypes, finalNo
     estimated_nodes: 5,
     requires_review: true,
     supports_schedule: supportsSchedule,
+    available_versions: [1],
+    trust: { level: 'built_in', source: 'bundled' },
+    compatibility: { runtime: 'dag-v2', node_types: ['agent'], required_capabilities: ['workflow.node.agent', 'workflow.output.sharedfile', 'workflow.final_output'] },
     ui_schema: [
       { key: 'title', type: 'text', required: true, label: { zh: '主题名称' }, placeholder: { zh: '请输入主题' }, help: { zh: '用于 DAG 标题。' } },
       { key: 'source_materials', type: 'file_ref', required: true, label: { zh: '输入材料' }, placeholder: { zh: 'sharedfile 路径或材料说明' }, help: { zh: '必须提供材料来源。' } },
@@ -238,6 +243,9 @@ function mockEnterpriseTemplates() {
     requires_review: template.requires_review,
     supports_schedule: template.supports_schedule,
     final_node_key: template.dag_template.final_node_key,
+    available_versions: template.available_versions,
+    trust: template.trust,
+    compatibility: template.compatibility,
   }));
   backend.listWorkflowTemplates.mockResolvedValue({ templates });
   backend.getWorkflowTemplate.mockImplementation(({ templateId }) => Promise.resolve({
@@ -864,7 +872,7 @@ describe('WorkflowPage module', () => {
     expect(patch.config).not.toHaveProperty('output_file');
   });
 
-  it('renders automation and hybrid nodes with their real exec schema fields', async () => {
+  it('renders historical hybrid nodes without exposing them in node config editing', async () => {
     const dag = {
       dag_key: 'daily-brief',
       title: 'Daily Brief',
@@ -906,11 +914,11 @@ describe('WorkflowPage module', () => {
     renderWorkflowPage();
 
     expect(await screen.findByDisplayValue('build_app')).toBeInTheDocument();
-    fireEvent.change(screen.getByLabelText('步骤'), { target: { value: 'verify' } });
-
-    expect(screen.getByDisplayValue('test_app')).toBeInTheDocument();
-    expect(screen.getByDisplayValue('reviewer')).toBeInTheDocument();
-    expect(screen.getByDisplayValue('reports/verify.md')).toBeInTheDocument();
+    expect(screen.getAllByText('Verify').length).toBeGreaterThan(0);
+    expect(screen.getByLabelText('步骤')).toHaveDisplayValue('Build');
+    expect(screen.queryByRole('option', { name: 'Verify' })).not.toBeInTheDocument();
+    expect(screen.queryByDisplayValue('test_app')).not.toBeInTheDocument();
+    expect(screen.queryByDisplayValue('reviewer')).not.toBeInTheDocument();
   });
 
   it('saves automation node settings through config.exec and outputs schema', async () => {
@@ -960,7 +968,7 @@ describe('WorkflowPage module', () => {
     expect(JSON.stringify(patch.config)).not.toContain('agent_key');
   });
 
-  it('saves hybrid node verifier settings with the backend-accepted nested schema', async () => {
+  it('does not expose hybrid-only DAGs as configurable runtime nodes', async () => {
     const dag = {
       dag_key: 'daily-brief',
       title: 'Daily Brief',
@@ -992,35 +1000,10 @@ describe('WorkflowPage module', () => {
 
     renderWorkflowPage();
 
-    expect(await screen.findByDisplayValue('test_app')).toBeInTheDocument();
-    fireEvent.change(screen.getByLabelText('命令卡片'), { target: { value: 'test_app_v2' } });
-    fireEvent.change(screen.getByLabelText('Agent Key'), { target: { value: 'verifier_v2' } });
-    fireEvent.change(screen.getByLabelText('Prompt Key'), { target: { value: 'main/verifier_v2' } });
-    fireEvent.change(screen.getByLabelText('执行 cwd'), { target: { value: '/repo/review' } });
-    fireEvent.change(screen.getByLabelText('输出 sharedfile'), { target: { value: 'reports/review.md' } });
-    fireEvent.click(screen.getByRole('button', { name: '保存步骤' }));
-
-    await waitFor(() => expect(backend.applyDagOps).toHaveBeenCalled());
-    const patch = backend.applyDagOps.mock.calls[0][0].ops[0].patch;
-    expect(patch.config).toMatchObject({
-      exec: {
-        automation: {
-          kind: 'command_card',
-          command_ref: 'test_app_v2',
-        },
-        verifier: {
-          provider: 'claude',
-          model: 'opus',
-          agent_key: 'verifier_v2',
-          prompt_key: 'main/verifier_v2',
-          cwd: '/repo/review',
-        },
-      },
-      outputs: {
-        to_sharedfile: { path: 'reports/review.md', lock_mode: 'exclusive' },
-      },
-    });
-    expect(patch.config.exec).not.toHaveProperty('agent_key');
+    expect(await screen.findByText('暂无可配置步骤')).toBeInTheDocument();
+    expect(screen.queryByDisplayValue('test_app')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '保存步骤' })).not.toBeInTheDocument();
+    expect(backend.applyDagOps).not.toHaveBeenCalled();
   });
 
   it('fails fast before saving invalid node schema settings', async () => {
@@ -1037,15 +1020,10 @@ describe('WorkflowPage module', () => {
       nodes: [{
         node_key: 'verify',
         title: 'Verify',
-        node_type: 'hybrid',
+        node_type: 'automation',
         assigned_to: 'worker',
         depends_on: [],
-        config: {
-          exec: {
-            automation: { kind: 'command_card', command_ref: 'test_app' },
-            verifier: { agent_key: 'reviewer', cwd: '/repo/app' },
-          },
-        },
+        config: { exec: { kind: 'command_card', command_ref: 'test_app' } },
       }],
     });
     backend.getDagRuns.mockResolvedValue({ runs: [] });
@@ -1098,6 +1076,43 @@ describe('WorkflowPage module', () => {
     expect(screen.getByRole('button', { name: '选择审批材料模板' })).toBeInTheDocument();
     expect(screen.getByText('DAG 草案')).toBeInTheDocument();
     expect(screen.getByText('目标输出格式')).toBeInTheDocument();
+  });
+
+  it('filters templates by search and shows version trust compatibility and rollback', async () => {
+    mockWorkflowDag();
+    backend.rollbackWorkflowTemplate.mockResolvedValue({
+      template: { ...enterpriseTemplateDetails['government-enterprise/meeting-minutes'], version: 1 },
+    });
+    backend.listWorkflowTemplates.mockResolvedValue({
+      templates: [{
+        ...enterpriseTemplateDetails['government-enterprise/meeting-minutes'],
+        version: 2,
+        available_versions: [1, 2],
+        final_node_key: 'final_minutes',
+      }, {
+        ...enterpriseTemplateDetails['government-enterprise/promo-video'],
+        final_node_key: 'final_video',
+      }],
+    });
+
+    renderWorkflowPage();
+
+    await openTemplateCatalog();
+    fireEvent.change(screen.getByLabelText('搜索模板'), { target: { value: '会议' } });
+
+    expect(await screen.findByRole('button', { name: '选择会议纪要模板' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '选择宣传视频模板' })).not.toBeInTheDocument();
+    expect(screen.getByText('v2')).toBeInTheDocument();
+    expect(screen.getByText('built_in')).toBeInTheDocument();
+    expect(screen.getByText('dag-v2')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '回滚到 v1' }));
+
+    await waitFor(() => {
+      expect(backend.rollbackWorkflowTemplate).toHaveBeenCalledWith({
+        templateId: 'government-enterprise/meeting-minutes',
+        version: 1,
+      });
+    });
   });
 
   it('renders the template catalog in the empty state', async () => {
@@ -1176,6 +1191,56 @@ describe('WorkflowPage module', () => {
     expect(screen.getAllByText('复核').length).toBeGreaterThan(0);
     expect(screen.getAllByText('最终').length).toBeGreaterThan(0);
     expect(backend.startThread).not.toHaveBeenCalled();
+  });
+
+  it('saves the selected validated DAG draft as a new template version', async () => {
+    mockWorkflowDag();
+    const template = enterpriseTemplateDetails['government-enterprise/meeting-minutes'];
+    backend.renderWorkflowTemplateDraft.mockResolvedValue({
+      draft: {
+        template_id: template.id,
+        template_version: template.version,
+        dag_key: 'government_enterprise_meeting_minutes_run',
+        title: '模板主题 - 会议纪要',
+        description: '提取会议要点。',
+        trigger: 'manual',
+        final_node_key: 'final_minutes',
+        nodes: template.dag_template.nodes,
+        final_output: template.final_output,
+      },
+    });
+    backend.saveWorkflowTemplate.mockResolvedValue({
+      template: { ...template, version: 2, available_versions: [1, 2] },
+    });
+
+    renderWorkflowPage();
+
+    await openTemplateCatalog();
+    fireEvent.click(await screen.findByRole('button', { name: '选择会议纪要模板' }));
+    await fillEnterpriseTemplateForm('模板主题', 'materials/source.md', '复核负责人');
+    fireEvent.click(screen.getByRole('button', { name: '保存为模板' }));
+
+    await waitFor(() => {
+      expect(backend.renderWorkflowTemplateDraft).toHaveBeenCalledWith(expect.objectContaining({
+        templateId: 'government-enterprise/meeting-minutes',
+        version: 1,
+        values: expect.objectContaining({
+          title: '模板主题',
+          source_materials: 'materials/source.md',
+          reviewer: '复核负责人',
+        }),
+        runtime_context: { cwd: '/repo/app' },
+      }));
+    });
+    expect(backend.saveWorkflowTemplate).toHaveBeenCalledWith(expect.objectContaining({
+      templateId: 'government-enterprise/meeting-minutes',
+      version: 2,
+      category: 'government-enterprise',
+      trust: { level: 'user', source: 'save_as_template' },
+      compatibility: expect.objectContaining({ runtime: 'dag-v2', node_types: ['agent'] }),
+      draft: expect.objectContaining({ final_node_key: 'final_minutes' }),
+    }));
+    expect(await screen.findByRole('status')).toHaveTextContent('模板已保存为 v2');
   });
 
   it.each([

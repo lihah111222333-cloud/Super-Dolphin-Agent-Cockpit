@@ -34,12 +34,26 @@ var allowedFieldTypes = map[string]struct{}{
 	"boolean":      {},
 }
 
+var supportedRuntimeNodeTypes = map[string]struct{}{
+	"agent":      {},
+	"automation": {},
+}
+
+var supportedRuntimeCapabilities = map[string]struct{}{
+	"workflow.node.agent":        {},
+	"workflow.node.automation":   {},
+	"workflow.output.sharedfile": {},
+	"workflow.output.artifact":   {},
+	"workflow.final_output":      {},
+}
+
 func validateTemplate(tpl Template) error {
 	for _, check := range []func(Template) error{
 		validateTemplateFields,
 		validateUIFields,
 		validateNodes,
 		validateTemplateOutputPaths,
+		validateCompatibility,
 		validateVideoContract,
 	} {
 		if err := check(tpl); err != nil {
@@ -47,6 +61,13 @@ func validateTemplate(tpl Template) error {
 		}
 	}
 	return nil
+}
+
+func validatePublishedTemplate(tpl Template) error {
+	if err := validateTemplate(tpl); err != nil {
+		return err
+	}
+	return validateRuntimeNodeConfigs(tpl.DAGTemplate.Nodes)
 }
 
 func validateTemplateFields(tpl Template) error {
@@ -85,8 +106,12 @@ func validateTemplateText(tpl Template) error {
 }
 
 func validateTemplateCategory(tpl Template) error {
-	if strings.TrimSpace(tpl.Category) != "government-enterprise" {
-		return errors.New("category must be government-enterprise")
+	switch strings.TrimSpace(tpl.Category) {
+	case "government-enterprise":
+	case "":
+		return errors.New("category is required")
+	default:
+		return fmt.Errorf("category %q is not supported", tpl.Category)
 	}
 	if strings.TrimSpace(tpl.BusinessFlow) == "" {
 		return errors.New("business_flow is required")
@@ -197,14 +222,14 @@ func validateNodes(tpl Template) error {
 		return errors.New("dag_template.nodes is required")
 	}
 	for index, node := range tpl.DAGTemplate.Nodes {
-		if err := validateNodeTemplate(node, nodeIndex, index); err != nil {
+		if err := validateNodeTemplate(tpl, node, nodeIndex, index); err != nil {
 			return err
 		}
 	}
 	return validateFinalReviewRelationship(tpl, nodeIndex)
 }
 
-func validateNodeTemplate(node NodeTemplate, nodeIndex map[string]int, index int) error {
+func validateNodeTemplate(tpl Template, node NodeTemplate, nodeIndex map[string]int, index int) error {
 	key := strings.TrimSpace(node.NodeKey)
 	if key == "" {
 		return errors.New("node_key is required")
@@ -221,7 +246,41 @@ func validateNodeTemplate(node NodeTemplate, nodeIndex map[string]int, index int
 	if err := validateNodeUIConfig(key, node.Config); err != nil {
 		return err
 	}
+	if err := validateNodeOutputMapping(tpl, node); err != nil {
+		return err
+	}
 	nodeIndex[key] = index
+	return nil
+}
+
+func validateRuntimeNodeConfigs(nodes []NodeTemplate) error {
+	for _, node := range nodes {
+		if err := validateRuntimeNodeConfig(node); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func validateRuntimeNodeConfig(node NodeTemplate) error {
+	key := strings.TrimSpace(node.NodeKey)
+	nodeType := strings.TrimSpace(strings.ToLower(node.NodeType))
+	if _, ok := supportedRuntimeNodeTypes[nodeType]; !ok {
+		if nodeType == "hybrid" || nodeType == "hitl" || nodeType == "human" {
+			return fmt.Errorf("node %s node_type %q is not available until runtime support lands", key, node.NodeType)
+		}
+		return fmt.Errorf("node %s node_type %q is not supported", key, node.NodeType)
+	}
+	if nodeType != "agent" {
+		return nil
+	}
+	exec, ok := objectMap(node.Config["exec"])
+	if !ok {
+		return fmt.Errorf("node %s config.exec.cwd is required", key)
+	}
+	if strings.TrimSpace(fmt.Sprint(exec["cwd"])) == "" || fmt.Sprint(exec["cwd"]) == "<nil>" {
+		return fmt.Errorf("node %s config.exec.cwd is required", key)
+	}
 	return nil
 }
 
@@ -243,6 +302,47 @@ func validateNodeUIConfig(key string, config map[string]any) error {
 	return nil
 }
 
+func validateNodeOutputMapping(tpl Template, node NodeTemplate) error {
+	outputs, ok := objectMap(node.Config["outputs"])
+	if !ok {
+		return fmt.Errorf("node %s config.outputs is required", node.NodeKey)
+	}
+	if node.NodeKey != tpl.DAGTemplate.FinalNodeKey {
+		if _, hasShared := objectMap(outputs["to_sharedfile"]); hasShared {
+			return nil
+		}
+		if _, hasArtifact := objectMap(outputs["to_artifact"]); hasArtifact {
+			return nil
+		}
+		return fmt.Errorf("node %s outputs.to_sharedfile or outputs.to_artifact is required", node.NodeKey)
+	}
+	return validateFinalNodeOutputMapping(tpl, outputs)
+}
+
+func validateFinalNodeOutputMapping(tpl Template, outputs map[string]any) error {
+	switch strings.TrimSpace(tpl.FinalOutput.Kind) {
+	case "sharedfile":
+		shared, ok := objectMap(outputs["to_sharedfile"])
+		if !ok {
+			return errors.New("final_output sharedfile requires final node outputs.to_sharedfile")
+		}
+		if strings.TrimSpace(fmt.Sprint(shared["path"])) != strings.TrimSpace(tpl.FinalOutput.PathTemplate) {
+			return errors.New("final_output.path_template must match final node outputs.to_sharedfile.path")
+		}
+	case "artifact":
+		artifact, ok := objectMap(outputs["to_artifact"])
+		if !ok {
+			return errors.New("final_output artifact requires final node outputs.to_artifact")
+		}
+		if strings.TrimSpace(fmt.Sprint(artifact["path_template"])) != strings.TrimSpace(tpl.FinalOutput.PathTemplate) {
+			return errors.New("final_output.path_template must match final node outputs.to_artifact.path_template")
+		}
+	default:
+		return fmt.Errorf("final_output.kind %q is not supported", tpl.FinalOutput.Kind)
+	}
+	return nil
+}
+
 func validateFinalReviewRelationship(tpl Template, nodeIndex map[string]int) error {
 	finalIndex, ok := nodeIndex[tpl.DAGTemplate.FinalNodeKey]
 	if !ok {
@@ -258,6 +358,69 @@ func validateFinalReviewRelationship(tpl Template, nodeIndex map[string]int) err
 	finalNode := tpl.DAGTemplate.Nodes[finalIndex]
 	if !contains(finalNode.DependsOn, reviewKey) {
 		return errors.New("final node must depend on review node")
+	}
+	return nil
+}
+
+func validateCompatibility(tpl Template) error {
+	if err := validateTrustMetadata(tpl.Trust); err != nil {
+		return err
+	}
+	if err := validateCompatibilityRuntime(tpl.Compatibility); err != nil {
+		return err
+	}
+	if err := validateCompatibilityNodeTypes(tpl.Compatibility.NodeTypes); err != nil {
+		return err
+	}
+	return validateCompatibilityCapabilities(tpl.Compatibility.RequiredCapabilities)
+}
+
+func validateTrustMetadata(trust TrustMetadata) error {
+	if strings.TrimSpace(trust.Level) == "" {
+		return errors.New("trust.level is required")
+	}
+	if strings.TrimSpace(trust.Source) == "" {
+		return errors.New("trust.source is required")
+	}
+	return nil
+}
+
+func validateCompatibilityRuntime(compatibility Compatibility) error {
+	if strings.TrimSpace(compatibility.Runtime) != "dag-v2" {
+		return errors.New("compatibility.runtime must be dag-v2")
+	}
+	return nil
+}
+
+func validateCompatibilityNodeTypes(nodeTypes []string) error {
+	if len(nodeTypes) == 0 {
+		return errors.New("compatibility.node_types is required")
+	}
+	for _, nodeType := range nodeTypes {
+		normalized := strings.TrimSpace(strings.ToLower(nodeType))
+		if _, ok := supportedRuntimeNodeTypes[normalized]; !ok {
+			return unsupportedRuntimeNodeTypeError(nodeType, normalized)
+		}
+	}
+	return nil
+}
+
+func unsupportedRuntimeNodeTypeError(nodeType, normalized string) error {
+	if normalized == "hybrid" || normalized == "hitl" || normalized == "human" {
+		return fmt.Errorf("compatibility node_type %q is not available until runtime support lands", nodeType)
+	}
+	return fmt.Errorf("compatibility node_type %q is not supported", nodeType)
+}
+
+func validateCompatibilityCapabilities(capabilities []string) error {
+	if len(capabilities) == 0 {
+		return errors.New("compatibility.required_capabilities is required")
+	}
+	for _, capability := range capabilities {
+		normalized := strings.TrimSpace(capability)
+		if _, ok := supportedRuntimeCapabilities[normalized]; !ok {
+			return fmt.Errorf("compatibility required_capability %q is not supported", capability)
+		}
 	}
 	return nil
 }

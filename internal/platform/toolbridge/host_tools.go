@@ -56,6 +56,8 @@ const (
 	ToolNameWorkflowTemplateList      = "workflow_template_list"
 	ToolNameWorkflowTemplateGet       = "workflow_template_get"
 	ToolNameWorkflowTemplateRenderDAG = "workflow_template_render_dag"
+	ToolNameWorkflowTemplateSave      = "workflow_template_save"
+	ToolNameWorkflowTemplateRollback  = "workflow_template_rollback"
 )
 
 type WorkflowTemplateHostToolRegistry struct {
@@ -89,6 +91,32 @@ type workflowTemplateRenderInput struct {
 	RuntimeContext  map[string]any `json:"runtime_context,omitempty"`
 }
 
+type workflowTemplateSaveInput struct {
+	TemplateID       string                           `json:"template_id,omitempty"`
+	TemplateIDCamel  string                           `json:"templateId,omitempty"`
+	Version          int                              `json:"version,omitempty"`
+	Title            workflowtemplates.LocalizedText  `json:"title,omitempty"`
+	Description      workflowtemplates.LocalizedText  `json:"description,omitempty"`
+	Category         string                           `json:"category,omitempty"`
+	BusinessFlow     string                           `json:"business_flow,omitempty"`
+	OutputTypes      []string                         `json:"output_types,omitempty"`
+	Tags             []string                         `json:"tags,omitempty"`
+	RequiresReview   bool                             `json:"requires_review,omitempty"`
+	SupportsSchedule bool                             `json:"supports_schedule,omitempty"`
+	Trust            workflowtemplates.TrustMetadata  `json:"trust,omitempty"`
+	Compatibility    workflowtemplates.Compatibility  `json:"compatibility,omitempty"`
+	UISchema         []workflowtemplates.UIField      `json:"ui_schema,omitempty"`
+	Validation       workflowtemplates.ValidationRule `json:"validation,omitempty"`
+	Draft            workflowtemplates.DAGDraft       `json:"draft,omitempty"`
+}
+
+type workflowTemplateRollbackInput struct {
+	TemplateID      string `json:"template_id,omitempty"`
+	TemplateIDCamel string `json:"templateId,omitempty"`
+	ID              string `json:"id,omitempty"`
+	Version         int    `json:"version,omitempty"`
+}
+
 type workflowTemplateListResult struct {
 	Templates []workflowtemplates.TemplateSummary `json:"templates"`
 }
@@ -99,6 +127,14 @@ type workflowTemplateGetResult struct {
 
 type workflowTemplateRenderResult struct {
 	Draft workflowtemplates.DAGDraft `json:"draft"`
+}
+
+type workflowTemplateSaveResult struct {
+	Template workflowtemplates.TemplateSummary `json:"template"`
+}
+
+type workflowTemplateRollbackResult struct {
+	Template workflowtemplates.TemplateSummary `json:"template"`
 }
 
 // NewWorkflowTemplateHostToolRegistry 创建只读模板工具注册表，供 DAG Designer 读取同一份内置模板资产。
@@ -115,10 +151,14 @@ func (r *WorkflowTemplateHostToolRegistry) ListHostTools() []mcpdto.MCPTool {
 	listSchema, _ := json.Marshal(workflowTemplateListInputSchema())
 	getSchema, _ := json.Marshal(workflowTemplateGetInputSchema())
 	renderSchema, _ := json.Marshal(workflowTemplateRenderInputSchema())
+	saveSchema, _ := json.Marshal(workflowTemplateSaveInputSchema())
+	rollbackSchema, _ := json.Marshal(workflowTemplateRollbackInputSchema())
 	return []mcpdto.MCPTool{
 		{Name: ToolNameWorkflowTemplateList, Description: descriptionWorkflowTemplateList, InputSchema: listSchema},
 		{Name: ToolNameWorkflowTemplateGet, Description: descriptionWorkflowTemplateGet, InputSchema: getSchema},
 		{Name: ToolNameWorkflowTemplateRenderDAG, Description: descriptionWorkflowTemplateRenderDAG, InputSchema: renderSchema},
+		{Name: ToolNameWorkflowTemplateSave, Description: descriptionWorkflowTemplateSave, InputSchema: saveSchema},
+		{Name: ToolNameWorkflowTemplateRollback, Description: descriptionWorkflowTemplateRollback, InputSchema: rollbackSchema},
 	}
 }
 
@@ -147,6 +187,10 @@ func (r *WorkflowTemplateHostToolRegistry) CallHostTool(_ context.Context, call 
 		return r.get(call.Arguments)
 	case ToolNameWorkflowTemplateRenderDAG:
 		return r.renderDAG(call.Arguments)
+	case ToolNameWorkflowTemplateSave:
+		return r.save(call.Arguments)
+	case ToolNameWorkflowTemplateRollback:
+		return r.rollback(call.Arguments)
 	default:
 		return nil, fmt.Errorf("workflow template tools: unknown tool %q", call.Name)
 	}
@@ -154,7 +198,7 @@ func (r *WorkflowTemplateHostToolRegistry) CallHostTool(_ context.Context, call 
 
 func isWorkflowTemplateToolName(name string) bool {
 	switch strings.TrimSpace(name) {
-	case ToolNameWorkflowTemplateList, ToolNameWorkflowTemplateGet, ToolNameWorkflowTemplateRenderDAG:
+	case ToolNameWorkflowTemplateList, ToolNameWorkflowTemplateGet, ToolNameWorkflowTemplateRenderDAG, ToolNameWorkflowTemplateSave, ToolNameWorkflowTemplateRollback:
 		return true
 	default:
 		return false
@@ -211,6 +255,82 @@ func (r *WorkflowTemplateHostToolRegistry) renderDAG(raw json.RawMessage) (workf
 		return workflowTemplateRenderResult{}, err
 	}
 	return workflowTemplateRenderResult{Draft: draft}, nil
+}
+
+func (r *WorkflowTemplateHostToolRegistry) save(raw json.RawMessage) (workflowTemplateSaveResult, error) {
+	var input workflowTemplateSaveInput
+	if err := decodeWorkflowTemplateToolInput(raw, &input); err != nil {
+		return workflowTemplateSaveResult{}, err
+	}
+	id := firstWorkflowTemplateID(input.TemplateID, input.TemplateIDCamel)
+	tpl, err := workflowtemplates.TemplateFromSaveRequest(workflowtemplates.SaveTemplateRequest{
+		TemplateID:       id,
+		Version:          input.Version,
+		Title:            input.Title,
+		Description:      input.Description,
+		Category:         input.Category,
+		BusinessFlow:     input.BusinessFlow,
+		OutputTypes:      append([]string(nil), input.OutputTypes...),
+		Tags:             append([]string(nil), input.Tags...),
+		RequiresReview:   input.RequiresReview,
+		SupportsSchedule: input.SupportsSchedule,
+		Trust:            input.Trust,
+		Compatibility:    input.Compatibility,
+		UISchema:         append([]workflowtemplates.UIField(nil), input.UISchema...),
+		Validation:       input.Validation,
+		Draft:            input.Draft,
+	})
+	if err != nil {
+		return workflowTemplateSaveResult{}, err
+	}
+	if err := r.registry.SaveTemplate(tpl); err != nil {
+		return workflowTemplateSaveResult{}, err
+	}
+	summary, err := r.summaryByID(tpl.ID)
+	if err != nil {
+		return workflowTemplateSaveResult{}, err
+	}
+	return workflowTemplateSaveResult{Template: summary}, nil
+}
+
+func (r *WorkflowTemplateHostToolRegistry) rollback(raw json.RawMessage) (workflowTemplateRollbackResult, error) {
+	var input workflowTemplateRollbackInput
+	if err := decodeWorkflowTemplateToolInput(raw, &input); err != nil {
+		return workflowTemplateRollbackResult{}, err
+	}
+	id := firstWorkflowTemplateID(input.TemplateID, input.TemplateIDCamel, input.ID)
+	if id == "" {
+		return workflowTemplateRollbackResult{}, fmt.Errorf("workflow template input: template_id is required")
+	}
+	if input.Version <= 0 {
+		return workflowTemplateRollbackResult{}, fmt.Errorf("workflow template rollback: version must be a positive integer")
+	}
+	if err := r.registry.RollbackTemplate(id, input.Version); err != nil {
+		return workflowTemplateRollbackResult{}, err
+	}
+	summary, err := r.summaryByID(id)
+	if err != nil {
+		return workflowTemplateRollbackResult{}, err
+	}
+	return workflowTemplateRollbackResult{Template: summary}, nil
+}
+
+func (r *WorkflowTemplateHostToolRegistry) summaryByID(id string) (workflowtemplates.TemplateSummary, error) {
+	for _, summary := range r.registry.ListTemplates() {
+		if summary.ID == id {
+			return summary, nil
+		}
+	}
+	return workflowtemplates.TemplateSummary{}, fmt.Errorf("workflow template %q summary not found", id)
+}
+
+func firstWorkflowTemplateID(ids ...string) string {
+	for _, id := range ids {
+		if trimmed := strings.TrimSpace(id); trimmed != "" {
+			return trimmed
+		}
+	}
+	return ""
 }
 
 func (r *WorkflowTemplateHostToolRegistry) getTemplateByInput(ids ...any) (workflowtemplates.Template, error) {
@@ -354,6 +474,48 @@ func workflowTemplateRenderInputSchema() map[string]any {
 	}
 }
 
+func workflowTemplateSaveInputSchema() map[string]any {
+	return map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"template_id":       map[string]any{"type": "string"},
+			"templateId":        map[string]any{"type": "string"},
+			"version":           map[string]any{"type": "integer", "minimum": 1},
+			"title":             map[string]any{"type": "object"},
+			"description":       map[string]any{"type": "object"},
+			"category":          map[string]any{"type": "string"},
+			"business_flow":     map[string]any{"type": "string"},
+			"output_types":      map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
+			"tags":              map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
+			"requires_review":   map[string]any{"type": "boolean"},
+			"supports_schedule": map[string]any{"type": "boolean"},
+			"trust":             map[string]any{"type": "object"},
+			"compatibility":     map[string]any{"type": "object"},
+			"ui_schema":         map[string]any{"type": "array"},
+			"validation":        map[string]any{"type": "object"},
+			"draft":             map[string]any{"type": "object"},
+		},
+		"required":             []string{"template_id", "version", "category", "compatibility", "trust", "draft"},
+		"additionalProperties": false,
+	}
+}
+
+func workflowTemplateRollbackInputSchema() map[string]any {
+	return map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"template_id": map[string]any{"type": "string"},
+			"templateId":  map[string]any{"type": "string"},
+			"id":          map[string]any{"type": "string"},
+			"version":     map[string]any{"type": "integer", "minimum": 1},
+		},
+		"required":             []string{"template_id", "version"},
+		"additionalProperties": false,
+	}
+}
+
 const descriptionWorkflowTemplateList = "List built-in government-enterprise workflow template summaries. Read-only; does not create DAGs or write files."
 const descriptionWorkflowTemplateGet = "Get one built-in government-enterprise workflow template with ui_schema, dag_template, review node, and final output contract."
 const descriptionWorkflowTemplateRenderDAG = "Render a built-in workflow template into a DAG draft from values/user_inputs. Read-only; does not persist or run the DAG."
+const descriptionWorkflowTemplateSave = "Save a validated DAG draft as a versioned reusable workflow template. Does not create or run DAGs."
+const descriptionWorkflowTemplateRollback = "Make a previous workflow template version active again. Does not create or run DAGs."

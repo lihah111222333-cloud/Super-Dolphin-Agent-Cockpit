@@ -2,7 +2,9 @@ package taskdag
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -112,8 +114,236 @@ func maybeFinalizeRunTx(ctx context.Context, txStore *store, dagKey string, runI
 	// guarantees a single running run per dag_key）；取首行、多余行是 DB drift 不静默。
 	// At most one running run per dag_key (0076 partial unique); take the first.
 	first := rows[0]
+	if first.Status == "succeeded" {
+		if err := writeRunFinalOutputMetadataTx(ctx, txStore, dagKey, runID); err != nil {
+			return nil, err
+		}
+	}
 	return &FinalizedRunInfo{RunKey: first.RunKey, Status: first.Status}, nil
 }
+
+type runFinalOutputNode struct {
+	NodeKey string
+	Title   string
+	Config  json.RawMessage
+	Result  json.RawMessage
+}
+
+// writeRunFinalOutputMetadataTx 在 run 成功终态的同一事务内写 metadata.final_output。
+// 找不到 final_node_key 或 final 节点未完成时保持原 metadata，不把缺省值伪装成最终产物。
+func writeRunFinalOutputMetadataTx(ctx context.Context, txStore *store, dagKey string, runID int64) error {
+	encoded, ok, err := buildRunFinalOutputMetadataTx(ctx, txStore, dagKey, runID)
+	if err != nil || !ok {
+		return err
+	}
+	return updateRunFinalOutputMetadataTx(ctx, txStore, dagKey, runID, encoded)
+}
+
+func buildRunFinalOutputMetadataTx(ctx context.Context, txStore *store, dagKey string, runID int64) ([]byte, bool, error) {
+	finalNodeKey, ok, err := loadRunFinalNodeKeyTx(ctx, txStore, dagKey)
+	if err != nil {
+		return nil, false, err
+	}
+	if !ok {
+		return nil, false, nil
+	}
+	node, ok, err := loadRunFinalOutputNodeTx(ctx, txStore, dagKey, runID, finalNodeKey)
+	if err != nil {
+		return nil, false, err
+	}
+	if !ok {
+		return nil, false, nil
+	}
+	finalOutput, ok, err := finalOutputMetadataFromNode(node)
+	if err != nil {
+		return nil, false, err
+	}
+	if !ok {
+		return nil, false, nil
+	}
+	encoded, err := json.Marshal(finalOutput)
+	if err != nil {
+		return nil, false, fmt.Errorf("marshal final output metadata for %s/%d: %w", dagKey, runID, err)
+	}
+	return encoded, true, nil
+}
+
+func updateRunFinalOutputMetadataTx(ctx context.Context, txStore *store, dagKey string, runID int64, encoded []byte) error {
+	res, err := txStore.db.ExecContext(ctx, updateTaskDagRunFinalOutputMetadataSQL, string(encoded), dagKey, runID)
+	if err != nil {
+		return fmt.Errorf("write final output metadata for %s/%d: %w", dagKey, runID, err)
+	}
+	rows, err := res.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("check final output metadata rows for %s/%d: %w", dagKey, runID, err)
+	}
+	if rows != 1 {
+		return fmt.Errorf("write final output metadata for %s/%d: rows=%d, want 1", dagKey, runID, rows)
+	}
+	return nil
+}
+
+func loadRunFinalNodeKeyTx(ctx context.Context, txStore *store, dagKey string) (string, bool, error) {
+	var finalNodeKey string
+	if err := txStore.db.QueryRowContext(ctx, selectTaskDagFinalNodeKeySQL, dagKey).Scan(&finalNodeKey); err != nil {
+		return "", false, fmt.Errorf("load final node key for dag %s: %w", dagKey, err)
+	}
+	finalNodeKey = strings.TrimSpace(finalNodeKey)
+	return finalNodeKey, finalNodeKey != "", nil
+}
+
+func loadRunFinalOutputNodeTx(ctx context.Context, txStore *store, dagKey string, runID int64, nodeKey string) (runFinalOutputNode, bool, error) {
+	var node runFinalOutputNode
+	err := txStore.db.QueryRowContext(ctx, selectTaskDagFinalOutputNodeSQL, dagKey, int64Ptr(runID), nodeKey).Scan(
+		&node.NodeKey,
+		&node.Title,
+		&node.Config,
+		&node.Result,
+	)
+	if errors.Is(err, sql.ErrNoRows) {
+		return runFinalOutputNode{}, false, nil
+	}
+	if err != nil {
+		return runFinalOutputNode{}, false, fmt.Errorf("load final output node %s/%s/%d: %w", dagKey, nodeKey, runID, err)
+	}
+	return node, true, nil
+}
+
+// finalOutputMetadataFromNode 把 final 节点结果压成 UI/API 可直接展示的最小 final_output。
+// 大文件结果优先保留 sharedfile path，避免把完整节点结果复制进 run metadata。
+func finalOutputMetadataFromNode(node runFinalOutputNode) (map[string]any, bool, error) {
+	out := baseRunFinalOutput(node)
+	configuredPath := configuredRunFinalSharedfilePath(node.Config)
+	if len(node.Result) == 0 {
+		return finalOutputFromConfiguredRunPath(out, configuredPath)
+	}
+	var result any
+	if err := json.Unmarshal(node.Result, &result); err != nil {
+		return nil, false, fmt.Errorf("decode final node result for %s: %w", node.NodeKey, err)
+	}
+	switch typed := result.(type) {
+	case map[string]any:
+		return finalOutputFromRunResultMap(out, typed, configuredPath, result), true, nil
+	case string:
+		return finalOutputFromRunResultString(out, typed, configuredPath), true, nil
+	default:
+		return finalOutputFromRunFallback(out, configuredPath, result), true, nil
+	}
+}
+
+func baseRunFinalOutput(node runFinalOutputNode) map[string]any {
+	title := strings.TrimSpace(node.Title)
+	if title == "" {
+		title = "Final output"
+	}
+	return map[string]any{
+		"role":            "final_output",
+		"title":           title,
+		"source_node_key": node.NodeKey,
+	}
+}
+
+func finalOutputFromConfiguredRunPath(out map[string]any, configuredPath string) (map[string]any, bool, error) {
+	if configuredPath == "" {
+		return nil, false, nil
+	}
+	return finalOutputWithRunFile(out, configuredPath), true, nil
+}
+
+func finalOutputFromRunResultMap(out, typed map[string]any, configuredPath string, result any) map[string]any {
+	if path := runSharedfilePathFromResultMap(typed); path != "" {
+		return finalOutputWithRunFile(out, path)
+	}
+	if configuredPath != "" {
+		return finalOutputWithRunFile(out, configuredPath)
+	}
+	out["kind"] = "json"
+	out["result"] = result
+	return out
+}
+
+func finalOutputFromRunResultString(out map[string]any, text, configuredPath string) map[string]any {
+	if configuredPath != "" {
+		return finalOutputWithRunFile(out, configuredPath)
+	}
+	out["kind"] = "text"
+	out["text"] = text
+	return out
+}
+
+func finalOutputFromRunFallback(out map[string]any, configuredPath string, result any) map[string]any {
+	if configuredPath != "" {
+		return finalOutputWithRunFile(out, configuredPath)
+	}
+	out["kind"] = "json"
+	out["result"] = result
+	return out
+}
+
+func finalOutputWithRunFile(out map[string]any, path string) map[string]any {
+	out["kind"] = "file"
+	out["path"] = path
+	return out
+}
+
+func runSharedfilePathFromResultMap(typed map[string]any) string {
+	sf, ok := typed["sharedfile"].(map[string]any)
+	if !ok {
+		return ""
+	}
+	path, ok := sf["path"].(string)
+	if !ok {
+		return ""
+	}
+	return strings.TrimSpace(path)
+}
+
+func configuredRunFinalSharedfilePath(raw json.RawMessage) string {
+	if len(raw) == 0 {
+		return ""
+	}
+	var cfg struct {
+		Outputs struct {
+			ToSharedfile *struct {
+				Path string `json:"path"`
+			} `json:"to_sharedfile"`
+		} `json:"outputs"`
+	}
+	if err := json.Unmarshal(raw, &cfg); err != nil || cfg.Outputs.ToSharedfile == nil {
+		return ""
+	}
+	return strings.TrimSpace(cfg.Outputs.ToSharedfile.Path)
+}
+
+const selectTaskDagFinalNodeKeySQL = `
+SELECT CASE
+  WHEN json_type(metadata, '$.final_node_key') = 'text'
+    THEN json_extract(metadata, '$.final_node_key')
+  ELSE ''
+END
+FROM task_dags
+WHERE dag_key = ?`
+
+const selectTaskDagFinalOutputNodeSQL = `
+SELECT node_key, title, CAST(config AS BLOB), CAST(result AS BLOB)
+FROM task_dag_nodes
+WHERE dag_key = ?
+  AND run_id = ?
+  AND node_key = ?
+  AND status = 'done'
+LIMIT 1`
+
+const updateTaskDagRunFinalOutputMetadataSQL = `
+UPDATE task_dag_runs
+SET metadata = json_set(
+      CASE WHEN json_type(metadata) = 'object' THEN metadata ELSE '{}' END,
+      '$.final_output',
+      json(?1)
+    ),
+    updated_at = (CAST(strftime('%s','now') AS INTEGER) * 1000)
+WHERE dag_key = ?2
+  AND id = ?3
+  AND status = 'succeeded'`
 
 // scheduleDownstreamWakeupsTx assumes caller has already completed the
 // upstream node row inside txStore's transaction. It re-reads the entire DAG
