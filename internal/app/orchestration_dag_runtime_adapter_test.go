@@ -210,7 +210,7 @@ func TestMCPOrchDAGRuntimeGetRunCallsPeerTool(t *testing.T) {
 	t.Parallel()
 
 	caller := &recordingDAGToolCaller{
-		result: `{"run":{"run_key":"dag-1#run-1","dag_key":"dag-1","status":"running"},"nodes":[{"node_key":"n1","status":"running","spawning_thread_id":"thread-child"}]}`,
+		result: `{"run":{"run_key":"dag-1#run-1","dag_key":"dag-1","status":"running","derived_state":"active","next_action":"monitor","artifact_count":1},"nodes":[{"node_key":"n1","status":"running","spawning_thread_id":"thread-child","executor":"codex-runner","artifact_links":[{"kind":"sharedfile","path":"reports/out.md"}]}]}`,
 	}
 	runtime := &mcpOrchDAGRuntime{tools: caller}
 
@@ -218,15 +218,36 @@ func TestMCPOrchDAGRuntimeGetRunCallsPeerTool(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetRun() error = %v", err)
 	}
-	if resp.Run.RunKey != "dag-1#run-1" {
-		t.Fatalf("GetRun().Run = %#v", resp.Run)
-	}
-	if len(resp.Nodes) != 1 || resp.Nodes[0].NodeKey != "n1" || resp.Nodes[0].SpawningThreadID == nil || *resp.Nodes[0].SpawningThreadID != "thread-child" {
-		t.Fatalf("GetRun().Nodes = %#v", resp.Nodes)
-	}
+	assertGetRunWorkbenchSummary(t, resp)
 	assertDAGToolCall(t, caller, "task_get_run", map[string]any{
 		"run_key": "dag-1#run-1",
 	})
+}
+
+func assertGetRunWorkbenchSummary(t *testing.T, resp contract.GetRunResponse) {
+	t.Helper()
+	assertGetRunDerivedSummary(t, resp.Run)
+	assertGetRunNodeDiagnostics(t, resp.Nodes)
+}
+
+func assertGetRunDerivedSummary(t *testing.T, run contract.Run) {
+	t.Helper()
+	if run.RunKey != "dag-1#run-1" {
+		t.Fatalf("GetRun().Run = %#v", run)
+	}
+	if run.DerivedState != "active" || run.NextAction != "monitor" || run.ArtifactCount != 1 {
+		t.Fatalf("GetRun().Run derived summary = %#v", run)
+	}
+}
+
+func assertGetRunNodeDiagnostics(t *testing.T, nodes []contract.DAGNode) {
+	t.Helper()
+	if len(nodes) != 1 || nodes[0].NodeKey != "n1" || nodes[0].SpawningThreadID == nil || *nodes[0].SpawningThreadID != "thread-child" {
+		t.Fatalf("GetRun().Nodes = %#v", nodes)
+	}
+	if nodes[0].Executor != "codex-runner" || len(nodes[0].ArtifactLinks) != 1 || nodes[0].ArtifactLinks[0].Path != "reports/out.md" {
+		t.Fatalf("GetRun().Nodes diagnostics = %#v", nodes)
+	}
 }
 
 func TestMCPOrchDAGRuntimePropagatesPeerFailure(t *testing.T) {

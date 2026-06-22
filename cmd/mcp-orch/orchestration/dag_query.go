@@ -139,7 +139,7 @@ func mapRuns(items []taskdag.Run) []contract.Run {
 }
 
 func dagRunDTO(row taskdag.Run) contract.Run {
-	out := contract.Run(row)
+	out := contract.Run{ID: row.ID, RunKey: row.RunKey, DagKey: row.DagKey, DagVersionSnapshot: row.DagVersionSnapshot, TriggerSource: row.TriggerSource, Status: row.Status, StartedAt: row.StartedAt, BudgetUsed: row.BudgetUsed, CreatedAt: row.CreatedAt, UpdatedAt: row.UpdatedAt}
 	out.FinishedAt = shared.CloneTime(row.FinishedAt)
 	out.Events = append([]byte(nil), row.Events...)
 	out.BudgetLimit = shared.CloneInt64(row.BudgetLimit)

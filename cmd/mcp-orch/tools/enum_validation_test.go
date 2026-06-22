@@ -42,6 +42,11 @@ func TestEnumValidation_SchemaHandlerSingleSource(t *testing.T) {
 			fromVar:    updateNodeStatusEnum,
 		},
 		{
+			name:       "task_workflow_recovery_action.action",
+			fromSchema: enumValuesFromToolSchema(t, taskToolDefinitions(nil), "task_workflow_recovery_action", "action"),
+			fromVar:    recoveryActionEnum,
+		},
+		{
 			name:       "orchestration_launch_agent.provider",
 			fromSchema: enumValuesFromToolSchema(t, orchestrationToolDefinitions(nil), "launch_agent", "provider"),
 			fromVar:    launchAgentProviderEnum,
