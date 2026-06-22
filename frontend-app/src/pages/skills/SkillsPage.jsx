@@ -1044,7 +1044,7 @@ function SkillsPage({ copy = APP_COPY.zh.skills, projectPath, refreshKey = 0, re
           className={subTab === 'library' ? 'active' : ''}
           onClick={() => setSubTab('library')}
         >
-          {copy.title}
+          {copy.tabs.library}
         </button>
         <button
           type="button"
@@ -1729,13 +1729,7 @@ function PluginsSquareView({ copy, projectPath }) {
                 <div className="mcp-tool-title-line">
                   <h2 title={tool.description}>{tool.title}</h2>
                 </div>
-                <p
-                  className={`mcp-tool-notice${mcpServersIsError || error ? ' is-error' : ''}${feedback ? '' : ' is-empty'}`}
-                  role={feedbackRole}
-                  aria-hidden={feedback ? undefined : true}
-                >
-                  {feedback}
-                </p>
+                {feedback ? <p className={`mcp-tool-notice${mcpServersIsError || error ? ' is-error' : ''}`} role={feedbackRole}>{feedback}</p> : null}
               </div>
               <span className={`mcp-tool-status is-${status.tone}`} data-testid={tool.testId}>{status.label}</span>
               <div className="mcp-tool-actions">
