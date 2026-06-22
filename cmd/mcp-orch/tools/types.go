@@ -9,11 +9,91 @@ type ToolHandler func(ctx context.Context, input json.RawMessage) (any, error)
 
 type Schema map[string]any
 
+// ToolRiskClass 标记工具调用的治理风险等级，供 registry 和 policy 审计使用。
+type ToolRiskClass string
+
+const (
+	// ToolRiskLow 表示只读或低影响操作。
+	ToolRiskLow ToolRiskClass = "low"
+	// ToolRiskMedium 表示会改变局部状态但不触发高危边界的操作。
+	ToolRiskMedium ToolRiskClass = "medium"
+	// ToolRiskHigh 表示会写工作流、执行命令或写共享文件等高影响操作。
+	ToolRiskHigh ToolRiskClass = "high"
+)
+
+// ToolPermission 描述工具调用需要的最小权限。
+type ToolPermission string
+
+const (
+	// ToolPermissionWorkflowRead 允许读取工作流定义和运行态。
+	ToolPermissionWorkflowRead ToolPermission = "workflow.read"
+	// ToolPermissionWorkflowWrite 允许修改工作流定义、运行态或调度状态。
+	ToolPermissionWorkflowWrite ToolPermission = "workflow.write"
+	// ToolPermissionSharedFileWrite 允许写入 workflow shared-file 根目录。
+	ToolPermissionSharedFileWrite ToolPermission = "shared_file.write"
+	// ToolPermissionCommandExecute 允许执行受策略约束的命令卡。
+	ToolPermissionCommandExecute ToolPermission = "command.execute"
+)
+
+// ToolWorkspaceScope 描述工具能触达的工作区范围。
+type ToolWorkspaceScope string
+
+const (
+	// ToolWorkspaceScopeNone 表示工具不直接访问本地工作区。
+	ToolWorkspaceScopeNone ToolWorkspaceScope = "none"
+	// ToolWorkspaceScopeWorkflow 表示工具访问 orchestration 工作流状态。
+	ToolWorkspaceScopeWorkflow ToolWorkspaceScope = "workflow"
+	// ToolWorkspaceScopeSharedFile 表示工具访问 workflow shared-file 根目录。
+	ToolWorkspaceScopeSharedFile ToolWorkspaceScope = "shared_file"
+	// ToolWorkspaceScopeAllowedRoots 表示工具必须限制在显式允许的工作区根目录内。
+	ToolWorkspaceScopeAllowedRoots ToolWorkspaceScope = "allowed_roots"
+)
+
+// ToolIdempotencyRequirement 描述调用方是否必须提供幂等键或等价保护。
+type ToolIdempotencyRequirement string
+
+const (
+	// ToolIdempotencyNone 表示该工具不要求额外幂等保护。
+	ToolIdempotencyNone ToolIdempotencyRequirement = "none"
+	// ToolIdempotencyRecommended 表示重试时建议提供幂等键。
+	ToolIdempotencyRecommended ToolIdempotencyRequirement = "recommended"
+	// ToolIdempotencyRequired 表示调用方必须提供幂等保护。
+	ToolIdempotencyRequired ToolIdempotencyRequirement = "required"
+)
+
+// ToolRedactionPolicy 描述审计事件对入参和结果的脱敏策略。
+type ToolRedactionPolicy string
+
+const (
+	// ToolRedactionNone 表示审计层不做额外脱敏。
+	ToolRedactionNone ToolRedactionPolicy = "none"
+	// ToolRedactionMetadataOnly 表示审计只记录摘要元数据，不记录完整入参或结果。
+	ToolRedactionMetadataOnly ToolRedactionPolicy = "metadata_only"
+	// ToolRedactionSensitiveFields 表示审计需要按敏感字段名脱敏。
+	ToolRedactionSensitiveFields ToolRedactionPolicy = "sensitive_fields"
+)
+
+// ToolMetadata 是工具注册表里的治理元数据；审批 MVP 未实现前 ApprovalRequired 必须为 false。
+type ToolMetadata struct {
+	Version                string                     `json:"version"`
+	OutputSchema           Schema                     `json:"output_schema"`
+	Capabilities           []string                   `json:"capabilities"`
+	RiskClass              ToolRiskClass              `json:"risk_class"`
+	Permission             ToolPermission             `json:"permission"`
+	WorkspaceScope         ToolWorkspaceScope         `json:"workspace_scope"`
+	TimeoutSeconds         int                        `json:"timeout_seconds,omitempty"`
+	IdempotencyRequirement ToolIdempotencyRequirement `json:"idempotency_requirement"`
+	ApprovalRequired       bool                       `json:"approval_required"`
+	AuditEventType         string                     `json:"audit_event_type"`
+	RedactionPolicy        ToolRedactionPolicy        `json:"redaction_policy"`
+}
+
 type ToolDefinition struct {
-	Name        string      `json:"name"`
-	Description string      `json:"description,omitempty"`
-	InputSchema Schema      `json:"input_schema"`
-	Handler     ToolHandler `json:"-"`
+	Name        string       `json:"name"`
+	Description string       `json:"description,omitempty"`
+	InputSchema Schema       `json:"input_schema"`
+	Metadata    ToolMetadata `json:"metadata,omitempty"`
+	Handler     ToolHandler  `json:"-"`
 }
 
 type listEnvelope[T any] struct {

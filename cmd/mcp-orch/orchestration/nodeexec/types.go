@@ -3,6 +3,7 @@ package nodeexec
 import (
 	"context"
 	"encoding/json"
+	"strings"
 	"time"
 )
 
@@ -30,6 +31,50 @@ const (
 	NodeStatusSkipped      NodeStatus = "skipped"       // on_failure=skip 时跳过
 	NodeStatusWaitingHuman NodeStatus = "waiting_human" // HITL 暂停（enum 留位，骨架阶段未实现）
 )
+
+var persistedNodeStatusList = []NodeStatus{
+	NodeStatusPending,
+	NodeStatusReady,
+	NodeStatusRunning,
+	NodeStatusRetrying,
+	NodeStatusDone,
+	NodeStatusFailed,
+	NodeStatusCancelled,
+	NodeStatusSkipped,
+	NodeStatusWaitingHuman,
+}
+
+var persistedNodeStatusSet = map[NodeStatus]struct{}{
+	NodeStatusPending:      {},
+	NodeStatusReady:        {},
+	NodeStatusRunning:      {},
+	NodeStatusRetrying:     {},
+	NodeStatusDone:         {},
+	NodeStatusFailed:       {},
+	NodeStatusCancelled:    {},
+	NodeStatusSkipped:      {},
+	NodeStatusWaitingHuman: {},
+}
+
+var reservedOrLegacyNodeStatusSet = map[string]struct{}{
+	string(NodeStatusSkipped):      {},
+	string(NodeStatusWaitingHuman): {},
+	"awaiting_verify":              {},
+}
+
+func persistedNodeStatuses() []NodeStatus {
+	return append([]NodeStatus(nil), persistedNodeStatusList...)
+}
+
+func isPersistedNodeStatus(raw string) bool {
+	_, ok := persistedNodeStatusSet[NodeStatus(strings.TrimSpace(raw))]
+	return ok
+}
+
+func isReservedOrLegacyNodeStatus(raw string) bool {
+	_, ok := reservedOrLegacyNodeStatusSet[strings.TrimSpace(raw)]
+	return ok
+}
 
 // =====================================================
 // 失败分类 + 策略（智能重试 dispatcher 的核心，F12.1 真实分发）
@@ -153,6 +198,22 @@ type SharedFileReader interface {
 // 生产实现可由 store/sharedfile.Store 的 Upsert 适配；测试注入 stub 验证写入路径与内容。
 type SharedFileWriter interface {
 	WriteSharedFile(ctx context.Context, path, content string) error
+}
+
+// SharedFileWriteRequest 是带审计元数据的 sharedfile 写入请求。
+type SharedFileWriteRequest struct {
+	Path          string
+	Content       string
+	ContentType   string
+	OwnerNode     string
+	ProducerActor string
+	RunID         int64
+	PromptRef     string
+}
+
+// SharedFileMetadataWriter 由支持记录 owner/producer 元数据的 writer 实现。
+type SharedFileMetadataWriter interface {
+	WriteSharedFileWithMetadata(ctx context.Context, req SharedFileWriteRequest) error
 }
 
 // NodeOutcome 是 NodeExecutor.Execute 的结构化返回值。

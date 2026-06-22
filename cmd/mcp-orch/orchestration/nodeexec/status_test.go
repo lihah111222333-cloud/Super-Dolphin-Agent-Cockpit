@@ -18,17 +18,12 @@ func TestValidateTransition_AllLegal(t *testing.T) {
 		{NodeStatusRunning, NodeStatusDone, "success"},
 		{NodeStatusRunning, NodeStatusFailed, "fail no retries"},
 		{NodeStatusRunning, NodeStatusRetrying, "fail with retries"},
-		{NodeStatusRunning, NodeStatusSkipped, "on_failure=skip"},
-		{NodeStatusRunning, NodeStatusWaitingHuman, "on_failure=ask_human"},
 		{NodeStatusRunning, NodeStatusCancelled, "user cancelled run"},
 		{NodeStatusRetrying, NodeStatusReady, "backoff over"},
 		{NodeStatusRetrying, NodeStatusFailed, "give up"},
 		{NodeStatusRetrying, NodeStatusCancelled, "upstream fail_fast while retrying"},
-		{NodeStatusWaitingHuman, NodeStatusReady, "approved"},
-		{NodeStatusWaitingHuman, NodeStatusFailed, "rejected"},
-		{NodeStatusWaitingHuman, NodeStatusCancelled, "user cancelled run while waiting"},
 	}
-	if got, want := len(legal), 16; got != want {
+	if got, want := len(legal), 11; got != want {
 		t.Fatalf("legal transitions in test = %d, want %d (与 legalTransitions map 同步)", got, want)
 	}
 	for _, tc := range legal {
@@ -38,9 +33,9 @@ func TestValidateTransition_AllLegal(t *testing.T) {
 	}
 }
 
-func TestRunningAndWaitingHumanCanTransitionToCancelled(t *testing.T) {
+func TestRunningAndRetryingCanTransitionToCancelled(t *testing.T) {
 	t.Parallel()
-	for _, from := range []NodeStatus{NodeStatusRunning, NodeStatusWaitingHuman} {
+	for _, from := range []NodeStatus{NodeStatusRunning, NodeStatusRetrying} {
 		if err := ValidateTransition(from, NodeStatusCancelled); err != nil {
 			t.Fatalf("%s → cancelled should be legal for user run termination, got: %v", from, err)
 		}
@@ -67,6 +62,12 @@ func TestValidateTransition_Illegal(t *testing.T) {
 		{NodeStatusCancelled, NodeStatusReady, "非法"},
 		// skipped → 任何：禁止
 		{NodeStatusSkipped, NodeStatusReady, "非法"},
+		// reserved/legacy 状态不再作为新 runtime transition 目标或来源
+		{NodeStatusRunning, NodeStatusSkipped, "非法"},
+		{NodeStatusRunning, NodeStatusWaitingHuman, "非法"},
+		{NodeStatusWaitingHuman, NodeStatusReady, "非法"},
+		{NodeStatusWaitingHuman, NodeStatusFailed, "非法"},
+		{NodeStatusWaitingHuman, NodeStatusCancelled, "非法"},
 		// 反向：ready → pending
 		{NodeStatusReady, NodeStatusPending, "非法"},
 		// 反向：running → ready (跳过 retrying)
