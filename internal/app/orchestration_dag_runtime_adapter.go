@@ -26,6 +26,8 @@ type mcpOrchDAGRuntime struct {
 }
 
 var _ contract.DAGRuntime = (*mcpOrchDAGRuntime)(nil)
+var _ contract.DAGCreateRuntime = (*mcpOrchDAGRuntime)(nil)
+var _ contract.DAGDeleteRuntime = (*mcpOrchDAGRuntime)(nil)
 
 const (
 	defaultDAGRuntimePeerReadyTimeout      = 10 * time.Second
@@ -61,6 +63,17 @@ func (r *mcpOrchDAGRuntime) GetDAG(ctx context.Context, dagKey string) (contract
 	err := r.call(ctx, "task_get_dag", map[string]any{
 		"dag_key": strings.TrimSpace(dagKey),
 	}, &out)
+	return out, err
+}
+
+// CreateDAG 通过 mcp-orch 的 task_create_dag 工具创建 DAG 模板。
+func (r *mcpOrchDAGRuntime) CreateDAG(ctx context.Context, req contract.CreateDAGRequest) (contract.DAGDetail, error) {
+	args, err := createDAGToolArgs(req)
+	if err != nil {
+		return contract.DAGDetail{}, err
+	}
+	var out contract.DAGDetail
+	err = r.call(ctx, "task_create_dag", args, &out)
 	return out, err
 }
 
@@ -173,6 +186,58 @@ func encodeDAGToolCall(toolName string, args any) (contract.ToolCallRawMessage, 
 		Method: toolbridge.ProxyMethodToolsCall,
 		Params: json.RawMessage(paramsRaw),
 	}, nil
+}
+
+func createDAGToolArgs(req contract.CreateDAGRequest) (map[string]any, error) {
+	metadata, err := createDAGMetadataMap(req.Metadata)
+	if err != nil {
+		return nil, err
+	}
+	args := map[string]any{
+		"agent_id":    strings.TrimSpace(req.CreatedBy),
+		"dag_key":     strings.TrimSpace(req.DagKey),
+		"title":       strings.TrimSpace(req.Title),
+		"description": strings.TrimSpace(req.Description),
+		"nodes":       createDAGToolNodes(req.Nodes),
+	}
+	if schedule, ok := metadata["schedule"].(map[string]any); ok && len(schedule) > 0 {
+		args["schedule"] = schedule
+	}
+	if finalNodeKey := strings.TrimSpace(fmt.Sprint(metadata["final_node_key"])); finalNodeKey != "" && finalNodeKey != "<nil>" {
+		args["final_node_key"] = finalNodeKey
+	}
+	return args, nil
+}
+
+func createDAGMetadataMap(raw json.RawMessage) (map[string]any, error) {
+	trimmed := bytes.TrimSpace(raw)
+	if len(trimmed) == 0 {
+		return map[string]any{}, nil
+	}
+	var metadata map[string]any
+	if err := json.Unmarshal(trimmed, &metadata); err != nil {
+		return nil, fmt.Errorf("app: decode task_create_dag metadata: %w", err)
+	}
+	if metadata == nil {
+		metadata = map[string]any{}
+	}
+	return metadata, nil
+}
+
+func createDAGToolNodes(nodes []contract.CreateDAGNodeRequest) []map[string]any {
+	out := make([]map[string]any, 0, len(nodes))
+	for _, node := range nodes {
+		out = append(out, map[string]any{
+			"node_key":    strings.TrimSpace(node.NodeKey),
+			"title":       strings.TrimSpace(node.Title),
+			"node_type":   strings.TrimSpace(node.NodeType),
+			"assigned_to": strings.TrimSpace(node.AssignedTo),
+			"depends_on":  append([]string(nil), node.DependsOn...),
+			"command_ref": strings.TrimSpace(node.CommandRef),
+			"config":      json.RawMessage(append([]byte(nil), node.Config...)),
+		})
+	}
+	return out
 }
 
 // runDAGToolCall 运行DAG工具call。

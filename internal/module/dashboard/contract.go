@@ -11,6 +11,12 @@ import (
 	sharedfilestore "github.com/anthropic-ai/super-agent-v3/internal/store/sharedfile"
 )
 
+// WorkflowMaterialWriteRequest 表示前端模板上传到 workflow sharedfile 的文本材料。
+type WorkflowMaterialWriteRequest struct {
+	Path    string
+	Content string
+}
+
 type Service interface {
 	GetDashboard(ctx context.Context) (*Dashboard, error)
 	GetDashboardPage(ctx context.Context, page string) (*DashboardPage, error)
@@ -24,12 +30,14 @@ type Service interface {
 	GetDAGDetail(ctx context.Context, dagKey string) (*contract.DAGDetail, error)
 	ListDAGRuns(ctx context.Context, dagKey, status string, limit int32) ([]contract.Run, error)
 	GetDAGRun(ctx context.Context, runKey string) (contract.GetRunResponse, error)
+	CreateAndStartDAG(ctx context.Context, req contract.CreateDAGRequest, idempotencyKey string) (contract.DAGDetail, contract.StartDAGResponse, error)
 	StartDAG(ctx context.Context, dagKey, triggerSource, idempotencyKey string) (contract.StartDAGResponse, error)
 	DispatchDAGNode(ctx context.Context, req contract.DispatchNodeRequest) (contract.DispatchNodeResponse, error)
 	TerminateDAG(ctx context.Context, dagKey, runKey, reason string) error
 	DeleteDAG(ctx context.Context, dagKey string) error
 	ApplyDAGOps(ctx context.Context, req contract.ApplyOpsRequest) (contract.ApplyOpsResponse, error)
 	ListSharedFiles(ctx context.Context) ([]sharedfilestore.SharedFile, error)
+	WriteWorkflowMaterial(ctx context.Context, req WorkflowMaterialWriteRequest) (*sharedfilestore.SharedFile, error)
 	Query(ctx context.Context, query string, args ...any) ([]map[string]any, error)
 	GetAILogsByCategory(ctx context.Context, category, keyword string, limit int) ([]ailogstore.AILog, error)
 	GetAILogStats(ctx context.Context) ([]ailogstore.StatusCount, error)

@@ -76,6 +76,7 @@ export const RPC_METHODS = Object.freeze({
   UI_SHARED_FILE_GET: 'ui/memory/shared-file/get',
   UI_SHARED_FILE_DELETE: 'ui/memory/shared-file/delete',
   DASHBOARD_SHARED_FILES: 'dashboard/sharedFiles',
+  DASHBOARD_WORKFLOW_MATERIAL_WRITE: 'dashboard/workflowMaterialWrite',
 
   PROMPT_ASSETS_LIST: 'prompt-assets/list',
   DASHBOARD_PROMPTS: 'dashboard/prompts',
@@ -97,6 +98,7 @@ export const RPC_METHODS = Object.freeze({
   DASHBOARD_DAG_RUNS: 'dashboard/dagRuns',
   DASHBOARD_DAG_RUN: 'dashboard/dagRun',
   DASHBOARD_DAG_START: 'dashboard/dagStart',
+  DASHBOARD_DAG_CREATE_AND_START: 'dashboard/dagCreateAndStart',
   DASHBOARD_DAG_DISPATCH_NODE: 'dashboard/dagDispatchNode',
   DASHBOARD_DAG_TERMINATE: 'dashboard/dagTerminate',
   DASHBOARD_DAG_DELETE: 'dashboard/dagDelete',
@@ -495,6 +497,36 @@ function dashboardDagStartPayload(params) {
     triggerSource: normalizeString(payload.triggerSource),
     idempotencyKey: normalizeString(payload.idempotencyKey),
   });
+}
+
+function dashboardDagCreateAndStartPayload(params) {
+  const method = RPC_METHODS.DASHBOARD_DAG_CREATE_AND_START;
+  const payload = requireKey(method, requireKey(method, assertPlainObject(method, params), 'dagKey'), 'title');
+  if (!Array.isArray(payload.nodes) || payload.nodes.length === 0) {
+    throw new Error(`${method}: nodes must be a non-empty array`);
+  }
+  if (payload.metadata != null && (typeof payload.metadata !== 'object' || Array.isArray(payload.metadata))) {
+    throw new Error(`${method}: metadata must be an object`);
+  }
+  return cleanObject({
+    dagKey: payload.dagKey,
+    title: payload.title,
+    description: normalizeString(payload.description),
+    finalNodeKey: normalizeString(payload.finalNodeKey || payload.final_node_key),
+    metadata: payload.metadata || {},
+    nodes: payload.nodes,
+    idempotencyKey: normalizeString(payload.idempotencyKey),
+  });
+}
+
+function dashboardWorkflowMaterialWritePayload(params) {
+  const method = RPC_METHODS.DASHBOARD_WORKFLOW_MATERIAL_WRITE;
+  const payload = assertPlainObject(method, params);
+  const path = normalizeString(payload.path);
+  const content = typeof payload.content === 'string' ? payload.content : '';
+  if (!path) throw new Error(`${method}: path is required`);
+  if (!content.trim()) throw new Error(`${method}: content is required`);
+  return { path, content };
 }
 
 function dashboardDagDispatchNodePayload(params) {
@@ -1052,6 +1084,7 @@ function createMemoryApi(callBackend) {
       RPC_METHODS.UI_SHARED_FILE_DELETE,
       requireKey(RPC_METHODS.UI_SHARED_FILE_DELETE, assertPlainObject(RPC_METHODS.UI_SHARED_FILE_DELETE, params), 'path'),
     ),
+    writeWorkflowMaterial: (params) => callBackend(RPC_METHODS.DASHBOARD_WORKFLOW_MATERIAL_WRITE, dashboardWorkflowMaterialWritePayload(params)),
   };
 }
 
@@ -1091,6 +1124,7 @@ function createPromptDagApi(callBackend) {
       requireKey(RPC_METHODS.DASHBOARD_DAG_RUN, assertPlainObject(RPC_METHODS.DASHBOARD_DAG_RUN, params), 'runKey'),
     ),
     startDag: (params) => callBackend(RPC_METHODS.DASHBOARD_DAG_START, dashboardDagStartPayload(params)),
+    createAndStartDag: (params) => callBackend(RPC_METHODS.DASHBOARD_DAG_CREATE_AND_START, dashboardDagCreateAndStartPayload(params)),
     dispatchDagNode: (params) => callBackend(RPC_METHODS.DASHBOARD_DAG_DISPATCH_NODE, dashboardDagDispatchNodePayload(params)),
     terminateDagRun: (params) => callBackend(RPC_METHODS.DASHBOARD_DAG_TERMINATE, dashboardDagTerminatePayload(params)),
     terminateDag: (params) => callBackend(RPC_METHODS.DASHBOARD_DAG_TERMINATE, dashboardDagTerminatePayload(params)),
@@ -1597,6 +1631,7 @@ export const getMemoryConsolidationStatus = backendApi.getMemoryConsolidationSta
 export const listSharedFiles = backendApi.listSharedFiles;
 export const readSharedFile = backendApi.readSharedFile;
 export const deleteSharedFile = backendApi.deleteSharedFile;
+export const writeWorkflowMaterial = backendApi.writeWorkflowMaterial;
 export const listPromptAssets = backendApi.listPromptAssets;
 export const getDashboardPrompts = backendApi.getDashboardPrompts;
 export const getPrompt = backendApi.getPrompt;
@@ -1616,6 +1651,7 @@ export const getDagDetail = backendApi.getDagDetail;
 export const getDagRuns = backendApi.getDagRuns;
 export const getDagRun = backendApi.getDagRun;
 export const startDag = backendApi.startDag;
+export const createAndStartDag = backendApi.createAndStartDag;
 export const dispatchDagNode = backendApi.dispatchDagNode;
 export const terminateDagRun = backendApi.terminateDagRun;
 export const terminateDag = backendApi.terminateDag;
