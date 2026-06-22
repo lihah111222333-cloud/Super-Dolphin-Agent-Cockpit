@@ -200,6 +200,22 @@ type SharedFileWriter interface {
 	WriteSharedFile(ctx context.Context, path, content string) error
 }
 
+// SharedFileWriteRequest 是带审计元数据的 sharedfile 写入请求。
+type SharedFileWriteRequest struct {
+	Path          string
+	Content       string
+	ContentType   string
+	OwnerNode     string
+	ProducerActor string
+	RunID         int64
+	PromptRef     string
+}
+
+// SharedFileMetadataWriter 由支持记录 owner/producer 元数据的 writer 实现。
+type SharedFileMetadataWriter interface {
+	WriteSharedFileWithMetadata(ctx context.Context, req SharedFileWriteRequest) error
+}
+
 // NodeOutcome 是 NodeExecutor.Execute 的结构化返回值。
 //
 // 失败也是一种正常返回——带 FailureClass 分类信息的 NodeOutcome；

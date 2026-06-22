@@ -11,8 +11,9 @@ import (
 )
 
 type stubSharedfileStore struct {
-	file *sharedfilestore.SharedFile
-	err  error
+	file    *sharedfilestore.SharedFile
+	err     error
+	upserts []sharedfilestore.UpsertParams
 }
 
 func (s stubSharedfileStore) Get(context.Context, string) (*sharedfilestore.SharedFile, error) {
@@ -24,6 +25,15 @@ func (s stubSharedfileStore) Get(context.Context, string) (*sharedfilestore.Shar
 
 func (s stubSharedfileStore) List(context.Context, sharedfilestore.ListFilter) ([]sharedfilestore.SharedFile, error) {
 	return nil, nil
+}
+
+func (s *stubSharedfileStore) Upsert(_ context.Context, params sharedfilestore.UpsertParams) (*sharedfilestore.SharedFile, error) {
+	s.upserts = append(s.upserts, params)
+	return &sharedfilestore.SharedFile{Path: params.Path, Content: params.Content, UpdatedBy: params.UpdatedBy}, nil
+}
+
+func (s *stubSharedfileStore) Delete(context.Context, string) (int64, error) {
+	return 0, nil
 }
 
 func TestStoreSharedFileReaderNotFoundIsExplicitMissing(t *testing.T) {
