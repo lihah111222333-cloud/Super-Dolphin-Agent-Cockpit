@@ -16,7 +16,11 @@ type querier interface {
 		arg sqlc.ListDatasourceV2DocumentsParams,
 	) ([]sqlc.DatasourceV2Document, error)
 	GetDatasourceV2Document(ctx context.Context, arg sqlc.GetDatasourceV2DocumentParams) (sqlc.DatasourceV2Document, error)
-	ListDatasourceV2Chunks(ctx context.Context, arg sqlc.ListDatasourceV2ChunksParams) ([]sqlc.DatasourceV2TextChunk, error)
+	ListDatasourceV2Chunks(ctx context.Context, arg sqlc.ListDatasourceV2ChunksParams) ([]sqlc.ListDatasourceV2ChunksRow, error)
+	SearchDatasourceV2ChunksByEmbedding(
+		ctx context.Context,
+		arg sqlc.SearchDatasourceV2ChunksByEmbeddingParams,
+	) ([]sqlc.SearchDatasourceV2ChunksByEmbeddingRow, error)
 	UpsertDatasourceV2DocumentImporting(
 		ctx context.Context,
 		arg sqlc.UpsertDatasourceV2DocumentImportingParams,
@@ -116,6 +120,28 @@ func (s *store) ListChunks(ctx context.Context, documentID int64) ([]TextChunk, 
 	return chunks, nil
 }
 
+// SearchChunks 根据查询向量检索 ready 文档中最相近的 datasource_v2 分块。
+// 调用方必须传入与导入阶段同模型、同维度的 float32 BLOB，避免 sqlite-vec 运行时报维度错误。
+func (s *store) SearchChunks(ctx context.Context, params SearchChunksParams) ([]SemanticChunk, error) {
+	if err := validateSearchChunksParams(params); err != nil {
+		return nil, wrapDatasourceV2Error(err, "search_chunks")
+	}
+	rows, err := s.q.SearchDatasourceV2ChunksByEmbedding(ctx, sqlc.SearchDatasourceV2ChunksByEmbeddingParams{
+		Embedding:      params.Embedding,
+		EmbeddingModel: strings.TrimSpace(params.EmbeddingModel),
+		EmbeddingDim:   params.EmbeddingDim,
+		Limit:          int64(params.Limit),
+	})
+	if err != nil {
+		return nil, wrapDatasourceV2Error(err, "search_chunks")
+	}
+	chunks := make([]SemanticChunk, 0, len(rows))
+	for _, row := range rows {
+		chunks = append(chunks, semanticChunkFromSQLC(row))
+	}
+	return chunks, nil
+}
+
 // UpsertImporting writes or resets document metadata to importing status.
 func (s *store) UpsertImporting(ctx context.Context, params UpsertDocumentParams) (*Document, error) {
 	if err := validateUpsertDocumentParams(params); err != nil {
@@ -185,11 +211,15 @@ func (s *store) InsertChunk(ctx context.Context, params InsertChunkParams) error
 		return wrapDatasourceV2Error(err, "insert_chunk")
 	}
 	return wrapDatasourceV2Error(s.q.InsertDatasourceV2Chunk(ctx, sqlc.InsertDatasourceV2ChunkParams{
-		DocumentID: params.DocumentID,
-		ChunkIndex: params.ChunkIndex,
-		Content:    params.Content,
-		CharCount:  params.CharCount,
-		ByteCount:  params.ByteCount,
+		DocumentID:     params.DocumentID,
+		ChunkIndex:     params.ChunkIndex,
+		Content:        params.Content,
+		CharCount:      params.CharCount,
+		ByteCount:      params.ByteCount,
+		Embedding:      params.Embedding,
+		EmbeddingModel: strings.TrimSpace(params.EmbeddingModel),
+		EmbeddingDim:   params.EmbeddingDim,
+		TokenCount:     params.TokenCount,
 	}), "insert_chunk")
 }
 
@@ -217,6 +247,23 @@ func validateListDocumentsParams(params ListDocumentsParams) error {
 		return errors.New("limit must be positive")
 	}
 	return nil
+}
+
+func validateSearchChunksParams(params SearchChunksParams) error {
+	switch {
+	case params.Limit <= 0:
+		return errors.New("limit must be positive")
+	case len(params.Embedding) == 0:
+		return errors.New("embedding is required")
+	case strings.TrimSpace(params.EmbeddingModel) == "":
+		return errors.New("embedding model is required")
+	case params.EmbeddingDim <= 0:
+		return errors.New("embedding dim must be positive")
+	case len(params.Embedding) != int(params.EmbeddingDim)*4:
+		return errors.New("embedding byte length must match embedding dim")
+	default:
+		return nil
+	}
 }
 
 func validateUpsertDocumentParams(params UpsertDocumentParams) error {
@@ -260,6 +307,23 @@ func validateInsertChunkParams(params InsertChunkParams) error {
 	case params.ByteCount <= 0:
 		return errors.New("byte count must be positive")
 	default:
+		return validateInsertChunkVectorParams(params)
+	}
+}
+
+func validateInsertChunkVectorParams(params InsertChunkParams) error {
+	switch {
+	case len(params.Embedding) == 0:
+		return errors.New("embedding is required")
+	case strings.TrimSpace(params.EmbeddingModel) == "":
+		return errors.New("embedding model is required")
+	case params.EmbeddingDim <= 0:
+		return errors.New("embedding dim must be positive")
+	case len(params.Embedding) != int(params.EmbeddingDim)*4:
+		return errors.New("embedding byte length must match embedding dim")
+	case params.TokenCount < 0:
+		return errors.New("token count must be non-negative")
+	default:
 		return nil
 	}
 }
@@ -296,15 +360,40 @@ func documentFromSQLC(row sqlc.DatasourceV2Document) Document {
 	}
 }
 
-func textChunkFromSQLC(row sqlc.DatasourceV2TextChunk) TextChunk {
+func textChunkFromSQLC(row sqlc.ListDatasourceV2ChunksRow) TextChunk {
 	return TextChunk{
-		ID:         row.ID,
-		DocumentID: row.DocumentID,
-		ChunkIndex: row.ChunkIndex,
-		Content:    row.Content,
-		CharCount:  row.CharCount,
-		ByteCount:  row.ByteCount,
-		CreatedAt:  timeFromMillis(row.CreatedAt),
+		ID:             row.ID,
+		DocumentID:     row.DocumentID,
+		ChunkIndex:     row.ChunkIndex,
+		Content:        row.Content,
+		CharCount:      row.CharCount,
+		ByteCount:      row.ByteCount,
+		Embedding:      row.Embedding,
+		EmbeddingModel: row.EmbeddingModel,
+		EmbeddingDim:   row.EmbeddingDim,
+		TokenCount:     row.TokenCount,
+		CreatedAt:      timeFromMillis(row.CreatedAt),
+	}
+}
+
+func semanticChunkFromSQLC(row sqlc.SearchDatasourceV2ChunksByEmbeddingRow) SemanticChunk {
+	return SemanticChunk{
+		TextChunk: TextChunk{
+			ID:             row.ID,
+			DocumentID:     row.DocumentID,
+			ChunkIndex:     row.ChunkIndex,
+			Content:        row.Content,
+			CharCount:      row.CharCount,
+			ByteCount:      row.ByteCount,
+			Embedding:      row.Embedding,
+			EmbeddingModel: row.EmbeddingModel,
+			EmbeddingDim:   row.EmbeddingDim,
+			TokenCount:     row.TokenCount,
+			CreatedAt:      timeFromMillis(row.CreatedAt),
+		},
+		SourcePath: row.SourcePath,
+		FileName:   row.FileName,
+		Distance:   row.Distance,
 	}
 }
 

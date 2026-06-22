@@ -35,8 +35,8 @@ func insertVersion(t *testing.T, db *sql.DB, version int) {
 
 func TestMinRequiredSchemaVersion(t *testing.T) {
 	t.Parallel()
-	if MinRequiredSchemaVersion != 104 {
-		t.Fatalf("MinRequiredSchemaVersion = %d, want 104", MinRequiredSchemaVersion)
+	if MinRequiredSchemaVersion != 107 {
+		t.Fatalf("MinRequiredSchemaVersion = %d, want 107", MinRequiredSchemaVersion)
 	}
 }
 

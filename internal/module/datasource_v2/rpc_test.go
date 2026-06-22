@@ -3,6 +3,7 @@ package datasourcev2
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -48,6 +49,37 @@ func TestImportTextRPCStoresFileChunks(t *testing.T) {
 	if store.inserted[0].Content != "hello\nworld\n" {
 		t.Fatalf("stored chunk content = %q", store.inserted[0].Content)
 	}
+	assertDatasourceV2InsertedVector(t, store.inserted[0], 2)
+}
+
+func TestImportTextRPCSplitsEvery256Tokens(t *testing.T) {
+	project := t.TempDir()
+	t.Chdir(project)
+	source := filepath.Join(project, "tokens.txt")
+	if err := os.WriteFile(source, []byte(strings.Repeat("word ", 257)), 0o600); err != nil {
+		t.Fatalf("write source: %v", err)
+	}
+	store := newRecordingDatasourceV2Store()
+	server := newDatasourceV2TestServer(NewService(store))
+	payload, err := json.Marshal(ImportFileTextRequest{SourcePath: source})
+	if err != nil {
+		t.Fatalf("marshal payload: %v", err)
+	}
+
+	raw, err := server.Dispatch(context.Background(), "datasourceV2/importText", payload)
+	if err != nil {
+		t.Fatalf("Dispatch datasourceV2/importText: %v", err)
+	}
+
+	var got ImportFileTextResult
+	if err := json.Unmarshal(raw, &got); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+	if got.ChunkCount != 2 || len(store.inserted) != 2 {
+		t.Fatalf("chunk count = result %d inserted %d, want 2", got.ChunkCount, len(store.inserted))
+	}
+	assertDatasourceV2InsertedVector(t, store.inserted[0], 256)
+	assertDatasourceV2InsertedVector(t, store.inserted[1], 1)
 }
 
 func TestCreateRPCAliasesImportText(t *testing.T) {
@@ -148,6 +180,9 @@ func TestGetDocumentRPCReturnsChunks(t *testing.T) {
 	}
 	if getGot.Document.DocumentID != 101 || len(getGot.Chunks) != 1 || getGot.Chunks[0].Content != "content" {
 		t.Fatalf("get result = %+v", getGot)
+	}
+	if getGot.Chunks[0].EmbeddingModel != datasourceV2EmbeddingModel || getGot.Chunks[0].EmbeddingDim != datasourceV2EmbeddingDimension {
+		t.Fatalf("chunk vector metadata = %+v", getGot.Chunks[0])
 	}
 }
 
@@ -289,6 +324,7 @@ func TestImportTextRPCPreservesWhitespaceOnlyContent(t *testing.T) {
 	if store.inserted[0].Content != " \n\t" {
 		t.Fatalf("stored whitespace chunk = %q", store.inserted[0].Content)
 	}
+	assertDatasourceV2InsertedVector(t, store.inserted[0], 0)
 }
 
 func newDatasourceV2TestServer(svc Service) *platformrpc.Server {
@@ -343,14 +379,34 @@ func newReadyDatasourceV2Store() *recordingDatasourceV2Store {
 	store.document.TotalChars = 7
 	store.document.ContentHash = "sha256:abc"
 	store.chunks = []datasourcev2store.TextChunk{{
-		ID:         501,
-		DocumentID: 101,
-		ChunkIndex: 0,
-		Content:    "content",
-		CharCount:  7,
-		ByteCount:  7,
+		ID:             501,
+		DocumentID:     101,
+		ChunkIndex:     0,
+		Content:        "content",
+		CharCount:      7,
+		ByteCount:      7,
+		Embedding:      make([]byte, datasourceV2EmbeddingBytes),
+		EmbeddingModel: datasourceV2EmbeddingModel,
+		EmbeddingDim:   datasourceV2EmbeddingDimension,
+		TokenCount:     1,
 	}}
 	return store
+}
+
+func assertDatasourceV2InsertedVector(t *testing.T, chunk datasourcev2store.InsertChunkParams, wantTokens int32) {
+	t.Helper()
+	if len(chunk.Embedding) != datasourceV2EmbeddingBytes {
+		t.Fatalf("embedding bytes = %d, want %d", len(chunk.Embedding), datasourceV2EmbeddingBytes)
+	}
+	if chunk.EmbeddingModel != datasourceV2EmbeddingModel {
+		t.Fatalf("embedding model = %q, want %q", chunk.EmbeddingModel, datasourceV2EmbeddingModel)
+	}
+	if chunk.EmbeddingDim != datasourceV2EmbeddingDimension {
+		t.Fatalf("embedding dim = %d, want %d", chunk.EmbeddingDim, datasourceV2EmbeddingDimension)
+	}
+	if chunk.TokenCount != wantTokens {
+		t.Fatalf("token count = %d, want %d", chunk.TokenCount, wantTokens)
+	}
 }
 
 func (s *recordingDatasourceV2Store) WithTx(ctx context.Context, fn func(datasourcev2store.Store) error) error {
@@ -408,6 +464,13 @@ func (s *recordingDatasourceV2Store) GetDocument(context.Context, int64) (*datas
 
 func (s *recordingDatasourceV2Store) ListChunks(context.Context, int64) ([]datasourcev2store.TextChunk, error) {
 	return append([]datasourcev2store.TextChunk(nil), s.chunks...), nil
+}
+
+func (s *recordingDatasourceV2Store) SearchChunks(
+	context.Context,
+	datasourcev2store.SearchChunksParams,
+) ([]datasourcev2store.SemanticChunk, error) {
+	return nil, errors.New("unexpected datasource_v2 RPC test semantic search")
 }
 
 func (s *recordingDatasourceV2Store) UpdateDocument(

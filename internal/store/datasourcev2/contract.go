@@ -21,6 +21,7 @@ type Store interface {
 	ListDocuments(ctx context.Context, params ListDocumentsParams) ([]Document, error)
 	GetDocument(ctx context.Context, documentID int64) (*Document, error)
 	ListChunks(ctx context.Context, documentID int64) ([]TextChunk, error)
+	SearchChunks(ctx context.Context, params SearchChunksParams) ([]SemanticChunk, error)
 	UpsertImporting(ctx context.Context, params UpsertDocumentParams) (*Document, error)
 	UpdateDocument(ctx context.Context, params UpdateDocumentParams) (*Document, error)
 	DeleteDocument(ctx context.Context, documentID int64) error
@@ -34,6 +35,14 @@ type Store interface {
 type ListDocumentsParams struct {
 	Keyword string
 	Limit   int32
+}
+
+// SearchChunksParams 是语义检索 datasource_v2 分块所需的查询向量和上限。
+type SearchChunksParams struct {
+	Embedding      []byte
+	EmbeddingModel string
+	EmbeddingDim   int32
+	Limit          int32
 }
 
 // UpsertDocumentParams contains document-level metadata for file imports.
@@ -55,11 +64,15 @@ type UpdateDocumentParams struct {
 
 // InsertChunkParams contains one persisted text chunk.
 type InsertChunkParams struct {
-	DocumentID int64
-	ChunkIndex int32
-	Content    string
-	CharCount  int32
-	ByteCount  int32
+	DocumentID     int64
+	ChunkIndex     int32
+	Content        string
+	CharCount      int32
+	ByteCount      int32
+	Embedding      []byte
+	EmbeddingModel string
+	EmbeddingDim   int32
+	TokenCount     int32
 }
 
 // MarkReadyParams updates document summary fields after all chunks are written.
@@ -88,11 +101,23 @@ type Document struct {
 
 // TextChunk is the stable datasource_v2_text_chunks DTO exposed above sqlc rows.
 type TextChunk struct {
-	ID         int64     `json:"id"`
-	DocumentID int64     `json:"documentId"`
-	ChunkIndex int32     `json:"chunkIndex"`
-	Content    string    `json:"content"`
-	CharCount  int32     `json:"charCount"`
-	ByteCount  int32     `json:"byteCount"`
-	CreatedAt  time.Time `json:"createdAt"`
+	ID             int64     `json:"id"`
+	DocumentID     int64     `json:"documentId"`
+	ChunkIndex     int32     `json:"chunkIndex"`
+	Content        string    `json:"content"`
+	CharCount      int32     `json:"charCount"`
+	ByteCount      int32     `json:"byteCount"`
+	Embedding      []byte    `json:"-"`
+	EmbeddingModel string    `json:"embeddingModel"`
+	EmbeddingDim   int32     `json:"embeddingDim"`
+	TokenCount     int32     `json:"tokenCount"`
+	CreatedAt      time.Time `json:"createdAt"`
+}
+
+// SemanticChunk 是语义检索返回的分块，包含来源文件和距离分数。
+type SemanticChunk struct {
+	TextChunk
+	SourcePath string  `json:"sourcePath"`
+	FileName   string  `json:"fileName"`
+	Distance   float64 `json:"distance"`
 }
