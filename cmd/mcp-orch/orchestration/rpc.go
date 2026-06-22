@@ -17,10 +17,6 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 )
 
-type successResponse struct {
-	Success bool `json:"success"`
-}
-
 type runtimeReportParams struct {
 	AgentID  string `json:"agent_id"`
 	Port     int    `json:"port,omitempty"`
@@ -81,7 +77,11 @@ func decodeStrictRuntimeReportJSON(data []byte, dst any) error {
 func ProvideRPCFacade(svc Service) rpc.HandlerMapResult {
 	return rpc.HandlerMapResult{Handlers: handler.Map{
 		"agent/launch": rpc.StrictHandler(func(ctx context.Context, p launchParams) (any, error) {
-			return nil, svc.LaunchAgent(ctx, launchRequestFromParams(p))
+			req := launchRequestFromParams(p)
+			if err := svc.LaunchAgent(ctx, req); err != nil {
+				return nil, err
+			}
+			return map[string]any{"success": true, "agent_id": strings.TrimSpace(req.AgentID), "status": "running"}, nil
 		}),
 		"agent/submit": rpc.StrictHandler(func(ctx context.Context, p submitParams) (any, error) {
 			req, err := submissionFromParams(ctx, svc, p)
@@ -91,7 +91,7 @@ func ProvideRPCFacade(svc Service) rpc.HandlerMapResult {
 			if err := svc.SubmitTurn(ctx, req); err != nil {
 				return nil, err
 			}
-			return successResponse{Success: true}, nil
+			return map[string]bool{"success": true}, nil
 		}),
 		"agent/submitPrompt": rpc.StrictHandler(func(ctx context.Context, p submitPromptParams) (any, error) {
 			req, err := submissionFromParams(ctx, svc, submitParams(p))
@@ -101,7 +101,7 @@ func ProvideRPCFacade(svc Service) rpc.HandlerMapResult {
 			if err := svc.SubmitTurn(ctx, req); err != nil {
 				return nil, err
 			}
-			return successResponse{Success: true}, nil
+			return map[string]bool{"success": true}, nil
 		}),
 		"agent/stop": rpc.StrictHandler(func(ctx context.Context, p agentIDParams) (any, error) {
 			return nil, svc.StopAgent(ctx, p.AgentID)
@@ -116,7 +116,7 @@ func ProvideRPCFacade(svc Service) rpc.HandlerMapResult {
 			if err := svc.UpdateRuntime(ctx, runtimeReportFromParams(p)); err != nil {
 				return nil, err
 			}
-			return successResponse{Success: true}, nil
+			return map[string]bool{"success": true}, nil
 		}),
 		"agent/getState": rpc.StrictHandler(func(ctx context.Context, p agentIDParams) (any, error) {
 			return svc.GetState(ctx, p.AgentID)

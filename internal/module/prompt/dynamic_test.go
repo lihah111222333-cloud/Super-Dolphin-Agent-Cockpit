@@ -119,6 +119,8 @@ func sessionGuidanceCases() []sessionGuidanceCase {
 				"`launch_agent`",
 				"`get_agent_report(wait=true)`",
 				"`get_agent_reports(wait=true)`",
+				"After one launch",
+				"After multiple launches",
 				"`send_message(wait_report=true)`",
 				"`stop_agent`",
 				"`context_mode=\"minimal\"`",
@@ -147,7 +149,7 @@ func sessionGuidanceCases() []sessionGuidanceCase {
 			name:         "persistent_child_agents_with_legacy_surface_still_teaches_short_names",
 			enabledTools: []string{"orchestration_launch_agent", "orchestration_get_agent_report"},
 			flags:        map[string]bool{"non_interactive": true, "persistent_subagent_default": true},
-			want:         []string{"`launch_agent`", "`get_agent_report(wait=true)`", "`context_mode=\"minimal\"`", "`context_mode=\"focused\"`"},
+			want:         []string{"`launch_agent`", "`get_agent_report(wait=true)`", "After launch", "`context_mode=\"minimal\"`", "`context_mode=\"focused\"`"},
 			absent:       []string{"`spawn_agent`", "orchestration_launch_agent", "orchestration_get_agent_report"},
 		},
 		{

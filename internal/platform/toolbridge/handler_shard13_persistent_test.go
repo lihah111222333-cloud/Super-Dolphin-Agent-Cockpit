@@ -16,6 +16,8 @@ import (
 	threadstore "github.com/anthropic-ai/super-agent-v3/internal/store/thread"
 )
 
+const persistentSubagentDefaultBlockText = "当前会话启用了 persistent_subagent_default：禁止使用 `spawn_agent` 创建临时子 agent。请改用 `launch_agent` 创建持续化 UI 子 agent；等待单个子 agent 用 `get_agent_report(wait=true)`，等待多个子 agent 用 `get_agent_reports(wait=true)`。"
+
 func TestToolBridge_RejectsSpawnAgentWhenPersistentSubagentDefaultEnabled(t *testing.T) {
 	args := mustRawJSON(t, map[string]any{"message": "create child agent"})
 	h, registry := newHandlerForTest(&mcpcontrol.ToolInstance{Peer: &stubPeer{callbackFn: func(context.Context, string, any, any) error {
@@ -39,7 +41,7 @@ func TestToolBridge_RejectsSpawnAgentWhenPersistentSubagentDefaultEnabled(t *tes
 	if err != nil {
 		t.Fatalf("routeToolCall() error = %v", err)
 	}
-	assertSingleTextItem(t, got, "当前会话启用了 persistent_subagent_default：禁止使用 `spawn_agent` 创建临时子 agent。请改用 `launch_agent` 创建持续化 UI 子 agent，并用 `get_agent_report(wait=true)` 等待结果。", false)
+	assertSingleTextItem(t, got, persistentSubagentDefaultBlockText, false)
 	if len(registry.gotKinds) != 0 {
 		t.Fatalf("FindActiveByKind() kinds = %#v, want none", registry.gotKinds)
 	}
@@ -68,7 +70,7 @@ func TestToolBridge_RejectsSpawnAgentWhenPersistentSubagentDefaultEnabledWithSho
 	if err != nil {
 		t.Fatalf("routeToolCall() error = %v", err)
 	}
-	assertSingleTextItem(t, got, "当前会话启用了 persistent_subagent_default：禁止使用 `spawn_agent` 创建临时子 agent。请改用 `launch_agent` 创建持续化 UI 子 agent，并用 `get_agent_report(wait=true)` 等待结果。", false)
+	assertSingleTextItem(t, got, persistentSubagentDefaultBlockText, false)
 	if len(registry.gotKinds) != 0 {
 		t.Fatalf("FindActiveByKind() kinds = %#v, want none", registry.gotKinds)
 	}
@@ -181,7 +183,7 @@ func TestPersistentSubagentAllowsLegacyOptInFallback(t *testing.T) {
 	if err != nil {
 		t.Fatalf("routeToolCall() error = %v", err)
 	}
-	assertSingleTextItem(t, got, "当前会话启用了 persistent_subagent_default：禁止使用 `spawn_agent` 创建临时子 agent。请改用 `launch_agent` 创建持续化 UI 子 agent，并用 `get_agent_report(wait=true)` 等待结果。", false)
+	assertSingleTextItem(t, got, persistentSubagentDefaultBlockText, false)
 	if after := persistentSubagentDefaultFallbackCount(); after != before+1 {
 		t.Fatalf("persistentSubagentDefaultFallbackCount() = %d, want %d", after, before+1)
 	}

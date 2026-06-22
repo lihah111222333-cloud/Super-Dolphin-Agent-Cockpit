@@ -86,6 +86,24 @@ func TestStdioMCPClientCallToolPreservesMCPIsError(t *testing.T) {
 	}
 }
 
+func TestStdioMCPClientCallToolRejectsNullSuccessPayload(t *testing.T) {
+	transport := &fakeStdioTransport{reads: []json.RawMessage{
+		json.RawMessage(`{"jsonrpc":"2.0","id":1,"result":{"content":[{"type":"text","text":"null"}],"structuredContent":{}}}`),
+	}}
+	client := &stdioMCPClient{transport: transport}
+
+	got, err := client.CallTool(context.Background(), "launch_agent", json.RawMessage(`{"name":"worker"}`), ToolCallRequest{})
+	if err != nil {
+		t.Fatalf("CallTool() error = %v", err)
+	}
+	if got == nil || got.Success {
+		t.Fatalf("CallTool() success = %#v, want false for null success payload", got)
+	}
+	if len(got.ContentItems) != 1 || !strings.Contains(got.ContentItems[0].Text, "empty result") {
+		t.Fatalf("CallTool() content = %#v, want empty result error", got.ContentItems)
+	}
+}
+
 func TestStdioMCPClientCloseTerminatesChildProcesses(t *testing.T) {
 	if os.Getenv("TOOLBRIDGE_STDIO_CHILD_HELPER") == "1" {
 		runStdioChildTestHelper()

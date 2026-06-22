@@ -483,6 +483,9 @@ func adaptMCPResponse(resp peerToolCallResponse) (*ToolCallResult, error) {
 			Text: strings.TrimSpace(item.Text),
 		})
 	}
+	if peerToolCallResponseIsEmptySuccess(resp, items) {
+		return toolCallEmptyPeerResult(), nil
+	}
 	structuredContent, err := normalizeToolResultStructuredContent(resp.StructuredContent)
 	if err != nil {
 		return nil, err
@@ -496,6 +499,38 @@ func adaptMCPResponse(resp peerToolCallResponse) (*ToolCallResult, error) {
 		StructuredContent: structuredContent,
 		Success:           !resp.IsError && !structuredFailure,
 	}, nil
+}
+
+func peerToolCallResponseIsEmptySuccess(resp peerToolCallResponse, items []ToolCallContentItem) bool {
+	if resp.IsError {
+		return false
+	}
+	structured := bytes.TrimSpace(resp.StructuredContent)
+	if !(len(structured) == 0 || bytes.Equal(structured, []byte("null")) || bytes.Equal(structured, []byte("{}"))) {
+		return false
+	}
+	if len(items) == 0 {
+		return true
+	}
+	for _, item := range items {
+		text := strings.TrimSpace(item.Text)
+		if text != "" && text != "null" {
+			return false
+		}
+	}
+	return true
+}
+
+func toolCallEmptyPeerResult() *ToolCallResult {
+	const message = "toolbridge: peer tool returned empty result"
+	return &ToolCallResult{
+		ContentItems: []ToolCallContentItem{{
+			Type: "inputText",
+			Text: message,
+		}},
+		StructuredContent: json.RawMessage(`{"success":false,"error":"toolbridge: peer tool returned empty result"}`),
+		Success:           false,
+	}
 }
 
 func normalizeToolResultStructuredContent(raw json.RawMessage) (json.RawMessage, error) {
