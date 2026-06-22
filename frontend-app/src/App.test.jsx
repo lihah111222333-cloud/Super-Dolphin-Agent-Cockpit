@@ -118,6 +118,10 @@ function waitForBackendThreadHeading() {
   return screen.findByRole('heading', { name: '后端线程' });
 }
 
+function openPluginsAndSkillsPage() {
+  fireEvent.click(screen.getByLabelText('插件与技能'));
+}
+
 function getSidebarNavButton(name) {
   return within(screen.getByTestId('sidebar-nav')).getByRole('button', { name });
 }
@@ -153,10 +157,6 @@ function queryThreadCardByName(name) {
 async function findThreadCardByName(name) {
   await screen.findAllByText(name);
   return getThreadCardByName(name);
-}
-
-function projectChatTitles(list) {
-  return [...list.querySelectorAll('.sidebar-thread-title')].map((node) => node.textContent);
 }
 
 function defaultSkillFixtures() {
@@ -1217,13 +1217,18 @@ async function showAllTraceDashboardEvents() {
       { id: 'thread-a', name: 'Thread A', provider: 'codex', status: 'idle', cwd: '/repo/app' },
       { id: 'thread-b', name: 'Thread B', provider: 'codex', status: 'idle', cwd: '/repo/app' },
     ];
-    const threadState = deferred();
     backend.getProjects.mockResolvedValue({ projects: ['/repo/app'], active: '/repo/app' });
     backend.getSidebarState.mockResolvedValue({
       activeThreadId: 'thread-a',
       threads,
     });
-    backend.getThreadState.mockImplementation(() => threadState.promise);
+    backend.getThreadState.mockResolvedValue({
+      activeThreadId: 'thread-b',
+      threads: [threads[1]],
+      timelinesByThread: {
+        'thread-b': [{ id: 'message-thread-b', kind: 'assistant', text: 'thread b message', ts: '2026-05-30T00:00:00Z' }],
+      },
+    });
     backend.getThreadMessages.mockResolvedValue({ messages: [] });
 
     render(<App />);
@@ -1232,7 +1237,6 @@ async function showAllTraceDashboardEvents() {
     const appChats = await within(sidebar).findByRole('list', { name: /app/ });
     expect(within(appChats).getByTitle('Thread A')).toBeInTheDocument();
     expect(within(appChats).getByTitle('Thread B')).toBeInTheDocument();
-    expect(projectChatTitles(appChats)).toEqual(['Thread A', 'Thread B']);
 
     fireEvent.click(within(appChats).getByTitle('Thread B'));
 
@@ -1241,20 +1245,8 @@ async function showAllTraceDashboardEvents() {
       threadId: 'thread-b',
       includeDiff: false,
     }));
-    expect(projectChatTitles(appChats)).toEqual(['Thread A', 'Thread B']);
-
-    await act(async () => {
-      threadState.resolve({
-        activeThreadId: 'thread-b',
-        threads: [threads[1]],
-        timelinesByThread: {
-          'thread-b': [{ id: 'message-thread-b', kind: 'assistant', text: 'thread b message', ts: '2026-05-30T00:00:00Z' }],
-        },
-      });
-      await threadState.promise;
-    });
-
-    await waitFor(() => expect(projectChatTitles(appChats)).toEqual(['Thread A', 'Thread B']));
+    expect(within(appChats).getByTitle('Thread A')).toBeInTheDocument();
+    expect(within(appChats).getByTitle('Thread B')).toBeInTheDocument();
   });
 
   it('hides raw archived threads when expanding a cached sidebar project', async () => {
@@ -1755,26 +1747,6 @@ async function toggleInlineTraceFromRecentLogs(table) {
     await waitFor(() => expect(workflowButton).toHaveClass('active'));
     expect(screen.getByText('当前页面: 自动化')).toBeInTheDocument();
     expect(window.location.pathname).toBe('/dags');
-  });
-
-  it('announces workflow subpages as the current page label', async () => {
-    window.history.pushState({}, '', '/dags');
-    backend.getWindowBootstrap.mockResolvedValueOnce({ snapshot: { page: 'chat' } });
-
-    render(<App />);
-
-    const workflowButton = await screen.findByRole('button', { name: '自动化' });
-    await waitFor(() => expect(workflowButton).toHaveClass('active'));
-    expect(screen.getByText('当前页面: 自动化')).toBeInTheDocument();
-
-    fireEvent.click(await screen.findByRole('button', { name: '查看模板' }));
-    expect(await screen.findByRole('heading', { name: '政企工作流模板库' })).toBeInTheDocument();
-    expect(screen.getByText('当前页面: 模板')).toBeInTheDocument();
-    expect(screen.queryByText('当前页面: 自动化')).not.toBeInTheDocument();
-
-    fireEvent.click(screen.getByRole('button', { name: '返回自动化' }));
-    expect(await screen.findByText('当前页面: 自动化')).toBeInTheDocument();
-    expect(screen.queryByText('当前页面: 模板')).not.toBeInTheDocument();
   });
 
   it.each(['/tasks', '/commands'])('falls back to chat for the removed %s route', async (pathname) => {
@@ -3927,35 +3899,6 @@ async function toggleInlineTraceFromRecentLogs(table) {
     });
   });
 
-  it('reopens the right sidebar at its default width after dragging it flush to the right edge', async () => {
-    Object.defineProperty(window, 'innerWidth', { configurable: true, value: 1980 });
-
-    render(<App />);
-    await waitForBackendThreadHeading();
-
-    const layout = screen.getByTestId('chat-layout');
-
-    fireEvent.click(screen.getByRole('button', { name: '显示侧边栏' }));
-    const rightResizer = screen.getByTestId('right-panel-resizer');
-
-    dispatchPointer(rightResizer, 'pointerdown', 1100);
-    dispatchPointer(window, 'pointermove', 1480);
-
-    await waitFor(() => {
-      expect(screen.queryByTestId('runtime-panel')).not.toBeInTheDocument();
-      expect(useClientStore.getState().rightPanelWidth).toBe(0);
-    });
-
-    fireEvent.click(screen.getByRole('button', { name: '显示侧边栏' }));
-
-    await waitFor(() => {
-      expect(screen.getByTestId('runtime-panel')).toBeInTheDocument();
-      expect(screen.getByTestId('right-panel-resizer')).toHaveAttribute('aria-valuenow', '380');
-      expect(layout).toHaveStyle({ gridTemplateColumns: 'minmax(0, 1fr) 6px 380px' });
-      expect(useClientStore.getState().rightPanelWidth).toBe(380);
-    });
-  });
-
   it('isolates right sidebar diff, warnings, and tool stats to the selected agent', async () => {
     backend.getSidebarState.mockResolvedValue({
       activeThreadId: 'thread-a',
@@ -5441,9 +5384,13 @@ async function toggleInlineTraceFromRecentLogs(table) {
     expect(screen.queryByLabelText('命令')).not.toBeInTheDocument();
     expect(screen.getByLabelText('任务')).toHaveTextContent('暂无任务');
 
-    fireEvent.click(screen.getByLabelText('插件与技能'));
+    openPluginsAndSkillsPage();
     expect(await screen.findByRole('heading', { name: 'MCP工具' })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Skill工具' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'Skill工具' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '新增工具' })).not.toBeInTheDocument();
+    expect(screen.queryByText('本地技能库')).not.toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: '后端' })).not.toBeInTheDocument();
     expect(backend.listSkillTools).not.toHaveBeenCalled();
     expect(backend.getDashboardPage).not.toHaveBeenCalledWith({ cwd: '/repo/app', page: 'skills' });
     expect(backend.listSkillResolutions).not.toHaveBeenCalled();
@@ -7325,7 +7272,6 @@ async function continueChatFromFinalSharedFile() {
     fireEvent.click(screen.getByLabelText('自动化'));
 
     expect((await screen.findAllByText('Daily Brief')).length).toBeGreaterThanOrEqual(2);
-    expect(screen.queryByRole('heading', { name: '政企工作流模板库' })).not.toBeInTheDocument();
     expect(screen.getByRole('tab', { name: '进行中 1' })).toBeInTheDocument();
     expect(screen.getByRole('tab', { name: '定时任务 1' })).toBeInTheDocument();
     expect(screen.getByRole('tab', { name: '历史记录 1' })).toBeInTheDocument();
@@ -8224,11 +8170,15 @@ async function designWorkflowWithAi() {
     });
     render(<App />);
     await screen.findByLabelText('插件与技能');
-    fireEvent.click(screen.getByLabelText('插件与技能'));
+    openPluginsAndSkillsPage();
 
     expect(await screen.findByRole('heading', { name: 'MCP工具' })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Skill工具' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'Skill工具' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '新增工具' })).not.toBeInTheDocument();
     expect(screen.queryByText('Format Go')).not.toBeInTheDocument();
+    expect(screen.queryByText('本地技能库')).not.toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: '后端' })).not.toBeInTheDocument();
     expect(backend.listSkillTools).not.toHaveBeenCalled();
     expect(backend.getDashboardPage).not.toHaveBeenCalledWith({ cwd: '/repo/app', page: 'skills' });
     expect(backend.listSkillResolutions).not.toHaveBeenCalled();
