@@ -167,9 +167,9 @@ func TestInvalidHybridVerifierDAGCreateFailsBeforeStoreStartAndWakeup(t *testing
 		t.Fatal("HandleCreateDAG() error = nil, want hybrid verifier validation failure")
 	}
 	for _, want := range []string{
-		"nodes[0].config.exec.verifier.prompt_key",
-		"nodes[0].config.exec.verifier.agent_key",
-		"nodes[0].config.exec.verifier",
+		"nodes[0].node_type",
+		"hybrid",
+		"reserved",
 	} {
 		if !strings.Contains(err.Error(), want) {
 			t.Fatalf("HandleCreateDAG() error = %q, want %q", err.Error(), want)

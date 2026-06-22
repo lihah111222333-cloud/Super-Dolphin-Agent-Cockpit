@@ -17,13 +17,15 @@ var applyOpsOpEnum = []string{
 	string(nodeexec.OpKindRemoveNode),
 }
 
+var creatableNodeTypeEnum = []string{"agent", "automation"}
+
 func applyOpsOpSchema() Schema {
 	return ObjectSchema(map[string]Schema{
 		"op": EnumStringSchema("Operation discriminator.", applyOpsOpEnum...),
 		"node": ObjectSchema(map[string]Schema{
 			"node_key":    StringSchema("Node key for add_node."),
 			"title":       StringSchema("Node title for add_node."),
-			"node_type":   EnumStringSchema("Node type for add_node.", "agent", "automation", "hybrid"),
+			"node_type":   EnumStringSchema("Node type for add_node. Hybrid is reserved until runtime support is complete.", creatableNodeTypeEnum...),
 			"assigned_to": StringSchema("Optional assignee for add_node."),
 			"depends_on":  ArraySchema(StringSchema("Dependency node key."), "Dependency node keys."),
 			"config":      RawObjectSchema("Optional node config for add_node."),
@@ -58,7 +60,7 @@ func createDAGSchema() Schema {
 		"nodes": ArraySchema(ObjectSchema(map[string]Schema{
 			"node_key":    StringSchema("Unique node key within the DAG."),
 			"title":       StringSchema("Node title."),
-			"node_type":   StringSchema("Optional node type."),
+			"node_type":   EnumStringSchema("Optional node type. Hybrid is reserved until runtime support is complete.", creatableNodeTypeEnum...),
 			"assigned_to": StringSchema("Optional assignee."),
 			"depends_on":  ArraySchema(StringSchema("Dependency node key."), "Node dependency keys."),
 			"command_ref": StringSchema("Optional command card key."),
@@ -188,7 +190,7 @@ func validateRootAgentAssignees(nodes []contract.CreateDAGNodeRequest) error {
 
 // validateAgentNodeLaunchConfigs 校验创建阶段可自动拉起的 agent 配置。
 // agent 显式 config 先做 raw shape 校验；exec 身份和 first_turn 只约束真正可执行的 agent 节点。
-// hybrid verifier 仍沿用既有 exec 身份校验，避免扩大本次 create 入口返修范围。
+// hybrid 在创建入口已被拒绝，避免未闭环运行时能力落库成可执行 DAG。
 func validateAgentNodeLaunchConfigs(nodes []contract.CreateDAGNodeRequest) error {
 	for i, node := range nodes {
 		switch strings.TrimSpace(node.NodeType) {
@@ -203,13 +205,6 @@ func validateAgentNodeLaunchConfigs(nodes []contract.CreateDAGNodeRequest) error
 				continue
 			}
 			if err := validateExecutableAgentNodeLaunchConfig(i, node); err != nil {
-				return err
-			}
-		case "hybrid":
-			if !hasNodeExecConfig(node.Config) {
-				continue
-			}
-			if err := validateHybridVerifierLaunchConfig(i, node); err != nil {
 				return err
 			}
 		}
@@ -233,20 +228,6 @@ func validateExecutableAgentNodeLaunchConfig(i int, node contract.CreateDAGNodeR
 		return fmt.Errorf("%s.first_turn required for executable agent node %q", configLabel, node.NodeKey)
 	}
 	return nil
-}
-
-// validateHybridVerifierLaunchConfig 校验 hybrid verifier 的 agent 启动身份。
-// hybrid 没有独立 first_turn 契约，本修复只复用既有 verifier exec 校验。
-func validateHybridVerifierLaunchConfig(i int, node contract.CreateDAGNodeRequest) error {
-	cfg, err := nodeexec.ParseHybridConfig(node.Config)
-	if err != nil {
-		return fmt.Errorf("nodes[%d].config: %w", i, err)
-	}
-	if cfg.Exec.Verifier == nil {
-		return nil
-	}
-	label := fmt.Sprintf("nodes[%d].config.exec.verifier", i)
-	return validateAgentExecLaunchConfig(*cfg.Exec.Verifier, label, node.NodeKey)
 }
 
 // validateAgentConfigShape 拦截旧版或错位 agent config 字段。
@@ -356,6 +337,9 @@ func createDAGNodesFromInput(nodes []CreateDAGNodeInput) ([]contract.CreateDAGNo
 			return nil, err
 		}
 		nodeType := createDAGNodeType(node)
+		if err := validateCreatableNodeType(fmt.Sprintf("nodes[%d].node_type", i), nodeType); err != nil {
+			return nil, err
+		}
 		node.NodeType = nodeType
 		config, err := createDAGNodeConfig(node)
 		if err != nil {
@@ -375,6 +359,17 @@ func createDAGNodesFromInput(nodes []CreateDAGNodeInput) ([]contract.CreateDAGNo
 		return nil, err
 	}
 	return mapped, nil
+}
+
+func validateCreatableNodeType(label, nodeType string) error {
+	switch strings.TrimSpace(nodeType) {
+	case "", "agent", "automation":
+		return nil
+	case "hybrid":
+		return fmt.Errorf("%s hybrid is reserved until hybrid runtime lifecycle is implemented; use agent or automation", label)
+	default:
+		return fmt.Errorf("%s %q is unsupported; allowed: agent, automation", label, strings.TrimSpace(nodeType))
+	}
 }
 
 func createDAGNodeType(node CreateDAGNodeInput) string {
