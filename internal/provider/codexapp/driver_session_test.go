@@ -102,6 +102,23 @@ func TestCodexNativeToolPolicyMapsDisabledToolsToProcessFlags(t *testing.T) {
 	}
 }
 
+func TestCodexNativeToolPolicyOmitsRemovedChildAgentsFeatureFlag(t *testing.T) {
+	policy := codexNativeToolPolicyFromConfig(map[string]any{
+		codexDisabledNativeToolsConfigKey: []string{"spawn_agent"},
+	})
+	wantArgs := []string{
+		"--disable", "enable_fanout",
+		"--disable", "multi_agent",
+		"--disable", "multi_agent_v2",
+	}
+	if got := policy.AppServerArgs(); !reflect.DeepEqual(got, wantArgs) {
+		t.Fatalf("AppServerArgs = %#v, want %#v", got, wantArgs)
+	}
+	if strings.Contains(policy.ProcessSignature(), contract.CodexFeatureChildAgentsMD) {
+		t.Fatalf("ProcessSignature contains removed feature flag %q: %q", contract.CodexFeatureChildAgentsMD, policy.ProcessSignature())
+	}
+}
+
 func TestCodexNativeToolPolicyUsesReadOnlySandboxForPartialWriteDisable(t *testing.T) {
 	params := threadStartParams{}
 	codexNativeToolPolicyFromConfig(map[string]any{

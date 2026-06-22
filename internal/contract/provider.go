@@ -206,7 +206,6 @@ func (p *CodexNativeToolPolicy) assignMultiAgentEnforcement() {
 		CodexFeatureMultiAgent,
 		CodexFeatureMultiAgentV2,
 		CodexFeatureEnableFanout,
-		CodexFeatureChildAgentsMD,
 	} {
 		p.addFeature(feature)
 	}
