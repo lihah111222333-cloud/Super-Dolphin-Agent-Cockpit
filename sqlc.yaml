@@ -4,6 +4,7 @@ sql:
     queries: "sql/queries/"
     schema:
       - "internal/platform/db/sqlite/migrations/001_baseline.sql"
+      - "internal/platform/db/sqlite/migrations/107_datasource_v2_chunk_embeddings.sql"
     strict_order_by: true
     gen:
       go:
@@ -135,6 +136,10 @@ sql:
           - column: "datasource_v2_text_chunks.char_count"
             go_type: "int32"
           - column: "datasource_v2_text_chunks.byte_count"
+            go_type: "int32"
+          - column: "datasource_v2_text_chunks.embedding_dim"
+            go_type: "int32"
+          - column: "datasource_v2_text_chunks.token_count"
             go_type: "int32"
           - column: "cron_jobs.config"
             go_type:

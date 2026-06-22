@@ -13,22 +13,21 @@ import (
 	datasourcev2store "github.com/anthropic-ai/super-agent-v3/internal/store/datasourcev2"
 )
 
-const datasourceV2ChunkTargetBytes = 64 * 1024
-
 var (
-	errDatasourceV2StoreNotConfigured = errors.New("datasource v2 store is not configured")
-	errMissingSourcePath              = errors.New("datasource v2: sourcePath is required")
-	errSourcePathMustBeAbsolute       = errors.New("datasource v2: sourcePath must be absolute")
-	errSourcePathOutsideWorkspace     = errors.New("datasource v2: sourcePath outside workspace")
-	errSourcePathMustBeFile           = errors.New("datasource v2: sourcePath must be a file")
-	errUnsupportedFileExtension       = errors.New("datasource v2: unsupported file extension")
-	errDatasourceV2ContentEmpty       = errors.New("datasource v2: extracted content is empty")
-	errDatasourceV2InvalidUTF8        = errors.New("datasource v2: file is not valid UTF-8 text")
-	errDatasourceV2TextTooLarge       = errors.New("datasource v2: text is too large")
-	errDatasourceV2DocumentIDRequired = errors.New("datasource v2: documentId is required")
-	errDatasourceV2ListLimitRequired  = errors.New("datasource v2: limit must be positive")
-	errDatasourceV2MissingFileName    = errors.New("datasource v2: fileName is required")
-	errDatasourceV2SizeBytesInvalid   = errors.New("datasource v2: sizeBytes must be non-negative")
+	errDatasourceV2StoreNotConfigured  = errors.New("datasource v2 store is not configured")
+	errMissingSourcePath               = errors.New("datasource v2: sourcePath is required")
+	errSourcePathMustBeAbsolute        = errors.New("datasource v2: sourcePath must be absolute")
+	errSourcePathOutsideWorkspace      = errors.New("datasource v2: sourcePath outside workspace")
+	errSourcePathMustBeFile            = errors.New("datasource v2: sourcePath must be a file")
+	errUnsupportedFileExtension        = errors.New("datasource v2: unsupported file extension")
+	errDatasourceV2ContentEmpty        = errors.New("datasource v2: extracted content is empty")
+	errDatasourceV2InvalidUTF8         = errors.New("datasource v2: file is not valid UTF-8 text")
+	errDatasourceV2TextTooLarge        = errors.New("datasource v2: text is too large")
+	errDatasourceV2DocumentIDRequired  = errors.New("datasource v2: documentId is required")
+	errDatasourceV2ListLimitRequired   = errors.New("datasource v2: limit must be positive")
+	errDatasourceV2SearchQueryRequired = errors.New("datasource v2: semantic query is required")
+	errDatasourceV2MissingFileName     = errors.New("datasource v2: fileName is required")
+	errDatasourceV2SizeBytesInvalid    = errors.New("datasource v2: sizeBytes must be non-negative")
 )
 
 // Service 暴露 datasource_v2 的文件正文导入能力。
@@ -38,6 +37,7 @@ type Service interface {
 	ImportLocalFile(context.Context, ImportLocalFileRequest) (ImportFileTextResult, error)
 	ListDocuments(context.Context, ListDocumentsRequest) (ListDocumentsResult, error)
 	GetDocument(context.Context, GetDocumentRequest) (GetDocumentResult, error)
+	SearchRelevantChunks(context.Context, SearchRelevantChunksRequest) (SearchRelevantChunksResult, error)
 	UpdateDocument(context.Context, UpdateDocumentRequest) (DocumentResult, error)
 	DeleteDocument(context.Context, DeleteDocumentRequest) (DeleteDocumentResult, error)
 }
@@ -88,6 +88,17 @@ type GetDocumentResult struct {
 	Chunks   []TextChunkResult `json:"chunks"`
 }
 
+// SearchRelevantChunksRequest 是 chat 请求做 datasource_v2 语义检索的入参。
+type SearchRelevantChunksRequest struct {
+	Query string `json:"query"`
+	Limit int32  `json:"limit"`
+}
+
+// SearchRelevantChunksResult 返回按语义距离排序后的 datasource_v2 分块。
+type SearchRelevantChunksResult struct {
+	Chunks []SemanticChunkResult `json:"chunks"`
+}
+
 // UpdateDocumentRequest edits metadata without rewriting imported text chunks.
 type UpdateDocumentRequest struct {
 	DocumentID int64  `json:"documentId"`
@@ -126,13 +137,24 @@ type DocumentResult struct {
 
 // TextChunkResult exposes stored chunks for a single document detail view.
 type TextChunkResult struct {
-	ID         int64     `json:"id"`
-	DocumentID int64     `json:"documentId"`
-	ChunkIndex int32     `json:"chunkIndex"`
-	Content    string    `json:"content"`
-	CharCount  int32     `json:"charCount"`
-	ByteCount  int32     `json:"byteCount"`
-	CreatedAt  time.Time `json:"createdAt"`
+	ID             int64     `json:"id"`
+	DocumentID     int64     `json:"documentId"`
+	ChunkIndex     int32     `json:"chunkIndex"`
+	Content        string    `json:"content"`
+	CharCount      int32     `json:"charCount"`
+	ByteCount      int32     `json:"byteCount"`
+	EmbeddingModel string    `json:"embeddingModel"`
+	EmbeddingDim   int32     `json:"embeddingDim"`
+	TokenCount     int32     `json:"tokenCount"`
+	CreatedAt      time.Time `json:"createdAt"`
+}
+
+// SemanticChunkResult 是 prompt 检索可消费的 chunk DTO，包含来源文件和距离分数。
+type SemanticChunkResult struct {
+	TextChunkResult
+	SourcePath string  `json:"sourcePath"`
+	FileName   string  `json:"fileName"`
+	Distance   float64 `json:"distance"`
 }
 
 type service struct {
@@ -229,6 +251,41 @@ func (s *service) GetDocument(ctx context.Context, req GetDocumentRequest) (GetD
 		Document: documentResult(*doc),
 		Chunks:   textChunkResults(chunks),
 	}, nil
+}
+
+// SearchRelevantChunks 将当前 chat 请求向量化，并按语义距离取 datasource_v2 的前 N 个 ready 分块。
+// 查询向量和导入分块使用同一个本地 embedding 模型；模型名或维度不匹配的历史分块不会参与排序。
+func (s *service) SearchRelevantChunks(
+	ctx context.Context,
+	req SearchRelevantChunksRequest,
+) (SearchRelevantChunksResult, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := s.requireStore(); err != nil {
+		return SearchRelevantChunksResult{}, err
+	}
+	if req.Limit <= 0 {
+		return SearchRelevantChunksResult{}, errDatasourceV2ListLimitRequired
+	}
+	query := strings.TrimSpace(req.Query)
+	if query == "" {
+		return SearchRelevantChunksResult{}, errDatasourceV2SearchQueryRequired
+	}
+	embedding, _, err := datasourceV2ChunkEmbedding(query)
+	if err != nil {
+		return SearchRelevantChunksResult{}, err
+	}
+	chunks, err := s.store.SearchChunks(ctx, datasourcev2store.SearchChunksParams{
+		Embedding:      embedding,
+		EmbeddingModel: datasourceV2EmbeddingModel,
+		EmbeddingDim:   datasourceV2EmbeddingDimension,
+		Limit:          req.Limit,
+	})
+	if err != nil {
+		return SearchRelevantChunksResult{}, err
+	}
+	return SearchRelevantChunksResult{Chunks: semanticChunkResults(chunks)}, nil
 }
 
 // UpdateDocument validates metadata edits and persists them without touching chunks.
@@ -513,12 +570,32 @@ func textChunkResults(chunks []datasourcev2store.TextChunk) []TextChunkResult {
 
 func textChunkResult(chunk datasourcev2store.TextChunk) TextChunkResult {
 	return TextChunkResult{
-		ID:         chunk.ID,
-		DocumentID: chunk.DocumentID,
-		ChunkIndex: chunk.ChunkIndex,
-		Content:    chunk.Content,
-		CharCount:  chunk.CharCount,
-		ByteCount:  chunk.ByteCount,
-		CreatedAt:  chunk.CreatedAt,
+		ID:             chunk.ID,
+		DocumentID:     chunk.DocumentID,
+		ChunkIndex:     chunk.ChunkIndex,
+		Content:        chunk.Content,
+		CharCount:      chunk.CharCount,
+		ByteCount:      chunk.ByteCount,
+		EmbeddingModel: chunk.EmbeddingModel,
+		EmbeddingDim:   chunk.EmbeddingDim,
+		TokenCount:     chunk.TokenCount,
+		CreatedAt:      chunk.CreatedAt,
+	}
+}
+
+func semanticChunkResults(chunks []datasourcev2store.SemanticChunk) []SemanticChunkResult {
+	results := make([]SemanticChunkResult, 0, len(chunks))
+	for _, chunk := range chunks {
+		results = append(results, semanticChunkResult(chunk))
+	}
+	return results
+}
+
+func semanticChunkResult(chunk datasourcev2store.SemanticChunk) SemanticChunkResult {
+	return SemanticChunkResult{
+		TextChunkResult: textChunkResult(chunk.TextChunk),
+		SourcePath:      chunk.SourcePath,
+		FileName:        chunk.FileName,
+		Distance:        chunk.Distance,
 	}
 }

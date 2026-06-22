@@ -1,7 +1,9 @@
 package datasourcev2
 
 import (
+	"bytes"
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/store/sqlc"
@@ -14,7 +16,8 @@ type datasourceV2QuerierStub struct {
 	markReadyFn       func(context.Context, sqlc.MarkDatasourceV2DocumentReadyParams) (sqlc.DatasourceV2Document, error)
 	listDocumentsFn   func(context.Context, sqlc.ListDatasourceV2DocumentsParams) ([]sqlc.DatasourceV2Document, error)
 	getDocumentFn     func(context.Context, sqlc.GetDatasourceV2DocumentParams) (sqlc.DatasourceV2Document, error)
-	listChunksFn      func(context.Context, sqlc.ListDatasourceV2ChunksParams) ([]sqlc.DatasourceV2TextChunk, error)
+	listChunksFn      func(context.Context, sqlc.ListDatasourceV2ChunksParams) ([]sqlc.ListDatasourceV2ChunksRow, error)
+	searchChunksFn    func(context.Context, sqlc.SearchDatasourceV2ChunksByEmbeddingParams) ([]sqlc.SearchDatasourceV2ChunksByEmbeddingRow, error)
 	updateDocumentFn  func(context.Context, sqlc.UpdateDatasourceV2DocumentMetadataParams) (sqlc.DatasourceV2Document, error)
 	deleteDocumentFn  func(context.Context, sqlc.DeleteDatasourceV2DocumentParams) (int64, error)
 }
@@ -64,8 +67,15 @@ func (s *datasourceV2QuerierStub) GetDatasourceV2Document(
 func (s *datasourceV2QuerierStub) ListDatasourceV2Chunks(
 	ctx context.Context,
 	arg sqlc.ListDatasourceV2ChunksParams,
-) ([]sqlc.DatasourceV2TextChunk, error) {
+) ([]sqlc.ListDatasourceV2ChunksRow, error) {
 	return s.listChunksFn(ctx, arg)
+}
+
+func (s *datasourceV2QuerierStub) SearchDatasourceV2ChunksByEmbedding(
+	ctx context.Context,
+	arg sqlc.SearchDatasourceV2ChunksByEmbeddingParams,
+) ([]sqlc.SearchDatasourceV2ChunksByEmbeddingRow, error) {
+	return s.searchChunksFn(ctx, arg)
 }
 
 func (s *datasourceV2QuerierStub) UpdateDatasourceV2DocumentMetadata(
@@ -152,17 +162,58 @@ func TestInsertChunkForwardsArguments(t *testing.T) {
 	}}
 
 	if err := s.InsertChunk(context.Background(), InsertChunkParams{
-		DocumentID: 9,
-		ChunkIndex: 2,
-		Content:    "chunk",
-		CharCount:  5,
-		ByteCount:  5,
+		DocumentID:     9,
+		ChunkIndex:     2,
+		Content:        "chunk",
+		CharCount:      5,
+		ByteCount:      5,
+		Embedding:      []byte{0, 0, 128, 63, 0, 0, 0, 64},
+		EmbeddingModel: "test-embedding",
+		EmbeddingDim:   2,
+		TokenCount:     3,
 	}); err != nil {
 		t.Fatalf("InsertChunk() unexpected error: %v", err)
 	}
-	if inserted.DocumentID != 9 || inserted.ChunkIndex != 2 || inserted.Content != "chunk" ||
-		inserted.CharCount != 5 || inserted.ByteCount != 5 {
+	if !insertChunkParamsMatch(inserted, sqlc.InsertDatasourceV2ChunkParams{
+		DocumentID:     9,
+		ChunkIndex:     2,
+		Content:        "chunk",
+		CharCount:      5,
+		ByteCount:      5,
+		Embedding:      []byte{0, 0, 128, 63, 0, 0, 0, 64},
+		EmbeddingModel: "test-embedding",
+		EmbeddingDim:   2,
+		TokenCount:     3,
+	}) {
 		t.Fatalf("InsertChunk() forwarded wrong params: %+v", inserted)
+	}
+}
+
+func insertChunkParamsMatch(got, want sqlc.InsertDatasourceV2ChunkParams) bool {
+	return got.DocumentID == want.DocumentID &&
+		got.ChunkIndex == want.ChunkIndex &&
+		got.Content == want.Content &&
+		got.CharCount == want.CharCount &&
+		got.ByteCount == want.ByteCount &&
+		string(got.Embedding) == string(want.Embedding) &&
+		got.EmbeddingModel == want.EmbeddingModel &&
+		got.EmbeddingDim == want.EmbeddingDim &&
+		got.TokenCount == want.TokenCount
+}
+
+func TestInsertChunkRequiresVectorFields(t *testing.T) {
+	t.Parallel()
+
+	s := &store{q: &datasourceV2QuerierStub{}}
+	err := s.InsertChunk(context.Background(), InsertChunkParams{
+		DocumentID: 9,
+		ChunkIndex: 0,
+		Content:    "chunk",
+		CharCount:  5,
+		ByteCount:  5,
+	})
+	if err == nil || !strings.Contains(err.Error(), "embedding is required") {
+		t.Fatalf("InsertChunk() error = %v, want embedding validation", err)
 	}
 }
 
@@ -255,15 +306,19 @@ func TestGetDocumentAndListChunksForwardDocumentID(t *testing.T) {
 				Status:     StatusReady,
 			}, nil
 		},
-		listChunksFn: func(_ context.Context, arg sqlc.ListDatasourceV2ChunksParams) ([]sqlc.DatasourceV2TextChunk, error) {
+		listChunksFn: func(_ context.Context, arg sqlc.ListDatasourceV2ChunksParams) ([]sqlc.ListDatasourceV2ChunksRow, error) {
 			gotChunksID = arg.DocumentID
-			return []sqlc.DatasourceV2TextChunk{{
-				ID:         70,
-				DocumentID: arg.DocumentID,
-				ChunkIndex: 0,
-				Content:    "body",
-				CharCount:  4,
-				ByteCount:  4,
+			return []sqlc.ListDatasourceV2ChunksRow{{
+				ID:             70,
+				DocumentID:     arg.DocumentID,
+				ChunkIndex:     0,
+				Content:        "body",
+				CharCount:      4,
+				ByteCount:      4,
+				Embedding:      []byte{0, 0, 128, 63},
+				EmbeddingModel: "test-embedding",
+				EmbeddingDim:   1,
+				TokenCount:     1,
 			}}, nil
 		},
 	}}
@@ -279,8 +334,103 @@ func TestGetDocumentAndListChunksForwardDocumentID(t *testing.T) {
 	if gotDocumentID != 12 || doc.ID != 12 {
 		t.Fatalf("GetDocument() id = (%d, %+v), want 12", gotDocumentID, doc)
 	}
-	if gotChunksID != 12 || len(chunks) != 1 || chunks[0].Content != "body" {
+	if gotChunksID != 12 || len(chunks) != 1 || chunks[0].Content != "body" || chunks[0].EmbeddingDim != 1 {
 		t.Fatalf("ListChunks() result = id %d chunks %+v", gotChunksID, chunks)
+	}
+}
+
+func TestSearchChunksForwardsVectorAndMapsSemanticRows(t *testing.T) {
+	t.Parallel()
+
+	var captured sqlc.SearchDatasourceV2ChunksByEmbeddingParams
+	query := []byte{0, 0, 128, 63, 0, 0, 0, 64}
+	s := &store{q: &datasourceV2QuerierStub{
+		searchChunksFn: func(_ context.Context, arg sqlc.SearchDatasourceV2ChunksByEmbeddingParams) ([]sqlc.SearchDatasourceV2ChunksByEmbeddingRow, error) {
+			captured = arg
+			return []sqlc.SearchDatasourceV2ChunksByEmbeddingRow{{
+				ID:             71,
+				DocumentID:     12,
+				ChunkIndex:     3,
+				Content:        "semantic body",
+				CharCount:      13,
+				ByteCount:      13,
+				Embedding:      []byte{0, 0, 128, 63},
+				EmbeddingModel: "test-embedding",
+				EmbeddingDim:   1,
+				TokenCount:     2,
+				SourcePath:     "/tmp/beta.txt",
+				FileName:       "beta.txt",
+				Distance:       0.125,
+			}}, nil
+		},
+	}}
+
+	got, err := s.SearchChunks(context.Background(), SearchChunksParams{
+		Embedding:      query,
+		EmbeddingModel: " test-embedding ",
+		EmbeddingDim:   2,
+		Limit:          10,
+	})
+	if err != nil {
+		t.Fatalf("SearchChunks() unexpected error: %v", err)
+	}
+	assertSearchChunksParams(t, captured, query)
+	assertSemanticSearchRows(t, got)
+}
+
+func assertSearchChunksParams(
+	t *testing.T,
+	got sqlc.SearchDatasourceV2ChunksByEmbeddingParams,
+	wantEmbedding []byte,
+) {
+	t.Helper()
+	capturedEmbedding, ok := got.Embedding.([]byte)
+	if !ok {
+		t.Fatalf("SearchChunks() embedding param type = %T, want []byte", got.Embedding)
+	}
+	if !bytes.Equal(capturedEmbedding, wantEmbedding) {
+		t.Fatalf("SearchChunks() embedding = %v, want %v", capturedEmbedding, wantEmbedding)
+	}
+	if got.EmbeddingModel != "test-embedding" {
+		t.Fatalf("SearchChunks() embedding model = %q, want test-embedding", got.EmbeddingModel)
+	}
+	if got.EmbeddingDim != 2 {
+		t.Fatalf("SearchChunks() embedding dim = %d, want 2", got.EmbeddingDim)
+	}
+	if got.Limit != 10 {
+		t.Fatalf("SearchChunks() limit = %d, want 10", got.Limit)
+	}
+}
+
+func assertSemanticSearchRows(t *testing.T, got []SemanticChunk) {
+	t.Helper()
+	if len(got) != 1 {
+		t.Fatalf("SearchChunks() rows = %+v, want one row", got)
+	}
+	row := got[0]
+	if row.Content != "semantic body" {
+		t.Fatalf("SearchChunks() content = %q, want semantic body", row.Content)
+	}
+	if row.FileName != "beta.txt" {
+		t.Fatalf("SearchChunks() fileName = %q, want beta.txt", row.FileName)
+	}
+	if row.Distance != 0.125 {
+		t.Fatalf("SearchChunks() distance = %f, want 0.125", row.Distance)
+	}
+}
+
+func TestSearchChunksRequiresValidQueryVector(t *testing.T) {
+	t.Parallel()
+
+	s := &store{q: &datasourceV2QuerierStub{}}
+	_, err := s.SearchChunks(context.Background(), SearchChunksParams{
+		Embedding:      []byte{0, 0, 128, 63},
+		EmbeddingModel: "test-embedding",
+		EmbeddingDim:   2,
+		Limit:          10,
+	})
+	if err == nil || !strings.Contains(err.Error(), "embedding byte length must match embedding dim") {
+		t.Fatalf("SearchChunks() error = %v, want embedding length validation", err)
 	}
 }
 
