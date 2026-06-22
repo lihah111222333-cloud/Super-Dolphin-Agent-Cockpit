@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/orchestration/nodeexec"
+	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/orchestration/sharedfilemeta"
 	sharedfilestore "github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/sharedfile"
 	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
 )
@@ -65,6 +66,7 @@ func (a *storeSharedFileReaderAdapter) ReadSharedFile(ctx context.Context, path 
 // storeSharedFileWriterAdapter 把 sharedfilestore.Store 适配成 nodeexec.SharedFileWriter。
 type storeSharedFileWriterAdapter struct {
 	store sharedfilestore.Store
+	*sharedfilemeta.StoreWriter
 }
 
 // sharedFileWriterUpdatedBy 是 dispatcher 路径写入 sharedfile 时填的 updated_by
@@ -77,7 +79,7 @@ func NewStoreSharedFileWriter(store sharedfilestore.Store) nodeexec.SharedFileWr
 	if store == nil {
 		return nil
 	}
-	return &storeSharedFileWriterAdapter{store: store}
+	return &storeSharedFileWriterAdapter{store: store, StoreWriter: sharedfilemeta.NewStoreWriter(store)}
 }
 
 // WriteSharedFile 实现 nodeexec.SharedFileWriter：把 (path, content) Upsert 进 sharedfile store。
