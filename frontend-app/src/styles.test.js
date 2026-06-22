@@ -1339,18 +1339,15 @@ describe('card layout styles', () => {
     const card = topLevelDeclarationsFor('.mcp-tool-card');
     const compactCard = mediaDeclarationFor('(max-width: 640px)', '.mcp-tool-card', 'grid-template-columns');
     const notice = declarationsFor('.mcp-tool-notice');
-    const emptyNotice = declarationsFor('.mcp-tool-notice.is-empty');
     const status = declarationsFor('.mcp-tool-status');
-    const actions = declarationsFor('.mcp-tool-actions');
 
-    expect(card['align-items']).toBe('start');
+    expect(card['align-items']).toBe('center');
     expect(card['grid-template-columns']).toBe('36px minmax(0, 1fr) max-content auto');
     expect(compactCard['grid-template-columns']).toBe('32px minmax(0, 1fr) max-content auto');
     expect(status['align-self']).toBe('center');
     expect(status['justify-self']).toBe('end');
-    expect(notice['min-height']).toBe('16px');
-    expect(emptyNotice.color).toBe('transparent');
-    expect(actions['align-items']).toBe('flex-start');
+    expect(notice.margin).toBe('0');
+    expect(notice['line-height']).toBe('1.35');
   });
 
   it('keeps card badges and actions horizontal beside long content', () => {
@@ -1387,6 +1384,18 @@ describe('card layout styles', () => {
       expect(action['min-width']).toBe('64px');
       expect(action['white-space']).toBe('nowrap');
     }
+  });
+
+  it('keeps MCP status badges vertically centered in their own grid column', () => {
+    const card = topLevelDeclarationsFor('.mcp-tool-card');
+    const compactCard = mediaDeclarationFor('(max-width: 640px)', '.mcp-tool-card', 'grid-template-columns');
+    const status = declarationsFor('.mcp-tool-status');
+
+    expect(card['grid-template-columns']).toBe('36px minmax(0, 1fr) max-content auto');
+    expect(card['align-items']).toBe('center');
+    expect(compactCard['grid-template-columns']).toBe('32px minmax(0, 1fr) max-content auto');
+    expect(status['align-self']).toBe('center');
+    expect(status['justify-self']).toBe('end');
   });
 });
 

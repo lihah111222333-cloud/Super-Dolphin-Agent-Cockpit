@@ -49,7 +49,7 @@ function renderSkillsPage(projectPath = '/repo/app') {
 }
 
 function openSkillTools() {
-  fireEvent.click(screen.getByRole('button', { name: '插件与技能' }));
+  fireEvent.click(screen.getByRole('button', { name: 'skills' }));
 }
 
 function getOverviewMetric(overview, label) {
@@ -166,11 +166,12 @@ describe('SkillsPage backend migration', () => {
   it('renders default MCP controls and sends the start and stop RPC actions', async () => {
     renderSkillsPage();
 
-    expect(screen.getByRole('button', { name: '插件与技能' })).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: 'Skill工具' })).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'MCP工具' }));
 
     expect(await screen.findByRole('heading', { name: 'MCP工具' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Skill工具' })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'skills' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '本地技能库' })).not.toBeInTheDocument();
     expect(screen.getByRole('heading', { name: 'SQLite MCP' })).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: 'Playwright MCP' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '开启 SQLite MCP' })).toBeInTheDocument();
@@ -208,6 +209,37 @@ describe('SkillsPage backend migration', () => {
     await waitFor(() => expect(within(playwrightControl).getByTestId('playwright-mcp-status')).toHaveTextContent('已关闭'));
     expect(within(playwrightControl).getByRole('status')).toHaveTextContent('Playwright MCP 已关闭');
     expect(screen.getByRole('button', { name: '开启 Playwright MCP' })).toBeInTheDocument();
+  });
+
+  it('renders a single stop action when an MCP server is already enabled', async () => {
+    backend.listMCPServers.mockResolvedValueOnce({ mcpServers: { sqlite: { enabled: true }, playwright: { enabled: false } } });
+    renderSkillsPage();
+
+    const sqliteControl = screen.getByRole('region', { name: /SQLite MCP/ });
+    const sqliteStatus = await within(sqliteControl).findByTestId('sqlite-mcp-status');
+    await waitFor(() => expect(sqliteStatus).toHaveClass('is-enabled'));
+    const sqliteButton = within(sqliteControl).getByRole('button', { name: /SQLite MCP/ });
+
+    expect(sqliteStatus).toHaveClass('is-enabled');
+    expect(sqliteButton).toHaveClass('is-stop');
+
+    fireEvent.click(sqliteButton);
+    await waitFor(() => expect(backend.stopSQLiteMCPServer).toHaveBeenCalledTimes(1));
+    expect(backend.startSQLiteMCPServer).not.toHaveBeenCalled();
+  });
+
+  it('disables MCP controls until a project is selected', async () => {
+    renderSkillsPage('');
+
+    const sqliteControl = screen.getByRole('region', { name: /SQLite MCP/ });
+    const playwrightControl = screen.getByRole('region', { name: /Playwright MCP/ });
+
+    expect(await within(sqliteControl).findByTestId('sqlite-mcp-status')).toHaveClass('is-missing');
+    expect(await within(playwrightControl).findByTestId('playwright-mcp-status')).toHaveClass('is-missing');
+    expect(within(sqliteControl).getByRole('button', { name: /SQLite MCP/ })).toBeDisabled();
+    expect(within(playwrightControl).getByRole('button', { name: /Playwright MCP/ })).toBeDisabled();
+    expect(sqliteControl.querySelector('.mcp-tool-notice')).toHaveTextContent(/MCP/);
+    expect(backend.listMCPServers).not.toHaveBeenCalled();
   });
 
   it('renders datasource_v2 rows and sends create, read, update, and delete actions', async () => {
@@ -262,7 +294,7 @@ describe('SkillsPage backend migration', () => {
   it('frames the plugin entry around the current local skills surface', async () => {
     renderSkillsPage();
 
-    fireEvent.click(screen.getByRole('button', { name: '插件与技能' }));
+    fireEvent.click(screen.getByRole('button', { name: 'skills' }));
 
     expect(await screen.findByRole('heading', { name: '插件与技能' })).toBeInTheDocument();
     expect(screen.getByText('本地运行时')).toBeInTheDocument();
