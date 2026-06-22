@@ -231,7 +231,6 @@ func assertDOCXBytes(t *testing.T, data []byte) {
 		t.Fatalf("docx zip missing [Content_Types].xml entry")
 	}
 }
-
 func assertPDFBytes(t *testing.T, data []byte) {
 	t.Helper()
 	if !strings.HasPrefix(string(data), "%PDF-") {

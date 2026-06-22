@@ -150,8 +150,8 @@ func handleLaunchAgentWithExeFn(svc contract.OrchestrationService, exeFn func() 
 		}
 		// Async launch: return immediately so the MCP tool call never blocks
 		// longer than the codex app-server's tool-call timeout. The actual
-		// launch runs in the background; callers poll orchestration_list_agents
-		// or orchestration_get_agent_report for status.
+		// launch runs in the background; callers poll list/report tools for
+		// status without blocking this tool call.
 		//
 		// Bounded lifetime: context.Background() is acceptable here because
 		// AsyncLaunchTimeout caps the goroutine's maximum duration. No
@@ -437,7 +437,7 @@ func HandleListAgents(svc contract.OrchestrationService) ToolHandler {
 }
 
 func newListAgentsOutput(agents []contract.AgentSnapshot, limit int) ListAgentsOutput {
-	env := newListEnvelope(agents, limit, "next: use get_agent_report pos=agent:<agent_id> for full report")
+	env := newListEnvelope(agents, limit, "next: single report -> get_agent_report pos=agent:<agent_id>; batch reports -> get_agent_reports agent_ids=[...]")
 	return ListAgentsOutput{
 		Agents:    agents,
 		Data:      env.Data,
