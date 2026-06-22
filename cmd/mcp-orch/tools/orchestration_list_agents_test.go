@@ -81,3 +81,23 @@ func TestListAgentsHandlerIncludeReportsFailsOnReportError(t *testing.T) {
 		t.Fatalf("HandleListAgents() error = %v, want report hydration failure", err)
 	}
 }
+
+func TestListAgentsEnvelopeGuidesSingleAndBatchReportReads(t *testing.T) {
+	handler := HandleListAgents(&golden.OrchestrationStub{
+		ListAgentsFunc: func(context.Context) ([]contract.AgentSnapshot, error) {
+			return []contract.AgentSnapshot{{ID: "agent-1", AgentID: "agent-1", State: "idle"}}, nil
+		},
+	})
+
+	result, err := handler(context.Background(), json.RawMessage(`{"envelope":true}`))
+	if err != nil {
+		t.Fatalf("HandleListAgents() error = %v", err)
+	}
+	got, ok := result.(ListAgentsOutput)
+	if !ok {
+		t.Fatalf("HandleListAgents() result type = %T, want ListAgentsOutput", result)
+	}
+	requireContains(t, got.Hint, "get_agent_report")
+	requireContains(t, got.Hint, "get_agent_reports")
+	requireNotContains(t, got.Hint, "next: use get_agent_report")
+}
