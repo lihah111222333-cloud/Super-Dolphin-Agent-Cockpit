@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"os/exec"
 	"strings"
 	"text/template"
 )
@@ -30,7 +29,7 @@ type AutomationCommandGetter interface {
 }
 
 type AutomationCommandRunner interface {
-	RunCommandCard(ctx context.Context, card AutomationCommandCard, args json.RawMessage) (AutomationCommandResult, error)
+	RunCommandCard(ctx context.Context, card AutomationCommandCard, args json.RawMessage, opts ...AutomationCommandRunOptions) (AutomationCommandResult, error)
 }
 
 type AutomationCommandCard struct {
@@ -52,112 +51,12 @@ type AutomationCommandResult struct {
 	Args     json.RawMessage `json:"args,omitempty"`
 }
 
-const (
-	automationCommandStdoutLimitBytes = 1024 * 1024
-	automationCommandStderrLimitBytes = 256 * 1024
-)
-
-type ShellCommandRunner struct{}
-
-// NewShellCommandRunner 创建shell命令runner。
-func NewShellCommandRunner() *ShellCommandRunner { return &ShellCommandRunner{} }
-
-// RunCommandCard 运行命令card。
-func (ShellCommandRunner) RunCommandCard(ctx context.Context, card AutomationCommandCard, args json.RawMessage) (AutomationCommandResult, error) {
-	command, normalizedArgs, err := renderCommandTemplate(card.CommandTemplate, args)
-	if err != nil {
-		return AutomationCommandResult{}, err
-	}
-	if err := validateRenderedCommandShellSafety(command); err != nil {
-		return AutomationCommandResult{}, err
-	}
-	cmd := exec.CommandContext(ctx, "sh", "-c", command)
-	stdout := newCommandOutputBuffer("stdout", automationCommandStdoutLimitBytes)
-	stderr := newCommandOutputBuffer("stderr", automationCommandStderrLimitBytes)
-	cmd.Stdout = stdout
-	cmd.Stderr = stderr
-	err = cmd.Run()
-	exitCode := 0
-	if cmd.ProcessState != nil {
-		exitCode = cmd.ProcessState.ExitCode()
-	}
-	result := AutomationCommandResult{
-		CardKey:  card.CardKey,
-		ExitCode: exitCode,
-		Stdout:   stdout.String(),
-		Stderr:   stderr.String(),
-		Command:  command,
-		Args:     normalizedArgs,
-	}
-	if err != nil {
-		if ctxErr := ctx.Err(); ctxErr != nil {
-			return result, ctxErr
-		}
-		return result, CommandExitError{ExitCode: result.ExitCode, Err: err}
-	}
-	return result, nil
+// AutomationCommandRunOptions 收窄命令卡运行时可触达的工作区和环境变量边界。
+type AutomationCommandRunOptions struct {
+	CWD            string
+	WorkspaceRoots []string
+	Env            map[string]string
 }
-
-type commandOutputBuffer struct {
-	label     string
-	limit     int
-	buf       bytes.Buffer
-	total     int
-	truncated bool
-}
-
-func newCommandOutputBuffer(label string, limit int) *commandOutputBuffer {
-	return &commandOutputBuffer{label: label, limit: limit}
-}
-
-// Write 写入编排。
-func (b *commandOutputBuffer) Write(p []byte) (int, error) {
-	b.total += len(p)
-	remaining := b.limit - b.buf.Len()
-	if remaining <= 0 {
-		b.truncated = b.truncated || len(p) > 0
-		return len(p), nil
-	}
-	if len(p) > remaining {
-		if _, err := b.buf.Write(p[:remaining]); err != nil {
-			return 0, err
-		}
-		b.truncated = true
-		return len(p), nil
-	}
-	return b.buf.Write(p)
-}
-
-// String 返回字符串表示。
-func (b *commandOutputBuffer) String() string {
-	out := b.buf.String()
-	if !b.truncated {
-		return out
-	}
-	dropped := b.total - b.buf.Len()
-	if dropped < 0 {
-		dropped = 0
-	}
-	return out + fmt.Sprintf(
-		"\n[super-dolphin: %s truncated after %d bytes; dropped %d bytes]\n",
-		b.label,
-		b.limit,
-		dropped,
-	)
-}
-
-type CommandExitError struct {
-	ExitCode int
-	Err      error
-}
-
-// Error 返回错误文本。
-func (e CommandExitError) Error() string {
-	return fmt.Sprintf("command exited with code %d: %v", e.ExitCode, e.Err)
-}
-
-// Unwrap 返回底层错误。
-func (e CommandExitError) Unwrap() error { return e.Err }
 
 type AutomationOption func(*AutomationExecutor)
 
@@ -722,10 +621,44 @@ func writeAutomationSharedfile(ctx context.Context, cfg *AutomationNodeConfig, r
 			"outputs.to_sharedfile configured but SharedFileWriter not wired in RunContext")
 		return &outcome
 	}
-	if err := runCtx.SharedFileWriter.WriteSharedFile(ctx, path, result.Stdout); err != nil {
+	content := stripAutomationControlFieldsBeforePromptReuse(result.Stdout)
+	if writer, ok := runCtx.SharedFileWriter.(SharedFileMetadataWriter); ok {
+		err := writer.WriteSharedFileWithMetadata(ctx, SharedFileWriteRequest{
+			Path:          path,
+			Content:       content,
+			ContentType:   "text/plain",
+			OwnerNode:     automationSharedFileOwnerNode(runCtx),
+			ProducerActor: automationSharedFileProducerActor(runCtx),
+			RunID:         runCtx.RunID,
+		})
+		if err != nil {
+			outcome := failedAutomationOutcome(FailureClassValidation,
+				fmt.Sprintf("outputs.to_sharedfile[%q]: %v", path, err))
+			return &outcome
+		}
+		return nil
+	}
+	if err := runCtx.SharedFileWriter.WriteSharedFile(ctx, path, content); err != nil {
 		outcome := failedAutomationOutcome(FailureClassValidation,
 			fmt.Sprintf("outputs.to_sharedfile[%q]: %v", path, err))
 		return &outcome
 	}
 	return nil
+}
+
+func automationSharedFileOwnerNode(runCtx RunContext) string {
+	dagKey := strings.TrimSpace(runCtx.DagKey)
+	nodeKey := strings.TrimSpace(runCtx.NodeKey)
+	if dagKey == "" || nodeKey == "" {
+		return ""
+	}
+	return dagKey + "/" + nodeKey
+}
+
+func automationSharedFileProducerActor(runCtx RunContext) string {
+	nodeKey := strings.TrimSpace(runCtx.NodeKey)
+	if nodeKey == "" {
+		return ""
+	}
+	return "automation:" + nodeKey
 }
