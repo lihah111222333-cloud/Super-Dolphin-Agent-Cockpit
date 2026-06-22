@@ -2,6 +2,7 @@ import { expect, it, vi } from 'vitest';
 import {
   checkAppUpdate,
   createBackendApi,
+  createAndStartDag,
   createDatasourceDocument,
   deleteDatasourceDocument,
   downloadAppUpdate,
@@ -22,6 +23,7 @@ import {
   stopPlaywrightMCPServer,
   stopSQLiteMCPServer,
   updateDatasourceDocument,
+  writeWorkflowMaterial,
 } from './backendApi.js';
 
 function expectInvalidInputDoesNotCall(callAPI, action, message) {
@@ -63,6 +65,7 @@ function expectInvalidInputDoesNotCall(callAPI, action, message) {
     expectInvalidInputDoesNotCall(callAPI, () => api.startThread({ cwd: '', modelProvider: 'codex' }), 'cwd is required');
     expectInvalidInputDoesNotCall(callAPI, () => api.startThread({ cwd: '/repo/app' }), 'provider is required');
     expectInvalidInputDoesNotCall(callAPI, () => api.startTurn({ cwd: '/repo/app', threadId: '', input: 'build it' }), 'threadId is required');
+    expectInvalidInputDoesNotCall(callAPI, () => api.createAndStartDag({ dagKey: 'dag-1', title: 'Dag', nodes: [] }), 'nodes must be a non-empty array');
     expectInvalidInputDoesNotCall(callAPI, () => api.dispatchDagNode({ dagKey: 'dag-1', runId: 88, nodeKey: 'draft', assignedTo: '' }), 'assignedTo is required');
     expectInvalidInputDoesNotCall(callAPI, () => api.applyDagOps({ dagKey: 'dag-1', ops: [] }), 'baseVersion is required');
     expectInvalidInputDoesNotCall(callAPI, () => api.setVideoApiKey({ apiKey: '' }), 'apiKey is required');
@@ -800,6 +803,8 @@ function expectSkillEditorCalls(callAPI) {
     expectInvalidInputDoesNotCall(callAPI, () => api.getDagRun({ runKey: '' }), 'runKey is required');
     expectInvalidInputDoesNotCall(callAPI, () => api.dispatchDagNode({ dagKey: 'dag-1', runId: 88, nodeKey: 'draft', assignedTo: '' }), 'assignedTo is required');
     expectInvalidInputDoesNotCall(callAPI, () => api.terminateDagRun({ dagKey: 'dag-1', runKey: '' }), 'runKey is required');
+    expect(typeof createAndStartDag).toBe('function');
+    expect(typeof writeWorkflowMaterial).toBe('function');
   });
 
   it('passes through representative DAG mutation responses', async () => {
@@ -962,6 +967,26 @@ async function callDagDashboardApis(api) {
   await api.getDagRuns({ dagKey: 'dag-1', status: 'running', limit: 5 });
   await api.getDagRun({ runKey: 'run-1' });
   await api.startDag({ dagKey: 'dag-1', triggerSource: 'manual', idempotencyKey: 'ui-123' });
+  await api.createAndStartDag({
+    dagKey: 'dag-created',
+    title: 'Created DAG',
+    description: 'Created from template',
+    finalNodeKey: 'final',
+    metadata: { source: 'ui-template' },
+    idempotencyKey: 'ui-create-123',
+    nodes: [{
+      nodeKey: 'draft',
+      title: 'Draft',
+      nodeType: 'agent',
+      assignedTo: 'codex-runner',
+      dependsOn: [],
+      config: { prompt: 'draft' },
+    }],
+  });
+  await api.writeWorkflowMaterial({
+    path: 'reports/workflows/uploads/dag-1/material.md',
+    content: 'source text',
+  });
   await api.dispatchDagNode({ dagKey: 'dag-1', runId: 88, nodeKey: 'draft', assignedTo: 'codex-runner' });
   await api.terminateDagRun({ dagKey: 'dag-1', runKey: 'run-1', reason: 'user_requested' });
   await api.deleteDag({ dagKey: 'dag-1' });
@@ -989,6 +1014,26 @@ function expectDagDashboardCalls(callAPI) {
     dagKey: 'dag-1',
     triggerSource: 'manual',
     idempotencyKey: 'ui-123',
+  });
+  expect(callAPI).toHaveBeenCalledWith(RPC_METHODS.DASHBOARD_DAG_CREATE_AND_START, {
+    dagKey: 'dag-created',
+    title: 'Created DAG',
+    description: 'Created from template',
+    finalNodeKey: 'final',
+    metadata: { source: 'ui-template' },
+    idempotencyKey: 'ui-create-123',
+    nodes: [{
+      nodeKey: 'draft',
+      title: 'Draft',
+      nodeType: 'agent',
+      assignedTo: 'codex-runner',
+      dependsOn: [],
+      config: { prompt: 'draft' },
+    }],
+  });
+  expect(callAPI).toHaveBeenCalledWith(RPC_METHODS.DASHBOARD_WORKFLOW_MATERIAL_WRITE, {
+    path: 'reports/workflows/uploads/dag-1/material.md',
+    content: 'source text',
   });
   expect(callAPI).toHaveBeenCalledWith(RPC_METHODS.DASHBOARD_DAG_DISPATCH_NODE, {
     dagKey: 'dag-1',

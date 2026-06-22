@@ -1,6 +1,7 @@
 package workflowtemplates
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 )
@@ -37,12 +38,28 @@ func TestTemplateValidationChecksFinalOutputMapping(t *testing.T) {
 	tpl := testTemplateForValidation(t)
 	finalIndex := testNodeIndex(t, tpl, tpl.DAGTemplate.FinalNodeKey)
 	outputs := tpl.DAGTemplate.Nodes[finalIndex].Config["outputs"].(map[string]any)
-	shared := outputs["to_sharedfile"].(map[string]any)
-	shared["path"] = "{{output_path}}wrong.md"
+	artifact := outputs["to_artifact"].(map[string]any)
+	artifact["path_template"] = "{{output_path}}wrong.docx"
 
 	err := validateTemplate(tpl)
 	if err == nil || !strings.Contains(err.Error(), "final_output") {
 		t.Fatalf("validateTemplate() error = %v, want final_output mapping failure", err)
+	}
+}
+
+func TestTemplateValidationChecksDocumentArtifactContract(t *testing.T) {
+	t.Parallel()
+
+	tpl := testTemplateForValidation(t)
+	finalIndex := testNodeIndex(t, tpl, tpl.DAGTemplate.FinalNodeKey)
+	outputs := tpl.DAGTemplate.Nodes[finalIndex].Config["outputs"].(map[string]any)
+	artifact := outputs["to_artifact"].(map[string]any)
+	delete(artifact, "source_text_field")
+	artifact["source_path_field"] = "output_path"
+
+	err := validateTemplate(tpl)
+	if err == nil || !strings.Contains(err.Error(), "document template") {
+		t.Fatalf("validateTemplate() error = %v, want document artifact contract failure", err)
 	}
 }
 
@@ -80,6 +97,177 @@ func TestRenderDAGDraftAppliesRuntimeContextToExecCWD(t *testing.T) {
 	}
 }
 
+func TestApprovalMaterialTemplateRoutesDocumentOutputsThroughSharedfiles(t *testing.T) {
+	t.Parallel()
+
+	reg, err := NewDefaultRegistry()
+	if err != nil {
+		t.Fatalf("NewDefaultRegistry() error = %v", err)
+	}
+
+	draft, err := reg.RenderDAGDraft(RenderRequest{
+		TemplateID: "government-enterprise/approval-material",
+		Version:    1,
+		Values: map[string]any{
+			"title":            "数据共享审批",
+			"approval_basis":   "数据共享审批依据",
+			"source_materials": "申请材料正文",
+			"output_format":    "docx",
+			"reviewer":         "审批经办人",
+			"output_path":      "reports/workflows/government_enterprise_approval_material/{{run_id}}/",
+		},
+		RuntimeContext: map[string]any{
+			"cwd": "D:/project/demo",
+		},
+	})
+	if err != nil {
+		t.Fatalf("RenderDAGDraft() error = %v", err)
+	}
+
+	sharedfileByNode := assertDocumentNodesUseSharedfilesAndFinalArtifact(t, draft.Nodes, draft.FinalNodeKey)
+	assertDocumentDependenciesReadSharedfiles(t, draft.Nodes, sharedfileByNode)
+}
+
+func TestGovernmentEnterpriseTextTemplatesKeepLargeBodiesOutOfNodeResults(t *testing.T) {
+	t.Parallel()
+
+	reg, err := NewDefaultRegistry()
+	if err != nil {
+		t.Fatalf("NewDefaultRegistry() error = %v", err)
+	}
+
+	for _, summary := range reg.ListTemplates(ListFilter{Category: "government-enterprise"}) {
+		if summary.ID == "government-enterprise/promo-video" {
+			continue
+		}
+		tpl, ok := reg.GetTemplate(summary.ID)
+		if !ok {
+			t.Fatalf("GetTemplate(%q) missing", summary.ID)
+		}
+		sharedfileByNode := assertDocumentNodesUseSharedfilesAndFinalArtifact(t, tpl.DAGTemplate.Nodes, tpl.DAGTemplate.FinalNodeKey)
+		assertDocumentDependenciesReadSharedfiles(t, tpl.DAGTemplate.Nodes, sharedfileByNode)
+	}
+}
+
+func TestGovernmentEnterpriseTextTemplatesAdvertiseGeneratedDocumentArtifacts(t *testing.T) {
+	t.Parallel()
+
+	reg, err := NewDefaultRegistry()
+	if err != nil {
+		t.Fatalf("NewDefaultRegistry() error = %v", err)
+	}
+
+	for _, summary := range reg.ListTemplates(ListFilter{Category: "government-enterprise"}) {
+		if summary.ID == "government-enterprise/promo-video" {
+			continue
+		}
+		assertDocumentOutputTypes(t, summary.ID, "output_types", summary.OutputTypes)
+		tpl, ok := reg.GetTemplate(summary.ID)
+		if !ok {
+			t.Fatalf("GetTemplate(%q) missing", summary.ID)
+		}
+		assertOutputFormatFieldAdvertisesDocumentTypes(t, tpl)
+		if tpl.FinalOutput.Kind != "artifact" {
+			t.Fatalf("%s final_output.kind = %q, want artifact", tpl.ID, tpl.FinalOutput.Kind)
+		}
+	}
+}
+
+func assertDocumentOutputTypes(t *testing.T, templateID string, source string, values []string) {
+	t.Helper()
+
+	got := make(map[string]bool, len(values))
+	for _, value := range values {
+		got[strings.ToLower(strings.TrimSpace(value))] = true
+	}
+	if !got["docx"] || !got["pdf"] || len(got) != 2 {
+		t.Fatalf("%s %s = %v, want exactly docx/pdf", templateID, source, values)
+	}
+}
+
+func assertOutputFormatFieldAdvertisesDocumentTypes(t *testing.T, tpl Template) {
+	t.Helper()
+
+	for _, field := range tpl.UISchema {
+		if field.Key != "output_format" {
+			continue
+		}
+		values := make([]string, 0, len(field.Options))
+		for _, option := range field.Options {
+			values = append(values, option.Value)
+		}
+		assertDocumentOutputTypes(t, tpl.ID, "ui_schema.output_format.options", values)
+		return
+	}
+	t.Fatalf("%s missing output_format field", tpl.ID)
+}
+
+func assertDocumentNodesUseSharedfilesAndFinalArtifact(t *testing.T, nodes []NodeTemplate, finalNodeKey string) map[string]string {
+	t.Helper()
+
+	sharedfileByNode := make(map[string]string, len(nodes))
+	for _, node := range nodes {
+		outputs := testObjectMap(t, node.Config, "outputs")
+		if node.NodeKey == finalNodeKey {
+			assertDocumentFinalArtifact(t, node, outputs)
+			continue
+		}
+		shared := testObjectMap(t, outputs, "to_sharedfile")
+		path := strings.TrimSpace(fmt.Sprint(shared["path"]))
+		if path == "" || path == "<nil>" {
+			t.Fatalf("node %s outputs.to_sharedfile.path is empty", node.NodeKey)
+		}
+		sharedfileByNode[node.NodeKey] = path
+		if outputs["to_node_result"] == true {
+			t.Fatalf("node %s must not write document bodies to outputs.to_node_result with sharedfile output", node.NodeKey)
+		}
+	}
+	return sharedfileByNode
+}
+
+func assertDocumentFinalArtifact(t *testing.T, node NodeTemplate, outputs map[string]any) {
+	t.Helper()
+
+	artifact := testObjectMap(t, outputs, "to_artifact")
+	if artifact["source_tool"] != "document_renderer" || artifact["source_text_field"] != "document_text" {
+		t.Fatalf("node %s document artifact selector = %+v", node.NodeKey, artifact)
+	}
+	path := strings.TrimSpace(fmt.Sprint(artifact["path_template"]))
+	if !strings.Contains(path, "final.{{output_format}}") && !strings.Contains(path, "final.docx") && !strings.Contains(path, "final.pdf") {
+		t.Fatalf("node %s artifact path_template = %q", node.NodeKey, path)
+	}
+	if outputs["to_node_result"] == true {
+		t.Fatalf("node %s must not write document bodies to outputs.to_node_result with artifact output", node.NodeKey)
+	}
+}
+
+func assertDocumentDependenciesReadSharedfiles(t *testing.T, nodes []NodeTemplate, sharedfileByNode map[string]string) {
+	t.Helper()
+
+	for _, node := range nodes {
+		if len(node.DependsOn) == 0 {
+			continue
+		}
+		inputs := testObjectMap(t, node.Config, "inputs")
+		fromSharedfiles := testStringSetFromAnyList(t, inputs["from_sharedfiles"], node.NodeKey)
+		assertDependencySharedfiles(t, node, sharedfileByNode, fromSharedfiles)
+	}
+}
+
+func assertDependencySharedfiles(t *testing.T, node NodeTemplate, sharedfileByNode map[string]string, fromSharedfiles map[string]bool) {
+	t.Helper()
+
+	for _, dep := range node.DependsOn {
+		path := sharedfileByNode[dep]
+		if path == "" {
+			t.Fatalf("node %s depends on %s without sharedfile output", node.NodeKey, dep)
+		}
+		if !fromSharedfiles[path] {
+			t.Fatalf("node %s inputs.from_sharedfiles missing upstream path %q", node.NodeKey, path)
+		}
+	}
+}
+
 func TestRegistrySaveTemplateVersionsAndRollback(t *testing.T) {
 	t.Parallel()
 
@@ -111,6 +299,30 @@ func TestRegistrySaveTemplateVersionsAndRollback(t *testing.T) {
 	if got.Version != 1 {
 		t.Fatalf("active version = %d, want 1", got.Version)
 	}
+}
+
+func testObjectMap(t *testing.T, obj map[string]any, key string) map[string]any {
+	t.Helper()
+
+	value, ok := obj[key].(map[string]any)
+	if !ok {
+		t.Fatalf("%s missing or not object: %+v", key, obj[key])
+	}
+	return value
+}
+
+func testStringSetFromAnyList(t *testing.T, value any, nodeKey string) map[string]bool {
+	t.Helper()
+
+	items, ok := value.([]any)
+	if !ok {
+		t.Fatalf("node %s inputs.from_sharedfiles missing or not a list: %+v", nodeKey, value)
+	}
+	out := make(map[string]bool, len(items))
+	for _, item := range items {
+		out[strings.TrimSpace(fmt.Sprint(item))] = true
+	}
+	return out
 }
 
 func testTemplateWithExecCWD(tpl Template) Template {

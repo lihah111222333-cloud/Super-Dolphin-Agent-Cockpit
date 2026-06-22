@@ -6,6 +6,7 @@ import { WorkflowPage } from './WorkflowPage.jsx';
 
 const backend = vi.hoisted(() => ({
   applyDagOps: vi.fn(),
+  createAndStartDag: vi.fn(),
   deleteDag: vi.fn(),
   dispatchDagNode: vi.fn(),
   getDashboardPage: vi.fn(),
@@ -23,6 +24,7 @@ const backend = vi.hoisted(() => ({
   startTurn: vi.fn(),
   startThread: vi.fn(),
   terminateDagRun: vi.fn(),
+  writeWorkflowMaterial: vi.fn(),
 }));
 
 vi.mock('../../shared/api/backendApi.js', () => backend);
@@ -87,6 +89,7 @@ function mockWorkflowDag() {
   backend.getDagRuns.mockResolvedValue({ runs: [] });
   backend.getDagRun.mockResolvedValue({ run: null, nodes: [] });
   backend.startDag.mockResolvedValue({ run_key: 'run-live' });
+  backend.createAndStartDag.mockResolvedValue({ dagKey: 'template-dag', runKey: 'template-run', version: 1, executionState: 'queued' });
   backend.dispatchDagNode.mockResolvedValue({ enqueued: true });
 }
 
@@ -114,7 +117,7 @@ const enterpriseTemplateDetails = {
     id: 'government-enterprise/daily-weekly-report',
     title: '日报/周报',
     description: '汇总周期工作并生成复核后报告。',
-    outputTypes: ['markdown', 'docx', 'pdf', 'json'],
+    outputTypes: ['docx', 'pdf'],
     finalNodeKey: 'final_report',
     supportsSchedule: true,
   }),
@@ -122,21 +125,21 @@ const enterpriseTemplateDetails = {
     id: 'government-enterprise/project-briefing',
     title: '项目汇报',
     description: '生成项目汇报材料。',
-    outputTypes: ['pptx', 'pdf', 'markdown'],
+    outputTypes: ['docx', 'pdf'],
     finalNodeKey: 'final_briefing',
   }),
   'government-enterprise/meeting-minutes': enterpriseTemplateDetail({
     id: 'government-enterprise/meeting-minutes',
     title: '会议纪要',
     description: '提取会议纪要和督办清单。',
-    outputTypes: ['docx', 'markdown', 'pdf', 'json'],
+    outputTypes: ['docx', 'pdf'],
     finalNodeKey: 'final_minutes',
   }),
   'government-enterprise/data-analysis-brief': enterpriseTemplateDetail({
     id: 'government-enterprise/data-analysis-brief',
     title: '数据分析简报',
     description: '生成指标解释和数据简报。',
-    outputTypes: ['pptx', 'markdown', 'pdf', 'json'],
+    outputTypes: ['docx', 'pdf'],
     finalNodeKey: 'final_brief',
     supportsSchedule: true,
   }),
@@ -144,7 +147,7 @@ const enterpriseTemplateDetails = {
     id: 'government-enterprise/approval-material',
     title: '审批材料',
     description: '生成审批依据、风险提示和材料包。',
-    outputTypes: ['docx', 'pdf', 'markdown', 'json'],
+    outputTypes: ['docx', 'pdf'],
     finalNodeKey: 'final_pack',
   }),
 };
@@ -165,7 +168,7 @@ function enterpriseTemplateDetail({ id, title, description, outputTypes, finalNo
     supports_schedule: supportsSchedule,
     available_versions: [1],
     trust: { level: 'built_in', source: 'bundled' },
-    compatibility: { runtime: 'dag-v2', node_types: ['agent'], required_capabilities: ['workflow.node.agent', 'workflow.output.sharedfile', 'workflow.final_output'] },
+    compatibility: { runtime: 'dag-v2', node_types: ['agent'], required_capabilities: ['workflow.node.agent', 'workflow.output.sharedfile', 'workflow.output.artifact', 'workflow.final_output'] },
     ui_schema: [
       { key: 'title', type: 'text', required: true, label: { zh: '主题名称' }, placeholder: { zh: '请输入主题' }, help: { zh: '用于 DAG 标题。' } },
       { key: 'source_materials', type: 'file_ref', required: true, label: { zh: '输入材料' }, placeholder: { zh: 'sharedfile 路径或材料说明' }, help: { zh: '必须提供材料来源。' } },
@@ -221,12 +224,22 @@ function enterpriseTemplateDetail({ id, title, description, outputTypes, finalNo
           node_type: 'agent',
           assigned_to: `${id}_final_runner`,
           depends_on: ['review'],
-          config: { ui: { operation_summary: '生成最终材料。' }, outputs: { to_sharedfile: { path: `reports/workflows/${outputSlug}/{{run_id}}/final.{{output_format}}` } } },
+          config: {
+            ui: { operation_summary: '生成最终材料。' },
+            outputs: {
+              to_artifact: {
+                source_tool: 'document_renderer',
+                source_text_field: 'document_text',
+                path_template: `reports/workflows/${outputSlug}/{{run_id}}/final.{{output_format}}`,
+              },
+              to_node_result: false,
+            },
+          },
         },
       ],
     },
     validation: { sharedfile_prefixes: ['reports/workflows/', 'dag/'], require_review_before_final: true, require_final_node_key: true },
-    final_output: { node_key: finalNodeKey, kind: 'sharedfile', path_template: `reports/workflows/${outputSlug}/{{run_id}}/final.{{output_format}}` },
+    final_output: { node_key: finalNodeKey, kind: 'artifact', path_template: `reports/workflows/${outputSlug}/{{run_id}}/final.{{output_format}}` },
   };
 }
 
@@ -268,6 +281,7 @@ describe('WorkflowPage module', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockEnterpriseTemplates();
+    backend.writeWorkflowMaterial.mockImplementation(({ path }) => Promise.resolve({ path }));
   });
 
   afterEach(() => {
@@ -1243,6 +1257,115 @@ describe('WorkflowPage module', () => {
     expect(await screen.findByRole('status')).toHaveTextContent('模板已保存为 v2');
   });
 
+  it('creates and starts the selected enterprise workflow template without opening chat', async () => {
+    mockWorkflowDag();
+    const template = enterpriseTemplateDetails['government-enterprise/approval-material'];
+    backend.renderWorkflowTemplateDraft.mockResolvedValue({
+      draft: {
+        template_id: template.id,
+        template_version: template.version,
+        dag_key: 'government_enterprise_approval_material_run',
+        title: '模板主题 - 审批材料',
+        description: '生成审批材料包。',
+        trigger: 'manual',
+        final_node_key: 'final_pack',
+        metadata: { source: 'ui-template' },
+        nodes: template.dag_template.nodes,
+        final_output: template.final_output,
+      },
+    });
+
+    renderWorkflowPage(workflowDesignStore());
+
+    await openTemplateCatalog();
+    fireEvent.click(await screen.findByRole('button', { name: '选择审批材料模板' }));
+    await fillEnterpriseTemplateForm('模板主题', 'materials/source.md', '复核负责人');
+    fireEvent.click(screen.getByRole('button', { name: '创建工作流' }));
+
+    await waitFor(() => {
+      expect(backend.renderWorkflowTemplateDraft).toHaveBeenCalledWith(expect.objectContaining({
+        templateId: 'government-enterprise/approval-material',
+        version: 1,
+        values: expect.objectContaining({
+          title: '模板主题',
+          source_materials: 'materials/source.md',
+          reviewer: '复核负责人',
+        }),
+        runtime_context: { cwd: '/repo/app' },
+      }));
+    });
+    await waitFor(() => {
+      expect(backend.createAndStartDag).toHaveBeenCalledWith(expect.objectContaining({
+        dagKey: 'government_enterprise_approval_material_run',
+        title: '模板主题 - 审批材料',
+        finalNodeKey: 'final_pack',
+        metadata: { source: 'ui-template' },
+        nodes: expect.arrayContaining([
+          expect.objectContaining({
+            nodeKey: 'intake',
+            nodeType: 'agent',
+            assignedTo: 'government-enterprise/approval-material_intake_runner',
+          }),
+        ]),
+      }));
+    });
+    expect(backend.startThread).not.toHaveBeenCalled();
+    expect(backend.startTurn).not.toHaveBeenCalled();
+    expect(await screen.findByRole('status')).toHaveTextContent('已创建并启动自动化');
+  });
+
+  it('uploads dropped material files and stores sharedfile paths in the enterprise template material field', async () => {
+    mockWorkflowDag();
+
+    renderWorkflowPage();
+
+    await openTemplateCatalog();
+    fireEvent.click(await screen.findByRole('button', { name: '选择审批材料模板' }));
+    const input = await screen.findByLabelText('输入材料');
+    const dropTarget = input.closest('.enterprise-template-file-ref');
+    expect(dropTarget).toBeTruthy();
+    const file = new File(['审批说明正文'], '审批材料.txt', { type: 'text/plain' });
+    file.text = vi.fn().mockResolvedValue('审批说明正文');
+
+    fireEvent.drop(dropTarget, {
+      dataTransfer: {
+        files: [file],
+      },
+    });
+
+    await waitFor(() => {
+      expect(backend.writeWorkflowMaterial).toHaveBeenCalledWith(expect.objectContaining({
+        path: expect.stringContaining('reports/workflows/uploads/government-enterprise-approval-material/source_materials/'),
+        content: expect.stringContaining('审批说明正文'),
+      }));
+      expect(input.value).toContain('reports/workflows/uploads/government-enterprise-approval-material/source_materials/');
+      expect(input.value).not.toContain('审批说明正文');
+    });
+    expect(await screen.findByText('已上传 1 个材料文件')).toBeInTheDocument();
+  });
+
+  it('rejects binary material drops instead of writing unreadable content', async () => {
+    mockWorkflowDag();
+
+    renderWorkflowPage();
+
+    await openTemplateCatalog();
+    fireEvent.click(await screen.findByRole('button', { name: '选择审批材料模板' }));
+    const input = await screen.findByLabelText('输入材料');
+    const dropTarget = input.closest('.enterprise-template-file-ref');
+    const file = new File(['%PDF-1.4'], 'approval.pdf', { type: 'application/pdf' });
+
+    fireEvent.drop(dropTarget, {
+      dataTransfer: {
+        files: [file],
+      },
+    });
+
+    await screen.findByRole('alert');
+    expect(backend.writeWorkflowMaterial).not.toHaveBeenCalled();
+    expect(input).toHaveValue('');
+  });
+
   it.each([
     {
       button: '选择宣传视频模板',
@@ -1256,7 +1379,7 @@ describe('WorkflowPage module', () => {
       key: 'government-enterprise/daily-weekly-report',
       outputPrefix: 'reports/workflows/government_enterprise_daily_weekly_report/{{run_id}}/',
       extra: 'CRON_TZ=Asia/Shanghai',
-      outputFormat: 'markdown',
+      outputFormat: 'docx',
     },
     {
       button: '选择审批材料模板',
@@ -1276,7 +1399,7 @@ describe('WorkflowPage module', () => {
     await openTemplateCatalog();
     fireEvent.click(await screen.findByRole('button', { name: button }));
     await fillEnterpriseTemplateForm('模板主题', 'materials/source.md', '复核负责人');
-    fireEvent.click(screen.getByRole('button', { name: '创建工作流' }));
+    fireEvent.click(screen.getByRole('button', { name: '用聊天调整' }));
 
     await waitFor(() => expect(backend.startTurn).toHaveBeenCalledWith(expect.objectContaining({
       cwd: '/repo/app',
@@ -1312,6 +1435,11 @@ describe('WorkflowPage module', () => {
     expect(brief).toContain('审批');
     expect(brief).toContain('command_card');
     expect(brief).toContain('outputs.to_sharedfile');
+    expect(brief).toContain('outputs.to_artifact');
+    if (outputFormat === 'docx') {
+      expect(brief).toContain('document_renderer');
+      expect(brief).toContain('source_text_field');
+    }
     expect(brief).toContain('final_node_key');
     expect(brief).toContain('node.config.exec');
     expect(brief).toContain(extra);
@@ -1336,7 +1464,7 @@ describe('WorkflowPage module', () => {
     await openTemplateCatalog();
     fireEvent.click(await screen.findByRole('button', { name: '选择审批材料模板' }));
     await fillEnterpriseTemplateForm('模板主题', 'materials/source.md', '复核负责人');
-    fireEvent.click(screen.getByRole('button', { name: '创建工作流' }));
+    fireEvent.click(screen.getByRole('button', { name: '用聊天调整' }));
 
     expect(await screen.findByRole('alert')).toHaveTextContent('启动政企模板失败：thread offline');
     expect(backend.startTurn).not.toHaveBeenCalled();
@@ -1354,7 +1482,7 @@ describe('WorkflowPage module', () => {
     await openTemplateCatalog();
     fireEvent.click(await screen.findByRole('button', { name: '选择审批材料模板' }));
     await fillEnterpriseTemplateForm('模板主题', 'materials/source.md', '复核负责人');
-    fireEvent.click(screen.getByRole('button', { name: '创建工作流' }));
+    fireEvent.click(screen.getByRole('button', { name: '用聊天调整' }));
 
     expect(await screen.findByRole('alert')).toHaveTextContent('发送政企模板需求失败：turn offline');
     expect(backend.startTurn).toHaveBeenCalled();

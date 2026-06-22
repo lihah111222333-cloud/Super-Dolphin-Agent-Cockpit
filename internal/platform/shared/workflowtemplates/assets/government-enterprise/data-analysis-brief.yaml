@@ -8,7 +8,7 @@ description:
   en: Validate data scope, explain metrics, surface anomalies, and create a reviewed analysis brief.
 category: government-enterprise
 business_flow: 数据分析
-output_types: [pptx, markdown, pdf, json]
+output_types: [docx, pdf]
 tags: [政企, 数据, 简报, 指标]
 estimated_nodes: 5
 requires_review: true
@@ -22,6 +22,7 @@ compatibility:
   required_capabilities:
     - workflow.node.agent
     - workflow.output.sharedfile
+    - workflow.output.artifact
     - workflow.final_output
 ui_schema:
   - key: title
@@ -46,17 +47,13 @@ ui_schema:
     type: select
     required: true
     label: { zh: 输出格式 }
-    placeholder: { zh: pptx }
-    help: { zh: pptx/pdf 需要可用生成能力。 }
+    placeholder: { zh: docx }
+    help: { zh: 生成真实 docx/pdf artifact 文件，最终产物可下载打开。 }
     options:
-      - value: pptx
-        label: { zh: PPTX }
-      - value: markdown
-        label: { zh: Markdown }
+      - value: docx
+        label: { zh: DOCX }
       - value: pdf
         label: { zh: PDF }
-      - value: json
-        label: { zh: JSON }
   - key: reviewer
     type: reviewer
     required: true
@@ -96,13 +93,16 @@ dag_template:
           to_sharedfile:
             path: "{{output_path}}scope.md"
             lock_mode: exclusive
-          to_node_result: true
+          to_node_result: false
     - node_key: quality
       title: 数据质量检查
       node_type: agent
       assigned_to: government_enterprise_data_analysis_brief_quality_runner
       depends_on: [scope]
       config:
+        inputs:
+          from_sharedfiles:
+            - "{{output_path}}scope.md"
         ui:
           stage_key: quality
           stage_title: 质量检查
@@ -116,13 +116,16 @@ dag_template:
           to_sharedfile:
             path: "{{output_path}}quality.md"
             lock_mode: exclusive
-          to_node_result: true
+          to_node_result: false
     - node_key: insight
       title: 指标解读
       node_type: agent
       assigned_to: government_enterprise_data_analysis_brief_insight_runner
       depends_on: [quality]
       config:
+        inputs:
+          from_sharedfiles:
+            - "{{output_path}}quality.md"
         ui:
           stage_key: insight
           stage_title: 指标解读
@@ -136,13 +139,16 @@ dag_template:
           to_sharedfile:
             path: "{{output_path}}insight.md"
             lock_mode: exclusive
-          to_node_result: true
+          to_node_result: false
     - node_key: review
       title: 数据复核
       node_type: agent
       assigned_to: government_enterprise_data_analysis_brief_review_runner
       depends_on: [insight]
       config:
+        inputs:
+          from_sharedfiles:
+            - "{{output_path}}insight.md"
         ui:
           stage_key: review
           stage_title: 数据复核
@@ -156,13 +162,24 @@ dag_template:
           to_sharedfile:
             path: "{{output_path}}review.md"
             lock_mode: exclusive
-          to_node_result: true
+          to_node_result: false
     - node_key: final_brief
       title: 最终数据简报
       node_type: agent
       assigned_to: government_enterprise_data_analysis_brief_final_runner
       depends_on: [review]
       config:
+        inputs:
+          from_sharedfiles:
+            - "{{output_path}}scope.md"
+            - "{{output_path}}quality.md"
+            - "{{output_path}}insight.md"
+            - "{{output_path}}review.md"
+        first_turn: |
+          请基于 scope.md、quality.md、insight.md 和 review.md 生成最终数据简报正文。
+          必须只输出一个 JSON 对象，不要使用 Markdown 代码块。
+          JSON schema: {"document_text":"完整数据简报正文"}
+          document_text 必须包含数据口径、质量说明、核心洞察、风险限制、管理建议和复核结论。
         ui:
           stage_key: final
           stage_title: 最终交付
@@ -173,10 +190,13 @@ dag_template:
           input_sources: [scope, quality, insight, review]
           expected_outputs: ["{{output_path}}final.{{output_format}}"]
         outputs:
-          to_sharedfile:
-            path: "{{output_path}}final.{{output_format}}"
-            lock_mode: exclusive
-          to_node_result: true
+          to_artifact:
+            source_tool: document_renderer
+            source_text_field: document_text
+            path_template: "{{output_path}}final.{{output_format}}"
+            max_bytes: 10485760
+            overwrite: replace
+          to_node_result: false
 validation:
   sharedfile_prefixes:
   - reports/workflows/
@@ -185,5 +205,5 @@ validation:
   require_final_node_key: true
 final_output:
   node_key: final_brief
-  kind: sharedfile
+  kind: artifact
   path_template: "{{output_path}}final.{{output_format}}"

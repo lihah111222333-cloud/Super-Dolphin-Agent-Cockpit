@@ -14,6 +14,8 @@ import (
 
 var errOrchestrationServiceNotAvailable = errors.New("dashboard: orchestration service not available")
 
+const dashboardUICreatedBy = "dashboard-ui"
+
 type buildMetadata struct {
 	version   string
 	commit    string
@@ -131,6 +133,43 @@ func (s *service) GetDAGRun(ctx context.Context, runKey string) (contract.GetRun
 		resp.Nodes = []contract.DAGNode{}
 	}
 	return resp, nil
+}
+
+// CreateAndStartDAG 创建模板 DAG 并立即以手动触发方式启动一次运行。
+func (s *service) CreateAndStartDAG(ctx context.Context, req contract.CreateDAGRequest, idempotencyKey string) (contract.DAGDetail, contract.StartDAGResponse, error) {
+	runtime := s.effectiveDAGRuntime()
+	if runtime == nil {
+		return contract.DAGDetail{}, contract.StartDAGResponse{}, errOrchestrationServiceNotAvailable
+	}
+	creator, ok := any(runtime).(contract.DAGCreateRuntime)
+	if !ok {
+		return contract.DAGDetail{}, contract.StartDAGResponse{}, errOrchestrationServiceNotAvailable
+	}
+	req.DagKey = strings.TrimSpace(req.DagKey)
+	req.Title = strings.TrimSpace(req.Title)
+	req.Description = strings.TrimSpace(req.Description)
+	req.CreatedBy = strings.TrimSpace(req.CreatedBy)
+	if req.CreatedBy == "" {
+		req.CreatedBy = dashboardUICreatedBy
+	}
+	if req.DagKey == "" {
+		return contract.DAGDetail{}, contract.StartDAGResponse{}, errors.New("dashboard: dag key is required")
+	}
+	if req.Title == "" {
+		return contract.DAGDetail{}, contract.StartDAGResponse{}, errors.New("dashboard: dag title is required")
+	}
+	if len(req.Nodes) == 0 {
+		return contract.DAGDetail{}, contract.StartDAGResponse{}, errors.New("dashboard: dag nodes are required")
+	}
+	detail, err := creator.CreateDAG(ctx, req)
+	if err != nil {
+		return contract.DAGDetail{}, contract.StartDAGResponse{}, err
+	}
+	started, err := s.StartDAG(ctx, req.DagKey, "manual", idempotencyKey)
+	if err != nil {
+		return detail, contract.StartDAGResponse{}, err
+	}
+	return detail, started, nil
 }
 
 // StartDAG 启动DAG。

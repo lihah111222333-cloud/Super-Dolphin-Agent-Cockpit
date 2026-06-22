@@ -351,6 +351,29 @@
   resize: vertical;
 }
 
+.enterprise-template-file-ref {
+  display: grid;
+  gap: 8px;
+}
+
+.enterprise-template-file-ref input[type='file'] {
+  min-height: auto;
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+
+.enterprise-template-file-ref span {
+  display: flex;
+  min-height: 38px;
+  align-items: center;
+  justify-content: center;
+  border: 1px dashed var(--line);
+  border-radius: 7px;
+  color: var(--text-muted);
+  background: var(--surface-2);
+}
+
 .enterprise-template-field small {
   color: var(--text-muted);
   line-height: 1.4;

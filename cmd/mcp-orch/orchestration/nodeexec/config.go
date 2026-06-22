@@ -69,7 +69,8 @@ type SharedfileTarget struct {
 // ArtifactTarget 描述从结构化 tool result 中抽取本地文件并导入 sharedfile 的规则。
 type ArtifactTarget struct {
 	SourceTool         string   `json:"source_tool"`
-	SourcePathField    string   `json:"source_path_field"`
+	SourcePathField    string   `json:"source_path_field,omitempty"`
+	SourceTextField    string   `json:"source_text_field,omitempty"`
 	PathTemplate       string   `json:"path_template"`
 	ContentType        string   `json:"content_type,omitempty"`
 	AllowedExtensions  []string `json:"allowed_extensions,omitempty"`
@@ -87,8 +88,13 @@ func (t *ArtifactTarget) Validate() error {
 	if strings.TrimSpace(t.SourceTool) == "" {
 		return errors.New("nodeexec: outputs.to_artifact.source_tool is required")
 	}
-	if strings.TrimSpace(t.SourcePathField) == "" {
-		return errors.New("nodeexec: outputs.to_artifact.source_path_field is required")
+	pathField := strings.TrimSpace(t.SourcePathField)
+	textField := strings.TrimSpace(t.SourceTextField)
+	switch {
+	case pathField == "" && textField == "":
+		return errors.New("nodeexec: outputs.to_artifact.source_path_field or source_text_field is required")
+	case pathField != "" && textField != "":
+		return errors.New("nodeexec: outputs.to_artifact.source_path_field and source_text_field are mutually exclusive")
 	}
 	pathTemplate := strings.TrimSpace(t.PathTemplate)
 	if pathTemplate == "" {
@@ -117,10 +123,22 @@ type ArtifactImportPlan struct {
 	Overwrite          string
 }
 
+// ArtifactTextPlan 描述由 agent 结构化正文生成文档 artifact 的最小输入。
+type ArtifactTextPlan struct {
+	SourceText  string
+	TargetPath  string
+	ContentType string
+	MaxBytes    int64
+	Overwrite   string
+}
+
 // BuildArtifactImportPlan 构建产物importplan。
 func BuildArtifactImportPlan(target *ArtifactTarget, rawResult string, runID int64) (ArtifactImportPlan, error) {
 	if target == nil {
 		return ArtifactImportPlan{}, errors.New("outputs.to_artifact is required")
+	}
+	if strings.TrimSpace(target.SourceTextField) != "" {
+		return ArtifactImportPlan{}, errors.New("source_path_field is required for local artifact import")
 	}
 	sourcePath, err := extractArtifactSourcePath(rawResult, target.SourceTool, target.SourcePathField)
 	if err != nil {
@@ -138,6 +156,31 @@ func BuildArtifactImportPlan(target *ArtifactTarget, rawResult string, runID int
 		AllowedSourceRoots: append([]string(nil), target.AllowedSourceRoots...),
 		MaxBytes:           target.MaxBytes,
 		Overwrite:          target.Overwrite,
+	}, nil
+}
+
+// BuildArtifactTextPlan 从结构化结果中提取正文，并渲染目标 artifact 路径。
+func BuildArtifactTextPlan(target *ArtifactTarget, rawResult string, runID int64) (ArtifactTextPlan, error) {
+	if target == nil {
+		return ArtifactTextPlan{}, errors.New("outputs.to_artifact is required")
+	}
+	if strings.TrimSpace(target.SourcePathField) != "" {
+		return ArtifactTextPlan{}, errors.New("source_text_field is required for generated document artifact")
+	}
+	sourceText, err := extractArtifactSourceText(rawResult, target.SourceTool, target.SourceTextField)
+	if err != nil {
+		return ArtifactTextPlan{}, err
+	}
+	targetPath, err := renderArtifactTargetPath(target.PathTemplate, runID)
+	if err != nil {
+		return ArtifactTextPlan{}, fmt.Errorf("path_template: %w", err)
+	}
+	return ArtifactTextPlan{
+		SourceText:  sourceText,
+		TargetPath:  targetPath,
+		ContentType: target.ContentType,
+		MaxBytes:    target.MaxBytes,
+		Overwrite:   target.Overwrite,
 	}, nil
 }
 
@@ -172,6 +215,22 @@ func extractArtifactSourcePath(rawResult, sourceTool, pathField string) (string,
 }
 
 // artifactPathFromValue 从值处理产物路径。
+func extractArtifactSourceText(rawResult, sourceTool, textField string) (string, error) {
+	trimmed := strings.TrimSpace(rawResult)
+	if trimmed == "" {
+		return "", errors.New("source text requires structured JSON result")
+	}
+	var payload any
+	if err := json.Unmarshal([]byte(trimmed), &payload); err != nil {
+		return "", fmt.Errorf("source text requires structured JSON result: %w", err)
+	}
+	text, ok := artifactTextFromValue(payload, strings.TrimSpace(sourceTool), strings.TrimSpace(textField), false)
+	if !ok || strings.TrimSpace(text) == "" {
+		return "", fmt.Errorf("source text field %q from tool %q not found in structured JSON result", textField, sourceTool)
+	}
+	return strings.TrimSpace(text), nil
+}
+
 func artifactPathFromValue(value any, sourceTool, pathField string, requireTool bool) (string, bool) {
 	switch typed := value.(type) {
 	case map[string]any:
@@ -243,6 +302,46 @@ func artifactStringField(obj map[string]any, key string) (string, bool) {
 
 // OnFailureConfig 是节点失败处理策略（蓝图 v2 §7 + §10 补丁 8）。
 // 解码与 by_class lookup 的中间函数在 nodeexec/on_failure.go (S5.3)。
+func artifactTextFromValue(value any, sourceTool, textField string, requireTool bool) (string, bool) {
+	switch typed := value.(type) {
+	case map[string]any:
+		return artifactTextFromObject(typed, sourceTool, textField, requireTool)
+	case []any:
+		for _, item := range typed {
+			if text, ok := artifactTextFromValue(item, sourceTool, textField, true); ok {
+				return text, true
+			}
+		}
+	}
+	return "", false
+}
+
+func artifactTextFromObject(obj map[string]any, sourceTool, textField string, requireTool bool) (string, bool) {
+	if artifactObjectMatchesTool(obj, sourceTool, requireTool) {
+		return artifactStringField(obj, textField)
+	}
+	if nested, ok := obj[sourceTool].(map[string]any); ok {
+		if text, ok := artifactTextFromObject(nested, sourceTool, textField, false); ok {
+			return text, true
+		}
+	}
+	for _, key := range []string{"structuredContent", "structured_content", "result", "output", "payload"} {
+		if nested, ok := obj[key].(map[string]any); ok {
+			if text, ok := artifactTextFromObject(nested, sourceTool, textField, false); ok {
+				return text, true
+			}
+		}
+	}
+	for _, key := range []string{"tool_results", "toolResults", "items"} {
+		if items, ok := obj[key].([]any); ok {
+			if text, ok := artifactTextFromValue(items, sourceTool, textField, true); ok {
+				return text, true
+			}
+		}
+	}
+	return "", false
+}
+
 type OnFailureConfig struct {
 	// Default 是 by_class 未命中时的兜底策略。
 	Default OnFailureStrategy `json:"default,omitempty"`

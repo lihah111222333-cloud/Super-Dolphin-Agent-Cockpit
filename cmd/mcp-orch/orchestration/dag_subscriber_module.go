@@ -9,6 +9,7 @@ import (
 	"strings"
 	"sync/atomic"
 
+	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/orchestration/documentartifact"
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/orchestration/nodeexec"
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/orchestration/sharedfileowner"
 	sharedfilestore "github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/sharedfile"
@@ -266,14 +267,12 @@ func shouldMaterializeAgentNodeResult(out nodeexec.OutputsConfig) bool {
 }
 
 func prepareArtifactTurnCompletedResult(node *taskdag.Node, target *nodeexec.ArtifactTarget, rawResult string) (turnOutputMaterialization, *turnOutputMaterializationFailure) {
-	plan, err := nodeexec.BuildArtifactImportPlan(target, rawResult, taskNodeRunID(node))
+	params, err := documentartifact.BuildImportParamsFromTarget(target, rawResult, taskNodeRunID(node), artifactUpdatedBy)
 	if err != nil {
 		return turnOutputMaterialization{}, validationMaterializationFailure("outputs.to_artifact: " + err.Error())
 	}
-	params := sharedfilestore.ImportLocalFileParams{SourcePath: plan.SourcePath, TargetPath: plan.TargetPath, ContentType: plan.ContentType, AllowedExtensions: plan.AllowedExtensions, AllowedSourceRoots: plan.AllowedSourceRoots, MaxBytes: plan.MaxBytes, Overwrite: plan.Overwrite, UpdatedBy: artifactUpdatedBy}
-	return turnOutputMaterialization{Result: encodeSharedfileResultRef(plan.TargetPath), Artifact: &artifactMaterialization{Params: params}}, nil
+	return turnOutputMaterialization{Result: encodeSharedfileResultRef(params.TargetPath), Artifact: &artifactMaterialization{Params: params}}, nil
 }
-
 func configuredSharedfilePath(out nodeexec.OutputsConfig) string {
 	if out.ToSharedfile == nil {
 		return ""
@@ -311,6 +310,7 @@ func materializeArtifactAfterClaim(ctx context.Context, deps DAGSubscriberDeps, 
 		handleMaterializationFailure(ctx, deps, logger, node, infrastructureMaterializationFailure("outputs.to_artifact: ArtifactImporter not wired"))
 		return nil, false
 	}
+	defer documentartifact.CleanupSource(materialized.Artifact.Params.SourcePath)
 	if !claimNodeOutputMaterialization(ctx, deps.FlowStore, deps.EventBus, logger, node, materialized.Result) {
 		return nil, false
 	}

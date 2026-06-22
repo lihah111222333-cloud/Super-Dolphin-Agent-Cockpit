@@ -60,6 +60,12 @@ type DAGDeleteRuntime interface {
 	DeleteDAG(ctx context.Context, req DeleteDAGRequest) error
 }
 
+// DAGCreateRuntime 是桌面端通过 mcp-orch 创建 DAG 模板的最小写入边界。
+// 它只负责落库模板；是否立即启动由调用方在创建成功后显式调用 StartDAG。
+type DAGCreateRuntime interface {
+	CreateDAG(ctx context.Context, req CreateDAGRequest) (DAGDetail, error)
+}
+
 // OrchestrationService defines the shared orchestration boundary used by
 // internal modules and the MCP orchestration runtime.
 type OrchestrationService interface {

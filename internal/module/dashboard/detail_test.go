@@ -392,6 +392,9 @@ type stubDashboardOrchestration struct {
 	listRunsRequests    []contract.ListRunsRequest
 	getRunResult        contract.GetRunResponse
 	getRunRequest       contract.GetRunRequest
+	createDAGRequest    contract.CreateDAGRequest
+	createDAGResult     contract.DAGDetail
+	createDAGErr        error
 	startDAGRequest     contract.StartDAGRequest
 	startDAGResult      contract.StartDAGResponse
 	startDAGErr         error
@@ -464,8 +467,12 @@ func (s *stubDashboardOrchestration) HandleReportEvent(context.Context, contract
 	return contract.ReportEventResult{}, nil
 }
 
-func (s *stubDashboardOrchestration) CreateDAG(context.Context, contract.CreateDAGRequest) (contract.DAGDetail, error) {
-	return contract.DAGDetail{}, nil
+func (s *stubDashboardOrchestration) CreateDAG(_ context.Context, req contract.CreateDAGRequest) (contract.DAGDetail, error) {
+	s.createDAGRequest = req
+	if s.createDAGErr != nil {
+		return contract.DAGDetail{}, s.createDAGErr
+	}
+	return s.createDAGResult, nil
 }
 
 func (s *stubDashboardOrchestration) GetDAG(_ context.Context, dagKey string) (contract.DAGDetail, error) {

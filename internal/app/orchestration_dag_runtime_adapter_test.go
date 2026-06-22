@@ -100,6 +100,77 @@ func TestMCPOrchDAGRuntimeStartDAGCallsPeerTool(t *testing.T) {
 	})
 }
 
+func TestMCPOrchDAGRuntimeCreateDAGCallsPeerTool(t *testing.T) {
+	t.Parallel()
+
+	caller := &recordingDAGToolCaller{result: `{"dag":{"dag_key":"dag-1","title":"Daily"},"nodes":[{"node_key":"draft","title":"Draft"}]}`}
+	runtime := &mcpOrchDAGRuntime{tools: caller}
+
+	detail, err := runtime.CreateDAG(context.Background(), contract.CreateDAGRequest{
+		DagKey:      " dag-1 ",
+		Title:       " Daily ",
+		Description: " Daily report ",
+		CreatedBy:   " dashboard-ui ",
+		Metadata:    json.RawMessage(`{"schedule":{"trigger":"manual"},"final_node_key":"final"}`),
+		Nodes: []contract.CreateDAGNodeRequest{{
+			NodeKey:    " draft ",
+			Title:      " Draft ",
+			NodeType:   " agent ",
+			AssignedTo: " codex-runner ",
+			DependsOn:  []string{"intake"},
+			CommandRef: " prompt_list ",
+			Config:     json.RawMessage(`{"prompt":"draft"}`),
+		}},
+	})
+	if err != nil {
+		t.Fatalf("CreateDAG() error = %v", err)
+	}
+	assertCreateDAGToolResult(t, detail)
+	assertDAGToolCall(t, caller, "task_create_dag", map[string]any{
+		"agent_id":       "dashboard-ui",
+		"dag_key":        "dag-1",
+		"title":          "Daily",
+		"description":    "Daily report",
+		"final_node_key": "final",
+	})
+	assertCreateDAGToolSchedule(t, caller)
+	assertCreateDAGToolNodeArgs(t, caller)
+}
+
+func assertCreateDAGToolResult(t *testing.T, detail contract.DAGDetail) {
+	t.Helper()
+	if detail.DAG.DagKey != "dag-1" || len(detail.Nodes) != 1 {
+		t.Fatalf("CreateDAG() = %#v", detail)
+	}
+}
+
+func assertCreateDAGToolSchedule(t *testing.T, caller *recordingDAGToolCaller) {
+	t.Helper()
+	schedule, ok := caller.argument["schedule"].(map[string]any)
+	if !ok || schedule["trigger"] != "manual" {
+		t.Fatalf("argument[schedule] = %#v, want manual schedule", caller.argument["schedule"])
+	}
+}
+
+func assertCreateDAGToolNodeArgs(t *testing.T, caller *recordingDAGToolCaller) {
+	t.Helper()
+	nodes, ok := caller.argument["nodes"].([]any)
+	if !ok || len(nodes) != 1 {
+		t.Fatalf("argument[nodes] = %#v, want one node", caller.argument["nodes"])
+	}
+	node, ok := nodes[0].(map[string]any)
+	if !ok {
+		t.Fatalf("argument[nodes][0] = %#v, want object", nodes[0])
+	}
+	config, ok := node["config"].(map[string]any)
+	if !ok || config["prompt"] != "draft" {
+		t.Fatalf("argument[nodes][0].config = %#v, want prompt config", node["config"])
+	}
+	if node["node_key"] != "draft" || node["assigned_to"] != "codex-runner" || node["command_ref"] != "prompt_list" {
+		t.Fatalf("argument[nodes][0] = %#v, want trimmed node fields", node)
+	}
+}
+
 func TestMCPOrchDAGRuntimeTerminateDAGCallsPeerTool(t *testing.T) {
 	t.Parallel()
 

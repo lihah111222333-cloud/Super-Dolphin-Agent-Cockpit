@@ -30,10 +30,12 @@
 - 未发现合适 command_card 时，使用 agent 节点说明需要用户提供数据、sharedfile 或人工处理，不要伪造外部接口、SQL、shell 命令或发布动作。
 - 每个模板必须保留复核节点；复核节点只生成审批/审稿/口径复核材料、复核意见和待确认项。需要人工确认时，提示用户在聊天或流程页确认后再启动或派发后续节点，不要宣称已有 DAG 级审批阻断。
 - 默认输出路径使用 reports/workflows/{{dag_key}}/{{run_id}}/ 或 dag/{{dag_key}}/{{run_id}}/；大结果写 outputs.to_sharedfile，小摘要才写 outputs.to_node_result。
+- 文档型节点（报告、审批材料、纪要、草稿、复核意见）配置 outputs.to_sharedfile 时必须设置 outputs.to_node_result=false；下游读取正文必须用 config.inputs.from_sharedfiles 引用上游 sharedfile path，depends_on 只表达调度顺序。
 - 定时场景默认使用 `CRON_TZ=Asia/Shanghai` 表达本地时间；用户未说明具体 cron 或执行时间时必须确认，不要替用户猜测。
 - 六类模板都必须使用唯一 final_node_key，且 final_node_key 必须在 review_node 之后，最终交付只能由复核后的最终节点提升为 run-level final_output。
 - 每个可展示节点都应在 config.ui 写入前端阶段展示元数据：stage_key、stage_title、execution_mode、operation_summary、model_action、skills、input_sources、expected_outputs。operation_summary 是给用户悬停节点时看的计划动作说明，只描述可观察任务，不输出隐藏思维链。
 - 目标输出格式可以是 md、json、pdf、docx、xlsx、pptx、mp4。md/json 可直接写文本 sharedfile；pdf/docx/xlsx/pptx/mp4 如果需要额外生成工具，必须先通过 command_list 或 prompt_list 发现可用能力。未发现能力时要明确提示能力缺口，不能伪造二进制产物或静默降级。
+- 模板 brief 已列出 output_types/options 时，只能使用模板列出的格式。不要自行添加 pdf/docx/xlsx/pptx；即使用户想要这些格式，也必须先发现真实 artifact/转换工具，不能把文本写成二进制扩展名。
 - 宣传视频模板如目标输出为 mp4，只有发现 video_with_audio 或等价可用能力后才能配置 outputs.to_artifact；未发现时输出能力缺口和可运行的脚本/审稿 DAG，不要伪造成片。
 
 # 节点 config 必须使用当前 schema
@@ -42,7 +44,7 @@
 
 每个需要自动执行的节点都必须在节点顶层填 assigned_to，建议用稳定 ID，例如 `<dag_key>_<node_key>_runner`。不要把 assigned_to 放进 config。wakeup 入队由 assigned_to 驱动：根节点启动和下游完成后只会为 assigned_to 非空的 ready 节点 enqueue wakeup；空 assigned_to 会停在 ready / waiting_for_assignee，不会自动产出 final_output。只有明确要人工后续指派、并准备通过 task_dispatch_node 补派时才允许留空。
 
-最小可执行 agent 节点示例：`{"node_key":"final","title":"最终输出","node_type":"agent","assigned_to":"my_dag_final_runner","depends_on":[],"config":{"exec":{"prompt_key":"main/expert/prompt","provider":"<selected provider from list_models()>","model":"<selected model from list_models()>","cwd":"/absolute/project/cwd"},"first_turn":"输出最终答案；如果内容超过 4KB，只返回 sharedfile 引用。","outputs":{"to_sharedfile":{"path":"reports/final.md","lock_mode":"exclusive"},"to_node_result":true}}}`
+最小可执行 agent 节点示例：`{"node_key":"final","title":"最终输出","node_type":"agent","assigned_to":"my_dag_final_runner","depends_on":[],"config":{"exec":{"prompt_key":"main/expert/prompt","provider":"<selected provider from list_models()>","model":"<selected model from list_models()>","cwd":"/absolute/project/cwd"},"first_turn":"输出最终答案。正文由运行时写入 sharedfile，最终回复只保留引用。","outputs":{"to_sharedfile":{"path":"reports/final.md","lock_mode":"exclusive"},"to_node_result":false}}}`
 
 automation 节点示例：`{"node_key":"fetch","title":"采集","node_type":"automation","assigned_to":"my_dag_fetch_runner","depends_on":[],"config":{"exec":{"kind":"command_card","command_ref":"<card_key from command_list>","args":{}},"outputs":{"to_node_result":true}}}`
 

@@ -1,5 +1,6 @@
 import {
   applyDagOps as applyDagOpsBackend,
+  createAndStartDag as createAndStartDagBackend,
   deleteDag as deleteDagBackend,
   dispatchDagNode as dispatchDagNodeBackend,
   getDashboardPage as getDashboardPageBackend,
@@ -17,6 +18,7 @@ import {
   startThread as startThreadBackend,
   startTurn as startTurnBackend,
   terminateDagRun as terminateDagRunBackend,
+  writeWorkflowMaterial as writeWorkflowMaterialBackend,
 } from '../../../shared/api/backendApi.js';
 
 /*
@@ -26,6 +28,10 @@ import {
 
 export function applyDagOps(payload) {
   return applyDagOpsBackend(payload);
+}
+
+export function createAndStartDag(payload) {
+  return createAndStartDagBackend(payload);
 }
 
 export function deleteDag(payload) {
@@ -94,4 +100,8 @@ export function startTurn(payload) {
 
 export function terminateDagRun(payload) {
   return terminateDagRunBackend(payload);
+}
+
+export function writeWorkflowMaterial(payload) {
+  return writeWorkflowMaterialBackend(payload);
 }

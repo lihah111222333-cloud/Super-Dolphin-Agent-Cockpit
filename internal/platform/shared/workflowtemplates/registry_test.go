@@ -144,6 +144,9 @@ func assertRenderedMeetingMinutesDraft(t *testing.T, draft DAGDraft) {
 	if draft.TemplateVersion != 1 || draft.Metadata["template_id"] != "government-enterprise/meeting-minutes" {
 		t.Fatalf("RenderDAGDraft() metadata/version = %+v/%d", draft.Metadata, draft.TemplateVersion)
 	}
+	if draft.FinalOutput.Kind != "artifact" {
+		t.Fatalf("RenderDAGDraft() final kind = %q, want artifact", draft.FinalOutput.Kind)
+	}
 	if draft.FinalOutput.PathTemplate != "reports/workflows/government_enterprise_meeting_minutes/{{run_id}}/final.docx" {
 		t.Fatalf("RenderDAGDraft() final path = %q", draft.FinalOutput.PathTemplate)
 	}
