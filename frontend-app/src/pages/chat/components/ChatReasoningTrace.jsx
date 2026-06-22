@@ -110,17 +110,21 @@ function useElapsedLabel(startValue, endValue, active) {
 
 function ReasoningTrace({ message, active = false }) {
   const done = !active && message?.done !== false;
-  const hookElapsed = useElapsedLabel(message?.time, message?.completedAt, !done);
-  const elapsed = (done && typeof message?.elapsedMs === 'number' && message.elapsedMs > 0)
-    ? durationLabelFromMs(message.elapsedMs)
-    : hookElapsed;
+  const hideElapsed = message?.hideElapsed === true;
+  const hookElapsed = useElapsedLabel(message?.time, message?.completedAt, !done && !hideElapsed);
+  const elapsed = hideElapsed
+    ? ''
+    : (done && typeof message?.elapsedMs === 'number' && message.elapsedMs > 0
+      ? durationLabelFromMs(message.elapsedMs)
+      : hookElapsed);
   const title = reasoningTitle(message);
   const elapsedSuffix = elapsed ? ` ${elapsed}` : '';
-  const statusLabel = done
+  const explicitStatusLabel = (message?.statusLabel || '').toString().trim();
+  const statusLabel = explicitStatusLabel || (done
     ? `已处理 ${title}${elapsedSuffix}`
     : ((message?.kind || '').toString().trim().toLowerCase() === 'thinking'
       ? `正在思考${elapsedSuffix}`
-      : `正在运行 ${title}${elapsedSuffix}`);
+      : `正在运行 ${title}${elapsedSuffix}`));
   const meta = reasoningKindMeta(message);
   return (
     <article className={`reasoning-message${done ? '' : ' is-active'} no-avatar`} aria-label="AI 思考记录">

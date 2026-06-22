@@ -3404,6 +3404,51 @@ async function toggleInlineTraceFromRecentLogs(table) {
     expect(screen.getByLabelText('AI 思考记录')).toHaveTextContent('AI 正在分析上下文、选择工具并整理回答。');
   });
 
+  it('shows a non-timed preparation status before the first real turn starts', async () => {
+    backend.getSidebarState.mockResolvedValue({ activeThreadId: '', threads: [] });
+    backend.getThreadState.mockResolvedValue({ timelinesByThread: {} });
+    backend.startThread.mockResolvedValue({ thread: { id: 'thread-new' } });
+    const startTurnDeferred = deferred();
+    backend.startTurn.mockReturnValue(startTurnDeferred.promise);
+
+    render(<App />);
+
+    await screen.findByText('我们应该在 燧元 中构建什么？');
+    fireEvent.change(screen.getByTestId('composer-input'), {
+      target: { value: '请真正调用后端聊天' },
+    });
+    fireEvent.click(screen.getByLabelText('发送消息'));
+
+    await waitFor(() => expect(backend.startTurn).toHaveBeenCalled());
+    const preparingTrace = screen.getByLabelText('AI 思考记录');
+    expect(preparingTrace).toHaveTextContent('正在准备响应');
+    expect(preparingTrace).not.toHaveTextContent('正在思考');
+    expect(preparingTrace).not.toHaveTextContent('0s');
+
+    act(() => {
+      bridgeCallback({
+        type: 'ui/thread/patch',
+        payload: {
+          threadId: 'thread-new',
+          sequence: '1',
+          activeTurn: {
+            id: 'turn-live',
+            threadId: 'thread-new',
+            status: 'running',
+            startedAt: '2026-05-30T00:00:00Z',
+          },
+        },
+      });
+    });
+
+    await waitFor(() => expect(screen.getByLabelText('AI 思考记录')).toHaveTextContent(/正在思考 \d+[sm]/));
+
+    await act(async () => {
+      startTurnDeferred.resolve({ ok: true });
+      await Promise.resolve();
+    });
+  });
+
   it('updates active thinking elapsed time in place every second', async () => {
     vi.useFakeTimers();
     try {
