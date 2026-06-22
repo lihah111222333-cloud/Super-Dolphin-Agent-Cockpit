@@ -18,7 +18,11 @@
       "parentId": "parent-launch-1",
       "prompt": "launch golden agent"
     },
-    "response": null,
+    "response": {
+      "agent_id": "agent-launch-1",
+      "status": "running",
+      "success": true
+    },
     "v2_reference": {
       "path": "internal/guards/golden/rpc_response/agent_launch.golden.json",
       "result": {

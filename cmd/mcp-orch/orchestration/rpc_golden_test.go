@@ -45,6 +45,7 @@ func TestOrchestrationGoldenTurnAgentSamples(t *testing.T) {
 	}
 	launchResponse := dispatchJSON(t, server, "agent/launch", launchRequest)
 	assertLaunchRequest(t, launchReq)
+	assertLaunchResponse(t, launchResponse)
 
 	submitRequest := map[string]any{
 		"agent_id": "agent-submit-1",
@@ -85,6 +86,18 @@ func TestOrchestrationGoldenTurnAgentSamples(t *testing.T) {
 			},
 		},
 	})
+}
+
+func assertLaunchResponse(t *testing.T, response any) {
+	t.Helper()
+
+	got, ok := response.(map[string]any)
+	if !ok {
+		t.Fatalf("launch response = %T, want object", response)
+	}
+	if got["success"] != true || got["agent_id"] != "agent-launch-1" || got["status"] != "running" {
+		t.Fatalf("launch response = %#v, want success agent-launch-1 running", got)
+	}
 }
 
 func dispatchJSON(t *testing.T, server *rpcpkg.Server, method string, request any) any {

@@ -65,11 +65,9 @@ func ProvideDAGSubscriberAgentThreadLookup(s *service) AgentThreadLookup {
 }
 
 type DAGSubscriberMetrics struct {
-	CompleteDone, CompleteFailed, IdempotentSkipped int64
-	LookupNoNode, LookupDirtyData, LookupFailed     int64
-	CompleteSizeCapExceeded, CompleteResultEmpty    int64
+	CompleteDone, CompleteFailed, IdempotentSkipped, LookupNoNode, LookupDirtyData, LookupFailed int64
+	CompleteSizeCapExceeded, CompleteResultEmpty                                                 int64
 }
-
 type dagSubscriberCounter struct {
 	completeDone, completeFailed, idempotentSkipped atomic.Int64
 	lookupNoNode, lookupDirtyData, lookupFailed     atomic.Int64

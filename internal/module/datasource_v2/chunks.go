@@ -50,7 +50,7 @@ func writeTextChunks(
 	}()
 
 	writer := newChunkWriter(documentID, store)
-	reader := bufio.NewReaderSize(file, datasourceV2ChunkTargetBytes)
+	reader := bufio.NewReaderSize(file, datasourceV2ChunkMaxBytes)
 	if err := writeReaderRunes(ctx, reader, writer); err != nil {
 		return chunkWriteSummary{}, err
 	}
@@ -73,7 +73,7 @@ func writePDFChunks(
 		return chunkWriteSummary{}, err
 	}
 	writer := newChunkWriter(documentID, store)
-	reader := bufio.NewReaderSize(strings.NewReader(text), datasourceV2ChunkTargetBytes)
+	reader := bufio.NewReaderSize(strings.NewReader(text), datasourceV2ChunkMaxBytes)
 	if err := writeReaderRunes(ctx, reader, writer); err != nil {
 		return chunkWriteSummary{}, err
 	}
@@ -118,14 +118,16 @@ func readTextRune(reader *bufio.Reader) (rune, bool, error) {
 }
 
 type chunkWriter struct {
-	documentID int64
-	store      datasourcev2store.Store
-	hash       hashWriter
-	builder    strings.Builder
-	chunkIndex int32
-	chunkBytes int32
-	chunkChars int32
-	totalChars int32
+	documentID  int64
+	store       datasourcev2store.Store
+	hash        hashWriter
+	builder     strings.Builder
+	chunkIndex  int32
+	chunkBytes  int32
+	chunkChars  int32
+	chunkTokens int32
+	totalChars  int32
+	asciiOpen   bool
 }
 
 type hashWriter interface {
@@ -147,10 +149,29 @@ func (w *chunkWriter) writeRune(ctx context.Context, r rune) error {
 	if w.chunkChars == math.MaxInt32 || w.totalChars == math.MaxInt32 {
 		return errDatasourceV2TextTooLarge
 	}
+	if w.shouldFlushBeforeRune(r) {
+		if err := w.flush(ctx); err != nil {
+			return err
+		}
+	}
+	if err := w.appendRune(r); err != nil {
+		return err
+	}
+	return w.flushIfFull(ctx)
+}
+
+func (w *chunkWriter) appendRune(r rune) error {
 	var encoded [utf8.UTFMax]byte
 	encodedBytes := utf8.EncodeRune(encoded[:], r)
 	if encodedBytes > math.MaxInt32-int(w.chunkBytes) {
 		return errDatasourceV2TextTooLarge
+	}
+	tokenStarted, asciiOpen := datasourceV2AdvanceChunkTokenState(r, w.asciiOpen)
+	if tokenStarted {
+		if w.chunkTokens == math.MaxInt32 {
+			return errDatasourceV2TextTooLarge
+		}
+		w.chunkTokens++
 	}
 	if _, err := w.hash.Write(encoded[:encodedBytes]); err != nil {
 		return err
@@ -158,10 +179,28 @@ func (w *chunkWriter) writeRune(ctx context.Context, r rune) error {
 	w.builder.WriteRune(r)
 	w.chunkBytes += int32(encodedBytes)
 	w.chunkChars++
-	if w.chunkBytes >= datasourceV2ChunkTargetBytes {
+	w.asciiOpen = asciiOpen
+	return nil
+}
+
+func (w *chunkWriter) flushIfFull(ctx context.Context) error {
+	if w.chunkBytes >= datasourceV2ChunkMaxBytes {
+		return w.flush(ctx)
+	}
+	if w.chunkTokens >= datasourceV2ChunkTargetTokens && !w.asciiOpen {
 		return w.flush(ctx)
 	}
 	return nil
+}
+
+func (w *chunkWriter) shouldFlushBeforeRune(r rune) bool {
+	if w.chunkChars == 0 || w.chunkTokens < datasourceV2ChunkTargetTokens {
+		return false
+	}
+	if w.asciiOpen {
+		return !isDatasourceV2ASCIITokenRune(r)
+	}
+	return true
 }
 
 // flush 将当前分块写入数据库并重置内存缓冲。
@@ -176,12 +215,21 @@ func (w *chunkWriter) flush(ctx context.Context) error {
 	if w.chunkIndex == math.MaxInt32 {
 		return errDatasourceV2TextTooLarge
 	}
+	content := w.builder.String()
+	embedding, tokenCount, err := datasourceV2ChunkEmbedding(content)
+	if err != nil {
+		return err
+	}
 	if err := w.store.InsertChunk(ctx, datasourcev2store.InsertChunkParams{
-		DocumentID: w.documentID,
-		ChunkIndex: w.chunkIndex,
-		Content:    w.builder.String(),
-		CharCount:  w.chunkChars,
-		ByteCount:  w.chunkBytes,
+		DocumentID:     w.documentID,
+		ChunkIndex:     w.chunkIndex,
+		Content:        content,
+		CharCount:      w.chunkChars,
+		ByteCount:      w.chunkBytes,
+		Embedding:      embedding,
+		EmbeddingModel: datasourceV2EmbeddingModel,
+		EmbeddingDim:   datasourceV2EmbeddingDimension,
+		TokenCount:     tokenCount,
 	}); err != nil {
 		return err
 	}
@@ -190,6 +238,8 @@ func (w *chunkWriter) flush(ctx context.Context) error {
 	w.builder.Reset()
 	w.chunkBytes = 0
 	w.chunkChars = 0
+	w.chunkTokens = 0
+	w.asciiOpen = false
 	return nil
 }
 

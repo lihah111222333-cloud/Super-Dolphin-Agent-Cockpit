@@ -120,7 +120,7 @@ type Querier interface {
 	// Used by RenewLeases / ExtendClaimForTurnProgress to fetch only the jobs
 	// owned by this scheduler instance, avoiding a full-table scan of cron_jobs.
 	ListCronJobsClaimedBy(ctx context.Context, arg ListCronJobsClaimedByParams) ([]CronJob, error)
-	ListDatasourceV2Chunks(ctx context.Context, arg ListDatasourceV2ChunksParams) ([]DatasourceV2TextChunk, error)
+	ListDatasourceV2Chunks(ctx context.Context, arg ListDatasourceV2ChunksParams) ([]ListDatasourceV2ChunksRow, error)
 	ListDatasourceV2Documents(ctx context.Context, arg ListDatasourceV2DocumentsParams) ([]DatasourceV2Document, error)
 	ListDefaultRuleSections(ctx context.Context, arg ListDefaultRuleSectionsParams) ([]ListDefaultRuleSectionsRow, error)
 	ListEnabledPromptRoutingTests(ctx context.Context) ([]PromptRoutingTest, error)
@@ -195,6 +195,7 @@ type Querier interface {
 	// hook_pending_review.sql - sqlc queries for hook_pending_reviews table.
 	// Migrated from internal/store/hookstore/hookstore.go raw SQL.
 	SaveHookPendingReview(ctx context.Context, arg SaveHookPendingReviewParams) error
+	SearchDatasourceV2ChunksByEmbedding(ctx context.Context, arg SearchDatasourceV2ChunksByEmbeddingParams) ([]SearchDatasourceV2ChunksByEmbeddingRow, error)
 	SetCronJobActiveTurn(ctx context.Context, arg SetCronJobActiveTurnParams) (int64, error)
 	SetCronJobEnabled(ctx context.Context, arg SetCronJobEnabledParams) error
 	SetCronJobRunTurn(ctx context.Context, arg SetCronJobRunTurnParams) (int64, error)

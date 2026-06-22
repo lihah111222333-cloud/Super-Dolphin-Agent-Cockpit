@@ -122,16 +122,6 @@ type DatasourceV2Document struct {
 	UpdatedAt    int64   `db:"updated_at" json:"updated_at"`
 }
 
-type DatasourceV2TextChunk struct {
-	ID         int64  `db:"id" json:"id"`
-	DocumentID int64  `db:"document_id" json:"document_id"`
-	ChunkIndex int32  `db:"chunk_index" json:"chunk_index"`
-	Content    string `db:"content" json:"content"`
-	CharCount  int32  `db:"char_count" json:"char_count"`
-	ByteCount  int32  `db:"byte_count" json:"byte_count"`
-	CreatedAt  int64  `db:"created_at" json:"created_at"`
-}
-
 type PromptRoutingTest struct {
 	ID                int64  `db:"id" json:"id"`
 	Input             string `db:"input" json:"input"`
