@@ -366,7 +366,7 @@ type stubAutomationCmdRunner struct {
 	stdout string
 }
 
-func (s stubAutomationCmdRunner) RunCommandCard(_ context.Context, card nodeexec.AutomationCommandCard, _ json.RawMessage) (nodeexec.AutomationCommandResult, error) {
+func (s stubAutomationCmdRunner) RunCommandCard(_ context.Context, card nodeexec.AutomationCommandCard, _ json.RawMessage, _ ...nodeexec.AutomationCommandRunOptions) (nodeexec.AutomationCommandResult, error) {
 	return nodeexec.AutomationCommandResult{
 		CardKey:  card.CardKey,
 		Stdout:   s.stdout,

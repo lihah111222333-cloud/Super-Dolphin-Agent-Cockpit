@@ -59,6 +59,12 @@ func defineTool(name, description string, schema Schema, handler ToolHandler) To
 	}
 }
 
+func defineGovernedTool(name, description string, schema Schema, handler ToolHandler, metadata ToolMetadata) ToolDefinition {
+	def := defineTool(name, description, schema, handler)
+	def.Metadata = metadata
+	return def
+}
+
 func buildToolDefinitions(defs ...ToolDefinition) []ToolDefinition {
 	return defs
 }
