@@ -38,11 +38,11 @@ func orchestrationToolDefinitions(svc contract.OrchestrationService) []ToolDefin
 			"pos":      StringSchema("Flattened agent locator, e.g. agent:<agent_id>. Preferred over legacy agent_id."),
 			"agent_id": StringSchema("Target orchestration agent ID."),
 		}), HandleStopAgent(svc)),
-		defineTool("list_agents", "List orchestration agents and current runtime snapshots. Defaults to active agents only and omits report bodies; use get_agent_report for full reports.", ObjectSchema(map[string]Schema{
+		defineTool("list_agents", "List orchestration agents and current runtime snapshots. Defaults to active agents only and omits report bodies; use get_agent_report for one agent or get_agent_reports for multiple reports.", ObjectSchema(map[string]Schema{
 			"state":            StringSchema("Optional state filter, e.g. idle, turn_running, stopped. Comma-separated values are accepted."),
 			"cwd":              StringSchema("Optional absolute cwd filter. When trusted tool-call scope includes _cwd, list_agents defaults to that trusted _cwd and uses it instead of this argument."),
 			"include_inactive": BooleanSchema("Include stopped/failed historical agents. Defaults to false."),
-			"include_reports":  BooleanSchema("Include last_report bodies in list output. Defaults to false; prefer get_agent_report."),
+			"include_reports":  BooleanSchema("Include last_report bodies in list output. Defaults to false; use get_agent_report for one target or get_agent_reports for multiple targets."),
 			"limit":            IntegerSchema("Maximum number of agents to return after filtering. 0 means no explicit limit."),
 			"envelope":         BooleanSchema("When true, return {agents,data,total,showing,truncated,hint}; default false keeps the legacy array response."),
 		}), HandleListAgents(svc)),
