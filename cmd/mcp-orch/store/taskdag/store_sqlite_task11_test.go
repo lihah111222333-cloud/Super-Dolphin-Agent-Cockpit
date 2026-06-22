@@ -116,6 +116,37 @@ func TestSQLiteTaskDAGCompleteDownstreamAndFinalizeRun(t *testing.T) {
 	}
 }
 
+func TestSQLiteTaskDAGFinalizeRunWritesFinalOutputMetadata(t *testing.T) {
+	ctx := context.Background()
+	db := openTaskDAGSQLiteDB(t)
+	store := NewStore(db).(*store)
+	seedSQLiteFinalOutputTemplate(t, ctx, store, "dag-final")
+	runID := insertSQLiteTaskDAGRun(t, ctx, db, "run-final", "dag-final", `{"request_id":"req-1"}`)
+	cloneAndPromoteSQLiteRun(t, ctx, store, "dag-final", runID)
+
+	if _, err := store.CompleteNodeAndScheduleDownstream(ctx, CompleteNodeInput{DagKey: "dag-final", NodeKey: "root", RunID: runID, Status: "done", Result: []byte(`{"root":true}`)}); err != nil {
+		t.Fatalf("CompleteNodeAndScheduleDownstream(root) error = %v", err)
+	}
+	result, err := store.CompleteNodeAndScheduleDownstream(ctx, CompleteNodeInput{
+		DagKey:  "dag-final",
+		NodeKey: "child",
+		RunID:   runID,
+		Status:  "done",
+		Result:  []byte(`{"sharedfile":{"path":"reports/final.md"}}`),
+	})
+	if err != nil {
+		t.Fatalf("CompleteNodeAndScheduleDownstream(child) error = %v", err)
+	}
+	if result.FinalizedRun == nil || result.FinalizedRun.Status != "succeeded" {
+		t.Fatalf("FinalizedRun = %#v, want succeeded", result.FinalizedRun)
+	}
+	persisted, err := store.GetRun(ctx, "run-final")
+	if err != nil {
+		t.Fatalf("GetRun() error = %v", err)
+	}
+	assertSQLiteFinalOutputMetadata(t, persisted.Metadata)
+}
+
 func TestSQLiteTaskDAGFailCascadeFinalizesRun(t *testing.T) {
 	ctx := context.Background()
 	db := openTaskDAGSQLiteDB(t)
@@ -308,6 +339,43 @@ func seedSQLiteCascadeTemplate(t *testing.T, ctx context.Context, store *store, 
 	seedSQLiteFlowTemplate(t, ctx, store, dagKey)
 	if _, err := store.UpsertNode(ctx, Node{DagKey: dagKey, NodeKey: "leaf", Title: "leaf", NodeType: "agent", DependsOn: []byte(`["child"]`), Config: []byte(`{"node":"leaf"}`)}); err != nil {
 		t.Fatalf("UpsertNode(leaf) error = %v", err)
+	}
+}
+
+func seedSQLiteFinalOutputTemplate(t *testing.T, ctx context.Context, store *store, dagKey string) {
+	t.Helper()
+	if _, err := store.UpsertDAG(ctx, DAG{DagKey: dagKey, Title: "flow", Status: "draft", CreatedBy: "tester", Metadata: []byte(`{"final_node_key":"child"}`)}); err != nil {
+		t.Fatalf("UpsertDAG(%s) error = %v", dagKey, err)
+	}
+	if _, err := store.UpsertNode(ctx, Node{DagKey: dagKey, NodeKey: "root", Title: "Root", NodeType: "agent", DependsOn: []byte(`[]`), Config: []byte(`{"node":"root"}`)}); err != nil {
+		t.Fatalf("UpsertNode(root) error = %v", err)
+	}
+	if _, err := store.UpsertNode(ctx, Node{DagKey: dagKey, NodeKey: "child", Title: "Child", NodeType: "agent", DependsOn: []byte(`["root"]`), Config: []byte(`{"node":"child"}`)}); err != nil {
+		t.Fatalf("UpsertNode(child) error = %v", err)
+	}
+}
+
+func assertSQLiteFinalOutputMetadata(t *testing.T, metadata json.RawMessage) {
+	t.Helper()
+	var got map[string]any
+	if err := json.Unmarshal(metadata, &got); err != nil {
+		t.Fatalf("run metadata is not JSON: %v; raw=%s", err, metadata)
+	}
+	if got["request_id"] != "req-1" {
+		t.Fatalf("metadata.request_id = %v, want req-1; metadata=%v", got["request_id"], got)
+	}
+	rawFinal, ok := got["final_output"].(map[string]any)
+	if !ok {
+		t.Fatalf("metadata.final_output = %T, want object; metadata=%v", got["final_output"], got)
+	}
+	if rawFinal["kind"] != "file" || rawFinal["role"] != "final_output" || rawFinal["source_node_key"] != "child" {
+		t.Fatalf("final_output identity = %v, want file final_output child", rawFinal)
+	}
+	if rawFinal["path"] != "reports/final.md" {
+		t.Fatalf("final_output.path = %v, want reports/final.md", rawFinal["path"])
+	}
+	if _, ok := rawFinal["result"]; ok {
+		t.Fatalf("file final_output must not duplicate node result: %v", rawFinal)
 	}
 }
 
