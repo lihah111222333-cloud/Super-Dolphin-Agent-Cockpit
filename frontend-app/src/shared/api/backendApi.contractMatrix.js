@@ -119,6 +119,8 @@ export const RPC_CONTRACT_REGISTRY = Object.freeze({
   WORKFLOW_TEMPLATES_LIST: contract('WORKFLOW_TEMPLATES_LIST', 'listWorkflowTemplates', 'P1', 'workflowTemplates', [TESTS.API, TESTS.WORKFLOWS], ['template catalog read']),
   WORKFLOW_TEMPLATES_GET: contract('WORKFLOW_TEMPLATES_GET', 'getWorkflowTemplate', 'P1', 'workflowTemplates', [TESTS.API, TESTS.WORKFLOWS], ['template detail read']),
   WORKFLOW_TEMPLATES_RENDER_DAG: contract('WORKFLOW_TEMPLATES_RENDER_DAG', 'renderWorkflowTemplateDraft', 'P1', 'workflowTemplates', [TESTS.API, TESTS.WORKFLOWS], ['template draft render']),
+  WORKFLOW_TEMPLATES_SAVE: contract('WORKFLOW_TEMPLATES_SAVE', 'saveWorkflowTemplate', 'P0', 'workflowTemplates', [TESTS.API, TESTS.WORKFLOWS], ['template version mutation']),
+  WORKFLOW_TEMPLATES_ROLLBACK: contract('WORKFLOW_TEMPLATES_ROLLBACK', 'rollbackWorkflowTemplate', 'P0', 'workflowTemplates', [TESTS.API, TESTS.WORKFLOWS], ['template active version mutation']),
 
   CRONJOB_LIST: contract('CRONJOB_LIST', 'listCronJobs', 'P1', 'cronjob', [TESTS.API], ['schedule read']),
   CRONJOB_GET: contract('CRONJOB_GET', 'getCronJob', 'P1', 'cronjob', [TESTS.API], ['schedule read']),

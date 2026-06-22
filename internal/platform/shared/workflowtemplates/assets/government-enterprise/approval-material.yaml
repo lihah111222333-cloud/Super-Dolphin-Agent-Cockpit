@@ -13,6 +13,16 @@ tags: [政企, 审批, 材料, 归档]
 estimated_nodes: 5
 requires_review: true
 supports_schedule: false
+trust:
+  level: builtin
+  source: super-dolphin
+compatibility:
+  runtime: dag-v2
+  node_types: [agent]
+  required_capabilities:
+    - workflow.node.agent
+    - workflow.output.sharedfile
+    - workflow.final_output
 ui_schema:
   - key: title
     type: text
