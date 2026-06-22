@@ -127,6 +127,26 @@ type TerminateDAGRequest struct {
 	Reason string `json:"reason,omitempty"`
 }
 
+// WorkflowRecoveryAction 描述工作台可以展示或触发的受控恢复动作。
+// Enabled=false 时仅用于说明能力缺口或策略阻断，前端不能直接执行。
+type WorkflowRecoveryAction struct {
+	Action  string `json:"action"`
+	Label   string `json:"label,omitempty"`
+	Enabled bool   `json:"enabled"`
+	Reason  string `json:"reason,omitempty"`
+	Policy  string `json:"policy,omitempty"`
+}
+
+// WorkflowArtifactLink 是运行或节点摘要里暴露的轻量产物引用。
+// 这里只放可展示/跳转字段，不承诺文件内容已物化。
+type WorkflowArtifactLink struct {
+	Kind    string `json:"kind,omitempty"`
+	Label   string `json:"label,omitempty"`
+	Path    string `json:"path,omitempty"`
+	URL     string `json:"url,omitempty"`
+	NodeKey string `json:"node_key,omitempty"`
+}
+
 type DeleteDAGRequest struct {
 	DagKey string `json:"dag_key"`
 }
@@ -439,20 +459,25 @@ type GetRunResponse struct {
 // internal mcp-orch store package, so the same shape is declared here. Service
 // layer's dagRunDTO helper is responsible for the conversion.
 type Run struct {
-	ID                 int64           `json:"id"`
-	RunKey             string          `json:"run_key"`
-	DagKey             string          `json:"dag_key"`
-	DagVersionSnapshot int64           `json:"dag_version_snapshot"`
-	TriggerSource      string          `json:"trigger_source,omitempty"`
-	Status             string          `json:"status"`
-	StartedAt          time.Time       `json:"started_at"`
-	FinishedAt         *time.Time      `json:"finished_at,omitempty"`
-	Events             json.RawMessage `json:"events,omitempty"`
-	BudgetUsed         int64           `json:"budget_used"`
-	BudgetLimit        *int64          `json:"budget_limit,omitempty"`
-	Metadata           json.RawMessage `json:"metadata,omitempty"`
-	CreatedAt          time.Time       `json:"created_at"`
-	UpdatedAt          time.Time       `json:"updated_at"`
+	ID                 int64                    `json:"id"`
+	RunKey             string                   `json:"run_key"`
+	DagKey             string                   `json:"dag_key"`
+	DagVersionSnapshot int64                    `json:"dag_version_snapshot"`
+	TriggerSource      string                   `json:"trigger_source,omitempty"`
+	Status             string                   `json:"status"`
+	StartedAt          time.Time                `json:"started_at"`
+	FinishedAt         *time.Time               `json:"finished_at,omitempty"`
+	Events             json.RawMessage          `json:"events,omitempty"`
+	BudgetUsed         int64                    `json:"budget_used"`
+	BudgetLimit        *int64                   `json:"budget_limit,omitempty"`
+	Metadata           json.RawMessage          `json:"metadata,omitempty"`
+	CreatedAt          time.Time                `json:"created_at"`
+	UpdatedAt          time.Time                `json:"updated_at"`
+	DerivedState       string                   `json:"derived_state,omitempty"`
+	BlockedReason      string                   `json:"blocked_reason,omitempty"`
+	NextAction         string                   `json:"next_action,omitempty"`
+	ArtifactCount      int                      `json:"artifact_count,omitempty"`
+	RecoveryActions    []WorkflowRecoveryAction `json:"recovery_actions,omitempty"`
 }
 
 type FinalOutputFileRef struct {
@@ -548,7 +573,12 @@ type DAGNode struct {
 	// SpawningThreadID — DAG v2 F1.5 / ADR-009：AgentExecutor spawn 出的最近一
 	// 次 child agent thread id（软关联）；UI 用它拼「节点行 → 子 agent thread」
 	// 跳转链接，不再解析 result jsonb。NULL 表示未 spawn / 本节点非 agent。
-	SpawningThreadID *string `json:"spawning_thread_id,omitempty"`
+	SpawningThreadID *string                `json:"spawning_thread_id,omitempty"`
+	Executor         string                 `json:"executor,omitempty"`
+	FailureClass     string                 `json:"failure_class,omitempty"`
+	LastWakeupAt     *time.Time             `json:"last_wakeup_at,omitempty"`
+	ArtifactLinks    []WorkflowArtifactLink `json:"artifact_links,omitempty"`
+	NextAction       string                 `json:"next_action,omitempty"`
 }
 
 type DAGDetail struct {

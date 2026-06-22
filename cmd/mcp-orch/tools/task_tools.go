@@ -24,6 +24,7 @@ var (
 	listRunsStatusEnum   = []string{"running", "succeeded", "failed", "cancelled"}
 	startDAGTriggerEnum  = []string{"manual", "auto", "scheduled", "external"}
 	updateNodeStatusEnum = []string{"pending", "running", "done", "failed"}
+	recoveryActionEnum   = []string{"cancel_with_cleanup", "retry_failed_node"}
 )
 
 type CreateDAGInput struct {
@@ -307,7 +308,7 @@ func HandleListRuns(svc contract.OrchestrationService) ToolHandler {
 		if err != nil {
 			return nil, err
 		}
-		return newListRunsOutput(resp.Runs, int(req.Limit)), nil
+		return newListRunsOutput(enrichWorkflowRuns(resp.Runs, nil), int(req.Limit)), nil
 	})
 }
 

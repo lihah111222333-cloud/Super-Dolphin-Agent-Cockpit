@@ -113,10 +113,36 @@ func taskToolDefinitions(svc contract.OrchestrationService) []ToolDefinition {
 			"status":  EnumStringSchema("Optional status filter.", listRunsStatusEnum...),
 			"limit":   IntegerSchema("Optional max rows; defaults to 50 when 0/omitted."),
 		}), HandleListRuns(svc), "workflow.run.list", "workflow.runtime.read"),
+		workflowDiagnosticsToolDefinition(svc),
+		workflowRecoveryActionToolDefinition(svc),
 		defineTaskReadTool("task_diagnose_dag_prompt_identity_gaps", "Read-only diagnostic for historical DAG nodes missing prompt_key/agent_key or hybrid verifier provider/Codex identity. It never rewrites DAGs; use task_dag_apply_ops for explicit rebind or recreate the DAG.", ObjectSchema(map[string]Schema{
 			"pos":     StringSchema("Optional flattened DAG locator, e.g. dag:<dag_key>. Omit to scan recent DAGs."),
 			"dag_key": StringSchema("Optional DAG key to diagnose. Omit to scan recent DAGs."),
 			"limit":   IntegerSchema("Optional DAG scan limit when dag_key is omitted."),
 		}), HandleDiagnoseDAGPromptIdentityGaps(svc), "workflow.dag.diagnose_identity", "workflow.definition.read"),
 	)
+}
+
+func workflowDiagnosticsToolDefinition(svc contract.OrchestrationService) ToolDefinition {
+	return defineTaskReadTool("task_workflow_diagnostics", "Lookup compact workflow diagnostics by trace_id, run_key, run_id, node_key, or child_thread_id. Returns derived run summaries and matching runtime nodes only.", ObjectSchema(map[string]Schema{
+		"pos":             StringSchema("Optional flattened run locator, e.g. dag:<dag_key>/run:<run_key>."),
+		"trace_id":        StringSchema("Trace id to find in run events/metadata or node config/result."),
+		"run_key":         StringSchema("Exact run key."),
+		"run_id":          IntegerSchema("Runtime run id."),
+		"node_key":        StringSchema("Runtime node key."),
+		"child_thread_id": StringSchema("Child agent thread id spawned by a DAG node."),
+		"limit":           IntegerSchema("Max diagnostic rows when scanning recent DAGs."),
+	}), HandleWorkflowDiagnostics(svc), "workflow.diagnostics.query", "workflow.runtime.read")
+}
+
+func workflowRecoveryActionToolDefinition(svc contract.OrchestrationService) ToolDefinition {
+	return defineTaskWriteTool("task_workflow_recovery_action", "Run a controlled workflow recovery action. cancel_with_cleanup is wired to task_terminate_dag; retry_failed_node is validated but blocked until the runtime reset/retry contract exists.", ObjectSchema(map[string]Schema{
+		"pos":      StringSchema("Optional flattened run locator, e.g. dag:<dag_key>/run:<run_key>."),
+		"action":   EnumStringSchema("Recovery action.", recoveryActionEnum...),
+		"dag_key":  StringSchema("DAG key for cancellation fence."),
+		"run_key":  StringSchema("Run key for cancel_with_cleanup."),
+		"run_id":   IntegerSchema("Run id for retry_failed_node."),
+		"node_key": StringSchema("Node key for retry_failed_node."),
+		"reason":   StringSchema("Optional user-visible reason."),
+	}, "action"), HandleWorkflowRecoveryAction(svc), "workflow.recovery.action", ToolIdempotencyRecommended, "workflow.runtime.write")
 }
