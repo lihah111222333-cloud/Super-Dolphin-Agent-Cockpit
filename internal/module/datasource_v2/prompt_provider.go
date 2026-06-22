@@ -3,14 +3,13 @@ package datasourcev2
 import (
 	"context"
 	"errors"
-	"sort"
+	"fmt"
 	"strings"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
-	datasourcev2store "github.com/anthropic-ai/super-agent-v3/internal/store/datasourcev2"
 )
 
-const datasourceV2PromptDocumentLimit = 100
+const datasourceV2PromptChunkLimit = 10
 
 var _ contract.DynamicSectionProvider = (*PromptProvider)(nil)
 
@@ -29,95 +28,77 @@ func (p *PromptProvider) SectionName() string {
 	return contract.DynamicSectionDatasource
 }
 
-// Resolve 读取 datasource_v2 的 ready 文档和分块正文，渲染到聊天 system prompt。
-// 读取失败会作为 critical prompt section error 返回，避免聊天静默丢失数据源上下文。
-func (p *PromptProvider) Resolve(ctx context.Context, _ contract.SectionContext) (*string, error) {
+// Resolve 根据当前 chat 请求做语义检索，并把排序前 10 个 datasource_v2 分块渲染到 prompt。
+// 搜索链路失败会作为 critical prompt section error 返回，避免聊天静默丢失数据源上下文。
+func (p *PromptProvider) Resolve(ctx context.Context, input contract.SectionContext) (*string, error) {
 	if p == nil || p.svc == nil {
 		err := errors.New("datasource v2 service is not configured")
 		return nil, contract.NewCriticalPromptSectionError(contract.DynamicSectionDatasource, err)
 	}
-	documents, err := p.svc.ListDocuments(ctx, ListDocumentsRequest{
-		Keyword: datasourcev2store.StatusReady,
-		Limit:   datasourceV2PromptDocumentLimit,
+	query := datasourceV2PromptQuery(input)
+	if query == "" {
+		return nil, nil
+	}
+	result, err := p.svc.SearchRelevantChunks(ctx, SearchRelevantChunksRequest{
+		Query: query,
+		Limit: datasourceV2PromptChunkLimit,
 	})
 	if err != nil {
 		return nil, contract.NewCriticalPromptSectionError(contract.DynamicSectionDatasource, err)
 	}
-	items, err := p.resolvePromptDocuments(ctx, documents.Documents)
-	if err != nil {
-		return nil, contract.NewCriticalPromptSectionError(contract.DynamicSectionDatasource, err)
-	}
-	text := renderDatasourceV2PromptSection(items)
+	text := renderDatasourceV2PromptSection(result.Chunks)
 	if text == "" {
 		return nil, nil
 	}
 	return &text, nil
 }
 
-type datasourceV2PromptDocument struct {
-	name    string
-	content string
+func datasourceV2PromptQuery(input contract.SectionContext) string {
+	if input.Turn != nil {
+		return strings.TrimSpace(input.Turn.UserText)
+	}
+	if input.Start != nil {
+		return strings.TrimSpace(input.Start.Prompt)
+	}
+	return ""
 }
 
-func (p *PromptProvider) resolvePromptDocuments(
-	ctx context.Context,
-	documents []DocumentResult,
-) ([]datasourceV2PromptDocument, error) {
-	items := make([]datasourceV2PromptDocument, 0, len(documents))
-	for _, document := range documents {
-		if document.Status != datasourcev2store.StatusReady || document.DocumentID <= 0 {
-			continue
-		}
-		detail, err := p.svc.GetDocument(ctx, GetDocumentRequest{DocumentID: document.DocumentID})
-		if err != nil {
-			return nil, err
-		}
-		if item, ok := datasourceV2PromptDocumentFromDetail(detail); ok {
-			items = append(items, item)
-		}
-	}
-	sort.SliceStable(items, func(i, j int) bool {
-		return items[i].name < items[j].name
-	})
-	return items, nil
-}
-
-func datasourceV2PromptDocumentFromDetail(detail GetDocumentResult) (datasourceV2PromptDocument, bool) {
-	if detail.Document.Status != datasourcev2store.StatusReady {
-		return datasourceV2PromptDocument{}, false
-	}
-	name := strings.TrimSpace(detail.Document.FileName)
-	content := datasourceV2PromptChunksText(detail.Chunks)
-	if name == "" || content == "" {
-		return datasourceV2PromptDocument{}, false
-	}
-	return datasourceV2PromptDocument{name: name, content: content}, true
-}
-
-func datasourceV2PromptChunksText(chunks []TextChunkResult) string {
-	var builder strings.Builder
-	for _, chunk := range chunks {
-		builder.WriteString(chunk.Content)
-	}
-	return strings.TrimSpace(builder.String())
-}
-
-func renderDatasourceV2PromptSection(documents []datasourceV2PromptDocument) string {
-	if len(documents) == 0 {
+func renderDatasourceV2PromptSection(chunks []SemanticChunkResult) string {
+	if len(chunks) == 0 {
 		return ""
 	}
-	lines := make([]string, 0, len(documents)*4+3)
+	lines := make([]string, 0, len(chunks)*4+3)
 	lines = append(lines,
 		"## "+contract.DynamicSectionDatasource,
 		"",
-		"Uploaded datasource_v2 file contents available in this workspace.",
+		"Uploaded datasource_v2 semantic matches for the current chat request. Chunks are ordered by semantic similarity.",
 	)
-	for _, document := range documents {
+	rank := 0
+	for _, chunk := range chunks {
+		content := strings.TrimSpace(chunk.Content)
+		if content == "" {
+			continue
+		}
+		rank++
 		lines = append(lines,
 			"",
-			"### "+document.name,
-			document.content,
+			datasourceV2PromptChunkTitle(rank, chunk),
+			content,
 		)
 	}
+	if rank == 0 {
+		return ""
+	}
 	return strings.Join(lines, "\n")
+}
+
+func datasourceV2PromptChunkTitle(rank int, chunk SemanticChunkResult) string {
+	name := strings.TrimSpace(chunk.FileName)
+	if name == "" {
+		name = strings.TrimSpace(chunk.SourcePath)
+	}
+	if name == "" {
+		name = fmt.Sprintf("document %d", chunk.DocumentID)
+	}
+	return fmt.Sprintf("### %d. %s [chunk %d]", rank, name, chunk.ChunkIndex)
 }

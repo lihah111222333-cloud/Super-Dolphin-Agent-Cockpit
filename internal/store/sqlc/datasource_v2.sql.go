@@ -79,23 +79,35 @@ INSERT INTO datasource_v2_text_chunks (
     chunk_index,
     content,
     char_count,
-    byte_count
+    byte_count,
+    embedding,
+    embedding_model,
+    embedding_dim,
+    token_count
 )
 VALUES (
     ?1,
     ?2,
     ?3,
     ?4,
-    ?5
+    ?5,
+    ?6,
+    ?7,
+    ?8,
+    ?9
 )
 `
 
 type InsertDatasourceV2ChunkParams struct {
-	DocumentID int64  `db:"document_id" json:"document_id"`
-	ChunkIndex int32  `db:"chunk_index" json:"chunk_index"`
-	Content    string `db:"content" json:"content"`
-	CharCount  int32  `db:"char_count" json:"char_count"`
-	ByteCount  int32  `db:"byte_count" json:"byte_count"`
+	DocumentID     int64  `db:"document_id" json:"document_id"`
+	ChunkIndex     int32  `db:"chunk_index" json:"chunk_index"`
+	Content        string `db:"content" json:"content"`
+	CharCount      int32  `db:"char_count" json:"char_count"`
+	ByteCount      int32  `db:"byte_count" json:"byte_count"`
+	Embedding      []byte `db:"embedding" json:"embedding"`
+	EmbeddingModel string `db:"embedding_model" json:"embedding_model"`
+	EmbeddingDim   int32  `db:"embedding_dim" json:"embedding_dim"`
+	TokenCount     int32  `db:"token_count" json:"token_count"`
 }
 
 func (q *Queries) InsertDatasourceV2Chunk(ctx context.Context, arg InsertDatasourceV2ChunkParams) error {
@@ -105,12 +117,16 @@ func (q *Queries) InsertDatasourceV2Chunk(ctx context.Context, arg InsertDatasou
 		arg.Content,
 		arg.CharCount,
 		arg.ByteCount,
+		arg.Embedding,
+		arg.EmbeddingModel,
+		arg.EmbeddingDim,
+		arg.TokenCount,
 	)
 	return err
 }
 
 const listDatasourceV2Chunks = `-- name: ListDatasourceV2Chunks :many
-SELECT id, document_id, chunk_index, content, char_count, byte_count, created_at
+SELECT id, document_id, chunk_index, content, char_count, byte_count, embedding, embedding_model, embedding_dim, token_count, created_at
 FROM datasource_v2_text_chunks
 WHERE document_id = ?1
 ORDER BY chunk_index ASC
@@ -120,15 +136,29 @@ type ListDatasourceV2ChunksParams struct {
 	DocumentID int64 `db:"document_id" json:"document_id"`
 }
 
-func (q *Queries) ListDatasourceV2Chunks(ctx context.Context, arg ListDatasourceV2ChunksParams) ([]DatasourceV2TextChunk, error) {
+type ListDatasourceV2ChunksRow struct {
+	ID             int64  `db:"id" json:"id"`
+	DocumentID     int64  `db:"document_id" json:"document_id"`
+	ChunkIndex     int32  `db:"chunk_index" json:"chunk_index"`
+	Content        string `db:"content" json:"content"`
+	CharCount      int32  `db:"char_count" json:"char_count"`
+	ByteCount      int32  `db:"byte_count" json:"byte_count"`
+	Embedding      []byte `db:"embedding" json:"embedding"`
+	EmbeddingModel string `db:"embedding_model" json:"embedding_model"`
+	EmbeddingDim   int32  `db:"embedding_dim" json:"embedding_dim"`
+	TokenCount     int32  `db:"token_count" json:"token_count"`
+	CreatedAt      int64  `db:"created_at" json:"created_at"`
+}
+
+func (q *Queries) ListDatasourceV2Chunks(ctx context.Context, arg ListDatasourceV2ChunksParams) ([]ListDatasourceV2ChunksRow, error) {
 	rows, err := q.db.QueryContext(ctx, listDatasourceV2Chunks, arg.DocumentID)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	items := []DatasourceV2TextChunk{}
+	items := []ListDatasourceV2ChunksRow{}
 	for rows.Next() {
-		var i DatasourceV2TextChunk
+		var i ListDatasourceV2ChunksRow
 		if err := rows.Scan(
 			&i.ID,
 			&i.DocumentID,
@@ -136,6 +166,10 @@ func (q *Queries) ListDatasourceV2Chunks(ctx context.Context, arg ListDatasource
 			&i.Content,
 			&i.CharCount,
 			&i.ByteCount,
+			&i.Embedding,
+			&i.EmbeddingModel,
+			&i.EmbeddingDim,
+			&i.TokenCount,
 			&i.CreatedAt,
 		); err != nil {
 			return nil, err
@@ -247,6 +281,100 @@ func (q *Queries) MarkDatasourceV2DocumentReady(ctx context.Context, arg MarkDat
 		&i.UpdatedAt,
 	)
 	return i, err
+}
+
+const searchDatasourceV2ChunksByEmbedding = `-- name: SearchDatasourceV2ChunksByEmbedding :many
+SELECT
+    c.id,
+    c.document_id,
+    c.chunk_index,
+    c.content,
+    c.char_count,
+    c.byte_count,
+    c.embedding,
+    c.embedding_model,
+    c.embedding_dim,
+    c.token_count,
+    c.created_at,
+    d.source_path,
+    d.file_name,
+    CAST(vec_distance_cosine(c.embedding, ?1) AS REAL) AS distance
+FROM datasource_v2_text_chunks AS c
+JOIN datasource_v2_documents AS d ON d.id = c.document_id
+WHERE d.status = 'ready'
+  AND c.embedding IS NOT NULL
+  AND c.embedding_model = ?2
+  AND c.embedding_dim = ?3
+  AND c.token_count > 0
+ORDER BY distance ASC, c.document_id ASC, c.chunk_index ASC
+LIMIT ?4
+`
+
+type SearchDatasourceV2ChunksByEmbeddingParams struct {
+	Embedding      interface{} `db:"embedding" json:"embedding"`
+	EmbeddingModel string      `db:"embedding_model" json:"embedding_model"`
+	EmbeddingDim   int32       `db:"embedding_dim" json:"embedding_dim"`
+	Limit          int64       `db:"limit" json:"limit"`
+}
+
+type SearchDatasourceV2ChunksByEmbeddingRow struct {
+	ID             int64   `db:"id" json:"id"`
+	DocumentID     int64   `db:"document_id" json:"document_id"`
+	ChunkIndex     int32   `db:"chunk_index" json:"chunk_index"`
+	Content        string  `db:"content" json:"content"`
+	CharCount      int32   `db:"char_count" json:"char_count"`
+	ByteCount      int32   `db:"byte_count" json:"byte_count"`
+	Embedding      []byte  `db:"embedding" json:"embedding"`
+	EmbeddingModel string  `db:"embedding_model" json:"embedding_model"`
+	EmbeddingDim   int32   `db:"embedding_dim" json:"embedding_dim"`
+	TokenCount     int32   `db:"token_count" json:"token_count"`
+	CreatedAt      int64   `db:"created_at" json:"created_at"`
+	SourcePath     string  `db:"source_path" json:"source_path"`
+	FileName       string  `db:"file_name" json:"file_name"`
+	Distance       float64 `db:"distance" json:"distance"`
+}
+
+func (q *Queries) SearchDatasourceV2ChunksByEmbedding(ctx context.Context, arg SearchDatasourceV2ChunksByEmbeddingParams) ([]SearchDatasourceV2ChunksByEmbeddingRow, error) {
+	rows, err := q.db.QueryContext(ctx, searchDatasourceV2ChunksByEmbedding,
+		arg.Embedding,
+		arg.EmbeddingModel,
+		arg.EmbeddingDim,
+		arg.Limit,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []SearchDatasourceV2ChunksByEmbeddingRow{}
+	for rows.Next() {
+		var i SearchDatasourceV2ChunksByEmbeddingRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.DocumentID,
+			&i.ChunkIndex,
+			&i.Content,
+			&i.CharCount,
+			&i.ByteCount,
+			&i.Embedding,
+			&i.EmbeddingModel,
+			&i.EmbeddingDim,
+			&i.TokenCount,
+			&i.CreatedAt,
+			&i.SourcePath,
+			&i.FileName,
+			&i.Distance,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const updateDatasourceV2DocumentMetadata = `-- name: UpdateDatasourceV2DocumentMetadata :one

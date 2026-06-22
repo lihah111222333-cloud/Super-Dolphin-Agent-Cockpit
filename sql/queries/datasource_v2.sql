@@ -45,14 +45,22 @@ INSERT INTO datasource_v2_text_chunks (
     chunk_index,
     content,
     char_count,
-    byte_count
+    byte_count,
+    embedding,
+    embedding_model,
+    embedding_dim,
+    token_count
 )
 VALUES (
     sqlc.arg(document_id),
     sqlc.arg(chunk_index),
     sqlc.arg(content),
     sqlc.arg(char_count),
-    sqlc.arg(byte_count)
+    sqlc.arg(byte_count),
+    sqlc.arg(embedding),
+    sqlc.arg(embedding_model),
+    sqlc.arg(embedding_dim),
+    sqlc.arg(token_count)
 );
 
 -- name: MarkDatasourceV2DocumentReady :one
@@ -84,10 +92,36 @@ FROM datasource_v2_documents
 WHERE id = sqlc.arg(id);
 
 -- name: ListDatasourceV2Chunks :many
-SELECT id, document_id, chunk_index, content, char_count, byte_count, created_at
+SELECT id, document_id, chunk_index, content, char_count, byte_count, embedding, embedding_model, embedding_dim, token_count, created_at
 FROM datasource_v2_text_chunks
 WHERE document_id = sqlc.arg(document_id)
 ORDER BY chunk_index ASC;
+
+-- name: SearchDatasourceV2ChunksByEmbedding :many
+SELECT
+    c.id,
+    c.document_id,
+    c.chunk_index,
+    c.content,
+    c.char_count,
+    c.byte_count,
+    c.embedding,
+    c.embedding_model,
+    c.embedding_dim,
+    c.token_count,
+    c.created_at,
+    d.source_path,
+    d.file_name,
+    CAST(vec_distance_cosine(c.embedding, sqlc.arg(embedding)) AS REAL) AS distance
+FROM datasource_v2_text_chunks AS c
+JOIN datasource_v2_documents AS d ON d.id = c.document_id
+WHERE d.status = 'ready'
+  AND c.embedding IS NOT NULL
+  AND c.embedding_model = sqlc.arg(embedding_model)
+  AND c.embedding_dim = sqlc.arg(embedding_dim)
+  AND c.token_count > 0
+ORDER BY distance ASC, c.document_id ASC, c.chunk_index ASC
+LIMIT sqlc.arg(limit);
 
 -- name: UpdateDatasourceV2DocumentMetadata :one
 UPDATE datasource_v2_documents

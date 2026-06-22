@@ -15,36 +15,42 @@ import (
 	datasourcev2store "github.com/anthropic-ai/super-agent-v3/internal/store/datasourcev2"
 )
 
-func TestPromptAssemblyIncludesDatasourceV2ReadyDocumentChunks(t *testing.T) {
+func TestPromptAssemblyIncludesDatasourceV2SemanticChunksForCurrentRequest(t *testing.T) {
 	t.Parallel()
 
 	store := &promptDatasourceV2Store{
-		document: datasourcev2store.Document{
-			ID:          101,
-			SourcePath:  "/tmp/launch-notes.txt",
-			FileName:    "launch-notes.txt",
-			Extension:   ".txt",
-			Status:      datasourcev2store.StatusReady,
-			ChunkCount:  2,
-			TotalChars:  44,
-			ContentHash: "sha256:abc",
-		},
-		chunks: []datasourcev2store.TextChunk{
+		semanticChunks: []datasourcev2store.SemanticChunk{
 			{
-				ID:         501,
-				DocumentID: 101,
-				ChunkIndex: 0,
-				Content:    "first datasource line\n",
-				CharCount:  22,
-				ByteCount:  22,
+				TextChunk: datasourcev2store.TextChunk{
+					ID:             501,
+					DocumentID:     101,
+					ChunkIndex:     7,
+					Content:        "semantic launch answer",
+					CharCount:      22,
+					ByteCount:      22,
+					EmbeddingModel: "local-token-hash-v1",
+					EmbeddingDim:   384,
+					TokenCount:     3,
+				},
+				SourcePath: "/tmp/launch-notes.txt",
+				FileName:   "launch-notes.txt",
+				Distance:   0.01,
 			},
 			{
-				ID:         502,
-				DocumentID: 101,
-				ChunkIndex: 1,
-				Content:    "second datasource line",
-				CharCount:  22,
-				ByteCount:  22,
+				TextChunk: datasourcev2store.TextChunk{
+					ID:             502,
+					DocumentID:     202,
+					ChunkIndex:     2,
+					Content:        "secondary rollout detail",
+					CharCount:      23,
+					ByteCount:      23,
+					EmbeddingModel: "local-token-hash-v1",
+					EmbeddingDim:   384,
+					TokenCount:     3,
+				},
+				SourcePath: "/tmp/rollout.txt",
+				FileName:   "rollout.txt",
+				Distance:   0.02,
 			},
 		},
 	}
@@ -60,15 +66,20 @@ func TestPromptAssemblyIncludesDatasourceV2ReadyDocumentChunks(t *testing.T) {
 	app.RequireStart()
 	t.Cleanup(app.RequireStop)
 
-	start, err := assembly.AssembleStart(context.Background(), contract.StartInput{CWD: t.TempDir()})
+	start, err := assembly.AssembleStart(context.Background(), contract.StartInput{
+		CWD:    t.TempDir(),
+		Prompt: "When is the semantic launch?",
+	})
 	if err != nil {
 		t.Fatalf("AssembleStart() error = %v", err)
 	}
 	content := promptSectionContent(start.ResolvedSections, contract.DynamicSectionDatasource)
 	for _, want := range []string{
 		"## " + contract.DynamicSectionDatasource,
-		"### launch-notes.txt",
-		"first datasource line\nsecond datasource line",
+		"### 1. launch-notes.txt [chunk 7]",
+		"semantic launch answer",
+		"### 2. rollout.txt [chunk 2]",
+		"secondary rollout detail",
 	} {
 		if !strings.Contains(content, want) {
 			t.Fatalf("datasource section missing %q:\n%s", want, content)
@@ -77,11 +88,19 @@ func TestPromptAssemblyIncludesDatasourceV2ReadyDocumentChunks(t *testing.T) {
 			t.Fatalf("BaseInstructions missing %q:\n%s", want, start.BaseInstructions)
 		}
 	}
+	if store.capturedSearch.Limit != 10 {
+		t.Fatalf("semantic datasource search limit = %d, want 10", store.capturedSearch.Limit)
+	}
+	if store.capturedSearch.EmbeddingModel != "local-token-hash-v1" ||
+		store.capturedSearch.EmbeddingDim != 384 ||
+		len(store.capturedSearch.Embedding) != 384*4 {
+		t.Fatalf("semantic datasource search vector params = %+v", store.capturedSearch)
+	}
 }
 
 type promptDatasourceV2Store struct {
-	document datasourcev2store.Document
-	chunks   []datasourcev2store.TextChunk
+	semanticChunks []datasourcev2store.SemanticChunk
+	capturedSearch datasourcev2store.SearchChunksParams
 }
 
 func (s *promptDatasourceV2Store) WithTx(context.Context, func(datasourcev2store.Store) error) error {
@@ -92,16 +111,23 @@ func (s *promptDatasourceV2Store) ListDocuments(
 	context.Context,
 	datasourcev2store.ListDocumentsParams,
 ) ([]datasourcev2store.Document, error) {
-	return []datasourcev2store.Document{s.document}, nil
+	return nil, errors.New("unexpected datasource_v2 prompt test list documents")
 }
 
 func (s *promptDatasourceV2Store) GetDocument(context.Context, int64) (*datasourcev2store.Document, error) {
-	doc := s.document
-	return &doc, nil
+	return nil, errors.New("unexpected datasource_v2 prompt test get document")
 }
 
 func (s *promptDatasourceV2Store) ListChunks(context.Context, int64) ([]datasourcev2store.TextChunk, error) {
-	return append([]datasourcev2store.TextChunk(nil), s.chunks...), nil
+	return nil, errors.New("unexpected datasource_v2 prompt test list chunks")
+}
+
+func (s *promptDatasourceV2Store) SearchChunks(
+	_ context.Context,
+	params datasourcev2store.SearchChunksParams,
+) ([]datasourcev2store.SemanticChunk, error) {
+	s.capturedSearch = params
+	return append([]datasourcev2store.SemanticChunk(nil), s.semanticChunks...), nil
 }
 
 func (s *promptDatasourceV2Store) UpsertImporting(

@@ -14,6 +14,7 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/securefs"
 
 	_ "modernc.org/sqlite"
+	_ "modernc.org/sqlite/vec"
 )
 
 const (
