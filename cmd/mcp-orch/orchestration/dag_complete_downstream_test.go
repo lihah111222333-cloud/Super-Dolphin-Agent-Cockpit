@@ -196,7 +196,7 @@ func TestUpdateNodeStatusNonDone_KeepsLegacyUpdate(t *testing.T) {
 }
 
 func TestUpdateNodeStatusFailed_RoutesLegalSourcesToFailCascade(t *testing.T) {
-	for _, fromStatus := range []string{"running", "retrying", "waiting_human"} {
+	for _, fromStatus := range []string{"running", "retrying"} {
 		fromStatus := fromStatus
 		t.Run(fromStatus, func(t *testing.T) {
 			stub := &stubNodeFlowStore{fromStatus: fromStatus}

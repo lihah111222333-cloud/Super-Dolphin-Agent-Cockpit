@@ -1,6 +1,7 @@
 package tools
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 
@@ -240,6 +241,47 @@ func TestUpdateNodeRequestFromInput_EnumValidation(t *testing.T) {
 			}
 			if req.RunID != tc.in.RunID {
 				t.Fatalf("run_id = %d, want %d", req.RunID, tc.in.RunID)
+			}
+		})
+	}
+}
+
+func TestApplyOpsRequestFromInputRejectsHybridAddNode(t *testing.T) {
+	cases := []struct {
+		name string
+		in   ApplyOpsInput
+	}{
+		{
+			name: "flat add_node",
+			in: ApplyOpsInput{
+				DagKey:      "dag-1",
+				BaseVersion: 3,
+				Action:      "add_node",
+				NodeKey:     "review",
+				Title:       "Review",
+				NodeType:    "hybrid",
+			},
+		},
+		{
+			name: "raw add_node",
+			in: ApplyOpsInput{
+				DagKey:      "dag-1",
+				BaseVersion: 3,
+				Ops:         json.RawMessage(`[{"op":"add_node","node":{"node_key":"review","title":"Review","node_type":"hybrid"}}]`),
+			},
+		},
+	}
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := applyOpsRequestFromInput(tc.in)
+			if err == nil {
+				t.Fatal("applyOpsRequestFromInput() error = nil, want hybrid node_type rejection")
+			}
+			for _, want := range []string{"node_type", "hybrid", "reserved"} {
+				if !strings.Contains(err.Error(), want) {
+					t.Fatalf("error = %q, want substring %q", err.Error(), want)
+				}
 			}
 		})
 	}

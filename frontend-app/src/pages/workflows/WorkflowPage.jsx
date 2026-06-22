@@ -271,6 +271,8 @@ const STARTABLE_DAG_TRIGGERS = new Set(['manual', 'scheduled', 'schedule', 'cron
 
 const RUNNING_RUN_STATUSES = new Set(['running', 'pending', 'dispatching', 'waiting_for_assignee']);
 
+const CONFIGURABLE_NODE_TYPES = new Set(['agent', 'automation']);
+
 const WORKFLOW_ACTION_TIMEOUT_MESSAGE = '自动化操作超时，请检查任务数据或后端状态。';
 
 /*
@@ -1400,7 +1402,7 @@ function workflowDerivedSnapshot({ activeDetailDag, activeRunKey, dagKey, detail
     baseVersion,
     blockingLoadError: messages.blockingLoadError,
     dagKey,
-    configurableNodes: detail.nodes.filter((node) => ['agent', 'automation', 'hybrid'].includes(textValue(node.nodeType).toLowerCase())),
+    configurableNodes: detail.nodes.filter((node) => CONFIGURABLE_NODE_TYPES.has(textValue(node.nodeType).toLowerCase())),
     deleteDisabledReason: activeRunKey ? '已有运行正在进行，请先停止运行后再删除。' : '',
     finalOutput,
     finalText,
