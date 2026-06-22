@@ -3,6 +3,7 @@ package orchestration
 import (
 	"context"
 	"errors"
+	"os"
 	"strings"
 	"testing"
 
@@ -141,9 +142,116 @@ func TestDAGSubscriber_ArtifactTargetRejectsNaturalLanguagePathFallback(t *testi
 	}
 }
 
+func TestDAGSubscriber_DocumentArtifactTargetGeneratesRealFiles(t *testing.T) {
+	tests := []struct {
+		name          string
+		pathTemplate  string
+		wantTarget    string
+		contentType   string
+		wantExtension string
+		assertBytes   func(*testing.T, []byte)
+	}{
+		{
+			name:          "docx",
+			pathTemplate:  "dag/gov/approval/{{run_id}}/final.docx",
+			wantTarget:    "dag/gov/approval/44/final.docx",
+			contentType:   "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+			wantExtension: ".docx",
+			assertBytes:   assertDOCXBytes,
+		},
+		{
+			name:          "pdf",
+			pathTemplate:  "dag/gov/approval/{{run_id}}/final.pdf",
+			wantTarget:    "dag/gov/approval/44/final.pdf",
+			contentType:   "application/pdf",
+			wantExtension: ".pdf",
+			assertBytes:   assertPDFBytes,
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			lookup := &dagSubscriberLookupSpy{nodes: []taskdag.Node{{
+				DagKey:   "dag-approval",
+				NodeKey:  "final_pack",
+				NodeType: "agent",
+				Status:   "running",
+				RunID:    dagSubscriberTestRunID(44),
+				Config: testRawConfig(t, `{
+					"exec":{"agent_key":"writer","cwd":"/tmp/node-cwd"},
+					"outputs":{
+						"to_node_result":false,
+						"to_artifact":{
+							"source_tool":"document_renderer",
+							"source_text_field":"document_text",
+							"path_template":"`+tc.pathTemplate+`",
+							"content_type":"`+tc.contentType+`",
+							"overwrite":"replace"
+						}
+					}
+				}`),
+			}}}
+			flow := &dagSubscriberFlowSpy{}
+			importer := &dagSubscriberArtifactImporterSpy{}
+			deps := setupDAGSubscriberDeps(
+				lookup,
+				flow,
+				&dagSubscriberThreadSpy{thread: &PersistedThread{ThreadID: "thr-doc-" + tc.name, AgentID: "agent-doc"}},
+				&dagSubscriberStopSpy{},
+			)
+			deps.ArtifactImporter = importer
+			ev := newTurnCompletedEvent("thr-doc-"+tc.name, true, `{"document_text":"# 审批材料\n\n事项：数据共享申请\n\n结论：建议通过。"}`)
+
+			handleDAGTurnCompleted(context.Background(), deps, discardLogger(), ev)
+
+			if len(importer.imports) != 1 {
+				t.Fatalf("artifact imports = %d, want 1", len(importer.imports))
+			}
+			gotImport := importer.imports[0]
+			if gotImport.TargetPath != tc.wantTarget {
+				t.Fatalf("TargetPath = %q, want %q", gotImport.TargetPath, tc.wantTarget)
+			}
+			if gotImport.ContentType != tc.contentType {
+				t.Fatalf("ContentType = %q, want %q", gotImport.ContentType, tc.contentType)
+			}
+			if !strings.HasSuffix(strings.ToLower(gotImport.SourcePath), tc.wantExtension) {
+				t.Fatalf("SourcePath = %q, want extension %s", gotImport.SourcePath, tc.wantExtension)
+			}
+			tc.assertBytes(t, importer.sourceBytes)
+			assertArtifactCompletion(t, flow, &dagSubscriberSharedFileWriterSpy{}, tc.wantTarget)
+		})
+	}
+}
+
+func assertDOCXBytes(t *testing.T, data []byte) {
+	t.Helper()
+	if len(data) < 4 || string(data[:2]) != "PK" {
+		t.Fatalf("docx bytes must start with ZIP signature; got %q", data[:min(len(data), 4)])
+	}
+	if !strings.Contains(string(data), "[Content_Types].xml") {
+		t.Fatalf("docx zip missing [Content_Types].xml entry")
+	}
+}
+func assertPDFBytes(t *testing.T, data []byte) {
+	t.Helper()
+	if !strings.HasPrefix(string(data), "%PDF-") {
+		t.Fatalf("pdf bytes must start with %%PDF-; got %q", string(data[:min(len(data), 5)]))
+	}
+	if !strings.Contains(string(data), "%%EOF") {
+		t.Fatalf("pdf bytes missing EOF marker")
+	}
+}
+
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
+}
+
 type dagSubscriberArtifactImporterSpy struct {
-	imports []sharedfile.ImportLocalFileParams
-	err     error
+	imports     []sharedfile.ImportLocalFileParams
+	sourceBytes []byte
+	err         error
 }
 
 func (s *dagSubscriberArtifactImporterSpy) ImportLocalFile(_ context.Context, params sharedfile.ImportLocalFileParams) (*sharedfile.SharedFile, error) {
@@ -152,6 +260,10 @@ func (s *dagSubscriberArtifactImporterSpy) ImportLocalFile(_ context.Context, pa
 	}
 	if strings.TrimSpace(params.TargetPath) == "" {
 		return nil, errors.New("target path required")
+	}
+	sourceBytes, err := os.ReadFile(params.SourcePath)
+	if err == nil {
+		s.sourceBytes = sourceBytes
 	}
 	s.imports = append(s.imports, params)
 	return &sharedfile.SharedFile{Path: params.TargetPath}, nil

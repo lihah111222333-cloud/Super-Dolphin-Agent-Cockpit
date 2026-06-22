@@ -208,7 +208,7 @@ func assertWorkflowTemplateSave(t *testing.T, server *platformrpc.Server) {
 		"description":   map[string]any{"zh": "保存后的会议纪要模板", "en": "Saved meeting template"},
 		"category":      "government-enterprise",
 		"business_flow": "会议督办",
-		"output_types":  []string{"docx", "markdown"},
+		"output_types":  []string{"docx", "pdf"},
 		"tags":          []string{"政企", "会议"},
 		"ui_schema": []map[string]any{
 			{"key": "title", "type": "text", "required": true, "label": map[string]any{"zh": "会议名称"}, "placeholder": map[string]any{"zh": "例如：6月项目推进会"}, "help": map[string]any{"zh": "用于纪要标题。"}},
@@ -216,7 +216,7 @@ func assertWorkflowTemplateSave(t *testing.T, server *platformrpc.Server) {
 		},
 		"validation":        map[string]any{"sharedfile_prefixes": []string{"reports/workflows/", "dag/"}, "require_review_before_final": true, "require_final_node_key": true},
 		"trust":             map[string]any{"level": "user", "source": "user_saved"},
-		"compatibility":     map[string]any{"runtime": "dag-v2", "node_types": []string{"agent"}, "required_capabilities": []string{"workflow.node.agent", "workflow.output.sharedfile", "workflow.final_output"}},
+		"compatibility":     map[string]any{"runtime": "dag-v2", "node_types": []string{"agent"}, "required_capabilities": []string{"workflow.node.agent", "workflow.output.sharedfile", "workflow.output.artifact", "workflow.final_output"}},
 		"supports_schedule": false,
 		"requires_review":   true,
 		"draft":             rendered.Draft,

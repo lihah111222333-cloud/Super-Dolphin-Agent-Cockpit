@@ -8,7 +8,7 @@ import { PageHeader, Panel, RetryableSyncError } from '../shared/pageComponents.
 import { finalOutputPath, workflowOrderedNodes } from './adapters/workflowDisplayAdapter.js';
 import { WorkflowDiagnostics } from './components/WorkflowDiagnostics.jsx';
 import { WorkflowFinalOutputPanel } from './components/WorkflowFinalOutputPanel.jsx';
-import { applyDagOps, deleteDag, dispatchDagNode, getDashboardPage, getDagDetail, getDagRun, getDagRuns, getWorkflowTemplate, listWorkflowTemplates, openSharedFile, readSharedFile, renderWorkflowTemplateDraft, rollbackWorkflowTemplate, saveWorkflowTemplate, startDag, startThread, startTurn, terminateDagRun } from './services/workflowPageService.js';
+import { applyDagOps, createAndStartDag, deleteDag, dispatchDagNode, getDashboardPage, getDagDetail, getDagRun, getDagRuns, getWorkflowTemplate, listWorkflowTemplates, openSharedFile, readSharedFile, renderWorkflowTemplateDraft, rollbackWorkflowTemplate, saveWorkflowTemplate, startDag, startThread, startTurn, terminateDagRun, writeWorkflowMaterial } from './services/workflowPageService.js';
 import './WorkflowPage.css';
 
 const DAG_RECENT_RUN_LIMIT = 30;
@@ -21,6 +21,9 @@ const EMPTY_STATE_ICON_SIZE = 34;
 const DAG_SCHEDULE_TIMEZONE = 'Asia/Shanghai';
 const DAG_SCHEDULE_CRON_TZ_PREFIX = `CRON_TZ=${DAG_SCHEDULE_TIMEZONE}`;
 const ENTERPRISE_OUTPUT_FORMATS = Object.freeze(['markdown', 'json', 'pdf', 'docx', 'pptx', 'xlsx', 'video']);
+const WORKFLOW_MATERIAL_UPLOAD_PREFIX = 'reports/workflows/uploads';
+const TEXT_MATERIAL_EXTENSIONS = new Set(['.csv', '.json', '.log', '.md', '.text', '.txt', '.xml', '.yaml', '.yml']);
+const BINARY_MATERIAL_EXTENSIONS = new Set(['.doc', '.docx', '.pdf', '.ppt', '.pptx', '.xls', '.xlsx', '.zip']);
 const ENTERPRISE_DESIGN_PHASES = Object.freeze([
   '场景理解',
   '阶段拆分',
@@ -68,6 +71,7 @@ const ENTERPRISE_REQUIRED_TEMPLATE_FIELDS = Object.freeze([
   'review_node',
   'final_node_key',
   'outputs.to_sharedfile',
+  'outputs.to_artifact',
   'config.ui',
 ]);
 
@@ -91,6 +95,7 @@ function buildEnterpriseWorkflowTemplateBrief(template) {
     `场景说明: ${enterpriseTemplateDescription(template)}`,
     `目标输出格式: ${outputFormat}`,
     `可选输出格式: ${outputTypes.join(', ')}`,
+    'Only use output_format values explicitly listed by this template. Do not add pdf/docx/pptx/xlsx unless the template lists that exact value and a real artifact or conversion tool is discovered.',
     `默认输出路径: ${outputPath}`,
     `final_node_key: ${finalNodeKey}`,
     `review_node: ${reviewNode ? enterpriseNodeKey(reviewNode) : '必须从模板节点中识别复核节点'}`,
@@ -108,7 +113,10 @@ function buildEnterpriseWorkflowTemplateBrief(template) {
     'automation 只允许使用 command_list 发现到的 command_card；未发现合适 command_card 时，改用 agent 节点说明需要用户提供数据或人工处理。',
     '所有模板必须包含复核节点；最终交付只能来自复核后的唯一 final_node_key，不要宣称已有 DAG 级审批阻断。',
     '支持定时的模板默认使用 CRON_TZ=Asia/Shanghai；用户未填写具体 cron 或执行时间时必须先确认，不要替用户猜测。',
-    '大结果必须写 outputs.to_sharedfile；视频成片使用 outputs.to_artifact，并保留 video_with_audio 的结构化成功/失败 JSON 契约。',
+    '中间大文本必须写 outputs.to_sharedfile；文档型阶段（报告、审批材料、纪要、草稿、复核意见）必须设置 outputs.to_node_result=false，不能把正文写入 node.result。',
+    '下游节点需要读取上游正文时，必须在 config.inputs.from_sharedfiles 引用上游 outputs.to_sharedfile.path；depends_on 只控制调度顺序，config.ui.input_sources 只供界面展示。',
+    '文档最终交付使用 outputs.to_artifact，source_tool=document_renderer，source_text_field=document_text，path_template 指向 final.{{output_format}} 或已渲染的 final.docx/final.pdf。',
+    '视频成片使用 outputs.to_artifact，并保留 video_with_audio 的结构化成功/失败 JSON 契约。',
     '每个节点必须保留或补全 config.ui：stage_key、stage_title、execution_mode、operation_summary、model_action、skills、input_sources、expected_outputs。',
     'config.ui.operation_summary 用来给用户悬停节点时展示该节点计划执行的大模型操作；不要输出或要求暴露隐藏思维链。',
     '如果 pptx、docx、xlsx、pdf、mp4 等目标格式需要的生成工具或 command_card 未发现，必须显式提示能力缺口，不能伪造二进制产物、外部发布动作或静默降级。',
@@ -302,6 +310,32 @@ function enterpriseSaveTemplatePayload(template, draft) {
     validation: objectValue(template.validation),
     draft,
   };
+}
+
+function enterpriseCreateAndStartDAGPayload(draft) {
+  const normalized = objectValue(draft);
+  return {
+    dagKey: textValue(normalized.dag_key || normalized.dagKey),
+    title: textValue(normalized.title),
+    description: textValue(normalized.description),
+    finalNodeKey: textValue(normalized.final_node_key || normalized.finalNodeKey),
+    metadata: objectValue(normalized.metadata),
+    nodes: enterpriseCreateDAGNodes(normalized.nodes),
+    idempotencyKey: 'ui-template-' + Date.now() + '-' + Math.random().toString(IDEMPOTENCY_RANDOM_RADIX).slice(2),
+  };
+}
+
+function enterpriseCreateDAGNodes(nodes) {
+  if (!Array.isArray(nodes)) return [];
+  return nodes.map((node) => ({
+    nodeKey: enterpriseNodeKey(node),
+    title: enterpriseNodeTitle(node),
+    nodeType: textValue(node.node_type || node.nodeType),
+    assignedTo: textValue(node.assigned_to || node.assignedTo),
+    dependsOn: Array.isArray(node.depends_on || node.dependsOn) ? (node.depends_on || node.dependsOn) : [],
+    commandRef: textValue(node.command_ref || node.commandRef),
+    config: objectValue(node.config),
+  }));
 }
 
 function renderEnterpriseValue(value, values) {
@@ -1503,8 +1537,9 @@ function useWorkflowActions({ actionState, derived, list, notices, refresh, sele
   const toggleScheduleEnabled = useToggleScheduleAction({ actionState, derived, list, notices, refresh });
   const saveAgentNode = useSaveAgentNodeAction({ actionState, derived, notices, refresh });
   const dispatchNode = useDispatchDagNodeAction({ actionState, derived, list, notices, refresh });
+  const createAndStartTemplate = useCreateAndStartTemplateAction({ actionState, list, notices, refresh, workflowCwd });
   const startDesignFlow = useStartDesignFlowAction({ actionState, notices, setDesignSession, store, workflowCwd });
-  return { confirmDeleteDAG, dispatchNode, runSelectedDag, saveAgentNode, saveSchedule, startDesignFlow, stopSelectedDag, toggleScheduleEnabled };
+  return { confirmDeleteDAG, createAndStartTemplate, dispatchNode, runSelectedDag, saveAgentNode, saveSchedule, startDesignFlow, stopSelectedDag, toggleScheduleEnabled };
 }
 
 function useRunSelectedDagAction({ actionState, derived, list, notices, refresh }) {
@@ -1679,6 +1714,43 @@ function useDispatchDagNodeAction({ actionState, derived, list, notices, refresh
       actionState.setDispatchingNodeKey('');
     }
   }, [actionState, derived, list, notices, refresh]);
+}
+
+function useCreateAndStartTemplateAction({ actionState, list, notices, refresh, workflowCwd }) {
+  return useCallback(async (template) => {
+    if (!workflowCwd) {
+      actionState.setError('创建模板工作流失败：项目路径不可用。');
+      return { ok: false };
+    }
+    const templateId = enterpriseTemplateId(template);
+    const values = objectValue(template?.templateValues);
+    actionState.setActioning('template-create');
+    actionState.setError('');
+    notices.clearNotice();
+    try {
+      const rendered = await withWorkflowActionTimeout(renderWorkflowTemplateDraft({
+        templateId,
+        version: enterpriseTemplateVersionNumber(template),
+        values,
+        runtime_context: { cwd: workflowCwd },
+      }));
+      const draft = rendered?.draft;
+      if (!draft) throw new Error('workflowTemplates/renderDag 未返回 DAG 草案');
+      const result = await withWorkflowActionTimeout(createAndStartDag(enterpriseCreateAndStartDAGPayload(draft)));
+      const dagKey = textValue(result?.dagKey || result?.dag_key || draft.dag_key || draft.dagKey);
+      const runKey = runKeyOf(result);
+      await list.refreshDags().catch(() => []);
+      await refresh.refreshDetail(dagKey, runKey).catch(() => {});
+      const warning = textValue(result?.warning);
+      notices.showTaskNotice(warning ? '已创建并启动，后端提示：' + warning : '已创建并启动自动化', dagKey);
+      return { ok: true, dagKey, runKey, warning };
+    } catch (err) {
+      actionState.setError('创建模板工作流失败：' + errorMessage(err));
+      return { ok: false, error: errorMessage(err) };
+    } finally {
+      actionState.setActioning('');
+    }
+  }, [actionState, list, notices, refresh, workflowCwd]);
 }
 
 function useStartDesignFlowAction({ actionState, notices, setDesignSession, store, workflowCwd }) {
@@ -2002,7 +2074,7 @@ function EnterpriseWorkflowTemplates({ onSelectTemplate, sectionRef, selectedTem
   );
 }
 
-function EnterpriseTemplateWorkbench({ onStartTemplate, selectedTemplateId, starting, workflowCwd }) {
+function EnterpriseTemplateWorkbench({ onAdjustTemplate, onStartTemplate, selectedTemplateId, starting, workflowCwd }) {
   const queryClient = useQueryClient();
   const {
     data,
@@ -2030,6 +2102,7 @@ function EnterpriseTemplateWorkbench({ onStartTemplate, selectedTemplateId, star
   return (
     <EnterpriseTemplateForm
       key={enterpriseTemplateId(template)}
+      onAdjustTemplate={onAdjustTemplate}
       onStartTemplate={onStartTemplate}
       onTemplateChanged={refreshTemplateQueries}
       starting={starting}
@@ -2039,10 +2112,13 @@ function EnterpriseTemplateWorkbench({ onStartTemplate, selectedTemplateId, star
   );
 }
 
-function EnterpriseTemplateForm({ onStartTemplate, onTemplateChanged, starting, template, workflowCwd }) {
+function EnterpriseTemplateForm({ onAdjustTemplate, onStartTemplate, onTemplateChanged, starting, template, workflowCwd }) {
   const [formValues, setFormValues] = useState(() => enterpriseTemplateDefaultValues(template));
   const [formError, setFormError] = useState('');
+  const [createStatus, setCreateStatus] = useState('');
   const [saveState, setSaveState] = useState({ saving: false, status: '' });
+  const [uploadingFieldKey, setUploadingFieldKey] = useState('');
+  const [uploadStatus, setUploadStatus] = useState('');
   const fields = enterpriseTemplateFields(template);
   const draftPreview = renderEnterpriseTemplatePreview(template, formValues);
   const validateForm = () => {
@@ -2056,12 +2132,43 @@ function EnterpriseTemplateForm({ onStartTemplate, onTemplateChanged, starting, 
   };
   const startTemplate = () => {
     if (!validateForm()) return;
-    void onStartTemplate({
+    setCreateStatus('');
+    void (async () => {
+      const result = await onStartTemplate({
+        ...template,
+        templateValues: formValues,
+        selectedOutputFormat: formValues.output_format,
+        draftPreview,
+      });
+      if (result?.ok) {
+        setCreateStatus(result.warning ? '已创建并启动，后端提示：' + result.warning : '已创建并启动自动化');
+      }
+    })();
+  };
+  const adjustTemplate = () => {
+    if (!validateForm()) return;
+    void onAdjustTemplate({
       ...template,
       templateValues: formValues,
       selectedOutputFormat: formValues.output_format,
       draftPreview,
     });
+  };
+  const readFieldFiles = async (field, files) => {
+    const items = Array.from(files || []).filter(Boolean);
+    if (items.length === 0) return;
+    setUploadingFieldKey(field.key);
+    setUploadStatus('');
+    setFormError('');
+    try {
+      const content = await uploadEnterpriseTemplateTextFiles({ field, files: items, template });
+      setFormValues((current) => ({ ...current, [field.key]: content }));
+      setUploadStatus(`已上传 ${items.length} 个材料文件`);
+    } catch (err) {
+      setFormError('上传材料失败：' + errorMessage(err));
+    } finally {
+      setUploadingFieldKey('');
+    }
   };
   const saveTemplate = async () => {
     if (!validateForm()) return;
@@ -2104,7 +2211,9 @@ function EnterpriseTemplateForm({ onStartTemplate, onTemplateChanged, starting, 
         </div>
       </div>
       {formError ? <p className="danger-text" role="alert">{formError}</p> : null}
+      {createStatus ? <p role="status" className="settings-status">{createStatus}</p> : null}
       {saveState.status ? <p role="status" className="settings-status">{saveState.status}</p> : null}
+      {uploadStatus ? <p role="status" className="settings-status">{uploadStatus}</p> : null}
       <div className="enterprise-workbench-layout">
         <form className="enterprise-template-form" onSubmit={(event) => { event.preventDefault(); startTemplate(); }}>
           <h3>模板参数</h3>
@@ -2112,8 +2221,10 @@ function EnterpriseTemplateForm({ onStartTemplate, onTemplateChanged, starting, 
             <EnterpriseTemplateField
               field={field}
               key={field.key}
+              onFileSelect={(files) => { void readFieldFiles(field, files); }}
               onChange={(value) => setFormValues((current) => ({ ...current, [field.key]: value }))}
               outputTypes={enterpriseOutputTypes(template)}
+              uploading={uploadingFieldKey === field.key}
               value={formValues[field.key]}
             />
           ))}
@@ -2121,7 +2232,7 @@ function EnterpriseTemplateForm({ onStartTemplate, onTemplateChanged, starting, 
             <button type="submit" className="btn-dark" disabled={starting}>
               {starting ? '正在创建' : '创建工作流'}
             </button>
-            <button type="button" className="btn-outline" disabled={starting} onClick={startTemplate}>
+            <button type="button" className="btn-outline" disabled={starting} onClick={adjustTemplate}>
               用聊天调整
             </button>
             <button type="button" className="btn-outline" disabled={starting || saveState.saving} onClick={() => { void saveTemplate(); }}>
@@ -2135,7 +2246,7 @@ function EnterpriseTemplateForm({ onStartTemplate, onTemplateChanged, starting, 
   );
 }
 
-function EnterpriseTemplateField({ field, onChange, outputTypes, value }) {
+function EnterpriseTemplateField({ field, onChange, onFileSelect, outputTypes, uploading, value }) {
   const label = enterpriseFieldLabel(field);
   const help = enterpriseFieldHelp(field);
   const commonProps = {
@@ -2150,8 +2261,10 @@ function EnterpriseTemplateField({ field, onChange, outputTypes, value }) {
       <EnterpriseTemplateInput
         commonProps={commonProps}
         field={field}
+        onFileSelect={onFileSelect}
         onChange={onChange}
         outputTypes={outputTypes}
+        uploading={uploading}
         value={value}
       />
       {help ? <small>{help}</small> : null}
@@ -2159,7 +2272,7 @@ function EnterpriseTemplateField({ field, onChange, outputTypes, value }) {
   );
 }
 
-function EnterpriseTemplateInput({ commonProps, field, onChange, outputTypes, value }) {
+function EnterpriseTemplateInput({ commonProps, field, onChange, onFileSelect, outputTypes, uploading, value }) {
   if (field.type === 'textarea') {
     return <textarea {...commonProps} placeholder={enterpriseFieldPlaceholder(field)} rows={4} />;
   }
@@ -2188,7 +2301,105 @@ function EnterpriseTemplateInput({ commonProps, field, onChange, outputTypes, va
   if (field.type === 'number') {
     return <input {...commonProps} placeholder={enterpriseFieldPlaceholder(field)} type="number" />;
   }
+  if (field.type === 'file_ref') {
+    const handleDrop = (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      onFileSelect?.(event.dataTransfer?.files);
+    };
+    return (
+      <div
+        className="enterprise-template-file-ref"
+        onDragOver={(event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          if (event.dataTransfer) event.dataTransfer.dropEffect = 'copy';
+        }}
+        onDrop={handleDrop}
+      >
+        <input {...commonProps} placeholder={enterpriseFieldPlaceholder(field)} type="text" />
+        <input
+          aria-label={`${commonProps['aria-label']}文件`}
+          disabled={uploading}
+          multiple
+          onChange={(event) => onFileSelect?.(event.target.files)}
+          type="file"
+        />
+        <span>{uploading ? '正在上传材料' : '拖拽材料到这里，或选择文件'}</span>
+      </div>
+    );
+  }
   return <input {...commonProps} placeholder={enterpriseFieldPlaceholder(field)} type="text" />;
+}
+
+async function uploadEnterpriseTemplateTextFiles({ field, files, template }) {
+  const paths = await Promise.all(files.map(async (file, index) => {
+    const name = textValue(file?.name || file?.path) || `material-${index + 1}.txt`;
+    const content = await readEnterpriseTemplateTextFile(file, name);
+    const path = enterpriseMaterialUploadPath(template, field, name, index);
+    const saved = await writeWorkflowMaterial({
+      path,
+      content: `### ${name}\n${content}`,
+    });
+    const savedPath = textValue(saved?.path);
+    if (!savedPath) throw new Error(`上传材料 ${name} 未返回 sharedfile 路径`);
+    return savedPath;
+  }));
+  return paths.join('\n');
+}
+
+async function readEnterpriseTemplateTextFile(file, name) {
+  if (!isReadableTextMaterial(file, name)) {
+    throw new Error(`不支持直接读取二进制材料 ${name}，请先转成 txt、md、csv、json 或 yaml 文本文件`);
+  }
+  if (typeof file?.text !== 'function') {
+    throw new Error(`无法读取文件 ${name}`);
+  }
+  const content = await file.text();
+  if (!textValue(content)) {
+    throw new Error(`文件 ${name} 没有可用文本内容`);
+  }
+  return content;
+}
+
+function isReadableTextMaterial(file, name) {
+  const type = textValue(file?.type).toLowerCase();
+  const extension = materialFileExtension(name);
+  if (type.startsWith('text/')) return true;
+  if (TEXT_MATERIAL_EXTENSIONS.has(extension)) return true;
+  if (BINARY_MATERIAL_EXTENSIONS.has(extension)) return false;
+  if (type && type !== 'application/json' && type !== 'application/xml' && type !== 'application/yaml' && type !== 'application/x-yaml') return false;
+  return true;
+}
+
+function enterpriseMaterialUploadPath(template, field, name, index) {
+  const templateSlug = sanitizeSharedFileSegment(enterpriseTemplateId(template).replace(/\//g, '-')) || 'template';
+  const fieldSlug = sanitizeSharedFileSegment(field?.key) || 'materials';
+  const stamp = new Date().toISOString().replace(/\D/g, '').slice(0, 14) || String(Date.now());
+  const safeName = sanitizeSharedFileSegment(name) || `material-${index + 1}.txt`;
+  return `${WORKFLOW_MATERIAL_UPLOAD_PREFIX}/${templateSlug}/${fieldSlug}/${stamp}-${index + 1}-${safeName}.md`;
+}
+
+function sanitizeSharedFileSegment(value) {
+  return stripControlCharacters(textValue(value))
+    .replace(/[\\/:*?"<>|]+/g, '-')
+    .replace(/\s+/g, '-')
+    .replace(/^\.+|\.+$/g, '')
+    .slice(0, 80);
+}
+
+function stripControlCharacters(value) {
+  return Array.from(value).filter((char) => {
+    const code = char.charCodeAt(0);
+    return code >= 32 && code !== 127;
+  }).join('');
+}
+
+function materialFileExtension(name) {
+  const normalized = textValue(name).toLowerCase();
+  const dot = normalized.lastIndexOf('.');
+  if (dot < 0) return '';
+  return normalized.slice(dot);
 }
 
 function EnterpriseTemplatePreview({ draft, template }) {
@@ -2335,9 +2546,10 @@ function WorkflowPageView({ copy, model, onWorkflowViewChange }) {
           templatesState={model.templates}
         />
         <EnterpriseTemplateWorkbench
-          onStartTemplate={(template) => actions.startDesignFlow(template)}
+          onAdjustTemplate={(template) => actions.startDesignFlow(template)}
+          onStartTemplate={(template) => actions.createAndStartTemplate(template)}
           selectedTemplateId={selectedTemplateId}
-          starting={actionState.actioning === 'design'}
+          starting={actionState.actioning === 'design' || actionState.actioning === 'template-create'}
           workflowCwd={model.workflowCwd}
         />
         <EnterpriseDesignProgress designSession={model.designSession} store={model.store} />
@@ -2741,6 +2953,9 @@ function workflowStageOutputPaths(ui, config) {
   const toSharedfile = objectValue(outputs.to_sharedfile);
   const sharedfilePath = textValue(toSharedfile.path);
   if (sharedfilePath) paths.push(sharedfilePath);
+  const toArtifact = objectValue(outputs.to_artifact);
+  const artifactPath = textValue(toArtifact.path_template || toArtifact.pathTemplate || toArtifact.path);
+  if (artifactPath) paths.push(artifactPath);
   return [...new Set(paths)];
 }
 
@@ -2749,6 +2964,9 @@ function workflowStageFallbackOperation(node, config) {
   const toSharedfile = objectValue(outputs.to_sharedfile);
   const outputPath = textValue(toSharedfile.path);
   if (outputPath) return `该节点按配置生成材料并写入 ${outputPath}。`;
+  const toArtifact = objectValue(outputs.to_artifact);
+  const artifactPath = textValue(toArtifact.path_template || toArtifact.pathTemplate || toArtifact.path);
+  if (artifactPath) return `该节点按配置生成最终产物并写入 ${artifactPath}。`;
   return '该节点尚未声明悬停说明，前端根据节点标题和状态展示保守说明。';
 }
 

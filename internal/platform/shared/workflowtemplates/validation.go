@@ -55,6 +55,7 @@ func validateTemplate(tpl Template) error {
 		validateTemplateOutputPaths,
 		validateCompatibility,
 		validateVideoContract,
+		validateDocumentContract,
 	} {
 		if err := check(tpl); err != nil {
 			return err
@@ -464,6 +465,58 @@ func validateVideoArtifactPath(pathTemplate string) error {
 	return errors.New("video artifact path_template must include {{run_id}}, {{run_key}} or {{output_path}}")
 }
 
+// validateDocumentContract 确保文档类模板最终产物走内置渲染器，避免把普通文本伪装成 docx/pdf。
+func validateDocumentContract(tpl Template) error {
+	if !hasDocumentOutputType(tpl.OutputTypes) {
+		return nil
+	}
+	if strings.TrimSpace(tpl.FinalOutput.Kind) != "artifact" {
+		return errors.New("document template final_output.kind must be artifact")
+	}
+	artifact, err := documentArtifactTarget(tpl)
+	if err != nil {
+		return err
+	}
+	return validateDocumentArtifactFields(artifact)
+}
+
+func documentArtifactTarget(tpl Template) (map[string]any, error) {
+	finalNode, ok := findNode(tpl.DAGTemplate.Nodes, tpl.DAGTemplate.FinalNodeKey)
+	if !ok {
+		return nil, errors.New("document template final node is missing")
+	}
+	outputs, ok := objectMap(finalNode.Config["outputs"])
+	if !ok {
+		return nil, errors.New("document template final node outputs are required")
+	}
+	artifact, ok := objectMap(outputs["to_artifact"])
+	if !ok {
+		return nil, errors.New("document template outputs.to_artifact is required")
+	}
+	return artifact, nil
+}
+
+func validateDocumentArtifactFields(artifact map[string]any) error {
+	if fmt.Sprint(artifact["source_tool"]) != "document_renderer" {
+		return errors.New("document template source_tool must be document_renderer")
+	}
+	if fmt.Sprint(artifact["source_text_field"]) != "document_text" {
+		return errors.New("document template source_text_field must be document_text")
+	}
+	if strings.TrimSpace(fmt.Sprint(artifact["source_path_field"])) != "" && fmt.Sprint(artifact["source_path_field"]) != "<nil>" {
+		return errors.New("document template must not use source_path_field")
+	}
+	if !validDocumentArtifactPath(fmt.Sprint(artifact["path_template"])) {
+		return errors.New("document template artifact path_template must include {{output_format}} or end with .docx/.pdf")
+	}
+	return nil
+}
+
+func validDocumentArtifactPath(pathTemplate string) bool {
+	path := strings.ToLower(strings.TrimSpace(pathTemplate))
+	return strings.Contains(path, "{{output_format}}") || strings.HasSuffix(path, ".docx") || strings.HasSuffix(path, ".pdf")
+}
+
 func reviewNodeKey(tpl Template) string {
 	keys := make([]string, 0)
 	for _, node := range tpl.DAGTemplate.Nodes {
@@ -486,6 +539,10 @@ func hasOutputType(items []string, want string) bool {
 		}
 	}
 	return false
+}
+
+func hasDocumentOutputType(items []string) bool {
+	return hasOutputType(items, "docx") || hasOutputType(items, "pdf")
 }
 
 func objectMap(value any) (map[string]any, bool) {

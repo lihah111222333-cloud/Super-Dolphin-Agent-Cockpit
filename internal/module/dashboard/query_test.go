@@ -82,6 +82,7 @@ func TestDashboardExtraHandlersRegistered(t *testing.T) {
 		"dashboard/dagRuns",
 		"dashboard/dagRun",
 		"dashboard/dagStart",
+		"dashboard/dagCreateAndStart",
 		"dashboard/dagTerminate",
 		"dashboard/dagDelete",
 		"dashboard/dagApplyOps",
@@ -236,6 +237,10 @@ func TestDashboardDAGHandlersReturnData(t *testing.T) {
 			Run:   contract.Run{RunKey: "run-1", DagKey: "dag-1", Status: "succeeded"},
 			Nodes: []contract.DAGNode{{NodeKey: "node-1", Title: "Runtime Node", Status: "done"}},
 		},
+		createDAGResult: contract.DAGDetail{
+			DAG:   contract.DAGSummary{DagKey: "created-dag", Title: "Created DAG"},
+			Nodes: []contract.DAGNode{{NodeKey: "draft", Title: "Draft"}},
+		},
 		startDAGResult: contract.StartDAGResponse{
 			RunID:            88,
 			RunKey:           "dag-1#run-ui",
@@ -258,6 +263,7 @@ func TestDashboardDAGHandlersReturnData(t *testing.T) {
 	assertDashboardDAGRuns(t, server, orchestration)
 	assertDashboardDAGRun(t, server, orchestration)
 	assertDashboardDAGStart(t, server, orchestration)
+	assertDashboardDAGCreateAndStart(t, server, orchestration)
 	assertDashboardDAGDispatchNode(t, server, orchestration)
 	assertDashboardDAGTerminate(t, server, orchestration)
 	assertDashboardDAGDelete(t, server, orchestration)
@@ -546,6 +552,7 @@ func TestDashboardDAGHandlersReturnServiceNotAvailableWithoutOrchestration(t *te
 	assertDashboardMethodServiceUnavailable(t, server, "dashboard/dagDetail", `{"dagKey":"dag-1"}`)
 	assertDashboardMethodServiceUnavailable(t, server, "dashboard/dagRun", `{"runKey":"run-1"}`)
 	assertDashboardMethodServiceUnavailable(t, server, "dashboard/dagStart", `{"dagKey":"dag-1"}`)
+	assertDashboardMethodServiceUnavailable(t, server, "dashboard/dagCreateAndStart", `{"dagKey":"dag-1","title":"Dag","nodes":[{"nodeKey":"draft","title":"Draft","nodeType":"agent","assignedTo":"codex-runner"}]}`)
 	assertDashboardMethodServiceUnavailable(t, server, "dashboard/dagTerminate", `{"dagKey":"dag-1","runKey":"run-1"}`)
 	assertDashboardMethodServiceUnavailable(t, server, "dashboard/dagDelete", `{"dagKey":"dag-1"}`)
 	assertDashboardMethodServiceUnavailable(t, server, "dashboard/dagApplyOps", `{"dagKey":"dag-1","baseVersion":1,"ops":[]}`)

@@ -19,7 +19,7 @@ function parsedWorkflowConfig(value) {
 
 function finalOutputPath(value) {
   if (!value || typeof value !== 'object') return '';
-  return firstText(value.path, value.sharedfile?.path, value.sharedFile?.path, value.shared_file?.path);
+  return firstText(value.path, value.path_template, value.pathTemplate, value.artifact?.path, value.artifact?.path_template, value.artifact?.pathTemplate, value.sharedfile?.path, value.sharedFile?.path, value.shared_file?.path);
 }
 
 function finalOutputKind(value) {
@@ -29,6 +29,7 @@ function finalOutputKind(value) {
     file: '文件',
     sharedfile: '文件',
     shared_file: '文件',
+    artifact: '文件',
     text: '文本',
     json: '数据',
   };
