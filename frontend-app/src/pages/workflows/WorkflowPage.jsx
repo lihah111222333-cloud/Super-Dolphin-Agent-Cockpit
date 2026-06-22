@@ -8,7 +8,7 @@ import { PageHeader, Panel, RetryableSyncError } from '../shared/pageComponents.
 import { finalOutputPath, workflowOrderedNodes } from './adapters/workflowDisplayAdapter.js';
 import { WorkflowDiagnostics } from './components/WorkflowDiagnostics.jsx';
 import { WorkflowFinalOutputPanel } from './components/WorkflowFinalOutputPanel.jsx';
-import { applyDagOps, deleteDag, dispatchDagNode, getDashboardPage, getDagDetail, getDagRun, getDagRuns, getWorkflowTemplate, listWorkflowTemplates, openSharedFile, readSharedFile, startDag, startThread, startTurn, terminateDagRun } from './services/workflowPageService.js';
+import { applyDagOps, deleteDag, dispatchDagNode, getDashboardPage, getDagDetail, getDagRun, getDagRuns, getWorkflowTemplate, listWorkflowTemplates, openSharedFile, readSharedFile, renderWorkflowTemplateDraft, rollbackWorkflowTemplate, saveWorkflowTemplate, startDag, startThread, startTurn, terminateDagRun } from './services/workflowPageService.js';
 import './WorkflowPage.css';
 
 const DAG_RECENT_RUN_LIMIT = 30;
@@ -126,6 +126,48 @@ function enterpriseTemplateVersion(template) {
   return String(template.version).trim();
 }
 
+function enterpriseTemplateVersionNumber(template) {
+  const value = Number(template?.version);
+  return Number.isInteger(value) && value > 0 ? value : 1;
+}
+
+function enterpriseAvailableVersions(template) {
+  const raw = template?.available_versions || template?.availableVersions || [];
+  if (!Array.isArray(raw)) return [];
+  return [...new Set(raw.map((item) => Number(item)).filter((item) => Number.isInteger(item) && item > 0))]
+    .sort((left, right) => left - right);
+}
+
+function enterpriseRollbackVersion(template) {
+  const current = enterpriseTemplateVersionNumber(template);
+  const versions = enterpriseAvailableVersions(template).filter((version) => version < current);
+  return versions.at(-1) || 0;
+}
+
+function enterpriseTemplateTrustLevel(template) {
+  return textValue(template?.trust?.level || template?.trustLevel);
+}
+
+function enterpriseTemplateCompatibilityRuntime(template) {
+  return textValue(template?.compatibility?.runtime || template?.runtime);
+}
+
+function enterpriseTemplateNodeTypes(template) {
+  const nodeTypes = template?.compatibility?.node_types || template?.compatibility?.nodeTypes || [];
+  if (!Array.isArray(nodeTypes)) return '';
+  return nodeTypes.map((item) => textValue(item)).filter(Boolean).join(', ');
+}
+
+function enterpriseTemplateSearchText(template) {
+  return [
+    enterpriseTemplateId(template),
+    enterpriseTemplateTitle(template),
+    enterpriseTemplateDescription(template),
+    textValue(template?.business_flow || template?.businessFlow),
+    ...(Array.isArray(template?.tags) ? template.tags : []),
+  ].map((item) => textValue(item).toLowerCase()).filter(Boolean).join(' ');
+}
+
 function enterpriseTemplateOutputSlug(templateId) {
   return textValue(templateId).replace(/[^a-z0-9]+/gi, '_').replace(/^_+|_+$/g, '').toLowerCase();
 }
@@ -239,6 +281,26 @@ function renderEnterpriseTemplatePreview(template, values = {}) {
       depends_on: Array.isArray(node.depends_on || node.dependsOn) ? (node.depends_on || node.dependsOn) : [],
       config: renderEnterpriseValue(node.config || {}, values),
     })),
+  };
+}
+
+function enterpriseSaveTemplatePayload(template, draft) {
+  return {
+    templateId: enterpriseTemplateId(template),
+    version: enterpriseTemplateVersionNumber(template) + 1,
+    title: template.title,
+    description: template.description,
+    category: textValue(template.category),
+    business_flow: textValue(template.business_flow || template.businessFlow),
+    output_types: enterpriseOutputTypes(template),
+    tags: Array.isArray(template.tags) ? template.tags : [],
+    requires_review: Boolean(template.requires_review || template.requiresReview),
+    supports_schedule: Boolean(template.supports_schedule || template.supportsSchedule),
+    trust: { level: 'user', source: 'save_as_template' },
+    compatibility: objectValue(template.compatibility),
+    ui_schema: enterpriseTemplateFields(template),
+    validation: objectValue(template.validation),
+    draft,
   };
 }
 
@@ -1773,14 +1835,18 @@ function AutomationEmptyState({ copy, onStartChat, onViewTemplates }) {
 }
 
 function EnterpriseWorkflowTemplates({ onSelectTemplate, sectionRef, selectedTemplateId, templatesState }) {
+  const queryClient = useQueryClient();
   const templates = templatesState.items;
-  const [filters, setFilters] = useState({ businessFlow: '', outputType: '', schedule: '' });
+  const [filters, setFilters] = useState({ businessFlow: '', outputType: '', schedule: '', keyword: '' });
+  const [rollbackState, setRollbackState] = useState({ target: '', error: '' });
   const businessFlowOptions = useMemo(() => Array.from(new Set(templates.flatMap((template) => {
     const businessFlow = textValue(template.business_flow || template.businessFlow);
     return businessFlow ? [businessFlow] : [];
   }))), [templates]);
   const outputTypeOptions = useMemo(() => Array.from(new Set(templates.flatMap((template) => enterpriseOutputTypes(template).filter(Boolean)))), [templates]);
   const visibleTemplates = useMemo(() => templates.filter((template) => {
+    const keyword = textValue(filters.keyword).toLowerCase();
+    if (keyword && !enterpriseTemplateSearchText(template).includes(keyword)) return false;
     if (filters.businessFlow && textValue(template.business_flow || template.businessFlow) !== filters.businessFlow) return false;
     if (filters.outputType && !enterpriseOutputTypes(template).includes(filters.outputType)) return false;
     if (filters.schedule === 'scheduled' && !(template.supports_schedule || template.supportsSchedule)) return false;
@@ -1788,6 +1854,23 @@ function EnterpriseWorkflowTemplates({ onSelectTemplate, sectionRef, selectedTem
     return true;
   }), [filters, templates]);
   const updateFilter = (key, value) => setFilters((current) => ({ ...current, [key]: value }));
+  const rollbackTemplate = async (template) => {
+    const templateId = enterpriseTemplateId(template);
+    const version = enterpriseRollbackVersion(template);
+    if (!templateId || !version) return;
+    setRollbackState({ target: `${templateId}:${version}`, error: '' });
+    try {
+      await rollbackWorkflowTemplate({ templateId, version });
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['workflow-templates', 'government-enterprise'] }),
+        queryClient.invalidateQueries({ queryKey: ['workflow-template-detail', templateId] }),
+      ]);
+    } catch (err) {
+      setRollbackState({ target: '', error: '回滚模板失败：' + errorMessage(err) });
+      return;
+    }
+    setRollbackState({ target: '', error: '' });
+  };
   return (
     <section
       ref={sectionRef}
@@ -1808,7 +1891,12 @@ function EnterpriseWorkflowTemplates({ onSelectTemplate, sectionRef, selectedTem
       </div>
       {templatesState.loading ? <p className="enterprise-template-muted">正在加载模板库。</p> : null}
       {templatesState.error ? <p className="danger-text" role="alert">加载模板库失败：{templatesState.error}</p> : null}
+      {rollbackState.error ? <p className="danger-text" role="alert">{rollbackState.error}</p> : null}
       <div className="enterprise-template-filters" aria-label="政企模板筛选">
+        <label>
+          <span>搜索模板</span>
+          <input aria-label="搜索模板" value={filters.keyword} onChange={(event) => updateFilter('keyword', event.target.value)} />
+        </label>
         <label>
           <span>业务流</span>
           <select value={filters.businessFlow} onChange={(event) => updateFilter('businessFlow', event.target.value)}>
@@ -1837,6 +1925,9 @@ function EnterpriseWorkflowTemplates({ onSelectTemplate, sectionRef, selectedTem
           const templateId = enterpriseTemplateId(template);
           const TemplateIcon = enterpriseTemplateIcon(template);
           const selected = templateId === selectedTemplateId;
+          const version = enterpriseTemplateVersion(template);
+          const rollbackVersion = enterpriseRollbackVersion(template);
+          const rollbackTarget = `${templateId}:${rollbackVersion}`;
           return (
             <article key={templateId} className={'enterprise-template-card' + (selected ? ' selected' : '')}>
               <div className="enterprise-template-card-top">
@@ -1865,10 +1956,36 @@ function EnterpriseWorkflowTemplates({ onSelectTemplate, sectionRef, selectedTem
                   <dd>{template.requires_review || template.requiresReview ? '默认包含' : '未配置'}</dd>
                 </div>
                 <div>
+                  <dt>版本</dt>
+                  <dd>{version ? `v${version}` : '-'}</dd>
+                </div>
+                <div>
+                  <dt>信任</dt>
+                  <dd>{enterpriseTemplateTrustLevel(template) || '-'}</dd>
+                </div>
+                <div>
+                  <dt>运行时</dt>
+                  <dd>{enterpriseTemplateCompatibilityRuntime(template) || '-'}</dd>
+                </div>
+                <div>
+                  <dt>节点类型</dt>
+                  <dd>{enterpriseTemplateNodeTypes(template) || '-'}</dd>
+                </div>
+                <div>
                   <dt>定时</dt>
                   <dd>{template.supports_schedule || template.supportsSchedule ? '支持' : '手动'}</dd>
                 </div>
               </dl>
+              {rollbackVersion ? (
+                <button
+                  type="button"
+                  className="btn-outline enterprise-template-action"
+                  disabled={rollbackState.target === rollbackTarget}
+                  onClick={() => { void rollbackTemplate(template); }}
+                >
+                  {rollbackState.target === rollbackTarget ? '回滚中...' : `回滚到 v${rollbackVersion}`}
+                </button>
+              ) : null}
               <button
                 type="button"
                 className={selected ? 'btn-dark enterprise-template-action' : 'btn-outline enterprise-template-action'}
@@ -1885,7 +2002,8 @@ function EnterpriseWorkflowTemplates({ onSelectTemplate, sectionRef, selectedTem
   );
 }
 
-function EnterpriseTemplateWorkbench({ onStartTemplate, selectedTemplateId, starting }) {
+function EnterpriseTemplateWorkbench({ onStartTemplate, selectedTemplateId, starting, workflowCwd }) {
+  const queryClient = useQueryClient();
   const {
     data,
     error,
@@ -1902,34 +2020,74 @@ function EnterpriseTemplateWorkbench({ onStartTemplate, selectedTemplateId, star
   if (error) return <p className="danger-text" role="alert">加载模板详情失败：{errorMessage(error)}</p>;
   if (!template) return null;
 
+  const refreshTemplateQueries = async (templateId) => {
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: ['workflow-templates', 'government-enterprise'] }),
+      queryClient.invalidateQueries({ queryKey: ['workflow-template-detail', templateId] }),
+    ]);
+  };
+
   return (
     <EnterpriseTemplateForm
       key={enterpriseTemplateId(template)}
       onStartTemplate={onStartTemplate}
+      onTemplateChanged={refreshTemplateQueries}
       starting={starting}
       template={template}
+      workflowCwd={workflowCwd}
     />
   );
 }
 
-function EnterpriseTemplateForm({ onStartTemplate, starting, template }) {
+function EnterpriseTemplateForm({ onStartTemplate, onTemplateChanged, starting, template, workflowCwd }) {
   const [formValues, setFormValues] = useState(() => enterpriseTemplateDefaultValues(template));
   const [formError, setFormError] = useState('');
+  const [saveState, setSaveState] = useState({ saving: false, status: '' });
   const fields = enterpriseTemplateFields(template);
   const draftPreview = renderEnterpriseTemplatePreview(template, formValues);
-  const startTemplate = () => {
+  const validateForm = () => {
     const missing = missingEnterpriseRequiredFields(fields, formValues);
     if (missing.length > 0) {
       setFormError(`请先填写必填参数：${missing.join('、')}`);
-      return;
+      return false;
     }
     setFormError('');
+    return true;
+  };
+  const startTemplate = () => {
+    if (!validateForm()) return;
     void onStartTemplate({
       ...template,
       templateValues: formValues,
       selectedOutputFormat: formValues.output_format,
       draftPreview,
     });
+  };
+  const saveTemplate = async () => {
+    if (!validateForm()) return;
+    const templateId = enterpriseTemplateId(template);
+    if (!workflowCwd) {
+      setFormError('保存模板失败：项目路径不可用，无法渲染 DAG 草案。');
+      return;
+    }
+    setSaveState({ saving: true, status: '' });
+    try {
+      const rendered = await renderWorkflowTemplateDraft({
+        templateId,
+        version: enterpriseTemplateVersionNumber(template),
+        values: formValues,
+        runtime_context: { cwd: workflowCwd },
+      });
+      const draft = rendered?.draft;
+      if (!draft) throw new Error('workflowTemplates/renderDag 未返回 DAG 草案');
+      const saved = await saveWorkflowTemplate(enterpriseSaveTemplatePayload(template, draft));
+      await onTemplateChanged?.(templateId);
+      const savedVersion = Number(saved?.template?.version) || enterpriseTemplateVersionNumber(template) + 1;
+      setSaveState({ saving: false, status: `模板已保存为 v${savedVersion}` });
+    } catch (err) {
+      setFormError('保存模板失败：' + errorMessage(err));
+      setSaveState({ saving: false, status: '' });
+    }
   };
 
   return (
@@ -1946,6 +2104,7 @@ function EnterpriseTemplateForm({ onStartTemplate, starting, template }) {
         </div>
       </div>
       {formError ? <p className="danger-text" role="alert">{formError}</p> : null}
+      {saveState.status ? <p role="status" className="settings-status">{saveState.status}</p> : null}
       <div className="enterprise-workbench-layout">
         <form className="enterprise-template-form" onSubmit={(event) => { event.preventDefault(); startTemplate(); }}>
           <h3>模板参数</h3>
@@ -1964,6 +2123,9 @@ function EnterpriseTemplateForm({ onStartTemplate, starting, template }) {
             </button>
             <button type="button" className="btn-outline" disabled={starting} onClick={startTemplate}>
               用聊天调整
+            </button>
+            <button type="button" className="btn-outline" disabled={starting || saveState.saving} onClick={() => { void saveTemplate(); }}>
+              {saveState.saving ? '保存中...' : '保存为模板'}
             </button>
           </div>
         </form>
@@ -2176,6 +2338,7 @@ function WorkflowPageView({ copy, model, onWorkflowViewChange }) {
           onStartTemplate={(template) => actions.startDesignFlow(template)}
           selectedTemplateId={selectedTemplateId}
           starting={actionState.actioning === 'design'}
+          workflowCwd={model.workflowCwd}
         />
         <EnterpriseDesignProgress designSession={model.designSession} store={model.store} />
         <WorkflowModals model={model} />

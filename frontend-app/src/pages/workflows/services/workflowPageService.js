@@ -11,6 +11,8 @@ import {
   openSharedFile as openSharedFileBackend,
   readSharedFile as readSharedFileBackend,
   renderWorkflowTemplateDraft as renderWorkflowTemplateDraftBackend,
+  rollbackWorkflowTemplate as rollbackWorkflowTemplateBackend,
+  saveWorkflowTemplate as saveWorkflowTemplateBackend,
   startDag as startDagBackend,
   startThread as startThreadBackend,
   startTurn as startTurnBackend,
@@ -60,6 +62,14 @@ export function listWorkflowTemplates(payload) {
 
 export function renderWorkflowTemplateDraft(payload) {
   return renderWorkflowTemplateDraftBackend(payload);
+}
+
+export function rollbackWorkflowTemplate(payload) {
+  return rollbackWorkflowTemplateBackend(payload);
+}
+
+export function saveWorkflowTemplate(payload) {
+  return saveWorkflowTemplateBackend(payload);
 }
 
 export function openSharedFile(payload) {

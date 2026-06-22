@@ -13,6 +13,17 @@ tags: [政企, 宣传, 视频, 审稿]
 estimated_nodes: 6
 requires_review: true
 supports_schedule: false
+trust:
+  level: builtin
+  source: super-dolphin
+compatibility:
+  runtime: dag-v2
+  node_types: [agent]
+  required_capabilities:
+    - workflow.node.agent
+    - workflow.output.sharedfile
+    - workflow.output.artifact
+    - workflow.final_output
 ui_schema:
   - key: title
     type: text

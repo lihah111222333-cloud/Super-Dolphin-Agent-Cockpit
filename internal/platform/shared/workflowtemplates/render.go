@@ -60,7 +60,10 @@ func normalizedValue(value any) string {
 }
 
 func renderValues(req RenderRequest) map[string]any {
-	out := make(map[string]any, len(req.Values)+len(req.UserInputs))
+	out := make(map[string]any, len(req.RuntimeContext)+len(req.Values)+len(req.UserInputs))
+	for key, value := range req.RuntimeContext {
+		out[key] = value
+	}
 	for key, value := range req.Values {
 		out[key] = value
 	}
