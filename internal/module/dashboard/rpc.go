@@ -107,6 +107,33 @@ type dagStartParams struct {
 	IdempotencyKey string `json:"idempotencyKey,omitempty"`
 }
 
+type dagCreateAndStartParams struct {
+	DAGKey            string               `json:"dagKey,omitempty"`
+	DAGKeySnake       string               `json:"dag_key,omitempty"`
+	Title             string               `json:"title,omitempty"`
+	Description       string               `json:"description,omitempty"`
+	FinalNodeKey      string               `json:"finalNodeKey,omitempty"`
+	FinalNodeKeySnake string               `json:"final_node_key,omitempty"`
+	Metadata          json.RawMessage      `json:"metadata,omitempty"`
+	Nodes             []dagCreateNodeParam `json:"nodes,omitempty"`
+	IdempotencyKey    string               `json:"idempotencyKey,omitempty"`
+}
+
+type dagCreateNodeParam struct {
+	NodeKey         string          `json:"nodeKey,omitempty"`
+	NodeKeySnake    string          `json:"node_key,omitempty"`
+	Title           string          `json:"title,omitempty"`
+	NodeType        string          `json:"nodeType,omitempty"`
+	NodeTypeSnake   string          `json:"node_type,omitempty"`
+	AssignedTo      string          `json:"assignedTo,omitempty"`
+	AssignedToSnake string          `json:"assigned_to,omitempty"`
+	DependsOn       []string        `json:"dependsOn,omitempty"`
+	DependsOnSnake  []string        `json:"depends_on,omitempty"`
+	CommandRef      string          `json:"commandRef,omitempty"`
+	CommandRefSnake string          `json:"command_ref,omitempty"`
+	Config          json.RawMessage `json:"config,omitempty"`
+}
+
 type dagDispatchNodeParams struct {
 	DAGKey     string `json:"dagKey,omitempty"`
 	NodeKey    string `json:"nodeKey,omitempty"`
@@ -157,6 +184,11 @@ type dagApplyOpsParams struct {
 	Ops         json.RawMessage `json:"ops"`
 }
 
+type workflowMaterialWriteParams struct {
+	Path    string `json:"path,omitempty"`
+	Content string `json:"content,omitempty"`
+}
+
 // --- typed RPC response structs (replace map[string]any wrappers) ---
 
 type agentsResponse struct {
@@ -175,6 +207,10 @@ type filesResponse struct {
 	Files               []sharedfilestore.SharedFile `json:"files"`
 	FinalOutputRefs     []FinalOutputRef             `json:"finalOutputRefs"`
 	SharedFileRetention SharedFileRetention          `json:"sharedFileRetention"`
+}
+
+type workflowMaterialWriteResponse struct {
+	Path string `json:"path"`
 }
 
 type finalOutputSnapshotLister interface {
@@ -217,6 +253,17 @@ type dagRunsResponse struct {
 type dagRunResponse = contract.GetRunResponse
 
 type dagStartResponse struct {
+	RunID            int64  `json:"runId,omitempty"`
+	RunKey           string `json:"runKey"`
+	Version          int64  `json:"version"`
+	ReadyRootNodes   int64  `json:"readyRootNodes"`
+	ScheduledWakeups int64  `json:"scheduledWakeups"`
+	ExecutionState   string `json:"executionState,omitempty"`
+	Warning          string `json:"warning,omitempty"`
+}
+
+type dagCreateAndStartResponse struct {
+	DAGKey           string `json:"dagKey"`
 	RunID            int64  `json:"runId,omitempty"`
 	RunKey           string `json:"runKey"`
 	Version          int64  `json:"version"`
@@ -292,6 +339,16 @@ func registerDashboardCoreHandlers(m handler.Map, svc Service) {
 			FinalOutputRefs:     refs,
 			SharedFileRetention: buildSharedFileRetention(files, refs),
 		}, nil
+	})
+	m["dashboard/workflowMaterialWrite"] = platformrpc.StrictHandler(func(ctx context.Context, p workflowMaterialWriteParams) (any, error) {
+		file, err := svc.WriteWorkflowMaterial(ctx, WorkflowMaterialWriteRequest{
+			Path:    p.Path,
+			Content: p.Content,
+		})
+		if err != nil {
+			return nil, err
+		}
+		return workflowMaterialWriteResponse{Path: file.Path}, nil
 	})
 	m["dashboard/skills"] = platformrpc.StrictHandler(func(ctx context.Context, p dashboardPromptsParams) (any, error) {
 		ctx = withDashboardPromptScopeCWD(ctx, p.Cwd)
@@ -405,6 +462,7 @@ func registerDashboardDAGHandlers(m handler.Map, svc Service) {
 			Warning:          resp.Warning,
 		}, nil
 	})
+	registerDashboardDAGCreateAndStartHandler(m, svc)
 	m["dashboard/dagDispatchNode"] = platformrpc.StrictHandler(func(ctx context.Context, p dagDispatchNodeParams) (any, error) {
 		return svc.DispatchDAGNode(ctx, contract.DispatchNodeRequest{
 			DagKey:     p.DAGKey,
@@ -441,6 +499,101 @@ func registerDashboardDAGHandlers(m handler.Map, svc Service) {
 	})
 }
 
+// registerDashboardDAGCreateAndStartHandler 注册模板 DAG 的创建并启动入口。
+// 这个入口会先把 UI 草稿转换为 CreateDAGRequest，再显式调用 StartDAG，失败时直接返回错误。
+func registerDashboardDAGCreateAndStartHandler(m handler.Map, svc Service) {
+	m["dashboard/dagCreateAndStart"] = platformrpc.StrictHandler(func(ctx context.Context, p dagCreateAndStartParams) (any, error) {
+		req, err := p.createDAGRequest()
+		if err != nil {
+			return nil, err
+		}
+		_, resp, err := svc.CreateAndStartDAG(ctx, req, p.IdempotencyKey)
+		if err != nil {
+			return nil, err
+		}
+		return dagCreateAndStartResponse{
+			DAGKey:           req.DagKey,
+			RunID:            resp.RunID,
+			RunKey:           resp.RunKey,
+			Version:          resp.Version,
+			ReadyRootNodes:   resp.ReadyRootNodes,
+			ScheduledWakeups: resp.ScheduledWakeups,
+			ExecutionState:   resp.ExecutionState,
+			Warning:          resp.Warning,
+		}, nil
+	})
+}
+
 func (p agentDetailParams) agentID() string {
 	return util.FirstNonEmpty(p.AgentID, p.AgentIDSnake)
+}
+
+func (p dagCreateAndStartParams) createDAGRequest() (contract.CreateDAGRequest, error) {
+	nodes := make([]contract.CreateDAGNodeRequest, 0, len(p.Nodes))
+	for _, node := range p.Nodes {
+		nodes = append(nodes, node.createDAGNodeRequest())
+	}
+	finalNodeKey := strings.TrimSpace(util.FirstNonEmpty(p.FinalNodeKey, p.FinalNodeKeySnake))
+	if err := validateDashboardFinalNodeKey(finalNodeKey, nodes); err != nil {
+		return contract.CreateDAGRequest{}, err
+	}
+	metadata, err := dashboardCreateDAGMetadata(p.Metadata, finalNodeKey)
+	if err != nil {
+		return contract.CreateDAGRequest{}, err
+	}
+	return contract.CreateDAGRequest{
+		DagKey:      strings.TrimSpace(util.FirstNonEmpty(p.DAGKey, p.DAGKeySnake)),
+		Title:       strings.TrimSpace(p.Title),
+		Description: strings.TrimSpace(p.Description),
+		CreatedBy:   dashboardUICreatedBy,
+		Metadata:    metadata,
+		Nodes:       nodes,
+	}, nil
+}
+
+func (p dagCreateNodeParam) createDAGNodeRequest() contract.CreateDAGNodeRequest {
+	dependsOn := p.DependsOn
+	if len(dependsOn) == 0 {
+		dependsOn = p.DependsOnSnake
+	}
+	return contract.CreateDAGNodeRequest{
+		NodeKey:    strings.TrimSpace(util.FirstNonEmpty(p.NodeKey, p.NodeKeySnake)),
+		Title:      strings.TrimSpace(p.Title),
+		NodeType:   strings.TrimSpace(util.FirstNonEmpty(p.NodeType, p.NodeTypeSnake)),
+		AssignedTo: strings.TrimSpace(util.FirstNonEmpty(p.AssignedTo, p.AssignedToSnake)),
+		DependsOn:  append([]string(nil), dependsOn...),
+		CommandRef: strings.TrimSpace(util.FirstNonEmpty(p.CommandRef, p.CommandRefSnake)),
+		Config:     append(json.RawMessage(nil), p.Config...),
+	}
+}
+
+func dashboardCreateDAGMetadata(raw json.RawMessage, finalNodeKey string) (json.RawMessage, error) {
+	metadata := map[string]any{}
+	if trimmed := strings.TrimSpace(string(raw)); trimmed != "" {
+		if err := json.Unmarshal([]byte(trimmed), &metadata); err != nil {
+			return nil, fmt.Errorf("dashboard: dag metadata must be an object: %w", err)
+		}
+		if metadata == nil {
+			metadata = map[string]any{}
+		}
+	}
+	if finalNodeKey != "" {
+		metadata["final_node_key"] = finalNodeKey
+	}
+	if _, ok := metadata["schedule"]; !ok {
+		metadata["schedule"] = map[string]any{"trigger": "manual"}
+	}
+	return json.Marshal(metadata)
+}
+
+func validateDashboardFinalNodeKey(finalNodeKey string, nodes []contract.CreateDAGNodeRequest) error {
+	if finalNodeKey == "" {
+		return nil
+	}
+	for _, node := range nodes {
+		if node.NodeKey == finalNodeKey {
+			return nil
+		}
+	}
+	return fmt.Errorf("dashboard: finalNodeKey %q must match a nodeKey", finalNodeKey)
 }

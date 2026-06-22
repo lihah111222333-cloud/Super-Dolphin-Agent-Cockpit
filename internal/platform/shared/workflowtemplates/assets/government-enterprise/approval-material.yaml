@@ -8,7 +8,7 @@ description:
   en: Prepare approval background, basis, risks, and attachment lists for manual review.
 category: government-enterprise
 business_flow: 审批流转
-output_types: [docx, pdf, markdown, json]
+output_types: [docx, pdf]
 tags: [政企, 审批, 材料, 归档]
 estimated_nodes: 5
 requires_review: true
@@ -22,6 +22,7 @@ compatibility:
   required_capabilities:
     - workflow.node.agent
     - workflow.output.sharedfile
+    - workflow.output.artifact
     - workflow.final_output
 ui_schema:
   - key: title
@@ -47,16 +48,12 @@ ui_schema:
     required: true
     label: { zh: 输出格式 }
     placeholder: { zh: docx }
-    help: { zh: docx/pdf 需要可用生成能力。 }
+    help: { zh: 生成真实 docx/pdf artifact 文件，最终产物可下载打开。 }
     options:
       - value: docx
-        label: { zh: Word }
+        label: { zh: DOCX }
       - value: pdf
         label: { zh: PDF }
-      - value: markdown
-        label: { zh: Markdown }
-      - value: json
-        label: { zh: JSON }
   - key: reviewer
     type: reviewer
     required: true
@@ -96,13 +93,16 @@ dag_template:
           to_sharedfile:
             path: "{{output_path}}intake.md"
             lock_mode: exclusive
-          to_node_result: true
+          to_node_result: false
     - node_key: risk
       title: 合规风险审查
       node_type: agent
       assigned_to: government_enterprise_approval_material_risk_runner
       depends_on: [intake]
       config:
+        inputs:
+          from_sharedfiles:
+            - "{{output_path}}intake.md"
         ui:
           stage_key: risk
           stage_title: 风险审查
@@ -116,13 +116,17 @@ dag_template:
           to_sharedfile:
             path: "{{output_path}}risk.md"
             lock_mode: exclusive
-          to_node_result: true
+          to_node_result: false
     - node_key: draft
       title: 审批材料草稿
       node_type: agent
       assigned_to: government_enterprise_approval_material_draft_runner
       depends_on: [risk]
       config:
+        inputs:
+          from_sharedfiles:
+            - "{{output_path}}intake.md"
+            - "{{output_path}}risk.md"
         ui:
           stage_key: draft
           stage_title: 材料草稿
@@ -136,13 +140,17 @@ dag_template:
           to_sharedfile:
             path: "{{output_path}}draft.md"
             lock_mode: exclusive
-          to_node_result: true
+          to_node_result: false
     - node_key: review
       title: 审批复核
       node_type: agent
       assigned_to: government_enterprise_approval_material_review_runner
       depends_on: [draft]
       config:
+        inputs:
+          from_sharedfiles:
+            - "{{output_path}}risk.md"
+            - "{{output_path}}draft.md"
         ui:
           stage_key: review
           stage_title: 审批复核
@@ -156,13 +164,22 @@ dag_template:
           to_sharedfile:
             path: "{{output_path}}review.md"
             lock_mode: exclusive
-          to_node_result: true
+          to_node_result: false
     - node_key: final_pack
       title: 最终审批材料包
       node_type: agent
       assigned_to: government_enterprise_approval_material_final_runner
       depends_on: [review]
       config:
+        inputs:
+          from_sharedfiles:
+            - "{{output_path}}draft.md"
+            - "{{output_path}}review.md"
+        first_turn: |
+          请基于 draft.md 和 review.md 生成最终审批材料正文。
+          必须只输出一个 JSON 对象，不要使用 Markdown 代码块。
+          JSON schema: {"document_text":"完整审批材料正文"}
+          document_text 必须包含标题、申请背景、审批依据、风险提示、附件目录、复核结论和待确认项。
         ui:
           stage_key: final
           stage_title: 最终交付
@@ -173,10 +190,13 @@ dag_template:
           input_sources: [draft, review]
           expected_outputs: ["{{output_path}}final.{{output_format}}"]
         outputs:
-          to_sharedfile:
-            path: "{{output_path}}final.{{output_format}}"
-            lock_mode: exclusive
-          to_node_result: true
+          to_artifact:
+            source_tool: document_renderer
+            source_text_field: document_text
+            path_template: "{{output_path}}final.{{output_format}}"
+            max_bytes: 10485760
+            overwrite: replace
+          to_node_result: false
 validation:
   sharedfile_prefixes:
   - reports/workflows/
@@ -185,5 +205,5 @@ validation:
   require_final_node_key: true
 final_output:
   node_key: final_pack
-  kind: sharedfile
+  kind: artifact
   path_template: "{{output_path}}final.{{output_format}}"

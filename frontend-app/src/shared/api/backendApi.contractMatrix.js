@@ -91,6 +91,7 @@ export const RPC_CONTRACT_REGISTRY = Object.freeze({
   UI_SHARED_FILE_GET: contract('UI_SHARED_FILE_GET', 'readSharedFile', 'P1', 'memory', [TESTS.API, TESTS.WORKFLOWS], ['shared file read']),
   UI_SHARED_FILE_DELETE: contract('UI_SHARED_FILE_DELETE', 'deleteSharedFile', 'P0', 'memory', [TESTS.API], ['shared file mutation']),
   DASHBOARD_SHARED_FILES: contract('DASHBOARD_SHARED_FILES', 'listSharedFiles', 'P1', 'dashboard', [TESTS.API, TESTS.WORKFLOWS], ['dashboard detail read', 'params:{}-only']),
+  DASHBOARD_WORKFLOW_MATERIAL_WRITE: contract('DASHBOARD_WORKFLOW_MATERIAL_WRITE', 'writeWorkflowMaterial', 'P0', 'dashboard', [TESTS.API, TESTS.WORKFLOWS], ['workflow material upload mutation']),
 
   PROMPT_ASSETS_LIST: contract('PROMPT_ASSETS_LIST', 'listPromptAssets', 'P1', 'prompt', [TESTS.API, TESTS.PROMPTS], ['prompt read']),
   DASHBOARD_PROMPTS: contract('DASHBOARD_PROMPTS', 'getDashboardPrompts', 'P1', 'prompt', [TESTS.API, TESTS.PROMPTS], ['prompt read']),
@@ -112,6 +113,7 @@ export const RPC_CONTRACT_REGISTRY = Object.freeze({
   DASHBOARD_DAG_RUNS: contract('DASHBOARD_DAG_RUNS', 'getDagRuns', 'P1', 'dashboard', [TESTS.API, TESTS.WORKFLOWS], ['dashboard detail read']),
   DASHBOARD_DAG_RUN: contract('DASHBOARD_DAG_RUN', 'getDagRun', 'P1', 'dashboard', [TESTS.API, TESTS.WORKFLOWS], ['dashboard detail read']),
   DASHBOARD_DAG_START: contract('DASHBOARD_DAG_START', 'startDag', 'P0', 'dashboard', [TESTS.API, TESTS.WORKFLOWS], ['DAG mutation']),
+  DASHBOARD_DAG_CREATE_AND_START: contract('DASHBOARD_DAG_CREATE_AND_START', 'createAndStartDag', 'P0', 'dashboard', [TESTS.API, TESTS.WORKFLOWS], ['DAG mutation']),
   DASHBOARD_DAG_DISPATCH_NODE: contract('DASHBOARD_DAG_DISPATCH_NODE', 'dispatchDagNode', 'P0', 'dashboard', [TESTS.API, TESTS.WORKFLOWS], ['DAG mutation']),
   DASHBOARD_DAG_TERMINATE: contract('DASHBOARD_DAG_TERMINATE', 'terminateDagRun', 'P0', 'dashboard', [TESTS.API, TESTS.WORKFLOWS], ['DAG mutation']),
   DASHBOARD_DAG_DELETE: contract('DASHBOARD_DAG_DELETE', 'deleteDag', 'P0', 'dashboard', [TESTS.API, TESTS.WORKFLOWS], ['DAG mutation']),

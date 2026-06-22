@@ -17,7 +17,7 @@ func TestWorkflowTemplateHostToolRegistry_ListSchemaAndFilters(t *testing.T) {
 
 	result, err := reg.CallHostTool(context.Background(), HostToolCall{
 		Name:      ToolNameWorkflowTemplateList,
-		Arguments: json.RawMessage(`{"category":"government-enterprise","output_type":"markdown"}`),
+		Arguments: json.RawMessage(`{"category":"government-enterprise","output_type":"docx"}`),
 	})
 	if err != nil {
 		t.Fatalf("workflow_template_list error = %v", err)
@@ -30,7 +30,7 @@ func TestWorkflowTemplateHostToolRegistry_ListSchemaAndFilters(t *testing.T) {
 		t.Fatalf("workflow_template_list returned no templates")
 	}
 	for _, tpl := range list.Templates {
-		if tpl.Category != "government-enterprise" || !workflowTemplateHasOutputType(tpl.OutputTypes, "markdown") {
+		if tpl.Category != "government-enterprise" || !workflowTemplateHasOutputType(tpl.OutputTypes, "docx") {
 			t.Fatalf("filtered template mismatch: %+v", tpl)
 		}
 	}
@@ -61,7 +61,7 @@ func TestWorkflowTemplateHostToolRegistry_GetAndRenderDAG(t *testing.T) {
 			"user_inputs":{
 				"title":"6月项目例会",
 				"source_materials":"reports/workflows/input/meeting.md",
-				"output_format":"markdown",
+				"output_format":"docx",
 				"reviewer":"会议主持人",
 				"output_path":"reports/workflows/government_enterprise_meeting_minutes/{{run_id}}/"
 			}
@@ -87,7 +87,7 @@ func TestWorkflowTemplateHostToolRegistry_SaveAndRollback(t *testing.T) {
 			"user_inputs":{
 				"title":"6月项目例会",
 				"source_materials":"reports/workflows/input/meeting.md",
-				"output_format":"markdown",
+				"output_format":"docx",
 				"reviewer":"会议主持人",
 				"output_path":"reports/workflows/government_enterprise_meeting_minutes/{{run_id}}/"
 			},
@@ -106,7 +106,7 @@ func TestWorkflowTemplateHostToolRegistry_SaveAndRollback(t *testing.T) {
 		"description":       map[string]any{"zh": "保存后的会议纪要模板", "en": "Saved meeting template"},
 		"category":          "government-enterprise",
 		"business_flow":     "会议督办",
-		"output_types":      []string{"markdown"},
+		"output_types":      []string{"docx", "pdf"},
 		"tags":              []string{"政企", "会议"},
 		"requires_review":   true,
 		"supports_schedule": false,
@@ -116,7 +116,7 @@ func TestWorkflowTemplateHostToolRegistry_SaveAndRollback(t *testing.T) {
 		},
 		"validation":    map[string]any{"sharedfile_prefixes": []string{"reports/workflows/", "dag/"}, "require_review_before_final": true, "require_final_node_key": true},
 		"trust":         map[string]any{"level": "user", "source": "user_saved"},
-		"compatibility": map[string]any{"runtime": "dag-v2", "node_types": []string{"agent"}, "required_capabilities": []string{"workflow.node.agent", "workflow.output.sharedfile", "workflow.final_output"}},
+		"compatibility": map[string]any{"runtime": "dag-v2", "node_types": []string{"agent"}, "required_capabilities": []string{"workflow.node.agent", "workflow.output.sharedfile", "workflow.output.artifact", "workflow.final_output"}},
 		"draft":         rendered.Draft,
 	}
 	saveRaw, err := json.Marshal(savePayload)
@@ -240,7 +240,7 @@ func assertMeetingMinutesDraftNodes(t *testing.T, draft workflowtemplates.DAGDra
 func assertMeetingMinutesFinalOutput(t *testing.T, draft workflowtemplates.DAGDraft) {
 	t.Helper()
 
-	if draft.FinalOutput.NodeKey != "final_minutes" || !strings.Contains(draft.FinalOutput.PathTemplate, "final.markdown") {
+	if draft.FinalOutput.NodeKey != "final_minutes" || draft.FinalOutput.Kind != "artifact" || !strings.Contains(draft.FinalOutput.PathTemplate, "final.docx") {
 		t.Fatalf("draft final output = %+v", draft.FinalOutput)
 	}
 }
