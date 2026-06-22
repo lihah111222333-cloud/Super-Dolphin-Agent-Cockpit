@@ -14,6 +14,8 @@ import {
   listMCPServers,
   getVideoApiKey,
   RPC_METHODS,
+  rollbackWorkflowTemplate,
+  saveWorkflowTemplate,
   setVideoApiKey,
   startPlaywrightMCPServer,
   startSQLiteMCPServer,
@@ -201,6 +203,18 @@ function expectInvalidInputDoesNotCall(callAPI, action, message) {
       runtime_context: { locale: 'zh-CN' },
       locale: 'zh-CN',
     });
+    await api.saveWorkflowTemplate({
+      templateId: 'government-enterprise/meeting-minutes',
+      version: 2,
+      category: 'government-enterprise',
+      trust: { level: 'user', source: 'save_as_template' },
+      compatibility: { runtime: 'dag-v2', node_types: ['agent'] },
+      draft: { dag_key: 'meeting_minutes_run' },
+    });
+    await api.rollbackWorkflowTemplate({
+      templateId: 'government-enterprise/meeting-minutes',
+      version: 1,
+    });
 
     expect(callAPI).toHaveBeenNthCalledWith(1, RPC_METHODS.WORKFLOW_TEMPLATES_LIST, {
       category: 'government-enterprise',
@@ -221,6 +235,20 @@ function expectInvalidInputDoesNotCall(callAPI, action, message) {
       runtime_context: { locale: 'zh-CN' },
       locale: 'zh-CN',
     });
+    expect(callAPI).toHaveBeenNthCalledWith(4, RPC_METHODS.WORKFLOW_TEMPLATES_SAVE, {
+      templateId: 'government-enterprise/meeting-minutes',
+      version: 2,
+      category: 'government-enterprise',
+      trust: { level: 'user', source: 'save_as_template' },
+      compatibility: { runtime: 'dag-v2', node_types: ['agent'] },
+      draft: { dag_key: 'meeting_minutes_run' },
+    });
+    expect(callAPI).toHaveBeenNthCalledWith(5, RPC_METHODS.WORKFLOW_TEMPLATES_ROLLBACK, {
+      templateId: 'government-enterprise/meeting-minutes',
+      version: 1,
+    });
+    expect(typeof saveWorkflowTemplate).toBe('function');
+    expect(typeof rollbackWorkflowTemplate).toBe('function');
   });
 
   it('fails fast for invalid workflow template facade inputs', () => {
@@ -243,6 +271,26 @@ function expectInvalidInputDoesNotCall(callAPI, action, message) {
       templateId: 'government-enterprise/meeting-minutes',
       runtime_context: [],
     }), 'runtime_context must be an object');
+    expectInvalidInputDoesNotCall(callAPI, () => api.saveWorkflowTemplate({
+      templateId: 'government-enterprise/meeting-minutes',
+      version: 0,
+      category: 'government-enterprise',
+      trust: {},
+      compatibility: {},
+      draft: {},
+    }), 'version must be a positive integer');
+    expectInvalidInputDoesNotCall(callAPI, () => api.saveWorkflowTemplate({
+      templateId: 'government-enterprise/meeting-minutes',
+      version: 2,
+      category: 'government-enterprise',
+      trust: [],
+      compatibility: {},
+      draft: {},
+    }), 'trust must be an object');
+    expectInvalidInputDoesNotCall(callAPI, () => api.rollbackWorkflowTemplate({
+      templateId: 'government-enterprise/meeting-minutes',
+      version: 0,
+    }), 'version must be a positive integer');
   });
 
   it('starts a pending backend thread with the canonical thread/start payload shape', async () => {

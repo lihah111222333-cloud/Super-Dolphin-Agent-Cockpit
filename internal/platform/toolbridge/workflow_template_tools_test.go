@@ -77,6 +77,77 @@ func TestWorkflowTemplateHostToolRegistry_GetAndRenderDAG(t *testing.T) {
 	assertMeetingMinutesDraft(t, rendered.Draft)
 }
 
+func TestWorkflowTemplateHostToolRegistry_SaveAndRollback(t *testing.T) {
+	reg := NewWorkflowTemplateHostToolRegistry()
+	renderResult, err := reg.CallHostTool(context.Background(), HostToolCall{
+		Name: ToolNameWorkflowTemplateRenderDAG,
+		Arguments: json.RawMessage(`{
+			"template_id":"government-enterprise/meeting-minutes",
+			"version":1,
+			"user_inputs":{
+				"title":"6月项目例会",
+				"source_materials":"reports/workflows/input/meeting.md",
+				"output_format":"markdown",
+				"reviewer":"会议主持人",
+				"output_path":"reports/workflows/government_enterprise_meeting_minutes/{{run_id}}/"
+			},
+			"runtime_context":{"cwd":"D:/project/demo"}
+		}`),
+	})
+	if err != nil {
+		t.Fatalf("workflow_template_render_dag error = %v", err)
+	}
+	rendered := renderResult.(workflowTemplateRenderResult)
+
+	savePayload := map[string]any{
+		"template_id":       "government-enterprise/meeting-minutes",
+		"version":           2,
+		"title":             map[string]any{"zh": "会议纪要 v2", "en": "Meeting Minutes v2"},
+		"description":       map[string]any{"zh": "保存后的会议纪要模板", "en": "Saved meeting template"},
+		"category":          "government-enterprise",
+		"business_flow":     "会议督办",
+		"output_types":      []string{"markdown"},
+		"tags":              []string{"政企", "会议"},
+		"requires_review":   true,
+		"supports_schedule": false,
+		"ui_schema": []map[string]any{
+			{"key": "title", "type": "text", "required": true, "label": map[string]any{"zh": "会议名称"}, "placeholder": map[string]any{"zh": "例如：6月项目推进会"}, "help": map[string]any{"zh": "用于纪要标题。"}},
+			{"key": "output_path", "type": "path", "required": true, "label": map[string]any{"zh": "保存目录"}, "placeholder": map[string]any{"zh": "reports/workflows/government_enterprise_meeting_minutes/{{run_id}}/"}, "help": map[string]any{"zh": "最终纪要保存位置。"}},
+		},
+		"validation":    map[string]any{"sharedfile_prefixes": []string{"reports/workflows/", "dag/"}, "require_review_before_final": true, "require_final_node_key": true},
+		"trust":         map[string]any{"level": "user", "source": "user_saved"},
+		"compatibility": map[string]any{"runtime": "dag-v2", "node_types": []string{"agent"}, "required_capabilities": []string{"workflow.node.agent", "workflow.output.sharedfile", "workflow.final_output"}},
+		"draft":         rendered.Draft,
+	}
+	saveRaw, err := json.Marshal(savePayload)
+	if err != nil {
+		t.Fatalf("marshal save payload: %v", err)
+	}
+	saveResult, err := reg.CallHostTool(context.Background(), HostToolCall{
+		Name:      ToolNameWorkflowTemplateSave,
+		Arguments: saveRaw,
+	})
+	if err != nil {
+		t.Fatalf("workflow_template_save error = %v", err)
+	}
+	saved := saveResult.(workflowTemplateSaveResult)
+	if saved.Template.Version != 2 || len(saved.Template.AvailableVersions) != 2 {
+		t.Fatalf("save result template = %+v", saved.Template)
+	}
+
+	rollbackResult, err := reg.CallHostTool(context.Background(), HostToolCall{
+		Name:      ToolNameWorkflowTemplateRollback,
+		Arguments: json.RawMessage(`{"template_id":"government-enterprise/meeting-minutes","version":1}`),
+	})
+	if err != nil {
+		t.Fatalf("workflow_template_rollback error = %v", err)
+	}
+	rolledBack := rollbackResult.(workflowTemplateRollbackResult)
+	if rolledBack.Template.Version != 1 {
+		t.Fatalf("rollback version = %d, want 1", rolledBack.Template.Version)
+	}
+}
+
 func TestWorkflowTemplateHostToolRegistry_CWDisOptionalThroughHandler(t *testing.T) {
 	reg := NewWorkflowTemplateHostToolRegistry()
 	h := &Handler{hostTools: reg}
@@ -128,7 +199,7 @@ func assertWorkflowTemplateToolNames(t *testing.T, tools []dto.MCPTool) {
 			t.Fatalf("tool %q missing input schema", tool.Name)
 		}
 	}
-	for _, want := range []string{ToolNameWorkflowTemplateList, ToolNameWorkflowTemplateGet, ToolNameWorkflowTemplateRenderDAG} {
+	for _, want := range []string{ToolNameWorkflowTemplateList, ToolNameWorkflowTemplateGet, ToolNameWorkflowTemplateRenderDAG, ToolNameWorkflowTemplateSave, ToolNameWorkflowTemplateRollback} {
 		if _, ok := names[want]; !ok {
 			t.Fatalf("workflow template tools = %+v, missing %q", tools, want)
 		}

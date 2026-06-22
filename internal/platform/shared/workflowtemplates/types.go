@@ -36,26 +36,44 @@ type Template struct {
 	EstimatedNodes   int            `json:"estimated_nodes" yaml:"estimated_nodes"`
 	RequiresReview   bool           `json:"requires_review" yaml:"requires_review"`
 	SupportsSchedule bool           `json:"supports_schedule" yaml:"supports_schedule"`
+	Trust            TrustMetadata  `json:"trust" yaml:"trust"`
+	Compatibility    Compatibility  `json:"compatibility" yaml:"compatibility"`
 	UISchema         []UIField      `json:"ui_schema" yaml:"ui_schema"`
 	DAGTemplate      DAGTemplate    `json:"dag_template" yaml:"dag_template"`
 	Validation       ValidationRule `json:"validation" yaml:"validation"`
 	FinalOutput      FinalOutput    `json:"final_output" yaml:"final_output"`
 }
 
+// TrustMetadata 标记模板来源和可信级别，发布/回滚时用于区分内置模板与用户保存版本。
+type TrustMetadata struct {
+	Level  string `json:"level" yaml:"level"`
+	Source string `json:"source" yaml:"source"`
+}
+
+// Compatibility 记录模板需要的运行时能力，保存前必须和当前 DAG runtime 支持面匹配。
+type Compatibility struct {
+	Runtime              string   `json:"runtime" yaml:"runtime"`
+	NodeTypes            []string `json:"node_types" yaml:"node_types"`
+	RequiredCapabilities []string `json:"required_capabilities" yaml:"required_capabilities"`
+}
+
 // TemplateSummary 是列表页和 DAG Designer list 工具使用的轻量模板信息。
 type TemplateSummary struct {
-	ID               string        `json:"id"`
-	Version          int           `json:"version"`
-	Title            LocalizedText `json:"title"`
-	Description      LocalizedText `json:"description"`
-	Category         string        `json:"category"`
-	BusinessFlow     string        `json:"business_flow"`
-	OutputTypes      []string      `json:"output_types"`
-	Tags             []string      `json:"tags"`
-	EstimatedNodes   int           `json:"estimated_nodes"`
-	RequiresReview   bool          `json:"requires_review"`
-	SupportsSchedule bool          `json:"supports_schedule"`
-	FinalNodeKey     string        `json:"final_node_key"`
+	ID                string        `json:"id"`
+	Version           int           `json:"version"`
+	Title             LocalizedText `json:"title"`
+	Description       LocalizedText `json:"description"`
+	Category          string        `json:"category"`
+	BusinessFlow      string        `json:"business_flow"`
+	OutputTypes       []string      `json:"output_types"`
+	Tags              []string      `json:"tags"`
+	EstimatedNodes    int           `json:"estimated_nodes"`
+	RequiresReview    bool          `json:"requires_review"`
+	SupportsSchedule  bool          `json:"supports_schedule"`
+	FinalNodeKey      string        `json:"final_node_key"`
+	Trust             TrustMetadata `json:"trust"`
+	Compatibility     Compatibility `json:"compatibility"`
+	AvailableVersions []int         `json:"available_versions"`
 }
 
 // ListFilter 描述模板目录的只读筛选条件。
@@ -124,4 +142,23 @@ type DAGDraft struct {
 	Nodes           []NodeTemplate `json:"nodes"`
 	FinalOutput     FinalOutput    `json:"final_output"`
 	Metadata        map[string]any `json:"metadata"`
+}
+
+// SaveTemplateRequest 把已验证 DAG 草案保存成可复用模板版本，不触碰 runtime run/node 状态。
+type SaveTemplateRequest struct {
+	TemplateID       string         `json:"template_id"`
+	Version          int            `json:"version"`
+	Title            LocalizedText  `json:"title"`
+	Description      LocalizedText  `json:"description"`
+	Category         string         `json:"category"`
+	BusinessFlow     string         `json:"business_flow"`
+	OutputTypes      []string       `json:"output_types"`
+	Tags             []string       `json:"tags,omitempty"`
+	RequiresReview   bool           `json:"requires_review"`
+	SupportsSchedule bool           `json:"supports_schedule"`
+	Trust            TrustMetadata  `json:"trust"`
+	Compatibility    Compatibility  `json:"compatibility"`
+	UISchema         []UIField      `json:"ui_schema"`
+	Validation       ValidationRule `json:"validation"`
+	Draft            DAGDraft       `json:"draft"`
 }
