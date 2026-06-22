@@ -96,10 +96,22 @@ function durationLabelFromMs(ms, options = {}) {
 function syntheticReasoningMessage({ activeTurn, sending, isBusy, fallbackStartTime }) {
   if (!activeTurn && !sending && !isBusy) return null;
   const turnId = activeTurn?.id;
-  const id = turnId ? `thinking:${turnId}` : 'thinking-sending';
   const defaultStartTime = fallbackStartTime || new Date().toISOString();
+  if (!turnId) {
+    return {
+      id: 'thinking-sending',
+      role: 'assistant',
+      kind: 'thinking',
+      title: '正在处理请求',
+      statusLabel: '正在准备响应',
+      hideElapsed: true,
+      text: '',
+      time: defaultStartTime,
+      done: false,
+    };
+  }
   return {
-    id,
+    id: `thinking:${turnId}`,
     role: 'assistant',
     kind: 'thinking',
     title: '正在处理请求',

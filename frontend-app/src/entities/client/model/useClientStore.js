@@ -939,6 +939,11 @@ function normalizeSnapshotThreadList(payload, state, options, maps) {
       lastArchivedStatesByThread: state.lastArchivedStatesByThread,
       threadArchiveLoadingByThread: state.threadArchiveLoadingByThread,
     }))
+    .map((thread) => (
+      options.preserveLiveBusyStatus === true
+        ? preserveLiveBusyStatusForSnapshotThread(state, thread)
+        : thread
+    ))
     .filter((thread) => thread.id);
   return threads;
 }
@@ -957,6 +962,81 @@ function shouldPreserveSnapshotThread(state, thread, nextThreads) {
   const hasTimeline = (state.timelinesByThread[thread.id] || []).length > 0;
   const alreadyIncluded = nextThreads.some((nextThread) => threadMatchesIdentifier(nextThread, thread.id));
   return !alreadyIncluded && (thread.id === state.activeThreadId || hasTimeline);
+}
+
+const LIVE_BUSY_THREAD_STATUS_KEYS = new Set([
+  'starting',
+  'preparing',
+  'thinking',
+  'running',
+  'editing',
+  'waiting',
+  'syncing',
+  'responding',
+  'force_completing',
+  'interrupting',
+]);
+
+function normalizeLiveThreadStatusKey(value) {
+  const raw = normalizeString(value);
+  if (raw === '工作中') return 'running';
+  if (raw === '发送中') return 'preparing';
+  return raw.toLowerCase().replace(/-/g, '_');
+}
+
+function isLiveBusyThreadStatus(value) {
+  return LIVE_BUSY_THREAD_STATUS_KEYS.has(normalizeLiveThreadStatusKey(value));
+}
+
+function snapshotThreadStatusIds(snapshotThread, existingThread) {
+  return [
+    ...explicitThreadReplacementIds(snapshotThread),
+    ...explicitThreadReplacementIds(existingThread),
+  ].filter((id, index, ids) => id && ids.indexOf(id) === index);
+}
+
+function existingThreadForSnapshotStatus(state, snapshotThread) {
+  const ids = snapshotThreadStatusIds(snapshotThread);
+  return state.threads.find((thread) => ids.some((id) => threadMatchesIdentifier(thread, id)));
+}
+
+function liveStatusEntryForSnapshotThread(state, ids) {
+  for (const id of ids) {
+    const entry = state.statuses?.[id];
+    if (isLiveBusyThreadStatus(entry?.status)) return entry.status;
+  }
+  return '';
+}
+
+function liveActiveTurnForSnapshotThread(state, ids) {
+  for (const [threadId, turn] of Object.entries(state.activeTurnByThread || {})) {
+    const normalized = normalizeTurnSummary(turn);
+    if (!isInterruptibleTurnSummary(normalized)) continue;
+    const turnThreadId = normalizeThreadId(normalized.threadId || threadId);
+    if (ids.includes(normalizeThreadId(threadId)) || ids.includes(turnThreadId)) return normalized;
+  }
+  return null;
+}
+
+function liveBusyStatusForSnapshotThread(state, snapshotThread) {
+  const existingThread = existingThreadForSnapshotStatus(state, snapshotThread);
+  const ids = snapshotThreadStatusIds(snapshotThread, existingThread);
+  const statusEntry = liveStatusEntryForSnapshotThread(state, ids);
+  if (statusEntry) return statusEntry;
+  const activeTurn = liveActiveTurnForSnapshotThread(state, ids);
+  if (activeTurn && isLiveBusyThreadStatus(activeTurn.status)) return activeTurn.status;
+  if (isLiveBusyThreadStatus(existingThread?.status)) return existingThread.status;
+  return '';
+}
+
+function preserveLiveBusyStatusForSnapshotThread(state, snapshotThread) {
+  /*
+   * sidebar 快照是列表投影，可能落后于实时 ui/thread/patch。
+   * 本地仍在运行时保留 live 状态，避免左侧项目树运行中图标被 stale idle 快照刷掉。
+   */
+  if (isLiveBusyThreadStatus(snapshotThread?.status)) return snapshotThread;
+  const liveBusyStatus = liveBusyStatusForSnapshotThread(state, snapshotThread);
+  return liveBusyStatus ? { ...snapshotThread, status: liveBusyStatus } : snapshotThread;
 }
 
 function snapshotThreadList(payload, state, options, maps) {
@@ -1940,6 +2020,7 @@ function attachSidebarRuntime(runtime) {
           autoSelectThread: false,
           scopeCwd: cwd,
           preserveActiveThreadId: options.preserveActiveThreadId === true,
+          preserveLiveBusyStatus: true,
         });
       }
     }
@@ -1952,6 +2033,7 @@ function attachSidebarRuntime(runtime) {
           autoSelectThread: false,
           scopeCwd: cwd,
           preserveActiveThreadId: options.preserveActiveThreadId === true,
+          preserveLiveBusyStatus: true,
         });
         if (options.clearSurface) {
           set((state) => ({

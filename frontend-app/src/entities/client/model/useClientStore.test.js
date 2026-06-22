@@ -3127,6 +3127,68 @@ function registerBridgeEventHandlersForTest() {
     expect(useClientStore.getState().activeThreadId).toBe('thread-main');
   });
 
+  it('keeps live running status when a sidebar refresh returns a stale idle projection', async () => {
+    resetClientStoreForTests({
+      cwd: '/repo/app',
+      projectScopeCwd: '/repo/app',
+      activeProject: '/repo/app',
+      projects: ['/repo/app'],
+      activeThreadId: 'thread-main',
+      threads: [{ id: 'thread-main', name: 'Main agent', provider: 'codex', status: 'running', cwd: '/repo/app' }],
+      sidebarThreadsByProject: {
+        '/repo/app': [{ id: 'thread-main', name: 'Main agent', provider: 'codex', status: 'running', cwd: '/repo/app' }],
+      },
+      activeTurnByThread: {
+        'thread-main': { id: 'turn-main', threadId: 'thread-main', status: 'running' },
+      },
+    });
+    backend.getSidebarState.mockResolvedValueOnce({
+      activeThreadId: 'thread-main',
+      threads: [{ id: 'thread-main', name: 'Main agent', provider: 'codex', status: 'idle', cwd: '/repo/app' }],
+    });
+    registerBridgeEventHandlersForTest();
+
+    bridgeCallback({
+      type: 'ui/sidebar/changed',
+      payload: { projection: 'sidebar', revision: 2 },
+    });
+
+    await vi.waitFor(() => {
+      expect(backend.getSidebarState).toHaveBeenCalledWith({ cwd: '/repo/app' });
+    });
+    await flushPromises();
+
+    expect(useClientStore.getState().threads[0]).toEqual(expect.objectContaining({
+      id: 'thread-main',
+      status: 'running',
+    }));
+    expect(useClientStore.getState().sidebarThreadsByProject['/repo/app'][0]).toEqual(expect.objectContaining({
+      id: 'thread-main',
+      status: 'running',
+    }));
+
+    bridgeCallback({
+      type: 'ui/thread/patch',
+      payload: {
+        threadId: 'thread-main',
+        sequence: 'done',
+        status: 'completed',
+        interruptible: false,
+        thread: { name: 'Main agent' },
+      },
+    });
+    await flushPromises();
+
+    expect(useClientStore.getState().threads[0]).toEqual(expect.objectContaining({
+      id: 'thread-main',
+      status: 'completed',
+    }));
+    expect(useClientStore.getState().sidebarThreadsByProject['/repo/app'][0]).toEqual(expect.objectContaining({
+      id: 'thread-main',
+      status: 'completed',
+    }));
+  });
+
   it('coalesces burst sidebar projection events and runs one trailing refresh', async () => {
     const firstRefresh = deferred();
     const trailingRefresh = deferred();
