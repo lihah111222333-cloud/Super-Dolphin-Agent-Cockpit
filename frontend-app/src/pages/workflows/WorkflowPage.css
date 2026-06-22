@@ -96,6 +96,7 @@
   font-weight: 700;
 }
 
+.enterprise-template-filters input,
 .enterprise-template-filters select {
   min-height: 34px;
   border: 1px solid var(--line);
