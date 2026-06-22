@@ -747,6 +747,69 @@ async function showAllTraceDashboardEvents() {
     expect(sidebar).not.toHaveClass('app-sidebar--chat');
   });
 
+  it('keeps the sidebar project tree running indicator through stale sidebar refreshes', async () => {
+    Object.defineProperty(window, 'innerWidth', { configurable: true, value: 1400 });
+    backend.getSidebarState
+      .mockResolvedValueOnce({
+        activeThreadId: 'thread-1',
+        threads: [{ id: 'thread-1', name: 'Backend thread', provider: 'codex', status: 'idle', cwd: '/repo/app' }],
+      })
+      .mockResolvedValueOnce({
+        activeThreadId: 'thread-1',
+        threads: [{ id: 'thread-1', name: 'Backend thread', provider: 'codex', status: 'idle', cwd: '/repo/app' }],
+      });
+    backend.getThreadState.mockResolvedValue({
+      activeThreadId: 'thread-1',
+      timelinesByThread: {
+        'thread-1': [{ id: 'assistant-1', kind: 'assistant', text: 'backend message', ts: '2026-05-30T00:00:00Z' }],
+      },
+    });
+
+    render(<App />);
+
+    const sidebar = await screen.findByTestId('app-sidebar');
+    await screen.findByRole('heading', { name: 'Backend thread' });
+    await waitFor(() => {
+      expect(within(sidebar).getByTitle('Backend thread')).toBeInTheDocument();
+    });
+    expect(sidebar.querySelector('.thread-inline-spinner')).toBeNull();
+
+    act(() => {
+      bridgeCallback({
+        type: 'ui/thread/patch',
+        payload: {
+          threadId: 'thread-1',
+          sequence: '1',
+          status: 'running',
+          thread: { name: 'Backend thread' },
+        },
+      });
+    });
+
+    await waitFor(() => {
+      expect(useClientStore.getState().threads.find((thread) => thread.id === 'thread-1')).toEqual(expect.objectContaining({
+        status: 'running',
+      }));
+    });
+    await waitFor(() => {
+      expect(sidebar.querySelector('.thread-inline-spinner')).toBeInTheDocument();
+    });
+
+    act(() => {
+      bridgeCallback({
+        type: 'ui/sidebar/changed',
+        payload: { projection: 'sidebar', revision: 2 },
+      });
+    });
+
+    await waitFor(() => {
+      expect(backend.getSidebarState).toHaveBeenCalledTimes(2);
+    });
+    await waitFor(() => {
+      expect(sidebar.querySelector('.thread-inline-spinner')).toBeInTheDocument();
+    });
+  });
+
   it('wires the sidebar project directory to project and thread actions', async () => {
     backend.getSidebarState.mockImplementation(({ cwd }) => Promise.resolve(cwd === '/repo/other' ? {
       activeThreadId: 'thread-other',
@@ -3402,6 +3465,51 @@ async function toggleInlineTraceFromRecentLogs(table) {
 
     expect(await screen.findByLabelText('AI 思考记录')).toHaveTextContent(/正在思考 \d+[sm]/);
     expect(screen.getByLabelText('AI 思考记录')).toHaveTextContent('AI 正在分析上下文、选择工具并整理回答。');
+  });
+
+  it('shows a non-timed preparation status before the first real turn starts', async () => {
+    backend.getSidebarState.mockResolvedValue({ activeThreadId: '', threads: [] });
+    backend.getThreadState.mockResolvedValue({ timelinesByThread: {} });
+    backend.startThread.mockResolvedValue({ thread: { id: 'thread-new' } });
+    const startTurnDeferred = deferred();
+    backend.startTurn.mockReturnValue(startTurnDeferred.promise);
+
+    render(<App />);
+
+    await screen.findByText('我们应该在 燧元 中构建什么？');
+    fireEvent.change(screen.getByTestId('composer-input'), {
+      target: { value: '请真正调用后端聊天' },
+    });
+    fireEvent.click(screen.getByLabelText('发送消息'));
+
+    await waitFor(() => expect(backend.startTurn).toHaveBeenCalled());
+    const preparingTrace = screen.getByLabelText('AI 思考记录');
+    expect(preparingTrace).toHaveTextContent('正在准备响应');
+    expect(preparingTrace).not.toHaveTextContent('正在思考');
+    expect(preparingTrace).not.toHaveTextContent('0s');
+
+    act(() => {
+      bridgeCallback({
+        type: 'ui/thread/patch',
+        payload: {
+          threadId: 'thread-new',
+          sequence: '1',
+          activeTurn: {
+            id: 'turn-live',
+            threadId: 'thread-new',
+            status: 'running',
+            startedAt: '2026-05-30T00:00:00Z',
+          },
+        },
+      });
+    });
+
+    await waitFor(() => expect(screen.getByLabelText('AI 思考记录')).toHaveTextContent(/正在思考 \d+[sm]/));
+
+    await act(async () => {
+      startTurnDeferred.resolve({ ok: true });
+      await Promise.resolve();
+    });
   });
 
   it('updates active thinking elapsed time in place every second', async () => {

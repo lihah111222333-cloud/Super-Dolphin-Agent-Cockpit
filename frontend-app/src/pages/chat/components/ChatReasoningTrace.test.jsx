@@ -45,6 +45,27 @@ describe('ChatReasoningTrace', () => {
     expect(screen.getByLabelText('AI 思考记录')).toHaveTextContent('正在运行 调用工具');
     expect(screen.getByText('正在调用工具并等待返回结果。')).toBeInTheDocument();
   });
+
+  it('renders a local preparation status without elapsed time', () => {
+    render(
+      <ReasoningTrace
+        message={{
+          kind: 'thinking',
+          done: false,
+          statusLabel: '正在准备响应',
+          hideElapsed: true,
+          time: '2026-06-15T08:00:00Z',
+        }}
+        active
+      />
+    );
+
+    const trace = screen.getByLabelText('AI 思考记录');
+    expect(trace).toHaveTextContent('正在准备响应');
+    expect(trace).not.toHaveTextContent('正在思考');
+    expect(trace).not.toHaveTextContent('0s');
+    expect(trace).not.toHaveTextContent('1s');
+  });
 });
 
 describe('chatReasoningModel', () => {
@@ -59,6 +80,21 @@ describe('chatReasoningModel', () => {
       id: 'thinking:turn-1',
       kind: 'thinking',
       time: '2026-06-15T08:00:00Z',
+    }));
+  });
+
+  it('builds a non-timed preparation message before a turn exists', () => {
+    expect(syntheticReasoningMessage({
+      activeTurn: null,
+      sending: true,
+      isBusy: false,
+      fallbackStartTime: '2026-06-15T08:00:00Z',
+    })).toEqual(expect.objectContaining({
+      done: false,
+      hideElapsed: true,
+      id: 'thinking-sending',
+      kind: 'thinking',
+      statusLabel: '正在准备响应',
     }));
   });
 
