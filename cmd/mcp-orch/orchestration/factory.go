@@ -223,7 +223,23 @@ func clearAgentAutoRecoveryLocked(agent *agentRuntime) {
 }
 
 func shouldRecoverViaLauncher(ctx context.Context, s *service, agent *agentRuntime) bool {
-	return s != nil && s.launcher != nil && agent != nil && agent.cmd == nil && s.launcher.IsRunning(ctx, agent)
+	if s == nil || s.launcher == nil || agent == nil || agent.cmd != nil {
+		return false
+	}
+	if s.launcher.IsRunning(ctx, agent) {
+		return true
+	}
+	return stoppedCodexAgentRecoverableViaLauncher(agent)
+}
+
+// stoppedCodexAgentRecoverableViaLauncher 识别已停止但仍属于远端 Codex 启动器的 agent。
+// stop/archive 会清掉 remoteThreadID，recover 仍要重新 launch，不能退回本地进程路径。
+func stoppedCodexAgentRecoverableViaLauncher(agent *agentRuntime) bool {
+	if agent == nil || !agentStateMatches(agent.state, agentdto.StateStopped, agentdto.StateFailed) {
+		return false
+	}
+	provider, _ := snapshotProvider(agent)
+	return strings.EqualFold(strings.TrimSpace(provider), "codex")
 }
 
 func launchOwnsHookThreadBinding(state agentdto.AgentState) bool {

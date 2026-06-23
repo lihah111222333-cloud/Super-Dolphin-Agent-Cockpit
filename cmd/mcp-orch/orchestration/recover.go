@@ -303,6 +303,9 @@ func (s *service) prepareLauncherRecovery(ctx context.Context, agentID, reason s
 		if err := normalizeRecoveryState(ctx, s, agent); err != nil {
 			return err
 		}
+		// recover 是新的显式启动周期，必须清掉上一轮 stop/archive 留下的停止意图。
+		agent.stopRequested = false
+		clearAgentStopReasonLocked(agent)
 		agent.launchSeq++
 		agent.pendingLaunchThreadID, agent.pendingLaunchThreadAt = "", time.Time{}
 		emitEvent(s.eventBus, eventTypeAgentRecovering, eventAgentID(agent), agent, reason)

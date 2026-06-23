@@ -17,6 +17,7 @@ import (
 	jrpcserver "github.com/creachadair/jrpc2/server"
 	"github.com/kelindar/event"
 
+	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/orchestration/launcherwire"
 	agentdto "github.com/anthropic-ai/super-agent-v3/internal/dto/agent"
 	shareddto "github.com/anthropic-ai/super-agent-v3/internal/dto/shared"
 	"github.com/stretchr/testify/require"
@@ -61,6 +62,48 @@ func TestRemoteLauncher_LaunchStop(t *testing.T) {
 	require.Equal(t, "local", started["agent_memory_scope"])
 	require.NoError(t, launcher.Stop(context.Background(), agent))
 	require.Equal(t, "thread-1", stopped["thread_id"])
+}
+
+func TestRemoteLauncherForkCallsThreadFork(t *testing.T) {
+	threadStartCalls := 0
+	var forked map[string]any
+	var named map[string]any
+	launcher := remoteLocalLauncher(t, handler.Map{
+		launcherwire.MethodThreadStart: handler.New(func(_ context.Context, _ map[string]any) (map[string]any, error) {
+			threadStartCalls++
+			return nil, errors.New("thread/start should not be called for forked launch")
+		}),
+		launcherwire.MethodThreadFork: handler.New(func(_ context.Context, req map[string]any) (map[string]any, error) {
+			forked = req
+			return map[string]any{launcherwire.RespNewThreadID: "thread-child", launcherwire.RespAgentID: "remote-child"}, nil
+		}),
+		launcherwire.MethodThreadNameSet: handler.New(func(_ context.Context, req map[string]any) (struct{}, error) {
+			named = req
+			return struct{}{}, nil
+		}),
+	})
+	parent := &agentRuntime{id: "agent-parent", remoteThreadID: "thread-parent"}
+	child := &agentRuntime{id: "agent-child"}
+
+	result, err := launcher.Fork(context.Background(), parent, child, LaunchRequest{
+		AgentID:     "agent-child",
+		Name:        "forked child",
+		ParentID:    "agent-parent",
+		ContextMode: "forked",
+		Cwd:         "/repo",
+	})
+
+	require.NoError(t, err)
+	require.Equal(t, 0, threadStartCalls)
+	require.Equal(t, "thread-parent", forked[launcherwire.ParamThreadID])
+	require.NotContains(t, forked, launcherwire.ParamAgentID)
+	require.NotContains(t, forked, launcherwire.ParamName)
+	require.NotContains(t, forked, launcherwire.ParamParentAgentID)
+	require.Equal(t, "thread-child", named[launcherwire.ParamThreadID])
+	require.Equal(t, "forked child", named[launcherwire.ParamName])
+	require.Equal(t, "thread-child", result.ThreadID)
+	require.Equal(t, "remote-child", result.RemoteAgentID)
+	require.Equal(t, "thread-child", child.remoteThreadID)
 }
 
 func TestRemoteLauncher_DisabledToolsUseStartConfig(t *testing.T) {

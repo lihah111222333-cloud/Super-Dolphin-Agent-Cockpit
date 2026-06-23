@@ -12,6 +12,7 @@ import (
 	"github.com/kelindar/event"
 	"github.com/stretchr/testify/require"
 
+	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/orchestration/launcherwire"
 	agentdto "github.com/anthropic-ai/super-agent-v3/internal/dto/agent"
 	mcpdto "github.com/anthropic-ai/super-agent-v3/internal/dto/mcp"
 	shareddto "github.com/anthropic-ai/super-agent-v3/internal/dto/shared"
@@ -31,7 +32,7 @@ func TestRemoteLauncher_RegistersBeforeThreadStart(t *testing.T) {
 			atomic.StoreInt32(&registered, 1)
 			return launcherRegisterResponse(req, 60000), nil
 		}),
-		LauncherMethodThreadStart: handler.New(func(_ context.Context, _ map[string]any) (map[string]any, error) {
+		launcherwire.MethodThreadStart: handler.New(func(_ context.Context, _ map[string]any) (map[string]any, error) {
 			if atomic.LoadInt32(&registered) == 0 {
 				return nil, jrpc2.Errorf(jrpc2.Code(-31002), "control rpc unauthorized: register with a valid session token first")
 			}
@@ -64,7 +65,7 @@ func TestRemoteLauncher_HeartbeatKeepsControlLeaseAlive(t *testing.T) {
 			heartbeat <- req
 			return mcpdto.HeartbeatResponse{OK: true, ConfigVersion: 1, NextHeartbeatMs: 1000}, nil
 		}),
-		LauncherMethodThreadStart: handler.New(func(_ context.Context, _ map[string]any) (map[string]any, error) {
+		launcherwire.MethodThreadStart: handler.New(func(_ context.Context, _ map[string]any) (map[string]any, error) {
 			return map[string]any{"thread": map[string]any{"id": "thread-1"}}, nil
 		}),
 	})
