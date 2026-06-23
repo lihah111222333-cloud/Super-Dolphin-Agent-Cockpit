@@ -340,6 +340,8 @@ func TestToolBridge_OrchestrationLaunchInjectsPublicParentThreadFromProviderLook
 		"provider":     "codex",
 	})
 	wantArgs := mustRawJSON(t, map[string]any{
+		"codex_home":           "/Users/test/.codex",
+		"codex_instance_key":   "default",
 		"codex_model_provider": "openai",
 		"context_mode":         "forked",
 		"name":                 "idle-agent",
