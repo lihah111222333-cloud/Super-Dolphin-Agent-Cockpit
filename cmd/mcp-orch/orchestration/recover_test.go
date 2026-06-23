@@ -598,17 +598,19 @@ func awaitTurnResumed(t *testing.T, events <-chan turndto.TurnResumed) turndto.T
 }
 
 type recordingStallLauncher struct {
-	launchCalls   int
-	stopCalls     int
-	launchAgent   *agentRuntime
-	stopAgent     *agentRuntime
-	launchReq     LaunchRequest
-	launchErr     error
-	stopErr       error
-	submitErr     error
-	remoteAgentID string
-	stopThreads   []string
-	afterLaunch   func()
+	launchCalls    int
+	stopCalls      int
+	launchAgent    *agentRuntime
+	stopAgent      *agentRuntime
+	launchReq      LaunchRequest
+	launchErr      error
+	stopErr        error
+	submitErr      error
+	submitCalls    int
+	submitThreadID string
+	remoteAgentID  string
+	stopThreads    []string
+	afterLaunch    func()
 }
 
 func (l *recordingStallLauncher) Launch(_ context.Context, agent *agentRuntime, req LaunchRequest) (LaunchResult, error) {
@@ -631,6 +633,10 @@ func (l *recordingStallLauncher) Launch(_ context.Context, agent *agentRuntime, 
 	return LaunchResult{ThreadID: agent.remoteThreadID, RemoteAgentID: remoteAgentID}, nil
 }
 
+func (l *recordingStallLauncher) Fork(context.Context, *agentRuntime, *agentRuntime, LaunchRequest) (LaunchResult, error) {
+	return LaunchResult{}, errors.New("fork should not be called")
+}
+
 func (l *recordingStallLauncher) Stop(_ context.Context, agent *agentRuntime) error {
 	l.stopCalls++
 	l.stopAgent = agent
@@ -647,9 +653,17 @@ func (l *recordingStallLauncher) Archive(ctx context.Context, agent *agentRuntim
 	return l.Stop(ctx, agent)
 }
 
-func (l *recordingStallLauncher) SubmitTurn(context.Context, *agentRuntime, TurnSubmission) (string, error) {
+func (l *recordingStallLauncher) Interrupt(context.Context, *agentRuntime, string) error {
+	return nil
+}
+
+func (l *recordingStallLauncher) SubmitTurn(_ context.Context, agent *agentRuntime, _ TurnSubmission) (string, error) {
+	l.submitCalls++
 	if l.submitErr != nil {
 		return "", l.submitErr
+	}
+	if agent != nil {
+		l.submitThreadID = agent.remoteThreadID
 	}
 	return "turn-remote", nil
 }

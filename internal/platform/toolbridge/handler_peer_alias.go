@@ -20,6 +20,10 @@ func legacyOrchName(canonical string) string {
 		return "orchestration_send_message"
 	case "stop_agent":
 		return "orchestration_stop_agent"
+	case "recover_agent":
+		return "orchestration_recover_agent"
+	case "interrupt_agent":
+		return "orchestration_interrupt_agent"
 	case "list_agents":
 		return "orchestration_list_agents"
 	case "get_agent_report":

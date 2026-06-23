@@ -66,6 +66,38 @@ func TestListAgentsHandlerCanIncludeInactiveReportsAndLimit(t *testing.T) {
 	}
 }
 
+func TestListAgentsHandlerIncludeReportsKeepsAgentsWithoutReport(t *testing.T) {
+	handler := HandleListAgents(&golden.OrchestrationStub{
+		ListAgentsFunc: func(context.Context) ([]contract.AgentSnapshot, error) {
+			return []contract.AgentSnapshot{
+				{ID: "agent-provisioning", AgentID: "agent-provisioning", State: "provisioning"},
+				{ID: "agent-idle", AgentID: "agent-idle", State: "idle"},
+			}, nil
+		},
+		GetReportFunc: func(_ context.Context, agentID string) (contract.AgentReportResult, error) {
+			if agentID == "agent-provisioning" {
+				return contract.AgentReportResult{AgentID: agentID, State: "provisioning"}, fmt.Errorf("%w: persisted report missing for %s", contract.ErrAgentNotFound, agentID)
+			}
+			return contract.AgentReportResult{AgentID: agentID, Report: "ready report", State: "idle"}, nil
+		},
+	})
+
+	result, err := handler(context.Background(), json.RawMessage(`{"include_reports":true}`))
+	if err != nil {
+		t.Fatalf("HandleListAgents() error = %v", err)
+	}
+	got, ok := result.([]contract.AgentSnapshot)
+	if !ok || len(got) != 2 {
+		t.Fatalf("HandleListAgents() = %#v, want two snapshots", result)
+	}
+	if got[0].AgentID != "agent-provisioning" || got[0].LastReport != "" {
+		t.Fatalf("HandleListAgents() first snapshot = %#v, want provisioning agent without report", got[0])
+	}
+	if got[1].AgentID != "agent-idle" || got[1].LastReport != "ready report" {
+		t.Fatalf("HandleListAgents() second snapshot = %#v, want hydrated idle report", got[1])
+	}
+}
+
 func TestListAgentsHandlerIncludeReportsFailsOnReportError(t *testing.T) {
 	handler := HandleListAgents(&golden.OrchestrationStub{
 		ListAgentsFunc: func(context.Context) ([]contract.AgentSnapshot, error) {

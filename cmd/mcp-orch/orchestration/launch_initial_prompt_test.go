@@ -11,6 +11,7 @@ import (
 	"github.com/creachadair/jrpc2/handler"
 	"github.com/kelindar/event"
 
+	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/orchestration/launcherwire"
 	agentdto "github.com/anthropic-ai/super-agent-v3/internal/dto/agent"
 )
 
@@ -208,5 +209,110 @@ func TestService_LaunchWithRemoteSubmitsInitialPrompt(t *testing.T) {
 	}
 	if agent == nil || agent.activeTurnID != "turn-initial" || agent.state != agentdto.StateTurnRunning {
 		t.Fatalf("agent after launch prompt = %#v", agent)
+	}
+}
+
+func TestForkedLaunchSubmitsInitialPromptToForkedThread(t *testing.T) {
+	events := make([]string, 0, 2)
+	var forkReq map[string]any
+	var turnReq map[string]any
+	svc := NewService(silentLogger(), event.NewDispatcher(), remoteLocalLauncher(t, handler.Map{
+		launcherwire.MethodThreadStart: handler.New(func(_ context.Context, _ map[string]any) (map[string]any, error) {
+			return nil, errors.New("thread/start should not be called for forked launch")
+		}),
+		launcherwire.MethodThreadFork: handler.New(func(_ context.Context, req map[string]any) (map[string]any, error) {
+			events = append(events, "thread/fork")
+			forkReq = req
+			return map[string]any{launcherwire.RespNewThreadID: "thread-child", launcherwire.RespAgentID: "agent-child"}, nil
+		}),
+		launcherwire.MethodThreadNameSet: handler.New(func(_ context.Context, _ map[string]any) (struct{}, error) {
+			return struct{}{}, nil
+		}),
+		launcherwire.MethodTurnStart: handler.New(func(_ context.Context, req map[string]any) (map[string]any, error) {
+			events = append(events, "turn/start")
+			turnReq = req
+			return map[string]any{launcherwire.RespTurnID: "turn-initial"}, nil
+		}),
+	}), nil, nil, nil)
+	parent := svc.newAgentLocked("agent-parent")
+	parent.state = agentdto.StateIdle
+	parent.threadID = "thread-parent"
+	parent.remoteThreadID = "thread-parent"
+	parent.remoteAgentID = "agent-parent"
+	svc.agents[parent.id] = parent
+
+	snapshot, err := svc.LaunchAgentSnapshot(context.Background(), LaunchRequest{
+		AgentID:     "agent-child",
+		Name:        "forked child",
+		ParentID:    "agent-parent",
+		ContextMode: "forked",
+		Prompt:      "continue with inherited context",
+		Cwd:         t.TempDir(),
+		Command:     []string{"ignored"},
+	})
+
+	if err != nil {
+		t.Fatalf("LaunchAgentSnapshot() error = %v", err)
+	}
+	if strings.Join(events, ",") != "thread/fork,turn/start" {
+		t.Fatalf("events = %#v, want thread/fork then turn/start", events)
+	}
+	if forkReq[launcherwire.ParamThreadID] != "thread-parent" {
+		t.Fatalf("thread/fork parent thread_id = %#v, want thread-parent", forkReq[launcherwire.ParamThreadID])
+	}
+	if turnReq[launcherwire.ParamThreadID] != "thread-child" {
+		t.Fatalf("turn/start thread_id = %#v, want thread-child", turnReq[launcherwire.ParamThreadID])
+	}
+	rawInput, _ := json.Marshal(turnReq[launcherwire.ParamInput])
+	if !strings.Contains(string(rawInput), "continue with inherited context") {
+		t.Fatalf("turn/start input = %s, want initial prompt", string(rawInput))
+	}
+	if snapshot.AgentID != "agent-child" || snapshot.ThreadID != "thread-child" {
+		t.Fatalf("snapshot = %#v, want child agent on forked thread", snapshot)
+	}
+}
+
+func TestForkedLaunchRejectsMissingParentThread(t *testing.T) {
+	tests := []struct {
+		name        string
+		setupParent func(*service)
+		wantErr     string
+	}{
+		{
+			name:    "parent missing",
+			wantErr: "parent agent",
+		},
+		{
+			name: "parent without remote thread",
+			setupParent: func(svc *service) {
+				parent := svc.newAgentLocked("agent-parent")
+				parent.state = agentdto.StateIdle
+				svc.agents[parent.id] = parent
+			},
+			wantErr: "remote thread id",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			svc := NewService(silentLogger(), event.NewDispatcher(), remoteLocalLauncher(t, handler.Map{}), nil, nil, nil)
+			if tt.setupParent != nil {
+				tt.setupParent(svc)
+			}
+
+			_, err := svc.LaunchAgentSnapshot(context.Background(), LaunchRequest{
+				AgentID:     "agent-child",
+				Name:        "forked child",
+				ParentID:    "agent-parent",
+				ContextMode: "forked",
+				Prompt:      "continue",
+				Cwd:         t.TempDir(),
+				Command:     []string{"ignored"},
+			})
+
+			if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
+				t.Fatalf("LaunchAgentSnapshot() error = %v, want containing %q", err, tt.wantErr)
+			}
+		})
 	}
 }
