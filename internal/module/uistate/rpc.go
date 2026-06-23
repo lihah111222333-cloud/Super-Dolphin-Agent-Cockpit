@@ -75,6 +75,15 @@ func NewUIStateHandlers(svc Service) platformrpc.HandlerMapResult {
 			logProviderPreferenceTrace("ui/preferences/set: trace", p.Cwd, p.Key, p.Value)
 			return map[string]any{"ok": true}, nil
 		}),
+		"modelProviders/list": platformrpc.StrictHandler(func(ctx context.Context, p modelProvidersParams) (any, error) {
+			return listModelProviders(ctx, svc, p.Cwd)
+		}),
+		"modelProviders/save": platformrpc.StrictHandler(func(ctx context.Context, p modelProvidersSaveParams) (any, error) {
+			return saveModelProviders(ctx, svc, p)
+		}),
+		"modelProviders/apply": platformrpc.StrictHandler(func(ctx context.Context, p modelProvidersApplyParams) (any, error) {
+			return applyModelProvider(ctx, svc, p)
+		}),
 		"ui/projects/get": platformrpc.StrictHandler(func(ctx context.Context, p scopeParams) (any, error) {
 			return svc.GetProjects(withPreferenceScope(ctx, p.Cwd))
 		}),

@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { SettingsPage } from './SettingsPage.jsx';
 
 const backend = vi.hoisted(() => ({
+  applyModelProvider: vi.fn(),
   callBackend: vi.fn(),
   checkAppUpdate: vi.fn(),
   copyTextToClipboard: vi.fn(),
@@ -14,11 +15,13 @@ const backend = vi.hoisted(() => ({
   installAppUpdate: vi.fn(),
   installLatestAppUpdate: vi.fn(),
   listDashboardLogs: vi.fn(),
+  listModelProviders: vi.fn(),
   readBuiltinTools: vi.fn(),
   readConfig: vi.fn(),
   readLspPromptHint: vi.fn(),
   setPreference: vi.fn(),
   setVideoApiKey: vi.fn(),
+  saveModelProviders: vi.fn(),
   writeBuiltinTool: vi.fn(),
   writeLspPromptHint: vi.fn(),
 }));
@@ -95,6 +98,21 @@ beforeEach(() => {
   backend.downloadAppUpdate.mockResolvedValue({ ok: true });
   backend.installAppUpdate.mockResolvedValue({ ok: true });
   backend.installLatestAppUpdate.mockResolvedValue({ ok: true });
+  backend.listModelProviders.mockResolvedValue({
+    activeVendorId: '',
+    vendors: [
+      { id: 'openrouter', label: 'OpenRouter', enabled: true, baseURL: 'https://openrouter.ai/api/v1', envKey: 'OPENROUTER_API_KEY', codexModelProvider: 'openrouter', defaultModel: 'openai/gpt-4.1', configured: true, maskedEnv: '********', envStatus: 'configured', budget: { dailyUsd: 5, monthlyUsd: 100 }, tokenPool: { priority: 10, fallbackVendorId: 'deepseek' } },
+      { id: 'deepseek', label: 'DeepSeek', enabled: false, baseURL: 'https://api.deepseek.com/v1', envKey: 'DEEPSEEK_API_KEY', codexModelProvider: 'deepseek', defaultModel: 'deepseek-chat', configured: false, maskedEnv: '', envStatus: 'missing', budget: {}, tokenPool: { priority: 20, fallbackVendorId: 'qwen' } },
+      { id: 'qwen', label: 'Qwen', enabled: false, baseURL: 'https://dashscope.aliyuncs.com/compatible-mode/v1', envKey: 'QWEN_API_KEY', codexModelProvider: 'qwen', defaultModel: 'qwen-plus', configured: false, maskedEnv: '', envStatus: 'missing', budget: {}, tokenPool: { priority: 30 } },
+    ],
+  });
+  backend.saveModelProviders.mockResolvedValue({ ok: true });
+  backend.applyModelProvider.mockResolvedValue({
+    activeVendorId: 'openrouter',
+    vendors: [
+      { id: 'openrouter', label: 'OpenRouter', enabled: true, baseURL: 'https://openrouter.ai/api/v1', envKey: 'OPENROUTER_API_KEY', codexModelProvider: 'openrouter', defaultModel: 'openai/gpt-4.1', configured: true, maskedEnv: '********', envStatus: 'configured', budget: { dailyUsd: 5, monthlyUsd: 100 }, tokenPool: { priority: 10, fallbackVendorId: 'deepseek' } },
+    ],
+  });
   backend.setPreference.mockResolvedValue({ ok: true });
   backend.readConfig.mockResolvedValue({ cwd: '/repo/app' });
   backend.readLspPromptHint.mockResolvedValue({
@@ -517,6 +535,87 @@ describe('SettingsPage provider migration', () => {
     expect(backend.setPreference).not.toHaveBeenCalledWith(expect.objectContaining({
       key: 'settings.provider.codex.effort',
     }));
+  });
+});
+
+describe('SettingsPage model provider management', () => {
+  it('renders model vendors with redacted API key status', async () => {
+    renderSettingsPage();
+
+    const card = await screen.findByTestId('settings-model-providers-card');
+    expect(card).toHaveTextContent('Model Providers');
+    expect(card).toHaveTextContent('OpenRouter');
+    expect(card).toHaveTextContent('OPENROUTER_API_KEY');
+    expect(card).toHaveTextContent('configured');
+    expect(card).not.toHaveTextContent('sk-openrouter-secret');
+  });
+
+  it('saves the edited vendor registry through the facade', async () => {
+    renderSettingsPage();
+    const card = await screen.findByTestId('settings-model-providers-card');
+    fireEvent.change(within(card).getByLabelText('Default Model'), { target: { value: 'openai/gpt-4.1-mini' } });
+    fireEvent.change(within(card).getByLabelText('Daily Budget USD'), { target: { value: '' } });
+    fireEvent.change(within(card).getByLabelText('Token Priority'), { target: { value: '12' } });
+    fireEvent.click(within(card).getByRole('button', { name: '保存厂商配置' }));
+
+    await waitFor(() => {
+      expect(backend.saveModelProviders).toHaveBeenCalledWith(expect.objectContaining({
+        cwd: '/repo/app',
+        registry: expect.objectContaining({
+          vendors: expect.arrayContaining([expect.objectContaining({ id: 'openrouter', defaultModel: 'openai/gpt-4.1-mini' })]),
+        }),
+      }));
+    });
+    const payload = backend.saveModelProviders.mock.calls.at(-1)[0];
+    const openrouter = payload.registry.vendors.find((vendor) => vendor.id === 'openrouter');
+    expect(openrouter.budget.dailyUsd).toBe(0);
+    expect(openrouter.budget.monthlyUsd).toBe(100);
+    expect(openrouter.tokenPool.priority).toBe(12);
+    expect(openrouter).not.toHaveProperty('configured');
+    expect(openrouter).not.toHaveProperty('maskedEnv');
+    expect(openrouter).not.toHaveProperty('envStatus');
+  });
+
+  it('shows missing env status without API key input fields', async () => {
+    renderSettingsPage();
+    const card = await screen.findByTestId('settings-model-providers-card');
+    const deepseekRow = within(card).getByRole('button', { name: /DeepSeek/ });
+    expect(deepseekRow).toHaveTextContent('disabled');
+    expect(deepseekRow).toHaveTextContent('missing');
+    fireEvent.click(deepseekRow);
+    expect(within(card).getAllByText('missing').length).toBeGreaterThan(0);
+    expect(within(card).queryByLabelText('API Key')).not.toBeInTheDocument();
+  });
+
+  it('does not apply a disabled configured vendor', async () => {
+    backend.listModelProviders.mockResolvedValueOnce({
+      activeVendorId: '',
+      vendors: [
+        { id: 'openrouter', label: 'OpenRouter', enabled: true, baseURL: 'https://openrouter.ai/api/v1', envKey: 'OPENROUTER_API_KEY', codexModelProvider: 'openrouter', defaultModel: 'openai/gpt-4.1', configured: true, maskedEnv: '********', envStatus: 'configured', budget: { dailyUsd: 5, monthlyUsd: 100 }, tokenPool: { priority: 10, fallbackVendorId: 'deepseek' } },
+        { id: 'deepseek', label: 'DeepSeek', enabled: false, baseURL: 'https://api.deepseek.com/v1', envKey: 'DEEPSEEK_API_KEY', codexModelProvider: 'deepseek', defaultModel: 'deepseek-chat', configured: true, maskedEnv: '********', envStatus: 'configured', budget: {}, tokenPool: { priority: 20, fallbackVendorId: 'qwen' } },
+      ],
+    });
+    renderSettingsPage();
+    const card = await screen.findByTestId('settings-model-providers-card');
+    const deepseekRow = within(card).getByRole('button', { name: /DeepSeek/ });
+    expect(deepseekRow).toHaveTextContent('disabled');
+    expect(deepseekRow).toHaveTextContent('configured');
+    fireEvent.click(deepseekRow);
+
+    const applyButton = within(card).getByRole('button', { name: '应用厂商' });
+    expect(applyButton).toBeDisabled();
+    fireEvent.click(applyButton);
+    expect(backend.applyModelProvider).not.toHaveBeenCalled();
+  });
+
+  it('applies a configured vendor and refreshes active state', async () => {
+    renderSettingsPage();
+    const card = await screen.findByTestId('settings-model-providers-card');
+    fireEvent.click(within(card).getByRole('button', { name: '应用厂商' }));
+    await waitFor(() => {
+      expect(backend.applyModelProvider).toHaveBeenCalledWith({ cwd: '/repo/app', vendorId: 'openrouter' });
+      expect(card).toHaveTextContent('已应用 OpenRouter');
+    });
   });
 });
 
