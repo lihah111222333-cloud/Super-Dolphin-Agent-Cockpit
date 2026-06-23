@@ -576,6 +576,67 @@ describe('SettingsPage model provider management', () => {
     expect(openrouter).not.toHaveProperty('envStatus');
   });
 
+  it('ignores stale model provider loads after cwd changes', async () => {
+    const firstLoad = deferred();
+    const secondLoad = deferred();
+    const firstRegistry = {
+      activeVendorId: 'one-vendor',
+      vendors: [
+        { id: 'one-vendor', label: 'ProjectOneAI', enabled: true, baseURL: 'https://one.example/v1', envKey: 'ONE_API_KEY', codexModelProvider: 'one', defaultModel: 'one-model', configured: true, maskedEnv: '********', envStatus: 'configured', budget: { dailyUsd: 1, monthlyUsd: 10 }, tokenPool: { priority: 1 } },
+      ],
+    };
+    const secondRegistry = {
+      activeVendorId: 'two-vendor',
+      vendors: [
+        { id: 'two-vendor', label: 'ProjectTwoAI', enabled: true, baseURL: 'https://two.example/v1', envKey: 'TWO_API_KEY', codexModelProvider: 'two', defaultModel: 'two-model', configured: true, maskedEnv: '********', envStatus: 'configured', budget: { dailyUsd: 2, monthlyUsd: 20 }, tokenPool: { priority: 2 } },
+      ],
+    };
+    backend.listModelProviders
+      .mockReturnValueOnce(firstLoad.promise)
+      .mockReturnValueOnce(secondLoad.promise);
+
+    const { rerender } = render(<SettingsPage projectPath="/repo/one" />);
+    await waitFor(() => {
+      expect(backend.listModelProviders).toHaveBeenCalledWith({ cwd: '/repo/one' });
+    });
+
+    rerender(<SettingsPage projectPath="/repo/two" />);
+    await waitFor(() => {
+      expect(backend.listModelProviders).toHaveBeenCalledWith({ cwd: '/repo/two' });
+    });
+
+    await act(async () => {
+      secondLoad.resolve(secondRegistry);
+      await secondLoad.promise;
+    });
+    const card = await screen.findByTestId('settings-model-providers-card');
+    expect(card).toHaveTextContent('ProjectTwoAI');
+    expect(card).not.toHaveTextContent('ProjectOneAI');
+
+    await act(async () => {
+      firstLoad.resolve(firstRegistry);
+      await firstLoad.promise;
+    });
+    expect(card).toHaveTextContent('ProjectTwoAI');
+    expect(card).not.toHaveTextContent('ProjectOneAI');
+
+    const saveButton = card.querySelectorAll('.settings-provider-actions button')[1];
+    expect(saveButton).toBeTruthy();
+    fireEvent.click(saveButton);
+
+    await waitFor(() => {
+      expect(backend.saveModelProviders).toHaveBeenCalledWith(expect.objectContaining({
+        cwd: '/repo/two',
+        registry: expect.objectContaining({
+          vendors: expect.arrayContaining([expect.objectContaining({ id: 'two-vendor', defaultModel: 'two-model' })]),
+        }),
+      }));
+    });
+    const payload = backend.saveModelProviders.mock.calls.at(-1)[0];
+    expect(payload.registry.vendors).toHaveLength(1);
+    expect(payload.registry.vendors[0].id).toBe('two-vendor');
+  });
+
   it('shows missing env status without API key input fields', async () => {
     renderSettingsPage();
     const card = await screen.findByTestId('settings-model-providers-card');
