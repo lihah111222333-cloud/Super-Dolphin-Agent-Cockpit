@@ -1,4 +1,5 @@
 import {
+  applyModelProvider as applyModelProviderBackend,
   checkAppUpdate as checkAppUpdateBackend,
   copyTextToClipboard as copyTextToClipboardBackend,
   getBuildInfo as getBuildInfoBackend,
@@ -6,14 +7,20 @@ import {
   getVideoApiKey as getVideoApiKeyBackend,
   installLatestAppUpdate as installLatestAppUpdateBackend,
   listDashboardLogs as listDashboardLogsBackend,
+  listModelProviders as listModelProvidersBackend,
   readBuiltinTools as readBuiltinToolsBackend,
   readConfig as readConfigBackend,
   readLspPromptHint as readLspPromptHintBackend,
+  saveModelProviders as saveModelProvidersBackend,
   setPreference as setPreferenceBackend,
   setVideoApiKey as setVideoApiKeyBackend,
   writeBuiltinTool as writeBuiltinToolBackend,
   writeLspPromptHint as writeLspPromptHintRpc,
 } from '../../../shared/api/backendApi.js';
+
+export function applyModelProvider(payload) {
+  return applyModelProviderBackend(payload);
+}
 
 export function checkAppUpdate(payload) {
   return checkAppUpdateBackend(payload);
@@ -43,6 +50,10 @@ export function listDashboardLogs(payload) {
   return listDashboardLogsBackend(payload);
 }
 
+export function listModelProviders(payload) {
+  return listModelProvidersBackend(payload);
+}
+
 export function readBuiltinTools(payload) {
   return readBuiltinToolsBackend(payload);
 }
@@ -53,6 +64,10 @@ export function readConfig(payload) {
 
 export function readLspPromptHint(payload) {
   return readLspPromptHintBackend(payload);
+}
+
+export function saveModelProviders(payload) {
+  return saveModelProvidersBackend(payload);
 }
 
 export function setPreference(payload) {
