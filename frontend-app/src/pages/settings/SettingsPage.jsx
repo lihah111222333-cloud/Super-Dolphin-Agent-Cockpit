@@ -3,6 +3,7 @@ import { Menu, Settings } from 'lucide-react';
 import { useClientStore } from '../../entities/client/model/useClientStore.js';
 import { PageHeader } from '../shared/pageComponents.jsx';
 import { BuiltinToolsCard } from './components/BuiltinToolsCard.jsx';
+import { ModelProvidersCard } from './components/ModelProvidersCard.jsx';
 import { ProviderPropertiesCard, ProviderSettingsPanel } from './components/ProviderSettingsPanels.jsx';
 import { PromptSettingsCard } from './components/PromptSettingsCard.jsx';
 import { AboutPanel, RuntimeSettingsPanels } from './components/SettingsSystemPanels.jsx';
@@ -1066,6 +1067,7 @@ function SettingsPageView({ builtins, copy = APP_COPY.zh.settings, cwd, prompt, 
         <RuntimeSettingsPanels copy={copy} runtime={runtime} />
         <ProviderSettingsPanel copy={copy} runtime={runtime} viewConfig={providerSettingsViewConfig} />
         <ProviderPropertiesCard copy={copy} provider={provider} />
+        <ModelProvidersCard copy={copy} cwd={cwd} />
         <PromptSettingsCard copy={copy} prompt={prompt} />
         <BuiltinToolsCard builtins={builtins} copy={copy} />
         <VideoSettingsCard copy={copy} getApiKey={getVideoApiKey} setApiKey={setVideoApiKey} />

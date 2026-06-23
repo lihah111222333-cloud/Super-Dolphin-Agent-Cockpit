@@ -914,6 +914,20 @@ function expectSkillEditorCalls(callAPI) {
     expect(() => api.getDashboardPage({ cwd: '/repo/app', page: '' })).toThrow('page is required');
   });
 
+  it('exposes model provider management RPC facade methods', async () => {
+    const callAPI = vi.fn().mockResolvedValue({ ok: true });
+    const api = createBackendApi({ callAPI });
+    const registry = { vendors: [{ id: 'openrouter', label: 'OpenRouter', enabled: true, baseURL: 'https://openrouter.ai/api/v1', envKey: 'OPENROUTER_API_KEY', codexModelProvider: 'openrouter', defaultModel: 'openai/gpt-4.1' }] };
+
+    await api.listModelProviders({ cwd: '/repo/app' });
+    await api.saveModelProviders({ cwd: '/repo/app', registry });
+    await api.applyModelProvider({ cwd: '/repo/app', vendorId: 'openrouter' });
+
+    expect(callAPI).toHaveBeenNthCalledWith(1, RPC_METHODS.MODEL_PROVIDERS_LIST, { cwd: '/repo/app' });
+    expect(callAPI).toHaveBeenNthCalledWith(2, RPC_METHODS.MODEL_PROVIDERS_SAVE, { cwd: '/repo/app', registry });
+    expect(callAPI).toHaveBeenNthCalledWith(3, RPC_METHODS.MODEL_PROVIDERS_APPLY, { cwd: '/repo/app', vendorId: 'openrouter' });
+  });
+
   it('wraps prompt-section and thread read RPCs with stable payloads', async () => {
     const callAPI = vi.fn().mockResolvedValue({ ok: true });
     const api = createBackendApi({ callAPI });

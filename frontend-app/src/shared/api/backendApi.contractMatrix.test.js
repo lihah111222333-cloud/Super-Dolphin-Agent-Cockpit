@@ -42,6 +42,27 @@ describe('backend API contract matrix', () => {
     expect(RPC_CONTRACT_REGISTRY.UI_VIDEO_GET_API_KEY.notes).toContain('credential configuration read');
   });
 
+  it('marks model provider preference methods at the documented risk levels', () => {
+    expect(RPC_CONTRACT_REGISTRY.MODEL_PROVIDERS_LIST).toEqual(expect.objectContaining({
+      facade: 'listModelProviders',
+      level: 'P1',
+      backendOwner: 'preferences',
+      notes: expect.arrayContaining(['model provider registry read']),
+    }));
+    expect(RPC_CONTRACT_REGISTRY.MODEL_PROVIDERS_SAVE).toEqual(expect.objectContaining({
+      facade: 'saveModelProviders',
+      level: 'P0',
+      backendOwner: 'preferences',
+      notes: expect.arrayContaining(['model provider registry mutation']),
+    }));
+    expect(RPC_CONTRACT_REGISTRY.MODEL_PROVIDERS_APPLY).toEqual(expect.objectContaining({
+      facade: 'applyModelProvider',
+      level: 'P0',
+      backendOwner: 'preferences',
+      notes: expect.arrayContaining(['model provider activation mutation']),
+    }));
+  });
+
   it('keeps P1 read families explicitly represented', () => {
     const expectedP1Reads = [
       'THREAD_MESSAGES',
