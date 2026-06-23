@@ -579,9 +579,33 @@ describe('SettingsPage model provider management', () => {
   it('shows missing env status without API key input fields', async () => {
     renderSettingsPage();
     const card = await screen.findByTestId('settings-model-providers-card');
-    fireEvent.click(within(card).getByRole('button', { name: /DeepSeek/ }));
+    const deepseekRow = within(card).getByRole('button', { name: /DeepSeek/ });
+    expect(deepseekRow).toHaveTextContent('disabled');
+    expect(deepseekRow).toHaveTextContent('missing');
+    fireEvent.click(deepseekRow);
     expect(within(card).getAllByText('missing').length).toBeGreaterThan(0);
     expect(within(card).queryByLabelText('API Key')).not.toBeInTheDocument();
+  });
+
+  it('does not apply a disabled configured vendor', async () => {
+    backend.listModelProviders.mockResolvedValueOnce({
+      activeVendorId: '',
+      vendors: [
+        { id: 'openrouter', label: 'OpenRouter', enabled: true, baseURL: 'https://openrouter.ai/api/v1', envKey: 'OPENROUTER_API_KEY', codexModelProvider: 'openrouter', defaultModel: 'openai/gpt-4.1', configured: true, maskedEnv: '********', envStatus: 'configured', budget: { dailyUsd: 5, monthlyUsd: 100 }, tokenPool: { priority: 10, fallbackVendorId: 'deepseek' } },
+        { id: 'deepseek', label: 'DeepSeek', enabled: false, baseURL: 'https://api.deepseek.com/v1', envKey: 'DEEPSEEK_API_KEY', codexModelProvider: 'deepseek', defaultModel: 'deepseek-chat', configured: true, maskedEnv: '********', envStatus: 'configured', budget: {}, tokenPool: { priority: 20, fallbackVendorId: 'qwen' } },
+      ],
+    });
+    renderSettingsPage();
+    const card = await screen.findByTestId('settings-model-providers-card');
+    const deepseekRow = within(card).getByRole('button', { name: /DeepSeek/ });
+    expect(deepseekRow).toHaveTextContent('disabled');
+    expect(deepseekRow).toHaveTextContent('configured');
+    fireEvent.click(deepseekRow);
+
+    const applyButton = within(card).getByRole('button', { name: '应用厂商' });
+    expect(applyButton).toBeDisabled();
+    fireEvent.click(applyButton);
+    expect(backend.applyModelProvider).not.toHaveBeenCalled();
   });
 
   it('applies a configured vendor and refreshes active state', async () => {

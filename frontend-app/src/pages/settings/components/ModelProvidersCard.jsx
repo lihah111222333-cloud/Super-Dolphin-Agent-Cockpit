@@ -14,13 +14,12 @@ const EMPTY_REGISTRY = Object.freeze({
 // 从当前项目 cwd 加载模型厂商注册表，编辑态只留在本组件内，保存时再写回后端。
 function ModelProvidersCard({ copy, cwd }) {
   const modelCopy = copy.modelProviders;
-  const [registry, setRegistry] = useState(EMPTY_REGISTRY);
+  const [registry, setRegistry] = useState(null);
   const [selectedVendorId, setSelectedVendorId] = useState('');
-  const [loading, setLoading] = useState(false);
-  const [loaded, setLoaded] = useState(false);
-  const [saving, setSaving] = useState(false);
-  const [applying, setApplying] = useState(false);
+  const [busy, setBusy] = useState({ loading: false, saving: false, applying: false });
   const [notice, setNotice] = useState({ level: 'info', message: '' });
+  const currentRegistry = registry || EMPTY_REGISTRY;
+  const { applying, loading, saving } = busy;
 
   const applyRegistryState = useCallback((payload, preferredVendorId = '') => {
     const nextRegistry = normalizeRegistry(payload);
@@ -32,11 +31,9 @@ function ModelProvidersCard({ copy, cwd }) {
     if (!cwd) {
       setRegistry(EMPTY_REGISTRY);
       setSelectedVendorId('');
-      setLoaded(true);
       return;
     }
-    setLoaded(false);
-    setLoading(true);
+    setBusy((current) => ({ ...current, loading: true }));
     try {
       const payload = await listModelProviders({ cwd });
       applyRegistryState(payload, payload?.activeVendorId);
@@ -44,8 +41,7 @@ function ModelProvidersCard({ copy, cwd }) {
     } catch (error) {
       setNotice({ level: 'warning', message: modelCopy.loadFailed + (error?.message || error) });
     } finally {
-      setLoading(false);
-      setLoaded(true);
+      setBusy((current) => ({ ...current, loading: false }));
     }
   }, [applyRegistryState, cwd, modelCopy]);
 
@@ -54,8 +50,8 @@ function ModelProvidersCard({ copy, cwd }) {
   }, [load]);
 
   const selectedVendor = useMemo(
-    () => registry.vendors.find((vendor) => vendor.id === selectedVendorId) || registry.vendors[0] || null,
-    [registry.vendors, selectedVendorId],
+    () => currentRegistry.vendors.find((vendor) => vendor.id === selectedVendorId) || currentRegistry.vendors[0] || null,
+    [currentRegistry.vendors, selectedVendorId],
   );
 
   const updateVendor = useCallback((field, value) => {
@@ -71,20 +67,20 @@ function ModelProvidersCard({ copy, cwd }) {
 
   const save = useCallback(async () => {
     if (!cwd || saving) return;
-    setSaving(true);
+    setBusy((current) => ({ ...current, saving: true }));
     try {
-      await saveModelProviders({ cwd, registry: registrySavePayload(registry) });
+      await saveModelProviders({ cwd, registry: registrySavePayload(currentRegistry) });
       setNotice({ level: 'info', message: modelCopy.saved });
     } catch (error) {
       setNotice({ level: 'error', message: modelCopy.saveFailed + (error?.message || error) });
     } finally {
-      setSaving(false);
+      setBusy((current) => ({ ...current, saving: false }));
     }
-  }, [cwd, modelCopy, registry, saving]);
+  }, [currentRegistry, cwd, modelCopy, saving]);
 
   const apply = useCallback(async () => {
-    if (!cwd || applying || !selectedVendor?.configured) return;
-    setApplying(true);
+    if (!cwd || applying || !selectedVendor || !selectedVendor.enabled || !selectedVendor.configured) return;
+    setBusy((current) => ({ ...current, applying: true }));
     try {
       const payload = await applyModelProvider({ cwd, vendorId: selectedVendor.id });
       applyRegistryState(payload, selectedVendor.id);
@@ -92,15 +88,15 @@ function ModelProvidersCard({ copy, cwd }) {
     } catch (error) {
       setNotice({ level: 'error', message: modelCopy.applyFailed + (error?.message || error) });
     } finally {
-      setApplying(false);
+      setBusy((current) => ({ ...current, applying: false }));
     }
   }, [applying, applyRegistryState, cwd, modelCopy, selectedVendor]);
 
   return (
-    <div className="settings-model-providers" data-testid={loaded ? 'settings-model-providers-card' : undefined}>
+    <div className="settings-model-providers" data-testid={registry ? 'settings-model-providers-card' : undefined}>
       <Panel title={modelCopy.title}>
         <div className="settings-model-provider-list" aria-label={modelCopy.vendorList}>
-          {registry.vendors.map((vendor) => (
+          {currentRegistry.vendors.map((vendor) => (
             <button
               type="button"
               key={vendor.id}
@@ -108,7 +104,7 @@ function ModelProvidersCard({ copy, cwd }) {
               onClick={() => setSelectedVendorId(vendor.id)}
             >
               <strong>{vendor.label || vendor.id}</strong>
-              <span>{vendorStatusLabel(vendor, registry.activeVendorId, modelCopy)}</span>
+              <span>{vendorStatusLabel(vendor, currentRegistry.activeVendorId, modelCopy)}</span>
             </button>
           ))}
         </div>
@@ -118,13 +114,13 @@ function ModelProvidersCard({ copy, cwd }) {
           onChange={updateVendor}
           onNestedChange={updateNestedVendor}
           vendor={selectedVendor}
-          vendors={registry.vendors}
+          vendors={currentRegistry.vendors}
         />
         {notice.message ? <SettingsPromptNotice notice={notice} testId="settings-model-providers-notice" /> : null}
         <div className="settings-action-row settings-action-inline settings-provider-actions">
           <button type="button" className="btn btn-secondary btn-toolbar-sm" onClick={load} disabled={loading || saving || applying}>{loading ? modelCopy.loading : modelCopy.refresh}</button>
           <button type="button" className="btn btn-primary btn-toolbar-sm" onClick={save} disabled={loading || saving || applying}>{saving ? modelCopy.saving : modelCopy.save}</button>
-          <button type="button" className="btn btn-primary btn-toolbar-sm" onClick={apply} disabled={loading || saving || applying || !selectedVendor?.configured}>{applying ? modelCopy.applying : modelCopy.apply}</button>
+          <button type="button" className="btn btn-primary btn-toolbar-sm" onClick={apply} disabled={loading || saving || applying || !selectedVendor?.enabled || !selectedVendor?.configured}>{applying ? modelCopy.applying : modelCopy.apply}</button>
         </div>
       </Panel>
     </div>
@@ -157,7 +153,7 @@ function ModelProviderDetail({ disabled, modelCopy, onChange, onNestedChange, ve
         <label>{modelCopy.tokenPriority}<input type="number" value={vendor.tokenPool.priority} onChange={(event) => onNestedChange('tokenPool', 'priority', event.target.value)} disabled={disabled} /></label>
         <label>{modelCopy.fallbackVendor}<select value={vendor.tokenPool.fallbackVendorId} onChange={(event) => onNestedChange('tokenPool', 'fallbackVendorId', event.target.value)} disabled={disabled}>
           <option value="">{modelCopy.none}</option>
-          {vendors.filter((item) => item.id !== vendor.id).map((item) => <option key={item.id} value={item.id}>{item.label || item.id}</option>)}
+          {vendors.map((item) => (item.id === vendor.id ? null : <option key={item.id} value={item.id}>{item.label || item.id}</option>))}
         </select></label>
       </div>
     </div>
@@ -246,7 +242,9 @@ function vendorSavePayload(vendor) {
 
 function vendorStatusLabel(vendor, activeVendorId, modelCopy) {
   const status = vendor.envStatus || (vendor.configured ? modelCopy.configured : modelCopy.missing);
-  return vendor.id === activeVendorId ? status + ' / ' + modelCopy.active : status;
+  const parts = [vendor.enabled ? modelCopy.enabled.toLowerCase() : 'disabled', status];
+  if (vendor.id === activeVendorId) parts.push(modelCopy.active);
+  return parts.join(' / ');
 }
 
 function envStatusLabel(vendor, modelCopy) {
