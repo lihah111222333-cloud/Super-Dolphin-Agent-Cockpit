@@ -10,6 +10,7 @@ import (
 	"github.com/creachadair/jrpc2/handler"
 
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/orchestration/launcherrors"
+	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/orchestration/launcherwire"
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/orchestration/nodeexec"
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	agentdto "github.com/anthropic-ai/super-agent-v3/internal/dto/agent"
@@ -203,8 +204,46 @@ func TestDAGAgentExecutorRemoteLauncherKeepsCommandlessSpawnWritebackPath(t *tes
 	if recorder.threadID != "thread-remote" || recorder.dagKey != "dag-remote" || recorder.nodeKey != "agent-node" || recorder.runID != 84 {
 		t.Fatalf("recorded spawn = %#v, want dag/thread writeback for remote launch", recorder)
 	}
-	if got := turnStart[LauncherParamThreadID]; got != "thread-remote" {
+	if got := turnStart[launcherwire.ParamThreadID]; got != "thread-remote" {
 		t.Fatalf("turn/start thread_id = %#v, want thread-remote", got)
+	}
+}
+
+func TestServiceForkedLaunchUsesParentThreadIDWhenParentAgentIsExternal(t *testing.T) {
+	var forked map[string]any
+	var named map[string]any
+	svc := NewService(silentLogger(), event.NewDispatcher(), remoteLocalLauncher(t, handler.Map{
+		launcherwire.MethodThreadFork: handler.New(func(_ context.Context, req map[string]any) (map[string]any, error) {
+			forked = req
+			return map[string]any{launcherwire.RespNewThreadID: "thread-child", launcherwire.RespAgentID: "remote-child"}, nil
+		}),
+		launcherwire.MethodThreadNameSet: handler.New(func(_ context.Context, req map[string]any) (struct{}, error) {
+			named = req
+			return struct{}{}, nil
+		}),
+	}), nil, nil, nil)
+
+	err := svc.LaunchAgent(context.Background(), LaunchRequest{
+		AgentID:        "agent-child",
+		Name:           "forked child",
+		ParentID:       "agent-parent",
+		ParentThreadID: "thread-parent-public",
+		ContextMode:    "forked",
+		Cwd:            t.TempDir(),
+	})
+
+	if err != nil {
+		t.Fatalf("LaunchAgent() error = %v", err)
+	}
+	if got := forked[launcherwire.ParamThreadID]; got != "thread-parent-public" {
+		t.Fatalf("thread/fork thread_id = %#v, want thread-parent-public", got)
+	}
+	if got := named[launcherwire.ParamThreadID]; got != "thread-child" {
+		t.Fatalf("thread/name/set thread_id = %#v, want thread-child", got)
+	}
+	agent := svc.agents["remote-child"]
+	if agent == nil || agent.remoteThreadID != "thread-child" || agent.state != agentdto.StateIdle {
+		t.Fatalf("launched agent = %#v, want idle remote-child on thread-child", agent)
 	}
 }
 
@@ -311,6 +350,58 @@ func TestStopAgentViaLauncherSettlesRemoteStopWithoutRunner(t *testing.T) {
 	}
 }
 
+func TestRecoverStoppedLauncherAgentAllowsFollowUpSubmit(t *testing.T) {
+	launcher, svc, agent := newStoppedLauncherRecoverTest(t)
+	archiveAndRecoverLauncherAgent(t, svc, agent)
+	assertRecoveredLauncherSubmit(t, svc, launcher, agent)
+}
+
+func newStoppedLauncherRecoverTest(t *testing.T) (*recordingStallLauncher, *service, *agentRuntime) {
+	t.Helper()
+	launcher := &recordingStallLauncher{}
+	svc := NewService(silentLogger(), nil, launcher, nil, nil, nil)
+	agent := launcherRecoveryAgent(svc, "agent-remote")
+	agent.command = longRunningTestCommandLine()
+	agent.provider = "codex"
+	agent.providerSource = "inferred"
+	agent.state = agentdto.StateIdle
+	agent.activeTurnID = ""
+	agent.launchSeq = 1
+	t.Cleanup(func() { cleanupAgentProcess(agent) })
+	return launcher, svc, agent
+}
+
+func archiveAndRecoverLauncherAgent(t *testing.T, svc *service, agent *agentRuntime) {
+	t.Helper()
+	archived, err := svc.archiveAgentViaLauncher(context.Background(), agent.id, "archived")
+	if err != nil || !archived {
+		t.Fatalf("archiveAgentViaLauncher() = (%v, %v), want archived nil", archived, err)
+	}
+	if err := svc.Recover(context.Background(), agent.id); err != nil {
+		t.Fatalf("Recover() error = %v", err)
+	}
+}
+
+func assertRecoveredLauncherSubmit(t *testing.T, svc *service, launcher *recordingStallLauncher, agent *agentRuntime) {
+	t.Helper()
+	if launcher.launchCalls != 1 {
+		t.Fatalf("launcher launch calls = %d, want recover to relaunch stopped remote agent", launcher.launchCalls)
+	}
+	snapshot, err := svc.Snapshot(context.Background(), agent.id)
+	if err != nil {
+		t.Fatalf("Snapshot() error = %v", err)
+	}
+	if snapshot.ThreadID != "thread-recovered" || snapshot.State != string(agentdto.StateIdle) {
+		t.Fatalf("Snapshot() = %#v, want idle recovered remote thread", snapshot)
+	}
+	if err := svc.SubmitTurn(context.Background(), TurnSubmission{AgentID: agent.id, ThreadID: snapshot.ThreadID, Inputs: []shareddto.InputItem{{Type: "text", Content: "follow-up"}}}); err != nil {
+		t.Fatalf("SubmitTurn() after recover error = %v", err)
+	}
+	if launcher.submitCalls != 1 || launcher.submitThreadID != "thread-recovered" {
+		t.Fatalf("launcher submit = calls:%d thread:%q, want one submit on recovered thread", launcher.submitCalls, launcher.submitThreadID)
+	}
+}
+
 func TestRemoteLauncherDeclaresStopSettled(t *testing.T) {
 	settler, ok := NewRemoteLauncher("127.0.0.1:1").(interface{ StopSettlesAgent() bool })
 	if !ok || !settler.StopSettlesAgent() {
@@ -360,15 +451,15 @@ func (*recordingSettledStopLauncher) StopSettlesAgent() bool {
 func serviceBridgeRemoteLauncher(t *testing.T, events *[]string, turnStart *map[string]any) *remoteLauncher {
 	t.Helper()
 	return remoteLocalLauncher(t, handler.Map{
-		LauncherMethodThreadStart: handler.New(func(_ context.Context, req map[string]any) (map[string]any, error) {
+		launcherwire.MethodThreadStart: handler.New(func(_ context.Context, req map[string]any) (map[string]any, error) {
 			*events = append(*events, "thread/start")
 			rejectServiceBridgeCommandParam(t, req)
 			return map[string]any{"thread": map[string]any{"id": "thread-remote"}, "agent_id": "remote-agent"}, nil
 		}),
-		LauncherMethodTurnStart: handler.New(func(_ context.Context, req map[string]any) (map[string]any, error) {
+		launcherwire.MethodTurnStart: handler.New(func(_ context.Context, req map[string]any) (map[string]any, error) {
 			*events = append(*events, "turn/start")
 			*turnStart = req
-			return map[string]any{LauncherRespTurnID: "turn-remote"}, nil
+			return map[string]any{launcherwire.RespTurnID: "turn-remote"}, nil
 		}),
 	})
 }

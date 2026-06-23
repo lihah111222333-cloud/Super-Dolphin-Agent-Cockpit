@@ -3,6 +3,7 @@ package toolbridge
 import (
 	"context"
 	"encoding/json"
+	"strings"
 	"testing"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
@@ -44,6 +45,60 @@ func TestPrepareCodexToolSurfaceAdvertisesBatchReportShortName(t *testing.T) {
 	}
 	if !orch.calledWith("orchestration_get_agent_reports") {
 		t.Fatalf("orch calls = %#v, want orchestration_get_agent_reports", orch.calls)
+	}
+}
+
+func TestPrepareCodexToolSurfaceAdvertisesThirdVersionOrchestrationShortNames(t *testing.T) {
+	legacyNames := []string{
+		"orchestration_launch_agent",
+		"orchestration_send_message",
+		"orchestration_get_agent_reports",
+		"orchestration_interrupt_agent",
+		"orchestration_recover_agent",
+		"orchestration_stop_agent",
+	}
+	orchTools := make([]mcpdto.MCPTool, 0, len(legacyNames))
+	for _, name := range legacyNames {
+		orchTools = append(orchTools, mcpdto.MCPTool{
+			Name:        name,
+			Description: name,
+			InputSchema: json.RawMessage(`{"type":"object"}`),
+		})
+	}
+	h := &Handler{stdioClientFactory: fakeClientFactory(map[string]mcpClient{
+		"orch": &fakeMCPClient{tools: orchTools},
+	})}
+
+	tools, err := h.PrepareCodexToolSurface(context.Background(), contract.CodexToolSurfaceScope{
+		AgentID:          "agent-1",
+		ProviderThreadID: "provider-thread-1",
+		CWD:              "/repo",
+		Manifest: providerdto.MCPManifest{Binaries: []providerdto.MCPBinary{{
+			Name:    "orch",
+			Command: []string{"mcp-orch"},
+		}}},
+	})
+	if err != nil {
+		t.Fatalf("PrepareCodexToolSurface() error = %v", err)
+	}
+
+	assertDynamicToolNames(t, tools, []string{
+		"launch_agent",
+		"send_message",
+		"get_agent_reports",
+		"interrupt_agent",
+		"recover_agent",
+		"stop_agent",
+	})
+	assertNoLegacyOrchestrationTools(t, tools)
+}
+
+func assertNoLegacyOrchestrationTools(t *testing.T, tools []contract.DynamicToolSchema) {
+	t.Helper()
+	for _, tool := range tools {
+		if strings.HasPrefix(tool.Name, "orchestration_") {
+			t.Fatalf("dynamic tools advertised legacy alias %q", tool.Name)
+		}
 	}
 }
 

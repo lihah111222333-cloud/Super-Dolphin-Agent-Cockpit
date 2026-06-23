@@ -469,6 +469,8 @@ func TestOrchestrationNilGuardsUseConsistentMessage(t *testing.T) {
 		{name: "launch", handler: HandleLaunchAgent(nil), input: `{}`},
 		{name: "send", handler: HandleSendMessage(nil), input: `{}`},
 		{name: "stop", handler: HandleStopAgent(nil), input: `{}`},
+		{name: "recover", handler: HandleRecoverAgent(nil), input: `{}`},
+		{name: "interrupt", handler: HandleInterruptAgent(nil), input: `{}`},
 		{name: "list", handler: HandleListAgents(nil), input: `{}`},
 		{name: "report", handler: HandleGetAgentReport(nil), input: `{}`},
 		{name: "create_dag", handler: HandleCreateDAG(nil), input: `{}`},

@@ -429,6 +429,10 @@ func (s *stubDashboardOrchestration) ListAgents(context.Context) ([]contract.Age
 
 func (s *stubDashboardOrchestration) StopAgent(context.Context, string) error { return nil }
 
+func (s *stubDashboardOrchestration) InterruptAgent(context.Context, string, string) (contract.AgentStateResult, error) {
+	return contract.AgentStateResult{}, nil
+}
+
 func (s *stubDashboardOrchestration) SubmitTurn(context.Context, contract.TurnSubmission) error {
 	return nil
 }

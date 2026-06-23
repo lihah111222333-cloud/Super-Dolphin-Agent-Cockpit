@@ -25,9 +25,9 @@ const (
 func NewThreadHandlers(svc Service, capResolver contract.CapabilityResolver) platformrpc.HandlerMapResult {
 	return platformrpc.HandlerMapResult{Handlers: handler.Map{
 		contract.ThreadRPCStart:   newStartHandler(svc),
+		contract.ThreadRPCFork:    newForkHandler(svc),
 		contract.ThreadRPCStop:    newThreadEffect(svc.Stop),
 		"thread/resume":           newResumeHandler(svc),
-		"thread/fork":             newForkHandler(svc),
 		"thread/recover":          newRecoverHandler(svc),
 		"thread/handoff":          newHandoffHandler(svc),
 		contract.ThreadRPCArchive: newTracedThreadEffect(contract.ThreadRPCArchive, svc.Archive),
