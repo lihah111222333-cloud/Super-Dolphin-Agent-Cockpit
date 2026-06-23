@@ -28,6 +28,8 @@ var legacyOrchestrationAliases = map[string]string{
 	"orchestration_launch_agent":     "launch_agent",
 	"orchestration_send_message":     "send_message",
 	"orchestration_stop_agent":       "stop_agent",
+	"orchestration_recover_agent":    "recover_agent",
+	"orchestration_interrupt_agent":  "interrupt_agent",
 	"orchestration_list_agents":      "list_agents",
 	"orchestration_get_agent_report": "get_agent_report",
 }

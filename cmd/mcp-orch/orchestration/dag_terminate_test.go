@@ -305,6 +305,10 @@ func (l *terminateLauncherSpy) Launch(context.Context, *agentRuntime, LaunchRequ
 	return LaunchResult{}, nil
 }
 
+func (l *terminateLauncherSpy) Fork(context.Context, *agentRuntime, *agentRuntime, LaunchRequest) (LaunchResult, error) {
+	return LaunchResult{}, errors.New("fork should not be called")
+}
+
 func (l *terminateLauncherSpy) Stop(_ context.Context, agent *agentRuntime) error {
 	if agent != nil {
 		l.stopCalls = append(l.stopCalls, agent.id)
@@ -316,6 +320,10 @@ func (l *terminateLauncherSpy) Stop(_ context.Context, agent *agentRuntime) erro
 }
 
 func (l *terminateLauncherSpy) Archive(context.Context, *agentRuntime) error { return nil }
+
+func (l *terminateLauncherSpy) Interrupt(context.Context, *agentRuntime, string) error {
+	return nil
+}
 
 func (l *terminateLauncherSpy) SubmitTurn(context.Context, *agentRuntime, TurnSubmission) (string, error) {
 	return "", nil

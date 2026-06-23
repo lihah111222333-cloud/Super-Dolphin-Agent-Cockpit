@@ -286,6 +286,10 @@ func canonicalOrchestrationToolName(name string) string {
 		return "send_message"
 	case "orchestration_stop_agent":
 		return "stop_agent"
+	case "orchestration_recover_agent":
+		return "recover_agent"
+	case "orchestration_interrupt_agent":
+		return "interrupt_agent"
 	case "orchestration_list_agents":
 		return "list_agents"
 	case "orchestration_get_agent_report":

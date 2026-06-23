@@ -333,17 +333,20 @@ func TestToolBridge_Resume_ToolCallStillWorks(t *testing.T) {
 	assertSingleTextItem(t, got, "resume ok", true)
 }
 
-func TestToolBridge_OrchestrationLaunchInheritsParentContextFromProviderThread(t *testing.T) {
+func TestToolBridge_OrchestrationLaunchInjectsPublicParentThreadFromProviderLookup(t *testing.T) {
 	args := mustRawJSON(t, map[string]any{
-		"name":     "idle-agent",
-		"provider": "codex",
+		"context_mode": "forked",
+		"name":         "idle-agent",
+		"provider":     "codex",
 	})
 	wantArgs := mustRawJSON(t, map[string]any{
 		"codex_home":           "/Users/test/.codex",
 		"codex_instance_key":   "default",
 		"codex_model_provider": "openai",
+		"context_mode":         "forked",
 		"name":                 "idle-agent",
 		"parent_id":            "agent-parent",
+		"parent_thread_id":     "thread-parent-public",
 		"provider":             "codex",
 	})
 	h, registry := newHandlerForTest(newToolCallPeer(t, "orchestration_launch_agent", wantArgs, "launching", nil))
@@ -352,6 +355,7 @@ func TestToolBridge_OrchestrationLaunchInheritsParentContextFromProviderThread(t
 			AgentID:            "agent-parent",
 			Provider:           "codex",
 			ProviderThreadID:   "provider-thread-parent",
+			CodexThreadID:      "thread-parent-public",
 			CWD:                "/repo/project",
 			CodexHome:          "/Users/test/.codex",
 			CodexInstanceKey:   "default",

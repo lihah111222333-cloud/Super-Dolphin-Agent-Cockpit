@@ -2,6 +2,7 @@ package tools
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -28,6 +29,7 @@ type LaunchAgentInput struct {
 	ContextMode        string `json:"context_mode,omitempty"`
 	Context            string `json:"context,omitempty"`
 	ParentID           string `json:"parent_id,omitempty"`
+	ParentThreadID     string `json:"parent_thread_id,omitempty"`
 	AgentType          string `json:"agent_type,omitempty"`
 	AgentKey           string `json:"agent_key,omitempty"`
 	PromptKey          string `json:"prompt_key,omitempty"`
@@ -54,6 +56,13 @@ type SendMessageInput struct {
 type AgentIDInput struct {
 	AgentID string `json:"agent_id"`
 	Pos     string `json:"pos,omitempty"`
+}
+
+type stopAgentInput struct {
+	AgentID   string `json:"agent_id"`
+	Pos       string `json:"pos,omitempty"`
+	Wait      *bool  `json:"wait,omitempty"`
+	TimeoutMS int    `json:"timeout_ms,omitempty"`
 }
 
 type ListAgentsInput struct {
@@ -92,7 +101,13 @@ type agentArchiver interface {
 // drift follow-up is tracked separately (see plans §10).
 var (
 	launchAgentProviderEnum    = []string{"codex", "claude"}
-	launchAgentContextModeEnum = []string{"minimal", "focused"}
+	launchAgentContextModeEnum = []string{launchContextModeMinimal, launchContextModeFocused, launchContextModeForked}
+)
+
+const (
+	launchContextModeMinimal = "minimal"
+	launchContextModeFocused = "focused"
+	launchContextModeForked  = "forked"
 )
 
 const subAgentDelegationDepthLimitMessage = "Sub-agents are not allowed to spawn further agents (delegation depth limit)."
@@ -370,10 +385,15 @@ func HandleSendMessage(svc contract.OrchestrationService) ToolHandler {
 
 // HandleStopAgent 处理stop代理。
 func HandleStopAgent(svc contract.OrchestrationService) ToolHandler {
-	return makeHandler(svc, "orchestration service", func(ctx context.Context, in AgentIDInput) (map[string]any, error) {
+	return makeHandler(svc, "orchestration service", func(ctx context.Context, in stopAgentInput) (map[string]any, error) {
 		agentID, err := resolveAgentIDInput(in.AgentID, in.Pos)
 		if err != nil {
 			return nil, err
+		}
+		if in.Wait != nil && *in.Wait {
+			if _, err := stopAgentWaitTimeout(in.TimeoutMS); err != nil {
+				return nil, err
+			}
 		}
 		archived := false
 		if archiver, ok := svc.(agentArchiver); ok {
@@ -391,7 +411,7 @@ func HandleStopAgent(svc contract.OrchestrationService) ToolHandler {
 				return nil, err
 			}
 		}
-		return successResult(map[string]any{"agent_id": agentID, "archived": archived}), nil
+		return stopAgentResult(ctx, svc, agentID, archived, in)
 	})
 }
 
@@ -454,6 +474,7 @@ func listAgentSnapshots(ctx context.Context, svc contract.OrchestrationService) 
 	return svc.ListAgents(listCtx)
 }
 
+// hydrateListAgentReports 为缺少 LastReport 的快照补取报告；找不到 agent 只跳过，其他错误立即返回。
 func hydrateListAgentReports(ctx context.Context, svc contract.OrchestrationService, agents []contract.AgentSnapshot) error {
 	reportCtx, cancel := platformconfig.WithTimeoutIfNone(ctx, platformconfig.RPCRequestTimeout)
 	defer cancel()
@@ -467,6 +488,9 @@ func hydrateListAgentReports(ctx context.Context, svc contract.OrchestrationServ
 		}
 		report, err := svc.GetReport(reportCtx, agentID)
 		if err != nil {
+			if errors.Is(err, contract.ErrAgentNotFound) {
+				continue
+			}
 			return fmt.Errorf("hydrate agent report %q: %w", agentID, err)
 		}
 		agents[i].LastReport = report.Report
@@ -501,23 +525,26 @@ func launchRequestFromExecutable(in LaunchAgentInput, exe string) (contract.Laun
 	if err != nil {
 		return contract.LaunchRequest{}, err
 	}
+	contextMode := normalizedLaunchContextMode(in.ContextMode)
 	prompt, err := launchPromptFromContextMode(in)
 	if err != nil {
 		return contract.LaunchRequest{}, err
 	}
 	req := contract.LaunchRequest{
-		AgentID:     agentID,
-		Name:        name,
-		Prompt:      prompt,
-		ParentID:    strings.TrimSpace(in.ParentID),
-		AgentType:   strings.TrimSpace(in.AgentType),
-		AgentKey:    strings.TrimSpace(in.AgentKey),
-		PromptKey:   strings.TrimSpace(in.PromptKey),
-		MemoryScope: memoryScope,
-		Cwd:         in.CWD,
-		Command:     []string{strings.TrimSpace(exe)},
-		Env:         launchEnv(provider, strings.TrimSpace(in.Model), strings.TrimSpace(in.Effort), strings.TrimSpace(in.CodexHome), strings.TrimSpace(in.CodexInstanceKey), strings.TrimSpace(in.CodexModelProvider)),
-		Language:    strings.TrimSpace(in.Language),
+		AgentID:        agentID,
+		Name:           name,
+		Prompt:         prompt,
+		ParentID:       strings.TrimSpace(in.ParentID),
+		ParentThreadID: strings.TrimSpace(in.ParentThreadID),
+		ContextMode:    contextMode,
+		AgentType:      strings.TrimSpace(in.AgentType),
+		AgentKey:       strings.TrimSpace(in.AgentKey),
+		PromptKey:      strings.TrimSpace(in.PromptKey),
+		MemoryScope:    memoryScope,
+		Cwd:            in.CWD,
+		Command:        []string{strings.TrimSpace(exe)},
+		Env:            launchEnv(provider, strings.TrimSpace(in.Model), strings.TrimSpace(in.Effort), strings.TrimSpace(in.CodexHome), strings.TrimSpace(in.CodexInstanceKey), strings.TrimSpace(in.CodexModelProvider)),
+		Language:       strings.TrimSpace(in.Language),
 	}
 	if dt := mergeLaunchDisabledTools(in.DisabledTools); dt != "" {
 		req.Env = append(req.Env, "AGENT_DISABLED_TOOLS="+dt)
@@ -558,26 +585,39 @@ func joinUniqueCSV(defaults []string, extra string) string {
 // launchPromptFromContextMode 把 launch_agent 的上下文模式整理成首轮 prompt。
 // minimal 保持旧行为；focused 只拼接调用者显式筛选后的 context，不读取父线程历史。
 func launchPromptFromContextMode(in LaunchAgentInput) (string, error) {
-	mode := strings.ToLower(strings.TrimSpace(in.ContextMode))
-	if mode == "" {
-		mode = "minimal"
-	}
+	mode := normalizedLaunchContextMode(in.ContextMode)
 	prompt := strings.TrimSpace(in.Prompt)
 	contextText := strings.TrimSpace(in.Context)
 	switch mode {
-	case "minimal":
+	case launchContextModeMinimal:
 		if contextText != "" {
 			return "", fmt.Errorf("context_mode=minimal does not accept context field, but got: %q", contextText)
 		}
 		return prompt, nil
-	case "focused":
+	case launchContextModeFocused:
 		if contextText == "" {
 			return "", fmt.Errorf("context_mode=focused requires non-empty context field")
 		}
 		return fmt.Sprintf("【相关上下文】\n%s\n\n【任务】\n%s", contextText, prompt), nil
+	case launchContextModeForked:
+		if strings.TrimSpace(in.ParentID) == "" {
+			return "", fmt.Errorf("context_mode=forked requires non-empty parent_id")
+		}
+		if contextText != "" {
+			return "", fmt.Errorf("context_mode=forked does not accept context field, but got: %q", contextText)
+		}
+		return prompt, nil
 	default:
-		return "", fmt.Errorf("unsupported context_mode: %q, allowed values: minimal, focused", strings.TrimSpace(in.ContextMode))
+		return "", fmt.Errorf("unsupported context_mode: %q, allowed values: minimal, focused, forked", strings.TrimSpace(in.ContextMode))
 	}
+}
+
+func normalizedLaunchContextMode(raw string) string {
+	mode := strings.ToLower(strings.TrimSpace(raw))
+	if mode == "" {
+		return launchContextModeMinimal
+	}
+	return mode
 }
 
 func validateLaunchProvider(raw string) (string, error) {

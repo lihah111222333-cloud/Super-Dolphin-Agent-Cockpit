@@ -74,6 +74,7 @@ type OrchestrationService interface {
 	LaunchAgent(ctx context.Context, req LaunchRequest) error
 	ListAgents(ctx context.Context) ([]AgentSnapshot, error)
 	StopAgent(ctx context.Context, agentID string) error
+	InterruptAgent(ctx context.Context, agentID string, source string) (AgentStateResult, error)
 	SubmitTurn(ctx context.Context, req TurnSubmission) error
 	CompleteTurn(ctx context.Context, agentID, turnID string, success bool, errMsg string) error
 	Recover(ctx context.Context, agentID string) error
@@ -230,19 +231,21 @@ type OrchestrationTurnStarter interface {
 }
 
 type LaunchRequest struct {
-	AgentID      string
-	Name         string
-	Prompt       string
-	Instructions string
-	ParentID     string
-	AgentType    string
-	AgentKey     string
-	PromptKey    string
-	MemoryScope  string
-	Cwd          string
-	Language     string
-	Command      []string
-	Env          []string
+	AgentID        string
+	Name           string
+	Prompt         string
+	Instructions   string
+	ParentID       string
+	ParentThreadID string
+	ContextMode    string
+	AgentType      string
+	AgentKey       string
+	PromptKey      string
+	MemoryScope    string
+	Cwd            string
+	Language       string
+	Command        []string
+	Env            []string
 }
 
 type AgentSnapshot struct {
