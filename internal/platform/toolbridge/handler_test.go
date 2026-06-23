@@ -339,6 +339,8 @@ func TestToolBridge_OrchestrationLaunchInheritsParentContextFromProviderThread(t
 		"provider": "codex",
 	})
 	wantArgs := mustRawJSON(t, map[string]any{
+		"codex_home":           "/Users/test/.codex",
+		"codex_instance_key":   "default",
 		"codex_model_provider": "openai",
 		"name":                 "idle-agent",
 		"parent_id":            "agent-parent",
