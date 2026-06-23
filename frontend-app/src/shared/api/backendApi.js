@@ -58,6 +58,9 @@ export const RPC_METHODS = Object.freeze({
   UI_PREFERENCES_GET: 'ui/preferences/get',
   UI_PREFERENCES_GET_ALL: 'ui/preferences/getAll',
   UI_PREFERENCES_SET: 'ui/preferences/set',
+  MODEL_PROVIDERS_LIST: 'modelProviders/list',
+  MODEL_PROVIDERS_SAVE: 'modelProviders/save',
+  MODEL_PROVIDERS_APPLY: 'modelProviders/apply',
 
   UI_DASHBOARD_GET: 'ui/dashboard/get',
   UI_VIDEO_GET_API_KEY: 'ui/video/getApiKey',
@@ -933,6 +936,18 @@ function createConfigProjectApi(callBackend) {
       if (!hasOwn(payload, 'value')) throw new Error(`${RPC_METHODS.UI_PREFERENCES_SET}: value is required`);
       return callBackend(RPC_METHODS.UI_PREFERENCES_SET, payload);
     },
+    listModelProviders: (params = {}) => callBackend(RPC_METHODS.MODEL_PROVIDERS_LIST, assertPlainObject(RPC_METHODS.MODEL_PROVIDERS_LIST, params)),
+    saveModelProviders: (params) => {
+      const payload = assertPlainObject(RPC_METHODS.MODEL_PROVIDERS_SAVE, params);
+      if (!payload.registry || typeof payload.registry !== 'object' || Array.isArray(payload.registry)) {
+        throw new Error(`${RPC_METHODS.MODEL_PROVIDERS_SAVE}: registry is required`);
+      }
+      return callBackend(RPC_METHODS.MODEL_PROVIDERS_SAVE, payload);
+    },
+    applyModelProvider: (params) => callBackend(
+      RPC_METHODS.MODEL_PROVIDERS_APPLY,
+      requireKey(RPC_METHODS.MODEL_PROVIDERS_APPLY, assertPlainObject(RPC_METHODS.MODEL_PROVIDERS_APPLY, params), 'vendorId'),
+    ),
     getDashboardPage: (params) => callBackend(
       RPC_METHODS.UI_DASHBOARD_GET,
       requireKey(RPC_METHODS.UI_DASHBOARD_GET, requireCwd(RPC_METHODS.UI_DASHBOARD_GET, params), 'page'),
@@ -1608,6 +1623,9 @@ export const removeProject = backendApi.removeProject;
 export const getPreference = backendApi.getPreference;
 export const getAllPreferences = backendApi.getAllPreferences;
 export const setPreference = backendApi.setPreference;
+export const listModelProviders = backendApi.listModelProviders;
+export const saveModelProviders = backendApi.saveModelProviders;
+export const applyModelProvider = backendApi.applyModelProvider;
 export const getDashboardPage = backendApi.getDashboardPage;
 export const getVideoApiKey = backendApi.getVideoApiKey;
 export const setVideoApiKey = backendApi.setVideoApiKey;
