@@ -4,7 +4,29 @@
 
 利用现有统一 Codex app-server 架构，通过显式的实例 identity 三元组（`codexHome` / `codexInstanceKey` / `codexModelProvider`）隔离接入 GLM-5.1、Qwen3.6、DeepSeek 等兼容 OpenAI 接口的模型；隔离边界是 app-server 进程，不是 thread/router。
 
-## 现状校准
+## 2026-06-23 适用性评估
+
+结论：本方案方向仍适用于当前项目，但原始“推荐改动清单”里的大部分底层工作已经落地，不应重复实施。当前代码已经有严格的 Codex identity 解析、按 identity 隔离的 ServerPool、`CODEX_HOME` 环境注入、binding 持久化和不可变约束，以及 DAG agent node 的完整 identity 注入。
+
+当前剩余的最小闭环是 managed `launch_agent` / `orchestration_launch_agent` 路径：`internal/platform/toolbridge/handler_launch_args.go` 的 `injectManagedLaunchArgs` 只继承 `codex_model_provider`，没有继承 `codex_home` 与 `codex_instance_key`。这会让从 GLM/Qwen/DeepSeek 等独立 Codex home 启动的子代理丢失完整实例身份。
+
+本轮开发范围只做这一处闭环：
+
+- 从父 binding 注入 `codex_home`、`codex_instance_key`、`codex_model_provider`。
+- 保持现有 `setArgStringIfMissing` 语义，调用方显式传入的 launch args 不被覆盖。
+- 补齐 toolbridge 相关测试，验证注入完整 identity 且不覆盖显式值。
+
+非本轮范围：
+
+- 不实现模型网关、计费路由、token pool 或管理后台。
+- 不重做 ServerPool、binding migration、history rollout、环境白名单等已落地基础设施。
+- 不改变 `provider` 字段的 `codex|claude` 语义。
+
+详细设计见 `docs/superpowers/specs/2026-06-23-p1a-codex-identity-inheritance-design.md`。
+
+## 原始现状校准（历史）
+
+以下内容保留为方案形成时的背景材料。当前实现状态以上面的“2026-06-23 适用性评估”和源码为准。
 
 - `thread/start` 已有 `modelProvider` 与通用 `config` 透传，但 top-level `modelProvider` 仍承担 `codex|claude` provider 选择语义，不能复用成实例路由字段。
 - `internal/provider/codexapp/module.go` 的 `ServerManager` 仍是单 shared app-server；只靠 session 级配置无法做到 `CODEX_HOME` 隔离。
@@ -13,7 +35,9 @@
 - `internal/provider/codexapp/transport_process.go:224-245` 的真实本地启动路径目前还没有 `cmd.Env` 注入；文档伪码不能假装这件事已经存在。
 - `ResumeSessionRequest` 当前只有 `ConfigOverride`，没有通用 `Config` 透传；`internal/provider/unified/session_resolver.go:127-136` 的 auto-resume 也是先经 binding lookup 再恢复 session，因此本期应把实例 identity 持久化到 binding，而不是指望 resume 时临时塞 generic config。
 
-## 推荐改动清单
+## 原始推荐改动清单（历史）
+
+以下清单中的多项已经在当前代码中落地。继续开发时应先对照源码与测试确认现状，再选择剩余最小缺口。
 
 | 模块 | 文件落点 | 说明 |
 |---|---|---|
