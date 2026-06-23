@@ -19,14 +19,27 @@ func TestDefaultRegistryDocumentsFocusedContextGuidance(t *testing.T) {
 	reportBody := sectionBodyByKey(sections, "orchestrator_report_context")
 
 	for _, want := range []string{
+		"简单任务不要制造子 agent 开销",
 		"背景", "已确认决策", "相关文件", "禁止事项", "返回格式", "已知风险",
 		"文件路径、函数名、行号和约束",
 		"不要大段粘贴代码",
 		"不要复制整段父历史",
+		`context_mode="forked"`,
+		"必须继承当前父线程历史",
+		"不能再委派",
 	} {
 		require.Contains(t, launchBody, want)
 	}
-	for _, want := range []string{"launch_agent", `context_mode="focused"`, "get_agent_reports", "send_message(wait_report=true)"} {
+	for _, want := range []string{
+		"launch_agent",
+		`context_mode="focused"`,
+		"get_agent_reports(wait=true)",
+		"send_message(wait_report=true)",
+		"interrupt_agent",
+		"recover_agent",
+		"stop_agent(wait=true)",
+		"不要原样复制子 agent report",
+	} {
 		require.Contains(t, launchBody+"\n"+reportBody, want)
 	}
 	for _, field := range []string{"`files`", "`constraints`", "`return_format`"} {

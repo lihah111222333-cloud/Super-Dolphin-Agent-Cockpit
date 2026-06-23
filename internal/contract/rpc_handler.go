@@ -49,8 +49,10 @@ func WithThreadID(ctx context.Context, threadID string) context.Context {
 // cmd/mcp-orch and internal/module/thread cannot silently drift apart.
 const (
 	ThreadRPCStart   = "thread/start"
+	ThreadRPCFork    = "thread/fork"
 	ThreadRPCStop    = "thread/stop"
 	ThreadRPCArchive = "thread/archive"
 	ThreadRPCNameSet = "thread/name/set"
 	TurnRPCStart     = "turn/start"
+	TurnRPCInterrupt = "turn/interrupt"
 )

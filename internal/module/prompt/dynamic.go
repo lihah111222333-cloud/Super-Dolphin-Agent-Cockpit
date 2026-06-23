@@ -201,8 +201,9 @@ func sessionGuidanceAgentDelegationItem(enabled map[string]struct{}, flags map[s
 // 这里仅描述单个 context 字段的写法和等待 report 的流程，不扩展工具 schema。
 func sessionGuidanceManagedAgentDelegationItem(enabled map[string]struct{}) string {
 	parts := []string{
+		"Do not launch a child agent for simple tasks; use direct tools instead.",
 		"When creating a child agent for the user, use `launch_agent` with provider `codex` and a short, user-friendly task name.",
-		"Choose `context_mode=\"minimal\"` for prompt-only work, or `context_mode=\"focused\"` when the child needs caller-selected task details.",
+		"Choose `context_mode=\"minimal\"` for prompt-only work, `context_mode=\"focused\"` when the child needs caller-selected task details, or `context_mode=\"forked\"` only when the child must inherit the current parent thread history.",
 		"In focused mode, keep one concise `context` field with background, confirmed decisions, relevant file paths, forbidden actions, return format, and known risks.",
 		"Prefer file paths, function names, line numbers, and constraints. Do not paste large code blocks unless the child cannot read them directly, and do not copy the parent conversation history.",
 		"The child agent is a leaf worker and must not delegate again.",
@@ -223,11 +224,17 @@ func sessionGuidanceManagedAgentDelegationItem(enabled map[string]struct{}) stri
 			"Verify key claims and integrate the report instead of copying it verbatim to the user.",
 		)
 	}
-	if sessionGuidanceToolEnabled(enabled, "send_message") {
+	if sessionGuidanceToolEnabled(enabled, "send_message", "orchestration_send_message") {
 		parts = append(parts, "Use `send_message(wait_report=true)` only for targeted follow-up to an idle child when you need a new report.")
 	}
-	if sessionGuidanceToolEnabled(enabled, "stop_agent") {
-		parts = append(parts, "Use `stop_agent` only when cancellation is needed.")
+	if sessionGuidanceToolEnabled(enabled, "interrupt_agent", "orchestration_interrupt_agent") {
+		parts = append(parts, "Use `interrupt_agent` to cancel the currently running turn.")
+	}
+	if sessionGuidanceToolEnabled(enabled, "recover_agent", "orchestration_recover_agent") {
+		parts = append(parts, "Use `recover_agent` only after a stopped or failed child must continue.")
+	}
+	if sessionGuidanceToolEnabled(enabled, "stop_agent", "orchestration_stop_agent") {
+		parts = append(parts, "Use `stop_agent(wait=true)` when ending and archiving a child so stop state settlement is confirmed.")
 	}
 	return strings.Join(parts, " ")
 }

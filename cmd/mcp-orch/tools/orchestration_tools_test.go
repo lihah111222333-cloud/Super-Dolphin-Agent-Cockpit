@@ -87,6 +87,26 @@ func TestLaunchRequestFromExecutableContextModeValidation(t *testing.T) {
 			wantErr: "context_mode=minimal does not accept context field",
 		},
 		{
+			name: "forked requires parent",
+			input: LaunchAgentInput{
+				Name:        "agent-forked",
+				Prompt:      "inspect",
+				ContextMode: "forked",
+			},
+			wantErr: "context_mode=forked requires non-empty parent_id",
+		},
+		{
+			name: "forked rejects context",
+			input: LaunchAgentInput{
+				Name:        "agent-forked",
+				Prompt:      "inspect",
+				ContextMode: "forked",
+				ParentID:    "agent-parent",
+				Context:     "background",
+			},
+			wantErr: "context_mode=forked does not accept context field",
+		},
+		{
 			name: "unsupported mode",
 			input: LaunchAgentInput{
 				Name:        "agent-unknown",
@@ -135,7 +155,7 @@ func TestLaunchAgentSchemaDocumentsContextMode(t *testing.T) {
 	if !ok {
 		t.Fatalf("context_mode schema type = %T, want map[string]any", props["context_mode"])
 	}
-	require.ElementsMatch(t, []string{"minimal", "focused"}, EnumValues(Schema(contextMode)))
+	require.ElementsMatch(t, []string{"minimal", "focused", "forked"}, EnumValues(Schema(contextMode)))
 	context, ok := props["context"].(map[string]any)
 	if !ok {
 		t.Fatalf("context schema type = %T, want map[string]any", props["context"])
@@ -145,6 +165,7 @@ func TestLaunchAgentSchemaDocumentsContextMode(t *testing.T) {
 	for _, want := range []string{
 		"minimal",
 		"focused",
+		"forked",
 		"Do not copy the parent conversation history",
 	} {
 		require.Contains(t, contextModeDescription, want)

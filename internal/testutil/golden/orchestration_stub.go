@@ -17,6 +17,7 @@ type OrchestrationStub struct {
 	LaunchAgentSnapshotFunc   func(context.Context, contract.LaunchRequest) (contract.AgentSnapshot, error)
 	ListAgentsFunc            func(context.Context) ([]contract.AgentSnapshot, error)
 	StopAgentFunc             func(context.Context, string) error
+	InterruptAgentFunc        func(context.Context, string, string) (contract.AgentStateResult, error)
 	SubmitTurnFunc            func(context.Context, contract.TurnSubmission) error
 	CompleteTurnFunc          func(context.Context, string, string, bool, string) error
 	RecoverFunc               func(context.Context, string) error
@@ -70,6 +71,14 @@ func (s *OrchestrationStub) StopAgent(ctx context.Context, agentID string) error
 		return s.StopAgentFunc(ctx, agentID)
 	}
 	return nil
+}
+
+// InterruptAgent 中断代理当前 turn。
+func (s *OrchestrationStub) InterruptAgent(ctx context.Context, agentID string, source string) (contract.AgentStateResult, error) {
+	if s.InterruptAgentFunc != nil {
+		return s.InterruptAgentFunc(ctx, agentID, source)
+	}
+	return contract.AgentStateResult{}, nil
 }
 
 // SubmitTurn 提交turn。
