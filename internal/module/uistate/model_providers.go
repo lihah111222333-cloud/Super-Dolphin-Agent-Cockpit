@@ -176,7 +176,7 @@ func applicableModelProviderVendor(registry modelProviderRegistry, vendorID stri
 	return vendor, nil
 }
 
-// setCodexModelProviderPreferences 只写现有 Codex 启动偏好，不触碰其它 provider 设置。
+// setCodexModelProviderPreferences 只写厂商显式绑定的 Codex 启动偏好；空绑定字段保留当前 Codex 身份。
 func setCodexModelProviderPreferences(ctx context.Context, svc Service, vendor modelProviderVendor) error {
 	if err := svc.SetPreference(ctx, "settings.provider.codex.codexModelProvider", vendor.CodexModelProvider); err != nil {
 		return err
@@ -249,10 +249,7 @@ func maskModelProviderEnv(value string) string {
 	if value == "" {
 		return ""
 	}
-	if len(value) <= 8 {
-		return strings.Repeat("*", len(value))
-	}
-	return value[:4] + strings.Repeat("*", len(value)-8) + value[len(value)-4:]
+	return "********"
 }
 
 // withModelProviderEnvStatus 使用 os.Getenv 计算厂商状态；返回值只包含 configured/missing 和掩码。
