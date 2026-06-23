@@ -21,7 +21,7 @@ import (
 func TestOrchestrationLauncherProtocolFreeze(t *testing.T) {
 	const (
 		dir              = "../../cmd/mcp-orch/orchestration"
-		producer         = "launcher_protocol.go"
+		producer         = "launcherwire/protocol.go"
 		contractProducer = "../../internal/contract/rpc_handler.go"
 	)
 
@@ -32,17 +32,19 @@ func TestOrchestrationLauncherProtocolFreeze(t *testing.T) {
 	// freeze lives inside launcher_protocol.go itself.
 	frozen := []string{
 		"\"thread/start\"",
+		"\"thread/fork\"",
 		"\"thread/stop\"",
 		"\"thread/archive\"",
 		"\"thread/name/set\"",
 		"\"turn/start\"",
 	}
 	requiredAliases := []string{
-		"LauncherMethodThreadStart = contract.ThreadRPCStart",
-		"LauncherMethodThreadStop = contract.ThreadRPCStop",
-		"LauncherMethodThreadArchive = contract.ThreadRPCArchive",
-		"LauncherMethodThreadNameSet = contract.ThreadRPCNameSet",
-		"LauncherMethodTurnStart = contract.TurnRPCStart",
+		"MethodThreadStart   = contract.ThreadRPCStart",
+		"MethodThreadFork    = contract.ThreadRPCFork",
+		"MethodThreadStop    = contract.ThreadRPCStop",
+		"MethodThreadArchive = contract.ThreadRPCArchive",
+		"MethodThreadNameSet = contract.ThreadRPCNameSet",
+		"MethodTurnStart     = contract.TurnRPCStart",
 	}
 
 	assertFrozenLauncherLiteralsOnlyInProducer(t, dir, producer, frozen)

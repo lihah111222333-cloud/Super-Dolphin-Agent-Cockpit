@@ -33,7 +33,8 @@ func (h *Handler) injectManagedLaunchToolContext(ctx context.Context, req ToolCa
 	}
 	launchCWD := firstNonEmptyString(req.CWD, binding.CWD)
 	provider, model, effort := h.resolveManagedLaunchDefaults(ctx, binding, args, launchCWD)
-	changed := injectManagedLaunchArgs(args, binding, provider, model, effort)
+	parentThreadID := managedLaunchParentThreadIDForArgs(req, binding, args)
+	changed := injectManagedLaunchArgs(args, binding, parentThreadID, provider, model, effort)
 	if !changed {
 		return req
 	}
@@ -48,7 +49,9 @@ func (h *Handler) injectManagedLaunchToolContext(ctx context.Context, req ToolCa
 	h.warn("toolbridge: orchestration_launch_agent inherited context",
 		"agent_id", binding.AgentID,
 		"provider_thread_id", binding.ProviderThreadID,
+		"codex_thread_id", binding.CodexThreadID,
 		"injected_parent_id", mapString(args, "parent_id"),
+		"injected_parent_thread_id", mapString(args, "parent_thread_id"),
 		"args_cwd", mapString(args, "cwd"),
 		"injected_provider", mapString(args, "provider"),
 		"injected_model", mapString(args, "model"),
@@ -58,6 +61,21 @@ func (h *Handler) injectManagedLaunchToolContext(ctx context.Context, req ToolCa
 		"has_codex_model_provider", strings.TrimSpace(binding.CodexModelProvider) != "",
 	)
 	return req
+}
+
+// managedLaunchParentThreadIDForArgs 只给 forked 启动注入父线程 ID。
+// minimal/focused 子任务不需要继承父历史，继续只传 parent_id。
+func managedLaunchParentThreadIDForArgs(req ToolCallRequest, binding toolCallBinding, args map[string]any) string {
+	if !strings.EqualFold(mapString(args, "context_mode"), "forked") {
+		return ""
+	}
+	return managedLaunchParentThreadID(req, binding)
+}
+
+// managedLaunchParentThreadID 返回桌面 thread/fork 可解析的父线程 ID。
+// thread/fork 先查本地 thread store；provider UUID 只作为旧数据兜底。
+func managedLaunchParentThreadID(req ToolCallRequest, binding toolCallBinding) string {
+	return firstNonEmptyString(binding.CodexThreadID, binding.AgentID, req.AgentID, binding.ProviderThreadID, req.ThreadID)
 }
 
 func isManagedLaunchToolName(name string) bool {

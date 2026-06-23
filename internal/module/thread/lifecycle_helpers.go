@@ -439,7 +439,7 @@ func historyTargetID(binding *bindingstore.Binding, threadID string) string {
 	if requestedID != "" && requestedID != publicThreadID && requestedID != agentID {
 		return requestedID
 	}
-	return util.FirstNonEmpty(binding.ProviderThreadID, publicThreadID, agentID, requestedID)
+	return util.FirstNonEmpty(recoverableBindingProviderThreadID(binding), binding.ProviderThreadID, publicThreadID, agentID, requestedID)
 }
 
 func recoverableProviderThreadID(provider, providerUUID, publicThreadID, rolloutPath, codexHome string) string {

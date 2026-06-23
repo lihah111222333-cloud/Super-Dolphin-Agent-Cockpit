@@ -62,6 +62,46 @@ func TestServiceForkCreatesIndependentAgentAndBinding(t *testing.T) {
 	assertForkResult(t, result, fixture)
 }
 
+func TestServiceForkUsesRecoverableSessionUUIDWhenProviderThreadIDMissing(t *testing.T) {
+	t.Parallel()
+
+	const parentUUID = "019d5f6b-fb3c-7760-9d6f-54005553f5b3"
+	originalSession := &stubSession{
+		threadID:   parentUUID,
+		forkResult: dto.ForkResult{NewThreadID: "thread-fork"},
+	}
+	forkedSession := &stubSession{threadID: "019d5f6b-aaaa-7760-9d6f-54005553f5b3"}
+	sessions := &stubSessionProvider{session: originalSession}
+	bindings := &stubBindingStore{binding: &bindingstore.Binding{
+		AgentID:       "agent-parent",
+		Provider:      "codex",
+		CodexThreadID: "agent-parent",
+		RolloutPath:   writeExistingProviderHistoryFile(t),
+		SessionUUID:   parentUUID,
+		Cwd:           "/repo",
+	}}
+	threads := &stubThreadStore{thread: &threadstore.Thread{
+		ThreadID:  "agent-parent",
+		AgentID:   "agent-parent",
+		Prompt:    "Forked Thread",
+		Model:     "gpt-5.5",
+		Cwd:       "/repo",
+		CreatedAt: 123,
+	}}
+	starter := &stubSessionStarter{onResume: func(context.Context, dto.ResumeSessionRequest) (contract.Session, error) {
+		sessions.session = forkedSession
+		return forkedSession, nil
+	}}
+	svc := NewService(silentLogger(), threads, bindings, sessions, starter, nil, &forkOrchestrationStub{}, nil).(*service)
+
+	if _, err := svc.Fork(context.Background(), "agent-parent"); err != nil {
+		t.Fatalf("Fork() error = %v", err)
+	}
+	if originalSession.forkRequest.ThreadID != parentUUID {
+		t.Fatalf("forkRequest.ThreadID = %q, want recoverable session uuid %s", originalSession.forkRequest.ThreadID, parentUUID)
+	}
+}
+
 func TestServiceForkRejectsMissingCWDBeforeProviderOrchestrationSideEffects(t *testing.T) {
 	t.Parallel()
 

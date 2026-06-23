@@ -3,17 +3,7 @@ package orchestration
 import (
 	"context"
 	"errors"
-	"log/slog"
-	"net"
-	"os"
-	"os/exec"
-	"strings"
-	"sync"
-	"time"
-
-	"github.com/creachadair/jrpc2"
-	"github.com/creachadair/jrpc2/channel"
-
+	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/orchestration/launcherwire"
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/orchestration/processctl"
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	mcpdto "github.com/anthropic-ai/super-agent-v3/internal/dto/mcp"
@@ -22,24 +12,32 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/eventsurface"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
+	"github.com/creachadair/jrpc2"
+	"github.com/creachadair/jrpc2/channel"
+	"log/slog"
+	"net"
+	"os"
+	"os/exec"
+	"strings"
+	"sync"
+	"time"
 )
 
 // AgentLauncher 负责真正启动、停止和提交 turn。
 // service 只管状态；本地进程还是控制面 thread/start，由 launcher 决定。
 type AgentLauncher interface {
 	Launch(ctx context.Context, agent *agentRuntime, req LaunchRequest) (LaunchResult, error)
+	Fork(ctx context.Context, parent *agentRuntime, child *agentRuntime, req LaunchRequest) (LaunchResult, error)
 	Stop(ctx context.Context, agent *agentRuntime) error
 	Archive(ctx context.Context, agent *agentRuntime) error
+	Interrupt(ctx context.Context, agent *agentRuntime, source string) error
 	SubmitTurn(ctx context.Context, agent *agentRuntime, submission TurnSubmission) (string, error)
 	IsRunning(ctx context.Context, agent *agentRuntime) bool
 }
-
 type LaunchResult struct {
 	ThreadID, RemoteAgentID string
 }
 
-// localLauncher handles the local process mode while leaving runtime fields on agentRuntime.
-// 本地模式直接拉子进程，没有 remote thread id。
 type localLauncher struct {
 	turnStarter TurnStarter
 	logger      *slog.Logger
@@ -80,7 +78,10 @@ func (l *localLauncher) Launch(ctx context.Context, agent *agentRuntime, _ Launc
 	return LaunchResult{}, nil
 }
 
-// Stop 停止运行中的代理会话。
+func (l *localLauncher) Fork(context.Context, *agentRuntime, *agentRuntime, LaunchRequest) (LaunchResult, error) {
+	return LaunchResult{}, errors.New("forked context launch requires remote launcher")
+}
+
 func (l *localLauncher) Stop(_ context.Context, agent *agentRuntime) error {
 	if agent == nil {
 		return nil
@@ -88,12 +89,14 @@ func (l *localLauncher) Stop(_ context.Context, agent *agentRuntime) error {
 	return processctl.RequestStop(agent.cmd, agent.processGuard)
 }
 
-// Archive 归档代理线程并释放运行态。
 func (l *localLauncher) Archive(ctx context.Context, agent *agentRuntime) error {
 	return l.Stop(ctx, agent)
 }
 
-// SubmitTurn 向已启动的代理会话提交一轮输入。
+func (l *localLauncher) Interrupt(context.Context, *agentRuntime, string) error {
+	return errors.New("interrupt_agent currently supports remote Codex agents only")
+}
+
 func (l *localLauncher) SubmitTurn(ctx context.Context, _ *agentRuntime, submission TurnSubmission) (string, error) {
 	if l == nil || l.turnStarter == nil {
 		return "", errors.New("turn starter is not configured")
@@ -101,7 +104,6 @@ func (l *localLauncher) SubmitTurn(ctx context.Context, _ *agentRuntime, submiss
 	return l.turnStarter.StartTurn(ctx, submission)
 }
 
-// IsRunning 检查指定代理会话是否仍在运行。
 func (l *localLauncher) IsRunning(_ context.Context, agent *agentRuntime) bool {
 	return agent != nil && agent.cmd != nil
 }
@@ -118,14 +120,10 @@ type remoteLauncher struct {
 const remoteLauncherBinaryName = "mcp-orch-remote-launcher"
 const remoteLauncherInterval = 10 * time.Second
 
-// remoteLauncher 通过 GO_AGENT_CTL_RPC_ADDR 调主控的 thread/* RPC。
-// 它不直接执行 agent，只拿回 thread_id 再交给 service 记录。
 func NewRemoteLauncher(addr string) AgentLauncher {
 	return &remoteLauncher{addr: strings.TrimSpace(addr), instanceID: shared.NewID("mcp_orch_remote_launcher")}
 }
 
-// 复用到主控的 jrpc2 连接；并发重连时只保留一个 client。
-// OnNotify 会把 remote turn 事件送回 service。
 func (r *remoteLauncher) ensureClient(ctx context.Context) (*jrpc2.Client, error) {
 	if r == nil || strings.TrimSpace(r.addr) == "" {
 		return nil, errors.New("remote launcher rpc addr is required")
@@ -155,7 +153,6 @@ func (r *remoteLauncher) ensureClient(ctx context.Context) (*jrpc2.Client, error
 	r.startHeartbeatLocked(next, reg)
 	return next, nil
 }
-
 func rpcCall[T any](ctx context.Context, r *remoteLauncher, method string, params any) (out T, err error) {
 	callCtx, cancel := platformconfig.WithRPCRequestTimeout(ctx)
 	defer cancel()
@@ -166,8 +163,6 @@ func rpcCall[T any](ctx context.Context, r *remoteLauncher, method string, param
 	return out, err
 }
 
-// registerClient 先完成 control RPC 鉴权，再让同一条连接调用 thread/*。
-// 主控按连接记住认证状态，所以 remoteLauncher 不能只依赖进程级 bootstrap 注册。
 func (r *remoteLauncher) registerClient(ctx context.Context, client *jrpc2.Client) (mcpdto.RegisterResponse, error) {
 	token := remoteLauncherSessionToken()
 	if token == "" {
@@ -190,7 +185,6 @@ func (r *remoteLauncher) registerClient(ctx context.Context, client *jrpc2.Clien
 	}
 	return resp, nil
 }
-
 func remoteLauncherSessionToken() string {
 	if token := strings.TrimSpace(os.Getenv("GO_AGENT_CTL_SESSION_TOKEN")); token != "" {
 		return token
@@ -198,8 +192,6 @@ func remoteLauncherSessionToken() string {
 	return strings.TrimSpace(os.Getenv("GO_AGENT_MCP_SESSION_TOKEN"))
 }
 
-// startHeartbeatLocked 维持 remoteLauncher 的 control-plane lease。
-// 这条连接还承载 turn/completed 推送，不能等 sweeper 因无心跳把它关闭。
 func (r *remoteLauncher) startHeartbeatLocked(client *jrpc2.Client, reg mcpdto.RegisterResponse) {
 	r.stopHeartbeatLocked()
 	ctx, cancel := context.WithCancel(context.Background())
@@ -211,7 +203,6 @@ func (r *remoteLauncher) startHeartbeatLocked(client *jrpc2.Client, reg mcpdto.R
 	}
 	go remoteLauncherHeartbeat(ctx, client, lease, interval)
 }
-
 func (r *remoteLauncher) stopHeartbeatLocked() {
 	if r.heartbeatCancel != nil {
 		r.heartbeatCancel()
@@ -219,7 +210,6 @@ func (r *remoteLauncher) stopHeartbeatLocked() {
 	}
 }
 
-// remoteLauncherHeartbeat 周期性刷新 lease；失败只记录日志，下一次 RPC 会按 stopped client 重连。
 func remoteLauncherHeartbeat(ctx context.Context, client *jrpc2.Client, lease mcpdto.LeaseKey, interval time.Duration) {
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
@@ -241,19 +231,16 @@ func remoteLauncherHeartbeat(ctx context.Context, client *jrpc2.Client, lease mc
 		}
 	}
 }
-
 func rpcString(v any) string {
 	s, _ := v.(string)
 	return strings.TrimSpace(s)
 }
-
 func managedAgentLaunchDisplayName(name string) string {
 	name = strings.Join(strings.Fields(strings.TrimSpace(name)), " ")
 	name = strings.Trim(name, "`\"'“”‘’[]()（）【】")
 	return strings.TrimSpace(name)
 }
 
-// Launch 启动代理会话并记录运行句柄。
 func (r *remoteLauncher) Launch(ctx context.Context, agent *agentRuntime, req LaunchRequest) (LaunchResult, error) {
 	if agent == nil {
 		return LaunchResult{}, errors.New("agent is required")
@@ -276,25 +263,25 @@ func (r *remoteLauncher) Launch(ctx context.Context, agent *agentRuntime, req La
 		"env_has_disabled_tools", envValue(req.Env, "AGENT_DISABLED_TOOLS") != "",
 	)
 	params := map[string]any{
-		LauncherParamAgentID:          strings.TrimSpace(agent.id),
-		LauncherParamCwd:              strings.TrimSpace(req.Cwd),
-		LauncherParamName:             displayName,
-		LauncherParamAgentType:        strings.TrimSpace(req.AgentType),
-		LauncherParamAgentKey:         strings.TrimSpace(req.AgentKey),
-		LauncherParamPromptKey:        strings.TrimSpace(req.PromptKey),
-		LauncherParamAgentMemoryScope: strings.TrimSpace(req.MemoryScope),
-		LauncherParamParentAgentID:    strings.TrimSpace(req.ParentID),
-		LauncherParamBaseInstructions: strings.TrimSpace(req.Instructions),
-		LauncherParamProvider:         launchProvider(req),
-		LauncherParamModel:            model,
-		LauncherParamEffort:           effort,
-		LauncherParamLanguage:         strings.TrimSpace(req.Language),
+		launcherwire.ParamAgentID:          strings.TrimSpace(agent.id),
+		launcherwire.ParamCwd:              strings.TrimSpace(req.Cwd),
+		launcherwire.ParamName:             displayName,
+		launcherwire.ParamAgentType:        strings.TrimSpace(req.AgentType),
+		launcherwire.ParamAgentKey:         strings.TrimSpace(req.AgentKey),
+		launcherwire.ParamPromptKey:        strings.TrimSpace(req.PromptKey),
+		launcherwire.ParamAgentMemoryScope: strings.TrimSpace(req.MemoryScope),
+		launcherwire.ParamParentAgentID:    strings.TrimSpace(req.ParentID),
+		launcherwire.ParamBaseInstructions: strings.TrimSpace(req.Instructions),
+		launcherwire.ParamProvider:         launchProvider(req),
+		launcherwire.ParamModel:            model,
+		launcherwire.ParamEffort:           effort,
+		launcherwire.ParamLanguage:         strings.TrimSpace(req.Language),
 	}
 	config := launchStartConfig(req.Env)
 	if len(config) > 0 {
-		params[LauncherParamConfig] = config
+		params[launcherwire.ParamConfig] = config
 	}
-	resp, err := rpcCall[map[string]any](ctx, r, LauncherMethodThreadStart, params)
+	resp, err := rpcCall[map[string]any](ctx, r, launcherwire.MethodThreadStart, params)
 	elapsed := time.Since(start)
 	if err != nil {
 		pkglogger.Warn("remoteLauncher: thread/start RPC failed",
@@ -305,73 +292,114 @@ func (r *remoteLauncher) Launch(ctx context.Context, agent *agentRuntime, req La
 		pkglogger.Warn("remoteLauncher: thread/start RPC slow",
 			"agent_id", agent.id, "elapsed", elapsed)
 	}
-	thread, _ := resp[LauncherRespThread].(map[string]any)
+	thread, _ := resp[launcherwire.RespThread].(map[string]any)
 	result := LaunchResult{
-		ThreadID:      resolveLauncherThreadStartAlias(thread, resp, launcherThreadStartThreadIDAliases, ""),
-		RemoteAgentID: resolveLauncherThreadStartAlias(nil, resp, launcherThreadStartAgentIDAliases, agent.id),
+		ThreadID:      launcherwire.ResolveThreadStartThreadID(thread, resp, ""),
+		RemoteAgentID: launcherwire.ResolveThreadStartAgentID(resp, agent.id),
 	}
 	if result.ThreadID == "" {
 		return LaunchResult{}, errors.New("remote launcher: empty thread id")
 	}
-	now := resolveEventTime(ctx, agent.updatedAt)
-	resetLaunchState(agent)
-	agent.launchSeq++
-	agent.threadID = result.ThreadID
-	agent.remoteThreadID = result.ThreadID
-	agent.remoteAgentID = result.RemoteAgentID
-	agent.startedAt = now
-	agent.updatedAt = now
+	bindRemoteLaunchRuntime(ctx, agent, result)
 	return result, nil
 }
 
-// Stop 停止运行中的代理会话。
+// Fork 从父 provider thread fork 出 child thread，并把 child runtime 绑定到新 thread。
+func (r *remoteLauncher) Fork(ctx context.Context, parent *agentRuntime, child *agentRuntime, req LaunchRequest) (LaunchResult, error) {
+	if parent == nil || child == nil {
+		return LaunchResult{}, errors.New("parent and child agents are required for forked launch")
+	}
+	if strings.TrimSpace(parent.remoteThreadID) == "" {
+		return LaunchResult{}, errors.New("parent agent remote thread id is required for forked launch")
+	}
+	resp, err := rpcCall[map[string]any](ctx, r, launcherwire.MethodThreadFork, map[string]string{launcherwire.ParamThreadID: strings.TrimSpace(parent.remoteThreadID)})
+	if err != nil {
+		return LaunchResult{}, err
+	}
+	thread, _ := resp[launcherwire.RespThread].(map[string]any)
+	result := LaunchResult{
+		ThreadID:      launcherwire.ResolveThreadForkThreadID(thread, resp, ""),
+		RemoteAgentID: launcherwire.ResolveThreadStartAgentID(resp, child.id),
+	}
+	if result.ThreadID == "" {
+		return LaunchResult{}, errors.New("remote launcher: empty forked thread id")
+	}
+	bindRemoteLaunchRuntime(ctx, child, result)
+	if displayName := managedAgentLaunchDisplayName(req.Name); displayName != "" {
+		_, err := rpcCall[struct{}](ctx, r, launcherwire.MethodThreadNameSet, map[string]string{launcherwire.ParamThreadID: result.ThreadID, launcherwire.ParamName: displayName})
+		if err != nil {
+			return LaunchResult{}, err
+		}
+	}
+	return result, nil
+}
+func bindRemoteLaunchRuntime(ctx context.Context, agent *agentRuntime, result LaunchResult) {
+	now := resolveEventTime(ctx, agent.updatedAt)
+	resetLaunchState(agent)
+	agent.launchSeq++
+	agent.threadID, agent.remoteThreadID = result.ThreadID, result.ThreadID
+	agent.remoteAgentID, agent.startedAt, agent.updatedAt = result.RemoteAgentID, now, now
+}
+
 func (r *remoteLauncher) Stop(ctx context.Context, agent *agentRuntime) error {
 	if agent == nil || agent.remoteThreadID == "" {
 		return nil
 	}
-	_, err := rpcCall[struct{}](ctx, r, LauncherMethodThreadStop, map[string]string{LauncherParamThreadID: agent.remoteThreadID})
+	_, err := rpcCall[struct{}](ctx, r, launcherwire.MethodThreadStop, map[string]string{launcherwire.ParamThreadID: agent.remoteThreadID})
 	return err
 }
 
 // StopSettlesAgent 说明 Stop 是否会把代理状态收敛到终态。
 func (r *remoteLauncher) StopSettlesAgent() bool { return true }
 
-// Archive 归档代理线程并释放运行态。
 func (r *remoteLauncher) Archive(ctx context.Context, agent *agentRuntime) error {
 	if agent == nil || agent.remoteThreadID == "" {
 		return nil
 	}
-	_, err := rpcCall[struct{}](ctx, r, LauncherMethodThreadArchive,
-		map[string]string{LauncherParamThreadID: agent.remoteThreadID})
+	_, err := rpcCall[struct{}](ctx, r, launcherwire.MethodThreadArchive,
+		map[string]string{launcherwire.ParamThreadID: agent.remoteThreadID})
 	return err
 }
 
-// SubmitTurn 向已启动的代理会话提交一轮输入。
+func (r *remoteLauncher) Interrupt(ctx context.Context, agent *agentRuntime, source string) error {
+	if agent == nil || strings.TrimSpace(agent.remoteThreadID) == "" {
+		return errors.New("remote thread id is required")
+	}
+	source = strings.TrimSpace(source)
+	if source == "" {
+		source = "parent_agent"
+	}
+	_, err := rpcCall[struct{}](ctx, r, launcherwire.MethodTurnInterrupt, map[string]string{
+		launcherwire.ParamThreadID: strings.TrimSpace(agent.remoteThreadID),
+		launcherwire.ParamSource:   source,
+	})
+	return err
+}
+
 func (r *remoteLauncher) SubmitTurn(ctx context.Context, agent *agentRuntime, submission TurnSubmission) (string, error) {
 	if agent == nil || agent.remoteThreadID == "" {
 		return "", errors.New("remote thread id is required")
 	}
 	params := map[string]any{
-		LauncherParamThreadID:             agent.remoteThreadID,
-		LauncherParamInput:                submission.Inputs,
-		LauncherParamSelectedSkills:       submission.SelectedSkills,
-		LauncherParamManualSkillSelection: submission.ManualSkillSelection,
+		launcherwire.ParamThreadID:             agent.remoteThreadID,
+		launcherwire.ParamInput:                submission.Inputs,
+		launcherwire.ParamSelectedSkills:       submission.SelectedSkills,
+		launcherwire.ParamManualSkillSelection: submission.ManualSkillSelection,
 	}
 	if len(submission.OutputSchema) > 0 {
-		params[LauncherParamOutputSchema] = submission.OutputSchema
+		params[launcherwire.ParamOutputSchema] = submission.OutputSchema
 	}
-	resp, err := rpcCall[map[string]any](ctx, r, LauncherMethodTurnStart, params)
+	resp, err := rpcCall[map[string]any](ctx, r, launcherwire.MethodTurnStart, params)
 	if err != nil {
 		return "", err
 	}
-	turnID := rpcString(resp[LauncherRespTurnID])
+	turnID := rpcString(resp[launcherwire.RespTurnID])
 	if turnID == "" {
 		return "", errors.New("remote launcher: empty turn id")
 	}
 	return turnID, nil
 }
 
-// IsRunning 检查指定代理会话是否仍在运行。
 func (r *remoteLauncher) IsRunning(_ context.Context, agent *agentRuntime) bool {
 	return agent != nil && agent.remoteThreadID != ""
 }
@@ -404,7 +432,6 @@ func bindRemoteLauncherEventSink(launcher AgentLauncher, sink remoteLauncherEven
 		binder.bindRemoteEventSink(sink)
 	}
 }
-
 func (r *remoteLauncher) bindRemoteEventSink(sink remoteLauncherEventSink) {
 	if r == nil {
 		return
@@ -413,7 +440,6 @@ func (r *remoteLauncher) bindRemoteEventSink(sink remoteLauncherEventSink) {
 	r.eventSink = sink
 	r.mu.Unlock()
 }
-
 func (r *remoteLauncher) currentEventSink() remoteLauncherEventSink {
 	if r == nil {
 		return nil
@@ -423,8 +449,6 @@ func (r *remoteLauncher) currentEventSink() remoteLauncherEventSink {
 	return r.eventSink
 }
 
-// 主控推送 turn.completed / turn.interrupted 时，这里只解码并交给 service。
-// launcher 不直接改 agentRuntime。
 func (r *remoteLauncher) handleNotify(req *jrpc2.Request) {
 	if r == nil || req == nil {
 		return
@@ -448,7 +472,6 @@ func (r *remoteLauncher) handleNotify(req *jrpc2.Request) {
 		sink.handleRemoteTurnInterrupted(context.Background(), ev)
 	}
 }
-
 func logRemoteLauncherNotifyDecodeError(method string, err error) bool {
 	if err == nil {
 		return false
@@ -459,7 +482,6 @@ func logRemoteLauncherNotifyDecodeError(method string, err error) bool {
 	return true
 }
 
-// handleRemoteTurnCompleted 处理远端 turn 完成事件并同步本地运行态。
 func (s *service) handleRemoteTurnCompleted(ctx context.Context, ev turndto.TurnCompleted) {
 	if s == nil || !s.hasRuntimeAgent(ev.AgentID) {
 		return
@@ -482,7 +504,6 @@ func (s *service) handleRemoteTurnCompleted(ctx context.Context, ev turndto.Turn
 	handleTurnCompletedEventWithCtx(s, s.logger, lifecycle, eventCtx)
 }
 
-// handleRemoteTurnInterrupted 处理远端 turn 中断事件并同步本地运行态。
 func (s *service) handleRemoteTurnInterrupted(ctx context.Context, ev turndto.TurnInterrupted) {
 	if s == nil || !s.hasRuntimeAgent(ev.AgentID) {
 		return
@@ -503,7 +524,6 @@ func (s *service) handleRemoteTurnInterrupted(ctx context.Context, ev turndto.Tu
 	lifecycle.TurnID = ""
 	handleTurnInterruptedEventWithCtx(s, s.logger, lifecycle, eventCtx)
 }
-
 func (s *service) stopAgentAfterPermanentTurnFailure(agentID, threadID, source string) {
 	cleanupCtx, cancel := platformconfig.WithTimeout(context.Background(), platformconfig.AsyncLaunchTimeout)
 	defer cancel()

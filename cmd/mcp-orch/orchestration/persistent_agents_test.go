@@ -437,11 +437,19 @@ func (l *persistedRuntimeTestLauncher) Launch(context.Context, *agentRuntime, La
 	return LaunchResult{}, nil
 }
 
+func (l *persistedRuntimeTestLauncher) Fork(context.Context, *agentRuntime, *agentRuntime, LaunchRequest) (LaunchResult, error) {
+	return LaunchResult{}, errors.New("fork should not be called")
+}
+
 func (l *persistedRuntimeTestLauncher) Stop(context.Context, *agentRuntime) error {
 	return nil
 }
 
 func (l *persistedRuntimeTestLauncher) Archive(context.Context, *agentRuntime) error {
+	return nil
+}
+
+func (l *persistedRuntimeTestLauncher) Interrupt(context.Context, *agentRuntime, string) error {
 	return nil
 }
 

@@ -4,40 +4,33 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strings"
-	"time"
-
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/orchestration/launcherrors"
 	agentdto "github.com/anthropic-ai/super-agent-v3/internal/dto/agent"
 	shareddto "github.com/anthropic-ai/super-agent-v3/internal/dto/shared"
 	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
+	"strings"
+	"time"
 )
 
 type launcherLaunchAttempt struct {
 	agentID     string
 	expectedSeq uint64
 	launching   agentRuntime
-}
-type launchedAgent struct {
-	agentID string
-	result  LaunchResult
+	forkParent  agentRuntime
 }
 
-// 先让 launcher 启动 agent，再提交首轮 prompt。
-// 如果首轮提交失败，要立刻停掉刚启动的 agent。
 func (s *service) launchAgentViaLauncher(ctx context.Context, req LaunchRequest) error {
-	var err error
-	req, err = s.applyLaunchRequestDefaults(ctx, req)
+	req, err := s.applyLaunchRequestDefaults(ctx, req)
 	if err != nil {
 		return err
 	}
-	launched, err := s.launchAgentUntilStarted(ctx, req)
+	agentID, result, err := s.launchAgentUntilStarted(ctx, req)
 	if err != nil {
 		return err
 	}
-	return s.submitInitialLaunchPromptOrStop(ctx, launched.agentID, launched.result, req)
+	return s.submitInitialLaunchPromptOrStop(ctx, agentID, result, req)
 }
 
 // LaunchAgentSnapshot 返回代理启动器当前持有的运行快照。
@@ -45,27 +38,25 @@ func (s *service) LaunchAgentSnapshot(ctx context.Context, req LaunchRequest) (A
 	return s.launchAgentSnapshot(ctx, req, nil)
 }
 
-// launchAgentSnapshot 复制代理启动记录，避免调用方改动内部状态。
 func (s *service) launchAgentSnapshot(ctx context.Context, req LaunchRequest, beforeInitialPrompt func(agentID string, result LaunchResult) error) (AgentSnapshot, error) {
 	req, err := s.applyLaunchRequestDefaults(ctx, req)
 	if err != nil {
 		return AgentSnapshot{}, err
 	}
-	launched, err := s.launchAgentUntilStarted(ctx, req)
+	agentID, result, err := s.launchAgentUntilStarted(ctx, req)
 	if err != nil {
 		return AgentSnapshot{}, err
 	}
 	if beforeInitialPrompt != nil {
-		if err := beforeInitialPrompt(launched.agentID, launched.result); err != nil {
-			return AgentSnapshot{}, s.stopLaunchedAgentAfterBeforePromptFailure(launched.agentID, err)
+		if err := beforeInitialPrompt(agentID, result); err != nil {
+			return AgentSnapshot{}, s.stopLaunchedAgentAfterBeforePromptFailure(agentID, err)
 		}
 	}
-	if err := s.submitInitialLaunchPromptOrStop(ctx, launched.agentID, launched.result, req); err != nil {
+	if err := s.submitInitialLaunchPromptOrStop(ctx, agentID, result, req); err != nil {
 		return AgentSnapshot{}, err
 	}
-	return s.Snapshot(ctx, launched.agentID)
+	return s.Snapshot(ctx, agentID)
 }
-
 func (s *service) stopLaunchedAgentAfterBeforePromptFailure(agentID string, cause error) error {
 	cleanupCtx, cancel := platformconfig.WithTimeout(context.Background(), platformconfig.AsyncLaunchTimeout)
 	defer cancel()
@@ -75,10 +66,8 @@ func (s *service) stopLaunchedAgentAfterBeforePromptFailure(agentID string, caus
 	return cause
 }
 
-// applyLaunchRequestDefaults 为代理启动请求补齐默认 runtime 和路径。
 func (s *service) applyLaunchRequestDefaults(ctx context.Context, req LaunchRequest) (LaunchRequest, error) {
-	trimmedCWD := strings.TrimSpace(req.Cwd)
-	if req.Cwd != "" || trimmedCWD != "" || strings.TrimSpace(req.ParentID) == "" {
+	if req.Cwd != "" || strings.TrimSpace(req.Cwd) != "" || strings.TrimSpace(req.ParentID) == "" {
 		return req, nil
 	}
 	snapshot, err := s.Snapshot(ctx, strings.TrimSpace(req.ParentID))
@@ -91,58 +80,48 @@ func (s *service) applyLaunchRequestDefaults(ctx context.Context, req LaunchRequ
 	req.Cwd = strings.TrimSpace(snapshot.Cwd)
 	return req, nil
 }
-func (s *service) launchAgentUntilStarted(ctx context.Context, req LaunchRequest) (launchedAgent, error) {
+func (s *service) launchAgentUntilStarted(ctx context.Context, req LaunchRequest) (string, LaunchResult, error) {
 	attempt, handled, err := s.prepareLauncherLaunch(ctx, req)
 	if handled || err != nil {
-		return launchedAgent{}, err
+		return "", LaunchResult{}, err
 	}
 	return s.launchWithRetry(ctx, attempt, req)
 }
 
-// 这里只重试启动，不重试首轮 prompt。
-// 启动成功后用 launchSeq 确认结果还属于当前 agent。
-func (s *service) launchWithRetry(ctx context.Context, attempt launcherLaunchAttempt, req LaunchRequest) (launchedAgent, error) {
+func (s *service) launchWithRetry(ctx context.Context, attempt launcherLaunchAttempt, req LaunchRequest) (string, LaunchResult, error) {
 	var lastErr error
 	launchStartedAt := time.Now()
-	pkglogger.Info("orchestration: launch attempt sequence start",
-		pkglogger.String(pkglogger.FieldAgentID, attempt.agentID),
-		pkglogger.Int64("max_retries", int64(launcherrors.MaxRetries)))
+	pkglogger.Info("orchestration: launch attempt sequence start", pkglogger.String(pkglogger.FieldAgentID, attempt.agentID), pkglogger.Int64("max_retries", int64(launcherrors.MaxRetries)))
 	for i := 0; i < launcherrors.MaxRetries; i++ {
 		if i > 0 {
 			if err := launcherrors.WaitRetryBackoff(ctx, i, attempt.agentID, lastErr); err != nil {
-				return launchedAgent{}, s.finishLauncherLaunch(ctx, attempt, LaunchResult{}, err)
+				return "", LaunchResult{}, s.finishLauncherLaunch(ctx, attempt, LaunchResult{}, err)
 			}
 		}
 		attemptStartedAt := time.Now()
-		result, launchErr := s.launcher.Launch(ctx, &attempt.launching, req)
+		result, launchErr := s.startLauncherAttempt(ctx, &attempt, req)
 		if launchErr == nil {
-			pkglogger.Info("orchestration: launch attempt succeeded",
-				pkglogger.String(pkglogger.FieldAgentID, attempt.agentID),
-				pkglogger.Int64("attempt", int64(i+1)),
-				pkglogger.Int64(pkglogger.FieldDurationMS, time.Since(attemptStartedAt).Milliseconds()),
-				pkglogger.Int64("total_duration_ms", time.Since(launchStartedAt).Milliseconds()))
+			pkglogger.Info("orchestration: launch attempt succeeded", pkglogger.String(pkglogger.FieldAgentID, attempt.agentID), pkglogger.Int64("attempt", int64(i+1)), pkglogger.Int64(pkglogger.FieldDurationMS, time.Since(attemptStartedAt).Milliseconds()), pkglogger.Int64("total_duration_ms", time.Since(launchStartedAt).Milliseconds()))
 			if err := s.finishLauncherLaunch(ctx, attempt, result, nil); err != nil {
-				return launchedAgent{}, err
+				return "", LaunchResult{}, err
 			}
-			return launchedAgent{agentID: shared.FirstTrimmed(result.RemoteAgentID, attempt.agentID), result: result}, nil
+			return shared.FirstTrimmed(result.RemoteAgentID, attempt.agentID), result, nil
 		}
 		lastErr = launchErr
-		pkglogger.Warn("orchestration: launch attempt failed",
-			pkglogger.String(pkglogger.FieldAgentID, attempt.agentID),
-			pkglogger.Int64("attempt", int64(i+1)),
-			pkglogger.String(pkglogger.FieldError, launchErr.Error()),
-			pkglogger.String("error_class", string(launcherrors.Classify(launchErr))),
-			pkglogger.Int64(pkglogger.FieldDurationMS, time.Since(attemptStartedAt).Milliseconds()),
-			pkglogger.Int64("total_duration_ms", time.Since(launchStartedAt).Milliseconds()))
+		pkglogger.Warn("orchestration: launch attempt failed", pkglogger.String(pkglogger.FieldAgentID, attempt.agentID), pkglogger.Int64("attempt", int64(i+1)), pkglogger.String(pkglogger.FieldError, launchErr.Error()), pkglogger.String("error_class", string(launcherrors.Classify(launchErr))), pkglogger.Int64(pkglogger.FieldDurationMS, time.Since(attemptStartedAt).Milliseconds()), pkglogger.Int64("total_duration_ms", time.Since(launchStartedAt).Milliseconds()))
 		if launcherrors.Classify(launchErr) == launcherrors.ClassPermanent {
 			break
 		}
 	}
-	return launchedAgent{}, s.finishLauncherLaunch(ctx, attempt, LaunchResult{}, lastErr)
+	return "", LaunchResult{}, s.finishLauncherLaunch(ctx, attempt, LaunchResult{}, lastErr)
+}
+func (s *service) startLauncherAttempt(ctx context.Context, attempt *launcherLaunchAttempt, req LaunchRequest) (LaunchResult, error) {
+	if strings.EqualFold(strings.TrimSpace(req.ContextMode), "forked") {
+		return s.launcher.Fork(ctx, &attempt.forkParent, &attempt.launching, req)
+	}
+	return s.launcher.Launch(ctx, &attempt.launching, req)
 }
 
-// LaunchRequest.Prompt 是启动后的第一轮 turn。
-// 不要把它混进 thread/start 的显示名里。
 func (s *service) submitInitialLaunchPrompt(ctx context.Context, agentID string, result LaunchResult, req LaunchRequest) error {
 	prompt := strings.TrimSpace(req.Prompt)
 	if prompt == "" {
@@ -150,11 +129,7 @@ func (s *service) submitInitialLaunchPrompt(ctx context.Context, agentID string,
 		return nil
 	}
 	threadID := strings.TrimSpace(result.ThreadID)
-	submission := TurnSubmission{
-		AgentID:  agentID,
-		ThreadID: threadID,
-		Inputs:   []shareddto.InputItem{{Type: "text", Content: prompt}},
-	}
+	submission := TurnSubmission{AgentID: agentID, ThreadID: threadID, Inputs: []shareddto.InputItem{{Type: "text", Content: prompt}}}
 	pkglogger.Warn("orchestration: launch prompt auto-submit begin", "agent_id", agentID, "thread_id", threadID, "prompt_len", len([]rune(prompt)))
 	if err := s.submitTurnViaLauncher(ctx, submission); err != nil {
 		pkglogger.Warn("orchestration: launch prompt auto-submit failed", "agent_id", agentID, "thread_id", threadID, "error", err)
@@ -175,47 +150,66 @@ func (s *service) submitInitialLaunchPromptOrStop(ctx context.Context, agentID s
 	return nil
 }
 
-// 持锁准备 agent，并递增 launchSeq。
-// launcher 返回后只能写回同一个 seq，避免旧启动覆盖新 agent。
 func (s *service) prepareLauncherLaunch(ctx context.Context, req LaunchRequest) (launcherLaunchAttempt, bool, error) {
 	if err := validateLaunchRequestForLauncher(req, s.launcher); err != nil {
 		pkglogger.Warn("orchestration: launch rejected: validation failed", "agent_id", req.AgentID, "name", req.Name, "error", err)
 		return launcherLaunchAttempt{}, true, err
 	}
 	s.mu.Lock()
+	defer s.mu.Unlock()
 	if existing, err := lookupAgentByIdentityLocked(s.agents, req.AgentID, agentIdentityLocalOnly); err == nil && launchInProgress(ctx, s, existing) {
 		pkglogger.Warn("orchestration: launch rejected: already in progress", "agent_id", existing.id, "state", existing.state, "launch_seq", existing.launchSeq, "last_exited_seq", existing.lastExitedSeq)
-		s.mu.Unlock()
 		return launcherLaunchAttempt{}, true, fmt.Errorf("agent %q already launched", existing.id)
 	}
 	for _, existing := range s.agents {
 		if strings.TrimSpace(existing.requestedAgentID) == req.AgentID && launchInProgress(ctx, s, existing) {
-			s.mu.Unlock()
 			return launcherLaunchAttempt{}, true, fmt.Errorf("agent %q already launched", existing.id)
 		}
+	}
+	forkParent, err := s.forkParentForLaunchLocked(req)
+	if err != nil {
+		return launcherLaunchAttempt{}, true, err
 	}
 	agent := s.agentForLaunchLocked(req)
 	if err := s.prepareLaunchLocked(ctx, agent); err != nil {
 		pkglogger.Warn("orchestration: launch rejected: prepare failed", "agent_id", agent.id, "state", agent.state, "error", err)
-		s.mu.Unlock()
 		return launcherLaunchAttempt{}, true, err
 	}
 	if s.launcher == nil {
-		err := s.startProcessLocked(ctx, agent)
-		s.mu.Unlock()
-		return launcherLaunchAttempt{}, true, err
+		return launcherLaunchAttempt{}, true, s.startProcessLocked(ctx, agent)
 	}
 	agent.launchSeq++
-	attempt := launcherLaunchAttempt{
-		agentID:     agent.id,
-		expectedSeq: agent.launchSeq,
-		launching:   *agent,
-	}
-	s.mu.Unlock()
+	attempt := launcherLaunchAttempt{agentID: agent.id, expectedSeq: agent.launchSeq, launching: *agent, forkParent: forkParent}
 	return attempt, false, nil
 }
+func (s *service) forkParentForLaunchLocked(req LaunchRequest) (agentRuntime, error) {
+	if !strings.EqualFold(strings.TrimSpace(req.ContextMode), "forked") {
+		return agentRuntime{}, nil
+	}
+	parentID := strings.TrimSpace(req.ParentID)
+	if parentID == "" {
+		return agentRuntime{}, errors.New("parent agent id is required for forked launch")
+	}
+	parentThreadID := strings.TrimSpace(req.ParentThreadID)
+	parent, lookupErr := lookupAgentByIdentityLocked(s.agents, parentID, agentIdentityLocalOnly)
+	parentMissing := lookupErr != nil
+	if parentMissing && parentThreadID == "" {
+		return agentRuntime{}, fmt.Errorf("parent agent %q is required for forked launch: %w", parentID, lookupErr)
+	}
+	if parentMissing {
+		return agentRuntime{id: parentID, threadID: parentThreadID, remoteThreadID: parentThreadID}, nil
+	}
+	if strings.TrimSpace(parent.remoteThreadID) == "" {
+		if parentThreadID == "" {
+			return agentRuntime{}, fmt.Errorf("parent agent %q remote thread id is required for forked launch", parentID)
+		}
+		parentCopy := *parent
+		parentCopy.threadID, parentCopy.remoteThreadID = parentThreadID, parentThreadID
+		return parentCopy, nil
+	}
+	return *parent, nil
+}
 
-// launchInProgress 判断同一启动请求是否仍在处理中。
 func launchInProgress(ctx context.Context, s *service, agent *agentRuntime) bool {
 	if agent == nil || agent.state == agentdto.StateFailed || agent.state == agentdto.StateStopped {
 		return false
@@ -223,26 +217,19 @@ func launchInProgress(ctx context.Context, s *service, agent *agentRuntime) bool
 	if s.agentRunningLocked(ctx, agent) {
 		return true
 	}
-	return agent.launchSeq > agent.lastExitedSeq &&
-		(agent.state == agentdto.StateProvisioning || agent.state == agentdto.StateRecovering)
+	return agent.launchSeq > agent.lastExitedSeq && (agent.state == agentdto.StateProvisioning || agent.state == agentdto.StateRecovering)
 }
 
-// 写回 launch 结果前先检查 launchSeq。
-// 如果 agent 已被替换，成功启动的旧进程也要停掉。
 func (s *service) finishLauncherLaunch(ctx context.Context, attempt launcherLaunchAttempt, result LaunchResult, launchErr error) error {
 	s.mu.Lock()
 	agent, err := lookupAgentBySeqLocked(s.agents, attempt.agentID, attempt.expectedSeq)
 	if err != nil {
-		pkglogger.Warn("orchestration: launch finish: stale seq (agent may have been replaced)",
-			"agent_id", attempt.agentID, "expected_seq", attempt.expectedSeq,
-			"launch_err", launchErr, "lookup_err", err)
+		pkglogger.Warn("orchestration: launch finish: stale seq (agent may have been replaced)", "agent_id", attempt.agentID, "expected_seq", attempt.expectedSeq, "launch_err", launchErr, "lookup_err", err)
 		s.mu.Unlock()
 		return s.discardStaleLaunchResult(ctx, &attempt.launching, launchErr)
 	}
 	if launchErr != nil {
-		pkglogger.Warn("orchestration: launch failed",
-			"agent_id", attempt.agentID, "state", agent.state,
-			"launch_seq", attempt.expectedSeq, "error", launchErr)
+		pkglogger.Warn("orchestration: launch failed", "agent_id", attempt.agentID, "state", agent.state, "launch_seq", attempt.expectedSeq, "error", launchErr)
 		return s.failLauncherLaunchLocked(ctx, agent, &attempt.launching, launchErr)
 	}
 	return s.completeLauncherLaunchLocked(ctx, agent, &attempt.launching, result)
@@ -250,8 +237,7 @@ func (s *service) finishLauncherLaunch(ctx context.Context, attempt launcherLaun
 func (s *service) discardStaleLaunchResult(ctx context.Context, launching *agentRuntime, launchErr error) error {
 	if launchErr == nil {
 		if stopErr := s.launcher.Stop(ctx, launching); stopErr != nil {
-			pkglogger.Warn("orchestration: discard stale launch stop failed",
-				"agent_id", launching.id, "error", stopErr)
+			pkglogger.Warn("orchestration: discard stale launch stop failed", "agent_id", launching.id, "error", stopErr)
 		}
 	}
 	return launchErr
@@ -265,8 +251,7 @@ func (s *service) failLauncherLaunchLocked(ctx context.Context, agent, launching
 	s.mu.Unlock()
 	if launching != nil && s.launcher != nil {
 		if stopErr := s.launcher.Stop(ctx, launching); stopErr != nil {
-			pkglogger.Warn("orchestration: fail launch cleanup stop failed",
-				"agent_id", launching.id, "error", stopErr)
+			pkglogger.Warn("orchestration: fail launch cleanup stop failed", "agent_id", launching.id, "error", stopErr)
 		}
 	}
 	return err
@@ -278,8 +263,7 @@ func (s *service) completeLauncherLaunchLocked(ctx context.Context, agent, launc
 		commitErr := s.commitLaunchFailureLocked(ctx, agent, err)
 		s.mu.Unlock()
 		if stopErr := s.launcher.Stop(ctx, launching); stopErr != nil {
-			pkglogger.Warn("orchestration: rekey failure cleanup stop failed",
-				"agent_id", launching.id, "error", stopErr)
+			pkglogger.Warn("orchestration: rekey failure cleanup stop failed", "agent_id", launching.id, "error", stopErr)
 		}
 		return commitErr
 	}
@@ -290,8 +274,7 @@ func (s *service) completeLauncherLaunchLocked(ctx context.Context, agent, launc
 		resetRuntimeStateLocked(agent)
 		s.mu.Unlock()
 		if stopErr := s.launcher.Stop(ctx, launching); stopErr != nil {
-			pkglogger.Warn("orchestration: commit success failure cleanup stop failed",
-				"agent_id", launching.id, "error", stopErr)
+			pkglogger.Warn("orchestration: commit success failure cleanup stop failed", "agent_id", launching.id, "error", stopErr)
 		}
 		return err
 	}
@@ -299,7 +282,6 @@ func (s *service) completeLauncherLaunchLocked(ctx context.Context, agent, launc
 	return nil
 }
 
-// rekeyLaunchedAgentLocked 在锁内更新已启动代理的索引键。
 func (s *service) rekeyLaunchedAgentLocked(agent *agentRuntime) error {
 	if agent == nil {
 		return nil
@@ -317,8 +299,6 @@ func (s *service) rekeyLaunchedAgentLocked(agent *agentRuntime) error {
 	return nil
 }
 
-// remote/thread 模式停 agent 后，要主动更新本地状态。
-// 本地进程仍走 stopAgentWithReason。
 func (s *service) stopAgentViaLauncher(ctx context.Context, agentID, reason string) error {
 	agentID = strings.TrimSpace(agentID)
 	if agentID == "" {
@@ -341,7 +321,6 @@ func (s *service) stopAgentViaLauncher(ctx context.Context, agentID, reason stri
 	return nil
 }
 
-// archiveAgentViaLauncher 通过启动器归档代理并同步运行记录。
 func (s *service) archiveAgentViaLauncher(ctx context.Context, agentID, reason string) (bool, error) {
 	agentID = strings.TrimSpace(agentID)
 	if agentID == "" {
@@ -366,7 +345,6 @@ func (s *service) archiveAgentViaLauncher(ctx context.Context, agentID, reason s
 	s.handleProcessExit(ctx, agentID, launchSeq, nil)
 	return true, nil
 }
-
 func (s *service) hasLocalRuntimeAgent(agentID string) bool {
 	agentID = strings.TrimSpace(agentID)
 	if agentID == "" {
@@ -379,18 +357,15 @@ func (s *service) hasLocalRuntimeAgent(agentID string) bool {
 	})
 	return hasLocal
 }
-
 func (s *service) shouldStopViaLauncher(ctx context.Context, agentID string) bool {
 	shouldStop := false
 	if err := s.withAgentReadLocked(agentID, func(agent *agentRuntime) error {
-		if s.launcher == nil || agent.cmd != nil {
-			return nil
+		if s.launcher != nil && agent.cmd == nil {
+			shouldStop = s.launcher.IsRunning(ctx, agent)
 		}
-		shouldStop = s.launcher.IsRunning(ctx, agent)
 		return nil
 	}); err != nil {
-		pkglogger.Warn("orchestration: shouldStopViaLauncher read failed",
-			"agent_id", agentID, "error", err)
+		pkglogger.Warn("orchestration: shouldStopViaLauncher read failed", "agent_id", agentID, "error", err)
 	}
 	return shouldStop
 }
@@ -403,14 +378,8 @@ func (s *service) prepareLauncherStop(ctx context.Context, agentID, reason strin
 		if !s.agentRunningLocked(ctx, agent) {
 			return fmt.Errorf("agent %q is not running", agent.id)
 		}
-		changed, err := s.markStoppingLocked(ctx, agent, reason)
-		if err != nil {
+		if _, err := s.markStoppingLocked(ctx, agent, reason); err != nil {
 			return err
-		}
-		if !changed {
-			agentRef = agent
-			launchSeq = agent.launchSeq
-			return nil
 		}
 		agentRef = agent
 		launchSeq = agent.launchSeq
@@ -422,26 +391,16 @@ func (s *service) prepareLauncherStop(ctx context.Context, agentID, reason strin
 	return agentRef, launchSeq, nil
 }
 func (s *service) submitTurnViaLauncher(ctx context.Context, req TurnSubmission) error {
-	agentID, err := submissionAgentID(req)
-	if err != nil {
-		return err
+	agentID := strings.TrimSpace(req.AgentID)
+	if agentID == "" {
+		return errors.New("agent id is required")
 	}
 	s.ensureRuntimeForPersistedAgent(ctx, agentID)
 	handled, err := s.trySubmitRemoteTurn(ctx, agentID, req)
-	if handled {
-		return err
-	}
-	if err != nil {
+	if handled || err != nil {
 		return err
 	}
 	return s.enqueueLocalTurnSubmission(ctx, agentID, req)
-}
-func submissionAgentID(req TurnSubmission) (string, error) {
-	agentID := strings.TrimSpace(req.AgentID)
-	if agentID == "" {
-		return "", errors.New("agent id is required")
-	}
-	return agentID, nil
 }
 
 type remoteTurnSubmitAttempt struct {
@@ -451,6 +410,64 @@ type remoteTurnSubmitAttempt struct {
 	agent   *agentRuntime
 }
 
+// InterruptAgent 请求远程 Codex 子 agent 中断当前 turn，并等待状态收口。
+func (s *service) InterruptAgent(ctx context.Context, agentID string, source string) (AgentStateResult, error) {
+	source = shared.FirstTrimmed(source, "parent_agent")
+	agent, turnID, err := s.prepareInterruptAgent(agentID)
+	if err != nil {
+		return AgentStateResult{}, err
+	}
+	if err := s.launcher.Interrupt(ctx, &agent, source); err != nil {
+		return AgentStateResult{}, err
+	}
+	ticker := time.NewTicker(10 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		result, activeTurnID, err := s.interruptAgentSnapshot(agent.id)
+		if err != nil {
+			return AgentStateResult{}, err
+		}
+		if activeTurnID == "" && agentStateMatches(agentdto.AgentState(result.State), agentdto.StateIdle, agentdto.StateStopped, agentdto.StateFailed) {
+			return result, nil
+		}
+		select {
+		case <-ctx.Done():
+			return AgentStateResult{}, fmt.Errorf("timed out waiting for interrupt_agent agent %q active turn %q to settle: %w", agent.id, turnID, ctx.Err())
+		case <-ticker.C:
+		}
+	}
+}
+func (s *service) prepareInterruptAgent(agentID string) (agentRuntime, string, error) {
+	var agent agentRuntime
+	turnID := ""
+	err := s.withAgentReadLocked(agentID, func(current *agentRuntime) error {
+		if s.launcher == nil {
+			return errors.New("interrupt_agent currently supports remote Codex agents only")
+		}
+		if !agentStateMatches(current.state, agentdto.StateTurnRunning, agentdto.StateAwaitingUserInput) {
+			return fmt.Errorf("interrupt_agent requires running or awaiting user input agent; agent %q is in state %q", current.id, current.state)
+		}
+		if turnID = strings.TrimSpace(current.activeTurnID); turnID == "" {
+			return fmt.Errorf("interrupt_agent requires active turn for agent %q", current.id)
+		}
+		if strings.TrimSpace(current.remoteThreadID) == "" {
+			return fmt.Errorf("interrupt_agent requires remote thread id for agent %q", current.id)
+		}
+		agent = *current
+		return nil
+	})
+	return agent, turnID, err
+}
+func (s *service) interruptAgentSnapshot(agentID string) (AgentStateResult, string, error) {
+	result := AgentStateResult{}
+	activeTurnID := ""
+	err := s.withAgentReadLocked(agentID, func(current *agentRuntime) error {
+		result = AgentStateResult{AgentID: current.id, State: string(current.state)}
+		activeTurnID = strings.TrimSpace(current.activeTurnID)
+		return nil
+	})
+	return result, activeTurnID, err
+}
 func (s *service) trySubmitRemoteTurn(ctx context.Context, agentID string, req TurnSubmission) (bool, error) {
 	attempt, handled, err := s.prepareRemoteTurnSubmit(ctx, agentID, req)
 	if !handled || err != nil {
@@ -470,8 +487,6 @@ func (s *service) trySubmitRemoteTurn(ctx context.Context, agentID string, req T
 	return true, nil
 }
 
-// remote turn/start 前先把 agent 标成 busy。
-// 如果 RPC 失败，必须回滚，否则 list_agents 会一直显示忙。
 func (s *service) prepareRemoteTurnSubmit(ctx context.Context, agentID string, req TurnSubmission) (remoteTurnSubmitAttempt, bool, error) {
 	attempt := remoteTurnSubmitAttempt{}
 	handled := true
@@ -530,7 +545,6 @@ func remoteAgentBusy(agent *agentRuntime) bool {
 	return agent.state != agentdto.StateIdle || agent.activeTurnID != ""
 }
 
-// enqueueLocalTurnSubmission 把本地 turn 提交放入串行队列。
 func (s *service) enqueueLocalTurnSubmission(ctx context.Context, agentID string, req TurnSubmission) error {
 	waitForSession, err := s.submitAgentReadyState(ctx, agentID)
 	if err != nil {
@@ -543,15 +557,11 @@ func (s *service) enqueueLocalTurnSubmission(ctx context.Context, agentID string
 	}
 	return s.withAgentLocked(agentID, func(agent *agentRuntime) error {
 		if agent.cmd == nil {
-			pkglogger.Warn("orchestration: submit turn rejected: agent not running",
-				"agent_id", agent.id, "state", agent.state,
-				"launch_seq", agent.launchSeq, "last_exited_seq", agent.lastExitedSeq,
-				"last_error", agent.lastError)
+			pkglogger.Warn("orchestration: submit turn rejected: agent not running", "agent_id", agent.id, "state", agent.state, "launch_seq", agent.launchSeq, "last_exited_seq", agent.lastExitedSeq, "last_error", agent.lastError)
 			return fmt.Errorf("agent %q is not running", agent.id)
 		}
 		if agent.stopRequested {
-			pkglogger.Warn("orchestration: submit turn rejected: agent stopping",
-				"agent_id", agent.id, "state", agent.state, "stop_reason", agent.stopReason)
+			pkglogger.Warn("orchestration: submit turn rejected: agent stopping", "agent_id", agent.id, "state", agent.state, "stop_reason", agent.stopReason)
 			return fmt.Errorf("agent %q is stopping", agent.id)
 		}
 		req.AgentID = agentID
@@ -578,14 +588,9 @@ func adoptLaunchStateLocked(dst, src *agentRuntime) {
 		return
 	}
 	resetLaunchState(dst)
-	dst.cmd = src.cmd
-	dst.processGuard = src.processGuard
-	dst.threadID = src.threadID
-	dst.remoteThreadID = src.remoteThreadID
-	dst.remoteAgentID = src.remoteAgentID
-	dst.startedAt = src.startedAt
-	dst.updatedAt = src.updatedAt
-	dst.exitedAt = shared.CloneTime(src.exitedAt)
+	dst.cmd, dst.processGuard, dst.threadID = src.cmd, src.processGuard, src.threadID
+	dst.remoteThreadID, dst.remoteAgentID = src.remoteThreadID, src.remoteAgentID
+	dst.startedAt, dst.updatedAt, dst.exitedAt = src.startedAt, src.updatedAt, shared.CloneTime(src.exitedAt)
 	dst.lastError = src.lastError
 }
 func bindLaunchResult(agent *agentRuntime, result LaunchResult) {
@@ -593,8 +598,7 @@ func bindLaunchResult(agent *agentRuntime, result LaunchResult) {
 		return
 	}
 	if threadID := strings.TrimSpace(result.ThreadID); threadID != "" {
-		agent.threadID = threadID
-		agent.remoteThreadID = threadID
+		agent.threadID, agent.remoteThreadID = threadID, threadID
 	}
 	if remoteAgentID := strings.TrimSpace(result.RemoteAgentID); remoteAgentID != "" {
 		agent.remoteAgentID = remoteAgentID

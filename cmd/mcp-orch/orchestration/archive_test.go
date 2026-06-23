@@ -379,6 +379,10 @@ func (l *archiveAgentLauncher) Launch(context.Context, *agentRuntime, LaunchRequ
 	return LaunchResult{}, nil
 }
 
+func (l *archiveAgentLauncher) Fork(context.Context, *agentRuntime, *agentRuntime, LaunchRequest) (LaunchResult, error) {
+	return LaunchResult{}, errors.New("fork should not be called")
+}
+
 func (l *archiveAgentLauncher) Stop(_ context.Context, agent *agentRuntime) error {
 	if agent != nil {
 		l.stoppedAgentID = agent.id
@@ -391,6 +395,10 @@ func (l *archiveAgentLauncher) Archive(_ context.Context, agent *agentRuntime) e
 		l.archivedAgentID = agent.id
 		l.archivedThreadID = agent.remoteThreadID
 	}
+	return nil
+}
+
+func (l *archiveAgentLauncher) Interrupt(context.Context, *agentRuntime, string) error {
 	return nil
 }
 
