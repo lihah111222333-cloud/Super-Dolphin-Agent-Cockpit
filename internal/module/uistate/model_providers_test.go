@@ -22,15 +22,17 @@ func newModelProviderTestServer(t *testing.T) *rpc.Server {
 }
 
 func TestModelProvidersListReturnsDefaultTemplatesAndEnvStatus(t *testing.T) {
-	t.Setenv("OPENROUTER_API_KEY", "sk-openrouter-secret")
+	t.Setenv("OPENROUTER_API_KEY", "secret-prefix-middle-suffix")
 	server := newModelProviderTestServer(t)
 
 	result, err := server.Dispatch(context.Background(), "modelProviders/list", json.RawMessage(`{"cwd":"/repo/app"}`))
 	if err != nil {
 		t.Fatalf("Dispatch(modelProviders/list) error = %v", err)
 	}
-	if strings.Contains(string(result), "sk-openrouter-secret") {
-		t.Fatalf("modelProviders/list leaked api key: %s", result)
+	for _, fragment := range []string{"secret-prefix", "middle", "suffix", "secr", "ffix"} {
+		if strings.Contains(string(result), fragment) {
+			t.Fatalf("modelProviders/list leaked api key fragment %q: %s", fragment, result)
+		}
 	}
 
 	var got modelProviderRegistry
@@ -42,6 +44,9 @@ func TestModelProvidersListReturnsDefaultTemplatesAndEnvStatus(t *testing.T) {
 	}
 	if got.Vendors[0].ID != "openrouter" || !got.Vendors[0].Configured || got.Vendors[0].MaskedEnv == "" {
 		t.Fatalf("openrouter status = %#v, want configured with masked env", got.Vendors[0])
+	}
+	if got.Vendors[0].MaskedEnv != "********" {
+		t.Fatalf("openrouter maskedEnv = %q, want constant mask", got.Vendors[0].MaskedEnv)
 	}
 }
 
@@ -89,6 +94,57 @@ func TestModelProvidersApplyWritesCodexPreferences(t *testing.T) {
 	assertPreference("settings.provider.codex.codexModelProvider", "deepseek")
 	assertPreference("settings.provider.codex.codexHome", "/tmp/codex")
 	assertPreference("settings.provider.codex.codexInstanceKey", "work")
+}
+
+func TestModelProvidersApplyPreservesCodexIdentityWhenVendorOmitsBinding(t *testing.T) {
+	t.Setenv("OPENROUTER_API_KEY", "sk-openrouter-secret")
+	server := newModelProviderTestServer(t)
+
+	setPreference := func(key, value string) {
+		t.Helper()
+		result, err := server.Dispatch(context.Background(), "ui/preferences/set", json.RawMessage(`{
+			"cwd":"/repo/app",
+			"key":"`+key+`",
+			"value":"`+value+`"
+		}`))
+		if err != nil {
+			t.Fatalf("Dispatch(ui/preferences/set %s) error = %v", key, err)
+		}
+		if string(result) != `{"ok":true}` {
+			t.Fatalf("Dispatch(ui/preferences/set %s) = %s, want ok", key, result)
+		}
+	}
+	setPreference("settings.provider.codex.codexHome", "/existing/codex")
+	setPreference("settings.provider.codex.codexInstanceKey", "existing-key")
+
+	_, err := server.Dispatch(context.Background(), "modelProviders/save", json.RawMessage(`{
+		"cwd":"/repo/app",
+		"registry":{"vendors":[{"id":"openrouter","label":"OpenRouter","enabled":true,"baseURL":"https://openrouter.ai/api/v1","envKey":"OPENROUTER_API_KEY","codexModelProvider":"openrouter","defaultModel":"openai/gpt-4.1"}]}
+	}`))
+	if err != nil {
+		t.Fatalf("Dispatch(modelProviders/save) error = %v", err)
+	}
+	if _, err := server.Dispatch(context.Background(), "modelProviders/apply", json.RawMessage(`{"cwd":"/repo/app","vendorId":"openrouter"}`)); err != nil {
+		t.Fatalf("Dispatch(modelProviders/apply) error = %v", err)
+	}
+
+	assertPreference := func(key, want string) {
+		t.Helper()
+		result, err := server.Dispatch(context.Background(), "ui/preferences/get", json.RawMessage(`{"cwd":"/repo/app","key":"`+key+`"}`))
+		if err != nil {
+			t.Fatalf("Dispatch(ui/preferences/get %s) error = %v", key, err)
+		}
+		var got string
+		if err := json.Unmarshal(result, &got); err != nil {
+			t.Fatalf("json.Unmarshal(%s) error = %v", result, err)
+		}
+		if got != want {
+			t.Fatalf("%s = %q, want %q", key, got, want)
+		}
+	}
+	assertPreference("settings.provider.codex.codexModelProvider", "openrouter")
+	assertPreference("settings.provider.codex.codexHome", "/existing/codex")
+	assertPreference("settings.provider.codex.codexInstanceKey", "existing-key")
 }
 
 func TestModelProvidersApplyRejectsMissingEnv(t *testing.T) {
