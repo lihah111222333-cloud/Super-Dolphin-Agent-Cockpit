@@ -73,6 +73,9 @@ export const RPC_CONTRACT_REGISTRY = Object.freeze({
   UI_PREFERENCES_GET: contract('UI_PREFERENCES_GET', 'getPreference', 'P1', 'preferences', [TESTS.API, TESTS.SETTINGS], ['preference read']),
   UI_PREFERENCES_GET_ALL: contract('UI_PREFERENCES_GET_ALL', 'getAllPreferences', 'P1', 'preferences', [TESTS.API], ['preference read']),
   UI_PREFERENCES_SET: contract('UI_PREFERENCES_SET', 'setPreference', 'P1', 'preferences', [TESTS.API, TESTS.SETTINGS], ['preference mutation']),
+  MODEL_PROVIDERS_LIST: contract('MODEL_PROVIDERS_LIST', 'listModelProviders', 'P1', 'preferences', [TESTS.API, TESTS.SETTINGS], ['model provider registry read']),
+  MODEL_PROVIDERS_SAVE: contract('MODEL_PROVIDERS_SAVE', 'saveModelProviders', 'P0', 'preferences', [TESTS.API, TESTS.SETTINGS], ['model provider registry mutation']),
+  MODEL_PROVIDERS_APPLY: contract('MODEL_PROVIDERS_APPLY', 'applyModelProvider', 'P0', 'preferences', [TESTS.API, TESTS.SETTINGS], ['model provider activation mutation']),
 
   UI_DASHBOARD_GET: contract('UI_DASHBOARD_GET', 'getDashboardPage', 'P1', 'dashboard', [TESTS.API], ['dashboard detail read']),
   UI_VIDEO_GET_API_KEY: contract('UI_VIDEO_GET_API_KEY', 'getVideoApiKey', 'P1', 'video', [TESTS.API, TESTS.SETTINGS], ['credential configuration read']),
