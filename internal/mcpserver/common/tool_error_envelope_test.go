@@ -45,6 +45,7 @@ func TestClassifyToolErrorLaunchProviderInvalid(t *testing.T) {
 func TestClassifyToolErrorLaunchRequestInvalid(t *testing.T) {
 	for _, message := range []string{
 		"name is required",
+		"context_mode=focused requires non-empty context field",
 		"invalid memory_scope \"shared\": must be project, user, or local",
 	} {
 		t.Run(message, func(t *testing.T) {

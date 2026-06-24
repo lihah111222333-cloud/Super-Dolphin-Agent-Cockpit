@@ -141,7 +141,7 @@ func (c *httpMCPClient) CallTool(ctx context.Context, name string, args json.Raw
 		MetadataKeyWorkspaceRoots: append([]string(nil), req.WorkspaceRoots...),
 	})
 	if err != nil {
-		return toolCallTextResult(false, err.Error()), err
+		return toolCallErrorResult(err.Error()), nil
 	}
 	var decoded peerToolCallResponse
 	if err := json.Unmarshal(raw, &decoded); err != nil {
