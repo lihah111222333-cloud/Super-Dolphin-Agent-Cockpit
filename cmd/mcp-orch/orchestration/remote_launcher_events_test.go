@@ -2,6 +2,7 @@ package orchestration
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -139,6 +140,31 @@ func TestRemoteLauncher_TurnCompletedNotificationClearsRemoteBusyState(t *testin
 			snapshot.State == string(agentdto.StateIdle) &&
 			strings.Contains(snapshot.LastReport, "done from provider turn")
 	}, time.Second, 10*time.Millisecond)
+}
+
+func TestService_SubmitTurnRemoteModeDeadlineFailureClearsBusyState(t *testing.T) {
+	svc := NewService(silentLogger(), event.NewDispatcher(), remoteLocalLauncher(t, handler.Map{
+		"turn/start": handler.New(func(ctx context.Context, _ map[string]any) (map[string]any, error) {
+			<-ctx.Done()
+			return nil, ctx.Err()
+		}),
+	}), nil, nil, nil)
+	agent := svc.newAgentLocked("agent-1")
+	agent.state, agent.remoteThreadID, agent.name = agentdto.StateIdle, "thread-1", "worker-agent"
+	svc.agents[agent.id] = agent
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+	defer cancel()
+	err := svc.SubmitTurn(ctx, TurnSubmission{
+		AgentID: agent.id,
+		Inputs:  []shareddto.InputItem{{Type: "text", Content: "work"}},
+	})
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("SubmitTurn() error = %v, want deadline exceeded", err)
+	}
+	if agent.activeTurnID != "" || agent.state != agentdto.StateIdle {
+		t.Fatalf("agent after SubmitTurn timeout = state:%q active:%q, want idle with no active turn", agent.state, agent.activeTurnID)
+	}
 }
 
 func withLauncherControlMethods(methods handler.Map) handler.Map {

@@ -86,6 +86,25 @@ func TestStdioMCPClientCallToolPreservesMCPIsError(t *testing.T) {
 	}
 }
 
+func TestStdioMCPClientCallToolConvertsJSONRPCErrorToToolResult(t *testing.T) {
+	const message = "context_mode=focused requires non-empty context field"
+	transport := &fakeStdioTransport{reads: []json.RawMessage{
+		json.RawMessage(`{"jsonrpc":"2.0","id":1,"error":{"code":-32602,"message":"` + message + `"}}`),
+	}}
+	client := &stdioMCPClient{transport: transport}
+
+	got, err := client.CallTool(context.Background(), "launch_agent", json.RawMessage(`{"name":"worker"}`), ToolCallRequest{})
+	if err != nil {
+		t.Fatalf("CallTool() error = %v, want tool failure result", err)
+	}
+	if got == nil || got.Success {
+		t.Fatalf("CallTool() success = %#v, want false", got)
+	}
+	if len(got.ContentItems) != 1 || got.ContentItems[0].Text != message {
+		t.Fatalf("CallTool() content = %#v, want %q", got.ContentItems, message)
+	}
+}
+
 func TestStdioMCPClientCallToolRejectsNullSuccessPayload(t *testing.T) {
 	transport := &fakeStdioTransport{reads: []json.RawMessage{
 		json.RawMessage(`{"jsonrpc":"2.0","id":1,"result":{"content":[{"type":"text","text":"null"}],"structuredContent":{}}}`),
