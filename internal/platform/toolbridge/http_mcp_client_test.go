@@ -103,6 +103,34 @@ func TestPrepareCodexToolSurfaceNamesHTTPMCPInitializeFailure(t *testing.T) {
 	}
 }
 
+func TestHTTPMCPClientCallToolConvertsJSONRPCErrorToToolResult(t *testing.T) {
+	const message = "context_mode=focused requires non-empty context field"
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req struct {
+			ID     json.RawMessage `json:"id,omitempty"`
+			Method string          `json:"method"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		writeHTTPMCPToolsTestRPCError(w, req.ID, -32602, message)
+	}))
+	defer server.Close()
+	client := &httpMCPClient{client: server.Client(), endpoint: server.URL}
+
+	got, err := client.CallTool(context.Background(), "launch_agent", json.RawMessage(`{"name":"worker"}`), ToolCallRequest{})
+	if err != nil {
+		t.Fatalf("CallTool() error = %v, want tool failure result", err)
+	}
+	if got == nil || got.Success {
+		t.Fatalf("CallTool() success = %#v, want false", got)
+	}
+	if len(got.ContentItems) != 1 || got.ContentItems[0].Text != "toolbridge: HTTP MCP tools/call JSON-RPC error -32602: "+message {
+		t.Fatalf("CallTool() content = %#v, want JSON-RPC error text", got.ContentItems)
+	}
+}
+
 type httpMCPToolsTestSeen struct {
 	methods         []string
 	toolsCallParams map[string]any
@@ -210,6 +238,18 @@ func writeHTTPMCPToolsTestResponse(w http.ResponseWriter, id json.RawMessage, re
 		"jsonrpc": "2.0",
 		"id":      id,
 		"result":  result,
+	})
+}
+
+func writeHTTPMCPToolsTestRPCError(w http.ResponseWriter, id json.RawMessage, code int, message string) {
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]any{
+		"jsonrpc": "2.0",
+		"id":      id,
+		"error": map[string]any{
+			"code":    code,
+			"message": message,
+		},
 	})
 }
 
