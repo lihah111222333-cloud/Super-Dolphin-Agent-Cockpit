@@ -2,11 +2,14 @@ package tools
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	shareddto "github.com/anthropic-ai/super-agent-v3/internal/dto/shared"
+	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
@@ -21,20 +24,23 @@ func submitMessageAndWaitForReport(ctx context.Context, svc contract.Orchestrati
 	if err != nil {
 		return nil, err
 	}
-	previousReportSeq, err := previousFollowUpReportSeq(ctx, svc, agentID)
+	waitInput := GetAgentReportInput{
+		AgentID:   agentID,
+		Wait:      in.WaitReport,
+		TimeoutMS: in.TimeoutMS,
+	}
+	timeout, _, err := validateAgentReportWait(ctx, waitInput, agentID)
 	if err != nil {
 		return nil, err
 	}
-	waitInput := GetAgentReportInput{
-		AgentID:        agentID,
-		Wait:           in.WaitReport,
-		TimeoutMS:      in.TimeoutMS,
-		AfterReportSeq: &previousReportSeq,
-	}
-	if _, _, err := validateAgentReportWait(ctx, waitInput, agentID); err != nil {
+	followUpCtx, cancel := platformconfig.WithTimeout(ctx, timeout)
+	defer cancel()
+	previousReportSeq, err := previousFollowUpReportSeq(followUpCtx, svc, agentID)
+	if err != nil {
 		return nil, err
 	}
-	snapshot, err := svc.Snapshot(ctx, agentID)
+	waitInput.AfterReportSeq = &previousReportSeq
+	snapshot, err := svc.Snapshot(followUpCtx, agentID)
 	if err != nil {
 		return nil, fmt.Errorf("snapshot agent %q before follow-up: %w", agentID, err)
 	}
@@ -42,16 +48,12 @@ func submitMessageAndWaitForReport(ctx context.Context, svc contract.Orchestrati
 		return nil, err
 	}
 	submission := turnSubmissionFromMessage(agentID, threadIDFromSnapshot(snapshot, agentID), message)
-	if err := submitSendMessageTurn(ctx, svc, submission, message); err != nil {
-		return nil, err
+	if err := submitSendMessageTurn(followUpCtx, svc, submission, message); err != nil {
+		return nil, sendMessageSubmitError(agentID, timeout, err)
 	}
-	result, err := waitForAgentReport(ctx, svc, waitInput, agentID)
+	report, err := waitForFollowUpReport(ctx, followUpCtx, svc, waitInput, agentID, timeout, previousReportSeq)
 	if err != nil {
 		return nil, err
-	}
-	report, ok := result.(contract.AgentReportResult)
-	if !ok {
-		return nil, fmt.Errorf("wait report for agent %q returned %T, want AgentReportResult", agentID, result)
 	}
 	return successResult(map[string]any{
 		"agent_id":            agentID,
@@ -59,6 +61,30 @@ func submitMessageAndWaitForReport(ctx context.Context, svc contract.Orchestrati
 		"previous_report_seq": previousReportSeq,
 		"report":              report,
 	}), nil
+}
+
+// waitForFollowUpReport 保持原有 report 等待错误格式，同时复用同一个 follow-up deadline。
+func waitForFollowUpReport(ctx, followUpCtx context.Context, svc contract.OrchestrationService, waitInput GetAgentReportInput, agentID string, timeout time.Duration, previousReportSeq int64) (contract.AgentReportResult, error) {
+	result, err := waitForAgentReport(followUpCtx, svc, waitInput, agentID)
+	if err != nil {
+		if errors.Is(err, context.DeadlineExceeded) && followUpCtx.Err() != nil && ctx.Err() == nil {
+			return contract.AgentReportResult{}, agentReportWaitTimeoutError(ctx, timeout, agentID, &previousReportSeq)
+		}
+		return contract.AgentReportResult{}, err
+	}
+	report, ok := result.(contract.AgentReportResult)
+	if !ok {
+		return contract.AgentReportResult{}, fmt.Errorf("wait report for agent %q returned %T, want AgentReportResult", agentID, result)
+	}
+	return report, nil
+}
+
+// sendMessageSubmitError 把 follow-up 提交阶段的 deadline 转成可诊断的工具错误。
+func sendMessageSubmitError(agentID string, timeout time.Duration, err error) error {
+	if errors.Is(err, context.DeadlineExceeded) {
+		return fmt.Errorf("submit follow-up turn for agent %q timed out after %s: %w", agentID, timeout, err)
+	}
+	return err
 }
 
 func previousFollowUpReportSeq(ctx context.Context, svc contract.OrchestrationService, agentID string) (int64, error) {

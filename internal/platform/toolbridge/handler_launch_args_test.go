@@ -27,6 +27,9 @@ func TestInjectManagedLaunchArgsAddsCodexIdentity(t *testing.T) {
 	if got := mapString(args, "parent_thread_id"); got != "provider-thread-parent" {
 		t.Fatalf("parent_thread_id = %q, want provider-thread-parent; args=%#v", got, args)
 	}
+	if got := mapString(args, "parent_thread_id"); got != "provider-thread-parent" {
+		t.Fatalf("parent_thread_id = %q, want provider-thread-parent; args=%#v", got, args)
+	}
 }
 
 func TestInjectManagedLaunchArgsDoesNotOverwriteCodexIdentity(t *testing.T) {

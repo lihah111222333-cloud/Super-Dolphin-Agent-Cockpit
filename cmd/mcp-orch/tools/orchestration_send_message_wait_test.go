@@ -166,6 +166,47 @@ func TestSendMessageWaitReportSubmitFailureDoesNotWait(t *testing.T) {
 	}
 }
 
+func TestSendMessageWaitReportTimeoutCoversSubmitTurn(t *testing.T) {
+	handler := HandleSendMessage(&golden.OrchestrationStub{
+		SnapshotFunc: func(_ context.Context, agentID string) (contract.AgentSnapshot, error) {
+			return contract.AgentSnapshot{AgentID: agentID, State: "idle"}, nil
+		},
+		GetReportFunc: func(_ context.Context, agentID string) (contract.AgentReportResult, error) {
+			return contract.AgentReportResult{AgentID: agentID, State: "idle", Report: "old", ReportSeq: 3}, nil
+		},
+		SubmitTurnFunc: func(ctx context.Context, _ contract.TurnSubmission) error {
+			<-ctx.Done()
+			return ctx.Err()
+		},
+	})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	errCh := make(chan error, 1)
+	go func() {
+		_, err := handler(ctx, json.RawMessage(`{
+			"agent_id": "agent-b",
+			"message": "follow-up",
+			"wait_report": true,
+			"timeout_ms": 25
+		}`))
+		errCh <- err
+	}()
+
+	select {
+	case err := <-errCh:
+		if err == nil ||
+			!strings.Contains(err.Error(), `agent "agent-b"`) ||
+			!strings.Contains(err.Error(), "submit follow-up turn") ||
+			!strings.Contains(err.Error(), "timed out") {
+			t.Fatalf("HandleSendMessage() error = %v, want submit timeout with agent context", err)
+		}
+	case <-time.After(150 * time.Millisecond):
+		cancel()
+		t.Fatal("HandleSendMessage() did not respect timeout_ms while SubmitTurn was blocked")
+	}
+}
+
 func TestSendMessageWaitReportTimeoutMentionsAgentAndSeq(t *testing.T) {
 	handler := HandleSendMessage(&golden.OrchestrationStub{
 		SnapshotFunc: func(_ context.Context, agentID string) (contract.AgentSnapshot, error) {

@@ -2,6 +2,7 @@ package common
 
 import (
 	"encoding/json"
+	"reflect"
 	"sync/atomic"
 )
 
@@ -100,4 +101,18 @@ func BuildToolCallResult(value any) (map[string]any, error) {
 		"structuredContent": structured,
 		"isError":           ToolResultIsError(value),
 	}, nil
+}
+
+// isNilToolResult treats typed nils from generic tool handlers as empty results.
+func isNilToolResult(value any) bool {
+	if value == nil {
+		return true
+	}
+	v := reflect.ValueOf(value)
+	switch v.Kind() {
+	case reflect.Chan, reflect.Func, reflect.Interface, reflect.Map, reflect.Ptr, reflect.Slice:
+		return v.IsNil()
+	default:
+		return false
+	}
 }

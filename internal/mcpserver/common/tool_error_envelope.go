@@ -481,6 +481,7 @@ func isDatabaseSchemaMissingMessage(message string) bool {
 
 func isLaunchRequestInvalidMessage(message string) bool {
 	return strings.Contains(message, " is required") ||
+		(strings.Contains(message, "context_mode") && strings.Contains(message, "requires")) ||
 		strings.Contains(message, "invalid memory_scope") ||
 		strings.Contains(message, "invalid agent") ||
 		strings.Contains(message, "must be project, user, or local")

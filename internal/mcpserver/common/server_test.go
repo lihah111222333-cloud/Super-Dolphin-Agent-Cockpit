@@ -5,6 +5,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 )
@@ -86,6 +88,55 @@ func TestToolsCallReturnsStructuredToolError(t *testing.T) {
 	}
 	if envelope.Error == "" || envelope.Hint == "" {
 		t.Fatalf("envelope missing error/hint: %#v", envelope)
+	}
+}
+
+func TestToolsCallTypedNilErrorReturnsStructuredToolError(t *testing.T) {
+	const message = "context_mode=focused requires non-empty context field"
+	input := bytes.NewBufferString(`{"jsonrpc":"2.0","id":28,"method":"tools/call","params":{"name":"launch_agent","arguments":{}}}`)
+	var output bytes.Buffer
+	provider := captureToolProvider{call: func(context.Context, string, json.RawMessage) (any, error) {
+		var typedNil map[string]any
+		return typedNil, errors.New(message)
+	}}
+
+	server := NewServer("test", "dev", NewStdioTransport(input, &output), provider)
+	if err := server.Run(context.Background()); err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	envelope := decodeToolErrorEnvelopeFromOutput(t, output.Bytes())
+	if envelope.Success {
+		t.Fatalf("envelope success = true, want false")
+	}
+	if envelope.Error != message {
+		t.Fatalf("envelope error = %q, want %q; output=%s", envelope.Error, message, output.String())
+	}
+	if envelope.Code != "launch_request_invalid" {
+		t.Fatalf("envelope code = %q, want launch_request_invalid; output=%s", envelope.Code, output.String())
+	}
+}
+
+func TestHTTPToolsCallTypedNilErrorReturnsStructuredToolError(t *testing.T) {
+	const message = "context_mode=focused requires non-empty context field"
+	provider := captureToolProvider{call: func(context.Context, string, json.RawMessage) (any, error) {
+		var typedNil map[string]any
+		return typedNil, errors.New(message)
+	}}
+	server := NewHTTPServer("test", "dev", provider)
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/mcp", strings.NewReader(`{"jsonrpc":"2.0","id":29,"method":"tools/call","params":{"name":"launch_agent","arguments":{}}}`))
+
+	server.handleMCP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("HTTP status = %d, want 200; body=%s", rec.Code, rec.Body.String())
+	}
+	envelope := decodeToolErrorEnvelopeFromOutput(t, rec.Body.Bytes())
+	if envelope.Error != message {
+		t.Fatalf("envelope error = %q, want %q; body=%s", envelope.Error, message, rec.Body.String())
+	}
+	if envelope.Code != "launch_request_invalid" {
+		t.Fatalf("envelope code = %q, want launch_request_invalid; body=%s", envelope.Code, rec.Body.String())
 	}
 }
 
