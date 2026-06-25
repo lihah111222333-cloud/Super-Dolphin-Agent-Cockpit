@@ -13,6 +13,7 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/util/configutil"
 )
 
+// prepareInputSpec 是 buildPrepareInput 的参数结构体，字段对应 PrepareInput 但不含运行时派生字段。
 type prepareInputSpec struct {
 	Inputs                       []InputItem
 	Prompt                       string
@@ -42,6 +43,7 @@ type prepareInputSpec struct {
 	BinaryDir                    string
 }
 
+// prepareSkillSpec 描述 buildPrepareInput 的技能来源：显式选中、精确 ref 和自动推导。
 type prepareSkillSpec struct {
 	Selected     []string
 	SelectedRefs []skillRefParams
@@ -97,6 +99,7 @@ func buildPrepareInput(spec prepareInputSpec, skills prepareSkillSpec, session p
 	return input
 }
 
+// hydratePrepareInput 从 ThreadRuntimeConfig 和 session 的 RuntimeConfigSnapshot 合并运行时配置到 input。
 func hydratePrepareInput(input PrepareInput, session prepareInputSession) PrepareInput {
 	input = mergePrepareInputRuntime(input, input.ThreadRuntimeConfig)
 	reader, ok := session.(runtimeConfigSnapshotReader)
@@ -106,6 +109,7 @@ func hydratePrepareInput(input PrepareInput, session prepareInputSession) Prepar
 	return mergePrepareInputRuntime(input, reader.RuntimeConfigSnapshot())
 }
 
+// mergePrepareInputRuntime 把运行时配置 map 中的字段合并到 input，已有非空值的字段不被覆盖。
 func mergePrepareInputRuntime(input PrepareInput, cfg map[string]any) PrepareInput {
 	if len(cfg) == 0 {
 		return input
@@ -339,6 +343,7 @@ func appendMCPInstructions(dst, src map[string]string) {
 	}
 }
 
+// readThreadRuntimeConfig 从 ThreadStateConfigReader 读取线程运行时配置并深拷贝返回，reader 或 threadID 为空时返回 nil。
 func readThreadRuntimeConfig(ctx context.Context, reader ThreadStateConfigReader, threadID string) (map[string]any, error) {
 	if reader == nil {
 		return nil, nil
@@ -388,6 +393,7 @@ func requireTurnContext(
 	return ctx, threadID, nil
 }
 
+// interruptAndWait 向 session 发送中断请求，标记 tracker 后可选等待 settle。返回 (是否已发送中断, 错误)。
 func interruptAndWait(
 	ctx context.Context,
 	session contract.Session,
@@ -413,6 +419,7 @@ func interruptAndWait(
 	return true, wait()
 }
 
+// activeProviderID 从 activeTurn 的 handle 或缓存字段中取 provider turn ID，优先使用 handle 的实时值。
 func activeProviderID(active activeTurn) string {
 	if active.handle != nil {
 		if providerID := strings.TrimSpace(active.handle.ProviderID()); providerID != "" {
@@ -425,6 +432,7 @@ func activeProviderID(active activeTurn) string {
 	return ""
 }
 
+// buildInterruptResult 将 TurnStatus 和 turnInterruptEnvelope 组装为 RPC 层的 turnInterruptResult。
 func buildInterruptResult(status TurnStatus, envelope turnInterruptEnvelope) turnInterruptResult {
 	result := turnInterruptResult{OK: true, TurnID: status.LocalID, Status: status.State}
 	if envelope.mode == "" {
@@ -444,12 +452,14 @@ func buildInterruptResult(status TurnStatus, envelope turnInterruptEnvelope) tur
 	return result
 }
 
+// buildInterruptFailureResult 构造 ok=false 的中断结果，用于中断失败或超时路径。
 func buildInterruptFailureResult(status TurnStatus, envelope turnInterruptEnvelope) turnInterruptResult {
 	result := buildInterruptResult(status, envelope)
 	result.OK = false
 	return result
 }
 
+// normalizePrepareSkillRefs 合并 selected、selectedRefs 和 derived 三路技能来源，去重后返回最终 SkillRef 列表。
 func normalizePrepareSkillRefs(skills prepareSkillSpec, manualSkillSelection bool) []dto.SkillRef {
 	selectedSource := dto.SkillSourceUnspecified
 	if manualSkillSelection {
@@ -547,6 +557,7 @@ func normalizeSkillNamesWithSource(source dto.SkillSource, names []string) []dto
 	return refs
 }
 
+// decodeLegacyTurnParams 先将 data 解码到 target，再解码到 legacy，然后调用 merge 将旧字段补充到 target。
 func decodeLegacyTurnParams[T any, L any](
 	data []byte,
 	target *T,
@@ -565,6 +576,7 @@ func decodeLegacyTurnParams[T any, L any](
 	return merge(target, legacy)
 }
 
+// newSteerRequest 根据已准备好的 TurnRequest 和当前 provider turn ID 构造 SteerRequest。
 func newSteerRequest(req dto.TurnRequest, expectedTurnID string) dto.SteerRequest {
 	return dto.SteerRequest{
 		ThreadID:             req.ThreadID,

@@ -43,9 +43,10 @@ var (
 	}
 )
 
+// inputAssembler 负责把 PrepareInput 中的 prompt、文件、图片等转换为规范化的 InputItem 列表。
 type inputAssembler struct{}
 
-// Assemble 处理assemble。
+// Assemble 把 PrepareInput 中各类输入项收集、规范化并去重，返回最终提交给 provider 的 InputItem 列表。
 func (a *inputAssembler) Assemble(input PrepareInput) []shareddto.InputItem {
 	raw := a.collect(input)
 	if len(raw) > maxTurnInputItems {
@@ -71,7 +72,7 @@ func (a *inputAssembler) Assemble(input PrepareInput) []shareddto.InputItem {
 	return items
 }
 
-// PromptText 处理prompt文本。
+// PromptText 拼接 PrepareInput 中所有文本类输入为单一字符串，用于专家匹配和 assembly 上下文。
 func (a *inputAssembler) PromptText(input PrepareInput) string {
 	parts := make([]string, 0, len(input.Inputs)+1)
 	if prompt := strings.TrimSpace(input.Prompt); prompt != "" {
@@ -103,7 +104,7 @@ func (a *inputAssembler) collect(input PrepareInput) []shareddto.InputItem {
 	return items
 }
 
-// normalize 规范化turn。
+// normalize 按 type 路由到对应规范化函数，返回 (规范化后的 item, 是否有效)。
 func (a *inputAssembler) normalize(item shareddto.InputItem) (shareddto.InputItem, bool) {
 	switch normalizeInputType(item.Type) {
 	case "text":
@@ -141,7 +142,7 @@ func normalizeFileContentItem(item shareddto.InputItem) (shareddto.InputItem, bo
 	return out, true
 }
 
-// normalizeImageItem 规范化imageitem。
+// normalizeImageItem 规范化图片输入项，支持 data URI、远程 URL 和本地路径，扩展名不在白名单时丢弃。
 func normalizeImageItem(item shareddto.InputItem) (shareddto.InputItem, bool) {
 	target := normalizeInputTarget(item.URL, item.Path, item.Content)
 	if target == "" {
@@ -193,7 +194,7 @@ func normalizeFallbackItem(item shareddto.InputItem) (shareddto.InputItem, bool)
 	return normalizeMentionItem(item)
 }
 
-// normalizeInputType 规范化inputtype。
+// normalizeInputType 将各种别名统一为标准类型字符串，未知类型保持小写原值。
 func normalizeInputType(value string) string {
 	switch strings.ToLower(strings.TrimSpace(value)) {
 	case "", "text":

@@ -1,3 +1,5 @@
+// Package bus 提供基于 kelindar/event 的进程内事件总线，封装 Dispatcher 的创建、
+// 订阅生命周期管理和结构化日志追踪。
 package bus
 
 import (
@@ -19,14 +21,15 @@ import (
 	"github.com/kelindar/event"
 )
 
-// LogSink subscribes to known bus events and mirrors them to structured logs.
+// LogSink 订阅总线上的已知事件类型，将其镜像到结构化日志，并按需记录追踪信息。
 type LogSink struct {
-	subs        *Subscription
-	trace       TraceRecorder
-	traceMu     sync.Mutex
-	traceCounts map[string]int64
+	subs        *Subscription    // 订阅集合，Close 时统一注销
+	trace       TraceRecorder    // 可选的追踪记录器
+	traceMu     sync.Mutex       // 保护 traceCounts 的并发写
+	traceCounts map[string]int64 // 高频事件采样计数器，按事件类型分组
 }
 
+// TraceStatus 表示追踪记录的状态类型。
 type TraceStatus string
 
 const (
@@ -34,41 +37,45 @@ const (
 	TraceStatusDroppedSummary TraceStatus = "dropped_summary"
 )
 
+// TraceCodeAnchor 记录追踪事件发生时的调用栈位置。
 type TraceCodeAnchor struct {
-	File     string
-	Function string
-	Line     int
+	File     string // 源文件路径
+	Function string // 函数名
+	Line     int    // 行号
 }
 
+// TraceRecord 是写入追踪后端的单条追踪记录，字段对齐 OpenTelemetry span 语义。
 type TraceRecord struct {
-	SchemaVersion int
-	Timestamp     time.Time
-	TraceID       string
-	SpanID        string
-	ParentSpanID  string
-	Kind          string
-	Method        string
-	ThreadID      string
-	AgentID       string
-	TurnID        string
-	CallID        string
-	ToolName      string
-	Status        TraceStatus
-	Code          TraceCodeAnchor
-	Metadata      map[string]any
+	SchemaVersion int             // 记录格式版本，当前为 1
+	Timestamp     time.Time       // 事件发生时间（UTC）
+	TraceID       string          // 分布式追踪 ID
+	SpanID        string          // 当前 span ID
+	ParentSpanID  string          // 父 span ID
+	Kind          string          // span 类型，如 "bus_event"
+	Method        string          // 业务方法标识
+	ThreadID      string          // 关联的 thread ID
+	AgentID       string          // 关联的 agent ID
+	TurnID        string          // 关联的 turn ID
+	CallID        string          // 关联的工具调用 ID
+	ToolName      string          // 工具名称
+	Status        TraceStatus     // 追踪状态
+	Code          TraceCodeAnchor // 调用栈位置
+	Metadata      map[string]any  // 附加元数据
 }
 
+// TraceRecorder 是写入追踪后端的接口，由外部实现并通过 fx 可选注入。
 type TraceRecorder interface {
 	RecordTrace(context.Context, TraceRecord) error
 }
 
+// LogSinkDeps 是 NewLogSink 的依赖参数结构。
 type LogSinkDeps struct {
 	Dispatcher *event.Dispatcher
 	Logger     *pkglogger.Logger
 	Trace      TraceRecorder
 }
 
-// NewLogSink 创建日志sink。
+// NewLogSink 创建 LogSink 并订阅所有已知事件类型；dispatcher 或 logger 为 nil 时禁用事件日志。
 func NewLogSink(p LogSinkDeps) *LogSink {
 	sink := &LogSink{subs: NewSubscription(), trace: p.Trace, traceCounts: map[string]int64{}}
 	if p.Dispatcher == nil || p.Logger == nil {
@@ -84,7 +91,7 @@ func NewLogSink(p LogSinkDeps) *LogSink {
 	return sink
 }
 
-// Close 关闭平台bus资源。
+// Close 注销所有事件订阅，释放资源；幂等，重复调用安全。
 func (s *LogSink) Close() {
 	if s.subs == nil {
 		return

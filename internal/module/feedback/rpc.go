@@ -1,3 +1,4 @@
+// Package feedback 提供用户反馈事件的记录能力，通过 JSON-RPC 接口接收前端事件并持久化。
 package feedback
 
 import (
@@ -9,6 +10,7 @@ import (
 	platformrpc "github.com/anthropic-ai/super-agent-v3/internal/platform/rpc"
 )
 
+// recordResponse 是 feedback/record 的 RPC 响应，同时提供蛇形和驼峰两种 event_type 字段名。
 type recordResponse struct {
 	ID             int64  `json:"id"`
 	EventType      string `json:"event_type"`
@@ -16,6 +18,7 @@ type recordResponse struct {
 	Recorded       bool   `json:"recorded"`
 }
 
+// recordParams 是 feedback/record 的 RPC 请求参数。
 type recordParams struct {
 	ThreadID        string `json:"thread_id"`
 	TurnID          string `json:"turn_id,omitempty"`
@@ -35,6 +38,7 @@ func NewHandlers(svc Service) platformrpc.HandlerMapResult {
 	}}
 }
 
+// newRecordHandler 创建 feedback/record 的 RPC 处理函数。
 func newRecordHandler(svc Service) handler.Func {
 	return platformrpc.StrictHandler(func(ctx context.Context, p recordParams) (any, error) {
 		result, err := svc.Record(ctx, RecordRequest{

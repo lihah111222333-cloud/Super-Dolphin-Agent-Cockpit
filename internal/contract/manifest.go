@@ -232,6 +232,7 @@ func cloneManifestEnv(in map[string]string) map[string]string {
 	return out
 }
 
+// MCP 必要环境变量键名列表，不含这些键时 provider 进程无法正常注册。
 var mcpRequiredEnvKeys = []string{
 	"GO_AGENT_CTL_RPC_ADDR",
 	"GO_AGENT_CTL_INSTANCE_ID",
@@ -244,13 +245,16 @@ var mcpRequiredEnvKeys = []string{
 	"GO_AGENT_CTL_BOOTSTRAP_JSON",
 }
 
+// MCP 透传环境变量键名列表：这些键允许透传到 provider 进程。
 var mcpPassthroughEnvKeys = []string{"SUPER_DOLPHIN_MODEL_REGISTRY"}
 
+// SQLite / 数据库路径环境变量键名常量，禁止透传给 provider 进程。
 const (
 	SQLitePathEnvKey         = "SUPER_DOLPHIN_SQLITE_PATH"
 	InternalSQLitePathEnvKey = "SUPER_DOLPHIN_INTERNAL_SQLITE_PATH"
 )
 
+// mcpForbiddenDatabaseEnvKeys 是禁止透传的数据库环境变量键集合，方便 O(1) 查找。
 var mcpForbiddenDatabaseEnvKeys = map[string]struct{}{
 	"DATABASE_URL":               {},
 	"POSTGRES_CONNECTION_STRING": {},
@@ -258,15 +262,18 @@ var mcpForbiddenDatabaseEnvKeys = map[string]struct{}{
 	InternalSQLitePathEnvKey:     {},
 }
 
+// ForbiddenDatabaseEnvKeyNames 返回禁止透传到 provider manifest 的数据库环境变量键名列表。
 func ForbiddenDatabaseEnvKeyNames() []string {
 	return []string{"DATABASE_URL", "POSTGRES_CONNECTION_STRING", SQLitePathEnvKey, InternalSQLitePathEnvKey}
 }
 
+// IsForbiddenDatabaseEnvKey 判断给定键名是否属于禁止透传的数据库环境变量。
 func IsForbiddenDatabaseEnvKey(key string) bool {
 	_, ok := mcpForbiddenDatabaseEnvKeys[strings.ToUpper(strings.TrimSpace(key))]
 	return ok
 }
 
+// ScrubDatabaseEnv 从 key=value 格式的环境变量切片中移除数据库相关键。
 func ScrubDatabaseEnv(env []string) []string {
 	out := make([]string, 0, len(env))
 	for _, item := range env {
@@ -279,6 +286,7 @@ func ScrubDatabaseEnv(env []string) []string {
 	return out
 }
 
+// ScrubDatabaseEnvMap 从 map 中就地删除数据库相关环境变量键。
 func ScrubDatabaseEnvMap(env map[string]string) {
 	for key := range env {
 		if IsForbiddenDatabaseEnvKey(key) {
@@ -287,6 +295,7 @@ func ScrubDatabaseEnvMap(env map[string]string) {
 	}
 }
 
+// mcpLegacyEnvAliases 是规范键到旧别名的映射，用于从历史 env 升级到新键。
 var mcpLegacyEnvAliases = map[string][]string{
 	"GO_AGENT_CTL_RPC_ADDR":       {"RPC_ADDR"},
 	"GO_AGENT_CTL_INSTANCE_ID":    {"GO_AGENT_MCP_INSTANCE_ID"},

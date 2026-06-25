@@ -1,3 +1,6 @@
+// Package observation 实现 turn 观测层，将事件总线上的原始事件流归一化为六个
+// 规范事实（terminal、token、timestamp、counts、call attribution、dedupe），
+// 供下游消费者（P3 collector、P0b extractor）通过 Contract 接口读取。
 package observation
 
 import (

@@ -21,6 +21,7 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/util"
 )
 
+// uiDashboardGetParams 是 ui/dashboard/get 的请求参数。
 type uiDashboardGetParams struct {
 	Page string `json:"page,omitempty"`
 	Cwd  string `json:"cwd,omitempty"`
@@ -39,6 +40,7 @@ type dashboardQueryParams struct {
 	Args  []any  `json:"args,omitempty"`
 }
 
+// agentDetailParams 是 dashboard/agent/detail 的请求参数，支持驼峰和下划线两种字段名。
 type agentDetailParams struct {
 	AgentID      string `json:"agentId,omitempty"`
 	AgentIDSnake string `json:"agent_id,omitempty"`
@@ -567,6 +569,7 @@ func (p dagCreateNodeParam) createDAGNodeRequest() contract.CreateDAGNodeRequest
 	}
 }
 
+// dashboardCreateDAGMetadata 合并用户传入的 metadata 并注入 final_node_key 和默认 schedule。
 func dashboardCreateDAGMetadata(raw json.RawMessage, finalNodeKey string) (json.RawMessage, error) {
 	metadata := map[string]any{}
 	if trimmed := strings.TrimSpace(string(raw)); trimmed != "" {
@@ -586,6 +589,7 @@ func dashboardCreateDAGMetadata(raw json.RawMessage, finalNodeKey string) (json.
 	return json.Marshal(metadata)
 }
 
+// validateDashboardFinalNodeKey 检查 finalNodeKey 是否存在于 nodes 列表中，不存在时 fail-fast。
 func validateDashboardFinalNodeKey(finalNodeKey string, nodes []contract.CreateDAGNodeRequest) error {
 	if finalNodeKey == "" {
 		return nil

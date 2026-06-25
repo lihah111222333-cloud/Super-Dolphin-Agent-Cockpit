@@ -1,3 +1,4 @@
+// Package datasourcev2 提供文件正文导入、分块存储和语义检索能力，供 prompt 动态段和前端数据源管理页使用。
 package datasourcev2
 
 import (
@@ -25,6 +26,7 @@ func NewHandlers(svc Service) platformrpc.HandlerMapResult {
 	}}
 }
 
+// importTextHandler 处理 datasourceV2/importText 和 datasourceV2/create 请求。
 func importTextHandler(svc Service) func(context.Context, ImportFileTextRequest) (ImportFileTextResult, error) {
 	return func(ctx context.Context, req ImportFileTextRequest) (ImportFileTextResult, error) {
 		if svc == nil {
@@ -38,6 +40,7 @@ func importTextHandler(svc Service) func(context.Context, ImportFileTextRequest)
 	}
 }
 
+// importLocalFileHandler 处理 datasourceV2/importLocalFile 请求，允许 workspace 外的绝对路径。
 func importLocalFileHandler(svc Service) func(context.Context, ImportLocalFileRequest) (ImportFileTextResult, error) {
 	return func(ctx context.Context, req ImportLocalFileRequest) (ImportFileTextResult, error) {
 		if svc == nil {
@@ -51,6 +54,7 @@ func importLocalFileHandler(svc Service) func(context.Context, ImportLocalFileRe
 	}
 }
 
+// listDocumentsHandler 处理 datasourceV2/list 请求。
 func listDocumentsHandler(svc Service) func(context.Context, ListDocumentsRequest) (ListDocumentsResult, error) {
 	return func(ctx context.Context, req ListDocumentsRequest) (ListDocumentsResult, error) {
 		if svc == nil {
@@ -64,6 +68,7 @@ func listDocumentsHandler(svc Service) func(context.Context, ListDocumentsReques
 	}
 }
 
+// getDocumentHandler 处理 datasourceV2/get 请求。
 func getDocumentHandler(svc Service) func(context.Context, GetDocumentRequest) (GetDocumentResult, error) {
 	return func(ctx context.Context, req GetDocumentRequest) (GetDocumentResult, error) {
 		if svc == nil {
@@ -77,6 +82,7 @@ func getDocumentHandler(svc Service) func(context.Context, GetDocumentRequest) (
 	}
 }
 
+// updateDocumentHandler 处理 datasourceV2/update 请求。
 func updateDocumentHandler(svc Service) func(context.Context, UpdateDocumentRequest) (DocumentResult, error) {
 	return func(ctx context.Context, req UpdateDocumentRequest) (DocumentResult, error) {
 		if svc == nil {
@@ -90,6 +96,7 @@ func updateDocumentHandler(svc Service) func(context.Context, UpdateDocumentRequ
 	}
 }
 
+// deleteDocumentHandler 处理 datasourceV2/delete 请求。
 func deleteDocumentHandler(svc Service) func(context.Context, DeleteDocumentRequest) (DeleteDocumentResult, error) {
 	return func(ctx context.Context, req DeleteDocumentRequest) (DeleteDocumentResult, error) {
 		if svc == nil {
@@ -103,6 +110,7 @@ func deleteDocumentHandler(svc Service) func(context.Context, DeleteDocumentRequ
 	}
 }
 
+// datasourceV2RPCError 将 datasource_v2 业务错误映射为标准 jrpc2 错误码。
 func datasourceV2RPCError(err error) error {
 	switch {
 	case errors.Is(err, errMissingSourcePath),

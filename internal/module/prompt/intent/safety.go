@@ -1,7 +1,9 @@
+// Package intent 负责提示词意图识别与草稿质量校验，包含安全检查、规范化、去重、来源事实提取和提交流程。
 package intent
 
 import "strings"
 
+// providerIdentityTerms 是表示 provider/模型身份的关键词，用于检测内容是否含有身份污染。
 var providerIdentityTerms = []string{
 	"you are claude",
 	"你是 claude",
@@ -16,6 +18,7 @@ var providerIdentityTerms = []string{
 	"operate exclusively in trae",
 }
 
+// externalToolProtocolTerms 是外部工具协议关键词，检测内容是否引用了平台专属工具。
 var externalToolProtocolTerms = []string{
 	"bash tool",
 	"bash tools",
@@ -30,6 +33,7 @@ var externalToolProtocolTerms = []string{
 	"computer use",
 }
 
+// externalSystemPromptTerms 是外部 system/provider/persona prompt 特征词，用于判断输入是否来自外部提示词。
 var externalSystemPromptTerms = []string{
 	"you are claude",
 	"you are cursor",
@@ -51,6 +55,7 @@ var externalSystemPromptTerms = []string{
 	"你是chatgpt",
 }
 
+// overbroadScopeTerms 是适用范围过宽的关键词，触发 review 级别问题提示。
 var overbroadScopeTerms = []string{
 	"always",
 	"everything",
@@ -63,7 +68,8 @@ var overbroadScopeTerms = []string{
 	"总是",
 }
 
-// SafetyIssues 处理safetyissues。
+// SafetyIssues 对用户原始输入和生成的草稿卡片执行安全校验，返回所有安全问题列表。
+// 输入太短、包含外部身份或工具协议时直接 block；适用范围过宽则标记为 review。
 func SafetyIssues(kind Kind, rawInput string, card Card) []Issue {
 	rawText := normalizePromptIntentText(rawInput)
 	cardText := normalizePromptIntentText(strings.Join([]string{
@@ -100,6 +106,8 @@ func SafetyIssues(kind Kind, rawInput string, card Card) []Issue {
 	return issues
 }
 
+// externalSystemPromptIssues 根据 kind 决定外部 system prompt 的问题级别：
+// DefaultRule 若卡片内容仍含外部特征则 block，否则 review；Recall 只 review；其余类型 review。
 func externalSystemPromptIssues(kind Kind, cardText string) []Issue {
 	switch kind {
 	case KindDefaultRule:
@@ -114,28 +122,34 @@ func externalSystemPromptIssues(kind Kind, cardText string) []Issue {
 	}
 }
 
+// promptIntentDefaultRuleStillLooksExternal 判断 default_rule 卡片内容是否仍含外部特征，三项任一命中即视为未脱敏。
 func promptIntentDefaultRuleStillLooksExternal(cardText string) bool {
 	return promptIntentLooksLikeExternalSystemPrompt(cardText) ||
 		promptIntentContainsProviderIdentity(cardText) ||
 		promptIntentContainsExternalToolProtocol(cardText)
 }
 
+// promptIntentLooksLikeExternalSystemPrompt 判断文本是否包含外部系统提示词特征词。
 func promptIntentLooksLikeExternalSystemPrompt(text string) bool {
 	return containsAnyPromptIntentTerm(text, externalSystemPromptTerms)
 }
 
+// promptIntentContainsProviderIdentity 判断文本是否含有模型/供应商身份声明。
 func promptIntentContainsProviderIdentity(text string) bool {
 	return containsAnyPromptIntentTerm(text, providerIdentityTerms)
 }
 
+// promptIntentContainsExternalToolProtocol 判断文本是否含有外部工具协议关键词。
 func promptIntentContainsExternalToolProtocol(text string) bool {
 	return containsAnyPromptIntentTerm(text, externalToolProtocolTerms)
 }
 
+// promptIntentLooksOverbroad 判断文本是否含有适用范围过宽的关键词。
 func promptIntentLooksOverbroad(text string) bool {
 	return containsAnyPromptIntentTerm(text, overbroadScopeTerms)
 }
 
+// containsAnyPromptIntentTerm 检查文本是否包含词表中的任意一项（大小写不敏感）。
 func containsAnyPromptIntentTerm(text string, terms []string) bool {
 	for _, term := range terms {
 		if strings.Contains(text, normalizePromptIntentText(term)) {
@@ -145,10 +159,12 @@ func containsAnyPromptIntentTerm(text string, terms []string) bool {
 	return false
 }
 
+// normalizePromptIntentText 将文本统一转为小写并去除首尾空白，用于大小写不敏感的关键词匹配。
 func normalizePromptIntentText(text string) string {
 	return strings.ToLower(strings.TrimSpace(text))
 }
 
+// compactRuneLen 返回去除所有空白字符后的 rune 数量，用于判断有效内容长度。
 func compactRuneLen(text string) int {
 	count := 0
 	for _, r := range text {
@@ -159,6 +175,7 @@ func compactRuneLen(text string) int {
 	return count
 }
 
+// isPromptIntentWhitespace 判断 rune 是否为空白字符。
 func isPromptIntentWhitespace(r rune) bool {
 	switch r {
 	case ' ', '\t', '\n', '\r', '\v', '\f':

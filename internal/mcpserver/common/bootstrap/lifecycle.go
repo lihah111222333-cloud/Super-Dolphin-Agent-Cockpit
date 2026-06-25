@@ -18,6 +18,7 @@ import (
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
+// beginStart 在锁内初始化 rootCtx 和 stop，防止重复 Start。
 func (c *Client) beginStart(rootCtx context.Context, cancel context.CancelFunc) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -30,6 +31,7 @@ func (c *Client) beginStart(rootCtx context.Context, cancel context.CancelFunc) 
 	return nil
 }
 
+// connectAndRegister 建立 TCP 连接并完成 register 握手，任一步失败时关闭连接。
 func (c *Client) connectAndRegister(ctx context.Context) (*jrpc2.Client, *mcp.RegisterResponse, error) {
 	conn, err := c.dial(ctx)
 	if err != nil {
@@ -43,6 +45,7 @@ func (c *Client) connectAndRegister(ctx context.Context) (*jrpc2.Client, *mcp.Re
 	return conn, reg, nil
 }
 
+// dial 建立到控制平面的 TCP 连接并返回 jrpc2.Client。
 func (c *Client) dial(ctx context.Context) (*jrpc2.Client, error) {
 	var d net.Dialer
 	raw, err := d.DialContext(ctx, "tcp", c.cfg.RPCAddr)
@@ -56,6 +59,7 @@ func (c *Client) dial(ctx context.Context) (*jrpc2.Client, error) {
 	}), nil
 }
 
+// registerConn 在已有连接上执行 register RPC，校验响应并返回规范化结果。
 func (c *Client) registerConn(ctx context.Context, conn *jrpc2.Client) (*mcp.RegisterResponse, error) {
 	if conn == nil {
 		return nil, errors.New("bootstrap: nil rpc client")
@@ -86,6 +90,7 @@ func (c *Client) registerConn(ctx context.Context, conn *jrpc2.Client) (*mcp.Reg
 	return normalizeRegisterResponse(&resp, c.instanceID)
 }
 
+// handleNotify 分发服务端推送的通知消息。
 func (c *Client) handleNotify(req *jrpc2.Request) {
 	if err := c.dispatchRequest(req); err != nil {
 		pkglogger.Warn("bootstrap notify dispatch failed",
@@ -126,6 +131,7 @@ func (c *Client) handleCallback(ctx context.Context, req *jrpc2.Request) (any, e
 	return map[string]bool{"ok": true}, nil
 }
 
+// dispatchToolCallback 路由 tools/list 和 tools/call 回调，未注册时返回错误。
 func (c *Client) dispatchToolCallback(ctx context.Context, req *jrpc2.Request) (any, bool, error) {
 	// P15: route tools/list and tools/call to registered handlers.
 	switch req.Method() {
@@ -146,6 +152,7 @@ func (c *Client) dispatchToolCallback(ctx context.Context, req *jrpc2.Request) (
 	}
 }
 
+// dispatchLSPAdminCallback 路由 LSP releaseScope 回调，未注册时返回错误。
 func (c *Client) dispatchLSPAdminCallback(ctx context.Context, req *jrpc2.Request) (any, bool, error) {
 	if req.Method() != mcp.MethodLSPReleaseScope {
 		return nil, false, nil
@@ -161,21 +168,13 @@ func (c *Client) dispatchLSPAdminCallback(ctx context.Context, req *jrpc2.Reques
 	return resp, true, err
 }
 
-// dispatchRequest is the notification-path entry point
-// (handleNotify). Notifications have no response, so an unknown
-// method only warrants a warning log at the handleNotify caller
-// rather than the fail-closed error surface used for requests.
+// dispatchRequest 是通知路径的入口，分发生命周期请求；未知方法只记日志不返回错误。
 func (c *Client) dispatchRequest(req *jrpc2.Request) error {
 	_, err := c.dispatchLifecycleRequest(req)
 	return err
 }
 
-// dispatchLifecycleRequest routes the bootstrap lifecycle methods
-// (shutdown / config_changed) and reports whether the method was
-// recognised. Callers that require fail-closed semantics (e.g.
-// handleCallback on the request path) treat !handled as an unknown
-// method error; handleNotify, which has no response surface, just
-// logs and moves on.
+// dispatchLifecycleRequest 路由 shutdown/config_changed 方法，返回是否已处理及错误。
 func (c *Client) dispatchLifecycleRequest(req *jrpc2.Request) (handled bool, err error) {
 	switch req.Method() {
 	case mcp.MethodShutdown:
@@ -204,6 +203,7 @@ func errBootstrapUnknownMethod(method string) error {
 	return jrpc2.Errorf(jrpc2.Code(contract.CodeMethodNotFound), "bootstrap: unknown callback method: %s", strings.TrimSpace(method))
 }
 
+// fireShutdown 在独立 goroutine 中调用 OnShutdown 回调，受 callbackWG 追踪。
 func (c *Client) fireShutdown(req mcp.ShutdownRequest) {
 	if c.cfg.OnShutdown == nil {
 		return
@@ -211,6 +211,7 @@ func (c *Client) fireShutdown(req mcp.ShutdownRequest) {
 	c.spawnCallback(func() { c.cfg.OnShutdown(req) })
 }
 
+// fireConfigChanged 在独立 goroutine 中调用 OnConfigChanged 回调，受 callbackWG 追踪。
 func (c *Client) fireConfigChanged(notify mcp.ConfigChangedNotify) {
 	if c.cfg.OnConfigChanged == nil {
 		return
@@ -249,11 +250,13 @@ func (c *Client) spawnCallback(fn func()) {
 	}()
 }
 
+// watchRoot 等待 rootCtx 取消后自动调用 Close，确保上下文退出时客户端被清理。
 func (c *Client) watchRoot(ctx context.Context) {
 	<-ctx.Done()
 	_ = c.Close()
 }
 
+// activateLocked 在锁内设置新连接和租约并重启心跳，reconnect 和首次 Start 共用此路径。
 func (c *Client) activateLocked(conn *jrpc2.Client, reg *mcp.RegisterResponse) {
 	c.conn = conn
 	c.reconnecting = false
@@ -262,6 +265,7 @@ func (c *Client) activateLocked(conn *jrpc2.Client, reg *mcp.RegisterResponse) {
 	c.startHeartbeatLocked()
 }
 
+// applyRegisterLocked 将注册响应中的 lease、config 和心跳参数写入 Client 字段（需持有写锁）。
 func (c *Client) applyRegisterLocked(reg *mcp.RegisterResponse) {
 	if reg == nil {
 		return
@@ -284,24 +288,28 @@ func (c *Client) applyRegisterLocked(reg *mcp.RegisterResponse) {
 	}
 }
 
+// currentConn 在读锁下返回当前 jrpc2 连接和重连标志。
 func (c *Client) currentConn() (*jrpc2.Client, bool) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 	return c.conn, c.reconnecting
 }
 
+// currentLease 在读锁下返回当前 LeaseKey。
 func (c *Client) currentLease() mcp.LeaseKey {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 	return c.lease
 }
 
+// callTarget 在读锁下同时返回连接和 LeaseKey，供心跳等需要原子读取两者的路径使用。
 func (c *Client) callTarget() (*jrpc2.Client, mcp.LeaseKey) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 	return c.conn, c.lease
 }
 
+// currentSendTimeout 在读锁下返回当前 RPC 超时，非正值时回退到默认值。
 func (c *Client) currentSendTimeout() time.Duration {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
@@ -311,12 +319,14 @@ func (c *Client) currentSendTimeout() time.Duration {
 	return c.sendTimeout
 }
 
+// currentResumeGeneration 在读锁下返回 resumeGeneration，用于断线重连时携带上一代。
 func (c *Client) currentResumeGeneration() uint64 {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 	return c.resumeGeneration
 }
 
+// offeredCapabilities 返回实际对外声明的能力列表，优先使用 CapabilitiesOffered。
 func (c *Client) offeredCapabilities() []string {
 	if len(c.cfg.CapabilitiesOffered) != 0 {
 		return c.cfg.CapabilitiesOffered
@@ -324,6 +334,7 @@ func (c *Client) offeredCapabilities() []string {
 	return c.cfg.Capabilities
 }
 
+// nextHeartbeatSeq 在写锁下自增并返回心跳序列号，防止乱序响应。
 func (c *Client) nextHeartbeatSeq() uint64 {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -331,6 +342,7 @@ func (c *Client) nextHeartbeatSeq() uint64 {
 	return c.heartbeatSeq
 }
 
+// nextLogSeq 在写锁下自增并返回日志序列号，保证日志有序。
 func (c *Client) nextLogSeq() uint64 {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -338,6 +350,7 @@ func (c *Client) nextLogSeq() uint64 {
 	return c.logSeq
 }
 
+// auditEventFallback 在事件发送失败时将事件写入本地日志作为审计兜底。
 func (c *Client) auditEventFallback(eventType string, payload json.RawMessage, sendErr error) {
 	level := pkglogger.LevelInfo
 	if sendErr != nil {

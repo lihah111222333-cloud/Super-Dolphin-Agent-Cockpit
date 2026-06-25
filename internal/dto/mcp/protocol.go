@@ -2,13 +2,13 @@ package mcp
 
 import "encoding/json"
 
-// LeaseKey is the canonical identity for a registered lifecycle lease.
+// LeaseKey 是已注册生命周期租约的规范身份标识，InstanceID+Generation 唯一确定一次注册。
 type LeaseKey struct {
-	InstanceID string `json:"instance_id"`
-	Generation uint64 `json:"generation"`
+	InstanceID string `json:"instance_id"` // 进程实例唯一标识。
+	Generation uint64 `json:"generation"`  // 本次注册的世代号，用于防止旧请求覆盖新状态。
 }
 
-// RegisterRequest is the payload for ctl/register.
+// RegisterRequest 是 ctl/register 的注册请求载荷，peer 启动后发送以建立租约。
 type RegisterRequest struct {
 	InstanceID           string   `json:"instance_id"`
 	BinaryName           string   `json:"binary_name"`
@@ -26,7 +26,7 @@ type RegisterRequest struct {
 	ResumeFromGeneration *uint64  `json:"resume_from_generation,omitempty"`
 }
 
-// RegisterResponse is the response for ctl/register.
+// RegisterResponse 是 ctl/register 的响应，包含服务端分配的世代号和心跳参数。
 type RegisterResponse struct {
 	InstanceID             string   `json:"instance_id"`
 	Generation             uint64   `json:"generation"`
@@ -42,7 +42,7 @@ type RegisterResponse struct {
 	ConfigVersion          int64    `json:"config_version"`
 }
 
-// HeartbeatRequest is the payload for ctl/heartbeat.
+// HeartbeatRequest 是 ctl/heartbeat 的心跳请求载荷，peer 按协商间隔定期发送。
 type HeartbeatRequest struct {
 	InstanceID            string          `json:"instance_id"`
 	Generation            uint64          `json:"generation"`
@@ -52,7 +52,7 @@ type HeartbeatRequest struct {
 	ObservedConfigVersion int64           `json:"observed_config_version,omitempty"`
 }
 
-// HeartbeatResponse is the response for ctl/heartbeat.
+// HeartbeatResponse 是 ctl/heartbeat 的响应，服务端确认心跳并返回当前配置版本。
 type HeartbeatResponse struct {
 	OK              bool  `json:"ok"`
 	ServerTime      int64 `json:"server_time"`
@@ -60,7 +60,7 @@ type HeartbeatResponse struct {
 	NextHeartbeatMs int   `json:"next_heartbeat_ms,omitempty"`
 }
 
-// ContextRequest is the payload for ctl/context.
+// ContextRequest 是 ctl/context 的请求载荷，peer 通过 scope 拉取指定上下文快照。
 type ContextRequest struct {
 	InstanceID string   `json:"instance_id"`
 	Generation uint64   `json:"generation"`
@@ -69,7 +69,7 @@ type ContextRequest struct {
 	Keys       []string `json:"keys,omitempty"`
 }
 
-// ContextResponse is the response for ctl/context.
+// ContextResponse 是 ctl/context 的响应，包含 scope 快照内容和数据来源标识。
 type ContextResponse struct {
 	Source     string          `json:"source"` // live / boot_snapshot / db_rebuild
 	ObservedAt int64           `json:"observed_at"`
@@ -78,7 +78,7 @@ type ContextResponse struct {
 	Data       json.RawMessage `json:"data,omitempty"`
 }
 
-// EventNotify is the notify payload for ctl/event.
+// EventNotify 是 ctl/event 的通知载荷，peer 向服务端推送业务事件。
 type EventNotify struct {
 	InstanceID string          `json:"instance_id"`
 	Generation uint64          `json:"generation"`
@@ -88,7 +88,7 @@ type EventNotify struct {
 	Payload    json.RawMessage `json:"payload"`
 }
 
-// LogNotify is the notify payload for ctl/log.
+// LogNotify 是 ctl/log 的通知载荷，peer 向服务端推送结构化日志条目。
 type LogNotify struct {
 	InstanceID string         `json:"instance_id"`
 	Generation uint64         `json:"generation"`
@@ -99,7 +99,7 @@ type LogNotify struct {
 	TS         int64          `json:"ts,omitempty"`
 }
 
-// ApprovalRequest is the request payload for ctl/approval/request.
+// ApprovalRequest 是 ctl/approval/request 的请求载荷，peer 请求对工具调用进行审批。
 type ApprovalRequest struct {
 	InstanceID string          `json:"instance_id"`
 	Generation uint64          `json:"generation"`
@@ -111,20 +111,20 @@ type ApprovalRequest struct {
 	TimeoutMs  int             `json:"timeout_ms,omitempty"`
 }
 
-// RuntimeReport is the durable runtime variant of ctl/report.
+// RuntimeReport 是 ctl/report 的 runtime 变体，记录 peer 运行时端口和 provider 信息。
 type RuntimeReport struct {
 	Port     int    `json:"port,omitempty"`
 	Provider string `json:"provider,omitempty"`
 }
 
-// CompletionReport is the durable completion variant of ctl/report.
+// CompletionReport 是 ctl/report 的 completion 变体，记录 agent turn 的终态和元数据。
 type CompletionReport struct {
 	Status   string          `json:"status"`
 	Report   string          `json:"report,omitempty"`
 	Metadata json.RawMessage `json:"metadata,omitempty"`
 }
 
-// ProgressReport is a reserved ctl/report variant.
+// ProgressReport 是 ctl/report 的 progress 变体，保留字段，用于未来进度上报。
 type ProgressReport struct {
 	Status   string   `json:"status,omitempty"`
 	Message  string   `json:"message,omitempty"`
@@ -133,7 +133,7 @@ type ProgressReport struct {
 	Sequence uint64   `json:"sequence,omitempty"`
 }
 
-// DiagnosticReport is a reserved ctl/report variant.
+// DiagnosticReport 是 ctl/report 的 diagnostic 变体，保留字段，用于未来诊断上报。
 type DiagnosticReport struct {
 	Level   string          `json:"level,omitempty"`
 	Code    string          `json:"code,omitempty"`
@@ -141,7 +141,7 @@ type DiagnosticReport struct {
 	Details json.RawMessage `json:"details,omitempty"`
 }
 
-// ReportEnvelope is the discriminated union payload for ctl/report.
+// ReportEnvelope 是 ctl/report 的判别联合载荷，Type 字段决定哪个变体非空。
 type ReportEnvelope struct {
 	Type       string            `json:"type"`
 	Runtime    *RuntimeReport    `json:"runtime,omitempty"`
@@ -150,7 +150,7 @@ type ReportEnvelope struct {
 	Diagnostic *DiagnosticReport `json:"diagnostic,omitempty"`
 }
 
-// ReportRequest is the request payload for ctl/report.
+// ReportRequest 是 ctl/report 的请求载荷，ReportID 用于幂等去重。
 type ReportRequest struct {
 	InstanceID string         `json:"instance_id"`
 	Generation uint64         `json:"generation"`
@@ -158,7 +158,7 @@ type ReportRequest struct {
 	Report     ReportEnvelope `json:"report"`
 }
 
-// ReportResponse is the response for ctl/report.
+// ReportResponse 是 ctl/report 的响应，确认报告是否已被接受并持久化。
 type ReportResponse struct {
 	Accepted        bool   `json:"accepted"`
 	Success         bool   `json:"success,omitempty"`
@@ -167,7 +167,7 @@ type ReportResponse struct {
 	AppliedVariant  string `json:"applied_variant,omitempty"`
 }
 
-// ShutdownRequest is the request payload for ctl/shutdown.
+// ShutdownRequest 是 ctl/shutdown 的请求载荷，服务端指示 peer 有序退出。
 type ShutdownRequest struct {
 	InstanceID          string `json:"instance_id"`
 	Generation          uint64 `json:"generation"`
@@ -178,7 +178,7 @@ type ShutdownRequest struct {
 	FinalReportExpected bool   `json:"final_report_expected,omitempty"`
 }
 
-// SelectorScope is the target scope inside a config selector.
+// SelectorScope 是 config Selector 内的目标 scope 过滤条件。
 type SelectorScope struct {
 	AgentID    string `json:"agent_id,omitempty"`
 	ThreadID   string `json:"thread_id,omitempty"`
@@ -186,14 +186,14 @@ type SelectorScope struct {
 	InstanceID string `json:"instance_id,omitempty"`
 }
 
-// Selector filters config fanout by intersection(subscription, capability, scope).
+// Selector 按 subscription、capability、scope 三者交集过滤 config fanout 目标。
 type Selector struct {
 	Subscription string         `json:"subscription,omitempty"`
 	Capability   string         `json:"capability,omitempty"`
 	Scope        *SelectorScope `json:"scope,omitempty"`
 }
 
-// ConfigChangedNotify is the notify payload for ctl/config/changed.
+// ConfigChangedNotify 是 ctl/config/changed 的通知载荷，携带配置变更的版本号和内容。
 type ConfigChangedNotify struct {
 	Selector      Selector        `json:"selector"`
 	Scope         string          `json:"scope,omitempty"`
@@ -201,8 +201,8 @@ type ConfigChangedNotify struct {
 	Payload       json.RawMessage `json:"payload"`
 }
 
-// LSPReleaseScopeRequest is the admin callback payload used by mcpcontrol to
-// tell the mcp-lsp process to release managers/cache for a trusted scope.
+// LSPReleaseScopeRequest 是 mcpcontrol 向 mcp-lsp 进程发送的管理回调载荷，
+// 指示 mcp-lsp 释放指定 scope 下的 manager 和缓存。
 type LSPReleaseScopeRequest struct {
 	ScopeKind  string `json:"scope_kind"`
 	AgentID    string `json:"agent_id,omitempty"`
@@ -212,8 +212,7 @@ type LSPReleaseScopeRequest struct {
 	Reason     string `json:"reason,omitempty"`
 }
 
-// LSPReleaseScopeResult reports the process-local cleanup performed by
-// mcp-lsp for a ReleaseScope admin callback.
+// LSPReleaseScopeResult 报告 mcp-lsp 在 ReleaseScope 管理回调中完成的本地清理结果。
 type LSPReleaseScopeResult struct {
 	MatchedManagers int      `json:"matched_managers"`
 	ClosedManagers  int      `json:"closed_managers"`

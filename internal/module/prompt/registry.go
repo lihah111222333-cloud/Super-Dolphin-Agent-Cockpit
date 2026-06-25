@@ -7,6 +7,7 @@ import (
 	"sync"
 )
 
+// SectionRegistry 保存所有已注册的 prompt section，并发安全。
 type SectionRegistry struct {
 	mu       sync.RWMutex
 	sections map[string]PromptSection

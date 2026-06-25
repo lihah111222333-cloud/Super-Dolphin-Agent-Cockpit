@@ -27,6 +27,7 @@ var (
 	recoveryActionEnum   = []string{"cancel_with_cleanup", "retry_failed_node"}
 )
 
+// CreateDAGInput 是 task_create_dag MCP 工具的 typed 入参。
 type CreateDAGInput struct {
 	AgentID           string               `json:"agent_id"`
 	DagKey            string               `json:"dag_key"`
@@ -43,6 +44,7 @@ type CreateDAGInput struct {
 	Nodes             []CreateDAGNodeInput `json:"nodes,omitempty"`
 }
 
+// DAGScheduleInput 是 task_create_dag 中调度配置的子结构体。
 type DAGScheduleInput struct {
 	Trigger           string `json:"trigger,omitempty"`
 	DefaultRetry      int    `json:"default_retry,omitempty"`
@@ -52,6 +54,7 @@ type DAGScheduleInput struct {
 	QueuePolicy       string `json:"queue_policy,omitempty"`
 }
 
+// CreateDAGNodeInput 是 task_create_dag 中单个节点的入参结构体。
 type CreateDAGNodeInput struct {
 	NodeKey    string             `json:"node_key"`
 	Title      string             `json:"title"`
@@ -68,6 +71,7 @@ type CreateDAGNodeInput struct {
 	TimeoutSec int                `json:"timeout_sec,omitempty"`
 }
 
+// DAGExecutionInput 是节点执行参数的子结构体。
 type DAGExecutionInput struct {
 	OnFailure  string `json:"on_failure,omitempty"`
 	Pool       string `json:"pool,omitempty"`
@@ -76,17 +80,20 @@ type DAGExecutionInput struct {
 	TimeoutSec int    `json:"timeout_sec,omitempty"`
 }
 
+// DAGKeyInput 是通用的 DAG key 入参结构体，支持 pos 和旧版 dag_key 字段。
 type DAGKeyInput struct {
 	DagKey string `json:"dag_key"`
 	Pos    string `json:"pos,omitempty"`
 }
 
+// ListDAGsInput 是 task_list_dags MCP 工具的 typed 入参。
 type ListDAGsInput struct {
 	Status  string `json:"status,omitempty"`
 	Keyword string `json:"keyword,omitempty"`
 	Limit   int    `json:"limit,omitempty"`
 }
 
+// ListDAGsOutput 是 task_list_dags 的返回结构，兼容 envelope 和 legacy 格式。
 type ListDAGsOutput struct {
 	DAGs      []contract.DAGSummary `json:"dags"`
 	Data      []contract.DAGSummary `json:"data"`
@@ -140,6 +147,7 @@ func HandleCreateDAG(svc contract.OrchestrationService) ToolHandler {
 	})
 }
 
+// trustedAgentID 从工具调用作用域取可信 agent ID。
 func trustedAgentID(ctx context.Context) string {
 	if scope, ok := mcpcommon.ToolScopeFromContext(ctx); ok {
 		return strings.TrimSpace(scope.AgentID)
@@ -207,6 +215,7 @@ func HandleDispatchNode(svc contract.OrchestrationService) ToolHandler {
 	})
 }
 
+// translateDispatchNodeError 把哨兵错误转换为中英双语工具错误。
 func translateDispatchNodeError(req contract.DispatchNodeRequest, err error) error {
 	switch {
 	case errors.Is(err, orchestration.ErrDispatchStoreUnset):
@@ -312,6 +321,7 @@ func HandleListRuns(svc contract.OrchestrationService) ToolHandler {
 	})
 }
 
+// newListDAGsOutput 构造 task_list_dags 的分页包装返回对象。
 func newListDAGsOutput(dags []contract.DAGSummary, limit int) ListDAGsOutput {
 	env := newListEnvelope(dags, limit, "next: use task_get_dag pos=dag:<dag_key> for details")
 	return ListDAGsOutput{
@@ -324,6 +334,7 @@ func newListDAGsOutput(dags []contract.DAGSummary, limit int) ListDAGsOutput {
 	}
 }
 
+// newListRunsOutput 构造 task_list_runs 的分页包装返回对象。
 func newListRunsOutput(runs []contract.Run, limit int) ListRunsOutput {
 	env := newListEnvelope(runs, limit, "next: use task_get_run pos=dag:<dag_key>/run:<run_key> for details")
 	return ListRunsOutput{
@@ -336,6 +347,7 @@ func newListRunsOutput(runs []contract.Run, limit int) ListRunsOutput {
 	}
 }
 
+// listDAGsFilterFromInput 把 ListDAGsInput 转换为 contract.ListDAGsFilter。
 func listDAGsFilterFromInput(in ListDAGsInput) (contract.ListDAGsFilter, error) {
 	status := strings.TrimSpace(in.Status)
 	if status != "" {
@@ -463,6 +475,7 @@ func startDAGRequestFromInput(in StartDAGInput) (contract.StartDAGRequest, error
 	}, nil
 }
 
+// terminateDAGRequestFromInput 把 TerminateDAGInput 转换为 contract.TerminateDAGRequest。
 func terminateDAGRequestFromInput(in TerminateDAGInput) (contract.TerminateDAGRequest, error) {
 	dagKey, err := resolveDAGKeyInput(in.DagKey, in.Pos)
 	if err != nil {
@@ -479,10 +492,12 @@ func terminateDAGRequestFromInput(in TerminateDAGInput) (contract.TerminateDAGRe
 	}, nil
 }
 
+// encodeJSONRaw 把任意值序列化为 json.RawMessage。
 func encodeJSONRaw(value any) (json.RawMessage, error) {
 	return marshalRawJSON(value, rawJSONOptions{})
 }
 
+// encodeOptionalString 把字符串序列化为 json.RawMessage，空串时返回 nil。
 func encodeOptionalString(value string) (json.RawMessage, error) {
 	return marshalRawJSON(value, rawJSONOptions{OmitEmptyString: true})
 }

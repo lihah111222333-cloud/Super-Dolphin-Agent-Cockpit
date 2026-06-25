@@ -5,6 +5,7 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/kelindar/event"
 )
@@ -70,7 +71,7 @@ func TestServiceStartProcessLockedScrubsDatabaseEnvFromParentAndAgent(t *testing
 		t.Fatalf("LaunchAgent() error = %v", err)
 	}
 	agent := svc.agents["agent-1"]
-	t.Cleanup(func() { stopAndWaitTestAgent(agent) })
+	t.Cleanup(func() { stopAndDrainServiceTestAgent(t, svc, agent) })
 
 	requireDatabaseEnvAbsent(t, agent.cmd.Env)
 	if got := envValue(agent.cmd.Env, "ORCH_SAFE_PARENT"); got != "keep-parent" {
@@ -99,4 +100,17 @@ func stopAndWaitTestAgent(agent *agentRuntime) {
 	}
 	_ = stopProcess(agent.cmd)
 	_ = agent.cmd.Wait()
+}
+
+func stopAndDrainServiceTestAgent(t *testing.T, svc *service, agent *agentRuntime) {
+	t.Helper()
+	if agent == nil || agent.cmd == nil {
+		return
+	}
+	_ = stopProcess(agent.cmd)
+	drainCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	if err := svc.exitMonitor.Drain(drainCtx); err != nil {
+		t.Fatalf("drain exit monitor: %v", err)
+	}
 }

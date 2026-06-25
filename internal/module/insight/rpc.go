@@ -1,5 +1,3 @@
+// Package insight 的 RPC 说明：insight 读取 API 的 RPC 归属在 internal/module/dashboard。
+// 本包只提供 collector、flusher、store-backed service 以及 dashboard 消费的类型投影。
 package insight
-
-// RPC ownership for insight read APIs lives in internal/module/dashboard.
-// This package only provides the collector, flusher, store-backed service,
-// and typed projections consumed by dashboard.

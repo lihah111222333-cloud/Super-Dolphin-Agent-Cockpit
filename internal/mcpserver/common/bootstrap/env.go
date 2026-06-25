@@ -22,6 +22,7 @@ import (
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
+// bootSnapshot 是从 GO_AGENT_CTL_BOOTSTRAP_JSON 解析出的启动上下文快照。
 type bootSnapshot struct {
 	InstanceID      string   `json:"instance_id"`
 	BootID          string   `json:"boot_id"`
@@ -56,6 +57,7 @@ func SessionTokenFromEnv() string {
 	return firstEnv("GO_AGENT_CTL_SESSION_TOKEN", "GO_AGENT_MCP_SESSION_TOKEN")
 }
 
+// normalizeConfig 规范化 Config 字段，合并 bootSnapshot 缺省值并生成 instance_id/boot_id。
 func normalizeConfig(cfg Config) (Config, bootSnapshot) {
 	boot := parseBootSnapshot(cfg.BootSnapshot)
 	cfg.RPCAddr = strings.TrimSpace(cfg.RPCAddr)
@@ -84,6 +86,7 @@ func normalizeConfig(cfg Config) (Config, bootSnapshot) {
 	return cfg, boot
 }
 
+// envContext 在控制平面不可达时从 bootSnapshot 构造降级的 ContextResponse。
 func (c *Client) envContext(scope string, keys []string) (*mcp.ContextResponse, error) {
 	payload, err := json.Marshal(contextPayloadFromSnapshot(c, scope))
 	if err != nil {
@@ -178,6 +181,7 @@ func normalizeContextResponse(scope string, resp *mcp.ContextResponse) *mcp.Cont
 }
 
 // normalizeRegisterResponse 规范化register响应。
+// normalizeRegisterResponse 校验并规范化注册响应，缺少 lease key 时返回错误。
 func normalizeRegisterResponse(resp *mcp.RegisterResponse, instanceID string) (*mcp.RegisterResponse, error) {
 	if resp == nil {
 		return nil, errors.New("bootstrap: register response is nil")
@@ -198,6 +202,7 @@ func normalizeRegisterResponse(resp *mcp.RegisterResponse, instanceID string) (*
 	return &out, nil
 }
 
+// validateProtocolVersion 校验服务端协议版本是否与客户端期望版本匹配。
 func validateProtocolVersion(version string) error {
 	version = strings.TrimSpace(version)
 	if version == mcp.ProtocolVersion {
@@ -209,10 +214,12 @@ func validateProtocolVersion(version string) error {
 	return fmt.Errorf("bootstrap: incompatible server protocol version %q", version)
 }
 
+// approvalUnavailableErr 构造审批不可用的 jrpc2 错误。
 func approvalUnavailableErr(reason string) error {
 	return jrpc2.Errorf(jrpc2.Code(mcp.ErrCodeApprovalUnavailable), "%s", strings.TrimSpace(reason))
 }
 
+// firstEnv 按优先级返回第一个非空环境变量值，次选 key 使用时记录弃用警告。
 func firstEnv(keys ...string) string {
 	if len(keys) == 0 {
 		return ""
@@ -229,6 +236,7 @@ func firstEnv(keys ...string) string {
 	return ""
 }
 
+// readEnvJSON 按优先级读取 JSON 格式的环境变量，次选 key 使用时记录弃用警告。
 func readEnvJSON(keys ...string) json.RawMessage {
 	if len(keys) == 0 {
 		return nil
@@ -245,6 +253,7 @@ func readEnvJSON(keys ...string) json.RawMessage {
 	return nil
 }
 
+// logDeprecatedEnvKey 在使用已废弃环境变量时打印带截止日期的警告。
 func logDeprecatedEnvKey(canonical, legacy string) {
 	pkglogger.Warn(fmt.Sprintf("bootstrap env %s is deprecated; use %s instead before 2026-06-30", legacy, canonical),
 		"legacy_env", legacy,
@@ -253,6 +262,7 @@ func logDeprecatedEnvKey(canonical, legacy string) {
 	)
 }
 
+// parseBootSnapshot 从原始 JSON 解析 bootSnapshot，解析失败时静默返回零值。
 func parseBootSnapshot(raw json.RawMessage) bootSnapshot {
 	var snap bootSnapshot
 	if len(raw) == 0 {
@@ -264,6 +274,7 @@ func parseBootSnapshot(raw json.RawMessage) bootSnapshot {
 	return snap
 }
 
+// deriveClientKind 从 binary 名称推断 client_kind（lsp/orch/ida/custom）。
 func deriveClientKind(binaryName string) string {
 	base := filepath.Base(strings.TrimSpace(binaryName))
 	switch {
@@ -278,6 +289,7 @@ func deriveClientKind(binaryName string) string {
 	}
 }
 
+// marshalRaw 将任意值序列化为 json.RawMessage，已是 RawMessage 时直接克隆。
 func marshalRaw(payload any) (json.RawMessage, error) {
 	switch value := payload.(type) {
 	case nil:
@@ -292,6 +304,7 @@ func marshalRaw(payload any) (json.RawMessage, error) {
 	return raw, nil
 }
 
+// cloneStringMapAny 将 map[string]string 转换为 map[string]any 并深拷贝。
 func cloneStringMapAny(in map[string]string) map[string]any {
 	cloned := shared.CloneStringMap(in)
 	if len(cloned) == 0 {
@@ -304,6 +317,7 @@ func cloneStringMapAny(in map[string]string) map[string]any {
 	return out
 }
 
+// defaultContext 若 ctx 为 nil 则返回 context.Background()。
 func defaultContext(ctx context.Context) context.Context {
 	if ctx == nil {
 		return context.Background()
@@ -311,6 +325,7 @@ func defaultContext(ctx context.Context) context.Context {
 	return ctx
 }
 
+// withTimeoutIfNone 在 ctx 尚未设置 deadline 时追加超时，避免 RPC 永久阻塞。
 func withTimeoutIfNone(ctx context.Context, timeout time.Duration) (context.Context, context.CancelFunc) {
 	ctx = defaultContext(ctx)
 	if timeout <= 0 {
@@ -322,14 +337,17 @@ func withTimeoutIfNone(ctx context.Context, timeout time.Duration) (context.Cont
 	return platformconfig.WithPeerTimeout(ctx, timeout)
 }
 
+// generateInstanceID 生成基于 binary 名称、PID 和时间戳的唯一实例 ID。
 func generateInstanceID() string {
 	return fmt.Sprintf("%s-%d-%d", filepath.Base(os.Args[0]), os.Getpid(), time.Now().UnixNano())
 }
 
+// generateID 生成带前缀的时间戳 ID，用于 boot_id/report_id 等场景。
 func generateID(prefix string) string {
 	return fmt.Sprintf("%s_%d", prefix, time.Now().UnixNano())
 }
 
+// durationOrDefault 将毫秒整数转换为 time.Duration，非正值时返回 fallback。
 func durationOrDefault(ms int, fallback time.Duration) time.Duration {
 	if ms <= 0 {
 		return fallback
@@ -337,6 +355,7 @@ func durationOrDefault(ms int, fallback time.Duration) time.Duration {
 	return time.Duration(ms) * time.Millisecond
 }
 
+// maxDuration 返回两个 Duration 中的较大值。
 func maxDuration(a, b time.Duration) time.Duration {
 	if a > b {
 		return a
@@ -344,6 +363,7 @@ func maxDuration(a, b time.Duration) time.Duration {
 	return b
 }
 
+// maxInt64 返回两个 int64 中的较大值。
 func maxInt64(a, b int64) int64 {
 	if a > b {
 		return a
@@ -351,10 +371,12 @@ func maxInt64(a, b int64) int64 {
 	return b
 }
 
+// jitterDuration 在 base 上叠加最多 2s 的随机抖动，避免多实例同步心跳。
 func jitterDuration(base time.Duration) time.Duration {
 	return base + time.Duration(rand.Intn(2001))*time.Millisecond
 }
 
+// isTransportErr 判断错误是否属于 jrpc2 传输层断连（区别于业务层错误）。
 func isTransportErr(err error) bool {
 	if err == nil {
 		return false

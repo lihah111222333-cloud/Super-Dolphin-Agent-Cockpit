@@ -13,6 +13,7 @@ import (
 const dispatchBlockedEventKind = "node_dispatch_blocked"
 const autoAutomationKindCommandCard = "command_card"
 
+// dispatchBlockedEvent 是写入 task_dag_runs.events 的派发阻断事件 JSON 载荷。
 type dispatchBlockedEvent struct {
 	Kind    string `json:"kind"`
 	NodeKey string `json:"node_key"`
@@ -22,25 +23,30 @@ type dispatchBlockedEvent struct {
 	TS      string `json:"ts"`
 }
 
+// autoAgentConfig 是 agent 节点 config 的顶层结构。
 type autoAgentConfig struct {
 	Exec autoAgentExec `json:"exec"`
 }
 
+// autoAgentExec 是 agent exec 字段，agent_key/prompt_key 二选一，cwd 可选。
 type autoAgentExec struct {
 	AgentKey  string `json:"agent_key,omitempty"`
 	PromptKey string `json:"prompt_key,omitempty"`
 	CWD       string `json:"cwd,omitempty"`
 }
 
+// autoAutomationConfig 是 automation 节点 config 的顶层结构。
 type autoAutomationConfig struct {
 	Exec autoAutomationExec `json:"exec"`
 }
 
+// autoAutomationExec 是 automation exec 字段，kind 默认为 command_card。
 type autoAutomationExec struct {
 	Kind       string `json:"kind,omitempty"`
 	CommandRef string `json:"command_ref,omitempty"`
 }
 
+// autoHybridConfig 是 hybrid 节点 config 的顶层结构，automation 和 verifier 至少有其一。
 type autoHybridConfig struct {
 	Exec struct {
 		Automation *autoAutomationExec `json:"automation,omitempty"`
@@ -48,6 +54,8 @@ type autoHybridConfig struct {
 	} `json:"exec"`
 }
 
+// appendDispatchBlockedEvent 向 run events 追加 node_dispatch_blocked 事件，记录自动派发失败原因。
+// 节点保持 ready，不修改状态；事件仅用于审计和调试。
 func appendDispatchBlockedEvent(ctx context.Context, txStore *store, node *Node, runID int64, scope string, cause error) error {
 	reason := strings.TrimSpace(fmt.Sprint(cause))
 	payload, err := json.Marshal(dispatchBlockedEvent{
@@ -67,6 +75,7 @@ func appendDispatchBlockedEvent(ctx context.Context, txStore *store, node *Node,
 	return nil
 }
 
+// validateAutomaticDispatchConfig 根据 node_type 分流到对应配置校验函数，不支持的类型直接报错。
 func validateAutomaticDispatchConfig(node *Node) error {
 	switch automaticDispatchNodeType(node.NodeType) {
 	case "agent":
@@ -80,6 +89,7 @@ func validateAutomaticDispatchConfig(node *Node) error {
 	}
 }
 
+// automaticDispatchNodeType 规范化 node_type：空串默认视为 "agent"。
 func automaticDispatchNodeType(raw string) string {
 	nodeType := strings.TrimSpace(raw)
 	if nodeType == "" {
@@ -88,6 +98,7 @@ func automaticDispatchNodeType(raw string) string {
 	return nodeType
 }
 
+// validateAutoAgentConfig 解析并校验 agent 节点的 exec 配置。
 func validateAutoAgentConfig(raw json.RawMessage, label string) error {
 	var cfg autoAgentConfig
 	if len(raw) > 0 {
@@ -98,6 +109,7 @@ func validateAutoAgentConfig(raw json.RawMessage, label string) error {
 	return validateAutoAgentExec(cfg.Exec, label+".exec")
 }
 
+// validateAutoAgentExec 校验 agent exec 字段：agent_key 或 prompt_key 必须有其一，cwd 若非空需合法。
 func validateAutoAgentExec(exec autoAgentExec, label string) error {
 	if strings.TrimSpace(exec.AgentKey) == "" && strings.TrimSpace(exec.PromptKey) == "" {
 		return fmt.Errorf("%s.agent_key or %s.prompt_key required", label, label)
@@ -108,6 +120,7 @@ func validateAutoAgentExec(exec autoAgentExec, label string) error {
 	return nil
 }
 
+// validateAutoAutomationConfig 解析并校验 automation 节点的 exec 配置。
 func validateAutoAutomationConfig(raw json.RawMessage, label string) error {
 	var cfg autoAutomationConfig
 	if len(raw) > 0 {
@@ -118,6 +131,7 @@ func validateAutoAutomationConfig(raw json.RawMessage, label string) error {
 	return validateAutoAutomationExec(cfg.Exec, label+".exec")
 }
 
+// validateAutoAutomationExec 校验 automation exec 字段：kind 只允许空或 command_card，command_ref 必填。
 func validateAutoAutomationExec(exec autoAutomationExec, label string) error {
 	switch kind := strings.TrimSpace(exec.Kind); kind {
 	case "", autoAutomationKindCommandCard:

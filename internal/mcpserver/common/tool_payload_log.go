@@ -19,12 +19,14 @@ const (
 
 var toolPayloadLogSeq atomic.Uint64
 
+// toolPayloadLogRef 记录工具载荷快照写入结果，供日志属性附加使用。
 type toolPayloadLogRef struct {
 	Path  string
 	Bytes int
 	Err   error
 }
 
+// toolPayloadSnapshot 是写入磁盘的工具调用载荷快照结构。
 type toolPayloadSnapshot struct {
 	Version      int             `json:"version"`
 	CreatedAt    string          `json:"created_at"`
@@ -45,6 +47,7 @@ type toolPayloadSnapshot struct {
 	RawResultLen int             `json:"raw_result_len,omitempty"`
 }
 
+// logToolCallRequestPayload 记录工具调用请求载荷快照并返回引用。
 func logToolCallRequestPayload(transport, server string, reqID json.RawMessage, params ToolCallParams, scope ToolScope) toolPayloadLogRef {
 	rawArgs := cloneRawMessage(params.Arguments)
 	return writeToolPayloadSnapshot(toolPayloadSnapshot{
@@ -65,6 +68,7 @@ func logToolCallRequestPayload(transport, server string, reqID json.RawMessage, 
 	})
 }
 
+// logToolCallResultPayload 记录工具调用结果载荷快照并返回引用。
 func logToolCallResultPayload(transport, server, tool string, reqID json.RawMessage, scope ToolScope, rawResult []byte, err error) toolPayloadLogRef {
 	var errText string
 	if err != nil {
@@ -90,6 +94,7 @@ func logToolCallResultPayload(transport, server, tool string, reqID json.RawMess
 	})
 }
 
+// writeToolPayloadSnapshot 将快照 JSON 写入磁盘，返回文件路径和字节数。
 func writeToolPayloadSnapshot(snapshot toolPayloadSnapshot) toolPayloadLogRef {
 	dir, err := toolPayloadLogDir()
 	if err != nil {
@@ -137,6 +142,7 @@ func toolPayloadLogDir() (string, error) {
 	return filepath.Join(logDir, "peer-fallback", "tool-payloads"), nil
 }
 
+// toolPayloadSnapshotFileName 根据快照内容生成唯一且安全的文件名。
 func toolPayloadSnapshotFileName(snapshot toolPayloadSnapshot) string {
 	seq := toolPayloadLogSeq.Add(1)
 	stamp := strings.ReplaceAll(snapshot.CreatedAt, ":", "")
@@ -151,6 +157,7 @@ func toolPayloadSnapshotFileName(snapshot toolPayloadSnapshot) string {
 	)
 }
 
+// toolPayloadAttrs 将 toolPayloadLogRef 展开为 slog 属性键值对列表。
 func toolPayloadAttrs(prefix string, ref toolPayloadLogRef) []any {
 	if strings.TrimSpace(prefix) == "" {
 		prefix = "tool_payload"
@@ -167,11 +174,13 @@ func toolPayloadAttrs(prefix string, ref toolPayloadLogRef) []any {
 	}
 }
 
+// trimJSONID 去掉 JSON-RPC ID 字段两端的空白和引号，得到可读字符串。
 func trimJSONID(id json.RawMessage) string {
 	trimmed := strings.TrimSpace(string(id))
 	return strings.Trim(trimmed, `"`)
 }
 
+// cloneRawMessage 深拷贝 json.RawMessage，nil/空输入返回 nil。
 func cloneRawMessage(raw []byte) json.RawMessage {
 	if len(raw) == 0 {
 		return nil
@@ -179,6 +188,7 @@ func cloneRawMessage(raw []byte) json.RawMessage {
 	return append(json.RawMessage(nil), raw...)
 }
 
+// sanitizeLogFileComponent 将字符串中不安全字符替换为连字符，限制最大长度。
 func sanitizeLogFileComponent(value string) string {
 	value = strings.TrimSpace(value)
 	if value == "" {
@@ -194,6 +204,7 @@ func sanitizeLogFileComponent(value string) string {
 	return out
 }
 
+// sanitizeLogFileRune 将不安全字符映射为连字符，安全字符原样保留。
 func sanitizeLogFileRune(r rune) rune {
 	const safeLogFileChars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_"
 	if strings.ContainsRune(safeLogFileChars, r) {
@@ -202,6 +213,7 @@ func sanitizeLogFileRune(r rune) rune {
 	return '-'
 }
 
+// isDeprecatedToolPayloadTransport 判断 transport 是否属于已废弃的 HTTP 传输。
 func isDeprecatedToolPayloadTransport(transport string) bool {
 	return strings.EqualFold(strings.TrimSpace(transport), "http")
 }

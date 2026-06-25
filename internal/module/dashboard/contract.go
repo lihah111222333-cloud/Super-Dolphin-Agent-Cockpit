@@ -17,6 +17,7 @@ type WorkflowMaterialWriteRequest struct {
 	Content string
 }
 
+// Service 定义 dashboard 模块对外暴露的全部查询和操作接口。
 type Service interface {
 	GetDashboard(ctx context.Context) (*Dashboard, error)
 	GetDashboardPage(ctx context.Context, page string) (*DashboardPage, error)

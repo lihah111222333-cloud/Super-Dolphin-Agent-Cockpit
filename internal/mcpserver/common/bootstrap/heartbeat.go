@@ -15,6 +15,7 @@ import (
 
 const heartbeatWarnAfter = 3
 
+// startHeartbeatLocked 在已持有 mu 锁的情况下启动心跳 goroutine，替换旧的 hbCancel。
 func (c *Client) startHeartbeatLocked() {
 	if c.rootCtx == nil {
 		return
@@ -78,6 +79,7 @@ func (c *Client) runHeartbeat(ctx context.Context) {
 	}
 }
 
+// heartbeatTiming 在读锁下读取心跳间隔和超时，保证并发安全。
 func (c *Client) heartbeatTiming() (time.Duration, time.Duration) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
@@ -92,6 +94,7 @@ func (c *Client) heartbeatTiming() (time.Duration, time.Duration) {
 	return interval, timeout
 }
 
+// waitForHeartbeat 等待带抖动的心跳间隔，ctx 取消时返回 false。
 func waitForHeartbeat(ctx context.Context, interval time.Duration) bool {
 	timer := time.NewTimer(jitterDuration(interval))
 	defer timer.Stop()
@@ -140,6 +143,7 @@ func (c *Client) sendHeartbeat(ctx context.Context, timeout time.Duration) (bool
 	return false, durationOrDefault(resp.NextHeartbeatMs, 0), nil
 }
 
+// refreshLease 在租约被拒绝后重新 register 以获取新租约，然后重启心跳。
 func (c *Client) refreshLease(ctx context.Context) error {
 	conn, _ := c.currentConn()
 	if conn == nil {
@@ -161,12 +165,14 @@ func (c *Client) refreshLease(ctx context.Context) error {
 	return nil
 }
 
+// currentConfigVersion 在读锁下返回当前已知的配置版本号。
 func (c *Client) currentConfigVersion() int64 {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 	return c.configVersion
 }
 
+// setHeartbeatInterval 更新心跳间隔，非正值时不做修改。
 func (c *Client) setHeartbeatInterval(interval time.Duration) {
 	if interval <= 0 {
 		return
@@ -176,6 +182,7 @@ func (c *Client) setHeartbeatInterval(interval time.Duration) {
 	c.mu.Unlock()
 }
 
+// heartbeatMetrics 收集并序列化心跳指标载荷，供 HeartbeatRequest 使用。
 func (c *Client) heartbeatMetrics() json.RawMessage {
 	c.mu.RLock()
 	payload := map[string]any{
@@ -190,6 +197,7 @@ func (c *Client) heartbeatMetrics() json.RawMessage {
 	return raw
 }
 
+// isLeaseRejectedErr 判断 jrpc2 错误是否表示租约不存在或已过期。
 func isLeaseRejectedErr(err error) bool {
 	var rpcErr *jrpc2.Error
 	if !errors.As(err, &rpcErr) {

@@ -109,6 +109,8 @@ func renderDocumentArtifactBytes(format, text string) ([]byte, error) {
 	}
 }
 
+// writeDocumentArtifactTempFile 把文档字节写入 os.TempDir 下的临时文件，返回路径和清理函数。
+// 写入或关闭失败时 defer 保证不留临时文件；调用方在 import 完成后须调用 cleanup 删除文件。
 func writeDocumentArtifactTempFile(format string, data []byte) (string, func(), error) {
 	if len(data) == 0 {
 		return "", nil, errors.New("generated document artifact is empty")
@@ -241,6 +243,7 @@ func wrapPDFLines(lines []string, maxWidth int) []string {
 	return out
 }
 
+// wrapPDFLine 对单行按视觉宽度折行（CJK 字符计 2，ASCII 计 1），保证 maxWidth 内换行。
 func wrapPDFLine(line string, maxWidth int) []string {
 	if strings.TrimSpace(line) == "" {
 		return []string{""}

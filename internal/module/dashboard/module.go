@@ -15,6 +15,7 @@ import (
 	"go.uber.org/fx"
 )
 
+// serviceParams 是 fx 注入 dashboard service 的依赖声明。
 type serviceParams struct {
 	fx.In
 
@@ -32,6 +33,7 @@ type serviceParams struct {
 	Skills        contract.SkillLister
 }
 
+// dashboardHandlersParams 是 fx 注入 dashboard handler 的依赖声明。
 type dashboardHandlersParams struct {
 	fx.In
 

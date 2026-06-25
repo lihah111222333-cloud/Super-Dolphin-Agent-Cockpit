@@ -13,8 +13,10 @@ import (
 	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
 )
 
+// ErrDAGDeleteActiveRun 是删除 DAG 时存在活跃 run 的哨兵错误。
 var ErrDAGDeleteActiveRun = errors.New("task_dag: delete blocked by active running run")
 
+// store 是 taskdag 包的内部实现，持有 DB 连接和 sqlc 查询集。
 type store struct {
 	db sqlc.DBTX
 	q  *sqlc.Queries
@@ -23,6 +25,7 @@ type store struct {
 // NewStore 创建存储。
 func NewStore(db sqlc.DBTX) Store { return &store{db: db, q: sqlc.New(db)} }
 
+// requireRuntimeRunID 确保 run_id 非零；零值意味着调用方传入了模板节点操作，应 fail-fast。
 func requireRuntimeRunID(op string, runID int64) error {
 	if runID <= 0 {
 		return fmt.Errorf("%s: run_id required", op)
@@ -38,7 +41,7 @@ func (s *store) WithTx(ctx context.Context, fn func(txStore DAGMutationStore) er
 	}), "with_tx", "task_dag")
 }
 
-// UpsertDAG 处理upsertDAG。
+// UpsertDAG 创建或更新 DAG 模板行，返回写入后的完整快照。
 func (s *store) UpsertDAG(ctx context.Context, dag DAG) (*DAG, error) {
 	return queryOneWrite(ctx, func() (sqlc.UpsertTaskDagRow, error) {
 		return s.q.UpsertTaskDag(ctx, sqlc.UpsertTaskDagParams{
@@ -52,7 +55,7 @@ func (s *store) UpsertDAG(ctx context.Context, dag DAG) (*DAG, error) {
 	}, "upsert", "task_dag", fromDAGUpsertRow)
 }
 
-// ListDAGs 列出dags。
+// ListDAGs 按过滤条件列出 DAG 列表。
 func (s *store) ListDAGs(ctx context.Context, filter ListDAGsFilter) ([]DAG, error) {
 	return queryMany(func() ([]sqlc.ListTaskDagsRow, error) {
 		return s.q.ListTaskDags(ctx, sqlc.ListTaskDagsParams{
@@ -63,14 +66,15 @@ func (s *store) ListDAGs(ctx context.Context, filter ListDAGsFilter) ([]DAG, err
 	}, "list", "task_dag", fromDAGListRow)
 }
 
-// GetDAG 读取DAG。
+// GetDAG 按 dag_key 读取 DAG 模板行；未找到返回 platformdb.ErrNotFound。
 func (s *store) GetDAG(ctx context.Context, dagKey string) (*DAG, error) {
 	return queryOne(func() (sqlc.GetTaskDagRow, error) {
 		return s.q.GetTaskDag(ctx, sqlc.GetTaskDagParams{DagKey: dagKey})
 	}, "get", "task_dag", fromDAGGetRow)
 }
 
-// DeleteDAG 删除DAG。
+// DeleteDAG 在事务内级联删除 DAG 及其节点、wakeup 和 run 记录；
+// 存在 running run 时返回 ErrDAGDeleteActiveRun。
 func (s *store) DeleteDAG(ctx context.Context, dagKey string) (int64, error) {
 	key := strings.TrimSpace(dagKey)
 	if key == "" {
@@ -102,7 +106,7 @@ func (s *store) DeleteDAG(ctx context.Context, dagKey string) (int64, error) {
 	return rows, wrapTaskDAGError(err, "delete", "task_dag")
 }
 
-// UpsertNode 处理upsert节点。
+// UpsertNode 创建或更新节点模板行，返回写入后的完整快照。
 func (s *store) UpsertNode(ctx context.Context, node Node) (*Node, error) {
 	return queryOneWrite(ctx, func() (sqlc.UpsertTaskDagNodeRow, error) {
 		return s.q.UpsertTaskDagNode(ctx, sqlc.UpsertTaskDagNodeParams{
@@ -118,7 +122,8 @@ func (s *store) UpsertNode(ctx context.Context, node Node) (*Node, error) {
 	}, "upsert", "task_dag_node", fromNodeUpsertRow)
 }
 
-// PatchNodeConfigIfUnchanged 处理补丁节点配置ifunchanged。
+// PatchNodeConfigIfUnchanged 以 previous_config CAS fence 原子更新 runtime 节点的 config。
+// fence miss 时 SQL 返回 0 行，store 层向上传 ErrNotFound，service 层判 OCC 冲突。
 func (s *store) PatchNodeConfigIfUnchanged(ctx context.Context, input NodeConfigPatchInput) (*Node, error) {
 	if err := requireRuntimeRunID("patch_config", input.RunID); err != nil {
 		return nil, err
@@ -134,7 +139,7 @@ func (s *store) PatchNodeConfigIfUnchanged(ctx context.Context, input NodeConfig
 	}, "patch_config", "task_dag_node", fromNodePatchConfigRow)
 }
 
-// DeleteNode 删除节点。
+// DeleteNode 删除节点模板行，返回受影响行数。
 func (s *store) DeleteNode(ctx context.Context, dagKey, nodeKey string) (int64, error) {
 	return queryValueWrite(ctx, func() (int64, error) {
 		return s.q.DeleteTaskDagNode(ctx, sqlc.DeleteTaskDagNodeParams{
@@ -163,14 +168,14 @@ func (s *store) UpdateNodeStatus(ctx context.Context, input NodeStatusUpdate) (*
 	}, "update_status", fromNodeStatusFlexibleRow)
 }
 
-// ListNodes 列出节点。
+// ListNodes 列出 dag_key 下的所有模板节点。
 func (s *store) ListNodes(ctx context.Context, dagKey string) ([]Node, error) {
 	return queryMany(func() ([]sqlc.ListTaskDagNodesRow, error) {
 		return s.q.ListTaskDagNodes(ctx, sqlc.ListTaskDagNodesParams{DagKey: dagKey})
 	}, "list", "task_dag_node", fromNodeListRow)
 }
 
-// AssignNode 处理assign节点。
+// AssignNode 将 runtime 节点的 assigned_to 更新为指定 agent id，要求 run_id 非零。
 func (s *store) AssignNode(ctx context.Context, input AssignNodeInput) (*Node, error) {
 	if err := requireRuntimeRunID("assign", input.RunID); err != nil {
 		return nil, err
@@ -185,7 +190,7 @@ func (s *store) AssignNode(ctx context.Context, input AssignNodeInput) (*Node, e
 	}, "assign", "task_dag_node", fromNodeAssignRow)
 }
 
-// ListRunNodes 列出运行记录节点。
+// ListRunNodes 列出指定 run_id 下的所有 runtime 节点副本。
 func (s *store) ListRunNodes(ctx context.Context, dagKey string, runID int64) ([]Node, error) {
 	return queryMany(func() ([]sqlc.ListTaskDagRunNodesRow, error) {
 		return s.q.ListTaskDagRunNodes(ctx, sqlc.ListTaskDagRunNodesParams{
@@ -217,21 +222,22 @@ func (s *store) ListRunningNodesByAssignee(ctx context.Context, assignee string)
 	}, "list_running_by_assignee", "task_dag_node", fromNodeRunningByAssigneeRow)
 }
 
-// GetDAGForUpdate 为更新读取DAG。
+// GetDAGForUpdate 以 FOR UPDATE 锁读取 DAG 模板行，供事务内串行化使用。
 func (s *store) GetDAGForUpdate(ctx context.Context, dagKey string) (*DAG, error) {
 	return queryOne(func() (sqlc.GetTaskDagForUpdateRow, error) {
 		return s.q.GetTaskDagForUpdate(ctx, sqlc.GetTaskDagForUpdateParams{DagKey: dagKey})
 	}, "get_for_update", "task_dag", fromDAGGetForUpdateRow)
 }
 
-// GetNodesForUpdate 为更新读取节点。
+// GetNodesForUpdate 以 FOR UPDATE 锁批量读取 dag_key 下所有节点，供事务内串行化使用。
 func (s *store) GetNodesForUpdate(ctx context.Context, dagKey string) ([]Node, error) {
 	return queryMany(func() ([]sqlc.GetTaskDagNodesForUpdateRow, error) {
 		return s.q.GetTaskDagNodesForUpdate(ctx, sqlc.GetTaskDagNodesForUpdateParams{DagKey: dagKey})
 	}, "get_for_update", "task_dag_node", fromNodeForUpdateRow)
 }
 
-// BindRunningNodeTurn 绑定running节点turn。
+// BindRunningNodeTurn 在事务内先绑定 wakeup turn，再把 active_turn_id 写回节点行。
+// wakeup fence miss 时返回 binding conflict 错误，阻止节点指向无效 turn。
 func (s *store) BindRunningNodeTurn(ctx context.Context, input BindRunningNodeTurnInput) (*Node, error) {
 	if err := requireRuntimeRunID("bind_running_turn", input.RunID); err != nil {
 		return nil, err
@@ -264,7 +270,7 @@ func (s *store) BindRunningNodeTurn(ctx context.Context, input BindRunningNodeTu
 	return &mapped, nil
 }
 
-// TouchRunningNodeEvent 处理touchrunning节点事件。
+// TouchRunningNodeEvent 更新节点的 last_event_at，表示 turn 仍在活跃。
 func (s *store) TouchRunningNodeEvent(ctx context.Context, input TouchRunningNodeEventInput) (*Node, error) {
 	if err := requireRuntimeRunID("touch_running_event", input.RunID); err != nil {
 		return nil, err
@@ -280,7 +286,7 @@ func (s *store) TouchRunningNodeEvent(ctx context.Context, input TouchRunningNod
 	}, "touch_running_event", "task_dag_node", fromNodeTouchEventRow)
 }
 
-// UpdateRunningNodeStatus 更新running节点状态。
+// UpdateRunningNodeStatus 更新 running 节点状态，WakeupID fence 防止旧 dispatch 副本覆盖新轮次。
 func (s *store) UpdateRunningNodeStatus(ctx context.Context, input RunningNodeStatusUpdate) (*Node, error) {
 	if err := requireRuntimeRunID("update_running_status", input.RunID); err != nil {
 		return nil, err
@@ -297,7 +303,7 @@ func (s *store) UpdateRunningNodeStatus(ctx context.Context, input RunningNodeSt
 	}, "update_running_status", fromNodeUpdateRunningRow)
 }
 
-// UpdateAwaitingVerifyNodeStatus 更新awaitingverify节点状态。
+// UpdateAwaitingVerifyNodeStatus 更新处于 awaiting_verify 状态的节点，不校验 wakeup fence。
 func (s *store) UpdateAwaitingVerifyNodeStatus(ctx context.Context, input AwaitingVerifyNodeStatusUpdate) (*Node, error) {
 	if err := requireRuntimeRunID("update_awaiting_verify_status", input.RunID); err != nil {
 		return nil, err
@@ -329,7 +335,7 @@ func (s *store) CompleteNode(ctx context.Context, input CompleteNodeInput) (*Nod
 	}, "complete", fromNodeCompleteRow)
 }
 
-// UpdateNodeStatusFlexible 更新节点状态flexible。
+// UpdateNodeStatusFlexible 更新节点状态，不做状态机前置检查，适用于强制覆写场景。
 func (s *store) UpdateNodeStatusFlexible(ctx context.Context, input FlexibleNodeStatusUpdate) (*Node, error) {
 	if err := requireRuntimeRunID("update_status_flexible", input.RunID); err != nil {
 		return nil, err
@@ -345,7 +351,8 @@ func (s *store) UpdateNodeStatusFlexible(ctx context.Context, input FlexibleNode
 	}, "update_status_flexible", fromNodeStatusFlexibleRow)
 }
 
-// ClaimNodeOutputMaterialization 领取节点输出物化任务。
+// ClaimNodeOutputMaterialization 把节点标记为 output_materializing 并写入 result，
+// 用于 CompleteNode 前的异步物化占位，避免并发重复物化。
 func (s *store) ClaimNodeOutputMaterialization(ctx context.Context, input OutputMaterializationClaimInput) (*Node, error) {
 	if err := requireRuntimeRunID("claim_output_materialization", input.RunID); err != nil {
 		return nil, err
@@ -360,26 +367,32 @@ func (s *store) ClaimNodeOutputMaterialization(ctx context.Context, input Output
 	}, "claim_output_materialization", fromNodeClaimOutputRow)
 }
 
+// int64Ptr 把 int64 值包装成 sqlc.Int8（SQLite nullable integer）。
 func int64Ptr(value int64) sqlc.Int8 {
 	return sqlc.Int8ValuePtr(&value)
 }
 
+// stringPtr 把 string 值包装成 sqlc.Text（SQLite nullable text）。
 func stringPtr(value string) sqlc.Text {
 	return sqlc.TextValuePtr(&value)
 }
 
+// fromDAG 把 sqlc 生成的 TaskDag 行转换为 contract 层 DAG。
 func fromDAG(row sqlc.TaskDag) DAG {
 	return fromDAGRaw(row.ID, row.DagKey, row.Version, row.Title, row.Description, row.Status, row.CreatedBy, row.Metadata, row.Trigger, row.CronExpr, row.NextRunAt, row.StartedAt, row.FinishedAt, row.CreatedAt, row.UpdatedAt)
 }
 
+// fromDAGListRow 把 ListTaskDagsRow 投影成 contract DAG。
 func fromDAGListRow(row sqlc.ListTaskDagsRow) DAG {
 	return fromDAGRaw(row.ID, row.DagKey, row.Version, row.Title, row.Description, row.Status, row.CreatedBy, row.Metadata, row.Trigger, row.CronExpr, row.NextRunAt, row.StartedAt, row.FinishedAt, row.CreatedAt, row.UpdatedAt)
 }
 
+// fromNode 把 sqlc 生成的 TaskDagNode 行转换为 contract 层 Node。
 func fromNode(row sqlc.TaskDagNode) Node {
 	return fromNodeRaw(row.ID, row.DagKey, row.NodeKey, row.RunID, row.Title, row.NodeType, row.AssignedTo, row.DependsOn, row.Status, row.CommandRef, row.Config, row.Result, row.StartedAt, row.FinishedAt, row.CreatedAt, row.UpdatedAt, row.ActiveTurnID, row.ActiveWakeupID, row.LastEventAt, row.SpawningThreadID)
 }
 
+// wrapTaskDAGError 把 database/sql 错误包装为 platformdb 统一域错误。
 func wrapTaskDAGError(err error, operation, entity string) error {
 	return platformdb.WrapStoreError(err, operation, entity)
 }
@@ -407,6 +420,7 @@ func intervalValue(value string) (sqlc.Interval, error) {
 	return sqlc.IntervalMillis(amount), nil
 }
 
+// parseClockInterval 解析 HH:MM:SS 格式的时钟区间，不满足格式返回 false。
 func parseClockInterval(value string) (time.Duration, bool) {
 	parts := strings.Split(value, ":")
 	if len(parts) != 3 {
@@ -427,6 +441,7 @@ func parseClockInterval(value string) (time.Duration, bool) {
 	return time.Duration(hours)*time.Hour + time.Duration(minutes)*time.Minute + time.Duration(seconds)*time.Second, true
 }
 
+// parseClockIntervalPart 解析时钟区间的单个字段，bounded=true 时要求值 < 60。
 func parseClockIntervalPart(value string, bounded bool) (int64, bool) {
 	if value == "" {
 		return 0, false
@@ -441,6 +456,7 @@ func parseClockIntervalPart(value string, bounded bool) (int64, bool) {
 	return parsed, true
 }
 
+// intervalUnitSuffix 把自然语言单位名映射到 Go time.ParseDuration 接受的后缀。
 func intervalUnitSuffix(unit string) string {
 	switch strings.TrimSuffix(unit, "s") {
 	case "millisecond", "msec", "ms":
@@ -456,14 +472,17 @@ func intervalUnitSuffix(unit string) string {
 	}
 }
 
+// timeValue 把 SQLite epoch 毫秒整数转为 time.Time。
 func timeValue(value int64) time.Time {
 	return sqlc.TimeValue(value)
 }
 
+// timestampPtr 把可空的 epoch 毫秒整数转为 *time.Time；nil 输入返回 nil。
 func timestampPtr(value *int64) *time.Time {
 	return sqlc.TimePtr(value)
 }
 
+// timestampValue 把 time.Time 转为 SQLite epoch 毫秒的可空指针，供 sqlc 写入列使用。
 func timestampValue(value time.Time) *int64 {
 	return sqlc.TimeValuePtr(&value)
 }

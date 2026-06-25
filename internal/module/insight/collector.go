@@ -15,22 +15,19 @@ import (
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
-// defaultQueueCapacity is the bounded queue size between the subscriber
-// callbacks and the flusher. A full queue causes new terminal signals to
-// be dropped with a metric — preferable to blocking the bus publisher.
+// defaultQueueCapacity 是 subscriber 到 flusher 之间的有界队列容量。
+// 队列满时新到的 terminal 信号被丢弃并计入指标，而非阻塞总线发布方。
 const defaultQueueCapacity = 512
 
-// collector is the bus-facing half of the insight module. It listens for
-// terminal turn events and enqueues lightweight signals for the flusher.
-// It never reads observation.Contract itself; that lives in the flusher.
+// collector 是 insight 模块中面向总线的半部，监听 terminal turn 事件并将轻量信号入队。
+// 它本身不读取 observation.Contract，读取工作由 flusher 负责。
 type collector struct {
 	logger  *slog.Logger
 	queue   chan flushSignal
 	dropped atomic.Int64
 }
 
-// newCollector wires the bounded queue and logger. Capacity 0 falls back
-// to defaultQueueCapacity.
+// newCollector 创建带有界队列和 logger 的 collector。capacity<=0 时使用 defaultQueueCapacity。
 func newCollector(logger *slog.Logger, capacity int) *collector {
 	if logger == nil {
 		logger = pkglogger.Get()
@@ -44,10 +41,9 @@ func newCollector(logger *slog.Logger, capacity int) *collector {
 	}
 }
 
-// subscribe registers bus subscribers that enqueue flush signals. Returns
-// a cancel that tears every subscription down. Call order: the caller owns
-// the cancel and must invoke it before closing the flusher's queue (or
-// the subscriber could race with a closed channel).
+// subscribe 注册总线订阅，将 terminal turn 事件转换为 flush 信号入队。
+// 返回的 cancel 会注销所有订阅；调用方在关闭 flusher 队列之前必须先调用 cancel，
+// 避免向已关闭的 channel 写入。
 func (c *collector) subscribe(dispatcher *event.Dispatcher, logger *pkglogger.Logger) context.CancelFunc {
 	if dispatcher == nil {
 		return func() {}
@@ -70,10 +66,8 @@ func (c *collector) subscribe(dispatcher *event.Dispatcher, logger *pkglogger.Lo
 	}
 }
 
-// enqueueTerminal is the inner non-blocking enqueue. If the queue is full
-// the signal is dropped and a metric (Dropped()) counts the loss — the
-// plan requires bounded intake so a stuck flusher never backpressures
-// bus publication.
+// enqueueTerminal 将 terminal 信号非阻塞地写入队列。
+// 队列已满时丢弃信号并累加 dropped 计数，保证总线发布方不受背压阻塞。
 func (c *collector) enqueueTerminal(turnID, threadID, agentID, provider string, timestamp time.Time) {
 	localTurnID := strings.TrimSpace(turnID)
 	if localTurnID == "" {
@@ -101,16 +95,12 @@ func (c *collector) enqueueTerminal(turnID, threadID, agentID, provider string, 
 	}
 }
 
-// Dropped returns the total number of signals that were dropped because
-// the queue was full. Useful for dashboards and tests.
-// Dropped 处理dropped。
+// Dropped 返回因队列已满而丢弃的信号总数，可用于监控看板和测试断言。
 func (c *collector) Dropped() int64 { return c.dropped.Load() }
 
-// eventProvider reads an optional Provider field from turn DTOs. Current
-// turn DTOs may not carry provider yet; keeping this reflective adapter
-// lets the collector preserve the field as soon as the wire shape adds it
-// without changing the subscriber contract again.
-// eventProvider 处理事件provider。
+// eventProvider 从 turn DTO 中反射读取可选的 Provider 字段。
+// 当前 turn DTO 可能还没有 provider 字段；使用反射适配器，一旦 wire 层加上该字段即可无缝传递，
+// 无需再改 subscriber 契约。
 func eventProvider(ev any) string {
 	v := reflect.ValueOf(ev)
 	if v.Kind() == reflect.Pointer {

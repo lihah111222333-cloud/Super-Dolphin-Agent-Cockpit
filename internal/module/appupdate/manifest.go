@@ -1,3 +1,4 @@
+// Package appupdate 提供应用自动更新的检查、下载和安装能力，支持 GitHub Releases 和自定义 manifest 两种更新源。
 package appupdate
 
 import (
@@ -72,6 +73,7 @@ func VerifySignedManifest(raw []byte, opts VerifyOptions) (ManifestPayload, Upda
 	return signed.Payload, artifact, nil
 }
 
+// decodeSignedManifest 反序列化并严格校验签名 manifest，不允许有尾随 JSON 数据。
 func decodeSignedManifest(raw []byte) (SignedManifest, error) {
 	var signed SignedManifest
 	decoder := json.NewDecoder(bytes.NewReader(raw))
@@ -85,6 +87,7 @@ func decodeSignedManifest(raw []byte) (SignedManifest, error) {
 	return signed, nil
 }
 
+// verifyManifestSignature 校验 ed25519 签名，公钥由调用方提供。
 func verifyManifestSignature(signed SignedManifest, publicKey []byte) error {
 	signature, err := base64.StdEncoding.DecodeString(signed.Signature)
 	if err != nil {
@@ -100,6 +103,7 @@ func verifyManifestSignature(signed SignedManifest, publicKey []byte) error {
 	return nil
 }
 
+// validatePayloadTarget 校验 manifest 的 app_id/channel 与期望值一致，且 platform 非空。
 func validatePayloadTarget(payload ManifestPayload, opts VerifyOptions) error {
 	if payload.AppID != opts.AppID {
 		return fmt.Errorf("app update app_id = %q, want %q", payload.AppID, opts.AppID)
@@ -134,6 +138,7 @@ func validateVersionWindow(payload ManifestPayload, current string) error {
 	return nil
 }
 
+// validateMinimumVersion 校验当前版本不低于 manifest 声明的最低升级版本。
 func validateMinimumVersion(minimum string, current manifestVersion) error {
 	minimumVersion, err := parseManifestVersion(minimum)
 	if err != nil {
@@ -145,6 +150,7 @@ func validateMinimumVersion(minimum string, current manifestVersion) error {
 	return nil
 }
 
+// artifactForPlatform 从 artifacts 列表中查找匹配 platform 的条目。
 func artifactForPlatform(artifacts []UpdateArtifact, platform string) (UpdateArtifact, error) {
 	for _, artifact := range artifacts {
 		if artifact.Platform == platform {
@@ -172,6 +178,7 @@ func validateArtifact(artifact UpdateArtifact) error {
 	return nil
 }
 
+// validateSHA256Hex 校验十六进制 sha256 字符串长度为 64 且可解码。
 func validateSHA256Hex(value string) error {
 	if len(value) != 64 {
 		return fmt.Errorf("app update artifact sha256 length = %d, want 64", len(value))
@@ -188,6 +195,7 @@ func validateSHA256Hex(value string) error {
 
 type manifestVersion [3]int
 
+// parseManifestVersion 将版本字符串（如 v1.2.3）解析为 [3]int 数组。
 func parseManifestVersion(raw string) (manifestVersion, error) {
 	value := strings.TrimPrefix(strings.TrimPrefix(raw, "v"), "V")
 	if value == "" {
@@ -208,6 +216,7 @@ func parseManifestVersion(raw string) (manifestVersion, error) {
 	return version, nil
 }
 
+// parseVersionSegment 将单个版本段字符串解析为非负整数。
 func parseVersionSegment(raw, part string) (int, error) {
 	if part == "" {
 		return 0, fmt.Errorf("version %q contains an empty segment", raw)
@@ -222,6 +231,7 @@ func parseVersionSegment(raw, part string) (int, error) {
 	return number, nil
 }
 
+// isDigitString 判断字符串是否全为 ASCII 数字。
 func isDigitString(value string) bool {
 	for _, char := range value {
 		if char < '0' || char > '9' {
@@ -231,6 +241,7 @@ func isDigitString(value string) bool {
 	return true
 }
 
+// compareManifestVersions 比较两个版本，left > right 返回 1，相等返回 0，less 返回 -1。
 func compareManifestVersions(left, right manifestVersion) int {
 	for i := range left {
 		if left[i] > right[i] {

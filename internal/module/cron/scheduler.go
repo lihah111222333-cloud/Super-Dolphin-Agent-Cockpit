@@ -290,6 +290,7 @@ func (s *Scheduler) RunTick(ctx context.Context) error {
 	return firstErr
 }
 
+// claimOneDueJob 领取一个当前到期的 cron job，使用 atomic CAS 防止并发重复领取。
 func (s *Scheduler) claimOneDueJob(ctx context.Context) ([]cronstore.Job, error) {
 	now := s.now().UTC()
 	return s.store.ClaimDueJobsForUpdate(ctx, cronstore.ClaimDueJobsForUpdateParams{
@@ -328,6 +329,7 @@ func (s *Scheduler) driveJob(ctx context.Context, job cronstore.Job) error {
 	return s.observeStartedTurn(ctx, job, run, startResult)
 }
 
+// scheduledAtForJob 按优先级选取本次运行的 scheduled_at：retry > next_run_at > now。
 func scheduledAtForJob(job cronstore.Job, now time.Time) time.Time {
 	if !job.NextRetryAt.IsZero() {
 		return job.NextRetryAt
@@ -338,6 +340,7 @@ func scheduledAtForJob(job cronstore.Job, now time.Time) time.Time {
 	return now
 }
 
+// createPendingRun 插入 pending 状态的 cron run，生成唯一 idempotency_key 和 dedupe_key。
 func (s *Scheduler) createPendingRun(ctx context.Context, job cronstore.Job, scheduledAt, now time.Time) (cronstore.Run, string, error) {
 	idempotencyKey := s.newID()
 	dedupe := DedupeKey(job.ID, scheduledAt, idempotencyKey)
@@ -359,6 +362,7 @@ func (s *Scheduler) createPendingRun(ctx context.Context, job cronstore.Job, sch
 	return run, dedupe, err
 }
 
+// markRunSubmitting 将 run 状态从 pending 原子推进到 submitting。
 func (s *Scheduler) markRunSubmitting(ctx context.Context, jobID, runID string, scheduledAt time.Time) error {
 	if err := s.store.CASRunStatus(ctx, cronstore.CASRunStatusParams{
 		ID:             runID,
@@ -372,6 +376,7 @@ func (s *Scheduler) markRunSubmitting(ctx context.Context, jobID, runID string, 
 	return nil
 }
 
+// buildStartTurnRequest 从 job 行和本次 run 信息构造 StartTurnRequest。
 func buildStartTurnRequest(job cronstore.Job, runID, dedupe string, scheduledAt time.Time) StartTurnRequest {
 	return StartTurnRequest{
 		JobID:        job.ID,
@@ -425,6 +430,7 @@ func (s *Scheduler) persistSubmittedTurn(ctx context.Context, job cronstore.Job,
 	})
 }
 
+// observeStartedTurn 调用 Observe 将已提交 turn 纳入追踪，失败时转为 observe_lost。
 func (s *Scheduler) observeStartedTurn(ctx context.Context, job cronstore.Job, run cronstore.Run, result StartTurnResult) error {
 	if err := s.submitter.Observe(ctx, result.TurnID); err != nil {
 		// 到这里 turn 已被 provider 接收。Observe 失败时只能记为
@@ -443,6 +449,7 @@ func (s *Scheduler) observeStartedTurn(ctx context.Context, job cronstore.Job, r
 	return nil
 }
 
+// finalizeFailure 在 StartTurn 失败时将 run 标记为 failed 并计算下一次重试时间。
 func (s *Scheduler) finalizeFailure(ctx context.Context, job cronstore.Job, run cronstore.Run, scheduledAt time.Time, startErr error) error {
 	now := s.now().UTC()
 	nextRetry := s.nextRetry(job, now)
@@ -466,6 +473,7 @@ func (s *Scheduler) finalizeFailure(ctx context.Context, job cronstore.Job, run 
 	})
 }
 
+// finalizeObserveLost 在 Observe 失败后将 run 标记为 observe_lost，不触发自动重试。
 func (s *Scheduler) finalizeObserveLost(ctx context.Context, job cronstore.Job, run cronstore.Run, result StartTurnResult, observeErr error) error {
 	now := s.now().UTC()
 	// observe_lost 需要人工看，不能自动 retry。无法跟踪旧 turn 时重试会制造重复任务。

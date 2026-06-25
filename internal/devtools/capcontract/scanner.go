@@ -12,6 +12,7 @@ import (
 	"unicode"
 )
 
+// ScanOptions 是扫描能力契约清单的入参，包含仓库根目录、扫描根路径和生成时间。
 type ScanOptions struct {
 	RepoRoot    string
 	Roots       []string
@@ -44,6 +45,7 @@ func Scan(opts ScanOptions) (*Manifest, error) {
 	return manifest, nil
 }
 
+// normalizeRoots 规范化、去重并排序扫描根路径列表。
 func normalizeRoots(roots []string) []string {
 	normalized := make([]string, 0, len(roots))
 	seen := map[string]struct{}{}
@@ -63,6 +65,7 @@ func normalizeRoots(roots []string) []string {
 	return normalized
 }
 
+// scanRoot 扫描单个根路径下所有 Go 包并返回各包的清单列表。
 func scanRoot(repoRoot, root string) ([]PackageManifest, error) {
 	absRoot := filepath.Join(repoRoot, filepath.FromSlash(root))
 	packageDirs, err := findGoPackages(absRoot)
@@ -112,6 +115,7 @@ func findGoPackages(root string) ([]string, error) {
 	return dirs, nil
 }
 
+// shouldSkipDir 判断目录名是否应跳过扫描（.git / testdata 等）。
 func shouldSkipDir(name string) bool {
 	return map[string]bool{
 		".git":         true,
@@ -179,6 +183,7 @@ func extractFile(file *ast.File, manifest *PackageManifest) {
 	}
 }
 
+// extractTypes 从 GenDecl 中提取接口和结构体定义并追加到 PackageManifest。
 func extractTypes(decl *ast.GenDecl, manifest *PackageManifest) {
 	for _, spec := range decl.Specs {
 		ts, ok := spec.(*ast.TypeSpec)
@@ -194,11 +199,13 @@ func extractTypes(decl *ast.GenDecl, manifest *PackageManifest) {
 	}
 }
 
+// extractFunction 从 FuncDecl 中提取包级函数的清单信息。
 func extractFunction(fn *ast.FuncDecl) FunctionManifest {
 	params, returns := functionSignature(fn.Type)
 	return FunctionManifest{Name: fn.Name.Name, Exported: isExported(fn.Name.Name), Params: params, Returns: returns}
 }
 
+// extractMethod 从 FuncDecl 中提取方法的清单信息，包含接收者类型。
 func extractMethod(fn *ast.FuncDecl) MethodManifest {
 	params, returns := functionSignature(fn.Type)
 	return MethodManifest{Name: fn.Name.Name, Exported: isExported(fn.Name.Name), Receiver: typeToString(fn.Recv.List[0].Type), Params: params, Returns: returns}
@@ -228,6 +235,7 @@ func extractInterface(ts *ast.TypeSpec, iface *ast.InterfaceType) InterfaceManif
 	return out
 }
 
+// functionSignature 从 FuncType 中分别提取参数列表和返回类型列表。
 func functionSignature(fnType *ast.FuncType) ([]ParamManifest, []string) {
 	var params []ParamManifest
 	if fnType.Params != nil {
@@ -240,6 +248,7 @@ func functionSignature(fnType *ast.FuncType) ([]ParamManifest, []string) {
 	return params, returns
 }
 
+// extractParams 从 FieldList 中提取参数名和类型的清单列表。
 func extractParams(fields *ast.FieldList) []ParamManifest {
 	var params []ParamManifest
 	for _, field := range fields.List {
@@ -255,6 +264,7 @@ func extractParams(fields *ast.FieldList) []ParamManifest {
 	return params
 }
 
+// extractReturnTypes 从 FieldList 中提取返回类型字符串列表。
 func extractReturnTypes(fields *ast.FieldList) []string {
 	var returns []string
 	for _, field := range fields.List {
@@ -314,6 +324,7 @@ func compositeTypeToString(expr ast.Expr) string {
 	}
 }
 
+// channelTypeToString 把 channel 类型转换为字符串，区分收发方向。
 func channelTypeToString(t *ast.ChanType) string {
 	switch t.Dir {
 	case ast.RECV:
@@ -347,6 +358,7 @@ func interfaceTypeToString(iface *ast.InterfaceType) string {
 	return "interface{" + strings.Join(parts, "; ") + "}"
 }
 
+// funcSignatureSuffix 把函数类型格式化为参数列表 + 返回列表的后缀字符串。
 func funcSignatureSuffix(fn *ast.FuncType) string {
 	params := fieldListToString(fn.Params, ", ")
 	returns := returnFieldListToString(fn.Results)
@@ -380,10 +392,12 @@ func fieldListToString(fields *ast.FieldList, separator string) string {
 	return strings.Join(parts, separator)
 }
 
+// returnFieldListToString 把返回值 FieldList 转为逗号分隔的类型字符串。
 func returnFieldListToString(fields *ast.FieldList) string {
 	return fieldListToString(fields, ", ")
 }
 
+// sortedPackageFiles 按文件名排序返回包内所有 AST 文件，确保清单生成顺序稳定。
 func sortedPackageFiles(pkg *ast.Package, fset *token.FileSet) []*ast.File {
 	files := make([]*ast.File, 0, len(pkg.Files))
 	for _, file := range pkg.Files {
@@ -395,6 +409,7 @@ func sortedPackageFiles(pkg *ast.Package, fset *token.FileSet) []*ast.File {
 	return files
 }
 
+// extractPackageDoc 从包的第一个有注释的源文件中提取 package 文档行（去除 "Package name " 前缀）。
 func extractPackageDoc(pkg *ast.Package, fset *token.FileSet) string {
 	for _, file := range sortedPackageFiles(pkg, fset) {
 		if file.Doc == nil {
@@ -408,6 +423,7 @@ func extractPackageDoc(pkg *ast.Package, fset *token.FileSet) string {
 	return ""
 }
 
+// isExported 判断标识符是否为导出名称（首字母大写）。
 func isExported(name string) bool {
 	return name != "" && unicode.IsUpper(rune(name[0]))
 }
@@ -437,6 +453,7 @@ func computeSummary(packages []PackageManifest) ManifestSummary {
 	return summary
 }
 
+// addExportCount 根据导出性更新清单摘要的已导出/未导出计数。
 func addExportCount(summary *ManifestSummary, exported bool) {
 	if exported {
 		summary.TotalExported++
@@ -445,30 +462,37 @@ func addExportCount(summary *ManifestSummary, exported bool) {
 	}
 }
 
+// sortFunctions/sortMethods/sortInterfaces/sortStructs 按稳定键对各类型列表排序，保证清单输出一致。
 func sortFunctions(items []FunctionManifest) {
 	sort.Slice(items, func(i, j int) bool { return functionKey(items[i]) < functionKey(items[j]) })
 }
 
+// sortMethods 按接收者+名称+签名排序方法列表，保证清单输出稳定。
 func sortMethods(items []MethodManifest) {
 	sort.Slice(items, func(i, j int) bool { return methodKey(items[i]) < methodKey(items[j]) })
 }
 
+// sortInterfaces 按接口名+嵌入+方法签名排序接口列表。
 func sortInterfaces(items []InterfaceManifest) {
 	sort.Slice(items, func(i, j int) bool { return interfaceKey(items[i]) < interfaceKey(items[j]) })
 }
 
+// sortStructs 按名称排序结构体列表。
 func sortStructs(items []StructManifest) {
 	sort.Slice(items, func(i, j int) bool { return items[i].Name < items[j].Name })
 }
 
+// functionKey 生成函数清单的比较键，包含名称、参数和返回类型。
 func functionKey(fn FunctionManifest) string {
 	return strings.Join([]string{fn.Name, paramsKey(fn.Params), strings.Join(fn.Returns, ",")}, "|")
 }
 
+// methodKey 生成方法清单的比较键，包含接收者、名称和签名。
 func methodKey(method MethodManifest) string {
 	return strings.Join([]string{method.Receiver, method.Name, paramsKey(method.Params), strings.Join(method.Returns, ",")}, "|")
 }
 
+// interfaceKey 生成接口清单的比较键，包含名称、嵌入和方法签名。
 func interfaceKey(iface InterfaceManifest) string {
 	parts := make([]string, 0, len(iface.Methods))
 	for _, method := range iface.Methods {
@@ -477,6 +501,7 @@ func interfaceKey(iface InterfaceManifest) string {
 	return strings.Join([]string{iface.Name, strings.Join(iface.Embeds, ","), strings.Join(parts, ",")}, "|")
 }
 
+// interfaceMethodKey 生成接口方法的比较键：名称 + 参数 + 返回。
 func interfaceMethodKey(method InterfaceMethodEntry) string {
 	return strings.Join([]string{method.Name, paramsKey(method.Params), strings.Join(method.Returns, ",")}, ":")
 }

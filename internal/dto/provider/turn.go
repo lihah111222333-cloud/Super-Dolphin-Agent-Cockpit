@@ -6,6 +6,8 @@ import (
 	shareddto "github.com/anthropic-ai/super-agent-v3/internal/dto/shared"
 )
 
+// TurnRequest 是发起一次 turn 的请求 DTO。
+// DedupeKey 只在 turn 层内存注册，不写入 provider 线格式。
 type TurnRequest struct {
 	LocalID              string          `json:"localId,omitempty"`
 	ThreadID             string          `json:"threadId"`
@@ -27,11 +29,13 @@ type TurnRequest struct {
 	DedupeKey string `json:"-"`
 }
 
+// TurnOverrides 携带单次 turn 的模型和 effort 覆盖参数。
 type TurnOverrides struct {
 	Model  string `json:"model,omitempty"`
 	Effort string `json:"effort,omitempty"`
 }
 
+// InputItem 是 shareddto.InputItem 的类型别名，供 turn/steer 请求直接引用。
 type InputItem = shareddto.InputItem
 
 // SkillRef 是 turn / steer 请求中携带的 skill 引用。
@@ -93,6 +97,7 @@ func (s SkillSource) Valid() bool {
 	return false
 }
 
+// TurnResult 是 turn 执行的结果摘要，包含本地和 provider 侧的 ID 及成败状态。
 type TurnResult struct {
 	LocalID    string `json:"localId"`
 	ProviderID string `json:"providerId,omitempty"`
@@ -100,12 +105,14 @@ type TurnResult struct {
 	Error      string `json:"error,omitempty"`
 }
 
+// InterruptRequest 是中断当前 turn 的请求 DTO。
 type InterruptRequest struct {
 	ThreadID string `json:"threadId"`
 	TurnID   string `json:"turnId,omitempty"`
 	Source   string `json:"source,omitempty"`
 }
 
+// SteerRequest 是向当前 turn 注入新输入（steer）的请求 DTO。
 type SteerRequest struct {
 	ThreadID             string          `json:"threadId"`
 	ExpectedTurnID       string          `json:"expectedTurnId,omitempty"`
@@ -117,15 +124,18 @@ type SteerRequest struct {
 	Overrides            TurnOverrides   `json:"overrides"`
 }
 
+// ForceCompleteRequest 强制结束指定 thread 的当前 turn。
 type ForceCompleteRequest struct {
 	ThreadID   string `json:"threadId"`
 	ProviderID string `json:"providerId,omitempty"`
 }
 
+// ForkRequest 是 fork thread 的请求 DTO。
 type ForkRequest struct {
 	ThreadID string `json:"threadId"`
 }
 
+// ForkResult 是 fork thread 操作的结果，携带新生成的 thread ID。
 type ForkResult struct {
 	NewThreadID string `json:"newThreadId"`
 }

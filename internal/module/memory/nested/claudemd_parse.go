@@ -1,3 +1,4 @@
+// Package nested 见 claudemd_sources.go。
 package nested
 
 import (

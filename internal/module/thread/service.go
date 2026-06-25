@@ -38,6 +38,7 @@ var errLocalSessionAlreadyGone = errors.New("thread local session already gone")
 // Kept as a local type alias for backward compatibility within this package.
 type SessionProvider = contract.SessionProvider
 
+// sessionGenerationRemover 用于按 generation 精确移除已停止的 session，避免误删新建 session。
 type sessionGenerationRemover interface {
 	RemoveSessionGeneration(agentID string, generation uint64)
 }
@@ -119,6 +120,7 @@ type service struct {
 
 var _ Service = (*service)(nil)
 
+// invalidatePromptAssembly 触发 prompt assembly 缓存失效，nil 时安全跳过。
 func (s *service) invalidatePromptAssembly(ctx context.Context, reason contract.InvalidateReason) error {
 	if s == nil || s.promptAssembly == nil {
 		return nil
@@ -219,6 +221,7 @@ func (s *service) Delete(ctx context.Context, threadID string) error {
 	return s.deleteThreadState(ctx, id, stopState, binding)
 }
 
+// resolveDeleteBinding 解析删除操作所需的 binding；处理 pending_launch 线程的特殊路径。
 func (s *service) resolveDeleteBinding(
 	ctx context.Context,
 	threadID string,
@@ -271,6 +274,7 @@ func (s *service) deletePendingLaunchThread(
 	return true, nil
 }
 
+// deleteThreadRuntime 停止线程关联的 provider session 和 orchestration agent。
 func (s *service) deleteThreadRuntime(
 	ctx context.Context,
 	stopState threadStopState,
@@ -282,6 +286,7 @@ func (s *service) deleteThreadRuntime(
 	return s.stopThreadRuntime(ctx, stopState, "thread_deleted", true)
 }
 
+// deleteThreadBinding 从 binding store 删除 agent 关联记录。
 func (s *service) deleteThreadBinding(ctx context.Context, binding *bindingstore.Binding) error {
 	if s.bindingStore == nil || binding == nil {
 		return nil
@@ -289,6 +294,7 @@ func (s *service) deleteThreadBinding(ctx context.Context, binding *bindingstore
 	return s.bindingStore.DeleteByAgentID(ctx, strings.TrimSpace(binding.AgentID))
 }
 
+// deleteThreadState 删除 thread store 记录、清理 scratchpad 并发布停止事件。
 func (s *service) deleteThreadState(
 	ctx context.Context,
 	threadID string,
@@ -308,6 +314,7 @@ func (s *service) deleteThreadState(
 	return nil
 }
 
+// forgetThreadAgents 批量移除进程内 threadID→agentID 映射缓存。
 func (s *service) forgetThreadAgents(threadIDs ...string) {
 	for _, threadID := range threadIDs {
 		s.forgetThreadAgent(threadID)
@@ -333,6 +340,7 @@ func (s *service) listThreads(ctx context.Context, filter func(threadstore.Threa
 	return result, nil
 }
 
+// getThread 按 threadID 从 store 读取单条记录。
 func (s *service) getThread(ctx context.Context, threadID string) (*threadstore.Thread, error) {
 	id, err := normalizeThreadID(threadID)
 	if err != nil {
@@ -344,6 +352,7 @@ func (s *service) getThread(ctx context.Context, threadID string) (*threadstore.
 	return s.threadStore.GetByThreadID(ctx, id)
 }
 
+// upsertThread 将线程记录写入 store，线程 store 未配置时报错。
 func (s *service) upsertThread(ctx context.Context, thread threadstore.Thread) error {
 	if s.threadStore == nil {
 		return errors.New("thread store is not configured")
@@ -351,6 +360,7 @@ func (s *service) upsertThread(ctx context.Context, thread threadstore.Thread) e
 	return s.threadStore.Upsert(ctx, newThreadUpsertParams(thread))
 }
 
+// updateThreadStatus 更新指定线程的 status 字段。
 func (s *service) updateThreadStatus(ctx context.Context, threadID, status string) error {
 	id, err := normalizeThreadID(threadID)
 	if err != nil {
@@ -366,6 +376,7 @@ func (s *service) updateThreadStatus(ctx context.Context, threadID, status strin
 	})
 }
 
+// resolveBinding 按 threadID 解析 binding，通过多路径回退查找对应 agent。
 func (s *service) resolveBinding(ctx context.Context, threadID string) (*bindingstore.Binding, error) {
 	id, err := normalizeThreadID(threadID)
 	if err != nil {
@@ -377,6 +388,7 @@ func (s *service) resolveBinding(ctx context.Context, threadID string) (*binding
 	return s.resolveBindingChain(ctx, id)
 }
 
+// resolveSession 按 threadID 解析 binding 并从 session provider 获取 session。
 func (s *service) resolveSession(ctx context.Context, threadID string) (contract.Session, *bindingstore.Binding, error) {
 	binding, err := s.resolveBinding(ctx, threadID)
 	if err != nil {

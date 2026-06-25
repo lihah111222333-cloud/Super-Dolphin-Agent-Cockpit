@@ -1,3 +1,4 @@
+// Package datasource 提供本地文件上传、列举和删除能力，并把文件正文入库供 prompt 动态段消费。
 package datasource
 
 import (
@@ -19,6 +20,7 @@ func NewHandlers(svc Service) platformrpc.HandlerMapResult {
 	}}
 }
 
+// uploadHandler 处理 datasource/upload 请求，将上传文件错误映射为 RPC 错误码。
 func uploadHandler(svc Service) func(context.Context, UploadFileRequest) (UploadFileResult, error) {
 	return func(ctx context.Context, req UploadFileRequest) (UploadFileResult, error) {
 		if svc == nil {
@@ -32,6 +34,7 @@ func uploadHandler(svc Service) func(context.Context, UploadFileRequest) (Upload
 	}
 }
 
+// listHandler 处理 datasource/list 请求。
 func listHandler(svc Service) func(context.Context, struct{}) (ListFilesResult, error) {
 	return func(ctx context.Context, _ struct{}) (ListFilesResult, error) {
 		if svc == nil {
@@ -45,6 +48,7 @@ func listHandler(svc Service) func(context.Context, struct{}) (ListFilesResult, 
 	}
 }
 
+// deleteHandler 处理 datasource/delete 请求。
 func deleteHandler(svc Service) func(context.Context, DeleteFileRequest) (DeleteFileResult, error) {
 	return func(ctx context.Context, req DeleteFileRequest) (DeleteFileResult, error) {
 		if svc == nil {
@@ -58,6 +62,7 @@ func deleteHandler(svc Service) func(context.Context, DeleteFileRequest) (Delete
 	}
 }
 
+// datasourceRPCError 将 datasource 业务错误映射为标准 jrpc2 错误码。
 func datasourceRPCError(err error) error {
 	switch {
 	case errors.Is(err, errMissingSourcePath),

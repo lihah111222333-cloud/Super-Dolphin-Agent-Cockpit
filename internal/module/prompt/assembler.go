@@ -12,6 +12,7 @@ import (
 	"golang.org/x/sync/errgroup"
 )
 
+// computedSectionValue 包装 section 计算结果，用于 singleflight 的泛型返回值。
 type computedSectionValue struct {
 	Value *string
 }
@@ -79,6 +80,7 @@ func (s *service) AssembleStart(ctx context.Context, in StartInput) (StartAssemb
 	}, nil
 }
 
+// simpleStartEnabled 判断是否启用简化 start 路径（三行提示，不含 section 计算）。
 func simpleStartEnabled(in StartInput) bool {
 	if parseBoolEnv(envClaudeSimple, false) {
 		return true
@@ -294,6 +296,7 @@ func (s *service) regionSections(region PromptRegion) []PromptSection {
 	return sections
 }
 
+// fallbackStartAssembly 在 section 解析失败时用原始 BaseInstructions 构建降级 assembly。
 func (s *service) fallbackStartAssembly(ctx context.Context, in StartInput) StartAssembly {
 	displayName := strings.TrimSpace(in.Name)
 	base := strings.TrimSpace(in.BaseInstructions)
@@ -339,6 +342,7 @@ func (s *service) buildStartUserMeta(_ BuildCtx, resolved []ResolvedPromptSectio
 	return meta
 }
 
+// startPromptCurrentDate 返回 start 提示使用的当前日期，优先读环境变量覆盖。
 func startPromptCurrentDate() string {
 	if value := strings.TrimSpace(os.Getenv(envPromptStartCurrentDate)); value != "" {
 		return value
@@ -367,12 +371,14 @@ func (s *service) newSnapshot(
 	}
 }
 
+// logBuildFallback 在 prompt 组装降级时记录 warn 日志。
 func (s *service) logBuildFallback(stage string, err error) {
 	if s.logger != nil && err != nil {
 		s.logger.Warn("prompt assembly fallback", "stage", stage, "error", err)
 	}
 }
 
+// notifyInvalidationProviders 通知所有动态提供器以及 claudeMd 提供器缓存已失效。
 func (s *service) notifyInvalidationProviders(reason InvalidateReason) {
 	s.dynamicMu.RLock()
 	providers := make([]DynamicSectionProvider, 0, len(s.dynamic))
@@ -391,14 +397,17 @@ func (s *service) notifyInvalidationProviders(reason InvalidateReason) {
 	}
 }
 
+// buildStartSectionContext 从 StartInput 构建 section 上下文。
 func buildStartSectionContext(in StartInput) SectionContext {
 	return SectionContext{BuildCtx: buildStartCtx(in), Start: &in}
 }
 
+// buildTurnSectionContext 从 TurnInput 构建 section 上下文。
 func buildTurnSectionContext(in TurnInput) SectionContext {
 	return SectionContext{BuildCtx: buildTurnCtx(in), Turn: &in}
 }
 
+// buildStartCtx 从 StartInput 构建 BuildCtx，所有字符串字段做 TrimSpace，切片做防御性拷贝。
 func buildStartCtx(in StartInput) BuildCtx {
 	return BuildCtx{
 		CWD:                          strings.TrimSpace(in.CWD),
@@ -423,6 +432,7 @@ func buildStartCtx(in StartInput) BuildCtx {
 	}
 }
 
+// buildTurnCtx 从 TurnInput 构建 BuildCtx，所有字符串字段做 TrimSpace，切片做防御性拷贝。
 func buildTurnCtx(in TurnInput) BuildCtx {
 	return BuildCtx{
 		CWD:                          strings.TrimSpace(in.CWD),

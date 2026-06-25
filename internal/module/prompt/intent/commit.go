@@ -17,13 +17,14 @@ import (
 )
 
 const (
-	promptScopeTagPrefix = "scope.cwd:"
-	promptUpdatedBy      = "rpc.prompts"
-	promptDraftListLimit = 1000
+	promptScopeTagPrefix = "scope.cwd:"  // 项目级 scope tag 前缀
+	promptUpdatedBy      = "rpc.prompts" // 创建/更新者标识
+	promptDraftListLimit = 1000          // 列出草稿的最大条数
 )
 
 var promptSlugPattern = regexp.MustCompile(`[^a-z0-9]+`)
 
+// CommitResult 是草稿提交成功后的返回结果。
 type CommitResult struct {
 	DraftKey  string `json:"draft_key"`
 	PromptKey string `json:"prompt_key"`
@@ -31,12 +32,14 @@ type CommitResult struct {
 	Status    string `json:"status"`
 }
 
+// DiscardResult 是草稿丢弃操作的返回结果。
 type DiscardResult struct {
 	DraftKey string `json:"draft_key"`
 	Status   string `json:"status"`
 }
 
-// HandleCommit 处理commit。
+// HandleCommit 提交草稿为正式 prompt 模板，在事务中完成校验、写库、状态更新及旁系草稿拒绝，
+// 最后触发 section 缓存失效。
 func HandleCommit(
 	ctx context.Context,
 	promptStore promptstore.Store,
@@ -77,6 +80,7 @@ func HandleCommit(
 	return result, nil
 }
 
+// promptIntentCommitGlobalScope 根据草稿 scope 和请求参数决定是否全局提交；scope 不匹配时报错。
 func promptIntentCommitGlobalScope(draft *promptstore.PromptIntentDraft, p CommitParams) (bool, error) {
 	scope := strings.TrimSpace(draft.Scope)
 	switch scope {
@@ -95,7 +99,7 @@ func promptIntentCommitGlobalScope(draft *promptstore.PromptIntentDraft, p Commi
 	}
 }
 
-// HandleDiscard 处理discard。
+// HandleDiscard 将草稿状态更新为 rejected。
 func HandleDiscard(ctx context.Context, promptStore promptstore.Store, p DiscardParams) (any, error) {
 	if promptStore == nil {
 		return nil, errors.New("prompt store is required for prompt intent discard")
@@ -115,7 +119,8 @@ func HandleDiscard(ctx context.Context, promptStore promptstore.Store, p Discard
 	return DiscardResult{DraftKey: draft.DraftKey, Status: draft.Status}, nil
 }
 
-// commitPromptIntentDraft 处理commitpromptintentdraft。
+// commitPromptIntentDraft 执行草稿提交的核心逻辑：规范化卡片、按 kind 分派写库、
+// 更新草稿状态为 enabled、拒绝同批次其他草稿。
 func commitPromptIntentDraft(ctx context.Context, store promptstore.Store, builtin contract.BuiltinPromptRegistry, cwd string, draft *promptstore.PromptIntentDraft, global bool) (CommitResult, error) {
 	kind, err := normalizeKind(draft.Kind)
 	if err != nil {
@@ -150,7 +155,7 @@ func commitPromptIntentDraft(ctx context.Context, store promptstore.Store, built
 	return CommitResult{DraftKey: draft.DraftKey, PromptKey: saved.PromptKey, Kind: string(kind), Status: "enabled"}, nil
 }
 
-// rejectSiblingPromptIntentDrafts 处理rejectsiblingpromptintentdrafts。
+// rejectSiblingPromptIntentDrafts 拒绝与已提交草稿同批次（同 origin_hash + raw_input + scope）的其他草稿。
 func rejectSiblingPromptIntentDrafts(ctx context.Context, store promptstore.Store, cwd string, committed *promptstore.PromptIntentDraft) error {
 	originHash := strings.TrimSpace(committed.OriginHash)
 	rawInput := strings.TrimSpace(committed.RawInput)
@@ -176,6 +181,7 @@ func rejectSiblingPromptIntentDrafts(ctx context.Context, store promptstore.Stor
 	return nil
 }
 
+// samePromptIntentDraftBatch 判断两个草稿是否属于同一批次，排除已提交草稿自身。
 func samePromptIntentDraftBatch(committed *promptstore.PromptIntentDraft, draft promptstore.PromptIntentDraft, originHash, rawInput string) bool {
 	if strings.TrimSpace(draft.DraftKey) == strings.TrimSpace(committed.DraftKey) {
 		return false
@@ -189,11 +195,12 @@ func samePromptIntentDraftBatch(committed *promptstore.PromptIntentDraft, draft 
 	return promptIntentDraftScopeIsGlobal(draft.Scope) == promptIntentDraftScopeIsGlobal(committed.Scope)
 }
 
+// promptIntentDraftScopeIsGlobal 判断草稿 scope 是否为全局。
 func promptIntentDraftScopeIsGlobal(scope string) bool {
 	return strings.TrimSpace(scope) == "global"
 }
 
-// commitPromptIntentExpert 处理commitpromptintentexpert。
+// commitPromptIntentExpert 将 expert 类型草稿写入 prompt 模板，包含 identity/workflow/constraints/output 四个 section。
 func commitPromptIntentExpert(ctx context.Context, store promptstore.Store, builtin contract.BuiltinPromptRegistry, cwd, draftKey string, card Card, global bool) (*promptstore.PromptTemplate, error) {
 	candidates, err := promptIntentPromptKeyCandidates(KindExpert, card.Title, "", draftKey)
 	if err != nil {
@@ -225,6 +232,7 @@ func commitPromptIntentExpert(ctx context.Context, store promptstore.Store, buil
 	return saved, nil
 }
 
+// promptIntentExpertConstraintsBody 构建 constraints section 正文，包含 when_not_to_use、save_boundary 和 constraints 列表。
 func promptIntentExpertConstraintsBody(card Card) string {
 	parts := nonEmptyStrings(card.WhenNotToUse)
 	if boundary := strings.TrimSpace(card.SaveBoundary); boundary != "" {
@@ -236,7 +244,7 @@ func promptIntentExpertConstraintsBody(card Card) string {
 	return strings.TrimSpace(strings.Join(parts, "\n\n"))
 }
 
-// commitPromptIntentRecall 处理commitpromptintentrecall。
+// commitPromptIntentRecall 将 recall 类型草稿写入 prompt 模板，并在 cwd 内锁定 recall_topic 防止重复。
 func commitPromptIntentRecall(ctx context.Context, store promptstore.Store, builtin contract.BuiltinPromptRegistry, cwd, draftKey string, card Card, global bool) (*promptstore.PromptTemplate, error) {
 	candidates, err := promptIntentPromptKeyCandidates(KindRecall, card.Title, card.RecallTopic, draftKey)
 	if err != nil {
@@ -277,7 +285,7 @@ func commitPromptIntentRecall(ctx context.Context, store promptstore.Store, buil
 	return saved, nil
 }
 
-// commitPromptIntentDefaultRule 处理commitpromptintentdefaultrule。
+// commitPromptIntentDefaultRule 将 default_rule 类型草稿写入 prompt 模板。
 func commitPromptIntentDefaultRule(ctx context.Context, store promptstore.Store, builtin contract.BuiltinPromptRegistry, cwd, draftKey string, card Card, global bool) (*promptstore.PromptTemplate, error) {
 	candidates, err := promptIntentPromptKeyCandidates(KindDefaultRule, card.Title, "", draftKey)
 	if err != nil {
@@ -309,6 +317,8 @@ func commitPromptIntentDefaultRule(ctx context.Context, store promptstore.Store,
 	return saved, nil
 }
 
+// promptIntentPromptKeyCandidates 生成最多两个候选 prompt_key：基础 slug 和带 draft_key 短哈希后缀的版本，
+// 用于处理名称冲突。
 func promptIntentPromptKeyCandidates(kind Kind, title, topic, draftKey string) ([]string, error) {
 	base := promptIntentPromptKeyBase(kind, title, topic)
 	if base == "" {
@@ -320,6 +330,7 @@ func promptIntentPromptKeyCandidates(kind Kind, title, topic, draftKey string) (
 	return []string{base, base + "-" + shortPromptIntentKeySuffix(draftKey)}, nil
 }
 
+// promptIntentPromptKeyBase 根据 kind 生成 prompt_key 的基础路径。
 func promptIntentPromptKeyBase(kind Kind, title, topic string) string {
 	switch kind {
 	case KindExpert:
@@ -333,6 +344,7 @@ func promptIntentPromptKeyBase(kind Kind, title, topic string) string {
 	}
 }
 
+// stableSlug 将任意字符串转为 slug 格式（小写、非字母数字替换为连字符）。
 func stableSlug(value string) string {
 	slug := promptSlugPattern.ReplaceAllString(strings.ToLower(strings.TrimSpace(value)), "-")
 	slug = strings.Trim(slug, "-")
@@ -342,12 +354,14 @@ func stableSlug(value string) string {
 	return slug
 }
 
+// shortPromptIntentKeySuffix 取 draft_key SHA-256 前 8 位作为冲突消解后缀。
 func shortPromptIntentKeySuffix(draftKey string) string {
 	sum := sha256.Sum256([]byte(strings.TrimSpace(draftKey)))
 	return hex.EncodeToString(sum[:])[:8]
 }
 
-// createPromptIntentTemplateFromCandidates 从候选项创建promptintenttemplate。
+// createPromptIntentTemplateFromCandidates 依次尝试候选 prompt_key 写库，遇到冲突则换下一个，
+// 全部失败时返回 invalid_params 错误。
 func createPromptIntentTemplateFromCandidates(
 	ctx context.Context,
 	store promptstore.Store,
@@ -380,6 +394,7 @@ func createPromptIntentTemplateFromCandidates(
 	return nil, platformrpc.ErrInvalidParams("prompt intent prompt_key candidate is required")
 }
 
+// promptIntentBuiltinPromptExists 检查 builtin registry 中是否已存在指定 prompt_key。
 func promptIntentBuiltinPromptExists(builtin contract.BuiltinPromptRegistry, promptKey string) bool {
 	if builtin == nil {
 		return false
@@ -388,6 +403,7 @@ func promptIntentBuiltinPromptExists(builtin contract.BuiltinPromptRegistry, pro
 	return ok
 }
 
+// createPromptIntentTemplate 写入单条 prompt 模板，补充 scope tag、enabled 和 created/updated_by 字段。
 func createPromptIntentTemplate(ctx context.Context, store promptstore.Store, cwd string, global bool, template promptstore.PromptTemplate) (*promptstore.PromptTemplate, error) {
 	cwd, err := requireCWD(cwd)
 	if err != nil {
@@ -406,7 +422,7 @@ func createPromptIntentTemplate(ctx context.Context, store promptstore.Store, cw
 	return store.CreatePromptTemplate(ctx, template)
 }
 
-// withPromptIntentScopeTag 设置promptintent作用域tag。
+// withPromptIntentScopeTag 用指定 cwd 或全局标记替换模板 tags 中的 scope 相关标签。
 func withPromptIntentScopeTag(raw json.RawMessage, cwd string, global bool) json.RawMessage {
 	tags := make([]string, 0, len(promptTags(raw))+1)
 	for _, tag := range promptTags(raw) {
@@ -424,6 +440,7 @@ func withPromptIntentScopeTag(raw json.RawMessage, cwd string, global bool) json
 	return mustJSONTags(tags...)
 }
 
+// promptTags 安全解析 JSON tags 字段，失败返回空切片。
 func promptTags(raw json.RawMessage) []string {
 	if len(raw) == 0 {
 		return []string{}
@@ -435,7 +452,8 @@ func promptTags(raw json.RawMessage) []string {
 	return tags
 }
 
-// rejectDuplicateRecallTopicInCWD 在工作目录处理rejectduplicaterecalltopic。
+// rejectDuplicateRecallTopicInCWD 在事务中加锁并检查 cwd 内是否已有同名 recall_topic，
+// 有则返回错误阻止重复提交。
 func rejectDuplicateRecallTopicInCWD(
 	ctx context.Context,
 	store promptstore.Store,
@@ -466,7 +484,7 @@ func rejectDuplicateRecallTopicInCWD(
 	return nil
 }
 
-// promptIntentRecallDuplicateExists 处理promptintentrecallduplicateexists。
+// promptIntentRecallDuplicateExists 检查模板列表中是否存在与目标 topic 冲突的 recall section。
 func promptIntentRecallDuplicateExists(
 	templates []promptstore.PromptTemplate,
 	sectionsByID map[int64][]promptstore.PromptTemplateSection,
@@ -489,6 +507,7 @@ func promptIntentRecallDuplicateExists(
 	return false
 }
 
+// promptIntentRecallDuplicateSectionExists 检查单个模板的 section 列表中是否有重复的 recall topic。
 func promptIntentRecallDuplicateSectionExists(
 	sections []promptstore.PromptTemplateSection,
 	topic string,
@@ -503,6 +522,7 @@ func promptIntentRecallDuplicateSectionExists(
 	return false
 }
 
+// promptIntentRecallSectionDuplicatesTopic 判断单个 section 是否与目标 topic 重复（排除自身）。
 func promptIntentRecallSectionDuplicatesTopic(
 	section promptstore.PromptTemplateSection,
 	topic string,
@@ -518,7 +538,7 @@ func promptIntentRecallSectionDuplicatesTopic(
 	return section.TemplateID != templateID || strings.TrimSpace(section.SectionKey) != sectionKey
 }
 
-// validatePromptIntentCommitCard 校验promptintentcommitcard。
+// validatePromptIntentCommitCard 在提交前执行质量和完整性校验，发现 block 问题时返回 invalid_params 错误。
 func validatePromptIntentCommitCard(kind Kind, rawInput string, card Card) error {
 	if issue, ok := firstPromptIntentBlockIssue(promptIntentDraftIssues(kind, rawInput, card)); ok {
 		return platformrpc.ErrInvalidParams(promptIntentCommitBlockMessage(issue))
@@ -551,6 +571,7 @@ func validatePromptIntentCommitCard(kind Kind, rawInput string, card Card) error
 	return nil
 }
 
+// promptIntentCommitBlockMessage 生成提交失败时的错误消息前缀（质量/安全/一致性）。
 func promptIntentCommitBlockMessage(issue Issue) string {
 	prefix := "prompt intent draft quality failed"
 	if promptIntentSafetyIssueCode(issue.Code) {
@@ -566,6 +587,7 @@ func promptIntentCommitBlockMessage(issue Issue) string {
 	return prefix + ": " + message
 }
 
+// promptIntentSafetyIssueCode 判断 issue code 是否属于安全类问题。
 func promptIntentSafetyIssueCode(code string) bool {
 	switch strings.TrimSpace(code) {
 	case "input_too_short", "external_system_prompt", "external_system_prompt_source", "identity_pollution", "tool_protocol_pollution", "overbroad_scope":
@@ -575,6 +597,7 @@ func promptIntentSafetyIssueCode(code string) bool {
 	}
 }
 
+// firstPromptIntentBlockIssue 返回列表中第一个 severity=block 的问题。
 func firstPromptIntentBlockIssue(issues []Issue) (Issue, bool) {
 	for _, issue := range issues {
 		if strings.TrimSpace(issue.Severity) == "block" {
@@ -584,6 +607,7 @@ func firstPromptIntentBlockIssue(issues []Issue) (Issue, bool) {
 	return Issue{}, false
 }
 
+// requirePromptIntentExamples 校验 hit_examples 和 miss_examples 各至少含一条非空项。
 func requirePromptIntentExamples(hit, miss []string) error {
 	if len(trimmedPromptIntentExamples(hit)) == 0 {
 		return platformrpc.ErrInvalidParams("prompt intent hit_examples is required")
@@ -594,6 +618,7 @@ func requirePromptIntentExamples(hit, miss []string) error {
 	return nil
 }
 
+// requireNonEmptyPromptIntentFields 检查指定字段是否均非空，任一为空返回 invalid_params 错误。
 func requireNonEmptyPromptIntentFields(fields map[string]string) error {
 	for name, value := range fields {
 		if strings.TrimSpace(value) == "" {
@@ -603,7 +628,7 @@ func requireNonEmptyPromptIntentFields(fields map[string]string) error {
 	return nil
 }
 
-// promptIntentDraftHasReviewIssue 处理promptintentdrafthasreviewissue。
+// promptIntentDraftHasReviewIssue 判断草稿是否含有 review 级别问题，有则要求用户确认才能提交。
 func promptIntentDraftHasReviewIssue(draft *promptstore.PromptIntentDraft) bool {
 	var issues []Issue
 	if err := json.Unmarshal(draft.Issues, &issues); err != nil {
@@ -626,6 +651,7 @@ func promptIntentDraftHasReviewIssue(draft *promptstore.PromptIntentDraft) bool 
 	return false
 }
 
+// invalidatePromptIntentCommit 根据 kind 清除对应的 section 动态缓存。
 func invalidatePromptIntentCommit(invalidator contract.SectionInvalidator, kind string) {
 	if invalidator == nil {
 		return
@@ -640,6 +666,7 @@ func invalidatePromptIntentCommit(invalidator contract.SectionInvalidator, kind 
 	}
 }
 
+// mustJSONTags 将 tags 列表序列化为 JSON，失败时返回空数组。
 func mustJSONTags(tags ...string) json.RawMessage {
 	encoded, err := json.Marshal(tags)
 	if err != nil {

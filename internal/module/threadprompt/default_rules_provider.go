@@ -12,12 +12,12 @@ import (
 
 type ProjectDefaultRulesProvider struct{ catalog RuntimePromptCatalog }
 
-// SectionName 处理section名称。
+// SectionName 返回本 provider 负责的动态 section 名称。
 func (ProjectDefaultRulesProvider) SectionName() string {
 	return contract.DynamicSectionProjectDefaultRules
 }
 
-// Resolve 解析threadprompt。
+// Resolve 解析项目默认规则，列出当前 CWD 下所有 default_rule section 并渲染为 prompt 文本。
 func (p ProjectDefaultRulesProvider) Resolve(ctx context.Context, input contract.SectionContext) (*string, error) {
 	start := time.Now()
 	if p.catalog == nil {
@@ -61,7 +61,7 @@ func renderProjectDefaultRules(sections []promptstore.PromptTemplateSection) str
 	return strings.Join(lines, "\n")
 }
 
-// effectiveDefaultRuleSections 处理effectivedefaultrulesections。
+// effectiveDefaultRuleSections 按 identity 去重并保留作用域更精确的 default_rule section，维持原始顺序。
 func effectiveDefaultRuleSections(sections []promptstore.PromptTemplateSection) []promptstore.PromptTemplateSection {
 	byKey := map[string]promptstore.PromptTemplateSection{}
 	order := make([]string, 0, len(sections))
@@ -86,7 +86,7 @@ func effectiveDefaultRuleSections(sections []promptstore.PromptTemplateSection) 
 	return out
 }
 
-// defaultRuleIdentity 处理defaultrule身份。
+// defaultRuleIdentity 生成 default_rule section 的去重键，依次用 title+sectionKey、sectionKey、promptKey、body 作为候选。
 func defaultRuleIdentity(section promptstore.PromptTemplateSection) string {
 	sectionKey := strings.ToLower(strings.TrimSpace(section.SectionKey))
 	if title := strings.ToLower(strings.TrimSpace(section.TemplateTitle)); title != "" {

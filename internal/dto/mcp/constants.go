@@ -1,6 +1,9 @@
+// Package mcp 定义 MCP 控制协议的所有 DTO、常量和错误码，
+// 供 agent-terminal、mcp-orch、mcp-lsp 等各端共享，不含业务逻辑。
 package mcp
 
 const (
+	// ctl/* 控制协议方法名。
 	MethodRegister        = "ctl/register"
 	MethodHeartbeat       = "ctl/heartbeat"
 	MethodContext         = "ctl/context"
@@ -12,44 +15,53 @@ const (
 	MethodConfigChanged   = "ctl/config/changed"
 	MethodLSPReleaseScope = "ctl/lsp/release_scope"
 
+	// ProtocolVersion 是当前握手协议版本标识。
 	ProtocolVersion = "ctl/v1"
 
+	// ClientKind* 标识注册客户端的角色类型。
 	ClientKindOrch   = "orch"
 	ClientKindLSP    = "lsp"
 	ClientKindIDA    = "ida"
 	ClientKindCustom = "custom"
 
+	// PeerKind* 标识 peer 在协议中的能力角色。
 	PeerKindTool          = "tool"
 	PeerKindUI            = "ui"
 	PeerKindSharedService = "shared-service"
 
+	// Scope* 是 ctl/context 请求的合法 scope 值。
 	ScopeAgentRuntime   = "agent.runtime"
 	ScopeThreadBinding  = "thread.binding"
 	ScopeWorkspaceRun   = "workspace.run"
 	ScopeConfigSnapshot = "config.snapshot"
 
+	// LSPReleaseScope* 是 ctl/lsp/release_scope 的 scope_kind 枚举值。
 	LSPReleaseScopeAgentThread     = "agent_thread"
 	LSPReleaseScopeAgentAllThreads = "agent_all_threads"
 	LSPReleaseScopeManagerKey      = "manager_key"
 
+	// ContextSource* 标识上下文响应的数据来源。
 	ContextSourceLive         = "live"
 	ContextSourceBootSnapshot = "boot_snapshot"
 	ContextSourceDBRebuild    = "db_rebuild" // reserved for future use
 
+	// Status* 是 peer 租约的状态枚举。
 	StatusActive       = "active"
 	StatusStale        = "stale"
 	StatusDisconnected = "disconnected"
 
+	// ReportVariant* 是 ctl/report 包络的类型判别值。
 	ReportVariantRuntime    = "runtime"
 	ReportVariantCompletion = "completion"
 	ReportVariantProgress   = "progress"
 	ReportVariantDiagnostic = "diagnostic"
 
+	// DecisionSource* 标识审批决策的来源渠道。
 	DecisionSourceUI          = "ui"
 	DecisionSourceAutoApprove = "auto_approve"
 	DecisionSourceStatic      = "static" // reserved for future use
 
-	// Hook methods (v2 extension)
+	// Hook 协议方法名（v2 扩展）。
 	MethodHookSubscribe = "ctl/hook/subscribe"
 	MethodHookBefore    = "ctl/hook/before"
 	MethodHookCheck     = "ctl/hook/check"
@@ -57,7 +69,7 @@ const (
 	MethodHookResolve   = "ctl/hook/resolve"
 	MethodHookPending   = "ctl/hook/pending"
 
-	// Hook decisions
+	// HookDecision* 是 hook 阶段可返回的决策值枚举。
 	HookDecisionAllow    = "allow"
 	HookDecisionDeny     = "deny"
 	HookDecisionWait     = "wait"

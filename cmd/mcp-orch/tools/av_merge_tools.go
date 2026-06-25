@@ -11,12 +11,14 @@ import (
 	"time"
 )
 
+// avMergeInput 是 av_merge 工具的入参。
 type avMergeInput struct {
 	VideoPath  string `json:"video_path"`
 	AudioPath  string `json:"audio_path"`
 	OutputPath string `json:"output_path,omitempty"`
 }
 
+// avMergeToolDefinitions 返回 av_merge 工具的定义列表。
 func avMergeToolDefinitions() []ToolDefinition {
 	return buildToolDefinitions(
 		defineTool(
@@ -79,6 +81,7 @@ func handleAVMerge() ToolHandler {
 	}
 }
 
+// ffmpegBin 返回 ffmpeg 可执行文件路径，优先读取 FFMPEG_PATH 环境变量。
 func ffmpegBin() string {
 	if p := strings.TrimSpace(os.Getenv("FFMPEG_PATH")); p != "" {
 		return p

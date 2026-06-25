@@ -1,3 +1,4 @@
+// Package datasource 提供本地文件上传、列举和删除能力，并把文件正文入库供 prompt 动态段消费。
 package datasource
 
 import "github.com/anthropic-ai/super-agent-v3/internal/contract"

@@ -8,10 +8,12 @@ import (
 	platformrpc "github.com/anthropic-ai/super-agent-v3/internal/platform/rpc"
 )
 
+// profileGetParams 是 personalization/profile/get 接口的入参。
 type profileGetParams struct {
 	Cwd string `json:"cwd,omitempty"`
 }
 
+// profileSaveParams 是 personalization/profile/save 接口的入参。
 type profileSaveParams struct {
 	Cwd     string  `json:"cwd,omitempty"`
 	Profile Profile `json:"profile"`
@@ -25,6 +27,7 @@ func NewHandlers(svc Service) platformrpc.HandlerMapResult {
 	}}
 }
 
+// profileGetHandler 处理 profile 读取请求，service 未配置时返回 InvalidState 错误。
 func profileGetHandler(svc Service) func(context.Context, profileGetParams) (ProfileResult, error) {
 	return func(ctx context.Context, p profileGetParams) (ProfileResult, error) {
 		if svc == nil {
@@ -38,6 +41,7 @@ func profileGetHandler(svc Service) func(context.Context, profileGetParams) (Pro
 	}
 }
 
+// profileSaveHandler 处理 profile 保存请求，service 未配置时返回 InvalidState 错误。
 func profileSaveHandler(svc Service) func(context.Context, profileSaveParams) (ProfileResult, error) {
 	return func(ctx context.Context, p profileSaveParams) (ProfileResult, error) {
 		if svc == nil {

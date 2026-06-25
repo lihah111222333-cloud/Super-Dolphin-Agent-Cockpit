@@ -7,6 +7,7 @@ import (
 	"strings"
 )
 
+// indexedSourceExts 是代码地图索引支持的源码文件扩展名集合。
 var indexedSourceExts = map[string]bool{
 	".go":  true,
 	".js":  true,
@@ -16,6 +17,7 @@ var indexedSourceExts = map[string]bool{
 	".sh":  true,
 }
 
+// indexedSourceSkipDirs 是扫描时应跳过的目录名集合。
 var indexedSourceSkipDirs = map[string]bool{
 	"node_modules":      true,
 	".git":              true,
@@ -41,6 +43,7 @@ func ScanSourceFiles(root string) ([]string, error) {
 	return appendRootIndexedFiles(root, r), nil
 }
 
+// indexedSourceDirs 返回项目根目录下需要扫描的源码子目录列表。
 func indexedSourceDirs(root string) []string {
 	var dirs []string
 	for _, name := range []string{"cmd", "internal", "pkg", "sql", "migrations", "scripts"} {
@@ -77,6 +80,7 @@ func collectSourceFilesFromDir(root, dir string) ([]string, error) {
 	return files, nil
 }
 
+// appendRootIndexedFiles 追加根目录中固定文件（Makefile / shell 脚本等），如果它们存在的话。
 func appendRootIndexedFiles(root string, files []string) []string {
 	for _, extra := range []string{"run-new-ui-desktop.sh", "run-new-ui-desktop.ps1", "Makefile"} {
 		p := filepath.Join(root, extra)
@@ -87,10 +91,12 @@ func appendRootIndexedFiles(root string, files []string) []string {
 	return files
 }
 
+// shouldSkipIndexedDir 判断目录是否在跳过列表中，用于 Walk 时剪枝。
 func shouldSkipIndexedDir(info os.FileInfo) bool {
 	return info.IsDir() && indexedSourceSkipDirs[info.Name()]
 }
 
+// isIndexedSourceFile 判断文件是否为需要索引的源码文件（非目录、非测试文件、扩展名匹配）。
 func isIndexedSourceFile(info os.FileInfo, path string) bool {
 	if info.IsDir() {
 		return false
@@ -101,11 +107,13 @@ func isIndexedSourceFile(info os.FileInfo, path string) bool {
 	return indexedSourceExts[filepath.Ext(path)]
 }
 
+// dirExists 判断路径是否为存在的目录。
 func dirExists(path string) bool {
 	st, err := os.Stat(path)
 	return err == nil && st.IsDir()
 }
 
+// fileExists 判断路径是否为存在的文件（非目录）。
 func fileExists(path string) bool {
 	st, err := os.Stat(path)
 	return err == nil && !st.IsDir()

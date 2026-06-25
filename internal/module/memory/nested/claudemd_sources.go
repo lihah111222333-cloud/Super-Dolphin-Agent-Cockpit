@@ -1,3 +1,5 @@
+// Package nested 管理 CLAUDE.md 及相关规则文件的发现、加载与注入。
+// 负责从 managed/user/project/addDir 四类来源解析候选项，过滤后提供给 prompt 构建流程。
 package nested
 
 import (
@@ -41,6 +43,8 @@ const (
 
 type ClaudeMdSource = contract.ClaudeMdSource
 
+// GateSnapshot 是 nested 包内使用的门控快照，控制 CLAUDE.md 来源加载行为。
+// SuppressForOverlay 为 true 时表示由底层 CLI 原生处理 CLAUDE.md，nested 不再注入，防止双重注入。
 type GateSnapshot struct {
 	BareMode                 bool
 	HasAdditionalDirsForBare bool
@@ -58,6 +62,7 @@ type GateSnapshot struct {
 	SuppressForOverlay bool
 }
 
+// Dependencies 是 nested 包的外部依赖注入结构，调用方按需提供各回调。
 type Dependencies struct {
 	NestedEnabled bool
 	Gate          func(contract.BuildCtx) GateSnapshot
@@ -65,6 +70,7 @@ type Dependencies struct {
 	TeamRoot      func(contract.BuildCtx) string
 }
 
+// resolveGate 调用注入的 Gate 回调获取门控快照，Gate 为 nil 时返回空快照。
 func (d Dependencies) resolveGate(buildCtx contract.BuildCtx) GateSnapshot {
 	if d.Gate == nil {
 		return GateSnapshot{}
@@ -72,6 +78,7 @@ func (d Dependencies) resolveGate(buildCtx contract.BuildCtx) GateSnapshot {
 	return d.Gate(buildCtx)
 }
 
+// autoMemRoot 返回清理后的 AutoMem 根路径，AutoMemRoot 为 nil 时返回空字符串。
 func (d Dependencies) autoMemRoot(buildCtx contract.BuildCtx) string {
 	if d.AutoMemRoot == nil {
 		return ""
@@ -79,6 +86,7 @@ func (d Dependencies) autoMemRoot(buildCtx contract.BuildCtx) string {
 	return cleanClaudeMdPath(d.AutoMemRoot(buildCtx))
 }
 
+// teamRoot 返回清理后的 team 记忆根路径，TeamRoot 为 nil 时返回空字符串。
 func (d Dependencies) teamRoot(buildCtx contract.BuildCtx) string {
 	if d.TeamRoot == nil {
 		return ""
@@ -95,6 +103,7 @@ type ClaudeMdResolveConfig struct {
 	UserRoot          string
 }
 
+// ClaudeMdSourcesProvider 缓存并提供当前 BuildCtx 下的 CLAUDE.md 来源列表，线程安全。
 type ClaudeMdSourcesProvider struct {
 	deps   Dependencies
 	team   contract.TeamMemoryManager
@@ -104,6 +113,7 @@ type ClaudeMdSourcesProvider struct {
 	cache map[string][]ClaudeMdSource
 }
 
+// claudeMdCandidate 表示一个待加载的 CLAUDE.md 候选文件信息。
 type claudeMdCandidate struct {
 	Path      string
 	Type      string
@@ -114,7 +124,7 @@ type claudeMdCandidate struct {
 	Digest    string
 }
 
-// NewClaudeMdSourcesProvider 创建claudemdsourcesprovider。
+// NewClaudeMdSourcesProvider 创建 ClaudeMdSourcesProvider，nested 为 nil 时自动创建。
 func NewClaudeMdSourcesProvider(deps Dependencies, team contract.TeamMemoryManager, nested *NestedRuntime) *ClaudeMdSourcesProvider {
 	if nested == nil {
 		nested = NewNestedRuntime(deps)
@@ -127,7 +137,7 @@ func NewClaudeMdSourcesProvider(deps Dependencies, team contract.TeamMemoryManag
 	}
 }
 
-// ResolveClaudeMdSources 解析claudemdsources。
+// ResolveClaudeMdSources 解析当前 BuildCtx 下的 CLAUDE.md 来源列表，结果按 manifestDigest 缓存。
 func (p *ClaudeMdSourcesProvider) ResolveClaudeMdSources(ctx context.Context, buildCtx contract.BuildCtx) ([]contract.ClaudeMdSource, error) {
 	gate := p.deps.resolveGate(buildCtx)
 	if shouldDisableClaudeMdSources(gate) {
@@ -159,7 +169,7 @@ func (p *ClaudeMdSourcesProvider) ResolveClaudeMdSources(ctx context.Context, bu
 	return cloneClaudeMdSources(sources), nil
 }
 
-// OnPromptInvalidate 处理onpromptinvalidate。
+// OnPromptInvalidate 清空来源缓存，并将事件传递给 NestedRuntime。
 func (p *ClaudeMdSourcesProvider) OnPromptInvalidate(reason contract.InvalidateReason) {
 	if p == nil {
 		return
@@ -172,7 +182,7 @@ func (p *ClaudeMdSourcesProvider) OnPromptInvalidate(reason contract.InvalidateR
 	}
 }
 
-// ResolveClaudeMdSources 解析claudemdsources。
+// ResolveClaudeMdSources 是无状态版本，直接解析并返回来源列表，不使用缓存。
 func ResolveClaudeMdSources(ctx context.Context, cfg ClaudeMdResolveConfig) ([]ClaudeMdSource, error) {
 	gate := cfg.Dependencies.resolveGate(cfg.BuildCtx)
 	if shouldDisableClaudeMdSources(gate) {
@@ -185,11 +195,12 @@ func ResolveClaudeMdSources(ctx context.Context, cfg ClaudeMdResolveConfig) ([]C
 	return loadClaudeMdSources(ctx, candidates)
 }
 
+// shouldDisableClaudeMdSources 判断是否应禁用 CLAUDE.md 来源加载。
 func shouldDisableClaudeMdSources(gate GateSnapshot) bool {
 	return gate.SuppressForOverlay || gate.DisableClaudeMds || (gate.BareMode && !gate.HasAdditionalDirsForBare)
 }
 
-// FilterInjectedMemoryFiles 处理过滤条件injected记忆文件。
+// FilterInjectedMemoryFiles 过滤 CLAUDE.md 来源列表，依次应用 injected/exclude/project 过滤规则。
 func FilterInjectedMemoryFiles(sources []ClaudeMdSource, buildCtx contract.BuildCtx, gate GateSnapshot, excludes []string) []ClaudeMdSource {
 	patterns := normalizeClaudeMdExcludePatterns(excludes)
 	projectFilter := resolveProjectSourceFilter(buildCtx, gate)
@@ -212,6 +223,7 @@ func FilterInjectedMemoryFiles(sources []ClaudeMdSource, buildCtx contract.Build
 	return filtered
 }
 
+// lookup 线程安全地从缓存读取来源列表，key 为空或不存在时返回 false。
 func (p *ClaudeMdSourcesProvider) lookup(key string) ([]ClaudeMdSource, bool) {
 	if p == nil || strings.TrimSpace(key) == "" {
 		return nil, false
@@ -225,6 +237,7 @@ func (p *ClaudeMdSourcesProvider) lookup(key string) ([]ClaudeMdSource, bool) {
 	return cloneClaudeMdSources(sources), true
 }
 
+// store 线程安全地将来源列表写入缓存，key 为空时跳过。
 func (p *ClaudeMdSourcesProvider) store(key string, sources []ClaudeMdSource) {
 	if p == nil || strings.TrimSpace(key) == "" {
 		return
@@ -234,6 +247,7 @@ func (p *ClaudeMdSourcesProvider) store(key string, sources []ClaudeMdSource) {
 	p.cache[key] = cloneClaudeMdSources(sources)
 }
 
+// claudeMdSourceCacheKey 根据 BuildCtx、GateSnapshot 和 manifestDigest 生成缓存键。
 func claudeMdSourceCacheKey(buildCtx contract.BuildCtx, gate GateSnapshot, manifestDigest string) string {
 	payload := []string{
 		strings.TrimSpace(manifestDigest),
@@ -249,7 +263,7 @@ func claudeMdSourceCacheKey(buildCtx contract.BuildCtx, gate GateSnapshot, manif
 	return hex.EncodeToString(digest[:])
 }
 
-// loadClaudeMdSources 加载claudemdsources。
+// loadClaudeMdSources 依次加载候选项，ctx 取消时中断，返回已成功加载的来源列表。
 func loadClaudeMdSources(ctx context.Context, candidates []claudeMdCandidate) ([]ClaudeMdSource, error) {
 	if ctx == nil {
 		ctx = context.Background()
@@ -283,7 +297,8 @@ func loadClaudeMdSource(candidate claudeMdCandidate) (ClaudeMdSource, bool, erro
 	return loadStandardClaudeMdSource(candidate)
 }
 
-// loadStandardClaudeMdSource 加载standardclaudemdsource。
+// loadStandardClaudeMdSource 从磁盘读取候选文件，在加载时二次校验路径包含关系（defense-in-depth）。
+// BaseDir 为空时跳过，防止路径逃逸攻击。
 func loadStandardClaudeMdSource(candidate claudeMdCandidate) (ClaudeMdSource, bool, error) {
 	// Phase 2.1.A: defense-in-depth read. Even though appendClaudeMdCandidate
 	// already verified the candidate path stays under BaseDir post-EvalSymlinks,

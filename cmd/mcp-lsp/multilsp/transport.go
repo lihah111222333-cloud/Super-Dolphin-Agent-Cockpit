@@ -25,13 +25,18 @@ const (
 	jsonRPCInternalError  = -32603
 )
 
+// ServerRequestHandler 处理 LSP 服务端主动发起的请求。
 type ServerRequestHandler func(context.Context, string, json.RawMessage) (any, error)
+
+// transportOptions 配置 transport 启动参数。
 type transportOptions struct {
 	Binary, Dir         string
 	Args, Env           []string
 	NotificationHandler protocol.NotificationHandler
 	RequestHandler      ServerRequestHandler
 }
+
+// transport 封装 LSP 子进程的 stdin/stdout 通信，管理 pending 请求和响应派发。
 type transport struct {
 	cmd                 *exec.Cmd
 	stdin               io.WriteCloser
@@ -56,11 +61,14 @@ type transport struct {
 	// fire-and-forget goroutines outliving the transport.
 	responderWG sync.WaitGroup
 }
+
+// pendingResult 保存单次 LSP 请求的响应结果，通过 channel 传回调用方。
 type pendingResult struct {
 	result json.RawMessage
 	err    error
 }
 
+// newTransport 启动 LSP 子进程并初始化 transport，启动 readLoop 和 wait goroutine。
 func newTransport(options transportOptions) (*transport, error) {
 	cmd, stdin, stdout, stderr, err := startTransport(options)
 	if err != nil {
@@ -109,6 +117,8 @@ func (t *transport) request(ctx context.Context, method string, params any) (jso
 		return nil, ctx.Err()
 	}
 }
+
+// notify 向 LSP 服务端发送无需响应的通知消息。
 func (t *transport) notify(ctx context.Context, method string, params any) error {
 	ctx = platformshared.NonNilContext(ctx)
 	if err := ctx.Err(); err != nil {
@@ -120,6 +130,8 @@ func (t *transport) notify(ctx context.Context, method string, params any) error
 	}
 	return t.writeMessage(notification)
 }
+
+// dispatchMessage 根据消息类型将其派发到对应处理器。
 func (t *transport) dispatchMessage(payload json.RawMessage) error {
 	envelope, err := protocol.DecodeEnvelope(payload)
 	if err != nil {
@@ -159,6 +171,8 @@ func (t *transport) spawnResponder(envelope protocol.Envelope) {
 		t.respondToServerRequest(envelope)
 	}()
 }
+
+// handleResponse 将收到的响应分发给对应的 pending 等待通道。
 func (t *transport) handleResponse(payload json.RawMessage) error {
 	response, err := protocol.DecodeResponse(payload)
 	if err != nil {
@@ -179,6 +193,8 @@ func (t *transport) handleResponse(payload json.RawMessage) error {
 	result <- pendingResult{result: platformshared.CloneRawMessage(response.Result)}
 	return nil
 }
+
+// handleNotification 将收到的通知转发给注册的通知处理器。
 func (t *transport) handleNotification(payload json.RawMessage) error {
 	if t.notificationHandler == nil {
 		return nil
@@ -189,6 +205,8 @@ func (t *transport) handleNotification(payload json.RawMessage) error {
 	}
 	return err
 }
+
+// respondToServerRequest 执行服务端请求并写回响应。
 func (t *transport) respondToServerRequest(request protocol.Envelope) {
 	result, err := t.serverRequestResult(context.Background(), request.Method, request.Params)
 	message, err := buildServerResponse(request.ID, result, err)
@@ -200,6 +218,8 @@ func (t *transport) respondToServerRequest(request protocol.Envelope) {
 		t.stopWithError(err)
 	}
 }
+
+// serverRequestResult 调用 requestHandler 或默认兼容处理器返回结果。
 func (t *transport) serverRequestResult(ctx context.Context, method string, params json.RawMessage) (any, error) {
 	if t.requestHandler != nil {
 		result, err := t.requestHandler(ctx, method, params)
@@ -209,6 +229,8 @@ func (t *transport) serverRequestResult(ctx context.Context, method string, para
 	}
 	return defaultServerRequestResult(method, params)
 }
+
+// buildServerResponse 将服务端请求结果或错误封装为 JSON-RPC 响应。
 func buildServerResponse(id json.RawMessage, result any, err error) (any, error) {
 	if err == nil {
 		return protocol.BuildSuccessResponse(id, result)
@@ -226,6 +248,8 @@ func buildServerResponse(id json.RawMessage, result any, err error) (any, error)
 func defaultServerRequestResult(method string, params json.RawMessage) (any, error) {
 	return dispatchCompatServerRequest(method, params)
 }
+
+// emptyConfigurationResult 为 workspace/configuration 请求返回空配置列表。
 func emptyConfigurationResult(params json.RawMessage) []any {
 	var request struct {
 		Items []json.RawMessage `json:"items"`
@@ -235,6 +259,8 @@ func emptyConfigurationResult(params json.RawMessage) []any {
 	}
 	return make([]any, len(request.Items))
 }
+
+// addPending 注册 pending 请求 channel，transport 已关闭时返回错误。
 func (t *transport) addPending(key string, result chan pendingResult) error {
 	t.pendingMu.Lock()
 	defer t.pendingMu.Unlock()
@@ -244,6 +270,8 @@ func (t *transport) addPending(key string, result chan pendingResult) error {
 	t.pending[key] = result
 	return nil
 }
+
+// removePending 移除并返回 key 对应的 pending channel。
 func (t *transport) removePending(key string) chan pendingResult {
 	t.pendingMu.Lock()
 	defer t.pendingMu.Unlock()
@@ -251,6 +279,8 @@ func (t *transport) removePending(key string) chan pendingResult {
 	delete(t.pending, key)
 	return result
 }
+
+// clearPending 关闭所有 pending channel 并写入错误，用于 transport 关闭时清理。
 func (t *transport) clearPending(err error) {
 	t.pendingMu.Lock()
 	pending := t.pending

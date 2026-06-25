@@ -11,11 +11,13 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/store/uipreference"
 )
 
+// Service 定义个性化服务接口，负责按 cwd 读写用户个人资料。
 type Service interface {
 	GetProfile(ctx context.Context, cwd string) (ProfileResult, error)
 	SaveProfile(ctx context.Context, cwd string, profile Profile) (ProfileResult, error)
 }
 
+// service 是 Service 接口的内部实现，依赖 uipreference.Store 持久化资料。
 type service struct {
 	prefs uipreference.Store
 }
@@ -78,6 +80,7 @@ func (s *service) SaveProfile(ctx context.Context, cwd string, profile Profile) 
 	return ProfileResult{Profile: normalized}, nil
 }
 
+// normalizeProfile 对各字段做 TrimSpace 并校验长度，不修改逻辑。
 func normalizeProfile(profile Profile) (Profile, error) {
 	normalized := Profile{
 		DisplayName:        strings.TrimSpace(profile.DisplayName),
@@ -100,6 +103,7 @@ func normalizeProfile(profile Profile) (Profile, error) {
 	return normalized, nil
 }
 
+// validateProfileField 校验单个字段的 rune 长度是否超出上限。
 func validateProfileField(name, value string, maxRunes int) error {
 	if utf8.RuneCountInString(value) > maxRunes {
 		return fmt.Errorf("personalization: %s must be at most %d characters", name, maxRunes)

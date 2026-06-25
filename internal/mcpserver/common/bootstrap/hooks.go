@@ -40,7 +40,7 @@ type HookConfig struct {
 	OnAfter  HookAfterHandler
 }
 
-// hookState stores the last subscribe parameters so reconnect can replay them.
+// hookState 存储最近一次 SubscribeHooks 的参数，供断线重连后重放。
 type hookState struct {
 	mu             sync.Mutex
 	subscriptionID string
@@ -53,6 +53,7 @@ type hookState struct {
 	lastReplayErr  string
 }
 
+// store 保存订阅参数，重置重放状态，供后续断线重连时使用。
 func (hs *hookState) store(subID string, topics []string, scope mcp.Selector, filters json.RawMessage, mode string) {
 	hs.mu.Lock()
 	defer hs.mu.Unlock()
@@ -66,6 +67,7 @@ func (hs *hookState) store(subID string, topics []string, scope mcp.Selector, fi
 	hs.lastReplayErr = ""
 }
 
+// load 读取上次保存的订阅参数；topics 为空时返回 ok=false。
 func (hs *hookState) load() (subID string, topics []string, scope mcp.Selector, filters json.RawMessage, mode string, ok bool) {
 	hs.mu.Lock()
 	defer hs.mu.Unlock()
@@ -75,6 +77,7 @@ func (hs *hookState) load() (subID string, topics []string, scope mcp.Selector, 
 	return hs.subscriptionID, shared.CloneStrings(hs.topics), shared.CloneSelector(hs.scope), shared.CloneRawMessage(hs.filters), hs.mode, true
 }
 
+// markReplayFailure 记录重放失败的尝试次数和错误。
 func (hs *hookState) markReplayFailure(attempts int, err error) {
 	hs.mu.Lock()
 	defer hs.mu.Unlock()
@@ -104,6 +107,7 @@ func (hs *hookState) markReplayPending(err error) {
 	}
 }
 
+// clearReplayFailure 清除重放失败状态，订阅成功后调用。
 func (hs *hookState) clearReplayFailure() {
 	hs.mu.Lock()
 	defer hs.mu.Unlock()
@@ -132,6 +136,7 @@ func (c *Client) dispatchHookCallback(ctx context.Context, req *jrpc2.Request) (
 	}
 }
 
+// handleHookBefore 处理 ctl/hook/before 回调，未注册时拒绝。
 func (c *Client) handleHookBefore(ctx context.Context, req *jrpc2.Request) (any, bool, error) {
 	handler := c.cfg.Hooks.OnBefore
 	if handler == nil {
@@ -146,6 +151,7 @@ func (c *Client) handleHookBefore(ctx context.Context, req *jrpc2.Request) (any,
 	return dec, true, err
 }
 
+// handleHookCheck 处理 ctl/hook/check 回调，未注册时继续。
 func (c *Client) handleHookCheck(ctx context.Context, req *jrpc2.Request) (any, bool, error) {
 	handler := c.cfg.Hooks.OnCheck
 	if handler == nil {
@@ -160,6 +166,7 @@ func (c *Client) handleHookCheck(ctx context.Context, req *jrpc2.Request) (any, 
 	return dec, true, err
 }
 
+// handleHookAfter 处理 ctl/hook/after 回调，未注册时拒绝。
 func (c *Client) handleHookAfter(ctx context.Context, req *jrpc2.Request) (any, bool, error) {
 	handler := c.cfg.Hooks.OnAfter
 	if handler == nil {
@@ -383,7 +390,7 @@ func errHookPendingAgentIDRequired() error {
 	return errors.New("bootstrap: hook pending requires agent_id")
 }
 
-// hookUnavailableError marks a non-fatal connectivity error for hook subscribe.
+// hookUnavailableError 标记 hook 连接不可用的非致命错误。
 type hookUnavailableError struct{ msg string }
 
 // Error 返回错误文本。

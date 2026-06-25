@@ -470,6 +470,7 @@ var toolErrorClassifiers = []toolErrorClassifier{
 	},
 }
 
+// isDatabaseSchemaMissingMessage 判断错误消息是否属于数据库 schema 缺失。
 func isDatabaseSchemaMissingMessage(message string) bool {
 	return (strings.Contains(message, "relation ") && strings.Contains(message, "does not exist")) ||
 		(strings.Contains(message, "column ") && strings.Contains(message, "does not exist")) ||
@@ -479,6 +480,7 @@ func isDatabaseSchemaMissingMessage(message string) bool {
 		strings.Contains(message, "sqlstate 42703")
 }
 
+// isLaunchRequestInvalidMessage 判断错误消息是否属于 launch 请求参数无效。
 func isLaunchRequestInvalidMessage(message string) bool {
 	return strings.Contains(message, " is required") ||
 		(strings.Contains(message, "context_mode") && strings.Contains(message, "requires")) ||

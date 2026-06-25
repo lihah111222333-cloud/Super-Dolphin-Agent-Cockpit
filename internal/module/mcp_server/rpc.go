@@ -9,7 +9,7 @@ import (
 	platformrpc "github.com/anthropic-ai/super-agent-v3/internal/platform/rpc"
 )
 
-// NewHandlers 创建处理器。
+// NewHandlers 注册 MCP server 管理相关的 RPC 处理器。
 func NewHandlers(svc Service) platformrpc.HandlerMapResult {
 	return platformrpc.HandlerMapResult{Handlers: handler.Map{
 		"mcpServer/add":              platformrpc.StrictHandler(addServersHandler(svc)),
@@ -141,7 +141,7 @@ func deleteServerHandler(svc Service) func(context.Context, DeleteServerRequest)
 	}
 }
 
-// mcpServerRPCError 把模块内错误转换为 RPC 错误类型，保证参数问题和远端状态问题不会混在一起。
+// mcpServerRPCError 将模块内部错误转换为对应的 RPC 错误类型，确保参数错误和远端状态错误分类清晰。
 func mcpServerRPCError(err error) error {
 	switch {
 	case errors.Is(err, errMissingMCPServers),

@@ -18,6 +18,7 @@ const (
 
 var errEditManagerNil = errors.New("edit requires LSP manager; ensure language server is running for this file type")
 
+// EditRequest 是 edit 工具的入参结构体，包含动作、路径、补丁和版本信息。
 type EditRequest struct {
 	Action     string   `json:"action"`
 	FilePath   string   `json:"file_path,omitempty"`
@@ -29,11 +30,13 @@ type EditRequest struct {
 	Only       []string `json:"only,omitempty"`
 }
 
+// EditHandler 持有 LSP 管理器和工作区根目录，处理文件编辑请求。
 type EditHandler struct {
 	registry lspmanager.Registry
 	root     string
 }
 
+// editEnvelope 是 edit 工具的通用响应信封，包含状态、计数和持久化标记。
 type editEnvelope struct {
 	Status               string `json:"status"`
 	Message              string `json:"message,omitempty"`
@@ -93,6 +96,7 @@ func (h EditHandler) Handle(ctx context.Context, params json.RawMessage) (any, e
 	}
 }
 
+// normalizeEditVersion 确保版本号有效，默认使用 defaultEditVersion。
 func normalizeEditVersion(version int) int {
 	if version <= 0 {
 		return defaultEditVersion
@@ -112,8 +116,7 @@ func (e editEnvelope) ToPlainText() string {
 	return strings.TrimSpace(sb.String())
 }
 
-// editStatusText distinguishes the three terminal states a model cares
-// about: applied (real change), no-op, and failed.
+// editStatusText 把状态码映射为 SUCCESS/NO_CHANGE/FAILED 文本。
 func editStatusText(e editEnvelope) string {
 	switch strings.ToLower(strings.TrimSpace(e.Status)) {
 	case "applied":
@@ -160,6 +163,7 @@ func appendMatchedByNotice(sb *strings.Builder, matchedBy string) {
 	fmt.Fprintf(sb, "Matched by: %s — verify indentation/whitespace before continuing.\n", matchedBy)
 }
 
+// appendEditWarnings 把 warning 和后续操作提示追加到输出。
 func appendEditWarnings(sb *strings.Builder, e editEnvelope) {
 	if e.Warning != "" {
 		sb.WriteString(fmt.Sprintf("Warning: %s\n", e.Warning))

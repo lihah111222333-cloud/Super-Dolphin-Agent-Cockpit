@@ -13,17 +13,12 @@ import (
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
-// defaultDrainTimeout is the hard upper bound on how long the flusher
-// spends draining outstanding signals after ctx.Done. The P3 plan pins
-// this at 5 seconds ("bounded drain 5s"); it is surfaced as a field so
-// tests can shorten it.
+// defaultDrainTimeout 是 ctx 取消后排空队列的最长等待时间，固定 5s，测试可缩短。
 const defaultDrainTimeout = 5 * time.Second
 
-// Flusher is the platformrunner.Runner that drains the collector queue,
-// reads facts from observation.Contract, and UPSERTs session_insights.
-// It has no state beyond the injected dependencies and the collector
-// queue, so the fx-wired lifecycle is simply: Run blocks until ctx
-// cancels, then a bounded drain runs.
+// Flusher 是 platformrunner.Runner 实现，负责从 collector 队列排出信号、
+// 读取 observation.Contract 中的事实，并 UPSERT session_insights 表。
+// 除注入依赖和 collector 队列外无额外状态，生命周期由 fx lifecycle 驱动。
 type Flusher struct {
 	logger       *slog.Logger
 	obs          observation.Contract
@@ -33,9 +28,7 @@ type Flusher struct {
 	now          func() time.Time
 }
 
-// NewFlusher wires a Flusher with its collector and dependencies. now is
-// overridable for deterministic tests; defaults to time.Now.
-// NewFlusher 创建flusher。
+// NewFlusher 创建 Flusher，注入 collector 和依赖项。now 可在测试中覆盖以固定时间，生产代码默认使用 time.Now。
 func NewFlusher(logger *slog.Logger, obs observation.Contract, store insightstore.Store, col *collector) *Flusher {
 	if logger == nil {
 		logger = pkglogger.Get()
@@ -52,11 +45,8 @@ func NewFlusher(logger *slog.Logger, obs observation.Contract, store insightstor
 
 var _ contract.Runner = (*Flusher)(nil)
 
-// Run loops until ctx cancels. On cancel it drains at most drainTimeout
-// before returning so a slow terminal is never lost silently on a normal
-// shutdown. A shutdown that blows past drainTimeout logs the leftover
-// count and returns ctx.Err().
-// Run 启动insight后台流程。
+// Run 阻塞直到 ctx 取消，取消后执行有界 drain 再返回。
+// 若 drain 超出 drainTimeout，记录剩余信号数并返回 ctx.Err()。
 func (f *Flusher) Run(ctx context.Context) error {
 	if f.collector == nil || f.collector.queue == nil {
 		// Nothing to drain; mirror the platformrunner.Runner contract and
@@ -78,11 +68,8 @@ func (f *Flusher) Run(ctx context.Context) error {
 	}
 }
 
-// drain pulls up to drainTimeout worth of pending signals off the queue
-// and flushes each to the store. Uses context.Background inside the
-// deadline so the per-signal DB call is not pre-cancelled by the parent
-// ctx that triggered shutdown.
-// drain 处理drain。
+// drain 在 drainTimeout 内排空队列，把每个信号写入 store。
+// 内部使用 context.Background() 避免被已取消的父 ctx 中断数据库写入。
 func (f *Flusher) drain() {
 	if f.drainTimeout <= 0 {
 		return
@@ -114,10 +101,8 @@ func (f *Flusher) drain() {
 	}
 }
 
-// handle is the single-signal path. Reads observation for the turn,
-// builds the UpsertParams, and writes. Errors log-and-continue — a
-// failing UPSERT should not tear the flusher down because a later
-// signal for the same turn will merge via the ON CONFLICT path.
+// handle 处理单条信号：读取 observation，构建 UpsertParams 并写入 store。
+// UPSERT 失败时记录日志继续，不终止 flusher，因为后续同一轮的信号会通过 ON CONFLICT 路径合并。
 func (f *Flusher) handle(ctx context.Context, sig flushSignal) {
 	params, ok := f.buildParams(sig)
 	if !ok {
@@ -144,13 +129,9 @@ func (f *Flusher) handle(ctx context.Context, sig flushSignal) {
 	}
 }
 
-// buildParams reads every fact we care about from observation and packs
-// it into an UpsertParams. ok=false means we could not find even a
-// terminal in observation, in which case the caller decides how to
-// handle (see handle for requeue semantics). Timestamps missing from
-// observation fall back to the signal.Timestamp so we never send
-// zero-valued timestamps through to the DB.
-// buildParams 构建params。
+// buildParams 从 observation 中读取所有维度，组装 UpsertParams。
+// ok=false 表示 observation 中还没有该轮的 terminal 记录，调用方负责决定是否重试（见 handle）。
+// 时间戳缺失时回退到 signal.Timestamp，避免向 DB 写入零值。
 func (f *Flusher) buildParams(sig flushSignal) (insightstore.UpsertParams, bool) {
 	term, termOk := f.obs.Terminal(sig.LocalTurnID)
 	if !termOk {
@@ -219,6 +200,7 @@ func (f *Flusher) buildParams(sig flushSignal) (insightstore.UpsertParams, bool)
 	}, true
 }
 
+// cloneBoolPtr 深拷贝一个 bool 指针，nil 时返回 nil。
 func cloneBoolPtr(v *bool) *bool {
 	if v == nil {
 		return nil
@@ -227,6 +209,8 @@ func cloneBoolPtr(v *bool) *bool {
 	return &out
 }
 
+// providerSupportsApprovalObservation 判断指定 provider 是否天然支持审批请求观测。
+// codex 系列 provider 自动报告审批请求数，无需 observation 层补全。
 func providerSupportsApprovalObservation(provider string) bool {
 	switch provider {
 	case "codex", "codexapp", "codex-app":

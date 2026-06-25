@@ -9,6 +9,7 @@ import (
 	shareddto "github.com/anthropic-ai/super-agent-v3/internal/dto/shared"
 )
 
+// Service 定义 turn 生命周期的核心接口：准备、提交、转向、中断、强制完成和状态追踪。
 type Service interface {
 	PrepareTurn(ctx context.Context, session contract.Session, input PrepareInput) (dto.TurnRequest, error)
 	StartTurn(ctx context.Context, session contract.Session, req dto.TurnRequest) (contract.TurnHandle, error)
@@ -28,6 +29,7 @@ type Service interface {
 	LookupByDedupeKey(ctx context.Context, dedupeKey string) (TurnStatus, bool, error)
 }
 
+// SessionProvider 按 agentID 获取会话，供 orchestration starter 使用。
 type SessionProvider interface {
 	GetSession(agentID string) (contract.Session, error)
 }
@@ -36,6 +38,7 @@ type ThreadStateConfigReader = contract.ThreadStateConfigReader
 
 type InputItem = shareddto.InputItem
 
+// PrepareInput 包含一次 turn 准备所需的全部参数，包括输入内容、技能引用、MCP 快照和运行时配置。
 type PrepareInput struct {
 	Inputs                       []InputItem
 	Prompt                       string
@@ -75,6 +78,7 @@ type PrepareInput struct {
 	DedupeKey string
 }
 
+// TurnStatus 表示一次 turn 的当前状态快照，包含本地 ID、provider ID 和状态字符串。
 type TurnStatus struct {
 	LocalID    string `json:"localId"`
 	ProviderID string `json:"providerId"`

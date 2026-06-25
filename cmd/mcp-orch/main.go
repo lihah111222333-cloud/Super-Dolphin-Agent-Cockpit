@@ -1,3 +1,4 @@
+// Package main 是 mcp-orch 的入口，负责初始化运行时环境并启动编排进程。
 package main
 
 import (
@@ -10,11 +11,10 @@ import (
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
-// mcpStdout holds the original stdout exclusively for the MCP JSON-RPC
-// protocol. All other output (log, fmt, panic) goes to stderr so it
-// can never pollute the protocol channel.
+// mcpStdout 独占保存原始 stdout，专用于 MCP JSON-RPC 协议输出，其他输出均走 stderr。
 var mcpStdout atomic.Pointer[os.File]
 
+// main 初始化 rlimit、环境变量和 GOMAXPROCS，保护 MCP stdio 通道后启动编排进程。
 func main() {
 	rlimit.Init()
 	if err := os.Setenv("SUPER_DOLPHIN_PROCESS_ROLE", "sidecar"); err != nil {

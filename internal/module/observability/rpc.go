@@ -1,3 +1,4 @@
+// Package observability 把可观测性 RPC 处理器装配到 Fx 依赖树。
 package observability
 
 import (
@@ -15,17 +16,19 @@ import (
 )
 
 const (
-	maxFrontendIngestEvents = 100
-	defaultQueryLimit       = 100
-	defaultListLimit        = 50
-	maxQueryLimit           = 500
-	recentRawLimitMultiple  = 50
-	maxRecentRawQueryLimit  = 5000
-	summaryEventLimit       = 10
+	maxFrontendIngestEvents = 100  // 单次前端 ingest 最多接受的事件数。
+	defaultQueryLimit       = 100  // trace/thread 查询的默认返回条数。
+	defaultListLimit        = 50   // recent/slow/error 列表的默认返回条数。
+	maxQueryLimit           = 500  // 所有查询的硬上限。
+	recentRawLimitMultiple  = 50   // recent 原始查询量相对显示量的倍数，用于过滤后仍有足够候选。
+	maxRecentRawQueryLimit  = 5000 // recent 原始查询的绝对上限，防止单次扫描过大。
+	summaryEventLimit       = 10   // slowest/error 摘要最多返回的事件数。
 )
 
+// statusParams 是 observability/status 接口的空入参。
 type statusParams struct{}
 
+// traceQueryParams 是按 traceID 查询 trace 事件的入参，兼容驼峰和下划线两种字段名。
 type traceQueryParams struct {
 	TraceID          string `json:"traceId"`
 	TraceIDSnake     string `json:"trace_id"`
@@ -34,6 +37,7 @@ type traceQueryParams struct {
 	IncludeTailSnake *bool  `json:"include_tail"`
 }
 
+// threadRecentParams 是按 threadID 查询最近事件的入参。
 type threadRecentParams struct {
 	ThreadID         string `json:"threadId"`
 	ThreadIDSnake    string `json:"thread_id"`
@@ -42,11 +46,13 @@ type threadRecentParams struct {
 	IncludeTailSnake *bool  `json:"include_tail"`
 }
 
+// eventListParams 是 slow/error 列表查询的入参。
 type eventListParams struct {
 	Limit     int    `json:"limit"`
 	Component string `json:"component"`
 }
 
+// recentListParams 是 recent 列表查询的入参，支持多维过滤条件。
 type recentListParams struct {
 	TraceID          string `json:"traceId"`
 	TraceIDSnake     string `json:"trace_id"`
@@ -63,6 +69,7 @@ type recentListParams struct {
 	IncludeTailSnake *bool  `json:"include_tail"`
 }
 
+// queryResponse 是 trace/thread/recent/slow/error 查询的统一响应结构。
 type queryResponse struct {
 	Source          platformobs.QuerySource  `json:"source"`
 	Events          []platformobs.TraceEvent `json:"events"`
@@ -72,10 +79,12 @@ type queryResponse struct {
 	Truncated       bool                     `json:"truncated"`
 }
 
+// frontendIngestParams 是前端事件批量上报接口的入参。
 type frontendIngestParams struct {
 	Events []json.RawMessage `json:"events"`
 }
 
+// frontendIngestResponse 是前端事件批量上报的响应结构。
 type frontendIngestResponse struct {
 	Enabled        bool   `json:"enabled"`
 	Recorded       int    `json:"recorded"`
@@ -83,11 +92,13 @@ type frontendIngestResponse struct {
 	DisabledReason string `json:"disabled_reason,omitempty"`
 }
 
+// recentRowSelection 记录按 traceID 和事件索引选中的行，用于 latestTraceEventsFirst 去重。
 type recentRowSelection struct {
 	traceIDs     map[string]struct{}
 	eventIndexes map[int]struct{}
 }
 
+// frontendTraceEvent 是前端上报的单条 trace 事件结构，仅允许白名单字段。
 type frontendTraceEvent struct {
 	Timestamp    time.Time            `json:"ts,omitzero"`
 	TraceID      string               `json:"trace_id,omitempty"`
@@ -121,6 +132,7 @@ func NewHandlers(svc *platformobs.Service) platformrpc.HandlerMapResult {
 	}}
 }
 
+// statusHandler 返回 observability 服务的当前状态（是否启用、禁用原因等）。
 func statusHandler(svc *platformobs.Service) func(context.Context, statusParams) (platformobs.ServiceStatus, error) {
 	return func(context.Context, statusParams) (platformobs.ServiceStatus, error) {
 		if svc == nil {
@@ -130,6 +142,7 @@ func statusHandler(svc *platformobs.Service) func(context.Context, statusParams)
 	}
 }
 
+// traceGetHandler 按 traceID 查询 trace 下的所有事件。
 func traceGetHandler(svc *platformobs.Service) func(context.Context, traceQueryParams) (queryResponse, error) {
 	return func(ctx context.Context, p traceQueryParams) (queryResponse, error) {
 		if svc == nil {
@@ -144,6 +157,7 @@ func traceGetHandler(svc *platformobs.Service) func(context.Context, traceQueryP
 	}
 }
 
+// threadRecentHandler 按 threadID 查询该 thread 下的最近事件。
 func threadRecentHandler(svc *platformobs.Service) func(context.Context, threadRecentParams) (queryResponse, error) {
 	return func(ctx context.Context, p threadRecentParams) (queryResponse, error) {
 		if svc == nil {
@@ -158,6 +172,7 @@ func threadRecentHandler(svc *platformobs.Service) func(context.Context, threadR
 	}
 }
 
+// recentListHandler 按多维过滤条件（trace/thread/agent/component/status/keyword）查询最近事件列表。
 func recentListHandler(svc *platformobs.Service) func(context.Context, recentListParams) (queryResponse, error) {
 	return func(ctx context.Context, p recentListParams) (queryResponse, error) {
 		if svc == nil {
@@ -182,6 +197,7 @@ func recentListHandler(svc *platformobs.Service) func(context.Context, recentLis
 	}
 }
 
+// slowListHandler 查询最慢的事件列表。
 func slowListHandler(svc *platformobs.Service) func(context.Context, eventListParams) (queryResponse, error) {
 	return func(ctx context.Context, p eventListParams) (queryResponse, error) {
 		if svc == nil {
@@ -192,6 +208,7 @@ func slowListHandler(svc *platformobs.Service) func(context.Context, eventListPa
 	}
 }
 
+// errorListHandler 查询发生错误或 panic 的事件列表。
 func errorListHandler(svc *platformobs.Service) func(context.Context, eventListParams) (queryResponse, error) {
 	return func(ctx context.Context, p eventListParams) (queryResponse, error) {
 		if svc == nil {
@@ -233,6 +250,7 @@ func frontendIngestHandler(svc *platformobs.Service) func(context.Context, front
 	}
 }
 
+// responseFromRecentResult 对 recent 查询结果做过滤、排序和摘要汇总。
 func responseFromRecentResult(result platformobs.QueryResult, params recentListParams, limit int) queryResponse {
 	events := filterRecentEvents(result.Events, params)
 	events = latestTraceEventsFirst(events, limit)
@@ -246,6 +264,7 @@ func responseFromRecentResult(result platformobs.QueryResult, params recentListP
 	}
 }
 
+// responseFromQueryResult 对 trace/slow/error 查询结果做组件过滤和摘要汇总。
 func responseFromQueryResult(result platformobs.QueryResult, component string) queryResponse {
 	events := filterEventsByComponent(result.Events, component)
 	return queryResponse{
@@ -258,6 +277,7 @@ func responseFromQueryResult(result platformobs.QueryResult, component string) q
 	}
 }
 
+// filterRecentEvents 过滤事件列表，只保留符合 recent 查询参数的事件。
 func filterRecentEvents(events []platformobs.TraceEvent, params recentListParams) []platformobs.TraceEvent {
 	out := make([]platformobs.TraceEvent, 0, len(events))
 	for _, event := range events {
@@ -325,6 +345,7 @@ func explicitInternalRecentSearch(params recentListParams) bool {
 	return false
 }
 
+// filterEventsByComponent 按组件名过滤事件，空组件名返回全部。
 func filterEventsByComponent(events []platformobs.TraceEvent, component string) []platformobs.TraceEvent {
 	component = strings.ToLower(strings.TrimSpace(component))
 	if component == "" {
@@ -339,6 +360,7 @@ func filterEventsByComponent(events []platformobs.TraceEvent, component string) 
 	return out
 }
 
+// eventMatchesComponent 判断事件是否匹配指定组件名，空组件名始终匹配。
 func eventMatchesComponent(event platformobs.TraceEvent, component string) bool {
 	component = strings.ToLower(strings.TrimSpace(component))
 	if component == "" {
@@ -347,6 +369,7 @@ func eventMatchesComponent(event platformobs.TraceEvent, component string) bool 
 	return strings.ToLower(strings.TrimSpace(event.Kind)) == component || strings.ToLower(strings.TrimSpace(event.ClientKind)) == component || strings.ToLower(strings.TrimSpace(event.Method)) == component
 }
 
+// eventMatchesStatus 判断事件状态是否匹配，空或 "all" 始终匹配。
 func eventMatchesStatus(event platformobs.TraceEvent, status string) bool {
 	status = strings.ToLower(strings.TrimSpace(status))
 	if status == "" || status == "all" {
@@ -355,6 +378,7 @@ func eventMatchesStatus(event platformobs.TraceEvent, status string) bool {
 	return strings.ToLower(strings.TrimSpace(string(event.Status))) == status
 }
 
+// eventMatchesText 判断字段值是否包含查询子串，空查询始终匹配。
 func eventMatchesText(value, query string) bool {
 	query = strings.ToLower(strings.TrimSpace(query))
 	if query == "" {
@@ -387,12 +411,14 @@ func eventMatchesKeyword(event platformobs.TraceEvent, keyword string) bool {
 	return false
 }
 
+// slowestEvents 返回耗时最长的前 limit 个事件，按 DurationMS 降序。
 func slowestEvents(events []platformobs.TraceEvent, limit int) []platformobs.TraceEvent {
 	out := append([]platformobs.TraceEvent(nil), events...)
 	sort.SliceStable(out, func(i, j int) bool { return out[i].DurationMS > out[j].DurationMS })
 	return limitEvents(out, limit)
 }
 
+// errorEvents 从事件列表中提取状态为 error 或 panic 的事件，最多返回 limit 条。
 func errorEvents(events []platformobs.TraceEvent, limit int) []platformobs.TraceEvent {
 	out := make([]platformobs.TraceEvent, 0, len(events))
 	for _, event := range events {
@@ -403,6 +429,7 @@ func errorEvents(events []platformobs.TraceEvent, limit int) []platformobs.Trace
 	return limitEvents(out, limit)
 }
 
+// limitEvents 截断事件列表到 limit 条，limit <= 0 时不截断。
 func limitEvents(events []platformobs.TraceEvent, limit int) []platformobs.TraceEvent {
 	if limit > 0 && len(events) > limit {
 		return events[:limit]
@@ -410,6 +437,7 @@ func limitEvents(events []platformobs.TraceEvent, limit int) []platformobs.Trace
 	return events
 }
 
+// latestEventsFirst 按时间戳降序排列事件，截取最新的 limit 条后再排序。
 func latestEventsFirst(events []platformobs.TraceEvent, limit int) []platformobs.TraceEvent {
 	if limit > 0 && len(events) > limit {
 		events = events[len(events)-limit:]
@@ -425,6 +453,7 @@ func latestEventsFirst(events []platformobs.TraceEvent, limit int) []platformobs
 	return out
 }
 
+// latestTraceEventsFirst 按时间降序排列，并按 traceID 去重后取最近 limit 组 trace。
 func latestTraceEventsFirst(events []platformobs.TraceEvent, limit int) []platformobs.TraceEvent {
 	ordered := latestEventsFirst(events, 0)
 	if limit <= 0 {
@@ -462,6 +491,7 @@ func selectRecentRows(events []platformobs.TraceEvent, limit int) recentRowSelec
 	return selected
 }
 
+// recentRowSelected 判断某行事件是否在选中集合中。
 func recentRowSelected(index int, event platformobs.TraceEvent, selected recentRowSelection) bool {
 	traceID := strings.TrimSpace(event.TraceID)
 	if traceID == "" {
@@ -472,6 +502,7 @@ func recentRowSelected(index int, event platformobs.TraceEvent, selected recentR
 	return ok
 }
 
+// recentRawQueryLimit 计算 recent 接口原始查询量，确保过滤后有足够的候选行。
 func recentRawQueryLimit(displayLimit int) int {
 	if displayLimit <= 0 {
 		displayLimit = defaultListLimit
@@ -512,6 +543,7 @@ func totalDurationMS(events []platformobs.TraceEvent) int64 {
 	return maxDuration
 }
 
+// firstTrimmed 返回第一个非空 TrimSpace 后的字符串。
 func firstTrimmed(values ...string) string {
 	for _, value := range values {
 		if trimmed := strings.TrimSpace(value); trimmed != "" {
@@ -521,6 +553,7 @@ func firstTrimmed(values ...string) string {
 	return ""
 }
 
+// includeTail 返回第一个非 nil 的 bool 指针值，默认返回 true。
 func includeTail(values ...*bool) bool {
 	for _, value := range values {
 		if value != nil {
@@ -530,6 +563,7 @@ func includeTail(values ...*bool) bool {
 	return true
 }
 
+// normalizeLimit 将 limit 收敛到合法范围，超出 maxQueryLimit 时截断。
 func normalizeLimit(limit int, defaultLimit int) int {
 	if limit <= 0 {
 		return defaultLimit
@@ -586,6 +620,7 @@ func frontendEventFromRaw(raw json.RawMessage) (platformobs.TraceEvent, error) {
 	}, nil
 }
 
+// allowedFrontendTraceField 判断字段名是否在前端事件的白名单中。
 func allowedFrontendTraceField(key string) bool {
 	switch key {
 	case "ts", "trace_id", "span_id", "parent_span_id", "kind", "phase", "method", "thread_id", "agent_id", "turn_id", "call_id", "client_kind", "client_route", "duration_ms", "status", "error", "metadata":

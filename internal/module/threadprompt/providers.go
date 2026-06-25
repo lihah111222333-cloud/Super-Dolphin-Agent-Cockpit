@@ -13,7 +13,7 @@ import (
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
-// RegisterProviders 注册providers。
+// RegisterProviders 向 registrar 注册三个动态 section provider：项目默认规则、可用专家列表和知识回忆目录。
 func RegisterProviders(registrar contract.DynamicSectionRegistrar, catalog RuntimePromptCatalog) error {
 	if registrar == nil {
 		return nil
@@ -36,10 +36,10 @@ func RegisterProviders(registrar contract.DynamicSectionRegistrar, catalog Runti
 
 type AvailableExpertsProvider struct{ catalog RuntimePromptCatalog }
 
-// SectionName 处理section名称。
+// SectionName 返回本 provider 负责的动态 section 名称。
 func (AvailableExpertsProvider) SectionName() string { return contract.DynamicSectionAvailableExperts }
 
-// Resolve 解析threadprompt。
+// Resolve 解析可用专家列表，根据当前 CWD 过滤模板，按用户输入决定返回摘要还是完整说明。
 func (p AvailableExpertsProvider) Resolve(ctx context.Context, input contract.SectionContext) (*string, error) {
 	start := time.Now()
 	if p.catalog == nil {
@@ -115,7 +115,7 @@ func availableExpertsPromptKey(input contract.SectionContext) string {
 	return ""
 }
 
-// availableExpertsFromTemplates 从templates处理availableexperts。
+// availableExpertsFromTemplates 从模板列表提取可用专家，按 identity 去重并优先保留作用域更精确的候选。
 func availableExpertsFromTemplates(templates []promptstore.PromptTemplate, currentPromptKey string) []availableExpert {
 	byIdentity := map[string]availableExpert{}
 	currentPromptKey = strings.TrimSpace(currentPromptKey)
@@ -142,7 +142,7 @@ func availableExpertsFromTemplates(templates []promptstore.PromptTemplate, curre
 	return experts
 }
 
-// availableExpertFromTemplate 从template处理availableexpert。
+// availableExpertFromTemplate 从单个模板构造专家信息，禁用、无 when_to_use 或当前 prompt key 相同时返回 false。
 func availableExpertFromTemplate(template promptstore.PromptTemplate, currentPromptKey string) (availableExpert, bool) {
 	promptKey := strings.TrimSpace(template.PromptKey)
 	whenToUse := strings.TrimSpace(template.WhenToUse)
@@ -253,10 +253,10 @@ func escapePromptKeyForInstruction(promptKey string) string {
 
 type RecallCatalogProvider struct{ catalog RuntimePromptCatalog }
 
-// SectionName 处理section名称。
+// SectionName 返回本 provider 负责的动态 section 名称。
 func (RecallCatalogProvider) SectionName() string { return contract.DynamicSectionRecallCatalog }
 
-// Resolve 解析threadprompt。
+// Resolve 解析知识回忆目录，列出当前 CWD 下所有 recall section 并渲染为 prompt 文本。
 func (p RecallCatalogProvider) Resolve(ctx context.Context, input contract.SectionContext) (*string, error) {
 	start := time.Now()
 	if p.catalog == nil {
@@ -363,7 +363,7 @@ func renderRecallCatalog(sections []promptstore.PromptTemplateSection) string {
 	return strings.Join(lines, "\n")
 }
 
-// effectiveRecallSections 处理effectiverecallsections。
+// effectiveRecallSections 按 topic 去重，保留作用域更精确或 ordinal/id 更小的 section。
 func effectiveRecallSections(sections []promptstore.PromptTemplateSection) []promptstore.PromptTemplateSection {
 	byTopic := map[string]promptstore.PromptTemplateSection{}
 	for _, section := range sections {

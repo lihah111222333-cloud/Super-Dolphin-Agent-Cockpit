@@ -1,3 +1,4 @@
+// Package prompt 负责系统提示的注册、组装和缓存，为 provider 提供 start/turn 所需的结构化上下文。
 package prompt
 
 import "github.com/anthropic-ai/super-agent-v3/internal/contract"

@@ -1,3 +1,5 @@
+// Package dedup 提供记忆条目的文本归一化、bigram 相似度计算与去重决策能力。
+// 核心流程：原始文本 → Normalize → Bigrams → Decide / FindDuplicate。
 package dedup
 
 import (
@@ -5,7 +7,7 @@ import (
 	"unicode"
 )
 
-// Chinese stop words (inline constant set)
+// 中文停用词表（内联常量集合）
 var chineseStopWords = map[string]struct{}{
 	"的": {}, "是": {}, "在": {}, "了": {}, "把": {},
 	"被": {}, "和": {}, "与": {}, "或": {}, "不": {},
@@ -16,7 +18,7 @@ var chineseStopWords = map[string]struct{}{
 	"之": {},
 }
 
-// English stop words (inline constant set)
+// 英文停用词表（内联常量集合）
 var englishStopWords = map[string]struct{}{
 	"the": {}, "a": {}, "an": {}, "is": {}, "are": {},
 	"was": {}, "were": {}, "be": {}, "been": {}, "to": {},
@@ -25,8 +27,7 @@ var englishStopWords = map[string]struct{}{
 	"not": {}, "this": {}, "that": {}, "it": {}, "its": {},
 }
 
-// isCJK reports whether r is a CJK (Chinese/Japanese/Korean) character.
-// isCJK 判断cjk是否可用。
+// isCJK 判断 r 是否属于 CJK（中日韩）字符范围。
 func isCJK(r rune) bool {
 	return (r >= 0x4E00 && r <= 0x9FFF) || // CJK Unified Ideographs
 		(r >= 0x3400 && r <= 0x4DBF) || // CJK Extension A
@@ -35,7 +36,7 @@ func isCJK(r rune) bool {
 		(r >= 0x2F800 && r <= 0x2FA1F) // CJK Compatibility Supplement
 }
 
-// toHalfwidth converts a fullwidth character to its halfwidth equivalent.
+// toHalfwidth 将全角字符转换为对应的半角字符。
 func toHalfwidth(r rune) rune {
 	// Fullwidth ASCII variants: U+FF01 (！) to U+FF5E （～)
 	if r >= 0xFF01 && r <= 0xFF5E {
@@ -48,8 +49,7 @@ func toHalfwidth(r rune) rune {
 	return r
 }
 
-// stripFrontmatter removes YAML frontmatter enclosed in --- delimiters.
-// stripFrontmatter 处理stripfrontmatter。
+// stripFrontmatter 去除以 --- 包裹的 YAML frontmatter，返回正文部分。
 func stripFrontmatter(s string) string {
 	if !strings.HasPrefix(s, "---") {
 		return s
@@ -72,7 +72,7 @@ func stripFrontmatter(s string) string {
 	return s
 }
 
-// stripMarkdown removes common Markdown formatting characters.
+// stripMarkdown 去除常见 Markdown 格式符号，用空格替换。
 func stripMarkdown(s string) string {
 	var b strings.Builder
 	b.Grow(len(s))
@@ -87,7 +87,7 @@ func stripMarkdown(s string) string {
 	return b.String()
 }
 
-// convertFullwidth converts fullwidth characters to their halfwidth equivalents.
+// convertFullwidth 将字符串中的全角字符批量转换为半角字符。
 func convertFullwidth(s string) string {
 	var b strings.Builder
 	b.Grow(len(s))
@@ -97,10 +97,8 @@ func convertFullwidth(s string) string {
 	return b.String()
 }
 
-// Normalize normalizes raw memory content into comparable text.
-// Steps: strip frontmatter (--- ... ---) → strip Markdown formatting (#*->`) →
-// fullwidth to halfwidth → remove Chinese/English stop words → collapse whitespace.
-// Normalize 规范化记忆。
+// Normalize 将原始记忆内容归一化为可比较的文本。
+// 依次执行：去除 frontmatter → 去除 Markdown 符号 → 全角转半角 → 过滤停用词。
 func Normalize(raw string) string {
 	s := stripFrontmatter(raw)
 	s = stripMarkdown(s)
@@ -108,8 +106,7 @@ func Normalize(raw string) string {
 	return tokenizeAndFilter(s)
 }
 
-// tokenizeAndFilter splits text into words/CJK runs, filters stop words, and reassembles.
-// tokenizeAndFilter 处理tokenize过滤条件。
+// tokenizeAndFilter 将文本拆分为词项（CJK 逐字、英文整词），过滤停用词后重组。
 func tokenizeAndFilter(s string) string {
 	var tokens []string
 	var word strings.Builder
@@ -150,7 +147,7 @@ func tokenizeAndFilter(s string) string {
 	return strings.Join(tokens, " ")
 }
 
-// collectCJKRun collects a CJK character run starting at index start, filtering stop words.
+// collectCJKRun 收集从 start 开始的连续 CJK 字符，过滤停用词，返回拼接字符串和结束下标。
 func collectCJKRun(runes []rune, start, n int) (string, int) {
 	var b strings.Builder
 	i := start
@@ -164,11 +161,8 @@ func collectCJKRun(runes []rune, start, n int) (string, int) {
 	return b.String(), i
 }
 
-// Bigrams splits normalized text into a bigram set.
-// CJK characters are processed as adjacent pairs (bigrams).
-// English words (sequences of ASCII letters/digits) are kept as whole tokens.
-// Returns a deduplicated map[string]struct{}.
-// Bigrams 处理bigrams。
+// Bigrams 将归一化文本拆分为 bigram 集合，CJK 字符按相邻字对生成，英文词作整体 token 保留。
+// 返回去重后的 map[string]struct{}。
 func Bigrams(normalized string) map[string]struct{} {
 	result := make(map[string]struct{})
 	if normalized == "" {
@@ -189,10 +183,12 @@ func Bigrams(normalized string) map[string]struct{} {
 	return result
 }
 
+// isWordRune 判断 r 是否为非 CJK 的字母或数字（ASCII 词的组成字符）。
 func isWordRune(r rune) bool {
 	return (unicode.IsLetter(r) || unicode.IsDigit(r)) && !isCJK(r)
 }
 
+// addCJKBigrams 从 start 开始收集连续 CJK 字符，生成相邻字对并写入 result。
 func addCJKBigrams(runes []rune, start, n int, result map[string]struct{}) int {
 	j := start
 	for j < n && isCJK(runes[j]) {
@@ -205,6 +201,7 @@ func addCJKBigrams(runes []rune, start, n int, result map[string]struct{}) int {
 	return j
 }
 
+// addASCIIWord 从 start 开始收集连续非 CJK 词字符，作为整体 token 写入 result。
 func addASCIIWord(runes []rune, start, n int, result map[string]struct{}) int {
 	j := start
 	for j < n && isWordRune(runes[j]) {
@@ -214,9 +211,7 @@ func addASCIIWord(runes []rune, start, n int, result map[string]struct{}) int {
 	return j
 }
 
-// Containment computes the containment coefficient = |A∩B| / |shorter set|.
-// Returns 0 if either set is empty.
-// Containment 返回两段文本的包含关系。
+// Containment 计算包含系数 = |A∩B| / |较短集合|，任一集合为空时返回 0。
 func Containment(a, b map[string]struct{}) float64 {
 	if len(a) == 0 || len(b) == 0 {
 		return 0
@@ -238,9 +233,7 @@ func Containment(a, b map[string]struct{}) float64 {
 	return float64(intersection) / float64(len(shorter))
 }
 
-// Jaccard computes Jaccard similarity = |A∩B| / |A∪B|.
-// Returns 0 if both sets are empty.
-// Jaccard 处理jaccard。
+// Jaccard 计算 Jaccard 相似度 = |A∩B| / |A∪B|，两集合均为空时返回 0。
 func Jaccard(a, b map[string]struct{}) float64 {
 	if len(a) == 0 && len(b) == 0 {
 		return 0

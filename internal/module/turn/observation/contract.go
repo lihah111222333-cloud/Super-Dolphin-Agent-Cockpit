@@ -40,9 +40,9 @@ type ObservationWriter = dtoobs.ObservationWriter
 type Contract = dtoobs.Contract
 
 // ─── implementation helpers ─────────────────────────────────────────────────
-// precedence returns ordering used by RecordTerminal. Higher wins. Locked
-// kinds (Interrupted / Aborted) are sticky even against same-precedence
-// overwrites; see Memory.RecordTerminal.
+
+// terminalPrecedence 返回 RecordTerminal 使用的优先级顺序，数值越大越优先。
+// Interrupted/Aborted 为粘性种类，即便同优先级也不会被覆盖。
 func terminalPrecedence(k TerminalKind) int {
 	switch k {
 	case TerminalInterrupted, TerminalAborted:

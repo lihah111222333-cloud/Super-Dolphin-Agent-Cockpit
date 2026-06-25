@@ -1,3 +1,4 @@
+// Package datasourcev2 提供文件正文导入、分块存储和语义检索能力，供 prompt 动态段和前端数据源管理页使用。
 package datasourcev2
 
 import (

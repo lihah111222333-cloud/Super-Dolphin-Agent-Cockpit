@@ -24,6 +24,7 @@ const (
 	dashboardDAGLatestRunLookupLimit = 4
 )
 
+// DashboardPage 是前端仪表盘页面的聚合数据结构。
 type DashboardPage struct {
 	Agents              []AgentOverview                `json:"agents"`
 	DAGs                []DashboardDAG                 `json:"dags"`
@@ -35,14 +36,17 @@ type DashboardPage struct {
 	SharedFileRetention SharedFileRetention            `json:"sharedFileRetention"`
 }
 
+// dashboardPageLoader 是 dashboard 页面各区块的异步加载函数类型。
 type dashboardPageLoader func(context.Context) error
 
+// SharedFileRetention 描述共享文件的保留策略分析结果。
 type SharedFileRetention struct {
 	Items                 []SharedFileRetentionItem `json:"items"`
 	ProtectedCount        int                       `json:"protectedCount"`
 	CleanupCandidateCount int                       `json:"cleanupCandidateCount"`
 }
 
+// SharedFileRetentionItem 描述单个共享文件的保留或清理候选状态。
 type SharedFileRetentionItem struct {
 	Path             string          `json:"path"`
 	Protected        bool            `json:"protected"`
@@ -60,6 +64,7 @@ func (s *service) GetDashboardPage(ctx context.Context, page string) (*Dashboard
 	return out, nil
 }
 
+// newDashboardPage 初始化带空切片的 DashboardPage，避免 JSON 序列化时输出 null。
 func newDashboardPage() *DashboardPage {
 	return &DashboardPage{
 		Agents:              []AgentOverview{},
@@ -73,6 +78,7 @@ func newDashboardPage() *DashboardPage {
 	}
 }
 
+// populateDashboardPage 并发执行当前页面对应的所有 loader，任一失败即返回错误。
 func (s *service) populateDashboardPage(ctx context.Context, out *DashboardPage, page string) error {
 	loaders := s.dashboardPageLoaders(out, strings.ToLower(strings.TrimSpace(page)))
 	if len(loaders) == 0 {
@@ -121,6 +127,7 @@ func (s *service) dashboardPageLoaders(out *DashboardPage, page string) []dashbo
 	}
 }
 
+// populateDashboardAgents 读取并填充 DashboardPage.Agents。
 func (s *service) populateDashboardAgents(ctx context.Context, out *DashboardPage) error {
 	items, err := s.listAgents(ctx)
 	out.Agents = items
@@ -153,6 +160,7 @@ func (s *service) populateDashboardDAGs(ctx context.Context, out *DashboardPage)
 	return nil
 }
 
+// buildDashboardDAGsFromSnapshot 直接查数据库快照，批量获取每个 DAG 最新 run，避免依赖编排服务。
 func (s *service) buildDashboardDAGsFromSnapshot(ctx context.Context, items []contract.DAGSummary) ([]DashboardDAG, error) {
 	out := make([]DashboardDAG, len(items))
 	dagKeys := make([]string, 0, len(items))
@@ -175,6 +183,7 @@ func (s *service) buildDashboardDAGsFromSnapshot(ctx context.Context, items []co
 	return out, nil
 }
 
+// buildDashboardDAGs 通过编排服务并发获取每个 DAG 最新 run，受 dashboardDAGLatestRunLookupLimit 并发限制。
 func (s *service) buildDashboardDAGs(ctx context.Context, items []contract.DAGSummary) ([]DashboardDAG, error) {
 	out := make([]DashboardDAG, len(items))
 	group, groupCtx := errgroup.WithContext(ctx)
@@ -211,6 +220,7 @@ func runMetadataHasFinalOutput(raw json.RawMessage) bool {
 	return trimmed != "" && trimmed != "null" && trimmed != `""` && trimmed != "{}" && trimmed != "[]"
 }
 
+// populateDashboardSkills 读取技能列表并填充，同名冲突错误视为软错误不阻断。
 func (s *service) populateDashboardSkills(ctx context.Context, out *DashboardPage) error {
 	items, err := s.listDashboardSkills(ctx)
 	out.Skills = items
@@ -220,18 +230,21 @@ func (s *service) populateDashboardSkills(ctx context.Context, out *DashboardPag
 	return err
 }
 
+// populateDashboardCommandCards 读取命令卡片并填充到 DashboardPage。
 func (s *service) populateDashboardCommandCards(ctx context.Context, out *DashboardPage) error {
 	items, err := s.listDashboardCommandCards(ctx)
 	out.CommandCards = items
 	return err
 }
 
+// populateDashboardPrompts 读取提示模板并填充到 DashboardPage。
 func (s *service) populateDashboardPrompts(ctx context.Context, out *DashboardPage) error {
 	items, err := s.listDashboardPrompts(ctx)
 	out.Prompts = items
 	return err
 }
 
+// populateDashboardMemory 读取共享文件和 final output refs，组装 retention 分析结果。
 func (s *service) populateDashboardMemory(ctx context.Context, out *DashboardPage) error {
 	items, err := s.listDashboardMemory(ctx)
 	if err != nil {
@@ -250,6 +263,7 @@ func (s *service) populateDashboardMemory(ctx context.Context, out *DashboardPag
 	return nil
 }
 
+// listDashboardSkills 优先使用 skillInventory，回退到 skills.ListSkills。
 func (s *service) listDashboardSkills(ctx context.Context) ([]contract.SkillInfo, error) {
 	cwd := dashboardPromptScopeCWDFromContext(ctx)
 	if s.skillInventory != nil {
@@ -260,12 +274,14 @@ func (s *service) listDashboardSkills(ctx context.Context) ([]contract.SkillInfo
 	})
 }
 
+// listDashboardCommandCards 读取命令卡片列表，store 为 nil 时返回空切片。
 func (s *service) listDashboardCommandCards(ctx context.Context) ([]commandcardstore.CommandCard, error) {
 	return safeList(s.commandCards != nil, func() ([]commandcardstore.CommandCard, error) {
 		return s.commandCards.List(ctx, commandcardstore.ListFilter{Limit: dashboardPageDefaultLimit})
 	})
 }
 
+// listDashboardPrompts 读取提示模板，按 cwd 过滤并排除系统管理的模板。
 func (s *service) listDashboardPrompts(ctx context.Context) ([]promptstore.PromptTemplate, error) {
 	cwd := dashboardPromptScopeCWDFromContext(ctx)
 	return safeList(s.prompts != nil, func() ([]promptstore.PromptTemplate, error) {
@@ -295,11 +311,13 @@ func filterDashboardPromptsByCWD(items []promptstore.PromptTemplate, cwd string)
 	return filtered
 }
 
+// dashboardPromptVisibleForCWD 判断模板是否对指定 cwd 可见；无 scope 标签的模板对所有 cwd 可见。
 func dashboardPromptVisibleForCWD(template promptstore.PromptTemplate, cwd string) bool {
 	storedScope := dashboardPromptScopeFromTags(template.Tags)
 	return storedScope == "" || storedScope == strings.TrimSpace(cwd)
 }
 
+// dashboardPromptScopeFromTags 从标签列表中提取 scope.cwd: 前缀的 cwd 值。
 func dashboardPromptScopeFromTags(raw json.RawMessage) string {
 	for _, tag := range dashboardPromptTags(raw) {
 		if value, ok := strings.CutPrefix(tag, "scope.cwd:"); ok {
@@ -309,6 +327,7 @@ func dashboardPromptScopeFromTags(raw json.RawMessage) string {
 	return ""
 }
 
+// dashboardPromptTags 反序列化 tags JSON 为字符串切片，解析失败时返回空切片。
 func dashboardPromptTags(raw json.RawMessage) []string {
 	if len(raw) == 0 {
 		return []string{}
@@ -321,6 +340,8 @@ func dashboardPromptTags(raw json.RawMessage) []string {
 }
 
 // dashboardPromptIsSystemManaged 处理dashboardpromptissystemmanaged。
+// dashboardPromptIsSystemManaged 判断模板是否由系统创建而非用户手工维护。
+// 优先检查 builtin:system 标签，其次检查作者名称是否符合系统命名模式。
 func dashboardPromptIsSystemManaged(template promptstore.PromptTemplate) bool {
 	for _, tag := range dashboardPromptTags(template.Tags) {
 		if strings.TrimSpace(tag) == "builtin:system" {
@@ -336,10 +357,12 @@ func dashboardPromptIsSystemManaged(template promptstore.PromptTemplate) bool {
 	return dashboardPromptAuthorLooksSystem(template.CreatedBy) || dashboardPromptAuthorLooksSystem(template.UpdatedBy)
 }
 
+// dashboardPromptAuthorIsRPC 检查模板作者是否为 RPC 接口写入。
 func dashboardPromptAuthorIsRPC(author string) bool {
 	return strings.TrimSpace(author) == "rpc.prompts"
 }
 
+// dashboardPromptAuthorLooksSystem 通过命名模式判断作者是否为系统自动写入。
 func dashboardPromptAuthorLooksSystem(author string) bool {
 	normalized := strings.ToLower(strings.TrimSpace(author))
 	return strings.HasPrefix(normalized, "system") ||
@@ -348,6 +371,7 @@ func dashboardPromptAuthorLooksSystem(author string) bool {
 		strings.Contains(normalized, "builtin.registry")
 }
 
+// listDashboardMemory 读取共享文件列表，store 为 nil 时返回空切片。
 func (s *service) listDashboardMemory(ctx context.Context) ([]sharedfilestore.SharedFile, error) {
 	return safeList(s.sharedFiles != nil, func() ([]sharedfilestore.SharedFile, error) {
 		return s.sharedFiles.List(ctx, sharedfilestore.ListFilter{Limit: dashboardMemoryLimit})
@@ -436,6 +460,7 @@ func (s *service) listDashboardFinalOutputRefsFromSnapshot(ctx context.Context) 
 	return refs, nil
 }
 
+// finalOutputRefFromRun 从 run 元数据中提取 final output 文件引用，metadata 不含 final_output 时返回 false。
 func finalOutputRefFromRun(run contract.Run) (FinalOutputRef, bool) {
 	output, ok := contract.FinalOutputFileFromRunMetadata(run.Metadata)
 	if !ok {

@@ -1,3 +1,4 @@
+// Package edit 提供 patch 解析与匹配功能，用于 LSP replace_range 编辑操作。
 package edit
 
 import (

@@ -1,3 +1,4 @@
+// Package threadprompt 管理线程运行时的 prompt 模板目录，负责内置模板与数据库模板的合并、过滤和分发。
 package threadprompt
 
 import (
@@ -136,6 +137,7 @@ func (c *runtimePromptCatalog) CanInsertPromptVersion() bool {
 	return c != nil && c.store != nil
 }
 
+// listBuiltinTemplates 列出内置模板并收集其 prompt key 集合，用于后续隐藏同名数据库模板。
 func (c *runtimePromptCatalog) listBuiltinTemplates(filter RuntimeListFilter) ([]promptstore.PromptTemplate, map[string]struct{}) {
 	keys := map[string]struct{}{}
 	if c.builtin == nil {
@@ -209,6 +211,7 @@ func (c *runtimePromptCatalog) storeListLimit(filter RuntimeListFilter) int32 {
 	return filter.Limit
 }
 
+// runtimeCatalogStoreLimitWithBuiltin 在 filter.Limit 基础上加内置模板数量与 pad，确保数据库查询不会因 builtin 占位而截断用户模板。
 func runtimeCatalogStoreLimitWithBuiltin(limit int32, builtinCount int) int32 {
 	if limit <= 0 {
 		return maxRuntimeCatalogStoreLimit
@@ -224,6 +227,7 @@ func runtimeCatalogStoreLimitWithBuiltin(limit int32, builtinCount int) int32 {
 	return int32(storeLimit)
 }
 
+// builtinTemplateForKey 按 promptKey 查找内置模板，CWD 可见性检查通过后返回副本。
 func (c *runtimePromptCatalog) builtinTemplateForKey(promptKey, cwd string) *promptstore.PromptTemplate {
 	if c.builtin == nil {
 		return nil
@@ -265,6 +269,7 @@ func (c *runtimePromptCatalog) storeTemplateForKey(ctx context.Context, promptKe
 	return &copy, true, nil
 }
 
+// builtinDefaultRuleSections 收集当前 CWD 可见的内置 default_rule 模板的 always 类 section。
 func (c *runtimePromptCatalog) builtinDefaultRuleSections(cwd string) []promptstore.PromptTemplateSection {
 	if c.builtin == nil {
 		return nil
@@ -339,6 +344,7 @@ func (c *runtimePromptCatalog) builtinSectionsForTemplate(
 	return out
 }
 
+// runtimeBuiltinTemplateToStore 将内置模板转换为 promptstore.PromptTemplate 格式，填充 author 和 tags。
 func runtimeBuiltinTemplateToStore(template contract.BuiltinPromptTemplate) promptstore.PromptTemplate {
 	return promptstore.PromptTemplate{
 		ID:          runtimeBuiltinTemplateID(template.ID),
@@ -370,6 +376,7 @@ func runtimeBuiltinTemplateID(id int64) int64 {
 	}
 }
 
+// runtimeBuiltinTags 根据内置模板的 Scope 字段生成规范化 tag 列表，始终包含 builtin:system 标签。
 func runtimeBuiltinTags(template contract.BuiltinPromptTemplate) json.RawMessage {
 	tags := runtimeNormalizedTags(template.Tags)
 	tags = runtimeAppendTagIfMissing(tags, runtimeBuiltinSystemTag)
@@ -449,11 +456,13 @@ func runtimeTemplateMatchesFilter(template promptstore.PromptTemplate, filter Ru
 		strings.Contains(strings.ToLower(template.WhenToUse), keyword)
 }
 
+// runtimeStoreTemplateHiddenByBuiltin 若数据库模板的 prompt_key 与任一内置模板重合则隐藏，内置模板优先。
 func runtimeStoreTemplateHiddenByBuiltin(template promptstore.PromptTemplate, builtinKeys map[string]struct{}) bool {
 	_, hasBuiltin := builtinKeys[strings.TrimSpace(template.PromptKey)]
 	return hasBuiltin
 }
 
+// runtimePickTemplateForGet 获取模板时内置模板优先；无内置时返回数据库模板。
 func runtimePickTemplateForGet(
 	dbTemplate *promptstore.PromptTemplate,
 	builtin *promptstore.PromptTemplate,
@@ -464,6 +473,7 @@ func runtimePickTemplateForGet(
 	return dbTemplate
 }
 
+// runtimeDefaultRuleSections 从 sections 中筛选 trigger_type=always 且 body 非空的已启用条目。
 func runtimeDefaultRuleSections(sections []promptstore.PromptTemplateSection) []promptstore.PromptTemplateSection {
 	out := make([]promptstore.PromptTemplateSection, 0, len(sections))
 	for _, section := range sections {
@@ -497,6 +507,7 @@ func runtimeTemplateVisibleForRead(template promptstore.PromptTemplate, cwd stri
 	return !hasCWDTag
 }
 
+// sortRuntimeTemplates 按 updated_at 降序排列，同时间按 prompt_key 升序、id 升序作为稳定 tie-break。
 func sortRuntimeTemplates(templates []promptstore.PromptTemplate) {
 	sort.SliceStable(templates, func(i, j int) bool {
 		left := templates[i]
@@ -537,11 +548,13 @@ func limitRuntimeTemplates(templates []promptstore.PromptTemplate, limit int32) 
 	return append(out, others[:remaining]...)
 }
 
+// runtimeTemplateIsBuiltin 判断模板是否由内置 registry 写入（通过 created_by/updated_by 标识）。
 func runtimeTemplateIsBuiltin(template promptstore.PromptTemplate) bool {
 	return strings.TrimSpace(template.CreatedBy) == runtimeBuiltinAuthor &&
 		strings.TrimSpace(template.UpdatedBy) == runtimeBuiltinAuthor
 }
 
+// cloneRuntimeTemplate 深拷贝 PromptTemplate，包括 JSON 字段，防止调用方修改影响内部状态。
 func cloneRuntimeTemplate(template *promptstore.PromptTemplate) *promptstore.PromptTemplate {
 	if template == nil {
 		return nil
@@ -553,6 +566,7 @@ func cloneRuntimeTemplate(template *promptstore.PromptTemplate) *promptstore.Pro
 	return &copy
 }
 
+// cloneRuntimeRawJSON 深拷贝 json.RawMessage，避免共享底层 byte slice。
 func cloneRuntimeRawJSON(raw json.RawMessage) json.RawMessage {
 	if raw == nil {
 		return nil

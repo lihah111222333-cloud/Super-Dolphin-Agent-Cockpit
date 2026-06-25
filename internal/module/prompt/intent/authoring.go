@@ -20,6 +20,7 @@ import (
 
 const DryRunDisclaimer = "这是创建前试问解释，不会写入路由索引，也不承诺真实模型一定做出相同选择。"
 
+// DraftResult 是单张草稿卡片的返回结果。
 type DraftResult struct {
 	DraftKey      string  `json:"draft_key"`
 	RequestedKind string  `json:"requested_kind"`
@@ -31,12 +32,14 @@ type DraftResult struct {
 	Card          Card    `json:"card"`
 }
 
+// DraftSetResult 是多张草稿卡片的批量返回结果。
 type DraftSetResult struct {
 	RequestedKind string        `json:"requested_kind"`
 	InferredKind  string        `json:"inferred_kind"`
 	Drafts        []DraftResult `json:"drafts"`
 }
 
+// DryRunResult 是试问（dry-run）操作的返回结果，告知前端这份草稿会触发什么动作。
 type DryRunResult struct {
 	WouldUse   bool     `json:"would_use"`
 	Action     string   `json:"action"`
@@ -46,7 +49,8 @@ type DryRunResult struct {
 	Disclaimer string   `json:"disclaimer"`
 }
 
-// HandleDraft 处理draft。
+// HandleDraft 处理草稿创建请求：调用 dream 生成卡片、规范化、修复质量问题、去重，
+// 最后将草稿持久化并返回结果。
 func HandleDraft(
 	ctx context.Context,
 	promptStore promptstore.Store,
@@ -94,6 +98,7 @@ func HandleDraft(
 	}, nil
 }
 
+// promptIntentDraftDreamOptions 从 DraftParams 中提取 dream 调用选项。
 func promptIntentDraftDreamOptions(p DraftParams) contract.DreamOptions {
 	return contract.DreamOptions{
 		Provider:      strings.TrimSpace(p.Provider),
@@ -102,6 +107,7 @@ func promptIntentDraftDreamOptions(p DraftParams) contract.DreamOptions {
 	}
 }
 
+// buildPromptIntentDrafts 对多张卡片逐一构建 DraftResult 和 PromptIntentDraft，返回两个等长切片。
 func buildPromptIntentDrafts(
 	ctx context.Context,
 	promptStore promptstore.Store,
@@ -125,6 +131,7 @@ func buildPromptIntentDrafts(
 	return results, drafts, nil
 }
 
+// upsertPromptIntentDrafts 在事务中批量 upsert 草稿记录。
 func upsertPromptIntentDrafts(ctx context.Context, promptStore promptstore.Store, drafts []promptstore.PromptIntentDraft) error {
 	return promptStore.WithTx(ctx, func(txStore promptstore.Store) error {
 		for _, draft := range drafts {
@@ -136,7 +143,7 @@ func upsertPromptIntentDrafts(ctx context.Context, promptStore promptstore.Store
 	})
 }
 
-// validatePromptIntentDraftRequest 校验promptintentdraft请求。
+// validatePromptIntentDraftRequest 校验草稿请求的必要字段：dream executor、prompt store、cwd、kind 和 raw_input。
 func validatePromptIntentDraftRequest(
 	promptStore promptstore.Store,
 	dream contract.DreamExecutor,
@@ -163,6 +170,7 @@ func validatePromptIntentDraftRequest(
 	return cwd, kind, rawInput, nil
 }
 
+// newPromptIntentDraftKeyFromEntropy 使用加密随机数生成草稿唯一键。
 func newPromptIntentDraftKeyFromEntropy(kind Kind) (string, error) {
 	random := make([]byte, 8)
 	if _, err := rand.Read(random); err != nil {
@@ -171,7 +179,7 @@ func newPromptIntentDraftKeyFromEntropy(kind Kind) (string, error) {
 	return newPromptIntentDraftKey(kind, time.Now(), random)
 }
 
-// buildPromptIntentDraftResult 构建promptintentdraft结果。
+// buildPromptIntentDraftResult 根据卡片内容构建 DraftResult 和待持久化的 PromptIntentDraft。
 func buildPromptIntentDraftResult(
 	draftKey, cwd string,
 	requestedKind, inferredKind Kind,
@@ -219,6 +227,7 @@ func buildPromptIntentDraftResult(
 	return result, draft, nil
 }
 
+// buildPromptIntentDraft 为单张卡片构建草稿，包含 kind 推断、key 生成和重复检测。
 func buildPromptIntentDraft(
 	ctx context.Context,
 	promptStore promptstore.Store,
@@ -244,6 +253,7 @@ func buildPromptIntentDraft(
 	return buildPromptIntentDraftResult(draftKey, cwd, requestedKind, inferredKind, rawInput, p, card, duplicateIssues)
 }
 
+// promptIntentDraftScope 将 bool 转换为 scope 字符串。
 func promptIntentDraftScope(global bool) string {
 	if global {
 		return "global"
@@ -251,6 +261,8 @@ func promptIntentDraftScope(global bool) string {
 	return "project"
 }
 
+// promptIntentDraftConfidenceAndStatus 根据是否有 block 问题决定草稿置信度和状态：
+// 有 block → 0.3/draft；无 block → 0.85/ready_to_save。
 func promptIntentDraftConfidenceAndStatus(issues []Issue) (float64, string) {
 	if promptIntentHasBlockIssue(issues) {
 		return 0.3, "draft"
@@ -258,7 +270,7 @@ func promptIntentDraftConfidenceAndStatus(issues []Issue) (float64, string) {
 	return 0.85, "ready_to_save"
 }
 
-// HandleDryRun 处理dry运行记录。
+// HandleDryRun 模拟草稿被使用时会触发的动作（不写入路由），帮助用户理解草稿效果。
 func HandleDryRun(
 	ctx context.Context,
 	promptStore promptstore.Store,
@@ -310,7 +322,7 @@ func HandleDryRun(
 	return result, nil
 }
 
-// HandleE2EHealth 处理e2ehealth。
+// HandleE2EHealth 向 dream executor 发送固定探测请求，验证 fixture provider 是否就绪。
 func HandleE2EHealth(ctx context.Context, dream contract.DreamExecutor, _ E2EHealthParams) (E2EHealthResult, error) {
 	if dream == nil {
 		return E2EHealthResult{}, contract.ErrDreamExecutorNotConfigured
@@ -329,6 +341,7 @@ func HandleE2EHealth(ctx context.Context, dream contract.DreamExecutor, _ E2EHea
 	return out, nil
 }
 
+// newPromptIntentDraftKey 构造格式为 intent/<kind>/<timestamp>-<hex8> 的草稿键。
 func newPromptIntentDraftKey(kind Kind, now time.Time, random []byte) (string, error) {
 	if len(random) < 8 {
 		return "", errors.New("prompt intent draft key requires 8 random bytes")
@@ -339,7 +352,8 @@ func newPromptIntentDraftKey(kind Kind, now time.Time, random []byte) (string, e
 	return fmt.Sprintf("intent/%s/%d-%s", kind, now.UnixNano(), hex.EncodeToString(random[:8])), nil
 }
 
-// buildPromptIntentDraftPrompt 构建promptintentdraftprompt。
+// buildPromptIntentDraftPrompt 构建传给 LLM 的草稿生成 prompt，
+// default_rule 类型会附加当前项目已有规则列表以便检查冲突。
 func buildPromptIntentDraftPrompt(ctx context.Context, store promptstore.Store, cwd string, kind Kind, rawInput string) (string, error) {
 	var existingRules []string
 	if kind == KindDefaultRule {
@@ -407,6 +421,7 @@ user_input:
 %s`, kind, cwd, strings.Join(existingRules, "\n---\n"), rawInput), nil
 }
 
+// parsePromptIntentCard 解析单个卡片 JSON。
 func parsePromptIntentCard(raw string) (Card, error) {
 	var card Card
 	if err := json.Unmarshal([]byte(strings.TrimSpace(raw)), &card); err != nil {
@@ -415,6 +430,7 @@ func parsePromptIntentCard(raw string) (Card, error) {
 	return card, nil
 }
 
+// parsePromptIntentCards 支持解析单对象和 {"drafts":[...]} 两种格式，统一返回卡片切片。
 func parsePromptIntentCards(raw string) ([]Card, error) {
 	trimmed := strings.TrimSpace(raw)
 	var set struct {
@@ -430,6 +446,7 @@ func parsePromptIntentCards(raw string) ([]Card, error) {
 	return []Card{card}, nil
 }
 
+// promptIntentDraftIssues 汇总所有安全、质量和示例校验问题，以及 default_rule 冲突提示。
 func promptIntentDraftIssues(kind Kind, rawInput string, card Card) []Issue {
 	issues := SafetyIssues(kind, rawInput, card)
 	issues = append(issues, promptIntentQualityIssues(kind, rawInput, card)...)
@@ -445,7 +462,7 @@ func promptIntentDraftIssues(kind Kind, rawInput string, card Card) []Issue {
 	return issues
 }
 
-// promptIntentQualityIssues 处理promptintentqualityissues。
+// promptIntentQualityIssues 检查卡片的字段完整性、when_to_use 具体性、output 明确性和 save_boundary 必要性。
 func promptIntentQualityIssues(kind Kind, rawInput string, card Card) []Issue {
 	issues := promptIntentRequiredFieldIssues(kind, card)
 	if kind == KindExpert {
@@ -475,6 +492,7 @@ func promptIntentQualityIssues(kind Kind, rawInput string, card Card) []Issue {
 	return issues
 }
 
+// promptIntentRequiredFieldIssues 检查各 kind 必填字段是否存在，缺失则返回 block 问题。
 func promptIntentRequiredFieldIssues(kind Kind, card Card) []Issue {
 	issues := make([]Issue, 0, 6)
 	issues = appendPromptIntentMissingIssue(issues, "title", "标题不能为空。", card.Title)
@@ -586,7 +604,7 @@ func normalizePromptIntentComparableText(text string) string {
 	return strings.Trim(normalizePromptIntentText(text), "。.!！ ")
 }
 
-// promptIntentDryRunCard 处理promptintentdry运行记录card。
+// promptIntentDryRunCard 从 draft_key 加载草稿卡片，或直接解析请求中的 card 字段。
 func promptIntentDryRunCard(ctx context.Context, promptStore promptstore.Store, p DryRunParams) (Card, error) {
 	if draftKey := strings.TrimSpace(p.DraftKey); draftKey != "" {
 		if promptStore == nil {
@@ -608,6 +626,7 @@ func promptIntentDryRunCard(ctx context.Context, promptStore promptstore.Store, 
 	return parsePromptIntentCard(string(p.Card))
 }
 
+// normalizeKind 解析并校验 kind 字符串，不合法时返回 invalid_params 错误。
 func normalizeKind(raw string) (Kind, error) {
 	switch kind := Kind(strings.TrimSpace(raw)); kind {
 	case KindExpert, KindRecall, KindDefaultRule:
@@ -617,11 +636,13 @@ func normalizeKind(raw string) (Kind, error) {
 	}
 }
 
+// promptIntentOriginHash 对原始输入做 SHA-256，用于识别同批次草稿。
 func promptIntentOriginHash(raw string) string {
 	sum := sha256.Sum256([]byte(strings.TrimSpace(raw)))
 	return hex.EncodeToString(sum[:])
 }
 
+// promptIntentHasBlockIssue 判断问题列表中是否含有 block 级别问题。
 func promptIntentHasBlockIssue(issues []Issue) bool {
 	for _, issue := range issues {
 		if strings.TrimSpace(issue.Severity) == "block" {
@@ -631,6 +652,7 @@ func promptIntentHasBlockIssue(issues []Issue) bool {
 	return false
 }
 
+// trimmedPromptIntentExamples 过滤并去除列表中的空字符串。
 func trimmedPromptIntentExamples(values []string) []string {
 	out := make([]string, 0, len(values))
 	for _, value := range values {
@@ -641,6 +663,7 @@ func trimmedPromptIntentExamples(values []string) []string {
 	return out
 }
 
+// nonEmptyStrings 过滤并返回非空字符串切片。
 func nonEmptyStrings(values ...string) []string {
 	out := make([]string, 0, len(values))
 	for _, value := range values {

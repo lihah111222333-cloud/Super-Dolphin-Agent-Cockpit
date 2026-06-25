@@ -1,3 +1,4 @@
+// Package appupdate 提供应用自动更新的检查、下载和安装能力，支持 GitHub Releases 和自定义 manifest 两种更新源。
 package appupdate
 
 import (
@@ -13,11 +14,13 @@ import (
 
 const githubLatestReleaseAPI = "https://api.github.com/repos/%s/%s/releases/latest"
 
+// githubRelease 是 GitHub API 返回的最新 release 结构。
 type githubRelease struct {
 	TagName string               `json:"tag_name"`
 	Assets  []githubReleaseAsset `json:"assets"`
 }
 
+// githubReleaseAsset 是 GitHub release asset 的元数据。
 type githubReleaseAsset struct {
 	Name               string `json:"name"`
 	BrowserDownloadURL string `json:"browser_download_url"`
@@ -25,6 +28,7 @@ type githubReleaseAsset struct {
 	Digest             string `json:"digest"`
 }
 
+// githubPlatformAssets 将平台对应的 artifact 和 manifest asset 配对。
 type githubPlatformAssets struct {
 	artifact githubReleaseAsset
 	manifest githubReleaseAsset
@@ -124,6 +128,7 @@ func (s *service) fetchGitHubManifestAsset(ctx context.Context, asset githubRele
 	return raw, nil
 }
 
+// githubLatestReleaseURL 生成指向 GitHub 最新 release 的 API URL。
 func githubLatestReleaseURL(repo string) (string, error) {
 	owner, name, err := githubRepoParts(repo)
 	if err != nil {
@@ -132,11 +137,13 @@ func githubLatestReleaseURL(repo string) (string, error) {
 	return fmt.Sprintf(githubLatestReleaseAPI, url.PathEscape(owner), url.PathEscape(name)), nil
 }
 
+// validateGitHubRepo 校验 GitHub repo 格式是否合法。
 func validateGitHubRepo(repo string) error {
 	_, _, err := githubRepoParts(repo)
 	return err
 }
 
+// githubRepoParts 解析 "owner/repo" 格式字符串，不符合格式时返回错误。
 func githubRepoParts(repo string) (string, string, error) {
 	value := strings.TrimSpace(repo)
 	parts := strings.Split(value, "/")
@@ -149,6 +156,7 @@ func githubRepoParts(repo string) (string, string, error) {
 	return parts[0], parts[1], nil
 }
 
+// githubAssetsForPlatform 从 release asset 列表中找出当前平台的 artifact 和 manifest。
 func githubAssetsForPlatform(release githubRelease, platform string) (githubPlatformAssets, error) {
 	artifactName, err := githubArtifactAssetName(platform)
 	if err != nil {
@@ -166,6 +174,7 @@ func githubAssetsForPlatform(release githubRelease, platform string) (githubPlat
 	return githubPlatformAssets{artifact: artifact, manifest: manifest}, nil
 }
 
+// githubArtifactAssetName 按平台返回更新产物的文件名（dmg/exe），不支持的平台返回错误。
 func githubArtifactAssetName(platform string) (string, error) {
 	switch updatePlatformOS(platform) {
 	case "darwin":
@@ -177,10 +186,12 @@ func githubArtifactAssetName(platform string) (string, error) {
 	}
 }
 
+// githubManifestAssetName 返回平台对应的 manifest JSON 文件名。
 func githubManifestAssetName(platform string) string {
 	return "Super-Dolphin-" + platform + ".update.json"
 }
 
+// githubAssetByName 在 asset 列表中按名称查找，未找到时返回 ok=false。
 func githubAssetByName(assets []githubReleaseAsset, name string) (githubReleaseAsset, bool) {
 	for _, asset := range assets {
 		if asset.Name == name {
@@ -229,6 +240,7 @@ func validateGitHubAssetDownloadURL(asset githubReleaseAsset) error {
 	return nil
 }
 
+// githubAssetSHA256 从 asset.Digest 字段解析 sha256:<hex> 格式的摘要值。
 func githubAssetSHA256(asset githubReleaseAsset) (string, error) {
 	algorithm, value, ok := strings.Cut(strings.TrimSpace(asset.Digest), ":")
 	if !ok || !strings.EqualFold(algorithm, "sha256") {

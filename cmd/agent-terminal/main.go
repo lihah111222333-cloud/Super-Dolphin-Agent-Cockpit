@@ -1,3 +1,4 @@
+// Package main 是桌面终端应用的入口，负责初始化运行环境并启动 Wails 桌面 UI。
 package main
 
 import (
@@ -9,6 +10,7 @@ import (
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
+// main 初始化文件描述符限制、设置进程角色环境变量，并启动桌面应用。
 func main() {
 	rlimit.Init()
 	if err := os.Setenv("SUPER_DOLPHIN_PROCESS_ROLE", "desktop"); err != nil {

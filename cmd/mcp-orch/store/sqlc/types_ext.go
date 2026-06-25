@@ -1,11 +1,16 @@
+// Package sqlc 是 sqlc 代码生成包的手工扩展，提供 SQLite 与 Go 类型之间的转换工具函数。
+// 生成文件（Code generated 头部）不在此修改；本文件只放手工补充的类型别名与辅助函数。
 package sqlc
 
 import "time"
 
-type Timestamptz = int64
-type Interval = int64
-type Text = *string
-type Int8 = *int64
+// SQLite 列类型别名，与 sqlc 生成代码保持兼容。
+type (
+	Timestamptz = int64   // 毫秒时间戳
+	Interval    = int64   // 毫秒时长
+	Text        = *string // 可空文本
+	Int8        = *int64  // 可空 int64
+)
 
 // TimeValue 将 SQLite 毫秒时间戳转换为 UTC 时间。
 func TimeValue(value int64) time.Time {

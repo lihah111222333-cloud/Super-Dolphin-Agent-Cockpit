@@ -1,3 +1,4 @@
+// Package dedup 见 tokenizer.go。
 package dedup
 
 import (
@@ -137,7 +138,7 @@ func MergeParagraphs(oldContent, newContent string) string {
 	return strings.Join(result, "\n\n")
 }
 
-// splitParagraphs splits content by double newline, filtering fully-empty entries.
+// splitParagraphs 按双换行拆分段落，过滤纯空白段落。
 func splitParagraphs(content string) []string {
 	parts := strings.Split(content, "\n\n")
 	var out []string
@@ -149,10 +150,10 @@ func splitParagraphs(content string) []string {
 	return out
 }
 
-// MergeContent 根据 type 选择合并策略。
+// MergeContent 根据记忆类型选择合并策略。
 //
-//	type 含 "feedback"/"user" → MergeRulePoints
-//	其他 → MergeParagraphs
+//	type 含 "feedback"/"user" → MergeRulePoints（行级追加）
+//	其他 → MergeParagraphs（段落级去重）
 func MergeContent(memType, oldContent, newContent string) string {
 	lower := strings.ToLower(memType)
 	if strings.Contains(lower, "feedback") || strings.Contains(lower, "user") {
@@ -161,15 +162,12 @@ func MergeContent(memType, oldContent, newContent string) string {
 	return MergeParagraphs(oldContent, newContent)
 }
 
-// MergeFrontmatter 合并 frontmatter 字段，返回完整的 EntrySnapshot（只更新元数据，不改 Content）。
+// MergeFrontmatter 合并两个快照的 frontmatter 字段，返回完整的 EntrySnapshot（不改 Content）。
 //
-//	name: 保留 old
-//	type: 保留 old
-//	description: 取更长的
-//	search_keys: 并集去重
-//	lang: 保留 old
-//	aliases: 保留 old
-//	source: old 非 "dream" 时保留 old，否则取 new
+//	name/type/lang/aliases/path/scope：保留 old
+//	description：取更长的
+//	search_keys：并集去重
+//	source：old 为 "dream" 时取 new，否则保留 old
 func MergeFrontmatter(old, new EntrySnapshot) EntrySnapshot {
 	result := old // start with a copy of old
 
@@ -190,7 +188,7 @@ func MergeFrontmatter(old, new EntrySnapshot) EntrySnapshot {
 	return result
 }
 
-// unionStrings merges two string slices and deduplicates.
+// unionStrings 合并两个字符串切片并去重，保持原有顺序。
 func unionStrings(a, b []string) []string {
 	seen := make(map[string]struct{}, len(a)+len(b))
 	var out []string

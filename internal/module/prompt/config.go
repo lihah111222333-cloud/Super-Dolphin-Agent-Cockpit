@@ -22,6 +22,7 @@ const (
 	envDisableBuiltinStaticSections = "DISABLE_BUILTIN_STATIC_SECTIONS"
 )
 
+// Config 保存 prompt 模块的功能开关，由环境变量在启动时确定。
 type Config struct {
 	EnableRegistry                  bool
 	EnableAssembly                  bool
@@ -37,6 +38,7 @@ func NewConfig(_ *contract.Config) *Config {
 	}
 }
 
+// parseBoolEnv 解析布尔环境变量，支持 1/true/yes/on 和 0/false/no/off，未设置时返回 fallback。
 func parseBoolEnv(key string, fallback bool) bool {
 	raw := os.Getenv(key)
 	switch strings.ToLower(strings.TrimSpace(raw)) {

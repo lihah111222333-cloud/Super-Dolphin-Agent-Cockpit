@@ -11,9 +11,12 @@ import (
 )
 
 const (
-	TierFast   = 5 * time.Second
+	// TierFast 快速操作超时（5秒）。
+	TierFast = 5 * time.Second
+	// TierNormal 普通操作超时（30秒）。
 	TierNormal = 30 * time.Second
-	TierSlow   = 120 * time.Second
+	// TierSlow 慢速操作超时（120秒）。
+	TierSlow = 120 * time.Second
 )
 
 // Timeout 给请求套上超时控制。
@@ -43,6 +46,7 @@ func Timeout(limit time.Duration) Middleware {
 	}
 }
 
+// withToolTimeout 为工具请求创建超时上下文，遵守父上下文的已有截止时间。
 func withToolTimeout(ctx context.Context, limit time.Duration) (context.Context, context.CancelFunc) {
 	deadline := time.Now().Add(limit)
 	if parentDeadline, ok := ctx.Deadline(); ok && parentDeadline.Before(deadline) {
@@ -51,11 +55,13 @@ func withToolTimeout(ctx context.Context, limit time.Duration) (context.Context,
 	return context.WithDeadline(ctx, deadline)
 }
 
+// timeoutResult 持有 goroutine 执行结果，通过 channel 传回调用方。
 type timeoutResult struct {
 	value any
 	err   error
 }
 
+// callWithRecover 调用 next 并在 panic 时返回错误，避免 goroutine 崩溃传播。
 func callWithRecover(next Handler, ctx context.Context, params json.RawMessage) (value any, err error) {
 	defer func() {
 		if recovered := recover(); recovered != nil {
@@ -65,6 +71,7 @@ func callWithRecover(next Handler, ctx context.Context, params json.RawMessage) 
 	return next(ctx, params)
 }
 
+// newToolTimeoutError 构造工具超时的结构化错误，包含重试提示和超时时长元数据。
 func newToolTimeoutError(limit time.Duration, err error) error {
 	if errors.Is(err, context.Canceled) {
 		return err

@@ -1,3 +1,6 @@
+// Package orchestration 实现 agent 生命周期管理、DAG 任务编排和 wakeup 投递。
+// 核心结构是 service，负责 agent 状态机、turn 队列、进程守护和 DAG run 控制；
+// 通过 AgentLauncher 抽象本地进程和远端 Codex 两种启动模式。
 package orchestration
 
 import (
@@ -29,8 +32,13 @@ import (
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
+// Service 是编排服务的导出类型别名，用于 fx 依赖注入。
 type Service = contract.OrchestrationService
+
+// SessionCleaner 是 session 清理器的导出类型别名。
 type SessionCleaner = contract.OrchestrationSessionCleaner
+
+// TurnStarter 是 turn 启动器的导出类型别名。
 type TurnStarter = contract.OrchestrationTurnStarter
 
 type TurnSubmission = contract.TurnSubmission
@@ -62,6 +70,8 @@ var (
 	errTurnNotActive          = errors.New("turn is not active")
 )
 
+// service 是 orchestration 包的核心实现结构体，持有 agent 状态机、turn 队列、
+// DAG store 和异步后台任务上下文。所有并发访问通过 mu 保护。
 type service struct {
 	logger                   *slog.Logger
 	eventBus                 *event.Dispatcher
@@ -88,6 +98,7 @@ type service struct {
 	asyncWg     sync.WaitGroup
 }
 
+// serviceParams 是 fx 依赖注入参数结构体，包含 service 所需的所有依赖。
 type serviceParams struct {
 	fx.In
 
@@ -104,10 +115,12 @@ type serviceParams struct {
 	DispatchStore  taskdag.DispatchNodeStore `optional:"true"`
 }
 
+// recoveryTurnStore 是 recoveryTurnStore 接口的本地类型别名，用于内部断言。
 type recoveryTurnStore interface {
 	taskdag.RecoveryStore
 }
 
+// agentRuntime 持有单个 agent 实例的完整运行时状态，由 service.mu 保护读写。
 type agentRuntime struct {
 	id, name, prompt, instructions, parentID, agentType, agentKey, memoryScope, language, cwd string
 	command, env                                                                              []string
@@ -133,6 +146,7 @@ type agentRuntime struct {
 	sm                                                                                        *stateless.StateMachine
 }
 
+// turnWork 是 claimTurnWork 从队列取出的一次待执行 turn 的工作单元。
 type turnWork struct {
 	agentID    string
 	threadID   string
@@ -276,6 +290,7 @@ func RegisterApprovalLifecycle(lc fx.Lifecycle, dispatcher *event.Dispatcher, sv
 	})
 }
 
+// loggerOrDefault 返回 logger，为 nil 时返回全局默认 logger。
 func loggerOrDefault(logger *slog.Logger) *slog.Logger {
 	if logger != nil {
 		return logger
@@ -287,6 +302,7 @@ func loggerOrDefault(logger *slog.Logger) *slog.Logger {
 // dependency. Tests that do not bring up the taskdag module skip the
 // dispatcher entirely; production wiring (cmd/mcp-orch/fx.go) always
 // includes taskdagstore.Module so the dispatcher runs.
+// ProvideWakeupDispatcherRunnerIn 是 fx 注入 WakeupDispatcher runner 的参数结构。
 type ProvideWakeupDispatcherRunnerIn struct {
 	fx.In
 
@@ -339,6 +355,7 @@ func WireWakeupDispatcherRouter(dispatcher *WakeupDispatcher, router *NodeExecut
 	}
 }
 
+// WireWakeupDispatcherRetryAlertSinkIn 是 fx 注入重试告警 sink 的参数结构。
 type WireWakeupDispatcherRetryAlertSinkIn struct {
 	fx.In
 
@@ -354,10 +371,12 @@ func WireWakeupDispatcherRetryAlertSink(in WireWakeupDispatcherRetryAlertSinkIn)
 	in.Dispatcher.WithDispatchRetryAlertSink(in.Sink)
 }
 
+// withEventTime 把事件时间戳注入 context，供后续状态更新时间源使用。
 func withEventTime(ctx context.Context, timestamp time.Time) context.Context {
 	return platformshared.WithEventTime(ctx, timestamp)
 }
 
+// resolveEventTime 从 context 或 fallback 中解析事件时间。
 func resolveEventTime(ctx context.Context, fallbacks ...time.Time) time.Time {
 	return platformshared.ResolveEventTime(ctx, nil, fallbacks...)
 }
@@ -372,7 +391,7 @@ func (s *service) StopAgent(ctx context.Context, agentID string) error {
 	return s.stopAgentViaLauncher(ctx, agentID, "user_requested")
 }
 
-// StopAllAgents 停止all代理。
+// StopAllAgents 按字母顺序停止所有运行中的 agent，并等待异步任务完成。
 func (s *service) StopAllAgents() {
 	s.mu.RLock()
 	ids := make([]string, 0, len(s.agents))

@@ -1,3 +1,4 @@
+// Package toolstore 管理 skill_tools 表的 CRUD 操作，提供 SQLite 持久化和 RPC handler 注册。
 package toolstore
 
 import (
@@ -91,10 +92,16 @@ type DeleteResult struct {
 	Deleted bool  `json:"deleted"`
 }
 
+// CWDResolver 解析工作目录路径的函数类型。
 type CWDResolver func(string) (string, error)
+
+// ErrorMapper 将内部错误映射为 RPC 错误的函数类型。
 type ErrorMapper func(error) error
+
+// ContentReader 按工作目录和方法名读取 skill 全文内容的函数类型。
 type ContentReader func(context.Context, string, string) (string, error)
 
+// normalizedMutation 是经过字段校验和空白裁剪后的写入参数。
 type normalizedMutation struct {
 	CWD         string
 	MethodName  string
@@ -172,6 +179,7 @@ func CallForSurface(ctx context.Context, store *Store, resolve CWDResolver, read
 	return read(ctx, resolved, tool.MethodName)
 }
 
+// createHandler 返回 create RPC 的处理函数闭包。
 func createHandler(store *Store, resolve CWDResolver, mapError ErrorMapper) func(context.Context, MutationParams) (Result, error) {
 	return func(ctx context.Context, p MutationParams) (Result, error) {
 		if err := resolveParamCWD(&p.CWD, resolve); err != nil {
@@ -182,6 +190,7 @@ func createHandler(store *Store, resolve CWDResolver, mapError ErrorMapper) func
 	}
 }
 
+// listHandler 返回 list RPC 的处理函数闭包。
 func listHandler(store *Store, resolve CWDResolver, mapError ErrorMapper) func(context.Context, ListParams) (ListResult, error) {
 	return func(ctx context.Context, p ListParams) (ListResult, error) {
 		if err := resolveParamCWD(&p.CWD, resolve); err != nil {
@@ -192,6 +201,7 @@ func listHandler(store *Store, resolve CWDResolver, mapError ErrorMapper) func(c
 	}
 }
 
+// getHandler 返回 get RPC 的处理函数闭包。
 func getHandler(store *Store, resolve CWDResolver, mapError ErrorMapper) func(context.Context, IDParams) (Result, error) {
 	return func(ctx context.Context, p IDParams) (Result, error) {
 		if err := resolveParamCWD(&p.CWD, resolve); err != nil {
@@ -202,6 +212,7 @@ func getHandler(store *Store, resolve CWDResolver, mapError ErrorMapper) func(co
 	}
 }
 
+// updateHandler 返回 update RPC 的处理函数闭包。
 func updateHandler(store *Store, resolve CWDResolver, mapError ErrorMapper) func(context.Context, UpdateParams) (Result, error) {
 	return func(ctx context.Context, p UpdateParams) (Result, error) {
 		if err := resolveParamCWD(&p.CWD, resolve); err != nil {
@@ -212,6 +223,7 @@ func updateHandler(store *Store, resolve CWDResolver, mapError ErrorMapper) func
 	}
 }
 
+// deleteHandler 返回 delete RPC 的处理函数闭包。
 func deleteHandler(store *Store, resolve CWDResolver, mapError ErrorMapper) func(context.Context, IDParams) (DeleteResult, error) {
 	return func(ctx context.Context, p IDParams) (DeleteResult, error) {
 		if err := resolveParamCWD(&p.CWD, resolve); err != nil {
@@ -222,6 +234,7 @@ func deleteHandler(store *Store, resolve CWDResolver, mapError ErrorMapper) func
 	}
 }
 
+// resolveParamCWD 通过 resolve 函数解析并回写入参的 CWD 字段。
 func resolveParamCWD(cwd *string, resolve CWDResolver) error {
 	if resolve == nil {
 		return ErrStoreNotConfigured
@@ -234,6 +247,7 @@ func resolveParamCWD(cwd *string, resolve CWDResolver) error {
 	return nil
 }
 
+// mapHandlerError 将错误映射为 RPC 层可识别的错误形式。
 func mapHandlerError(err error, mapError ErrorMapper) error {
 	if err == nil {
 		return nil
@@ -326,6 +340,7 @@ func (s *Store) Delete(ctx context.Context, p IDParams) (DeleteResult, error) {
 	return DeleteResult{ID: p.ID, Deleted: true}, nil
 }
 
+// list 执行带关键词过滤的查询，返回当前项目的工具列表。
 func (s *Store) list(ctx context.Context, cwd, keyword string, limit int32) ([]Result, error) {
 	if err := s.ensure(ctx); err != nil {
 		return nil, err
@@ -339,10 +354,12 @@ func (s *Store) list(ctx context.Context, cwd, keyword string, limit int32) ([]R
 	return scanRows(rows)
 }
 
+// update 执行 UPDATE 并返回更新后的记录。
 func (s *Store) update(ctx context.Context, id int64, p normalizedMutation) (Result, error) {
 	return s.scanOne(ctx, updateSQL, p.MethodName, p.Description, boolToSQLite(p.Enabled), p.CWD, id)
 }
 
+// delete 执行 DELETE，删除失败或记录不存在时返回错误。
 func (s *Store) delete(ctx context.Context, cwd string, id int64) error {
 	if err := s.ensure(ctx); err != nil {
 		return err
@@ -374,6 +391,7 @@ func (s *Store) ensure(ctx context.Context) error {
 	return nil
 }
 
+// scanOne 执行单行查询并将结果扫描为 Result；行不存在时返回 ErrNotFound。
 func (s *Store) scanOne(ctx context.Context, query string, args ...any) (Result, error) {
 	tool, err := scan(s.db.QueryRowContext(ctx, query, args...))
 	if errors.Is(err, sql.ErrNoRows) {
@@ -385,6 +403,7 @@ func (s *Store) scanOne(ctx context.Context, query string, args ...any) (Result,
 	return tool, nil
 }
 
+// normalizeMutation 校验并裁剪写入参数，返回规范化后的结构体。
 func normalizeMutation(p MutationParams) (normalizedMutation, error) {
 	cwd := strings.TrimSpace(p.CWD)
 	if cwd == "" {
@@ -409,6 +428,7 @@ func normalizeMutation(p MutationParams) (normalizedMutation, error) {
 	}, nil
 }
 
+// validateListParams 校验 list 查询的必填字段。
 func validateListParams(p ListParams) error {
 	if strings.TrimSpace(p.CWD) == "" {
 		return ErrStoreNotConfigured
@@ -419,6 +439,7 @@ func validateListParams(p ListParams) error {
 	return nil
 }
 
+// validateIDParams 校验 id 查询的必填字段。
 func validateIDParams(p IDParams) error {
 	if strings.TrimSpace(p.CWD) == "" {
 		return ErrStoreNotConfigured
@@ -429,6 +450,7 @@ func validateIDParams(p IDParams) error {
 	return nil
 }
 
+// validateMethodName 校验方法名格式，不得含空白或路径分隔符。
 func validateMethodName(methodName string) error {
 	methodName = strings.TrimSpace(methodName)
 	if methodName == "" {
@@ -440,6 +462,7 @@ func validateMethodName(methodName string) error {
 	return nil
 }
 
+// normalizeLimit 将 limit 约束到 maxLimit 上限。
 func normalizeLimit(limit int32) int32 {
 	if limit > maxLimit {
 		return maxLimit
@@ -447,6 +470,7 @@ func normalizeLimit(limit int32) int32 {
 	return limit
 }
 
+// firstNonEmpty 返回第一个非空字符串，全为空时返回空字符串。
 func firstNonEmpty(values ...string) string {
 	for _, value := range values {
 		if strings.TrimSpace(value) != "" {
@@ -456,6 +480,7 @@ func firstNonEmpty(values ...string) string {
 	return ""
 }
 
+// scanRows 从查询结果集中逐行扫描并返回工具列表。
 func scanRows(rows *sql.Rows) ([]Result, error) {
 	out := make([]Result, 0)
 	for rows.Next() {
@@ -471,10 +496,12 @@ func scanRows(rows *sql.Rows) ([]Result, error) {
 	return out, nil
 }
 
+// scanner 是支持 Scan 方法的通用接口，供 *sql.Row 和 *sql.Rows 复用。
 type scanner interface {
 	Scan(dest ...any) error
 }
 
+// scan 从单行结果扫描并构造 Result，enabled 字段从 SQLite integer 转换为 bool。
 func scan(source scanner) (Result, error) {
 	var tool Result
 	var enabled int64
@@ -494,6 +521,7 @@ func scan(source scanner) (Result, error) {
 	return tool, nil
 }
 
+// requireAffected 检查 sql.Result 是否影响了至少一行，否则返回 ErrNotFound。
 func requireAffected(result sql.Result) error {
 	affected, err := result.RowsAffected()
 	if err != nil {
@@ -505,6 +533,7 @@ func requireAffected(result sql.Result) error {
 	return nil
 }
 
+// boolToSQLite 将 bool 转换为 SQLite 兼容的 0/1 整数。
 func boolToSQLite(value bool) int64 {
 	if value {
 		return 1
