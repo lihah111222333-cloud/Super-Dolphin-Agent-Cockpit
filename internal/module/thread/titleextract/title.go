@@ -1,3 +1,4 @@
+// Package titleextract 从用户首条消息中提取简洁的会话标题，用于线程命名。
 package titleextract
 
 import (
@@ -45,7 +46,7 @@ var englishFillerWords = map[string]bool{
 	"this": true, "that": true, "with": true,
 }
 
-// Extract 提取线程。
+// Extract 从 prompt 文本中提取简洁标题，清理前缀填充词、代码块和标点，返回空字符串表示无法提取有效标题。
 func Extract(prompt string) string {
 	if prompt == "" {
 		return ""
@@ -75,7 +76,7 @@ func Extract(prompt string) string {
 	return sentence
 }
 
-// ContinuationName 处理continuation名称。
+// ContinuationName 根据父线程名生成续集名称，如 "标题 (续)" 或 "标题 (续 2)"，支持多级续集编号递增。
 func ContinuationName(parentName string) string {
 	if m := continuationRe.FindStringSubmatch(parentName); m != nil {
 		base := m[1]
@@ -134,7 +135,7 @@ func containsChinese(s string) bool {
 	return false
 }
 
-// CountDisplayUnits 统计显示units。
+// CountDisplayUnits 统计字符串的显示单元数：每个汉字计 1 个单元，连续英文单词计 1 个单元。
 func CountDisplayUnits(s string) int {
 	s = strings.TrimSpace(s)
 	if s == "" {
@@ -182,7 +183,7 @@ func classifyRune(r rune) runeKind {
 	return runeKindOther
 }
 
-// truncateToUnits 把线程截断为units。
+// truncateToUnits 把字符串截断到不超过 maxUnits 个显示单元，保留完整词边界。
 func truncateToUnits(s string, maxUnits int) string {
 	s = strings.TrimSpace(s)
 	if s == "" {

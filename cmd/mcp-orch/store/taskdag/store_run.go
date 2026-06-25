@@ -124,6 +124,8 @@ func (s *store) TerminateRun(ctx context.Context, input TerminateRunInput) (Term
 // terminateRunTx 的顺序不能随意调整：先停节点，再停 wakeup，最后翻 run
 // status。这样即使最后一步发现 run 已被其它路径取消，也可以安全读取已有
 // spawned_thread_id 返回给上层做 agent lifecycle 清理。
+// terminateRunTx 是 TerminateRun 的事务体：先取消节点，再取消 wakeup，最后取消 run 行。
+// 顺序不能颠倒，这样即使最后一步幂等重入也能正确收集 spawned thread ids。
 func terminateRunTx(ctx context.Context, txq *sqlc.Queries, txdb sqlc.DBTX, input TerminateRunInput, reason string, event []byte) ([]string, error) {
 	if _, err := txq.CancelTaskDagRunNodes(ctx, sqlc.CancelTaskDagRunNodesParams{
 		Reason: reason,
@@ -145,6 +147,8 @@ func terminateRunTx(ctx context.Context, txq *sqlc.Queries, txdb sqlc.DBTX, inpu
 	return runSpawnedThreadIDs(ctx, txq, input.DagKey, input.RunID)
 }
 
+// terminateRunAlreadyCancelled 处理幂等路径：run 已被取消时读取其 spawned thread ids 返回，
+// 仅在 run 确认为 cancelled 且匹配 input 时认可幂等，否则透传原错误。
 func terminateRunAlreadyCancelled(ctx context.Context, txq *sqlc.Queries, txdb sqlc.DBTX, input TerminateRunInput, cancelErr error) ([]string, error) {
 	if errors.Is(cancelErr, sql.ErrNoRows) {
 		threadIDs, loadErr := cancelledRunSpawnedThreadIDs(ctx, txq, txdb, input)
@@ -155,6 +159,7 @@ func terminateRunAlreadyCancelled(ctx context.Context, txq *sqlc.Queries, txdb s
 	return nil, fmt.Errorf("cancel run: %w", cancelErr)
 }
 
+// cancelledRunSpawnedThreadIDs 验证已取消 run 的幂等性，通过后读取 spawned thread ids。
 func cancelledRunSpawnedThreadIDs(ctx context.Context, q *sqlc.Queries, db sqlc.DBTX, input TerminateRunInput) ([]string, error) {
 	run, err := getTaskDagRunRow(ctx, db, input.RunKey)
 	if err != nil {
@@ -166,6 +171,7 @@ func cancelledRunSpawnedThreadIDs(ctx context.Context, q *sqlc.Queries, db sqlc.
 	return runSpawnedThreadIDs(ctx, q, input.DagKey, input.RunID)
 }
 
+// runSpawnedThreadIDs 从 run 下所有节点的 spawning_thread_id 中收集非空值并排序去重。
 func runSpawnedThreadIDs(ctx context.Context, q *sqlc.Queries, dagKey string, runID int64) ([]string, error) {
 	nodes, err := q.ListTaskDagRunNodes(ctx, sqlc.ListTaskDagRunNodesParams{DagKey: dagKey, RunID: int64Ptr(runID)})
 	if err != nil {
@@ -178,6 +184,7 @@ func runSpawnedThreadIDs(ctx context.Context, q *sqlc.Queries, dagKey string, ru
 	return nonEmptyTextValues(values), nil
 }
 
+// nonEmptyTextValues 过滤 nil 和空字符串指针，返回排序后的非空值切片。
 func nonEmptyTextValues(values []*string) []string {
 	out := make([]string, 0, len(values))
 	for _, value := range values {
@@ -239,10 +246,12 @@ WHERE dag_key = ?2
   AND status = 'running'
 RETURNING id`
 
+// taskDagRunScanner 是 sql.Row 和 sql.Rows 的公共扫描接口，让 scanTaskDagRunRow 兼容两者。
 type taskDagRunScanner interface {
 	Scan(dest ...any) error
 }
 
+// taskDagRunRow 是 task_dag_runs 全量列的扫描结构体，用于 RETURNING 和 GetRun 路径。
 type taskDagRunRow struct {
 	ID                 int64
 	RunKey             string
@@ -260,6 +269,7 @@ type taskDagRunRow struct {
 	UpdatedAt          int64
 }
 
+// taskDagRunListRow 是 ListRuns 查询的轻量投影（不含 events / metadata 大字段）。
 type taskDagRunListRow struct {
 	ID                 int64
 	RunKey             string
@@ -275,10 +285,13 @@ type taskDagRunListRow struct {
 	UpdatedAt          int64
 }
 
+// getTaskDagRunRow 按 run_key 读取单行 task_dag_runs。
 func getTaskDagRunRow(ctx context.Context, db sqlc.DBTX, runKey string) (taskDagRunRow, error) {
 	return scanTaskDagRunRow(db.QueryRowContext(ctx, getTaskDagRunSQL, runKey))
 }
 
+// cancelTaskDagRunRow 先读取当前 events 数组，再追加 cancel 事件，最后 UPDATE + RETURNING id。
+// sql.ErrNoRows 表示 run 不存在或不在 running 状态（幂等路径由 terminateRunAlreadyCancelled 处理）。
 func cancelTaskDagRunRow(ctx context.Context, db sqlc.DBTX, input TerminateRunInput, event []byte) error {
 	var currentEvents json.RawMessage
 	if err := db.QueryRowContext(ctx, loadTaskDagRunEventsForCancelSQL, input.DagKey, input.RunID, input.RunKey).Scan(&currentEvents); err != nil {
@@ -292,6 +305,7 @@ func cancelTaskDagRunRow(ctx context.Context, db sqlc.DBTX, input TerminateRunIn
 	return db.QueryRowContext(ctx, cancelTaskDagRunSQL, nextEvents, input.DagKey, input.RunID, input.RunKey).Scan(&id)
 }
 
+// scanTaskDagRunRows 迭代 sql.Rows 扫描多行 taskDagRunRow，遇错立即返回。
 func scanTaskDagRunRows(rows *sql.Rows) ([]taskDagRunRow, error) {
 	out := make([]taskDagRunRow, 0)
 	for rows.Next() {
@@ -304,6 +318,7 @@ func scanTaskDagRunRows(rows *sql.Rows) ([]taskDagRunRow, error) {
 	return out, rows.Err()
 }
 
+// scanTaskDagRunListRows 迭代 sql.Rows 扫描多行 taskDagRunListRow（轻量投影）。
 func scanTaskDagRunListRows(rows *sql.Rows) ([]taskDagRunListRow, error) {
 	out := make([]taskDagRunListRow, 0)
 	for rows.Next() {
@@ -329,6 +344,7 @@ func scanTaskDagRunListRows(rows *sql.Rows) ([]taskDagRunListRow, error) {
 	return out, rows.Err()
 }
 
+// scanTaskDagRunRow 从 scanner 中按列顺序扫描 taskDagRunRow。
 func scanTaskDagRunRow(scanner taskDagRunScanner) (taskDagRunRow, error) {
 	var row taskDagRunRow
 	err := scanner.Scan(
@@ -356,14 +372,17 @@ func fromTaskDagRun(row sqlc.TaskDagRun) Run {
 	return fromTaskDagRunRaw(row.ID, row.RunKey, row.DagKey, row.DagVersionSnapshot, row.TriggerSource, row.Status, row.StartedAt, row.FinishedAt, row.Events, row.BudgetUsed, row.BudgetLimit, row.Metadata, row.CreatedAt, row.UpdatedAt)
 }
 
+// fromTaskDagRunRow 把手写扫描结构体转成 contract Run；Events 可能为 nil（list 路径）。
 func fromTaskDagRunRow(row taskDagRunRow) Run {
 	return fromTaskDagRunRaw(row.ID, row.RunKey, row.DagKey, row.DagVersionSnapshot, row.TriggerSource, row.Status, row.StartedAt, row.FinishedAt, row.Events, row.BudgetUsed, row.BudgetLimit, row.Metadata, row.CreatedAt, row.UpdatedAt)
 }
 
+// fromTaskDagRunListRow 把列表行投影成 contract Run，events/metadata 置 nil。
 func fromTaskDagRunListRow(row taskDagRunListRow) Run {
 	return fromTaskDagRunRaw(row.ID, row.RunKey, row.DagKey, row.DagVersionSnapshot, row.TriggerSource, row.Status, row.StartedAt, row.FinishedAt, nil, row.BudgetUsed, row.BudgetLimit, nil, row.CreatedAt, row.UpdatedAt)
 }
 
+// fromTaskDagRunRaw 是所有 run 行映射路径的公共构造函数，把原始列值转为 contract Run。
 func fromTaskDagRunRaw(id int64, runKey, dagKey string, dagVersionSnapshot int64, triggerSource, status string, startedAt int64, finishedAt *int64, events []byte, budgetUsed int64, budgetLimit *int64, metadata []byte, createdAt, updatedAt int64) Run {
 	return Run{
 		ID:                 id,
@@ -383,14 +402,17 @@ func fromTaskDagRunRaw(id int64, runKey, dagKey string, dagVersionSnapshot int64
 	}
 }
 
+// budgetLimitToInt8 透传可空的预算上限指针（占位函数，便于未来类型收窄）。
 func budgetLimitToInt8(v *int64) *int64 {
 	return v
 }
 
+// nullableTime 把可空的 epoch 毫秒指针转为 *time.Time，nil 输入返回 nil。
 func nullableTime(v *int64) *time.Time {
 	return timestampPtr(v)
 }
 
+// nullableInt64 透传可空 int64 指针（占位函数，便于未来拦截特殊值）。
 func nullableInt64(v *int64) *int64 {
 	return v
 }

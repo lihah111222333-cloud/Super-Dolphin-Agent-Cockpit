@@ -1,22 +1,20 @@
+// Package dedup 见 tokenizer.go。
 package dedup
 
 import "unicode/utf8"
 
-// ScanFunc is the callback used to fetch existing entries for a given type.
-// It is injected by the caller so the dedup package has no dependency on the
-// storage layer.
+// ScanFunc 是调用方注入的回调，用于按类型查询已有条目。
+// 通过依赖注入避免 dedup 包直接依赖存储层。
 type ScanFunc func(typeFilter string) ([]EntrySnapshot, error)
 
-// Filter is the dedup facade.  It is purely computational: it reads existing
-// entries via the injected ScanFunc callbacks and returns decisions; it never
-// writes or deletes anything itself.
+// Filter 是去重的门面对象，纯计算逻辑：通过注入的 ScanFunc 读取已有条目并返回决策，
+// 自身不执行任何写入或删除操作。
 type Filter struct {
 	scanPrivate ScanFunc
-	scanTeam    ScanFunc // may be nil when there is no team scope
+	scanTeam    ScanFunc // 无 team 作用域时为 nil
 }
 
-// NewFilter creates a new Filter.  scanTeam may be nil.
-// NewFilter 创建过滤条件。
+// NewFilter 创建 Filter 实例，scanTeam 可为 nil。
 func NewFilter(scanPrivate, scanTeam ScanFunc) *Filter {
 	return &Filter{
 		scanPrivate: scanPrivate,
@@ -24,26 +22,24 @@ func NewFilter(scanPrivate, scanTeam ScanFunc) *Filter {
 	}
 }
 
-// CheckResult is the output of Filter.Check.
+// CheckResult 是 Filter.Check 的输出结果。
 type CheckResult struct {
 	Action      Decision       // WriteNew / Skip / Merge
-	MergedEntry *EntrySnapshot // non-nil only when Action == Merge
-	TargetPath  string         // file path to overwrite, non-empty only when Action == Merge
+	MergedEntry *EntrySnapshot // 仅 Action == Merge 时非 nil
+	TargetPath  string         // 仅 Action == Merge 时非空，表示需要覆写的文件路径
 }
 
-// Check decides what should happen to candidate.
+// Check 决定候选条目应如何处理。
 //
-// Algorithm:
-//  1. Collect all same-type entries from private (and team, if available).
-//  2. FindDuplicate against the combined set.
-//  3. No match → WriteNew.
-//  4. Match found → Decide based on bigrams.
-//     - Skip → CheckResult{Action: Skip}
-//     - Merge, same scope → merge content + frontmatter, return Merge result.
-//     - Merge, cross scope → WriteNew (no cross-scope merge).
-//     - WriteNew from Decide → WriteNew.
-//
-// Check 处理check。
+// 算法：
+//  1. 收集同类型的所有已有条目（private + team）。
+//  2. 调用 FindDuplicate 查找重复项。
+//  3. 无匹配 → WriteNew。
+//  4. 有匹配 → 按 bigram 调用 Decide：
+//     - Skip → 返回 Skip。
+//     - Merge 且同作用域 → 合并内容与 frontmatter，返回 Merge。
+//     - Merge 但跨作用域 → WriteNew（不允许跨域合并）。
+//     - WriteNew → WriteNew。
 func (f *Filter) Check(candidate EntrySnapshot) (CheckResult, error) {
 	// --- 1. gather existing entries ---
 	existing, err := f.collectAll(candidate.Type)
@@ -86,19 +82,15 @@ func (f *Filter) Check(candidate EntrySnapshot) (CheckResult, error) {
 	}
 }
 
-// OverflowInstruction describes a pair-merge that the caller should execute
-// when a type has exceeded MaxEntriesPerType.
+// OverflowInstruction 描述当某类型条目超出上限时，调用方需执行的一次对合并操作。
 type OverflowInstruction struct {
-	KeepEntry  EntrySnapshot // the merged result (caller writes this to KeepEntry.Path)
-	DeletePath string        // path of the entry that was absorbed and must be deleted
+	KeepEntry  EntrySnapshot // 合并结果（调用方写入 KeepEntry.Path）
+	DeletePath string        // 被吸收条目的路径（调用方删除）
 }
 
-// FindOverflowMerge checks whether the private scope for memType has exceeded
-// MaxEntriesPerType.  If it has, and a mergeable pair (containment >= 0.4) is
-// found, it returns a merge instruction.  Otherwise it returns nil.
-//
-// It operates only on the private scope and never writes anything itself.
-// FindOverflowMerge 查找overflowmerge。
+// FindOverflowMerge 检查 private 作用域内指定类型的条目是否超出 MaxEntriesPerType。
+// 若超出且存在可合并对（containment >= 0.4），返回合并指令；否则返回 nil。
+// 仅操作 private 作用域，不执行任何写入。
 func (f *Filter) FindOverflowMerge(memType string) (*OverflowInstruction, error) {
 	entries, err := f.scanPrivate(memType)
 	if err != nil {
@@ -128,8 +120,7 @@ func (f *Filter) FindOverflowMerge(memType string) (*OverflowInstruction, error)
 
 // --- helpers ---
 
-// collectAll returns private + team entries for the given type.
-// collectAll 收集all。
+// collectAll 合并 private 和 team 条目，路径相同的 team 条目不重复计入 private。
 func (f *Filter) collectAll(memType string) ([]EntrySnapshot, error) {
 	private, err := f.scanPrivate(memType)
 	if err != nil {
@@ -164,8 +155,8 @@ func (f *Filter) collectAll(memType string) ([]EntrySnapshot, error) {
 	return all, nil
 }
 
-// mergeSnapshots merges two snapshots: combines content with MergeContent,
-// merges frontmatter, and truncates if the result exceeds MaxEntryContentRunes.
+// mergeSnapshots 合并两个快照：内容由 MergeContent 处理，frontmatter 由 MergeFrontmatter 处理，
+// 结果超出 MaxEntryContentRunes 时截断最旧段落。
 func mergeSnapshots(keep, absorb EntrySnapshot) EntrySnapshot {
 	mergedBody := MergeContent(keep.Type, keep.Content, absorb.Content)
 	merged := MergeFrontmatter(keep, absorb)

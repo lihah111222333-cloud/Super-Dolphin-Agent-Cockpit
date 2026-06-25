@@ -9,14 +9,9 @@ import (
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
-// Module wires the insight subscriber + flusher + service + RPC handlers
-// into the core Fx tree.
-//
-// The subscriber is provided into BusModule's bus.subscribers group; the
-// flusher is published into the shared runners group so platformrunner.RunGroup
-// drives it with the same lifecycle as every other core Runner. Nothing in this
-// module imports turn/tracker, keeping the plan's one-way observation wiring
-// intact.
+// Module 将 insight subscriber、flusher、service 和 RPC handler 注入 Fx 树。
+// subscriber 注入 BusModule 的 bus.subscribers 组；flusher 注入 runners 组由 platformrunner.RunGroup 驱动。
+// 该模块不导入 turn/tracker，保证单向 observation 依赖关系不被破坏。
 var Module = fx.Module("insight",
 	fx.Provide(
 		provideCollector,
@@ -29,6 +24,7 @@ var Module = fx.Module("insight",
 	),
 )
 
+// provideCollector 用包默认容量创建 collector。
 func provideCollector(logger *slog.Logger) *collector {
 	if logger == nil {
 		logger = pkglogger.Get()
@@ -36,6 +32,5 @@ func provideCollector(logger *slog.Logger) *collector {
 	return newCollector(logger, defaultQueueCapacity)
 }
 
-// flusherAsRunner narrows *Flusher to the contract Runner interface
-// for the `group:"runners"` collector.
+// flusherAsRunner 将 *Flusher 收窄为 contract.Runner 接口，用于 `group:"runners"` 收集器。
 func flusherAsRunner(f *Flusher) contract.Runner { return f }

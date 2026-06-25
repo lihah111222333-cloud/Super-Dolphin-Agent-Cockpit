@@ -1,3 +1,5 @@
+// Package memshared 提供记忆系统跨模块共享的路径安全工具、类型定义和常量；
+// 不依赖任何业务模块，可被 memory 子包自由引用。
 package memshared
 
 import (
@@ -26,7 +28,8 @@ var (
 	ErrSafeReadBrokenLink  = errors.New("safe read: broken symlink or unreadable parent")
 )
 
-// ValidateMemoryRoot 校验记忆根目录。
+// ValidateMemoryRoot 校验并规范化记忆根目录路径，拒绝 null byte、UNC、Windows 盘符根、相对路径、过宽路径（/ 或一级子目录）。
+// 成功返回末尾带分隔符的绝对路径，输入为空则返回空字符串。
 func ValidateMemoryRoot(raw string) (string, error) {
 	raw = norm.NFC.String(strings.TrimSpace(raw))
 	if raw == "" {
@@ -58,7 +61,7 @@ func ValidateMemoryRoot(raw string) (string, error) {
 	return strings.TrimRight(cleaned, string(os.PathSeparator)) + string(os.PathSeparator), nil
 }
 
-// CleanAbsolutePath 处理cleanabsolute路径。
+// CleanAbsolutePath 规范化路径并确保其为绝对路径，输入为空则报错。
 func CleanAbsolutePath(raw string) (string, error) {
 	if strings.TrimSpace(raw) == "" {
 		return "", errors.New("path is empty")
@@ -74,7 +77,8 @@ func CleanAbsolutePath(raw string) (string, error) {
 	return cleaned, nil
 }
 
-// RealPathDeepestExisting 处理real路径deepestexisting。
+// RealPathDeepestExisting 向上逐级查找最深的已存在祖先目录并解析其真实路径，再拼接剩余段；
+// 用于校验尚未创建的路径是否会逃逸根目录。
 func RealPathDeepestExisting(path string) (string, error) {
 	cleaned := filepath.Clean(path)
 	if _, err := os.Stat(cleaned); err == nil {
@@ -106,7 +110,8 @@ func RealPathDeepestExisting(path string) (string, error) {
 	}
 }
 
-// EnsureResolvablePath 确保resolvable路径。
+// EnsureResolvablePath 逐级向上检查路径的每个祖先目录是否可解析（符号链接不指向断链）；
+// 用于在写盘前确认目标路径可安全创建。
 func EnsureResolvablePath(path string) error {
 	for probe := filepath.Clean(path); ; probe = filepath.Dir(probe) {
 		info, err := os.Lstat(probe)
@@ -128,13 +133,13 @@ func EnsureResolvablePath(path string) error {
 	}
 }
 
-// ShortHash 处理shorthash。
+// ShortHash 计算 raw 的 SHA-256 前 4 字节并返回十六进制字符串，用于生成临时文件后缀。
 func ShortHash(raw string) string {
 	sum := sha256.Sum256([]byte(raw))
 	return hex.EncodeToString(sum[:4])
 }
 
-// expandHomePath 处理expandhome路径。
+// expandHomePath 将 ~/ 前缀展开为用户主目录；裸 ~ 或 ~user 格式视为不合法路径。
 func expandHomePath(raw string) (string, error) {
 	switch {
 	case raw == "~", raw == "~/", raw == `~\\`:
@@ -156,6 +161,7 @@ func expandHomePath(raw string) (string, error) {
 	}
 }
 
+// isWindowsDriveRoot 判断路径是否为 Windows 盘符根目录（如 C:\），用于拒绝过宽根目录。
 func isWindowsDriveRoot(path string) bool {
 	if len(path) < 2 || path[1] != ':' {
 		return false
@@ -164,6 +170,7 @@ func isWindowsDriveRoot(path string) bool {
 	return rest == ""
 }
 
+// isAbsoluteMemoryPath 判断路径是否为绝对路径（兼容 Unix 和 Windows 格式）。
 func isAbsoluteMemoryPath(path string) bool {
 	if filepath.IsAbs(path) {
 		return true
@@ -171,6 +178,7 @@ func isAbsoluteMemoryPath(path string) bool {
 	return len(path) >= 3 && path[1] == ':' && (path[2] == '\\' || path[2] == '/')
 }
 
+// isRootOrNearRoot 判断路径是否为根目录或一级子目录，用于拒绝过宽的记忆根目录。
 func isRootOrNearRoot(path string) bool {
 	volume := filepath.VolumeName(path)
 	trimmed := strings.TrimPrefix(path, volume)
@@ -226,6 +234,7 @@ func SafeReadEntrypoint(root, indexPath string) ([]byte, os.FileInfo, error) {
 	return readSafeResolvedFile(candidate)
 }
 
+// safeReadRoot 解析记忆根目录的真实路径，失败时返回 ErrSafeReadBrokenLink。
 func safeReadRoot(root string) (string, error) {
 	rootReal, err := filepath.EvalSymlinks(root)
 	if err != nil {
@@ -234,6 +243,7 @@ func safeReadRoot(root string) (string, error) {
 	return rootReal, nil
 }
 
+// safeReadCandidate 通过 Lstat 检查候选路径，区分符号链接与普通文件，返回解析后的真实路径。
 func safeReadCandidate(indexPath string) (string, error) {
 	info, err := os.Lstat(indexPath)
 	if err != nil {
@@ -248,6 +258,7 @@ func safeReadCandidate(indexPath string) (string, error) {
 	return safeReadRegularPath(indexPath)
 }
 
+// safeReadSymlinkTarget 解析符号链接目标的真实路径，链接断裂时返回 ErrSafeReadBrokenLink。
 func safeReadSymlinkTarget(indexPath string) (string, error) {
 	resolved, err := filepath.EvalSymlinks(indexPath)
 	if err != nil {
@@ -256,6 +267,7 @@ func safeReadSymlinkTarget(indexPath string) (string, error) {
 	return resolved, nil
 }
 
+// safeReadRegularPath 解析普通文件父目录的真实路径并拼接文件名，用于非符号链接场景。
 func safeReadRegularPath(indexPath string) (string, error) {
 	resolved, err := filepath.EvalSymlinks(filepath.Dir(indexPath))
 	if err != nil {
@@ -264,6 +276,7 @@ func safeReadRegularPath(indexPath string) (string, error) {
 	return filepath.Join(resolved, filepath.Base(indexPath)), nil
 }
 
+// safeReadBrokenLinkOrNotFound 将 EvalSymlinks 的错误映射为哨兵错误，ENOENT → ErrSafeReadNotFound，其他 → ErrSafeReadBrokenLink。
 func safeReadBrokenLinkOrNotFound(label string, err error) error {
 	if errors.Is(err, os.ErrNotExist) {
 		return ErrSafeReadNotFound
@@ -271,6 +284,7 @@ func safeReadBrokenLinkOrNotFound(label string, err error) error {
 	return fmt.Errorf("%w: %s: %w", ErrSafeReadBrokenLink, label, err)
 }
 
+// readSafeResolvedFile 对已解析的真实路径执行 Stat + ReadFile，区分目录、不存在、读取失败三种错误。
 func readSafeResolvedFile(candidate string) ([]byte, os.FileInfo, error) {
 	resolvedInfo, err := os.Stat(candidate)
 	if err != nil {

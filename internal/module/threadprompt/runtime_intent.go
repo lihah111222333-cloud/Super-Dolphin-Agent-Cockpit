@@ -8,6 +8,7 @@ import (
 	promptstore "github.com/anthropic-ai/super-agent-v3/internal/store/prompt"
 )
 
+// storeTemplatesWithInferredSectionIntents 批量推断一组模板的 intent tag，只对缺少 intent 且有 ID 的模板发起 section 查询。
 func (c *runtimePromptCatalog) storeTemplatesWithInferredSectionIntents(
 	ctx context.Context,
 	templates []promptstore.PromptTemplate,
@@ -31,6 +32,7 @@ func (c *runtimePromptCatalog) storeTemplatesWithInferredSectionIntents(
 	return out, nil
 }
 
+// storeTemplateWithInferredSectionIntent 对单个模板推断 intent tag，若已有 intent 则直接返回原值。
 func (c *runtimePromptCatalog) storeTemplateWithInferredSectionIntent(
 	ctx context.Context,
 	template promptstore.PromptTemplate,
@@ -45,6 +47,7 @@ func (c *runtimePromptCatalog) storeTemplateWithInferredSectionIntent(
 	return runtimeTemplateWithInferredSectionIntent(template, sections), nil
 }
 
+// runtimeTemplateIDsNeedingIntentInference 筛选出需要推断 intent 的模板 ID 列表。
 func runtimeTemplateIDsNeedingIntentInference(templates []promptstore.PromptTemplate) []int64 {
 	ids := make([]int64, 0, len(templates))
 	for _, template := range templates {
@@ -55,11 +58,12 @@ func runtimeTemplateIDsNeedingIntentInference(templates []promptstore.PromptTemp
 	return ids
 }
 
+// runtimeTemplateNeedsSectionIntentInference 判断模板是否需要通过 section 内容推断 intent（有 ID 且无 intent tag）。
 func runtimeTemplateNeedsSectionIntentInference(template promptstore.PromptTemplate) bool {
 	return template.ID > 0 && runtimeTemplateIntentKind(template) == ""
 }
 
-// runtimeTemplateIntentKind 处理运行时templateintentkind。
+// runtimeTemplateIntentKind 从 agent_key 或 tags 中提取 intent 类型字符串，未找到返回空字符串。
 func runtimeTemplateIntentKind(template promptstore.PromptTemplate) string {
 	if strings.TrimSpace(template.AgentKey) == "default_rule" {
 		return "default_rule"
@@ -77,6 +81,7 @@ func runtimeTemplateIntentKind(template promptstore.PromptTemplate) string {
 	return ""
 }
 
+// runtimeSectionsByTemplateID 将 sections 按 template_id 分组，供批量推断时快速查找。
 func runtimeSectionsByTemplateID(sections []promptstore.PromptTemplateSection) map[int64][]promptstore.PromptTemplateSection {
 	byTemplateID := make(map[int64][]promptstore.PromptTemplateSection)
 	for _, section := range sections {
@@ -85,6 +90,7 @@ func runtimeSectionsByTemplateID(sections []promptstore.PromptTemplateSection) m
 	return byTemplateID
 }
 
+// runtimeTemplateWithInferredSectionIntent 根据 section 内容给模板追加推断出的 intent tag；若已有 intent 或无法推断则返回原值。
 func runtimeTemplateWithInferredSectionIntent(
 	template promptstore.PromptTemplate,
 	sections []promptstore.PromptTemplateSection,
@@ -101,7 +107,7 @@ func runtimeTemplateWithInferredSectionIntent(
 	return template
 }
 
-// runtimeSectionsInferredIntentKind 处理运行时sectionsinferredintentkind。
+// runtimeSectionsInferredIntentKind 扫描 sections，若全部为 recall 类型（无可直接注入的 body）则返回 "recall"，否则返回空字符串。
 func runtimeSectionsInferredIntentKind(sections []promptstore.PromptTemplateSection) string {
 	hasRecallContent := false
 	for _, section := range sections {
@@ -118,6 +124,7 @@ func runtimeSectionsInferredIntentKind(sections []promptstore.PromptTemplateSect
 	return ""
 }
 
+// runtimeSectionInferredIntentKind 判断单个 section 是否为有效 recall section，是则返回 "recall"，否则返回空字符串。
 func runtimeSectionInferredIntentKind(section promptstore.PromptTemplateSection) string {
 	if !section.Enabled {
 		return ""
@@ -131,6 +138,7 @@ func runtimeSectionInferredIntentKind(section promptstore.PromptTemplateSection)
 	return "recall"
 }
 
+// runtimeSectionIsDirectlyInjectable 判断 section 是否可直接注入（trigger_type 不是 recall）。
 func runtimeSectionIsDirectlyInjectable(section promptstore.PromptTemplateSection) bool {
 	return !strings.EqualFold(strings.TrimSpace(section.TriggerType), "recall")
 }

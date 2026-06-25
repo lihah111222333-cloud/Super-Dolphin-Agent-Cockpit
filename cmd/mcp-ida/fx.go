@@ -1,3 +1,4 @@
+// Package main 是 mcp-ida sidecar 进程的入口，通过 MCP stdio 协议暴露 IDA 能力。
 package main
 
 import (
@@ -21,12 +22,14 @@ import (
 	"go.uber.org/fx"
 )
 
+// bootstrapRunner 持有启动配置和控制面客户端，等待 stdio server 就绪后再连接 RPC。
 type bootstrapRunner struct {
 	cfg        bootstrap.Config
 	client     *bootstrap.Client
 	stdioReady <-chan struct{} // closed when stdio server is ready
 }
 
+// runtimeParams 聚合 fx 注入的 runner 列表和 shutdowner，供 bindRuntime 使用。
 type runtimeParams struct {
 	fx.In
 
@@ -62,7 +65,7 @@ func run() error {
 	return app.Stop(stopCtx)
 }
 
-// buildBootstrapConfig 构建启动配置。
+// buildBootstrapConfig 构建启动配置，清除 capabilities 字段并注册生命周期回调。
 func buildBootstrapConfig(shutdowner fx.Shutdowner) (bootstrap.Config, error) {
 	cfg := bootstrap.ReadBootConfig()
 	cfg.AgentID = ""
@@ -101,6 +104,7 @@ func buildBootstrapConfig(shutdowner fx.Shutdowner) (bootstrap.Config, error) {
 	return cfg, nil
 }
 
+// stripBootSnapshotCapabilities 从启动快照中删除 capabilities 字段，避免 IDA peer 误报工具能力。
 func stripBootSnapshotCapabilities(raw json.RawMessage) (json.RawMessage, error) {
 	if len(raw) == 0 {
 		return nil, nil
@@ -120,11 +124,12 @@ func stripBootSnapshotCapabilities(raw json.RawMessage) (json.RawMessage, error)
 	return sanitized, nil
 }
 
+// newBootstrapRunner 构建 bootstrapRunner，等待 stdio server ready 信号后连接控制面。
 func newBootstrapRunner(cfg bootstrap.Config, client *bootstrap.Client, server *common.Server) platformrunner.Runner {
 	return bootstrapRunner{cfg: cfg, client: client, stdioReady: server.Ready()}
 }
 
-// Run 启动IDA后台流程。
+// Run 启动 IDA 后台流程，等待 stdio server 就绪后连接控制面 RPC，直到 ctx 取消。
 func (r bootstrapRunner) Run(ctx context.Context) error {
 	r.client.InstallLogRelay()
 	// Dual-channel startup ordering: wait for the local stdio MCP server
@@ -154,16 +159,17 @@ func (r bootstrapRunner) Run(ctx context.Context) error {
 // will be added here once migrated from V2 (see docs/plans/迁移/audit-mcp-ida-tools.md).
 type emptyToolProvider struct{}
 
-// ListTools 返回当前 peer 暴露的工具列表。
+// ListTools 返回当前 peer 暴露的工具列表（当前为空）。
 func (emptyToolProvider) ListTools(context.Context) ([]mcp.MCPTool, error) {
 	return []mcp.MCPTool{}, nil
 }
 
-// CallTool 调用当前 peer 暴露的工具。
+// CallTool 调用当前 peer 暴露的工具，当前无工具时始终返回 unknown tool 错误。
 func (emptyToolProvider) CallTool(_ context.Context, name string, _ json.RawMessage) (any, error) {
 	return nil, errors.New("unknown tool: " + name)
 }
 
+// newStdioServer 创建 stdio 传输层的 MCP server，使用受保护的 stdout 作为写端。
 func newStdioServer() *common.Server {
 	stdout := mcpStdout.Load()
 	if stdout == nil {
@@ -173,12 +179,13 @@ func newStdioServer() *common.Server {
 	return common.NewServer("mcp-ida", "dev", transport, emptyToolProvider{})
 }
 
-// newStdioRunner adapts the stdio *common.Server as a Runner for the run group.
+// newStdioRunner 将 stdio *common.Server 适配为 Runner 加入运行组。
 func newStdioRunner(server *common.Server) platformrunner.Runner {
 	return server
 }
 
-// bindRuntime 绑定运行时。
+// bindRuntime 将运行组生命周期绑定到 fx，OnStart 启动 goroutine 运行所有 runner，
+// OnStop 取消 ctx 并等待运行组退出，超时时返回 ctx 错误。
 func bindRuntime(lc fx.Lifecycle, params runtimeParams) {
 	log := pkglogger.Get()
 	var (

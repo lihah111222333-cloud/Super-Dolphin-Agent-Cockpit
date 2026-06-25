@@ -1,3 +1,4 @@
+// Package datasource 提供本地文件上传、列举和删除能力，并把文件正文入库供 prompt 动态段消费。
 package datasource
 
 import (
@@ -15,6 +16,7 @@ import (
 
 var errPDFTextNotFound = errors.New("datasource: pdf text content not found")
 
+// extractPDFText 从 PDF 文件中提取所有 stream 的可读文本，无可用文本时返回 errPDFTextNotFound。
 func extractPDFText(sourcePath string) (string, error) {
 	content, err := os.ReadFile(sourcePath)
 	if err != nil {
@@ -36,6 +38,7 @@ func extractPDFText(sourcePath string) (string, error) {
 	return strings.Join(parts, "\n"), nil
 }
 
+// extractPDFStreams 从 PDF 字节中提取所有 stream 块，FlateDecode 时自动解压。
 func extractPDFStreams(content []byte) ([][]byte, error) {
 	streams := make([][]byte, 0)
 	offset := 0
@@ -62,6 +65,7 @@ func extractPDFStreams(content []byte) ([][]byte, error) {
 	return streams, nil
 }
 
+// skipPDFStreamLineBreak 跳过 stream 关键字后的换行符（支持 CR、LF 和 CRLF）。
 func skipPDFStreamLineBreak(content []byte, index int) int {
 	if index < len(content) && content[index] == '\r' {
 		index++
@@ -76,6 +80,7 @@ func skipPDFStreamLineBreak(content []byte, index int) int {
 	return index
 }
 
+// pdfStreamDictionary 从 stream 前置内容中提取最后一个 << >> 字典块。
 func pdfStreamDictionary(prefix []byte) []byte {
 	start := bytes.LastIndex(prefix, []byte("<<"))
 	end := bytes.LastIndex(prefix, []byte(">>"))
@@ -85,6 +90,7 @@ func pdfStreamDictionary(prefix []byte) []byte {
 	return prefix[start : end+2]
 }
 
+// decodePDFStream 根据 stream 字典决定是否解压；目前只支持 FlateDecode。
 func decodePDFStream(dictionary, body []byte) ([]byte, error) {
 	if !bytes.Contains(dictionary, []byte("/FlateDecode")) {
 		return body, nil
@@ -101,6 +107,7 @@ func decodePDFStream(dictionary, body []byte) ([]byte, error) {
 	return decoded, nil
 }
 
+// extractPDFTextFromStream 从单个 PDF stream 字节中提取文字字符串。
 func extractPDFTextFromStream(stream []byte) string {
 	parts := make([]string, 0)
 	for index := 0; index < len(stream); index++ {
@@ -127,6 +134,7 @@ func extractPDFTextFromStream(stream []byte) string {
 	return strings.Join(normalizePDFTextParts(parts), " ")
 }
 
+// skipPDFComment 跳过以 % 开头的 PDF 注释行。
 func skipPDFComment(stream []byte, index int) int {
 	for index < len(stream) && stream[index] != '\n' && stream[index] != '\r' {
 		index++
@@ -134,6 +142,7 @@ func skipPDFComment(stream []byte, index int) int {
 	return index
 }
 
+// readPDFLiteralString 解析 ( ... ) 形式的 PDF 字面量字符串，支持嵌套括号和转义序列。
 func readPDFLiteralString(stream []byte, start int) (string, int) {
 	var out []byte
 	depth := 1
@@ -161,6 +170,7 @@ func readPDFLiteralString(stream []byte, start int) (string, int) {
 	return "", len(stream) - 1
 }
 
+// readPDFEscapedByte 解析反斜杠后的转义字节，返回解码值和新位置。
 func readPDFEscapedByte(stream []byte, slash int) (int, int) {
 	if slash+1 >= len(stream) {
 		return -1, slash
@@ -178,6 +188,7 @@ func readPDFEscapedByte(stream []byte, slash int) (int, int) {
 	return int(ch), slash + 1
 }
 
+// simplePDFEscape 处理 PDF 单字符转义序列（\n \r \t \b \f \( \) \\）。
 func simplePDFEscape(ch byte) (int, bool) {
 	switch ch {
 	case 'n':
@@ -197,6 +208,7 @@ func simplePDFEscape(ch byte) (int, bool) {
 	}
 }
 
+// skipPDFEscapedLineBreak 跳过反斜杠续行后的换行符（CR、CRLF）。
 func skipPDFEscapedLineBreak(stream []byte, index int) int {
 	if stream[index] == '\r' && index+1 < len(stream) && stream[index+1] == '\n' {
 		return index + 1
@@ -204,6 +216,7 @@ func skipPDFEscapedLineBreak(stream []byte, index int) int {
 	return index
 }
 
+// readPDFOctalEscape 解析最多 3 位的 PDF 八进制转义序列。
 func readPDFOctalEscape(stream []byte, start int) (int, int) {
 	value := 0
 	index := start
@@ -217,6 +230,7 @@ func readPDFOctalEscape(stream []byte, start int) (int, int) {
 	return value, index - 1
 }
 
+// readPDFHexString 解析 < ... > 形式的 PDF 十六进制字符串。
 func readPDFHexString(stream []byte, start int) (string, int) {
 	end := start + 1
 	for end < len(stream) && stream[end] != '>' {
@@ -236,6 +250,7 @@ func readPDFHexString(stream []byte, start int) (string, int) {
 	return pdfBytesToString(decoded), end
 }
 
+// stripPDFHexWhitespace 移除十六进制字符串中的空白字符。
 func stripPDFHexWhitespace(raw []byte) []byte {
 	out := make([]byte, 0, len(raw))
 	for _, ch := range raw {
@@ -246,6 +261,7 @@ func stripPDFHexWhitespace(raw []byte) []byte {
 	return out
 }
 
+// pdfBytesToString 将 PDF 字节转换为 UTF-8 字符串，支持 UTF-16BE BOM 和原生 UTF-8。
 func pdfBytesToString(raw []byte) string {
 	if len(raw) >= 2 && raw[0] == 0xFE && raw[1] == 0xFF {
 		return utf16BEToString(raw[2:])
@@ -256,6 +272,7 @@ func pdfBytesToString(raw []byte) string {
 	return strings.ToValidUTF8(string(raw), "")
 }
 
+// utf16BEToString 将 UTF-16BE 字节序列解码为 Go 字符串。
 func utf16BEToString(raw []byte) string {
 	codePoints := make([]uint16, 0, len(raw)/2)
 	for index := 0; index+1 < len(raw); index += 2 {
@@ -264,6 +281,7 @@ func utf16BEToString(raw []byte) string {
 	return string(utf16.Decode(codePoints))
 }
 
+// normalizePDFTextParts 去除空白部分并压缩内部空白。
 func normalizePDFTextParts(parts []string) []string {
 	normalized := make([]string, 0, len(parts))
 	for _, part := range parts {

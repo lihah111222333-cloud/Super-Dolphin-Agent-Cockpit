@@ -2,6 +2,7 @@ package tools
 
 import "github.com/anthropic-ai/super-agent-v3/internal/contract"
 
+// defineTaskReadTool 创建只读 task 工具定义，风险等级 low，权限 workflow.read。
 func defineTaskReadTool(name, description string, schema Schema, handler ToolHandler, auditEvent string, capabilities ...string) ToolDefinition {
 	return defineGovernedTool(name, description, schema, handler, taskToolMetadata(
 		ToolRiskLow,
@@ -12,6 +13,7 @@ func defineTaskReadTool(name, description string, schema Schema, handler ToolHan
 	))
 }
 
+// defineTaskWriteTool 创建写操作 task 工具定义，风险等级 high，权限 workflow.write。
 func defineTaskWriteTool(name, description string, schema Schema, handler ToolHandler, auditEvent string, idempotency ToolIdempotencyRequirement, capabilities ...string) ToolDefinition {
 	return defineGovernedTool(name, description, schema, handler, taskToolMetadata(
 		ToolRiskHigh,
@@ -22,6 +24,7 @@ func defineTaskWriteTool(name, description string, schema Schema, handler ToolHa
 	))
 }
 
+// taskToolMetadata 构建 task 工具的治理元数据对象。
 func taskToolMetadata(risk ToolRiskClass, permission ToolPermission, idempotency ToolIdempotencyRequirement, auditEvent string, capabilities ...string) ToolMetadata {
 	if len(capabilities) == 0 {
 		capabilities = []string{auditEvent}
@@ -123,6 +126,7 @@ func taskToolDefinitions(svc contract.OrchestrationService) []ToolDefinition {
 	)
 }
 
+// workflowDiagnosticsToolDefinition 返回 task_workflow_diagnostics 工具定义。
 func workflowDiagnosticsToolDefinition(svc contract.OrchestrationService) ToolDefinition {
 	return defineTaskReadTool("task_workflow_diagnostics", "Lookup compact workflow diagnostics by trace_id, run_key, run_id, node_key, or child_thread_id. Returns derived run summaries and matching runtime nodes only.", ObjectSchema(map[string]Schema{
 		"pos":             StringSchema("Optional flattened run locator, e.g. dag:<dag_key>/run:<run_key>."),
@@ -135,6 +139,7 @@ func workflowDiagnosticsToolDefinition(svc contract.OrchestrationService) ToolDe
 	}), HandleWorkflowDiagnostics(svc), "workflow.diagnostics.query", "workflow.runtime.read")
 }
 
+// workflowRecoveryActionToolDefinition 返回 task_workflow_recovery_action 工具定义。
 func workflowRecoveryActionToolDefinition(svc contract.OrchestrationService) ToolDefinition {
 	return defineTaskWriteTool("task_workflow_recovery_action", "Run a controlled workflow recovery action. cancel_with_cleanup is wired to task_terminate_dag; retry_failed_node is validated but blocked until the runtime reset/retry contract exists.", ObjectSchema(map[string]Schema{
 		"pos":      StringSchema("Optional flattened run locator, e.g. dag:<dag_key>/run:<run_key>."),

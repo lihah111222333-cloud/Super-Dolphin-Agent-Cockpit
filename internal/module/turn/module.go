@@ -1,3 +1,4 @@
+// Package turn 负责 turn 生命周期管理：输入组装、provider 提交、状态追踪与中断处理。
 package turn
 
 import (
@@ -49,7 +50,7 @@ var Module = fx.Module("turn",
 	fx.Invoke(registerTurnServiceLifecycle),
 )
 
-// registerTurnServiceLifecycle wires the turn Service into fx.Lifecycle so
+// registerTurnServiceLifecycle 把 turn.Service 挂入 fx.Lifecycle，确保 Shutdown 在应用停止时被调用。
 // its Shutdown hook is called on app stop. Shutdown is discovered via a
 // private shutdowner interface assertion so the public Service contract
 // stays unchanged.
@@ -70,7 +71,7 @@ func registerTurnServiceLifecycle(lc fx.Lifecycle, svc Service) {
 	})
 }
 
-// provideCronTurnExecutor wraps turn.Service in a narrow adapter so
+// provideCronTurnExecutor 把 turn.Service 包装为 contract.CronTurnExecutor，避免 cron 模块直接依赖 turn 包。
 // the cron module can prepare/start/track turns via
 // contract.CronTurnExecutor without importing this package.
 func provideCronTurnExecutor(svc Service) contract.CronTurnExecutor {

@@ -1,3 +1,4 @@
+// Package datasourcev2 提供文件正文导入、分块存储和语义检索能力，供 prompt 动态段和前端数据源管理页使用。
 package datasourcev2
 
 import (
@@ -15,6 +16,7 @@ import (
 
 var errPDFTextNotFound = errors.New("datasource v2: pdf text content not found")
 
+// extractPDFText 从 PDF 文件中提取所有 stream 的可读文本，无可用文本时返回 errPDFTextNotFound。
 func extractPDFText(sourcePath string) (string, error) {
 	content, err := os.ReadFile(sourcePath)
 	if err != nil {

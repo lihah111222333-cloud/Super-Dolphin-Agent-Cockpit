@@ -14,6 +14,7 @@ import (
 
 const reconnectMaxDelay = 30 * time.Second
 
+// handleStop 在 jrpc2 连接断开时触发，判断是否需要重连并启动重连 goroutine。
 func (c *Client) handleStop(stopped *jrpc2.Client, err error) {
 	rootCtx, shouldReconnect := c.markDisconnected(stopped)
 	if !shouldReconnect {
@@ -101,12 +102,14 @@ func (c *Client) reconnectLoop(ctx context.Context) {
 	}
 }
 
+// reconnectAttempt 在超时上下文内执行一次 connect+register 尝试。
 func (c *Client) reconnectAttempt(ctx context.Context) (*jrpc2.Client, *mcp.RegisterResponse, error) {
 	attemptCtx, cancel := platformconfig.WithPeerTimeout(ctx, defaultHeartbeatInterval)
 	defer cancel()
 	return c.connectAndRegister(attemptCtx)
 }
 
+// sleepContext 等待 delay 后返回 true，若 ctx 先取消则返回 false。
 func sleepContext(ctx context.Context, delay time.Duration) bool {
 	timer := time.NewTimer(delay)
 	defer timer.Stop()
@@ -118,6 +121,7 @@ func sleepContext(ctx context.Context, delay time.Duration) bool {
 	}
 }
 
+// nextReconnectDelay 按指数退避计算下一次重连等待时间，上限为 reconnectMaxDelay。
 func nextReconnectDelay(current time.Duration) time.Duration {
 	next := current * 2
 	if next > reconnectMaxDelay {

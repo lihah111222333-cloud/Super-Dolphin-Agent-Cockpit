@@ -36,6 +36,7 @@ func inputScopedCacheDependency(section PromptSection, input SectionContext) any
 	return inputScopedSectionDependency(section, input)
 }
 
+// sectionCache 按名称缓存已解析的 prompt section 内容，generation 自增触发全量失效。
 type sectionCache struct {
 	mu         sync.RWMutex
 	generation uint64
@@ -143,6 +144,7 @@ func (c *sectionCache) InvalidateSections(names ...string) uint64 {
 	return c.generation
 }
 
+// cloneStringPtr 深拷贝字符串指针，nil 安全。
 func cloneStringPtr(value *string) *string {
 	if value == nil {
 		return nil

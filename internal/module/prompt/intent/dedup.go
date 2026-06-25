@@ -11,6 +11,7 @@ import (
 
 const promptIntentDuplicateListLimit = 1000
 
+// promptIntentDuplicateIssues 检查候选草稿与已有 prompt 模板（含 builtin）是否重复，返回重复问题列表。
 func promptIntentDuplicateIssues(
 	ctx context.Context,
 	store promptstore.Store,
@@ -34,7 +35,7 @@ func promptIntentDuplicateIssues(
 	return promptIntentUniqueIssues(issues), nil
 }
 
-// promptIntentDuplicateIssuesFromBuiltin 从builtin处理promptintentduplicateissues。
+// promptIntentDuplicateIssuesFromBuiltin 检查候选草稿是否与 builtin 模板高度相似，相似则返回 block/review 问题。
 func promptIntentDuplicateIssuesFromBuiltin(
 	kind Kind,
 	rawInput string,
@@ -71,6 +72,7 @@ func promptIntentDuplicateIssuesFromBuiltin(
 	return issues
 }
 
+// promptIntentBuiltinSections 将 builtin section 转换为 promptstore 类型，供重复检测使用。
 func promptIntentBuiltinSections(templateID int64, builtin contract.BuiltinPromptRegistry) []promptstore.PromptTemplateSection {
 	sections := builtin.SectionsByTemplateID(templateID)
 	out := make([]promptstore.PromptTemplateSection, 0, len(sections))
@@ -88,7 +90,7 @@ func promptIntentBuiltinSections(templateID int64, builtin contract.BuiltinPromp
 	return out
 }
 
-// promptIntentSectionsByTemplateID 按templateID处理promptintentsections。
+// promptIntentSectionsByTemplateID 批量查询模板 section，返回按 template_id 索引的 map。
 func promptIntentSectionsByTemplateID(
 	ctx context.Context,
 	store promptstore.Store,
@@ -114,7 +116,8 @@ func promptIntentSectionsByTemplateID(
 	return out, nil
 }
 
-// promptIntentDuplicateIssuesFromTemplates 从templates处理promptintentduplicateissues。
+// promptIntentDuplicateIssuesFromTemplates 检查候选草稿与 CWD 内已有模板是否重复，
+// 同名 recall_topic 直接 block，文本高度相似则 review。
 func promptIntentDuplicateIssuesFromTemplates(
 	cwd string,
 	kind Kind,
@@ -151,6 +154,8 @@ func promptIntentDuplicateIssuesFromTemplates(
 	return promptIntentUniqueIssues(issues)
 }
 
+// promptIntentBuiltinDuplicateIssue 根据 kind 和原文生成 builtin 重复问题：
+// recall+外部 prompt 组合返回 review，其余返回 block。
 func promptIntentBuiltinDuplicateIssue(kind Kind, rawInput string) Issue {
 	if kind == KindRecall && promptIntentLooksLikeExternalSystemPrompt(normalizePromptIntentText(rawInput)) {
 		return Issue{Code: "builtin_prompt_duplicate", Severity: "review", Message: "系统可能已有相近能力；如需保留原文出处，可作为参考资料保存"}
@@ -169,6 +174,7 @@ func promptIntentTemplateDuplicates(
 	return promptIntentTextHighlySimilar(candidateText, promptIntentTemplateComparableText(template, sections))
 }
 
+// promptIntentCandidateText 拼接候选草稿的全部可比较文本，用于相似度检测。
 func promptIntentCandidateText(rawInput string, card Card) string {
 	return strings.Join([]string{
 		rawInput,
@@ -195,7 +201,8 @@ func promptIntentTemplateComparableText(template promptstore.PromptTemplate, sec
 	return strings.Join(parts, "\n")
 }
 
-// promptIntentTextHighlySimilar 处理promptintent文本highlysimilar。
+// promptIntentTextHighlySimilar 判断两段文本是否高度相似：
+// 较短串 ≥48 rune 且被较长串包含，或 token 重叠率 ≥85%。
 func promptIntentTextHighlySimilar(left, right string) bool {
 	left = promptIntentComparableText(left)
 	right = promptIntentComparableText(right)
@@ -212,7 +219,8 @@ func promptIntentTextHighlySimilar(left, right string) bool {
 	return promptIntentTokenOverlap(left, right) >= 0.85
 }
 
-// promptIntentTokenOverlap 处理promptintent令牌overlap。
+// promptIntentTokenOverlap 计算两段文本的 token 集合重叠率（Jaccard 最小集），
+// token 数 <6 时返回 0 避免短文本误判。
 func promptIntentTokenOverlap(left, right string) float64 {
 	leftTokens := promptIntentTokenSet(left)
 	rightTokens := promptIntentTokenSet(right)
@@ -259,6 +267,7 @@ func promptIntentComparableText(value string) string {
 	return strings.TrimSpace(b.String())
 }
 
+// promptIntentTemplateVisibleForCWD 判断模板的 scope tag 是否与当前 cwd 匹配（无 scope tag 时全局可见）。
 func promptIntentTemplateVisibleForCWD(template promptstore.PromptTemplate, cwd string) bool {
 	requestScope := strings.TrimSpace(cwd)
 	if requestScope == "" {
@@ -272,6 +281,7 @@ func promptIntentTemplateVisibleForCWD(template promptstore.PromptTemplate, cwd 
 	return true
 }
 
+// promptIntentTemplateHasCurrentProjectScope 判断模板是否具有当前 cwd 的项目 scope tag。
 func promptIntentTemplateHasCurrentProjectScope(template promptstore.PromptTemplate, cwd string) bool {
 	want := promptScopeTagPrefix + strings.TrimSpace(cwd)
 	if want == promptScopeTagPrefix {
@@ -342,10 +352,12 @@ func promptIntentRecallTopicExists(topic string, sections []promptstore.PromptTe
 	return false
 }
 
+// promptIntentRuneLen 返回字符串的 rune 数量。
 func promptIntentRuneLen(value string) int {
 	return len([]rune(value))
 }
 
+// promptIntentUniqueIssues 按 code+severity 去重，保留首次出现的问题。
 func promptIntentUniqueIssues(issues []Issue) []Issue {
 	seen := map[string]bool{}
 	out := make([]Issue, 0, len(issues))

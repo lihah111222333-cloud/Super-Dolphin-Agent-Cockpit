@@ -1,3 +1,4 @@
+// Package main 是 mcp-lsp sidecar 进程的入口，通过 MCP stdio 协议暴露 LSP 工具能力。
 package main
 
 import (
@@ -10,6 +11,7 @@ import (
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
+// binaryName 和 binaryVersion 标识本 sidecar 进程名称和版本。
 const (
 	binaryName    = "mcp-lsp"
 	binaryVersion = "dev"
@@ -19,6 +21,7 @@ const (
 // protocol. All other output is redirected to stderr.
 var mcpStdout atomic.Pointer[os.File]
 
+// main 初始化 sidecar 运行环境，保护 MCP stdout 通道后启动服务，异常时以非零码退出。
 func main() {
 	rlimit.Init()
 	if err := os.Setenv("SUPER_DOLPHIN_PROCESS_ROLE", "sidecar"); err != nil {
@@ -38,6 +41,7 @@ func main() {
 	os.Exit(runMain())
 }
 
+// runMain 运行 LSP 主逻辑，失败时返回非零退出码。
 func runMain() int {
 	if err := run(); err != nil {
 		pkglogger.Get().Error("mcp-lsp failed", "error", err)

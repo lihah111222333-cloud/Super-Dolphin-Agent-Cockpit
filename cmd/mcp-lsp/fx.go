@@ -1,3 +1,4 @@
+// Package main 是 mcp-lsp sidecar 进程的入口，通过 MCP stdio 协议暴露 LSP 工具能力。
 package main
 
 import (
@@ -23,12 +24,14 @@ import (
 	"go.uber.org/fx"
 )
 
+// bootstrapRunner 持有启动配置和控制面客户端，等待 stdio server 就绪后再连接 RPC。
 type bootstrapRunner struct {
 	cfg        bootstrap.Config
 	client     *bootstrap.Client
 	stdioReady <-chan struct{} // closed when stdio server is ready
 }
 
+// runtimeParams 聚合 fx 注入的 runner 列表和 shutdowner，供 bindRuntime 使用。
 type runtimeParams struct {
 	fx.In
 
@@ -36,6 +39,7 @@ type runtimeParams struct {
 	Shutdowner fx.Shutdowner
 }
 
+// registryToolProvider 基于工具定义列表实现 common.ToolProvider，支持按需过滤语义 LSP 工具。
 type registryToolProvider struct {
 	defs                   []toolDefinition
 	semanticToolsAvailable func(context.Context) bool
@@ -43,7 +47,6 @@ type registryToolProvider struct {
 
 // run boots the MCP binary itself. The core process only exposes ctl/* endpoints
 // and manifest metadata; external executors decide when and how this binary starts.
-// run 运行LSP。
 func run() error {
 	// MCP stdio transport uses stdout for JSON-RPC messages.
 	// Force all logging to stderr so it does not pollute the MCP channel.
@@ -115,6 +118,7 @@ func run() error {
 	return app.Stop(stopCtx)
 }
 
+// newServer 创建 stdio 传输层的 MCP server，使用受保护的 stdout 作为写端。
 func newServer(handlers ToolHandlers) *common.Server {
 	stdout := mcpStdout.Load()
 	if stdout == nil {
@@ -126,6 +130,7 @@ func newServer(handlers ToolHandlers) *common.Server {
 	})
 }
 
+// newBootstrapRunner 构建 bootstrapRunner，等待 stdio server ready 信号后连接控制面。
 func newBootstrapRunner(cfg bootstrap.Config, client *bootstrap.Client, server *common.Server) platformrunner.Runner {
 	return bootstrapRunner{cfg: cfg, client: client, stdioReady: server.Ready()}
 }
@@ -138,7 +143,7 @@ func provideLSPBackgroundRunners(m *Manager) []platformrunner.Runner {
 	return m.BackgroundRunners()
 }
 
-// ListTools 返回当前 peer 暴露的工具列表。
+// ListTools 返回当前 peer 暴露的工具列表，语义 LSP server 不可用时过滤掉对应工具。
 func (p registryToolProvider) ListTools(ctx context.Context) ([]mcp.MCPTool, error) {
 	semanticAvailable, err := p.semanticLSPAvailable(ctx)
 	if err != nil {
@@ -170,6 +175,7 @@ func (p registryToolProvider) ListTools(ctx context.Context) ([]mcp.MCPTool, err
 	return toolsList, nil
 }
 
+// semanticLSPAvailable 检查当前环境是否有可用的语义 LSP server。
 func (p registryToolProvider) semanticLSPAvailable(ctx context.Context) (bool, error) {
 	if p.semanticToolsAvailable != nil {
 		return p.semanticToolsAvailable(ctx), nil
@@ -177,6 +183,7 @@ func (p registryToolProvider) semanticLSPAvailable(ctx context.Context) (bool, e
 	return runtimeSemanticLSPToolsAvailable(ctx)
 }
 
+// isSemanticLSPToolName 判断工具名是否属于需要语义 LSP server 才能运行的工具。
 func isSemanticLSPToolName(name string) bool {
 	switch canonicalToolName(name) {
 	case "inspect", "xref", "structure", "edit", "completion":
@@ -186,6 +193,7 @@ func isSemanticLSPToolName(name string) bool {
 	}
 }
 
+// runtimeSemanticLSPToolsAvailable 检查打包环境或 PATH 中是否存在语义 LSP server 二进制。
 func runtimeSemanticLSPToolsAvailable(context.Context) (bool, error) {
 	lspBundle, packaged, err := runtimeenv.LoadLSPBundleFromEnv()
 	if packaged {
@@ -202,6 +210,7 @@ func runtimeSemanticLSPToolsAvailable(context.Context) (bool, error) {
 	return false, nil
 }
 
+// runtimeSemanticLSPServerBinaries 返回支持的语义 LSP server 二进制名称列表。
 func runtimeSemanticLSPServerBinaries() []string {
 	return []string{
 		"gopls",
@@ -213,7 +222,7 @@ func runtimeSemanticLSPServerBinaries() []string {
 	}
 }
 
-// CallTool 调用当前 peer 暴露的工具。
+// CallTool 调用当前 peer 暴露的工具，先补全工作区作用域后分发到具体处理器。
 func (p registryToolProvider) CallTool(ctx context.Context, name string, args json.RawMessage) (any, error) {
 	var err error
 	ctx, err = withRuntimeWorkspaceScopeFallback(ctx)
@@ -223,7 +232,7 @@ func (p registryToolProvider) CallTool(ctx context.Context, name string, args js
 	return handleToolCall(ctx, p.defs, name, args)
 }
 
-// withRuntimeWorkspaceScopeFallback 设置运行时工作区作用域兜底。
+// withRuntimeWorkspaceScopeFallback 当调用上下文缺少工作区根目录时，从运行时环境变量补全作用域。
 func withRuntimeWorkspaceScopeFallback(ctx context.Context) (context.Context, error) {
 	scope, ok := common.ToolScopeFromContext(ctx)
 	if ok && len(scope.WorkspaceRoots) > 0 {
@@ -244,6 +253,7 @@ func withRuntimeWorkspaceScopeFallback(ctx context.Context) (context.Context, er
 	return common.WithRuntimeWorkspaceScopeFallback(common.WithToolScope(ctx, scope)), nil
 }
 
+// shouldWarnLSPCWDTrace 判断该工具名是否需要记录工作区追踪日志。
 func shouldWarnLSPCWDTrace(toolName string) bool {
 	toolName = canonicalToolName(toolName)
 	switch toolName {
@@ -254,6 +264,7 @@ func shouldWarnLSPCWDTrace(toolName string) bool {
 	}
 }
 
+// warnLSPToolsCallScopeTrace 记录工具调用的作用域追踪日志，仅对需要追踪的工具生效。
 func warnLSPToolsCallScopeTrace(toolName string, scope common.ToolScope) {
 	if !shouldWarnLSPCWDTrace(toolName) {
 		return
@@ -268,6 +279,7 @@ func warnLSPToolsCallScopeTrace(toolName string, scope common.ToolScope) {
 	)
 }
 
+// handleScopedToolsCall 解码工具调用参数，设置作用域后分发到具体工具处理器，panic 时包装为错误返回。
 func handleScopedToolsCall(ctx context.Context, tp registryToolProvider, family string, params json.RawMessage) (result any, err error) {
 	toolName := "tools/call"
 	defer func() {
@@ -292,6 +304,7 @@ func handleScopedToolsCall(ctx context.Context, tp registryToolProvider, family 
 	return wrapScopedToolResult(result)
 }
 
+// wrapScopedToolResult 将工具结果序列化为含 content/structuredContent/isError 的 MCP 响应格式。
 func wrapScopedToolResult(result any) (any, error) {
 	raw, err := json.Marshal(result)
 	if err != nil {
@@ -313,6 +326,7 @@ func wrapScopedToolResult(result any) (any, error) {
 	}, nil
 }
 
+// marshalInputSchema 将工具输入 schema 序列化为 JSON，空 schema 返回 "{}"。
 func marshalInputSchema(schema map[string]any) (json.RawMessage, error) {
 	if len(schema) == 0 {
 		return json.RawMessage("{}"), nil
@@ -324,6 +338,7 @@ func marshalInputSchema(schema map[string]any) (json.RawMessage, error) {
 	return raw, nil
 }
 
+// handleToolCall 按工具名在定义列表中查找处理器并执行，未找到时返回错误。
 func handleToolCall(ctx context.Context, defs []toolDefinition, name string, args json.RawMessage) (any, error) {
 	trimmed := canonicalToolName(name)
 	for _, def := range defs {
@@ -338,7 +353,7 @@ func handleToolCall(ctx context.Context, defs []toolDefinition, name string, arg
 	return nil, errors.New("unknown tool: " + strings.TrimSpace(name))
 }
 
-// Run 启动LSP后台流程。
+// Run 启动 LSP bootstrap 流程，等待 stdio server 就绪后按模式决定是否连接控制面 RPC。
 func (r bootstrapRunner) Run(ctx context.Context) error {
 	r.client.InstallLogRelay()
 	// Dual-channel startup ordering: wait for the local stdio MCP server
@@ -390,7 +405,8 @@ func (r bootstrapRunner) Run(ctx context.Context) error {
 	return r.client.Close()
 }
 
-// bindRuntime 绑定运行时。
+// bindRuntime 将运行组生命周期绑定到 fx，OnStart 启动 goroutine 运行所有 runner，
+// OnStop 取消 ctx 并等待运行组退出，超时时返回 ctx 错误。
 func bindRuntime(lc fx.Lifecycle, params runtimeParams) {
 	log := pkglogger.Get()
 	var (

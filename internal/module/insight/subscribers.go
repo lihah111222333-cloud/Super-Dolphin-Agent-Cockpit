@@ -11,8 +11,7 @@ import (
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
-// NewInsightSubscribers declares the collector bus subscriptions for BusModule.
-// NewInsightSubscribers 创建insightsubscribers。
+// NewInsightSubscribers 为 BusModule 声明 collector 总线订阅。
 func NewInsightSubscribers(c *collector, logger *pkglogger.Logger) platformbus.SubscriberResult {
 	return platformbus.SubscriberResult{
 		Spec: contract.SubscriberSpec{

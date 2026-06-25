@@ -33,6 +33,7 @@ func RegisterToolResultPlainTextRenderer(renderer PlainTextRenderer) {
 	registeredPlainTextRenderer.Store(renderer)
 }
 
+// currentPlainTextRenderer 返回当前全局注册的渲染器，未注册时返回 nil。
 func currentPlainTextRenderer() PlainTextRenderer {
 	v, _ := registeredPlainTextRenderer.Load().(PlainTextRenderer)
 	return v
@@ -103,7 +104,7 @@ func BuildToolCallResult(value any) (map[string]any, error) {
 	}, nil
 }
 
-// isNilToolResult treats typed nils from generic tool handlers as empty results.
+// isNilToolResult 判断工具返回值是否为语义 nil（处理泛型 handler 返回的有类型 nil）。
 func isNilToolResult(value any) bool {
 	if value == nil {
 		return true

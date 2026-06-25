@@ -1,3 +1,5 @@
+// Package sharedfilecleanup 实现 shared file 的垃圾回收：
+// 根据 TTL 和 DAG 运行状态保护策略，筛选可删除的过期共享文件。
 package sharedfilecleanup
 
 import (
@@ -12,6 +14,7 @@ import (
 	sharedfilestore "github.com/anthropic-ai/super-agent-v3/internal/store/sharedfile"
 )
 
+// 清理参数默认值与扫描安全上限。
 const (
 	defaultWorkTTLDays int   = 30
 	defaultListLimit   int32 = 500
@@ -20,19 +23,22 @@ const (
 	runScanLimit       int32 = 100
 )
 
+// Deps 是 GC 的外部依赖集合，通过接口注入便于测试。
 type Deps struct {
-	Reader     sharedfilestore.Reader
-	Deleter    sharedfilestore.Deleter
-	DAGRuntime contract.DAGRuntime
-	Now        func() time.Time
+	Reader     sharedfilestore.Reader  // 读取 shared file 列表
+	Deleter    sharedfilestore.Deleter // 执行删除（Preview 时为 nil）
+	DAGRuntime contract.DAGRuntime     // 查询 DAG 运行状态以保护活跃文件
+	Now        func() time.Time        // 注入时间，便于测试
 }
 
+// Params 是单次 GC 调用的配置参数。
 type Params struct {
-	WorkTTLDays int      `json:"workTtlDays,omitempty"`
-	Limit       int32    `json:"limit,omitempty"`
-	PinnedPaths []string `json:"pinnedPaths,omitempty"`
+	WorkTTLDays int      `json:"workTtlDays,omitempty"` // 文件保留天数，0 表示使用默认值
+	Limit       int32    `json:"limit,omitempty"`       // 最大扫描条数，0 表示使用默认值
+	PinnedPaths []string `json:"pinnedPaths,omitempty"` // 手动固定不删除的路径
 }
 
+// Result 是单次 GC 的执行结果。
 type Result struct {
 	Items          []Item   `json:"items"`
 	WorkTTLDays    int      `json:"workTtlDays"`
@@ -44,22 +50,23 @@ type Result struct {
 	DeletedPaths   []string `json:"deletedPaths,omitempty"`
 }
 
+// Item 描述单个 shared file 的 GC 分析结果。
 type Item struct {
 	Path             string    `json:"path"`
 	UpdatedAt        time.Time `json:"updatedAt"`
 	AgeDays          int       `json:"ageDays"`
-	CleanupCandidate bool      `json:"cleanupCandidate"`
-	Protected        bool      `json:"protected"`
+	CleanupCandidate bool      `json:"cleanupCandidate"` // true 表示满足 TTL 条件可删除
+	Protected        bool      `json:"protected"`        // true 表示被 DAG 或 pinned 保护
 	Reason           string    `json:"reason"`
 	Deleted          bool      `json:"deleted,omitempty"`
 }
 
-// Preview 处理preview。
+// Preview 返回 GC 预览结果（dry-run），不执行实际删除。
 func Preview(ctx context.Context, deps Deps, params Params) (Result, error) {
 	return buildPlan(ctx, deps, params)
 }
 
-// Apply 应用记忆。
+// Apply 执行实际删除，删除所有满足条件的候选文件。
 func Apply(ctx context.Context, deps Deps, params Params) (Result, error) {
 	if deps.Deleter == nil {
 		return Result{}, errors.New("shared file store is not configured for cleanup deletion")
@@ -87,7 +94,7 @@ func Apply(ctx context.Context, deps Deps, params Params) (Result, error) {
 	return result, nil
 }
 
-// buildPlan 构建plan。
+// buildPlan 构建 GC 执行计划：校验参数、收集受保护路径、列出文件并分类。
 func buildPlan(ctx context.Context, deps Deps, params Params) (Result, error) {
 	if deps.Reader == nil {
 		return Result{}, errors.New("shared file store is not configured")
@@ -110,6 +117,7 @@ func buildPlan(ctx context.Context, deps Deps, params Params) (Result, error) {
 	return buildResult(files, protectedPaths, normalized, deps.Now), nil
 }
 
+// listSharedFiles 列出共享文件并检查是否超过安全扫描上限。
 func listSharedFiles(ctx context.Context, reader sharedfilestore.Reader, limit int32) ([]sharedfilestore.SharedFile, error) {
 	files, err := reader.List(ctx, sharedfilestore.ListFilter{Limit: limit})
 	if err != nil {
@@ -121,7 +129,7 @@ func listSharedFiles(ctx context.Context, reader sharedfilestore.Reader, limit i
 	return files, nil
 }
 
-// buildResult 构建结果。
+// buildResult 遍历文件列表并调用 classifyFile 分类，汇总候选与保护数量。
 func buildResult(
 	files []sharedfilestore.SharedFile,
 	protectedPaths map[string]string,
@@ -154,7 +162,7 @@ func buildResult(
 	return result
 }
 
-// normalizeParams 规范化params。
+// normalizeParams 规范化并校验 GC 参数，填充零值为默认值，拒绝超出上限的配置。
 func normalizeParams(params Params) (Params, error) {
 	if params.WorkTTLDays < 0 {
 		return Params{}, errors.New("workTtlDays must be non-negative")
@@ -174,7 +182,7 @@ func normalizeParams(params Params) (Params, error) {
 	return params, nil
 }
 
-// classifyFile 分类文件。
+// classifyFile 对单个文件进行分类：优先判断 pinned、受保护、内部路径，然后按 TTL 判定是否为清理候选。
 func classifyFile(
 	now time.Time,
 	file sharedfilestore.SharedFile,
@@ -216,6 +224,7 @@ func classifyFile(
 	return item, true
 }
 
+// collectProtectedPaths 遍历所有 DAG 的运行记录，收集不可删除的 shared file 路径及保护原因。
 func collectProtectedPaths(ctx context.Context, dagRuntime contract.DAGRuntime) (map[string]string, error) {
 	protected := map[string]string{}
 	dags, err := dagRuntime.ListDAGs(ctx, contract.ListDAGsFilter{Limit: dagScanLimit})
@@ -233,7 +242,7 @@ func collectProtectedPaths(ctx context.Context, dagRuntime contract.DAGRuntime) 
 	return protected, nil
 }
 
-// collectDAGProtectedPaths 收集DAGprotected路径。
+// collectDAGProtectedPaths 读取指定 DAG 的所有运行记录，将 final_output 和活跃运行的输出路径标记为受保护。
 func collectDAGProtectedPaths(ctx context.Context, dagRuntime contract.DAGRuntime, dagKey string, protected map[string]string) error {
 	dagKey = strings.TrimSpace(dagKey)
 	if dagKey == "" {
@@ -262,6 +271,7 @@ func collectDAGProtectedPaths(ctx context.Context, dagRuntime contract.DAGRuntim
 	return nil
 }
 
+// collectRunningRunSharedfileTargets 读取正在运行的 DAG run 节点配置，将其 to_sharedfile 输出路径标记为受保护。
 func collectRunningRunSharedfileTargets(ctx context.Context, dagRuntime contract.DAGRuntime, runKey string, protected map[string]string) error {
 	runKey = strings.TrimSpace(runKey)
 	if runKey == "" {
@@ -281,6 +291,7 @@ func collectRunningRunSharedfileTargets(ctx context.Context, dagRuntime contract
 	return nil
 }
 
+// addProtectedPath 向 protected map 写入路径和保护原因；final_output 优先级最高，不可被覆盖。
 func addProtectedPath(protected map[string]string, path, reason string) {
 	path = strings.TrimSpace(path)
 	if path == "" {
@@ -292,7 +303,8 @@ func addProtectedPath(protected map[string]string, path, reason string) {
 	protected[path] = reason
 }
 
-// sharedfileOutputPathFromNodeConfig 从节点配置处理sharedfileoutput路径。
+// sharedfileOutputPathFromNodeConfig 从节点配置 JSON 中提取 to_sharedfile 输出路径；
+// 支持 outputs.to_sharedfile 和顶级 to_sharedfile 两种结构。
 func sharedfileOutputPathFromNodeConfig(raw json.RawMessage) (string, error) {
 	if len(raw) == 0 || strings.TrimSpace(string(raw)) == "null" {
 		return "", nil
@@ -319,6 +331,7 @@ func sharedfileOutputPathFromNodeConfig(raw json.RawMessage) (string, error) {
 	return "", nil
 }
 
+// pinnedPathSet 将 pinned 路径列表转换为 set，用于 O(1) 查找。
 func pinnedPathSet(paths []string) map[string]struct{} {
 	out := make(map[string]struct{}, len(paths))
 	for _, path := range paths {

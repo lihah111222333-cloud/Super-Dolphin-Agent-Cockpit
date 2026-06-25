@@ -8,29 +8,33 @@ import (
 	"time"
 )
 
+// dashboardDAGSummaryTimes 聚合 DAG 摘要行中的时间字段，避免逐字段传参。
 type dashboardDAGSummaryTimes struct {
-	nextRunAt  *time.Time
-	startedAt  *time.Time
-	finishedAt *time.Time
-	createdAt  time.Time
-	updatedAt  time.Time
+	nextRunAt  *time.Time // 下次计划运行时间，schedule 未启用时为 nil
+	startedAt  *time.Time // 最近一次启动时间，未运行时为 nil
+	finishedAt *time.Time // 最近一次结束时间，未完成时为 nil
+	createdAt  time.Time  // 记录创建时间
+	updatedAt  time.Time  // 记录最后更新时间
 }
 
+// dashboardDAGNodeTimes 聚合 DAG 节点行中的时间字段。
 type dashboardDAGNodeTimes struct {
-	startedAt   *time.Time
-	finishedAt  *time.Time
-	lastEventAt *time.Time
-	createdAt   time.Time
-	updatedAt   time.Time
+	startedAt   *time.Time // 节点开始执行时间
+	finishedAt  *time.Time // 节点完成时间
+	lastEventAt *time.Time // 节点最后一次事件时间
+	createdAt   time.Time  // 记录创建时间
+	updatedAt   time.Time  // 记录最后更新时间
 }
 
+// dashboardRunTimes 聚合 DAG run 行中的时间字段。
 type dashboardRunTimes struct {
-	startedAt  time.Time
-	finishedAt *time.Time
-	createdAt  time.Time
-	updatedAt  time.Time
+	startedAt  time.Time  // run 启动时间，必填
+	finishedAt *time.Time // run 结束时间，未完成时为 nil
+	createdAt  time.Time  // 记录创建时间
+	updatedAt  time.Time  // 记录最后更新时间
 }
 
+// dashboardDAGSummaryTimesFromRow 从查询结果行解析 DAG 摘要的全部时间字段。
 func dashboardDAGSummaryTimesFromRow(row map[string]any) (dashboardDAGSummaryTimes, error) {
 	createdAt, err := dashboardRowTime(row, "created_at", true)
 	if err != nil {
@@ -61,6 +65,7 @@ func dashboardDAGSummaryTimesFromRow(row map[string]any) (dashboardDAGSummaryTim
 	}, nil
 }
 
+// dashboardDAGNodeTimesFromRow 从查询结果行解析 DAG 节点的全部时间字段。
 func dashboardDAGNodeTimesFromRow(row map[string]any) (dashboardDAGNodeTimes, error) {
 	createdAt, err := dashboardRowTime(row, "created_at", true)
 	if err != nil {
@@ -91,6 +96,7 @@ func dashboardDAGNodeTimesFromRow(row map[string]any) (dashboardDAGNodeTimes, er
 	}, nil
 }
 
+// dashboardRunTimesFromRow 从查询结果行解析 DAG run 的全部时间字段。
 func dashboardRunTimesFromRow(row map[string]any) (dashboardRunTimes, error) {
 	startedAt, err := dashboardRowTime(row, "started_at", true)
 	if err != nil {
@@ -116,6 +122,7 @@ func dashboardRunTimesFromRow(row map[string]any) (dashboardRunTimes, error) {
 	}, nil
 }
 
+// dashboardRowTime 读取必填或可选时间字段，返回零值而非指针，required=false 时缺失返回零值。
 func dashboardRowTime(row map[string]any, key string, required bool) (time.Time, error) {
 	ptr, err := dashboardRowTimePtr(row, key, required)
 	if err != nil {
@@ -127,10 +134,12 @@ func dashboardRowTime(row map[string]any, key string, required bool) (time.Time,
 	return *ptr, nil
 }
 
+// dashboardOptionalTime 读取可选时间字段，字段缺失时返回 nil。
 func dashboardOptionalTime(row map[string]any, key string) (*time.Time, error) {
 	return dashboardRowTimePtr(row, key, false)
 }
 
+// dashboardRowTimePtr 统一解析时间字段，依次尝试 time.Time、unix 毫秒整数和 RFC3339 字符串。
 func dashboardRowTimePtr(row map[string]any, key string, required bool) (*time.Time, error) {
 	value, ok := row[key]
 	if !ok || value == nil {
@@ -148,6 +157,7 @@ func dashboardRowTimePtr(row map[string]any, key string, required bool) (*time.T
 	return nil, fmt.Errorf("%s has unsupported type %T", key, value)
 }
 
+// dashboardMissingTimePtr 处理字段缺失时的 fail-fast 或静默返回逻辑。
 func dashboardMissingTimePtr(key string, required bool) (*time.Time, error) {
 	if required {
 		return nil, fmt.Errorf("%s is required", key)
@@ -155,6 +165,7 @@ func dashboardMissingTimePtr(key string, required bool) (*time.Time, error) {
 	return nil, nil
 }
 
+// dashboardNativeTimePtr 处理 time.Time 和 *time.Time 原生类型的解析。
 func dashboardNativeTimePtr(value any) (*time.Time, bool) {
 	switch typed := value.(type) {
 	case time.Time:
@@ -166,6 +177,7 @@ func dashboardNativeTimePtr(value any) (*time.Time, bool) {
 	}
 }
 
+// dashboardUnixMillisValueTimePtr 将常见整数类型和 json.Number/float64 解析为 unix 毫秒时间。
 func dashboardUnixMillisValueTimePtr(value any, key string, required bool) (*time.Time, bool, error) {
 	switch typed := value.(type) {
 	case int64:
@@ -186,6 +198,7 @@ func dashboardUnixMillisValueTimePtr(value any, key string, required bool) (*tim
 	}
 }
 
+// dashboardUnixMillisInt64Ptr 解引用 *int64 后转换为时间指针，nil 时按 required 处理。
 func dashboardUnixMillisInt64Ptr(value *int64, key string, required bool) (*time.Time, error) {
 	if value == nil {
 		if required {
@@ -196,6 +209,7 @@ func dashboardUnixMillisInt64Ptr(value *int64, key string, required bool) (*time
 	return dashboardUnixMillisTimePtr(*value, required), nil
 }
 
+// dashboardJSONMillisTimePtr 将 json.Number 解析为 int64 后转换为时间指针。
 func dashboardJSONMillisTimePtr(value json.Number, key string, required bool) (*time.Time, bool, error) {
 	parsed, err := value.Int64()
 	if err != nil {
@@ -204,6 +218,7 @@ func dashboardJSONMillisTimePtr(value json.Number, key string, required bool) (*
 	return dashboardUnixMillisTimePtr(parsed, required), true, nil
 }
 
+// dashboardFloatMillisTimePtr 将 float64 毫秒时间戳转换为时间指针，非整数时 fail-fast。
 func dashboardFloatMillisTimePtr(value float64, key string, required bool) (*time.Time, bool, error) {
 	if math.Trunc(value) != value {
 		return nil, true, fmt.Errorf("%s must be an integer millisecond timestamp", key)
@@ -211,6 +226,7 @@ func dashboardFloatMillisTimePtr(value float64, key string, required bool) (*tim
 	return dashboardUnixMillisTimePtr(int64(value), required), true, nil
 }
 
+// dashboardStringTimePtr 尝试将字符串按 RFC3339Nano 格式解析为时间指针。
 func dashboardStringTimePtr(value any, key string) (*time.Time, bool, error) {
 	typed, ok := value.(string)
 	if !ok {
@@ -223,6 +239,7 @@ func dashboardStringTimePtr(value any, key string) (*time.Time, bool, error) {
 	return &parsed, true, nil
 }
 
+// dashboardUnixMillisTimePtr 将 unix 毫秒整数转为 UTC 时间指针；value=0 且 required=false 时返回 nil。
 func dashboardUnixMillisTimePtr(value int64, required bool) *time.Time {
 	if value == 0 {
 		if !required {

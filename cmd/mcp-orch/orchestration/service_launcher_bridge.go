@@ -38,6 +38,7 @@ func (s *service) LaunchAgentSnapshot(ctx context.Context, req LaunchRequest) (A
 	return s.launchAgentSnapshot(ctx, req, nil)
 }
 
+// launchAgentSnapshot 执行完整的 agent 启动流程：参数补全、启动重试、提交初始 prompt，返回快照。
 func (s *service) launchAgentSnapshot(ctx context.Context, req LaunchRequest, beforeInitialPrompt func(agentID string, result LaunchResult) error) (AgentSnapshot, error) {
 	req, err := s.applyLaunchRequestDefaults(ctx, req)
 	if err != nil {
@@ -66,6 +67,7 @@ func (s *service) stopLaunchedAgentAfterBeforePromptFailure(agentID string, caus
 	return cause
 }
 
+// applyLaunchRequestDefaults 从父 agent 继承 cwd 等缺省参数。
 func (s *service) applyLaunchRequestDefaults(ctx context.Context, req LaunchRequest) (LaunchRequest, error) {
 	if req.Cwd != "" || strings.TrimSpace(req.Cwd) != "" || strings.TrimSpace(req.ParentID) == "" {
 		return req, nil
@@ -88,6 +90,7 @@ func (s *service) launchAgentUntilStarted(ctx context.Context, req LaunchRequest
 	return s.launchWithRetry(ctx, attempt, req)
 }
 
+// launchWithRetry 带退避重试地执行 launcher 启动，失败后由 launcherrors 策略决定是否重试。
 func (s *service) launchWithRetry(ctx context.Context, attempt launcherLaunchAttempt, req LaunchRequest) (string, LaunchResult, error) {
 	var lastErr error
 	launchStartedAt := time.Now()
@@ -150,6 +153,7 @@ func (s *service) submitInitialLaunchPromptOrStop(ctx context.Context, agentID s
 	return nil
 }
 
+// prepareLauncherLaunch 校验请求参数、检测重复启动，并在锁内准备 launch attempt。
 func (s *service) prepareLauncherLaunch(ctx context.Context, req LaunchRequest) (launcherLaunchAttempt, bool, error) {
 	if err := validateLaunchRequestForLauncher(req, s.launcher); err != nil {
 		pkglogger.Warn("orchestration: launch rejected: validation failed", "agent_id", req.AgentID, "name", req.Name, "error", err)
@@ -182,6 +186,8 @@ func (s *service) prepareLauncherLaunch(ctx context.Context, req LaunchRequest) 
 	attempt := launcherLaunchAttempt{agentID: agent.id, expectedSeq: agent.launchSeq, launching: *agent, forkParent: forkParent}
 	return attempt, false, nil
 }
+
+// forkParentForLaunchLocked 在 forked 模式下读取父 agent 快照供 Fork RPC 使用。
 func (s *service) forkParentForLaunchLocked(req LaunchRequest) (agentRuntime, error) {
 	if !strings.EqualFold(strings.TrimSpace(req.ContextMode), "forked") {
 		return agentRuntime{}, nil
@@ -210,6 +216,7 @@ func (s *service) forkParentForLaunchLocked(req LaunchRequest) (agentRuntime, er
 	return *parent, nil
 }
 
+// launchInProgress 判断 agent 是否正处于启动或恢复中。
 func launchInProgress(ctx context.Context, s *service, agent *agentRuntime) bool {
 	if agent == nil || agent.state == agentdto.StateFailed || agent.state == agentdto.StateStopped {
 		return false
@@ -282,6 +289,7 @@ func (s *service) completeLauncherLaunchLocked(ctx context.Context, agent, launc
 	return nil
 }
 
+// rekeyLaunchedAgentLocked 把 agent 的 map key 从本地生成 ID 改为远端返回的 agentID。
 func (s *service) rekeyLaunchedAgentLocked(agent *agentRuntime) error {
 	if agent == nil {
 		return nil
@@ -299,6 +307,7 @@ func (s *service) rekeyLaunchedAgentLocked(agent *agentRuntime) error {
 	return nil
 }
 
+// stopAgentViaLauncher 通过 launcher 停止 agent 并等待进程退出。
 func (s *service) stopAgentViaLauncher(ctx context.Context, agentID, reason string) error {
 	agentID = strings.TrimSpace(agentID)
 	if agentID == "" {
@@ -321,6 +330,7 @@ func (s *service) stopAgentViaLauncher(ctx context.Context, agentID, reason stri
 	return nil
 }
 
+// archiveAgentViaLauncher 通过 launcher 归档 agent，成功时返回 true。
 func (s *service) archiveAgentViaLauncher(ctx context.Context, agentID, reason string) (bool, error) {
 	agentID = strings.TrimSpace(agentID)
 	if agentID == "" {
@@ -487,6 +497,7 @@ func (s *service) trySubmitRemoteTurn(ctx context.Context, agentID string, req T
 	return true, nil
 }
 
+// prepareRemoteTurnSubmit 校验远端 turn 提交前提并构造提交 attempt。
 func (s *service) prepareRemoteTurnSubmit(ctx context.Context, agentID string, req TurnSubmission) (remoteTurnSubmitAttempt, bool, error) {
 	attempt := remoteTurnSubmitAttempt{}
 	handled := true
@@ -545,6 +556,7 @@ func remoteAgentBusy(agent *agentRuntime) bool {
 	return agent.state != agentdto.StateIdle || agent.activeTurnID != ""
 }
 
+// enqueueLocalTurnSubmission 把 turn 放入本地队列等待进程就绪后执行。
 func (s *service) enqueueLocalTurnSubmission(ctx context.Context, agentID string, req TurnSubmission) error {
 	waitForSession, err := s.submitAgentReadyState(ctx, agentID)
 	if err != nil {

@@ -10,36 +10,43 @@ import (
 
 var ErrTeamMemSecretDetected = errors.New("team memory content contains secrets")
 
+// TeamMemoryGuard 负责团队记忆的安全守卫：写操作路径校验和内容密钥扫描。
 type TeamMemoryGuard struct {
 	manager *TeamMemoryManager
 }
 
+// TeamMemSecretFinding 描述内容中一处密钥检测结果。
 type TeamMemSecretFinding struct {
 	RuleID string
 	Line   int
 	Match  string
 }
 
+// TeamMemSkippedFile 记录被跳过（含密钥）的文件及其发现结果。
 type TeamMemSkippedFile struct {
 	Path     string
 	Findings []TeamMemSecretFinding
 }
 
+// TeamMemPrePushScanResult 是推送前密钥扫描的结果：Allowed 为通过的文件，Skipped 为含密钥被跳过的文件。
 type TeamMemPrePushScanResult struct {
 	Allowed map[string]string
 	Skipped []TeamMemSkippedFile
 }
 
+// TeamMemSecretError 包含检测到密钥的文件路径和详细发现结果，实现 error 接口。
 type TeamMemSecretError struct {
 	Path     string
 	Findings []TeamMemSecretFinding
 }
 
+// teamSecretRule 是单条密钥检测规则，包含规则 ID 和正则表达式。
 type teamSecretRule struct {
 	id      string
 	pattern *regexp.Regexp
 }
 
+// teamSecretRules 是内置的密钥检测规则集，覆盖私钥、GitHub token、OpenAI key、AWS key 等常见密钥格式。
 var teamSecretRules = []teamSecretRule{
 	{id: "private_key", pattern: regexp.MustCompile(`(?m)-----BEGIN(?: [A-Z0-9]+)* PRIVATE KEY-----`)},
 	{id: "github_pat", pattern: regexp.MustCompile(`\bgithub_pat_[A-Za-z0-9_]{40,}\b`)},

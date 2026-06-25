@@ -1,3 +1,4 @@
+// Package main 是 mcp-lsp sidecar 进程的入口，通过 MCP stdio 协议暴露 LSP 工具能力。
 package main
 
 import (
@@ -19,13 +20,13 @@ const httpLSPBinaryName = "mcp-lsp"
 
 var errLSPHTTPSessionTokenRequired = errors.New("mcp-lsp http: GO_AGENT_CTL_SESSION_TOKEN or GO_AGENT_MCP_SESSION_TOKEN required in peer mode")
 
-// httpRunner starts an HTTP MCP endpoint in peer mode so that
-// multiple Claude CLI agents can share a single mcp-lsp process.
+// httpRunner 在 peer 模式下启动 HTTP MCP 端点，允许多个 Claude CLI agent 共享同一 mcp-lsp 进程。
 type httpRunner struct {
 	tools       common.ToolProvider
 	bearerToken string
 }
 
+// newHTTPRunner 在 peer 模式下创建 HTTP MCP runner，非 peer 模式返回空阻塞 runner。
 func newHTTPRunner(handlers ToolHandlers) platformrunner.Runner {
 	if os.Getenv("GO_AGENT_PEER_MODE") != "1" {
 		return lspBlockRunner{}
@@ -36,16 +37,16 @@ func newHTTPRunner(handlers ToolHandlers) platformrunner.Runner {
 	}
 }
 
-// lspBlockRunner is a no-op runner that blocks until its context is cancelled.
+// lspBlockRunner 是非 peer 模式下的空 runner，阻塞直到 ctx 取消。
 type lspBlockRunner struct{}
 
-// Run 启动LSP后台流程。
+// Run 阻塞直到 ctx 取消后退出。
 func (lspBlockRunner) Run(ctx context.Context) error {
 	<-ctx.Done()
 	return nil
 }
 
-// Run 启动LSP后台流程。
+// Run 启动 HTTP MCP server，注册 peer discovery，等待 ctx 取消后优雅停机。
 func (r *httpRunner) Run(ctx context.Context) error {
 	if strings.TrimSpace(r.bearerToken) == "" {
 		return errLSPHTTPSessionTokenRequired

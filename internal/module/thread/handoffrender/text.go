@@ -1,3 +1,4 @@
+// Package handoffrender 提供线程交接（handoff）场景下的文本规范化辅助函数。
 package handoffrender
 
 import (

@@ -26,6 +26,7 @@ type skillHydrationPort = contract.SkillHydrationSource
 
 const peerBinDirEnv = "GO_AGENT_PEER_BIN_DIR"
 
+// service 是 turn.Service 的核心实现，持有组装器、技能解析器、manifest 构建器和 tracker 等依赖。
 type service struct {
 	logger                 *slog.Logger
 	assembler              *inputAssembler
@@ -263,6 +264,7 @@ func (s *service) SteerTurn(ctx context.Context, session contract.Session, expec
 	return active.handle, nil
 }
 
+// resolveActiveSteerTurn 查找当前线程的活跃 turn 并校验 expectedTurnID，不匹配时返回错误。
 func (s *service) resolveActiveSteerTurn(threadID, expectedTurnID string) (activeTurn, error) {
 	active, tracked := s.tracker.ActiveByThread(threadID)
 	if !tracked {
@@ -278,6 +280,7 @@ func (s *service) resolveActiveSteerTurn(threadID, expectedTurnID string) (activ
 	return active, nil
 }
 
+// requireSteerableSession 断言 session 实现了 steerableSession，不支持时返回错误。
 func requireSteerableSession(session contract.Session) (steerableSession, error) {
 	steerer, ok := session.(steerableSession)
 	if !ok {
@@ -496,6 +499,7 @@ func (s *service) watchTurn(parentCtx context.Context, handle contract.TurnHandl
 	})
 }
 
+// waitForTurnSettle 等待 handle 完成并更新 tracker 状态，超时后返回 DeadlineExceeded。
 func (s *service) waitForTurnSettle(ctx context.Context, localID string, handle contract.TurnHandle) error {
 	deadline := time.Now().Add(s.interruptSettleTimeout)
 	ctx = util.NonNilContext(ctx)
@@ -534,6 +538,7 @@ func (s *service) waitForTrackedTerminal(ctx context.Context, localID string, de
 	}
 }
 
+// buildOverrides 根据会话能力集构造 TurnOverrides，仅在有 CapTurnOverride 能力时填充 model/effort。
 func (s *service) buildOverrides(caps dto.CapabilitySet, input PrepareInput) dto.TurnOverrides {
 	if !contract.HasCapability(caps, dto.CapTurnOverride) {
 		return dto.TurnOverrides{}
@@ -571,6 +576,7 @@ type turnTraceSpan struct {
 	startedAt time.Time
 }
 
+// beginTurnTraceSpan 创建链路追踪 span 并向 tracing service 发送 begin 事件。
 func (s *service) beginTurnTraceSpan(ctx context.Context, kind, threadID, agentID, turnID string, code platformobs.CodeAnchor, metadata map[string]any) turnTraceSpan {
 	ctx = util.NonNilContext(ctx)
 	trace, ok := platformobs.TraceFromContext(ctx)
@@ -588,6 +594,7 @@ func (s *service) beginTurnTraceSpan(ctx context.Context, kind, threadID, agentI
 	return span
 }
 
+// finishTurnTraceSpan 向 tracing service 发送 done 或 error 事件以结束 span。
 func (s *service) finishTurnTraceSpan(span turnTraceSpan, err error) {
 	status := platformobs.StatusOK
 	message := ""
@@ -600,6 +607,7 @@ func (s *service) finishTurnTraceSpan(span turnTraceSpan, err error) {
 	s.recordTurnTraceEvent(span, phase, status, time.Since(span.startedAt).Milliseconds(), message)
 }
 
+// recordTurnTraceEvent 向 tracing service 写入追踪事件，service 或 tracing 为 nil 时静默跳过。
 func (s *service) recordTurnTraceEvent(span turnTraceSpan, phase string, status platformobs.Status, durationMS int64, message string) {
 	if s == nil || s.tracing == nil {
 		return
@@ -610,6 +618,7 @@ func (s *service) recordTurnTraceEvent(span turnTraceSpan, phase string, status 
 	}
 }
 
+// turnPrepareTraceMetadata 构造 PrepareTurn 追踪事件的 metadata map，记录输入数量和工具数量。
 func turnPrepareTraceMetadata(input PrepareInput, manifest dto.MCPManifest) map[string]any {
 	return map[string]any{"input_count": len(input.Inputs), "file_count": len(input.Files), "image_count": len(input.Images), "skill_count": len(input.Skills) + len(input.CandidateSkills), "manifest_tool_count": len(manifest.Binaries)}
 }

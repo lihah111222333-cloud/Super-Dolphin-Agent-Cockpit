@@ -1,3 +1,4 @@
+// Package datasource 提供本地文件上传、列举和删除能力，并把文件正文入库供 prompt 动态段消费。
 package datasource
 
 import (
@@ -115,6 +116,7 @@ func decodeTextDatasourceBytes(content []byte) (string, error) {
 	}
 }
 
+// decodeUTF8Text 验证并返回 UTF-8 文本，无效时 fail-fast。
 func decodeUTF8Text(content []byte) (string, error) {
 	if !utf8.Valid(content) {
 		return "", errUnsupportedTextEncoding
@@ -122,6 +124,7 @@ func decodeUTF8Text(content []byte) (string, error) {
 	return string(content), nil
 }
 
+// decodeUTF16Text 将 UTF-16LE 或 UTF-16BE 字节解码为 UTF-8 字符串。
 func decodeUTF16Text(content []byte, littleEndian bool) (string, error) {
 	if len(content)%2 != 0 {
 		return "", errUnsupportedTextEncoding
@@ -137,6 +140,7 @@ func decodeUTF16Text(content []byte, littleEndian bool) (string, error) {
 	return string(utf16.Decode(codeUnits)), nil
 }
 
+// hasPrefix 检查 content 是否以指定字节序列开头。
 func hasPrefix(content []byte, prefix ...byte) bool {
 	if len(content) < len(prefix) {
 		return false

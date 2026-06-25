@@ -1,3 +1,4 @@
+// Package sqlite 提供 SQLite 数据库的打开、PRAGMA 配置和迁移执行能力。
 package sqlite
 
 import (
@@ -12,6 +13,8 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/securefs"
 )
 
+// RunMigrations 扫描 dir 目录下的 .sql 文件，按版本号顺序将尚未应用的迁移写入数据库。
+// 必须以 001_baseline.sql 作为首次迁移，否则直接返回错误。
 func RunMigrations(ctx context.Context, db *sql.DB, dir string) error {
 	if db == nil {
 		return fmt.Errorf("SQLite migration runner received nil DB")
@@ -40,6 +43,8 @@ func RunMigrations(ctx context.Context, db *sql.DB, dir string) error {
 	return nil
 }
 
+// loadAppliedMigrations 读取 schema_migrations 表中已记录的迁移文件名集合。
+// 若表不存在则返回空集合，首次全量初始化时适用。
 func loadAppliedMigrations(ctx context.Context, db *sql.DB) (map[string]bool, error) {
 	hasSchemaMigrations, err := schemaMigrationsTableExists(ctx, db)
 	if err != nil {

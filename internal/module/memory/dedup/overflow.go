@@ -1,3 +1,4 @@
+// Package dedup 见 tokenizer.go。
 package dedup
 
 import (
@@ -6,17 +7,15 @@ import (
 	"unicode/utf8"
 )
 
+// 溢出与合并相关常量
 const (
-	MaxEntriesPerType       = 15
-	MaxEntryContentRunes    = 1500
-	MinMergePairContainment = 0.40
+	MaxEntriesPerType       = 15   // 每种类型允许的最大条目数
+	MaxEntryContentRunes    = 1500 // 合并后内容的最大 rune 数
+	MinMergePairContainment = 0.40 // 触发合并的最低包含系数阈值
 )
 
-// FindMostSimilarPair finds the pair of entries with the highest containment score.
-// Returns the indices i, j and the containment score.
-// If the highest containment < MinMergePairContainment, returns found=false.
-// If entries has 0 or 1 elements, returns found=false.
-// FindMostSimilarPair 找出最相似的一对条目。
+// FindMostSimilarPair 在条目列表中找出包含系数最高的一对。
+// 返回下标 i、j 及分数；若最高分 < MinMergePairContainment 或条目数 < 2，返回 found=false。
 func FindMostSimilarPair(entries []EntrySnapshot) (i, j int, score float64, found bool) {
 	pairs := FindSimilarPairs(entries)
 	if len(pairs) == 0 {
@@ -26,10 +25,10 @@ func FindMostSimilarPair(entries []EntrySnapshot) (i, j int, score float64, foun
 	return best.IdxA, best.IdxB, best.Score, true
 }
 
-// SimilarPair describes a pair of entries with high containment.
+// SimilarPair 描述一对包含系数较高的条目。
 type SimilarPair struct {
-	IdxA   int // index into the original entries slice
-	IdxB   int // index into the original entries slice
+	IdxA   int // 原始 entries 切片中的下标
+	IdxB   int // 原始 entries 切片中的下标
 	NameA  string
 	NameB  string
 	PathA  string
@@ -39,9 +38,7 @@ type SimilarPair struct {
 	Score  float64 // 0~1
 }
 
-// FindSimilarPairs returns all pairs of entries whose containment score
-// is at least MinMergePairContainment.  Results are sorted by score descending.
-// FindSimilarPairs 查找相似条目配对。
+// FindSimilarPairs 返回所有包含系数 >= MinMergePairContainment 的条目对，按分数降序排列。
 func FindSimilarPairs(entries []EntrySnapshot) []SimilarPair {
 	var pairs []SimilarPair
 	for a := 0; a < len(entries); a++ {
@@ -76,15 +73,13 @@ func FindSimilarPairs(entries []EntrySnapshot) []SimilarPair {
 	return pairs
 }
 
+// pairSortKey 生成用于相同分数时稳定排序的字符串键。
 func pairSortKey(pair SimilarPair) string {
 	return strings.Join([]string{pair.ScopeA, pair.PathA, pair.ScopeB, pair.PathB}, "\x00")
 }
 
-// TruncateOldestParagraphs truncates content to at most maxRunes runes.
-// Paragraphs are separated by "\n\n". Paragraphs are removed from the beginning
-// (oldest first) until the total length is <= maxRunes.
-// At least the last paragraph is always kept, even if it alone exceeds maxRunes.
-// TruncateOldestParagraphs 截断oldestparagraphs。
+// TruncateOldestParagraphs 将 content 截断至不超过 maxRunes 个 rune。
+// 按 "\n\n" 分段，从最旧（最前）的段落开始丢弃，至少保留最后一段。
 func TruncateOldestParagraphs(content string, maxRunes int) string {
 	if utf8.RuneCountInString(content) <= maxRunes {
 		return content

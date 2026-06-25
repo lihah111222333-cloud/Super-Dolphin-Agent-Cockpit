@@ -9,15 +9,15 @@ import (
 // the default production wiring. It is safe for concurrent use.
 type Memory struct {
 	mu          sync.RWMutex
-	localToProv map[string]string
-	provToLocal map[string]string
-	callToTurn  map[string]string
-	tokens      map[string]TokenSnapshot
-	terminals   map[string]Terminal
-	skills      map[string][]string
-	seenDedupe  map[DedupeKey]struct{}
-	counts      map[string]Counts
-	timestamps  map[string]Timestamps
+	localToProv map[string]string        // 本地 turnID → provider turnID 映射
+	provToLocal map[string]string        // provider turnID → 本地 turnID 反向映射
+	callToTurn  map[string]string        // callID → 本地 turnID 归因表
+	tokens      map[string]TokenSnapshot // 按 turnID 存储的 token 快照
+	terminals   map[string]Terminal      // 按 turnID 存储的终止状态，粘性写入
+	skills      map[string][]string      // 按 turnID 存储已选 skill slug 列表
+	seenDedupe  map[DedupeKey]struct{}   // 已处理的去重键集合，防止事件重复计数
+	counts      map[string]Counts        // 按 turnID 存储的工具调用/失败/审批计数
+	timestamps  map[string]Timestamps    // 按 turnID 存储的开始/完成时间戳
 }
 
 // NewMemory returns an empty Memory contract.
@@ -36,7 +36,7 @@ func NewMemory() *Memory {
 	}
 }
 
-// MapTurn 映射turn。
+// MapTurn 登记本地 turnID 与 provider turnID 的双向映射，冲突时返回 false 拒绝覆盖。
 func (m *Memory) MapTurn(local, provider string) bool {
 	if local == "" || provider == "" {
 		return false
@@ -54,7 +54,7 @@ func (m *Memory) MapTurn(local, provider string) bool {
 	return true
 }
 
-// ResolveLocalTurn 解析localturn。
+// ResolveLocalTurn 通过 provider turnID 反查本地 turnID。
 func (m *Memory) ResolveLocalTurn(provider string) (string, bool) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
@@ -62,7 +62,7 @@ func (m *Memory) ResolveLocalTurn(provider string) (string, bool) {
 	return id, ok
 }
 
-// ResolveProviderTurn 解析providerturn。
+// ResolveProviderTurn 通过本地 turnID 查询 provider turnID。
 func (m *Memory) ResolveProviderTurn(local string) (string, bool) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()

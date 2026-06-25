@@ -1,3 +1,4 @@
+// Package rag 提供文本分块（chunking）能力，用于将长文本切割为适合向量化的语义单元。
 package rag
 
 import (
@@ -14,12 +15,14 @@ var (
 	ErrEmptyText      = errors.New("empty text")
 )
 
+// ChunkOptions 控制文本分块的 token 数量边界。
 type ChunkOptions struct {
-	TargetTokens int
-	MinTokens    int
-	MaxTokens    int
+	TargetTokens int // 目标块大小
+	MinTokens    int // 最小块大小，低于此值不切割
+	MaxTokens    int // 最大块大小，超过此值强制切割
 }
 
+// Chunk 表示文本中一个连续的分块片段，StartToken/EndToken 为原始 token 索引。
 type Chunk struct {
 	Text       string
 	StartToken int

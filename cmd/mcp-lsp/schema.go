@@ -1,29 +1,36 @@
+// Package main 是 mcp-lsp sidecar 进程的入口，通过 MCP stdio 协议暴露 LSP 工具能力。
 package main
 
 // schema helpers — mirrors cmd/mcp-orch/tools/types.go pattern.
 
 type schema = map[string]any
 
+// stringProp 创建字符串类型属性 schema。
 func stringProp(desc string) schema {
 	return schema{"type": "string", "description": desc}
 }
 
+// integerProp 创建整数类型属性 schema。
 func integerProp(desc string) schema {
 	return schema{"type": "integer", "description": desc}
 }
 
+// booleanProp 创建布尔类型属性 schema。
 func booleanProp(desc string) schema {
 	return schema{"type": "boolean", "description": desc}
 }
 
+// enumProp 创建带枚举值限制的字符串属性 schema。
 func enumProp(desc string, values ...string) schema {
 	return schema{"type": "string", "description": desc, "enum": values}
 }
 
+// arrayOfStringsProp 创建字符串数组属性 schema。
 func arrayOfStringsProp(desc string) schema {
 	return schema{"type": "array", "description": desc, "items": map[string]any{"type": "string"}}
 }
 
+// stringOrArrayOfStringsProp 创建接受字符串或字符串数组的属性 schema。
 func stringOrArrayOfStringsProp(desc string) schema {
 	return schema{
 		"description": desc,
@@ -34,7 +41,7 @@ func stringOrArrayOfStringsProp(desc string) schema {
 	}
 }
 
-// NewObjectSchema 创建objectschema。
+// NewObjectSchema 创建 object 类型 schema，支持指定属性和必填字段列表。
 func NewObjectSchema(props map[string]schema, required ...string) schema {
 	s := schema{"type": "object", "additionalProperties": false}
 	if len(props) > 0 {
@@ -133,6 +140,7 @@ var lspCompletionSchema = NewObjectSchema(map[string]schema{
 	"work_dir":    lspWorkDirProp(),
 }, "pos")
 
+// lspWorkDirProp 创建 work_dir 属性 schema，描述工具调用的可信工作区根目录。
 func lspWorkDirProp() schema {
 	return stringProp("Explicit working directory for this tool call. Absolute paths are accepted as the call's trusted workspace root; relative work_dir paths resolve against the current trusted CWD, and relative tool paths resolve under it.")
 }

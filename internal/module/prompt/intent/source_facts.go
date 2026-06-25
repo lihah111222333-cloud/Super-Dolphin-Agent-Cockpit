@@ -6,16 +6,17 @@ import (
 )
 
 const (
-	promptIntentSourceProfileExternalPrompt = "external_prompt"
-	promptIntentSourceProfileReferenceDoc   = "reference_doc"
-	promptIntentSourceProfileTableData      = "table_data"
-	promptIntentSourceProfileWorkflowSOP    = "workflow_sop"
-	promptIntentSourceProfileAPIDoc         = "api_doc"
-	promptIntentSourceProfileMeetingNotes   = "meeting_notes"
-	promptIntentSourceProfileBusinessRule   = "business_rule"
-	promptIntentSourceProfileUnknown        = "unknown"
+	promptIntentSourceProfileExternalPrompt = "external_prompt" // 外部 system/provider/persona prompt
+	promptIntentSourceProfileReferenceDoc   = "reference_doc"   // 参考资料/文档
+	promptIntentSourceProfileTableData      = "table_data"      // 表格/价格表
+	promptIntentSourceProfileWorkflowSOP    = "workflow_sop"    // 流程/操作规范
+	promptIntentSourceProfileAPIDoc         = "api_doc"         // API 文档
+	promptIntentSourceProfileMeetingNotes   = "meeting_notes"   // 会议纪要
+	promptIntentSourceProfileBusinessRule   = "business_rule"   // 业务规则
+	promptIntentSourceProfileUnknown        = "unknown"         // 未知来源类型
 )
 
+// promptIntentSourceFactRequirement 描述特定 source profile 下必须覆盖的关键要点类别。
 type promptIntentSourceFactRequirement struct {
 	category string
 	label    string
@@ -23,6 +24,8 @@ type promptIntentSourceFactRequirement struct {
 	always   bool
 }
 
+// promptIntentSourceFactIssues 根据 source profile 检查卡片是否覆盖了必要的来源事实类别，
+// 并检查已提取的事实是否已落实到卡片内容中。
 func promptIntentSourceFactIssues(_ Kind, rawInput string, card Card) []Issue {
 	rawText := normalizePromptIntentText(rawInput)
 	profile := promptIntentResolveSourceProfile(rawText, card.SourceProfile)
@@ -53,6 +56,7 @@ func promptIntentSourceFactIssues(_ Kind, rawInput string, card Card) []Issue {
 	return issues
 }
 
+// promptIntentResolveSourceProfile 先尝试从原文推断 source profile，失败则使用卡片声明值。
 func promptIntentResolveSourceProfile(rawText, candidate string) string {
 	if profile := promptIntentInferSourceProfile(rawText); profile != promptIntentSourceProfileUnknown {
 		return profile
@@ -60,6 +64,8 @@ func promptIntentResolveSourceProfile(rawText, candidate string) string {
 	return promptIntentNormalizeSourceProfile(candidate)
 }
 
+// promptIntentNormalizeSourceProfile 将用户/LLM 传入的 source_profile 字符串规范化为枚举值，
+// 无法识别时返回 unknown。
 func promptIntentNormalizeSourceProfile(value string) string {
 	profile := strings.ToLower(strings.TrimSpace(value))
 	profile = strings.ReplaceAll(profile, "-", "_")
@@ -78,7 +84,7 @@ func promptIntentNormalizeSourceProfile(value string) string {
 	}
 }
 
-// promptIntentInferSourceProfile 处理promptintentinfersourceprofile。
+// promptIntentInferSourceProfile 根据原文特征自动推断来源类型，按外部prompt→API文档→表格→流程→会议→业务规则→参考资料顺序匹配。
 func promptIntentInferSourceProfile(rawText string) string {
 	switch {
 	case promptIntentLooksLikeExternalSystemPrompt(rawText):
@@ -100,7 +106,8 @@ func promptIntentInferSourceProfile(rawText string) string {
 	}
 }
 
-// promptIntentSourceFactCategories 处理promptintentsourcefactcategories。
+// promptIntentSourceFactCategories 将已提取的 source_facts 转换为类别集合（含别名扩展），
+// 用于快速检查必需类别是否覆盖。
 func promptIntentSourceFactCategories(facts []SourceFact) map[string]bool {
 	categories := map[string]bool{}
 	for _, fact := range facts {
@@ -115,6 +122,7 @@ func promptIntentSourceFactCategories(facts []SourceFact) map[string]bool {
 	return categories
 }
 
+// missingPromptIntentSourceFactCategories 返回必需类别中尚未被覆盖的标签列表。
 func missingPromptIntentSourceFactCategories(
 	categories map[string]bool,
 	required []promptIntentSourceFactRequirement,
@@ -128,7 +136,8 @@ func missingPromptIntentSourceFactCategories(
 	return missing
 }
 
-// promptIntentRequiredSourceFactCategories 处理promptintent必需sourcefactcategories。
+// promptIntentRequiredSourceFactCategories 根据 source profile 和原文内容，
+// 返回该场景下必须覆盖的来源事实类别列表（按 terms 按需筛选）。
 func promptIntentRequiredSourceFactCategories(profile, rawText string) []promptIntentSourceFactRequirement {
 	switch profile {
 	case promptIntentSourceProfileExternalPrompt:
@@ -150,6 +159,8 @@ func promptIntentRequiredSourceFactCategories(profile, rawText string) []promptI
 	}
 }
 
+// promptIntentFilterSourceFactRequirements 从规则列表中过滤出原文实际触发的必需类别，
+// always=true 的条目始终保留，否则需要原文包含对应 terms 才保留。
 func promptIntentFilterSourceFactRequirements(
 	rawText string,
 	rules []promptIntentSourceFactRequirement,
@@ -346,6 +357,7 @@ func promptIntentLooksLikeReferenceDoc(rawText string) bool {
 	})
 }
 
+// promptIntentNormalizeSourceFactCategory 将 category 字符串规范化（小写、空格/连字符转下划线）。
 func promptIntentNormalizeSourceFactCategory(value string) string {
 	category := strings.ToLower(strings.TrimSpace(value))
 	category = strings.ReplaceAll(category, "-", "_")
@@ -353,7 +365,8 @@ func promptIntentNormalizeSourceFactCategory(value string) string {
 	return category
 }
 
-// promptIntentSourceFactApplicationIssues 处理promptintentsourcefactapplicationissues。
+// promptIntentSourceFactApplicationIssues 检查 preserve/translate 要点是否已落实到卡片保存内容中，
+// 未落实的类别汇总为一条 block 问题。
 func promptIntentSourceFactApplicationIssues(card Card) []Issue {
 	target := promptIntentSourceFactTargetText(card)
 	missing := make([]string, 0, len(card.SourceFacts))
@@ -381,6 +394,7 @@ func promptIntentSourceFactApplicationIssues(card Card) []Issue {
 	}}
 }
 
+// promptIntentSourceFactRequiresApplication 判断某条事实是否需要落实（非 drop 且摘要非空）。
 func promptIntentSourceFactRequiresApplication(fact SourceFact) bool {
 	if strings.TrimSpace(fact.Summary) == "" {
 		return false
@@ -388,6 +402,8 @@ func promptIntentSourceFactRequiresApplication(fact SourceFact) bool {
 	return strings.TrimSpace(strings.ToLower(fact.Disposition)) != "drop"
 }
 
+// promptIntentSourceFactTargetText 拼接卡片中所有需要检查"事实落实"的文本字段，
+// 用于 promptIntentSourceFactApplied 的全文检索。
 func promptIntentSourceFactTargetText(card Card) string {
 	return strings.Join([]string{
 		card.Title,
@@ -406,7 +422,8 @@ func promptIntentSourceFactTargetText(card Card) string {
 	}, "\n")
 }
 
-// promptIntentSourceFactApplied 处理promptintentsourcefactapplied。
+// promptIntentSourceFactApplied 判断事实摘要是否已体现在目标文本中。
+// 优先全文匹配，否则提取关键词后要求 ≥2 个词命中（词数 ≤2 时要求全部命中）。
 func promptIntentSourceFactApplied(summary, target string) bool {
 	summary = normalizePromptIntentText(summary)
 	target = normalizePromptIntentText(target)
@@ -435,7 +452,8 @@ func promptIntentSourceFactApplied(summary, target string) bool {
 	return matches >= 2
 }
 
-// promptIntentSourceFactApplicationTerms 处理promptintentsourcefactapplicationterms。
+// promptIntentSourceFactApplicationTerms 从摘要文本提取用于检索的关键词集合：
+// ASCII 单词（≥2字符）直接加入，中文字符按相邻双字组合提取二元组。
 func promptIntentSourceFactApplicationTerms(text string) map[string]bool {
 	terms := map[string]bool{}
 	var ascii strings.Builder
@@ -472,6 +490,7 @@ func promptIntentSourceFactApplicationTerms(text string) map[string]bool {
 	return terms
 }
 
+// promptIntentHanSourceFactTerms 从汉字 rune 切片提取相邻二元组关键词（长度 ≥2）。
 func promptIntentHanSourceFactTerms(runes []rune) []string {
 	if len(runes) < 2 {
 		return nil
@@ -486,6 +505,7 @@ func promptIntentHanSourceFactTerms(runes []rune) []string {
 	return out
 }
 
+// promptIntentSourceFactTermUseful 过滤掉过于常见的中文词汇和过短的词，避免误判。
 func promptIntentSourceFactTermUseful(term string) bool {
 	term = strings.TrimSpace(term)
 	if len([]rune(term)) < 2 {
@@ -499,7 +519,8 @@ func promptIntentSourceFactTermUseful(term string) bool {
 	return !ignored[term]
 }
 
-// promptIntentSourceFactCategoryAliases 处理promptintentsourcefactcategoryaliases。
+// promptIntentSourceFactCategoryAliases 返回某 category 的同义别名列表，
+// 用于将 LLM 生成的变体名称统一映射到标准类别。
 func promptIntentSourceFactCategoryAliases(category string) []string {
 	aliases := map[string][]string{
 		"column":         {"fields"},
@@ -546,7 +567,8 @@ func promptIntentSourceFactCategoryAliases(category string) []string {
 	return aliases[category]
 }
 
-// promptIntentSourceFactReadableCategory 处理promptintentsourcefactreadablecategory。
+// promptIntentSourceFactReadableCategory 将内部 category 键转换为面向用户的中文标签，
+// 用于在问题消息中展示可读的类别名称。
 func promptIntentSourceFactReadableCategory(category string) string {
 	labels := map[string]string{
 		"identity":        "外部身份",
@@ -599,7 +621,7 @@ func promptIntentSourceFactReadableCategory(category string) string {
 	return strings.TrimSpace(category)
 }
 
-// promptIntentSourceProfileLabel 处理promptintentsourceprofilelabel。
+// promptIntentSourceProfileLabel 将 source profile 枚举值转换为面向用户的中文标签。
 func promptIntentSourceProfileLabel(profile string) string {
 	switch profile {
 	case promptIntentSourceProfileExternalPrompt:

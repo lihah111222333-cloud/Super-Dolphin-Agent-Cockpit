@@ -1,3 +1,4 @@
+// Package datasource 提供本地文件上传、列举和删除能力，并把文件正文入库供 prompt 动态段消费。
 package datasource
 
 import (
@@ -25,6 +26,7 @@ var (
 	errDatasourceContentEmpty     = errors.New("datasource: extracted content is empty")
 )
 
+// Service 定义 datasource 模块的文件上传、列举、文档读取和删除接口。
 type Service interface {
 	UploadFile(context.Context, UploadFileRequest) (UploadFileResult, error)
 	ListFiles(context.Context) (ListFilesResult, error)
@@ -32,6 +34,7 @@ type Service interface {
 	DeleteFile(context.Context, DeleteFileRequest) (DeleteFileResult, error)
 }
 
+// UploadFileRequest 是文件上传请求，SourcePath 必须是工作区内的绝对路径。
 type UploadFileRequest struct {
 	SourcePath string `json:"sourcePath"`
 }
@@ -74,6 +77,7 @@ func NewServiceWithStore(store DatasourceDocumentStore) Service {
 	return &service{documents: store}
 }
 
+// datasourceContext 确保 context 非 nil，避免下游调用 panic。
 func datasourceContext(ctx context.Context) context.Context {
 	if ctx == nil {
 		return context.Background()
@@ -102,6 +106,7 @@ func (s *service) UploadFile(ctx context.Context, req UploadFileRequest) (Upload
 	return uploadFileResult(source, targetPath), nil
 }
 
+// uploadSource 保存已验证的上传文件元信息，供后续文本提取和入库使用。
 type uploadSource struct {
 	path      string
 	name      string
@@ -137,6 +142,7 @@ func prepareUploadSource(ctx context.Context, req UploadFileRequest) (uploadSour
 	}, nil
 }
 
+// copyUploadIntoWorkspace 将源文件复制到 workspace 上传目录并返回目标路径。
 func copyUploadIntoWorkspace(ctx context.Context, sourcePath string) (string, string, error) {
 	workspaceRoot, err := currentDatasourceWorkspaceRoot()
 	if err != nil {
@@ -153,6 +159,7 @@ func copyUploadIntoWorkspace(ctx context.Context, sourcePath string) (string, st
 	return workspaceRoot, targetPath, nil
 }
 
+// persistUploadedDocument 将提取的文本写入文档存储；store 为 nil 时静默跳过。
 func (s *service) persistUploadedDocument(
 	ctx context.Context,
 	workspaceRoot string,
@@ -173,6 +180,7 @@ func (s *service) persistUploadedDocument(
 	})
 }
 
+// uploadFileResult 将 uploadSource 和目标路径组装为 UploadFileResult。
 func uploadFileResult(source uploadSource, targetPath string) UploadFileResult {
 	return UploadFileResult{
 		Name:       source.name,
@@ -248,6 +256,7 @@ func (s *service) ListDocuments(ctx context.Context, workspaceRoot string) (List
 	return ListDocumentsResult{Documents: documents}, nil
 }
 
+// ensureCurrentDatasourceUploadDir 确保当前 workspace 的上传目录存在，不存在时自动创建。
 func ensureCurrentDatasourceUploadDir() (string, error) {
 	uploadDir, err := currentDatasourceUploadDir()
 	if err != nil {
@@ -259,6 +268,7 @@ func ensureCurrentDatasourceUploadDir() (string, error) {
 	return uploadDir, nil
 }
 
+// ensureDatasourceUploadDir 确保指定 workspace 下的上传目录存在。
 func ensureDatasourceUploadDir(workspaceRoot string) (string, error) {
 	uploadDir := datasourceUploadDir(workspaceRoot)
 	if err := os.MkdirAll(uploadDir, 0o755); err != nil {
@@ -305,6 +315,7 @@ func (s *service) DeleteFile(ctx context.Context, req DeleteFileRequest) (Delete
 	return DeleteFileResult{Name: fileName, Deleted: true}, nil
 }
 
+// validateUploadRequest 校验上传路径，返回清理后的绝对路径。
 func validateUploadRequest(req UploadFileRequest) (string, error) {
 	sourcePath := strings.TrimSpace(req.SourcePath)
 	if sourcePath == "" {
@@ -320,6 +331,7 @@ func validateUploadRequest(req UploadFileRequest) (string, error) {
 	return sourcePath, nil
 }
 
+// ensureUploadSourceInsideWorkspace 检查源文件路径是否在当前 workspace 范围内。
 func ensureUploadSourceInsideWorkspace(sourcePath string) error {
 	workspaceRoot, err := currentDatasourceWorkspaceRoot()
 	if err != nil {
@@ -345,6 +357,7 @@ func validateDeleteRequest(req DeleteFileRequest) (string, error) {
 	return fileName, nil
 }
 
+// currentDatasourceUploadDir 返回当前 workspace 的上传目录绝对路径。
 func currentDatasourceUploadDir() (string, error) {
 	baseDir, err := currentDatasourceWorkspaceRoot()
 	if err != nil {
@@ -353,6 +366,7 @@ func currentDatasourceUploadDir() (string, error) {
 	return datasourceUploadDir(baseDir), nil
 }
 
+// currentDatasourceWorkspaceRoot 返回当前进程工作目录作为 workspace 根路径。
 func currentDatasourceWorkspaceRoot() (string, error) {
 	baseDir, err := os.Getwd()
 	if err != nil {
@@ -361,10 +375,12 @@ func currentDatasourceWorkspaceRoot() (string, error) {
 	return filepath.Clean(baseDir), nil
 }
 
+// datasourceUploadDir 返回指定 workspace 下 datasource 上传目录的绝对路径。
 func datasourceUploadDir(sourceDir string) string {
 	return filepath.Join(sourceDir, ".agent", "datasources", "uploads")
 }
 
+// isAllowedUploadExtension 检查扩展名是否在 pdf 或文本白名单中。
 func isAllowedUploadExtension(ext string) bool {
 	ext = strings.ToLower(strings.TrimSpace(ext))
 	return ext == ".pdf" || isTextUploadExtension(ext)

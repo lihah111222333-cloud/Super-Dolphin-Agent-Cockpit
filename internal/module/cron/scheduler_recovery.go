@@ -46,6 +46,7 @@ func (s *Scheduler) CompleteTurn(ctx context.Context, turnID string, success boo
 	return s.markTerminalFailed(ctx, job, run, terminalErr)
 }
 
+// markTerminalFailed 将 running run 标记为 failed 并计算下一次重试时间。
 func (s *Scheduler) markTerminalFailed(ctx context.Context, job cronstore.Job, run cronstore.Run, terminalErr string) error {
 	now := s.now().UTC()
 	s.casLogPublish(ctx, cronstore.CASRunStatusParams{
@@ -65,6 +66,7 @@ func (s *Scheduler) markTerminalFailed(ctx context.Context, job cronstore.Job, r
 	})
 }
 
+// markFinished 将 running run 标记为 finished 并推算 job 的下一次运行时间。
 func (s *Scheduler) markFinished(ctx context.Context, job cronstore.Job, run cronstore.Run, turnID string, scheduledAt time.Time) error {
 	now := s.now().UTC()
 	s.casLogPublish(ctx, cronstore.CASRunStatusParams{
@@ -156,6 +158,7 @@ func (s *Scheduler) RecoverDanglingRuns(ctx context.Context) error {
 	return joined
 }
 
+// recoverDanglingRun 按 run 状态分发到对应的恢复函数，未知状态直接跳过。
 func (s *Scheduler) recoverDanglingRun(ctx context.Context, run cronstore.Run) error {
 	job, err := s.store.GetJobByID(ctx, run.JobID)
 	if err != nil {
@@ -196,6 +199,7 @@ func (s *Scheduler) recoverSubmittingRun(ctx context.Context, job cronstore.Job,
 	return s.observeRecoveredSubmittedRun(ctx, job, run, observed.TurnID)
 }
 
+// recoverSubmittedRun 恢复 submitted 状态的 run，turn_id 缺失时直接标记为失败。
 func (s *Scheduler) recoverSubmittedRun(ctx context.Context, job cronstore.Job, run cronstore.Run) error {
 	if run.TurnID == "" {
 		return s.finalizeRecoveredFailure(ctx, job, run, errors.New("cron: submitted run missing turn_id"))
@@ -203,6 +207,7 @@ func (s *Scheduler) recoverSubmittedRun(ctx context.Context, job cronstore.Job, 
 	return s.observeRecoveredSubmittedRun(ctx, job, run, run.TurnID)
 }
 
+// recoverRunningRun 恢复 running 状态的 run，租约过期或 Observe 失败时转为 observe_lost。
 func (s *Scheduler) recoverRunningRun(ctx context.Context, job cronstore.Job, run cronstore.Run) error {
 	if run.TurnID == "" {
 		return s.finalizeRecoveredFailure(ctx, job, run, errors.New("cron: running run missing turn_id"))
@@ -217,6 +222,7 @@ func (s *Scheduler) recoverRunningRun(ctx context.Context, job cronstore.Job, ru
 	return nil
 }
 
+// observeRecoveredSubmittedRun 恢复时 Observe 已提交的 turn 并推进状态到 running。
 func (s *Scheduler) observeRecoveredSubmittedRun(ctx context.Context, job cronstore.Job, run cronstore.Run, turnID string) error {
 	if err := s.submitter.Observe(ctx, turnID); err != nil {
 		return s.finalizeRecoveredObserveLost(ctx, job, run, turnID, err)
@@ -230,6 +236,7 @@ func (s *Scheduler) observeRecoveredSubmittedRun(ctx context.Context, job cronst
 	return s.store.CASRunStatus(ctx, cronstore.CASRunStatusParams{ID: run.ID, ExpectedStatus: cronstore.StatusSubmitted, NextStatus: cronstore.StatusRunning, UpdatedAt: s.now().UTC()})
 }
 
+// finalizeRecoveredFailure 将恢复时确认失败的 run 标记为 failed 并更新 job 状态。
 func (s *Scheduler) finalizeRecoveredFailure(ctx context.Context, job cronstore.Job, run cronstore.Run, err error) error {
 	now := s.now().UTC()
 	if casErr := s.store.CASRunStatus(ctx, cronstore.CASRunStatusParams{ID: run.ID, ExpectedStatus: run.Status, NextStatus: cronstore.StatusFailed, Error: err.Error(), UpdatedAt: now}); casErr != nil {
@@ -241,6 +248,7 @@ func (s *Scheduler) finalizeRecoveredFailure(ctx context.Context, job cronstore.
 	return s.store.MarkFailed(ctx, cronstore.MarkFailedParams{ID: job.ID, ClaimToken: job.ClaimToken, LastRunAt: run.ScheduledAt, LastStatus: cronstore.StatusFailed, LastErrorAt: now, LastError: err.Error(), Now: now})
 }
 
+// finalizeRecoveredObserveLost 将恢复时无法追踪的 run 标记为 observe_lost，不触发重试。
 func (s *Scheduler) finalizeRecoveredObserveLost(ctx context.Context, job cronstore.Job, run cronstore.Run, turnID string, err error) error {
 	now := s.now().UTC()
 	// 恢复期的 observe_lost 也不自动 retry；旧 turn 状态未知时，新 turn 会造成重复。
@@ -276,6 +284,7 @@ func (s *Scheduler) ExtendClaimForTurnProgress(ctx context.Context, turnID strin
 	return nil
 }
 
+// decodeSkillList 从 JSONB 字节解码技能名称列表，解析失败或为空时返回 nil。
 func decodeSkillList(raw json.RawMessage) []string {
 	if len(raw) == 0 {
 		return nil

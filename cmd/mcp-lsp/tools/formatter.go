@@ -9,6 +9,7 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/protocol"
 )
 
+// symbolKindNames 把 LSP SymbolKind 数值映射到可读名称。
 var symbolKindNames = map[protocol.SymbolKind]string{
 	1:  "File",
 	2:  "Module",
@@ -38,6 +39,7 @@ var symbolKindNames = map[protocol.SymbolKind]string{
 	26: "TypeParameter",
 }
 
+// symbolKindName 返回 SymbolKind 的可读名称，未知值返回 SymbolKind(n) 形式。
 func symbolKindName(kind protocol.SymbolKind) string {
 	if name, ok := symbolKindNames[kind]; ok {
 		return name
@@ -67,6 +69,7 @@ func FormatToPlainText(result any) (string, bool) {
 // formatBudgetOverflow renders the {error_code: result_too_large, ...}
 // envelope produced by middleware.WithOutputBudget into LLM-readable
 // guidance instead of dumping raw JSON.
+// formatBudgetOverflow 把 result_too_large 信封渲染为 LLM 可读的提示文本。
 func formatBudgetOverflow(result any) (string, bool) {
 	payload, ok := result.(map[string]any)
 	if !ok {
@@ -88,6 +91,7 @@ func formatBudgetOverflow(result any) (string, bool) {
 	return sb.String(), true
 }
 
+// stringPayloadValue 从 payload map 中取字符串值，缺失时返回 fallback。
 func stringPayloadValue(payload map[string]any, key, fallback string) string {
 	value, _ := payload[key].(string)
 	if value == "" {
@@ -96,6 +100,7 @@ func stringPayloadValue(payload map[string]any, key, fallback string) string {
 	return value
 }
 
+// numericPayloadValue 从 payload map 中取数值，兼容 float64 和 int 类型。
 func numericPayloadValue(payload map[string]any, key string) float64 {
 	switch value := payload[key].(type) {
 	case float64:
@@ -107,6 +112,7 @@ func numericPayloadValue(payload map[string]any, key string) float64 {
 	}
 }
 
+// appendBudgetNextAction 把 next_action 的 tip 和 suggest_args 追加到输出。
 func appendBudgetNextAction(sb *strings.Builder, value any) {
 	next, ok := value.(map[string]any)
 	if !ok {
@@ -155,6 +161,7 @@ func formatOtherStructures(result any) (string, bool) {
 	return "", false
 }
 
+// formatLocations 把位置列表渲染为 file:line:col 格式的纯文本。
 func formatLocations(val []protocol.LocationResult) string {
 	if len(val) == 0 {
 		return "No locations found."
@@ -176,6 +183,7 @@ func formatLocations(val []protocol.LocationResult) string {
 	return strings.TrimSpace(sb.String())
 }
 
+// formatCallHierarchy 把 call hierarchy 结果渲染为带缩进的纯文本。
 func formatCallHierarchy(val []protocol.CallHierarchyResult) string {
 	if len(val) == 0 {
 		return "No call hierarchy items found."
@@ -193,6 +201,7 @@ func formatCallHierarchy(val []protocol.CallHierarchyResult) string {
 	return strings.TrimSpace(sb.String())
 }
 
+// formatIncomingCalls 把入向调用列表渲染为带缩进的纯文本。
 func formatIncomingCalls(sb *strings.Builder, incoming []protocol.CallHierarchyIncomingCall) {
 	if len(incoming) == 0 {
 		return
@@ -208,6 +217,7 @@ func formatIncomingCalls(sb *strings.Builder, incoming []protocol.CallHierarchyI
 	}
 }
 
+// formatOutgoingCalls 把出向调用列表渲染为带缩进的纯文本。
 func formatOutgoingCalls(sb *strings.Builder, outgoing []protocol.CallHierarchyOutgoingCall) {
 	if len(outgoing) == 0 {
 		return
@@ -236,6 +246,7 @@ func callSiteRanges(path string, ranges []protocol.Range) string {
 	return strings.Join(parts, ", ")
 }
 
+// formatTypeHierarchy 把类型层次结果渲染为带缩进的纯文本。
 func formatTypeHierarchy(val []protocol.TypeHierarchyResult) string {
 	if len(val) == 0 {
 		return "No type hierarchy items found."
@@ -253,6 +264,7 @@ func formatTypeHierarchy(val []protocol.TypeHierarchyResult) string {
 	return strings.TrimSpace(sb.String())
 }
 
+// formatSupertypes 把父类型列表渲染为带缩进的纯文本。
 func formatSupertypes(sb *strings.Builder, supertypes []protocol.TypeHierarchyItem) {
 	if len(supertypes) == 0 {
 		return
@@ -266,6 +278,7 @@ func formatSupertypes(sb *strings.Builder, supertypes []protocol.TypeHierarchyIt
 	}
 }
 
+// formatSubtypes 把子类型列表渲染为带缩进的纯文本。
 func formatSubtypes(sb *strings.Builder, subtypes []protocol.TypeHierarchyItem) {
 	if len(subtypes) == 0 {
 		return
@@ -279,6 +292,7 @@ func formatSubtypes(sb *strings.Builder, subtypes []protocol.TypeHierarchyItem) 
 	}
 }
 
+// formatDocumentOutline 把文档符号树渲染为缩进大纲纯文本。
 func formatDocumentOutline(val []protocol.DocumentSymbol) string {
 	if len(val) == 0 {
 		return "No document outline symbols found."
@@ -328,6 +342,7 @@ func formatWorkspaceSymbols(val []protocol.WorkspaceSymbolResult) string {
 	return strings.TrimSpace(sb.String())
 }
 
+// formatFoldingRanges 把折叠范围列表渲染为纯文本。
 func formatFoldingRanges(val []protocol.FoldingRange) string {
 	if len(val) == 0 {
 		return "No folding ranges found."
@@ -344,6 +359,7 @@ func formatFoldingRanges(val []protocol.FoldingRange) string {
 	return strings.TrimSpace(sb.String())
 }
 
+// formatSemanticTokens 把语义 token 列表渲染为纯文本（最多显示 100 条）。
 func formatSemanticTokens(val *protocol.SemanticTokensResult) string {
 	if val == nil || len(val.Decoded) == 0 {
 		return "No semantic tokens decoded."
@@ -396,6 +412,7 @@ func formatParams(sb *strings.Builder, params []protocol.ParameterInformationRes
 	}
 }
 
+// formatCompletionItems 把补全项列表渲染为纯文本。
 func formatCompletionItems(val []protocol.CompletionItem) string {
 	if len(val) == 0 {
 		return "No completions found."
@@ -435,6 +452,7 @@ func formatCompactList(result any) (string, bool) {
 	return formatCompactListSlice(dataField, total, showing), true
 }
 
+// formatCompactListSlice 把反射切片渲染为带序号和总量的纯文本列表。
 func formatCompactListSlice(dataField reflect.Value, total, showing int) string {
 	var sb strings.Builder
 	length := dataField.Len()
@@ -451,6 +469,7 @@ func formatCompactListSlice(dataField reflect.Value, total, showing int) string 
 	return strings.TrimSpace(sb.String())
 }
 
+// compactListTitle 根据元素类型名返回紧凑列表的标题。
 func compactListTitle(dataField reflect.Value) string {
 	elemType := dataField.Type().Elem()
 	for elemType.Kind() == reflect.Pointer {

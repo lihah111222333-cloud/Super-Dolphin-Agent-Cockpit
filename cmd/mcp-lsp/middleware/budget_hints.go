@@ -1,10 +1,12 @@
 package middleware
 
+// toolOverflowHint 保存工具结果超预算时返回给调用方的提示和后续动作建议。
 type toolOverflowHint struct {
 	Hint       string
 	NextAction map[string]any
 }
 
+// toolOverflowHints 按工具名称预置溢出提示，用于引导调用方收窄查询。
 var toolOverflowHints = map[string]toolOverflowHint{
 	"grep": {
 		Hint: "next: grep action=text_search query=<query> path=<path> glob=<glob> max_results=10",
@@ -47,6 +49,7 @@ var toolOverflowHints = map[string]toolOverflowHint{
 	},
 }
 
+// lookupHint 根据工具名称查找溢出提示，未找到时返回默认提示。
 func lookupHint(toolName string) toolOverflowHint {
 	if h, ok := toolOverflowHints[toolName]; ok {
 		return h

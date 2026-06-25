@@ -1,3 +1,5 @@
+// Package taskdag 提供 task_dag 系列表（DAG 定义、节点、运行记录、wakeup、worker lease）
+// 的存储层实现，是 mcp-orch DAG 编排的核心数据访问入口。
 package taskdag
 
 import (
@@ -40,6 +42,7 @@ type OrchestrationStore interface {
 	NodeStatusStore
 }
 
+// UnitOfWorkStore 是事务入口接口，调用方在 fn 内执行的所有变更在同一事务内。
 type UnitOfWorkStore interface {
 	WithTx(ctx context.Context, fn func(txStore DAGMutationStore) error) error
 }
@@ -55,11 +58,13 @@ type DAGMutationStore interface {
 	UpsertNode(ctx context.Context, node Node) (*Node, error)
 }
 
+// DAGReadStore 是 DAG 只读查询接口，包含列表与详情。
 type DAGReadStore interface {
 	DAGDetailStore
 	ListDAGs(ctx context.Context, filter ListDAGsFilter) ([]DAG, error)
 }
 
+// DAGDetailStore 是 DAG 单条查询与节点列表的最小只读接口。
 type DAGDetailStore interface {
 	GetDAG(ctx context.Context, dagKey string) (*DAG, error)
 	ListNodes(ctx context.Context, dagKey string) ([]Node, error)
@@ -71,6 +76,7 @@ type RunNodeReadStore interface {
 	ListRunNodes(ctx context.Context, dagKey string, runID int64) ([]Node, error)
 }
 
+// NodeStatusStore 提供节点状态更新的通用入口。
 type NodeStatusStore interface {
 	UpdateNodeStatus(ctx context.Context, input NodeStatusUpdate) (*Node, error)
 }
@@ -149,20 +155,25 @@ type DAGVersionReader interface {
 	GetDAGVersion(ctx context.Context, dagKey string) (int64, error)
 }
 
+// DAGDeleteStore 是 DAG 级联删除的窄接口。
 type DAGDeleteStore interface {
 	DeleteDAG(ctx context.Context, dagKey string) (int64, error)
 }
 
+// DAGLockStore 提供 DAG 和节点的 FOR UPDATE 加锁读取接口，供事务内串行化使用。
 type DAGLockStore interface {
 	GetDAGForUpdate(ctx context.Context, dagKey string) (*DAG, error)
 	GetNodesForUpdate(ctx context.Context, dagKey string) ([]Node, error)
 }
 
+// RecoveryStore 是 orchestration 恢复路径的窄接口：查找某 assignee 下仍在 running
+// 的节点，以及按 id 读取 wakeup 快照。
 type RecoveryStore interface {
 	ListRunningNodesByAssignee(ctx context.Context, assignee string) ([]Node, error)
 	GetWakeup(ctx context.Context, id int64) (*Wakeup, error)
 }
 
+// RunningNodeStore 是运行中节点的操作接口，包含 turn 绑定、事件触摸和状态推进。
 type RunningNodeStore interface {
 	RecoveryStore
 	BindRunningNodeTurn(ctx context.Context, input BindRunningNodeTurnInput) (*Node, error)
@@ -275,6 +286,8 @@ type RecordNodeSpawnResult struct {
 	RunKey           string
 }
 
+// WakeupStore 管理 task_dag_wakeups 表的全生命周期：入队、认领、发送、绑定 turn、
+// 重试、失败和回收过期 dispatching 条目。
 type WakeupStore interface {
 	EnqueueWakeup(ctx context.Context, input EnqueueWakeupInput) (int64, error)
 	ClaimDueWakeups(ctx context.Context, input ClaimDueWakeupsInput) ([]Wakeup, error)
@@ -288,18 +301,21 @@ type WakeupStore interface {
 	GetWakeup(ctx context.Context, id int64) (*Wakeup, error)
 }
 
+// WorkerLeaseStore 管理 task_dag_worker_leases 表：获取、续约和释放 worker 级独占锁。
 type WorkerLeaseStore interface {
 	AcquireWorkerLease(ctx context.Context, input AcquireWorkerLeaseInput) (int64, error)
 	RenewWorkerLease(ctx context.Context, input RenewWorkerLeaseInput) (int64, error)
 	ReleaseWorkerLease(ctx context.Context, input ReleaseWorkerLeaseInput) error
 }
 
+// ListDAGsFilter 是 ListDAGs 的过滤条件。
 type ListDAGsFilter struct {
 	Status  string
 	Keyword string
 	Limit   int32
 }
 
+// NodeStatusUpdate 是 UpdateNodeStatus 的入参。
 type NodeStatusUpdate struct {
 	Status  string
 	Result  json.RawMessage
@@ -308,6 +324,7 @@ type NodeStatusUpdate struct {
 	RunID   int64
 }
 
+// AssignNodeInput 是 AssignNode 的入参。
 type AssignNodeInput struct {
 	DagKey     string
 	NodeKey    string
@@ -315,6 +332,7 @@ type AssignNodeInput struct {
 	AssignedTo string
 }
 
+// BindRunningNodeTurnInput 是 BindRunningNodeTurn 的入参，要求 RunID 非零。
 type BindRunningNodeTurnInput struct {
 	TurnID   string
 	DagKey   string
@@ -323,6 +341,7 @@ type BindRunningNodeTurnInput struct {
 	WakeupID int64
 }
 
+// TouchRunningNodeEventInput 是 TouchRunningNodeEvent 的入参，ObservedAt 来自 turn 事件时间戳。
 type TouchRunningNodeEventInput struct {
 	ObservedAt time.Time
 	DagKey     string
@@ -331,6 +350,7 @@ type TouchRunningNodeEventInput struct {
 	TurnID     string
 }
 
+// RunningNodeStatusUpdate 是 UpdateRunningNodeStatus 的入参，WakeupID 用于 fence 防止旧副本覆盖。
 type RunningNodeStatusUpdate struct {
 	Status   string
 	Result   json.RawMessage
@@ -340,6 +360,7 @@ type RunningNodeStatusUpdate struct {
 	RunID    int64
 }
 
+// AwaitingVerifyNodeStatusUpdate 是 UpdateAwaitingVerifyNodeStatus 的入参。
 type AwaitingVerifyNodeStatusUpdate struct {
 	Status  string
 	Result  json.RawMessage
@@ -348,6 +369,7 @@ type AwaitingVerifyNodeStatusUpdate struct {
 	RunID   int64
 }
 
+// CompleteNodeInput 是 CompleteNode / CompleteNodeAndScheduleDownstream 的入参。
 type CompleteNodeInput struct {
 	Status  string
 	Result  json.RawMessage
@@ -369,6 +391,7 @@ type RetryWakeupWithNodeConfigPatchInput struct {
 	NodeConfig  NodeConfigPatchInput
 }
 
+// OutputMaterializationClaimInput 是 ClaimNodeOutputMaterialization 的入参。
 type OutputMaterializationClaimInput struct {
 	Result  json.RawMessage
 	DagKey  string
@@ -488,6 +511,7 @@ type failNodeReason struct {
 	CausedByNode string `json:"caused_by_node,omitempty"`
 }
 
+// FlexibleNodeStatusUpdate 是 UpdateNodeStatusFlexible 的入参，不做状态机前置检查。
 type FlexibleNodeStatusUpdate struct {
 	Status  string
 	Result  json.RawMessage
@@ -496,6 +520,7 @@ type FlexibleNodeStatusUpdate struct {
 	RunID   int64
 }
 
+// EnqueueWakeupInput 是 EnqueueWakeup 的入参，RunID 必须非零。
 type EnqueueWakeupInput struct {
 	DagKey         string
 	NodeKey        string
@@ -506,12 +531,14 @@ type EnqueueWakeupInput struct {
 	IdempotencyKey string
 }
 
+// ClaimDueWakeupsInput 是 ClaimDueWakeups 的入参，LeaseInterval 格式同 intervalValue。
 type ClaimDueWakeupsInput struct {
 	ClaimedBy     string
 	LeaseInterval string
 	Limit         int32
 }
 
+// MarkWakeupSentInput 是 MarkWakeupSent 的入参，fence 字段来自 ClaimDueWakeups 返回行。
 type MarkWakeupSentInput struct {
 	ID             int64
 	ClaimedAt      time.Time
@@ -519,11 +546,13 @@ type MarkWakeupSentInput struct {
 	LeaseExpiresAt time.Time
 }
 
+// BindWakeupTurnInput 是 BindWakeupTurn 的入参。
 type BindWakeupTurnInput struct {
 	TurnID string
 	ID     int64
 }
 
+// RetryWakeupInput 是 RetryWakeup 的入参，fence 字段防止过期的 claim 覆盖新一轮调度。
 type RetryWakeupInput struct {
 	RetryInterval  string
 	LastError      string
@@ -533,6 +562,7 @@ type RetryWakeupInput struct {
 	LeaseExpiresAt time.Time
 }
 
+// FailWakeupInput 是 FailWakeup 的入参，fence 字段同 RetryWakeupInput。
 type FailWakeupInput struct {
 	LastError      string
 	ID             int64
@@ -541,23 +571,27 @@ type FailWakeupInput struct {
 	LeaseExpiresAt time.Time
 }
 
+// AcquireWorkerLeaseInput 是 AcquireWorkerLease 的入参。
 type AcquireWorkerLeaseInput struct {
 	TargetAgentID string
 	OwnerID       string
 	LeaseInterval string
 }
 
+// RenewWorkerLeaseInput 是 RenewWorkerLease 的入参，OwnerID 不一致时续约失败（fencing）。
 type RenewWorkerLeaseInput struct {
 	LeaseInterval string
 	TargetAgentID string
 	OwnerID       string
 }
 
+// ReleaseWorkerLeaseInput 是 ReleaseWorkerLease 的入参，只允许同一 OwnerID 释放。
 type ReleaseWorkerLeaseInput struct {
 	TargetAgentID string
 	OwnerID       string
 }
 
+// DAG 是 task_dags 表的一行，代表一个 DAG 模板定义。
 type DAG struct {
 	ID          int64
 	DagKey      string
@@ -576,11 +610,13 @@ type DAG struct {
 	UpdatedAt   time.Time
 }
 
+// DAGSchedule 是 DAG 调度配置的只读投影，供 ApplyOps 读取后决定 cron 变更。
 type DAGSchedule struct {
 	Trigger  string
 	CronExpr string
 }
 
+// UpdateDAGPatchInput 是 UpdateDAGPatch 的入参，指针字段为 nil 表示"不改该列"。
 type UpdateDAGPatchInput struct {
 	DagKey          string
 	Title           *string
@@ -592,6 +628,7 @@ type UpdateDAGPatchInput struct {
 	ScheduleEnabled *bool
 }
 
+// Node 是 task_dag_nodes 表的一行，RunID 非 nil 时代表 run-scoped runtime 副本。
 type Node struct {
 	ID             int64
 	DagKey         string

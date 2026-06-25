@@ -20,8 +20,7 @@ const httpBinaryName = "mcp-orch"
 
 var errOrchHTTPSessionTokenRequired = errors.New("mcp-orch http: GO_AGENT_CTL_SESSION_TOKEN or GO_AGENT_MCP_SESSION_TOKEN required in peer mode")
 
-// httpRunner starts an HTTP MCP endpoint in peer mode so that
-// multiple Claude CLI agents can share a single mcp-orch process.
+// httpRunner 在 peer 模式下启动 HTTP MCP 端点，供多个 Claude CLI agent 共享同一个 mcp-orch 进程。
 type httpRunner struct {
 	tools       common.ToolProvider
 	bearerToken string

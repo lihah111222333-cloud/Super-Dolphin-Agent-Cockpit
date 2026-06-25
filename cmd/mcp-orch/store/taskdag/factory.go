@@ -9,6 +9,7 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/sqlctx"
 )
 
+// wakeupFence 是 wakeup 操作的防重字段集合，防止过期 claim 覆盖新一轮调度结果。
 type wakeupFence struct {
 	ID             int64
 	ClaimedAt      time.Time
@@ -16,6 +17,7 @@ type wakeupFence struct {
 	LeaseExpiresAt time.Time
 }
 
+// queryOne 调用 call 取单行并用 mapper 转换，错误时包装域错误。
 func queryOne[Row any, Out any](
 	call func() (Row, error),
 	operation, entity string,
@@ -29,6 +31,7 @@ func queryOne[Row any, Out any](
 	return &mapped, nil
 }
 
+// queryMany 调用 call 取多行并用 mapper 批量转换，错误时包装域错误。
 func queryMany[Row any, Out any](
 	call func() ([]Row, error),
 	operation, entity string,
@@ -41,6 +44,7 @@ func queryMany[Row any, Out any](
 	return mapRows(rows, mapper), nil
 }
 
+// queryManyWrite 带写重试地调用 call 取多行并批量转换，适用于 SQLite busy 场景。
 func queryManyWrite[Row any, Out any](
 	ctx context.Context,
 	call func() ([]Row, error),
@@ -59,6 +63,7 @@ func queryManyWrite[Row any, Out any](
 	return mapped, err
 }
 
+// queryValue 调用 call 取单个标量值，错误时包装域错误。
 func queryValue[T any](call func() (T, error), operation, entity string) (T, error) {
 	value, err := call()
 	if err != nil {
@@ -68,6 +73,7 @@ func queryValue[T any](call func() (T, error), operation, entity string) (T, err
 	return value, nil
 }
 
+// queryOneWrite 带写重试地调用 call 取单行并用 mapper 转换。
 func queryOneWrite[Row any, Out any](
 	ctx context.Context,
 	call func() (Row, error),
@@ -87,6 +93,7 @@ func queryOneWrite[Row any, Out any](
 	return mapped, err
 }
 
+// queryValueWrite 带写重试地调用 call 取单个标量值。
 func queryValueWrite[T any](ctx context.Context, call func() (T, error), operation, entity string) (T, error) {
 	var value T
 	err := sqlctx.WithWriteRetry(ctx, func() error {
@@ -104,6 +111,7 @@ func queryValueWrite[T any](ctx context.Context, call func() (T, error), operati
 	return value, nil
 }
 
+// mapRows 把 []In 按 mapper 批量转换为 []Out。
 func mapRows[In any, Out any](rows []In, mapper func(In) Out) []Out {
 	out := make([]Out, 0, len(rows))
 	for _, row := range rows {
@@ -112,14 +120,17 @@ func mapRows[In any, Out any](rows []In, mapper func(In) Out) []Out {
 	return out
 }
 
+// updateNodeStatus 是节点状态更新的只读路径统一封装，无写重试。
 func updateNodeStatus[Row any](call func() (Row, error), operation string, mapper func(Row) Node) (*Node, error) {
 	return queryOne(call, operation, "task_dag_node", mapper)
 }
 
+// updateNodeStatusWrite 是节点状态更新的写路径统一封装，带 SQLite busy 重试。
 func updateNodeStatusWrite[Row any](ctx context.Context, call func() (Row, error), operation string, mapper func(Row) Node) (*Node, error) {
 	return queryOneWrite(ctx, call, operation, "task_dag_node", mapper)
 }
 
+// parseLeaseDuration 解析 lease interval 字符串并包装解析错误为域错误。
 func parseLeaseDuration(value, operation, entity string) (sqlc.Interval, error) {
 	interval, err := intervalValue(value)
 	if err != nil {
@@ -151,6 +162,8 @@ func bindWakeupTurnTx(
 
 // 这里只统一错误包装；真正防并发靠 SQL 同时匹配 claim 字段。
 // rows=0 只是这次 claim 失效，不要在 helper 里变成错误。
+// fencedWakeupMutation 统一包装 wakeup 变更操作的错误，不含写重试（调用方管事务）。
+// rows=0 表示 claim fence miss，由调用方决定语义，不在此转换为错误。
 func fencedWakeupMutation(
 	operation string,
 	fence wakeupFence,
@@ -161,6 +174,7 @@ func fencedWakeupMutation(
 	}, operation, "task_dag_wakeup")
 }
 
+// fencedWakeupMutationWrite 带写重试地执行 wakeup 变更，适用于直接写路径（非事务内）。
 func fencedWakeupMutationWrite(
 	ctx context.Context,
 	operation string,
@@ -172,10 +186,12 @@ func fencedWakeupMutationWrite(
 	}, operation, "task_dag_wakeup")
 }
 
+// wakeupFenceFromMark 从 MarkWakeupSentInput 提取 fence 字段。
 func wakeupFenceFromMark(input MarkWakeupSentInput) wakeupFence {
 	return wakeupFence(input)
 }
 
+// wakeupFenceFromRetry 从 RetryWakeupInput 提取 fence 字段。
 func wakeupFenceFromRetry(input RetryWakeupInput) wakeupFence {
 	return wakeupFence{
 		ID:             input.ID,
@@ -185,6 +201,7 @@ func wakeupFenceFromRetry(input RetryWakeupInput) wakeupFence {
 	}
 }
 
+// wakeupFenceFromFail 从 FailWakeupInput 提取 fence 字段。
 func wakeupFenceFromFail(input FailWakeupInput) wakeupFence {
 	return wakeupFence{
 		ID:             input.ID,

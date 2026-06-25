@@ -1,3 +1,4 @@
+// Package dedup 见 tokenizer.go。
 package dedup
 
 import (
@@ -5,33 +6,30 @@ import (
 	"unicode"
 )
 
-// EntrySnapshot is the dedup comparison snapshot for a memory entry.
-// Fields correspond 1-to-1 with shared.MemoryFrontmatter + MemoryEntry so
-// no field is lost during a merge.
+// EntrySnapshot 是记忆条目的去重比较快照，字段与 shared.MemoryFrontmatter + MemoryEntry 一一对应，
+// 确保合并时不丢失任何元数据。
 type EntrySnapshot struct {
 	Name        string
 	Type        string // feedback / project / user / reference
 	Description string
 	SearchKeys  []string
-	Lang        string   // preserved from the old entry on merge
-	Aliases     []string // preserved from the old entry on merge
-	Source      string   // "dream" / "" etc.
-	Content     string   // body text (no frontmatter)
-	Path        string   // full on-disk path
+	Lang        string   // 合并时保留 old 的值
+	Aliases     []string // 合并时保留 old 的值
+	Source      string   // "dream" / "" 等
+	Content     string   // 正文（不含 frontmatter）
+	Path        string   // 磁盘完整路径
 	Scope       string   // "private" / "team"
 }
 
-// MatchResult describes the outcome of a single duplicate-search call.
+// MatchResult 描述一次重复查找的结果。
 type MatchResult struct {
 	Found  bool
-	Target EntrySnapshot // the existing entry that was matched
+	Target EntrySnapshot // 被匹配到的已有条目
 	Level  string        // "name" / "search_keys" / "content"
-	Score  float64       // containment or Jaccard value
+	Score  float64       // containment 或 Jaccard 值
 }
 
-// NormalizeName lower-cases name, strips punctuation, collapses runs of
-// whitespace, and trims leading/trailing space.
-// NormalizeName 规范化名称。
+// NormalizeName 将名称小写，去除标点符号，合并连续空白并裁剪首尾空格。
 func NormalizeName(name string) string {
 	var b strings.Builder
 	prevSpace := false
@@ -52,7 +50,7 @@ func NormalizeName(name string) string {
 	return strings.TrimSpace(b.String())
 }
 
-// sliceToSet converts a string slice into a set map.
+// sliceToSet 将字符串切片转换为集合 map。
 func sliceToSet(ss []string) map[string]struct{} {
 	m := make(map[string]struct{}, len(ss))
 	for _, s := range ss {
@@ -61,17 +59,15 @@ func sliceToSet(ss []string) map[string]struct{} {
 	return m
 }
 
-// FindDuplicate searches existing for the best duplicate of candidate.
+// FindDuplicate 在 existing 中查找 candidate 的最佳重复项。
 //
-// Matching is performed in three levels, in order:
-//  1. Exact name match (after NormalizeName) — returns immediately on hit.
-//  2. search_keys Jaccard >= 0.5 — only when both sides have search_keys.
-//  3. Content containment >= 0.7 — highest score wins when multiple hit.
+// 匹配按三个层级依次进行：
+//  1. 名称精确匹配（NormalizeName 后相等）—— 命中立即返回。
+//  2. search_keys Jaccard >= 0.5 —— 仅在双方均有 search_keys 时参与。
+//  3. 内容 containment >= 0.7 —— 取最高分者。
 //
-// Only entries with the same Type as candidate are considered. When the
-// candidate has a Scope, same-scope entries are searched before cross-scope
-// entries so a current-scope duplicate is not shadowed by another scope.
-// FindDuplicate 查找duplicate。
+// 仅考虑 Type 与 candidate 相同的条目。candidate 有 Scope 时，优先在同作用域内查找，
+// 避免同作用域重复项被跨作用域条目遮蔽。
 func FindDuplicate(candidate EntrySnapshot, existing []EntrySnapshot) MatchResult {
 	sameType := filterSameType(candidate.Type, existing)
 	if len(sameType) == 0 {
@@ -86,6 +82,7 @@ func FindDuplicate(candidate EntrySnapshot, existing []EntrySnapshot) MatchResul
 	return findDuplicateInSet(candidate, sameType)
 }
 
+// filterSameType 过滤出与 candidateType 类型相同的条目。
 func filterSameType(candidateType string, existing []EntrySnapshot) []EntrySnapshot {
 	var result []EntrySnapshot
 	for _, e := range existing {
@@ -96,6 +93,7 @@ func filterSameType(candidateType string, existing []EntrySnapshot) []EntrySnaps
 	return result
 }
 
+// filterSameScope 过滤出与 candidateScope 作用域相同的条目。
 func filterSameScope(candidateScope string, sameType []EntrySnapshot) []EntrySnapshot {
 	var result []EntrySnapshot
 	for _, e := range sameType {
@@ -106,6 +104,7 @@ func filterSameScope(candidateScope string, sameType []EntrySnapshot) []EntrySna
 	return result
 }
 
+// findDuplicateInSet 在给定集合内依次按名称、search_keys、内容查找重复项。
 func findDuplicateInSet(candidate EntrySnapshot, sameType []EntrySnapshot) MatchResult {
 	if len(sameType) == 0 {
 		return MatchResult{}
@@ -119,6 +118,7 @@ func findDuplicateInSet(candidate EntrySnapshot, sameType []EntrySnapshot) Match
 	return matchByContent(candidate.Content, sameType)
 }
 
+// matchByName 按归一化名称精确匹配，找到即返回，未找到返回空结果。
 func matchByName(candidateName string, sameType []EntrySnapshot) MatchResult {
 	candNorm := NormalizeName(candidateName)
 	if candNorm == "" {
@@ -133,6 +133,7 @@ func matchByName(candidateName string, sameType []EntrySnapshot) MatchResult {
 	return MatchResult{}
 }
 
+// matchBySearchKeys 按 search_keys 的 Jaccard 相似度（>= 0.5）匹配，未找到返回空结果。
 func matchBySearchKeys(candidateKeys []string, sameType []EntrySnapshot) MatchResult {
 	if len(candidateKeys) == 0 {
 		return MatchResult{}
@@ -150,6 +151,7 @@ func matchBySearchKeys(candidateKeys []string, sameType []EntrySnapshot) MatchRe
 	return MatchResult{}
 }
 
+// matchByContent 按内容 bigram containment（>= 0.7）匹配，返回得分最高的条目。
 func matchByContent(candidateContent string, sameType []EntrySnapshot) MatchResult {
 	candBigrams := Bigrams(Normalize(candidateContent))
 	var best MatchResult

@@ -19,6 +19,8 @@ func NormalizeGeneratedCard(requestedKind string, rawInput string, card Card) Ca
 	return cards[0]
 }
 
+// promptIntentNormalizeGeneratedCards 对 LLM 生成的多张卡片批量规范化，包括：
+// suggested_alternative 清理、recall_topic slug 化、communication 事实落实、pair programming 文案修正。
 func promptIntentNormalizeGeneratedCards(requestedKind Kind, rawInput string, cards []Card) []Card {
 	out := make([]Card, 0, len(cards))
 	normalizePairProgramming := strings.Contains(normalizePromptIntentText(rawInput), "pair programming")
@@ -38,6 +40,7 @@ func promptIntentNormalizeGeneratedCards(requestedKind Kind, rawInput string, ca
 	return out
 }
 
+// promptIntentNormalizeSuggestedAlternative 清理与 requestedKind 相同的 suggested_alternative 字段。
 func promptIntentNormalizeSuggestedAlternative(requestedKind Kind, card Card) Card {
 	if card.SuggestedAlternative == nil {
 		return card
@@ -67,11 +70,13 @@ func promptIntentNormalizeRecallTopic(kind Kind, card Card) Card {
 	return card
 }
 
+// promptIntentRecallTopicSlug 将 recall_topic 原始文本转换为 slug 格式（小写、连字符分隔）。
 func promptIntentRecallTopicSlug(topic string) string {
 	slug := promptSlugPattern.ReplaceAllString(strings.ToLower(strings.TrimSpace(topic)), "-")
 	return strings.Trim(slug, "-")
 }
 
+// validPromptIntentRecallTopic 判断 recall_topic slug 是否合法：长度小于 64 且符合正则格式。
 func validPromptIntentRecallTopic(topic string) bool {
 	topic = strings.TrimSpace(topic)
 	return len(topic) < 64 && promptIntentRecallTopicPattern.MatchString(topic)
@@ -100,6 +105,7 @@ func promptIntentNormalizeCommunicationFact(card Card) Card {
 	return card
 }
 
+// promptIntentTextContains 判断字符串切片中是否已包含指定值（大小写不敏感）。
 func promptIntentTextContains(values []string, want string) bool {
 	needle := normalizePromptIntentText(want)
 	for _, value := range values {
@@ -110,6 +116,7 @@ func promptIntentTextContains(values []string, want string) bool {
 	return false
 }
 
+// promptIntentNormalizePairProgrammingCopy 将卡片所有文本字段中的"结对编程"/"结队编程"替换为"协作编程"。
 func promptIntentNormalizePairProgrammingCopy(card Card) Card {
 	card.Title = promptIntentNaturalizePairProgramming(card.Title)
 	card.Summary = promptIntentNaturalizePairProgramming(card.Summary)
@@ -134,6 +141,7 @@ func promptIntentNormalizePairProgrammingCopy(card Card) Card {
 	return card
 }
 
+// promptIntentNaturalizePairProgrammingList 批量替换字符串切片中的 pair programming 文案。
 func promptIntentNaturalizePairProgrammingList(values []string) []string {
 	out := make([]string, 0, len(values))
 	for _, value := range values {
@@ -142,6 +150,7 @@ func promptIntentNaturalizePairProgrammingList(values []string) []string {
 	return out
 }
 
+// promptIntentNaturalizePairProgramming 将单个字符串中的"结对编程"/"结队编程"替换为"协作编程"。
 func promptIntentNaturalizePairProgramming(value string) string {
 	replacer := strings.NewReplacer(
 		"结队编程", "协作编程",

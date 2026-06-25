@@ -9,6 +9,7 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 )
 
+// repairPromptIntentCardsIfNeeded 检查草稿卡片是否存在可修复问题，有则发起一次 dream 调用自动修复并返回修复后的卡片。
 func repairPromptIntentCardsIfNeeded(
 	ctx context.Context,
 	dream contract.DreamExecutor,
@@ -36,6 +37,7 @@ func repairPromptIntentCardsIfNeeded(
 	return repaired, nil
 }
 
+// executePromptIntentDream 执行 dream 调用，优先使用带选项接口；不支持时降级到基础接口。
 func executePromptIntentDream(ctx context.Context, dream contract.DreamExecutor, prompt string, options contract.DreamOptions) (string, error) {
 	if withOptions, ok := dream.(contract.DreamExecutorWithOptions); ok {
 		return withOptions.ExecuteDreamWithOptions(ctx, prompt, options)
@@ -43,7 +45,7 @@ func executePromptIntentDream(ctx context.Context, dream contract.DreamExecutor,
 	return dream.ExecuteDream(ctx, prompt)
 }
 
-// repairablePromptIntentIssues 处理repairablepromptintentissues。
+// repairablePromptIntentIssues 收集所有草稿卡片中可被自动修复的问题，去重后返回。
 func repairablePromptIntentIssues(rawInput string, cards []Card) []Issue {
 	var issues []Issue
 	for _, card := range cards {
@@ -60,6 +62,7 @@ func repairablePromptIntentIssues(rawInput string, cards []Card) []Issue {
 	return dedupePromptIntentRepairIssues(issues)
 }
 
+// promptIntentRepairableIssue 判断某 issue code 是否属于可自动修复的类型。
 func promptIntentRepairableIssue(code string) bool {
 	switch strings.TrimSpace(code) {
 	case "missing_title",
@@ -89,6 +92,7 @@ func promptIntentRepairableIssue(code string) bool {
 	}
 }
 
+// dedupePromptIntentRepairIssues 对修复问题列表去重，按 code+message 作为唯一键。
 func dedupePromptIntentRepairIssues(issues []Issue) []Issue {
 	out := make([]Issue, 0, len(issues))
 	seen := map[string]bool{}
@@ -103,7 +107,7 @@ func dedupePromptIntentRepairIssues(issues []Issue) []Issue {
 	return out
 }
 
-// buildPromptIntentRepairPrompt 构建promptintentrepairprompt。
+// buildPromptIntentRepairPrompt 构建自动修复步骤的 LLM prompt，包含原始输入、当前卡片和待修复问题。
 func buildPromptIntentRepairPrompt(requestedKind Kind, rawInput string, cards []Card, issues []Issue) (string, error) {
 	cardsJSON, err := json.MarshalIndent(cards, "", "  ")
 	if err != nil {
@@ -141,6 +145,7 @@ user_input:
 %s`, requestedKind, string(issuesJSON), string(cardsJSON), rawInput), nil
 }
 
+// promptIntentSingleTypeCards 当多卡片中存在混合 kind 时，只保留最合适的一张。
 func promptIntentSingleTypeCards(requestedKind Kind, rawInput string, cards []Card) []Card {
 	if len(cards) <= 1 || !promptIntentHasMixedKinds(cards) {
 		return cards
@@ -148,6 +153,7 @@ func promptIntentSingleTypeCards(requestedKind Kind, rawInput string, cards []Ca
 	return []Card{promptIntentBestSingleTypeCard(requestedKind, rawInput, cards)}
 }
 
+// promptIntentHasMixedKinds 判断卡片列表中是否存在多种 kind。
 func promptIntentHasMixedKinds(cards []Card) bool {
 	seen := map[Kind]bool{}
 	for _, card := range cards {
@@ -160,6 +166,8 @@ func promptIntentHasMixedKinds(cards []Card) bool {
 	return len(seen) > 1
 }
 
+// promptIntentBestSingleTypeCard 从多张卡片中选出最优的一张：优先选 requestedKind 无 block 的，
+// 其次选任意无 block 的，都失败则返回第一张。
 func promptIntentBestSingleTypeCard(requestedKind Kind, rawInput string, cards []Card) Card {
 	if card, ok := promptIntentFirstNonBlockingCardOfKind(requestedKind, rawInput, cards); ok {
 		return card
@@ -176,6 +184,7 @@ func promptIntentBestSingleTypeCard(requestedKind Kind, rawInput string, cards [
 	return cards[0]
 }
 
+// promptIntentFirstNonBlockingCardOfKind 在给定卡片列表中找到第一张 kind 匹配且无 block 问题的卡片。
 func promptIntentFirstNonBlockingCardOfKind(requestedKind Kind, rawInput string, cards []Card) (Card, bool) {
 	for _, card := range cards {
 		kind, err := normalizeKind(card.Kind)

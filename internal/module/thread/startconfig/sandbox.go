@@ -1,3 +1,4 @@
+// Package startconfig 提供线程启动配置的校验与解析工具，包括沙箱配置的合法性检查。
 package startconfig
 
 import (
@@ -8,7 +9,7 @@ import (
 	"strings"
 )
 
-// SanitizeSandbox 清理沙箱。
+// SanitizeSandbox 校验并规范化原始沙箱 JSON，返回 nil 表示空配置，非法 JSON 返回错误。
 func SanitizeSandbox(raw json.RawMessage) (json.RawMessage, error) {
 	raw = bytes.TrimSpace(raw)
 	if len(raw) == 0 {
@@ -20,7 +21,7 @@ func SanitizeSandbox(raw json.RawMessage) (json.RawMessage, error) {
 	return raw, nil
 }
 
-// IsDangerFullAccessSandbox 判断dangerfullaccess沙箱是否可用。
+// IsDangerFullAccessSandbox 检查给定的沙箱配置是否为 danger_full_access 模式，支持字符串值和对象两种格式。
 func IsDangerFullAccessSandbox(raw json.RawMessage) (bool, error) {
 	raw, err := SanitizeSandbox(raw)
 	if err != nil || len(raw) == 0 {

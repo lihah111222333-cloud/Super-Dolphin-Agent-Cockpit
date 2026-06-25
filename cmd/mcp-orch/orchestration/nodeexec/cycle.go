@@ -231,7 +231,7 @@ func newTarjanState(graph map[string][]string) *tarjanState {
 	}
 }
 
-// strongConnect 处理strongconnect。
+// strongConnect 是 Tarjan SCC 的递归核心：为节点 v 赋 index/lowlink，递归处理邻居，弹出 SCC。
 func (t *tarjanState) strongConnect(v string) {
 	t.indices[v] = t.index
 	t.lowlink[v] = t.index

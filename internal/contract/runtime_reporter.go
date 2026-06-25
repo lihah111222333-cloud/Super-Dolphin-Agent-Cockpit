@@ -21,6 +21,7 @@ type RuntimeReporter interface {
 // ChangeRequestStatus 表示 MR/PR 关联对象的当前生命周期状态。
 type ChangeRequestStatus string
 
+// ChangeRequest MR/PR 生命周期状态常量。
 const (
 	// ChangeRequestStatusDraft 表示变更请求还未提交到外部评审。
 	ChangeRequestStatusDraft ChangeRequestStatus = "draft"
@@ -35,6 +36,7 @@ const (
 // ChangeRequestCheckStatus 表示关联 CI/check 的最新状态。
 type ChangeRequestCheckStatus string
 
+// ChangeRequest CI/check 状态常量。
 const (
 	// ChangeRequestCheckStatusPending 表示检查尚未开始。
 	ChangeRequestCheckStatusPending ChangeRequestCheckStatus = "pending"
@@ -49,6 +51,7 @@ const (
 // ChangeRequestReviewGateStatus 表示工作流侧审查门禁状态。
 type ChangeRequestReviewGateStatus string
 
+// ChangeRequest 审查门禁状态常量。
 const (
 	// ChangeRequestReviewGateOpen 表示审查门禁已开启但尚未通过。
 	ChangeRequestReviewGateOpen ChangeRequestReviewGateStatus = "open"

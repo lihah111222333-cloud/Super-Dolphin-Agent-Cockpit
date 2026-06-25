@@ -16,6 +16,7 @@ import (
 
 const logFallbackDirEnv = "GO_AGENT_LOG_FALLBACK_DIR"
 
+// localLogFallbackRecord 是写入本地 fallback 日志文件的行结构。
 type localLogFallbackRecord struct {
 	TS          int64          `json:"ts"`
 	InstanceID  string         `json:"instance_id,omitempty"`
@@ -110,6 +111,7 @@ func (c *Client) LogFields(ctx context.Context, level, message string, fields ma
 	return nil
 }
 
+// normalizeLogLevel 将日志级别字符串规范化为大写标准值。
 func normalizeLogLevel(level string) string {
 	switch strings.ToUpper(strings.TrimSpace(level)) {
 	case "DEBUG":
@@ -123,6 +125,7 @@ func normalizeLogLevel(level string) string {
 	}
 }
 
+// localLogFallback 在控制平面不可达时将日志写入本地文件，失败时记录警告日志。
 func (c *Client) localLogFallback(entry mcp.LogNotify, sendErr error) {
 	if err := c.writeLocalLogFallback(entry, sendErr); err != nil {
 		pkglogger.Get().Log(pkglogger.WithRelayDisabled(context.Background()), pkglogger.LevelWarn,
@@ -178,6 +181,7 @@ func (c *Client) writeLocalLogFallback(entry mcp.LogNotify, sendErr error) error
 	return nil
 }
 
+// localLogFallbackDir 解析本地日志 fallback 目录路径。
 func (c *Client) localLogFallbackDir() string {
 	if override := strings.TrimSpace(os.Getenv(logFallbackDirEnv)); override != "" {
 		return override
@@ -188,6 +192,7 @@ func (c *Client) localLogFallbackDir() string {
 	return filepath.Join(logDir, "peer-fallback")
 }
 
+// localLogFallbackFileName 返回本地 fallback 日志的文件名（按 binary 和日期命名）。
 func (c *Client) localLogFallbackFileName() string {
 	binary := strings.TrimSpace(c.cfg.BinaryName)
 	if binary == "" {
@@ -197,6 +202,7 @@ func (c *Client) localLogFallbackFileName() string {
 	return binary + "-" + time.Now().Format("2006-01-02") + ".log"
 }
 
+// cloneAnyMap 深拷贝 map[string]any，nil/空输入返回 nil，空键跳过。
 func cloneAnyMap(in map[string]any) map[string]any {
 	if len(in) == 0 {
 		return nil

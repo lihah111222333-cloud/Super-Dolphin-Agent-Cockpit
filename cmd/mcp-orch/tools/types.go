@@ -5,8 +5,10 @@ import (
 	"encoding/json"
 )
 
+// ToolHandler 是 MCP 工具的处理函数签名，接收原始 JSON 输入并返回结果。
 type ToolHandler func(ctx context.Context, input json.RawMessage) (any, error)
 
+// Schema 是 MCP 工具参数或输出的 JSON schema 表示。
 type Schema map[string]any
 
 // ToolRiskClass 标记工具调用的治理风险等级，供 registry 和 policy 审计使用。
@@ -88,6 +90,7 @@ type ToolMetadata struct {
 	RedactionPolicy        ToolRedactionPolicy        `json:"redaction_policy"`
 }
 
+// ToolDefinition 是注册到 Registry 的工具完整定义，含 schema、handler 和治理元数据。
 type ToolDefinition struct {
 	Name        string       `json:"name"`
 	Description string       `json:"description,omitempty"`
@@ -96,6 +99,7 @@ type ToolDefinition struct {
 	Handler     ToolHandler  `json:"-"`
 }
 
+// listEnvelope 是列表工具返回的通用分页包装对象。
 type listEnvelope[T any] struct {
 	Data      []T    `json:"data"`
 	Total     int    `json:"total"`
@@ -104,6 +108,7 @@ type listEnvelope[T any] struct {
 	Hint      string `json:"hint,omitempty"`
 }
 
+// newListEnvelope 构造分页包装对象，limit > 0 且达到上限时标记 Truncated。
 func newListEnvelope[T any](items []T, limit int, hint string) listEnvelope[T] {
 	return listEnvelope[T]{
 		Data:      items,
@@ -114,6 +119,7 @@ func newListEnvelope[T any](items []T, limit int, hint string) listEnvelope[T] {
 	}
 }
 
+// successResult 构造带 success:true 标志的结果 map。
 func successResult(fields map[string]any) map[string]any {
 	result := map[string]any{"success": true}
 	for key, value := range fields {
@@ -214,6 +220,7 @@ func RawObjectSchema(description string) Schema {
 	return schema
 }
 
+// scalarSchema 构建指定类型的 scalar schema，含可选描述。
 func scalarSchema(kind, description string) Schema {
 	schema := Schema{"type": kind}
 	if description != "" {
@@ -222,6 +229,7 @@ func scalarSchema(kind, description string) Schema {
 	return schema
 }
 
+// schemaProperties 把 map[string]Schema 转换为 map[string]any 以便 JSON 序列化。
 func schemaProperties(properties map[string]Schema) map[string]any {
 	mapped := make(map[string]any, len(properties))
 	for key, value := range properties {

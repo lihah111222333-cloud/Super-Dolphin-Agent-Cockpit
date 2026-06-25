@@ -1,3 +1,4 @@
+// Package datasourcev2 提供文件正文导入、分块存储和语义检索能力，供 prompt 动态段和前端数据源管理页使用。
 package datasourcev2
 
 import (
@@ -65,6 +66,7 @@ func forEachDatasourceV2Token(text string, visit func(string) error) error {
 	return flushASCII()
 }
 
+// addDatasourceV2TokenFeature 将 token 的 hash 特征值累加到向量对应位置。
 func addDatasourceV2TokenFeature(vector []float32, token string) {
 	digest := sha256.Sum256([]byte(token))
 	index := binary.LittleEndian.Uint64(digest[:8]) % uint64(len(vector))
@@ -75,6 +77,7 @@ func addDatasourceV2TokenFeature(vector []float32, token string) {
 	vector[index] += weight
 }
 
+// normalizeDatasourceV2Vector 对向量做 L2 归一化，全零向量直接跳过。
 func normalizeDatasourceV2Vector(vector []float32) {
 	var sumSquares float64
 	for _, value := range vector {
@@ -89,6 +92,7 @@ func normalizeDatasourceV2Vector(vector []float32) {
 	}
 }
 
+// serializeDatasourceV2Vector 将 float32 向量序列化为 sqlite-vec 兼容的 little-endian BLOB。
 func serializeDatasourceV2Vector(vector []float32) []byte {
 	blob := make([]byte, len(vector)*4)
 	for i, value := range vector {
@@ -97,10 +101,12 @@ func serializeDatasourceV2Vector(vector []float32) []byte {
 	return blob
 }
 
+// isDatasourceV2ASCIITokenRune 判断 rune 是否属于 ASCII token 字符（字母/数字/下划线）。
 func isDatasourceV2ASCIITokenRune(r rune) bool {
 	return r == '_' || '0' <= r && r <= '9' || 'a' <= r && r <= 'z' || 'A' <= r && r <= 'Z'
 }
 
+// lowerASCII 将 ASCII 大写字母转换为小写，其他 rune 原样返回。
 func lowerASCII(r rune) rune {
 	if 'A' <= r && r <= 'Z' {
 		return r + ('a' - 'A')
@@ -108,6 +114,8 @@ func lowerASCII(r rune) rune {
 	return r
 }
 
+// datasourceV2AdvanceChunkTokenState 根据当前 rune 更新分块的 ASCII token 状态机。
+// 返回值：(tokenStarted bool, asciiOpen bool)。
 func datasourceV2AdvanceChunkTokenState(r rune, asciiOpen bool) (bool, bool) {
 	if isDatasourceV2ASCIITokenRune(r) {
 		return !asciiOpen, true

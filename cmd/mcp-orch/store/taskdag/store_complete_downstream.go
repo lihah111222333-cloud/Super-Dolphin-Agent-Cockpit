@@ -76,6 +76,7 @@ func (s *store) CompleteNodeAndScheduleDownstream(ctx context.Context, input Com
 	return &result, nil
 }
 
+// lockRunForCompletionTx 在事务内对 task_dag_runs 行加 FOR UPDATE 锁，防止并发 complete 竞争。
 func lockRunForCompletionTx(ctx context.Context, txStore *store, dagKey string, runID int64) error {
 	if err := requireRuntimeRunID("lock_run_for_completion", runID); err != nil {
 		return err
@@ -122,6 +123,7 @@ func maybeFinalizeRunTx(ctx context.Context, txStore *store, dagKey string, runI
 	return &FinalizedRunInfo{RunKey: first.RunKey, Status: first.Status}, nil
 }
 
+// runFinalOutputNode 是 final node 的最小投影，仅载入 UI 展示所需字段。
 type runFinalOutputNode struct {
 	NodeKey string
 	Title   string
@@ -139,6 +141,7 @@ func writeRunFinalOutputMetadataTx(ctx context.Context, txStore *store, dagKey s
 	return updateRunFinalOutputMetadataTx(ctx, txStore, dagKey, runID, encoded)
 }
 
+// buildRunFinalOutputMetadataTx 构造最终输出的 metadata JSON；找不到 final 节点或节点未完成时返回 ok=false。
 func buildRunFinalOutputMetadataTx(ctx context.Context, txStore *store, dagKey string, runID int64) ([]byte, bool, error) {
 	finalNodeKey, ok, err := loadRunFinalNodeKeyTx(ctx, txStore, dagKey)
 	if err != nil {
@@ -168,6 +171,8 @@ func buildRunFinalOutputMetadataTx(ctx context.Context, txStore *store, dagKey s
 	return encoded, true, nil
 }
 
+// updateRunFinalOutputMetadataTx 原子更新 task_dag_runs.metadata.final_output；
+// 受影响行数不等于 1 时返回错误，防止静默写失败。
 func updateRunFinalOutputMetadataTx(ctx context.Context, txStore *store, dagKey string, runID int64, encoded []byte) error {
 	res, err := txStore.db.ExecContext(ctx, updateTaskDagRunFinalOutputMetadataSQL, string(encoded), dagKey, runID)
 	if err != nil {
@@ -183,6 +188,7 @@ func updateRunFinalOutputMetadataTx(ctx context.Context, txStore *store, dagKey 
 	return nil
 }
 
+// loadRunFinalNodeKeyTx 从 task_dags.metadata 读取 final_node_key；空串表示未配置。
 func loadRunFinalNodeKeyTx(ctx context.Context, txStore *store, dagKey string) (string, bool, error) {
 	var finalNodeKey string
 	if err := txStore.db.QueryRowContext(ctx, selectTaskDagFinalNodeKeySQL, dagKey).Scan(&finalNodeKey); err != nil {
@@ -192,6 +198,7 @@ func loadRunFinalNodeKeyTx(ctx context.Context, txStore *store, dagKey string) (
 	return finalNodeKey, finalNodeKey != "", nil
 }
 
+// loadRunFinalOutputNodeTx 读取指定 run 下处于 done 状态的 final 节点；未找到返回 ok=false。
 func loadRunFinalOutputNodeTx(ctx context.Context, txStore *store, dagKey string, runID int64, nodeKey string) (runFinalOutputNode, bool, error) {
 	var node runFinalOutputNode
 	err := txStore.db.QueryRowContext(ctx, selectTaskDagFinalOutputNodeSQL, dagKey, int64Ptr(runID), nodeKey).Scan(
@@ -231,6 +238,7 @@ func finalOutputMetadataFromNode(node runFinalOutputNode) (map[string]any, bool,
 	}
 }
 
+// baseRunFinalOutput 构造 final_output 的基础字段（role/title/source_node_key），不含 kind/result。
 func baseRunFinalOutput(node runFinalOutputNode) map[string]any {
 	title := strings.TrimSpace(node.Title)
 	if title == "" {
@@ -243,6 +251,7 @@ func baseRunFinalOutput(node runFinalOutputNode) map[string]any {
 	}
 }
 
+// finalOutputFromConfiguredRunPath 优先使用配置的 sharedfile 路径；路径为空时返回 ok=false。
 func finalOutputFromConfiguredRunPath(out map[string]any, configuredPath string) (map[string]any, bool, error) {
 	if configuredPath == "" {
 		return nil, false, nil
@@ -250,6 +259,7 @@ func finalOutputFromConfiguredRunPath(out map[string]any, configuredPath string)
 	return finalOutputWithRunFile(out, configuredPath), true, nil
 }
 
+// finalOutputFromRunResultMap 把 map 类型 result 构造成 final_output，sharedfile 优先于 json 内联。
 func finalOutputFromRunResultMap(out, typed map[string]any, configuredPath string, result any) map[string]any {
 	if path := runSharedfilePathFromResultMap(typed); path != "" {
 		return finalOutputWithRunFile(out, path)
@@ -262,6 +272,7 @@ func finalOutputFromRunResultMap(out, typed map[string]any, configuredPath strin
 	return out
 }
 
+// finalOutputFromRunResultString 把字符串类型 result 构造成 text kind final_output；配置路径优先。
 func finalOutputFromRunResultString(out map[string]any, text, configuredPath string) map[string]any {
 	if configuredPath != "" {
 		return finalOutputWithRunFile(out, configuredPath)
@@ -271,6 +282,7 @@ func finalOutputFromRunResultString(out map[string]any, text, configuredPath str
 	return out
 }
 
+// finalOutputFromRunFallback 对其他类型 result 回退到 json kind；配置路径优先。
 func finalOutputFromRunFallback(out map[string]any, configuredPath string, result any) map[string]any {
 	if configuredPath != "" {
 		return finalOutputWithRunFile(out, configuredPath)
@@ -280,12 +292,14 @@ func finalOutputFromRunFallback(out map[string]any, configuredPath string, resul
 	return out
 }
 
+// finalOutputWithRunFile 把 final_output 的 kind 置为 "file" 并填入 path。
 func finalOutputWithRunFile(out map[string]any, path string) map[string]any {
 	out["kind"] = "file"
 	out["path"] = path
 	return out
 }
 
+// runSharedfilePathFromResultMap 从 result map 的 sharedfile.path 字段提取 sharedfile 路径；不存在返回空串。
 func runSharedfilePathFromResultMap(typed map[string]any) string {
 	sf, ok := typed["sharedfile"].(map[string]any)
 	if !ok {
@@ -298,6 +312,7 @@ func runSharedfilePathFromResultMap(typed map[string]any) string {
 	return strings.TrimSpace(path)
 }
 
+// configuredRunFinalSharedfilePath 从节点 config.outputs.to_sharedfile.path 读取 sharedfile 路径。
 func configuredRunFinalSharedfilePath(raw json.RawMessage) string {
 	if len(raw) == 0 {
 		return ""
@@ -392,6 +407,7 @@ func scheduleDownstreamWakeupsTx(ctx context.Context, txStore *store, completed 
 	return scheduled, promoted, nil
 }
 
+// scheduleDownstreamCandidateTx 对单个候选节点做"依赖满足判定 → promote → enqueue"三步。
 func scheduleDownstreamCandidateTx(
 	ctx context.Context,
 	txStore *store,
@@ -411,6 +427,7 @@ func scheduleDownstreamCandidateTx(
 	return inserted, promoted, err
 }
 
+// promoteDownstreamCandidateTx 把候选节点从 pending 推进到 ready；0 行受影响表示节点已被推进，返回 nil。
 func promoteDownstreamCandidateTx(ctx context.Context, txStore *store, cand *Node, completedRunID int64) (*PromotedDownstreamNode, error) {
 	rowsAffected, err := txStore.q.PromoteSingleNodePendingToReady(ctx, sqlc.PromoteSingleNodePendingToReadyParams{
 		DagKey:  cand.DagKey,
@@ -512,6 +529,7 @@ func tryEnqueueDownstream(
 	}, nil
 }
 
+// runIDValue 安全解引用 *int64，nil 返回 0。
 func runIDValue(runID *int64) int64 {
 	if runID == nil {
 		return 0
@@ -519,6 +537,7 @@ func runIDValue(runID *int64) int64 {
 	return *runID
 }
 
+// decodeDependsOn 解析节点 depends_on JSON 字符串数组；空 raw 返回 nil 切片。
 func decodeDependsOn(raw json.RawMessage) ([]string, error) {
 	if len(raw) == 0 {
 		return nil, nil
@@ -530,6 +549,7 @@ func decodeDependsOn(raw json.RawMessage) ([]string, error) {
 	return deps, nil
 }
 
+// dependsOnIncludes 判断 deps 列表中是否包含 nodeKey（忽略首尾空白）。
 func dependsOnIncludes(deps []string, nodeKey string) bool {
 	for _, d := range deps {
 		if strings.TrimSpace(d) == nodeKey {
@@ -539,6 +559,7 @@ func dependsOnIncludes(deps []string, nodeKey string) bool {
 	return false
 }
 
+// allDependenciesSatisfied 判断 deps 中每个非空 key 是否都在 statusByKey 里为 done。
 func allDependenciesSatisfied(deps []string, statusByKey map[string]string) bool {
 	for _, d := range deps {
 		d = strings.TrimSpace(d)

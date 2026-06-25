@@ -103,6 +103,7 @@ type selectedUpdate struct {
 	DownloadedAt string          `json:"downloaded_at"`
 }
 
+// service 是 Service 接口的实现，封装 HTTP 客户端和更新配置。
 type service struct {
 	cfg         Config
 	httpClient  *http.Client
@@ -177,6 +178,7 @@ func applyPackagedDefaults(cfg *Config) {
 	}
 }
 
+// appPathFromResourcesDir 从 Resources 目录向上推导 .app 路径，不符合结构时返回空串。
 func appPathFromResourcesDir(resources string) string {
 	resources = filepath.Clean(strings.TrimSpace(resources))
 	if filepath.Base(resources) != "Resources" {
@@ -198,6 +200,7 @@ func NewService(p serviceParams) Service {
 	return newService(p.Config, http.DefaultClient, p.RequestQuit)
 }
 
+// newService 用于测试：注入自定义 httpClient 和 requestQuit。
 func newService(cfg Config, client *http.Client, requestQuit RequestQuit) *service {
 	if client == nil {
 		client = http.DefaultClient
@@ -302,6 +305,7 @@ func (s *service) InstallLatest(ctx context.Context) (InstallResult, error) {
 	return s.Install(ctx)
 }
 
+// scheduleRequestQuit 在短暂延迟后调用 requestQuit，让 RPC 响应先行发出。
 func (s *service) scheduleRequestQuit() {
 	quit := s.requestQuit
 	safego.Go(context.Background(), pkglogger.Get(), "appupdate.scheduleRequestQuit", func(context.Context) {
@@ -370,6 +374,7 @@ func (s *service) downloadArtifact(ctx context.Context, artifact UpdateArtifact,
 	return nil
 }
 
+// requireSuccessStatus 检查 HTTP 响应状态码是否为 2xx，否则返回描述性错误。
 func requireSuccessStatus(operation string, resp *http.Response) error {
 	if resp.StatusCode < 200 || resp.StatusCode > 299 {
 		return fmt.Errorf("%s: status %s", operation, resp.Status)
@@ -402,14 +407,17 @@ func writeVerifiedArtifact(tmpPath string, body io.Reader, artifact UpdateArtifa
 	return nil
 }
 
+// stagedManifestPath 返回 staged manifest JSON 的完整路径。
 func (s *service) stagedManifestPath() string {
 	return filepath.Join(s.cfg.StageDir, selectedUpdateFilename)
 }
 
+// helperLogPath 返回 updater helper 日志文件的完整路径。
 func (s *service) helperLogPath() string {
 	return filepath.Join(s.cfg.StageDir, helperLogFilename)
 }
 
+// installCommand 按平台构造安装命令，macOS 使用 helper，Windows 直接运行安装包。
 func (s *service) installCommand(staged selectedUpdate) (*exec.Cmd, string, error) {
 	artifactPath := selectedArtifactPath(staged)
 	switch updatePlatformOS(staged.Artifact.Platform) {
@@ -426,6 +434,7 @@ func (s *service) installCommand(staged selectedUpdate) (*exec.Cmd, string, erro
 	}
 }
 
+// detachedHelperCommand 构造通过 nohup 脱离终端运行 helper 的 shell 命令。
 func detachedHelperCommand(logPath string, helperPath string, args []string) *exec.Cmd {
 	script := `log_path=$1; shift; nohup "$@" >"$log_path" 2>&1 &`
 	shellArgs := []string{"-c", script, "super-dolphin-updater-launcher", logPath, helperPath}
@@ -433,6 +442,7 @@ func detachedHelperCommand(logPath string, helperPath string, args []string) *ex
 	return exec.Command("/bin/sh", shellArgs...)
 }
 
+// validateConfig 校验已启用的更新配置完整性。
 func validateConfig(cfg Config) error {
 	if !cfg.Enabled {
 		return nil
@@ -450,6 +460,7 @@ func validateConfig(cfg Config) error {
 	return requireConfigValues(required)
 }
 
+// validateUpdateSourceConfig 校验更新源配置（GitHub Repo 或 ManifestURL 二选一）。
 func validateUpdateSourceConfig(cfg Config) error {
 	if cfg.ManifestURL == "" && cfg.GitHubRepo == "" {
 		return fmt.Errorf("%s or %s is required when app update is enabled", envUpdateGitHubRepo, envUpdateManifestURL)
@@ -463,6 +474,7 @@ func validateUpdateSourceConfig(cfg Config) error {
 	return validateGitHubRepo(cfg.GitHubRepo)
 }
 
+// validateLegacyManifestURL 校验直连 manifest URL 必须为 HTTPS。
 func validateLegacyManifestURL(rawURL string) error {
 	if rawURL == "" {
 		return nil
@@ -477,6 +489,7 @@ func validateLegacyManifestURL(rawURL string) error {
 	return nil
 }
 
+// requiredUpdateConfigValues 根据平台收集必填配置项，不支持的平台返回错误。
 func requiredUpdateConfigValues(cfg Config) (map[string]string, error) {
 	required := map[string]string{
 		envUpdateChannel:  cfg.Channel,
@@ -495,6 +508,7 @@ func requiredUpdateConfigValues(cfg Config) (map[string]string, error) {
 	return required, nil
 }
 
+// requireConfigValues 校验所有必填配置项不为空。
 func requireConfigValues(required map[string]string) error {
 	for name, value := range required {
 		if strings.TrimSpace(value) == "" {
@@ -504,6 +518,7 @@ func requireConfigValues(required map[string]string) error {
 	return nil
 }
 
+// decodePublicKey 解码 base64 编码的 ed25519 公钥。
 func decodePublicKey(raw string) ([]byte, error) {
 	value := strings.TrimSpace(raw)
 	if value == "" {
@@ -516,6 +531,7 @@ func decodePublicKey(raw string) ([]byte, error) {
 	return key, nil
 }
 
+// writeSelectedUpdate 将已选更新信息序列化写入 staged manifest 文件。
 func writeSelectedUpdate(path string, staged selectedUpdate) error {
 	raw, err := json.MarshalIndent(staged, "", "  ")
 	if err != nil {
@@ -528,6 +544,7 @@ func writeSelectedUpdate(path string, staged selectedUpdate) error {
 	return nil
 }
 
+// readSelectedUpdate 从 staged manifest 文件反序列化已选更新信息。
 func readSelectedUpdate(path string) (selectedUpdate, error) {
 	raw, err := os.ReadFile(path)
 	if err != nil {
@@ -540,6 +557,7 @@ func readSelectedUpdate(path string) (selectedUpdate, error) {
 	return staged, nil
 }
 
+// validateStagedUpdate 校验已下载的更新产物是否存在且 artifact 元数据合法。
 func validateStagedUpdate(staged selectedUpdate) error {
 	artifactPath := selectedArtifactPath(staged)
 	if strings.TrimSpace(artifactPath) == "" {
@@ -556,6 +574,7 @@ func validateStagedUpdate(staged selectedUpdate) error {
 	return nil
 }
 
+// selectedArtifactPath 优先返回 ArtifactPath，为空时回退到 DMGPath。
 func selectedArtifactPath(staged selectedUpdate) string {
 	if strings.TrimSpace(staged.ArtifactPath) != "" {
 		return staged.ArtifactPath
@@ -563,6 +582,7 @@ func selectedArtifactPath(staged selectedUpdate) string {
 	return staged.DMGPath
 }
 
+// stagedArtifactPathFor 按平台返回下载产物的目标路径（dmg/exe），不支持的平台返回错误。
 func stagedArtifactPathFor(stageDir string, artifact UpdateArtifact) (string, error) {
 	switch updatePlatformOS(artifact.Platform) {
 	case "darwin":
@@ -574,6 +594,7 @@ func stagedArtifactPathFor(stageDir string, artifact UpdateArtifact) (string, er
 	}
 }
 
+// updatePlatformOS 从 platform 字符串（如 darwin-amd64）提取 OS 名称。
 func updatePlatformOS(platform string) string {
 	osName, _, ok := strings.Cut(strings.TrimSpace(platform), "-")
 	if !ok {
@@ -582,6 +603,7 @@ func updatePlatformOS(platform string) string {
 	return osName
 }
 
+// envTruthy 判断环境变量字符串是否表示"真值"（1/true/yes/on）。
 func envTruthy(raw string) bool {
 	switch strings.ToLower(strings.TrimSpace(raw)) {
 	case "1", "true", "yes", "on":
@@ -591,6 +613,7 @@ func envTruthy(raw string) bool {
 	}
 }
 
+// currentVersionFromInfoPlist 从 macOS .app bundle 的 Info.plist 读取版本号。
 func currentVersionFromInfoPlist(targetAppPath string) (string, error) {
 	raw, err := os.ReadFile(filepath.Join(targetAppPath, "Contents", "Info.plist"))
 	if err != nil {

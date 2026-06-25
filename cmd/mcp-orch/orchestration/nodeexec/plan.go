@@ -302,6 +302,7 @@ type RemoveNodeChange struct {
 	NodeKey string
 }
 
+// removeNodeStatusAllowed 列出 remove_node 允许的节点状态集合。
 var removeNodeStatusAllowed = map[string]struct{}{
 	string(NodeStatusPending): {},
 	string(NodeStatusReady):   {},
@@ -339,6 +340,7 @@ func PlanRemoveNodes(ops Ops, existing []ExistingNodeFull, adjacency map[string]
 	return pruned, changes, nil
 }
 
+// cloneAdjacency 深拷贝 adjacency map，避免 PlanRemoveNodes 修改调用方原始数据。
 func cloneAdjacency(adjacency map[string][]string) map[string][]string {
 	out := make(map[string][]string, len(adjacency))
 	for k, deps := range adjacency {
@@ -347,6 +349,7 @@ func cloneAdjacency(adjacency map[string][]string) map[string][]string {
 	return out
 }
 
+// indexExistingFull 把 ExistingNodeFull 列表按 NodeKey 索引为 map。
 func indexExistingFull(existing []ExistingNodeFull) map[string]ExistingNodeFull {
 	out := make(map[string]ExistingNodeFull, len(existing))
 	for _, n := range existing {
@@ -355,6 +358,7 @@ func indexExistingFull(existing []ExistingNodeFull) map[string]ExistingNodeFull 
 	return out
 }
 
+// removeChangeFromOp 把 Op 强转为 OpRemoveNode 并归一化 NodeKey。
 func removeChangeFromOp(idx int, op Op) (RemoveNodeChange, error) {
 	rm, ok := op.(OpRemoveNode)
 	if !ok {
@@ -367,6 +371,7 @@ func removeChangeFromOp(idx int, op Op) (RemoveNodeChange, error) {
 	return RemoveNodeChange{NodeKey: key}, nil
 }
 
+// ensureRemovableStatus 校验节点 status 必须 ∈ {pending, ready} 才允许删除。
 func ensureRemovableStatus(idx int, key, status string) error {
 	if _, ok := removeNodeStatusAllowed[status]; !ok {
 		return fmt.Errorf("%w: ops[%d] remove_node %q status=%q not removable (allowed: pending|ready)", ErrRemoveNodePlan, idx, key, status)
@@ -374,7 +379,7 @@ func ensureRemovableStatus(idx int, key, status string) error {
 	return nil
 }
 
-// firstDependentOn 处理firstdependenton。
+// firstDependentOn 返回 adjacency 中第一个依赖 target 的节点 key，不存在返回空串。
 func firstDependentOn(adjacency map[string][]string, target string) string {
 	for nodeKey, deps := range adjacency {
 		if nodeKey == target {

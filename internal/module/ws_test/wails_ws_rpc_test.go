@@ -73,18 +73,8 @@ func TestWailsWebSocketUploadsDatasourceFromAbsolutePath(t *testing.T) {
 	project := t.TempDir()
 	t.Chdir(project)
 
-	sourcePath := filepath.Join(t.TempDir(), "测试.txt")
 	sourceBytes := []byte("websocket datasource upload")
-	if err := os.WriteFile(sourcePath, sourceBytes, 0o600); err != nil {
-		t.Fatalf("write datasource upload fixture: %v", err)
-	}
-	sourceInfo, err := os.Stat(sourcePath)
-	if err != nil {
-		t.Fatalf("stat datasource upload fixture %q: %v", sourcePath, err)
-	}
-	if !sourceInfo.Mode().IsRegular() {
-		t.Fatalf("datasource upload fixture %q is not a regular file", sourcePath)
-	}
+	sourcePath, sourceInfo := writeDatasourceUploadSource(t, project, "测试.txt", sourceBytes)
 
 	conn := dialWailsWebSocket(t, newWailsWSServer(t))
 	defer conn.Close()
@@ -115,6 +105,26 @@ func TestWailsWebSocketUploadsDatasourceFromAbsolutePath(t *testing.T) {
 	if !slices.Equal(storedBytes, sourceBytes) {
 		t.Fatalf("uploaded datasource bytes differ from source")
 	}
+}
+
+func writeDatasourceUploadSource(t *testing.T, project, name string, contents []byte) (string, os.FileInfo) {
+	t.Helper()
+	sourceDir := filepath.Join(project, "fixtures")
+	if err := os.MkdirAll(sourceDir, 0o755); err != nil {
+		t.Fatalf("create datasource source fixture dir: %v", err)
+	}
+	sourcePath := filepath.Join(sourceDir, name)
+	if err := os.WriteFile(sourcePath, contents, 0o600); err != nil {
+		t.Fatalf("write datasource upload fixture: %v", err)
+	}
+	sourceInfo, err := os.Stat(sourcePath)
+	if err != nil {
+		t.Fatalf("stat datasource upload fixture %q: %v", sourcePath, err)
+	}
+	if !sourceInfo.Mode().IsRegular() {
+		t.Fatalf("datasource upload fixture %q is not a regular file", sourcePath)
+	}
+	return sourcePath, sourceInfo
 }
 
 func newWailsWSServer(t *testing.T) *httptest.Server {
@@ -240,6 +250,19 @@ func (s *wsMCPServerStore) DeleteServer(_ context.Context, workspaceRoot, name s
 		return false, nil
 	}
 	delete(s.servers[workspaceRoot], name)
+	return true, nil
+}
+
+func (s *wsMCPServerStore) SetServerEnabled(_ context.Context, workspaceRoot, name string, enabled bool) (bool, error) {
+	if s.servers[workspaceRoot] == nil {
+		return false, nil
+	}
+	config, exists := s.servers[workspaceRoot][name]
+	if !exists {
+		return false, nil
+	}
+	config.Enabled = &enabled
+	s.servers[workspaceRoot][name] = config
 	return true, nil
 }
 

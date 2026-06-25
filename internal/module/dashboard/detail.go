@@ -16,15 +16,17 @@ var errOrchestrationServiceNotAvailable = errors.New("dashboard: orchestration s
 
 const dashboardUICreatedBy = "dashboard-ui"
 
+// buildMetadata 存储从 debug.BuildInfo 提取的构建元数据。
 type buildMetadata struct {
-	version   string
-	commit    string
-	buildTime string
-	dirty     bool
-	goVersion string
-	runtime   string
+	version   string // 发布版本号，读不到时为 "dev"
+	commit    string // git commit 短 hash，读不到时为 "unknown"
+	buildTime string // 构建时间，ISO 8601 格式
+	dirty     bool   // vcs 是否有未提交修改
+	goVersion string // 编译所用 Go 版本
+	runtime   string // GOOS/GOARCH 组合
 }
 
+// turnHistoryFromSnapshot 从 agent 快照提取当前活跃 turn 引用，无活跃 turn 时返回空切片。
 func turnHistoryFromSnapshot(snapshot AgentSnapshot) []TurnRef {
 	turnID := strings.TrimSpace(snapshot.ActiveTurnID)
 	if turnID == "" {
@@ -38,6 +40,7 @@ func turnHistoryFromSnapshot(snapshot AgentSnapshot) []TurnRef {
 	}}
 }
 
+// effectiveDAGRuntime 返回优先使用 dagRuntime，回退到 orchestration 的 DAG 运行时。
 func (s *service) effectiveDAGRuntime() contract.DAGRuntime {
 	if s == nil {
 		return nil
@@ -294,6 +297,7 @@ func (s *service) ApplyDAGOps(ctx context.Context, req contract.ApplyOpsRequest)
 	})
 }
 
+// validateDashboardApplyOps 校验 ops 字节是否为合法的非空 JSON 数组。
 func validateDashboardApplyOps(raw json.RawMessage) error {
 	trimmed := bytes.TrimSpace(raw)
 	if len(trimmed) == 0 {

@@ -10,8 +10,10 @@ import (
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
+// Handler 是 MCP-LSP 工具处理函数的统一签名。
 type Handler func(context.Context, json.RawMessage) (any, error)
 
+// Middleware 包装 Handler 以附加横切关注点。
 type Middleware func(Handler) Handler
 
 // Chain 把多个中间件按顺序串起来。
@@ -62,6 +64,7 @@ func Logging(logger *slog.Logger, toolName ...string) Middleware {
 	}
 }
 
+// compactAny 将任意值序列化后截断，用于日志输出。
 func compactAny(value any) string {
 	raw, err := json.Marshal(value)
 	if err != nil {
@@ -70,6 +73,7 @@ func compactAny(value any) string {
 	return compactValue(raw)
 }
 
+// compactValue 截断原始字节到 2048 字符，用于日志输出。
 func compactValue(raw []byte) string {
 	const limit = 2048
 	trimmed := strings.TrimSpace(string(raw))

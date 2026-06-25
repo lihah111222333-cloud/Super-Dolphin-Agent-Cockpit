@@ -98,6 +98,7 @@ func RenderAttachmentText(attachment dto.AttachmentEnvelope) string {
 	return strings.Join(lines, "\n")
 }
 
+// normalizeAttachmentPath 规范化附件路径：trim 后转换为 slash 风格。
 func normalizeAttachmentPath(path string) string {
 	path = strings.TrimSpace(path)
 	if path == "" {

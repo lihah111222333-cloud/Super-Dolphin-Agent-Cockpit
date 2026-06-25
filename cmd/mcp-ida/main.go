@@ -1,3 +1,4 @@
+// Package main 是 mcp-ida sidecar 进程的入口，通过 MCP stdio 协议暴露 IDA 能力。
 package main
 
 import (
@@ -15,12 +16,15 @@ import (
 // can never pollute the protocol channel.
 var mcpStdout atomic.Pointer[os.File]
 
+// protectMCPStdout 保存原始 stdout 供 MCP JSON-RPC 协议独占使用，将 os.Stdout 重定向到 stderr，
+// 防止日志或 fmt 输出污染协议通道。
 func protectMCPStdout() {
 	mcpStdout.Store(os.Stdout)
 	os.Stdout = os.Stderr
 	pkglogger.InitWithConsoleWriter(os.Stderr)
 }
 
+// main 初始化 sidecar 运行环境，限制 GOMAXPROCS，保护 MCP stdout 通道后启动服务。
 func main() {
 	rlimit.Init()
 	if err := os.Setenv("SUPER_DOLPHIN_PROCESS_ROLE", "sidecar"); err != nil {

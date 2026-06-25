@@ -30,6 +30,7 @@ func StructuredContentFromRaw(raw json.RawMessage) (json.RawMessage, error) {
 	}
 }
 
+// structuredArrayContent 将 JSON 数组包装为带 items/total 字段的对象。
 func structuredArrayContent(raw json.RawMessage) (json.RawMessage, error) {
 	var items []json.RawMessage
 	if err := json.Unmarshal(raw, &items); err != nil {

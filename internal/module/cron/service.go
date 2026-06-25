@@ -295,6 +295,7 @@ func (s *service) validateCreate(req *CreateJobRequest) error {
 	return nil
 }
 
+// decodeConfigMap 将原始 JSON 配置解析为 map[string]any，nil/空输入返回空 map。
 func decodeConfigMap(raw json.RawMessage) (map[string]any, error) {
 	if len(raw) == 0 {
 		return map[string]any{}, nil
@@ -309,6 +310,7 @@ func decodeConfigMap(raw json.RawMessage) (map[string]any, error) {
 	return out, nil
 }
 
+// normalizeConfig 将原始 JSON 配置重新序列化为规范 JSON，拒绝语法错误的输入。
 func normalizeConfig(raw json.RawMessage) ([]byte, error) {
 	if len(raw) == 0 {
 		return []byte("{}"), nil
@@ -326,6 +328,7 @@ func normalizeConfig(raw json.RawMessage) ([]byte, error) {
 	return json.Marshal(v)
 }
 
+// marshalSkills 去重、清洗技能列表并序列化为 JSON 数组。
 func marshalSkills(skills []string) ([]byte, error) {
 	if len(skills) == 0 {
 		return []byte("[]"), nil
@@ -399,6 +402,7 @@ func toJob(row cronstore.Job) Job {
 	}
 }
 
+// toRun 把存储层记录转换成 cron run 领域对象。
 func toRun(row cronstore.Run) Run {
 	return Run{
 		ID:             row.ID,
@@ -417,6 +421,7 @@ func toRun(row cronstore.Run) Run {
 	}
 }
 
+// formatTime 将 time.Time 格式化为 RFC3339 UTC 字符串，零值返回空串。
 func formatTime(t time.Time) string {
 	if t.IsZero() {
 		return ""

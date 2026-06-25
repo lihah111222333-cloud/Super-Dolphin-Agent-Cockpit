@@ -1,0 +1,16 @@
+{
+  "mcpServers": {
+    "lsp": {
+      "type": "stdio",
+      "command": "/Users/mima0000/Desktop/wj/super-agent-v3/bin/mcp-lsp",
+      "args": [],
+      "cwd": "/Users/mima0000/Desktop/wj/super-agent-v3",
+      "env": {
+        "SUPER_DOLPHIN_RUNTIME_MODE": "dev",
+        "SUPER_DOLPHIN_RUNTIME_RESOURCES_DIR": "/Users/mima0000/Desktop/wj/super-agent-v3",
+        "GO_AGENT_LSP_ROOT": "/Users/mima0000/Desktop/wj/super-agent-v3",
+        "GO_AGENT_LSP_ROOTS": "[\"/Users/mima0000/Desktop/wj/super-agent-v3\"]"
+      }
+    }
+  }
+}

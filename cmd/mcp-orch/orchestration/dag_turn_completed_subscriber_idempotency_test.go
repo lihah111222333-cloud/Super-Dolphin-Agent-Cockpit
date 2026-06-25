@@ -85,6 +85,7 @@ func seedDAGSubscriberRuntime(t *testing.T, ctx context.Context, store taskdag.S
 	if _, err := store.UpsertDAG(ctx, taskdag.DAG{DagKey: dagKey, Title: dagKey, Status: "draft", CreatedBy: "tester", Metadata: json.RawMessage(`{}`)}); err != nil {
 		t.Fatalf("UpsertDAG(%s) error = %v", dagKey, err)
 	}
+	cwd := t.TempDir()
 	nodes := []taskdag.Node{
 		{
 			DagKey:     dagKey,
@@ -93,10 +94,12 @@ func seedDAGSubscriberRuntime(t *testing.T, ctx context.Context, store taskdag.S
 			NodeType:   "agent",
 			AssignedTo: "agent-root",
 			DependsOn:  json.RawMessage(`[]`),
-			Config: json.RawMessage(`{
-				"exec":{"agent_key":"writer","cwd":"D:/project/Super-Dolphin"},
-				"outputs":{"to_sharedfile":{"path":"reports/root.md","lock_mode":"exclusive"}}
-			}`),
+			Config: dagSubscriberAgentConfig(t, "writer", cwd, map[string]any{
+				"to_sharedfile": map[string]any{
+					"path":      "reports/root.md",
+					"lock_mode": "exclusive",
+				},
+			}),
 		},
 		{
 			DagKey:     dagKey,
@@ -105,7 +108,7 @@ func seedDAGSubscriberRuntime(t *testing.T, ctx context.Context, store taskdag.S
 			NodeType:   "agent",
 			AssignedTo: "agent-child",
 			DependsOn:  json.RawMessage(`["root"]`),
-			Config:     json.RawMessage(`{"exec":{"agent_key":"reviewer","cwd":"D:/project/Super-Dolphin"}}`),
+			Config:     dagSubscriberAgentConfig(t, "reviewer", cwd, nil),
 		},
 	}
 	for _, node := range nodes {
@@ -129,6 +132,24 @@ func seedDAGSubscriberRuntime(t *testing.T, ctx context.Context, store taskdag.S
 	if rows, err := runStore.PromoteRootNodesToReady(ctx, dagKey, run.ID); err != nil || rows != 1 {
 		t.Fatalf("PromoteRootNodesToReady rows=%d error=%v, want 1/nil", rows, err)
 	}
+}
+
+func dagSubscriberAgentConfig(t *testing.T, agentKey, cwd string, outputs map[string]any) json.RawMessage {
+	t.Helper()
+	cfg := map[string]any{
+		"exec": map[string]any{
+			"agent_key": agentKey,
+			"cwd":       cwd,
+		},
+	}
+	if outputs != nil {
+		cfg["outputs"] = outputs
+	}
+	raw, err := json.Marshal(cfg)
+	if err != nil {
+		t.Fatalf("marshal node config: %v", err)
+	}
+	return raw
 }
 
 func assertDAGSubscriberNodeStatus(t *testing.T, nodes []taskdag.Node, nodeKey, want string) {

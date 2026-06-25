@@ -1,3 +1,5 @@
+// Package memory 实现持久化记忆系统：从 turn 事件中提取记忆、写入磁盘、注入 prompt，
+// 并通过 auto-dream 自动整理。支持 standard、combined（team）和 kairos 三种模式。
 package memory
 
 import (

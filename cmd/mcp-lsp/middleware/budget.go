@@ -7,8 +7,10 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/common"
 )
 
+// defaultOutputBudget 是未配置工具时的默认输出字节上限。
 const defaultOutputBudget = 64 * 1024
 
+// defaultToolBudgets 按工具名称预置输出字节上限。
 var defaultToolBudgets = map[string]int{
 	"grep":       16 * 1024,
 	"file":       50 * 1024,
@@ -19,6 +21,7 @@ var defaultToolBudgets = map[string]int{
 	"completion": 16 * 1024,
 }
 
+// Budget 定义工具输出的字节上限。
 type Budget struct {
 	MaxBytes int
 }
@@ -56,11 +59,13 @@ func WithOutputBudget(toolName string, next Handler, budget Budget) Handler {
 	}
 }
 
+// fitsBudget 判断值序列化后是否在预算内。
 func fitsBudget(value any, maxBytes int) bool {
 	_, actualBytes, err := budgetTextBytes(value)
 	return err == nil && actualBytes <= maxBytes
 }
 
+// overflowEnvelope 构造结果超预算时的结构化错误包装。
 func overflowEnvelope(toolName string, value any, maxBytes int) map[string]any {
 	raw, err := json.Marshal(value)
 	if err != nil {
@@ -91,6 +96,7 @@ func budgetTextBytes(value any) ([]byte, int, error) {
 	return raw, len([]byte(text)), nil
 }
 
+// structuredOverflow 根据工具类型选择合适的溢出包装格式。
 func structuredOverflow(toolName string, payload map[string]any, actualBytes, budgetBytes int) map[string]any {
 	switch toolName {
 	case "edit":
@@ -172,6 +178,7 @@ func editOverflowEnvelope(toolName string, payload map[string]any, actualBytes, 
 	return envelope
 }
 
+// originalSuccess 提取 payload 中的 success 字段，payload 为 nil 时返回 nil。
 func originalSuccess(payload map[string]any) any {
 	if payload == nil {
 		return nil
@@ -179,6 +186,7 @@ func originalSuccess(payload map[string]any) any {
 	return payload["success"]
 }
 
+// centerExcerpt 截取文本中间段，保证字节数不超过 maxBytes。
 func centerExcerpt(text string, maxBytes int) string {
 	if len(text) <= maxBytes {
 		return text
@@ -189,6 +197,7 @@ func centerExcerpt(text string, maxBytes int) string {
 	return text[start:end]
 }
 
+// numericField 从 payload 中取 key 对应的数值，不存在时返回 0。
 func numericField(payload map[string]any, key string) any {
 	if value, ok := payload[key]; ok {
 		return value

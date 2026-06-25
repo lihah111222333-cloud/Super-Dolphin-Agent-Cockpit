@@ -1,3 +1,5 @@
+// Package bus 提供基于 kelindar/event 的进程内事件总线，封装 Dispatcher 的创建、
+// 订阅生命周期管理和结构化日志追踪。
 package bus
 
 import (
@@ -13,6 +15,8 @@ import (
 // the canonical definition lives in internal/contract.
 type SubscriberSpec = contract.SubscriberSpec
 
+// SubscriberGroup 持有一组 SubscriberSpec，在 fx 生命周期 OnStart 时统一注册订阅，
+// OnStop 时通过 Cancel 注销；intake 标志防止关闭后新增订阅。
 type SubscriberGroup struct {
 	dispatcher *event.Dispatcher
 	specs      []SubscriberSpec
@@ -24,7 +28,7 @@ type SubscriberGroup struct {
 
 var ErrSubscriberIntakeStopped = errors.New("bus subscriber intake stopped")
 
-// Specs 处理specs。
+// Specs 返回当前注册的 SubscriberSpec 快照副本。
 func (g *SubscriberGroup) Specs() []SubscriberSpec {
 	if g == nil {
 		return nil
@@ -34,7 +38,7 @@ func (g *SubscriberGroup) Specs() []SubscriberSpec {
 	return append([]SubscriberSpec(nil), g.specs...)
 }
 
-// Start 启动平台bus流程。
+// Start 遍历所有 SubscriberSpec 并调用 Register 注册订阅；intake 已关闭时返回错误。
 func (g *SubscriberGroup) Start() error {
 	if g == nil {
 		return nil
@@ -56,7 +60,7 @@ func (g *SubscriberGroup) Start() error {
 	return nil
 }
 
-// StopIntake 停止intake。
+// StopIntake 关闭 intake 标志，之后不再接受新订阅注册。
 func (g *SubscriberGroup) StopIntake() {
 	if g == nil {
 		return
@@ -66,7 +70,7 @@ func (g *SubscriberGroup) StopIntake() {
 	g.intake = false
 }
 
-// Cancel 取消当前运行。
+// Cancel 注销所有已注册的订阅 cancel 函数，线程安全。
 func (g *SubscriberGroup) Cancel() {
 	if g == nil {
 		return
@@ -82,7 +86,7 @@ func (g *SubscriberGroup) Cancel() {
 	}
 }
 
-// CancelCount 处理cancelcount。
+// CancelCount 返回当前已注册的 cancel 函数数量，用于测试和诊断。
 func (g *SubscriberGroup) CancelCount() int {
 	if g == nil {
 		return 0

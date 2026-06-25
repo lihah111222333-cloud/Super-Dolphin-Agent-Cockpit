@@ -12,16 +12,19 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 )
 
+// requiredField 是字段校验的名称/值对。
 type requiredField struct {
 	Name  string
 	Value string
 }
 
+// rawJSONOptions 控制 marshalRawJSON 的序列化行为。
 type rawJSONOptions struct {
 	EmptyObject     bool
 	OmitEmptyString bool
 }
 
+// resourceToolSpec 描述用于生成 list/get 工具对的配置规格。
 type resourceToolSpec struct {
 	ListName        string
 	ListDescription string
@@ -33,6 +36,7 @@ type resourceToolSpec struct {
 	GetHandler      ToolHandler
 }
 
+// makeHandler 构造一个 ToolHandler：先校验依赖、再解码 JSON 输入、最后调用 exec。
 func makeHandler[T any, R any](
 	dependency any,
 	dependencyName string,
@@ -50,6 +54,7 @@ func makeHandler[T any, R any](
 	}
 }
 
+// defineTool 创建基础工具定义（无治理元数据）。
 func defineTool(name, description string, schema Schema, handler ToolHandler) ToolDefinition {
 	return ToolDefinition{
 		Name:        name,
@@ -59,16 +64,19 @@ func defineTool(name, description string, schema Schema, handler ToolHandler) To
 	}
 }
 
+// defineGovernedTool 创建含治理元数据的工具定义。
 func defineGovernedTool(name, description string, schema Schema, handler ToolHandler, metadata ToolMetadata) ToolDefinition {
 	def := defineTool(name, description, schema, handler)
 	def.Metadata = metadata
 	return def
 }
 
+// buildToolDefinitions 将多个 ToolDefinition 合并为切片，便于注册。
 func buildToolDefinitions(defs ...ToolDefinition) []ToolDefinition {
 	return defs
 }
 
+// resourceToolDefinitions 根据 spec 创建一对 list/get 工具定义。
 func resourceToolDefinitions(spec resourceToolSpec) []ToolDefinition {
 	return buildToolDefinitions(
 		defineTool(spec.ListName, spec.ListDescription, ObjectSchema(map[string]Schema{
@@ -82,6 +90,7 @@ func resourceToolDefinitions(spec resourceToolSpec) []ToolDefinition {
 	)
 }
 
+// resourcePosDescription 根据 keyField 返回 pos 参数的描述文本。
 func resourcePosDescription(keyField string) string {
 	switch strings.TrimSpace(keyField) {
 	case "prompt_key":
@@ -93,6 +102,7 @@ func resourcePosDescription(keyField string) string {
 	}
 }
 
+// requireDependency 检查依赖是否已注入，nil/nil 接口均视为未配置。
 func requireDependency(dependency any, name string) error {
 	if name == "" {
 		return nil
@@ -110,6 +120,7 @@ func requireDependency(dependency any, name string) error {
 	return nil
 }
 
+// requireFields 逐个校验字段是否非空，首个空字段立即返回错误。
 func requireFields(fields ...requiredField) error {
 	for _, field := range fields {
 		if strings.TrimSpace(field.Value) == "" {
@@ -119,6 +130,7 @@ func requireFields(fields ...requiredField) error {
 	return nil
 }
 
+// requireTrimmed 校验并返回 trim 后的字段值，空串时返回 required 错误。
 func requireTrimmed(value, field string) (string, error) {
 	if err := requireFields(requiredField{Name: field, Value: value}); err != nil {
 		return "", err
@@ -154,6 +166,7 @@ func requireEnum(value, field string, allowed []string) (string, error) {
 	)
 }
 
+// loadOrNotFound 把 not-found 错误或 nil 值统一转为 "kind id not found" 错误。
 func loadOrNotFound[T any](value *T, err error, kind, id string) (*T, error) {
 	if err != nil {
 		if platformdb.IsNotFound(err) {
@@ -167,6 +180,7 @@ func loadOrNotFound[T any](value *T, err error, kind, id string) (*T, error) {
 	return value, nil
 }
 
+// normalizeListLimit 规范化列表上限：0 或超限时使用默认值。
 func normalizeListLimit(limit, defaultLimit, maxLimit int) int {
 	if limit <= 0 || (maxLimit > 0 && limit > maxLimit) {
 		return defaultLimit

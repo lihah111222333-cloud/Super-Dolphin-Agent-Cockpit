@@ -8,6 +8,7 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 )
 
+// PromptProvider 把个人资料注入 prompt 动态 section 的提供器。
 type PromptProvider struct {
 	service Service
 }
@@ -44,6 +45,7 @@ func (p *PromptProvider) Resolve(ctx context.Context, input contract.SectionCont
 	return &text, nil
 }
 
+// renderPromptProfile 把个人资料渲染为注入 prompt 的文本块，所有字段均为空时返回空字符串。
 func renderPromptProfile(profile Profile) string {
 	lines := []string{"# 用户个人资料"}
 	if value := strings.TrimSpace(profile.DisplayName); value != "" {

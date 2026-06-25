@@ -1,3 +1,4 @@
+// Package datasourcev2 提供文件正文导入、分块存储和语义检索能力，供 prompt 动态段和前端数据源管理页使用。
 package datasourcev2
 
 import (
@@ -324,6 +325,7 @@ func (s *service) DeleteDocument(ctx context.Context, req DeleteDocumentRequest)
 	return DeleteDocumentResult{DocumentID: req.DocumentID, Deleted: true}, nil
 }
 
+// requireStore 检查 store 是否已注入，未注入时 fail-fast。
 func (s *service) requireStore() error {
 	if s == nil || s.store == nil {
 		return errDatasourceV2StoreNotConfigured
@@ -383,6 +385,7 @@ func importSourceTextInTx(
 	})
 }
 
+// importSource 保存已验证的导入文件元信息，供分块写入和入库使用。
 type importSource struct {
 	path      string
 	fileName  string
@@ -390,6 +393,7 @@ type importSource struct {
 	sizeBytes int64
 }
 
+// prepareImportSource 校验 workspace 路径并读取文件元信息。
 func prepareImportSource(ctx context.Context, req ImportFileTextRequest) (importSource, error) {
 	sourcePath, err := validateImportFileRequest(req)
 	if err != nil {
@@ -398,6 +402,7 @@ func prepareImportSource(ctx context.Context, req ImportFileTextRequest) (import
 	return prepareValidatedImportSource(ctx, sourcePath)
 }
 
+// prepareLocalImportSource 校验本地文件路径（不限 workspace），读取文件元信息。
 func prepareLocalImportSource(ctx context.Context, req ImportLocalFileRequest) (importSource, error) {
 	sourcePath, err := validateImportSourcePath(req.SourcePath)
 	if err != nil {
@@ -406,6 +411,7 @@ func prepareLocalImportSource(ctx context.Context, req ImportLocalFileRequest) (
 	return prepareValidatedImportSource(ctx, sourcePath)
 }
 
+// prepareValidatedImportSource 读取已验证路径的文件元信息并构建 importSource。
 func prepareValidatedImportSource(ctx context.Context, sourcePath string) (importSource, error) {
 	if err := ctx.Err(); err != nil {
 		return importSource{}, err
@@ -429,6 +435,7 @@ func prepareValidatedImportSource(ctx context.Context, sourcePath string) (impor
 	}, nil
 }
 
+// validateImportFileRequest 检查 workspace 包含性，成功时返回清理后的绝对路径。
 func validateImportFileRequest(req ImportFileTextRequest) (string, error) {
 	sourcePath, err := validateImportSourcePath(req.SourcePath)
 	if err != nil {
@@ -440,6 +447,7 @@ func validateImportFileRequest(req ImportFileTextRequest) (string, error) {
 	return sourcePath, nil
 }
 
+// validateImportSourcePath 清理并验证路径非空且为绝对路径。
 func validateImportSourcePath(rawSourcePath string) (string, error) {
 	sourcePath := strings.TrimSpace(rawSourcePath)
 	if sourcePath == "" {
@@ -452,6 +460,7 @@ func validateImportSourcePath(rawSourcePath string) (string, error) {
 	return sourcePath, nil
 }
 
+// ensureImportSourceInsideWorkspace 确保导入路径在当前 workspace 范围内。
 func ensureImportSourceInsideWorkspace(sourcePath string) error {
 	workspaceRoot, err := currentDatasourceV2WorkspaceRoot()
 	if err != nil {
@@ -463,6 +472,7 @@ func ensureImportSourceInsideWorkspace(sourcePath string) error {
 	return nil
 }
 
+// currentDatasourceV2WorkspaceRoot 返回当前进程工作目录作为 workspace 根路径。
 func currentDatasourceV2WorkspaceRoot() (string, error) {
 	baseDir, err := os.Getwd()
 	if err != nil {
@@ -471,6 +481,7 @@ func currentDatasourceV2WorkspaceRoot() (string, error) {
 	return filepath.Clean(baseDir), nil
 }
 
+// isSupportedDatasourceV2Extension 检查扩展名是否在支持列表中（pdf/txt/text）。
 func isSupportedDatasourceV2Extension(ext string) bool {
 	switch strings.ToLower(strings.TrimSpace(ext)) {
 	case ".pdf", ".txt", ".text":
@@ -480,12 +491,14 @@ func isSupportedDatasourceV2Extension(ext string) bool {
 	}
 }
 
+// chunkWriteSummary 存储整篇文件分块写入后的摘要统计。
 type chunkWriteSummary struct {
 	contentHash string
 	chunkCount  int32
 	totalChars  int32
 }
 
+// importFileTextResult 将 store Document 转换为 ImportFileTextResult。
 func importFileTextResult(doc datasourcev2store.Document) ImportFileTextResult {
 	return ImportFileTextResult{
 		DocumentID:  doc.ID,
@@ -500,6 +513,7 @@ func importFileTextResult(doc datasourcev2store.Document) ImportFileTextResult {
 	}
 }
 
+// validateUpdateDocumentRequest 校验更新请求并构建 store 参数，路径或扩展名不合法时 fail-fast。
 func validateUpdateDocumentRequest(req UpdateDocumentRequest) (datasourcev2store.UpdateDocumentParams, error) {
 	if req.DocumentID <= 0 {
 		return datasourcev2store.UpdateDocumentParams{}, errDatasourceV2DocumentIDRequired
@@ -535,6 +549,7 @@ func validateUpdateDocumentRequest(req UpdateDocumentRequest) (datasourcev2store
 	}, nil
 }
 
+// documentResults 将 store Document 切片批量转换为 DocumentResult。
 func documentResults(docs []datasourcev2store.Document) []DocumentResult {
 	results := make([]DocumentResult, 0, len(docs))
 	for _, doc := range docs {
@@ -543,6 +558,7 @@ func documentResults(docs []datasourcev2store.Document) []DocumentResult {
 	return results
 }
 
+// documentResult 将 store Document 转换为 DocumentResult。
 func documentResult(doc datasourcev2store.Document) DocumentResult {
 	return DocumentResult{
 		DocumentID:   doc.ID,
@@ -560,6 +576,7 @@ func documentResult(doc datasourcev2store.Document) DocumentResult {
 	}
 }
 
+// textChunkResults 将 store TextChunk 切片批量转换为 TextChunkResult。
 func textChunkResults(chunks []datasourcev2store.TextChunk) []TextChunkResult {
 	results := make([]TextChunkResult, 0, len(chunks))
 	for _, chunk := range chunks {
@@ -568,6 +585,7 @@ func textChunkResults(chunks []datasourcev2store.TextChunk) []TextChunkResult {
 	return results
 }
 
+// textChunkResult 将 store TextChunk 转换为 TextChunkResult。
 func textChunkResult(chunk datasourcev2store.TextChunk) TextChunkResult {
 	return TextChunkResult{
 		ID:             chunk.ID,
@@ -583,6 +601,7 @@ func textChunkResult(chunk datasourcev2store.TextChunk) TextChunkResult {
 	}
 }
 
+// semanticChunkResults 将 store SemanticChunk 切片批量转换为 SemanticChunkResult。
 func semanticChunkResults(chunks []datasourcev2store.SemanticChunk) []SemanticChunkResult {
 	results := make([]SemanticChunkResult, 0, len(chunks))
 	for _, chunk := range chunks {
@@ -591,6 +610,7 @@ func semanticChunkResults(chunks []datasourcev2store.SemanticChunk) []SemanticCh
 	return results
 }
 
+// semanticChunkResult 将 store SemanticChunk 转换为 SemanticChunkResult。
 func semanticChunkResult(chunk datasourcev2store.SemanticChunk) SemanticChunkResult {
 	return SemanticChunkResult{
 		TextChunkResult: textChunkResult(chunk.TextChunk),

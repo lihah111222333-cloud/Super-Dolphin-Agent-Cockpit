@@ -1,3 +1,4 @@
+// Package datasourcev2 提供文件正文导入、分块存储和语义检索能力，供 prompt 动态段和前端数据源管理页使用。
 package datasourcev2
 
 import (
@@ -103,6 +104,7 @@ func writeReaderRunes(ctx context.Context, reader *bufio.Reader, writer *chunkWr
 	}
 }
 
+// readTextRune 从 buffered reader 读取一个合法 UTF-8 rune；遇到替换字符视为无效编码。
 func readTextRune(reader *bufio.Reader) (rune, bool, error) {
 	r, size, err := reader.ReadRune()
 	if errors.Is(err, io.EOF) {
@@ -117,6 +119,8 @@ func readTextRune(reader *bufio.Reader) (rune, bool, error) {
 	return r, false, nil
 }
 
+// chunkWriter 负责将文本流式切分为固定大小的分块并逐块写入数据库。
+// asciiOpen 跟踪当前是否处于 ASCII token 中间，避免在 token 内部截断。
 type chunkWriter struct {
 	documentID  int64
 	store       datasourcev2store.Store
@@ -130,11 +134,13 @@ type chunkWriter struct {
 	asciiOpen   bool
 }
 
+// hashWriter 是 chunkWriter 内部用于增量计算 SHA-256 的接口。
 type hashWriter interface {
 	Write([]byte) (int, error)
 	Sum([]byte) []byte
 }
 
+// newChunkWriter 创建分块写入器，使用 SHA-256 对整篇文件做增量摘要。
 func newChunkWriter(documentID int64, store datasourcev2store.Store) *chunkWriter {
 	return &chunkWriter{
 		documentID: documentID,
@@ -160,6 +166,7 @@ func (w *chunkWriter) writeRune(ctx context.Context, r rune) error {
 	return w.flushIfFull(ctx)
 }
 
+// appendRune 将 rune 编码后追加到分块缓冲，同步更新字节数、字符数和 token 状态。
 func (w *chunkWriter) appendRune(r rune) error {
 	var encoded [utf8.UTFMax]byte
 	encodedBytes := utf8.EncodeRune(encoded[:], r)
@@ -183,6 +190,7 @@ func (w *chunkWriter) appendRune(r rune) error {
 	return nil
 }
 
+// flushIfFull 当前分块字节数或 token 数达到阈值时立即 flush。
 func (w *chunkWriter) flushIfFull(ctx context.Context) error {
 	if w.chunkBytes >= datasourceV2ChunkMaxBytes {
 		return w.flush(ctx)
@@ -193,6 +201,7 @@ func (w *chunkWriter) flushIfFull(ctx context.Context) error {
 	return nil
 }
 
+// shouldFlushBeforeRune 判断当前 rune 写入前是否需要先 flush，避免在 ASCII token 中间截断。
 func (w *chunkWriter) shouldFlushBeforeRune(r rune) bool {
 	if w.chunkChars == 0 || w.chunkTokens < datasourceV2ChunkTargetTokens {
 		return false

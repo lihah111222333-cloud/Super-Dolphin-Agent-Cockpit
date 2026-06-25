@@ -1,3 +1,4 @@
+// Package datasource 提供本地文件上传、列举和删除能力，并把文件正文入库供 prompt 动态段消费。
 package datasource
 
 import (
@@ -11,6 +12,7 @@ import (
 
 var _ contract.DynamicSectionProvider = (*PromptProvider)(nil)
 
+// PromptProvider 把 datasource 工作区的文件列表或文档正文接入 prompt 动态段。
 type PromptProvider struct {
 	svc Service
 }
@@ -49,6 +51,7 @@ func (p *PromptProvider) Resolve(ctx context.Context, input contract.SectionCont
 	return &text, nil
 }
 
+// renderDatasourcePromptSection 将文件名列表渲染为 prompt 段落文本。
 func renderDatasourcePromptSection(fileNames []string) string {
 	names := make([]string, 0, len(fileNames))
 	for _, name := range fileNames {
@@ -72,6 +75,7 @@ func renderDatasourcePromptSection(fileNames []string) string {
 	return strings.Join(lines, "\n")
 }
 
+// renderDatasourceDocumentPromptSection 将文档内容列表渲染为带分节标题的 prompt 段落。
 func renderDatasourceDocumentPromptSection(documents []DatasourceDocument) string {
 	documents = normalizeDatasourceDocuments(documents)
 	if len(documents) == 0 {
@@ -93,6 +97,7 @@ func renderDatasourceDocumentPromptSection(documents []DatasourceDocument) strin
 	return strings.Join(lines, "\n")
 }
 
+// normalizeDatasourceDocuments 过滤空名称或空内容的文档并按名称升序排序。
 func normalizeDatasourceDocuments(documents []DatasourceDocument) []DatasourceDocument {
 	normalized := make([]DatasourceDocument, 0, len(documents))
 	for _, document := range documents {

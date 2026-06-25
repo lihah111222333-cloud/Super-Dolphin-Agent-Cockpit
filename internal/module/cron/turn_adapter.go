@@ -111,6 +111,7 @@ func (a *TurnServiceAdapter) StartTurn(ctx context.Context, req StartTurnRequest
 	}, nil
 }
 
+// resolveThreadAgent 解析 ThreadID/AgentID，首次触发时调用 bootstrapper 创建线程。
 func (a *TurnServiceAdapter) resolveThreadAgent(ctx context.Context, req StartTurnRequest) (contract.Session, string, error) {
 	threadID := strings.TrimSpace(req.ThreadID)
 	agentID := strings.TrimSpace(req.AgentID)
@@ -137,6 +138,7 @@ func (a *TurnServiceAdapter) resolveThreadAgent(ctx context.Context, req StartTu
 	return session, agentID, nil
 }
 
+// executeTurn 调用 CronPrepareTurn 和 CronStartTurn，返回本地 turn_id。
 func (a *TurnServiceAdapter) executeTurn(ctx context.Context, session contract.Session, req StartTurnRequest) (string, error) {
 	prepared, err := a.svc.CronPrepareTurn(ctx, session, a.buildPrepareInput(req))
 	if err != nil {
@@ -275,14 +277,7 @@ func (a *TurnServiceAdapter) buildPrepareInput(req StartTurnRequest) contract.Cr
 	}
 }
 
-// decodeRuntimeConfig turns a JSON blob into a map[string]any, or nil
-// when the blob is missing/invalid. A decode error is silently
-// dropped — the turn layer treats nil config as "no overrides" and a
-// malformed config has already been rejected at cron create time by
-// the service-layer ResolveCodexIdentity check (phase 2a), so reaching
-// this branch implies the row was mutated after validation.
-//
-// 这里不是新的容错层。要改变坏 config 的处理方式，先改 service 校验和存储约束。
+// decodeRuntimeConfig 将原始 JSON 配置解码为 map[string]any，解码失败时静默返回 nil。
 func decodeRuntimeConfig(raw json.RawMessage) map[string]any {
 	if len(raw) == 0 {
 		return nil

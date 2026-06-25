@@ -35,18 +35,19 @@ import (
 	"go.uber.org/fx"
 )
 
-// stdio、HTTP 和 bootstrap toolbridge 都从同一个 registry 暴露工具。
-// 别为不同传输复制一套 handler。
+// registryToolProvider 把 tools.Registry 适配为 common.ToolProvider 接口，供 stdio/HTTP/bootstrap 共用同一套工具注册表。
 type registryToolProvider struct {
 	registry tools.Registry
 }
 
+// bootstrapRunner 负责向主控注册并订阅 hook，在 peer 模式下启动 bootstrap 客户端。
 type bootstrapRunner struct {
 	cfg        bootstrap.Config
 	client     bootstrapClient
 	stdioReady <-chan struct{} // closed when stdio server is ready
 }
 
+// bootstrapClient 定义 bootstrap 客户端的核心操作接口。
 type bootstrapClient interface {
 	InstallLogRelay()
 	Start(context.Context) error
@@ -54,6 +55,7 @@ type bootstrapClient interface {
 	hookSubscriber
 }
 
+// runtimeParams 是 bindRuntime 的 fx 依赖注入容器。
 type runtimeParams struct {
 	fx.In
 
@@ -62,6 +64,7 @@ type runtimeParams struct {
 	Shutdowner fx.Shutdowner
 }
 
+// newLogger 初始化日志写入器，优先写入 /tmp/mcp-orch-<pid>.log，失败时回退到 stderr。
 func newLogger(cfg *platformconfig.Config) *slog.Logger {
 	// MCP stdio uses stdout for JSON-RPC; keep local fallback logs off stdout.
 	logPath := fmt.Sprintf("/tmp/mcp-orch-%d.log", os.Getpid())
@@ -73,21 +76,26 @@ func newLogger(cfg *platformconfig.Config) *slog.Logger {
 	return pkglogger.Get()
 }
 
+// newQueries 创建 sqlc 查询集。
 func newQueries(db *sql.DB) *sqlc.Queries { return sqlc.New(db) }
 
+// newAgentThreadStore 创建线程存储。
 func newAgentThreadStore(db *sql.DB) orchestration.AgentThreadStore {
 	return agentstore.NewThreadStore(db)
 }
 
+// newAgentBindingStore 创建 agent 绑定存储。
 func newAgentBindingStore(db *sql.DB) orchestration.AgentBindingStore {
 	return agentstore.NewBindingStore(db)
 }
 
+// mcpOrchDBReadyProbe 是数据库就绪探针接口，用于启动时校验 schema 版本。
 type mcpOrchDBReadyProbe interface {
 	PingContext(context.Context) error
 	QueryRowContext(context.Context, string, ...any) *sql.Row
 }
 
+// verifyMCPOrchDatabaseReady 校验数据库连通性和最低 schema 版本，启动时 fail-fast。
 func verifyMCPOrchDatabaseReady(ctx context.Context, probe mcpOrchDBReadyProbe) error {
 	if err := probe.PingContext(ctx); err != nil {
 		return fmt.Errorf("mcp-orch database ping failed: %w", err)
@@ -98,12 +106,7 @@ func verifyMCPOrchDatabaseReady(ctx context.Context, probe mcpOrchDBReadyProbe) 
 	return nil
 }
 
-// noopSessionCleaner satisfies contract.OrchestrationSessionCleaner in
-// standalone mode. P22 P4 S4b: RemoveSessionGeneration is now part of
-// the owner contract; the noop impl returns silently to preserve the
-// pre-S4b duck-typing behavior (the old type assertion would have
-// failed and the service would fall through to the generation-unaware
-// RemoveSession, which in this noop case is also a no-op).
+// noopSessionCleaner 在独立模式下满足 contract.OrchestrationSessionCleaner 接口。
 type noopSessionCleaner struct{}
 
 // RemoveSession 移除 runtime 中的会话记录。
@@ -121,14 +124,7 @@ func newNoopSessionCleaner() contract.OrchestrationSessionCleaner {
 	return noopSessionCleaner{}
 }
 
-// noopTurnStarter satisfies contract.OrchestrationTurnStarter in standalone mode.
-// Turn submission via orchestration will return an error because no upstream turn
-// service is wired.
-//
-// P22 P4 S4a: after WaitForSessionReady joined the owner contract, this
-// noop type must commit to it too; returning nil matches the pre-S4a
-// duck-typing path in cmd/mcp-orch/orchestration/helpers.go where the
-// type-assertion would have failed and the helper returned nil.
+// noopTurnStarter 在独立模式下满足 contract.OrchestrationTurnStarter 接口，提交 turn 时返回错误。
 type noopTurnStarter struct{}
 
 // StartTurn 把 cron 运行转换成一次线程 turn。
@@ -145,6 +141,7 @@ func newNoopTurnStarter() contract.OrchestrationTurnStarter {
 	return noopTurnStarter{}
 }
 
+// newRegistryParams 是 newRegistry 的 fx 依赖注入容器。
 type newRegistryParams struct {
 	fx.In
 
@@ -157,6 +154,7 @@ type newRegistryParams struct {
 	ModelRegistry  modelregistry.Registry
 }
 
+// newModelRegistry 创建模型注册表，失败时报错阻断启动。
 func newModelRegistry(logger *slog.Logger) (modelregistry.Registry, error) {
 	registry, err := modelregistry.NewDefaultRegistry(modelregistry.WithLogger(logger))
 	if err == nil {

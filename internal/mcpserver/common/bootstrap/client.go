@@ -1,3 +1,4 @@
+// Package bootstrap 提供 MCP peer 进程向控制平面注册、心跳、日志中继和生命周期管理的客户端能力。
 package bootstrap
 
 import (
@@ -29,6 +30,7 @@ const (
 	defaultCallbackDrainTimeout = 2 * time.Second
 )
 
+// Client 是 MCP peer 进程的控制平面客户端，负责注册、心跳、报告队列和回调分发。
 type Client struct {
 	instanceID string
 	lease      mcp.LeaseKey
@@ -68,6 +70,7 @@ type Client struct {
 	callbackWG sync.WaitGroup
 }
 
+// Config 是创建 Client 时必须提供的静态配置。
 type Config struct {
 	RPCAddr              string
 	InstanceID           string

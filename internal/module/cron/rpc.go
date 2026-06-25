@@ -19,6 +19,7 @@ import (
 // omitted, the service falls back to now + 1 minute (phase 2b will replace
 // this with real cron-expression parsing).
 
+// cronCreateParams 是 cronjob/create 的 JSON-RPC 请求参数。
 type cronCreateParams struct {
 	Name         string `json:"name"`
 	Prompt       string `json:"prompt"`
@@ -60,6 +61,7 @@ type cronListRunsParams struct {
 // Host RPC response types. JSON tags match the original map keys to preserve
 // wire-format compatibility.
 
+// cronListResponse 是 cronjob/list 的 JSON-RPC 响应。
 type cronListResponse struct {
 	Jobs []Job `json:"jobs"`
 }
@@ -94,6 +96,7 @@ func NewHandlers(svc Service) platformrpc.HandlerMapResult {
 	}}
 }
 
+// createHandler 构造 cronjob/create 的处理函数。
 func createHandler(svc Service) func(context.Context, cronCreateParams) (Job, error) {
 	return func(ctx context.Context, p cronCreateParams) (Job, error) {
 		req, err := createRequestFrom(p)
@@ -140,6 +143,7 @@ func updateHandler(svc Service) func(context.Context, cronUpdateParams) (Job, er
 	}
 }
 
+// getHandler 构造 cronjob/get 的处理函数。
 func getHandler(svc Service) func(context.Context, cronIDParams) (Job, error) {
 	return func(ctx context.Context, p cronIDParams) (Job, error) {
 		job, err := svc.GetJob(ctx, p.ID)
@@ -150,6 +154,7 @@ func getHandler(svc Service) func(context.Context, cronIDParams) (Job, error) {
 	}
 }
 
+// listHandler 构造 cronjob/list 的处理函数。
 func listHandler(svc Service) func(context.Context, struct{}) (cronListResponse, error) {
 	return func(ctx context.Context, _ struct{}) (cronListResponse, error) {
 		jobs, err := svc.ListJobs(ctx)
@@ -163,6 +168,7 @@ func listHandler(svc Service) func(context.Context, struct{}) (cronListResponse,
 	}
 }
 
+// runOnceHandler 构造 cronjob/runOnce 的处理函数。
 func runOnceHandler(svc Service) func(context.Context, cronIDParams) (Job, error) {
 	return func(ctx context.Context, p cronIDParams) (Job, error) {
 		job, err := svc.RunOnce(ctx, p.ID)
@@ -173,6 +179,7 @@ func runOnceHandler(svc Service) func(context.Context, cronIDParams) (Job, error
 	}
 }
 
+// deleteHandler 构造 cronjob/delete 的处理函数。
 func deleteHandler(svc Service) func(context.Context, cronIDParams) (cronDeleteResponse, error) {
 	return func(ctx context.Context, p cronIDParams) (cronDeleteResponse, error) {
 		if err := svc.DeleteJob(ctx, p.ID); err != nil {
@@ -182,6 +189,7 @@ func deleteHandler(svc Service) func(context.Context, cronIDParams) (cronDeleteR
 	}
 }
 
+// setEnabledHandler 构造 cronjob/setEnabled 的处理函数。
 func setEnabledHandler(svc Service) func(context.Context, cronEnabledParams) (cronSetEnabledResponse, error) {
 	return func(ctx context.Context, p cronEnabledParams) (cronSetEnabledResponse, error) {
 		if err := svc.SetJobEnabled(ctx, p.ID, p.Enabled); err != nil {
@@ -191,6 +199,7 @@ func setEnabledHandler(svc Service) func(context.Context, cronEnabledParams) (cr
 	}
 }
 
+// listRunsHandler 构造 cronjob/listRuns 的处理函数。
 func listRunsHandler(svc Service) func(context.Context, cronListRunsParams) (cronListRunsResponse, error) {
 	return func(ctx context.Context, p cronListRunsParams) (cronListRunsResponse, error) {
 		runs, err := svc.ListJobRuns(ctx, p.JobID, p.Limit)
@@ -240,10 +249,7 @@ func createRequestFrom(p cronCreateParams) (CreateJobRequest, error) {
 	}, nil
 }
 
-// mapRPCError classifies service / store errors into jrpc2 codes. Validation
-// and identity errors map to InvalidParams; not-found maps to jrpc2's
-// dedicated not-found via platformrpc.ErrNotFound; everything else propagates as
-// the raw error so the transport layer handles it as an internal error.
+// mapRPCError 将服务层/存储层错误映射为 jrpc2 错误码，未知错误原样透传。
 func mapRPCError(err error) error {
 	if err == nil {
 		return nil

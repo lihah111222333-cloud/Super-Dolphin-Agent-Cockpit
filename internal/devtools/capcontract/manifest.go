@@ -8,6 +8,7 @@ import (
 	"strings"
 )
 
+// Manifest 是能力契约清单的根结构，记录版本、生成时间、扫描根目录和各包清单。
 type Manifest struct {
 	Version     string            `json:"version"`
 	GeneratedAt string            `json:"generated_at"`
@@ -16,6 +17,7 @@ type Manifest struct {
 	Packages    []PackageManifest `json:"packages"`
 }
 
+// ManifestSummary 是清单的统计摘要，记录包数、函数数、接口数等总量。
 type ManifestSummary struct {
 	TotalPackages         int `json:"total_packages"`
 	TotalFunctions        int `json:"total_functions"`
@@ -27,6 +29,7 @@ type ManifestSummary struct {
 	TotalStructs          int `json:"total_structs"`
 }
 
+// PackageManifest 是单个 Go 包的能力清单，包含路径、名称和所有导出符号。
 type PackageManifest struct {
 	Path        string              `json:"path"`
 	Name        string              `json:"name"`
@@ -37,6 +40,7 @@ type PackageManifest struct {
 	Structs     []StructManifest    `json:"structs,omitempty"`
 }
 
+// FunctionManifest 描述包级函数的名称、导出性、参数和返回类型。
 type FunctionManifest struct {
 	Name     string          `json:"name"`
 	Exported bool            `json:"exported"`
@@ -44,6 +48,7 @@ type FunctionManifest struct {
 	Returns  []string        `json:"returns,omitempty"`
 }
 
+// MethodManifest 描述方法的接收者、名称、导出性、参数和返回类型。
 type MethodManifest struct {
 	Receiver string          `json:"receiver"`
 	Name     string          `json:"name"`
@@ -52,6 +57,7 @@ type MethodManifest struct {
 	Returns  []string        `json:"returns,omitempty"`
 }
 
+// InterfaceManifest 描述接口的名称、导出性、方法列表和嵌入类型。
 type InterfaceManifest struct {
 	Name     string                 `json:"name"`
 	Exported bool                   `json:"exported"`
@@ -59,22 +65,26 @@ type InterfaceManifest struct {
 	Embeds   []string               `json:"embeds,omitempty"`
 }
 
+// InterfaceMethodEntry 描述接口内单个方法的名称、参数和返回类型。
 type InterfaceMethodEntry struct {
 	Name    string          `json:"name"`
 	Params  []ParamManifest `json:"params,omitempty"`
 	Returns []string        `json:"returns,omitempty"`
 }
 
+// StructManifest 描述结构体的名称和导出性，用于清单比对。
 type StructManifest struct {
 	Name     string `json:"name"`
 	Exported bool   `json:"exported"`
 }
 
+// ParamManifest 描述函数/方法参数的名称和类型。
 type ParamManifest struct {
 	Name string `json:"name,omitempty"`
 	Type string `json:"type"`
 }
 
+// DiffResult 是两份清单比对的结果，包含新增、删除和变更的符号名列表。
 type DiffResult struct {
 	Added   []string `json:"added,omitempty"`
 	Removed []string `json:"removed,omitempty"`

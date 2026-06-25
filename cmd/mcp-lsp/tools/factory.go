@@ -293,6 +293,7 @@ func normalizeLanguageIDOverride(languageID string) string {
 	return strings.ToLower(strings.TrimSpace(languageID))
 }
 
+// requireFilePath 验证路径非空，返回 trim 后的路径。
 func requireFilePath(raw string) (string, error) {
 	filePath := strings.TrimSpace(raw)
 	if filePath == "" {
@@ -301,6 +302,7 @@ func requireFilePath(raw string) (string, error) {
 	return filePath, nil
 }
 
+// requirePosition 把 1-based 行列转换为 LSP 0-based Position，拒绝非正值。
 func requirePosition(line, column int) (protocol.Position, error) {
 	if line <= 0 {
 		return protocol.Position{}, errors.New("line must be >= 1")
@@ -314,6 +316,7 @@ func requirePosition(line, column int) (protocol.Position, error) {
 	}, nil
 }
 
+// resolveFilePositionRequest 解析 pos 参数、解析路径、校验位置是否在文件范围内。
 func resolveFilePositionRequest(ctx context.Context, params filePositionParams) (string, protocol.Position, error) {
 	filePathRaw, line, col, err := parsePos(params.Pos)
 	if err != nil {
@@ -333,6 +336,7 @@ func resolveFilePositionRequest(ctx context.Context, params filePositionParams) 
 	return filePath, position, nil
 }
 
+// parsePos 解析三段式 pos（file:line:column），缺少 column 时报错。
 func parsePos(pos string) (string, int, int, error) {
 	filePath, line, col, hasCol, err := parseFilePos(pos, true)
 	if err != nil {
@@ -382,11 +386,13 @@ func parseFilePos(pos string, requireCol bool) (string, int, int, bool, error) {
 	return parseFileLineColumnPos(pos, remaining[:secondLastColon], maybeLine, tail)
 }
 
+// parsePositivePosSegment 把字符串解析为正整数，失败时返回 false。
 func parsePositivePosSegment(value string) (int, bool) {
 	parsed, parseErr := strconv.Atoi(value)
 	return parsed, parseErr == nil && parsed > 0
 }
 
+// parseFileLinePos 解析 file:line 两段式 pos。
 func parseFileLinePos(pos string, rawFilePath string, line int, requireCol bool) (string, int, int, bool, error) {
 	filePath := strings.TrimSpace(rawFilePath)
 	if filePath == "" {
@@ -398,6 +404,7 @@ func parseFileLinePos(pos string, rawFilePath string, line int, requireCol bool)
 	return filePath, line, 0, false, nil
 }
 
+// parseFileLineColumnPos 解析 file:line:col 三段式 pos。
 func parseFileLineColumnPos(pos string, rawFilePath string, line int, col int) (string, int, int, bool, error) {
 	filePath := strings.TrimSpace(rawFilePath)
 	if filePath == "" {
@@ -406,6 +413,7 @@ func parseFileLineColumnPos(pos string, rawFilePath string, line int, col int) (
 	return filePath, line, col, true, nil
 }
 
+// validateResolvedFilePosition 校验行列是否在文件实际范围内，超出时返回带元信息的 coded error。
 func validateResolvedFilePosition(filePath string, line int, column int) error {
 	content, err := os.ReadFile(filePath)
 	if err != nil {
@@ -424,6 +432,7 @@ func validateResolvedFilePosition(filePath string, line int, column int) error {
 	return nil
 }
 
+// newLineOutOfRangeError 构建行号超出文件范围的 coded error，附带元信息。
 func newLineOutOfRangeError(line int, lineCount int) error {
 	err := common.NewCodedToolError(
 		"line_out_of_range",
@@ -443,6 +452,7 @@ func newLineOutOfRangeError(line int, lineCount int) error {
 
 var positionIdentifierRE = regexp.MustCompile(`[A-Za-z_][A-Za-z0-9_]*`)
 
+// newPositionOutOfRangeError 构建列号超出行范围的 coded error，附带建议列位置。
 func newPositionOutOfRangeError(line int, column int, lineText string, lineLength int, maxColumn int) error {
 	err := common.NewCodedToolError(
 		"position_out_of_range",
@@ -464,6 +474,7 @@ func newPositionOutOfRangeError(line int, column int, lineText string, lineLengt
 	return err
 }
 
+// suggestedIdentifierColumns 扫描行文本，返回标识符起始列位置建议列表。
 func suggestedIdentifierColumns(lineText string) []map[string]any {
 	matches := positionIdentifierRE.FindAllStringIndex(lineText, -1)
 	suggestions := make([]map[string]any, 0, len(matches))
@@ -477,10 +488,12 @@ func suggestedIdentifierColumns(lineText string) []map[string]any {
 	return suggestions
 }
 
+// normalizeAction 把 action 字符串规范化为小写无空白。
 func normalizeAction(raw string) string {
 	return strings.ToLower(strings.TrimSpace(raw))
 }
 
+// renderListResult 截取列表至 limit，空时返回标准空列表信封。
 func renderListResult[T any](items []T, limit int, emptyMessage string, render func([]T, int) any) (any, error) {
 	total := len(items)
 	items = limitSlice(items, limit)
@@ -494,6 +507,7 @@ func renderListResult[T any](items []T, limit int, emptyMessage string, render f
 	return render(items, total), nil
 }
 
+// wrapToolHandler 用 Recovery/Logging/Timeout/Budget 中间件链包装工具处理函数。
 func wrapToolHandler(toolName string, tier time.Duration, handler middleware.Handler) middleware.Handler {
 	log := pkglogger.Get()
 	scopedHandler := func(ctx context.Context, params json.RawMessage) (any, error) {
@@ -513,6 +527,7 @@ func wrapToolHandler(toolName string, tier time.Duration, handler middleware.Han
 	return middleware.WithOutputBudget(toolName, chained, middleware.Budget{})
 }
 
+// explicitToolWorkDirParams 是工具请求中 work_dir 字段的解码容器。
 type explicitToolWorkDirParams struct {
 	WorkDir string `json:"work_dir,omitempty"`
 }
@@ -538,6 +553,7 @@ func contextWithExplicitToolWorkDir(ctx context.Context, params json.RawMessage)
 	return scopedCtx, nil
 }
 
+// contextWithExplicitWorkDir 把显式传入的 work_dir 写入 ctx 的 tool scope，并验证路径在工作区根内。
 func contextWithExplicitWorkDir(ctx context.Context, workDir string) (context.Context, string, error) {
 	normalized, err := normalizeExplicitWorkDir(ctx, workDir)
 	if err != nil {
@@ -555,6 +571,7 @@ func contextWithExplicitWorkDir(ctx context.Context, workDir string) (context.Co
 	return common.WithToolScope(ctx, scope), normalized, nil
 }
 
+// ensureExplicitWorkDirWithinWorkspaceRoots 确保 work_dir 在工作区根目录范围内。
 func ensureExplicitWorkDirWithinWorkspaceRoots(ctx context.Context, workDir string) error {
 	roots, err := common.WorkspaceRootsFromContextStrict(ctx)
 	if err != nil {
@@ -604,12 +621,14 @@ func normalizeExplicitWorkDir(ctx context.Context, workDir string) (string, erro
 // FuncStart/FuncEnd to each LocationResult. The cache keeps repeated
 // lookups for the same file cheap when a request returns multiple
 // locations clustered in one source file.
+// funcRangeEnricher 按需获取 DocumentSymbols 并缓存，用于给位置结果附加函数范围信息。
 type funcRangeEnricher struct {
 	ctx      context.Context
 	registry lspmanager.Registry
 	cache    map[string][]protocol.DocumentSymbol
 }
 
+// newFuncRangeEnricher 创建 funcRangeEnricher，registry 为 nil 时返回 nil。
 func newFuncRangeEnricher(ctx context.Context, registry lspmanager.Registry) *funcRangeEnricher {
 	if registry == nil {
 		return nil

@@ -15,6 +15,7 @@ import (
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
+// agentIDRegistry 记录正在启动中的 agent ID 预留，防止并发重复启动同一 ID。
 type agentIDRegistry struct {
 	mu           sync.Mutex
 	reservations map[string]struct{}
@@ -22,6 +23,7 @@ type agentIDRegistry struct {
 
 var agentIDReg = &agentIDRegistry{}
 
+// LaunchAgentInput 是 launch_agent MCP 工具的入参结构体。
 type LaunchAgentInput struct {
 	AgentID            string `json:"agent_id,omitempty"`
 	Name               string `json:"name"`
@@ -45,6 +47,7 @@ type LaunchAgentInput struct {
 	DisabledTools      string `json:"disabled_tools,omitempty"`
 }
 
+// SendMessageInput 是 send_message MCP 工具的入参结构体。
 type SendMessageInput struct {
 	AgentID    string `json:"agent_id"`
 	Pos        string `json:"pos,omitempty"`
@@ -53,11 +56,13 @@ type SendMessageInput struct {
 	TimeoutMS  int    `json:"timeout_ms,omitempty"`
 }
 
+// AgentIDInput 是需要 agent ID 的通用工具入参结构体。
 type AgentIDInput struct {
 	AgentID string `json:"agent_id"`
 	Pos     string `json:"pos,omitempty"`
 }
 
+// stopAgentInput 是 stop_agent MCP 工具的入参结构体。
 type stopAgentInput struct {
 	AgentID   string `json:"agent_id"`
 	Pos       string `json:"pos,omitempty"`
@@ -65,6 +70,7 @@ type stopAgentInput struct {
 	TimeoutMS int    `json:"timeout_ms,omitempty"`
 }
 
+// ListAgentsInput 是 list_agents MCP 工具的入参结构体。
 type ListAgentsInput struct {
 	State           string `json:"state,omitempty"`
 	CWD             string `json:"cwd,omitempty"`
@@ -74,6 +80,7 @@ type ListAgentsInput struct {
 	Envelope        bool   `json:"envelope,omitempty"`
 }
 
+// ListAgentsOutput 是 list_agents 工具在 envelope 模式下的返回结构体。
 type ListAgentsOutput struct {
 	Agents    []contract.AgentSnapshot `json:"agents"`
 	Data      []contract.AgentSnapshot `json:"data"`
@@ -83,10 +90,12 @@ type ListAgentsOutput struct {
 	Hint      string                   `json:"hint,omitempty"`
 }
 
+// launchAgentSnapshotter 是支持快照式启动的 orchestration service 可选接口。
 type launchAgentSnapshotter interface {
 	LaunchAgentSnapshot(context.Context, contract.LaunchRequest) (contract.AgentSnapshot, error)
 }
 
+// agentArchiver 是支持 ArchiveAgent 的 orchestration service 可选接口。
 type agentArchiver interface {
 	ArchiveAgent(context.Context, string) error
 }
@@ -243,6 +252,7 @@ func matchingAgentID(ctx context.Context, svc contract.OrchestrationService, age
 	return contract.AgentSnapshot{}, false, nil
 }
 
+// activeAgentState 判断 agent 是否处于活跃状态（可接受新消息）。
 func activeAgentState(state string) bool {
 	switch strings.TrimSpace(state) {
 	case "provisioning", "idle", "turn_queued", "turn_starting", "turn_running", "awaiting_user_input", "recovering":
@@ -252,10 +262,12 @@ func activeAgentState(state string) bool {
 	}
 }
 
+// stoppingAgentState 判断 agent 是否处于 stopping 状态。
 func stoppingAgentState(state string) bool {
 	return strings.TrimSpace(state) == "stopping"
 }
 
+// archivedAgentState 判断 agent 是否处于已归档/停止状态。
 func archivedAgentState(state string) bool {
 	switch strings.TrimSpace(state) {
 	case "stopped", "archived":
@@ -265,10 +277,12 @@ func archivedAgentState(state string) bool {
 	}
 }
 
+// blocksLaunchAgentIDState 判断 agent 状态是否会阻止重复使用同一 ID 启动。
 func blocksLaunchAgentIDState(state string) bool {
 	return activeAgentState(state) || stoppingAgentState(state) || archivedAgentState(state)
 }
 
+// launchAgentAcceptedResult 从快照构造 launch_agent 成功返回的 map。
 func launchAgentAcceptedResult(snapshot contract.AgentSnapshot, reservedID string) map[string]any {
 	agentID := shared.FirstTrimmed(snapshot.AgentID, snapshot.ID, reservedID)
 	result := map[string]any{"agent_id": agentID, "status": "launching"}
@@ -346,6 +360,7 @@ func existingLaunchAgentIDs(ctx context.Context, svc contract.OrchestrationServi
 	return existing, activeExisting, nil
 }
 
+// launchAgentIDInUseLocked 在持有锁时检查 agentID 是否已被占用或预留。
 func launchAgentIDInUseLocked(agentID string, existing map[string]struct{}) bool {
 	agentID = strings.TrimSpace(agentID)
 	if agentID == "" {
@@ -358,6 +373,7 @@ func launchAgentIDInUseLocked(agentID string, existing map[string]struct{}) bool
 	return ok
 }
 
+// releaseLaunchAgentID 返回释放 agentID 预留的闭包函数。
 func releaseLaunchAgentID(agentID string) func() {
 	return func() {
 		agentIDReg.mu.Lock()
@@ -456,6 +472,7 @@ func HandleListAgents(svc contract.OrchestrationService) ToolHandler {
 	})
 }
 
+// newListAgentsOutput 构造 list_agents 的 envelope 返回对象。
 func newListAgentsOutput(agents []contract.AgentSnapshot, limit int) ListAgentsOutput {
 	env := newListEnvelope(agents, limit, "next: single report -> get_agent_report pos=agent:<agent_id>; batch reports -> get_agent_reports agent_ids=[...]")
 	return ListAgentsOutput{
@@ -468,6 +485,7 @@ func newListAgentsOutput(agents []contract.AgentSnapshot, limit int) ListAgentsO
 	}
 }
 
+// listAgentSnapshots 带超时保护地获取所有 agent 快照列表。
 func listAgentSnapshots(ctx context.Context, svc contract.OrchestrationService) ([]contract.AgentSnapshot, error) {
 	listCtx, cancel := platformconfig.WithTimeoutIfNone(ctx, platformconfig.RPCRequestTimeout)
 	defer cancel()
@@ -555,10 +573,12 @@ func launchRequestFromExecutable(in LaunchAgentInput, exe string) (contract.Laun
 	return req, nil
 }
 
+// mergeLaunchDisabledTools 合并默认禁用工具列表与用户指定的额外禁用工具。
 func mergeLaunchDisabledTools(userValue string) string {
 	return joinUniqueCSV(append([]string(nil), launchAgentDefaultDisabledTools...), userValue)
 }
 
+// joinUniqueCSV 把 defaults 和 extra（逗号分隔）合并为去重的 CSV 字符串。
 func joinUniqueCSV(defaults []string, extra string) string {
 	seen := make(map[string]struct{}, len(defaults))
 	out := make([]string, 0, len(defaults))
@@ -612,6 +632,7 @@ func launchPromptFromContextMode(in LaunchAgentInput) (string, error) {
 	}
 }
 
+// normalizedLaunchContextMode 将 context_mode 规范为小写，空值默认为 minimal。
 func normalizedLaunchContextMode(raw string) string {
 	mode := strings.ToLower(strings.TrimSpace(raw))
 	if mode == "" {
@@ -620,6 +641,7 @@ func normalizedLaunchContextMode(raw string) string {
 	return mode
 }
 
+// validateLaunchProvider 校验并规范化 provider 字段，空值默认为 codex。
 func validateLaunchProvider(raw string) (string, error) {
 	// provider 可选；空串/纯空白 → codex。
 	// 非空时走 requireEnum 与 launchAgentProviderEnum 校验（单源驱动）。
@@ -643,6 +665,7 @@ func rejectUnsupportedClaudeChildLaunch(provider, parentID string) error {
 	return fmt.Errorf("Claude sub-agent orchestration is not supported; launch_agent child agents currently support provider=codex only")
 }
 
+// validateMemoryScope 校验并规范化 memory_scope 字段，空值视为合法。
 func validateMemoryScope(raw string) (string, error) {
 	scope := strings.ToLower(strings.TrimSpace(raw))
 	switch scope {

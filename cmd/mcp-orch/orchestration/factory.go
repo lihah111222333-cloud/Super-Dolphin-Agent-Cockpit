@@ -222,6 +222,7 @@ func clearAgentAutoRecoveryLocked(agent *agentRuntime) {
 	agent.autoRecoverCount, agent.autoRecoverSince = 0, time.Time{}
 }
 
+// shouldRecoverViaLauncher 判断 agent 是否应通过 launcher 而非本地进程恢复。
 func shouldRecoverViaLauncher(ctx context.Context, s *service, agent *agentRuntime) bool {
 	if s == nil || s.launcher == nil || agent == nil || agent.cmd != nil {
 		return false

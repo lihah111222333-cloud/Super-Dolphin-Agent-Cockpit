@@ -18,11 +18,13 @@ const (
 	scheduledDAGCronLockKey = "mcp-orch:scheduled-dag-cron"
 )
 
+// dagCronDaemon 定义 DAG cron 调度器的启停接口。
 type dagCronDaemon interface {
 	Start(context.Context) error
 	Stop() error
 }
 
+// scheduledDAGCronRunner 把 DAG cron 守护进程适配为 platformrunner.Runner 接口。
 type scheduledDAGCronRunner struct {
 	daemon dagCronDaemon
 }
@@ -47,6 +49,7 @@ func (r scheduledDAGCronRunner) Run(ctx context.Context) error {
 	return r.daemon.Stop()
 }
 
+// scheduledDAGStarter 把 ScheduledDAGStartService 适配为 orchcron.DAGStarter 接口。
 type scheduledDAGStarter struct {
 	svc orchestration.ScheduledDAGStartService
 }
@@ -56,6 +59,7 @@ func (s scheduledDAGStarter) StartDAG(ctx context.Context, req orchcron.Schedule
 	return s.svc.StartScheduledDAG(ctx, req)
 }
 
+// provideSQLDAGScheduleStore 创建基于 SQLite 的 DAG 计划存储，q 为 nil 时报错。
 func provideSQLDAGScheduleStore(q *sqlc.Queries) (orchcron.DAGScheduleStore, error) {
 	if q == nil {
 		return nil, errors.New("mcp-orch: scheduled dag cron requires sqlc queries")
@@ -63,6 +67,7 @@ func provideSQLDAGScheduleStore(q *sqlc.Queries) (orchcron.DAGScheduleStore, err
 	return fxadapter.NewSQLDAGScheduleStore(q)
 }
 
+// provideSQLiteRuntimeLocker 创建基于 SQLite 的运行时租约锁，db 为 nil 时报错。
 func provideSQLiteRuntimeLocker(db *sql.DB) (orchcron.RuntimeLocker, error) {
 	if db == nil {
 		return nil, errors.New("mcp-orch: scheduled dag cron runtime lock requires db")

@@ -78,10 +78,12 @@ func (l *localLauncher) Launch(ctx context.Context, agent *agentRuntime, _ Launc
 	return LaunchResult{}, nil
 }
 
+// Fork 本地启动器不支持 fork 模式，始终返回错误。
 func (l *localLauncher) Fork(context.Context, *agentRuntime, *agentRuntime, LaunchRequest) (LaunchResult, error) {
 	return LaunchResult{}, errors.New("forked context launch requires remote launcher")
 }
 
+// Stop 向本地进程发送停止信号。
 func (l *localLauncher) Stop(_ context.Context, agent *agentRuntime) error {
 	if agent == nil {
 		return nil
@@ -89,14 +91,17 @@ func (l *localLauncher) Stop(_ context.Context, agent *agentRuntime) error {
 	return processctl.RequestStop(agent.cmd, agent.processGuard)
 }
 
+// Archive 本地模式下等同于 Stop，归档操作仅停止进程。
 func (l *localLauncher) Archive(ctx context.Context, agent *agentRuntime) error {
 	return l.Stop(ctx, agent)
 }
 
+// Interrupt 本地启动器不支持中断，仅远端 Codex agent 支持。
 func (l *localLauncher) Interrupt(context.Context, *agentRuntime, string) error {
 	return errors.New("interrupt_agent currently supports remote Codex agents only")
 }
 
+// SubmitTurn 通过本地 turnStarter 提交 turn 并返回 turn ID。
 func (l *localLauncher) SubmitTurn(ctx context.Context, _ *agentRuntime, submission TurnSubmission) (string, error) {
 	if l == nil || l.turnStarter == nil {
 		return "", errors.New("turn starter is not configured")
@@ -104,6 +109,7 @@ func (l *localLauncher) SubmitTurn(ctx context.Context, _ *agentRuntime, submiss
 	return l.turnStarter.StartTurn(ctx, submission)
 }
 
+// IsRunning 判断本地进程是否仍在运行。
 func (l *localLauncher) IsRunning(_ context.Context, agent *agentRuntime) bool {
 	return agent != nil && agent.cmd != nil
 }
@@ -120,10 +126,12 @@ type remoteLauncher struct {
 const remoteLauncherBinaryName = "mcp-orch-remote-launcher"
 const remoteLauncherInterval = 10 * time.Second
 
+// NewRemoteLauncher 创建远端 RPC 启动器，addr 是 remote launcher 的 TCP 地址。
 func NewRemoteLauncher(addr string) AgentLauncher {
 	return &remoteLauncher{addr: strings.TrimSpace(addr), instanceID: shared.NewID("mcp_orch_remote_launcher")}
 }
 
+// ensureClient 懒加载或复用 jrpc2 客户端连接，断开后自动重连。
 func (r *remoteLauncher) ensureClient(ctx context.Context) (*jrpc2.Client, error) {
 	if r == nil || strings.TrimSpace(r.addr) == "" {
 		return nil, errors.New("remote launcher rpc addr is required")
@@ -163,6 +171,7 @@ func rpcCall[T any](ctx context.Context, r *remoteLauncher, method string, param
 	return out, err
 }
 
+// registerClient 向 remote launcher 注册本实例并返回租约信息。
 func (r *remoteLauncher) registerClient(ctx context.Context, client *jrpc2.Client) (mcpdto.RegisterResponse, error) {
 	token := remoteLauncherSessionToken()
 	if token == "" {
@@ -210,6 +219,7 @@ func (r *remoteLauncher) stopHeartbeatLocked() {
 	}
 }
 
+// remoteLauncherHeartbeat 在后台 goroutine 中定期向 remote launcher 发送心跳续约。
 func remoteLauncherHeartbeat(ctx context.Context, client *jrpc2.Client, lease mcpdto.LeaseKey, interval time.Duration) {
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
@@ -241,6 +251,7 @@ func managedAgentLaunchDisplayName(name string) string {
 	return strings.TrimSpace(name)
 }
 
+// Launch 通过 thread/start RPC 启动远端 agent 线程，并绑定返回的 thread ID。
 func (r *remoteLauncher) Launch(ctx context.Context, agent *agentRuntime, req LaunchRequest) (LaunchResult, error) {
 	if agent == nil {
 		return LaunchResult{}, errors.New("agent is required")
@@ -341,6 +352,7 @@ func bindRemoteLaunchRuntime(ctx context.Context, agent *agentRuntime, result La
 	agent.remoteAgentID, agent.startedAt, agent.updatedAt = result.RemoteAgentID, now, now
 }
 
+// Stop 向远端 launcher 发送 thread/stop RPC 停止 agent 线程。
 func (r *remoteLauncher) Stop(ctx context.Context, agent *agentRuntime) error {
 	if agent == nil || agent.remoteThreadID == "" {
 		return nil
@@ -352,6 +364,7 @@ func (r *remoteLauncher) Stop(ctx context.Context, agent *agentRuntime) error {
 // StopSettlesAgent 说明 Stop 是否会把代理状态收敛到终态。
 func (r *remoteLauncher) StopSettlesAgent() bool { return true }
 
+// Archive 向远端 launcher 发送 thread/archive RPC 归档 agent 线程。
 func (r *remoteLauncher) Archive(ctx context.Context, agent *agentRuntime) error {
 	if agent == nil || agent.remoteThreadID == "" {
 		return nil
@@ -361,6 +374,7 @@ func (r *remoteLauncher) Archive(ctx context.Context, agent *agentRuntime) error
 	return err
 }
 
+// Interrupt 向远端 launcher 发送 turn/interrupt RPC 中断 agent 当前 turn。
 func (r *remoteLauncher) Interrupt(ctx context.Context, agent *agentRuntime, source string) error {
 	if agent == nil || strings.TrimSpace(agent.remoteThreadID) == "" {
 		return errors.New("remote thread id is required")
@@ -376,6 +390,7 @@ func (r *remoteLauncher) Interrupt(ctx context.Context, agent *agentRuntime, sou
 	return err
 }
 
+// SubmitTurn 通过 turn/start RPC 向远端 agent 提交 turn，返回 turn ID。
 func (r *remoteLauncher) SubmitTurn(ctx context.Context, agent *agentRuntime, submission TurnSubmission) (string, error) {
 	if agent == nil || agent.remoteThreadID == "" {
 		return "", errors.New("remote thread id is required")
@@ -400,6 +415,7 @@ func (r *remoteLauncher) SubmitTurn(ctx context.Context, agent *agentRuntime, su
 	return turnID, nil
 }
 
+// IsRunning 判断远端 agent 线程是否仍在运行。
 func (r *remoteLauncher) IsRunning(_ context.Context, agent *agentRuntime) bool {
 	return agent != nil && agent.remoteThreadID != ""
 }
@@ -449,6 +465,7 @@ func (r *remoteLauncher) currentEventSink() remoteLauncherEventSink {
 	return r.eventSink
 }
 
+// handleNotify 处理来自 remote launcher 的 push 通知，解码后转发给 event sink。
 func (r *remoteLauncher) handleNotify(req *jrpc2.Request) {
 	if r == nil || req == nil {
 		return
@@ -482,6 +499,7 @@ func logRemoteLauncherNotifyDecodeError(method string, err error) bool {
 	return true
 }
 
+// handleRemoteTurnCompleted 处理来自 remote launcher 的 turn 完成通知，写入 report 并推进状态机。
 func (s *service) handleRemoteTurnCompleted(ctx context.Context, ev turndto.TurnCompleted) {
 	if s == nil || !s.hasRuntimeAgent(ev.AgentID) {
 		return
@@ -504,6 +522,7 @@ func (s *service) handleRemoteTurnCompleted(ctx context.Context, ev turndto.Turn
 	handleTurnCompletedEventWithCtx(s, s.logger, lifecycle, eventCtx)
 }
 
+// handleRemoteTurnInterrupted 处理来自 remote launcher 的 turn 中断通知，写入 report 并推进状态机。
 func (s *service) handleRemoteTurnInterrupted(ctx context.Context, ev turndto.TurnInterrupted) {
 	if s == nil || !s.hasRuntimeAgent(ev.AgentID) {
 		return

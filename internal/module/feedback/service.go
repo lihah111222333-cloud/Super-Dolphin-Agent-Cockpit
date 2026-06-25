@@ -1,3 +1,4 @@
+// Package feedback 提供用户反馈事件的记录能力，通过 JSON-RPC 接口接收前端事件并持久化。
 package feedback
 
 import (
@@ -11,6 +12,7 @@ import (
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
+// service 是 feedback 模块的内部实现，依赖 feedbackstore 做事件持久化。
 type service struct {
 	logger *slog.Logger
 	store  feedbackstore.Store

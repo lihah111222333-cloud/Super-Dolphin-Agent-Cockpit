@@ -1,3 +1,4 @@
+// Package main 是 mcp-lsp sidecar 进程的入口，通过 MCP stdio 协议暴露 LSP 工具能力。
 package main
 
 import (
@@ -9,10 +10,13 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/tools"
 )
 
+// ToolHandler 是单个工具的处理函数类型。
 type ToolHandler func(ctx context.Context, params json.RawMessage) (any, error)
 
+// ToolHandlers 按工具名索引的处理器映射。
 type ToolHandlers map[string]ToolHandler
 
+// ToolManifest 描述单个工具的名称、说明和输入/输出 schema。
 type ToolManifest struct {
 	Name         string
 	Description  string
@@ -20,11 +24,13 @@ type ToolManifest struct {
 	OutputSchema map[string]any
 }
 
+// toolDefinition 将工具清单和处理器绑定在一起。
 type toolDefinition struct {
 	Manifest ToolManifest
 	Handler  ToolHandler
 }
 
+// lspToolManifests 是所有 LSP 工具的清单列表，顺序与对外暴露顺序一致。
 var lspToolManifests = []ToolManifest{
 	toolManifestWithSchema("file", "Read files, open them into LSP, or fetch diagnostics. Example: action=read_file pos=internal/foo.go:42 limit=40.", lspFileSchema),
 	toolManifestWithSchema("inspect", "Hover, definition, implementation, type_definition, or signature_help at a position. Example: action=definition pos=internal/foo.go:42:9.", lspInspectSchema),
@@ -35,6 +41,7 @@ var lspToolManifests = []ToolManifest{
 	toolManifestWithSchema("completion", "Context-aware code completions at a cursor position. Example: pos=internal/foo.go:42:9.", lspCompletionSchema),
 }
 
+// legacyToolAliases 旧版工具名到规范名的映射，保持向后兼容。
 var legacyToolAliases = map[string]string{
 	"lsp_file":       "file",
 	"lsp_inspect":    "inspect",
@@ -45,6 +52,7 @@ var legacyToolAliases = map[string]string{
 	"lsp_completion": "completion",
 }
 
+// canonicalToolName 返回工具名称的规范形式，处理历史别名映射。
 func canonicalToolName(name string) string {
 	trimmed := strings.TrimSpace(name)
 	if alias, ok := legacyToolAliases[trimmed]; ok {
@@ -53,6 +61,7 @@ func canonicalToolName(name string) string {
 	return trimmed
 }
 
+// newToolHandlers 根据 Manager 构建所有工具的处理器映射。
 func newToolHandlers(m *Manager) (ToolHandlers, error) {
 	cfg := tools.Config{
 		WorkspaceRoot: m.root,
@@ -69,6 +78,7 @@ func newToolHandlers(m *Manager) (ToolHandlers, error) {
 	}, nil
 }
 
+// toolDefinitions 将工具清单列表与处理器映射合并为 toolDefinition 切片，缺少处理器时使用 stub。
 func toolDefinitions(handlers ToolHandlers) []toolDefinition {
 	defs := make([]toolDefinition, 0, len(lspToolManifests))
 	for _, manifest := range lspToolManifests {
@@ -81,6 +91,7 @@ func toolDefinitions(handlers ToolHandlers) []toolDefinition {
 	return defs
 }
 
+// toolManifestWithSchema 创建带输入 schema 的工具清单。
 func toolManifestWithSchema(name, description string, s schema) ToolManifest {
 	return ToolManifest{
 		Name:        name,
@@ -89,6 +100,7 @@ func toolManifestWithSchema(name, description string, s schema) ToolManifest {
 	}
 }
 
+// toolManifestWithOutputSchema 创建带输入和输出 schema 的工具清单。
 func toolManifestWithOutputSchema(name, description string, s schema, out schema) ToolManifest {
 	return ToolManifest{
 		Name:         name,
@@ -98,6 +110,7 @@ func toolManifestWithOutputSchema(name, description string, s schema, out schema
 	}
 }
 
+// stubToolHandler 是未实现工具的占位处理器，始终返回 not implemented 错误。
 func stubToolHandler(context.Context, json.RawMessage) (any, error) {
 	return nil, errors.New("not implemented")
 }

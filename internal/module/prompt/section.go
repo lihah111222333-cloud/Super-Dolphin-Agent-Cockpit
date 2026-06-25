@@ -16,6 +16,7 @@ const (
 	SectionOutputEfficiency  = "output_efficiency"
 )
 
+// staticSectionSpec 描述一个内置静态 section 的名称、排序权重和内容解析函数。
 type staticSectionSpec struct {
 	name    string
 	order   int
@@ -41,6 +42,7 @@ func StaticSections() []PromptSection {
 	return sections
 }
 
+// staticTextSection 把 staticSectionSpec 包装为 PromptSection，compute 函数不依赖 context。
 func staticTextSection(spec staticSectionSpec) PromptSection {
 	return PromptSection{
 		Name:   spec.name,
@@ -52,6 +54,7 @@ func staticTextSection(spec staticSectionSpec) PromptSection {
 	}
 }
 
+// staticSectionContent 把固定文本包装为 resolve 函数，文本为空时返回 nil。
 func staticSectionContent(text string) func(BuildCtx) *string {
 	text = strings.TrimSpace(text)
 	return func(BuildCtx) *string {
@@ -68,6 +71,7 @@ const (
 	toolPreferenceModeRepl     = "repl"
 )
 
+// resolveToolPreferencesSection 按当前 session 模式渲染工具偏好 section。
 func resolveToolPreferencesSection(build BuildCtx) *string {
 	text := strings.TrimSpace(renderToolPreferencesSectionText(build))
 	if text == "" {
@@ -76,6 +80,7 @@ func resolveToolPreferencesSection(build BuildCtx) *string {
 	return &text
 }
 
+// renderToolPreferencesSectionText 按 repl/standard 模式渲染工具偏好文本。
 func renderToolPreferencesSectionText(build BuildCtx) string {
 	if toolPreferenceMode(build) == toolPreferenceModeRepl {
 		return renderToolPreferenceBullets([]string{
@@ -96,6 +101,7 @@ func renderToolPreferencesSectionText(build BuildCtx) string {
 	return renderToolPreferenceBullets(bullets)
 }
 
+// suppressedToolsBullet 生成被替换工具的提示项，工具列表为空时返回空字符串。
 func suppressedToolsBullet(tools []string) string {
 	if len(tools) == 0 {
 		return ""
@@ -104,6 +110,7 @@ func suppressedToolsBullet(tools []string) string {
 		strings.Join(tools, ", ") + "."
 }
 
+// renderToolPreferenceBullets 将条目列表渲染为带前缀的工具偏好文本块。
 func renderToolPreferenceBullets(items []string) string {
 	cleaned := make([]string, 0, len(items))
 	for _, item := range items {
@@ -117,6 +124,7 @@ func renderToolPreferenceBullets(items []string) string {
 	return "Tool preferences:\n- " + strings.Join(cleaned, "\n- ")
 }
 
+// toolPreferencePlanningLine 根据是否有规划工具返回对应的规划提示条目。
 func toolPreferencePlanningLine(enabledTools []string) string {
 	if hasToolPreferencePlanner(enabledTools) {
 		return "If a planning tool such as update_plan or task_create_dag is available, break larger tasks into explicit steps and keep progress current instead of batching status updates."
@@ -124,6 +132,7 @@ func toolPreferencePlanningLine(enabledTools []string) string {
 	return "Break larger tasks into explicit steps and keep tool usage stable instead of churning approaches."
 }
 
+// hasToolPreferencePlanner 判断已启用工具中是否包含规划工具。
 func hasToolPreferencePlanner(enabledTools []string) bool {
 	for _, tool := range sortedPromptValues(enabledTools) {
 		switch tool {
@@ -134,6 +143,7 @@ func hasToolPreferencePlanner(enabledTools []string) bool {
 	return false
 }
 
+// toolPreferenceMode 返回当前 session 的工具偏好模式（standard 或 repl）。
 func toolPreferenceMode(build BuildCtx) string {
 	for _, key := range []string{"repl_mode", "repl", "repl_only_tools"} {
 		if build.SessionFlags[key] {
@@ -143,6 +153,7 @@ func toolPreferenceMode(build BuildCtx) string {
 	return toolPreferenceModeStandard
 }
 
+// resolveIdentitySection 渲染 identity section，根据 OutputStyleConfig 切换引导语。
 func resolveIdentitySection(build BuildCtx) *string {
 	introFraming := "with software engineering tasks."
 	if hasRenderableOutputStyle(build.OutputStyleConfig) {
@@ -157,6 +168,7 @@ IMPORTANT: You must NEVER generate or guess URLs for the user unless you are con
 	return &text
 }
 
+// resolveEngineeringSection 渲染工程原则 section，ant 用户追加内部专属后缀。
 func resolveEngineeringSection(build BuildCtx) *string {
 	if !keepCodingInstructionsEnabled(build) {
 		return nil
@@ -179,10 +191,12 @@ func resolveOutputEfficiencySection(build BuildCtx) *string {
 	return staticSectionContent(sectionOutputEfficiencyText)(build)
 }
 
+// isAntUserType 判断当前 USER_TYPE 是否为 ant 内部用户。
 func isAntUserType() bool {
 	return strings.EqualFold(promptUserType(), "ant")
 }
 
+// keepCodingInstructionsEnabled 判断是否启用工程原则 section，优先读 BuildCtx 显式配置。
 func keepCodingInstructionsEnabled(build BuildCtx) bool {
 	if build.KeepCodingInstructions != nil {
 		return *build.KeepCodingInstructions
@@ -275,6 +289,7 @@ Prefer short, direct sentences and tight paragraphs. Show code snippets when the
 
 // clientTagsOrDefault returns client-provided tags if present, otherwise falls
 // back to existing (for updates) or empty (for creates).
+// clientTagsOrDefault 优先使用客户端提供的 tags，否则回退到已有 tags 或空数组。
 func clientTagsOrDefault(clientTags json.RawMessage, existing json.RawMessage) json.RawMessage {
 	if len(clientTags) > 0 && string(clientTags) != "null" {
 		return mergeClientTagsWithExistingInternalTags(clientTags, existing)
@@ -310,6 +325,7 @@ func mergeClientTagsWithExistingInternalTags(clientTags json.RawMessage, existin
 	return json.RawMessage(encoded)
 }
 
+// promptTagPreservedOnClientWrite 判断该 tag 是否应在客户端写入时保留（intent: 和 builtin: 前缀的内部 tag）。
 func promptTagPreservedOnClientWrite(tag string) bool {
 	return strings.HasPrefix(tag, "intent:") || strings.HasPrefix(tag, "builtin:")
 }

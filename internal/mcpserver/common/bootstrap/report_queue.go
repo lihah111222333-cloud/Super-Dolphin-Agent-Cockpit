@@ -13,6 +13,7 @@ import (
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
+// normalizeReportRequest 补全 ReportID、清空 lease 字段并推断 report 变体类型。
 func (c *Client) normalizeReportRequest(req mcp.ReportRequest) mcp.ReportRequest {
 	req.ReportID = strings.TrimSpace(req.ReportID)
 	if req.ReportID == "" {
@@ -27,6 +28,7 @@ func (c *Client) normalizeReportRequest(req mcp.ReportRequest) mcp.ReportRequest
 	return req
 }
 
+// enqueueReport 将报告加入离线队列，已存在同 ID 时更新；队列满则丢弃并计数。
 func (c *Client) enqueueReport(req mcp.ReportRequest) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -47,6 +49,7 @@ func (c *Client) enqueueReport(req mcp.ReportRequest) error {
 	return nil
 }
 
+// flushQueuedReports 检查连接可用后委托给 flushQueuedReportsWithConn 发送队列。
 func (c *Client) flushQueuedReports(ctx context.Context) {
 	conn, degraded := c.currentConn()
 	if conn == nil || degraded {
@@ -112,6 +115,7 @@ func (c *Client) sendReportWithConn(ctx context.Context, conn *jrpc2.Client, lea
 	return &resp, nil
 }
 
+// finalReportRequest 在 Close() 时调用 FinalReport 回调并规范化结果，无回调时返回 nil。
 func (c *Client) finalReportRequest() *mcp.ReportRequest {
 	if c.cfg.FinalReport == nil {
 		return nil
@@ -124,6 +128,7 @@ func (c *Client) finalReportRequest() *mcp.ReportRequest {
 	return &normalized
 }
 
+// queuedReportResponse 构造离线排队状态的 ReportResponse。
 func queuedReportResponse(req mcp.ReportRequest) *mcp.ReportResponse {
 	return &mcp.ReportResponse{
 		Accepted:        false,
@@ -151,11 +156,13 @@ func guessReportVariant(req mcp.ReportRequest) string {
 	}
 }
 
+// cloneReportRequest 深拷贝 ReportRequest 及其内部 Envelope。
 func cloneReportRequest(req mcp.ReportRequest) mcp.ReportRequest {
 	req.Report = cloneReportEnvelope(req.Report)
 	return req
 }
 
+// cloneReportEnvelope 深拷贝 ReportEnvelope 中各可变指针字段，防止并发修改。
 func cloneReportEnvelope(in mcp.ReportEnvelope) mcp.ReportEnvelope {
 	out := in
 	if in.Runtime != nil {
@@ -179,6 +186,7 @@ func cloneReportEnvelope(in mcp.ReportEnvelope) mcp.ReportEnvelope {
 	return out
 }
 
+// snapshotQueuedReports 在读锁下深拷贝当前离线队列，供 flush 迭代使用。
 func (c *Client) snapshotQueuedReports() []mcp.ReportRequest {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
@@ -192,6 +200,7 @@ func (c *Client) snapshotQueuedReports() []mcp.ReportRequest {
 	return out
 }
 
+// dropQueuedReport 从离线队列中移除指定 report_id 的条目。
 func (c *Client) dropQueuedReport(reportID string) {
 	reportID = strings.TrimSpace(reportID)
 	if reportID == "" {

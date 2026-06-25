@@ -13,6 +13,7 @@ import (
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
+// transportMode 表示 stdio 传输的帧格式模式。
 type transportMode int
 
 const (
@@ -21,6 +22,7 @@ const (
 	modeFramed
 )
 
+// StdioTransport 实现基于 stdin/stdout 的 MCP 消息传输，自动检测 framed 或 raw JSON 模式。
 type StdioTransport struct {
 	reader  *bufio.Reader
 	writer  io.Writer
@@ -124,6 +126,7 @@ func (t *StdioTransport) ensureMode() error {
 	}
 }
 
+// readRaw 使用 json.Decoder 读取一条 JSON 对象，适用于 raw JSON 模式。
 func (t *StdioTransport) readRaw() (json.RawMessage, error) {
 	var raw json.RawMessage
 	if err := t.decoder.Decode(&raw); err != nil {
@@ -166,6 +169,7 @@ func (t *StdioTransport) readFramed() (json.RawMessage, error) {
 	return validateFramedJSON(body)
 }
 
+// validateFramedJSON 校验 framed 模式下读取的 body 是否为合法 JSON。
 func validateFramedJSON(body []byte) (json.RawMessage, error) {
 	if !json.Valid(body) {
 		return nil, errors.New("mcp stdio: malformed framed JSON")
@@ -173,6 +177,7 @@ func validateFramedJSON(body []byte) (json.RawMessage, error) {
 	return json.RawMessage(body), nil
 }
 
+// flushWriter 若 writer 实现了 Flush() error 则执行 flush，否则直接返回。
 func flushWriter(writer io.Writer) error {
 	flusher, ok := writer.(interface{ Flush() error })
 	if !ok {

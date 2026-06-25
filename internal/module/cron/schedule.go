@@ -12,11 +12,7 @@ import (
 	robfigcron "github.com/robfig/cron/v3"
 )
 
-// cronParser is the shared cron expression parser. We use the
-// "standard" 5-field spec (minute, hour, dom, month, dow) plus the
-// usual @yearly / @monthly / @weekly / @daily / @hourly descriptors,
-// and @every <duration>. This matches the P1b plan's schedule_expr
-// column and the subset cron callers typically write.
+// cronParser 是共享的 cron 表达式解析器，支持标准 5 字段格式和常见描述符。
 var cronParser = robfigcron.NewParser(
 	robfigcron.Minute | robfigcron.Hour | robfigcron.Dom |
 		robfigcron.Month | robfigcron.Dow |

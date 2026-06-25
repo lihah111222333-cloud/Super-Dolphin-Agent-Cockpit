@@ -20,7 +20,7 @@ import (
 // so shutdown never hangs on a stuck scheduler call.
 const cronProgressDrainGrace = 10 * time.Second
 
-// cronProgressEventKind distinguishes the type of event queued.
+// cronProgressEventKind 区分进度事件（续租）和终态事件（完成 turn）两种类型。
 type cronProgressEventKind int
 
 const (
@@ -28,7 +28,7 @@ const (
 	cronCompleteTurn
 )
 
-// cronProgressRequest is the unit of work enqueued by the bus callbacks.
+// cronProgressRequest 是 cronProgressWorker 队列中的一条工作项。
 type cronProgressRequest struct {
 	kind        cronProgressEventKind
 	turnID      string
@@ -61,6 +61,7 @@ type cronProgressWorker struct {
 	processedTotal atomic.Int64
 }
 
+// newCronProgressWorker 创建未启动的进度 worker，scheduler 和 logger 均为必填项。
 func newCronProgressWorker(scheduler *Scheduler, logger *slog.Logger) *cronProgressWorker {
 	if logger == nil {
 		logger = pkglogger.Get()
@@ -121,8 +122,7 @@ func (w *cronProgressWorker) Stop(ctx context.Context) error {
 	return firstErr
 }
 
-// Enqueue records a request. Safe to call from bus callbacks: O(1)
-// slice append + non-blocking wake signal.
+// enqueue 将请求追加到队列并发送非阻塞唤醒信号。
 func (w *cronProgressWorker) enqueue(req cronProgressRequest) {
 	if w == nil {
 		return
@@ -142,6 +142,7 @@ func (w *cronProgressWorker) enqueue(req cronProgressRequest) {
 	}
 }
 
+// runWorker 是 worker goroutine 的主循环，stopCh 关闭时排干队列后退出。
 func (w *cronProgressWorker) runWorker() {
 	defer close(w.doneCh)
 	for {
@@ -155,6 +156,7 @@ func (w *cronProgressWorker) runWorker() {
 	}
 }
 
+// drainPending 批量取出队列中的所有请求并依次 dispatch，不持锁执行 dispatch。
 func (w *cronProgressWorker) drainPending() {
 	for {
 		w.mu.Lock()
@@ -172,6 +174,7 @@ func (w *cronProgressWorker) drainPending() {
 	}
 }
 
+// dispatch 根据 kind 调用 Scheduler 的对应方法，错误只记录不上传。
 func (w *cronProgressWorker) dispatch(req cronProgressRequest) {
 	ctx := context.Background()
 	switch req.kind {
@@ -194,6 +197,7 @@ func (w *cronProgressWorker) dispatch(req cronProgressRequest) {
 	}
 }
 
+// subscribeCronProgress 订阅 turn progress 事件并委托给 worker 续租。
 func subscribeCronProgress(dispatcher *event.Dispatcher, worker *cronProgressWorker, logger *pkglogger.Logger) context.CancelFunc {
 	if logger == nil {
 		logger = pkglogger.Get()
@@ -206,6 +210,7 @@ func subscribeCronProgress(dispatcher *event.Dispatcher, worker *cronProgressWor
 	}, logger)
 }
 
+// subscribeCronTerminalEvents 订阅 TurnCompleted 和 TurnInterrupted 事件并委托给 worker 处理终态。
 func subscribeCronTerminalEvents(dispatcher *event.Dispatcher, worker *cronProgressWorker, logger *pkglogger.Logger) context.CancelFunc {
 	if logger == nil {
 		logger = pkglogger.Get()
@@ -236,6 +241,7 @@ func subscribeCronTerminalEvents(dispatcher *event.Dispatcher, worker *cronProgr
 	}
 }
 
+// terminalErrorText 从 TurnCompleted 事件中提取可读的错误文本。
 func terminalErrorText(ev turndto.TurnCompleted) string {
 	if ev.Success {
 		return ""

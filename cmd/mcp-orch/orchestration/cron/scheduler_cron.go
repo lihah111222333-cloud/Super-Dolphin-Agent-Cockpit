@@ -421,6 +421,7 @@ func (t *ScheduledDAGTicker) tryRuntimeLock(ctx context.Context) (RuntimeLockHan
 	return handle, acquired, nil
 }
 
+// startRuntimeLockRenewal 在后台 goroutine 中定期续约运行时锁，续约失败时调 stop 取消上下文。
 func (t *ScheduledDAGTicker) startRuntimeLockRenewal(ctx context.Context, handle RuntimeLockHandle, stop func()) <-chan error {
 	errCh := make(chan error, 1)
 	go func() {
