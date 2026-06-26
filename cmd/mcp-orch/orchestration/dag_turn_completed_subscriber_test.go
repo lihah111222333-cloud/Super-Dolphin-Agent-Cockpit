@@ -3,6 +3,7 @@ package orchestration
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"log/slog"
 	"strings"
 	"sync/atomic"
@@ -201,6 +202,21 @@ func dagSubscriberOwnerMarkerJSON(t *testing.T, dagKey, nodeKey, threadID, turnI
 		t.Fatalf("marshal owner marker: %v", err)
 	}
 	return string(raw)
+}
+
+func assertTerminalFailureCompensation(t *testing.T, got taskdag.EnqueueWakeupInput, dagKey, nodeKey string, runID int64, wantDetails ...string) {
+	t.Helper()
+	if got.DagKey != dagKey || got.NodeKey != nodeKey || got.RunID != runID {
+		t.Fatalf("compensation identity = %+v, want %s/%s run_id=%d", got, dagKey, nodeKey, runID)
+	}
+	if got.WakeupKind != "terminal_failure_compensation" || got.TargetAgentID != "mcp-orch" {
+		t.Fatalf("compensation wakeup kind/target = %q/%q, want terminal_failure_compensation/mcp-orch", got.WakeupKind, got.TargetAgentID)
+	}
+	for _, want := range wantDetails {
+		if !strings.Contains(string(got.PromptPayload), want) {
+			t.Fatalf("compensation payload = %s, want detail %q", got.PromptPayload, want)
+		}
+	}
 }
 
 // setupDAGSubscriberDeps 组装 subscriber 依赖；每个用例显式读取指标差值来保持独立计数。
@@ -425,6 +441,29 @@ func TestDAGSubscriber_HappyPath_Failed(t *testing.T) {
 	if d.CompleteFailed != 1 {
 		t.Fatalf("CompleteFailed delta = %d, want 1", d.CompleteFailed)
 	}
+}
+
+func TestDAGSubscriber_FailedStoreErrorRecordsCompensation(t *testing.T) {
+	runID := int64(1620)
+	lookup := &dagSubscriberLookupSpy{nodes: []taskdag.Node{{
+		DagKey:  "dag-1",
+		NodeKey: "n1",
+		Status:  "running",
+		RunID:   &runID,
+	}}}
+	flow := &dagSubscriberFlowSpy{failErr: errors.New("db unavailable")}
+	threads := &dagSubscriberThreadSpy{thread: &PersistedThread{ThreadID: "thr-compensate-fail", AgentID: "agent-compensate"}}
+	deps := setupDAGSubscriberDeps(lookup, flow, threads, &dagSubscriberStopSpy{})
+	ev := newTurnCompletedEvent("thr-compensate-fail", false, "")
+	ev.Error = "agent failed"
+	handleDAGTurnCompleted(context.Background(), deps, discardLogger(), ev)
+	if len(flow.failCalls) != 1 {
+		t.Fatalf("failCalls = %d, want 1", len(flow.failCalls))
+	}
+	if len(flow.enqueueCalls) != 1 {
+		t.Fatalf("enqueueCalls = %d, want 1 durable compensation record", len(flow.enqueueCalls))
+	}
+	assertTerminalFailureCompensation(t, flow.enqueueCalls[0], "dag-1", "n1", runID, "agent failed", "db unavailable")
 }
 
 func TestDAGSubscriber_FailedInvokesLifecycleHooks(t *testing.T) {

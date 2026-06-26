@@ -210,6 +210,39 @@ func TestWakeupDispatcher_RouterFrameworkErrorRetriesWakeup(t *testing.T) {
 	}
 }
 
+func TestWakeupDispatcherRetryWakeupPassesConfiguredMaxAttempts(t *testing.T) {
+	store := &dispatcherStubStore{
+		claimReply: []taskdag.Wakeup{{
+			ID:            59,
+			WakeupKind:    "start",
+			TargetAgentID: "agent-transient",
+			ClaimedBy:     "worker-a",
+			AttemptCount:  1,
+		}},
+	}
+	launcher := &dispatcherStubLauncher{errs: []error{errors.New("connection refused")}}
+	d, err := NewWakeupDispatcher(store, launcher, nil, WakeupDispatcherConfig{
+		ClaimedBy:        "worker-a",
+		MaxRetryAttempts: 3,
+	})
+	if err != nil {
+		t.Fatalf("NewWakeupDispatcher err = %v", err)
+	}
+	n, err := d.ProcessBatch(context.Background())
+	if err != nil {
+		t.Fatalf("ProcessBatch err = %v", err)
+	}
+	if n != 1 {
+		t.Fatalf("ProcessBatch handled = %d, want 1", n)
+	}
+	if len(store.retryCalls) != 1 {
+		t.Fatalf("RetryWakeup calls = %d, want 1", len(store.retryCalls))
+	}
+	if got := store.retryCalls[0].MaxAttempts; got != 3 {
+		t.Fatalf("RetryWakeup MaxAttempts = %d, want 3", got)
+	}
+}
+
 func TestWakeupDispatcher_RetryExhaustedLifecycleHooksKeepFailureClass(t *testing.T) {
 	events := []string{}
 	store := &dispatcherStubStore{

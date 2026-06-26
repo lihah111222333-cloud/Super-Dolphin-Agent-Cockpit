@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"strconv"
 	"strings"
 
@@ -15,8 +16,9 @@ import (
 
 // turn completion retry 内部 wakeup 的固定 kind 和目标。
 const (
-	WakeupKind    = "turn_complete_retry"
-	TargetAgentID = "mcp-orch"
+	WakeupKind                      = "turn_complete_retry"
+	TerminalFailureCompensationKind = "terminal_failure_compensation"
+	TargetAgentID                   = "mcp-orch"
 )
 
 // Enqueuer 是 turn.completed subscriber 入队内部修复 wakeup 所需的窄接口。
@@ -66,6 +68,46 @@ func Enqueue(ctx context.Context, flow any, node *taskdag.Node, result json.RawM
 		IdempotencyKey: IdempotencyKey(node.DagKey, node.NodeKey, runID),
 	})
 	return err
+}
+
+// EnqueueTerminalFailureCompensation 记录终态失败写库失败的补偿 wakeup。
+// 它只保存待人工或后续修复消费的事实，不尝试在回调里再次推进节点状态。
+func EnqueueTerminalFailureCompensation(ctx context.Context, flow any, logger *slog.Logger, node *taskdag.Node, reason string, storeErr error, failFast bool) {
+	enqueuer, ok := flow.(Enqueuer)
+	if !ok {
+		logger.Warn("terminal failure compensation: wakeup enqueue port not wired", "dag_key", node.DagKey, "node_key", node.NodeKey)
+		return
+	}
+	runID := nodeRunID(node)
+	if runID <= 0 {
+		logger.Warn("terminal failure compensation: runtime run_id required", "dag_key", node.DagKey, "node_key", node.NodeKey)
+		return
+	}
+	payload, err := json.Marshal(terminalFailureCompensationPayload{Reason: strings.TrimSpace(reason), StoreError: errorText(storeErr), FailFast: failFast})
+	if err != nil {
+		logger.Warn("terminal failure compensation: marshal failed", "dag_key", node.DagKey, "node_key", node.NodeKey, "error", err)
+		return
+	}
+	if _, err := enqueuer.EnqueueWakeup(ctx, taskdag.EnqueueWakeupInput{
+		DagKey: node.DagKey, NodeKey: node.NodeKey, RunID: runID, WakeupKind: TerminalFailureCompensationKind,
+		TargetAgentID: TargetAgentID, PromptPayload: payload,
+		IdempotencyKey: TerminalFailureCompensationID(node.DagKey, node.NodeKey, runID),
+	}); err != nil {
+		logger.Warn("terminal failure compensation: enqueue failed", "dag_key", node.DagKey, "node_key", node.NodeKey, "error", err)
+	}
+}
+
+type terminalFailureCompensationPayload struct {
+	Reason     string `json:"reason"`
+	StoreError string `json:"store_error"`
+	FailFast   bool   `json:"fail_fast"`
+}
+
+func errorText(err error) string {
+	if err == nil {
+		return ""
+	}
+	return err.Error()
 }
 
 // IsWakeup 判断 wakeup 是否为 turn.completed completion retry 内部任务。
@@ -118,6 +160,11 @@ func Complete(ctx context.Context, store any, w *taskdag.Wakeup) CompleteResult 
 // IdempotencyKey 生成重试任务的幂等键。
 func IdempotencyKey(dagKey, nodeKey string, runID int64) string {
 	return "dag/" + dagKey + "/run/" + strconv.FormatInt(runID, 10) + "/" + nodeKey + "/turn-complete-retry"
+}
+
+// TerminalFailureCompensationID 生成终态失败补偿记录的幂等键。
+func TerminalFailureCompensationID(dagKey, nodeKey string, runID int64) string {
+	return "dag/" + dagKey + "/run/" + strconv.FormatInt(runID, 10) + "/" + nodeKey + "/terminal-failure-compensation"
 }
 
 // nodeRunID 从 runtime node 中读取 run_id，缺失时返回 0 让调用方 fail-fast。

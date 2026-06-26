@@ -142,6 +142,31 @@ func TestRemoteLauncher_TurnCompletedNotificationClearsRemoteBusyState(t *testin
 	}, time.Second, 10*time.Millisecond)
 }
 
+func TestRemoteTerminalRequiresTurnID(t *testing.T) {
+	svc := NewService(silentLogger(), event.NewDispatcher(), nil, nil, nil, nil)
+	agent := svc.newAgentLocked("agent-1")
+	agent.state = agentdto.StateTurnRunning
+	agent.threadID = "thread-1"
+	agent.remoteThreadID = "thread-1"
+	agent.activeTurnID = "remote-turn-1"
+	svc.agents[agent.id] = agent
+	svc.handleRemoteTurnCompleted(context.Background(), turndto.TurnCompleted{
+		TurnHeader: shareddto.TurnHeader{
+			AgentHeader: shareddto.AgentHeader{
+				ThreadHeader: shareddto.ThreadHeader{ThreadID: "thread-1"},
+				AgentID:      "agent-1",
+			},
+		},
+		Success: true,
+		Result:  "done without turn id",
+	})
+	snapshot, err := svc.Snapshot(context.Background(), "agent-1")
+	require.NoError(t, err)
+	require.Equal(t, string(agentdto.StateTurnRunning), snapshot.State)
+	require.Equal(t, "remote-turn-1", snapshot.ActiveTurnID)
+	require.NotContains(t, snapshot.LastReport, "done without turn id")
+}
+
 func TestService_SubmitTurnRemoteModeDeadlineFailureClearsBusyState(t *testing.T) {
 	svc := NewService(silentLogger(), event.NewDispatcher(), remoteLocalLauncher(t, handler.Map{
 		"turn/start": handler.New(func(ctx context.Context, _ map[string]any) (map[string]any, error) {

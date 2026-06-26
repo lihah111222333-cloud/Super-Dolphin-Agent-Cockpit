@@ -8,6 +8,8 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/sqlctx"
 )
 
+const defaultRetryWakeupMaxAttempts = 8
+
 // EnqueueWakeup 只接受 run-scoped wakeup。run_id 是 dispatcher 之后定位
 // runtime node 的硬要求，不能为了兼容模板节点而放空；幂等由调用方传入的
 // idempotency_key 和 SQL ON CONFLICT 共同保证。
@@ -69,11 +71,13 @@ func (s *store) RetryWakeup(ctx context.Context, input RetryWakeupInput) (int64,
 	if err != nil {
 		return 0, err
 	}
+	maxAttempts := retryWakeupMaxAttempts(input.MaxAttempts)
 	fence := wakeupFenceFromRetry(input)
 	return fencedWakeupMutationWrite(ctx, "retry", fence, func(fence wakeupFence) (int64, error) {
 		return s.q.RetryTaskDagWakeup(ctx, sqlc.RetryTaskDagWakeupParams{
 			DelayMs:        retryInterval,
 			LastError:      input.LastError,
+			MaxAttempts:    int64(maxAttempts),
 			ID:             fence.ID,
 			ClaimedAt:      timestampValue(fence.ClaimedAt),
 			ClaimedBy:      fence.ClaimedBy,
@@ -91,12 +95,14 @@ func (s *store) RetryWakeupWithNodeConfigPatch(ctx context.Context, input RetryW
 	if err != nil {
 		return 0, err
 	}
+	maxAttempts := retryWakeupMaxAttempts(input.RetryWakeup.MaxAttempts)
 	fence := wakeupFenceFromRetry(input.RetryWakeup)
 	var rows int64
 	err = sqlctx.WithTxOrReuse(ctx, s.db, s.q, func(txq *sqlc.Queries, _ sqlc.DBTX) error {
 		retryRows, retryErr := txq.RetryTaskDagWakeup(ctx, sqlc.RetryTaskDagWakeupParams{
 			DelayMs:        retryInterval,
 			LastError:      input.RetryWakeup.LastError,
+			MaxAttempts:    int64(maxAttempts),
 			ID:             fence.ID,
 			ClaimedAt:      timestampValue(fence.ClaimedAt),
 			ClaimedBy:      fence.ClaimedBy,
@@ -125,6 +131,13 @@ func (s *store) RetryWakeupWithNodeConfigPatch(ctx context.Context, input RetryW
 		return 0, wrapTaskDAGError(err, "retry_with_config_patch", "task_dag_wakeup")
 	}
 	return rows, nil
+}
+
+func retryWakeupMaxAttempts(maxAttempts int) int {
+	if maxAttempts <= 0 {
+		return defaultRetryWakeupMaxAttempts
+	}
+	return maxAttempts
 }
 
 // FailWakeup 把 wakeup 标记为失败并记录原因。
