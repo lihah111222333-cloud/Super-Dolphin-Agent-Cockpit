@@ -3,6 +3,7 @@ package team
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"strings"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
@@ -16,11 +17,11 @@ type Lifecycle interface {
 }
 
 // BuildCtxFromThreadMetadata 从线程元数据恢复 TeamSync 所需的 BuildCtx。
-// ConfigOverride 解析失败时退回 fallbackCWD，避免历史线程元数据格式差异阻断 stop/start 事件处理。
-func BuildCtxFromThreadMetadata(meta *contract.ThreadMetadata, fallbackCWD string) (contract.BuildCtx, bool) {
+// ConfigOverride 解析失败会返回错误，避免用事件 CWD 静默启动到错误仓库。
+func BuildCtxFromThreadMetadata(meta *contract.ThreadMetadata, fallbackCWD string) (contract.BuildCtx, bool, error) {
 	buildCtx := contract.BuildCtx{CWD: strings.TrimSpace(fallbackCWD)}
 	if meta == nil {
-		return buildCtx, buildCtx.CWD != ""
+		return buildCtx, buildCtx.CWD != "", nil
 	}
 	if cwd := strings.TrimSpace(meta.Cwd); cwd != "" {
 		buildCtx.CWD = cwd
@@ -28,8 +29,11 @@ func BuildCtxFromThreadMetadata(meta *contract.ThreadMetadata, fallbackCWD strin
 	var cfg struct {
 		Runtime map[string]any `json:"runtime"`
 	}
-	if len(meta.ConfigOverride) == 0 || json.Unmarshal(meta.ConfigOverride, &cfg) != nil {
-		return buildCtx, buildCtx.CWD != ""
+	if len(meta.ConfigOverride) == 0 {
+		return buildCtx, buildCtx.CWD != "", nil
+	}
+	if err := json.Unmarshal(meta.ConfigOverride, &cfg); err != nil {
+		return contract.BuildCtx{}, false, fmt.Errorf("parse thread metadata config override: %w", err)
 	}
 	if gitRoot, ok := cfg.Runtime["gitRoot"].(string); ok {
 		buildCtx.GitRoot = strings.TrimSpace(gitRoot)
@@ -38,7 +42,7 @@ func BuildCtxFromThreadMetadata(meta *contract.ThreadMetadata, fallbackCWD strin
 		buildCtx.IsWorktree = isWorktree
 	}
 	buildCtx.SessionFlags = boolMapValue(cfg.Runtime["sessionFlags"])
-	return buildCtx, buildCtx.CWD != ""
+	return buildCtx, buildCtx.CWD != "", nil
 }
 
 // boolMapValue 从 metadata 的动态 JSON map 中提取 bool session flags。
@@ -66,15 +70,22 @@ func boolMapValue(raw any) map[string]bool {
 }
 
 // StartSessionFromThreadEvent 将 thread.Started 事件转成 TeamSync StartSession 调用。
-// 优先读取持久化线程元数据恢复 GitRoot/session flags，读取失败时使用事件自带 CWD 尽力启动。
+// 优先读取持久化线程元数据恢复 GitRoot/session flags，读取或解析失败会直接返回错误。
 func StartSessionFromThreadEvent(svc Lifecycle, store contract.ThreadMetadataStore, ev threaddto.Started) error {
 	if svc == nil {
 		return nil
 	}
 	buildCtx, ok := contract.BuildCtx{CWD: strings.TrimSpace(ev.CWD)}, strings.TrimSpace(ev.CWD) != ""
 	if store != nil && strings.TrimSpace(ev.ThreadID) != "" {
-		if meta, err := store.GetByThreadID(context.Background(), ev.ThreadID); err == nil && meta != nil {
-			buildCtx, ok = BuildCtxFromThreadMetadata(meta, ev.CWD)
+		meta, err := store.GetByThreadID(context.Background(), ev.ThreadID)
+		if err != nil {
+			return fmt.Errorf("load thread metadata for team sync: %w", err)
+		}
+		if meta != nil {
+			buildCtx, ok, err = BuildCtxFromThreadMetadata(meta, ev.CWD)
+			if err != nil {
+				return err
+			}
 		}
 	}
 	if !ok {

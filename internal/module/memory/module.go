@@ -349,8 +349,18 @@ var Module = fx.Module("memory",
 		fx.Annotate(nestedIngestWorkerAsRunner, fx.ResultTags(`group:"runners"`)),
 		fx.Annotate(teamSyncCoordinatorAsRunner, fx.ResultTags(`group:"runners"`)),
 	),
-	fx.Invoke(registerTeamMemoryRuntime, registerLifecycle, registerPromptProviders, bindMemoryDrainShutdown),
+	fx.Invoke(validateMemoryModuleRoot, registerTeamMemoryRuntime, registerLifecycle, registerPromptProviders, bindMemoryDrainShutdown),
 )
+
+// validateMemoryModuleRoot 在 fx 构造期校验启用状态下的记忆根目录，避免 provider 之后再静默退回空根。
+func validateMemoryModuleRoot(cfg *Config) error {
+	if !shouldValidateMemoryRoot(cfg) {
+		return nil
+	}
+	cfg = memoryConfig(cfg)
+	_, err := resolvedStoreRoot(cfg.RootDir, cfg.ProjectRoot, configuredAutoMemPathOverride(cfg))
+	return err
+}
 
 // NewRootManager 创建记忆根目录管理器。
 func NewRootManager(svc Service) *RootManager {

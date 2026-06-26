@@ -214,7 +214,7 @@ func TestKairosDailyLogSkipsChildAgent(t *testing.T) {
 
 func TestKairosDateChangeAttachmentTail(t *testing.T) {
 	cfg := &Config{Enabled: true, RootDir: t.TempDir(), ProjectRoot: newTestGitProjectRoot(t), Features: MemoryFeatureFlags{Kairos: true}}
-	provider := NewContextProvider(cfg)
+	provider := mustNewContextProvider(t, cfg)
 	current := time.Date(2026, 4, 15, 23, 55, 0, 0, time.FixedZone("UTC+8", 8*60*60))
 	provider.timeNow = func() time.Time { return current }
 
