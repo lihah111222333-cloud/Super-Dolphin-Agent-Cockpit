@@ -1,8 +1,12 @@
 package main
 
 import (
+	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/json"
+	"fmt"
+	"log/slog"
 	"net"
 	"os"
 	"strings"
@@ -12,6 +16,7 @@ import (
 	mcp "github.com/anthropic-ai/super-agent-v3/internal/dto/mcp"
 	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/common/bootstrap"
 	platformrpc "github.com/anthropic-ai/super-agent-v3/internal/platform/rpc"
+	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 	"github.com/creachadair/jrpc2"
 	"github.com/creachadair/jrpc2/channel"
 	"github.com/creachadair/jrpc2/handler"
@@ -105,6 +110,84 @@ func TestBootstrapConfigDoesNotOfferBootSnapshotIDACapability(t *testing.T) {
 		}
 	case <-ctx.Done():
 		t.Fatal("timed out waiting for register request")
+	}
+}
+
+func TestBootstrapConfigChangedLogRedactsPayload(t *testing.T) {
+	var buf bytes.Buffer
+	pkglogger.InitModeWithLevel(pkglogger.Production, slog.LevelInfo)
+	pkglogger.InitWithConsoleWriter(&buf)
+	t.Cleanup(func() {
+		pkglogger.InitWithConsoleWriter(os.Stderr)
+	})
+
+	cfg, err := buildBootstrapConfig(nil)
+	if err != nil {
+		t.Fatalf("buildBootstrapConfig() error = %v", err)
+	}
+	payload := json.RawMessage(`{"token":"super-secret-token","nested":{"password":"secret-password"}}`)
+	cfg.OnConfigChanged(mcp.ConfigChangedNotify{
+		Scope:         "agent",
+		ConfigVersion: 42,
+		Selector: mcp.Selector{
+			Subscription: "config/agent",
+			Scope: &mcp.SelectorScope{
+				AgentID:    "agent-1",
+				ClientKind: "ida",
+			},
+		},
+		Payload: payload,
+	})
+
+	output := strings.TrimSpace(buf.String())
+	if output == "" {
+		t.Fatal("expected config changed log output")
+	}
+	assertLogOutputOmits(t, output, []string{"super-secret-token", "secret-password"})
+	logPayload := mustDecodeLogPayload(t, output)
+	assertLogPayloadMissingKeys(t, logPayload, output, []string{"payload", "binary_name", "instance_id"})
+	if got := logPayload["scope"]; got != "agent" {
+		t.Fatalf("scope = %#v, want agent", got)
+	}
+	if got := logPayload["config_version"]; got != float64(42) {
+		t.Fatalf("config_version = %#v, want 42", got)
+	}
+	if got := logPayload["payload_size"]; got != float64(len(payload)) {
+		t.Fatalf("payload_size = %#v, want %d", got, len(payload))
+	}
+	wantHash := sha256.Sum256(payload)
+	if got := logPayload["payload_hash"]; got != fmt.Sprintf("%x", wantHash) {
+		t.Fatalf("payload_hash = %#v, want %x", got, wantHash)
+	}
+	if _, ok := logPayload["selector"]; !ok {
+		t.Fatalf("selector field missing: %s", output)
+	}
+}
+
+func assertLogOutputOmits(t *testing.T, output string, forbidden []string) {
+	t.Helper()
+	for _, value := range forbidden {
+		if strings.Contains(output, value) {
+			t.Fatalf("config changed log leaked payload content %q: %s", value, output)
+		}
+	}
+}
+
+func mustDecodeLogPayload(t *testing.T, output string) map[string]any {
+	t.Helper()
+	var logPayload map[string]any
+	if err := json.Unmarshal([]byte(output), &logPayload); err != nil {
+		t.Fatalf("unmarshal config changed log: %v", err)
+	}
+	return logPayload
+}
+
+func assertLogPayloadMissingKeys(t *testing.T, logPayload map[string]any, output string, keys []string) {
+	t.Helper()
+	for _, key := range keys {
+		if _, ok := logPayload[key]; ok {
+			t.Fatalf("config changed log contains extra field %q: %s", key, output)
+		}
 	}
 }
 
