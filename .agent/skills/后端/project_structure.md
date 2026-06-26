@@ -10,12 +10,12 @@
 
 | 路径 | 说明 | 规则与契约 |
 |------|------|----------|
-| `cmd/` | 程序入口 | 包含 `mcp-lsp`, `mcp-orch` 等独立二进制。每个目录仅包含 `main.go`，负责执行 `fx.New(...).Run()`。 |
-| `internal/module/` | 核心业务领域 | **严禁依赖 cmd 或外部框架细节**。按领域划分（如 `engine`, `workspace`）。 |
-| `internal/platform/` | 基础设施平台 | 提供底层技术支撑，如 `database`, `rpc`, `bus`, `config`。 |
+| `cmd/` | 程序入口与 sidecar | `cmd/agent-terminal`、`cmd/mcp-orch`、`cmd/mcp-lsp`、`cmd/mcp-ida` 可包含入口、运行时、工具注册和同包测试。 |
+| `internal/module/` | 核心业务领域 | **严禁依赖 cmd 或外部框架细节**。按领域划分（如 `thread`, `prompt`, `memory`, `skill`）。 |
+| `internal/platform/` | 基础设施平台 | 提供底层技术支撑，如 `db`, `rpc`, `config`, `toolbridge`。 |
 | `internal/mcpserver/` | MCP 协议适配层 | 将 `internal/module` 的能力通过 MCP 协议暴露。 |
 | `pkg/` | 公共组件 | 可供其他仓库引用的纯净库（如 `logger`, `errors`）。 |
-| `sql/` | 数据库定义 | 包含 schema 与 queries，用于 `sqlc` 生成代码。 |
+| `sql/` | 产品 Store 查询 | 根目录 `sql/queries` 生成 `internal/store/sqlc`；mcp-orch sidecar 查询位于 `cmd/mcp-orch/sql/queries`。 |
 
 > [!IMPORTANT]  
 > V3 项目强制模块隔离，禁止跨领域深度耦合，所有装配由 `fx` 完成。
@@ -53,13 +53,15 @@ var Module = fx.Module("workspace",
 
 ## 基础设施层 (`internal/platform/`)
 
+数据库入口是 `internal/platform/db`，使用 `database/sql` 和 `modernc.org/sqlite` 打开 SQLite、执行迁移并校验 schema。
+
 ```text
 internal/platform/
-├── database/        # 数据库连接池与事务管理器 (pgxpool)
+├── db/              # SQLite 打开、迁移与 schema 校验 (database/sql + modernc.org/sqlite)
 ├── rpc/             # jrpc2 核心装配与路由分发
-├── bus/             # kelindar/event 总线分发
 ├── config/          # 全局配置加载
-└── logsetup/        # 日志装配
+├── runtime/         # 运行时安全与守卫
+└── toolbridge/      # provider/tool 调用桥接
 ```
 
 ---

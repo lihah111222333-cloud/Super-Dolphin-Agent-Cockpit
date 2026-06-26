@@ -44,7 +44,7 @@ This policy governs agent instruction loading from `.agent/skills/**`. It does n
 
 ## Sub-Agent & Orchestration Policy
 
-- Sub-agents MUST use `mcp-go-agent-orchestration` tools (`task_create_dag`, `task_start_node`, `task_update_node`) to manage task lifecycles, dependencies, and execution status.
+- Sub-agents MUST use `mcp-go-agent-orchestration` tools (`task_create_dag`, `task_start_dag`, `task_dispatch_node`, `task_update_node`) to manage task lifecycles, dependencies, and execution status.
 - Orchestration via `mcp-orch` ensures observability, retry logic, and structured handoffs between parallel agents.
 
 

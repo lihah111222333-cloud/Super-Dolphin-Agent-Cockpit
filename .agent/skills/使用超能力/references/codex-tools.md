@@ -2,41 +2,53 @@
 
 技能使用 Claude Code 的工具名称。当你在技能中遇到这些名称时，使用所在平台的等价工具：
 
-| 技能引用 | Codex 等价工具 |
+| 技能引用 | super-agent-v3 / Codex 等价工具 |
 |-----------------|------------------|
-| `Task` 工具（派发子代理） | `spawn_agent`（见 [命名代理派发](#命名代理派发)） |
-| 多个 `Task` 调用（并行） | 多个 `spawn_agent` 调用 |
-| Task 返回结果 | `wait` |
-| Task 自动完成 | `close_agent`，用于释放代理资源位 |
+| `Task` 工具（派发子代理） | 优先使用 `mcp-go-agent-orchestration`：`task_create_dag` → `task_start_dag` / `task_dispatch_node` → `task_update_node` |
+| 多个 `Task` 调用（并行） | 先建 DAG，给每个独立任务建 node；依赖满足后并行启动 node |
+| Task 返回结果 | 读取 node/run 结果，并用 `task_update_node` 写入 `done` / `failed` / `blocked` |
+| Task 自动完成 | 节点收口后释放本地代理资源 |
 | `TodoWrite`（任务跟踪） | `update_plan` |
 | `Skill` 工具（调用技能） | 技能原生加载：直接遵循指令 |
 | `Read`、`Write`、`Edit`（文件） | 使用你的原生文件工具 |
 | `Bash`（运行命令） | 使用你的原生 shell 工具 |
 
-## 子代理派发需要多代理支持
+## super-agent-v3 子代理强制编排
 
-添加到你的 Codex 配置（`~/.codex/config.toml`）：
+在本仓库里，子代理不是“直接开一个后台任务”就算完成。所有子代理工作必须先进入 mcp-orch 生命周期：
+
+1. `task_create_dag`：为本轮工作创建 DAG，节点要有 `node_key`、`title`、`node_type`、`assigned_to`、`depends_on` 和可执行 `config`。
+2. `task_start_dag`：在用户要求执行时启动 run，读取返回的 `run_id` 与执行状态。
+3. `task_dispatch_node`：当 ready 节点缺少 `assigned_to` 或需要人工指派时，带 `dag_key` / `node_key` / `run_id` 显式派发。
+4. `task_update_node`：写入 `running`、`done`、`failed` 或 `blocked`，不要只依赖聊天摘要。
+
+如果当前 Codex 会话没有暴露这些 mcp-go-agent-orchestration 工具，不要启动子代理；改为向用户说明限制，并只做单代理只读分析或等待工具可用。
+
+## Codex 多代理兼容说明
+
+添加到你的 Codex 配置（`~/.codex/config.toml`）可启用本地 fallback：
 
 ```toml
 [features]
 multi_agent = true
 ```
 
-这会为 `调度并行代理` 和 `子代理驱动开发` 等技能启用 `spawn_agent`、`wait` 和 `close_agent`。
+fallback 只用于工具不可用时的临时执行；它不能替代 mcp-orch DAG 状态。
+在 super-agent-v3 仓库任务中，除非用户明确要求绕过仓库编排规则，否则不要用 fallback 派发子代理。
 
 ## 命名代理派发
 
 Claude Code 技能会引用 `superpowers:code-reviewer` 这样的命名代理类型。
 Codex 没有命名代理注册表；`spawn_agent` 会从内置角色（`default`、`explorer`、`worker`）创建通用代理。
 
-当技能要求派发某个命名代理类型时：
+当技能要求派发某个命名代理类型时，先把命名角色映射进 DAG node 的 `assigned_to` / `config.exec.prompt`。只有在非 super-agent-v3 仓库或用户明确批准绕过本仓库编排规则时，才按下面步骤构造 `spawn_agent` 消息：
 
 1. 找到该代理的提示词文件（例如 `agents/code-reviewer.md`，或技能本地提示词模板如 `code-quality-reviewer-prompt.md`）
 2. 读取提示词内容
 3. 填写任何模板占位符（`{BASE_SHA}`、`{WHAT_WAS_IMPLEMENTED}` 等）
 4. 用填好的内容作为 `message`，派发一个 `worker` 代理
 
-| 技能指令 | Codex 等价方式 |
+| 技能指令 | Codex fallback 等价方式 |
 |-------------------|------------------|
 | `Task tool (superpowers:code-reviewer)` | `spawn_agent(agent_type="worker", message=...)`，内容来自 `code-reviewer.md` |
 | 带内联提示词的 `Task tool (general-purpose)` | `spawn_agent(message=...)`，使用相同提示词 |

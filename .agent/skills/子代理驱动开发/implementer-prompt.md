@@ -1,11 +1,14 @@
 # 实现者子代理提示词模板
 
-派发实现者子代理时使用此模板。
+创建实现者 DAG node 时使用此模板。控制者必须先通过 `task_create_dag` 建图，并在运行时用 `task_start_dag` / `task_dispatch_node` 启动该 node。
 
 ```
-Task tool (general-purpose):
-  description: "Implement Task N: [task name]"
-  prompt: |
+mcp-orch DAG node:
+  node_key: "task-n-implement"
+  title: "Implement Task N: [task name]"
+  node_type: "agent"
+  assigned_to: "[stable-worker-id]"
+  config.exec.prompt: |
     You are implementing Task N: [task name]
 
     ## Task Description
@@ -99,9 +102,10 @@ Task tool (general-purpose):
 
     ## Report Format
 
-    When done, report:
-    - **Status:** DONE | DONE_WITH_CONCERNS | BLOCKED | NEEDS_CONTEXT
-    - What you implemented (or what you attempted, if blocked)
+	    When done, report:
+	    - **Status:** DONE | DONE_WITH_CONCERNS | BLOCKED | NEEDS_CONTEXT
+	    - **Node evidence:** dag_key, node_key, run_id, and intended task_update_node status
+	    - What you implemented (or what you attempted, if blocked)
     - What you tested and test results
     - Files changed
     - Self-review findings (if any)
@@ -112,4 +116,4 @@ Task tool (general-purpose):
     information that wasn't provided. 绝对不能 silently produce work you're unsure about.
 ```
 
-上面的代码块是要发送给子代理的英文模板，保持原文以便直接使用。
+上面的代码块是 DAG node 的 prompt payload 模板，保持英文正文以便直接使用。

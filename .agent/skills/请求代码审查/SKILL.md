@@ -32,7 +32,14 @@ HEAD_SHA=$(git rev-parse HEAD)
 
 **2. 派发 code-reviewer 子代理：**
 
-使用 Task 工具，类型为 superpowers:code-reviewer，并填写 `code-reviewer.md` 模板。
+在 super-agent-v3 中，优先创建审查 DAG/node，而不是裸派发后台任务：
+
+1. `task_create_dag`：创建本轮审查 DAG，或在现有实现 DAG 中新增 reviewer node。
+2. `task_start_dag`：在需要立即执行审查时启动 run。
+3. `task_dispatch_node`：将 ready 的 reviewer node 指派给 `superpowers:code-reviewer` 对应执行者。
+4. `task_update_node`：审查完成后写入 `done`、`failed` 或 `blocked`，并保存 findings 摘要。
+
+如果当前 Codex 环境没有暴露 mcp-go-agent-orchestration 工具，先说明限制，不要启动子代理；改为本会话单代理审查或等待工具可用。
 
 **占位符：**
 - `{WHAT_WAS_IMPLEMENTED}`：你刚构建的内容

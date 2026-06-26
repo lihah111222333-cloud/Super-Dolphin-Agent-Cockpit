@@ -1,201 +1,107 @@
 ---
 name: 结束开发分支
-description: 当实现已完成、所有测试通过，并且需要决定如何集成工作时使用；通过为合并、PR 或清理提供结构化选项来指导开发收尾
+description: 当实现已完成、验证已跑完，并且需要决定如何在 super-agent-v3 中提交、保留、推送或清理 worktree 时使用。
 aliases: ["@结束开发分支", "@完成开发分支", "@finish-branch"]
 ---
 
 # 完成开发分支
 
-## 概览
+## 核心原则
 
-通过呈现清晰选项并处理所选工作流，指导开发工作的完成。
+证据先于选项。开始时声明：“我正在使用 结束开发分支 技能来完成这项工作。”
 
-**核心原则：** 验证测试 → 呈现选项 → 执行选择 → 清理。
-
-**开始时声明：** “我正在使用 结束开发分支 技能来完成这项工作。”
-
-## 流程
-
-### 第 1 步：验证测试
-
-**呈现选项前，先验证测试通过：**
+## 第 1 步：读取状态
 
 ```bash
-# Run project's test suite
-npm test / cargo test / pytest / go test ./...
+git status --short
+git diff --stat
+git branch --show-current
+git rev-parse --show-toplevel
 ```
 
-**如果测试失败：**
-```
-测试失败（<N> 个失败）。完成前必须先修复：
+- 未跟踪或未暂存文件要区分 owned / unrelated。
+- 不要 `git add .`。
+- 不要清理、stash、revert 或格式化 unrelated 文件。
 
-[显示失败内容]
+## 第 2 步：验证
 
-测试通过前，不能继续合并或创建 PR。
-```
+按实际改动面选择验证：
 
-停止。不要进入第 2 步。
+| 改动面 | 命令 |
+|---|---|
+| Go 文件 | `./scripts/test_with_guard.sh <file.go>`，再跑受影响包 `./scripts/test_with_guard.sh <packages> -count=1` |
+| guard/archtest | `./scripts/test_with_guard.sh ./internal/archtest -count=1` 或 `make guard` |
+| frontend-app | `cd frontend-app && npm run lint && npm test && npm run build` |
+| legacy Vue | `cd cmd/agent-terminal/frontend && node scripts/size-guard.cjs && npx vitest run && npm run build` |
+| SQL/store | `make sqlc-verify` |
+| codemap | `make codemap-check` |
+| docs/skills-only | `git diff --check` + 对应文本校验脚本 |
 
-**如果测试通过：** 继续第 2 步。
+测试失败时停止，不呈现合并/PR 选项。报告失败命令和摘要。
 
-### 第 2 步：确定基准分支
+## 第 3 步：呈现选项
 
-```bash
-# Try common base branches
-git merge-base HEAD main 2>/dev/null || git merge-base HEAD master 2>/dev/null
-```
+验证后只呈现这些选项，等待用户选择：
 
-或者询问：“这个分支是从 main 分出来的，对吗？”
+```text
+验证已完成。你想怎么处理？
 
-### 第 3 步：呈现选项
-
-准确呈现下面 4 个选项：
-
-```
-实现已完成。你想怎么处理？
-
-1. 本地合并回 <base-branch>
-2. 推送并创建 Pull Request
-3. 保持分支现状（我之后处理）
-4. 丢弃这项工作
+1. 只保留当前分支/worktree
+2. 提交 owned 文件到当前分支
+3. 推送当前分支
+4. 创建 PR
+5. 清理 worktree/分支
 
 请选择一个选项。
 ```
 
-**不要添加解释**：保持选项简洁。
+不要默认 merge 回 main。只有用户明确要求时才本地合并。
 
-### 第 4 步：执行选择
+## 第 4 步：执行用户选择
 
-#### 选项 1：本地合并
+### 提交
 
 ```bash
-# Switch to base branch
-git checkout <base-branch>
-
-# Pull latest
-git pull
-
-# Merge feature branch
-git merge <feature-branch>
-
-# Verify tests on merged result
-<test command>
-
-# If tests pass
-git branch -d <feature-branch>
+git add <owned-file-1> <owned-file-2>
+git diff --cached --check
+git status --short
+git commit -m "<type>: <summary>"
 ```
 
-然后：清理 worktree（第 5 步）
+fix/hotfix/bugfix/修复 类提交必须包含同提交回归测试、fixture、golden、snapshot 或可执行验收脚本。
 
-#### 选项 2：推送并创建 PR
+### 推送
 
 ```bash
-# Push branch
-git push -u origin <feature-branch>
+git status --short
+git push -u origin "$(git branch --show-current)"
+```
 
-# Create PR
+推送前必须确认工作区/index/untracked 状态符合 hook 要求。
+
+### 创建 PR
+
+```bash
 gh pr create --title "<title>" --body "$(cat <<'EOF'
 ## Summary
-<2-3 bullets of what changed>
+- <what changed>
 
 ## Test Plan
-- [ ] <verification steps>
+- <fresh verification command>
 EOF
 )"
 ```
 
-然后：清理 worktree（第 5 步）
+### 清理
 
-#### 选项 3：保持现状
-
-报告：“保留分支 <name>。Worktree 已保留在 <path>。”
-
-**不要清理 worktree。**
-
-#### 选项 4：丢弃
-
-**先确认：**
-```
-这会永久删除：
-- 分支 <name>
-- 所有提交：<commit-list>
-- 位于 <path> 的 worktree
-
-输入 'discard' 以确认。
-```
-
-等待精确确认。
-
-如果确认：
-```bash
-git checkout <base-branch>
-git branch -D <feature-branch>
-```
-
-然后：清理 worktree（第 5 步）
-
-### 第 5 步：清理 Worktree
-
-**适用于选项 1、2、4：**
-
-检查是否在 worktree 中：
-```bash
-git worktree list | grep $(git branch --show-current)
-```
-
-如果是：
-```bash
-git worktree remove <worktree-path>
-```
-
-**选项 3：** 保留 worktree。
-
-## 快速参考
-
-| 选项 | 合并 | 推送 | 保留 Worktree | 清理分支 |
-|--------|-------|------|---------------|----------------|
-| 1. 本地合并 | ✓ | - | - | ✓ |
-| 2. 创建 PR | - | ✓ | ✓ | - |
-| 3. 保持现状 | - | - | ✓ | - |
-| 4. 丢弃 | - | - | - | ✓（强制） |
-
-## 常见错误
-
-**跳过测试验证**
-- **问题：** 合并损坏代码，创建失败 PR
-- **修复：** 提供选项前始终验证测试
-
-**开放式提问**
-- **问题：** “接下来我该做什么？”→ 含糊
-- **修复：** 准确呈现 4 个结构化选项
-
-**自动清理 worktree**
-- **问题：** 在可能还需要时删除 worktree（选项 2、3）
-- **修复：** 只为选项 1 和 4 清理
-
-**丢弃前不确认**
-- **问题：** 意外删除工作
-- **修复：** 要求输入 "discard" 确认
+清理 worktree 或强删分支属于破坏性动作，必须再次确认目标路径、分支名和要丢弃的提交。没有明确确认，不执行。
 
 ## 红旗
 
-**绝不要：**
-- 在测试失败时继续
-- 不验证合并结果就合并
-- 不确认就删除工作
-- 未明确请求就 force-push
+绝不要：
 
-**始终：**
-- 提供选项前验证测试
-- 准确呈现 4 个选项
-- 对选项 4 获取输入确认
-- 只为选项 1 和 4 清理 worktree
-
-## 集成
-
-**被以下技能调用：**
-- **子代理驱动开发**（第 7 步）：所有任务完成后
-- **执行计划**（第 5 步）：所有批次完成后
-
-**配合：**
-- **使用git工作区**：清理该技能创建的 worktree
+- 没有新鲜验证就说 ready/done/fixed。
+- 把 unrelated dirty 文件 stage 进提交。
+- 默认本地 merge、push、删除 worktree 或删除分支。
+- 使用 `--no-verify`，除非用户明确要求紧急旁路并补跑遗漏检查。
+- 用 `git reset --hard` 或 `git checkout --` 清理用户改动。

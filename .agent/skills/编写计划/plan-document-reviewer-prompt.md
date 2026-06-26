@@ -1,15 +1,18 @@
 # 计划文档审查者提示词模板
 
-派发计划文档审查者子代理时使用此模板。
+创建计划文档审查 DAG node 时使用此模板。
 
 **目的：** 验证计划是否完整、是否匹配规格，并且任务分解是否合理。
 
 **派发时机：** 完整计划已写好。
 
 ```
-Task tool (general-purpose):
-  description: "Review plan document"
-  prompt: |
+mcp-orch DAG node:
+  node_key: "plan-document-review"
+  title: "Review plan document"
+  node_type: "agent"
+  assigned_to: "plan-reviewer"
+  config.exec.prompt: |
     You are a plan document reviewer. Verify this plan is complete and ready for implementation.
 
     **Plan to review:** [PLAN_FILE_PATH]
