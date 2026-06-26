@@ -12,8 +12,13 @@ import (
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
-// pushWorkerDrainGrace 限制停止阶段等待 RPC push 队列清空的最长时间。
-const pushWorkerDrainGrace = 10 * time.Second
+// push worker 队列与退化通知常量。
+const (
+	pushWorkerDrainGrace      = 10 * time.Second
+	pushWorkerPendingLimit    = 4
+	pushWorkerDegradedMethod  = "platform/queue/degraded"
+	pushWorkerDegradedQueueID = "rpc_push"
+)
 
 // pushBroadcaster 是 push worker 依赖的 Server 最小接口。
 // 测试可用假实现替代完整 jrpc2 server，生产契约只要求广播 method+payload。
@@ -24,6 +29,8 @@ type pushBroadcaster interface {
 // pushRequest 是一次已展开的通知 batch。
 type pushRequest struct {
 	notifications []eventsurface.Notification
+	degraded      bool
+	dropped       int64
 }
 
 // pushNotificationWorker 是 bus event 到 Server.NotifyAll 慢路径的唯一拥有者。
@@ -114,12 +121,43 @@ func (w *pushNotificationWorker) Enqueue(notifications []eventsurface.Notificati
 	default:
 	}
 	w.mu.Lock()
-	w.queue = append(w.queue, pushRequest{notifications: filtered})
+	w.enqueueLocked(pushRequest{notifications: filtered})
 	w.mu.Unlock()
 	w.enqueuedTotal.Add(1)
 	select {
 	case w.wake <- struct{}{}:
 	default:
+	}
+}
+
+// enqueueLocked 在持锁状态下写入队列，满载时压缩为 degraded 事件加最新请求。
+func (w *pushNotificationWorker) enqueueLocked(req pushRequest) {
+	if len(w.queue) > 0 && w.queue[0].degraded {
+		w.queue = []pushRequest{pushWorkerDegradedRequest(w.queue[0].dropped + 1), req}
+		return
+	}
+	if len(w.queue) >= pushWorkerPendingLimit {
+		dropped := int64(len(w.queue))
+		w.queue = []pushRequest{pushWorkerDegradedRequest(dropped), req}
+		return
+	}
+	w.queue = append(w.queue, req)
+}
+
+// pushWorkerDegradedRequest 构造队列压缩后的显式退化通知。
+func pushWorkerDegradedRequest(dropped int64) pushRequest {
+	return pushRequest{
+		degraded: true,
+		dropped:  dropped,
+		notifications: []eventsurface.Notification{{
+			Method: pushWorkerDegradedMethod,
+			Payload: map[string]any{
+				"event":   pushWorkerDegradedMethod,
+				"queue":   pushWorkerDegradedQueueID,
+				"dropped": dropped,
+				"mode":    "latest_only",
+			},
+		}},
 	}
 }
 

@@ -158,6 +158,9 @@ func (c *stdioMCPClient) request(ctx context.Context, method string, params any)
 		if err != nil {
 			return nil, err
 		}
+		if len(raw) > common.MaxStdioMessageBytes {
+			return nil, fmt.Errorf("toolbridge: stdio MCP response size %d exceeds stdio message limit %d", len(raw), common.MaxStdioMessageBytes)
+		}
 		var resp stdioRPCResponse
 		if err := json.Unmarshal(raw, &resp); err != nil {
 			return nil, err

@@ -123,6 +123,21 @@ func TestStdioMCPClientCallToolRejectsNullSuccessPayload(t *testing.T) {
 	}
 }
 
+func TestStdioMCPClientRejectsOversizePeerResponse(t *testing.T) {
+	transport := &fakeStdioTransport{reads: []json.RawMessage{
+		json.RawMessage(`{"jsonrpc":"2.0","id":1,"result":{"blob":"` + strings.Repeat("x", 1048577) + `"}}`),
+	}}
+	client := &stdioMCPClient{transport: transport}
+
+	_, err := client.request(context.Background(), "tools/list", map[string]any{})
+	if err == nil {
+		t.Fatal("request() error = nil, want oversize peer response error")
+	}
+	if !strings.Contains(err.Error(), "exceeds stdio message limit") {
+		t.Fatalf("request() error = %v, want stdio message limit", err)
+	}
+}
+
 func TestStdioMCPClientCloseTerminatesChildProcesses(t *testing.T) {
 	if os.Getenv("TOOLBRIDGE_STDIO_CHILD_HELPER") == "1" {
 		runStdioChildTestHelper()

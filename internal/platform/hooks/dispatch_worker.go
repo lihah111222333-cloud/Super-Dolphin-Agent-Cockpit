@@ -2,6 +2,8 @@ package hooks
 
 import (
 	"context"
+	"encoding/json"
+	"strconv"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -12,14 +14,20 @@ import (
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
-// hookDispatchDrainGrace 限制 hooks dispatch worker 的 OnStop 等待时间。
-// 卡住的 hook peer 不能拖住应用关闭；超时会由 Stop(ctx) 返回给生命周期托管方。
-const hookDispatchDrainGrace = 10 * time.Second
+// hooks dispatch 队列与退化通知常量。
+const (
+	hookDispatchDrainGrace      = 10 * time.Second
+	hookDispatchPendingLimit    = 4
+	hookDispatchDegradedEvent   = "platform/queue/degraded"
+	hookDispatchDegradedQueueID = "hooks_dispatch"
+)
 
 type hookDispatchRequest struct {
 	topic     string
 	payload   mcp.HookPayload
 	eventTime time.Time
+	degraded  bool
+	dropped   int64
 }
 
 // hookDispatchFanout 是 worker 需要的 Manager 最小能力。
@@ -96,7 +104,7 @@ func (w *hookDispatchWorker) Enqueue(topic string, eventTime time.Time, payload 
 	default:
 	}
 	w.mu.Lock()
-	w.queue = append(w.queue, hookDispatchRequest{
+	w.enqueueLocked(hookDispatchRequest{
 		topic:     topic,
 		payload:   payload,
 		eventTime: eventTime,
@@ -106,6 +114,35 @@ func (w *hookDispatchWorker) Enqueue(topic string, eventTime time.Time, payload 
 	select {
 	case w.wake <- struct{}{}:
 	default:
+	}
+}
+
+// enqueueLocked 在持锁状态下写入队列，满载时只保留退化信号和最新请求。
+func (w *hookDispatchWorker) enqueueLocked(req hookDispatchRequest) {
+	if len(w.queue) > 0 && w.queue[0].degraded {
+		w.queue = []hookDispatchRequest{hookDispatchDegradedRequest(req, w.queue[0].dropped+1), req}
+		return
+	}
+	if len(w.queue) >= hookDispatchPendingLimit {
+		dropped := int64(len(w.queue))
+		w.queue = []hookDispatchRequest{hookDispatchDegradedRequest(req, dropped), req}
+		return
+	}
+	w.queue = append(w.queue, req)
+}
+
+// hookDispatchDegradedRequest 构造 hook 队列压缩后的显式退化请求。
+func hookDispatchDegradedRequest(latest hookDispatchRequest, dropped int64) hookDispatchRequest {
+	return hookDispatchRequest{
+		topic:     latest.topic,
+		eventTime: latest.eventTime,
+		degraded:  true,
+		dropped:   dropped,
+		payload: mcp.HookPayload{
+			AgentID: "platform",
+			Topic:   latest.topic,
+			Context: json.RawMessage(`{"event":"` + hookDispatchDegradedEvent + `","queue":"` + hookDispatchDegradedQueueID + `","dropped":` + strconv.FormatInt(dropped, 10) + `,"mode":"latest_only"}`),
+		},
 	}
 }
 
