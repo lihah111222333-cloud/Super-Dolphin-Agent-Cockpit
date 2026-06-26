@@ -263,6 +263,17 @@ export function normalizeRuntimeEventEnvelope(evt) {
 function subscribeRuntimeEvent(eventName, callback, options = {}) {
   let off = () => {};
   let cancelled = false;
+  let readySettled = false;
+  let resolveReady;
+  const ready = new Promise((resolve) => {
+    resolveReady = resolve;
+  });
+
+  const settleReady = (value) => {
+    if (readySettled) return;
+    readySettled = true;
+    resolveReady(value === true);
+  };
 
   const teardown = (runtime, unbind) => {
     try {
@@ -280,6 +291,12 @@ function subscribeRuntimeEvent(eventName, callback, options = {}) {
     }
     return false;
   };
+
+  const unsubscribe = () => {
+    cancelled = true;
+    off();
+  };
+  const subscription = { ready, unsubscribe };
 
   const shouldEscalateCallbackError = (error, normalized) => {
     if (typeof options.escalateCallbackError === 'function') {
@@ -310,25 +327,28 @@ function subscribeRuntimeEvent(eventName, callback, options = {}) {
   void waitRuntime().then((runtime) => {
     if (!runtime?.Events?.On) {
       writeBridgeLog('warn', options.subscribeUnavailableLog || 'runtime.subscribe.unavailable', { eventName });
+      runtimePromise = null;
+      settleReady(false);
       return;
     }
     const unbind = runtime.Events.On(eventName, wrapped);
     if (cancelled) {
       teardown(runtime, unbind);
+      settleReady(false);
       return;
     }
     off = () => {
       cancelled = true;
       teardown(runtime, unbind);
     };
+    settleReady(true);
   }).catch((error) => {
+    runtimePromise = null;
     writeBridgeLog('error', options.subscribeFailedLog || 'runtime.subscribe.failed', { eventName, error });
+    settleReady(false);
   });
 
-  return () => {
-    cancelled = true;
-    off();
-  };
+  return subscription;
 }
 
 function resolveClientMeta() {

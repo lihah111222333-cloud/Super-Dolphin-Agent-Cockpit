@@ -620,6 +620,46 @@ describe('wails bridge non-RPC binding logs', () => {
 describe('wails bridge event callbacks', () => {
   beforeEach(resetWailsRuntimeMocks);
 
+  it('returns a ready promise and retries when the first runtime event binding is unavailable', async () => {
+    let importCount = 0;
+    const on = vi.fn(() => () => {});
+    vi.doMock(runtimeModule, () => {
+      importCount += 1;
+      if (importCount === 1) {
+        throw new Error('runtime not loaded yet');
+      }
+      return {
+        Call: { ByID: vi.fn() },
+        Events: { On: on },
+      };
+    });
+    const { onBridgeEvent, registerBridgeLogStore } = await import('./wailsBridge.js');
+    const logs = captureBridgeLogs(registerBridgeLogStore);
+
+    const first = onBridgeEvent(vi.fn());
+
+    expect(typeof first).toBe('object');
+    expect(first).toEqual({
+      ready: expect.any(Promise),
+      unsubscribe: expect.any(Function),
+    });
+    await expect(first.ready).resolves.toBe(false);
+    expect(logs.find((entry) => entry.event === 'bridge.subscribe.unavailable')).toEqual(
+      expect.objectContaining({ level: 'warn' }),
+    );
+
+    const second = onBridgeEvent(vi.fn());
+
+    expect(typeof second).toBe('object');
+    expect(second).toEqual({
+      ready: expect.any(Promise),
+      unsubscribe: expect.any(Function),
+    });
+    await expect(second.ready).resolves.toBe(true);
+    expect(on).toHaveBeenCalledWith('bridge-event', expect.any(Function));
+    second.unsubscribe();
+  });
+
   it('rethrows bridge callback errors when escalation is requested', async () => {
     let eventCallback = null;
     const on = vi.fn((_eventName, callback) => {
