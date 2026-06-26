@@ -66,9 +66,9 @@ func provideClient(p clientParams) *Client {
 	return newClient(p.Registry, p.Sessions, p.Logger, p.Tracer)
 }
 
-// provideDreamExecutor 把 provider 分组收窄为跨模块 DreamExecutor 接口。
-func provideDreamExecutor(p dreamExecutorParams) contract.DreamExecutor {
-	return NewDreamExecutor(p.Providers, p.Logger)
+// provideDreamExecutor 把 provider 分组收窄为跨模块 DreamExecutor 接口，并把配置错误交给 Fx 阻断启动。
+func provideDreamExecutor(p dreamExecutorParams) (contract.DreamExecutor, error) {
+	return newDreamExecutor(p.Providers, p.Logger)
 }
 
 // registerSessionShutdown 在 Fx 停止阶段关闭全部 provider session，防止后台进程泄漏。
