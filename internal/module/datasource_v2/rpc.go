@@ -130,6 +130,7 @@ func datasourceV2RPCError(err error) error {
 		errors.Is(err, errDatasourceV2TextTooLarge),
 		errors.Is(err, errDatasourceV2DocumentIDRequired),
 		errors.Is(err, errDatasourceV2ListLimitRequired),
+		errors.Is(err, errDatasourceV2ListLimitTooLarge),
 		errors.Is(err, errDatasourceV2MissingFileName),
 		errors.Is(err, errDatasourceV2SizeBytesInvalid):
 		return platformrpc.ErrInvalidParams(err.Error())

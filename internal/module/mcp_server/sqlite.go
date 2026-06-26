@@ -20,8 +20,10 @@ const (
 	brokenSQLitePackage        = "mcp-server-sqlite"
 )
 
+var errSQLiteRequestDatabasePathUnsupported = errors.New("mcp_server: sqlite databasePath request override is not allowed")
+
 // StartSQLiteServerRequest 是默认 sqlite MCP server 的显式启动 RPC 请求。
-// DatabasePath 可由请求覆盖；为空时由 service 按配置和环境变量解析。
+// DatabasePath 保留 wire 兼容但不允许请求覆盖；数据库路径只能来自运行时配置或受信环境。
 type StartSQLiteServerRequest = contract.MCPSQLiteServerStartRequest
 
 // StartSQLiteServerResult 返回 sqlite 配置写入位置、本次是否新增以及最终 enabled 状态。
@@ -233,11 +235,13 @@ func (s *service) setDefaultSQLiteServerEnabled(ctx context.Context, enabled boo
 	return nil
 }
 
-// resolveSQLiteDatabasePath 按请求、运行时配置和环境变量顺序解析 SQLite 数据库路径。
-// 所有候选都为空时返回错误，让默认 MCP server 启动明确失败而不是使用隐式路径。
+// resolveSQLiteDatabasePath 按运行时配置和环境变量解析 SQLite 数据库路径。
+// 请求体不允许覆盖数据库位置，避免前端或远程调用把 sqlite MCP 指向任意本地文件。
 func (s *service) resolveSQLiteDatabasePath(requested string) (string, error) {
+	if strings.TrimSpace(requested) != "" {
+		return "", errSQLiteRequestDatabasePathUnsupported
+	}
 	for _, candidate := range []string{
-		requested,
 		s.sqlitePath,
 		os.Getenv(contract.SQLitePathEnvKey),
 		os.Getenv(contract.InternalSQLitePathEnvKey),

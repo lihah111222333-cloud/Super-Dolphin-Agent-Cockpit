@@ -27,8 +27,13 @@ func extractPDFText(sourcePath string) (string, error) {
 		return "", err
 	}
 	parts := make([]string, 0, len(streams))
+	totalBytes := 0
 	for _, stream := range streams {
 		if text := extractPDFTextFromStream(stream); text != "" {
+			totalBytes += len(text)
+			if totalBytes > datasourceV2MaxImportBytes {
+				return "", errDatasourceV2TextTooLarge
+			}
 			parts = append(parts, text)
 		}
 	}
@@ -96,6 +101,9 @@ func pdfStreamDictionary(prefix []byte) []byte {
 // decodePDFStream 根据 stream 字典决定是否执行 FlateDecode 解压。
 // 当前只支持明文和 zlib 压缩流，解压失败会阻断 datasource_v2 导入。
 func decodePDFStream(dictionary, body []byte) ([]byte, error) {
+	if len(body) > datasourceV2MaxImportBytes {
+		return nil, errDatasourceV2TextTooLarge
+	}
 	if !bytes.Contains(dictionary, []byte("/FlateDecode")) {
 		return body, nil
 	}
@@ -104,9 +112,21 @@ func decodePDFStream(dictionary, body []byte) ([]byte, error) {
 		return nil, fmt.Errorf("decode flate pdf stream: %w", err)
 	}
 	defer reader.Close()
-	decoded, err := io.ReadAll(reader)
+	decoded, err := readLimitedPDFStream(reader)
 	if err != nil {
 		return nil, fmt.Errorf("read flate pdf stream: %w", err)
+	}
+	return decoded, nil
+}
+
+// readLimitedPDFStream 读取解压后的 PDF stream，并在超过 datasource_v2 导入上限时立即阻断。
+func readLimitedPDFStream(reader io.Reader) ([]byte, error) {
+	decoded, err := io.ReadAll(io.LimitReader(reader, datasourceV2MaxImportBytes+1))
+	if err != nil {
+		return nil, err
+	}
+	if len(decoded) > datasourceV2MaxImportBytes {
+		return nil, errDatasourceV2TextTooLarge
 	}
 	return decoded, nil
 }
