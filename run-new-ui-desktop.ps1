@@ -187,6 +187,28 @@ function Assert-PortFree {
     throw "port $port is already in use"
 }
 
+function Assert-ViteDevLoopbackUrl {
+    param([Parameter(Mandatory)][string]$Url)
+
+    try {
+        $uri = [Uri]$Url.Trim()
+    } catch {
+        throw "VITE_DEV_URL must use loopback http/https with host and port, got: $Url"
+    }
+    $allowedHosts = @('localhost', '127.0.0.1', '::1')
+    $host = $uri.Host.Trim([char[]]'[]').ToLowerInvariant()
+    $scheme = $uri.Scheme.ToLowerInvariant()
+    if ($scheme -notin @('http', 'https') -or
+        -not $host -or
+        $uri.Port -le 0 -or
+        $uri.Authority -notmatch ':\d+$' -or
+        $uri.UserInfo -or
+        $allowedHosts -notcontains $host) {
+        throw "VITE_DEV_URL must use loopback http/https with host and port, got: $Url"
+    }
+    return $uri
+}
+
 function Get-ProcessCommandLine {
     param([Parameter(Mandatory)][int]$ProcessId)
 
@@ -715,10 +737,7 @@ if ($env:FRONTEND_DEVSERVER_URL -ne $env:VITE_DEV_URL) {
     throw "FRONTEND_DEVSERVER_URL must match VITE_DEV_URL for Wails readiness, got FRONTEND_DEVSERVER_URL=$($env:FRONTEND_DEVSERVER_URL) VITE_DEV_URL=$($env:VITE_DEV_URL)"
 }
 
-$viteUri = [Uri]$env:VITE_DEV_URL
-if (-not $viteUri.Host -or $viteUri.Port -le 0 -or $viteUri.Authority -notmatch ':\d+$') {
-    throw "VITE_DEV_URL must include host and port, got: $($env:VITE_DEV_URL)"
-}
+$viteUri = Assert-ViteDevLoopbackUrl -Url $env:VITE_DEV_URL
 $ViteDevHost = $viteUri.Host
 $ViteDevPort = $viteUri.Port
 

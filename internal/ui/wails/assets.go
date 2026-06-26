@@ -2,6 +2,7 @@ package wails
 
 import (
 	"embed"
+	"fmt"
 	"io/fs"
 	"log/slog"
 	"net/http"
@@ -27,17 +28,17 @@ var placeholderAssets embed.FS
 // VITE_DEV_URL 存在时会转发到 Vite dev server；否则使用注入资源或内置占位资源。
 func AssetHandlerFrom(injected FrontendFS) http.Handler {
 	if devURL := strings.TrimSpace(os.Getenv("VITE_DEV_URL")); devURL != "" {
-		return viteDevProxy(devURL)
+		target, err := parseViteDevProxyURL(devURL)
+		if err != nil {
+			panic("invalid VITE_DEV_URL: " + err.Error())
+		}
+		return viteDevProxy(target)
 	}
 	return application.BundledAssetFileServer(resolveFS(injected))
 }
 
 // viteDevProxy 创建指向 Vite dev server 的反向代理。
-func viteDevProxy(rawURL string) http.Handler {
-	target, err := url.Parse(rawURL)
-	if err != nil {
-		panic("invalid VITE_DEV_URL: " + err.Error())
-	}
+func viteDevProxy(target *url.URL) http.Handler {
 	slog.Info("frontend proxying to vite dev server", "url", target.String())
 	proxy := httputil.NewSingleHostReverseProxy(target)
 	// Vite dev server 会校验 Host，这里随反向代理目标同步请求头。
@@ -47,6 +48,30 @@ func viteDevProxy(rawURL string) http.Handler {
 		req.Host = target.Host
 	}
 	return proxy
+}
+
+// parseViteDevProxyURL 校验 VITE_DEV_URL 只指向本机 HTTP(S) Vite 服务。
+// 桌面壳会把该地址作为反向代理目标，非 loopback 或缺少端口必须 fail-fast，避免代理到外部主机。
+func parseViteDevProxyURL(rawURL string) (*url.URL, error) {
+	target, err := url.Parse(strings.TrimSpace(rawURL))
+	if err != nil {
+		return nil, err
+	}
+	if target == nil || target.Host == "" || strings.TrimSpace(target.Hostname()) == "" || target.Port() == "" {
+		return nil, fmt.Errorf("must include host and port, got %q", rawURL)
+	}
+	if target.User != nil {
+		return nil, fmt.Errorf("must not include user info, got %q", rawURL)
+	}
+	switch strings.ToLower(strings.TrimSpace(target.Scheme)) {
+	case "http", "https":
+	default:
+		return nil, fmt.Errorf("must use http/https scheme, got %q", target.Scheme)
+	}
+	if !isLoopbackHost(target.Hostname()) {
+		return nil, fmt.Errorf("must use loopback host, got %q", target.Hostname())
+	}
+	return target, nil
 }
 
 // resolveFS 选择实际提供给 Wails 的前端资源文件系统。
