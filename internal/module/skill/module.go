@@ -62,16 +62,16 @@ func newService(deps serviceDeps) *service {
 	return svc
 }
 
-// ProvideSkillLister 提供技能lister。
+// ProvideSkillLister 暴露只读 skill 列表接口给 prompt 和 provider 装配层。
 func ProvideSkillLister(svc Service) SkillLister { return svc }
 
-// ProvideSkillInventoryLister 提供技能inventorylister。
+// ProvideSkillInventoryLister 暴露完整 inventory 读取接口给治理界面。
 func ProvideSkillInventoryLister(svc Service) SkillInventoryLister { return svc }
 
-// ProvideSkillCatalogSource 提供技能catalogsource。
+// ProvideSkillCatalogSource 将 service 作为 catalog 来源注入跨模块 contract。
 func ProvideSkillCatalogSource(svc Service) SkillCatalogSource { return svc }
 
-// ProvideSkillHydrationSource 提供技能hydrationsource。
+// ProvideSkillHydrationSource 将 service 作为 skill 全文补水来源注入 provider。
 func ProvideSkillHydrationSource(svc Service) SkillHydrationSource { return svc }
 
 const builtInSkillRoot = "embedded_skills"

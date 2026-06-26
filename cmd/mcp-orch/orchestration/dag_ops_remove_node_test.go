@@ -11,11 +11,11 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 )
 
-// F4.3 remove_node 真实业务实现单测。覆盖矩阵：
-//   - happy: 删除没有下游依赖的 leaf node，推进 DAG version
-//   - reject: 被其它节点 depends_on 的节点不能删除
-//   - reject: running DAG 当前禁用模板改写，remove_node 必须拒绝
-//   - reject: 目标节点不存在时不删除、不 bump version
+// remove_node 单测覆盖 DAG 模板删除的边界：
+//   - 删除没有下游依赖的 leaf node 时推进 DAG version。
+//   - 被其他节点 depends_on 的节点必须拒绝，且不写入。
+//   - active run 或 running DAG 禁止模板改写。
+//   - 目标节点不存在或同批先改后删时保持 fail-fast。
 
 func TestApplyOps_RemoveNode_LeafHappy(t *testing.T) {
 	t.Parallel()

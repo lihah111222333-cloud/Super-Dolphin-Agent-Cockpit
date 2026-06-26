@@ -7,19 +7,15 @@ import (
 	"testing"
 )
 
-// TestBootstrapCallbackOwnedByWaitGroup enforces P22 P2 bootstrap-S1:
-// the bootstrap client must not fire application callbacks
-// (OnShutdown / OnConfigChanged) fire-and-forget. Every spawn has to
-// go through spawnCallback, which registers with callbackWG so
-// Close() can drain them via drainCallbacks.
+// TestBootstrapCallbackOwnedByWaitGroup 约束 bootstrap 回调必须由 WaitGroup 托管。
+// OnShutdown 和 OnConfigChanged 不能 fire-and-forget；所有回调都要经 spawnCallback 注册，
+// 让 Close() 能通过 drainCallbacks 有界等待。
 //
-// Forbidden shapes in non-test .go under
-// internal/mcpserver/common/bootstrap:
+// 非测试实现中禁止出现的直接启动形态：
 //   - `go c.cfg.OnShutdown(`
 //   - `go c.cfg.OnConfigChanged(`
 //
-// Also asserts the drainCallbacks( call stays wired so future
-// refactors can't silently drop the drain.
+// 同时确认 Close() 仍调用 drainCallbacks，避免重构时静默丢失 drain 边界。
 func TestBootstrapCallbackOwnedByWaitGroup(t *testing.T) {
 	const dir = "../../internal/mcpserver/common/bootstrap"
 

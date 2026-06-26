@@ -72,7 +72,8 @@ func (s *service) ListSkillInventory(ctx context.Context) ([]SkillInfo, error) {
 	return skills, nil
 }
 
-// resolveSkillRecordByName 按名称解析技能记录。
+// resolveSkillRecordByName 在当前 cwd 的有效 skill 集合里解析名称或别名。
+// 同名冲突会直接返回冲突错误，调用方不能绕过策略读取任意目录。
 func (s *service) resolveSkillRecordByName(name, cwd string) (skillRecord, error) {
 	trimmed := strings.TrimSpace(name)
 	normalized, _, err := normalizeSkillIdentityName(trimmed, "")
@@ -101,7 +102,8 @@ func (s *service) resolveSkillRecordByName(name, cwd string) (skillRecord, error
 	return skillRecord{}, skillNotFoundError(normalized)
 }
 
-// resolveCanonicalRecordByNameInTarget 在指定目标范围内按名称解析 canonical skill 记录。
+// resolveCanonicalRecordByNameInTarget 在指定 scope/personalType 内解析 canonical 记录。
+// 删除、覆盖等写操作只允许命中唯一真实来源，别名歧义会 fail-fast。
 func (s *service) resolveCanonicalRecordByNameInTarget(name, cwd, scope, personalType string) (canonicalSkillRecord, error) {
 	trimmed := strings.TrimSpace(name)
 	normalized, _, err := normalizeSkillIdentityName(trimmed, "")
@@ -223,7 +225,8 @@ func (s *service) resolveReadLocalPath(path, cwd string) (string, error) {
 	return record.path, nil
 }
 
-// ListLocalFiles 列出local文件。
+// ListLocalFiles 列出当前有效 skill 目录下的可编辑文件。
+// dir/path 必须先解析到有效 skill 集合内，避免 UI 通过路径枚举未暴露来源。
 func (s *service) ListLocalFiles(ctx context.Context, p listSkillFilesParams) (any, error) {
 	cwd, err := requireCWD(ctx)
 	if err != nil {
@@ -282,7 +285,8 @@ func (s *service) WriteLocal(ctx context.Context, path, content string, scopeAnd
 	return s.writeProjectLocal(ctx, cwd, target.path, content, target.scope, target.personalType)
 }
 
-// writePersonalLocal 写入personallocal。
+// writePersonalLocal 写入 personal skill 并保留可回滚备份。
+// 审计、目录写入或 mirror 发布前校验失败都会返回错误，不把半写状态当成功。
 func (s *service) writePersonalLocal(ctx context.Context, path, content, scope, personalType string) (any, error) {
 	name := filepath.Base(filepath.Dir(path))
 	record, err := s.preparePersonalMutation(ctx, "personal_write", name, filepath.Dir(path), scope, personalType)
@@ -317,7 +321,8 @@ func (s *service) writePersonalLocal(ctx context.Context, path, content, scope, 
 	return attachMirrorPublish(result, s.publishWriteTimeMirrors(ctx, requireCWDOrLog(ctx, "WriteLocal"), scope, personalType, name)), nil
 }
 
-// ImportLocalDir 导入local目录。
+// ImportLocalDir 从本地目录导入一个或一批 skill。
+// 目标 scope 先走系统写入审批和路径校验，成功后再发布 mirror 变更事件。
 func (s *service) ImportLocalDir(ctx context.Context, p importSkillDirParams) (any, error) {
 	cwd, err := requireCWD(ctx)
 	if err != nil {
@@ -341,7 +346,8 @@ func (s *service) ImportLocalDir(ctx context.Context, p importSkillDirParams) (a
 	return response, nil
 }
 
-// validateImportLocalDirParams 校验本地目录导入参数，并返回展开后的源路径列表。
+// validateImportLocalDirParams 规范化导入模式并收集本地来源目录。
+// batch 模式不能指定单一 name，多来源导入也不能共享一个目标名。
 func validateImportLocalDirParams(p importSkillDirParams) ([]string, string, error) {
 	mode, err := normalizeImportMode(p.Mode)
 	if err != nil {
@@ -374,7 +380,8 @@ func buildImportLocalDirResponse(sources []string, results []map[string]any, fai
 	return response
 }
 
-// DeleteLocal 删除local。
+// DeleteLocal 删除指定 canonical skill。
+// personal skill 会先归档再删除；project skill 直接移除目录并发布 mirror 刷新结果。
 func (s *service) DeleteLocal(ctx context.Context, p DeleteSkillParams) (any, error) {
 	cwd, err := requireCWD(ctx)
 	if err != nil {
@@ -404,7 +411,8 @@ func (s *service) DeleteLocal(ctx context.Context, p DeleteSkillParams) (any, er
 	return attachMirrorPublish(result, s.publishWriteTimeMirrors(ctx, cwd, scope, personalType, name)), nil
 }
 
-// deletePersonalLocal 删除personallocal。
+// deletePersonalLocal 归档删除 personal skill。
+// intent/finalize 审计任一步失败都会尝试恢复原目录，防止删除状态不可追踪。
 func (s *service) deletePersonalLocal(ctx context.Context, name, dir, scope, personalType string) (any, error) {
 	archiveDir := s.personalSkillArchiveDir(scope, personalType, name)
 	canonicalHash, err := skillDirContentHash(dir)
@@ -442,7 +450,8 @@ func (s *service) deletePersonalLocal(ctx context.Context, name, dir, scope, per
 	return attachMirrorPublish(result, s.publishWriteTimeMirrors(ctx, requireCWDOrLog(ctx, "DeleteLocal"), scope, personalType, name)), nil
 }
 
-// ReadRemote 读取remote。
+// ReadRemote 从公开 URL 读取远程 skill 文本。
+// URL 必须通过 egress 白名单校验，响应体按 maxSkillFileBytes 限制读取。
 func (s *service) ReadRemote(ctx context.Context, url string) (any, error) {
 	targetURL, err := httpegress.ValidatePublicURL(url)
 	if err != nil {
@@ -467,7 +476,8 @@ func (s *service) ReadRemote(ctx context.Context, url string) (any, error) {
 	return map[string]any{"skill": map[string]any{"url": targetURL, "content": string(body)}}, nil
 }
 
-// WriteRemote 写入remote。
+// WriteRemote 保留旧 RPC 入口但拒绝远程写入。
+// 当前实现不允许 system scope 通过该路径落盘，调用方会收到显式错误。
 func (s *service) WriteRemote(ctx context.Context, name, content string) (any, error) {
 	if strings.TrimSpace(name) == "" {
 		return nil, errors.New("name is required")
@@ -493,7 +503,8 @@ func (s *service) ReadConfig(_ context.Context, agentID string) (any, error) {
 	}, nil
 }
 
-// WriteSkillContent 写入技能内容。
+// WriteSkillContent 保留旧 RPC 名称但拒绝 system scope 内容写入。
+// 真实写入必须走 WriteLocal/CreateSkill，并携带当前 scope 的路径和审批边界。
 func (s *service) WriteSkillContent(ctx context.Context, name, content string) (any, error) {
 	if strings.TrimSpace(name) == "" {
 		return nil, errors.New("name is required")
@@ -501,7 +512,8 @@ func (s *service) WriteSkillContent(ctx context.Context, name, content string) (
 	return nil, ErrSkillSystemScopeRemoved
 }
 
-// WriteSummary 写入摘要。
+// WriteSummary 保留旧摘要写入入口但不再直接改 skill。
+// 摘要治理必须走当前 skill 元数据路径，避免绕过审批和 mirror 同步。
 func (s *service) WriteSummary(ctx context.Context, name, summary string) (any, error) {
 	if strings.TrimSpace(name) == "" {
 		return nil, errors.New("name is required")

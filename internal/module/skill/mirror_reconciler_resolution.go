@@ -211,7 +211,8 @@ func (s *service) lookupResolutionPreviewStored(previewID, action, previewHash s
 	return stored.Item, stored, nil
 }
 
-// verifyResolutionPreviewMirrorBinding 验证resolutionpreview镜像binding。
+// verifyResolutionPreviewMirrorBinding 确认缓存 preview 仍绑定到当前 mirror 目录。
+// source/target 路径和 hash 任一不一致都返回错误，避免用户确认后目录被替换仍继续写入。
 func verifyResolutionPreviewMirrorBinding(preview skillResolutionPreviewItem, mirrorDir string) (string, error) {
 	if err := ensureProviderSkillDirSafe(mirrorDir); err != nil {
 		return "", err
@@ -312,7 +313,8 @@ func unmanagedProviderSource(svc *service, req SkillMirrorResolutionRequest) (st
 	return "", "", skillResolutionPreviewItem{}, lastErr
 }
 
-// importCanonicalTargetDir 导入canonicaltarget目录。
+// importCanonicalTargetDir 根据导入动作计算 canonical 目标目录和 scope。
+// 只允许导入到项目 skill 根或 imported personal 根，其他 action 直接拒绝。
 func importCanonicalTargetDir(svc *service, req SkillMirrorResolutionRequest) (string, string, string, error) {
 	name, _, err := normalizeSkillIdentityName(req.Name, "")
 	if err != nil {
@@ -338,7 +340,8 @@ func importCanonicalTargetDir(svc *service, req SkillMirrorResolutionRequest) (s
 	}
 }
 
-// projectRootFromMirrorTarget 从 project mirror 目标目录反推出项目根目录。
+// projectRootFromMirrorTarget 从 project mirror 根反推真实项目根。
+// 仅接受 `.claude/skills` 或 `.agents/skills` 形态，防止 provider target 伪装成项目目录。
 func projectRootFromMirrorTarget(target SkillMirrorTarget) (string, error) {
 	if target.Scope != skillScopeProject {
 		return "", fmt.Errorf("project mirror target is required")
@@ -528,7 +531,8 @@ func selectedResolutionPreviewProvider(item skillResolutionItem, p skillResoluti
 	return provider, nil
 }
 
-// selectResolutionProviderEntry 选择resolutionprovider条目。
+// selectResolutionProviderEntry 选择本次 preview 使用的 provider mirror 来源。
+// 多 provider 冲突必须命中用户指定的 provider，避免 sync-back 从不确定来源读取。
 func selectResolutionProviderEntry(item skillResolutionItem, provider string) (skillResolutionProviderEntry, error) {
 	if len(item.ProviderEntries) == 0 {
 		return skillResolutionProviderEntry{}, fmt.Errorf("resolution conflict has no provider entry")
@@ -553,7 +557,8 @@ func resolutionPreviewTargetPath(entry skillResolutionProviderEntry, p skillReso
 	return filepath.ToSlash(filepath.Join(filepath.Dir(entry.TargetPath), name))
 }
 
-// validateMutatingResolutionPreview 校验会改写 skill 或 mirror 状态的 resolution preview。
+// validateMutatingResolutionPreview 校验会写目录的 preview 是否仍满足动作约束。
+// 新建类动作必须提供未占用的新名称，root symlink 接管必须匹配专用冲突类型。
 func validateMutatingResolutionPreview(item skillResolutionItem, preview skillResolutionPreviewItem, p skillResolutionPreviewParams) error {
 	if p.Action == ResolutionReplaceProviderRootSymlink {
 		return validateRootResolutionPreview(item, preview, p.Action)

@@ -42,7 +42,8 @@ type SkillMirrorEntry struct {
 	Owned         bool   `json:"owned"`
 }
 
-// loadSkillMirrorManifest 加载技能镜像manifest。
+// loadSkillMirrorManifest 读取 provider mirror 根目录中的托管 manifest。
+// target 不匹配时直接报错，由上层决定报告冲突或重建 personal manifest。
 func loadSkillMirrorManifest(path string, target SkillMirrorTarget) (SkillMirrorManifest, error) {
 	manifest, err := readSkillMirrorManifest(path)
 	if errors.Is(err, os.ErrNotExist) {
@@ -148,7 +149,8 @@ func mirrorManifestEntry(record canonicalSkillRecord, canonicalHash, mirrorHash 
 	}
 }
 
-// writeSkillMirrorManifest 写入技能镜像manifest。
+// writeSkillMirrorManifest 原子写入 provider mirror manifest。
+// 写入前会校验目标文件不是 symlink，避免 manifest 被重定向到 mirror 根之外。
 func writeSkillMirrorManifest(path string, manifest SkillMirrorManifest) error {
 	if filepath.Base(path) != skillMirrorManifestFile {
 		return fmt.Errorf("skill mirror manifest path must end with %s", skillMirrorManifestFile)
@@ -169,7 +171,8 @@ func writeSkillMirrorManifest(path string, manifest SkillMirrorManifest) error {
 	return writeFileAtomic(path, append(data, '\n'), 0o644)
 }
 
-// writeFileAtomic 写入文件atomic。
+// writeFileAtomic 通过同目录临时文件和 rename 完成原子替换。
+// 任何写入、chmod 或 fsync 失败都会删除临时文件，避免留下半截 manifest。
 func writeFileAtomic(path string, data []byte, mode os.FileMode) error {
 	dir := filepath.Dir(path)
 	tmp, err := os.CreateTemp(dir, "."+filepath.Base(path)+".tmp-*")
@@ -223,7 +226,8 @@ func readSkillMirrorManifest(path string) (SkillMirrorManifest, error) {
 	return manifest, validateSkillMirrorManifest(manifest)
 }
 
-// ensureMirrorManifestRegularPath 确保镜像manifestregular路径。
+// ensureMirrorManifestRegularPath 确认 manifest 路径不是 symlink 且指向普通文件。
+// 创建新 manifest 时允许文件暂不存在，但已存在的异常类型必须 fail-fast。
 func ensureMirrorManifestRegularPath(path string, allowMissing bool) error {
 	info, err := os.Lstat(path)
 	if errors.Is(err, os.ErrNotExist) && allowMissing {
@@ -241,7 +245,8 @@ func ensureMirrorManifestRegularPath(path string, allowMissing bool) error {
 	return nil
 }
 
-// validateSkillMirrorManifest 校验技能镜像manifest。
+// validateSkillMirrorManifest 校验 manifest 中的 skill 名称和 personal 来源引用。
+// personal mirror 必须带 owner 级 canonical root，防止跨用户或 provider 目录被误接管。
 func validateSkillMirrorManifest(manifest SkillMirrorManifest) error {
 	for name, entry := range manifest.Skills {
 		if _, err := validateSkillName(name); err != nil {
@@ -281,7 +286,8 @@ func validatePersonalMirrorEntry(name string, entry SkillMirrorEntry) error {
 	return nil
 }
 
-// validatePersonalMirrorCanonicalID 校验 personal mirror 的 canonical_id 与个人类型一致。
+// validatePersonalMirrorCanonicalID 校验 personal mirror 的 canonical_id 只能指向真实 personal 根。
+// provider mirror 路径和越界相对路径都不能进入 manifest，避免后续清理误删外部目录。
 func validatePersonalMirrorCanonicalID(name, canonicalID string) (string, error) {
 	parts := strings.Split(canonicalID, "/")
 	if len(parts) < 3 || parts[0] != skillScopePersonal {
@@ -328,7 +334,8 @@ func collectMirrorHashFiles(root string) ([]mirrorHashFile, error) {
 	return files, err
 }
 
-// readMirrorHashFile 读取镜像hash文件。
+// readMirrorHashFile 读取参与 mirror hash 的普通文件。
+// manifest 自身不参与内容 hash，symlink、目录和越界相对路径由 mirrorpath 统一拒绝。
 func readMirrorHashFile(root, path string, entry fs.DirEntry, walkErr error) (*mirrorHashFile, error) {
 	if walkErr != nil || entry == nil || entry.IsDir() {
 		return nil, walkErr

@@ -68,7 +68,8 @@ type personalSkillPolicySource struct {
 	Path         string `json:"path,omitempty"`
 }
 
-// applyPersonalSkillPolicy 应用personal技能策略。
+// applyPersonalSkillPolicy 根据 owner policy 过滤 personal skill 记录。
+// owner key 不匹配时忽略策略，避免一个用户的选择状态影响另一个用户的技能视图。
 func (s *canonicalStore) applyPersonalSkillPolicy(records []canonicalSkillRecord) ([]canonicalSkillRecord, error) {
 	if strings.TrimSpace(s.superDolphinHome) == "" || strings.TrimSpace(s.osUID) == "" {
 		return records, nil
@@ -152,7 +153,8 @@ func cleanSlashPath(path string) string {
 	return filepath.ToSlash(filepath.Clean(strings.TrimSpace(path)))
 }
 
-// readPersonalSkillPolicy 读取personal技能策略。
+// readPersonalSkillPolicy 读取当前 owner 的 personal 选择策略。
+// 权限校验失败或 JSON 损坏会返回错误；owner 不匹配时返回空策略而不是套用旧状态。
 func (s *canonicalStore) readPersonalSkillPolicy() (personalSkillPolicy, error) {
 	var policy personalSkillPolicy
 	path := filepath.Join(s.superDolphinHome, "skills", personalSkillPolicyFile)
