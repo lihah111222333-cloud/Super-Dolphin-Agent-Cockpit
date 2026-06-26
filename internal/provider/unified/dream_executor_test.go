@@ -362,20 +362,30 @@ func TestResolveProviderOrder(t *testing.T) {
 		name     string
 		override string
 		want     []string
+		wantErr  bool
 	}{
-		{"empty falls back to alphabetical", "", []string{"claude", "codex"}},
-		{"whitespace-only falls back to alphabetical", "   ", []string{"claude", "codex"}},
-		{"explicit reverses default", "codex,claude", []string{"codex", "claude"}},
-		{"partial puts listed first then alphabetical", "codex", []string{"codex", "claude"}},
-		{"unknown names ignored", "ghost,codex,phantom", []string{"codex", "claude"}},
-		{"duplicates collapsed first-wins", "codex,claude,codex", []string{"codex", "claude"}},
-		{"whitespace trimmed around tokens", "  codex  ,  claude  ", []string{"codex", "claude"}},
-		{"empty tokens skipped", "codex,,,claude", []string{"codex", "claude"}},
-		{"all unknown collapses to alphabetical", "ghost,phantom", []string{"claude", "codex"}},
+		{name: "empty falls back to alphabetical", override: "", want: []string{"claude", "codex"}},
+		{name: "whitespace-only falls back to alphabetical", override: "   ", want: []string{"claude", "codex"}},
+		{name: "explicit reverses default", override: "codex,claude", want: []string{"codex", "claude"}},
+		{name: "partial puts listed first then alphabetical", override: "codex", want: []string{"codex", "claude"}},
+		{name: "unknown names rejected", override: "ghost,codex,phantom", wantErr: true},
+		{name: "duplicates collapsed first-wins", override: "codex,claude,codex", want: []string{"codex", "claude"}},
+		{name: "whitespace trimmed around tokens", override: "  codex  ,  claude  ", want: []string{"codex", "claude"}},
+		{name: "empty tokens skipped", override: "codex,,,claude", want: []string{"codex", "claude"}},
+		{name: "all unknown rejected", override: "ghost,phantom", wantErr: true},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			got := resolveProviderOrder(registered, tc.override)
+			got, err := resolveProviderOrder(registered, tc.override)
+			if tc.wantErr {
+				if err == nil {
+					t.Fatalf("resolveProviderOrder(%q) error = nil, want unknown provider error", tc.override)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("resolveProviderOrder(%q) error = %v", tc.override, err)
+			}
 			if !equalStrings(got, tc.want) {
 				t.Fatalf("override=%q: got %v, want %v", tc.override, got, tc.want)
 			}
@@ -386,7 +396,9 @@ func TestResolveProviderOrder(t *testing.T) {
 func TestResolveProviderOrder_NewOrderDoesNotMutateInput(t *testing.T) {
 	registered := []string{"claude", "codex"}
 	orig := append([]string(nil), registered...)
-	_ = resolveProviderOrder(registered, "codex,claude")
+	if _, err := resolveProviderOrder(registered, "codex,claude"); err != nil {
+		t.Fatalf("resolveProviderOrder() error = %v", err)
+	}
 	if !equalStrings(registered, orig) {
 		t.Fatalf("resolveProviderOrder mutated input: got %v, want %v", registered, orig)
 	}
