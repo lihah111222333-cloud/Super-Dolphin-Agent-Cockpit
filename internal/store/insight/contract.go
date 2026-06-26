@@ -22,8 +22,9 @@ const (
 
 // insight 存储哨兵错误。
 var (
-	ErrNotFound = errors.New("insight: session insight not found")
-	ErrEmptyID  = errors.New("insight: id is required")
+	ErrNotFound     = errors.New("insight: session insight not found")
+	ErrEmptyID      = errors.New("insight: id is required")
+	ErrInvalidLimit = errors.New("insight: limit must be between 0 and 500")
 )
 
 // Store 是 session insight 的领域访问边界。

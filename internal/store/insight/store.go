@@ -9,6 +9,11 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/store/sqlc"
 )
 
+const (
+	defaultListLimit int32 = 100
+	maxListLimit     int32 = 500
+)
+
 type querier interface {
 	UpsertSessionInsight(ctx context.Context, arg sqlc.UpsertSessionInsightParams) (sqlc.UpsertSessionInsightRow, error)
 	GetSessionInsightByLocalTurn(ctx context.Context, arg sqlc.GetSessionInsightByLocalTurnParams) (sqlc.GetSessionInsightByLocalTurnRow, error)
@@ -101,6 +106,18 @@ func wrap(err error, op string) error {
 	return platformdb.WrapStoreError(err, op, "insight")
 }
 
+// normalizeListLimit 统一校验 insight 列表读取窗口。
+// 非正值保留既有默认窗口；超过上限直接失败，避免 dashboard 或内部调用放大查询。
+func normalizeListLimit(limit int32) (int32, error) {
+	if limit <= 0 {
+		return defaultListLimit, nil
+	}
+	if limit > maxListLimit {
+		return 0, ErrInvalidLimit
+	}
+	return limit, nil
+}
+
 // ----- Store impl -----
 
 // Upsert 写入或更新一次会话观察结果。
@@ -171,14 +188,15 @@ func (s *store) GetByLocalTurn(ctx context.Context, threadID, localTurnID string
 }
 
 // ListByThread 列出指定线程的 insight。
-// limit 未传或非正时使用受控默认值，仍保持线程 ID 必填以避免跨线程扫描。
+// limit 未传或非正时使用受控默认值，超过上限时失败；线程 ID 必填以避免跨线程扫描。
 func (s *store) ListByThread(ctx context.Context, threadID string, limit int32) ([]Insight, error) {
 	threadID = strings.TrimSpace(threadID)
 	if threadID == "" {
 		return nil, wrap(ErrEmptyID, "list_by_thread")
 	}
-	if limit <= 0 {
-		limit = 100
+	limit, err := normalizeListLimit(limit)
+	if err != nil {
+		return nil, wrap(err, "list_by_thread")
 	}
 	rows, err := s.q.ListSessionInsightsByThread(ctx, sqlc.ListSessionInsightsByThreadParams{
 		ThreadID: threadID,
@@ -195,10 +213,11 @@ func (s *store) ListByThread(ctx context.Context, threadID string, limit int32) 
 }
 
 // ListRecent 列出最近的 insight 记录。
-// 该查询用于概览页，非正 limit 会收敛到固定上限以避免无界读取。
+// 该查询用于概览页，非正 limit 会收敛到默认窗口，超过上限时直接失败。
 func (s *store) ListRecent(ctx context.Context, limit int32) ([]Insight, error) {
-	if limit <= 0 {
-		limit = 100
+	limit, err := normalizeListLimit(limit)
+	if err != nil {
+		return nil, wrap(err, "list_recent")
 	}
 	rows, err := s.q.ListRecentSessionInsights(ctx, sqlc.ListRecentSessionInsightsParams{Limit: int64(limit)})
 	if err != nil {
@@ -212,10 +231,11 @@ func (s *store) ListRecent(ctx context.Context, limit int32) ([]Insight, error) 
 }
 
 // ListObservedApprovalRequests 列出已观察到审批请求的 turn 摘要。
-// threadID 允许为空表示全局视图，limit 仍会被限制在安全默认值。
+// threadID 允许为空表示全局视图，limit 仍走统一窗口校验。
 func (s *store) ListObservedApprovalRequests(ctx context.Context, threadID string, limit int32) ([]ApprovalRow, error) {
-	if limit <= 0 {
-		limit = 100
+	limit, err := normalizeListLimit(limit)
+	if err != nil {
+		return nil, wrap(err, "list_observed_approval_requests")
 	}
 	rows, err := s.q.ListObservedApprovalRequests(ctx, sqlc.ListObservedApprovalRequestsParams{
 		Column1: strings.TrimSpace(threadID),
@@ -240,10 +260,11 @@ func (s *store) ListObservedApprovalRequests(ctx context.Context, threadID strin
 }
 
 // ListObservedTokenTurns 列出已采集 token 快照的 turn 摘要。
-// 该方法只返回观测行，不推断未上报的 token 数据。
+// 该方法只返回观测行，不推断未上报的 token 数据，并拒绝过大的读取窗口。
 func (s *store) ListObservedTokenTurns(ctx context.Context, threadID string, limit int32) ([]TokenRow, error) {
-	if limit <= 0 {
-		limit = 100
+	limit, err := normalizeListLimit(limit)
+	if err != nil {
+		return nil, wrap(err, "list_observed_token_turns")
 	}
 	rows, err := s.q.ListObservedTokenTurns(ctx, sqlc.ListObservedTokenTurnsParams{
 		Column1: strings.TrimSpace(threadID),

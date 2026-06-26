@@ -11,7 +11,7 @@ import (
 
 // querier 是 auditlog store 依赖的 sqlc 查询子集，测试可用窄接口替身覆盖。
 type querier interface {
-	ListAuditEvents(ctx context.Context, arg sqlc.ListAuditEventsParams) ([]sqlc.ListAuditEventsRow, error)
+	ListAuditEvents(ctx context.Context, arg sqlc.ListAuditEventsParams) ([]sqlc.AuditEvent, error)
 	InsertAuditEvent(ctx context.Context, arg sqlc.InsertAuditEventParams) error
 }
 
@@ -67,7 +67,7 @@ func (s *store) Insert(ctx context.Context, params InsertParams) error {
 }
 
 // mapAuditEvent 将查询行转换为前端 JSON wire DTO。
-func mapAuditEvent(row sqlc.ListAuditEventsRow) AuditEvent {
+func mapAuditEvent(row sqlc.AuditEvent) AuditEvent {
 	return AuditEvent{
 		ID:        row.ID,
 		Ts:        platformdb.TimeFromMillis(row.Ts),

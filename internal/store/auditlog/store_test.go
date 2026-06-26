@@ -10,7 +10,7 @@ import (
 )
 
 type fakeQuerier struct {
-	events    []sqlc.ListAuditEventsRow
+	events    []sqlc.AuditEvent
 	insertErr error
 	listErr   error
 	inserted  []sqlc.InsertAuditEventParams
@@ -20,7 +20,7 @@ func newFakeQuerier() *fakeQuerier {
 	return &fakeQuerier{}
 }
 
-func (f *fakeQuerier) ListAuditEvents(_ context.Context, p sqlc.ListAuditEventsParams) ([]sqlc.ListAuditEventsRow, error) {
+func (f *fakeQuerier) ListAuditEvents(_ context.Context, p sqlc.ListAuditEventsParams) ([]sqlc.AuditEvent, error) {
 	if f.listErr != nil {
 		return nil, f.listErr
 	}
@@ -35,7 +35,7 @@ func (f *fakeQuerier) InsertAuditEvent(_ context.Context, p sqlc.InsertAuditEven
 		return f.insertErr
 	}
 	f.inserted = append(f.inserted, p)
-	f.events = append(f.events, sqlc.ListAuditEventsRow{
+	f.events = append(f.events, sqlc.AuditEvent{
 		ID:        int64(len(f.events) + 1),
 		Ts:        p.Ts,
 		EventType: p.EventType,

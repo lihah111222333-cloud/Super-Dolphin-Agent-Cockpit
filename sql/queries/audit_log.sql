@@ -13,7 +13,7 @@ VALUES (
 );
 
 -- name: ListAuditEvents :many
-SELECT id, ts, event_type, action, result, actor, target, detail, level, '{}' AS extra
+SELECT id, ts, event_type, action, result, actor, target, detail, level, extra
 FROM audit_events
 WHERE (sqlc.arg(event_type_filter) = '' OR event_type = sqlc.arg(event_type_filter))
   AND (sqlc.arg(action_filter) = '' OR action = sqlc.arg(action_filter))
