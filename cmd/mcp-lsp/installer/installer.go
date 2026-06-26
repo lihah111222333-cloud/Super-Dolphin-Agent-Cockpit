@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/internal/hiddenexec"
+	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
@@ -182,7 +183,7 @@ func installCommandContext(ctx context.Context, cfg InstallerConfig) (context.Co
 	if timeout < 0 {
 		return nil, nil, fmt.Errorf("install timeout for %s cannot be negative", cfg.BinaryName)
 	}
-	installCtx, cancel := context.WithTimeout(ctx, timeout)
+	installCtx, cancel := platformconfig.WithTimeout(ctx, timeout)
 	return installCtx, cancel, nil
 }
 

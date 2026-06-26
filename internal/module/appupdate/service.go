@@ -359,7 +359,7 @@ func (s *service) fetchManifest(ctx context.Context) (ManifestPayload, UpdateArt
 
 // downloadArtifact 下载 artifact 到临时文件，hash/size 校验通过后再原子 rename 到目标路径。
 func (s *service) downloadArtifact(ctx context.Context, artifact UpdateArtifact, targetPath string) error {
-	downloadCtx, cancel := context.WithTimeout(ctx, artifactDownloadTimeout)
+	downloadCtx, cancel := platformconfig.WithTimeout(ctx, artifactDownloadTimeout)
 	defer cancel()
 	req, err := http.NewRequestWithContext(downloadCtx, http.MethodGet, artifact.URL, nil)
 	if err != nil {

@@ -104,7 +104,7 @@ func assertClaudeMCPManifest(t *testing.T, raw []byte, doc claudeManifestFile) {
 	}
 }
 
-func TestClaudeMCPManifest_OnlyManagedServers_E2E(t *testing.T) {
+func TestClaudeMCPManifest_RejectsUnmanagedStdioServer_E2E(t *testing.T) {
 	manifest := dto.MCPManifest{Binaries: []dto.MCPBinary{
 		{
 			Name:    "mcp-lsp",
@@ -117,20 +117,14 @@ func TestClaudeMCPManifest_OnlyManagedServers_E2E(t *testing.T) {
 	}}
 
 	path, cleanup, err := writeManifestConfig(manifest, "/tmp/claude-e2e/work")
-	if err != nil {
-		t.Fatalf("writeManifestConfig() error = %v", err)
+	if err == nil {
+		if cleanup != nil {
+			cleanup()
+		}
+		t.Fatalf("writeManifestConfig() = (%q, cleanup, nil), want unmanaged stdio server rejection", path)
 	}
-	defer cleanup()
-
-	_, doc := readClaudeManifest(t, path)
-	if len(doc.MCPServers) != 1 {
-		t.Fatalf("len(mcpServers) = %d, want 1 managed server", len(doc.MCPServers))
-	}
-	if _, ok := doc.MCPServers["mcp-lsp"]; !ok {
-		t.Fatalf("mcpServers = %#v, want mcp-lsp", doc.MCPServers)
-	}
-	if _, ok := doc.MCPServers["third-party"]; ok {
-		t.Fatalf("mcpServers = %#v, got unmanaged server", doc.MCPServers)
+	if !strings.Contains(err.Error(), `rejected mcp manifest server "third-party"`) {
+		t.Fatalf("writeManifestConfig() error = %v, want third-party rejection", err)
 	}
 }
 
