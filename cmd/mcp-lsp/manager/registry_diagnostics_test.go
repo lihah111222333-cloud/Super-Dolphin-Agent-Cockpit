@@ -2,10 +2,12 @@ package manager
 
 import (
 	"context"
-	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/common"
+	"errors"
+	"strings"
 	"testing"
 
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/protocol"
+	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/common"
 )
 
 type registryContextKey struct{}
@@ -35,6 +37,32 @@ func TestRegistryGroupURIWaitUsesCallerContext(t *testing.T) {
 	}
 	if got := mgr.waitContext.Value(registryContextKey{}); got != "group-scope" {
 		t.Fatalf("WaitDiagnosticsStable ctx value = %#v, want group-scope", got)
+	}
+}
+
+func TestRegistryDiagnosticsExplicitUnsupportedLanguageReturnsFileError(t *testing.T) {
+	registry := NewRegistry(nil)
+	registry.Register("go", &registryDiagnosticsManager{})
+
+	ctx := common.WithToolScope(context.Background(), common.ToolScope{CWD: t.TempDir()})
+	unsupportedURI := "file:///tmp/unsupported-language.zzz"
+	cases := map[string]func(context.Context, []string) error{
+		"Diagnostics": func(ctx context.Context, uris []string) error {
+			_, err := registry.Diagnostics(ctx, uris)
+			return err
+		},
+		"WaitDiagnosticsStable": registry.WaitDiagnosticsStable,
+	}
+	for name, call := range cases {
+		t.Run(name, func(t *testing.T) {
+			err := call(ctx, []string{unsupportedURI})
+			if !errors.Is(err, ErrUnsupportedLanguage) {
+				t.Fatalf("%s() error = %v, want ErrUnsupportedLanguage", name, err)
+			}
+			if !strings.Contains(err.Error(), unsupportedURI) {
+				t.Fatalf("%s() error = %q, want unsupported file URI in error", name, err.Error())
+			}
+		})
 	}
 }
 

@@ -3,10 +3,13 @@ package search
 import (
 	"bufio"
 	"bytes"
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path"
@@ -16,46 +19,35 @@ import (
 	"unicode"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
-	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
 // SearchMatch 是 text/AST 搜索返回的单条命中，函数范围由 LSP/静态补充后可选填充。
 type SearchMatch struct {
-	AbsPath    string `json:"-"`
-	SearchRoot string `json:"-"`
-	File       string `json:"file"`
-	Line       int    `json:"line"`
-	Col        int    `json:"col"`
-	Text       string `json:"text"`
-	FuncStart  int    `json:"func_start,omitempty"`
-	FuncEnd    int    `json:"func_end,omitempty"`
+	AbsPath, SearchRoot string `json:"-"`
+	limitReached        bool
+	File                string `json:"file"`
+	Line                int    `json:"line"`
+	Col                 int    `json:"col"`
+	Text                string `json:"text"`
+	FuncStart           int    `json:"func_start,omitempty"`
+	FuncEnd             int    `json:"func_end,omitempty"`
 }
 
 // TextSearchOptions 描述文本搜索输入，Root/Roots 是可信边界，Path/Paths 是用户选择的搜索范围。
 type TextSearchOptions struct {
-	Root          string
-	Roots         []string
-	Path          string
-	Paths         []string
-	Glob          string
-	Query         string
-	Regex         bool
-	CaseSensitive *bool
-	MaxResults    int
-	MaxFileBytes  int
+	Root, Path, Glob, Query  string
+	Roots, Paths             []string
+	Regex                    bool
+	CaseSensitive            *bool
+	MaxResults, MaxFileBytes int
 }
 
 // ASTSearchOptions 描述 ast-grep 搜索输入，Language 为空时按目标路径推断。
 type ASTSearchOptions struct {
-	Root         string
-	Roots        []string
-	Path         string
-	Paths        []string
-	Glob         string
-	Query        string
-	Language     string
-	MaxResults   int
-	MaxFileBytes int
+	Root, Path, Glob, Query  string
+	Roots, Paths             []string
+	Language                 string
+	MaxResults, MaxFileBytes int
 }
 
 type lineMatcher = shared.LineMatcher
@@ -73,13 +65,14 @@ type sgStreamMatch struct {
 	} `json:"range"`
 }
 
+var errSearchResultsLimitReached = errors.New("search results limit reached")
+
+func maxResultsReached(count, maxResults int) bool { return maxResults > 0 && count >= maxResults }
+
 // SearchText 在可信根目录内执行逐行文本搜索。
 // 路径和 glob 会先校验，symlink、二进制和超限文件会被跳过而不会越过 workspace 边界。
 func SearchText(ctx context.Context, opts TextSearchOptions) ([]SearchMatch, error) {
-	caseSensitive := strings.ToLower(opts.Query) != opts.Query
-	if opts.CaseSensitive != nil {
-		caseSensitive = *opts.CaseSensitive
-	}
+	caseSensitive := opts.CaseSensitive != nil && *opts.CaseSensitive || opts.CaseSensitive == nil && strings.ToLower(opts.Query) != opts.Query
 	matcher, err := shared.NewLineMatcher(opts.Query, opts.Regex, caseSensitive)
 	if err != nil {
 		return nil, err
@@ -91,40 +84,35 @@ func SearchText(ctx context.Context, opts TextSearchOptions) ([]SearchMatch, err
 	if err != nil {
 		return nil, err
 	}
-	pkglogger.Info("mcp-lsp grep text_search paths resolved",
-		"query", opts.Query,
-		"path", opts.Path,
-		"paths_count", len(opts.Paths),
-		"glob", opts.Glob,
-		"root", opts.Root,
-		"roots_count", len(opts.Roots),
-		"search_paths_count", len(searchPaths),
-		"max_results", opts.MaxResults,
-	)
+	return searchTextResolvedPaths(ctx, opts, matcher, searchPaths)
+}
+
+// searchTextResolvedPaths 在已解析可信路径上执行文本搜索，并在达到 max_results 后停止遍历。
+func searchTextResolvedPaths(ctx context.Context, opts TextSearchOptions, matcher lineMatcher, searchPaths []searchPathStat) ([]SearchMatch, error) {
 	results := make([]SearchMatch, 0, maxInt(opts.MaxResults, 8))
 	for _, searchPath := range searchPaths {
+		if maxResultsReached(len(results), opts.MaxResults) {
+			results[len(results)-1].limitReached = true
+			break
+		}
 		if !searchPath.Info.IsDir() {
-			found, err := searchTextFile(ctx, searchPath.Path.AbsPath, searchPath.Path.AbsPath, searchPath.Path.Root, opts.Glob, opts.MaxFileBytes, matcher)
-			if err != nil {
+			found, err := searchTextFile(ctx, searchPath.Path.AbsPath, searchPath.Path.AbsPath, searchPath.Path.Root, opts.Glob, opts.MaxFileBytes, matcher, opts.MaxResults-len(results))
+			if stop, err := appendSearchResults(&results, found, err); err != nil {
 				return nil, err
+			} else if stop {
+				break
 			}
-			results = append(results, found...)
 			continue
 		}
 		if err := filepath.WalkDir(searchPath.Path.AbsPath, func(candidate string, entry os.DirEntry, walkErr error) error {
-			return walkSearchEntry(ctx, searchPath.Path.AbsPath, candidate, searchPath.Path.Root, opts.Glob, opts.MaxFileBytes, matcher, &results, entry, walkErr)
+			return walkSearchEntry(ctx, searchPath.Path.AbsPath, candidate, searchPath.Path.Root, opts.Glob, opts.MaxFileBytes, matcher, opts.MaxResults, &results, entry, walkErr)
 		}); err != nil {
+			if errors.Is(err, errSearchResultsLimitReached) {
+				break
+			}
 			return nil, err
 		}
 	}
-	pkglogger.Info("mcp-lsp grep text_search completed",
-		"query", opts.Query,
-		"path", opts.Path,
-		"paths_count", len(opts.Paths),
-		"glob", opts.Glob,
-		"root", opts.Root,
-		"matches", len(results),
-	)
 	return results, nil
 }
 
@@ -142,36 +130,52 @@ func SearchAST(ctx context.Context, opts ASTSearchOptions) ([]SearchMatch, error
 	if err != nil {
 		return nil, err
 	}
-	if _, err := exec.LookPath("sg"); err != nil {
-		return nil, errors.New("sg not found in PATH")
-	}
-
 	results := make([]SearchMatch, 0, maxInt(opts.MaxResults, 8))
 	for _, searchPath := range searchPaths {
+		if maxResultsReached(len(results), opts.MaxResults) {
+			results[len(results)-1].limitReached = true
+			break
+		}
 		language, err := normalizeASTLanguage(opts.Language, searchPath.Path.AbsPath, searchPath.Info.IsDir(), opts.Glob)
 		if err != nil {
 			return nil, err
 		}
 		var found []SearchMatch
 		if isLikelyNodeType(query) {
-			found, err = runSGKindSearch(ctx, query, language, searchPath.Path.AbsPath, searchPath.Path.Root, opts.Glob)
+			found, err = runSGKindSearch(ctx, query, language, searchPath.Path.AbsPath, searchPath.Path.Root, opts.Glob, opts.MaxResults-len(results))
 		} else {
-			found, err = runSGPatternSearch(ctx, query, language, searchPath.Path.AbsPath, searchPath.Path.Root, opts.Glob)
+			found, err = runSGPatternSearch(ctx, query, language, searchPath.Path.AbsPath, searchPath.Path.Root, opts.Glob, opts.MaxResults-len(results))
 		}
-		if err != nil {
+		if stop, err := appendSearchResults(&results, found, err); err != nil {
 			return nil, err
+		} else if stop {
+			break
 		}
-		results = append(results, found...)
 	}
 	return results, nil
 }
 
+func appendSearchResults(results *[]SearchMatch, found []SearchMatch, err error) (bool, error) {
+	if err == nil {
+		*results = append(*results, found...)
+		return false, nil
+	}
+	if errors.Is(err, errSearchResultsLimitReached) {
+		found[len(found)-1].limitReached = true
+		*results = append(*results, found...)
+		return true, nil
+	}
+	return false, err
+}
+
 // FilterAndCapSearchMatches 去重、排除默认跳过路径并按文件稳定截断结果。
-// 返回 total 保留截断前数量，调用方可向模型提示继续缩小搜索范围。
+// 返回 total 保留截断前数量；搜索层达上限时即使只返回有限集，也要保留截断提示。
 func FilterAndCapSearchMatches(matches []SearchMatch, maxResults int) ([]SearchMatch, int, bool) {
 	filtered := make([]SearchMatch, 0, len(matches))
 	seen := make(map[string]struct{}, len(matches))
+	limitReached := false
 	for _, match := range matches {
+		limitReached = limitReached || match.limitReached
 		if strings.TrimSpace(match.File) == "" || shouldExcludeSearchMatch(match) {
 			continue
 		}
@@ -183,23 +187,16 @@ func FilterAndCapSearchMatches(matches []SearchMatch, maxResults int) ([]SearchM
 		filtered = append(filtered, match)
 	}
 	sort.Slice(filtered, func(i, j int) bool {
-		if filtered[i].File != filtered[j].File {
-			return filtered[i].File < filtered[j].File
-		}
-		if filtered[i].Line != filtered[j].Line {
-			return filtered[i].Line < filtered[j].Line
-		}
-		if filtered[i].Col != filtered[j].Col {
-			return filtered[i].Col < filtered[j].Col
-		}
-		return filtered[i].Text < filtered[j].Text
+		a, b := filtered[i], filtered[j]
+		return cmp.Or(strings.Compare(a.File, b.File), cmp.Compare(a.Line, b.Line), cmp.Compare(a.Col, b.Col), strings.Compare(a.Text, b.Text)) < 0
 	})
 
 	total := len(filtered)
 	if maxResults <= 0 {
 		return filtered, total, false
 	}
-	return capSearchMatchesPerFile(filtered, total, maxResults)
+	capped, total, truncated := capSearchMatchesPerFile(filtered, total, maxResults)
+	return capped, total, truncated || limitReached
 }
 
 func shouldExcludeSearchMatch(match SearchMatch) bool {
@@ -217,10 +214,7 @@ func relativeSearchMatchPath(root, absPath string) string {
 		return ""
 	}
 	relPath, err := filepath.Rel(filepath.Clean(root), filepath.Clean(absPath))
-	if err != nil || relPath == "" || relPath == "." || relPath == ".." {
-		return ""
-	}
-	if strings.HasPrefix(relPath, ".."+string(filepath.Separator)) {
+	if err != nil || relPath == "" || relPath == "." || relPath == ".." || strings.HasPrefix(relPath, ".."+string(filepath.Separator)) {
 		return ""
 	}
 	return relPath
@@ -284,22 +278,16 @@ func statExplicitSearchPaths(root string, roots []string, rawPaths []string) ([]
 }
 
 func splitSearchPathList(rawPath string) []string {
-	return strings.FieldsFunc(rawPath, func(r rune) bool {
-		return r == ',' || unicode.IsSpace(r)
-	})
+	return strings.FieldsFunc(rawPath, func(r rune) bool { return r == ',' || unicode.IsSpace(r) })
 }
 
 // walkSearchEntry 处理 WalkDir 遍历到的单个候选项。
 // 目录会按跳过规则剪枝，文件必须通过 glob、大小和二进制检查后才读取。
-func walkSearchEntry(
-	ctx context.Context,
-	root, candidate, searchRoot, glob string,
-	maxFileBytes int,
-	matcher lineMatcher,
-	results *[]SearchMatch,
-	entry os.DirEntry,
-	walkErr error,
-) error {
+func walkSearchEntry(ctx context.Context, root, candidate, searchRoot, glob string, maxFileBytes int, matcher lineMatcher, maxResults int, results *[]SearchMatch, entry os.DirEntry, walkErr error) error {
+	if maxResultsReached(len(*results), maxResults) {
+		(*results)[len(*results)-1].limitReached = true
+		return errSearchResultsLimitReached
+	}
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -310,14 +298,15 @@ func walkSearchEntry(
 		return fmt.Errorf("walk %s: missing dir entry", candidate)
 	}
 	if entry.IsDir() {
-		if shouldSkipDir(entry.Name()) {
-			return filepath.SkipDir
-		}
-		if isInsideGoModCache(candidate) {
+		if shouldSkipDir(entry.Name()) || isInsideGoModCache(candidate) {
 			return filepath.SkipDir
 		}
 		return nil
 	}
+	return walkSearchFile(ctx, root, candidate, searchRoot, glob, maxFileBytes, matcher, maxResults, results, entry)
+}
+
+func walkSearchFile(ctx context.Context, root, candidate, searchRoot, glob string, maxFileBytes int, matcher lineMatcher, maxResults int, results *[]SearchMatch, entry os.DirEntry) error {
 	selected, err := shouldSearchPath(root, candidate, glob, maxFileBytes, entry)
 	if err != nil {
 		return err
@@ -325,28 +314,16 @@ func walkSearchEntry(
 	if !selected {
 		return nil
 	}
-	found, err := searchTextFile(ctx, root, candidate, searchRoot, glob, maxFileBytes, matcher)
-	if err != nil {
+	found, err := searchTextFile(ctx, root, candidate, searchRoot, glob, maxFileBytes, matcher, maxResults-len(*results))
+	if stop, err := appendSearchResults(results, found, err); err != nil {
 		return fmt.Errorf("search %s: %w", candidate, err)
+	} else if stop {
+		return errSearchResultsLimitReached
 	}
-	*results = append(*results, found...)
 	return nil
 }
 
-func findDirEntry(candidate string) (os.DirEntry, error) {
-	entries, err := os.ReadDir(filepath.Dir(candidate))
-	if err != nil {
-		return nil, err
-	}
-	for _, item := range entries {
-		if filepath.Join(filepath.Dir(candidate), item.Name()) == candidate {
-			return item, nil
-		}
-	}
-	return nil, nil
-}
-
-func searchTextFile(ctx context.Context, root, candidate, searchRoot, glob string, maxFileBytes int, matcher lineMatcher) ([]SearchMatch, error) {
+func searchTextFile(ctx context.Context, root, candidate, searchRoot, glob string, maxFileBytes int, matcher lineMatcher, maxResults int) ([]SearchMatch, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
@@ -364,15 +341,15 @@ func searchTextFile(ctx context.Context, root, candidate, searchRoot, glob strin
 	}
 	defer func() { _ = file.Close() }()
 
-	return scanSearchTextFile(ctx, candidate, searchRoot, maxFileBytes, matcher, file)
+	return scanSearchTextFile(ctx, candidate, searchRoot, maxFileBytes, matcher, maxResults, file)
 }
 
 func shouldSearchFile(root, candidate, glob string, maxFileBytes int) (bool, error) {
-	selected, err := findDirEntry(candidate)
+	info, err := os.Lstat(candidate)
 	if err != nil {
-		return false, fmt.Errorf("read dir entry for %s: %w", candidate, err)
+		return false, fmt.Errorf("stat %s: %w", candidate, err)
 	}
-	return shouldSearchPath(root, candidate, glob, maxFileBytes, selected)
+	return shouldSearchPath(root, candidate, glob, maxFileBytes, fs.FileInfoToDirEntry(info))
 }
 
 // shouldSearchPath 判断候选文件是否满足 glob 和文件类型限制。
@@ -380,19 +357,12 @@ func shouldSearchFile(root, candidate, glob string, maxFileBytes int) (bool, err
 func shouldSearchPath(root, candidate, glob string, maxFileBytes int, entry os.DirEntry) (bool, error) {
 	matched, err := matchesPathGlob(root, candidate, glob)
 	if err != nil || !matched {
-		if err == nil && strings.TrimSpace(glob) != "" && filepath.Clean(root) == filepath.Clean(candidate) {
-			pkglogger.Info("mcp-lsp grep text_search skipped single file by glob",
-				"root", root,
-				"candidate", candidate,
-				"glob", glob,
-			)
-		}
 		return matched, err
 	}
 	return isSearchCandidate(candidate, entry, maxFileBytes)
 }
 
-func scanSearchTextFile(ctx context.Context, candidate, searchRoot string, maxFileBytes int, matcher lineMatcher, file *os.File) ([]SearchMatch, error) {
+func scanSearchTextFile(ctx context.Context, candidate, searchRoot string, maxFileBytes int, matcher lineMatcher, maxResults int, file *os.File) ([]SearchMatch, error) {
 	scanner := bufio.NewScanner(file)
 	scanner.Buffer(make([]byte, 0, 64*1024), maxInt(maxFileBytes, 64*1024))
 	results := make([]SearchMatch, 0, 8)
@@ -405,35 +375,30 @@ func scanSearchTextFile(ctx context.Context, candidate, searchRoot string, maxFi
 		if !ok {
 			continue
 		}
-		results = append(results, SearchMatch{
+		match := SearchMatch{
 			AbsPath:    candidate,
 			SearchRoot: searchRoot,
 			File:       displayPath(candidate),
 			Line:       lineNum,
 			Col:        col + 1,
 			Text:       truncateSnippet(strings.TrimSpace(line)),
-		})
+		}
+		if maxResultsReached(len(results), maxResults) {
+			return results, errSearchResultsLimitReached
+		}
+		results = append(results, match)
 	}
 	return results, scanner.Err()
 }
 
-func runSGPatternSearch(ctx context.Context, query, language, absPath, root, glob string) ([]SearchMatch, error) {
+func runSGPatternSearch(ctx context.Context, query, language, absPath, root, glob string, maxResults int) ([]SearchMatch, error) {
 	args := []string{"run", "--pattern", query, "--lang", astGrepLanguageID(language), "--json=stream"}
 	if glob := strings.TrimSpace(glob); glob != "" {
 		args = append(args, "--globs", glob)
 	}
 	args = append(args, absPath)
 
-	cmd := hiddenCommandContext(ctx, "sg", args...)
-	cmd.Dir = root
-	output, err := cmd.Output()
-	if err != nil {
-		if isSGNoMatchExitCodeOneWithoutStderr(err) {
-			return []SearchMatch{}, nil
-		}
-		return nil, formatSGCommandError("sg run", err)
-	}
-	return decodeSGMatches(output, root)
+	return runSGStreaming(ctx, "sg run", args, root, maxResults, decodeSGMatchesReader)
 }
 
 // isLikelyNodeType 判断 query 是否像 tree-sitter 节点类型而不是 ast-grep 代码模式。
@@ -442,84 +407,106 @@ func isLikelyNodeType(query string) bool {
 	if len(query) < 4 || !strings.Contains(query, "_") {
 		return false
 	}
-	for _, ch := range query {
-		if ch != '_' && (ch < 'a' || ch > 'z') {
-			return false
-		}
-	}
-	return true
+	return !strings.ContainsFunc(query, func(ch rune) bool { return ch != '_' && (ch < 'a' || ch > 'z') })
 }
 
 // runSGKindSearch 通过临时 ast-grep rule 按 tree-sitter kind 搜索节点。
 // `sg scan --json` 输出数组，因此结果解码路径与 `sg run --json=stream` 分开处理。
-func runSGKindSearch(ctx context.Context, kind, language, absPath, root, glob string) ([]SearchMatch, error) {
+func runSGKindSearch(ctx context.Context, kind, language, absPath, root, glob string, maxResults int) ([]SearchMatch, error) {
 	rule := fmt.Sprintf("id: kind-search\nlanguage: %s\nrule:\n  kind: %s\n", astGrepLanguageID(language), kind)
 
 	tmpFile, err := os.CreateTemp("", "sg-rule-*.yml")
 	if err != nil {
 		return nil, fmt.Errorf("create temp rule file: %w", err)
 	}
-	defer func() { _ = os.Remove(tmpFile.Name()) }()
-
-	if _, err := tmpFile.WriteString(rule); err != nil {
-		if closeErr := tmpFile.Close(); closeErr != nil {
-			return nil, fmt.Errorf("write temp rule file: %w (close temp rule file: %v)", err, closeErr)
-		}
-		return nil, fmt.Errorf("write temp rule file: %w", err)
-	}
+	rulePath := tmpFile.Name()
 	if err := tmpFile.Close(); err != nil {
 		return nil, fmt.Errorf("close temp rule file: %w", err)
 	}
+	defer func() { _ = os.Remove(rulePath) }()
+	if err := os.WriteFile(rulePath, []byte(rule), 0o600); err != nil {
+		return nil, fmt.Errorf("write temp rule file: %w", err)
+	}
 
-	args := []string{"scan", "--rule", tmpFile.Name(), "--json"}
+	args := []string{"scan", "--rule", rulePath, "--json"}
 	if g := strings.TrimSpace(glob); g != "" {
 		args = append(args, "--globs", g)
 	}
 	args = append(args, absPath)
 
-	cmd := hiddenCommandContext(ctx, "sg", args...)
-	cmd.Dir = root
-	output, err := cmd.Output()
-	if err != nil {
-		if isSGNoMatchExitCodeOneWithoutStderr(err) {
-			return []SearchMatch{}, nil
-		}
-		return nil, formatSGCommandError("sg scan", err)
-	}
 	// sg scan --json 输出 JSON 数组，不是 sg run --json=stream 的逐行 JSON。
-	return decodeSGScanMatches(output, root)
+	return runSGStreaming(ctx, "sg scan", args, root, maxResults, decodeSGScanMatchesReader)
 }
 
-// decodeSGScanMatches 解码 sg scan --json 返回的数组结果。
-// 相对路径会按执行 root 还原成绝对路径，保持 SearchMatch 与 text_search 一致。
-func decodeSGScanMatches(output []byte, root string) ([]SearchMatch, error) {
-	var items []sgStreamMatch
-	if err := json.Unmarshal(output, &items); err != nil {
+type sgDecodeFunc func(io.Reader, string, int, context.CancelFunc) ([]SearchMatch, error)
+
+// runSGStreaming 启动 ast-grep 并边读 stdout 边解码命中。
+// resultLimiter 达到上限时会 cancel 命令 ctx，避免继续等待 ast-grep 遍历整个工程。
+func runSGStreaming(ctx context.Context, label string, args []string, root string, maxResults int, decode sgDecodeFunc) ([]SearchMatch, error) {
+	cmdCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	cmd := hiddenCommandContext(cmdCtx, "sg", args...)
+	cmd.Dir = root
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		return nil, fmt.Errorf("%s stdout pipe: %w", label, err)
+	}
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	if err := cmd.Start(); err != nil {
+		return nil, fmt.Errorf("%s start: %w", label, err)
+	}
+	matches, decodeErr := decode(stdout, root, maxResults, cancel)
+	if decodeErr != nil {
+		cancel()
+	}
+	if errors.Is(decodeErr, errSearchResultsLimitReached) {
+		go func() { _ = cmd.Wait() }()
+		return matches, errSearchResultsLimitReached
+	}
+	waitErr := cmd.Wait()
+	switch {
+	case waitErr != nil && isSGNoMatchExitCodeOneWithoutStderrBytes(waitErr, stderr.Bytes()):
+		return []SearchMatch{}, nil
+	case waitErr != nil:
+		return nil, formatSGCommandErrorWithStderr(label, waitErr, stderr.Bytes())
+	case decodeErr != nil:
+		return nil, decodeErr
+	default:
+		return matches, nil
+	}
+}
+
+// decodeSGScanMatchesReader 解码 sg scan --json 的数组输出，并在达到上限时取消 sg。
+func decodeSGScanMatchesReader(reader io.Reader, root string, maxResults int, cancel context.CancelFunc) ([]SearchMatch, error) {
+	decoder := json.NewDecoder(reader)
+	token, err := decoder.Token()
+	if err != nil {
 		return nil, fmt.Errorf("sg scan json: %w", err)
 	}
-	results := make([]SearchMatch, 0, len(items))
-	for _, item := range items {
-		absPath := item.File
-		if !filepath.IsAbs(absPath) {
-			absPath = filepath.Join(root, item.File)
+	if delim, ok := token.(json.Delim); !ok || delim != '[' {
+		return nil, errors.New("sg scan json: expected array")
+	}
+	results := make([]SearchMatch, 0, 16)
+	for decoder.More() {
+		var item sgStreamMatch
+		if err := decoder.Decode(&item); err != nil {
+			return nil, fmt.Errorf("sg scan json: %w", err)
 		}
-		absPath = filepath.Clean(absPath)
-		results = append(results, SearchMatch{
-			AbsPath:    absPath,
-			SearchRoot: root,
-			File:       displayPath(absPath),
-			Line:       item.Range.Start.Line + 1,
-			Col:        item.Range.Start.Column + 1,
-			Text:       collapseSnippet(item.Lines, item.Text),
-		})
+		if maxResultsReached(len(results), maxResults) {
+			cancel()
+			return results, errSearchResultsLimitReached
+		}
+		results = append(results, sgItemToSearchMatch(item, root))
+	}
+	if _, err := decoder.Token(); err != nil {
+		return nil, fmt.Errorf("sg scan json: %w", err)
 	}
 	return results, nil
 }
 
-// decodeSGMatches 解码 ast-grep stream JSON 输出。
-// 每行必须是独立 JSON 命中；解析失败会带行号返回，便于定位外部工具输出异常。
-func decodeSGMatches(output []byte, root string) ([]SearchMatch, error) {
-	scanner := bufio.NewScanner(bytes.NewReader(output))
+func decodeSGMatchesReader(reader io.Reader, root string, maxResults int, cancel context.CancelFunc) ([]SearchMatch, error) {
+	scanner := bufio.NewScanner(reader)
 	scanner.Buffer(make([]byte, 0, 64*1024), 2<<20)
 	results := make([]SearchMatch, 0, 16)
 	line := 0
@@ -529,19 +516,11 @@ func decodeSGMatches(output []byte, root string) ([]SearchMatch, error) {
 		if err := json.Unmarshal(scanner.Bytes(), &item); err != nil {
 			return nil, fmt.Errorf("sg json line %d: %w", line, err)
 		}
-		absPath := item.File
-		if !filepath.IsAbs(absPath) {
-			absPath = filepath.Join(root, item.File)
+		if maxResultsReached(len(results), maxResults) {
+			cancel()
+			return results, errSearchResultsLimitReached
 		}
-		absPath = filepath.Clean(absPath)
-		results = append(results, SearchMatch{
-			AbsPath:    absPath,
-			SearchRoot: root,
-			File:       displayPath(absPath),
-			Line:       item.Range.Start.Line + 1,
-			Col:        item.Range.Start.Column + 1,
-			Text:       collapseSnippet(item.Lines, item.Text),
-		})
+		results = append(results, sgItemToSearchMatch(item, root))
 	}
 	if err := scanner.Err(); err != nil {
 		return nil, fmt.Errorf("sg json scan: %w", err)
@@ -549,15 +528,29 @@ func decodeSGMatches(output []byte, root string) ([]SearchMatch, error) {
 	return results, nil
 }
 
+func sgItemToSearchMatch(item sgStreamMatch, root string) SearchMatch {
+	absPath := item.File
+	if !filepath.IsAbs(absPath) {
+		absPath = filepath.Join(root, item.File)
+	}
+	absPath = filepath.Clean(absPath)
+	return SearchMatch{
+		AbsPath:    absPath,
+		SearchRoot: root,
+		File:       displayPath(absPath),
+		Line:       item.Range.Start.Line + 1,
+		Col:        item.Range.Start.Column + 1,
+		Text:       collapseSnippet(item.Lines, item.Text),
+	}
+}
+
 func validateSearchGlob(rawGlob string) error {
 	glob := filepath.ToSlash(strings.TrimSpace(rawGlob))
 	if glob == "" {
 		return nil
 	}
-	for _, pattern := range []string{glob} {
-		if _, err := path.Match(pattern, "probe"); err != nil {
-			return fmt.Errorf("invalid glob %q: %w", rawGlob, err)
-		}
+	if _, err := path.Match(glob, "probe"); err != nil {
+		return fmt.Errorf("invalid glob %q: %w", rawGlob, err)
 	}
 	return nil
 }
@@ -628,10 +621,13 @@ func matchesGlobSegments(patterns, candidates []string) (bool, error) {
 	return len(candidates) == 0, nil
 }
 
-func formatSGCommandError(prefix string, err error) error {
+func formatSGCommandErrorWithStderr(prefix string, err error, stderrBytes []byte) error {
 	var exitErr *exec.ExitError
 	if errors.As(err, &exitErr) {
-		stderr := strings.TrimSpace(string(exitErr.Stderr))
+		if len(stderrBytes) == 0 {
+			stderrBytes = exitErr.Stderr
+		}
+		stderr := strings.TrimSpace(string(stderrBytes))
 		if stderr != "" {
 			return fmt.Errorf("%s: %w: %s", prefix, err, stderr)
 		}
@@ -639,11 +635,15 @@ func formatSGCommandError(prefix string, err error) error {
 	return fmt.Errorf("%s: %w", prefix, err)
 }
 
-func isSGNoMatchExitCodeOneWithoutStderr(err error) bool {
+func isSGNoMatchExitCodeOneWithoutStderrBytes(err error, stderrBytes []byte) bool {
 	var exitErr *exec.ExitError
-	return errors.As(err, &exitErr) &&
-		exitErr.ExitCode() == 1 &&
-		len(bytes.TrimSpace(exitErr.Stderr)) == 0
+	if !errors.As(err, &exitErr) || exitErr.ExitCode() != 1 {
+		return false
+	}
+	if len(stderrBytes) == 0 {
+		stderrBytes = exitErr.Stderr
+	}
+	return len(bytes.TrimSpace(stderrBytes)) == 0
 }
 
 func normalizeASTLanguage(raw, target string, isDir bool, glob string) (string, error) {
@@ -657,13 +657,14 @@ func normalizeASTLanguage(raw, target string, isDir bool, glob string) (string, 
 }
 
 func astGrepLanguageID(language string) string {
-	switch strings.ToLower(strings.TrimSpace(language)) {
+	normalized := strings.ToLower(strings.TrimSpace(language))
+	switch normalized {
 	case "javascriptreact":
 		return "jsx"
 	case "typescriptreact":
 		return "tsx"
 	default:
-		return strings.ToLower(strings.TrimSpace(language))
+		return normalized
 	}
 }
 
