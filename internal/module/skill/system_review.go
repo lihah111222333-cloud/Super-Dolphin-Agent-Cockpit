@@ -26,7 +26,8 @@ func skillContentHash(content string) string { return skillhash.Content(content)
 
 func skillDirContentHash(root string) (string, error) { return skillhash.Dir(root) }
 
-// resolveSymlinkPath 解析符号链接的最终目标，解析失败时返回原路径。
+// resolveSymlinkPath 在安全上限内解析 symlink 链。
+// EvalSymlinks 失败时退化为逐段解析，最多 16 层，避免循环链接卡住调用方。
 func resolveSymlinkPath(path string) string {
 	if realPath, err := filepath.EvalSymlinks(path); err == nil {
 		return realPath

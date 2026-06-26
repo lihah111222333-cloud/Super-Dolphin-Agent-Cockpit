@@ -5,16 +5,10 @@ import (
 	"testing"
 )
 
-// TestRootBridgeAllowlistIntegrity guards the P22 semantic root-bridge
-// allowlist declared in root_bridge_allowlist.go.
+// TestRootBridgeAllowlistIntegrity 守住 root bridge allowlist 的结构完整性。
 //
-// Unlike the matcher-level P0 skeletons in fx_invoke_guard_test.go and
-// friends, this integrity check is *not* parked behind t.Skip — if the
-// allowlist loses a required field, references a deleted file, or grows a
-// duplicate key, the suite fails immediately. That is what P0 §TDD 与清理要求
-// means by "先落 semantic allowlist schema": the schema itself is always
-// verified, while the per-slice matcher subtests are filled in by downstream
-// PRs.
+// 字段缺失、引用文件被删或 key 重复都会立即失败，确保 allowlist schema
+// 自身一直受测试保护，而不是依赖后续 matcher 才暴露结构问题。
 func TestRootBridgeAllowlistIntegrity(t *testing.T) {
 	t.Parallel()
 

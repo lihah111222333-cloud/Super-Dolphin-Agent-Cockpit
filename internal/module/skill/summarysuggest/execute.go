@@ -12,7 +12,8 @@ import (
 // ParseFunc 是用于解析 dream 原始输出的函数类型。
 type ParseFunc func(string) (string, error)
 
-// ExecuteWithOptions 执行带选项的技能。
+// ExecuteWithOptions 调用 dream 生成 skill 摘要建议。
+// 解析失败只对已知可重试错误重跑一次，其他错误立即返回给调用方。
 func ExecuteWithOptions(ctx context.Context, dream contract.DreamExecutor, prompt string, options contract.DreamOptions, parse ParseFunc) (string, error) {
 	ctx, cancel := platformconfig.WithTimeoutIfNone(ctx, platformconfig.RPCRequestTimeout)
 	defer cancel()
@@ -43,7 +44,8 @@ func executeDream(ctx context.Context, dream contract.DreamExecutor, prompt stri
 	return dream.ExecuteDream(ctx, prompt)
 }
 
-// retryable 判断解析错误是否属于可重试的已知错误类型。
+// retryable 只允许摘要为空或解析格式错误触发重试。
+// 业务错误和执行器错误不在这里吞掉，避免掩盖 provider 侧故障。
 func retryable(err error) bool {
 	message := err.Error()
 	return strings.Contains(message, "parse skill summary suggestion") ||

@@ -12,9 +12,8 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-// TestDispatchAgent_WritesRunningOnSuccess locks in the ADR-017 v1.2 §2.4
-// happy path: agent.Execute returns done, dispatchAgent must call
-// UpdateRunningNodeStatus(running) and the metric counter advances by 1.
+// TestDispatchAgent_WritesRunningOnSuccess 锁定 agent 节点成功启动后的 ready->running 写库路径。
+// executor 返回 done 后仍必须先写 running 并推进观测计数，避免调度器漏记启动边界。
 func TestDispatchAgent_WritesRunningOnSuccess(t *testing.T) {
 	before := orchmetrics.DispatchAgentRunningCounters()
 
@@ -55,11 +54,8 @@ func TestDispatchAgent_WritesRunningOnSuccess(t *testing.T) {
 	}
 }
 
-// TestDispatchAgent_RaceWindowD_NoRowsIsSilent covers ADR-017 v1.2 §2.6
-// Window D: subscriber already pushed done/failed before dispatchAgent
-// finishes its UpdateRunningNodeStatus call. pgx.ErrNoRows must be swallowed
-// silently �?dispatchAgent still returns the executor outcome, the metric
-// counter records SkippedAlreadyTerminal +1 (not WriteFailed).
+// TestDispatchAgent_RaceWindowD_NoRowsIsSilent 覆盖订阅者先把节点推进终态的竞态窗口。
+// running 写入遇到 pgx.ErrNoRows 时保留 executor 结果，并只记录“已终态跳过”计数。
 func TestDispatchAgent_RaceWindowD_NoRowsIsSilent(t *testing.T) {
 	before := orchmetrics.DispatchAgentRunningCounters()
 
@@ -100,9 +96,8 @@ func TestDispatchAgent_RaceWindowD_NoRowsIsSilent(t *testing.T) {
 	}
 }
 
-// TestDispatchAgent_DBErrorIsPropagated verifies that a generic DB error from
-// UpdateRunningNodeStatus is not hidden after the child launch succeeds.
-// The framework error must propagate so dispatcher can retry/fail visibly.
+// TestDispatchAgent_DBErrorIsPropagated 验证普通数据库错误不能被终态竞态逻辑吞掉。
+// 子 agent 已启动但 running 写库失败时必须把错误返回给调度器，以便显式重试或失败。
 func TestDispatchAgent_DBErrorIsPropagated(t *testing.T) {
 	before := orchmetrics.DispatchAgentRunningCounters()
 
@@ -172,10 +167,8 @@ func TestDispatchAgent_RetryWithRecordedSpawnDoesNotLaunchDuplicateChild(t *test
 	}
 }
 
-// TestDispatchAgent_LaunchFailedDoesNotWriteRunning ensures that when the
-// executor itself surfaces a launch error (or NodeStatusFailed validation),
-// dispatchAgent does NOT attempt the ready→running write �?letting dispatcher
-// pick up the failure cleanly (retry / mark failed).
+// TestDispatchAgent_LaunchFailedDoesNotWriteRunning 验证启动失败不会再写 running 状态。
+// executor 已给出 failed 结果时，调度器应直接处理失败分类，避免把失败节点短暂标成 running。
 func TestDispatchAgent_LaunchFailedDoesNotWriteRunning(t *testing.T) {
 	launcher := &stubAgentLauncher{err: errors.New("launch refused: bad agent_key")}
 	agentExec := newTestAgentExecutor(launcher, nil)

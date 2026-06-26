@@ -192,7 +192,7 @@ func parseSkillInfo(rel, dir, content string, defaultTrust TrustScope) SkillInfo
 		if defaultTrust.Valid() {
 			info.Trust = defaultTrust
 		} else {
-			info.Trust = TrustProject // 安全兑底：未知源按不受信任处理
+			info.Trust = TrustProject // 安全兜底：未知源按不受信任处理。
 		}
 	}
 	info.Trust = capSkillTrustByRoot(info.Trust, defaultTrust)

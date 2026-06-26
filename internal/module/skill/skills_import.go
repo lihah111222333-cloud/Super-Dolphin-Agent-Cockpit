@@ -124,7 +124,8 @@ func (s *service) importSources(sources []string, singleName, cwd, scope, person
 	return results, failures
 }
 
-// importSource 导入source。
+// importSource 导入单个本地来源。
+// auto 模式会根据 SKILL.md 是否存在选择单 skill 或 batch，非法来源被记录为单项失败。
 func (s *service) importSource(source, name, cwd, scope, personalType, mode string) ([]map[string]any, []map[string]any) {
 	resolvedSource, err := validateImportSource(source)
 	if err != nil {
@@ -147,7 +148,8 @@ func (s *service) importSource(source, name, cwd, scope, personalType, mode stri
 	return s.importBatchSource(resolvedSource, cwd, scope, personalType)
 }
 
-// detectImportMode 根据请求模式和目录内容判断 skill 导入方式。
+// detectImportMode 根据请求模式和目录形态决定导入策略。
+// auto 模式只接受含 SKILL.md 的单目录，或一层子目录中包含 skill 的容器。
 func detectImportMode(resolvedSource, requestedMode string) (string, error) {
 	switch requestedMode {
 	case importModeSingle, importModeBatch:
@@ -169,7 +171,8 @@ func detectImportMode(resolvedSource, requestedMode string) (string, error) {
 	}
 }
 
-// importBatchSource 导入batchsource。
+// importBatchSource 导入容器目录下的一组直接子 skill。
+// 单个子目录失败会进入 failures，其他合法 skill 仍可继续导入并返回部分结果。
 func (s *service) importBatchSource(container, cwd, scope, personalType string) ([]map[string]any, []map[string]any) {
 	skillDirs, failures, err := collectBatchSkillDirs(container)
 	if err != nil {
@@ -232,7 +235,8 @@ func skillMainFileExists(dir string) bool {
 	return err == nil && !info.IsDir()
 }
 
-// importSkillUnit 导入技能unit。
+// importSkillUnit 把一个已验证来源目录复制到目标 skill 根。
+// 目标名、系统写入审批、来源越界和同名目录都在复制前 fail-fast。
 func (s *service) importSkillUnit(resolvedSource, name, cwd, scope, personalType, originalSource string) (map[string]any, error) {
 	normalizedScope, normalizedPersonalType, err := normalizeSkillTarget(scope, personalType)
 	if err != nil {

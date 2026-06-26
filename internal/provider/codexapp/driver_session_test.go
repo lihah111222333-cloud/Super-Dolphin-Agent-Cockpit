@@ -188,9 +188,8 @@ func assertNewCodexSessionState(t *testing.T, s *session) {
 	if s.transport == nil || !s.transport.Running() {
 		t.Fatal("newSession() transport is not running")
 	}
-	// P22 P1c: newSession must build the session ctx, cancel and runtime
-	// handle, but must NOT have started the runtime yet — Start() is an
-	// explicit production call site inside StartSession / ResumeSession.
+	// newSession 只负责建好 session context、cancel 和 runtime 句柄。
+	// runtime 必须等 StartSession/ResumeSession 的生产入口显式启动，避免构造期隐式拉起后台循环。
 	if s.ctx == nil || s.cancel == nil {
 		t.Fatal("newSession() did not initialize session ctx / cancel")
 	}

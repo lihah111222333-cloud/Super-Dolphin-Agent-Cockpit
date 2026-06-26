@@ -11,7 +11,7 @@ import (
 )
 
 // Normalize 对技能的 name 和 displayName 进行规范化。
-// 优先使用已合法的 name；若 name 不合法且 displayName 为空，则尝试将 name 作为 legacy 显示名生成 slug。
+// 优先使用已合法的 name；若 name 不合法且 displayName 为空，则按旧版显示名生成稳定 slug。
 // 返回 (规范化name, 规范化displayName, 是否成功)。
 func Normalize(name, displayName string) (string, string, bool) {
 	displayName, ok := normalizeDisplayName(displayName)
@@ -175,7 +175,8 @@ func normalizeDisplayName(displayName string) (string, bool) {
 	return displayName, true
 }
 
-// safeLegacyDisplayName 判断字符串是否可作为 legacy 显示名（含空格、仅用字母数字空格连字符下划线）。
+// safeLegacyDisplayName 判断旧版显示名能否安全转换成 slug。
+// 仅接受可见的字母、数字、空格、连字符和下划线，避免把任意标题写入 frontmatter。
 func safeLegacyDisplayName(name string) bool {
 	name = strings.TrimSpace(name)
 	if name == "" || utf8.RuneCountInString(name) > 120 {
@@ -193,7 +194,7 @@ func safeLegacyDisplayName(name string) bool {
 	return strings.Contains(name, " ")
 }
 
-// legacyDisplayRune 判断字符是否为 legacy 显示名允许的字符（字母、数字、空格、-、_）。
+// legacyDisplayRune 限制旧版显示名可参与 slug 生成的字符集合。
 func legacyDisplayRune(r rune) bool {
 	return unicode.IsLetter(r) || unicode.IsDigit(r) || r == ' ' || r == '-' || r == '_'
 }

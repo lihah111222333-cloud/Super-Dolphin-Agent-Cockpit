@@ -56,12 +56,9 @@ func TestFreezeRelevantMemoryAttachmentsPreservesFrontmatterMetadata(t *testing.
 	}
 }
 
-// TestPhaseB10_FreezeRelevantMemoryAttachmentsWrapsBodyInUntrustedFence locks
-// the Phase B.10 (p25 L445 Sub-1) defense: retrieval-rendered memory content
-// must be wrapped in `<untrusted-relevant-memory>` fence + preamble so the LLM
-// treats persisted memory as historical reference, not user/system
-// instructions. Mirrors Phase 2.1.D's untrusted-claude-md template applied to
-// retrieval path.
+// TestPhaseB10_FreezeRelevantMemoryAttachmentsWrapsBodyInUntrustedFence 锁住检索记忆的隔离输出。
+// 持久化记忆必须包进 `<untrusted-relevant-memory>` fence 和提示前缀，
+// 让模型把它当作历史参考，而不是用户或系统指令。
 func TestPhaseB10_FreezeRelevantMemoryAttachmentsWrapsBodyInUntrustedFence(t *testing.T) {
 	now := time.Date(2026, 4, 14, 12, 0, 0, 0, time.UTC)
 	attachments := FreezeRelevantMemoryAttachments([]MemoryEntry{{
@@ -86,11 +83,9 @@ func TestPhaseB10_FreezeRelevantMemoryAttachmentsWrapsBodyInUntrustedFence(t *te
 	}
 }
 
-// TestPhaseB10_FreezeRelevantMemoryAttachmentsEscapesEmbeddedFenceTags locks
-// the ZWSP escape: when attacker persists `</untrusted-relevant-memory>` in
-// memory body via explicit remember, the rendered output must split the
-// closing tag with a zero-width space so the model cannot be tricked into
-// closing the fence early and reading the rest as system instructions.
+// TestPhaseB10_FreezeRelevantMemoryAttachmentsEscapesEmbeddedFenceTags 锁住内嵌 fence 的转义。
+// 当记忆正文包含关闭标签时，渲染层必须用零宽空格拆开该标签，
+// 避免后续内容逃逸成新的指令上下文。
 func TestPhaseB10_FreezeRelevantMemoryAttachmentsEscapesEmbeddedFenceTags(t *testing.T) {
 	now := time.Date(2026, 4, 14, 12, 0, 0, 0, time.UTC)
 	attachments := FreezeRelevantMemoryAttachments([]MemoryEntry{{
@@ -104,26 +99,22 @@ func TestPhaseB10_FreezeRelevantMemoryAttachmentsEscapesEmbeddedFenceTags(t *tes
 		t.Fatalf("len(FreezeRelevantMemoryAttachments()) = %d, want 1", len(attachments))
 	}
 	content := attachments[0].Content
-	// The literal close tag must NOT appear adjacent to the rest — only the
-	// outer wrapping `</untrusted-relevant-memory>` (1 occurrence) is allowed.
+	// 只允许外层 fence 的关闭标签保持原样，正文里的关闭标签必须被拆开。
 	if got := strings.Count(content, "</untrusted-relevant-memory>"); got != 1 {
 		t.Fatalf("close-tag count = %d, want 1 (only outer fence); content:\n%s", got, content)
 	}
-	// The escaped form (close tag with ZWSP injected after `</`) must appear:
-	// proves the embedded close tag was sanitized.
+	// 转义形式必须出现，证明嵌入的关闭标签没有被原样透传给模型。
 	if !strings.Contains(content, "</\u200buntrusted-relevant-memory") {
 		t.Fatalf("attachment content missing ZWSP-escaped close tag (U+200B between `</` and `untrusted-relevant-memory`):\n%s", content)
 	}
-	// Counter-baseline: benign body text + injection text both still appear
-	// (escape only neutralizes fence syntax, doesn't drop content).
+	// 转义只中和 fence 语法，不丢弃原始正文，便于审计用户实际保存的内容。
 	if !strings.Contains(content, "benign prefix") {
 		t.Fatalf("attachment content lost benign prefix:\n%s", content)
 	}
 }
 
-// TestPhaseB10_FreezeRelevantMemoryAttachmentsEmptyBodySkipsAttachment locks
-// counter-baseline: when body becomes empty post-truncate, no attachment is
-// emitted (no fence-only output containing zero memory content).
+// TestPhaseB10_FreezeRelevantMemoryAttachmentsEmptyBodySkipsAttachment 锁住空正文的输出边界。
+// 截断后没有正文时不生成 attachment，避免产生只有 fence 却没有记忆内容的输出。
 func TestPhaseB10_FreezeRelevantMemoryAttachmentsEmptyBodySkipsAttachment(t *testing.T) {
 	now := time.Date(2026, 4, 14, 12, 0, 0, 0, time.UTC)
 	attachments := FreezeRelevantMemoryAttachments([]MemoryEntry{{

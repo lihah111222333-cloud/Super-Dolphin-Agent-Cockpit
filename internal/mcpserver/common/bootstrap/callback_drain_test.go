@@ -8,11 +8,8 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/dto/mcp"
 )
 
-// TestClientFireShutdownTracksCallbackWithWaitGroup asserts the P22
-// P2 bootstrap-S1 invariant: OnShutdown is spawned through
-// spawnCallback, which registers with callbackWG. Close() can then
-// drain via drainCallbacks instead of racing a fire-and-forget
-// goroutine.
+// TestClientFireShutdownTracksCallbackWithWaitGroup 验证 OnShutdown 回调受 callbackWG 跟踪。
+// Close() 依赖 drainCallbacks 有界等待回调结束，不能与裸 goroutine 形成关闭竞态。
 func TestClientFireShutdownTracksCallbackWithWaitGroup(t *testing.T) {
 	release := make(chan struct{})
 	var fired atomic.Bool
@@ -27,8 +24,7 @@ func TestClientFireShutdownTracksCallbackWithWaitGroup(t *testing.T) {
 
 	c.fireShutdown(mcp.ShutdownRequest{})
 
-	// drainCallbacks should block while the handler is still holding
-	// on `release`; verify by racing with a short timeout.
+	// handler 未释放时 drainCallbacks 必须阻塞，用短超时证明 WaitGroup 确实接管了回调。
 	drainStart := time.Now()
 	err := c.drainCallbacks(80 * time.Millisecond)
 	if err == nil {
@@ -47,9 +43,8 @@ func TestClientFireShutdownTracksCallbackWithWaitGroup(t *testing.T) {
 	}
 }
 
-// TestClientSpawnCallbackAfterCloseIsNoop asserts that once closed is
-// set, spawnCallback refuses to launch a new goroutine, preventing
-// late callbacks from extending the drain window indefinitely.
+// TestClientSpawnCallbackAfterCloseIsNoop 验证关闭后不会再启动新的回调 goroutine。
+// 这样 late callback 不能无限拉长 Close() 的 drain 窗口。
 func TestClientSpawnCallbackAfterCloseIsNoop(t *testing.T) {
 	var fired atomic.Bool
 	c := New(Config{BinaryName: "test-binary", InstanceID: "inst-2"})
@@ -62,17 +57,15 @@ func TestClientSpawnCallbackAfterCloseIsNoop(t *testing.T) {
 	if err := c.drainCallbacks(200 * time.Millisecond); err != nil {
 		t.Fatalf("drainCallbacks() on empty group error = %v, want nil", err)
 	}
-	// Give any stray goroutine a moment to run; fired must stay
-	// false because spawnCallback took the closed branch.
+	// 给潜在漏跑 goroutine 一个调度窗口；fired 必须保持 false，说明 closed 分支生效。
 	time.Sleep(20 * time.Millisecond)
 	if fired.Load() {
 		t.Fatalf("spawnCallback ran after closed=true; expected no-op")
 	}
 }
 
-// TestClientDrainCallbacksTimeoutSurfaced asserts that a stuck
-// callback causes drainCallbacks to surface a timeout error, so
-// Close() can log and proceed rather than hang indefinitely.
+// TestClientDrainCallbacksTimeoutSurfaced 验证卡住的回调会让 drainCallbacks 返回超时错误。
+// Close() 可以记录后继续退出，而不是被应用回调无限阻塞。
 func TestClientDrainCallbacksTimeoutSurfaced(t *testing.T) {
 	c := New(Config{BinaryName: "test-binary", InstanceID: "inst-3"})
 	c.callbackWG.Add(1)

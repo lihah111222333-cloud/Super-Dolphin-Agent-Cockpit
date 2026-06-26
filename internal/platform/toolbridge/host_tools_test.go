@@ -20,10 +20,9 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/pkg/skillmetrics"
 )
 
-// P4 Task 4: SkillHostTools struct and stubSkillService have been removed
-// alongside the skill_expand_body / skill_read_resource host tools. The
-// remaining tests cover generic dispatch (callHostTool / routeToolCall /
-// dedup / ListToolsForCodex) using a stubHostToolRegistry.
+// host tool 测试覆盖当前通用分发链路：
+// callHostTool、routeToolCall、dedup 和 ListToolsForCodex 都通过 stubHostToolRegistry 驱动。
+// 旧 skill body/resource 工具已下线，因此这里不再保留历史 skill 专用替身。
 const testHostToolName = "test_host_echo"
 
 type stubHostToolRegistry struct {
@@ -520,7 +519,7 @@ func TestListToolsForCodex_PeerPanicSurfacesAsError(t *testing.T) {
 type panicActiveRegistry struct{}
 
 func (panicActiveRegistry) FindActiveByKind(string) []*mcpcontrol.ToolInstance {
-	// archguard:ignore panic_count -- this test double verifies registry panic recovery.
+	// archguard:ignore panic_count -- 测试替身需要触发 registry panic recovery。
 	panic("registry failed")
 }
 
