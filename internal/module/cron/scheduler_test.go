@@ -406,6 +406,32 @@ func TestSchedulerTerminalEventMarksFinished(t *testing.T) {
 	}
 }
 
+func TestCronTerminalEventFinalizesSubmittedRun(t *testing.T) {
+	t.Parallel()
+	store := &recordingCronStore{}
+	s := newTestScheduler(t, store, &programmableSubmitter{})
+	job := cronstore.Job{ID: "job-1", ScheduleExpr: "0 9 * * *", Timezone: "UTC", ClaimToken: "tok", NextRunAt: s.now()}
+	run := cronstore.Run{ID: "run-1", JobID: job.ID, TurnID: "turn-1", Status: cronstore.StatusSubmitted, ScheduledAt: s.now()}
+	store.listUnresolvedFn = func(context.Context) ([]cronstore.Run, error) { return []cronstore.Run{run}, nil }
+	store.getJobFn = func(context.Context, string) (cronstore.Job, error) { return job, nil }
+	var finished cronstore.MarkFinishedParams
+	store.markFinishedFn = func(_ context.Context, p cronstore.MarkFinishedParams) error {
+		finished = p
+		return nil
+	}
+
+	if err := s.CompleteTurn(context.Background(), "turn-1", true, ""); err != nil {
+		t.Fatalf("CompleteTurn error = %v", err)
+	}
+	if finished.ID != job.ID || finished.LastTurnID != "turn-1" {
+		t.Fatalf("MarkFinished params = %+v", finished)
+	}
+	last := store.casCalls[len(store.casCalls)-1]
+	if last.ExpectedStatus != cronstore.StatusSubmitted || last.NextStatus != cronstore.StatusFinished {
+		t.Fatalf("CAS = %s -> %s, want submitted -> finished", last.ExpectedStatus, last.NextStatus)
+	}
+}
+
 func TestSchedulerTerminalEventRejectsInvalidScheduleInsteadOfReusingNextRunAt(t *testing.T) {
 	t.Parallel()
 	store := &recordingCronStore{}
