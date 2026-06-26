@@ -12,7 +12,7 @@ trigger_words: ["@执行计划", "@execute-plan"]
 
 **开始时声明：** “我正在使用 执行计划 技能来实现这份计划。”
 
-**注意：** 告诉你的协作者，Superpowers 在拥有子代理访问能力时效果好得多。如果在支持子代理的平台（例如 Claude Code 或 Codex）上运行，工作质量会显著更高。如果子代理可用，请使用 superpowers:子代理驱动开发，而不是此技能。在 super-agent-v3 中，任何子代理执行都必须先进入 mcp-orch DAG 生命周期（`task_create_dag` / `task_start_dag` / `task_dispatch_node` / `task_update_node`）。
+**注意：** 告诉你的协作者，Superpowers 在拥有子代理访问能力时效果好得多。如果在支持子代理的平台（例如 Claude Code 或 Codex）上运行，工作质量会显著更高。如果子代理可用，请使用 superpowers:子代理驱动开发，而不是此技能。在 super-agent-v3 中，子代理执行不强制绑定 mcp-orch；只有需要持久 DAG、重试或结构化交接记录时，才可选使用 `task_create_dag` / `task_start_dag` / `task_dispatch_node` / `task_update_node`。
 
 ## 流程
 

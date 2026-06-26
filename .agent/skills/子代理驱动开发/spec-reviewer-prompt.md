@@ -1,11 +1,11 @@
 # 规格符合性审查者提示词模板
 
-创建规格符合性审查 DAG node 时使用此模板。该 node 必须依赖对应实现 node 完成。
+派发规格符合性审查子代理时使用此模板。若本轮选择 mcp-orch，该 node 应依赖对应实现 node 完成；直接派发时由控制者保证顺序。
 
 **目的：** 验证实现者构建的是被请求的内容（不多也不少）
 
 ```
-mcp-orch DAG node:
+Optional mcp-orch DAG node:
   node_key: "task-n-spec-review"
   title: "Review spec compliance for Task N"
   node_type: "agent"
@@ -62,7 +62,7 @@ mcp-orch DAG node:
 	    Report:
 	    - ✅ Spec compliant (if everything matches after code inspection)
 	    - ❌ Issues found: [list specifically what's missing or extra, with file:line references]
-	    - Node evidence: dag_key, node_key, run_id, and intended task_update_node status
+	    - Dispatch evidence: subagent id or thread id; include dag_key, node_key, run_id, and intended task_update_node status only if mcp-orch was used
 ```
 
-上面的代码块是 DAG node 的 prompt payload 模板，保持英文正文以便直接使用。
+上面的代码块可作为可选 DAG node 的 prompt payload，也可以抽出 `config.exec.prompt` 正文直接派发；保持英文正文以便直接使用。

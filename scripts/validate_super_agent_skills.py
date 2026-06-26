@@ -14,49 +14,42 @@ ROOT = Path(__file__).resolve().parents[1]
 
 REQUIRED = {
     "AGENTS.md": [
-        "task_create_dag",
-        "task_start_dag",
-        "task_dispatch_node",
-        "task_update_node",
+        "not required to bind their lifecycle to `mcp-orch`",
+        "native sub-agent or multi-agent capability",
+        "Use `mcp-orch` only when",
+    ],
+    "CLAUDE.md": [
+        "子代理不强制绑定 `mcp-go-agent-orchestration`",
+        "原生子代理/多代理能力",
+        "可选使用 `task_create_dag`",
     ],
     ".agent/skills/使用超能力/references/codex-tools.md": [
-        "task_create_dag",
-        "task_start_dag",
-        "task_dispatch_node",
-        "task_update_node",
-        "不要启动子代理",
+        "子代理生命周期不绑定 mcp-orch",
+        "Codex 多代理是本仓库允许的正常派发路径",
+        "不要伪造 DAG/node/run 证据",
     ],
     ".agent/skills/子代理驱动开发/SKILL.md": [
-        "task_create_dag",
-        "task_start_dag",
-        "task_dispatch_node",
-        "task_update_node",
-        "不要启动子代理",
+        "子代理生命周期不强制绑定 mcp-orch",
+        "缺少 mcp-go-agent-orchestration 工具不是阻断条件",
+        "未使用 mcp-orch 时伪造 DAG/node/run 证据",
     ],
     ".agent/skills/调度并行代理/SKILL.md": [
-        "task_create_dag",
-        "task_start_dag",
-        "task_dispatch_node",
-        "task_update_node",
-        "不要启动子代理",
+        "并行代理不强制绑定 mcp-orch",
+        "缺少 mcp-go-agent-orchestration 工具不是阻断条件",
+        "不需要伪造 DAG/node 证据",
     ],
     ".agent/skills/并行代理调度/SKILL.md": [
-        "task_create_dag",
-        "task_start_dag",
-        "task_dispatch_node",
-        "task_update_node",
-        "不要启动子代理",
+        "平台原生并行代理可直接使用",
+        "不要因为没有 mcp-go-agent-orchestration 就阻断派发",
     ],
     ".agent/skills/子代理开发/SKILL.md": [
-        "task_create_dag",
-        "task_start_dag",
-        "task_dispatch_node",
-        "task_update_node",
+        "平台原生子代理直接派发",
+        "不要把生命周期强制绑定到 mcp-orch",
+        "没有 mcp-go-agent-orchestration 工具不是阻断条件",
     ],
     ".agent/skills/请求代码审查/SKILL.md": [
-        "task_start_dag",
-        "task_dispatch_node",
-        "不要启动子代理",
+        "可选创建审查 DAG/node",
+        "没有 mcp-go-agent-orchestration 工具不是阻断条件",
     ],
     ".agent/skills/MCP协议/SKILL.md": [
         "internal/mcpserver/common",
@@ -109,9 +102,14 @@ REQUIRED = {
     ],
     ".agent/skills/代码审查维度/SKILL.md": [
         "super-agent-v3",
-        "task_create_dag",
+        "mcp-orch 是可选编排面",
+        "不得把子代理生命周期强制绑定到 DAG",
         "frontend-app",
         "SQLite/sqlc",
+        "无效豁免",
+        "pre-push",
+        "validate_super_agent_skills.py",
+        "canonical `.agent/skills`",
     ],
     ".agent/skills/后端/project_structure.md": [
         "internal/platform/db",
@@ -156,8 +154,8 @@ REQUIRED = {
     ".agent/skills/编写技能/SKILL.md": [
         ".agent/skills",
         ".agents/skills",
-        "task_start_dag",
-        "task_dispatch_node",
+        "不要强制绑定 `mcp-orch`",
+        "可选编排路径",
     ],
     ".agent/skills/架构设计/SKILL.md": [
         "frontend-app",
@@ -185,6 +183,12 @@ REQUIRED = {
 FORBIDDEN = {
     "AGENTS.md": [
         "task_start_node",
+        "Sub-agents MUST use",
+    ],
+    "CLAUDE.md": [
+        "任务生命周期管理与协同",
+        "必须使用 `mcp-go-agent-orchestration`",
+        "task_start_node",
     ],
     ".agent/skills/super-dolphin-workflow/SKILL.md": [
         "/Users/ai/Desktop/Super-Dolphin",
@@ -204,36 +208,59 @@ FORBIDDEN = {
     ".agent/skills/使用超能力/references/codex-tools.md": [
         "task_start_node",
         "只有在用户仍要求",
+        "子代理强制编排",
+        "所有子代理工作必须先进入 mcp-orch",
+        "不要启动子代理",
+        "不能替代 mcp-orch DAG 状态",
+        "除非用户明确要求绕过本仓库编排规则",
     ],
     ".agent/skills/子代理驱动开发/SKILL.md": [
         "task_start_node",
         "降级为 Codex 多代理 fallback",
+        "强制前置",
+        "生命周期必须先进入 mcp-orch",
+        "不要启动子代理",
     ],
     ".agent/skills/调度并行代理/SKILL.md": [
         "task_start_node",
         "Codex 多代理 fallback，则用多个",
+        "强制要求",
+        "并行代理必须通过 mcp-orch",
+        "不要启动子代理",
+        "不要把它当成本仓库的子代理执行路径",
     ],
     ".agent/skills/并行代理调度/SKILL.md": [
         "task_start_node",
         "Codex 多代理 fallback",
+        "先用 `task_create_dag` 建 DAG",
+        "只能改为单代理只读分析或等待工具可用",
     ],
     ".agent/skills/子代理开发/SKILL.md": [
         "task_start_node",
         "Codex fallback",
+        "都必须是 mcp-orch",
+        "不要启动子代理",
     ],
     ".agent/skills/请求代码审查/SKILL.md": [
         "task_start_node",
         "再使用 Codex 多代理 fallback",
+        "优先创建审查 DAG/node，而不是裸派发后台任务",
+        "不要启动子代理",
     ],
     ".agent/skills/编写技能/SKILL.md": [
         "task_start_node",
         "工具缺失时说明 fallback",
+        "涉及子代理时必须写入",
+        "先 mcp-orch DAG/run/node",
+        "工具缺失时停止",
     ],
     ".agent/skills/执行计划/SKILL.md": [
         "task_start_node",
+        "任何子代理执行都必须先进入 mcp-orch",
     ],
     ".agent/skills/编写计划/SKILL.md": [
         "task_start_node",
+        "subagents must be represented by mcp-orch",
     ],
     "docs/契约/sqlc-convention.md": [
         'engine: "postgresql"',

@@ -4,10 +4,10 @@
 
 **目的：** 验证实现是否构建良好（干净、经过测试、可维护）
 
-**只在规格符合性审查通过后派发。** 创建为 mcp-orch DAG node，依赖对应规格审查 node。
+**只在规格符合性审查通过后派发。** 可直接派发为平台原生子代理；若本轮选择 mcp-orch，则创建为依赖对应规格审查 node 的 DAG node。
 
 ```
-mcp-orch DAG node:
+Optional mcp-orch DAG node:
   node_key: "task-n-quality-review"
   title: "Review code quality for Task N"
   node_type: "agent"
@@ -22,7 +22,7 @@ mcp-orch DAG node:
     HEAD_SHA: [current commit]
     DESCRIPTION: [task summary]
 
-    Return findings plus node evidence for task_update_node.
+    Return findings plus dispatch evidence. Include task_update_node status only if mcp-orch was used.
 ```
 
 **除标准代码质量问题外，审查者还应检查：**

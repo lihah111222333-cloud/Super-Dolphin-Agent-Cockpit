@@ -1,9 +1,9 @@
 # 实现者子代理提示词模板
 
-创建实现者 DAG node 时使用此模板。控制者必须先通过 `task_create_dag` 建图，并在运行时用 `task_start_dag` / `task_dispatch_node` 启动该 node。
+派发实现者子代理时使用此模板。控制者可以直接把提示词正文交给平台原生子代理；若本轮选择 mcp-orch，可把它包装成 DAG node。
 
 ```
-mcp-orch DAG node:
+Optional mcp-orch DAG node:
   node_key: "task-n-implement"
   title: "Implement Task N: [task name]"
   node_type: "agent"
@@ -104,7 +104,7 @@ mcp-orch DAG node:
 
 	    When done, report:
 	    - **Status:** DONE | DONE_WITH_CONCERNS | BLOCKED | NEEDS_CONTEXT
-	    - **Node evidence:** dag_key, node_key, run_id, and intended task_update_node status
+	    - **Dispatch evidence:** subagent id or thread id; include dag_key, node_key, run_id, and intended task_update_node status only if mcp-orch was used
 	    - What you implemented (or what you attempted, if blocked)
     - What you tested and test results
     - Files changed
@@ -116,4 +116,4 @@ mcp-orch DAG node:
     information that wasn't provided. 绝对不能 silently produce work you're unsure about.
 ```
 
-上面的代码块是 DAG node 的 prompt payload 模板，保持英文正文以便直接使用。
+上面的代码块可作为可选 DAG node 的 prompt payload，也可以抽出 `config.exec.prompt` 正文直接派发；保持英文正文以便直接使用。

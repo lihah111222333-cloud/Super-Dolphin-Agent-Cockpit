@@ -35,7 +35,7 @@
 - 上表规定了 agent 在本仓库内读取 `.agent/skills/**/SKILL.md` 的触发映射关系。
 - 产品运行时的技能系统：canonical 真值由本项目管理，项目级在 `<cwd>/.agent/skills`，生效的个人级在 `~/.super-dolphin/skills/personal/{user,agent,imported}`；`personal/hub` 仅作为目录/市场来源，不参与扫描、镜像或 provider 调用。生效 canonical 再 reconcile 到生成型 provider-native mirror。Claude 通过 `<cwd>/.claude/skills` 和 `~/.claude/skills` 发现，Codex 通过 `<cwd>/.agents/skills` 和 `~/.agents/skills` 发现；显式配置 provider home 时才使用该 home 下的 `skills`；mirror 不是 canonical 真值。
 - 涉及运行时技能行为时，以 `internal/module/skill*`、`internal/provider/shared/provider_home.go`、provider mirror 测试和 toolbridge 兼容性测试为准；`skill_read_section` 不是生产 skill 发现入口。
-- **子代理编排**：子代理在执行任务时，必须使用 `mcp-go-agent-orchestration` 工具（`task_create_dag`, `task_update_node` 等）进行任务生命周期管理与协同。
+- **子代理编排**：子代理不强制绑定 `mcp-go-agent-orchestration` 或 `mcp-orch` 生命周期；优先使用当前平台可用的原生子代理/多代理能力。只有任务确实需要持久 DAG、重试、租约或结构化交接记录时，才可选使用 `task_create_dag`、`task_start_dag`、`task_dispatch_node`、`task_update_node`。
 
 ## 代码地图与上下文加载
 

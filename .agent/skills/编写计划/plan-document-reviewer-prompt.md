@@ -1,13 +1,13 @@
 # 计划文档审查者提示词模板
 
-创建计划文档审查 DAG node 时使用此模板。
+派发计划文档审查子代理时使用此模板。可直接使用正文；若本轮选择 mcp-orch，可包装成 DAG node。
 
 **目的：** 验证计划是否完整、是否匹配规格，并且任务分解是否合理。
 
 **派发时机：** 完整计划已写好。
 
 ```
-mcp-orch DAG node:
+Optional mcp-orch DAG node:
   node_key: "plan-document-review"
   title: "Review plan document"
   node_type: "agent"

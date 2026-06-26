@@ -32,7 +32,7 @@ npm run build
 
 ## Agent Orchestration Note
 
-The requested `mcp-go-agent-orchestration` DAG tools (`task_create_dag`, `task_start_node`, `task_update_node`) were not exposed in this Codex tool session. This run uses isolated git worktrees plus `multi_agent_v1` subagents and per-agent Markdown reports for lifecycle evidence.
+The `mcp-go-agent-orchestration` DAG tools were not exposed in this Codex tool session. This run uses the allowed native path: isolated git worktrees plus `multi_agent_v1` subagents and per-agent Markdown reports for lifecycle evidence, without persistent mcp-orch DAG observability.
 
 ## Findings
 
@@ -40,4 +40,3 @@ The requested `mcp-go-agent-orchestration` DAG tools (`task_create_dag`, `task_s
 - P1: none at baseline.
 - P2: frontend lacks a single explicit `shared/api` facade documenting the official backend RPC surface for React callers.
 - P2: runtime import should be regression-locked so future `src/shared/api/wailsBridge.js`-style static imports cannot reintroduce the Vite pre-transform failure.
-
