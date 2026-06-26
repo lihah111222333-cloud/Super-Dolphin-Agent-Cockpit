@@ -14,18 +14,15 @@ import (
 )
 
 // CompleteTurn 将 turn 终态事件写回当前追踪该 turnID 的 cron run。
-// RunTick 只把已提交 turn 推到 running；终态由 BusModule 订阅事件后进入这里。
-// 找不到 running run 会返回错误，方便暴露恢复流程或事件顺序问题。
+// 终态事件可能早于 submitted->running 的观察 CAS 到达，因此这里按 turnID 查找
+// submitted/running 未解决 run，并用当前状态做 CAS 收尾。
 func (s *Scheduler) CompleteTurn(ctx context.Context, turnID string, success bool, terminalErr string) error {
 	turnID = strings.TrimSpace(turnID)
 	if turnID == "" {
 		return nil
 	}
-	run, err := s.store.GetRunningRunByTurnID(ctx, turnID)
+	run, err := s.terminalRunByTurnID(ctx, turnID)
 	if err != nil {
-		if errors.Is(err, cronstore.ErrJobRunNotFound) {
-			return fmt.Errorf("cron: running run for turn %q not found: %w", turnID, err)
-		}
 		return err
 	}
 	job, err := s.store.GetJobByID(ctx, run.JobID)
@@ -41,17 +38,42 @@ func (s *Scheduler) CompleteTurn(ctx context.Context, turnID string, success boo
 	return s.markTerminalFailed(ctx, job, run, terminalErr)
 }
 
-// markTerminalFailed 将 running run 标记为 failed 并计算下一次重试时间。
+// terminalRunByTurnID 定位可被终态事件收尾的 unresolved run。
+// running 走专用查询，submitted 则回看未解决 run，避免终态事件抢在 Observe 前到达时丢失收尾。
+func (s *Scheduler) terminalRunByTurnID(ctx context.Context, turnID string) (cronstore.Run, error) {
+	run, err := s.store.GetRunningRunByTurnID(ctx, turnID)
+	if err == nil {
+		return run, nil
+	}
+	if !errors.Is(err, cronstore.ErrJobRunNotFound) {
+		return cronstore.Run{}, err
+	}
+	runs, listErr := s.store.ListUnresolvedRuns(ctx)
+	if listErr != nil {
+		return cronstore.Run{}, listErr
+	}
+	for _, run := range runs {
+		if run.TurnID == turnID && (run.Status == cronstore.StatusSubmitted || run.Status == cronstore.StatusRunning) {
+			return run, nil
+		}
+	}
+	return cronstore.Run{}, fmt.Errorf("cron: submitted/running run for turn %q not found: %w", turnID, cronstore.ErrJobRunNotFound)
+}
+
+// markTerminalFailed 将 submitted/running run 标记为 failed 并计算下一次重试时间。
 func (s *Scheduler) markTerminalFailed(ctx context.Context, job cronstore.Job, run cronstore.Run, terminalErr string) error {
 	now := s.now().UTC()
 	nextRetryAt, err := s.nextRetry(job, now)
 	if err != nil {
 		return err
 	}
-	s.casLogPublish(ctx, cronstore.CASRunStatusParams{
-		ID: run.ID, ExpectedStatus: cronstore.StatusRunning, NextStatus: cronstore.StatusFailed,
+	if err := s.store.CASRunStatus(ctx, cronstore.CASRunStatusParams{
+		ID: run.ID, ExpectedStatus: run.Status, NextStatus: cronstore.StatusFailed,
 		Error: terminalErr, UpdatedAt: now,
-	}, "running->failed", job.ID, run.ID, cronstore.StatusFailed, run.TurnID, terminalErr, run.ScheduledAt)
+	}); err != nil {
+		return err
+	}
+	s.publishRunState(job.ID, run.ID, cronstore.StatusFailed, run.TurnID, terminalErr, run.ScheduledAt)
 	return s.store.MarkFailed(ctx, cronstore.MarkFailedParams{
 		ID:          job.ID,
 		ClaimToken:  job.ClaimToken,
@@ -65,7 +87,7 @@ func (s *Scheduler) markTerminalFailed(ctx context.Context, job cronstore.Job, r
 	})
 }
 
-// markFinished 将 running run 标记为 finished 并推算 job 的下一次运行时间。
+// markFinished 将 submitted/running run 标记为 finished 并推算 job 的下一次运行时间。
 func (s *Scheduler) markFinished(ctx context.Context, job cronstore.Job, run cronstore.Run, turnID string, scheduledAt time.Time) error {
 	now := s.now().UTC()
 	nextRunAt, err := ComputeNextRunAt(job.ScheduleExpr, job.Timezone, now)
@@ -75,9 +97,12 @@ func (s *Scheduler) markFinished(ctx context.Context, job cronstore.Job, run cro
 	if nextRunAt.IsZero() {
 		return errors.New("cron: computed next_run_at is zero")
 	}
-	s.casLogPublish(ctx, cronstore.CASRunStatusParams{
-		ID: run.ID, ExpectedStatus: cronstore.StatusRunning, NextStatus: cronstore.StatusFinished, UpdatedAt: now,
-	}, "running->finished", job.ID, run.ID, cronstore.StatusFinished, turnID, "", scheduledAt)
+	if err := s.store.CASRunStatus(ctx, cronstore.CASRunStatusParams{
+		ID: run.ID, ExpectedStatus: run.Status, NextStatus: cronstore.StatusFinished, UpdatedAt: now,
+	}); err != nil {
+		return err
+	}
+	s.publishRunState(job.ID, run.ID, cronstore.StatusFinished, turnID, "", scheduledAt)
 	return s.store.MarkFinished(ctx, cronstore.MarkFinishedParams{
 		ID:         job.ID,
 		ClaimToken: job.ClaimToken,

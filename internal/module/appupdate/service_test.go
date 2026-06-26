@@ -213,6 +213,41 @@ func TestDownloadRejectsArtifactSHA256Mismatch(t *testing.T) {
 	}
 }
 
+func TestAppUpdateDownloadRejectsBodyLargerThanManifestSize(t *testing.T) {
+	publicKey, privateKey := testManifestKeypair(t)
+	artifactBody := []byte("oversized artifact body")
+	payload := testManifestPayload()
+	payload.Artifacts[0].Size = 3
+	payload.Artifacts[0].SHA256 = sha256Hex(artifactBody[:3])
+	rawManifest := signTestManifest(t, privateKey, payload)
+	stageDir := t.TempDir()
+	body := &trackedReadCloser{data: artifactBody, maxChunk: 1}
+	svc := newService(testServiceConfig(publicKey, stageDir, "1.2.2"), &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		switch req.URL.String() {
+		case "https://updates.example.test/manifest.json":
+			return okResponse(req, bytes.NewReader(rawManifest)), nil
+		case "https://updates.example.com/Super-Dolphin-1.2.3-arm64.dmg":
+			return okResponse(req, body), nil
+		default:
+			return notFoundResponse(req), nil
+		}
+	})}, nil)
+
+	_, err := svc.Download(context.Background())
+	if err == nil || !strings.Contains(err.Error(), "size") {
+		t.Fatalf("Download() error = %v, want manifest size rejection", err)
+	}
+	if body.bytesRead() > int(payload.Artifacts[0].Size)+1 {
+		t.Fatalf("download read %d bytes, want at most manifest size plus sentinel byte", body.bytesRead())
+	}
+	artifactPath := filepath.Join(stageDir, dmgFilename)
+	for _, path := range []string{artifactPath, artifactPath + ".tmp"} {
+		if _, statErr := os.Stat(path); !errors.Is(statErr, os.ErrNotExist) {
+			t.Fatalf("Stat(%q) error = %v, want file removed", path, statErr)
+		}
+	}
+}
+
 func TestInstallRequiresRequestQuitBeforeStartingHelper(t *testing.T) {
 	stageDir := t.TempDir()
 	marker := filepath.Join(stageDir, "helper.started")
@@ -391,23 +426,45 @@ func httpClientFor(responses map[string][]byte) *http.Client {
 	return &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
 		body, ok := responses[req.URL.String()]
 		if !ok {
-			return &http.Response{
-				StatusCode: http.StatusNotFound,
-				Status:     "404 Not Found",
-				Body:       io.NopCloser(strings.NewReader("not found")),
-				Header:     make(http.Header),
-				Request:    req,
-			}, nil
+			return notFoundResponse(req), nil
 		}
-		return &http.Response{
-			StatusCode: http.StatusOK,
-			Status:     "200 OK",
-			Body:       io.NopCloser(bytes.NewReader(body)),
-			Header:     make(http.Header),
-			Request:    req,
-		}, nil
+		return okResponse(req, bytes.NewReader(body)), nil
 	})}
 }
+
+func okResponse(req *http.Request, body io.Reader) *http.Response {
+	return &http.Response{StatusCode: http.StatusOK, Status: "200 OK", Body: io.NopCloser(body), Header: make(http.Header), Request: req}
+}
+
+func notFoundResponse(req *http.Request) *http.Response {
+	return &http.Response{StatusCode: http.StatusNotFound, Status: "404 Not Found", Body: io.NopCloser(strings.NewReader("not found")), Header: make(http.Header), Request: req}
+}
+
+type trackedReadCloser struct {
+	data     []byte
+	maxChunk int
+	read     int
+}
+
+func (r *trackedReadCloser) Read(p []byte) (int, error) {
+	if r.read >= len(r.data) {
+		return 0, io.EOF
+	}
+	n := len(r.data) - r.read
+	if r.maxChunk > 0 && n > r.maxChunk {
+		n = r.maxChunk
+	}
+	if n > len(p) {
+		n = len(p)
+	}
+	copy(p, r.data[r.read:r.read+n])
+	r.read += n
+	return n, nil
+}
+
+func (r *trackedReadCloser) Close() error { return nil }
+
+func (r *trackedReadCloser) bytesRead() int { return r.read }
 
 func sha256Hex(body []byte) string {
 	sum := sha256.Sum256(body)

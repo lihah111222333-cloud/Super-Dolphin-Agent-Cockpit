@@ -44,12 +44,13 @@ const (
 	envSuperDolphinHome    = "SUPER_DOLPHIN_HOME"
 	envVersion             = "VERSION"
 
-	selectedUpdateFilename = "selected-update.json"
-	dmgFilename            = "Super-Dolphin-update.dmg"
-	exeFilename            = "Super-Dolphin-update.exe"
-	helperLogFilename      = "super-dolphin-updater.log"
-	updaterHelperName      = "super-dolphin-updater"
-	installQuitDelay       = 250 * time.Millisecond
+	selectedUpdateFilename  = "selected-update.json"
+	dmgFilename             = "Super-Dolphin-update.dmg"
+	exeFilename             = "Super-Dolphin-update.exe"
+	helperLogFilename       = "super-dolphin-updater.log"
+	updaterHelperName       = "super-dolphin-updater"
+	installQuitDelay        = 250 * time.Millisecond
+	artifactDownloadTimeout = 10 * time.Minute
 )
 
 // Config 是 appupdate 模块运行所需的更新源、签名、公钥和本地路径配置。
@@ -358,7 +359,9 @@ func (s *service) fetchManifest(ctx context.Context) (ManifestPayload, UpdateArt
 
 // downloadArtifact 下载 artifact 到临时文件，hash/size 校验通过后再原子 rename 到目标路径。
 func (s *service) downloadArtifact(ctx context.Context, artifact UpdateArtifact, targetPath string) error {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, artifact.URL, nil)
+	downloadCtx, cancel := context.WithTimeout(ctx, artifactDownloadTimeout)
+	defer cancel()
+	req, err := http.NewRequestWithContext(downloadCtx, http.MethodGet, artifact.URL, nil)
 	if err != nil {
 		return fmt.Errorf("create app update artifact request: %w", err)
 	}
@@ -397,22 +400,52 @@ func writeVerifiedArtifact(tmpPath string, body io.Reader, artifact UpdateArtifa
 		return fmt.Errorf("create app update artifact file: %w", err)
 	}
 	hash := sha256.New()
-	written, copyErr := io.Copy(io.MultiWriter(out, hash), body)
+	writer := &artifactSizeLimitWriter{dst: io.MultiWriter(out, hash), max: artifact.Size}
+	writtenBody := &io.LimitedReader{R: body, N: artifact.Size + 1}
+	_, copyErr := io.Copy(writer, writtenBody)
 	closeErr := out.Close()
 	if copyErr != nil {
-		return fmt.Errorf("write app update artifact: %w", copyErr)
+		return fmt.Errorf("write app update artifact: %w", errors.Join(copyErr, closeErr))
 	}
 	if closeErr != nil {
 		return fmt.Errorf("close app update artifact: %w", closeErr)
 	}
-	if written != artifact.Size {
-		return fmt.Errorf("app update artifact size = %d, want %d", written, artifact.Size)
+	if writer.written != artifact.Size {
+		return fmt.Errorf("app update artifact size = %d, want %d", writer.written, artifact.Size)
 	}
 	actualSHA := hex.EncodeToString(hash.Sum(nil))
 	if !strings.EqualFold(actualSHA, artifact.SHA256) {
 		return fmt.Errorf("app update artifact sha256 = %s, want %s", actualSHA, artifact.SHA256)
 	}
 	return nil
+}
+
+type artifactSizeLimitWriter struct {
+	dst          io.Writer
+	max, written int64
+}
+
+// Write 写入 manifest 允许的字节数，遇到第一个超界字节立即返回错误。
+func (w *artifactSizeLimitWriter) Write(p []byte) (int, error) {
+	remaining := w.max - w.written
+	if remaining <= 0 {
+		return 0, fmt.Errorf("app update artifact body larger than manifest size %d", w.max)
+	}
+	if int64(len(p)) > remaining {
+		allowed := int(remaining)
+		n, err := w.dst.Write(p[:allowed])
+		w.written += int64(n)
+		if err != nil {
+			return n, err
+		}
+		if n != allowed {
+			return n, io.ErrShortWrite
+		}
+		return n, fmt.Errorf("app update artifact body larger than manifest size %d", w.max)
+	}
+	n, err := w.dst.Write(p)
+	w.written += int64(n)
+	return n, err
 }
 
 // stagedManifestPath 返回 staged manifest JSON 的完整路径。
