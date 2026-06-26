@@ -375,6 +375,37 @@ func TestNew_AllowsEnablingPersistentSubagentDefault(t *testing.T) {
 	}
 }
 
+func TestNew_RejectsInvalidPresentEnvValues(t *testing.T) {
+	tests := []struct {
+		name  string
+		key   string
+		value string
+	}{
+		{name: "skill bool", key: "SKILL_PROGRESSIVE_DISCLOSURE", value: "sometimes"},
+		{name: "skill token budget", key: "SKILL_TOKEN_BUDGET", value: "0"},
+		{name: "agent bool", key: "PERSISTENT_SUBAGENT_DEFAULT", value: "enabled"},
+		{name: "notify bool", key: "NOTIFY_ALLOW_PRIVATE_CIDR", value: "not-bool"},
+		{name: "notify timeout", key: "NOTIFY_TIMEOUT_SECONDS", value: "-1"},
+		{name: "notify queue", key: "NOTIFY_QUEUE_CAPACITY", value: "nope"},
+		{name: "notify drain", key: "NOTIFY_DRAIN_SECONDS", value: "0"},
+		{name: "lsp bool", key: "LSP_DISABLE_INITIAL_WORKSPACE_BOOTSTRAP", value: "maybe"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			isolateConfigTestEnv(t)
+			t.Setenv(tt.key, tt.value)
+
+			_, err := New()
+			if err == nil {
+				t.Fatalf("New() error = nil, want invalid %s to fail fast", tt.key)
+			}
+			if !strings.Contains(err.Error(), tt.key) {
+				t.Fatalf("New() error = %v, want env key %s", err, tt.key)
+			}
+		})
+	}
+}
+
 func TestNew_DefaultsLSPConfig(t *testing.T) {
 	isolateConfigTestEnv(t)
 	cfg := mustNewConfig(t)

@@ -8,6 +8,7 @@ import (
 	"net"
 	"os"
 	"os/exec"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -36,7 +37,7 @@ type peerLauncher interface {
 // peerPIDTracker 是 PeerSupervisor 需要的 PID registry 最小接口。
 // 注册和注销由 supervisor 统一负责，测试可替换为 fake，避免依赖真实 /tmp registry 文件。
 type peerPIDTracker interface {
-	Register(pid int, kind string, meta map[string]string)
+	RegisterChecked(pid int, kind string, meta map[string]string) error
 	Unregister(pid int)
 }
 
@@ -124,8 +125,7 @@ func WithPeerRestartBackoff(d time.Duration) PeerSupervisorOption {
 // WithPeerStopGrace 设置 peer 优雅停止与强杀之间的两个宽限期。
 func WithPeerStopGrace(stop, kill time.Duration) PeerSupervisorOption {
 	return func(s *PeerSupervisor) {
-		s.stopGrace = stop
-		s.killGrace = kill
+		s.stopGrace, s.killGrace = stop, kill
 	}
 }
 
@@ -175,18 +175,7 @@ func NewPeerSupervisorWithOptions(mgr *ServerManager, logger *slog.Logger, opts 
 	if mgr != nil && mgr.pidRegistry != nil {
 		reg = mgr.pidRegistry
 	}
-	s := &PeerSupervisor{
-		pidRegistry:          reg,
-		logger:               logger,
-		peerNames:            defaultPeerNames(),
-		controlAddr:          peerControlAddrDefault,
-		controlProbeEvery:    peerControlProbeInterval,
-		controlProbeAttempts: peerControlProbeAttempts,
-		restartBackoff:       peerRestartBackoffDefault,
-		stopGrace:            peerStopGracePeriodDefault,
-		killGrace:            peerKillGracePeriodDefault,
-		cleanupHook:          cleanPeerDiscoveryFiles,
-	}
+	s := &PeerSupervisor{pidRegistry: reg, logger: logger, peerNames: defaultPeerNames(), controlAddr: peerControlAddrDefault, controlProbeEvery: peerControlProbeInterval, controlProbeAttempts: peerControlProbeAttempts, restartBackoff: peerRestartBackoffDefault, stopGrace: peerStopGracePeriodDefault, killGrace: peerKillGracePeriodDefault, cleanupHook: cleanPeerDiscoveryFiles}
 	if env := strings.TrimSpace(os.Getenv(peerControlAddrEnv)); env != "" {
 		s.controlAddr = env
 	}
@@ -212,45 +201,57 @@ var _ platformrunner.Runner = (*PeerSupervisor)(nil)
 func (s *PeerSupervisor) Run(ctx context.Context) error {
 	s.probeControlPlane(ctx)
 
-	superviseCtx, cancelSupervise := context.WithCancel(ctx)
-	defer cancelSupervise()
+	superviseCtx, cancelSupervise := context.WithCancelCause(ctx)
+	defer cancelSupervise(nil)
 	var wg sync.WaitGroup
 	for _, name := range s.peerNames {
 		s.clearPeerDiscovery(name)
 		h, err := s.launcher.Launch(superviseCtx, name)
 		if err != nil {
 			if strings.TrimSpace(os.Getenv(sidecarRuntimeModeEnv)) == "packaged" {
-				cancelSupervise()
 				launchErr := fmt.Errorf("packaged peer launch failed: %s: %w", name, err)
-				if sdErr := s.shutdown(&wg); sdErr != nil {
-					return errors.Join(launchErr, sdErr)
-				}
-				return launchErr
+				return s.stopAfterPeerError(launchErr, cancelSupervise, &wg)
 			}
-			s.logger.Warn("peer_supervisor: initial launch failed, peer skipped",
-				"peer", name, "error", err)
+			s.logger.Warn("peer_supervisor: initial launch failed, peer skipped", "peer", name, "error", err)
 			continue
 		}
-		s.trackPeer(h)
+		if err := s.trackPeer(h); err != nil {
+			s.abortUnregisteredPeer(h)
+			return s.stopAfterPeerError(err, cancelSupervise, &wg)
+		}
 		wg.Add(1)
 		go func() {
 			defer func() {
 				if rec := recover(); rec != nil {
-					s.logger.Error("peer_supervisor: recovered superviseOne panic",
-						"peer", name, "panic", rec)
+					s.logger.Error("peer_supervisor: recovered superviseOne panic", "peer", name, "panic", rec)
 					wg.Done()
 				}
 			}()
-			s.superviseOne(superviseCtx, name, h, &wg)
+			s.superviseOneWithCancel(superviseCtx, name, h, &wg, cancelSupervise)
 		}()
 	}
 
-	<-ctx.Done()
-	cancelSupervise()
+	<-superviseCtx.Done()
+	if ctx.Err() == nil {
+		cause := context.Cause(superviseCtx)
+		if sdErr := s.shutdown(&wg); sdErr != nil {
+			return errors.Join(cause, sdErr)
+		}
+		return cause
+	}
+	cancelSupervise(context.Canceled)
 	if err := s.shutdown(&wg); err != nil {
 		return err
 	}
 	return ctx.Err()
+}
+
+func (s *PeerSupervisor) stopAfterPeerError(err error, cancel context.CancelCauseFunc, wg *sync.WaitGroup) error {
+	cancel(err)
+	if sdErr := s.shutdown(wg); sdErr != nil {
+		return errors.Join(err, sdErr)
+	}
+	return err
 }
 
 // probeControlPlane 按配置探测宿主控制面是否已可连接。
@@ -291,6 +292,11 @@ func (s *PeerSupervisor) currentControlAddr() string {
 // superviseOne 监管单个 peer 的退出和重启。
 // ctx 结束时只走关闭路径；运行中异常退出会清 discovery 文件并按退避重启一次。
 func (s *PeerSupervisor) superviseOne(ctx context.Context, name string, initial peerHandle, wg *sync.WaitGroup) {
+	s.superviseOneWithCancel(ctx, name, initial, wg, func(error) {})
+}
+
+// superviseOneWithCancel 在重启注册失败时取消 supervisor，让 Run 统一关闭已托管 peer 并返回错误。
+func (s *PeerSupervisor) superviseOneWithCancel(ctx context.Context, name string, initial peerHandle, wg *sync.WaitGroup, cancel context.CancelCauseFunc) {
 	defer wg.Done()
 	current := initial
 	for {
@@ -306,8 +312,7 @@ func (s *PeerSupervisor) superviseOne(ctx context.Context, name string, initial 
 			s.waitForPeerAfterCancel(name, current, waitCh)
 			return
 		case waitErr := <-waitCh:
-			s.logger.Warn("peer_supervisor: peer exited, scheduling restart",
-				"peer", name, "pid", current.PID(), "error", waitErr)
+			s.logger.Warn("peer_supervisor: peer exited, scheduling restart", "peer", name, "pid", current.PID(), "error", waitErr)
 			s.clearPeerDiscovery(name)
 		}
 
@@ -327,37 +332,45 @@ func (s *PeerSupervisor) superviseOne(ctx context.Context, name string, initial 
 		s.clearPeerDiscovery(name)
 		next, err := s.launcher.Launch(ctx, name)
 		if err != nil {
-			s.logger.Warn("peer_supervisor: restart failed, peer degraded until shutdown",
-				"peer", name, "error", err)
+			s.logger.Warn("peer_supervisor: restart failed, peer degraded until shutdown", "peer", name, "error", err)
 			<-ctx.Done()
 			return
 		}
-		s.replacePeer(current, next)
+		if err := s.replacePeer(current, next); err != nil {
+			s.abortUnregisteredPeer(next)
+			cancel(err)
+			return
+		}
 		current = next
 	}
 }
 
 func (s *PeerSupervisor) clearPeerDiscovery(name string) {
 	if err := discovery.CleanupDiscoveryFile(name, os.Getpid()); err != nil && !os.IsNotExist(err) {
-		s.logger.Debug("peer_supervisor: discovery cleanup failed",
-			"peer", name, "error", err)
+		s.logger.Debug("peer_supervisor: discovery cleanup failed", "peer", name, "error", err)
 	}
 }
 
 // trackPeer 记录新启动的 peer 并登记 PID。
 // PID registry 是崩溃后孤儿清理依据，因此只在 handle 有有效 PID 时写入。
-func (s *PeerSupervisor) trackPeer(h peerHandle) {
+func (s *PeerSupervisor) trackPeer(h peerHandle) error {
+	if err := s.registerPeerPID(h); err != nil {
+		return err
+	}
 	s.mu.Lock()
 	s.peers = append(s.peers, h)
 	s.mu.Unlock()
-	if s.pidRegistry != nil && h.PID() > 0 {
-		s.pidRegistry.Register(h.PID(), h.Name(), nil)
-	}
+	return nil
 }
 
 // replacePeer 用重启后的 handle 替换旧 peer。
 // 替换同时维护 PID registry，避免旧 PID 残留导致后续清理误判。
-func (s *PeerSupervisor) replacePeer(old, next peerHandle) {
+func (s *PeerSupervisor) replacePeer(old, next peerHandle) error {
+	if err := s.registerPeerPID(next); err != nil {
+		s.removePeer(old)
+		s.unregisterPeerPIDs([]peerHandle{old})
+		return err
+	}
 	s.mu.Lock()
 	for i, h := range s.peers {
 		if h == old {
@@ -366,14 +379,32 @@ func (s *PeerSupervisor) replacePeer(old, next peerHandle) {
 		}
 	}
 	s.mu.Unlock()
-	if s.pidRegistry != nil {
-		if old != nil && old.PID() > 0 {
-			s.pidRegistry.Unregister(old.PID())
-		}
-		if next != nil && next.PID() > 0 {
-			s.pidRegistry.Register(next.PID(), next.Name(), nil)
-		}
+	s.unregisterPeerPIDs([]peerHandle{old})
+	return nil
+}
+
+func (s *PeerSupervisor) registerPeerPID(h peerHandle) error {
+	if s.pidRegistry != nil && h != nil && h.PID() > 0 {
+		return s.pidRegistry.RegisterChecked(h.PID(), h.Name(), nil)
 	}
+	return nil
+}
+
+func (s *PeerSupervisor) removePeer(target peerHandle) {
+	s.mu.Lock()
+	if i := slices.Index(s.peers, target); i >= 0 {
+		s.peers = slices.Delete(s.peers, i, i+1)
+	}
+	s.mu.Unlock()
+}
+
+func (s *PeerSupervisor) abortUnregisteredPeer(h peerHandle) {
+	if h == nil {
+		return
+	}
+	_ = h.ClosePipe()
+	_ = h.Signal(sigForceKill)
+	go func() { _ = h.Wait() }()
 }
 
 // shutdown 执行 EOF、SIGTERM、SIGKILL 的 peer 关闭升级流程。
@@ -404,8 +435,7 @@ func (s *PeerSupervisor) closePeerPipe(h peerHandle) {
 		return
 	}
 	if err := h.ClosePipe(); err != nil && !errors.Is(err, os.ErrClosed) {
-		s.logger.Debug("peer_supervisor: close stdin pipe",
-			"peer", h.Name(), "error", err)
+		s.logger.Debug("peer_supervisor: close stdin pipe", "peer", h.Name(), "error", err)
 	}
 }
 
@@ -441,8 +471,7 @@ func (s *PeerSupervisor) drainOrEscalate(peers []peerHandle, wg *sync.WaitGroup)
 func (s *PeerSupervisor) signalAllPeers(peers []peerHandle, sig processSig) {
 	for _, h := range peers {
 		if err := h.Signal(sig); err != nil {
-			s.logger.Debug("peer_supervisor: signal failed",
-				"peer", h.Name(), "signal", sig, "error", err)
+			s.logger.Debug("peer_supervisor: signal failed", "peer", h.Name(), "signal", sig, "error", err)
 		}
 	}
 }
@@ -452,6 +481,9 @@ func (s *PeerSupervisor) unregisterPeerPIDs(peers []peerHandle) {
 		return
 	}
 	for _, h := range peers {
+		if h == nil {
+			continue
+		}
 		if pid := h.PID(); pid > 0 {
 			s.pidRegistry.Unregister(pid)
 		}
@@ -460,10 +492,8 @@ func (s *PeerSupervisor) unregisterPeerPIDs(peers []peerHandle) {
 
 func (s *PeerSupervisor) snapshotPeers() []peerHandle {
 	s.mu.Lock()
-	out := make([]peerHandle, len(s.peers))
-	copy(out, s.peers)
-	s.mu.Unlock()
-	return out
+	defer s.mu.Unlock()
+	return slices.Clone(s.peers)
 }
 
 // execPeerLauncher 是生产 peerLauncher。
@@ -474,10 +504,7 @@ type execPeerLauncher struct {
 }
 
 func newExecPeerLauncher(logger *slog.Logger) *execPeerLauncher {
-	if logger == nil {
-		logger = pkglogger.Get()
-	}
-	return &execPeerLauncher{logger: logger}
+	return &execPeerLauncher{logger: defaultCodexAppLogger(logger)}
 }
 
 // Launch 启动指定 peer 二进制并返回可监管 handle。
@@ -514,8 +541,7 @@ func (l *execPeerLauncher) Launch(_ context.Context, name string) (peerHandle, e
 	}
 	_ = stdinR.Close()
 	guard := attachProcessGuard(cmd)
-	l.logger.Info("peer_supervisor: started",
-		"peer", name, "pid", cmd.Process.Pid, "mode", "peer")
+	l.logger.Info("peer_supervisor: started", "peer", name, "pid", cmd.Process.Pid, "mode", "peer")
 	return &execPeerHandle{name: name, cmd: cmd, guard: guard, stdin: stdinW}, nil
 }
 

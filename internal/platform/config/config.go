@@ -22,6 +22,17 @@ type (
 	LSPConfig    = contract.LSPConfig
 )
 
+type parsedEnvConfig struct {
+	skillProgressiveDisclosure bool
+	skillTokenBudget           int
+	persistentSubagentDefault  bool
+	notifyAllowPrivateCIDR     bool
+	notifyTimeoutSeconds       int
+	notifyQueueCapacity        int
+	notifyDrainSeconds         int
+	lsp                        contract.LSPConfig
+}
+
 // New 创建平台配置并解析 SQLite 运行时路径。
 func New() (*Config, error) {
 	projectRoot, err := PrimeProcessEnvironment()
@@ -32,6 +43,10 @@ func New() (*Config, error) {
 	if err != nil {
 		return nil, err
 	}
+	envCfg, err := parseConfigEnv()
+	if err != nil {
+		return nil, err
+	}
 
 	cfg := &Config{
 		SQLitePath:  sqlitePath,
@@ -39,25 +54,55 @@ func New() (*Config, error) {
 		LogLevel:    envOr("LOG_LEVEL", "info"),
 		ProjectRoot: projectRoot,
 		Skill: SkillConfig{
-			ProgressiveDisclosure: envBoolOr("SKILL_PROGRESSIVE_DISCLOSURE", false),
-			TokenBudget:           envPositiveIntOr("SKILL_TOKEN_BUDGET", 3000),
+			ProgressiveDisclosure: envCfg.skillProgressiveDisclosure,
+			TokenBudget:           envCfg.skillTokenBudget,
 		},
 		Agent: AgentConfig{
-			PersistentSubagentDefault: envBoolOr("PERSISTENT_SUBAGENT_DEFAULT", false),
+			PersistentSubagentDefault: envCfg.persistentSubagentDefault,
 		},
 		Notify: NotifyConfig{
 			ChannelsJSON:     os.Getenv("NOTIFY_CHANNELS_JSON"),
-			AllowPrivateCIDR: envBoolOr("NOTIFY_ALLOW_PRIVATE_CIDR", false),
-			TimeoutSeconds:   envPositiveIntOr("NOTIFY_TIMEOUT_SECONDS", 10),
-			QueueCapacity:    envPositiveIntOr("NOTIFY_QUEUE_CAPACITY", 512),
-			DrainSeconds:     envPositiveIntOr("NOTIFY_DRAIN_SECONDS", 5),
+			AllowPrivateCIDR: envCfg.notifyAllowPrivateCIDR,
+			TimeoutSeconds:   envCfg.notifyTimeoutSeconds,
+			QueueCapacity:    envCfg.notifyQueueCapacity,
+			DrainSeconds:     envCfg.notifyDrainSeconds,
 		},
-		LSP: lspConfigFromEnv(),
+		LSP: envCfg.lsp,
 	}
 	if err := exportRPCAddrIfMissing(os.Setenv, cfg.RPCAddr); err != nil {
 		return nil, err
 	}
 	return cfg, nil
+}
+
+// parseConfigEnv 解析会影响运行行为的环境变量。
+// 缺失或空白值使用默认值；显式非法值直接返回错误，防止启动时静默降级。
+func parseConfigEnv() (parsedEnvConfig, error) {
+	var cfg parsedEnvConfig
+	var err error
+	if cfg.skillProgressiveDisclosure, err = envBoolOr("SKILL_PROGRESSIVE_DISCLOSURE", false); err != nil {
+		return cfg, err
+	}
+	if cfg.skillTokenBudget, err = envPositiveIntOr("SKILL_TOKEN_BUDGET", 3000); err != nil {
+		return cfg, err
+	}
+	if cfg.persistentSubagentDefault, err = envBoolOr("PERSISTENT_SUBAGENT_DEFAULT", false); err != nil {
+		return cfg, err
+	}
+	if cfg.notifyAllowPrivateCIDR, err = envBoolOr("NOTIFY_ALLOW_PRIVATE_CIDR", false); err != nil {
+		return cfg, err
+	}
+	if cfg.notifyTimeoutSeconds, err = envPositiveIntOr("NOTIFY_TIMEOUT_SECONDS", 10); err != nil {
+		return cfg, err
+	}
+	if cfg.notifyQueueCapacity, err = envPositiveIntOr("NOTIFY_QUEUE_CAPACITY", 512); err != nil {
+		return cfg, err
+	}
+	if cfg.notifyDrainSeconds, err = envPositiveIntOr("NOTIFY_DRAIN_SECONDS", 5); err != nil {
+		return cfg, err
+	}
+	cfg.lsp, err = lspConfigFromEnv()
+	return cfg, err
 }
 
 // PrimeProcessEnvironment 加载进程环境并返回项目根目录。
@@ -411,26 +456,34 @@ func envOrCompat(canonical, legacy, fallback string) string {
 	return fallback
 }
 
-func envBoolOr(key string, fallback bool) bool {
-	value := strings.TrimSpace(os.Getenv(key))
-	if value == "" {
-		return fallback
+// envBoolOr 区分未配置和非法配置；只有缺失或空白时才使用默认值。
+// 已显式设置的坏值会阻断启动，避免生产配置悄悄退回默认行为。
+func envBoolOr(key string, fallback bool) (bool, error) {
+	raw, ok := os.LookupEnv(key)
+	value := strings.TrimSpace(raw)
+	if !ok || value == "" {
+		return fallback, nil
 	}
 	parsed, err := strconv.ParseBool(value)
 	if err != nil {
-		return fallback
+		return false, fmt.Errorf("%s must be a boolean: %w", key, err)
 	}
-	return parsed
+	return parsed, nil
 }
 
-func envPositiveIntOr(key string, fallback int) int {
-	value := strings.TrimSpace(os.Getenv(key))
-	if value == "" {
-		return fallback
+// envPositiveIntOr 解析正整数环境变量，非法或非正显式值必须 fail-fast。
+func envPositiveIntOr(key string, fallback int) (int, error) {
+	raw, ok := os.LookupEnv(key)
+	value := strings.TrimSpace(raw)
+	if !ok || value == "" {
+		return fallback, nil
 	}
 	parsed, err := strconv.Atoi(value)
-	if err != nil || parsed <= 0 {
-		return fallback
+	if err != nil {
+		return 0, fmt.Errorf("%s must be a positive integer: %w", key, err)
 	}
-	return parsed
+	if parsed <= 0 {
+		return 0, fmt.Errorf("%s must be a positive integer: got %d", key, parsed)
+	}
+	return parsed, nil
 }

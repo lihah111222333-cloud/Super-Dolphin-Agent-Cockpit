@@ -239,7 +239,11 @@ func (m *ServerManager) startLocked(ctx context.Context) error {
 	}
 	// 注册 app-server PID，宿主崩溃后的下一次启动可精确回收。
 	if pid := t.localPID(); pid > 0 {
-		m.pidRegistry.Register(pid, "codex-app-server", nil)
+		if err := m.pidRegistry.RegisterChecked(pid, "codex-app-server", nil); err != nil {
+			_ = t.Kill()
+			m.err = err
+			return err
+		}
 	}
 	// 先做一次健康连接和 initialize，后续 session 会各自建立独立 WebSocket。
 	if err := t.establish(startupCtx); err != nil {

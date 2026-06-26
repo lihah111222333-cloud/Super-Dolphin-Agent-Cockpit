@@ -137,16 +137,27 @@ func (h *fakePeerHandle) Signal(sig processSig) error {
 func (h *fakePeerHandle) isClosed() bool { h.mu.Lock(); defer h.mu.Unlock(); return h.closed }
 
 type fakePIDTracker struct {
-	mu   sync.Mutex
-	live map[int]bool
+	mu                                sync.Mutex
+	live                              map[int]bool
+	registerCalls, failOnRegisterCall int
+	registerErr                       error
 }
 
 func newFakePIDTracker() *fakePIDTracker { return &fakePIDTracker{live: map[int]bool{}} }
 
 func (f *fakePIDTracker) Register(pid int, _ string, _ map[string]string) {
+	_ = f.RegisterChecked(pid, "", nil)
+}
+
+func (f *fakePIDTracker) RegisterChecked(pid int, _ string, _ map[string]string) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	f.registerCalls++
+	if f.registerErr != nil && f.registerCalls == f.failOnRegisterCall {
+		return f.registerErr
+	}
 	f.live[pid] = true
+	return nil
 }
 
 func (f *fakePIDTracker) Unregister(pid int) {
