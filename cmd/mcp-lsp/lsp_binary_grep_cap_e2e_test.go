@@ -8,7 +8,7 @@ import (
 	"testing"
 )
 
-func TestLSPBinaryGrepCapsEachFileWithoutDroppingOtherFiles(t *testing.T) {
+func TestLSPBinaryGrepStopsAtDefaultMaxResultsWithHint(t *testing.T) {
 	skipLSPBinaryResidualE2EInShortMode(t)
 	root := canonicalToolTestRoot(t, t.TempDir())
 	writeLSPBinaryFixture(t, filepath.Join(root, "00-large.txt"), lspBinaryGrepNeedleLines(60))
@@ -26,21 +26,18 @@ func TestLSPBinaryGrepCapsEachFileWithoutDroppingOtherFiles(t *testing.T) {
 	}
 	var payload lspBinaryGrepResponse
 	decodeLSPBinaryStructuredContent(t, result, &payload)
-	if payload.Total != 61 || payload.Showing != 51 || !payload.Truncated {
-		t.Fatalf("grep payload = total:%d showing:%d truncated:%t, want 61/51/true; content=%s",
+	if payload.Total != 50 || payload.Showing != 50 || !payload.Truncated {
+		t.Fatalf("grep payload = total:%d showing:%d truncated:%t, want 50/50/true; content=%s",
 			payload.Total, payload.Showing, payload.Truncated, result.ContentText())
+	}
+	lowerHint := strings.ToLower(payload.Hint)
+	if !strings.Contains(lowerHint, "max_results") || (!strings.Contains(lowerHint, "path") && !strings.Contains(lowerHint, "glob")) {
+		t.Fatalf("grep truncation hint = %q, want guidance to raise max_results or narrow path/glob", payload.Hint)
 	}
 
 	largeRows := lspBinaryGrepRowsForFile(t, root, payload, "00-large.txt")
-	smallRows := lspBinaryGrepRowsForFile(t, root, payload, "zz-small.txt")
 	if len(largeRows.Rows) != 50 {
 		t.Fatalf("large file rows = %d, want 50", len(largeRows.Rows))
-	}
-	if len(smallRows.Rows) != 1 {
-		t.Fatalf("small file rows = %d, want 1", len(smallRows.Rows))
-	}
-	if got := lspBinaryGrepRowText(t, smallRows.Rows[0]); got != "needle small" {
-		t.Fatalf("small file row text = %q, want needle small", got)
 	}
 }
 

@@ -40,6 +40,7 @@ type transportOptions struct {
 type transport struct {
 	cmd                 *exec.Cmd
 	stdin               io.WriteCloser
+	stdinMu             sync.Mutex
 	stdout              *bufio.Reader
 	stderr              *limitedBuffer
 	notificationHandler protocol.NotificationHandler
@@ -103,7 +104,7 @@ func (t *transport) request(ctx context.Context, method string, params any) (jso
 	if err := t.addPending(key, result); err != nil {
 		return nil, err
 	}
-	if err := t.writeMessage(request); err != nil {
+	if err := t.writeMessageContext(ctx, request); err != nil {
 		t.removePending(key)
 		return nil, err
 	}
@@ -126,7 +127,7 @@ func (t *transport) notify(ctx context.Context, method string, params any) error
 	if err != nil {
 		return err
 	}
-	return t.writeMessage(notification)
+	return t.writeMessageContext(ctx, notification)
 }
 
 // dispatchMessage 根据消息类型将其派发到对应处理器。

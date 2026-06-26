@@ -21,6 +21,7 @@ type InstallerConfig struct {
 	BinaryName       string
 	InstallCmd       string
 	InstallArgs      []string
+	InstallTimeout   time.Duration
 	Language         string
 	RequiredBinaries []RequiredBinary
 }
@@ -36,6 +37,7 @@ const (
 	InstallStatusPathFound         InstallStatus = "path_found"
 	InstallStatusInstalledPath     InstallStatus = "installed_path"
 	InstallStatusInstalledFallback InstallStatus = "installed_fallback"
+	defaultInstallTimeout                        = 10 * time.Minute
 )
 
 type InstallResult struct {
@@ -107,13 +109,33 @@ func (p *Provider) EnsureInstalledDetailed(ctx context.Context, lang string) (In
 		slog.String("cmd", cfg.InstallCmd),
 	)
 
-	// PATH 不可用时执行声明式安装命令，输出会在失败时带回调用方。
-	cmd := hiddenexec.CommandContext(ctx, cfg.InstallCmd, cfg.InstallArgs...)
+	installCtx, cancel, err := p.runInstallCommand(ctx, lang, cfg)
+	if err != nil {
+		return InstallResult{}, err
+	}
+	defer cancel()
+
+	return p.resolveInstalledBinary(ctx, installCtx, cfg, result)
+}
+
+// runInstallCommand 执行声明式安装命令，并为这一层强制设置 deadline。
+// 成功时返回仍可用于安装后探测的 installCtx，调用方负责 cancel。
+func (p *Provider) runInstallCommand(ctx context.Context, lang string, cfg InstallerConfig) (context.Context, context.CancelFunc, error) {
+	installCtx, cancel, err := installCommandContext(ctx, cfg)
+	if err != nil {
+		return nil, nil, err
+	}
+	cmd := hiddenexec.CommandContext(installCtx, cfg.InstallCmd, cfg.InstallArgs...)
 
 	start := time.Now()
 	out, err := cmd.CombinedOutput()
 	if err != nil {
-		return InstallResult{}, fmt.Errorf("failed to auto-install %s (%s %v): %w\nOutput: %s",
+		cancel()
+		if ctxErr := installCtx.Err(); ctxErr != nil {
+			return nil, nil, fmt.Errorf("auto-install %s exceeded timeout %s: %w\nOutput: %s",
+				cfg.BinaryName, installTimeout(cfg).String(), ctxErr, string(out))
+		}
+		return nil, nil, fmt.Errorf("failed to auto-install %s (%s %v): %w\nOutput: %s",
 			cfg.BinaryName, cfg.InstallCmd, cfg.InstallArgs, err, string(out))
 	}
 
@@ -121,7 +143,12 @@ func (p *Provider) EnsureInstalledDetailed(ctx context.Context, lang string) (In
 		slog.String("lang", lang),
 		slog.String("duration", time.Since(start).String()),
 	)
+	return installCtx, cancel, nil
+}
 
+// resolveInstalledBinary 复验安装结果并返回最终二进制路径。
+// 安装命令成功但 PATH 或 go install fallback 不可用时必须报错，不能伪装成功。
+func (p *Provider) resolveInstalledBinary(ctx, installCtx context.Context, cfg InstallerConfig, result InstallResult) (InstallResult, error) {
 	// 安装后重新解析路径并复验伴随工具，避免报告“已安装”但运行时仍不可用。
 	if path, err := exec.LookPath(cfg.BinaryName); err == nil {
 		if err := validateRequiredBinaries(ctx, cfg); err != nil {
@@ -132,7 +159,7 @@ func (p *Provider) EnsureInstalledDetailed(ctx context.Context, lang string) (In
 		p.logResolvedBinary(result)
 		return result, nil
 	}
-	if path, ok := postInstallBinaryPath(ctx, cfg); ok {
+	if path, ok := postInstallBinaryPath(installCtx, cfg); ok {
 		if err := validateRequiredBinaries(ctx, cfg); err != nil {
 			return InstallResult{}, fmt.Errorf("auto-install succeeded but required LSP companion for %s is not usable: %w", cfg.BinaryName, err)
 		}
@@ -143,6 +170,27 @@ func (p *Provider) EnsureInstalledDetailed(ctx context.Context, lang string) (In
 	}
 
 	return InstallResult{}, fmt.Errorf("auto-install succeeded but binary %s is still not found in PATH", cfg.BinaryName)
+}
+
+// installCommandContext 为单次自动安装套上本层 deadline。
+// 调用方 ctx 没有超时时也必须有安装预算，避免外部包管理器卡住整条 LSP 请求链。
+func installCommandContext(ctx context.Context, cfg InstallerConfig) (context.Context, context.CancelFunc, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	timeout := installTimeout(cfg)
+	if timeout < 0 {
+		return nil, nil, fmt.Errorf("install timeout for %s cannot be negative", cfg.BinaryName)
+	}
+	installCtx, cancel := context.WithTimeout(ctx, timeout)
+	return installCtx, cancel, nil
+}
+
+func installTimeout(cfg InstallerConfig) time.Duration {
+	if cfg.InstallTimeout == 0 {
+		return defaultInstallTimeout
+	}
+	return cfg.InstallTimeout
 }
 
 // validateRequiredBinaries 确认语言服务依赖的伴随命令都可执行。

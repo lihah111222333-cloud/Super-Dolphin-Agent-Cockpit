@@ -1,6 +1,7 @@
 package search
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"io/fs"
@@ -118,7 +119,7 @@ func TestSearchTextCaseSensitiveOverride(t *testing.T) {
 
 func TestWalkSearchEntryPropagatesWalkErr(t *testing.T) {
 	var results []SearchMatch
-	err := walkSearchEntry(context.Background(), "/repo", "/repo/a.go", "/repo", "", 1024, literalMatcher(t, "x"), &results, nil, errors.New("walk boom"))
+	err := walkSearchEntry(context.Background(), "/repo", "/repo/a.go", "/repo", "", 1024, literalMatcher(t, "x"), 0, &results, nil, errors.New("walk boom"))
 	if err == nil || !strings.Contains(err.Error(), "walk boom") {
 		t.Fatalf("walkSearchEntry() error = %v, want walk boom", err)
 	}
@@ -333,15 +334,12 @@ func TestFilterAndCapSearchMatchesExcludesWorkspaceNoisePaths(t *testing.T) {
 	}
 }
 
-func TestDecodeSGMatchesRejectsInvalidJSON(t *testing.T) {
-	_, err := decodeSGMatches([]byte("{bad-json}\n"), "/repo")
+func TestDecodeSGRejectsInvalidJSON(t *testing.T) {
+	_, err := decodeSGMatchesReader(bytes.NewReader([]byte("{bad-json}\n")), "/repo", 0, func() {})
 	if err == nil || !strings.Contains(err.Error(), "sg json") {
 		t.Fatalf("decodeSGMatches() error = %v, want json failure", err)
 	}
-}
-
-func TestDecodeSGScanMatchesRejectsInvalidJSON(t *testing.T) {
-	_, err := decodeSGScanMatches([]byte("{bad-json}"), "/repo")
+	_, err = decodeSGScanMatchesReader(bytes.NewReader([]byte("{bad-json}")), "/repo", 0, func() {})
 	if err == nil || !strings.Contains(err.Error(), "sg scan json") {
 		t.Fatalf("decodeSGScanMatches() error = %v, want scan json failure", err)
 	}

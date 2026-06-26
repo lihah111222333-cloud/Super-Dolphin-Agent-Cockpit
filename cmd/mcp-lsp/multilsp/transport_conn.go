@@ -1,6 +1,7 @@
 package multilsp
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -139,16 +140,39 @@ func (t *transport) writeMessage(message any) error {
 	}
 	t.writeMu.Lock()
 	defer t.writeMu.Unlock()
-	if t.stdin == nil {
+	stdin := t.stdinForWrite()
+	if stdin == nil {
 		return ErrTransportClosed
 	}
-	if _, err := fmt.Fprintf(t.stdin, "Content-Length: %d\r\n\r\n", len(payload)); err != nil {
+	if _, err := fmt.Fprintf(stdin, "Content-Length: %d\r\n\r\n", len(payload)); err != nil {
 		return t.joinWaitError(err)
 	}
-	if _, err := t.stdin.Write(payload); err != nil {
+	if _, err := stdin.Write(payload); err != nil {
 		return t.joinWaitError(err)
 	}
 	return nil
+}
+
+// writeMessageContext 用调用方 ctx 监督底层 stdin 写入。
+// 写入被管道背压卡住时会关闭 stdin 并终止 LSP 进程，让 request deadline 能按时返回。
+func (t *transport) writeMessageContext(ctx context.Context, message any) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	done := make(chan error, 1)
+	go func() {
+		done <- t.writeMessage(message)
+	}()
+	select {
+	case err := <-done:
+		return err
+	case <-ctx.Done():
+		t.abortBlockedWrite(ctx.Err())
+		return ctx.Err()
+	}
 }
 
 func (t *transport) wait() {
@@ -193,12 +217,24 @@ func (t *transport) killProcess() error {
 }
 
 func (t *transport) closeInput() {
-	t.writeMu.Lock()
-	defer t.writeMu.Unlock()
-	if t.stdin != nil {
-		_ = t.stdin.Close()
-		t.stdin = nil
+	stdin := t.takeStdin()
+	if stdin != nil {
+		_ = stdin.Close()
 	}
+}
+
+func (t *transport) stdinForWrite() io.WriteCloser {
+	t.stdinMu.Lock()
+	defer t.stdinMu.Unlock()
+	return t.stdin
+}
+
+func (t *transport) takeStdin() io.WriteCloser {
+	t.stdinMu.Lock()
+	defer t.stdinMu.Unlock()
+	stdin := t.stdin
+	t.stdin = nil
+	return stdin
 }
 
 func (t *transport) readFailure(err error) error {
@@ -220,5 +256,14 @@ func (t *transport) stopWithError(err error) {
 	t.closeInput()
 	// 先排空服务端请求响应，再杀进程，避免 writeMessage 失败继续扩散成 goroutine 泄漏。
 	_ = t.drainResponders(defaultResponderDrainTimeout)
+	_ = t.killProcess()
+}
+
+// abortBlockedWrite 在 request ctx 到期时打断正在阻塞的 stdin 写入。
+// 这里不等待 responder 排空，避免取消路径再次被语言服务器背压拖住。
+func (t *transport) abortBlockedWrite(err error) {
+	t.closed.Store(true)
+	t.clearPending(err)
+	t.closeInput()
 	_ = t.killProcess()
 }
