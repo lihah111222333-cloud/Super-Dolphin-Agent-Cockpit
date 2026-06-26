@@ -115,6 +115,33 @@ func TestImportLocalDir_SingleStillWorks_BackwardCompat(t *testing.T) {
 	}
 }
 
+func TestImportLocalDirRejectsOversizedSupportFile(t *testing.T) {
+	t.Parallel()
+
+	svc, projectRoot := newImportDirTestService(t)
+	source := filepath.Join(t.TempDir(), "demo-skill")
+	mustMkdirAll(t, filepath.Join(source, "references"))
+	mustWriteFile(t, filepath.Join(source, skillMainFile), "# demo")
+	mustWriteBytes(t, filepath.Join(source, "references", "huge.bin"), make([]byte, maxSkillFileBytes+1))
+
+	out, err := svc.ImportLocalDir(skillTestContext(projectRoot), importSkillDirParams{Path: source})
+	if err != nil {
+		t.Fatalf("ImportLocalDir() error = %v", err)
+	}
+	result := mustImportDirResult(t, out)
+	if imported := importDirImported(result); len(imported) != 0 {
+		t.Fatalf("imported = %#v, want none for oversized support file", imported)
+	}
+	failures := importDirFailures(result)
+	if len(failures) != 1 {
+		t.Fatalf("failures = %#v, want one oversized-file failure", failures)
+	}
+	if got, _ := failures[0]["error"].(string); !strings.Contains(got, "too large") {
+		t.Fatalf("failure error = %q, want too large", got)
+	}
+	assertImportTargetMissing(t, projectRoot, "demo-skill")
+}
+
 func TestImportLocalDir_RewritesFrontmatterNameToImportedName(t *testing.T) {
 	svc, projectRoot := newImportDirTestService(t)
 	source := filepath.Join(t.TempDir(), "docs")
@@ -331,6 +358,16 @@ func mustMkdirAll(t *testing.T, dir string) {
 func mustWriteFile(t *testing.T, path, content string) {
 	t.Helper()
 	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatalf("WriteFile(%q) error = %v", path, err)
+	}
+}
+
+func mustWriteBytes(t *testing.T, path string, data []byte) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatalf("MkdirAll(%q) error = %v", filepath.Dir(path), err)
+	}
+	if err := os.WriteFile(path, data, 0o644); err != nil {
 		t.Fatalf("WriteFile(%q) error = %v", path, err)
 	}
 }

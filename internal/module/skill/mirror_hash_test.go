@@ -1,9 +1,11 @@
 package skill
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 )
 
@@ -95,6 +97,40 @@ func TestMirrorHashRejectsUnsafePaths(t *testing.T) {
 	}
 	if _, err := stableMirrorDirectoryHash(root); err == nil {
 		t.Fatalf("stableMirrorDirectoryHash error = nil, want unsafe path rejection")
+	}
+}
+
+func TestSkillDirContentHashRejectsOversizedSupportFile(t *testing.T) {
+	root := t.TempDir()
+	writeFileMode(t, root, skillMainFile, 0o644, []byte("# Build\n"))
+	writeFileMode(t, root, "references/huge.bin", 0o644, make([]byte, maxSkillFileBytes+1))
+
+	if _, err := skillDirContentHash(root); err == nil || !strings.Contains(err.Error(), "too large") {
+		t.Fatalf("skillDirContentHash oversized file error = %v, want too large", err)
+	}
+}
+
+func TestSkillDirContentHashRejectsTotalByteLimit(t *testing.T) {
+	root := t.TempDir()
+	writeFileMode(t, root, skillMainFile, 0o644, []byte("# Build\n"))
+	for i := 0; i < 33; i++ {
+		writeFileMode(t, root, fmt.Sprintf("references/part-%02d.bin", i), 0o644, make([]byte, maxSkillFileBytes))
+	}
+
+	if _, err := skillDirContentHash(root); err == nil || !strings.Contains(err.Error(), "total") {
+		t.Fatalf("skillDirContentHash total limit error = %v, want total limit", err)
+	}
+}
+
+func TestSkillDirContentHashRejectsFileCountLimit(t *testing.T) {
+	root := t.TempDir()
+	writeFileMode(t, root, skillMainFile, 0o644, []byte("# Build\n"))
+	for i := 0; i < 513; i++ {
+		writeFileMode(t, root, fmt.Sprintf("references/file-%03d.md", i), 0o644, []byte("x\n"))
+	}
+
+	if _, err := skillDirContentHash(root); err == nil || !strings.Contains(err.Error(), "too many files") {
+		t.Fatalf("skillDirContentHash file count error = %v, want too many files", err)
 	}
 }
 
