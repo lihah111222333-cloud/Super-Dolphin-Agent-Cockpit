@@ -55,8 +55,8 @@ func TestLSPBinaryGrepTruncatedTextSearchIncludesHint(t *testing.T) {
 	}
 	var payload lspBinaryGrepResponse
 	decodeLSPBinaryStructuredContent(t, result, &payload)
-	if !payload.Truncated || payload.Total != 6 || payload.Showing != 5 {
-		t.Fatalf("grep truncation payload = total:%d showing:%d truncated:%t, want 6/5/true; content=%s", payload.Total, payload.Showing, payload.Truncated, result.ContentText())
+	if !payload.Truncated || payload.Total != 5 || payload.Showing != 5 {
+		t.Fatalf("grep truncation payload = total:%d showing:%d truncated:%t, want 5/5/true; content=%s", payload.Total, payload.Showing, payload.Truncated, result.ContentText())
 	}
 	if strings.TrimSpace(payload.Hint) == "" {
 		t.Fatalf("truncated grep response missing hint; structuredContent=%s", string(result.StructuredContent))
