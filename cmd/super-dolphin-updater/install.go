@@ -38,20 +38,6 @@ type commandResult struct {
 	stderr string
 }
 
-// runCommand 执行系统命令，测试会替换它以避免真实改系统。
-var runCommand = func(name string, args ...string) (commandResult, error) {
-	cmd := exec.Command(name, args...)
-	var stdout bytes.Buffer
-	var stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-	err := cmd.Run()
-	return commandResult{
-		stdout: stdout.String(),
-		stderr: stderr.String(),
-	}, err
-}
-
 // runRestartCommand 调用 open 重启目标 app，并清理会污染桌面进程的开发环境变量。
 var runRestartCommand = func(args ...string) (commandResult, error) {
 	cmd := exec.Command("open", args...)
@@ -351,7 +337,7 @@ func mountDMG(dmgPath string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("create mount point: %w", err)
 	}
-	if _, err := runCommand("hdiutil", "attach", dmgPath, "-nobrowse", "-readonly", "-mountpoint", mountPoint); err != nil {
+	if _, err := runUpdaterCommand("hdiutil", "attach", dmgPath, "-nobrowse", "-readonly", "-mountpoint", mountPoint); err != nil {
 		removeErr := os.Remove(mountPoint)
 		return "", errors.Join(fmt.Errorf("mount dmg: %w", commandError(err)), removeErr)
 	}
@@ -360,10 +346,10 @@ func mountDMG(dmgPath string) (string, error) {
 
 // detachDMG 卸载 DMG，普通卸载失败后再尝试 force。
 func detachDMG(mountPoint string) error {
-	if _, err := runCommand("hdiutil", "detach", mountPoint); err == nil {
+	if _, err := runUpdaterCommand("hdiutil", "detach", mountPoint); err == nil {
 		return nil
 	}
-	if _, err := runCommand("hdiutil", "detach", "-force", mountPoint); err != nil {
+	if _, err := runUpdaterCommand("hdiutil", "detach", "-force", mountPoint); err != nil {
 		return fmt.Errorf("detach dmg with force: %w", commandError(err))
 	}
 	return nil
@@ -404,7 +390,7 @@ func expectedTeamID(targetApp string) (string, error) {
 // allowUnsigned 只允许灰度测试跳过 Team ID/Gatekeeper，codesign 仍必须通过。
 func verifyAppSignature(appPath string, expectedTeamID string, allowUnsigned bool) error {
 	if allowUnsigned {
-		if _, err := runCommand("codesign", "--verify", "--deep", "--strict", "--verbose=4", appPath); err != nil {
+		if _, err := runUpdaterCommand("codesign", "--verify", "--deep", "--strict", "--verbose=4", appPath); err != nil {
 			return fmt.Errorf("codesign verify failed: %w", commandError(err))
 		}
 		return nil
@@ -412,7 +398,7 @@ func verifyAppSignature(appPath string, expectedTeamID string, allowUnsigned boo
 	if expectedTeamID == "" {
 		return errors.New("expected Team ID is required")
 	}
-	if _, err := runCommand("codesign", "--verify", "--deep", "--strict", "--verbose=4", appPath); err != nil {
+	if _, err := runUpdaterCommand("codesign", "--verify", "--deep", "--strict", "--verbose=4", appPath); err != nil {
 		return fmt.Errorf("codesign verify failed: %w", commandError(err))
 	}
 	details, err := signingDetails(appPath)
@@ -429,7 +415,7 @@ func verifyAppSignature(appPath string, expectedTeamID string, allowUnsigned boo
 	if !strings.Contains(details, "Authority=Developer ID Application:") {
 		return errors.New("codesign details missing Developer ID Application authority")
 	}
-	if _, err := runCommand("spctl", "-a", "-vv", "-t", "execute", appPath); err != nil {
+	if _, err := runUpdaterCommand("spctl", "-a", "-vv", "-t", "execute", appPath); err != nil {
 		return fmt.Errorf("spctl execute assessment failed: %w", commandError(err))
 	}
 	return nil
@@ -450,7 +436,7 @@ func appTeamID(appPath string) (string, error) {
 
 // signingDetails 调用 codesign 读取签名详情。
 func signingDetails(appPath string) (string, error) {
-	result, err := runCommand("codesign", "-dv", "--verbose=4", appPath)
+	result, err := runUpdaterCommand("codesign", "-dv", "--verbose=4", appPath)
 	if err != nil {
 		return "", fmt.Errorf("codesign details failed: %w", commandError(err))
 	}
@@ -473,27 +459,32 @@ func parseSigningValue(details string, key string) string {
 // 复制后再次验证结构和签名；失败会尽力恢复原 app。
 func replaceTargetApp(stagedApp string, targetApp string, expectedTeamID string, allowUnsigned bool) error {
 	backupApp := backupPath(targetApp)
-	backupCreated := false
-	if _, err := os.Stat(targetApp); err == nil {
-		if err := os.Rename(targetApp, backupApp); err != nil {
-			return fmt.Errorf("backup target app: %w", err)
-		}
-		backupCreated = true
-	} else if !errors.Is(err, os.ErrNotExist) {
-		return fmt.Errorf("inspect target app: %w", err)
+	stagedCopyApp := stagedCopyPath(targetApp)
+	backupCreated, err := backupTargetApp(targetApp, backupApp)
+	if err != nil {
+		return err
 	}
 
-	if err := copyApp(stagedApp, targetApp); err != nil {
-		return rollbackAfterFailure(targetApp, backupApp, backupCreated, fmt.Errorf("copy app: %w", err))
+	if err := copyApp(stagedApp, stagedCopyApp); err != nil {
+		return rollbackInstallFailure(targetApp, backupApp, stagedCopyApp, backupCreated, fmt.Errorf("copy app: %w", err))
 	}
-	if err := validateMountedApp(targetApp); err != nil {
-		return rollbackAfterFailure(targetApp, backupApp, backupCreated, fmt.Errorf("verify copied app structure: %w", err))
+	if err := validateMountedApp(stagedCopyApp); err != nil {
+		return rollbackInstallFailure(
+			targetApp,
+			backupApp,
+			stagedCopyApp,
+			backupCreated,
+			fmt.Errorf("verify copied app structure: %w", err),
+		)
 	}
-	if err := verifyAppSignature(targetApp, expectedTeamID, allowUnsigned); err != nil {
-		return rollbackAfterFailure(targetApp, backupApp, backupCreated, fmt.Errorf("verify copied app: %w", err))
+	if err := verifyAppSignature(stagedCopyApp, expectedTeamID, allowUnsigned); err != nil {
+		return rollbackInstallFailure(targetApp, backupApp, stagedCopyApp, backupCreated, fmt.Errorf("verify copied app: %w", err))
 	}
-	if err := clearQuarantine(targetApp); err != nil {
-		return rollbackAfterFailure(targetApp, backupApp, backupCreated, fmt.Errorf("clear quarantine: %w", err))
+	if err := clearQuarantine(stagedCopyApp); err != nil {
+		return rollbackInstallFailure(targetApp, backupApp, stagedCopyApp, backupCreated, fmt.Errorf("clear quarantine: %w", err))
+	}
+	if err := os.Rename(stagedCopyApp, targetApp); err != nil {
+		return rollbackInstallFailure(targetApp, backupApp, stagedCopyApp, backupCreated, fmt.Errorf("replace target app: %w", err))
 	}
 	if backupCreated {
 		if err := os.RemoveAll(backupApp); err != nil {
@@ -503,14 +494,35 @@ func replaceTargetApp(stagedApp string, targetApp string, expectedTeamID string,
 	return nil
 }
 
+// backupTargetApp 如目标 app 已存在则先改名为备份。
+// 目标不存在是首次安装的正常分支，其它 stat/rename 错误必须阻断安装。
+func backupTargetApp(targetApp string, backupApp string) (bool, error) {
+	if _, err := os.Stat(targetApp); err == nil {
+		if err := os.Rename(targetApp, backupApp); err != nil {
+			return false, fmt.Errorf("backup target app: %w", err)
+		}
+		return true, nil
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return false, fmt.Errorf("inspect target app: %w", err)
+	}
+	return false, nil
+}
+
 // backupPath 为目标 app 生成本次安装专用备份路径。
 func backupPath(targetApp string) string {
 	return fmt.Sprintf("%s.updater-backup-%d-%d", targetApp, os.Getpid(), time.Now().UnixNano())
 }
 
+// stagedCopyPath 为 ditto 生成同目录临时 .app，验证通过后才会替换最终目标。
+func stagedCopyPath(targetApp string) string {
+	parent := filepath.Dir(targetApp)
+	base := strings.TrimSuffix(filepath.Base(targetApp), filepath.Ext(targetApp))
+	return filepath.Join(parent, fmt.Sprintf(".%s.updater-staging-%d-%d.app", base, os.Getpid(), time.Now().UnixNano()))
+}
+
 // copyApp 使用 ditto 复制 app bundle，保留 macOS bundle 元数据。
 func copyApp(stagedApp string, targetApp string) error {
-	if _, err := runCommand("ditto", stagedApp, targetApp); err != nil {
+	if _, err := runUpdaterCommand("ditto", stagedApp, targetApp); err != nil {
 		return commandError(err)
 	}
 	return nil
@@ -519,7 +531,7 @@ func copyApp(stagedApp string, targetApp string) error {
 // clearQuarantine 清理 app bundle 上的 quarantine xattr。
 // 权限错误会再检查属性是否仍存在，避免把“已清理但有噪音”误判为失败。
 func clearQuarantine(appPath string) error {
-	result, err := runCommand("xattr", "-dr", "com.apple.quarantine", appPath)
+	result, err := runUpdaterCommand("xattr", "-dr", "com.apple.quarantine", appPath)
 	if err == nil {
 		return nil
 	}
@@ -541,7 +553,7 @@ func clearQuarantine(appPath string) error {
 
 // quarantineAttributeRemains 检查 quarantine 属性是否仍存在。
 func quarantineAttributeRemains(appPath string) (bool, error) {
-	result, err := runCommand("xattr", "-lr", appPath)
+	result, err := runUpdaterCommand("xattr", "-lr", appPath)
 	output := result.stdout + result.stderr
 	if err != nil {
 		return false, fmt.Errorf("inspect quarantine attributes: %w", commandError(err))
@@ -573,6 +585,16 @@ func rollbackAfterFailure(targetApp string, backupApp string, backupCreated bool
 		return errors.Join(cause, fmt.Errorf("rollback failed: %w", rollbackErr))
 	}
 	return cause
+}
+
+// rollbackInstallFailure 恢复备份并清理 staging 目录。
+// 清理失败会和原始安装错误一起返回，避免后台安装留下未知半成品。
+func rollbackInstallFailure(targetApp string, backupApp string, stagedCopyApp string, backupCreated bool, cause error) error {
+	installErr := rollbackAfterFailure(targetApp, backupApp, backupCreated, cause)
+	if err := os.RemoveAll(stagedCopyApp); err != nil {
+		return errors.Join(installErr, fmt.Errorf("remove staged copy: %w", err))
+	}
+	return installErr
 }
 
 // rollbackTargetApp 删除失败的新 app 并恢复备份。

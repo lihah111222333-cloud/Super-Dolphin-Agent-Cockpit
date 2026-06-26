@@ -1,10 +1,12 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"os"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -49,13 +51,40 @@ func TestValidateMountedAppAcceptsExpectedBundleShape(t *testing.T) {
 	}
 }
 
+func TestRunCommandTimesOutAndKillsProcessGroup(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("process group kill fixture uses POSIX shell semantics")
+	}
+
+	pidFile := filepath.Join(t.TempDir(), "child.pid")
+	script := `sleep 30 &
+child=$!
+echo "$child" > "$1"
+wait "$child"`
+
+	started := time.Now()
+	result, err := runCommand(context.Background(), 150*time.Millisecond, "sh", "-c", script, "sh", pidFile)
+	if err == nil {
+		t.Fatalf("runCommand() error = nil, stdout = %q, stderr = %q, want timeout", result.stdout, result.stderr)
+	}
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("runCommand() error = %v, want context deadline exceeded", err)
+	}
+	if elapsed := time.Since(started); elapsed > 2*time.Second {
+		t.Fatalf("runCommand() elapsed = %s, want timeout to return promptly", elapsed)
+	}
+
+	childPID := readPIDFile(t, pidFile)
+	waitForProcessGone(t, childPID)
+}
+
 func TestVerifyAppSignatureAllowsUnsignedWithoutTeamIDOrSpctl(t *testing.T) {
 	oldRunCommand := runCommand
 	defer func() {
 		runCommand = oldRunCommand
 	}()
 	var commands []string
-	runCommand = func(name string, args ...string) (commandResult, error) {
+	runCommand = func(_ context.Context, _ time.Duration, name string, args ...string) (commandResult, error) {
 		commands = append(commands, name+" "+strings.Join(args, " "))
 		return commandResult{}, nil
 	}
@@ -86,7 +115,7 @@ func TestClearQuarantineIgnoresPermissionDeniedWhenNoQuarantineRemains(t *testin
 		runCommand = oldRunCommand
 	}()
 	var commands []string
-	runCommand = func(name string, args ...string) (commandResult, error) {
+	runCommand = func(_ context.Context, _ time.Duration, name string, args ...string) (commandResult, error) {
 		commands = append(commands, name+" "+strings.Join(args, " "))
 		if len(args) >= 3 && args[0] == "-dr" {
 			return commandResult{
@@ -114,7 +143,7 @@ func TestClearQuarantineFailsWhenQuarantineRemains(t *testing.T) {
 	defer func() {
 		runCommand = oldRunCommand
 	}()
-	runCommand = func(name string, args ...string) (commandResult, error) {
+	runCommand = func(_ context.Context, _ time.Duration, name string, args ...string) (commandResult, error) {
 		if len(args) >= 3 && args[0] == "-dr" {
 			return commandResult{
 				stderr: "xattr: [Errno 13] Permission denied: '/tmp/Super Dolphin.app/Contents/Resources/lsp/bin/rust-analyzer'\n",
@@ -232,7 +261,7 @@ func TestInstallFromMountWaitsForAppExitBeforeReplacing(t *testing.T) {
 		}
 		return nil
 	}
-	runCommand = func(name string, args ...string) (commandResult, error) {
+	runCommand = func(_ context.Context, _ time.Duration, name string, args ...string) (commandResult, error) {
 		if name == "ditto" {
 			events = append(events, "copy")
 			if len(args) != 2 {
@@ -258,6 +287,44 @@ func TestInstallFromMountWaitsForAppExitBeforeReplacing(t *testing.T) {
 	}
 	if strings.Join(events, ",") != "wait,copy" {
 		t.Fatalf("events = %v, want wait before copy", events)
+	}
+}
+
+func TestInstallRollsBackWhenDittoTimesOutAfterBackup(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows filesystems do not preserve macOS launcher execute bits in this fixture")
+	}
+
+	mountPoint := t.TempDir()
+	createAppBundle(t, filepath.Join(mountPoint, "Super Dolphin.app"))
+	target := createAppBundle(t, filepath.Join(t.TempDir(), "Super Dolphin.app"))
+	originalMarker := filepath.Join(target, "Contents", "Resources", "original-marker.txt")
+	if err := os.WriteFile(originalMarker, []byte("original"), 0o644); err != nil {
+		t.Fatalf("write original marker: %v", err)
+	}
+	dittoDest := stubRunCommandWithTimedOutDitto(t)
+
+	err := installFromMount(installRequest{
+		TargetAppPath: target,
+		AllowUnsigned: true,
+	}, mountPoint)
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("installFromMount() error = %v, want ditto timeout", err)
+	}
+	if *dittoDest == "" {
+		t.Fatal("ditto was not called")
+	}
+	if *dittoDest == target {
+		t.Fatalf("ditto destination = %q, want staged copy path before final replacement", *dittoDest)
+	}
+	if _, err := os.Stat(originalMarker); err != nil {
+		t.Fatalf("original app was not restored after timeout: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(target, "Contents", "Resources", "partial-copy.txt")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("partial copy leaked into restored target: %v", err)
+	}
+	if _, err := os.Stat(*dittoDest); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("staged copy path still exists after rollback: %v", err)
 	}
 }
 
@@ -294,4 +361,69 @@ func infoPlist(bundleID string) string {
 </dict>
 </plist>
 `
+}
+
+func readPIDFile(t *testing.T, path string) int {
+	t.Helper()
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read child pid file: %v", err)
+	}
+	pid, err := strconv.Atoi(strings.TrimSpace(string(data)))
+	if err != nil {
+		t.Fatalf("parse child pid: %v", err)
+	}
+	return pid
+}
+
+func waitForProcessGone(t *testing.T, pid int) {
+	t.Helper()
+
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		exists, err := processExists(pid)
+		if err != nil {
+			t.Fatalf("inspect child process %d: %v", pid, err)
+		}
+		if !exists {
+			return
+		}
+		time.Sleep(25 * time.Millisecond)
+	}
+	t.Fatalf("child process %d still exists; timeout must kill the process group", pid)
+}
+
+func stubRunCommandWithTimedOutDitto(t *testing.T) *string {
+	t.Helper()
+
+	oldRunCommand := runCommand
+	t.Cleanup(func() {
+		runCommand = oldRunCommand
+	})
+	dittoDest := ""
+	runCommand = func(_ context.Context, _ time.Duration, name string, args ...string) (commandResult, error) {
+		if name != "ditto" {
+			return commandResult{}, nil
+		}
+		recordPartialDittoCopy(t, args, &dittoDest)
+		return commandResult{stderr: "ditto timed out"}, context.DeadlineExceeded
+	}
+	return &dittoDest
+}
+
+func recordPartialDittoCopy(t *testing.T, args []string, dittoDest *string) {
+	t.Helper()
+
+	if len(args) != 2 {
+		t.Fatalf("ditto args = %v, want source and target", args)
+	}
+	*dittoDest = args[1]
+	partialDir := filepath.Join(*dittoDest, "Contents", "Resources")
+	if err := os.MkdirAll(partialDir, 0o755); err != nil {
+		t.Fatalf("write partial copy dir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(partialDir, "partial-copy.txt"), []byte("partial"), 0o644); err != nil {
+		t.Fatalf("write partial copy marker: %v", err)
+	}
 }
