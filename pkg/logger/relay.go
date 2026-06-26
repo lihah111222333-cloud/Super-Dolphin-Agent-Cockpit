@@ -161,6 +161,8 @@ func relayRecordFields(groups []string, attrs []slog.Attr, rec slog.Record) map[
 // relayAppendAttr 递归展开 attr，并用 prefix 保留 slog group 层级。
 func relayAppendAttr(dst map[string]any, prefix string, attr slog.Attr) {
 	attr.Value = attr.Value.Resolve()
+	attr = sanitizeLogAttr(attr)
+	attr.Value = attr.Value.Resolve()
 	if attr.Equal(slog.Attr{}) {
 		return
 	}
