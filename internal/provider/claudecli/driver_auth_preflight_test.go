@@ -67,7 +67,7 @@ func TestDriverStartSessionPassesClaudeHomeToAuthPreflight(t *testing.T) {
 	}
 }
 
-func TestDriverStartSessionContinuesWhenClaudeAuthStatusFails(t *testing.T) {
+func TestDriverStartSessionFailsFastWhenClaudeAuthStatusFails(t *testing.T) {
 	var launched bool
 	next := newBufferedTransport(t, "provider-thread-auth-status-error")
 	launchFn := overrideLaunchCLI(t, func(string, string, string, string, cliLaunchConfig, dto.MCPManifest, string) (*transport, func(), error) {
@@ -85,15 +85,18 @@ func TestDriverStartSessionContinuesWhenClaudeAuthStatusFails(t *testing.T) {
 		AgentID:  "agent-auth-status-error",
 		CWD:      t.TempDir(),
 	})
-	if err != nil {
-		t.Fatalf("StartSession() error = %v, want launch to continue after auth status failure", err)
+	if err == nil {
+		t.Fatal("StartSession() error = nil, want auth status failure")
 	}
-	if !launched {
-		t.Fatal("launchCLI was not called after inconclusive auth status failure")
+	if !strings.Contains(strings.ToLower(err.Error()), "auth status") {
+		t.Fatalf("StartSession() error = %v, want auth status context", err)
+	}
+	if launched {
+		t.Fatal("launchCLI was called after failed auth status preflight")
 	}
 }
 
-func TestDriverStartSessionContinuesWhenClaudeAuthStatusIsInconclusive(t *testing.T) {
+func TestDriverStartSessionFailsFastWhenClaudeAuthStatusIsInconclusive(t *testing.T) {
 	var launched bool
 	next := newBufferedTransport(t, "provider-thread-auth-status-inconclusive")
 	launchFn := overrideLaunchCLI(t, func(string, string, string, string, cliLaunchConfig, dto.MCPManifest, string) (*transport, func(), error) {
@@ -111,10 +114,13 @@ func TestDriverStartSessionContinuesWhenClaudeAuthStatusIsInconclusive(t *testin
 		AgentID:  "agent-auth-status-inconclusive",
 		CWD:      t.TempDir(),
 	})
-	if err != nil {
-		t.Fatalf("StartSession() error = %v, want launch to continue after inconclusive auth status", err)
+	if err == nil {
+		t.Fatal("StartSession() error = nil, want inconclusive auth status failure")
 	}
-	if !launched {
-		t.Fatal("launchCLI was not called after inconclusive auth status")
+	if !strings.Contains(strings.ToLower(err.Error()), "inconclusive") {
+		t.Fatalf("StartSession() error = %v, want inconclusive context", err)
+	}
+	if launched {
+		t.Fatal("launchCLI was called after inconclusive auth status")
 	}
 }

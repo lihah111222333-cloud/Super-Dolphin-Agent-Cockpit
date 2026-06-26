@@ -4,7 +4,6 @@ import (
 	"context"
 	"reflect"
 	"strings"
-	"time"
 
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
@@ -136,10 +135,6 @@ func (s *session) dispatchTokenUsageIfCurrent(tr *transport, identity logWatcher
 	if usageSessionID != "" && !strings.EqualFold(usageSessionID, identity.sessionID) {
 		return
 	}
-	timestamp := strings.TrimSpace(usage.Timestamp)
-	if timestamp == "" {
-		timestamp = time.Now().Format(time.RFC3339Nano)
-	}
 	s.mu.Lock()
 	if s.transport != tr ||
 		s.logWatcherGen != generation ||
@@ -152,6 +147,21 @@ func (s *session) dispatchTokenUsageIfCurrent(tr *transport, identity logWatcher
 	sessionID := s.sessionID
 	contextWindow := claudeContextWindow(s.sessionContextWindow, s.currentTransportModelLocked(), s.history)
 	s.mu.Unlock()
+
+	timestamp := strings.TrimSpace(usage.Timestamp)
+	if shared.ParseRFC3339Loose(timestamp).IsZero() {
+		code := "claude_log_missing_timestamp"
+		message := "claudecli: session log watcher usage missing timestamp"
+		if timestamp != "" {
+			code = "claude_log_invalid_timestamp"
+			message = "claudecli: session log watcher usage invalid timestamp"
+		}
+		s.dispatch(claudeProviderErrorRaw(map[string]any{
+			"thread_id":  threadID,
+			"session_id": sessionID,
+		}, code, message, "tokens:log_watcher", timestamp))
+		return
+	}
 
 	s.dispatch(dto.RawProviderEvent{
 		EventType: "tokens:log_watcher",

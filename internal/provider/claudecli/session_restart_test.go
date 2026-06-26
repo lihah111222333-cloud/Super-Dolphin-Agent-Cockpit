@@ -99,6 +99,7 @@ func marshalSystemInit(t *testing.T, threadID string) string {
 		Type:      "system",
 		Subtype:   "init",
 		SessionID: threadID,
+		Timestamp: "2026-04-13T00:00:00Z",
 	})
 	if err != nil {
 		t.Fatalf("marshal system:init: %v", err)

@@ -199,6 +199,26 @@ func TestWriteManifestConfigIncludesAllowedNPXPlaywrightStdioServer(t *testing.T
 	}
 }
 
+func TestWriteManifestConfigFailsFastForRejectedStdioServer(t *testing.T) {
+	t.Parallel()
+
+	manifest := dto.MCPManifest{Binaries: []dto.MCPBinary{{
+		Name:    "unsafe",
+		Command: []string{"run-anything"},
+	}}}
+
+	path, cleanup, err := writeManifestConfig(manifest, "/tmp/work")
+	if err == nil {
+		if cleanup != nil {
+			cleanup()
+		}
+		t.Fatalf("writeManifestConfig() = (%q, cleanup, nil), want rejected server error", path)
+	}
+	if !strings.Contains(strings.ToLower(err.Error()), "rejected") {
+		t.Fatalf("writeManifestConfig() error = %v, want rejected server context", err)
+	}
+}
+
 func TestResolvePermissionModeAcceptsLegacyAndNewApprovalPolicies(t *testing.T) {
 	t.Parallel()
 
