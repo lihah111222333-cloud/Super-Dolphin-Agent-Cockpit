@@ -52,6 +52,16 @@ func newTestGitProjectRoot(t *testing.T) string {
 	return projectRoot
 }
 
+// mustNewContextProvider 创建测试用 turn context provider，构造失败直接中止测试。
+func mustNewContextProvider(t *testing.T, cfg *Config) *MemoryContextProvider {
+	t.Helper()
+	provider, err := NewContextProvider(cfg)
+	if err != nil {
+		t.Fatalf("NewContextProvider() error = %v", err)
+	}
+	return provider
+}
+
 // newTestHooks 构造一个 locks 字段已就绪的 MemoryLifecycleHooks，
 // 用于替代 _test.go 中的 &MemoryLifecycleHooks{...} 字面量。该字面量
 // 在 _test.go 中被 archtest TestNoBareMemoryLifecycleHooksInTests 禁止：

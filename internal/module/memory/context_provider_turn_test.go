@@ -20,7 +20,7 @@ func TestMemoryContextProviderPrepareTurnInputsStartsWithoutTurnStartedEvent(t *
 	if err != nil {
 		t.Fatalf("resolvedStoreRoot() error = %v", err)
 	}
-	provider := NewContextProvider(cfg)
+	provider := mustNewContextProvider(t, cfg)
 	manager := NewPrefetchManager(root)
 	started := make(chan struct{})
 	manager.SetBuildManifestFunc(func(string) ([]MemoryEntry, error) {
@@ -62,7 +62,7 @@ func TestMemoryContextProviderPrepareTurnInputsStartsWithoutTurnStartedEvent(t *
 
 func TestMemoryContextProviderPrepareTurnInputsSearchesTranscriptWhenEnabled(t *testing.T) {
 	cfg := &Config{Enabled: true, Features: MemoryFeatureFlags{SearchPastContext: true}}
-	provider := NewContextProvider(cfg)
+	provider := mustNewContextProvider(t, cfg)
 	now := time.Date(2026, 4, 14, 12, 0, 0, 0, time.UTC)
 	session := historyStubSession{history: []dto.Message{{
 		Role:      "assistant",
@@ -88,7 +88,7 @@ func TestMemoryContextProviderPrepareTurnInputsSearchesTranscriptWhenEnabled(t *
 func TestMemoryContextProviderPrepareTurnInputsExposesReadHistoryError(t *testing.T) {
 	want := errors.New("history store unavailable")
 	cfg := &Config{Enabled: true, Features: MemoryFeatureFlags{SearchPastContext: true}}
-	provider := NewContextProvider(cfg)
+	provider := mustNewContextProvider(t, cfg)
 	inputs := provider.PrepareTurnInputs(context.Background(), historyStubSession{historyErr: want}, contract.BuildCtx{
 		SessionFlags: map[string]bool{"search_past_context": true},
 	}, "thread-1", "commit messages")
@@ -104,13 +104,49 @@ func TestMemoryContextProviderPrepareTurnInputsExposesReadHistoryError(t *testin
 	}
 }
 
+func TestMemoryContextProviderPrepareTurnContextExposesPrefetchError(t *testing.T) {
+	want := errors.New("prefetch finder unavailable")
+	cfg := &Config{Enabled: true, SkipIndex: true, RootDir: t.TempDir(), ProjectRoot: newTestGitProjectRoot(t)}
+	root, err := resolvedStoreRoot(cfg.RootDir, cfg.ProjectRoot, cfg.AutoMemPathOverride)
+	if err != nil {
+		t.Fatalf("resolvedStoreRoot() error = %v", err)
+	}
+	provider := mustNewContextProvider(t, cfg)
+	manager := NewPrefetchManager(root)
+	manager.SetBuildManifestFunc(func(string) ([]MemoryEntry, error) {
+		return []MemoryEntry{{FilePath: "project/commit-style.md"}}, nil
+	})
+	manager.SetFindRelevantFunc(func(context.Context, string, []MemoryEntry) ([]MemoryEntry, error) {
+		return nil, want
+	})
+	provider.mu.Lock()
+	provider.turnStateLocked("thread-1").manager = manager
+	provider.mu.Unlock()
+
+	first := provider.PrepareTurnContext(context.Background(), historyStubSession{}, contract.BuildCtx{}, "thread-1", "commit messages")
+	if len(first.Attachments) != 0 || len(first.Inputs) != 0 {
+		t.Fatalf("first PrepareTurnContext() = %#v, want pending empty payload", first)
+	}
+	handle := waitForPrefetchHandle(t, provider, "thread-1")
+	waitForHandle(t, handle)
+
+	payload := provider.PrepareTurnContext(context.Background(), historyStubSession{}, contract.BuildCtx{}, "thread-1", "commit messages")
+	if len(payload.Inputs) != 1 {
+		t.Fatalf("len(payload.Inputs) = %d, want explicit prefetch error input", len(payload.Inputs))
+	}
+	if !strings.Contains(payload.Inputs[0].Content, "memory prefetch failed") ||
+		!strings.Contains(payload.Inputs[0].Content, want.Error()) {
+		t.Fatalf("prefetch error input = %q, want explicit finder failure", payload.Inputs[0].Content)
+	}
+}
+
 func TestMemoryContextProviderPrepareTurnContextReturnsRelevantMemoryAttachments(t *testing.T) {
 	cfg := &Config{Enabled: true, SkipIndex: true, RootDir: t.TempDir(), ProjectRoot: newTestGitProjectRoot(t)}
 	root, err := resolvedStoreRoot(cfg.RootDir, cfg.ProjectRoot, cfg.AutoMemPathOverride)
 	if err != nil {
 		t.Fatalf("resolvedStoreRoot() error = %v", err)
 	}
-	provider := NewContextProvider(cfg)
+	provider := mustNewContextProvider(t, cfg)
 	now := time.Date(2026, 4, 14, 12, 0, 0, 0, time.UTC)
 	provider.timeNow = func() time.Time { return now }
 	manager := NewPrefetchManager(root)
@@ -157,7 +193,7 @@ func TestGateRelevantPrefetchSurfacedBytesLedger(t *testing.T) {
 	if err != nil {
 		t.Fatalf("resolvedStoreRoot() error = %v", err)
 	}
-	provider := NewContextProvider(cfg)
+	provider := mustNewContextProvider(t, cfg)
 	now := time.Date(2026, 4, 14, 12, 0, 0, 0, time.UTC)
 	manager := NewPrefetchManager(root)
 	calls := 0
@@ -221,7 +257,7 @@ func TestMemoryContextProviderOnPromptInvalidateResetsSurfacedLedger(t *testing.
 	if err != nil {
 		t.Fatalf("resolvedStoreRoot() error = %v", err)
 	}
-	provider := NewContextProvider(cfg)
+	provider := mustNewContextProvider(t, cfg)
 	entry := MemoryEntry{FilePath: "project/commit-style.md", Content: "Use concise imperative commit messages."}
 	provider.mu.Lock()
 	state := provider.turnStateLocked("thread-1")
