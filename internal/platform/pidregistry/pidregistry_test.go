@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"testing"
 )
 
@@ -33,6 +34,29 @@ func TestRegistryRegisterAndPersist(t *testing.T) {
 	}
 	if len(rf.Children) != 2 {
 		t.Errorf("children count = %d, want 2", len(rf.Children))
+	}
+}
+
+func TestRegistryRegisterCheckedReturnsPersistError(t *testing.T) {
+	tmpBlocker := filepath.Join(t.TempDir(), "not-a-dir")
+	if err := os.WriteFile(tmpBlocker, []byte("block registry path"), 0o600); err != nil {
+		t.Fatalf("write tmp blocker: %v", err)
+	}
+	r := &Registry{
+		appPID:   99995,
+		path:     filepath.Join(tmpBlocker, "test-reg.json"),
+		children: make(map[int]ChildInfo),
+	}
+
+	err := r.RegisterChecked(12345, "codex-app-server", nil)
+	if err == nil {
+		t.Fatal("RegisterChecked() error = nil, want persist failure")
+	}
+	if !strings.Contains(err.Error(), "pidregistry") {
+		t.Fatalf("RegisterChecked() error = %v, want pidregistry context", err)
+	}
+	if len(r.children) != 0 {
+		t.Fatalf("children count = %d, want rollback after persist failure", len(r.children))
 	}
 }
 

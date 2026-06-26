@@ -2,7 +2,6 @@ package cachekeepalive
 
 import (
 	"context"
-	"errors"
 
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 	"go.uber.org/fx"
@@ -25,8 +24,9 @@ func bindManagerShutdown(lc fx.Lifecycle, m *Manager, logger *pkglogger.Logger) 
 	}
 	lc.Append(fx.Hook{
 		OnStop: func(ctx context.Context) error {
-			if err := m.Shutdown(ctx); err != nil && !errors.Is(err, context.Canceled) {
+			if err := m.Shutdown(ctx); err != nil {
 				logger.Warn("cachekeepalive: manager shutdown drain failed", "error", err)
+				return err
 			}
 			return nil
 		},
