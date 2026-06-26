@@ -3,6 +3,7 @@ package manager
 import (
 	"context"
 	"errors"
+	"fmt"
 	"maps"
 	"path/filepath"
 	"strings"
@@ -90,6 +91,22 @@ type dynamicRegistry struct {
 	mu        sync.RWMutex
 	managers  map[string]*languageConfig // mapped by language ID
 	installer Installer
+}
+
+// UnsupportedDiagnosticsFilesError 标记显式诊断请求里无法路由到 LSP 的文件。
+// 它保留 ErrUnsupportedLanguage 作为 unwrap，工具层可据此组装 error envelope。
+type UnsupportedDiagnosticsFilesError struct {
+	Files []string
+}
+
+// Error 返回包含逐文件 unsupported 列表的诊断路由错误。
+func (e *UnsupportedDiagnosticsFilesError) Error() string {
+	return fmt.Sprintf("%s: unsupported_files=%q", ErrUnsupportedLanguage, e.Files)
+}
+
+// Unwrap 暴露 ErrUnsupportedLanguage，便于调用方用 errors.Is 分类处理。
+func (e *UnsupportedDiagnosticsFilesError) Unwrap() error {
+	return ErrUnsupportedLanguage
 }
 
 // NewRegistry 初始化带默认安装器的动态注册表。
@@ -426,16 +443,21 @@ func (r *dynamicRegistry) snapshotLanguageConfigs() map[string]*languageConfig {
 // 不支持的语言会跳过，其他错误直接返回给 diagnostics 调用方。
 func (r *dynamicRegistry) groupURIsByManager(ctx context.Context, uris []string) (map[Manager][]string, error) {
 	result := make(map[Manager][]string)
+	unsupported := make([]string, 0)
 	for _, uri := range uris {
 		path := strings.TrimPrefix(uri, "file://")
 		scoped, err := r.resolveManagerForTarget(ctx, DetectLanguageID(path), path, uri)
 		if err != nil {
 			if errors.Is(err, ErrUnsupportedLanguage) {
+				unsupported = append(unsupported, uri)
 				continue
 			}
 			return nil, err
 		}
 		result[scoped.Manager] = append(result[scoped.Manager], uri)
+	}
+	if len(unsupported) > 0 {
+		return nil, &UnsupportedDiagnosticsFilesError{Files: unsupported}
 	}
 	return result, nil
 }

@@ -2,10 +2,13 @@ package installer
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
+	"time"
 )
 
 func TestEnsureInstalledFindsGoInstallTargetOutsidePATH(t *testing.T) {
@@ -77,5 +80,37 @@ func TestExecutableInDirPrefersWindowsExeSuffix(t *testing.T) {
 	}
 	if got != want {
 		t.Fatalf("executableInDir() = %q, want %q", got, want)
+	}
+}
+
+func TestEnsureInstalledUsesInstallTimeout(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("test uses a POSIX shell script as the fake installer")
+	}
+	fakeBin := t.TempDir()
+	installerPath := filepath.Join(fakeBin, "slow-install")
+	if err := os.WriteFile(installerPath, []byte("#!/bin/sh\nexec /bin/sleep 30\n"), 0o755); err != nil {
+		t.Fatalf("write fake installer: %v", err)
+	}
+	t.Setenv("PATH", fakeBin)
+
+	p := NewProvider()
+	p.Register("slow", InstallerConfig{
+		BinaryName:     "slow-lsp",
+		InstallCmd:     installerPath,
+		InstallTimeout: 50 * time.Millisecond,
+	})
+
+	start := time.Now()
+	_, err := p.EnsureInstalledDetailed(context.Background(), "slow")
+	elapsed := time.Since(start)
+	if err == nil {
+		t.Fatal("EnsureInstalledDetailed() error = nil, want install timeout error")
+	}
+	if !errors.Is(err, context.DeadlineExceeded) && !strings.Contains(err.Error(), context.DeadlineExceeded.Error()) {
+		t.Fatalf("EnsureInstalledDetailed() error = %v, want context deadline exceeded", err)
+	}
+	if elapsed > 2*time.Second {
+		t.Fatalf("EnsureInstalledDetailed() elapsed = %v, want local install timeout to stop slow installer", elapsed)
 	}
 }
