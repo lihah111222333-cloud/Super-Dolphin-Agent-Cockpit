@@ -3,6 +3,7 @@ package hooks
 import (
 	"context"
 	"encoding/json"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -14,12 +15,20 @@ import (
 // fakeHookFanout 记录 DispatchAfter 调用。
 // 测试借它确认真正触达 Manager 的是 worker，而不是 callback 里临时启动的 goroutine。
 type fakeHookFanout struct {
-	mu    sync.Mutex
-	calls []hookDispatchRequest
-	block chan struct{} // if non-nil, DispatchAfter blocks on receive
+	mu      sync.Mutex
+	calls   []hookDispatchRequest
+	entered chan struct{}
+	block   chan struct{} // if non-nil, DispatchAfter blocks on receive
 }
 
 func (f *fakeHookFanout) DispatchAfter(_ context.Context, topic string, payload mcp.HookPayload) (mcp.AfterDecision, error) {
+	if f.entered != nil {
+		select {
+		case <-f.entered:
+		default:
+			close(f.entered)
+		}
+	}
 	if f.block != nil {
 		<-f.block
 	}
@@ -47,7 +56,7 @@ func TestHookRelayDrainAfterShutdown(t *testing.T) {
 	w.Start()
 
 	payload := mcp.HookPayload{AgentID: "agent-A", ThreadID: "thread-A", Context: json.RawMessage(`{}`)}
-	for i := 0; i < 8; i++ {
+	for i := 0; i < 3; i++ {
 		w.Enqueue("session.start", time.Now(), payload)
 	}
 
@@ -57,11 +66,11 @@ func TestHookRelayDrainAfterShutdown(t *testing.T) {
 		t.Fatalf("Stop() = %v, want nil", err)
 	}
 
-	if got := w.ProcessedTotal(); got != 8 {
-		t.Fatalf("ProcessedTotal after drain = %d, want 8 (all enqueued must reach DispatchAfter)", got)
+	if got := w.ProcessedTotal(); got != 3 {
+		t.Fatalf("ProcessedTotal after drain = %d, want 3 (all below-limit enqueues must reach DispatchAfter)", got)
 	}
-	if got := len(fanout.Calls()); got != 8 {
-		t.Fatalf("DispatchAfter call count after drain = %d, want 8", got)
+	if got := len(fanout.Calls()); got != 3 {
+		t.Fatalf("DispatchAfter call count after drain = %d, want 3", got)
 	}
 }
 
@@ -92,24 +101,93 @@ func TestHookDispatchWorkerEnqueueNonBlockingUnderSlowFanout(t *testing.T) {
 		t.Fatalf("DispatchAfter invoked %d times while fanout blocked; callback must never drive it", got)
 	}
 	if got := w.EnqueuedTotal(); got != 32 {
-		t.Fatalf("EnqueuedTotal = %d, want 32 (lossless)", got)
+		t.Fatalf("EnqueuedTotal = %d, want 32 attempts", got)
 	}
 
 	close(block)
 	deadline := time.Now().Add(2 * time.Second)
 	for time.Now().Before(deadline) {
-		if w.ProcessedTotal() >= 32 {
+		if w.ProcessedTotal() > 0 {
 			break
 		}
 		time.Sleep(5 * time.Millisecond)
 	}
-	if got := w.ProcessedTotal(); got != 32 {
-		t.Errorf("ProcessedTotal after unblock = %d, want 32", got)
+	if got := w.ProcessedTotal(); got == 0 || got >= 32 {
+		t.Errorf("ProcessedTotal after unblock = %d, want bounded compressed processing", got)
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
 	_ = w.Stop(ctx)
+}
+
+// TestHookDispatchWorkerOverflowKeepsLatestAndEmitsDegradedEvent 锁定 hook 队列满载策略。
+// 慢 peer 卡住 dispatch 时，worker 只能保留最新 hook，并用同一 topic 发出 degraded 上下文。
+func TestHookDispatchWorkerOverflowKeepsLatestAndEmitsDegradedEvent(t *testing.T) {
+	t.Parallel()
+
+	fanout := &fakeHookFanout{
+		entered: make(chan struct{}),
+		block:   make(chan struct{}),
+	}
+	w := newHookDispatchWorker(fanout, pkglogger.Get())
+	w.Start()
+	defer func() {
+		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+		defer cancel()
+		_ = w.Stop(ctx)
+	}()
+
+	initialPayload := mcp.HookPayload{AgentID: "agent-A", ThreadID: "thread-0", Context: json.RawMessage(`{"sequence":0}`)}
+	w.Enqueue("session.start", time.Now(), initialPayload)
+	select {
+	case <-fanout.entered:
+	case <-time.After(time.Second):
+		t.Fatal("DispatchAfter did not enter within 1s")
+	}
+
+	for i := 1; i <= 6; i++ {
+		w.Enqueue("session.start", time.Now(), mcp.HookPayload{
+			AgentID:  "agent-A",
+			ThreadID: "thread-overflow",
+			Context:  json.RawMessage(`{"sequence":1}`),
+		})
+	}
+	close(fanout.block)
+
+	waitForHookProcessed(t, w, 3)
+	assertHookOverflowCalls(t, fanout.Calls())
+}
+
+func waitForHookProcessed(t *testing.T, w *hookDispatchWorker, want int64) {
+	t.Helper()
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		if w.ProcessedTotal() >= want {
+			return
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	t.Fatalf("ProcessedTotal = %d, want at least %d", w.ProcessedTotal(), want)
+}
+
+func assertHookOverflowCalls(t *testing.T, calls []hookDispatchRequest) {
+	t.Helper()
+	if len(calls) != 3 {
+		t.Fatalf("DispatchAfter count = %d, want initial + degraded + latest; calls=%#v", len(calls), calls)
+	}
+	if calls[1].topic != "session.start" {
+		t.Fatalf("degraded topic = %q, want session.start", calls[1].topic)
+	}
+	if calls[1].payload.AgentID != "platform" {
+		t.Fatalf("degraded AgentID = %q, want platform", calls[1].payload.AgentID)
+	}
+	if !json.Valid(calls[1].payload.Context) || !strings.Contains(string(calls[1].payload.Context), `"queue":"hooks_dispatch"`) {
+		t.Fatalf("degraded context = %s, want queue marker", calls[1].payload.Context)
+	}
+	if calls[2].payload.ThreadID != "thread-overflow" {
+		t.Fatalf("latest thread = %q, want thread-overflow", calls[2].payload.ThreadID)
+	}
 }
 
 // TestHookDispatchWorkerEnqueueAfterStopDrops 固定 Stop 后的唯一丢弃路径。

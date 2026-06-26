@@ -16,6 +16,12 @@ import (
 // transportMode 表示 stdio 传输的帧格式模式。
 type transportMode int
 
+// MaxStdioMessageBytes 限制 stdio MCP 单条 JSON-RPC 消息大小。
+const MaxStdioMessageBytes = 1 << 20
+
+// errStdioMessageTooLarge 标记 stdio 单条消息超过固定上限。
+var errStdioMessageTooLarge = errors.New("mcp stdio: message exceeds stdio message limit")
+
 // stdio transport 模式常量，modeUnknown 表示尚未从输入流探测到 framing。
 const (
 	modeUnknown transportMode = iota
@@ -30,7 +36,43 @@ type StdioTransport struct {
 	closer  io.Closer
 	decoder *json.Decoder
 	mode    transportMode
+	rawCap  *stdioRawLimitReader
 	writeMu sync.Mutex
+}
+
+// stdioRawLimitReader 为 raw JSON decoder 提供逐条消息的读取上限。
+type stdioRawLimitReader struct {
+	reader    io.Reader
+	remaining int64
+	exceeded  bool
+}
+
+// Reset 重置单条 raw JSON 消息的读取预算。
+func (r *stdioRawLimitReader) Reset() {
+	r.remaining = MaxStdioMessageBytes + 1
+	r.exceeded = false
+}
+
+// Read 从底层 reader 读取数据，并在预算耗尽后返回超限错误。
+func (r *stdioRawLimitReader) Read(p []byte) (int, error) {
+	if r.remaining <= 0 {
+		r.exceeded = true
+		return 0, stdioMessageTooLargeError(MaxStdioMessageBytes + 1)
+	}
+	if int64(len(p)) > r.remaining {
+		p = p[:int(r.remaining)]
+	}
+	n, err := r.reader.Read(p)
+	r.remaining -= int64(n)
+	if r.remaining <= 0 {
+		r.exceeded = true
+	}
+	return n, err
+}
+
+// Exceeded 返回当前消息是否触达过读取上限。
+func (r *stdioRawLimitReader) Exceeded() bool {
+	return r != nil && r.exceeded
 }
 
 // NewStdioTransport 创建支持 raw JSON 与 Content-Length framed 两种模式的 stdio transport。
@@ -80,6 +122,9 @@ func (t *StdioTransport) WriteMessage(payload any) error {
 		pkglogger.Warn("mcp stdio: marshal failed", "error", err)
 		return err
 	}
+	if len(raw) > MaxStdioMessageBytes {
+		return stdioMessageTooLargeError(len(raw))
+	}
 	t.writeMu.Lock()
 	defer t.writeMu.Unlock()
 
@@ -118,7 +163,9 @@ func (t *StdioTransport) ensureMode() error {
 			}
 		case '{', '[':
 			t.mode = modeRawJSON
-			t.decoder = json.NewDecoder(t.reader)
+			t.rawCap = &stdioRawLimitReader{reader: t.reader}
+			t.rawCap.Reset()
+			t.decoder = json.NewDecoder(t.rawCap)
 			return nil
 		default:
 			t.mode = modeFramed
@@ -130,8 +177,17 @@ func (t *StdioTransport) ensureMode() error {
 // readRaw 使用 json.Decoder 读取一条 JSON 对象，适用于 raw JSON 模式。
 func (t *StdioTransport) readRaw() (json.RawMessage, error) {
 	var raw json.RawMessage
+	if t.rawCap != nil {
+		t.rawCap.Reset()
+	}
 	if err := t.decoder.Decode(&raw); err != nil {
+		if errors.Is(err, errStdioMessageTooLarge) {
+			return nil, stdioMessageTooLargeError(MaxStdioMessageBytes + 1)
+		}
 		return nil, err
+	}
+	if len(raw) > MaxStdioMessageBytes || t.rawCap.Exceeded() {
+		return nil, stdioMessageTooLargeError(len(raw))
 	}
 	return append(json.RawMessage(nil), raw...), nil
 }
@@ -148,20 +204,17 @@ func (t *StdioTransport) readFramed() (json.RawMessage, error) {
 		if line == "" {
 			break
 		}
-		name, value, ok := strings.Cut(line, ":")
-		if !ok {
-			return nil, fmt.Errorf("mcp stdio: malformed header %q", line)
+		parsed, err := parseStdioContentLengthHeader(line, length)
+		if err != nil {
+			return nil, err
 		}
-		if !strings.EqualFold(strings.TrimSpace(name), "Content-Length") {
-			continue
-		}
-		length, err = strconv.Atoi(strings.TrimSpace(value))
-		if err != nil || length < 0 {
-			return nil, fmt.Errorf("mcp stdio: invalid Content-Length %q", value)
-		}
+		length = parsed
 	}
 	if length < 0 {
 		return nil, errors.New("mcp stdio: missing Content-Length header")
+	}
+	if length > MaxStdioMessageBytes {
+		return nil, stdioMessageTooLargeError(length)
 	}
 	body := make([]byte, length)
 	if _, err := io.ReadFull(t.reader, body); err != nil {
@@ -170,12 +223,33 @@ func (t *StdioTransport) readFramed() (json.RawMessage, error) {
 	return validateFramedJSON(body)
 }
 
+// parseStdioContentLengthHeader 解析单行 framed header，并忽略非 Content-Length 头。
+func parseStdioContentLengthHeader(line string, current int) (int, error) {
+	name, value, ok := strings.Cut(line, ":")
+	if !ok {
+		return current, fmt.Errorf("mcp stdio: malformed header %q", line)
+	}
+	if !strings.EqualFold(strings.TrimSpace(name), "Content-Length") {
+		return current, nil
+	}
+	length, err := strconv.Atoi(strings.TrimSpace(value))
+	if err != nil || length < 0 {
+		return current, fmt.Errorf("mcp stdio: invalid Content-Length %q", value)
+	}
+	return length, nil
+}
+
 // validateFramedJSON 校验 framed 模式下读取的 body 是否为合法 JSON。
 func validateFramedJSON(body []byte) (json.RawMessage, error) {
 	if !json.Valid(body) {
 		return nil, errors.New("mcp stdio: malformed framed JSON")
 	}
 	return json.RawMessage(body), nil
+}
+
+// stdioMessageTooLargeError 返回带有实际长度和上限的 stdio 超限错误。
+func stdioMessageTooLargeError(size int) error {
+	return fmt.Errorf("%w: size %d limit %d", errStdioMessageTooLarge, size, MaxStdioMessageBytes)
 }
 
 // flushWriter 在 writer 支持 Flush 时刷新缓冲；普通 writer 不需要额外收尾。

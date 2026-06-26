@@ -349,6 +349,69 @@ func TestRPCPushWorkerEnqueueNonBlocking(t *testing.T) {
 	}
 }
 
+// TestRPCPushWorkerOverflowKeepsLatestAndEmitsDegradedEvent 锁定 push 队列满载时的显式退化信号。
+// worker 正在发送慢通知时，后续爆量刷新只能保留最后一条业务通知，并向前端发出一次 degraded 事件。
+func TestRPCPushWorkerOverflowKeepsLatestAndEmitsDegradedEvent(t *testing.T) {
+	t.Parallel()
+
+	broadcaster := &fakePushBroadcaster{
+		entered: make(chan struct{}),
+		block:   make(chan struct{}),
+	}
+	bridge := &PushBridge{logger: pkglogger.Get()}
+	worker := newPushNotificationWorker(broadcaster, bridge, pkglogger.Get())
+	worker.Start()
+	defer func() {
+		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+		defer cancel()
+		_ = worker.Stop(ctx)
+	}()
+
+	worker.Enqueue([]eventsurface.Notification{{
+		Method: eventsurface.MethodThreadStarted,
+		Payload: map[string]any{
+			"threadId": "thread-0",
+			"sequence": 0,
+		},
+	}})
+	select {
+	case <-broadcaster.entered:
+	case <-time.After(time.Second):
+		t.Fatal("NotifyAll did not enter within 1s")
+	}
+
+	for i := 1; i <= 6; i++ {
+		worker.Enqueue([]eventsurface.Notification{{
+			Method: eventsurface.MethodThreadStarted,
+			Payload: map[string]any{
+				"threadId": "thread-overflow",
+				"sequence": i,
+			},
+		}})
+	}
+	close(broadcaster.block)
+
+	waitForNotifySent(t, worker, 3)
+	calls := broadcaster.observed()
+	if len(calls) != 3 {
+		t.Fatalf("NotifyAll call count = %d, want initial + degraded + latest; calls=%#v", len(calls), calls)
+	}
+	if calls[1].method != "platform/queue/degraded" {
+		t.Fatalf("overflow method = %q, want platform/queue/degraded", calls[1].method)
+	}
+	degraded := callPayloadMap(t, calls[1])
+	if degraded["queue"] != "rpc_push" {
+		t.Fatalf("degraded queue = %#v, want rpc_push", degraded["queue"])
+	}
+	if degraded["dropped"] == nil {
+		t.Fatalf("degraded payload missing dropped count: %#v", degraded)
+	}
+	latest := callPayloadMap(t, calls[2])
+	if latest["sequence"] != 6 {
+		t.Fatalf("latest sequence = %#v, want 6", latest["sequence"])
+	}
+}
+
 // TestRPCPushWorkerEmptyNotificationDropped 锁定 callback 侧的廉价过滤。
 // 空批次或 method 全为空白的批次不能进入队列，避免 worker 消耗无意义任务。
 func TestRPCPushWorkerEmptyNotificationDropped(t *testing.T) {

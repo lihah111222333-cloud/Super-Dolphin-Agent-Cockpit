@@ -220,6 +220,66 @@ func TestConfigFanoutWorkerEnqueueNonBlocking(t *testing.T) {
 	_ = worker.Stop(ctx)
 }
 
+// TestConfigFanoutWorkerOverflowKeepsLatestAndEmitsDegradedEvent 锁定 config fanout 满载语义。
+// 版本推进不能在无界 slice 中堆积；满载时先通知 degraded，再只发送最后一条配置变更。
+func TestConfigFanoutWorkerOverflowKeepsLatestAndEmitsDegradedEvent(t *testing.T) {
+	t.Parallel()
+
+	notifier := &fakeFanoutNotifier{
+		entered: make(chan struct{}),
+		block:   make(chan struct{}),
+	}
+	worker := newConfigFanoutWorker(notifier, &stubVersionSource{}, nil)
+	worker.Start()
+	defer func() {
+		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+		defer cancel()
+		_ = worker.Stop(ctx)
+	}()
+
+	worker.Enqueue(configTopicAgent, map[string]any{"event": "agent/state/changed", "sequence": 0})
+	waitForFanoutNotifier(t, notifier)
+	for i := 1; i <= 6; i++ {
+		worker.Enqueue(configTopicAgent, map[string]any{"event": "agent/state/changed", "sequence": i})
+	}
+	close(notifier.block)
+
+	waitForConfigFanoutProcessed(t, worker, 3)
+	calls := notifier.calls()
+	if len(calls) != 3 {
+		t.Fatalf("NotifyConfigChanged count = %d, want initial + degraded + latest; calls=%#v", len(calls), calls)
+	}
+	assertConfigPayloadField(t, calls[1].payload, "event", "platform/queue/degraded")
+	assertConfigPayloadField(t, calls[1].payload, "queue", "config_fanout")
+	assertConfigPayloadField(t, calls[2].payload, "sequence", float64(6))
+	if calls[2].configVersion != 3 {
+		t.Fatalf("latest configVersion = %d, want 3 after degraded signal", calls[2].configVersion)
+	}
+}
+
+func waitForConfigFanoutProcessed(t *testing.T, worker *configFanoutWorker, want int64) {
+	t.Helper()
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		if worker.ProcessedTotal() >= want {
+			return
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	t.Fatalf("ProcessedTotal = %d, want at least %d", worker.ProcessedTotal(), want)
+}
+
+func assertConfigPayloadField(t *testing.T, raw json.RawMessage, key string, want any) {
+	t.Helper()
+	var payload map[string]any
+	if err := json.Unmarshal(raw, &payload); err != nil {
+		t.Fatalf("payload unmarshal: %v; raw=%s", err, raw)
+	}
+	if payload[key] != want {
+		t.Fatalf("payload[%q] = %#v, want %#v; payload=%#v", key, payload[key], want, payload)
+	}
+}
+
 // TestConfigFanoutWorkerEmptyTopicDropped covers the blank-topic short
 // circuit so invalid events never pay a queue slot.
 func TestConfigFanoutWorkerEmptyTopicDropped(t *testing.T) {
