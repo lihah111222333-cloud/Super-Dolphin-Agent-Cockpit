@@ -35,6 +35,23 @@ describe('thread lifecycle runtime', () => {
     expect(runtime.notifyAction).toHaveBeenCalledWith('已发送中断请求', 'success', { threadId: 'thread-1' });
   });
 
+  it('reports interrupt ok:false as warning without showing success', async () => {
+    const runtime = createRuntime();
+    const deps = createDeps();
+    const rpc = vi.fn().mockResolvedValue({ ok: false, error: 'turn already completed' });
+    attachActiveThreadRpcRuntime(runtime, deps);
+
+    await expect(runtime.activeThreadRPC('thread.interrupt', rpc)).resolves.toBe(false);
+
+    expect(rpc).toHaveBeenCalledWith({ cwd: '/repo/app', threadId: 'thread-1', source: 'ui_stop' });
+    expect(runtime.notifyAction).toHaveBeenCalledWith('中断当前执行失败：turn already completed', 'warning', { threadId: 'thread-1' });
+    expect(runtime.notifyAction).not.toHaveBeenCalledWith('已发送中断请求', 'success', { threadId: 'thread-1' });
+    expect(runtime.addWarning).toHaveBeenCalledWith('warn', 'thread.interrupt.failed', {
+      threadId: 'thread-1',
+      error: 'turn already completed',
+    });
+  });
+
   it('does not interrupt when the active target is not interruptible', async () => {
     const runtime = createRuntime();
     const deps = createDeps({

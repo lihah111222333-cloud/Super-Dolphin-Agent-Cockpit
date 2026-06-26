@@ -1,5 +1,4 @@
 import React from 'react';
-import { homedir } from 'node:os';
 import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { ComposerAttachments } from './ComposerAttachments.jsx';
@@ -8,7 +7,7 @@ import { composerAttachmentKey } from './composerAttachmentKey.js';
 const screenshotName = '\u5c4f\u5e55\u622a\u56fe 2026-06-13 170324.png';
 
 function windowsScreenshotPath() {
-  return [homedir().replace(/\//g, '\\'), 'Pictures', 'Screenshots', screenshotName].join('\\');
+  return ['C:', 'Users', 'mima0000', 'Pictures', 'Screenshots', screenshotName].join('\\');
 }
 
 const fileAttachment = {
