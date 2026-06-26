@@ -156,7 +156,11 @@ func (r *sessionResolver) resolveProviderThreadSession(ctx context.Context, thre
 			return session, nil
 		}
 		// 内存未命中时从持久化 binding 恢复 provider session。
-		return r.autoResumeSession(ctx, binding, r.lookupAutoResumeRuntimeConfig(ctx, binding))
+		runtimeConfig, err := r.lookupAutoResumeRuntimeConfig(ctx, binding)
+		if err != nil {
+			return nil, err
+		}
+		return r.autoResumeSession(ctx, binding, runtimeConfig)
 	}
 	if len(errs) > 0 {
 		return nil, errors.Join(errs...)
@@ -197,9 +201,10 @@ func (r *sessionResolver) autoResumeSession(ctx context.Context, binding *contra
 }
 
 // lookupAutoResumeRuntimeConfig 从线程记录中读取 auto-resume 配置，返回副本避免调用方修改持久化快照。
-func (r *sessionResolver) lookupAutoResumeRuntimeConfig(ctx context.Context, binding *contract.SessionBinding) map[string]any {
+// 只有 NotFound 表示候选线程不存在可继续查找，其它存储或解码错误都要阻断恢复。
+func (r *sessionResolver) lookupAutoResumeRuntimeConfig(ctx context.Context, binding *contract.SessionBinding) (map[string]any, error) {
 	if r == nil || r.threadStore == nil || binding == nil {
-		return nil
+		return nil, nil
 	}
 	for _, candidate := range []string{binding.CodexThreadID, binding.AgentID} {
 		candidate = strings.TrimSpace(candidate)
@@ -207,14 +212,20 @@ func (r *sessionResolver) lookupAutoResumeRuntimeConfig(ctx context.Context, bin
 			continue
 		}
 		ref, err := r.threadStore.GetByThreadID(ctx, candidate)
-		if err != nil || ref == nil {
+		if err != nil {
+			if platformdb.IsNotFound(err) {
+				continue
+			}
+			return nil, fmt.Errorf("resolve session: runtime config lookup thread %q: %w", candidate, err)
+		}
+		if ref == nil {
 			continue
 		}
 		if len(ref.RuntimeConfig) > 0 {
-			return clone.RuntimeConfigMap(ref.RuntimeConfig)
+			return clone.RuntimeConfigMap(ref.RuntimeConfig), nil
 		}
 	}
-	return nil
+	return nil, nil
 }
 
 // rejectBindingAutoResumeLifecycle 在按 binding 恢复前检查线程状态，阻止 stopped 或 archived 会话被重新拉起。

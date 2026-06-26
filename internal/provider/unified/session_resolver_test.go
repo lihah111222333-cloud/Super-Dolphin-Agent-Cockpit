@@ -48,6 +48,28 @@ func (s stubBindingLookup) GetByAgentID(_ context.Context, agentID string) (*con
 	return nil, platformdb.ErrNotFound
 }
 
+type sequenceThreadLookup struct {
+	refs  []*contract.SessionThreadRef
+	errs  []error
+	calls int
+}
+
+func (s *sequenceThreadLookup) GetByThreadID(context.Context, string) (*contract.SessionThreadRef, error) {
+	index := s.calls
+	s.calls++
+	if index >= len(s.refs) && index >= len(s.errs) {
+		return nil, platformdb.ErrNotFound
+	}
+	var ref *contract.SessionThreadRef
+	if index < len(s.refs) {
+		ref = s.refs[index]
+	}
+	if index < len(s.errs) {
+		return ref, s.errs[index]
+	}
+	return ref, nil
+}
+
 func TestSessionResolverResolveSessionUsesThreadStoreAgent(t *testing.T) {
 	sessions := NewSessionManager(nil)
 	session := &generationTestSession{threadID: "thread-1"}
@@ -203,5 +225,47 @@ func TestSessionResolverProviderThreadDoesNotAutoResumeStoppedThread(t *testing.
 	}
 	if driver.resumed != 0 {
 		t.Fatalf("ResumeSession calls = %d, want 0 for stopped provider-thread route", driver.resumed)
+	}
+}
+
+func TestAutoResumeRuntimeConfigFailsOnThreadStoreError(t *testing.T) {
+	t.Parallel()
+
+	rolloutPath := writeExistingProviderHistoryFile(t)
+	wantErr := errors.New("thread config decode failed")
+	threadStore := &sequenceThreadLookup{
+		refs: []*contract.SessionThreadRef{
+			nil,
+			{ThreadID: "public-thread-1", AgentID: "agent-1", Status: "running"},
+			nil,
+			nil,
+		},
+		errs: []error{platformdb.ErrNotFound, nil, platformdb.ErrNotFound, wantErr},
+	}
+	driver := &resumeCaptureDriver{name: "codex", session: &generationTestSession{threadID: "11111111-aaaa-bbbb-cccc-111111111115"}}
+	resolver := &sessionResolver{
+		threadStore: threadStore,
+		bindingStore: stubBindingLookup{bindings: map[string]*contract.SessionBinding{
+			"codex:11111111-aaaa-bbbb-cccc-111111111115": {
+				Provider:         "codex",
+				AgentID:          "agent-1",
+				ProviderThreadID: "11111111-aaaa-bbbb-cccc-111111111115",
+				CodexThreadID:    "public-thread-1",
+				RolloutPath:      rolloutPath,
+				Cwd:              "/repo",
+			},
+		}},
+		registry: NewRegistry(RegistryParams{Drivers: []contract.DriverFactory{
+			{Name: "codex", Create: func() contract.Driver { return driver }},
+		}}),
+		sessions: NewSessionManager(nil),
+	}
+
+	_, err := resolver.ResolveSession(context.Background(), "11111111-aaaa-bbbb-cccc-111111111115")
+	if err == nil || !strings.Contains(err.Error(), "thread config decode failed") {
+		t.Fatalf("ResolveSession() error = %v, want runtime config store error", err)
+	}
+	if driver.resumed != 0 {
+		t.Fatalf("ResumeSession calls = %d, want 0 when runtime config lookup fails", driver.resumed)
 	}
 }
