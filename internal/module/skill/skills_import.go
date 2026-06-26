@@ -7,6 +7,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/anthropic-ai/super-agent-v3/internal/module/skill/skillhash"
 )
 
 const importModeAuto, importModeSingle, importModeBatch = "auto", "single", "batch"
@@ -386,36 +388,30 @@ func ensureSkillDirAbsent(targetDir, targetName string) error {
 	return nil
 }
 
-// copySkillDir 复制技能目录。
 func copySkillDir(source, target string) (int, int64, error) {
-	files, total := 0, int64(0)
-	err := filepath.WalkDir(source, func(path string, entry os.DirEntry, walkErr error) error {
-		if walkErr != nil {
-			return walkErr
-		}
-		rel, err := filepath.Rel(source, path)
-		if err != nil {
-			return err
-		}
-		if rel == "." {
-			return os.Mkdir(target, 0o755)
-		}
-		dst := filepath.Join(target, rel)
-		if entry.IsDir() {
-			return os.MkdirAll(dst, 0o755)
-		}
-		if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
-			return err
-		}
-		if entry.Type()&os.ModeSymlink != 0 {
-			return fmt.Errorf("symlink is not allowed: %s", rel)
-		}
-		data, err := os.ReadFile(path)
-		if err != nil {
-			return err
-		}
-		files, total = files+1, total+int64(len(data))
-		return os.WriteFile(dst, data, 0o644)
-	})
-	return files, total, err
+	return skillhash.CopyDirWithLimits(source, target)
+}
+
+func copyCanonicalSkillMainFile(src, dst, rel string, mode os.FileMode, tracker *skillhash.ContentLimitTracker) error {
+	data, err := skillhash.ReadFileWithLimits(src, tracker.Limits())
+	if err != nil {
+		return err
+	}
+	data = []byte(capProjectMirrorTrustFrontmatter(string(data)))
+	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
+		return err
+	}
+	return os.WriteFile(dst, data, mirrorFileMode(rel, mode, data))
+}
+
+func copyCanonicalResourceFile(src, dst, rel string, mode os.FileMode, tracker *skillhash.ContentLimitTracker) error {
+	dstMode, err := skillhash.MirrorFileModeFromSource(rel, mode, src)
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
+		return err
+	}
+	_, err = skillhash.CopyFileWithLimits(src, dst, dstMode, tracker.Limits())
+	return err
 }
