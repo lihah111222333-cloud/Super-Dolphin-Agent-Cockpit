@@ -19,13 +19,19 @@ type configFanoutNotifier interface {
 	NotifyConfigChanged(ctx context.Context, topic string, scope *dto.SelectorScope, configVersion int64, payload json.RawMessage) error
 }
 
-// configFanoutWorkerDrainGrace 限制配置 fanout worker 的 OnStop 等待时间。
-// peer RPC 卡住时关闭路径必须有界返回，避免拖住全局生命周期。
-const configFanoutWorkerDrainGrace = 10 * time.Second
+// config fanout 队列与退化通知常量。
+const (
+	configFanoutWorkerDrainGrace = 10 * time.Second
+	configFanoutPendingLimit     = 4
+	configFanoutDegradedEvent    = "platform/queue/degraded"
+	configFanoutDegradedQueueID  = "config_fanout"
+)
 
 type configFanoutRequest struct {
-	topic   string
-	payload map[string]any
+	topic    string
+	payload  map[string]any
+	degraded bool
+	dropped  int64
 }
 
 // configFanoutWorker 串行处理配置变更事件到 ToolNotifier 的 fanout。
@@ -107,12 +113,41 @@ func (w *configFanoutWorker) Enqueue(topic string, payload map[string]any) {
 	default:
 	}
 	w.mu.Lock()
-	w.queue = append(w.queue, configFanoutRequest{topic: topic, payload: payload})
+	w.enqueueLocked(configFanoutRequest{topic: topic, payload: payload})
 	w.mu.Unlock()
 	w.enqueuedTotal.Add(1)
 	select {
 	case w.wake <- struct{}{}:
 	default:
+	}
+}
+
+// enqueueLocked 在持锁状态下写入队列，满载时压缩为退化通知和最新配置。
+func (w *configFanoutWorker) enqueueLocked(req configFanoutRequest) {
+	if len(w.queue) > 0 && w.queue[0].degraded {
+		w.queue = []configFanoutRequest{configFanoutDegradedRequest(req, w.queue[0].dropped+1), req}
+		return
+	}
+	if len(w.queue) >= configFanoutPendingLimit {
+		dropped := int64(len(w.queue))
+		w.queue = []configFanoutRequest{configFanoutDegradedRequest(req, dropped), req}
+		return
+	}
+	w.queue = append(w.queue, req)
+}
+
+// configFanoutDegradedRequest 构造配置 fanout 队列压缩后的显式退化请求。
+func configFanoutDegradedRequest(latest configFanoutRequest, dropped int64) configFanoutRequest {
+	return configFanoutRequest{
+		topic:    latest.topic,
+		degraded: true,
+		dropped:  dropped,
+		payload: map[string]any{
+			"event":   configFanoutDegradedEvent,
+			"queue":   configFanoutDegradedQueueID,
+			"dropped": dropped,
+			"mode":    "latest_only",
+		},
 	}
 }
 

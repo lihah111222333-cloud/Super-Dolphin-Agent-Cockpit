@@ -3,7 +3,11 @@ package runner
 import (
 	"context"
 	"errors"
+	"time"
 )
+
+// workerRunnerShutdownGrace 限制 WorkerRunner 传给 Stop 的独立关闭时间。
+const workerRunnerShutdownGrace = 10 * time.Second
 
 // Contract 是 RunnerModule 安装的零状态标记，用于表达平台 runner 能力已装配。
 type Contract struct{}
@@ -54,7 +58,9 @@ func (r *workerRunner) Run(ctx context.Context) error {
 	r.worker.Start()
 	closeOnce(r.ready)
 	<-ctx.Done()
-	if err := r.worker.Stop(ctx); err != nil && !errors.Is(err, context.Canceled) {
+	shutdownCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), workerRunnerShutdownGrace)
+	defer cancel()
+	if err := r.worker.Stop(shutdownCtx); err != nil && !errors.Is(err, context.Canceled) {
 		return err
 	}
 	return nil
