@@ -25,6 +25,7 @@ var (
 	errInvalidDatasourceFileName  = errors.New("datasource: fileName must be a file name")
 	errDeleteTargetMustBeFile     = errors.New("datasource: delete target must be a file")
 	errDatasourceContentEmpty     = errors.New("datasource: extracted content is empty")
+	errDatasourceTextTooLarge     = errors.New("datasource: text is too large")
 )
 
 // Service 定义 datasource 模块的文件上传、列举、文档读取和删除接口。
@@ -144,6 +145,9 @@ func prepareUploadSource(ctx context.Context, req UploadFileRequest) (uploadSour
 	ext := strings.ToLower(filepath.Ext(sourcePath))
 	if !isAllowedUploadExtension(ext) {
 		return uploadSource{}, fmt.Errorf("%w: %s", errUnsupportedFileExtension, ext)
+	}
+	if sourceInfo.Size() > datasourceMaxImportBytes {
+		return uploadSource{}, errDatasourceTextTooLarge
 	}
 	return uploadSource{
 		path:      sourcePath,

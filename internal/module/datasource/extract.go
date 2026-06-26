@@ -4,6 +4,7 @@ package datasource
 import (
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"strings"
 	"unicode/utf16"
@@ -41,7 +42,7 @@ func extractDatasourceText(ctx context.Context, sourcePath, ext string) (string,
 // extractTextFile 读取普通文本文件并解码成 UTF-8 字符串。
 // 支持 UTF-8、UTF-8 BOM、UTF-16LE BOM 和 UTF-16BE BOM；其他编码 fail-fast。
 func extractTextFile(sourcePath string) (string, error) {
-	content, err := os.ReadFile(sourcePath)
+	content, err := readLimitedTextDatasource(sourcePath)
 	if err != nil {
 		return "", fmt.Errorf("read text datasource: %w", err)
 	}
@@ -50,6 +51,27 @@ func extractTextFile(sourcePath string) (string, error) {
 		return "", err
 	}
 	return text, nil
+}
+
+// readLimitedTextDatasource 读取文本 datasource，并在超过导入上限时返回错误，避免整文件读入失控。
+func readLimitedTextDatasource(sourcePath string) (content []byte, err error) {
+	file, err := os.Open(sourcePath)
+	if err != nil {
+		return nil, err
+	}
+	defer func() {
+		if closeErr := file.Close(); closeErr != nil && err == nil {
+			err = closeErr
+		}
+	}()
+	content, err = io.ReadAll(io.LimitReader(file, datasourceMaxImportBytes+1))
+	if err != nil {
+		return nil, err
+	}
+	if len(content) > datasourceMaxImportBytes {
+		return nil, errDatasourceTextTooLarge
+	}
+	return content, nil
 }
 
 // isTextUploadExtension 定义 datasource 上传接口可解析为纯文本的后缀集合。

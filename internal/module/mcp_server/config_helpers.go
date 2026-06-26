@@ -28,7 +28,7 @@ func readMCPServerConfig(configPath string) (ConfigDocument, error) {
 		return ConfigDocument{}, errInvalidConfigDocument
 	}
 	for name, config := range doc.MCPServers {
-		normalized, err := normalizeServerConfig(name, config)
+		normalized, err := normalizeServerConfig(name, config, "")
 		if err != nil {
 			return ConfigDocument{}, fmt.Errorf("%w: %v", errInvalidConfigDocument, err)
 		}
