@@ -20,6 +20,8 @@ type memorySearchFields struct {
 	searchKeys  []string
 }
 
+// scoreMemoryEntry 根据查询和分词结果计算单条记忆的相关性分数。
+// 名称、文件名和搜索键权重高于描述和路径，鼓励命中语义标题的条目排在前面。
 func scoreMemoryEntry(query string, terms []string, entry MemoryEntry) int {
 	fields := searchableFields(entry)
 	score := matchWeight(fields.name, query, 18) +
@@ -42,6 +44,8 @@ func scoreMemoryEntry(query string, terms []string, entry MemoryEntry) int {
 	return score + matchedTermCount(fields, terms)*5
 }
 
+// searchableFields 提取用于相关性打分的规范化字段。
+// 所有字段都使用 CanonicalName，保证大小写、标点和空白不会影响匹配。
 func searchableFields(entry MemoryEntry) memorySearchFields {
 	return memorySearchFields{
 		name:        []string{CanonicalName(entry.Frontmatter.Name)},
@@ -53,6 +57,8 @@ func searchableFields(entry MemoryEntry) memorySearchFields {
 	}
 }
 
+// matchedTermCount 统计查询分词命中的数量。
+// 多个 term 命中的记忆会获得额外加分，减少单一弱命中的误选。
 func matchedTermCount(fields memorySearchFields, terms []string) int {
 	count := 0
 	flat := flattenSearchFields(fields)
@@ -64,6 +70,8 @@ func matchedTermCount(fields memorySearchFields, terms []string) int {
 	return count
 }
 
+// normalizeSearchValues 将 aliases/search_keys 规整成可匹配字段。
+// 空值会被过滤，避免给 matchWeight 制造无效候选。
 func normalizeSearchValues(values []string) []string {
 	normalized := make([]string, 0, len(values))
 	for _, value := range values {
@@ -74,7 +82,8 @@ func normalizeSearchValues(values []string) []string {
 	return normalized
 }
 
-// matchWeight 判断weight是否匹配。
+// matchWeight 在字段集合中找到 needle 时返回权重。
+// 空查询或非正权重直接返回 0，防止调用方把无效条件计入得分。
 func matchWeight(fields []string, needle string, weight int) int {
 	if needle == "" || weight <= 0 {
 		return 0
@@ -87,6 +96,8 @@ func matchWeight(fields []string, needle string, weight int) int {
 	return 0
 }
 
+// flattenSearchFields 将各字段组展开为统一列表。
+// matchedTermCount 使用它统计 term 覆盖面。
 func flattenSearchFields(fields memorySearchFields) []string {
 	flattened := make([]string, 0, 4+len(fields.aliases)+len(fields.searchKeys))
 	flattened = append(flattened, fields.name...)

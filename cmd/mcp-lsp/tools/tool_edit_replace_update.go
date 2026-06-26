@@ -14,6 +14,8 @@ import (
 	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
 )
 
+// applyReplaceRangeUpdate 先写磁盘，再等待 LSP 同步或 git diff 确认。
+// 两条确认路径都失败才回滚，避免 LSP 慢响应时把已经真实落盘的编辑误判为失败。
 func (h EditHandler) applyReplaceRangeUpdate(ctx context.Context, manager lspmanager.Manager, path string, file editableFile, updatedContent string, version int, log *editStageLogger) (bool, string, error) {
 	stage := log.Started("write_file", "bytes", len(updatedContent), "version", version)
 	if err := os.WriteFile(path, []byte(updatedContent), file.mode); err != nil {
@@ -34,6 +36,8 @@ func (h EditHandler) applyReplaceRangeUpdate(ctx context.Context, manager lspman
 	return h.rollbackReplaceRangeUpdate(ctx, manager, path, file, version, decision.err, log)
 }
 
+// startReplaceConfirmations 并行启动 LSP 同步和磁盘 diff 确认。
+// 任何一方先证明编辑有效，waitReplaceConfirmation 都可以结束等待。
 func (h EditHandler) startReplaceConfirmations(ctx context.Context, manager lspmanager.Manager, path string, updatedContent string, version int, log *editStageLogger) (<-chan replaceSyncResult, <-chan editDiskConfirmResult, context.CancelFunc) {
 	syncCtx, cancelSync := platformconfig.WithTimeout(ctx, editLSPSyncTimeout)
 	syncC := make(chan replaceSyncResult, 1)
@@ -61,7 +65,8 @@ func (h EditHandler) startReplaceConfirmations(ctx context.Context, manager lspm
 	return syncC, diffC, cancelSync
 }
 
-// waitReplaceConfirmation 等待用户确认 replace 操作。
+// waitReplaceConfirmation 等待 LSP 或磁盘确认 replace 操作。
+// git diff 先成功时会取消 LSP 等待并写恢复日志，保证工具返回能反映真实落盘状态。
 func waitReplaceConfirmation(ctx context.Context, path string, syncC <-chan replaceSyncResult, diffC <-chan editDiskConfirmResult, cancelSync context.CancelFunc, log *editStageLogger) replaceUpdateDecision {
 	stage := log.Started("wait_confirmation")
 	var syncErr error
@@ -92,6 +97,7 @@ func waitReplaceConfirmation(ctx context.Context, path string, syncC <-chan repl
 	return replaceUpdateDecision{err: err}
 }
 
+// firstReplaceConfirmationError 选择最能说明失败原因的确认错误。
 func firstReplaceConfirmationError(syncErr error, diffErr error) error {
 	if syncErr == nil {
 		syncErr = diffErr
@@ -102,6 +108,8 @@ func firstReplaceConfirmationError(syncErr error, diffErr error) error {
 	return syncErr
 }
 
+// rollbackReplaceRangeUpdate 尝试恢复原始磁盘内容并同步回 LSP。
+// 回滚失败会被合并进返回错误，避免调用方误以为文件仍处于原始状态。
 func (h EditHandler) rollbackReplaceRangeUpdate(ctx context.Context, manager lspmanager.Manager, path string, file editableFile, version int, syncErr error, log *editStageLogger) (bool, string, error) {
 	stage := log.Started("rollback", "version", version, "reason", syncErr != nil)
 	rollbackErr := os.WriteFile(path, []byte(file.raw), file.mode)
@@ -116,6 +124,8 @@ func (h EditHandler) rollbackReplaceRangeUpdate(ctx context.Context, manager lsp
 	return false, "", withRollbackError(syncErr, rollbackErr)
 }
 
+// confirmEditDiskWriteWithGitDiff 确认文件内容等于请求内容且 git diff 非空。
+// 它是 LSP sync 的兜底确认路径，但仍要求实际 diff 存在，避免 no-op 被当成成功写入。
 func confirmEditDiskWriteWithGitDiff(path string, updatedContent string) editDiskConfirmResult {
 	ctx, cancel := platformconfig.WithTimeout(context.Background(), editDiskConfirmTimeout)
 	defer cancel()
@@ -140,6 +150,7 @@ func confirmEditDiskWriteWithGitDiff(path string, updatedContent string) editDis
 	}
 }
 
+// gitDiffForFile 在文件所在仓库根目录读取该文件的 diff。
 func gitDiffForFile(ctx context.Context, path string) (string, error) {
 	dir := filepath.Dir(path)
 	rootRaw, err := runEditGitCommand(ctx, dir, "rev-parse", "--show-toplevel")
@@ -154,6 +165,7 @@ func gitDiffForFile(ctx context.Context, path string) (string, error) {
 	return runEditGitCommand(ctx, root, "diff", "--", filepath.ToSlash(rel))
 }
 
+// runEditGitCommand 执行受超时控制的 git 子命令，并把 stderr 保留到错误文本。
 func runEditGitCommand(ctx context.Context, dir string, args ...string) (string, error) {
 	cmd := exec.CommandContext(ctx, "git", args...)
 	cmd.Dir = dir

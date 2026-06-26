@@ -26,7 +26,8 @@ type updateIntentDraftStatusQuerier interface {
 	UpdatePromptIntentDraftStatus(ctx context.Context, arg sqlc.UpdatePromptIntentDraftStatusParams) (sqlc.UpdatePromptIntentDraftStatusRow, error)
 }
 
-// UpsertIntentDraft 处理upsertintentdraft。
+// UpsertIntentDraft 写入或更新 prompt intent 草稿。
+// GeneratedCard 和 Issues 会先规范化为合法 JSON，避免草稿保存后读取端才发现格式错误。
 func (s *store) UpsertIntentDraft(ctx context.Context, draft PromptIntentDraft) (*PromptIntentDraft, error) {
 	if err := validatePromptIntentDraft(draft); err != nil {
 		return nil, wrapPromptError(err, "upsert", "prompt_intent_drafts")
@@ -65,7 +66,8 @@ func (s *store) UpsertIntentDraft(ctx context.Context, draft PromptIntentDraft) 
 	return &mapped, nil
 }
 
-// GetIntentDraft 读取intentdraft。
+// GetIntentDraft 按 cwd 和 draftKey 读取单个 intent 草稿。
+// 两个字段共同限定作用域，缺失任意一项都会在查询前失败。
 func (s *store) GetIntentDraft(ctx context.Context, cwd, draftKey string) (*PromptIntentDraft, error) {
 	cwd, draftKey, err := requireIntentDraftScope(cwd, draftKey)
 	if err != nil {
@@ -83,7 +85,8 @@ func (s *store) GetIntentDraft(ctx context.Context, cwd, draftKey string) (*Prom
 	return &mapped, nil
 }
 
-// ListIntentDrafts 列出intentdrafts。
+// ListIntentDrafts 列出指定 cwd 下的 intent 草稿。
+// Limit 必须显式提供，status 非空时会先校验枚举值再进入 SQL。
 func (s *store) ListIntentDrafts(ctx context.Context, filter PromptIntentDraftListFilter) ([]PromptIntentDraft, error) {
 	cwd := strings.TrimSpace(filter.CWD)
 	if cwd == "" {
@@ -117,7 +120,8 @@ func (s *store) ListIntentDrafts(ctx context.Context, filter PromptIntentDraftLi
 	return drafts, nil
 }
 
-// UpdateIntentDraftStatus 更新intentdraft状态。
+// UpdateIntentDraftStatus 更新指定 intent 草稿的状态。
+// 状态只允许在约定枚举内切换，避免 UI 或导入流程写入无法识别的草稿阶段。
 func (s *store) UpdateIntentDraftStatus(ctx context.Context, cwd, draftKey, status string) (*PromptIntentDraft, error) {
 	cwd, draftKey, err := requireIntentDraftScope(cwd, draftKey)
 	if err != nil {
@@ -143,7 +147,8 @@ func (s *store) UpdateIntentDraftStatus(ctx context.Context, cwd, draftKey, stat
 	return &mapped, nil
 }
 
-// validatePromptIntentDraft 校验promptintentdraft。
+// validatePromptIntentDraft 校验 intent 草稿的必填字段和枚举值。
+// 失败时阻断写入，避免后续提交流程处理缺少原始输入或作用域的草稿。
 func validatePromptIntentDraft(d PromptIntentDraft) error {
 	if strings.TrimSpace(d.DraftKey) == "" {
 		return errors.New("prompt intent draft_key is required")

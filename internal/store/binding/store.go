@@ -8,6 +8,7 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/store/sqlc"
 )
 
+// querier 是 binding store 依赖的 sqlc 查询集合，包含 session 绑定和 agent-thread 绑定两类写入。
 type querier interface {
 	BindAgentThread(ctx context.Context, arg sqlc.BindAgentThreadParams) error
 	DeleteAgentProviderBindingByAgentID(ctx context.Context, arg sqlc.DeleteAgentProviderBindingByAgentIDParams) error
@@ -24,16 +25,17 @@ type querier interface {
 	RebindAgentThreadTx(ctx context.Context, arg sqlc.RebindAgentThreadTxParams) error
 }
 
+// store 实现 provider/thread/cwd 绑定持久化，恢复路径依赖这些记录重建 session。
 type store struct {
 	q querier
 }
 
-// NewStore 创建存储。
+// NewStore 使用生产 sqlc 查询对象创建 binding Store。
 func NewStore(q *sqlc.Queries) Store {
 	return &store{q: q}
 }
 
-// GetByProviderThread 按provider线程读取binding存储。
+// GetByProviderThread 按 provider thread ID 读取绑定，供 provider 侧恢复路径反查 agent。
 func (s *store) GetByProviderThread(ctx context.Context, provider, providerThreadID string) (*Binding, error) {
 	row, err := s.q.GetAgentProviderBindingByProviderThread(ctx, sqlc.GetAgentProviderBindingByProviderThreadParams{
 		Provider:         provider,
@@ -63,7 +65,7 @@ func (s *store) GetByProviderThread(ctx context.Context, provider, providerThrea
 	return &result, nil
 }
 
-// Upsert 新增或更新记录。
+// Upsert 写入 provider session 绑定；唯一冲突只在同一 agent/thread 元组时视为幂等。
 func (s *store) Upsert(ctx context.Context, params UpsertParams) error {
 	err := s.q.UpsertAgentProviderBinding(ctx, sqlc.UpsertAgentProviderBindingParams{
 		AgentID:            params.AgentID,
@@ -101,12 +103,12 @@ func (s *store) Upsert(ctx context.Context, params UpsertParams) error {
 	return wrapBindingError(err, "upsert")
 }
 
-// DeleteByAgentID 按代理ID删除binding存储。
+// DeleteByAgentID 删除 agent 的 provider 绑定，供停止或清理路径释放恢复索引。
 func (s *store) DeleteByAgentID(ctx context.Context, agentID string) error {
 	return wrapBindingError(s.q.DeleteAgentProviderBindingByAgentID(ctx, sqlc.DeleteAgentProviderBindingByAgentIDParams{AgentID: agentID}), "delete_by_agent_id")
 }
 
-// UpdateSessionUUID 更新会话UUID。
+// UpdateSessionUUID 回填 provider session UUID，保持历史文件和绑定记录可互相定位。
 func (s *store) UpdateSessionUUID(ctx context.Context, params UpdateSessionUUIDParams) error {
 	return wrapBindingError(s.q.UpdateAgentProviderBindingSessionUUID(ctx, sqlc.UpdateAgentProviderBindingSessionUUIDParams{
 		SessionUUID: params.SessionUUID,
@@ -115,7 +117,7 @@ func (s *store) UpdateSessionUUID(ctx context.Context, params UpdateSessionUUIDP
 	}), "update_session_uuid")
 }
 
-// UpdateProviderThreadID 更新provider线程ID。
+// UpdateProviderThreadID 回填 provider thread ID，恢复路径会优先使用该真实线程标识。
 func (s *store) UpdateProviderThreadID(ctx context.Context, params UpdateProviderThreadIDParams) error {
 	return wrapBindingError(s.q.UpdateAgentProviderBindingProviderThreadID(ctx, sqlc.UpdateAgentProviderBindingProviderThreadIDParams{
 		ProviderThreadID: params.ProviderThreadID,
@@ -124,7 +126,7 @@ func (s *store) UpdateProviderThreadID(ctx context.Context, params UpdateProvide
 	}), "update_provider_thread_id")
 }
 
-// SetArchived 设置archived。
+// SetArchived 标记 agent 绑定归档状态，session 恢复路径据此拒绝重新拉起。
 func (s *store) SetArchived(ctx context.Context, params SetArchivedParams) error {
 	archived := int64(0)
 	if params.Archived {
@@ -137,7 +139,7 @@ func (s *store) SetArchived(ctx context.Context, params SetArchivedParams) error
 	}), "set_archived")
 }
 
-// GetByAgentID 按代理ID读取binding存储。
+// GetByAgentID 按 agent ID 读取绑定，供公共 thread 路径补齐 provider 恢复信息。
 func (s *store) GetByAgentID(ctx context.Context, agentID string) (*Binding, error) {
 	row, err := s.q.GetAgentProviderBindingByAgentID(ctx, sqlc.GetAgentProviderBindingByAgentIDParams{AgentID: agentID})
 	if err != nil {
@@ -164,7 +166,7 @@ func (s *store) GetByAgentID(ctx context.Context, agentID string) (*Binding, err
 	return &result, nil
 }
 
-// BindAgentThread 绑定代理线程。
+// BindAgentThread 记录 agent 到公共 thread 和 cwd 的绑定，空时间戳由 store 统一补齐。
 func (s *store) BindAgentThread(ctx context.Context, params BindAgentThreadParams) error {
 	now := time.Now().Unix()
 	if params.CreatedAt == 0 {
@@ -182,12 +184,12 @@ func (s *store) BindAgentThread(ctx context.Context, params BindAgentThreadParam
 	}), "bind_agent_thread")
 }
 
-// UnbindAgentThread 解绑代理线程。
+// UnbindAgentThread 解除 agent 到公共 thread 的绑定，不删除 provider session 绑定。
 func (s *store) UnbindAgentThread(ctx context.Context, agentID string) error {
 	return wrapBindingError(s.q.UnbindAgentThread(ctx, sqlc.UnbindAgentThreadParams{AgentID: agentID}), "unbind_agent_thread")
 }
 
-// ListAgentThreadBindings 列出代理线程bindings。
+// ListAgentThreadBindings 列出全部 agent/thread 绑定，用于恢复索引和管理视图。
 func (s *store) ListAgentThreadBindings(ctx context.Context) ([]Binding, error) {
 	rows, err := s.q.ListAgentThreadBindings(ctx)
 	if err != nil {
@@ -217,7 +219,7 @@ func (s *store) ListAgentThreadBindings(ctx context.Context) ([]Binding, error) 
 	return result, nil
 }
 
-// GetThreadByAgent 按代理读取线程。
+// GetThreadByAgent 按 agent ID 读取公共 thread ID，供跨模块路由查询使用。
 func (s *store) GetThreadByAgent(ctx context.Context, agentID string) (string, error) {
 	threadID, err := s.q.GetThreadByAgent(ctx, sqlc.GetThreadByAgentParams{AgentID: agentID})
 	if err != nil {
@@ -226,7 +228,7 @@ func (s *store) GetThreadByAgent(ctx context.Context, agentID string) (string, e
 	return threadID, nil
 }
 
-// UpdateAgentCwd 更新代理工作目录。
+// UpdateAgentCwd 更新 agent 工作目录，空更新时间由 store 统一补齐。
 func (s *store) UpdateAgentCwd(ctx context.Context, params UpdateAgentCwdParams) error {
 	updatedAt := params.UpdatedAt
 	if updatedAt == 0 {
@@ -239,7 +241,7 @@ func (s *store) UpdateAgentCwd(ctx context.Context, params UpdateAgentCwdParams)
 	}), "update_agent_cwd")
 }
 
-// Rebind 处理rebind。
+// Rebind 原子更新 agent 的 thread 和 cwd 绑定，避免先删后插造成短暂不可达。
 func (s *store) Rebind(ctx context.Context, params RebindParams) error {
 	now := time.Now().Unix()
 	updatedAt := params.UpdatedAt
@@ -254,7 +256,7 @@ func (s *store) Rebind(ctx context.Context, params RebindParams) error {
 	}), "rebind")
 }
 
-// ListProviderMap 列出providermap。
+// ListProviderMap 返回 agent 到 provider thread 的恢复索引，providerThreadID 缺失时使用 CodexThreadID。
 func (s *store) ListProviderMap(ctx context.Context) (map[string]string, error) {
 	bindings, err := s.ListAgentThreadBindings(ctx)
 	if err != nil {
@@ -262,7 +264,7 @@ func (s *store) ListProviderMap(ctx context.Context) (map[string]string, error) 
 	}
 	m := make(map[string]string, len(bindings))
 	for _, b := range bindings {
-		// Prefer ProviderThreadID, fallback to CodexThreadID if empty
+		// 旧记录可能只有 CodexThreadID，保留兼容读取以免重启恢复断链。
 		threadID := b.ProviderThreadID
 		if threadID == "" {
 			threadID = b.CodexThreadID
@@ -274,7 +276,7 @@ func (s *store) ListProviderMap(ctx context.Context) (map[string]string, error) 
 	return m, nil
 }
 
-// ListCwdMap 列出工作目录map。
+// ListCwdMap 返回 agent 到 cwd 的索引，供恢复和工作区定位路径查询。
 func (s *store) ListCwdMap(ctx context.Context) (map[string]string, error) {
 	bindings, err := s.ListAgentThreadBindings(ctx)
 	if err != nil {
@@ -289,10 +291,12 @@ func (s *store) ListCwdMap(ctx context.Context) (map[string]string, error) {
 	return m, nil
 }
 
+// mapBinding 将内部统一行结构转换为领域 Binding，集中维护字段映射。
 func mapBinding(row bindingRow) Binding {
 	return Binding(row)
 }
 
+// bindingRow 统一 sqlc 多种查询返回形态，避免每个查询重复维护 Binding 字段顺序。
 type bindingRow struct {
 	AgentID            string
 	Provider           string
@@ -312,6 +316,7 @@ type bindingRow struct {
 	CodexModelProvider string
 }
 
+// wrapBindingError 统一包装 binding store 错误，保留 operation 便于排查。
 func wrapBindingError(err error, operation string) error {
 	return platformdb.WrapStoreError(err, operation, "binding")
 }

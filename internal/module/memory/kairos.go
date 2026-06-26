@@ -100,7 +100,8 @@ func autoMemDailyLogRelativePath(now time.Time) string {
 	return filepath.ToSlash(filepath.Join("logs", now.Format("2006"), now.Format("01"), now.Format("2006-01-02")+".md"))
 }
 
-// DetectKairosWriteIntent 处理detectkairoswriteintent。
+// DetectKairosWriteIntent 从 turn 完成事件的消息、摘要和结果中识别 Kairos 写入意图。
+// 它先解析确认/保存类表达，再兼容内部 memory 片段；未命中时返回空 SaveIntent，调用方不会落盘。
 func DetectKairosWriteIntent(evt turndto.TurnCompleted) SaveIntent {
 	for _, text := range kairosIntentTexts(evt) {
 		if intent := detectKairosAcknowledgement(text); intent.Detected {
@@ -163,7 +164,8 @@ func (h *MemoryLifecycleHooks) writeDetectedIntent(ctx context.Context, evt turn
 	return nil
 }
 
-// tryAppendKairosDailyLog 处理tryappendkairosdaily日志。
+// tryAppendKairosDailyLog 在 Kairos 激活且当前线程是 AutoMem 根线程时，把已确认意图追加到当天 daily log。
+// agent memory scope、子线程或 gate 关闭时返回 false 让调用方走普通 memory 写入；路径解析或追加失败会原样返回错误。
 func (h *MemoryLifecycleHooks) tryAppendKairosDailyLog(ctx context.Context, evt turndto.TurnCompleted, intent SaveIntent) (bool, error) {
 	threadID := strings.TrimSpace(evt.ThreadID)
 	if h == nil || threadID == "" {
@@ -189,7 +191,7 @@ func (m threadRuntimeMetadata) buildCtx() contract.BuildCtx {
 	return contract.BuildCtx{SessionFlags: cloneBoolMap(m.sessionFlags)}
 }
 
-// isAutoMemoryRootThread 判断auto记忆根目录线程是否可用。
+// isAutoMemoryRootThread 判断当前线程是否是可自动写入记忆的根线程。
 func (m threadRuntimeMetadata) isAutoMemoryRootThread() bool {
 	if !m.resolved || m.bareMode || strings.TrimSpace(m.parentAgentID) != "" || strings.TrimSpace(m.ownerThreadID) != "" {
 		return false
@@ -356,15 +358,16 @@ func buildDateChangeAttachment(memoryRoot string, now time.Time) dto.AttachmentE
 	}
 }
 
-// FeedbackTracker accumulates feedback memories by topic key.
-// When count reaches threshold, the caller can trigger a skill proposal.
+// FeedbackTracker 按主题聚合 feedback 类型记忆。
+// 内部用互斥锁保护 groups；达到阈值后调用方可读取快照并触发技能提议，随后清空该主题避免重复提议。
 type FeedbackTracker struct {
 	mu        sync.Mutex
 	threshold int
 	groups    map[string][]ExtractedMemory
 }
 
-// NewFeedbackTracker 创建feedbacktracker。
+// NewFeedbackTracker 创建反馈聚合器。
+// 阈值小于 2 时提升到 2，避免单条反馈就触发提议造成噪声。
 func NewFeedbackTracker(threshold int) *FeedbackTracker {
 	if threshold < 2 {
 		threshold = 2
@@ -375,29 +378,30 @@ func NewFeedbackTracker(threshold int) *FeedbackTracker {
 	}
 }
 
-// Record 记录记忆。
+// Record 将一条反馈记忆追加到主题分组。
+// 调用方负责传入稳定 topicKey；本方法只做并发安全追加，不做去重。
 func (ft *FeedbackTracker) Record(topicKey string, mem ExtractedMemory) {
 	ft.mu.Lock()
 	defer ft.mu.Unlock()
 	ft.groups[topicKey] = append(ft.groups[topicKey], mem)
 }
 
-// Count 统计记忆。
+// Count 返回主题当前累计的反馈数量。
+// 计数在锁内读取，保证与 Record/MarkProposed 并发时结果一致。
 func (ft *FeedbackTracker) Count(topicKey string) int {
 	ft.mu.Lock()
 	defer ft.mu.Unlock()
 	return len(ft.groups[topicKey])
 }
 
-// ThresholdReached reports whether the topic has accumulated enough
-// feedback to trigger a skill proposal.
-// ThresholdReached 处理thresholdreached。
+// ThresholdReached 判断主题是否已达到触发技能提议的反馈阈值。
+// 它只读取状态，不会清空分组；调用方触发提议后需要调用 MarkProposed。
 func (ft *FeedbackTracker) ThresholdReached(topicKey string) bool {
 	return ft.Count(topicKey) >= ft.threshold
 }
 
-// GetGroup returns a snapshot of the feedback entries for a topic.
-// GetGroup 读取group。
+// GetGroup 返回主题反馈列表的防御性副本。
+// 返回切片可被调用方异步使用，不会暴露内部 groups 底层数组。
 func (ft *FeedbackTracker) GetGroup(topicKey string) []ExtractedMemory {
 	ft.mu.Lock()
 	defer ft.mu.Unlock()
@@ -407,18 +411,16 @@ func (ft *FeedbackTracker) GetGroup(topicKey string) []ExtractedMemory {
 	return cp
 }
 
-// MarkProposed clears the group for a topic after a proposal has been
-// generated, preventing duplicate proposals.
-// MarkProposed 标记proposed。
+// MarkProposed 在技能提议生成后清空主题分组。
+// 这会重置该主题的阈值累计，避免同一批反馈反复触发提议。
 func (ft *FeedbackTracker) MarkProposed(topicKey string) {
 	ft.mu.Lock()
 	defer ft.mu.Unlock()
 	delete(ft.groups, topicKey)
 }
 
-// FeedbackTopicSlug normalises a feedback memory name into a short,
-// stable topic key used for grouping related feedback.
-// FeedbackTopicSlug 处理feedbacktopicslug。
+// FeedbackTopicSlug 将反馈文本规整为短主题键。
+// 只保留字母数字片段并过滤停用词，限制前几个词以稳定聚合同类反馈。
 func FeedbackTopicSlug(name string) string {
 	lower := strings.ToLower(name)
 	var parts []string
@@ -459,7 +461,8 @@ func filterFeedbackStopWords(words []string) []string {
 	return out
 }
 
-// LoadFromDir 从目录加载记忆。
+// LoadFromDir 从私有和团队反馈目录加载已有 feedback 记忆。
+// 读取失败的目录会被跳过，返回成功纳入聚合器的条目数，供启动时恢复阈值状态。
 func (ft *FeedbackTracker) LoadFromDir(rootDir string) int {
 	if rootDir == "" {
 		return 0
@@ -475,7 +478,8 @@ func (ft *FeedbackTracker) LoadFromDir(rootDir string) int {
 	return loaded
 }
 
-// scanDirForFeedback 为feedback扫描目录。
+// scanDirForFeedback 扫描单个目录下的 feedback 记忆文件。
+// 它跳过子目录和 MEMORY.md 索引，只把可解析且类型正确的条目纳入 tracker。
 func (ft *FeedbackTracker) scanDirForFeedback(dir string) int {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
@@ -494,7 +498,8 @@ func (ft *FeedbackTracker) scanDirForFeedback(dir string) int {
 	return loaded
 }
 
-// parseFeedbackFile 解析feedback文件。
+// parseFeedbackFile 读取并校验单个 feedback 记忆文件。
+// 文件解析失败、类型不是 feedback 或内容无法生成主题键时返回 false。
 func parseFeedbackFile(path string) (ExtractedMemory, bool) {
 	parsed, err := ParseMemoryFile(path)
 	if err != nil || parsed == nil {
@@ -510,9 +515,8 @@ func parseFeedbackFile(path string) (ExtractedMemory, bool) {
 	return ExtractedMemory{Type: MemoryTypeFeedback, Content: parsed.Content}, true
 }
 
-// trackFeedbackIfApplicable is called after a successful memory write.
-// It records feedback-type intents and fires the threshold callback.
-// trackFeedbackIfApplicable 跟踪feedbackifapplicable。
+// trackFeedbackIfApplicable 在成功写入 feedback 记忆后更新聚合状态。
+// 达到阈值时会复制当前分组、清空累计，并异步触发回调，避免写入路径被提议生成阻塞。
 func trackFeedbackIfApplicable(h *MemoryLifecycleHooks, intent SaveIntent) {
 	if h == nil || h.feedbackTracker == nil || intent.Type != MemoryTypeFeedback {
 		return

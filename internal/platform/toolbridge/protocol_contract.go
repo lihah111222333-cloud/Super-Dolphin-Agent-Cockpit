@@ -1,25 +1,11 @@
 package toolbridge
 
-// P22 P4 S3b: freeze the toolbridge wire-protocol surface that was
-// previously a scatter of magic strings across handler.go / proxy.go.
-// P4 plan §94-106 lists this freeze as a prerequisite for S3d
-// (import-direction collapse): consumers need named, testable
-// invariants before the implementation files can be refactored or
-// moved.
-//
-// Everything in this file is a CONTRACT (observed by wire peers +
-// archtest guard) and must not drift without a schema version bump.
-// Adding new entries is fine; changing an existing value is a protocol
-// break.
+// 本文件集中定义 toolbridge 对外 JSON-RPC wire 协议常量。
+// 这些值会被 peer MCP server、proxy handler 和兼容性测试共同观察；
+// 修改既有值会让已启动 peer、外部 MCP client 或缓存握手的会话失配，必须先规划 schema/version 迁移。
 
-// MetadataKeyAgentID, MetadataKeyThreadID, MetadataKeyCallID are the
-// private metadata keys the bridge injects into every downstream
-// `tools/call` payload so peer MCP servers can attribute a call back
-// to the originating agent/thread/call. The leading underscore is
-// load-bearing: it prevents collision with any tool-defined argument
-// and telegraphs "internal, provider-agnostic" to peer implementors.
-// These names are part of the peer contract — do not rename without
-// coordinating every peer server.
+// MetadataKeyAgentID 等私有 metadata key 会注入下游 tools/call payload。
+// 前导下划线用于避开工具自有参数，并标记这些字段只服务内部归因；不能单边改名。
 const (
 	MetadataKeyAgentID        = "_agentId"
 	MetadataKeyThreadID       = "_threadId"
@@ -28,10 +14,8 @@ const (
 	MetadataKeyWorkspaceRoots = "_workspaceRoots"
 )
 
-// ProxyProtocolVersion and ProxyServerInfo* are the fixed-value
-// responses returned from the /mcp/{family}/{agentID} proxy's
-// `initialize` method. They must round-trip stably across restarts so
-// external MCP clients cache handshake responses deterministically.
+// ProxyProtocolVersion 和 ProxyServerInfo* 是 proxy initialize 响应的固定字段。
+// 外部 MCP client 可能缓存握手结果，重启后必须保持稳定。
 const (
 	ProxyProtocolVersion    = "2025-11-25"
 	ProxyServerInfoName     = "proxy"
@@ -39,11 +23,8 @@ const (
 	ProxyNotificationMethod = "notifications/initialized"
 )
 
-// Supported proxy JSON-RPC methods. The proxy dispatches on method
-// name; anything not in this set is a method-not-found error
-// (jsonRPCCodeMethodMiss). TestToolbridgeCompatibilityFallbackRemoved
-// locks this — we do NOT silent-ACK unknown methods (§fallback /
-// §fail-closed).
+// 支持的 proxy JSON-RPC method 名称。
+// proxy 只分发这些方法，未知 method 必须返回 method-not-found，不能静默 ACK。
 const (
 	ProxyMethodInitialize = "initialize"
 	ProxyMethodToolsList  = "tools/list"

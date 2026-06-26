@@ -14,19 +14,20 @@ const (
 	defaultPlaywrightPackage = "@playwright/mcp@latest"
 )
 
-// StartPlaywrightServerRequest 是默认 playwright MCP server 的显式启动请求。
+// StartPlaywrightServerRequest 是默认 playwright MCP server 的显式启动 RPC 请求。
 type StartPlaywrightServerRequest = contract.MCPPlaywrightServerStartRequest
 
-// StartPlaywrightServerResult 返回 playwright MCP server 配置的写入和开启状态。
+// StartPlaywrightServerResult 返回 playwright 配置写入位置、本次是否新增以及最终 enabled 状态。
 type StartPlaywrightServerResult = contract.MCPPlaywrightServerStartResult
 
-// StopPlaywrightServerRequest 是默认 playwright MCP server 的显式关闭请求。
+// StopPlaywrightServerRequest 是默认 playwright MCP server 的显式关闭 RPC 请求。
 type StopPlaywrightServerRequest = contract.MCPPlaywrightServerStopRequest
 
-// StopPlaywrightServerResult 返回 playwright MCP server 关闭后的状态。
+// StopPlaywrightServerResult 返回 playwright 配置路径和关闭后的 enabled 状态。
 type StopPlaywrightServerResult = contract.MCPPlaywrightServerStopResult
 
 // StartPlaywrightServer 写入或重新启用默认 playwright stdio MCP server 配置。
+// 已存在同名配置时只切换 enabled，避免覆盖用户可能调整过的默认参数。
 func (s *service) StartPlaywrightServer(ctx context.Context, _ StartPlaywrightServerRequest) (StartPlaywrightServerResult, error) {
 	ctx = mcpServerContext(ctx)
 	if err := ctx.Err(); err != nil {
@@ -102,6 +103,8 @@ func defaultPlaywrightServerConfig() ServerConfig {
 	}
 }
 
+// setDefaultPlaywrightServerEnabled 只切换默认 playwright server 的 enabled 状态。
+// 如果配置行或 store 缺失会立即报错，避免 start/stop 看似成功但实际未落库。
 func (s *service) setDefaultPlaywrightServerEnabled(ctx context.Context, enabled bool) error {
 	workspaceRoot, servers, err := s.resolveWorkspaceServers(ctx, "")
 	if err != nil {

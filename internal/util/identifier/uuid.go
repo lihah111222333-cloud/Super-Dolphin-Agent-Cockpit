@@ -1,14 +1,5 @@
-// Package identifier provides predicates for thread / session ID strings.
-//
-// Two predicates with different strictness coexist on purpose:
-//
-//   - LooksLikeUUID: lax shape check used by binding hygiene, resolver gates,
-//     background resume filters, and startup cleanup. It accepts any
-//     hex-and-dash form with at least 32 hex characters, which covers v4
-//     UUIDs as well as the looser thread IDs codex emits.
-//   - IsClaudeCLISessionUUID: strict v4 UUID dash form (8-4-4-4-12) that the
-//     Claude CLI accepts as --resume. Used inside claudecli to keep the
-//     sanitize / mark-thread-ready / restart decisions aligned.
+// Package identifier 提供 thread/session ID 的形状判断。
+// LooksLikeUUID 用于宽松过滤 provider ID；IsClaudeCLISessionUUID 用于 Claude --resume 的严格门禁。
 package identifier
 
 import (
@@ -16,12 +7,8 @@ import (
 	"strings"
 )
 
-// LooksLikeUUID reports whether s resembles a UUID-like identifier (hex
-// characters plus optional dashes, with at least 32 hex digits).
-//
-// It rejects agent-id placeholders such as "agent_17782..." which are not
-// valid provider UUIDs.
-// LooksLikeUUID 处理lookslikeUUID。
+// LooksLikeUUID 判断字符串是否像 provider UUID：只允许十六进制和短横线，且至少 32 个十六进制字符。
+// 它会拒绝 agent_ 前缀这类内部占位 ID，避免被误送入 provider resume 流程。
 func LooksLikeUUID(s string) bool {
 	s = strings.TrimSpace(s)
 	if len(s) < 32 {
@@ -33,7 +20,7 @@ func LooksLikeUUID(s string) bool {
 		case (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F'):
 			hex++
 		case c == '-':
-			// dash is allowed but not counted toward hex
+			// 短横线只用于 UUID 分隔，不计入十六进制长度。
 		default:
 			return false
 		}
@@ -41,15 +28,11 @@ func LooksLikeUUID(s string) bool {
 	return hex >= 32
 }
 
-// claudeCLIUUIDRE matches the canonical v4 UUID shape the Claude CLI accepts
-// for --resume. The CLI also accepts session titles, but those are arbitrary
-// strings and we cannot safely distinguish them from internal thread IDs, so
-// only canonical UUIDs are allowed through.
+// claudeCLIUUIDRE 只接受 Claude CLI --resume 明确支持的标准 UUID 形状。
+// CLI 也接受标题字符串，但它们无法和内部 thread ID 安全区分，所以这里不放行。
 var claudeCLIUUIDRE = regexp.MustCompile(`(?i)^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
 
-// IsClaudeCLISessionUUID reports whether s is a canonical v4 UUID acceptable
-// as the Claude CLI --resume argument.
-// IsClaudeCLISessionUUID 判断claudeCLI会话UUID是否可用。
+// IsClaudeCLISessionUUID 判断字符串是否可作为 Claude CLI --resume 的标准 UUID 参数。
 func IsClaudeCLISessionUUID(s string) bool {
 	return claudeCLIUUIDRE.MatchString(strings.TrimSpace(s))
 }

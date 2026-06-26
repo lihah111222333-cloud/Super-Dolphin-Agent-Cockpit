@@ -17,13 +17,14 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 )
 
+// runtimeReportParams 是 reportRuntime RPC 的入参，兼容 agent_id 和 agentId。
 type runtimeReportParams struct {
 	AgentID  string `json:"agent_id"`
 	Port     int    `json:"port,omitempty"`
 	Provider string `json:"provider,omitempty"`
 }
 
-// UnmarshalJSON 解码JSON。
+// UnmarshalJSON 严格解码 runtime report，并校验 agent_id/agentId 别名不能冲突。
 func (p *runtimeReportParams) UnmarshalJSON(data []byte) error {
 	type payload struct {
 		AgentID       string `json:"agent_id"`
@@ -45,6 +46,7 @@ func (p *runtimeReportParams) UnmarshalJSON(data []byte) error {
 	}, decodeStrictRuntimeReportJSON)
 }
 
+// decodeStrictRuntimeReportJSON 禁止 reportRuntime payload 出现未知字段或多段 JSON。
 func decodeStrictRuntimeReportJSON(data []byte, dst any) error {
 	decoder := json.NewDecoder(bytes.NewReader(data))
 	decoder.DisallowUnknownFields()
@@ -60,20 +62,8 @@ func decodeStrictRuntimeReportJSON(data []byte, dst any) error {
 	return nil
 }
 
-// ProvideRPCFacade returns the orchestration subpackage's RPC handler
-// bundle to the cmd/mcp-orch root assembly. It is consumed exclusively
-// through the fx `group:"rpc_handlers"` hookup (see buildOrchestrationOptions
-// in cmd/mcp-orch/fx.go) and is not a generic subpackage-to-subpackage
-// protocol shell.
-//
-// P22 P4 S4c3: the previous export `NewOrchestrationHandlers` named this
-// constructor after the orchestration protocol surface, which encouraged
-// other subpackages to treat cmd/mcp-orch/orchestration as a reusable RPC
-// shell (plan §117, §277 — handler.Map 协议壳 退回根入口 / 被 facade 替代).
-// The name now explicitly frames this as a root-entry facade; the
-// archtest in
-// internal/archtest/orchestration_no_rpc_shell_export_guard_test.go
-// locks the old name out so it cannot re-surface.
+// ProvideRPCFacade 把 orchestration RPC handler 集合交给 cmd/mcp-orch 根装配层。
+// 它只通过 fx group:"rpc_handlers" 被根入口消费，不是给其它子包复用的通用协议壳。
 func ProvideRPCFacade(svc Service) rpc.HandlerMapResult {
 	return rpc.HandlerMapResult{Handlers: handler.Map{
 		"agent/launch": rpc.StrictHandler(func(ctx context.Context, p launchParams) (any, error) {
@@ -151,6 +141,7 @@ func ProvideRPCFacade(svc Service) rpc.HandlerMapResult {
 	}}
 }
 
+// launchRequestFromParams 将 RPC launch 入参转换为 service 层 LaunchRequest。
 func launchRequestFromParams(p launchParams) LaunchRequest {
 	return LaunchRequest{
 		AgentID:      p.AgentID,
@@ -168,6 +159,7 @@ func launchRequestFromParams(p launchParams) LaunchRequest {
 	}
 }
 
+// submissionFromParams 将 submit RPC 入参转换为 TurnSubmission，并补齐当前 thread id。
 func submissionFromParams(ctx context.Context, svc Service, p submitParams) (TurnSubmission, error) {
 	agentID := strings.TrimSpace(p.AgentID)
 	items, err := inputItemsFromSubmitParams(p)
@@ -184,7 +176,7 @@ func submissionFromParams(ctx context.Context, svc Service, p submitParams) (Tur
 	}, nil
 }
 
-// inputItemsFromSubmitParams 从submitparams处理inputitems。
+// inputItemsFromSubmitParams 兼容旧版 input JSON 与新版 prompt/images/files 三类输入。
 func inputItemsFromSubmitParams(p submitParams) ([]shareddto.InputItem, error) {
 	if len(p.legacyInput) > 0 && strings.TrimSpace(p.Prompt) == "" && len(p.Images) == 0 && len(p.Files) == 0 {
 		return decodeInputItems(p.legacyInput)
@@ -206,6 +198,7 @@ func inputItemsFromSubmitParams(p submitParams) ([]shareddto.InputItem, error) {
 	return items, nil
 }
 
+// decodeInputItems 兼容单个 InputItem 或 InputItem 数组两种旧版 payload。
 func decodeInputItems(raw json.RawMessage) ([]shareddto.InputItem, error) {
 	var items []shareddto.InputItem
 	if err := json.Unmarshal(raw, &items); err == nil {
@@ -218,6 +211,7 @@ func decodeInputItems(raw json.RawMessage) ([]shareddto.InputItem, error) {
 	return []shareddto.InputItem{item}, nil
 }
 
+// submissionThreadID 从 snapshot 获取当前 provider thread，失败时退回 agentID 作为兼容 thread id。
 func submissionThreadID(ctx context.Context, svc Service, agentID string) string {
 	snapshot, err := svc.Snapshot(ctx, agentID)
 	if err == nil && strings.TrimSpace(snapshot.ThreadID) != "" {
@@ -226,6 +220,7 @@ func submissionThreadID(ctx context.Context, svc Service, agentID string) string
 	return strings.TrimSpace(agentID)
 }
 
+// envList 将 map 形式环境变量稳定排序为 KEY=VALUE 列表。
 func envList(env map[string]string) []string {
 	if len(env) == 0 {
 		return nil
@@ -242,6 +237,7 @@ func envList(env map[string]string) []string {
 	return values
 }
 
+// rememberReportRequestFromParams 将 RPC 入参映射为 report requester 请求。
 func rememberReportRequestFromParams(p rememberReportRequestParams) RememberReportRequest {
 	return RememberReportRequest{
 		AgentID:     p.AgentID,
@@ -249,6 +245,7 @@ func rememberReportRequestFromParams(p rememberReportRequestParams) RememberRepo
 	}
 }
 
+// reportEventFromParams 复制 event_data，避免后续修改 RPC buffer 影响业务层。
 func reportEventFromParams(p reportEventParams) ReportEvent {
 	return ReportEvent{
 		AgentID:   p.AgentID,
@@ -258,6 +255,7 @@ func reportEventFromParams(p reportEventParams) ReportEvent {
 	}
 }
 
+// runtimeReportFromParams 将 runtime 上报 RPC 入参映射为 service DTO。
 func runtimeReportFromParams(p runtimeReportParams) RuntimeReport {
 	return RuntimeReport{
 		AgentID:  p.AgentID,
@@ -266,6 +264,7 @@ func runtimeReportFromParams(p runtimeReportParams) RuntimeReport {
 	}
 }
 
+// createDAGRequestFromParams 将 DAG create RPC 入参转换为 service 请求。
 func createDAGRequestFromParams(p createDAGParams) CreateDAGRequest {
 	return CreateDAGRequest{
 		DagKey:      p.DagKey,
@@ -277,6 +276,7 @@ func createDAGRequestFromParams(p createDAGParams) CreateDAGRequest {
 	}
 }
 
+// createDAGNodesFromParams 深拷贝 DAG 节点列表，隔离 RPC 入参切片。
 func createDAGNodesFromParams(nodes []createDAGNodeParams) []CreateDAGNodeRequest {
 	mapped := make([]CreateDAGNodeRequest, 0, len(nodes))
 	for _, node := range nodes {
@@ -293,10 +293,12 @@ func createDAGNodesFromParams(nodes []createDAGNodeParams) []CreateDAGNodeReques
 	return mapped
 }
 
+// listDAGsFilterFromParams 将 DAG list RPC 入参映射为 store 过滤条件。
 func listDAGsFilterFromParams(p listDAGsParams) ListDAGsFilter {
 	return ListDAGsFilter{Status: p.Status, Keyword: p.Keyword, Limit: p.Limit}
 }
 
+// updateNodeRequestFromParams 将节点状态更新 RPC 入参转换为 service 请求。
 func updateNodeRequestFromParams(p updateNodeParams) UpdateNodeStatusRequest {
 	return UpdateNodeStatusRequest{
 		DagKey:  p.DagKey,
@@ -307,6 +309,7 @@ func updateNodeRequestFromParams(p updateNodeParams) UpdateNodeStatusRequest {
 	}
 }
 
+// launchParams 是 agent/launch RPC 的 wire 入参。
 type launchParams struct {
 	AgentID      string            `json:"id"`
 	Name         string            `json:"name,omitempty"`
@@ -322,6 +325,7 @@ type launchParams struct {
 	Env          map[string]string `json:"env,omitempty"`
 }
 
+// launchConfigParams 兼容旧版 config 嵌套字段和 camelCase 命名。
 type launchConfigParams struct {
 	ParentID       string `json:"parent_id,omitempty"`
 	ParentIDAlt    string `json:"parentId,omitempty"`
@@ -336,7 +340,7 @@ type launchConfigParams struct {
 	AgentScopeAlt  string `json:"agentMemoryScope,omitempty"`
 }
 
-// UnmarshalJSON 解码JSON。
+// UnmarshalJSON 兼容 launch 入参的新旧字段别名，并优先保留显式新字段。
 func (p *launchParams) UnmarshalJSON(data []byte) error {
 	type current launchParams
 	return decodeLegacyAlias(data, new(current), func(raw *current, legacy *struct {
@@ -397,11 +401,12 @@ func (p *launchParams) UnmarshalJSON(data []byte) error {
 	})
 }
 
+// agentIDParams 是只需要 agent id 的 RPC 通用入参。
 type agentIDParams struct {
 	AgentID string `json:"agent_id"`
 }
 
-// UnmarshalJSON 解码JSON。
+// UnmarshalJSON 兼容 agent_id 和 agentId 两种命名。
 func (p *agentIDParams) UnmarshalJSON(data []byte) error {
 	type current agentIDParams
 	return decodeLegacyAlias(data, new(current), func(raw *current, legacy *struct {
@@ -415,11 +420,12 @@ func (p *agentIDParams) UnmarshalJSON(data []byte) error {
 	})
 }
 
+// dagKeyParams 是只需要 dag_key 的 RPC 通用入参。
 type dagKeyParams struct {
 	DagKey string `json:"dag_key"`
 }
 
-// UnmarshalJSON 解码JSON。
+// UnmarshalJSON 兼容 dag_key 和 dagKey 两种命名。
 func (p *dagKeyParams) UnmarshalJSON(data []byte) error {
 	type current dagKeyParams
 	return decodeLegacyAlias(data, new(current), func(raw *current, legacy *struct {
@@ -433,12 +439,13 @@ func (p *dagKeyParams) UnmarshalJSON(data []byte) error {
 	})
 }
 
+// dagNodeParams 是定位 DAG 节点的 RPC 入参。
 type dagNodeParams struct {
 	DagKey  string `json:"dag_key"`
 	NodeKey string `json:"node_key"`
 }
 
-// UnmarshalJSON 解码JSON。
+// UnmarshalJSON 兼容 dag/node key 的 snake_case 和 camelCase 命名。
 func (p *dagNodeParams) UnmarshalJSON(data []byte) error {
 	type current dagNodeParams
 	return decodeLegacyAlias(data, new(current), func(raw *current, legacy *struct {
@@ -456,6 +463,7 @@ func (p *dagNodeParams) UnmarshalJSON(data []byte) error {
 	})
 }
 
+// submitParams 是 agent/submit 与 agent/submitPrompt 共用的 RPC 入参。
 type submitParams struct {
 	AgentID string   `json:"agent_id"`
 	Prompt  string   `json:"prompt"`
@@ -469,9 +477,10 @@ type submitParams struct {
 	legacyInput json.RawMessage
 }
 
+// submitPromptParams 保留旧 agent/submitPrompt 方法的入参别名。
 type submitPromptParams = submitParams
 
-// UnmarshalJSON 解码JSON。
+// UnmarshalJSON 兼容 submit 旧 input 字段以及 selectedSkills/outputSchema camelCase 字段。
 func (p *submitParams) UnmarshalJSON(data []byte) error {
 	type current submitParams
 	return decodeLegacyAlias(data, new(current), func(raw *current, legacy *struct {
@@ -499,12 +508,13 @@ func (p *submitParams) UnmarshalJSON(data []byte) error {
 	})
 }
 
+// reportParams 是旧 orchestration/report RPC 的入参。
 type reportParams struct {
 	AgentID string `json:"agent_id"`
 	Report  string `json:"report,omitempty"`
 }
 
-// UnmarshalJSON 解码JSON。
+// UnmarshalJSON 兼容 report RPC 的 agent_id 和 agentId。
 func (p *reportParams) UnmarshalJSON(data []byte) error {
 	type current reportParams
 	return decodeLegacyAlias(data, new(current), func(raw *current, legacy *struct {
@@ -518,12 +528,13 @@ func (p *reportParams) UnmarshalJSON(data []byte) error {
 	})
 }
 
+// rememberReportRequestParams 是 report requester 记录 RPC 的 wire 入参。
 type rememberReportRequestParams struct {
 	AgentID     string `json:"worker_id"`
 	RequesterID string `json:"sender_id"`
 }
 
-// UnmarshalJSON 解码JSON。
+// UnmarshalJSON 兼容 worker/sender 命名和 agent/requester 命名。
 func (p *rememberReportRequestParams) UnmarshalJSON(data []byte) error {
 	type current rememberReportRequestParams
 	return decodeLegacyAlias(data, new(current), func(raw *current, legacy *struct {
@@ -543,6 +554,7 @@ func (p *rememberReportRequestParams) UnmarshalJSON(data []byte) error {
 	})
 }
 
+// reportEventParams 是 provider/hook report event RPC 的 wire 入参。
 type reportEventParams struct {
 	AgentID   string          `json:"agent_id"`
 	Report    string          `json:"report,omitempty"`
@@ -550,7 +562,7 @@ type reportEventParams struct {
 	EventData json.RawMessage `json:"event_data,omitempty"`
 }
 
-// UnmarshalJSON 解码JSON。
+// UnmarshalJSON 兼容 report event 的 snake_case 与 camelCase 字段名。
 func (p *reportEventParams) UnmarshalJSON(data []byte) error {
 	type current reportEventParams
 	return decodeLegacyAlias(data, new(current), func(raw *current, legacy *struct {

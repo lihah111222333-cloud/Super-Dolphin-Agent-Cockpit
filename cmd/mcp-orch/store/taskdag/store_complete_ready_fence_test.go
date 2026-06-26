@@ -10,18 +10,12 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/sqlc"
 )
 
-// TestCompleteTaskDagNode_FenceAcceptsReadyRunningAwaitingVerify locks in the
-// ADR-017 v1.2 搂2.3 fence relaxation. CompleteTaskDagNode previously matched
-// IN ('running','awaiting_verify'); subscriber race A (TurnCompleted before
-// dispatchAgent flips ready鈫抮unning) silently produced 0 rows. The fix
-// extends the fence to IN ('ready','running','awaiting_verify').
+// TestCompleteTaskDagNode_FenceAcceptsReadyRunningAwaitingVerify 锁定 CompleteTaskDagNode 的状态围栏。
+// TurnCompleted 可能先于 dispatchAgent 把 ready 切到 running，因此 done 写入必须接受
+// ready、running 和 awaiting_verify；pending、done、failed 仍要被拒绝，避免越过生命周期边界。
 //
-// This test asserts:
-//   - ready 鈫?done succeeds (new path, race A);
-//   - running 鈫?done succeeds (legacy path, unchanged);
-//   - awaiting_verify 鈫?done succeeds (legacy path, unchanged);
-//   - pending 鈫?done is still rejected (fence retains lower bound);
-//   - done 鈫?done is still rejected (fence retains upper bound).
+// 该表驱动测试同时覆盖 ready/running/awaiting_verify 到 done 的成功路径，
+// 以及 pending、done、failed 被围栏拒绝的下界和上界。
 func TestCompleteTaskDagNode_FenceAcceptsReadyRunningAwaitingVerify(t *testing.T) {
 	t.Parallel()
 

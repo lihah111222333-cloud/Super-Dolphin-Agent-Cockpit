@@ -51,7 +51,8 @@ type RawMessage struct {
 	Params json.RawMessage
 }
 
-// ThreadID 处理线程ID。
+// ThreadID 从 JSON-RPC 参数中提取 provider threadID。
+// RawMessage 可能来自普通 RPC 或 rollout frame，缺参数时返回空字符串供上层忽略。
 func (m RawMessage) ThreadID() string {
 	if len(m.Params) == 0 {
 		return ""
@@ -121,9 +122,7 @@ func jsonRPCIDKey(raw json.RawMessage) string {
 func (t *transport) connectOnce(ctx context.Context) error {
 	dialer := websocket.Dialer{
 		HandshakeTimeout: 5 * time.Second,
-		// Bypass local proxy for 127.0.0.1 connections. Without this,
-		// HTTP_PROXY / HTTPS_PROXY env vars cause localhost WS dials
-		// to route through the proxy and timeout or fail.
+		// 本地 WebSocket 必须绕过 HTTP 代理，否则 localhost 连接会被代理环境变量劫持。
 		Proxy: nil,
 	}
 	conn, _, err := dialer.DialContext(ctx, t.serverURL, nil)
@@ -172,7 +171,8 @@ func (t *transport) sendInitializeRequest(id int64) error {
 	})
 }
 
-// awaitInitialize 等待 Codex app 初始化完成。
+// awaitInitialize 在 initialize 响应到达前持续读取握手期消息。
+// 读取到其他消息时仍会派发给 transport 处理，保证 pending call 能被正确唤醒。
 func (t *transport) awaitInitialize(ctx context.Context, ws *websocket.Conn, pc *pendingCall) error {
 	defer func() { _ = ws.SetReadDeadline(time.Time{}) }()
 	for {
@@ -207,7 +207,7 @@ func (t *transport) readInitializeMessage(ctx context.Context, ws *websocket.Con
 		return err
 	}
 	t.captureInitializeCodexHome(data)
-	// P15 debug: log the initialize response to verify experimentalApi accepted
+	// initialize 响应包含 app-server 端能力和 home，保留短日志方便排查握手差异。
 	if len(data) < 2000 {
 		pkglogger.Info("codexapp: initialize response", "data", string(data))
 	} else {
@@ -217,7 +217,8 @@ func (t *transport) readInitializeMessage(ctx context.Context, ws *websocket.Con
 	return nil
 }
 
-// captureInitializeCodexHome 处理captureinitializecodexhome。
+// captureInitializeCodexHome 从 initialize 响应中记录 provider 实际使用的 Codex home。
+// 该值用于诊断身份路由，解析失败或字段缺失时不影响握手继续。
 func (t *transport) captureInitializeCodexHome(data []byte) {
 	if t == nil || len(data) == 0 {
 		return
@@ -273,7 +274,8 @@ func (t *transport) notifyDirect(method string, params any) error {
 	}{JSONRPC: "2.0", Method: method, Params: sanitizeProviderPayload(method, params)})
 }
 
-// endReadLoop 处理endreadloop。
+// endReadLoop 统一收口 ReadLoop 退出路径。
+// 预期退出只记 info；非预期退出会失败所有 pending RPC 并通知 session 连接已断。
 func (t *transport) endReadLoop(ctx context.Context, handler any, ws *websocket.Conn, err error, message string) bool {
 	superseded := t.readSocketSuperseded(ws)
 	closed := t.closed.Load()
@@ -361,7 +363,8 @@ func invokeReadHandler(ctx context.Context, resp Responder, msg RawMessage, hand
 	}
 }
 
-// RespondWithID 处理带ID的respond。
+// RespondWithID 回复 provider 主动发来的 JSON-RPC 请求。
+// callErr 会按 JSON-RPC error 返回，未知方法映射为 -32601，避免 provider 等待超时。
 func (t *transport) RespondWithID(id json.RawMessage, result any, callErr error) error {
 	if len(id) == 0 {
 		return errors.New("codexapp: response id is required")
@@ -439,7 +442,8 @@ func (t *transport) closeSocket() {
 	t.ws = nil
 }
 
-// codexReleaseAPIRequestURL 处理codexreleaseAPI请求URL。
+// codexReleaseAPIRequestURL 返回允许访问的 Codex release API 地址。
+// 非官方地址必须显式标记为 trusted mirror，且只能使用 HTTPS 或 loopback HTTP。
 func codexReleaseAPIRequestURL() (string, error) {
 	rawURL := strings.TrimSpace(os.Getenv(codexReleaseAPIURLEnv))
 	if rawURL == "" {
@@ -508,7 +512,8 @@ func ensureResolvedCodexProviderHome(selection codexProviderHomeSelection) (home
 	return home, normalizedExplicitProviderHome(selection.mirrorHomeRequest, home), nil
 }
 
-// validateAppManagedRelayLaunchEnv 校验appmanagedrelay启动env。
+// validateAppManagedRelayLaunchEnv 校验 app-managed Codex relay 启动环境。
+// 特权 API key 不能继承给 provider；baseURL 与 bootstrap token 必须成对出现。
 func validateAppManagedRelayLaunchEnv() error {
 	if strings.TrimSpace(os.Getenv("SUPER_DOLPHIN_CODEX_RELAY_API_KEY")) != "" {
 		return errors.New("app-managed Codex relay config: SUPER_DOLPHIN_CODEX_RELAY_API_KEY is privileged and must not be inherited by app-managed launches")
@@ -528,7 +533,8 @@ func validateAppManagedRelayLaunchEnv() error {
 	return errors.Join(problems...)
 }
 
-// selectCodexProviderHome 选择codexproviderhome。
+// selectCodexProviderHome 决定 Codex provider 使用 app-managed home 还是用户 home。
+// 打包运行时默认走 app-managed；显式默认 CLI home 会保持旧行为，不创建额外 mirror home。
 func selectCodexProviderHome(rawHome string) (codexProviderHomeSelection, error) {
 	packaged, err := providershared.PackagedRuntimeFromEnv()
 	if err != nil {

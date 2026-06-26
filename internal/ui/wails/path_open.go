@@ -10,6 +10,7 @@ import (
 	"strings"
 )
 
+// pathOpenResult 是 ui/path/open 返回给前端的打开结果。
 type pathOpenResult struct {
 	Ok        bool   `json:"ok"`
 	Opened    bool   `json:"opened"`
@@ -68,6 +69,7 @@ func resolvePathOpenTarget(ctx context.Context, raw string, roots []string) (sco
 	return matches[0], info, nil
 }
 
+// matchExistingPathOpenTarget 在允许的根目录中匹配已存在的绝对路径。
 func matchExistingPathOpenTarget(raw string, roots []string) (scopedPath, os.FileInfo, error) {
 	absPath, err := filepath.Abs(strings.TrimSpace(raw))
 	if err != nil {
@@ -87,6 +89,7 @@ func matchExistingPathOpenTarget(raw string, roots []string) (scopedPath, os.Fil
 	return scopedPath{}, nil, lastErr
 }
 
+// firstExistingRelativePathOpenTarget 在多个根目录中查找第一个已存在的相对路径。
 func firstExistingRelativePathOpenTarget(raw string, roots []string) (scopedPath, os.FileInfo, bool) {
 	for _, root := range roots {
 		target, info, err := existingScopedPathCandidate(root, filepath.Join(root, raw))
@@ -97,6 +100,7 @@ func firstExistingRelativePathOpenTarget(raw string, roots []string) (scopedPath
 	return scopedPath{}, nil, false
 }
 
+// existingScopedPathCandidate 校验候选路径存在且仍落在项目根内。
 func existingScopedPathCandidate(root, candidate string) (scopedPath, os.FileInfo, error) {
 	absPath, err := filepath.Abs(candidate)
 	if err != nil {

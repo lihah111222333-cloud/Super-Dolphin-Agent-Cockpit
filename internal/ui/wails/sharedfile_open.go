@@ -15,16 +15,22 @@ import (
 	sharedfilepath "github.com/anthropic-ai/super-agent-v3/internal/platform/sharedfilepath"
 )
 
+// openSharedFileParams 是 ui/sharedFile/open 的请求参数。
+// Path 使用 shared file 相对路径 wire 格式，不能直接接受任意本地绝对路径。
 type openSharedFileParams struct {
 	Path string `json:"path"`
 	clientMetaParams
 }
 
+// openSharedFileResult 是 shared file 打开请求的返回载荷。
+// Path 返回清理后的相对路径，避免把后端沙箱绝对路径暴露给前端。
 type openSharedFileResult struct {
 	Opened bool   `json:"opened"`
 	Path   string `json:"path"`
 }
 
+// handleOpenSharedFile 校验 shared file 路径并交给系统默认程序打开。
+// 任何越界、非普通文件或系统打开失败都会返回错误，不做静默成功。
 func handleOpenSharedFile(
 	ctx context.Context,
 	app *App,
@@ -48,12 +54,15 @@ func handleOpenSharedFile(
 	return openSharedFileResult{Opened: true, Path: cleaned}, nil
 }
 
+// resolveSharedFileOpenPath 返回 shared file 的绝对路径，供测试和 handler 复用。
+// 安全校验集中在 WithCleanPath 版本，避免测试绕过 shared file 路径策略。
 func resolveSharedFileOpenPath(projectRoot, rawPath string) (string, error) {
 	abs, _, err := resolveSharedFileOpenPathWithCleanPath(projectRoot, rawPath)
 	return abs, err
 }
 
-// resolveSharedFileOpenPathWithCleanPath 解析带clean路径的shared文件打开路径。
+// resolveSharedFileOpenPathWithCleanPath 解析 shared file 路径并返回清理后的相对路径。
+// 解析过程同时校验项目根、shared path 规则、真实路径和普通文件类型。
 func resolveSharedFileOpenPathWithCleanPath(projectRoot, rawPath string) (string, string, error) {
 	root := strings.TrimSpace(projectRoot)
 	if root == "" {
@@ -78,7 +87,7 @@ func resolveSharedFileOpenPathWithCleanPath(projectRoot, rawPath string) (string
 	return abs, cleaned, nil
 }
 
-// lstatSharedFileOpenPath 处理lstatshared文件打开路径。
+// lstatSharedFileOpenPath 逐级 lstat shared file 路径，拒绝根目录或中间路径 symlink。
 func lstatSharedFileOpenPath(sandboxRoot, cleaned, abs string) (os.FileInfo, error) {
 	current := filepath.Clean(sandboxRoot)
 	rootInfo, err := os.Lstat(current)
@@ -107,7 +116,7 @@ func lstatSharedFileOpenPath(sandboxRoot, cleaned, abs string) (os.FileInfo, err
 	return os.Lstat(abs)
 }
 
-// openSharedFileWithSystemDefault 打开带systemdefault的shared文件。
+// openSharedFileWithSystemDefault 使用当前系统默认程序打开文件。
 func openSharedFileWithSystemDefault(path string) error {
 	if strings.TrimSpace(path) == "" {
 		return errors.New("shared file open: resolved path is required")

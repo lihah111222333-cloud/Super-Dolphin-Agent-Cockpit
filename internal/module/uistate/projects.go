@@ -15,7 +15,7 @@ type ProjectsState struct {
 	Active   string   `json:"active"`
 }
 
-// GetProjects 读取projects。
+// GetProjects 从 UI 偏好中读取项目列表和当前 active 项目。
 func (s *service) GetProjects(ctx context.Context) (*ProjectsState, error) {
 	prefs, err := s.GetPreferences(ctx)
 	if err != nil {
@@ -24,14 +24,15 @@ func (s *service) GetProjects(ctx context.Context) (*ProjectsState, error) {
 	return buildProjectsState(prefs), nil
 }
 
-// SetActiveProject 设置active项目。
+// SetActiveProject 切换当前 active 项目，并用 projectsMu 串行化偏好写入。
 func (s *service) SetActiveProject(ctx context.Context, path string) (*ProjectsState, error) {
 	s.projectsMu.Lock()
 	defer s.projectsMu.Unlock()
 	return s.setActiveProjectLocked(ctx, path)
 }
 
-// setActiveProjectLocked 设置active项目locked。
+// setActiveProjectLocked 在持锁状态下更新 active 项目。
+// 未注册或空路径会回到 "."，避免前端持有不可达项目引用。
 func (s *service) setActiveProjectLocked(ctx context.Context, path string) (*ProjectsState, error) {
 	state, err := s.GetProjects(ctx)
 	if err != nil {
@@ -51,14 +52,14 @@ func (s *service) setActiveProjectLocked(ctx context.Context, path string) (*Pro
 	return cloneProjectsState(*state), nil
 }
 
-// AddProject 添加项目。
+// AddProject 解析并加入项目目录，重复或当前目录不会产生新偏好写入。
 func (s *service) AddProject(ctx context.Context, path string) (*ProjectsState, error) {
 	s.projectsMu.Lock()
 	defer s.projectsMu.Unlock()
 	return s.addProjectLocked(ctx, path)
 }
 
-// addProjectLocked 添加项目locked。
+// addProjectLocked 在持锁状态下追加项目目录，并在路径非法时返回错误。
 func (s *service) addProjectLocked(ctx context.Context, path string) (*ProjectsState, error) {
 	state, err := s.GetProjects(ctx)
 	if err != nil {
@@ -78,14 +79,15 @@ func (s *service) addProjectLocked(ctx context.Context, path string) (*ProjectsS
 	return cloneProjectsState(*state), nil
 }
 
-// RemoveProject 移除项目。
+// RemoveProject 从偏好中移除项目，并在必要时重置 active 项目。
 func (s *service) RemoveProject(ctx context.Context, path string) (*ProjectsState, error) {
 	s.projectsMu.Lock()
 	defer s.projectsMu.Unlock()
 	return s.removeProjectLocked(ctx, path)
 }
 
-// removeProjectLocked 移除项目locked。
+// removeProjectLocked 在持锁状态下删除项目目录。
+// 删除当前 active 项目时会回到 "."，保持前端 active 字段始终可消费。
 func (s *service) removeProjectLocked(ctx context.Context, path string) (*ProjectsState, error) {
 	state, err := s.GetProjects(ctx)
 	if err != nil {
@@ -143,7 +145,8 @@ func normalizeProjectsState(state ProjectsState) ProjectsState {
 	return state
 }
 
-// projectPathsFromValue 从值处理项目路径。
+// projectPathsFromValue 将偏好里的 string slice 或 JSON 数组归一化成项目路径列表。
+// 空值、当前目录和重复项会被丢弃，保证写回前端的 projects 字段稳定可消费。
 func projectPathsFromValue(value any) []string {
 	switch typed := value.(type) {
 	case []string:

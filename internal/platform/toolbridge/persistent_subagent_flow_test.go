@@ -17,8 +17,8 @@ import (
 	threadstore "github.com/anthropic-ai/super-agent-v3/internal/store/thread"
 )
 
-// testThreadConfigOverrideStore adapts threadstore.Store into the narrow
-// ThreadConfigOverrideStore port for test fixtures.
+// testThreadConfigOverrideStore 把完整 threadstore.Store 收窄成 handler 只需要的 ConfigOverride 读取口。
+// 测试用这个适配器确保 toolbridge 不依赖 thread store 的其他写入能力。
 type testThreadConfigOverrideStore struct {
 	inner threadstore.Store
 }
@@ -222,9 +222,7 @@ func TestPersistentSubagentDefaultFlow_StartFiltersSpawnAgentAndToolbridgeBlocks
 		t.Fatal("Callback() should not be invoked when spawn_agent is blocked")
 		return nil
 	}}})
-	// P22 P4 S3d: wrap the full threadstore.Store fixture through a
-	// narrow port adapter so h.threadStore (ThreadConfigOverrideStore)
-	// receives only the ConfigOverride bytes the handler actually reads.
+	// handler 只需要读取 ConfigOverride，因此这里用窄口适配器包住完整 thread store fixture。
 	h.threadStore = testThreadConfigOverrideStore{inner: store}
 	h.cfg = cfg
 

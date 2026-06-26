@@ -193,9 +193,8 @@ func TestPendingHooks_NoPending(t *testing.T) {
 	}, &jrpcserver.LocalOptions{Server: &jrpc2.ServerOptions{}})
 	defer local.Close()
 
-	// P22 P4 S5b / plan §316: boot.AgentID is no longer consulted by
-	// PendingHooks. Use cfg.AgentID as the authoritative identity
-	// source to match the fail-closed contract.
+	// PendingHooks 只信任 cfg.AgentID，不再读取 boot.AgentID。
+	// 这样缺少权威身份时会 fail-closed，避免用启动负载里的旧值冒充当前 agent。
 	client := &Client{
 		conn: local.Client,
 		cfg:  Config{AgentID: "agent-2"},

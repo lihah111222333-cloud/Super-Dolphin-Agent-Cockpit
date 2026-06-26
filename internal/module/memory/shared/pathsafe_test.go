@@ -88,11 +88,8 @@ func newTestMemoryRoot(t *testing.T) string {
 	return filepath.Join(t.TempDir(), "memory-root")
 }
 
-// Phase 2.1.AB.1: direct coverage of the canonical SafeReadEntrypoint
-// failure modes. Existing tests in the main memory package exercise
-// SafeReadEntrypoint indirectly via the (now-removed) wrapper; these
-// pin the sentinel-error contract at the helper level so future
-// refactors must preserve it.
+// SafeReadEntrypoint 的直接用例固定入口文件读取的错误分类。
+// 这些测试绕过上层 memory 包，确保 helper 自身在缺失、越界、目录和权限场景下保持 sentinel 错误。
 
 func TestSafeReadEntrypointReadsInRootFile(t *testing.T) {
 	root := t.TempDir()
@@ -167,20 +164,14 @@ func TestSafeReadEntrypointReturnsBrokenLinkForDanglingSymlink(t *testing.T) {
 		t.Skipf("symlink unsupported: %v", err)
 	}
 	_, _, err := shared.SafeReadEntrypoint(root, link)
-	// Dangling symlink: EvalSymlinks fails with os.ErrNotExist, which we
-	// classify as NotFound (not BrokenLink) since it is operationally
-	// indistinguishable from a missing file at the symlink target. This
-	// pins that classification.
+	// 悬空软链解析到 os.ErrNotExist 时按 NotFound 处理；对调用方来说它等价于目标文件缺失。
 	if !errors.Is(err, shared.ErrSafeReadNotFound) {
 		t.Fatalf("err = %v, want ErrSafeReadNotFound for dangling symlink", err)
 	}
 }
 
 func TestSafeReadEntrypointAcceptsSymlinkedRoot(t *testing.T) {
-	// The root itself is supplied as a symlink: SafeReadEntrypoint must
-	// EvalSymlinks the root before doing the containment compare so the
-	// resolved candidate stays inside the resolved root. Without this
-	// the in-root file would be falsely rejected as out-of-scope.
+	// root 本身是软链时要先解析真实路径再做包含性比较，避免合法入口文件被误判为越界。
 	realRoot := t.TempDir()
 	index := filepath.Join(realRoot, "MEMORY.md")
 	if err := os.WriteFile(index, []byte("- entry\n"), 0o644); err != nil {
@@ -200,10 +191,8 @@ func TestSafeReadEntrypointAcceptsSymlinkedRoot(t *testing.T) {
 }
 
 func TestSafeReadEntrypointRejectsParentDirSymlinkEscape(t *testing.T) {
-	// A parent directory that is a symlink pointing OUTSIDE the
-	// nominal root must be rejected by containment. This pins the
-	// non-symlink branch of SafeReadEntrypoint where the helper
-	// resolves filepath.Dir(indexPath) and re-joins Base(indexPath).
+	// 父目录软链指向 root 外部时必须被包含性检查拒绝。
+	// 这里覆盖 indexPath 本身不是软链、但其父目录需要解析的分支。
 	jail := t.TempDir()
 	outside := t.TempDir()
 	if err := os.WriteFile(filepath.Join(outside, "MEMORY.md"), []byte("exfil"), 0o644); err != nil {
@@ -213,9 +202,7 @@ func TestSafeReadEntrypointRejectsParentDirSymlinkEscape(t *testing.T) {
 	if err := os.Symlink(outside, parentLink); err != nil {
 		t.Skipf("symlink unsupported: %v", err)
 	}
-	// indexPath itself is NOT a symlink (it's a regular file under the
-	// symlinked parent), so the helper takes the EvalSymlinks(Dir)
-	// branch and the resolved candidate ends up under `outside`.
+	// indexPath 本身不是软链；解析父目录后候选路径会落到 outside。
 	_, _, err := shared.SafeReadEntrypoint(jail, filepath.Join(parentLink, "MEMORY.md"))
 	if !errors.Is(err, shared.ErrSafeReadContainment) {
 		t.Fatalf("err = %v, want ErrSafeReadContainment", err)
@@ -223,11 +210,8 @@ func TestSafeReadEntrypointRejectsParentDirSymlinkEscape(t *testing.T) {
 }
 
 func TestSafeReadEntrypointBrokenLinkSentinelWrapsCause(t *testing.T) {
-	// Phase 2.1.AB.2: when EvalSymlinks fails with a non-ENOENT cause,
-	// the helper returns ErrSafeReadBrokenLink AND keeps the underlying
-	// cause in the errors chain via fmt.Errorf("%w: ...: %w", ...).
-	// A symlink loop reliably triggers a non-ENOENT EvalSymlinks error
-	// (typically ELOOP / "too many links") on POSIX.
+	// EvalSymlinks 因非 ENOENT 原因失败时，helper 应返回 ErrSafeReadBrokenLink 并保留底层错误。
+	// 软链环在 POSIX 上可稳定触发这类错误。
 	root := t.TempDir()
 	loopA := filepath.Join(root, "a")
 	loopB := filepath.Join(root, "b")
@@ -241,10 +225,7 @@ func TestSafeReadEntrypointBrokenLinkSentinelWrapsCause(t *testing.T) {
 	if !errors.Is(err, shared.ErrSafeReadBrokenLink) {
 		t.Fatalf("err = %v, want ErrSafeReadBrokenLink for symlink loop", err)
 	}
-	// Confirm the chain has multi-wrap structure (two %w verbs in
-	// fmt.Errorf) so the underlying EvalSymlinks cause is reachable
-	// alongside the sentinel. Single-wrap would not satisfy the
-	// multi-Unwrap interface.
+	// 错误链必须同时暴露 sentinel 和底层 EvalSymlinks 原因，便于调用方用 errors.Is 精确分类。
 	multi, ok := err.(interface{ Unwrap() []error })
 	if !ok {
 		t.Fatalf("err type = %T, want multi-wrap (Unwrap() []error). err = %v", err, err)
@@ -303,22 +284,14 @@ func testSafeReadEntrypointReturnsPermissionForUnreadableFileWindows(t *testing.
 	}
 }
 
-// TestSafeReadEntrypointBrokenLinkPermissionUnwrapsCause verifies that when
-// EvalSymlinks fails with EACCES (not ENOENT) while resolving a symlink
-// target, the returned error chain still satisfies
-// errors.Is(err, os.ErrPermission) through the double-%w wrap in
-// safeReadBrokenLinkOrNotFound. Regression guard: the previous coverage
-// (TestSafeReadEntrypointBrokenLinkSentinelWrapsCause) only exercised the
-// symlink-loop variant (ELOOP), leaving permission propagation through the
-// broken-link wrap silently dependent on the OS error implementing Is.
+// TestSafeReadEntrypointBrokenLinkPermissionUnwrapsCause 验证软链目标解析遇到 EACCES 时，
+// 返回错误既能命中 ErrSafeReadBrokenLink，也能通过 errors.Is 命中 os.ErrPermission。
 func TestSafeReadEntrypointBrokenLinkPermissionUnwrapsCause(t *testing.T) {
 	if os.Geteuid() == 0 {
 		t.Skip("root bypasses unix directory mode permission checks")
 	}
 	root := t.TempDir()
-	// Stage a real file behind an unreadable directory; the symlink leg
-	// stays inside root so containment passes, but EvalSymlinks must
-	// traverse the locked directory and fail with EACCES.
+	// 软链仍指向 root 内部，但目标父目录不可读；包含性检查通过后 EvalSymlinks 会因权限失败。
 	locked := filepath.Join(root, "locked")
 	if err := os.Mkdir(locked, 0o755); err != nil {
 		t.Fatalf("seed dir: %v", err)
@@ -331,8 +304,7 @@ func TestSafeReadEntrypointBrokenLinkPermissionUnwrapsCause(t *testing.T) {
 	if err := os.Symlink(actual, linkPath); err != nil {
 		t.Skipf("symlink unsupported: %v", err)
 	}
-	// Strip exec bit on the parent so EvalSymlinks(linkPath) returns
-	// EACCES while trying to resolve the target component.
+	// 移除父目录执行位，让 EvalSymlinks(linkPath) 在解析目标组件时返回 EACCES。
 	if err := os.Chmod(locked, 0o000); err != nil {
 		t.Fatalf("lock dir: %v", err)
 	}

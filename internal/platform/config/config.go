@@ -13,7 +13,7 @@ import (
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
-// Type aliases – canonical definitions live in contract.
+// 这些别名保留 platform/config 的旧导入面；字段定义以 internal/contract 为准。
 type (
 	Config       = contract.Config
 	SkillConfig  = contract.SkillConfig
@@ -115,6 +115,8 @@ func loadDotEnv(projectRoot string) error {
 	return applyDotEnv(os.Setenv, path, string(content), packaged)
 }
 
+// applyDotEnv 将 .env 内容写入当前进程环境，已有环境变量保持调用方显式配置优先。
+// strict 为真时解析错误会阻断启动，用于打包运行时避免静默忽略坏配置。
 func applyDotEnv(setenv func(string, string) error, path, content string, strict bool) error {
 	for i, line := range strings.Split(content, "\n") {
 		key, value, ok, err := parseDotEnvLineStrict(line, i+1)
@@ -142,6 +144,8 @@ func parseDotEnvLine(line string) (string, string, bool) {
 	return key, value, ok
 }
 
+// parseDotEnvLineStrict 解析单行 key=value，并返回空行或注释行的跳过标记。
+// lineNumber 只用于错误定位，调用方决定解析失败是阻断启动还是兼容跳过。
 func parseDotEnvLineStrict(line string, lineNumber int) (string, string, bool, error) {
 	line = strings.TrimSpace(line)
 	if line == "" || strings.HasPrefix(line, "#") {
@@ -180,12 +184,8 @@ func hasPackagedRuntimeManifest(projectRoot string) (bool, error) {
 	return false, fmt.Errorf("inspect packaged runtime manifest %s: %s", redactPath(path), securefs.SafeErrorForPath(err, path))
 }
 
-// exportRPCAddrIfMissing sets GO_AGENT_CTL_RPC_ADDR in the process environment
-// when neither the canonical nor legacy env var is present. This ensures that
-// normalizeManifestEnv (dto/provider/manifest.go) can propagate the resolved
-// RPC address to MCP child processes (mcp-orch, mcp-lsp) automatically.
-// Without this, mcp-orch falls back to localLauncher and spawns the desktop
-// binary as a subprocess, which crashes immediately.
+// exportRPCAddrIfMissing 在进程环境中补齐 GO_AGENT_CTL_RPC_ADDR。
+// 只有规范环境变量和兼容旧变量都为空时才写入，确保 MCP 子进程继承已解析的 RPC 地址。
 func exportRPCAddrIfMissing(setenv func(string, string) error, addr string) error {
 	if strings.TrimSpace(os.Getenv("GO_AGENT_CTL_RPC_ADDR")) != "" {
 		return nil
@@ -199,7 +199,8 @@ func exportRPCAddrIfMissing(setenv func(string, string) error, addr string) erro
 	return nil
 }
 
-// resolveProjectRoot 解析项目根目录。
+// resolveProjectRoot 解析运行时项目根目录。
+// PROJECT_ROOT 优先；打包二进制只接受带 SQLite migrations 的安装根，否则回退到当前工作目录。
 func resolveProjectRoot() string {
 	if root := strings.TrimSpace(os.Getenv("PROJECT_ROOT")); root != "" {
 		return root
@@ -224,6 +225,7 @@ func hasPackagedProjectRootMigrationsDir(root string) bool {
 }
 
 // resolveSQLitePath 解析当前运行时使用的 SQLite 数据库路径。
+// 显式环境变量必须通过校验；未显式配置时按打包模式和项目根推导默认路径。
 func resolveSQLitePath(projectRoot string) (string, error) {
 	publicRaw, hasPublic := os.LookupEnv(contract.SQLitePathEnvKey)
 	internalRaw, hasInternal := os.LookupEnv(contract.InternalSQLitePathEnvKey)
@@ -248,6 +250,8 @@ func resolveSQLitePath(projectRoot string) (string, error) {
 	return validateSQLitePath(filepath.Join(home, "super-dolphin.db"), "")
 }
 
+// resolveExplicitSQLitePath 校验公开和内部 SQLite 路径环境变量，并拒绝两者指向不同数据库。
+// 返回值已经过清理和父目录检查，可直接交给数据库初始化流程。
 func resolveExplicitSQLitePath(publicRaw string, hasPublic bool, internalRaw string, hasInternal bool) (string, error) {
 	publicPath := ""
 	if hasPublic {
@@ -276,6 +280,7 @@ func resolveExplicitSQLitePath(publicRaw string, hasPublic bool, internalRaw str
 	return internalPath, nil
 }
 
+// validateSQLitePath 规范化 SQLite 数据库路径，并在路径为空、指向目录或父目录不可用时立即报错。
 func validateSQLitePath(path string, explicitKey string) (string, error) {
 	path = strings.TrimSpace(path)
 	if path == "" {
@@ -285,18 +290,20 @@ func validateSQLitePath(path string, explicitKey string) (string, error) {
 		return "", fmt.Errorf("resolved SQLite path is empty")
 	}
 	clean := filepath.Clean(path)
+	parent := filepath.Dir(clean)
+	if err := validateSQLiteParent(clean, parent); err != nil {
+		return "", err
+	}
 	if info, err := os.Stat(clean); err == nil && info.IsDir() {
 		return "", fmt.Errorf("SQLite database path points to a directory: %s", redactPath(clean))
 	} else if err != nil && !os.IsNotExist(err) {
 		return "", fmt.Errorf("inspect SQLite database path %s: %s", redactPath(clean), securefs.SafeErrorForPath(err, clean))
 	}
-	parent := filepath.Dir(clean)
-	if err := validateSQLiteParent(clean, parent); err != nil {
-		return "", err
-	}
 	return clean, nil
 }
 
+// validateSQLiteParent 检查 SQLite 父目录的类型、权限和可写性。
+// 父目录尚不存在时允许后续数据库打开流程创建，但已存在目录必须满足 owner-only 约束。
 func validateSQLiteParent(dbPath, parent string) error {
 	if parent == "." || strings.TrimSpace(parent) == "" {
 		return fmt.Errorf("SQLite database path must include a parent directory: %s", redactPath(dbPath))
@@ -320,6 +327,8 @@ func validateSQLiteParent(dbPath, parent string) error {
 	return nil
 }
 
+// resolvePackagedSQLiteHome 根据平台解析打包应用的 SQLite 数据目录。
+// 必要的用户目录环境缺失时直接返回错误，避免把数据库落到不可预期的位置。
 func resolvePackagedSQLiteHome(goos string, getenv func(string) string, userHomeDir func() (string, error)) (string, error) {
 	switch goos {
 	case "windows":
@@ -349,7 +358,8 @@ func redactPath(path string) string {
 	return securefs.RedactPath(path)
 }
 
-// SharedFileRoot 返回 shared file 存储根目录。
+// SharedFileRoot 返回 shared file 存储根目录，并确保目录在首次使用前存在。
+// 配置为空时回落到 SQLite 数据库旁的 shared-files 目录，保持本地数据同根。
 func SharedFileRoot(cfg *Config) (string, error) {
 	if strings.EqualFold(strings.TrimSpace(os.Getenv("SUPER_DOLPHIN_RUNTIME_MODE")), "packaged") {
 		root := strings.TrimSpace(os.Getenv("SUPER_DOLPHIN_HOME"))

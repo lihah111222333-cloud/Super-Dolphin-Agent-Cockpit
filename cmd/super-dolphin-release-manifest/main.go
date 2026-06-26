@@ -16,6 +16,7 @@ import (
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
+// manifestFlags 保存发布 manifest 命令行参数。
 type manifestFlags struct {
 	artifact       string
 	artifactURL    string
@@ -33,6 +34,7 @@ type manifestFlags struct {
 	notes          string
 }
 
+// main 是 release manifest CLI 入口。
 func main() {
 	pkglogger.InitWithConsoleWriter(os.Stderr)
 	if err := run(os.Args[1:]); err != nil {
@@ -41,7 +43,8 @@ func main() {
 	}
 }
 
-// run 运行发布 manifest。
+// run 按模式生成、校验或检查签名 manifest。
+// check-key 和 verify-manifest 是只读校验路径，默认路径会读取 artifact 并写出签名 JSON。
 func run(args []string) error {
 	cfg, err := parseFlags(args)
 	if err != nil {
@@ -81,6 +84,7 @@ func run(args []string) error {
 	return writeSignedManifest(cfg.out, privateKey, payload)
 }
 
+// parseFlags 解析并校验发布 manifest CLI 参数。
 func parseFlags(args []string) (manifestFlags, error) {
 	var cfg manifestFlags
 	flags := flag.NewFlagSet("super-dolphin-release-manifest", flag.ContinueOnError)
@@ -111,7 +115,7 @@ func parseFlags(args []string) (manifestFlags, error) {
 	return cfg, nil
 }
 
-// requireFlagValues 处理requireflag值。
+// requireFlagValues 按当前运行模式校验必填参数。
 func requireFlagValues(cfg manifestFlags) error {
 	if cfg.checkKey {
 		return requireNamedValues(map[string]string{
@@ -145,6 +149,7 @@ func requireFlagValues(cfg manifestFlags) error {
 	return requireNamedValues(required)
 }
 
+// requireNamedValues 校验一组命名参数非空。
 func requireNamedValues(required map[string]string) error {
 	for name, value := range required {
 		if value == "" {
@@ -154,11 +159,14 @@ func requireNamedValues(required map[string]string) error {
 	return nil
 }
 
+// artifactIntegrity 保存待发布 artifact 的完整性摘要。
 type artifactIntegrity struct {
 	sha256 string
 	size   int64
 }
 
+// inspectArtifact 计算 artifact SHA-256 和大小。
+// 空文件会被拒绝，避免生成不可安装的更新 manifest。
 func inspectArtifact(path string) (artifactIntegrity, error) {
 	file, err := os.Open(path)
 	if err != nil {
@@ -179,6 +187,7 @@ func inspectArtifact(path string) (artifactIntegrity, error) {
 	}, nil
 }
 
+// readSigningKey 读取 64 字节 Ed25519 私钥。
 func readSigningKey(path string) (ed25519.PrivateKey, error) {
 	raw, err := os.ReadFile(path)
 	if err != nil {
@@ -190,6 +199,7 @@ func readSigningKey(path string) (ed25519.PrivateKey, error) {
 	return ed25519.PrivateKey(raw), nil
 }
 
+// verifySigningKeyMatchesPublicKeyPath 从文件读取私钥并校验公钥匹配。
 func verifySigningKeyMatchesPublicKeyPath(signingKeyPath, publicKeyValue string) error {
 	privateKey, err := readSigningKey(signingKeyPath)
 	if err != nil {
@@ -198,6 +208,7 @@ func verifySigningKeyMatchesPublicKeyPath(signingKeyPath, publicKeyValue string)
 	return verifySigningKeyMatchesPublicKey(privateKey, publicKeyValue)
 }
 
+// verifySigningKeyMatchesPublicKey 确认私钥派生公钥和配置公钥一致。
 func verifySigningKeyMatchesPublicKey(privateKey ed25519.PrivateKey, publicKeyValue string) error {
 	publicKey, err := decodePublicKey(publicKeyValue)
 	if err != nil {
@@ -213,6 +224,7 @@ func verifySigningKeyMatchesPublicKey(privateKey ed25519.PrivateKey, publicKeyVa
 	return nil
 }
 
+// decodePublicKey 解码 base64 Ed25519 公钥。
 func decodePublicKey(value string) (ed25519.PublicKey, error) {
 	raw, err := base64.StdEncoding.DecodeString(value)
 	if err != nil {
@@ -224,7 +236,8 @@ func decodePublicKey(value string) (ed25519.PublicKey, error) {
 	return ed25519.PublicKey(raw), nil
 }
 
-// verifyExistingManifest 验证existingmanifest。
+// verifyExistingManifest 校验现有 signed manifest 与本地 artifact 一致。
+// 它同时跑签名/版本窗口校验和 artifact URL/hash/size 校验。
 func verifyExistingManifest(cfg manifestFlags) error {
 	artifact, err := inspectArtifact(cfg.artifact)
 	if err != nil {
@@ -255,6 +268,7 @@ func verifyExistingManifest(cfg manifestFlags) error {
 	return verifyManifestArtifact(selected, artifact, cfg)
 }
 
+// verifyManifestArtifact 对比 manifest 中选中的 artifact 与本地文件。
 func verifyManifestArtifact(selected appupdate.UpdateArtifact, artifact artifactIntegrity, cfg manifestFlags) error {
 	if selected.Platform != cfg.platform {
 		return fmt.Errorf("manifest artifact platform = %q, want %q", selected.Platform, cfg.platform)
@@ -271,6 +285,7 @@ func verifyManifestArtifact(selected appupdate.UpdateArtifact, artifact artifact
 	return nil
 }
 
+// writeSignedManifest 用 canonical payload 签名并写出 latest.json。
 func writeSignedManifest(path string, privateKey ed25519.PrivateKey, payload appupdate.ManifestPayload) error {
 	canonicalPayload, err := json.Marshal(payload)
 	if err != nil {

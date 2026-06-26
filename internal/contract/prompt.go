@@ -12,13 +12,18 @@ import (
 	shareddto "github.com/anthropic-ai/super-agent-v3/internal/dto/shared"
 )
 
+// PromptRegion 复用 provider DTO 中的 prompt 分区标记，保证 contract 与 provider wire 形状一致。
 type PromptRegion = dto.PromptRegion
 
 const (
-	PromptRegionStatic  PromptRegion = dto.PromptRegionStatic
+	// PromptRegionStatic 表示可进入缓存前缀的稳定 prompt 片段。
+	PromptRegionStatic PromptRegion = dto.PromptRegionStatic
+	// PromptRegionDynamic 表示每轮需要重新拼接的动态 prompt 片段。
 	PromptRegionDynamic PromptRegion = dto.PromptRegionDynamic
 )
 
+// MCPSnapshot 是 prompt 拼装时看到的 MCP 服务、工具和指令快照。
+// 该结构只承载已解析结果，调用方负责在进入 prompt 边界前完成发现和过滤。
 type MCPSnapshot struct {
 	Servers                  []string
 	Tools                    []string
@@ -55,11 +60,14 @@ type DatasourceDocumentStore interface {
 	DeleteDocument(context.Context, string, string) error
 }
 
+// MCPAttachmentRef 描述 MCP 指令附件的名称与 URI，prompt 层只透传引用不读取正文。
 type MCPAttachmentRef struct {
 	Name string
 	URI  string
 }
 
+// OutputStyleConfig 保存 provider 输出风格的提示词和来源信息。
+// KeepCodingInstructions 为指针是为了区分未设置与显式关闭。
 type OutputStyleConfig struct {
 	Name                   string
 	Description            string
@@ -68,6 +76,8 @@ type OutputStyleConfig struct {
 	KeepCodingInstructions *bool
 }
 
+// BuildCtx 是 prompt 拼装的主上下文，汇总工作区、provider、工具、MCP 和会话状态。
+// 字段来自多个模块，新增字段时要确认快照缓存、恢复和动态 section 是否都能看到同一份数据。
 type BuildCtx struct {
 	CWD                          string
 	GitRoot                      string
@@ -85,10 +95,8 @@ type BuildCtx struct {
 	ScratchpadDir                string
 	FRCConfig                    *FRCConfig
 	KeepCodingInstructions       *bool
-	// Legacy launch-time skill selection carrier. V1 production skill
-	// discovery is provider-native mirror based, so these fields are not a
-	// prompt-catalog injection path; they are kept as additive compatibility
-	// data for older callers and diagnostics.
+	// LaunchSkill* 字段只承载启动请求中的技能选择元数据。
+	// 生产技能正文由 provider 原生镜像发现，prompt assembler 不通过这里注入技能内容。
 	LaunchSkillNames  []string
 	LaunchSkillRefs   []dto.SkillRef
 	ForceLaunchSkills bool
@@ -98,6 +106,8 @@ type BuildCtx struct {
 	SuppressedTools []string
 }
 
+// ClaudeMdSource 是从 CLAUDE.md / AGENTS.md 等规则文件解析出的 prompt 来源。
+// Origin、RuleScope 和 Digest 用于后续去重、条件规则判断和缓存失效。
 type ClaudeMdSource struct {
 	Path        string
 	Content     string
@@ -117,9 +127,11 @@ type SystemContext = dto.SystemContext
 
 type PromptAssemblyBoundary = dto.PromptAssemblyBoundary
 
+// InvalidateReason 标识 prompt 缓存失效的触发来源。
 type InvalidateReason string
 
 const (
+	// prompt 缓存失效原因常量，值需要保持稳定以便日志和测试做精确比对。
 	InvalidateClear          InvalidateReason = "clear"
 	InvalidateCompact        InvalidateReason = "compact"
 	InvalidateWorktree       InvalidateReason = "worktree"
@@ -129,6 +141,7 @@ const (
 )
 
 const (
+	// 动态 section 名称常量对应 prompt assembler 中可独立失效和重算的片段。
 	DynamicSectionSessionGuidance        = "session_guidance"
 	DynamicSectionProjectDefaultRules    = "project_default_rules"
 	DynamicSectionAvailableExperts       = "available_experts"
@@ -150,13 +163,14 @@ const (
 	DynamicSectionBrief                  = "brief"
 )
 
-// PromptAssemblySnapshotVersion bumps on cache-layout-breaking changes.
-// Version 2 (Phase 3 parity): BaseInstructions no longer embeds the per-start
-// user meta block (currentDate, runtimeExtras) nor the System Context block
-// (gitStatus). Consumers reading v1 snapshots must re-compute the assembly
-// instead of trusting the embedded hash; see prompt_snapshot resume logic.
+// PromptAssemblySnapshotVersion 标记 prompt 快照的缓存布局版本。
+// 当前布局要求用户元信息和 System Context 由 assembler 重新拼装，
+// 读取版本不匹配的快照时必须失效重算，不能复用旧 hash。
 const PromptAssemblySnapshotVersion = 2
 
+// StartInput 是创建 agent 时进入 prompt assembler 的启动参数。
+// BaseInstructions 承载单块输入，BaseInstructionBlocks 承载分区输入；
+// assembler 必须按二者的兼容规则生成同一个 provider wire 结果。
 type StartInput struct {
 	ThreadID         string
 	ParentAgentID    string
@@ -166,11 +180,8 @@ type StartInput struct {
 	Prompt           string
 	PromptKey        string
 	BaseInstructions string
-	// BaseInstructionBlocks carries ordered, region-tagged fragments sourced
-	// from prompt_template_sections. When non-empty, the assembler merges
-	// them into the resolved section list (static → CachedPrefix, dynamic →
-	// UncachedTail) instead of treating BaseInstructions as a single opaque
-	// tail block. Empty slice keeps legacy behavior (BaseInstructions only).
+	// BaseInstructionBlocks 承载有序、带 region 的 prompt 片段。
+	// 非空时 assembler 将其合并进 resolved sections；空切片表示只使用 BaseInstructions。
 	BaseInstructionBlocks        []BaseInstructionBlock
 	DeveloperInstructions        string
 	Summary                      string
@@ -189,14 +200,15 @@ type StartInput struct {
 	ScratchpadDir                string
 	FRCConfig                    *FRCConfig
 	KeepCodingInstructions       *bool
-	// Legacy launch skill selection copied from StartRequest. The current
-	// runtime does not consume it to inject skill bodies into prompt assembly;
-	// provider-native mirrors are reconciled by provider drivers instead.
+	// LaunchSkill* 保留 StartRequest 中的技能选择元数据，供审计和诊断读取。
+	// provider 驱动负责协调 provider-native mirrors，prompt 层不读取技能正文。
 	LaunchSkillNames  []string
 	LaunchSkillRefs   []dto.SkillRef
 	ForceLaunchSkills bool
 }
 
+// TurnInput 是用户后续 turn 进入 prompt assembler 的输入。
+// 它只描述本轮消息和运行时上下文，不能承担 start-only 的持久状态初始化。
 type TurnInput struct {
 	ThreadID                     string
 	Provider                     string
@@ -222,13 +234,16 @@ type TurnInput struct {
 	KeepCodingInstructions       *bool
 }
 
+// SectionContext 将通用 BuildCtx 与可选 start/turn 输入绑在一起供动态 section 读取。
+// 动态 section 必须按 nil 判断区分启动拼装和 turn 拼装。
 type SectionContext struct {
 	BuildCtx BuildCtx
 	Start    *StartInput
 	Turn     *TurnInput
 }
 
-// SectionContextCWD 处理section上下文工作目录。
+// SectionContextCWD 按 BuildCtx、StartInput、TurnInput 的优先级解析 section 工作目录。
+// 动态 section 通过它取得当前轮次的工作区，避免自行猜测 start/turn 来源。
 func SectionContextCWD(input SectionContext) string {
 	if cwd := strings.TrimSpace(input.BuildCtx.CWD); cwd != "" {
 		return cwd
@@ -244,16 +259,23 @@ func SectionContextCWD(input SectionContext) string {
 	return ""
 }
 
+// SectionComputeFunc 是动态 prompt section 的计算函数签名。
+// 返回 nil 表示本 section 在当前上下文下不注入内容，错误会阻断关键 section。
 type SectionComputeFunc func(context.Context, SectionContext) (*string, error)
 
+// CachePolicy 定义动态 section 的缓存粒度。
 type CachePolicy int
 
 const (
+	// CacheByName 表示同名 section 共享缓存。
 	CacheByName CachePolicy = iota
+	// Uncached 表示每次拼装都重新计算。
 	Uncached
+	// InputScoped 表示缓存随输入上下文变化而隔离。
 	InputScoped
 )
 
+// PromptSection 描述 prompt assembler 可排序、可缓存、可计算的一个 section。
 type PromptSection struct {
 	Name        string
 	Order       int
@@ -264,16 +286,11 @@ type PromptSection struct {
 	Compute     SectionComputeFunc
 }
 
-// BaseInstructionBlock is an ordered, region-tagged fragment coming from a
-// prompt_templates row that has been migrated to the sectioned layout. The
-// assembler converts it into a ResolvedPromptSection and appends it to the
-// resolved list; region decides whether it flows into the cached prefix or
-// the uncached tail via renderResolvedSectionsByRegion.
+// BaseInstructionBlock 是 prompt_template_sections 输入到 assembler 的有序片段。
+// assembler 会把它转成 ResolvedPromptSection；Region 决定片段进入缓存前缀还是动态尾部。
 //
-// EnableWhen carries the raw JSONB feature-gate expression (shape documented
-// by prompt.EvaluateEnableWhen). nil / empty-object means "always inject";
-// any mismatched key drops the block at merge time. Evaluation happens in
-// the assembler (not the router) because BuildCtx is only finalized there.
+// EnableWhen 保留原始 JSONB 条件表达式。nil 或空对象表示始终注入；
+// 任一条件不匹配都会在合并阶段丢弃该块，因为 BuildCtx 只有在 assembler 内才完整。
 type BaseInstructionBlock struct {
 	Key        string
 	Region     PromptRegion
@@ -282,6 +299,8 @@ type BaseInstructionBlock struct {
 	EnableWhen []byte
 }
 
+// BuiltinPromptTemplate 是内置 prompt 模板的只读注册表记录。
+// 字段保持数据库 seed 的 wire 形状，启动时据此对比并补齐缺失模板。
 type BuiltinPromptTemplate struct {
 	ID          int64
 	PromptKey   string
@@ -299,6 +318,8 @@ type BuiltinPromptTemplate struct {
 	Priority    int
 }
 
+// BuiltinPromptSection 是内置模板下的分区 prompt 片段。
+// EnableWhen 和触发字段保持原始形态，避免 contract 层提前绑定 prompt 模块实现。
 type BuiltinPromptSection struct {
 	ID          int64
 	TemplateID  int64
@@ -312,18 +333,22 @@ type BuiltinPromptSection struct {
 	RecallTopic string
 }
 
+// BuiltinPromptRegistry 暴露内置 prompt 模板与 section 的只读查询能力。
 type BuiltinPromptRegistry interface {
 	ListTemplates() []BuiltinPromptTemplate
 	GetTemplate(promptKey string) (BuiltinPromptTemplate, bool)
 	SectionsByTemplateID(templateID int64) []BuiltinPromptSection
 }
 
+// CriticalPromptSectionError 包装关键 section 的计算失败。
+// 调用方用该错误区分“必须阻断启动”和普通可跳过 section 的错误。
 type CriticalPromptSectionError struct {
 	Section string
 	Err     error
 }
 
-// NewCriticalPromptSectionError 创建criticalpromptsection错误。
+// NewCriticalPromptSectionError 为关键 prompt section 失败补充 section 名称。
+// err 为 nil 时返回 nil，避免调用方为无错误路径额外分支。
 func NewCriticalPromptSectionError(section string, err error) error {
 	if err == nil {
 		return nil
@@ -331,7 +356,7 @@ func NewCriticalPromptSectionError(section string, err error) error {
 	return CriticalPromptSectionError{Section: strings.TrimSpace(section), Err: err}
 }
 
-// Error 返回错误文本。
+// Error 返回包含 section 名称的错误文本，便于启动失败时定位阻断来源。
 func (e CriticalPromptSectionError) Error() string {
 	if e.Section == "" {
 		return fmt.Sprintf("critical prompt section failed: %v", e.Err)
@@ -339,19 +364,19 @@ func (e CriticalPromptSectionError) Error() string {
 	return fmt.Sprintf("critical prompt section %q failed: %v", e.Section, e.Err)
 }
 
-// Unwrap 返回底层错误。
+// Unwrap 暴露底层错误，允许上层通过 errors.Is/As 保留原始失败分类。
 func (e CriticalPromptSectionError) Unwrap() error {
 	return e.Err
 }
 
-// IsCriticalPromptSectionError 判断criticalpromptsection错误是否可用。
+// IsCriticalPromptSectionError 判断错误链中是否包含关键 section 失败。
 func IsCriticalPromptSectionError(err error) bool {
 	var target CriticalPromptSectionError
 	return errors.As(err, &target)
 }
 
-// PrepareBaseInstructionBlocks applies the assembler's ordering, trimming, and gates.
-// PrepareBaseInstructionBlocks 准备baseinstructionblocks。
+// PrepareBaseInstructionBlocks 按 assembler 规则排序、裁剪并应用 EnableWhen 条件。
+// 这里返回新的 slice，避免调用方传入的模板缓存被本轮用户输入污染。
 func PrepareBaseInstructionBlocks(blocks []BaseInstructionBlock, buildCtx BuildCtx, userPrompt string, enableWhenEval EnableWhenEvaluator) []BaseInstructionBlock {
 	sorted := make([]BaseInstructionBlock, len(blocks))
 	copy(sorted, blocks)
@@ -374,8 +399,8 @@ func PrepareBaseInstructionBlocks(blocks []BaseInstructionBlock, buildCtx BuildC
 	return out
 }
 
-// TextFromBaseInstructionBlocks renders the section-only text snapshot.
-// TextFromBaseInstructionBlocks 从baseinstructionblocks处理文本。
+// TextFromBaseInstructionBlocks 渲染分区块的纯文本快照。
+// 它只拼接非空正文，供缓存 hash 和兼容路径比较最终 provider 文本。
 func TextFromBaseInstructionBlocks(blocks []BaseInstructionBlock) string {
 	parts := make([]string, 0, len(blocks))
 	for _, block := range blocks {
@@ -386,56 +411,65 @@ func TextFromBaseInstructionBlocks(blocks []BaseInstructionBlock) string {
 	return strings.Join(parts, "\n\n")
 }
 
+// StartAssembly 是 provider DTO 中启动 prompt 拼装结果的 contract 别名。
 type StartAssembly = dto.StartAssembly
 
+// TurnAssembly 是 provider DTO 中 turn prompt 拼装结果的 contract 别名。
 type TurnAssembly = dto.TurnAssembly
 
+// PromptAssemblySnapshot 是 provider DTO 中可持久化 prompt 快照的 contract 别名。
 type PromptAssemblySnapshot = dto.PromptAssemblySnapshot
 
+// DynamicSectionProvider 是可注册到 prompt assembler 的动态 section 提供者。
 type DynamicSectionProvider interface {
 	SectionName() string
 	Resolve(ctx context.Context, input SectionContext) (*string, error)
 }
 
+// InvalidationAwareProvider 可在 prompt 缓存失效时同步清理自身内部缓存。
 type InvalidationAwareProvider interface {
 	OnPromptInvalidate(reason InvalidateReason)
 }
 
-// SectionInvalidator drops cached entries for the named sections, returning
-// the new generation number. Implementations MUST be safe for concurrent
-// use: callers fan out from background goroutines (auto-dream, extractor,
-// turn-tracking) without external synchronization. The shipped
-// prompt.Service implementation guards its cache with a mutex; downstream
-// implementations that wrap or replace it must preserve that guarantee.
+// SectionInvalidator 清理指定 section 的缓存并返回新的 generation。
+// 实现必须并发安全：auto-dream、extractor、turn-tracking 等后台 goroutine
+// 会无外部锁地并发触发失效，替换实现也必须保留这个保证。
 type SectionInvalidator interface {
 	InvalidateSections(reason InvalidateReason, names ...string) uint64
 }
 
+// DynamicSectionRegistrar 注册动态 section provider。
 type DynamicSectionRegistrar interface {
 	RegisterDynamicProvider(provider DynamicSectionProvider) error
 }
 
+// ClaudeMdSourceProviderRegistrar 注册 CLAUDE.md / AGENTS.md 来源提供者。
 type ClaudeMdSourceProviderRegistrar interface {
 	RegisterClaudeMdSourceProvider(provider ClaudeMdSourceProvider) error
 }
 
+// ClaudeMdSourceProvider 解析当前 BuildCtx 下适用的规则文件来源。
 type ClaudeMdSourceProvider interface {
 	ResolveClaudeMdSources(ctx context.Context, buildCtx BuildCtx) ([]ClaudeMdSource, error)
 }
 
+// TurnAttachmentProvider 基于本轮输入和规则来源解析 provider 附件。
 type TurnAttachmentProvider interface {
 	ResolveTurnAttachments(ctx context.Context, buildCtx BuildCtx, turn TurnInput, baseSources []ClaudeMdSource) ([]dto.AttachmentEnvelope, error)
 }
 
+// TurnContextPayload 是 turn 上下文拼装后的 provider 输入和附件集合。
 type TurnContextPayload struct {
 	Inputs      []shareddto.InputItem
 	Attachments []dto.AttachmentEnvelope
 }
 
+// TurnContextProvider 为指定会话和查询准备本轮 provider 上下文。
 type TurnContextProvider interface {
 	PrepareTurnContext(ctx context.Context, session Session, buildCtx BuildCtx, threadID, query string) TurnContextPayload
 }
 
+// preferredUserContextKeys 控制用户上下文块的稳定渲染顺序。
 var preferredUserContextKeys = []string{
 	"claudeMd",
 	"currentDate",
@@ -444,7 +478,8 @@ var preferredUserContextKeys = []string{
 	"runtimeExtras",
 }
 
-// FormatUserContextText 格式化user上下文文本。
+// FormatUserContextText 将 runtime user context 渲染为稳定顺序的文本块。
+// 空值会被丢弃，未知 key 会排在已知 key 后面，保证同一 payload 生成稳定 prompt。
 func FormatUserContextText(payload map[string]string) string {
 	normalized := normalizeUserContext(payload)
 	if len(normalized) == 0 {
@@ -459,7 +494,8 @@ func FormatUserContextText(payload map[string]string) string {
 	return strings.TrimSpace(strings.Join(blocks, "\n\n"))
 }
 
-// RenderUserContextMessage 渲染user上下文消息。
+// RenderUserContextMessage 生成 turn prompt 中的 system-reminder 用户上下文块。
+// 优先使用结构化 UserContext，缺失时才使用已拼好的 UserContextText。
 func RenderUserContextMessage(assembly TurnAssembly) string {
 	if text := FormatUserContextText(assembly.UserContext); text != "" {
 		return WrapSystemReminder(text)
@@ -467,7 +503,8 @@ func RenderUserContextMessage(assembly TurnAssembly) string {
 	return WrapSystemReminder(assembly.UserContextText)
 }
 
-// RenderStartRuntimeContext 渲染起点运行时上下文。
+// RenderStartRuntimeContext 生成 start prompt 中的 runtime context 块。
+// 当 runtimeExtras 已由静态 section 渲染时，会从用户上下文中剔除它以避免重复注入。
 func RenderStartRuntimeContext(assembly StartAssembly) string {
 	payload := assembly.UserContext
 	userContextText := assembly.UserContextText
@@ -482,6 +519,8 @@ func RenderStartRuntimeContext(assembly StartAssembly) string {
 	return appendPromptBlock(userContext, FormatSystemContextBlock(assembly.SystemContext))
 }
 
+// startRuntimeExtrasAlreadyRendered 判断 runtimeExtras 是否已经出现在 resolved section 尾部。
+// start prompt 通过它避免把同一运行时信息重复写入 system-reminder。
 func startRuntimeExtrasAlreadyRendered(assembly StartAssembly) bool {
 	if strings.TrimSpace(assembly.UserContext["runtimeExtras"]) == "" {
 		return false
@@ -492,6 +531,8 @@ func startRuntimeExtrasAlreadyRendered(assembly StartAssembly) bool {
 	return assembly.Snapshot.Boundary != nil && strings.TrimSpace(assembly.Snapshot.Boundary.UncachedTail) != ""
 }
 
+// cloneUserContextWithout 复制用户上下文并移除指定 key。
+// 返回 nil 表示删除后没有可渲染内容，调用方可直接跳过该 prompt 块。
 func cloneUserContextWithout(in map[string]string, dropKey string) map[string]string {
 	if len(in) == 0 {
 		return nil
@@ -509,11 +550,14 @@ func cloneUserContextWithout(in map[string]string, dropKey string) map[string]st
 	return out
 }
 
-// AppendStartRuntimeContext 追加起点运行时上下文。
+// AppendStartRuntimeContext 将 start runtime context 安全追加到已有 prompt。
+// appendPromptBlock 会做去重，避免重复注入相同 system-reminder。
 func AppendStartRuntimeContext(base string, assembly StartAssembly) string {
 	return appendPromptBlock(base, RenderStartRuntimeContext(assembly))
 }
 
+// appendPromptBlock 追加非空 prompt 块。
+// 若 base 已包含完整 block，则保持原文，避免重复拼接同一系统上下文。
 func appendPromptBlock(base, block string) string {
 	base = strings.TrimSpace(base)
 	block = strings.TrimSpace(block)
@@ -529,6 +573,8 @@ func appendPromptBlock(base, block string) string {
 	return base + "\n\n" + block
 }
 
+// orderedUserContextKeys 固定用户上下文的渲染顺序。
+// 已知 key 先按 preferredUserContextKeys 输出，额外 key 按字典序输出。
 func orderedUserContextKeys(payload map[string]string) []string {
 	seen := make(map[string]struct{}, len(payload))
 	ordered := make([]string, 0, len(payload))
@@ -549,7 +595,8 @@ func orderedUserContextKeys(payload map[string]string) []string {
 	return append(ordered, extra...)
 }
 
-// normalizeUserContext 规范化user上下文。
+// normalizeUserContext 清理用户上下文 payload。
+// key 和正文都会 trim，空 key 或空正文不进入 prompt，避免生成无意义 section。
 func normalizeUserContext(payload map[string]string) map[string]string {
 	if len(payload) == 0 {
 		return nil
@@ -569,6 +616,8 @@ func normalizeUserContext(payload map[string]string) map[string]string {
 	return normalized
 }
 
+// renderUserContextSection 将单个用户上下文条目渲染成标题块。
+// 空 key 或空正文返回空串，由上层负责跳过。
 func renderUserContextSection(key, body string) string {
 	key = strings.TrimSpace(key)
 	body = strings.TrimSpace(body)
@@ -578,9 +627,8 @@ func renderUserContextSection(key, body string) string {
 	return "# " + key + "\n" + body
 }
 
-// WrapSystemReminder wraps the given text in <system-reminder> tags.
-// Exported so the prompt assembler can embed system context into baseInstructions.
-// WrapSystemReminder 包装systemreminder。
+// WrapSystemReminder 用 provider 约定的 system-reminder 标签包裹文本。
+// 空文本直接返回空串，已包裹文本保持原样，方便 prompt assembler 幂等调用。
 func WrapSystemReminder(text string) string {
 	text = strings.TrimSpace(text)
 	if text == "" {
@@ -592,7 +640,8 @@ func WrapSystemReminder(text string) string {
 	return strings.Join([]string{"<system-reminder>", text, "</system-reminder>"}, "\n\n")
 }
 
-// AppendSystemContextTail 追加system上下文tail。
+// AppendSystemContextTail 将 System Context 追加到 prompt 尾部。
+// 空 base 或空 context 都按原值返回，避免调用方重复判断。
 func AppendSystemContextTail(base string, ctx SystemContext) string {
 	block := FormatSystemContextBlock(ctx)
 	base = strings.TrimSpace(base)
@@ -605,7 +654,8 @@ func AppendSystemContextTail(base string, ctx SystemContext) string {
 	return base + "\n\n" + block
 }
 
-// FormatSystemContextBlock 格式化system上下文block。
+// FormatSystemContextBlock 按 provider 可读格式渲染 System Context。
+// gitStatus 和 cacheBreaker 使用固定标签，其余非空 key 保留原名输出。
 func FormatSystemContextBlock(ctx SystemContext) string {
 	if len(ctx) == 0 {
 		return ""
@@ -631,7 +681,8 @@ func FormatSystemContextBlock(ctx SystemContext) string {
 	return strings.TrimSpace(strings.Join(lines, "\n"))
 }
 
-// orderedSystemContextKeys 处理orderedsystem上下文键。
+// orderedSystemContextKeys 固定 System Context 的渲染顺序。
+// 未知 key 排在已知 key 之后并按字典序输出，保证 prompt 快照稳定。
 func orderedSystemContextKeys(ctx SystemContext) []string {
 	keys := make([]string, 0, len(ctx))
 	for _, key := range []string{"gitStatus", "cacheBreaker"} {
@@ -650,11 +701,8 @@ func orderedSystemContextKeys(ctx SystemContext) []string {
 	return append(keys, extra...)
 }
 
-// AgentType identifies a subagent invocation class. It mirrors Claude Code's
-// `agentDefinition.agentType` taxonomy (claude_system_prompts_mapping §7).
-// Unknown agent types (user-defined values such as "Writer" flowing through
-// the orchestration_launch_agent tool) do not trigger subagent post-processing
-// and fall back to the main-thread AssembleStart path.
+// AgentType 标识 subagent 的 prompt 拼装类别。
+// 未知类型不触发 Explore/Plan 专属后处理，按主线程 AssembleStart 路径生成 provider prompt。
 type AgentType string
 
 const (
@@ -663,18 +711,17 @@ const (
 	AgentTypePlan    AgentType = "Plan"
 )
 
-// AgentInput bundles subagent-specific knobs for AssembleAgent. When
-// OverrideSystemPrompt is truthy it wins outright (Claude Code's
-// override.systemPrompt direct pass-through). Otherwise the assembler runs
-// AssembleStart then applies Explore/Plan claudeMd/gitStatus redaction +
-// env-details appending based on AgentType.
+// AgentInput 汇总 AssembleAgent 所需的 subagent prompt 参数。
+// OverrideSystemPrompt 非空时直接作为最终系统 prompt；否则先执行 AssembleStart，
+// 再按 AgentType 应用 Explore/Plan 的规则文件、git 状态和环境信息处理。
 type AgentInput struct {
 	StartInput           StartInput
 	AgentType            AgentType
 	OverrideSystemPrompt string
 }
 
-// PromptAssemblyService 组装系统提示词。
+// PromptAssemblyService 是 thread、provider 与 prompt 模块之间的组装边界。
+// Start/Turn/Agent 分别生成 provider wire prompt，Invalidate 用于清理动态 section 缓存。
 type PromptAssemblyService interface {
 	AssembleStart(ctx context.Context, in StartInput) (StartAssembly, error)
 	AssembleTurn(ctx context.Context, in TurnInput) (TurnAssembly, error)
@@ -682,15 +729,10 @@ type PromptAssemblyService interface {
 	Invalidate(ctx context.Context, reason InvalidateReason) error
 }
 
-// MatchWhenEvaluator decides whether a prompt_template's match_when JSONB
-// expression is satisfied by the given BuildCtx and user prompt. The thread
-// router calls this to implement the "match_when auto-route" tier without
-// importing the prompt module. The concrete implementation lives in
-// internal/module/prompt (EvaluateMatchWhen).
+// MatchWhenEvaluator 判断 prompt_template 的 match_when JSONB 是否匹配当前上下文。
+// thread router 通过该函数做自动路由判断，同时避免直接导入 prompt 模块实现。
 type MatchWhenEvaluator func(raw []byte, buildCtx BuildCtx, userPrompt string) bool
 
-// EnableWhenEvaluator decides whether a prompt_template_section's enable_when
-// JSONB expression is satisfied by the given BuildCtx and user prompt. The
-// thread router uses this to materialize prompt_versions snapshots with the
-// same section gates the prompt assembler applies at injection time.
+// EnableWhenEvaluator 判断 prompt_template_section 的 enable_when JSONB 是否允许注入。
+// thread router 用它生成与 assembler 注入规则一致的 prompt_versions 快照。
 type EnableWhenEvaluator func(raw []byte, buildCtx BuildCtx, userPrompt string) bool

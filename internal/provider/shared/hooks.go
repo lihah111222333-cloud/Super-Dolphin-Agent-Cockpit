@@ -6,11 +6,11 @@ import (
 )
 
 // ---------------------------------------------------------------------------
-// Tool Result hooks
+// 工具结果持久化 hook。
 // ---------------------------------------------------------------------------
 
-// ToolResultMeta is a provider-local mirror of the tool result metadata.
-// It avoids a direct import of module/turn.
+// ToolResultMeta 是 provider 层复制的工具结果元数据。
+// 该类型避免 provider 直接导入 module/turn，同时保持持久化 hook 的 wire 字段稳定。
 type ToolResultMeta struct {
 	ThreadID  string
 	TurnID    string
@@ -19,7 +19,8 @@ type ToolResultMeta struct {
 	Timestamp time.Time
 }
 
-// ToolResultRecord is a provider-local mirror of the tool result record.
+// ToolResultRecord 是工具结果持久化后的 provider 层返回记录。
+// Preview 给 UI 展示，PersistedPath 指向落盘内容，Truncated/OriginalSize 描述截断边界。
 type ToolResultRecord struct {
 	Preview       string
 	PersistedPath string
@@ -27,17 +28,17 @@ type ToolResultRecord struct {
 	OriginalSize  int
 }
 
-// CaptureToolResultFunc is the function signature for capturing tool results.
+// CaptureToolResultFunc 是工具结果捕获 hook 的函数签名。
 type CaptureToolResultFunc func(meta ToolResultMeta, raw string) ToolResultRecord
 
-// ResetToolResultScopeFunc is the function signature for resetting tool result scope.
+// ResetToolResultScopeFunc 是清理指定 thread/turn 工具结果作用域的函数签名。
 type ResetToolResultScopeFunc func(threadID, turnID string)
 
 var captureToolResultHook atomic.Pointer[CaptureToolResultFunc]
 var resetToolResultScopeHook atomic.Pointer[ResetToolResultScopeFunc]
 
-// SetCaptureToolResultHook sets the global capture hook. Called by module/turn at fx init.
-// SetCaptureToolResultHook 设置capture工具结果hook。
+// SetCaptureToolResultHook 设置全局工具结果捕获 hook。
+// module/turn 在 fx init 注入实现；nil 会清空 hook，便于测试隔离。
 func SetCaptureToolResultHook(fn CaptureToolResultFunc) {
 	if fn == nil {
 		captureToolResultHook.Store(nil)
@@ -46,8 +47,8 @@ func SetCaptureToolResultHook(fn CaptureToolResultFunc) {
 	captureToolResultHook.Store(&fn)
 }
 
-// SetResetToolResultScopeHook sets the global reset hook. Called by module/turn at fx init.
-// SetResetToolResultScopeHook 设置reset工具结果作用域hook。
+// SetResetToolResultScopeHook 设置全局工具结果作用域清理 hook。
+// 该 hook 用于 turn 结束或重置时释放 provider 层缓存。
 func SetResetToolResultScopeHook(fn ResetToolResultScopeFunc) {
 	if fn == nil {
 		resetToolResultScopeHook.Store(nil)
@@ -56,8 +57,8 @@ func SetResetToolResultScopeHook(fn ResetToolResultScopeFunc) {
 	resetToolResultScopeHook.Store(&fn)
 }
 
-// CaptureToolResult calls the registered hook. Returns zero record if no hook is set.
-// CaptureToolResult 生成capture工具结果。
+// CaptureToolResult 调用已注册的工具结果捕获 hook。
+// 未注册时返回零值记录，provider 调用方不需要关心模块是否已装配。
 func CaptureToolResult(meta ToolResultMeta, raw string) ToolResultRecord {
 	ptr := captureToolResultHook.Load()
 	if ptr == nil {
@@ -66,8 +67,8 @@ func CaptureToolResult(meta ToolResultMeta, raw string) ToolResultRecord {
 	return (*ptr)(meta, raw)
 }
 
-// ResetToolResultScope calls the registered hook. No-op if no hook is set.
-// ResetToolResultScope 重置工具结果作用域。
+// ResetToolResultScope 调用已注册的作用域清理 hook。
+// 未注册时是 no-op，避免 provider 单测必须装配 turn 模块。
 func ResetToolResultScope(threadID, turnID string) {
 	ptr := resetToolResultScopeHook.Load()
 	if ptr == nil {
@@ -77,17 +78,16 @@ func ResetToolResultScope(threadID, turnID string) {
 }
 
 // ---------------------------------------------------------------------------
-// Skill Block Trim hook
+// 技能注入块裁剪 hook。
 // ---------------------------------------------------------------------------
 
-// TrimInjectedSkillBlocksFunc is the function signature for trimming skill blocks.
+// TrimInjectedSkillBlocksFunc 是裁剪 prompt 中技能注入块的函数签名。
 type TrimInjectedSkillBlocksFunc func(text string) string
 
 var trimSkillBlocksHook atomic.Pointer[TrimInjectedSkillBlocksFunc]
 
-// SetTrimSkillBlocksHook sets the global skill-block trim hook.
-// Called by module/skill at fx init.
-// SetTrimSkillBlocksHook 设置裁剪技能blockshook。
+// SetTrimSkillBlocksHook 设置全局技能块裁剪 hook。
+// module/skill 在 fx init 注入实现；nil 会清空 hook。
 func SetTrimSkillBlocksHook(fn TrimInjectedSkillBlocksFunc) {
 	if fn == nil {
 		trimSkillBlocksHook.Store(nil)
@@ -96,9 +96,8 @@ func SetTrimSkillBlocksHook(fn TrimInjectedSkillBlocksFunc) {
 	trimSkillBlocksHook.Store(&fn)
 }
 
-// TrimInjectedSkillBlocks calls the registered hook.
-// Returns the original text if no hook is set.
-// TrimInjectedSkillBlocks 处理裁剪injected技能blocks。
+// TrimInjectedSkillBlocks 调用已注册的技能块裁剪 hook。
+// 未注册时返回原文，保证 provider 可独立运行。
 func TrimInjectedSkillBlocks(text string) string {
 	ptr := trimSkillBlocksHook.Load()
 	if ptr == nil {

@@ -43,6 +43,7 @@ func newDreamExecutor(commander dreamexec.Commander, binary, model string) dream
 	}
 }
 
+// provideDreamExecutorProvider 将 Claude dream executor 注册到统一 dream provider 列表。
 func provideDreamExecutorProvider() contract.DreamExecutorProvider {
 	return contract.DreamExecutorProvider{
 		Name:     "claude",
@@ -50,12 +51,12 @@ func provideDreamExecutorProvider() contract.DreamExecutorProvider {
 	}
 }
 
-// ExecuteDream 执行dream。
+// ExecuteDream 使用默认选项执行一次 Claude dream 请求。
 func (e dreamExecutor) ExecuteDream(ctx context.Context, prompt string) (string, error) {
 	return e.ExecuteDreamWithOptions(ctx, prompt, contract.DreamOptions{})
 }
 
-// ExecuteDreamWithOptions 执行带选项的dream。
+// ExecuteDreamWithOptions 通过 `claude -p --output-format json` 执行 dream，并记录 token usage。
 func (e dreamExecutor) ExecuteDreamWithOptions(ctx context.Context, prompt string, options contract.DreamOptions) (string, error) {
 	if err := ctx.Err(); err != nil {
 		return "", err

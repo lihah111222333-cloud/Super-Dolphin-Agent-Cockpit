@@ -15,8 +15,10 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/module/skill/mirrorpath"
 )
 
+// mirrorLockRegistry 按 provider mirror 根目录保存写入锁。
 type mirrorLockRegistry struct{ m sync.Map }
 
+// skillMirrorRootLocks 避免同一 skills 目录被并发发布流程同时删除或重写。
 var skillMirrorRootLocks = &mirrorLockRegistry{}
 
 // SkillMirrorTarget 指向 provider 会读取的 skills 目录。
@@ -45,12 +47,17 @@ func PublishSkillMirrors(ctx context.Context, records []canonicalSkillRecord, ta
 	}
 	return report, nil
 }
+
+// appendSkillMirrorReport 合并单个 target 的发布结果。
 func appendSkillMirrorReport(r *SkillMirrorReport, other SkillMirrorReport) {
 	r.Published = append(r.Published, other.Published...)
 	r.Skipped = append(r.Skipped, other.Skipped...)
 	r.Deleted = append(r.Deleted, other.Deleted...)
 	r.Conflicts = append(r.Conflicts, other.Conflicts...)
 }
+
+// recordsForMirrorTarget 过滤当前 mirror target 可见的真实 skill。
+// 禁用模型调用的 skill 不写入 provider mirror，避免运行时误触发。
 func recordsForMirrorTarget(records []canonicalSkillRecord, target SkillMirrorTarget) []canonicalSkillRecord {
 	filtered := make([]canonicalSkillRecord, 0, len(records))
 	for _, record := range records {
@@ -100,6 +107,8 @@ func publishSkillMirrorTarget(records []canonicalSkillRecord, target SkillMirror
 	return report, nil
 }
 
+// loadPublishTargetManifest 加载或修复目标 manifest。
+// project manifest 不匹配时只报告冲突；personal mirror 可在来源可确认时重建 manifest。
 func loadPublishTargetManifest(records []canonicalSkillRecord, target SkillMirrorTarget, manifestPath string) (SkillMirrorManifest, SkillMirrorReport, bool, error) {
 	manifest, err := loadSkillMirrorManifest(manifestPath, target)
 	if err == nil {
@@ -151,6 +160,8 @@ func projectMismatchedManifestPublishReport(records []canonicalSkillRecord, targ
 	return report, nil
 }
 
+// lockSkillMirrorRoot 序列化同一 mirror 根目录的发布流程。
+// 返回的 unlock 必须由调用方 defer，避免错误路径留下全局互斥锁。
 func lockSkillMirrorRoot(root string) func() {
 	key := filepath.Clean(strings.TrimSpace(root))
 	value, _ := skillMirrorRootLocks.m.LoadOrStore(key, &sync.Mutex{})

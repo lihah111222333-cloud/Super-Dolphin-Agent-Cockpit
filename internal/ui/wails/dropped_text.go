@@ -17,6 +17,7 @@ import (
 )
 
 const (
+	// 拖拽文件读取白名单和 XLSX 导入上限。
 	droppedFileAccessTTL           = 5 * time.Minute
 	maxDroppedTextFileBytes  int64 = 2 << 20
 	maxDroppedXLSXFileBytes  int64 = 8 << 20
@@ -27,17 +28,20 @@ const (
 	maxDroppedXLSXCellRunes        = 500
 )
 
+// droppedFileRecord 记录一次拖拽文件的可读取目标和过期时间。
 type droppedFileRecord struct {
 	TargetID  string
 	ExpiresAt time.Time
 }
 
+// readDroppedTextFilesParams 是读取拖拽文本文件的 RPC 参数。
 type readDroppedTextFilesParams struct {
 	Files    []string `json:"files"`
 	TargetID string   `json:"targetId,omitempty"`
 	clientMetaParams
 }
 
+// droppedTextFile 是返回给前端的拖拽文件文本内容。
 type droppedTextFile struct {
 	Path      string `json:"path"`
 	Name      string `json:"name"`
@@ -45,11 +49,12 @@ type droppedTextFile struct {
 	SizeBytes int64  `json:"sizeBytes"`
 }
 
+// readDroppedTextFilesResult 是批量拖拽文本读取结果。
 type readDroppedTextFilesResult struct {
 	Files []droppedTextFile `json:"files"`
 }
 
-// recordDroppedFiles 记录dropped文件。
+// recordDroppedFiles 记录当前窗口近期拖入的文件，后续读取必须命中这张短期白名单。
 func (a *App) recordDroppedFiles(files []string, details *application.DropTargetDetails) {
 	if a == nil || len(files) == 0 {
 		return
@@ -78,7 +83,7 @@ func (a *App) recordDroppedFiles(files []string, details *application.DropTarget
 	}
 }
 
-// hasRecentDroppedFile 判断recentdropped文件是否可用。
+// hasRecentDroppedFile 判断文件是否近期拖入当前窗口或匹配的目标元素。
 func (a *App) hasRecentDroppedFile(raw, targetID string) bool {
 	if a == nil {
 		return false
@@ -104,6 +109,7 @@ func (a *App) hasRecentDroppedFile(raw, targetID string) bool {
 	return true
 }
 
+// pruneDroppedFileRecordsLocked 在持锁状态下清理过期拖拽文件记录。
 func (a *App) pruneDroppedFileRecordsLocked(now time.Time) {
 	for path, record := range a.droppedFiles {
 		if now.After(record.ExpiresAt) {
@@ -112,6 +118,7 @@ func (a *App) pruneDroppedFileRecordsLocked(now time.Time) {
 	}
 }
 
+// readDroppedTextFiles 读取前端刚拖入的文本或 XLSX 文件。
 func readDroppedTextFiles(app *App, params readDroppedTextFilesParams) (readDroppedTextFilesResult, error) {
 	paths, err := normalizeDroppedFileList(params.Files)
 	if err != nil {
@@ -133,6 +140,7 @@ func readDroppedTextFiles(app *App, params readDroppedTextFilesParams) (readDrop
 	return result, nil
 }
 
+// normalizeDroppedFileList 规范化拖拽文件列表并去重。
 func normalizeDroppedFileList(files []string) ([]string, error) {
 	out := make([]string, 0, len(files))
 	seen := map[string]struct{}{}
@@ -150,6 +158,7 @@ func normalizeDroppedFileList(files []string) ([]string, error) {
 	return out, nil
 }
 
+// readOneDroppedTextFile 校验白名单后读取单个拖拽文件内容。
 func readOneDroppedTextFile(app *App, rawPath, targetID string) (droppedTextFile, error) {
 	path, err := normalizeDroppedFilePath(rawPath)
 	if err != nil {
@@ -174,7 +183,7 @@ func readOneDroppedTextFile(app *App, rawPath, targetID string) (droppedTextFile
 	}, nil
 }
 
-// readDroppedFileBytes 读取dropped文件bytes。
+// readDroppedFileBytes 读取拖拽文件字节，并按类型执行大小与空文件检查。
 func readDroppedFileBytes(path string) (os.FileInfo, []byte, error) {
 	info, err := os.Stat(path)
 	if err != nil {
@@ -196,6 +205,7 @@ func readDroppedFileBytes(path string) (os.FileInfo, []byte, error) {
 	return info, data, nil
 }
 
+// maxDroppedImportFileBytes 返回拖拽导入的文件大小上限和类型标签。
 func maxDroppedImportFileBytes(path string) (int64, string) {
 	if isDroppedXLSXPath(path) {
 		return maxDroppedXLSXFileBytes, "xlsx"
@@ -203,7 +213,7 @@ func maxDroppedImportFileBytes(path string) (int64, string) {
 	return maxDroppedTextFileBytes, "text"
 }
 
-// droppedFileImportText 处理dropped文件import文本。
+// droppedFileImportText 将拖拽文件转换为可展示文本，二进制内容直接拒绝。
 func droppedFileImportText(path string, data []byte) (string, error) {
 	if isDroppedXLSXPath(path) {
 		text, err := droppedXLSXText(data)
@@ -225,6 +235,7 @@ func droppedFileImportText(path string, data []byte) (string, error) {
 	return text, nil
 }
 
+// normalizeDroppedFilePath 将前端路径清理为绝对路径。
 func normalizeDroppedFilePath(raw string) (string, error) {
 	value := strings.TrimSpace(raw)
 	if value == "" {
@@ -237,15 +248,18 @@ func normalizeDroppedFilePath(raw string) (string, error) {
 	return filepath.Clean(absPath), nil
 }
 
+// isDroppedXLSXPath 判断路径是否是支持导入的 XLSX 文件。
 func isDroppedXLSXPath(path string) bool {
 	return strings.EqualFold(filepath.Ext(strings.TrimSpace(path)), ".xlsx")
 }
 
+// xlsxWorkbookSheet 记录 workbook.xml 中的 sheet 名称和关系 ID。
 type xlsxWorkbookSheet struct {
 	Name string
 	RID  string
 }
 
+// droppedXLSXText 将 XLSX zip 内容解析为 Markdown 文本。
 func droppedXLSXText(data []byte) (string, error) {
 	reader, err := zip.NewReader(bytes.NewReader(data), int64(len(data)))
 	if err != nil {
@@ -266,7 +280,7 @@ func droppedXLSXText(data []byte) (string, error) {
 	return renderXLSXWorkbook(reader, sheets, rels, shared)
 }
 
-// renderXLSXWorkbook 渲染xlsxworkbook。
+// renderXLSXWorkbook 渲染 workbook 中有限数量的 sheet，缺失关系会 fail-fast。
 func renderXLSXWorkbook(reader *zip.Reader, sheets []xlsxWorkbookSheet, rels map[string]string, shared []string) (string, error) {
 	sections := make([]string, 0, len(sheets))
 	for index, sheet := range sheets {
@@ -292,7 +306,7 @@ func renderXLSXWorkbook(reader *zip.Reader, sheets []xlsxWorkbookSheet, rels map
 	return strings.Join(sections, "\n\n"), nil
 }
 
-// parseXLSXWorkbookSheets 解析xlsxworkbooksheets。
+// parseXLSXWorkbookSheets 从 workbook.xml 解析 sheet 列表。
 func parseXLSXWorkbookSheets(reader *zip.Reader) ([]xlsxWorkbookSheet, error) {
 	data, err := readXLSXZipEntry(reader, "xl/workbook.xml", true)
 	if err != nil {
@@ -327,7 +341,7 @@ func parseXLSXWorkbookSheets(reader *zip.Reader) ([]xlsxWorkbookSheet, error) {
 	return sheets, nil
 }
 
-// parseXLSXWorkbookRelationships 解析xlsxworkbookrelationships。
+// parseXLSXWorkbookRelationships 解析 workbook relationship ID 到 worksheet 路径的映射。
 func parseXLSXWorkbookRelationships(reader *zip.Reader) (map[string]string, error) {
 	data, err := readXLSXZipEntry(reader, "xl/_rels/workbook.xml.rels", true)
 	if err != nil {
@@ -356,7 +370,7 @@ func parseXLSXWorkbookRelationships(reader *zip.Reader) (map[string]string, erro
 	return rels, nil
 }
 
-// parseXLSXSharedStrings 解析xlsxsharedstrings。
+// parseXLSXSharedStrings 解析 sharedStrings.xml；文件缺失时返回 nil。
 func parseXLSXSharedStrings(reader *zip.Reader) ([]string, error) {
 	data, err := readXLSXZipEntry(reader, "xl/sharedStrings.xml", false)
 	if err != nil || data == nil {
@@ -384,7 +398,7 @@ func parseXLSXSharedStrings(reader *zip.Reader) ([]string, error) {
 	}
 }
 
-// parseXLSXSharedString 解析xlsxsharedstring。
+// parseXLSXSharedString 解析单个 shared string，合并多个 t 节点。
 func parseXLSXSharedString(decoder *xml.Decoder) (string, error) {
 	var parts []string
 	for {
@@ -409,7 +423,7 @@ func parseXLSXSharedString(decoder *xml.Decoder) (string, error) {
 	}
 }
 
-// parseXLSXWorksheet 解析xlsxworksheet。
+// parseXLSXWorksheet 解析 worksheet 行，并记录行列截断状态。
 func parseXLSXWorksheet(reader *zip.Reader, entry string, shared []string) ([][]string, bool, bool, error) {
 	data, err := readXLSXZipEntry(reader, entry, true)
 	if err != nil {
@@ -439,7 +453,7 @@ func parseXLSXWorksheet(reader *zip.Reader, entry string, shared []string) ([][]
 	}
 }
 
-// nextXLSXWorksheetRow 处理nextxlsxworksheetrow。
+// nextXLSXWorksheetRow 读取下一个 worksheet row，EOF 时返回 ok=false。
 func nextXLSXWorksheetRow(decoder *xml.Decoder, shared []string) ([]string, bool, bool, error) {
 	for {
 		token, err := decoder.Token()
@@ -458,7 +472,7 @@ func nextXLSXWorksheetRow(decoder *xml.Decoder, shared []string) ([]string, bool
 	}
 }
 
-// parseXLSXRow 解析xlsxrow。
+// parseXLSXRow 解析单行单元格，并在超过列上限时标记截断。
 func parseXLSXRow(decoder *xml.Decoder, shared []string) ([]string, bool, error) {
 	cells := map[int]string{}
 	maxCol := 0
@@ -496,7 +510,7 @@ func parseXLSXRow(decoder *xml.Decoder, shared []string) ([]string, bool, error)
 	}
 }
 
-// parseXLSXCell 解析xlsxcell。
+// parseXLSXCell 解析单元格文本，支持 shared string、inlineStr 和 bool。
 func parseXLSXCell(decoder *xml.Decoder, start xml.StartElement, shared []string) (string, error) {
 	cellType := strings.TrimSpace(xmlLocalAttr(start, "t"))
 	rawValue := ""
@@ -529,7 +543,7 @@ func parseXLSXCell(decoder *xml.Decoder, start xml.StartElement, shared []string
 	}
 }
 
-// xlsxCellText 处理xlsxcell文本。
+// xlsxCellText 按单元格类型还原可读文本。
 func xlsxCellText(cellType, rawValue, inlineValue string, shared []string) (string, error) {
 	switch cellType {
 	case "s":
@@ -553,6 +567,7 @@ func xlsxCellText(cellType, rawValue, inlineValue string, shared []string) (stri
 	}
 }
 
+// xlsxCellColumn 从单元格引用计算列号，缺失引用时使用 fallback。
 func xlsxCellColumn(start xml.StartElement, fallback int) int {
 	if col := xlsxColumnIndex(xmlLocalAttr(start, "r")); col > 0 {
 		return col
@@ -560,7 +575,7 @@ func xlsxCellColumn(start xml.StartElement, fallback int) int {
 	return fallback
 }
 
-// xlsxColumnIndex 处理xlsxcolumn索引。
+// xlsxColumnIndex 将 Excel 列名转换为 1-based 列号。
 func xlsxColumnIndex(ref string) int {
 	col := 0
 	for _, r := range ref {
@@ -576,6 +591,7 @@ func xlsxColumnIndex(ref string) int {
 	return col
 }
 
+// xlsxCellsToRow 将稀疏列号 map 展开为连续行切片。
 func xlsxCellsToRow(cells map[int]string, maxCol int) []string {
 	if maxCol <= 0 {
 		return nil

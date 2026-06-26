@@ -12,6 +12,7 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 )
 
+// xrefParams 是 xref 工具的入参，覆盖引用、调用层级和类型层级查询。
 type xrefParams struct {
 	Action             string `json:"action"`
 	Pos                string `json:"pos"`
@@ -21,7 +22,7 @@ type xrefParams struct {
 	MaxResults         int    `json:"max_results"`
 }
 
-// NewXRefHandler 创建x引用处理器。
+// NewXRefHandler 创建 xref 工具处理器，并为引用结果补充函数范围。
 func NewXRefHandler(registry lspmanager.Registry) ToolHandler {
 	return newManagerTool("xref", middleware.TierNormal, registry, decodeLenient, func(ctx context.Context, registry lspmanager.Registry, req xrefParams) (any, error) {
 		filePath, position, err := resolveFilePositionRequest(ctx, filePositionParams{
@@ -50,6 +51,7 @@ func NewXRefHandler(registry lspmanager.Registry) ToolHandler {
 	})
 }
 
+// runReferences 查询符号引用，并按 compact 上限裁剪。
 func runReferences(
 	ctx context.Context,
 	manager lspmanager.Manager,
@@ -77,7 +79,7 @@ func runReferences(
 	return grouped, nil
 }
 
-// runCallHierarchy 运行call层级。
+// runCallHierarchy 查询调用层级；对不支持该能力的语言返回标准空结果。
 func runCallHierarchy(
 	ctx context.Context,
 	manager lspmanager.Manager,
@@ -110,6 +112,7 @@ func runCallHierarchy(
 	return list, nil
 }
 
+// runTypeHierarchy 查询类型层级，并把无效目标包装成可读错误。
 func runTypeHierarchy(
 	ctx context.Context,
 	manager lspmanager.Manager,
@@ -133,6 +136,7 @@ func runTypeHierarchy(
 	})
 }
 
+// normalizeCallHierarchyDirection 校验 call_hierarchy direction 参数。
 func normalizeCallHierarchyDirection(raw string) (string, error) {
 	switch value := strings.ToLower(strings.TrimSpace(raw)); value {
 	case "", "incoming", "outgoing", "both":
@@ -142,6 +146,7 @@ func normalizeCallHierarchyDirection(raw string) (string, error) {
 	}
 }
 
+// normalizeTypeHierarchyDirection 校验 type_hierarchy direction 参数。
 func normalizeTypeHierarchyDirection(raw string) (string, error) {
 	switch value := strings.ToLower(strings.TrimSpace(raw)); value {
 	case "", "both":
@@ -153,6 +158,7 @@ func normalizeTypeHierarchyDirection(raw string) (string, error) {
 	}
 }
 
+// emptyCallHierarchyHint 为 JS/TS bootstrap 不完整场景提供更具体的重试提示。
 func emptyCallHierarchyHint(filePath, languageID string) string {
 	if isJSTSCallHierarchyLanguage(languageIDForCallHierarchyHint(filePath, languageID)) {
 		return "no call hierarchy found; partial reason: JS/TS language server returned no prepare item after document bootstrap. next: retry with the cursor on a function or method identifier; if this persists, run diagnostics and verify package.json/tsconfig plus installed dependencies"
@@ -160,6 +166,7 @@ func emptyCallHierarchyHint(filePath, languageID string) string {
 	return "no call hierarchy found"
 }
 
+// languageIDForCallHierarchyHint 选择提示用语言 ID，优先使用调用方显式覆盖。
 func languageIDForCallHierarchyHint(filePath, languageID string) string {
 	if normalized := normalizeLanguageIDOverride(languageID); normalized != "" {
 		return normalized
@@ -167,6 +174,7 @@ func languageIDForCallHierarchyHint(filePath, languageID string) string {
 	return lspmanager.DetectLanguageID(filePath)
 }
 
+// isJSTSCallHierarchyLanguage 判断语言是否属于 JS/TS 家族。
 func isJSTSCallHierarchyLanguage(languageID string) bool {
 	switch strings.ToLower(strings.TrimSpace(languageID)) {
 	case "javascript", "javascriptreact", "typescript", "typescriptreact":

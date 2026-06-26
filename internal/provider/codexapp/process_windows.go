@@ -18,11 +18,8 @@ import (
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
-// processSig maps process control requests on Windows.
-// Without a shared console session, all three values collapse
-// to TerminateProcess for Phase 1. Graceful shutdown lands in Phase 2 via
-// GenerateConsoleCtrlEvent on attached console children, or by posting
-// WM_CLOSE to the app-server if it ever owns a window.
+// processSig 抽象 Windows 上的子进程控制意图。
+// 当前没有共享控制台时三种意图都落到终止进程；未来若 app-server 支持窗口或控制台再细分优雅停止。
 type processSig int
 
 const (
@@ -35,21 +32,15 @@ func setCodexProcessAttrs(cmd *exec.Cmd) {
 	cmd.SysProcAttr = &syscall.SysProcAttr{CreationFlags: 0x08000200, HideWindow: true}
 }
 
-// wrapWithFDLimit is a no-op wrapper on Windows. There is no `ulimit`
-// equivalent; the default Windows handle limit is already adequate.
-// Before exec we unwrap any npm shim so the child is spawned as a real .exe
-// (bypassing cmd.exe arg reparse — see resolveCodexBinary).
+// wrapWithFDLimit 在 Windows 上不调整 fd 上限，只解析真正的可执行文件再启动。
+// 先剥离 npm shim 可以绕过 cmd.exe 参数重解析和命令行长度限制。
 func wrapWithFDLimit(argv []string) *exec.Cmd {
 	resolved := resolveCodexBinary(argv[0])
 	return exec.Command(resolved, argv[1:]...)
 }
 
-// resolveCodexBinary unwraps an npm shim .cmd so we spawn the real .exe
-// directly. See the matching claudecli.resolveClaudeBinary for the full
-// rationale; short version: Go's exec on Windows routes .cmd/.bat children
-// through cmd.exe, which has an 8191-char command-line limit and mangles
-// args containing newlines or shell metacharacters.
-// resolveCodexBinary 解析codex二进制。
+// resolveCodexBinary 将 npm 生成的 .cmd shim 解析为真实 .exe。
+// Go 在 Windows 上会经 cmd.exe 执行 .cmd/.bat，长参数和换行参数容易被截断或重写。
 func resolveCodexBinary(binary string) string {
 	if binary == "" {
 		return binary
@@ -97,16 +88,14 @@ func unwrapCodexNpmShim(cmdPath string) (string, bool) {
 	return abs, true
 }
 
-// processGuard wraps a Windows Job Object. AssignProcessToJobObject makes
-// every descendant of the assigned process share the Job, so TerminateJobObject
-// reliably reaps the whole subtree — the Windows equivalent of killing a Unix
-// process group. JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE ensures the Job is also
-// torn down if our process crashes before it can call terminate explicitly.
+// processGuard 持有 Windows Job Object，用来监督 Codex 子进程树。
+// Job Object 会把后代进程纳入同一清理边界，父进程崩溃时也能靠 kill-on-close 回收。
 type processGuard struct {
 	handle windows.Handle
 }
 
-// attachProcessGuard 处理attach进程守卫。
+// attachProcessGuard 为刚启动的 Codex 子进程创建并绑定 Job Object。
+// 绑定失败只记录告警，后续仍可退化为单进程 terminate，避免启动路径被监督能力阻断。
 func attachProcessGuard(cmd *exec.Cmd) *processGuard {
 	if cmd == nil || cmd.Process == nil {
 		return nil
@@ -141,22 +130,21 @@ func (g *processGuard) close() {
 	if g == nil || g.handle == 0 {
 		return
 	}
-	// Closing the Job handle triggers JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
-	// which terminates any still-running descendants. This is the
-	// "parent crashed without explicit cleanup" safety net.
+	// 关闭 Job handle 会触发 JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE，
+	// 这是父进程没有机会显式清理时的最后兜底。
 	windows.CloseHandle(g.handle)
 	g.handle = 0
 }
 
-// signalCodexProcess 处理signalcodex进程。
+// signalCodexProcess 终止 Windows 上的 Codex 子进程树。
+// Job Object 可用时优先终止整棵树；否则退回单进程 terminate。
 func signalCodexProcess(cmd *exec.Cmd, guard *processGuard, sig processSig) error {
 	_ = sig
 	if guard != nil && guard.handle != 0 {
 		if err := windows.TerminateJobObject(guard.handle, 1); err == nil {
 			return nil
 		}
-		// Fall through to per-process termination if the Job handle is
-		// already closed or invalid.
+		// Job 已关闭或失效时继续走单进程终止，避免关闭路径卡在监督句柄上。
 	}
 	if cmd == nil || cmd.Process == nil {
 		return nil
@@ -226,7 +214,8 @@ func killMCPProcess(pid int) error {
 	return terminatePID(pid)
 }
 
-// terminatePID 处理terminate进程 ID。
+// terminatePID 打开目标进程并发送 TerminateProcess。
+// 目标在打开或终止期间消失时返回带 PID 的错误，方便诊断进程生命周期竞态。
 func terminatePID(pid int) error {
 	if pid <= 0 {
 		return errors.New("invalid codex pid")
@@ -248,12 +237,8 @@ func terminatePID(pid int) error {
 	return nil
 }
 
-// discoverAllProcesses enumerates every process via Toolhelp32 and filters
-// out our managed MCP sidecars by matching the leaf of ExeFile against the
-// managedMCPBinaries set. ExeFile is the image file name, so an incoming
-// "mcp-orch.exe" is matched against the "mcp-orch" table entry — we strip
-// the .exe suffix before lookup.
-// discoverAllProcesses 处理discoverall进程。
+// discoverAllProcesses 通过 Toolhelp32 枚举进程图并筛出受管理的 MCP sidecar。
+// ExeFile 只有镜像文件名，因此会先去掉 .exe 后缀再匹配内部受管二进制表。
 func discoverAllProcesses() (map[int]int, []mcpProcessInfo) {
 	snap, err := windows.CreateToolhelp32Snapshot(windows.TH32CS_SNAPPROCESS, 0)
 	if err != nil {
@@ -288,14 +273,8 @@ func discoverAllProcesses() (map[int]int, []mcpProcessInfo) {
 	return allProcs, mcpProcs
 }
 
-// discoverAppServerProcessList cannot be fully implemented on Windows without
-// reading a target process's PEB (the only way to recover its full argv).
-// Going that deep is gated behind NtQueryInformationProcess + manual PEB
-// traversal, which is fragile across Windows versions. For Phase 2 we rely
-// on Job Objects to keep every spawned app-server within its parent's
-// supervision tree; stale cleanup therefore has nothing extra to find when
-// the parent exited cleanly. The fallback path returns an empty list, which
-// makes the orphan sweeper a no-op on Windows.
+// discoverAppServerProcessList 在 Windows 上只返回进程图，不主动扫描 app-server argv。
+// 完整 argv 需要读 PEB，跨版本脆弱；当前依赖 Job Object 回收由本进程启动的 app-server。
 func discoverAppServerProcessList() (map[int]int, []appServerProcessInfo) {
 	allProcs, _ := discoverAllProcesses()
 	return allProcs, nil
@@ -325,7 +304,7 @@ func lastPathSep(s string) int {
 }
 
 func lastDotExe(s string) int {
-	// Only strip a ".exe" suffix — "server.v1" etc. stay intact.
+	// 只剥离真正的 .exe 后缀，避免把 server.v1 这类名称误裁剪。
 	if len(s) < 4 {
 		return -1
 	}

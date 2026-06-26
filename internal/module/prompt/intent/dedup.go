@@ -9,6 +9,7 @@ import (
 	promptstore "github.com/anthropic-ai/super-agent-v3/internal/store/prompt"
 )
 
+// promptIntentDuplicateListLimit 限制重复检测一次最多读取的模板数量，避免创建期扫描无界放大。
 const promptIntentDuplicateListLimit = 1000
 
 // promptIntentDuplicateIssues 检查候选草稿与已有 prompt 模板（含 builtin）是否重复，返回重复问题列表。
@@ -163,6 +164,8 @@ func promptIntentBuiltinDuplicateIssue(kind Kind, rawInput string) Issue {
 	return Issue{Code: "builtin_prompt_duplicate", Severity: "block", Message: "系统已内置相同或高度相似的提示词，不需要另存为用户资产"}
 }
 
+// promptIntentTemplateDuplicates 判断候选草稿是否与单个模板重复。
+// 标题 slug 完全相同会直接命中；否则比较正文和 section 聚合文本的相似度。
 func promptIntentTemplateDuplicates(
 	candidateTitleSlug, candidateText string,
 	template promptstore.PromptTemplate,
@@ -191,6 +194,8 @@ func promptIntentCandidateText(rawInput string, card Card) string {
 	}, "\n")
 }
 
+// promptIntentTemplateComparableText 拼接模板及其启用 section 的可比较文本。
+// recall_topic 也参与比较，避免同名资料主题重复保存。
 func promptIntentTemplateComparableText(template promptstore.PromptTemplate, sections []promptstore.PromptTemplateSection) string {
 	parts := []string{template.Title, template.Description, template.WhenToUse, template.PromptText}
 	for _, section := range sections {
@@ -240,6 +245,8 @@ func promptIntentTokenOverlap(left, right string) float64 {
 	return float64(shared) / float64(smaller)
 }
 
+// promptIntentTokenSet 将可比较文本拆成 token 集合。
+// 少于两个 rune 的 token 不参与相似度，降低标点或短词造成的噪声。
 func promptIntentTokenSet(text string) map[string]bool {
 	out := map[string]bool{}
 	for _, token := range strings.Fields(text) {
@@ -250,6 +257,8 @@ func promptIntentTokenSet(text string) map[string]bool {
 	return out
 }
 
+// promptIntentComparableText 生成相似度比较使用的归一化文本。
+// 仅保留字母数字并折叠空白，保证中英文标点差异不会影响重复判断。
 func promptIntentComparableText(value string) string {
 	var b strings.Builder
 	lastSpace := true
@@ -295,6 +304,8 @@ func promptIntentTemplateHasCurrentProjectScope(template promptstore.PromptTempl
 	return false
 }
 
+// promptIntentRecallDuplicateConflicts 判断 recall topic 重复是否会与目标 scope 冲突。
+// global 与项目级独占模板互不阻断，避免不同可见范围的资料误报重复。
 func promptIntentRecallDuplicateConflicts(targetGlobal bool, template promptstore.PromptTemplate, cwd string) bool {
 	if targetGlobal && promptIntentTemplateHasCurrentProjectOnlyScope(template, cwd) {
 		return false
@@ -305,16 +316,19 @@ func promptIntentRecallDuplicateConflicts(targetGlobal bool, template promptstor
 	return true
 }
 
+// promptIntentTemplateHasCurrentProjectOnlyScope 判断模板是否只属于当前项目 scope。
 func promptIntentTemplateHasCurrentProjectOnlyScope(template promptstore.PromptTemplate, cwd string) bool {
 	hasCurrentProject, hasGlobal := promptIntentTemplateScopeFlags(template, cwd)
 	return hasCurrentProject && !hasGlobal
 }
 
+// promptIntentTemplateHasGlobalOnlyScope 判断模板是否只属于 global scope。
 func promptIntentTemplateHasGlobalOnlyScope(template promptstore.PromptTemplate, cwd string) bool {
 	hasCurrentProject, hasGlobal := promptIntentTemplateScopeFlags(template, cwd)
 	return hasGlobal && !hasCurrentProject
 }
 
+// promptIntentTemplateScopeFlags 返回模板是否同时具备当前项目和 global scope。
 func promptIntentTemplateScopeFlags(template promptstore.PromptTemplate, cwd string) (bool, bool) {
 	want := promptScopeTagPrefix + strings.TrimSpace(cwd)
 	hasCurrentProject := false
@@ -330,15 +344,18 @@ func promptIntentTemplateScopeFlags(template promptstore.PromptTemplate, cwd str
 	return hasCurrentProject, hasGlobal
 }
 
+// promptIntentTemplateLooksBuiltin 判断模板是否来自系统或批量导入路径，用于内置重复识别。
 func promptIntentTemplateLooksBuiltin(template promptstore.PromptTemplate) bool {
 	return promptIntentAuthorLooksSystem(template.CreatedBy) || promptIntentAuthorLooksSystem(template.UpdatedBy)
 }
 
+// promptIntentAuthorLooksSystem 根据 author 文本识别系统写入来源。
 func promptIntentAuthorLooksSystem(author string) bool {
 	normalized := strings.ToLower(strings.TrimSpace(author))
 	return strings.HasPrefix(normalized, "system") || strings.Contains(normalized, "seed") || strings.Contains(normalized, "migration")
 }
 
+// promptIntentRecallTopicExists 判断 section 列表中是否已有启用的同名 recall topic。
 func promptIntentRecallTopicExists(topic string, sections []promptstore.PromptTemplateSection) bool {
 	topic = strings.TrimSpace(topic)
 	if topic == "" {

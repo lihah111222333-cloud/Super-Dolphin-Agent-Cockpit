@@ -9,19 +9,19 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/util/pathutil"
 )
 
+// SuperDolphinHomeEnv 指向 Super Dolphin 自管数据目录。
 const SuperDolphinHomeEnv = "SUPER_DOLPHIN_HOME"
 
-// NormalizeRelativePath 规范化相对路径。
+// NormalizeRelativePath 清理调用方传入的相对路径文本；是否允许越界由后续 pathutil 校验负责。
 func NormalizeRelativePath(path string) string {
 	return filepath.Clean(strings.TrimSpace(path))
 }
 
-// ContainsPath delegates to pathutil.ContainsPath.
-// ContainsPath 判断路径是否可用。
+// ContainsPath 判断 target 是否位于 root 内，保持 shared 包旧入口兼容。
 func ContainsPath(root, target string) bool { return pathutil.ContainsPath(root, target) }
 
-// AppManagedDataRoots returns the explicit user-data roots managed by Super Dolphin.
-// AppManagedDataRoots 处理appmanaged数据根目录。
+// AppManagedDataRoots 返回应用允许清理或迁移的自管数据根。
+// 配置目录不能覆盖整个用户 home，避免清理逻辑误伤用户文件。
 func AppManagedDataRoots() ([]string, error) {
 	userHome, err := os.UserHomeDir()
 	if err != nil {
@@ -70,6 +70,7 @@ func AppManagedDataRoots() ([]string, error) {
 	return roots, nil
 }
 
+// isAllowedConfiguredSuperDolphinHome 判断显式 SUPER_DOLPHIN_HOME 是否落在允许位置。
 func isAllowedConfiguredSuperDolphinHome(cleaned string, userHome string) bool {
 	cleanedHome, err := cleanAppManagedDataRoot(userHome, userHome)
 	if err != nil {
@@ -85,6 +86,7 @@ func isAllowedConfiguredSuperDolphinHome(cleaned string, userHome string) bool {
 		hasPathSuffix(cleaned, filepath.Join("AppData", "Roaming", "Super Dolphin"))
 }
 
+// hasPathSuffix 按路径段边界判断后缀，避免普通字符串后缀误匹配。
 func hasPathSuffix(path string, suffix string) bool {
 	if path == suffix {
 		return true
@@ -92,7 +94,7 @@ func hasPathSuffix(path string, suffix string) bool {
 	return strings.HasSuffix(path, string(filepath.Separator)+suffix)
 }
 
-// appendAppManagedDataRoot 追加appmanaged数据根目录。
+// appendAppManagedDataRoot 追加去重后的自管数据根，并拒绝覆盖整个用户 home。
 func appendAppManagedDataRoot(roots []string, seen map[string]struct{}, root, userHome string) ([]string, error) {
 	cleaned, err := cleanAppManagedDataRoot(root, userHome)
 	if err != nil {
@@ -115,7 +117,7 @@ func appendAppManagedDataRoot(roots []string, seen map[string]struct{}, root, us
 	return append(roots, cleaned), nil
 }
 
-// cleanAppManagedDataRoot 处理cleanappmanaged数据根目录。
+// cleanAppManagedDataRoot 展开环境变量和 `~`，并规范成绝对路径。
 func cleanAppManagedDataRoot(root, userHome string) (string, error) {
 	root = strings.TrimSpace(os.ExpandEnv(root))
 	if root == "" {

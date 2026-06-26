@@ -17,6 +17,8 @@ import (
 	platformshared "github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 )
 
+// dedupeRelativePaths 校验并去重相对文件路径。
+// 这里不保留重复项，避免同一文件在 run file 表里出现多份状态。
 func dedupeRelativePaths(files []string) ([]string, error) {
 	if len(files) == 0 {
 		return nil, nil
@@ -37,6 +39,7 @@ func dedupeRelativePaths(files []string) ([]string, error) {
 	return out, nil
 }
 
+// planMerge 对所有跟踪文件生成 merge 结果和待持久化 file 状态。
 func (s *service) planMerge(
 	run *Run,
 	files []RunFile,
@@ -59,12 +62,13 @@ func (s *service) planMerge(
 	return result, updates
 }
 
+// recordMergeItem 追加单文件结果并更新汇总计数。
 func recordMergeItem(result *MergeRunResult, item MergeFileResult) {
 	result.Files = append(result.Files, item)
 	countMergeItem(result, item)
 }
 
-// countMergeItem 统计mergeitem。
+// countMergeItem 根据单文件 action 更新 merge 汇总计数。
 func countMergeItem(result *MergeRunResult, item MergeFileResult) {
 	switch item.Action {
 	case "merged":
@@ -80,6 +84,8 @@ func countMergeItem(result *MergeRunResult, item MergeFileResult) {
 	}
 }
 
+// recountMergeResult 重新计算 merge 汇总计数。
+// 文件系统写入后 action 可能从 merged 变成 error，因此需要重算。
 func recountMergeResult(result *MergeRunResult) {
 	result.Merged = 0
 	result.Removed = 0
@@ -91,6 +97,7 @@ func recountMergeResult(result *MergeRunResult) {
 	}
 }
 
+// mergeFileError 标记单文件 merge 错误并保留原因。
 func mergeFileError(file storeworkspace.WorkspaceRunFile, reason string) (storeworkspace.WorkspaceRunFile, MergeFileResult) {
 	file.State = fileStateError
 	file.SourceSHA256After = ""
@@ -98,10 +105,12 @@ func mergeFileError(file storeworkspace.WorkspaceRunFile, reason string) (storew
 	return file, MergeFileResult{Path: file.RelativePath, Action: "error", Reason: reason}
 }
 
+// applyFileUpdates 持久化 merge 后的文件状态。
 func (s *service) applyFileUpdates(ctx context.Context, files []storeworkspace.WorkspaceRunFile) error {
 	return upsertRunFiles(ctx, s.store, files)
 }
 
+// rollbackMergeState 在 merge 失败时恢复原始文件状态记录。
 func (s *service) rollbackMergeState(ctx context.Context, original []RunFile, cause error) error {
 	if restoreErr := s.restoreRunFiles(ctx, original); restoreErr != nil {
 		return errors.Join(cause, restoreErr)
@@ -109,6 +118,7 @@ func (s *service) rollbackMergeState(ctx context.Context, original []RunFile, ca
 	return cause
 }
 
+// restoreRunFiles 将 run file 记录恢复为传入快照。
 func (s *service) restoreRunFiles(ctx context.Context, files []RunFile) error {
 	restored := make([]storeworkspace.WorkspaceRunFile, 0, len(files))
 	for _, file := range files {
@@ -117,6 +127,7 @@ func (s *service) restoreRunFiles(ctx context.Context, files []RunFile) error {
 	return upsertRunFiles(ctx, s.store, restored)
 }
 
+// persistRun 在同一事务中写入 run 和初始 file 记录。
 func (s *service) persistRun(ctx context.Context, run storeworkspace.WorkspaceRun, files []string) (*Run, error) {
 	var saved *Run
 	err := s.store.WithTx(ctx, func(txStore storeworkspace.Store) error {
@@ -137,6 +148,7 @@ func (s *service) persistRun(ctx context.Context, run storeworkspace.WorkspaceRu
 	return saved, err
 }
 
+// emitRunCreated 发布 workspace run 创建事件。
 func (s *service) emitRunCreated(run *Run) {
 	s.emitCreated(WorkspaceRunCreated{
 		WorkspaceRunHeader: workspaceRunHeader(run),
@@ -153,6 +165,7 @@ func (s *service) emitRunCreated(run *Run) {
 	})
 }
 
+// emitRunStatusChanged 发布 workspace run 状态变化事件。
 func (s *service) emitRunStatusChanged(oldStatus string, run *Run) {
 	s.emitStatusChange(WorkspaceRunStatusChanged{
 		WorkspaceRunHeader: workspaceRunHeader(run),
@@ -162,6 +175,7 @@ func (s *service) emitRunStatusChanged(oldStatus string, run *Run) {
 	})
 }
 
+// emitRunMergedEvent 发布 merge 成功事件。
 func (s *service) emitRunMergedEvent(run *Run, result *MergeRunResult) {
 	s.emitMerged(WorkspaceRunMerged{
 		WorkspaceRunHeader: workspaceRunHeader(run),
@@ -178,6 +192,7 @@ func (s *service) emitRunMergedEvent(run *Run, result *MergeRunResult) {
 	})
 }
 
+// emitRunMergeErrorEvent 发布 merge 冲突或失败事件。
 func (s *service) emitRunMergeErrorEvent(run *Run, result *MergeRunResult, updatedBy, message string) {
 	s.emitMergeError(WorkspaceRunMergeError{
 		WorkspaceRunHeader: workspaceRunHeader(run),
@@ -190,7 +205,7 @@ func (s *service) emitRunMergeErrorEvent(run *Run, result *MergeRunResult, updat
 	})
 }
 
-// mergeIssueMessage 合并issue消息。
+// mergeIssueMessage 选择最适合展示的 merge 问题摘要。
 func mergeIssueMessage(result *MergeRunResult, fallback string) string {
 	if text := strings.TrimSpace(fallback); text != "" {
 		return text
@@ -209,6 +224,7 @@ func mergeIssueMessage(result *MergeRunResult, fallback string) string {
 	return ""
 }
 
+// emitRunAbortedEvent 发布 workspace run abort 事件。
 func (s *service) emitRunAbortedEvent(run *Run, reason string) {
 	s.emitAborted(WorkspaceRunAborted{
 		WorkspaceRunHeader: workspaceRunHeader(run),
@@ -220,6 +236,7 @@ func (s *service) emitRunAbortedEvent(run *Run, reason string) {
 	})
 }
 
+// workspaceRunHeader 构造所有 workspace 事件共享的头部。
 func workspaceRunHeader(run *Run) WorkspaceRunHeader {
 	return WorkspaceRunHeader{
 		EventHeader: EventHeader{Timestamp: time.Now()},
@@ -228,6 +245,7 @@ func workspaceRunHeader(run *Run) WorkspaceRunHeader {
 	}
 }
 
+// cloneTimePtr 复制可选时间指针，避免事件持有可变共享地址。
 func cloneTimePtr(value *time.Time) *time.Time {
 	if value == nil {
 		return nil
@@ -236,6 +254,7 @@ func cloneTimePtr(value *time.Time) *time.Time {
 	return &copy
 }
 
+// validateRelativePath 规范化并拒绝绝对路径或向上逃逸路径。
 func validateRelativePath(raw string) (string, error) {
 	path := platformshared.NormalizeRelativePath(raw)
 	if path == "." {
@@ -250,6 +269,7 @@ func validateRelativePath(raw string) (string, error) {
 	return path, nil
 }
 
+// hashFile 计算文件 SHA-256。
 func hashFile(path string) (string, error) {
 	file, err := os.Open(path)
 	if err != nil {
@@ -263,6 +283,8 @@ func hashFile(path string) (string, error) {
 	return hex.EncodeToString(hash.Sum(nil)), nil
 }
 
+// hashFileIfExists 在文件存在时计算 SHA-256。
+// 不存在返回空字符串，其他 stat 错误直接返回。
 func hashFileIfExists(path string) (string, error) {
 	if _, err := os.Stat(path); err == nil {
 		return hashFile(path)

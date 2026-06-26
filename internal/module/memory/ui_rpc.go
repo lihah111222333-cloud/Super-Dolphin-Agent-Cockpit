@@ -19,16 +19,19 @@ import (
 
 const uiMemoryPreviewLimit = 320
 
+// uiMemoryGetParams 是 ui/memory/get 的 JSON-RPC 入参；CWD 为空时使用 memory 配置中的项目根。
 type uiMemoryGetParams struct {
 	CWD string `json:"cwd,omitempty"`
 }
 
+// UIMemorySnapshot 是记忆中心首页的 wire 响应，聚合私有记忆、团队记忆和健康提示。
 type UIMemorySnapshot struct {
 	Overview UIMemoryOverview     `json:"overview"`
 	Private  UIMemoryScopeSection `json:"private"`
 	Team     UIMemoryScopeSection `json:"team"`
 }
 
+// UIMemoryOverview 暴露记忆功能开关和根目录状态；路径字段只用于本机 UI 展示，不参与写盘决策。
 type UIMemoryOverview struct {
 	Enabled             bool            `json:"enabled"`
 	ToolsEnabled        bool            `json:"toolsEnabled"`
@@ -42,6 +45,7 @@ type UIMemoryOverview struct {
 	Health              *UIMemoryHealth `json:"health,omitempty"`
 }
 
+// UIMemoryScopeSection 表示一个记忆作用域的 UI 列表，Notice 承载脱敏后的扫描/解析失败原因。
 type UIMemoryScopeSection struct {
 	Label     string          `json:"label"`
 	RootPath  string          `json:"rootPath,omitempty"`
@@ -50,6 +54,7 @@ type UIMemoryScopeSection struct {
 	Entries   []UIMemoryEntry `json:"entries"`
 }
 
+// UIMemoryEntry 是列表页使用的条目摘要，Preview 只截取正文片段，完整内容需走详情 RPC。
 type UIMemoryEntry struct {
 	Name        string    `json:"name"`
 	Description string    `json:"description,omitempty"`
@@ -62,6 +67,7 @@ type UIMemoryEntry struct {
 	Source string `json:"source,omitempty"`
 }
 
+// UIMemoryHealth 汇总可执行的治理信号，如类型计数和相似组，用于 UI banner 而非写盘校验。
 type UIMemoryHealth struct {
 	PreferenceCount int              `json:"preferenceCount"`
 	ProjectCount    int              `json:"projectCount"`
@@ -69,6 +75,7 @@ type UIMemoryHealth struct {
 	SimilarGroups   []UISimilarGroup `json:"similarGroups,omitempty"`
 }
 
+// UISimilarGroup 是前端相似记忆提示的 wire DTO，target/path 会回传给 ignore/merge RPC。
 type UISimilarGroup struct {
 	NameA   string  `json:"nameA"`
 	NameB   string  `json:"nameB"`
@@ -79,7 +86,7 @@ type UISimilarGroup struct {
 	Score   float64 `json:"score"`
 }
 
-// buildUIMemorySnapshot 构建UI记忆快照。
+// buildUIMemorySnapshot 构建记忆中心快照，分别解析私有/团队根目录并对路径类错误做脱敏。
 func buildUIMemorySnapshot(ctx context.Context, svc Service, logger *slog.Logger, cwd string) (UIMemorySnapshot, error) {
 	if svc == nil {
 		return UIMemorySnapshot{}, errors.New("memory service is not configured")
@@ -130,6 +137,7 @@ func buildUIMemorySnapshot(ctx context.Context, svc Service, logger *slog.Logger
 	}, nil
 }
 
+// computeUIMemoryHealth 统计私有和团队记忆的类型计数，作为 UI 的轻量健康提示。
 func computeUIMemoryHealth(privateEntries, teamEntries []UIMemoryEntry) *UIMemoryHealth {
 	var prefCount, projCount int
 	for _, e := range privateEntries {
@@ -145,6 +153,7 @@ func computeUIMemoryHealth(privateEntries, teamEntries []UIMemoryEntry) *UIMemor
 	}
 }
 
+// populateUIMemoryHealthSimilarGroups 计算相似记忆组，并过滤用户已经忽略的 pair。
 func populateUIMemoryHealthSimilarGroups(health *UIMemoryHealth, privateRoot string, privateEntries []UIMemoryEntry, teamRoot string, teamEntries []UIMemoryEntry) {
 	if health == nil {
 		return
@@ -171,6 +180,7 @@ func populateUIMemoryHealthSimilarGroups(health *UIMemoryHealth, privateRoot str
 	health.SimilarGroups = groups
 }
 
+// buildUIMemoryHealthSnapshots 把私有和团队列表转换为 dedup 子包需要的最小快照。
 func buildUIMemoryHealthSnapshots(privateRoot string, privateEntries []UIMemoryEntry, privateScope string, teamRoot string, teamEntries []UIMemoryEntry, teamScope string) []dedup.EntrySnapshot {
 	snapshots := make([]dedup.EntrySnapshot, 0, len(privateEntries)+len(teamEntries))
 	snapshots = append(snapshots, readUIMemoryHealthSnapshots(privateRoot, privateEntries, privateScope)...)
@@ -178,6 +188,7 @@ func buildUIMemoryHealthSnapshots(privateRoot string, privateEntries []UIMemoryE
 	return snapshots
 }
 
+// readUIMemoryHealthSnapshots 逐条读取 UI 列表背后的文件；单条读取失败只跳过该条，避免 banner 阻断首页。
 func readUIMemoryHealthSnapshots(root string, entries []UIMemoryEntry, scope string) []dedup.EntrySnapshot {
 	if strings.TrimSpace(root) == "" || len(entries) == 0 {
 		return nil
@@ -196,6 +207,7 @@ func readUIMemoryHealthSnapshots(root string, entries []UIMemoryEntry, scope str
 	return snapshots
 }
 
+// countByCategory 将 durable memory 类型归入偏好类或项目类计数，未知类型不参与健康上限判断。
 func countByCategory(entryType string, pref, proj *int) {
 	switch entryType {
 	case "user", "feedback":
@@ -205,16 +217,14 @@ func countByCategory(entryType string, pref, proj *int) {
 	}
 }
 
-// loadUIMemoryScope 加载UI记忆作用域。
+// loadUIMemoryScope 加载 UI 记忆作用域并把路径类错误脱敏后放入 Notice。
 func loadUIMemoryScope(logger *slog.Logger, label, root string, rootErr error, filterPrivateTeam bool) UIMemoryScopeSection {
 	section := UIMemoryScopeSection{
 		Label:   label,
 		Entries: []UIMemoryEntry{},
 	}
 	if rootErr != nil {
-		// Phase 2.1.AB.4: rootErr from resolvedStoreRoot /
-		// configuredTeamMemRoot can be a *fs.PathError with the
-		// on-disk root template; redact before placing in Notice.
+		// rootErr 可能包含磁盘根目录模板，进入 UI Notice 前必须脱敏。
 		section.Notice = redactIfPathBearing(logger, "durable_memory_resolve_root",
 			errDurableMemoryScanFailed, rootErr, "label", label).Error()
 		return section
@@ -228,8 +238,7 @@ func loadUIMemoryScope(logger *slog.Logger, label, root string, rootErr error, f
 	section.IndexPath = memoryIndexPath(root)
 	entries, err := scanMemoryEntries(root)
 	if err != nil {
-		// scanMemoryEntries surfaces *fs.PathError from filepath.Walk
-		// and friends; redact entry-content scan failures.
+		// scanMemoryEntries 可能透出 filepath.Walk 的路径错误，返回 UI 前统一脱敏。
 		section.Notice = redactIfPathBearing(logger, "durable_memory_scope_scan",
 			errDurableMemoryScanFailed, err, "label", label).Error()
 		return section
@@ -256,6 +265,7 @@ func loadUIMemoryScope(logger *slog.Logger, label, root string, rootErr error, f
 	return section
 }
 
+// memoryEntryDisplayPath 将磁盘路径转成相对 root 的 UI 展示路径；解析失败时退回 slash 形式但不参与写入。
 func memoryEntryDisplayPath(root, path string) string {
 	root = strings.TrimSpace(root)
 	path = strings.TrimSpace(path)
@@ -272,6 +282,7 @@ func memoryEntryDisplayPath(root, path string) string {
 	return filepath.ToSlash(rel)
 }
 
+// uiPreviewText 生成列表预览文本，限制行数和 rune 长度，避免大正文撑爆 JSON-RPC 响应。
 func uiPreviewText(raw string) string {
 	raw = strings.TrimSpace(strings.ReplaceAll(raw, "\r\n", "\n"))
 	if raw == "" {
@@ -289,6 +300,7 @@ func uiPreviewText(raw string) string {
 	return text
 }
 
+// firstNonEmptyUI 返回首个非空白 UI 文案，用于 Notice 等字段的优先级合并。
 func firstNonEmptyUI(values ...string) string {
 	for _, value := range values {
 		if value = strings.TrimSpace(value); value != "" {
@@ -298,6 +310,7 @@ func firstNonEmptyUI(values ...string) string {
 	return ""
 }
 
+// registerUIMemoryHandlers 注册只读记忆 RPC，写入/删除入口在 mutation 文件中集中处理。
 func registerUIMemoryHandlers(p memoryHandlerDeps) handler.Map {
 	return handler.Map{
 		"ui/memory/get": platformrpc.StrictHandler(func(ctx context.Context, req uiMemoryGetParams) (UIMemorySnapshot, error) {
@@ -306,17 +319,8 @@ func registerUIMemoryHandlers(p memoryHandlerDeps) handler.Map {
 	}
 }
 
-// Per-operation redacted public sentinels for the UI RPC boundary.
-// Each one carries a fixed human-readable message with NO filesystem
-// paths, so a *fs.PathError surfaced from the underlying syscalls
-// cannot leak the on-disk memory layout through error.message in the
-// JSON-RPC reply. The original error (with path) is logged at Warn
-// via redactRPCError; the public form returned to the client only
-// names the failed operation.
-//
-// Sentinels are grouped per user-visible action family (read / scan /
-// save / delete) rather than per internal RPC method, so the list
-// stays short as more handlers join.
+// UI RPC 边界使用的公开错误哨兵。
+// 文案不含文件系统路径；底层真实错误只进入 warn 日志，返回给前端的错误只说明失败操作。
 var (
 	errDurableMemoryReadFailed   = errors.New("durable memory entry read failed")
 	errDurableMemoryScanFailed   = errors.New("durable memory scope scan failed")
@@ -324,35 +328,22 @@ var (
 	errDurableMemoryDeleteFailed = errors.New("durable memory entry delete failed")
 )
 
-// publicValidationError marks an error as safe to surface verbatim across
-// the RPC boundary. Wrap a message with publicValidationErr only when the
-// message contains NO filesystem path and NO operator-only detail (e.g.
-// "name is required", "private durable memory cannot access team/ paths").
-// The redact policy in redactIfPathBearing treats anything not wrapped this
-// way as potentially path-bearing and replaces it with a sanitised public
-// sentinel. Defaulting to redact is safer than the previous black-list
-// approach: a future fmt.Errorf("path %s ...", path) added in a service
-// helper will be redacted automatically instead of leaking through.
+// publicValidationError 标记可原样穿过 UI RPC 边界的校验错误。
+// 只有确认不含路径和运维细节的消息才能使用该类型；其他错误默认按可能含路径处理并脱敏。
 type publicValidationError struct {
 	msg string
 }
 
-// Error 返回错误文本。
+// Error 返回已经审计为 UI 安全的错误文本。
 func (e *publicValidationError) Error() string { return e.msg }
 
-// publicValidationErr wraps msg as a UI-safe validation error. Always
-// returns a non-nil *publicValidationError; callers are responsible for
-// auditing that msg contains no leakable detail.
+// publicValidationErr 把已审计的消息包装成 UI 安全校验错误。
 func publicValidationErr(msg string) error {
 	return &publicValidationError{msg: msg}
 }
 
-// errorIsPublicValidation reports whether err has been explicitly marked
-// as UI-safe via publicValidationErr. The allowlist is opt-in: anything
-// not wrapped this way is treated as path-bearing and redacted by
-// redactIfPathBearing. We deliberately do NOT auto-classify *fs.PathError
-// or the memory-module path sentinels as "safe" — those almost always
-// embed paths in their Error() string.
+// errorIsPublicValidation 判断错误是否显式标记为 UI 安全。
+// allowlist 采用 opt-in：未包装的错误都按可能含路径处理，尤其不能自动放行 fs.PathError。
 func errorIsPublicValidation(err error) bool {
 	if err == nil {
 		return false
@@ -361,11 +352,8 @@ func errorIsPublicValidation(err error) bool {
 	return errors.As(err, &v)
 }
 
-// redactIfPathBearing redacts err by default, letting only errors that
-// were explicitly opted-in via publicValidationErr through unchanged. This
-// inverts the previous black-list (which let any non-listed error pass) so
-// new validation messages added in service code do not silently leak
-// filesystem paths through the JSON-RPC reply.
+// redactIfPathBearing 默认脱敏错误，只允许 publicValidationErr 包装的消息原样返回。
+// 这样未来新增的服务层错误不会因为忘记加入黑名单而把文件路径泄漏到 JSON-RPC 响应。
 func redactIfPathBearing(logger *slog.Logger, op string, public, err error, attrs ...any) error {
 	if err == nil {
 		return nil
@@ -376,12 +364,8 @@ func redactIfPathBearing(logger *slog.Logger, op string, public, err error, attr
 	return redactRPCError(logger, op, public, err, attrs...)
 }
 
-// redactRPCError logs the original (path-bearing) cause to the
-// supplied slog logger at Warn level, then returns the public sentinel
-// the RPC handler should surface to the client. Pass nil logger to
-// fall back to slog.Default() so callers without a threaded logger do
-// not silently lose the operator-side signal. Caller-provided attrs
-// are appended to the standard {op, err} fields.
+// redactRPCError 记录原始错误并返回公开哨兵错误。
+// logger 为空时使用 slog.Default，确保运维侧仍能看到真实 cause，前端只拿到脱敏消息。
 func redactRPCError(logger *slog.Logger, op string, public, cause error, attrs ...any) error {
 	if logger == nil {
 		logger = slog.Default()
@@ -399,10 +383,12 @@ type uiSharedFileGetParams struct {
 	Path string `json:"path"`
 }
 
+// uiSharedFileDeleteParams 是 shared file 删除 RPC 的入参，Path 会先经过 DAG final_output 保护检查。
 type uiSharedFileDeleteParams struct {
 	Path string `json:"path"`
 }
 
+// UISharedFileDetail 是 shared file 详情响应；Content 仅来自 shared file store，不读取任意本地路径。
 type UISharedFileDetail struct {
 	Path      string    `json:"path"`
 	Content   string    `json:"content,omitempty"`
@@ -410,6 +396,7 @@ type UISharedFileDetail struct {
 	UpdatedAt time.Time `json:"updatedAt,omitempty"`
 }
 
+// getUISharedFile 读取单个 shared file，空 path 返回公开校验错误，store 未装配则 fail-fast。
 func getUISharedFile(ctx context.Context, deps memoryHandlerDeps, req uiSharedFileGetParams) (UISharedFileDetail, error) {
 	if deps.SharedFiles == nil {
 		return UISharedFileDetail{}, errors.New("shared file store is not configured")
@@ -430,6 +417,7 @@ func getUISharedFile(ctx context.Context, deps memoryHandlerDeps, req uiSharedFi
 	}, nil
 }
 
+// deleteUISharedFile 删除 shared file 前先确认没有 DAG final_output 引用，避免 UI 误删交付产物。
 func deleteUISharedFile(ctx context.Context, deps memoryHandlerDeps, req uiSharedFileDeleteParams) (bool, error) {
 	if deps.SharedFilesDeleter == nil {
 		return false, errors.New("shared file store is not configured for deletion")
@@ -453,6 +441,7 @@ const (
 	sharedFileDeleteGuardRunLimit int32 = 100
 )
 
+// sharedFileDeleteGuardRuntime 选择可用的 DAG runtime，新接口优先，旧 orchestration 作为兼容入口。
 func sharedFileDeleteGuardRuntime(deps memoryHandlerDeps) contract.DAGRuntime {
 	if deps.DAGRuntime != nil {
 		return deps.DAGRuntime
@@ -460,6 +449,7 @@ func sharedFileDeleteGuardRuntime(deps memoryHandlerDeps) contract.DAGRuntime {
 	return deps.Orchestration
 }
 
+// ensureSharedFileDeleteAllowed 执行 shared file 删除保护，runtime 缺失时阻断而不是放行删除。
 func ensureSharedFileDeleteAllowed(ctx context.Context, dagRuntime contract.DAGRuntime, path string) error {
 	if dagRuntime == nil {
 		return publicValidationErr("shared file final_output delete guard is unavailable; retry after DAG orchestration is connected")
@@ -474,7 +464,8 @@ func ensureSharedFileDeleteAllowed(ctx context.Context, dagRuntime contract.DAGR
 	return nil
 }
 
-// sharedFileReferencedByFinalOutput 按finaloutput处理shared文件referenced。
+// sharedFileReferencedByFinalOutput 检查 shared file 是否被任一 DAG final_output 引用。
+// 发现引用或扫描触及上限时会阻断删除，避免 UI 误删仍被运行记录依赖的产物。
 func sharedFileReferencedByFinalOutput(ctx context.Context, dagRuntime contract.DAGRuntime, path string) (bool, error) {
 	target := strings.TrimSpace(path)
 	if target == "" {
@@ -493,6 +484,7 @@ func sharedFileReferencedByFinalOutput(ctx context.Context, dagRuntime contract.
 	return false, nil
 }
 
+// listDAGsForDeleteGuard 读取有限数量 DAG；触及上限视为保护信息不完整并阻断删除。
 func listDAGsForDeleteGuard(ctx context.Context, dagRuntime contract.DAGRuntime) ([]contract.DAGSummary, error) {
 	dags, err := dagRuntime.ListDAGs(ctx, contract.ListDAGsFilter{Limit: sharedFileDeleteGuardDAGLimit})
 	if err != nil {
@@ -504,7 +496,7 @@ func listDAGsForDeleteGuard(ctx context.Context, dagRuntime contract.DAGRuntime)
 	return dags, nil
 }
 
-// dagFinalOutputReferencesPath 处理DAGfinaloutput引用路径。
+// dagFinalOutputReferencesPath 扫描单个 DAG 的运行记录，判断 final_output 是否指向目标路径。
 func dagFinalOutputReferencesPath(ctx context.Context, dagRuntime contract.DAGRuntime, dagKey, target string) (bool, error) {
 	dagKey = strings.TrimSpace(dagKey)
 	if dagKey == "" {
@@ -531,7 +523,7 @@ func dagFinalOutputReferencesPath(ctx context.Context, dagRuntime contract.DAGRu
 
 // ---------------------------------------------------------------------------
 // similarity.Deps adapter
-// 把子包 internal/module/memory/similarity 反向依赖到主包私有 API 上。
+// 把 similarity 子包需要的读写、日志和 dream 能力桥接到 UI RPC 私有实现。
 // ---------------------------------------------------------------------------
 
 type similarityAdapter struct {
@@ -539,6 +531,7 @@ type similarityAdapter struct {
 	dreamOptions contract.DreamOptions
 }
 
+// newSimilarityAdapter 把 UI RPC 依赖收窄为 similarity 子包接口，dreamOptions 只影响本次批量整合。
 func newSimilarityAdapter(d memoryHandlerDeps, options ...contract.DreamOptions) similarityAdapter {
 	adapter := similarityAdapter{deps: d}
 	if len(options) > 0 {
@@ -547,10 +540,10 @@ func newSimilarityAdapter(d memoryHandlerDeps, options ...contract.DreamOptions)
 	return adapter
 }
 
-// Logger 处理日志器。
+// Logger 返回 similarity 子包记录问题时使用的 logger。
 func (s similarityAdapter) Logger() *slog.Logger { return s.deps.Logger }
 
-// PrivateRoot 处理private根目录。
+// PrivateRoot 解析当前 cwd 对应的私有记忆根目录。
 func (s similarityAdapter) PrivateRoot(_ context.Context, cwd string) (string, error) {
 	if s.deps.Service == nil {
 		return "", errors.New("memory service is not configured")
@@ -563,7 +556,7 @@ func (s similarityAdapter) PrivateRoot(_ context.Context, cwd string) (string, e
 	return resolvedStoreRoot(cfg.RootDir, projectRoot, cfg.AutoMemPathOverride)
 }
 
-// SimilarPairs 返回相似记忆条目配对。
+// SimilarPairs 从 UI snapshot 中提取相似记忆配对，供 similarity 子包批量处理。
 func (s similarityAdapter) SimilarPairs(ctx context.Context, cwd string) ([]similarity.SimilarPair, error) {
 	snap, err := buildUIMemorySnapshot(ctx, s.deps.Service, s.deps.Logger, cwd)
 	if err != nil {
@@ -585,7 +578,7 @@ func (s similarityAdapter) SimilarPairs(ctx context.Context, cwd string) ([]simi
 	return out, nil
 }
 
-// ReadEntry 读取条目。
+// ReadEntry 按 target/path 读取单条记忆，并转换为 similarity 子包的最小快照。
 func (s similarityAdapter) ReadEntry(ctx context.Context, cwd, target, path string) (similarity.EntrySnapshot, error) {
 	root, _, err := resolveUIMemoryTargetRoot(ctx, s.deps.Service, cwd, target)
 	if err != nil {
@@ -603,7 +596,7 @@ func (s similarityAdapter) ReadEntry(ctx context.Context, cwd, target, path stri
 	}, nil
 }
 
-// Merge 合并记忆。
+// Merge 复用 UI RPC 的合并实现写回记忆，保持路径校验和错误脱敏策略一致。
 func (s similarityAdapter) Merge(ctx context.Context, req similarity.MergeRequest) error {
 	_, err := mergeUIMemoryEntries(ctx, s.deps, uiMemoryEntryMergeParams{
 		CWD:               req.CWD,
@@ -617,7 +610,8 @@ func (s similarityAdapter) Merge(ctx context.Context, req similarity.MergeReques
 	return err
 }
 
-// DreamExecute 处理dreamexecute。
+// DreamExecute 调用 dream executor 生成相似记忆合并决策。
+// 支持带 options 的 executor；未配置时返回 contract.ErrDreamExecutorNotConfigured。
 func (s similarityAdapter) DreamExecute(ctx context.Context, prompt string) (string, error) {
 	if s.deps.DreamExecutor == nil {
 		return "", contract.ErrDreamExecutorNotConfigured

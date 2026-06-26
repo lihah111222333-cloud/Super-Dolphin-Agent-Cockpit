@@ -12,8 +12,10 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/orchestration/reportgc"
 )
 
+// ErrNotFound 表示目标 agent 没有可读 report 文件或 report 正文为空。
 var ErrNotFound = errors.New("agent report not found")
 
+// Record 是写入或定位单个 agent report 文件所需的完整信息。
 type Record struct {
 	AgentID   string
 	Name      string
@@ -23,19 +25,21 @@ type Record struct {
 	UpdatedAt time.Time
 }
 
+// PersistedRecord 是从磁盘读取出的 report 正文和版本元数据。
 type PersistedRecord struct {
 	Report    string
 	ReportSeq int64
 	UpdatedAt time.Time
 }
 
+// agentReportFileCandidate 表示 fallback 查找时发现的候选 report 文件。
 type agentReportFileCandidate struct {
 	Path    string
 	Name    string
 	ModTime int64
 }
 
-// Persist 持久化编排。
+// Persist 将非空 report 以原子替换方式写入 cwd 下的 .agnet/report 目录。
 func Persist(record Record) error {
 	report := strings.TrimSpace(record.Report)
 	if report == "" || strings.TrimSpace(record.Cwd) == "" {
@@ -83,7 +87,7 @@ func writeReportFileAtomically(path, content string) error {
 	return nil
 }
 
-// ReadPersisted 读取persisted。
+// ReadPersisted 读取 report 正文；需要 seq/updated_at 的调用方应使用 ReadPersistedRecord。
 func ReadPersisted(record Record) (string, error) {
 	persisted, err := ReadPersistedRecord(record)
 	if err != nil {
@@ -112,6 +116,7 @@ func ReadPersistedRecord(record Record) (PersistedRecord, error) {
 	return report, nil
 }
 
+// readAgentReportFile 按当前 agent id/name 组合出的确定文件名读取 report。
 func readAgentReportFile(record Record) (PersistedRecord, error) {
 	path, err := agentReportFilePath(record)
 	if err != nil {
@@ -120,6 +125,7 @@ func readAgentReportFile(record Record) (PersistedRecord, error) {
 	return readReportFileAtPath(path, strings.TrimSpace(record.AgentID))
 }
 
+// readReportFileAtPath 从指定路径读取 report，并把空正文映射为 ErrNotFound。
 func readReportFileAtPath(path, agentID string) (PersistedRecord, error) {
 	raw, err := os.ReadFile(path)
 	if err != nil {
@@ -138,6 +144,7 @@ func readReportFileAtPath(path, agentID string) (PersistedRecord, error) {
 	return report, nil
 }
 
+// formatPersistedReport 生成带 front matter 的 report 文件内容。
 func formatPersistedReport(record Record) (string, error) {
 	if record.ReportSeq < 0 {
 		return "", errors.New("report_seq must be non-negative")
@@ -213,6 +220,7 @@ func parseReportFrontMatter(header string) (PersistedRecord, bool, error) {
 	return record, foundSeq || foundUpdatedAt, nil
 }
 
+// newestAgentReportFilePath 在文件名变更时按 agent id 前缀查找最新 report 文件。
 func newestAgentReportFilePath(record Record) (string, error) {
 	dir, filenamePrefix, err := agentReportFileDirAndPrefix(record)
 	if err != nil {
@@ -232,6 +240,7 @@ func newestAgentReportFilePath(record Record) (string, error) {
 	return best.Path, nil
 }
 
+// agentReportReadDirError 把 report 目录缺失归一为 ErrNotFound，其它错误保持基础设施失败。
 func agentReportReadDirError(err error, agentID string) error {
 	if errors.Is(err, os.ErrNotExist) {
 		return fmt.Errorf("%w: %s", ErrNotFound, agentID)
@@ -239,6 +248,7 @@ func agentReportReadDirError(err error, agentID string) error {
 	return fmt.Errorf("read agent report: %w", err)
 }
 
+// newestAgentReportFileCandidate 从目录项中挑选修改时间最新的候选文件。
 func newestAgentReportFileCandidate(dir, filenamePrefix string, entries []os.DirEntry) (agentReportFileCandidate, error) {
 	var best agentReportFileCandidate
 	for _, entry := range entries {
@@ -256,6 +266,7 @@ func newestAgentReportFileCandidate(dir, filenamePrefix string, entries []os.Dir
 	return best, nil
 }
 
+// agentReportCandidateFromDirEntry 将匹配前缀的目录项转换为候选 report 文件。
 func agentReportCandidateFromDirEntry(dir, filenamePrefix string, entry os.DirEntry) (agentReportFileCandidate, bool, error) {
 	name := entry.Name()
 	if entry.IsDir() || !strings.HasPrefix(name, filenamePrefix) {
@@ -272,6 +283,7 @@ func agentReportCandidateFromDirEntry(dir, filenamePrefix string, entry os.DirEn
 	}, true, nil
 }
 
+// newerThan 按修改时间和文件名稳定比较两个候选文件。
 func (candidate agentReportFileCandidate) newerThan(other agentReportFileCandidate) bool {
 	if other.Path == "" {
 		return true
@@ -282,6 +294,7 @@ func (candidate agentReportFileCandidate) newerThan(other agentReportFileCandida
 	return candidate.Name > other.Name
 }
 
+// agentReportFilePath 计算当前 agent report 文件的完整路径。
 func agentReportFilePath(record Record) (string, error) {
 	dir, filenamePrefix, err := agentReportFileDirAndPrefix(record)
 	if err != nil {
@@ -291,6 +304,7 @@ func agentReportFilePath(record Record) (string, error) {
 	return filepath.Join(dir, filename), nil
 }
 
+// agentReportFileDirAndPrefix 计算 report 目录和 agent id 前缀，并校验必要定位字段。
 func agentReportFileDirAndPrefix(record Record) (string, string, error) {
 	cwd := strings.TrimSpace(record.Cwd)
 	agentID := strings.TrimSpace(record.AgentID)

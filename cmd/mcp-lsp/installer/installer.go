@@ -51,7 +51,8 @@ type Provider struct {
 	logger  *slog.Logger
 }
 
-// NewProvider 创建provider。
+// NewProvider 初始化语言服务安装器注册表。
+// Provider 内部用锁保护配置表，允许工具初始化阶段并发注册或查询语言配置。
 func NewProvider() *Provider {
 	log := pkglogger.Get()
 	return &Provider{
@@ -60,17 +61,16 @@ func NewProvider() *Provider {
 	}
 }
 
-// Register registers an installer config for a specific language
-// Register 注册LSP。
+// Register 为语言登记安装命令和伴随二进制检查项。
+// 后续 EnsureInstalled 会按语言读取该配置，未登记时直接返回错误。
 func (p *Provider) Register(lang string, cfg InstallerConfig) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.configs[lang] = cfg
 }
 
-// EnsureInstalled checks if the binary exists, if not it attempts to auto-install it.
-// Returns the resolved binary path.
-// EnsureInstalled 确保安装状态。
+// EnsureInstalled 返回可执行语言服务二进制路径，缺失时按配置尝试安装。
+// 安装或伴随工具校验失败会直接返回错误，避免静默降级到不可用 LSP。
 func (p *Provider) EnsureInstalled(ctx context.Context, lang string) (string, error) {
 	result, err := p.EnsureInstalledDetailed(ctx, lang)
 	if err != nil {
@@ -79,7 +79,8 @@ func (p *Provider) EnsureInstalled(ctx context.Context, lang string) (string, er
 	return result.Path, nil
 }
 
-// EnsureInstalledDetailed 确保安装状态详情。
+// EnsureInstalledDetailed 解析语言服务安装路径和来源状态。
+// 它先校验 PATH，再执行自动安装并复验伴随工具，任何一步失败都会带原因返回。
 func (p *Provider) EnsureInstalledDetailed(ctx context.Context, lang string) (InstallResult, error) {
 	p.mu.Lock()
 	cfg, ok := p.configs[lang]
@@ -91,7 +92,7 @@ func (p *Provider) EnsureInstalledDetailed(ctx context.Context, lang string) (In
 
 	result := InstallResult{Lang: lang, Binary: cfg.BinaryName}
 
-	// 1. Check if binary is in PATH and its companion tools are usable.
+	// 先信任 PATH 中已有二进制，但必须同时验证伴随工具可用。
 	if path, err := exec.LookPath(cfg.BinaryName); err == nil {
 		if err := validateRequiredBinaries(ctx, cfg); err == nil {
 			result.Path = path
@@ -106,7 +107,7 @@ func (p *Provider) EnsureInstalledDetailed(ctx context.Context, lang string) (In
 		slog.String("cmd", cfg.InstallCmd),
 	)
 
-	// 2. Perform installation
+	// PATH 不可用时执行声明式安装命令，输出会在失败时带回调用方。
 	cmd := hiddenexec.CommandContext(ctx, cfg.InstallCmd, cfg.InstallArgs...)
 
 	start := time.Now()
@@ -121,7 +122,7 @@ func (p *Provider) EnsureInstalledDetailed(ctx context.Context, lang string) (In
 		slog.String("duration", time.Since(start).String()),
 	)
 
-	// 3. Verify it is now in PATH and companion tools are usable.
+	// 安装后重新解析路径并复验伴随工具，避免报告“已安装”但运行时仍不可用。
 	if path, err := exec.LookPath(cfg.BinaryName); err == nil {
 		if err := validateRequiredBinaries(ctx, cfg); err != nil {
 			return InstallResult{}, fmt.Errorf("auto-install succeeded but required LSP companion for %s is not usable: %w", cfg.BinaryName, err)
@@ -144,7 +145,8 @@ func (p *Provider) EnsureInstalledDetailed(ctx context.Context, lang string) (In
 	return InstallResult{}, fmt.Errorf("auto-install succeeded but binary %s is still not found in PATH", cfg.BinaryName)
 }
 
-// validateRequiredBinaries 校验必需二进制。
+// validateRequiredBinaries 确认语言服务依赖的伴随命令都可执行。
+// 配置中出现空名称、PATH 缺失或健康检查失败都会阻断安装结果。
 func validateRequiredBinaries(ctx context.Context, cfg InstallerConfig) error {
 	for _, required := range cfg.RequiredBinaries {
 		name := strings.TrimSpace(required.Name)
@@ -209,7 +211,8 @@ func goInstallBinDir(ctx context.Context, goCmd string) string {
 	return filepath.Join(gopath, "bin")
 }
 
-// executableInDir 在目录处理可执行文件。
+// executableInDir 在指定目录中查找可执行二进制。
+// Windows 额外尝试 .exe 后缀；非 Windows 需要执行位，避免把普通文件当作语言服务。
 func executableInDir(dir, binaryName string) (string, bool) {
 	binaryName = strings.TrimSpace(binaryName)
 	if strings.TrimSpace(dir) == "" || binaryName == "" {

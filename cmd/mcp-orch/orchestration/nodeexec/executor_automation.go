@@ -10,14 +10,9 @@ import (
 	"text/template"
 )
 
-// AutomationExecutor wires node_type=automation through command_get and a
-// command-card runner. F2.1 接通了 command_ref 解码 + 执行路径；F2.2 补足 inputs/outputs
-// 处理：
-//   - Inputs：按 cfg.Inputs.FromNodes/FromSharedfiles 从 RunContext 拉取内容，合并到 args.inputs
-//     子对象供 command_template 渲染。args 本身拥有同名 key 时走 validation。
-//   - Outputs：成功后根据 cfg.Outputs 写入 sharedfile / node.result；二者同时缺省时保持 F2.1 走 to_node_result
-//     的该路径，避免静默丢失输出。
-//   - 安全边界：拒绝 automation 节点 outputs 反向注入 agent prompt（F1.3 / ADR-011 边界）。
+// AutomationExecutor 执行 node_type=automation 节点。
+// 它通过 command_get 读取命令卡，再由 runner 在受限工作区内执行；inputs 会注入到 args.__inputs，
+// outputs 负责写入 node.result 或 sharedfile。automation 不能通过 outputs 注入 agent prompt 或路由字段。
 type AutomationExecutor struct {
 	commandGetter AutomationCommandGetter
 	runner        AutomationCommandRunner
@@ -60,13 +55,14 @@ type AutomationCommandRunOptions struct {
 
 type AutomationOption func(*AutomationExecutor)
 
-// WithAutomationHooks registers lifecycle hooks for automation nodes.
-// WithAutomationHooks 设置automationhooks。
+// WithAutomationHooks 注册 automation 节点的生命周期钩子。
+// hook 由 router best-effort 调用，失败只记诊断，不改变命令执行结果。
 func WithAutomationHooks(hooks map[HookPoint]HookHandler) AutomationOption {
 	return func(e *AutomationExecutor) { e.hooks = cloneHookHandlers(hooks) }
 }
 
-// NewAutomationExecutor 创建automationexecutor。
+// NewAutomationExecutor 构造 automation 执行器。
+// getter 和 runner 缺失不会 panic；Execute 会把缺失 wiring 报为 validation 失败。
 func NewAutomationExecutor(getter AutomationCommandGetter, runner AutomationCommandRunner, opts ...AutomationOption) *AutomationExecutor {
 	e := &AutomationExecutor{commandGetter: getter, runner: runner}
 	for _, opt := range opts {
@@ -77,7 +73,8 @@ func NewAutomationExecutor(getter AutomationCommandGetter, runner AutomationComm
 	return e
 }
 
-// Execute 执行编排。
+// Execute 解析 automation config、读取命令卡并运行命令。
+// 配置、wiring、输入和命令执行错误都通过 NodeOutcome 分类返回，error 通道只保留框架级失败。
 func (e *AutomationExecutor) Execute(ctx context.Context, node Node, runCtx RunContext) (NodeOutcome, error) {
 	if ctx == nil {
 		ctx = context.Background()
@@ -110,12 +107,8 @@ func (e *AutomationExecutor) Execute(ctx context.Context, node Node, runCtx RunC
 	return finalizeAutomationOutcome(ctx, cfg, node, runCtx, result)
 }
 
-// finalizeAutomationOutcome 把 runner 返回结果按 cfg.Outputs 写入 sharedfile / node.result，
-// 并生成最终 NodeOutcome。拆出独立函数是为了把 Execute CC 压在代码守卫阈以下。
-//
-// finalizeAutomationOutcome materialises the AutomationCommandResult into the configured outputs
-// (sharedfile + node.result) and produces the terminal NodeOutcome. Pulled out so Execute stays
-// under the cyclomatic-complexity guard.
+// finalizeAutomationOutcome 将命令执行结果物化为配置声明的输出。
+// sharedfile 写入失败必须让节点失败，避免 node.result 指向不存在或未落盘的产物。
 func finalizeAutomationOutcome(ctx context.Context, cfg *AutomationNodeConfig, node Node, runCtx RunContext, result AutomationCommandResult) (NodeOutcome, error) {
 	payload, err := json.Marshal(result)
 	if err != nil {
@@ -140,28 +133,12 @@ func finalizeAutomationOutcome(ctx context.Context, cfg *AutomationNodeConfig, n
 	return outcome, nil
 }
 
-// NodeResultSizeCapBytes 是 outputs.to_node_result 路径下 NodeOutcome.Result 的硬上限。
-// ADR-006 决策（Accepted 2026-05-12）：4KB 摘要阈值，超出 → validation 失败，提示配置
-// outputs.to_sharedfile。大输出走 sharedfile 是 ADR 主路径，避免 task_dag_nodes.result
-// jsonb 列膨胀拖垮 PG 查询 / UI 列表渲染。
-//
-// 4KB = 4096 bytes 含义来自蓝图 v2 §5 关键决策汇总 "result vs sharedfile 边界" 行；
-// 选 4KB 的依据见 ADR-006 §1：下游 LLM context 阈值的经验拍 + PG jsonb toast 256KB 的
-// 1/64 中位拍，足够装下结构化摘要（~ <2KB JSON）+ 留余量。
-//
-// NodeResultSizeCapBytes is the hard cap enforced on NodeOutcome.Result before writing to
-// task_dag_nodes.result. ADR-006 (Accepted 2026-05-12) chose 4096 bytes as the validation
-// threshold; oversize payloads must route through outputs.to_sharedfile.
+// NodeResultSizeCapBytes 是 outputs.to_node_result 写入 task_dag_nodes.result 前的硬上限。
+// 超过 4KB 的命令结果必须改走 outputs.to_sharedfile，避免持久化列和节点列表承载大块原始输出。
 const NodeResultSizeCapBytes = 4096
 
-// enforceNodeResultSizeCap 在 NodeOutcome.Result 落库前测 size，超阈返回 validation
-// 失败 outcome；不超返 nil。F1.3 实装 ADR-006 决策。
-//
-// 边界：len(payload) <= 4096 OK；> 4096 拒绝。错误消息显式建议「configure
-// outputs.to_sharedfile」让运营者知道修复路径。
-//
-// enforceNodeResultSizeCap returns a *NodeOutcome iff payload exceeds
-// NodeResultSizeCapBytes; nil means within cap. ADR-006 main path.
+// enforceNodeResultSizeCap 在 node.result 落库前执行大小检查。
+// len(payload) <= 4096 放行；超过上限返回 validation outcome，并提示调用方改用 outputs.to_sharedfile。
 func enforceNodeResultSizeCap(payload []byte) *NodeOutcome {
 	if len(payload) <= NodeResultSizeCapBytes {
 		return nil
@@ -176,11 +153,8 @@ func enforceNodeResultSizeCap(payload []byte) *NodeOutcome {
 	return &outcome
 }
 
-// shouldEmitFullNodeResult 判定是否在 NodeOutcome.Result 写入 marshal 后的完整命令结果。
-// F2.1 原行为：总是写入 payload。F2.2 保持向下兼容：
-//   - Outputs.ToNodeResult 显式 true → 写入；
-//   - Outputs.ToSharedfile 显式配置且 ToNodeResult 未勾选 → 不写完整 payload；由轻量 envelope 指向 sharedfile；
-//   - 两者都默认零值（旧 DAG / F2.1 测例）→ 保留写入，避免静默丢失输出。
+// shouldEmitFullNodeResult 判定是否把完整命令结果写入 NodeOutcome.Result。
+// 未声明 sharedfile 时保留完整结果，避免旧配置丢失输出；声明 sharedfile 且未显式要求 node_result 时只写轻量 envelope。
 func shouldEmitFullNodeResult(out OutputsConfig) bool {
 	if out.ToNodeResult {
 		return true
@@ -202,7 +176,8 @@ func automationSharedfilePath(out OutputsConfig) string {
 	return strings.TrimSpace(out.ToSharedfile.Path)
 }
 
-// buildAutomationSharedfileEnvelope 构建automationsharedfile包装。
+// buildAutomationSharedfileEnvelope 构建写入 node.result 的轻量 sharedfile envelope。
+// envelope 必须带 dag/run/node 三元组，缺任一上下文都会失败，避免 UI 指向不可审计的输出路径。
 func buildAutomationSharedfileEnvelope(out OutputsConfig, node Node, runCtx RunContext) (json.RawMessage, *NodeOutcome) {
 	path := automationSharedfilePath(out)
 	if path == "" {
@@ -301,7 +276,8 @@ func (e *AutomationExecutor) loadCommandCard(ctx context.Context, cfg *Automatio
 	return card, nil
 }
 
-// Hooks 处理hooks。
+// Hooks 返回 automation executor 注册的生命周期钩子副本。
+// nil 表示未配置 hook；返回副本避免调用方改写内部 map。
 func (e *AutomationExecutor) Hooks() map[HookPoint]HookHandler {
 	if e == nil {
 		return nil
@@ -317,7 +293,8 @@ func failedAutomationOutcome(class FailureClass, summary string) NodeOutcome {
 	}
 }
 
-// classifyAutomationError 分类automation错误。
+// classifyAutomationError 将 command_get 或 runner 错误映射为节点失败类别。
+// 命令退出码属于业务 hard failure；上下文取消、超时和限流归 transient；存储/传输异常归 infrastructure。
 func classifyAutomationError(err error) FailureClass {
 	if err == nil {
 		return FailureClassTransient
@@ -412,33 +389,17 @@ func validateRenderedCommandShellSafety(command string) error {
 	return nil
 }
 
-// automationOutputsForbiddenKeys 是 automation 节点 outputs 中不得出现的「agent prompt
-// 注入 / agent 路由」语义字段名。automation 节点只负责命令卡执行 + 输出落地，
-// 不得为下游 agent 拼 prompt 或路由 agent 实例，避免跨节点路径被「转变」为
-// 隐式 agent 调用 / 隐式模型升级（F1.3 / ADR-011 边界）。
-//
-// 字段集来源（R1 P1 #3 扩展）：
-//   - prompt 系：prompt / first_turn / agent_prompt / system_prompt / append_error
-//     —— 直接注入 prompt 文本会让 automation outputs 隐式驱动下游 agent；
-//   - 路由系：agent_key / model / provider / language / tool_choice / tools
-//     —— automation 节点 outputs 不得替下游 agent 决定模型 / provider / 工具白
-//     名单等路由字段；路由必须由该 agent 节点的 config.exec 显式声明。
-//
-// automationOutputsForbiddenKeys lists field names whose presence in an automation
-// node's outputs config indicates an attempt to inject agent-style prompts or
-// silently reroute downstream agent dispatch; per the F1.3 / ADR-011 boundary,
-// those flows belong to hybrid (agent→automation), not automation outputs, so
-// the executor must reject them at validation time.
+// automationOutputsForbiddenKeys 列出 automation outputs 中禁止出现的 agent prompt 和路由字段。
+// automation 节点只负责命令卡执行与输出落地，不能替下游 agent 决定 prompt、模型、provider 或工具名单。
 var automationOutputsForbiddenKeys = []string{
-	// prompt-injection family
+	// prompt 注入字段。
 	"prompt", "first_turn", "agent_prompt", "system_prompt", "append_error",
-	// agent-routing family
+	// agent 路由字段。
 	"agent_key", "model", "provider", "language", "tool_choice", "tools",
 }
 
-// validateAutomationOutputs 验证 outputs 配置未含 agent prompt 注入字段。
-// 由于 typed OutputsConfig 会默认忽略未知 json key，这里手工重读 raw 才能猝住违规。
-// 空 raw / 缺 outputs / 非对象 outputs 都算合法（sanity 失败不在本守守范畴）。
+// validateAutomationOutputs 验证 outputs 配置未包含 agent prompt 或路由字段。
+// typed OutputsConfig 会忽略未知 key，因此这里必须重读 raw JSON；形状错误留给 typed 解码路径报告。
 func validateAutomationOutputs(raw json.RawMessage, _ *AutomationNodeConfig) *NodeOutcome {
 	return validateOutputsForbiddenKeys(raw, automationOutputsForbiddenKeys, func(key string) NodeOutcome {
 		return failedAutomationOutcome(FailureClassValidation,
@@ -446,7 +407,8 @@ func validateAutomationOutputs(raw json.RawMessage, _ *AutomationNodeConfig) *No
 	})
 }
 
-// validateOutputsForbiddenKeys 校验outputsforbidden键。
+// validateOutputsForbiddenKeys 在 raw outputs 对象里查找禁止字段。
+// 该函数只做语义字段拦截；outputs 不是 object 时交给 typed schema 的验证路径处理。
 func validateOutputsForbiddenKeys(raw json.RawMessage, forbiddenKeys []string, buildOutcome func(string) NodeOutcome) *NodeOutcome {
 	if len(raw) == 0 {
 		return nil
@@ -459,7 +421,7 @@ func validateOutputsForbiddenKeys(raw json.RawMessage, forbiddenKeys []string, b
 	}
 	var fields map[string]json.RawMessage
 	if err := json.Unmarshal(envelope.Outputs, &fields); err != nil {
-		// outputs 不是 object（例如 null 或数组）——typed 解码阶段会报错，本守守不重复报告。
+		// outputs 不是 object（例如 null 或数组）时交给 typed 解码路径报错，这里不重复报告。
 		return nil
 	}
 	for _, key := range forbiddenKeys {
@@ -471,18 +433,9 @@ func validateOutputsForbiddenKeys(raw json.RawMessage, forbiddenKeys []string, b
 	return nil
 }
 
-// buildAutomationRunArgs 把 cfg.Inputs 指定的 prev_results / sharedfiles 合并到 args.__inputs 子对象。
-// 返回的 json.RawMessage 用于 RunCommandCard；原 cfg.Exec.Args 不被修改。
-//
-// 收敛 batch 第 6 项（R1 P2 #4）：reserved key 从 "inputs" 改为 "__inputs"（双下划线
-// 前缀），避免与普通 command_card args 用户自定义的 "inputs" 字段冲突。command_template
-// 渲染路径用 `{{.__inputs.from_nodes.X}}` 访问。
-//
-// 合并规则：
-//   - inputs.FromNodes / FromSharedfiles 都空 → 返回原 args，F2.1 happy 路径不变；
-//   - args 本身已包含 "__inputs" key → validation（避免隐式覆盖）；
-//   - FromNodes 里的 node_key 在 PrevResults 中不存在 → validation；
-//   - FromSharedfiles 非空 但 SharedFileReader == nil → validation；读失败走 classify 分类。
+// buildAutomationRunArgs 把 cfg.Inputs 声明的上游结果和 sharedfile 内容合并到 args.__inputs。
+// 原 cfg.Exec.Args 不会被修改；如果用户参数已占用 "__inputs"，直接 validation，避免隐式覆盖。
+// 缺上游结果或缺 reader 是配置/wiring 错误；实际读取失败按底层错误分类。
 func buildAutomationRunArgs(ctx context.Context, cfg *AutomationNodeConfig, runCtx RunContext) (json.RawMessage, *NodeOutcome) {
 	in := cfg.Inputs
 	if len(in.FromNodes) == 0 && len(in.FromSharedfiles) == 0 {
@@ -505,8 +458,8 @@ func buildAutomationRunArgs(ctx context.Context, cfg *AutomationNodeConfig, runC
 	return merged, nil
 }
 
-// decodeArgsForInjection 把 cfg.Exec.Args 解码为 map，同时拒绝占用 reserved "__inputs" key 的原始 args。
-// 该 helper 拆出是为了压住 buildAutomationRunArgs 的圏复杂度（代码守卫阈 CC ≤ 10）。
+// decodeArgsForInjection 将 cfg.Exec.Args 解码为可注入的 map。
+// "__inputs" 是执行器保留 key；用户原始 args 占用该 key 时必须失败，避免上下文被覆盖。
 func decodeArgsForInjection(raw json.RawMessage) (map[string]any, *NodeOutcome) {
 	argsMap := map[string]any{}
 	if len(raw) > 0 && string(raw) != "null" {
@@ -523,7 +476,8 @@ func decodeArgsForInjection(raw json.RawMessage) (map[string]any, *NodeOutcome) 
 	return argsMap, nil
 }
 
-// buildInputsPayload 面向 cfg.Inputs 生成最终注入 args.__inputs 子对象的 map；nil failure 表示成功。
+// buildInputsPayload 生成最终写入 args.__inputs 的上下文对象。
+// 只有配置声明的来源会被读取，避免 executor 主动扩大 store/sharedfile 访问面。
 func buildInputsPayload(ctx context.Context, in InputsConfig, runCtx RunContext) (map[string]any, *NodeOutcome) {
 	injected := map[string]any{}
 	fromNodes, failure := collectPrevResults(in.FromNodes, runCtx.PrevResults)
@@ -543,7 +497,8 @@ func buildInputsPayload(ctx context.Context, in InputsConfig, runCtx RunContext)
 	return injected, nil
 }
 
-// collectPrevResults 收集prev结果。
+// collectPrevResults 收集上游节点 result 并解码为 template 可访问的值。
+// 缺少声明的 node_key 是 validation 失败；非 JSON result 保留为原始字符串，保证命令模板仍能读取。
 func collectPrevResults(fromNodes []string, prev map[string]json.RawMessage) (map[string]any, *NodeOutcome) {
 	if len(fromNodes) == 0 {
 		return nil, nil
@@ -572,7 +527,8 @@ func collectPrevResults(fromNodes []string, prev map[string]json.RawMessage) (ma
 	return out, nil
 }
 
-// collectSharedfileInputs 收集sharedfileinputs。
+// collectSharedfileInputs 读取 inputs.from_sharedfiles 声明的文件内容。
+// reader 未注入或路径不存在是 validation 失败；读取端口返回错误时按 automation 错误分类。
 func collectSharedfileInputs(ctx context.Context, paths []string, reader SharedFileReader) (map[string]string, *NodeOutcome) {
 	if len(paths) == 0 {
 		return nil, nil

@@ -16,6 +16,7 @@ import (
 
 const claudeAuthPreflightTimeout = 10 * time.Second
 
+// claudeAuthStatus 是 `claude auth status --json` 的最小解析结构。
 type claudeAuthStatus struct {
 	LoggedIn     bool   `json:"loggedIn"`
 	AuthMethod   string `json:"authMethod"`
@@ -23,7 +24,8 @@ type claudeAuthStatus struct {
 	APIKeySource string `json:"apiKeySource"`
 }
 
-// preflightClaudeAuth 处理preflightclaude认证。
+// preflightClaudeAuth 在启动 Claude CLI 前做认证预检。
+// 只有命令明确返回 loggedIn=false 时才阻断；状态不可判定时继续启动，让 CLI 返回真实错误。
 func (d *driver) preflightClaudeAuth(ctx context.Context, binary, cwd string, cfg cliLaunchConfig) error {
 	checkCtx, cancel := ctxutil.WithTimeout(ctx, claudeAuthPreflightTimeout)
 	defer cancel()
@@ -46,6 +48,7 @@ func (d *driver) preflightClaudeAuth(ctx context.Context, binary, cwd string, cf
 	return fmt.Errorf("claudecli: authentication required: %s", detail)
 }
 
+// claudeAuthStatusReportsLoggedOut 判断原始 JSON 是否明确声明 loggedIn=false。
 func claudeAuthStatusReportsLoggedOut(raw string) bool {
 	var payload struct {
 		LoggedIn *bool `json:"loggedIn"`
@@ -56,7 +59,7 @@ func claudeAuthStatusReportsLoggedOut(raw string) bool {
 	return !*payload.LoggedIn
 }
 
-// runClaudeAuthStatus 运行claude认证状态。
+// runClaudeAuthStatus 执行 Claude CLI 认证状态查询，并复用启动环境里的 provider env。
 func runClaudeAuthStatus(ctx context.Context, binary, cwd string, cfg cliLaunchConfig) (claudeAuthStatus, string, error) {
 	if strings.TrimSpace(binary) == "" {
 		binary = defaultClaudeCLIBin

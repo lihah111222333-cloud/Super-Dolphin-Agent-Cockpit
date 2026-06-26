@@ -36,20 +36,26 @@ var (
 	ErrInvalidTeamMemKey       = teampkg.ErrInvalidTeamMemKey
 )
 
+// MemoryFeatureFlags 汇总 memory 模块运行时可选能力开关。
+// 这些值在 NewConfig 中从环境变量冻结，避免运行中 env 漂移改变同一轮行为。
 type MemoryFeatureFlags struct {
 	Kairos            bool
 	TeamMemory        bool
 	SearchPastContext bool
 }
 
+// KairosConfig 保存 Kairos 记忆模式的显式配置快照。
 type KairosConfig struct {
 	Enabled bool
 }
 
+// NestedMemoryConfig 保存嵌套记忆规则的显式配置快照。
 type NestedMemoryConfig struct {
 	Enabled bool
 }
 
+// TrustedPathSettingSource 标记 auto memory 路径覆盖的来源可信度。
+// 调用方用它区分策略注入、命令行、本地配置和用户设置，避免把不可信路径当成系统策略。
 type TrustedPathSettingSource string
 
 const (
@@ -60,11 +66,14 @@ const (
 	TrustedPathSettingSourceUser   TrustedPathSettingSource = "user"
 )
 
+// TrustedAutoMemPathOverride 是带来源标记的 auto memory 路径覆盖。
 type TrustedAutoMemPathOverride struct {
 	Path   string
 	Source TrustedPathSettingSource
 }
 
+// Config 是 memory 模块在一次运行中的配置快照。
+// 路径、功能开关和 harness 都应通过 NewConfig 构造，避免运行中读取实时环境变量造成 gate 抖动。
 type Config struct {
 	Enabled                    bool
 	EnableTools                bool
@@ -79,19 +88,15 @@ type Config struct {
 	Features                   MemoryFeatureFlags
 	Kairos                     KairosConfig
 	NestedMemory               NestedMemoryConfig
-	// Harness records the underlying CLI harness identified at startup. It
-	// is frozen here so a mid-run os.Setenv on `MULTI_AGENT_HARNESS_CLI`
-	// cannot flip overlay suppression silently.
+	// Harness 记录启动时识别出的底层 CLI harness。
+	// 该值冻结在 Config 中，避免运行中 os.Setenv 改变 overlay suppression 判断。
 	//
-	// Production code MUST construct Config through NewConfig so this field
-	// is populated. The empty-string fallback (resolve from live env at
-	// gate time) exists ONLY to keep `&Config{}` literals in tests
-	// painless; it is NOT a supported production default. Reviewers should
-	// treat any new production callsite that bypasses NewConfig and reads
-	// the empty-Harness fallback as a bug. See gate.go::resolveHarnessFromConfig.
+	// 生产代码必须通过 NewConfig 构造 Config。空值回退只服务测试里的 `&Config{}` 字面量；
+	// 新生产路径如果绕过 NewConfig 并依赖空 Harness，应视为配置装配错误。
 	Harness MemoryHarness
 }
 
+// MemoryPathClass 是路径分类结果，用于区分 auto memory 路径和其他本地路径。
 type MemoryPathClass string
 
 const (
@@ -99,7 +104,8 @@ const (
 	MemoryPathClassAuto  MemoryPathClass = "auto"
 )
 
-// NewConfig 创建配置。
+// NewConfig 从平台配置和环境变量构建 memory 配置快照。
+// auto-dream 手动开关会从 memory root 旁的 intent 文件恢复；读取失败时保留环境变量结果。
 func NewConfig(platformCfg *contract.Config) *Config {
 	kairosEnabled := parseBoolEnv(envFeatureKairos, false)
 	envOverride := firstNonEmptyEnv(envMemoryPathOverride, envClaudeMemoryPathOverride)
@@ -131,47 +137,55 @@ func NewConfig(platformCfg *contract.Config) *Config {
 	return cfg
 }
 
-// IsMemoryEnabled 判断记忆enabled是否可用。
+// IsMemoryEnabled 返回当前配置下 memory 功能是否真正开放。
+// 它同时检查产品级开关和 gate 结果，避免只看 Enabled 就绕过 overlay/remote 等限制。
 func (c *Config) IsMemoryEnabled() bool {
 	return memoryProductEnabled(c) && ResolveMemoryGate(contract.BuildCtx{}, c).AutoEnabled
 }
 
-// HasAutoMemPathOverride 判断automem路径override是否可用。
+// HasAutoMemPathOverride 判断是否存在任意 auto memory 路径覆盖。
+// 环境变量优先于 Config 中的可信覆盖，调用方不应自行重复读取 env。
 func (c *Config) HasAutoMemPathOverride() bool {
 	return configuredAutoMemPathOverride(c) != ""
 }
 
-// ResolvedAutoMemPathOverride 处理已解析automem路径override。
+// ResolvedAutoMemPathOverride 返回最终生效的 auto memory 路径覆盖。
+// 返回空字符串表示没有覆盖，调用方应继续使用默认 root/project 推导。
 func (c *Config) ResolvedAutoMemPathOverride() string {
 	return configuredAutoMemPathOverride(c)
 }
 
-// TrustedAutoMemPathSource 处理trustedautomem路径source。
+// TrustedAutoMemPathSource 返回当前可信 auto memory 路径覆盖的来源。
+// 未配置时为 none；未知来源会被规范化成本地来源，避免出现未定义 trust level。
 func (c *Config) TrustedAutoMemPathSource() TrustedPathSettingSource {
 	return resolveTrustedAutoMemPathSource(c)
 }
 
-// IsAutoMemPath 判断automem路径是否可用。
+// IsAutoMemPath 判断给定路径是否落在当前 auto memory 路径范围内。
 func (c *Config) IsAutoMemPath(path string) bool {
 	return ClassifyMemoryPath(c, path) == MemoryPathClassAuto
 }
 
-// ClassifyMemoryPath 分类记忆路径。
+// ClassifyMemoryPath 使用当前 Config 对路径做 memory 分类。
+// 这是方法形式的便捷入口，分类规则仍集中在包级函数中。
 func (c *Config) ClassifyMemoryPath(path string) MemoryPathClass {
 	return ClassifyMemoryPath(c, path)
 }
 
-// ResolveMemoryGate 解析记忆gate。
+// ResolveMemoryGate 计算 build context 与 Config 共同决定的 memory gate 快照。
+// 调用方应使用快照结果驱动 UI 和 prompt 注入，不要重复拼接 gate 条件。
 func ResolveMemoryGate(buildCtx contract.BuildCtx, cfg *Config) MemoryGateSnapshot {
 	return resolveMemoryGate(buildCtx, cfg)
 }
 
-// ShouldStartRelevantMemoryPrefetch 判断起点relevant记忆prefetch是否可用。
+// ShouldStartRelevantMemoryPrefetch 判断本轮是否可以启动 relevant memory 预取。
+// 该函数同时考虑 gate、turn input 和已 surfaced 状态，避免重复启动后台预取。
 func ShouldStartRelevantMemoryPrefetch(snapshot MemoryGateSnapshot, turnInput contract.TurnInput, surfacedState RelevantPrefetchSurfacedState) bool {
 	return shouldStartRelevantMemoryPrefetch(snapshot, turnInput, surfacedState)
 }
 
-// ClassifyMemoryPath 分类记忆路径。
+// ClassifyMemoryPath 将路径分类为 auto memory 或其他路径。
+// cfg 为空时仅使用安全默认规则，不会把任意路径误判为 auto memory。
 func ClassifyMemoryPath(cfg *Config, path string) MemoryPathClass {
 	switch {
 	case isAutoMemPath(cfg, path):
@@ -181,7 +195,8 @@ func ClassifyMemoryPath(cfg *Config, path string) MemoryPathClass {
 	}
 }
 
-// IsAutoMemoryPath 判断auto记忆路径是否可用。
+// IsAutoMemoryPath 是包级 auto memory 路径判断入口。
+// 它用于没有 Config 方法接收者的调用点，规则与 Config.IsAutoMemPath 保持一致。
 func IsAutoMemoryPath(cfg *Config, path string) bool {
 	return ClassifyMemoryPath(cfg, path) == MemoryPathClassAuto
 }
@@ -245,13 +260,15 @@ func hasPersistentMemoryStorage(cfg *Config) bool {
 	return configuredAutoMemPathOverride(cfg) != ""
 }
 
-// HandleDateChange 处理datechange。
+// HandleDateChange 保留给日期切换触发器的空实现。
+// 当前调用方通过重建 Config 处理日期变化，因此这里不能偷偷修改全局状态。
 func HandleDateChange() {
 	// Date-change hooks are currently handled by callers that rebuild Config.
 	_ = struct{}{}
 }
 
-// LoadNestedMemoryPaths 加载nested记忆路径。
+// LoadNestedMemoryPaths 返回嵌套记忆路径列表。
+// 当前配置没有持久化 nested 路径来源，返回空切片表示“不追加额外路径”。
 func LoadNestedMemoryPaths() []string {
 	return []string{}
 }

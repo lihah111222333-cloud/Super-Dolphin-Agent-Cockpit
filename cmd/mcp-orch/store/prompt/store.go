@@ -12,15 +12,16 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared/builtinprompts"
 )
 
+// store 用 sqlc 查询实现 prompt Store 接口，并保留事务复用所需的 DBTX。
 type store struct {
 	db sqlc.DBTX
 	q  *sqlc.Queries
 }
 
-// NewStore 创建存储。
+// NewStore 创建 prompt template 存储。
 func NewStore(db sqlc.DBTX) Store { return &store{db: db, q: sqlc.New(db)} }
 
-// Get 读取编排。
+// Get 按 prompt key 读取单个 prompt template。
 func (s *store) Get(ctx context.Context, promptKey string) (*PromptTemplate, error) {
 	row, err := s.q.GetPromptTemplate(ctx, sqlc.GetPromptTemplateParams{PromptKey: promptKey})
 	if err != nil {
@@ -30,7 +31,7 @@ func (s *store) Get(ctx context.Context, promptKey string) (*PromptTemplate, err
 	return &mapped, nil
 }
 
-// GetSectionByRecallTopic 按recalltopic读取section。
+// GetSectionByRecallTopic 先按 cwd 读取用户模板 section，找不到时回退到内置全局模板。
 func (s *store) GetSectionByRecallTopic(ctx context.Context, cwd, topic string) (string, error) {
 	cwd = strings.TrimSpace(cwd)
 	topic = strings.TrimSpace(topic)
@@ -58,7 +59,7 @@ func (s *store) GetSectionByRecallTopic(ctx context.Context, cwd, topic string) 
 	return "", wrapped
 }
 
-// builtinRecallSectionBody 处理builtinrecallsection正文。
+// builtinRecallSectionBody 从内置 prompt registry 中查找 recall topic 对应正文。
 func builtinRecallSectionBody(topic string) (string, bool, error) {
 	registry, err := builtinprompts.NewDefaultRegistry()
 	if err != nil {
@@ -80,12 +81,13 @@ func builtinRecallSectionBody(topic string) (string, bool, error) {
 	return "", false, nil
 }
 
+// builtinTemplateScopeVisibleForRecall 判断内置模板 scope 是否可用于 recall fallback。
 func builtinTemplateScopeVisibleForRecall(scope string) bool {
 	scope = strings.TrimSpace(scope)
 	return scope == "" || scope == "global"
 }
 
-// ListSectionsByTemplateID 按templateID列出sections。
+// ListSectionsByTemplateID 按 template id 列出全部 prompt sections。
 func (s *store) ListSectionsByTemplateID(ctx context.Context, templateID int64) ([]PromptTemplateSection, error) {
 	rows, err := s.q.ListPromptTemplateSectionsByTemplate(ctx, sqlc.ListPromptTemplateSectionsByTemplateParams{TemplateID: templateID})
 	if err != nil {
@@ -98,7 +100,7 @@ func (s *store) ListSectionsByTemplateID(ctx context.Context, templateID int64) 
 	return sections, nil
 }
 
-// List 列出编排。
+// List 列出 prompt templates；runtime-visible 查询必须携带 cwd 以应用作用域过滤。
 func (s *store) List(ctx context.Context, filter ListFilter) ([]PromptTemplate, error) {
 	cwd := strings.TrimSpace(filter.CWD)
 	if filter.RuntimeVisible && cwd == "" {
@@ -121,20 +123,20 @@ func (s *store) List(ctx context.Context, filter ListFilter) ([]PromptTemplate, 
 	return templates, nil
 }
 
-// WithTx 设置tx。
+// WithTx 在同一事务内执行多步 prompt store 操作。
 func (s *store) WithTx(ctx context.Context, fn func(txStore Store) error) error {
 	return wrapPromptError(sqlctx.WithTx(ctx, s.db, s.q, func(txq *sqlc.Queries, tx sqlc.DBTX) error {
 		return fn(&store{db: tx, q: txq})
 	}), "with_tx", "prompt_template")
 }
 
-// Delete 删除编排。
+// Delete 按 prompt key 删除 prompt template。
 func (s *store) Delete(ctx context.Context, promptKey string) error {
 	_, err := s.q.DeletePromptTemplate(ctx, sqlc.DeletePromptTemplateParams{PromptKey: promptKey})
 	return wrapPromptError(err, "delete", "prompt_template")
 }
 
-// InsertVersion 插入版本。
+// InsertVersion 插入 prompt template 历史版本快照并返回版本 id。
 func (s *store) InsertVersion(ctx context.Context, version PromptTemplateVersion) (int64, error) {
 	id, err := s.q.InsertPromptVersion(ctx, sqlc.InsertPromptVersionParams{
 		PromptKey:       version.PromptKey,
@@ -156,7 +158,7 @@ func (s *store) InsertVersion(ctx context.Context, version PromptTemplateVersion
 	return id, nil
 }
 
-// Upsert 新增或更新记录。
+// Upsert 新增或更新 prompt template 当前版本。
 func (s *store) Upsert(ctx context.Context, template PromptTemplate) (*PromptTemplate, error) {
 	row, err := s.q.UpsertPromptTemplate(ctx, sqlc.UpsertPromptTemplateParams{
 		PromptKey:      template.PromptKey,
@@ -182,6 +184,7 @@ func (s *store) Upsert(ctx context.Context, template PromptTemplate) (*PromptTem
 	return &mapped, nil
 }
 
+// fromGetTemplate 将详情查询行映射为 PromptTemplate。
 func fromGetTemplate(row sqlc.GetPromptTemplateRow) PromptTemplate {
 	return PromptTemplate{
 		ID:             row.ID,
@@ -205,6 +208,7 @@ func fromGetTemplate(row sqlc.GetPromptTemplateRow) PromptTemplate {
 	}
 }
 
+// fromListTemplate 将列表查询行映射为 PromptTemplate。
 func fromListTemplate(row sqlc.ListPromptTemplatesRow) PromptTemplate {
 	return PromptTemplate{
 		ID:             row.ID,
@@ -228,6 +232,7 @@ func fromListTemplate(row sqlc.ListPromptTemplatesRow) PromptTemplate {
 	}
 }
 
+// fromUpsertTemplate 将 upsert 返回行映射为 PromptTemplate。
 func fromUpsertTemplate(row sqlc.UpsertPromptTemplateRow) PromptTemplate {
 	return PromptTemplate{
 		ID:             row.ID,
@@ -251,6 +256,7 @@ func fromUpsertTemplate(row sqlc.UpsertPromptTemplateRow) PromptTemplate {
 	}
 }
 
+// fromSectionRow 将 section 查询行映射为 PromptTemplateSection。
 func fromSectionRow(row sqlc.ListPromptTemplateSectionsByTemplateRow) PromptTemplateSection {
 	return PromptTemplateSection{
 		ID:          row.ID,
@@ -265,6 +271,7 @@ func fromSectionRow(row sqlc.ListPromptTemplateSectionsByTemplateRow) PromptTemp
 	}
 }
 
+// boolInt64 将 bool 转为 SQLite 使用的 0/1。
 func boolInt64(value bool) int64 {
 	if value {
 		return 1
@@ -272,10 +279,12 @@ func boolInt64(value bool) int64 {
 	return 0
 }
 
+// int64Bool 将 SQLite 0/1 转为 bool。
 func int64Bool(value int64) bool {
 	return value != 0
 }
 
+// wrapPromptError 统一 prompt store 错误域。
 func wrapPromptError(err error, operation, entity string) error {
 	return platformdb.WrapStoreError(err, operation, entity)
 }

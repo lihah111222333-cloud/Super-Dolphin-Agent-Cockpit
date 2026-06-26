@@ -12,9 +12,11 @@ import (
 	turndto "github.com/anthropic-ai/super-agent-v3/internal/dto/turn"
 )
 
+// ErrAgentNotFound 表示 orchestration 查询目标 agent 不存在。
 var ErrAgentNotFound = errors.New("agent not found")
 
 var (
+	// 启动 cwd 校验错误哨兵，供 launch 工具区分缺参和非法路径。
 	ErrLaunchCWDRequired = errors.New("launch cwd is required")
 	ErrLaunchCWDInvalid  = errors.New("launch cwd is invalid")
 )
@@ -41,9 +43,8 @@ func ValidateLaunchCWD(cwd, parentID string) error {
 	return nil
 }
 
-// DAGRuntime is the narrow DAG read/start boundary used by the desktop app.
-// The app process does not embed mcp-orch; production adapters may satisfy this
-// by proxying to an active mcp-orch peer.
+// DAGRuntime 是桌面端读写和启动 DAG 的窄边界。
+// app 进程不内嵌 mcp-orch，生产适配器通常代理到当前活跃的 mcp-orch peer。
 type DAGRuntime interface {
 	GetDAG(ctx context.Context, dagKey string) (DAGDetail, error)
 	ListDAGs(ctx context.Context, filter ListDAGsFilter) ([]DAGSummary, error)
@@ -56,6 +57,8 @@ type DAGRuntime interface {
 	ApplyOps(ctx context.Context, req ApplyOpsRequest) (ApplyOpsResponse, error)
 }
 
+// DAGDeleteRuntime 是 DAG 模板删除能力的独立边界。
+// 删除动作影响持久化模板，调用方必须显式依赖此接口而不是默认包含在只读 runtime 中。
 type DAGDeleteRuntime interface {
 	DeleteDAG(ctx context.Context, req DeleteDAGRequest) error
 }
@@ -66,8 +69,8 @@ type DAGCreateRuntime interface {
 	CreateDAG(ctx context.Context, req CreateDAGRequest) (DAGDetail, error)
 }
 
-// OrchestrationService defines the shared orchestration boundary used by
-// internal modules and the MCP orchestration runtime.
+// OrchestrationService 是内部模块和 MCP orchestration runtime 共用的总边界。
+// 这里聚合 agent 生命周期、DAG runtime、报告和恢复入口，调用方不应在本接口外私接 mcp-orch 内部实现。
 type OrchestrationService interface {
 	DAGRuntime
 	DAGDeleteRuntime
@@ -88,24 +91,15 @@ type OrchestrationService interface {
 	CreateDAG(ctx context.Context, req CreateDAGRequest) (DAGDetail, error)
 	UpdateNodeStatus(ctx context.Context, req UpdateNodeStatusRequest) (DAGNode, error)
 	// GetRun 按 run_key 查询单条 run（task_get_run MCP 工具承载点）。
-	// F6.5 后返回该 run 的 runtime nodes；task_get_dag 只读 DAG 模板节点。
-	// GetRun fetches a single run by run_key (backs the task_get_run MCP tool).
-	// After F6.5 it returns the run's runtime nodes; task_get_dag reads only
-	// DAG template nodes.
+	// 返回值包含该 run 的 runtime node 快照；DAG 模板节点仍由 task_get_dag 读取。
 	GetRun(ctx context.Context, req GetRunRequest) (GetRunResponse, error)
-	// DispatchNode 是 ADR-004 「无 assignee 就绪节点」的显式推进入口：
-	// 给粘在 ready / pending 无 assignee 状态的节点指派一个 assigned_to
-	// 后立即 enqueue 一条 wakeup，让 dispatcher 能指取跳 launch。
-	// 当前实现接通 F6.4 runtime-node dispatch 路径。
-	//
-	// DispatchNode is the explicit-resume entrypoint for ready/pending nodes
-	// that lack an assigned_to (ADR-004 §Open Q1). It records the assignee
-	// and enqueues a wakeup so the dispatcher can pick the node up.
+	// DispatchNode 显式恢复 ready/pending 且缺少 assignee 的 runtime node。
+	// 它写入 assigned_to 后立即 enqueue wakeup，让 dispatcher 能继续派发该节点。
 	DispatchNode(ctx context.Context, req DispatchNodeRequest) (DispatchNodeResponse, error)
 }
 
-// DispatchNodeRequest is the input for OrchestrationService.DispatchNode. F6.5
-// requires RunID so manual dispatch targets a runtime node, not the template.
+// DispatchNodeRequest 是 OrchestrationService.DispatchNode 的入参。
+// RunID 必填，确保手动派发落到某次运行的 runtime node，而不是误改 DAG 模板节点。
 type DispatchNodeRequest struct {
 	DagKey, NodeKey string
 	RunID           int64
@@ -115,26 +109,21 @@ type DispatchNodeRequest struct {
 // DispatchNodeResponse 报告本次 dispatch 的后果：是否新 enqueue 了
 // wakeup（WakeupID > 0 + Enqueued=true）还是 ON CONFLICT (idempotency_key)
 // 去重（Enqueued=false）。Node 字段是赋值后的最新 DAGNode。
-//
-// DispatchNodeResponse reports the outcome: Enqueued=true means a fresh
-// wakeup row was inserted; Enqueued=false means ON CONFLICT skipped a
-// duplicate (idempotent re-dispatch). Node is the node DTO post-assign.
 type DispatchNodeResponse struct {
 	Node     DAGNode `json:"node"`
 	WakeupID int64   `json:"wakeup_id,omitempty"`
 	Enqueued bool    `json:"enqueued"`
 }
 
-// TerminateDAGRequest asks the runtime to cancel a running DAG execution.
-// RunKey is required so callers cancel one execution instance, not the DAG
-// template. DagKey is kept as a fence against cross-DAG run_key mistakes.
+// TerminateDAGRequest 要求 runtime 取消某次正在运行的 DAG。
+// RunKey 定位一次执行实例，DagKey 作为防串 DAG 的额外校验围栏。
 type TerminateDAGRequest struct {
 	DagKey string `json:"dag_key"`
 	RunKey string `json:"run_key"`
 	Reason string `json:"reason,omitempty"`
 }
 
-// WorkflowRecoveryAction 描述工作台可以展示或触发的受控恢复动作。
+// WorkflowRecoveryAction 是 workflow workbench 暴露的受控恢复动作。
 // Enabled=false 时仅用于说明能力缺口或策略阻断，前端不能直接执行。
 type WorkflowRecoveryAction struct {
 	Action  string `json:"action"`
@@ -144,7 +133,7 @@ type WorkflowRecoveryAction struct {
 	Policy  string `json:"policy,omitempty"`
 }
 
-// WorkflowArtifactLink 是运行或节点摘要里暴露的轻量产物引用。
+// WorkflowArtifactLink 是 run/node 摘要中可展示的轻量产物引用。
 // 这里只放可展示/跳转字段，不承诺文件内容已物化。
 type WorkflowArtifactLink struct {
 	Kind    string `json:"kind,omitempty"`
@@ -154,16 +143,13 @@ type WorkflowArtifactLink struct {
 	NodeKey string `json:"node_key,omitempty"`
 }
 
+// DeleteDAGRequest 用 dag_key 定位要删除的 DAG 模板。
 type DeleteDAGRequest struct {
 	DagKey string `json:"dag_key"`
 }
 
-// ListRunsRequest 是 OrchestrationService.ListRuns 的入参（T3.2）。
-// dag_key 必填；status / limit 可选。limit=0 时由 service 走默认上限。
-//
-// ListRunsRequest is the input for OrchestrationService.ListRuns (T3.2).
-// DagKey is required; Status / Limit are optional. Limit=0 uses the
-// service-side default cap.
+// ListRunsRequest 是 DAG run 列表查询的 wire 入参。
+// dag_key 必填；status 和 limit 可选，limit=0 时由 service 使用受控默认上限。
 type ListRunsRequest struct {
 	DagKey string
 	Status string
@@ -172,64 +158,39 @@ type ListRunsRequest struct {
 
 // ListRunsResponse 用对象包裹 runs slice，给分页元数据（next_cursor / total
 // 等分页/聚合字段）留位，避免一开始就把 wire 形状钉成裸数组。
-//
-// ListRunsResponse wraps the runs slice in an object so the wire shape can
-// grow extensions (next_cursor / total etc.) without a breaking change.
 type ListRunsResponse struct {
 	Runs []Run `json:"runs"`
 }
 
-// OrchestrationSessionCleaner is the owner-side contract for releasing
-// any platform-owned session bound to a given agent when the agent
-// stops. The orchestration service calls this at stop/exit time; the
-// production adapter lives in internal/provider/unified.
+// OrchestrationSessionCleaner 是 agent 停止时释放平台侧 session 的 owner-side 契约。
+// orchestration service 在 stop/exit 路径调用它，生产适配器位于 internal/provider/unified。
 //
-// P22 P4 S4b: RemoveSessionGeneration was previously a side-channel
-// method exposed via a local `generationAwareSessionCleaner` interface
-// inside cmd/mcp-orch/orchestration/process_lifecycle.go; the service
-// type-asserted sessionCleaner to that private interface. P4 §279
-// upgrades such local private extensions into the owner contract
-// directly: every OrchestrationSessionCleaner implementation now
-// commits to the generation-aware variant, and implementations that do
-// not track per-agent generations (e.g. noopSessionCleaner in
-// cmd/mcp-orch standalone mode) simply fall back to calling their own
-// RemoveSession or return.
+// RemoveSessionGeneration 用 generation 护栏处理 stop 与 relaunch 并发；不跟踪 generation
+// 的实现必须明确退化为 RemoveSession 或 no-op，不能让调用方猜测清理语义。
 type OrchestrationSessionCleaner interface {
-	// RemoveSession drops any bound session for the agent. Callers use
-	// this when the agent's current generation is unknown.
+	// RemoveSession 删除 agent 绑定的任意 session；调用方在未知当前 generation 时使用。
 	RemoveSession(agentID string)
 
-	// RemoveSessionGeneration drops the session associated with a
-	// specific generation counter, so concurrent stop + re-launch races
-	// cannot accidentally evict a fresh session. Implementations that
-	// have no concept of a generation may treat this as a no-op or
-	// delegate to RemoveSession.
+	// RemoveSessionGeneration 删除指定 generation 关联的 session，避免 stop + relaunch 竞态误删新会话。
 	RemoveSessionGeneration(agentID string, generation uint64)
 }
 
+// TurnSubmission 是 turn DTO 中提交请求的 contract 别名。
 type TurnSubmission = turndto.TurnSubmission
 
-// OrchestrationTurnStarter is the owner-side contract the orchestration
-// service uses to route newly queued turns into the turn module.
+// OrchestrationTurnStarter 是 orchestration service 把新排队 turn 送入 turn 模块的 owner-side 契约。
 //
-// P22 P4 S4a: WaitForSessionReady was previously a side-channel method
-// exposed via a local `sessionReadyWaiter` interface inside
-// cmd/mcp-orch/orchestration/helpers.go; the service type-asserted
-// turnStarter to that private interface. P4 §279 upgrades such local
-// private extensions into the owner contract directly: every
-// OrchestrationTurnStarter implementation now commits to the ready-wait
-// semantics, and implementations that have no real wait to perform
-// (e.g. noopTurnStarter in mcp-orch standalone mode) simply return nil.
+// WaitForSessionReady 是提交前的 readiness 护栏，所有实现都必须明确表达“等待会话可提交”的语义；
+// standalone/noop 实现没有真实 session 生命周期时可以直接返回 nil。
 type OrchestrationTurnStarter interface {
 	StartTurn(ctx context.Context, submission TurnSubmission) (string, error)
 
-	// WaitForSessionReady blocks until the agent's underlying session is
-	// ready to accept a submission, or ctx is canceled / timeout elapses.
-	// Return nil when the wait is unnecessary (e.g. standalone / noop
-	// implementations that do not manage a session lifecycle).
+	// WaitForSessionReady 阻塞直到 agent 底层 session 可接受提交，或 ctx 取消/超时。
 	WaitForSessionReady(ctx context.Context, agentID string, timeout time.Duration) error
 }
 
+// LaunchRequest 是 orchestration 启动 agent 的 wire 入参。
+// 线程、prompt、工作区和进程环境都通过该结构跨模块传递，service 负责校验 cwd 和父子关系。
 type LaunchRequest struct {
 	AgentID        string
 	Name           string
@@ -248,6 +209,8 @@ type LaunchRequest struct {
 	Env            []string
 }
 
+// AgentSnapshot 是 orchestration 对外展示的 agent runtime 快照。
+// PortSource、ProviderSource 等来源字段用于解释自动探测结果，不能作为强配置回写。
 type AgentSnapshot struct {
 	ID             string    `json:"id"`
 	AgentID        string    `json:"agent_id"`
@@ -268,7 +231,7 @@ type AgentSnapshot struct {
 	UpdatedAt      time.Time `json:"updated_at"`
 }
 
-// NormalizeUnixTime 规范化Unix时间。
+// NormalizeUnixTime 把秒、毫秒、微秒或纳秒级 Unix 时间规范化为 time.Time。
 func NormalizeUnixTime(values ...int64) time.Time {
 	for _, value := range values {
 		if value <= 0 {
@@ -283,15 +246,19 @@ func NormalizeUnixTime(values ...int64) time.Time {
 	return time.Time{}
 }
 
+// AgentStateResult 是 agent 状态查询的轻量 wire 返回。
 type AgentStateResult struct {
 	AgentID string `json:"agent_id"`
 	State   string `json:"state"`
 }
 
+// AgentReportMetadata 保存 report 请求方等附加元信息。
+// requester 列表用于 report 到达时唤醒等待方，不影响 agent 状态本身。
 type AgentReportMetadata struct {
 	RequesterIDs []string `json:"requester_ids,omitempty"`
 }
 
+// AgentReportResult 是 agent 最新报告及其状态的 wire 查询结果。
 type AgentReportResult struct {
 	AgentID   string               `json:"agent_id"`
 	Report    string               `json:"report"`
@@ -301,17 +268,21 @@ type AgentReportResult struct {
 	Metadata  *AgentReportMetadata `json:"metadata,omitempty"`
 }
 
+// RememberReportRequest 登记某个 requester 正在等待指定 agent 的 report。
 type RememberReportRequest struct {
 	AgentID     string
 	RequesterID string
 }
 
+// RememberReportRequestResult 是 report 等待登记后的 wire 确认结果。
 type RememberReportRequestResult struct {
 	Success     bool   `json:"success"`
 	AgentID     string `json:"agent_id"`
 	RequesterID string `json:"requester_id"`
 }
 
+// ReportEvent 是 agent report 事件的跨模块载荷。
+// EventData 保留原始 JSON，避免 contract 层绑定具体事件子类型。
 type ReportEvent struct {
 	AgentID   string
 	Report    string
@@ -319,6 +290,8 @@ type ReportEvent struct {
 	EventData json.RawMessage
 }
 
+// ReportEventResult 是处理 report 事件后的广播和状态更新结果。
+// NotifiedRequesterIDs 明确列出已唤醒等待方，避免调用方用 Success 猜测通知范围。
 type ReportEventResult struct {
 	Success              bool      `json:"success"`
 	AgentID              string    `json:"agent_id"`
@@ -329,6 +302,8 @@ type ReportEventResult struct {
 	NotifiedRequesterIDs []string  `json:"notified_requester_ids,omitempty"`
 }
 
+// CreateDAGRequest 是新建 DAG 模板及初始节点的 wire 入参。
+// Metadata 和 node Config 保持 RawMessage，避免 contract 包依赖 mcp-orch 内部配置类型。
 type CreateDAGRequest struct {
 	DagKey      string
 	Title       string
@@ -338,6 +313,8 @@ type CreateDAGRequest struct {
 	Nodes       []CreateDAGNodeRequest
 }
 
+// CreateDAGNodeRequest 是创建 DAG 模板时的单节点 wire 入参。
+// DependsOn 保持节点 key 列表，service 负责校验依赖存在性和环路。
 type CreateDAGNodeRequest struct {
 	NodeKey    string
 	Title      string
@@ -348,12 +325,16 @@ type CreateDAGNodeRequest struct {
 	Config     json.RawMessage
 }
 
+// ListDAGsFilter 是 DAG 列表查询的过滤条件。
+// Limit 为 0 时由 service 应用默认上限，避免 contract 层硬编码分页策略。
 type ListDAGsFilter struct {
 	Status  string
 	Keyword string
 	Limit   int
 }
 
+// UpdateNodeStatusRequest 是 runtime node 状态更新的 wire 入参。
+// RunID 确保更新限定在一次 DAG run 内，避免同名模板节点被误改。
 type UpdateNodeStatusRequest struct {
 	DagKey, NodeKey string
 	RunID           int64
@@ -361,8 +342,8 @@ type UpdateNodeStatusRequest struct {
 	Result          json.RawMessage
 }
 
-// DAG v2 StartDAG 生命周期入参出参。实现创建 task_dag_runs 行并
-// snapshot dag.version；契约见 docs/adr/0001-dag-v2-contracts.md §2.1。
+// StartDAGRequest 是启动一次 DAG run 的 wire 入参。
+// service 会创建 task_dag_runs 行并快照当前 DAG version；IdempotencyKey 用于防重复启动。
 type StartDAGRequest struct {
 	DagKey         string
 	TriggerSource  string // manual | auto | scheduled | external
@@ -370,6 +351,7 @@ type StartDAGRequest struct {
 }
 
 const (
+	// StartDAGExecution* 常量描述 StartDAGResponse.ExecutionState 的稳定取值。
 	StartDAGExecutionQueued             = "queued"
 	StartDAGExecutionWaitingForAssignee = "waiting_for_assignee"
 	StartDAGExecutionRunning            = "running"
@@ -377,6 +359,7 @@ const (
 	StartDAGExecutionSucceeded          = "succeeded"
 )
 
+// StartDAGResponse 是启动 DAG run 后返回给 task_start_dag 调用方的执行摘要。
 type StartDAGResponse struct {
 	RunID            int64  `json:"run_id,omitempty"`  // task_dag_runs.id；dispatch runtime node 时需要
 	RunKey           string `json:"run_key"`           // 新 run 的唯一键（例 dag_alpha#run_2026-05-10T08:00）
@@ -387,7 +370,7 @@ type StartDAGResponse struct {
 	Warning          string `json:"warning,omitempty"`
 }
 
-// NewStartDAGResponse 创建起点DAG响应。
+// NewStartDAGResponse 创建新 DAG run 的启动响应，并根据 ready/wakeup 数量补充诊断状态。
 func NewStartDAGResponse(runID int64, runKey string, version, readyRootNodes, scheduledWakeups int64) StartDAGResponse {
 	state, warning := StartDAGExecutionDiagnostics(readyRootNodes, scheduledWakeups)
 	return StartDAGResponse{
@@ -401,7 +384,7 @@ func NewStartDAGResponse(runID int64, runKey string, version, readyRootNodes, sc
 	}
 }
 
-// NewExistingStartDAGResponse 创建existing起点DAG响应。
+// NewExistingStartDAGResponse 为幂等命中已有 run 的场景生成启动响应。
 func NewExistingStartDAGResponse(runID int64, runKey string, version int64, status string, scheduledWakeups int64) StartDAGResponse {
 	state := StartDAGExecutionRunning
 	if scheduledWakeups > 0 {
@@ -413,7 +396,7 @@ func NewExistingStartDAGResponse(runID int64, runKey string, version int64, stat
 	return StartDAGResponse{RunID: runID, RunKey: runKey, Version: version, ScheduledWakeups: scheduledWakeups, ExecutionState: state}
 }
 
-// StartDAGExecutionDiagnostics 启动DAGexecution诊断。
+// StartDAGExecutionDiagnostics 根据根节点就绪和 wakeup 入队情况生成可展示的执行诊断。
 func StartDAGExecutionDiagnostics(readyRootNodes, scheduledWakeups int64) (string, string) {
 	if scheduledWakeups > 0 {
 		return StartDAGExecutionQueued, ""
@@ -425,48 +408,35 @@ func StartDAGExecutionDiagnostics(readyRootNodes, scheduledWakeups int64) (strin
 	return StartDAGExecutionNoReadyRoots, "run 已启动，但没有可调度的根节点；请检查 DAG 节点依赖。"
 }
 
-// DAG v2 ApplyOps 入参出参。
-// Ops 是 raw JSON（typed 解码由 service 内部 nodeexec.Ops UnmarshalJSON 处理）
-// 以免 contract 包依赖 mcp-orch 内部的 nodeexec 子包。
-// service 实现 add/update/remove + 环检测 + base_version OCC。
+// ApplyOpsRequest 是 DAG 模板增删改操作的 wire 入参。
+// Ops 保持 raw JSON，由 service 内部解码 typed ops；contract 包不依赖 mcp-orch 内部 nodeexec 子包。
+// BaseVersion 提供乐观并发控制，service 负责环检测和版本推进。
 type ApplyOpsRequest struct {
 	DagKey      string
 	BaseVersion int64
 	Ops         json.RawMessage // typed shape 见 nodeexec.Ops
 }
 
+// ApplyOpsResponse 返回 DAG ops 成功应用后的新版本号。
 type ApplyOpsResponse struct {
 	NewVersion int64 `json:"new_version"`
 }
 
 // GetRunRequest 是 task_get_run / OrchestrationService.GetRun 的入参。
 // run_key 必填，服务端 trim 后空串拒绝。
-//
-// GetRunRequest is the input for task_get_run / OrchestrationService.GetRun.
-// run_key is required; the service trims and rejects empty values.
 type GetRunRequest struct {
 	RunKey string
 }
 
 // GetRunResponse 是 task_get_run / OrchestrationService.GetRun 的出参。
-// F6.5 后 Nodes 是当前 run 的 runtime node 快照；DAG 模板仍由 task_get_dag 读取。
-//
-// GetRunResponse is the output for task_get_run / OrchestrationService.GetRun.
-// After F6.5 Nodes carries the runtime-node snapshot for this run; the DAG
-// template remains available through task_get_dag.
+// Nodes 返回该 run 的 runtime node 快照；模板节点由 task_get_dag 读取，避免混淆运行态和模板态。
 type GetRunResponse struct {
 	Run   Run       `json:"run"`
 	Nodes []DAGNode `json:"nodes,omitempty"`
 }
 
-// Run 是 task_dag_runs 的外露 DTO，镜像 cmd/mcp-orch/store/taskdag.Run 字段。
-// contract 包不依赖 mcp-orch 内部 store 包，故这里独立声明同形状。
-// service 层 dagRunDTO helper 负责转换。
-//
-// Run is the wire-side DTO for task_dag_runs, mirroring the field set of
-// cmd/mcp-orch/store/taskdag.Run. The contract package does not depend on the
-// internal mcp-orch store package, so the same shape is declared here. Service
-// layer's dagRunDTO helper is responsible for the conversion.
+// Run 是 task_dag_runs 的对外 wire DTO。
+// contract 包独立声明该形状，避免 UI/tool 调用方依赖 mcp-orch store 内部类型。
 type Run struct {
 	ID                 int64                    `json:"id"`
 	RunKey             string                   `json:"run_key"`
@@ -489,15 +459,18 @@ type Run struct {
 	RecoveryActions    []WorkflowRecoveryAction `json:"recovery_actions,omitempty"`
 }
 
+// FinalOutputFileRef 是从 run metadata 中解析出的最终文件产物引用。
 type FinalOutputFileRef struct {
 	Path          string
 	SourceNodeKey string
 }
 
+// finalOutputMetadataEnvelope 匹配 run metadata 中 final_output 外层对象。
 type finalOutputMetadataEnvelope struct {
 	FinalOutput json.RawMessage `json:"final_output"`
 }
 
+// finalOutputFilePayload 匹配 final_output 支持的 file/sharedfile 载荷形状。
 type finalOutputFilePayload struct {
 	Kind          string `json:"kind"`
 	Path          string `json:"path"`
@@ -507,7 +480,8 @@ type finalOutputFilePayload struct {
 	} `json:"sharedfile"`
 }
 
-// FinalOutputFileFromRunMetadata 从运行记录元数据处理finaloutput文件。
+// FinalOutputFileFromRunMetadata 从运行记录 metadata 中提取最终文件产物。
+// 非 file 类型、空 JSON 或无法解析的载荷都会返回 ok=false，由调用方决定是否忽略。
 func FinalOutputFileFromRunMetadata(metadataJSON json.RawMessage) (FinalOutputFileRef, bool) {
 	if isEmptyJSON(metadataJSON) {
 		return FinalOutputFileRef{}, false
@@ -536,11 +510,13 @@ func FinalOutputFileFromRunMetadata(metadataJSON json.RawMessage) (FinalOutputFi
 	}, true
 }
 
+// isEmptyJSON 判断 RawMessage 是否为空值或 JSON null。
 func isEmptyJSON(raw json.RawMessage) bool {
 	trimmed := strings.TrimSpace(string(raw))
 	return trimmed == "" || trimmed == "null"
 }
 
+// DAGSummary 是 DAG 模板列表和详情中的模板摘要。
 type DAGSummary struct {
 	ID              int64           `json:"id"`
 	DagKey          string          `json:"dag_key"`
@@ -560,6 +536,8 @@ type DAGSummary struct {
 	UpdatedAt       time.Time       `json:"updated_at"`
 }
 
+// DAGNode 是 DAG 模板节点或 runtime node 的对外 DTO。
+// 运行期字段用 omitempty 指针区分“没有运行态”和“运行态字段为零值”。
 type DAGNode struct {
 	ID             int64           `json:"id"`
 	DagKey         string          `json:"dag_key"`
@@ -579,9 +557,8 @@ type DAGNode struct {
 	ActiveTurnID   *string         `json:"active_turn_id,omitempty"`
 	ActiveWakeupID *int64          `json:"active_wakeup_id,omitempty"`
 	LastEventAt    *time.Time      `json:"last_event_at,omitempty"`
-	// SpawningThreadID — DAG v2 F1.5 / ADR-009：AgentExecutor spawn 出的最近一
-	// 次 child agent thread id（软关联）；UI 用它拼「节点行 → 子 agent thread」
-	// 跳转链接，不再解析 result jsonb。NULL 表示未 spawn / 本节点非 agent。
+	// SpawningThreadID 记录该 runtime node 最近一次 spawn 出的 child agent thread id。
+	// UI 用它建立节点到子线程的跳转；nil 表示未 spawn 或该节点不是 agent executor。
 	SpawningThreadID *string                `json:"spawning_thread_id,omitempty"`
 	Executor         string                 `json:"executor,omitempty"`
 	FailureClass     string                 `json:"failure_class,omitempty"`
@@ -590,31 +567,25 @@ type DAGNode struct {
 	NextAction       string                 `json:"next_action,omitempty"`
 }
 
+// DAGDetail 将 DAG 模板摘要和节点列表组合成详情响应。
 type DAGDetail struct {
 	DAG   DAGSummary `json:"dag"`
 	Nodes []DAGNode  `json:"nodes,omitempty"`
 }
 
-// =====================================================
-// DAG events helpers (R2 P2 #4)
-//
-// task_get_run 返 events 是 json.RawMessage，UI 不该重复手拼解。这里提供
-// 一个公共 DAGEvent typed struct + Parse / Filter helper，让多端客户端走
-// 同一 decoder 路径。与 DAGSummary / DAGNode 同在 orchestration.go，限制
-// internal/contract 包文件数 ≤ 30（代码守卫上限）。
-// =====================================================
+// ----- DAG 事件辅助函数 -----
+
+// task_get_run 返回的 events 是 json.RawMessage。这里提供 typed helper，
+// 让 UI、工具和测试共享同一 decoder 路径，而不是各端手写解析逻辑。
 
 // DAGEvent 是 task_dag_runs.events jsonb 数组里单个事件的公共结构。
 //
-// 起源：F1.5 把 `{kind:"node_spawn", node_key, prev_thread_id, thread_id, ts}`
-// append 到 events，目的是给 UI 拉子 agent thread 历史链。task_get_run
-// 当前透传整个 events 为 json.RawMessage，没有官方 helper 让 UI 解；UI 各端
-// 各自手 parse 容易写歪，故此提供 ParseDAGEvents 统一入口。
+// node_spawn 事件使用 `{kind:"node_spawn", node_key, prev_thread_id, thread_id, ts}` 形状，
+// 用来描述 runtime node spawn 子 agent thread 的链路。未知 kind 不会被解析阶段拒绝，
+// 调用方按 Kind 决定是否消费，保证事件 union 可扩展。
 //
 // 字段说明：
-//   - Kind: discriminator。当前唯一已知值 "node_spawn"；新事件类型在
-//     migration / store 层加，本结构体保持 union 形态：未知 kind 也能解
-//     出来（其他字段会留空），调用方按 Kind 自分发。
+//   - Kind: discriminator。当前已知值包含 "node_spawn"。
 //   - NodeKey: 触发事件的节点 key。
 //   - PrevThreadID / ThreadID: spawn 重试场景下的「旧 / 新」thread。新建
 //     场景下 PrevThreadID 是空串。
@@ -637,8 +608,7 @@ type DAGEvent struct {
 type DAGEventKind = string
 
 const (
-	// DAGEventKindNodeSpawn 是 F1.5 唯一已落的事件类型：spawn 子 agent 时
-	// 把上次 thread id 与本次 thread id 记进 events 历史链。
+	// DAGEventKindNodeSpawn 表示 runtime node spawn 子 agent thread 的事件。
 	DAGEventKindNodeSpawn DAGEventKind = "node_spawn"
 )
 

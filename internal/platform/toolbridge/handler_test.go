@@ -30,10 +30,8 @@ func codexSessionOnInboundMessage(unsafe.Pointer, context.Context, codexapp.Resp
 //go:linkname codexSessionClose github.com/anthropic-ai/super-agent-v3/internal/provider/codexapp.(*session).Close
 func codexSessionClose(unsafe.Pointer, context.Context) error
 
-// P22 P1c (commit 4dfed68): codexapp deleted (*session).waitReadLoopStopped —
-// the runtime owner joined via codexSessionClose already drains the reader,
-// so this linkname is no longer needed. Kept removed to avoid relocation
-// failures against non-existent symbols.
+// codexSessionClose 由 runtime owner 负责等待 reader、health 和 recovery goroutine 收尾。
+// 测试只保留 Close 的 linkname，避免重新引用已经不属于公开测试边界的内部等待函数。
 
 type stubRegistry struct {
 	peers     []*mcpcontrol.ToolInstance
@@ -95,10 +93,8 @@ type stubPeer struct {
 	callbackFn func(context.Context, string, any, any) error
 }
 
-// stubThreadStore satisfies the narrow threadConfigOverrideStore port
-// from ports.go. The fixture data type is still *threadstore.Thread for
-// consistency with other tests in this file that build
-// ConfigOverride from a thread row.
+// stubThreadStore 满足 ports.go 中的 threadConfigOverrideStore 窄端口。
+// fixture 仍使用 *threadstore.Thread，保持本文件其他从 thread 行构造 ConfigOverride 的测试一致。
 type stubThreadStore struct {
 	thread *threadstore.Thread
 }
@@ -284,9 +280,7 @@ func newInboundSession(t *testing.T) unsafe.Pointer {
 		t.Fatalf("newSession() error = %v", err)
 	}
 	t.Cleanup(func() {
-		// P22 P1c: Close() now drains the runtime (reader + health + recovery)
-		// before returning, so the historical waitReadLoopStopped follow-up is
-		// unnecessary.
+		// Close 返回前已经收尾 reader、health 和 recovery goroutine，不再需要额外等待内部 reader。
 		if err := codexSessionClose(sessionPtr, context.Background()); err != nil {
 			t.Errorf("Close() error = %v", err)
 		}

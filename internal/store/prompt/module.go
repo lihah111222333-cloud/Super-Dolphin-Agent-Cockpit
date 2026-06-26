@@ -19,6 +19,8 @@ var Module = fx.Module("store.prompt",
 
 const promptStoreWriteRetryAttempts = 32
 
+// AsReader 将完整 prompt Store 收窄为只读 Reader 注入下游模块。
+// 这里复用同一个实例，避免 fx 图中出现两套写入重试和事务边界。
 func AsReader(store Store) Reader {
 	return store
 }

@@ -11,7 +11,7 @@ import (
 	mcpcommon "github.com/anthropic-ai/super-agent-v3/internal/mcpserver/common"
 )
 
-// filterListAgentSnapshots 处理过滤条件list代理snapshots。
+// filterListAgentSnapshots 按 state/cwd/active 规则过滤快照，并在 include_reports=false 时清空报告正文。
 func filterListAgentSnapshots(agents []contract.AgentSnapshot, in ListAgentsInput, cwdFilter string) []contract.AgentSnapshot {
 	states := parseAgentStateFilter(in.State)
 	limit := in.Limit
@@ -34,6 +34,7 @@ func filterListAgentSnapshots(agents []contract.AgentSnapshot, in ListAgentsInpu
 	return filtered
 }
 
+// includeAgentSnapshotInList 判断单个快照是否通过 list_agents 的状态和 cwd 过滤。
 func includeAgentSnapshotInList(agent contract.AgentSnapshot, states map[string]struct{}, includeInactive bool, cwdFilter string) bool {
 	agentCWD := normalizeListAgentCWD(agent.Cwd)
 	if cwdFilter != "" && agentCWD != cwdFilter {
@@ -47,7 +48,8 @@ func includeAgentSnapshotInList(agent contract.AgentSnapshot, states map[string]
 	return includeInactive || !inactiveAgentListState(state)
 }
 
-// listAgentsCWDFilter 列出代理工作目录过滤条件。
+// listAgentsCWDFilter 解析 list_agents 的 cwd 过滤值。
+// 可信工具 scope 中的 CWD 优先于用户入参，避免子 agent 越过父级工作区边界。
 func listAgentsCWDFilter(ctx context.Context, inputCWD string) (string, error) {
 	if scope, ok := mcpcommon.ToolScopeFromContext(ctx); ok && scope.CWD != "" {
 		return normalizeListAgentCWD(scope.CWD), nil
@@ -68,10 +70,12 @@ func listAgentsCWDFilter(ctx context.Context, inputCWD string) (string, error) {
 	return filepath.Clean(cwd), nil
 }
 
+// looksLikePosixAbsolutePath 识别在非 Unix 平台也应按 POSIX 规则清理的绝对路径。
 func looksLikePosixAbsolutePath(cwd string) bool {
 	return strings.HasPrefix(cwd, "/")
 }
 
+// normalizeListAgentCWD 规范化 cwd 字符串，保留无法识别的相对值供后续精确比较。
 func normalizeListAgentCWD(cwd string) string {
 	cwd = strings.TrimSpace(cwd)
 	if cwd == "" {
@@ -86,7 +90,7 @@ func normalizeListAgentCWD(cwd string) string {
 	return cwd
 }
 
-// parseAgentStateFilter 解析代理状态过滤条件。
+// parseAgentStateFilter 把逗号、分号、竖线或空白分隔的状态过滤串规范成集合。
 func parseAgentStateFilter(raw string) map[string]struct{} {
 	raw = strings.TrimSpace(raw)
 	if raw == "" {
@@ -104,6 +108,7 @@ func parseAgentStateFilter(raw string) map[string]struct{} {
 	return states
 }
 
+// inactiveAgentListState 判断快照状态是否默认从 list_agents 结果中隐藏。
 func inactiveAgentListState(state string) bool {
 	switch strings.ToLower(strings.TrimSpace(state)) {
 	case "stopped", "archived", "failed", "expired":

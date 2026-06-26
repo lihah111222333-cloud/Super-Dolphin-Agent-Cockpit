@@ -19,30 +19,36 @@ var (
 	defaultMCPInstructionsTracker = sync.OnceValue(newMCPInstructionsTracker)
 )
 
+// MCPInstructionsProvider 注入或增量推送当前 live MCP server instructions。
+// 记录器可由测试注入；生产路径默认按进程记录每个 thread 的上次快照。
 type MCPInstructionsProvider struct {
 	tracker *mcpInstructionsTracker
 }
 
+// mcpInstructionsTracker 保存每个 thread 已发送的 MCP instructions，用于计算后续 turn 的增量。
 type mcpInstructionsTracker struct {
 	mu      sync.Mutex
 	threads map[string]map[string]string
 }
 
+// mcpInstructionsDiff 表示一次 turn 中新增/更新和移除的 server instructions。
 type mcpInstructionsDiff struct {
 	added   map[string]string
 	removed []string
 }
 
+// newMCPInstructionsTracker 创建空的 thread instructions 记录器。
 func newMCPInstructionsTracker() *mcpInstructionsTracker {
 	return &mcpInstructionsTracker{threads: map[string]map[string]string{}}
 }
 
-// SectionName 处理section名称。
+// SectionName 返回 MCP instructions 动态 section 的注册名。
 func (p MCPInstructionsProvider) SectionName() string {
 	return DynamicSectionMCPInstructions
 }
 
-// Resolve 解析prompt。
+// Resolve 在未启用增量附件时渲染完整 MCP instructions section。
+// 启用增量模式后这里返回 nil，避免同一内容同时出现在 system prompt 和 turn attachment 中。
 func (p MCPInstructionsProvider) Resolve(_ context.Context, input SectionContext) (*string, error) {
 	snapshot := input.BuildCtx.MCPSnapshot
 	if snapshot.InstructionsDeltaEnabled {
@@ -63,7 +69,8 @@ func (p MCPInstructionsProvider) Resolve(_ context.Context, input SectionContext
 	return &text, nil
 }
 
-// ResolveTurnAttachments 解析turnattachments。
+// ResolveTurnAttachments 在增量模式下生成当前 turn 需要附加的 MCP instructions delta。
+// 缺少 threadID 时直接跳过，防止不同会话共享同一记录器状态。
 func (p MCPInstructionsProvider) ResolveTurnAttachments(_ context.Context, input SectionContext) []dto.AttachmentEnvelope {
 	if input.Turn == nil {
 		return nil
@@ -86,6 +93,7 @@ func (p MCPInstructionsProvider) ResolveTurnAttachments(_ context.Context, input
 	return []dto.AttachmentEnvelope{attachment}
 }
 
+// trackerOrDefault 返回注入记录器或进程级默认记录器。
 func (p MCPInstructionsProvider) trackerOrDefault() *mcpInstructionsTracker {
 	if p.tracker != nil {
 		return p.tracker
@@ -93,7 +101,8 @@ func (p MCPInstructionsProvider) trackerOrDefault() *mcpInstructionsTracker {
 	return defaultMCPInstructionsTracker()
 }
 
-// Update 更新prompt。
+// Update 保存指定 thread 的当前 instructions 快照并返回相对上次快照的 diff。
+// 输入 map 会被 clone，调用方后续修改 snapshot 不会影响记录器内部状态。
 func (t *mcpInstructionsTracker) Update(threadID string, current map[string]string) mcpInstructionsDiff {
 	threadID = strings.TrimSpace(threadID)
 	if t == nil || threadID == "" {
@@ -111,7 +120,7 @@ func (t *mcpInstructionsTracker) Update(threadID string, current map[string]stri
 	return diffMCPInstructions(previous, current)
 }
 
-// Reset 重置prompt。
+// Reset 清除指定 thread 的 instructions 快照，通常用于从增量模式切回完整 section。
 func (t *mcpInstructionsTracker) Reset(threadID string) {
 	threadID = strings.TrimSpace(threadID)
 	if t == nil || threadID == "" {
@@ -122,7 +131,7 @@ func (t *mcpInstructionsTracker) Reset(threadID string) {
 	t.mu.Unlock()
 }
 
-// diffMCPInstructions 处理diffMCPinstructions。
+// diffMCPInstructions 比较前后两个规范化快照，筛出新增、更新和删除的 server instructions。
 func diffMCPInstructions(previous, current map[string]string) mcpInstructionsDiff {
 	diff := mcpInstructionsDiff{added: map[string]string{}}
 	for server, instructions := range current {
@@ -145,7 +154,7 @@ func diffMCPInstructions(previous, current map[string]string) mcpInstructionsDif
 	return diff
 }
 
-// Attachment 处理attachment。
+// Attachment 将非空 diff 渲染为 turn attachment；空 diff 返回 false。
 func (d mcpInstructionsDiff) Attachment() (dto.AttachmentEnvelope, bool) {
 	if len(d.added) == 0 && len(d.removed) == 0 {
 		return dto.AttachmentEnvelope{}, false
@@ -161,6 +170,7 @@ func (d mcpInstructionsDiff) Attachment() (dto.AttachmentEnvelope, bool) {
 	}, true
 }
 
+// renderMCPInstructionsDelta 渲染 instruct/forget 两类增量说明，供模型立即更新上下文。
 func renderMCPInstructionsDelta(diff mcpInstructionsDiff) string {
 	blocks := make([]string, 0, len(diff.added)+len(diff.removed)+2)
 	if len(diff.added) > 0 {
@@ -178,7 +188,7 @@ func renderMCPInstructionsDelta(diff mcpInstructionsDiff) string {
 	return strings.Join(blocks, "\n\n")
 }
 
-// liveMCPInstructions 处理liveMCPinstructions。
+// liveMCPInstructions 只保留当前 snapshot 中仍然在线的 server instructions。
 func liveMCPInstructions(snapshot MCPSnapshot) map[string]string {
 	instructions := normalizedMCPInstructions(snapshot.Instructions)
 	if len(snapshot.Servers) == 0 || len(instructions) == 0 {
@@ -196,7 +206,7 @@ func liveMCPInstructions(snapshot MCPSnapshot) map[string]string {
 	return live
 }
 
-// normalizedMCPInstructions 处理normalizedMCPinstructions。
+// normalizedMCPInstructions 清理空 server 名和空 instructions，返回可稳定比较的 map。
 func normalizedMCPInstructions(raw map[string]string) map[string]string {
 	if len(raw) == 0 {
 		return nil
@@ -216,6 +226,7 @@ func normalizedMCPInstructions(raw map[string]string) map[string]string {
 	return out
 }
 
+// renderMCPServerBlock 渲染单个 server instructions 的 Markdown 块。
 func renderMCPServerBlock(server, instructions string) string {
 	lines := []string{fmt.Sprintf("## %s", server)}
 	if instructions = strings.TrimSpace(instructions); instructions != "" {
@@ -224,6 +235,7 @@ func renderMCPServerBlock(server, instructions string) string {
 	return strings.Join(lines, "\n")
 }
 
+// sortedMCPInstructionServers 返回按名称排序的 server 列表，保证 prompt 输出稳定。
 func sortedMCPInstructionServers(instructions map[string]string) []string {
 	servers := make([]string, 0, len(instructions))
 	for server := range instructions {
@@ -232,7 +244,7 @@ func sortedMCPInstructionServers(instructions map[string]string) []string {
 	return sortedPromptValues(servers)
 }
 
-// cloneMCPInstructionMap 复制MCPinstructionmap。
+// cloneMCPInstructionMap 复制并清理 instructions map，避免记录器持有调用方可变引用。
 func cloneMCPInstructionMap(raw map[string]string) map[string]string {
 	if len(raw) == 0 {
 		return nil

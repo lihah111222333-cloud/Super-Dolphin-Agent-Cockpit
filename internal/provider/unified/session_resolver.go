@@ -40,6 +40,7 @@ func NewSessionResolver(p sessionResolverParams) contract.SessionResolver {
 	}
 }
 
+// ResolveSession 根据 threadID 解析当前可用 session，先复用内存会话，再尝试从持久化绑定恢复。
 func (r *sessionResolver) ResolveSession(ctx context.Context, threadID string) (contract.Session, error) {
 	threadID = strings.TrimSpace(threadID)
 	if threadID == "" {
@@ -58,14 +59,15 @@ func (r *sessionResolver) ResolveSession(ctx context.Context, threadID string) (
 	return nil, r.resolveLookupError(threadID, errs)
 }
 
+// tryExistingSession 处理调用方直接传 agent_id 的最快路径，只查询内存 SessionManager。
 func (r *sessionResolver) tryExistingSession(threadID string) (contract.Session, bool) {
-	// Preserve V2's cheapest reuse path when the caller already passes agent_id.
+	// 调用方直接传 agent_id 时优先复用内存 session，避免触发持久化恢复路径。
 	session, err := r.sessions.Get(threadID)
 	return session, err == nil
 }
 
-// "Create" here means recovering the active session through durable thread bindings
-// after the direct agent-ID lookup misses; it does not construct a new runtime session.
+// tryCreateSession 在直接 agent_id 命中失败后，通过线程索引或 provider 绑定恢复活跃 session。
+// 这里的 create 只表示重建内存引用，不会创建全新的 provider 线程。
 func (r *sessionResolver) tryCreateSession(ctx context.Context, threadID string) (contract.Session, []error) {
 	errs := make([]error, 0, 2)
 	if session, err := r.resolveThreadSession(ctx, threadID); err == nil {
@@ -81,6 +83,7 @@ func (r *sessionResolver) tryCreateSession(ctx context.Context, threadID string)
 	return nil, errs
 }
 
+// resolveLookupError 合并 session 查找过程中的非 NotFound 错误，缺少后端时直接 fail-fast。
 func (r *sessionResolver) resolveLookupError(threadID string, errs []error) error {
 	if r.threadStore == nil && r.bindingStore == nil {
 		return fmt.Errorf("resolve session: no thread lookup backend is configured")
@@ -91,6 +94,7 @@ func (r *sessionResolver) resolveLookupError(threadID string, errs []error) erro
 	return fmt.Errorf("resolve session: thread %q not found", threadID)
 }
 
+// resolveThreadSession 通过公共 thread 记录找到 agent，并在内存缺失时用绑定执行 auto-resume。
 func (r *sessionResolver) resolveThreadSession(ctx context.Context, threadID string) (contract.Session, error) {
 	if r.threadStore == nil {
 		return nil, platformdb.ErrNotFound
@@ -112,8 +116,7 @@ func (r *sessionResolver) resolveThreadSession(ctx context.Context, threadID str
 	if session, err := r.sessions.Get(agentID); err == nil {
 		return session, nil
 	}
-	// Session not in memory (e.g. after restart). Look up the binding to
-	// get the provider thread UUID and auto-resume.
+	// 内存 session 缺失通常来自应用重启，需要通过 binding 找回 provider 线程并执行 auto-resume。
 	if r.bindingStore == nil {
 		return nil, contract.ErrSessionNotFound
 	}
@@ -127,6 +130,7 @@ func (r *sessionResolver) resolveThreadSession(ctx context.Context, threadID str
 	return r.autoResumeSession(ctx, binding, ref.RuntimeConfig, ref.ThreadID, threadID)
 }
 
+// resolveProviderThreadSession 按 provider thread ID 反查绑定，支持重启后从 provider 侧线程恢复。
 func (r *sessionResolver) resolveProviderThreadSession(ctx context.Context, threadID string) (contract.Session, error) {
 	if r.bindingStore == nil {
 		return nil, platformdb.ErrNotFound
@@ -151,7 +155,7 @@ func (r *sessionResolver) resolveProviderThreadSession(ctx context.Context, thre
 		if session, err := r.sessions.Get(agentID); err == nil {
 			return session, nil
 		}
-		// Memory miss — auto-resume from binding.
+		// 内存未命中时从持久化 binding 恢复 provider session。
 		return r.autoResumeSession(ctx, binding, r.lookupAutoResumeRuntimeConfig(ctx, binding))
 	}
 	if len(errs) > 0 {
@@ -160,9 +164,8 @@ func (r *sessionResolver) resolveProviderThreadSession(ctx context.Context, thre
 	return nil, platformdb.ErrNotFound
 }
 
-// autoResumeSession rebuilds a runtime session from a persisted binding.
-// This is the key recovery path after application restart: the DB has the
-// thread UUID but the in-memory SessionManager is empty.
+// autoResumeSession 根据持久化绑定重建运行时 session。
+// 这是应用重启后的关键恢复路径：数据库仍有线程 UUID，但内存 SessionManager 已为空。
 func (r *sessionResolver) autoResumeSession(ctx context.Context, binding *contract.SessionBinding, runtimeConfig map[string]any, publicThreadID ...string) (contract.Session, error) {
 	plan, err := r.buildAutoResumePlan(binding, runtimeConfig, publicThreadID...)
 	if err != nil {
@@ -193,6 +196,7 @@ func (r *sessionResolver) autoResumeSession(ctx context.Context, binding *contra
 	return session, nil
 }
 
+// lookupAutoResumeRuntimeConfig 从线程记录中读取 auto-resume 配置，返回副本避免调用方修改持久化快照。
 func (r *sessionResolver) lookupAutoResumeRuntimeConfig(ctx context.Context, binding *contract.SessionBinding) map[string]any {
 	if r == nil || r.threadStore == nil || binding == nil {
 		return nil
@@ -213,6 +217,7 @@ func (r *sessionResolver) lookupAutoResumeRuntimeConfig(ctx context.Context, bin
 	return nil
 }
 
+// rejectBindingAutoResumeLifecycle 在按 binding 恢复前检查线程状态，阻止 stopped 或 archived 会话被重新拉起。
 func (r *sessionResolver) rejectBindingAutoResumeLifecycle(ctx context.Context, binding *contract.SessionBinding) error {
 	if r == nil || r.threadStore == nil || binding == nil {
 		return nil
@@ -236,6 +241,7 @@ func (r *sessionResolver) rejectBindingAutoResumeLifecycle(ctx context.Context, 
 	return nil
 }
 
+// rejectAutoResumeLifecycle 校验单条线程引用是否允许 auto-resume。
 func rejectAutoResumeLifecycle(ref *contract.SessionThreadRef) error {
 	if ref == nil {
 		return nil
@@ -248,6 +254,7 @@ func rejectAutoResumeLifecycle(ref *contract.SessionThreadRef) error {
 	}
 }
 
+// autoResumeBindingCWD 提取恢复 session 所需工作目录，缺失时直接返回错误阻断恢复。
 func autoResumeBindingCWD(binding *contract.SessionBinding) (string, error) {
 	if binding == nil {
 		return "", contract.ErrSessionNotFound
@@ -259,6 +266,7 @@ func autoResumeBindingCWD(binding *contract.SessionBinding) (string, error) {
 	return cwd, nil
 }
 
+// recoverableAutoResumeProviderThreadID 选择可被历史文件验证的 provider thread ID，避免恢复到错误线程。
 func recoverableAutoResumeProviderThreadID(binding *contract.SessionBinding) (string, error) {
 	if binding == nil {
 		return "", contract.ErrSessionNotFound
@@ -288,6 +296,7 @@ func recoverableAutoResumeProviderThreadID(binding *contract.SessionBinding) (st
 	return "", contract.ErrSessionNotFound
 }
 
+// providerNames 返回去重后的 provider 查找顺序，registry 缺失时保留 codex 和 claude 的兼容顺序。
 func (r *sessionResolver) providerNames() []string {
 	names := []string(nil)
 	if r.registry != nil {

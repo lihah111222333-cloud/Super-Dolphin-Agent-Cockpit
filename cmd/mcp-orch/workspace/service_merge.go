@@ -12,7 +12,8 @@ import (
 	storeworkspace "github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/workspace"
 )
 
-// executeMerge 执行merge。
+// executeMerge 执行真实 merge。
+// 文件系统写入和 file 状态持久化分步完成，任何失败都会转入 failed 并回滚状态快照。
 func (s *service) executeMerge(
 	ctx context.Context,
 	run *Run,
@@ -55,6 +56,8 @@ func (s *service) executeMerge(
 	return result, nil
 }
 
+// applyMergeFilesystem 根据文件状态执行写回或删除。
+// 它会同步更新 result.Files，确保文件系统失败能反映到最终摘要。
 func (s *service) applyMergeFilesystem(
 	run *Run,
 	result *MergeRunResult,
@@ -68,6 +71,7 @@ func (s *service) applyMergeFilesystem(
 	return updated
 }
 
+// applyMergeFilesystemFile 对单个文件执行 merge 文件系统动作。
 func applyMergeFilesystemFile(
 	run *Run,
 	file storeworkspace.WorkspaceRunFile,
@@ -83,6 +87,8 @@ func applyMergeFilesystemFile(
 	}
 }
 
+// writeMergedSourceFile 将 workspace 文件原子写回 source root。
+// 写入前会确认 workspace 文件真实路径没有通过 symlink 逃出 workspace。
 func writeMergedSourceFile(
 	run *Run,
 	file storeworkspace.WorkspaceRunFile,
@@ -135,6 +141,8 @@ func ensureWorkspaceMergeSource(workspaceRoot, workspacePath string) error {
 	return nil
 }
 
+// sameWorkspaceFilesystemPath 比较文件系统路径。
+// Windows 下大小写不敏感，其他平台按清理后的路径精确比较。
 func sameWorkspaceFilesystemPath(left, right string) bool {
 	left = filepath.Clean(left)
 	right = filepath.Clean(right)
@@ -144,6 +152,8 @@ func sameWorkspaceFilesystemPath(left, right string) bool {
 	return left == right
 }
 
+// removeMergedSourceFile 删除 source root 中对应文件。
+// 删除不存在文件视为成功，方便重复清理已完成的删除动作。
 func removeMergedSourceFile(
 	run *Run,
 	file storeworkspace.WorkspaceRunFile,
@@ -158,6 +168,8 @@ func removeMergedSourceFile(
 	return file, item
 }
 
+// transitionMergeFailed 将 merging run 标记为 failed。
+// 状态转换失败时仍先发 merge error 事件，避免故障完全静默。
 func (s *service) transitionMergeFailed(
 	ctx context.Context,
 	run *Run,
@@ -173,6 +185,8 @@ func (s *service) transitionMergeFailed(
 	return failedRun, nil
 }
 
+// failMergeRun 统一处理 merge 失败收尾。
+// 它会恢复原始 file 状态、转 failed、发布状态和错误事件。
 func (s *service) failMergeRun(
 	ctx context.Context,
 	run *Run,

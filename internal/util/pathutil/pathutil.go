@@ -1,4 +1,4 @@
-// Package pathutil provides path containment and sanitization helpers.
+// Package pathutil 提供路径包含判断、规范化和项目 key 生成工具。
 package pathutil
 
 import (
@@ -24,8 +24,8 @@ const (
 	projectKeyResolveTimeout = 4 * time.Second
 )
 
-// ContainsPath reports whether target is inside root (or equal to it).
-// ContainsPath 判断路径是否可用。
+// ContainsPath 判断 target 是否位于 root 内部或与 root 相同。
+// 比较前会解析绝对路径和可用 symlink，路径非法时返回 false。
 func ContainsPath(root, target string) bool {
 	rootPath, err := NormalizeAbsolutePath(root)
 	if err != nil || rootPath == "" {
@@ -46,10 +46,8 @@ func ContainsPath(root, target string) bool {
 	return rel == "." || (rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)))
 }
 
-// NormalizeAbsolutePath returns a cleaned absolute path suitable for path-scope
-// comparisons. On Windows it accepts file-URI drive aliases such as /C:/repo
-// and \C:\repo, then resolves existing symlinks where possible.
-// NormalizeAbsolutePath 规范化absolute路径。
+// NormalizeAbsolutePath 返回适合路径边界比较的绝对规范路径。
+// Windows 下会接受 /C:/repo 与 \C:\repo 这类 drive alias，并尽量解析已存在 symlink。
 func NormalizeAbsolutePath(path string) (string, error) {
 	trimmed := strings.TrimSpace(path)
 	if trimmed == "" {
@@ -75,7 +73,7 @@ func NormalizeAbsolutePath(path string) (string, error) {
 	return cleaned, nil
 }
 
-// normalizeWithExistingAncestor 规范化带existingancestor的工具。
+// normalizeWithExistingAncestor 在目标路径不存在时解析最近已存在祖先，再拼回剩余后缀。
 func normalizeWithExistingAncestor(cleaned string) (string, bool) {
 	current := cleaned
 	suffix := make([]string, 0)
@@ -97,6 +95,7 @@ func normalizeWithExistingAncestor(cleaned string) (string, bool) {
 	}
 }
 
+// normalizeWindowsSymlinkPath 解析 Windows 路径中已存在部分的 symlink，并保留不存在后缀。
 func normalizeWindowsSymlinkPath(cleaned string) string {
 	existing, suffix, hasSymlink := windowsExistingPathWithSymlink(cleaned)
 	if !hasSymlink {
@@ -113,7 +112,7 @@ func normalizeWindowsSymlinkPath(cleaned string) string {
 	return filepath.Clean(filepath.Join(resolved, suffix))
 }
 
-// windowsExistingPathWithSymlink 处理带symlink的Windowsexisting路径。
+// windowsExistingPathWithSymlink 返回 Windows 路径中已存在的前缀、剩余后缀和 symlink 标记。
 func windowsExistingPathWithSymlink(cleaned string) (existing, suffix string, hasSymlink bool) {
 	volume := filepath.VolumeName(cleaned)
 	rest := strings.TrimPrefix(cleaned, volume)
@@ -139,6 +138,7 @@ func windowsExistingPathWithSymlink(cleaned string) (existing, suffix string, ha
 	return existing, "", hasSymlink
 }
 
+// normalizeWindowsDriveAlias 去掉 Windows drive alias 前缀，统一进入 filepath 解析。
 func normalizeWindowsDriveAlias(path string) string {
 	if runtime.GOOS != "windows" {
 		return path
@@ -154,7 +154,7 @@ func normalizeWindowsDriveAlias(path string) string {
 	return cleaned
 }
 
-// windowsDriveAliasPrefixLen 处理Windowsdrivealiasprefixlen。
+// windowsDriveAliasPrefixLen 识别 /C:/repo 或 //C:/repo 这类 drive alias 的前缀长度。
 func windowsDriveAliasPrefixLen(path string) (int, bool) {
 	if len(path) < 3 || !isSlash(path[0]) {
 		return 0, false
@@ -168,18 +168,18 @@ func windowsDriveAliasPrefixLen(path string) (int, bool) {
 	return 0, false
 }
 
+// isSlash 判断字节是否是任一平台路径分隔符。
 func isSlash(b byte) bool {
 	return b == '/' || b == '\\'
 }
 
+// isWindowsDriveLetter 判断字节是否可作为 Windows drive 字母。
 func isWindowsDriveLetter(b byte) bool {
 	return (b >= 'A' && b <= 'Z') || (b >= 'a' && b <= 'z')
 }
 
-// SanitizeMemoryProjectKey is byte-for-byte compatible with the legacy
-// memory/mcp-orch sanitizePath implementation: full-path dash slug, lowercase,
-// collapsed separators, max-len trim, and 8-char hash suffix.
-// SanitizeMemoryProjectKey 清理记忆项目键。
+// SanitizeMemoryProjectKey 生成 memory/mcp-orch 兼容的项目 key。
+// 它使用全路径小写 dash slug、折叠分隔符、长度裁剪和 8 字符 hash 后缀。
 func SanitizeMemoryProjectKey(raw string) string {
 	normalized := filepath.ToSlash(norm.NFC.String(strings.TrimSpace(raw)))
 	var builder strings.Builder
@@ -209,9 +209,8 @@ func SanitizeMemoryProjectKey(raw string) string {
 	return prefix + "-" + shortProjectKeyHash(normalized)
 }
 
-// SanitizeSkillProjectKey preserves the on-disk skill directory semantics:
-// keep the last two path segments, preserve case, and join them with "_".
-// SanitizeSkillProjectKey 清理技能项目键。
+// SanitizeSkillProjectKey 生成技能目录使用的项目 key。
+// 它保留最后两个路径段和大小写，再用下划线连接，以匹配磁盘目录语义。
 func SanitizeSkillProjectKey(raw string) string {
 	normalized := filepath.ToSlash(norm.NFC.String(strings.TrimSpace(raw)))
 	normalized = strings.Trim(normalized, "/")
@@ -244,18 +243,17 @@ func SanitizeSkillProjectKey(raw string) string {
 	return prefix + "-" + shortProjectKeyHash(candidate)
 }
 
-// ProjectKeyFromCwd resolves cwd to the skill-scoped project key.
-// ProjectKeyFromCwd 从工作目录处理项目键。
+// ProjectKeyFromCwd 将 cwd 解析为技能作用域项目 key。
 func ProjectKeyFromCwd(cwd string) (string, error) {
 	return projectKeyFromCwd(cwd, SanitizeSkillProjectKey)
 }
 
-// MemoryProjectKeyFromCwd resolves cwd to the legacy memory/mcp-orch project key.
-// MemoryProjectKeyFromCwd 从工作目录处理记忆项目键。
+// MemoryProjectKeyFromCwd 将 cwd 解析为 memory/mcp-orch 兼容项目 key。
 func MemoryProjectKeyFromCwd(cwd string) (string, error) {
 	return projectKeyFromCwd(cwd, SanitizeMemoryProjectKey)
 }
 
+// projectKeyFromCwd 先解析项目根目录，再用传入的 sanitize 策略生成 key。
 func projectKeyFromCwd(cwd string, sanitize func(string) string) (string, error) {
 	cwd = strings.TrimSpace(cwd)
 	if cwd == "" {
@@ -271,7 +269,7 @@ func projectKeyFromCwd(cwd string, sanitize func(string) string) (string, error)
 	return sanitize(canonical), nil
 }
 
-// sanitizeSkillProjectKeySegment 清理技能项目键segment。
+// sanitizeSkillProjectKeySegment 清理单个技能项目 key 路径段，保留字母数字、短横线和点。
 func sanitizeSkillProjectKeySegment(raw string) string {
 	raw = norm.NFC.String(strings.TrimSpace(raw))
 	if raw == "" {
@@ -296,12 +294,13 @@ func sanitizeSkillProjectKeySegment(raw string) string {
 	return strings.Trim(builder.String(), "_.-")
 }
 
+// shortProjectKeyHash 返回 8 字符 hash 后缀，用于裁剪或空 slug 的稳定区分。
 func shortProjectKeyHash(text string) string {
 	sum := sha256.Sum256([]byte(text))
 	return hex.EncodeToString(sum[:4])
 }
 
-// canonicalProjectRoot 处理canonical项目根目录。
+// canonicalProjectRoot 使用 git 输出解析项目根目录，并兼容 worktree 的 common dir。
 func canonicalProjectRoot(ctx context.Context, cwd string) (string, error) {
 	if ctx == nil {
 		ctx = context.Background()
@@ -341,6 +340,7 @@ func canonicalProjectRoot(ctx context.Context, cwd string) (string, error) {
 	return parent, nil
 }
 
+// cleanAbsoluteProjectPath 校验 cwd 非空并转为绝对路径，作为 git 命令工作目录。
 func cleanAbsoluteProjectPath(raw string) (string, error) {
 	cleaned := filepath.Clean(norm.NFC.String(strings.TrimSpace(raw)))
 	if cleaned == "" || cleaned == "." {

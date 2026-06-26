@@ -12,6 +12,7 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/module/skill/mirrorpath"
 )
 
+// skill mirror 冲突类型与修复备份目录名。
 const (
 	skillConflictSameName                        = "same_name"
 	skillConflictMirrorDrift                     = "mirror_drift"
@@ -24,20 +25,22 @@ const (
 	skillMirrorBackupDirName                     = ".super-dolphin-mirror-backup"
 )
 
+// SkillMirrorConflict 描述 canonical skill 与 provider mirror 之间需要人工处理的差异。
+// PreviewHash 和 Actions 只用于用户确认后的修复流程，调用方不能凭 name 直接写目录。
 type SkillMirrorConflict struct {
-	Kind          string
-	TargetID      string
-	Provider      SkillProvider
-	Scope         string
-	PersonalType  string
-	Name          string
-	CanonicalID   string
-	MirrorPath    string
-	CanonicalHash string
-	MirrorHash    string
-	PreviewHash   string
-	Sources       []SkillMirrorConflictSource
-	Actions       []SkillMirrorResolutionAction
+	Kind          string                        // 冲突类型，决定前端文案和允许的修复动作
+	TargetID      string                        // 发生冲突的 provider mirror 目标 ID
+	Provider      SkillProvider                 // provider 类型，例如 Claude 或 Codex
+	Scope         string                        // skill 所属范围，通常是 project 或 personal
+	PersonalType  string                        // personal scope 下的具体来源类型
+	Name          string                        // skill 名称或 mirror 目录名
+	CanonicalID   string                        // 真实 skill 来源的稳定 ID
+	MirrorPath    string                        // 被检查的 provider mirror 路径
+	CanonicalHash string                        // 真实来源当前内容 hash
+	MirrorHash    string                        // mirror 目录当前内容 hash
+	PreviewHash   string                        // 修复预览的确认 hash
+	Sources       []SkillMirrorConflictSource   // 同名冲突涉及的真实来源列表
+	Actions       []SkillMirrorResolutionAction // 当前冲突可选择的修复动作
 }
 
 // SkillMirrorConflictSource 指向冲突背后的真实 skill。
@@ -78,6 +81,8 @@ type SkillMirrorResolutionReport struct {
 	FollowUpAction string
 }
 
+// skillMirrorMutationAuditRecord 记录 mirror 修复动作写入前后的来源和 hash。
+// 审计记录用于追踪人工确认过的目录变更，失败路径不能吞掉写审计错误。
 type skillMirrorMutationAuditRecord struct {
 	Action       string `json:"action"`
 	CanonicalID  string `json:"canonical_id"`

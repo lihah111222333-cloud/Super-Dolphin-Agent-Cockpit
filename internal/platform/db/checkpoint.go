@@ -7,6 +7,8 @@ import (
 	"strings"
 )
 
+// Checkpoint 执行 SQLite WAL checkpoint，并在数据库忙或模式非法时返回错误。
+// 只允许调用方传入受控模式，避免把 PRAGMA 参数拼接成未审计的任意 SQL。
 func Checkpoint(ctx context.Context, database *sql.DB, mode string) error {
 	if database == nil {
 		return fmt.Errorf("SQLite checkpoint DB is nil")

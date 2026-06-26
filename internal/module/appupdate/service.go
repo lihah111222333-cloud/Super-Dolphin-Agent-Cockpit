@@ -25,6 +25,7 @@ import (
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
+// 应用更新配置、环境变量和本地文件名常量。
 const (
 	appID = "super-dolphin"
 
@@ -51,6 +52,7 @@ const (
 	installQuitDelay       = 250 * time.Millisecond
 )
 
+// Config 是 appupdate 模块运行所需的更新源、签名、公钥和本地路径配置。
 type Config struct {
 	Enabled        bool
 	ManifestURL    string
@@ -65,8 +67,10 @@ type Config struct {
 	AllowUnsigned  bool
 }
 
+// RequestQuit 是安装 helper 启动后请求桌面宿主退出的回调。
 type RequestQuit func()
 
+// Service 定义应用更新检查、下载和安装的业务接口。
 type Service interface {
 	Check(context.Context) (CheckResult, error)
 	Download(context.Context) (DownloadResult, error)
@@ -74,6 +78,7 @@ type Service interface {
 	InstallLatest(context.Context) (InstallResult, error)
 }
 
+// CheckResult 是检查更新 RPC 返回的可用性和目标产物摘要。
 type CheckResult struct {
 	Enabled   bool            `json:"enabled"`
 	Available bool            `json:"available"`
@@ -81,6 +86,7 @@ type CheckResult struct {
 	Artifact  *UpdateArtifact `json:"artifact,omitempty"`
 }
 
+// DownloadResult 是下载并暂存更新产物后的路径和校验信息。
 type DownloadResult struct {
 	StagedManifestPath string `json:"stagedManifestPath"`
 	ArtifactPath       string `json:"artifactPath"`
@@ -90,11 +96,13 @@ type DownloadResult struct {
 	Size               int64  `json:"size"`
 }
 
+// InstallResult 是启动安装 helper 后返回给 UI 的结果。
 type InstallResult struct {
 	Started bool   `json:"started"`
 	Helper  string `json:"helper"`
 }
 
+// selectedUpdate 是写入 stage 目录的已选更新记录，Install 只信任该文件继续安装。
 type selectedUpdate struct {
 	Payload      ManifestPayload `json:"payload"`
 	Artifact     UpdateArtifact  `json:"artifact"`
@@ -195,7 +203,7 @@ func appPathFromResourcesDir(resources string) string {
 	return app
 }
 
-// NewService 创建服务。
+// NewService 创建 appupdate Service，生产路径使用默认 HTTP client。
 func NewService(p serviceParams) Service {
 	return newService(p.Config, http.DefaultClient, p.RequestQuit)
 }
@@ -208,7 +216,7 @@ func newService(cfg Config, client *http.Client, requestQuit RequestQuit) *servi
 	return &service{cfg: cfg, httpClient: client, requestQuit: requestQuit}
 }
 
-// Check 处理check。
+// Check 检查是否有可用更新；未启用或版本不高于当前版本时返回 Available=false。
 func (s *service) Check(ctx context.Context) (CheckResult, error) {
 	if !s.cfg.Enabled {
 		return CheckResult{Enabled: false, Available: false}, nil
@@ -228,7 +236,7 @@ func (s *service) Check(ctx context.Context) (CheckResult, error) {
 	}, nil
 }
 
-// Download 处理download。
+// Download 下载并校验更新产物，成功后写入 stage manifest 供 Install 使用。
 func (s *service) Download(ctx context.Context) (DownloadResult, error) {
 	payload, artifact, err := s.fetchManifest(ctx)
 	if err != nil {
@@ -267,7 +275,7 @@ func (s *service) Download(ctx context.Context) (DownloadResult, error) {
 	}, nil
 }
 
-// Install 处理安装。
+// Install 读取已暂存的更新记录并启动平台安装命令，成功启动后延迟请求宿主退出。
 func (s *service) Install(ctx context.Context) (InstallResult, error) {
 	_ = ctx
 	if s.requestQuit == nil {
@@ -297,7 +305,7 @@ func (s *service) Install(ctx context.Context) (InstallResult, error) {
 	return InstallResult{Started: true, Helper: helper}, nil
 }
 
-// InstallLatest 处理安装latest。
+// InstallLatest 串联 Download 和 Install，确保安装的是当前检查到的最新产物。
 func (s *service) InstallLatest(ctx context.Context) (InstallResult, error) {
 	if _, err := s.Download(ctx); err != nil {
 		return InstallResult{}, err
@@ -315,7 +323,7 @@ func (s *service) scheduleRequestQuit() {
 	})
 }
 
-// fetchManifest 处理fetchmanifest。
+// fetchManifest 按配置选择 GitHub release 或直连 manifest，任何签名、平台或版本不匹配都会阻断更新。
 func (s *service) fetchManifest(ctx context.Context) (ManifestPayload, UpdateArtifact, error) {
 	if !s.cfg.Enabled {
 		return ManifestPayload{}, UpdateArtifact{}, ErrNoUpdate
@@ -348,7 +356,7 @@ func (s *service) fetchManifest(ctx context.Context) (ManifestPayload, UpdateArt
 	})
 }
 
-// downloadArtifact 处理download产物。
+// downloadArtifact 下载 artifact 到临时文件，hash/size 校验通过后再原子 rename 到目标路径。
 func (s *service) downloadArtifact(ctx context.Context, artifact UpdateArtifact, targetPath string) error {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, artifact.URL, nil)
 	if err != nil {
@@ -382,7 +390,7 @@ func requireSuccessStatus(operation string, resp *http.Response) error {
 	return nil
 }
 
-// writeVerifiedArtifact 写入verified产物。
+// writeVerifiedArtifact 边写入边计算 sha256 和 size，任何不匹配都会返回错误。
 func writeVerifiedArtifact(tmpPath string, body io.Reader, artifact UpdateArtifact) error {
 	out, err := os.OpenFile(tmpPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)
 	if err != nil {
@@ -626,7 +634,7 @@ func currentVersionFromInfoPlist(targetAppPath string) (string, error) {
 	return version, nil
 }
 
-// plistStringValue 处理pliststring值。
+// plistStringValue 从简单 Info.plist 文本中读取指定 string key，缺失或空值直接报错。
 func plistStringValue(raw, key string) (string, error) {
 	keyToken := "<key>" + key + "</key>"
 	keyIndex := strings.Index(raw, keyToken)

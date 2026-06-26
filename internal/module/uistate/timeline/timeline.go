@@ -11,7 +11,8 @@ import (
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
-// Item represents a single renderable entry in the thread timeline.
+// Item 是线程 timeline 下发给前端的单条可渲染记录。
+// 字段同时兼容 tool、plan、turn 和错误行，私有 lookupKey 只服务后端去重索引。
 type Item struct {
 	ID          string `json:"id"`
 	Kind        string `json:"kind"`
@@ -73,7 +74,7 @@ type Service interface {
 
 const defaultCapacity = 200
 
-// New 创建uistate。
+// New 创建线程 timeline 服务，并设置单线程 item 容量上限。
 func New(logger *slog.Logger, emitter AppendedEmitter, capacity int) Service {
 	if capacity <= 0 {
 		capacity = defaultCapacity
@@ -97,7 +98,8 @@ type service struct {
 	capacity  int
 }
 
-// Append 追加uistate。
+// Append 向线程 timeline 追加 item；重复 item 会合并而不是新增。
+// emitter 在释放锁后调用，避免订阅者回调反向进入 timeline 时造成死锁。
 func (s *service) Append(threadID, agentID string, item Item) {
 	s.mu.Lock()
 	tl := s.timelineLocked(threadID)
@@ -123,7 +125,8 @@ func (s *service) Append(threadID, agentID string, item Item) {
 	s.emitAppended(emitter, threadID, item)
 }
 
-// UpdateByCallID 按callID更新uistate。
+// UpdateByCallID 用 callID 定位已有 item 并在锁内执行更新函数。
+// callID 为空时直接返回 false，避免把无键事件误更新到其他行。
 func (s *service) UpdateByCallID(threadID, agentID, callID string, fn func(*Item)) bool {
 	callID = strings.TrimSpace(callID)
 	if callID == "" {
@@ -137,7 +140,7 @@ func (s *service) UpdateByCallID(threadID, agentID, callID string, fn func(*Item
 	return updated
 }
 
-// GetByThread 按线程读取uistate。
+// GetByThread 返回指定线程 timeline 的快照副本。
 func (s *service) GetByThread(threadID string) []Item {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -149,7 +152,8 @@ func (s *service) GetByThread(threadID string) []Item {
 	return tl.snapshot()
 }
 
-// Snapshot 处理快照。
+// Snapshot 返回全部非空线程 timeline 的快照副本。
+// 返回 map 和切片均可由调用方修改，不会污染内部 timeline 状态。
 func (s *service) Snapshot() map[string][]Item {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -168,7 +172,7 @@ func (s *service) Snapshot() map[string][]Item {
 	return out
 }
 
-// SetEmitter 设置emitter。
+// SetEmitter 更新追加事件 emitter，主要用于 fx 装配后补齐事件总线。
 func (s *service) SetEmitter(emitter AppendedEmitter) {
 	s.mu.Lock()
 	s.emitter = emitter

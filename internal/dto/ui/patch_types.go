@@ -1,6 +1,6 @@
 package ui
 
-// PatchActivityStats carries lightweight activity counters for a thread patch.
+// PatchActivityStats 承载 thread patch 的轻量活动计数。
 type PatchActivityStats struct {
 	LSPCalls  int64            `json:"lspCalls"`
 	Commands  int64            `json:"commands"`
@@ -8,7 +8,7 @@ type PatchActivityStats struct {
 	ToolCalls map[string]int64 `json:"toolCalls"`
 }
 
-// PatchTimelineItem mirrors the frontend thread patch contract without importing module types.
+// PatchTimelineItem 镜像前端 thread patch 契约，避免 DTO 反向依赖具体模块类型。
 type PatchTimelineItem struct {
 	ID          string `json:"id"`
 	Ts          string `json:"ts"`
@@ -29,7 +29,7 @@ type PatchTimelineItem struct {
 	Attachments []any  `json:"attachments,omitempty"`
 }
 
-// PatchAlert mirrors the frontend alert DTO used in thread patch payloads.
+// PatchAlert 镜像 thread patch payload 中的前端告警 DTO。
 type PatchAlert struct {
 	ID      string `json:"id"`
 	Time    string `json:"time"`

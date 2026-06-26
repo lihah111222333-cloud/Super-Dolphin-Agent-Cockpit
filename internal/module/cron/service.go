@@ -25,9 +25,8 @@ type service struct {
 
 var _ Service = (*service)(nil)
 
-// NewService constructs a cron Service backed by the given store. now / newID
-// are overridable for deterministic tests.
-// NewService 创建模块服务并注入存储和运行依赖。
+// NewService 创建 cron 模块服务并注入持久化依赖。
+// now/newID 在测试中可替换；生产路径不在 service 内补默认 store。
 func NewService(logger *slog.Logger, store Store) Service {
 	if logger == nil {
 		logger = pkglogger.Get()
@@ -40,13 +39,12 @@ func NewService(logger *slog.Logger, store Store) Service {
 	}
 }
 
-// defaultInitialDelay is the offset applied when a CreateJob request does
-// not carry an explicit NextRunAt. Phase 2b will replace this with a real
-// cron-expression parser; until then the value is a conservative "fire at
-// the next full-minute tick" default.
+// defaultInitialDelay 是创建任务未显式传入 NextRunAt 时的首次触发延迟。
+// 后续周期仍由 schedule_expr 计算；这个值只影响新 job 入库后的第一次扫描窗口。
 const defaultInitialDelay = time.Minute
 
 // CreateJob 创建定时任务并计算首次运行时间。
+// 配置和技能列表会先规范化再入库，避免调度阶段才暴露坏 JSON。
 func (s *service) CreateJob(ctx context.Context, req CreateJobRequest) (Job, error) {
 	if err := s.validateCreate(&req); err != nil {
 		return Job{}, err
@@ -94,7 +92,7 @@ func (s *service) CreateJob(ctx context.Context, req CreateJobRequest) (Job, err
 	return toJob(row), nil
 }
 
-// GetJob 读取定时任务详情。
+// GetJob 按 ID 读取定时任务详情，并把存储层 not found 映射为领域错误。
 func (s *service) GetJob(ctx context.Context, id string) (Job, error) {
 	row, err := s.store.GetJobByID(ctx, id)
 	if err != nil {
@@ -106,7 +104,7 @@ func (s *service) GetJob(ctx context.Context, id string) (Job, error) {
 	return toJob(row), nil
 }
 
-// ListJobs 按条件列出定时任务。
+// ListJobs 列出全部定时任务并转换为对外 DTO。
 func (s *service) ListJobs(ctx context.Context) ([]Job, error) {
 	rows, err := s.store.ListJobs(ctx)
 	if err != nil {
@@ -195,7 +193,7 @@ func (s *service) SetJobEnabled(ctx context.Context, id string, enabled bool) er
 	return err
 }
 
-// DeleteJob 删除定时任务。
+// DeleteJob 删除定时任务，空 ID 和不存在 ID 都返回显式错误。
 func (s *service) DeleteJob(ctx context.Context, id string) error {
 	if strings.TrimSpace(id) == "" {
 		return errors.New("cron: id is required")
@@ -207,7 +205,7 @@ func (s *service) DeleteJob(ctx context.Context, id string) error {
 	return err
 }
 
-// ListJobRuns 列出定时任务运行记录。
+// ListJobRuns 按 jobID 列出运行记录，limit 语义由 store 层统一处理。
 func (s *service) ListJobRuns(ctx context.Context, jobID string, limit int32) ([]Run, error) {
 	rows, err := s.store.ListRunsByJob(ctx, jobID, limit)
 	if err != nil {
@@ -220,18 +218,8 @@ func (s *service) ListJobRuns(ctx context.Context, jobID string, limit int32) ([
 	return out, nil
 }
 
-// RunOnce schedules a manual trigger by bumping next_run_at to now.
-// The scheduler tick (default 10s) picks it up at the next cycle and
-// drives the job through the same three-phase atomic protocol as a
-// normal due trigger — idempotency_key + dedupe_key are still
-// generated at submit time, so concurrent ticks can't double-fire.
-//
-// Note: a job whose next_retry_at is set in the future (i.e. retry
-// pending) will still wait for that delay, since
-// scheduler.claimOneDueJob ranks by COALESCE(next_retry_at, next_run_at).
-//
 // RunOnce 只把 next_run_at 提到现在，不直接建 run 或调用 StartTurn。
-// 这样手动触发仍走同一套幂等流程。
+// 这样手动触发仍走同一套 claim/CAS/dedupe 流程；若 job 仍有 next_retry_at，会继续尊重重试延迟。
 func (s *service) RunOnce(ctx context.Context, jobID string) (Job, error) {
 	jobID = strings.TrimSpace(jobID)
 	if jobID == "" {
@@ -254,9 +242,10 @@ func (s *service) RunOnce(ctx context.Context, jobID string) (Job, error) {
 	return s.GetJob(ctx, row.ID)
 }
 
-// ----- validation helpers -----
+// 下列 helper 在写入前统一清洗创建/更新请求，避免坏配置流入调度运行时。
 
-// validateCreate 校验创建定时任务的输入。
+// validateCreate 校验创建或更新定时任务的输入。
+// provider 目前只允许 codex；Codex 身份配置必须能解析，避免后续调度跑到错误实例。
 func (s *service) validateCreate(req *CreateJobRequest) error {
 	if strings.TrimSpace(req.Name) == "" {
 		return ErrMissingName
@@ -281,9 +270,6 @@ func (s *service) validateCreate(req *CreateJobRequest) error {
 	if provider != cronstore.ProviderCodex {
 		return fmt.Errorf("%w: got %q", ErrProviderNotSupported, req.Provider)
 	}
-	// v1 codex whitelist: identity triple in config must resolve. This
-	// reuses the stage-0 shared helper so cron and thread/start stay on
-	// one canonicalize pipeline.
 	// 这里先挡住错误的 Codex 身份配置，避免定时任务后来跑到错误的 home/instance。
 	configMap, err := decodeConfigMap(req.Config)
 	if err != nil {
@@ -295,7 +281,8 @@ func (s *service) validateCreate(req *CreateJobRequest) error {
 	return nil
 }
 
-// decodeConfigMap 将原始 JSON 配置解析为 map[string]any，nil/空输入返回空 map。
+// decodeConfigMap 将原始 JSON 配置解析为 map[string]any。
+// nil/空输入按空配置处理；语法错误必须返回给调用方，不能写入坏配置。
 func decodeConfigMap(raw json.RawMessage) (map[string]any, error) {
 	if len(raw) == 0 {
 		return map[string]any{}, nil
@@ -315,8 +302,6 @@ func normalizeConfig(raw json.RawMessage) ([]byte, error) {
 	if len(raw) == 0 {
 		return []byte("{}"), nil
 	}
-	// Re-marshal through a generic map so we land on canonical JSON and
-	// reject obvious garbage before the DB CHECK fires.
 	// JSON 不合法就直接返回错误，不把坏配置写进库再等调度阶段失败。
 	var v any
 	if err := json.Unmarshal(raw, &v); err != nil {
@@ -349,9 +334,10 @@ func marshalSkills(skills []string) ([]byte, error) {
 	return json.Marshal(cleaned)
 }
 
-// ----- row -> DTO mappers -----
+// 下列 mapper 将 sqlc 行转换为 RPC/服务层 DTO，历史坏 JSON 只记录并暴露基础字段。
 
-// toJob 把存储层记录转换成 cron 领域对象。
+// toJob 将存储层 job 行转换成 cron 对外 DTO。
+// config/skills JSON 损坏时记录日志并继续返回基础字段，便于 UI 暴露问题行。
 func toJob(row cronstore.Job) Job {
 	var skills []string
 	if len(row.Skills) > 0 {
@@ -402,7 +388,7 @@ func toJob(row cronstore.Job) Job {
 	}
 }
 
-// toRun 把存储层记录转换成 cron run 领域对象。
+// toRun 将存储层 run 行转换成 cron 对外 DTO，时间统一输出 RFC3339 UTC 字符串。
 func toRun(row cronstore.Run) Run {
 	return Run{
 		ID:             row.ID,

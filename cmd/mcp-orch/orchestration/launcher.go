@@ -43,7 +43,8 @@ type localLauncher struct {
 	logger      *slog.Logger
 }
 
-// NewLocalLauncher 创建本地代理启动器。
+// NewLocalLauncher 创建本地进程 launcher。
+// 本地模式只负责启动命令和提交 turn，不支持 fork 或远端中断。
 func NewLocalLauncher(turnStarter TurnStarter, logger *slog.Logger) AgentLauncher {
 	return &localLauncher{turnStarter: turnStarter, logger: logger}
 }
@@ -78,7 +79,7 @@ func (l *localLauncher) Launch(ctx context.Context, agent *agentRuntime, _ Launc
 	return LaunchResult{}, nil
 }
 
-// Fork 本地启动器不支持 fork 模式，始终返回错误。
+// Fork 在本地 launcher 中直接失败；fork 需要远端 thread 控制面保留父子上下文。
 func (l *localLauncher) Fork(context.Context, *agentRuntime, *agentRuntime, LaunchRequest) (LaunchResult, error) {
 	return LaunchResult{}, errors.New("forked context launch requires remote launcher")
 }
@@ -101,7 +102,8 @@ func (l *localLauncher) Interrupt(context.Context, *agentRuntime, string) error 
 	return errors.New("interrupt_agent currently supports remote Codex agents only")
 }
 
-// SubmitTurn 通过本地 turnStarter 提交 turn 并返回 turn ID。
+// SubmitTurn 通过本地 turnStarter 提交 turn。
+// turnStarter 未注入时 fail-fast，避免把 turn 静默吞掉。
 func (l *localLauncher) SubmitTurn(ctx context.Context, _ *agentRuntime, submission TurnSubmission) (string, error) {
 	if l == nil || l.turnStarter == nil {
 		return "", errors.New("turn starter is not configured")
@@ -109,7 +111,7 @@ func (l *localLauncher) SubmitTurn(ctx context.Context, _ *agentRuntime, submiss
 	return l.turnStarter.StartTurn(ctx, submission)
 }
 
-// IsRunning 判断本地进程是否仍在运行。
+// IsRunning 以本地进程句柄是否存在判断 agent 是否仍被 runtime 接管。
 func (l *localLauncher) IsRunning(_ context.Context, agent *agentRuntime) bool {
 	return agent != nil && agent.cmd != nil
 }
@@ -171,7 +173,8 @@ func rpcCall[T any](ctx context.Context, r *remoteLauncher, method string, param
 	return out, err
 }
 
-// registerClient 向 remote launcher 注册本实例并返回租约信息。
+// registerClient 向 remote launcher 注册本实例并校验租约信息。
+// 缺少 session token 或返回空 lease 会立即失败，避免心跳落到匿名连接。
 func (r *remoteLauncher) registerClient(ctx context.Context, client *jrpc2.Client) (mcpdto.RegisterResponse, error) {
 	token := remoteLauncherSessionToken()
 	if token == "" {
@@ -251,17 +254,16 @@ func managedAgentLaunchDisplayName(name string) string {
 	return strings.TrimSpace(name)
 }
 
-// Launch 通过 thread/start RPC 启动远端 agent 线程，并绑定返回的 thread ID。
+// Launch 通过 thread/start RPC 启动远端 agent 线程。
+// prompt 不放入 thread/start，任务正文会在启动后作为第一轮 turn 提交。
 func (r *remoteLauncher) Launch(ctx context.Context, agent *agentRuntime, req LaunchRequest) (LaunchResult, error) {
 	if agent == nil {
 		return LaunchResult{}, errors.New("agent is required")
 	}
 	start := time.Now()
 	pkglogger.Info("remoteLauncher: thread/start RPC begin", "agent_id", agent.id, "rpc_addr", r.addr)
-	// thread/start treats `prompt` and `name` as legacy aliases for the same
-	// display-name slot. Name is intentionally sourced only from req.Name; the
-	// launch prompt is submitted as a first turn after thread/start.
-	// 不要把 req.Prompt 塞进 thread/start；任务正文会在启动后作为第一轮 turn 提交。
+	// thread/start 里 prompt/name 都曾表示展示名；这里只使用 req.Name。
+	// req.Prompt 作为首轮 turn 提交，避免展示名和任务正文串线。
 	displayName := managedAgentLaunchDisplayName(req.Name)
 	model := shared.FirstTrimmed(envValue(req.Env, "AGENT_MODEL"), commandFlagValue(launchCommandArgs(req.Command), "--model"))
 	effort := shared.FirstTrimmed(envValue(req.Env, "AGENT_EFFORT"), commandFlagValue(launchCommandArgs(req.Command), "--effort"))
@@ -390,7 +392,8 @@ func (r *remoteLauncher) Interrupt(ctx context.Context, agent *agentRuntime, sou
 	return err
 }
 
-// SubmitTurn 通过 turn/start RPC 向远端 agent 提交 turn，返回 turn ID。
+// SubmitTurn 通过 turn/start RPC 向远端 agent 提交 turn。
+// 远端没有返回 turn_id 时立即报错，调用方不能假设提交成功。
 func (r *remoteLauncher) SubmitTurn(ctx context.Context, agent *agentRuntime, submission TurnSubmission) (string, error) {
 	if agent == nil || agent.remoteThreadID == "" {
 		return "", errors.New("remote thread id is required")
@@ -415,7 +418,7 @@ func (r *remoteLauncher) SubmitTurn(ctx context.Context, agent *agentRuntime, su
 	return turnID, nil
 }
 
-// IsRunning 判断远端 agent 线程是否仍在运行。
+// IsRunning 以 remoteThreadID 是否存在判断远端线程是否仍可路由。
 func (r *remoteLauncher) IsRunning(_ context.Context, agent *agentRuntime) bool {
 	return agent != nil && agent.remoteThreadID != ""
 }

@@ -15,6 +15,7 @@ import (
 )
 
 var (
+	// datasource 上传/删除的领域错误，RPC 层会映射为对应 jrpc2 错误码。
 	errMissingSourcePath          = errors.New("datasource: sourcePath is required")
 	errSourcePathMustBeAbsolute   = errors.New("datasource: sourcePath must be absolute")
 	errSourcePathOutsideWorkspace = errors.New("datasource: sourcePath outside workspace")
@@ -27,6 +28,7 @@ var (
 )
 
 // Service 定义 datasource 模块的文件上传、列举、文档读取和删除接口。
+// 所有文件路径都约束在当前 workspace 内，文档存储是可选增强能力。
 type Service interface {
 	UploadFile(context.Context, UploadFileRequest) (UploadFileResult, error)
 	ListFiles(context.Context) (ListFilesResult, error)
@@ -34,11 +36,12 @@ type Service interface {
 	DeleteFile(context.Context, DeleteFileRequest) (DeleteFileResult, error)
 }
 
-// UploadFileRequest 是文件上传请求，SourcePath 必须是工作区内的绝对路径。
+// UploadFileRequest 是文件上传请求，SourcePath 必须是当前 workspace 内的绝对路径。
 type UploadFileRequest struct {
 	SourcePath string `json:"sourcePath"`
 }
 
+// UploadFileResult 是上传成功后的 wire 响应，StoredPath 是 workspace 内目标路径。
 type UploadFileResult struct {
 	Name       string `json:"name"`
 	Extension  string `json:"extension"`
@@ -46,33 +49,40 @@ type UploadFileResult struct {
 	StoredPath string `json:"storedPath"`
 }
 
+// ListFilesResult 是 datasource/list 的 wire 响应，FileNames 始终为文件名而非路径。
 type ListFilesResult struct {
 	FileNames []string `json:"fileNames"`
 }
 
+// ListDocumentsResult 是 prompt 动态段读取已入库文档的响应。
 type ListDocumentsResult struct {
 	Documents []DatasourceDocument `json:"documents"`
 }
 
+// DeleteFileRequest 是删除上传文件的请求，只允许传文件名。
 type DeleteFileRequest struct {
 	FileName string `json:"fileName"`
 }
 
+// DeleteFileResult 是 datasource/delete 的 wire 响应。
 type DeleteFileResult struct {
 	Name    string `json:"name"`
 	Deleted bool   `json:"deleted"`
 }
 
+// service 保存可选的 datasource 文档存储。
+// store 为 nil 时仍支持上传目录的文件复制/列举/删除。
 type service struct {
 	documents DatasourceDocumentStore
 }
 
-// NewService 创建服务。
+// NewService 创建不带文档存储的 datasource 服务。
 func NewService() Service {
 	return NewServiceWithStore(nil)
 }
 
-// NewServiceWithStore 创建带文档存储的 datasource 服务。
+// NewServiceWithStore 创建 datasource 服务。
+// store 为 nil 时上传内容不会入库，但文件仍会复制到 workspace 上传目录。
 func NewServiceWithStore(store DatasourceDocumentStore) Service {
 	return &service{documents: store}
 }
@@ -85,7 +95,8 @@ func datasourceContext(ctx context.Context) context.Context {
 	return ctx
 }
 
-// UploadFile 处理upload文件。
+// UploadFile 校验并复制 workspace 内的 datasource 文件。
+// 文本抽取成功后才写文档存储；任何路径、编码或复制错误都会阻断上传。
 func (s *service) UploadFile(ctx context.Context, req UploadFileRequest) (UploadFileResult, error) {
 	ctx = datasourceContext(ctx)
 	source, err := prepareUploadSource(ctx, req)
@@ -142,7 +153,8 @@ func prepareUploadSource(ctx context.Context, req UploadFileRequest) (uploadSour
 	}, nil
 }
 
-// copyUploadIntoWorkspace 将源文件复制到 workspace 上传目录并返回目标路径。
+// copyUploadIntoWorkspace 将源文件复制到当前 workspace 上传目录。
+// 上传目录会按需创建，复制失败时不会返回半成品路径。
 func copyUploadIntoWorkspace(ctx context.Context, sourcePath string) (string, string, error) {
 	workspaceRoot, err := currentDatasourceWorkspaceRoot()
 	if err != nil {
@@ -159,7 +171,8 @@ func copyUploadIntoWorkspace(ctx context.Context, sourcePath string) (string, st
 	return workspaceRoot, targetPath, nil
 }
 
-// persistUploadedDocument 将提取的文本写入文档存储；store 为 nil 时静默跳过。
+// persistUploadedDocument 将提取文本写入可选文档存储。
+// documents store 为 nil 表示当前运行模式只管理上传文件，不持久化正文。
 func (s *service) persistUploadedDocument(
 	ctx context.Context,
 	workspaceRoot string,
@@ -180,7 +193,7 @@ func (s *service) persistUploadedDocument(
 	})
 }
 
-// uploadFileResult 将 uploadSource 和目标路径组装为 UploadFileResult。
+// uploadFileResult 将已验证源信息和目标路径组装为上传响应。
 func uploadFileResult(source uploadSource, targetPath string) UploadFileResult {
 	return UploadFileResult{
 		Name:       source.name,
@@ -190,7 +203,8 @@ func uploadFileResult(source uploadSource, targetPath string) UploadFileResult {
 	}
 }
 
-// ListFiles 列出文件。
+// ListFiles 列出当前 workspace 上传目录中的普通文件名。
+// 目录项会被跳过并按名称排序，返回值不暴露绝对路径。
 func (s *service) ListFiles(ctx context.Context) (ListFilesResult, error) {
 	if ctx == nil {
 		ctx = context.Background()
@@ -277,7 +291,8 @@ func ensureDatasourceUploadDir(workspaceRoot string) (string, error) {
 	return uploadDir, nil
 }
 
-// DeleteFile 删除文件。
+// DeleteFile 删除当前 workspace 上传目录中的单个文件。
+// 请求只能携带文件名；删除文档存储失败时整体返回错误，避免文件和索引状态分裂。
 func (s *service) DeleteFile(ctx context.Context, req DeleteFileRequest) (DeleteFileResult, error) {
 	if ctx == nil {
 		ctx = context.Background()
@@ -343,7 +358,8 @@ func ensureUploadSourceInsideWorkspace(sourcePath string) error {
 	return nil
 }
 
-// validateDeleteRequest 校验delete请求。
+// validateDeleteRequest 校验删除请求只包含安全文件名。
+// 绝对路径、上级目录、卷名和路径分隔符都会被拒绝。
 func validateDeleteRequest(req DeleteFileRequest) (string, error) {
 	fileName := strings.TrimSpace(req.FileName)
 	if fileName == "" ||
@@ -386,7 +402,8 @@ func isAllowedUploadExtension(ext string) bool {
 	return ext == ".pdf" || isTextUploadExtension(ext)
 }
 
-// copyUploadFile 复制upload文件。
+// copyUploadFile 通过临时文件复制上传内容。
+// 只有 replaceUploadFile 成功后才保留临时文件，失败路径会清理临时文件。
 func copyUploadFile(ctx context.Context, sourcePath, targetPath string) (err error) {
 	if err := ctx.Err(); err != nil {
 		return err

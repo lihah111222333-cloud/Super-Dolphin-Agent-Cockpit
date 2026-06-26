@@ -5,25 +5,28 @@ import (
 	"errors"
 )
 
-// Contract is a zero-state marker installed by RunnerModule.
+// Contract 是 RunnerModule 安装的零状态标记，用于表达平台 runner 能力已装配。
 type Contract struct{}
 
-// NewContract 创建contract。
+// NewContract 创建 runner 模块标记对象。
 func NewContract() Contract { return Contract{} }
 
+// Worker 是可由 runner 适配的后台组件最小接口。
 type Worker interface {
 	Start()
 	Stop(context.Context) error
 }
 
+// WorkerRunnerOption 调整 workerRunner 的测试或生命周期选项。
 type WorkerRunnerOption func(*workerRunner)
 
+// workerRunner 把 Start/Stop 风格 worker 适配为 Runner 接口。
 type workerRunner struct {
 	worker Worker
 	ready  chan struct{}
 }
 
-// AsRunner 把平台runner处理为runner。
+// AsRunner 将 Worker 适配为 Runner，交给 run group 统一托管。
 func AsRunner(worker Worker, opts ...WorkerRunnerOption) Runner {
 	r := &workerRunner{worker: worker, ready: make(chan struct{})}
 	for _, opt := range opts {
@@ -34,7 +37,7 @@ func AsRunner(worker Worker, opts ...WorkerRunnerOption) Runner {
 	return r
 }
 
-// WithStartedSignal 设置startedsignal。
+// WithStartedSignal 替换 runner 启动完成信号通道，主要供测试同步使用。
 func WithStartedSignal(ch chan struct{}) WorkerRunnerOption {
 	return func(r *workerRunner) {
 		if ch != nil {
@@ -43,7 +46,7 @@ func WithStartedSignal(ch chan struct{}) WorkerRunnerOption {
 	}
 }
 
-// Run 启动平台runner后台流程。
+// Run 启动 worker，发出 ready 信号后阻塞等待 ctx 取消，再调用 Stop。
 func (r *workerRunner) Run(ctx context.Context) error {
 	if r == nil || r.worker == nil {
 		return errors.New("runner worker is nil")
@@ -57,6 +60,7 @@ func (r *workerRunner) Run(ctx context.Context) error {
 	return nil
 }
 
+// closeOnce 关闭 ready 通道，通道已关闭时吞掉 panic 以保持 runner 停止幂等。
 func closeOnce(ch chan struct{}) {
 	defer func() { _ = recover() }()
 	close(ch)

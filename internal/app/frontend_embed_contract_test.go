@@ -34,7 +34,7 @@ func TestFrontendAppBuildFeedsAgentTerminalEmbedBundle(t *testing.T) {
 	requiredFrontendGoTokens := []string{
 		"//go:embed all:frontend/dist",
 		`fs.Sub(frontendDist, "frontend/dist")`,
-		"current React/Vite frontend-app build is copied into this embed path",
+		"当前 React/Vite frontend-app 复制到该目录",
 	}
 	for _, want := range requiredFrontendGoTokens {
 		if !strings.Contains(frontendGo, want) {

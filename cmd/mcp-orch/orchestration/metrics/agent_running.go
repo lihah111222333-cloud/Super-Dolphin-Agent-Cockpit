@@ -27,10 +27,10 @@ func (c *dispatchAgentRunningCounter) snapshot() DispatchAgentRunningMetrics {
 
 var dispatchAgentRunning = &dispatchAgentRunningCounter{}
 
-// IncDispatchAgentRunningWritten 累加dispatch代理runningwritten。
+// IncDispatchAgentRunningWritten 记录 agent 节点成功写入 running 的次数。
 func IncDispatchAgentRunningWritten() { dispatchAgentRunning.written.Add(1) }
 
-// IncDispatchAgentRunningSkippedAlreadyTerminal 累加dispatch代理runningskippedalreadyterminal。
+// IncDispatchAgentRunningSkippedAlreadyTerminal 记录 running 写入遇到已终态节点而跳过的次数。
 func IncDispatchAgentRunningSkippedAlreadyTerminal() {
 	dispatchAgentRunning.skippedAlreadyTerminal.Add(1)
 }
@@ -38,7 +38,7 @@ func IncDispatchAgentRunningSkippedAlreadyTerminal() {
 // IncDispatchAgentRunningWriteFailed 累加运行中代理状态写入失败次数。
 func IncDispatchAgentRunningWriteFailed() { dispatchAgentRunning.writeFailed.Add(1) }
 
-// DispatchAgentRunningCounters 派发代理runningcounters。
+// DispatchAgentRunningCounters 返回 agent running 写入路径的计数快照。
 func DispatchAgentRunningCounters() DispatchAgentRunningMetrics {
 	return dispatchAgentRunning.snapshot()
 }

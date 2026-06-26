@@ -15,9 +15,7 @@ import (
 	turndto "github.com/anthropic-ai/super-agent-v3/internal/dto/turn"
 )
 
-// ---------------------------------------------------------------------------
-// Test doubles �?narrow ports only, no full taskdag.Store / *service.
-// ---------------------------------------------------------------------------
+// 测试替身只实现 subscriber 需要的窄接口，避免引入完整 taskdag.Store 或 *service。
 
 type dagSubscriberLookupSpy struct {
 	nodes      []taskdag.Node
@@ -205,7 +203,7 @@ func dagSubscriberOwnerMarkerJSON(t *testing.T, dagKey, nodeKey, threadID, turnI
 	return string(raw)
 }
 
-// helper：构�?deps + reset metric singletons 让每 case 独立计数�?
+// setupDAGSubscriberDeps 组装 subscriber 依赖；每个用例显式读取指标差值来保持独立计数。
 func setupDAGSubscriberDeps(
 	lookup *dagSubscriberLookupSpy,
 	flow *dagSubscriberFlowSpy,
@@ -234,8 +232,8 @@ func newTurnCompletedEvent(threadID string, success bool, result string) turndto
 	}
 }
 
-// metric delta helper —�?each case takes a "before" snapshot and asserts the
-// delta. Avoids leaks between sequential subtests sharing the singleton.
+// metricDelta 计算指标快照差值。
+// 顺序执行的子测试共享 singleton 计数器，断言差值可以避免用例之间相互污染。
 func metricDelta(before, after DAGSubscriberMetrics) DAGSubscriberMetrics {
 	return DAGSubscriberMetrics{
 		CompleteDone:            after.CompleteDone - before.CompleteDone,
@@ -257,12 +255,9 @@ type nopWriter struct{}
 
 func (nopWriter) Write(p []byte) (int, error) { return len(p), nil }
 
-// ---------------------------------------------------------------------------
-// 9 case suite �?strictly mirrors ADR-017 v1.2 §5.1.
-// ---------------------------------------------------------------------------
+// 以下用例覆盖 DAG turn completed subscriber 的主要状态推进分支。
 
-// 1. happy path - done: TurnCompleted.Success=true �?
-// CompleteNodeAndScheduleDownstream, metric CompleteDone +1.
+// TestDAGSubscriber_HappyPath_Done 覆盖成功 turn 将节点推进为 done，并递增 CompleteDone 指标。
 func TestDAGSubscriber_HappyPath_Done(t *testing.T) {
 	before := DAGSubscriberCounters()
 	lookup := &dagSubscriberLookupSpy{nodes: []taskdag.Node{{DagKey: "dag-1", NodeKey: "n1", Status: "running"}}}
@@ -404,8 +399,7 @@ func TestDAGSubscriber_DoneInvokesLifecycleHooks(t *testing.T) {
 	}
 }
 
-// 2. happy path - failed: TurnCompleted.Success=false �?
-// FailNodeAndCancelDownstream, metric CompleteFailed +1.
+// TestDAGSubscriber_HappyPath_Failed 覆盖失败 turn 将节点标记 failed，并递增 CompleteFailed 指标。
 func TestDAGSubscriber_HappyPath_Failed(t *testing.T) {
 	before := DAGSubscriberCounters()
 	lookup := &dagSubscriberLookupSpy{nodes: []taskdag.Node{{DagKey: "dag-1", NodeKey: "n1", Status: "running"}}}
@@ -496,9 +490,8 @@ func TestDAGSubscriber_MaterializationFailureLifecycleHooksKeepFailureClass(t *t
 	}
 }
 
-// 3. race A �?TurnCompleted 早于 dispatchAgent �?running：节点仍 ready�?
-// CompleteNode 白名单含 ready（commit 2）→ stub flow 返成功，metric
-// CompleteDone +1（subscriber 不区�?ready/running �?done）�?
+// TestDAGSubscriber_RaceA_NodeStillReady 覆盖 TurnCompleted 早于 running 状态落库的竞态。
+// 节点仍为 ready 时 subscriber 也要尝试推进，避免完成事件丢失。
 func TestDAGSubscriber_RaceA_NodeStillReady(t *testing.T) {
 	before := DAGSubscriberCounters()
 	lookup := &dagSubscriberLookupSpy{nodes: []taskdag.Node{{DagKey: "dag-1", NodeKey: "n1", Status: "ready"}}}
@@ -518,8 +511,8 @@ func TestDAGSubscriber_RaceA_NodeStillReady(t *testing.T) {
 	}
 }
 
-// 4. race C �?节点�?failed（fallback 先到）：subscriber 跳过 + metric
-// IdempotentSkipped +1，不�?flow�?
+// TestDAGSubscriber_RaceC_NodeAlreadyFailed_IdempotentSkip 覆盖终态节点的幂等跳过。
+// 已 failed 的节点不再调用 flow，只递增 IdempotentSkipped。
 func TestDAGSubscriber_RaceC_NodeAlreadyFailed_IdempotentSkip(t *testing.T) {
 	before := DAGSubscriberCounters()
 	lookup := &dagSubscriberLookupSpy{nodes: []taskdag.Node{{DagKey: "dag-1", NodeKey: "n1", Status: "failed"}}}
@@ -539,8 +532,8 @@ func TestDAGSubscriber_RaceC_NodeAlreadyFailed_IdempotentSkip(t *testing.T) {
 	}
 }
 
-// 5. lookup empty: metric LookupNoNode +1 and do not stop the thread.
-// A TurnCompleted event from a normal chat thread is not a DAG-spawned agent.
+// TestDAGSubscriber_LookupEmpty_NoNodeDoesNotStopThread 覆盖普通会话 turn 事件。
+// 找不到 DAG 节点时只记录 LookupNoNode，不应停止该 thread。
 func TestDAGSubscriber_LookupEmpty_NoNodeDoesNotStopThread(t *testing.T) {
 	before := DAGSubscriberCounters()
 	lookup := &dagSubscriberLookupSpy{nodes: nil}
@@ -563,7 +556,8 @@ func TestDAGSubscriber_LookupEmpty_NoNodeDoesNotStopThread(t *testing.T) {
 	}
 }
 
-// 6. N>1 dirty data �?反查多条：metric LookupDirtyData +1，逐条尝试推进�?
+// TestDAGSubscriber_LookupDirtyData_AdvanceEveryRow 覆盖同一 thread 反查出多条节点的脏数据。
+// subscriber 会记录 LookupDirtyData，并逐条尝试推进，避免遗漏可恢复节点。
 func TestDAGSubscriber_LookupDirtyData_AdvanceEveryRow(t *testing.T) {
 	before := DAGSubscriberCounters()
 	lookup := &dagSubscriberLookupSpy{nodes: []taskdag.Node{

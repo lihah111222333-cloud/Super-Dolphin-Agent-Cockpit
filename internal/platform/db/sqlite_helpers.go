@@ -10,19 +10,19 @@ import (
 
 const boundedWriteRetryDelay = 50 * time.Millisecond
 
-// Millis は time.Time を UTC epoch milliseconds に変換する。
-// store 層の全時間カラム書き込みはこれを使う。
+// Millis 将 time.Time 转为 UTC epoch milliseconds。
+// store 层时间字段统一走毫秒值，避免 SQLite 文本时间格式在跨模块传输时漂移。
 func Millis(t time.Time) int64 {
 	return t.UnixMilli()
 }
 
-// TimeFromMillis は UTC epoch milliseconds を time.Time (UTC) に変換する。
+// TimeFromMillis 将 UTC epoch milliseconds 还原为 UTC time.Time。
 func TimeFromMillis(ms int64) time.Time {
 	return time.UnixMilli(ms).UTC()
 }
 
-// ValidateJSONRaw は json.RawMessage が valid JSON であることを確認する。
-// nil / 空のケースは '{}' or '[]' などの空コンテナとして渡すこと。
+// ValidateJSONRaw 校验 json.RawMessage 必须是有效 JSON。
+// nil 或空值不是合法 JSON；调用方需要显式传入 `{}` 或 `[]` 这类空容器。
 func ValidateJSONRaw(raw json.RawMessage) error {
 	if !json.Valid(raw) {
 		return errors.New("invalid JSON")
@@ -30,13 +30,13 @@ func ValidateJSONRaw(raw json.RawMessage) error {
 	return nil
 }
 
-// LikeContainsFold は SQLite の lower(col) LIKE lower(?) 用にパターンを組み立てる。
-// 呼び出し元は "lower(column) LIKE lower(?)" を SQL に使い、この値をバインドする。
+// LikeContainsFold 构造 SQLite lower(column) LIKE lower(?) 使用的包含匹配模式。
+// 调用方负责在 SQL 中使用 lower(column) LIKE lower(?)，这里不拼接 SQL 片段。
 func LikeContainsFold(s string) string {
 	return "%" + s + "%"
 }
 
-// IsSQLiteBusyLocked は SQLite の "database is locked" / "database is busy" を検出する。
+// IsSQLiteBusyLocked 判断错误是否属于 SQLite busy/locked 写入竞争。
 func IsSQLiteBusyLocked(err error) bool {
 	if err == nil {
 		return false
@@ -48,8 +48,8 @@ func IsSQLiteBusyLocked(err error) bool {
 		strings.Contains(msg, "SQLITE_LOCKED")
 }
 
-// BoundedWriteRetry は SQLite busy/locked 時のみ有界リトライする。
-// その他エラーは即時返却。maxAttempts は 1 以上。
+// BoundedWriteRetry 只在 SQLite busy/locked 时做有界重试。
+// 其他错误立即返回；maxAttempts 小于 1 时按 1 次执行，避免静默无限重试。
 func BoundedWriteRetry(ctx context.Context, maxAttempts int, fn func() error) error {
 	if maxAttempts < 1 {
 		maxAttempts = 1

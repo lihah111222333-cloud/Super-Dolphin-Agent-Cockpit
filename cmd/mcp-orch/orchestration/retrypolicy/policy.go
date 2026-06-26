@@ -5,32 +5,38 @@ import (
 	"fmt"
 )
 
+// RetryPolicy 是 dispatcher 执行 DAG wakeup 时使用的最终重试策略。
 type RetryPolicy struct {
 	MaxAttempts int
 	FailFast    bool
 }
 
+// dagSchedulePolicy 对应 DAG metadata.schedule 中的默认重试配置。
 type dagSchedulePolicy struct {
 	DefaultRetry int  `json:"default_retry,omitempty"`
 	FailFast     bool `json:"fail_fast,omitempty"`
 }
 
+// dagMetadataPolicy 是 DAG metadata 的最小解析视图，只读取 schedule。
 type dagMetadataPolicy struct {
 	Schedule dagSchedulePolicy `json:"schedule"`
 }
 
+// nodeExecutionPolicy 表示节点 execution.retry 覆盖值及其是否显式配置。
 type nodeExecutionPolicy struct {
 	Retry    int
 	HasRetry bool
 }
 
+// nodeExecutionEnvelope 是 node.config 的最小解析视图，只读取 execution.retry。
 type nodeExecutionEnvelope struct {
 	Execution struct {
 		Retry *int `json:"retry,omitempty"`
 	} `json:"execution"`
 }
 
-// ResolveRetryPolicy 解析重试策略。
+// ResolveRetryPolicy 合并 DAG 默认 retry 与节点级 execution.retry。
+// MaxAttempts 至少为 1，retry=0 表示只尝试一次。
 func ResolveRetryPolicy(dagMetadata, nodeConfig json.RawMessage) (RetryPolicy, error) {
 	dagPolicy, err := decodeDAGSchedulePolicy(dagMetadata)
 	if err != nil {
@@ -51,6 +57,7 @@ func ResolveRetryPolicy(dagMetadata, nodeConfig json.RawMessage) (RetryPolicy, e
 	return RetryPolicy{MaxAttempts: maxAttempts, FailFast: dagPolicy.FailFast}, nil
 }
 
+// decodeDAGSchedulePolicy 解析 DAG metadata.schedule，空 metadata 使用零值策略。
 func decodeDAGSchedulePolicy(raw json.RawMessage) (dagSchedulePolicy, error) {
 	if len(raw) == 0 {
 		return dagSchedulePolicy{}, nil
@@ -62,6 +69,7 @@ func decodeDAGSchedulePolicy(raw json.RawMessage) (dagSchedulePolicy, error) {
 	return envelope.Schedule, nil
 }
 
+// decodeNodeExecutionPolicy 解析节点 execution.retry，区分未配置和显式配置 0。
 func decodeNodeExecutionPolicy(raw json.RawMessage) (nodeExecutionPolicy, error) {
 	if len(raw) == 0 {
 		return nodeExecutionPolicy{}, nil

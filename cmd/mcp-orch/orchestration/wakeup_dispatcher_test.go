@@ -45,7 +45,7 @@ func TestWakeupDispatcherFailsDAGWakeupMissingRunID(t *testing.T) {
 }
 
 func TestWakeupDispatcherTickEmptyClaimReturnsZero(t *testing.T) {
-	store := &dispatcherStubStore{} // claimReply 默认 nil �?�?slice 等价
+	store := &dispatcherStubStore{} // claimReply 默认 nil，与空 slice 一样表示没有到期 wakeup。
 	d, err := NewWakeupDispatcher(store, nil, nil, WakeupDispatcherConfig{})
 	if err != nil {
 		t.Fatalf("NewWakeupDispatcher err = %v", err)
@@ -387,7 +387,7 @@ func TestWakeupDispatcherTickWrapsStoreError(t *testing.T) {
 }
 
 func TestWakeupDispatcherTickHandlesNilContextSafely(t *testing.T) {
-	// dispatcher 不应�?panic �?caller �?nil ctx——内部回退�?Background�?
+	// dispatcher 不应因调用方传 nil ctx 而 panic；内部会改用 Background。
 	store := &dispatcherStubStore{}
 	d, err := NewWakeupDispatcher(store, nil, nil, WakeupDispatcherConfig{})
 	if err != nil {
@@ -409,7 +409,7 @@ func TestWakeupDispatcherConfigOrDefaultsKeepsExplicitValues(t *testing.T) {
 	}
 }
 
-// === Phase 3.2 tests · 主循�?+ launch + 状态推�?=====================
+// 以下 helper 服务主循环、launch 和状态推进相关测试。
 
 func makeClaimedWakeup(id int64, agentID string, attempt int32, now time.Time) taskdag.Wakeup {
 	lease := now.Add(30 * time.Second)

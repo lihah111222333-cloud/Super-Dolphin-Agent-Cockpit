@@ -8,6 +8,7 @@ import (
 
 const redactedValue = "[REDACTED]"
 
+// logSecretPatterns 按字符串内容识别常见密钥、连接串和本地数据库路径。
 var logSecretPatterns = []struct {
 	pattern     *regexp.Regexp
 	replacement string
@@ -34,7 +35,7 @@ var logSecretPatterns = []struct {
 	},
 }
 
-// sanitizeLogAttr 清理日志attr。
+// sanitizeLogAttr 对日志字段执行密钥脱敏，并递归处理 group 字段。
 func sanitizeLogAttr(attr slog.Attr) slog.Attr {
 	if attr.Equal(slog.Attr{}) {
 		return attr
@@ -61,6 +62,7 @@ func sanitizeLogAttr(attr slog.Attr) slog.Attr {
 	return attr
 }
 
+// redactLogString 对字符串内容应用日志脱敏规则。
 func redactLogString(value string) string {
 	for _, current := range logSecretPatterns {
 		value = current.pattern.ReplaceAllString(value, current.replacement)
@@ -68,7 +70,7 @@ func redactLogString(value string) string {
 	return value
 }
 
-// secretLikeLogKey 处理密钥like日志键。
+// secretLikeLogKey 判断字段名是否像密钥字段；命中时整值替换，避免结构化日志泄漏。
 func secretLikeLogKey(key string) bool {
 	key = strings.ToLower(strings.TrimSpace(key))
 	normalized := strings.NewReplacer("-", "_", ".", "_", " ", "_").Replace(key)
@@ -80,6 +82,7 @@ func secretLikeLogKey(key string) bool {
 	return false
 }
 
+// secretLikeLogKeyMarkers 是字段名脱敏的保守关键词集合。
 var secretLikeLogKeyMarkers = []string{
 	"token",
 	"password",

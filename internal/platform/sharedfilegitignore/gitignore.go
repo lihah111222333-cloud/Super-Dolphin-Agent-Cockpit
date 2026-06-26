@@ -12,16 +12,12 @@ import (
 	"sync"
 )
 
-// Phase 3.8 / 3C · sharedfile `.gitignore` 默认策略
+// sharedfilegitignore 管理 sharedfile 私有状态的 `.gitignore` 规则。
 //
-// 目标：sharedfile 落盘后产出的 `<cwd>/.agnet/shared/_internal/...` 不应进
-// git index（系统私有 state，例如 1.7f / 1.8a 累计计数、3.10 progress 文件）。
-// 其余 prefix（handoff/ dag/ inbox/ reports/）默认可 commit，让 agent 协作产
-// 出能审计回溯。
+// `<cwd>/.agnet/shared/_internal/...` 保存系统私有状态，不应进入 git index；
+// handoff、dag、inbox 和 reports 等协作产物默认仍可提交，便于审计回溯。
 //
-// Ensure(cwd) 幂等：若 .gitignore 已存在并已包含 `_internal/` 规则（含父目
-// 录通配 `.agnet/shared/`），不动；否则追加一行。每个进程内对同一 cwd 只
-// 跑一次磁盘 IO（cwdOnce），不破坏调用方在 hot path 反复触发的语义。
+// Ensure 对同一 cwd 在进程内只执行一次磁盘 IO；已有 `_internal/` 或父目录覆盖规则时不改文件。
 
 const (
 	// gitignoreEntry 是要写入 .gitignore 的相对规则。git 解读 `<dir>/`
@@ -31,13 +27,8 @@ const (
 	gitignoreHeader = "# auto-managed by mcp-orch (Phase 3.8 sharedfile _internal)"
 )
 
-// Ensure makes sure `<cwd>/.gitignore` ignores `.agnet/shared/_internal/`.
-// Empty cwd is a no-op (test environments / fx graphs without
-// platformconfig). Failures are returned, not logged here — callers decide
-// whether to log-warn or surface. Logger may be nil; pass a real *slog.Logger
-// from the caller to record a single-line "appended" event the first time
-// per cwd.
-// Ensure 确保平台sharedfilegitignore。
+// Ensure 确保 `<cwd>/.gitignore` 忽略 `.agnet/shared/_internal/`。
+// 空 cwd 视为无平台配置的测试或 fx 场景；每个 cwd 在进程内只执行一次实际 IO。
 func Ensure(cwd string, logger *slog.Logger) error {
 	cwd = strings.TrimSpace(cwd)
 	if cwd == "" {
@@ -47,35 +38,24 @@ func Ensure(cwd string, logger *slog.Logger) error {
 	state.once.Do(func() {
 		state.err = ensureOnce(cwd, logger)
 	})
-	// state.err is published by sync.Once: any caller returning from
-	// state.once.Do() observes the write that happened inside the first
-	// invocation's f. No package-level error variable, so a failure for
-	// cwd1 cannot bleed into cwd2's return value.
+	// sync.Once 会发布本次执行错误，且错误挂在每个 cwd 的状态上，避免不同 cwd 的结果互相污染。
 	return state.err
 }
 
-// ResetForTests clears the per-cwd memoization so unit tests can drive the
-// helper repeatedly inside a single process. Production callers must not use
-// this.
-// ResetForTests 为tests重置平台sharedfilegitignore。
+// ResetForTests 清空按 cwd 记录的执行状态，允许单进程测试重复覆盖 Ensure 路径。
 func ResetForTests() {
 	state.mu.Lock()
 	defer state.mu.Unlock()
 	state.byCWD = make(map[string]*ensureState)
 }
 
-// ensureState bundles the per-cwd sync.Once gate with the error captured
-// inside its f. Storing them together keeps every cwd's success/failure
-// signal isolated; a previous design used a package-level `ensureErr`
-// variable shared across all cwds, which both raced (no synchronization
-// for reads outside Once.Do) and corrupted return values when distinct
-// cwds completed in interleaved order. See archtest
-// TestSharedfileGitignoreNoPackageLevelErrorVar for the lock-in.
+// ensureState 把每个 cwd 的 sync.Once 和执行错误放在一起，保证成功/失败状态隔离。
 type ensureState struct {
 	once sync.Once
 	err  error
 }
 
+// gitignoreState 保存每个 cwd 独立的 once 状态，避免不同仓库的错误互相污染。
 type gitignoreState struct {
 	mu    sync.Mutex
 	byCWD map[string]*ensureState
@@ -83,6 +63,7 @@ type gitignoreState struct {
 
 var state = &gitignoreState{byCWD: make(map[string]*ensureState)}
 
+// loadOrCreateState 在全局锁下读取或创建 cwd 对应的 ensureState。
 func loadOrCreateState(cwd string) *ensureState {
 	state.mu.Lock()
 	defer state.mu.Unlock()
@@ -94,7 +75,7 @@ func loadOrCreateState(cwd string) *ensureState {
 	return s
 }
 
-// ensureOnce 确保once。
+// ensureOnce 执行单次 `.gitignore` 检查和追加写入，已有覆盖规则时不改文件。
 func ensureOnce(cwd string, logger *slog.Logger) error {
 	gitignorePath := filepath.Join(cwd, ".gitignore")
 	existing, readErr := os.ReadFile(gitignorePath)
@@ -126,11 +107,8 @@ func ensureOnce(cwd string, logger *slog.Logger) error {
 	return nil
 }
 
-// hasMatchingRule scans existing .gitignore lines and returns true when an
-// entry already covers .agnet/shared/_internal/. We accept a few common
-// shapes: the literal entry, the leading-slash form (`/.agnet/shared/_internal/`),
-// the no-trailing-slash form, and any parent-directory wildcard like
-// `.agnet/shared/` or `.agnet/`.
+// hasMatchingRule 检查现有 `.gitignore` 是否已覆盖 `.agnet/shared/_internal/`。
+// 允许字面规则、根锚定规则、无尾斜杠规则，以及 `.agnet/shared/` 或 `.agnet/` 父目录规则。
 func hasMatchingRule(content []byte) bool {
 	scanner := bufio.NewScanner(strings.NewReader(string(content)))
 	for scanner.Scan() {
@@ -138,8 +116,7 @@ func hasMatchingRule(content []byte) bool {
 		if line == "" || strings.HasPrefix(line, "#") {
 			continue
 		}
-		// strip leading `/` (gitignore root anchor); both `/x` and `x` mean
-		// the same when at repo root.
+		// 去掉 gitignore 根锚定前缀；仓库根下 `/x` 和 `x` 覆盖同一目标。
 		canonical := strings.TrimPrefix(line, "/")
 		canonical = strings.TrimSuffix(canonical, "/")
 		switch canonical {
@@ -152,11 +129,8 @@ func hasMatchingRule(content []byte) bool {
 	return false
 }
 
-// writeFileAtomic mirrors sharedfilefs.WriteAtomic's tmp + rename pattern
-// but stays in this package to avoid depending on sharedfilefs (which would
-// pull DB / SQL deps into a leaf gitignore helper). Crash-safe enough for a
-// single config file: tmp + fsync + rename.
-// writeFileAtomic 写入文件atomic。
+// writeFileAtomic 使用 tmp、fsync 和 rename 写入 `.gitignore`。
+// 它留在本包内，避免 leaf helper 反向依赖 sharedfilefs 及其 store 相关依赖。
 func writeFileAtomic(path string, data []byte) error {
 	dir := filepath.Dir(path)
 	tmp, err := os.CreateTemp(dir, ".gitignore.tmp-")

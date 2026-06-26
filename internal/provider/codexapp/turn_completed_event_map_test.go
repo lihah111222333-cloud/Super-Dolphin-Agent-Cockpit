@@ -8,8 +8,7 @@ import (
 	turndto "github.com/anthropic-ai/super-agent-v3/internal/dto/turn"
 )
 
-// helper: decode the rewritten params produced by sniffTurnOutput, then
-// translate them into the DTO.
+// sniffAndTranslate 解码 sniffTurnOutput 改写后的参数，并转成 TurnCompleted DTO。
 func sniffAndTranslate(t *testing.T, s *session, method string, raw json.RawMessage) (turndto.TurnCompleted, bool) {
 	t.Helper()
 	merged := s.sniffTurnOutput(method, raw)
@@ -22,13 +21,11 @@ func sniffAndTranslate(t *testing.T, s *session, method string, raw json.RawMess
 	return completed, ok
 }
 
-// TestTurnCompleted_EndToEnd_AccumulatedResult drives the C1.1 + C1.2 +
-// C1.3 chain: deltas arrive, TurnCompleted is translated, DTO carries the
-// merged Result (ADR-015 v4.1 §2.1 acceptance criterion).
+// TestTurnCompleted_EndToEnd_AccumulatedResult 验证消息 delta 到终态事件的端到端链路会合并 Result。
 func TestTurnCompleted_EndToEnd_AccumulatedResult(t *testing.T) {
 	s := newAccumulatorTestSession()
 
-	// Stream three deltas under turn id "T-e2e".
+	// 同一 turn 下连续写入三段 message delta，终态翻译时应按顺序合并。
 	for _, chunk := range []string{"part-1", "part-2", "part-3"} {
 		raw, err := json.Marshal(map[string]any{
 			"turnId": "T-e2e",
@@ -116,9 +113,8 @@ func TestTurnCompleted_EndToEnd_ReasoningDeltaNotAccumulatedAsResult(t *testing.
 	}
 }
 
-// TestTurnCompleted_EndToEnd_TruncatedPropagatesButResultStillSet drives the
-// 1MB cap: when truncated, DTO carries the under-cap content and the helper
-// payload signals truncation through encodeEventPayload.
+// TestTurnCompleted_EndToEnd_TruncatedPropagatesButResultStillSet 验证超限 delta 会设置截断信号。
+// 已落入缓冲区的内容仍按上限参与 DTO 翻译。
 func TestTurnCompleted_EndToEnd_TruncatedPropagatesButResultStillSet(t *testing.T) {
 	s := newAccumulatorTestSession()
 	big := strings.Repeat("x", turnOutputAccumulatorMaxBytes+1)
@@ -138,9 +134,7 @@ func TestTurnCompleted_EndToEnd_TruncatedPropagatesButResultStillSet(t *testing.
 	if v, _ := payload["truncated"].(bool); !v {
 		t.Fatalf("expected truncated=true in payload, got %v", payload["truncated"])
 	}
-	// DTO has no Truncated field today; verify Result is empty because the
-	// over-cap delta was dropped before reaching the buffer (ADR §2.2 cap
-	// semantics).
+	// DTO 当前没有 Truncated 字段；超限 delta 在进入缓冲前被丢弃，因此 Result 为空。
 	completed, ok := sniffAndTranslate(t, s, "turn/completed", terminal)
 	if !ok {
 		t.Fatalf("expected TurnCompleted DTO on second sniff")
@@ -150,9 +144,7 @@ func TestTurnCompleted_EndToEnd_TruncatedPropagatesButResultStillSet(t *testing.
 	}
 }
 
-// TestTurnCompleted_EndToEnd_ProviderProvidedFieldsPreserved verifies the
-// four new DTO fields fall through directly when the provider supplies them
-// on the TurnCompleted payload (forward-compat path).
+// TestTurnCompleted_EndToEnd_ProviderProvidedFieldsPreserved 验证 provider 直接提供的新字段会原样透传。
 func TestTurnCompleted_EndToEnd_ProviderProvidedFieldsPreserved(t *testing.T) {
 	s := newAccumulatorTestSession()
 	terminal, _ := json.Marshal(map[string]any{
@@ -181,9 +173,7 @@ func TestTurnCompleted_EndToEnd_ProviderProvidedFieldsPreserved(t *testing.T) {
 	}
 }
 
-// TestTurnCompleted_EndToEnd_NoDeltaNoResult verifies the no-buffer baseline:
-// turn/completed without any preceding deltas produces DTO with empty Result,
-// matching pre-ADR-015 behaviour (no regression for tool-only turns).
+// TestTurnCompleted_EndToEnd_NoDeltaNoResult 验证没有 message delta 的工具型 turn 会产生空 Result。
 func TestTurnCompleted_EndToEnd_NoDeltaNoResult(t *testing.T) {
 	s := newAccumulatorTestSession()
 	terminal, _ := json.Marshal(map[string]any{
@@ -202,12 +192,8 @@ func TestTurnCompleted_EndToEnd_NoDeltaNoResult(t *testing.T) {
 	}
 }
 
-// TestTurnCompleted_EndToEnd_FailedTurnCarriesError covers the failed-turn
-// path the success-only cases above miss: a codex turn that ends
-// unsuccessfully must translate into TurnCompleted{Success:false} with the
-// failure detail in Error. turnCompletedReportText (the orchestration
-// report fallback) relies on this so a failed child agent's
-// get_agent_report carries the error instead of an empty report.
+// TestTurnCompleted_EndToEnd_FailedTurnCarriesError 覆盖失败终态：Codex turn 失败时必须携带 Error。
+// orchestration report fallback 依赖该字段，避免失败子 agent 返回空报告。
 func TestTurnCompleted_EndToEnd_FailedTurnCarriesError(t *testing.T) {
 	s := newAccumulatorTestSession()
 	terminal, _ := json.Marshal(map[string]any{
@@ -284,9 +270,7 @@ func TestFinishTurn_ModelUnsupportedErrorCompletesHandleWithNotice(t *testing.T)
 	}
 }
 
-// TestTurnCompleted_EndToEnd_AbortedTurnIsUnsuccessful covers the second
-// failure shape: an aborted codex turn must translate into Success=false
-// (turnTerminalSuccess short-circuits on "aborted" regardless of payload).
+// TestTurnCompleted_EndToEnd_AbortedTurnIsUnsuccessful 覆盖中断终态：aborted 必须翻译为 Success=false。
 func TestTurnCompleted_EndToEnd_AbortedTurnIsUnsuccessful(t *testing.T) {
 	s := newAccumulatorTestSession()
 	terminal, _ := json.Marshal(map[string]any{

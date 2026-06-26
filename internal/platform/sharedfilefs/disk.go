@@ -13,25 +13,22 @@ import (
 	"time"
 )
 
-// Phase 3.6 / 3C · sharedfile 磁盘 source / DB 索引 的磁盘原语。
+// sharedfilefs 提供 sharedfile 磁盘正文的 sandbox 和原子写入原语。
 //
-// Source of truth = 磁盘下 `<CWD>/.agnet/shared/<rel>`；DB 退化为索引（仍存
-// updated_by / 时间戳；正文超过 InlineThresholdBytes 时 DB content 为空）。
+// 正文落在 `<CWD>/.agnet/shared/<rel>`，DB 保留索引、作者和时间戳；
+// 内容超过 InlineThresholdBytes 后，磁盘成为正文来源。
 //
-// 本包只做文件 IO + sandbox 边界，不知道 SQL。Caller（store）负责：
-//   - 在 ResolveAbs 之前把 rel 通过 sharedfilepath.ValidateRel 清洗
-//   - 写完磁盘后再 Upsert DB（顺序保证 read 路径不会在 DB 命中但磁盘读不到）
-//   - Delete 时先删 DB 再删磁盘（DB 是 List 的真理来源；磁盘残留比 DB 残留
-//     更安全，下次 startup reconciler 可以扫掉）
+// 本包只负责文件 IO 和 sandbox 边界，不感知 SQL。store 层负责先清理相对路径，
+// 写入时先落磁盘再更新 DB，删除时先删 DB 再删磁盘，避免列表索引指向缺失正文。
 
 const (
-	// SandboxDir 是磁盘根相对 CWD 的子目录；与 plan §3 协议保持一致。
+	// SandboxDir 是 sharedfile 磁盘正文相对 CWD 的固定子目录。
 	SandboxDir = ".agnet/shared"
 	// DefaultInlineThresholdBytes 是默认的 DB inline 阈值。100KB 足够装下
 	// 大多数 handoff / progress 文件，又能挡住整段 LLM transcript 这类
 	// 大对象。可由 Config.InlineThresholdBytes 覆盖。
 	DefaultInlineThresholdBytes = 100 * 1024
-	// Staging file suffix; rename 失败兜底由 cleanupTmp 处理。
+	// tmpSuffix 是原子写入的临时文件后缀；rename 失败后由 defer 清理残留。
 	tmpSuffix = ".tmp-"
 )
 
@@ -47,14 +44,10 @@ type Config struct {
 	InlineThresholdBytes int
 }
 
-// Enabled reports whether this Config has a usable CWD; store layers can use
-// this to decide between disk-source mode and legacy DB-only mode.
-// Enabled 判断平台sharedfilefs是否启用。
+// Enabled 判断 Config 是否启用磁盘 source；store 层据此选择 disk-source 或 DB-only 路径。
 func (c Config) Enabled() bool { return strings.TrimSpace(c.CWD) != "" }
 
-// ResolvedThreshold returns the effective inline-threshold byte count,
-// substituting the default when caller passed 0.
-// ResolvedThreshold 处理已解析threshold。
+// ResolvedThreshold 返回有效 DB inline 阈值，0 或负数使用默认阈值。
 func (c Config) ResolvedThreshold() int {
 	if c.InlineThresholdBytes <= 0 {
 		return DefaultInlineThresholdBytes
@@ -62,15 +55,13 @@ func (c Config) ResolvedThreshold() int {
 	return c.InlineThresholdBytes
 }
 
-// Sentinel errors so callers can distinguish disk-disabled / not-found /
-// sandbox escape without parsing message strings.
+// sharedfilefs sentinel 错误，调用方可用 errors.Is 区分磁盘未启用和 sandbox 逃逸。
 var (
 	ErrDiskDisabled  = errors.New("sharedfilefs: disk source not configured")
 	ErrSandboxEscape = errors.New("sharedfilefs: resolved path escapes sandbox")
 )
 
-// SandboxRoot returns `<CWD>/.agnet/shared` (or "" if CWD is empty).
-// SandboxRoot 处理沙箱根目录。
+// SandboxRoot 返回 `<CWD>/.agnet/shared`；未启用磁盘 source 时返回空串。
 func (c Config) SandboxRoot() string {
 	if !c.Enabled() {
 		return ""
@@ -78,12 +69,8 @@ func (c Config) SandboxRoot() string {
 	return filepath.Join(c.CWD, SandboxDir)
 }
 
-// ResolveAbs joins the sandbox root with a pre-cleaned relative path and
-// verifies the absolute result still lives under the sandbox. The relative
-// path MUST already have been normalized by sharedfilepath.ValidateReadPath
-// or ValidateWritePath; this helper only enforces the post-join sandbox
-// boundary, not lexical traversal.
-// ResolveAbs 解析abs。
+// ResolveAbs 把已清理的相对路径拼到 sandbox 根目录下，并校验结果没有越界。
+// 调用方必须先走 sharedfilepath 的读写校验；这里负责 join 后的真实 sandbox 边界。
 func (c Config) ResolveAbs(cleanedRel string) (string, error) {
 	if !c.Enabled() {
 		return "", ErrDiskDisabled
@@ -91,9 +78,7 @@ func (c Config) ResolveAbs(cleanedRel string) (string, error) {
 	root := c.SandboxRoot()
 	abs := filepath.Clean(filepath.Join(root, cleanedRel))
 	rootAbs := filepath.Clean(root)
-	// sandbox check: abs must equal rootAbs or live below it. Use the
-	// path-separator form to avoid `<root>/.agnet/sharedXX` matching by
-	// prefix-string only.
+	// abs 必须等于 sandbox 根或位于其下级；带路径分隔符比较可避免 sharedXX 这类前缀误判。
 	rootWithSep := rootAbs + string(filepath.Separator)
 	if abs != rootAbs && !strings.HasPrefix(abs, rootWithSep) {
 		return "", ErrSandboxEscape
@@ -145,6 +130,7 @@ func (c Config) ResolveDeleteAbs(cleanedRel string) (string, error) {
 	return abs, nil
 }
 
+// ensureExistingSandboxPath 校验已存在目标不是 symlink，且真实路径仍在 sandbox 内。
 func (c Config) ensureExistingSandboxPath(absPath string) error {
 	rootReal, rel, err := c.realSandboxRel(absPath, true)
 	if err != nil {
@@ -167,6 +153,7 @@ func (c Config) ensureExistingSandboxPath(absPath string) error {
 	return nil
 }
 
+// ensureWritableSandboxPath 写入前逐级确认父目录不会通过 symlink/junction 跳出 sandbox。
 func (c Config) ensureWritableSandboxPath(absPath string) error {
 	rootReal, rel, err := c.realSandboxRel(absPath, true)
 	if err != nil {
@@ -192,6 +179,7 @@ func (c Config) ensureWritableSandboxPath(absPath string) error {
 	return nil
 }
 
+// realSandboxRel 返回 sandbox 真实根目录和目标相对路径，越界时直接拒绝。
 func (c Config) realSandboxRel(absPath string, createRoot bool) (string, string, error) {
 	if !c.Enabled() {
 		return "", "", ErrDiskDisabled
@@ -210,6 +198,7 @@ func (c Config) realSandboxRel(absPath string, createRoot bool) (string, string,
 	return rootReal, rel, nil
 }
 
+// ensureSandboxRoot 确认 `<CWD>/.agnet/shared` 每级目录都是真目录并返回真实路径。
 func (c Config) ensureSandboxRoot(create bool) (string, error) {
 	cwd := filepath.Clean(c.CWD)
 	if create {
@@ -238,6 +227,7 @@ func (c Config) ensureSandboxRoot(create bool) (string, error) {
 	return currentReal, nil
 }
 
+// ensureRealDirectory 确保路径是目录且解析后的真实路径等于预期路径。
 func ensureRealDirectory(path, expectedReal string) error {
 	info, err := os.Lstat(path)
 	if errors.Is(err, fs.ErrNotExist) {
@@ -269,6 +259,7 @@ func ensureRealDirectory(path, expectedReal string) error {
 	return nil
 }
 
+// splitCleanRel 把已清理相对路径拆成目录段，`.` 和根路径返回空切片。
 func splitCleanRel(rel string) []string {
 	cleaned := filepath.Clean(rel)
 	if cleaned == "." || cleaned == string(filepath.Separator) {
@@ -277,6 +268,7 @@ func splitCleanRel(rel string) []string {
 	return strings.Split(cleaned, string(filepath.Separator))
 }
 
+// sameFilesystemPath 按平台规则比较文件系统路径，Windows 下忽略大小写。
 func sameFilesystemPath(left, right string) bool {
 	left = filepath.Clean(left)
 	right = filepath.Clean(right)
@@ -286,13 +278,8 @@ func sameFilesystemPath(left, right string) bool {
 	return left == right
 }
 
-// WriteAtomic creates parent directories then writes data through a tmp file
-// + rename. Crash-safe: a half-written file never replaces the canonical
-// target (rename is atomic on POSIX); a leftover tmp is cleaned up when the
-// next attempt fsyncs and renames over the same target.
-//
-// `data` may be nil (empty file). Caller must have ResolveAbs'd absPath.
-// WriteAtomic 写入atomic。
+// WriteAtomic 通过临时文件、fsync 和 rename 写入目标文件，避免半写入内容覆盖正式文件。
+// absPath 必须已通过 ResolveAbs/ResolveWriteAbs；data 为 nil 时写入空文件。
 func WriteAtomic(absPath string, data []byte) error {
 	dir := filepath.Dir(absPath)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
@@ -324,8 +311,7 @@ func WriteAtomic(absPath string, data []byte) error {
 		return fmt.Errorf("sharedfilefs: rename %s → %s: %w", tmpPath, absPath, renameErr)
 	}
 	cleanedTmp = true
-	// fsync the parent dir so the rename itself is durable across power loss;
-	// best-effort: failure logged at caller level.
+	// 尽力 fsync 父目录，让 rename 元数据也尽量跨断电持久化；失败由调用层日志处理。
 	if dirHandle, openErr := os.Open(dir); openErr == nil {
 		_ = dirHandle.Sync()
 		_ = dirHandle.Close()
@@ -333,9 +319,7 @@ func WriteAtomic(absPath string, data []byte) error {
 	return nil
 }
 
-// ReadDisk returns file content along with size and mod time. Missing
-// files surface fs.ErrNotExist so callers can fall back to DB.
-// ReadDisk 读取disk。
+// ReadDisk 读取文件正文和元数据；缺失错误原样返回，便于 store 决定是否回退 DB。
 func ReadDisk(absPath string) ([]byte, fs.FileInfo, error) {
 	info, err := os.Stat(absPath)
 	if err != nil {
@@ -351,9 +335,7 @@ func ReadDisk(absPath string) ([]byte, fs.FileInfo, error) {
 	return data, info, nil
 }
 
-// RemoveDisk deletes the file; missing files are treated as success since DB
-// is the authoritative existence record.
-// RemoveDisk 移除disk。
+// RemoveDisk 删除磁盘正文；目标缺失视为成功，因为 DB 才是存在性索引。
 func RemoveDisk(absPath string) error {
 	if err := os.Remove(absPath); err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return fmt.Errorf("sharedfilefs: remove %s: %w", absPath, err)
@@ -361,10 +343,7 @@ func RemoveDisk(absPath string) error {
 	return nil
 }
 
-// ModTime returns the file's mod time as a regular time.Time, falling back
-// to the zero value when the file is missing. Used by store layers to
-// populate UpdatedAt during disk-fallback paths.
-// ModTime 处理mod时间。
+// ModTime 返回文件修改时间；文件不可访问时返回零值，供磁盘回退路径填充 UpdatedAt。
 func ModTime(absPath string) time.Time {
 	info, err := os.Stat(absPath)
 	if err != nil {
@@ -373,9 +352,7 @@ func ModTime(absPath string) time.Time {
 	return info.ModTime()
 }
 
-// makeTempFile creates `<dir>/<base>.tmp-<rand>` for atomic writes. The
-// random suffix avoids collisions when two writers race on the same target
-// (one will fail rename or be cleaned up by the other's defer).
+// makeTempFile 创建原子写入临时文件；随机后缀可降低并发写同一目标时的命名冲突。
 func makeTempFile(dir, base string) (*os.File, error) {
 	for attempt := 0; attempt < 5; attempt++ {
 		var randomBytes [8]byte
@@ -383,8 +360,7 @@ func makeTempFile(dir, base string) (*os.File, error) {
 			return nil, fmt.Errorf("sharedfilefs: random suffix: %w", err)
 		}
 		name := filepath.Join(dir, base+tmpSuffix+hex.EncodeToString(randomBytes[:]))
-		// O_EXCL ensures we fail if the path exists (which would imply a
-		// race or a stale tmp); next attempt will pick a different suffix.
+		// O_EXCL 确保已存在的临时文件不会被复用；命中冲突时下一轮换随机后缀。
 		f, err := os.OpenFile(name, os.O_RDWR|os.O_CREATE|os.O_EXCL, 0o644)
 		if err == nil {
 			return f, nil

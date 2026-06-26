@@ -153,7 +153,8 @@ func ExtractClaudeEnvelope(raw []byte) (string, TokenUsage, error) {
 	return env.Result, usage, nil
 }
 
-// modelUnavailableErrorFromOutput 从输出中识别模型不可用错误。
+// modelUnavailableErrorFromOutput 从 stdout/stderr 中识别模型不可用错误。
+// 结构化 Claude envelope 优先按协议解析，普通文本则按关键短语兜底识别。
 func modelUnavailableErrorFromOutput(parts ...[]byte) error {
 	for _, raw := range parts {
 		if !looksLikeClaudeEnvelope(raw) {
@@ -170,7 +171,8 @@ func modelUnavailableErrorFromOutput(parts ...[]byte) error {
 	return nil
 }
 
-// isModelUnavailableMessage 判断模型unavailable消息是否可用。
+// isModelUnavailableMessage 判断错误文本是否明确表示模型不存在或无权限。
+// 只有带模型语境的 404/无权限/未知模型文案才会触发 provider failover。
 func isModelUnavailableMessage(status int, message string) bool {
 	lower := strings.ToLower(message)
 	hasModelContext := strings.Contains(lower, "model")

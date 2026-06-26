@@ -26,7 +26,8 @@ type RuntimeListFilter = promptstore.RuntimeListFilter
 
 type RuntimePromptCatalog = promptstore.RuntimePromptCatalog
 
-// NewRuntimeCatalog 创建运行时catalog。
+// NewRuntimeCatalog 组合数据库模板和内置模板的运行时读取视图。
+// 两个来源都为空时返回 nil，让调用方显式跳过 prompt 路由而不是制造空 catalog。
 func NewRuntimeCatalog(store promptstore.Store, builtin contract.BuiltinPromptRegistry) promptstore.RuntimePromptCatalog {
 	if store == nil && builtin == nil {
 		return nil
@@ -39,7 +40,8 @@ type runtimePromptCatalog struct {
 	builtin contract.BuiltinPromptRegistry
 }
 
-// ListTemplates 列出templates。
+// ListTemplates 列出当前 CWD 和过滤条件可见的模板。
+// 内置模板优先于同 key 数据库模板，最终结果按运行时排序并应用 limit。
 func (c *runtimePromptCatalog) ListTemplates(ctx context.Context, filter RuntimeListFilter) ([]promptstore.PromptTemplate, error) {
 	out, builtinKeys := c.listBuiltinTemplates(filter)
 	storeTemplates, err := c.listStoreTemplates(ctx, filter, builtinKeys)
@@ -51,7 +53,8 @@ func (c *runtimePromptCatalog) ListTemplates(ctx context.Context, filter Runtime
 	return limitRuntimeTemplates(out, filter.Limit), nil
 }
 
-// GetTemplate 读取template。
+// GetTemplate 读取单个 prompt_key 对应的模板。
+// 内置模板与数据库模板同时存在时合并运行时 section，数据库读取失败会直接返回错误。
 func (c *runtimePromptCatalog) GetTemplate(ctx context.Context, promptKey, cwd string) (*promptstore.PromptTemplate, error) {
 	promptKey = strings.TrimSpace(promptKey)
 	cwd = strings.TrimSpace(cwd)
@@ -132,7 +135,8 @@ func (c *runtimePromptCatalog) InsertVersion(ctx context.Context, version prompt
 	return c.store.InsertVersion(ctx, version)
 }
 
-// CanInsertPromptVersion 判断insertprompt版本是否可用。
+// CanInsertPromptVersion 判断当前 catalog 是否连接了可写 prompt store。
+// 运行时只读 catalog 会返回 false，调用方据此禁用版本写入入口。
 func (c *runtimePromptCatalog) CanInsertPromptVersion() bool {
 	return c != nil && c.store != nil
 }
@@ -301,7 +305,7 @@ func (c *runtimePromptCatalog) builtinTemplateByID(templateID int64) (contract.B
 	return contract.BuiltinPromptTemplate{}, false
 }
 
-// builtinSectionsForTemplate 为template处理builtinsections。
+// builtinSectionsForTemplate 把内置 prompt 模板转换为运行时可保存的 section 列表。
 func (c *runtimePromptCatalog) builtinSectionsForTemplate(
 	template contract.BuiltinPromptTemplate,
 	recallDefaultsGlobal bool,
@@ -415,7 +419,7 @@ func runtimeAppendTagIfMissing(tags []string, tag string) []string {
 func runtimeEncodeTags(tags []string) json.RawMessage {
 	raw, err := json.Marshal(tags)
 	if err != nil {
-		// archguard:ignore panic_count -- tag lists are JSON-safe internal string slices.
+		// archguard:ignore panic_count -- 内部 tag 列表只包含字符串，JSON 编码失败表示编程错误。
 		panic(fmt.Sprintf("runtime prompt catalog: encode tags: %v", err))
 	}
 	return raw
@@ -437,7 +441,8 @@ func runtimeEnsureGlobalScopeWhenUnscoped(raw json.RawMessage) json.RawMessage {
 	return runtimeEncodeTags(runtimeAppendTagIfMissing(tags, runtimeScopeGlobalTag))
 }
 
-// runtimeTemplateMatchesFilter 处理运行时templatematches过滤条件。
+// runtimeTemplateMatchesFilter 判断模板是否满足运行时列表过滤条件。
+// 这里统一处理 CWD 可见性、agent_key 和 intent，避免调用方各自实现导致路由结果不一致。
 func runtimeTemplateMatchesFilter(template promptstore.PromptTemplate, filter RuntimeListFilter) bool {
 	if !runtimeTemplateVisibleForRead(template, filter.CWD) {
 		return false
@@ -484,7 +489,7 @@ func runtimeDefaultRuleSections(sections []promptstore.PromptTemplateSection) []
 	return out
 }
 
-// runtimeTemplateVisibleForRead 为read处理运行时templatevisible。
+// runtimeTemplateVisibleForRead 判断运行时模板是否应在当前 cwd 读取结果中可见。
 func runtimeTemplateVisibleForRead(template promptstore.PromptTemplate, cwd string) bool {
 	if !template.Enabled {
 		return false
@@ -522,7 +527,8 @@ func sortRuntimeTemplates(templates []promptstore.PromptTemplate) {
 	})
 }
 
-// limitRuntimeTemplates 处理limit运行时templates。
+// limitRuntimeTemplates 应用列表 limit，并返回新的切片视图。
+// limit <= 0 表示不截断；调用方仍拥有原始排序结果。
 func limitRuntimeTemplates(templates []promptstore.PromptTemplate, limit int32) []promptstore.PromptTemplate {
 	if limit <= 0 || int(limit) >= len(templates) {
 		return templates

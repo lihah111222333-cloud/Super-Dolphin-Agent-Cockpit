@@ -31,24 +31,33 @@ const (
 
 var errManagerUnavailable = errors.New("lsp manager is not configured; use read_file for content access or text_search for symbol lookup")
 
+// Config 是 LSP 工具 handler 的公共配置，绑定工作区根目录和语言服务注册表。
 type Config struct {
 	WorkspaceRoot string
 	Registry      lspmanager.Registry
 }
+
+// handlerBase 保存文件类工具共享的根目录和 LSP registry。
 type handlerBase struct {
 	root     string
 	registry lspmanager.Registry
 }
+
+// resultMeta 是空列表响应的统一元信息。
 type resultMeta struct {
 	Count   int    `json:"count"`
 	Message string `json:"message,omitempty"`
 	Source  string `json:"source,omitempty"`
 }
+
+// emptyListEnvelope 是 LSP 能力不支持或无结果时的标准成功响应。
 type emptyListEnvelope struct {
 	Success bool       `json:"success"`
 	Data    []any      `json:"data"`
 	Meta    resultMeta `json:"meta"`
 }
+
+// fileToolInput 是 file 工具的外部入参，兼容 pos 与 file_path 两种定位方式。
 type fileToolInput struct {
 	Action     string   `json:"action"`
 	Pos        string   `json:"pos,omitempty"`
@@ -57,11 +66,12 @@ type fileToolInput struct {
 	FilePaths  []string `json:"file_paths,omitempty"`
 	LanguageID string   `json:"language_id,omitempty"`
 	Limit      int      `json:"limit,omitempty"`
-	// ExpandComments is retained as a no-op accept so legacy callers
-	// passing expand_comments=true/false do not get a strict-decode
-	// error. Comment expansion is now always on.
+	// ExpandComments 仅保留为兼容字段：旧调用方传 expand_comments 不会触发严格解码错误。
+	// 当前 read_file 始终自动包含相邻注释，字段值不再改变行为。
 	ExpandComments *bool `json:"expand_comments,omitempty"`
 }
+
+// openFileResult 描述 open_file 对 LSP manager 的打开结果。
 type openFileResult struct {
 	Success  bool   `json:"success"`
 	Status   string `json:"status"`
@@ -69,12 +79,18 @@ type openFileResult struct {
 	FilePath string `json:"file_path"`
 	Bytes    int    `json:"bytes"`
 }
+
+// batchReadItem 是 read_file 批量响应里的单文件 wire 项。
+// 成功时填 Content，失败时填 Error；调用方可按 Success 对每个文件独立处理。
 type batchReadItem struct {
 	FilePath string `json:"file_path"`
 	Success  bool   `json:"success"`
 	Content  string `json:"content,omitempty"`
 	Error    string `json:"error,omitempty"`
 }
+
+// batchReadMeta 汇总批量读取的预算裁剪信息。
+// 这些字段进入 structuredContent，方便调用方判断是否需要拆分 file_paths 重试。
 type batchReadMeta struct {
 	ErrorCount     int    `json:"error_count"`
 	RequestedCount int    `json:"requested_count,omitempty"`
@@ -83,6 +99,8 @@ type batchReadMeta struct {
 	Message        string `json:"message,omitempty"`
 }
 
+// batchReadResponse 是批量 read_file 的结构化响应。
+// Data 保留请求顺序，Meta/Hints 描述预算截断与下一步建议，兼容纯文本和 JSON 客户端。
 type batchReadResponse struct {
 	Success   bool            `json:"success"`
 	Data      []batchReadItem `json:"data"`
@@ -92,6 +110,8 @@ type batchReadResponse struct {
 	Hint      string          `json:"hint,omitempty"`
 	Meta      batchReadMeta   `json:"meta"`
 }
+
+// indexedBatchItem 保留批量读取原始顺序，避免 goroutine 返回顺序影响输出。
 type indexedBatchItem struct {
 	Index int
 	Item  batchReadItem
@@ -118,7 +138,7 @@ func warnFileReadFailure(action, root, rawPath string, err error) {
 	)
 }
 
-// NewFileHandler 创建文件处理器。
+// NewFileHandler 创建 file 工具处理器，支持 open_file、read_file 和 diagnostics。
 func NewFileHandler(cfg Config) Handler {
 	handler := handlerBase{
 		root:     resolveRoot(cfg.WorkspaceRoot),
@@ -127,7 +147,8 @@ func NewFileHandler(cfg Config) Handler {
 	return Handler(wrapToolHandler("file", middleware.TierNormal, handler.handleFile))
 }
 
-// handleFile 处理文件。
+// handleFile 解码 file 工具请求，并按 action 分发到打开、读取或诊断路径。
+// read_file 的 pos 会在分发前归一到 FilePath + line，避免各 action 重复解析。
 func (h handlerBase) handleFile(ctx context.Context, params json.RawMessage) (any, error) {
 	input, err := decodeToolParams[fileToolInput](params, decodeLenient)
 	if err != nil {
@@ -163,9 +184,8 @@ func (h handlerBase) handleFile(ctx context.Context, params json.RawMessage) (an
 	})
 }
 
-// readFileRequest packages the read_file inputs after pos parsing so the
-// readSingle / readBatch / function-mode helpers share one shape and we
-// can keep the public input struct small.
+// readFileRequest 保存 pos 解析后的 read_file 入参。
+// readSingle、readBatch 和函数窗口共用这份内部结构，避免把兼容字段扩散到执行路径。
 type readFileRequest struct {
 	rawPath    string
 	rawPaths   []string
@@ -179,8 +199,8 @@ func (r readFileRequest) wantsLineWindow() bool {
 	return r.scope == "lines" || r.line <= 0
 }
 
-// normalizeFileInputFromPos parses pos="file_path:line" (line optional)
-// and populates FilePath and returns the parsed line number.
+// normalizeFileInputFromPos 解析 pos="file_path:line" 形式，并回填 FilePath。
+// line 可省略；无法按带行号位置解析但看起来像纯路径时，按文件路径兼容处理。
 func normalizeFileInputFromPos(input *fileToolInput) (int, error) {
 	pos := strings.TrimSpace(input.Pos)
 	if pos == "" {
@@ -199,7 +219,7 @@ func normalizeFileInputFromPos(input *fileToolInput) (int, error) {
 	return line, nil
 }
 
-// openFile 打开文件。
+// openFile 将文件内容送入对应 LSP manager，供后续 hover/definition 等操作复用。
 func (h handlerBase) openFile(ctx context.Context, rawPath string, languageID string) (openFileResult, error) {
 	if h.registry == nil {
 		return openFileResult{}, errManagerUnavailable
@@ -234,6 +254,7 @@ func (h handlerBase) openFile(ctx context.Context, rawPath string, languageID st
 	}, nil
 }
 
+// readSingle 读取单文件内容；带 line 时优先尝试函数窗口，失败再降级为行窗口。
 func (h handlerBase) readSingle(ctx context.Context, req readFileRequest) (string, error) {
 	root, roots, err := toolWorkspaceRoots(ctx)
 	if err != nil {
@@ -268,12 +289,8 @@ func (h handlerBase) renderFunctionOrFallback(ctx context.Context, path search.P
 	return renderLineWindowWithinBudget(path.DisplayPath, content, req, reason, budget)
 }
 
-// tryFunctionWindow returns (rendered, true) on a successful function
-// extraction, or (fallbackReason, false) when the caller should render a
-// line window instead. The fallbackReason is a tag from
-// lineWindowReason* so renderLineWindow can produce a footer that
-// distinguishes "no symbol provider" from "outside any function".
-// tryFunctionWindow 处理try函数window。
+// tryFunctionWindow 尝试用 DocumentSymbol 抽取包含目标行的完整函数。
+// 失败时返回可展示在 footer 的原因，让调用方知道是 LSP 不可用、无符号还是行号不在函数内。
 func (h handlerBase) tryFunctionWindow(ctx context.Context, path search.PathInfo, content string, req readFileRequest) (string, bool) {
 	if h.registry == nil {
 		return lineWindowReasonNoLSP, false
@@ -294,6 +311,7 @@ func (h handlerBase) tryFunctionWindow(ctx context.Context, path search.PathInfo
 	return renderFunctionWindow(content, name, start, end, req.limit), true
 }
 
+// readFileDocumentSymbols 优先使用 best-effort symbol 查询，避免慢诊断阻塞 read_file。
 func readFileDocumentSymbols(ctx context.Context, manager lspmanager.Manager, uri string) ([]protocol.DocumentSymbol, error) {
 	if bestEffort, ok := manager.(lspmanager.BestEffortDocumentSymbolManager); ok {
 		return bestEffort.DocumentSymbolBestEffort(ctx, uri)
@@ -301,7 +319,8 @@ func readFileDocumentSymbols(ctx context.Context, manager lspmanager.Manager, ur
 	return manager.DocumentSymbol(ctx, uri)
 }
 
-// readBatch 读取batch。
+// readBatch 并发读取多个文件，并按原始请求顺序组装响应。
+// 批量路径只返回行窗口，避免每个文件都触发 LSP 函数解析导致响应不可预测。
 func (h handlerBase) readBatch(ctx context.Context, req readFileRequest) (batchReadResponse, error) {
 	paths, meta := trimBatchPaths(req.rawPaths)
 	results := make(chan indexedBatchItem, len(paths))
@@ -326,10 +345,8 @@ func (h handlerBase) readBatch(ctx context.Context, req readFileRequest) (batchR
 			}
 			item.FilePath = file.Path.DisplayPath
 			item.Success = true
-			// Batch reads always render full files (line=0 → wantsLineWindow,
-			// no function lookup) so the model gets predictable content
-			// for many files at once. Per-file line targeting is reserved
-			// for the single-file pos="file:line" path.
+			// 批量读取固定走全文行窗口，不触发逐文件函数符号查询，避免多文件响应因 LSP 状态而抖动。
+			// 需要精确定位时由单文件 pos="file:line" 路径承担。
 			batchReq := readFileRequest{rawPath: target, limit: req.limit}
 			item.Content = renderLineWindow(file.Path.DisplayPath, file.Content, batchReq, lineWindowReasonBatch)
 			results <- indexedBatchItem{Index: idx, Item: item}
@@ -357,6 +374,7 @@ func (h handlerBase) readBatch(ctx context.Context, req readFileRequest) (batchR
 	}
 }
 
+// buildBatchReadPayload 合并批量读取结果；任一文件失败时仍返回可读 payload 并附带 error。
 func buildBatchReadPayload(items []indexedBatchItem, meta batchReadMeta) (batchReadResponse, error) {
 	resp := batchReadResponse{
 		Success:   true,
@@ -380,6 +398,7 @@ func buildBatchReadPayload(items []indexedBatchItem, meta batchReadMeta) (batchR
 	return payload, nil
 }
 
+// trimBatchPaths 清理批量路径，并按上限丢弃超出的请求项。
 func trimBatchPaths(rawPaths []string) ([]string, batchReadMeta) {
 	trimmed := make([]string, 0, len(rawPaths))
 	for _, rawPath := range rawPaths {
@@ -397,7 +416,7 @@ func trimBatchPaths(rawPaths []string) ([]string, batchReadMeta) {
 	return trimmed[:lspReadFileBatchMax], meta
 }
 
-// encodeBatchReadPayload 编码batchread载荷。
+// encodeBatchReadPayload 在输出预算内压缩批量读取内容，保留元信息和错误计数。
 func encodeBatchReadPayload(resp batchReadResponse) batchReadResponse {
 	finalizeBatchMeta(&resp)
 	if fitsBatchPayload(resp) {
@@ -428,7 +447,7 @@ func encodeBatchReadPayload(resp batchReadResponse) batchReadResponse {
 	return resp
 }
 
-// finalizeBatchMeta 处理finalizebatchmeta。
+// finalizeBatchMeta 重新计算 showing/error_count，并补齐截断提示。
 func finalizeBatchMeta(resp *batchReadResponse) {
 	resp.Showing = len(resp.Data)
 	if resp.Total < len(resp.Data) {
@@ -446,12 +465,14 @@ func finalizeBatchMeta(resp *batchReadResponse) {
 	}
 }
 
+// cloneBatchResponse 浅拷贝响应并复制 Data 切片，便于尝试不同截断预算。
 func cloneBatchResponse(resp batchReadResponse) batchReadResponse {
 	clone := resp
 	clone.Data = append([]batchReadItem(nil), resp.Data...)
 	return clone
 }
 
+// applyBatchContentLimit 对成功读取项逐个裁剪正文。
 func applyBatchContentLimit(resp *batchReadResponse, maxChars int) {
 	for index := range resp.Data {
 		if !resp.Data[index].Success {
@@ -461,11 +482,14 @@ func applyBatchContentLimit(resp *batchReadResponse, maxChars int) {
 	}
 }
 
+// fitsBatchPayload 判断结构化 batch 响应是否落在 payload 字节预算内。
+// 预算以 JSON 后字节数为准，和实际 structuredContent 输出路径一致。
 func fitsBatchPayload(resp batchReadResponse) bool {
 	raw, err := json.Marshal(resp)
 	return err == nil && len(raw) <= lspReadFileBatchPayloadMax
 }
 
+// resolveRoot 规范化工作区根目录；无效输入回退到当前目录规范化结果。
 func resolveRoot(raw string) string {
 	root, err := search.NormalizeRoot(raw)
 	if err == nil {
@@ -475,6 +499,7 @@ func resolveRoot(raw string) string {
 	return root
 }
 
+// splitNormalizedLines 统一 CRLF 后切行，空文件返回一个空行占位。
 func splitNormalizedLines(content string) []string {
 	if content == "" {
 		return []string{""}
@@ -482,6 +507,7 @@ func splitNormalizedLines(content string) []string {
 	return strings.Split(strings.ReplaceAll(content, "\r\n", "\n"), "\n")
 }
 
+// clampOffset 把 1-based 行号限制在文件范围内。
 func clampOffset(offset, total int) int {
 	if offset <= 0 {
 		return 1
@@ -495,6 +521,7 @@ func clampOffset(offset, total int) int {
 	return offset
 }
 
+// truncateText 以字符数量裁剪文本，并保留省略号。
 func truncateText(text string, maxChars int) string {
 	if maxChars <= 0 || len(text) <= maxChars {
 		return text
@@ -505,6 +532,7 @@ func truncateText(text string, maxChars int) string {
 	return text[:maxChars-3] + "..."
 }
 
+// appendMessage 合并批量响应中的附加说明。
 func appendMessage(current, extra string) string {
 	switch {
 	case strings.TrimSpace(current) == "":
@@ -516,10 +544,12 @@ func appendMessage(current, extra string) string {
 	}
 }
 
+// fileURI 把本地绝对路径转换成 LSP file URI。
 func fileURI(absPath string) string {
 	return (&url.URL{Scheme: "file", Path: filepath.ToSlash(absPath)}).String()
 }
 
+// minInt 返回两个整数中的较小值。
 func minInt(left, right int) int {
 	if left < right {
 		return left
@@ -527,7 +557,7 @@ func minInt(left, right int) int {
 	return right
 }
 
-// ToPlainText 渲染为纯文本。
+// ToPlainText 将 open_file 结果渲染成简短文本，供纯文本客户端展示。
 func (r openFileResult) ToPlainText() string {
 	if r.Success {
 		return fmt.Sprintf("Successfully opened file: %s (%d bytes).", r.FilePath, r.Bytes)
@@ -535,7 +565,7 @@ func (r openFileResult) ToPlainText() string {
 	return fmt.Sprintf("Failed to open file: %s. Message: %s", r.FilePath, r.Message)
 }
 
-// ToPlainText 渲染为纯文本。
+// ToPlainText 将批量读取结果渲染成带文件分隔符的文本。
 func (r batchReadResponse) ToPlainText() string {
 	var sb strings.Builder
 	successCount := r.Showing - r.Meta.ErrorCount

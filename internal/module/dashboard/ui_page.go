@@ -15,16 +15,17 @@ import (
 )
 
 const (
-	// 误判防护：dashboardPageDefaultLimit 是 dashboard DAG 列表的默认容量守卫。
+	// dashboard 页面聚合的容量守卫，避免单次 RPC 拉取无界列表。
 	dashboardPageDefaultLimit          = 100
 	dashboardMemoryLimit               = 500
 	dashboardFinalOutputDAGLimit       = 20
 	dashboardFinalOutputRunLimit int32 = 3
-	// 误判防护：dashboardDAGLatestRunLookupLimit 配合 group.SetLimit 限制 latest run 并发。
+	// dashboardDAGLatestRunLookupLimit 配合 group.SetLimit 限制 latest run 并发。
 	dashboardDAGLatestRunLookupLimit = 4
 )
 
-// DashboardPage 是前端仪表盘页面的聚合数据结构。
+// DashboardPage 是前端 dashboard 分页接口的聚合 wire 结构。
+// 所有切片初始化为空切片，避免 JSON 输出 null 破坏前端兼容。
 type DashboardPage struct {
 	Agents              []AgentOverview                `json:"agents"`
 	DAGs                []DashboardDAG                 `json:"dags"`
@@ -36,10 +37,12 @@ type DashboardPage struct {
 	SharedFileRetention SharedFileRetention            `json:"sharedFileRetention"`
 }
 
-// dashboardPageLoader 是 dashboard 页面各区块的异步加载函数类型。
+// dashboardPageLoader 是 dashboard 页面区块加载函数。
+// loader 之间可并发执行，但必须只写入自己负责的 DashboardPage 字段。
 type dashboardPageLoader func(context.Context) error
 
-// SharedFileRetention 描述共享文件的保留策略分析结果。
+// SharedFileRetention 描述共享文件相对 final output 引用的保留判断。
+// 它只做 dashboard 展示分析，不直接删除文件。
 type SharedFileRetention struct {
 	Items                 []SharedFileRetentionItem `json:"items"`
 	ProtectedCount        int                       `json:"protectedCount"`
@@ -47,6 +50,7 @@ type SharedFileRetention struct {
 }
 
 // SharedFileRetentionItem 描述单个共享文件的保留或清理候选状态。
+// Protected=true 表示该文件仍被 final output 引用，不能被清理建议选中。
 type SharedFileRetentionItem struct {
 	Path             string          `json:"path"`
 	Protected        bool            `json:"protected"`
@@ -55,7 +59,8 @@ type SharedFileRetentionItem struct {
 	FinalOutput      *FinalOutputRef `json:"finalOutput,omitempty"`
 }
 
-// GetDashboardPage 读取dashboardpage。
+// GetDashboardPage 加载指定 dashboard 页面区块。
+// 未知 page 返回空聚合结构，不触发无关 store 查询。
 func (s *service) GetDashboardPage(ctx context.Context, page string) (*DashboardPage, error) {
 	out := newDashboardPage()
 	if err := s.populateDashboardPage(ctx, out, page); err != nil {
@@ -94,7 +99,8 @@ func (s *service) populateDashboardPage(ctx context.Context, out *DashboardPage,
 	return group.Wait()
 }
 
-// dashboardPageLoaders 处理dashboardpageloaders。
+// dashboardPageLoaders 根据 page 名称选择需要并发执行的 loader。
+// 每个 case 只填充对应区块，避免页面局部刷新时读取全量 dashboard 数据。
 func (s *service) dashboardPageLoaders(out *DashboardPage, page string) []dashboardPageLoader {
 	switch page {
 	case "agents":
@@ -127,19 +133,21 @@ func (s *service) dashboardPageLoaders(out *DashboardPage, page string) []dashbo
 	}
 }
 
-// populateDashboardAgents 读取并填充 DashboardPage.Agents。
+// populateDashboardAgents 读取 agent 概览并写入 DashboardPage.Agents。
+// 读取失败仍保留默认空切片，由返回 error 告知调用方。
 func (s *service) populateDashboardAgents(ctx context.Context, out *DashboardPage) error {
 	items, err := s.listAgents(ctx)
 	out.Agents = items
 	return err
 }
 
-// populateDashboardDAGs 处理populatedashboarddags。
+// populateDashboardDAGs 加载 DAG 列表并补充最新 run/final output 标记。
+// 没有快照查询和 DAG runtime 时返回空切片，支持无编排能力的 dashboard。
 func (s *service) populateDashboardDAGs(ctx context.Context, out *DashboardPage) error {
 	if !s.hasDAGSnapshotQueries() && s.effectiveDAGRuntime() == nil {
 		return nil
 	}
-	// 误判防护：ListDAGs 使用 dashboardPageDefaultLimit，不做无界 dashboard 查询。
+	// 只取 dashboardPageDefaultLimit 条，避免 dashboard 页面触发无界 DAG 查询。
 	items, err := s.ListDAGs(ctx, contract.ListDAGsFilter{Limit: dashboardPageDefaultLimit})
 	if err != nil {
 		return err
@@ -208,7 +216,8 @@ func (s *service) buildDashboardDAGs(ctx context.Context, items []contract.DAGSu
 	return out, group.Wait()
 }
 
-// runMetadataHasFinalOutput 运行元数据hasfinaloutput。
+// runMetadataHasFinalOutput 判断 run metadata 是否包含非空 final_output。
+// 解析失败按 false 处理，因为该字段只影响 dashboard 展示标记，不影响 run 状态。
 func runMetadataHasFinalOutput(raw json.RawMessage) bool {
 	var envelope struct {
 		FinalOutput json.RawMessage `json:"final_output"`
@@ -231,13 +240,15 @@ func (s *service) populateDashboardSkills(ctx context.Context, out *DashboardPag
 }
 
 // populateDashboardCommandCards 读取命令卡片并填充到 DashboardPage。
+// store 缺失时 helper 返回空切片，页面仍可加载其他区块。
 func (s *service) populateDashboardCommandCards(ctx context.Context, out *DashboardPage) error {
 	items, err := s.listDashboardCommandCards(ctx)
 	out.CommandCards = items
 	return err
 }
 
-// populateDashboardPrompts 读取提示模板并填充到 DashboardPage。
+// populateDashboardPrompts 读取当前 cwd 可见的用户提示模板。
+// 系统管理模板在 listDashboardPrompts 中过滤，避免前端误当作用户资产。
 func (s *service) populateDashboardPrompts(ctx context.Context, out *DashboardPage) error {
 	items, err := s.listDashboardPrompts(ctx)
 	out.Prompts = items
@@ -245,6 +256,7 @@ func (s *service) populateDashboardPrompts(ctx context.Context, out *DashboardPa
 }
 
 // populateDashboardMemory 读取共享文件和 final output refs，组装 retention 分析结果。
+// retention 只给 UI 做保护/清理提示，不在这里执行删除。
 func (s *service) populateDashboardMemory(ctx context.Context, out *DashboardPage) error {
 	items, err := s.listDashboardMemory(ctx)
 	if err != nil {
@@ -274,7 +286,8 @@ func (s *service) listDashboardSkills(ctx context.Context) ([]contract.SkillInfo
 	})
 }
 
-// listDashboardCommandCards 读取命令卡片列表，store 为 nil 时返回空切片。
+// listDashboardCommandCards 读取命令卡片列表。
+// store 为 nil 时返回空切片，保持 dashboard commands 页可降级展示。
 func (s *service) listDashboardCommandCards(ctx context.Context) ([]commandcardstore.CommandCard, error) {
 	return safeList(s.commandCards != nil, func() ([]commandcardstore.CommandCard, error) {
 		return s.commandCards.List(ctx, commandcardstore.ListFilter{Limit: dashboardPageDefaultLimit})
@@ -293,7 +306,8 @@ func (s *service) listDashboardPrompts(ctx context.Context) ([]promptstore.Promp
 	})
 }
 
-// filterDashboardPromptsByCWD 按工作目录处理过滤条件dashboardprompts。
+// filterDashboardPromptsByCWD 按请求 cwd 过滤 prompt 模板。
+// 空 cwd 不展示任何模板，避免把全局模板泄露到未绑定工作区的页面。
 func filterDashboardPromptsByCWD(items []promptstore.PromptTemplate, cwd string) []promptstore.PromptTemplate {
 	requestScope := strings.TrimSpace(cwd)
 	if requestScope == "" {
@@ -339,7 +353,6 @@ func dashboardPromptTags(raw json.RawMessage) []string {
 	return tags
 }
 
-// dashboardPromptIsSystemManaged 处理dashboardpromptissystemmanaged。
 // dashboardPromptIsSystemManaged 判断模板是否由系统创建而非用户手工维护。
 // 优先检查 builtin:system 标签，其次检查作者名称是否符合系统命名模式。
 func dashboardPromptIsSystemManaged(template promptstore.PromptTemplate) bool {
@@ -371,14 +384,16 @@ func dashboardPromptAuthorLooksSystem(author string) bool {
 		strings.Contains(normalized, "builtin.registry")
 }
 
-// listDashboardMemory 读取共享文件列表，store 为 nil 时返回空切片。
+// listDashboardMemory 读取共享文件列表。
+// store 为 nil 时返回空切片，避免 memory 页因可选能力缺失而失败。
 func (s *service) listDashboardMemory(ctx context.Context) ([]sharedfilestore.SharedFile, error) {
 	return safeList(s.sharedFiles != nil, func() ([]sharedfilestore.SharedFile, error) {
 		return s.sharedFiles.List(ctx, sharedfilestore.ListFilter{Limit: dashboardMemoryLimit})
 	})
 }
 
-// ListSharedFiles 列出shared文件。
+// ListSharedFiles 暴露 dashboard 共享文件只读列表。
+// 返回值保证非 nil 切片，保持 JSON wire 兼容。
 func (s *service) ListSharedFiles(ctx context.Context) ([]sharedfilestore.SharedFile, error) {
 	items, err := s.listDashboardMemory(ctx)
 	if items == nil {
@@ -387,7 +402,8 @@ func (s *service) ListSharedFiles(ctx context.Context) ([]sharedfilestore.Shared
 	return items, err
 }
 
-// listDashboardFinalOutputRefs 列出dashboardfinaloutputrefs。
+// listDashboardFinalOutputRefs 收集最近 DAG run 中引用的 final output 文件。
+// 有 DAG runtime 时并发查询运行记录；无 runtime 时回退到数据库快照查询。
 func (s *service) listDashboardFinalOutputRefs(ctx context.Context) ([]FinalOutputRef, error) {
 	if s.effectiveDAGRuntime() == nil {
 		return s.listDashboardFinalOutputRefsFromSnapshot(ctx)
@@ -429,7 +445,8 @@ func (s *service) listDashboardFinalOutputRefs(ctx context.Context) ([]FinalOutp
 	return refs, nil
 }
 
-// listDashboardFinalOutputRefsFromSnapshot 从快照列出dashboardfinaloutputrefs。
+// listDashboardFinalOutputRefsFromSnapshot 从数据库快照收集 final output 引用。
+// 没有快照查询能力时返回空切片，避免把缺能力误报为查询失败。
 func (s *service) listDashboardFinalOutputRefsFromSnapshot(ctx context.Context) ([]FinalOutputRef, error) {
 	if !s.hasDAGSnapshotQueries() {
 		return []FinalOutputRef{}, nil
@@ -475,7 +492,8 @@ func finalOutputRefFromRun(run contract.Run) (FinalOutputRef, bool) {
 	}, true
 }
 
-// buildSharedFileRetention 构建shared文件retention。
+// buildSharedFileRetention 根据 final output 引用标记共享文件保留状态。
+// 仅按路径匹配，路径为空的文件会被跳过，避免生成不可操作的清理候选。
 func buildSharedFileRetention(files []sharedfilestore.SharedFile, refs []FinalOutputRef) SharedFileRetention {
 	refByPath := make(map[string]FinalOutputRef, len(refs))
 	for _, ref := range refs {

@@ -30,7 +30,8 @@ var indexedSourceSkipDirs = map[string]bool{
 	"test-results":      true,
 }
 
-// ScanSourceFiles 扫描source文件。
+// ScanSourceFiles 扫描代码地图应纳入索引的源码文件。
+// 只扫描固定源码目录和根目录固定文件，避免把构建产物或测试报告写入索引。
 func ScanSourceFiles(root string) ([]string, error) {
 	var r []string
 	for _, dir := range indexedSourceDirs(root) {
@@ -55,7 +56,8 @@ func indexedSourceDirs(root string) []string {
 	return dirs
 }
 
-// collectSourceFilesFromDir 从目录收集source文件。
+// collectSourceFilesFromDir 从单个源码目录收集相对路径。
+// Walk 遇到不可读路径会返回错误，调用方据此阻断索引生成。
 func collectSourceFilesFromDir(root, dir string) ([]string, error) {
 	var files []string
 	if err := filepath.Walk(dir, func(p string, info os.FileInfo, err error) error {
@@ -80,7 +82,7 @@ func collectSourceFilesFromDir(root, dir string) ([]string, error) {
 	return files, nil
 }
 
-// appendRootIndexedFiles 追加根目录中固定文件（Makefile / shell 脚本等），如果它们存在的话。
+// appendRootIndexedFiles 追加根目录中需要入索引的固定入口文件。
 func appendRootIndexedFiles(root string, files []string) []string {
 	for _, extra := range []string{"run-new-ui-desktop.sh", "run-new-ui-desktop.ps1", "Makefile"} {
 		p := filepath.Join(root, extra)
@@ -91,12 +93,13 @@ func appendRootIndexedFiles(root string, files []string) []string {
 	return files
 }
 
-// shouldSkipIndexedDir 判断目录是否在跳过列表中，用于 Walk 时剪枝。
+// shouldSkipIndexedDir 判断目录是否应在 Walk 时剪枝，防止索引生成物和依赖目录。
 func shouldSkipIndexedDir(info os.FileInfo) bool {
 	return info.IsDir() && indexedSourceSkipDirs[info.Name()]
 }
 
-// isIndexedSourceFile 判断文件是否为需要索引的源码文件（非目录、非测试文件、扩展名匹配）。
+// isIndexedSourceFile 判断文件是否属于代码地图索引范围。
+// 测试文件不入索引，避免测试夹具放大 AI 检索入口。
 func isIndexedSourceFile(info os.FileInfo, path string) bool {
 	if info.IsDir() {
 		return false
@@ -107,13 +110,13 @@ func isIndexedSourceFile(info os.FileInfo, path string) bool {
 	return indexedSourceExts[filepath.Ext(path)]
 }
 
-// dirExists 判断路径是否为存在的目录。
+// dirExists 判断路径是否是存在的目录；Stat 错误统一视为不存在。
 func dirExists(path string) bool {
 	st, err := os.Stat(path)
 	return err == nil && st.IsDir()
 }
 
-// fileExists 判断路径是否为存在的文件（非目录）。
+// fileExists 判断路径是否是存在的普通文件；Stat 错误统一视为不存在。
 func fileExists(path string) bool {
 	st, err := os.Stat(path)
 	return err == nil && !st.IsDir()

@@ -18,7 +18,8 @@ type threadActivity struct {
 	collabDepth        int
 }
 
-// pushRecentTurn 处理pushrecentturn。
+// pushRecentTurn 将 turn 合并进最近列表，并按更新时间倒序截断。
+// 相同 turn 会被新快照替换，避免 sidebar 同时显示旧状态和新状态。
 func pushRecentTurn(items []TurnSummary, next TurnSummary, limit int) []TurnSummary {
 	next.ID = strings.TrimSpace(next.ID)
 	if next.ID == "" {
@@ -49,7 +50,8 @@ func pushRecentTurn(items []TurnSummary, next TurnSummary, limit int) []TurnSumm
 	return items
 }
 
-// markThreadStopped 标记线程stopped。
+// markThreadStopped 将线程终态写入 sidebar 快照；deleted 会直接移除可见线程。
+// 非 created 终态会清空 agent 关联，避免停止后的旧 agent 继续影响状态推导。
 func markThreadStopped(items []ThreadSummary, threadID, status string) []ThreadSummary {
 	threadID = strings.TrimSpace(threadID)
 	if threadID == "" {
@@ -167,13 +169,8 @@ func classifyItemActivity(itemType, rawType, command, file string) string {
 	}
 }
 
-// normalizeToolName strips the MCP namespace prefix ("mcp__<server>__"),
-// lowercases the tool name, and maps legacy LSP names to the canonical short
-// form. Runtime-emitted ToolName may carry the full MCP method
-// (e.g. mcp__lsp__lsp_grep or mcp__lsp__grep), while the classification tables
-// and prefix gates here use short names (e.g. grep). Without this normalization
-// every MCP-served tool falls
-// through into the default branch and counters silently zero out.
+// normalizeToolName 归一化工具名，去掉 MCP namespace 并兼容旧 LSP 名称。
+// 统计表只识别 grep/xref 等短名；不做归一化会让 MCP 工具调用落入默认分支，导致计数为零。
 func normalizeToolName(name string) string {
 	s := strings.ToLower(strings.TrimSpace(name))
 	if s == "" {
@@ -188,7 +185,7 @@ func normalizeToolName(name string) string {
 	return canonicalLSPToolName(s)
 }
 
-// canonicalLSPToolName 处理canonicalLSP工具名称。
+// canonicalLSPToolName 将旧 lsp_* 名称映射为当前前端统计使用的短名。
 func canonicalLSPToolName(name string) string {
 	switch strings.TrimSpace(name) {
 	case "lsp_file":
@@ -313,7 +310,8 @@ func shouldPreserveIdleAgentState(rawAgentState string) bool {
 	}
 }
 
-// shouldPreserveIdleThreadStatusLocked 判断preserveidle线程状态locked是否可用。
+// shouldPreserveIdleThreadStatusLocked 判断是否保留当前 idle 状态。
+// 当线程没有活跃 turn 或本地活动时，已完成/已中断的最近 turn 不应被空闲 agent 状态误改。
 func (s *service) shouldPreserveIdleThreadStatusLocked(threadID, currentStatus, rawAgentState string) bool {
 	if currentStatus != "idle" || s.hasActiveTurnForThreadLocked(threadID) || s.hasLocalThreadActivityLocked(threadID) {
 		return false
@@ -374,9 +372,8 @@ func (s *service) agentSummaryLocked(agentID string) (AgentSummary, bool) {
 	return AgentSummary{}, false
 }
 
-// resolveThreadIDByAgentLocked finds the public thread ID for the given agent.
-// Codex events use providerThreadID as ThreadID; this resolves back to the
-// public ID that the sidebar uses.
+// resolveThreadIDByAgentLocked 通过 agentID 找回 sidebar 使用的公开 threadID。
+// Codex 事件可能只携带 provider 侧线程标识，后续状态投影必须先收敛到公开线程。
 func (s *service) resolveThreadIDByAgentLocked(agentID string) string {
 	if summary, ok := s.agentSummaryLocked(agentID); ok {
 		if tid := strings.TrimSpace(summary.ThreadID); tid != "" {

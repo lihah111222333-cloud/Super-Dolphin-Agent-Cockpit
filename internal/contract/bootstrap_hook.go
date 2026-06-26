@@ -6,10 +6,6 @@ import (
 	mcp "github.com/anthropic-ai/super-agent-v3/internal/dto/mcp"
 )
 
-// BootstrapHookAfterHandler is the after-hook entry the bootstrap runtime
-// (internal/mcpserver/common/bootstrap) invokes when a ctl/hook/after
-// callback lands. Exposing the handler as a plain function type here lets
-// the cmd/mcp-orch root assembly wire the subpackage's hook implementation
-// into bootstrap without typing on an orchestration subpackage interface
-// (P22 P4 §278 — HookConsumer 不再作为子包直接导出的 bootstrap/hook 协议入口).
+// BootstrapHookAfterHandler 是 bootstrap runtime 处理 ctl/hook/after 回调的函数边界。
+// root assembly 通过该函数类型接入 hook 实现，避免 bootstrap 包依赖 orchestration 子包接口。
 type BootstrapHookAfterHandler func(ctx context.Context, payload mcp.HookPayload) (mcp.AfterDecision, error)

@@ -73,8 +73,8 @@ func TestResolveClaudeMdSourcesOrdersLayersAndPreservesRuleMetadata(t *testing.T
 		mustResolvedClaudePath(t, filepath.Join(cwd, "CLAUDE.local.md")),
 		mustResolvedClaudePath(t, filepath.Join(addDir, "CLAUDE.md")),
 		mustResolvedClaudePath(t, filepath.Join(addDir, ".claude", "rules", "extra.md")),
-		// Phase 1.6: AutoMem / TeamMem MEMORY.md no longer flow through nested
-		// ClaudeMd; MemoryEntrypointProvider owns prompt-time injection.
+		// AutoMem/TeamMem 的 MEMORY.md 不再经由 nested ClaudeMd 注入；
+		// prompt 阶段的记忆入口由 MemoryEntrypointProvider 单独负责。
 	}
 	if !slices.Equal(got, want) {
 		t.Fatalf("ResolveClaudeMdSources() paths = %#v, want %#v", got, want)
@@ -271,12 +271,9 @@ func TestFilterInjectedMemoryFilesNestedWorktreeSkipsCheckedInAncestorsOnly(t *t
 	}
 }
 
-// Phase 1.6 removed AutoMem / TeamMem from nested ClaudeMd candidates,
-// so this test (which previously asserted that the team entrypoint was
-// dropped under Kairos while auto was retained) no longer applies — neither
-// auto nor team flow through nested. MemoryEntrypointProvider now owns the
-// prompt-time MEMORY.md injection and runs the gate-based suppression
-// (Kairos still suppresses team via gate.InjectTeamMemIndex).
+// TestCombinedClaudeMdSourcesNoLongerInjectsAutoOrTeamMemoryFiles 锁定 nested ClaudeMd
+// 不再承载 AutoMem/TeamMem 的行为；这两类 MEMORY.md 由 MemoryEntrypointProvider
+// 在 prompt 阶段注入，并继续受 gate 控制。
 func TestCombinedClaudeMdSourcesNoLongerInjectsAutoOrTeamMemoryFiles(t *testing.T) {
 	base := t.TempDir()
 	repoRoot := filepath.Join(base, "repo")
@@ -449,12 +446,9 @@ func runGit(t *testing.T, dir string, args ...string) {
 	}
 }
 
-// TestResolveClaudeMdSourcesSuppressedByOverlay locks the defense-in-depth
-// short-circuit added after the session-wide double-injection audit: when the
-// underlying CLI harness already loads CLAUDE.md natively (claude_code
-// overlay), GateSnapshot.SuppressForOverlay must drop every claudeMd source so
-// any future re-enablement of UserContextText cannot double-inject CLAUDE.md
-// alongside the harness's own copy.
+// TestResolveClaudeMdSourcesSuppressedByOverlay 锁定 overlay 场景的防重复注入短路。
+// 当底层 CLI harness 已原生加载 CLAUDE.md 时，SuppressForOverlay 必须丢弃所有
+// claudeMd source，避免后续重新启用 UserContextText 后与 harness 自带副本重复注入。
 func TestResolveClaudeMdSourcesSuppressedByOverlay(t *testing.T) {
 	base := t.TempDir()
 	managedRoot := filepath.Join(base, "managed")
@@ -475,13 +469,13 @@ func TestResolveClaudeMdSourcesSuppressedByOverlay(t *testing.T) {
 		UserRoot:     userRoot,
 	}
 
-	// Counter-baseline: without overlay, sources load normally.
+	// 对照组：未开启 overlay 时 source 应正常加载。
 	cfg.Dependencies = newTestDependencies(testDepsOptions{})
 	if got := mustResolveClaudeMdSources(t, cfg); len(got) == 0 {
 		t.Fatalf("counter-baseline: ResolveClaudeMdSources() = empty, want non-empty (overlay off)")
 	}
 
-	// Overlay on: every source must be dropped.
+	// 开启 overlay 后所有 source 都必须被丢弃。
 	cfg.Dependencies = newTestDependencies(testDepsOptions{
 		gate: func(contract.BuildCtx) GateSnapshot {
 			return GateSnapshot{SuppressForOverlay: true}

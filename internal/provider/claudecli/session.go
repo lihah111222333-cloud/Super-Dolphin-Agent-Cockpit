@@ -82,16 +82,16 @@ func newTurnHandle(localID, providerID string) *turnHandle {
 	}
 }
 
-// LocalID 处理localID。
+// LocalID 返回宿主侧创建 turn 时使用的本地 ID。
 func (h *turnHandle) LocalID() string { return h.localID }
 
-// ProviderID 处理providerID。
+// ProviderID 返回 Claude CLI 回报或本地回填的 provider turn ID。
 func (h *turnHandle) ProviderID() string { return h.providerID }
 
-// Done 处理done。
+// Done 返回 turn 完成信号，调用方只读不能关闭。
 func (h *turnHandle) Done() <-chan struct{} { return h.done }
 
-// Err 处理err。
+// Err 返回 turn 完成时记录的错误。
 func (h *turnHandle) Err() error {
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -107,14 +107,16 @@ func (h *turnHandle) finish(err error) {
 	})
 }
 
-// ThreadID 处理线程ID。
+// ThreadID 返回当前已解析的 Claude thread ID。
+// 读取时持锁，避免 system:init 更新线程身份时出现半状态。
 func (s *session) ThreadID() string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.threadID
 }
 
-// RolloutPath 处理rollout路径。
+// RolloutPath 返回当前 Claude JSONL 历史文件路径。
+// 会话尚未解析 thread 或历史文件未落盘时返回空字符串，供 UI 隐藏 rollout 入口。
 func (s *session) RolloutPath() string {
 	if s == nil || s.history == nil {
 		return ""
@@ -130,19 +132,22 @@ func (s *session) RolloutPath() string {
 	return path
 }
 
-// EventThreadID 处理事件线程ID。
+// EventThreadID 返回事件总线使用的线程 ID。
+// 在 provider UUID 出现前可能回退到 agentID，以保持前端会话卡片稳定。
 func (s *session) EventThreadID() string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.eventThreadIDLocked()
 }
 
-// Capabilities 处理capabilities。
+// Capabilities 返回 Claude provider 能力声明的副本。
+// 调用方拿到的是拷贝，不能反向修改 session 内部能力表。
 func (s *session) Capabilities() dto.CapabilitySet {
 	return copyCapabilities(s.caps)
 }
 
-// RuntimeConfigSnapshot 处理运行时配置快照。
+// RuntimeConfigSnapshot 汇总 Claude 会话当前可展示的运行时配置。
+// 它合并启动配置、transport 生效配置和 prompt snapshot，空快照返回 nil。
 func (s *session) RuntimeConfigSnapshot() map[string]any {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -199,7 +204,8 @@ func putRuntimeConfigStringIfMissing(out map[string]any, key, value string) {
 	putRuntimeConfigString(out, key, value)
 }
 
-// StartTurn 启动turn。
+// StartTurn 构建 payload、绑定 active turn 并写入 Claude CLI stdin。
+// 发送失败会立即回滚 active turn 并完成 handle，避免调用方永久等待。
 func (s *session) StartTurn(ctx context.Context, req dto.TurnRequest) (out contract.TurnHandle, err error) {
 	traceStarted := time.Now()
 	var providerID string
@@ -246,7 +252,8 @@ func (s *session) StartTurn(ctx context.Context, req dto.TurnRequest) (out contr
 	return handle, nil
 }
 
-// Steer 处理steer。
+// Steer 向当前打开的 Claude turn 追加 steer 输入。
+// expectedTurnID 不匹配会阻断写入，避免 tool yield 或用户输入落到错误 turn。
 func (s *session) Steer(ctx context.Context, req dto.SteerRequest) error {
 	if err := shared.CheckCtx(ctx); err != nil {
 		return err
@@ -266,7 +273,8 @@ func (s *session) Steer(ctx context.Context, req dto.SteerRequest) error {
 	return nil
 }
 
-// Interrupt 处理interrupt。
+// Interrupt 中断当前 Claude turn 或正在进行的 transport restart。
+// 它会先摘除 active 状态和 log watcher，再清理旧 transport，防止旧事件继续进入 UI。
 func (s *session) Interrupt(ctx context.Context, req dto.InterruptRequest) error {
 	if err := shared.CheckCtx(ctx); err != nil {
 		return err
@@ -326,27 +334,28 @@ func (s *session) resolveSettleTransport() func(*transport) error {
 	return defaultSettleInterruptedTransport
 }
 
-// ListThreads 列出线程。
+// ListThreads 返回 Claude provider 不支持线程列表能力的明确错误。
 func (s *session) ListThreads(context.Context) ([]dto.ThreadRef, error) {
 	return nil, contract.NewCapabilityError(dto.CapThreadList, "claude")
 }
 
-// ForkThread 处理fork线程。
+// ForkThread 返回 Claude provider 不支持 fork 能力的明确错误。
 func (s *session) ForkThread(context.Context, dto.ForkRequest) (dto.ForkResult, error) {
 	return dto.ForkResult{}, contract.NewCapabilityError(dto.CapThreadFork, "claude")
 }
 
-// Close 关闭claudecli provider资源。
+// Close 按优雅路径关闭 Claude session。
 func (s *session) Close(context.Context) error {
 	return s.stop(false)
 }
 
-// ForceStop 处理强制stop。
+// ForceStop 按强制路径停止 Claude session。
 func (s *session) ForceStop() error {
 	return s.stop(true)
 }
 
-// stop 停止claudecli provider。
+// stop 停止 Claude session 并释放 transport、watcher 和 PID 注册。
+// force=true 时使用强杀路径；无论是否有 transport，都要向事件总线发布停止状态。
 func (s *session) stop(force bool) error {
 	s.mu.Lock()
 	tr := s.transport
@@ -380,7 +389,8 @@ func (s *session) stop(force bool) error {
 	return err
 }
 
-// buildStopEvent 构建stop事件。
+// buildStopEvent 构造 session 停止或失败事件。
+// 强制停止时附带 stderr 尾部，便于 UI 展示 provider 退出原因。
 func (s *session) buildStopEvent(tr *transport, force bool) dto.RawProviderEvent {
 	eventType := "agent:stopped"
 	data := map[string]any{
@@ -425,21 +435,20 @@ func manifestChanged(next, current dto.MCPManifest) bool {
 	if reflect.DeepEqual(next, current) {
 		return false
 	}
-	// If the current session is managed by the orchestrator proxy, the proxy dynamically
-	// maps tools across turns. The incoming turn-request manifest (which lacks proxy awareness)
-	// would downgrade us to static commands or peer http ports, needlessly restarting the CLI.
+	// 当前 session 若由 orchestrator proxy 管理，proxy 会跨 turn 动态映射工具。
+	// 新请求携带的 manifest 没有 proxy 语义，不能因此把会话降级成静态命令并重启 CLI。
 	return !isProxyManifest(current)
 }
 
-// isProxyManifest 判断proxymanifest是否可用。
+// isProxyManifest 判断 MCP manifest 是否来自 orchestrator proxy。
+// 只有带 agent 维度的 /mcp/... URL 才算 proxy manifest，普通 peer /mcp 仍按静态配置处理。
 func isProxyManifest(m dto.MCPManifest) bool {
 	if len(m.Binaries) == 0 {
 		return false
 	}
 	for _, bin := range m.Binaries {
 		if bin.Type == "http" && strings.Contains(bin.URL, "/mcp/") {
-			// Proxy URLs append the agent ID, e.g. http://host:port/mcp/family/agent-123 (len >= 6).
-			// Peer URLs end at /mcp: http://host:port/mcp (len = 4)
+			// proxy URL 会追加 agent ID；普通 peer URL 停在 /mcp，不能混淆。
 			parts := strings.Split(strings.TrimRight(bin.URL, "/"), "/")
 			if len(parts) >= 6 {
 				return true

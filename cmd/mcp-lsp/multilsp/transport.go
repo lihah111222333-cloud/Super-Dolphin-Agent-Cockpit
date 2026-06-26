@@ -53,12 +53,9 @@ type transport struct {
 	doneMu              sync.Mutex
 	doneErr             error
 
-	// responderWG tracks server-initiated request responder
-	// goroutines. P22 P2 LSP-S3 (plan §484 / §489) owns the
-	// contract: dispatchMessage must register with Add(1) before
-	// spawning, and Close must Wait (bounded by
-	// defaultResponderDrainTimeout) to drain them instead of leaving
-	// fire-and-forget goroutines outliving the transport.
+	// responderWG 跟踪服务端主动请求产生的响应 goroutine。
+	// dispatchMessage 必须先 Add 再启动 goroutine；Close 在固定超时内等待它们退出，
+	// 避免 transport 已关闭后仍有写响应的后台任务泄漏。
 	responderWG sync.WaitGroup
 }
 
@@ -89,7 +86,8 @@ func newTransport(options transportOptions) (*transport, error) {
 	return t, nil
 }
 
-// request 处理请求。
+// request 发送一次 JSON-RPC 请求并等待匹配 id 的响应。
+// pending 表写入和清理都在超时/写失败路径中成对执行，避免调用方取消后留下悬挂 channel。
 func (t *transport) request(ctx context.Context, method string, params any) (json.RawMessage, error) {
 	ctx = platformshared.NonNilContext(ctx)
 	ctx, cancel := platformconfig.WithTimeoutIfNone(ctx, defaultRequestTimeout)
@@ -148,14 +146,8 @@ func (t *transport) dispatchMessage(payload json.RawMessage) error {
 	}
 }
 
-// spawnResponder launches a server-request responder goroutine while
-// keeping its lifecycle owned by the transport. Post-P22 P2 LSP-S3
-// the responder is no longer fire-and-forget: Add(1) runs before the
-// go statement so Close() can Wait for the goroutine to drain, and a
-// late spawn that races past Close returns without spawning so we
-// don't stall the drain. ctx is handed to the responder so a
-// subsequent cancel can cut long serverRequestResult work short once
-// the plan calls for it.
+// spawnResponder 为服务端主动请求启动受 transport 管理的响应 goroutine。
+// 它在启动前登记 WaitGroup，Close 可等待响应写入完成；若已关闭则直接丢弃，避免关停阶段新增后台写入。
 func (t *transport) spawnResponder(envelope protocol.Envelope) {
 	if t.closed.Load() {
 		return
@@ -241,10 +233,8 @@ func buildServerResponse(id json.RawMessage, result any, err error) (any, error)
 	return protocol.BuildErrorResponse(id, jsonRPCInternalError, err.Error(), nil)
 }
 
-// defaultServerRequestResult is the transport-side entry point for
-// answering server-initiated requests. The frozen compatibility
-// contract (see transport_compat.go, P22 P4 §309-311) owns the method
-// set and response shapes so this file only holds transport glue.
+// defaultServerRequestResult 是 transport 回答服务端主动请求的默认入口。
+// 支持的方法集合和响应形状集中在 transport_compat.go，本文件只负责 JSON-RPC 分发胶水。
 func defaultServerRequestResult(method string, params json.RawMessage) (any, error) {
 	return dispatchCompatServerRequest(method, params)
 }

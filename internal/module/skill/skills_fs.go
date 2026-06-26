@@ -32,7 +32,8 @@ func requireCWDOrLog(ctx context.Context, op string) string {
 	return cwd
 }
 
-// ListSkills 列出skills。
+// ListSkills 列出当前 cwd 可见的有效 skill。
+// 同名冲突会 fail-fast 返回错误，避免调用方在不确定来源时读取错误内容。
 func (s *service) ListSkills(ctx context.Context) ([]SkillInfo, error) {
 	cwd, err := requireCWD(ctx)
 	if err != nil {
@@ -52,7 +53,8 @@ func (s *service) ListSkills(ctx context.Context) ([]SkillInfo, error) {
 	return skills, nil
 }
 
-// ListSkillInventory 列出技能inventory。
+// ListSkillInventory 返回当前 cwd 的完整 skill inventory。
+// inventory 保留原始 canonical 记录，用于治理界面查看被策略隐藏或冲突的来源。
 func (s *service) ListSkillInventory(ctx context.Context) ([]SkillInfo, error) {
 	cwd, err := requireCWD(ctx)
 	if err != nil {
@@ -99,7 +101,7 @@ func (s *service) resolveSkillRecordByName(name, cwd string) (skillRecord, error
 	return skillRecord{}, skillNotFoundError(normalized)
 }
 
-// resolveCanonicalRecordByNameInTarget 按名称target解析canonical记录。
+// resolveCanonicalRecordByNameInTarget 在指定目标范围内按名称解析 canonical skill 记录。
 func (s *service) resolveCanonicalRecordByNameInTarget(name, cwd, scope, personalType string) (canonicalSkillRecord, error) {
 	trimmed := strings.TrimSpace(name)
 	normalized, _, err := normalizeSkillIdentityName(trimmed, "")
@@ -151,7 +153,8 @@ func skillRecordFromCanonical(record canonicalSkillRecord) skillRecord {
 	}
 }
 
-// ReadLocal 读取local。
+// ReadLocal 按路径读取本地 skill 文件。
+// 读取前会确认路径属于当前有效 skill 集合，防止通过手写路径绕过同名冲突和范围策略。
 func (s *service) ReadLocal(ctx context.Context, path string) (any, error) {
 	cwd, err := requireCWD(ctx)
 	if err != nil {
@@ -183,7 +186,8 @@ func (s *service) ReadLocal(ctx context.Context, path string) (any, error) {
 	return map[string]any{"skill": map[string]any{"path": path, "content": content, "summary": summary, "summary_source": summarySource}}, nil
 }
 
-// summarizeReadLocalSkill 处理summarizereadlocal技能。
+// summarizeReadLocalSkill 从 SKILL.md 内容中提取前端列表需要的摘要字段。
+// frontmatter 摘要优先；缺失时使用 description 或正文摘要，但不影响文件读取本身。
 func summarizeReadLocalSkill(content string) (string, string) {
 	body := content
 	if frontmatter, parsedBody, ok := splitFrontmatter(content); ok {
@@ -247,12 +251,8 @@ func (s *service) ListLocalFiles(ctx context.Context, p listSkillFilesParams) (a
 	return map[string]any{"dir": dir, "files": files}, nil
 }
 
-// CreateSkill is the host-side project-scope self-learning entry. It is a
-// thin wrapper: all writes MUST land through WriteLocal(..., scope=project)
-// so the one-writer rule in the P21 plan holds. system-scope writes are not
-// accepted from this entry; they must go through skills/local/write plus the
-// review gate that the plan defines.
-// CreateSkill 创建技能。
+// CreateSkill 是 host 侧创建项目 skill 的入口。
+// 它只接受 project scope，并复用 WriteLocal 的路径校验和 mirror 发布流程；system scope 必须走带审批的写入入口。
 func (s *service) CreateSkill(ctx context.Context, p createSkillParams) (any, error) {
 	name, err := validateSkillName(p.Name)
 	if err != nil {
@@ -261,13 +261,12 @@ func (s *service) CreateSkill(ctx context.Context, p createSkillParams) (any, er
 	if strings.TrimSpace(p.Content) == "" {
 		return nil, errors.Join(ErrInvalidSkillName, errors.New("content is required"))
 	}
-	// requireCWD is checked inside WriteLocal; we rely on it rather than
-	// duplicating the check so there is a single source of truth for the
-	// ErrMissingCWD path.
+	// CWD 校验统一留给 WriteLocal，保证 ErrMissingCWD 只有一个来源。
 	return s.WriteLocal(ctx, name, p.Content, skillScopeProject)
 }
 
-// WriteLocal 写入local。
+// WriteLocal 写入本地 skill 内容。
+// project 和 personal 走不同持久化边界；目标解析失败或 system scope 未审批时直接返回错误。
 func (s *service) WriteLocal(ctx context.Context, path, content string, scopeAndType ...string) (any, error) {
 	cwd, err := requireCWD(ctx)
 	if err != nil {
@@ -342,7 +341,7 @@ func (s *service) ImportLocalDir(ctx context.Context, p importSkillDirParams) (a
 	return response, nil
 }
 
-// validateImportLocalDirParams 校验importlocal目录params。
+// validateImportLocalDirParams 校验本地目录导入参数，并返回展开后的源路径列表。
 func validateImportLocalDirParams(p importSkillDirParams) ([]string, string, error) {
 	mode, err := normalizeImportMode(p.Mode)
 	if err != nil {
@@ -476,10 +475,10 @@ func (s *service) WriteRemote(ctx context.Context, name, content string) (any, e
 	return nil, ErrSkillSystemScopeRemoved
 }
 
-// ReadConfig 读取配置。
+// ReadConfig 读取 agent 级 skill 配置。
+// 当前 agent 级持久化契约尚未配置，因此返回显式的空绑定状态而不是伪造技能列表。
 func (s *service) ReadConfig(_ context.Context, agentID string) (any, error) {
-	// Preserve the current unconfigured response until agent-scoped skill
-	// bindings have a persisted storage contract.
+	// agent 级 skill 绑定还没有持久化存储契约，调用方必须看到未绑定状态。
 	agentID = strings.TrimSpace(agentID)
 	if agentID == "" {
 		return nil, errors.New("agent_id is required")

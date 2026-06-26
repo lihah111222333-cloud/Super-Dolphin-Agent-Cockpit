@@ -11,6 +11,7 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/protocol"
 )
 
+// renameResult 描述一次 LSP rename 的落盘结果和受影响文件。
 type renameResult struct {
 	Success       bool               `json:"success"`
 	Message       string             `json:"message"`
@@ -19,12 +20,14 @@ type renameResult struct {
 	Warning       string             `json:"warning,omitempty"`
 }
 
+// renameFileChange 汇总单个文件里的 rename edit 数量。
 type renameFileChange struct {
 	FilePath  string `json:"file_path"`
 	EditCount int    `json:"edit_count"`
 }
 
-// handleRename 处理重命名。
+// handleRename 调用 LSP rename 并应用跨文件 WorkspaceEdit。
+// 位置、新名称或 manager 任一缺失都直接报错，避免在错误符号上批量改名。
 func (h EditHandler) handleRename(ctx context.Context, req EditRequest) (any, error) {
 	if strings.TrimSpace(req.NewName) == "" {
 		return nil, fmt.Errorf("rename requires new_name")
@@ -60,7 +63,7 @@ func (h EditHandler) handleRename(ctx context.Context, req EditRequest) (any, er
 	}, nil
 }
 
-// applyWorkspaceEdit 应用工作区编辑。
+// applyWorkspaceEdit 逐文件应用 WorkspaceEdit；任一文件失败则回滚已写文件。
 func (h EditHandler) applyWorkspaceEdit(ctx context.Context, edit *protocol.WorkspaceEdit, version int) ([]renameFileChange, int, string, error) {
 	changes := mergeWorkspaceEditChanges(edit)
 	if len(changes) == 0 {
@@ -104,6 +107,7 @@ func (h EditHandler) applyWorkspaceEdit(ctx context.Context, edit *protocol.Work
 	return affected, totalEdits, warning, nil
 }
 
+// fileEditResult 保存单文件写入后的回滚材料和同步警告。
 type fileEditResult struct {
 	path     string
 	original []byte
@@ -111,6 +115,7 @@ type fileEditResult struct {
 	warning  string
 }
 
+// textEditApplication 是按字节偏移可直接应用到当前文本的 TextEdit。
 type textEditApplication struct {
 	startLine int
 	startByte int
@@ -119,6 +124,7 @@ type textEditApplication struct {
 	newText   string
 }
 
+// applyFileEdits 把 URI 定位到本地文件后复用通用 TextEdit 写入路径。
 func (h EditHandler) applyFileEdits(ctx context.Context, uri string, edits []protocol.TextEdit, version int) (*fileEditResult, error) {
 	absPath, err := format.AbsolutePathFromURI(uri)
 	if err != nil {
@@ -126,6 +132,8 @@ func (h EditHandler) applyFileEdits(ctx context.Context, uri string, edits []pro
 	}
 	return h.applyTextEditsToPath(ctx, absPath, edits, version, nil)
 }
+
+// mergeWorkspaceEditChanges 合并 changes 与 documentChanges，统一后续落盘循环。
 func mergeWorkspaceEditChanges(edit *protocol.WorkspaceEdit) map[string][]protocol.TextEdit {
 	merged := make(map[string][]protocol.TextEdit)
 	for uri, edits := range edit.Changes {
@@ -138,6 +146,7 @@ func mergeWorkspaceEditChanges(edit *protocol.WorkspaceEdit) map[string][]protoc
 	return merged
 }
 
+// applyTextEdits 按从后向前的顺序应用 TextEdit，避免早期编辑改变后续位置。
 func applyTextEdits(content string, edits []protocol.TextEdit) (string, error) {
 	if len(edits) == 0 {
 		return content, nil
@@ -163,6 +172,7 @@ func applyTextEdits(content string, edits []protocol.TextEdit) (string, error) {
 	return strings.Join(lines, "\n"), nil
 }
 
+// buildTextEditApplications 校验并转换全部 TextEdit，再按安全应用顺序排序。
 func buildTextEditApplications(lines []string, edits []protocol.TextEdit) ([]textEditApplication, error) {
 	applications := make([]textEditApplication, 0, len(edits))
 	for _, edit := range edits {
@@ -176,6 +186,7 @@ func buildTextEditApplications(lines []string, edits []protocol.TextEdit) ([]tex
 	return applications, nil
 }
 
+// buildTextEditApplication 把 LSP UTF-16 位置转换成 Go 字符串字节偏移。
 func buildTextEditApplication(lines []string, edit protocol.TextEdit) (textEditApplication, error) {
 	if err := validateTextEditRange(lines, edit.Range); err != nil {
 		return textEditApplication{}, err
@@ -197,7 +208,7 @@ func buildTextEditApplication(lines []string, edit protocol.TextEdit) (textEditA
 	}, nil
 }
 
-// validateTextEditRange 校验文本编辑范围。
+// validateTextEditRange 校验 TextEdit 行列范围，拒绝越界或反向区间。
 func validateTextEditRange(lines []string, rng protocol.Range) error {
 	if rng.Start.Line < 0 || rng.End.Line < 0 {
 		return fmt.Errorf("edit range line must be non-negative: L%d-L%d", rng.Start.Line, rng.End.Line)
@@ -214,6 +225,7 @@ func validateTextEditRange(lines []string, rng protocol.Range) error {
 	return nil
 }
 
+// textEditRangeReversed 判断 LSP range 是否起点晚于终点。
 func textEditRangeReversed(rng protocol.Range) bool {
 	if rng.Start.Line != rng.End.Line {
 		return rng.Start.Line > rng.End.Line
@@ -221,6 +233,7 @@ func textEditRangeReversed(rng protocol.Range) bool {
 	return rng.Start.Character > rng.End.Character
 }
 
+// utf16CharacterToByteOffset 将 LSP UTF-16 character 偏移转换为 Go 字节偏移。
 func utf16CharacterToByteOffset(line string, character int) (int, error) {
 	units := 0
 	for byteOffset, r := range line {
@@ -239,6 +252,7 @@ func utf16CharacterToByteOffset(line string, character int) (int, error) {
 	return 0, fmt.Errorf("character %d out of bounds (line has %d UTF-16 units)", character, units)
 }
 
+// utf16RuneWidth 返回 rune 在 LSP UTF-16 坐标里的宽度。
 func utf16RuneWidth(r rune) int {
 	if r > 0xFFFF {
 		return 2
@@ -246,6 +260,7 @@ func utf16RuneWidth(r rune) int {
 	return 1
 }
 
+// sortTextEditApplications 按倒序排列编辑，保证应用时未处理 range 不被前序修改扰动。
 func sortTextEditApplications(edits []textEditApplication) {
 	sort.Slice(edits, func(i, j int) bool {
 		if edits[i].startLine != edits[j].startLine {

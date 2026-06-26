@@ -15,55 +15,50 @@ const (
 	scopeKeySeparator    = "\x00"
 )
 
-// LSPToolScope is the trusted, server-side scope supplied by the tool layer.
-// Agent/thread identity comes from provider/toolbridge context, not from
-// user-controlled request JSON. ResolvedLSPToolScope below is the only place
-// canonical keys are attached.
+// LSPToolScope 是工具层注入的可信服务端 scope。
+// agent/thread 身份来自 provider/toolbridge 上下文，不接受用户 JSON 伪造；规范 key 只在解析阶段生成。
 type LSPToolScope struct {
-	AgentID  string
-	ThreadID string
-	TurnID   string
-	CallID   string
-	CWD      string
-	// WorkspaceRoots carries the trusted root set for containment and root
-	// selection. It is intentionally not part of the manager key; the resolved
-	// WorkspaceRoot/ProjectRoot below are the cache identity.
+	AgentID  string // provider/toolbridge 注入的 agent 身份。
+	ThreadID string // provider/toolbridge 注入的 thread 身份。
+	TurnID   string // 单次 turn 身份，仅用于追踪，不进入 manager key。
+	CallID   string // 单次工具调用身份，仅用于追踪，不进入 manager key。
+	CWD      string // 工具调用的可信当前目录。
+	// WorkspaceRoots 是 containment 和 root 选择的可信根集合。
+	// 它不直接进入 manager key，最终缓存身份由解析后的 WorkspaceRoot/ProjectRoot 决定。
 	WorkspaceRoots []string
 
-	Family     string
-	LanguageID string
+	Family     string // 工具族，默认 lsp。
+	LanguageID string // 调用方或适配器确认的语言 ID。
 
-	TargetPath string
-	TargetURI  string
+	TargetPath string // 原始或解析后的目标文件路径。
+	TargetURI  string // 目标文件 URI。
 
-	WorkspaceRoot         string
-	RootKind              string
-	LanguageWorkspaceRoot string
-	ProjectRoot           string
-	LanguageSpecific      map[string]string
+	WorkspaceRoot         string            // 选中的 workspace root。
+	RootKind              string            // root 来源类型。
+	LanguageWorkspaceRoot string            // 语言适配器调整后的 root。
+	ProjectRoot           string            // 语言项目根。
+	LanguageSpecific      map[string]string // 语言适配器附加 metadata。
 }
 
-// ResolvedLSPToolScope is the canonical ManagerPool routing result. Callers
-// that need diagnostics/cache/bootstrap keys must reuse this value instead of
-// reassembling keys independently.
+// ResolvedLSPToolScope 是 ManagerPool 路由后的规范 scope。
+// 诊断、缓存和 bootstrap 调用方必须复用这些 key，避免各处独立拼接造成隔离漂移。
 type ResolvedLSPToolScope struct {
 	LSPToolScope
 
-	ScopeKey     string
-	WorkspaceKey string
-	ShardKey     string
-	ManagerKey   string
+	ScopeKey     string // agent/thread 粒度的隔离键。
+	WorkspaceKey string // workspace/language 粒度的复用键。
+	ShardKey     string // ManagerPool 分片选择键。
+	ManagerKey   string // scoped manager 的最终缓存键。
 }
 
+// ScopedManager 把选中的 manager 和解析后的 scope 一起返回，调用方必须复用该 scope 写诊断缓存。
 type ScopedManager struct {
-	Manager       Manager
-	ResolvedScope ResolvedLSPToolScope
+	Manager       Manager              // 可执行 LSP 请求的 manager。
+	ResolvedScope ResolvedLSPToolScope // 与 manager 一致的规范 scope。
 }
 
-// ResolveLSPToolScope canonicalizes a trusted scope and derives all ManagerPool
-// keys. It deliberately excludes turn/call identity from ScopeKey/ManagerKey so
-// repeated tool calls in the same agent/thread/workspace reuse a manager.
-// ResolveLSPToolScope 解析LSP工具作用域。
+// ResolveLSPToolScope 规范化可信 scope 并生成 ManagerPool 路由 key。
+// turn/call 身份只用于追踪，不进入 ScopeKey/ManagerKey，同一 agent/thread/workspace 可复用 manager。
 func ResolveLSPToolScope(scope LSPToolScope) (ResolvedLSPToolScope, error) {
 	canonical, err := canonicalizeLSPToolScope(scope)
 	if err != nil {
@@ -91,7 +86,8 @@ func ResolveLSPToolScope(scope LSPToolScope) (ResolvedLSPToolScope, error) {
 	}, nil
 }
 
-// canonicalizeLSPToolScope 处理canonicalizeLSP工具作用域。
+// canonicalizeLSPToolScope 清理 scope 字段并补齐目标路径/URI。
+// 不支持的工具族会立即报错，避免非 LSP 请求误入 LSP manager 池。
 func canonicalizeLSPToolScope(scope LSPToolScope) (LSPToolScope, error) {
 	canonical := LSPToolScope{
 		AgentID:          strings.TrimSpace(scope.AgentID),
@@ -196,7 +192,8 @@ func canonicalScopeURI(uri string) string {
 	return fileURIFromPath(path)
 }
 
-// canonicalScopePath 处理canonical作用域路径。
+// canonicalScopePath 将 scope 中的路径或 file URI 转为稳定绝对路径。
+// 相对路径只允许基于已验证 base 展开；解析失败时保留清理后的路径供后续 containment 检查。
 func canonicalScopePath(value, base string) string {
 	trimmed := strings.TrimSpace(value)
 	if trimmed == "" {
@@ -216,7 +213,8 @@ func canonicalScopePath(value, base string) string {
 	return filepath.Clean(trimmed)
 }
 
-// normalizeScopeWorkspaceRoots 规范化作用域工作区根目录。
+// normalizeScopeWorkspaceRoots 规范化并去重 workspace roots。
+// CWD 会作为第一候选根参与 containment，空或非绝对路径会被丢弃。
 func normalizeScopeWorkspaceRoots(cwd string, roots []string) []string {
 	out := make([]string, 0, len(roots)+1)
 	seen := map[string]struct{}{}
@@ -241,7 +239,8 @@ func normalizeScopeWorkspaceRoots(cwd string, roots []string) []string {
 	return out
 }
 
-// selectWorkspaceRootForTarget 为target选择工作区根目录。
+// selectWorkspaceRootForTarget 为目标文件选择最窄匹配 workspace root。
+// 目标不在可信 roots 内时返回错误，阻断跨工作区访问。
 func selectWorkspaceRootForTarget(roots []string, target string) (string, error) {
 	targetPath, err := absoluteWorkspaceTargetPath(target)
 	if err != nil {
@@ -322,7 +321,8 @@ func absoluteWorkspaceTargetPath(target string) (string, error) {
 	return canonicalAbsoluteTargetPath(trimmed), nil
 }
 
-// canonicalAbsoluteTargetPath 处理canonicalabsolutetarget路径。
+// canonicalAbsoluteTargetPath 规范化绝对目标路径。
+// 文件不存在时仍尝试解析父目录符号链接，保证新文件路径也能接受 containment 校验。
 func canonicalAbsoluteTargetPath(path string) string {
 	cleaned := filepath.Clean(strings.TrimSpace(path))
 	if cleaned == "" {

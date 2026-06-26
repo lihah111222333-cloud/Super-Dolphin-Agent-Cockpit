@@ -1,12 +1,7 @@
-// Package parse holds the small set of memory-file parsing primitives that
-// must stay byte-for-byte identical across the memory package and its
-// retrieval / nested subpackages. Phase 2.0 review flagged the previous
-// 3-copy duplication of these helpers as a security-parity risk: a fix
-// landing in only one copy would let prompt-injection vectors regress.
-//
-// This package intentionally has zero external dependencies (stdlib only)
-// so it can be a leaf import for any consumer in the memory module without
-// triggering import cycles.
+// Package parse 提供记忆文件解析的共享基元。
+// memory、retrieval、nested 等子包必须复用这里的 BOM、frontmatter、HTML 注释和截断语义，
+// 否则同一份 MEMORY.md 在不同入口可能被清洗成不同内容，造成注入防护或缓存键不一致。
+// 本包保持标准库依赖，方便作为记忆模块内的叶子包引用。
 package parse
 
 import (
@@ -16,13 +11,8 @@ import (
 	"unicode/utf8"
 )
 
-// StripUTF8BOM removes any leading UTF-8 byte-order marks and returns the
-// remainder unchanged. Looping (rather than a single TrimPrefix) closes a
-// minor parser bypass: a crafted file with multiple BOMs ("\ufeff\ufeff---")
-// would otherwise still start with a BOM after one trim, the leading `---`
-// fence would not be detected, and frontmatter (including the cleanup it
-// triggers) would be silently skipped.
-// StripUTF8BOM 处理striputf8bom。
+// StripUTF8BOM 移除开头连续 UTF-8 BOM，正文其它位置保持不变。
+// 循环清理可避免多重 BOM 让首行 `---` 失去 frontmatter 识别，从而把元数据误注入 prompt。
 func StripUTF8BOM(content string) string {
 	for strings.HasPrefix(content, "\ufeff") {
 		content = strings.TrimPrefix(content, "\ufeff")
@@ -30,39 +20,17 @@ func StripUTF8BOM(content string) string {
 	return content
 }
 
-// IsFence reports whether a single (already CRLF-normalized) line is exactly
-// the YAML frontmatter delimiter `---`, ignoring any horizontal whitespace
-// (ASCII space and tab) that follows the three dashes. Editors and shell
-// pipelines occasionally append a stray space; without this tolerance the
-// parser would silently treat such files as having no frontmatter and leak
-// the YAML into prompts.
-// IsFence 判断fence是否可用。
+// IsFence 判断单行是否为 YAML frontmatter 分隔符。
+// 允许 `---` 后带空格或 tab，兼容编辑器保存时追加的尾随空白，避免 frontmatter
+// 因轻微格式差异泄漏到 prompt。
 func IsFence(line string) bool {
 	return strings.TrimRight(line, " \t") == "---"
 }
 
-// SplitFrontmatter recognises a YAML frontmatter block at the top of a
-// memory file and returns (frontmatter, body, ok=true) when one is found,
-// or ("", originalContent, false) otherwise. Both the leading and the
-// closing fence may carry trailing horizontal whitespace per IsFence.
-//
-// Semantics match Claude Code's claudemd parser:
-//   - CRLF input is normalised to LF before scanning.
-//   - The closing fence MUST appear on its own line; substrings within
-//     body lines (e.g. an inline `---inline-mark---`) are not accepted as
-//     a close.
-//   - When no closing fence is found before EOF, the input is treated as
-//     having no frontmatter (the YAML is NOT injected into the prompt).
-//
-// ScanFrontmatterHeader reads from r (capped at limit bytes) and returns the
-// joined leading lines up to and including the second `---` fence, so the
-// result can be handed directly to SplitFrontmatter without further BOM or
-// fence handling. The first line has any leading UTF-8 BOM stripped before
-// fence detection so files saved with a BOM are not silently treated as
-// having no frontmatter. If only one (or zero) fences appear within the
-// limit, every byte read is returned and SplitFrontmatter will then report
-// no frontmatter.
-// ScanFrontmatterHeader 扫描frontmatter头部。
+// ScanFrontmatterHeader 从 reader 读取最多 limit 字节的 frontmatter 头部候选。
+// 返回内容包含第二个 `---` 分隔符，调用方可直接交给 SplitFrontmatter；首行 BOM 会先清理，
+// 因此带 BOM 的文件不会被误判为无 frontmatter。
+// 如果限制内没有完整闭合分隔符，则返回已读内容，让 SplitFrontmatter 按“无 frontmatter”处理。
 func ScanFrontmatterHeader(r io.Reader, limit int) (string, error) {
 	scanner := bufio.NewScanner(io.LimitReader(r, int64(limit)))
 	scanner.Buffer(make([]byte, 0, 4096), limit)
@@ -90,7 +58,9 @@ func ScanFrontmatterHeader(r io.Reader, limit int) (string, error) {
 	return builder.String(), nil
 }
 
-// SplitFrontmatter 拆分frontmatter。
+// SplitFrontmatter 解析文件顶部的 YAML frontmatter。
+// 只有首行和闭合行都匹配 IsFence 才返回 ok=true；未闭合时保留原文并返回 ok=false，
+// 防止半截 YAML 被当成正文或被悄悄丢弃。
 func SplitFrontmatter(content string) (string, string, bool) {
 	content = strings.ReplaceAll(content, "\r\n", "\n")
 	lines := strings.SplitN(content, "\n", 2)
@@ -118,42 +88,14 @@ func SplitFrontmatter(content string) (string, string, bool) {
 	}
 }
 
-// StripHTMLComments removes Claude Code editor scaffolding HTML comments
-// while preserving content semantics that downstream parsers depend on.
-// Specifically:
-//   - Lines beginning with `<!--` (after leading whitespace) are dropped
-//     entirely; if a `-->` close appears later on the same line, the
-//     trailing residue is kept (the comment block is removed in place).
-//   - Multi-line block comments (`<!-- ...\n... -->`) are dropped, and the
-//     residue after `-->` on the closing line is kept if non-empty.
-//   - Inline comments mid-line (e.g. `Use <!-- note --> here`) are LEFT
-//     UNCHANGED. Stripping them here would break inline annotations that
-//     authors deliberately include in prose.
-//   - Comments inside fenced code blocks (``` or ~~~) are preserved so that
-//     documentation can render literal HTML comment examples.
-//   - Content inside `<![CDATA[ ... ]]>` blocks (single- or multi-line)
-//     is preserved verbatim; a `<!--` appearing inside an open CDATA span
-//     is NOT treated as a comment opener. Once `]]>` closes the CDATA,
-//     normal scanning resumes.
-//   - HTML5 forbids nesting `<!-- <!-- --> -->`; the first `-->` closes
-//     the comment and the trailing `-->` survives as plain text. The
-//     scanner mirrors that behaviour rather than implementing real
-//     nesting depth tracking.
-//   - An UNCLOSED `<!--` (or `<![CDATA[`) is treated as plain content
-//     (not silently dropped) so a malformed file cannot smuggle hidden
-//     directives into the prompt by pretending the rest of the file is
-//     one giant comment.
-//
-// StripHTMLComments 处理striphtmlcomments。
+// StripHTMLComments 移除记忆文件中位于行首的 HTML 注释脚手架。
+// 它保留行内注释、代码围栏内注释和 CDATA 内容，只删除形如行首 `<!-- ... -->`
+// 的模板残留；未闭合注释会按普通文本保留，避免格式错误吞掉后续正文。
+// 函数会迭代到固定点，保证重复调用不会继续改变内容。
 func StripHTMLComments(content string) string {
-	// Iterate to a fixed point. A single pass can produce a string whose
-	// removed-then-rejoined neighbour bytes accidentally compose a new
-	// `<!-- ... -->` (e.g. residue `<!` followed by `---->` after a
-	// closed `<!---->` is dropped between them). Re-running until the
-	// scanner reports no further strips guarantees idempotence:
-	// StripHTMLComments(StripHTMLComments(x)) == StripHTMLComments(x).
-	// Termination: every productive iteration removes at least one byte,
-	// so the loop runs at most len(content) times.
+	// 单次扫描删除后，左右残片可能拼出新的 `<!-- ... -->`；迭代到无变化可保证
+	// StripHTMLComments(StripHTMLComments(x)) == StripHTMLComments(x)。
+	// 每轮有效扫描至少删除一个字节，因此循环有明确上界。
 	for {
 		next, stripped := stripHTMLCommentsScan(content)
 		if !stripped {
@@ -166,9 +108,10 @@ func StripHTMLComments(content string) string {
 	}
 }
 
+// stripHTMLCommentsScan 执行一次 HTML 注释扫描。
+// 返回 stripped=false 表示本轮没有可删除注释，外层固定点循环可停止。
 func stripHTMLCommentsScan(content string) (string, bool) {
-	// Fast path: no comment opener and no CDATA opener anywhere in the
-	// input means there is nothing to strip and nothing to shield.
+	// 快路径：没有注释起始和 CDATA 起始时无需进入逐行状态机。
 	if !strings.Contains(content, "<!--") && !strings.Contains(content, "<![CDATA[") {
 		return content, false
 	}
@@ -176,19 +119,22 @@ func stripHTMLCommentsScan(content string) (string, bool) {
 	for _, line := range strings.SplitAfter(content, "\n") {
 		state.processLine(line)
 	}
-	// Unclosed `<!--` at EOF: surface the buffered text as plain content
-	// so a truncated comment cannot swallow the rest of the file.
+	// EOF 前未闭合的 `<!--` 按普通文本输出，避免截断注释吞掉后续内容。
 	if state.inComment {
 		state.builder.WriteString(state.pendingComment.String())
 	}
 	return state.builder.String(), state.stripped
 }
 
+// markdownFenceState 记录当前是否处于 Markdown 代码围栏内。
+// 围栏内的 HTML 注释必须原样保留，否则文档示例会被解析器误删。
 type markdownFenceState struct {
 	open   bool
 	marker byte
 }
 
+// htmlCommentStripState 保存一次注释清理扫描的状态。
+// pendingComment 缓冲未闭合的行首注释；inCDATA 优先级高于注释扫描。
 type htmlCommentStripState struct {
 	fence          markdownFenceState
 	builder        strings.Builder
@@ -198,10 +144,10 @@ type htmlCommentStripState struct {
 	inCDATA        bool
 }
 
-// processLine 处理进程行。
+// processLine 处理单行文本并更新注释、CDATA 与代码围栏状态。
+// 行首注释会被移除或暂存，普通正文和受保护区域会直接写入 builder。
 func (s *htmlCommentStripState) processLine(line string) {
-	// CDATA dominates: while inside a CDATA span no comment scanning
-	// runs, so a `<!--` token between `<![CDATA[` and `]]>` survives.
+	// CDATA 优先：CDATA span 内不做注释扫描，因此其中的 `<!--` 会原样保留。
 	if s.inCDATA {
 		s.builder.WriteString(line)
 		if strings.Contains(line, "]]>") {
@@ -230,14 +176,14 @@ func (s *htmlCommentStripState) processLine(line string) {
 	s.inComment = true
 }
 
+// processPendingLine 继续处理上一行打开但尚未闭合的行首 HTML 注释。
+// 找到第一个 `-->` 后结束注释，并把闭合后的残留交给 emitCommentResidue。
 func (s *htmlCommentStripState) processPendingLine(line string) bool {
 	if !s.inComment {
 		return false
 	}
 	s.pendingComment.WriteString(line)
-	// HTML5 does not nest comments; the first `-->` closes the span. We
-	// keep the residue after that token as plain content so a stray
-	// `--> trailing -->` becomes ` trailing -->` rather than vanishing.
+	// HTML 注释不按嵌套处理；第一个 `-->` 关闭注释，后续残留按正文保留。
 	_, residue, ok := strings.Cut(line, "-->")
 	if !ok {
 		return true
@@ -249,13 +195,9 @@ func (s *htmlCommentStripState) processPendingLine(line string) bool {
 	return true
 }
 
-// openCDATAIfUnclosed handles a line that begins (or contains) a CDATA
-// opener whose `]]>` close lives on a later line. The whole line is
-// emitted verbatim and the scanner switches to inCDATA so the next line
-// short-circuits comment scanning. Returns true if it took ownership of
-// the line. CDATA spans that open and close on the same line are not
-// special-cased here: comment stripping ignores mid-line `<!--` anyway,
-// so a single-line CDATA carrying a fake comment is already preserved.
+// openCDATAIfUnclosed 处理跨行 CDATA。
+// 如果本行打开但未关闭 CDATA，整行原样输出并进入 inCDATA；单行闭合 CDATA 不需要特殊处理，
+// 因为行内 `<!--` 本来就不会被当成可删除脚手架。
 func (s *htmlCommentStripState) openCDATAIfUnclosed(line string) bool {
 	idx := strings.Index(line, "<![CDATA[")
 	if idx < 0 {
@@ -269,14 +211,9 @@ func (s *htmlCommentStripState) openCDATAIfUnclosed(line string) bool {
 	return true
 }
 
-// stripInlineComment is invoked when the line begins (after leading
-// whitespace) with `<!--` AND contains a `-->` somewhere later on the
-// same line. It peels off the leading `<!-- ... -->` and hands the tail
-// to emitCommentResidue, which itself recursively strips any further
-// already-closed `<!-- ... -->` segments hiding inside the residue. The
-// double pass is what gives StripHTMLComments idempotence: without it,
-// fuzz inputs like `<!----><!--0\n-->0` and `<!--\n--> <!--0-->` would
-// leave a residual `<!--...-->` that a second call would then drop.
+// stripInlineComment 移除同一行内闭合的行首 HTML 注释。
+// 注释后的尾部会继续交给 emitCommentResidue，确保残留中再次出现的闭合脚手架不会留到
+// 下一次调用才被删除。
 func (s *htmlCommentStripState) stripInlineComment(line string) bool {
 	if !strings.Contains(line, "-->") {
 		return false
@@ -286,10 +223,7 @@ func (s *htmlCommentStripState) stripInlineComment(line string) bool {
 	afterOpen := trimmed[len("<!--"):]
 	_, residue, ok := strings.Cut(afterOpen, "-->")
 	if !ok {
-		// strings.Contains(line, "-->") was true above, so the only way Cut
-		// can fail is if the `-->` lives inside the leading whitespace —
-		// impossible because TrimLeft removed it. Defensive fallback: treat
-		// the line as an unclosed opener.
+		// 正常情况下 Cut 不会失败；若遇到异常输入，按未闭合注释处理以保留原始文本。
 		s.pendingComment.WriteString(line)
 		s.inComment = true
 		return true
@@ -298,13 +232,9 @@ func (s *htmlCommentStripState) stripInlineComment(line string) bool {
 	return true
 }
 
-// emitCommentResidue handles the tail produced after a `-->` close. It
-// silently drops any further already-closed `<!-- ... -->` segments
-// hiding in the tail (they would otherwise re-trigger stripInlineComment
-// on a second pass and break idempotence) and, if the tail ends on an
-// unclosed `<!--`, transitions the scanner into inComment with the open
-// span buffered. The non-comment text in between is preserved so authors
-// do not lose words tucked between scaffolding markers.
+// emitCommentResidue 处理 `-->` 后面的尾部文本。
+// 已闭合的行首脚手架会继续删除，普通文本会保留；如果尾部打开了未闭合注释，
+// 状态机会进入 inComment，等待下一行闭合或在 EOF 时按普通文本输出。
 func (s *htmlCommentStripState) emitCommentResidue(residue string) {
 	var plain strings.Builder
 	pos := 0
@@ -319,8 +249,7 @@ func (s *htmlCommentStripState) emitCommentResidue(residue string) {
 		afterOpen := absIdx + len("<!--")
 		closeIdx := strings.Index(residue[afterOpen:], "-->")
 		if closeIdx < 0 {
-			// Tail opens an unclosed comment: keep the plain prefix, buffer
-			// the open span so the next line either closes or surfaces it.
+			// 尾部打开未闭合注释：先保留普通前缀，再缓存注释片段等待下一行或 EOF。
 			plain.WriteString(residue[pos:absIdx])
 			appendNonEmptyLine(&s.builder, plain.String())
 			s.pendingComment.WriteString(residue[absIdx:])
@@ -332,6 +261,8 @@ func (s *htmlCommentStripState) emitCommentResidue(residue string) {
 	}
 }
 
+// appendNonEmptyLine 仅在尾部残留含有效文本时写入 builder。
+// 注释删除产生的纯空白不应制造新的空行。
 func appendNonEmptyLine(builder *strings.Builder, line string) {
 	if strings.TrimSpace(line) == "" {
 		return
@@ -339,10 +270,14 @@ func appendNonEmptyLine(builder *strings.Builder, line string) {
 	builder.WriteString(line)
 }
 
+// startsHTMLCommentBlock 判断一行裁剪左侧空白后是否以 HTML 注释开头。
+// 只有这种脚手架形态会被删除，行内注释保持原样。
 func startsHTMLCommentBlock(line string) bool {
 	return strings.HasPrefix(strings.TrimLeft(line, " \t"), "<!--")
 }
 
+// lineInMarkdownFence 更新代码围栏状态并返回当前行是否受围栏保护。
+// 受保护行不参与 HTML 注释删除，避免破坏 Markdown 示例。
 func lineInMarkdownFence(state *markdownFenceState, line string) bool {
 	marker, ok := markdownFenceMarker(line)
 	if state.open {
@@ -360,6 +295,8 @@ func lineInMarkdownFence(state *markdownFenceState, line string) bool {
 	return true
 }
 
+// markdownFenceMarker 识别 Markdown 代码围栏起止标记。
+// 这里只关心 ``` 和 ~~~ 的首三个字符，语言名或后缀不影响保护判断。
 func markdownFenceMarker(line string) (byte, bool) {
 	trimmed := strings.TrimLeft(line, " \t")
 	if strings.HasPrefix(trimmed, "```") {
@@ -371,12 +308,8 @@ func markdownFenceMarker(line string) (byte, bool) {
 	return 0, false
 }
 
-// JSStringLength returns the length of content measured in UTF-16 code units,
-// matching the value `String.prototype.length` would report in JavaScript.
-// The memory module uses this to mirror the truncation budgets enforced by
-// the Claude Code UI, which speaks in UTF-16 units rather than Go runes or
-// raw bytes.
-// JSStringLength 处理jsstringlength。
+// JSStringLength 返回 JavaScript String.length 口径的 UTF-16 code unit 长度。
+// 记忆注入的截断预算需要与前端/底层 CLI 保持一致，不能直接使用 Go rune 或字节长度。
 func JSStringLength(content string) int {
 	count := 0
 	for bytePos := 0; bytePos < len(content); {
@@ -387,9 +320,8 @@ func JSStringLength(content string) int {
 	return count
 }
 
-// UTF16CodeUnits returns 2 for runes outside the Basic Multilingual Plane
-// (which JavaScript represents as a surrogate pair) and 1 otherwise.
-// UTF16CodeUnits 处理utf16代码units。
+// UTF16CodeUnits 返回单个 rune 在 UTF-16 中占用的 code unit 数。
+// 基本多文种平面外字符在 JavaScript 中是代理对，因此计为 2。
 func UTF16CodeUnits(r rune) int {
 	if r > 0xFFFF {
 		return 2
@@ -397,12 +329,9 @@ func UTF16CodeUnits(r rune) int {
 	return 1
 }
 
-// TruncateAtCodeUnitLimit cuts content so that JSStringLength(result) <= limit,
-// preferring to break at the last newline before the limit. When the limit
-// falls inside the very first line the result is byte-truncated instead of
-// returned empty, so callers always make forward progress when they intend
-// to append a warning footer.
-// TruncateAtCodeUnitLimit 截断at代码unitlimit。
+// TruncateAtCodeUnitLimit 按 UTF-16 code unit 上限截断内容。
+// 优先在限制前最后一个换行处截断；如果第一行就超过限制，则按合法 UTF-8 边界截断，
+// 保证调用方总能得到非超限前缀并继续追加提示。
 func TruncateAtCodeUnitLimit(content string, limit int) string {
 	if limit <= 0 {
 		return ""

@@ -14,10 +14,13 @@ import (
 )
 
 const (
+	// 默认等待窗口复用 RPC 超时，避免报告轮询比一次工具调用活得更久。
 	defaultAgentReportWaitTimeout = platformconfig.RPCRequestTimeout
 	agentReportPollInterval       = 50 * time.Millisecond
 )
 
+// GetAgentReportInput 是 get_agent_report 工具的单 agent 入参。
+// AfterReportSeq 用来等待新报告版本，防止调用方拿到上一轮残留报告。
 type GetAgentReportInput struct {
 	AgentID        string `json:"agent_id"`
 	Pos            string `json:"pos,omitempty"`
@@ -27,6 +30,7 @@ type GetAgentReportInput struct {
 	AfterReportSeq *int64 `json:"after_report_seq,omitempty"`
 }
 
+// getAgentReportsInput 是批量报告读取/等待工具的入参。
 type getAgentReportsInput struct {
 	AgentIDs              []string         `json:"agent_ids"`
 	Wait                  *bool            `json:"wait,omitempty"`
@@ -34,6 +38,7 @@ type getAgentReportsInput struct {
 	AfterReportSeqByAgent map[string]int64 `json:"after_report_seq_by_agent,omitempty"`
 }
 
+// agentReportsRequest 是校验后的批量报告请求，agent id 已 trim 且 timeout 已转成 duration。
 type agentReportsRequest struct {
 	agentIDs              []string
 	wait                  bool
@@ -41,6 +46,7 @@ type agentReportsRequest struct {
 	afterReportSeqByAgent map[string]int64
 }
 
+// agentReportsResult 是批量报告工具统一返回 envelope。
 type agentReportsResult struct {
 	Status    string            `json:"status"`
 	Results   []agentReportItem `json:"results"`
@@ -49,6 +55,7 @@ type agentReportsResult struct {
 	TimedOut  bool              `json:"timed_out"`
 }
 
+// agentReportItem 表示单个 agent 报告读取结果；OK=false 时 Error 带可展示原因。
 type agentReportItem struct {
 	AgentID   string    `json:"agent_id"`
 	State     string    `json:"state"`
@@ -59,7 +66,7 @@ type agentReportItem struct {
 	Error     string    `json:"error"`
 }
 
-// HandleGetAgentReport 处理get代理report。
+// HandleGetAgentReport 读取单 agent 报告；wait=true 时进入 after_seq 感知的轮询路径。
 func HandleGetAgentReport(svc contract.OrchestrationService) ToolHandler {
 	return makeHandler(svc, "orchestration service", func(ctx context.Context, in GetAgentReportInput) (any, error) {
 		agentID, err := resolveAgentIDInput(in.AgentID, in.Pos)
@@ -87,6 +94,7 @@ func HandleGetAgentReports(svc contract.OrchestrationService) ToolHandler {
 	})
 }
 
+// agentReportShouldWait 判断单 agent 报告工具是否进入轮询等待路径。
 func agentReportShouldWait(in GetAgentReportInput) bool {
 	return in.Wait != nil && *in.Wait
 }
@@ -130,6 +138,7 @@ func validateAgentReportsInput(in getAgentReportsInput) (agentReportsRequest, er
 	}, nil
 }
 
+// readAgentReportsSnapshot 读取批量报告即时快照，不等待 pending agent 完成。
 func readAgentReportsSnapshot(ctx context.Context, svc contract.OrchestrationService, req agentReportsRequest) agentReportsResult {
 	items := make([]agentReportItem, len(req.agentIDs))
 	completed := 0
@@ -214,6 +223,8 @@ func pollPendingAgentReport(
 	return true, true, false
 }
 
+// completedBatchAgentReport 判定批量等待中的单个报告是否已经满足完成条件。
+// after_seq fence 未越过时继续等待；若 agent 已终态但没有新报告则返回 item 级错误。
 func completedBatchAgentReport(result contract.AgentReportResult, afterSeq int64, hasAfterSeq bool, agentID string) (contract.AgentReportResult, bool, error) {
 	if hasAfterSeq && result.ReportSeq <= afterSeq {
 		if err := terminalAgentReportNoNewReportError(result, &afterSeq, agentID); err != nil {
@@ -225,6 +236,7 @@ func completedBatchAgentReport(result contract.AgentReportResult, afterSeq int64
 	return completed, ok, nil
 }
 
+// agentReportItemFromResult 把服务层报告和错误折叠成批量工具的单项输出。
 func agentReportItemFromResult(agentID string, result contract.AgentReportResult, err error) agentReportItem {
 	item := agentReportItem{
 		AgentID:   agentID,
@@ -284,7 +296,8 @@ func finishAgentReportsResult(items []agentReportItem, completed, pending int, t
 	}
 }
 
-// waitForAgentReport 等待编排侧产出代理报告。
+// waitForAgentReport 注册可选 requester 后轮询单 agent 报告。
+// requester 只用于服务端唤醒/关联，等待判定仍由 after_report_seq 和报告内容决定。
 func waitForAgentReport(ctx context.Context, svc contract.OrchestrationService, in GetAgentReportInput, agentID string) (any, error) {
 	timeout, requesterID, err := validateAgentReportWait(ctx, in, agentID)
 	if err != nil {
@@ -319,6 +332,7 @@ func validateAgentReportWait(ctx context.Context, in GetAgentReportInput, agentI
 	return timeout, requesterID, nil
 }
 
+// reportWaitRequester 优先使用显式 requester_id，缺省时从可信 MCP scope 推导。
 func reportWaitRequester(ctx context.Context, requesterID string) string {
 	requesterID = strings.TrimSpace(requesterID)
 	if requesterID != "" {
@@ -330,7 +344,7 @@ func reportWaitRequester(ctx context.Context, requesterID string) string {
 	return ""
 }
 
-// pollAgentReport 处理poll代理report。
+// pollAgentReport 按固定间隔读取报告，直到出现新报告、终态无新报告或超时。
 func pollAgentReport(
 	ctx context.Context,
 	svc contract.OrchestrationService,
@@ -364,6 +378,8 @@ func pollAgentReport(
 	}
 }
 
+// completedAgentReport 判定单次读取结果是否可作为完成报告返回。
+// 终态 agent 没有 report 文本时生成兜底文案，但 after_seq 未越过时仍继续等待。
 func completedAgentReport(result contract.AgentReportResult, afterReportSeq *int64) (contract.AgentReportResult, bool) {
 	if afterReportSeq != nil && result.ReportSeq <= *afterReportSeq {
 		return contract.AgentReportResult{}, false
@@ -378,6 +394,7 @@ func completedAgentReport(result contract.AgentReportResult, afterReportSeq *int
 	return result, true
 }
 
+// terminalAgentReportState 判断没有新报告时是否应停止等待并返回终态错误。
 func terminalAgentReportState(state string) bool {
 	switch strings.ToLower(strings.TrimSpace(state)) {
 	case "failed", "stopped":
@@ -387,6 +404,7 @@ func terminalAgentReportState(state string) bool {
 	}
 }
 
+// agentReportNoReportFallback 为已终止但没有报告文本的 agent 生成稳定展示文案。
 func agentReportNoReportFallback(state string) string {
 	state = strings.TrimSpace(state)
 	if state == "" {
@@ -395,6 +413,7 @@ func agentReportNoReportFallback(state string) string {
 	return "agent ended in state '" + state + "' without producing a turn report"
 }
 
+// terminalAgentReportNoNewReportError 在终态且 report_seq 未推进时生成 fail-fast 错误。
 func terminalAgentReportNoNewReportError(result contract.AgentReportResult, afterReportSeq *int64, agentID string) error {
 	if afterReportSeq == nil || !terminalAgentReportState(result.State) || result.ReportSeq > *afterReportSeq {
 		return nil
@@ -402,6 +421,7 @@ func terminalAgentReportNoNewReportError(result contract.AgentReportResult, afte
 	return fmt.Errorf("agent %q ended in state %q without a report after report_seq %d", agentID, result.State, *afterReportSeq)
 }
 
+// agentReportPollError 区分可等待错误、真实服务错误和等待上下文超时。
 func agentReportPollError(ctx, waitCtx context.Context, err error, timeout time.Duration, agentID string, afterReportSeq *int64) error {
 	if err == nil {
 		return nil
@@ -415,6 +435,7 @@ func agentReportPollError(ctx, waitCtx context.Context, err error, timeout time.
 	return err
 }
 
+// agentReportWaitTimeoutError 生成包含 after_seq fence 的报告等待超时错误。
 func agentReportWaitTimeoutError(ctx context.Context, timeout time.Duration, agentID string, afterReportSeq *int64) error {
 	if ctx.Err() != nil {
 		return ctx.Err()
@@ -425,6 +446,7 @@ func agentReportWaitTimeoutError(ctx context.Context, timeout time.Duration, age
 	return fmt.Errorf("timed out waiting %s for report from agent %q", timeout, agentID)
 }
 
+// agentReportWaitableError 表示报告等待期间可继续轮询的临时错误。
 func agentReportWaitableError(err error) bool {
 	return errors.Is(err, contract.ErrAgentNotFound)
 }

@@ -6,19 +6,15 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/protocol"
 )
 
-// ToolScope is the registry-facing LSP scope assembled from trusted
-// server-side tool metadata plus the tool target. Model-supplied arguments are
-// intentionally not identity inputs; callers should populate AgentID/ThreadID
-// from common.ToolScopeFromContext.
+// ToolScope 是注册表层使用的 LSP 路由作用域。
+// 身份字段必须来自服务端可信上下文，模型传入的参数只能作为目标文件或语言线索。
 type ToolScope struct {
 	AgentID  string
 	ThreadID string
 	TurnID   string
 	CallID   string
 	CWD      string
-	// WorkspaceRoots is the trusted root set for this tool call. CWD remains
-	// the primary root for relative paths; absolute targets may resolve against
-	// any root in this set.
+	// WorkspaceRoots 是本次工具调用的可信根集合；相对路径仍优先按 CWD 解析。
 	WorkspaceRoots []string
 	Family         string
 
@@ -33,9 +29,8 @@ type ToolScope struct {
 	LanguageSpecific      map[string]string
 }
 
-// ResolvedToolScope is the canonical scoped routing result returned by a
-// production ManagerPool adapter. Registry/tool callers pass this value through
-// for diagnostics/cache/bootstrap auditing instead of rebuilding keys.
+// ResolvedToolScope 是 ManagerPool 返回的规范化路由结果。
+// 注册表和工具层透传它做诊断、缓存和启动审计，不能在下游重新拼 key。
 type ResolvedToolScope struct {
 	ToolScope
 
@@ -45,16 +40,14 @@ type ResolvedToolScope struct {
 	ManagerKey   string
 }
 
-// ScopedManager couples the manager selected for a tool call with the canonical
-// resolved scope produced by the pool.
+// ScopedManager 绑定一次工具调用选中的 manager 和规范化 scope。
 type ScopedManager struct {
 	Manager       Manager
 	ResolvedScope ResolvedToolScope
 }
 
-// ScopedManagerResolver is implemented by the production multilsp ManagerPool
-// adapter. It lets the registry route through ManagerPool.ForScope without
-// importing multilsp and creating an import cycle.
+// ScopedManagerResolver 由生产 ManagerPool adapter 实现。
+// manager 包只依赖该接口，避免直接 import multilsp 形成循环依赖。
 type ScopedManagerResolver interface {
 	ForToolScope(scope ToolScope) (ScopedManager, error)
 	CurrentManagersForToolScope(scope ToolScope) ([]ScopedManager, error)
@@ -62,11 +55,8 @@ type ScopedManagerResolver interface {
 
 type resolvedToolScopeContextKey struct{}
 
-// WithResolvedToolScope attaches the canonical scope returned by a scoped
-// resolver to ctx. Concrete manager implementations can convert this
-// registry-level value to their internal scope type without forcing the
-// registry package to import those implementations.
-// WithResolvedToolScope 设置已解析工具作用域。
+// WithResolvedToolScope 把已解析 scope 写入 context。
+// 具体 manager 可在内部转换成自身作用域类型，注册表不需要依赖实现包。
 func WithResolvedToolScope(ctx context.Context, scope ResolvedToolScope) context.Context {
 	if ctx == nil {
 		ctx = context.Background()
@@ -77,7 +67,8 @@ func WithResolvedToolScope(ctx context.Context, scope ResolvedToolScope) context
 	return context.WithValue(ctx, resolvedToolScopeContextKey{}, scope)
 }
 
-// ResolvedToolScopeFromContext 从上下文处理已解析工具作用域。
+// ResolvedToolScopeFromContext 从 context 读取已解析 scope。
+// 缺少关键 key 时返回 false，避免下游把空 scope 当作有效路由结果。
 func ResolvedToolScopeFromContext(ctx context.Context) (ResolvedToolScope, bool) {
 	if ctx == nil {
 		return ResolvedToolScope{}, false
@@ -89,7 +80,8 @@ func ResolvedToolScopeFromContext(ctx context.Context) (ResolvedToolScope, bool)
 	return scope, true
 }
 
-// ManagerWithResolvedScope 处理带已解析作用域的manager。
+// ManagerWithResolvedScope 为 manager 包装固定的 resolved scope。
+// 空 manager 或空 scope 会原样返回，避免引入无意义代理层。
 func ManagerWithResolvedScope(manager Manager, scope ResolvedToolScope) Manager {
 	if manager == nil || (scope.WorkspaceKey == "" && scope.ManagerKey == "") {
 		return manager
@@ -106,17 +98,17 @@ func (m *resolvedScopeManager) scoped(ctx context.Context) context.Context {
 	return WithResolvedToolScope(ctx, m.scope)
 }
 
-// Close 关闭 LSP 管理器资源。
+// Close 直接关闭底层 manager；scope 只影响请求路径，不影响资源归属。
 func (m *resolvedScopeManager) Close() error {
 	return m.manager.Close()
 }
 
-// Definition 处理定义。
+// Definition 注入 resolved scope 后转发定义查询。
 func (m *resolvedScopeManager) Definition(ctx context.Context, uri string, position protocol.Position) ([]protocol.LocationResult, error) {
 	return m.manager.Definition(m.scoped(ctx), uri, position)
 }
 
-// Implementation 处理实现。
+// Implementation 注入 resolved scope 后转发实现查询。
 func (m *resolvedScopeManager) Implementation(ctx context.Context, uri string, position protocol.Position) ([]protocol.LocationResult, error) {
 	return m.manager.Implementation(m.scoped(ctx), uri, position)
 }
@@ -126,22 +118,22 @@ func (m *resolvedScopeManager) TypeDefinition(ctx context.Context, uri string, p
 	return m.manager.TypeDefinition(m.scoped(ctx), uri, position)
 }
 
-// Hover 处理悬停。
+// Hover 注入 resolved scope 后转发 hover 查询。
 func (m *resolvedScopeManager) Hover(ctx context.Context, uri string, position protocol.Position) (*protocol.HoverResult, error) {
 	return m.manager.Hover(m.scoped(ctx), uri, position)
 }
 
-// SignatureHelp 处理签名帮助。
+// SignatureHelp 注入 resolved scope 后转发签名帮助查询。
 func (m *resolvedScopeManager) SignatureHelp(ctx context.Context, uri string, position protocol.Position) (*protocol.SignatureHelpResult, error) {
 	return m.manager.SignatureHelp(m.scoped(ctx), uri, position)
 }
 
-// References 处理引用。
+// References 注入 resolved scope 后转发引用查询。
 func (m *resolvedScopeManager) References(ctx context.Context, uri string, position protocol.Position, includeDeclaration bool) ([]protocol.LocationResult, error) {
 	return m.manager.References(m.scoped(ctx), uri, position, includeDeclaration)
 }
 
-// CallHierarchy 调用层级。
+// CallHierarchy 注入 resolved scope 后转发调用层级查询。
 func (m *resolvedScopeManager) CallHierarchy(ctx context.Context, uri string, position protocol.Position, direction string) ([]protocol.CallHierarchyResult, error) {
 	return m.manager.CallHierarchy(m.scoped(ctx), uri, position, direction)
 }
@@ -164,27 +156,27 @@ func (m *resolvedScopeManager) DocumentSymbolBestEffort(ctx context.Context, uri
 	return m.manager.DocumentSymbol(m.scoped(ctx), uri)
 }
 
-// WorkspaceSymbol 处理工作区符号。
+// WorkspaceSymbol 注入 resolved scope 后转发工作区符号查询。
 func (m *resolvedScopeManager) WorkspaceSymbol(ctx context.Context, query string, languageID string) ([]protocol.WorkspaceSymbolResult, error) {
 	return m.manager.WorkspaceSymbol(m.scoped(ctx), query, languageID)
 }
 
-// FoldingRange 处理折叠范围。
+// FoldingRange 注入 resolved scope 后转发折叠范围查询。
 func (m *resolvedScopeManager) FoldingRange(ctx context.Context, uri string) ([]protocol.FoldingRange, error) {
 	return m.manager.FoldingRange(m.scoped(ctx), uri)
 }
 
-// SemanticTokens 处理语义令牌。
+// SemanticTokens 注入 resolved scope 后转发语义 token 查询。
 func (m *resolvedScopeManager) SemanticTokens(ctx context.Context, uri string) (*protocol.SemanticTokensResult, error) {
 	return m.manager.SemanticTokens(m.scoped(ctx), uri)
 }
 
-// Completion 处理补全。
+// Completion 注入 resolved scope 后转发补全查询。
 func (m *resolvedScopeManager) Completion(ctx context.Context, uri string, position protocol.Position) (*protocol.CompletionList, error) {
 	return m.manager.Completion(m.scoped(ctx), uri, position)
 }
 
-// Rename 处理重命名。
+// Rename 注入 resolved scope 后转发重命名请求。
 func (m *resolvedScopeManager) Rename(ctx context.Context, uri string, position protocol.Position, newName string) (*protocol.WorkspaceEdit, error) {
 	return m.manager.Rename(m.scoped(ctx), uri, position, newName)
 }
@@ -219,7 +211,7 @@ func (m *resolvedScopeManager) BootstrapDocument(ctx context.Context, uri string
 	return m.manager.BootstrapDocument(m.scoped(ctx), uri)
 }
 
-// BootstrapDocumentOpenOnly 处理启动document打开only。
+// BootstrapDocumentOpenOnly 注入 resolved scope 后只执行文档打开同步。
 func (m *resolvedScopeManager) BootstrapDocumentOpenOnly(ctx context.Context, uri string) error {
 	return m.manager.BootstrapDocumentOpenOnly(m.scoped(ctx), uri)
 }
@@ -234,7 +226,7 @@ func (m *resolvedScopeManager) WaitDiagnosticsStable(ctx context.Context, uris [
 	return m.manager.WaitDiagnosticsStable(m.scoped(ctx), uris)
 }
 
-// CurrentDiagnosticGeneration 处理当前诊断代际。
+// CurrentDiagnosticGeneration 读取底层 manager 的当前诊断代际。
 func (m *resolvedScopeManager) CurrentDiagnosticGeneration() uint64 {
 	return m.manager.CurrentDiagnosticGeneration()
 }

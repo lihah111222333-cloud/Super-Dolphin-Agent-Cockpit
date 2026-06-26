@@ -8,14 +8,9 @@ import (
 	"testing"
 )
 
-// ====================================================================
-// F1.2 / 蓝图 v2 §7 / 实施计划 F1.2 行：
-// AgentExecutor 处理 cfg.Inputs：注入 prev nodes result + sharedfile。
-// 集成测试：节点 B 看到节点 A.result。
-//
-// 端口收敛 batch：inputs 数据源由构造器端口改为 RunContext 字段。
-// AgentExecutor 现统一从 RunContext.PrevResults / RunContext.SharedFileReader 拿。
-// ====================================================================
+// 这些测试锁定 AgentExecutor 的 inputs 注入边界：
+// 上游节点结果和 sharedfile 都只能从 RunContext 提供，缺失时进入分类失败而不是静默忽略。
+// 成功注入时必须保持 prompt 分区顺序，避免后续 first_turn 覆盖输入上下文。
 
 // stubSharedFileReader 是 SharedFileReader 的测试假实现（端口收敛后统一三态）。
 // contents 按 path 索引；未命中 → exists=false；注入 err → 走基础设施错分类路径。
@@ -218,8 +213,8 @@ func TestAgentExecutorInjectsArtifactOutputContract(t *testing.T) {
 	}
 }
 
-// TestAgentExecutor_Inputs_EmptyInputs_BackwardsCompat 验证 cfg.Inputs 为空时
-// LaunchRequest.Prompt 与 F1.1 保持一致（仅 first_turn）。
+// TestAgentExecutor_Inputs_EmptyInputs_BackwardsCompat 验证 cfg.Inputs 为空时保持旧调用兼容：
+// 即使 RunContext 带了可读输入，也只发送 first_turn，避免把未声明输入隐式拼进 prompt。
 func TestAgentExecutor_Inputs_EmptyInputs_BackwardsCompat(t *testing.T) {
 	t.Parallel()
 	launcher := &stubAgentLauncher{}
@@ -382,8 +377,8 @@ func TestAgentExecutorInputsFromNodesEmptyResult(t *testing.T) {
 	}
 }
 
-// TestAgentExecutor_Inputs_FallsBackToNodeDagKey 验证 runCtx.DagKey 为空时
-// 从 node.DagKey 取 dag_key（与 F1.5 resolveSpawnKeys 一致的回退）。
+// TestAgentExecutor_Inputs_FallsBackToNodeDagKey 验证 runCtx.DagKey 为空时仍可使用节点归属 DAG。
+// 这是兼容旧调用路径的显式回退，只用于定位上游结果，不改变 launch 请求来源。
 func TestAgentExecutor_Inputs_FallsBackToNodeDagKey(t *testing.T) {
 	t.Parallel()
 	launcher := &stubAgentLauncher{}
@@ -405,8 +400,8 @@ func TestAgentExecutor_Inputs_FallsBackToNodeDagKey(t *testing.T) {
 	}
 }
 
-// TestAgentExecutor_Inputs_PreservesF15_ThreadIDWriteback 验证 F1.2 inputs 注入
-// 与 F1.5 spawning_thread_id 写回共存：注入成功 + launch 成功后，recorder 仍被调用。
+// TestAgentExecutor_Inputs_PreservesF15_ThreadIDWriteback 验证 inputs 注入不影响 thread id 写回。
+// 只有注入和 launch 都成功时 recorder 才会被调用，失败路径不能提前写入 spawning_thread_id。
 func TestAgentExecutor_Inputs_PreservesF15_ThreadIDWriteback(t *testing.T) {
 	t.Parallel()
 	launcher := &stubAgentLauncher{threadID: "thread-1"}
@@ -438,11 +433,8 @@ func TestAgentExecutor_Inputs_PreservesF15_ThreadIDWriteback(t *testing.T) {
 	}
 }
 
-// TestErrInputsValidation_IsSentinel 锁住 errors.Is 可见 ErrInputsValidation，
-// 便于上层（F1.4 dispatcher / 测试）按哨兵识别 inputs-stage 验证失败。
-//
-// 收敛 batch 第 4 项后：loadFromNodes 返 *InputsError；errors.Is 通过 Unwrap 链
-// 仍可命中 ErrInputsValidation；errors.As 一次拿 FailureClass。
+// TestErrInputsValidation_IsSentinel 锁住 inputs 验证失败的错误分类。
+// loadFromNodes 返回 *InputsError 时，errors.Is 仍要命中哨兵，errors.As 还能拿到 FailureClass。
 func TestErrInputsValidation_IsSentinel(t *testing.T) {
 	t.Parallel()
 	_, ierr := loadFromNodes("dag-x", []string{"missing"}, map[string]json.RawMessage{})
@@ -456,8 +448,7 @@ func TestErrInputsValidation_IsSentinel(t *testing.T) {
 		t.Fatalf("Class = %q, want validation", ierr.Class)
 	}
 
-	// errors.As also resolves to *InputsError type for callers that want the
-	// full struct (Class + wrapped Err) without the variable-binding shortcut.
+	// errors.As 必须能拿到完整 *InputsError，调用方才能同时读取分类和底层错误。
 	var via *InputsError
 	if !errors.As(error(ierr), &via) {
 		t.Fatalf("errors.As(ierr, &*InputsError) = false")

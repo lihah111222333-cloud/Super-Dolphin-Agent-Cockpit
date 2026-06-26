@@ -8,6 +8,7 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 )
 
+// turnStartParams 是 turn/start 的 RPC 入参，兼容 snake_case 与部分旧 camelCase 字段。
 type turnStartParams struct {
 	ThreadID string                `json:"thread_id"`
 	Prompt   string                `json:"prompt,omitempty"`
@@ -33,7 +34,7 @@ type turnStartParams struct {
 	OutputSchema                 json.RawMessage      `json:"output_schema,omitempty"`
 }
 
-// UnmarshalJSON 解码JSON。
+// UnmarshalJSON 先解码当前字段，再把历史 camelCase 字段补到空值位置。
 func (p *turnStartParams) UnmarshalJSON(data []byte) error {
 	var legacy struct {
 		ThreadID             string           `json:"threadId"`
@@ -74,6 +75,7 @@ func (p *turnStartParams) UnmarshalJSON(data []byte) error {
 	})
 }
 
+// turnInputItemParams 是 text/image/mention/skill 等输入项的宽松 RPC 形态。
 type turnInputItemParams struct {
 	Type    string `json:"type"`
 	Text    string `json:"text,omitempty"`
@@ -83,6 +85,7 @@ type turnInputItemParams struct {
 	Content string `json:"content,omitempty"`
 }
 
+// skillRefParams 描述带作用域或路径的精确 skill 引用。
 type skillRefParams struct {
 	Key          string `json:"key,omitempty"`
 	Name         string `json:"name"`
@@ -92,6 +95,7 @@ type skillRefParams struct {
 	Source       string `json:"source,omitempty"`
 }
 
+// turnSteerParams 是 turn/steer 入参，结构跟 start 接近但要求 expected turn ID。
 type turnSteerParams struct {
 	ThreadID                     string                `json:"thread_id"`
 	ExpectedTurnID               string                `json:"expected_turn_id,omitempty"`
@@ -112,7 +116,7 @@ type turnSteerParams struct {
 	SessionFlags                 map[string]bool       `json:"session_flags,omitempty"`
 }
 
-// UnmarshalJSON 解码JSON。
+// UnmarshalJSON 兼容旧版 turn/steer camelCase 字段，同时保留新版 snake_case 优先级。
 func (p *turnSteerParams) UnmarshalJSON(data []byte) error {
 	var legacy struct {
 		ThreadID             string           `json:"threadId"`
@@ -148,12 +152,13 @@ func (p *turnSteerParams) UnmarshalJSON(data []byte) error {
 	})
 }
 
+// turnInterruptParams 是 turn/interrupt 入参，只允许线程标识和中断来源。
 type turnInterruptParams struct {
 	ThreadID string `json:"thread_id"`
 	Source   string `json:"source,omitempty"`
 }
 
-// UnmarshalJSON 解码JSON。
+// UnmarshalJSON 对 turn/interrupt 启用字段白名单，避免拼错字段被静默忽略。
 func (p *turnInterruptParams) UnmarshalJSON(data []byte) error {
 	var legacy struct {
 		ThreadID string `json:"threadId"`
@@ -172,6 +177,7 @@ func (p *turnInterruptParams) UnmarshalJSON(data []byte) error {
 	})
 }
 
+// turnInterruptParamFields 列出 turn/interrupt 允许的字段名，兼容历史 threadId/threadID。
 var turnInterruptParamFields = map[string]struct{}{
 	"source":    {},
 	"thread_id": {},
@@ -179,6 +185,7 @@ var turnInterruptParamFields = map[string]struct{}{
 	"threadID":  {},
 }
 
+// rejectUnknownTurnFields 在轻量 RPC 参数上做 fail-fast 字段检查，防止客户端误以为字段生效。
 func rejectUnknownTurnFields(data []byte, method string, allowed map[string]struct{}) error {
 	var payload map[string]json.RawMessage
 	if err := json.Unmarshal(data, &payload); err != nil {
@@ -192,11 +199,12 @@ func rejectUnknownTurnFields(data []byte, method string, allowed map[string]stru
 	return nil
 }
 
+// threadIDOnlyParams 是只需要线程 ID 的 RPC 入参，保留旧 camelCase 兼容。
 type threadIDOnlyParams struct {
 	ThreadID string `json:"thread_id"`
 }
 
-// UnmarshalJSON 解码JSON。
+// UnmarshalJSON 兼容 threadId，同时让新版 thread_id 优先。
 func (p *threadIDOnlyParams) UnmarshalJSON(data []byte) error {
 	var legacy struct {
 		ThreadID string `json:"threadId"`
@@ -212,6 +220,7 @@ func (p *threadIDOnlyParams) UnmarshalJSON(data []byte) error {
 	})
 }
 
+// approvalRespondParams 是工具审批响应入参，Approved 与 Decision 至少要提供一种。
 type approvalRespondParams struct {
 	CallID    string          `json:"call_id,omitempty"`
 	RequestID *int64          `json:"request_id,omitempty"`
@@ -219,7 +228,7 @@ type approvalRespondParams struct {
 	Decision  json.RawMessage `json:"decision,omitempty"`
 }
 
-// UnmarshalJSON 解码JSON。
+// UnmarshalJSON 兼容旧版 callId/requestId，并复制 RawMessage 防止共享底层 buffer。
 func (p *approvalRespondParams) UnmarshalJSON(data []byte) error {
 	var legacy struct {
 		CallID    string          `json:"callId"`
@@ -252,6 +261,7 @@ func (p *approvalRespondParams) UnmarshalJSON(data []byte) error {
 	})
 }
 
+// turnInterruptResult 是 turn/interrupt 返回给 UI 的状态和 settle 摘要。
 type turnInterruptResult struct {
 	OK             bool   `json:"ok"`
 	TurnID         string `json:"turnId,omitempty"`
@@ -265,18 +275,17 @@ type turnInterruptResult struct {
 	ActiveObserved *bool  `json:"activeObserved,omitempty"`
 }
 
+// turnForceCompleteResult 是 turn/force_complete 的最小成功响应。
 type turnForceCompleteResult struct {
 	OK             bool `json:"ok"`
 	ForceCompleted bool `json:"forceCompleted"`
 }
 
+// turnStartResult 返回本地 turnID，并在 pending launch 首 turn 时附带路由信息。
 type turnStartResult struct {
 	TurnID string `json:"turn_id"`
-	// Routing surfaced only for pending_launch threads whose first turn/start
-	// triggers SpawnIfNeeded. Eager-path threads already receive routing on
-	// thread/start; repeating it here is pointless and harmless (all four
-	// fields are zero/nil when turn/start is a no-op on the spawn axis and
-	// get elided by omitempty).
+	// 路由字段只在 pending_launch 线程的首个 turn/start 触发 SpawnIfNeeded 时返回。
+	// eager 启动线程已从 thread/start 获得路由；这里的零值字段会被 omitempty 隐去。
 	AgentKey            string `json:"agent_key,omitempty"`
 	AgentTitle          string `json:"agent_title,omitempty"`
 	PromptKey           string `json:"prompt_key,omitempty"`
@@ -285,6 +294,7 @@ type turnStartResult struct {
 	PromptKeyStaleCamel *bool  `json:"promptKeyStale,omitempty"`
 }
 
+// attachTurnPromptKeyStale 同时填充 snake/camel 两个 stale 字段，兼容新旧前端读取。
 func attachTurnPromptKeyStale(resp *turnStartResult, stale bool) {
 	if resp == nil || !stale {
 		return

@@ -25,9 +25,8 @@ import (
 	"go.uber.org/fx"
 )
 
-// stubRunStore / stubDAGStore / stubAgentThreadStore / stubAgentBindingStore
-// are nil-embedding stubs used to satisfy fx wiring assertions only; they
-// are never actually invoked. 余下 method 仅由 fx 装配需要，不被调用。
+// stubRunStore / stubDAGStore / stubAgentThreadStore / stubAgentBindingStore 是 fx wiring 测试专用空实现。
+// 它们只用于满足依赖图，不会被测试实际调用。
 type stubRunStore struct{ taskdagstore.RunStore }
 type stubScheduledStartStore struct {
 	taskdagstore.ScheduledStartStore
@@ -56,10 +55,8 @@ func (stubRuntimeLockHandle) Renew(context.Context) error { return nil }
 func (stubRuntimeLockHandle) Unlock(context.Context) error { return nil }
 
 func TestParentFxStartup(t *testing.T) {
-	// P22 P4 S4c1: orchestration package no longer exports `Module`;
-	// root assembly composes the wiring from the exported building
-	// blocks. Test mirrors the production composition in
-	// buildOrchestrationOptions (cmd/mcp-orch/fx.go).
+	// orchestration 子包不再导出整体 Module；根入口按独立 provider 组装。
+	// 这里镜像 buildOrchestrationOptions 的生产组合，防止父级 fx 启动缺依赖。
 	orchAssembly := fx.Module("orchestration",
 		fx.Provide(
 			orchestration.ProvideService,
@@ -70,8 +67,7 @@ func TestParentFxStartup(t *testing.T) {
 		),
 		fx.Invoke(orchestration.RegisterTurnLifecycle),
 		fx.Invoke(orchestration.RegisterApprovalLifecycle),
-		// dispatcher-wiring batch §1 重构后：Runner provider 消费
-		// *WakeupDispatcher 单例，需同时提供 ProvideWakeupDispatcher。
+		// Runner provider 消费 *WakeupDispatcher 单例；测试装配必须同时提供 dispatcher。
 		fx.Provide(orchestration.ProvideWakeupDispatcher),
 		fx.Provide(fx.Annotate(orchestration.ProvideWakeupDispatcherRunner, fx.ResultTags(`group:"runners"`))),
 		fx.Provide(fx.Annotate(wakeupreclaim.ProvideWakeupReclaimerRunner, fx.ResultTags(`group:"runners"`))),
@@ -92,8 +88,7 @@ func TestParentFxStartup(t *testing.T) {
 			func(lc fx.Lifecycle, turnStarter orchestration.TurnStarter, logger *slog.Logger) orchestration.AgentLauncher {
 				return orchestration.NewLocalLauncher(turnStarter, logger)
 			},
-			// service 强依赖 RunStore（T1.2）后，TestParentFxStartup 也需补齐 stub provider。
-			// service requires RunStore (T1.2), so TestParentFxStartup must also provide a stub.
+			// service 强依赖 RunStore，父级启动测试也必须补齐 stub provider。
 			func() taskdagstore.RunStore { return &stubRunStore{} },
 			func() taskdagstore.ScheduledStartStore { return &stubScheduledStartStore{} },
 			func() orchcron.DAGScheduleStore { return stubDAGScheduleStore{} },
@@ -236,17 +231,8 @@ func isSelector(expr ast.Expr, name string) bool {
 
 // TestFxStoresAllProvided 是干式装配断言：service 依赖的四个 Store 字段
 // (DAGStore / RunStore / AgentThreads / AgentBindings) 必须能被 fx 解出。
-// 任一字段未注册 provider 后，if optional 会静默给零值；if 强依赖会报 missing
-// dependencies。该测试位于 TestParentFxStartup 上游：仅验证 fx 能逐字段
-// resolve，不拉起 lifecycle，跳开 PG 依赖。
-//
-// TestFxStoresAllProvided is a defensive wiring assertion: each of the four
-// store fields service consumes (DAGStore / RunStore / AgentThreads /
-// AgentBindings) must be resolvable by fx. If any field's provider is
-// missing, an optional field would silently zero out and a required field
-// would surface as a missing-dependency error. Lives upstream of
-// TestParentFxStartup: only verifies fx can resolve each binding without
-// pulling in lifecycle / PG.
+// 任一字段未注册 provider 时，optional 字段会静默变零值，required 字段会报 missing dependency；
+// 该测试只验证逐字段 resolve，不拉起 lifecycle，也不连接数据库。
 func TestFxStoresAllProvided(t *testing.T) {
 	type consumeStores struct {
 		fx.In

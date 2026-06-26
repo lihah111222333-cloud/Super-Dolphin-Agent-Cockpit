@@ -10,8 +10,8 @@ import (
 	taskdag "github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/taskdag"
 )
 
-// reclaimStubStore 是 Phase 3.3 单测用的 taskdag.Store 假实现，只关心
-// ReclaimStaleDispatchingWakeups 路径。
+// reclaimStubStore 是 wakeup lease 回收测试用的 taskdag.Store 假实现。
+// 只覆盖 ReclaimStaleDispatchingWakeups，未覆盖方法通过 nil 嵌入暴露误调用。
 type reclaimStubStore struct {
 	taskdag.Store // 嵌入 nil，让未覆盖方法触发 panic（暴露遗漏）
 
@@ -84,7 +84,8 @@ func TestWakeupReclaimerReclaimOncePropagatesError(t *testing.T) {
 func TestWakeupReclaimerReclaimOnceHandlesNilContextSafely(t *testing.T) {
 	store := &reclaimStubStore{}
 	r, _ := wakeupreclaim.NewWakeupReclaimer(store, nil, wakeupreclaim.WakeupReclaimerConfig{})
-	if _, err := r.ReclaimOnce(nil); err != nil { //nolint:staticcheck // testing fallback
+	//lint:ignore SA1012 本测试覆盖 nil context 会被显式替换为 background 的兼容路径。
+	if _, err := r.ReclaimOnce(nil); err != nil { //nolint:staticcheck // 测试 nil context 会被显式替换为 background。
 		t.Fatalf("nil ctx fallback err = %v", err)
 	}
 	if store.calls != 1 {

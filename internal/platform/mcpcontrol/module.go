@@ -13,13 +13,13 @@ import (
 
 const activeLeaseCleanupTimeout = 5 * time.Second
 
-// Module wires the ctl/* control-plane registry, handlers, sweeper, and related
-// lifecycle hooks. MCP binaries are started outside the core process and
-// self-register through the control plane.
+// provideRegistry 创建 MCP 控制面注册表，供 fx 以单例形式注入。
 func provideRegistry() *ToolRegistry {
 	return NewRegistry()
 }
 
+// Module 装配 ctl/* 控制面注册表、handler、sweeper 和配置广播 worker。
+// MCP 二进制在核心进程外启动，并通过本控制面自注册。
 var Module = fx.Module("mcpcontrol",
 	fx.Provide(
 		provideRegistry,
@@ -33,10 +33,7 @@ var Module = fx.Module("mcpcontrol",
 		provideHandlers,
 		newConfigFanoutWorkerProvider,
 		NewMCPConfigChangeSubscribers,
-		// P22 P1b Finding 3: long-running sweep loop owned by run.Group via
-		// the root group:"runners" bridge instead of a module-level
-		// OnStart-spawned goroutine (the pre-P1b registerSweeperLifecycle
-		// path). See sweeper_runner.go for the runner contract.
+		// sweeper 长循环由 root run.Group 管理，避免 fx OnStart 内部再开不可追踪 goroutine。
 		fx.Annotate(NewSweeperRunner, fx.ResultTags(`group:"runners"`)),
 	),
 	fx.Provide(
@@ -45,7 +42,7 @@ var Module = fx.Module("mcpcontrol",
 	fx.Invoke(registerRegistryLifecycle),
 )
 
-// HandlerDeps bundles the dependencies used to build the MCP control-plane RPC handlers.
+// HandlerDeps 汇总 MCP 控制面 RPC handler 的依赖，测试可以替换各个 sink/handler。
 type HandlerDeps struct {
 	Registry          *ToolRegistry
 	Approvals         *rpc.ApprovalManager          `optional:"true"`
@@ -62,6 +59,7 @@ type HandlerDeps struct {
 	CompletionReports CompletionReportHandler       `optional:"true"`
 }
 
+// handlerIn 是 fx 注入形态，对应 HandlerDeps 的运行时依赖集合。
 type handlerIn struct {
 	fx.In
 
@@ -80,6 +78,7 @@ type handlerIn struct {
 	CompletionReports CompletionReportHandler       `optional:"true"`
 }
 
+// configFanoutWorkerIn 是配置广播 worker 的 fx 注入参数。
 type configFanoutWorkerIn struct {
 	fx.In
 
@@ -88,6 +87,7 @@ type configFanoutWorkerIn struct {
 	Logger   *pkglogger.Logger     `optional:"true"`
 }
 
+// newConfigFanoutWorkerProvider 构造配置广播 worker，缺省 logger 使用包级 logger。
 func newConfigFanoutWorkerProvider(in configFanoutWorkerIn) *configFanoutWorker {
 	logger := in.Logger
 	if logger == nil {
@@ -96,34 +96,42 @@ func newConfigFanoutWorkerProvider(in configFanoutWorkerIn) *configFanoutWorker 
 	return newConfigFanoutWorker(in.Notifier, in.Versions, logger)
 }
 
+// configVersionSource 是配置变更广播所需的最小版本推进接口。
 type configVersionSource interface {
 	advanceConfigVersion() int64
 }
 
+// provideConfigVersionSource 暴露注册表的配置版本推进能力。
 func provideConfigVersionSource(registry *ToolRegistry) configVersionSource {
 	return registry
 }
 
+// provideToolRegistry 将内部注册表暴露为 contract.ToolRegistry。
 func provideToolRegistry(registry *ToolRegistry) contract.ToolRegistry {
 	return registry
 }
 
+// provideToolNotifier 将内部注册表暴露为通知 fanout 能力。
 func provideToolNotifier(registry *ToolRegistry) contract.ToolNotifier {
 	return registry
 }
 
+// provideToolHookCallback 将内部注册表暴露为 hook callback 能力。
 func provideToolHookCallback(registry *ToolRegistry) contract.ToolHookCallback {
 	return registry
 }
 
+// providePeerCallback 将内部注册表暴露为 peer 定向回调能力。
 func providePeerCallback(registry *ToolRegistry) contract.PeerCallback {
 	return registry
 }
 
+// provideToolControlPlane 将内部注册表暴露为工具控制面聚合接口。
 func provideToolControlPlane(registry *ToolRegistry) contract.ToolControlPlane {
 	return registry
 }
 
+// provideHandlers 将 fx 注入参数转换成 handler 构造参数，保持 NewHandlers 可直接单测。
 func provideHandlers(in handlerIn) rpc.HandlerMapResult {
 	return NewHandlers(HandlerDeps{
 		Registry:          in.Registry,
@@ -142,6 +150,7 @@ func provideHandlers(in handlerIn) rpc.HandlerMapResult {
 	})
 }
 
+// registerRegistryLifecycle 在 fx 停止阶段清理 active 租约，避免控制面退出后遗留 hook 状态。
 func registerRegistryLifecycle(lc fx.Lifecycle, registry *ToolRegistry, hookLifecycle contract.HookLifecycle) {
 	if registry == nil {
 
@@ -161,9 +170,5 @@ func registerRegistryLifecycle(lc fx.Lifecycle, registry *ToolRegistry, hookLife
 	})
 }
 
-// P22 P1b Finding 3: registerSweeperLifecycle was deleted. The sweeper loop is
-// now owned by SweeperRunner (sweeper_runner.go) and joined via the root
-// `group:"runners"` aggregation; shutdown is driven by root ctx cancel
-// rather than a module-scoped cancel paired with a fire-and-forget
-// OnStart goroutine. registry final-lease cleanup stays in
-// registerRegistryLifecycle.OnStop.
+// sweeper 循环的生命周期由 SweeperRunner 和 root run.Group 统一管理。
+// 注册表最终租约清理仍保留在 registerRegistryLifecycle.OnStop 中，确保退出时 hook 状态被收口。

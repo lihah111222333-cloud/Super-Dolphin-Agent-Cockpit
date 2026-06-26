@@ -12,11 +12,8 @@ import (
 	sharedto "github.com/anthropic-ai/super-agent-v3/internal/dto/shared"
 )
 
-// TestHookConsumerStateChangeRespectsSessionFence verifies P22 P4
-// §121/§282: an inbound StateChanged event stamped with a SessionID
-// that does not match the agent's current launchSeq must be dropped.
-// An empty SessionID is accepted (legacy producer compatibility).
-// A matching SessionID applies as before.
+// TestHookConsumerStateChangeRespectsSessionFence 验证 StateChanged 事件的 session fence。
+// SessionID 与当前 launchSeq 不一致时必须丢弃；空 SessionID 作为兼容输入允许通过。
 func TestHookConsumerStateChangeRespectsSessionFence(t *testing.T) {
 	cases := []struct {
 		name      string
@@ -87,9 +84,8 @@ func TestHookConsumerStateChangeRespectsSessionFence(t *testing.T) {
 	}
 }
 
-// TestAgentSessionFenceOK covers the pure-function helper invariants
-// independently so regressions in either the empty-SessionID policy
-// or the launchSeq-to-string formatting are caught directly.
+// TestAgentSessionFenceOK 单独覆盖 session fence helper 的不变量。
+// 空 SessionID 策略和 launchSeq 字符串格式任一回归都会在这里直接暴露。
 func TestAgentSessionFenceOK(t *testing.T) {
 	agent := &agentState{launchSeq: 7}
 	if !agentSessionFenceOK(agent, "") {
@@ -104,9 +100,7 @@ func TestAgentSessionFenceOK(t *testing.T) {
 	if agentSessionFenceOK(nil, "7") {
 		t.Fatalf("nil agent must fail closed")
 	}
-	// launchSeq == 0 means no session has started; any non-empty
-	// SessionID should then be rejected because the agent does not
-	// yet have an authoritative session to match.
+	// launchSeq==0 表示尚无权威 session，任何非空 SessionID 都必须拒绝。
 	if agentSessionFenceOK(&agentState{}, "1") {
 		t.Fatalf("zero launchSeq must reject a non-empty SessionID")
 	}

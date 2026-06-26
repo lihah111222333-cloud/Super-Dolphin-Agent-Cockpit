@@ -7,6 +7,8 @@ import (
 	promptstore "github.com/anthropic-ai/super-agent-v3/internal/store/prompt"
 )
 
+// writePromptSectionInTx 在单个事务中校验父 prompt scope、写入 section，并维护 recall topic 索引。
+// recall 写入会先做同 cwd 去重锁，防止并发请求生成重复 topic。
 func writePromptSectionInTx(
 	ctx context.Context,
 	store promptstore.Store,

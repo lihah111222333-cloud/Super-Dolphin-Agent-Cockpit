@@ -13,6 +13,7 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 )
 
+// structureParams 是 structure 工具的入参，兼容 file_path/path 和 language 写法。
 type structureParams struct {
 	Action     string `json:"action"`
 	FilePath   string `json:"file_path"`
@@ -23,6 +24,7 @@ type structureParams struct {
 	MaxResults int    `json:"max_results"`
 }
 
+// documentSymbolListResponse 是 document_symbol 的分页响应。
 type documentSymbolListResponse struct {
 	Data      []protocol.DocumentSymbol `json:"data"`
 	Total     int                       `json:"total"`
@@ -31,7 +33,7 @@ type documentSymbolListResponse struct {
 	Hint      string                    `json:"hint,omitempty"`
 }
 
-// NewStructureHandler 创建structure处理器。
+// NewStructureHandler 创建 structure 工具处理器，按 action 延迟选择文件或语言级 manager。
 func NewStructureHandler(registry lspmanager.Registry) ToolHandler {
 	return newManagerTool("structure", middleware.TierNormal, registry, decodeLenient, func(ctx context.Context, registry lspmanager.Registry, req structureParams) (any, error) {
 		req.FilePath = firstNonEmpty(req.FilePath, req.Path)
@@ -74,6 +76,7 @@ func NewStructureHandler(registry lspmanager.Registry) ToolHandler {
 	})
 }
 
+// firstNonEmpty 返回第一个非空字符串。
 func firstNonEmpty(values ...string) string {
 	for _, value := range values {
 		if strings.TrimSpace(value) != "" {
@@ -83,9 +86,8 @@ func firstNonEmpty(values ...string) string {
 	return ""
 }
 
-// resolveWorkspaceSymbolManager picks the right manager based on language or
-// file_path and returns the language that WorkspaceSymbol should use.
-// resolveWorkspaceSymbolManager 解析工作区符号manager。
+// resolveWorkspaceSymbolManager 根据 language 或 file_path 选择 workspace_symbol 的 manager。
+// 两个定位方式必须二选一，避免目录路径被误当成源码文件启动语言服务。
 func resolveWorkspaceSymbolManager(ctx context.Context, registry lspmanager.Registry, filePath, language string) (lspmanager.Manager, string, error) {
 	language = normalizeWorkspaceSymbolLanguage(language)
 	filePath = strings.TrimSpace(filePath)
@@ -119,7 +121,7 @@ func resolveWorkspaceSymbolManager(ctx context.Context, registry lspmanager.Regi
 	return manager, language, nil
 }
 
-// runDocumentSymbols 运行document符号。
+// runDocumentSymbols 读取单文件符号树，并按 max_results 递归裁剪。
 func runDocumentSymbols(
 	ctx context.Context,
 	manager lspmanager.Manager,
@@ -156,7 +158,7 @@ func runDocumentSymbols(
 	return resp, nil
 }
 
-// runWorkspaceSymbols 运行工作区符号。
+// runWorkspaceSymbols 运行 workspace_symbol；传 file_path 时先 bootstrap 目标文件。
 func runWorkspaceSymbols(
 	ctx context.Context,
 	manager lspmanager.Manager,
@@ -200,6 +202,7 @@ func runWorkspaceSymbols(
 	), nil
 }
 
+// bootstrapWorkspaceSymbolTarget 在 workspace_symbol 前打开目标文件，帮助语言服务建立项目上下文。
 func bootstrapWorkspaceSymbolTarget(ctx context.Context, manager lspmanager.Manager, filePath string) error {
 	if strings.TrimSpace(filePath) == "" {
 		return nil
@@ -211,6 +214,7 @@ func bootstrapWorkspaceSymbolTarget(ctx context.Context, manager lspmanager.Mana
 	return manager.BootstrapDocument(ctx, resolved)
 }
 
+// runFoldingRanges 返回文件折叠范围，供调用方理解大文件结构。
 func runFoldingRanges(
 	ctx context.Context,
 	manager lspmanager.Manager,
@@ -229,7 +233,7 @@ func runFoldingRanges(
 	})
 }
 
-// runSemanticTokens 运行语义令牌。
+// runSemanticTokens 返回语义令牌，并按协议上限裁剪。
 func runSemanticTokens(
 	ctx context.Context,
 	manager lspmanager.Manager,
@@ -258,6 +262,7 @@ func runSemanticTokens(
 	return format.NormalizeForDisplay(result), nil
 }
 
+// validateWorkspaceSymbolFilePath 拒绝目录路径，避免 workspace_symbol 扫描语义不明确。
 func validateWorkspaceSymbolFilePath(filePath string) error {
 	filePath = strings.TrimSpace(filePath)
 	if stat, err := os.Stat(workspaceSymbolPathForValidation(filePath)); err == nil && stat.IsDir() {
@@ -266,10 +271,12 @@ func validateWorkspaceSymbolFilePath(filePath string) error {
 	return nil
 }
 
+// normalizeWorkspaceSymbolLanguage 标准化 language 参数。
 func normalizeWorkspaceSymbolLanguage(raw string) string {
 	return strings.ToLower(strings.TrimSpace(raw))
 }
 
+// workspaceSymbolPathForValidation 把 file:// 路径转换为本地路径用于 stat 校验。
 func workspaceSymbolPathForValidation(path string) string {
 	path = strings.TrimSpace(path)
 	if strings.HasPrefix(path, "file://") {
@@ -280,6 +287,7 @@ func workspaceSymbolPathForValidation(path string) string {
 	return path
 }
 
+// limitDocumentSymbols 按节点数量上限裁剪 document symbol 树。
 func limitDocumentSymbols(symbols []protocol.DocumentSymbol, limit int) []protocol.DocumentSymbol {
 	if len(symbols) == 0 || limit <= 0 {
 		return nil
@@ -288,7 +296,7 @@ func limitDocumentSymbols(symbols []protocol.DocumentSymbol, limit int) []protoc
 	return limitDocumentSymbolNodes(symbols, &remaining)
 }
 
-// limitDocumentSymbolNodes 处理limitdocument符号节点。
+// limitDocumentSymbolNodes 递归裁剪 symbol 树，并共享 remaining 计数。
 func limitDocumentSymbolNodes(
 	symbols []protocol.DocumentSymbol,
 	remaining *int,
@@ -309,6 +317,7 @@ func limitDocumentSymbolNodes(
 	return capped
 }
 
+// countDocumentSymbolNodes 统计 symbol 树中节点总数。
 func countDocumentSymbolNodes(symbols []protocol.DocumentSymbol) int {
 	total := 0
 	for i := range symbols {

@@ -147,7 +147,7 @@ func (s *service) importSource(source, name, cwd, scope, personalType, mode stri
 	return s.importBatchSource(resolvedSource, cwd, scope, personalType)
 }
 
-// detectImportMode 处理detectimport模式。
+// detectImportMode 根据请求模式和目录内容判断 skill 导入方式。
 func detectImportMode(resolvedSource, requestedMode string) (string, error) {
 	switch requestedMode {
 	case importModeSingle, importModeBatch:

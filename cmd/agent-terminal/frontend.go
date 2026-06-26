@@ -6,10 +6,8 @@ import (
 	"io/fs"
 )
 
-// frontendDist embeds the Vite build output used by the desktop host.
-// The current React/Vite frontend-app build is copied into this embed path by
-// Makefile build/test/run targets before Go compiles this package.
-// The all: prefix preserves nested assets and dot-files in the built output.
+// frontendDist 嵌入桌面宿主实际服务的前端构建产物。
+// 构建脚本会先把当前 React/Vite frontend-app 复制到该目录，all: 前缀保证嵌套资源和点文件不丢失。
 //
 //go:embed all:frontend/dist
 var frontendDist embed.FS

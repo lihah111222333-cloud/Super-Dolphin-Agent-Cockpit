@@ -52,13 +52,9 @@ type GateSnapshot struct {
 	SkipProjectLocalClaudeMd bool
 	InjectMemoryIndex        bool
 	InjectTeamMemIndex       bool
-	// SuppressForOverlay mirrors MemoryGateSnapshot.SuppressForOverlay() into
-	// the nested-package gate so claudeMd source loading lets the underlying
-	// CLI harness's native CLAUDE.md handling take over (claude_code overlay).
-	// Today the rendered claudeMd output is dropped before reaching providers
-	// (start_session_helpers.go drops UserContext / UserContextText), so this
-	// short-circuit is defense-in-depth: if a provider ever re-consumes
-	// UserContextText, claude_code overlay must not double-inject CLAUDE.md.
+	// SuppressForOverlay 表示当前 CLI harness 会原生处理 CLAUDE.md。
+	// nested 包看到该标志后停止加载来源，作为防重复注入边界；即使 provider 后续重新消费
+	// UserContextText，也不会和底层 overlay 同时注入 CLAUDE.md。
 	SuppressForOverlay bool
 }
 
@@ -289,21 +285,16 @@ func loadClaudeMdSources(ctx context.Context, candidates []claudeMdCandidate) ([
 }
 
 func loadClaudeMdSource(candidate claudeMdCandidate) (ClaudeMdSource, bool, error) {
-	// Phase 1.6 removed AutoMem / TeamMem MEMORY.md from the nested
-	// ClaudeMd candidate set, so loadMemoryClaudeMdSource is no longer
-	// reachable from production. The shared filter (shouldSkipInjectedSource)
-	// also rejects those source types defensively. All remaining nested
-	// sources go through loadStandardClaudeMdSource.
+	// 当前 nested 候选只包含 CLAUDE.md 和规则文件；AutoMem/TeamMem 入口文件
+	// 由父包入口 provider 负责。这里统一走标准加载路径，保持读取和过滤边界单一。
 	return loadStandardClaudeMdSource(candidate)
 }
 
 // loadStandardClaudeMdSource 从磁盘读取候选文件，在加载时二次校验路径包含关系（defense-in-depth）。
 // BaseDir 为空时跳过，防止路径逃逸攻击。
 func loadStandardClaudeMdSource(candidate claudeMdCandidate) (ClaudeMdSource, bool, error) {
-	// Phase 2.1.A: defense-in-depth read. Even though appendClaudeMdCandidate
-	// already verified the candidate path stays under BaseDir post-EvalSymlinks,
-	// re-check at load time so a symlink swapped between candidate-time and
-	// load-time still cannot redirect the read outside BaseDir.
+	// 收集候选时已经校验过解析后的路径仍在 BaseDir 下；加载时仍通过
+	// SafeReadEntrypoint 再校验一次，防止候选收集和实际读取之间符号链接被替换。
 	if candidate.BaseDir == "" {
 		return ClaudeMdSource{}, false, nil
 	}

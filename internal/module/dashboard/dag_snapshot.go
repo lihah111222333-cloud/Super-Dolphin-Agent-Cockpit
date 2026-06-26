@@ -131,6 +131,8 @@ func dashboardListDAGsSnapshotQuery(filter contract.ListDAGsFilter) (string, []a
 	return dashboardListDAGsSnapshotAllQuery, []any{filter.Limit}
 }
 
+// getDAGDetailFromSnapshot 从 task_dags 快照表读取 DAG 模板和节点。
+// 缺失 dagKey 或行映射失败都直接返回错误，避免前端展示半截 DAG。
 func (s *service) getDAGDetailFromSnapshot(ctx context.Context, dagKey string) (*contract.DAGDetail, error) {
 	rows, err := s.dbQueries.Query(ctx, dashboardGetDAGSnapshotQuery, dagKey)
 	if err != nil {
@@ -171,6 +173,8 @@ func dashboardListRunsSnapshotQuery(dagKey, status string, limit int32) (string,
 	return dashboardListRunsSnapshotAllQuery, []any{dagKey, limit}
 }
 
+// listLatestDAGRunsByDAGFromSnapshot 为一组 DAG 读取各自最新 run 快照。
+// 查询结果按 SQL 排序去重，调用方依赖空 map 表示没有可展示的历史运行。
 func (s *service) listLatestDAGRunsByDAGFromSnapshot(ctx context.Context, dagKeys []string) (map[string]contract.Run, error) {
 	if len(dagKeys) == 0 {
 		return map[string]contract.Run{}, nil
@@ -205,6 +209,8 @@ func dashboardLatestRunsByDAGQuery(dagKeys []string) (string, []any) {
 	return fmt.Sprintf(dashboardListLatestRunsByDAGSnapshotQueryTemplate, strings.Join(placeholders, ", "), limitPlaceholder), args
 }
 
+// getDAGRunFromSnapshot 从 run 快照读取一次运行及其节点状态。
+// runKey 不存在时返回明确错误，节点读取失败也不返回不完整响应。
 func (s *service) getDAGRunFromSnapshot(ctx context.Context, runKey string) (contract.GetRunResponse, error) {
 	rows, err := s.dbQueries.Query(ctx, dashboardGetRunSnapshotQuery, runKey)
 	if err != nil {
@@ -240,6 +246,8 @@ func dashboardDAGSummariesFromRows(rows []map[string]any) ([]contract.DAGSummary
 	return out, nil
 }
 
+// dashboardDAGSummaryFromRow 将一行 task_dags 查询结果转换为 dashboard DAG 摘要。
+// 必填主键和版本字段缺失时立即报错，调度开关由触发器、cron 表达式和 next_run_at 共同决定。
 func dashboardDAGSummaryFromRow(row map[string]any) (contract.DAGSummary, error) {
 	id, err := dashboardRowInt64(row, "id", true)
 	if err != nil {
@@ -292,6 +300,8 @@ func dashboardDAGNodesFromRows(rows []map[string]any) ([]contract.DAGNode, error
 	return out, nil
 }
 
+// dashboardDAGNodeFromRow 将 task_dag_nodes 行转换为前端可读的 DAG 节点。
+// 依赖列表和时间字段解析失败会阻断整条响应，避免节点拓扑被错误展示。
 func dashboardDAGNodeFromRow(row map[string]any) (contract.DAGNode, error) {
 	id, err := dashboardRowInt64(row, "id", true)
 	if err != nil {
@@ -352,6 +362,8 @@ func dashboardRunsFromRows(rows []map[string]any) ([]contract.Run, error) {
 	return out, nil
 }
 
+// dashboardRunFromRow 将 task_dag_runs 行转换为运行快照。
+// events 和 metadata 允许按展示层 fallback 规范修正格式，核心 ID、版本和预算字段仍保持 fail-fast。
 func dashboardRunFromRow(row map[string]any) (contract.Run, error) {
 	id, err := dashboardRowInt64(row, "id", true)
 	if err != nil {
@@ -433,6 +445,8 @@ func dashboardJSON(row map[string]any, key string) json.RawMessage {
 	return dashboardJSONOrDefault(row, key, nil)
 }
 
+// dashboardJSONOrDefault 规范化 dashboard 快照中的 JSON 列。
+// fallback 只用于展示层兜住空值或历史脏数据，调用方仍需对必填业务字段单独校验。
 func dashboardJSONOrDefault(row map[string]any, key string, fallback json.RawMessage) json.RawMessage {
 	value, ok := row[key]
 	if !ok || value == nil {
@@ -495,6 +509,8 @@ func dashboardRowInt64(row map[string]any, key string, required bool) (int64, er
 	return dashboardInt64Value(key, value)
 }
 
+// dashboardInt64Value 将数据库驱动可能返回的数字形态统一为 int64。
+// 浮点小数、不可解析字符串或未知类型会返回错误，避免静默截断计数和 ID。
 func dashboardInt64Value(key string, value any) (int64, error) {
 	switch typed := value.(type) {
 	case int:

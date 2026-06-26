@@ -1,11 +1,5 @@
-// Package cron carries DTO event shapes for the cron module.
-//
-// JobRunStateChanged is the single event the cron scheduler publishes
-// onto the internal event dispatcher every time a cron_job_runs row
-// transitions between states. It is the upstream signal the wails
-// EventBridge picks up via eventsurface and re-emits to the frontend
-// as cron/job/runStateChanged so the UI can incrementally update
-// runsByJob without polling.
+// Package cron 定义 cron 模块发布到事件总线的 DTO。
+// 这些 DTO 是 scheduler、eventsurface 和前端增量更新之间的 wire 边界。
 package cron
 
 import (
@@ -14,11 +8,8 @@ import (
 	shareddto "github.com/anthropic-ai/super-agent-v3/internal/dto/shared"
 )
 
-// JobRunStateChanged is published by Scheduler at every CAS-success
-// run state transition: pending → submitting → submitted → running →
-// finished | failed | observe_lost. The fields are intentionally a
-// flat snapshot — consumers do not need to chase the run row again
-// for typical UI updates.
+// JobRunStateChanged 在 cron_job_runs 状态 CAS 成功后发布。
+// 字段保持扁平快照，前端可直接更新 runsByJob，不需要再回查 run 行。
 type JobRunStateChanged struct {
 	shareddto.EventHeader
 	JobID       string    `json:"job_id"`
@@ -29,6 +20,5 @@ type JobRunStateChanged struct {
 	ScheduledAt time.Time `json:"scheduled_at,omitempty"`
 }
 
-// Type returns the dispatcher Type tag for JobRunStateChanged.
-// Type 返回事件分发用的类型编号。
+// Type 返回 cron job run 状态变更事件分发用的类型编号。
 func (JobRunStateChanged) Type() uint32 { return shareddto.EventTypeCronJobRunStateChanged }

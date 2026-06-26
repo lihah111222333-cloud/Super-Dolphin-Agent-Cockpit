@@ -34,7 +34,7 @@ var legacyOrchestrationAliases = map[string]string{
 	"orchestration_get_agent_report": "get_agent_report",
 }
 
-// NewRegistry 创建注册表。
+// NewRegistry 汇总所有工具定义并建立名称索引；旧 orchestration_* 名称在 Lookup 时映射到新名。
 func NewRegistry(deps Dependencies) Registry {
 	tools := append(orchestrationToolDefinitions(deps.Orchestration), taskToolDefinitions(deps.Orchestration)...)
 	tools = append(tools, workspaceToolDefinitions(deps.Workspace)...)
@@ -53,12 +53,12 @@ func NewRegistry(deps Dependencies) Registry {
 	return Registry{tools: tools, byName: byName}
 }
 
-// List 列出编排。
+// List 返回工具定义副本，避免调用方修改 Registry 内部切片。
 func (r Registry) List() []ToolDefinition {
 	return append([]ToolDefinition(nil), r.tools...)
 }
 
-// Lookup 按名称查找注册项。
+// Lookup 按工具名查找定义，并兼容旧 orchestration_* 别名。
 func (r Registry) Lookup(name string) (ToolDefinition, bool) {
 	if canonical, ok := legacyOrchestrationAliases[name]; ok {
 		name = canonical

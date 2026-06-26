@@ -16,11 +16,8 @@ import (
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
-// sanitizeResumeID returns the resumeID only if it's a UUID that Claude CLI
-// will accept. Passing a non-UUID (e.g. our synthetic "agent_<ts>" thread ID)
-// makes the CLI exit with "not a UUID and does not match any session title"
-// before it ever reads stdin — which surfaces to users as a silent empty
-// "Claude API temporarily unavailable" result.
+// sanitizeResumeID 只把 Claude CLI 能接受的 UUID resumeID 传给子进程。
+// 本地合成的 thread ID 会让 CLI 在读取 stdin 前退出，因此这里丢弃非法值并记录告警。
 func sanitizeResumeID(id string) string {
 	trimmed := strings.TrimSpace(id)
 	if trimmed == "" {
@@ -48,9 +45,8 @@ type cliLaunchConfig struct {
 	DeveloperInstructions string
 	ClaudeHome            string
 	PromptSnapshot        contract.PromptAssemblySnapshot
-	// BuiltinTools is the allowlist passed to Claude CLI --tools. Nil keeps the
-	// legacy disallow-list path; non-nil (including empty) expresses an explicit
-	// launch-time native tool visibility choice.
+	// BuiltinTools 对应传给 Claude CLI --tools 的显式 allowlist。
+	// nil 保留 disallow-list 路径；非 nil 空切片表示本轮明确不暴露 native tool。
 	BuiltinTools                []string
 	DisallowedTools             []string
 	AdditionalDisallowedTools   []string
@@ -89,7 +85,8 @@ func claudeLaunchEnv(cfg cliLaunchConfig) []string {
 	return []string{"CLAUDE_CONFIG_DIR=" + home}
 }
 
-// logManifestLaunch 处理日志manifest启动。
+// logManifestLaunch 记录本轮写给 Claude CLI 的 MCP manifest 摘要。
+// 日志只暴露命令、参数和 env key，不输出敏感 env value，便于排查启动与权限边界。
 func logManifestLaunch(binary, cwd, model, mcpPath string, manifest dto.MCPManifest) {
 	servers := make([]map[string]any, 0, len(manifest.Binaries))
 	for _, bin := range manifest.Binaries {
@@ -135,12 +132,8 @@ func logManifestLaunch(binary, cwd, model, mcpPath string, manifest dto.MCPManif
 	)
 }
 
-// logSystemPromptArgs dumps every --system-prompt block that we're about to
-// hand to the Claude CLI. For each block we record length, head preview, tail
-// preview, and also write the full content to a timestamped file under the
-// OS temp dir so the operator can grep for known markers (e.g. to check
-// whether a router-injected PromptTemplate actually made it through).
-// logSystemPromptArgs 处理日志systempromptargs。
+// logSystemPromptArgs 记录即将交给 Claude CLI 的每段 --system-prompt。
+// 完整内容写入临时目录，日志只带首尾预览和 dump 路径，方便确认路由注入是否真正进入 CLI。
 func logSystemPromptArgs(args []string) {
 	blocks := make([]map[string]any, 0, 4)
 	idx := 0
@@ -188,7 +181,8 @@ func writeSystemPromptDump(index int, content string) string {
 	return path
 }
 
-// buildCLIArgs 构建CLIargs。
+// buildCLIArgs 汇总模型、prompt、权限和工具策略并生成 Claude CLI 参数。
+// native tool allowlist 优先于 disallow list；带 MCP 配置时必须补权限模式，避免 CLI 交互式阻塞。
 func buildCLIArgs(model, instructions, mcpConfigPath string, cfg cliLaunchConfig) []string {
 	model = sanitizeClaudeModel(model)
 	args := []string{
@@ -224,14 +218,15 @@ func hasFlag(args []string, flag string) bool {
 	return slices.Contains(args, flag)
 }
 
-// defaultDisallowedBuiltinTools mirrors the provider registry defaults when
-// the caller has not provided an explicit DisallowedTools override.
+// defaultDisallowedBuiltinTools 读取 provider registry 里的默认禁用 native tool。
+// 调用方未显式覆盖时使用这份清单，确保启动参数与 UI/配置层的默认治理一致。
 func defaultDisallowedBuiltinTools() []string {
 	factory := NewDriverFactory(driverFactoryParams{})
 	return defaultDisabledLaunchToolIDs(factory.NativeTools)
 }
 
-// defaultDisabledLaunchToolIDs 处理defaultdisabled启动工具ids。
+// defaultDisabledLaunchToolIDs 过滤 Claude hard-disable native tool ID。
+// 只有属于 Claude provider 且标记为启动期强禁用的工具才会写入 disallow 参数。
 func defaultDisabledLaunchToolIDs(tools []contract.NativeToolDescriptor) []string {
 	ids := make([]string, 0, len(tools))
 	for _, tool := range tools {
@@ -279,10 +274,8 @@ func additionalDisallowedTools(cfg cliLaunchConfig) []string {
 	return append(ids, "Skill")
 }
 
-// resolveDisallowedToolsFlag turns the configured lists into the --disallowedTools
-// flag value. nil override means legacy defaults; a non-nil empty override skips
-// defaults unless additional items are present.
-// resolveDisallowedToolsFlag 解析disallowed工具flag。
+// resolveDisallowedToolsFlag 把覆盖值和追加值合并成 --disallowedTools 参数。
+// nil 覆盖值沿用默认禁用清单；非 nil 空切片表示调用方明确跳过默认值。
 func resolveDisallowedToolsFlag(override []string, additional ...[]string) string {
 	source := override
 	if source == nil {
@@ -375,7 +368,8 @@ func promptDeveloperInstructions(cfg cliLaunchConfig) string {
 	return strings.TrimSpace(cfg.DeveloperInstructions)
 }
 
-// promptSnapshotBlank 处理prompt快照blank。
+// promptSnapshotBlank 判断 prompt snapshot 是否完全没有可复用内容。
+// 这是兼容旧调用方的空值探测，不能把 Generation 或 Hash 等持久化字段漏掉。
 func promptSnapshotBlank(snapshot contract.PromptAssemblySnapshot) bool {
 	return strings.TrimSpace(snapshot.DisplayName) == "" &&
 		strings.TrimSpace(snapshot.BaseInstructions) == "" &&
@@ -420,7 +414,8 @@ func resolvePermissionMode(approvalPolicy, sandbox string) string {
 	}
 }
 
-// permissionModeFromSandbox 从沙箱处理permission模式。
+// permissionModeFromSandbox 将运行时 sandbox 形态映射到 Claude CLI 权限模式。
+// sandbox 可能来自 JSON wire 或纯字符串，无法识别时交回 approvalPolicy 路径决定。
 func permissionModeFromSandbox(sandbox string) string {
 	raw := strings.TrimSpace(sandbox)
 	if raw == "" {
@@ -448,7 +443,8 @@ func permissionModeFromSandbox(sandbox string) string {
 	}
 }
 
-// normalizeEffort 规范化兜底。
+// normalizeEffort 将前端 effort 选项转换为 Claude CLI 支持的枚举。
+// max 仅对 opus 保留，其他模型降到 high，未知值原样返回让 CLI 自行 fail-fast。
 func normalizeEffort(model, effort string) string {
 	normalizedModel := strings.ToLower(strings.TrimSpace(model))
 	if normalizedModel == "best" {
@@ -473,7 +469,8 @@ func normalizeEffort(model, effort string) string {
 	}
 }
 
-// writeManifestConfig 写入manifest配置。
+// writeManifestConfig 将 MCP manifest 写成 Claude CLI 可读取的临时配置文件。
+// 没有有效 server 时返回空路径；写入或关闭失败会清理临时文件并返回错误。
 func writeManifestConfig(manifest dto.MCPManifest, cwd string) (string, func(), error) {
 	servers := manifestServers(manifest, cwd)
 	if len(servers) == 0 {
@@ -520,7 +517,7 @@ func manifestServer(bin dto.MCPBinary, cwd string) (string, map[string]any, bool
 		return "", nil, false
 	}
 
-	// HTTP mode: peer process already running, just point Claude at the URL.
+	// HTTP 模式只把已运行 peer 的 URL 写给 Claude，不在 provider 配置里启动新进程。
 	if strings.TrimSpace(bin.Type) == "http" && strings.TrimSpace(bin.URL) != "" {
 		server := map[string]any{
 			"type": "http",
@@ -531,8 +528,7 @@ func manifestServer(bin dto.MCPBinary, cwd string) (string, map[string]any, bool
 		return name, server, true
 	}
 
-	// stdio mode: validate command and ensure it is either a managed sidecar
-	// or the explicitly supported postgres npm MCP package.
+	// stdio 模式必须先校验命令来源，只允许托管 sidecar 或显式允许的 MCP 包。
 	server, ok := buildStdioServer(bin, cwd)
 	if !ok {
 		return "", nil, false
@@ -540,7 +536,8 @@ func manifestServer(bin dto.MCPBinary, cwd string) (string, map[string]any, bool
 	return name, server, true
 }
 
-// buildStdioServer 构建stdio服务端。
+// buildStdioServer 将单个 stdio MCP 二进制转换为 Claude 配置项。
+// 命令为空或不在 allowlist 内会被跳过，避免把任意本地命令写入 provider 配置。
 func buildStdioServer(bin dto.MCPBinary, cwd string) (map[string]any, bool) {
 	if len(bin.Command) == 0 {
 		return nil, false
@@ -567,8 +564,7 @@ func buildStdioServer(bin dto.MCPBinary, cwd string) (map[string]any, bool) {
 }
 
 // allowedStdioMCPCommand 控制 Claude MCP 配置里可被拉起的 stdio 命令范围。
-// managed sidecar 继续按 mcp-* 放行；npx 只允许明确列出的 MCP 包，避免任意 npm 包被配置启动。
-// 当前 npx 只允许显式声明的 MCP 包，避免把任意 npx 命令写入 provider 配置。
+// 托管 sidecar 按 mcp-* 放行；npx 只允许明确列出的 MCP 包，避免任意 npm 包被配置启动。
 func allowedStdioMCPCommand(command string, args []string) bool {
 	base := strings.ToLower(strings.TrimSpace(filepath.Base(command)))
 	base = strings.TrimSuffix(strings.TrimSuffix(base, ".exe"), ".cmd")
@@ -593,7 +589,8 @@ func applyAutoApprove(server map[string]any, autoApprove []string) {
 	}
 }
 
-// applyHeaders 应用头部。
+// applyHeaders 将非空 HTTP header 写入 MCP server 配置。
+// 空 key/value 会被丢弃，避免 provider 侧收到无效 header 后才失败。
 func applyHeaders(server map[string]any, headers map[string]string) {
 	if len(headers) == 0 {
 		return

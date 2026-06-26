@@ -26,7 +26,8 @@ type Budget struct {
 	MaxBytes int
 }
 
-// ToolBudget 处理工具budget。
+// ToolBudget 查找指定工具的输出预算。
+// 未配置的工具使用默认上限，保证新增工具也受统一截断保护。
 func ToolBudget(toolName string) int {
 	if v, ok := defaultToolBudgets[toolName]; ok {
 		return v
@@ -59,7 +60,8 @@ func WithOutputBudget(toolName string, next Handler, budget Budget) Handler {
 	}
 }
 
-// fitsBudget 判断值序列化后是否在预算内。
+// fitsBudget 计算值序列化后的可见文本是否在预算内。
+// 序列化失败按不适合处理，让调用方走结构化溢出路径。
 func fitsBudget(value any, maxBytes int) bool {
 	_, actualBytes, err := budgetTextBytes(value)
 	return err == nil && actualBytes <= maxBytes
@@ -121,7 +123,8 @@ func structuredOverflow(toolName string, payload map[string]any, actualBytes, bu
 	}
 }
 
-// editOverflowEnvelope 处理编辑overflow包装。
+// editOverflowEnvelope 为编辑类工具构造溢出响应。
+// 它保留编辑摘要和替换预览，避免超预算时丢掉定位信息。
 func editOverflowEnvelope(toolName string, payload map[string]any, actualBytes, budgetBytes int) map[string]any {
 	hint := lookupHint(toolName)
 	envelope := map[string]any{
@@ -178,7 +181,8 @@ func editOverflowEnvelope(toolName string, payload map[string]any, actualBytes, 
 	return envelope
 }
 
-// originalSuccess 提取 payload 中的 success 字段，payload 为 nil 时返回 nil。
+// originalSuccess 保留原始 payload 中的 success 字段。
+// payload 为空时返回 nil，让溢出响应仍能区分未知状态和显式失败。
 func originalSuccess(payload map[string]any) any {
 	if payload == nil {
 		return nil
@@ -197,7 +201,8 @@ func centerExcerpt(text string, maxBytes int) string {
 	return text[start:end]
 }
 
-// numericField 从 payload 中取 key 对应的数值，不存在时返回 0。
+// numericField 从 payload 中取 key 对应的数值。
+// 字段不存在时返回 0，供溢出 envelope 保持稳定 JSON 形状。
 func numericField(payload map[string]any, key string) any {
 	if value, ok := payload[key]; ok {
 		return value

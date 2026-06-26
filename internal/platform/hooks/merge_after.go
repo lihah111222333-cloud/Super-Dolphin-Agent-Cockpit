@@ -7,7 +7,8 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 )
 
-// MergeAfter 合并后置。
+// MergeAfter 合并 after 阶段多个 peer 的决策。
+// escalate/reject 优先级高于 approve，失败 lease 会随结果返回给 Manager 清理。
 func MergeAfter(decisions []peerDecision[mcp.AfterDecision]) MergeResult[mcp.AfterDecision] {
 	normalized, failed, lost := normalizeAfterDecisions(decisions)
 	return MergeResult[mcp.AfterDecision]{
@@ -31,7 +32,7 @@ func normalizeAfterDecisions(decisions []peerDecision[mcp.AfterDecision]) ([]mcp
 	})
 }
 
-// mergeAfterDecision 合并后置decision。
+// mergeAfterDecision 选择 after 阶段最终决策并复制对应 peer 的 patch、mutation 和 dispatch intent。
 func mergeAfterDecision(decisions []mcp.AfterDecision) mcp.AfterDecision {
 	if len(decisions) == 0 {
 		return mcp.AfterDecision{Decision: mcp.HookDecisionReject}

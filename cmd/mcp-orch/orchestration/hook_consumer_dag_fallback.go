@@ -9,8 +9,8 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/taskdag"
 )
 
-// runThreadStoppedDAGFallback advances the DAG fallback outside the agent lock.
-// runThreadStoppedDAGFallback 运行线程stoppedDAG兜底。
+// runThreadStoppedDAGFallback 在线程 stopped 但未收到 turn.completed 时失败关联 DAG 节点。
+// 它在 agent 锁外运行，避免节点失败推进与 agent 状态同步互相等待。
 func (c *hookConsumer) runThreadStoppedDAGFallback(ctx context.Context, threadID string) {
 	threadID = strings.TrimSpace(threadID)
 	if threadID == "" {
@@ -71,7 +71,8 @@ func (c *hookConsumer) invokeThreadStoppedFallbackLifecycleHook(ctx context.Cont
 	}
 }
 
-// failedNodeForLifecycle 为生命周期处理failed节点。
+// failedNodeForLifecycle 合成 lifecycle hook 需要的失败节点快照。
+// store 返回的节点可能缺少展示字段，缺失时从原节点补齐，避免 hook 收到半截上下文。
 func failedNodeForLifecycle(original taskdag.Node, result *taskdag.FailNodeResult) *taskdag.Node {
 	node := original
 	if result != nil && result.Node != nil {

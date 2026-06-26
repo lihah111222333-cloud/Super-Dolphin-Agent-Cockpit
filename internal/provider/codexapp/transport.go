@@ -59,6 +59,8 @@ func newTransport(ctx context.Context, serverURL string) (*transport, error) {
 	return t, nil
 }
 
+// Call 通过 JSON-RPC 向 Codex app 发送请求并等待同 ID 响应。
+// pending 表必须在返回前清理；写入前会剥离内部字段，避免 provider 侧 strict schema 拒绝。
 func (t *transport) Call(ctx context.Context, method string, params any) (json.RawMessage, error) {
 	if err := t.ensureOpen(); err != nil {
 		return nil, err
@@ -81,6 +83,8 @@ func (t *transport) Call(ctx context.Context, method string, params any) (json.R
 	}
 }
 
+// Notify 发送无响应 JSON-RPC 通知到 Codex app。
+// 与 Call 一样会清理内部字段，但不会登记 pending call，也不会等待远端确认。
 func (t *transport) Notify(method string, params any) error {
 	if err := t.ensureOpen(); err != nil {
 		return err
@@ -92,8 +96,8 @@ func (t *transport) Notify(method string, params any) error {
 	}{JSONRPC: "2.0", Method: method, Params: sanitizeProviderPayload(method, params)})
 }
 
-// sanitizeProviderPayload filters out internal-only Go side tracking fields
-// before the payload is dispatched to the python proxy, satisfying strict Pydantic extra='forbid' validation.
+// sanitizeProviderPayload 移除 Go 侧内部追踪字段后再交给 python proxy。
+// approval/respond 保留 requestId 兼容桥接协议，其余未知内部字段必须剥离以通过 Pydantic 严格校验。
 func sanitizeProviderPayload(method string, payload any) any {
 	if payload == nil {
 		return nil
@@ -105,7 +109,7 @@ func sanitizeProviderPayload(method string, payload any) any {
 	safe := make(map[string]any, len(m))
 	preserveApprovalRequestID := strings.TrimSpace(method) == "approval/respond"
 	for k, v := range m {
-		// Strip internal tracking keys that are not part of the provider's API.
+		// 内部追踪键不是 provider API 的一部分，发送前必须剥离以避免严格校验失败。
 		switch k {
 		case "request_id":
 			if preserveApprovalRequestID {
@@ -127,6 +131,8 @@ func sanitizeProviderPayload(method string, payload any) any {
 	return safe
 }
 
+// ReadLoop 持续读取 WebSocket 消息并交给 session handler 分发。
+// 同一 transport 只允许一个读循环运行，退出时释放 looping 标记以支持恢复后的重新建立。
 func (t *transport) ReadLoop(ctx context.Context, handler any) {
 	if !t.looping.CompareAndSwap(false, true) {
 		return
@@ -150,6 +156,8 @@ func (t *transport) Running() bool {
 	return !t.local || t.processRunning()
 }
 
+// CheckHealth 对当前 transport 做轻量健康检查。
+// 本地进程异常优先返回进程错误；WebSocket 可用时发送 ping，确保恢复逻辑能区分连接和进程故障。
 func (t *transport) CheckHealth(ctx context.Context) error {
 	if t == nil {
 		return errors.New("codexapp: transport unavailable")
@@ -181,6 +189,8 @@ func (t *transport) CheckHealth(ctx context.Context) error {
 	return shared.CheckCtx(pingCtx)
 }
 
+// InitializeCodexHome 返回 initialize 握手记录的 Codex home。
+// 未完成握手或 transport 为空时返回空字符串，由上层决定是否视为缺失配置。
 func (t *transport) InitializeCodexHome() string {
 	if t == nil {
 		return ""
@@ -189,6 +199,8 @@ func (t *transport) InitializeCodexHome() string {
 	return strings.TrimSpace(value)
 }
 
+// reconnect 在恢复流程中重建 WebSocket，并在本地进程已退出时重新拉起 app-server。
+// 调用方通过 recoveryMu 串行化该路径，因此这里可以先清 closed 标记再关闭旧 socket。
 func (t *transport) reconnect(ctx context.Context) error {
 	if t == nil {
 		return errors.New("codexapp: transport unavailable")
@@ -196,10 +208,8 @@ func (t *transport) reconnect(ctx context.Context) error {
 	if t.closing.Load() {
 		return errSessionClosing
 	}
-	// Reset the closed flag so the reconnection can proceed. This is safe
-	// because reconnect is only called from attemptRecovery which serializes
-	// via recoveryMu. If the transport was closed due to an idle disconnect
-	// or network failure, we need to clear the flag to re-establish the WS.
+	// 只有 attemptRecovery 持有 recoveryMu 后才会调用 reconnect，因此可安全清除 closed 标记。
+	// 这样空闲断开或网络失败后的 WebSocket 才能重新建立。
 	t.closed.Store(false)
 	t.closeSocket()
 	if t.local && !t.processRunning() {
@@ -218,6 +228,8 @@ func (t *transport) establish(ctx context.Context) error {
 	return t.initialize(ctx)
 }
 
+// connect 按退避节奏重试 WebSocket 连接，直到连接成功、进程失败或上下文取消。
+// 临时连接失败会包装为 errConnectRetryPending，真实进程错误必须立即冒泡。
 func (t *transport) connect(ctx context.Context) error {
 	retryDelay := transportConnectRetryDelay
 	for {
@@ -235,6 +247,8 @@ func (t *transport) connect(ctx context.Context) error {
 	}
 }
 
+// connectAttempt 执行一次 WebSocket 连接尝试并同步检查本地进程状态。
+// 如果 app-server 仍在启动或 socket 暂不可达，返回可重试标记；进程退出则返回最终错误。
 func (t *transport) connectAttempt(ctx context.Context) (bool, error) {
 	if err := t.localProcessReady(); err != nil {
 		if procErr := t.localProcessFailure(); procErr != nil {
@@ -301,9 +315,8 @@ func (t *transport) readLoopStep(ctx context.Context, handler any) bool {
 	return t.dispatchReadMessage(ctx, data, handler)
 }
 
-// transportServer bridges *transport to the SpawnedServer interface the pool
-// uses. Fields are intentionally narrow: the pool only cares about the
-// WebSocket URL, process liveness, and orderly shutdown.
+// transportServer 把 *transport 适配为池使用的 SpawnedServer。
+// 字段刻意收窄到 URL、进程存活和有序关闭，避免池层依赖 transport 内部细节。
 type transportServer struct {
 	t *transport
 }
@@ -320,6 +333,8 @@ func (s *transportServer) ServerURL() string {
 	return s.t.serverURL
 }
 
+// Close 按池接口关闭底层 transport，保持 graceful shutdown 语义。
+// nil 接收者视为已关闭，便于池释放路径保持幂等。
 func (s *transportServer) Close(_ context.Context) error {
 	if s == nil || s.t == nil {
 		return nil
@@ -327,6 +342,8 @@ func (s *transportServer) Close(_ context.Context) error {
 	return s.t.shutdownTransport(true)
 }
 
+// Alive 返回池中 app-server 进程是否仍在运行。
+// 这里只看本地进程状态，连接健康由 session/transport 的恢复路径进一步确认。
 func (s *transportServer) Alive() bool {
 	if s == nil || s.t == nil {
 		return false
@@ -334,6 +351,8 @@ func (s *transportServer) Alive() bool {
 	return s.t.processRunning()
 }
 
+// DiagnoseExit 返回进程 stderr 尾部和已记录的退出错误，供池退避日志使用。
+// 该方法不触发额外清理，只读取当前快照，避免诊断路径改变进程生命周期。
 func (s *transportServer) DiagnoseExit() (string, error) {
 	if s == nil || s.t == nil {
 		return "", nil

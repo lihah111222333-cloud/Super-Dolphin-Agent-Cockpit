@@ -18,6 +18,7 @@ import (
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
+// RegisterTranslators 将 Codex raw event 翻译器注册到统一事件分发器。
 func RegisterTranslators(dispatcher *unified.EventDispatcher) {
 	if dispatcher != nil {
 		dispatcher.Register(translateCodexEvent)
@@ -45,6 +46,8 @@ func buildToolApprovalHeader(payload map[string]any) shareddto.ToolApprovalHeade
 	return shareddto.ToolApprovalHeader{ToolCallHeader: buildToolCallHeader(payload), ApprovalID: stringValue(payload, "approvalId", "approval_id")}
 }
 
+// translateCodexEvent 把 Codex app-server raw event 分派到 agent、turn、tool 三类统一事件。
+// 未识别事件只在排除 token usage、重试进度和已知噪声后告警，避免日志被高频流事件淹没。
 func translateCodexEvent(raw dto.RawProviderEvent, publish func(ev any)) {
 	eventType := strings.TrimSpace(raw.EventType)
 	payload := decodeAnyPayload(raw.Data)
@@ -73,6 +76,8 @@ func translateCodexEvent(raw dto.RawProviderEvent, publish func(ev any)) {
 	}
 }
 
+// logCodexMCPStartupStatus 将 Codex MCP server 启动状态降噪写入日志。
+// 失败或带错误消息的状态用 Warn，其余状态只 Debug，不继续进入 unknown raw event 告警。
 func logCodexMCPStartupStatus(eventType string, payload map[string]any) bool {
 	switch strings.TrimSpace(eventType) {
 	case "mcpServer/startupStatus/update", "mcpServer/startupStatus/updated":
@@ -96,6 +101,8 @@ func logCodexMCPStartupStatus(eventType string, payload map[string]any) bool {
 	}
 }
 
+// shouldWarnUnknownRawEvent 判断未翻译 raw event 是否值得记录告警。
+// token usage 和已登记的 UI 噪声事件会被静默忽略，真正未知 payload 才暴露给维护者。
 func shouldWarnUnknownRawEvent(eventType string, payload map[string]any) bool {
 	if isRetryProgressRawError(eventType, payload) {
 		return false
@@ -136,6 +143,8 @@ func isRetryProgressRawError(eventType string, payload map[string]any) bool {
 	return strings.TrimSpace(eventType) == "error" && boolValue(payload, "willRetry", "will_retry") && retryProgressMessagePattern.MatchString(message)
 }
 
+// translateAgentEvent 将 Codex 会话级事件转换为 agent DTO。
+// 状态变化必须先经过枚举校验，防止 provider 新状态直接污染前端状态机。
 func translateAgentEvent(eventType string, payload map[string]any) (any, bool) {
 	switch eventType {
 	case "thread/started", "session.configured", "agent:launched":
@@ -170,6 +179,8 @@ func translateAgentEvent(eventType string, payload map[string]any) (any, bool) {
 	}
 }
 
+// translateTurnEvent 将 Codex turn 生命周期和输出 delta 转换为统一 turn DTO。
+// terminal event 会先重置 tool result scope，避免下一轮复用上一轮的工具结果缓存。
 func translateTurnEvent(eventType string, payload map[string]any) (any, bool) {
 	if isTurnTerminalEvent(eventType) {
 		header := buildTurnHeader(payload)
@@ -180,11 +191,8 @@ func translateTurnEvent(eventType string, payload map[string]any) (any, bool) {
 			Error:      stringValue(payload, "error", "message", "reason"),
 			Status:     stringValue(payload, "status"),
 			Reason:     stringValue(payload, "reason"),
-			// ADR-015 v4.1 §2.1: payload["result"] is populated by
-			// session.sniffTurnOutput from the per-turn TurnOutputDelta
-			// accumulator before onNotification dispatches the event.
-			// The other three fields are read defensively in case future
-			// codex builds attach them directly to TurnCompleted payloads.
+			// result 由 session 的 per-turn 输出累积器在分发前合并进 payload。
+			// 其他字段保留兼容读取，覆盖未来 Codex 直接携带 terminal 文本的 wire 形态。
 			Result:     stringValue(payload, "result"),
 			Summary:    stringValue(payload, "summary"),
 			Message:    stringValue(payload, "message"),
@@ -240,6 +248,8 @@ func translateTurnEvent(eventType string, payload map[string]any) (any, bool) {
 	}
 }
 
+// validatedStateChangedEvent 规范化并校验 Codex state changed payload。
+// 只发布已知 agent 状态；未知状态返回 false 交给 raw event 告警路径处理。
 func validatedStateChangedEvent(payload map[string]any) (any, bool) {
 	newState := stringValue(payload, "newState", "new_state", "status")
 	if newState == "" {
@@ -288,6 +298,8 @@ func isKnownAgentState(state string) bool {
 	return false
 }
 
+// translateToolEvent 将 Codex tool/approval/diff 事件转换为统一 tool DTO。
+// tool end 会捕获结果预览并落盘大结果，避免 UI 事件携带过大的原始 payload。
 func translateToolEvent(eventType string, payload map[string]any) (any, bool) {
 	if isApprovalBridgeMethod(eventType) {
 		return tooldto.ToolApprovalRequested{
@@ -364,12 +376,8 @@ func decodeAnyPayload(data any) map[string]any {
 
 func decodeEventPayload(raw []byte) map[string]any { return decodeJSONMap(raw) }
 
-// encodeEventPayload re-serializes a payload map back into json.RawMessage so
-// onNotification can mutate the payload (e.g. inject merged TurnOutputDelta
-// content for TurnCompleted, ADR-015 v4.1 §2.1) before forwarding. On
-// marshal failure the original raw bytes are returned to preserve the
-// dispatch path; loss only manifests as missing accumulated content rather
-// than a dropped event.
+// encodeEventPayload 将可变 payload 重新编码为 json.RawMessage 后再分发。
+// onNotification 会在 terminal event 前注入已累积的 message 输出；编码失败时保留原始 raw，避免丢弃事件本身。
 func encodeEventPayload(payload map[string]any, fallback json.RawMessage) json.RawMessage {
 	if payload == nil {
 		return fallback
@@ -389,6 +397,8 @@ func nestedValue(payload map[string]any, key string) map[string]any {
 	return value
 }
 
+// stringValue 按候选 key 提取 payload 中的非空字符串值。
+// json.Number 直接转字符串，兼容 Codex 不同版本对 ID/计数字段的编码差异。
 func stringValue(payload map[string]any, keys ...string) string {
 	for _, key := range keys {
 		switch value := payload[key].(type) {
@@ -403,6 +413,8 @@ func stringValue(payload map[string]any, keys ...string) string {
 	return ""
 }
 
+// int64Value 按候选 key 宽松读取整数字段。
+// 支持 float64、int64、json.Number 和数字字符串，解析失败时返回 0。
 func int64Value(payload map[string]any, keys ...string) int64 {
 	for _, key := range keys {
 		switch value := payload[key].(type) {
@@ -423,6 +435,8 @@ func int64Value(payload map[string]any, keys ...string) int64 {
 	return 0
 }
 
+// boolValue 按候选 key 宽松读取布尔字段。
+// 字符串只接受 strconv.ParseBool 能识别的值，其他类型不做隐式猜测。
 func boolValue(payload map[string]any, keys ...string) bool {
 	for _, key := range keys {
 		switch value := payload[key].(type) {
@@ -437,6 +451,8 @@ func boolValue(payload map[string]any, keys ...string) bool {
 	return false
 }
 
+// jsonPreview 将第一个存在的 payload 字段重新编码为 JSON 预览。
+// 编码失败时返回空字符串，让调用方按缺失预览处理而不是中断事件翻译。
 func jsonPreview(payload map[string]any, keys ...string) string {
 	for _, key := range keys {
 		if value, ok := payload[key]; ok && value != nil {

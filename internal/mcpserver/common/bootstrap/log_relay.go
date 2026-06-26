@@ -14,6 +14,7 @@ import (
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
+// logFallbackDirEnv 指定控制平面不可达时本地 fallback 日志的目录。
 const logFallbackDirEnv = "GO_AGENT_LOG_FALLBACK_DIR"
 
 // localLogFallbackRecord 是写入本地 fallback 日志文件的行结构。
@@ -31,10 +32,8 @@ type localLogFallbackRecord struct {
 	FallbackFor string         `json:"fallback_for,omitempty"`
 }
 
-// InstallLogRelay bridges all pkg/logger records emitted by this peer process
-// back to the control plane. The relay is deliberately installed at the logger
-// layer rather than at individual call sites so diagnostic logs stay complete.
-// InstallLogRelay 处理安装日志relay。
+// InstallLogRelay 在 logger 层安装 relay hook，把当前 peer 进程日志转发到控制平面。
+// relay 放在 logger 层而不是调用点上，保证诊断日志覆盖完整。
 func (c *Client) InstallLogRelay() {
 	if c == nil {
 		return
@@ -44,7 +43,7 @@ func (c *Client) InstallLogRelay() {
 	})
 }
 
-// relayLog 处理relay日志。
+// relayLog 丰富日志字段后发送到控制平面，递归 relay 会通过 WithRelayDisabled 阻断。
 func (c *Client) relayLog(ctx context.Context, payload pkglogger.RelayPayload) error {
 	message := strings.TrimSpace(payload.Msg)
 	if message == "" {
@@ -74,12 +73,12 @@ func (c *Client) relayLog(ctx context.Context, payload pkglogger.RelayPayload) e
 	return c.LogFields(pkglogger.WithRelayDisabled(ctx), payload.Level, message, fields)
 }
 
-// Log 处理日志。
+// Log 发送 string map 形式日志字段，内部转换为 LogFields 的通用 any map。
 func (c *Client) Log(ctx context.Context, level, message string, fields map[string]string) error {
 	return c.LogFields(ctx, level, message, cloneStringMapAny(fields))
 }
 
-// LogFields 处理日志字段。
+// LogFields 发送结构化日志；控制平面不可达时写本地 fallback 文件。
 func (c *Client) LogFields(ctx context.Context, level, message string, fields map[string]any) error {
 	lease := c.currentLease()
 	entry := mcp.LogNotify{
@@ -139,7 +138,7 @@ func (c *Client) localLogFallback(entry mcp.LogNotify, sendErr error) {
 	}
 }
 
-// writeLocalLogFallback 写入local日志兜底。
+// writeLocalLogFallback 以 JSONL 追加本地 fallback 日志，保留发送失败原因用于排障。
 func (c *Client) writeLocalLogFallback(entry mcp.LogNotify, sendErr error) error {
 	dir := c.localLogFallbackDir()
 	if err := os.MkdirAll(dir, 0o755); err != nil {

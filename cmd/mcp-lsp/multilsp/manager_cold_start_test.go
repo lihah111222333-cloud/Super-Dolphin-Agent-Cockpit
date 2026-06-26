@@ -14,6 +14,9 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/common"
 )
 
+// coldStartDiagnosticsMaxWait 只给 race 模式下的 goroutine 调度留余量；精确 deadline 另有专门测试覆盖。
+const coldStartDiagnosticsMaxWait = 500 * time.Millisecond
+
 func TestWaitDiagnosticsStableWaitsForDelayedColdStartDiagnostics(t *testing.T) {
 	for _, tc := range coldStartLanguageCases(t) {
 		t.Run(tc.languageID, func(t *testing.T) {
@@ -23,7 +26,7 @@ func TestWaitDiagnosticsStableWaitsForDelayedColdStartDiagnostics(t *testing.T) 
 				WorkspaceRoot:                    root,
 				DiagnosticsInitialDelay:          time.Millisecond,
 				DiagnosticsPollInterval:          time.Millisecond,
-				DiagnosticsMaxWait:               80 * time.Millisecond,
+				DiagnosticsMaxWait:               coldStartDiagnosticsMaxWait,
 				DisableInitialWorkspaceBootstrap: true,
 			})
 			ctx, cancel := context.WithTimeout(common.WithToolScope(context.Background(), common.ToolScope{
@@ -66,7 +69,7 @@ func TestDefinitionWaitsForColdStartDiagnosticsBeforeRequest(t *testing.T) {
 				ClientFactory:                    factory,
 				DiagnosticsInitialDelay:          time.Millisecond,
 				DiagnosticsPollInterval:          time.Millisecond,
-				DiagnosticsMaxWait:               80 * time.Millisecond,
+				DiagnosticsMaxWait:               coldStartDiagnosticsMaxWait,
 				DisableInitialWorkspaceBootstrap: true,
 			}).(*manager)
 			defer func() { _ = mgr.Close() }()

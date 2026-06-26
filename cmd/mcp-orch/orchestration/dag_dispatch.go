@@ -19,30 +19,20 @@ import (
 
 // ErrDispatchStoreUnset 表示 service 被构造时没拿到 taskdag.DispatchNodeStore
 // （旧测试路径 / standalone 模式）。MCP 工具层把它转成调用方可读的中英双语错误。
-//
-// ErrDispatchStoreUnset signals the service was constructed without a
-// DispatchNodeStore binding. The MCP tools layer maps it to a bilingual error.
 var ErrDispatchStoreUnset = errors.New("orchestration: dispatch store is not configured")
 
 // ErrDispatchNodeIneligible 表示节点当前状态不属于 {pending, ready}，
 // 不允许走 DispatchNode 路径（避免误覆盖 running / done / failed 等终态）。
-//
-// ErrDispatchNodeIneligible signals the node is not in {pending, ready} so the
-// dispatch operation refuses to proceed (prevents stomping live runtime state).
 var ErrDispatchNodeIneligible = errors.New("orchestration: node is not in pending/ready state, cannot dispatch")
 
 // dispatchNodeWakeupKind 是 task_dispatch_node 入队的 wakeup_kind 值。
 // 与 store_complete_downstream.go 的 downstreamWakeupKind 区分：手工显式
 // dispatch 用 "manual_dispatch" 让运维 + 日志能一眼分流，避免与依赖完成自动
 // enqueue 混淆。
-//
-// dispatchNodeWakeupKind tags wakeups enqueued by task_dispatch_node so log /
-// metric consumers can distinguish manual-dispatch from auto-enqueue.
 const dispatchNodeWakeupKind = "manual_dispatch"
 
-// DispatchNode assigns a runtime pending/ready node and enqueues manual_dispatch.
-// Agent nodes must include node.config.exec.cwd before enqueue.
 // DispatchNode 领取并调度一个可运行的 DAG 节点。
+// 只接受 runtime run 上 pending/ready 节点；agent 节点必须先配置 exec.cwd，避免入队后才失败。
 func (s *service) DispatchNode(ctx context.Context, req contract.DispatchNodeRequest) (contract.DispatchNodeResponse, error) {
 	dagKey, nodeKey, assignedTo, runID, err := normalizeDispatchInputs(s, req)
 	if err != nil {
@@ -78,6 +68,7 @@ func (s *service) DispatchNode(ctx context.Context, req contract.DispatchNodeReq
 	return resp, nil
 }
 
+// DispatchRetryAlert 是派发重试达到告警阈值时发送给通知层的载荷。
 type DispatchRetryAlert struct {
 	DagKey        string
 	NodeKey       string
@@ -88,14 +79,18 @@ type DispatchRetryAlert struct {
 	LastError     string
 }
 
+// DispatchRetryAlertSink 是派发重试告警的窄端口。
+// 业务路径只依赖该接口，具体通知渠道由 notify 包装配。
 type DispatchRetryAlertSink interface {
 	AlertDispatchRetry(ctx context.Context, alert DispatchRetryAlert) error
 }
 
+// recordDispatchFailedMetric 记录一次派发失败指标。
 func recordDispatchFailedMetric() {
 	dagmetrics.IncDispatchFailed()
 }
 
+// recordDispatchRetryMetric 记录派发重试指标，并在达到阈值时生成告警载荷。
 func recordDispatchRetryMetric(w *taskdag.Wakeup, lastErr string) (DispatchRetryAlert, bool) {
 	if w == nil {
 		return DispatchRetryAlert{}, false
@@ -200,8 +195,11 @@ type Scheduler interface {
 	Schedule(context.Context, string) error
 }
 
+// ErrSchedulerNotImplemented 表示旧 Scheduler 端口仍未接入外部实现。
+// 生产 scheduled DAG 路径已走 cron.ScheduledDAGTicker；该 sentinel 仅服务保留接口和测试兼容。
 var ErrSchedulerNotImplemented = errors.New("scheduler: not implemented in skeleton stage (F5.x)")
 
+// noopScheduler 是保留接口的空实现，所有操作都返回 ErrSchedulerNotImplemented。
 type noopScheduler struct{}
 
 // Tick 触发一次调度扫描。
@@ -215,7 +213,7 @@ func (noopScheduler) Schedule(_ context.Context, _ string) error { return ErrSch
 // NewNoopScheduler 创建不执行外部调度的空实现。
 func NewNoopScheduler() Scheduler { return noopScheduler{} }
 
-// StartDAG 创建一次 run，不直接改模板。
+// StartDAG 创建一次 DAG run，不直接改模板。
 // 根节点会先变 ready；没 assigned_to 的根节点要等 task_dispatch_node。
 func (s *service) StartDAG(ctx context.Context, req StartDAGRequest) (StartDAGResponse, error) {
 	dagKey, dag, err := s.validateStartDAGPrereq(ctx, req)
@@ -236,6 +234,7 @@ func (s *service) StartScheduledDAG(ctx context.Context, req orchcron.ScheduledD
 	return scheduledstart.Start(ctx, s.scheduledStartStore, req)
 }
 
+// ScheduledDAGStartService 是 cron 子包启动 scheduled DAG 时依赖的窄端口。
 type ScheduledDAGStartService interface {
 	StartScheduledDAG(context.Context, orchcron.ScheduledDAGStartRequest) error
 }
@@ -265,7 +264,7 @@ func (s *service) validateStartDAGPrereq(ctx context.Context, req StartDAGReques
 	return dagKey, dag, nil
 }
 
-// 创建 run、复制节点、调度根节点要在同一事务里完成。
+// runStartDAGWithFallback 创建 run、复制节点、调度根节点，三步必须在同一事务里完成。
 // 并发启动靠数据库唯一键兜住，不在这里先查再猜。
 func (s *service) runStartDAGWithFallback(ctx context.Context, dagKey, runKey string, input taskdag.CreateRunInput) (StartDAGResponse, error) {
 	var resp StartDAGResponse
@@ -298,7 +297,7 @@ func (s *service) runStartDAGWithFallback(ctx context.Context, dagKey, runKey st
 	return s.resolveStartDAGUniqueViolation(ctx, dagKey, runKey, txErr)
 }
 
-// 启动 run 前先锁模板行，确保 version 和复制出的节点来自同一版。
+// lockDAGForRunStart 在启动 run 前锁住模板行，确保 version 和复制出的节点来自同一版。
 // 去掉这把锁会让 apply_ops 与 start 并发时产生混版 run。
 func lockDAGForRunStart(ctx context.Context, tx taskdag.RunStore, dagKey string) (*taskdag.DAG, error) {
 	locker, ok := tx.(interface {
@@ -320,6 +319,7 @@ func lockDAGForRunStart(ctx context.Context, tx taskdag.RunStore, dagKey string)
 	return dag, nil
 }
 
+// resolveStartDAGUniqueViolation 处理 run_key 唯一键冲突后的幂等返回。
 // 同一个 run_key 已经 running/succeeded 时返回已有 run。
 // 如果它 failed/cancelled，调用方要换 idempotency_key，不能复用旧失败 run。
 func (s *service) resolveStartDAGUniqueViolation(ctx context.Context, dagKey, runKey string, txErr error) (StartDAGResponse, error) {
@@ -346,6 +346,7 @@ func (s *service) resolveStartDAGUniqueViolation(ctx context.Context, dagKey, ru
 	return StartDAGResponse{}, fmt.Errorf("orchestration: StartDAG(%q): unresolved unique violation for run_key=%s: %w", dagKey, runKey, txErr)
 }
 
+// generateRunKey 用 dag_key 和 idempotency_key 生成 run_key；未给幂等键时使用时间戳。
 func generateRunKey(dagKey, idempotencyKey string) string {
 	idempotencyKey = strings.TrimSpace(idempotencyKey)
 	if idempotencyKey != "" {

@@ -42,7 +42,8 @@ type projectPathParams struct {
 	Cwd  string `json:"cwd,omitempty"`
 }
 
-// NewUIStateHandlers 创建UI状态处理器。
+// NewUIStateHandlers 注册 UIState 相关 JSON-RPC handler。
+// 每个 handler 都使用 StrictHandler 解码入参，确保前端 wire 字段缺失或类型错误时 fail-fast。
 func NewUIStateHandlers(svc Service) platformrpc.HandlerMapResult {
 	return platformrpc.HandlerMapResult{Handlers: handler.Map{
 		"ui/state/get": platformrpc.StrictHandler(func(ctx context.Context, p scopeParams) (any, error) {
@@ -148,7 +149,8 @@ func shouldTraceProviderPreference(key string) bool {
 		strings.HasSuffix(key, ".codexModelProvider")
 }
 
-// providerPreferenceTraceValue 处理providerpreferencetrace值。
+// providerPreferenceTraceValue 将 provider 偏好值转换成可观测日志字段。
+// 字符串会在调用方继续截断，未知结构不展开，避免把复杂配置或密钥写入日志。
 func providerPreferenceTraceValue(value any) (string, string) {
 	switch v := value.(type) {
 	case nil:

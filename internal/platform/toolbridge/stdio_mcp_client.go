@@ -26,6 +26,7 @@ type stdioTransport interface {
 	Close() error
 }
 
+// stdioMCPClient 管理一个 stdio MCP 子进程及其 JSON-RPC 请求序列。
 type stdioMCPClient struct {
 	cmd       *exec.Cmd
 	guard     *stdioProcessGuard
@@ -38,6 +39,7 @@ type stdioMCPClient struct {
 	closeErr  error
 }
 
+// stdioRPCResponse 是 stdio MCP 响应的最小 JSON-RPC 外壳。
 type stdioRPCResponse struct {
 	ID     int64           `json:"id,omitempty"`
 	Result json.RawMessage `json:"result,omitempty"`
@@ -46,6 +48,7 @@ type stdioRPCResponse struct {
 	} `json:"error,omitempty"`
 }
 
+// defaultStdioClientFactory 根据 MCP binary 配置选择 HTTP 或 stdio client。
 func (h *Handler) defaultStdioClientFactory(ctx context.Context, binary providerdto.MCPBinary) (mcpClient, error) {
 	if strings.EqualFold(strings.TrimSpace(binary.Type), "http") || strings.TrimSpace(binary.URL) != "" {
 		return newHTTPMCPClient(ctx, binary)
@@ -56,7 +59,7 @@ func (h *Handler) defaultStdioClientFactory(ctx context.Context, binary provider
 	return newStdioMCPClient(ctx, binary)
 }
 
-// newStdioMCPClient 创建stdioMCP客户端。
+// newStdioMCPClient 启动 stdio MCP 子进程并完成 initialize 握手。
 func newStdioMCPClient(ctx context.Context, binary providerdto.MCPBinary) (*stdioMCPClient, error) {
 	cmd := exec.Command(strings.TrimSpace(binary.Command[0]), binary.Command[1:]...)
 	cmd.Env = append(contract.ScrubDatabaseEnv(os.Environ()), manifestEnv(binary.Env)...)
@@ -88,6 +91,7 @@ func newStdioMCPClient(ctx context.Context, binary providerdto.MCPBinary) (*stdi
 	return client, nil
 }
 
+// manifestEnv 过滤 MCP binary env 中禁止透传的数据库环境变量。
 func manifestEnv(env map[string]string) []string {
 	out := make([]string, 0, len(env))
 	for key, value := range env {
@@ -99,7 +103,7 @@ func manifestEnv(env map[string]string) []string {
 	return out
 }
 
-// ListTools 返回当前 peer 暴露的工具列表。
+// ListTools 调用 stdio peer 的 tools/list 并解码工具列表。
 func (c *stdioMCPClient) ListTools(ctx context.Context) ([]mcpdto.MCPTool, error) {
 	raw, err := c.request(ctx, "tools/list", map[string]any{})
 	if err != nil {
@@ -112,7 +116,7 @@ func (c *stdioMCPClient) ListTools(ctx context.Context) ([]mcpdto.MCPTool, error
 	return decoded.Tools, nil
 }
 
-// CallTool 调用当前 peer 暴露的工具。
+// CallTool 调用 stdio peer 暴露的工具，并透传 agent/thread/cwd 元数据。
 func (c *stdioMCPClient) CallTool(ctx context.Context, name string, args json.RawMessage, req ToolCallRequest) (*ToolCallResult, error) {
 	raw, err := c.request(ctx, ProxyMethodToolsCall, map[string]any{
 		"name":                    name,
@@ -133,7 +137,8 @@ func (c *stdioMCPClient) CallTool(ctx context.Context, name string, args json.Ra
 	return adaptMCPResponse(decoded)
 }
 
-// request 处理请求。
+// request 串行发送一个 JSON-RPC 请求并等待匹配 id 的响应。
+// ctx 取消会关闭 client，避免读循环永久阻塞。
 func (c *stdioMCPClient) request(ctx context.Context, method string, params any) (json.RawMessage, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -170,11 +175,13 @@ func (c *stdioMCPClient) request(ctx context.Context, method string, params any)
 	}
 }
 
+// stdioReadResult 把异步读消息结果传回 request。
 type stdioReadResult struct {
 	raw json.RawMessage
 	err error
 }
 
+// readMessage 在 goroutine 中读取 stdio 消息，让 ctx 取消可以主动关闭 client。
 func (c *stdioMCPClient) readMessage(ctx context.Context) (json.RawMessage, error) {
 	readDone := make(chan stdioReadResult, 1)
 	safego.Go(ctx, pkglogger.Get(), "toolbridge.stdioMCPClient.readMessage", func(context.Context) {
@@ -190,7 +197,7 @@ func (c *stdioMCPClient) readMessage(ctx context.Context) (json.RawMessage, erro
 	}
 }
 
-// Close 关闭平台toolbridge资源。
+// Close 幂等关闭 stdio MCP client、transport 和子进程。
 func (c *stdioMCPClient) Close() error {
 	if c == nil {
 		return nil
@@ -206,7 +213,7 @@ func (c *stdioMCPClient) Close() error {
 	return c.closeErr
 }
 
-// close 关闭平台toolbridge。
+// close 执行实际关闭顺序：stdin、transport、等待进程，超时后终止进程树。
 func (c *stdioMCPClient) close() error {
 	if c.stdin != nil {
 		_ = c.stdin.Close()

@@ -12,9 +12,11 @@ import (
 	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
 )
 
+// ErrRunStoreUnset 表示 scheduled start 没有注入 run store，调用方必须显式失败。
 var ErrRunStoreUnset = errors.New("scheduled start: run store unset")
 
-// Start 启动编排流程。
+// Start 在单个事务内创建 scheduled run、克隆节点、调度根节点并推进 next_run_at。
+// run_key 使用 cron idempotency key，唯一冲突时只消费已存在 run 后继续推进调度游标。
 func Start(ctx context.Context, runStore taskdag.ScheduledStartStore, req orchcron.ScheduledDAGStartRequest) error {
 	dagKey, dueAt, nextRunAt, idempotencyKey, err := normalizeRequest(req)
 	if err != nil {
@@ -56,6 +58,7 @@ func Start(ctx context.Context, runStore taskdag.ScheduledStartStore, req orchcr
 	return advanceConsumedRun(ctx, runStore, dagKey, runKey, dueAt, nextRunAt, txErr)
 }
 
+// rejectBlockedScheduledStart 在根节点 ready 但没有 wakeup 时阻断，避免 scheduled DAG 静默空跑。
 func rejectBlockedScheduledStart(dagKey string, readyRootNodes, scheduledWakeups int64) error {
 	if readyRootNodes > 0 && scheduledWakeups == 0 {
 		return fmt.Errorf("scheduled start %q: ready root nodes=%d but scheduled wakeups=0; root dispatch is blocked by missing assigned_to or node.config.exec", dagKey, readyRootNodes)
@@ -63,7 +66,7 @@ func rejectBlockedScheduledStart(dagKey string, readyRootNodes, scheduledWakeups
 	return nil
 }
 
-// normalizeRequest 规范化请求。
+// normalizeRequest 校验 scheduled start 请求的必填字段，并返回清理后的 key 和时间。
 func normalizeRequest(req orchcron.ScheduledDAGStartRequest) (string, time.Time, time.Time, string, error) {
 	dagKey := strings.TrimSpace(req.DagKey)
 	if dagKey == "" {
@@ -85,7 +88,7 @@ func normalizeRequest(req orchcron.ScheduledDAGStartRequest) (string, time.Time,
 	return dagKey, req.DueAt, req.NextRunAt, idempotencyKey, nil
 }
 
-// lockDAGForRunStart 为运行记录起点处理锁DAG。
+// lockDAGForRunStart 在事务内锁定 DAG，并确认 schedule 状态仍匹配本次 due_at。
 func lockDAGForRunStart(ctx context.Context, tx taskdag.ScheduledStartTxStore, dagKey string, dueAt time.Time) (*taskdag.DAG, error) {
 	dag, err := tx.GetDAGForUpdate(ctx, dagKey)
 	if err != nil {
@@ -106,6 +109,7 @@ func lockDAGForRunStart(ctx context.Context, tx taskdag.ScheduledStartTxStore, d
 	return dag, nil
 }
 
+// advanceNextRunTx 在持锁事务内推进 DAG 的 next_run_at，rows!=1 视为调度状态漂移。
 func advanceNextRunTx(ctx context.Context, tx taskdag.ScheduledStartTxStore, dagKey string, dueAt, nextRunAt time.Time) error {
 	rows, err := tx.UpdateScheduledDAGNextRun(ctx, dagKey, dueAt, nextRunAt)
 	if err != nil {
@@ -117,7 +121,7 @@ func advanceNextRunTx(ctx context.Context, tx taskdag.ScheduledStartTxStore, dag
 	return nil
 }
 
-// advanceConsumedRun 处理advanceconsumed运行记录。
+// advanceConsumedRun 处理 run_key 唯一冲突：确认既有 run 后补调度根 wakeup 并推进 next_run_at。
 func advanceConsumedRun(ctx context.Context, runStore taskdag.ScheduledStartStore, dagKey, runKey string, dueAt, nextRunAt time.Time, txErr error) error {
 	existing, getErr := runStore.GetRun(ctx, runKey)
 	if getErr != nil {
@@ -148,6 +152,7 @@ func advanceConsumedRun(ctx context.Context, runStore taskdag.ScheduledStartStor
 	return nil
 }
 
+// generateRunKey 组合 DAG key 和 cron 幂等键，确保同一触发只创建一条 run。
 func generateRunKey(dagKey, idempotencyKey string) string {
 	return fmt.Sprintf("%s#run-%s", dagKey, strings.TrimSpace(idempotencyKey))
 }

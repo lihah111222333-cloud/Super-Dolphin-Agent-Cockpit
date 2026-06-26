@@ -178,6 +178,8 @@ func sqliteMigrationsDir(projectRoot string) string {
 
 const migrationSplitSentinel = "-- SPLIT --"
 
+// splitMigrationBody 按迁移脚本里的分段标记拆分 SQL。
+// 未出现标记时保持原始脚本整体执行，避免改变旧迁移文件的事务语义。
 func splitMigrationBody(body string) []string {
 	var (
 		out   []string

@@ -13,26 +13,20 @@ var Module = fx.Module("turn",
 	fx.Provide(
 		fx.Annotate(
 			NewServiceWithPromptAssemblyAndTurnContext,
-			// p20.2 step 1: Skill.Service is optional, contract.Contract is also optional, etc.
-			// (Original tag rationale preserved below.)
+			// 这些跨模块依赖均为可选注入：缺失时 turn 仍能启动，只跳过对应的 skill、observation、dedupe 或 tracing 能力。
 			fx.ParamTags("", `optional:"true"`, `optional:"true"`, `optional:"true"`, `optional:"true"`, `optional:"true"`, `optional:"true"`, `optional:"true"`, `optional:"true"`),
-			// Publish under both turn.Service (consumed by orchestration,
-			// etc.) and contract.TurnThreadCleaner (narrow interface consumed
-			// by the thread module to avoid a thread→turn import).
+			// 同时发布完整 turn.Service 和窄接口 TurnThreadCleaner，避免 thread 模块反向导入 turn 包。
 			fx.As(new(Service)),
 			fx.As(new(contract.TurnThreadCleaner)),
 		),
-		// Publish the narrow CronTurnExecutor adapter so the cron module
-		// can prepare/start/track turns without importing internal/module/turn.
+		// 发布 cron 使用的窄执行器接口，避免 cron 模块直接依赖 turn 包。
 		provideCronTurnExecutor,
 		NewOrchestrationTurnStarter,
 		fx.Annotate(
 			NewTurnHandlers,
 			fx.ParamTags("", `optional:"true"`, "", `optional:"true"`, "", `optional:"true"`),
 		),
-		// P0b Step 2: trajectory collector. observation.Contract is
-		// optional so deployments without observation still wire turn
-		// successfully; the collector tolerates a nil contract.
+		// 轨迹收集器允许缺少 observation 依赖；这种部署仍能启动，只是不补终态/token/skill 快照。
 		fx.Annotate(
 			NewTrajectoryCollector,
 			fx.ParamTags(`optional:"true"`, `optional:"true"`),
@@ -41,8 +35,7 @@ var Module = fx.Module("turn",
 			NewTrajectorySubscribers,
 			fx.ParamTags("", `optional:"true"`, `optional:"true"`),
 		),
-		// P0b Step 3: skill evaluator. stateless / pure function; no
-		// external dependencies, so plain fx.Provide is sufficient.
+		// skill evaluator 是无外部依赖的纯判断器，直接提供默认实现即可。
 		NewDefaultEvaluator,
 		func(e *DefaultEvaluator) Evaluator { return e },
 		func() Redactor { return NewDefaultRedactor() },
@@ -50,10 +43,8 @@ var Module = fx.Module("turn",
 	fx.Invoke(registerTurnServiceLifecycle),
 )
 
-// registerTurnServiceLifecycle 把 turn.Service 挂入 fx.Lifecycle，确保 Shutdown 在应用停止时被调用。
-// its Shutdown hook is called on app stop. Shutdown is discovered via a
-// private shutdowner interface assertion so the public Service contract
-// stays unchanged.
+// registerTurnServiceLifecycle 把 turn.Service 挂入 fx.Lifecycle，确保应用停止时取消后台 watcher。
+// Shutdown 通过私有接口断言发现，避免把生命周期方法暴露进公共 Service 契约。
 func registerTurnServiceLifecycle(lc fx.Lifecycle, svc Service) {
 	if svc == nil {
 		return
@@ -71,9 +62,7 @@ func registerTurnServiceLifecycle(lc fx.Lifecycle, svc Service) {
 	})
 }
 
-// provideCronTurnExecutor 把 turn.Service 包装为 contract.CronTurnExecutor，避免 cron 模块直接依赖 turn 包。
-// the cron module can prepare/start/track turns via
-// contract.CronTurnExecutor without importing this package.
+// provideCronTurnExecutor 把 turn.Service 包装为 cron 使用的窄接口，避免 cron 模块直接导入 turn 包。
 func provideCronTurnExecutor(svc Service) contract.CronTurnExecutor {
 	return NewCronExecutorAdapter(svc)
 }

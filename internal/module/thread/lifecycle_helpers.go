@@ -71,7 +71,7 @@ func sessionRuntimeCodexIdentityConfig(session contract.Session) (map[string]any
 	return identity, len(identity) > 0
 }
 
-// injectParentCodexIdentityForStart 为起点处理injectparentcodex身份。
+// injectParentCodexIdentityForStart 在子线程启动时继承父 agent 的 Codex 身份配置。
 func (s *service) injectParentCodexIdentityForStart(ctx context.Context, req StartRequest) StartRequest {
 	parentID := strings.TrimSpace(req.ParentAgentID)
 	if parentID == "" || s.bindingStore == nil {
@@ -101,7 +101,7 @@ func (s *service) injectParentCodexIdentityForStart(ctx context.Context, req Sta
 	return req
 }
 
-// injectDefaultCodexIdentityForStart 为起点处理injectdefaultcodex身份。
+// injectDefaultCodexIdentityForStart 为打包运行时的 Codex 启动请求补齐默认身份配置。
 func (s *service) injectDefaultCodexIdentityForStart(req StartRequest) (StartRequest, error) {
 	if strings.TrimSpace(req.Provider) != "codex" {
 		return req, nil
@@ -132,7 +132,7 @@ func (s *service) injectDefaultCodexIdentityForStart(req StartRequest) (StartReq
 	return req, nil
 }
 
-// injectDefaultCodexIdentityForResume 为恢复处理injectdefaultcodex身份。
+// injectDefaultCodexIdentityForResume 在恢复 Codex 会话前校验身份配置已完整存在。
 func (s *service) injectDefaultCodexIdentityForResume(req ResumeRequest) (ResumeRequest, error) {
 	if strings.TrimSpace(req.Provider) != "codex" {
 		return req, nil
@@ -179,7 +179,8 @@ func validateResumeCodexIdentityPresentString(value any, present bool, key strin
 	return err
 }
 
-// injectParentCodexIdentity 处理injectparentcodex身份。
+// injectParentCodexIdentity 将父 binding 的 Codex 身份补入子线程 runtime 配置。
+// 父级 home、instance key、model provider 任一缺失都不注入；调用方已显式设置的字段不会被覆盖。
 func injectParentCodexIdentity(cfg map[string]any, parent *bindingstore.Binding) (map[string]any, bool) {
 	home := strings.TrimSpace(parent.CodexHome)
 	instanceKey := strings.TrimSpace(parent.CodexInstanceKey)
@@ -203,7 +204,8 @@ func injectParentCodexIdentity(cfg map[string]any, parent *bindingstore.Binding)
 	return cfg, injected
 }
 
-// resolveRelativeCWD preserves only caller-provided workspace paths.
+// resolveRelativeCWD 只保留调用方显式传入的工作目录。
+// "." 表示当前进程目录，不写入 thread 状态，避免恢复时误当成稳定工作区。
 func resolveRelativeCWD(cwd string) string {
 	if cwd = strings.TrimSpace(cwd); cwd == "." {
 		return ""
@@ -391,7 +393,8 @@ func (s *service) persistStartedThread(
 	return nil
 }
 
-// upsertPublicThread 处理upsertpublic线程。
+// upsertPublicThread 写入用户可见的 public thread 记录。
+// 如果 thread store 写入失败，会回滚前面已经写成功的 binding，避免留下可恢复但列表不可见的半成品线程。
 func (s *service) upsertPublicThread(
 	ctx context.Context,
 	state threadState,
@@ -460,7 +463,8 @@ func recoverableProviderThreadID(provider, providerUUID, publicThreadID, rollout
 	return providerThreadID
 }
 
-// recoverableBindingProviderThreadID 处理recoverablebindingprovider线程ID。
+// recoverableBindingProviderThreadID 从 binding 中挑选可恢复的 provider thread UUID。
+// 只有 provider_thread_id 或 session_uuid 同时看起来是 UUID 且本地历史存在时才返回，防止 resume 指向不存在的 provider 历史。
 func recoverableBindingProviderThreadID(binding *bindingstore.Binding) string {
 	if binding == nil {
 		return ""

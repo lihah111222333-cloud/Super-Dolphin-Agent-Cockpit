@@ -34,7 +34,7 @@ type orchPos struct {
 	WorkspaceRunKey string
 }
 
-// parseOrchPos 解析orchpos。
+// parseOrchPos 解析扁平 pos 定位串，并在同一串里阻止重复 kind 或不完整组合。
 func parseOrchPos(raw string) (orchPos, error) {
 	pos := orchPos{Raw: strings.TrimSpace(raw)}
 	if pos.Raw == "" {
@@ -60,6 +60,7 @@ func parseOrchPos(raw string) (orchPos, error) {
 	return pos, nil
 }
 
+// parseSinglePayloadPos 解析 shared/prompt/command 这类 value 可包含斜杠的单字段 pos。
 func parseSinglePayloadPos(raw, kind string) (string, bool) {
 	prefix := kind + ":"
 	if !strings.HasPrefix(raw, prefix) {
@@ -68,6 +69,7 @@ func parseSinglePayloadPos(raw, kind string) (string, bool) {
 	return strings.TrimSpace(strings.TrimPrefix(raw, prefix)), true
 }
 
+// assignSinglePayloadPos 写入单字段 pos，并拒绝空 value。
 func assignSinglePayloadPos(pos orchPos, kind, value string) (orchPos, error) {
 	if value == "" {
 		return orchPos{}, invalidOrchPos(pos.Raw, fmt.Sprintf("next: pass %s:<key>", kind))
@@ -85,7 +87,7 @@ func assignSinglePayloadPos(pos orchPos, kind, value string) (orchPos, error) {
 	return pos, nil
 }
 
-// parseOrchPosSegment 解析orchpossegment。
+// parseOrchPosSegment 解析 kind:value 片段，保留原始 value 供后续冲突检查。
 func parseOrchPosSegment(segment string) (string, string, error) {
 	if strings.TrimSpace(segment) != segment || segment == "" {
 		return "", "", errors.New("empty pos segment")
@@ -102,7 +104,7 @@ func parseOrchPosSegment(segment string) (string, string, error) {
 	return key, value, nil
 }
 
-// assignOrchPosSegment 处理assignorchpossegment。
+// assignOrchPosSegment 将单个 kind:value 片段写入 orchPos，重复 kind 立即报错。
 func assignOrchPosSegment(pos *orchPos, key, value string) error {
 	switch key {
 	case orchPosAgent:
@@ -122,6 +124,7 @@ func assignOrchPosSegment(pos *orchPos, key, value string) error {
 	}
 }
 
+// assignUnique 写入字符串字段，并把重复 kind 转成带修正提示的错误。
 func assignUnique(dst *string, value, hint string) error {
 	if *dst != "" {
 		return fmt.Errorf("%s; duplicate kind is not allowed", hint)
@@ -130,6 +133,7 @@ func assignUnique(dst *string, value, hint string) error {
 	return nil
 }
 
+// assignUniqueInt64 写入正整数 run_id 字段，并拒绝重复或非法数字。
 func assignUniqueInt64(dst *int64, value, hint string) error {
 	if *dst != 0 {
 		return fmt.Errorf("%s; duplicate kind is not allowed", hint)
@@ -142,7 +146,7 @@ func assignUniqueInt64(dst *int64, value, hint string) error {
 	return nil
 }
 
-// validateOrchPosShape 校验orchposshape。
+// validateOrchPosShape 校验 pos 字段组合是否能唯一定位资源。
 func validateOrchPosShape(pos orchPos) error {
 	nonEmpty := countOrchPosFields(pos)
 	if nonEmpty == 0 {
@@ -163,6 +167,7 @@ func validateOrchPosShape(pos orchPos) error {
 	return errors.New("next: use agent:<agent_id>, dag:<dag_key>, run:<run_key>, workspace:<run_key>, prompt:<key>, command:<key>, or shared:<path>")
 }
 
+// countOrchPosFields 统计 pos 已填字段数量，用于区分单资源定位和组合定位。
 func countOrchPosFields(pos orchPos) int {
 	nonEmpty := 0
 	for _, value := range []string{
@@ -185,6 +190,7 @@ func countOrchPosFields(pos orchPos) int {
 	return nonEmpty
 }
 
+// validateStandaloneOrchPos 校验 agent/workspace/run 单字段定位不能和其它字段混用。
 func validateStandaloneOrchPos(pos orchPos, nonEmpty int) (bool, error) {
 	for _, rule := range []struct {
 		value string
@@ -205,6 +211,7 @@ func validateStandaloneOrchPos(pos orchPos, nonEmpty int) (bool, error) {
 	return false, nil
 }
 
+// runOnlyPosValue 返回没有 dag_key 约束的 run:<run_key> 定位值。
 func runOnlyPosValue(pos orchPos) string {
 	if pos.RunKey != "" && pos.DagKey == "" {
 		return pos.RunKey
@@ -212,6 +219,7 @@ func runOnlyPosValue(pos orchPos) string {
 	return ""
 }
 
+// validateRuntimeOrchPos 校验 runtime node 定位必须同时包含 dag、run_id 和 node。
 func validateRuntimeOrchPos(pos orchPos) (bool, error) {
 	if pos.RunID <= 0 {
 		return false, nil
@@ -249,7 +257,7 @@ func resolveNodeKeyInput(nodeKey, pos string) (string, error) {
 	})
 }
 
-// resolveRunIDInput 解析运行记录IDinput。
+// resolveRunIDInput 合并 legacy run_id 字段与 pos 中的 run_id，并在冲突时返回 coded error。
 func resolveRunIDInput(runID int64, pos string) (int64, error) {
 	parsed, err := parseOrchPos(pos)
 	if err != nil {
@@ -314,7 +322,7 @@ func resolveOptionalDAGKeyInput(dagKey, pos string) (string, error) {
 	return resolved, nil
 }
 
-// resolveLegacyFieldWithPos 解析带pos的legacy字段。
+// resolveLegacyFieldWithPos 合并 legacy 字段与 pos 字段，保证两者都传时值必须一致。
 func resolveLegacyFieldWithPos(
 	legacyValue string,
 	legacyField string,

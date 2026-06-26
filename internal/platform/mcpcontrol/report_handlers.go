@@ -11,16 +11,17 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 )
 
-// RuntimeReportHandler handles runtime reports received through the MCP control plane.
+// RuntimeReportHandler 处理 MCP 控制面收到的 runtime report，并负责把运行时端口等状态持久化。
 type RuntimeReportHandler interface {
 	HandleRuntimeReport(ctx context.Context, instance *ToolInstance, report dto.RuntimeReport, req dto.ReportRequest) (dto.ReportResponse, error)
 }
 
-// CompletionReportHandler handles completion reports received through the MCP control plane.
+// CompletionReportHandler 处理 completion report，并把任务完成事件写回 orchestration。
 type CompletionReportHandler interface {
 	HandleCompletionReport(ctx context.Context, instance *ToolInstance, report dto.CompletionReport, req dto.ReportRequest) (dto.ReportResponse, error)
 }
 
+// handleReport 先为 report_id 做幂等预留，再按报告类型分发；成功结果会缓存供重复提交复用。
 func handleReport(
 	ctx context.Context,
 	registry *ToolRegistry,
@@ -45,7 +46,7 @@ func handleReport(
 	})
 }
 
-// dispatchReport 派发report。
+// dispatchReport 根据 envelope 类型调用对应处理器，progress/diagnostic 当前显式拒绝。
 func dispatchReport(
 	ctx context.Context,
 	instance *ToolInstance,
@@ -79,11 +80,12 @@ func dispatchReport(
 	}
 }
 
+// defaultRuntimeReportHandler 将 runtime report 写入 orchestration 服务。
 type defaultRuntimeReportHandler struct {
 	orchestration contract.OrchestrationService
 }
 
-// HandleRuntimeReport 处理运行时report。
+// HandleRuntimeReport 持久化 agent 运行时端口和 provider，缺少 orchestration 时直接报能力不匹配。
 func (h defaultRuntimeReportHandler) HandleRuntimeReport(
 	ctx context.Context,
 	instance *ToolInstance,
@@ -108,11 +110,12 @@ func (h defaultRuntimeReportHandler) HandleRuntimeReport(
 	}, nil
 }
 
+// defaultCompletionReportHandler 将 completion report 转成 orchestration report event。
 type defaultCompletionReportHandler struct {
 	orchestration contract.OrchestrationService
 }
 
-// HandleCompletionReport 处理补全report。
+// HandleCompletionReport 持久化 completion 事件，并保留原始 metadata 作为事件数据。
 func (h defaultCompletionReportHandler) HandleCompletionReport(
 	ctx context.Context,
 	instance *ToolInstance,
@@ -140,6 +143,7 @@ func (h defaultCompletionReportHandler) HandleCompletionReport(
 	}, nil
 }
 
+// reportVariant 从显式 type 或非空 report 分支推断报告类型。
 func reportVariant(report dto.ReportEnvelope) string {
 	if variant := strings.TrimSpace(report.Type); variant != "" {
 		return variant
@@ -154,6 +158,7 @@ func reportVariant(report dto.ReportEnvelope) string {
 	}
 }
 
+// completionEventData 优先透传 completion metadata，缺失时回退为完整 envelope 快照。
 func completionEventData(report dto.ReportEnvelope) json.RawMessage {
 	if report.Completion != nil && len(report.Completion.Metadata) != 0 {
 		return append(json.RawMessage(nil), report.Completion.Metadata...)

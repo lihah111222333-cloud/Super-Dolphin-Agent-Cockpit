@@ -6,6 +6,8 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 )
 
+// OrchestrationStub 是测试用编排服务替身。
+// 每个方法优先调用对应 Func，未注入时返回零值，方便 golden 测试只覆盖关心的接口。
 type OrchestrationStub struct {
 	StartDAGFunc              func(context.Context, contract.StartDAGRequest) (contract.StartDAGResponse, error)
 	TerminateDAGFunc          func(context.Context, contract.TerminateDAGRequest) error
@@ -35,7 +37,8 @@ type OrchestrationStub struct {
 	DispatchNodeFunc          func(context.Context, contract.DispatchNodeRequest) (contract.DispatchNodeResponse, error)
 }
 
-// LaunchAgent 启动代理。
+// LaunchAgent 只把请求转交给测试注入的启动函数。
+// 未注入时返回 nil，避免 golden 测试被无关编排能力阻塞。
 func (s *OrchestrationStub) LaunchAgent(ctx context.Context, req contract.LaunchRequest) error {
 	if s.LaunchAgentFunc != nil {
 		return s.LaunchAgentFunc(ctx, req)
@@ -43,7 +46,7 @@ func (s *OrchestrationStub) LaunchAgent(ctx context.Context, req contract.Launch
 	return nil
 }
 
-// LaunchAgentSnapshot 启动代理快照。
+// LaunchAgentSnapshot 启动 agent 并返回快照，未注入快照函数时返回 launching 零状态。
 func (s *OrchestrationStub) LaunchAgentSnapshot(ctx context.Context, req contract.LaunchRequest) (contract.AgentSnapshot, error) {
 	if s.LaunchAgentSnapshotFunc != nil {
 		return s.LaunchAgentSnapshotFunc(ctx, req)
@@ -57,7 +60,8 @@ func (s *OrchestrationStub) LaunchAgentSnapshot(ctx context.Context, req contrac
 	return contract.AgentSnapshot{ID: req.AgentID, AgentID: req.AgentID, State: "launching"}, nil
 }
 
-// ListAgents 列出代理。
+// ListAgents 返回测试注入的 agent 快照列表。
+// 未注入时返回 nil slice，表示当前用例没有声明 agent 列表依赖。
 func (s *OrchestrationStub) ListAgents(ctx context.Context) ([]contract.AgentSnapshot, error) {
 	if s.ListAgentsFunc != nil {
 		return s.ListAgentsFunc(ctx)
@@ -65,7 +69,8 @@ func (s *OrchestrationStub) ListAgents(ctx context.Context) ([]contract.AgentSna
 	return nil, nil
 }
 
-// StopAgent 停止代理。
+// StopAgent 委托测试注入的停止函数。
+// 未注入时视为无操作，让只验证 RPC 载荷的用例无需维护 agent 状态机。
 func (s *OrchestrationStub) StopAgent(ctx context.Context, agentID string) error {
 	if s.StopAgentFunc != nil {
 		return s.StopAgentFunc(ctx, agentID)
@@ -73,7 +78,8 @@ func (s *OrchestrationStub) StopAgent(ctx context.Context, agentID string) error
 	return nil
 }
 
-// InterruptAgent 中断代理当前 turn。
+// InterruptAgent 委托测试注入的中断函数。
+// 未注入时返回零状态，表示当前用例不关心中断后的状态变化。
 func (s *OrchestrationStub) InterruptAgent(ctx context.Context, agentID string, source string) (contract.AgentStateResult, error) {
 	if s.InterruptAgentFunc != nil {
 		return s.InterruptAgentFunc(ctx, agentID, source)
@@ -81,7 +87,8 @@ func (s *OrchestrationStub) InterruptAgent(ctx context.Context, agentID string, 
 	return contract.AgentStateResult{}, nil
 }
 
-// SubmitTurn 提交turn。
+// SubmitTurn 只把 turn 提交请求转交给测试注入函数。
+// 未注入时返回 nil，适合只覆盖 handler 路由而不启动真实会话的用例。
 func (s *OrchestrationStub) SubmitTurn(ctx context.Context, req contract.TurnSubmission) error {
 	if s.SubmitTurnFunc != nil {
 		return s.SubmitTurnFunc(ctx, req)
@@ -89,7 +96,8 @@ func (s *OrchestrationStub) SubmitTurn(ctx context.Context, req contract.TurnSub
 	return nil
 }
 
-// CompleteTurn 完成turn。
+// CompleteTurn 委托测试注入函数记录 turn 结束结果。
+// 未注入时不维护内存状态，避免测试替身暗自模拟真实编排逻辑。
 func (s *OrchestrationStub) CompleteTurn(ctx context.Context, agentID, turnID string, success bool, errMsg string) error {
 	if s.CompleteTurnFunc != nil {
 		return s.CompleteTurnFunc(ctx, agentID, turnID, success, errMsg)
@@ -97,7 +105,8 @@ func (s *OrchestrationStub) CompleteTurn(ctx context.Context, agentID, turnID st
 	return nil
 }
 
-// Recover 恢复模块。
+// Recover 委托测试注入函数执行恢复断言。
+// 未注入时返回 nil，表示当前用例未覆盖 agent 恢复路径。
 func (s *OrchestrationStub) Recover(ctx context.Context, agentID string) error {
 	if s.RecoverFunc != nil {
 		return s.RecoverFunc(ctx, agentID)
@@ -105,7 +114,8 @@ func (s *OrchestrationStub) Recover(ctx context.Context, agentID string) error {
 	return nil
 }
 
-// BindSessionGeneration 绑定会话代际。
+// BindSessionGeneration 委托测试注入函数校验会话代际绑定。
+// 未注入时不保存代际，避免 golden 测试产生隐藏状态。
 func (s *OrchestrationStub) BindSessionGeneration(ctx context.Context, agentID string, generation uint64) error {
 	if s.BindSessionGenerationFunc != nil {
 		return s.BindSessionGenerationFunc(ctx, agentID, generation)
@@ -113,7 +123,8 @@ func (s *OrchestrationStub) BindSessionGeneration(ctx context.Context, agentID s
 	return nil
 }
 
-// Snapshot 处理快照。
+// Snapshot 返回测试注入的 agent 快照。
+// 未注入时返回零值，表示调用方需要在用例里显式声明快照期望。
 func (s *OrchestrationStub) Snapshot(ctx context.Context, agentID string) (contract.AgentSnapshot, error) {
 	if s.SnapshotFunc != nil {
 		return s.SnapshotFunc(ctx, agentID)
@@ -121,7 +132,8 @@ func (s *OrchestrationStub) Snapshot(ctx context.Context, agentID string) (contr
 	return contract.AgentSnapshot{}, nil
 }
 
-// UpdateRuntime 更新运行时。
+// UpdateRuntime 委托测试注入函数接收 runtime report。
+// 未注入时不缓存 report，避免测试替身和真实 runtime 状态产生偏差。
 func (s *OrchestrationStub) UpdateRuntime(ctx context.Context, report contract.RuntimeReport) error {
 	if s.UpdateRuntimeFunc != nil {
 		return s.UpdateRuntimeFunc(ctx, report)
@@ -129,7 +141,8 @@ func (s *OrchestrationStub) UpdateRuntime(ctx context.Context, report contract.R
 	return nil
 }
 
-// GetState 读取状态。
+// GetState 返回测试注入的 agent 状态。
+// 未注入时返回零值，表示当前用例没有声明状态读取期望。
 func (s *OrchestrationStub) GetState(ctx context.Context, agentID string) (contract.AgentStateResult, error) {
 	if s.GetStateFunc != nil {
 		return s.GetStateFunc(ctx, agentID)
@@ -137,7 +150,8 @@ func (s *OrchestrationStub) GetState(ctx context.Context, agentID string) (contr
 	return contract.AgentStateResult{}, nil
 }
 
-// GetReport 读取report。
+// GetReport 委托测试注入函数读取 agent report。
+// 未注入时返回零值，避免测试替身生成真实报告结构。
 func (s *OrchestrationStub) GetReport(ctx context.Context, agentID string) (contract.AgentReportResult, error) {
 	if s.GetReportFunc != nil {
 		return s.GetReportFunc(ctx, agentID)
@@ -145,7 +159,8 @@ func (s *OrchestrationStub) GetReport(ctx context.Context, agentID string) (cont
 	return contract.AgentReportResult{}, nil
 }
 
-// RememberReportRequest 处理rememberreport请求。
+// RememberReportRequest 委托测试注入函数校验报告记忆请求。
+// 未注入时返回零值，表示该 golden 用例不覆盖记忆报告副作用。
 func (s *OrchestrationStub) RememberReportRequest(ctx context.Context, req contract.RememberReportRequest) (contract.RememberReportRequestResult, error) {
 	if s.RememberReportRequestFunc != nil {
 		return s.RememberReportRequestFunc(ctx, req)
@@ -153,7 +168,8 @@ func (s *OrchestrationStub) RememberReportRequest(ctx context.Context, req contr
 	return contract.RememberReportRequestResult{}, nil
 }
 
-// HandleReportEvent 处理report事件。
+// HandleReportEvent 委托测试注入函数处理报告事件。
+// 未注入时返回零值，避免测试替身自行分发表驱动事件。
 func (s *OrchestrationStub) HandleReportEvent(ctx context.Context, event contract.ReportEvent) (contract.ReportEventResult, error) {
 	if s.HandleReportEventFunc != nil {
 		return s.HandleReportEventFunc(ctx, event)
@@ -161,7 +177,8 @@ func (s *OrchestrationStub) HandleReportEvent(ctx context.Context, event contrac
 	return contract.ReportEventResult{}, nil
 }
 
-// CreateDAG 创建DAG。
+// CreateDAG 委托测试注入函数创建 DAG。
+// 未注入时返回零值，表示用例未要求维护 DAG 持久化状态。
 func (s *OrchestrationStub) CreateDAG(ctx context.Context, req contract.CreateDAGRequest) (contract.DAGDetail, error) {
 	if s.CreateDAGFunc != nil {
 		return s.CreateDAGFunc(ctx, req)
@@ -169,7 +186,8 @@ func (s *OrchestrationStub) CreateDAG(ctx context.Context, req contract.CreateDA
 	return contract.DAGDetail{}, nil
 }
 
-// GetDAG 读取DAG。
+// GetDAG 返回测试注入的 DAG 详情。
+// 未注入时返回零值，避免测试替身假装存在 DAG 存储。
 func (s *OrchestrationStub) GetDAG(ctx context.Context, dagKey string) (contract.DAGDetail, error) {
 	if s.GetDAGFunc != nil {
 		return s.GetDAGFunc(ctx, dagKey)
@@ -177,7 +195,8 @@ func (s *OrchestrationStub) GetDAG(ctx context.Context, dagKey string) (contract
 	return contract.DAGDetail{}, nil
 }
 
-// ListDAGs 列出dags。
+// ListDAGs 委托测试注入函数返回 DAG 列表。
+// 未注入时返回 nil slice，表示当前用例没有列表读取期望。
 func (s *OrchestrationStub) ListDAGs(ctx context.Context, filter contract.ListDAGsFilter) ([]contract.DAGSummary, error) {
 	if s.ListDAGsFunc != nil {
 		return s.ListDAGsFunc(ctx, filter)
@@ -185,7 +204,8 @@ func (s *OrchestrationStub) ListDAGs(ctx context.Context, filter contract.ListDA
 	return nil, nil
 }
 
-// UpdateNodeStatus 更新节点状态。
+// UpdateNodeStatus 委托测试注入函数校验节点状态更新。
+// 未注入时返回零值，避免测试替身维护部分 DAG 状态。
 func (s *OrchestrationStub) UpdateNodeStatus(ctx context.Context, req contract.UpdateNodeStatusRequest) (contract.DAGNode, error) {
 	if s.UpdateNodeStatusFunc != nil {
 		return s.UpdateNodeStatusFunc(ctx, req)
@@ -193,7 +213,8 @@ func (s *OrchestrationStub) UpdateNodeStatus(ctx context.Context, req contract.U
 	return contract.DAGNode{}, nil
 }
 
-// StartDAG 是 T1.1 加的接口方法；骨架阶段 stub 返回零值。
+// StartDAG 委托测试注入函数启动 DAG。
+// 未注入时返回零值，适合只验证工具层请求映射的用例。
 func (s *OrchestrationStub) StartDAG(ctx context.Context, req contract.StartDAGRequest) (contract.StartDAGResponse, error) {
 	if s.StartDAGFunc != nil {
 		return s.StartDAGFunc(ctx, req)
@@ -201,7 +222,8 @@ func (s *OrchestrationStub) StartDAG(ctx context.Context, req contract.StartDAGR
 	return contract.StartDAGResponse{}, nil
 }
 
-// TerminateDAG 处理terminateDAG。
+// TerminateDAG 委托测试注入函数终止 DAG。
+// 未注入时返回 nil，表示当前用例不覆盖终止副作用。
 func (s *OrchestrationStub) TerminateDAG(ctx context.Context, req contract.TerminateDAGRequest) error {
 	if s.TerminateDAGFunc != nil {
 		return s.TerminateDAGFunc(ctx, req)
@@ -209,7 +231,8 @@ func (s *OrchestrationStub) TerminateDAG(ctx context.Context, req contract.Termi
 	return nil
 }
 
-// DeleteDAG 删除DAG。
+// DeleteDAG 委托测试注入函数删除 DAG。
+// 未注入时返回 nil，避免测试替身隐式维护删除后的列表状态。
 func (s *OrchestrationStub) DeleteDAG(ctx context.Context, req contract.DeleteDAGRequest) error {
 	if s.DeleteDAGFunc != nil {
 		return s.DeleteDAGFunc(ctx, req)
@@ -217,7 +240,8 @@ func (s *OrchestrationStub) DeleteDAG(ctx context.Context, req contract.DeleteDA
 	return nil
 }
 
-// ApplyOps 是 T2.1+T2.2 加的接口方法；骨架阶段 stub 返回零值。
+// ApplyOps 委托测试注入函数应用 DAG 操作。
+// 未注入时返回零值，表示用例没有声明批量操作结果。
 func (s *OrchestrationStub) ApplyOps(ctx context.Context, req contract.ApplyOpsRequest) (contract.ApplyOpsResponse, error) {
 	if s.ApplyOpsFunc != nil {
 		return s.ApplyOpsFunc(ctx, req)
@@ -225,10 +249,8 @@ func (s *OrchestrationStub) ApplyOps(ctx context.Context, req contract.ApplyOpsR
 	return contract.ApplyOpsResponse{}, nil
 }
 
-// GetRun 是 T3.1 加的接口方法；stub 默认返回零值，测试按需注入 GetRunFunc。
-//
-// GetRun is the T3.1 interface method; the stub returns a zero value by
-// default and tests inject GetRunFunc as needed.
+// GetRun 委托测试注入函数读取 DAG run 详情。
+// 未注入时返回零值，避免替身构造不完整运行态。
 func (s *OrchestrationStub) GetRun(ctx context.Context, req contract.GetRunRequest) (contract.GetRunResponse, error) {
 	if s.GetRunFunc != nil {
 		return s.GetRunFunc(ctx, req)
@@ -236,8 +258,8 @@ func (s *OrchestrationStub) GetRun(ctx context.Context, req contract.GetRunReque
 	return contract.GetRunResponse{}, nil
 }
 
-// ListRuns 是 T3.2 加的接口方法；stub 默认返空 runs slice。
-// ListRuns is the T3.2 interface method; stub defaults to an empty runs slice.
+// ListRuns 委托测试注入函数读取 DAG run 列表。
+// 未注入时返回零值，表示当前用例未覆盖运行列表。
 func (s *OrchestrationStub) ListRuns(ctx context.Context, req contract.ListRunsRequest) (contract.ListRunsResponse, error) {
 	if s.ListRunsFunc != nil {
 		return s.ListRunsFunc(ctx, req)
@@ -245,11 +267,8 @@ func (s *OrchestrationStub) ListRuns(ctx context.Context, req contract.ListRunsR
 	return contract.ListRunsResponse{}, nil
 }
 
-// DispatchNode 是 dispatcher wiring batch §4 加的接口方法 (ADR-004 §Open Q1)；
-// stub 默认返零值；测试注入 DispatchNodeFunc 时走真实分支。
-//
-// DispatchNode is the dispatcher wiring batch addition for ADR-004 (Open Q1);
-// stub returns a zero value by default. Tests inject DispatchNodeFunc.
+// DispatchNode 委托测试注入函数派发 DAG 节点。
+// 未注入时返回零值，避免测试替身启动真实节点执行流程。
 func (s *OrchestrationStub) DispatchNode(ctx context.Context, req contract.DispatchNodeRequest) (contract.DispatchNodeResponse, error) {
 	if s.DispatchNodeFunc != nil {
 		return s.DispatchNodeFunc(ctx, req)

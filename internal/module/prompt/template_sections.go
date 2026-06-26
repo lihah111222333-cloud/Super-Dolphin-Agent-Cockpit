@@ -12,10 +12,8 @@ import (
 	promptstore "github.com/anthropic-ai/super-agent-v3/internal/store/prompt"
 )
 
-// mergeTemplateSections folds DB-sourced prompt_template sections into the
-// resolver's output. Blocks are stable-sorted by (Region, Ordinal) so callers
-// don't need to pre-sort; static blocks feed CachedPrefix, dynamic blocks feed
-// UncachedTail via renderResolvedSectionsByRegion in assembler.go.
+// mergeTemplateSections 将 DB 中的 prompt_template sections 合并进 resolver 输出。
+// Blocks 会按 Region/Ordinal 稳定排序：static 进入 CachedPrefix，dynamic 进入 UncachedTail。
 //
 // Semantics:
 //   - Empty bodies are dropped.
@@ -28,8 +26,6 @@ import (
 //     of having both copies concatenated.
 //   - A block with a novel Key is appended as "tpl:<key>" so it cannot collide
 //     with a future built-in addition.
-//
-// mergeTemplateSections 合并templatesections。
 func mergeTemplateSections(
 	resolved []contract.ResolvedPromptSection,
 	blocks []contract.BaseInstructionBlock,
@@ -71,6 +67,7 @@ func mergeTemplateSections(
 	return resolved
 }
 
+// indexResolvedByName 建立已解析 section 名称到位置的索引，用于模板 section 覆盖内置内容。
 func indexResolvedByName(resolved []contract.ResolvedPromptSection) map[string]int {
 	out := make(map[string]int, len(resolved))
 	for i, r := range resolved {
@@ -83,6 +80,7 @@ func indexResolvedByName(resolved []contract.ResolvedPromptSection) map[string]i
 	return out
 }
 
+// requirePromptCWD 校验 RPC 请求必须携带 cwd，所有项目级 prompt 操作都以该值做 scope 判定。
 func requirePromptCWD(cwd string) (string, error) {
 	requestScope := strings.TrimSpace(cwd)
 	if requestScope == "" {
@@ -91,7 +89,7 @@ func requirePromptCWD(cwd string) (string, error) {
 	return requestScope, nil
 }
 
-// validatePromptScope 校验prompt作用域。
+// validatePromptScope 校验现有模板是否允许当前 cwd 读取或写入。
 func validatePromptScope(current *promptstore.PromptTemplate, cwd string) error {
 	requestScope, err := requirePromptCWD(cwd)
 	if err != nil {
@@ -112,7 +110,7 @@ func validatePromptScope(current *promptstore.PromptTemplate, cwd string) error 
 	return fmt.Errorf("dashboard: prompt %q is outside cwd scope", current.PromptKey)
 }
 
-// validatePromptWriteScope 校验promptwrite作用域。
+// validatePromptWriteScope 校验 prompt 更新 scope；显式 scope 可将 global/project 写入意图带入判断。
 func validatePromptWriteScope(current *promptstore.PromptTemplate, cwd, scope string, scopeSet bool) error {
 	requestScope, err := requirePromptCWD(cwd)
 	if err != nil {
@@ -142,7 +140,7 @@ func validatePromptWriteScope(current *promptstore.PromptTemplate, cwd, scope st
 	return fmt.Errorf("dashboard: prompt %q is outside cwd scope", current.PromptKey)
 }
 
-// validatePromptMutationScope 校验promptmutation作用域。
+// validatePromptMutationScope 校验删除或 section mutation 的 scope，防止跨项目误删。
 func validatePromptMutationScope(current *promptstore.PromptTemplate, cwd, scope string, scopeSet bool) error {
 	requestScope, err := requirePromptCWD(cwd)
 	if err != nil {
@@ -166,6 +164,7 @@ func validatePromptMutationScope(current *promptstore.PromptTemplate, cwd, scope
 	return fmt.Errorf("dashboard: prompt %q is outside cwd scope", current.PromptKey)
 }
 
+// promptVisibleForCWD 判断模板对当前 cwd 是否可见；未带 scope tag 的既有模板保持可见以兼容旧数据。
 func promptVisibleForCWD(template promptstore.PromptTemplate, cwd string) bool {
 	requestScope := strings.TrimSpace(cwd)
 	if requestScope == "" {
@@ -178,7 +177,7 @@ func promptVisibleForCWD(template promptstore.PromptTemplate, cwd string) bool {
 	return storedScope == "" || storedScope == requestScope
 }
 
-// promptScopeForWrite 为write处理prompt作用域。
+// promptScopeForWrite 解析写入目标 scope；更新时优先继承现有模板 scope。
 func promptScopeForWrite(current *promptstore.PromptTemplate, cwd, scope string, scopeSet bool) string {
 	if scopeSet {
 		if normalized := normalizePromptScope(scope); normalized != "" {
@@ -197,6 +196,7 @@ func promptScopeForWrite(current *promptstore.PromptTemplate, cwd, scope string,
 	return ""
 }
 
+// promptScopeFromTags 从内部 scope.cwd tag 中取出项目路径。
 func promptScopeFromTags(raw json.RawMessage) string {
 	for _, tag := range promptTags(raw) {
 		if value, ok := strings.CutPrefix(tag, promptScopeTagPrefix); ok {
@@ -206,6 +206,7 @@ func promptScopeFromTags(raw json.RawMessage) string {
 	return ""
 }
 
+// normalizePromptScope 把客户端传入的 scope 别名收敛到 project/global。
 func normalizePromptScope(scope string) string {
 	switch strings.ToLower(strings.TrimSpace(scope)) {
 	case "", "project", "cwd", "current_project":
@@ -217,6 +218,7 @@ func normalizePromptScope(scope string) string {
 	}
 }
 
+// promptScopeForTemplate 返回前端展示用 scope，非 global 模板都视为 project。
 func promptScopeForTemplate(template promptstore.PromptTemplate) string {
 	if promptHasGlobalScope(template.Tags) {
 		return "global"
@@ -224,11 +226,12 @@ func promptScopeForTemplate(template promptstore.PromptTemplate) string {
 	return "project"
 }
 
+// withPromptScopeTag 为项目级写入添加当前 cwd scope tag。
 func withPromptScopeTag(raw json.RawMessage, cwd string) json.RawMessage {
 	return withPromptScopeKindTag(raw, cwd, "project")
 }
 
-// withPromptScopeKindTag 设置prompt作用域kindtag。
+// withPromptScopeKindTag 重写内部 scope tags，只保留用户标签和目标 scope。
 func withPromptScopeKindTag(raw json.RawMessage, cwd, scope string) json.RawMessage {
 	tags := promptTags(raw)
 	next := make([]string, 0, len(tags)+1)
@@ -249,7 +252,7 @@ func withPromptScopeKindTag(raw json.RawMessage, cwd, scope string) json.RawMess
 	return json.RawMessage(encoded)
 }
 
-// rejectDuplicateRecallTopicInCWD 在工作目录处理rejectduplicaterecalltopic。
+// rejectDuplicateRecallTopicInCWD 在事务中锁定 topic 并拒绝 cwd 内重复 recall topic。
 func rejectDuplicateRecallTopicInCWD(
 	ctx context.Context,
 	store promptstore.Store,
@@ -281,7 +284,7 @@ func rejectDuplicateRecallTopicInCWD(
 	return nil
 }
 
-// promptRecallDuplicateExists 处理promptrecallduplicateexists。
+// promptRecallDuplicateExists 扫描可见模板，判断是否已有与目标 section 冲突的 recall topic。
 func promptRecallDuplicateExists(
 	templates []promptstore.PromptTemplate,
 	sectionsByID map[int64][]promptstore.PromptTemplateSection,
@@ -305,7 +308,7 @@ func promptRecallDuplicateExists(
 	return false
 }
 
-// promptRecallDuplicateTargetScope 处理promptrecallduplicatetarget作用域。
+// promptRecallDuplicateTargetScope 计算去重检查的目标 scope，避免 global/project recall 相互误判。
 func promptRecallDuplicateTargetScope(current *promptstore.PromptTemplate, cwd, scope string, scopeSet bool) string {
 	if current != nil {
 		hasProject := promptHasScopeCWD(current.Tags, cwd)
@@ -330,6 +333,7 @@ func promptRecallDuplicateTargetScope(current *promptstore.PromptTemplate, cwd, 
 	return ""
 }
 
+// promptRecallDuplicateVisibleTemplates 只保留启用且当前 cwd 可见的模板参与去重。
 func promptRecallDuplicateVisibleTemplates(templates []promptstore.PromptTemplate, cwd string) []promptstore.PromptTemplate {
 	out := make([]promptstore.PromptTemplate, 0, len(templates))
 	for _, template := range templates {
@@ -340,6 +344,7 @@ func promptRecallDuplicateVisibleTemplates(templates []promptstore.PromptTemplat
 	return out
 }
 
+// promptRecallTemplateConflictsWithTarget 判断模板 scope 是否会与目标 recall 写入发生冲突。
 func promptRecallTemplateConflictsWithTarget(targetScope string, template promptstore.PromptTemplate, cwd string) bool {
 	switch targetScope {
 	case "global":
@@ -351,18 +356,23 @@ func promptRecallTemplateConflictsWithTarget(targetScope string, template prompt
 	}
 }
 
+// promptTemplateHasCurrentProjectOnlyScope 判断模板是否只属于当前项目。
 func promptTemplateHasCurrentProjectOnlyScope(template promptstore.PromptTemplate, cwd string) bool {
 	return promptHasScopeCWD(template.Tags, cwd) && !promptHasGlobalScope(template.Tags)
 }
 
+// promptTemplateHasGlobalOnlyScope 判断模板是否只属于 global scope。
 func promptTemplateHasGlobalOnlyScope(template promptstore.PromptTemplate, cwd string) bool {
 	return promptHasGlobalScope(template.Tags) && !promptHasScopeCWD(template.Tags, cwd)
 }
 
+// promptAssetListParams 是 prompt-assets/list 的 RPC 请求体，只按 cwd 解析项目可见资产。
 type promptAssetListParams struct {
 	Cwd string `json:"cwd,omitempty"`
 }
 
+// promptAssetRPCItem 是 prompt-assets/list 的前端响应项。
+// 它复用正式 prompt 字段，并在草稿资产上附加 draft 状态、来源和质检 issues。
 type promptAssetRPCItem struct {
 	promptRPCItem
 	State       string `json:"state,omitempty"`
@@ -373,7 +383,7 @@ type promptAssetRPCItem struct {
 	Issues      any    `json:"issues,omitempty"`
 }
 
-// handlePromptAssetList 处理promptassetlist。
+// handlePromptAssetList 返回当前 cwd 可用的用户 prompt assets，并合并可保存草稿。
 func handlePromptAssetList(ctx context.Context, store promptstore.Store, p promptAssetListParams) (any, error) {
 	if store == nil {
 		return nil, errPromptStoreRequired
@@ -404,6 +414,7 @@ func handlePromptAssetList(ctx context.Context, store promptstore.Store, p promp
 	return map[string]any{"prompts": items}, nil
 }
 
+// promptAssetTemplatesForCWD 过滤出当前 cwd 可见的用户资产模板，并按 logical key 去重。
 func promptAssetTemplatesForCWD(templates []promptstore.PromptTemplate, cwd string) []promptstore.PromptTemplate {
 	assets := make([]promptstore.PromptTemplate, 0, len(templates))
 	for _, template := range templates {
@@ -414,6 +425,7 @@ func promptAssetTemplatesForCWD(templates []promptstore.PromptTemplate, cwd stri
 	return effectivePromptAssetTemplates(assets, cwd)
 }
 
+// promptAssetVisibleForCWD 判断资产模板是否对当前 cwd 可见；资产列表只展示显式 global 或当前项目 scope。
 func promptAssetVisibleForCWD(template promptstore.PromptTemplate, cwd string) bool {
 	requestScope := strings.TrimSpace(cwd)
 	if requestScope == "" {
@@ -422,7 +434,7 @@ func promptAssetVisibleForCWD(template promptstore.PromptTemplate, cwd string) b
 	return promptHasGlobalScope(template.Tags) || promptHasScopeCWD(template.Tags, requestScope)
 }
 
-// effectivePromptAssetTemplates 处理effectivepromptassettemplates。
+// effectivePromptAssetTemplates 按 logical key 选择最终展示资产，项目级优先于 global，优先级高者胜出。
 func effectivePromptAssetTemplates(templates []promptstore.PromptTemplate, cwd string) []promptstore.PromptTemplate {
 	type pickedAsset struct {
 		template promptstore.PromptTemplate
@@ -453,6 +465,7 @@ func effectivePromptAssetTemplates(templates []promptstore.PromptTemplate, cwd s
 	return templates
 }
 
+// promptAssetLogicalKey 用 agent、intent tag 和标题构造去重键。
 func promptAssetLogicalKey(template promptstore.PromptTemplate) string {
 	agent := strings.ToLower(strings.TrimSpace(template.AgentKey))
 	intentTag := ""
@@ -469,6 +482,7 @@ func promptAssetLogicalKey(template promptstore.PromptTemplate) string {
 	return strings.Join([]string{agent, intentTag, title}, "\x00")
 }
 
+// promptAssetScopeRank 给项目级资产更高优先级，global 作为兜底。
 func promptAssetScopeRank(template promptstore.PromptTemplate, cwd string) int {
 	if promptHasGlobalScope(template.Tags) && !promptHasScopeCWD(template.Tags, cwd) {
 		return 1
@@ -476,6 +490,7 @@ func promptAssetScopeRank(template promptstore.PromptTemplate, cwd string) int {
 	return 0
 }
 
+// preferPromptAsset 按 scope rank、priority、原始顺序决定 logical key 下保留哪条资产。
 func preferPromptAsset(leftRank, rightRank, leftPriority, rightPriority, leftIndex, rightIndex int) bool {
 	if leftRank != rightRank {
 		return leftRank < rightRank
@@ -486,6 +501,7 @@ func preferPromptAsset(leftRank, rightRank, leftPriority, rightPriority, leftInd
 	return leftIndex < rightIndex
 }
 
+// promptTemplateIsUserAsset 排除 builtin/system 模板，只保留用户或 prompt intent 产物。
 func promptTemplateIsUserAsset(template promptstore.PromptTemplate) bool {
 	if promptTemplateHasTag(template.Tags, "builtin:system") {
 		return false
@@ -502,6 +518,7 @@ func promptTemplateIsUserAsset(template promptstore.PromptTemplate) bool {
 	return !promptTemplateAuthoredBySystem(template)
 }
 
+// promptTemplateHasTag 判断 tags JSON 中是否存在指定标签。
 func promptTemplateHasTag(raw json.RawMessage, want string) bool {
 	want = strings.TrimSpace(want)
 	if want == "" {
@@ -515,18 +532,22 @@ func promptTemplateHasTag(raw json.RawMessage, want string) bool {
 	return false
 }
 
+// promptTemplateAuthoredByUser 判断模板是否由 RPC 写入路径创建或更新。
 func promptTemplateAuthoredByUser(template promptstore.PromptTemplate) bool {
 	return promptAuthorIsRPC(template.CreatedBy) || promptAuthorIsRPC(template.UpdatedBy)
 }
 
+// promptAuthorIsRPC 判断 author 字段是否来自 prompt RPC 写入路径。
 func promptAuthorIsRPC(author string) bool {
 	return strings.TrimSpace(author) == promptUpdatedBy
 }
 
+// promptTemplateAuthoredBySystem 判断模板是否由系统、内置或批量导入路径写入。
 func promptTemplateAuthoredBySystem(template promptstore.PromptTemplate) bool {
 	return promptAuthorLooksSystem(template.CreatedBy) || promptAuthorLooksSystem(template.UpdatedBy)
 }
 
+// promptAuthorLooksSystem 识别系统写入者名称，用于资产列表排除内置内容。
 func promptAuthorLooksSystem(author string) bool {
 	normalized := strings.ToLower(strings.TrimSpace(author))
 	return strings.HasPrefix(normalized, "system") ||
@@ -535,6 +556,7 @@ func promptAuthorLooksSystem(author string) bool {
 		strings.Contains(normalized, "migration")
 }
 
+// promptTemplateHasIntentAssetMarker 判断模板是否带有 prompt intent 资产标记。
 func promptTemplateHasIntentAssetMarker(template promptstore.PromptTemplate) bool {
 	if strings.TrimSpace(template.AgentKey) == "default_rule" {
 		return true
@@ -548,6 +570,7 @@ func promptTemplateHasIntentAssetMarker(template promptstore.PromptTemplate) boo
 	return false
 }
 
+// promptAssetSectionsByTemplateID 批量加载资产模板 sections，并按 template ID 分组。
 func promptAssetSectionsByTemplateID(
 	ctx context.Context,
 	store promptstore.Store,
@@ -568,6 +591,7 @@ func promptAssetSectionsByTemplateID(
 	return sectionsByTemplateID, nil
 }
 
+// promptAssetItemsFromTemplates 将模板和 sections 转为前端资产列表项。
 func promptAssetItemsFromTemplates(
 	templates []promptstore.PromptTemplate,
 	sectionsByTemplateID map[int64][]promptstore.PromptTemplateSection,
@@ -585,6 +609,7 @@ func promptAssetItemsFromTemplates(
 	return items
 }
 
+// firstNonEmpty 返回第一个非空白字符串。
 func firstNonEmpty(values ...string) string {
 	for _, value := range values {
 		if trimmed := strings.TrimSpace(value); trimmed != "" {
@@ -594,6 +619,7 @@ func firstNonEmpty(values ...string) string {
 	return ""
 }
 
+// promptHasScopeCWD 判断 tags 中是否包含指定 cwd 的内部 scope tag。
 func promptHasScopeCWD(raw json.RawMessage, cwd string) bool {
 	want := promptScopeTagPrefix + strings.TrimSpace(cwd)
 	for _, tag := range promptTags(raw) {
@@ -604,6 +630,7 @@ func promptHasScopeCWD(raw json.RawMessage, cwd string) bool {
 	return false
 }
 
+// promptHasAnyScopeCWD 判断 tags 中是否包含任意项目 scope tag。
 func promptHasAnyScopeCWD(raw json.RawMessage) bool {
 	for _, tag := range promptTags(raw) {
 		if strings.HasPrefix(strings.TrimSpace(tag), promptScopeTagPrefix) {
@@ -613,6 +640,7 @@ func promptHasAnyScopeCWD(raw json.RawMessage) bool {
 	return false
 }
 
+// promptHasGlobalScope 判断 tags 中是否包含 global scope tag。
 func promptHasGlobalScope(raw json.RawMessage) bool {
 	for _, tag := range promptTags(raw) {
 		if strings.TrimSpace(tag) == "scope.global" {
@@ -622,6 +650,7 @@ func promptHasGlobalScope(raw json.RawMessage) bool {
 	return false
 }
 
+// promptTags 解析 tags JSON，非法或空值返回空切片。
 func promptTags(raw json.RawMessage) []string {
 	if len(raw) == 0 {
 		return []string{}

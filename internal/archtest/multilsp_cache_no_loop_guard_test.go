@@ -7,11 +7,8 @@ import (
 	"testing"
 )
 
-// TestMultiLSPCacheStoreNoBackgroundLoop enforces P22 P2 LSP-S2: the
-// lspCacheStore must not reintroduce a constructor-launched cleanup
-// goroutine or its stopCh/cleanupLoop/cleanupInterval scaffolding.
-// Cleanup is amortised on access via maybeCleanup, keeping shutdown
-// ctx-driven and the constructor pure.
+// TestMultiLSPCacheStoreNoBackgroundLoop 防止 lspCacheStore 重新引入构造期启动的清理 goroutine。
+// 清理应通过 maybeCleanup 在访问时摊销执行，避免 stopCh/cleanupLoop/cleanupInterval 再次进入生命周期。
 //
 // The guard scans non-test .go under cmd/mcp-lsp/multilsp and fails if
 // any of the forbidden shapes reappears.
@@ -45,7 +42,7 @@ func TestMultiLSPCacheStoreNoBackgroundLoop(t *testing.T) {
 		text := string(data)
 		for _, tok := range forbidden {
 			if strings.Contains(text, tok) {
-				t.Errorf("%s: forbidden cache-loop literal %q present (P22 P2 LSP-S2: rely on amortised maybeCleanup on access)", path, tok)
+				t.Errorf("%s: forbidden cache-loop literal %q present (cache cleanup must stay amortised on access)", path, tok)
 			}
 		}
 	}

@@ -99,7 +99,8 @@ type preparedToolCall struct {
 	started time.Time
 }
 
-// prepareToolCall 准备工具call。
+// prepareToolCall 校验 Codex 工具调用并补齐宿主侧追踪头。
+// 缺 callID、toolName、agent/thread scope 或 cwd 时会 fail-fast，避免 toolbridge 在未知上下文执行。
 func (s *session) prepareToolCall(msg RawMessage) (preparedToolCall, error) {
 	started := time.Now()
 	callID := util.FirstNonEmpty(jsonRPCIDString(msg.ID), toolCallParamStringAny(msg.Params, "callId", "call_id"), nestedToolCallString(msg.Params, "item", "callId", "call_id"))
@@ -204,7 +205,8 @@ func toolCallEndOutcome(result any, callErr error) (bool, string) {
 	return false, envelope.failureText(result)
 }
 
-// decodeToolCallResultEnvelope 解码工具call结果包装。
+// decodeToolCallResultEnvelope 解析工具结果中的成功/失败包络。
+// nil、空 JSON 和 null 视为没有包络；marshal/unmarshal 失败会返回错误供调用方标记工具失败。
 func decodeToolCallResultEnvelope(result any) (toolCallResultEnvelope, bool, error) {
 	if result == nil {
 		return toolCallResultEnvelope{}, false, nil
@@ -228,7 +230,8 @@ func (e toolCallResultEnvelope) explicitFailure() bool {
 	return (e.Success != nil && !*e.Success) || (e.IsError != nil && *e.IsError)
 }
 
-// failureText 提取失败说明文本。
+// failureText 从工具结果包络中提取最适合展示的失败说明。
+// 优先使用 error/message/reason，再回退到 content 文本或完整结果预览。
 func (e toolCallResultEnvelope) failureText(result any) string {
 	if text := util.FirstNonEmpty(e.Error, e.Message, e.Reason); text != "" {
 		return text
@@ -255,7 +258,8 @@ func (s *session) activeTurnSnapshot() string {
 	return strings.TrimSpace(s.activeTurnID)
 }
 
-// enrichToolCallParamsStrict 补充工具callparamsstrict。
+// enrichToolCallParamsStrict 以 fail-fast 方式写入工具调用的可信元数据。
+// 会删除模型可控的同名公开字段，只保留宿主生成的 _agentId/_threadId/_cwd/_workspaceRoots。
 func enrichToolCallParamsStrict(msg RawMessage, agentID, threadID, callID, cwd string, workspaceRoots []string) (RawMessage, error) {
 	var payload map[string]json.RawMessage
 	if len(bytes.TrimSpace(msg.Params)) == 0 {
@@ -322,7 +326,8 @@ func trustedWorkspaceRoots(cwd string, additional []string) []string {
 	return roots
 }
 
-// normalizeTrustedWorkspaceRoot 规范化trusted工作区根目录。
+// normalizeTrustedWorkspaceRoot 把工具可用 workspace root 规范成绝对 clean 路径。
+// 相对 root 必须基于主 cwd 解析，无法定位时返回空值并由调用方丢弃。
 func normalizeTrustedWorkspaceRoot(base, root string) string {
 	root = strings.TrimSpace(root)
 	if root == "" {
@@ -343,7 +348,8 @@ func normalizeTrustedWorkspaceRoot(base, root string) string {
 	return ""
 }
 
-// toolCallParamStringAny 处理工具callparamstring任意值。
+// toolCallParamStringAny 从工具调用参数中按候选键读取第一个非空字符串。
+// 解析失败或字段类型不匹配时返回空字符串，调用方负责决定是否 fail-fast。
 func toolCallParamStringAny(params json.RawMessage, keys ...string) string {
 	var payload map[string]json.RawMessage
 	if len(params) == 0 || json.Unmarshal(params, &payload) != nil {
@@ -358,7 +364,8 @@ func toolCallParamStringAny(params json.RawMessage, keys ...string) string {
 	return ""
 }
 
-// nestedToolCallString 处理nested工具callstring。
+// nestedToolCallString 从嵌套对象中读取工具调用字符串字段。
+// 该兼容层用于 Codex item 包装形态，缺对象或缺字段时返回空字符串。
 func nestedToolCallString(params json.RawMessage, objectKey string, keys ...string) string {
 	var payload map[string]json.RawMessage
 	if len(params) == 0 || json.Unmarshal(params, &payload) != nil {

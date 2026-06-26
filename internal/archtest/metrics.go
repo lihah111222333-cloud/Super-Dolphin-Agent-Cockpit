@@ -117,7 +117,8 @@ func countGlobalVarsV3(fset *token.FileSet, node *ast.File, ignores archGuardIgn
 	return count
 }
 
-// isExemptGlobalVar 判断包级 var 是否属于 V3 豁免模式。
+// isExemptGlobalVar 判断包级 var 是否属于全局变量 guard 的允许形态。
+// 只豁免哨兵错误、fx.Module、接口合规检查和不可变初始化，避免状态型全局变量溜过。
 func isExemptGlobalVar(name string, vs *ast.ValueSpec) bool {
 	// 哨兵错误: ErrExample or errExample
 	if strings.HasPrefix(name, "Err") || strings.HasPrefix(name, "err") {
@@ -212,7 +213,8 @@ func isImmutableFuncCall(call *ast.CallExpr) bool {
 	return false
 }
 
-// isImmutableSelectorCall 判断immutableselectorcall是否可用。
+// isImmutableSelectorCall 判断选择器调用是否属于允许的不可变全局初始化。
+// 仅放行 fx、sync、atomic、regexp、promauto 等已知无运行态写入风险的构造。
 func isImmutableSelectorCall(sel *ast.SelectorExpr) bool {
 	pkg, ok := sel.X.(*ast.Ident)
 	if !ok {

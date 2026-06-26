@@ -12,17 +12,19 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/protocol"
 )
 
+// filePositionParams 是需要 file:line:column 的 LSP 工具公共定位入参。
 type filePositionParams struct {
 	Pos        string `json:"pos"`
 	LanguageID string `json:"language_id,omitempty"`
 }
 
+// inspectParams 是 inspect 工具的 action 加位置入参。
 type inspectParams struct {
 	Action string `json:"action"`
 	filePositionParams
 }
 
-// NewInspectHandler 创建inspect处理器。
+// NewInspectHandler 创建 inspect 工具处理器，按位置执行 hover/definition 等 LSP 查询。
 func NewInspectHandler(registry lspmanager.Registry) ToolHandler {
 	return newManagerTool("inspect", middleware.TierNormal, registry, decodeLenient, func(ctx context.Context, registry lspmanager.Registry, req inspectParams) (any, error) {
 		filePath, position, err := resolveFilePositionRequest(ctx, req.filePositionParams)
@@ -54,6 +56,7 @@ func NewInspectHandler(registry lspmanager.Registry) ToolHandler {
 	})
 }
 
+// runHover 调用 LSP hover，并在无内容时返回标准空列表响应。
 func runHover(
 	ctx context.Context,
 	manager lspmanager.Manager,
@@ -75,6 +78,7 @@ func runHover(
 	return content, nil
 }
 
+// runLocationInspect 执行 definition/implementation/type_definition 并补充函数范围。
 func runLocationInspect(
 	ctx context.Context,
 	filePath string,
@@ -103,6 +107,7 @@ func runLocationInspect(
 	return grouped, nil
 }
 
+// runSignatureHelp 查询调用点签名；无签名时返回可读文本而不是错误。
 func runSignatureHelp(
 	ctx context.Context,
 	manager lspmanager.Manager,
@@ -119,6 +124,7 @@ func runSignatureHelp(
 	return result, nil
 }
 
+// limitSlice 按上限复制切片前缀，避免调用方误改原切片。
 func limitSlice[T any](items []T, limit int) []T {
 	if limit <= 0 || len(items) <= limit {
 		return items
@@ -126,6 +132,7 @@ func limitSlice[T any](items []T, limit int) []T {
 	return append([]T(nil), items[:limit]...)
 }
 
+// hoverText 提取 hover 结果中的可显示文本。
 func hoverText(result *protocol.HoverResult) string {
 	if result == nil {
 		return ""
@@ -133,6 +140,7 @@ func hoverText(result *protocol.HoverResult) string {
 	return strings.TrimSpace(extractHoverValue(result.Contents))
 }
 
+// extractHoverValue 兼容不同 LSP server 的 hover 内容形状。
 func extractHoverValue(value any) string {
 	if text, ok := extractHoverDirectValue(value); ok {
 		return text
@@ -143,7 +151,7 @@ func extractHoverValue(value any) string {
 	return extractHoverFallbackValue(value)
 }
 
-// extractHoverDirectValue 提取悬停direct值。
+// extractHoverDirectValue 提取 string 或 MarkupContent 形式的 hover 文本。
 func extractHoverDirectValue(value any) (string, bool) {
 	switch typed := value.(type) {
 	case nil:
@@ -162,6 +170,7 @@ func extractHoverDirectValue(value any) (string, bool) {
 	}
 }
 
+// extractHoverCollectionValue 提取数组或 map 形式的 hover 文本。
 func extractHoverCollectionValue(value any) (string, bool) {
 	switch typed := value.(type) {
 	case []any:
@@ -173,6 +182,7 @@ func extractHoverCollectionValue(value any) (string, bool) {
 	}
 }
 
+// extractHoverFallbackValue 通过 JSON 往返把未知 hover 结构转成通用形状。
 func extractHoverFallbackValue(value any) string {
 	payload, err := json.Marshal(value)
 	if err != nil {
@@ -185,6 +195,7 @@ func extractHoverFallbackValue(value any) string {
 	return extractHoverValue(generic)
 }
 
+// joinHoverParts 合并多段 hover 文本，空段会被跳过。
 func joinHoverParts(items []any) string {
 	parts := make([]string, 0, len(items))
 	for _, item := range items {
@@ -195,6 +206,7 @@ func joinHoverParts(items []any) string {
 	return strings.Join(parts, "\n\n")
 }
 
+// extractHoverMapValue 从 map 中提取 value/language，并在有语言时渲染代码块。
 func extractHoverMapValue(value map[string]any) string {
 	raw, _ := value["value"].(string)
 	raw = strings.TrimSpace(raw)

@@ -30,15 +30,19 @@ const (
 	DynamicSectionBrief                  = contract.DynamicSectionBrief
 )
 
+// DynamicSectionProvider 是动态 prompt slot 的跨模块提供器接口，本包只保存接口不直接依赖业务模块实现。
 type DynamicSectionProvider = contract.DynamicSectionProvider
 
+// InvalidationAwareProvider 表示提供器能接收 section 失效通知，用于记忆等持久化内容变更后刷新缓存。
 type InvalidationAwareProvider = contract.InvalidationAwareProvider
 
+// DynamicTextProvider 适配简单文本函数为动态 section，适合无状态 provider 和测试桩。
 type DynamicTextProvider struct {
 	Name        string
 	ResolveFunc func(context.Context, SectionContext) (*string, error)
 }
 
+// CachePolicy 描述动态 section 的缓存边界：按名称、按输入快照或每次重算。
 type CachePolicy = contract.CachePolicy
 
 const (
@@ -47,6 +51,7 @@ const (
 	InputScoped = contract.InputScoped
 )
 
+// dynamicSectionSpec 固定一个动态 slot 的顺序、缓存策略和是否只参与 start assembly。
 type dynamicSectionSpec struct {
 	name        string
 	order       int
@@ -78,12 +83,12 @@ var dynamicSectionSpecs = []dynamicSectionSpec{
 	{name: DynamicSectionBrief, order: 260, cachePolicy: CacheByName},
 }
 
-// SectionName 返回该上下文提供器写入的 prompt section 名称。
+// SectionName 返回 DynamicTextProvider 绑定的 slot 名称，注册时会校验该名称是否已声明。
 func (p DynamicTextProvider) SectionName() string {
 	return p.Name
 }
 
-// Resolve 解析当前请求需要注入的 prompt 内容。
+// Resolve 调用外部注入的文本函数；nil ResolveFunc 表示该 slot 当前不产生内容。
 func (p DynamicTextProvider) Resolve(ctx context.Context, input SectionContext) (*string, error) {
 	if p.ResolveFunc == nil {
 		return nil, nil
@@ -91,7 +96,7 @@ func (p DynamicTextProvider) Resolve(ctx context.Context, input SectionContext) 
 	return p.ResolveFunc(ctx, input)
 }
 
-// DynamicSlotNames 返回动态 prompt 支持的 slot 名称。
+// DynamicSlotNames 返回已声明的动态 slot 名称，供 provider 注册方和 UI 做能力发现。
 func DynamicSlotNames() []string {
 	names := make([]string, 0, len(dynamicSectionSpecs))
 	for _, spec := range dynamicSectionSpecs {
@@ -102,14 +107,15 @@ func DynamicSlotNames() []string {
 
 var _ DynamicSectionProvider = SessionGuidanceProvider{}
 
+// SessionGuidanceProvider 根据本轮启用工具和 session flag 生成即时协作提示。
 type SessionGuidanceProvider struct{}
 
-// SectionName 返回该上下文提供器写入的 prompt section 名称。
+// SectionName 绑定 session guidance 到专用动态 slot，避免与业务记忆/语言约束混入同一段。
 func (SessionGuidanceProvider) SectionName() string {
 	return DynamicSectionSessionGuidance
 }
 
-// Resolve 解析当前请求需要注入的 prompt 内容。
+// Resolve 根据工具可用性生成 guidance；没有任何可用提示时返回 nil 以保持 prompt 精简。
 func (SessionGuidanceProvider) Resolve(_ context.Context, input SectionContext) (*string, error) {
 	items := buildSessionGuidanceItems(
 		sessionGuidanceToolSet(input.BuildCtx.EnabledTools),
@@ -122,6 +128,7 @@ func (SessionGuidanceProvider) Resolve(_ context.Context, input SectionContext) 
 	return &text, nil
 }
 
+// buildSessionGuidanceItems 汇总本轮需要注入的协作提示，顺序保持稳定方便 snapshot 和人工审查。
 func buildSessionGuidanceItems(enabled map[string]struct{}, flags map[string]bool) []string {
 	items := make([]string, 0, 12)
 	if item, ok := sessionGuidanceAskUserItem(enabled); ok {
@@ -135,6 +142,7 @@ func buildSessionGuidanceItems(enabled map[string]struct{}, flags map[string]boo
 	return items
 }
 
+// renderSessionGuidance 把提示项渲染成单个 prompt section，空集合由调用方提前过滤。
 func renderSessionGuidance(items []string) string {
 	lines := make([]string, 0, len(items)+1)
 	lines = append(lines, "# Session-specific guidance")
@@ -144,6 +152,7 @@ func renderSessionGuidance(items []string) string {
 	return strings.Join(lines, "\n")
 }
 
+// sessionGuidanceAskUserItem 仅在存在用户追问工具时提示追问路径，避免无工具环境出现不可执行建议。
 func sessionGuidanceAskUserItem(enabled map[string]struct{}) (string, bool) {
 	if !sessionGuidanceToolEnabled(enabled, "request_user_input") {
 		return "", false
@@ -151,6 +160,7 @@ func sessionGuidanceAskUserItem(enabled map[string]struct{}) (string, bool) {
 	return "If a tool call is denied and the reason is unclear, use `request_user_input` to ask the user a focused follow-up.", true
 }
 
+// sessionGuidanceInteractiveCommandItem 在交互式会话中提示用户自跑命令；headless 模式必须跳过。
 func sessionGuidanceInteractiveCommandItem(flags map[string]bool) (string, bool) {
 	if sessionGuidanceFlagEnabled(flags, "non_interactive", "nonInteractive", "headless", "headless_mode") {
 		return "", false
@@ -158,7 +168,7 @@ func sessionGuidanceInteractiveCommandItem(flags map[string]bool) (string, bool)
 	return "If you need the user to run an interactive shell command themselves (for example, `gcloud auth login`), ask them to type `! <command>` so it runs in the current session and the output lands in the conversation.", true
 }
 
-// sessionGuidanceAgentItems 生成会话引导里的代理说明项。
+// sessionGuidanceAgentItems 根据子代理工具和 flag 生成委派/验证说明，避免在不可用工具上注入 guidance。
 func sessionGuidanceAgentItems(enabled map[string]struct{}, flags map[string]bool) []string {
 	hasSpawn := sessionGuidanceToolEnabled(enabled, "spawn_agent")
 	hasManaged := sessionGuidanceToolEnabled(enabled, "launch_agent", "orchestration_launch_agent")
@@ -178,7 +188,7 @@ func sessionGuidanceAgentItems(enabled map[string]struct{}, flags map[string]boo
 	return items
 }
 
-// sessionGuidanceAgentDelegationItem 生成委派子代理的引导说明。
+// sessionGuidanceAgentDelegationItem 选择当前会话适用的子代理委派说明，fork 与持久子代理模式互斥。
 func sessionGuidanceAgentDelegationItem(enabled map[string]struct{}, flags map[string]bool) string {
 	hasSpawn := sessionGuidanceToolEnabled(enabled, "spawn_agent")
 	hasManaged := sessionGuidanceToolEnabled(enabled, "launch_agent", "orchestration_launch_agent")
@@ -239,6 +249,7 @@ func sessionGuidanceManagedAgentDelegationItem(enabled map[string]struct{}) stri
 	return strings.Join(parts, " ")
 }
 
+// sessionGuidanceExploreItem 只在允许探索型子任务时注入，提醒优先使用定向 LSP/grep 工具。
 func sessionGuidanceExploreItem(enabled map[string]struct{}) string {
 	searchTools := sessionGuidanceDirectedSearchTools(enabled)
 	return "For simple, directed codebase searches, use " + searchTools + " directly. Use an explore-oriented `spawn_agent` subtask only when targeted searches are insufficient or the task clearly needs broad, multi-query exploration."
@@ -274,6 +285,7 @@ func sessionGuidanceDirectedSearchTools(enabled map[string]struct{}) string {
 	}
 }
 
+// sessionGuidanceSkillItems 在技能能力可用时注入技能使用边界，防止模型臆造未暴露的技能名。
 func sessionGuidanceSkillItems(enabled map[string]struct{}, flags map[string]bool) []string {
 	if !sessionGuidanceSkillsAvailable(enabled, flags) {
 		return nil
@@ -287,6 +299,7 @@ func sessionGuidanceSkillItems(enabled map[string]struct{}, flags map[string]boo
 	return items
 }
 
+// sessionGuidanceVerificationItems 返回需要独立验证时的流程提示，只由对应 session flag 控制注入。
 func sessionGuidanceVerificationItems() []string {
 	return []string{
 		"Verification protocol: when non-trivial implementation happens, independent verification must happen before you report completion. Treat non-trivial as 3+ file edits, backend or API changes, or infrastructure changes. Your own checks, the implementer's self-checks, and fork self-checks do not count.",
@@ -296,6 +309,7 @@ func sessionGuidanceVerificationItems() []string {
 	}
 }
 
+// sessionGuidanceToolSet 将启用工具列表转成 set，并排序遍历以稳定 prompt 输出。
 func sessionGuidanceToolSet(tools []string) map[string]struct{} {
 	set := make(map[string]struct{}, len(tools))
 	for _, tool := range sortedPromptValues(tools) {
@@ -304,6 +318,7 @@ func sessionGuidanceToolSet(tools []string) map[string]struct{} {
 	return set
 }
 
+// sessionGuidanceToolEnabled 支持同一能力的多个工具别名，便于不同 provider 暴露不同名称。
 func sessionGuidanceToolEnabled(enabled map[string]struct{}, names ...string) bool {
 	for _, name := range names {
 		if _, ok := enabled[strings.TrimSpace(name)]; ok {
@@ -313,6 +328,7 @@ func sessionGuidanceToolEnabled(enabled map[string]struct{}, names ...string) bo
 	return false
 }
 
+// sessionGuidanceFlagEnabled 支持 snake/camel 等历史 flag 名，避免旧会话元数据失效。
 func sessionGuidanceFlagEnabled(flags map[string]bool, keys ...string) bool {
 	for _, key := range keys {
 		if flags[key] {
@@ -322,6 +338,7 @@ func sessionGuidanceFlagEnabled(flags map[string]bool, keys ...string) bool {
 	return false
 }
 
+// sessionGuidanceForkMode 判断当前会话是否使用 fork 风格委派，影响子代理提示文案。
 func sessionGuidanceForkMode(flags map[string]bool) bool {
 	return sessionGuidanceFlagEnabled(flags,
 		"fork_subagent",
@@ -332,6 +349,7 @@ func sessionGuidanceForkMode(flags map[string]bool) bool {
 	)
 }
 
+// sessionGuidancePersistentSubagentDefault 判断 UI 是否默认使用持久子代理，避免同时推荐 spawn_agent。
 func sessionGuidancePersistentSubagentDefault(flags map[string]bool) bool {
 	return sessionGuidanceFlagEnabled(flags,
 		"persistent_subagent_default",
@@ -343,6 +361,7 @@ func sessionGuidancePersistentSubagentDefault(flags map[string]bool) bool {
 	)
 }
 
+// sessionGuidanceExploreEnabled 判断是否允许探索型子任务提示，默认不注入宽泛搜索建议。
 func sessionGuidanceExploreEnabled(flags map[string]bool) bool {
 	return sessionGuidanceFlagEnabled(flags,
 		"explore_agent",
@@ -353,6 +372,7 @@ func sessionGuidanceExploreEnabled(flags map[string]bool) bool {
 	)
 }
 
+// sessionGuidanceSkillsAvailable 判断用户可调用技能是否已暴露，兼容工具名和 session flag 两类信号。
 func sessionGuidanceSkillsAvailable(enabled map[string]struct{}, flags map[string]bool) bool {
 	if sessionGuidanceFlagEnabled(flags,
 		"user_invocable_skills",
@@ -366,6 +386,7 @@ func sessionGuidanceSkillsAvailable(enabled map[string]struct{}, flags map[strin
 	return sessionGuidanceToolEnabled(enabled, "skill", "skills", "skills/list", "thread/skills/list")
 }
 
+// sessionGuidanceDiscoverEnabled 判断是否允许技能发现流程；仅在技能能力本身可用时成立。
 func sessionGuidanceDiscoverEnabled(enabled map[string]struct{}, flags map[string]bool) bool {
 	if !sessionGuidanceSkillsAvailable(enabled, flags) {
 		return false
@@ -382,6 +403,7 @@ func sessionGuidanceDiscoverEnabled(enabled map[string]struct{}, flags map[strin
 	return sessionGuidanceToolEnabled(enabled, "discover_skills")
 }
 
+// sessionGuidanceVerificationEnabled 判断本轮是否需要向 prompt 注入独立验证流程。
 func sessionGuidanceVerificationEnabled(flags map[string]bool) bool {
 	return sessionGuidanceFlagEnabled(flags, "verification_required", "require_verification", "verification_agent")
 }
@@ -421,6 +443,7 @@ func (s *service) UnregisterDynamicProvider(name string) bool {
 	return ok
 }
 
+// dynamicSlotSections 将声明好的动态 slot 转成 PromptSection，注册表为空时也保留 slot 顺序。
 func (s *service) dynamicSlotSections() []PromptSection {
 	sections := make([]PromptSection, 0, len(dynamicSectionSpecs))
 	for _, spec := range dynamicSectionSpecs {
@@ -429,6 +452,7 @@ func (s *service) dynamicSlotSections() []PromptSection {
 	return sections
 }
 
+// dynamicSlotSection 为单个动态 slot 构造 PromptSection，Compute 延迟到组装时读取当前 provider。
 func (s *service) dynamicSlotSection(spec dynamicSectionSpec) PromptSection {
 	return PromptSection{
 		Name:        spec.name,
@@ -443,6 +467,7 @@ func (s *service) dynamicSlotSection(spec dynamicSectionSpec) PromptSection {
 	}
 }
 
+// resolveDynamicSection 在读锁下取 provider 后释放锁再调用，避免 provider 回调反向注册时死锁。
 func (s *service) resolveDynamicSection(ctx context.Context, name string, input SectionContext) (*string, error) {
 	s.dynamicMu.RLock()
 	provider := s.dynamic[name]
@@ -453,6 +478,7 @@ func (s *service) resolveDynamicSection(ctx context.Context, name string, input 
 	return provider.Resolve(ctx, input)
 }
 
+// dynamicSectionSpecForName 查找已声明 slot；注册未知名称会 fail-fast，防止 prompt 段落悄悄丢失。
 func dynamicSectionSpecForName(name string) (dynamicSectionSpec, bool) {
 	for _, spec := range dynamicSectionSpecs {
 		if spec.name == name {

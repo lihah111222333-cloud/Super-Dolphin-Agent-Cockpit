@@ -19,11 +19,19 @@ import (
 	platformshared "github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 )
 
+// defaultHTTPAddr 是桌面 HTTP asset server 的默认 loopback 监听地址。
 const defaultHTTPAddr = "127.0.0.1:4511"
+
+// httpAddrEnv 允许本地开发覆盖 HTTP asset server 地址。
 const httpAddrEnv = "SUPER_DOLPHIN_HTTP_ADDR"
+
+// wailsWebSocketCookieName 保存 WebSocket 防跨站 token。
 const wailsWebSocketCookieName = "super_dolphin_wails_ws"
+
+// wailsWebSocketTokenEnv 是 WebSocket token 的显式环境变量名。
 const wailsWebSocketTokenEnv = "SUPER_DOLPHIN_WAILS_WS_TOKEN"
 
+// httpAssetServer 负责提供前端静态资源和 Wails RPC WebSocket。
 type httpAssetServer struct {
 	logger  *slog.Logger
 	addr    string
@@ -32,6 +40,7 @@ type httpAssetServer struct {
 	wsToken string
 }
 
+// registerHTTPAssetRoutes 注册 metrics、WebSocket 和静态资源路由。
 func registerHTTPAssetRoutes(mux *http.ServeMux, server *rpc.Server, assetHandler http.Handler, wsToken string) {
 	// 误判防护：registerHTTPAssetRoutes 先注册 metrics，再注册 /wails/ws 和 /，避免 /metrics 被兜底路由吞掉。
 	metrics.RegisterHTTPHandlers(mux)
@@ -39,10 +48,8 @@ func registerHTTPAssetRoutes(mux *http.ServeMux, server *rpc.Server, assetHandle
 	mux.Handle("/", wailsAssetCookieHandler(assetHandler, wsToken))
 }
 
-// NewHTTPAssetServer creates a Runner that serves the embedded frontend
-// assets and a WebSocket-based JRPC bridge on an HTTP port so that
-// the application is accessible from a regular web browser.
-// NewHTTPAssetServer 创建HTTPasset服务端。
+// NewHTTPAssetServer 创建同时服务前端资源和 JRPC WebSocket 的 runner。
+// WebSocket token 在 runner 构造时确定，后续 route guard 和 asset cookie 共用同一值。
 func NewHTTPAssetServer(p httpAssetServerParams) httpAssetRunnerResult {
 	handler := withClipboardAssets(AssetHandlerFrom(p.Frontend))
 	return httpAssetRunnerResult{
@@ -56,6 +63,8 @@ func NewHTTPAssetServer(p httpAssetServerParams) httpAssetRunnerResult {
 	}
 }
 
+// resolveHTTPAssetAddr 解析 HTTP asset server 监听地址。
+// 环境变量只决定绑定地址，Run 阶段仍会校验必须是 loopback。
 func resolveHTTPAssetAddr() string {
 	if value := strings.TrimSpace(os.Getenv(httpAddrEnv)); value != "" {
 		return value
@@ -63,6 +72,7 @@ func resolveHTTPAssetAddr() string {
 	return defaultHTTPAddr
 }
 
+// resolveWailsWebSocketToken 解析 WebSocket token，未配置时生成一次性随机值。
 func resolveWailsWebSocketToken() string {
 	for _, key := range []string{wailsWebSocketTokenEnv, "GO_AGENT_CTL_SESSION_TOKEN", "GO_AGENT_MCP_SESSION_TOKEN"} {
 		if value := strings.TrimSpace(os.Getenv(key)); value != "" {
@@ -72,7 +82,7 @@ func resolveWailsWebSocketToken() string {
 	return platformshared.NewID("wails_ws")
 }
 
-// Run 启动桌面 UI 桥接后台流程。
+// Run 启动 HTTP asset server，并在 context 取消时按 shutdown 超时优雅停止。
 func (s *httpAssetServer) Run(ctx context.Context) error {
 	// 误判防护：validateHTTPAssetAddr 是 Go HTTP asset server 直连绑定的 loopback 守卫。
 	if err := validateHTTPAssetAddr(s.addr); err != nil {
@@ -121,6 +131,7 @@ func (s *httpAssetServer) Run(ctx context.Context) error {
 	}
 }
 
+// validateHTTPAssetAddr 确认 HTTP asset server 只监听 loopback 地址。
 func validateHTTPAssetAddr(addr string) error {
 	// 守卫规则：validateHTTPAssetAddr 只覆盖 Go HTTP asset server，不覆盖 Vite proxy 暴露路径。
 	addr = strings.TrimSpace(addr)
@@ -152,6 +163,7 @@ func wailsWebSocketRequestGuard(next http.Handler, wsToken string) http.Handler 
 	})
 }
 
+// wailsAssetCookieHandler 给静态资源响应写入 WebSocket token cookie。
 func wailsAssetCookieHandler(next http.Handler, wsToken string) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if token := strings.TrimSpace(wsToken); token != "" {
@@ -167,6 +179,7 @@ func wailsAssetCookieHandler(next http.Handler, wsToken string) http.Handler {
 	})
 }
 
+// validateWailsWebSocketRequest 校验 WebSocket 请求的 Host 和 Origin 都来自 loopback。
 func validateWailsWebSocketRequest(r *http.Request) error {
 	if r == nil {
 		return errors.New("wails websocket request must be present")
@@ -180,6 +193,7 @@ func validateWailsWebSocketRequest(r *http.Request) error {
 	return nil
 }
 
+// validateWailsWebSocketToken 校验浏览器携带的 WebSocket token cookie。
 func validateWailsWebSocketToken(r *http.Request, expectedToken string) error {
 	expectedToken = strings.TrimSpace(expectedToken)
 	if expectedToken == "" {
@@ -196,6 +210,8 @@ func validateWailsWebSocketToken(r *http.Request, expectedToken string) error {
 	return nil
 }
 
+// isLoopbackOrigin 判断 Origin 是否是本机 HTTP(S) 来源。
+// 解析失败、空 Host 或非 HTTP(S) scheme 都按不可信处理。
 func isLoopbackOrigin(raw string) bool {
 	parsed, err := url.Parse(strings.TrimSpace(raw))
 	if err != nil || parsed == nil || parsed.Host == "" {
@@ -209,6 +225,7 @@ func isLoopbackOrigin(raw string) bool {
 	}
 }
 
+// isLoopbackHTTPAuthority 判断 Host 或 host:port 是否指向本机。
 func isLoopbackHTTPAuthority(raw string) bool {
 	host := strings.TrimSpace(raw)
 	if host == "" {
@@ -220,6 +237,7 @@ func isLoopbackHTTPAuthority(raw string) bool {
 	return isLoopbackHost(host)
 }
 
+// isLoopbackHost 判断 host 字面量是否为允许的 loopback 名称。
 func isLoopbackHost(host string) bool {
 	switch strings.ToLower(strings.Trim(strings.TrimSpace(host), "[]")) {
 	case "localhost", "127.0.0.1", "::1":

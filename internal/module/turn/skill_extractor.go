@@ -17,13 +17,13 @@ import (
 )
 
 const (
+	// skill 提炼的超时、样本和后台 runner tick 默认值。
 	extractTimeout      = 90 * time.Second
 	redactedSampleLimit = 1024
 	runnerTickInterval  = 5 * time.Second
 )
 
-// ExtractedSkill is the LLM-distilled, second-pass-redacted SKILL.md plus
-// legacy bookkeeping. V1 no longer writes this into candidate storage.
+// ExtractedSkill 是 LLM 提炼并二次脱敏后的 SKILL.md 结果，当前只返回给调用方，不写旧候选存储。
 type ExtractedSkill struct {
 	Slug            string
 	SKILLMd         string
@@ -33,30 +33,25 @@ type ExtractedSkill struct {
 	RepoFingerprint string
 }
 
-// Extractor distills an eligible Trajectory into a redacted skill-shaped
-// artifact. Implementations MUST be called from a runner worker
-// (never from a bus callback) so the bus dispatcher is not blocked on the
-// LLM round-trip.
+// Extractor 将合格轨迹提炼为已脱敏的 skill 形态结果；必须由后台 runner 调用，不能阻塞 bus 回调。
 type Extractor interface {
 	Extract(ctx context.Context, t Trajectory) (*ExtractedSkill, error)
 }
 
+// configuredExtractor 允许 runner 在启动时提前发现缺失的 LLM 提炼依赖。
 type configuredExtractor interface {
 	ensureConfigured() error
 }
 
-// ExtractorMetrics is the observable counter set used by tests to assert
-// the extractor took the expected path. Production deployments can attach
-// these to a prometheus collector by reading the atomic ints; the type
-// is intentionally tiny so we do not couple the extractor to a metric SDK.
+// ExtractorMetrics 保存提炼路径的原子计数，避免 extractor 直接耦合具体指标 SDK。
 type ExtractorMetrics struct {
 	DreamNotConfigured int64
 	DreamFailed        int64
 	RedactionFailed    int64
-	PromotedDropped    int64 // second-pass scan still hit a pattern
+	PromotedDropped    int64 // 二次扫描仍命中敏感规则而丢弃的结果数
 	DedupHit           int64
 	InsertFailed       int64
-	Promoted           int64 // candidate row written
+	Promoted           int64 // 成功产出并返回给调用方的提炼结果数
 }
 
 func (m *ExtractorMetrics) incDreamNotConfigured() { atomic.AddInt64(&m.DreamNotConfigured, 1) }
@@ -67,11 +62,9 @@ func (m *ExtractorMetrics) incDedupHit()           { atomic.AddInt64(&m.DedupHit
 func (m *ExtractorMetrics) incInsertFailed()       { atomic.AddInt64(&m.InsertFailed, 1) }
 func (m *ExtractorMetrics) incPromoted()           { atomic.AddInt64(&m.Promoted, 1) }
 
-// DefaultExtractor distills a Trajectory without writing to the removed
-// legacy candidate backend. dream is required so missing distillation
-// infrastructure fails before trajectories are silently dropped.
+// DefaultExtractor 执行轨迹提炼和脱敏流程；dream 缺失会 fail-fast，避免后台静默丢弃轨迹。
 type DefaultExtractor struct {
-	dream     contract.DreamExecutor // optional: nil skips
+	dream     contract.DreamExecutor // LLM 提炼执行器，缺失时启动前失败。
 	redactor  Redactor
 	evaluator Evaluator
 	logger    *pkglogger.Logger
@@ -79,11 +72,7 @@ type DefaultExtractor struct {
 	nowFn     func() time.Time
 }
 
-// NewDefaultExtractor constructs the extractor. dream is fx optional and may
-// be nil. The second parameter is ignored to preserve stale call sites while
-// the live old candidate writer remains disabled. redactor / evaluator / logger fall back to
-// package defaults when nil so tests and partial wiring stay simple.
-// NewDefaultExtractor 创建defaultextractor。
+// NewDefaultExtractor 创建默认提炼器；dream 缺失会在运行前 fail-fast，旧 candidate writer 参数保留但不使用。
 func NewDefaultExtractor(
 	dream contract.DreamExecutor,
 	_ any,
@@ -110,16 +99,8 @@ func NewDefaultExtractor(
 	}
 }
 
-// Extract runs the full distillation pipeline. Any per-step failure is
-// logged + counted, then surfaced as an error so the caller (the runner)
-// can decide whether to drop or retry; the runner does NOT stop on a
-// single trajectory failure.
-//
-// Pipeline: evaluate -> buildPrompt(redact-first) -> ExecuteDream ->
-// Redact -> residual scan -> content_hash -> repo_fingerprint ->
-// return the redacted artifact. The removed old candidate backend is not
-// called.
-// Extract 提取turn。
+// Extract 执行 evaluate、prompt redaction、LLM 提炼、二次 redaction 和残留 secret 扫描。
+// 任一步失败都会计数并返回错误；当前实现只返回结果，不在提炼器里写候选存储。
 func (e *DefaultExtractor) Extract(ctx context.Context, t Trajectory) (*ExtractedSkill, error) {
 	if e == nil {
 		return nil, errors.New("extractor: nil receiver")
@@ -150,6 +131,7 @@ func (e *DefaultExtractor) Extract(ctx context.Context, t Trajectory) (*Extracte
 	return extracted, nil
 }
 
+// ensureConfigured 确认 LLM 提炼执行器已注入，避免后台 runner 静默丢弃轨迹。
 func (e *DefaultExtractor) ensureConfigured() error {
 	if e.dream == nil {
 		e.Metrics.incDreamNotConfigured()
@@ -158,6 +140,7 @@ func (e *DefaultExtractor) ensureConfigured() error {
 	return nil
 }
 
+// readyToExtract 调用 evaluator，并在不可提炼时记录稳定原因。
 func (e *DefaultExtractor) readyToExtract(t Trajectory) bool {
 	verdict := e.evaluator.Evaluate(t)
 	if !verdict.Eligible {
@@ -167,6 +150,7 @@ func (e *DefaultExtractor) readyToExtract(t Trajectory) bool {
 	return true
 }
 
+// redactedTrajectoryPrompt 构造并脱敏发送给 LLM 的 prompt。
 func (e *DefaultExtractor) redactedTrajectoryPrompt(t Trajectory) (string, error) {
 	prompt, err := e.buildRedactedPrompt(t)
 	if err != nil {
@@ -177,6 +161,7 @@ func (e *DefaultExtractor) redactedTrajectoryPrompt(t Trajectory) (string, error
 	return prompt, nil
 }
 
+// executeDream 使用固定超时调用 DreamExecutor，避免后台 runner 被单次 LLM 调用长期占住。
 func (e *DefaultExtractor) executeDream(ctx context.Context, t Trajectory, prompt string) (string, error) {
 	callCtx, cancel := ctxutil.WithTimeout(ctx, extractTimeout)
 	defer cancel()
@@ -188,6 +173,7 @@ func (e *DefaultExtractor) executeDream(ctx context.Context, t Trajectory, promp
 	return rawSkillMd, nil
 }
 
+// recordDreamError 按错误类型更新指标，并保留 turnID 便于追查。
 func (e *DefaultExtractor) recordDreamError(t Trajectory, err error) {
 	if errors.Is(err, contract.ErrDreamExecutorNotConfigured) {
 		e.Metrics.incDreamNotConfigured()
@@ -198,6 +184,7 @@ func (e *DefaultExtractor) recordDreamError(t Trajectory, err error) {
 	e.logger.Warn("extractor: dream execute failed", "turn_id", t.TurnID, "error", err)
 }
 
+// redactDreamOutput 对 LLM 输出做二次脱敏，并拒绝仍包含敏感模式的结果。
 func (e *DefaultExtractor) redactDreamOutput(t Trajectory, rawSkillMd string) (string, error) {
 	cleaned, _, err := e.redactor.Redact(rawSkillMd)
 	if err != nil {
@@ -211,6 +198,7 @@ func (e *DefaultExtractor) redactDreamOutput(t Trajectory, rawSkillMd string) (s
 	return cleaned, nil
 }
 
+// rejectResidualSecrets 再跑一遍 redactor 检查残留命中，命中时丢弃该提炼结果。
 func (e *DefaultExtractor) rejectResidualSecrets(t Trajectory, cleaned string) error {
 	_, residualHits, err := e.redactor.Redact(cleaned)
 	if err != nil {
@@ -226,6 +214,7 @@ func (e *DefaultExtractor) rejectResidualSecrets(t Trajectory, cleaned string) e
 	return fmt.Errorf("extractor: residual secret hits %v", residualHits)
 }
 
+// newExtractedSkill 为已脱敏 SKILL.md 生成稳定 hash、slug 和仓库指纹。
 func newExtractedSkill(t Trajectory, cleaned string) *ExtractedSkill {
 	sum := sha256.Sum256([]byte(cleaned))
 	contentHash := hex.EncodeToString(sum[:])
@@ -239,6 +228,7 @@ func newExtractedSkill(t Trajectory, cleaned string) *ExtractedSkill {
 	}
 }
 
+// truncateRedactedSample 截取已脱敏样本，避免指标或审计记录携带过长内容。
 func truncateRedactedSample(sample string) string {
 	if len(sample) > redactedSampleLimit {
 		return sample[:redactedSampleLimit]
@@ -246,11 +236,7 @@ func truncateRedactedSample(sample string) string {
 	return sample
 }
 
-// buildRedactedPrompt serialises the trajectory tool calls into a prompt
-// and runs the redactor over the result before handing it to the LLM.
-// The exact prompt template is intentionally simple at this step; the
-// security boundary is what we are defending here.
-// buildRedactedPrompt 构建redactedprompt。
+// buildRedactedPrompt 将轨迹工具调用序列化成 prompt，并在交给 LLM 前先执行脱敏。
 func (e *DefaultExtractor) buildRedactedPrompt(t Trajectory) (string, error) {
 	var b strings.Builder
 	b.WriteString("You are summarizing a successful agent turn into a reusable Skill.\n")
@@ -282,10 +268,8 @@ func (e *DefaultExtractor) buildRedactedPrompt(t Trajectory) (string, error) {
 	return redacted, nil
 }
 
-// slugFromTrajectory is a placeholder that derives a stable slug from the
-// turn id. It is good enough to give the (scope, slug, content_hash,
-// repo_fingerprint) unique key a deterministic key; a later step can swap
-// in the LLM's frontmatter `name` field once we trust it.
+// slugFromTrajectory 从 turnID 派生稳定 slug，供提炼结果在当前仓库作用域内去重。
+// 暂不信任 LLM frontmatter 名称，避免模型输出直接影响唯一键。
 func slugFromTrajectory(t Trajectory) string {
 	base := strings.TrimSpace(t.TurnID)
 	if base == "" {
@@ -307,14 +291,11 @@ func slugFromTrajectory(t Trajectory) string {
 
 var slugSanitize = regexp.MustCompile(`[^A-Za-z0-9]+`)
 
-// Compile-time assertion.
+// 编译期断言确保 DefaultExtractor 持续满足 Extractor 接口。
 var _ Extractor = (*DefaultExtractor)(nil)
 
-// ExtractorRunner pumps drained trajectories from the collector into the
-// extractor on a fixed tick. It is registered into the root
-// `group:"runners"` aggregation so its lifecycle is tied to the run.Group
-// supervisor (NOT to fx OnStart fire-and-forget goroutines). The runner
-// exits cleanly when its parent ctx is cancelled.
+// ExtractorRunner 按固定 tick 将 collector 已 drain 的轨迹送入 extractor。
+// 它注册到 run.Group 的 runners 聚合，生命周期跟随 supervisor；父 context 取消时会干净退出。
 type ExtractorRunner struct {
 	collector *Collector
 	extractor Extractor
@@ -322,10 +303,7 @@ type ExtractorRunner struct {
 	interval  time.Duration
 }
 
-// NewExtractorRunner builds the runner. collector or extractor == nil is
-// tolerated (Run blocks on ctx.Done with no work) so deployments that
-// have not enabled P0b can still satisfy the runner group constraint.
-// NewExtractorRunner 创建extractorrunner。
+// NewExtractorRunner 创建后台 runner；collector/extractor 缺失时 Run 只等待上下文取消。
 func NewExtractorRunner(collector *Collector, extractor Extractor, logger *pkglogger.Logger) *ExtractorRunner {
 	if logger == nil {
 		logger = pkglogger.Get()
@@ -338,8 +316,7 @@ func NewExtractorRunner(collector *Collector, extractor Extractor, logger *pkglo
 	}
 }
 
-// Run implements platformrunner.Runner.
-// Run 启动turn后台流程。
+// Run 按固定 tick 拉取已完成轨迹，启动时会先校验 extractor 配置。
 func (r *ExtractorRunner) Run(ctx context.Context) error {
 	if r == nil || r.collector == nil || r.extractor == nil {
 		<-ctx.Done()
@@ -362,14 +339,14 @@ func (r *ExtractorRunner) Run(ctx context.Context) error {
 	}
 }
 
+// flushOnce 提取当前已 drain 的轨迹；单条轨迹 panic 或失败不影响同批其他轨迹。
 func (r *ExtractorRunner) flushOnce(ctx context.Context) {
 	drained := r.collector.Drain()
 	for _, traj := range drained {
 		if ctx.Err() != nil {
 			return
 		}
-		// A panic from a single trajectory must not poison the worker -
-		// recover here so the runner keeps draining the rest of the batch.
+		// 单条轨迹 panic 不能拖垮 runner；这里恢复后继续处理同批剩余轨迹。
 		func() {
 			defer func() {
 				if rec := recover(); rec != nil {

@@ -9,16 +9,13 @@ import (
 	"strings"
 )
 
-// clipboardPathPrefix is the URL prefix the webview uses to load files
-// previously saved by SaveClipboardImage. The basename of the URL must match
-// the pattern produced by os.CreateTemp("", "clipboard-*.png") or
-// Codex-originated "codex-clipboard-*.png" temp files.
+// clipboardPathPrefix 是 WebView 加载临时剪贴板图片的 URL 前缀。
 const clipboardPathPrefix = "/clipboard/"
+
+// localImagePathPrefix 是 WebView 加载本地图片预览的 URL 前缀。
 const localImagePathPrefix = "/local-image"
 
-// withClipboardAssets wraps inner with a route that serves the temporary
-// clipboard PNGs written by SaveClipboardImage. Wails webviews block file://
-// loads, so the frontend cannot use the raw temp path as an <img src>.
+// withClipboardAssets 包装前端资源 handler，额外提供剪贴板和本地图片预览路由。
 func withClipboardAssets(inner http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if strings.HasPrefix(r.URL.Path, clipboardPathPrefix) {
@@ -33,10 +30,8 @@ func withClipboardAssets(inner http.Handler) http.Handler {
 	})
 }
 
-// serveClipboardAsset resolves and serves one clipboard temp file. It rejects
-// anything that is not a single clipboard temp basename, and double-checks the
-// resolved file is still inside os.TempDir() (defending against symlink
-// escapes).
+// serveClipboardAsset 只按安全 basename 读取 os.TempDir 内的剪贴板 PNG。
+// 这里会再次确认路径仍在 temp 目录下，避免 symlink 或路径拼接逃逸。
 func serveClipboardAsset(w http.ResponseWriter, r *http.Request) {
 	name := strings.TrimPrefix(r.URL.Path, clipboardPathPrefix)
 	if !isValidClipboardAssetName(name) {
@@ -77,7 +72,7 @@ func serveLocalImageAsset(w http.ResponseWriter, r *http.Request) {
 	http.ServeFile(w, r, full)
 }
 
-// isValidClipboardAssetName 判断validclipboardasset名称是否可用。
+// isValidClipboardAssetName 判断 URL 中的剪贴板资源名是否符合临时 PNG 命名规则。
 func isValidClipboardAssetName(name string) bool {
 	if name == "" {
 		return false
@@ -148,11 +143,8 @@ func localImageFileHasSupportedContent(path string, contentType string) bool {
 	return http.DetectContentType(buf[:n]) == contentType
 }
 
-// isUnderTempDir resolves both the candidate file and os.TempDir() to their
-// real paths and confirms the candidate is still nested inside the temp dir.
-// Falls back to a lexical containment check when the file does not yet exist
-// (so unit tests can stage missing files without false positives).
-// isUnderTempDir 判断undertemp目录是否可用。
+// isUnderTempDir 判断候选文件解析真实路径后是否仍位于 os.TempDir 内。
+// 文件不存在时回退到词法包含检查，便于测试覆盖缺失文件场景。
 func isUnderTempDir(full string) bool {
 	cleanFull := filepath.Clean(full)
 	tempDir := filepath.Clean(os.TempDir())

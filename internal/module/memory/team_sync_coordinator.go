@@ -15,62 +15,49 @@ import (
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
-// teamSyncCoordinatorDrainGrace bounds OnStop wait for the coordinator
-// worker so RunnerModule shutdown never hangs on TeamSyncService's
-// network/git slow-path. Aligned with the other P22 P2 drain budgets so
-// the total OnStop cost stays predictable.
+// teamSyncCoordinatorDrainGrace 限制协调器 OnStop 等待 worker 的时间。
+// TeamSyncService 可能触发 git、远端 HTTP 和文件监听收尾，关机路径必须有固定上限。
 const teamSyncCoordinatorDrainGrace = 10 * time.Second
 
+// teamSyncOpKind 标记队列中的线程生命周期事件类型。
 type teamSyncOpKind int
 
+// team sync 队列事件类型。
 const (
 	teamSyncOpStart teamSyncOpKind = iota + 1
 	teamSyncOpStop
 )
 
+// teamSyncOp 保存单个待串行派发的线程 start/stop 事件。
 type teamSyncOp struct {
 	kind    teamSyncOpKind
 	started threaddto.Started
 	stopped threaddto.Stopped
 }
 
-// teamSyncCoordinator is the P22 P2 Finding 5/6 single owner of the
-// thread.{Started,Stopped} -> TeamSyncService.{StartSession,StopSession}
-// slow-path.
-//
-// Pre-P2 shape: the memory module's bus callbacks directly called
-// teampkg.{Start,Stop}SessionFromThreadEvent. Those helpers synchronously
-// invoked ThreadStore.GetByThreadID (disk), resolveRuntime -> git repo-slug
-// detection (exec.Command), pullLocked (remote HTTP), newTeamSyncWatcher
-// (fsnotify) and teamSyncWatcher.Start (goroutine spawn). All of it ran on
-// the dispatcher's callback goroutine.
-//
-// P2 shape: the callback only calls EnqueueStart/EnqueueStop. A single
-// tracked worker goroutine drains the FIFO queue and dispatches the
-// existing thread-event helpers serially, so the cross-thread runtime
-// swap + final-flush invariant that TeamSyncService already enforces stays
-// intact. The coordinator itself adds no coalescing: TeamSync events are
-// linear per-thread, and "lossless" in the P2 overflow freeze table means
-// every enqueued event reaches the service unless Stop fires first.
+// teamSyncCoordinator 把 thread start/stop 事件从 bus 回调转交给单 worker 串行处理。
+// 回调路径只做入队和唤醒，避免把磁盘读取、git 探测、远端拉取和 fsnotify 启动压在事件分发 goroutine 上。
+// 队列不合并事件：除 Stop 之后的新事件会被丢弃外，已入队事件都按 FIFO 进入 TeamSyncService。
 type teamSyncCoordinator struct {
-	svc    teampkg.Lifecycle
-	store  contract.ThreadMetadataStore
-	logger *slog.Logger
+	svc    teampkg.Lifecycle            // 团队记忆同步服务；nil 表示功能关闭。
+	store  contract.ThreadMetadataStore // start 事件恢复 BuildCtx 所需的线程元数据存储。
+	logger *slog.Logger                 // worker 异常和派发失败的日志出口。
 
-	mu    sync.Mutex
-	queue []teamSyncOp
+	mu    sync.Mutex   // 保护 queue，worker 派发前会释放锁。
+	queue []teamSyncOp // FIFO 事件队列，保持线程生命周期顺序。
 
-	wake chan struct{}
+	wake chan struct{} // 带缓冲唤醒信号，避免重复 wake 阻塞回调路径。
 
-	startOnce sync.Once
-	stopOnce  sync.Once
-	stopCh    chan struct{}
-	doneCh    chan struct{}
+	startOnce sync.Once     // 保证 worker 只启动一次。
+	stopOnce  sync.Once     // 保证 stopCh 只关闭一次。
+	stopCh    chan struct{} // 关闭后拒绝新事件并通知 worker drain。
+	doneCh    chan struct{} // worker 完全退出后关闭，Stop 用它做有界等待。
 
-	enqueuedTotal  atomic.Int64
-	processedTotal atomic.Int64
+	enqueuedTotal  atomic.Int64 // 入队事件计数，用于测试和后续观测。
+	processedTotal atomic.Int64 // 已派发事件计数，用于确认 drain 进度。
 }
 
+// newTeamSyncCoordinator 创建线程事件同步协调器，logger 为空时使用全局 logger。
 func newTeamSyncCoordinator(svc teampkg.Lifecycle, store contract.ThreadMetadataStore, logger *slog.Logger) *teamSyncCoordinator {
 	if logger == nil {
 		logger = pkglogger.Get()
@@ -85,10 +72,8 @@ func newTeamSyncCoordinator(svc teampkg.Lifecycle, store contract.ThreadMetadata
 	}
 }
 
-// Start spawns the worker goroutine. Idempotent. When svc is nil (TeamSync
-// disabled) the worker short-circuits: doneCh closes immediately so Stop
-// is a no-op and Enqueue stays a cheap silent drop.
-// Start 启动记忆流程。
+// Start 启动单 worker goroutine；方法可重复调用。
+// svc 为 nil 时立即关闭 doneCh，让 Stop 不阻塞，入队路径保持轻量丢弃。
 func (c *teamSyncCoordinator) Start() {
 	if c == nil {
 		return
@@ -109,9 +94,8 @@ func (c *teamSyncCoordinator) Start() {
 	})
 }
 
-// EnqueueStart records a thread.Started event. Non-blocking: the only work
-// on the callback path is an O(1) slice append + non-blocking wake.
-// EnqueueStart 处理enqueue起点。
+// EnqueueStart 记录 thread.Started 事件。
+// 事件分发回调只做 O(1) 入队和非阻塞唤醒，真正的磁盘/网络工作由 worker 处理。
 func (c *teamSyncCoordinator) EnqueueStart(ev threaddto.Started) {
 	if c == nil {
 		return
@@ -122,11 +106,8 @@ func (c *teamSyncCoordinator) EnqueueStart(ev threaddto.Started) {
 	c.enqueue(teamSyncOp{kind: teamSyncOpStart, started: ev})
 }
 
-// EnqueueStop records a thread.Stopped event with the same non-blocking
-// contract as EnqueueStart. StopSession semantics (final flush, last-session
-// watcher close) stay inside TeamSyncService — the coordinator only
-// dispatches events to it serially.
-// EnqueueStop 处理enqueuestop。
+// EnqueueStop 记录 thread.Stopped 事件。
+// final flush 和最后一个 session 的 watcher 关闭仍由 TeamSyncService 负责，协调器只保证串行派发。
 func (c *teamSyncCoordinator) EnqueueStop(ev threaddto.Stopped) {
 	if c == nil {
 		return
@@ -137,6 +118,7 @@ func (c *teamSyncCoordinator) EnqueueStop(ev threaddto.Stopped) {
 	c.enqueue(teamSyncOp{kind: teamSyncOpStop, stopped: ev})
 }
 
+// enqueue 在 Stop 前把事件追加到 FIFO 队列，并用有缓冲 wake 通知 worker。
 func (c *teamSyncCoordinator) enqueue(op teamSyncOp) {
 	select {
 	case <-c.stopCh:
@@ -153,11 +135,8 @@ func (c *teamSyncCoordinator) enqueue(op teamSyncOp) {
 	}
 }
 
-// Stop closes the gate, drains any pending ops through the worker, and
-// waits bounded by ctx for the worker to exit. Idempotent. Post-Stop
-// enqueue is silently dropped because the subscription is about to be
-// cancelled by RunnerModule shutdown anyway.
-// Stop 停止记忆流程。
+// Stop 关闭入队入口并等待 worker 把已有事件 drain 完成。
+// 等待时间受 ctx 和 teamSyncCoordinatorDrainGrace 双重限制，避免关机卡在远端同步慢路径。
 func (c *teamSyncCoordinator) Stop(ctx context.Context) error {
 	if c == nil {
 		return nil
@@ -184,14 +163,13 @@ func (c *teamSyncCoordinator) Stop(ctx context.Context) error {
 	return firstErr
 }
 
-// EnqueuedTotal / ProcessedTotal expose the observability counters for
-// tests and future metric hookup (P22 observability lane).
-// EnqueuedTotal 处理enqueuedtotal。
+// EnqueuedTotal 返回已进入队列的事件数量，主要用于测试和观测。
 func (c *teamSyncCoordinator) EnqueuedTotal() int64 { return c.enqueuedTotal.Load() }
 
-// ProcessedTotal 处理processedtotal。
+// ProcessedTotal 返回 worker 已派发的事件数量。
 func (c *teamSyncCoordinator) ProcessedTotal() int64 { return c.processedTotal.Load() }
 
+// runWorker 等待唤醒或停止信号，Stop 时先 drain 队列再关闭 doneCh。
 func (c *teamSyncCoordinator) runWorker() {
 	defer close(c.doneCh)
 	for {
@@ -205,10 +183,8 @@ func (c *teamSyncCoordinator) runWorker() {
 	}
 }
 
-// drainPending pops each queued op under the lock and dispatches it with
-// the lock released, preserving FIFO order. Ops are linear per thread so
-// no cross-thread reordering is possible. Errors are logged but never
-// halt the worker — the existing TeamSync helpers log + swallow already.
+// drainPending 在锁内取出当前批次、锁外派发，避免慢路径阻塞新的入队。
+// 派发失败只记录日志，不终止 worker；线程同步失败不应拖垮事件总线。
 func (c *teamSyncCoordinator) drainPending() {
 	for {
 		c.mu.Lock()
@@ -226,7 +202,8 @@ func (c *teamSyncCoordinator) drainPending() {
 	}
 }
 
-// dispatch 派发记忆。
+// dispatch 把队列事件转成 TeamSyncService 的 start/stop 调用。
+// 这里不重试失败，避免 worker 因单个线程的远端错误长期占用队列。
 func (c *teamSyncCoordinator) dispatch(op teamSyncOp) {
 	switch op.kind {
 	case teamSyncOpStart:

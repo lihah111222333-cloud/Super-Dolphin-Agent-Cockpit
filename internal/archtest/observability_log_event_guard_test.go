@@ -6,19 +6,9 @@ import (
 	"testing"
 )
 
-// TestObservabilityLogEventAnchorsWired enforces P22 P4 S6a /
-// plan §321: the four stable log event anchors
-// (bootstrap.hook_replay.begin/end, bootstrap.report_queue.drain,
-// gopls.compat_fallback.hit) must remain wired into the production
-// .go files that own their emit sites. Each anchor has an assigned
-// producer file; an anchor missing from its producer means the
-// observability contract regressed.
-//
-// The guard is source-shape based rather than runtime-based because
-// the emission paths are driven by reconnect/drain/compat-fallback
-// events that are difficult to synthesise cheaply from a unit test.
-// Pinning the literal to its producer file gives the same freeze
-// with zero runtime cost and a clear diff when the contract moves.
+// TestObservabilityLogEventAnchorsWired 固定稳定日志事件锚点与生产 emit 文件的绑定。
+// reconnect、drain 和兼容回退事件难以用轻量单测完整触发，因此这里用源码形状守卫
+// 确认锚点仍出现在归属文件中，契约移动时会给出清晰 diff。
 func TestObservabilityLogEventAnchorsWired(t *testing.T) {
 	anchors := []struct {
 		producerPath string
@@ -55,11 +45,8 @@ func TestObservabilityLogEventAnchorsWired(t *testing.T) {
 			if !strings.Contains(text, anchor) {
 				t.Errorf("%s: expected observability anchor %s to stay wired (P22 P4 S6a / plan §321)", spec.producerPath, anchor)
 			}
-			// Also require the "event" key to be used at least once
-			// in the producer so the anchor isn't present purely in a
-			// comment or string literal disconnected from slog-style
-			// key/value logging. A single check per file is enough
-			// because the emit sites all share the same shape.
+			// producer 文件内必须至少使用一次 "event" key，避免锚点只残留在注释或无关字符串里。
+			// 同一文件的 emit site 形状一致，单次 key 检查即可覆盖该文件。
 			if !strings.Contains(text, "\"event\",") {
 				t.Errorf("%s: expected slog-style \"event\", <anchor> emission shape to stay wired", spec.producerPath)
 			}

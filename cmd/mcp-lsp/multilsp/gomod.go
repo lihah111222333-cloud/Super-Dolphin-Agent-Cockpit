@@ -34,7 +34,8 @@ func parseGoWorkModuleRoots(goWorkPath string) ([]string, error) {
 	return parseGoWorkModuleRootsFallback(goWorkPath)
 }
 
-// parseGoWorkModuleRootsWithGoCommand 解析带go命令的gowork模块根目录。
+// parseGoWorkModuleRootsWithGoCommand 通过 `go work edit -json` 读取 go.work 的 use 列表。
+// 命令 stderr 会进入错误链，便于上层区分语法错误和 go 命令缺失。
 func parseGoWorkModuleRootsWithGoCommand(goWorkPath string) ([]string, error) {
 	cmd := hiddenexec.Command("go", "work", "edit", "-json", goWorkPath)
 	cmd.Dir = filepath.Dir(goWorkPath)
@@ -96,7 +97,8 @@ func goWorkFields(rawLine string) []string {
 	return tokenizeGoWorkLine(rawLine)
 }
 
-// tokenizeGoWorkLine 处理tokenizegowork行。
+// tokenizeGoWorkLine 解析 go.work 单行中的 use token。
+// 它保留括号边界并跳过行尾注释，供 fallback parser 在没有 go 命令时使用。
 func tokenizeGoWorkLine(rawLine string) []string {
 	line := strings.TrimSpace(rawLine)
 	tokens := make([]string, 0, 4)
@@ -202,7 +204,8 @@ func splitGoWorkUseToken(field string) []string {
 	return tokens
 }
 
-// appendGoWorkUseRoot 追加goworkuse根目录。
+// appendGoWorkUseRoot 把 go.work use 项转换为规范化绝对路径后追加到结果。
+// 空项、括号和无法规范化的路径会被忽略，避免污染 workspace folder 列表。
 func appendGoWorkUseRoot(roots []string, workDir, raw string) []string {
 	entry := strings.TrimSpace(raw)
 	if unquoted, err := strconv.Unquote(entry); err == nil {
@@ -222,7 +225,8 @@ func appendGoWorkUseRoot(roots []string, workDir, raw string) []string {
 	return roots
 }
 
-// resolveStartDir 解析起点目录。
+// resolveStartDir 把文件、目录或 go.mod 路径转换为向上查找的起点目录。
+// stat 失败且不是 NotExist 时会返回错误，避免权限问题被当成普通缺失。
 func resolveStartDir(absPath string) (string, error) {
 	if strings.EqualFold(filepath.Base(absPath), "go.mod") {
 		return filepath.Dir(absPath), nil
@@ -240,7 +244,8 @@ func resolveStartDir(absPath string) (string, error) {
 	}
 }
 
-// absolutePathFromURI 从URI处理absolute路径。
+// absolutePathFromURI 将 file URI 转成规范化绝对路径。
+// 空 URI、非 file scheme 或路径规范化失败都会返回错误，调用方不得静默回退。
 func absolutePathFromURI(uri string) (string, error) {
 	if strings.TrimSpace(uri) == "" {
 		return "", ErrDocumentTargetEmpty

@@ -15,7 +15,8 @@ func normalizeArgs(args []any) []any {
 	return out
 }
 
-// normalizeArg 规范化arg。
+// normalizeArg 规范化 JSON-RPC 传入的查询参数。
+// JavaScript 安全整数范围内的 float64 会转成 int64，避免 SQLite 参数比较时整数 ID 被当作浮点值。
 func normalizeArg(arg any) any {
 	switch value := arg.(type) {
 	case float64:

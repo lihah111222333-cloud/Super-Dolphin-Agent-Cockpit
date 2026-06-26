@@ -26,18 +26,21 @@ const (
 	newImportRoot = modulePkgRoot + newSDKDir
 )
 
+// replacement 是 JSON 报告中的单个 import 改写记录。
 type replacement struct {
 	Old  string `json:"old"`
 	New  string `json:"new"`
 	Line int    `json:"line"`
 }
 
+// fileReport 是 JSON 报告中单个文件的改写汇总。
 type fileReport struct {
 	File         string        `json:"file"`
 	Count        int           `json:"count"`
 	Replacements []replacement `json:"replacements"`
 }
 
+// report 是 dry-run/apply 两种模式共用的 JSON 报告顶层结构。
 type report struct {
 	Mode              string       `json:"mode"`
 	Root              string       `json:"root"`
@@ -49,6 +52,7 @@ type report struct {
 	GeneratedAt       string       `json:"generatedAt"`
 }
 
+// edit 描述一个 import 字面量在源文件字节切片中的替换范围。
 type edit struct {
 	Start  int
 	End    int
@@ -57,11 +61,13 @@ type edit struct {
 	Line   int
 }
 
+// editCollector 收集单文件 import 替换及报告项，便于测试注入。
 type editCollector func(path string, src []byte) ([]edit, []replacement, error)
 
+// editApplier 应用已排序 edit，便于测试验证写入前的纯函数行为。
 type editApplier func(src []byte, edits []edit) []byte
 
-// main 解析参数并执行命令行入口流程。
+// main 扫描 codexsdk import，并按 dry-run 或 apply 模式输出报告。
 func main() {
 	var (
 		dryRun    = flag.Bool("dry-run", false, "scan and report replacements without writing files")
@@ -125,6 +131,7 @@ func main() {
 	printReportSummary(rep, trimmedReportOut)
 }
 
+// renameWalkDir 构造 WalkDir 回调，过滤目录后处理 Go 文件。
 func renameWalkDir(rootAbs string, apply bool, collect editCollector, applyEditSet editApplier, fileReports *[]fileReport, totalReplacements *int) fs.WalkDirFunc {
 	return func(path string, d fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
@@ -140,6 +147,7 @@ func renameWalkDir(rootAbs string, apply bool, collect editCollector, applyEditS
 	}
 }
 
+// skipRenameDir 跳过仓库元数据、工作区和生成产物目录，避免批量改写越界。
 func skipRenameDir(name string) error {
 	switch name {
 	case ".git", ".worktrees", ".agent", "node_modules", ".idea", ".vscode", "dist", "build", "vendor":
@@ -148,7 +156,7 @@ func skipRenameDir(name string) error {
 	return nil
 }
 
-// processRenameFile 处理进程重命名文件。
+// processRenameFile 收集单个 Go 文件的 import 改写，并在 apply 模式下写回文件。
 func processRenameFile(rootAbs, path string, apply bool, collect editCollector, applyEditSet editApplier, fileReports *[]fileReport, totalReplacements *int) error {
 	rel, err := filepath.Rel(rootAbs, path)
 	if err != nil {
@@ -185,6 +193,7 @@ func processRenameFile(rootAbs, path string, apply bool, collect editCollector, 
 	return nil
 }
 
+// printReportSummary 输出人类可读摘要，完整明细可通过 --report 写 JSON。
 func printReportSummary(rep report, reportOut string) {
 	fmt.Printf("mode=%s files=%d replacements=%d\n", rep.Mode, rep.TotalFiles, rep.TotalReplacements)
 	if reportOut != "" {
@@ -195,7 +204,7 @@ func printReportSummary(rep report, reportOut string) {
 	}
 }
 
-// collectEdits 收集编辑。
+// collectEdits 只解析 import 声明并收集 codexsdk 到 agentsdk 的替换范围。
 func collectEdits(path string, src []byte) ([]edit, []replacement, error) {
 	fset := token.NewFileSet()
 	fileAST, err := parser.ParseFile(fset, path, src, parser.ImportsOnly)
@@ -232,6 +241,7 @@ func collectEdits(path string, src []byte) ([]edit, []replacement, error) {
 	return edits, reports, nil
 }
 
+// applyEdits 按倒序范围替换 import 字面量，避免前一次替换影响后续偏移。
 func applyEdits(src []byte, edits []edit) []byte {
 	out := append([]byte(nil), src...)
 	for _, e := range edits {
@@ -243,6 +253,7 @@ func applyEdits(src []byte, edits []edit) []byte {
 	return out
 }
 
+// rewriteImportPath 将旧 SDK import 根替换为新 SDK 根。
 func rewriteImportPath(path string) (string, bool) {
 	if path == oldImportRoot {
 		return newImportRoot, true
@@ -255,6 +266,7 @@ func rewriteImportPath(path string) (string, bool) {
 	return "", false
 }
 
+// writeReport 将 JSON 报告写到指定路径，并负责创建父目录。
 func writeReport(path string, rep report) error {
 	data, err := json.MarshalIndent(rep, "", "  ")
 	if err != nil {
@@ -266,6 +278,7 @@ func writeReport(path string, rep report) error {
 	return os.WriteFile(path, append(data, '\n'), 0o644)
 }
 
+// fatalf 输出错误并以 1 退出，保持脚本 fail-fast。
 func fatalf(format string, args ...any) {
 	fmt.Fprintf(os.Stderr, format+"\n", args...)
 	os.Exit(1)

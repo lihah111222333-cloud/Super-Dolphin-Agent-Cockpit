@@ -8,6 +8,7 @@ import (
 	"strings"
 )
 
+// RedactPath 只保留路径 basename，避免日志或错误把用户目录和敏感文件路径泄露出去。
 func RedactPath(path string) string {
 	base := filepath.Base(filepath.Clean(path))
 	if strings.TrimSpace(base) == "" || base == "." || base == string(filepath.Separator) {
@@ -16,6 +17,7 @@ func RedactPath(path string) string {
 	return "<redacted:" + base + ">"
 }
 
+// SafeError 把 os.PathError 转成不含原始路径的短错误文本。
 func SafeError(err error) string {
 	var pathErr *os.PathError
 	if errors.As(err, &pathErr) {
@@ -27,6 +29,7 @@ func SafeError(err error) string {
 	return err.Error()
 }
 
+// SafeErrorForPath 对错误文本中的目标路径做脱敏替换。
 func SafeErrorForPath(err error, path string) string {
 	text := SafeError(err)
 	redacted := RedactPath(path)
@@ -44,6 +47,7 @@ func SafeErrorForPath(err error, path string) string {
 	return text
 }
 
+// ProbeWritableDir 通过创建并删除临时文件确认目录可写，失败时只返回脱敏路径。
 func ProbeWritableDir(dir string) error {
 	file, err := os.CreateTemp(dir, ".super-dolphin-write-test-*")
 	if err != nil {

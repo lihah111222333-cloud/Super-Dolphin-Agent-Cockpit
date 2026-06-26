@@ -23,7 +23,8 @@ const (
 	runScanLimit       int32 = 100
 )
 
-// Deps 是 GC 的外部依赖集合，通过接口注入便于测试。
+// Deps 是 shared file GC 的外部依赖集合。
+// Reader/Deleter 连接 store，DAGRuntime 提供 final_output 保护信息，Now 用于测试固定时间。
 type Deps struct {
 	Reader     sharedfilestore.Reader  // 读取 shared file 列表
 	Deleter    sharedfilestore.Deleter // 执行删除（Preview 时为 nil）
@@ -31,14 +32,16 @@ type Deps struct {
 	Now        func() time.Time        // 注入时间，便于测试
 }
 
-// Params 是单次 GC 调用的配置参数。
+// Params 是单次 GC 调用的 JSON 入参。
+// 零值由 normalizeParams 填充默认值，PinnedPaths 用于 UI 或调用方临时保护文件。
 type Params struct {
 	WorkTTLDays int      `json:"workTtlDays,omitempty"` // 文件保留天数，0 表示使用默认值
 	Limit       int32    `json:"limit,omitempty"`       // 最大扫描条数，0 表示使用默认值
 	PinnedPaths []string `json:"pinnedPaths,omitempty"` // 手动固定不删除的路径
 }
 
-// Result 是单次 GC 的执行结果。
+// Result 是单次 GC 的 JSON 响应。
+// Preview 与 Apply 共用该结构，DryRun 区分是否执行删除，DeletedPaths 只在真实删除后填充。
 type Result struct {
 	Items          []Item   `json:"items"`
 	WorkTTLDays    int      `json:"workTtlDays"`
@@ -50,7 +53,8 @@ type Result struct {
 	DeletedPaths   []string `json:"deletedPaths,omitempty"`
 }
 
-// Item 描述单个 shared file 的 GC 分析结果。
+// Item 是单个 shared file 的 GC 判定结果。
+// Protected 和 Reason 会告诉 UI 为什么候选没有删除，Deleted 只表示本次 Apply 已删除。
 type Item struct {
 	Path             string    `json:"path"`
 	UpdatedAt        time.Time `json:"updatedAt"`
@@ -61,7 +65,7 @@ type Item struct {
 	Deleted          bool      `json:"deleted,omitempty"`
 }
 
-// Preview 返回 GC 预览结果（dry-run），不执行实际删除。
+// Preview 生成 GC 预览结果，不执行实际删除。
 func Preview(ctx context.Context, deps Deps, params Params) (Result, error) {
 	return buildPlan(ctx, deps, params)
 }

@@ -39,9 +39,8 @@ func TestRequestApprovalAutoDeclinesWithoutFrontendWhenNoCallbackPath(t *testing
 }
 
 func TestApprovalCleanupRunnerTimesOutPendingApprovals(t *testing.T) {
-	// P22 P1b: the P1a-era startApprovalCleanupLoop function has been
-	// replaced by ApprovalCleanupRunner. Inject short per-instance settings so
-	// the runner fires on the 10ms scale this test needs without mutating package defaults.
+	// ApprovalCleanupRunner 取代旧的全局清理循环后，测试必须注入实例级短周期。
+	// 这样能在 10ms 量级触发超时，又不修改包级默认值影响其它审批用例。
 	dispatcher := event.NewDispatcher()
 	manager := NewApprovalManager(nil, dispatcher)
 	resolved := make(chan tooldto.ToolApprovalResolved, 1)

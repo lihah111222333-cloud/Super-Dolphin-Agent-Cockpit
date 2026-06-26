@@ -17,10 +17,8 @@ import (
 
 const (
 	defaultShutdownTimeout = 5 * time.Second
-	// defaultResponderDrainTimeout bounds how long Close() waits for
-	// in-flight server-request responder goroutines to drain. Keep it
-	// ≤ defaultShutdownTimeout so Close() as a whole still fits the
-	// caller-side stop budget (P22 P2 LSP-S3, plan §492).
+	// defaultResponderDrainTimeout 限制 Close 等待服务端请求响应 goroutine 的时间。
+	// 它必须短于整体 shutdown 超时，保证调用方的停止预算不会被响应排空拖穿。
 	defaultResponderDrainTimeout = 2 * time.Second
 	stderrLimitBytes             = 8 * 1024
 )
@@ -64,11 +62,8 @@ func (t *transport) Close() error {
 	return errors.Join(t.killProcess(), t.waitForExit(defaultShutdownTimeout), drainErr)
 }
 
-// drainResponders waits up to timeout for every in-flight
-// server-request responder goroutine registered via spawnResponder.
-// A non-nil error indicates some responder outlived the drain budget;
-// the caller still proceeds to killProcess so a stuck peer cannot
-// pin shutdown.
+// drainResponders 在 timeout 内等待所有已登记的服务端请求响应 goroutine。
+// 返回错误只表示排空超时；调用方仍会继续 killProcess，避免卡住的语言服务器阻塞关闭。
 func (t *transport) drainResponders(timeout time.Duration) error {
 	done := make(chan struct{})
 	go func() {
@@ -97,7 +92,8 @@ func (t *transport) readLoop() {
 	}
 }
 
-// readMessage 读取消息。
+// readMessage 按 LSP Content-Length framing 读取一条完整 JSON-RPC 消息。
+// header 缺失或长度非法会直接返回错误，避免把半包当成空通知继续处理。
 func (t *transport) readMessage() (json.RawMessage, error) {
 	length := -1
 	for {
@@ -131,7 +127,8 @@ func (t *transport) readMessage() (json.RawMessage, error) {
 	return body, nil
 }
 
-// writeMessage 写入消息。
+// writeMessage 序列化并按 LSP framing 写入子进程 stdin。
+// 写入失败会合并 wait 错误，帮助调用方区分编码问题和语言服务器提前退出。
 func (t *transport) writeMessage(message any) error {
 	if t.closed.Load() {
 		return ErrTransportClosed
@@ -221,9 +218,7 @@ func (t *transport) stopWithError(err error) {
 	t.closed.Store(true)
 	t.clearPending(err)
 	t.closeInput()
-	// Drain in-flight server-request responders before killing the
-	// process so writeMessage failures do not cascade into goroutine
-	// leaks (P22 P2 LSP-S3).
+	// 先排空服务端请求响应，再杀进程，避免 writeMessage 失败继续扩散成 goroutine 泄漏。
 	_ = t.drainResponders(defaultResponderDrainTimeout)
 	_ = t.killProcess()
 }

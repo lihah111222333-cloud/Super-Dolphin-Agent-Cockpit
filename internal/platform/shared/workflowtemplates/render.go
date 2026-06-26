@@ -7,6 +7,7 @@ import (
 	"strings"
 )
 
+// checkTemplateVersion 校验请求的版本是否匹配当前活跃模板版本。
 func checkTemplateVersion(tpl Template, version any) error {
 	text := workflowTemplateVersionString(version)
 	if text == "" {
@@ -18,6 +19,7 @@ func checkTemplateVersion(tpl Template, version any) error {
 	return nil
 }
 
+// requireFields 校验必填 UI 字段和用户提供的 output_path 安全性。
 func requireFields(tpl Template, values map[string]string) error {
 	missing := make([]string, 0)
 	for _, field := range tpl.UISchema {
@@ -36,6 +38,7 @@ func requireFields(tpl Template, values map[string]string) error {
 	return nil
 }
 
+// normalizedValues 把渲染输入统一转为字符串，供占位符替换使用。
 func normalizedValues(values map[string]any) map[string]string {
 	out := make(map[string]string, len(values))
 	for key, value := range values {
@@ -44,6 +47,7 @@ func normalizedValues(values map[string]any) map[string]string {
 	return out
 }
 
+// normalizedValue 将单个输入值转为稳定字符串；复杂对象保留 JSON 表达。
 func normalizedValue(value any) string {
 	switch current := value.(type) {
 	case string:
@@ -59,6 +63,8 @@ func normalizedValue(value any) string {
 	}
 }
 
+// renderValues 按 runtimeContext、Values、UserInputs 的顺序合并渲染变量。
+// 后者覆盖前者，让显式用户输入优先生效。
 func renderValues(req RenderRequest) map[string]any {
 	out := make(map[string]any, len(req.RuntimeContext)+len(req.Values)+len(req.UserInputs))
 	for key, value := range req.RuntimeContext {
@@ -73,6 +79,7 @@ func renderValues(req RenderRequest) map[string]any {
 	return out
 }
 
+// renderMap 深拷贝 map 并递归渲染其中的字符串占位符。
 func renderMap(input map[string]any, values map[string]string) map[string]any {
 	if input == nil {
 		return nil
@@ -84,6 +91,7 @@ func renderMap(input map[string]any, values map[string]string) map[string]any {
 	return out
 }
 
+// renderSlice 深拷贝切片并递归渲染其中的字符串占位符。
 func renderSlice(input []any, values map[string]string) []any {
 	out := make([]any, len(input))
 	for index, value := range input {
@@ -92,6 +100,7 @@ func renderSlice(input []any, values map[string]string) []any {
 	return out
 }
 
+// renderValue 根据值类型递归渲染字符串、map 和 slice。
 func renderValue(value any, values map[string]string) any {
 	switch current := value.(type) {
 	case string:
@@ -105,6 +114,7 @@ func renderValue(value any, values map[string]string) any {
 	}
 }
 
+// renderString 替换 `{{key}}` 占位符；未知占位符原样保留给后续层处理。
 func renderString(input string, values map[string]string) string {
 	out := input
 	for key, value := range values {
@@ -113,6 +123,7 @@ func renderString(input string, values map[string]string) string {
 	return out
 }
 
+// templateLocale 解析请求语言环境，未提供时默认中文。
 func templateLocale(req RenderRequest) string {
 	if locale := strings.TrimSpace(req.TemplateLocale); locale != "" {
 		return locale
@@ -123,6 +134,7 @@ func templateLocale(req RenderRequest) string {
 	return "zh-CN"
 }
 
+// workflowTemplateVersionString 把前端可能传入的版本类型统一转为字符串。
 func workflowTemplateVersionString(value any) string {
 	switch v := value.(type) {
 	case nil:

@@ -19,6 +19,7 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/store/uipreference"
 )
 
+// PromptRegistry 管理内置和动态 prompt section 的注册与枚举。
 type PromptRegistry interface {
 	RegisterSection(section PromptSection) error
 	RegisterDynamicProvider(provider DynamicSectionProvider) error
@@ -26,8 +27,10 @@ type PromptRegistry interface {
 	Sections() []PromptSection
 }
 
+// PromptAssemblyService 暴露 prompt 组装能力的跨模块契约别名。
 type PromptAssemblyService = contract.PromptAssemblyService
 
+// Service 聚合 prompt section 注册、组装、失效和 Claude.md 来源注入能力。
 type Service interface {
 	PromptRegistry
 	contract.PromptAssemblyService
@@ -36,16 +39,15 @@ type Service interface {
 	Config() Config
 }
 
-// Compile-time assertion: *service satisfies contract.SectionInvalidator.
-// The interface declares concurrent-safe semantics; *service backs that
-// with the cache mutex (see cache.go) and the dynamicMu RWMutex.
+// service 接口断言确保 prompt 运行时满足跨模块 section 失效契约。
+// 该契约要求并发安全；实现侧通过 cache mutex 和 dynamicMu 保护共享状态。
 var _ contract.SectionInvalidator = (*service)(nil)
 
-// DisabledBuiltinToolsFn is the signature of a function that returns the
-// sorted list of tool IDs the user has manually disabled via UI preferences.
-// It is injected to break the import cycle between prompt and uistate.
+// DisabledBuiltinToolsFn 返回用户在 UI 偏好中手动禁用的 builtin tool IDs。
+// 该函数由上层注入，避免 prompt 包直接依赖 uistate 实现。
 type DisabledBuiltinToolsFn func(ctx context.Context, cwd, provider string) []string
 
+// service 是 prompt 模块的运行时实现，持有 section 注册表、动态 provider 和缓存。
 type service struct {
 	cfg              *Config
 	logger           *slog.Logger
@@ -63,13 +65,10 @@ type service struct {
 	dynamic   map[string]DynamicSectionProvider
 }
 
-// ServiceOption configures optional dependencies of the prompt Service.
+// ServiceOption 注入 prompt Service 的可选依赖，避免构造函数参数继续膨胀。
 type ServiceOption func(*service)
 
-// WithPromptHintSources injects the preference store and shared-file reader
-// used to resolve the user-configurable LSP prompt hint that is prepended to
-// the start system prompt.
-// WithPromptHintSources 设置prompthintsources。
+// WithPromptHintSources 注入用于解析 LSP prompt hint 的偏好存储和共享文件读取器。
 func WithPromptHintSources(prefs uipreference.Store, sharedFiles sharedfilestore.Reader) ServiceOption {
 	return func(s *service) {
 		s.prefs = prefs
@@ -77,12 +76,7 @@ func WithPromptHintSources(prefs uipreference.Store, sharedFiles sharedfilestore
 	}
 }
 
-// WithDisabledBuiltinToolsFn injects the function used to resolve soft-filtered
-// builtin tools. The caller (e.g. the fx module) provides a closure over
-// uistate resolution helpers, avoiding a direct import cycle between the prompt
-// package and the uistate package.
-
-// WithDisabledBuiltinToolsFn 设置disabledbuiltin工具fn。
+// WithDisabledBuiltinToolsFn 注入 builtin tools 软过滤查询函数，避免 prompt 包直接依赖 uistate。
 func WithDisabledBuiltinToolsFn(fn DisabledBuiltinToolsFn) ServiceOption {
 	return func(s *service) {
 		s.disabledToolsFn = fn
@@ -103,7 +97,7 @@ var (
 	promptSlugPattern      = regexp.MustCompile(`[^a-z0-9]+`)
 )
 
-// Config 处理配置。
+// Config 返回当前配置快照；nil 配置时返回零值，保持调用方读路径无 panic。
 func (s *service) Config() Config {
 	if s.cfg == nil {
 		return Config{}
@@ -111,12 +105,12 @@ func (s *service) Config() Config {
 	return *s.cfg
 }
 
-// RegisterSection 注册section。
+// RegisterSection 注册单个 prompt section，重复名称由 registry 拒绝。
 func (s *service) RegisterSection(section PromptSection) error {
 	return s.registry.Register(section)
 }
 
-// RegisterClaudeMdSourceProvider 注册claudemdsourceprovider。
+// RegisterClaudeMdSourceProvider 设置 Claude.md 来源 provider，并清空依赖该来源的 user context 缓存。
 func (s *service) RegisterClaudeMdSourceProvider(provider contract.ClaudeMdSourceProvider) error {
 	s.claudeMdProvider = provider
 	if s.userContextCache != nil {
@@ -125,12 +119,12 @@ func (s *service) RegisterClaudeMdSourceProvider(provider contract.ClaudeMdSourc
 	return nil
 }
 
-// Sections 处理sections。
+// Sections 返回注册表中的 section 快照。
 func (s *service) Sections() []PromptSection {
 	return s.registry.Sections()
 }
 
-// ListPrompts 列出prompts。
+// ListPrompts 按 cwd scope 查询用户可见 prompt 模板，并过滤越界模板。
 func (s *promptService) ListPrompts(
 	ctx context.Context,
 	cwd, keyword string,
@@ -153,7 +147,7 @@ func (s *promptService) ListPrompts(
 	return filterVisiblePrompts(templates, requestScope), nil
 }
 
-// ListPromptSectionsByTemplates 按templates列出promptsections。
+// ListPromptSectionsByTemplates 批量加载模板 sections，并再次校验每个模板属于请求 cwd。
 func (s *promptService) ListPromptSectionsByTemplates(
 	ctx context.Context,
 	cwd string,
@@ -189,7 +183,7 @@ func (s *promptService) ListPromptSectionsByTemplates(
 	return sectionsByTemplateID, nil
 }
 
-// GetPrompt 读取prompt。
+// GetPrompt 读取单个 prompt 模板；越过 cwd scope 时按 not found 处理。
 func (s *promptService) GetPrompt(
 	ctx context.Context,
 	cwd, key string,
@@ -215,7 +209,7 @@ func (s *promptService) GetPrompt(
 	return template, nil
 }
 
-// WritePrompt 写入prompt。
+// WritePrompt 在事务中创建或更新用户 prompt，并在成功后清空模板 catalog 缓存。
 func (s *promptService) WritePrompt(
 	ctx context.Context,
 	cwd string,
@@ -247,7 +241,7 @@ func (s *promptService) WritePrompt(
 	return template, nil
 }
 
-// ListSections 列出sections。
+// ListSections 先校验父 prompt 可见性，再返回其可编辑 section 列表。
 func (s *promptService) ListSections(ctx context.Context, cwd, promptKey string) ([]promptstore.PromptTemplateSection, error) {
 	template, err := s.GetPrompt(ctx, cwd, promptKey)
 	if err != nil {
@@ -256,7 +250,7 @@ func (s *promptService) ListSections(ctx context.Context, cwd, promptKey string)
 	return s.store.ListSectionsByTemplateID(ctx, template.ID)
 }
 
-// WriteSection 写入section。
+// WriteSection 更新用户 prompt 的单个 section，并在成功后清空 section asset catalog。
 func (s *promptService) WriteSection(ctx context.Context, cwd string, req PromptSectionWriteRequest) (*promptstore.PromptTemplateSection, error) {
 	if s.store == nil {
 		return nil, errPromptStoreRequired
@@ -283,7 +277,7 @@ func (s *promptService) WriteSection(ctx context.Context, cwd string, req Prompt
 	return saved, nil
 }
 
-// DeleteSection 删除section。
+// DeleteSection 在事务中校验 prompt scope 后删除 section，并刷新 section asset catalog。
 func (s *promptService) DeleteSection(ctx context.Context, cwd, promptKey, sectionKey string, scope ...string) error {
 	if s.store == nil {
 		return errPromptStoreRequired
@@ -317,7 +311,7 @@ func (s *promptService) DeleteSection(ctx context.Context, cwd, promptKey, secti
 	return nil
 }
 
-// DeletePrompt 删除prompt。
+// DeletePrompt 先归档当前模板版本再删除 prompt，成功后刷新模板 catalog。
 func (s *promptService) DeletePrompt(ctx context.Context, cwd, key string, scope ...string) error {
 	if s.store == nil {
 		return errPromptStoreRequired
@@ -353,6 +347,7 @@ func (s *promptService) DeletePrompt(ctx context.Context, cwd, key string, scope
 	return nil
 }
 
+// optionalScopeValue 返回可选 scope 的第一个值，缺省时保持空串表示未显式指定。
 func optionalScopeValue(values []string) string {
 	if len(values) == 0 {
 		return ""
@@ -360,6 +355,7 @@ func optionalScopeValue(values []string) string {
 	return values[0]
 }
 
+// registerBuiltInSections 注册内置静态 section 和动态 slot section，启动期失败由 must* helper 直接暴露。
 func (s *service) registerBuiltInSections() {
 	if !parseBoolEnv(envDisableBuiltinStaticSections, false) {
 		for _, section := range StaticSections() {
@@ -371,6 +367,7 @@ func (s *service) registerBuiltInSections() {
 	}
 }
 
+// mustRegisterSection 注册内置 section；启动不变量失败时 panic，避免系统带缺失 section 继续运行。
 func mustRegisterSection(registry *SectionRegistry, section PromptSection) {
 	if err := registry.Register(section); err != nil {
 		// archguard:ignore panic_count -- builtin prompt section registration is a startup invariant.
@@ -378,6 +375,7 @@ func mustRegisterSection(registry *SectionRegistry, section PromptSection) {
 	}
 }
 
+// mustRegisterDynamicProvider 注册内置动态 provider；失败说明启动配置冲突，必须立即暴露。
 func mustRegisterDynamicProvider(svc *service, provider DynamicSectionProvider) {
 	if err := svc.RegisterDynamicProvider(provider); err != nil {
 		// archguard:ignore panic_count -- builtin dynamic provider registration is a startup invariant.
@@ -385,6 +383,7 @@ func mustRegisterDynamicProvider(svc *service, provider DynamicSectionProvider) 
 	}
 }
 
+// filterVisiblePrompts 过滤掉当前 cwd 不可见的模板，保护项目级 prompt 不跨目录泄露。
 func filterVisiblePrompts(
 	templates []promptstore.PromptTemplate,
 	cwd string,
@@ -398,11 +397,12 @@ func filterVisiblePrompts(
 	return items
 }
 
+// promptVisibleForRead 判断模板是否可被当前 cwd 读取。
 func promptVisibleForRead(template promptstore.PromptTemplate, cwd string) bool {
 	return promptVisibleForCWD(template, cwd)
 }
 
-// upsertPrompt 处理upsertprompt。
+// upsertPrompt 执行 prompt upsert 的事务内流程：校验、归档旧版本、生成 key 并写入内容 section。
 func upsertPrompt(
 	ctx context.Context,
 	store promptstore.Store,
@@ -440,6 +440,7 @@ func upsertPrompt(
 	return storePromptTemplateAndContent(ctx, store, template, current, contentSection, p.Content)
 }
 
+// lookupPromptForMutation 读取待修改模板；空 id 表示创建新模板。
 func lookupPromptForMutation(
 	ctx context.Context,
 	store promptstore.Store,
@@ -452,6 +453,7 @@ func lookupPromptForMutation(
 	return store.Get(ctx, key)
 }
 
+// resolvePromptKey 为新模板生成稳定 key，遇到 builtin 或已存在 key 时追加纳秒后缀避让。
 func resolvePromptKey(
 	ctx context.Context,
 	store promptstore.Store,
@@ -477,6 +479,7 @@ func resolvePromptKey(
 	}
 }
 
+// rejectBuiltinPromptMutation 阻止 RPC 修改内置 prompt，用户 prompt 只能通过持久化 store 写入。
 func rejectBuiltinPromptMutation(builtin contract.BuiltinPromptRegistry, promptKey string) error {
 	key := strings.TrimSpace(promptKey)
 	if key == "" {
@@ -488,6 +491,7 @@ func rejectBuiltinPromptMutation(builtin contract.BuiltinPromptRegistry, promptK
 	return nil
 }
 
+// builtinPromptExists 查询内置 prompt registry，nil registry 视为不存在。
 func builtinPromptExists(builtin contract.BuiltinPromptRegistry, promptKey string) bool {
 	if builtin == nil {
 		return false
@@ -496,7 +500,7 @@ func builtinPromptExists(builtin contract.BuiltinPromptRegistry, promptKey strin
 	return ok
 }
 
-// buildPromptTemplate 构建prompttemplate。
+// buildPromptTemplate 根据写请求构造 store 模板，并保留更新场景下不可由客户端覆盖的字段。
 func buildPromptTemplate(
 	p PromptWriteRequest,
 	cwd, key string,
@@ -545,6 +549,7 @@ func buildPromptTemplate(
 	return template
 }
 
+// promptEnabledForWrite 解析 enabled 字段，缺省更新时继承旧值、创建时默认启用。
 func promptEnabledForWrite(p PromptWriteRequest, current *promptstore.PromptTemplate) bool {
 	if p.Enabled != nil {
 		return *p.Enabled
@@ -555,6 +560,7 @@ func promptEnabledForWrite(p PromptWriteRequest, current *promptstore.PromptTemp
 	return true
 }
 
+// promptTextForWrite 区分省略 content 和显式清空 content，避免 PATCH 式更新误删正文。
 func promptTextForWrite(p PromptWriteRequest, current *promptstore.PromptTemplate) string {
 	if current != nil && !p.ContentSet && p.Content == "" {
 		return current.PromptText
@@ -562,7 +568,7 @@ func promptTextForWrite(p PromptWriteRequest, current *promptstore.PromptTemplat
 	return p.Content
 }
 
-// sanitizeTemplateMatchWhen 清理templatematchwhen。
+// sanitizeTemplateMatchWhen 移除已废弃的 tags_has 条件，保留无法解析的原始 JSON 交给后续校验。
 func sanitizeTemplateMatchWhen(raw json.RawMessage) json.RawMessage {
 	trimmed := strings.TrimSpace(string(raw))
 	if trimmed == "" || trimmed == "null" {
@@ -586,6 +592,7 @@ func sanitizeTemplateMatchWhen(raw json.RawMessage) json.RawMessage {
 	return json.RawMessage(encoded)
 }
 
+// archivePrompt 写入 prompt 当前版本快照，供更新和删除前保留审计历史。
 func archivePrompt(ctx context.Context, store promptstore.Store, current promptstore.PromptTemplate) error {
 	_, err := store.InsertVersion(ctx, promptstore.PromptTemplateVersion{
 		PromptKey:       current.PromptKey,
@@ -604,6 +611,7 @@ func archivePrompt(ctx context.Context, store promptstore.Store, current prompts
 	return err
 }
 
+// promptKeyBase 根据 agent type 和标题生成用户 prompt 的基础 key。
 func promptKeyBase(agentType, name string) string {
 	slug := promptSlugPattern.ReplaceAllString(strings.ToLower(strings.TrimSpace(name)), "-")
 	slug = strings.Trim(slug, "-")
@@ -613,6 +621,7 @@ func promptKeyBase(agentType, name string) string {
 	return promptAgentType(agentType) + "/" + slug
 }
 
+// promptAgentType 规范化 agent type，兼容 main/root 和 sub/worker/child 别名。
 func promptAgentType(raw string) string {
 	switch strings.ToLower(strings.TrimSpace(raw)) {
 	case "", promptDefaultAgent, "root":
@@ -624,7 +633,7 @@ func promptAgentType(raw string) string {
 	}
 }
 
-// validatePromptWrite 校验promptwrite。
+// validatePromptWrite 校验用户 prompt 写入请求的必填字段、scope 和大小限制。
 func validatePromptWrite(p PromptWriteRequest) error {
 	name := strings.TrimSpace(p.Name)
 	switch {

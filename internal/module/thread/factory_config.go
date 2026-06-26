@@ -35,24 +35,15 @@ type storedThreadConfig struct {
 	Approvals   string         `json:"approvals,omitempty"`
 	Personality string         `json:"personality,omitempty"`
 	Runtime     map[string]any `json:"runtime,omitempty"`
-	// Provider is stashed only by startPendingThread so that SpawnIfNeeded
-	// can restore the caller's provider choice on the first turn. The eager
-	// path never reads Provider back out of stored config — it comes from
-	// agent_provider_binding.Provider there — so leaving this unset on eager
-	// rows is harmless.
+	// Provider 只为 pending_launch 线程落库，首轮 SpawnIfNeeded 用它恢复调用方选择的 provider。
+	// 立即启动路径以 agent_provider_binding.Provider 为准，因此 eager 记录为空不会影响运行时路由。
 	Provider string `json:"provider,omitempty"`
-	// PromptKey is stashed only by startPendingThread so that SpawnIfNeeded
-	// can re-pin the SystemPromptPage "set as launch prompt" preference when
-	// it lazily reconstructs the StartRequest. Without this, defer_spawn
-	// loses the explicit prompt_key pin and the router silently degrades to
-	// the default persona on the first turn.
+	// PromptKey 保存 pending_launch intake 时的显式 prompt_key pin。
+	// 懒启动重建 StartRequest 时必须带回它，否则首轮路由会退回默认 persona。
 	PromptKey string `json:"prompt_key,omitempty"`
-	// AgentKey is also stashed for pending-launch intake threads. The thread
-	// can have a visible name and a pinned agent persona before the user sends
-	// the first real requirement; SpawnIfNeeded restores the pin for routing.
+	// AgentKey 保存 pending_launch 线程的 agent persona pin，供首轮真正启动时恢复路由目标。
 	AgentKey string `json:"agent_key,omitempty"`
-	// ToolSurfaceMode preserves the caller-selected chat/auto/agent surface
-	// through pending_launch so the lazy first turn does not re-enable tools.
+	// ToolSurfaceMode 保存调用方选择的 chat/auto/agent surface，避免懒启动首轮重新打开工具面。
 	ToolSurfaceMode string `json:"tool_surface_mode,omitempty"`
 }
 
@@ -61,7 +52,8 @@ type offlineConfigSnapshot struct {
 	Runtime map[string]any
 }
 
-// buildOfflineConfig 构建offline配置。
+// buildOfflineConfig 读取持久化线程配置和 binding，拼出无活跃 session 时 UI 可展示的配置快照。
+// 线程和 binding 都不存在时返回 not found；配置 JSON 损坏会直接报错，避免展示静默兜底值。
 func (s *service) buildOfflineConfig(
 	ctx context.Context,
 	threadID string,
@@ -171,7 +163,8 @@ func codexDisabledNativeToolsFromRuntime(runtime map[string]any) []string {
 	return cleanResumeStringList(runtime["codexDisabledNativeTools"])
 }
 
-// cleanResumeStringList 处理clean恢复stringlist。
+// cleanResumeStringList 清洗 resume runtime 中的字符串列表。
+// 只接受 []string 或 JSON 解码后的 []any，元素会 trim、去空、去重并排序，避免恢复配置因重复工具名产生不稳定 diff。
 func cleanResumeStringList(value any) []string {
 	var raw []string
 	switch typed := value.(type) {
@@ -428,7 +421,8 @@ func decodeLegacyParams[T any](raw []byte, target *T, legacyFn func([]byte, *T) 
 	return legacyFn(raw, target)
 }
 
-// resolveBindingChain 解析bindingchain。
+// resolveBindingChain 按多路索引恢复线程 binding。
+// 顺序是直接 agent_id、持久化/进程记忆的 agent_id、provider_thread_id；只有确认线程记录也缺失时才返回原始 not found。
 func (s *service) resolveBindingChain(ctx context.Context, threadID string) (*bindingstore.Binding, error) {
 	binding, err := s.bindingStore.GetByAgentID(ctx, threadID)
 	switch {
@@ -450,7 +444,7 @@ func (s *service) resolveBindingChain(ctx context.Context, threadID string) (*bi
 	return nil, err
 }
 
-// bindingByPersistedOrRememberedAgent 按persistedremembered代理处理binding。
+// bindingByPersistedOrRememberedAgent 优先用持久化 agent 绑定查找，缺失时回退到内存记忆的 agent。
 func (s *service) bindingByPersistedOrRememberedAgent(ctx context.Context, threadID string) (*bindingstore.Binding, bool, error, error) {
 	persistedAgentID, persistedFound, missingErr := s.lookupPersistedAgentID(ctx, threadID)
 	if missingErr != nil && !platformdb.IsNotFound(missingErr) {
@@ -496,8 +490,8 @@ func (s *service) bindingByProviderThreadID(ctx context.Context, threadID string
 	return nil, nil
 }
 
-// NewThreadSubscribers declares thread bus subscriptions for BusModule.
-// NewThreadSubscribers 创建线程subscribers。
+// NewThreadSubscribers 声明 thread 模块在总线上的订阅入口。
+// 订阅只注册事件处理器元数据，实际生命周期由 BusModule 的 SubscriberGroup 管理。
 func NewThreadSubscribers(svc *service) platformbus.SubscriberResult {
 	return platformbus.SubscriberResult{
 		Spec: contract.SubscriberSpec{
@@ -535,7 +529,8 @@ type threadBusWorkerRunner struct {
 	svc *service
 }
 
-// Start 启动线程流程。
+// Start 接入 thread 模块的总线后台 worker 生命周期。
+// 这里只接管事件慢路径 worker 的生命周期，不创建业务 thread 或 provider session。
 func (r *threadBusWorkerRunner) Start() {
 	if r == nil || r.svc == nil {
 		return
@@ -543,7 +538,8 @@ func (r *threadBusWorkerRunner) Start() {
 	r.svc.startBusWorkers()
 }
 
-// Stop 停止线程流程。
+// Stop 收束 thread 模块的总线后台 worker 生命周期。
+// 关闭时只收束队列和恢复 goroutine，业务 thread 的停止仍由 Stop/Delete 等显式入口处理。
 func (r *threadBusWorkerRunner) Stop(ctx context.Context) error {
 	if r == nil || r.svc == nil {
 		return nil

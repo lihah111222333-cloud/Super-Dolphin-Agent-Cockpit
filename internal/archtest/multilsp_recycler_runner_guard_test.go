@@ -7,18 +7,13 @@ import (
 	"testing"
 )
 
-// TestMultiLSPPoolRecyclerOwnedByRunner enforces P22 P2 LSP-S1:
-// NewManagerPool must not launch the recycler loop from its
-// constructor, and poolRecycler must not expose an ad-hoc
-// Start()/Stop() pair or a self-spawned loop goroutine. The runtime
-// owner is platformrunner.Runner via `group:"runners"`, so the only
-// allowed entry point is the ctx-driven Run(ctx) method.
+// TestMultiLSPPoolRecyclerOwnedByRunner 守住 LSP 回收器的运行时归属边界：
+// NewManagerPool 不能在构造函数里启动回收循环，poolRecycler 也不能暴露临时
+// Start/Stop 生命周期或自行启动 goroutine。运行时所有者必须是通过 `group:"runners"`
+// 注册的 platformrunner.Runner，因此唯一入口是受 ctx 控制的 Run(ctx)。
 //
-// The guard scans non-test .go files under cmd/mcp-lsp/multilsp for the
-// forbidden shapes (`pool.recycler.Start(`, `p.recycler.Start(`,
-// `r.recycler.Stop(`, `go r.loop()`, `func (r *poolRecycler) Start(`
-// and `func (r *poolRecycler) Stop(`) and fails if any of them
-// reappears.
+// 该守卫扫描 cmd/mcp-lsp/multilsp 下的非测试 Go 文件；一旦自启动循环或
+// Start/Stop 入口重新出现，测试会直接失败，避免生命周期绕过 runner 管理。
 func TestMultiLSPPoolRecyclerOwnedByRunner(t *testing.T) {
 	const dir = "../../cmd/mcp-lsp/multilsp"
 

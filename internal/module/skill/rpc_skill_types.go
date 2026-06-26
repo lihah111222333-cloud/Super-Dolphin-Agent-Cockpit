@@ -46,11 +46,8 @@ type deleteLocalSkillParams struct {
 	CWD          string `json:"cwd,omitempty"`
 }
 
-// createSkillParams is the input to skills/create. It is the host-side entry
-// point for project-scope self-learning writes (P21 P0a): the caller supplies
-// a skill slug and SKILL.md content, scope is always project, and cwd is a
-// required field. CreateSkill is a thin wrapper over WriteLocal — the second
-// writer path for project scope is explicitly forbidden by the P21 plan.
+// createSkillParams 是 `skills/create` 的 wire 入参。
+// 该 RPC 只创建 project scope skill；调用方必须传 cwd，实际写入仍复用 WriteLocal 的单一路径。
 type createSkillParams struct {
 	Name    string `json:"name"`
 	Content string `json:"content"`
@@ -105,7 +102,7 @@ type UserInput struct {
 
 type skillMatchPreviewParams struct {
 	ThreadID string      `json:"threadId,omitempty"`
-	AgentID  string      `json:"agent_id,omitempty"` // Falls back when threadId is empty.
+	AgentID  string      `json:"agent_id,omitempty"` // threadId 为空时用于兼容旧调用方的匹配上下文
 	Text     string      `json:"text"`
 	Input    []UserInput `json:"input,omitempty"`
 	CWD      string      `json:"cwd,omitempty"`
@@ -310,7 +307,8 @@ func sameNameResolutionActions(sources []skillResolutionSource) []string {
 	return actions
 }
 
-// mirrorResolutionActions 处理镜像resolutionactions。
+// mirrorResolutionActions 根据 mirror 冲突类型返回前端可展示的动作集合。
+// 如果冲突自带 Actions，以后端检测结果为准；否则使用当前 scope 的默认 drift 处理动作。
 func mirrorResolutionActions(conflict SkillMirrorConflict) []string {
 	switch conflict.Kind {
 	case skillConflictExternalPersonalProjectSameName:
@@ -368,7 +366,8 @@ func resolutionConflictID(item skillResolutionItem) string {
 	})
 }
 
-// previewSkillResolution 处理preview技能resolution。
+// previewSkillResolution 为用户选择的冲突处理动作生成可确认预览。
+// 只有 action 属于当前 conflict 的 AvailableActions 时才会生成 preview 并缓存 preview_id。
 func (s *service) previewSkillResolution(p skillResolutionPreviewParams) (skillResolutionPreviewResult, error) {
 	p.Action = normalizeResolutionAction(p.Action)
 	list, err := s.listSkillResolutions(p.CWD)
@@ -392,7 +391,8 @@ func (s *service) previewSkillResolution(p skillResolutionPreviewParams) (skillR
 	return skillResolutionPreviewResult{ConflictID: item.ConflictID, Kind: item.Kind, Items: previews}, nil
 }
 
-// storeResolutionPreview 保存resolutionpreview。
+// storeResolutionPreview 缓存一次 mirror/canonical 修复预览。
+// preview_id 带随机 nonce 且定时清理过期项，apply 阶段必须带回匹配的 preview_hash。
 func (s *service) storeResolutionPreview(conflictID string, preview skillResolutionPreviewItem) skillResolutionPreviewItem {
 	if s == nil || preview.PreviewHash == "" {
 		return preview
@@ -435,7 +435,8 @@ func canonicalResolutionPreviewItem(item skillResolutionItem, p skillResolutionP
 	return preview, nil
 }
 
-// canonicalResolutionPreviewSources 处理canonicalresolutionpreviewsources。
+// canonicalResolutionPreviewSources 为 canonical 同名冲突选择预览源和目标。
+// 重命名、保留指定来源和手工合并分别有不同必填字段，缺失时直接返回错误。
 func canonicalResolutionPreviewSources(item skillResolutionItem, p skillResolutionPreviewParams) (skillResolutionSource, skillResolutionSource, error) {
 	if len(item.Sources) < 2 {
 		return skillResolutionSource{}, skillResolutionSource{}, fmt.Errorf("canonical resolution preview requires at least two sources")

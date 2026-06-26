@@ -9,8 +9,8 @@ import (
 	"github.com/kelindar/event"
 )
 
-// NewUIStateSubscribers declares UI state projection subscriptions for BusModule.
-// NewUIStateSubscribers 创建UI状态subscribers。
+// NewUIStateSubscribers 声明 uistate 投影订阅，并把取消函数交给 bus.SubscriberGroup 管理。
+// 返回的 cancel 使用 sync.Once 包装，避免 shutdown 重入时重复取消同一批订阅。
 func NewUIStateSubscribers(svc *service) platformbus.SubscriberResult {
 	return platformbus.SubscriberResult{
 		Spec: contract.SubscriberSpec{

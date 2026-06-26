@@ -17,7 +17,8 @@ func isDangerousWrapper(tokens []shellToken, idx, depth int, name string) string
 	return isDangerousChain(tokens, wrappedCommandIndex(tokens, idx, name), depth)
 }
 
-// wrappedCommandIndex 处理wrapped命令索引。
+// wrappedCommandIndex 找出包装命令实际执行的子命令位置。
+// env、nice、timeout、find -exec 和 xargs 的参数规则不同，必须分别跳过选项和值。
 func wrappedCommandIndex(tokens []shellToken, idx int, name string) int {
 	switch name {
 	case "env":
@@ -55,7 +56,7 @@ func nextCommandIndex(tokens []shellToken, start int) int {
 	return -1
 }
 
-// nextEnvCommandIndex 处理nextenv命令索引。
+// nextEnvCommandIndex 跳过 env 选项和 KEY=VALUE 赋值，返回真正命令位置。
 func nextEnvCommandIndex(tokens []shellToken, start int) int {
 	for i := start; i < len(tokens); i++ {
 		text := strings.TrimSpace(tokens[i].text)
@@ -90,7 +91,7 @@ func nextOptionCommandIndex(tokens []shellToken, start int) int {
 	return -1
 }
 
-// nextNiceCommandIndex 处理nextnice命令索引。
+// nextNiceCommandIndex 跳过 nice 的优先级选项，返回真正命令位置。
 func nextNiceCommandIndex(tokens []shellToken, start int) int {
 	for i := start; i < len(tokens); i++ {
 		text := strings.TrimSpace(tokens[i].text)
@@ -112,7 +113,7 @@ func nextNiceCommandIndex(tokens []shellToken, start int) int {
 	return -1
 }
 
-// nextTimeoutCommandIndex 处理next超时命令索引。
+// nextTimeoutCommandIndex 跳过 timeout 自身选项，返回超时参数后的命令位置。
 func nextTimeoutCommandIndex(tokens []shellToken, start int) int {
 	for i := start; i < len(tokens); i++ {
 		text := strings.TrimSpace(tokens[i].text)
@@ -197,7 +198,7 @@ func isASCIIDigit(ch byte) bool {
 	return ch >= '0' && ch <= '9'
 }
 
-// looksLikeSignedInteger 处理lookslikesignedinteger。
+// looksLikeSignedInteger 判断字符串是否像 nice 接受的带符号整数。
 func looksLikeSignedInteger(value string) bool {
 	if value == "" {
 		return false

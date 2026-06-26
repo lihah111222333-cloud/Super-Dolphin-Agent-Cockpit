@@ -39,9 +39,7 @@ func (c *Client) enqueueReport(req mcp.ReportRequest) error {
 		}
 	}
 	if len(c.reportQueue) >= c.reportQueueLimit {
-		// P22 P4 S6b / plan §322: count overflow drops at enqueue
-		// time. Drain-time drops already have the
-		// bootstrap.report_queue.drain log anchor for correlation.
+		// 入队阶段的溢出单独计数；drain 阶段丢弃已有稳定日志锚点可关联。
 		metrics.BootstrapReportQueueDropped.Inc()
 		return errors.New("bootstrap: durable report queue is full")
 	}
@@ -58,15 +56,13 @@ func (c *Client) flushQueuedReports(ctx context.Context) {
 	c.flushQueuedReportsWithConn(ctx, conn, c.currentLease())
 }
 
-// flushQueuedReportsWithConn 处理带conn的flushqueuedreports。
+// flushQueuedReportsWithConn 用指定连接发送离线队列；传输断开时保留剩余报告等待下次重放。
 func (c *Client) flushQueuedReportsWithConn(ctx context.Context, conn *jrpc2.Client, lease mcp.LeaseKey) {
 	queued := c.snapshotQueuedReports()
 	if len(queued) == 0 {
 		return
 	}
-	// P22 P4 S6a / plan §321: stable log anchor for report-queue
-	// drain. Emitted once per drain attempt so ops can count
-	// drains and correlate with drops via the same event namespace.
+	// event 字段是 report queue drain 的稳定观测锚点，每次 drain 尝试只打一次。
 	pkglogger.Info("bootstrap report queue drain",
 		"event", "bootstrap.report_queue.drain",
 		"instance_id", c.instanceID,
@@ -92,7 +88,7 @@ func (c *Client) flushQueuedReportsWithConn(ctx context.Context, conn *jrpc2.Cli
 	}
 }
 
-// sendReportWithConn 处理带conn的sendreport。
+// sendReportWithConn 绑定 lease 后发送报告，并补齐旧响应里的 Accepted/AppliedVariant 字段。
 func (c *Client) sendReportWithConn(ctx context.Context, conn *jrpc2.Client, lease mcp.LeaseKey, req mcp.ReportRequest) (*mcp.ReportResponse, error) {
 	if conn == nil {
 		return nil, errors.New("bootstrap: nil rpc client")
@@ -137,7 +133,7 @@ func queuedReportResponse(req mcp.ReportRequest) *mcp.ReportResponse {
 	}
 }
 
-// guessReportVariant 处理guessreportvariant。
+// guessReportVariant 从 envelope 内容推断报告变体，作为旧调用未显式填 Type 时的兼容层。
 func guessReportVariant(req mcp.ReportRequest) string {
 	if strings.TrimSpace(req.Report.Type) != "" {
 		return strings.TrimSpace(req.Report.Type)

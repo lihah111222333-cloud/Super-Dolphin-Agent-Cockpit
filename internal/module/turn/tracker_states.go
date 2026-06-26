@@ -4,13 +4,14 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/statemachine"
 )
 
-// TurnState is a named string type for turn lifecycle states.
+// TurnState 是本地 turn 生命周期状态的命名字符串类型。
 type TurnState string
 
-// TurnTrigger is a named string type for turn lifecycle triggers.
+// TurnTrigger 是本地 turn 生命周期触发器的命名字符串类型。
 type TurnTrigger string
 
 const (
+	// TurnState 常量描述本地 tracker 的生命周期状态；终态不允许再向外转换。
 	StatePreparing       TurnState = "preparing"
 	StateRunning         TurnState = "running"
 	StateForceCompleting TurnState = "force_completing"
@@ -22,6 +23,7 @@ const (
 )
 
 const (
+	// TurnTrigger 常量描述状态机允许触发的生命周期动作。
 	TriggerStart     TurnTrigger = "start"
 	TriggerRun       TurnTrigger = "run"
 	TriggerForce     TurnTrigger = "force"
@@ -32,13 +34,12 @@ const (
 	TriggerStall     TurnTrigger = "stall"
 )
 
-// permit is a shorthand that converts named trigger/state types to the
-// plain-string Permit expected by the statemachine package.
+// permit 把命名 trigger/state 转为 statemachine 需要的普通字符串 Permit。
 func permit(trigger TurnTrigger, dest TurnState) statemachine.Permit {
 	return statemachine.Permit{Trigger: string(trigger), Dest: string(dest)}
 }
 
-// newTurnStateMachineConfig 创建turn状态machine配置。
+// newTurnStateMachineConfig 定义 turn 生命周期状态机，终态不允许再向外转换。
 func newTurnStateMachineConfig() statemachine.Config {
 	return statemachine.Config{
 		Initial: string(StatePreparing),
@@ -78,12 +79,12 @@ func newTurnStateMachineConfig() statemachine.Config {
 				Name: string(StateInterrupting),
 				Permits: []statemachine.Permit{
 					permit(TriggerAbort, StateInterrupted),
-					permit(TriggerFail, StateInterrupted),     // fail after interrupt is treated as interrupted
-					permit(TriggerComplete, StateInterrupted), // complete after interrupt is interrupted
+					permit(TriggerFail, StateInterrupted),     // 中断后失败仍按 interrupted 收敛
+					permit(TriggerComplete, StateInterrupted), // 中断后完成仍按 interrupted 收敛
 					permit(TriggerStall, StateStalled),
 				},
 			},
-			// Terminal states have no outward permits
+			// 终态不再允许向外转换，避免迟到事件回滚已收敛状态。
 			{Name: string(StateInterrupted)},
 			{Name: string(StateCompleted)},
 			{Name: string(StateFailed)},

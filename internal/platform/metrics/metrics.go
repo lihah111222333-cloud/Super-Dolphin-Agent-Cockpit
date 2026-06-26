@@ -1,10 +1,5 @@
-// Package metrics owns super-agent-v3's process-wide observability
-// counters. P22 P4 S6b / plan §322 pins three stable anchors on the
-// bootstrap client hot paths; this package is the single declaration
-// site so archtest can reverse-validate the names and label
-// dimensions. All counters auto-register with
-// prometheus.DefaultRegisterer via promauto; exporters plug into the
-// default gatherer when / if a /metrics endpoint is mounted.
+// Package metrics 声明 super-agent-v3 进程级 Prometheus 指标。
+// 本包是 bootstrap、skill 和 DAG 指标的统一注册点，指标名称和 label 维度由 archtest 反向校验。
 package metrics
 
 import (
@@ -13,11 +8,7 @@ import (
 )
 
 var (
-	// BootstrapHeartbeatFailures counts every bootstrap heartbeat
-	// roundtrip that returned a non-nil error (not just warn-level
-	// failures). Dimensions mirror the slog-style anchors on the
-	// surrounding log lines so dashboards can pivot on the same
-	// (binary_name, client_kind) tuple.
+	// BootstrapHeartbeatFailures 统计 bootstrap heartbeat 非 nil 错误，label 与日志锚点保持一致。
 	BootstrapHeartbeatFailures = promauto.NewCounterVec(
 		prometheus.CounterOpts{
 			Name: "bootstrap_heartbeat_failures_total",
@@ -26,10 +17,7 @@ var (
 		[]string{"binary_name", "client_kind"},
 	)
 
-	// BootstrapReportQueueDropped counts durable report enqueue
-	// attempts that were rejected because the per-client queue is at
-	// capacity. Not a drain-time drop: those are already visible via
-	// the bootstrap.report_queue.drain log anchor.
+	// BootstrapReportQueueDropped 统计 durable report 因客户端队列满而被拒绝的入队尝试。
 	BootstrapReportQueueDropped = promauto.NewCounter(
 		prometheus.CounterOpts{
 			Name: "bootstrap_report_queue_dropped_total",
@@ -37,10 +25,7 @@ var (
 		},
 	)
 
-	// BootstrapReconnectAttempts counts every bootstrap reconnect
-	// attempt. outcome is "success" when connectAndRegister returned
-	// without error, "fail" otherwise. One increment per loop
-	// iteration, matching the observability contract.
+	// BootstrapReconnectAttempts 统计 bootstrap 重连循环次数，outcome 只允许 success 或 fail。
 	BootstrapReconnectAttempts = promauto.NewCounterVec(
 		prometheus.CounterOpts{
 			Name: "bootstrap_reconnect_attempts_total",

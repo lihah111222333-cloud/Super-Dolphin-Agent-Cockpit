@@ -17,6 +17,7 @@ const (
 	maxPoolSize     = 20
 )
 
+// LSP 池环境变量控制全局池大小和单 shard 可缓存的 scoped manager 数量。
 const (
 	lspPoolSizeEnv     = "AGENT_LSP_POOL_SIZE"
 	lspPoolShardCapEnv = "AGENT_LSP_POOL_SHARD_CAP"
@@ -24,46 +25,50 @@ const (
 	maxShardCap        = 1024
 )
 
+// ManagerPool 按解析后的 scope 复用 manager，避免不同 agent/thread/workspace 共享错误状态。
 type ManagerPool struct {
-	primary  *manager
-	factory  ManagerFactory
-	size     int
-	shardCap int
+	primary  *manager       // 根 manager，承接默认 workspace 与公共配置。
+	factory  ManagerFactory // 为新 scope 创建 clone manager 的工厂。
+	size     int            // shard 数量，来自环境变量并经过上限裁剪。
+	shardCap int            // 每个 shard 可保留的 clone manager 数。
 
-	shards []*managerShard
+	shards []*managerShard // 按 shard key 分布的 scoped manager 缓存。
 
-	leases   map[Client]int
-	leasesMu sync.Mutex
+	leases   map[Client]int // 客户端当前租约计数，阻止 recycler 关闭忙碌客户端。
+	leasesMu sync.Mutex     // 保护 leases。
 
-	recycler *poolRecycler
+	recycler *poolRecycler // 后台回收器，由应用 runner 生命周期托管。
 }
 
+// managerShard 是 ManagerPool 的单个缓存分片，锁范围只覆盖本 shard。
 type managerShard struct {
-	index int
-	base  *manager
+	index int      // shard 编号，仅用于日志和快照。
+	base  *manager // primary manager 对应的基础实例。
 
-	mu     sync.RWMutex
-	clones map[string]*pooledManager
+	mu     sync.RWMutex              // 保护 clones。
+	clones map[string]*pooledManager // manager key 到 scoped clone。
 }
 
+// pooledManager 记录一个可回收的 scoped manager 及最近使用时间。
 type pooledManager struct {
-	key           string
-	resolvedScope ResolvedLSPToolScope
-	manager       *manager
-	lastUsedAt    time.Time
+	key           string               // ManagerPool 内部缓存键。
+	resolvedScope ResolvedLSPToolScope // 该 manager 绑定的规范 scope。
+	manager       *manager             // scoped clone 实例。
+	lastUsedAt    time.Time            // recycler 判断闲置的时间戳。
 }
 
+// poolManagerSnapshot 是 recycler 遍历时使用的只读快照，避免持锁关闭 manager。
 type poolManagerSnapshot struct {
-	index         int
-	managerKey    string
-	base          bool
-	manager       *manager
-	resolvedScope ResolvedLSPToolScope
-	lastUsedAt    time.Time
+	index         int                  // shard 编号。
+	managerKey    string               // manager 缓存键。
+	base          bool                 // 是否是 primary/base manager。
+	manager       *manager             // 待检查的 manager 实例。
+	resolvedScope ResolvedLSPToolScope // manager 绑定的 scope。
+	lastUsedAt    time.Time            // 快照时的最近使用时间。
 }
 
-// RootOptions carries canonical root metadata into ManagerFactory without
-// making the factory re-derive keys that ManagerPool.ForScope already owns.
+// RootOptions 携带 ManagerPool 已解析的 root metadata。
+// 工厂只能消费这些规范字段，不能重新推导 manager key，否则会破坏 scope 复用边界。
 type RootOptions struct {
 	RootKind         string
 	ProjectRoot      string
@@ -71,21 +76,21 @@ type RootOptions struct {
 	ResolvedScope    ResolvedLSPToolScope
 }
 
-// ManagerFactory creates per-shard/per-scope manager clones. It is package
-// local in practice because it returns the unexported concrete manager while
-// callers outside multilsp only receive the exported Manager interface.
+// ManagerFactory 为 shard/scope 创建 manager clone。
+// 返回未导出的 concrete manager，确保包外调用方只能通过 Manager 接口使用池化实例。
 type ManagerFactory interface {
 	NewManager(language string, workspaceRoot string, options RootOptions) (*manager, error)
 }
 
 type managerFactoryFunc func(language string, workspaceRoot string, options RootOptions) (*manager, error)
 
-// NewManager 创建manager。
+// NewManager 将函数适配为 ManagerFactory，用于测试和默认 clone wiring。
 func (fn managerFactoryFunc) NewManager(language string, workspaceRoot string, options RootOptions) (*manager, error) {
 	return fn(language, workspaceRoot, options)
 }
 
-// NewManagerPool 创建managerpool。
+// NewManagerPool 创建分片池并登记 recycler。
+// 构造函数不启动 goroutine，回收循环必须由上层 runner 生命周期控制。
 func NewManagerPool(primary *manager, size int) *ManagerPool {
 	clamped := clampPoolSize(size)
 	pool := &ManagerPool{
@@ -96,17 +101,13 @@ func NewManagerPool(primary *manager, size int) *ManagerPool {
 	}
 	pool.factory = cloneManagerFactory(primary)
 	pool.shards = pool.buildShards(primary, clamped)
-	// P22 P2 LSP-S1: do not start the recycler loop from the
-	// constructor. The root `group:"runners"` aggregation owns it via
-	// RecyclerRunner() below so shutdown is driven by ctx cancellation.
+	// recycler 只挂到 runner，由 ctx cancellation 关闭，避免构造阶段启动无法托管的后台循环。
 	pool.recycler = newPoolRecycler(pool)
 	return pool
 }
 
-// RecyclerRunner exposes the pool's background recycler as a
-// platformrunner.Runner. The root bridge collects recyclers from each
-// language pool and feeds them into `group:"runners"`.
-// RecyclerRunner 处理recyclerrunner。
+// RecyclerRunner 返回池回收器 runner。
+// nil pool 没有后台任务；非 nil runner 由应用根生命周期统一托管。
 func (p *ManagerPool) RecyclerRunner() platformrunner.Runner {
 	if p == nil {
 		return nil
@@ -114,7 +115,8 @@ func (p *ManagerPool) RecyclerRunner() platformrunner.Runner {
 	return p.recycler
 }
 
-// PoolSizeFromEnv 从env处理poolsize。
+// PoolSizeFromEnv 读取 LSP 池大小并裁剪到安全范围。
+// 环境变量缺失或非法时使用默认值，避免错误配置导致无法启动工具。
 func PoolSizeFromEnv() int {
 	value, err := strconv.Atoi(strings.TrimSpace(os.Getenv(lspPoolSizeEnv)))
 	if err != nil {
@@ -123,7 +125,8 @@ func PoolSizeFromEnv() int {
 	return clampPoolSize(value)
 }
 
-// PoolShardCapFromEnv 从env处理poolshardcap。
+// PoolShardCapFromEnv 读取单 shard clone 上限并裁剪到安全范围。
+// 非法配置回到默认值，防止缓存无限增长或被设置成不可用大小。
 func PoolShardCapFromEnv() int {
 	value, err := strconv.Atoi(strings.TrimSpace(os.Getenv(lspPoolShardCapEnv)))
 	if err != nil {
@@ -155,12 +158,8 @@ func (p *ManagerPool) Size() int {
 	return p.size
 }
 
-// StopAll is retained as the *ManagerPool shutdown hook for non-runner
-// resources (leases bookkeeping, etc.). Recycler lifecycle is now owned
-// by the root runner group via ctx cancellation, so this method is a
-// no-op for the recycler; callers that previously relied on StopAll
-// halting the loop must now cancel the runner context instead.
-// StopAll 停止all。
+// StopAll 保留为池的关闭钩子，但不直接停止 recycler。
+// recycler 的生命周期由 runner context 取消驱动；这里保持无副作用，避免和根生命周期重复关闭。
 func (p *ManagerPool) StopAll() error {
 	return nil
 }
@@ -170,11 +169,8 @@ func (p *ManagerPool) Close() error {
 	return p.closeManagersExcept(nil)
 }
 
-// ForScope resolves the canonical manager key exactly once, routes the request
-// to a stable shard, and returns the scoped manager plus the canonical scope
-// that diagnostics/cache/bootstrap callers must reuse instead of rebuilding
-// their own keys.
-// ForScope 为作用域处理LSP。
+// ForScope 为可信 scope 选择或创建对应 manager。
+// manager key 只在这里计算一次，诊断、缓存和 bootstrap 调用方必须复用返回的 ResolvedScope。
 func (p *ManagerPool) ForScope(scope LSPToolScope) (ScopedManager, error) {
 	if p == nil {
 		return ScopedManager{}, errors.New("LSP manager pool is nil")
@@ -214,7 +210,7 @@ func (p *ManagerPool) release(client Client) {
 	p.trackLease(client, -1)
 }
 
-// snapshotManagers 处理快照managers。
+// snapshotManagers 复制当前池内 manager 列表，供关闭和回收逻辑在不长时间持锁的情况下遍历。
 func (p *ManagerPool) snapshotManagers() []poolManagerSnapshot {
 	if p == nil {
 		return nil
@@ -249,7 +245,7 @@ func (p *ManagerPool) snapshotManagers() []poolManagerSnapshot {
 	return snapshots
 }
 
-// SnapshotManagers 处理快照managers。
+// SnapshotManagers 返回池内 manager 快照，供测试和状态检查读取。
 func (p *ManagerPool) SnapshotManagers() []poolManagerSnapshot {
 	return p.snapshotManagers()
 }
@@ -286,7 +282,8 @@ func clampPoolSize(size int) int {
 	}
 }
 
-// buildShards 构建shards。
+// buildShards 初始化固定数量的 shard。
+// 第一个 shard 复用 primary manager，其余 shard clone 独立状态以隔离客户端和诊断缓存。
 func (p *ManagerPool) buildShards(primary *manager, size int) []*managerShard {
 	shards := make([]*managerShard, size)
 	for i := 0; i < size; i++ {
@@ -316,7 +313,8 @@ func (p *ManagerPool) shardForKey(key string) *managerShard {
 	return p.shards[shardIndexForKey(key, len(p.shards))]
 }
 
-// managerForResolvedScope 为已解析作用域处理manager。
+// managerForResolvedScope 返回已解析 scope 对应的池内 manager。
+// 命中 clone 会刷新 lastUsedAt；未命中时在 shard 锁外创建，避免阻塞同 shard 的读写路径。
 func (p *ManagerPool) managerForResolvedScope(shard *managerShard, resolved ResolvedLSPToolScope) (*pooledManager, error) {
 	if shard == nil {
 		return nil, errors.New("LSP manager shard is nil")
@@ -361,7 +359,8 @@ func (p *ManagerPool) managerForResolvedScope(shard *managerShard, resolved Reso
 	return pooled, nil
 }
 
-// evictIdleClonesLocked 处理evictidlecloneslocked。
+// evictIdleClonesLocked 在 shard 锁内挑选可关闭的闲置 clone。
+// keepKey 和仍有租约的 manager 不会被驱逐，避免关闭当前请求或忙碌客户端。
 func (p *ManagerPool) evictIdleClonesLocked(shard *managerShard, keepKey string) []*manager {
 	if p == nil || shard == nil || p.shardCap <= 0 {
 		return nil
@@ -415,7 +414,8 @@ func (s *managerShard) snapshotClones() []pooledManager {
 	return clones
 }
 
-// closeManagersExcept 关闭managersexcept。
+// closeManagersExcept 关闭池内除 skip 外的所有唯一 manager。
+// 通过快照和 seen 集合避免持锁关闭，也避免同一 manager 被多个 shard 重复关闭。
 func (p *ManagerPool) closeManagersExcept(skip *manager) error {
 	if p == nil {
 		return nil

@@ -45,11 +45,8 @@ type memoryStructuredStore interface {
 	Read(name string) (MemoryEntry, error)
 	CreateStructured(req MemoryWriteRequest, opts ...WriteOptions) (MemoryEntry, error)
 	UpdateStructured(req MemoryWriteRequest, opts ...WriteOptions) (MemoryEntry, error)
-	// UpsertStructured writes the entry atomically inside a single disk
-	// store lock acquisition (Phase 自有.1a). Replaces the legacy
-	// Create-then-Update pattern in upsertStructuredMemory which had a
-	// two-phase locking window where another writer could race in between
-	// the failed Create and the follow-up Update, producing a lost update.
+	// UpsertStructured 在单次磁盘锁持有期间完成创建或更新。
+	// 这里不能退回 Create 失败后再 Update 的两阶段写法，否则并发写入会在两次锁之间丢更新。
 	UpsertStructured(req MemoryWriteRequest, opts ...WriteOptions) (MemoryEntry, error)
 	Delete(name string, opts ...WriteOptions) error
 }
@@ -63,17 +60,21 @@ type memoryWriteStore interface {
 
 var _ contract.AgentMemoryReader = (*MemoryLifecycleHooks)(nil)
 
-// MemoryReadEnabled 处理记忆readenabled。
+// MemoryReadEnabled 返回 AgentMemoryReader 是否允许读取记忆。
+// 该开关只表示功能启用，具体 scope/path 权限仍在 ReadAgentMemory 内校验。
 func (h *MemoryLifecycleHooks) MemoryReadEnabled() bool {
 	return h != nil && h.cfg != nil && h.cfg.Enabled
 }
 
-// MemoryReadToolsEnabled 处理记忆read工具enabled。
+// MemoryReadToolsEnabled 返回面向工具桥的记忆读取能力是否打开。
+// Enabled 和 EnableTools 分开判断，避免服务端可用但工具入口未授权时误暴露读取接口。
 func (h *MemoryLifecycleHooks) MemoryReadToolsEnabled() bool {
 	return h != nil && h.cfg != nil && h.cfg.EnableTools
 }
 
-// ReadAgentMemory 读取代理记忆。
+// ReadAgentMemory 按名称或路径读取单条代理记忆。
+// 它会先解析 scope、类型和根目录，再校验路径边界；类型不匹配按 not_found 返回，
+// 避免泄漏其它类型记忆的存在。
 func (h *MemoryLifecycleHooks) ReadAgentMemory(ctx context.Context, req contract.MemoryReadRequest) (contract.MemoryReadResult, error) {
 	root, prepared, err := h.prepareAgentMemoryRead(ctx, req)
 	if err != nil {
@@ -89,7 +90,8 @@ func (h *MemoryLifecycleHooks) ReadAgentMemory(ctx context.Context, req contract
 	return agentMemoryReadResult(root, entry, indexHit), nil
 }
 
-// prepareAgentMemoryRead 准备代理记忆read。
+// prepareAgentMemoryRead 标准化读取请求并解析目标根目录。
+// feature/tool gate、输入字段和 scope 都在这里 fail-fast，后续读取函数只处理已准备好的请求。
 func (h *MemoryLifecycleHooks) prepareAgentMemoryRead(ctx context.Context, req contract.MemoryReadRequest) (string, contract.MemoryReadRequest, error) {
 	if h == nil || h.cfg == nil {
 		return "", contract.MemoryReadRequest{}, agentMemoryError("reader_unavailable", fmt.Errorf("memory reader is not configured"))
@@ -115,7 +117,8 @@ func (h *MemoryLifecycleHooks) prepareAgentMemoryRead(ctx context.Context, req c
 	return root, prepared, nil
 }
 
-// resolvedAgentMemoryRoot 处理已解析代理记忆根目录。
+// resolvedAgentMemoryRoot 解析 agent memory 读取使用的私有根目录。
+// override 优先；已配置为项目级目录时直接使用；否则尝试把 CWD 规整到 canonical git root。
 func resolvedAgentMemoryRoot(ctx context.Context, cfg *Config, projectRoot string) (string, error) {
 	if cfg == nil {
 		return "", fmt.Errorf("memory config is not configured")
@@ -136,6 +139,8 @@ func resolvedAgentMemoryRoot(ctx context.Context, cfg *Config, projectRoot strin
 	return resolvedStoreRoot(cfg.RootDir, projectRoot, cfg.AutoMemPathOverride)
 }
 
+// parseAgentMemoryReadScope 解析读取 scope，空值按用户私有记忆处理。
+// 其它未知值保留给后续 agentMemoryReadRoot 返回 unsupported_scope。
 func parseAgentMemoryReadScope(scope contract.MemoryScope) contract.MemoryScope {
 	if strings.TrimSpace(string(scope)) == "" {
 		return contract.MemoryScopeUser
@@ -143,7 +148,8 @@ func parseAgentMemoryReadScope(scope contract.MemoryScope) contract.MemoryScope 
 	return contract.ParseMemoryScope(string(scope))
 }
 
-// agentMemoryReadRoot 处理代理记忆read根目录。
+// agentMemoryReadRoot 根据 scope 选择私有或团队记忆根目录。
+// 团队记忆未配置时请求 team 会返回 unsupported_scope，不能退回 private。
 func (h *MemoryLifecycleHooks) agentMemoryReadRoot(ctx context.Context, req contract.MemoryReadRequest) (string, error) {
 	switch req.Scope {
 	case contract.MemoryScopeUser:
@@ -168,6 +174,8 @@ func (h *MemoryLifecycleHooks) agentMemoryReadRoot(ctx context.Context, req cont
 	}
 }
 
+// agentMemoryReadProjectRoot 选择读取请求关联的项目根。
+// 请求 CWD 优先，其次使用配置 ProjectRoot；最后才从 RootDir 反推，供旧配置兼容。
 func agentMemoryReadProjectRoot(req contract.MemoryReadRequest, cfg *Config) string {
 	if cwd := strings.TrimSpace(req.CWD); cwd != "" {
 		return cwd
@@ -182,7 +190,8 @@ func agentMemoryReadProjectRoot(req contract.MemoryReadRequest, cfg *Config) str
 	return filepath.Dir(filepath.Dir(strings.TrimSuffix(strings.TrimSpace(cfg.RootDir), string(os.PathSeparator))))
 }
 
-// readAgentMemoryEntry 读取代理记忆条目。
+// readAgentMemoryEntry 按路径或名称读取记忆条目。
+// 路径读取必须通过 ValidateMemoryReadPath；名称读取走索引查找，避免绕过根目录边界。
 func readAgentMemoryEntry(root string, req contract.MemoryReadRequest) (MemoryEntry, bool, error) {
 	if strings.TrimSpace(req.Path) != "" {
 		path, err := ValidateMemoryReadPath(root, req.Path)
@@ -212,6 +221,8 @@ func readAgentMemoryEntry(root string, req contract.MemoryReadRequest) (MemoryEn
 	return entry, agentMemoryIndexHit(root, entry), nil
 }
 
+// agentMemoryIndexHit 判断读取到的条目是否仍在 MEMORY.md 索引中。
+// 该结果随 wire result 返回，供调用方区分索引命中和直接文件读取。
 func agentMemoryIndexHit(root string, entry MemoryEntry) bool {
 	entries, err := ReadMemoryIndex(memoryIndexPath(root))
 	if err != nil {
@@ -227,6 +238,8 @@ func agentMemoryIndexHit(root string, entry MemoryEntry) bool {
 	return false
 }
 
+// relativeAgentMemoryReadPath 返回面向工具结果的相对路径。
+// 常规路径失败时会解析真实路径再重试，以兼容符号链接但仍保持在根目录内。
 func relativeAgentMemoryReadPath(root, path string) string {
 	if rel, ok := safeRelativeMemoryPath(root, path); ok {
 		return rel
@@ -241,6 +254,8 @@ func relativeAgentMemoryReadPath(root, path string) string {
 	return ""
 }
 
+// safeRelativeMemoryPath 校验 path 是否在 root 内并返回 slash 风格相对路径。
+// 任何向上逃逸或 filepath.Rel 错误都会返回 false。
 func safeRelativeMemoryPath(root, path string) (string, bool) {
 	rel, err := filepath.Rel(root, path)
 	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
@@ -249,6 +264,8 @@ func safeRelativeMemoryPath(root, path string) (string, bool) {
 	return filepath.ToSlash(rel), true
 }
 
+// agentMemoryReadResult 将内部 MemoryEntry 转为契约层读取结果。
+// 只输出相对 SourcePath，避免把本机绝对路径泄漏给外部工具。
 func agentMemoryReadResult(root string, entry MemoryEntry, indexHit bool) contract.MemoryReadResult {
 	sourcePath := relativeAgentMemoryReadPath(root, entry.FilePath)
 	result := contract.MemoryEntry{
@@ -262,8 +279,9 @@ func agentMemoryReadResult(root string, entry MemoryEntry, indexHit bool) contra
 	return contract.MemoryReadResult{Entry: &result, SourcePath: sourcePath, IndexHit: indexHit}
 }
 
-// NewMemorySubscribers declares memory lifecycle bus subscriptions for BusModule.
-// NewMemorySubscribers 创建记忆subscribers。
+// NewMemorySubscribers 声明记忆模块的生命周期事件订阅。
+// 注册时会启动 memoryHookWorker，使 turn 输入和完成事件只在总线回调里入队；
+// 取消订阅时同步停止 worker，避免关闭后继续写盘。
 func NewMemorySubscribers(scheduler *autoDreamScheduler, nested *nestedIngestWorker, teamSync *teamSyncCoordinator, p memorySubscriberParams) platformbus.SubscriberResult {
 	return platformbus.SubscriberResult{
 		Spec: contract.SubscriberSpec{
@@ -282,9 +300,8 @@ func NewMemorySubscribers(scheduler *autoDreamScheduler, nested *nestedIngestWor
 					ThreadStore:     p.ThreadStore,
 					TeamSync:        p.TeamSync,
 				}
-				// Create and start the memoryHookWorker so the
-				// onTurnInputReceived / onTurnCompleted bus callbacks
-				// only enqueue; disk I/O runs on the worker goroutine.
+				// 创建并启动 memoryHookWorker，让 turn 输入/完成回调只入队；
+				// 记忆写删和抽取启动都在 worker goroutine 上执行。
 				hookWorker := newMemoryHookWorker(p.Hooks, pkglogger.Get())
 				hookWorker.Start()
 				var cancels []context.CancelFunc
@@ -306,32 +323,40 @@ func NewMemorySubscribers(scheduler *autoDreamScheduler, nested *nestedIngestWor
 	}
 }
 
+// newAutoDreamSchedulerProvider 构造自动整理调度器。
+// logger 在 provider 层统一注入，避免下游组件自行创建不同日志入口。
 func newAutoDreamSchedulerProvider(p autoDreamSchedulerProviderParams) *autoDreamScheduler {
 	return newAutoDreamScheduler(p.Hooks, pkglogger.Get())
 }
 
+// newNestedIngestWorkerProvider 构造 nested ingest worker 并配置工具输出缓存根。
+// 缓存根为空时 NestedRuntime 会按空根契约拒绝 persistedPath 读取，保持 fail-closed。
 func newNestedIngestWorkerProvider(p nestedIngestWorkerProviderParams) *nestedIngestWorker {
 	if p.NestedRuntime != nil {
-		// Empty cache root (host without UserCacheDir nor TempDir) disables
-		// persistedPath reads via NestedRuntime.SetToolReadCacheRoot's
-		// empty-root contract — fail-closed.
+		// 主机无法提供 UserCacheDir/TempDir 时传入空根，NestedRuntime 会拒绝
+		// persistedPath 读取，避免从未知位置读取工具输出。
 		p.NestedRuntime.SetToolReadCacheRoot(toolresults.CacheDir())
 	}
 	return newNestedIngestWorker(p.NestedRuntime, pkglogger.Get())
 }
 
+// newTeamSyncCoordinatorProvider 构造团队记忆同步协调器。
+// 真正的远端读写由 coordinator worker 串行执行，不在 provider 中启动。
 func newTeamSyncCoordinatorProvider(p teamSyncCoordinatorProviderParams) *teamSyncCoordinator {
 	return newTeamSyncCoordinator(p.TeamSync, p.ThreadStore, pkglogger.Get())
 }
 
+// autoDreamSchedulerAsRunner 暴露自动整理调度器给 RunnerModule 生命周期管理。
 func autoDreamSchedulerAsRunner(s *autoDreamScheduler) contract.Runner {
 	return contract.AsRunner(s)
 }
 
+// nestedIngestWorkerAsRunner 暴露 nested ingest worker 给 RunnerModule 生命周期管理。
 func nestedIngestWorkerAsRunner(w *nestedIngestWorker) contract.Runner {
 	return contract.AsRunner(w)
 }
 
+// teamSyncCoordinatorAsRunner 暴露团队同步协调器给 RunnerModule 生命周期管理。
 func teamSyncCoordinatorAsRunner(c *teamSyncCoordinator) contract.Runner {
 	return contract.AsRunner(c)
 }

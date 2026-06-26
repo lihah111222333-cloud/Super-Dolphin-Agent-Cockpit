@@ -8,7 +8,8 @@ import (
 	"strings"
 )
 
-// DecodeAllowedModels 解码allowed模型。
+// DecodeAllowedModels 从 Codex model/list 响应中提取模型 ID。
+// 兼容 `models`、`data` 和顶层数组三种 wire 形态；都不匹配时返回显式错误。
 func DecodeAllowedModels(raw []byte) ([]string, error) {
 	var top map[string]any
 	if err := json.Unmarshal(raw, &top); err == nil {
@@ -28,7 +29,8 @@ func DecodeAllowedModels(raw []byte) ([]string, error) {
 	return nil, errors.New("codexapp: invalid model/list response")
 }
 
-// PreferredCodexModel 处理preferredcodex模型。
+// PreferredCodexModel 从模型列表中选择默认 Codex 模型。
+// 固定优先级命中后保留 provider 返回的原始大小写，否则返回第一个非空模型。
 func PreferredCodexModel(models []string) string {
 	for _, preferred := range []string{"gpt-5.5", "gpt-5.4", "gpt-5.4-mini", "gpt-5", "codex-auto-review"} {
 		for _, model := range models {
@@ -59,7 +61,8 @@ func CodexModelListContains(models []string, requested string) bool {
 	return false
 }
 
-// CodexModelNeedsListResolution 处理codex模型needslistresolution。
+// CodexModelNeedsListResolution 判断 turn/start 前是否需要查询 model/list。
+// 空模型或泛化默认值需要解析，已知可直接发送的 Codex 模型不再额外请求。
 func CodexModelNeedsListResolution(model string) bool {
 	model = strings.ToLower(strings.TrimSpace(model))
 	switch model {
@@ -69,18 +72,20 @@ func CodexModelNeedsListResolution(model string) bool {
 	return model == ""
 }
 
-// CodexModelIsGenericGPT 处理codex模型isgenericgpt。
+// CodexModelIsGenericGPT 判断模型名是否是非 Codex 家族的 GPT 默认值。
+// 该判断用于识别旧配置中的默认占位值，并改用当前账号实际支持的 Codex 模型。
 func CodexModelIsGenericGPT(model string) bool {
 	model = strings.ToLower(strings.TrimSpace(model))
 	return strings.HasPrefix(model, "gpt-") && !CodexModelIsCodexFamily(model)
 }
 
-// CodexModelIsCodexFamily 处理codex模型iscodexfamily。
+// CodexModelIsCodexFamily 判断模型名是否显式属于 Codex 家族。
 func CodexModelIsCodexFamily(model string) bool {
 	return strings.Contains(strings.ToLower(strings.TrimSpace(model)), "codex")
 }
 
-// WrapCodexModelUnsupportedError 包装codex模型unsupported错误。
+// WrapCodexModelUnsupportedError 为 Codex 模型不支持错误补充用户可读提示。
+// 非模型不支持错误原样返回，避免改变其他调用失败的分类。
 func WrapCodexModelUnsupportedError(err error, model string) error {
 	if err == nil {
 		return nil
@@ -92,7 +97,8 @@ func WrapCodexModelUnsupportedError(err error, model string) error {
 	return fmt.Errorf("%s: %w", notice, err)
 }
 
-// CodexModelUnsupportedNotice 处理codex模型unsupportednotice。
+// CodexModelUnsupportedNotice 从 provider 错误中提取模型不可用提示。
+// 只有同时指向 Codex/ChatGPT/model/not supported 的错误才会生成设置引导文案。
 func CodexModelUnsupportedNotice(err error, model string) string {
 	if err == nil {
 		return ""
@@ -115,7 +121,8 @@ func CodexModelUnsupportedNotice(err error, model string) string {
 	return "The selected Codex model is not supported by the current ChatGPT account. Choose a supported Codex model in Settings or clear the model override, then retry"
 }
 
-// ConfigString 处理配置string。
+// ConfigString 从运行时配置中读取第一个有效字符串。
+// 会过滤前端序列化残留的 undefined/null/[object Object]，避免脏值进入 provider RPC。
 func ConfigString(cfg map[string]any, keys ...string) string {
 	if cfg == nil {
 		return ""
@@ -129,7 +136,7 @@ func ConfigString(cfg map[string]any, keys ...string) string {
 	return ""
 }
 
-// FirstConfigString 处理first配置string。
+// FirstConfigString 是 ConfigString 的别名入口，保留给需要显式表达优先级的调用方。
 func FirstConfigString(cfg map[string]any, keys ...string) string {
 	for _, key := range keys {
 		if value := ConfigString(cfg, key); value != "" {
@@ -139,7 +146,8 @@ func FirstConfigString(cfg map[string]any, keys ...string) string {
 	return ""
 }
 
-// SanitizeConfigStringArtifact 清理配置string产物。
+// SanitizeConfigStringArtifact 清理配置字符串中的前端占位产物。
+// 空值和常见 JS 占位都会归一为空字符串，让调用方按缺失处理。
 func SanitizeConfigStringArtifact(value string) string {
 	value = strings.TrimSpace(value)
 	switch strings.ToLower(value) {
@@ -160,7 +168,8 @@ func ResolveApprovalPolicy(cfg map[string]any) string {
 	return "never"
 }
 
-// ConfigJSON 处理配置JSON。
+// ConfigJSON 将配置项编码为 JSON 原文。
+// nil、编码失败或 JSON null 都返回 nil，避免向 provider 发送无意义 patch。
 func ConfigJSON(cfg map[string]any, key string) json.RawMessage {
 	if cfg == nil || cfg[key] == nil {
 		return nil
@@ -172,7 +181,8 @@ func ConfigJSON(cfg map[string]any, key string) json.RawMessage {
 	return raw
 }
 
-// SortedConfigKeys 处理sorted配置键。
+// SortedConfigKeys 返回配置键的稳定排序副本。
+// 主要用于诊断和错误输出，空配置返回 nil。
 func SortedConfigKeys(cfg map[string]any) []string {
 	if len(cfg) == 0 {
 		return nil

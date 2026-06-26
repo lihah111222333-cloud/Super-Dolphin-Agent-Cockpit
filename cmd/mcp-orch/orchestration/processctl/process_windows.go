@@ -23,7 +23,7 @@ const (
 	createNewProcessGroup = 0x00000200
 )
 
-// Configure 应用运行时配置。
+// Configure 创建独立进程组，供 CTRL_BREAK 和 Job Object 管理使用。
 func Configure(cmd *exec.Cmd) {
 	if cmd == nil {
 		return
@@ -31,7 +31,8 @@ func Configure(cmd *exec.Cmd) {
 	cmd.SysProcAttr = &syscall.SysProcAttr{CreationFlags: createNewProcessGroup}
 }
 
-// Attach 处理attach。
+// Attach 把子进程绑定到 kill-on-close Job Object。
+// 创建或绑定失败只记录告警并返回 nil，停止路径仍可退回单进程 terminate。
 func Attach(cmd *exec.Cmd, logger *slog.Logger) *Guard {
 	if cmd == nil || cmd.Process == nil {
 		return nil
@@ -71,7 +72,7 @@ func logGuardWarning(logger *slog.Logger, msg string, cmd *exec.Cmd, err error) 
 	logger.Warn(msg, "pid", pid, "error", err)
 }
 
-// Close 关闭编排资源。
+// Close 释放 Windows Job Object 句柄。
 func (g *Guard) Close() {
 	if g == nil || g.handle == 0 {
 		return
@@ -80,7 +81,7 @@ func (g *Guard) Close() {
 	g.handle = 0
 }
 
-// RequestStop 处理请求stop。
+// RequestStop 先发 CTRL_BREAK；失败或进程未响应时再走 ForceStop。
 func RequestStop(cmd *exec.Cmd, guard *Guard) error {
 	if err := interruptProcessGroup(cmd); err == nil || isProcessGoneErr(err) {
 		return nil
@@ -99,7 +100,7 @@ func interruptProcessGroup(cmd *exec.Cmd) error {
 	return windows.GenerateConsoleCtrlEvent(ctrlBreakEvent, uint32(pid))
 }
 
-// ForceStop 处理强制stop。
+// ForceStop 优先终止 Job Object，再退回按 PID 终止单进程。
 func ForceStop(cmd *exec.Cmd, guard *Guard) error {
 	var jobErr error
 	if guard != nil && guard.handle != 0 {

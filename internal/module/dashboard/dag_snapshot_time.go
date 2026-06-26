@@ -122,7 +122,8 @@ func dashboardRunTimesFromRow(row map[string]any) (dashboardRunTimes, error) {
 	}, nil
 }
 
-// dashboardRowTime 读取必填或可选时间字段，返回零值而非指针，required=false 时缺失返回零值。
+// dashboardRowTime 读取必填或可选时间字段并返回值类型。
+// optional 字段缺失时返回零值；required 字段缺失会返回错误。
 func dashboardRowTime(row map[string]any, key string, required bool) (time.Time, error) {
 	ptr, err := dashboardRowTimePtr(row, key, required)
 	if err != nil {
@@ -157,7 +158,8 @@ func dashboardRowTimePtr(row map[string]any, key string, required bool) (*time.T
 	return nil, fmt.Errorf("%s has unsupported type %T", key, value)
 }
 
-// dashboardMissingTimePtr 处理字段缺失时的 fail-fast 或静默返回逻辑。
+// dashboardMissingTimePtr 处理字段缺失时的 required/optional 分支。
+// required=true 必须 fail-fast，optional 字段缺失则按 nil 指针表示未设置。
 func dashboardMissingTimePtr(key string, required bool) (*time.Time, error) {
 	if required {
 		return nil, fmt.Errorf("%s is required", key)

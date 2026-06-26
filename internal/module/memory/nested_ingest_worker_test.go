@@ -9,14 +9,13 @@ import (
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
-// fakeNestedIngestRuntime records AddToolReadResult calls so tests can assert
-// that the bus callback only enqueued and that the worker is what actually
-// invokes AddToolReadResult.
+// fakeNestedIngestRuntime 记录 AddToolReadResult 调用。
+// 测试用它区分“bus 回调只入队”和“worker 才真正写入运行时”的并发边界。
 type fakeNestedIngestRuntime struct {
 	mu      sync.Mutex
 	calls   []nestedIngestRequest
-	block   chan struct{} // if non-nil, every AddToolReadResult blocks on it
-	started chan struct{} // optional one-shot signal once AddToolReadResult is entered
+	block   chan struct{} // 非 nil 时每次 AddToolReadResult 都会阻塞在该通道。
+	started chan struct{} // 可选的一次性信号，表示 AddToolReadResult 已被进入。
 	once    sync.Once
 }
 
@@ -45,22 +44,18 @@ func (f *fakeNestedIngestRuntime) Calls() []nestedIngestRequest {
 	return out
 }
 
-// TestNestedToolReadIngestEnqueueOnly is the P22 P2 Finding 10 TDD test
-// named in docs/plans/迁移/p22/P2_BusRuntimeDecoupling.md:415.
+// TestNestedToolReadIngestEnqueueOnly 验证工具读取结果只由后台 worker 写入运行时。
+// bus 回调只能快速入队，不能被慢速持久化或运行时写入阻塞。
 //
-// It covers the three invariants that together make the callback path
-// safe:
+// 该测试同时覆盖三条安全边界：
 //
-//  1. Enqueue is non-blocking even while AddToolReadResult is stuck on
-//     slow disk I/O (the whole reason we moved to a worker);
-//  2. the worker, not the caller, is what eventually drives
-//     AddToolReadResult;
-//  3. repeated Enqueue for the same (thread, tool, persistedPath) key
-//     coalesces into a single latest-payload request.
+//  1. AddToolReadResult 被慢 I/O 卡住时，Enqueue 仍不能阻塞。
+//  2. AddToolReadResult 只能由 worker 调用，不能由回调路径直接调用。
+//  3. 相同 thread/tool/persistedPath 的重复入队会合并为最后一次请求。
 func TestNestedToolReadIngestEnqueueOnly(t *testing.T) {
 	t.Parallel()
 
-	// --- Invariant 1: Enqueue does not block on AddToolReadResult ---
+	// 边界 1：AddToolReadResult 阻塞时，Enqueue 仍必须快速返回。
 	block := make(chan struct{})
 	rt := &fakeNestedIngestRuntime{block: block, started: make(chan struct{})}
 	w := newNestedIngestWorker(rt, pkglogger.Get())
@@ -69,15 +64,15 @@ func TestNestedToolReadIngestEnqueueOnly(t *testing.T) {
 	waitNestedWorkerStarted(t, rt)
 	enqueueNestedIngestBurst(t, w)
 
-	// While still blocked, no calls may have landed on the runtime.
+	// worker 仍被阻塞时，不应已有调用落到 runtime。
 	if got := len(rt.Calls()); got != 0 {
 		t.Fatalf("AddToolReadResult invoked %d times while worker was blocked; bus callback must not drive it", got)
 	}
 
-	// --- Invariant 3: repeated same-key enqueues coalesce ---
+	// 边界 3：相同 key 的重复入队需要合并。
 	assertNestedIngestCoalesced(t, w)
 
-	// --- Invariant 2: worker drives AddToolReadResult once unblocked ---
+	// 边界 2：解除阻塞后由 worker 推进 AddToolReadResult。
 	close(block)
 	waitNestedIngestProcessed(t, w)
 	if got := len(rt.Calls()); got != 2 {
@@ -142,10 +137,8 @@ func stopNestedIngestWorker(t *testing.T, w *nestedIngestWorker) {
 	}
 }
 
-// TestNestedIngestWorkerEnqueueAfterStopDrops verifies the gate semantics:
-// once Stop fires, further Enqueue calls are silently dropped rather than
-// buffered (a buffered post-Stop enqueue would race with cancelled bus
-// subscriptions).
+// TestNestedIngestWorkerEnqueueAfterStopDrops 验证 Stop 后的入队门禁。
+// Stop 触发后 Enqueue 不再进入缓冲，避免已取消的 bus 订阅和延迟写入发生竞态。
 func TestNestedIngestWorkerEnqueueAfterStopDrops(t *testing.T) {
 	t.Parallel()
 
@@ -169,24 +162,19 @@ func TestNestedIngestWorkerEnqueueAfterStopDrops(t *testing.T) {
 	}
 }
 
-// TestNestedIngestWorkerStopDrainsPending verifies the lossless contract:
-// a request enqueued before Stop must be delivered to AddToolReadResult
-// before Stop returns (bounded by ctx). This is the crux of the "lossless
-// pending-set" design — unlike the auto-dream scheduler, which drops on
-// overflow, the nested-ingest worker's contract is that in-flight requests
-// get drained at shutdown.
+// TestNestedIngestWorkerStopDrainsPending 验证 Stop 前已入队请求必须被排空。
+// Stop 返回前会在 ctx 期限内把 pending 请求交给 AddToolReadResult，避免关闭时丢失在途结果。
 func TestNestedIngestWorkerStopDrainsPending(t *testing.T) {
 	t.Parallel()
 
 	rt := &fakeNestedIngestRuntime{}
 	w := newNestedIngestWorker(rt, pkglogger.Get())
-	// Intentionally do not Start() the worker goroutine; Stop must still drain
-	// pending requests rather than waiting forever on doneCh.
+	// 故意不启动 worker goroutine；Stop 仍要排空 pending，而不是无限等待 doneCh。
 
 	for i := 0; i < 3; i++ {
-		w.Enqueue("thread-drain", "Read", "payload", "/tmp/file") // same key -> 1 pending
+		w.Enqueue("thread-drain", "Read", "payload", "/tmp/file") // 相同 key 只保留 1 个 pending。
 	}
-	w.Enqueue("thread-drain", "Read", "payload-other", "/tmp/other") // distinct key -> +1
+	w.Enqueue("thread-drain", "Read", "payload-other", "/tmp/other") // 不同 key 额外保留 1 个 pending。
 
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
@@ -202,10 +190,8 @@ func TestNestedIngestWorkerStopDrainsPending(t *testing.T) {
 	}
 }
 
-// TestNestedIngestWorkerStartAfterStopIsNoop locks the lifecycle edge created
-// by the stop-before-start drain path: once Stop has closed doneCh, a later
-// Start must remain a no-op instead of spinning up a worker that closes doneCh
-// a second time.
+// TestNestedIngestWorkerStartAfterStopIsNoop 锁定先 Stop 后 Start 的生命周期边界。
+// doneCh 一旦被 Stop 关闭，后续 Start 必须保持无操作，避免再次启动 worker 并重复关闭通道。
 func TestNestedIngestWorkerStartAfterStopIsNoop(t *testing.T) {
 	t.Parallel()
 
@@ -231,9 +217,8 @@ func TestNestedIngestWorkerStartAfterStopIsNoop(t *testing.T) {
 	}
 }
 
-// TestNestedIngestWorkerBlankThreadIDIsNoop mirrors the scheduler's blank-
-// input short-circuit: empty threadIDs are silently ignored, not counted
-// as enqueued or dropped.
+// TestNestedIngestWorkerBlankThreadIDIsNoop 验证空 threadID 不进入队列。
+// 空白输入不会计入 enqueued 或 dropped，避免生成无法关联线程的嵌套记忆结果。
 func TestNestedIngestWorkerBlankThreadIDIsNoop(t *testing.T) {
 	t.Parallel()
 

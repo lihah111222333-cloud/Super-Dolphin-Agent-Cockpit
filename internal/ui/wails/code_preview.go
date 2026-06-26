@@ -18,9 +18,11 @@ import (
 	"unicode/utf8"
 )
 
-// 误判防护：maxCodeOpenFileBytes 是代码预览读取的 10 MiB 容量守卫。
+// maxCodeOpenFileBytes 是代码预览读取的 10 MiB 容量守卫。
 const maxCodeOpenFileBytes int64 = 10 << 20
 
+// codeSaveResult 是 ui/code/save 返回给前端的保存结果。
+// JSON 字段保持前端既有 camelCase wire 名称，避免桌面 UI 版本间不兼容。
 type codeSaveResult struct {
 	Ok         bool   `json:"ok"`
 	FilePath   string `json:"filePath"`
@@ -28,6 +30,8 @@ type codeSaveResult struct {
 	TotalLines int    `json:"totalLines"`
 }
 
+// codeLocateMatch 描述一次 ui/code/locate 命中的文件元数据。
+// 仅暴露轻量路径和大小信息，避免 locate 阶段读取大文件内容。
 type codeLocateMatch struct {
 	Path       string `json:"path"`
 	Relative   string `json:"relative,omitempty"`
@@ -35,6 +39,8 @@ type codeLocateMatch struct {
 	TotalLines int    `json:"totalLines,omitempty"`
 }
 
+// codeLocateResult 是 ui/code/locate 的返回载荷。
+// Truncated 明确告诉前端结果被上限截断，不能把 paths 当作全量匹配集合。
 type codeLocateResult struct {
 	Ok        bool              `json:"ok"`
 	Paths     []string          `json:"paths"`
@@ -42,11 +48,15 @@ type codeLocateResult struct {
 	Matches   []codeLocateMatch `json:"matches,omitempty"`
 }
 
+// codeSnippetLine 是文本预览跨前端传输的单行结构。
+// 行号和文本都用 omitempty，兼容旧前端只读取 snippet 文本的路径。
 type codeSnippetLine struct {
 	Line int    `json:"line,omitempty"`
 	Text string `json:"text,omitempty"`
 }
 
+// codeOpenResult 是 ui/code/open 的返回载荷，图片和文本预览共用该结构。
+// LocateResult 不出现在 JSON wire 中，只供后端 handler 复用 locate 阶段结果。
 type codeOpenResult struct {
 	Ok           bool              `json:"ok"`
 	Type         string            `json:"type,omitempty"`
@@ -64,6 +74,7 @@ type codeOpenResult struct {
 	LocateResult *codeLocateResult `json:"-"`
 }
 
+// saveScopedFile 在允许范围内覆盖已有文件，并保持原文件权限。
 func saveScopedFile(rawPath, content string, roots []string, createNew bool) (codeSaveResult, error) {
 	target, err := resolveSaveTarget(rawPath, roots, createNew)
 	if err != nil {
@@ -84,6 +95,7 @@ func saveScopedFile(rawPath, content string, roots []string, createNew bool) (co
 	}, nil
 }
 
+// locateScopedFile 查找项目范围内的候选文件并补充轻量元数据。
 func locateScopedFile(ctx context.Context, rawPath string, roots []string, limit int) (codeLocateResult, error) {
 	matches, truncated, err := findScopedFiles(ctx, rawPath, roots, limit)
 	if err != nil {
@@ -103,6 +115,7 @@ func locateScopedFile(ctx context.Context, rawPath string, roots []string, limit
 	return result, nil
 }
 
+// openScopedFile 构建代码预览，并尽力在本地编辑器中打开对应位置。
 func openScopedFile(ctx context.Context, rawPath string, line, column int, roots []string) (codeOpenResult, error) {
 	target, err := resolveOpenTarget(ctx, rawPath, roots)
 	if err != nil {
@@ -116,7 +129,7 @@ func openScopedFile(ctx context.Context, rawPath string, line, column int, roots
 	return result, nil
 }
 
-// buildCodeOpenResult 构建代码打开结果。
+// buildCodeOpenResult 构建代码打开结果；大文件、图片和二进制走不同预览策略。
 func buildCodeOpenResult(target scopedPath, line int) (codeOpenResult, error) {
 	info, err := os.Stat(target.Abs)
 	if err != nil {
@@ -151,6 +164,7 @@ func buildCodeOpenResult(target scopedPath, line int) (codeOpenResult, error) {
 	return buildSnippetResult(result, data, line), nil
 }
 
+// buildFullTextResult 返回适合全文展示的文本文件内容。
 func buildFullTextResult(result codeOpenResult, data []byte) codeOpenResult {
 	text := normalizeFileText(string(data))
 	totalLines := countTextLines(text)
@@ -161,6 +175,7 @@ func buildFullTextResult(result codeOpenResult, data []byte) codeOpenResult {
 	return result
 }
 
+// buildSnippetResult 返回围绕目标行的短代码片段。
 func buildSnippetResult(result codeOpenResult, data []byte, line int) codeOpenResult {
 	text := normalizeFileText(string(data))
 	lines := splitTextLines(text)
@@ -180,6 +195,7 @@ func buildSnippetResult(result codeOpenResult, data []byte, line int) codeOpenRe
 	return result
 }
 
+// readCodeLocateMatch 读取候选文件大小和行数，超大文件不计算行数。
 func readCodeLocateMatch(target scopedPath) codeLocateMatch {
 	info, err := os.Stat(target.Abs)
 	if err != nil {
@@ -197,6 +213,7 @@ func readCodeLocateMatch(target scopedPath) codeLocateMatch {
 	}
 }
 
+// fileLineCount 统计文件行数，读取失败时返回 0 作为不可用元数据。
 func fileLineCount(path string) int {
 	file, err := os.Open(path)
 	if err != nil {
@@ -214,6 +231,7 @@ func fileLineCount(path string) int {
 	return lines
 }
 
+// writeFileMode 返回覆盖写入时应保留的文件权限。
 func writeFileMode(path string) fs.FileMode {
 	info, err := os.Stat(path)
 	if err != nil {
@@ -226,10 +244,12 @@ func writeFileMode(path string) fs.FileMode {
 	return mode
 }
 
+// countTextLines 统计规范化换行后的文本行数。
 func countTextLines(text string) int {
 	return len(splitTextLines(normalizeFileText(text)))
 }
 
+// splitTextLines 按 LF 拆分文本，末尾换行不额外算空行。
 func splitTextLines(text string) []string {
 	if text == "" {
 		return []string{}
@@ -241,11 +261,12 @@ func splitTextLines(text string) []string {
 	return lines
 }
 
+// normalizeFileText 统一 CRLF/CR 换行为 LF。
 func normalizeFileText(text string) string {
 	return strings.ReplaceAll(strings.ReplaceAll(text, "\r\n", "\n"), "\r", "\n")
 }
 
-// snippetRange 处理snippet范围。
+// snippetRange 计算最多 9 行的预览窗口，并尽量让目标行居中。
 func snippetRange(line, total int) (int, int) {
 	if total <= 0 {
 		return 0, 0
@@ -274,6 +295,7 @@ func snippetRange(line, total int) (int, int) {
 	return start, end
 }
 
+// isFullTextPreviewPath 判断文件是否适合直接全文返回。
 func isFullTextPreviewPath(path string) bool {
 	switch strings.ToLower(filepath.Ext(strings.TrimSpace(path))) {
 	case ".md", ".markdown", ".txt", ".json", ".yaml", ".yml":
@@ -283,7 +305,7 @@ func isFullTextPreviewPath(path string) bool {
 	}
 }
 
-// previewMediaType 处理previewmediatype。
+// previewMediaType 按扩展名识别可直接预览的图片类型。
 func previewMediaType(path string) string {
 	switch strings.ToLower(filepath.Ext(strings.TrimSpace(path))) {
 	case ".png":
@@ -303,6 +325,7 @@ func previewMediaType(path string) string {
 	}
 }
 
+// isBinaryPreview 判断字节内容是否不适合作为文本预览。
 func isBinaryPreview(data []byte) bool {
 	if len(data) == 0 {
 		return false
@@ -310,6 +333,7 @@ func isBinaryPreview(data []byte) bool {
 	return bytes.IndexByte(data, 0) >= 0 || !utf8.Valid(data)
 }
 
+// openCodeEditor 尽力用本机编辑器或系统默认程序打开路径。
 func openCodeEditor(path string, line, column int) bool {
 	if command, err := exec.LookPath("code"); err == nil {
 		// 误判防护：openCodeEditor 使用 exec.Command argv，不经 shell 拼接执行路径。
@@ -327,6 +351,7 @@ func openCodeEditor(path string, line, column int) bool {
 	}
 }
 
+// codeOpenArgs 构造 VS Code -g 参数。
 func codeOpenArgs(path string, line, column int) []string {
 	// 误判防护：codeOpenArgs 只构造 argv 参数，配合 openCodeEditor 避免 shell 注入。
 	if line <= 0 {
@@ -340,6 +365,7 @@ func codeOpenArgs(path string, line, column int) []string {
 	return []string{"-g", location}
 }
 
+// renderXLSXSheet 将单个 XLSX sheet 渲染成 Markdown 表格。
 func renderXLSXSheet(name string, rows [][]string, truncatedRows, truncatedCols bool) string {
 	colCount := xlsxColumnCount(rows)
 	if colCount == 0 {
@@ -356,6 +382,7 @@ func renderXLSXSheet(name string, rows [][]string, truncatedRows, truncatedCols 
 	return strings.Join(lines, "\n")
 }
 
+// xlsxHeaderRow 生成表头，空表头用列号兜住展示。
 func xlsxHeaderRow(row []string, colCount int) []string {
 	header := xlsxSizedRow(row, colCount)
 	for i, cell := range header {
@@ -366,6 +393,7 @@ func xlsxHeaderRow(row []string, colCount int) []string {
 	return header
 }
 
+// xlsxSizedRow 将行裁剪或补齐到指定列数。
 func xlsxSizedRow(row []string, colCount int) []string {
 	out := make([]string, colCount)
 	for i := 0; i < colCount && i < len(row); i++ {
@@ -374,6 +402,7 @@ func xlsxSizedRow(row []string, colCount int) []string {
 	return out
 }
 
+// xlsxColumnCount 计算可展示列数，并施加 XLSX 列上限。
 func xlsxColumnCount(rows [][]string) int {
 	maxCols := 0
 	for _, row := range rows {
@@ -387,6 +416,7 @@ func xlsxColumnCount(rows [][]string) int {
 	return maxCols
 }
 
+// xlsxRowHasText 判断行中是否存在非空文本。
 func xlsxRowHasText(row []string) bool {
 	for _, cell := range row {
 		if strings.TrimSpace(cell) != "" {
@@ -396,6 +426,7 @@ func xlsxRowHasText(row []string) bool {
 	return false
 }
 
+// markdownSeparatorRow 生成 Markdown 表格分隔行。
 func markdownSeparatorRow(colCount int) string {
 	cells := make([]string, colCount)
 	for i := range cells {
@@ -404,6 +435,7 @@ func markdownSeparatorRow(colCount int) string {
 	return "| " + strings.Join(cells, " | ") + " |"
 }
 
+// markdownTableRow 生成 Markdown 表格数据行。
 func markdownTableRow(cells []string) string {
 	out := make([]string, len(cells))
 	for i, cell := range cells {
@@ -412,6 +444,7 @@ func markdownTableRow(cells []string) string {
 	return "| " + strings.Join(out, " | ") + " |"
 }
 
+// markdownCell 转义 Markdown 表格单元格并限制超长文本。
 func markdownCell(text string) string {
 	value := strings.TrimSpace(normalizeFileText(text))
 	value = strings.ReplaceAll(value, "\n", "<br>")
@@ -423,6 +456,7 @@ func markdownCell(text string) string {
 	return value
 }
 
+// xlsxTruncationNote 生成 XLSX 预览截断说明。
 func xlsxTruncationNote(truncatedRows, truncatedCols bool) string {
 	parts := make([]string, 0, 2)
 	if truncatedRows {
@@ -434,6 +468,7 @@ func xlsxTruncationNote(truncatedRows, truncatedCols bool) string {
 	return "（已截断：仅显示" + strings.Join(parts, "、") + "）"
 }
 
+// resolveXLSXRelationshipTarget 将 workbook rel target 解析为 zip 内路径。
 func resolveXLSXRelationshipTarget(target string) string {
 	value := strings.ReplaceAll(strings.TrimSpace(target), "\\", "/")
 	if value == "" {
@@ -445,7 +480,7 @@ func resolveXLSXRelationshipTarget(target string) string {
 	return path.Clean(path.Join("xl", value))
 }
 
-// readXLSXZipEntry 读取xlsxzip条目。
+// readXLSXZipEntry 读取 XLSX zip 条目，并对单条目大小做上限保护。
 func readXLSXZipEntry(reader *zip.Reader, name string, required bool) ([]byte, error) {
 	file := findXLSXZipEntry(reader, name)
 	if file == nil {
@@ -473,6 +508,7 @@ func readXLSXZipEntry(reader *zip.Reader, name string, required bool) ([]byte, e
 	return buf.Bytes(), nil
 }
 
+// findXLSXZipEntry 在 zip 中按规范化路径查找条目。
 func findXLSXZipEntry(reader *zip.Reader, name string) *zip.File {
 	want := strings.TrimPrefix(path.Clean(name), "/")
 	for _, file := range reader.File {
@@ -483,6 +519,7 @@ func findXLSXZipEntry(reader *zip.Reader, name string) *zip.File {
 	return nil
 }
 
+// xmlLocalAttr 从 XML start element 读取指定 local name 的属性。
 func xmlLocalAttr(start xml.StartElement, local string) string {
 	for _, attr := range start.Attr {
 		if attr.Name.Local == local {
@@ -492,6 +529,7 @@ func xmlLocalAttr(start xml.StartElement, local string) string {
 	return ""
 }
 
+// decodeElementText 解码当前 XML 元素的文本内容。
 func decodeElementText(decoder *xml.Decoder, start xml.StartElement) (string, error) {
 	var text string
 	if err := decoder.DecodeElement(&text, &start); err != nil {
@@ -500,6 +538,7 @@ func decodeElementText(decoder *xml.Decoder, start xml.StartElement) (string, er
 	return text, nil
 }
 
+// openSystemPath 用指定系统命令打开路径，命令和参数不经 shell。
 func openSystemPath(command, path string) bool {
 	binary, err := exec.LookPath(command)
 	if err != nil {
@@ -509,6 +548,7 @@ func openSystemPath(command, path string) bool {
 	return exec.Command(binary, path).Run() == nil
 }
 
+// openWindowsPath 使用 Windows 文件协议处理器打开路径。
 func openWindowsPath(path string) bool {
 	command, args := windowsPathOpenCommand(path)
 	binary, err := exec.LookPath(command)
@@ -523,16 +563,19 @@ func windowsPathOpenCommand(path string) (string, []string) {
 	return "rundll32.exe", []string{"url.dll,FileProtocolHandler", path}
 }
 
+// newLineScanner 创建支持较长代码行的 Scanner。
 func newLineScanner(reader io.Reader) *bufio.Scanner {
 	scanner := bufio.NewScanner(reader)
 	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
 	return scanner
 }
 
+// intString 把 int 转成字符串并去掉保护性空白。
 func intString(value int) string {
 	return strings.TrimSpace(strconvItoa(value))
 }
 
+// strconvItoa 是轻量整数转字符串实现，避免在该文件额外引入 strconv。
 func strconvItoa(value int) string {
 	if value == 0 {
 		return "0"

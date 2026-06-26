@@ -15,18 +15,20 @@ import (
 
 const historyPageCursorPrefix = "histpage:"
 
+// JSONLPageResult 是倒序分页读取 JSONL 后返回给上层的通用结果。
 type JSONLPageResult[T any] struct {
-	Items      []T
-	Offsets    []int64
-	HasMore    bool
-	NextBefore string
+	Items      []T     // 当前页按时间正序排列的业务项。
+	Offsets    []int64 // 每条记录在文件中的起始偏移，用作稳定消息 ID。
+	HasMore    bool    // 是否还有更早的记录可继续读取。
+	NextBefore string  // 下一页 before 游标；为空表示没有下一页。
 }
 
+// offsetCursor 是 history page 游标的 wire 结构，编码后不能随意改字段名。
 type offsetCursor struct {
 	Offset int64 `json:"offset"`
 }
 
-// ReadProviderMessagesPage 读取provider消息page。
+// ReadProviderMessagesPage 从 provider 历史中按 before 游标读取一页消息。
 func ReadProviderMessagesPage(req ReadRequest, pageReq dto.MessagePageRequest) (dto.MessagePageResult, error) {
 	path, provider, err := resolvePath(req)
 	if err != nil {
@@ -45,7 +47,7 @@ func ReadProviderMessagesPage(req ReadRequest, pageReq dto.MessagePageRequest) (
 	}, nil
 }
 
-// ReadProviderMessagesPageOrError 读取provider消息page错误。
+// ReadProviderMessagesPageOrError 将历史缺失转换为调用方指定错误，其他读取错误保持原样。
 func ReadProviderMessagesPageOrError(req ReadRequest, pageReq dto.MessagePageRequest, missingErr error) (dto.MessagePageResult, error) {
 	path, provider, err := resolvePath(req)
 	if err != nil {
@@ -70,6 +72,7 @@ func ReadProviderMessagesPageOrError(req ReadRequest, pageReq dto.MessagePageReq
 	}, nil
 }
 
+// messagesWithPageOffsets 用 JSONL 偏移补齐消息 ID，保持跨页去重稳定。
 func messagesWithPageOffsets(messages []dto.Message, offsets []int64) []dto.Message {
 	out := append([]dto.Message(nil), messages...)
 	for i := range out {
@@ -80,7 +83,8 @@ func messagesWithPageOffsets(messages []dto.Message, offsets []int64) []dto.Mess
 	return out
 }
 
-// ReadJSONLPage 读取JSONLpage。
+// ReadJSONLPage 从文件尾部向前读取 JSONL 页，适合只取最近历史的场景。
+// parse 返回 ok=false 的行会被跳过，但文件/游标错误会 fail-fast 返回。
 func ReadJSONLPage[T any](path string, limit int, before string, parse func([]byte) (T, bool)) (JSONLPageResult[T], error) {
 	if err := validateJSONLPageRequest(limit, parse); err != nil {
 		return JSONLPageResult[T]{}, err
@@ -104,6 +108,7 @@ func ReadJSONLPage[T any](path string, limit int, before string, parse func([]by
 	return buildJSONLPage(records, limit), nil
 }
 
+// validateJSONLPageRequest 拒绝无效分页参数，避免后续循环出现空 parser 或非正 limit。
 func validateJSONLPageRequest[T any](limit int, parse func([]byte) (T, bool)) error {
 	if limit <= 0 {
 		return errors.New("history page limit must be positive")
@@ -114,6 +119,7 @@ func validateJSONLPageRequest[T any](limit int, parse func([]byte) (T, bool)) er
 	return nil
 }
 
+// openJSONLPageFile 打开并确认 JSONL 路径是普通文件；失败时负责关闭已打开句柄。
 func openJSONLPageFile(path string) (*os.File, int64, error) {
 	file, err := os.Open(path)
 	if err != nil {
@@ -131,6 +137,7 @@ func openJSONLPageFile(path string) (*os.File, int64, error) {
 	return file, info.Size(), nil
 }
 
+// buildJSONLPage 将倒序读取的记录恢复为页面正序，并生成下一页游标。
 func buildJSONLPage[T any](records []jsonlRecord[T], limit int) JSONLPageResult[T] {
 	hasMore := len(records) > limit
 	if hasMore {
@@ -152,12 +159,14 @@ func buildJSONLPage[T any](records []jsonlRecord[T], limit int) JSONLPageResult[
 	return JSONLPageResult[T]{Items: items, Offsets: offsets, HasMore: hasMore, NextBefore: nextBefore}
 }
 
+// jsonlRecord 绑定解析后的业务项和它在 JSONL 文件中的起始偏移。
 type jsonlRecord[T any] struct {
 	item   T
 	offset int64
 }
 
-// readJSONLRecordsBackward 读取JSONL记录backward。
+// readJSONLRecordsBackward 从 beforeOffset 向前按块读取完整 JSONL 行。
+// 跨块半行通过 suffix 拼接，避免大文件分页时一次性读入内存。
 func readJSONLRecordsBackward[T any](
 	reader io.ReaderAt,
 	beforeOffset int64,
@@ -181,6 +190,7 @@ func readJSONLRecordsBackward[T any](
 	return records, nil
 }
 
+// readPreviousJSONLChunk 读取当前偏移之前的一块内容，并拼接上轮遗留后缀。
 func readPreviousJSONLChunk(reader io.ReaderAt, pos int64, suffix []byte) (int64, []byte, error) {
 	const chunkSize int64 = 64 * 1024
 	readSize := chunkSize
@@ -198,6 +208,7 @@ func readPreviousJSONLChunk(reader io.ReaderAt, pos int64, suffix []byte) (int64
 	return start, data, nil
 }
 
+// collectCompleteJSONLLines 从块尾向前收集完整行，并返回尚未完整的前缀。
 func collectCompleteJSONLLines[T any](
 	data []byte,
 	start int64,
@@ -218,6 +229,7 @@ func collectCompleteJSONLLines[T any](
 	return append(suffix[:0], data[:end]...)
 }
 
+// appendParsedRecord 去掉空行和 CR 后追加解析成功的 JSONL 记录。
 func appendParsedRecord[T any](line []byte, offset int64, parse func([]byte) (T, bool), records *[]jsonlRecord[T]) {
 	line = bytes.TrimSuffix(line, []byte{'\r'})
 	if len(bytes.TrimSpace(line)) == 0 {
@@ -228,6 +240,7 @@ func appendParsedRecord[T any](line []byte, offset int64, parse func([]byte) (T,
 	}
 }
 
+// pageBeforeOffset 将 before 游标解析为文件偏移，空游标表示从文件末尾开始。
 func pageBeforeOffset(size int64, before string) (int64, error) {
 	cursor := strings.TrimSpace(before)
 	if cursor == "" {
@@ -243,6 +256,7 @@ func pageBeforeOffset(size int64, before string) (int64, error) {
 	return offset, nil
 }
 
+// encodeOffsetCursor 将文件偏移编码为对外稳定的分页游标。
 func encodeOffsetCursor(offset int64) string {
 	raw, err := json.Marshal(offsetCursor{Offset: offset})
 	if err != nil {
@@ -251,6 +265,7 @@ func encodeOffsetCursor(offset int64) string {
 	return historyPageCursorPrefix + base64.RawURLEncoding.EncodeToString(raw)
 }
 
+// decodeOffsetCursor 解码分页游标，并拒绝非 history page 前缀。
 func decodeOffsetCursor(raw string) (int64, error) {
 	cursor := strings.TrimSpace(raw)
 	if !strings.HasPrefix(cursor, historyPageCursorPrefix) {

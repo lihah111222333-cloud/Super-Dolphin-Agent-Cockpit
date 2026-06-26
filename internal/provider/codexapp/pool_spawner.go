@@ -17,21 +17,9 @@ import (
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
-// runPoolSpawn spawns a codex app-server for a pool-managed codexHome
-// and wires the running process into a fresh *transport.
-//
-// The recipe mirrors (*transport).spawnLocal but differs in two
-// pool-specific ways:
-//
-//   - The command is produced by BuildPoolSpawnCmd, which installs the
-//     env allowlist (stripping everything outside the closed set) and
-//     injects CODEX_HOME=home so a stale parent value cannot leak in.
-//   - On success the PID is registered with the shared pidregistry so
-//     a crash of the parent process still lets the sweeper reap the
-//     app-server instead of leaving it behind.
-//
-// On failure the caller gets an error already enriched with the stderr
-// tail, which the pool caches in the identity+owner backoff slot.
+// runPoolSpawn 为池管理的 codexHome 启动 codex app-server，并把进程封装成新的 transport。
+// 它必须复用池专属的命令构造和环境白名单，避免父进程残留的 CODEX_HOME 或数据库变量泄漏。
+// 启动失败时返回带 stderr 尾部的错误，调用方可直接写入池的退避状态。
 func runPoolSpawn(ctx context.Context, home, modelProvider string, registry *pidregistry.Registry, logger *slog.Logger) (*transport, error) {
 	if logger == nil {
 		logger = pkglogger.Get()
@@ -82,12 +70,8 @@ func runPoolSpawn(ctx context.Context, home, modelProvider string, registry *pid
 			registry.Register(pid, "codex-app-server-pool", map[string]string{"codex_home": home, "work_dir": workDir})
 		}
 	}
-	// Establish a control WebSocket + JSON-RPC initialize handshake so
-	// codex stays awake. Mirrors ServerManager.start: without this
-	// call, codex app-server sees zero clients after boot, times
-	// itself out, and Alive() starts reporting false within hundreds
-	// of ms. Sessions layered on top will still create their own WS
-	// connections; this one is the pool-owned keep-alive.
+	// 建立池持有的控制 WebSocket 和 initialize 握手，避免 app-server 启动后因零客户端超时退出。
+	// 上层 session 仍会创建自己的连接；这里的连接只负责维持池中进程可用性。
 	if err := t.establish(startupCtx); err != nil {
 		_ = t.shutdownTransport(false)
 		return nil, fmt.Errorf("codexapp: pool establish: %w", err)
@@ -193,6 +177,8 @@ func poolSpawnNormalizedWorkDir(ctx context.Context) (string, error) {
 	return normalizePoolSpawnWorkDir(poolSpawnWorkDir(ctx))
 }
 
+// normalizePoolSpawnWorkDir 校验池启动工作目录并解析真实路径。
+// 这里只接受已存在的绝对目录，避免子进程在未知相对路径下继承错误的项目上下文。
 func normalizePoolSpawnWorkDir(raw string) (string, error) {
 	raw = strings.TrimSpace(raw)
 	if raw == "" {
@@ -237,6 +223,8 @@ func normalizePoolSpawnWorkspaceRoots(roots []string) []string {
 	return out
 }
 
+// normalizePoolSpawnWorkspaceRoot 按首个 workspace root 解析后续相对根路径。
+// 空值或无法定位到绝对路径的条目会被丢弃，确保传给 mcp-lsp 的根目录稳定可复现。
 func normalizePoolSpawnWorkspaceRoot(base, root string) string {
 	root = strings.TrimSpace(root)
 	if root == "" {
@@ -268,10 +256,8 @@ func buildPoolSpawnEnv(parent []string, home, workDir string) []string {
 	return buildAllowlistedSpawnEnv(parent, overrides)
 }
 
-// codexSpawnEnvAllowlist is the set of parent-process environment variables
-// that are propagated into a spawned codex app-server child. Everything else
-// (including rogue CODEX_* / OPENAI_* pollutants left over from another
-// instance) is dropped so CODEX_HOME is the sole identity authority.
+// codexSpawnEnvAllowlist 列出允许传给子 app-server 的父进程环境变量。
+// 其他 CODEX_*、OPENAI_* 污染项会被剥离，确保 CODEX_HOME 是唯一身份来源。
 var codexSpawnEnvAllowlist = []string{
 	"PATH",
 	"HOME",
@@ -292,6 +278,8 @@ var codexSpawnEnvAllowlist = []string{
 	codexRelayBootstrapTokenEnv,
 }
 
+// buildAllowlistedSpawnEnv 从父环境中只保留允许传递给 codex app-server 的变量。
+// overrides 会在数据库环境拦截后覆盖同名值，最终再补齐 loopback no_proxy 以保证本地握手可达。
 func buildAllowlistedSpawnEnv(parent []string, overrides map[string]string) []string {
 	allowed := make(map[string]struct{}, len(codexSpawnEnvAllowlist))
 	for _, key := range codexSpawnEnvAllowlist {
@@ -331,12 +319,8 @@ func splitEnv(kv string) (string, string, bool) {
 	return strings.TrimSpace(kv[:idx]), kv[idx+1:], true
 }
 
-// NewTransportSpawner returns a Spawner suitable for ServerPool. Each
-// invocation launches a fresh codex app-server bound to the requested
-// codexHome and wraps it in a SpawnedServer view via wrapTransport.
-//
-// The returned Spawner does not itself enforce concurrency or deduplication;
-// the pool owns those decisions per identity+owner entry.
+// NewTransportSpawner 构造供 ServerPool 使用的 app-server 启动器。
+// 每次调用都会为指定 codexHome 启动独立进程；并发、去重和释放由池按 identity+owner 负责。
 func NewTransportSpawner(registry *pidregistry.Registry, logger *slog.Logger) Spawner {
 	if logger == nil {
 		logger = pkglogger.Get()

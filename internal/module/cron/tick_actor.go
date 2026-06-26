@@ -9,17 +9,8 @@ import (
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
-// TickActor is the cron tick loop Runner. Every TickInterval it calls
-// scheduler.RunTick, which claims due jobs and drives each through the
-// three-phase state machine. On ctx cancel it returns ctx.Err() so
-// platformrunner.RunGroup takes the shutdown signal normally.
-//
-// There is no anonymous goroutine inside Run — all work happens in the
-// RunGroup-managed frame so panics, deadlocks and slow paths are all
-// visible via the group's recover + exit channel.
-//
 // TickActor 是主动推进 due job 的入口。启动时先恢复旧 run，再跑新 tick，
-// 避免同一窗口重复推进。
+// 避免同一窗口重复推进；Run 不再额外开 goroutine，故障会暴露给 RunGroup。
 type TickActor struct {
 	logger    *slog.Logger
 	scheduler *Scheduler
@@ -28,9 +19,8 @@ type TickActor struct {
 
 var _ contract.Runner = (*TickActor)(nil)
 
-// NewTickActor wires a TickActor with a zero-field-ok signature. interval
-// defaults to the scheduler's TickInterval when non-positive.
 // NewTickActor 创建按固定间隔触发 cron 扫描的 actor。
+// interval 取自 SchedulerConfig，构造函数只负责 wiring，不自行兜底 nil scheduler。
 func NewTickActor(logger *slog.Logger, scheduler *Scheduler) *TickActor {
 	if logger == nil {
 		logger = pkglogger.Get()
@@ -39,10 +29,8 @@ func NewTickActor(logger *slog.Logger, scheduler *Scheduler) *TickActor {
 	return &TickActor{logger: logger, scheduler: scheduler, interval: interval}
 }
 
-// Run blocks until ctx cancels. RunTick failures are logged and
-// otherwise ignored; the loop keeps ticking so a transient DB error in
-// one tick doesn't stop scheduling indefinitely.
-// Run 启动后台循环，并在上下文取消时退出。
+// Run 启动 tick 循环，并在 ctx 取消时返回 ctx.Err()。
+// 单次 recovery/tick 失败只记录日志，避免瞬时 DB 问题让后续健康 job 永久停调度。
 func (a *TickActor) Run(ctx context.Context) error {
 	t := time.NewTimer(timerDelayWithJitter(a.interval))
 	defer t.Stop()

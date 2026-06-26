@@ -11,19 +11,19 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/config"
 )
 
-// projectStateReader mirrors contract.UIProjectStateFacade so local
-// callers can be written against a locally-visible interface name. P22
-// P4 S1b: the underlying type is the contract facade, not uistate's
-// Service — ui/wails no longer imports internal/module/uistate.
+// projectStateReader 是 UI 项目状态读取窄接口，避免 ui/wails 依赖 uistate 具体服务。
 type projectStateReader interface {
 	GetProjects(ctx context.Context) (*contract.ProjectsSnapshot, error)
 }
 
+// scopeCatalog 记录当前允许前端访问的项目根集合。
+// 所有前端路径请求都必须落在这张目录表内，避免 UI helper 打开任意本地路径。
 type scopeCatalog struct {
 	defaultRoot string
 	knownRoots  map[string]struct{}
 }
 
+// requestScopeRoots 加载项目根目录目录表，并解析前端请求的访问范围。
 func requestScopeRoots(
 	ctx context.Context,
 	cfg *config.Config,
@@ -38,6 +38,7 @@ func requestScopeRoots(
 	return resolveScopeRoots(project, projects, catalog)
 }
 
+// loadScopeCatalog 从配置和 UI 项目状态构建允许访问的根目录表。
 func loadScopeCatalog(ctx context.Context, cfg *config.Config, state projectStateReader) (scopeCatalog, error) {
 	catalog := scopeCatalog{knownRoots: map[string]struct{}{}}
 	if root, ok := knownScopeRoot(configProjectRoot(cfg), ""); ok {
@@ -55,6 +56,7 @@ func loadScopeCatalog(ctx context.Context, cfg *config.Config, state projectStat
 	return catalog, nil
 }
 
+// addProjectsStateRoots 把 UI 项目状态中的 active 和已知项目加入目录表。
 func addProjectsStateRoots(catalog *scopeCatalog, state *contract.ProjectsSnapshot) {
 	if catalog == nil || state == nil {
 		return
@@ -66,6 +68,7 @@ func addProjectsStateRoots(catalog *scopeCatalog, state *contract.ProjectsSnapsh
 	}
 }
 
+// configProjectRoot 读取配置中的项目根目录。
 func configProjectRoot(cfg *config.Config) string {
 	if cfg == nil {
 		return ""
@@ -73,6 +76,8 @@ func configProjectRoot(cfg *config.Config) string {
 	return strings.TrimSpace(cfg.ProjectRoot)
 }
 
+// knownScopeRoot 解析并校验一个可登记的项目根目录。
+// 无效、不可访问或非目录路径不会进入目录表，后续请求也就无法命中。
 func knownScopeRoot(raw, defaultRoot string) (string, bool) {
 	root, err := resolveScopePath(raw, defaultRoot)
 	if err != nil {
@@ -89,7 +94,7 @@ func knownScopeRoot(raw, defaultRoot string) (string, bool) {
 	return root, true
 }
 
-// resolveScopePath 解析作用域路径。
+// resolveScopePath 解析项目范围路径，支持 "."、绝对路径和相对默认根的路径。
 func resolveScopePath(raw, defaultRoot string) (string, error) {
 	value := strings.TrimSpace(raw)
 	switch {
@@ -109,7 +114,7 @@ func resolveScopePath(raw, defaultRoot string) (string, error) {
 	}
 }
 
-// resolve 解析桌面 UI 桥接。
+// resolve 在已登记目录表中解析前端传入的项目范围。
 func (c scopeCatalog) resolve(raw string) (string, error) {
 	root, err := resolveScopePath(raw, c.defaultRoot)
 	if err != nil {

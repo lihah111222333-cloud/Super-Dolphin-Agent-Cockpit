@@ -9,9 +9,11 @@ import (
 	turndto "github.com/anthropic-ai/super-agent-v3/internal/dto/turn"
 )
 
+// RemoteParamDecoder 抽象 JSON-RPC 参数解码函数，便于同一解码逻辑复用到不同远端事件。
 type RemoteParamDecoder func(any) error
 
-// DecodeRemoteTurnCompleted 解码remoteturncompleted。
+// DecodeRemoteTurnCompleted 解码远端 turn completed 事件。
+// agent_id 是事件路由必需字段，缺失时立即返回错误。
 func DecodeRemoteTurnCompleted(decode RemoteParamDecoder) (turndto.TurnCompleted, error) {
 	var ev turndto.TurnCompleted
 	if err := decode(&ev); err != nil {
@@ -23,7 +25,8 @@ func DecodeRemoteTurnCompleted(decode RemoteParamDecoder) (turndto.TurnCompleted
 	return ev, nil
 }
 
-// DecodeRemoteTurnInterrupted 解码remoteturninterrupted。
+// DecodeRemoteTurnInterrupted 解码远端 turn interrupted 事件。
+// 先尝试新 DTO 形状，失败后兼容旧 map 载荷；两种路径都必须得到 agent_id。
 func DecodeRemoteTurnInterrupted(decode RemoteParamDecoder) (turndto.TurnInterrupted, error) {
 	var ev turndto.TurnInterrupted
 	if err := decode(&ev); err == nil && strings.TrimSpace(ev.AgentID) != "" {

@@ -5,8 +5,10 @@ import (
 	"strings"
 )
 
+// createRunParams 复用服务层创建请求，保留自定义 JSON 兼容逻辑。
 type createRunParams = CreateRunRequest
 
+// mergeRunParams 是 workspace/run/merge RPC 的入参。
 type mergeRunParams struct {
 	RunKey        string `json:"run_key"`
 	UpdatedBy     string `json:"updated_by,omitempty"`
@@ -14,7 +16,7 @@ type mergeRunParams struct {
 	DeleteRemoved bool   `json:"delete_removed,omitempty"`
 }
 
-// UnmarshalJSON 解码JSON。
+// UnmarshalJSON 同时接受 snake_case 和旧 camelCase merge 字段。
 func (p *mergeRunParams) UnmarshalJSON(data []byte) error {
 	type raw mergeRunParams
 	var legacy struct {
@@ -51,11 +53,12 @@ func (p *mergeRunParams) UnmarshalJSON(data []byte) error {
 	})
 }
 
+// runKeyParams 是只需要 run_key 的 RPC 入参。
 type runKeyParams struct {
 	RunKey string `json:"run_key"`
 }
 
-// UnmarshalJSON 解码JSON。
+// UnmarshalJSON 兼容旧 runKey 字段。
 func (p *runKeyParams) UnmarshalJSON(data []byte) error {
 	type raw runKeyParams
 	var current raw
@@ -66,13 +69,14 @@ func (p *runKeyParams) UnmarshalJSON(data []byte) error {
 	return fillLegacyRunKey(data, &p.RunKey)
 }
 
+// abortRunParams 是 workspace/run/abort RPC 的入参。
 type abortRunParams struct {
 	RunKey    string `json:"run_key"`
 	UpdatedBy string `json:"updated_by,omitempty"`
 	Reason    string `json:"reason,omitempty"`
 }
 
-// UnmarshalJSON 解码JSON。
+// UnmarshalJSON 兼容旧 camelCase abort 字段。
 func (p *abortRunParams) UnmarshalJSON(data []byte) error {
 	type raw abortRunParams
 	var legacy struct {
@@ -99,13 +103,14 @@ func (p *abortRunParams) UnmarshalJSON(data []byte) error {
 	})
 }
 
+// listRunsParams 是 workspace/run/list RPC 的过滤条件。
 type listRunsParams struct {
 	Status string `json:"status,omitempty"`
 	DagKey string `json:"dag_key,omitempty"`
 	Limit  int    `json:"limit,omitempty"`
 }
 
-// UnmarshalJSON 解码JSON。
+// UnmarshalJSON 兼容旧 dagKey 字段。
 func (p *listRunsParams) UnmarshalJSON(data []byte) error {
 	type raw listRunsParams
 	var legacy struct {
@@ -127,12 +132,13 @@ func (p *listRunsParams) UnmarshalJSON(data []byte) error {
 	})
 }
 
+// listRunFilesParams 是 workspace/run/files/list RPC 的入参。
 type listRunFilesParams struct {
 	RunKey string `json:"run_key"`
 	State  string `json:"state,omitempty"`
 }
 
-// UnmarshalJSON 解码JSON。
+// UnmarshalJSON 兼容旧 runKey 字段。
 func (p *listRunFilesParams) UnmarshalJSON(data []byte) error {
 	type raw listRunFilesParams
 	var current raw
@@ -143,12 +149,13 @@ func (p *listRunFilesParams) UnmarshalJSON(data []byte) error {
 	return fillLegacyRunKey(data, &p.RunKey)
 }
 
+// runFileParams 是 workspace/run/file/get RPC 的入参。
 type runFileParams struct {
 	RunKey string `json:"run_key"`
 	Path   string `json:"path"`
 }
 
-// UnmarshalJSON 解码JSON。
+// UnmarshalJSON 兼容旧 runKey 字段。
 func (p *runFileParams) UnmarshalJSON(data []byte) error {
 	type raw runFileParams
 	var current raw
@@ -159,26 +166,32 @@ func (p *runFileParams) UnmarshalJSON(data []byte) error {
 	return fillLegacyRunKey(data, &p.RunKey)
 }
 
+// runResult 是返回单个 run 的 RPC 包装。
 type runResult struct {
 	Run *Run `json:"run"`
 }
 
+// mergeResult 是返回 merge 摘要的 RPC 包装。
 type mergeResult struct {
 	Result *MergeRunResult `json:"result"`
 }
 
+// runsResult 是返回 run 列表的 RPC 包装。
 type runsResult struct {
 	Runs []Run `json:"runs"`
 }
 
+// runFileResult 是返回单个 run file 的 RPC 包装。
 type runFileResult struct {
 	File *RunFile `json:"file"`
 }
 
+// runFilesResult 是返回 run file 列表的 RPC 包装。
 type runFilesResult struct {
 	Files []RunFile `json:"files"`
 }
 
+// fillLegacyRunKey 在 run_key 为空时读取旧 runKey。
 func fillLegacyRunKey(data []byte, runKey *string) error {
 	if strings.TrimSpace(*runKey) != "" {
 		return nil

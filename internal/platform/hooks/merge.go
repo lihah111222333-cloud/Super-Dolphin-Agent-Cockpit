@@ -7,7 +7,8 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 )
 
-// MergeResult captures the merged hook decision plus fanout failure metadata.
+// MergeResult 保存合并后的 hook 决策和 fanout 失败元数据。
+// Manager 使用 FailedLeases/LostLeases 做 fail-closed 和失联订阅清理。
 type MergeResult[T any] struct {
 	Decision       T
 	PartialFailure bool
@@ -22,7 +23,8 @@ type peerDecision[T any] struct {
 	ConsecutiveFailures int
 }
 
-// MergeBefore 合并before。
+// MergeBefore 合并 before 阶段多个 peer 的决策。
+// 最高风险决策胜出，并额外合并 allowed/denied tools 以保持工具权限边界。
 func MergeBefore(decisions []peerDecision[mcp.BeforeDecision]) MergeResult[mcp.BeforeDecision] {
 	normalized, failed, lost := normalizeBeforeDecisions(decisions)
 	merged := mergeBeforeDecision(normalized)
@@ -55,7 +57,7 @@ func normalizeBeforeDecisions(decisions []peerDecision[mcp.BeforeDecision]) ([]m
 	})
 }
 
-// mergeBeforeDecision 合并beforedecision。
+// mergeBeforeDecision 选择 before 阶段最终决策并带上匹配决策的补充字段。
 func mergeBeforeDecision(decisions []mcp.BeforeDecision) mcp.BeforeDecision {
 	if len(decisions) == 0 {
 		return mcp.BeforeDecision{Decision: mcp.HookDecisionDeny}
@@ -114,7 +116,7 @@ func mergeAllowedTools(decisions []mcp.BeforeDecision) []string {
 	return sortedTools(intersection)
 }
 
-// mergeDeniedTools 合并denied工具。
+// mergeDeniedTools 汇总所有 peer 拒绝的工具集合。
 func mergeDeniedTools(decisions []mcp.BeforeDecision) []string {
 	union := make(map[string]struct{})
 	for _, item := range decisions {

@@ -46,21 +46,15 @@ func (s *service) AssembleStart(ctx context.Context, in StartInput) (StartAssemb
 		s.logBuildFallback("start", err)
 		return StartAssembly{}, err
 	}
-	// Merge DB-sourced prompt_template sections (if any). Static blocks flow
-	// into CachedPrefix, dynamic into UncachedTail. Blocks whose EnableWhen
-	// rejects the current BuildCtx are filtered out here (Step 3b gate).
+	// DB 中的 prompt_template 会按 region 进入 cached prefix 或 uncached tail；
+	// EnableWhen 不匹配当前 BuildCtx 的块在这里过滤，避免 provider 侧再判断一次。
 	resolved = mergeTemplateSections(resolved, in.BaseInstructionBlocks, buildCtx, in.Prompt)
 	boundary := startAssemblyBoundary(resolved, strings.TrimSpace(in.BaseInstructions))
 	base := joinBlocks(boundaryCachedPrefix(boundary), boundaryUncachedTail(boundary))
 	userMeta := s.buildStartUserMeta(buildCtx, resolved)
 	systemCtx := s.buildSystemContext(ctx, buildCtx)
-	// Phase 3: keep only the user-configurable prompt hint in BaseInstructions
-	// so it stays bytewise stable in the same cwd + BuildCtx. Per-start user
-	// meta (currentDate, runtimeExtras) and system context (gitStatus) are
-	// intentionally NOT embedded here — they flow through the structured
-	// UserContext / UserContextText / SystemContext fields so provider
-	// bridges can route them into the synthetic user meta message, leaving
-	// the cacheable prefix unaffected by per-turn variance.
+	// BaseInstructions 只追加用户可配置的 prompt hint，保持同一 cwd + BuildCtx 下字节稳定。
+	// 当前日期、runtime extras 和 gitStatus 走结构化字段，避免逐 turn 变化污染可缓存前缀。
 	if hint := s.resolvePromptHint(ctx, buildCtx.CWD); hint != "" {
 		base = joinBlocks(base, hint)
 	}
@@ -93,11 +87,8 @@ func simpleStartEnabled(in StartInput) bool {
 	return false
 }
 
-// simpleStartAssembly implements Claude Code's CLAUDE_CODE_SIMPLE fast path
-// (prompts.ts L444-454): the system prompt degrades to a strict three-line
-// form with no <system-reminder>, no gitStatus, and no runtimeExtras. Phase 1
-// tightened this path to match Claude parity; the full start path remains the
-// one that emits the layered prompt when CLAUDE_CODE_SIMPLE is unset.
+// simpleStartAssembly 生成简化 start prompt。
+// 该路径只保留身份、CWD 和日期三行，不计算动态 section、gitStatus 或 runtime extras。
 func (s *service) simpleStartAssembly(ctx context.Context, in StartInput) StartAssembly {
 	displayName := strings.TrimSpace(in.Name)
 	buildCtx := buildStartCtx(in)
@@ -268,6 +259,7 @@ func (s *service) computeSection(ctx context.Context, generation uint64, section
 	return result.(computedSectionValue).Value, nil
 }
 
+// startSections 返回会话启动时参与组装的静态和动态 section，保持静态前缀先于动态上下文。
 func (s *service) startSections() []PromptSection {
 	staticSections := s.staticSections()
 	dynamicSections := s.dynamicSections()
@@ -277,14 +269,17 @@ func (s *service) startSections() []PromptSection {
 	return sections
 }
 
+// staticSections 返回静态 region 的 section，用于 cached prefix 和基础指令拼接。
 func (s *service) staticSections() []PromptSection {
 	return s.regionSections(PromptRegionStatic)
 }
 
+// dynamicSections 返回动态 region 的 section，用于 turn/start 阶段按输入实时计算。
 func (s *service) dynamicSections() []PromptSection {
 	return s.regionSections(PromptRegionDynamic)
 }
 
+// regionSections 从注册表筛选指定 region，保留原始排序交由 Sections 统一维护。
 func (s *service) regionSections(region PromptRegion) []PromptSection {
 	all := s.Sections()
 	sections := make([]PromptSection, 0, len(all))
@@ -297,6 +292,8 @@ func (s *service) regionSections(region PromptRegion) []PromptSection {
 }
 
 // fallbackStartAssembly 在 section 解析失败时用原始 BaseInstructions 构建降级 assembly。
+// fallbackStartAssembly 在组装失败后保留原始 BaseInstructions 并补齐结构化上下文。
+// 该路径仍写 snapshot，保证后续 resume/fork/recover 能拿到一致的降级结果。
 func (s *service) fallbackStartAssembly(ctx context.Context, in StartInput) StartAssembly {
 	displayName := strings.TrimSpace(in.Name)
 	base := strings.TrimSpace(in.BaseInstructions)
@@ -321,13 +318,8 @@ func (s *service) fallbackStartAssembly(ctx context.Context, in StartInput) Star
 	}
 }
 
-// buildStartUserMeta returns the structured per-start user meta payload
-// (currentDate + runtimeExtras). It is the Go equivalent of Claude Code's
-// getUserContext() entries for currentDate and runtimeExtras. The caller
-// routes this into the synthetic user meta message (see
-// contract.RenderUserContextMessage); it is intentionally kept out of the
-// cacheable BaseInstructions prefix so daily-varying content does not
-// invalidate the Anthropic org ephemeral cache.
+// buildStartUserMeta 构建每次 start 都可能变化的结构化 user meta。
+// currentDate 与 runtimeExtras 不进入 BaseInstructions，避免日期等动态内容破坏 provider 缓存前缀。
 func (s *service) buildStartUserMeta(_ BuildCtx, resolved []ResolvedPromptSection) userContextPayload {
 	date := fmt.Sprintf("Today's date is %s.", startPromptCurrentDate())
 	extraContents := runtimeExtraContents(resolved)

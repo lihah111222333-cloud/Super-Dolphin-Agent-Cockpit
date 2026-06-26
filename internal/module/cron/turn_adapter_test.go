@@ -11,10 +11,8 @@ import (
 	providerdto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
 )
 
-// fakeSession is a minimal contract.Session used purely to thread a
-// ThreadID through the adapter; StartTurn / Interrupt / etc. are not
-// exercised (the adapter passes the session to CronTurnExecutor which
-// is itself a fake here).
+// fakeSession 是只携带 ThreadID 的 contract.Session 假实现。
+// 这些测试把 turn 执行交给 fake CronTurnExecutor，因此不触发真实 StartTurn/Interrupt。
 type fakeSession struct {
 	threadID string
 }
@@ -44,8 +42,7 @@ func (f *fakeSession) Configure(context.Context, providerdto.ThreadConfigPatch) 
 func (f *fakeSession) Close(context.Context) error                                    { return nil }
 func (f *fakeSession) ForceStop() error                                               { return nil }
 
-// fakeResolver maps thread ids to fakeSession values; unknown ids
-// return an error.
+// fakeResolver 按 threadID 返回测试 session，未知 ID 用错误模拟解析失败。
 type fakeResolver struct {
 	known map[string]contract.Session
 	err   error
@@ -62,8 +59,7 @@ func (r *fakeResolver) ResolveSession(_ context.Context, threadID string) (contr
 	return s, nil
 }
 
-// fakeTurnService records CronPrepareTurn / CronStartTurn / CronTrackTurn /
-// CronLookupByDedupeKey calls and returns controllable outcomes.
+// fakeTurnService 记录 cron turn 调用，并允许每个步骤注入成功或失败结果。
 type fakeTurnService struct {
 	prepareFn func(context.Context, contract.Session, contract.CronPrepareInput) (providerdto.TurnRequest, error)
 	startFn   func(context.Context, contract.Session, providerdto.TurnRequest) (contract.TurnHandle, error)
@@ -113,7 +109,7 @@ func (h *fakeHandle) ProviderID() string    { return h.providerID }
 func (h *fakeHandle) Done() <-chan struct{} { ch := make(chan struct{}); close(ch); return ch }
 func (h *fakeHandle) Err() error            { return nil }
 
-// ----- StartTurn paths -----
+// ----- StartTurn 路径 -----
 
 func TestAdapterStartTurnNotWired(t *testing.T) {
 	t.Parallel()
@@ -234,7 +230,7 @@ func TestAdapterStartTurnEmptyLocalIDIsError(t *testing.T) {
 	}
 }
 
-// ----- Observe paths -----
+// ----- Observe 路径 -----
 
 func TestAdapterObserveTranslatesTurnNotFound(t *testing.T) {
 	t.Parallel()
@@ -273,12 +269,10 @@ func TestAdapterObserveRequiresTurnID(t *testing.T) {
 	}
 }
 
-// ----- LookupByDedupeKey -----
+// ----- LookupByDedupeKey 路径 -----
 
-// TestAdapterLookupByDedupeKeyEmptyKey ensures callers that haven't
-// opted into dedupe (empty key) get Found=false without reaching the
-// tracker — the short-circuit avoids spurious service work for every
-// scheduler tick.
+// TestAdapterLookupByDedupeKeyEmptyKey 验证空 dedupe key 会直接返回 Found=false。
+// 该短路避免未启用去重的调度 tick 反复触发 tracker 查询。
 func TestAdapterLookupByDedupeKeyEmptyKey(t *testing.T) {
 	t.Parallel()
 	svc := &fakeTurnService{}
@@ -295,10 +289,8 @@ func TestAdapterLookupByDedupeKeyEmptyKey(t *testing.T) {
 	}
 }
 
-// TestAdapterLookupByDedupeKeyMiss verifies the scheduler sees
-// Found=false when the tracker has no matching non-terminal turn.
-// This is the common path; the scheduler must treat it as "never
-// submitted" per the P1b plan.
+// TestAdapterLookupByDedupeKeyMiss 验证 tracker 无非终态 turn 时返回 Found=false。
+// 调度器必须把该路径视为从未提交过任务，不能把 miss 当作已占用。
 func TestAdapterLookupByDedupeKeyMiss(t *testing.T) {
 	t.Parallel()
 	svc := &fakeTurnService{}
@@ -315,9 +307,8 @@ func TestAdapterLookupByDedupeKeyMiss(t *testing.T) {
 	}
 }
 
-// TestAdapterLookupByDedupeKeyHit verifies the adapter forwards the
-// tracker's LocalID as ObservedTurn.TurnID, matching what StartTurn
-// would have recorded on the run row.
+// TestAdapterLookupByDedupeKeyHit 验证 adapter 将 tracker 的 LocalID 转为
+// ObservedTurn.TurnID，与 StartTurn 写入 run row 的 ID 保持一致。
 func TestAdapterLookupByDedupeKeyHit(t *testing.T) {
 	t.Parallel()
 	svc := &fakeTurnService{
@@ -338,8 +329,8 @@ func TestAdapterLookupByDedupeKeyHit(t *testing.T) {
 	}
 }
 
-// TestAdapterLookupByDedupeKeyServiceError wraps the underlying error
-// so the scheduler can log it while still reporting Found=false.
+// TestAdapterLookupByDedupeKeyServiceError 验证底层错误会被包装返回，
+// 同时保持 Found=false，便于调度器记录失败而不误判命中。
 func TestAdapterLookupByDedupeKeyServiceError(t *testing.T) {
 	t.Parallel()
 	svc := &fakeTurnService{
@@ -357,9 +348,8 @@ func TestAdapterLookupByDedupeKeyServiceError(t *testing.T) {
 	}
 }
 
-// TestAdapterStartTurnForwardsDedupeKey asserts the adapter threads
-// StartTurnRequest.DedupeKey into CronPrepareInput so the tracker
-// can register it during CronPrepareTurn/CronStartTurn.
+// TestAdapterStartTurnForwardsDedupeKey 验证 StartTurnRequest.DedupeKey 会进入
+// CronPrepareInput，后续 tracker 才能在 prepare/start 阶段登记。
 func TestAdapterStartTurnForwardsDedupeKey(t *testing.T) {
 	t.Parallel()
 	svc := &fakeTurnService{}
@@ -379,7 +369,7 @@ func TestAdapterStartTurnForwardsDedupeKey(t *testing.T) {
 	}
 }
 
-// ----- decodeRuntimeConfig -----
+// ----- decodeRuntimeConfig 路径 -----
 
 func TestDecodeRuntimeConfigMalformedReturnsNil(t *testing.T) {
 	t.Parallel()
@@ -391,11 +381,11 @@ func TestDecodeRuntimeConfigMalformedReturnsNil(t *testing.T) {
 	}
 }
 
-// ----- Fallback wiring -----
+// ----- 可选依赖 wiring 路径 -----
 
 func TestProvideTurnSubmitterFallsBackToNoop(t *testing.T) {
 	t.Parallel()
-	// nil service + nil resolver -> Noop per the optional-dep fallback.
+	// service 和 resolver 都缺失时只能返回 Noop submitter，避免启动时隐式装配假依赖。
 	sub := provideTurnSubmitter(turnSubmitterParams{})
 	if _, err := sub.StartTurn(context.Background(), StartTurnRequest{}); !errors.Is(err, ErrSubmitterNotWired) {
 		t.Fatalf("noop fallback should StartTurn with ErrSubmitterNotWired, got %v", err)
@@ -413,8 +403,7 @@ func TestProvideTurnSubmitterPromotesWhenBothDepsPresent(t *testing.T) {
 }
 
 func stringContains(s, sub string) bool {
-	// Mirror the small helper from store_test.go so this file doesn't
-	// depend on strings imports beyond what stdlib already provides.
+	// 复用本文件内的小 helper，避免为了少量断言扩大 imports 面。
 	if len(sub) == 0 {
 		return true
 	}
@@ -426,7 +415,7 @@ func stringContains(s, sub string) bool {
 	return false
 }
 
-// ----- Bootstrap paths -----
+// ----- Bootstrap 路径 -----
 
 type recordingBootstrapper struct {
 	calls  []BootstrapRequest
@@ -510,9 +499,8 @@ func TestAdapterStartTurnBootstrapperEmptyThreadIDRejects(t *testing.T) {
 
 func TestAdapterStartTurnFallsBackToNotBootstrappedWhenNoSeam(t *testing.T) {
 	t.Parallel()
-	// Intentionally don't call WithBootstrapper: the adapter must
-	// continue to surface ErrJobNotBootstrapped so the scheduler
-	// retries per its budget.
+	// 故意不调用 WithBootstrapper：adapter 必须继续返回 ErrJobNotBootstrapped，
+	// 让调度器按预算重试，而不是静默创建线程。
 	a := NewTurnServiceAdapter(slog.Default(), &fakeTurnService{}, &fakeResolver{})
 	_, err := a.StartTurn(context.Background(), StartTurnRequest{JobID: "j"})
 	if !errors.Is(err, ErrJobNotBootstrapped) {
@@ -528,7 +516,7 @@ func TestNoopThreadBootstrapperSignals(t *testing.T) {
 	}
 }
 
-// ----- ThreadServiceBootstrapper -----
+// ----- ThreadServiceBootstrapper 路径 -----
 
 type fakeThreadStarter struct {
 	startFn func(context.Context, contract.CronStartThreadRequest) (contract.CronStartThreadResult, error)

@@ -12,7 +12,7 @@ import (
 
 // stubAgentLauncher 是 AgentLauncher 接口的测试假实现。
 // 记录最近一次 LaunchAgent 调用入参 + 注入返回错误 + 返回 threadID，
-// 便于断言。F1.5 后 LaunchAgent 返回值是 (threadID, error)。
+// 便于断言当前 LaunchAgent 的 (threadID, error) 返回边界。
 type stubAgentLauncher struct {
 	called         int
 	lastReq        contract.LaunchRequest
@@ -319,13 +319,11 @@ func TestClassifyAgentLaunchError(t *testing.T) {
 	}
 }
 
-// ====================================================================
-// F1.5 / ADR-009: spawning_thread_id 写回单测。
-// ====================================================================
+// 下方用例覆盖 launch 成功后的 spawning_thread_id 写回路径。
 
 // TestAgentExecutor_Execute_Spawn_WritesBackThreadID 验证成功 launch 后
 // AgentExecutor 调用 NodeSpawnRecorder.RecordNodeSpawn 传入正确的 dagKey /
-// nodeKey / threadID。该用例覃盖 ADR-009 §3 「写入时机」核心约定。
+// nodeKey / threadID，覆盖“线程创建成功后再写回”的持久化时机。
 func TestAgentExecutor_Execute_Spawn_WritesBackThreadID(t *testing.T) {
 	t.Parallel()
 	launcher := &stubAgentLauncher{threadID: "thread-success"}
@@ -420,7 +418,7 @@ func TestAgentExecutor_Execute_Spawn_FallsBackToNodeKeys(t *testing.T) {
 }
 
 // TestAgentExecutorExecuteSpawnNilRecorderSkipsWriteback 验证 recorder=nil
-// 时 AgentExecutor 仍能正常 launch + 返回 done。保证 F1.5 之前的 wiring 不被破坏。
+// 时 AgentExecutor 仍能正常 launch + 返回 done，保持无写回依赖的兼容启动路径。
 func TestAgentExecutorExecuteSpawnNilRecorderSkipsWriteback(t *testing.T) {
 	t.Parallel()
 	launcher := &stubAgentLauncher{threadID: "thread-nil-recorder"}

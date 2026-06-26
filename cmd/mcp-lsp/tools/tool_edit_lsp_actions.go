@@ -18,7 +18,8 @@ type codeActionResult struct {
 	Actions       []string           `json:"actions,omitempty"`
 }
 
-// handleCodeAction 处理代码动作。
+// handleCodeAction 解析位置并调用 LSP code_action。
+// 只在唯一 action 带 WorkspaceEdit 时自动应用，多候选时返回标题让调用方显式选择。
 func (h EditHandler) handleCodeAction(ctx context.Context, req EditRequest) (any, error) {
 	if strings.TrimSpace(req.Pos) == "" {
 		return nil, fmt.Errorf("code_action requires pos (file_path:line:column)")
@@ -42,7 +43,8 @@ func (h EditHandler) handleCodeAction(ctx context.Context, req EditRequest) (any
 	return h.applyCodeActions(ctx, actions, normalizeEditVersion(req.Version), manager)
 }
 
-// applyCodeActions 应用代码actions。
+// applyCodeActions 应用唯一可直接落盘的 WorkspaceEdit。
+// 多个 action 或无 edit 时返回 no_change，避免工具替模型做不透明选择。
 func (h EditHandler) applyCodeActions(ctx context.Context, actions []protocol.CodeActionResult, version int, manager lspmanager.Manager) (any, error) {
 	if len(actions) == 0 {
 		return emptyListEnvelope{Success: true, Data: []any{}, Meta: resultMeta{Count: 0, Message: "no code actions found"}}, nil
@@ -75,7 +77,7 @@ func (h EditHandler) applyCodeActions(ctx context.Context, actions []protocol.Co
 	}, nil
 }
 
-// handleFormat 处理格式化。
+// handleFormat 执行 LSP format 并走同一套 WorkspaceEdit 落盘路径。
 func (h EditHandler) handleFormat(ctx context.Context, req EditRequest) (any, error) {
 	if strings.TrimSpace(req.FilePath) == "" {
 		return nil, fmt.Errorf("format requires file_path")
@@ -98,6 +100,7 @@ func (h EditHandler) handleFormat(ctx context.Context, req EditRequest) (any, er
 	return h.applyFormatEdits(ctx, manager, path, edits, normalizeEditVersion(req.Version))
 }
 
+// applyFormatEdits 应用格式化 edits，并把 LSP 同步警告透出到工具结果。
 func (h EditHandler) applyFormatEdits(ctx context.Context, manager lspmanager.Manager, path string, edits []protocol.TextEdit, version int) (any, error) {
 	if len(edits) == 0 {
 		return h.formatNoChange(path, manager), nil
@@ -121,6 +124,7 @@ func (h EditHandler) applyFormatEdits(ctx context.Context, manager lspmanager.Ma
 	}, nil
 }
 
+// resolveEditFilePath 把工具入参路径解析到允许的工作区或应用托管目录。
 func (h EditHandler) resolveEditFilePath(ctx context.Context, rawPath string) (string, error) {
 	root, roots, err := toolWorkspaceRoots(ctx)
 	if err != nil {
@@ -129,6 +133,7 @@ func (h EditHandler) resolveEditFilePath(ctx context.Context, rawPath string) (s
 	return resolveWorkspacePathInRoots(root, roots, rawPath)
 }
 
+// formatNoChange 返回格式化无改动结果。
 func (h EditHandler) formatNoChange(path string, manager lspmanager.Manager) editEnvelope {
 	return editEnvelope{
 		Status:               "no_change",
@@ -139,6 +144,7 @@ func (h EditHandler) formatNoChange(path string, manager lspmanager.Manager) edi
 	}
 }
 
+// codeActionRequiresApply 返回候选 action 标题，要求调用方重新指定动作。
 func (h EditHandler) codeActionRequiresApply(actions []protocol.CodeActionResult, message string, manager lspmanager.Manager) codeActionResult {
 	return codeActionResult{
 		editEnvelope: editEnvelope{
@@ -151,15 +157,18 @@ func (h EditHandler) codeActionRequiresApply(actions []protocol.CodeActionResult
 	}
 }
 
+// defaultFormattingOptions 固定 Go/TS 等 LSP 通用的 tab 配置，避免模型入参漂移。
 func defaultFormattingOptions() protocol.FormattingOptions {
 	return protocol.FormattingOptions{TabSize: 4, InsertSpaces: false}
 }
 
+// editableCodeAction 保存可直接应用的 code action 标题和 WorkspaceEdit。
 type editableCodeAction struct {
 	title string
 	edit  *protocol.WorkspaceEdit
 }
 
+// codeActionsWithWorkspaceEdit 过滤出带 WorkspaceEdit 的 action。
 func codeActionsWithWorkspaceEdit(actions []protocol.CodeActionResult) []editableCodeAction {
 	editable := make([]editableCodeAction, 0, len(actions))
 	for _, action := range actions {
@@ -174,7 +183,7 @@ func codeActionsWithWorkspaceEdit(actions []protocol.CodeActionResult) []editabl
 	return editable
 }
 
-// codeActionTitles 处理代码动作titles。
+// codeActionTitles 提取候选 action 标题，供多候选 no_change 响应展示。
 func codeActionTitles(actions []protocol.CodeActionResult) []string {
 	titles := make([]string, 0, len(actions))
 	for _, action := range actions {
@@ -189,6 +198,7 @@ func codeActionTitles(actions []protocol.CodeActionResult) []string {
 	return titles
 }
 
+// codeActionStatus 把 edit 数量转换成工具结果状态。
 func codeActionStatus(totalEdits int) string {
 	if totalEdits == 0 {
 		return "no_change"
@@ -196,6 +206,7 @@ func codeActionStatus(totalEdits int) string {
 	return "applied"
 }
 
+// codeActionApplyMessage 生成 code_action 应用结果提示。
 func codeActionApplyMessage(title string, totalEdits int) string {
 	if totalEdits == 0 {
 		return fmt.Sprintf("code action %q returned no changes", title)
@@ -203,7 +214,8 @@ func codeActionApplyMessage(title string, totalEdits int) string {
 	return fmt.Sprintf("applied code action %q", title)
 }
 
-// applyTextEditsToPath 把文本编辑应用为路径。
+// applyTextEditsToPath 把 LSP TextEdit 应用到磁盘并同步回对应 manager。
+// 同步失败时尝试写回原始内容，失败细节通过 withRollbackError 合并返回。
 func (h EditHandler) applyTextEditsToPath(ctx context.Context, absPath string, edits []protocol.TextEdit, version int, manager lspmanager.Manager) (*fileEditResult, error) {
 	info, err := os.Stat(absPath)
 	if err != nil {

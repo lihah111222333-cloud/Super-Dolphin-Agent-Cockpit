@@ -1,11 +1,12 @@
 package agent
 
-// AgentState is a named string type for agent lifecycle states.
+// AgentState 是 agent 生命周期状态的 wire 枚举类型。
 type AgentState string
 
-// AgentTrigger is a named string type for agent lifecycle triggers.
+// AgentTrigger 是驱动 agent 状态机迁移的 wire 事件枚举类型。
 type AgentTrigger string
 
+// agent 生命周期状态常量。
 const (
 	StateProvisioning      AgentState = "provisioning"
 	StateIdle              AgentState = "idle"
@@ -19,6 +20,7 @@ const (
 	StateFailed            AgentState = "failed"
 )
 
+// agent 生命周期触发器常量。
 const (
 	TriggerLaunchSucceeded    AgentTrigger = "launch_succeeded"
 	TriggerLaunchFailed       AgentTrigger = "launch_failed"
@@ -33,22 +35,26 @@ const (
 	TriggerProcessExited      AgentTrigger = "process_exited"
 )
 
+// StateDefinition 描述一个状态及其面向诊断/展示的说明。
 type StateDefinition struct {
 	Name        AgentState
 	Description string
 }
 
+// TriggerDefinition 描述一个触发器及其面向诊断/展示的说明。
 type TriggerDefinition struct {
 	Name        AgentTrigger
 	Description string
 }
 
+// TransitionDefinition 定义状态机允许的一条迁移边。
 type TransitionDefinition struct {
 	From    AgentState
 	Trigger AgentTrigger
 	To      AgentState
 }
 
+// StateDefinitions 是 agent 状态机的状态说明表。
 var StateDefinitions = []StateDefinition{
 	{Name: StateProvisioning, Description: "Launching agent process and wiring runtime"},
 	{Name: StateIdle, Description: "Ready to accept a new turn"},
@@ -62,6 +68,7 @@ var StateDefinitions = []StateDefinition{
 	{Name: StateFailed, Description: "Launch or runtime failed and needs recovery"},
 }
 
+// TriggerDefinitions 是 agent 状态机的触发器说明表。
 var TriggerDefinitions = []TriggerDefinition{
 	{Name: TriggerLaunchSucceeded, Description: "Launch or re-launch completed successfully"},
 	{Name: TriggerLaunchFailed, Description: "Launch or re-launch failed"},
@@ -76,6 +83,8 @@ var TriggerDefinitions = []TriggerDefinition{
 	{Name: TriggerProcessExited, Description: "Underlying process exited"},
 }
 
+// TransitionDefinitions 是 agent 状态机的允许迁移表。
+// 调用方应通过 AllowedTriggers 查询合法触发器，不要在 UI 或 store 中复制规则。
 var TransitionDefinitions = []TransitionDefinition{
 	{From: StateProvisioning, Trigger: TriggerLaunchSucceeded, To: StateIdle},
 	{From: StateProvisioning, Trigger: TriggerLaunchFailed, To: StateFailed},
@@ -112,7 +121,7 @@ var TransitionDefinitions = []TransitionDefinition{
 	{From: StateFailed, Trigger: TriggerStopRequested, To: StateStopping},
 }
 
-// AllowedTriggers 处理allowedtriggers。
+// AllowedTriggers 返回指定状态下允许触发的迁移事件。
 func AllowedTriggers(state AgentState) []AgentTrigger {
 	triggers := make([]AgentTrigger, 0, 4)
 	for _, transition := range TransitionDefinitions {
@@ -123,10 +132,8 @@ func AllowedTriggers(state AgentState) []AgentTrigger {
 	return triggers
 }
 
-// AllowedTriggersStr is a convenience wrapper that accepts a plain string
-// state and returns trigger names as plain strings, suitable for
-// diagnostics and error messages at the statemachine boundary.
-// AllowedTriggersStr 处理allowedtriggersstr。
+// AllowedTriggersStr 接收普通字符串状态并返回字符串触发器列表。
+// 该 helper 面向 statemachine 边界的诊断和错误消息，避免调用方重复做类型转换。
 func AllowedTriggersStr(state string) []string {
 	triggers := AllowedTriggers(AgentState(state))
 	result := make([]string, len(triggers))

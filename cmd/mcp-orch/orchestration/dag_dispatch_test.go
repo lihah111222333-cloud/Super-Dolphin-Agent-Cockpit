@@ -155,8 +155,8 @@ func assertDispatchWakeup(t *testing.T, enqueued []taskdag.EnqueueWakeupInput) {
 	}
 }
 
-// TestDispatchNode_PendingAccepted: pending 节点同样允许 dispatch（F6.4 跳 enqueue
-// 后节点仍在 pending、依赖满足；本工具是唯一推进路径）。
+// TestDispatchNode_PendingAccepted 验证依赖已满足但尚未自动入队的 pending 节点仍可手动派发。
+// 这个入口是人工补派的推进路径，不能被 ready-only 判断拦住。
 func TestDispatchNode_PendingAccepted(t *testing.T) {
 	t.Parallel()
 	stub := &stubDispatchStore{

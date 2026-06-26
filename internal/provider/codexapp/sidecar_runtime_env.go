@@ -32,7 +32,7 @@ func lookupTrimmedEnvValue(env []string, key string) (string, bool) {
 	return value, ok && value != ""
 }
 
-// Pure helpers (migrated from the deleted peer_spawn.go).
+// peerEnvForTest 为测试暴露与生产一致的 peer 环境组装路径。
 func (l *execPeerLauncher) peerEnvForTest(name string, parent []string) ([]string, error) {
 	if l == nil || l.workspaceRoots == nil {
 		return peerProcessEnv(name, parent, nil)
@@ -40,7 +40,9 @@ func (l *execPeerLauncher) peerEnvForTest(name string, parent []string) ([]strin
 	return peerProcessEnv(name, parent, l.workspaceRoots())
 }
 
-// peerProcessEnv 处理peer进程env。
+// peerProcessEnv 组装 sidecar peer 进程环境变量。
+// 它先清洗父进程中的数据库连接变量，再按 peer 名称保留可信 ORCH_SQLITE_PATH，
+// 最后用配置的 workspace roots 覆盖默认工作区边界，避免 peer 继承错误目录。
 func peerProcessEnv(name string, parent []string, configuredRoots []string) ([]string, error) {
 	orchSQLitePath, hasOrchSQLitePath, err := trustedOrchSQLitePath(parent, name)
 	if err != nil {
@@ -68,6 +70,8 @@ func peerProcessEnv(name string, parent []string, configuredRoots []string) ([]s
 	return applyMcpLSPPeerWorkspaceEnv(env, name, configuredRoots)
 }
 
+// applyMcpLSPPeerWorkspaceEnv 为 mcp-lsp 注入可信 workspace root 环境。
+// 显式配置优先；继承父环境时必须重新校验，缺少 root 会 fail-fast 阻止 LSP 扫错仓库。
 func applyMcpLSPPeerWorkspaceEnv(env []string, name string, configuredRoots []string) ([]string, error) {
 	if strings.TrimSpace(name) != "mcp-lsp" {
 		return env, nil
@@ -92,6 +96,8 @@ func applyMcpLSPPeerWorkspaceEnv(env []string, name string, configuredRoots []st
 	return nil, errors.New("mcp-lsp peer requires configured workspace root")
 }
 
+// trustedOrchSQLitePath 只允许 mcp-orch 继承公开 SQLite 路径并转写为内部环境变量。
+// 如果公开和内部路径同时存在且不一致，立即报错，避免 peer 连接到错误数据库。
 func trustedOrchSQLitePath(parent []string, name string) (string, bool, error) {
 	publicSQLitePath, hasPublicSQLitePath := lookupTrimmedEnvValue(parent, contract.SQLitePathEnvKey)
 	internalSQLitePath, hasInternalSQLitePath := lookupTrimmedEnvValue(parent, contract.InternalSQLitePathEnvKey)
@@ -174,7 +180,7 @@ func validateMcpLSPPeerWorkspaceRoot(root string) error {
 	return nil
 }
 
-// validateMcpLSPPeerWorkspaceRoots 校验MCPLSPpeer工作区根目录。
+// validateMcpLSPPeerWorkspaceRoots 校验 mcp-lsp peer 传入的工作区根目录列表。
 func validateMcpLSPPeerWorkspaceRoots(raw string) error {
 	raw = strings.TrimSpace(raw)
 	if raw == "" {
@@ -218,9 +224,8 @@ func normalizePeerWorkspaceRoots(roots []string) ([]string, error) {
 	return out, nil
 }
 
-// resolvePeerBinDirs returns the ordered list of directories to probe for peer
-// binaries. GO_AGENT_PEER_BIN_DIR (path-list) wins over os.Executable()'s dir.
-// resolvePeerBinDirs 解析peerbin目录。
+// resolvePeerBinDirs 返回 peer 二进制的探测目录顺序。
+// GO_AGENT_PEER_BIN_DIR 覆盖默认可执行文件目录，便于打包和测试环境显式注入。
 func resolvePeerBinDirs() ([]string, error) {
 	var dirs []string
 	if override := strings.TrimSpace(os.Getenv(peerBinDirEnv)); override != "" {
@@ -240,11 +245,7 @@ func resolvePeerBinDirs() ([]string, error) {
 
 // findPeerBinary 查找peer二进制。
 func findPeerBinary(dirs []string, name string) (string, bool) {
-	// On Windows the binaries are mcp-orch.exe / mcp-lsp.exe but
-	// defaultPeerNames returns the unsuffixed names (Unix convention).
-	// Probe the .exe variant first on Windows so we resolve before
-	// falling back to the literal name (which lets callers that already
-	// include ".exe" still work).
+	// Windows peer 文件实际带 .exe 后缀；先探测补后缀形式，再回退到原始名称以兼容调用方已传 .exe。
 	candidates := []string{name}
 	if runtime.GOOS == "windows" && !strings.EqualFold(filepath.Ext(name), ".exe") {
 		candidates = []string{name + ".exe", name}

@@ -22,7 +22,8 @@ type historyBackend struct {
 	sessionDir string
 }
 
-// ReadHistory 读取history。
+// ReadHistory 从 Claude CLI 的 JSONL 会话文件读取完整消息历史。
+// 新会话可能还没有落盘文件，此时返回空结果而不是把“未产生历史”视为错误。
 func (h *historyBackend) ReadHistory(ctx context.Context, threadID string) ([]Message, error) {
 	if err := shared.CheckCtx(ctx); err != nil {
 		return nil, err
@@ -54,7 +55,8 @@ func (h *historyBackend) ReadHistory(ctx context.Context, threadID string) ([]Me
 	return out, nil
 }
 
-// ReadMessagesPage 读取消息page。
+// ReadMessagesPage 按 JSONL 游标分页读取 Claude CLI 历史。
+// 路径不存在时保持空页语义，真正的文件读取或解析错误才向上返回。
 func (h *historyBackend) ReadMessagesPage(ctx context.Context, threadID string, req dto.MessagePageRequest) (historyjsonl.JSONLPageResult[Message], error) {
 	if err := shared.CheckCtx(ctx); err != nil {
 		return historyjsonl.JSONLPageResult[Message]{}, err
@@ -73,7 +75,8 @@ func (h *historyBackend) ReadMessagesPage(ctx context.Context, threadID string, 
 	return page, nil
 }
 
-// sessionPath 处理会话路径。
+// sessionPath 在 Claude projects 目录下定位指定 thread 的 JSONL 文件。
+// Claude 会按项目目录分散保存历史，这里从 glob 结果尾部开始挑最新的真实文件。
 func (h *historyBackend) sessionPath(threadID string) (string, error) {
 	threadID = strings.TrimSpace(threadID)
 	if threadID == "" {
@@ -113,7 +116,8 @@ func (h *historyBackend) rootDir() (string, error) {
 	return filepath.Join(home, ".claude"), nil
 }
 
-// parseHistoryLine 解析history行。
+// parseHistoryLine 把 Claude CLI 的一行 JSONL 转成统一历史消息。
+// 非 user/assistant 事件会被丢弃，图片块会尽量恢复成前端可预览的 metadata。
 func parseHistoryLine(raw []byte) (Message, bool) {
 	var line historyLine
 	if err := json.Unmarshal(raw, &line); err != nil {
@@ -160,12 +164,8 @@ func normalizeHistoryUserContent(text string) (string, json.RawMessage) {
 	return strings.TrimSpace(text), metadata
 }
 
-// extractImageContentBlocksMetadata reconstructs an InputItem-style metadata
-// payload from native Anthropic image content blocks. The original local
-// filesystem path is not preserved by claude CLI's history (only the inline
-// base64), so we emit a `data:` URL the frontend can render directly via
-// AttachmentPreview without going through the /clipboard asset route.
-// extractImageContentBlocksMetadata 提取image内容blocks元数据。
+// extractImageContentBlocksMetadata 从 Claude 原生 image content block 还原 InputItem metadata。
+// Claude 历史不保留本地文件路径，只保留 inline base64，因此这里生成 data: URL 供前端直接预览。
 func extractImageContentBlocksMetadata(items []historyContentItem) json.RawMessage {
 	inputs := make([]map[string]any, 0)
 	for _, item := range items {
@@ -188,7 +188,8 @@ func extractImageContentBlocksMetadata(items []historyContentItem) json.RawMessa
 	return raw
 }
 
-// historyImageInputFromSource 从source处理historyimageinput。
+// historyImageInputFromSource 将 Claude image source 转成前端 InputItem 形状。
+// base64 图片会补 sha256，后续去重占位符可用它找回原始预览。
 func historyImageInputFromSource(source *historyImageSource) map[string]any {
 	if source == nil {
 		return nil
@@ -233,12 +234,12 @@ func sha256OfBase64Data(data string) string {
 	return hex.EncodeToString(sum[:])
 }
 
-// extractInjectedAttachmentMetadata 提取injectedattachment元数据。
+// extractInjectedAttachmentMetadata 从注入的文件提示块还原附件 metadata。
+// 只有识别到专用 header 才消费文本，避免普通用户内容被误当作结构化附件。
 func extractInjectedAttachmentMetadata(text string) (string, json.RawMessage) {
 	trimmed := strings.TrimLeft(text, "\ufeff \t\r\n")
 	if !strings.HasPrefix(trimmed, injectedFileHintsHeader) {
-		// NOTE: Claude history currently persists injected file hints as text; recover
-		// structured attachment metadata directly if Claude adds non-text history items.
+		// Claude 目前把文件提示持久化为文本；若未来出现非文本历史项，这里再直接恢复结构化 metadata。
 		return text, nil
 	}
 	remainder := strings.TrimLeft(trimmed[len(injectedFileHintsHeader):], "\r\n")

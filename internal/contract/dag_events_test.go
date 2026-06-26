@@ -7,7 +7,7 @@ import (
 	"testing"
 )
 
-// ParseDAGEvents / FilterEventsByKind 单测覆盖矩阵（R2 P2 #4）：
+// ParseDAGEvents / FilterEventsByKind 单测覆盖 DAG 事件 JSON 解析与 kind 过滤边界：
 //   - nil / 空数组 / "null" → (nil, nil)
 //   - 单条 node_spawn → 字段完整解出
 //   - 混合 kind → ParseDAGEvents 全解出；FilterEventsByKind 按 kind 过滤

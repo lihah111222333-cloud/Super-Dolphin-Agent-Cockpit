@@ -6,25 +6,20 @@ import (
 	"sync/atomic"
 )
 
-// PlainTextRenderer turns a tool result into the LLM-facing plain-text
-// representation. Returning handled=false signals the caller to fall back
-// to the next layer (string/ToPlainText/raw JSON).
+// PlainTextRenderer 将工具结果转换为面向 LLM 的纯文本。
+// handled=false 表示继续回退到 string、ToPlainText 或 raw JSON 渲染层。
 type PlainTextRenderer func(value any) (text string, handled bool)
 
-// plainTextProvider is implemented by tool result types that already know
-// how to render themselves into plain text. Tool-side response structs use
-// this to keep the formatting close to the data that produced it.
+// plainTextProvider 由能自行渲染纯文本的工具结果实现，让格式逻辑贴近数据结构。
 type plainTextProvider interface {
 	ToPlainText() string
 }
 
+// registeredPlainTextRenderer 保存全局 fallback 渲染器，atomic.Value 允许测试安全重置。
 var registeredPlainTextRenderer atomic.Value // PlainTextRenderer
 
-// RegisterToolResultPlainTextRenderer installs a global fallback renderer
-// used by both the direct stdio path (toolCallResultResponse) and the
-// scoped MCP path (cmd/mcp-lsp wrapScopedToolResult). Passing nil clears
-// the registration so tests can reset state.
-// RegisterToolResultPlainTextRenderer 注册工具结果纯文本渲染器。
+// RegisterToolResultPlainTextRenderer 安装全局 fallback renderer。
+// stdio 直连和 scoped MCP path 共用该 renderer；传 nil 会清空注册，便于测试复位。
 func RegisterToolResultPlainTextRenderer(renderer PlainTextRenderer) {
 	if renderer == nil {
 		registeredPlainTextRenderer.Store(PlainTextRenderer(nil))
@@ -39,15 +34,9 @@ func currentPlainTextRenderer() PlainTextRenderer {
 	return v
 }
 
-// ResolveToolResultText collapses the rendering precedence into one place:
-// 1) raw string passes through as-is;
-// 2) plainTextProvider.ToPlainText (per-tool struct method);
-// 3) toolResultTextProvider.ToolResultText (legacy contract);
-// 4) registered PlainTextRenderer (cross-package fallback);
-// 5) JSON marshal of the value.
-// raw is the already-marshaled JSON; pass nil to make this function do the
-// marshal itself when needed. Returns the resolved text and any marshal err.
-// ResolveToolResultText 解析工具结果文本。
+// ResolveToolResultText 按固定优先级解析工具结果的 LLM 可读文本。
+// 优先使用 string/ToPlainText/legacy ToolResultText/global renderer；都不命中时回退到 JSON。
+// raw 可传入已编码 JSON，避免 BuildToolCallResult 重复 marshal。
 func ResolveToolResultText(value any, raw []byte) (string, error) {
 	if value == nil {
 		return "null", nil
@@ -76,14 +65,8 @@ func ResolveToolResultText(value any, raw []byte) (string, error) {
 	return string(encoded), nil
 }
 
-// BuildToolCallResult assembles the {content, structuredContent, isError}
-// envelope shared by stdio, http, and scoped MCP transports.
-//
-// Note: the "content" field uses []map[string]string (rather than the
-// internal textContent struct) so that the rendered envelope is friendly
-// to cross-package consumers and tests that have to interrogate the slice
-// without importing common's unexported types. JSON marshaling is identical.
-// BuildToolCallResult 构建工具call结果。
+// BuildToolCallResult 生成 stdio、HTTP 和 scoped MCP 共用的工具调用结果 envelope。
+// content 使用 []map[string]string，方便跨包测试读取，同时 JSON 线格式与 textContent 等价。
 func BuildToolCallResult(value any) (map[string]any, error) {
 	raw, err := json.Marshal(value)
 	if err != nil {

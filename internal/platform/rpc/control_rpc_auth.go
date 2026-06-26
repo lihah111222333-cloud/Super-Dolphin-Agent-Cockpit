@@ -16,16 +16,19 @@ import (
 )
 
 const (
+	// controlRPCSessionTokenEnv 是当前控制 RPC 会话令牌环境变量。
 	controlRPCSessionTokenEnv       = "GO_AGENT_CTL_SESSION_TOKEN"
 	legacyControlRPCSessionTokenEnv = "GO_AGENT_MCP_SESSION_TOKEN"
 )
 
+// controlRPCAuthAssigner 为 TCP control-plane handler 增加连接级注册认证。
 type controlRPCAuthAssigner struct {
 	base jrpc2.Assigner
 	auth *controlRPCConnectionAuth
 }
 
-// Assign wraps TCP control-plane handlers with the per-connection registration gate.
+// Assign 为 TCP control-plane handler 包装连接级注册认证门禁。
+// 只有 ctl/register 携带正确 session token 后，同一连接上的其他方法才会继续执行。
 func (a controlRPCAuthAssigner) Assign(ctx context.Context, method string) jrpc2.Handler {
 	if a.base == nil {
 		return nil
@@ -49,6 +52,7 @@ func (a controlRPCAuthAssigner) Assign(ctx context.Context, method string) jrpc2
 	})
 }
 
+// Names 透传底层 assigner 的方法名列表，保持 jrpc2 introspection 行为。
 func (a controlRPCAuthAssigner) Names() []string {
 	namer, ok := a.base.(jrpc2.Namer)
 	if !ok {
@@ -57,6 +61,7 @@ func (a controlRPCAuthAssigner) Names() []string {
 	return namer.Names()
 }
 
+// controlRPCConnectionAuth 记录单条控制 RPC 连接的认证状态。
 type controlRPCConnectionAuth struct {
 	expected string
 
@@ -64,11 +69,12 @@ type controlRPCConnectionAuth struct {
 	authenticated bool
 }
 
+// newControlRPCConnectionAuth 创建连接认证状态，expected 为空会让 register fail-fast。
 func newControlRPCConnectionAuth(expected string) *controlRPCConnectionAuth {
 	return &controlRPCConnectionAuth{expected: strings.TrimSpace(expected)}
 }
 
-// authorize requires ctl/register with the shared session token before other TCP RPC methods run.
+// authorize 要求同一连接先用共享 session token 完成 ctl/register。
 func (a *controlRPCConnectionAuth) authorize(method string, req *jrpc2.Request) error {
 	method = strings.TrimSpace(method)
 	if method == dto.MethodRegister {
@@ -80,6 +86,7 @@ func (a *controlRPCConnectionAuth) authorize(method string, req *jrpc2.Request) 
 	return rpcError(CodeInvalidState, "control rpc unauthorized: register with a valid session token first")
 }
 
+// authorizeRegister 校验 register 请求中的 session token。
 func (a *controlRPCConnectionAuth) authorizeRegister(req *jrpc2.Request) error {
 	if a.expected == "" {
 		return rpcError(CodeInvalidState, "control rpc session token is not configured")
@@ -97,19 +104,21 @@ func (a *controlRPCConnectionAuth) authorizeRegister(req *jrpc2.Request) error {
 	return nil
 }
 
+// markAuthenticated 在 register 成功后标记当前连接已认证。
 func (a *controlRPCConnectionAuth) markAuthenticated() {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	a.authenticated = true
 }
 
+// isAuthenticated 读取当前连接认证状态。
 func (a *controlRPCConnectionAuth) isAuthenticated() bool {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	return a.authenticated
 }
 
-// ensureControlRPCSessionToken preserves an inherited token or publishes a new one for local sidecars.
+// ensureControlRPCSessionToken 复用继承令牌，缺失时生成并发布给本地 sidecar。
 func ensureControlRPCSessionToken() (string, error) {
 	if token := controlRPCSessionTokenFromEnv(); token != "" {
 		return token, nil
@@ -119,11 +128,12 @@ func ensureControlRPCSessionToken() (string, error) {
 		return "", err
 	}
 	if err := os.Setenv(controlRPCSessionTokenEnv, token); err != nil {
-		return "", fmt.Errorf("set %s: %w", controlRPCSessionTokenEnv, err)
+		return "", ErrInvalidState(fmt.Sprintf("set %s: %v", controlRPCSessionTokenEnv, err))
 	}
 	return token, nil
 }
 
+// controlRPCSessionTokenFromEnv 按新旧环境变量顺序读取控制 RPC 会话令牌。
 func controlRPCSessionTokenFromEnv() string {
 	for _, key := range []string{controlRPCSessionTokenEnv, legacyControlRPCSessionTokenEnv} {
 		if token := strings.TrimSpace(os.Getenv(key)); token != "" {
@@ -133,20 +143,23 @@ func controlRPCSessionTokenFromEnv() string {
 	return ""
 }
 
+// newControlRPCSessionToken 生成带前缀的随机会话令牌。
 func newControlRPCSessionToken() (string, error) {
 	var raw [32]byte
 	if _, err := rand.Read(raw[:]); err != nil {
-		return "", fmt.Errorf("generate control rpc session token: %w", err)
+		return "", ErrInvalidState(fmt.Sprintf("generate control rpc session token: %v", err))
 	}
 	return "sd-" + hex.EncodeToString(raw[:]), nil
 }
 
+// setControlRPCAuthToken 写入服务端当前控制 RPC 认证令牌。
 func (s *Server) setControlRPCAuthToken(token string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.authToken = strings.TrimSpace(token)
 }
 
+// controlRPCAuthToken 读取服务端当前控制 RPC 认证令牌。
 func (s *Server) controlRPCAuthToken() string {
 	s.mu.RLock()
 	defer s.mu.RUnlock()

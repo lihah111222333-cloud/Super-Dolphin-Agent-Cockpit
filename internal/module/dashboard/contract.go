@@ -12,12 +12,14 @@ import (
 )
 
 // WorkflowMaterialWriteRequest 表示前端模板上传到 workflow sharedfile 的文本材料。
+// Path 必须落在 workflow 上传前缀下，Content 不允许为空。
 type WorkflowMaterialWriteRequest struct {
 	Path    string
 	Content string
 }
 
-// Service 定义 dashboard 模块对外暴露的全部查询和操作接口。
+// Service 定义 dashboard 模块对 RPC 层暴露的查询和操作接口。
+// 读接口允许可选 store 返回空切片；写接口必须通过 runtime/store 显式能力检查。
 type Service interface {
 	GetDashboard(ctx context.Context) (*Dashboard, error)
 	GetDashboardPage(ctx context.Context, page string) (*DashboardPage, error)

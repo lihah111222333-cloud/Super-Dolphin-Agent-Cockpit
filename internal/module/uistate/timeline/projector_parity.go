@@ -12,7 +12,8 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/util"
 )
 
-// planDeltaHandler 处理plandelta处理器。
+// planDeltaHandler 将增量计划事件合并到同一个 plan timeline item。
+// 同一 turn 的 plan 文本按 CallID 聚合，避免前端看到多个碎片化计划行。
 func planDeltaHandler(svc Service, onUpdated func(string)) func(turndto.PlanDelta) {
 	return func(ev turndto.PlanDelta) {
 		threadID, text := strings.TrimSpace(ev.ThreadID), planText(ev.Delta, ev.Payload)
@@ -41,7 +42,8 @@ func planDeltaHandler(svc Service, onUpdated func(string)) func(turndto.PlanDelt
 	}
 }
 
-// planUpdatedHandler 处理planupdated处理器。
+// planUpdatedHandler 用完整计划快照覆盖 timeline 中的 plan item。
+// 结构化 payload 会同时携带完成状态，供前端 checkbox/完成态展示使用。
 func planUpdatedHandler(svc Service, onUpdated func(string)) func(turndto.PlanUpdated) {
 	return func(ev turndto.PlanUpdated) {
 		content := planContent("", ev.Payload)
@@ -68,6 +70,8 @@ func planUpdatedHandler(svc Service, onUpdated func(string)) func(turndto.PlanUp
 	}
 }
 
+// agentErrorHandler 将 agent 运行错误追加为 timeline error item。
+// 缺少 threadID 的事件无法定位 UI 线程，直接丢弃以避免跨线程污染。
 func agentErrorHandler(svc Service, onUpdated func(string)) func(agentdto.AgentError) {
 	return func(ev agentdto.AgentError) {
 		threadID := strings.TrimSpace(ev.ThreadID)
@@ -79,6 +83,8 @@ func agentErrorHandler(svc Service, onUpdated func(string)) func(agentdto.AgentE
 	}
 }
 
+// agentFailedHandler 将 agent 失败事件追加为 timeline error item。
+// 失败事件没有 call 维度，ID 由 agent 和错误文本组合生成以保证同线程稳定展示。
 func agentFailedHandler(svc Service, onUpdated func(string)) func(agentdto.AgentFailed) {
 	return func(ev agentdto.AgentFailed) {
 		threadID := strings.TrimSpace(ev.ThreadID)
@@ -90,6 +96,8 @@ func agentFailedHandler(svc Service, onUpdated func(string)) func(agentdto.Agent
 	}
 }
 
+// itemKind 根据完成事件里的文件、命令和原始类型推导 timeline item 类型。
+// 缺少明确类型时保守归为 command，避免把可执行动作展示成普通消息。
 func itemKind(itemType, rawType, command, file string) string {
 	if strings.TrimSpace(file) != "" {
 		return "file"
@@ -108,6 +116,8 @@ func itemKind(itemType, rawType, command, file string) string {
 	}
 }
 
+// itemCompletedStatus 将完成事件映射为前端状态。
+// 文件写入成功显示 saved，命令或工具失败统一标记 failed。
 func itemCompletedStatus(kind string, success bool, exitCode int, errText string) string {
 	if !success || exitCode != 0 || strings.TrimSpace(errText) != "" {
 		return "failed"
@@ -118,7 +128,8 @@ func itemCompletedStatus(kind string, success bool, exitCode int, errText string
 	return "completed"
 }
 
-// itemCompletedHandler 处理itemcompleted处理器。
+// itemCompletedHandler 将 item 完成事件写回已有 timeline 行，必要时追加兜底行。
+// 兜底只处理足够自描述的事件，避免把纯消息完成事件误渲染成工具/命令。
 func itemCompletedHandler(svc Service, onUpdated func(string)) func(turndto.ItemCompleted) {
 	return func(ev turndto.ItemCompleted) {
 		threadID := strings.TrimSpace(ev.ThreadID)
@@ -142,7 +153,8 @@ func itemCompletedHandler(svc Service, onUpdated func(string)) func(turndto.Item
 	}
 }
 
-// applyItemCompleted 应用itemcompleted。
+// applyItemCompleted 用完成事件补齐已有 item 的状态、类型和错误字段。
+// 已有时间戳优先保留，避免完成事件覆盖 begin 事件的排序锚点。
 func applyItemCompleted(it *Item, ev turndto.ItemCompleted, success bool) {
 	it.Kind = itemKind(
 		util.FirstNonEmpty(strings.TrimSpace(ev.ItemType), it.ItemType),
@@ -178,6 +190,8 @@ func applyItemCompleted(it *Item, ev turndto.ItemCompleted, success bool) {
 	}
 }
 
+// appendCompletedItemFallback 在缺少 begin-side item 时追加完成态兜底行。
+// 该路径只用于可自描述的命令/文件/工具事件，防止普通消息被重复展示。
 func appendCompletedItemFallback(svc Service, threadID string, ev turndto.ItemCompleted, updateKey string, success bool) bool {
 	if !shouldAppendCompletedItemFallback(ev) {
 		return false
@@ -208,7 +222,8 @@ func appendCompletedItemFallback(svc Service, threadID string, ev turndto.ItemCo
 	return true
 }
 
-// shouldAppendCompletedItemFallback 判断appendcompleteditem兜底是否可用。
+// shouldAppendCompletedItemFallback 判断完成事件是否足以生成独立 timeline 行。
+// 没有 CallID 的普通 message 不追加，避免与消息投影链重复。
 func shouldAppendCompletedItemFallback(ev turndto.ItemCompleted) bool {
 	itemType := strings.TrimSpace(ev.ItemType)
 	command := strings.TrimSpace(ev.Command)
@@ -232,6 +247,8 @@ func isMessageItemType(itemType string) bool {
 	}
 }
 
+// applyToolCallCompleted 用工具结束事件补齐已有 tool item。
+// 大结果会先压缩 preview，防止 timeline 快照携带过大的工具输出。
 func applyToolCallCompleted(it *Item, ev tooldto.ToolCallEnd, success bool) {
 	it.Kind = "tool"
 	it.Status = toolCallStatus(success, ev.Error)
@@ -254,14 +271,11 @@ func applyToolCallCompleted(it *Item, ev tooldto.ToolCallEnd, success bool) {
 	}
 }
 
-// appendCompletedToolFallback 追加completed工具兜底。
+// appendCompletedToolFallback 在缺少 begin-side tool item 时追加完成态兜底行。
 func appendCompletedToolFallback(svc Service, threadID string, ev tooldto.ToolCallEnd, updateKey string, success bool) bool {
 	tool := strings.TrimSpace(ev.ToolName)
-	// Without a tool name the fallback row would render as “未知工具”, which
-	// is worse than dropping the orphan event — the matching Begin-side row
-	// (now keyed by CallID alone) carries the canonical name and stays in
-	// the timeline as the source of truth. We only append a fallback when
-	// ToolName is present so the new row is self-identifying.
+	// 没有工具名的兜底行只能渲染为“未知工具”，不如保留 begin-side 行作为权威展示。
+	// 因此只有 ToolName 存在时才追加新的完成态行。
 	if tool == "" {
 		return false
 	}
@@ -291,6 +305,7 @@ func appendCompletedToolFallback(svc Service, threadID string, ev tooldto.ToolCa
 	return true
 }
 
+// toolCallStatus 将工具结束结果映射为前端状态。
 func toolCallStatus(success bool, errText string) string {
 	if !success || strings.TrimSpace(errText) != "" {
 		return "failed"
@@ -298,20 +313,22 @@ func toolCallStatus(success bool, errText string) string {
 	return "completed"
 }
 
+// parsedPlanContent 承载结构化 plan payload 中的文本和完成态。
 type parsedPlanContent struct {
 	Text      string
 	Done      bool
 	DoneKnown bool
 }
 
+// planText 从增量文本或结构化 payload 中提取可展示计划文本。
 func planText(delta string, payload []byte) string {
 	return planContent(delta, payload).Text
 }
 
-// planContent 处理plan内容。
+// planContent 解析增量或完整计划 payload，优先保留结构化完成态。
 func planContent(delta string, payload []byte) parsedPlanContent {
 	if text := strings.TrimSpace(delta); text != "" {
-		// If delta looks like serialized JSON, try structured extraction first.
+		// delta 可能已经是序列化 JSON，先走结构化解析以保留步骤完成态。
 		if len(text) > 1 && (text[0] == '{' || text[0] == '[') {
 			if parsed := parseStructuredPlanContent([]byte(text)); parsed.Text != "" {
 				return parsed
@@ -325,13 +342,14 @@ func planContent(delta string, payload []byte) parsedPlanContent {
 	return parsedPlanContent{Text: strings.TrimSpace(string(payload))}
 }
 
-// parseStructuredPlan extracts human-readable text from a Codex structured
-// plan payload that contains an "explanation" string and/or a "plan" array
-// of {"status": ..., "step": ...} objects.
+// parseStructuredPlan 从结构化 plan payload 中提取前端可展示文本。
+// payload 可包含 explanation 字符串，也可包含 status/step 数组。
 func parseStructuredPlan(data []byte) string {
 	return parseStructuredPlanContent(data).Text
 }
 
+// parseStructuredPlanContent 按 JSON 顶层类型分派 plan payload 解析。
+// 非 JSON 或空 payload 返回零值，让调用方回退到原始文本。
 func parseStructuredPlanContent(data []byte) parsedPlanContent {
 	trimmed := strings.TrimSpace(string(data))
 	if len(trimmed) < 2 {
@@ -348,7 +366,7 @@ func parseStructuredPlanContent(data []byte) parsedPlanContent {
 	}
 }
 
-// parseStructuredPlanObject 解析structuredplanobject。
+// parseStructuredPlanObject 解析对象形式的 plan payload，并合并说明和步骤文本。
 func parseStructuredPlanObject(data []byte) parsedPlanContent {
 	var obj map[string]json.RawMessage
 	if json.Unmarshal(data, &obj) != nil {
@@ -374,7 +392,7 @@ func parseStructuredPlanObject(data []byte) parsedPlanContent {
 	return parsedPlanContent{}
 }
 
-// parsePlanSteps 解析plansteps。
+// parsePlanSteps 解析数组形式的 plan 步骤，并推导整体完成态。
 func parsePlanSteps(data []byte) (string, bool, bool) {
 	var steps []map[string]any
 	if json.Unmarshal(data, &steps) != nil || len(steps) == 0 {
@@ -398,6 +416,7 @@ func parsePlanSteps(data []byte) (string, bool, bool) {
 	return strings.Join(lines, "\n"), done && doneKnown, doneKnown
 }
 
+// planStepIcon 将步骤状态映射为紧凑列表前缀。
 func planStepIcon(status string) string {
 	if planStepDone(status) {
 		return "✅"
@@ -412,6 +431,7 @@ func planStepIcon(status string) string {
 	}
 }
 
+// planStepDone 判断步骤状态是否代表完成。
 func planStepDone(status string) bool {
 	switch strings.ToLower(strings.TrimSpace(status)) {
 	case "done", "completed", "complete", "success", "succeeded":
@@ -421,6 +441,7 @@ func planStepDone(status string) bool {
 	}
 }
 
+// previewText 截断 timeline preview 文本，避免大输出撑开快照。
 func previewText(text string) string {
 	text = strings.TrimSpace(text)
 	if text == "" {
@@ -435,7 +456,8 @@ func previewText(text string) string {
 
 const maxPreviewRunes = 200
 
-// compactToolResultPreview 处理紧凑列表工具结果preview。
+// compactToolResultPreview 从大型 JSON 工具结果中抽取少量关键字段作为 preview。
+// 非 JSON 或已经足够短的文本返回空串，让调用方使用原始截断逻辑。
 func compactToolResultPreview(text string) string {
 	text = strings.TrimSpace(text)
 	if len([]rune(text)) <= maxPreviewRunes || text == "" {
@@ -462,7 +484,7 @@ func compactToolResultPreview(text string) string {
 	return marshalLimitedPreview(compact)
 }
 
-// compactArrayPreview 处理紧凑列表arraypreview。
+// compactArrayPreview 压缩数组型工具结果，尽量保留前缀元素和 total/showing 摘要。
 func compactArrayPreview(raw []byte) string {
 	var items []json.RawMessage
 	if json.Unmarshal(raw, &items) != nil {
@@ -489,6 +511,7 @@ func compactArrayPreview(raw []byte) string {
 	return `{"total":0,"showing":0}`
 }
 
+// copyPreviewFields 复制对排查最有用且体积可控的 preview 字段。
 func copyPreviewFields(dst, src map[string]json.RawMessage) {
 	for _, key := range []string{
 		"success", "isError", "error", "message", "reason", "error_code", "errorCode",
@@ -501,6 +524,7 @@ func copyPreviewFields(dst, src map[string]json.RawMessage) {
 	}
 }
 
+// decodeStructuredPreview 解出 structuredContent 中可能嵌套的对象或 JSON 字符串。
 func decodeStructuredPreview(raw json.RawMessage) map[string]json.RawMessage {
 	if len(raw) == 0 {
 		return nil
@@ -515,7 +539,7 @@ func decodeStructuredPreview(raw json.RawMessage) map[string]json.RawMessage {
 	return obj
 }
 
-// marshalLimitedPreview 编码limitedpreview。
+// marshalLimitedPreview 逐级删减 preview 字段，直到 JSON 文本落入 timeline 长度限制。
 func marshalLimitedPreview(fields map[string]json.RawMessage) string {
 	compact := clonePreviewFields(fields)
 	if out := marshalPreviewIfWithinLimit(compact); out != "" {
@@ -542,6 +566,7 @@ func marshalLimitedPreview(fields map[string]json.RawMessage) string {
 	return "{}"
 }
 
+// clonePreviewFields 深拷贝 preview 字段，避免压缩过程改写调用方 map。
 func clonePreviewFields(fields map[string]json.RawMessage) map[string]json.RawMessage {
 	out := make(map[string]json.RawMessage, len(fields))
 	for key, raw := range fields {
@@ -550,6 +575,7 @@ func clonePreviewFields(fields map[string]json.RawMessage) map[string]json.RawMe
 	return out
 }
 
+// truncatePreviewStringFields 截断指定 map 内的字符串字段。
 func truncatePreviewStringFields(fields map[string]json.RawMessage, limit int) {
 	for key, raw := range fields {
 		var value string
@@ -567,6 +593,7 @@ func truncatePreviewStringFields(fields map[string]json.RawMessage, limit int) {
 	}
 }
 
+// marshalPreviewIfWithinLimit 在 preview 未超过长度限制时返回 JSON 文本。
 func marshalPreviewIfWithinLimit(fields map[string]json.RawMessage) string {
 	raw, err := json.Marshal(fields)
 	if err != nil || len([]rune(string(raw))) > maxPreviewRunes {
@@ -575,7 +602,8 @@ func marshalPreviewIfWithinLimit(fields map[string]json.RawMessage) string {
 	return string(raw)
 }
 
-// toolCallEndPreview 处理工具callendpreview。
+// toolCallEndPreview 生成工具结束事件的前端 preview。
+// 失败且结果为空时优先展示错误文本；成功大 JSON 会走紧凑摘要。
 func toolCallEndPreview(result, errText string, success bool) string {
 	result = strings.TrimSpace(result)
 	errText = strings.TrimSpace(errText)
@@ -592,10 +620,12 @@ func toolCallEndPreview(result, errText string, success bool) string {
 	return previewText(text)
 }
 
+// isNullPreview 判断 provider 返回的文本是否只是 JSON null。
 func isNullPreview(text string) bool {
 	return strings.TrimSpace(text) == "null"
 }
 
+// emitTimelineUpdated 在回调存在时通知指定线程刷新。
 func emitTimelineUpdated(onUpdated func(string), threadID string) {
 	if onUpdated == nil {
 		return
@@ -603,6 +633,7 @@ func emitTimelineUpdated(onUpdated func(string), threadID string) {
 	onUpdated(strings.TrimSpace(threadID))
 }
 
+// appendErrorItem 追加错误 item，空错误文本不产生 timeline 行。
 func appendErrorItem(svc Service, threadID, agentID, turnID, id, text, ts string) {
 	if strings.TrimSpace(text) == "" {
 		return

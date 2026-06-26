@@ -9,7 +9,7 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/protocol"
 )
 
-// Definition 处理定义。
+// Definition 查询符号定义位置，并把 LSP 返回的 location/link 统一成工具层结果。
 func (m *manager) Definition(ctx context.Context, uri string, position protocol.Position) ([]protocol.LocationResult, error) {
 	return m.locationQuery(ctx, uri, protocol.MethodDefinition, protocol.DefinitionParams{
 		TextDocument: protocol.TextDocumentIdentifier{URI: uri},
@@ -17,7 +17,8 @@ func (m *manager) Definition(ctx context.Context, uri string, position protocol.
 	})
 }
 
-// Implementation 处理实现。
+// Implementation 查询接口或抽象符号的实现位置。
+// 不支持该能力的语言会按文档请求降级为空结果，而不是伪造静态匹配。
 func (m *manager) Implementation(ctx context.Context, uri string, position protocol.Position) ([]protocol.LocationResult, error) {
 	return m.locationQuery(ctx, uri, protocol.MethodImplementation, protocol.ImplementationParams{
 		TextDocument: protocol.TextDocumentIdentifier{URI: uri},
@@ -33,7 +34,8 @@ func (m *manager) TypeDefinition(ctx context.Context, uri string, position proto
 	})
 }
 
-// Hover 处理悬停。
+// Hover 查询指定位置的悬停信息。
+// 返回值保持 LSP markup 形状，解码失败会带上 hover 上下文直接报错。
 func (m *manager) Hover(ctx context.Context, uri string, position protocol.Position) (*protocol.HoverResult, error) {
 	return requestDocument(ctx, m, uri, protocol.MethodHover,
 		func(ref documentRef) any {
@@ -53,7 +55,8 @@ func (m *manager) Hover(ctx context.Context, uri string, position protocol.Posit
 	)
 }
 
-// SignatureHelp 处理签名帮助。
+// SignatureHelp 查询当前位置的函数签名候选。
+// 语言服务器不支持时返回能力错误，调用方可据此生成空结果提示。
 func (m *manager) SignatureHelp(ctx context.Context, uri string, position protocol.Position) (*protocol.SignatureHelpResult, error) {
 	return requestDocument(ctx, m, uri, protocol.MethodSignatureHelp,
 		func(ref documentRef) any {
@@ -73,7 +76,7 @@ func (m *manager) SignatureHelp(ctx context.Context, uri string, position protoc
 	)
 }
 
-// References 处理引用。
+// References 查询符号引用并按 includeDeclaration 保留或排除声明位置。
 func (m *manager) References(ctx context.Context, uri string, position protocol.Position, includeDeclaration bool) ([]protocol.LocationResult, error) {
 	return m.locationQuery(ctx, uri, protocol.MethodReferences, protocol.ReferenceParams{
 		TextDocument: protocol.TextDocumentIdentifier{URI: uri},
@@ -160,7 +163,8 @@ func (m *manager) resolveTypeDirections(ctx context.Context, client Client, item
 	})
 }
 
-// DocumentSymbol 读取文档符号列表。
+// DocumentSymbol 读取单文档符号列表。
+// 对 markdown/json/yaml/受限 Python 常量文件先走静态 fallback，其余语言再启动 LSP，减少非代码文件依赖。
 func (m *manager) DocumentSymbol(ctx context.Context, uri string) ([]protocol.DocumentSymbol, error) {
 	ref, err := m.resolveDocumentRef(ctx, uri, "")
 	if err != nil {
@@ -205,7 +209,8 @@ func (m *manager) DocumentSymbolBestEffort(ctx context.Context, uri string) ([]p
 	return decodeDocumentSymbols(raw)
 }
 
-// WorkspaceSymbol 处理工作区符号。
+// WorkspaceSymbol 查询指定语言 workspace 内的符号。
+// 没有文件路径时 languageID 必填，防止无界启动默认语言服务器。
 func (m *manager) WorkspaceSymbol(ctx context.Context, query string, languageID string) ([]protocol.WorkspaceSymbolResult, error) {
 	languageID = normalizeLanguageID(languageID)
 	if languageID == "" {
@@ -222,7 +227,8 @@ func (m *manager) WorkspaceSymbol(ctx context.Context, query string, languageID 
 	return decodeWorkspaceSymbols(raw)
 }
 
-// workspaceSymbolClient 处理工作区符号客户端。
+// workspaceSymbolClient 为 workspace/symbol 选择或创建 client。
+// 已解析 scope 会校验语言和 workspace key；缺 scope 时才回退语言级 workspace。
 func (m *manager) workspaceSymbolClient(ctx context.Context, languageID string) (Client, error) {
 	if resolved, ok := resolvedLSPToolScopeFromContext(ctx); ok {
 		cfg, err := m.workspaceSymbolConfigFromResolvedScope(resolved, languageID)
@@ -252,7 +258,8 @@ func workspaceSymbolResolvedScopeNeedsBootstrap(resolved ResolvedLSPToolScope) b
 		target == resolved.ProjectRoot
 }
 
-// workspaceSymbolConfigFromResolvedScope 从已解析作用域处理工作区符号配置。
+// workspaceSymbolConfigFromResolvedScope 将已解析 scope 转成 workspace/symbol 可用的 client 配置。
+// 语言或 workspace key 不一致会报错，避免 query 跑到相邻项目或相邻语言的缓存实例。
 func (m *manager) workspaceSymbolConfigFromResolvedScope(resolved ResolvedLSPToolScope, languageID string) (workspaceConfig, error) {
 	resolvedLanguageID := normalizeLanguageID(resolved.LanguageID)
 	if resolvedLanguageID == "" {
@@ -285,7 +292,8 @@ func (m *manager) workspaceSymbolConfigFromResolvedScope(resolved ResolvedLSPToo
 	return cfg, nil
 }
 
-// FoldingRange 处理折叠范围。
+// FoldingRange 查询文档折叠区间。
+// 不支持该能力时返回空切片，保持工具输出可渲染但不伪造范围。
 func (m *manager) FoldingRange(ctx context.Context, uri string) ([]protocol.FoldingRange, error) {
 	return requestDocument(ctx, m, uri, protocol.MethodFoldingRange,
 		func(ref documentRef) any {
@@ -304,7 +312,8 @@ func (m *manager) FoldingRange(ctx context.Context, uri string) ([]protocol.Fold
 	)
 }
 
-// SemanticTokens 处理语义令牌。
+// SemanticTokens 查询整篇文档的语义 token。
+// 不支持时返回空结果对象，保留 LSP wire 形状供前端/工具层统一处理。
 func (m *manager) SemanticTokens(ctx context.Context, uri string) (*protocol.SemanticTokensResult, error) {
 	return requestDocument(ctx, m, uri, protocol.MethodSemanticTokensFull,
 		func(ref documentRef) any {
@@ -326,7 +335,8 @@ func (m *manager) SemanticTokens(ctx context.Context, uri string) (*protocol.Sem
 	)
 }
 
-// Completion 处理补全。
+// Completion 查询指定位置的补全候选。
+// 响应兼容数组和 CompletionList 两种 LSP 形态，unsupported 时返回空列表。
 func (m *manager) Completion(ctx context.Context, uri string, position protocol.Position) (*protocol.CompletionList, error) {
 	return requestDocument(ctx, m, uri, protocol.MethodCompletion,
 		func(ref documentRef) any {
@@ -340,7 +350,8 @@ func (m *manager) Completion(ctx context.Context, uri string, position protocol.
 	)
 }
 
-// Rename 处理重命名。
+// Rename 请求语言服务器生成跨文件 workspace edit。
+// 不支持 rename 时返回能力错误，调用方不能自行拼接替换以免破坏语义边界。
 func (m *manager) Rename(ctx context.Context, uri string, position protocol.Position, newName string) (*protocol.WorkspaceEdit, error) {
 	return requestDocument(ctx, m, uri, protocol.MethodRename,
 		func(ref documentRef) any {
@@ -399,7 +410,8 @@ func (m *manager) Format(ctx context.Context, uri string, options protocol.Forma
 	)
 }
 
-// Symbols 处理符号。
+// Symbols 是格式化/搜索层按绝对路径读取 document symbols 的适配入口。
+// 它复用 DocumentSymbol 的 LSP 与静态 fallback 策略，避免工具层重复实现解析逻辑。
 func (m *manager) Symbols(absPath string) ([]protocol.DocumentSymbol, error) {
 	return m.DocumentSymbol(context.Background(), fileURIFromPath(absPath))
 }

@@ -12,15 +12,11 @@ import (
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
-// DefaultDrainTimeout bounds the shutdown drain. P21 P2 plan mandates
-// 5 seconds; overridable via config.NotifyConfig.DrainSeconds.
+// DefaultDrainTimeout 限制 shutdown drain 时长，避免退出时被外部 webhook 卡住。
 const DefaultDrainTimeout = 5 * time.Second
 
-// Flusher is the platformrunner.Runner that drains the notifier queue,
-// renders each request via the platform-specific helper, and POSTs with
-// the SSRF-guarded webhook client. Every error is logged + counted;
-// none abort the loop because failed deliveries should not tear down
-// the Runner and block future notifications.
+// Flusher 是通知队列的后台 Runner，负责解析 alias、渲染平台消息并用 SSRF 防护客户端发送。
+// 单条发送失败只计数和记录日志，不终止循环，避免一个坏 webhook 阻塞后续通知。
 type Flusher struct {
 	logger       *slog.Logger
 	queue        chan contract.NotifyRequest
@@ -39,10 +35,7 @@ type Flusher struct {
 
 var _ contract.Runner = (*Flusher)(nil)
 
-// NewFlusher wires a Flusher with the notifier's queue + resolver and a
-// pre-built webhook client. drainTimeout <= 0 falls back to the plan
-// default.
-// NewFlusher 创建flusher。
+// NewFlusher 绑定 notifier 的队列和 resolver；drainTimeout 非正数时使用默认退出排空时间。
 func NewFlusher(logger *slog.Logger, notifier *Notifier, client *WebhookClient, drainTimeout time.Duration) *Flusher {
 	if logger == nil {
 		logger = pkglogger.Get()
@@ -66,25 +59,11 @@ func NewFlusher(logger *slog.Logger, notifier *Notifier, client *WebhookClient, 
 	}
 }
 
-// Run loops until ctx cancels. Each queued request is resolved via
-// resolver, rendered per platform, and delivered via client.Post. On
-// cancel it runs a bounded drain (5s by default) using a background
-// context so in-flight POSTs finish cleanly rather than being aborted
-// by the same signal that triggered shutdown.
-//
-// Cancel-race note: select picks cases randomly when several are
-// ready, so after ctx is cancelled and the queue still holds items
-// the select may pull a queued request with the already-cancelled
-// ctx. We detect that inside the queue branch, requeue the request
-// (best-effort, since the queue is bounded), and fall through to
-// drain — which runs the POST with a fresh background context so
-// the in-flight work isn't aborted by the same signal that triggered
-// shutdown.
-// Run 启动平台notify后台流程。
+// Run 持续消费队列直到 ctx 取消；取消后用独立 background ctx 做有界 drain。
+// 如果 select 在取消竞争中先取到队列项，会尽力放回队列，避免用已取消 ctx 中断待发送通知。
 func (f *Flusher) Run(ctx context.Context) error {
 	if f == nil || f.queue == nil {
-		// Nothing to drain; sit on ctx so the run.Group keeps the
-		// shutdown discipline.
+		// 无队列时仍阻塞到 ctx 取消，保持 run.Group 的统一停机顺序。
 		<-ctx.Done()
 		return ctx.Err()
 	}
@@ -98,11 +77,8 @@ loop:
 				return nil
 			}
 			if ctx.Err() != nil {
-				// Race: select picked queue while ctx was cancelling.
-				// Push the request back so drain() picks it up under
-				// the bounded background ctx. Best-effort requeue;
-				// a full queue means one request is dropped, which
-				// the dropped metric already counts.
+				// 取消竞争中已取出的请求尽力放回队列，交给有界 drain ctx 发送。
+				// 队列已满说明该请求只能丢弃，drainDrops 会记录这次退出期丢失。
 				select {
 				case f.queue <- req:
 				default:
@@ -117,12 +93,7 @@ loop:
 	return ctx.Err()
 }
 
-// drain pulls everything currently in the queue and flushes it under
-// a bounded background context so in-flight POSTs complete cleanly
-// after ctx cancel. Exits as soon as the queue is empty OR the
-// drainTimeout fires; does not wait for new enqueues because bus
-// subscribers should already be shutting down alongside Run.
-// drain 处理drain。
+// drain 在有界后台 ctx 下排空当前队列；队列为空或超时即退出，不等待新的入队。
 func (f *Flusher) drain() {
 	if f.drainTimeout <= 0 {
 		return
@@ -146,15 +117,13 @@ func (f *Flusher) drain() {
 			}
 			return
 		default:
-			// Queue empty and timeout not yet fired — we're done.
+			// 队列已空且未触发超时，本轮退出期排空完成。
 			return
 		}
 	}
 }
 
-// handle is the single-request path. All failures end here — we log,
-// bump a counter, and move on.
-// handle 处理平台notify。
+// handle 处理单条通知请求，所有解析/渲染/发送失败都会计数并继续下一条。
 func (f *Flusher) handle(ctx context.Context, req contract.NotifyRequest) {
 	f.sent.Add(1)
 	if f.resolver == nil {
@@ -198,8 +167,7 @@ func (f *Flusher) handle(ctx context.Context, req contract.NotifyRequest) {
 	f.delivered.Add(1)
 }
 
-// render dispatches to the per-platform renderer. We wrap errors with a
-// platform hint so a regression in one renderer is easy to spot.
+// render 按平台分发到具体 renderer，错误会携带平台信息便于定位单端回归。
 func (f *Flusher) render(cfg ChannelConfig, msg contract.NotifyMessage) (string, []byte, string, error) {
 	switch cfg.Platform {
 	case PlatformDingtalk:
@@ -213,8 +181,7 @@ func (f *Flusher) render(cfg ChannelConfig, msg contract.NotifyMessage) (string,
 	}
 }
 
-// Metrics returns a snapshot of the flusher's counters. Read-only;
-// meant for dashboards / /metrics endpoints.
+// Metrics 是 flusher 指标快照，字段只读，用于 dashboard 或 /metrics 暴露。
 type Metrics struct {
 	Sent        int64
 	Delivered   int64
@@ -224,8 +191,7 @@ type Metrics struct {
 	DrainDrops  int64
 }
 
-// Metrics returns the current counter values.
-// Metrics 处理指标。
+// Metrics 返回当前计数器快照，nil flusher 返回零值。
 func (f *Flusher) Metrics() Metrics {
 	if f == nil {
 		return Metrics{}

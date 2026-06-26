@@ -9,13 +9,16 @@ import (
 	"unicode"
 )
 
+// MaxAge 是 stopped/archived agent report 文件的默认保留时间。
 const MaxAge = 30 * 24 * time.Hour
 
+// Logger 是 report GC 需要的最小日志接口，便于在测试中注入轻量 stub。
 type Logger interface {
 	Info(msg string, args ...any)
 }
 
-// Collect 收集编排。
+// Collect 删除同 cwd 下已 stopped/archived 且超过保留期的 agent report 文件。
+// 仍在运行的 agent id 会被 protected 集合保护，避免误删活跃 report。
 func Collect[T any](cwd string, threads []T, fields func(T) (agentID, threadCwd, status string), now time.Time, logger Logger) error {
 	cwd = strings.TrimSpace(cwd)
 	if cwd == "" {
@@ -51,7 +54,7 @@ func Collect[T any](cwd string, threads []T, fields func(T) (agentID, threadCwd,
 	return nil
 }
 
-// eligibleIDs 处理eligibleids。
+// eligibleIDs 计算允许清理的 agent id；同一 id 只要存在活跃线程就不会被清理。
 func eligibleIDs[T any](cwd string, threads []T, fields func(T) (agentID, threadCwd, status string)) map[string]struct{} {
 	eligible, protected := map[string]struct{}{}, map[string]struct{}{}
 	for _, thread := range threads {
@@ -72,7 +75,7 @@ func eligibleIDs[T any](cwd string, threads []T, fields func(T) (agentID, thread
 	return eligible
 }
 
-// shouldRemove 判断remove是否可用。
+// shouldRemove 判断单个 report 文件是否属于可清理 agent 且早于 cutoff。
 func shouldRemove(entry os.DirEntry, eligible map[string]struct{}, cutoff time.Time) (bool, error) {
 	if entry.IsDir() {
 		return false, nil
@@ -91,6 +94,7 @@ func shouldRemove(entry os.DirEntry, eligible map[string]struct{}, cutoff time.T
 	return info.ModTime().Before(cutoff), nil
 }
 
+// isStopped 判断持久化 thread 状态是否允许清理 report。
 func isStopped(status string) bool {
 	switch strings.ToLower(strings.TrimSpace(status)) {
 	case "stopped", "archived":
@@ -100,12 +104,13 @@ func isStopped(status string) bool {
 	}
 }
 
+// sameCwd 以 filepath.Clean 后的结果比较 cwd，避免路径文本差异影响清理范围。
 func sameCwd(left, right string) bool {
 	left, right = strings.TrimSpace(left), strings.TrimSpace(right)
 	return left != "" && right != "" && filepath.Clean(left) == filepath.Clean(right)
 }
 
-// Sanitize 清理编排。
+// Sanitize 将 agent id/name 清理为可用于 report 文件名的片段。
 func Sanitize(value string) string {
 	value = strings.TrimSpace(value)
 	var builder strings.Builder

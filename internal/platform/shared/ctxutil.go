@@ -6,11 +6,10 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/util"
 )
 
-// NonNilContext delegates to util.NonNilContext.
-// NonNilContext 处理nonnil上下文。
+// NonNilContext 返回非 nil context，保持 shared 包旧入口兼容。
 func NonNilContext(ctx context.Context) context.Context { return util.NonNilContext(ctx) }
 
-// CheckCtx 处理checkctx。
+// CheckCtx 返回 context 当前错误；nil context 视为未取消。
 func CheckCtx(ctx context.Context) error {
 	if ctx == nil {
 		return nil

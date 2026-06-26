@@ -6,7 +6,7 @@ import (
 	mcp "github.com/anthropic-ai/super-agent-v3/internal/dto/mcp"
 )
 
-// NormalizeSelectorScope 规范化selector作用域。
+// NormalizeSelectorScope 清理 hook selector scope 中的空白字段，nil scope 返回零值。
 func NormalizeSelectorScope(scope *mcp.SelectorScope) mcp.SelectorScope {
 	if scope == nil {
 		return mcp.SelectorScope{}

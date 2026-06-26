@@ -11,14 +11,14 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 )
 
-// F4.5 dag.status='running' 不变量单测。覆盖矩阵：
-//   - draft DAG（默认 stub.dagStatus 空字符串 = "draft"）：update_node + add_node 仍 happy
+// running 状态 DAG 的 apply_ops 不变量单测。覆盖矩阵：
+//   - draft DAG（默认 stub.dagStatus 空字符串 = "draft"）：update_node + add_node 仍走正常路径
 //   - running DAG + update_node → 拒为 ErrApplyOpsInvalid
 //   - running DAG + add_node depends_on 指向 pending 节点 → 当前先 fail-fast 拒绝
 //   - running DAG + add_node depends_on 指向 done 节点 → 当前先 fail-fast 拒绝
 //   - running DAG + add_node 无 depends_on → 当前先 fail-fast 拒绝
 
-// draft DAG 下 update_node 仍 happy —— 验证不变量只对 running 触发，不动 happy path。
+// draft DAG 下 update_node 仍走正常路径，验证不变量只对 running 触发。
 func TestApplyOpsF45DraftUpdateNodeHappy(t *testing.T) {
 	stub := &stubDAGOpsStore{
 		currentVersion: 1,
@@ -104,8 +104,8 @@ func TestApplyOpsF45RunningAddNodeDependsOnPendingRejected(t *testing.T) {
 	}
 }
 
-// running DAG + add_node 曾在 F4.5 放行，但 F6.5 runtime nodes 后它只写模板节点，
-// 当前 run 不会出现/调度新节点；因此在 runtime append 真闭环前必须 fail-fast。
+// running DAG + add_node 目前只会写模板节点，当前 run 不会出现或调度新节点。
+// 在 runtime append 真闭环接入前必须 fail-fast。
 func TestApplyOpsF45RunningAddNodeDependsOnDoneRejectedUntilRuntimeAppendExists(t *testing.T) {
 	stub := &stubDAGOpsStore{
 		currentVersion: 1,
@@ -226,7 +226,7 @@ func TestApplyOpsF45RunningAddNodeRejectsBeforeListNodes(t *testing.T) {
 }
 
 // running DAG + add_node depends_on 指向同批新节点（status 默认 pending）→ 拒。
-// 这是蓝图 v2 §5 显式的限制：新节点不能互相等。
+// 同批新增节点还没有稳定的 runtime 顺序，当前实现不允许新节点互相依赖。
 func TestApplyOpsF45RunningAddNodeDependsOnSameBatchRejected(t *testing.T) {
 	stub := &stubDAGOpsStore{
 		currentVersion: 0,

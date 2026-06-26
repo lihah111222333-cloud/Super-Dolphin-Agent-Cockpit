@@ -13,6 +13,7 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/protocol"
 	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/common"
 	platformshared "github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
+	"github.com/anthropic-ai/super-agent-v3/internal/util/ctxutil"
 )
 
 type managerNotificationHandler struct {
@@ -48,10 +49,8 @@ type diagnosticMetadata struct {
 
 type resolvedLSPToolScopeContextKey struct{}
 
-// WithResolvedLSPToolScope attaches the ManagerPool canonical scope to a
-// context so diagnostics/cache/bootstrap code can consume ScopedManager's
-// ResolvedScope directly without reassembling canonical keys.
-// WithResolvedLSPToolScope 设置已解析LSP工具作用域。
+// WithResolvedLSPToolScope 将 ManagerPool 解析出的规范 scope 放入 context。
+// diagnostics/cache/bootstrap 复用该 scope，避免重复拼接 manager key 时产生不一致。
 func WithResolvedLSPToolScope(ctx context.Context, scope ResolvedLSPToolScope) context.Context {
 	if ctx == nil {
 		ctx = context.Background()
@@ -62,17 +61,19 @@ func WithResolvedLSPToolScope(ctx context.Context, scope ResolvedLSPToolScope) c
 	return context.WithValue(ctx, resolvedLSPToolScopeContextKey{}, scope)
 }
 
-// PublishDiagnostics 发布诊断。
+// PublishDiagnostics 将 LSP publishDiagnostics 通知转交给 manager。
+// handler 本身不缓存状态，缓存边界由 manager 的诊断代际控制。
 func (h managerNotificationHandler) PublishDiagnostics(params protocol.PublishDiagnosticsParams) error {
 	return h.publishDiagnostics(params)
 }
 
-// LogMessage 处理日志消息。
+// LogMessage 将 LSP window/logMessage 通知转交给 manager 的日志分级处理。
 func (h managerNotificationHandler) LogMessage(params protocol.LogMessageParams) error {
 	return h.logMessage(params)
 }
 
-// Diagnostics 汇总匹配 manager 返回的诊断。
+// Diagnostics 返回当前 scope 或指定 URI 的诊断快照。
+// 读取前会刷新仍存在的文件并清理已删除文档的缓存，保证返回值不跨 workspace 或陈旧文件泄漏。
 func (m *manager) Diagnostics(ctx context.Context, uris []string) ([]protocol.PublishDiagnosticsParams, error) {
 	filter, err := m.normalizeDiagnosticFilter(ctx, uris)
 	if err != nil {
@@ -92,7 +93,8 @@ func (m *manager) Diagnostics(ctx context.Context, uris []string) ([]protocol.Pu
 	return items, nil
 }
 
-// refreshExistingDiagnosticTargets 刷新existing诊断targets。
+// refreshExistingDiagnosticTargets 对仍存在的诊断目标触发一次按需刷新。
+// 显式 URI 会逐个解析并校验文件存在；空 URI 列表表示刷新当前 filter 覆盖的全部目标。
 func (m *manager) refreshExistingDiagnosticTargets(ctx context.Context, uris []string, filter diagnosticFilter) error {
 	if m.factory == nil {
 		return nil
@@ -119,7 +121,8 @@ func (m *manager) refreshExistingDiagnosticTargets(ctx context.Context, uris []s
 	return nil
 }
 
-// WaitDiagnosticsStable 等待诊断稳定状态。
+// WaitDiagnosticsStable 等待目标诊断在当前代际内稳定。
+// 它先刷新候选文件，再用内部最大等待时间包住轮询，避免 MCP 调用被语言服务器拖到全局超时。
 func (m *manager) WaitDiagnosticsStable(ctx context.Context, uris []string) error {
 	if err := sleepContext(ctx, m.diagInitial); err != nil {
 		return err
@@ -132,9 +135,7 @@ func (m *manager) WaitDiagnosticsStable(ctx context.Context, uris []string) erro
 		return err
 	}
 	waitCtx, cancel := m.diagnosticsStableWaitContext(ctx)
-	if cancel != nil {
-		defer cancel()
-	}
+	defer cancel()
 	waiter, err := m.newDiagnosticStableWait(waitCtx, filter, uris)
 	if err != nil {
 		return err
@@ -149,18 +150,19 @@ func (m *manager) diagnosticsStableWaitContext(ctx context.Context) (context.Con
 	}
 	maxWait := m.diagMaxWait
 	if maxWait <= 0 {
-		return ctx, nil
+		return ctx, func() {}
 	}
 	if m.diagPoll > 0 && maxWait < m.diagPoll {
 		maxWait = m.diagPoll
 	}
 	if deadline, ok := ctx.Deadline(); ok && time.Until(deadline) <= maxWait {
-		return ctx, nil
+		return ctx, func() {}
 	}
-	return context.WithTimeout(ctx, maxWait)
+	return ctxutil.WithTimeout(ctx, maxWait)
 }
 
-// CurrentDiagnosticGeneration 处理当前诊断代际。
+// CurrentDiagnosticGeneration 返回当前诊断代际编号。
+// 代际用于丢弃重建 client 前捕获的异步 publishDiagnostics。
 func (m *manager) CurrentDiagnosticGeneration() uint64 {
 	return m.diagGeneration.Load()
 }
@@ -174,12 +176,13 @@ func (m *manager) AdvanceDiagnosticGeneration() uint64 {
 	return next
 }
 
-// PublishDiagnostics 发布诊断。
+// PublishDiagnostics 记录当前代际收到的 LSP 诊断推送。
 func (m *manager) PublishDiagnostics(params protocol.PublishDiagnosticsParams) error {
 	return m.publishDiagnosticsForGeneration(params, m.CurrentDiagnosticGeneration())
 }
 
-// publishDiagnosticsForGeneration 为代际发布诊断。
+// publishDiagnosticsForGeneration 在指定代际内写入诊断快照。
+// 如果 client 已重建导致代际过期，旧通知会被忽略而不是覆盖新 workspace 状态。
 func (m *manager) publishDiagnosticsForGeneration(params protocol.PublishDiagnosticsParams, capturedGen uint64) error {
 	m.diagMu.Lock()
 	defer m.diagMu.Unlock()
@@ -236,7 +239,7 @@ func (m *manager) normalizeDiagnosticFilter(ctx context.Context, uris []string) 
 		}
 		return diagnosticFilter{
 			scopeKey: lspScopeKeyFromContext(ctx),
-			// handled manually below
+			// 空 workspaceKey 需要由 matches 结合 scopeKey 和 workspaceRoot 继续过滤。
 			all: true,
 		}, nil
 	}
@@ -269,7 +272,8 @@ func (m *manager) currentDiagnostics(filter diagnosticFilter) []protocol.Publish
 	return items
 }
 
-// forEachCurrentDiagnosticSnapshot 为each当前诊断快照处理LSP。
+// forEachCurrentDiagnosticSnapshot 在读锁内遍历当前代际且匹配 filter 的诊断快照。
+// 回调只接收复制出的 snapshot，调用方不能借此修改内部 map。
 func (m *manager) forEachCurrentDiagnosticSnapshot(filter diagnosticFilter, fn func(diagnosticSnapshot)) {
 	if m == nil || fn == nil {
 		return
@@ -286,7 +290,8 @@ func (m *manager) forEachCurrentDiagnosticSnapshot(filter diagnosticFilter, fn f
 	})
 }
 
-// matches 判断LSP是否匹配。
+// matches 判断诊断快照是否属于当前过滤条件。
+// 显式 keys 优先；scope 查询还会用 workspaceRoot containment 防止不同项目同 scopeKey 的诊断混入。
 func (f diagnosticFilter) matches(key string, snapshot diagnosticSnapshot) bool {
 	if len(f.keys) > 0 {
 		_, ok := f.keys[key]
@@ -311,7 +316,8 @@ func (f diagnosticFilter) matches(key string, snapshot diagnosticSnapshot) bool 
 	return platformshared.ContainsPath(f.workspaceRoot, path)
 }
 
-// cleanupDeletedDiagnostics 处理cleanupdeleted诊断。
+// cleanupDeletedDiagnostics 移除当前 filter 下已经不存在的文件诊断。
+// 删除会同步清理诊断 map、bootstrap 状态和 scope cache，避免下一次查询拿到墓碑前的结果。
 func (m *manager) cleanupDeletedDiagnostics(ctx context.Context, filter diagnosticFilter) error {
 	snapshots := make([]diagnosticSnapshot, 0)
 	m.forEachCurrentDiagnosticSnapshot(filter, func(snapshot diagnosticSnapshot) {
@@ -342,7 +348,8 @@ func (m *manager) cleanupDeletedDiagnostics(ctx context.Context, filter diagnost
 	return errors.Join(errs...)
 }
 
-// cleanupDeletedDocument 处理cleanupdeleteddocument。
+// cleanupDeletedDocument 清理指定已删除文档在当前和最近一次解析 scope 下的诊断状态。
+// 原始 file URI 与规范 URI 都会尝试处理，覆盖调用方传入旧 URI 形态的兼容边界。
 func (m *manager) cleanupDeletedDocument(ref documentRef, current ResolvedLSPToolScope) error {
 	coordinator, err := bootstrapCoordinatorFor(m)
 	if err != nil {
@@ -384,7 +391,8 @@ func (m *manager) cleanupDocumentForScopes(uri string, scopes ...ResolvedLSPTool
 	return m.cleanupDocumentForScopesWithCoordinator(coordinator, uri, scopes...)
 }
 
-// cleanupDocumentForScopesWithCoordinator 处理带coordinator的cleanupdocumentscopes。
+// cleanupDocumentForScopesWithCoordinator 在共享 coordinator 下清理文档诊断和 bootstrap 状态。
+// 它会删除传入 scopes 的精确 key，并兜底移除同 URI 的遗留快照，避免多 scope 重命名后残留。
 func (m *manager) cleanupDocumentForScopesWithCoordinator(coordinator *bootstrapCoordinator, uri string, scopes ...ResolvedLSPToolScope) error {
 	seen := map[string]struct{}{}
 	var errs []error
@@ -478,7 +486,8 @@ func lspScopeKeyFromContext(ctx context.Context) string {
 	return buildScopeKey(lspToolScopeFromContext(ctx))
 }
 
-// resolvedLSPToolScopeFromContext 从上下文处理已解析LSP工具作用域。
+// resolvedLSPToolScopeFromContext 从 context 读取已解析的 LSP 工具 scope。
+// 优先使用 multilsp 自己写入的 scope；没有时兼容 manager 包传入的通用 ResolvedToolScope。
 func resolvedLSPToolScopeFromContext(ctx context.Context) (ResolvedLSPToolScope, bool) {
 	if ctx == nil {
 		return ResolvedLSPToolScope{}, false
@@ -577,7 +586,8 @@ func lspScopeWorkspacePartsFromConfig(cfg workspaceConfig) (LSPToolScope, bool) 
 	}, true
 }
 
-// parseLanguageSpecificParts 解析语言specificparts。
+// parseLanguageSpecificParts 解析 manager key 中的语言专属维度。
+// 非 key=value 片段会被忽略，空结果返回 nil，保持旧 key 的兼容读取。
 func parseLanguageSpecificParts(encoded string) map[string]string {
 	encoded = strings.TrimSpace(encoded)
 	if encoded == "" {
@@ -606,7 +616,8 @@ func diagnosticStoreKeyFor(scope ResolvedLSPToolScope, uri string) diagnosticSto
 	return diagnosticStoreKey{scopeKey: scope.ScopeKey, workspaceKey: scope.WorkspaceKey, uri: uri}
 }
 
-// String 返回字符串表示。
+// String 将诊断存储 key 编码为内部 map key。
+// 分隔符使用 NUL，避免普通路径或 URI 中的斜杠、冒号影响匹配。
 func (k diagnosticStoreKey) String() string {
 	return k.scopeKey + "\x00" + k.workspaceKey + "\x00" + k.uri
 }

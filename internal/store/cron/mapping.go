@@ -7,6 +7,7 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/store/sqlc"
 )
 
+// milliToTime 将毫秒时间戳转换为 time.Time，0 值按未设置处理。
 func milliToTime(ms int64) time.Time {
 	if ms == 0 {
 		return time.Time{}
@@ -14,6 +15,7 @@ func milliToTime(ms int64) time.Time {
 	return db.TimeFromMillis(ms)
 }
 
+// milliPtrToTime 将可空毫秒时间戳转换为 time.Time，nil 和 0 都表示未设置。
 func milliPtrToTime(ms *int64) time.Time {
 	if ms == nil || *ms == 0 {
 		return time.Time{}
@@ -21,8 +23,8 @@ func milliPtrToTime(ms *int64) time.Time {
 	return db.TimeFromMillis(*ms)
 }
 
-// fromCronJob projects a sqlc.CronJob row into the domain Job.
-// int64 epoch-ms values become time.Time (zero when NULL/0).
+// fromCronJob 将 sqlc.CronJob 行转换为领域 Job。
+// 毫秒时间戳会转换成 time.Time，NULL 或 0 保持为零值时间。
 func fromCronJob(r sqlc.CronJob) Job {
 	return Job{
 		ID:              r.ID,
@@ -60,6 +62,7 @@ func fromCronJob(r sqlc.CronJob) Job {
 	}
 }
 
+// fromCronJobRun 将 sqlc.CronJobRun 行转换为领域 Run，保持状态字段原样交给上层判断。
 func fromCronJobRun(r sqlc.CronJobRun) Run {
 	return Run{
 		ID:             r.ID,
@@ -78,6 +81,7 @@ func fromCronJobRun(r sqlc.CronJobRun) Run {
 	}
 }
 
+// cloneBytes 复制配置类字节切片，避免调用方修改 sqlc 返回缓冲区。
 func cloneBytes(b []byte) []byte {
 	if len(b) == 0 {
 		return nil

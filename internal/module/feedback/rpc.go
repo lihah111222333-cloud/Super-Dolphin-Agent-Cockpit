@@ -31,14 +31,16 @@ type recordParams struct {
 	Payload json.RawMessage `json:"payload,omitempty"`
 }
 
-// NewHandlers 创建处理器。
+// NewHandlers 注册 feedback JSON-RPC 处理器。
+// RPC 层只做参数 wire 适配和响应字段兼容，校验与持久化由 Service.Record 负责。
 func NewHandlers(svc Service) platformrpc.HandlerMapResult {
 	return platformrpc.HandlerMapResult{Handlers: handler.Map{
 		"feedback/record": newRecordHandler(svc),
 	}}
 }
 
-// newRecordHandler 创建 feedback/record 的 RPC 处理函数。
+// newRecordHandler 构造 feedback/record 的严格 RPC handler。
+// 返回值同时带 event_type 与 eventType，兼容旧前端和新前端字段读取。
 func newRecordHandler(svc Service) handler.Func {
 	return platformrpc.StrictHandler(func(ctx context.Context, p recordParams) (any, error) {
 		result, err := svc.Record(ctx, RecordRequest{

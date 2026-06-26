@@ -35,7 +35,7 @@ func (a *App) SaveClipboardImage(base64Payload string) (string, error) {
 	return path, nil
 }
 
-// decodeClipboardImagePayload 解码clipboardimage载荷。
+// decodeClipboardImagePayload 解码剪贴板图片载荷，支持 data URL 和裸 base64。
 func decodeClipboardImagePayload(payload string) ([]byte, error) {
 	payload = strings.TrimSpace(payload)
 	if payload == "" {
@@ -69,7 +69,8 @@ func stripBase64Whitespace(s string) string {
 	}, s)
 }
 
-// decodeBase64Flexible 先按标准 base64 解码，失败时自动回退到 Raw 变体。
+// decodeBase64Flexible 兼容剪贴板来源可能省略 padding 的 base64 载荷。
+// 两种编码都失败时返回解码错误，避免把坏图片写入临时目录。
 func decodeBase64Flexible(payload string) ([]byte, error) {
 	if data, err := base64.StdEncoding.DecodeString(payload); err == nil {
 		return data, nil
@@ -77,11 +78,14 @@ func decodeBase64Flexible(payload string) ([]byte, error) {
 	return base64.RawStdEncoding.DecodeString(payload)
 }
 
-// SelectProjectDir 选择项目目录。
+// SelectProjectDir 打开原生目录选择器并返回单个项目目录。
+// 这是旧 Wails 绑定入口，RPC handler 仍复用 selectProjectDir 保持行为一致。
 func (a *App) SelectProjectDir() (string, error) {
 	return a.selectProjectDir("")
 }
 
+// selectProjectDir 打开单目录选择器，取消选择时返回空字符串。
+// 取消不是错误，调用方据空字符串判断用户没有选择项目。
 func (a *App) selectProjectDir(defaultPath string) (string, error) {
 	dialog, err := a.newDialog()
 	if err != nil {
@@ -103,7 +107,8 @@ func (a *App) selectProjectDir(defaultPath string) (string, error) {
 	return path, err
 }
 
-// SelectProjectDirs 选择项目目录。
+// SelectProjectDirs 打开原生目录选择器并允许多选。
+// 返回值直接作为前端项目根候选，后续仍需经过项目范围校验。
 func (a *App) SelectProjectDirs(defaultPath string) ([]string, error) {
 	dialog, err := a.newDialog()
 	if err != nil {
@@ -125,15 +130,17 @@ func (a *App) SelectProjectDirs(defaultPath string) ([]string, error) {
 	return paths, err
 }
 
-// SelectFiles 选择文件。
+// SelectFiles 打开原生文件选择器并返回多个文件路径。
 func (a *App) SelectFiles() ([]string, error) {
 	return a.selectFiles("")
 }
 
+// selectFiles 使用默认文件选择配置打开原生文件选择器。
 func (a *App) selectFiles(defaultPath string) ([]string, error) {
 	return a.selectFilesWithFilters(defaultPath, nil)
 }
 
+// selectFilesWithFilters 打开带可选过滤器的文件选择器。
 func (a *App) selectFilesWithFilters(defaultPath string, filters []selectFileFilter) ([]string, error) {
 	dialog, err := a.newDialog()
 	if err != nil {
@@ -175,7 +182,7 @@ func normalizeSelectFileFilters(filters []selectFileFilter) []selectFileFilter {
 	return normalized
 }
 
-// saveTextFile 保存文本文件。
+// saveTextFile 通过原生目录选择器导出文本文件，拒绝覆盖已有目标。
 func (a *App) saveTextFile(defaultPath, defaultFilename, content string) (string, error) {
 	filename := normalizeSaveFilename(defaultFilename)
 	if filename == "" {
@@ -210,7 +217,7 @@ func (a *App) saveTextFile(defaultPath, defaultFilename, content string) (string
 	return path, nil
 }
 
-// promptExportDirectory 处理promptexportdirectory。
+// promptExportDirectory 选择导出目录，测试可通过 saveDirectoryInvoker 替换。
 func (a *App) promptExportDirectory(defaultPath string) (string, error) {
 	if a != nil && a.saveDirectoryInvoker != nil {
 		return a.saveDirectoryInvoker(defaultPath)
@@ -226,6 +233,7 @@ func (a *App) promptExportDirectory(defaultPath string) (string, error) {
 	return path, err
 }
 
+// newDialog 创建附着到当前窗口的打开文件 dialog。
 func (a *App) newDialog() (*application.OpenFileDialogStruct, error) {
 	app, err := a.requireWailsApp()
 	if err != nil {
@@ -238,6 +246,7 @@ func (a *App) newDialog() (*application.OpenFileDialogStruct, error) {
 	return dialog, nil
 }
 
+// newExportDirectoryDialog 创建附着到当前窗口的导出目录 dialog。
 func (a *App) newExportDirectoryDialog(defaultPath string) (*application.OpenFileDialogStruct, error) {
 	app, err := a.requireWailsApp()
 	if err != nil {
@@ -258,6 +267,7 @@ func (a *App) newExportDirectoryDialog(defaultPath string) (*application.OpenFil
 	return dialog, nil
 }
 
+// requireWailsApp 返回 Wails app，未绑定 runtime 时立即报错。
 func (a *App) requireWailsApp() (*application.App, error) {
 	if a == nil || a.wailsApp == nil {
 		return nil, errors.New("wails binding: application is not ready")
@@ -265,6 +275,8 @@ func (a *App) requireWailsApp() (*application.App, error) {
 	return a.wailsApp, nil
 }
 
+// defaultDialogDirectory 返回 dialog 的默认目录。
+// 获取当前目录失败时使用系统临时目录，保证原生 dialog 仍有可打开的起点。
 func defaultDialogDirectory() string {
 	dir, err := os.Getwd()
 	if err != nil {
@@ -273,6 +285,8 @@ func defaultDialogDirectory() string {
 	return dir
 }
 
+// resolveDialogDirectory 解析 dialog 初始目录，非法路径回到默认目录。
+// 该目录只影响原生选择器起点，不作为最终文件访问权限依据。
 func resolveDialogDirectory(defaultPath string) string {
 	path := strings.TrimSpace(defaultPath)
 	if path == "" {
@@ -289,6 +303,7 @@ func resolveDialogDirectory(defaultPath string) string {
 	return absPath
 }
 
+// normalizeSaveFilename 清理导出文件名，只保留 basename 以避免路径穿越。
 func normalizeSaveFilename(name string) string {
 	name = strings.TrimSpace(name)
 	if name == "" {
@@ -301,6 +316,7 @@ func normalizeSaveFilename(name string) string {
 	return base
 }
 
+// isDialogCancelError 判断原生 dialog 错误是否表示用户取消。
 func isDialogCancelError(err error) bool {
 	if err == nil {
 		return false
@@ -308,7 +324,7 @@ func isDialogCancelError(err error) bool {
 	return strings.Contains(strings.ToLower(err.Error()), "cancel")
 }
 
-// CopyText 复制文本。
+// CopyText 将文本写入系统剪贴板。
 func (a *App) CopyText(text string) (bool, error) {
 	app, err := a.requireWailsApp()
 	if err != nil {

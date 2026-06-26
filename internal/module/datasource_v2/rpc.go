@@ -26,7 +26,8 @@ func NewHandlers(svc Service) platformrpc.HandlerMapResult {
 	}}
 }
 
-// importTextHandler 处理 datasourceV2/importText 和 datasourceV2/create 请求。
+// importTextHandler 绑定 datasourceV2/importText 和兼容名 datasourceV2/create。
+// RPC 层只透传路径参数；workspace 校验、读取和事务写入都由 Service 负责。
 func importTextHandler(svc Service) func(context.Context, ImportFileTextRequest) (ImportFileTextResult, error) {
 	return func(ctx context.Context, req ImportFileTextRequest) (ImportFileTextResult, error) {
 		if svc == nil {
@@ -40,7 +41,8 @@ func importTextHandler(svc Service) func(context.Context, ImportFileTextRequest)
 	}
 }
 
-// importLocalFileHandler 处理 datasourceV2/importLocalFile 请求，允许 workspace 外的绝对路径。
+// importLocalFileHandler 绑定 datasourceV2/importLocalFile 请求。
+// 该入口只用于桌面端显式选择文件，因此允许 workspace 外绝对路径，仍由 Service 做文件类型校验。
 func importLocalFileHandler(svc Service) func(context.Context, ImportLocalFileRequest) (ImportFileTextResult, error) {
 	return func(ctx context.Context, req ImportLocalFileRequest) (ImportFileTextResult, error) {
 		if svc == nil {
@@ -54,7 +56,8 @@ func importLocalFileHandler(svc Service) func(context.Context, ImportLocalFileRe
 	}
 }
 
-// listDocumentsHandler 处理 datasourceV2/list 请求。
+// listDocumentsHandler 绑定 datasourceV2/list 请求。
+// limit 必须由前端显式传入，避免列表接口无界读取。
 func listDocumentsHandler(svc Service) func(context.Context, ListDocumentsRequest) (ListDocumentsResult, error) {
 	return func(ctx context.Context, req ListDocumentsRequest) (ListDocumentsResult, error) {
 		if svc == nil {
@@ -68,7 +71,8 @@ func listDocumentsHandler(svc Service) func(context.Context, ListDocumentsReques
 	}
 }
 
-// getDocumentHandler 处理 datasourceV2/get 请求。
+// getDocumentHandler 绑定 datasourceV2/get 请求。
+// 只做 documentId wire 适配，文档存在性和分块读取错误由 Service/Store 返回。
 func getDocumentHandler(svc Service) func(context.Context, GetDocumentRequest) (GetDocumentResult, error) {
 	return func(ctx context.Context, req GetDocumentRequest) (GetDocumentResult, error) {
 		if svc == nil {
@@ -82,7 +86,8 @@ func getDocumentHandler(svc Service) func(context.Context, GetDocumentRequest) (
 	}
 }
 
-// updateDocumentHandler 处理 datasourceV2/update 请求。
+// updateDocumentHandler 绑定 datasourceV2/update 请求。
+// 更新路径只改元数据，不改已导入正文分块。
 func updateDocumentHandler(svc Service) func(context.Context, UpdateDocumentRequest) (DocumentResult, error) {
 	return func(ctx context.Context, req UpdateDocumentRequest) (DocumentResult, error) {
 		if svc == nil {
@@ -96,7 +101,8 @@ func updateDocumentHandler(svc Service) func(context.Context, UpdateDocumentRequ
 	}
 }
 
-// deleteDocumentHandler 处理 datasourceV2/delete 请求。
+// deleteDocumentHandler 绑定 datasourceV2/delete 请求。
+// 删除是否级联清理分块由 store 实现保证，RPC 层不吞掉 NotFound 或校验错误。
 func deleteDocumentHandler(svc Service) func(context.Context, DeleteDocumentRequest) (DeleteDocumentResult, error) {
 	return func(ctx context.Context, req DeleteDocumentRequest) (DeleteDocumentResult, error) {
 		if svc == nil {

@@ -8,10 +8,13 @@ import (
 	"strings"
 )
 
+// windowsDrivePath 识别 Windows 盘符绝对路径，补足 filepath.IsAbs 的跨平台差异。
 var windowsDrivePath = regexp.MustCompile(`^[A-Za-z]:[\\/]`)
 
+// defaultSharedFilePrefixes 是模板未声明路径前缀时的安全默认写入范围。
 var defaultSharedFilePrefixes = []string{"reports/workflows/", "dag/"}
 
+// validateTemplateOutputPaths 校验模板中的未渲染输出路径模板不会越界。
 func validateTemplateOutputPaths(tpl Template) error {
 	prefixes := sharedFilePrefixes(tpl.Validation)
 	for _, node := range tpl.DAGTemplate.Nodes {
@@ -25,6 +28,7 @@ func validateTemplateOutputPaths(tpl Template) error {
 	return nil
 }
 
+// validateNodeOutputPaths 校验单个节点声明的 sharedfile/artifact 输出路径模板。
 func validateNodeOutputPaths(node NodeTemplate, prefixes []string) error {
 	outputs, ok := objectMap(node.Config["outputs"])
 	if !ok {
@@ -43,6 +47,7 @@ func validateNodeOutputPaths(node NodeTemplate, prefixes []string) error {
 	return nil
 }
 
+// validateRenderedOutputPaths 校验渲染后的 DAG 输出路径已经落在允许前缀内。
 func validateRenderedOutputPaths(tpl Template, nodes []NodeTemplate, finalOutput FinalOutput) error {
 	prefixes := sharedFilePrefixes(tpl.Validation)
 	for _, node := range nodes {
@@ -56,6 +61,7 @@ func validateRenderedOutputPaths(tpl Template, nodes []NodeTemplate, finalOutput
 	return nil
 }
 
+// validateRenderedNodeOutputPaths 校验单个渲染节点的输出路径值。
 func validateRenderedNodeOutputPaths(node NodeTemplate, prefixes []string) error {
 	outputs, ok := objectMap(node.Config["outputs"])
 	if !ok {
@@ -74,6 +80,7 @@ func validateRenderedNodeOutputPaths(node NodeTemplate, prefixes []string) error
 	return nil
 }
 
+// validateTemplatePathTemplate 校验模板路径；允许 `{{output_path}}` 作为受控用户输入占位。
 func validateTemplatePathTemplate(pathTemplate string, prefixes []string) error {
 	path := strings.TrimSpace(pathTemplate)
 	if path == "" {
@@ -85,6 +92,7 @@ func validateTemplatePathTemplate(pathTemplate string, prefixes []string) error 
 	return validateOutputPathValue(path, prefixes)
 }
 
+// validateOutputPathValue 校验具体输出路径值，要求安全前缀和运行唯一占位同时存在。
 func validateOutputPathValue(pathValue string, prefixes []string) error {
 	path := filepath.ToSlash(strings.TrimSpace(pathValue))
 	if path == "" {
@@ -102,6 +110,7 @@ func validateOutputPathValue(pathValue string, prefixes []string) error {
 	return nil
 }
 
+// validateNoPathEscape 拒绝绝对路径、父目录跳转和写入模板 assets。
 func validateNoPathEscape(path string) error {
 	normalized := filepath.ToSlash(strings.TrimSpace(path))
 	if normalized == "" {
@@ -119,10 +128,12 @@ func validateNoPathEscape(path string) error {
 	return nil
 }
 
+// isAbsolutePath 统一识别 Unix、当前平台和 Windows 盘符绝对路径。
 func isAbsolutePath(path string) bool {
 	return filepath.IsAbs(path) || strings.HasPrefix(path, "/") || windowsDrivePath.MatchString(path)
 }
 
+// containsParentSegment 检查路径段中是否包含父目录跳转。
 func containsParentSegment(path string) bool {
 	for _, part := range strings.Split(path, "/") {
 		if part == ".." {
@@ -132,10 +143,12 @@ func containsParentSegment(path string) bool {
 	return false
 }
 
+// targetsTemplateAssets 防止运行输出覆盖内置模板资源目录。
 func targetsTemplateAssets(path string) bool {
 	return strings.HasPrefix(path, "assets/") || strings.Contains(path, "/assets/") || strings.Contains(path, "workflowtemplates/assets")
 }
 
+// sharedFilePrefixes 合并单前缀和多前缀配置，并在缺省时使用安全默认值。
 func sharedFilePrefixes(rule ValidationRule) []string {
 	prefixes := append([]string(nil), rule.SharedFilePrefixes...)
 	if strings.TrimSpace(rule.SharedFilePrefix) != "" {
@@ -147,6 +160,7 @@ func sharedFilePrefixes(rule ValidationRule) []string {
 	return normalizePrefixes(prefixes)
 }
 
+// normalizePrefixes 清理输出前缀并统一追加尾部斜杠。
 func normalizePrefixes(prefixes []string) []string {
 	out := make([]string, 0, len(prefixes))
 	for _, prefix := range prefixes {
@@ -162,6 +176,7 @@ func normalizePrefixes(prefixes []string) []string {
 	return out
 }
 
+// hasAllowedPrefix 判断路径是否落在任一允许输出前缀下。
 func hasAllowedPrefix(path string, prefixes []string) bool {
 	normalized := filepath.ToSlash(strings.TrimSpace(path))
 	for _, prefix := range prefixes {

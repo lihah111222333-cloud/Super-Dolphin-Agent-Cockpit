@@ -26,7 +26,8 @@ type binaryDirResolver struct {
 	lookPath       func(string) (string, error)
 }
 
-// ResolveBinaryDir 解析二进制目录。
+// ResolveBinaryDir 解析 provider peer 二进制目录。
+// 优先使用打包运行时和显式配置，再回退到当前可执行文件、cwd 与 PATH。
 func ResolveBinaryDir(cwd string, cfg map[string]any) string {
 	return defaultBinaryDirResolver().ResolveBinaryDir(cwd, cfg)
 }
@@ -38,7 +39,8 @@ func defaultBinaryDirResolver() binaryDirResolver {
 	}
 }
 
-// ResolveBinaryDir 解析二进制目录。
+// ResolveBinaryDir 按运行时优先级解析 mcp-lsp/mcp-orch 所在目录。
+// 返回值可能是不存在受管二进制的候选目录，调用方需在启动时继续校验。
 func (r binaryDirResolver) ResolveBinaryDir(cwd string, cfg map[string]any) string {
 	if dir := r.packagedBinaryDir(); dir != "" {
 		return dir
@@ -144,55 +146,51 @@ func hasManagedBinary(dir string) bool {
 	return false
 }
 
-// ConfigString delegates to configutil.ConfigString.
-// ConfigString 处理配置string。
+// ConfigString 读取配置里的第一个有效字符串。
+// provider 层保留该薄封装，避免调用方直接依赖 util/configutil。
 func ConfigString(cfg map[string]any, keys ...string) string {
 	return configutil.ConfigString(cfg, keys...)
 }
 
-// SanitizeConfigString delegates to configutil.SanitizeConfigString.
-// SanitizeConfigString 清理配置string。
+// SanitizeConfigString 清理配置字符串中的空值和前端占位值。
 func SanitizeConfigString(value string) string {
 	return configutil.SanitizeConfigString(value)
 }
 
-// StringMap delegates to configutil.StringMap.
-// StringMap 处理stringmap。
+// StringMap 将配置对象转换为 string map。
+// 非字符串值由 configutil 统一处理，provider 层只暴露稳定入口。
 func StringMap(raw any) map[string]string {
 	return configutil.StringMap(raw)
 }
 
-// ConfigStringSlice delegates to configutil.ConfigStringSlice.
-// ConfigStringSlice 处理配置stringslice。
+// ConfigStringSlice 读取配置中的字符串数组。
+// 支持多个候选 key，返回值已按 configutil 规则裁剪和清理。
 func ConfigStringSlice(cfg map[string]any, keys ...string) []string {
 	return configutil.ConfigStringSlice(cfg, keys...)
 }
 
-// NormalizeConfigStringSlice delegates to configutil.NormalizeConfigStringSlice.
-// NormalizeConfigStringSlice 规范化配置stringslice。
+// NormalizeConfigStringSlice 规范化任意配置值为字符串数组。
 func NormalizeConfigStringSlice(values any) []string {
 	return configutil.NormalizeConfigStringSlice(values)
 }
 
-// TrimConfigStringValues delegates to configutil.TrimConfigStringValues.
-// TrimConfigStringValues 处理裁剪配置string值。
+// TrimConfigStringValues 裁剪 []any 中的字符串配置值。
 func TrimConfigStringValues(values []any) []string {
 	return configutil.TrimConfigStringValues(values)
 }
 
-// SplitConfigStringSlice delegates to configutil.SplitConfigStringSlice.
-// SplitConfigStringSlice 拆分配置stringslice。
+// SplitConfigStringSlice 拆分逗号/路径列表形式的字符串配置。
 func SplitConfigStringSlice(value string) []string {
 	return configutil.SplitConfigStringSlice(value)
 }
 
-// TrimStrings delegates to configutil.TrimStrings.
-// TrimStrings 处理裁剪strings。
+// TrimStrings 裁剪字符串数组并丢弃空项。
 func TrimStrings(values []string) []string {
 	return configutil.TrimStrings(values)
 }
 
-// ConfigMCPBinaries 处理配置MCP二进制。
+// ConfigMCPBinaries 从运行时配置中解析 MCP server 二进制声明。
+// 配置格式错误会直接返回 error，避免 provider 拉起半有效的 MCP 命令。
 func ConfigMCPBinaries(cfg map[string]any, keys ...string) ([]dto.MCPBinary, error) {
 	raw, ok := firstConfigValue(cfg, keys...)
 	if !ok {
@@ -258,7 +256,8 @@ func sortedMCPConfigServerNames(servers map[string]any) ([]string, map[string]st
 	return names, rawNames, nil
 }
 
-// mcpBinaryFromServerObject 从服务端object处理MCP二进制。
+// mcpBinaryFromServerObject 将单个 mcpServers 条目转换为 provider manifest 二进制描述。
+// transport/type 必须是 http 或 stdio，未知类型会 fail-fast。
 func mcpBinaryFromServerObject(name string, raw any) (dto.MCPBinary, error) {
 	label := "mcpConfig.mcpServers." + name
 	server, err := configObject(raw, label)
@@ -328,7 +327,8 @@ func firstConfigValue(cfg map[string]any, keys ...string) (any, bool) {
 	return nil, false
 }
 
-// configObject 处理配置object。
+// configObject 将配置值解码为 JSON object。
+// 支持 map、RawMessage、[]byte 和 JSON 字符串；其他类型会带字段 label 报错。
 func configObject(raw any, label string) (map[string]any, error) {
 	switch value := raw.(type) {
 	case map[string]any:
@@ -384,7 +384,8 @@ func requiredConfigString(obj map[string]any, label string, keys ...string) (str
 	return "", fmt.Errorf("%s.%s is required", label, keys[0])
 }
 
-// configStringHeaderMap 处理配置string头部map。
+// configStringHeaderMap 解析 HTTP MCP headers 配置。
+// header 名和值都不能为空，防止把半有效鉴权信息传给 provider。
 func configStringHeaderMap(raw any, label string) (map[string]string, error) {
 	if raw == nil {
 		return nil, nil

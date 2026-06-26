@@ -1,7 +1,5 @@
-// Package contracttest holds testkit helpers that exercise contract-level
-// invariants. They let downstream implementations of a contract opt into
-// the same conformance checks the in-tree implementation uses, instead of
-// each implementation re-deriving its own concurrency / monotonicity test.
+// Package contracttest 提供 contract 级不变量测试工具。
+// 下游实现可复用这些 helper 校验并发安全和 generation 单调性，不需要各自重写同一套测试。
 package contracttest
 
 import (
@@ -11,22 +9,9 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 )
 
-// SectionInvalidatorConcurrent stresses a contract.SectionInvalidator with
-// 16 writers × 200 invalidations to surface forgotten mutexes via -race
-// and to verify the generation counter advances monotonically (final
-// invalidation must return a non-zero generation).
-//
-// The factory function must produce a fresh, ready-to-use
-// SectionInvalidator on every invocation. Implementations that need cache
-// priming before invalidations have entries to drop (e.g. prompt.Service
-// must run AssembleStart first) should do that priming inside factory and
-// return the primed instance.
-//
-// Run callers with `-race` for the regression to bite: a forgotten mutex
-// on the shared cache or dynamic provider map produces a race detector
-// report. Without -race the test still verifies completion without panic
-// plus the monotonic generation contract.
-// SectionInvalidatorConcurrent 处理sectioninvalidatorconcurrent。
+// SectionInvalidatorConcurrent 并发压测 contract.SectionInvalidator。
+// factory 每次必须返回新的可用实例；需要预热缓存的实现应在 factory 内完成预热。
+// 在 `-race` 下可暴露缓存或 provider map 锁遗漏；普通测试也会校验不 panic 和 generation 单调递增。
 func SectionInvalidatorConcurrent(t *testing.T, factory func() contract.SectionInvalidator) {
 	t.Helper()
 	inv := factory()

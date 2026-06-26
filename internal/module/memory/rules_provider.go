@@ -12,6 +12,7 @@ import (
 	retrievalpkg "github.com/anthropic-ai/super-agent-v3/internal/module/memory/retrieval"
 )
 
+// 编译期断言确保两个 provider 满足 prompt 动态 section 和 turn context 接口。
 var (
 	_ contract.DynamicSectionProvider    = (*MemoryRulesProvider)(nil)
 	_ contract.DynamicSectionProvider    = (*MemoryContextProvider)(nil)
@@ -19,12 +20,14 @@ var (
 	_ contract.TurnContextProvider       = (*MemoryContextProvider)(nil)
 )
 
+// retrieval 子包类型在 memory 根包下重新导出，保持旧调用方不必感知拆包。
 type ManifestBuilder = retrievalpkg.ManifestBuilder
 type RelevantMemoryFinder = retrievalpkg.RelevantMemoryFinder
 type PrefetchManager = retrievalpkg.PrefetchManager
 type PrefetchHandle = retrievalpkg.PrefetchHandle
 type transcriptSnippet = retrievalpkg.TranscriptSnippet
 
+// memory 检索默认值和 prefetch 状态常量。
 const (
 	defaultManifestFileLimit         = retrievalpkg.DefaultManifestFileLimit
 	defaultRelevantMemoryBudgetBytes = retrievalpkg.DefaultRelevantMemoryBudgetBytes
@@ -51,34 +54,42 @@ func NewPrefetchManager(memoryRoot string) *PrefetchManager {
 	return retrievalpkg.NewPrefetchManager(memoryRoot)
 }
 
+// freezeRelevantMemoryAttachments 将相关记忆条目渲染为 provider attachment。
 func freezeRelevantMemoryAttachments(entries []MemoryEntry, now time.Time) []dto.AttachmentEnvelope {
 	return retrievalpkg.FreezeRelevantMemoryAttachments(entries, now)
 }
 
+// freezeTranscriptInputs 将历史片段渲染为本轮 turn input。
 func freezeTranscriptInputs(snippets []transcriptSnippet) []shareddto.InputItem {
 	return retrievalpkg.FreezeTranscriptInputs(snippets)
 }
 
+// memoryHeader 返回注入 prompt 时使用的记忆标题。
 func memoryHeader(now time.Time, entry MemoryEntry) string {
 	return retrievalpkg.MemoryHeader(now, entry)
 }
 
+// shouldSearchPastContextQuery 判断 query 是否值得触发历史上下文搜索。
 func shouldSearchPastContextQuery(query string) bool {
 	return retrievalpkg.ShouldSearchPastContextQuery(query)
 }
 
+// memoryRetrievalLowConfidence 判断相关记忆结果是否不足以覆盖 query，需要回退搜索历史。
 func memoryRetrievalLowConfidence(query string, entries []MemoryEntry) bool {
 	return retrievalpkg.MemoryRetrievalLowConfidence(query, entries)
 }
 
+// searchTranscriptSnippets 在历史消息里检索可作为补充上下文的片段。
 func searchTranscriptSnippets(query string, messages []dto.Message, budget int) []transcriptSnippet {
 	return retrievalpkg.SearchTranscriptSnippets(query, messages, budget)
 }
 
+// memoryRenderBody 渲染单条 memory 正文，用于预算和 attachment 内容。
 func memoryRenderBody(entry MemoryEntry) string {
 	return retrievalpkg.MemoryRenderBody(entry)
 }
 
+// searchTerms 将 query 规范化并拆成去重检索词。
 func searchTerms(query string) (string, []string) {
 	normalized := CanonicalName(query)
 	if normalized == "" {
@@ -99,6 +110,7 @@ func searchTerms(query string) (string, []string) {
 	return normalized, terms
 }
 
+// contextErr 非阻塞读取 ctx 错误，nil context 视为未取消。
 func contextErr(ctx context.Context) error {
 	if ctx == nil {
 		return nil
@@ -111,6 +123,7 @@ func contextErr(ctx context.Context) error {
 	}
 }
 
+// minInt 返回两个整数中的较小值。
 func minInt(left, right int) int {
 	if left < right {
 		return left
@@ -118,10 +131,12 @@ func minInt(left, right int) int {
 	return right
 }
 
+// MemoryRulesProvider 只负责 thread start 阶段的 memory 使用规则注入。
+// 它不读取记忆正文，也不执行写入；turn 级相关记忆由 MemoryContextProvider 负责。
 type MemoryRulesProvider struct {
-	cfg    *Config
-	engine *MemoryRuleEngine
-	team   *TeamMemoryManager
+	cfg    *Config            // memory 功能配置。
+	engine *MemoryRuleEngine  // 规则文本渲染引擎。
+	team   *TeamMemoryManager // combined 模式下的 team memory 根解析器。
 }
 
 // NewRulesProvider 创建 start 时用的 memory 规则 provider。
@@ -165,6 +180,7 @@ func (p *MemoryRulesProvider) Resolve(_ context.Context, input contract.SectionC
 	return &wrapped, nil
 }
 
+// resolvedExtraGuidelines 复制配置里的额外规则，避免 prompt 渲染时共享可变 slice。
 func (p *MemoryRulesProvider) resolvedExtraGuidelines() []string {
 	if p == nil || p.cfg == nil {
 		return nil
@@ -177,7 +193,11 @@ func (p *MemoryRulesProvider) resolvedExtraGuidelines() []string {
 }
 
 // promptMode 解析当前 prompt 的记忆加载模式。
-func (p *MemoryRulesProvider) promptMode(buildCtx contract.BuildCtx, gate MemoryGateSnapshot, opts *MemoryRuleOptions) MemoryMode {
+func (p *MemoryRulesProvider) promptMode(
+	buildCtx contract.BuildCtx,
+	gate MemoryGateSnapshot,
+	opts *MemoryRuleOptions,
+) MemoryMode {
 	if !gate.AutoEnabled {
 		return ""
 	}
@@ -198,6 +218,7 @@ func (p *MemoryRulesProvider) promptMode(buildCtx contract.BuildCtx, gate Memory
 	return MemoryModeCombined
 }
 
+// resolvedAutoMemPath 解析当前 BuildCtx 下的 private auto memory 目录。
 func (p *MemoryRulesProvider) resolvedAutoMemPath(buildCtx contract.BuildCtx) string {
 	cfg := memoryConfig(p.cfg)
 	projectRoot := strings.TrimSpace(buildCtx.GitRoot)
@@ -214,6 +235,7 @@ func (p *MemoryRulesProvider) resolvedAutoMemPath(buildCtx contract.BuildCtx) st
 	return strings.TrimSpace(autoDir)
 }
 
+// combinedMemoryPaths 同时解析 private 和 team memory 目录；缺任一路径则退回 standard 模式。
 func (p *MemoryRulesProvider) combinedMemoryPaths(buildCtx contract.BuildCtx) (string, string, bool) {
 	if p == nil || p.team == nil {
 		return "", "", false
@@ -229,23 +251,27 @@ func (p *MemoryRulesProvider) combinedMemoryPaths(buildCtx contract.BuildCtx) (s
 	return autoDir, teamDir, true
 }
 
+// MemoryContextProvider 在每个 turn 准备相关记忆附件和历史片段输入。
+// 预取状态按 threadID 存放，所有 turns map 访问都受 mu 保护。
 type MemoryContextProvider struct {
-	cfg        *Config
-	memoryRoot string
-	timeNow    func() time.Time
+	cfg        *Config          // memory 功能配置。
+	memoryRoot string           // 当前用于相关记忆检索的根目录。
+	timeNow    func() time.Time // 测试可替换时间源。
 
 	mu    sync.Mutex
-	turns map[string]*prefetchTurnState
+	turns map[string]*prefetchTurnState // threadID 到预取状态。
 }
 
+// prefetchTurnState 保存单个 thread 的相关记忆预取和 surfaced 预算。
 type prefetchTurnState struct {
-	manager       *PrefetchManager
-	handle        *PrefetchHandle
-	gate          MemoryGateSnapshot
-	lastDate      string
-	surfacedBytes int
+	manager       *PrefetchManager   // 当前 thread 的预取管理器。
+	handle        *PrefetchHandle    // 当前 query 的预取任务。
+	gate          MemoryGateSnapshot // 最近一次 turn 使用的 memory gate。
+	lastDate      string             // 上次注入 Kairos 日期变化附件的日期。
+	surfacedBytes int                // 本 thread 已注入相关记忆的累计字节数。
 }
 
+// TurnContextPayload 是 contract 层 turn context payload 在 memory 包内的别名。
 type TurnContextPayload = contract.TurnContextPayload
 
 // NewContextProvider 创建 turn 时读取 memory 的 provider。
@@ -271,13 +297,8 @@ func (p *MemoryContextProvider) SectionName() string {
 	return contract.DynamicSectionMemoryContext
 }
 
-// Resolve is intentionally a no-op since Phase 1.5: the durable MEMORY.md
-// entrypoint is now injected exclusively by MemoryEntrypointProvider at
-// session start. Per-turn relevant memory and search-past-context attachments
-// are surfaced via PrepareTurnContext, not the dynamic-section pipeline. The
-// provider is still registered so future per-turn dynamic sections can attach
-// here without re-plumbing the section list.
-// Resolve 解析当前请求需要注入的 prompt 内容。
+// Resolve 对 turn 级动态 section 保持空实现。
+// MEMORY.md 入口由 MemoryEntrypointProvider 在 session start 注入；每轮相关记忆走 PrepareTurnContext。
 func (p *MemoryContextProvider) Resolve(_ context.Context, _ contract.SectionContext) (*string, error) {
 	return nil, nil
 }
@@ -321,6 +342,7 @@ func (p *MemoryContextProvider) PrepareTurnContext(
 	return payload
 }
 
+// prepareTurnAttachments 尝试消费上一轮预取结果，并判断本轮是否需要启动新的预取。
 func (p *MemoryContextProvider) prepareTurnAttachments(
 	ctx context.Context,
 	threadID, query string,
@@ -332,6 +354,7 @@ func (p *MemoryContextProvider) prepareTurnAttachments(
 	return entries, ready, attemptPrefetch
 }
 
+// shouldAttemptTurnPrefetch 检查 feature gate、query 和 surfaced 预算是否允许启动预取。
 func (p *MemoryContextProvider) shouldAttemptTurnPrefetch(
 	gate MemoryGateSnapshot,
 	query string,
@@ -389,6 +412,7 @@ func (p *MemoryContextProvider) OnPromptInvalidate(reason contract.InvalidateRea
 	}
 }
 
+// rememberTurnGate 保存 thread 最近一次 gate，供 Kairos/date-change 附件等后续步骤复用。
 func (p *MemoryContextProvider) rememberTurnGate(threadID string, gate MemoryGateSnapshot) {
 	threadID = strings.TrimSpace(threadID)
 	if p == nil || threadID == "" {
@@ -399,6 +423,7 @@ func (p *MemoryContextProvider) rememberTurnGate(threadID string, gate MemoryGat
 	p.turnStateLocked(threadID).gate = gate
 }
 
+// onTurnTerminated 取消 thread 当前预取任务，但保留 manager surfaced 记录供后续 turn 去重。
 func (p *MemoryContextProvider) onTurnTerminated(threadID, _ string) {
 	threadID = strings.TrimSpace(threadID)
 	if p == nil || threadID == "" {
@@ -416,6 +441,7 @@ func (p *MemoryContextProvider) onTurnTerminated(threadID, _ string) {
 	state.handle = nil
 }
 
+// consumePrefetchEntries 消费当前 query 的 ready 预取结果，并更新 surfaced 去重和字节预算。
 func (p *MemoryContextProvider) consumePrefetchEntries(
 	ctx context.Context,
 	threadID, query string,
@@ -452,7 +478,11 @@ func (p *MemoryContextProvider) startRelevantPrefetch(
 	p.mu.Lock()
 	state := p.turnStateLocked(threadID)
 	state.gate = gate
-	if !ShouldStartRelevantMemoryPrefetch(gate, contract.TurnInput{UserText: query}, RelevantPrefetchSurfacedState{TotalBytes: state.surfacedBytes}) {
+	if !ShouldStartRelevantMemoryPrefetch(
+		gate,
+		contract.TurnInput{UserText: query},
+		RelevantPrefetchSurfacedState{TotalBytes: state.surfacedBytes},
+	) {
 		p.mu.Unlock()
 		return nil, nil, false
 	}
@@ -476,6 +506,7 @@ func (p *MemoryContextProvider) startRelevantPrefetch(
 	return manager, handle, true
 }
 
+// clearHandle 只在 handle 仍是当前任务时清空，避免旧消费路径误删新查询。
 func (p *MemoryContextProvider) clearHandle(threadID string, handle *PrefetchHandle) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -485,6 +516,7 @@ func (p *MemoryContextProvider) clearHandle(threadID string, handle *PrefetchHan
 	}
 }
 
+// surfacedState 返回 thread 已展示相关记忆的字节统计，用于预取 gate 预算判断。
 func (p *MemoryContextProvider) surfacedState(threadID string) RelevantPrefetchSurfacedState {
 	threadID = strings.TrimSpace(threadID)
 	if p == nil || threadID == "" {
@@ -495,6 +527,7 @@ func (p *MemoryContextProvider) surfacedState(threadID string) RelevantPrefetchS
 	return RelevantPrefetchSurfacedState{TotalBytes: p.turnStateLocked(threadID).surfacedBytes}
 }
 
+// markSurfacedEntries 同步更新 manager 去重集合和 provider 级字节预算。
 func (p *MemoryContextProvider) markSurfacedEntries(threadID string, manager *PrefetchManager, entries []MemoryEntry) {
 	if manager != nil {
 		manager.MarkSurfaced(entries)
@@ -511,6 +544,7 @@ func (p *MemoryContextProvider) markSurfacedEntries(threadID string, manager *Pr
 	p.turnStateLocked(strings.TrimSpace(threadID)).surfacedBytes += surfacedBytes
 }
 
+// surfacedEntryBytes 计算本轮注入记忆正文占用的预算字节数。
 func surfacedEntryBytes(entries []MemoryEntry) int {
 	total := 0
 	for _, entry := range entries {
@@ -519,6 +553,7 @@ func surfacedEntryBytes(entries []MemoryEntry) int {
 	return total
 }
 
+// searchPastContext 在记忆低置信或无结果时，从 thread 历史中检索可复用片段。
 func (p *MemoryContextProvider) searchPastContext(
 	ctx context.Context,
 	session contract.Session,
@@ -534,6 +569,7 @@ func (p *MemoryContextProvider) searchPastContext(
 	return searchTranscriptSnippets(query, messages, defaultRelevantMemoryBudgetBytes/2)
 }
 
+// turnStateLocked 返回 thread 预取状态；调用方必须持有 p.mu。
 func (p *MemoryContextProvider) turnStateLocked(threadID string) *prefetchTurnState {
 	if p.turns == nil {
 		p.turns = map[string]*prefetchTurnState{}
@@ -546,6 +582,7 @@ func (p *MemoryContextProvider) turnStateLocked(threadID string) *prefetchTurnSt
 	return state
 }
 
+// now 返回可替换时间源，未配置时使用真实时间。
 func (p *MemoryContextProvider) now() time.Time {
 	if p != nil && p.timeNow != nil {
 		return p.timeNow()

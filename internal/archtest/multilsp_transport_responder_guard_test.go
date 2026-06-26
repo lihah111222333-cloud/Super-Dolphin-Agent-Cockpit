@@ -7,20 +7,15 @@ import (
 	"testing"
 )
 
-// TestMultiLSPTransportResponderOwnedByWaitGroup enforces P22 P2 LSP-S3:
-// the multilsp transport must not spawn server-request responder
-// goroutines fire-and-forget. Every dispatch path goes through
-// spawnResponder, which Add(1)s the responderWG before launching the
-// goroutine, so Close()/stopWithError can drainResponders() and wait
-// for in-flight work before killing the process.
+// TestMultiLSPTransportResponderOwnedByWaitGroup 守住 multilsp transport 的 responder 生命周期。
+// server request responder 不能用 fire-and-forget goroutine 启动；所有派发路径都必须经由
+// spawnResponder 先登记 responderWG，再让 Close/stopWithError 等待在途响应结束。
 //
-// Forbidden shapes:
-//   - literal `go t.respondToServerRequest(` (the pre-S3 pattern)
-//   - literal `go respondToServerRequest(` (plausible drift to a
-//     package-level responder)
+// 禁止形态：
+//   - 直接 `go t.respondToServerRequest(`，会绕过 responderWG。
+//   - 直接 `go respondToServerRequest(`，会把 responder 提升为包级裸 goroutine。
 //
-// Also asserts that transport_conn.go keeps the drainResponders(
-// call so future refactors can't silently drop the drain.
+// 同时要求 transport_conn.go 保留 drainResponders 调用，避免重构时丢掉关闭前等待。
 func TestMultiLSPTransportResponderOwnedByWaitGroup(t *testing.T) {
 	const dir = "../../cmd/mcp-lsp/multilsp"
 

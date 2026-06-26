@@ -251,7 +251,7 @@ func builtinPromptTemplateVisible(template contract.BuiltinPromptTemplate, cwd s
 	return false
 }
 
-// promptTagsContainScope 判断 prompt tags 是否包含指定 scope。
+// promptTagsContainScope 在 DB 模板 tags 中查找当前 cwd scope。
 func promptTagsContainScope(raw json.RawMessage, cwd string) bool {
 	if cwd == "" {
 		return false
@@ -478,7 +478,7 @@ func limitPromptListCandidates(candidates []promptListCandidate, limit int) []pr
 	return out
 }
 
-// promptSectionsPreview 处理promptsectionspreview。
+// promptSectionsPreview 按运行时展示顺序拼接启用 section，并跳过 recall 触发型内容。
 func promptSectionsPreview(sections []promptstore.PromptTemplateSection) string {
 	sorted := make([]promptstore.PromptTemplateSection, len(sections))
 	copy(sorted, sections)

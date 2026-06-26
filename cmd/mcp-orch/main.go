@@ -25,16 +25,12 @@ func main() {
 		_, _ = os.Stderr.WriteString("mcp-orch sidecar runtime env failed: " + err.Error() + "\n")
 		os.Exit(1)
 	}
-	// Cap GOMAXPROCS for this lightweight sidecar. The default (NumCPU)
-	// causes the Go scheduler to spin 10+ idle P threads in
-	// findRunnable/stealWork, burning ~30% CPU per process for no gain.
+	// 限制轻量 sidecar 的 GOMAXPROCS，避免默认 NumCPU 让空闲调度线程长期自旋消耗 CPU。
 	if runtime.GOMAXPROCS(0) > 2 {
 		runtime.GOMAXPROCS(2)
 	}
-	// Protect the MCP stdio channel: save the real stdout for the MCP
-	// server, then redirect os.Stdout to stderr so any accidental writes
-	// (log.Printf, fmt.Println, library init, panics) can never break
-	// the JSON-RPC framing.
+	// 保护 MCP stdio 通道：保存真实 stdout 给 MCP server 使用，再把普通 stdout 重定向到 stderr。
+	// 这样 log.Printf、fmt.Println、库初始化或 panic 的意外输出不会破坏 JSON-RPC framing。
 	mcpStdout.Store(os.Stdout)
 	os.Stdout = os.Stderr
 

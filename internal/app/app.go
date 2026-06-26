@@ -25,12 +25,14 @@ import (
 	"github.com/wailsapp/wails/v3/pkg/application"
 )
 
+// appDeps 抽出桌面 preflight 依赖，便于测试替换外部 Codex bootstrap。
 type appDeps struct {
 	ensureCodexCLIAvailable func(context.Context) error
 	ensureCodexBootstrap    func(context.Context, codexapp.CodexBootstrapConfig) error
 	codexAppManagedHome     func() (string, error)
 }
 
+// deps 是生产环境使用的桌面 preflight 依赖实现。
 var deps = appDeps{
 	ensureCodexCLIAvailable: codexapp.EnsureCLIAvailable,
 	ensureCodexBootstrap:    codexapp.EnsureCodexBootstrap,
@@ -39,13 +41,14 @@ var deps = appDeps{
 	},
 }
 
+// packaged Codex relay 环境变量。
 const (
 	codexRelayBaseURLEnv          = "SUPER_DOLPHIN_CODEX_RELAY_BASE_URL"
 	codexRelayBootstrapTokenEnv   = "SUPER_DOLPHIN_CODEX_RELAY_BOOTSTRAP_TOKEN"
 	codexRelayPrivilegedAPIKeyEnv = "SUPER_DOLPHIN_CODEX_RELAY_API_KEY"
 )
 
-// NewLogger 创建日志器。
+// NewLogger 初始化应用日志器并记录构建信息。
 func NewLogger() *slog.Logger {
 	info := currentBuildInfo()
 	pkglogger.ConfigureServiceFromEnv(info.Version)
@@ -69,6 +72,7 @@ func NewLogger() *slog.Logger {
 	return pkglogger.Get()
 }
 
+// buildInfo 保存启动日志中展示的构建元数据。
 type buildInfo struct {
 	Version   string
 	Commit    string
@@ -76,6 +80,7 @@ type buildInfo struct {
 	Runtime   string
 }
 
+// currentBuildInfo 从 Go build info 中提取版本、提交和构建时间。
 func currentBuildInfo() buildInfo {
 	info := buildInfo{
 		Version: "dev",
@@ -95,7 +100,7 @@ func currentBuildInfo() buildInfo {
 	return info
 }
 
-// applyBuildSetting 应用buildsetting。
+// applyBuildSetting 将 Go build setting 合并到 buildInfo。
 func applyBuildSetting(info *buildInfo, key, value string) {
 	if info == nil {
 		return
@@ -116,7 +121,7 @@ func applyBuildSetting(info *buildInfo, key, value string) {
 	}
 }
 
-// NewApp 创建app。
+// NewApp 创建后台模式 Fx 应用。
 func NewApp() *fx.App {
 	owner := newAppOwnerContext(context.Background())
 	return newFXApp(fx.Supply(fx.Annotate(owner, fx.As(new(RootCtxProvider)))))
@@ -129,9 +134,8 @@ func Run() error {
 	return runApp(owner, newFXApp(fx.Supply(fx.Annotate(owner, fx.As(new(RootCtxProvider))))))
 }
 
-// RunDesktop starts the desktop application with the given frontend filesystem.
-// When frontendFS is nil the wails module falls back to a built-in placeholder.
-// RunDesktop 运行desktop。
+// RunDesktop 启动桌面 Wails 应用。
+// 前端 filesystem 为空时由 wails 模块降级到内置占位页；运行结束前会先 drain runtime。
 func RunDesktop(frontendFS fs.FS) error {
 	owner := newAppOwnerContext(context.Background())
 	defer owner.Cancel()
@@ -170,6 +174,8 @@ func RunDesktop(frontendFS fs.FS) error {
 	return errors.Join(runErr, preDrainErr, stopErr)
 }
 
+// runDesktopPreflight 在 Fx 启动前准备桌面运行环境。
+// packaged runtime 需要先完成 Codex relay bootstrap，失败时阻止桌面继续启动。
 func runDesktopPreflight(ctx context.Context) error {
 	projectRoot, err := platformconfig.PrimeProcessEnvironment()
 	if err != nil {
@@ -181,7 +187,8 @@ func runDesktopPreflight(ctx context.Context) error {
 	return nil
 }
 
-// ensurePackagedCodexBootstrap 确保packagedcodex启动。
+// ensurePackagedCodexBootstrap 在打包运行时配置 Codex relay。
+// 检测到 runtime-manifest.json 才要求 relay 配置，开发模式不强制。
 func ensurePackagedCodexBootstrap(ctx context.Context, projectRoot string, d appDeps) error {
 	required, err := packagedCodexRelayRequired(projectRoot)
 	if err != nil {
@@ -208,6 +215,7 @@ func ensurePackagedCodexBootstrap(ctx context.Context, projectRoot string, d app
 	})
 }
 
+// packagedCodexRelayRequired 判断当前项目根是否处于打包 runtime。
 func packagedCodexRelayRequired(projectRoot string) (bool, error) {
 	projectRoot = strings.TrimSpace(projectRoot)
 	if projectRoot == "" {
@@ -223,7 +231,8 @@ func packagedCodexRelayRequired(projectRoot string) (bool, error) {
 	return false, fmt.Errorf("inspect packaged runtime manifest: %w", err)
 }
 
-// codexRelayBootstrapEnv 处理codexrelay启动env。
+// codexRelayBootstrapEnv 读取打包 Codex relay bootstrap 配置。
+// 特权 API key 不能被打进包内，发现后立即报错。
 func codexRelayBootstrapEnv() (baseURL string, bootstrapToken string, configured bool, err error) {
 	if strings.TrimSpace(os.Getenv(codexRelayPrivilegedAPIKeyEnv)) != "" {
 		return "", "", false, fmt.Errorf("%s is a privileged relay API key env and must not be packaged; use %s", codexRelayPrivilegedAPIKeyEnv, codexRelayBootstrapTokenEnv)
@@ -246,6 +255,7 @@ func codexRelayBootstrapEnv() (baseURL string, bootstrapToken string, configured
 	return baseURL, bootstrapToken, true, nil
 }
 
+// newFXApp 组装后台模式 Fx 应用。
 func newFXApp(options ...fx.Option) *fx.App {
 	base := []fx.Option{
 		Module,
@@ -257,6 +267,8 @@ func newFXApp(options ...fx.Option) *fx.App {
 	return fx.New(base...)
 }
 
+// runApp 启动后台 Fx 应用并等待 shutdown。
+// app.Done 返回后先取消 owner root，再使用无取消 context 执行 Stop。
 func runApp(owner *appOwnerContext, app *fx.App) error {
 	if owner == nil {
 		owner = newAppOwnerContext(context.Background())
@@ -272,6 +284,7 @@ func runApp(owner *appOwnerContext, app *fx.App) error {
 	return stopFXApp(context.WithoutCancel(ctx), app)
 }
 
+// newDesktopFXApp 组装桌面模式 Fx 应用。
 func newDesktopFXApp(options ...fx.Option) *fx.App {
 	base := []fx.Option{
 		Module,
@@ -284,17 +297,19 @@ func newDesktopFXApp(options ...fx.Option) *fx.App {
 	return fx.New(base...)
 }
 
+// stopFXApp 在全局 ShutdownTimeout 内停止 Fx 应用。
 func stopFXApp(parent context.Context, app *fx.App) error {
 	if parent == nil {
 		parent = context.Background()
 	}
-	// Apply a caller-side hard stop so shutdown cannot hang indefinitely.
+	// 调用侧统一套 ShutdownTimeout，确保 Fx shutdown 不会无限挂起。
 	// 误判防护：stopFXApp 使用 platformconfig.WithTimeout，FX shutdown 不会无限挂起。
 	ctx, cancel := platformconfig.WithTimeout(parent, platformconfig.ShutdownTimeout)
 	defer cancel()
 	return app.Stop(ctx)
 }
 
+// preDrainDesktopRuntime 在 Wails 退出后等待 runtime 完成并 drain 内存提取。
 func preDrainDesktopRuntime(ctx context.Context, owner *appOwnerContext) error {
 	if ctx == nil {
 		ctx = context.Background()
@@ -305,13 +320,15 @@ func preDrainDesktopRuntime(ctx context.Context, owner *appOwnerContext) error {
 	return errors.Join(owner.WaitRuntimeDone(drainCtx), owner.DrainRuntime(drainCtx))
 }
 
+// shutdownWatcher 管理桌面后端提前停止的监听 goroutine。
 type shutdownWatcher struct {
 	stop chan struct{}
 	done chan struct{}
 	once sync.Once
 }
 
-// StopAndWait 停止wait。
+// StopAndWait 通知监听 goroutine 退出并等待 done 关闭。
+// once 保证多个停止路径并发触发时不会重复 close stop channel。
 func (w *shutdownWatcher) StopAndWait() {
 	if w == nil {
 		return
@@ -320,6 +337,7 @@ func (w *shutdownWatcher) StopAndWait() {
 	<-w.done
 }
 
+// desktopFXStopper 确保桌面 Fx Stop 只执行一次。
 type desktopFXStopper struct {
 	parent context.Context
 	app    *fx.App
@@ -328,6 +346,7 @@ type desktopFXStopper struct {
 	err  error
 }
 
+// newDesktopFXStopper 创建桌面 Fx 停止器。
 func newDesktopFXStopper(parent context.Context, app *fx.App) *desktopFXStopper {
 	return &desktopFXStopper{
 		parent: parent,
@@ -335,7 +354,8 @@ func newDesktopFXStopper(parent context.Context, app *fx.App) *desktopFXStopper 
 	}
 }
 
-// Stop 停止应用装配流程。
+// Stop 停止桌面 Fx 应用且只执行一次。
+// 使用 WithoutCancel 的父 context，避免外层取消打断 Stop hooks 收尾。
 func (s *desktopFXStopper) Stop() error {
 	if s == nil {
 		return nil
@@ -346,6 +366,8 @@ func (s *desktopFXStopper) Stop() error {
 	return s.err
 }
 
+// watchFXShutdown 监听 Fx shutdown 并通知 Wails 生命周期。
+// 后端提前停止时会调用 stopBackend，成功/失败都会转成 UI 可见状态。
 func watchFXShutdown(ctx context.Context, app *fx.App, lifecycle *uiwails.WailsLifecycle, stopBackend func() error) *shutdownWatcher {
 	watcher := &shutdownWatcher{stop: make(chan struct{}), done: make(chan struct{})}
 	runtimesafe.SafeGo(ctx, pkglogger.Get(), "app.watchFXShutdown", func(ctx context.Context) {
@@ -362,7 +384,7 @@ func watchFXShutdown(ctx context.Context, app *fx.App, lifecycle *uiwails.WailsL
 	return watcher
 }
 
-// runShutdownWatcher 运行shutdownwatcher。
+// runShutdownWatcher 等待 Fx Done、显式 stop 或 context 取消。
 func runShutdownWatcher(ctx context.Context, done <-chan os.Signal, stop <-chan struct{}, stopBackend func() error, onStopped func(error)) {
 	select {
 	case <-done:

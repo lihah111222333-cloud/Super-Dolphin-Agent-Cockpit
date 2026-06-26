@@ -16,7 +16,9 @@ import (
 
 var _ contract.TurnAttachmentProvider = (*ClaudeMdSourcesProvider)(nil)
 
-// ResolveTurnAttachments 解析turnattachments。
+// ResolveTurnAttachments 根据本轮附件触发 nested CLAUDE.md 规则注入。
+// 只在 nested 启用且 gate 允许 CLAUDE.md 时工作；触发路径来自 turn attachments，
+// 不直接扫描用户未提及的任意文件。
 func (p *ClaudeMdSourcesProvider) ResolveTurnAttachments(
 	ctx context.Context,
 	buildCtx contract.BuildCtx,
@@ -33,10 +35,8 @@ func (p *ClaudeMdSourcesProvider) ResolveTurnAttachments(
 		return nil, nil
 	}
 	p.nested.ObserveBuildContext(turn.ThreadID, buildCtx)
-	// TurnInput.Attachments is the shared trigger lane for path-bearing turn inputs.
-	// turn.prepareTurnAssembly() builds it from turnAttachmentRefs(req.Inputs), where
-	// req.Inputs includes both explicit @mentioned files and path-only frontend/IDE
-	// file selections normalized into mention inputs by the turn input assembler.
+	// TurnInput.Attachments 是带路径输入的统一触发通道；显式 @ 文件和前端/IDE
+	// 选择的文件都会在 turn 汇编阶段规整到这里。
 	p.nested.AddTriggers(turn.ThreadID, buildCtx, turn.Attachments)
 	triggers := p.nested.ConsumePending(turn.ThreadID, buildCtx)
 	if len(triggers) == 0 {
@@ -45,7 +45,8 @@ func (p *ClaudeMdSourcesProvider) ResolveTurnAttachments(
 	return p.GetNestedMemoryAttachments(ctx, buildCtx, turn.ThreadID, triggers, baseSources)
 }
 
-// GetNestedMemoryAttachments 读取nested记忆attachments。
+// GetNestedMemoryAttachments 根据 pending trigger 生成 nested memory 附件。
+// 每个 trigger 都会按上下文重新解析条件规则，已在本 thread 注入过的来源会被跳过。
 func (p *ClaudeMdSourcesProvider) GetNestedMemoryAttachments(
 	ctx context.Context,
 	buildCtx contract.BuildCtx,
@@ -76,6 +77,8 @@ func (p *ClaudeMdSourcesProvider) GetNestedMemoryAttachments(
 	return attachments, nil
 }
 
+// appendNestedMemoryAttachments 解析单个目标路径对应的条件来源并追加附件。
+// 条件来源加载失败会返回错误，避免把部分损坏规则静默忽略。
 func (p *ClaudeMdSourcesProvider) appendNestedMemoryAttachments(
 	attachments []dto.AttachmentEnvelope,
 	ctx context.Context,
@@ -100,6 +103,8 @@ func (p *ClaudeMdSourcesProvider) appendNestedMemoryAttachments(
 	return attachments, nil
 }
 
+// resolveNestedMemoryAttachment 将单个 ClaudeMdSource 转换为附件并标记已加载。
+// MarkLoaded 失败表示该 thread 已注入过该来源或来源为空，调用方应跳过。
 func (p *ClaudeMdSourcesProvider) resolveNestedMemoryAttachment(
 	threadID string,
 	buildCtx contract.BuildCtx,
@@ -118,10 +123,14 @@ func (p *ClaudeMdSourcesProvider) resolveNestedMemoryAttachment(
 	return attachment, true, nil
 }
 
+// nestedMemoryEnabled 判断 nested 规则功能是否启用。
+// 保留 helper 便于后续加入更多依赖级 gate。
 func nestedMemoryEnabled(deps Dependencies) bool {
 	return deps.NestedEnabled
 }
 
+// nestedMemoryAttachment 读取来源文件元信息并构造 nested 附件。
+// 文件消失或为空时返回 ok=false；其它 stat 错误会上抛。
 func nestedMemoryAttachment(source ClaudeMdSource) (dto.AttachmentEnvelope, bool, error) {
 	content := strings.TrimSpace(source.Content)
 	if content == "" {
@@ -149,6 +158,8 @@ func nestedMemoryAttachment(source ClaudeMdSource) (dto.AttachmentEnvelope, bool
 	return attachment, contract.IsValidAttachmentEnvelope(attachment), nil
 }
 
+// nestedMemoryHeader 生成 nested 附件头部。
+// description 仅作为来源说明，不改变附件内容的信任级别。
 func nestedMemoryHeader(source ClaudeMdSource) string {
 	header := "Contents of " + strings.TrimSpace(source.Path)
 	description := strings.TrimSpace(source.Description)
@@ -158,7 +169,8 @@ func nestedMemoryHeader(source ClaudeMdSource) string {
 	return header + " (" + description + "):"
 }
 
-// parseFrontmatterPaths 解析frontmatter路径。
+// parseFrontmatterPaths 从规则 frontmatter 中解析 paths/globs。
+// 支持单行值和 YAML 列表，返回前会统一清洗去重。
 func parseFrontmatterPaths(frontmatter string) []string {
 	paths := make([]string, 0, 4)
 	activeList := false
@@ -185,7 +197,8 @@ func parseFrontmatterPaths(frontmatter string) []string {
 	return normalizeStringSlice(paths)
 }
 
-// MatchTargetPath 判断target路径是否匹配。
+// MatchTargetPath 判断目标文件是否命中规则 glob。
+// 目标必须位于 baseDir 内；glob 只匹配相对路径，避免规则越界影响其它目录。
 func MatchTargetPath(target string, globs []string, baseDir string) bool {
 	if strings.TrimSpace(target) == "" || len(globs) == 0 {
 		return false
@@ -210,6 +223,8 @@ func MatchTargetPath(target string, globs []string, baseDir string) bool {
 	return false
 }
 
+// targetGlobVariants 生成用于匹配的 glob 变体。
+// 去掉 `**/` 的紧凑变体可兼容常见规则写法，同时保持原始 glob。
 func targetGlobVariants(glob string) []string {
 	glob = strings.TrimSpace(glob)
 	if glob == "" {
@@ -223,7 +238,8 @@ func targetGlobVariants(glob string) []string {
 	return normalizeStringSlice(variants)
 }
 
-// resolveNestedConditionalSources 解析nestedconditionalsources。
+// resolveNestedConditionalSources 解析目标文件可触发的条件 nested 来源。
+// 它只扫描 CWD 层级和目标路径层级，并过滤掉 baseSources 已注入的来源。
 func resolveNestedConditionalSources(
 	ctx context.Context,
 	buildCtx contract.BuildCtx,
@@ -256,6 +272,8 @@ func resolveNestedConditionalSources(
 	return filterNestedConditionalDelta(sources, target, baseSources), nil
 }
 
+// nestedLayerDirs 计算目标文件触发 nested 规则时需要扫描的目录层级。
+// CWD 祖先目录先于目标子目录，顺序去重后用于候选收集。
 func nestedLayerDirs(buildCtx contract.BuildCtx, target string) []string {
 	seen := make(map[string]struct{}, 8)
 	ordered := make([]string, 0, 8)
@@ -277,11 +295,14 @@ func nestedLayerDirs(buildCtx contract.BuildCtx, target string) []string {
 	return ordered
 }
 
+// cwdLevelDirs 返回 CWD 到 GitRoot 的祖先目录链。
+// 复用 ancestorWalkDirs，保证和基础 CLAUDE.md 发现顺序一致。
 func cwdLevelDirs(root, cwd string) []string {
 	return ancestorWalkDirs(root, cwd)
 }
 
-// nestedDirs 处理nested目录。
+// nestedDirs 返回从 CWD 到目标文件目录的 nested 层级。
+// 目标不在 CWD 下时返回 nil，避免跨工作目录加载规则。
 func nestedDirs(cwd, target string) []string {
 	cwd = cleanClaudeMdPath(cwd)
 	targetDir := cleanClaudeMdPath(filepath.Dir(strings.TrimSpace(target)))
@@ -305,7 +326,8 @@ func nestedDirs(cwd, target string) []string {
 	return stack
 }
 
-// filterNestedConditionalDelta 处理过滤条件nestedconditionaldelta。
+// filterNestedConditionalDelta 过滤本轮新增且匹配目标路径的条件来源。
+// 已存在于 baseSources 或本轮重复的来源会跳过，避免同一 CLAUDE.md 重复注入。
 func filterNestedConditionalDelta(sources []ClaudeMdSource, target string, baseSources []ClaudeMdSource) []ClaudeMdSource {
 	baseKeys := baseUserContextSourceKeys(baseSources)
 	seen := make(map[string]struct{}, len(sources))
@@ -333,7 +355,8 @@ func filterNestedConditionalDelta(sources []ClaudeMdSource, target string, baseS
 	return filtered
 }
 
-// baseUserContextSourceKeys 处理baseuser上下文source键。
+// baseUserContextSourceKeys 为 base user context 中已注入的非条件 CLAUDE.md 来源生成去重键。
+// 只纳入有内容的基础来源，条件来源留给 target 匹配阶段处理；键包含路径、origin、scope 和内容摘要，避免同一路径不同内容被误判相同。
 func baseUserContextSourceKeys(sources []ClaudeMdSource) map[string]struct{} {
 	if len(sources) == 0 {
 		return nil

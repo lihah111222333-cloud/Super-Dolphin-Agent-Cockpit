@@ -12,13 +12,15 @@ import (
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
+// DispatchRetryAlertNotifier 把 DAG 派发重试阈值事件转换成平台通知。
 type DispatchRetryAlertNotifier struct {
 	logger   *slog.Logger
 	notifier contract.MessageNotifier
 	store    taskdag.Store
 }
 
-// NewDispatchRetryAlertNotifier 创建dispatch重试alertnotifier。
+// NewDispatchRetryAlertNotifier 创建派发重试告警器；logger 为空时使用全局 logger。
+// notifier 或 store 可以为空，运行时会按 drop 语义跳过，不阻断 DAG 调度主路径。
 func NewDispatchRetryAlertNotifier(logger *slog.Logger, notifier contract.MessageNotifier, store taskdag.Store) *DispatchRetryAlertNotifier {
 	if logger == nil {
 		logger = pkglogger.Get()
@@ -26,11 +28,13 @@ func NewDispatchRetryAlertNotifier(logger *slog.Logger, notifier contract.Messag
 	return &DispatchRetryAlertNotifier{logger: logger, notifier: notifier, store: store}
 }
 
+// provideDispatchRetryAlertSink 把通知器收窄为 orchestration.DispatchRetryAlertSink 端口。
 func provideDispatchRetryAlertSink(logger *slog.Logger, notifier contract.MessageNotifier, store taskdag.Store) orchestration.DispatchRetryAlertSink {
 	return NewDispatchRetryAlertNotifier(logger, notifier, store)
 }
 
-// AlertDispatchRetry 处理alertdispatch重试。
+// AlertDispatchRetry 在节点配置或 DAG metadata 指定通知别名时发送重试告警。
+// 缺 notifier、缺 dag/node key 或未配置 alias 都按可观测 drop 处理，不让通知失败影响调度。
 func (n *DispatchRetryAlertNotifier) AlertDispatchRetry(ctx context.Context, alert orchestration.DispatchRetryAlert) error {
 	if n == nil || n.notifier == nil {
 		return nil
@@ -63,6 +67,7 @@ func (n *DispatchRetryAlertNotifier) AlertDispatchRetry(ctx context.Context, ale
 	})
 }
 
+// findNode 读取告警节点，用于补标题和解析 node.config.notify_channel。
 func (n *DispatchRetryAlertNotifier) findNode(ctx context.Context, dagKey, nodeKey string) *taskdag.Node {
 	if n.store == nil {
 		return nil
@@ -83,6 +88,7 @@ func (n *DispatchRetryAlertNotifier) findNode(ctx context.Context, dagKey, nodeK
 	return nil
 }
 
+// getDAG 读取告警所属 DAG，用于补标题和解析 dag.metadata.notify_channel。
 func (n *DispatchRetryAlertNotifier) getDAG(ctx context.Context, dagKey string) *taskdag.DAG {
 	if n.store == nil {
 		return nil
@@ -97,7 +103,7 @@ func (n *DispatchRetryAlertNotifier) getDAG(ctx context.Context, dagKey string) 
 	return dag
 }
 
-// buildDispatchRetryAlertBody 构建dispatch重试alert正文。
+// buildDispatchRetryAlertBody 构建派发重试告警正文，只包含定位和错误摘要。
 func buildDispatchRetryAlertBody(alert orchestration.DispatchRetryAlert, node *taskdag.Node, dag *taskdag.DAG) string {
 	var b strings.Builder
 	b.WriteString("DAG: ")

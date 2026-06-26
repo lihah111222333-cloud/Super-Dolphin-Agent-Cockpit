@@ -9,12 +9,14 @@ import (
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
+// traceRecordErrorWarnInterval 限制同一 scope 的 trace 写入失败告警频率。
 const traceRecordErrorWarnInterval = time.Minute
 
+// traceRecordErrorWarnings 记录各 scope 最近一次告警时间。
 var traceRecordErrorWarnings sync.Map
 
-// WarnRecordError reports tracing write failures without failing the caller path.
-// WarnRecordError 处理warn记录错误。
+// WarnRecordError 记录 trace 写入失败，但不影响原业务调用链。
+// 同一 scope 在固定窗口内只告警一次，避免落盘故障刷屏。
 func WarnRecordError(logger *slog.Logger, scope string, event TraceEvent, err error) {
 	if err == nil {
 		return
@@ -35,7 +37,7 @@ func WarnRecordError(logger *slog.Logger, scope string, event TraceEvent, err er
 	)
 }
 
-// allowTraceRecordErrorWarning 判断trace记录错误warning是否可用。
+// allowTraceRecordErrorWarning 用原子时间戳实现按 scope 限频。
 func allowTraceRecordErrorWarning(scope string, now time.Time) bool {
 	if scope == "" {
 		scope = "unknown"

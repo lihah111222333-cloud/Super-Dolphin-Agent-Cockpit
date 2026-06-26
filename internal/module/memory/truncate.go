@@ -14,6 +14,8 @@ const (
 	entrypointMaxCodeUnits = 25_000
 )
 
+// EntrypointTruncation 描述 MEMORY.md 入口文件被加载和截断后的结果。
+// LineCount/CodeUnitCount 保留原始规模，Warning 写回 prompt 以提示用户拆分过大的入口索引。
 type EntrypointTruncation struct {
 	Content          string
 	LineCount        int
@@ -23,7 +25,8 @@ type EntrypointTruncation struct {
 	Warning          string
 }
 
-// TruncateEntrypointContent 截断entrypoint内容。
+// TruncateEntrypointContent 按行数和 JS code unit 双上限裁剪入口记忆。
+// 超限时在返回内容末尾追加警告，避免模型误以为完整 MEMORY.md 已注入。
 func TruncateEntrypointContent(raw string) EntrypointTruncation {
 	trimmed := strings.TrimSpace(raw)
 	if trimmed == "" {
@@ -54,6 +57,7 @@ func TruncateEntrypointContent(raw string) EntrypointTruncation {
 	return result
 }
 
+// truncateEntrypointReason 生成人类可读的截断原因，区分行数过多、单行过长和双重超限。
 func truncateEntrypointReason(result EntrypointTruncation) string {
 	switch {
 	case result.WasByteTruncated && !result.WasLineTruncated:
@@ -65,6 +69,7 @@ func truncateEntrypointReason(result EntrypointTruncation) string {
 	}
 }
 
+// formatEntrypointSize 将 code unit 数格式化为近似字节大小，只用于用户可见的超限提示。
 func formatEntrypointSize(size int) string {
 	kb := float64(size) / 1024
 	if kb < 1 {
@@ -83,13 +88,16 @@ func formatEntrypointSize(size int) string {
 
 var ErrForbiddenMemoryContent = errors.New("forbidden memory content")
 
+// MemoryContentValidationError 记录持久记忆内容命中的规则，Error 文案只暴露规则原因而不带原文片段。
 type MemoryContentValidationError struct {
 	RuleID string
 	Reason string
 }
 
+// MemoryContentValidator 校验 durable memory 是否包含不应长期保存的敏感或可派生内容。
 type MemoryContentValidator struct{}
 
+// memoryContentPattern 是持久记忆禁写规则，RuleID 用于测试和 UI 分类，Regex 只匹配归一化后的文本。
 type memoryContentPattern struct {
 	RuleID string
 	Reason string
@@ -121,12 +129,12 @@ var forbiddenMemoryContentPatterns = []memoryContentPattern{
 
 var defaultMemoryContentValidator = NewMemoryContentValidator()
 
-// NewMemoryContentValidator 创建记忆内容校验器。
+// NewMemoryContentValidator 创建无状态内容校验器，便于测试替换默认规则调用入口。
 func NewMemoryContentValidator() *MemoryContentValidator {
 	return &MemoryContentValidator{}
 }
 
-// Error 返回错误文本。
+// Error 返回 UI/RPC 可展示的禁写原因；nil 或空原因统一退回哨兵错误文本。
 func (e *MemoryContentValidationError) Error() string {
 	if e == nil || strings.TrimSpace(e.Reason) == "" {
 		return ErrForbiddenMemoryContent.Error()
@@ -134,17 +142,17 @@ func (e *MemoryContentValidationError) Error() string {
 	return fmt.Sprintf("%s: %s", ErrForbiddenMemoryContent, strings.TrimSpace(e.Reason))
 }
 
-// Unwrap 返回底层错误。
+// Unwrap 暴露 ErrForbiddenMemoryContent，供调用方用 errors.Is 识别禁写类别。
 func (e *MemoryContentValidationError) Unwrap() error {
 	return ErrForbiddenMemoryContent
 }
 
-// ValidateMemoryEntryContent 校验记忆条目内容。
+// ValidateMemoryEntryContent 使用默认校验器检查单条记忆，写入路径必须在落盘前调用。
 func ValidateMemoryEntryContent(entry MemoryEntry) error {
 	return defaultMemoryContentValidator.Validate(entry)
 }
 
-// Validate 校验记忆。
+// Validate 同时执行密钥扫描和 durable-memory 禁写规则，命中任一规则都会 fail-fast 阻断保存。
 func (v *MemoryContentValidator) Validate(entry MemoryEntry) error {
 	if err := validateMemorySecrets(entry); err != nil {
 		return err
@@ -158,6 +166,7 @@ func (v *MemoryContentValidator) Validate(entry MemoryEntry) error {
 	return nil
 }
 
+// validateMemorySecrets 复用团队记忆密钥扫描规则检查 durable memory，命中时只返回规则 ID 不回显秘密。
 func validateMemorySecrets(entry MemoryEntry) error {
 	findings := ScanTeamMemContent(memoryValidationRawText(entry))
 	if len(findings) == 0 {
@@ -170,6 +179,7 @@ func validateMemorySecrets(entry MemoryEntry) error {
 	return &MemoryContentValidationError{RuleID: "secrets", Reason: reason}
 }
 
+// memoryValidationRawText 合并名称、描述和正文作为扫描输入，避免秘密藏在 frontmatter 字段中。
 func memoryValidationRawText(entry MemoryEntry) string {
 	parts := []string{
 		strings.TrimSpace(entry.Frontmatter.Name),
@@ -179,6 +189,7 @@ func memoryValidationRawText(entry MemoryEntry) string {
 	return strings.TrimSpace(strings.Join(nonEmpty(parts), "\n"))
 }
 
+// memoryValidationCorpus 将扫描输入转为小写、压缩空白的逐行语料，稳定匹配可派生内容规则。
 func memoryValidationCorpus(entry MemoryEntry) string {
 	lines := make([]string, 0, 4)
 	for line := range strings.SplitSeq(memoryValidationRawText(entry), "\n") {

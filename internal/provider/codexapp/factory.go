@@ -25,7 +25,8 @@ type callTarget interface {
 
 type callTargetFunc func(context.Context, string, any) (json.RawMessage, error)
 
-// Call 调用codexapp provider。
+// Call 将函数适配为 callTarget。
+// 测试和轻量调用点可注入闭包，而生产 transport 仍实现同一接口。
 func (fn callTargetFunc) Call(ctx context.Context, method string, params any) (json.RawMessage, error) {
 	return fn(ctx, method, params)
 }
@@ -186,11 +187,8 @@ func isTurnTerminalEvent(method string) bool {
 	}
 }
 
-// isMessageStreamDeltaEvent reports whether the method denotes a streamed
-// agent-message delta (stream="message"). The codex CLI emits these via
-// item/agentMessage/delta and friends (event_map.go:187). reasoning /
-// command-execution deltas are intentionally excluded: only message stream
-// contributes to TurnCompleted.Result per ADR-015 v4.1 §2.2.
+// isMessageStreamDeltaEvent 判断 raw method 是否是 assistant message 的流式增量。
+// reasoning 和命令输出不会写入 TurnCompleted.Result，避免最终回答混入非 message stream。
 func isMessageStreamDeltaEvent(method string) bool {
 	switch strings.TrimSpace(method) {
 	case "item/agentMessage/delta", "message.delta", "agent_message_delta":
@@ -200,7 +198,8 @@ func isMessageStreamDeltaEvent(method string) bool {
 	}
 }
 
-// turnTerminalSuccess 处理turnterminalsuccess。
+// turnTerminalSuccess 从 terminal method 和 payload 中判断本轮是否成功结束。
+// method 中的 aborted/failed/error 优先于 payload success，缺省状态按成功兼容旧 Codex 事件。
 func turnTerminalSuccess(method string, payload map[string]any) bool {
 	normalizedMethod := strings.ToLower(strings.TrimSpace(method))
 	if strings.Contains(normalizedMethod, "aborted") ||
@@ -239,7 +238,8 @@ func (t *transport) currentWSOrErr() (*websocket.Conn, error) {
 	return ws, nil
 }
 
-// shutdownTransport 处理shutdown传输。
+// shutdownTransport 关闭 transport 拥有的 websocket 和本地进程。
+// 只有 local transport 会发送 shutdown 并停止进程，共享 app-server 连接不能被会话关闭误杀。
 func (t *transport) shutdownTransport(graceful bool) error {
 	if t == nil {
 		return nil
@@ -247,9 +247,7 @@ func (t *transport) shutdownTransport(graceful bool) error {
 	if graceful && t.closed.Load() {
 		return nil
 	}
-	// Only send shutdown notification and stop process when this transport
-	// owns the process (local spawn). Non-local transports connect to a
-	// shared app-server and must NOT kill it.
+	// 只有本地启动的 transport 才拥有进程；共享 app-server 连接不能在会话关闭时被杀掉。
 	if graceful && t.local && !t.closing.Load() {
 		_ = t.notifyDirect("shutdown", nil)
 	}
@@ -259,7 +257,8 @@ func (t *transport) shutdownTransport(graceful bool) error {
 	return err
 }
 
-// shutdownSession 处理shutdown会话。
+// shutdownSession 停止会话运行时、释放工具面并关闭 transport。
+// 读循环阻塞在 WebSocket 上，必须先关 socket 再等待 runtime drain，否则关闭会卡住。
 func (s *session) shutdownSession(graceful bool) error {
 	if s == nil {
 		return nil
@@ -276,17 +275,8 @@ func (s *session) shutdownSession(graceful bool) error {
 		s.failTurns(errors.New("codexapp: session stopped"))
 	}
 	s.clearProcessedApprovals()
-	// P22 P1c: drain reader / health / recovery via the single runtime handle
-	// before tearing down the transport. runtime.Stop() closes the stop gate,
-	// cancels s.ctx, and joins every runtime-owned goroutine; callers no
-	// longer need to reach for waitReadLoopStopped() to prove drain.
-	//
-	// The WS conn.ReadMessage call inside transport.ReadLoop is NOT ctx-aware
-	// — it only unblocks when the underlying socket closes. So we pre-close
-	// the socket here before asking the runtime to join the reader; otherwise
-	// runtime.waitReaderDone would block forever waiting on a read that never
-	// returns. Marking closing=true also classifies the resulting EOF as
-	// expected shutdown rather than passive connection death.
+	// transport.ReadLoop 的 ReadMessage 不感知 ctx，先关 socket 才能让 runtime.Stop 汇合 reader。
+	// closing=true 会把随后的 EOF 归类为预期关闭，而不是被动连接死亡。
 	if s.transport != nil {
 		s.transport.closing.Store(true)
 		if graceful && s.transport.local {
@@ -303,7 +293,8 @@ func (s *session) shutdownSession(graceful bool) error {
 	return errors.Join(cleanupErr, s.transport.shutdownTransport(graceful))
 }
 
-// failRecovery 标记失败recovery。
+// failRecovery 在被动连接死亡无法本地恢复时通知上游做 session 级恢复。
+// 如果正在关闭或 runtime 已停，则只记录 suppression，避免把正常关闭误报成 recoverable death。
 func (s *session) failRecovery(reason string, err error) error {
 	if s == nil {
 		return err
@@ -325,9 +316,7 @@ func (s *session) failRecovery(reason string, err error) error {
 		"error", err,
 	)
 	s.failTurns(errors.New("codexapp: " + strings.TrimSpace(reason)))
-	// Notify upstream that the session is dead but recoverable — the thread
-	// module can do a full session-level recovery (new WS connection + UUID
-	// resume) instead of retrying the same broken transport.
+	// 通知上游执行完整 session 级恢复，而不是继续复用已经坏掉的 transport。
 	s.dispatch(dto.RawProviderEvent{
 		EventType: "connection.dead",
 		Data: map[string]any{
@@ -340,7 +329,8 @@ func (s *session) failRecovery(reason string, err error) error {
 	return err
 }
 
-// recoveryShutdownErr 处理recoveryshutdownerr。
+// recoveryShutdownErr 判断当前错误是否发生在预期关闭路径中。
+// transport closing、runtime stopped 或 ctx canceled 都会抑制被动恢复告警。
 func (s *session) recoveryShutdownErr() error {
 	if s == nil {
 		return nil
@@ -359,8 +349,8 @@ func (s *session) recoveryShutdownErr() error {
 	return nil
 }
 
-// codexCallerStack returns a compact caller stack for debugging.
-// codexCallerStack 处理codexcallerstack。
+// codexCallerStack 返回简短调用栈用于 shutdown 调试日志。
+// 只保留少量 frame，避免高频关闭路径写出过大的日志字段。
 func codexCallerStack() string {
 	var pcs [8]uintptr
 	n := runtime.Callers(3, pcs[:])

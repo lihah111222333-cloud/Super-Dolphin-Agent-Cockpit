@@ -18,7 +18,8 @@ var (
 	errNilManagerResolver   = errors.New("hooks manager resolver is nil")
 )
 
-// Manager implements contract.HookManager by composing registry, dispatcher, and resolver.
+// Manager 组合 registry、dispatcher 和 resolver 实现 hooks 对外入口。
+// before/check/after 三阶段都从这里统一做深度保护、决策合并和失联 lease 清理。
 type Manager struct {
 	registry     *HookRegistry
 	dispatcher   *HookDispatcher
@@ -27,9 +28,10 @@ type Manager struct {
 	maxHookDepth int
 }
 
+// ManagerOption 调整 Manager 的深度限制和日志依赖。
 type ManagerOption func(*Manager)
 
-// WithMaxHookDepth 设置maxhookdepth。
+// WithMaxHookDepth 设置 hook 递归派发最大深度。
 func WithMaxHookDepth(n int) ManagerOption {
 	return func(m *Manager) {
 		if m != nil && n > 0 {
@@ -38,7 +40,7 @@ func WithMaxHookDepth(n int) ManagerOption {
 	}
 }
 
-// WithManagerLogger 设置manager日志器。
+// WithManagerLogger 注入 Manager 使用的结构化 logger。
 func WithManagerLogger(logger *pkglogger.Logger) ManagerOption {
 	return func(m *Manager) {
 		if m != nil && logger != nil {
@@ -47,11 +49,12 @@ func WithManagerLogger(logger *pkglogger.Logger) ManagerOption {
 	}
 }
 
-// Compile-time interface check.
+// Manager 必须同时满足 hook RPC 入口和生命周期清理接口。
 var _ contract.HookManager = (*Manager)(nil)
 var _ contract.HookLifecycle = (*Manager)(nil)
 
-// NewManager 创建manager。
+// NewManager 创建 hooks Manager 并校验三项核心依赖。
+// registry、dispatcher、resolver 任一缺失都会立即失败，避免订阅、fanout 或审批持久化只在部分路径可用。
 func NewManager(registry *HookRegistry, dispatcher *HookDispatcher, resolver *HookResolver, opts ...ManagerOption) (*Manager, error) {
 	manager := &Manager{
 		registry:     registry,
@@ -71,7 +74,7 @@ func NewManager(registry *HookRegistry, dispatcher *HookDispatcher, resolver *Ho
 	return manager, nil
 }
 
-// Subscribe 注册事件订阅。
+// Subscribe 注册或更新 peer 的 hook 订阅。
 func (m *Manager) Subscribe(_ context.Context, lease mcp.LeaseKey, req mcp.HookSubscribeRequest) (mcp.HookSubscribeResponse, error) {
 	if err := m.validate(); err != nil {
 		return mcp.HookSubscribeResponse{}, err
@@ -79,7 +82,7 @@ func (m *Manager) Subscribe(_ context.Context, lease mcp.LeaseKey, req mcp.HookS
 	return m.registry.Subscribe(lease, req)
 }
 
-// DispatchBefore 派发before。
+// DispatchBefore 执行 before 阶段决策，部分 peer 失败时按 fail-closed 拒绝请求。
 func (m *Manager) DispatchBefore(ctx context.Context, topic string, payload mcp.HookPayload) (mcp.BeforeDecision, error) {
 	return runPhase(ctx, m, topic, payload, phaseSpec[mcp.BeforeDecision]{
 		defaultDecision: mcp.BeforeDecision{Decision: mcp.HookDecisionDeny},
@@ -100,7 +103,7 @@ func (m *Manager) DispatchBefore(ctx context.Context, topic string, payload mcp.
 	})
 }
 
-// DispatchCheck 派发check。
+// DispatchCheck 执行 check 阶段决策，默认允许继续，peer 可升级为 warn/abort。
 func (m *Manager) DispatchCheck(ctx context.Context, topic string, payload mcp.HookPayload) (mcp.CheckDecision, error) {
 	return runPhase(ctx, m, topic, payload, phaseSpec[mcp.CheckDecision]{
 		defaultDecision: mcp.CheckDecision{Decision: mcp.HookDecisionContinue},
@@ -112,7 +115,8 @@ func (m *Manager) DispatchCheck(ctx context.Context, topic string, payload mcp.H
 	})
 }
 
-// DispatchAfter 派发后置。
+// DispatchAfter 执行 after 阶段决策，并在 escalate 时持久化待审批记录。
+// 无法定位触发 escalate 的订阅 lease 时按 reject 返回，避免产生无人可解的 pending review。
 func (m *Manager) DispatchAfter(ctx context.Context, topic string, payload mcp.HookPayload) (mcp.AfterDecision, error) {
 	return runPhase(ctx, m, topic, payload, phaseSpec[mcp.AfterDecision]{
 		defaultDecision: mcp.AfterDecision{Decision: mcp.HookDecisionReject},
@@ -162,7 +166,7 @@ func (m *Manager) DispatchAfter(ctx context.Context, topic string, payload mcp.H
 	})
 }
 
-// Resolve 解析平台hooks。
+// Resolve 处理 ctl/hook/resolve 请求，并把权限和幂等收敛交给 resolver。
 func (m *Manager) Resolve(ctx context.Context, callerLease mcp.LeaseKey, req mcp.HookResolveRequest) (mcp.HookResolveResponse, error) {
 	if err := m.validate(); err != nil {
 		return mcp.HookResolveResponse{}, err
@@ -170,7 +174,7 @@ func (m *Manager) Resolve(ctx context.Context, callerLease mcp.LeaseKey, req mcp
 	return m.resolver.Resolve(ctx, callerLease, req)
 }
 
-// GetPendingReviews 读取待处理reviews。
+// GetPendingReviews 读取指定 agent 当前待处理的 hook 审批。
 func (m *Manager) GetPendingReviews(ctx context.Context, agentID string) ([]mcp.PendingHookReview, error) {
 	if err := m.validate(); err != nil {
 		return nil, err
@@ -178,7 +182,7 @@ func (m *Manager) GetPendingReviews(ctx context.Context, agentID string) ([]mcp.
 	return m.resolver.ListPendingReviews(ctx, agentID)
 }
 
-// ShutdownHooks 处理shutdownhooks。
+// ShutdownHooks 在 peer lease 关闭时取消订阅并清理其 pending review。
 func (m *Manager) ShutdownHooks(ctx context.Context, lease mcp.LeaseKey) error {
 	if err := m.validate(); err != nil {
 		return err

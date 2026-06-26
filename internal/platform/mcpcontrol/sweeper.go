@@ -10,18 +10,20 @@ import (
 )
 
 const (
+	// sweeper 默认节奏与 heartbeat TTL，staleGrace 给临时抖动留一次恢复窗口。
 	defaultSweepTick      = 5 * time.Second
 	defaultSweepJitter    = time.Second
 	defaultHeartbeatTTL   = 30 * time.Second
 	defaultStaleGraceTime = 5 * time.Second
 )
 
-// SweepResult reports how many leases were marked stale or evicted during a sweep.
+// SweepResult 汇总一次扫描标记 stale 和驱逐的租约数量。
 type SweepResult struct {
 	Staled  int
 	Evicted int
 }
 
+// sweepTarget 是锁内捕获的驱逐日志快照，peer 会在锁外关闭。
 type sweepTarget struct {
 	key           LeaseKey
 	peer          Peer
@@ -36,7 +38,7 @@ type sweepTarget struct {
 	lastHeartbeat time.Time
 }
 
-// Sweeper periodically marks stale leases and evicts expired MCP tool peers from a ToolRegistry.
+// Sweeper 周期性标记 stale 租约并驱逐过期 MCP peer。
 type Sweeper struct {
 	registry   *ToolRegistry
 	logger     *pkglogger.Logger
@@ -46,7 +48,7 @@ type Sweeper struct {
 	staleGrace time.Duration
 }
 
-// SweeperOptions configures the sweep cadence and stale lease eviction thresholds for a Sweeper.
+// SweeperOptions 配置扫描节奏、heartbeat 超时和 stale 后的宽限时间。
 type SweeperOptions struct {
 	Tick       time.Duration
 	Jitter     time.Duration
@@ -54,12 +56,12 @@ type SweeperOptions struct {
 	StaleGrace time.Duration
 }
 
-// NewSweeper 创建sweeper。
+// NewSweeper 使用默认扫描参数创建 sweeper。
 func NewSweeper(registry *ToolRegistry, logger *pkglogger.Logger) *Sweeper {
 	return NewSweeperWithOptions(registry, logger, SweeperOptions{})
 }
 
-// NewSweeperWithOptions 创建带选项的sweeper。
+// NewSweeperWithOptions 创建可测试配置的 sweeper，零值选项会落到控制面默认值。
 func NewSweeperWithOptions(registry *ToolRegistry, logger *pkglogger.Logger, opts SweeperOptions) *Sweeper {
 	if logger == nil {
 		logger = pkglogger.Get()
@@ -74,7 +76,7 @@ func NewSweeperWithOptions(registry *ToolRegistry, logger *pkglogger.Logger, opt
 	}
 }
 
-// Run 启动平台mcpcontrol后台流程。
+// Run 按带 jitter 的间隔扫描注册表，直到 ctx 取消；不在内部再启动 goroutine。
 func (s *Sweeper) Run(ctx context.Context) {
 	if s == nil || s.registry == nil {
 		return
@@ -92,7 +94,7 @@ func (s *Sweeper) Run(ctx context.Context) {
 	}
 }
 
-// Sweep 清理过期记录。
+// Sweep 在锁内标记/摘除过期租约，随后锁外关闭 peer 并清理 hook 生命周期。
 func (s *Sweeper) Sweep(now time.Time) SweepResult {
 	if s == nil || s.registry == nil {
 		return SweepResult{}
@@ -134,6 +136,7 @@ func (s *Sweeper) Sweep(now time.Time) SweepResult {
 	return result
 }
 
+// logResult 只在本轮有状态变化时输出扫描摘要。
 func (s *Sweeper) logResult(result SweepResult) {
 	if s == nil || s.logger == nil || (result.Staled == 0 && result.Evicted == 0) {
 		return
@@ -141,6 +144,7 @@ func (s *Sweeper) logResult(result SweepResult) {
 	s.logger.Info("mcp control sweep completed", "staled", result.Staled, "evicted", result.Evicted)
 }
 
+// newSweepTarget 复制驱逐日志所需字段，避免锁外读取已删除实例。
 func newSweepTarget(key LeaseKey, instance *ToolInstance, reason string) sweepTarget {
 	target := sweepTarget{key: key, reason: reason}
 	if instance == nil {
@@ -157,6 +161,7 @@ func newSweepTarget(key LeaseKey, instance *ToolInstance, reason string) sweepTa
 	return target
 }
 
+// logStaled 记录租约首次超时进入 stale 的上下文，保留 heartbeat age 便于排查。
 func (s *Sweeper) logStaled(key LeaseKey, instance *ToolInstance, now time.Time) {
 	if s == nil || s.logger == nil || instance == nil {
 		return
@@ -175,6 +180,7 @@ func (s *Sweeper) logStaled(key LeaseKey, instance *ToolInstance, now time.Time)
 		"timeout", s.timeout)
 }
 
+// logEvicted 记录最终驱逐信息，字段来自锁内快照而不是已删除实例。
 func (s *Sweeper) logEvicted(target sweepTarget, now time.Time) {
 	if s == nil || s.logger == nil {
 		return
@@ -196,6 +202,7 @@ func (s *Sweeper) logEvicted(target sweepTarget, now time.Time) {
 		"stale_grace", s.staleGrace)
 }
 
+// nextInterval 返回下一次扫描间隔，jitter 用来避免多个 peer 同步抖动。
 func (s *Sweeper) nextInterval() time.Duration {
 	if s.jitter <= 0 {
 		return s.tick

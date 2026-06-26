@@ -41,13 +41,15 @@ type dashboardHandlersParams struct {
 	Insights InsightReader `optional:"true"`
 }
 
-// NewDashboardHandlersWithInsights 创建带insights的dashboard处理器。
+// NewDashboardHandlersWithInsights 注册 dashboard RPC handler 并附加 insights 子路由。
+// insights reader 是可选依赖，未配置时只注册 dashboard 核心 handler。
 func NewDashboardHandlersWithInsights(p dashboardHandlersParams) platformrpc.HandlerMapResult {
 	result := NewDashboardHandlers(p.Service)
 	addDashboardInsightHandlers(result.Handlers, p.Insights)
 	return result
 }
 
+// Module 组装 dashboard service、handler 和可选 insights RPC。
 var Module = fx.Module("dashboard",
 	fx.Provide(func(p serviceParams) Service {
 		return newServiceWithDAGRuntime(

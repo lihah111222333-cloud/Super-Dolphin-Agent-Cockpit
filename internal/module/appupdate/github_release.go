@@ -12,9 +12,10 @@ import (
 	"strings"
 )
 
+// githubLatestReleaseAPI 是 GitHub latest release API 的 URL 模板。
 const githubLatestReleaseAPI = "https://api.github.com/repos/%s/%s/releases/latest"
 
-// githubRelease 是 GitHub API 返回的最新 release 结构。
+// githubRelease 是 GitHub latest release API 返回的最小结构。
 type githubRelease struct {
 	TagName string               `json:"tag_name"`
 	Assets  []githubReleaseAsset `json:"assets"`
@@ -34,7 +35,7 @@ type githubPlatformAssets struct {
 	manifest githubReleaseAsset
 }
 
-// fetchGitHubLatestManifest 处理fetchgithublatestmanifest。
+// fetchGitHubLatestManifest 从 GitHub latest release 读取平台 manifest，并复用签名校验流程。
 func (s *service) fetchGitHubLatestManifest(ctx context.Context) (ManifestPayload, UpdateArtifact, error) {
 	release, err := s.fetchGitHubLatestRelease(ctx)
 	if err != nil {
@@ -64,7 +65,7 @@ func (s *service) fetchGitHubLatestManifest(ctx context.Context) (ManifestPayloa
 	return payload, artifact, nil
 }
 
-// fetchGitHubLatestRelease 处理fetchgithublatestrelease。
+// fetchGitHubLatestRelease 调用 GitHub API 并严格解码 release JSON。
 func (s *service) fetchGitHubLatestRelease(ctx context.Context) (githubRelease, error) {
 	apiURL, err := githubLatestReleaseURL(s.cfg.GitHubRepo)
 	if err != nil {
@@ -101,7 +102,7 @@ func (s *service) fetchGitHubLatestRelease(ctx context.Context) (githubRelease, 
 	return release, nil
 }
 
-// fetchGitHubManifestAsset 处理fetchgithubmanifestasset。
+// fetchGitHubManifestAsset 下载 manifest asset，只有 2xx 响应才返回 body。
 func (s *service) fetchGitHubManifestAsset(ctx context.Context, asset githubReleaseAsset) ([]byte, error) {
 	if err := validateGitHubAssetDownloadURL(asset); err != nil {
 		return nil, err
@@ -201,7 +202,7 @@ func githubAssetByName(assets []githubReleaseAsset, name string) (githubReleaseA
 	return githubReleaseAsset{}, false
 }
 
-// validateManifestArtifactMatchesGitHubAsset 校验manifest产物matchesgithubasset。
+// validateManifestArtifactMatchesGitHubAsset 校验 manifest 中的 artifact 与 GitHub asset 元数据一致。
 func validateManifestArtifactMatchesGitHubAsset(artifact UpdateArtifact, asset githubReleaseAsset) error {
 	if err := validateGitHubAssetDownloadURL(asset); err != nil {
 		return err
@@ -222,7 +223,7 @@ func validateManifestArtifactMatchesGitHubAsset(artifact UpdateArtifact, asset g
 	return nil
 }
 
-// validateGitHubAssetDownloadURL 校验githubassetdownloadURL。
+// validateGitHubAssetDownloadURL 校验 GitHub asset 下载地址必须是 HTTPS 且 host 非空。
 func validateGitHubAssetDownloadURL(asset githubReleaseAsset) error {
 	if strings.TrimSpace(asset.Name) == "" {
 		return errors.New("GitHub release asset name is required")

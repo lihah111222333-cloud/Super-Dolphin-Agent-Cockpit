@@ -196,9 +196,8 @@ func TestRunnerActorShutdownObservesProcessExitAfterContextCancel(t *testing.T) 
 	agent.launchSeq = 1
 	agent.sessionGeneration = 13
 	svc.agents[agent.id] = agent
-	// P22 P3: this test bypasses startProcessLocked (it hand-rolls a cmd and
-	// agentRuntime). The production path arms the exit monitor there; the
-	// test must mirror that so the runner can observe the eventual cmd.Wait.
+	// 本测试手动构造 cmd 和 agentRuntime，绕过 startProcessLocked。
+	// 生产路径会在 startProcessLocked 内 arm exit monitor；这里必须镜像该动作，runner 才能观察 cmd.Wait。
 	svc.exitMonitor.Arm(exitmonitor.Target{
 		AgentID:   agent.id,
 		LaunchSeq: agent.launchSeq,

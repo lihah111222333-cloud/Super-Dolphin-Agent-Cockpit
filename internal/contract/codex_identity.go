@@ -1,9 +1,7 @@
 package contract
 
-// Phase 0 shared contract: ResolveCodexIdentity is consumed by cron, thread,
-// provider routing, dashboard insight, and notification flows. Do not make
-// breaking changes to the input keys, canonicalization pipeline, sentinel
-// errors, or output fields without an ADR and coordinated downstream updates.
+// Codex identity contract 被 cron、thread、provider routing、dashboard insight 和通知路径共同使用。
+// 输入键、规范化流程、哨兵错误和输出字段是跨模块 wire 边界，变更时必须同步所有消费者。
 import (
 	"errors"
 	"fmt"
@@ -13,22 +11,16 @@ import (
 	"strings"
 )
 
-// CodexIdentity is the immutable triple that identifies a codex app-server
-// instance. All three fields together determine which local process a codex
-// thread resolves to, and are persisted on agent_provider_binding for
-// auto-resume.
-//
-// Home is always a canonicalized realpath produced by CanonicalizeCodexHome
-// (home/env expansion, filepath.Clean, filepath.EvalSymlinks). Two inputs that
-// point at the same physical directory (including symlink aliases) must produce
-// the same Home.
+// CodexIdentity 是定位 codex app-server 实例的不可变三元组。
+// Home、InstanceKey、ModelProvider 共同决定 codex thread 绑定到哪个本地进程，并持久化到 agent_provider_binding 供恢复使用。
+// Home 必须是 CanonicalizeCodexHome 产出的真实路径，同一物理目录的不同写法要收敛成同一个值。
 type CodexIdentity struct {
 	Home          string
 	InstanceKey   string
 	ModelProvider string
 }
 
-// Config keys consumed by ResolveCodexIdentity.
+// Codex identity 配置键名，必须与 runtime config wire 字段保持一致。
 const (
 	CodexHomeKey          = "codexHome"
 	CodexInstanceKeyKey   = "codexInstanceKey"
@@ -43,8 +35,7 @@ const (
 	CodexProviderHomeDir = "codex"
 )
 
-// Sentinel errors for codex identity resolution. Callers must check with
-// errors.Is; RPC layers map these to jrpc2.InvalidParams.
+// Codex identity 解析错误哨兵；RPC 层用 errors.Is 映射到 InvalidParams。
 var (
 	ErrCodexHomeRequired          = errors.New("codexHome is required")
 	ErrCodexInstanceKeyRequired   = errors.New("codexInstanceKey is required")
@@ -53,13 +44,8 @@ var (
 	ErrCodexIdentityInvalidType   = errors.New("codex identity field has invalid type or value")
 )
 
-// ResolveCodexIdentity extracts the (Home, InstanceKey, ModelProvider) triple
-// from a config map. All three keys must be present as non-empty strings.
-//
-// Home is canonicalized via CanonicalizeCodexHome. The directory must already
-// exist; missing directories return ErrCodexHomeNotFound. This function does
-// not create directories and does not fall back to a default home.
-// ResolveCodexIdentity 解析codex身份。
+// ResolveCodexIdentity 从 runtime config 中解析 CodexIdentity。
+// 三个字段都必须是非空字符串；Home 必须已存在并能规范化。本函数不创建目录、不使用默认 home。
 func ResolveCodexIdentity(config map[string]any) (CodexIdentity, error) {
 	home, err := requireCodexString(config, CodexHomeKey, ErrCodexHomeRequired)
 	if err != nil {
@@ -84,11 +70,9 @@ func ResolveCodexIdentity(config map[string]any) (CodexIdentity, error) {
 	}, nil
 }
 
-// CanonicalizeCodexHome performs the full codex home canonicalization pipeline:
-// ~ expansion, $ENV expansion, filepath.Clean, filepath.EvalSymlinks. The
-// resulting path must be absolute and must exist. Callers should persist this
-// realpath to binding rather than the raw user input.
-// CanonicalizeCodexHome 处理canonicalizecodexhome。
+// CanonicalizeCodexHome 执行 codexHome 规范化流程。
+// 它会展开 ~ 和环境变量、清理路径并解析 symlink；结果必须是已存在的绝对真实路径。
+// 调用方应持久化该真实路径，而不是原始用户输入。
 func CanonicalizeCodexHome(raw string) (string, error) {
 	expanded, err := expandCodexHome(raw)
 	if err != nil {
@@ -108,6 +92,8 @@ func CanonicalizeCodexHome(raw string) (string, error) {
 	return real, nil
 }
 
+// requireCodexString 读取必需的 codex identity 字符串字段。
+// 缺失、nil、非字符串或 trim 后为空都会返回稳定哨兵错误，避免下游猜测默认值。
 func requireCodexString(config map[string]any, key string, missingErr error) (string, error) {
 	raw, ok := config[key]
 	if !ok || raw == nil {
@@ -123,7 +109,8 @@ func requireCodexString(config map[string]any, key string, missingErr error) (st
 	return s, nil
 }
 
-// expandCodexHome 处理expandcodexhome。
+// expandCodexHome 展开 codexHome 中允许的 ~ 和环境变量。
+// 明确拒绝 ~user 形式，避免调用方通过用户名访问其他用户 home。
 func expandCodexHome(raw string) (string, error) {
 	s := strings.TrimSpace(raw)
 	if s == "" {
@@ -144,17 +131,15 @@ func expandCodexHome(raw string) (string, error) {
 			}
 			s = filepath.Join(home, s[2:])
 		default:
-			// ~user/... form not supported: would let a caller address another
-			// user's home by name, which we explicitly refuse.
+			// ~user/... 会让调用方按用户名寻址其他 home，身份解析边界明确拒绝。
 			return "", fmt.Errorf("%w: ~user/... form not supported, got %q", ErrCodexIdentityInvalidType, raw)
 		}
 	}
 	return os.ExpandEnv(s), nil
 }
 
-// RuntimeModeFromEnv consumes the runtime-mode contract produced by the runtime
-// resolver. Empty means no packaged capability has been advertised.
-// RuntimeModeFromEnv 从env处理运行时模式。
+// RuntimeModeFromEnv 读取 runtime resolver 写入的运行模式。
+// 空值表示当前进程没有声明 packaged 能力，非法值立即报错。
 func RuntimeModeFromEnv() (string, error) {
 	mode := strings.TrimSpace(os.Getenv(RuntimeModeEnv))
 	switch mode {
@@ -167,7 +152,7 @@ func RuntimeModeFromEnv() (string, error) {
 	}
 }
 
-// PackagedRuntimeFromEnv 从env处理packaged运行时。
+// PackagedRuntimeFromEnv 判断当前 runtime 是否声明为 packaged 模式。
 func PackagedRuntimeFromEnv() (bool, error) {
 	mode, err := RuntimeModeFromEnv()
 	if err != nil {
@@ -176,7 +161,8 @@ func PackagedRuntimeFromEnv() (bool, error) {
 	return mode == RuntimeModePackaged, nil
 }
 
-// CanonicalAppManagedCodexHome 处理canonicalappmanagedcodexhome。
+// CanonicalAppManagedCodexHome 返回 app 管理的 codex home 真实路径。
+// 它复用 CanonicalizeCodexHome，因此目录不存在或路径非法都会 fail-fast。
 func CanonicalAppManagedCodexHome() (string, error) {
 	raw, err := AppManagedCodexHome()
 	if err != nil {
@@ -185,7 +171,8 @@ func CanonicalAppManagedCodexHome() (string, error) {
 	return CanonicalizeCodexHome(raw)
 }
 
-// AppManagedCodexHome 处理appmanagedcodexhome。
+// AppManagedCodexHome 根据 SUPER_DOLPHIN_HOME 计算 app 管理的 codex home。
+// SUPER_DOLPHIN_HOME 必须是绝对路径；本函数只计算路径，不创建目录。
 func AppManagedCodexHome() (string, error) {
 	base := strings.TrimSpace(os.Getenv(SuperDolphinHomeEnv))
 	if base == "" {

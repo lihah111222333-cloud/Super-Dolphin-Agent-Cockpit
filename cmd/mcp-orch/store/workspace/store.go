@@ -13,10 +13,10 @@ type store struct {
 	q  *sqlc.Queries
 }
 
-// NewStore 创建存储。
+// NewStore 创建 workspace 存储实现，所有写入通过 sqlctx retry/事务 helper 统一收口。
 func NewStore(db sqlc.DBTX) Store { return &store{db: db, q: sqlc.New(db)} }
 
-// WithTx 设置tx。
+// WithTx 用 SQLite IMMEDIATE 事务重绑查询集，保证同一次 workspace 操作内的 run/file 写入一致。
 func (s *store) WithTx(ctx context.Context, fn func(txStore Store) error) error {
 	err := sqlctx.WithImmediateTx(ctx, s.db, s.q, func(txq *sqlc.Queries, tx sqlc.DBTX) error {
 		return fn(&store{db: tx, q: txq})
@@ -24,7 +24,7 @@ func (s *store) WithTx(ctx context.Context, fn func(txStore Store) error) error 
 	return wrapWorkspaceError(err, "with_tx", "workspace")
 }
 
-// UpsertRun 处理upsert运行记录。
+// UpsertRun 创建或更新 workspace run，并在 SQLite busy 时按写重试策略重放整个 upsert。
 func (s *store) UpsertRun(ctx context.Context, run WorkspaceRun) (*WorkspaceRun, error) {
 	var mapped WorkspaceRun
 	err := sqlctx.WithWriteRetry(ctx, func() error {
@@ -51,7 +51,7 @@ func (s *store) UpsertRun(ctx context.Context, run WorkspaceRun) (*WorkspaceRun,
 	return &mapped, nil
 }
 
-// GetRun 读取运行记录。
+// GetRun 按 run_key 读取 workspace run；未命中会经 wrapWorkspaceError 归一成存储层 not found。
 func (s *store) GetRun(ctx context.Context, runKey string) (*WorkspaceRun, error) {
 	row, err := s.q.GetWorkspaceRun(ctx, sqlc.GetWorkspaceRunParams{RunKey: runKey})
 	if err != nil {
@@ -61,7 +61,7 @@ func (s *store) GetRun(ctx context.Context, runKey string) (*WorkspaceRun, error
 	return &mapped, nil
 }
 
-// ListRuns 列出运行记录。
+// ListRuns 按 status/dag_key 过滤运行记录，limit 直接下推到 SQL，调用方负责选择分页窗口。
 func (s *store) ListRuns(ctx context.Context, filter ListRunsFilter) ([]WorkspaceRun, error) {
 	rows, err := s.q.ListWorkspaceRuns(ctx, sqlc.ListWorkspaceRunsParams{
 		StatusFilter: filter.Status,
@@ -78,7 +78,7 @@ func (s *store) ListRuns(ctx context.Context, filter ListRunsFilter) ([]Workspac
 	return runs, nil
 }
 
-// UpdateRunStatus 更新运行记录状态。
+// UpdateRunStatus 覆写 workspace run 状态并保留调用方传入的 metadata，不做 expected-status CAS。
 func (s *store) UpdateRunStatus(ctx context.Context, input UpdateRunStatusInput) (*WorkspaceRun, error) {
 	var mapped WorkspaceRun
 	err := sqlctx.WithWriteRetry(ctx, func() error {
@@ -100,7 +100,8 @@ func (s *store) UpdateRunStatus(ctx context.Context, input UpdateRunStatusInput)
 	return &mapped, nil
 }
 
-// TransitionRunStatus 处理transition运行记录状态。
+// TransitionRunStatus 以 expected status 作为 CAS fence 推进 workspace run。
+// 状态已被其它路径改写时由 sqlc 返回 0 行/未找到错误，调用方据此判断并发冲突。
 func (s *store) TransitionRunStatus(ctx context.Context, input TransitionRunStatusInput) (*WorkspaceRun, error) {
 	var mapped WorkspaceRun
 	err := sqlctx.WithWriteRetry(ctx, func() error {
@@ -123,7 +124,7 @@ func (s *store) TransitionRunStatus(ctx context.Context, input TransitionRunStat
 	return &mapped, nil
 }
 
-// UpsertFile 处理upsert文件。
+// UpsertFile 写入 workspace 文件快照，保留源文件修改前后 hash 供合并/回滚判断。
 func (s *store) UpsertFile(ctx context.Context, file WorkspaceRunFile) (*WorkspaceRunFile, error) {
 	var row sqlc.WorkspaceRunFile
 	err := sqlctx.WithWriteRetry(ctx, func() error {
@@ -150,7 +151,7 @@ func (s *store) UpsertFile(ctx context.Context, file WorkspaceRunFile) (*Workspa
 	return &mapped, nil
 }
 
-// GetFile 读取文件。
+// GetFile 按 run_key 与相对路径读取文件快照；相对路径是 workspace 合并/回滚的稳定定位键。
 func (s *store) GetFile(ctx context.Context, runKey, relativePath string) (*WorkspaceRunFile, error) {
 	row, err := s.q.GetWorkspaceRunFile(ctx, sqlc.GetWorkspaceRunFileParams{
 		RunKey:       runKey,
@@ -163,7 +164,7 @@ func (s *store) GetFile(ctx context.Context, runKey, relativePath string) (*Work
 	return &mapped, nil
 }
 
-// ListFiles 列出文件。
+// ListFiles 按 run_key/state 过滤文件快照，返回值不读取文件内容，只暴露合并状态与哈希。
 func (s *store) ListFiles(ctx context.Context, filter ListFilesFilter) ([]WorkspaceRunFile, error) {
 	rows, err := s.q.ListWorkspaceRunFiles(ctx, sqlc.ListWorkspaceRunFilesParams{
 		RunKeyFilter: filter.RunKey,

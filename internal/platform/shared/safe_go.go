@@ -5,14 +5,10 @@ import (
 	"runtime/debug"
 )
 
-// SafeGo launches a goroutine with panic recovery.
+// SafeGo 启动带 panic recovery 的 goroutine。
 //
-// Deprecated: Use runtimesafe.SafeGo(ctx, logger, label, fn) directly.
-// This thin wrapper strips ctx and forces a generic log label, which
-// degrades panic telemetry. Kept only for backward compatibility; as of
-// 2026-04-18 no in-tree call sites remain and the
-// TestSafeGoUsageCentralized archtest blocks regressions.
-// SafeGo 处理safego。
+// Deprecated: 请直接使用 runtimesafe.SafeGo(ctx, logger, label, fn)。这个旧入口
+// 没有 ctx 且只能写通用日志标签，只为兼容旧调用保留。
 func SafeGo(logger *pkglogger.Logger, fn func()) {
 	go func() {
 		defer func() {

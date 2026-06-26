@@ -12,11 +12,13 @@ import (
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
+// 工具载荷日志环境变量名。
 const (
 	toolPayloadLogDirEnv = "GO_AGENT_TOOL_PAYLOAD_LOG_DIR"
 	logFallbackDirEnv    = "GO_AGENT_LOG_FALLBACK_DIR"
 )
 
+// toolPayloadLogSeq 为同一纳秒内的载荷快照提供单调序号，避免文件名冲突。
 var toolPayloadLogSeq atomic.Uint64
 
 // toolPayloadLogRef 记录工具载荷快照写入结果，供日志属性附加使用。
@@ -115,7 +117,7 @@ func writeToolPayloadSnapshot(snapshot toolPayloadSnapshot) toolPayloadLogRef {
 	return toolPayloadLogRef{Path: path, Bytes: len(line)}
 }
 
-// toolPayloadLogDir 处理工具载荷日志目录。
+// toolPayloadLogDir 解析工具载荷快照目录，优先使用显式环境变量，其次跟随当前日志文件。
 func toolPayloadLogDir() (string, error) {
 	if dir := strings.TrimSpace(os.Getenv(toolPayloadLogDirEnv)); dir != "" {
 		return filepath.Abs(dir)

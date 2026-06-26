@@ -182,7 +182,7 @@ func (s *store) FailWakeupAndFailNodeAndCancelDownstream(ctx context.Context, wa
 }
 
 // ReclaimStaleDispatchingWakeups 回收 lease 过期且仍处 dispatching 的 wakeup。
-// 它不判断 dispatcher 是否存活，只依赖 lease_expires_at；被回收后旧 claim 的
+// 它不探测 dispatcher 是否存活，只依赖 lease_expires_at；被回收后旧 claim 的
 // fence 全部失效，下一轮 dispatcher 会重新 claim。
 func (s *store) ReclaimStaleDispatchingWakeups(ctx context.Context) (int64, error) {
 	return queryValueWrite(ctx, func() (int64, error) {

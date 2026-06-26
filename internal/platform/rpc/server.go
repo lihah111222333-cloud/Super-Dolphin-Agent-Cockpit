@@ -24,6 +24,8 @@ import (
 
 const controlRPCAddrEnv = "GO_AGENT_CTL_RPC_ADDR"
 
+// Server 管理本地 control RPC listener、WebSocket UI 连接和本地 Dispatch。
+// active map 记录当前 jrpc2 server 的 peer kind，供审批恢复和广播选择目标。
 type Server struct {
 	logger        *pkglogger.Logger
 	addr          string
@@ -37,6 +39,7 @@ type Server struct {
 	onConnects []func(*jrpc2.Server)
 }
 
+// rpcRequestTracker 跟踪单连接内未完成请求，用于连接异常退出时输出诊断。
 type rpcRequestTracker struct {
 	logger *pkglogger.Logger
 
@@ -44,14 +47,16 @@ type rpcRequestTracker struct {
 	pending map[string]rpcPendingRequest
 }
 
+// rpcPendingRequest 是一个等待响应的 RPC 请求摘要，用于连接异常退出日志。
 type rpcPendingRequest struct {
-	ID            string
-	Method        string
-	ThreadID      string
-	ParamsPreview string
-	StartedAt     time.Time
+	ID            string    // jrpc2 request id。
+	Method        string    // RPC method。
+	ThreadID      string    // 从 params 提取的 thread id。
+	ParamsPreview string    // 裁剪后的参数预览。
+	StartedAt     time.Time // 请求开始时间。
 }
 
+// newRPCRequestTracker 在 logger 可用时创建请求跟踪器。
 func newRPCRequestTracker(logger *pkglogger.Logger) *rpcRequestTracker {
 	if logger == nil {
 		return nil
@@ -62,7 +67,7 @@ func newRPCRequestTracker(logger *pkglogger.Logger) *rpcRequestTracker {
 	}
 }
 
-// LogRequest 处理日志请求。
+// LogRequest 记录非 notification 请求的开始时间和参数摘要。
 func (t *rpcRequestTracker) LogRequest(_ context.Context, req *jrpc2.Request) {
 	if t == nil || req == nil || req.IsNotification() {
 		return
@@ -83,7 +88,7 @@ func (t *rpcRequestTracker) LogRequest(_ context.Context, req *jrpc2.Request) {
 	t.mu.Unlock()
 }
 
-// LogResponse 处理日志响应。
+// LogResponse 在响应携带 RPC 错误时输出带请求上下文的告警。
 func (t *rpcRequestTracker) LogResponse(_ context.Context, rsp *jrpc2.Response) {
 	if t == nil || rsp == nil {
 		return
@@ -99,6 +104,7 @@ func (t *rpcRequestTracker) LogResponse(_ context.Context, rsp *jrpc2.Response) 
 	t.logger.Warn(rpcFailureLogMessage(rpcErr.Message), rpcFailureLogArgs(meta, rpcErr)...)
 }
 
+// takePendingResponse 取出并删除对应响应 ID 的 pending 请求。
 func (t *rpcRequestTracker) takePendingResponse(id string) (rpcPendingRequest, bool) {
 	id = strings.TrimSpace(id)
 	if id == "" {
@@ -113,6 +119,7 @@ func (t *rpcRequestTracker) takePendingResponse(id string) (rpcPendingRequest, b
 	return meta, ok
 }
 
+// rpcFailureLogArgs 组装 RPC 失败日志字段。
 func rpcFailureLogArgs(meta rpcPendingRequest, rpcErr *jrpc2.Error) []any {
 	args := []any{
 		"method", meta.Method,
@@ -130,6 +137,7 @@ func rpcFailureLogArgs(meta rpcPendingRequest, rpcErr *jrpc2.Error) []any {
 	return args
 }
 
+// rpcFailureLogMessage 根据错误文本选择稳定日志消息。
 func rpcFailureLogMessage(raw string) string {
 	switch message := strings.TrimSpace(raw); {
 	case isRPCTimeoutMessage(message):
@@ -141,6 +149,7 @@ func rpcFailureLogMessage(raw string) string {
 	}
 }
 
+// logConnectionExit 在连接异常退出时记录未完成请求，帮助定位悬挂调用。
 func (t *rpcRequestTracker) logConnectionExit(err error) {
 	if t == nil || t.logger == nil || err == nil {
 		return
@@ -158,7 +167,7 @@ func (t *rpcRequestTracker) logConnectionExit(err error) {
 	)
 }
 
-// snapshotPending 处理快照待处理。
+// snapshotPending 返回按开始时间排序的 pending 请求摘要。
 func (t *rpcRequestTracker) snapshotPending(now time.Time) []map[string]any {
 	if t == nil {
 		return nil
@@ -190,14 +199,14 @@ func (t *rpcRequestTracker) snapshotPending(now time.Time) []map[string]any {
 	return out
 }
 
-// rpcRequestThreadID 处理RPC请求线程ID。
+// rpcRequestThreadID 从未知形态 params 中提取 threadID。
 func rpcRequestThreadID(raw string) string {
 	raw = strings.TrimSpace(raw)
 	if raw == "" {
 		return ""
 	}
-	// json.RawMessage: justified -- Wails bridge layer; extracts thread_id from
-	// an unknown RPC param shape without requiring a typed struct.
+	// Wails 桥接层的 params 形态由 method 决定，这里只读取 thread_id 相关字段，
+	// 不要求每个方法先定义强类型结构。
 	var params map[string]json.RawMessage
 	if err := json.Unmarshal([]byte(raw), &params); err != nil {
 		return ""
@@ -215,6 +224,7 @@ func rpcRequestThreadID(raw string) string {
 	return ""
 }
 
+// rpcParamPreview 压缩 RPC params 文本，避免日志字段过长。
 func rpcParamPreview(raw string) string {
 	raw = strings.Join(strings.Fields(strings.TrimSpace(raw)), " ")
 	if raw == "" {
@@ -223,6 +233,7 @@ func rpcParamPreview(raw string) string {
 	return truncateRPCText(raw, 160)
 }
 
+// truncateRPCText 按字节长度裁剪 RPC 日志文本。
 func truncateRPCText(raw string, limit int) string {
 	raw = strings.TrimSpace(raw)
 	if limit <= 0 || len(raw) <= limit {
@@ -234,6 +245,7 @@ func truncateRPCText(raw string, limit int) string {
 	return raw[:limit-1] + "…"
 }
 
+// isRPCTimeoutMessage 判断错误文本是否表示超时。
 func isRPCTimeoutMessage(raw string) bool {
 	value := strings.ToLower(strings.TrimSpace(raw))
 	return strings.Contains(value, "deadline exceeded") ||
@@ -241,6 +253,7 @@ func isRPCTimeoutMessage(raw string) bool {
 		strings.Contains(value, "timeout")
 }
 
+// isRPCCanceledMessage 判断错误文本是否表示取消。
 func isRPCCanceledMessage(raw string) bool {
 	value := strings.ToLower(strings.TrimSpace(raw))
 	return strings.Contains(value, "context canceled") ||
@@ -248,7 +261,7 @@ func isRPCCanceledMessage(raw string) bool {
 		strings.Contains(value, "canceled")
 }
 
-// NewServer 创建服务端。
+// NewServer 创建 RPC server，初始化 handler 表和活跃连接索引。
 func NewServer(p Params) *Server {
 	logger := p.Logger
 	if logger == nil {
@@ -263,18 +276,15 @@ func NewServer(p Params) *Server {
 	}
 }
 
-// Register 注册平台RPC。
+// Register 合并注册一组或多组 RPC handler。
 func (s *Server) Register(handlerMaps ...handler.Map) {
 	for _, current := range handlerMaps {
 		maps.Copy(s.methods, current)
 	}
 }
 
-// Dispatch executes a registered handler locally without using the network.
-// It is used by the Wails binding layer to bridge CallAPI requests.
-// json.RawMessage: justified -- Wails bridge layer; params/result are dynamic JSON
-// whose shape is determined by the dispatched method at runtime.
-// Dispatch 派发平台RPC。
+// Dispatch 在本进程内执行已注册 handler，不经过网络连接。
+// Wails binding 用它桥接 CallAPI；params/result 使用动态 JSON，由目标 method 决定结构。
 func (s *Server) Dispatch(ctx context.Context, method string, params json.RawMessage) (json.RawMessage, error) {
 	ctx = platformshared.NonNilContext(ctx)
 	var err error
@@ -316,6 +326,7 @@ func (s *Server) Dispatch(ctx context.Context, method string, params json.RawMes
 	return append(json.RawMessage(nil), result...), nil
 }
 
+// logTraceRecordError 把 trace 记录失败降级为告警，不影响 RPC 返回。
 func (s *Server) logTraceRecordError(ctx context.Context, method string, phase string, err error) {
 	logger := s.logger
 	if logger == nil {
@@ -324,7 +335,7 @@ func (s *Server) logTraceRecordError(ctx context.Context, method string, phase s
 	logger.Warn("rpc dispatch trace record failed", "phase", phase, "method", method, "error", err)
 }
 
-// recordDispatchTrace 记录dispatchtrace。
+// recordDispatchTrace 记录本地 Dispatch 的 start/done/failed trace。
 func (s *Server) recordDispatchTrace(ctx context.Context, method string, params json.RawMessage, startedAt time.Time, kind string, phase string, duration time.Duration, status TraceStatus, dispatchErr error) error {
 	if s == nil || s.traceRecorder == nil || !s.traceRecorder.Enabled() {
 		return nil
@@ -354,6 +365,7 @@ func (s *Server) recordDispatchTrace(ctx context.Context, method string, params 
 	return s.traceRecorder.RecordTrace(ctx, record)
 }
 
+// rpcParamKeys 提取 JSON object params 的 key 列表，用于 trace metadata。
 func rpcParamKeys(raw json.RawMessage) []string {
 	var obj map[string]json.RawMessage
 	if len(raw) == 0 || json.Unmarshal(raw, &obj) != nil {
@@ -367,6 +379,7 @@ func rpcParamKeys(raw json.RawMessage) []string {
 	return keys
 }
 
+// rpcTraceStatus 根据方法和耗时判断 trace 状态是否为 slow。
 func rpcTraceStatus(method string, duration time.Duration) TraceStatus {
 	if duration > rpcSlowThreshold(method) {
 		return TraceStatusSlow
@@ -374,6 +387,7 @@ func rpcTraceStatus(method string, duration time.Duration) TraceStatus {
 	return TraceStatusOK
 }
 
+// rpcSlowThreshold 返回不同方法类别的慢请求阈值。
 func rpcSlowThreshold(method string) time.Duration {
 	switch {
 	case strings.TrimSpace(method) == "thread/start":
@@ -385,7 +399,7 @@ func rpcSlowThreshold(method string) time.Duration {
 	}
 }
 
-// NotifyAll 处理notifyall。
+// NotifyAll 向所有活跃 RPC 客户端广播通知。
 func (s *Server) NotifyAll(ctx context.Context, bridge *PushBridge, method string, params any) {
 	if bridge == nil {
 		return
@@ -398,7 +412,7 @@ func (s *Server) NotifyAll(ctx context.Context, bridge *PushBridge, method strin
 	}
 }
 
-// Run 启动平台RPC后台流程。
+// Run 启动 loopback TCP control RPC listener，并把实际监听地址写入环境变量。
 func (s *Server) Run(ctx context.Context) error {
 	if err := validateControlRPCAddr(s.addr); err != nil {
 		return err
@@ -424,20 +438,22 @@ func (s *Server) Run(ctx context.Context) error {
 	return nil
 }
 
+// validateControlRPCAddr 强制 control RPC 只绑定 loopback 地址。
 func validateControlRPCAddr(addr string) error {
 	addr = strings.TrimSpace(addr)
 	host, _, err := net.SplitHostPort(addr)
 	if err != nil {
-		return fmt.Errorf("control rpc addr must be loopback: %w", err)
+		return ErrInvalidParams(fmt.Sprintf("control rpc addr must be loopback: %v", err))
 	}
 	switch strings.ToLower(strings.TrimSpace(host)) {
 	case "localhost", "127.0.0.1", "::1":
 		return nil
 	default:
-		return fmt.Errorf("control rpc addr must be loopback, got %q", addr)
+		return ErrInvalidParams(fmt.Sprintf("control rpc addr must be loopback, got %q", addr))
 	}
 }
 
+// acceptLoop 接收 control RPC 连接，并为每条连接启动受 runtimesafe 保护的服务 goroutine。
 func (s *Server) acceptLoop(ctx context.Context, accepter jrpcserver.Accepter) error {
 	var wg sync.WaitGroup
 	defer wg.Wait()
@@ -454,7 +470,7 @@ func (s *Server) acceptLoop(ctx context.Context, accepter jrpcserver.Accepter) e
 	}
 }
 
-// serveConn 处理serveconn。
+// serveConn 绑定单条 TCP control RPC 连接的认证、活跃状态和退出诊断。
 func (s *Server) serveConn(ctx context.Context, ch channel.Channel, wg *sync.WaitGroup) {
 	defer wg.Done()
 
@@ -488,6 +504,7 @@ func (s *Server) serveConn(ctx context.Context, ch channel.Channel, wg *sync.Wai
 	}
 }
 
+// addActive 记录活跃 jrpc2 server 及其 peer kind。
 func (s *Server) addActive(srv *jrpc2.Server, peerKind string) {
 	if srv == nil {
 		return
@@ -497,6 +514,7 @@ func (s *Server) addActive(srv *jrpc2.Server, peerKind string) {
 	s.active[srv] = peerKind
 }
 
+// removeActive 移除活跃 jrpc2 server。
 func (s *Server) removeActive(srv *jrpc2.Server) {
 	if srv == nil {
 		return
@@ -506,6 +524,7 @@ func (s *Server) removeActive(srv *jrpc2.Server) {
 	delete(s.active, srv)
 }
 
+// reserveUIWebSocketSlot 为 UI WebSocket 连接预留并发槽位。
 func (s *Server) reserveUIWebSocketSlot() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -521,6 +540,7 @@ func (s *Server) reserveUIWebSocketSlot() error {
 	return nil
 }
 
+// releaseUIWebSocketSlot 释放 UI WebSocket 并发槽位，重复释放会 panic 暴露生命周期错误。
 func (s *Server) releaseUIWebSocketSlot() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -531,7 +551,7 @@ func (s *Server) releaseUIWebSocketSlot() {
 	s.activeUIWS--
 }
 
-// OnConnect 处理onconnect。
+// OnConnect 注册连接建立回调，并立即回放当前活跃连接。
 func (s *Server) OnConnect(fn func(*jrpc2.Server)) {
 	if s == nil || fn == nil {
 		return
@@ -541,7 +561,7 @@ func (s *Server) OnConnect(fn func(*jrpc2.Server)) {
 	}
 }
 
-// OnConnectUI 处理onconnectUI。
+// OnConnectUI 注册只针对 UI peer 的连接建立回调。
 func (s *Server) OnConnectUI(fn func(*jrpc2.Server)) {
 	if s == nil || fn == nil {
 		return
@@ -553,13 +573,14 @@ func (s *Server) OnConnectUI(fn func(*jrpc2.Server)) {
 	})
 }
 
+// notifyConnected 调用当前所有连接回调。
 func (s *Server) notifyConnected(srv *jrpc2.Server) {
 	for _, hook := range s.snapshotOnConnects() {
 		hook(srv)
 	}
 }
 
-// PeerKind 处理peerkind。
+// PeerKind 返回活跃连接的 peer kind。
 func (s *Server) PeerKind(srv *jrpc2.Server) string {
 	if s == nil || srv == nil {
 		return ""
@@ -569,6 +590,7 @@ func (s *Server) PeerKind(srv *jrpc2.Server) string {
 	return s.active[srv]
 }
 
+// snapshotActive 返回活跃 server 快照，避免调用方持锁做 RPC 操作。
 func (s *Server) snapshotActive() []*jrpc2.Server {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -580,12 +602,14 @@ func (s *Server) snapshotActive() []*jrpc2.Server {
 	return out
 }
 
+// snapshotOnConnects 返回连接回调快照，避免回调执行时持有 Server 锁。
 func (s *Server) snapshotOnConnects() []func(*jrpc2.Server) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return append([]func(*jrpc2.Server){}, s.onConnects...)
 }
 
+// addOnConnect 注册回调并返回当前活跃连接快照供立即回放。
 func (s *Server) addOnConnect(fn func(*jrpc2.Server)) []*jrpc2.Server {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -598,6 +622,7 @@ func (s *Server) addOnConnect(fn func(*jrpc2.Server)) []*jrpc2.Server {
 	return out
 }
 
+// prepareServerOptions 复制或创建 jrpc2 ServerOptions，并确保允许 push。
 func prepareServerOptions(rpcLog jrpc2.RPCLogger, opts *jrpc2.ServerOptions) *jrpc2.ServerOptions {
 	if opts == nil {
 		return &jrpc2.ServerOptions{

@@ -43,7 +43,8 @@ func (m *manager) deleteStaleDiagnosticsForSnapshot(scope ResolvedLSPToolScope, 
 	})
 }
 
-// matchingStaleDiagnosticsForSnapshot 为快照处理matchingstale诊断。
+// matchingStaleDiagnosticsForSnapshot 找出当前文档快照已失效的诊断记录。
+// visit 非空时会在持锁状态下回调匹配 key，用于同步删除旧诊断。
 func (m *manager) matchingStaleDiagnosticsForSnapshot(scope ResolvedLSPToolScope, doc documentSnapshot, visit func(string)) bool {
 	if m == nil || strings.TrimSpace(doc.ref.uri) == "" {
 		return false
@@ -74,7 +75,8 @@ func diagnosticSnapshotMatchesRefreshScope(snapshot diagnosticSnapshot, scope Re
 	return snapshot.scopeKey == scope.ScopeKey && snapshot.workspaceKey == scope.WorkspaceKey
 }
 
-// diagnosticSnapshotStaleForDocument 为document处理诊断快照stale。
+// diagnosticSnapshotStaleForDocument 比较诊断快照与磁盘文档快照是否仍一致。
+// 优先用 fingerprint，其次用 size/mtime，缺少元数据时保持保守不判 stale。
 func diagnosticSnapshotStaleForDocument(snapshot diagnosticSnapshot, doc documentSnapshot) bool {
 	if snapshot.fingerprint != "" && doc.fingerprint != "" {
 		return snapshot.fingerprint != doc.fingerprint
@@ -183,7 +185,8 @@ func (m *manager) bootstrapTarget(ctx context.Context, uri string) (documentRef,
 	return ref, cfg, nil
 }
 
-// syncDocument 同步document。
+// syncDocument 读取磁盘文档并同步到对应 LSP client。
+// 文件已删除或读取失败时会清理缓存状态并记录失败，避免 stale 文档继续参与诊断。
 func (c *bootstrapCoordinator) syncDocument(ctx context.Context, m *manager, cfg workspaceConfig, ref documentRef) error {
 	if ref.uri == "" || !m.shouldUseClientForLanguage(ref.languageID) {
 		return nil
@@ -204,7 +207,8 @@ func (c *bootstrapCoordinator) syncDocument(ctx context.Context, m *manager, cfg
 	return c.syncSnapshot(ctx, m, cfg, snapshot)
 }
 
-// syncSnapshot 同步快照。
+// syncSnapshot 根据 bootstrap 状态决定跳过、等待或发送文档快照。
+// 缓存命中时会递增版本号，保证 LSP server 看到单调的文档版本。
 func (c *bootstrapCoordinator) syncSnapshot(ctx context.Context, m *manager, cfg workspaceConfig, snapshot documentSnapshot) error {
 	scope, err := m.resolvedScopeForConfig(ctx, cfg)
 	if err != nil {
@@ -239,7 +243,8 @@ func (c *bootstrapCoordinator) syncSnapshot(ctx context.Context, m *manager, cfg
 	return nil
 }
 
-// openSnapshotIfNeeded 打开快照ifneeded。
+// openSnapshotIfNeeded 只在文档尚未 ready/stale/bootstrapping 时打开快照。
+// 这是 hover/definition 等轻量请求的预热路径，不会重复抢占正在进行的 bootstrap。
 func (c *bootstrapCoordinator) openSnapshotIfNeeded(ctx context.Context, m *manager, cfg workspaceConfig, snapshot documentSnapshot) error {
 	scope, err := m.resolvedScopeForConfig(ctx, cfg)
 	if err != nil {
@@ -267,7 +272,8 @@ func (c *bootstrapCoordinator) openSnapshotIfNeeded(ctx context.Context, m *mana
 	return nil
 }
 
-// openSnapshotVersion 打开快照版本。
+// openSnapshotVersion 为 open-only 同步选择下一次文档版本。
+// 缓存内容不匹配时会删除旧记录，防止 server 接收与缓存不一致的版本序列。
 func (c *bootstrapCoordinator) openSnapshotVersion(key lspCacheKey, snapshot documentSnapshot) (int, error) {
 	version := 1
 	if record, cached := c.cache.Load(key); cached && cacheValueMatchesSnapshot(record, snapshot) {
@@ -291,7 +297,8 @@ func applyBootstrapUpdate(ctx context.Context, client Client, snapshot documentS
 	return client.DidOpen(ctx, snapshot.ref.uri, snapshot.ref.languageID, req.version, snapshot.text)
 }
 
-// refreshWorkspace 刷新工作区。
+// refreshWorkspace 在目标文档同步后刷新同 scope 下的已缓存文档。
+// 刷新数量和并发都有上限，避免一次 bootstrap 扫描拖垮 LSP server。
 func (c *bootstrapCoordinator) refreshWorkspace(ctx context.Context, m *manager, cfg workspaceConfig, excludeURI string) {
 	scope, err := m.resolvedScopeForConfig(ctx, cfg)
 	if err != nil {
@@ -386,7 +393,8 @@ func readDocumentSnapshot(ref documentRef) (documentSnapshot, error) {
 	}, nil
 }
 
-// siblingDocumentRefs 处理siblingdocumentrefs。
+// siblingDocumentRefs 收集目标文件同目录下可预热的同语言兄弟文档。
+// 只接受指定扩展名并限制数量，避免打开整个目录造成 LSP 初始化抖动。
 func siblingDocumentRefs(target documentRef, extensions []string) ([]documentRef, error) {
 	entries, err := os.ReadDir(filepath.Dir(target.absPath))
 	if err != nil {
@@ -420,7 +428,8 @@ func siblingDocumentRefs(target documentRef, extensions []string) ([]documentRef
 	return refs, nil
 }
 
-// runRefreshTasks 运行refresh任务。
+// runRefreshTasks 以固定并发运行 workspace refresh 任务。
+// ctx 取消后不再派发新任务，已启动的任务会在 WaitGroup 中自然收尾。
 func runRefreshTasks(ctx context.Context, width, count int, fn func(int)) {
 	if count == 0 {
 		return

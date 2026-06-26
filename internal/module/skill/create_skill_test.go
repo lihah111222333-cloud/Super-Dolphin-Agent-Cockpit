@@ -14,8 +14,7 @@ import (
 	"github.com/kelindar/event"
 )
 
-// newCreateSkillService builds a skill service with an empty project + system
-// root pair suitable for CreateSkill assertions.
+// newCreateSkillService 构造带空项目根和系统根的 skill service，供 CreateSkill 写入边界测试使用。
 func newCreateSkillService(t *testing.T) (*service, string, string) {
 	t.Helper()
 	systemRoot := t.TempDir()
@@ -53,7 +52,7 @@ func TestCreateSkillWritesToProjectScopeByDefault(t *testing.T) {
 	if string(data) != "# demo" {
 		t.Fatalf("content = %q, want %q", string(data), "# demo")
 	}
-	// Nothing must have landed under the system root.
+	// 项目作用域写入不能污染系统根目录。
 	entries, _ := os.ReadDir(systemRoot)
 	if len(entries) != 0 {
 		t.Fatalf("system root must stay empty; got entries: %v", entries)
@@ -65,7 +64,7 @@ func TestCreateSkillRejectsMissingCWD(t *testing.T) {
 
 	svc, projectRoot, _ := newCreateSkillService(t)
 
-	// Context without WithCWD + empty CWD param must map to ErrMissingCWD.
+	// 上下文没有 WithCWD 且参数 CWD 为空时必须返回 ErrMissingCWD。
 	_, err := svc.CreateSkill(
 		context.Background(),
 		createSkillParams{Name: "demo", Content: "# demo"},
@@ -74,9 +73,7 @@ func TestCreateSkillRejectsMissingCWD(t *testing.T) {
 		t.Fatalf("want ErrMissingCWD, got %v", err)
 	}
 
-	// Sanity: supplying cwd on the ctx makes the same call succeed. This
-	// guards against the "cwd fell back to system root" regression explicitly
-	// called out by the P21 P0a plan.
+	// 在 ctx 中提供 cwd 后同一调用应成功，防止缺失 cwd 时误回落到系统根。
 	_, err = svc.CreateSkill(
 		skillTestContext(projectRoot),
 		createSkillParams{Name: "demo", Content: "# demo"},
@@ -125,8 +122,7 @@ func TestCreateSkillRejectsEmptyContent(t *testing.T) {
 }
 
 func TestCreateSkillPublishesSkillsChanged(t *testing.T) {
-	// Not parallel: shares an event dispatcher the same way existing
-	// WriteSkillContent / publishSkillsChanged tests do.
+	// 不并行：这里共享 event dispatcher，和同包技能写入事件测试保持一致。
 	dispatcher := event.NewDispatcher()
 	defer func() { _ = dispatcher.Close() }()
 

@@ -15,8 +15,8 @@ import (
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
-// Defaults match the P1b plan. Every one of them is overridable via the
-// SchedulerConfig so tests can pin time-sensitive behaviour.
+// scheduler 默认时序和容量参数。
+// 每一项都可由 SchedulerConfig 覆盖，测试可注入短周期或固定容量。
 const (
 	DefaultLeaseTTL       = 30 * time.Minute
 	DefaultLeaseHeartbeat = 5 * time.Minute
@@ -24,12 +24,8 @@ const (
 	DefaultMaxClaim       = 16
 )
 
-// StartTurnRequest is the subset of inputs the scheduler passes to the
-// turn layer. We expose a narrow struct (rather than passing the
-// cron.Job wholesale) so the turn.Service extension in the integrate PR
-// only sees what it needs.
-//
-// 这是 scheduler 传给 turn 层的全部信息。新增字段时，也要检查
+// StartTurnRequest 是 scheduler 传给 turn 层的最小输入集。
+// 不直接暴露 cronstore.Job，避免 turn 层依赖调度内部字段；新增字段时，也要检查
 // buildStartTurnRequest、buildPrepareInput 和首次 bootstrap 是否需要带上。
 type StartTurnRequest struct {
 	JobID        string
@@ -48,93 +44,69 @@ type StartTurnRequest struct {
 	FailureCount int32
 }
 
-// StartTurnResult captures the outcome of StartTurn. The submitter
-// guarantees that DedupeKey uniqueness is honoured at the provider level
-// — multiple StartTurn calls with the same DedupeKey must return the
-// same TurnID. ThreadID / AgentID may be populated when a fresh agent
-// binding is created.
+// StartTurnResult 是 turn 提交成功后的绑定结果。
+// submitter 必须按 DedupeKey 保证幂等；新建线程或 agent 时需要回填 ThreadID/AgentID。
 type StartTurnResult struct {
 	TurnID   string
 	ThreadID string
 	AgentID  string
 }
 
-// ObservedTurn is the result of TurnSubmitter.LookupByDedupeKey. When
-// Found is false the caller treats the trigger as "never submitted".
+// ObservedTurn 是按 DedupeKey 查重得到的已提交 turn 结果。
+// Found=false 表示 provider 没有确认提交，恢复流程才允许按失败路径收尾。
 type ObservedTurn struct {
 	Found  bool
 	TurnID string
 }
 
-// TurnSubmitter is the seam between the cron scheduler and the turn
-// layer. The real implementation (internal/module/turn) lands in the
-// follow-up integrate PR; this module's default production wiring plugs
-// in NoopTurnSubmitter so the scheduler can ship + be tested end-to-end
-// without dragging in the full turn stack.
-//
+// TurnSubmitter 隔离 cron scheduler 与 turn 执行层。
 // 三个方法分工很清楚：StartTurn 提交，Lookup 只给恢复查重，
 // Observe 接管已提交 turn。恢复时不要再 StartTurn。
 type TurnSubmitter interface {
-	// StartTurn submits a new turn, idempotent on DedupeKey. When the
-	// provider has already accepted a turn for the same DedupeKey the
-	// submitter must return the existing TurnID unchanged.
+	// StartTurn 提交一次新 turn，并按 DedupeKey 保持 provider 侧幂等。
+	// 相同 DedupeKey 已被接受时必须返回同一个 TurnID。
 	StartTurn(ctx context.Context, req StartTurnRequest) (StartTurnResult, error)
 
-	// LookupByDedupeKey probes the provider-side dedupe index without
-	// submitting. Used by crash recovery: a run stuck in "submitting"
-	// with no turn_id must not re-issue StartTurn; instead the scheduler
-	// asks whether the provider already accepted one.
+	// LookupByDedupeKey 只查 provider 侧去重索引，不提交新 turn。
+	// 恢复 submitting 且缺 turn_id 的 run 时必须先查它，避免重复启动。
 	LookupByDedupeKey(ctx context.Context, dedupeKey string) (ObservedTurn, error)
 
-	// Observe registers an observer for a turn that has already been
-	// submitted. Returning nil means the caller can move the run into
-	// running / finished based on later terminal events; returning an
-	// error classified as permanently-lost (see NotFound / NotRecoverable
-	// below) moves the run into observe_lost.
+	// Observe 接管已经提交的 turn。
+	// 成功后 run 可进入 running；永久无法追踪时 scheduler 会转成 observe_lost。
 	Observe(ctx context.Context, turnID string) error
 }
 
-// ErrTurnNotFound / ErrTurnPermissionDenied map to the P1b plan's
-// observe_lost terminal: the scheduler refuses to re-StartTurn once a
-// run has already been submitted, and observation is also unavailable,
-// so the only safe outcome is to mark the run observe_lost and alert.
+// ErrTurnNotFound 和 ErrTurnPermissionDenied 表示已提交 turn 无法再被追踪。
+// scheduler 不能重新 StartTurn，只能把 run 标记为 observe_lost 并等待人工处理。
 var (
 	ErrTurnNotFound         = errors.New("cron: turn not found on provider")
 	ErrTurnPermissionDenied = errors.New("cron: turn observation permission denied")
 )
 
-// NoopTurnSubmitter is the default provider used when the app boots
-// without a real turn layer wired. Every StartTurn fails fast with
-// ErrSubmitterNotWired so no silent data loss occurs; LookupByDedupeKey
-// always reports Found=false.
+// NoopTurnSubmitter 是没有真实 turn 层时的默认 submitter。
+// StartTurn 必须 fail-fast；Lookup 只返回 Found=false，不制造假 turn。
 type NoopTurnSubmitter struct{}
 
-// ErrSubmitterNotWired flags that the NoopTurnSubmitter is in use.
+// ErrSubmitterNotWired 表示当前运行时没有接入真实 turn submitter。
 var ErrSubmitterNotWired = errors.New("cron: turn submitter is not wired (phase 2b-integrate missing)")
 
-// StartTurn 把 cron 运行转换成一次线程 turn。
+// StartTurn 在 NoopTurnSubmitter 中始终拒绝提交，避免静默丢任务。
 func (NoopTurnSubmitter) StartTurn(context.Context, StartTurnRequest) (StartTurnResult, error) {
 	return StartTurnResult{}, ErrSubmitterNotWired
 }
 
-// LookupByDedupeKey 按去重键查找已提交的 turn。
+// LookupByDedupeKey 在 NoopTurnSubmitter 中始终返回未找到。
 func (NoopTurnSubmitter) LookupByDedupeKey(context.Context, string) (ObservedTurn, error) {
 	return ObservedTurn{Found: false}, nil
 }
 
-// Observe 记录 turn 状态变化并推进 cron run。
+// Observe 在 NoopTurnSubmitter 中始终返回未接线错误。
 func (NoopTurnSubmitter) Observe(context.Context, string) error {
 	return ErrSubmitterNotWired
 }
 
-// BootstrapRequest carries the inputs the adapter hands to the
-// ThreadBootstrapper when a cron job fires for the first time
-// (job.thread_id is empty). The bootstrapper must return a Result
-// whose ThreadID is non-empty; AgentID may be empty when the thread
-// layer chose to share an existing agent. Provider-specific config
-// (codexHome / codexInstanceKey / codexModelProvider / …) rides in
-// Config verbatim; the bootstrapper decides how to translate that
-// into a thread.StartRequest.
+// BootstrapRequest 是首次触发且 job.thread_id 为空时交给 ThreadBootstrapper 的输入。
+// Config 原样传给下游 provider 绑定解析，bootstrapper 必须返回非空 ThreadID。
 type BootstrapRequest struct {
 	JobID    string
 	Provider string
@@ -144,42 +116,34 @@ type BootstrapRequest struct {
 	Config   json.RawMessage
 }
 
-// BootstrapResult is returned by ThreadBootstrapper. ThreadID is
-// persisted onto cron_jobs by the scheduler via SetActiveTurn once
-// StartTurn succeeds, so a second trigger reuses the same thread.
+// BootstrapResult 是线程引导结果。
+// ThreadID 会在 StartTurn 成功后由 scheduler 持久化到 cron_jobs，后续触发复用同一线程。
 type BootstrapResult struct {
 	ThreadID string
 	AgentID  string
 }
 
-// ThreadBootstrapper creates (or resolves) the agent + thread pair a
-// cron job needs on its first trigger. The default production wiring
-// plugs in NoopThreadBootstrapper so the scheduler keeps failing
-// fast with ErrJobNotBootstrapped until a deployment opts in by
-// providing a real implementation (typically thread.Service backed).
+// ThreadBootstrapper 为首次触发的 cron job 创建或解析 agent/thread。
+// 没有真实实现时必须 fail-fast，不能把任务静默落到默认身份。
 type ThreadBootstrapper interface {
 	BootstrapThread(ctx context.Context, req BootstrapRequest) (BootstrapResult, error)
 }
 
-// ErrBootstrapperNotWired indicates the deployment has no bootstrapper
-// bound; the TurnServiceAdapter keeps the v1 behavior (surface
-// ErrJobNotBootstrapped to the scheduler) rather than silently
-// looping on a dead cron job.
+// ErrBootstrapperNotWired 表示当前运行时没有接入线程引导器。
+// 调用方应把它转成可见失败，而不是在缺 thread_id 的 job 上反复空转。
 var ErrBootstrapperNotWired = errors.New("cron: thread bootstrapper is not wired")
 
-// NoopThreadBootstrapper is the default value installed when nobody
-// supplies a real ThreadBootstrapper. Its BootstrapThread always
-// errors with ErrBootstrapperNotWired so the adapter can distinguish
-// "nobody opted in" from "the bootstrap tried and failed".
+// NoopThreadBootstrapper 是未配置线程引导器时的默认实现。
+// BootstrapThread 始终返回 ErrBootstrapperNotWired，便于区分未接线和真实引导失败。
 type NoopThreadBootstrapper struct{}
 
-// BootstrapThread 为定时任务准备或复用目标线程。
+// BootstrapThread 在 NoopThreadBootstrapper 中始终返回未接线错误。
 func (NoopThreadBootstrapper) BootstrapThread(context.Context, BootstrapRequest) (BootstrapResult, error) {
 	return BootstrapResult{}, ErrBootstrapperNotWired
 }
 
-// SchedulerConfig carries tunable time / capacity parameters. Zero
-// fields fall back to the Default* constants.
+// SchedulerConfig 保存 scheduler 可调的时间和容量参数。
+// 零值字段会在 withDefaults 中补齐，避免调用方散落默认值。
 type SchedulerConfig struct {
 	ClaimedBy      string
 	LeaseTTL       time.Duration
@@ -215,9 +179,8 @@ func (c SchedulerConfig) withDefaults() SchedulerConfig {
 	return c
 }
 
-// Scheduler owns the claim + submit + observe + mark state machine. It
-// is driven by the tick actor (ticks) and the lease actor (heartbeats);
-// tests can drive it directly via RunTick / RenewLeases.
+// Scheduler 负责 cron job 的 claim、submit、observe 和终态标记状态机。
+// TickActor 驱动 RunTick，lease actor 驱动 RenewLeases；测试可直接调用这些入口。
 type Scheduler struct {
 	logger     *slog.Logger
 	store      cronstore.Store
@@ -225,15 +188,13 @@ type Scheduler struct {
 	cfg        SchedulerConfig
 	dispatcher *event.Dispatcher
 
-	// clock + uuid are overridable for deterministic tests.
+	// clock/uuid 可被测试替换，保证调度时间和 token 可预测。
 	now   func() time.Time
 	newID func() string
 }
 
-// NewScheduler wires a Scheduler with its dependencies. A nil submitter
-// defaults to NoopTurnSubmitter; a nil logger falls back to the package
-// default.
 // NewScheduler 创建 cron 调度器并注入存储和 turn 依赖。
+// nil submitter 会替换为 NoopTurnSubmitter，确保未接线时 fail-fast。
 func NewScheduler(logger *slog.Logger, store cronstore.Store, submitter TurnSubmitter, cfg SchedulerConfig) *Scheduler {
 	if logger == nil {
 		logger = pkglogger.Get()
@@ -251,16 +212,12 @@ func NewScheduler(logger *slog.Logger, store cronstore.Store, submitter TurnSubm
 	}
 }
 
-// ClaimToken returns a new UUID usable as a claim_token. Exported so the
-// tick actor can generate fresh tokens without reaching into unexported
-// internals.
 // ClaimToken 生成本轮调度领取用的 token。
+// 该方法给 tick actor 使用，避免外部直接依赖 scheduler 的 ID 生成细节。
 func (s *Scheduler) ClaimToken() string { return s.newID() }
 
-// RunTick claims due jobs and drives each through the three-phase state
-// machine. It is safe to call from multiple schedulers pointing at the
-// same DB because ClaimDueJobsForUpdate uses an atomic SQLite UPDATE+subquery.
-//
+// RunTick 领取到期 job 并逐个推进提交状态机。
+// 多 scheduler 指向同一 DB 时依赖 ClaimDueJobsForUpdate 的原子 UPDATE 防重复领取。
 // 一次只 claim 一个 job，再循环到 MaxClaim。这样单个 job 出错不会拖住整轮，
 // 也能避免同一 job 被异常反复推进。
 func (s *Scheduler) RunTick(ctx context.Context) error {
@@ -302,11 +259,8 @@ func (s *Scheduler) claimOneDueJob(ctx context.Context) ([]cronstore.Job, error)
 	})
 }
 
-// driveJob runs the three-phase state machine for one claimed job. On
-// any terminal branch the claim is released via MarkFinished or
-// MarkFailed; MarkFinished also advances next_run_at from the parsed
-// cron expression.
-//
+// driveJob 推进一个已领取 job 的 pending -> submitting -> submitted -> running 状态机。
+// 任何终态分支都必须释放 claim；成功完成时由 markFinished 推算下一次 next_run_at。
 // 正常只走 pending -> submitting -> submitted -> running，后续靠终态事件结束。
 // StartTurn/Observe 失败各有固定落点，不要回退重提。
 func (s *Scheduler) driveJob(ctx context.Context, job cronstore.Job) error {
@@ -453,9 +407,7 @@ func (s *Scheduler) observeStartedTurn(ctx context.Context, job cronstore.Job, r
 func (s *Scheduler) finalizeFailure(ctx context.Context, job cronstore.Job, run cronstore.Run, scheduledAt time.Time, startErr error) error {
 	now := s.now().UTC()
 	nextRetry := s.nextRetry(job, now)
-	// Record the failed run transition. A CAS error here is not fatal
-	// (the subsequent MarkFailed owns the job-level state transition)
-	// but we log it so DB hiccups during finalize are observable.
+	// run 级 CAS 失败不阻断 job 级 MarkFailed，但要记录，便于排查收尾期 DB 抖动。
 	s.casLogPublish(ctx, cronstore.CASRunStatusParams{
 		ID: run.ID, ExpectedStatus: cronstore.StatusSubmitting, NextStatus: cronstore.StatusFailed,
 		Error: startErr.Error(), UpdatedAt: now,
@@ -489,7 +441,7 @@ func (s *Scheduler) finalizeObserveLost(ctx context.Context, job cronstore.Job, 
 		LastStatus:  cronstore.StatusObserveLost,
 		LastErrorAt: now,
 		LastError:   observeErr.Error(),
-		NextRetryAt: time.Time{}, // observe_lost does not retry automatically
+		NextRetryAt: time.Time{}, // observe_lost 不自动重试，避免重复 turn
 		Now:         now,
 	})
 }

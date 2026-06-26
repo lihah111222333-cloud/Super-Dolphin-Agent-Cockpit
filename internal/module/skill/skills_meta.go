@@ -73,7 +73,8 @@ func (s *service) scanSkillRoots(cwd string) []skillScanRoot {
 	return roots
 }
 
-// visitSkillEntry 处理visit技能条目。
+// visitSkillEntry 处理 WalkDir 扫描到的单个条目。
+// 只有符合当前 root 深度规则的 SKILL.md 会被解析，目录和非目标文件会被跳过。
 func (s *service) visitSkillEntry(root skillScanRoot, path string, entry os.DirEntry, walkErr error, projectSkillsRoot string, records *[]skillRecord) error {
 	if walkErr != nil || entry == nil {
 		return walkErr
@@ -135,9 +136,8 @@ func (s *service) defaultTrustForRoot(root, projectSkillsRoot string) TrustScope
 }
 
 func parseSkillRecord(root, path string, defaultTrust TrustScope) (skillRecord, error) {
-	// P20 Phase 1 安全加固：扫盘期严格限制 SKILL.md 大小。旧实现裸走 os.ReadFile
-	// 没有 size check，恶意项目可在 .agent/skills/evil/SKILL.md 放 10GB 垂垃引发启动期 OOM
-	// （与 ReadLocal/WriteLocal/ReadRemote 的 maxSkillFileBytes 限制保持一致）。
+	// 扫盘期先检查 SKILL.md 大小，再读取内容。
+	// 该限制与 ReadLocal/WriteLocal/ReadRemote 保持一致，避免恶意大文件在启动或刷新时耗尽内存。
 	stat, err := os.Stat(path)
 	if err != nil {
 		return skillRecord{}, err
@@ -186,7 +186,7 @@ func parseSkillInfo(rel, dir, content string, defaultTrust TrustScope) SkillInfo
 	info.TriggerWords = uniqStrings(append(info.TriggerWords, "@"+info.Name, "[skill:"+info.Name+"]"))
 	info.ForceWords = uniqStrings(info.ForceWords)
 	info.ReplacesNative = normalizeReplacesNative(info.ReplacesNative)
-	// P20 Phase 1: 信任域与安全字段回填
+	// 信任域和安全字段在解析后统一收口，确保 frontmatter 缺失时仍有明确默认值。
 	info.AllowedTools = uniqStrings(info.AllowedTools)
 	if info.Trust == TrustUnknown {
 		if defaultTrust.Valid() {
@@ -196,14 +196,15 @@ func parseSkillInfo(rel, dir, content string, defaultTrust TrustScope) SkillInfo
 		}
 	}
 	info.Trust = capSkillTrustByRoot(info.Trust, defaultTrust)
-	// ContentHash: SHA-256 of the raw SKILL.md full content (frontmatter + body),
-	// 用于审批缓存 (name, hash) 的 TOCTOU 防护 — frontmatter/body 任一改动都重审。
+	// ContentHash 覆盖完整 SKILL.md 内容，用于审批缓存的 TOCTOU 防护。
+	// frontmatter 或正文任一变化都会改变 hash 并触发重新审批。
 	sum := sha256.Sum256([]byte(content))
 	info.ContentHash = hex.EncodeToString(sum[:])
 	return info
 }
 
-// capSkillTrustByRoot 按根目录处理cap技能trust。
+// capSkillTrustByRoot 按 skill 所在根目录限制 frontmatter 声明的信任域。
+// 项目根下的 skill 不能通过 metadata 自行升级成 user/signed 信任。
 func capSkillTrustByRoot(trust, defaultTrust TrustScope) TrustScope {
 	if !trust.Valid() {
 		return TrustProject
@@ -361,7 +362,7 @@ func applyMetaTrust(info *SkillInfo, key, value string) bool {
 	if !metaKeyMatch(key, trustMetaKeys) {
 		return false
 	}
-	// P20 Phase 1: 显式覆盖由 root 推断的信任域。未知值被视为未设置（保留推断结果）。
+	// frontmatter 里的 trust 只接受已知值；未知值视为未设置，保留根目录推断结果。
 	if scope := parseTrustScope(parseScalar(value)); scope != TrustUnknown {
 		info.Trust = scope
 	}
@@ -391,7 +392,7 @@ func applyYAMLFrontmatter(info *SkillInfo, frontmatter string) {
 	}
 }
 
-// parseReplacesNativeYAML 解析replacesnativeyaml。
+// parseReplacesNativeYAML 解析 replaces_native YAML 字段为 provider 到工具名列表的映射。
 func parseReplacesNativeYAML(raw any) map[string][]string {
 	switch value := raw.(type) {
 	case map[string]any:
@@ -500,7 +501,8 @@ func parseScalar(value string) string {
 	return strings.TrimSpace(value)
 }
 
-// summarizeSkillBody 处理summarize技能正文。
+// summarizeSkillBody 从正文中提取可展示摘要。
+// 内部 marker、标题和代码围栏会被跳过，避免把系统标记暴露到 UI。
 func summarizeSkillBody(body, description string) string {
 	if description = strings.TrimSpace(description); description != "" {
 		return description
@@ -533,7 +535,8 @@ func isInternalSkillMarkerSummary(value string) bool {
 	return internalSkillMarkerSummaryPattern.MatchString(strings.TrimSpace(value))
 }
 
-// internalSkillMarkerOpenName 处理internal技能marker打开名称。
+// internalSkillMarkerOpenName 识别正文中的内部 marker 起始标签。
+// 只接受无空白和路径分隔符的标签名，避免把普通 HTML 或路径片段当成内部块。
 func internalSkillMarkerOpenName(value string) (string, bool) {
 	value = strings.TrimSpace(value)
 	if len(value) < 3 || !strings.HasPrefix(value, "<") || !strings.HasSuffix(value, ">") || strings.HasPrefix(value, "</") {
@@ -575,7 +578,8 @@ func uniqStrings(values []string) []string {
 	return out
 }
 
-// upsertSkillSummary 处理upsert技能摘要。
+// upsertSkillSummary 在 SKILL.md frontmatter 中插入或替换 summary。
+// 没有 frontmatter 时会创建最小 frontmatter；空 summary 则保留原内容。
 func upsertSkillSummary(content, summary string) string {
 	summary = strings.TrimSpace(summary)
 	frontmatter, body, ok := splitFrontmatter(content)

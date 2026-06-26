@@ -9,7 +9,8 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/difftracker"
 )
 
-// beginToolDiffSnapshot 处理begin工具diff快照。
+// beginToolDiffSnapshot 在工具调用前捕获 git 快照。
+// 只有可追踪的 edit 调用且能确定 cwd 时才创建快照，避免无关工具产生额外 git 开销。
 func (h *Handler) beginToolDiffSnapshot(ctx context.Context, req ToolCallRequest) *difftracker.Snapshot {
 	if h == nil {
 		return nil
@@ -35,7 +36,9 @@ func (h *Handler) beginToolDiffSnapshot(ctx context.Context, req ToolCallRequest
 	return snapshot
 }
 
-// emitToolDiff 处理emit工具diff。
+// emitToolDiff 在工具调用结束后发布相对 begin 快照的 diff。
+// 只有主链路成功发出 diff 才标记 callID 已见；这样 ToolCallEnd fallback 只补漏，
+// 不会和已发布的快照 diff 重复。
 func (h *Handler) emitToolDiff(ctx context.Context, req ToolCallRequest, snapshot *difftracker.Snapshot) {
 	if h == nil || snapshot == nil || h.emitter == nil {
 		return
@@ -67,7 +70,7 @@ func (h *Handler) emitToolDiff(ctx context.Context, req ToolCallRequest, snapsho
 	}
 }
 
-// shouldTrackDiff 判断工具调用是否需要 diff 追踪
+// shouldTrackDiff 判断工具调用是否需要 diff 追踪；目前只追踪带 patch 的 LSP edit。
 func shouldTrackDiff(toolName string, arguments json.RawMessage) bool {
 	switch canonicalToolName(toolName) {
 	case "edit":
@@ -76,6 +79,7 @@ func shouldTrackDiff(toolName string, arguments json.RawMessage) bool {
 	return false
 }
 
+// lspEditPatchIsDiff 从 LSP edit 参数中确认 patch 非空，避免空 edit 被误当成文件改动。
 func lspEditPatchIsDiff(arguments json.RawMessage) bool {
 	if len(strings.TrimSpace(string(arguments))) == 0 {
 		return false

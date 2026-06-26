@@ -126,7 +126,8 @@ func funcReturnsError(fn *ast.FuncType) bool {
 	return ok
 }
 
-// funcErrorResultCount 处理func错误结果count。
+// funcErrorResultCount 返回函数结果数量，并标记最后一个返回值是否为 error。
+// silent fallback guard 用它判断 return 语句末尾 nil 是否会吞掉原始错误。
 func funcErrorResultCount(fn *ast.FuncType) (int, bool) {
 	if fn == nil || fn.Results == nil || len(fn.Results.List) == 0 {
 		return 0, false
@@ -189,7 +190,8 @@ func errorIdentComparedWithNil(candidate, other ast.Expr) (string, bool) {
 	return ident.Name, true
 }
 
-// looksLikeErrorIdent 处理lookslike错误ident。
+// looksLikeErrorIdent 判断标识符命名是否像 error 变量。
+// 它覆盖 err、err2、xxxErr、xxxError 等常见写法，降低漏扫 error 分支的概率。
 func looksLikeErrorIdent(name string) bool {
 	lower := strings.ToLower(strings.TrimSpace(name))
 	if lower == "e" || lower == "err" {
@@ -218,7 +220,8 @@ type fallbackReturnCandidate struct {
 	explicitAbsence bool
 }
 
-// fallbackReturnCandidates 处理兜底return候选项。
+// fallbackReturnCandidates 收集 error 分支内可能吞错的 return 语句。
+// 嵌套 if 只有在仍引用同一组 error 变量时才继续下钻，避免把无关分支误报为兜底。
 func fallbackReturnCandidates(block *ast.BlockStmt, errVars map[string]struct{}, explicitAbsence bool) []fallbackReturnCandidate {
 	if block == nil {
 		return nil
@@ -262,7 +265,8 @@ func conditionMentionsAny(expr ast.Expr, names map[string]struct{}) bool {
 	return found
 }
 
-// isExplicitAbsenceCondition 判断explicitabsencecondition是否可用。
+// isExplicitAbsenceCondition 判断条件是否显式表达“对象不存在/进程已退出”。
+// 这类分支允许返回 tri-state absence 信号，不能按普通吞错路径误报。
 func isExplicitAbsenceCondition(expr ast.Expr) bool {
 	found := false
 	ast.Inspect(expr, func(n ast.Node) bool {
@@ -290,7 +294,8 @@ func exprNameFromNode(n ast.Node) string {
 	return exprName(expr)
 }
 
-// isSilentFallbackReturn 判断silent兜底return是否可用。
+// isSilentFallbackReturn 判断 return 是否在 error 分支中静默返回 nil error。
+// 若前置返回值已经携带失败或明确 absence 信号，则不按吞错处理。
 func isSilentFallbackReturn(ret *ast.ReturnStmt, resultCount int, explicitAbsence bool) bool {
 	if resultCount <= 0 || len(ret.Results) == 0 {
 		return false
@@ -317,7 +322,8 @@ func hasExplicitFailureSignal(exprs []ast.Expr) bool {
 	return false
 }
 
-// isFailureComposite 判断failurecomposite是否可用。
+// isFailureComposite 判断复合字面量是否显式表达失败状态。
+// 失败类型名或失败字段可作为非静默兜底的信号。
 func isFailureComposite(expr ast.Expr) bool {
 	composite, ok := expr.(*ast.CompositeLit)
 	if !ok {

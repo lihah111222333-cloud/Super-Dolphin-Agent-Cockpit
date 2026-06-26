@@ -40,20 +40,25 @@ type dreamTaskState struct {
 	done     chan struct{}
 }
 
+// DreamTaskSnapshot 是 UI/RPC 查询后台 dream task 时暴露的只读状态。
+// 它只复制当前锁内状态，不暴露 cancel/done 等生命周期控制句柄。
 type DreamTaskSnapshot struct {
 	Running  bool
 	ThreadID string
 	Phase    string
 }
 
+// ErrDreamTaskNotRunning 表示用户请求取消时当前没有可取消的 dream task。
 var ErrDreamTaskNotRunning = errors.New("dream task is not running")
 
-// GetDreamTaskStatus 读取dream任务状态。
+// GetDreamTaskStatus 返回当前后台 dream task 快照。
+// 读取过程只持有短锁，不等待任务完成，适合状态轮询。
 func (h *MemoryLifecycleHooks) GetDreamTaskStatus() DreamTaskSnapshot {
 	return h.dreamTaskSnapshot()
 }
 
-// KillDreamTask 处理killdream任务。
+// KillDreamTask 请求取消当前后台 dream task。
+// 没有运行中任务时返回 ErrDreamTaskNotRunning，避免调用方误判取消成功。
 func (h *MemoryLifecycleHooks) KillDreamTask() error {
 	if !h.killDreamTask() {
 		return ErrDreamTaskNotRunning
@@ -145,7 +150,8 @@ func (h *MemoryLifecycleHooks) killDreamTask() bool {
 	return true
 }
 
-// waitDreamTask 等待dream任务。
+// waitDreamTask 等待当前 dream task 结束或 ctx 取消。
+// 它只读取一次 done channel；调用时没有任务则立即返回。
 func (h *MemoryLifecycleHooks) waitDreamTask(ctx context.Context) error {
 	if h == nil {
 		return nil
@@ -167,11 +173,8 @@ func (h *MemoryLifecycleHooks) waitDreamTask(ctx context.Context) error {
 	}
 }
 
-// registerAutoDreamSubscriptions wires the thread.stopped bus subscription
-// to the single auto-dream owner. Per P22 P2 Finding 7 the callback is now
-// a non-blocking enqueue; the scheduler's tracked worker runs
-// maybeScheduleAutoDream under its own ctx so Close(gate) + Drain is the
-// sole path for shutdown, replacing the pre-P2 fire-and-forget `go`.
+// registerAutoDreamSubscriptions 把 thread.stopped 事件接到唯一的 auto-dream scheduler。
+// 订阅回调只做非阻塞 enqueue；真正的调度在 scheduler worker 中执行，关闭路径由 Stop 统一 drain。
 func registerAutoDreamSubscriptions(p memorySubscriptionDeps, scheduler *autoDreamScheduler, appendCancel func(context.CancelFunc)) {
 	if p.Hooks == nil || !p.Hooks.enabled || scheduler == nil {
 		return
@@ -217,7 +220,8 @@ func (h *MemoryLifecycleHooks) autoDreamAllowed(meta threadRuntimeMetadata) bool
 	return meta.isAutoMemoryRootThread() && !meta.hasAgentMemoryScope() && h.isGateOpen(meta)
 }
 
-// prepareAutoDreamExecution 准备autodreamexecution。
+// prepareAutoDreamExecution 组装一次 auto-dream 运行计划。
+// 它会解析 memory root、检查扫描节流和最小会话数，并在 extract 函数缺失时 fail-fast。
 func (h *MemoryLifecycleHooks) prepareAutoDreamExecution(ctx context.Context, threadID string) (autoDreamExecutionPlan, bool, error) {
 	root, err := h.autoDreamRoot()
 	if err != nil {
@@ -257,7 +261,8 @@ func (h *MemoryLifecycleHooks) autoDreamRoot() (string, error) {
 	return root, nil
 }
 
-// prepareAutoDreamWindow 准备autodreamwindow。
+// prepareAutoDreamWindow 判断本次 auto-dream 是否进入扫描窗口。
+// 函数会先记录 scan 时间，再用上次成功时间做最小间隔判断，避免多线程同时触发重复 consolidation。
 func (h *MemoryLifecycleHooks) prepareAutoDreamWindow(root string) (time.Time, bool, error) {
 	stamp, err := loadConsolidationStamp(root)
 	if err != nil {
@@ -289,10 +294,7 @@ func (h *MemoryLifecycleHooks) resolveDreamExtractFunc() (ExtractFunc, error) {
 }
 
 func (h *MemoryLifecycleHooks) launchAutoDreamTask(taskCtx context.Context, threadID string, plan autoDreamExecutionPlan) {
-	// SafeGo wraps the task with panic recovery + structured logging so a
-	// crash in consolidator does not bring down the process. Mirrors the
-	// pattern in team/team_sync_watcher.go:76. Without this, a panic in
-	// the background dream task would propagate to runtime and abort.
+	// SafeGo 包装 panic recovery 和结构化日志，避免后台 consolidation panic 直接打崩进程。
 	safego.Go(taskCtx, h.logger, "memory.autoDream.task", func(ctx context.Context) {
 		defer h.finishDreamTask()
 		err := h.consolidator.consolidateWithOptions(ctx, plan.root, plan.extractFn, consolidationRunOptions{
@@ -326,7 +328,8 @@ func (h *MemoryLifecycleHooks) isGateOpen(meta threadRuntimeMetadata) bool {
 	return gate.AutoEnabled
 }
 
-// autoDreamSessionCount 处理autodream会话count。
+// autoDreamSessionCount 统计同项目内上次成功 consolidation 之后的可计数线程。
+// thread store 缺失时返回 0，表示当前运行环境无法触发 auto-dream，而不是静默写入。
 func (h *MemoryLifecycleHooks) autoDreamSessionCount(ctx context.Context, currentThreadID string, since time.Time) (int, error) {
 	if h == nil || h.threadStore == nil {
 		return 0, nil
@@ -345,7 +348,8 @@ func (h *MemoryLifecycleHooks) autoDreamSessionCount(ctx context.Context, curren
 	return count, nil
 }
 
-// shouldCountAutoDreamThread 判断countautodream线程是否可用。
+// shouldCountAutoDreamThread 判断某个线程是否计入 auto-dream 触发窗口。
+// 当前线程、agent memory 线程、不同项目线程或早于 since 的线程都不计数。
 func shouldCountAutoDreamThread(thread contract.ThreadMetadata, currentThreadID, projectKey string, since time.Time) bool {
 	threadID := strings.TrimSpace(thread.ThreadID)
 	if threadID == "" || threadID == currentThreadID {
@@ -573,7 +577,8 @@ func (s *uiMemoryConsolidationJobStore) snapshotLocked(job *uiMemoryConsolidatio
 	return out
 }
 
-// pruneLocked 裁剪locked。
+// pruneLocked 在持锁状态下删除过期 UI consolidation job。
+// 调用方必须已持有 job store 锁，避免 jobs 与 running 两张索引出现不一致。
 func (s *uiMemoryConsolidationJobStore) pruneLocked(now time.Time) {
 	if s.ttl <= 0 {
 		return

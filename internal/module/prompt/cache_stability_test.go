@@ -6,13 +6,8 @@ import (
 	"testing"
 )
 
-// TestAssembleStart_CachedPrefixBytewiseStable verifies the Phase 3 invariant:
-// given the same BuildCtx inputs and a frozen PROMPT_START_CURRENT_DATE, two
-// successive AssembleStart calls produce a bytewise-identical
-// Boundary.CachedPrefix AND BaseInstructions. The CachedPrefix is what gets
-// routed to the --system-prompt flag on Claude CLI in Phase 3, and
-// Anthropic's org-level ephemeral prompt cache (5-minute TTL) only hits when
-// this value does not change across turns.
+// TestAssembleStart_CachedPrefixBytewiseStable 验证相同 BuildCtx 和冻结日期会生成字节稳定的启动前缀。
+// CachedPrefix 会进入 Claude CLI 的 --system-prompt；跨 turn 不抖动时，provider 侧短 TTL prompt cache 才能命中。
 func TestAssembleStart_CachedPrefixBytewiseStable(t *testing.T) {
 	t.Setenv(envClaudeSimple, "")
 	t.Setenv(envPromptStartCurrentDate, "2026-04-22")
@@ -45,20 +40,12 @@ func TestAssembleStart_CachedPrefixBytewiseStable(t *testing.T) {
 	if strings.TrimSpace(first.Boundary.CachedPrefix) == "" {
 		t.Fatal("CachedPrefix is empty; static sections should always produce content")
 	}
-	// Phase 3 promise: BaseInstructions is also bytewise stable. Previously
-	// the per-start user meta (currentDate, runtimeExtras) and System Context
-	// block (gitStatus) were embedded into BaseInstructions, breaking
-	// stability. After Phase 3 these flow through the structured UserContext
-	// / SystemContext fields instead.
+	// BaseInstructions 也必须字节稳定；每轮变化的 user meta 和 System Context 走结构化字段。
 	if first.BaseInstructions != second.BaseInstructions {
 		t.Fatalf("BaseInstructions diverged across calls with same BuildCtx:\nfirst  = %q\nsecond = %q",
 			first.BaseInstructions, second.BaseInstructions)
 	}
-	// Guard against the previous leak shapes. Note: the literal token
-	// "<system-reminder>" appears as a benign mention in the
-	// system_constraints section body; the real leak is the wrapper block
-	// containing userMeta ("Today's date is ..."). Check the distinctive
-	// currentDate phrase instead of the bare tag.
+	// 防止旧泄漏形状回归：裸标签可能在正文中被提及，真正危险的是 userMeta 包装块。
 	if strings.Contains(first.BaseInstructions, "Today's date is") {
 		t.Fatalf("BaseInstructions leaked currentDate payload; userMeta must live in StartAssembly.UserContext only:\n%s",
 			first.BaseInstructions)
@@ -67,18 +54,14 @@ func TestAssembleStart_CachedPrefixBytewiseStable(t *testing.T) {
 		t.Fatalf("BaseInstructions leaked System Context block; gitStatus must live in StartAssembly.SystemContext only:\n%s",
 			first.BaseInstructions)
 	}
-	// Positive assertion: the same data must be available via the structured
-	// fields so provider bridges can route it into the synthetic user meta.
+	// 同一份数据必须保留在结构化字段中，供 provider bridge 注入合成 user meta。
 	if _, ok := first.UserContext["currentDate"]; !ok {
 		t.Fatalf("UserContext missing currentDate after Phase 3 split: %#v", first.UserContext)
 	}
 }
 
-// TestAssembleStart_PopulatesUserMetaFields verifies Phase 0 contract extension:
-// StartAssembly exposes UserContext / UserContextText / SystemContext fields in
-// parallel with the legacy BaseInstructions embedding, so Phase 3 provider
-// bridges can consume them without pulling data out of the BaseInstructions
-// string.
+// TestAssembleStart_PopulatesUserMetaFields 验证 StartAssembly 暴露结构化 user/system context。
+// provider bridge 必须从这些字段读取动态上下文，不能再从 BaseInstructions 字符串里反解析。
 func TestAssembleStart_PopulatesUserMetaFields(t *testing.T) {
 	t.Setenv(envClaudeSimple, "")
 	t.Setenv(envPromptStartCurrentDate, "2026-04-22")
@@ -102,8 +85,7 @@ func TestAssembleStart_PopulatesUserMetaFields(t *testing.T) {
 	if !strings.Contains(assembly.UserContextText, "currentDate") {
 		t.Fatalf("UserContextText missing currentDate heading: %q", assembly.UserContextText)
 	}
-	// SystemContext may be nil when the cwd is not a git repo and no cache
-	// breaker is configured; if present, each entry must be non-empty.
+	// CWD 不是 git repo 且未配置 cache breaker 时 SystemContext 可为空；一旦存在则每项都必须非空。
 	for key, value := range assembly.SystemContext {
 		if strings.TrimSpace(value) == "" {
 			t.Fatalf("SystemContext[%q] populated but empty", key)
@@ -111,11 +93,8 @@ func TestAssembleStart_PopulatesUserMetaFields(t *testing.T) {
 	}
 }
 
-// TestSimpleStartAssembly_ThreeLineForm asserts the CLAUDE_CODE_SIMPLE fast
-// path emits exactly the three-line form matching Claude Code's ultraSimple
-// behavior (prompts.ts L444-454). Phase 1 tightened this path so that
-// UserContext/UserContextText/SystemContext are intentionally left empty —
-// the fast path is meant to be load-bearing minimum, not a richer variant.
+// TestSimpleStartAssembly_ThreeLineForm 验证 CLAUDE_CODE_SIMPLE 快速路径只输出固定三行格式。
+// 该路径刻意不填充 UserContext/UserContextText/SystemContext，保持 provider 最小启动面。
 func TestSimpleStartAssembly_ThreeLineForm(t *testing.T) {
 	t.Setenv(envClaudeSimple, "1")
 	t.Setenv(envPromptStartCurrentDate, "2026-04-22")

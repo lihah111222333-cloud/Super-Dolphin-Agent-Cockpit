@@ -60,7 +60,8 @@ type goWorkspaceKeyParts struct {
 	LanguageSpecific      map[string]string
 }
 
-// ResolveGoRoot 解析go根目录。
+// ResolveGoRoot 为 Go LSP 请求选择工作根目录和工具链环境。
+// 它优先尊重有效的 GOWORK，再按 go.mod、子模块和目录回退逐级收敛。
 func ResolveGoRoot(req GoRootRequest) (GoRootInfo, error) {
 	target, projectRoot, err := resolveGoRootRequestPaths(req)
 	if err != nil {
@@ -86,7 +87,8 @@ func ResolveGoRoot(req GoRootRequest) (GoRootInfo, error) {
 	return withGoToolchain(info, env, err)
 }
 
-// resolveGoRootRequestPaths 解析go根目录请求路径。
+// resolveGoRootRequestPaths 归一化请求中的 cwd/filePath，并确定后续向上查找的起点。
+// cwd 非法或目标路径无法转成绝对路径时立即返回错误，避免 LSP 绑定到错误目录。
 func resolveGoRootRequestPaths(req GoRootRequest) (string, string, error) {
 	projectRoot, err := normalizeOptionalPath(req.CWD, "")
 	if err != nil {
@@ -115,7 +117,8 @@ func goRootRequestEnv(req GoRootRequest) []string {
 	return os.Environ()
 }
 
-// resolveGoRootFromGOWORK 从gowork解析go根目录。
+// resolveGoRootFromGOWORK 按请求环境里的 GOWORK 解析 workspace。
+// auto 模式只接受覆盖当前目标的 go.work，避免外部 worktree 的环境变量污染本次 LSP scope。
 func resolveGoRootFromGOWORK(target, projectRoot string, env []string, noiseDirNames []string) (GoRootInfo, bool, error) {
 	gowork, ok := envValue(env, "GOWORK")
 	if !ok {
@@ -138,13 +141,14 @@ func resolveGoRootFromGOWORK(target, projectRoot string, env []string, noiseDirN
 	}
 	info, err := resolveGoWorkRoot(target, projectRoot, goWorkPath, goworkModeExplicit)
 	if err == nil && !goWorkRootContainsTarget(info, target) {
-		// Ambient GOWORK can point at another worktree's go.work; let target-local discovery decide.
+		// 环境里的 GOWORK 可能指向另一个 worktree；目标不在其中时交回本地发现路径。
 		return GoRootInfo{}, false, nil
 	}
 	return info, true, err
 }
 
-// resolveGoRootWithoutGoWork 解析go根目录withoutgowork。
+// resolveGoRootWithoutGoWork 处理未启用 go.work 或 go.work 无效时的根目录选择。
+// 它先找最近 go.mod，再识别项目根下一层多模块，最后才回退到目标目录。
 func resolveGoRootWithoutGoWork(target, projectRoot, mode string, noiseDirNames []string) (GoRootInfo, error) {
 	if goModPath, err := findGoModPath(target); err != nil {
 		return GoRootInfo{}, err
@@ -244,6 +248,7 @@ func goWorkRootContainsTarget(info GoRootInfo, target string) bool {
 }
 
 // goWorkRootContainsSpecialTarget 判断目标是否正好落在 go.work 或 workspace 根上。
+// 这些路径没有具体源码文件，也应视为当前 workspace 的合法 LSP 请求。
 func goWorkRootContainsSpecialTarget(info GoRootInfo, target string) bool {
 	normalized, err := platformshared.NormalizeAbsolutePath(target)
 	if err != nil || normalized == "" {
@@ -261,7 +266,8 @@ func findGoWorkPath(path string) (string, error) {
 	return findUpwardFile(path, "go.work")
 }
 
-// findUpwardFile 查找upward文件。
+// findUpwardFile 从起点目录向父级查找指定文件。
+// 它用于 go.mod/go.work 发现，文件系统访问失败会直接返回错误给调用方。
 func findUpwardFile(path, name string) (string, error) {
 	absPath, err := platformshared.NormalizeAbsolutePath(path)
 	if err != nil {
@@ -283,7 +289,8 @@ func findUpwardFile(path, name string) (string, error) {
 	return "", nil
 }
 
-// findFirstLevelGoModRoots 查找firstlevelgomod根目录。
+// findFirstLevelGoModRoots 枚举项目根下一层 go.mod 子模块。
+// 仅检查第一层并跳过噪声目录，避免把 vendor、缓存或深层依赖误识别为 workspace folder。
 func findFirstLevelGoModRoots(root string, noiseDirNames []string) ([]string, error) {
 	root, err := normalizeOptionalPath(root, "")
 	if err != nil {
@@ -375,6 +382,7 @@ func fallbackProjectRootValue(projectRoot, fallback string) string {
 }
 
 // longestContainingRoot 从候选根目录里选出最深的包含路径。
+// 多模块 workspace 依赖这个选择把单个文件绑定到最近模块，而不是外层项目根。
 func longestContainingRoot(path string, roots []string) string {
 	if len(roots) == 0 || strings.TrimSpace(path) == "" {
 		return ""
@@ -392,7 +400,8 @@ func longestContainingRoot(path string, roots []string) string {
 	return best
 }
 
-// pathWithinRoot 处理路径within根目录。
+// pathWithinRoot 判断 path 是否位于 root 之内。
+// Rel 失败、跨到父目录或形成绝对相对路径时都返回 false，防止 scope 越界。
 func pathWithinRoot(path, root string) bool {
 	if path == root {
 		return true
@@ -423,7 +432,8 @@ func (root GoRootInfo) workspaceFolderPaths() []string {
 	return cleanUniqueFolderPaths(paths, root.WorkspaceRoot)
 }
 
-// cleanUniqueFolderPaths 处理cleanuniquefolder路径。
+// cleanUniqueFolderPaths 规范化并去重 workspace folder 列表。
+// first 始终排在最前，确保 LSP 初始化的主 workspace root 稳定。
 func cleanUniqueFolderPaths(paths []string, first string) []string {
 	normalized := cleanSortedUniquePaths(paths)
 	if first == "" {
@@ -460,7 +470,8 @@ func cleanSortedUniquePaths(paths []string) []string {
 	return out
 }
 
-// goRootEnv 处理go根目录env。
+// goRootEnv 为解析出的 Go root 生成 LSP server 进程环境。
+// 这里只写入 GOWORK、PATH、GOTOOLCHAIN，其他环境由调用方按策略继承。
 func goRootEnv(root GoRootInfo) []string {
 	env := make([]string, 0, 3)
 	switch root.GOWORKMode {

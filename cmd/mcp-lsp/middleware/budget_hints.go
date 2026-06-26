@@ -49,7 +49,8 @@ var toolOverflowHints = map[string]toolOverflowHint{
 	},
 }
 
-// lookupHint 根据工具名称查找溢出提示，未找到时返回默认提示。
+// lookupHint 根据工具名称选择溢出提示。
+// 未命中具体工具时返回默认提示，避免调用方收到空建议。
 func lookupHint(toolName string) toolOverflowHint {
 	if h, ok := toolOverflowHints[toolName]; ok {
 		return h
@@ -57,7 +58,8 @@ func lookupHint(toolName string) toolOverflowHint {
 	return toolOverflowHint{Hint: "next: narrow the query"}
 }
 
-// extractSummary 提取摘要。
+// extractSummary 从工具结果中提取可回显摘要。
+// payload 为空或字段类型不匹配时返回空 map，由上层继续生成通用提示。
 func extractSummary(toolName string, payload map[string]any) map[string]any {
 	if payload == nil {
 		return map[string]any{}

@@ -6,16 +6,16 @@ import (
 )
 
 const (
-	// StatusImporting means document metadata exists while text chunks are being rewritten.
+	// StatusImporting 表示文档元数据已落库，但文本分块仍在重写中。
 	StatusImporting = "importing"
-	// StatusReady means document chunks and summary fields were fully persisted.
+	// StatusReady 表示文档分块、摘要字段和向量索引都已完成持久化。
 	StatusReady = "ready"
-	// StatusFailed is reserved for future async import failure records.
+	// StatusFailed 预留给异步导入失败记录，调用方不能把它当作 ready 文档检索。
 	StatusFailed = "failed"
 )
 
-// Store persists datasource_v2 document metadata and text chunks.
-// Text imports must use WithTx to keep metadata, chunk cleanup, chunk insert, and ready marking atomic.
+// Store 持久化 datasource_v2 文档元数据和文本分块。
+// 文档导入必须通过 WithTx 组合元数据、旧分块清理、新分块写入和 ready 标记，避免半导入状态外泄。
 type Store interface {
 	WithTx(ctx context.Context, fn func(txStore Store) error) error
 	ListDocuments(ctx context.Context, params ListDocumentsParams) ([]Document, error)
@@ -30,8 +30,8 @@ type Store interface {
 	MarkReady(ctx context.Context, params MarkReadyParams) (*Document, error)
 }
 
-// ListDocumentsParams controls datasource_v2 document list queries.
-// Limit is explicit so callers do not accidentally pull the full table.
+// ListDocumentsParams 是 datasource_v2 文档列表查询的过滤条件。
+// Limit 必须由调用方显式传入，避免无意拉取整张文档表。
 type ListDocumentsParams struct {
 	Keyword string
 	Limit   int32
@@ -45,7 +45,8 @@ type SearchChunksParams struct {
 	Limit          int32
 }
 
-// UpsertDocumentParams contains document-level metadata for file imports.
+// UpsertDocumentParams 携带文件导入阶段的文档级元数据。
+// SourcePath 是幂等导入键，重复导入同一路径会覆盖 importing 状态。
 type UpsertDocumentParams struct {
 	SourcePath string
 	FileName   string
@@ -53,7 +54,8 @@ type UpsertDocumentParams struct {
 	SizeBytes  int64
 }
 
-// UpdateDocumentParams edits document metadata without mutating text chunks.
+// UpdateDocumentParams 更新文档元数据。
+// 该 DTO 不包含分块和向量字段，避免普通编辑路径误改检索内容。
 type UpdateDocumentParams struct {
 	DocumentID int64
 	SourcePath string
@@ -62,7 +64,8 @@ type UpdateDocumentParams struct {
 	SizeBytes  int64
 }
 
-// InsertChunkParams contains one persisted text chunk.
+// InsertChunkParams 表示一个待持久化的文本分块。
+// Embedding 使用 float32 BLOB 形式跨越 store 边界，写入前必须校验长度与维度一致。
 type InsertChunkParams struct {
 	DocumentID     int64
 	ChunkIndex     int32
@@ -75,7 +78,8 @@ type InsertChunkParams struct {
 	TokenCount     int32
 }
 
-// MarkReadyParams updates document summary fields after all chunks are written.
+// MarkReadyParams 在所有分块写入完成后更新文档摘要字段。
+// 调用方应只在同一导入事务末尾使用它，将文档从 importing 推进到 ready。
 type MarkReadyParams struct {
 	DocumentID  int64
 	ContentHash string
@@ -83,7 +87,8 @@ type MarkReadyParams struct {
 	TotalChars  int32
 }
 
-// Document is the stable datasource_v2_documents DTO exposed above sqlc rows.
+// Document 是 datasource_v2_documents 的跨模块 DTO。
+// 它屏蔽 sqlc 行类型，保留 JSON 字段名供 UI 和服务层稳定消费。
 type Document struct {
 	ID           int64     `json:"id"`
 	SourcePath   string    `json:"sourcePath"`
@@ -99,7 +104,8 @@ type Document struct {
 	UpdatedAt    time.Time `json:"updatedAt"`
 }
 
-// TextChunk is the stable datasource_v2_text_chunks DTO exposed above sqlc rows.
+// TextChunk 是 datasource_v2_text_chunks 的跨模块 DTO。
+// Embedding 不输出到 JSON，只在 store 与检索逻辑之间传递原始向量字节。
 type TextChunk struct {
 	ID             int64     `json:"id"`
 	DocumentID     int64     `json:"documentId"`

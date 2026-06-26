@@ -78,7 +78,8 @@ type store struct {
 
 var recallTopicNamePattern = regexp.MustCompile(`^[a-z0-9]+(?:-[a-z0-9]+)*$`)
 
-// NewStore 创建存储。
+// NewStore 创建基于 sqlc 的 prompt 存储。
+// 该入口不配置事务 runner，生产注入应通过 module.go 中的 newStoreWithDB 获得写重试能力。
 func NewStore(q *sqlc.Queries) Store {
 	return newStore(q, nil)
 }
@@ -87,7 +88,8 @@ func newStore(q *sqlc.Queries, runInTx txRunner) Store {
 	return &store{q: q, queries: q, runInTx: runInTx}
 }
 
-// Get 读取prompt存储。
+// Get 按 prompt_key 读取单个 prompt template。
+// 底层错误统一包装为 prompt_template store 错误，调用方不依赖 sqlc 错误细节。
 func (s *store) Get(ctx context.Context, promptKey string) (*PromptTemplate, error) {
 	q, ok := s.q.(getQuerier)
 	if !ok {
@@ -101,7 +103,8 @@ func (s *store) Get(ctx context.Context, promptKey string) (*PromptTemplate, err
 	return &mapped, nil
 }
 
-// List 列出prompt存储。
+// List 按 agent、关键词和 cwd 列出 prompt template。
+// cwd 必填，避免不同工作区的动态模板和 recall 规则互相泄露。
 func (s *store) List(ctx context.Context, filter ListFilter) ([]PromptTemplate, error) {
 	cwd := strings.TrimSpace(filter.CWD)
 	if cwd == "" {
@@ -123,7 +126,8 @@ func (s *store) List(ctx context.Context, filter ListFilter) ([]PromptTemplate, 
 	return templates, nil
 }
 
-// WithTx 设置tx。
+// WithTx 在同一事务内执行 prompt 写操作。
+// 未配置事务 runner 时直接复用当前 store 执行，便于窄测试覆盖无数据库事务的路径。
 func (s *store) WithTx(ctx context.Context, fn func(txStore Store) error) error {
 	if s.runInTx == nil || s.queries == nil {
 		return wrapPromptError(fn(s), "with_tx", "prompt_template")
@@ -134,7 +138,8 @@ func (s *store) WithTx(ctx context.Context, fn func(txStore Store) error) error 
 	return wrapPromptError(err, "with_tx", "prompt_template")
 }
 
-// Delete 删除prompt存储。
+// Delete 按 prompt_key 删除模板。
+// 删除 0 行时返回 platformdb.ErrNotFound，调用方可区分未命中和数据库错误。
 func (s *store) Delete(ctx context.Context, promptKey string) error {
 	q, ok := s.q.(deleteQuerier)
 	if !ok {
@@ -150,7 +155,8 @@ func (s *store) Delete(ctx context.Context, promptKey string) error {
 	return nil
 }
 
-// ListSectionsByTemplateID 按templateID列出sections。
+// ListSectionsByTemplateID 读取单个模板的全部 section。
+// 结果包含 disabled 行，UI 可用它恢复被关闭的段落。
 func (s *store) ListSectionsByTemplateID(ctx context.Context, templateID int64) ([]PromptTemplateSection, error) {
 	q, ok := s.q.(listSectionsQuerier)
 	if !ok {
@@ -169,7 +175,8 @@ func (s *store) ListSectionsByTemplateID(ctx context.Context, templateID int64) 
 	return sections, nil
 }
 
-// ListSectionsByTemplateIDs 按templateids列出sections。
+// ListSectionsByTemplateIDs 批量读取多个模板的 section。
+// 空输入直接返回空切片，避免构造无意义的 SQL IN 条件。
 func (s *store) ListSectionsByTemplateIDs(ctx context.Context, templateIDs []int64) ([]PromptTemplateSection, error) {
 	if len(templateIDs) == 0 {
 		return []PromptTemplateSection{}, nil
@@ -191,7 +198,8 @@ func (s *store) ListSectionsByTemplateIDs(ctx context.Context, templateIDs []int
 	return sections, nil
 }
 
-// ListRecallSections 列出recallsections。
+// ListRecallSections 读取当前 cwd 下启用的 recall section。
+// cwd 必填，确保动态召回内容不会跨工作区共享。
 func (s *store) ListRecallSections(ctx context.Context, cwd string) ([]PromptTemplateSection, error) {
 	cwd, err := requirePromptSectionCWD(cwd)
 	if err != nil {
@@ -212,7 +220,8 @@ func (s *store) ListRecallSections(ctx context.Context, cwd string) ([]PromptTem
 	return sections, nil
 }
 
-// ListDefaultRuleSections 列出defaultrulesections。
+// ListDefaultRuleSections 读取当前 cwd 下启用的 default_rule section。
+// 该查询只服务运行时默认规则注入，缺失 cwd 时立即失败。
 func (s *store) ListDefaultRuleSections(ctx context.Context, cwd string) ([]PromptTemplateSection, error) {
 	cwd, err := requirePromptSectionCWD(cwd)
 	if err != nil {
@@ -233,7 +242,8 @@ func (s *store) ListDefaultRuleSections(ctx context.Context, cwd string) ([]Prom
 	return sections, nil
 }
 
-// InsertVersion 插入版本。
+// InsertVersion 归档一条 prompt template 版本。
+// 调用方负责在模板写入前传入源更新时间，store 只保留版本快照和审计字段。
 func (s *store) InsertVersion(ctx context.Context, version PromptTemplateVersion) (int64, error) {
 	q, ok := s.q.(insertVersionQuerier)
 	if !ok {
@@ -259,7 +269,8 @@ func (s *store) InsertVersion(ctx context.Context, version PromptTemplateVersion
 	return id, nil
 }
 
-// CreatePromptTemplate 创建prompttemplate。
+// CreatePromptTemplate 新建 prompt template。
+// 唯一键冲突会映射为 platformdb.ErrConflict，便于 UI 提示用户改名或改 key。
 func (s *store) CreatePromptTemplate(ctx context.Context, template PromptTemplate) (*PromptTemplate, error) {
 	q, ok := s.q.(createPromptTemplateQuerier)
 	if !ok {
@@ -292,7 +303,8 @@ func (s *store) CreatePromptTemplate(ctx context.Context, template PromptTemplat
 	return &mapped, nil
 }
 
-// Upsert 新增或更新记录。
+// Upsert 新增或更新 prompt template。
+// MatchWhen 和 Priority 会随模板一同落库，确保自动路由使用最新配置。
 func (s *store) Upsert(ctx context.Context, template PromptTemplate) (*PromptTemplate, error) {
 	q, ok := s.q.(upsertQuerier)
 	if !ok {
@@ -358,6 +370,8 @@ func fromUpsertTemplate(row sqlc.UpsertPromptTemplateRow) PromptTemplate {
 	)
 }
 
+// promptTemplateFromFields 将多个 prompt_templates 查询行的同名字段汇总成领域对象。
+// 新增 SQL 字段时必须同步这里和所有 from*Template 调用，避免列表与详情返回结构不一致。
 func promptTemplateFromFields(
 	id int64,
 	promptKey, title, agentKey, toolName, promptText, whenToUse string,
@@ -391,7 +405,8 @@ func promptTemplateFromFields(
 	}
 }
 
-// UpsertSection 处理upsertsection。
+// UpsertSection 写入或更新一个 prompt template section。
+// region、trigger_type、recall_topic 和 enable_when 在入库前校验，失败时不会留下部分配置。
 func (s *store) UpsertSection(ctx context.Context, section PromptTemplateSection) (*PromptTemplateSection, error) {
 	q, ok := s.q.(upsertSectionQuerier)
 	if !ok {
@@ -485,7 +500,8 @@ func requirePromptSectionCWD(cwd string) (string, error) {
 	return cwd, nil
 }
 
-// LockRecallTopicInCWD 在工作目录处理锁recalltopic。
+// LockRecallTopicInCWD 在指定 cwd 内锁定 recall topic。
+// 该方法用于事务内重复检查，确保同一工作区不会并发提交同名 recall 规则。
 func (s *store) LockRecallTopicInCWD(ctx context.Context, cwd, topic string) error {
 	cwd, err := requirePromptSectionCWD(cwd)
 	if err != nil {
@@ -505,6 +521,8 @@ func (s *store) LockRecallTopicInCWD(ctx context.Context, cwd, topic string) err
 	}), "lock_recall_topic", "prompt_template_sections")
 }
 
+// UpsertRecallTopicTargetInCWD 在指定工作目录内绑定 recall topic 到模板分区。
+// CWD、topic、templateID 和 sectionKey 都必须显式有效，防止跨项目复用动态召回规则。
 func (s *store) UpsertRecallTopicTargetInCWD(ctx context.Context, cwd, topic string, templateID int64, sectionKey string) error {
 	cwd, err := requirePromptSectionCWD(cwd)
 	if err != nil {
@@ -537,7 +555,8 @@ func validRecallTopicName(topic string) bool {
 	return len(topic) < 64 && recallTopicNamePattern.MatchString(topic)
 }
 
-// DeleteSection 删除section。
+// DeleteSection 删除指定模板的一个 section。
+// templateID 和 sectionKey 必须同时有效；未删除任何行时返回 not found。
 func (s *store) DeleteSection(ctx context.Context, templateID int64, sectionKey string) error {
 	q, ok := s.q.(deleteSectionQuerier)
 	if !ok {

@@ -14,12 +14,14 @@ import (
 	"github.com/creachadair/jrpc2/handler"
 )
 
+// Middleware 是 jrpc2 handler 的包装函数。
 type Middleware func(handler.Func) handler.Func
 
-// CapabilityResolver is an alias for contract.CapabilityResolver.
+// CapabilityResolver 是 contract.CapabilityResolver 在 RPC 层的别名。
 type CapabilityResolver = contract.CapabilityResolver
 
-// NewCapabilityResolver 创建capability解析器。
+// NewCapabilityResolver 构造基于当前 thread session 的能力解析器。
+// 缺少 resolver、threadID 或 session 时直接返回 RPC 错误，避免能力门禁静默放行。
 func NewCapabilityResolver(resolver contract.SessionResolver) CapabilityResolver {
 	return func(ctx context.Context) (dto.CapabilitySet, error) {
 		if resolver == nil {
@@ -40,7 +42,7 @@ func NewCapabilityResolver(resolver contract.SessionResolver) CapabilityResolver
 	}
 }
 
-// Wrap 包装平台RPC。
+// Wrap 按声明顺序组合多个中间件。
 func Wrap(mws ...Middleware) func(handler.Func) handler.Func {
 	return func(next handler.Func) handler.Func {
 		wrapped := next
@@ -51,20 +53,16 @@ func Wrap(mws ...Middleware) func(handler.Func) handler.Func {
 	}
 }
 
-// ThreadScope is part of the default V3 handler chain. Unlike V2's HTTP mux
-// middleware stack, recovery remains a transport/server boundary concern while
-// handler middleware here focuses on request-scoped context enrichment.
-// ThreadScope supports multiple parameter field names for thread id lookup.
-// ThreadScope 处理线程作用域。
+// ThreadScope 从 RPC params 中提取 threadID 并写入 context。
+// handler 中间件只做请求上下文增强；panic 恢复仍属于 transport/server 边界。
 func ThreadScope(fields ...string) Middleware {
 	if len(fields) == 0 {
 		fields = []string{"threadId", "threadID", "thread_id"}
 	}
 	return func(next handler.Func) handler.Func {
 		return handler.Func(func(ctx context.Context, req *jrpc2.Request) (any, error) {
-			// json.RawMessage: justified -- Wails bridge layer; middleware must
-			// probe arbitrary RPC params for a thread_id field without knowing
-			// the concrete param struct.
+			// Wails 桥接层传入动态 JSON；中间件只能探测 thread_id 字段，
+			// 不能依赖具体请求结构体。
 			var raw map[string]json.RawMessage
 			if err := req.UnmarshalParams(&raw); err != nil {
 				return nil, jrpc2.Errorf(jrpc2.Code(CodeInvalidParams), "invalid params: %v", err)
@@ -85,8 +83,7 @@ func ThreadScope(fields ...string) Middleware {
 	}
 }
 
-// CapabilityGate rejects calls when the active provider does not support cap.
-// CapabilityGate 处理capabilitygate。
+// CapabilityGate 在调用前校验当前 provider 是否支持目标能力。
 func CapabilityGate(cap string, resolver CapabilityResolver) Middleware {
 	return func(next handler.Func) handler.Func {
 		return handler.Func(func(ctx context.Context, req *jrpc2.Request) (any, error) {
@@ -104,12 +101,8 @@ func CapabilityGate(cap string, resolver CapabilityResolver) Middleware {
 	}
 }
 
-// CapabilityErrorMapper intercepts runtime contract.CapabilityError values
-// returned from handler functions and maps them to the standard -31004
-// CodeCapabilityGate RPC error. This complements CapabilityGate (pre-call
-// check) by catching errors from provider methods that discover capability
-// gaps at execution time rather than at dispatch time.
-// CapabilityErrorMapper 处理capability错误mapper。
+// CapabilityErrorMapper 把 handler 运行期返回的 CapabilityError 映射为统一 RPC 错误。
+// 它补足 CapabilityGate 的调用前检查，覆盖 provider 执行时才发现能力缺口的场景。
 func CapabilityErrorMapper() Middleware {
 	return func(next handler.Func) handler.Func {
 		return handler.Func(func(ctx context.Context, req *jrpc2.Request) (any, error) {
@@ -124,9 +117,7 @@ func CapabilityErrorMapper() Middleware {
 	}
 }
 
-// InvalidParamsMapper intercepts runtime parameter validation errors
-// and maps them to CodeInvalidParams.
-// InvalidParamsMapper 处理invalidparamsmapper。
+// InvalidParamsMapper 将 handler 返回的 jrpc2.InvalidParams 统一映射到平台参数错误码。
 func InvalidParamsMapper() Middleware {
 	return func(next handler.Func) handler.Func {
 		return handler.Func(func(ctx context.Context, req *jrpc2.Request) (any, error) {
@@ -141,6 +132,7 @@ func InvalidParamsMapper() Middleware {
 	}
 }
 
+// resolveCapabilities 调用能力解析器，resolver 缺失时 fail-fast。
 func resolveCapabilities(ctx context.Context, resolver CapabilityResolver) (dto.CapabilitySet, error) {
 	if resolver == nil {
 		return nil, rpcError(CodeInvalidState, "thread capability resolver is not configured")
@@ -148,6 +140,7 @@ func resolveCapabilities(ctx context.Context, resolver CapabilityResolver) (dto.
 	return resolver(ctx)
 }
 
+// capabilityResolverError 把 session/capability 解析失败转换为带 threadId 诊断的 RPC 错误。
 func capabilityResolverError(ctx context.Context, err error) error {
 	msg := strings.TrimSpace(err.Error())
 	if msg == "" {
@@ -163,28 +156,24 @@ func capabilityResolverError(ctx context.Context, err error) error {
 	return rpcErrorData(CodeInvalidState, msg, data)
 }
 
-// ThreadHandler composes strict decoding, placeholder validation, and thread
-// scoping into the default per-method handler chain.
-// ThreadHandler 处理线程处理器。
+// ThreadHandler 组合严格解码、线程作用域和能力错误映射，作为默认 thread 方法链。
 func ThreadHandler[Req, Resp any](fn func(context.Context, Req) (Resp, error)) handler.Func {
 	mws := []Middleware{ThreadScope(), Validate(), CapabilityErrorMapper()}
 	return Wrap(mws...)(StrictHandler(fn))
 }
 
-// CapabilityThreadHandler composes ThreadScope, CapabilityGate, and
-// StrictHandler.
-// CapabilityThreadHandler 处理capability线程处理器。
+// CapabilityThreadHandler 在默认 thread 方法链上追加调用前能力门禁。
 func CapabilityThreadHandler[Req, Resp any](cap string, resolver CapabilityResolver, fn func(context.Context, Req) (Resp, error)) handler.Func {
 	mws := []Middleware{ThreadScope(), Validate(), CapabilityGate(cap, resolver)}
 	return Wrap(mws...)(StrictHandler(fn))
 }
 
-// ThreadIDFrom 从平台RPC处理线程ID。
+// ThreadIDFrom 从 context 中读取 RPC threadID。
 func ThreadIDFrom(ctx context.Context) string {
 	return contract.ThreadIDFrom(ctx)
 }
 
-// Logging 记录请求耗时和错误。
+// Logging 记录单次 RPC handler 调用耗时和错误。
 func Logging(logger *pkglogger.Logger) Middleware {
 	return func(next handler.Func) handler.Func {
 		return handler.Func(func(ctx context.Context, req *jrpc2.Request) (any, error) {
@@ -202,24 +191,21 @@ func Logging(logger *pkglogger.Logger) Middleware {
 	}
 }
 
-// Validate is intentionally a no-op hook today. Keeping it in the default chain
-// documents where structured request validation/metrics parity with V2 should be
-// added once the RPC surface and labels are stable.
-// Validate 校验平台RPC。
+// Validate 是当前保留的空校验中间件。
+// 它固定结构化请求校验的插入点，等待 RPC 标签和指标稳定后再补充实现。
 func Validate() Middleware {
 	return func(next handler.Func) handler.Func {
 		return next
 	}
 }
 
+// withThreadID 把 threadID 写入 contract 共享 context key。
 func withThreadID(ctx context.Context, threadID string) context.Context {
 	return contract.WithThreadID(ctx, threadID)
 }
 
-// TracedMethod logs the method name before and after handler execution.
-// It is a middleware that adds structured observability at the handler
-// registration layer rather than inside individual handler bodies.
-// TracedMethod 处理tracedmethod。
+// TracedMethod 在 handler 注册层记录方法开始和结束日志。
+// 这样单个 handler 体内无需重复写结构化 trace 日志。
 func TracedMethod(method string) Middleware {
 	return func(next handler.Func) handler.Func {
 		return handler.Func(func(ctx context.Context, req *jrpc2.Request) (any, error) {
@@ -235,16 +221,12 @@ func TracedMethod(method string) Middleware {
 	}
 }
 
-// LoggedStrictHandler composes StrictHandler with TracedMethod, yielding a
-// handler with strict object decoding and structured method-level traces.
-// LoggedStrictHandler 处理loggedstrict处理器。
+// LoggedStrictHandler 组合严格对象解码和方法级 trace 日志。
 func LoggedStrictHandler[Req, Resp any](method string, fn func(context.Context, Req) (Resp, error)) handler.Func {
 	return TracedMethod(method)(StrictHandler(fn))
 }
 
-// RequireSessionCapability returns a non-nil error when the given session does
-// not advertise the requested capability.
-// RequireSessionCapability 处理require会话capability。
+// RequireSessionCapability 校验 session 是否声明目标能力。
 func RequireSessionCapability(session contract.Session, cap string) error {
 	if !contract.HasCapability(session.Capabilities(), cap) {
 		return ErrCapabilityGate("capability not supported by active provider")

@@ -11,6 +11,7 @@ type serviceParams struct {
 	RequestQuit RequestQuit `optional:"true"`
 }
 
+// Module 将 appupdate 配置、Service 和 RPC handler 接入 Fx 容器。
 var Module = fx.Module("appupdate",
 	fx.Provide(
 		ProvideConfig,

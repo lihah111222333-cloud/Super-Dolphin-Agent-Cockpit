@@ -34,7 +34,8 @@ type fallbackNode struct {
 	symbol   protocol.DocumentSymbol
 }
 
-// fallbackDocumentSymbols 处理兜底document符号。
+// fallbackDocumentSymbols 为无需或不适合启动 LSP 的文档生成静态符号。
+// 仅覆盖 markdown/json/yaml 和受限 Python 常量文件；其他语言返回 ok=false 继续走 LSP。
 func (m *manager) fallbackDocumentSymbols(ref documentRef) ([]protocol.DocumentSymbol, bool, error) {
 	switch ref.languageID {
 	case "markdown", "json", "yaml", "python":
@@ -172,7 +173,8 @@ func pythonLineInTripleQuotedString(line string, active *string) bool {
 	return strings.HasPrefix(trimmed, quote)
 }
 
-// firstPythonTripleQuote 处理firstpythontriplequote。
+// firstPythonTripleQuote 找到一行里最早出现的 Python 三引号。
+// 静态 Python fallback 用它跳过多行字符串，避免把字符串里的 def/class 误识别成符号。
 func firstPythonTripleQuote(line string) (string, bool) {
 	doubleIndex := strings.Index(line, `"""`)
 	singleIndex := strings.Index(line, `'''`)
@@ -236,7 +238,8 @@ func pythonNamedSymbol(lineNo int, line, indent, name string, kind protocol.Symb
 	}
 }
 
-// buildLevelSymbols 构建level符号。
+// buildLevelSymbols 按缩进或标题级别把扁平 fallback 符号组装成 LSP 文档符号树。
+// 每个父节点的 range 会延伸到下一个同级节点前，保持前端折叠和 read_file 范围可用。
 func buildLevelSymbols(lines []string, items []fallbackSymbol) []protocol.DocumentSymbol {
 	if len(items) == 0 {
 		return nil

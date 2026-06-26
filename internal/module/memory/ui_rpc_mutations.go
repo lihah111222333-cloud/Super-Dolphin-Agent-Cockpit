@@ -18,12 +18,14 @@ import (
 	"github.com/creachadair/jrpc2/handler"
 )
 
+// uiMemoryEntryGetParams 是记忆详情读取 RPC 的入参，Target 为空时按私有记忆处理。
 type uiMemoryEntryGetParams struct {
 	CWD    string `json:"cwd,omitempty"`
 	Target string `json:"target,omitempty"`
 	Path   string `json:"path"`
 }
 
+// uiMemoryEntryUpsertParams 是记忆创建/更新 RPC 的 wire 入参；ExistingPath 非空表示更新原条目。
 type uiMemoryEntryUpsertParams struct {
 	CWD          string `json:"cwd,omitempty"`
 	Target       string `json:"target,omitempty"`
@@ -35,12 +37,14 @@ type uiMemoryEntryUpsertParams struct {
 	Title        string `json:"title,omitempty"`
 }
 
+// uiMemoryEntryDeleteParams 是记忆删除 RPC 的入参，Path 会按 target 根目录重新校验。
 type uiMemoryEntryDeleteParams struct {
 	CWD    string `json:"cwd,omitempty"`
 	Target string `json:"target,omitempty"`
 	Path   string `json:"path"`
 }
 
+// UIMemoryEntryDetail 是编辑器详情页使用的响应结构，字段同时兼容读取、创建、合并后的回包。
 type UIMemoryEntryDetail struct {
 	Target      string    `json:"target,omitempty"`
 	Path        string    `json:"path,omitempty"`
@@ -52,7 +56,7 @@ type UIMemoryEntryDetail struct {
 	UpdatedAt   time.Time `json:"updatedAt,omitempty"`
 }
 
-// registerUIMemoryMutationHandlers 注册UI记忆mutation处理器。
+// registerUIMemoryMutationHandlers 注册记忆中心所有写入类 RPC，并把 handler 统一挂到 StrictHandler。
 func registerUIMemoryMutationHandlers(p memoryHandlerDeps) handler.Map {
 	out := handler.Map{
 		"ui/memory/entry/get": platformrpc.StrictHandler(func(ctx context.Context, req uiMemoryEntryGetParams) (UIMemoryEntryDetail, error) {
@@ -105,6 +109,7 @@ func registerUIMemoryMutationHandlers(p memoryHandlerDeps) handler.Map {
 	return out
 }
 
+// sharedFileCleanupDeps 收窄 shared file GC 所需依赖，删除保护复用详情删除的 DAG runtime 选择逻辑。
 func sharedFileCleanupDeps(p memoryHandlerDeps) sharedfilecleanup.Deps {
 	return sharedfilecleanup.Deps{
 		Reader:     p.SharedFiles,
@@ -113,10 +118,12 @@ func sharedFileCleanupDeps(p memoryHandlerDeps) sharedfilecleanup.Deps {
 	}
 }
 
+// uiAutoDreamIntentParams 是自动 dream 开关的持久化入参，Enabled 会写入记忆根目录下的意图文件。
 type uiAutoDreamIntentParams struct {
 	Enabled bool `json:"enabled"`
 }
 
+// setAutoDreamIntent 保存当前项目的 auto-dream 意图；memory service 或 root 缺失时 fail-fast。
 func setAutoDreamIntent(_ context.Context, p memoryHandlerDeps, req uiAutoDreamIntentParams) (map[string]any, error) {
 	if p.Service == nil {
 		return nil, errors.New("memory service is not configured")
@@ -132,6 +139,7 @@ func setAutoDreamIntent(_ context.Context, p memoryHandlerDeps, req uiAutoDreamI
 	return map[string]any{"ok": true, "enabled": req.Enabled}, nil
 }
 
+// getUIMemoryEntry 读取单条记忆详情，并在根目录解析或读文件失败时按 UI RPC 规则脱敏错误。
 func getUIMemoryEntry(ctx context.Context, deps memoryHandlerDeps, req uiMemoryEntryGetParams) (UIMemoryEntryDetail, error) {
 	root, target, err := resolveUIMemoryTargetRoot(ctx, deps.Service, req.CWD, req.Target)
 	if err != nil {
@@ -146,7 +154,7 @@ func getUIMemoryEntry(ctx context.Context, deps memoryHandlerDeps, req uiMemoryE
 	return toUIMemoryEntryDetail(target, root, relPath, entry), nil
 }
 
-// upsertUIMemoryEntry 处理upsertUI记忆条目。
+// upsertUIMemoryEntry 创建或更新 UI durable memory 条目，写入后失效 prompt 记忆 section 并发布变更事件。
 func upsertUIMemoryEntry(ctx context.Context, deps memoryHandlerDeps, req uiMemoryEntryUpsertParams) (UIMemoryEntryDetail, error) {
 	root, target, err := resolveUIMemoryTargetRoot(ctx, deps.Service, req.CWD, req.Target)
 	if err != nil {
@@ -177,6 +185,7 @@ func upsertUIMemoryEntry(ctx context.Context, deps memoryHandlerDeps, req uiMemo
 	return toUIMemoryEntryDetail(target, root, relPath, entry), nil
 }
 
+// applyUIMemoryUpsert 执行实际写盘；更新时禁止改名和改类型，避免旧路径与索引语义漂移。
 func applyUIMemoryUpsert(store *diskStore, root, target, existingPath string, writeReq MemoryWriteRequest) error {
 	if strings.TrimSpace(existingPath) == "" {
 		_, err := store.CreateStructured(writeReq, WriteOptions{})
@@ -196,6 +205,7 @@ func applyUIMemoryUpsert(store *diskStore, root, target, existingPath string, wr
 	return err
 }
 
+// deleteUIMemoryEntry 先确认目标可读再删除，确保路径错误按读取/删除阶段分别脱敏记录。
 func deleteUIMemoryEntry(ctx context.Context, deps memoryHandlerDeps, req uiMemoryEntryDeleteParams) error {
 	root, target, err := resolveUIMemoryTargetRoot(ctx, deps.Service, req.CWD, req.Target)
 	if err != nil {
@@ -223,6 +233,7 @@ func deleteUIMemoryEntry(ctx context.Context, deps memoryHandlerDeps, req uiMemo
 	return nil
 }
 
+// deleteAbsorbedEntry 删除合并后被吸收的一侧记忆，复用 target 对应的 guard 和锁。
 func deleteAbsorbedEntry(svc Service, root, target, path string) error {
 	store, err := newUIMemoryMutationStore(svc, root, target)
 	if err != nil {
@@ -231,6 +242,7 @@ func deleteAbsorbedEntry(svc Service, root, target, path string) error {
 	return store.DeletePath(path)
 }
 
+// newUIMemoryMutationStore 为 UI 写入创建 diskStore；team target 会挂团队记忆 guard，private target 只用普通 store。
 func newUIMemoryMutationStore(svc Service, root, target string) (*diskStore, error) {
 	var cfg Config
 	var locks *diskLockCoordinator
@@ -244,6 +256,7 @@ func newUIMemoryMutationStore(svc Service, root, target string) (*diskStore, err
 	return newDiskStore(root, locks)
 }
 
+// rollbackMergedEntry 在合并第二步删除失败时恢复 keep 侧原内容，减少跨 target 合并的半成功窗口。
 func rollbackMergedEntry(svc Service, root, target, path string, entry MemoryEntry) error {
 	store, err := newUIMemoryMutationStore(svc, root, target)
 	if err != nil {
@@ -254,7 +267,7 @@ func rollbackMergedEntry(svc Service, root, target, path string, entry MemoryEnt
 	return err
 }
 
-// resolveUIMemoryTargetRoot 解析UI记忆target根目录。
+// resolveUIMemoryTargetRoot 将 UI target 解析为可写根目录；team target 需要功能启用并按当前项目根重新计算。
 func resolveUIMemoryTargetRoot(ctx context.Context, svc Service, cwd, rawTarget string) (string, string, error) {
 	if svc == nil {
 		return "", "", publicValidationErr("memory service is not configured")
@@ -285,6 +298,7 @@ func resolveUIMemoryTargetRoot(ctx context.Context, svc Service, cwd, rawTarget 
 	}
 }
 
+// normalizeUIMemoryTarget 规范化 UI target，历史空值和未知值默认按 private 处理以保持旧前端兼容。
 func normalizeUIMemoryTarget(raw string) string {
 	switch strings.ToLower(strings.TrimSpace(raw)) {
 	case "team":
@@ -294,6 +308,7 @@ func normalizeUIMemoryTarget(raw string) string {
 	}
 }
 
+// buildUIWriteRequest 校验 UI 表单并构造写请求；类型、名称、描述和正文缺失都会返回公开校验错误。
 func buildUIWriteRequest(name, description, rawType, content, title string) (MemoryWriteRequest, error) {
 	memoryType := ParseMemoryType(rawType)
 	if !memoryType.IsKnown() {
@@ -318,7 +333,7 @@ func buildUIWriteRequest(name, description, rawType, content, title string) (Mem
 	return req, nil
 }
 
-// readUIMemoryEntryByPath 按路径读取UI记忆条目。
+// readUIMemoryEntryByPath 按 target 根目录安全读取条目，拒绝 private 访问 team/ 和 MEMORY.md 索引文件。
 func readUIMemoryEntryByPath(root, target, relPath string) (MemoryEntry, string, error) {
 	relPath = strings.TrimSpace(relPath)
 	if relPath == "" {
@@ -344,6 +359,7 @@ func readUIMemoryEntryByPath(root, target, relPath string) (MemoryEntry, string,
 	return entry, display, nil
 }
 
+// readUIMemoryEntryByName 通过 canonical name 查找写后条目，用于 create/update 回读最新路径。
 func readUIMemoryEntryByName(root, name string) (MemoryEntry, string, error) {
 	entry, exists, err := findMemoryEntry(root, CanonicalName(name))
 	if err != nil {
@@ -355,6 +371,7 @@ func readUIMemoryEntryByName(root, name string) (MemoryEntry, string, error) {
 	return entry, memoryEntryDisplayPath(root, entry.FilePath), nil
 }
 
+// toUIMemoryEntryDetail 把磁盘条目转换为 UI wire 结构，Path 优先使用已校验的展示路径。
 func toUIMemoryEntryDetail(target, root, path string, entry MemoryEntry) UIMemoryEntryDetail {
 	return UIMemoryEntryDetail{
 		Target:      target,
@@ -368,6 +385,7 @@ func toUIMemoryEntryDetail(target, root, path string, entry MemoryEntry) UIMemor
 	}
 }
 
+// invalidateDurableMemorySections 在记忆写入、删除、合并后失效 prompt 中的 durable memory 动态段。
 func invalidateDurableMemorySections(invalidator contract.SectionInvalidator) {
 	if invalidator == nil {
 		return
@@ -380,6 +398,7 @@ func invalidateDurableMemorySections(invalidator contract.SectionInvalidator) {
 	)
 }
 
+// validateUIMemoryMergePair 确认两条记忆类型一致且内容足够相似，避免 UI 手动合并不相关条目。
 func validateUIMemoryMergePair(entryA, entryB MemoryEntry) error {
 	if ParseMemoryType(string(entryA.Type())) != ParseMemoryType(string(entryB.Type())) {
 		return publicValidationErr("只能整合同类型记忆")
@@ -394,6 +413,7 @@ func validateUIMemoryMergePair(entryA, entryB MemoryEntry) error {
 	return nil
 }
 
+// uiMemoryEntryMergeParams 是记忆合并 RPC 的入参，A 为保留侧，B 为合并后删除侧。
 type uiMemoryEntryMergeParams struct {
 	CWD     string `json:"cwd,omitempty"`
 	TargetA string `json:"targetA"` // "private" or "team"
@@ -406,6 +426,7 @@ type uiMemoryEntryMergeParams struct {
 	MergedContent     string `json:"mergedContent,omitempty"`
 }
 
+// uiMemoryMergeResolved 保存合并前解析出的根目录和条目快照，后续回滚依赖 entryA 原值。
 type uiMemoryMergeResolved struct {
 	rootA   string
 	rootB   string
@@ -415,6 +436,7 @@ type uiMemoryMergeResolved struct {
 	entryB  MemoryEntry
 }
 
+// resolveUIMemoryMergeEntries 分别解析 A/B 两侧 target 和路径，所有路径类错误在这里完成脱敏。
 func resolveUIMemoryMergeEntries(ctx context.Context, deps memoryHandlerDeps, req uiMemoryEntryMergeParams) (uiMemoryMergeResolved, error) {
 	rootA, targetA, err := resolveUIMemoryTargetRoot(ctx, deps.Service, req.CWD, req.TargetA)
 	if err != nil {
@@ -439,7 +461,7 @@ func resolveUIMemoryMergeEntries(ctx context.Context, deps memoryHandlerDeps, re
 	return uiMemoryMergeResolved{rootA: rootA, rootB: rootB, targetA: targetA, targetB: targetB, entryA: entryA, entryB: entryB}, nil
 }
 
-// mergeUIMemoryEntries 合并UI记忆条目。
+// mergeUIMemoryEntries 把 B 的内容合并进 A 后删除 B；删除失败会尝试回滚 A，最后统一失效 prompt 缓存。
 func mergeUIMemoryEntries(ctx context.Context, deps memoryHandlerDeps, req uiMemoryEntryMergeParams) (UIMemoryEntryDetail, error) {
 	resolved, err := resolveUIMemoryMergeEntries(ctx, deps, req)
 	if err != nil {
@@ -478,6 +500,7 @@ func mergeUIMemoryEntries(ctx context.Context, deps memoryHandlerDeps, req uiMem
 	return toUIMemoryEntryDetail(resolved.targetA, resolved.rootA, mergedPath, merged), nil
 }
 
+// uiSimilarityIgnoreParams 是相似记忆忽略 RPC 的入参，两侧 target/path 会组成稳定 ignored key。
 type uiSimilarityIgnoreParams struct {
 	CWD     string `json:"cwd,omitempty"`
 	TargetA string `json:"targetA"`
@@ -494,6 +517,7 @@ type uiSimilarityConsolidateAllParams struct {
 	ModelProvider string `json:"model_provider,omitempty"`
 }
 
+// dreamOptions 将 UI 选择的模型参数收窄为 DreamOptions，只影响本次相似记忆批量整合。
 func (p uiSimilarityConsolidateAllParams) dreamOptions() contract.DreamOptions {
 	return contract.DreamOptions{
 		Provider:      strings.TrimSpace(p.Provider),
@@ -520,7 +544,7 @@ func ignoreSimilarityPairHandler(ctx context.Context, p memoryHandlerDeps, req u
 	if strings.TrimSpace(req.PathA) == "" || strings.TrimSpace(req.PathB) == "" {
 		return nil, publicValidationErr("pathA and pathB are required")
 	}
-	// M3: 规范化 target 值，防外部脚本通过非标 (e.g. "Private") 写入永不命中的 ignored key。
+	// target 值先规范化，避免外部脚本用非标大小写写入永远无法命中的 ignored key。
 	targetA := normalizeUIMemoryTarget(req.TargetA)
 	targetB := normalizeUIMemoryTarget(req.TargetB)
 	adapter := newSimilarityAdapter(p)
@@ -544,6 +568,7 @@ func consolidateAllHandler(ctx context.Context, p memoryHandlerDeps, req uiSimil
 	return result, nil
 }
 
+// runConsolidateAll 调用 similarity 子包完成批量整合，并把模型/路径错误转换为 UI 可处理的公开错误。
 func runConsolidateAll(ctx context.Context, p memoryHandlerDeps, req uiSimilarityConsolidateAllParams) (uiSimilarityConsolidateAllResult, error) {
 	if p.Service == nil {
 		return uiSimilarityConsolidateAllResult{}, errors.New("memory service is not configured")
@@ -564,6 +589,7 @@ func runConsolidateAll(ctx context.Context, p memoryHandlerDeps, req uiSimilarit
 	}, nil
 }
 
+// publicConsolidateAllError 只放行已审计的整合失败原因，其余错误交由 redactIfPathBearing 脱敏。
 func publicConsolidateAllError(err error) error {
 	if errors.Is(err, contract.ErrDreamExecutorNotConfigured) {
 		return err
@@ -580,6 +606,7 @@ func publicConsolidateAllError(err error) error {
 	return nil
 }
 
+// publishUIMemoryChanged 向 UI 事件总线广播记忆变更；dispatcher 缺失时静默跳过以兼容无 UI 运行模式。
 func publishUIMemoryChanged(deps memoryHandlerDeps, action string) {
 	if deps.Dispatcher == nil {
 		return
@@ -594,6 +621,7 @@ func publishUIMemoryChanged(deps memoryHandlerDeps, action string) {
 	})
 }
 
+// buildUIMemoryMergeWriteRequest 构造合并写请求；LLM override 必须描述和正文同时存在才会覆盖字面合并。
 func buildUIMemoryMergeWriteRequest(entryA, entryB MemoryEntry, overrideDescription, overrideContent string) MemoryWriteRequest {
 	// LLM 整合 override 优先：两个字段同时非空才采用，避免半空 LLM 输出污染 entry。
 	overrideDescription = strings.TrimSpace(overrideDescription)

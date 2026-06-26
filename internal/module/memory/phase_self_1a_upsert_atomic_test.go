@@ -10,21 +10,14 @@ import (
 	"testing"
 )
 
-// Phase 自有.1a baseline tests for the atomic upsert path
-// (store.go diskStore.UpsertStructured / upsertWrite).
+// 本组测试锁定 diskStore.UpsertStructured / upsertWrite 的原子写入边界。
 //
-// Background: legacy upsertStructuredMemory used Create-then-Update with
-// two independent withDiskStoreLock acquisitions:
+// 回归风险来自“先 Create、失败后 Update”的两段锁路径：
 //
-//  1. CreateStructured acquires lock → check exists=false → write → release
-//     (or check exists=true → release → return ErrMemoryAlreadyExists)
-//  2. On AlreadyExists, UpdateStructured acquires lock → check exists=true
-//     → write (overwriting whatever happened between the two locks)
+//  1. CreateStructured 加锁后检查不存在并写入；若已存在则释放锁并返回 ErrMemoryAlreadyExists。
+//  2. 调用方收到 AlreadyExists 后再走 UpdateStructured，第二次加锁并覆盖当前文件内容。
 //
-// Between step 1's release and step 2's acquire, a racing writer could
-// flip the file's content; the second writer's UpdateStructured then
-// silently overwrites it (lost update). UpsertStructured collapses this
-// into one lock acquisition: prepare → lock → write → release.
+// 两次锁之间其他 writer 可能已经更新文件，因此 UpsertStructured 必须把准备、加锁和写入收敛为一次临界区。
 
 func TestPhaseSelf1a_UpsertStructuredCreatesNewEntry(t *testing.T) {
 	t.Parallel()
@@ -71,8 +64,7 @@ func TestPhaseSelf1a_UpsertStructuredOverwritesExistingEntry(t *testing.T) {
 	if _, err := store.CreateStructured(initialReq); err != nil {
 		t.Fatalf("CreateStructured(initial) error = %v", err)
 	}
-	// Counter: legacy Create path would return ErrMemoryAlreadyExists here.
-	// UpsertStructured must skip that and overwrite atomically.
+	// 已存在条目必须直接在 upsert 临界区内覆盖，不能把 ErrMemoryAlreadyExists 泄露给调用方。
 	overwriteReq := MemoryWriteRequest{
 		Name:        name,
 		Description: "overwritten content",
@@ -89,7 +81,7 @@ func TestPhaseSelf1a_UpsertStructuredOverwritesExistingEntry(t *testing.T) {
 	if !strings.Contains(written.Content, "Why: overwrite.") {
 		t.Fatalf("Upsert did not overwrite content; got: %q", written.Content)
 	}
-	// Verify on-disk content is overwritten (raw bytes, no parse layer).
+	// 直接读取磁盘原文，确认覆盖发生在持久化层而不是解析层缓存里。
 	raw, err := os.ReadFile(written.FilePath)
 	if err != nil {
 		t.Fatalf("ReadFile(%q) error = %v", written.FilePath, err)
@@ -102,13 +94,9 @@ func TestPhaseSelf1a_UpsertStructuredOverwritesExistingEntry(t *testing.T) {
 	}
 }
 
-// TestPhaseSelf1a_UpsertStructuredConcurrentRaceFree pins the Phase 自有.1a
-// core invariant: under N concurrent goroutines upserting the same name
-// with distinct content, all calls must succeed (no ErrMemoryAlreadyExists
-// leak — that would be the legacy Create-then-Update regression), no race
-// (-race detector), and the final on-disk content matches one of the
-// writers' contributions (last-writer-wins is acceptable; data
-// corruption / partial writes / disappearing entries are not).
+// 并发 upsert 测试锁定同名条目的核心写入不变量。
+// 多个 goroutine 写同名条目时，所有调用都必须成功，不能泄露 ErrMemoryAlreadyExists；
+// 最终磁盘内容允许最后写入者获胜，但不能出现部分写入、空内容或条目丢失。
 func TestPhaseSelf1a_UpsertStructuredConcurrentRaceFree(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()

@@ -9,16 +9,14 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 )
 
+// workspace 工具列表限制。
 const (
 	defaultWorkspaceListLimit = 200
 	maxWorkspaceListLimit     = 5000
 )
 
-// Workspace tool schemas inherit ObjectSchema's additionalProperties=false.
-// V3 adds handler-level input validation, while V2 relied on downstream
-// workspace services for the same validation.
-// Path sandboxing remains the responsibility of the injected workspace.Service.
-
+// WorkspaceCreateRunRequest 是 workspace_create_run 的 wire 入参。
+// 工具层校验必填 shape 并裁剪可选字段；路径沙箱和复制安全仍由 workspace.Service 统一执行。
 type WorkspaceCreateRunRequest struct {
 	RunKey     string         `json:"run_key,omitempty"`
 	DagKey     string         `json:"dag_key,omitempty"`
@@ -28,11 +26,15 @@ type WorkspaceCreateRunRequest struct {
 	Metadata   map[string]any `json:"metadata,omitempty"`
 }
 
+// workspaceGetRunInput 是 workspace_get_run 的入参。
+// pos 是新定位符，run_key 保留给旧调用方。
 type workspaceGetRunInput struct {
 	RunKey string `json:"run_key"`
 	Pos    string `json:"pos,omitempty"`
 }
 
+// workspaceListRunsInput 是 workspace_list_runs 的过滤条件。
+// Envelope=true 返回分页对象；默认保留旧数组响应，避免破坏现有工具调用方。
 type workspaceListRunsInput struct {
 	Status   string `json:"status,omitempty"`
 	DagKey   string `json:"dag_key,omitempty"`
@@ -41,6 +43,8 @@ type workspaceListRunsInput struct {
 	Envelope bool   `json:"envelope,omitempty"`
 }
 
+// WorkspaceListRunsOutput 是 workspace_list_runs 的 envelope 响应。
+// Runs 与 Data 指向同一批数据，兼容旧字段和通用列表控件。
 type WorkspaceListRunsOutput struct {
 	Runs      []workspaceRunDTO `json:"runs"`
 	Data      []workspaceRunDTO `json:"data"`
@@ -50,6 +54,8 @@ type WorkspaceListRunsOutput struct {
 	Hint      string            `json:"hint,omitempty"`
 }
 
+// WorkspaceMergeRunRequest 是 workspace_merge_run 的写入请求。
+// DeleteRemoved 只有在 workspace 文件确实消失且 source 未漂移时才会删除源文件。
 type WorkspaceMergeRunRequest struct {
 	RunKey        string `json:"run_key"`
 	UpdatedBy     string `json:"updated_by,omitempty"`
@@ -57,27 +63,29 @@ type WorkspaceMergeRunRequest struct {
 	DeleteRemoved bool   `json:"delete_removed,omitempty"`
 }
 
+// workspaceAbortRunInput 是 workspace_abort_run 的入参。
 type workspaceAbortRunInput struct {
 	RunKey    string `json:"run_key"`
 	UpdatedBy string `json:"updated_by,omitempty"`
 	Reason    string `json:"reason,omitempty"`
 }
 
-// HandleWorkspaceCreateRun 处理工作区create运行记录。
+// HandleWorkspaceCreateRun 创建可编辑的虚拟工作区运行。
 func HandleWorkspaceCreateRun(svc workspace.Service) ToolHandler {
 	return makeHandler(svc, "workspace service", func(ctx context.Context, in WorkspaceCreateRunRequest) (*workspaceRunDTO, error) {
 		return createWorkspaceRun(ctx, svc, in)
 	})
 }
 
-// HandleWorkspaceGetRun 处理工作区get运行记录。
+// HandleWorkspaceGetRun 读取单个 workspace run，并附带文件列表 DTO。
 func HandleWorkspaceGetRun(svc workspace.Service) ToolHandler {
 	return makeHandler(svc, "workspace service", func(ctx context.Context, in workspaceGetRunInput) (*workspaceRunDTO, error) {
 		return getWorkspaceRun(ctx, svc, in)
 	})
 }
 
-// HandleWorkspaceListRuns 处理工作区list运行记录。
+// HandleWorkspaceListRuns 列出 workspace run。
+// 默认保持旧数组响应，Envelope=true 时返回分页包装对象给通用列表控件。
 func HandleWorkspaceListRuns(svc workspace.Service) ToolHandler {
 	return makeHandler(svc, "workspace service", func(ctx context.Context, in workspaceListRunsInput) (any, error) {
 		runs, err := listWorkspaceRuns(ctx, svc, in)
@@ -91,21 +99,22 @@ func HandleWorkspaceListRuns(svc workspace.Service) ToolHandler {
 	})
 }
 
-// HandleWorkspaceMergeRun 处理工作区merge运行记录。
+// HandleWorkspaceMergeRun 将 workspace 变更合并回 source root。
 func HandleWorkspaceMergeRun(svc workspace.Service) ToolHandler {
 	return makeHandler(svc, "workspace service", func(ctx context.Context, in WorkspaceMergeRunRequest) (*WorkspaceMergeRunResult, error) {
 		return mergeWorkspaceRun(ctx, svc, in)
 	})
 }
 
-// HandleWorkspaceAbortRun 处理工作区abort运行记录。
+// HandleWorkspaceAbortRun 标记 workspace run 已中止并返回最新 DTO。
 func HandleWorkspaceAbortRun(svc workspace.Service) ToolHandler {
 	return makeHandler(svc, "workspace service", func(ctx context.Context, in workspaceAbortRunInput) (*workspaceRunDTO, error) {
 		return abortWorkspaceRun(ctx, svc, in)
 	})
 }
 
-// workspaceToolDefinitions 处理工作区工具definitions。
+// workspaceToolDefinitions 注册 workspace 工具 schema 与 handler。
+// 路径逃逸和源文件冲突仍由 workspace.Service 执行，工具层只做入参形状约束。
 func workspaceToolDefinitions(svc workspace.Service) []ToolDefinition {
 	return buildToolDefinitions(
 		defineTool("workspace_create_run", "Create a virtual workspace run. Filesystem workspace is used for edits; run status and file states are stored in persistent state.", ObjectSchema(map[string]Schema{
@@ -141,8 +150,8 @@ func workspaceToolDefinitions(svc workspace.Service) []ToolDefinition {
 	)
 }
 
-// V3 validates source_root and trims optional fields at the handler boundary.
-// V2 relied on downstream workspace services to enforce the same constraints.
+// createWorkspaceRun 在工具边界校验 source_root 并裁剪可选字段。
+// 真正的路径安全、文件复制和持久化失败处理仍集中在 workspace.Service。
 func createWorkspaceRun(ctx context.Context, svc workspace.Service, input WorkspaceCreateRunRequest) (*workspaceRunDTO, error) {
 	if err := requireDependency(svc, "workspace service"); err != nil {
 		return nil, err
@@ -169,6 +178,7 @@ func createWorkspaceRun(ctx context.Context, svc workspace.Service, input Worksp
 	return workspaceRunDTOFromRun(ctx, svc, run)
 }
 
+// getWorkspaceRun 解析 run 定位符并读取 DTO。
 func getWorkspaceRun(ctx context.Context, svc workspace.Service, input workspaceGetRunInput) (*workspaceRunDTO, error) {
 	if err := requireDependency(svc, "workspace service"); err != nil {
 		return nil, err
@@ -185,6 +195,7 @@ func getWorkspaceRun(ctx context.Context, svc workspace.Service, input workspace
 	return workspaceRunDTOFromRun(ctx, svc, run)
 }
 
+// listWorkspaceRuns 解析可选 DAG pos 并映射为兼容 DTO 列表。
 func listWorkspaceRuns(ctx context.Context, svc workspace.Service, input workspaceListRunsInput) ([]workspaceRunDTO, error) {
 	if err := requireDependency(svc, "workspace service"); err != nil {
 		return nil, err
@@ -200,6 +211,7 @@ func listWorkspaceRuns(ctx context.Context, svc workspace.Service, input workspa
 	return mapWorkspaceRuns(ctx, svc, runs)
 }
 
+// newWorkspaceListRunsOutput 构造 workspace 列表分页响应。
 func newWorkspaceListRunsOutput(runs []workspaceRunDTO, limit int) WorkspaceListRunsOutput {
 	env := newListEnvelope(runs, limit, "next: use workspace_get_run pos=workspace:<run_key> for details")
 	return WorkspaceListRunsOutput{
@@ -212,7 +224,8 @@ func newWorkspaceListRunsOutput(runs []workspaceRunDTO, limit int) WorkspaceList
 	}
 }
 
-// mergeWorkspaceRun 合并工作区运行记录。
+// mergeWorkspaceRun 执行 workspace merge 并转换为工具层兼容响应。
+// 非 dry-run 需要回读 run，补齐 service.MergeRunResult 中没有携带的 FinishedAt。
 func mergeWorkspaceRun(ctx context.Context, svc workspace.Service, input WorkspaceMergeRunRequest) (*WorkspaceMergeRunResult, error) {
 	if err := requireDependency(svc, "workspace service"); err != nil {
 		return nil, err
@@ -231,8 +244,7 @@ func mergeWorkspaceRun(ctx context.Context, svc workspace.Service, input Workspa
 		return nil, err
 	}
 	out := convertMergeResult(result, input.DeleteRemoved)
-	// MergeRunResult from workspace.Service lacks FinishedAt; read it
-	// from the persisted run when the merge was not a dry run.
+	// workspace.Service 的 merge 摘要不携带 FinishedAt；非 dry-run 时回读持久化 run 补齐 UI 状态。
 	if !input.DryRun {
 		if run, runErr := svc.GetRun(ctx, runKey); runErr == nil && run != nil {
 			out.FinishedAt = shared.CloneTime(run.FinishedAt)
@@ -241,6 +253,7 @@ func mergeWorkspaceRun(ctx context.Context, svc workspace.Service, input Workspa
 	return out, nil
 }
 
+// abortWorkspaceRun 写入 aborted 状态后回读最新 run。
 func abortWorkspaceRun(ctx context.Context, svc workspace.Service, input workspaceAbortRunInput) (*workspaceRunDTO, error) {
 	if err := requireDependency(svc, "workspace service"); err != nil {
 		return nil, err
@@ -259,10 +272,13 @@ func abortWorkspaceRun(ctx context.Context, svc workspace.Service, input workspa
 	return workspaceRunDTOFromRun(ctx, svc, run)
 }
 
+// normalizeWorkspaceListLimit 限制 workspace 列表返回规模。
 func normalizeWorkspaceListLimit(limit int) int {
 	return normalizeListLimit(limit, defaultWorkspaceListLimit, maxWorkspaceListLimit)
 }
 
+// trimNonEmpty 清理文件列表中的空路径。
+// 具体路径合法性由 workspace.Service 再校验，避免工具层复制安全规则。
 func trimNonEmpty(values []string) []string {
 	if len(values) == 0 {
 		return nil
@@ -279,6 +295,7 @@ func trimNonEmpty(values []string) []string {
 	return trimmed
 }
 
+// marshalMapToJSON 将工具层 metadata map 编成服务层 raw JSON。
 func marshalMapToJSON(m map[string]any) (json.RawMessage, error) {
 	return marshalRawJSON(m, rawJSONOptions{EmptyObject: true})
 }

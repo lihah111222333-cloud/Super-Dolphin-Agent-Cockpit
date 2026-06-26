@@ -10,18 +10,17 @@ import (
 	"strings"
 )
 
-// autoDreamIntentFileName is the on-disk record of the user's last manual
-// toggle for the auto-dream stop hook. It lives next to the memory root so
-// NewConfig can pick it up without taking a dependency on uistate.
+// autoDreamIntentFileName 是用户手动切换 auto-dream stop hook 后写入 memory root 的记录文件。
+// NewConfig 只读取这个本地文件，不依赖 uistate 模块，避免配置层反向依赖 UI 状态。
 const autoDreamIntentFileName = "auto-dream-intent.json"
 
+// autoDreamIntentFile 是磁盘上的最小 JSON 结构，只保存用户是否显式开启 auto-dream。
 type autoDreamIntentFile struct {
 	Enabled bool `json:"enabled"`
 }
 
-// ReadAutoDreamIntent returns the user's persisted auto-dream toggle.
-// (nil, nil) means "no manual override" — env defaults still apply.
-// ReadAutoDreamIntent 读取autodreamintent。
+// ReadAutoDreamIntent 读取用户持久化的 auto-dream 开关。
+// 返回 nil 表示没有手动覆盖，调用方继续使用环境变量或默认配置；解析失败会直接返回错误。
 func ReadAutoDreamIntent(rootDir string) (*bool, error) {
 	path := autoDreamIntentPath(rootDir)
 	if path == "" {
@@ -42,8 +41,8 @@ func ReadAutoDreamIntent(rootDir string) (*bool, error) {
 	return &v, nil
 }
 
-// WriteAutoDreamIntent persists the user's auto-dream toggle atomically.
-// WriteAutoDreamIntent 写入autodreamintent。
+// WriteAutoDreamIntent 原子写入用户的 auto-dream 开关。
+// 它先写临时文件再 rename 到目标路径，避免进程中断留下半截 JSON。
 func WriteAutoDreamIntent(rootDir string, enabled bool) error {
 	path := autoDreamIntentPath(rootDir)
 	if path == "" {
@@ -73,6 +72,8 @@ func WriteAutoDreamIntent(rootDir string, enabled bool) error {
 	return os.Rename(tmpName, path)
 }
 
+// autoDreamIntentPath 根据 memory root 计算 intent 文件路径。
+// 空 root 返回空字符串，由读写入口分别解释为“未配置”或配置错误。
 func autoDreamIntentPath(rootDir string) string {
 	rootDir = strings.TrimSpace(rootDir)
 	if rootDir == "" {
@@ -81,7 +82,8 @@ func autoDreamIntentPath(rootDir string) string {
 	return filepath.Join(rootDir, autoDreamIntentFileName)
 }
 
-// DetectSaveIntent 处理detectsaveintent。
+// DetectSaveIntent 从用户文本中识别显式“记住/保存”意图。
+// 只有捕获到有意义内容时才返回 Detected=true，避免把空泛指令写入长期记忆。
 func DetectSaveIntent(userText string) SaveIntent {
 	response := normalizeIntentText(userText)
 	if response == "" {
@@ -101,7 +103,8 @@ func DetectSaveIntent(userText string) SaveIntent {
 	return SaveIntent{}
 }
 
-// DetectForgetIntent 处理detectforgetintent。
+// DetectForgetIntent 从用户文本中识别显式“忘记/删除”意图。
+// 泛化目标会被拒绝，避免一句宽泛表达误删大量记忆。
 func DetectForgetIntent(userText string) ForgetIntent {
 	response := normalizeIntentText(userText)
 	if response == "" {
@@ -121,7 +124,8 @@ func DetectForgetIntent(userText string) ForgetIntent {
 	return ForgetIntent{}
 }
 
-// inferMemoryType 处理infer记忆type。
+// inferMemoryType 根据关键词把显式写入内容归类到 user、feedback、project 或 reference。
+// 未命中关键词时默认写入 user，保持最保守的个人偏好作用域。
 func inferMemoryType(text string) MemoryType {
 	normalized := CanonicalName(strings.ToLower(strings.ReplaceAll(text, "\n", " ")))
 	if normalized == "" {
@@ -147,6 +151,8 @@ func inferMemoryType(text string) MemoryType {
 	return bestType
 }
 
+// keywordScore 统计归一化文本命中特定关键词的数量。
+// 调用方只比较同一批候选的相对分数，不把该值当作概率或置信度。
 func keywordScore(text string, keywords ...string) int {
 	score := 0
 	for _, keyword := range keywords {
@@ -157,6 +163,8 @@ func keywordScore(text string, keywords ...string) int {
 	return score
 }
 
+// intentDiskStores 选择显式记忆写入时可用的 private/team store。
+// team store 不可用时只返回 private；project/reference 默认优先进入 team 作用域并保留 private 作为回退。
 func (h *MemoryLifecycleHooks) intentDiskStores(ctx context.Context, threadID string, memoryType MemoryType) (memoryStructuredStore, memoryStructuredStore, error) {
 	privateStore, err := h.diskStore()
 	if err != nil {
@@ -175,6 +183,8 @@ func (h *MemoryLifecycleHooks) intentDiskStores(ctx context.Context, threadID st
 	return privateStore, teamStore, nil
 }
 
+// teamDiskStore 根据当前线程 build context 创建带 TeamMemoryGuard 的磁盘 store。
+// team memory 未启用时返回 nil，路径配置错误则直接返回错误，避免写到未受保护目录。
 func (h *MemoryLifecycleHooks) teamDiskStore(ctx context.Context, threadID string) (memoryStructuredStore, error) {
 	if h == nil || h.team == nil {
 		return nil, nil
@@ -191,7 +201,8 @@ func (h *MemoryLifecycleHooks) teamDiskStore(ctx context.Context, threadID strin
 
 }
 
-// selectExplicitWriteStore 选择explicitwrite存储。
+// selectExplicitWriteStore 选择显式写入应该覆盖的 store。
+// 已存在条目优先原地更新；两个 store 都没有命中时写入 primary，避免跨作用域创建重复文件。
 func selectExplicitWriteStore(name string, primary, secondary memoryStructuredStore) (memoryStructuredStore, error) {
 	for _, store := range []memoryStructuredStore{primary, secondary} {
 		if store == nil {
@@ -210,19 +221,15 @@ func selectExplicitWriteStore(name string, primary, secondary memoryStructuredSt
 	return nil, errors.New("memory store is nil")
 }
 
-// upsertStructuredMemory writes the entry atomically via the store's
-// UpsertStructured implementation, which acquires the disk store lock
-// once for the full check-and-write sequence. Phase 自有.1a replaced the
-// previous Create-then-Update pattern, where two independent lock
-// acquisitions left a window for a racing writer to convert a
-// Create-failed-with-AlreadyExists into an Update that overwrote
-// concurrently-written content.
+// upsertStructuredMemory 通过 store.UpsertStructured 原子写入结构化记忆。
+// UpsertStructured 在一次磁盘锁内完成检查和写入，避免并发写入把新内容误覆盖成旧内容。
 func upsertStructuredMemory(store memoryStructuredStore, entry MemoryWriteRequest, options WriteOptions) error {
 	_, err := upsertStructuredMemoryReturningEntry(store, entry, options)
 	return err
 }
 
-// deleteMemoryAcrossStores 删除记忆acrossstores。
+// deleteMemoryAcrossStores 在多个 store 中删除同名记忆。
+// 至少一个 store 删除成功即视为成功；非 NotFound 错误会立即返回，避免隐藏权限或路径问题。
 func deleteMemoryAcrossStores(name string, options WriteOptions, stores ...memoryStructuredStore) error {
 	deleted := false
 	for _, store := range stores {
@@ -242,6 +249,8 @@ func deleteMemoryAcrossStores(name string, options WriteOptions, stores ...memor
 	return ErrMemoryNotFound
 }
 
+// defaultTeamMemoryType 判断指定记忆类型是否默认落到 team memory。
+// 只有 project/reference 进入团队作用域，个人偏好和反馈默认留在 private。
 func defaultTeamMemoryType(memoryType MemoryType) bool {
 	switch ParseMemoryType(string(memoryType)) {
 	case MemoryTypeProject, MemoryTypeReference:

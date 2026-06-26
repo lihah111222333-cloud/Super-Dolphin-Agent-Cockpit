@@ -18,9 +18,10 @@ type querier interface {
 	ListObservedTokenTurns(ctx context.Context, arg sqlc.ListObservedTokenTurnsParams) ([]sqlc.ListObservedTokenTurnsRow, error)
 }
 
+// store 封装 session insight 的 sqlc 访问。
 type store struct{ q querier }
 
-// NewStore returns the production Store backed by sqlc queries.
+// NewStore 创建基于 sqlc 的 session insight 存储。
 func NewStore(q *sqlc.Queries) Store { return &store{q: q} }
 
 // ----- helpers -----
@@ -102,6 +103,8 @@ func wrap(err error, op string) error {
 
 // ----- Store impl -----
 
+// Upsert 写入或更新一次会话观察结果。
+// 时间和状态字段在进入 SQL 前完成默认值处理，避免数据库层承担业务默认值兜底。
 func (s *store) Upsert(ctx context.Context, p UpsertParams) (Insight, error) {
 	now := p.UpdatedAt
 	if now.IsZero() {
@@ -146,6 +149,8 @@ func (s *store) Upsert(ctx context.Context, p UpsertParams) (Insight, error) {
 	return fromRow(row), nil
 }
 
+// GetByLocalTurn 通过线程 ID 和本地 turn ID 读取单条 insight。
+// 两个 ID 都必须存在，未命中时统一映射为 insight.ErrNotFound。
 func (s *store) GetByLocalTurn(ctx context.Context, threadID, localTurnID string) (Insight, error) {
 	threadID = strings.TrimSpace(threadID)
 	localTurnID = strings.TrimSpace(localTurnID)
@@ -165,6 +170,8 @@ func (s *store) GetByLocalTurn(ctx context.Context, threadID, localTurnID string
 	return fromRow(row), nil
 }
 
+// ListByThread 列出指定线程的 insight。
+// limit 未传或非正时使用受控默认值，仍保持线程 ID 必填以避免跨线程扫描。
 func (s *store) ListByThread(ctx context.Context, threadID string, limit int32) ([]Insight, error) {
 	threadID = strings.TrimSpace(threadID)
 	if threadID == "" {
@@ -187,6 +194,8 @@ func (s *store) ListByThread(ctx context.Context, threadID string, limit int32) 
 	return out, nil
 }
 
+// ListRecent 列出最近的 insight 记录。
+// 该查询用于概览页，非正 limit 会收敛到固定上限以避免无界读取。
 func (s *store) ListRecent(ctx context.Context, limit int32) ([]Insight, error) {
 	if limit <= 0 {
 		limit = 100
@@ -202,6 +211,8 @@ func (s *store) ListRecent(ctx context.Context, limit int32) ([]Insight, error) 
 	return out, nil
 }
 
+// ListObservedApprovalRequests 列出已观察到审批请求的 turn 摘要。
+// threadID 允许为空表示全局视图，limit 仍会被限制在安全默认值。
 func (s *store) ListObservedApprovalRequests(ctx context.Context, threadID string, limit int32) ([]ApprovalRow, error) {
 	if limit <= 0 {
 		limit = 100
@@ -228,6 +239,8 @@ func (s *store) ListObservedApprovalRequests(ctx context.Context, threadID strin
 	return out, nil
 }
 
+// ListObservedTokenTurns 列出已采集 token 快照的 turn 摘要。
+// 该方法只返回观测行，不推断未上报的 token 数据。
 func (s *store) ListObservedTokenTurns(ctx context.Context, threadID string, limit int32) ([]TokenRow, error) {
 	if limit <= 0 {
 		limit = 100
@@ -257,9 +270,8 @@ func (s *store) ListObservedTokenTurns(ctx context.Context, threadID string, lim
 	return out, nil
 }
 
-// fromRow maps a sqlc session insight row into the domain Insight. Time
-// fields follow the same "zero value = NULL" convention used across this
-// project's stores.
+// fromRow 将不同 sqlc 查询返回的 session insight 行统一映射为领域对象。
+// 不支持的行类型直接 panic，避免新增查询结果时静默丢字段。
 func fromRow(row any) Insight {
 	switch r := row.(type) {
 	case sqlc.UpsertSessionInsightRow:
@@ -291,6 +303,8 @@ func fromRow(row any) Insight {
 	}
 }
 
+// insightFromFields 汇总各查询行的同构字段并构造 Insight。
+// 指针时间与布尔观测位在这里统一转换，确保所有列表和详情接口表现一致。
 func insightFromFields(
 	id int64,
 	threadID, agentID, sessionID, provider, localTurnID, providerTurnID string,

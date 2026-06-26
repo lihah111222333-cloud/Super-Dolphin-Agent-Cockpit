@@ -7,6 +7,7 @@ import (
 	"strings"
 )
 
+// claudeLatestLongModelAliases 将前端最新长模型名折叠为 Claude CLI 支持的短别名。
 var claudeLatestLongModelAliases = map[string]string{
 	"claude-opus-4-7":       "opus",
 	"claude-opus-4-7[1m]":   "opus[1m]",
@@ -15,6 +16,7 @@ var claudeLatestLongModelAliases = map[string]string{
 	"claude-haiku-4-5":      "haiku",
 }
 
+// claudeContextWindow 优先使用 runtime 上报窗口，缺省时按启动模型估算。
 func claudeContextWindow(runtimeWindow int, model string, history *historyBackend) int {
 	if runtimeWindow > 0 {
 		return runtimeWindow
@@ -22,6 +24,7 @@ func claudeContextWindow(runtimeWindow int, model string, history *historyBacken
 	return claudeModelContextWindow(claudeLaunchDisplayModel(model, history))
 }
 
+// claudeLaunchDisplayModel 返回用于展示和窗口估算的规范模型名。
 func claudeLaunchDisplayModel(model string, history *historyBackend) string {
 	if model = sanitizeClaudeModel(model); model != "" {
 		return model
@@ -29,6 +32,7 @@ func claudeLaunchDisplayModel(model string, history *historyBackend) string {
 	return sanitizeClaudeModel(readClaudeSettingsModel(history))
 }
 
+// sanitizeClaudeModel 清理 UI 可能传入的空对象字符串，并归一化最新模型别名。
 func sanitizeClaudeModel(model string) string {
 	model = strings.TrimSpace(model)
 	switch strings.ToLower(model) {
@@ -42,7 +46,7 @@ func sanitizeClaudeModel(model string) string {
 	}
 }
 
-// claudeModelContextWindow 处理claude模型上下文window。
+// claudeModelContextWindow 按 Claude 模型族估算可用上下文窗口，并预留输出余量。
 func claudeModelContextWindow(model string) int {
 	normalized := strings.ToLower(strings.TrimSpace(model))
 	switch {
@@ -59,6 +63,7 @@ func claudeModelContextWindow(model string) int {
 	}
 }
 
+// readClaudeSettingsModel 从 Claude home 的 settings.json 中读取默认模型。
 func readClaudeSettingsModel(history *historyBackend) string {
 	if history == nil {
 		return ""

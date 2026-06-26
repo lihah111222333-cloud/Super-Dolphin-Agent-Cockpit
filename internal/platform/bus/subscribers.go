@@ -11,8 +11,7 @@ import (
 	"github.com/kelindar/event"
 )
 
-// SubscriberSpec is a type alias kept for backward compatibility;
-// the canonical definition lives in internal/contract.
+// SubscriberSpec 保留 bus 包旧导入路径；订阅字段和跨模块 wire 定义以 contract 为准。
 type SubscriberSpec = contract.SubscriberSpec
 
 // SubscriberGroup 持有一组 SubscriberSpec，在 fx 生命周期 OnStart 时统一注册订阅，

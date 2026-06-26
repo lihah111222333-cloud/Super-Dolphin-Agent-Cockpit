@@ -103,7 +103,8 @@ func personalSelectionByName(selections []personalSkillKeepSelected) (map[string
 	return selectionByName, nil
 }
 
-// keepCanonicalRecordForPersonalSelection 为personalselection处理keepcanonical记录。
+// keepCanonicalRecordForPersonalSelection 判断 personal 记录是否应在项目选择策略下保留。
+// 已选择来源、未排除来源或策略来源与当前记录不一致时都会保留，避免误隐藏有效 personal skill。
 func keepCanonicalRecordForPersonalSelection(record canonicalSkillRecord, selectionByName map[string]personalSkillKeepSelected, sourceIDsByName map[string]map[string]struct{}) bool {
 	selection, ok := selectionByName[strings.ToLower(record.Name)]
 	if !ok {
@@ -129,7 +130,8 @@ func selectedCanonicalRecord(record canonicalSkillRecord, selection personalSkil
 		record.ContentHash == strings.TrimSpace(selection.SelectedContentHash)
 }
 
-// personalSelectionSourceMatchesRecord 处理personalselectionsourcematches记录。
+// personalSelectionSourceMatchesRecord 校验策略中记录的来源快照是否仍指向当前 personal 记录。
+// content hash 不匹配表示来源已变化，调用方会保留该记录重新暴露给用户选择。
 func personalSelectionSourceMatchesRecord(selection personalSkillKeepSelected, record canonicalSkillRecord, sourceID string) bool {
 	for _, source := range selection.Sources {
 		if strings.TrimSpace(source.CanonicalID) != sourceID {

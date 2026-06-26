@@ -14,6 +14,7 @@ type Schema map[string]any
 // ToolRiskClass 标记工具调用的治理风险等级，供 registry 和 policy 审计使用。
 type ToolRiskClass string
 
+// 工具风险等级常量，用于治理元数据和审计策略。
 const (
 	// ToolRiskLow 表示只读或低影响操作。
 	ToolRiskLow ToolRiskClass = "low"
@@ -26,6 +27,7 @@ const (
 // ToolPermission 描述工具调用需要的最小权限。
 type ToolPermission string
 
+// 工具权限常量，用于声明调用方需要的最小权限。
 const (
 	// ToolPermissionWorkflowRead 允许读取工作流定义和运行态。
 	ToolPermissionWorkflowRead ToolPermission = "workflow.read"
@@ -40,6 +42,7 @@ const (
 // ToolWorkspaceScope 描述工具能触达的工作区范围。
 type ToolWorkspaceScope string
 
+// 工具工作区范围常量，用于约束工具可触达的状态或文件边界。
 const (
 	// ToolWorkspaceScopeNone 表示工具不直接访问本地工作区。
 	ToolWorkspaceScopeNone ToolWorkspaceScope = "none"
@@ -54,6 +57,7 @@ const (
 // ToolIdempotencyRequirement 描述调用方是否必须提供幂等键或等价保护。
 type ToolIdempotencyRequirement string
 
+// 工具幂等性要求常量，用于提示调用方重试时是否必须提供保护。
 const (
 	// ToolIdempotencyNone 表示该工具不要求额外幂等保护。
 	ToolIdempotencyNone ToolIdempotencyRequirement = "none"
@@ -66,6 +70,7 @@ const (
 // ToolRedactionPolicy 描述审计事件对入参和结果的脱敏策略。
 type ToolRedactionPolicy string
 
+// 工具脱敏策略常量，用于控制审计事件记录入参和结果的粒度。
 const (
 	// ToolRedactionNone 表示审计层不做额外脱敏。
 	ToolRedactionNone ToolRedactionPolicy = "none"
@@ -152,17 +157,11 @@ func EnumStringSchema(description string, values ...string) Schema {
 	return schema
 }
 
-// EnumValues 从 Schema 反取 "enum" 字段（StringSchema enum 切片），
-// 给 handler 层 requireEnum 做单源驱动：schema 和 handler 共用同一份枚举值，
-// 避免「schema 写一份、handler 写一份」造成 drift。
+// EnumValues 从 Schema 反取 "enum" 字段，供 handler 层 requireEnum 复用 schema 枚举。
+// schema 和 handler 共用同一份值域，避免工具描述允许但运行时拒绝的漂移。
 //
 // 仅识别 []string 与 []any（元素为 string）两种形状；其他类型直接返 nil，
 // 调用方应保证 schema 用 EnumStringSchema 构造（已在单测覆盖）。
-//
-// EnumValues extracts the "enum" slice from a Schema so the handler layer
-// (requireEnum) and the schema share one source of truth. Returns nil when
-// the field is absent or has an unexpected shape; callers should pair it
-// with a schema built via EnumStringSchema and cover the wiring in tests.
 func EnumValues(s Schema) []string {
 	if s == nil {
 		return nil
@@ -211,7 +210,8 @@ func ObjectSchema(properties map[string]Schema, required ...string) Schema {
 	return schema
 }
 
-// RawObjectSchema 处理原始objectschema。
+// RawObjectSchema 构建允许透传任意字段的对象 schema。
+// 仅用于 metadata/config/patch 这类跨层 raw JSON，普通工具入参应优先使用 ObjectSchema 的封闭字段集。
 func RawObjectSchema(description string) Schema {
 	schema := Schema{"type": "object", "additionalProperties": true}
 	if description != "" {

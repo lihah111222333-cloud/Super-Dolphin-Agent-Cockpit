@@ -108,7 +108,8 @@ func publishPreparedWriteTimeMirrors(ctx context.Context, report SkillMirrorRepo
 	return report
 }
 
-// cleanupProjectSuppressedPersonalMirrors 处理cleanup项目suppressedpersonalmirrors。
+// cleanupProjectSuppressedPersonalMirrors 清理被项目策略压制的 personal mirror。
+// 只处理 personal target，且只有 mirror 内容仍等于受管记录时才删除，避免覆盖用户改动。
 func (s *service) cleanupProjectSuppressedPersonalMirrors(cwd string, targets []SkillMirrorTarget, store *canonicalStore) (SkillMirrorReport, error) {
 	var report SkillMirrorReport
 	personalTargets := mirrorTargetsForScope(targets, skillScopePersonal)
@@ -133,7 +134,8 @@ func (s *service) cleanupProjectSuppressedPersonalMirrors(cwd string, targets []
 	return report, nil
 }
 
-// projectSuppressedPersonalRecords 处理项目suppressedpersonal记录。
+// projectSuppressedPersonalRecords 根据项目策略找出不应再发布到 provider 的 personal skill。
+// 策略解析失败直接返回错误，调用方会停止本次 mirror 发布。
 func projectSuppressedPersonalRecords(cwd string, records []canonicalSkillRecord) ([]canonicalSkillRecord, error) {
 	policy, err := readProjectSkillPolicy(cwd)
 	if err != nil {
@@ -155,7 +157,8 @@ func projectSuppressedPersonalRecords(cwd string, records []canonicalSkillRecord
 	return out, nil
 }
 
-// projectSuppressedPersonalSourceIDs 处理项目suppressedpersonalsourceids。
+// projectSuppressedPersonalSourceIDs 计算项目策略压制的 personal canonical ID 集合。
+// keep-selected 指向 project 时会压制同名所有 active personal 来源。
 func projectSuppressedPersonalSourceIDs(policy projectSkillPolicy) (map[string]struct{}, error) {
 	out := map[string]struct{}{}
 	for _, item := range policy.DisablePersonalForProject {
@@ -205,7 +208,8 @@ func cleanupSuppressedPersonalMirrorTarget(target SkillMirrorTarget, records []c
 	return report, nil
 }
 
-// cleanupSuppressedPersonalMirrorRecord 处理cleanupsuppressedpersonal镜像记录。
+// cleanupSuppressedPersonalMirrorRecord 删除仍由系统托管的被压制 personal mirror。
+// mirror hash 或内容 hash 已漂移时跳过删除，让冲突检测路径交给用户确认。
 func cleanupSuppressedPersonalMirrorRecord(target SkillMirrorTarget, record canonicalSkillRecord) (SkillMirrorReportItem, bool, error) {
 	mirrorDir := filepath.Join(target.Root, record.Name)
 	mirrorHash, exists, err := existingMirrorHash(mirrorDir)

@@ -15,7 +15,7 @@ import (
 // TestApprovalCache_HashPrefixCollision 验证 Lookup 在 12 位 key 前缀碰撞场景下
 // 依然严格按全 hash 返回。由于 sha256 48-bit 前缀碰撞概率极低，此处用手工
 // 构造的 64 hex 字符串模拟 —— Approve 时 map key 只取前 12 位，新写入会覆盖条目数据，
-// 但 Lookup 的全 hash 对比能拦截误中。该 case 保障未来重构误改成 short-hash 对比不会静默失效。
+// 但 Lookup 的全 hash 对比能拦截误中。该用例保障未来重构误改成 short-hash 对比不会静默失效。
 func TestApprovalCache_HashPrefixCollisionStrictLookup(t *testing.T) {
 	cache := newTestCache(t)
 	shared := "abcdef012345" // 共享前 12 位
@@ -24,15 +24,15 @@ func TestApprovalCache_HashPrefixCollisionStrictLookup(t *testing.T) {
 	if _, err := cache.Approve("foo", firstHash, TrustProject, ""); err != nil {
 		t.Fatalf("approve first: %v", err)
 	}
-	// 二次 Approve 同 name 的不同 hash 但同前缀——会覆盖 map entry
+	// 二次 Approve 同 name、同短前缀但不同全 hash，会覆盖短 key 下的条目。
 	if _, err := cache.Approve("foo", secondHash, TrustProject, ""); err != nil {
 		t.Fatalf("approve second: %v", err)
 	}
-	// 旧 hash 必须 miss（已被覆盖）
+	// 被覆盖的旧 hash 必须未命中，防止短 key 冲突误放行旧内容。
 	if _, ok := cache.Lookup("foo", firstHash); ok {
 		t.Fatalf("first hash should miss after overwrite")
 	}
-	// 新 hash 命中
+	// 新 hash 是当前审批内容，应按全 hash 精确命中。
 	if _, ok := cache.Lookup("foo", secondHash); !ok {
 		t.Fatalf("second hash should hit")
 	}
@@ -112,10 +112,10 @@ func TestApprovalCache_ApproveAndLookup(t *testing.T) {
 	}
 	assertApprovedEntry(t, entry, hash)
 
-	// Lookup 命中
+	// 刚审批的 name/hash 必须立即命中内存索引。
 	assertLookupEntry(t, cache, hash)
 
-	// 文件确实落盘
+	// 审批还必须同步落盘，重启后才能继续信任该 hash。
 	assertApprovalFileContains(t, cache.Path(), hash, "foo")
 }
 
@@ -160,11 +160,11 @@ func TestApprovalCache_HashChangeForcesReApproval_TOCTOU(t *testing.T) {
 		t.Fatalf("Approve() error = %v", err)
 	}
 
-	// 旧 hash 能命中
+	// 已审批的旧 hash 在内容未变化时应继续命中。
 	if _, ok := cache.Lookup("foo", oldHash); !ok {
 		t.Fatalf("old hash should hit")
 	}
-	// 新 hash 必须 miss（TOCTOU 防护）
+	// 新 hash 代表审批后内容变化，必须未命中以防 TOCTOU。
 	if _, ok := cache.Lookup("foo", newHash); ok {
 		t.Fatalf("new hash MUST miss; TOCTOU defense broken")
 	}
@@ -273,7 +273,7 @@ func TestApprovalCache_CorruptedFile(t *testing.T) {
 }
 
 // TestApprovalCache_ConcurrentApproveAllEntriesPersisted 盗写修复回归：并发 Approve 时
-// 盘上终态必须包含所有 entry（snapshot 时序被 writeMu 串行化）。
+// 盘上终态必须包含所有条目，证明 snapshot 时序受 writeMu 串行化保护。
 func TestApprovalCache_ConcurrentApproveAllEntriesPersisted(t *testing.T) {
 	cache := newTestCache(t)
 	const N = 20
@@ -284,7 +284,7 @@ func TestApprovalCache_ConcurrentApproveAllEntriesPersisted(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			name := fmt.Sprintf("skill-%02d", i)
-			hash := fmt.Sprintf("%064x", i+1) // 64 hex chars, unique
+			hash := fmt.Sprintf("%064x", i+1) // 64 位十六进制字符串，保持唯一。
 			if _, err := cache.Approve(name, hash, TrustProject, ""); err != nil {
 				t.Errorf("Approve(%s) error = %v", name, err)
 			}
@@ -292,12 +292,12 @@ func TestApprovalCache_ConcurrentApproveAllEntriesPersisted(t *testing.T) {
 	}
 	wg.Wait()
 
-	// 内存中应服 N 条
+	// 内存索引应保留全部并发审批条目。
 	if got := len(cache.Entries()); got != N {
 		t.Fatalf("in-memory entries = %d want %d", got, N)
 	}
 
-	// 盘上重新加载应也是 N 条（验证 writeMu 串行化有效）
+	// 从磁盘重载也应保留全部条目，验证并发写入没有丢失最终快照。
 	reloaded, err := NewApprovalCache(cache.Path())
 	if err != nil {
 		t.Fatalf("reload: %v", err)
@@ -307,15 +307,13 @@ func TestApprovalCache_ConcurrentApproveAllEntriesPersisted(t *testing.T) {
 	}
 }
 
-// ============================================================================
-// P20.1 §3.2 artifact-level 审批新测
-// ============================================================================
-
+// 产物级审批回归：同名 skill 的 body/resource 审批必须按 kind、
+// locator 和 repo 指纹隔离，避免跨产物误命中。
 func TestApprovalCache_ApproveArtifact_BodyAndResourceIsolated(t *testing.T) {
 	cache := newTestCache(t)
 	hashBody := strings.Repeat("a", 64)
 	hashRes := strings.Repeat("b", 64)
-	// 同 name 下，body 和 resource 写入不同 hash。
+	// 同一 skill name 下，正文和资源审批写入不同 hash，后续 lookup 必须区分产物类型。
 	if _, err := cache.ApproveArtifact(ApprovalRequest{
 		Name: "foo", ArtifactKind: ArtifactKindBody, ArtifactLocator: "SKILL.md",
 		ContentHash: hashBody, Trust: TrustProject,
@@ -328,7 +326,7 @@ func TestApprovalCache_ApproveArtifact_BodyAndResourceIsolated(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("approve resource: %v", err)
 	}
-	// body Lookup 仅命中 body hash、不命中 resource hash
+	// body lookup 只接受 body hash，不能被同名 resource hash 误命中。
 	if _, ok := cache.LookupArtifact(ApprovalRequest{
 		Name: "foo", ArtifactKind: ArtifactKindBody, ArtifactLocator: "SKILL.md",
 		ContentHash: hashBody,
@@ -337,11 +335,11 @@ func TestApprovalCache_ApproveArtifact_BodyAndResourceIsolated(t *testing.T) {
 	}
 	if _, ok := cache.LookupArtifact(ApprovalRequest{
 		Name: "foo", ArtifactKind: ArtifactKindBody, ArtifactLocator: "SKILL.md",
-		ContentHash: hashRes, // 用 resource hash 查 body → miss
+		ContentHash: hashRes, // 用 resource hash 查 body 会未命中。
 	}); ok {
 		t.Fatalf("body lookup with resource hash MUST miss")
 	}
-	// resource 反向同理
+	// resource lookup 只接受 resource locator/hash，防止正文审批外溢到资源文件。
 	if _, ok := cache.LookupArtifact(ApprovalRequest{
 		Name: "foo", ArtifactKind: ArtifactKindResource, ArtifactLocator: "references/api.md",
 		ContentHash: hashRes,
@@ -362,13 +360,13 @@ func TestApprovalCache_ApproveArtifact_RepoFingerprintIsolation(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("approve: %v", err)
 	}
-	// 相同 (name, kind, locator, hash) 但不同 repo 必须互不命中
+	// 相同 name/kind/locator/hash 在不同 repo 指纹下必须互不命中。
 	if _, ok := cache.LookupArtifact(ApprovalRequest{
 		RepoFingerprint: fp2, Name: "foo",
 		ArtifactKind: ArtifactKindBody, ArtifactLocator: "SKILL.md",
 		ContentHash: hash,
 	}); ok {
-		t.Fatalf("different repo fingerprint MUST miss (P20.1 §3.2)")
+		t.Fatalf("different repo fingerprint MUST miss")
 	}
 	if _, ok := cache.LookupArtifact(ApprovalRequest{
 		RepoFingerprint: fp1, Name: "foo",
@@ -391,14 +389,14 @@ func TestApprovalCache_ApproveArtifact_AnchorIsolation(t *testing.T) {
 	}
 	if _, ok := cache.LookupArtifact(ApprovalRequest{
 		Name: "foo", ArtifactKind: ArtifactKindBody,
-		ArtifactLocator: "SKILL.md", // 无 anchor 应 miss
+		ArtifactLocator: "SKILL.md", // 无 anchor 应未命中。
 		ContentHash:     hash,
 	}); ok {
 		t.Fatalf("different anchor MUST miss")
 	}
 	if _, ok := cache.LookupArtifact(ApprovalRequest{
 		Name: "foo", ArtifactKind: ArtifactKindBody,
-		ArtifactLocator: "SKILL.md#Usage", // 同 anchor 必命
+		ArtifactLocator: "SKILL.md#Usage", // 同 anchor 必须命中。
 		ContentHash:     hash,
 	}); !ok {
 		t.Fatalf("same anchor should hit")
@@ -420,7 +418,7 @@ func TestApprovalCache_ApproveArtifact_InvalidKindRejected(t *testing.T) {
 func TestApprovalCache_ApproveArtifact_InvalidLocatorRejected(t *testing.T) {
 	cache := newTestCache(t)
 	hash := strings.Repeat("a", 64)
-	// resource 路径逃逸
+	// resource locator 不允许路径逃逸，避免把审批范围扩到 skill 根目录外。
 	_, err := cache.ApproveArtifact(ApprovalRequest{
 		Name: "foo", ArtifactKind: ArtifactKindResource,
 		ArtifactLocator: "../../etc/passwd",
@@ -432,17 +430,17 @@ func TestApprovalCache_ApproveArtifact_InvalidLocatorRejected(t *testing.T) {
 }
 
 func TestApprovalCache_LegacyApproveStillWorks(t *testing.T) {
-	// 旧 wrapper Approve(name, hash, trust, by) 内部会走 body / SKILL.md 默认值。
+	// 旧 Approve wrapper 内部映射到 body/SKILL.md，保证旧调用方不需要立即迁移。
 	cache := newTestCache(t)
 	hash := strings.Repeat("a", 64)
 	if _, err := cache.Approve("foo", hash, TrustProject, ""); err != nil {
 		t.Fatalf("legacy Approve: %v", err)
 	}
-	// 旧 Lookup 应当命中
+	// 旧 Lookup 仍读取同一审批记录，保持老 API 行为兼容。
 	if _, ok := cache.Lookup("foo", hash); !ok {
 		t.Fatalf("legacy Lookup should hit")
 	}
-	// 新 LookupArtifact 传 body/SKILL.md 亦应命中
+	// 新 LookupArtifact 使用默认 body/SKILL.md 也应命中同一记录。
 	if _, ok := cache.LookupArtifact(ApprovalRequest{
 		Name: "foo", ArtifactKind: ArtifactKindBody, ArtifactLocator: "SKILL.md",
 		ContentHash: hash,
@@ -452,7 +450,7 @@ func TestApprovalCache_LegacyApproveStillWorks(t *testing.T) {
 }
 
 func TestApprovalCache_LegacyJSONRoundtrip(t *testing.T) {
-	// 模拟旧版写盘的 JSON（无 ArtifactKind/Locator/RepoFingerprint 字段）
+	// 模拟旧版写盘 JSON，缺失的产物字段需要在读取时回填默认值。
 	tmp := t.TempDir()
 	path := filepath.Join(tmp, "skills-trust.json")
 	legacyJSON := `{
@@ -474,12 +472,12 @@ func TestApprovalCache_LegacyJSONRoundtrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("load legacy: %v", err)
 	}
-	// 旧 Lookup(name, hash) 必须能命中
+	// 旧 Lookup(name, hash) 必须能命中，避免升级后废弃已有审批文件。
 	hash := "abc123def456789012345678901234567890123456789012345678901234cdef"
 	if _, ok := cache.Lookup("legacy-skill", hash); !ok {
 		t.Fatalf("legacy JSON should be lookupable via legacy API")
 	}
-	// entries 返回时 ArtifactKind/Locator 自动回填为 body/SKILL.md
+	// Entries 返回时自动回填 body/SKILL.md，给新 API 提供完整产物维度。
 	entries := cache.Entries()
 	if len(entries) != 1 {
 		t.Fatalf("expected 1 entry, got %d", len(entries))

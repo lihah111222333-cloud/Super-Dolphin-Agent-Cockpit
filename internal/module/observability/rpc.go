@@ -28,7 +28,8 @@ const (
 // statusParams 是 observability/status 接口的空入参。
 type statusParams struct{}
 
-// traceQueryParams 是按 traceID 查询 trace 事件的入参，兼容驼峰和下划线两种字段名。
+// traceQueryParams 是按 traceID 查询 trace 事件的 JSON-RPC 入参。
+// TraceID/TraceIDSnake 兼容前端驼峰和历史下划线字段，IncludeTail 同理。
 type traceQueryParams struct {
 	TraceID          string `json:"traceId"`
 	TraceIDSnake     string `json:"trace_id"`
@@ -37,7 +38,8 @@ type traceQueryParams struct {
 	IncludeTailSnake *bool  `json:"include_tail"`
 }
 
-// threadRecentParams 是按 threadID 查询最近事件的入参。
+// threadRecentParams 是按 threadID 查询最近事件的 JSON-RPC 入参。
+// 字段同时保留 camelCase 和 snake_case，避免旧前端请求失配。
 type threadRecentParams struct {
 	ThreadID         string `json:"threadId"`
 	ThreadIDSnake    string `json:"thread_id"`
@@ -46,13 +48,14 @@ type threadRecentParams struct {
 	IncludeTailSnake *bool  `json:"include_tail"`
 }
 
-// eventListParams 是 slow/error 列表查询的入参。
+// eventListParams 是 slow/error 列表查询的 JSON-RPC 入参。
 type eventListParams struct {
 	Limit     int    `json:"limit"`
 	Component string `json:"component"`
 }
 
-// recentListParams 是 recent 列表查询的入参，支持多维过滤条件。
+// recentListParams 是 recent 列表查询的 JSON-RPC 入参。
+// 同时支持 trace/thread/agent 的 camelCase 与 snake_case 字段，便于新旧 UI 共用同一 handler。
 type recentListParams struct {
 	TraceID          string `json:"traceId"`
 	TraceIDSnake     string `json:"trace_id"`
@@ -69,7 +72,8 @@ type recentListParams struct {
 	IncludeTailSnake *bool  `json:"include_tail"`
 }
 
-// queryResponse 是 trace/thread/recent/slow/error 查询的统一响应结构。
+// queryResponse 是 trace/thread/recent/slow/error 查询的统一 JSON 响应结构。
+// 摘要字段由服务端计算，前端不需要再扫描完整 events 才能展示慢事件和错误概览。
 type queryResponse struct {
 	Source          platformobs.QuerySource  `json:"source"`
 	Events          []platformobs.TraceEvent `json:"events"`
@@ -79,12 +83,13 @@ type queryResponse struct {
 	Truncated       bool                     `json:"truncated"`
 }
 
-// frontendIngestParams 是前端事件批量上报接口的入参。
+// frontendIngestParams 是前端事件批量上报接口的 JSON-RPC 入参。
 type frontendIngestParams struct {
 	Events []json.RawMessage `json:"events"`
 }
 
-// frontendIngestResponse 是前端事件批量上报的响应结构。
+// frontendIngestResponse 是前端事件批量上报的 JSON 响应。
+// Dropped 包含服务禁用或单批超过上限导致未记录的事件数。
 type frontendIngestResponse struct {
 	Enabled        bool   `json:"enabled"`
 	Recorded       int    `json:"recorded"`
@@ -92,7 +97,8 @@ type frontendIngestResponse struct {
 	DisabledReason string `json:"disabled_reason,omitempty"`
 }
 
-// recentRowSelection 记录按 traceID 和事件索引选中的行，用于 latestTraceEventsFirst 去重。
+// recentRowSelection 记录 recent 列表最终选中的 traceID 和无 trace 行号。
+// 有 traceID 的事件按 trace 聚合，无 traceID 的前端事件只能用原始行号保留。
 type recentRowSelection struct {
 	traceIDs     map[string]struct{}
 	eventIndexes map[int]struct{}
@@ -119,7 +125,7 @@ type frontendTraceEvent struct {
 	Metadata     platformobs.Metadata `json:"metadata,omitempty"`
 }
 
-// NewHandlers 创建处理器。
+// NewHandlers 注册 observability 对外 JSON-RPC 接口。
 func NewHandlers(svc *platformobs.Service) platformrpc.HandlerMapResult {
 	return platformrpc.HandlerMapResult{Handlers: handler.Map{
 		"observability/trace/get":       platformrpc.StrictHandler(traceGetHandler(svc)),
@@ -219,7 +225,8 @@ func errorListHandler(svc *platformobs.Service) func(context.Context, eventListP
 	}
 }
 
-// frontendIngestHandler 处理前端ingest处理器。
+// frontendIngestHandler 接收前端批量 trace 事件。
+// 服务禁用时返回 dropped 计数；单批超过上限时截断，非法字段直接报错而不是静默丢弃。
 func frontendIngestHandler(svc *platformobs.Service) func(context.Context, frontendIngestParams) (frontendIngestResponse, error) {
 	return func(ctx context.Context, p frontendIngestParams) (frontendIngestResponse, error) {
 		if svc == nil {
@@ -288,7 +295,8 @@ func filterRecentEvents(events []platformobs.TraceEvent, params recentListParams
 	return out
 }
 
-// recentEventMatches 判断recent事件是否匹配。
+// recentEventMatches 判断事件是否符合 recent 查询条件。
+// 默认隐藏框架内部噪声，只有用户显式搜索内部关键词时才放行。
 func recentEventMatches(event platformobs.TraceEvent, params recentListParams) bool {
 	if internalRecentNoise(event) && !explicitInternalRecentSearch(params) {
 		return false
@@ -302,7 +310,7 @@ func recentEventMatches(event platformobs.TraceEvent, params recentListParams) b
 		eventMatchesKeyword(event, params.Keyword)
 }
 
-// internalRecentNoise 处理internalrecentnoise。
+// internalRecentNoise 识别 recent 列表默认应隐藏的内部生命周期事件。
 func internalRecentNoise(event platformobs.TraceEvent) bool {
 	values := []string{event.Kind, event.Phase, event.Method, event.ClientKind}
 	for _, value := range values {
@@ -325,7 +333,8 @@ func internalRecentNoise(event platformobs.TraceEvent) bool {
 	return false
 }
 
-// explicitInternalRecentSearch 处理explicitinternalrecentsearch。
+// explicitInternalRecentSearch 判断用户是否明确在找内部事件。
+// 只有 component/method/keyword 命中内部关键词时才覆盖默认噪声过滤。
 func explicitInternalRecentSearch(params recentListParams) bool {
 	values := []string{params.Component, params.Method, params.Keyword}
 	for _, value := range values {
@@ -387,7 +396,7 @@ func eventMatchesText(value, query string) bool {
 	return strings.Contains(strings.ToLower(strings.TrimSpace(value)), query)
 }
 
-// eventMatchesKeyword 处理事件matcheskeyword。
+// eventMatchesKeyword 在事件核心字段和 metadata 中执行关键词匹配。
 func eventMatchesKeyword(event platformobs.TraceEvent, keyword string) bool {
 	keyword = strings.ToLower(strings.TrimSpace(keyword))
 	if keyword == "" {
@@ -469,7 +478,8 @@ func latestTraceEventsFirst(events []platformobs.TraceEvent, limit int) []platfo
 	return out
 }
 
-// selectRecentRows 选择recentrows。
+// selectRecentRows 选择 recent 列表展示行。
+// 有 traceID 的事件按 trace 去重；没有 traceID 的事件按原始行号保留，避免无 trace 前端事件互相覆盖。
 func selectRecentRows(events []platformobs.TraceEvent, limit int) recentRowSelection {
 	selected := recentRowSelection{traceIDs: make(map[string]struct{}, limit), eventIndexes: make(map[int]struct{}, limit)}
 	rows := 0
@@ -517,7 +527,8 @@ func recentRawQueryLimit(displayLimit int) int {
 	return rawLimit
 }
 
-// totalDurationMS 处理totaldurationms。
+// totalDurationMS 计算响应摘要的总耗时。
+// 有时间戳时使用最早开始到最晚结束的跨度；缺少时间戳时退回单事件最大耗时。
 func totalDurationMS(events []platformobs.TraceEvent) int64 {
 	var minStart time.Time
 	var maxEnd time.Time
@@ -574,7 +585,8 @@ func normalizeLimit(limit int, defaultLimit int) int {
 	return limit
 }
 
-// frontendEventFromRaw 从原始处理前端事件。
+// frontendEventFromRaw 校验并转换前端上报的原始事件。
+// 只接受白名单字段，防止前端把任意 JSON 注入 trace 存储。
 func frontendEventFromRaw(raw json.RawMessage) (platformobs.TraceEvent, error) {
 	if len(raw) == 0 {
 		return platformobs.TraceEvent{}, fmt.Errorf("event must be an object")

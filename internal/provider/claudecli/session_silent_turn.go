@@ -11,8 +11,7 @@ import (
 
 const (
 	keepaliveTimeout = 30 * time.Second
-	// keepaliveTurnIDPrefix marks keepalive turn ids so applyRaw can
-	// recognize silent-turn events and keep them out of the UI stream.
+	// keepaliveTurnIDPrefix 标记静默 keepalive turn，applyRaw 依赖它把事件挡在 UI 流之外。
 	keepaliveTurnIDPrefix = "keepalive_"
 )
 
@@ -23,7 +22,8 @@ func (s *session) keepaliveLogger() *slog.Logger {
 	return slog.Default()
 }
 
-// SendKeepalive 处理sendkeepalive。
+// SendKeepalive 发送不进入 UI 的 Claude 缓存保活 turn。
+// 发送失败会清掉 active turn；超时会 kill transport，避免静默 turn 长时间占住会话。
 func (s *session) SendKeepalive(ctx context.Context) error {
 	if err := shared.CheckCtx(ctx); err != nil {
 		return err
@@ -81,14 +81,8 @@ func (s *session) prepareSilentTurnLocked() ([]byte, string, *turnHandle, error)
 	return payload, localID, handle, nil
 }
 
-// clearSilentTurnStateLocked clears the silent-turn bookkeeping for handle
-// while the caller holds s.mu. It does NOT release the lock and does NOT
-// finish the handle; the caller is responsible for both so the lock/IO
-// ordering stays explicit at the call site.
-//
-// Safe to call with handle == nil (no-op), but production call sites are
-// guaranteed non-nil because prepareSilentTurnLocked never returns a nil
-// handle on success.
+// clearSilentTurnStateLocked 在持锁状态下清理静默 turn 的 active 记录。
+// 它不解锁也不 finish handle，调用方必须显式安排锁和 IO 顺序，避免完成信号与状态切换交叉。
 func (s *session) clearSilentTurnStateLocked(handle *turnHandle) {
 	if handle == nil {
 		return

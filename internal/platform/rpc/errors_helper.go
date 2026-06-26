@@ -9,22 +9,19 @@ import (
 
 const CodeNotImplemented = contract.CodeNotImplemented
 
-// ErrNotImplemented 处理errnotimplemented。
+// ErrNotImplemented 构造未实现 RPC 错误。
 func ErrNotImplemented(msg string) error {
 	return rpcError(CodeNotImplemented, msg)
 }
 
-// MapCapabilityError maps a contract.CapabilityError to the standard RPC gate
-// code (-31004). Returns nil if err does not contain a CapabilityError,
-// allowing callers to use it as a filter:
+// MapCapabilityError 将 contract.CapabilityError 映射为标准能力门禁 RPC 错误。
+// err 不包含 CapabilityError 时返回 nil，调用方可把它作为错误过滤器使用：
 //
 //	if rpcErr := rpc.MapCapabilityError(err); rpcErr != nil {
 //	    return rpcErr
 //	}
 //
-// The RPC error message uses err.Error() (not the unwrapped CapabilityError)
-// to preserve user-friendly messages from wrapper types.
-// MapCapabilityError 映射capability错误。
+// RPC 错误消息使用完整 err.Error()，保留外层包装提供的用户友好说明。
 func MapCapabilityError(err error) *jrpc2.Error {
 	var capErr *contract.CapabilityError
 	if errors.As(err, &capErr) {
@@ -33,9 +30,8 @@ func MapCapabilityError(err error) *jrpc2.Error {
 	return nil
 }
 
-// MapInvalidParamsError maps a jrpc2.InvalidParams error to the standard RPC gate
-// code CodeInvalidParams. Returns nil if err does not contain a jrpc2.InvalidParams error.
-// MapInvalidParamsError 映射invalidparams错误。
+// MapInvalidParamsError 将 jrpc2.InvalidParams 映射为平台统一参数错误码。
+// err 不包含 InvalidParams 时返回 nil，便于中间件继续透传原错误。
 func MapInvalidParamsError(err error) *jrpc2.Error {
 	var rpcErr *jrpc2.Error
 	if errors.As(err, &rpcErr) && rpcErr.Code == jrpc2.InvalidParams {

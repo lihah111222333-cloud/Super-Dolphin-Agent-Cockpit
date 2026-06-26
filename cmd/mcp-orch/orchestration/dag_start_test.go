@@ -40,7 +40,7 @@ type stubRunStore struct {
 	promoteRows int64
 	promoteErr  error
 
-	withTxErr error // 模拟事务整体失败 (L3: 可传 *pgconn.PgError 走 unique violation 路径)
+	withTxErr error // 模拟事务整体失败，可传 unique violation 错误驱动幂等 fallback 路径。
 
 	getRunReply *taskdag.Run
 	getRunErr   error
@@ -288,7 +288,7 @@ func assertHappyStartDAGResponse(t *testing.T, resp StartDAGResponse) {
 
 func assertHappyStartDAGStoreCalls(t *testing.T, runStore *stubRunStore) {
 	t.Helper()
-	// F6.5 后 service 不再调 CountActiveRunsByDagKey；同 DAG 可并发多 run。
+	// service 不再调 CountActiveRunsByDagKey；同 DAG 可并发多 run。
 	if got := len(runStore.countCalls); got != 0 {
 		t.Errorf("CountActiveRunsByDagKey calls = %d, want 0 (L3: DB-side guard)", got)
 	}
@@ -378,16 +378,15 @@ func TestStartDAG_DAGNotFound(t *testing.T) {
 	}
 }
 
-// ---- idempotency 命中返已有 run（路线 N：running 续复用） ----
+// ---- idempotency 命中返已有 run（running 状态继续复用） ----
 //
-// L3 GetRun-first 策略：同 IdempotencyKey 重入 → INSERT 冲突 (run_key UNIQUE) →
-// tx 外 GetRun(run_key) 命中，路线 N 下 status=running 仍复用返已有 run。
+// 同 IdempotencyKey 重入时先遇到 run_key 唯一冲突，再在事务外 GetRun(run_key) 命中已有 running run。
 func TestStartDAG_IdempotencyKeyReplay_ReturnsExistingRun(t *testing.T) {
 	existing := &taskdag.Run{ID: 123, RunKey: "dag-1#run-abc", DagKey: "dag-1", DagVersionSnapshot: 7, Status: "running"}
 	dagStore := &stubStartDAGStore{dag: &taskdag.DAG{DagKey: "dag-1"}}
 	runStore := &stubRunStore{
 		withTxErr:               uniqueViolationErr("task_dag_runs_run_key_key"),
-		getRunReply:             existing, // GetRun 命中 running → 幂等路径
+		getRunReply:             existing, // GetRun 命中 running 后走幂等复用路径。
 		scheduleRootWakeupsRows: 1,
 	}
 	svc := makeStartDAGService(dagStore, runStore)
@@ -438,7 +437,7 @@ func TestStartDAG_IdempotencyKeyReplay_RootWakeupFailurePropagates(t *testing.T)
 	}
 }
 
-// ---- 路线 N：status=succeeded 同样复用 ----
+// ---- status=succeeded 同样复用 ----
 func TestStartDAG_IdempotencyKey_ExistingRunSucceeded_ReturnsExisting(t *testing.T) {
 	existing := &taskdag.Run{RunKey: "dag-1#run-abc", DagKey: "dag-1", DagVersionSnapshot: 9, Status: "succeeded"}
 	dagStore := &stubStartDAGStore{dag: &taskdag.DAG{DagKey: "dag-1"}}
@@ -462,7 +461,7 @@ func TestStartDAG_IdempotencyKey_ExistingRunSucceeded_ReturnsExisting(t *testing
 	}
 }
 
-// ---- 路线 N：status=failed 返 ErrIdempotencyKeyExhausted ----
+// ---- status=failed 返 ErrIdempotencyKeyExhausted ----
 func TestStartDAG_IdempotencyKey_ExistingRunFailed_ReturnsExhausted(t *testing.T) {
 	existing := &taskdag.Run{RunKey: "dag-1#run-abc", DagKey: "dag-1", DagVersionSnapshot: 3, Status: "failed"}
 	dagStore := &stubStartDAGStore{dag: &taskdag.DAG{DagKey: "dag-1"}}
@@ -491,7 +490,7 @@ func TestStartDAG_IdempotencyKey_ExistingRunFailed_ReturnsExhausted(t *testing.T
 	}
 }
 
-// ---- 路线 N：status=cancelled 返 ErrIdempotencyKeyExhausted ----
+// ---- status=cancelled 返 ErrIdempotencyKeyExhausted ----
 func TestStartDAG_IdempotencyKey_ExistingRunCancelled_ReturnsExhausted(t *testing.T) {
 	existing := &taskdag.Run{RunKey: "dag-1#run-abc", DagKey: "dag-1", DagVersionSnapshot: 3, Status: "cancelled"}
 	dagStore := &stubStartDAGStore{dag: &taskdag.DAG{DagKey: "dag-1"}}
@@ -519,7 +518,7 @@ func TestStartDAG_IdempotencyKey_ExistingRunCancelled_ReturnsExhausted(t *testin
 	}
 }
 
-// ---- 路线 N：未知 status 返防御错误，不静默复用也不当作幂等耗尽 ----
+// ---- 未知 status 返防御错误，不静默复用也不当作幂等耗尽 ----
 func TestStartDAG_IdempotencyKey_UnknownStatus_ReturnsError(t *testing.T) {
 	existing := &taskdag.Run{RunKey: "dag-1#run-abc", DagKey: "dag-1", Status: "weird-state"}
 	dagStore := &stubStartDAGStore{dag: &taskdag.DAG{DagKey: "dag-1"}}
@@ -612,8 +611,7 @@ func TestStartDAG_CreateRunGenericError_NoFallback(t *testing.T) {
 
 // ---- DB unique 冲突 + GetRun 未命中 → 原始 unique error 透出 ----
 //
-// F6.5 移除了 dag-level single-running-run unique。unique violation fallback
-// 现在只用于 run_key 幂等复用；GetRun miss 说明不是当前 run_key 的幂等冲突。
+// run_key 唯一冲突只用于幂等复用；GetRun miss 说明冲突不属于当前 run_key，必须透出原始错误。
 func TestStartDAG_DBUniqueViolation_GetRunMissPropagatesOriginal(t *testing.T) {
 	dagStore := &stubStartDAGStore{dag: &taskdag.DAG{DagKey: "dag-1"}}
 	runStore := &stubRunStore{

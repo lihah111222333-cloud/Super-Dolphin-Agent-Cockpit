@@ -7,6 +7,7 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/util/configutil"
 )
 
+// configOutputStyle 从运行时配置候选键中读取 output style 配置。
 func configOutputStyle(cfg map[string]any, keys ...string) *contract.OutputStyleConfig {
 	for _, key := range keys {
 		value, ok := cfg[key]
@@ -20,7 +21,7 @@ func configOutputStyle(cfg map[string]any, keys ...string) *contract.OutputStyle
 	return nil
 }
 
-// normalizeOutputStyleConfig 规范化outputstyle配置。
+// normalizeOutputStyleConfig 接受强类型或动态 map，并丢弃完全空的 output style。
 func normalizeOutputStyleConfig(value any) *contract.OutputStyleConfig {
 	switch typed := value.(type) {
 	case contract.OutputStyleConfig:
@@ -51,7 +52,7 @@ func normalizeOutputStyleConfig(value any) *contract.OutputStyleConfig {
 	}
 }
 
-// cloneOutputStyleConfig 复制outputstyle配置。
+// cloneOutputStyleConfig 深拷贝 output style，空配置返回 nil，避免把空对象写进 PrepareInput。
 func cloneOutputStyleConfig(style contract.OutputStyleConfig) *contract.OutputStyleConfig {
 	cloned := style
 	cloned.KeepCodingInstructions = clonePrepareOptionalBool(style.KeepCodingInstructions)
@@ -65,6 +66,7 @@ func cloneOutputStyleConfig(style contract.OutputStyleConfig) *contract.OutputSt
 	return &cloned
 }
 
+// cloneOutputStyleConfigValue 复制指针形式的 output style，nil 输入保持 nil。
 func cloneOutputStyleConfigValue(style *contract.OutputStyleConfig) *contract.OutputStyleConfig {
 	if style == nil {
 		return nil
@@ -72,6 +74,7 @@ func cloneOutputStyleConfigValue(style *contract.OutputStyleConfig) *contract.Ou
 	return cloneOutputStyleConfig(*style)
 }
 
+// firstNonNilOutputStyle 优先返回 primary 的副本，否则返回 fallback 的副本。
 func firstNonNilOutputStyle(primary, fallback *contract.OutputStyleConfig) *contract.OutputStyleConfig {
 	if primary != nil {
 		return cloneOutputStyleConfigValue(primary)
@@ -79,6 +82,7 @@ func firstNonNilOutputStyle(primary, fallback *contract.OutputStyleConfig) *cont
 	return cloneOutputStyleConfigValue(fallback)
 }
 
+// configScratchpadDir 从运行时配置中读取第一个非空 scratchpad 目录。
 func configScratchpadDir(cfg map[string]any, keys ...string) string {
 	for _, key := range keys {
 		value, ok := cfg[key].(string)
@@ -92,6 +96,7 @@ func configScratchpadDir(cfg map[string]any, keys ...string) string {
 	return ""
 }
 
+// configOptionalBool 读取可选 bool，并返回独立指针以避免共享调用方变量。
 func configOptionalBool(cfg map[string]any, keys ...string) *bool {
 	for _, key := range keys {
 		value, ok := cfg[key].(bool)
@@ -103,6 +108,7 @@ func configOptionalBool(cfg map[string]any, keys ...string) *bool {
 	return nil
 }
 
+// clonePrepareOptionalBool 复制 bool 指针，用于 PrepareInput 中的可选配置字段。
 func clonePrepareOptionalBool(value *bool) *bool {
 	if value == nil {
 		return nil

@@ -19,6 +19,7 @@ import (
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
+// SearchMatch 是 text/AST 搜索返回的单条命中，函数范围由 LSP/静态补充后可选填充。
 type SearchMatch struct {
 	AbsPath    string `json:"-"`
 	SearchRoot string `json:"-"`
@@ -30,6 +31,7 @@ type SearchMatch struct {
 	FuncEnd    int    `json:"func_end,omitempty"`
 }
 
+// TextSearchOptions 描述文本搜索输入，Root/Roots 是可信边界，Path/Paths 是用户选择的搜索范围。
 type TextSearchOptions struct {
 	Root          string
 	Roots         []string
@@ -43,6 +45,7 @@ type TextSearchOptions struct {
 	MaxFileBytes  int
 }
 
+// ASTSearchOptions 描述 ast-grep 搜索输入，Language 为空时按目标路径推断。
 type ASTSearchOptions struct {
 	Root         string
 	Roots        []string
@@ -57,6 +60,7 @@ type ASTSearchOptions struct {
 
 type lineMatcher = shared.LineMatcher
 
+// sgStreamMatch 是 ast-grep JSON stream 的原始单条输出。
 type sgStreamMatch struct {
 	File  string `json:"file"`
 	Text  string `json:"text"`
@@ -69,7 +73,8 @@ type sgStreamMatch struct {
 	} `json:"range"`
 }
 
-// SearchText 搜索文本。
+// SearchText 在可信根目录内执行逐行文本搜索。
+// 路径和 glob 会先校验，symlink、二进制和超限文件会被跳过而不会越过 workspace 边界。
 func SearchText(ctx context.Context, opts TextSearchOptions) ([]SearchMatch, error) {
 	caseSensitive := strings.ToLower(opts.Query) != opts.Query
 	if opts.CaseSensitive != nil {
@@ -123,7 +128,8 @@ func SearchText(ctx context.Context, opts TextSearchOptions) ([]SearchMatch, err
 	return results, nil
 }
 
-// SearchAST 搜索ast。
+// SearchAST 使用 ast-grep 在可信根目录内执行结构化搜索。
+// query 为空或 sg 不可用会立即报错；节点类型查询和模式查询走不同命令以保持输出可解析。
 func SearchAST(ctx context.Context, opts ASTSearchOptions) ([]SearchMatch, error) {
 	query := strings.TrimSpace(opts.Query)
 	if query == "" {
@@ -160,7 +166,8 @@ func SearchAST(ctx context.Context, opts ASTSearchOptions) ([]SearchMatch, error
 	return results, nil
 }
 
-// FilterAndCapSearchMatches 判断过滤条件capsearch是否匹配。
+// FilterAndCapSearchMatches 去重、排除默认跳过路径并按文件稳定截断结果。
+// 返回 total 保留截断前数量，调用方可向模型提示继续缩小搜索范围。
 func FilterAndCapSearchMatches(matches []SearchMatch, maxResults int) ([]SearchMatch, int, bool) {
 	filtered := make([]SearchMatch, 0, len(matches))
 	seen := make(map[string]struct{}, len(matches))
@@ -203,7 +210,8 @@ func shouldExcludeSearchMatch(match SearchMatch) bool {
 	return shouldExcludePath(filterPath)
 }
 
-// relativeSearchMatchPath 处理相对searchmatch路径。
+// relativeSearchMatchPath 返回命中相对搜索根的路径。
+// 无法计算相对路径时返回空，调用方会回退到绝对路径排除逻辑。
 func relativeSearchMatchPath(root, absPath string) string {
 	if strings.TrimSpace(root) == "" || strings.TrimSpace(absPath) == "" {
 		return ""
@@ -238,7 +246,8 @@ type searchPathStat struct {
 	Info os.FileInfo
 }
 
-// statSearchPaths 处理statsearch路径。
+// statSearchPaths 解析并 stat 一个或多个搜索入口。
+// 显式 paths 优先；单个 path 失败时才尝试按空白/逗号拆分，避免静默扩大搜索范围。
 func statSearchPaths(root string, roots []string, rawPath string, explicitPaths []string) ([]searchPathStat, error) {
 	if len(explicitPaths) > 0 {
 		return statExplicitSearchPaths(root, roots, explicitPaths)
@@ -280,7 +289,8 @@ func splitSearchPathList(rawPath string) []string {
 	})
 }
 
-// walkSearchEntry 处理walksearch条目。
+// walkSearchEntry 处理 WalkDir 遍历到的单个候选项。
+// 目录会按跳过规则剪枝，文件必须通过 glob、大小和二进制检查后才读取。
 func walkSearchEntry(
 	ctx context.Context,
 	root, candidate, searchRoot, glob string,
@@ -365,7 +375,8 @@ func shouldSearchFile(root, candidate, glob string, maxFileBytes int) (bool, err
 	return shouldSearchPath(root, candidate, glob, maxFileBytes, selected)
 }
 
-// shouldSearchPath 判断search路径是否可用。
+// shouldSearchPath 判断候选文件是否满足 glob 和文件类型限制。
+// 单文件被 glob 排除时记录日志，帮助调用方理解为什么没有命中。
 func shouldSearchPath(root, candidate, glob string, maxFileBytes int, entry os.DirEntry) (bool, error) {
 	matched, err := matchesPathGlob(root, candidate, glob)
 	if err != nil || !matched {
@@ -425,10 +436,8 @@ func runSGPatternSearch(ctx context.Context, query, language, absPath, root, glo
 	return decodeSGMatches(output, root)
 }
 
-// isLikelyNodeType returns true when the query looks like a tree-sitter node
-// type name (e.g. "function_declaration", "type_spec") rather than an ast-grep
-// code pattern. Node types are strictly lowercase letters and underscores.
-// isLikelyNodeType 判断likely节点type是否可用。
+// isLikelyNodeType 判断 query 是否像 tree-sitter 节点类型而不是 ast-grep 代码模式。
+// 仅接受小写字母和下划线，避免普通代码片段被误走 kind 搜索。
 func isLikelyNodeType(query string) bool {
 	if len(query) < 4 || !strings.Contains(query, "_") {
 		return false
@@ -441,9 +450,8 @@ func isLikelyNodeType(query string) bool {
 	return true
 }
 
-// runSGKindSearch executes `sg scan --rule <tmpfile>` to find AST nodes by
-// their tree-sitter kind (e.g. function_declaration, type_spec).
-// runSGKindSearch 运行sgkindsearch。
+// runSGKindSearch 通过临时 ast-grep rule 按 tree-sitter kind 搜索节点。
+// `sg scan --json` 输出数组，因此结果解码路径与 `sg run --json=stream` 分开处理。
 func runSGKindSearch(ctx context.Context, kind, language, absPath, root, glob string) ([]SearchMatch, error) {
 	rule := fmt.Sprintf("id: kind-search\nlanguage: %s\nrule:\n  kind: %s\n", astGrepLanguageID(language), kind)
 
@@ -478,11 +486,12 @@ func runSGKindSearch(ctx context.Context, kind, language, absPath, root, glob st
 		}
 		return nil, formatSGCommandError("sg scan", err)
 	}
-	// sg scan --json outputs a JSON array, not NDJSON like sg run --json=stream.
+	// sg scan --json 输出 JSON 数组，不是 sg run --json=stream 的逐行 JSON。
 	return decodeSGScanMatches(output, root)
 }
 
-// decodeSGScanMatches parses the JSON array output from `sg scan --json`.
+// decodeSGScanMatches 解码 sg scan --json 返回的数组结果。
+// 相对路径会按执行 root 还原成绝对路径，保持 SearchMatch 与 text_search 一致。
 func decodeSGScanMatches(output []byte, root string) ([]SearchMatch, error) {
 	var items []sgStreamMatch
 	if err := json.Unmarshal(output, &items); err != nil {
@@ -507,7 +516,8 @@ func decodeSGScanMatches(output []byte, root string) ([]SearchMatch, error) {
 	return results, nil
 }
 
-// decodeSGMatches 解码sgmatches。
+// decodeSGMatches 解码 ast-grep stream JSON 输出。
+// 每行必须是独立 JSON 命中；解析失败会带行号返回，便于定位外部工具输出异常。
 func decodeSGMatches(output []byte, root string) ([]SearchMatch, error) {
 	scanner := bufio.NewScanner(bytes.NewReader(output))
 	scanner.Buffer(make([]byte, 0, 64*1024), 2<<20)
@@ -552,7 +562,8 @@ func validateSearchGlob(rawGlob string) error {
 	return nil
 }
 
-// matchesPathGlob 判断路径glob是否匹配。
+// matchesPathGlob 判断候选文件是否匹配用户提供的 glob。
+// 含路径分隔符的 glob 按相对路径匹配，裸文件名 glob 额外尝试 basename。
 func matchesPathGlob(root, candidate, rawGlob string) (bool, error) {
 	glob := filepath.ToSlash(strings.TrimSpace(rawGlob))
 	if glob == "" {
@@ -584,7 +595,8 @@ func matchesCompiledGlob(pattern, candidate string) (bool, error) {
 	return ok, nil
 }
 
-// matchesGlobSegments 判断globsegments是否匹配。
+// matchesGlobSegments 递归匹配支持 `**` 的路径 glob 片段。
+// 任一片段语法非法会返回错误，而不是把非法 glob 当作无匹配吞掉。
 func matchesGlobSegments(patterns, candidates []string) (bool, error) {
 	for len(patterns) > 0 {
 		if patterns[0] == "**" {

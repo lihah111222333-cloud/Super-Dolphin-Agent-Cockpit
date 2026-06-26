@@ -11,9 +11,8 @@ import (
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
-// mcpStdout holds the original stdout exclusively for the MCP JSON-RPC
-// protocol. All other output (log, fmt, panic) goes to stderr so it
-// can never pollute the protocol channel.
+// mcpStdout 保存原始 stdout 供 MCP JSON-RPC 协议独占使用。
+// 日志、fmt 输出和 panic 都必须走 stderr，避免污染 stdio 协议帧。
 var mcpStdout atomic.Pointer[os.File]
 
 // protectMCPStdout 保存原始 stdout 供 MCP JSON-RPC 协议独占使用，将 os.Stdout 重定向到 stderr，
@@ -35,14 +34,11 @@ func main() {
 		_, _ = os.Stderr.WriteString("mcp-ida sidecar runtime env failed: " + err.Error() + "\n")
 		os.Exit(1)
 	}
-	// Cap GOMAXPROCS for this lightweight sidecar (see cmd/mcp-orch/main.go).
+	// sidecar 只处理轻量协议转发，限制调度线程避免和宿主/工具进程抢占 CPU。
 	if runtime.GOMAXPROCS(0) > 2 {
 		runtime.GOMAXPROCS(2)
 	}
-	// Protect the MCP stdio channel: save the real stdout for the MCP
-	// server, then redirect os.Stdout to stderr so any accidental writes
-	// (log.Printf, fmt.Println, library init, panics) can never break
-	// the JSON-RPC framing.
+	// 保存真实 stdout 给 MCP server 后立即改写 os.Stdout，防止依赖初始化或 panic 写坏 JSON-RPC 帧。
 	protectMCPStdout()
 
 	if err := run(); err != nil {

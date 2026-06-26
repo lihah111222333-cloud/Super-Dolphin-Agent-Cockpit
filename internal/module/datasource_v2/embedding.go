@@ -66,7 +66,8 @@ func forEachDatasourceV2Token(text string, visit func(string) error) error {
 	return flushASCII()
 }
 
-// addDatasourceV2TokenFeature 将 token 的 hash 特征值累加到向量对应位置。
+// addDatasourceV2TokenFeature 将 token 的 hash 特征值累加到固定维度向量。
+// 正负权重来自 hash 位，保证相同 token 稳定落点，也降低常见词单向偏移。
 func addDatasourceV2TokenFeature(vector []float32, token string) {
 	digest := sha256.Sum256([]byte(token))
 	index := binary.LittleEndian.Uint64(digest[:8]) % uint64(len(vector))
@@ -77,7 +78,8 @@ func addDatasourceV2TokenFeature(vector []float32, token string) {
 	vector[index] += weight
 }
 
-// normalizeDatasourceV2Vector 对向量做 L2 归一化，全零向量直接跳过。
+// normalizeDatasourceV2Vector 对向量做 L2 归一化。
+// 空文本或全空白文本会形成全零向量，此时保持零值，让调用方继续用 tokenCount 判断内容质量。
 func normalizeDatasourceV2Vector(vector []float32) {
 	var sumSquares float64
 	for _, value := range vector {
@@ -101,12 +103,13 @@ func serializeDatasourceV2Vector(vector []float32) []byte {
 	return blob
 }
 
-// isDatasourceV2ASCIITokenRune 判断 rune 是否属于 ASCII token 字符（字母/数字/下划线）。
+// isDatasourceV2ASCIITokenRune 定义 datasource_v2 的 ASCII token 边界。
+// 只把字母、数字和下划线合并为连续 token，避免把路径分隔符或标点并进检索词。
 func isDatasourceV2ASCIITokenRune(r rune) bool {
 	return r == '_' || '0' <= r && r <= '9' || 'a' <= r && r <= 'z' || 'A' <= r && r <= 'Z'
 }
 
-// lowerASCII 将 ASCII 大写字母转换为小写，其他 rune 原样返回。
+// lowerASCII 只规整 ASCII 大写字母，非 ASCII 字符保持原样交给外层 unicode 规则。
 func lowerASCII(r rune) rune {
 	if 'A' <= r && r <= 'Z' {
 		return r + ('a' - 'A')
@@ -114,8 +117,8 @@ func lowerASCII(r rune) rune {
 	return r
 }
 
-// datasourceV2AdvanceChunkTokenState 根据当前 rune 更新分块的 ASCII token 状态机。
-// 返回值：(tokenStarted bool, asciiOpen bool)。
+// datasourceV2AdvanceChunkTokenState 更新切块器的 ASCII token 状态。
+// tokenStarted 表示本 rune 开启一个新 token；asciiOpen 表示下一 rune 仍可能属于同一 ASCII token。
 func datasourceV2AdvanceChunkTokenState(r rune, asciiOpen bool) (bool, bool) {
 	if isDatasourceV2ASCIITokenRune(r) {
 		return !asciiOpen, true

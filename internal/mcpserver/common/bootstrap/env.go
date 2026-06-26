@@ -37,7 +37,7 @@ type bootSnapshot struct {
 	Subscriptions   []string `json:"subscriptions"`
 }
 
-// ReadBootConfig 读取boot配置。
+// ReadBootConfig 从控制平面环境变量读取启动配置，并兼容旧环境变量名。
 func ReadBootConfig() Config {
 	return Config{
 		RPCAddr:      firstEnv("GO_AGENT_CTL_RPC_ADDR", "RPC_ADDR"),
@@ -52,7 +52,7 @@ func ReadBootConfig() Config {
 	}
 }
 
-// SessionTokenFromEnv 从env处理会话令牌。
+// SessionTokenFromEnv 读取控制平面 session token，供不需要完整 Config 的入口复用。
 func SessionTokenFromEnv() string {
 	return firstEnv("GO_AGENT_CTL_SESSION_TOKEN", "GO_AGENT_MCP_SESSION_TOKEN")
 }
@@ -111,7 +111,8 @@ func (c *Client) envContext(scope string, keys []string) (*mcp.ContextResponse, 
 	return resp, nil
 }
 
-// contextPayloadFromSnapshot 从快照处理上下文载荷。
+// contextPayloadFromSnapshot 基于启动快照合成离线 Context payload。
+// 这些值只用于控制平面不可达时的降级观测，不作为新的权威身份来源。
 func contextPayloadFromSnapshot(c *Client, scope string) map[string]any {
 	clientKind := shared.FirstNonEmpty(c.boot.ClientKind, c.cfg.ClientKind)
 	binaryName := shared.FirstNonEmpty(c.boot.BinaryName, c.cfg.BinaryName)
@@ -159,7 +160,7 @@ func contextPayloadFromSnapshot(c *Client, scope string) map[string]any {
 	}
 }
 
-// normalizeContextResponse 规范化上下文响应。
+// normalizeContextResponse 统一 Payload/Data 双字段兼容，并补齐空 Scope/Source。
 func normalizeContextResponse(scope string, resp *mcp.ContextResponse) *mcp.ContextResponse {
 	if resp == nil {
 		return nil
@@ -180,7 +181,6 @@ func normalizeContextResponse(scope string, resp *mcp.ContextResponse) *mcp.Cont
 	return &out
 }
 
-// normalizeRegisterResponse 规范化register响应。
 // normalizeRegisterResponse 校验并规范化注册响应，缺少 lease key 时返回错误。
 func normalizeRegisterResponse(resp *mcp.RegisterResponse, instanceID string) (*mcp.RegisterResponse, error) {
 	if resp == nil {
@@ -262,7 +262,7 @@ func logDeprecatedEnvKey(canonical, legacy string) {
 	)
 }
 
-// parseBootSnapshot 从原始 JSON 解析 bootSnapshot，解析失败时静默返回零值。
+// parseBootSnapshot 从原始 JSON 解析 bootSnapshot；解析失败返回零值快照，启动后续校验仍会兜住必填项。
 func parseBootSnapshot(raw json.RawMessage) bootSnapshot {
 	var snap bootSnapshot
 	if len(raw) == 0 {

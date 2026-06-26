@@ -18,11 +18,14 @@ var (
 	errInvalidMemoryReadPath = errors.New("invalid memory read path")
 )
 
+// normalizeStoreRoot 校验并规范化检索使用的记忆根目录。
+// retrieval 只读扫描也必须复用 shared 根目录校验，避免读到未授权位置。
 func normalizeStoreRoot(root string) (string, error) {
 	return shared.ValidateMemoryRoot(root)
 }
 
-// validateMemoryReadPath 校验记忆read路径。
+// validateMemoryReadPath 校验检索读取路径在记忆根目录内且是文件。
+// 符号链接会解析到真实路径后再做包含关系判断，防止 manifest 扫描越界。
 func validateMemoryReadPath(root, file string) (string, error) {
 	validatedRoot, err := shared.ValidateMemoryRoot(root)
 	if err != nil {
@@ -54,7 +57,8 @@ func validateMemoryReadPath(root, file string) (string, error) {
 	return candidateReal, nil
 }
 
-// prepareMemoryPath 准备记忆路径。
+// prepareMemoryPath 标准化检索读取的根目录和文件路径。
+// 空路径、NUL 字节和不可解析路径都会被拒绝，后续再做真实路径包含校验。
 func prepareMemoryPath(validatedRoot, file string) (string, string, error) {
 	file = norm.NFC.String(strings.TrimSpace(file))
 	if file == "" {
@@ -81,6 +85,8 @@ func prepareMemoryPath(validatedRoot, file string) (string, string, error) {
 	return rootDir, candidate, nil
 }
 
+// resolveExistingMemoryPath 解析必须存在的真实路径。
+// retrieval 只读取已存在文件，不允许不存在路径继续进入 manifest。
 func resolveExistingMemoryPath(path string) (string, error) {
 	resolved, err := shared.RealPathDeepestExisting(path)
 	if err != nil {
@@ -92,6 +98,8 @@ func resolveExistingMemoryPath(path string) (string, error) {
 	return resolved, nil
 }
 
+// invalidMemoryReadPath 包装检索读取路径错误。
+// 统一错误类型便于上层区分路径拒绝和其它 I/O 失败。
 func invalidMemoryReadPath(reason string) error {
 	return fmt.Errorf("%w: %s", errInvalidMemoryReadPath, reason)
 }

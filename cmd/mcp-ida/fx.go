@@ -26,7 +26,7 @@ import (
 type bootstrapRunner struct {
 	cfg        bootstrap.Config
 	client     *bootstrap.Client
-	stdioReady <-chan struct{} // closed when stdio server is ready
+	stdioReady <-chan struct{} // stdio server ready 后关闭，保证控制面连接前工具通道可用。
 }
 
 // runtimeParams 聚合 fx 注入的 runner 列表和 shutdowner，供 bindRuntime 使用。
@@ -37,8 +37,8 @@ type runtimeParams struct {
 	Shutdowner fx.Shutdowner
 }
 
-// run boots the MCP binary itself. The core process only exposes ctl/* endpoints
-// and manifest metadata; external executors decide when and how this binary starts.
+// run 组装并启动 mcp-ida sidecar 自身的 fx 应用。
+// 该进程只暴露控制面握手和空工具面，具体 IDA 能力由后续 provider 接入时显式注册。
 func run() error {
 	app := fx.New(
 		fx.NopLogger,
@@ -74,9 +74,7 @@ func buildBootstrapConfig(shutdowner fx.Shutdowner) (bootstrap.Config, error) {
 	if err != nil {
 		return bootstrap.Config{}, err
 	}
-	// Do not advertise tools/ida until a real IDA provider registers
-	// concrete schemas and handlers. An empty provider is a placeholder,
-	// not a tool capability.
+	// 空 provider 只是协议占位；未注册真实 schema/handler 前不能上报 tools/ida 能力。
 	cfg.FinalReport = func() *mcp.ReportRequest {
 		return &mcp.ReportRequest{
 			Report: mcp.ReportEnvelope{
@@ -132,10 +130,8 @@ func newBootstrapRunner(cfg bootstrap.Config, client *bootstrap.Client, server *
 // Run 启动 IDA 后台流程，等待 stdio server 就绪后连接控制面 RPC，直到 ctx 取消。
 func (r bootstrapRunner) Run(ctx context.Context) error {
 	r.client.InstallLogRelay()
-	// Dual-channel startup ordering: wait for the local stdio MCP server
-	// to be ready before connecting to the control-plane jrpc2. This
-	// guarantees the tool-execution surface is available when the
-	// control plane starts dispatching requests.
+	// 双通道启动顺序：先等本地 stdio MCP server 就绪，再连接控制面 jrpc2。
+	// 这样控制面开始派发请求时，工具执行通道已经存在。
 	if r.stdioReady != nil {
 		select {
 		case <-r.stdioReady:
@@ -154,9 +150,8 @@ func (r bootstrapRunner) Run(ctx context.Context) error {
 	return r.client.Close()
 }
 
-// emptyToolProvider implements common.ToolProvider with an empty tool list.
-// mcp-ida currently exposes no local tools via MCP; IDA tool definitions
-// will be added here once migrated from V2 (see docs/plans/迁移/audit-mcp-ida-tools.md).
+// emptyToolProvider 维持 mcp-ida 的 MCP 协议形状，但不声明任何本地工具。
+// 调用方只能获得空列表；若误调用工具会 fail-fast 返回 unknown tool。
 type emptyToolProvider struct{}
 
 // ListTools 返回当前 peer 暴露的工具列表（当前为空）。
@@ -201,14 +196,8 @@ func bindRuntime(lc fx.Lifecycle, params runtimeParams) {
 
 	lc.Append(fx.Hook{
 		OnStart: func(context.Context) error {
-			// Sidecar lifecycle: context.Background() is intentional here.
-			// Unlike the main app (internal/app/runner.go) which derives runCtx
-			// from an owner-supplied RootCtxProvider, sidecars run as independent
-			// child processes. Their lifetime is governed by:
-			//   1. Parent process kill / OnShutdown callback -> fx.Shutdowner.Shutdown()
-			//   2. RunGroup self-exit -> requestShutdown()
-			// Both paths converge on OnStop, which calls cancel() and waits for
-			// the run group to drain via the done channel.
+			// sidecar 是独立子进程，不能继承主应用 RootCtxProvider。
+			// 父进程关闭、控制面 OnShutdown 或 RunGroup 自退出最终都会进入 OnStop，统一 cancel 并等待 done。
 			runCtx, runCancel := context.WithCancel(context.Background())
 			cancel = runCancel
 			runtimesafe.SafeGo(runCtx, log, "mcp-ida.runtime.runGroup", func(context.Context) {

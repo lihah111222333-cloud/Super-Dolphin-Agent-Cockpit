@@ -9,9 +9,8 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/util/configutil"
 )
 
-// DefaultLSPConfig returns the built-in language-service configuration used
-// when no project config overrides are present.
-// DefaultLSPConfig 处理defaultLSP配置。
+// DefaultLSPConfig 返回内置 LSP 配置。
+// 默认值会过滤大型或生成目录，并按语言声明 root marker，避免初始索引扫进无关工作区。
 func DefaultLSPConfig() contract.LSPConfig {
 	return contract.LSPConfig{
 		NoiseDirNames: []string{

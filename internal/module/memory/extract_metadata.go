@@ -23,6 +23,8 @@ type storedThreadRuntime struct {
 	Runtime map[string]any `json:"runtime,omitempty"`
 }
 
+// shouldExtractThread 判断 turn 完成后是否应对该 thread 做自动抽取。
+// 只有启用 extractOnStop、turn 成功且属于 AutoMem 根 thread 时才允许抽取。
 func (h *MemoryLifecycleHooks) shouldExtractThread(ctx context.Context, evt turndto.TurnCompleted) bool {
 	if h == nil || !h.extractOnStop || !evt.Success {
 		return false
@@ -30,7 +32,8 @@ func (h *MemoryLifecycleHooks) shouldExtractThread(ctx context.Context, evt turn
 	return h.resolveThreadRuntimeMetadata(ctx, strings.TrimSpace(evt.ThreadID)).isAutoMemoryRootThread()
 }
 
-// resolveThreadRuntimeMetadata 解析线程运行时元数据。
+// resolveThreadRuntimeMetadata 从线程存储读取 runtime 元数据。
+// 读取失败或 thread 缺失返回零值，调用方会按非根 thread 处理，不触发抽取。
 func (h *MemoryLifecycleHooks) resolveThreadRuntimeMetadata(ctx context.Context, threadID string) threadRuntimeMetadata {
 	if h == nil || h.threadStore == nil || threadID == "" {
 		return threadRuntimeMetadata{}
@@ -42,7 +45,8 @@ func (h *MemoryLifecycleHooks) resolveThreadRuntimeMetadata(ctx context.Context,
 	return resolveThreadRuntimeMetadataFromThread(thread)
 }
 
-// resolveThreadRuntimeMetadataFromThread 从线程解析线程运行时元数据。
+// resolveThreadRuntimeMetadataFromThread 从契约层 ThreadMetadata 提取记忆运行时字段。
+// 它兼容结构化字段和 ConfigOverride.runtime 的旧键名，避免历史 thread 丢失父子关系。
 func resolveThreadRuntimeMetadataFromThread(thread *contract.ThreadMetadata) threadRuntimeMetadata {
 	if thread == nil {
 		return threadRuntimeMetadata{}
@@ -66,6 +70,8 @@ func resolveThreadRuntimeMetadataFromThread(thread *contract.ThreadMetadata) thr
 	return meta
 }
 
+// decodeStoredThreadRuntime 解码线程 ConfigOverride 中的 runtime 节点。
+// JSON 损坏时返回 nil，让调用方退回显式字段而不是中断 turn 结束处理。
 func decodeStoredThreadRuntime(thread *contract.ThreadMetadata) map[string]any {
 	if thread == nil || len(thread.ConfigOverride) == 0 {
 		return nil
@@ -77,6 +83,8 @@ func decodeStoredThreadRuntime(thread *contract.ThreadMetadata) map[string]any {
 	return stored.Runtime
 }
 
+// firstRuntimeString 按候选键顺序读取 runtime 字符串。
+// 兼容 snake_case 和 camelCase 字段，空值会继续查找下一个键。
 func firstRuntimeString(runtime map[string]any, keys ...string) string {
 	for _, key := range keys {
 		value, ok := runtime[key]
@@ -91,6 +99,8 @@ func firstRuntimeString(runtime map[string]any, keys ...string) string {
 	return ""
 }
 
+// runtimeFlagEnabled 判断 runtime 或 session_flags 中是否启用任一 flag。
+// 该函数用于识别 bare/root thread 等会影响抽取边界的会话状态。
 func runtimeFlagEnabled(runtime map[string]any, keys ...string) bool {
 	flags, _ := runtime["sessionFlags"].(map[string]any)
 	if len(flags) == 0 {
@@ -107,7 +117,8 @@ func runtimeFlagEnabled(runtime map[string]any, keys ...string) bool {
 	return false
 }
 
-// runtimeBoolMap 处理运行时boolmap。
+// runtimeBoolMap 从 runtime 中读取布尔 flag map。
+// 只保留能解析为布尔值且名称非空的项，避免脏 ConfigOverride 影响 gate 判断。
 func runtimeBoolMap(runtime map[string]any, keys ...string) map[string]bool {
 	for _, key := range keys {
 		raw, _ := runtime[key].(map[string]any)
@@ -129,11 +140,15 @@ func runtimeBoolMap(runtime map[string]any, keys ...string) map[string]bool {
 	return nil
 }
 
+// runtimeBool 将 runtime 任意值按布尔语义解析。
+// 解析失败返回 false，调用方可把缺失和非法值都视为未启用。
 func runtimeBool(value any) bool {
 	parsed, _ := runtimeBoolValue(value)
 	return parsed
 }
 
+// runtimeBoolValue 解析 runtime 中可能出现的布尔表示。
+// 支持 bool 和常见字符串布尔值，返回第二个值表示是否成功识别。
 func runtimeBoolValue(value any) (bool, bool) {
 	switch typed := value.(type) {
 	case bool:

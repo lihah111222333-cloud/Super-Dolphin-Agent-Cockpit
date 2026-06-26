@@ -6,7 +6,7 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/dto/shared"
 )
 
-// AgentWarning reports a non-terminal provider/runtime warning.
+// AgentWarning 表示 provider/runtime 上报的非终止警告事件。
 type AgentWarning struct {
 	shared.AgentSessionHeader
 	RawType string          `json:"raw_type,omitempty"`
@@ -15,7 +15,8 @@ type AgentWarning struct {
 	Payload json.RawMessage `json:"payload,omitempty"`
 }
 
-// AgentError reports a provider/runtime error richer than terminal lifecycle failure.
+// AgentError 表示 provider/runtime 上报的结构化错误事件。
+// Recoverable 用于区分可恢复错误和需要生命周期进入 failed 的终止错误。
 type AgentError struct {
 	shared.AgentSessionHeader
 	RawType     string          `json:"raw_type,omitempty"`
@@ -25,8 +26,8 @@ type AgentError struct {
 	Payload     json.RawMessage `json:"payload,omitempty"`
 }
 
-// Type 返回事件分发用的类型编号。
+// Type 返回 agent warning 事件分发用的类型编号。
 func (AgentWarning) Type() uint32 { return shared.EventTypeAgentWarning }
 
-// Type 返回事件分发用的类型编号。
+// Type 返回 agent error 事件分发用的类型编号。
 func (AgentError) Type() uint32 { return shared.EventTypeAgentError }

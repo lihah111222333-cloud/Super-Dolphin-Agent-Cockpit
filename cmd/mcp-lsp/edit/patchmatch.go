@@ -7,6 +7,8 @@ import (
 	"strings"
 )
 
+// Match 描述一个 replace_range hunk 在目标内容中的最终落点。
+// 工具层会把行号、偏移量和回显上下文返回给调用方，用于确认补丁实际作用范围。
 type Match struct {
 	MatchedBy           string
 	ResolvedStartOffset int
@@ -27,16 +29,15 @@ type matchCandidate struct {
 	matchedBy      string
 }
 
-// AmbiguousMatchError carries every candidate the patch could have
-// landed on, capped to keep response payloads small. Callers (tool
-// layer) lift these into ToolErrorEnvelope.Meta.candidate_locations so
-// the LLM can disambiguate by adding a context line near one of the
-// listed line ranges instead of re-reading the whole file.
+// AmbiguousMatchError 表示一个 hunk 命中多个候选位置。
+// 候选列表会截断到固定上限，工具层可放进错误元数据，引导调用方补充更窄上下文。
 type AmbiguousMatchError struct {
 	HunkIndex  int
 	Candidates []CandidateLocation
 }
 
+// CandidateLocation 是歧义匹配暴露给工具调用方的线级候选位置。
+// 它只包含展示和消歧需要的行范围与匹配策略，不泄露完整文件内容。
 type CandidateLocation struct {
 	StartLine int
 	EndLine   int
@@ -45,12 +46,12 @@ type CandidateLocation struct {
 
 const ambiguousCandidateCap = 5
 
-// Error 返回错误文本。
+// Error 返回带 hunk 序号和候选数量的歧义错误文本。
 func (e *AmbiguousMatchError) Error() string {
 	return fmt.Sprintf("%s: hunk %d matched %d locations", ErrAmbiguousMatch.Error(), e.HunkIndex+1, len(e.Candidates))
 }
 
-// Unwrap 返回底层错误。
+// Unwrap 保留 ErrAmbiguousMatch，便于上层用 errors.Is 做结构化分支。
 func (e *AmbiguousMatchError) Unwrap() error { return ErrAmbiguousMatch }
 
 func newAmbiguousMatchError(hunkIndex int, candidates []matchCandidate) *AmbiguousMatchError {
@@ -73,10 +74,8 @@ func newAmbiguousMatchError(hunkIndex int, candidates []matchCandidate) *Ambiguo
 	return &AmbiguousMatchError{HunkIndex: hunkIndex, Candidates: out}
 }
 
-// MatchContext resolves patch hunks against content using line-sequence matching
-// first, then a raw substring fallback. Later hunks are matched against the
-// working content produced by earlier matches.
-// MatchContext 判断上下文是否匹配。
+// MatchContext 按顺序把 replace_range hunks 匹配到目标内容。
+// 每个 hunk 都基于前一个 hunk 应用后的工作副本继续匹配，失败或歧义时直接返回错误。
 func MatchContext(content string, hunks []Hunk) ([]Match, error) {
 	if err := GuardContentAndReplacement(content, ""); err != nil {
 		return nil, err
@@ -130,7 +129,8 @@ func resolveContextMatch(content string, hunk Hunk, hunkIndex int) (matchCandida
 	return candidates[0], nil
 }
 
-// resolveContextAnchorStarts 解析上下文锚点起点。
+// resolveContextAnchorStarts 根据 before 上下文推导允许插入或替换的起始行。
+// 返回值用于过滤候选位置，避免相同 old_text 在文件其他位置被误命中。
 func resolveContextAnchorStarts(lines []string, before []string) map[int]struct{} {
 	if len(before) == 0 {
 		return nil
@@ -150,7 +150,8 @@ func resolveContextAnchorStarts(lines []string, before []string) map[int]struct{
 	return anchors
 }
 
-// collectLineSequenceCandidates 收集行序列候选项。
+// collectLineSequenceCandidates 用多种宽松匹配模式收集 old_text 候选位置。
+// 如果 before 上下文存在，只保留锚点后的候选，防止跨块替换。
 func collectLineSequenceCandidates(index contentIndex, hunk Hunk, anchors map[int]struct{}) []matchCandidate {
 	oldLines := splitPatchText(hunk.OldText)
 	if len(oldLines) == 0 {
@@ -185,9 +186,8 @@ func collectLineSequenceCandidates(index contentIndex, hunk Hunk, anchors map[in
 	return dedupeCandidates(candidates)
 }
 
-// collectPureInsertionCandidates handles OldText=="" hunks by using
-// before/after context to locate the insertion point. The resulting
-// candidate has startOffset == endOffset (zero-width replacement).
+// collectPureInsertionCandidates 处理 OldText 为空的纯插入 hunk。
+// 纯插入必须依赖 before 或 after 上下文定位，候选位置的 startOffset 与 endOffset 相同。
 func collectPureInsertionCandidates(index contentIndex, hunk Hunk, anchors map[int]struct{}) []matchCandidate {
 	if len(hunk.BeforeContext) == 0 && len(hunk.AfterContext) == 0 {
 		return nil
@@ -210,7 +210,8 @@ func resolveInsertionLines(index contentIndex, hunk Hunk, anchors map[int]struct
 	return findAfterContextInsertions(index.lines, hunk.AfterContext)
 }
 
-// findAfterContextInsertions 查找后置上下文插入点。
+// findAfterContextInsertions 根据 after 上下文查找插入点。
+// 返回的是 after 块开始前的位置，供纯插入 hunk 构造零宽替换候选。
 func findAfterContextInsertions(lines []string, afterCtx []string) []int {
 	if len(afterCtx) == 0 {
 		return nil
@@ -304,7 +305,8 @@ func filterContextCandidates(lines []string, hunk Hunk, candidates []matchCandid
 	return dedupeCandidates(filtered)
 }
 
-// contextMatches 判断上下文是否匹配。
+// contextMatches 比较候选位置后的上下文是否仍与 hunk 锚点一致。
+// 它只看行级文本，不修改工作副本，供候选过滤阶段消歧。
 func contextMatches(lines []string, context []string, start int) bool {
 	if len(context) == 0 {
 		return true

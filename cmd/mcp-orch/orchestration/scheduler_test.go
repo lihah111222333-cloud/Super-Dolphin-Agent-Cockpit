@@ -34,7 +34,7 @@ func TestNoopScheduler_ImplementsScheduler(t *testing.T) {
 	var _ Scheduler = NewNoopScheduler()
 }
 
-// === DAG lifecycle stub (S2.1) ===
+// DAG 生命周期空实现测试，锁定未接入 run store 时的错误边界。
 
 func TestService_StartDAG_NotImplemented(t *testing.T) {
 	s := &service{}
@@ -55,7 +55,8 @@ func TestService_TerminateDAG_RunStoreUnset(t *testing.T) {
 	}
 }
 
-// TestService_ApplyOps_UpdateDAGImplemented 验证 F4.4 后 update_dag 已接业务层。
+// TestService_ApplyOps_UpdateDAGImplemented 验证 update_dag 操作已进入业务层。
+// 该用例锁定 ApplyOps 对 DAG 更新操作的调度路径，避免工具层只返回空响应。
 func TestService_ApplyOps_UpdateDAGImplemented(t *testing.T) {
 	stub := &stubDAGOpsStore{currentVersion: 1}
 	s := makeApplyOpsService(stub)

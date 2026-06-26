@@ -6,10 +6,7 @@ import (
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
 )
 
-// ---------------------------------------------------------------------------
-// Error code constants – domain-aware RPC error codes.
-// These are plain integer constants with no framework dependency.
-// ---------------------------------------------------------------------------
+// RPC 错误码常量保持无框架依赖，供本地 JRPC 和远端 orchestration 共用。
 
 const (
 	CodeNotFound        = -31001
@@ -22,31 +19,28 @@ const (
 	CodeMethodNotFound  = -31008
 )
 
-// CapabilityResolver returns the active provider capabilities from context.
+// CapabilityResolver 从请求上下文解析当前 provider 能力集合。
+// RPC handler 用它在入口处做能力门禁，避免下游模块重复感知 provider 细节。
 type CapabilityResolver func(ctx context.Context) (dto.CapabilitySet, error)
 
-// ---------------------------------------------------------------------------
-// Thread-scoped context helpers (stdlib only).
-// ---------------------------------------------------------------------------
+// Thread-scoped context helpers 只依赖标准库，避免 contract 层引入 RPC 实现包。
 
 type threadIDKey struct{}
 
-// ThreadIDFrom extracts the thread ID previously set by ThreadScope.
-// ThreadIDFrom 从跨模块契约处理线程ID。
+// ThreadIDFrom 读取通过 WithThreadID 写入的线程 ID。
+// 未设置时返回空字符串，调用方可自行决定是否 fail-fast。
 func ThreadIDFrom(ctx context.Context) string {
 	value, _ := ctx.Value(threadIDKey{}).(string)
 	return value
 }
 
-// WithThreadID sets the thread ID in context.
-// WithThreadID 设置线程ID。
+// WithThreadID 在 context 中附加线程 ID，供 RPC 入口和下游审计共享。
 func WithThreadID(ctx context.Context, threadID string) context.Context {
 	return context.WithValue(ctx, threadIDKey{}, threadID)
 }
 
-// Thread RPC method names shared by the app-side thread module and remote
-// orchestration launcher. Keep these in a dependency-light contract package so
-// cmd/mcp-orch and internal/module/thread cannot silently drift apart.
+// Thread RPC 方法名由 app 侧 thread 模块和远端 orchestration launcher 共用。
+// 放在轻依赖 contract 包中，避免 cmd/mcp-orch 与 internal/module/thread 静默漂移。
 const (
 	ThreadRPCStart   = "thread/start"
 	ThreadRPCFork    = "thread/fork"

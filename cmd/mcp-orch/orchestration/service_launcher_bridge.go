@@ -14,6 +14,7 @@ import (
 	"time"
 )
 
+// launcherLaunchAttempt 保存一次 launcher 启动跨锁执行所需的状态快照和 seq fence。
 type launcherLaunchAttempt struct {
 	agentID     string
 	expectedSeq uint64
@@ -21,6 +22,7 @@ type launcherLaunchAttempt struct {
 	forkParent  agentRuntime
 }
 
+// launchAgentViaLauncher 走 launcher 启动 agent，并在启动成功后提交初始 prompt。
 func (s *service) launchAgentViaLauncher(ctx context.Context, req LaunchRequest) error {
 	req, err := s.applyLaunchRequestDefaults(ctx, req)
 	if err != nil {
@@ -58,6 +60,8 @@ func (s *service) launchAgentSnapshot(ctx context.Context, req LaunchRequest, be
 	}
 	return s.Snapshot(ctx, agentID)
 }
+
+// stopLaunchedAgentAfterBeforePromptFailure 在 beforeInitialPrompt hook 失败后清理刚启动的 agent。
 func (s *service) stopLaunchedAgentAfterBeforePromptFailure(agentID string, cause error) error {
 	cleanupCtx, cancel := platformconfig.WithTimeout(context.Background(), platformconfig.AsyncLaunchTimeout)
 	defer cancel()
@@ -82,6 +86,8 @@ func (s *service) applyLaunchRequestDefaults(ctx context.Context, req LaunchRequ
 	req.Cwd = strings.TrimSpace(snapshot.Cwd)
 	return req, nil
 }
+
+// launchAgentUntilStarted 准备启动 attempt，并按重试策略等待 launcher 返回启动结果。
 func (s *service) launchAgentUntilStarted(ctx context.Context, req LaunchRequest) (string, LaunchResult, error) {
 	attempt, handled, err := s.prepareLauncherLaunch(ctx, req)
 	if handled || err != nil {
@@ -118,6 +124,8 @@ func (s *service) launchWithRetry(ctx context.Context, attempt launcherLaunchAtt
 	}
 	return "", LaunchResult{}, s.finishLauncherLaunch(ctx, attempt, LaunchResult{}, lastErr)
 }
+
+// startLauncherAttempt 根据 context mode 选择普通 launch 或 fork launch。
 func (s *service) startLauncherAttempt(ctx context.Context, attempt *launcherLaunchAttempt, req LaunchRequest) (LaunchResult, error) {
 	if strings.EqualFold(strings.TrimSpace(req.ContextMode), "forked") {
 		return s.launcher.Fork(ctx, &attempt.forkParent, &attempt.launching, req)
@@ -125,6 +133,7 @@ func (s *service) startLauncherAttempt(ctx context.Context, attempt *launcherLau
 	return s.launcher.Launch(ctx, &attempt.launching, req)
 }
 
+// submitInitialLaunchPrompt 在启动成功后把 launch prompt 自动提交为第一轮 turn。
 func (s *service) submitInitialLaunchPrompt(ctx context.Context, agentID string, result LaunchResult, req LaunchRequest) error {
 	prompt := strings.TrimSpace(req.Prompt)
 	if prompt == "" {
@@ -141,6 +150,8 @@ func (s *service) submitInitialLaunchPrompt(ctx context.Context, agentID string,
 	pkglogger.Warn("orchestration: launch prompt auto-submit accepted", "agent_id", agentID, "thread_id", threadID)
 	return nil
 }
+
+// submitInitialLaunchPromptOrStop 在初始 prompt 提交失败时停止新 agent，避免空壳 runtime 留存。
 func (s *service) submitInitialLaunchPromptOrStop(ctx context.Context, agentID string, result LaunchResult, req LaunchRequest) error {
 	if err := s.submitInitialLaunchPrompt(ctx, agentID, result, req); err != nil {
 		cleanupCtx, cancel := platformconfig.WithTimeout(context.Background(), platformconfig.AsyncLaunchTimeout)
@@ -227,6 +238,7 @@ func launchInProgress(ctx context.Context, s *service, agent *agentRuntime) bool
 	return agent.launchSeq > agent.lastExitedSeq && (agent.state == agentdto.StateProvisioning || agent.state == agentdto.StateRecovering)
 }
 
+// finishLauncherLaunch 在锁内用 launchSeq fence 提交 launcher 启动结果。
 func (s *service) finishLauncherLaunch(ctx context.Context, attempt launcherLaunchAttempt, result LaunchResult, launchErr error) error {
 	s.mu.Lock()
 	agent, err := lookupAgentBySeqLocked(s.agents, attempt.agentID, attempt.expectedSeq)
@@ -241,6 +253,8 @@ func (s *service) finishLauncherLaunch(ctx context.Context, attempt launcherLaun
 	}
 	return s.completeLauncherLaunchLocked(ctx, agent, &attempt.launching, result)
 }
+
+// discardStaleLaunchResult 停止已过期但实际启动成功的 launcher runtime。
 func (s *service) discardStaleLaunchResult(ctx context.Context, launching *agentRuntime, launchErr error) error {
 	if launchErr == nil {
 		if stopErr := s.launcher.Stop(ctx, launching); stopErr != nil {
@@ -249,6 +263,8 @@ func (s *service) discardStaleLaunchResult(ctx context.Context, launching *agent
 	}
 	return launchErr
 }
+
+// failLauncherLaunchLocked 在持锁状态下提交启动失败，并在解锁后清理 launcher runtime。
 func (s *service) failLauncherLaunchLocked(ctx context.Context, agent, launching *agentRuntime, launchErr error) error {
 	var lastErr string
 	if launching != nil {
@@ -263,6 +279,8 @@ func (s *service) failLauncherLaunchLocked(ctx context.Context, agent, launching
 	}
 	return err
 }
+
+// completeLauncherLaunchLocked 采用 launcher 返回的 runtime 状态并完成 provisioning。
 func (s *service) completeLauncherLaunchLocked(ctx context.Context, agent, launching *agentRuntime, result LaunchResult) error {
 	adoptLaunchStateLocked(agent, launching)
 	bindLaunchResult(agent, result)
@@ -355,6 +373,8 @@ func (s *service) archiveAgentViaLauncher(ctx context.Context, agentID, reason s
 	s.handleProcessExit(ctx, agentID, launchSeq, nil)
 	return true, nil
 }
+
+// hasLocalRuntimeAgent 判断 agent 是否仍有本地进程句柄，archive 路径用它区分本地/远端。
 func (s *service) hasLocalRuntimeAgent(agentID string) bool {
 	agentID = strings.TrimSpace(agentID)
 	if agentID == "" {
@@ -367,6 +387,8 @@ func (s *service) hasLocalRuntimeAgent(agentID string) bool {
 	})
 	return hasLocal
 }
+
+// shouldStopViaLauncher 判断 agent 是否由 launcher 管理且当前仍处于运行状态。
 func (s *service) shouldStopViaLauncher(ctx context.Context, agentID string) bool {
 	shouldStop := false
 	if err := s.withAgentReadLocked(agentID, func(agent *agentRuntime) error {
@@ -379,6 +401,8 @@ func (s *service) shouldStopViaLauncher(ctx context.Context, agentID string) boo
 	}
 	return shouldStop
 }
+
+// prepareLauncherStop 在锁内把 agent 标记为 stopping，并返回供 launcher.Stop 使用的快照。
 func (s *service) prepareLauncherStop(ctx context.Context, agentID, reason string) (*agentRuntime, uint64, error) {
 	var (
 		agentRef  *agentRuntime
@@ -400,6 +424,8 @@ func (s *service) prepareLauncherStop(ctx context.Context, agentID, reason strin
 	}
 	return agentRef, launchSeq, nil
 }
+
+// submitTurnViaLauncher 优先提交到远端 launcher，无法远端处理时回落到本地队列。
 func (s *service) submitTurnViaLauncher(ctx context.Context, req TurnSubmission) error {
 	agentID := strings.TrimSpace(req.AgentID)
 	if agentID == "" {
@@ -413,6 +439,7 @@ func (s *service) submitTurnViaLauncher(ctx context.Context, req TurnSubmission)
 	return s.enqueueLocalTurnSubmission(ctx, agentID, req)
 }
 
+// remoteTurnSubmitAttempt 保存远端 turn 提交的 active turn fence 和请求副本。
 type remoteTurnSubmitAttempt struct {
 	agentID string
 	turnID  string
@@ -447,6 +474,8 @@ func (s *service) InterruptAgent(ctx context.Context, agentID string, source str
 		}
 	}
 }
+
+// prepareInterruptAgent 校验远端 agent 可中断条件，并复制 launcher.Interrupt 所需快照。
 func (s *service) prepareInterruptAgent(agentID string) (agentRuntime, string, error) {
 	var agent agentRuntime
 	turnID := ""
@@ -468,6 +497,8 @@ func (s *service) prepareInterruptAgent(agentID string) (agentRuntime, string, e
 	})
 	return agent, turnID, err
 }
+
+// interruptAgentSnapshot 读取中断轮询所需的状态和 active turn。
 func (s *service) interruptAgentSnapshot(agentID string) (AgentStateResult, string, error) {
 	result := AgentStateResult{}
 	activeTurnID := ""
@@ -478,6 +509,8 @@ func (s *service) interruptAgentSnapshot(agentID string) (AgentStateResult, stri
 	})
 	return result, activeTurnID, err
 }
+
+// trySubmitRemoteTurn 在 launcher agent 运行时直接提交 turn，并负责失败后的状态回滚。
 func (s *service) trySubmitRemoteTurn(ctx context.Context, agentID string, req TurnSubmission) (bool, error) {
 	attempt, handled, err := s.prepareRemoteTurnSubmit(ctx, agentID, req)
 	if !handled || err != nil {
@@ -531,6 +564,8 @@ func (s *service) prepareRemoteTurnSubmit(ctx context.Context, agentID string, r
 	})
 	return attempt, handled, err
 }
+
+// finishRemoteTurnSubmitSuccess 将远端返回的 turn id 绑定到 active turn。
 func (s *service) finishRemoteTurnSubmitSuccess(ctx context.Context, attempt remoteTurnSubmitAttempt, remoteTurnID string) {
 	_ = s.withAgentLocked(attempt.agentID, func(agent *agentRuntime) error {
 		if agent.activeTurnID != attempt.turnID {
@@ -546,12 +581,18 @@ func (s *service) finishRemoteTurnSubmitSuccess(ctx context.Context, attempt rem
 		return nil
 	})
 }
+
+// finishRemoteTurnSubmitFailure 将远端提交失败收口为 turn start failure。
 func (s *service) finishRemoteTurnSubmitFailure(ctx context.Context, attempt remoteTurnSubmitAttempt, submitErr error) {
 	s.finishTurnStartFailure(ctx, turnWork{agentID: attempt.agentID, turnID: attempt.turnID}, submitErr)
 }
+
+// canSubmitViaLauncher 判断 agent 是否可通过远端 launcher 接收新 turn。
 func (s *service) canSubmitViaLauncher(ctx context.Context, agent *agentRuntime) bool {
 	return s.launcher != nil && agent.cmd == nil && s.launcher.IsRunning(ctx, agent)
 }
+
+// remoteAgentBusy 判断远端 agent 是否仍有未完成 turn。
 func remoteAgentBusy(agent *agentRuntime) bool {
 	return agent.state != agentdto.StateIdle || agent.activeTurnID != ""
 }
@@ -586,6 +627,8 @@ func (s *service) enqueueLocalTurnSubmission(ctx context.Context, agentID string
 		return nil
 	})
 }
+
+// agentRunningLocked 在持锁上下文中判断本地进程或 launcher runtime 是否仍运行。
 func (s *service) agentRunningLocked(ctx context.Context, agent *agentRuntime) bool {
 	if agent == nil {
 		return false
@@ -595,6 +638,8 @@ func (s *service) agentRunningLocked(ctx context.Context, agent *agentRuntime) b
 	}
 	return agent.cmd != nil
 }
+
+// adoptLaunchStateLocked 将锁外 launcher 快照采用到当前 agent，调用方必须持有 service 锁。
 func adoptLaunchStateLocked(dst, src *agentRuntime) {
 	if dst == nil || src == nil {
 		return
@@ -605,6 +650,8 @@ func adoptLaunchStateLocked(dst, src *agentRuntime) {
 	dst.startedAt, dst.updatedAt, dst.exitedAt = src.startedAt, src.updatedAt, shared.CloneTime(src.exitedAt)
 	dst.lastError = src.lastError
 }
+
+// bindLaunchResult 将 launcher 返回的 thread/agent id 写入 runtime 状态。
 func bindLaunchResult(agent *agentRuntime, result LaunchResult) {
 	if agent == nil {
 		return

@@ -1,7 +1,5 @@
-// Package prompt source note: this file preserves the original enable_when.go
-// logic and the former match_when.go logic after merging them to keep the
-// prompt package within the production-file budget while retaining both source
-// comment blocks (§10.31).
+// Package prompt 实现 prompt section 注入和模板自动路由的条件判断。
+// enable_when 对坏 JSON 保持兼容注入；match_when 面向路由选择，坏规则会 fail-closed 跳过模板。
 package prompt
 
 import (
@@ -11,35 +9,29 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 )
 
-// EvaluateEnableWhen decides whether a prompt_template_section should be
-// injected for the given BuildCtx and (Start-time) user prompt.
+// EvaluateEnableWhen 判断 prompt_template_section 是否应注入当前 prompt。
+// 表达式使用 JSONB 键值 AND 匹配；空值或坏 JSON 视为无条件注入，以免历史手写行被静默移除。
 //
-// Expression shape (JSONB kv match, AND semantics across all keys):
+// 支持的表达式形态：
 //
-//	null / empty / invalid JSON → always inject (no gating)
-//	{}                          → always inject
-//	{"language":"zh"}           → inject only when buildCtx.Language == "zh"
-//	{"isWorktree":true}         → inject only when buildCtx.IsWorktree is true
+//	null / empty / invalid JSON → 无条件注入
+//	{}                          → 无条件注入
+//	{"language":"zh"}           → buildCtx.Language == "zh" 时注入
+//	{"isWorktree":true}         → buildCtx.IsWorktree 为 true 时注入
 //	{"provider":"claude-cli",
-//	 "model":"sonnet-4"}        → both must match (AND)
+//	 "model":"sonnet-4"}        → provider 和 model 必须同时匹配
 //	{"sessionFlags.debug":true} → buildCtx.SessionFlags["debug"] == true
-//	{"tags_has":"refactor"}     → case-insensitive substring in userPrompt
+//	{"tags_has":"refactor"}     → userPrompt 中存在该子串（大小写不敏感）
 //	{"tags_has":["rename","trace","impact"]}
-//	                            → OR across the array; any substring hit passes
+//	                            → 数组按 OR 匹配
 //	{"enabled_tools_has":"grep"}
-//	                            → BuildCtx.EnabledTools contains this short tool name
+//	                            → BuildCtx.EnabledTools 包含该短工具名
 //	{"enabled_tools_has":["grep","xref"]}
-//	                            → OR across the array; any match passes
+//	                            → 数组按 OR 匹配
 //	{"enabled_tools_all":["task_create_dag","task_start_dag"]}
-//	                            → AND across the array; every listed tool must be present
+//	                            → 数组按 AND 匹配。
 //
-// Step 3b kept the DSL deliberately tiny; tags_has and enabled_tools_* are the
-// intentional extensions (still no $not / $in / regex) added to enable
-// userPrompt-driven and tool-availability section gating without growing the
-// schema. All other mismatches or lookup misses still drop the section
-// (fail-closed). Unknown keys (not listed above and not under sessionFlags.)
-// are treated as a mismatch.
-// EvaluateEnableWhen 处理evaluateenablewhen。
+// 除 tags_has 和 enabled_tools_* 外不支持 $not/$in/regex；未知字段一律不匹配，避免误注入。
 func EvaluateEnableWhen(raw []byte, buildCtx contract.BuildCtx, userPrompt string) bool {
 	trimmed := strings.TrimSpace(string(raw))
 	if trimmed == "" || trimmed == "null" {
@@ -47,9 +39,7 @@ func EvaluateEnableWhen(raw []byte, buildCtx contract.BuildCtx, userPrompt strin
 	}
 	var expr map[string]any
 	if err := json.Unmarshal([]byte(trimmed), &expr); err != nil {
-		// Malformed expression: fail-open to preserve backwards-compatibility
-		// with any rows someone wrote by hand. Operators get a clearer signal
-		// via logs than by having their sections silently vanish.
+		// section 注入规则承载历史手写 JSON；坏表达式 fail-open，避免已存在的提示突然消失。
 		return true
 	}
 	if len(expr) == 0 {
@@ -63,9 +53,8 @@ func EvaluateEnableWhen(raw []byte, buildCtx contract.BuildCtx, userPrompt strin
 	return true
 }
 
-// sectionEnableKeyMatches dispatches a single enable_when key. tags_has is
-// the userPrompt-aware extension; everything else falls through to the shared
-// BuildCtx equality table used by both enable_when and match_when.
+// sectionEnableKeyMatches 分派单个 enable_when 字段。
+// tags_has 和 enabled_tools_* 有专用匹配逻辑，其余字段复用 BuildCtx 等值表。
 func sectionEnableKeyMatches(key string, want any, buildCtx contract.BuildCtx, userPrompt string) bool {
 	switch key {
 	case "tags_has":
@@ -82,12 +71,8 @@ func sectionEnableKeyMatches(key string, want any, buildCtx contract.BuildCtx, u
 	return enableWhenValueEquals(got, want)
 }
 
-// matchEnabledToolsHas implements enabled_tools_has for section-level
-// enable_when: string value matches one tool; array value is OR across each
-// string element. Comparison is exact (case-sensitive) against canonical short
-// tool names in BuildCtx.EnabledTools (e.g. "grep", "exec_command"). Legacy
-// "lsp_*" names are accepted as aliases during the tool rename migration.
-// matchEnabledToolsHas 判断enabled工具has是否匹配。
+// matchEnabledToolsHas 实现 enabled_tools_has：字符串匹配单个工具，数组按 OR 匹配。
+// 比较前会把兼容别名规范化为当前短工具名，保证旧配置和新工具名能共存。
 func matchEnabledToolsHas(want any, enabled []string) bool {
 	if len(enabled) == 0 {
 		return false
@@ -111,7 +96,7 @@ func matchEnabledToolsHas(want any, enabled []string) bool {
 	}
 }
 
-// matchEnabledToolsAll 判断enabled工具all是否匹配。
+// matchEnabledToolsAll 实现 enabled_tools_all：数组中的每个工具都必须启用。
 func matchEnabledToolsAll(want any, enabled []string) bool {
 	if len(enabled) == 0 {
 		return false
@@ -129,6 +114,7 @@ func matchEnabledToolsAll(want any, enabled []string) bool {
 	return true
 }
 
+// containsExact 对工具名做规范化后精确匹配，避免别名和大小写清理逻辑散落在调用方。
 func containsExact(values []string, want string) bool {
 	if want == "" {
 		return false
@@ -142,7 +128,7 @@ func containsExact(values []string, want string) bool {
 	return false
 }
 
-// canonicalPromptToolName 处理canonicalprompt工具名称。
+// canonicalPromptToolName 把兼容工具名和 orchestration 别名映射为当前短工具名。
 func canonicalPromptToolName(name string) string {
 	switch strings.TrimSpace(name) {
 	case "lsp_file":
@@ -168,6 +154,7 @@ func canonicalPromptToolName(name string) string {
 	}
 }
 
+// canonicalPromptLSPTools 从启用工具列表中提取规范化的 LSP 工具名。
 func canonicalPromptLSPTools(values []string) []string {
 	tools := make([]string, 0, len(values))
 	seen := make(map[string]struct{}, len(values))
@@ -185,6 +172,7 @@ func canonicalPromptLSPTools(values []string) []string {
 	return tools
 }
 
+// isPromptLSPToolName 判断工具名是否属于 prompt 可展示的 LSP 工具集合。
 func isPromptLSPToolName(name string) bool {
 	switch strings.TrimSpace(name) {
 	case "file", "grep", "inspect", "xref", "structure", "edit", "completion":
@@ -194,10 +182,7 @@ func isPromptLSPToolName(name string) bool {
 	}
 }
 
-// matchSectionTagsHas implements tags_has for section-level enable_when:
-// string value is a single case-insensitive substring probe; array value is
-// OR across each string element.
-// matchSectionTagsHas 判断sectiontagshas是否匹配。
+// matchSectionTagsHas 实现 section 级 tags_has：字符串为单个子串探测，数组按 OR 匹配。
 func matchSectionTagsHas(want any, userPrompt string) bool {
 	if strings.TrimSpace(userPrompt) == "" {
 		return false
@@ -221,10 +206,7 @@ func matchSectionTagsHas(want any, userPrompt string) bool {
 	}
 }
 
-// resolveEnableWhenField returns the runtime value of the requested BuildCtx
-// field. The second return is false when the key is unrecognized; callers
-// treat that as a mismatch (fail-closed for unknown gates).
-// resolveEnableWhenField 解析enablewhen字段。
+// resolveEnableWhenField 返回 BuildCtx 中的运行时字段；未知 key 返回 false 让上层 fail-closed。
 func resolveEnableWhenField(key string, c contract.BuildCtx) (any, bool) {
 	if strings.HasPrefix(key, "sessionFlags.") {
 		name := strings.TrimPrefix(key, "sessionFlags.")
@@ -251,17 +233,11 @@ func resolveEnableWhenField(key string, c contract.BuildCtx) (any, bool) {
 	}
 }
 
-// enableWhenValueEquals compares a BuildCtx-derived value with the JSON-decoded
-// expected value. JSON decoding yields bool / string / float64; we normalize
-// string-string and bool-bool and coerce map-missing SessionFlags (nil) to a
-// zero-value bool so {"sessionFlags.debug":false} can match when the flag is
-// absent.
-// enableWhenValueEquals 处理enablewhen值equals。
+// enableWhenValueEquals 比较 BuildCtx 字段和 JSON 期望值。
+// 缺失的 bool session flag 视为 false，使 {"sessionFlags.debug":false} 可匹配未设置状态。
 func enableWhenValueEquals(got, want any) bool {
 	if got == nil {
-		// Absent SessionFlags entry resolves to the zero value of its type;
-		// for bool that's false. Only treat it as a match when the caller
-		// actually asked for false.
+		// 缺失 session flag 等价 bool 零值，只在调用方明确要求 false 时匹配。
 		if w, ok := want.(bool); ok {
 			return !w
 		}
@@ -279,36 +255,28 @@ func enableWhenValueEquals(got, want any) bool {
 	}
 }
 
-// MatchWhen source note: the functions below were merged from the former
-// match_when.go so the prompt package can stay within the package file budget
-// without changing behavior.
-
-// EvaluateMatchWhen decides whether a prompt_template should be picked by
-// the "auto-route" rung of the router (between explicit pins and main/default
-// fallback). Semantics are deliberately different from EvaluateEnableWhen:
+// EvaluateMatchWhen 判断 prompt_template 是否参与自动路由。
+// 它和 EvaluateEnableWhen 的失败策略不同：路由规则损坏时跳过模板，避免错误规则抢占用户请求。
 //
-//   - nil / empty        → NOT a match (template opted out of auto-routing)
-//   - malformed JSON     → NOT a match (fail-closed — we'd rather skip than
-//     accidentally route to a template with broken rules)
-//   - "{}"                → always match (opt-in with no filter; relies on priority)
-//   - JSON kv AND match  → all keys must satisfy the current BuildCtx
+//   - nil / empty        → 不匹配，表示未启用自动路由
+//   - malformed JSON     → 不匹配，fail-closed
+//   - "{}"                → 无条件匹配，后续仍按 priority 排序
+//   - JSON kv AND match  → 所有字段都必须匹配当前 BuildCtx
 //
-// Supported keys (a + b + d per 决策 1):
+// 支持的字段：
 //
-//	cwd_glob        filepath.Match glob against buildCtx.CWD
+//	cwd_glob        用 filepath.Match 匹配 buildCtx.CWD
 //	                  e.g. "*/projects/data-*"
-//	cwd_prefix      strings.HasPrefix against buildCtx.CWD
+//	cwd_prefix      用 strings.HasPrefix 匹配 buildCtx.CWD
 //	                  e.g. "/Users/mac/work"
 //	language        buildCtx.Language == value
 //	provider        buildCtx.Provider == value
 //	model           buildCtx.Model == value
 //	isWorktree      buildCtx.IsWorktree == value
 //	sessionFlags.X  buildCtx.SessionFlags[X] == value
-//	tags_has        retired for template match_when; always fails closed
+//	tags_has        模板路由不再支持，始终 fail-closed
 //
-// The two layers (template match_when + section enable_when) never share data
-// at call time; both read the same BuildCtx but are evaluated in different
-// phases (routing vs assembling).
+// 模板 match_when 和 section enable_when 都读 BuildCtx，但分别发生在路由与组装阶段。
 func EvaluateMatchWhen(raw []byte, buildCtx contract.BuildCtx, userPrompt string) bool {
 	trimmed := strings.TrimSpace(string(raw))
 	if trimmed == "" || trimmed == "null" {
@@ -329,9 +297,8 @@ func EvaluateMatchWhen(raw []byte, buildCtx contract.BuildCtx, userPrompt string
 	return true
 }
 
-// matchWhenKeyMatches handles one key from a match_when expression. It
-// dispatches between the custom glob/prefix keys and the shared
-// BuildCtx-field equality table reused from EvaluateEnableWhen.
+// matchWhenKeyMatches 处理单个 match_when 字段。
+// cwd_glob/cwd_prefix 走路径匹配，其余字段复用 BuildCtx 等值表；未知字段 fail-closed。
 func matchWhenKeyMatches(key string, want any, buildCtx contract.BuildCtx, userPrompt string) bool {
 	switch key {
 	case "cwd_glob":
@@ -339,12 +306,10 @@ func matchWhenKeyMatches(key string, want any, buildCtx contract.BuildCtx, userP
 	case "cwd_prefix":
 		return matchCWDPrefix(matchWhenStringValue(want), buildCtx.CWD)
 	case "tags_has":
-		// Template-level keyword routing is retired. Keep section-level
-		// enable_when.tags_has in sectionEnableKeyMatches above.
+		// Template-level keyword routing is retired；关键词只允许用于 section 级 enable_when。
 		return false
 	default:
-		// Fall through to the shared BuildCtx equality table (language /
-		// provider / model / cwd / gitRoot / isWorktree / sessionFlags.*).
+		// 共享 BuildCtx 等值表覆盖 language/provider/model/cwd/gitRoot/isWorktree/sessionFlags.*。
 		got, ok := resolveEnableWhenField(key, buildCtx)
 		if !ok {
 			return false

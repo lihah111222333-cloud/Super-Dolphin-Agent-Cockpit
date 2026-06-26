@@ -27,34 +27,35 @@ type Service interface {
 	StopPlaywrightServer(context.Context, StopPlaywrightServerRequest) (StopPlaywrightServerResult, error)
 }
 
-// StartPostgresServerRequest 是默认 postgres MCP server 的显式启动请求。
+// StartPostgresServerRequest 是兼容入口透传到底层 mcp_server 的 postgres 启动请求别名。
 type StartPostgresServerRequest = contract.MCPPostgresServerStartRequest
 
-// StartPostgresServerResult 返回配置写入位置以及本次是否新增配置。
+// StartPostgresServerResult 是 postgres 默认配置写入结果的 wire 别名。
+// Added 字段由底层 mcp_server 决定，兼容入口不重新解释结果。
 type StartPostgresServerResult = contract.MCPPostgresServerStartResult
 
-// StartSQLiteServerRequest 是默认 sqlite MCP server 的显式启动请求。
+// StartSQLiteServerRequest 是兼容入口透传的 sqlite 启动请求别名。
 type StartSQLiteServerRequest = contract.MCPSQLiteServerStartRequest
 
-// StartSQLiteServerResult 返回 sqlite MCP server 配置的写入和开启状态。
+// StartSQLiteServerResult 是 sqlite 默认 server 写入或启用后的 wire 结果别名。
 type StartSQLiteServerResult = contract.MCPSQLiteServerStartResult
 
-// StopSQLiteServerRequest 是默认 sqlite MCP server 的显式关闭请求。
+// StopSQLiteServerRequest 是兼容入口透传的 sqlite 关闭请求别名。
 type StopSQLiteServerRequest = contract.MCPSQLiteServerStopRequest
 
-// StopSQLiteServerResult 返回 sqlite MCP server 关闭后的状态。
+// StopSQLiteServerResult 是 sqlite 默认 server 关闭后的 wire 结果别名。
 type StopSQLiteServerResult = contract.MCPSQLiteServerStopResult
 
-// StartPlaywrightServerRequest 是默认 playwright MCP server 的显式启动请求。
+// StartPlaywrightServerRequest 是兼容入口透传的 playwright 启动请求别名。
 type StartPlaywrightServerRequest = contract.MCPPlaywrightServerStartRequest
 
-// StartPlaywrightServerResult 返回 playwright MCP server 配置的写入和开启状态。
+// StartPlaywrightServerResult 是 playwright 默认 server 写入或启用后的 wire 结果别名。
 type StartPlaywrightServerResult = contract.MCPPlaywrightServerStartResult
 
-// StopPlaywrightServerRequest 是默认 playwright MCP server 的显式关闭请求。
+// StopPlaywrightServerRequest 是兼容入口透传的 playwright 关闭请求别名。
 type StopPlaywrightServerRequest = contract.MCPPlaywrightServerStopRequest
 
-// StopPlaywrightServerResult 返回 playwright MCP server 关闭后的状态。
+// StopPlaywrightServerResult 是 playwright 默认 server 关闭后的 wire 结果别名。
 type StopPlaywrightServerResult = contract.MCPPlaywrightServerStopResult
 
 type defaultServerController interface {

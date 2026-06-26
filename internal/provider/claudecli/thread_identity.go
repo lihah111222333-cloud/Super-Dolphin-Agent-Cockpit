@@ -64,29 +64,22 @@ func (s *session) markThreadReady() {
 	s.markThreadReadyLocked()
 }
 
-// markThreadReadyLocked closes threadReady at most once using an idempotent
-// select/default pattern. Caller must hold s.mu, which serializes the check
-// and the close so the double-close panic is impossible.
-//
-// This replaces the previous sync.Once-per-session pattern whose reset
-// path (s.threadReadyOnce = sync.Once{}) was a reassignment of a struct
-// containing a Mutex — an idiom that, while safe under s.mu here, is
-// flagged by race detectors and by govet in stricter settings.
+// markThreadReadyLocked 在持锁状态下至多关闭一次 threadReady。
+// select/default 让 ready 信号可重复触发而不 panic，也避免重置 sync.Once 这类容易被 vet 误判的写法。
 func (s *session) markThreadReadyLocked() {
 	if s == nil || s.threadReady == nil {
 		return
 	}
 	select {
 	case <-s.threadReady:
-		// Already closed; nothing to do.
+		// 已经关闭，保持幂等。
 	default:
 		close(s.threadReady)
 	}
 }
 
-// resetThreadReadyLocked replaces the threadReady channel with a fresh
-// unclosed one so the next markThreadReadyLocked call can close it again.
-// Caller must hold s.mu.
+// resetThreadReadyLocked 用新的未关闭 channel 开始下一轮 thread ready 等待。
+// 调用方必须持有 s.mu，否则等待方可能看到半更新状态。
 func (s *session) resetThreadReadyLocked() {
 	if s == nil {
 		return

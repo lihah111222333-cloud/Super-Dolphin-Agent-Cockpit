@@ -13,25 +13,18 @@ import (
 	"github.com/wailsapp/wails/v3/pkg/application"
 )
 
-// FrontendFS carries the fs.FS provided by the binary entrypoint
-// (typically cmd/agent-terminal) via Fx dependency injection.
+// FrontendFS 承载入口程序通过 Fx 注入的前端资源文件系统。
 type FrontendFS struct {
 	FS fs.FS
 }
 
-// placeholder keeps a minimal index.html so `go build ./internal/...`
-// always succeeds even when no frontend has been built.
+// placeholderAssets 内置最小前端资源，保证未构建前端时 Go 包仍可编译。
 //
 //go:embed frontend
 var placeholderAssets embed.FS
 
-// AssetHandlerFrom builds the Wails asset handler using the injected FS,
-// falling back to the embedded placeholder when the injected FS is nil.
-//
-// When the VITE_DEV_URL environment variable is set (e.g. "http://localhost:5173"),
-// all requests are reverse-proxied to the Vite dev server, enabling HMR
-// (hot module replacement) and instant frontend updates without vite build.
-// AssetHandlerFrom 从桌面 UI 桥接处理asset处理器。
+// AssetHandlerFrom 构造 Wails 前端资源处理器。
+// VITE_DEV_URL 存在时会转发到 Vite dev server；否则使用注入资源或内置占位资源。
 func AssetHandlerFrom(injected FrontendFS) http.Handler {
 	if devURL := strings.TrimSpace(os.Getenv("VITE_DEV_URL")); devURL != "" {
 		return viteDevProxy(devURL)
@@ -39,8 +32,7 @@ func AssetHandlerFrom(injected FrontendFS) http.Handler {
 	return application.BundledAssetFileServer(resolveFS(injected))
 }
 
-// viteDevProxy returns an http.Handler that reverse-proxies all requests
-// to the Vite dev server at the given URL.
+// viteDevProxy 创建指向 Vite dev server 的反向代理。
 func viteDevProxy(rawURL string) http.Handler {
 	target, err := url.Parse(rawURL)
 	if err != nil {
@@ -48,7 +40,7 @@ func viteDevProxy(rawURL string) http.Handler {
 	}
 	slog.Info("frontend proxying to vite dev server", "url", target.String())
 	proxy := httputil.NewSingleHostReverseProxy(target)
-	// Rewrite the Host header so Vite accepts the request.
+	// Vite dev server 会校验 Host，这里随反向代理目标同步请求头。
 	originalDirector := proxy.Director
 	proxy.Director = func(req *http.Request) {
 		originalDirector(req)
@@ -57,6 +49,7 @@ func viteDevProxy(rawURL string) http.Handler {
 	return proxy
 }
 
+// resolveFS 选择实际提供给 Wails 的前端资源文件系统。
 func resolveFS(injected FrontendFS) fs.FS {
 	if injected.FS != nil {
 		return injected.FS

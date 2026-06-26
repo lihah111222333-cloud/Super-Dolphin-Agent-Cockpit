@@ -13,11 +13,12 @@ import (
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
+// sendMessageShouldWaitReport 检查 send_message 是否需要等待后续报告。
 func sendMessageShouldWaitReport(in SendMessageInput) bool {
 	return in.WaitReport != nil && *in.WaitReport
 }
 
-// submitMessageAndWaitForReport 只处理 idle agent 的 follow-up 等待路径。
+// submitMessageAndWaitForReport 只处理 idle agent 的后续消息等待路径。
 // 先记录当前 report_seq，再提交 turn，最后等待更大的 seq，避免误读上一轮旧报告。
 func submitMessageAndWaitForReport(ctx context.Context, svc contract.OrchestrationService, in SendMessageInput) (map[string]any, error) {
 	agentID, message, err := sendMessageParts(in)
@@ -63,7 +64,7 @@ func submitMessageAndWaitForReport(ctx context.Context, svc contract.Orchestrati
 	}), nil
 }
 
-// waitForFollowUpReport 保持原有 report 等待错误格式，同时复用同一个 follow-up deadline。
+// waitForFollowUpReport 保持原有 report 等待错误格式，同时复用同一个后续消息 deadline。
 func waitForFollowUpReport(ctx, followUpCtx context.Context, svc contract.OrchestrationService, waitInput GetAgentReportInput, agentID string, timeout time.Duration, previousReportSeq int64) (contract.AgentReportResult, error) {
 	result, err := waitForAgentReport(followUpCtx, svc, waitInput, agentID)
 	if err != nil {
@@ -79,7 +80,7 @@ func waitForFollowUpReport(ctx, followUpCtx context.Context, svc contract.Orches
 	return report, nil
 }
 
-// sendMessageSubmitError 把 follow-up 提交阶段的 deadline 转成可诊断的工具错误。
+// sendMessageSubmitError 把后续 turn 提交阶段的 deadline 转成可诊断的工具错误。
 func sendMessageSubmitError(agentID string, timeout time.Duration, err error) error {
 	if errors.Is(err, context.DeadlineExceeded) {
 		return fmt.Errorf("submit follow-up turn for agent %q timed out after %s: %w", agentID, timeout, err)
@@ -87,6 +88,7 @@ func sendMessageSubmitError(agentID string, timeout time.Duration, err error) er
 	return err
 }
 
+// previousFollowUpReportSeq 读取提交前的 report_seq，后续等待必须看到更大的序号。
 func previousFollowUpReportSeq(ctx context.Context, svc contract.OrchestrationService, agentID string) (int64, error) {
 	report, err := svc.GetReport(ctx, agentID)
 	if err != nil {
@@ -95,6 +97,8 @@ func previousFollowUpReportSeq(ctx context.Context, svc contract.OrchestrationSe
 	return report.ReportSeq, nil
 }
 
+// requireIdleFollowUpAgent 限制 wait_report=true 只能投递给 idle agent。
+// 非 idle 状态下继续追加消息会和正在运行的 turn 竞争，必须 fail-fast。
 func requireIdleFollowUpAgent(agentID, state string) error {
 	state = strings.TrimSpace(state)
 	if strings.EqualFold(state, "idle") {
@@ -103,6 +107,7 @@ func requireIdleFollowUpAgent(agentID, state string) error {
 	return fmt.Errorf("send_message wait_report=true requires idle agent follow-up; agent %q is in state %q", agentID, state)
 }
 
+// threadIDFromSnapshot 优先使用快照里的 thread_id，缺失时退回 agentID 保持旧接口兼容。
 func threadIDFromSnapshot(snapshot contract.AgentSnapshot, agentID string) string {
 	if threadID := strings.TrimSpace(snapshot.ThreadID); threadID != "" {
 		return threadID
@@ -110,6 +115,7 @@ func threadIDFromSnapshot(snapshot contract.AgentSnapshot, agentID string) strin
 	return agentID
 }
 
+// submitSendMessageTurn 向 orchestration service 提交后续 turn，并记录最小诊断日志。
 func submitSendMessageTurn(ctx context.Context, svc contract.OrchestrationService, submission contract.TurnSubmission, message string) error {
 	pkglogger.Warn("orchestration_send_message: submit begin",
 		"agent_id", submission.AgentID,
@@ -129,6 +135,8 @@ func submitSendMessageTurn(ctx context.Context, svc contract.OrchestrationServic
 	return nil
 }
 
+// submissionFromMessage 构造普通 send_message 的 turn 提交体。
+// 它会解析 pos/agent_id 并按当前快照选择 thread_id。
 func submissionFromMessage(
 	ctx context.Context,
 	svc contract.OrchestrationService,
@@ -141,6 +149,7 @@ func submissionFromMessage(
 	return turnSubmissionFromMessage(agentID, submissionThreadID(ctx, svc, agentID), message), nil
 }
 
+// sendMessageParts 解析 send_message 的目标 agent 和正文，两者都不能为空。
 func sendMessageParts(in SendMessageInput) (string, string, error) {
 	agentID, err := resolveAgentIDInput(in.AgentID, in.Pos)
 	if err != nil {
@@ -153,6 +162,7 @@ func sendMessageParts(in SendMessageInput) (string, string, error) {
 	return agentID, message, nil
 }
 
+// turnSubmissionFromMessage 把纯文本消息封装成服务层 TurnSubmission。
 func turnSubmissionFromMessage(agentID, threadID, message string) contract.TurnSubmission {
 	return contract.TurnSubmission{
 		AgentID:  agentID,
@@ -164,6 +174,7 @@ func turnSubmissionFromMessage(agentID, threadID, message string) contract.TurnS
 	}
 }
 
+// submissionThreadID 从快照读取 thread_id；读取失败或为空时使用 agentID 保持可提交。
 func submissionThreadID(ctx context.Context, svc contract.OrchestrationService, agentID string) string {
 	snapshot, err := svc.Snapshot(ctx, agentID)
 	if err == nil && strings.TrimSpace(snapshot.ThreadID) != "" {

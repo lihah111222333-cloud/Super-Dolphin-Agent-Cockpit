@@ -12,7 +12,7 @@ type threadIDParams struct {
 	ThreadID string `json:"thread_id"`
 }
 
-// UnmarshalJSON 解码JSON。
+// UnmarshalJSON 解码 thread id 参数，并兼容旧 camelCase threadId。
 func (p *threadIDParams) UnmarshalJSON(data []byte) error {
 	type raw threadIDParams
 	var current raw
@@ -35,50 +35,44 @@ type startParams struct {
 	AgentMemoryScope      string `json:"agent_memory_scope,omitempty"`
 	BaseInstructions      string `json:"base_instructions,omitempty"`
 	DeveloperInstructions string `json:"developer_instructions,omitempty"`
-	// json.RawMessage: justified -- polymorphic wire shape (object {"type":"..."} OR plain string);
-	// consumed via isDangerFullAccessSandbox and forwarded opaquely to provider config.
+	// Sandbox 是多形态 wire 字段，可为 {"type":"..."} 或字符串；这里只透传原始 JSON 给启动配置校验。
 	Sandbox     json.RawMessage `json:"sandbox,omitempty"`
 	Summary     string          `json:"summary,omitempty"`
 	Effort      string          `json:"effort,omitempty"`
 	Personality string          `json:"personality,omitempty"`
 	Language    string          `json:"language,omitempty"`
-	// ToolSurfaceMode controls the provider tool surface for this thread.
-	// Supported values: chat, auto, agent.
+	// ToolSurfaceMode 控制本 thread 的 provider 工具面，支持 chat、auto、agent。
 	ToolSurfaceMode string `json:"tool_surface_mode,omitempty"`
-	// json.RawMessage: justified -- open-ended key/value config bag decoded via
-	// decodeConfigMap into map[string]any; schema is caller-defined, not fixed.
+	// Config 是开放 key/value wire 包，schema 由调用方和 provider 约定，decodeConfigMap 只校验对象形状。
 	Config json.RawMessage `json:"config,omitempty"`
 
 	Name string `json:"name,omitempty"`
-	// Deprecated: use Name for display-name semantics; Prompt is kept only for legacy callers.
+	// Prompt 仅接收旧调用方传入的 display name 别名；新请求使用 Name。
 	Prompt string `json:"-"`
-	// SelectedSkills / ManualSkillSelection p20.3 §4.3：launch 时 UI 已知的 skill 载荷。
-	// 主使用 snake_case；`fillLegacyFields` 额外读 camelCase 别名（与
-	// send path `selectedSkills` / `manualSkillSelection` 对齐）。
+	// SelectedSkills / ManualSkillSelection 是启动时 UI 已知的 skill 载荷。
+	// 主字段使用 snake_case，fillLegacyFields 额外读取 camelCase 以兼容旧 send path。
 	SelectedSkills       []string         `json:"selected_skills,omitempty"`
 	SelectedSkillRefs    []skillRefParams `json:"selected_skill_refs,omitempty"`
 	ManualSkillSelection bool             `json:"manual_skill_selection,omitempty"`
-	// Optional explicit agent_key override. Empty = let the router decide.
+	// AgentKey 是显式 agent_key 覆盖；空值表示交给路由器决定。
 	AgentKey string `json:"agent_key,omitempty"`
-	// Optional explicit prompt_key pin. Surfaces the SystemPromptPage's
-	// "set as launch prompt" preference. Takes precedence over agent_key:
-	// the router looks up this exact prompt_template row and injects its
-	// PromptText as BaseInstructions. Empty = fall back to agent_key /
-	// default routing.
+	// PromptKey 是显式 prompt_key pin，优先级高于 agent_key。
+	// 路由器必须查到该 prompt_template 才会注入；空值才回到 agent_key 或默认路由。
 	PromptKey string `json:"prompt_key,omitempty"`
-	// DeferSpawn creates a pending row; the actual spawn happens on first turn.
+	// DeferSpawn 创建 pending row，真实 provider spawn 延迟到首个 turn。
 	DeferSpawn     bool   `json:"defer_spawn,omitempty"`
 	LaunchIntentID string `json:"launch_intent_id,omitempty"`
 }
 
-// handoffParams is the RPC payload for thread/handoff.
+// handoffParams 是 thread/handoff 的 wire payload，保留 snake_case 字段。
 type handoffParams struct {
 	ThreadID       string `json:"thread_id"`
 	AgentKey       string `json:"agent_key"`
 	InitialMessage string `json:"initial_message,omitempty"`
 }
 
-// UnmarshalJSON 解码JSON。
+// UnmarshalJSON 解码 thread/start 参数。
+// 未知字段会被拒绝；兼容字段只在显式允许的 snake/camel 别名集合内读取。
 func (p *startParams) UnmarshalJSON(data []byte) error {
 	type raw startParams
 	var current raw
@@ -167,9 +161,8 @@ func (p *startParams) fillLegacyFields(data []byte) error {
 	return p.fillLegacyLaunchSkillFields(payload)
 }
 
-// fillLegacyLaunchSkillFields p20.3 §4.3：容忍 camelCase `selectedSkills` /
-// `manualSkillSelection` 别名。主 tag 仍为 snake_case，前端 send path 早已发
-// camelCase，launch payload 对齐后不会额外介绍接口表面。
+// fillLegacyLaunchSkillFields 读取 selected skill 的 camelCase wire 别名。
+// 主 JSON tag 保持 snake_case；旧 UI 的 selectedSkills/manualSkillSelection 只作为兼容输入。
 func (p *startParams) fillLegacyLaunchSkillFields(payload map[string]json.RawMessage) error {
 	if len(p.SelectedSkills) == 0 {
 		if raw, ok := payload["selectedSkills"]; ok {
@@ -277,7 +270,8 @@ func assignCompatString(payload map[string]json.RawMessage, target *string, fiel
 	return nil
 }
 
-// resolveCompatString 解析compatstring。
+// resolveCompatString 在一组兼容 key 中解析同一个字符串字段。
+// 多个 key 同时出现且值不同会 fail-fast，避免新旧字段冲突时静默选择其中一个。
 func resolveCompatString(payload map[string]json.RawMessage, field string, keys ...string) (string, bool, error) {
 	var resolved compatStringValue
 	for _, key := range keys {
@@ -325,7 +319,7 @@ type resumeParams struct {
 	Provider string `json:"provider,omitempty"`
 }
 
-// UnmarshalJSON 解码JSON。
+// UnmarshalJSON 解码 thread/resume 参数，并兼容旧 camelCase threadId。
 func (p *resumeParams) UnmarshalJSON(data []byte) error {
 	type raw resumeParams
 	var current raw
@@ -348,7 +342,8 @@ type threadInfo struct {
 	ForkedFrom string `json:"forkedFrom,omitempty"`
 }
 
-// UnmarshalJSON 解码JSON。
+// UnmarshalJSON 解码 thread/messages 参数。
+// before 允许字符串或整数 cursor，thread id 仍兼容旧 camelCase 字段。
 func (p *messagesParams) UnmarshalJSON(data []byte) error {
 	type raw struct {
 		ThreadID string          `json:"thread_id"`
@@ -392,7 +387,7 @@ type nameSetParams struct {
 	Name     string `json:"name"`
 }
 
-// UnmarshalJSON 解码JSON。
+// UnmarshalJSON 解码 thread/name/set 参数，并兼容旧 camelCase threadId。
 func (p *nameSetParams) UnmarshalJSON(data []byte) error {
 	type raw nameSetParams
 	var current raw
@@ -408,7 +403,7 @@ type commandParams struct {
 	Args     string `json:"args,omitempty"`
 }
 
-// UnmarshalJSON 解码JSON。
+// UnmarshalJSON 解码低频 command 参数，并兼容旧 camelCase threadId。
 func (p *commandParams) UnmarshalJSON(data []byte) error {
 	type raw commandParams
 	var current raw
@@ -425,7 +420,7 @@ type approvalsSetParams struct {
 	Policy   string `json:"policy,omitempty"`
 }
 
-// UnmarshalJSON 解码JSON。
+// UnmarshalJSON 解码 approvals 更新参数，并兼容旧 camelCase threadId。
 func (p *approvalsSetParams) UnmarshalJSON(data []byte) error {
 	type raw approvalsSetParams
 	var current raw
@@ -440,7 +435,7 @@ type configGetParams struct {
 	ThreadID string `json:"thread_id"`
 }
 
-// UnmarshalJSON 解码JSON。
+// UnmarshalJSON 解码 thread/config/get 参数，并兼容旧 camelCase threadId。
 func (p *configGetParams) UnmarshalJSON(data []byte) error {
 	type raw configGetParams
 	var current raw
@@ -457,7 +452,7 @@ type configSetParams struct {
 	Effort   *string `json:"effort,omitempty"`
 }
 
-// UnmarshalJSON 解码JSON。
+// UnmarshalJSON 解码 thread/config/set 参数，并兼容旧 camelCase threadId。
 func (p *configSetParams) UnmarshalJSON(data []byte) error {
 	type raw configSetParams
 	var current raw
@@ -474,7 +469,7 @@ type modelSetParams struct {
 	Args     string `json:"args,omitempty"`
 }
 
-// UnmarshalJSON 解码JSON。
+// UnmarshalJSON 解码 thread/model/set 参数，并兼容旧 camelCase threadId。
 func (p *modelSetParams) UnmarshalJSON(data []byte) error {
 	type raw modelSetParams
 	var current raw
@@ -490,7 +485,7 @@ type compactStartParams struct {
 	Args     string `json:"args,omitempty"`
 }
 
-// UnmarshalJSON 解码JSON。
+// UnmarshalJSON 解码 thread/compact/start 参数，并兼容旧 camelCase threadId。
 func (p *compactStartParams) UnmarshalJSON(data []byte) error {
 	type raw compactStartParams
 	var current raw
@@ -522,11 +517,11 @@ func fillLegacyThreadID(data []byte, threadID *string) error {
 }
 
 // ---------------------------------------------------------------------------
-// Response structs — wire-compatible replacements for map[string]any returns.
-// JSON tags MUST match the original map keys exactly.
+// 响应结构体是 map[string]any 返回值的 wire-compatible 替代。
+// JSON tag 必须保持原有 key，避免旧前端或测试 fixture 读不到字段。
 // ---------------------------------------------------------------------------
 
-// startEffectiveResponse is the nested "effective" object inside startResponse.
+// startEffectiveResponse 是 thread/start 响应中的 effective 子对象。
 type startEffectiveResponse struct {
 	Model          string `json:"model"`
 	Provider       string `json:"provider"`
@@ -535,7 +530,8 @@ type startEffectiveResponse struct {
 	ApprovalPolicy string `json:"approvalPolicy"`
 }
 
-// startResponse is the wire response for thread/start.
+// startResponse 是 thread/start 的 wire 响应。
+// snake_case 与 camelCase 身份字段并存，用于兼容不同 UI 版本。
 type startResponse struct {
 	Thread         threadInfo             `json:"thread"`
 	ThreadID       string                 `json:"threadId"`
@@ -552,7 +548,7 @@ type startResponse struct {
 	ApprovalPolicy string                 `json:"approvalPolicy"`
 	Effective      startEffectiveResponse `json:"effective"`
 
-	// Optional fields — omitted from JSON when zero/nil.
+	// 可选字段为 nil 时省略，避免旧调用方看到空指针语义。
 	AgentKey         *string `json:"agent_key,omitempty"`
 	AgentKeyCamel    *string `json:"agentKey,omitempty"`
 	AgentTitle       *string `json:"agent_title,omitempty"`
@@ -561,22 +557,16 @@ type startResponse struct {
 	PromptKeyCamel   *string `json:"promptKey,omitempty"`
 	PromptVersionID  *int64  `json:"prompt_version_id,omitempty"`
 	PromptVersionIDC *int64  `json:"promptVersionId,omitempty"`
-	// PromptKeyStale: true when the caller-supplied prompt_key did not
-	// resolve to an enabled prompt_template row. The UI listens for either
-	// the snake_case or camelCase variant and clears its activePromptKey
-	// pref + notifies the user when it sees true.
+	// PromptKeyStale 表示调用方传入的 prompt_key 未命中启用模板。
+	// UI 同时监听 snake_case 和 camelCase，看到 true 后清理本地 activePromptKey 偏好并提示用户。
 	PromptKeyStale      *bool `json:"prompt_key_stale,omitempty"`
 	PromptKeyStaleCamel *bool `json:"promptKeyStale,omitempty"`
 	PendingLaunch       *bool `json:"pending_launch,omitempty"`
 	PendingLaunchC      *bool `json:"pendingLaunch,omitempty"`
 }
 
-// attachPromptKeyStale stamps the dual-key prompt_key_stale pointers on a
-// thread/start response when the router flagged the caller-supplied
-// prompt_key as stale (template deleted / disabled). Sits in rpc_types.go
-// alongside startResponse so buildStartResponse can keep its cyclomatic
-// ratchet baseline; tests in rpc_types_test.go cover both snake/camel wire
-// keys + the happy-path omitempty contract.
+// attachPromptKeyStale 在 router 判定 prompt_key 失效时写入双 key 指针。
+// 放在响应 DTO 旁边可让 buildStartResponse 保持简单，同时测试覆盖 snake/camel 和 omitempty 行为。
 func attachPromptKeyStale(resp *startResponse, stale bool) {
 	if !stale {
 		return
@@ -585,12 +575,12 @@ func attachPromptKeyStale(resp *startResponse, stale bool) {
 	resp.PromptKeyStaleCamel = &stale
 }
 
-// forkResponse is the wire response for thread/fork.
+// forkResponse 是 thread/fork 的 wire 响应。
 type forkResponse struct {
 	Thread threadInfo `json:"thread"`
 }
 
-// handoffResponse is the wire response for thread/handoff.
+// handoffResponse 是 thread/handoff 的 wire 响应，保留 snake/camel 双字段给不同 UI 版本读取。
 type handoffResponse struct {
 	SourceThreadID      string     `json:"source_thread_id"`
 	SourceThreadIDCamel string     `json:"sourceThreadId"`
@@ -609,14 +599,14 @@ type handoffResponse struct {
 	PromptVersionIDC *int64  `json:"promptVersionId,omitempty"`
 }
 
-// recoverResponse is the wire response for thread/recover.
+// recoverResponse 是 thread/recover 的 wire 响应。
 type recoverResponse struct {
 	Thread    threadInfo `json:"thread"`
 	Recovered bool       `json:"recovered"`
 	Mode      string     `json:"mode"`
 }
 
-// resumeResponse is the wire response for thread/resume.
+// resumeResponse 是 thread/resume 的 wire 响应，保留 thread/session 的 snake/camel 双字段。
 type resumeResponse struct {
 	Thread         threadInfo `json:"thread"`
 	ThreadID       string     `json:"threadId"`

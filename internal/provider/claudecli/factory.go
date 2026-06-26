@@ -12,6 +12,7 @@ import (
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
+// encodeAttachmentHint 将文件或图片输入编码成可写入 Claude 文本流的提示行。
 func encodeAttachmentHint(input dto.InputItem) string {
 	target := shared.FirstNonEmpty(input.Path, input.URL)
 	if target == "" {
@@ -27,7 +28,7 @@ func encodeAttachmentHint(input dto.InputItem) string {
 	return "[" + label + ": " + target + "]"
 }
 
-// decodeAttachmentHint 解码attachmenthint。
+// decodeAttachmentHint 从 Claude 文本流中还原附件提示行。
 func decodeAttachmentHint(line string) (map[string]any, bool) {
 	trimmed := strings.TrimSpace(line)
 	lower := strings.ToLower(trimmed)
@@ -55,6 +56,7 @@ func decodeAttachmentHint(line string) (map[string]any, bool) {
 	return item, true
 }
 
+// splitAttachmentHintValue 拆分附件展示名和真实目标地址。
 func splitAttachmentHintValue(value string) (string, string) {
 	parts := strings.SplitN(value, " -> ", 2)
 	if len(parts) != 2 {
@@ -68,6 +70,7 @@ func splitAttachmentHintValue(value string) (string, string) {
 	return name, target
 }
 
+// finishTurnWithError 结束当前 turn 并发布失败的 turn:complete 事件。
 func (s *session) finishTurnWithError(handle *turnHandle, err error) {
 	if handle == nil {
 		return
@@ -83,6 +86,7 @@ func (s *session) finishTurnWithError(handle *turnHandle, err error) {
 	}))
 }
 
+// takeActiveTurnLocked 在持锁状态下取走 active turn，并取消尚未执行的 retry。
 func (s *session) takeActiveTurnLocked() *turnHandle {
 	if s == nil {
 		return nil
@@ -98,6 +102,7 @@ func (s *session) takeActiveTurnLocked() *turnHandle {
 	return handle
 }
 
+// ensureTurnAvailable 确认当前 turn handle 没有被其他请求占用。
 func ensureTurnAvailable(handle *turnHandle) error {
 	if handle == nil {
 		return nil
@@ -108,6 +113,7 @@ func ensureTurnAvailable(handle *turnHandle) error {
 	return nil
 }
 
+// ensureTransportReady 确认 session transport 仍可发送请求。
 func ensureTransportReady(tr *transport) error {
 	if tr == nil {
 		return errors.New("claudecli: session transport is closed")
@@ -115,6 +121,7 @@ func ensureTransportReady(tr *transport) error {
 	return nil
 }
 
+// decodeMessageEvents 将 Claude stream message 里的 content block 展开为内部 RawProviderEvent。
 func decodeMessageEvents(raw streamEvent, base rawBase, role string) ([]dto.RawProviderEvent, error) {
 	var msg struct {
 		Content []json.RawMessage `json:"content"`
@@ -136,6 +143,7 @@ func decodeMessageEvents(raw streamEvent, base rawBase, role string) ([]dto.RawP
 	return out, nil
 }
 
+// decodeMessageBlock 根据 role 分发 assistant/user content block 的解码逻辑。
 func decodeMessageBlock(role string, rawBlock json.RawMessage, data map[string]any) ([]dto.RawProviderEvent, error) {
 	switch strings.ToLower(strings.TrimSpace(role)) {
 	case "assistant":
@@ -148,7 +156,7 @@ func decodeMessageBlock(role string, rawBlock json.RawMessage, data map[string]a
 	}
 }
 
-// decodeAssistantMessageBlock 解码assistant消息block。
+// decodeAssistantMessageBlock 将 assistant text/thinking/tool_use block 转成增量或工具开始事件。
 func decodeAssistantMessageBlock(rawBlock json.RawMessage, data map[string]any) ([]dto.RawProviderEvent, error) {
 	var block contentBlock
 	if err := json.Unmarshal(rawBlock, &block); err != nil {
@@ -172,7 +180,7 @@ func decodeAssistantMessageBlock(rawBlock json.RawMessage, data map[string]any) 
 	return nil, nil
 }
 
-// decodeUserMessageBlock 解码user消息block。
+// decodeUserMessageBlock 将 user tool_result block 转成工具结束事件。
 func decodeUserMessageBlock(rawBlock json.RawMessage, data map[string]any) ([]dto.RawProviderEvent, error) {
 	var block map[string]any
 	if err := json.Unmarshal(rawBlock, &block); err != nil {
@@ -198,7 +206,7 @@ func decodeUserMessageBlock(rawBlock json.RawMessage, data map[string]any) ([]dt
 	return []dto.RawProviderEvent{{EventType: "tool:use_end", Data: data}}, nil
 }
 
-// toolResultContent 处理工具结果内容。
+// toolResultContent 从 Claude tool_result content 中提取可展示文本。
 func toolResultContent(raw any) string {
 	switch value := raw.(type) {
 	case string:
@@ -229,6 +237,7 @@ func toolResultContent(raw any) string {
 	return strings.TrimSpace(string(marshaled))
 }
 
+// messageDeltaEvent 构造非空 assistant 输出增量事件。
 func messageDeltaEvent(data map[string]any, stream, delta string) (dto.RawProviderEvent, bool) {
 	if strings.TrimSpace(delta) == "" {
 		return dto.RawProviderEvent{}, false
@@ -238,6 +247,7 @@ func messageDeltaEvent(data map[string]any, stream, delta string) (dto.RawProvid
 	return dto.RawProviderEvent{EventType: "assistant:message_delta", Data: data}, true
 }
 
+// buildEventData 从 base 字段、sessionID、timestamp 和 extras 合成事件 data。
 func buildEventData(base rawBase, sessionID, timestamp string, extras map[string]any) map[string]any {
 	threadID := strings.TrimSpace(base.ThreadID)
 	data := map[string]any{
@@ -255,6 +265,7 @@ func buildEventData(base rawBase, sessionID, timestamp string, extras map[string
 	return data
 }
 
+// appendFlagIfSet 在值非空时追加 CLI flag 和参数。
 func appendFlagIfSet(args []string, flag, value string) []string {
 	if value = strings.TrimSpace(value); value != "" {
 		args = append(args, flag, value)
@@ -262,6 +273,7 @@ func appendFlagIfSet(args []string, flag, value string) []string {
 	return args
 }
 
+// cleanupOnError 在 err 非空时按顺序执行清理函数，并返回原始错误。
 func cleanupOnError(err error, cleanups ...func()) error {
 	if err == nil {
 		return nil
@@ -274,7 +286,7 @@ func cleanupOnError(err error, cleanups ...func()) error {
 	return err
 }
 
-// waitThreadReady 等待线程进入可用状态。
+// waitThreadReady 等待 thread ready 信号；transport 已退出时返回进程状态错误。
 func waitThreadReady(ctx context.Context, ready <-chan struct{}, tr *transport) error {
 	if ready == nil {
 		return nil
@@ -297,20 +309,19 @@ func waitThreadReady(ctx context.Context, ready <-chan struct{}, tr *transport) 
 	return waitForThreadReadyOrExit(waitCtx, ready, tr)
 }
 
+// threadReadyContextErr 将等待 thread ready 的 context 错误统一为可读错误。
 func threadReadyContextErr(err error) error {
 	return fmt.Errorf("claudecli: waiting for real thread id: %w", err)
 }
 
-// ensureProcessAlive 确保进程alive。
+// ensureProcessAlive 检查 transport 进程是否仍在运行，并返回 pid。
 func (t *transport) ensureProcessAlive() (int, error) {
 	if t == nil || t.cmd == nil || t.cmd.Process == nil {
 		return 0, nil
 	}
-	// Do not read cmd.ProcessState here: os/exec.Cmd.Wait writes that field,
-	// and callers such as Running/signalProcess can race with the wait goroutine
-	// under -race. The transport-owned done channel is the synchronization point;
-	// if Wait has not closed it yet, returning the pid is safe and any late signal
-	// will be normalized by the caller when the process is already gone.
+	// 不读取 cmd.ProcessState：os/exec.Cmd.Wait 会写该字段，Running/signalProcess
+	// 可能与 wait goroutine 在 -race 下竞争。transport 自有 done channel 是同步点；
+	// done 未关闭时返回 pid 是安全的，进程刚退出的后续 signal 会由调用方归一化处理。
 	select {
 	case <-t.done:
 		return 0, nil
@@ -323,10 +334,12 @@ func (t *transport) ensureProcessAlive() (int, error) {
 	return pid, nil
 }
 
+// shouldKeepEmptyMessage 判断空消息是否仍需保留；带 metadata 的消息不能丢弃。
 func shouldKeepEmptyMessage(msg Message) bool {
 	return len(msg.Metadata) > 0 && string(msg.Metadata) != "null"
 }
 
+// stripSystemNoise 去掉 Claude CLI 输出前缀中注入的系统提示噪声。
 func stripSystemNoise(text string) string {
 	return trimInjectedClaudeLSPHint(trimInjectedClaudeSkillBlock(stripLeadingClaudeSystemNoise(text)))
 }

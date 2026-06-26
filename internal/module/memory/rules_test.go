@@ -211,12 +211,9 @@ func TestMemoryRulesProviderRegistersStartOnlyDynamicSection(t *testing.T) {
 	}
 }
 
-// Phase 1.5 removed loadMemoryIndexFallback. MEMORY.md injection is now
-// handled exclusively by MemoryEntrypointProvider at session start; the
-// turn-time MemoryContextProvider.Resolve is a no-op. The two tests that
-// previously asserted turn-time fallback behaviour (Inject + Skip flavors)
-// were dropped here; equivalent coverage lives in entrypoint_provider_test.go
-// (TestMemoryContextProviderResolveAlwaysReturnsNil et al.).
+// 当前 MEMORY.md 只在会话启动时由 MemoryEntrypointProvider 注入。
+// turn-time MemoryContextProvider.Resolve 保持 no-op；旧的 turn-time fallback
+// 注入断言已转到 entrypoint_provider_test.go 的 Resolve 行为测试。
 
 func TestCombinedRulesProviderUsesDynamicSectionMemory(t *testing.T) {
 	withTeamMemoryRuntimeReady(t, true)

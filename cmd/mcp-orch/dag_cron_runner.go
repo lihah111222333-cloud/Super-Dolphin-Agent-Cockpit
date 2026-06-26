@@ -14,6 +14,7 @@ import (
 )
 
 const (
+	// scheduledDAGCron* 固定 mcp-orch 内置 scheduled DAG 扫描频率和运行时锁键。
 	scheduledDAGCronSpec    = "@every 1m"
 	scheduledDAGCronLockKey = "mcp-orch:scheduled-dag-cron"
 )
@@ -29,7 +30,8 @@ type scheduledDAGCronRunner struct {
 	daemon dagCronDaemon
 }
 
-// Run 启动编排后台流程。
+// Run 启动 scheduled DAG cron 守护进程，并在上游 context 结束时关闭。
+// daemon 或 ctx 缺失都直接报错，避免后台调度静默空跑。
 func (r scheduledDAGCronRunner) Run(ctx context.Context) error {
 	if r.daemon == nil {
 		return errors.New("mcp-orch: scheduled dag cron daemon is nil")
@@ -54,7 +56,7 @@ type scheduledDAGStarter struct {
 	svc orchestration.ScheduledDAGStartService
 }
 
-// StartDAG 启动DAG。
+// StartDAG 把 cron 子包的启动请求转交给 orchestration 服务。
 func (s scheduledDAGStarter) StartDAG(ctx context.Context, req orchcron.ScheduledDAGStartRequest) error {
 	return s.svc.StartScheduledDAG(ctx, req)
 }
@@ -75,7 +77,8 @@ func provideSQLiteRuntimeLocker(db *sql.DB) (orchcron.RuntimeLocker, error) {
 	return fxadapter.NewSQLiteRuntimeLocker(db, scheduledDAGCronLockKey)
 }
 
-// provideScheduledDAGCronRunner 提供scheduledDAGcronrunner。
+// provideScheduledDAGCronRunner 组装 scheduled DAG 后台 runner。
+// store、locker、service、logger 都必须显式注入，缺任一项直接 fail-fast，避免 cron 静默空跑。
 func provideScheduledDAGCronRunner(
 	store orchcron.DAGScheduleStore,
 	locker orchcron.RuntimeLocker,

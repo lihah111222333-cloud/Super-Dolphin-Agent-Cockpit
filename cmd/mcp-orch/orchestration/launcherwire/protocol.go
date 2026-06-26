@@ -52,10 +52,12 @@ func ResolveThreadStartThreadID(nested, resp map[string]any, fallback string) st
 	return resolveAlias(nested, resp, []string{RespNestedID}, []string{RespThreadIDJSON, RespThreadID}, fallback)
 }
 
+// ResolveThreadStartAgentID 按兼容顺序读取 thread/start 返回的 provider agent id。
 func ResolveThreadStartAgentID(resp map[string]any, fallback string) string {
 	return resolveAlias(nil, resp, nil, []string{RespAgentIDJSON, RespAgentID}, fallback)
 }
 
+// ResolveThreadForkThreadID 按兼容顺序读取 thread/fork 返回的新 provider thread id。
 func ResolveThreadForkThreadID(nested, resp map[string]any, fallback string) string {
 	return resolveAlias(nested, resp, []string{RespNestedID}, []string{RespNewThreadID, RespThreadIDJSON, RespThreadID}, fallback)
 }

@@ -47,10 +47,13 @@ type codexInstallState struct {
 
 var codexInstall = &codexInstallState{maxFileBytes: defaultCodexExtractLimit, maxTotalBytes: defaultCodexExtractLimit}
 
+// EnsureCLIAvailable 确保当前进程可启动 Codex app-server CLI。
+// 它会优先使用打包二进制或 PATH，缺失时才进入带校验和的托管安装。
 func EnsureCLIAvailable(ctx context.Context) error {
 	return ensureCodexCLIAvailable(ctx)
 }
 
+// CodexBootstrapConfig 描述首次写入 Codex relay config.toml 所需的最小配置。
 type CodexBootstrapConfig struct {
 	Home                string
 	RelayBaseURL        string
@@ -58,6 +61,8 @@ type CodexBootstrapConfig struct {
 	ModelProvider       string
 }
 
+// EnsureCodexBootstrap 在指定 home 下写入只含 relay provider 的 Codex config.toml。
+// home 和配置文件权限会被收紧到当前用户可读写，缺少 relay URL/token 时 fail-fast。
 func EnsureCodexBootstrap(ctx context.Context, cfg CodexBootstrapConfig) error {
 	home := strings.TrimSpace(cfg.Home)
 	baseURL := strings.TrimSpace(cfg.RelayBaseURL)
@@ -103,6 +108,8 @@ func EnsureCodexBootstrap(ctx context.Context, cfg CodexBootstrapConfig) error {
 	return nil
 }
 
+// validateCodexBootstrapConfig 聚合 bootstrap 必填项缺失错误。
+// 调用方可以一次性展示所有配置缺口，而不是逐项试错。
 func validateCodexBootstrapConfig(home, baseURL, bootstrapToken string) error {
 	var problems []error
 	if home == "" {
@@ -131,6 +138,8 @@ type codexGitHubAsset struct {
 	DownloadURL string `json:"browser_download_url"`
 }
 
+// ensureCodexCLIAvailable 串行化 Codex CLI 探测和托管安装。
+// 双重探测避免多个会话同时下载同一 release，也允许别的进程刚刚补齐 PATH/bundled asset。
 func ensureCodexCLIAvailable(ctx context.Context) error {
 	ctx = nonNilContext(ctx)
 	ok, err := bundledOrPathCodexAvailable(ctx)
@@ -146,6 +155,8 @@ func ensureCodexCLIAvailable(ctx context.Context) error {
 	return ensureManagedCodexCLI(ctx)
 }
 
+// bundledOrPathCodexAvailable 优先验证打包 Codex CLI，再检查 PATH。
+// 当 packaged runtime 明确要求 bundled CLI 时，缺失会直接报错而不是尝试外部 PATH。
 func bundledOrPathCodexAvailable(ctx context.Context) (bool, error) {
 	path, err := bundledCodexCLI(ctx)
 	if err != nil {
@@ -176,6 +187,8 @@ func bundledCodexPeerBinDirs() []string {
 	return dirs
 }
 
+// ensureManagedCodexCLI 查找或安装受管理的 Codex CLI 并把目录加入 PATH。
+// 自动安装必须有固定 SHA-256，下载来源和最终 manifest 都会被校验。
 func ensureManagedCodexCLI(ctx context.Context) error {
 	root, err := codexManagedInstallRoot()
 	if err != nil {
@@ -205,6 +218,8 @@ func ensureManagedCodexCLI(ctx context.Context) error {
 	return nil
 }
 
+// bundledCodexCLI 在 peer bin 目录中查找并验证随包分发的 Codex CLI。
+// packaged 模式下损坏的二进制会直接报错，避免继续落到用户 PATH 造成版本不可控。
 func bundledCodexCLI(ctx context.Context) (string, error) {
 	for _, dir := range bundledCodexPeerBinDirs() {
 		dir = strings.TrimSpace(dir)
@@ -262,6 +277,8 @@ func codexManagedInstallRoot() (string, error) {
 	return filepath.Join(home, "runtime", "openai-codex"), nil
 }
 
+// findManagedCodexBinary 在托管安装根目录中选择最新且校验通过的 Codex CLI。
+// 版本目录按语义版本优先倒序，损坏目录会让校验错误显式返回。
 func findManagedCodexBinary(ctx context.Context, root, sourceSHA256 string) (string, error) {
 	entries, err := readManagedCodexInstallRoot(root)
 	if err != nil {
@@ -289,6 +306,9 @@ func findManagedCodexBinary(ctx context.Context, root, sourceSHA256 string) (str
 	}
 	return "", nil
 }
+
+// readManagedCodexInstallRoot 安全读取托管安装根目录。
+// 根目录不存在表示尚未安装，不是错误；存在但不是目录则 fail-fast。
 func readManagedCodexInstallRoot(root string) ([]os.DirEntry, error) {
 	info, err := os.Stat(root)
 	if errors.Is(err, os.ErrNotExist) {
@@ -306,6 +326,9 @@ func readManagedCodexInstallRoot(root string) ([]os.DirEntry, error) {
 	}
 	return entries, nil
 }
+
+// installManagedCodexCLI 下载并安装最新匹配平台的 Codex release。
+// 安装先落在临时目录，校验和 layout 都通过后才提升为正式版本目录。
 func installManagedCodexCLI(ctx context.Context, root, checksum string) (string, error) {
 	release, err := fetchCodexRelease(ctx)
 	if err != nil {
@@ -414,6 +437,8 @@ func installCodexArchive(ctx context.Context, downloadURL, checksum, workDir, ta
 	return promoteCodexInstall(extractDir, target, codexPath)
 }
 
+// promoteCodexInstall 将临时解压目录提升为正式 Codex 安装目录。
+// 目标目录若已存在但不可执行，会先清理再 rename，避免半安装状态被后续复用。
 func promoteCodexInstall(extractDir, target, codexPath string) error {
 	if isExecutable(codexPath) {
 		return nil
@@ -431,6 +456,8 @@ func promoteCodexInstall(extractDir, target, codexPath string) error {
 	return nil
 }
 
+// fetchCodexRelease 从配置的 release API 拉取最新 Codex release 元数据。
+// 响应体读取有大小限制，避免异常镜像或网络错误拖垮启动流程。
 func fetchCodexRelease(ctx context.Context) (codexGitHubRelease, error) {
 	releaseURL, err := codexReleaseAPIRequestURL()
 	if err != nil {
@@ -457,6 +484,8 @@ func fetchCodexRelease(ctx context.Context) (codexGitHubRelease, error) {
 	return release, nil
 }
 
+// selectCodexReleaseAsset 从 release assets 中挑选当前平台可运行的 Codex 包。
+// Rust tarball 优先，Python wheel 作为兼容格式参与匹配。
 func selectCodexReleaseAsset(assets []codexGitHubAsset) (codexGitHubAsset, error) {
 	candidates := codexReleaseAssetCandidates()
 	if len(candidates) == 0 {
@@ -472,6 +501,8 @@ func selectCodexReleaseAsset(assets []codexGitHubAsset) (codexGitHubAsset, error
 	return codexGitHubAsset{}, fmt.Errorf("no compatible OpenAI Codex release asset for %s/%s in %s", runtime.GOOS, runtime.GOARCH, codexGitHubRepoURL)
 }
 
+// codexReleaseAssetCandidates 构造当前平台可接受的 release asset 匹配器。
+// 闭包捕获每个候选名的局部副本，避免循环变量复用导致所有 matcher 指向同一值。
 func codexReleaseAssetCandidates() []func(string) bool {
 	var out []func(string) bool
 	if target, err := codexRustReleaseTarget(); err == nil {
@@ -522,6 +553,8 @@ func codexSupportedPlatformValue(values map[string]string) (string, error) {
 	return "", fmt.Errorf("unsupported Codex auto-install platform %s/%s", runtime.GOOS, runtime.GOARCH)
 }
 
+// isExecutable 判断路径是否是可启动的 Codex 可执行文件。
+// Windows 额外检查 MZ 头，避免 .cmd/.ps1 wrapper 被当成真正 app-server binary。
 func isExecutable(path string) bool {
 	info, err := os.Stat(filepath.Clean(path))
 	if err != nil || info.IsDir() {
@@ -582,6 +615,7 @@ func sanitizeCodexReleaseTag(tag string) string {
 	return b.String()
 }
 
+// isCodexReleaseTagRune 限制 release tag 可进入安装目录名的字符集合。
 func isCodexReleaseTagRune(r rune) bool {
 	return r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || r == '.' || r == '-' || r == '_'
 }

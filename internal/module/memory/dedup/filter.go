@@ -1,4 +1,4 @@
-// Package dedup 见 tokenizer.go。
+// Package dedup 实现 durable memory 写入前的重复检测、合并和溢出处理。
 package dedup
 
 import "unicode/utf8"
@@ -14,7 +14,8 @@ type Filter struct {
 	scanTeam    ScanFunc // 无 team 作用域时为 nil
 }
 
-// NewFilter 创建 Filter 实例，scanTeam 可为 nil。
+// NewFilter 创建 Filter 实例。
+// scanPrivate 必须可用；scanTeam 为 nil 时只在 private 作用域内查重。
 func NewFilter(scanPrivate, scanTeam ScanFunc) *Filter {
 	return &Filter{
 		scanPrivate: scanPrivate,
@@ -22,7 +23,8 @@ func NewFilter(scanPrivate, scanTeam ScanFunc) *Filter {
 	}
 }
 
-// CheckResult 是 Filter.Check 的输出结果。
+// CheckResult 是 Filter.Check 的决策结果。
+// Merge 时 MergedEntry 和 TargetPath 指向调用方需要覆盖的既有条目；其他动作不会触发写入。
 type CheckResult struct {
 	Action      Decision       // WriteNew / Skip / Merge
 	MergedEntry *EntrySnapshot // 仅 Action == Merge 时非 nil
@@ -41,13 +43,13 @@ type CheckResult struct {
 //     - Merge 但跨作用域 → WriteNew（不允许跨域合并）。
 //     - WriteNew → WriteNew。
 func (f *Filter) Check(candidate EntrySnapshot) (CheckResult, error) {
-	// --- 1. gather existing entries ---
+	// 收集同类型条目时同时看 private 和 team，但写入决策仍保留作用域边界。
 	existing, err := f.collectAll(candidate.Type)
 	if err != nil {
 		return CheckResult{}, err
 	}
 
-	// --- 2. find duplicate ---
+	// 重复查找只返回最佳候选，后续再决定能否跨作用域合并。
 	match := FindDuplicate(candidate, existing)
 	if !match.Found {
 		return CheckResult{Action: WriteNew}, nil
@@ -59,7 +61,7 @@ func (f *Filter) Check(candidate EntrySnapshot) (CheckResult, error) {
 		return CheckResult{Action: WriteNew}, nil
 	}
 
-	// --- 3. compute bigram-level decision ---
+	// bigram 决策只判断内容增量，不处理作用域和写入路径。
 	oldBigrams := Bigrams(Normalize(target.Content))
 	newBigrams := Bigrams(Normalize(candidate.Content))
 	decision := Decide(oldBigrams, newBigrams)
@@ -69,7 +71,7 @@ func (f *Filter) Check(candidate EntrySnapshot) (CheckResult, error) {
 		return CheckResult{Action: Skip}, nil
 
 	case Merge:
-		// Same scope: build the merged entry.
+		// 同作用域才允许覆盖既有条目，避免 team/private 互相吞并。
 		merged := mergeSnapshots(target, candidate)
 		return CheckResult{
 			Action:      Merge,
@@ -77,12 +79,13 @@ func (f *Filter) Check(candidate EntrySnapshot) (CheckResult, error) {
 			TargetPath:  target.Path,
 		}, nil
 
-	default: // WriteNew (shouldn't happen after a match, but handle gracefully)
+	default: // 匹配后理论上不会 WriteNew；保守返回新写入，避免丢失 candidate。
 		return CheckResult{Action: WriteNew}, nil
 	}
 }
 
-// OverflowInstruction 描述当某类型条目超出上限时，调用方需执行的一次对合并操作。
+// OverflowInstruction 是条目超出上限时返回给调用方的合并指令。
+// 它只说明应保留和删除的路径，不直接执行写入或删除，避免 dedup 包依赖存储层。
 type OverflowInstruction struct {
 	KeepEntry  EntrySnapshot // 合并结果（调用方写入 KeepEntry.Path）
 	DeletePath string        // 被吸收条目的路径（调用方删除）
@@ -103,10 +106,10 @@ func (f *Filter) FindOverflowMerge(memType string) (*OverflowInstruction, error)
 
 	i, j, _, found := FindMostSimilarPair(entries)
 	if !found {
-		return nil, nil // allow overflow — no suitable merge pair
+		return nil, nil // 没有合适合并对时允许短期溢出，由后续写入再尝试处理。
 	}
 
-	// Keep entries[i] (the "older"/first-indexed entry), absorb entries[j].
+	// 保留切片中更早出现的条目，吸收另一条，降低路径抖动。
 	keep := entries[i]
 	absorb := entries[j]
 
@@ -118,7 +121,7 @@ func (f *Filter) FindOverflowMerge(memType string) (*OverflowInstruction, error)
 	}, nil
 }
 
-// --- helpers ---
+// ----- 去重辅助函数 -----
 
 // collectAll 合并 private 和 team 条目，路径相同的 team 条目不重复计入 private。
 func (f *Filter) collectAll(memType string) ([]EntrySnapshot, error) {

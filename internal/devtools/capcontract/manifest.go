@@ -8,7 +8,8 @@ import (
 	"strings"
 )
 
-// Manifest 是能力契约清单的根结构，记录版本、生成时间、扫描根目录和各包清单。
+// Manifest 是能力契约清单的根结构。
+// 它作为生成物的 wire 格式，记录扫描范围、摘要和包级符号快照。
 type Manifest struct {
 	Version     string            `json:"version"`
 	GeneratedAt string            `json:"generated_at"`
@@ -29,7 +30,8 @@ type ManifestSummary struct {
 	TotalStructs          int `json:"total_structs"`
 }
 
-// PackageManifest 是单个 Go 包的能力清单，包含路径、名称和所有导出符号。
+// PackageManifest 是单个 Go 包的能力清单。
+// Path/Name 是比对身份，符号列表用于检测公共能力面是否发生漂移。
 type PackageManifest struct {
 	Path        string              `json:"path"`
 	Name        string              `json:"name"`
@@ -84,19 +86,21 @@ type ParamManifest struct {
 	Type string `json:"type"`
 }
 
-// DiffResult 是两份清单比对的结果，包含新增、删除和变更的符号名列表。
+// DiffResult 是两份清单比对的结果。
+// Added/Removed/Changed 使用稳定排序，方便 CI 和人工审查直接比较输出。
 type DiffResult struct {
 	Added   []string `json:"added,omitempty"`
 	Removed []string `json:"removed,omitempty"`
 	Changed []string `json:"changed,omitempty"`
 }
 
-// IsClean 判断clean是否可用。
+// IsClean 判断清单 diff 是否为空，空 diff 表示能力面未发生可见漂移。
 func (d DiffResult) IsClean() bool {
 	return len(d.Added) == 0 && len(d.Removed) == 0 && len(d.Changed) == 0
 }
 
-// SaveManifest 保存manifest。
+// SaveManifest 校验并写入能力契约清单。
+// 写入前统一走 ValidateManifest，避免把结构不完整的生成物落盘。
 func SaveManifest(manifest *Manifest, path string) error {
 	if err := ValidateManifest(manifest); err != nil {
 		return err
@@ -112,7 +116,7 @@ func SaveManifest(manifest *Manifest, path string) error {
 	return nil
 }
 
-// LoadManifest 加载manifest。
+// LoadManifest 读取、解析并校验已提交的能力契约清单。
 func LoadManifest(path string) (*Manifest, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -128,7 +132,7 @@ func LoadManifest(path string) (*Manifest, error) {
 	return &manifest, nil
 }
 
-// MarshalManifest 编码manifest。
+// MarshalManifest 校验后以稳定缩进编码清单，返回结果总是带尾随换行。
 func MarshalManifest(manifest *Manifest) ([]byte, error) {
 	if err := ValidateManifest(manifest); err != nil {
 		return nil, err
@@ -140,7 +144,8 @@ func MarshalManifest(manifest *Manifest) ([]byte, error) {
 	return append(data, '\n'), nil
 }
 
-// ValidateManifest 校验manifest。
+// ValidateManifest 校验清单最低完整性。
+// nil、缺版本、缺扫描根和重复包路径都会立即报错，防止 diff 阶段吞掉坏输入。
 func ValidateManifest(manifest *Manifest) error {
 	if manifest == nil {
 		return fmt.Errorf("capability manifest is nil")
@@ -165,7 +170,7 @@ func ValidateManifest(manifest *Manifest) error {
 	return nil
 }
 
-// DiffManifests 处理diffmanifests。
+// DiffManifests 比较已提交清单和实时扫描清单，返回公共符号面的增删改。
 func DiffManifests(committed, live *Manifest) DiffResult {
 	oldSymbols := manifestSymbols(committed)
 	newSymbols := manifestSymbols(live)
@@ -191,7 +196,8 @@ func DiffManifests(committed, live *Manifest) DiffResult {
 	return diff
 }
 
-// manifestSymbols 处理manifest符号。
+// manifestSymbols 将清单展开成符号到签名的映射。
+// nil manifest 返回空映射，便于调用方把缺失文件视为全量新增/删除。
 func manifestSymbols(manifest *Manifest) map[string]string {
 	symbols := map[string]string{}
 	if manifest == nil {
@@ -222,6 +228,7 @@ func manifestSymbols(manifest *Manifest) map[string]string {
 	return symbols
 }
 
+// paramsKey 生成参数列表的稳定签名片段，保留参数名以捕捉 wire 面变化。
 func paramsKey(params []ParamManifest) string {
 	parts := make([]string, 0, len(params))
 	for _, param := range params {

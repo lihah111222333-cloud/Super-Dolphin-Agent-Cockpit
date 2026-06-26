@@ -12,7 +12,8 @@ import (
 	skillidentity "github.com/anthropic-ai/super-agent-v3/internal/module/skill/identity"
 )
 
-// resolutionRecordAndMirrorDir 处理resolution记录镜像目录。
+// resolutionRecordAndMirrorDir 找到修复动作对应的 canonical 记录和 mirror 目录。
+// 已删除 canonical 的恢复类动作会从 manifest 重建最小记录；其他情况必须命中真实记录。
 func resolutionRecordAndMirrorDir(ctx context.Context, svc *service, req SkillMirrorResolutionRequest) (canonicalSkillRecord, string, error) {
 	if svc == nil {
 		return canonicalSkillRecord{}, "", fmt.Errorf("skill service is required")
@@ -106,7 +107,8 @@ func deletedCanonicalRecord(svc *service, cwd, name, scope, personalType, canoni
 	return record
 }
 
-// resolutionRequestPersonalType 处理resolution请求personaltype。
+// resolutionRequestPersonalType 从 personal mirror manifest 解析请求所属 personal 类型。
+// project scope 不需要该字段；manifest 缺失或不安全时直接返回错误。
 func resolutionRequestPersonalType(req SkillMirrorResolutionRequest) (string, error) {
 	if req.Target.Scope != skillScopePersonal {
 		return "", nil
@@ -182,7 +184,8 @@ func (s *service) lookupResolutionPreviewForConflict(previewID, conflictID, acti
 	return preview, nil
 }
 
-// lookupResolutionPreviewStored 处理lookupresolutionpreviewstored。
+// lookupResolutionPreviewStored 读取并校验缓存的 resolution preview。
+// action、preview_hash 或过期时间不匹配时 fail-fast，避免 apply 使用陈旧预览。
 func (s *service) lookupResolutionPreviewStored(previewID, action, previewHash string) (skillResolutionPreviewItem, skillResolutionStoredPreview, error) {
 	if s == nil {
 		return skillResolutionPreviewItem{}, skillResolutionStoredPreview{}, fmt.Errorf("skill service is required")
@@ -335,7 +338,7 @@ func importCanonicalTargetDir(svc *service, req SkillMirrorResolutionRequest) (s
 	}
 }
 
-// projectRootFromMirrorTarget 从镜像target处理项目根目录。
+// projectRootFromMirrorTarget 从 project mirror 目标目录反推出项目根目录。
 func projectRootFromMirrorTarget(target SkillMirrorTarget) (string, error) {
 	if target.Scope != skillScopeProject {
 		return "", fmt.Errorf("project mirror target is required")
@@ -355,7 +358,8 @@ func projectRootFromMirrorTarget(target SkillMirrorTarget) (string, error) {
 	return filepath.Dir(filepath.Dir(root)), nil
 }
 
-// confirmDeleteDriftedMirror 处理confirmdeletedrifted镜像。
+// confirmDeleteDriftedMirror 在用户确认后删除已漂移的受管 mirror。
+// 删除前必须校验 preview、备份目录并写 intent 审计；manifest 或审计失败会返回可重试状态。
 func confirmDeleteDriftedMirror(ctx context.Context, svc *service, req SkillMirrorResolutionRequest) (SkillMirrorResolutionReport, error) {
 	report := SkillMirrorResolutionReport{Action: req.Action, Name: req.Name}
 	if svc == nil {
@@ -397,7 +401,8 @@ type confirmDeleteMirrorDetails struct {
 	manifest     SkillMirrorManifest
 }
 
-// confirmDeleteMirrorTarget 处理confirmdelete镜像target。
+// confirmDeleteMirrorTarget 从 manifest 中定位待删除的受管 mirror。
+// 未登记在 manifest 的目录不能走确认删除路径，防止误删用户手工维护的 provider skill。
 func confirmDeleteMirrorTarget(req SkillMirrorResolutionRequest) (confirmDeleteMirrorDetails, error) {
 	if err := validateExistingMirrorRoot(req.Target); err != nil {
 		return confirmDeleteMirrorDetails{}, err
@@ -444,7 +449,8 @@ func removeManagedMirror(target SkillMirrorTarget, details confirmDeleteMirrorDe
 	return writeSkillMirrorManifest(filepath.Join(target.Root, skillMirrorManifestFile), details.manifest)
 }
 
-// buildResolutionPreviewItems 构建resolutionpreviewitems。
+// buildResolutionPreviewItems 为一个冲突生成一个或多个 provider 预览项。
+// 多 provider 且无需选择来源时会展开全部 provider，方便 UI 一次展示所有 drift。
 func buildResolutionPreviewItems(item skillResolutionItem, p skillResolutionPreviewParams, superHome string) ([]skillResolutionPreviewItem, error) {
 	if len(item.ProviderEntries) > 1 && previewAllProviders(item, p) {
 		out := make([]skillResolutionPreviewItem, 0, len(item.ProviderEntries))
@@ -466,13 +472,15 @@ func buildResolutionPreviewItems(item skillResolutionItem, p skillResolutionPrev
 	return []skillResolutionPreviewItem{preview}, nil
 }
 
-// previewAllProviders 处理previewallproviders。
+// previewAllProviders 判断当前动作是否可以在所有 provider mirror 上同时生成预览。
+// sync-back 只有源 hash 完全一致时才允许省略 provider，避免多源 drift 被错误合并。
 func previewAllProviders(item skillResolutionItem, p skillResolutionPreviewParams) bool {
 	return p.Provider == "" && p.SourceProvider == "" && p.SourcePathID == "" &&
 		(p.Action == ResolutionViewDiff || p.Action == ResolutionViewUnmanaged || overwriteResolutionAction(p.Action) || (syncBackResolutionAction(p.Action) && sameResolutionSourceHashes(item.ProviderEntries)))
 }
 
-// buildResolutionPreviewItem 构建resolutionpreviewitem。
+// buildResolutionPreviewItem 构建单个 provider 或 canonical 冲突的预览项。
+// 只读动作不生成 preview hash；会写目录的动作必须先通过目标路径和新名称校验。
 func buildResolutionPreviewItem(item skillResolutionItem, p skillResolutionPreviewParams, superHome string) (skillResolutionPreviewItem, error) {
 	if len(item.ProviderEntries) == 0 {
 		return canonicalResolutionPreviewItem(item, p)
@@ -500,7 +508,8 @@ func buildResolutionPreviewItem(item skillResolutionItem, p skillResolutionPrevi
 	return preview, nil
 }
 
-// selectedResolutionPreviewProvider 处理selectedresolutionpreviewprovider。
+// selectedResolutionPreviewProvider 解析用户选择的 provider 来源。
+// 多 mirror drift 且各来源 hash 不同时必须显式指定 provider，避免 sync-back 来源不确定。
 func selectedResolutionPreviewProvider(item skillResolutionItem, p skillResolutionPreviewParams) (string, error) {
 	provider := strings.TrimSpace(p.Provider)
 	if p.SourceProvider != "" {
@@ -544,7 +553,7 @@ func resolutionPreviewTargetPath(entry skillResolutionProviderEntry, p skillReso
 	return filepath.ToSlash(filepath.Join(filepath.Dir(entry.TargetPath), name))
 }
 
-// validateMutatingResolutionPreview 校验mutatingresolutionpreview。
+// validateMutatingResolutionPreview 校验会改写 skill 或 mirror 状态的 resolution preview。
 func validateMutatingResolutionPreview(item skillResolutionItem, preview skillResolutionPreviewItem, p skillResolutionPreviewParams) error {
 	if p.Action == ResolutionReplaceProviderRootSymlink {
 		return validateRootResolutionPreview(item, preview, p.Action)

@@ -41,29 +41,70 @@ type SessionCleaner = contract.OrchestrationSessionCleaner
 // TurnStarter 是 turn 启动器的导出类型别名。
 type TurnStarter = contract.OrchestrationTurnStarter
 
+// TurnSubmission 是提交 turn 的跨模块 DTO 别名。
 type TurnSubmission = contract.TurnSubmission
+
+// RuntimeReport 是 runtime 上报端口/provider 的跨模块 DTO 别名。
 type RuntimeReport = contract.RuntimeReport
 
+// LaunchRequest 是启动 agent 的跨模块 DTO 别名。
 type LaunchRequest = contract.LaunchRequest
+
+// AgentSnapshot 是对外展示 agent 运行态的跨模块 DTO 别名。
 type AgentSnapshot = contract.AgentSnapshot
+
+// AgentStateResult 是查询 agent 状态的跨模块 DTO 别名。
 type AgentStateResult = contract.AgentStateResult
+
+// AgentReportMetadata 是 agent report 附加元数据的跨模块 DTO 别名。
 type AgentReportMetadata = contract.AgentReportMetadata
+
+// AgentReportResult 是查询 agent report 的跨模块 DTO 别名。
 type AgentReportResult = contract.AgentReportResult
+
+// RememberReportRequest 是登记 report requester 的跨模块 DTO 别名。
 type RememberReportRequest = contract.RememberReportRequest
+
+// RememberReportRequestResult 是登记 report requester 的返回 DTO 别名。
 type RememberReportRequestResult = contract.RememberReportRequestResult
+
+// ReportEvent 是 provider/hook report 事件的跨模块 DTO 别名。
 type ReportEvent = contract.ReportEvent
+
+// ReportEventResult 是 report 事件处理结果的跨模块 DTO 别名。
 type ReportEventResult = contract.ReportEventResult
+
+// CreateDAGRequest 是创建 DAG 的跨模块 DTO 别名。
 type CreateDAGRequest = contract.CreateDAGRequest
+
+// CreateDAGNodeRequest 是创建 DAG 节点的跨模块 DTO 别名。
 type CreateDAGNodeRequest = contract.CreateDAGNodeRequest
+
+// ListDAGsFilter 是 DAG 列表查询过滤条件的跨模块 DTO 别名。
 type ListDAGsFilter = contract.ListDAGsFilter
+
+// UpdateNodeStatusRequest 是更新 DAG 节点状态的跨模块 DTO 别名。
 type UpdateNodeStatusRequest = contract.UpdateNodeStatusRequest
+
+// DAGSummary 是 DAG 列表摘要的跨模块 DTO 别名。
 type DAGSummary = contract.DAGSummary
+
+// DAGNode 是 DAG 节点详情的跨模块 DTO 别名。
 type DAGNode = contract.DAGNode
+
+// DAGDetail 是 DAG 详情的跨模块 DTO 别名。
 type DAGDetail = contract.DAGDetail
+
+// ListRunsRequest 是 DAG run 列表查询请求的跨模块 DTO 别名。
 type ListRunsRequest = contract.ListRunsRequest
+
+// ListRunsResponse 是 DAG run 列表查询响应的跨模块 DTO 别名。
 type ListRunsResponse = contract.ListRunsResponse
+
+// Run 是 DAG runtime run 的跨模块 DTO 别名。
 type Run = contract.Run
 
+// service 内部错误哨兵。
 var (
 	errAgentNotFound          = contract.ErrAgentNotFound
 	errIllegalStateTransition = errors.New("illegal state transition")
@@ -154,7 +195,7 @@ type turnWork struct {
 	submission TurnSubmission
 }
 
-// NewService 创建服务。
+// NewService 创建 orchestration service，并初始化状态机配置、恢复 store 和后台上下文。
 func NewService(
 	logger *slog.Logger,
 	eventBus *event.Dispatcher,
@@ -193,7 +234,7 @@ func NewService(
 	return svc
 }
 
-// ProvideService 提供服务。
+// ProvideService 从 fx 参数创建 service，并挂接可选 store 依赖。
 func ProvideService(p serviceParams) *service {
 	svc := NewService(p.Logger, p.EventBus, p.Launcher, p.SessionCleaner, p.TurnStarter, p.DAGStore)
 	svc.runStore = p.RunStore
@@ -204,10 +245,11 @@ func ProvideService(p serviceParams) *service {
 	return svc
 }
 
-// ProvideServiceInterface 提供服务interface。
+// ProvideServiceInterface 将具体 service 暴露为 contract.OrchestrationService。
 func ProvideServiceInterface(s *service) Service { return s }
 
-// RegisterTurnLifecycle 注册turn生命周期。
+// RegisterTurnLifecycle 注册 turn started/completed/interrupted 事件订阅。
+// 订阅在 fx OnStop 时取消，避免 service 停止后继续推进状态机。
 func RegisterTurnLifecycle(lc fx.Lifecycle, dispatcher *event.Dispatcher, svc *service, logger *slog.Logger) {
 	if logger == nil {
 		logger = pkglogger.Get()
@@ -231,16 +273,14 @@ func RegisterTurnLifecycle(lc fx.Lifecycle, dispatcher *event.Dispatcher, svc *s
 					logger.Warn("orchestration: failed to bind active turn id", "agent_id", ev.AgentID, "turn_id", ev.TurnID, "error", err)
 				}
 			}, logger)
-			// NOTE(convention): event handler 直接操作状态机违反 statemachine-event-convention B7。
-			// 当前安全（kelindar/event 异步投递），但应改为 trigger channel 解耦。
+			// completion 事件会直接推进状态机；订阅随 lifecycleCtx 取消，避免服务停止后继续写状态。
 			completedCancel = bus.ResilientSubscribe(dispatcher, func(ev turndto.TurnCompleted) {
 				if lifecycleCtx.Err() != nil {
 					return
 				}
 				handleTurnCompletedEventWithCtx(svc, logger, ev, lifecycleCtx)
 			}, logger)
-			// NOTE(convention): event handler 直接操作状态机违反 statemachine-event-convention B7。
-			// 当前安全（kelindar/event 异步投递），但应改为 trigger channel 解耦。
+			// interruption 事件同样直接推进状态机；失败只记录，终态修复逻辑在 handler 内完成。
 			interruptedCancel = bus.ResilientSubscribe(dispatcher, func(ev turndto.TurnInterrupted) {
 				if lifecycleCtx.Err() != nil {
 					return
@@ -261,22 +301,18 @@ func RegisterTurnLifecycle(lc fx.Lifecycle, dispatcher *event.Dispatcher, svc *s
 	})
 }
 
-// RegisterApprovalLifecycle was `registerApprovalLifecycle` pre-P22 P4
-// S4c1. Exported so cmd/mcp-orch/fx.go can fx.Invoke it during root
-// assembly.
-// RegisterApprovalLifecycle 注册审批生命周期。
+// RegisterApprovalLifecycle 注册 tool approval 事件订阅，用于驱动 awaiting_user_input 状态。
+// 导出给 cmd/mcp-orch/fx.go 通过 fx.Invoke 接线。
 func RegisterApprovalLifecycle(lc fx.Lifecycle, dispatcher *event.Dispatcher, svc *service, logger *slog.Logger) {
 	requestedCancel := func() {}
 	resolvedCancel := func() {}
 	lc.Append(fx.Hook{
 		OnStart: func(context.Context) error {
-			// NOTE(convention): event handler 直接操作状态机违反 statemachine-event-convention B7。
-			// 当前安全（kelindar/event 异步投递），但应改为 trigger channel 解耦。
+			// approval requested 事件进入 awaiting_user_input；handler 内负责幂等处理漂移状态。
 			requestedCancel = bus.ResilientSubscribe(dispatcher, func(ev tooldto.ToolApprovalRequested) {
 				handleToolApprovalRequestedEvent(svc, loggerOrDefault(logger), ev)
 			}, logger)
-			// NOTE(convention): event handler 直接操作状态机违反 statemachine-event-convention B7。
-			// 当前安全（kelindar/event 异步投递），但应改为 trigger channel 解耦。
+			// approval resolved 事件解除 awaiting_user_input；重复完成会被下游视为幂等。
 			resolvedCancel = bus.ResilientSubscribe(dispatcher, func(ev tooldto.ToolApprovalResolved) {
 				handleToolApprovalResolvedEvent(svc, loggerOrDefault(logger), ev)
 			}, logger)
@@ -298,11 +334,8 @@ func loggerOrDefault(logger *slog.Logger) *slog.Logger {
 	return pkglogger.Get()
 }
 
-// ProvideWakeupDispatcherRunnerIn lets fx inject taskdag.Store as an optional
-// dependency. Tests that do not bring up the taskdag module skip the
-// dispatcher entirely; production wiring (cmd/mcp-orch/fx.go) always
-// includes taskdagstore.Module so the dispatcher runs.
 // ProvideWakeupDispatcherRunnerIn 是 fx 注入 WakeupDispatcher runner 的参数结构。
+// Store 允许为空，便于未装载 taskdag 模块的测试图跳过 dispatcher。
 type ProvideWakeupDispatcherRunnerIn struct {
 	fx.In
 
@@ -311,9 +344,8 @@ type ProvideWakeupDispatcherRunnerIn struct {
 	Logger  *slog.Logger `optional:"true"`
 }
 
-// ProvideWakeupDispatcher creates the shared dispatcher used by the runner
-// adapter and router wiring; nil Store disables it for standalone tests.
-// ProvideWakeupDispatcher 提供wakeup调度器。
+// ProvideWakeupDispatcher 创建共享 wakeup dispatcher；未注入 Store 时返回 nil。
+// runner 和 router wiring 复用同一个实例，避免生产图里出现多个 claim owner。
 func ProvideWakeupDispatcher(in ProvideWakeupDispatcherRunnerIn) (*WakeupDispatcher, error) {
 	logger := in.Logger
 	if logger == nil {
@@ -326,9 +358,8 @@ func ProvideWakeupDispatcher(in ProvideWakeupDispatcherRunnerIn) (*WakeupDispatc
 	return NewWakeupDispatcher(in.Store, in.Service, logger, WakeupDispatcherConfig{})
 }
 
-// ProvideWakeupDispatcherRunner adapts the optional shared wakeup dispatcher
-// into a run.Group runner, falling back to a no-op when the store is absent.
-// ProvideWakeupDispatcherRunner 提供wakeup调度器runner。
+// ProvideWakeupDispatcherRunner 将可选 dispatcher 适配为 runner。
+// dispatcher 为 nil 时返回 no-op，保持轻量测试图不启动后台 claim 循环。
 func ProvideWakeupDispatcherRunner(dispatcher *WakeupDispatcher) platformrunner.Runner {
 	if dispatcher == nil {
 		return platformrunner.NoopRunner{}
@@ -336,15 +367,9 @@ func ProvideWakeupDispatcherRunner(dispatcher *WakeupDispatcher) platformrunner.
 	return dispatcher
 }
 
-// WireWakeupDispatcherRouter 是 dispatcher-wiring batch §1 的接线点：fx.Invoke
-// 拿 *WakeupDispatcher + NodeExecutorRouter (两者都可为 nil) 后调 setter 装上
-// router。任一为 nil 都是合法路径：
-//   - dispatcher nil (standalone)         → no-op
-//   - router nil     (未提供 nodeexec providers) → dispatcher 退化到 legacy launcher
-//
-// WireWakeupDispatcherRouter is the fx.Invoke entry: with both *WakeupDispatcher
-// and *NodeExecutorRouter resolved (either may be nil), call WithNodeRouter so
-// dispatcher gains DAG-aware node_type routing in production wiring.
+// WireWakeupDispatcherRouter 是 fx.Invoke 的 dispatcher/router 接线点。
+// router 为空表示当前图未提供 nodeexec 路由，dispatcher 保持非 DAG launcher 路径；
+// dispatcher 为空表示测试或独立图跳过后台投递，此处只把 event bus 接到 router。
 func WireWakeupDispatcherRouter(dispatcher *WakeupDispatcher, router *NodeExecutorRouter, bus *event.Dispatcher) {
 	if router == nil {
 		return
@@ -363,7 +388,7 @@ type WireWakeupDispatcherRetryAlertSinkIn struct {
 	Sink       DispatchRetryAlertSink `optional:"true"`
 }
 
-// WireWakeupDispatcherRetryAlertSink 处理wirewakeup调度器重试alertsink。
+// WireWakeupDispatcherRetryAlertSink 给 dispatcher 接入可选重试告警 sink。
 func WireWakeupDispatcherRetryAlertSink(in WireWakeupDispatcherRetryAlertSinkIn) {
 	if in.Dispatcher == nil {
 		return
@@ -381,12 +406,12 @@ func resolveEventTime(ctx context.Context, fallbacks ...time.Time) time.Time {
 	return platformshared.ResolveEventTime(ctx, nil, fallbacks...)
 }
 
-// LaunchAgent 启动代理。
+// LaunchAgent 启动 agent，当前统一走 launcher 桥接路径。
 func (s *service) LaunchAgent(ctx context.Context, req LaunchRequest) error {
 	return s.launchAgentViaLauncher(ctx, req)
 }
 
-// StopAgent 停止代理。
+// StopAgent 以 user_requested 原因停止 agent。
 func (s *service) StopAgent(ctx context.Context, agentID string) error {
 	return s.stopAgentViaLauncher(ctx, agentID, "user_requested")
 }
@@ -409,11 +434,8 @@ func (s *service) StopAllAgents() {
 	s.DrainAsync()
 }
 
-// DrainAsync cancels the shared async context and waits for all
-// fire-and-forget goroutines tracked by asyncWg to finish. Safe to
-// call multiple times; the second+ invocations are no-ops because
-// asyncCancel is idempotent and asyncWg is already at zero.
-// DrainAsync 异步等待服务收尾。
+// DrainAsync 取消 service 共享异步 context，并等待已登记 goroutine 收尾。
+// 多次调用是安全的：cancel 本身幂等，asyncWg 归零后后续调用会立即返回。
 func (s *service) DrainAsync() {
 	if s.asyncCancel != nil {
 		s.asyncCancel()
@@ -421,12 +443,12 @@ func (s *service) DrainAsync() {
 	s.asyncWg.Wait()
 }
 
-// SubmitTurn 提交turn。
+// SubmitTurn 提交一次 turn，远端 agent 优先走 launcher，其他 agent 进入本地队列。
 func (s *service) SubmitTurn(ctx context.Context, req TurnSubmission) error {
 	return s.submitTurnViaLauncher(ctx, req)
 }
 
-// ListAgents 列出代理。
+// ListAgents 合并内存 runtime 和持久化 thread 快照后排序返回。
 func (s *service) ListAgents(ctx context.Context) ([]AgentSnapshot, error) {
 	snapshots, err := s.runtimeAgentSnapshots(ctx)
 	if err != nil {
@@ -443,7 +465,7 @@ func (s *service) ListAgents(ctx context.Context) ([]AgentSnapshot, error) {
 	return snapshots, nil
 }
 
-// Snapshot 处理快照。
+// Snapshot 返回单个 agent 快照；runtime 不存在时回退到持久化 thread/binding。
 func (s *service) Snapshot(ctx context.Context, agentID string) (AgentSnapshot, error) {
 	var snapshot AgentSnapshot
 	err := s.withAgentReadLockedByAgentID(ctx, agentID, func(agent *agentRuntime) error {
@@ -456,7 +478,7 @@ func (s *service) Snapshot(ctx context.Context, agentID string) (AgentSnapshot, 
 	return snapshot, err
 }
 
-// GetAgentSnapshot 读取代理快照。
+// GetAgentSnapshot 是 provider 侧使用的快照读取适配器。
 func (s *service) GetAgentSnapshot(agentID string) (*AgentSnapshot, error) {
 	snapshot, err := s.Snapshot(context.Background(), strings.TrimSpace(agentID))
 	if err != nil {
@@ -465,7 +487,7 @@ func (s *service) GetAgentSnapshot(agentID string) (*AgentSnapshot, error) {
 	return &snapshot, nil
 }
 
-// CompleteTurn 完成turn。
+// CompleteTurn 根据 provider 终态事件完成或中止当前 active turn。
 func (s *service) CompleteTurn(ctx context.Context, agentID, turnID string, success bool, errMsg string) error {
 	return s.withAgentLocked(agentID, func(agent *agentRuntime) error {
 		kind := activeTurnFinalizationKind{

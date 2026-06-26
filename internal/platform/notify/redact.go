@@ -7,11 +7,7 @@ import (
 	"strings"
 )
 
-// RedactError returns an error string safe for structured logs. In
-// particular, net/url.Error includes the target URL in Error(); webhook
-// URLs are credentials for Slack and carry signed query params for
-// Dingtalk / Feishu, so we strip those secrets before logging.
-// RedactError 脱敏错误。
+// RedactError 返回可写入结构化日志的错误文本，重点清理 net/url.Error 中携带的 webhook URL。
 func RedactError(err error) string {
 	if err == nil {
 		return ""
@@ -26,7 +22,7 @@ func RedactError(err error) string {
 	return err.Error()
 }
 
-// redactURLString 脱敏URLstring。
+// redactURLString 去掉 query 和 fragment，并折叠 Slack webhook path 中的 bearer secret。
 func redactURLString(raw string) string {
 	u := strings.TrimSpace(raw)
 	if u == "" {
@@ -51,6 +47,7 @@ func redactURLString(raw string) string {
 	return redacted
 }
 
+// isSlackWebhookURL 判断 URL 是否为 Slack incoming webhook，Slack 的 path 本身是凭据。
 func isSlackWebhookURL(u *url.URL) bool {
 	if u == nil {
 		return false

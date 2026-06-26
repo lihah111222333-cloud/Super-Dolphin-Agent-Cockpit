@@ -12,42 +12,15 @@ import (
 	"testing"
 )
 
-// TestBusCallbackGuard is the P22 bus-subscriber callback slow-path guard
-// shell (P0 骨架; see docs/plans/迁移/p22/P0_RuntimeOwnershipSkeleton.md
-// §守卫改动建议-3).
-//
-// What P0 delivers here:
-//   - Declares the forbidden-shape catalogue that the bus_callback matcher
-//     must eventually enforce. The catalogue is the authoritative list for
-//     P1b/P2/P3 slice PRs — when a slice lands its fix, it wires the AST
-//     matcher against these tokens and flips the relevant subtest.
-//   - Matcher subtests are parked as t.Skip until the owning slice lands.
-//   - Nothing here uses the root-bridge allowlist: bus callbacks never share
-//     exemption with the root runtime bridge. P0 explicitly forbids
-//     "subscriber wiring 旁边就算 wiring 豁免" carve-outs.
-//
-// Matchers owned by downstream slices:
-//   - P2 (Finding 5, internal/module/memory/module.go):
-//     TeamSync callback -> StartSession
-//   - P2 (Finding 7, internal/module/memory/auto_dream_task.go):
-//     auto-dream scheduling inside event callback
-//   - P2 (Finding 10, internal/module/memory/...):
-//     ToolCallEnd -> AddToolReadResult -> os.ReadFile synchronous I/O
-//   - P2 (thread wiring, internal/module/thread):
-//     fx.Invoke(registerSubscriptions) that re-enters setter injection
-//   - P2 (internal/platform/hooks/event_relay.go):
-//     fire-and-forget `go` in relay callback
+// TestBusCallbackGuard 防止 bus subscriber 回调重新引入慢路径副作用。
+// 它锁定禁止 token 目录，并把已落地的 matcher 绑定到当前真实代码路径。
 func TestBusCallbackGuard(t *testing.T) {
 	t.Parallel()
 
 	runBusCallbackGuardSubtest(t, "forbidden_token_catalogue_is_locked", assertForbiddenTokenCatalogueLocked)
 
-	// P2 (thread wiring) live matcher: after the thread S1 slice lands
-	// (NewServiceWithPromptAssemblyAndSharedFiles now takes promptStore +
-	// classifier as constructor params), the thread module.go must not
-	// reintroduce the late-setter injection pattern. All three setter
-	// tokens are forbidden in module.go; `fx.Invoke` is still allowed
-	// because registerSubscriptions now only wires the lifecycle hook.
+	// thread 模块的订阅注册不能再通过回调后置注入 promptStore 或 classifier。
+	// 构造函数注入是当前真实形态，fx.Invoke 只允许保留生命周期 hook wiring。
 	runBusCallbackGuardSubtest(t, "bus_callback_must_not_register_late_setter", func(t *testing.T) {
 		assertFileLacksForbiddenTokens(t, "internal/module/thread/module.go", []string{
 			"svc.bindDispatcher(",
@@ -59,10 +32,7 @@ func TestBusCallbackGuard(t *testing.T) {
 		}, "thread/module.go reintroduced pre-P2 late-setter injection from registerSubscriptions")
 	})
 
-	// P2 Finding 7 live matcher: after commit 7837d6b+1 the auto-dream
-	// subscription must only enqueue into autoDreamScheduler; the old fire-
-	// and-forget path (onThreadStopped + `go maybeScheduleAutoDream`) is
-	// forbidden from reappearing in internal/module/memory/auto_dream_task.go.
+	// auto-dream 的事件回调只能进入调度器队列，不能在回调内直接启动后台调度。
 	runBusCallbackGuardSubtest(t, "bus_callback_must_not_schedule_auto_dream", func(t *testing.T) {
 		assertFileLacksForbiddenTokens(t, "internal/module/memory/auto_dream_task.go", []string{
 			"func (h *MemoryLifecycleHooks) onThreadStopped",
@@ -71,12 +41,8 @@ func TestBusCallbackGuard(t *testing.T) {
 		}, "auto_dream_task.go reintroduced pre-P2 fire-and-forget auto-dream scheduling")
 	})
 
-	// P2 Finding 10 live matcher: after the nestedIngestWorker slice lands
-	// (lossless pending-set + wake-signal owner), the memory module bus
-	// callbacks must not drive the synchronous nested-read slow-path
-	// directly. AddToolReadResult (which os.ReadFile's the persisted tool
-	// result) belongs to the worker; os.ReadFile / os.WriteFile must not
-	// reappear in the callback wiring file either.
+	// memory bus 回调不能直接触发 nested tool result 的同步读写慢路径。
+	// worker 拥有 AddToolReadResult 和磁盘 I/O，callback wiring 文件只负责轻量转发。
 	runBusCallbackGuardSubtest(t, "bus_callback_must_not_do_synchronous_file_io", func(t *testing.T) {
 		assertFileLacksForbiddenTokens(t, "internal/module/memory/module.go", []string{
 			"p.NestedRuntime.AddToolReadResult(",
@@ -85,13 +51,8 @@ func TestBusCallbackGuard(t *testing.T) {
 		}, "memory/module.go reintroduced pre-P2 synchronous nested-read / file I/O on bus callback path")
 	})
 
-	// P2 Finding 5/6 live matcher: after the teamSyncCoordinator slice lands
-	// the memory module bus callbacks must not drive the TeamSync session
-	// lifecycle directly. Both the high-level helper names
-	// (StartSessionFromThreadEvent / StopSessionFromThreadEvent) and the
-	// lifecycle verbs (StartSession / StopSession) are forbidden in the
-	// callback-wiring file; the coordinator is the only caller that may
-	// keep a reference to the helpers, and it lives in a separate file.
+	// TeamSync 会话生命周期由 coordinator 管理，memory bus 回调不能直接 start/stop。
+	// callback-wiring 文件禁止保留高层 helper 和底层生命周期动词，避免绕过 coordinator。
 	runBusCallbackGuardSubtest(t, "bus_callback_must_not_start_session", func(t *testing.T) {
 		assertFileLacksForbiddenTokens(t, "internal/module/memory/module.go", []string{
 			"teampkg.StartSessionFromThreadEvent(",
@@ -101,11 +62,8 @@ func TestBusCallbackGuard(t *testing.T) {
 		}, "memory/module.go reintroduced pre-P2 TeamSync lifecycle calls on bus callback path")
 	})
 
-	// P2 (hooks/event_relay fanout) live matcher: after the
-	// hookDispatchWorker slice lands, the hooks event relay must not
-	// spawn bare `go` goroutines or invoke Manager.DispatchAfter from the
-	// bus callback body. The worker owns that slow-path under a tracked
-	// Stop(ctx) drain.
+	// hooks event relay 的慢路径由 dispatch worker 承担，bus 回调体不能再起裸 goroutine。
+	// DispatchAfter 也必须留在可 drain 的 worker 内，避免停止阶段丢失后台任务。
 	runBusCallbackGuardSubtest(t, "bus_callback_must_not_fire_and_forget_goroutine", func(t *testing.T) {
 		assertFileLacksForbiddenTokens(t, "internal/platform/hooks/event_relay.go", []string{
 			"go func()",
@@ -128,19 +86,17 @@ func runBusCallbackGuardSubtest(t *testing.T, name string, fn func(*testing.T)) 
 }
 
 func assertForbiddenTokenCatalogueLocked(t *testing.T) {
-	// Freezing the catalogue here prevents silent drift between P0 and the
-	// owning-slice matchers. Any add/remove in the catalogue must land in the
-	// same PR that flips a matcher red→green.
+	// 禁止 token 目录必须和 matcher 同步维护，避免回调慢路径规则静默漂移。
 	want := []string{
-		"go ",                                   // bare go-statement in callback body
-		"runtimesafe.SafeGo(",                   // SafeGo dispatch from callback
-		"time.Sleep(",                           // blocking sleep
-		"exec.Command(", "exec.CommandContext(", // process spawn
-		"StartSession(", "StopSession(", // session lifecycle driven from callback
-		"NotifyConfigChanged(",          // fan-out config reload
-		"DispatchAfter(",                // timer-backed slow-path
-		"AddToolReadResult(",            // NestedRuntime slow read (Finding 10)
-		"os.ReadFile(", "os.WriteFile(", // synchronous disk I/O
+		"go ",                                   // 回调体内裸 go 语句
+		"runtimesafe.SafeGo(",                   // 从回调直接派发 SafeGo
+		"time.Sleep(",                           // 阻塞等待
+		"exec.Command(", "exec.CommandContext(", // 启动外部进程
+		"StartSession(", "StopSession(", // 从回调直接驱动会话生命周期
+		"NotifyConfigChanged(",          // 回调内广播配置重载
+		"DispatchAfter(",                // timer 支撑的慢路径
+		"AddToolReadResult(",            // NestedRuntime 慢读路径
+		"os.ReadFile(", "os.WriteFile(", // 同步磁盘 I/O
 	}
 	if len(want) == 0 {
 		t.Fatal("bus-callback forbidden token catalogue is empty")

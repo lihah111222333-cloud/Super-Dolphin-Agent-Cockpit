@@ -13,12 +13,12 @@ type SectionRegistry struct {
 	sections map[string]PromptSection
 }
 
-// NewSectionRegistry 创建section注册表。
+// NewSectionRegistry 创建空的并发安全 section 注册表。
 func NewSectionRegistry() *SectionRegistry {
 	return &SectionRegistry{sections: map[string]PromptSection{}}
 }
 
-// Register 注册prompt。
+// Register 注册单个 prompt section；重复名称直接报错，防止启动期覆盖内置 section。
 func (r *SectionRegistry) Register(section PromptSection) error {
 	name := strings.TrimSpace(section.Name)
 	if name == "" {
@@ -35,7 +35,7 @@ func (r *SectionRegistry) Register(section PromptSection) error {
 	return nil
 }
 
-// Sections 处理sections。
+// Sections 返回按 order/name 排序的 section 快照，调用方可安全修改返回切片。
 func (r *SectionRegistry) Sections() []PromptSection {
 	r.mu.RLock()
 	defer r.mu.RUnlock()

@@ -11,23 +11,18 @@ import (
 	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
 )
 
-// sharedfile_adapter.go —— dispatcher-wiring closure：把 sharedfile store 适配成
-// nodeexec.SharedFileReader / SharedFileWriter，喂进 RunContext。
+// sharedfile_adapter.go 把 sharedfile store 适配成 nodeexec.SharedFileReader /
+// SharedFileWriter，供 NodeExecutor RunContext 读取和写入共享文件。
 //
 // 设计要点：
-//   - Reader 端口 W2 收敛后是三态 (content, exists, err)：store.Get 返
+//   - Reader 端口是三态 (content, exists, err)：store.Get 返
 //     platformdb.ErrNotFound 翻成 exists=false（不是 err），让 nodeexec.inputs.go
 //     的 validation classify 走得通；其他 err 仍透出，让 dispatcher 走 transient retry。
 //   - Writer 端口接 store.Upsert：路径白名单由 store 内 sharedfilepath.ValidateWritePath
 //     拦截；adapter 不重复 enforce；UpdatedBy 写 "node-router"（生产 RunContext 暂未带
-//     调用方身份；F1.5 spawning_thread_id 可作后续 enrichment）。
+//     调用方身份，使用稳定 marker 方便审计）。
 //   - nil store 输入 → 返 nil 适配器，让 RunContext 字段保持 nil（向后兼容）；
 //     若节点 cfg 里又引用 sharedfile，由 nodeexec.inputs.go 归 validation 错。
-//
-// sharedfile_adapter.go bridges store/sharedfile.Store to the
-// nodeexec.SharedFileReader / SharedFileWriter ports consumed by RunContext.
-// Tri-state Reader handles platformdb.ErrNotFound as exists=false. Writer
-// path-policy enforcement lives inside store.Upsert; adapter doesn't duplicate it.
 
 // storeSharedFileReaderAdapter 把 sharedfilestore.Reader 适配成 nodeexec.SharedFileReader。
 type storeSharedFileReaderAdapter struct {
@@ -69,9 +64,8 @@ type storeSharedFileWriterAdapter struct {
 	*sharedfilemeta.StoreWriter
 }
 
-// sharedFileWriterUpdatedBy 是 dispatcher 路径写入 sharedfile 时填的 updated_by
-// 标识。生产 RunContext 暂未带节点级身份（agent 身份要 launch 出 thread 后才有），
-// 留个稳定 marker 方便审计 / log 检索。
+// sharedFileWriterUpdatedBy 是 dispatcher 路径写入 sharedfile 时填的 updated_by 标识。
+// 生产 RunContext 暂未带节点级身份；固定值让审计和日志检索能定位这类写入。
 const sharedFileWriterUpdatedBy = "node-router"
 
 // NewStoreSharedFileWriter 暴露 writer 适配器给 fx 层。nil store → nil adapter。

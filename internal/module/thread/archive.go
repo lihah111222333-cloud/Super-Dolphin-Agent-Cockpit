@@ -87,7 +87,7 @@ func (s *service) archivePendingLaunchThread(ctx context.Context, threadID strin
 	return true, nil
 }
 
-// Unarchive 处理unarchive。
+// Unarchive 恢复已归档线程并重新打开后续会话恢复入口。
 func (s *service) Unarchive(ctx context.Context, threadID string) error {
 	caller := archiveCallerStack()
 	pkglogger.Info("thread: Unarchive() ENTERED",
@@ -101,15 +101,12 @@ func (s *service) Unarchive(ctx context.Context, threadID string) error {
 		return err
 	}
 	s.publishThreadStopped(threadID, "", statusCreated, "unarchived")
-	// Evict the zombie session left by Archive (transport closed, context
-	// canceled) so that the next resolve path creates a fresh session via
-	// autoResumeSession, reconnecting to the same provider thread UUID
-	// and preserving conversation history.
+	// 归档会关闭 transport 并取消 context；恢复时先清掉旧 session，
+	// 让下一次解析用同一个 provider thread UUID 重新连接并保留历史。
 	s.unblockResumeForThread(ctx, threadID)
 	s.resetSessionRecoveryForThread(ctx, threadID)
 	s.evictZombieSession(ctx, threadID)
-	// Pre-warm: kick off a background resume so the session is ready by the
-	// time the user sends the first message.
+	// 提前后台恢复，尽量让用户发送第一条消息时会话已经可用。
 	s.backgroundResumeIfNeeded(ctx, threadID)
 	pkglogger.Info("thread: Unarchive() COMPLETED",
 		"thread_id", threadID,
@@ -118,9 +115,8 @@ func (s *service) Unarchive(ctx context.Context, threadID string) error {
 	return nil
 }
 
-// archiveCallerStack returns a compact caller stack for debugging
-// which code path triggered Archive/Unarchive.
-// archiveCallerStack 归档callerstack。
+// archiveCallerStack 返回触发 Archive/Unarchive 的紧凑调用栈。
+// 日志只需要定位入口链路，因此最多保留 6 层以控制字段长度。
 func archiveCallerStack() string {
 	var pcs [8]uintptr
 	n := runtime.Callers(3, pcs[:])

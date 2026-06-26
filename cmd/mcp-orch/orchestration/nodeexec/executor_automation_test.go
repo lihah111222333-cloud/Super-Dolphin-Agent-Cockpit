@@ -575,17 +575,14 @@ func TestAutomationExecutor_Outputs_SharedfileWriteFails_Validation(t *testing.T
 	}
 }
 
-// TestAutomationExecutor_Outputs_RejectsAllBannedKeys 表驱动覆盖全 11 个 banned key。
-//
-// R1 P1 #3 + R2 P0 gap：原测试只覆盖了 "prompt" 一个；扩展为 prompt-injection 5 +
-// agent-routing 6 = 11 个，确保任何路由字段从 automation outputs 注入下游 agent 节点
-// 都被 validation 拦截，不至于让 automation 隐式驱动下游 agent 路由 / 升级 model。
+// TestAutomationExecutor_Outputs_RejectsAllBannedKeys 表驱动覆盖所有禁止注入的 output key。
+// 自动化输出不能把 prompt 或 agent-routing 字段注入下游 agent 节点，否则会绕过显式路由和模型选择。
 func TestAutomationExecutor_Outputs_RejectsAllBannedKeys(t *testing.T) {
-	// keep in sync with executor_automation.go::automationOutputsForbiddenKeys
+	// 与 executor_automation.go::automationOutputsForbiddenKeys 保持同步。
 	bannedKeys := []string{
-		// prompt-injection family
+		// prompt 注入相关字段。
 		"prompt", "first_turn", "agent_prompt", "system_prompt", "append_error",
-		// agent-routing family
+		// agent 路由相关字段。
 		"agent_key", "model", "provider", "language", "tool_choice", "tools",
 	}
 	if len(bannedKeys) != 11 {

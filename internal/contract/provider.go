@@ -9,13 +9,15 @@ import (
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
 )
 
-// Driver is the provider factory contract.
+// Driver 是 provider 适配器的统一入口，负责启动或恢复一个会话。
+// 上层只依赖该契约，不直接感知 Claude/Codex 等具体实现。
 type Driver interface {
 	Name() string
 	StartSession(ctx context.Context, req dto.StartSessionRequest) (Session, error)
 	ResumeSession(ctx context.Context, req dto.ResumeSessionRequest) (Session, error)
 }
 
+// NativeToolFilterMode 表示 UI 和 prompt 层过滤原生工具时的强弱策略。
 type NativeToolFilterMode string
 
 const (
@@ -23,6 +25,7 @@ const (
 	NativeToolFilterModeSoft NativeToolFilterMode = "soft"
 )
 
+// NativeToolEnforcement 描述禁用原生工具时需要由哪一层兜住执行效果。
 type NativeToolEnforcement string
 
 const (
@@ -81,6 +84,7 @@ const (
 	CodexFeatureGoals                  = "goals"
 )
 
+// knownCodexNativeToolIDs 是 Codex 运行时已知原生工具 ID 白名单。
 var knownCodexNativeToolIDs = []string{
 	CodexNativeToolReadFile,
 	CodexNativeToolWriteNewFile,
@@ -114,6 +118,7 @@ var knownCodexNativeToolIDs = []string{
 	CodexNativeToolUpdatePlan,
 }
 
+// codexMultiAgentNativeToolIDs 归类会启动或控制子 agent 的原生工具。
 var codexMultiAgentNativeToolIDs = []string{
 	CodexNativeToolMultiAgent,
 	CodexNativeToolMultiToolParallel,
@@ -124,12 +129,13 @@ var codexMultiAgentNativeToolIDs = []string{
 	CodexNativeToolCloseAgent,
 }
 
-// KnownCodexNativeToolIDs 处理knowncodexnative工具ids。
+// KnownCodexNativeToolIDs 返回已知 Codex 原生工具 ID 的副本。
+// 调用方可安全排序或过滤返回值，不会污染全局白名单。
 func KnownCodexNativeToolIDs() []string {
 	return append([]string(nil), knownCodexNativeToolIDs...)
 }
 
-// IsKnownCodexNativeTool 判断knowncodexnative工具是否可用。
+// IsKnownCodexNativeTool 判断工具 ID 是否属于当前可治理的 Codex 原生工具集合。
 func IsKnownCodexNativeTool(id string) bool {
 	switch strings.TrimSpace(id) {
 	case CodexNativeToolShell, CodexNativeToolApplyPatch, CodexNativeToolWriteNewFile,
@@ -149,13 +155,16 @@ func IsKnownCodexNativeTool(id string) bool {
 	}
 }
 
+// CodexNativeToolPolicy 保存禁用工具后的分层执行策略。
+// disabled 是输入清洗后的工具集合，tiers 和 appServerFeatures 由 assignEnforcement 派生。
 type CodexNativeToolPolicy struct {
 	disabled          map[string]struct{}
 	tiers             map[string]NativeToolEnforcement
 	appServerFeatures []string
 }
 
-// NewCodexNativeToolPolicy 创建codexnative工具策略。
+// NewCodexNativeToolPolicy 根据配置中的禁用工具 ID 构造 Codex 原生工具策略。
+// 未知 ID 会被忽略，避免旧配置字段影响后续进程启动参数。
 func NewCodexNativeToolPolicy(disabled []string) CodexNativeToolPolicy {
 	policy := CodexNativeToolPolicy{
 		disabled: make(map[string]struct{}),
@@ -171,6 +180,7 @@ func NewCodexNativeToolPolicy(disabled []string) CodexNativeToolPolicy {
 	return policy
 }
 
+// assignEnforcement 计算禁用工具对应的原生硬禁用、效果硬约束和审计层级。
 func (p *CodexNativeToolPolicy) assignEnforcement() {
 	p.assignExecEnforcement()
 	p.assignMultiAgentEnforcement()
@@ -178,6 +188,8 @@ func (p *CodexNativeToolPolicy) assignEnforcement() {
 	p.assignSoftAuditTools()
 }
 
+// assignExecEnforcement 处理 shell/apply_patch/write_new_file 的联动禁用。
+// 三者都禁用时才追加 unified_exec 特性，避免只禁写时误关读执行能力。
 func (p *CodexNativeToolPolicy) assignExecEnforcement() {
 	fullExecGroup := p.has(CodexNativeToolShell) &&
 		p.has(CodexNativeToolApplyPatch) &&
@@ -193,6 +205,7 @@ func (p *CodexNativeToolPolicy) assignExecEnforcement() {
 	}
 }
 
+// assignMultiAgentEnforcement 处理子 agent 相关工具的硬禁用和 App Server 特性开关。
 func (p *CodexNativeToolPolicy) assignMultiAgentEnforcement() {
 	if !p.hasAny(codexMultiAgentNativeToolIDs...) {
 		return
@@ -211,6 +224,7 @@ func (p *CodexNativeToolPolicy) assignMultiAgentEnforcement() {
 	}
 }
 
+// assignFeatureBackedTools 将有 App Server feature flag 的原生工具映射到启动参数。
 func (p *CodexNativeToolPolicy) assignFeatureBackedTools() {
 	p.assignFeatureTool(CodexNativeToolToolSearch, CodexFeatureToolSearch)
 	p.assignFeatureTool(CodexNativeToolWebSearch, CodexFeatureWebSearchCached, CodexFeatureWebSearchRequest)
@@ -226,6 +240,7 @@ func (p *CodexNativeToolPolicy) assignFeatureBackedTools() {
 	p.assignFeatureTool(CodexNativeToolGoals, CodexFeatureGoals)
 }
 
+// assignSoftAuditTools 标记只需要审计禁用效果的读类或状态类工具。
 func (p *CodexNativeToolPolicy) assignSoftAuditTools() {
 	for _, id := range []string{
 		CodexNativeToolReadFile,
@@ -243,6 +258,7 @@ func (p *CodexNativeToolPolicy) assignSoftAuditTools() {
 	}
 }
 
+// assignWriteTool 根据是否形成完整执行工具组决定禁用层级。
 func (p *CodexNativeToolPolicy) assignWriteTool(id string, nativeHard bool) {
 	if !p.has(id) {
 		return
@@ -254,6 +270,7 @@ func (p *CodexNativeToolPolicy) assignWriteTool(id string, nativeHard bool) {
 	p.tiers[id] = NativeToolEnforcementEffectHard
 }
 
+// assignFeatureTool 把单个禁用工具映射为一个或多个 App Server feature flag。
 func (p *CodexNativeToolPolicy) assignFeatureTool(id string, features ...string) {
 	if !p.has(id) {
 		return
@@ -264,11 +281,13 @@ func (p *CodexNativeToolPolicy) assignFeatureTool(id string, features ...string)
 	}
 }
 
+// has 判断工具 ID 是否出现在清洗后的禁用集合中。
 func (p CodexNativeToolPolicy) has(id string) bool {
 	_, ok := p.disabled[strings.TrimSpace(id)]
 	return ok
 }
 
+// hasAny 判断任一工具 ID 是否被禁用，用于同类工具组快速分支。
 func (p CodexNativeToolPolicy) hasAny(ids ...string) bool {
 	for _, id := range ids {
 		if p.has(id) {
@@ -278,6 +297,7 @@ func (p CodexNativeToolPolicy) hasAny(ids ...string) bool {
 	return false
 }
 
+// addFeature 追加 App Server 禁用特性并保持稳定排序。
 func (p *CodexNativeToolPolicy) addFeature(feature string) {
 	for _, item := range p.appServerFeatures {
 		if item == feature {
@@ -288,22 +308,22 @@ func (p *CodexNativeToolPolicy) addFeature(feature string) {
 	sort.Strings(p.appServerFeatures)
 }
 
-// Tier 处理tier。
+// Tier 返回指定工具的禁用执行层级；未命中时返回空值表示无需治理。
 func (p CodexNativeToolPolicy) Tier(id string) NativeToolEnforcement {
 	return p.tiers[strings.TrimSpace(id)]
 }
 
-// HasProcessFlags 判断进程flags是否可用。
+// HasProcessFlags 表示该策略是否需要向 Codex App Server 追加 --disable 参数。
 func (p CodexNativeToolPolicy) HasProcessFlags() bool {
 	return len(p.appServerFeatures) != 0
 }
 
-// ProcessSignature 处理进程签名。
+// ProcessSignature 返回稳定的 feature 列表签名，用于区分可复用进程池。
 func (p CodexNativeToolPolicy) ProcessSignature() string {
 	return strings.Join(p.appServerFeatures, ",")
 }
 
-// AppServerArgs 处理app服务端args。
+// AppServerArgs 将禁用 feature 转成 Codex App Server 启动参数。
 func (p CodexNativeToolPolicy) AppServerArgs() []string {
 	args := make([]string, 0, len(p.appServerFeatures)*2)
 	for _, feature := range p.appServerFeatures {
@@ -312,7 +332,7 @@ func (p CodexNativeToolPolicy) AppServerArgs() []string {
 	return args
 }
 
-// RequiresReadOnlySandbox 处理requiresreadonly沙箱。
+// RequiresReadOnlySandbox 表示策略需要用只读沙箱补足无法原生硬禁用的写入工具。
 func (p CodexNativeToolPolicy) RequiresReadOnlySandbox() bool {
 	for _, tier := range p.tiers {
 		if tier == NativeToolEnforcementEffectHard {
@@ -322,8 +342,7 @@ func (p CodexNativeToolPolicy) RequiresReadOnlySandbox() bool {
 	return false
 }
 
-// NativeToolDescriptor describes an upstream CLI built-in tool that the
-// settings UI can render and the prompt/provider layers can filter.
+// NativeToolDescriptor 描述上游 CLI 内置工具，供设置页展示并供 prompt/provider 层过滤。
 type NativeToolDescriptor struct {
 	ID              string
 	Label           string
@@ -333,14 +352,15 @@ type NativeToolDescriptor struct {
 	FilterMode      NativeToolFilterMode
 }
 
-// DriverFactory constructs Driver instances for DI registration.
+// DriverFactory 是 provider 驱动的 DI 注册单元，连同原生工具元数据一起暴露。
 type DriverFactory struct {
 	Name        string
 	Create      func() Driver
 	NativeTools []NativeToolDescriptor
 }
 
-// Session is the unified provider session abstraction.
+// Session 是统一的 provider 会话抽象，封装 turn、thread 和配置操作。
+// 调用方必须通过该接口关闭/中断会话，不能绕过 provider 直接操作底层进程。
 type Session interface {
 	ThreadID() string
 	RolloutPath() string
@@ -359,7 +379,7 @@ type Session interface {
 	ForceStop() error
 }
 
-// TurnHandle is the handle for an in-flight turn.
+// TurnHandle 表示正在执行的 turn，提供本地/上游 ID、完成信号和最终错误。
 type TurnHandle interface {
 	LocalID() string
 	ProviderID() string
@@ -367,22 +387,23 @@ type TurnHandle interface {
 	Err() error
 }
 
+// CapabilityError 表示驱动缺少调用方要求的 provider 能力。
 type CapabilityError struct {
 	Capability string
 	Driver     string
 }
 
-// Error 返回错误文本。
+// Error 返回缺失能力的可读错误文本。
 func (e *CapabilityError) Error() string {
 	return fmt.Sprintf("capability %q is not supported by %s driver", e.Capability, e.Driver)
 }
 
-// NewCapabilityError 创建capability错误。
+// NewCapabilityError 构造 provider 能力缺失错误，供跨模块边界统一返回。
 func NewCapabilityError(cap, driver string) error {
 	return &CapabilityError{Capability: cap, Driver: driver}
 }
 
-// HasCapability 判断capability是否可用。
+// HasCapability 判断能力集合是否启用了指定能力；nil 集合按不支持处理。
 func HasCapability(caps dto.CapabilitySet, cap string) bool {
 	if caps == nil {
 		return false
@@ -390,7 +411,7 @@ func HasCapability(caps dto.CapabilitySet, cap string) bool {
 	return caps[cap]
 }
 
-// HasAllCapabilities 判断allcapabilities是否可用。
+// HasAllCapabilities 要求能力集合同时具备所有指定能力，任一缺失即返回 false。
 func HasAllCapabilities(caps dto.CapabilitySet, want ...string) bool {
 	for _, cap := range want {
 		if !HasCapability(caps, cap) {

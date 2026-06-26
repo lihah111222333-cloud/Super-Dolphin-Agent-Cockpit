@@ -22,9 +22,8 @@ type recoveryManager struct {
 }
 
 const (
-	// maxRecoveryAttempts caps transport-level WS reconnect before escalating
-	// to session-level recovery (evict zombie + re-launch CLI). Set to 2 so
-	// a dead app-server port does not burn 3 pointless reconnect cycles.
+	// maxRecoveryAttempts 限制单个会话内的 transport 恢复次数。
+	// 连续失败后交给线程层重建 provider，避免死端口反复占用调用方等待时间。
 	maxRecoveryAttempts      = 2
 	healthCheckInterval      = 15 * time.Second
 	healthCheckIdleThreshold = 30 * time.Second
@@ -37,18 +36,17 @@ type turnReplayState struct {
 	handle     *turnHandle
 }
 
-// CheckHealth 检查底层服务健康状态。
+// CheckHealth 检查 transport 是否仍能响应本地健康探测。
+// 这里只看 app-server 连接本身，避免把 connector/catalog 等远端能力失败误判为会话不可用。
 func (r *recoveryManager) CheckHealth(ctx context.Context) error {
 	if r.transport == nil {
 		return errors.New("codexapp: transport not running")
 	}
-	// Keep liveness local to the app-server transport. Capability calls such
-	// as app/list depend on ChatGPT connectors/catalog availability and must
-	// not decide whether this session is alive.
 	return r.transport.CheckHealth(ctx)
 }
 
-// Reconnect 处理reconnect。
+// Reconnect 在有限次数内重建 Codex app WebSocket。
+// 每次尝试都有短超时，避免恢复路径因为单次 connect 卡住而阻塞 turn 调用。
 func (r *recoveryManager) Reconnect(ctx context.Context) error {
 	if r.transport == nil {
 		return errors.New("codexapp: transport not configured")
@@ -100,17 +98,16 @@ func (s *session) callTransport(ctx context.Context, method string, params any) 
 	if err == nil || !shouldReconnect(err) {
 		return raw, err
 	}
-	// Sync path: the caller goroutine owns this attempt, so recovery runs
-	// inline rather than via the async signal worker. NotifyRecovery + async
-	// wait would force every caller to coordinate completion, which P1c
-	// §实施方式 explicitly keeps out of scope.
+	// 同步调用方正在等待 RPC 结果，因此由当前 goroutine 直接恢复并重试一次。
+	// 异步信号只适合后台连接事件，否则调用方还要额外协调恢复完成时机。
 	if recoverErr := s.attemptRecovery("transport-call: " + err.Error()); recoverErr != nil {
 		return nil, errors.Join(err, recoverErr)
 	}
 	return s.transport.Call(ctx, method, params)
 }
 
-// handleConnectionDead 处理connectiondead。
+// handleConnectionDead 处理 provider 主动上报的连接断开事件。
+// 启动阶段没有 threadID 时会失败所有 pending RPC；运行中事件交给 runtime 的恢复队列串行处理。
 func (s *session) handleConnectionDead(params json.RawMessage) {
 	reason := shared.FirstNonEmpty(stringValue(decodeEventPayload(params), "error", "message"), "connection lost")
 	pkglogger.Warn("codexapp: CONNECTION DEAD (passive)",
@@ -137,9 +134,7 @@ func (s *session) handleConnectionDead(params json.RawMessage) {
 		)
 		return
 	}
-	// P1c: replace the fire-and-forget SafeGo + attemptRecovery chain with a
-	// coalesced signal into SessionRuntime. The runtime's recovery worker
-	// serialises the attempt and honours the stop gate.
+	// 连接断开可能连续到达，runtime 会合并信号并受 stop gate 保护，避免 Close 时重启 reader。
 	if s.runtime == nil {
 		pkglogger.Warn("codexapp: handleConnectionDead dropped — runtime missing",
 			"agent_id", s.agentID,
@@ -149,7 +144,8 @@ func (s *session) handleConnectionDead(params json.RawMessage) {
 	s.runtime.NotifyRecovery("connection-dead", reason)
 }
 
-// isNonRecoverableAuthErrorText 判断nonrecoverable认证错误文本是否可用。
+// isNonRecoverableAuthErrorText 识别无需恢复的认证失败文本。
+// 这些错误代表配置或凭据无效，继续重连只会重复失败并延迟上层失败处理。
 func isNonRecoverableAuthErrorText(reason string) bool {
 	text := strings.ToLower(strings.TrimSpace(reason))
 	if text == "" {
@@ -193,7 +189,8 @@ func (s *session) failNonRecoverableConnection(reason string) {
 	})
 }
 
-// attemptRecovery 处理attemptrecovery。
+// attemptRecovery 串行执行 transport 重连、线程恢复和未完成 turn 重放。
+// stop gate 已关闭或超过重试上限时立即失败，避免关闭流程和恢复流程互相抢 reader。
 func (s *session) attemptRecovery(reason string) error {
 	if err := s.recoveryShutdownErr(); err != nil {
 		return err
@@ -208,8 +205,7 @@ func (s *session) attemptRecovery(reason string) error {
 	}
 	s.recoveryMu.Lock()
 	defer s.recoveryMu.Unlock()
-	// P1c stop gate: if the runtime has already begun shutdown, do not
-	// attempt a recovery that would race with Close's drain.
+	// runtime 已进入关闭时不再恢复，否则会和 Close 的 reader drain 互相竞争。
 	if err := s.recoveryShutdownErr(); err != nil {
 		return err
 	}
@@ -229,10 +225,8 @@ func (s *session) attemptRecovery(reason string) error {
 		return s.failRecovery(reason, err)
 	}
 	if err := s.completeRecoveryReplay(reason); err != nil {
-		// Replay failure means the transport connected but the session is
-		// unrecoverable at this level. Route through failRecovery so
-		// connection.dead is dispatched → thread layer can escalate to a
-		// full CLI re-launch (evict zombie + backgroundResume).
+		// replay 失败说明 transport 已恢复但 session 层状态无法继续复用。
+		// 通过 failRecovery 分发 connection.dead，让 thread 层升级为完整重启。
 		return s.failRecovery(reason, err)
 	}
 	s.recoveryCount.Store(0)
@@ -240,9 +234,8 @@ func (s *session) attemptRecovery(reason string) error {
 	return nil
 }
 
-// dispatchRecoveryAttempt publishes the `recovery.attempt` provider event.
-// Split out from attemptRecovery so both that function and any future
-// signal-level observers share a single payload shape.
+// dispatchRecoveryAttempt 发布恢复尝试事件。
+// 所有恢复入口共用这一 payload，便于 UI 和日志按同一字段追踪失败原因与第几次尝试。
 func (s *session) dispatchRecoveryAttempt(reason string, attempt int32) {
 	s.dispatch(dto.RawProviderEvent{
 		EventType: "recovery.attempt",
@@ -255,10 +248,8 @@ func (s *session) dispatchRecoveryAttempt(reason string, attempt int32) {
 	})
 }
 
-// completeRecoveryReplay performs the P1c-frozen replay sequence (see README
-// §recovery replay 顺序): spawn a new reader after pre-reconnect drain,
-// reset the suppressed map, resume the thread, then replay the pending turn.
-// Returns the first error it encounters, already wrapped via failRecovery.
+// completeRecoveryReplay 按固定顺序重建 reader、恢复线程并重放未完成 turn。
+// 任一步失败都会进入 failRecovery，交给线程层决定是否重启 provider。
 func (s *session) completeRecoveryReplay(reason string) error {
 	if s.runtime != nil {
 		if !s.runtime.restartReader() {
@@ -268,9 +259,7 @@ func (s *session) completeRecoveryReplay(reason string) error {
 	s.mu.Lock()
 	s.suppressed = make(map[string]struct{})
 	s.mu.Unlock()
-	// The app-server/proxy may reset approval request IDs across reconnects.
-	// Drop completed/in-flight approval de-dupe state so a post-recovery request
-	// cannot inherit a stale decision from the previous transport generation.
+	// app-server 重连后 approval request ID 可能重置，旧去重状态不能跨 transport generation 复用。
 	s.clearProcessedApprovals()
 	if err := s.resumeThreadAfterRecovery(s.ctx); err != nil {
 		return s.failRecovery(reason, err)
@@ -281,7 +270,8 @@ func (s *session) completeRecoveryReplay(reason string) error {
 	return nil
 }
 
-// resumeThreadAfterRecovery 处理恢复线程后置recovery。
+// resumeThreadAfterRecovery 在新连接上恢复当前 provider thread。
+// 恢复需要可信 cwd；缺失或不可访问会 fail-fast，避免 provider 在错误目录继续执行。
 func (s *session) resumeThreadAfterRecovery(ctx context.Context) error {
 	threadID := s.ThreadID()
 	if threadID == "" {
@@ -307,7 +297,8 @@ func (s *session) resumeThreadAfterRecovery(ctx context.Context) error {
 	return nil
 }
 
-// recoveryResumeCWD 处理recovery恢复工作目录。
+// recoveryResumeCWD 返回恢复线程时必须使用的工作目录。
+// 空 cwd、相对占位或不存在目录都会报错，防止恢复后工具调用落到未知路径。
 func (s *session) recoveryResumeCWD() (string, error) {
 	if s == nil {
 		return "", errors.New("codexapp: recovery cwd is required")
@@ -326,7 +317,8 @@ func (s *session) recoveryResumeCWD() (string, error) {
 	return cwd, nil
 }
 
-// replayPendingTurn 处理replay待处理turn。
+// replayPendingTurn 在恢复后的连接上重放尚未完成的 turn/start。
+// 已完成或快照无效时不做事；重放成功后会把旧 provider turnID 替换为新 ID。
 func (s *session) replayPendingTurn(ctx context.Context) error {
 	if err := shared.CheckCtx(ctx); err != nil {
 		return err
@@ -409,9 +401,7 @@ func (s *session) applyReplayedTurn(snapshot *turnReplayState, newProviderID str
 		s.pendingTurn.params = cloneTurnStartParams(snapshot.params)
 	}
 	s.mu.Unlock()
-	// ADR-015 v4.1 §2.1 cleanup hook: recovery allocates a fresh provider
-	// turn-id (turn/start above), so the buffer under the previous id can
-	// never be flushed by a future TurnCompleted. Drop it explicitly.
+	// 重放会产生新的 provider turnID，旧 ID 下累积的输出不会再收到 TurnCompleted，必须显式丢弃。
 	if staleProviderID != "" {
 		s.dropTurnOutputAccumulator(staleProviderID)
 	}
@@ -441,23 +431,20 @@ func (s *session) logReplayedTurn(snapshot *turnReplayState, newProviderID strin
 	)
 }
 
-// shouldReconnect 判断reconnect是否可用。
+// shouldReconnect 判断 transport 错误是否值得进入恢复流程。
+// 上下文取消、显式关闭和 RPC 协议错误都不是连接失活，继续恢复会掩盖真实原因。
 func shouldReconnect(err error) bool {
 	if err == nil || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 		return false
 	}
 	message := strings.ToLower(strings.TrimSpace(err.Error()))
-	// "transport unavailable" means session was explicitly destroyed (nil transport).
-	// RPC protocol errors (-32600, -32601, etc.) mean the server is alive.
-	// In both cases recovery would be pointless or harmful.
+	// 明确销毁或 RPC 协议错误说明服务仍有确定响应，此时恢复只会制造额外副作用。
 	if strings.Contains(message, "transport unavailable") ||
 		strings.Contains(message, "transport closing") ||
 		strings.HasPrefix(message, "rpc error ") {
 		return false
 	}
-	// "transport closed" now triggers recovery — the WebSocket may have
-	// disconnected due to idle timeout or network issues, and reconnecting
-	// via attemptRecovery + thread/resume will restore the session.
+	// transport closed 可能来自空闲断开或网络抖动，需要走恢复和 thread/resume。
 	return true
 }
 

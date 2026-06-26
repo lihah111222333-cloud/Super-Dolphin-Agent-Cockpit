@@ -16,7 +16,7 @@ type cliConfig struct {
 	goFiles []string
 }
 
-// main 解析守卫参数，并按单文件、strict、freeze 或默认棘轮模式执行。
+// main 解析代码守卫参数，并按单文件、strict、freeze 或默认棘轮模式执行。
 func main() {
 	cfg, err := parseArgs(os.Args[1:])
 	if err != nil {
@@ -51,7 +51,8 @@ func main() {
 	}
 }
 
-// parseArgs 把命令行参数收束成守卫运行模式和待检查文件。
+// parseArgs 将 CLI 参数解析为运行模式和单文件检查列表。
+// freeze/strict 不能和文件路径混用，避免 baseline 操作被误当成局部检查。
 func parseArgs(args []string) (cliConfig, error) {
 	cfg := cliConfig{mode: "check"}
 	for _, arg := range args {
@@ -79,6 +80,7 @@ func parseArgs(args []string) (cliConfig, error) {
 	return cfg, nil
 }
 
+// modeFlag 将内部模式名映射回 CLI flag，用于错误消息。
 func modeFlag(mode string) string {
 	switch mode {
 	case "freeze":
@@ -90,7 +92,8 @@ func modeFlag(mode string) string {
 	}
 }
 
-// runFreeze 全仓扫描建立/重建 baseline（生产 + 测试分文件）。
+// runFreeze 全仓扫描并重建生产/测试 baseline。
+// 该模式会写 baseline 文件，只应在明确更新守卫基线时使用。
 func runFreeze(opts archtest.CheckOptions, baselinePath, testBaselinePath string) {
 	fmt.Println("🔒  代码守卫: freeze 模式 — 建立 baseline")
 	bl := archtest.FreezeBaseline(opts)
@@ -108,7 +111,7 @@ func runFreeze(opts archtest.CheckOptions, baselinePath, testBaselinePath string
 	fmt.Printf("✅  测试 baseline — %d 个文件已冻结\n", len(testBL))
 }
 
-// runStrict 无 baseline 全量检查。
+// runStrict 不使用 baseline 进行全量检查，适合验证新规则当前是否全仓通过。
 func runStrict(opts archtest.CheckOptions) {
 	fmt.Println("🔍  代码守卫: strict 模式")
 	runFreezeRegistryAutoRepair(opts)
@@ -120,6 +123,8 @@ func runStrict(opts archtest.CheckOptions) {
 	fmt.Println("✅  strict 模式全量通过")
 }
 
+// runSingleFileCheck 对指定 Go 文件启用函数注释守卫并只输出违规项。
+// 该模式供 pre-commit 和分区 worker 快速检查单文件使用。
 func runSingleFileCheck(opts archtest.CheckOptions, goFiles []string) {
 	opts.EnforceFuncComments = true
 	violations := archtest.CheckFiles(opts, goFiles)
@@ -132,7 +137,7 @@ func runSingleFileCheck(opts archtest.CheckOptions, goFiles []string) {
 	os.Exit(1)
 }
 
-// runCheck 默认棘轮模式。
+// runCheck 执行默认棘轮模式：先检查生产违规，再分别校验和收缩生产/测试 baseline。
 func runCheck(opts archtest.CheckOptions, blPath, testBLPath string) {
 	runFreezeRegistryAutoRepair(opts)
 	violations := archtest.CheckAll(opts)
@@ -149,6 +154,7 @@ func runCheck(opts archtest.CheckOptions, blPath, testBLPath string) {
 	printPassSummary()
 }
 
+// filterProdViolations 从全量违规中剔除测试文件，只保留生产代码违规。
 func filterProdViolations(all []archtest.Violation) []archtest.Violation {
 	var out []archtest.Violation
 	for _, v := range all {
@@ -159,6 +165,7 @@ func filterProdViolations(all []archtest.Violation) []archtest.Violation {
 	return out
 }
 
+// resolveRoot 返回检查使用的仓库根目录，空值时回退当前目录。
 func resolveRoot(opts archtest.CheckOptions) string {
 	if opts.RepoRoot != "" {
 		return opts.RepoRoot
@@ -166,6 +173,7 @@ func resolveRoot(opts archtest.CheckOptions) string {
 	return "."
 }
 
+// reportAndExit 输出违规列表并以 1 退出，保持守卫 fail-fast。
 func reportAndExit(label string, vs []archtest.Violation) {
 	fmt.Fprintf(os.Stderr, "\n❌  %s违规 (%d):\n\n", label, len(vs))
 	for _, v := range vs {
@@ -175,6 +183,7 @@ func reportAndExit(label string, vs []archtest.Violation) {
 	os.Exit(1)
 }
 
+// runRatchetPhase 运行单个 baseline 文件的棘轮校验和自动收缩。
 func runRatchetPhase(label, blPath string, opts archtest.CheckOptions, root string, testsOnly bool) {
 	blInfo, err := archtest.LoadBaseline(blPath)
 	if err != nil {
@@ -185,6 +194,7 @@ func runRatchetPhase(label, blPath string, opts archtest.CheckOptions, root stri
 	shrinkAndSave(label, blPath, blInfo.Data, opts, root, testsOnly)
 }
 
+// checkRatchetResult 比对当前度量与 baseline，发现恶化立即退出。
 func checkRatchetResult(label string, opts archtest.CheckOptions, bl archtest.Baseline) {
 	result := archtest.CheckWithBaseline(opts, bl)
 	if result.OK() {
@@ -198,6 +208,7 @@ func checkRatchetResult(label string, opts archtest.CheckOptions, bl archtest.Ba
 	os.Exit(1)
 }
 
+// shrinkAndSave 删除或收紧已改善的 baseline 项，并在有变化时写回文件。
 func shrinkAndSave(label, blPath string, bl archtest.Baseline, opts archtest.CheckOptions, root string, testsOnly bool) {
 	fileSet, err := buildFileSet(root, opts, testsOnly)
 	if err != nil {
@@ -220,6 +231,7 @@ func shrinkAndSave(label, blPath string, bl archtest.Baseline, opts archtest.Che
 	fmt.Printf("📊  %s baseline 棘轮通过 — %d 个文件冻结中\n", label, len(newBL))
 }
 
+// runFreezeRegistryAutoRepair 执行 freeze registry 自动修复，失败时终止守卫。
 func runFreezeRegistryAutoRepair(opts archtest.CheckOptions) {
 	fixes, err := archtest.AutoRepairFreezeRegistry(opts)
 	if err != nil {
@@ -231,16 +243,19 @@ func runFreezeRegistryAutoRepair(opts archtest.CheckOptions) {
 	}
 }
 
+// printThresholds 输出当前代码守卫阈值，方便定位哪类限制触发。
 func printThresholds() {
 	fmt.Printf("📏  文件≤%d 函数≤%d 嵌套≤%d CC≤%d 下划线≤%d 包文件≤%d 包行≤%d\n",
 		archtest.MaxFileLines, archtest.MaxFuncLines, archtest.MaxNestingDepth,
 		archtest.MaxCCComplexity, archtest.MaxUnderscores, archtest.MaxPackageFiles, archtest.MaxPackageLines)
 }
 
+// printPassSummary 输出默认检查全部通过的摘要。
 func printPassSummary() {
 	fmt.Println("✅  代码守卫: 全部通过")
 }
 
+// buildFileSet 收集生产或测试 baseline 需要覆盖的 Go 文件集合。
 func buildFileSet(root string, opts archtest.CheckOptions, testsOnly bool) (map[string]bool, error) {
 	scanRoots := opts.ScanRoots
 	if len(scanRoots) == 0 {
@@ -259,7 +274,7 @@ func buildFileSet(root string, opts archtest.CheckOptions, testsOnly bool) (map[
 	return out, nil
 }
 
-// walkCollect 收集 baseline 棘轮需要比对的生产或测试文件集合。
+// walkCollect 递归收集 baseline 棘轮需要比对的生产或测试文件。
 func walkCollect(absRoot, repoRoot string, skip map[string]bool, testsOnly bool, out map[string]bool) error {
 	return filepath.Walk(absRoot, func(p string, info os.FileInfo, err error) error {
 		if err != nil {
@@ -283,6 +298,7 @@ func walkCollect(absRoot, repoRoot string, skip map[string]bool, testsOnly bool,
 	})
 }
 
+// findRepoRoot 从当前目录向上查找包含 go.mod 的仓库根目录。
 func findRepoRoot() (string, error) {
 	wd, err := os.Getwd()
 	if err != nil {

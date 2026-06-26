@@ -1,9 +1,5 @@
-// Package agent provides lightweight store implementations for
-// orchestration.AgentThreadStore and orchestration.AgentBindingStore
-// that query the shared SQLite tables directly via database/sql.
-//
-// This avoids importing internal/store/thread and internal/store/binding,
-// which would violate mcp-service-convention.md S3.1.
+// Package agent 提供 orchestration 读取线程和 provider 绑定所需的轻量 store。
+// 它直接通过 database/sql 查询共享表，避免 mcp-orch store 反向依赖内部业务 store。
 package agent
 
 import (
@@ -15,10 +11,9 @@ import (
 	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
 )
 
-// ──────────────────────────────────────────────────────────────────────
-// AgentThreadStore
-// ──────────────────────────────────────────────────────────────────────
+// ----- AgentThreadStore -----
 
+// threadStore 用 database/sql 直接实现 orchestration.AgentThreadStore。
 type threadStore struct{ db *sql.DB }
 
 // NewThreadStore 创建基于 SQLite 连接的编排线程存储。
@@ -26,8 +21,8 @@ func NewThreadStore(db *sql.DB) orchestration.AgentThreadStore {
 	return &threadStore{db: db}
 }
 
-// listSQL is the same query as internal/store/sqlc ListAgentThreads but
-// only selects the columns needed by orchestration.PersistedThread.
+// listSQL 只选择 orchestration.PersistedThread 需要的字段。
+// provider 绑定通过子查询取最新值，避免 orchestration 直接依赖 thread store。
 const listSQL = `
 SELECT
     t.thread_id, t.name, t.prompt, t.cwd, t.status, t.port, t.pid,
@@ -117,10 +112,9 @@ func (s *threadStore) UpdateStatus(ctx context.Context, params orchestration.Per
 	return wrapThread(err, "update_status")
 }
 
-// ──────────────────────────────────────────────────────────────────────
-// AgentBindingStore
-// ──────────────────────────────────────────────────────────────────────
+// ----- AgentBindingStore -----
 
+// bindingStore 用 database/sql 直接实现 orchestration.AgentBindingStore。
 type bindingStore struct{ db *sql.DB }
 
 // NewBindingStore 创建基于 SQLite 连接的 provider 绑定存储。
@@ -165,13 +159,15 @@ func (s *bindingStore) SetArchived(ctx context.Context, params orchestration.Per
 	return wrapBinding(err, "set_archived")
 }
 
-// ──────────────────────────────────────────────────────────────────────
-// helpers
-// ──────────────────────────────────────────────────────────────────────
+// ----- 辅助函数 -----
 
-func wrapThread(err error, op string) error  { return platformdb.WrapStoreError(err, op, "thread") }
+// wrapThread 将 thread store 错误包装为统一 store 错误域。
+func wrapThread(err error, op string) error { return platformdb.WrapStoreError(err, op, "thread") }
+
+// wrapBinding 将 binding store 错误包装为统一 store 错误域。
 func wrapBinding(err error, op string) error { return platformdb.WrapStoreError(err, op, "binding") }
 
+// stringFromAny 兼容 SQLite driver 返回 string 或 *string 的 provider binding id。
 func stringFromAny(value any) string {
 	if value == nil {
 		return ""

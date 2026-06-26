@@ -8,48 +8,23 @@ import (
 	"strings"
 )
 
-// F1.2 —— inputs 装载路径。拆出到独立文件是为了：
-//   - 避免 executor_agent.go::Execute 本体圈复杂度超阈（与 F1.5 spawnWriteback 同思路）；
-//   - 拼接格式 「inputs prefix + first_turn」 是 F1.2 的设计决策（蓝图 v2 仅给出 schema，
-//     未锁 prompt 拼接顺序），集中在一处便于 H7 summarization 接管后重构。
-//
-// F1.2 inputs assembly is isolated here so the Execute body stays under the
-// cyclomatic-complexity guard, and so the prompt-prefix format (a F1.2 design
-// decision the blueprint did not pin down) lives in one place that H7
-// summarization can later rewrite.
+// 本文件负责把节点 inputs 配置装载成 executor 可消费的运行时上下文。
+// agent 路径会把上游结果和 sharedfile 内容拼到 first_turn 前，automation 路径复用同一读取语义注入 args.__inputs。
 
-// ErrInputsValidation 是 inputs 装载阶段被判为「节点配置错误」的 sentinel。
+// ErrInputsValidation 是 inputs 装载路径被判为「节点配置错误」的 sentinel。
 // 例：from_nodes 引用不存在的 node_key；from_sharedfiles 引用不存在的 path；
 // 未接通 reader 但节点 inputs 又引用了。assembleInputs 返回的 *InputsError 通过
 // Unwrap 把它暴露出来，调用方可以用 errors.Is(err, ErrInputsValidation) 断言。
-//
-// ErrInputsValidation marks inputs-stage failures that should map to
-// FailureClass=validation (missing node_key / missing sharedfile / inputs
-// referenced but reader not wired). Unwrapped through *InputsError so
-// callers can errors.Is on it.
 var ErrInputsValidation = errors.New("nodeexec: inputs validation")
 
 // InputsError 是 assembleInputs 的结构化错误返回。
-// 收敛 batch 第 4 项：把原来三参解构 (string, error, FailureClass) 升级为
-// (string, *InputsError)，让 errors.As 一次拿到 FailureClass，并保留 Unwrap
-// 链给 errors.Is(ErrInputsValidation) 用。
-//
-// 设计要点：
-//   - Class 永远非空（FailureClassValidation / Transient 等）；
-//   - Err 是底层因（fmt.Errorf 包装或 sentinel）；
-//   - 实现 error 接口透传 Err.Error()；Unwrap 透传 Err，errors.Is/As 自然穿透。
-//
-// InputsError is the structured error returned by assembleInputs after the
-// port-unification batch. Callers run errors.As(err, &inputsErr) once to get
-// both the message and the FailureClass; errors.Is(err, ErrInputsValidation)
-// still works through the Unwrap chain.
+// Class 决定 NodeOutcome.FailureClass，Err 保留底层原因；Unwrap 让 errors.Is/As 仍能穿透到 sentinel。
 type InputsError struct {
 	Class FailureClass
 	Err   error
 }
 
-// Error implements error. nil-safe (returns "").
-// Error 返回错误文本。
+// Error 返回底层错误文本；nil receiver 返回空串，避免日志路径 panic。
 func (e *InputsError) Error() string {
 	if e == nil || e.Err == nil {
 		return ""
@@ -57,9 +32,7 @@ func (e *InputsError) Error() string {
 	return e.Err.Error()
 }
 
-// Unwrap exposes the wrapped error so errors.Is(ErrInputsValidation) and
-// errors.As(target) keep working through the InputsError shell.
-// Unwrap 返回底层错误。
+// Unwrap 返回底层错误，供调用方用 errors.Is/As 识别 validation sentinel 或具体错误类型。
 func (e *InputsError) Unwrap() error {
 	if e == nil {
 		return nil
@@ -93,18 +66,8 @@ func newInputsInfraError(format string, args ...any) *InputsError {
 	}
 }
 
-// assembleInputs 按 cfg.Inputs 拉取 prev nodes result + sharedfiles，拼成一个
-// 将注入到 LaunchRequest.Prompt 头部的前缀字符串。
-//
-// 返回值：
-//   - prefix：拼接后的文本。空表示无需注入（cfg.Inputs 为空）。
-//   - inputsErr：失败原因（结构化，含 Class）；nil 表示装载成功。
-//
-// assembleInputs gathers configured prev results / sharedfiles into a single
-// prompt prefix. Returns (prefix, nil) on success. On failure returns
-// ("", *InputsError) with Class set to validation for missing refs / missing
-// readers, transient/quota etc. for infra errors flowing through
-// classifyAgentLaunchError.
+// assembleInputs 按 cfg.Inputs 拉取上游节点结果和 sharedfile 内容，拼成 LaunchRequest.Prompt 前缀。
+// 空 prefix 表示无需注入；失败时返回带 FailureClass 的 InputsError，让 agent executor 按节点失败处理。
 func (e *AgentExecutor) assembleInputs(
 	ctx context.Context,
 	cfg *AgentNodeConfig,
@@ -126,8 +89,7 @@ func (e *AgentExecutor) assembleInputs(
 	return strings.Join(sections, "\n\n"), nil
 }
 
-// inputsConfigured 报告 cfg.Inputs 是否含需要拉取的来源。
-// inputsConfigured reports whether the inputs config has anything to load.
+// inputsConfigured 报告 cfg.Inputs 是否声明了需要读取的来源。
 func inputsConfigured(in *InputsConfig) bool {
 	if in == nil {
 		return false
@@ -135,9 +97,7 @@ func inputsConfigured(in *InputsConfig) bool {
 	return len(in.FromNodes) > 0 || len(in.FromSharedfiles) > 0
 }
 
-// resolveDagKey 优先从 runCtx 取 dag_key，缺失时回退到 node 自带字段。
-// resolveDagKey prefers the runCtx-supplied dag_key, falling back to the node's
-// own field (mirrors resolveSpawnKeys in executor_agent.go).
+// resolveDagKey 优先使用 dispatcher 传入的 dag_key；缺失时才回退到节点快照字段。
 func resolveDagKey(runCtx RunContext, node Node) string {
 	if k := strings.TrimSpace(runCtx.DagKey); k != "" {
 		return k
@@ -148,11 +108,7 @@ func resolveDagKey(runCtx RunContext, node Node) string {
 // collectInputSections 依次拉取 from_nodes / from_sharedfiles 两节，返回
 // 非空节的拼接列表。拆出的意义：避免 assembleInputs CC 超阈。
 //
-// inputs 数据源均走 RunContext（PrevResults / SharedFileReader），收敛 batch 后与
-// AutomationExecutor 共享同一端口语义。
-//
-// collectInputSections loads each configured source and returns the non-empty
-// sections; split out to keep assembleInputs under the cyclomatic budget.
+// inputs 数据源均走 RunContext（PrevResults / SharedFileReader），agent 与 automation 共享同一失败语义。
 func collectInputSections(
 	ctx context.Context,
 	in *InputsConfig,
@@ -183,7 +139,7 @@ func collectInputSections(
 
 // loadFromNodes 拉取 cfg.Inputs.FromNodes 列出的 prev node result。
 //
-// prev == nil 但配置非空 → validation（避免默默吞掉注入需求）。
+// prev == nil 但配置非空 → validation（避免遗漏注入需求）。
 // node_key 不存在 → validation。
 // result 为空 → 注入「(empty)」占位（上游可能未配 outputs.to_node_result）。
 func loadFromNodes(
@@ -203,7 +159,7 @@ func loadFromNodes(
 	for _, raw := range nodeKeys {
 		key := strings.TrimSpace(raw)
 		if key == "" {
-			// 空串 → 静默跳过，不是 validation 错（取其尽量汇入意图）。
+			// 空字符串来自用户列表里的无效项，忽略它可避免生成无法引用的空 node_key。
 			continue
 		}
 		result, ok := prev[key]
@@ -274,15 +230,11 @@ After a successful tool call, the final response must be exactly one JSON object
 Do not return only natural language and do not invent a path. If the tool cannot run or required inputs are missing, return {"success":false,"source_tool":%q,"error":"<reason>"} without %q.`, sourceTool, pathField, sourceTool, pathField, sourceTool, pathField)
 }
 
-// composePrompt 拼接 inputs 前缀、artifact 输出契约与 first_turn。F1.2 设计决策：
+// composePrompt 拼接 inputs 前缀、artifact 输出契约与 first_turn。
 //   - 两者都为空 → 返回空串，表示未指定 Prompt（以免 service 层以 「空填充」 处理）。
 //   - prefix / artifactContract 非空 + first_turn 非空 → 前缀段 + "\n\n[first_turn]\n" + first_turn。
 //   - 仅 prefix 非空 → 返回 prefix（末尾别加叠加 first_turn header）。
-//   - 仅 first_turn 非空 → 返回 first_turn（保证与 F1.1 现状完全一致）。
-//
-// composePrompt joins the inputs prefix and artifact contract with first_turn.
-// When only first_turn is present it returns first_turn verbatim, preserving
-// F1.1 behavior bit-for-bit so unrelated tests stay stable.
+//   - 仅 first_turn 非空 → 原样返回 first_turn，保证没有 inputs 时不改变已有 prompt。
 func composePrompt(prefix, artifactContract, firstTurn string) string {
 	prefix = strings.TrimRight(prefix, "\n")
 	artifactContract = strings.TrimRight(artifactContract, "\n")

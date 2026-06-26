@@ -17,13 +17,15 @@ import (
 
 // Peer-list/decode helpers live in handler_peer_decode.go.
 
+// peerToolsListOutcome 保存单类 peer 的 tools/list 结果，保留 clientKind 方便聚合错误。
 type peerToolsListOutcome struct {
 	clientKind string
 	tools      []dto.MCPTool
 	err        error
 }
 
-// listPeerToolsForCodex 为codex列出peer工具。
+// listPeerToolsForCodex 并发查询 Codex 需要暴露的 peer 工具列表。
+// 输出顺序仍按 kinds 入参排序，避免动态工具面因 goroutine 完成顺序发生抖动。
 func (h *Handler) listPeerToolsForCodex(ctx context.Context, kinds ...string) []peerToolsListOutcome {
 	if ctx == nil {
 		ctx = context.Background()
@@ -68,6 +70,7 @@ func (h *Handler) listPeerToolsForCodex(ctx context.Context, kinds ...string) []
 	return out
 }
 
+// joinPeerToolErrors 合并各类 peer 的 tools/list 错误，并在错误中保留来源。
 func joinPeerToolErrors(outcomes []peerToolsListOutcome) error {
 	errs := make([]error, 0, len(outcomes))
 	for _, outcome := range outcomes {
@@ -78,7 +81,8 @@ func joinPeerToolErrors(outcomes []peerToolsListOutcome) error {
 	return errors.Join(errs...)
 }
 
-// ListToolsForCodex 为codex列出工具。
+// ListToolsForCodex 聚合 host-direct、orchestration 和 LSP 工具，生成 Codex 动态工具面。
+// host-direct 先加入并拥有同名优先级，peer 发现失败直接返回错误而不是发布半可用工具面。
 func (h *Handler) ListToolsForCodex(ctx context.Context) ([]contract.DynamicToolSchema, error) {
 	if ctx == nil {
 		ctx = context.Background()
@@ -104,11 +108,13 @@ func (h *Handler) ListToolsForCodex(ctx context.Context) ([]contract.DynamicTool
 	return toCodexDynamicTools(merged), nil
 }
 
+// appendDynamicToolsWithShadowWarning 是测试可替换的动态工具合并入口。
 func (h *Handler) appendDynamicToolsWithShadowWarning(dst []dto.MCPTool, seen map[string]string, source string, tools []dto.MCPTool) []dto.MCPTool {
 	return h.appendMCPToolsWithShadowWarning(dst, seen, source, tools)
 }
 
-// appendMCPToolsWithShadowWarning 追加带shadowwarning的MCP工具。
+// appendMCPToolsWithShadowWarning 追加 MCP 工具并记录同名 shadow 情况。
+// 保留“先加入者胜出”规则，确保列表阶段与调用阶段的 host-direct 优先级一致。
 func (h *Handler) appendMCPToolsWithShadowWarning(dst []dto.MCPTool, seen map[string]string, source string, tools []dto.MCPTool) []dto.MCPTool {
 	if seen == nil {
 		seen = make(map[string]string, len(tools))
@@ -146,6 +152,7 @@ func (h *Handler) appendMCPToolsWithShadowWarning(dst []dto.MCPTool, seen map[st
 	return dst
 }
 
+// isReservedHostOnlyToolName 判断工具名是否只能由 host-direct registry 处理。
 func isReservedHostOnlyToolName(name string) bool {
 	switch strings.TrimSpace(name) {
 	case ToolNameMemoryRead, ToolNameMemoryWrite, ToolNameObservabilityTraceGet:
@@ -155,14 +162,17 @@ func isReservedHostOnlyToolName(name string) bool {
 	}
 }
 
+// reservedHostOnlyToolCanonicalName 将调用名折叠为保留工具的 canonical 名称。
 func reservedHostOnlyToolCanonicalName(name string) (string, bool) {
 	return reservedHostOnlyToolCanonicalNameForFamily("", name)
 }
 
+// reservedHostOnlySurfaceToolCanonicalName 在 Codex surface family 作用域内识别 host-only 工具。
 func reservedHostOnlySurfaceToolCanonicalName(family, name string) (string, bool) {
 	return reservedHostOnlyToolCanonicalNameForFamily(family, name)
 }
 
+// reservedHostOnlyToolCanonicalNameForFamily 枚举裸名、family 包装名和 legacy 名称后做保留匹配。
 func reservedHostOnlyToolCanonicalNameForFamily(family, name string) (string, bool) {
 	for _, candidate := range reservedHostOnlyToolNameCandidates(family, name) {
 		candidate = strings.TrimSpace(candidate)
@@ -173,6 +183,7 @@ func reservedHostOnlyToolCanonicalNameForFamily(family, name string) (string, bo
 	return "", false
 }
 
+// reservedHostOnlyToolNameCandidates 生成可能指向同一 host-only 工具的别名集合。
 func reservedHostOnlyToolNameCandidates(family, name string) []string {
 	candidates := []string{strings.TrimSpace(name)}
 	if family = strings.TrimSpace(family); family != "" {
@@ -185,6 +196,7 @@ func reservedHostOnlyToolNameCandidates(family, name string) []string {
 	return candidates
 }
 
+// isRemovedSkillToolName 判断旧 skill 工具名是否已从 Codex surface 下线。
 func isRemovedSkillToolName(name string) bool {
 	switch strings.TrimSpace(name) {
 	case ToolNameReadSection, ToolNameLegacySkillExpandBody, ToolNameLegacySkillReadResource:
@@ -194,14 +206,13 @@ func isRemovedSkillToolName(name string) bool {
 	}
 }
 
+// removedSkillToolResult 为被移除的旧 skill 工具返回明确失败文本。
 func removedSkillToolResult(name string) *ToolCallResult {
 	return toolCallTextResult(false, strings.TrimSpace(name)+" is no longer available to Codex")
 }
 
-// validateHostToolGuards checks the common pre-conditions shared by all
-// host-direct memory tool implementations (enabled, toolsEnabled, tool name
-// match). The caller is responsible for nil-receiver / nil-dependency
-// checks before calling this function.
+// validateHostToolGuards 校验 host-direct memory 工具共享的启用开关和工具名。
+// 调用方必须先处理 nil receiver / nil 依赖；这里专注返回统一的 memory 错误类型。
 func validateHostToolGuards(enabled, toolsEnabled bool, callName, expectedName, unavailableCode string) error {
 	if !enabled {
 		return contract.NewAgentMemoryError("feature_disabled", contract.ErrFeatureDisabled)
@@ -264,6 +275,7 @@ func (h *Handler) callHostTool(ctx context.Context, req ToolCallRequest) (*ToolC
 	}, nil
 }
 
+// marshalHostToolResult 同时生成文本 payload 和 structuredContent，保证 host-direct 返回格式一致。
 func marshalHostToolResult(result any) ([]byte, json.RawMessage, error) {
 	payload, err := json.Marshal(result)
 	if err != nil {
@@ -276,6 +288,7 @@ func marshalHostToolResult(result any) ([]byte, json.RawMessage, error) {
 	return payload, structured, nil
 }
 
+// hostToolErrorOutcome 将 host-direct 错误归类到 metrics label。
 func hostToolErrorOutcome(err error) string {
 	var required contract.SkillApprovalRequiredError
 	switch {
@@ -288,7 +301,8 @@ func hostToolErrorOutcome(err error) string {
 	}
 }
 
-// hostToolErrorResult 生成host工具错误结果。
+// hostToolErrorResult 将 host-direct 错误包装成模型可读的结构化 ToolCallResult。
+// approval_required/denied 需要保留专门 kind，前端据此显示授权交互。
 func hostToolErrorResult(req ToolCallRequest, err error) *ToolCallResult {
 	envelope := map[string]any{
 		"kind":  "host_tool_error",
@@ -322,15 +336,18 @@ func hostToolErrorResult(req ToolCallRequest, err error) *ToolCallResult {
 	}
 }
 
+// skillApprovalDeniedMarker 是 approval denial 错误的窄接口标记。
 type skillApprovalDeniedMarker interface {
 	SkillApprovalDenied() bool
 }
 
+// isSkillApprovalDenied 判断错误链中是否带有 approval denied 标记。
 func isSkillApprovalDenied(err error) bool {
 	var marker skillApprovalDeniedMarker
 	return errors.As(err, &marker) && marker.SkillApprovalDenied()
 }
 
+// approvalRequestEnvelope 生成传给模型和前端的授权请求摘要。
 func approvalRequestEnvelope(req contract.ApprovalRequest) map[string]any {
 	return map[string]any{
 		"callId":       strings.TrimSpace(req.CallID),
@@ -346,6 +363,7 @@ func approvalRequestEnvelope(req contract.ApprovalRequest) map[string]any {
 	}
 }
 
+// resolveHostToolCWD 根据 registry 策略决定是否必须解析 cwd。
 func (h *Handler) resolveHostToolCWD(ctx context.Context, req ToolCallRequest) (string, error) {
 	if hostToolRequiresCWD(h.hostTools, req.Name) {
 		return h.resolveRequiredHostToolCWD(ctx, req)
@@ -353,12 +371,14 @@ func (h *Handler) resolveHostToolCWD(ctx context.Context, req ToolCallRequest) (
 	return normalizeToolCallCWD(req.CWD), nil
 }
 
+// hostToolRequiresCWD 默认要求 cwd；只有实现 HostToolCWDPolicy 的 registry 可以显式豁免。
 func hostToolRequiresCWD(registry HostToolRegistry, name string) bool {
 	policy, ok := registry.(HostToolCWDPolicy)
 	return !ok || policy.RequiresCWD(name)
 }
 
-// resolveRequiredHostToolCWD 解析必需host工具工作目录。
+// resolveRequiredHostToolCWD 解析并校验 host-direct 工具所需 cwd。
+// 请求未携带 cwd 时才通过 agentID 反查；最终必须存在且是目录。
 func (h *Handler) resolveRequiredHostToolCWD(ctx context.Context, req ToolCallRequest) (string, error) {
 	cwd := normalizeToolCallCWD(req.CWD)
 	if cwd == "" {
@@ -379,6 +399,7 @@ func (h *Handler) resolveRequiredHostToolCWD(ctx context.Context, req ToolCallRe
 	return cwd, nil
 }
 
+// resolveAgentCWD 通过 WorkDirResolver 反查 agent cwd，并把所有失败折叠为 cwd 缺失错误。
 func (h *Handler) resolveAgentCWD(ctx context.Context, agentID string) (string, error) {
 	if h == nil || h.resolver == nil {
 		return "", fmt.Errorf("%w: work dir resolver is not configured", contract.ErrSkillMissingCWD)

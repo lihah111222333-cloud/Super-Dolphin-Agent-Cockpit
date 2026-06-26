@@ -27,7 +27,8 @@ type dreamExecutor struct {
 	cards    map[string]json.RawMessage
 }
 
-// newDreamExecutor 创建dreamexecutor。
+// newDreamExecutor 读取并校验 prompt intent e2e fixture。
+// 所有必需卡片都必须存在且为 JSON object，避免测试运行到中途才暴露缺 fixture。
 func newDreamExecutor(path string) (*dreamExecutor, error) {
 	path = strings.TrimSpace(path)
 	if path == "" {
@@ -66,7 +67,8 @@ func provideDreamExecutorProvider() (contract.DreamExecutorProvider, error) {
 	return contract.DreamExecutorProvider{Name: ProviderName, Executor: executor}, nil
 }
 
-// ExecuteDream 执行dream。
+// ExecuteDream 根据 prompt 选择 fixture 卡片并返回渲染后的 JSON。
+// prompt 为空或无法匹配卡片时直接报错，保证 e2e 用例不会误用默认响应。
 func (e *dreamExecutor) ExecuteDream(ctx context.Context, prompt string) (string, error) {
 	if err := ctx.Err(); err != nil {
 		return "", err
@@ -93,7 +95,8 @@ func (e *dreamExecutor) ExecuteDream(ctx context.Context, prompt string) (string
 	return rendered, nil
 }
 
-// fixtureKey 处理fixture键。
+// fixtureKey 根据 prompt 中的标记选择 fixture 卡片。
+// 该匹配规则是测试 wire 协议的一部分，新增测试变体时必须显式扩展。
 func (e *dreamExecutor) fixtureKey(prompt string) (string, error) {
 	normalized := strings.ToLower(prompt)
 	switch {

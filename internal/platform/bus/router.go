@@ -14,7 +14,7 @@ type Router struct {
 	subs *Subscription
 }
 
-// NewRouter 创建 Router；dispatcher 参数暂未使用，保留以便未来扩展。
+// NewRouter 创建 Router；dispatcher 参数暂未使用，但保留旧构造签名以兼容调用方。
 func NewRouter(_ *event.Dispatcher) *Router {
 	return &Router{subs: NewSubscription()}
 }
@@ -32,6 +32,7 @@ func Route[T event.Event](dispatcher *event.Dispatcher, handler func(T)) context
 }
 
 // Handle 将 cancel 函数注册到 Router，由 Close 统一调用。
+// nil router 或 nil cancel 直接跳过，便于测试和可选订阅路径安全收口。
 func (r *Router) Handle(cancel context.CancelFunc) {
 	if r == nil || cancel == nil {
 		return
@@ -39,7 +40,7 @@ func (r *Router) Handle(cancel context.CancelFunc) {
 	r.subs.Add(cancel)
 }
 
-// Close 注销所有已注册的订阅。
+// Close 注销所有已注册订阅；重复 Close 在 Subscription 清空后不会再次触发 cancel。
 func (r *Router) Close() {
 	if r == nil || r.subs == nil {
 		return

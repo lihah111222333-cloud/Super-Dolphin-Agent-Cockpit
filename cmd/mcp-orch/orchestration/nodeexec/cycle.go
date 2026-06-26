@@ -6,30 +6,12 @@ import (
 	"sort"
 )
 
-// 环检测 —— ApplyOps add_node / update_node 在写库前的前置校验（蓝图 v2 §5）。
-//
-// 算法演变：
-//   v1 (F4.1 骨架期)：Kahn 拓扑。未拓扑出的节点一股脑捞进 CycleError.Nodes，
-//     多个独立环 ·会被混在一起无法区分。
-//   v2 (R3 P2 #2 修复)：Kahn 预检 → Tarjan SCC 拆簇。Kahn 负责快路判无环（这
-//     是绝大多数 happy path）；仅在存在环时才跑一次 Tarjan 把剩余节点按强
-//     联通分量拆为独立环 components，让错误消息能区分「{a,b} + {c,d} 是两个环」
-//     与「{a,b,c,d} 是一个包含 4 个节点的环」。
-//
-// 复杂度都是 O(V+E)，节点规模 << 千级。
-//
-// Cycle detection used by ApplyOps add_node / update_node before persistence
-// (blueprint v2 §5). v1 (F4.1) used Kahn only and lumped all unprocessed nodes
-// into one CycleError.Nodes slice. v2 (R3 P2 #2) keeps Kahn as the fast-path
-// acyclic check and runs Tarjan SCC on the residual subgraph so multiple
-// independent cycles ({a,b} + {c,d}) surface as separate Components instead of
-// being merged into a single blob.
+// 本文件实现 ApplyOps 写库前的 DAG 环检测。
+// 先用 Kahn 快速判无环；存在残留节点时再对残留子图跑 Tarjan SCC，把多个独立环分别返回。
+// 整体复杂度 O(V+E)，调用方可以在持久化前 fail-fast，而不是写入后再靠调度器发现死锁。
 
-// ErrDAGCyclic 是拓扑排序发现环时返回的 sentinel 错误。
-// errors.Is(err, ErrDAGCyclic) 可命中。
-//
-// ErrDAGCyclic is returned when DetectCycle finds a cycle. Matchable via
-// errors.Is(err, ErrDAGCyclic).
+// ErrDAGCyclic 是 DetectCycle 发现环时返回的 sentinel。
+// CycleError 会包装它，调用方可用 errors.Is 判断。
 var ErrDAGCyclic = errors.New("dag: cycle detected")
 
 // CycleError 是 ErrDAGCyclic 的富错误包装。
@@ -40,16 +22,12 @@ var ErrDAGCyclic = errors.New("dag: cycle detected")
 //   - Components：按 Tarjan SCC 拆出的独立环列表。每个 Component 是一个环的
 //     node_key 字典序排序。Components 本身也按 component[0] 字典序排序让
 //     错误消息 deterministic。
-//
-// Nodes preserves the v1 contract (flat sorted list of every node involved in
-// any cycle); Components carries the v2 SCC partitioning so callers can tell
-// {a,b} + {c,d} apart from {a,b,c,d}.
 type CycleError struct {
 	Nodes      []string
 	Components [][]string
 }
 
-// Error 返回错误文本。
+// Error 返回包含环节点或独立环组件数量的错误文本。
 func (e *CycleError) Error() string {
 	if len(e.Components) <= 1 {
 		return fmt.Sprintf("%s: nodes %v form a cycle", ErrDAGCyclic.Error(), e.Nodes)
@@ -57,7 +35,7 @@ func (e *CycleError) Error() string {
 	return fmt.Sprintf("%s: %d independent cycles %v", ErrDAGCyclic.Error(), len(e.Components), e.Components)
 }
 
-// Unwrap 返回底层错误。
+// Unwrap 暴露 ErrDAGCyclic，供 errors.Is 使用。
 func (e *CycleError) Unwrap() error { return ErrDAGCyclic }
 
 // DetectCycle 接受一张以 node_key 为索引的依赖图（adjacency = 当前节点 ←
@@ -75,13 +53,6 @@ func (e *CycleError) Unwrap() error { return ErrDAGCyclic }
 //   - nil map 与空 map 语义一致：两者都是空图，直接返 nil。设计判断：
 //     上游调用点（planOpsBatch / mergeAdjacency）可能汇 0 项 ops 生出 nil map，
 //     拒绝则需走额外分支；连同语义会让调用点代码干净。
-//
-// DetectCycle returns nil for an acyclic graph; otherwise it returns a
-// *CycleError wrapping ErrDAGCyclic. The input map is read-only: adjacency[k]
-// lists the upstream dependencies of node k. Unknown deps (referenced but not
-// keyed in adjacency) are skipped on the assumption upstream validation has
-// already rejected them. nil map is treated identically to an empty map (no
-// nodes, no cycles).
 func DetectCycle(adjacency map[string][]string) error {
 	if len(adjacency) == 0 {
 		return nil

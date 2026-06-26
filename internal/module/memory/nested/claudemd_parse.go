@@ -10,6 +10,8 @@ import (
 	"golang.org/x/text/unicode/norm"
 )
 
+// parseClaudeRuleContent 解析规则文件 frontmatter 和正文。
+// 没有 frontmatter 时仍清理 HTML 注释并返回正文；有 frontmatter 时提取 description/globs。
 func parseClaudeRuleContent(content string) (claudeRuleMetadata, string) {
 	frontmatter, body, ok := parse.SplitFrontmatter(parse.StripUTF8BOM(content))
 	if !ok {
@@ -19,6 +21,8 @@ func parseClaudeRuleContent(content string) (claudeRuleMetadata, string) {
 	return metadata, strings.TrimSpace(parse.StripHTMLComments(body))
 }
 
+// parseBoolEnv 解析环境变量布尔值。
+// 未设置或无法识别时返回 fallback，避免环境脏值意外开启额外目录扫描。
 func parseBoolEnv(key string, fallback bool) bool {
 	switch strings.ToLower(strings.TrimSpace(os.Getenv(key))) {
 	case "1", "true", "yes", "on":
@@ -30,7 +34,8 @@ func parseBoolEnv(key string, fallback bool) bool {
 	}
 }
 
-// normalizeStringSlice 规范化stringslice。
+// normalizeStringSlice 规范化字符串列表。
+// 它会做 NFC、空白折叠、大小写去重，保证 glob、路径和候选 key 稳定。
 func normalizeStringSlice(values []string) []string {
 	if len(values) == 0 {
 		return nil
@@ -55,6 +60,8 @@ func normalizeStringSlice(values []string) []string {
 	return cleaned
 }
 
+// parseScalar 解析规则 frontmatter 标量。
+// 优先兼容 JSON 字符串，失败时裁剪简单引号，适配手写 markdown 元数据。
 func parseScalar(raw string) string {
 	raw = strings.TrimSpace(raw)
 	if raw == "" {
@@ -67,7 +74,8 @@ func parseScalar(raw string) string {
 	return strings.Trim(strings.TrimSpace(raw), "\"'")
 }
 
-// parseStringList 解析stringlist。
+// parseStringList 解析规则 frontmatter 中的路径列表。
+// 支持 JSON 数组、方括号和逗号分隔格式，最终交给 normalizeStringSlice 清洗。
 func parseStringList(raw string) []string {
 	raw = strings.TrimSpace(raw)
 	if raw == "" {

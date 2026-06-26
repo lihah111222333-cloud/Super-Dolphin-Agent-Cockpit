@@ -8,6 +8,7 @@ import (
 	"strings"
 )
 
+// ErrTeamMemSecretDetected 表示团队记忆内容命中了密钥扫描规则。
 var ErrTeamMemSecretDetected = errors.New("team memory content contains secrets")
 
 // TeamMemoryGuard 负责团队记忆的安全守卫：写操作路径校验和内容密钥扫描。
@@ -15,26 +16,29 @@ type TeamMemoryGuard struct {
 	manager *TeamMemoryManager
 }
 
-// TeamMemSecretFinding 描述内容中一处密钥检测结果。
+// TeamMemSecretFinding 是团队记忆密钥扫描的一处命中。
+// Match 已被截断，可进入 UI/日志；完整 secret 不能通过该结构外泄。
 type TeamMemSecretFinding struct {
 	RuleID string
 	Line   int
 	Match  string
 }
 
-// TeamMemSkippedFile 记录被跳过（含密钥）的文件及其发现结果。
+// TeamMemSkippedFile 记录推送前因密钥命中而跳过的文件。
 type TeamMemSkippedFile struct {
 	Path     string
 	Findings []TeamMemSecretFinding
 }
 
-// TeamMemPrePushScanResult 是推送前密钥扫描的结果：Allowed 为通过的文件，Skipped 为含密钥被跳过的文件。
+// TeamMemPrePushScanResult 是推送前密钥扫描的跨模块结果。
+// Allowed 可继续进入远端 push，Skipped 会回传给 UI/RPC 告知用户哪些文件被阻断。
 type TeamMemPrePushScanResult struct {
 	Allowed map[string]string
 	Skipped []TeamMemSkippedFile
 }
 
-// TeamMemSecretError 包含检测到密钥的文件路径和详细发现结果，实现 error 接口。
+// TeamMemSecretError 表示单文件写入命中了密钥规则。
+// 它实现 Unwrap，调用方可用 errors.Is(err, ErrTeamMemSecretDetected) 统一识别。
 type TeamMemSecretError struct {
 	Path     string
 	Findings []TeamMemSecretFinding
@@ -56,12 +60,12 @@ var teamSecretRules = []teamSecretRule{
 	{id: "quoted_secret_assignment", pattern: regexp.MustCompile(`(?im)\b(?:api[_-]?key|access[_-]?token|secret[_-]?key|auth[_-]?token)\b\s*[:=]\s*['"][A-Za-z0-9/_+=.-]{16,}['"]`)},
 }
 
-// NewTeamMemoryGuard 创建team记忆守卫。
+// NewTeamMemoryGuard 创建团队记忆写入守卫。
 func NewTeamMemoryGuard(manager *TeamMemoryManager) *TeamMemoryGuard {
 	return &TeamMemoryGuard{manager: manager}
 }
 
-// Error 返回错误文本。
+// Error 返回包含首个命中规则和行号的错误文本。
 func (e *TeamMemSecretError) Error() string {
 	if len(e.Findings) == 0 {
 		return ErrTeamMemSecretDetected.Error()
@@ -70,12 +74,13 @@ func (e *TeamMemSecretError) Error() string {
 	return fmt.Sprintf("%s: %s line %d matched %s", ErrTeamMemSecretDetected, e.Path, first.Line, first.RuleID)
 }
 
-// Unwrap 返回底层错误。
+// Unwrap 返回 ErrTeamMemSecretDetected，供 errors.Is 判断。
 func (e *TeamMemSecretError) Unwrap() error {
 	return ErrTeamMemSecretDetected
 }
 
-// ValidateWrite 校验write。
+// ValidateWrite 校验团队记忆写入路径和内容。
+// 路径必须落在团队记忆根目录内，内容命中密钥规则时直接阻断写入。
 func (g *TeamMemoryGuard) ValidateWrite(path, content string) (string, error) {
 	root, err := g.root()
 	if err != nil {
@@ -92,7 +97,8 @@ func (g *TeamMemoryGuard) ValidateWrite(path, content string) (string, error) {
 	return validatedPath, nil
 }
 
-// FilterPushFiles 处理过滤条件push文件。
+// FilterPushFiles 在推送前过滤含密钥的文件。
+// 安全文件保留在 Allowed，命中文件进入 Skipped，调用方可继续推送剩余文件。
 func (g *TeamMemoryGuard) FilterPushFiles(files map[string]string) TeamMemPrePushScanResult {
 	result := TeamMemPrePushScanResult{Allowed: make(map[string]string, len(files))}
 	paths := make([]string, 0, len(files))
@@ -115,7 +121,8 @@ func (g *TeamMemoryGuard) FilterPushFiles(files map[string]string) TeamMemPrePus
 	return result
 }
 
-// ScanTeamMemContent 扫描teammem内容。
+// ScanTeamMemContent 扫描团队记忆内容中的常见密钥模式。
+// 返回结果按行号和规则 ID 排序，便于 UI 和日志稳定展示。
 func ScanTeamMemContent(content string) []TeamMemSecretFinding {
 	normalized := strings.ReplaceAll(content, "\r\n", "\n")
 	findings := make([]TeamMemSecretFinding, 0, len(teamSecretRules))
@@ -134,6 +141,7 @@ func ScanTeamMemContent(content string) []TeamMemSecretFinding {
 	return findings
 }
 
+// appendTeamSecretRuleFindings 将单条规则的所有命中追加到 findings，并只保存截断后的匹配片段。
 func appendTeamSecretRuleFindings(findings []TeamMemSecretFinding, content string, rule teamSecretRule) []TeamMemSecretFinding {
 	matches := rule.pattern.FindAllStringIndex(content, -1)
 	for _, match := range matches {
@@ -146,10 +154,12 @@ func appendTeamSecretRuleFindings(findings []TeamMemSecretFinding, content strin
 	return findings
 }
 
+// teamSecretLineNumber 根据 byte offset 计算 1-based 行号。
 func teamSecretLineNumber(content string, offset int) int {
 	return 1 + strings.Count(content[:offset], "\n")
 }
 
+// truncateSecretMatch 截断命中的密钥片段，避免日志暴露完整 secret。
 func truncateSecretMatch(match string) string {
 	match = strings.TrimSpace(match)
 	if len(match) <= 48 {
@@ -158,6 +168,7 @@ func truncateSecretMatch(match string) string {
 	return match[:48] + "..."
 }
 
+// root 返回团队记忆根目录，功能未启用时返回 ErrTeamMemoryDisabled。
 func (g *TeamMemoryGuard) root() (string, error) {
 	if g == nil || g.manager == nil {
 		return "", ErrTeamMemoryDisabled

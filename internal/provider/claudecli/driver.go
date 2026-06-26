@@ -24,12 +24,14 @@ import (
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
+// claudeCapabilities 描述 Claude provider 当前暴露给上层 runtime 的能力。
 var claudeCapabilities = dto.CapabilitySet{
 	dto.CapMessageSend:  true,
 	dto.CapModelSwitch:  true,
 	dto.CapTurnOverride: true,
 }
 
+// driver 是 Claude CLI provider 的 Driver 实现，负责启动 CLI、维护 runtime 观测和 skill mirror。
 type driver struct {
 	logger          *slog.Logger
 	binaryPath      string
@@ -44,6 +46,7 @@ type driver struct {
 	authStatus      func(context.Context, string, string, cliLaunchConfig) (claudeAuthStatus, string, error)
 }
 
+// startSpec 聚合启动或恢复会话所需的规范化参数，避免 StartSession/ResumeSession 分叉后逻辑重复。
 type startSpec struct {
 	agentID        string
 	threadID       string
@@ -58,6 +61,7 @@ type startSpec struct {
 	configOverride dto.ThreadConfigPatch
 }
 
+// preparedStartSession 是启动 CLI 成功后的中间产物；调用方仍需等待 thread ready。
 type preparedStartSession struct {
 	history        *historyBackend
 	requestedModel string
@@ -67,6 +71,7 @@ type preparedStartSession struct {
 	cleanup        func()
 }
 
+// restartSnapshot 保存重启前可恢复的 session 状态，失败时用于回滚 transport 与 watcher。
 type restartSnapshot struct {
 	transport         *transport
 	cleanup           func()
@@ -79,6 +84,7 @@ type restartSnapshot struct {
 	contextWindow     int
 }
 
+// preparedSessionRestart 保存已准备好的重启结果，等待锁内提交或回滚。
 type preparedSessionRestart struct {
 	transport  *transport
 	cleanup    func()
@@ -88,6 +94,7 @@ type preparedSessionRestart struct {
 	snapshot   restartSnapshot
 }
 
+// proxyHTTPAddr 返回当前 toolbridge proxy 地址；未装配时保持空字符串。
 func (d *driver) proxyHTTPAddr() string {
 	if d == nil || d.proxyAddrFn == nil {
 		return ""
@@ -95,6 +102,7 @@ func (d *driver) proxyHTTPAddr() string {
 	return strings.TrimSpace(d.proxyAddrFn())
 }
 
+// newDriver 创建 Claude CLI driver，并注入可替换的启动、认证和观测依赖。
 func newDriver(logger *slog.Logger, eventDispatcher *unified.EventDispatcher, reporter contract.RuntimeReporter, reg *pidregistry.Registry, proxyAddrFn func() string, mirror contract.SkillMirrorReconciler, recovery contract.SessionRecoveryReporter, tracers ...*observability.Service) contract.Driver {
 	if logger == nil {
 		logger = pkglogger.Get()
@@ -117,6 +125,7 @@ func newDriver(logger *slog.Logger, eventDispatcher *unified.EventDispatcher, re
 	}
 }
 
+// firstClaudeTracer 取第一个可用 tracer，便于 Fx 多参数注入时保持兼容。
 func firstClaudeTracer(tracers []*observability.Service) *observability.Service {
 	if len(tracers) == 0 {
 		return nil
@@ -124,10 +133,10 @@ func firstClaudeTracer(tracers []*observability.Service) *observability.Service 
 	return tracers[0]
 }
 
-// Name 处理名称。
+// Name 返回 provider 标识。
 func (d *driver) Name() string { return "claude" }
 
-// StartSession 启动会话。
+// StartSession 启动新的 Claude CLI 会话，并为其构建 stdio-only MCP manifest。
 func (d *driver) StartSession(ctx context.Context, req dto.StartSessionRequest) (contract.Session, error) {
 	launchConfig := configFromMap(req.Config)
 	extraBinaries, err := providershared.ConfigMCPBinaries(req.Config, "mcpConfig", "mcp_config")
@@ -162,7 +171,7 @@ func (d *driver) StartSession(ctx context.Context, req dto.StartSessionRequest) 
 	})
 }
 
-// ResumeSession 处理恢复会话。
+// ResumeSession 基于已持久化的 prompt snapshot 和 provider thread 恢复 Claude CLI 会话。
 func (d *driver) ResumeSession(ctx context.Context, req dto.ResumeSessionRequest) (contract.Session, error) {
 	snapshot := req.PromptSnapshot
 	rawConfig := resumeSessionRuntimeConfig(req)
@@ -207,6 +216,7 @@ func (d *driver) ResumeSession(ctx context.Context, req dto.ResumeSessionRequest
 	})
 }
 
+// resumeSessionRuntimeConfig 合并恢复请求 runtime 配置，并确保 cwd 能被后续启动链路读取。
 func resumeSessionRuntimeConfig(req dto.ResumeSessionRequest) map[string]any {
 	cfg := cloneConfigMap(req.Config)
 	if cfg == nil {
@@ -219,7 +229,8 @@ func resumeSessionRuntimeConfig(req dto.ResumeSessionRequest) map[string]any {
 	return cfg
 }
 
-// start 启动claudecli provider。
+// start 串起 provider home、skill mirror、CLI 启动、thread ready 等关键步骤。
+// 任一阶段失败都会直接返回错误，不发布半启动 session。
 func (d *driver) start(ctx context.Context, spec startSpec) (session contract.Session, err error) {
 	traceStarted := time.Now()
 	defer func() {
@@ -251,7 +262,7 @@ func (d *driver) start(ctx context.Context, spec startSpec) (session contract.Se
 	return s, nil
 }
 
-// prepareSessionStart 准备会话起点。
+// prepareSessionStart 校验 cwd、规范化模型配置、完成认证预检并启动 CLI transport。
 func (d *driver) prepareSessionStart(ctx context.Context, spec startSpec) (preparedStartSession, error) {
 	if err := validateStartCWD(spec.cwd); err != nil {
 		return preparedStartSession{}, err
@@ -293,7 +304,8 @@ func (d *driver) prepareSessionStart(ctx context.Context, spec startSpec) (prepa
 	}, nil
 }
 
-// prepareProviderHomeAndMirrors 准备providerhomemirrors。
+// prepareProviderHomeAndMirrors 准备 Claude home 并同步 provider-native skill mirror。
+// mirror 是启动前硬依赖，冲突会 fail-fast，避免 CLI 读取到过期或重复技能。
 func (d *driver) prepareProviderHomeAndMirrors(ctx context.Context, spec startSpec) (startSpec, error) {
 	requestedHome := strings.TrimSpace(spec.historyDir)
 	mirrorHome := ""
@@ -322,12 +334,14 @@ func (d *driver) prepareProviderHomeAndMirrors(ctx context.Context, spec startSp
 	return spec, nil
 }
 
+// warnSkillMirrorIssue 记录 skill mirror 非阻断问题；当前启动主链路只保留给兼容调用。
 func (d *driver) warnSkillMirrorIssue(message string, err error) {
 	if d != nil && d.logger != nil && err != nil {
 		d.logger.Warn(message, "error", err)
 	}
 }
 
+// validateStartCWD 校验 Claude CLI 必须在存在的目录内启动。
 func validateStartCWD(cwd string) error {
 	cwd = strings.TrimSpace(cwd)
 	if cwd == "" {
@@ -343,6 +357,7 @@ func validateStartCWD(cwd string) error {
 	return nil
 }
 
+// resolveRequestedStartConfig 将请求模型和 pending override 合并为本次启动配置。
 func resolveRequestedStartConfig(spec startSpec) (string, cliLaunchConfig) {
 	requestedModel := sanitizeClaudeModel(spec.model)
 	if requestedModel == "" && spec.configOverride.Model != nil {
@@ -355,7 +370,8 @@ func resolveRequestedStartConfig(spec startSpec) (string, cliLaunchConfig) {
 	return requestedModel, requestedConfig
 }
 
-// newStartedSession 创建started会话。
+// newStartedSession 创建 session 对象并启动读循环。
+// 新会话会先标记 thread ready，以允许第一条用户消息触发 Claude CLI 返回真实 session_id。
 func (d *driver) newStartedSession(spec startSpec, started preparedStartSession) *session {
 	initialThreadID := fallbackThreadID(spec.agentID, spec.threadID)
 	publicThreadID := shared.FirstNonEmpty(spec.publicThread, spec.agentID, initialThreadID)
@@ -391,18 +407,16 @@ func (d *driver) newStartedSession(spec startSpec, started preparedStartSession)
 		settleTransport:   defaultSettleInterruptedTransport,
 	}
 	s.applyConfiguredOverridesLocked(spec.configOverride, false)
-	// Claude CLI v2.1+ only emits system:init (which carries the real
-	// session_id) after it receives the first user message on stdin. Mark
-	// the session ready immediately so StartTurn can send that message.
-	// Fresh sessions still resolve the real thread ID asynchronously from
-	// system:init; resumed sessions already have the persisted UUID in
-	// spec.threadID. The restart path uses its own resumeID-based logic in
-	// swapRestartTransportLocked and is unaffected by this startup gate.
+	// Claude CLI v2.1+ 只有收到首条用户消息后才发送携带真实 session_id 的 system:init。
+	// 因此新会话先标记 ready，允许 StartTurn 发送首条消息；真实 threadID 稍后仍由
+	// system:init 异步回填。恢复会话已有持久化 UUID，重启路径也有独立的 resumeID 逻辑。
 	s.markThreadReady()
 	s.startReadLoop(started.transport)
 	return s
 }
 
+// awaitStartedSession 等待 provider threadID 可用并登记 transport 进程。
+// 若等待失败，会停止刚创建的 session 并清理可能残留的 provider thread 绑定。
 func (d *driver) awaitStartedSession(ctx context.Context, s *session, tr *transport) error {
 	if err := s.awaitResolvedThreadID(ctx); err != nil {
 		shared.LogIgnoredError(d.logger, "stop failed on start error", s.stop(true))
@@ -413,6 +427,7 @@ func (d *driver) awaitStartedSession(ctx context.Context, s *session, tr *transp
 	return nil
 }
 
+// clearStaleProviderThreadID 清除启动失败后可能遗留的 provider thread 绑定。
 func (d *driver) clearStaleProviderThreadID(agentID, message string) {
 	if d == nil || d.recovery == nil {
 		return
@@ -424,6 +439,7 @@ func (d *driver) clearStaleProviderThreadID(agentID, message string) {
 	}
 }
 
+// dispatchStartEvents 发布 agent:launched 和 idle 状态事件，通知上层会话已进入可交互态。
 func (d *driver) dispatchStartEvents(s *session, launchModel string) {
 	resolvedThreadID := s.ThreadID()
 	eventThreadID := s.EventThreadID()
@@ -451,6 +467,7 @@ func (d *driver) dispatchStartEvents(s *session, launchModel string) {
 	})
 }
 
+// restartStatusDetails 将重启原因转换为 UI 可展示的状态细节。
 func restartStatusDetails(reason string) string {
 	switch strings.TrimSpace(reason) {
 	case "settings_changed":
@@ -462,6 +479,7 @@ func restartStatusDetails(reason string) string {
 	}
 }
 
+// restartFailureStatus 将重启失败转换为 UI 状态三元组。
 func restartFailureStatus(err error) (string, string, string) {
 	if errors.Is(err, context.Canceled) {
 		return "idle", "等待指示", ""
@@ -469,6 +487,7 @@ func restartFailureStatus(err error) (string, string, string) {
 	return "error", "Claude 重启失败", strings.TrimSpace(err.Error())
 }
 
+// statusPatchRawEventLocked 在 session 锁内构造重启状态 patch 事件。
 func (s *session) statusPatchRawEventLocked(status, header, details string) dto.RawProviderEvent {
 	base := s.rawBaseLocked()
 	data := buildEventData(base, base.SessionID, time.Now().Format(time.RFC3339Nano), map[string]any{
@@ -481,6 +500,7 @@ func (s *session) statusPatchRawEventLocked(status, header, details string) dto.
 	return dto.RawProviderEvent{EventType: "agent:status_patch", Data: data}
 }
 
+// dispatchRestartPatch 临时释放 session 锁以停止旧 watcher 并发布重启状态。
 func (s *session) dispatchRestartPatch(prepared preparedSessionRestart) {
 	s.mu.Unlock()
 	if prepared.snapshot.watcher != nil {
@@ -490,6 +510,7 @@ func (s *session) dispatchRestartPatch(prepared preparedSessionRestart) {
 	s.mu.Lock()
 }
 
+// restoreRestartSnapshotLocked 在重启失败时回滚 transport、ready channel 和上下文窗口。
 func (s *session) restoreRestartSnapshotLocked(snapshot restartSnapshot) {
 	s.transport = snapshot.transport
 	s.cleanup = snapshot.cleanup
@@ -505,7 +526,8 @@ func (s *session) restoreRestartSnapshotLocked(snapshot restartSnapshot) {
 	s.threadReady = snapshot.ready
 }
 
-// commitRestartSuccessLocked 处理commitrestartsuccesslocked。
+// commitRestartSuccessLocked 在 session 锁内提交成功重启后的模型、配置和 manifest。
+// 已应用的 pending override 会被清空，configDirty 只保留仍未应用的变更。
 func (s *session) commitRestartSuccessLocked(next stagedSessionState) {
 	s.model = next.model
 	s.config = next.config
@@ -530,6 +552,7 @@ func (s *session) commitRestartSuccessLocked(next stagedSessionState) {
 	s.configDirty = s.pendingModel != nil || s.pendingEffort != nil
 }
 
+// restartResumeIDLocked 返回可用于 Claude resume 的真实 session UUID。
 func (s *session) restartResumeIDLocked() string {
 	resumeID := strings.TrimSpace(shared.FirstNonEmpty(s.sessionID, s.threadID))
 	if !identifier.IsClaudeCLISessionUUID(resumeID) {
@@ -538,6 +561,7 @@ func (s *session) restartResumeIDLocked() string {
 	return resumeID
 }
 
+// reportRuntime 向 runtime reporter 上报 Claude provider 已启动；当前 stdio 模式不暴露控制端口。
 func (d *driver) reportRuntime(agentID string) {
 	if d == nil || d.reporter == nil {
 		return
@@ -549,8 +573,8 @@ func (d *driver) reportRuntime(agentID string) {
 	ctx, cancel := platformconfig.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 
-	// NOTE: Claude CLI is stdio-backed today, so runtime reports intentionally
-	// omit a control port until the provider exposes a stable side channel.
+	// Claude CLI 当前只走 stdio transport；在 provider 提供稳定控制通道前，
+	// runtime report 故意不填 control port。
 	if err := d.reporter.ReportRuntime(ctx, contract.RuntimeReport{
 		AgentID:  agentID,
 		Provider: d.Name(),

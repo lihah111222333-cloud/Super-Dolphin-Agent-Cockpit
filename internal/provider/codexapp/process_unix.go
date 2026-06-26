@@ -13,8 +13,8 @@ import (
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
-// processSig is the platform-neutral signal abstraction codexapp uses to
-// manage its child processes (codex app-server, peer sidecars, MCP children).
+// processSig 抽象 Codex app-server、peer sidecar 和 MCP 子进程的停止信号。
+// Unix 与 Windows 的具体信号不同，上层只通过这三个意图表达生命周期动作。
 type processSig int
 
 const (
@@ -43,10 +43,8 @@ func setCodexProcessAttrs(cmd *exec.Cmd) {
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 }
 
-// wrapWithFDLimit wraps argv in `sh -c "ulimit -n ...; exec argv..."`. On
-// macOS GUI-launched processes inherit launchd's 256 fd soft limit, which is
-// too low for batch agent scenarios; the shell wrapper guarantees the child
-// starts with a high limit regardless of launch context.
+// wrapWithFDLimit 用 shell 包一层 ulimit 提升后再 exec 原命令。
+// macOS GUI 启动时常继承 launchd 的低 fd 上限，批量 agent 场景必须在子进程入口处主动抬高。
 func wrapWithFDLimit(argv []string) *exec.Cmd {
 	shellCmd := fmt.Sprintf(
 		"ulimit -n 1048576 2>/dev/null || ulimit -n 65535 2>/dev/null || true; exec %s %s",
@@ -73,14 +71,12 @@ func shellQuoteArg(arg string) string {
 	return "'" + strings.ReplaceAll(arg, "'", "'\"'\"'") + "'"
 }
 
-// processGuard is the Unix no-op variant of the per-child supervisor handle.
-// On Unix the Setpgid SysProcAttr already gives us a process group to target
-// via negative-pid syscall.Kill — no extra kernel resource is needed.
+// processGuard 是 Unix 平台的空监督句柄。
+// 子进程已通过 Setpgid 拥有独立进程组，后续用负 PID 发信号即可覆盖整棵子树。
 type processGuard struct{}
 
-// attachProcessGuard is called immediately after exec.Cmd.Start so the Windows
-// variant can assign the fresh child to a Job Object. On Unix it is a no-op
-// that returns a zero-value guard; callers may still invoke close() safely.
+// attachProcessGuard 在子进程启动后返回平台监督句柄。
+// Unix 不需要额外内核对象，但仍返回非 nil 句柄以保持跨平台关闭路径一致。
 func attachProcessGuard(cmd *exec.Cmd) *processGuard {
 	_ = cmd
 	return &processGuard{}
@@ -90,7 +86,8 @@ func (g *processGuard) close() {
 	_ = g
 }
 
-// signalCodexProcess 处理signalcodex进程。
+// signalCodexProcess 向 Codex 子进程组发送指定停止信号。
+// 进程已退出时按幂等成功处理，避免关闭路径把正常竞态误报为失败。
 func signalCodexProcess(cmd *exec.Cmd, guard *processGuard, sig processSig) error {
 	_ = guard
 	if cmd == nil || cmd.Process == nil {
@@ -101,9 +98,8 @@ func signalCodexProcess(cmd *exec.Cmd, guard *processGuard, sig processSig) erro
 		return errors.New("invalid codex pid")
 	}
 	sysSig := toUnixSignal(sig)
-	// Try the process group first so the codex + its MCP children get the
-	// same signal. Fall back to the individual process if the group lookup
-	// fails (e.g. Setpgid did not take effect for some reason).
+	// 优先打到进程组，确保 codex 和它拉起的 MCP 子进程收到同一信号。
+	// 如果进程组不可达，再退到单进程信号，避免关闭路径完全失效。
 	if err := syscall.Kill(-pid, sysSig); err == nil || errors.Is(err, syscall.ESRCH) {
 		return nil
 	}
@@ -125,8 +121,8 @@ func isProcessAlive(pid int) bool {
 
 func isProcessGoneErr(err error) bool { return errors.Is(err, syscall.ESRCH) }
 
-// killMCPProcess terminates an MCP sidecar process and, when possible, its
-// entire process group. Returns nil when the process has already exited.
+// killMCPProcess 强制终止 MCP sidecar 及其进程组。
+// PID 小于等于 1 会直接拒绝；目标已退出时按幂等成功处理。
 func killMCPProcess(pid int) error {
 	if pid <= 1 {
 		return errors.New("refusing to kill PID <= 1")
@@ -141,9 +137,8 @@ func killMCPProcess(pid int) error {
 	return err
 }
 
-// discoverAllProcesses returns (allProcs, mcpProcs) where allProcs maps
-// pid->ppid for every process we can see, and mcpProcs filters the managed
-// MCP binary set. On Unix this runs `ps -eo pid,ppid,comm`.
+// discoverAllProcesses 枚举当前可见进程并筛出受管理的 MCP sidecar。
+// 返回的 pid->ppid 图供孤儿清理追踪子树，ps 失败时只记录告警并让清理方跳过本轮。
 func discoverAllProcesses() (map[int]int, []mcpProcessInfo) {
 	out, err := exec.Command("ps", "-eo", "pid,ppid,comm").Output()
 	if err != nil {
@@ -166,16 +161,12 @@ func discoverAllProcesses() (map[int]int, []mcpProcessInfo) {
 	return allProcs, mcpProcs
 }
 
-// isAppServerArgs checks whether the process arguments match
-// "codex app-server --listen ws://...".
-// We look for the pattern in the args slice: [..., "app-server", "--listen", ws://...]
+// isAppServerArgs 判断进程参数是否像 Codex app-server 监听进程。
+// 匹配逻辑只看 argv 片段，供孤儿清理在 ps 输出里识别可回收目标。
 func isAppServerArgs(args []string) bool { return isCodexAppServerListenArgs(args) }
 
-// discoverAppServerProcessList returns (allProcs, appServerProcs) where the
-// latter is the filtered "codex app-server --listen ..." subset. On Unix this
-// runs `ps -eo pid,ppid,args` (note the different ps format from the plain
-// MCP discovery — we need the full argv to spot the --listen flag).
-// discoverAppServerProcessList 处理discoverapp服务端进程list。
+// discoverAppServerProcessList 枚举进程图并筛出 Codex app-server 监听进程。
+// 这里必须读取完整 argv 才能确认 `app-server --listen`，因此使用带 args 的 ps 格式。
 func discoverAppServerProcessList() (map[int]int, []appServerProcessInfo) {
 	out, err := exec.Command("ps", "-eo", "pid,ppid,args").Output()
 	if err != nil {

@@ -18,10 +18,12 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/util/identifier"
 )
 
-// SessionStarter is an alias for contract.SessionStarter.
-// Kept as a local type alias for backward compatibility within this package.
+// SessionStarter 是 contract.SessionStarter 的本地别名。
+// 保留别名是为了让 thread 包内既有调用点不直接依赖 contract 包名。
 type SessionStarter = contract.SessionStarter
 
+// OrchestrationFacade 是 thread 服务调用编排模块的最小接口。
+// thread 只关心 agent 生命周期动作，不直接依赖 orchestration 的内部 DAG 或 worker 实现。
 type OrchestrationFacade interface {
 	LaunchAgent(ctx context.Context, req LaunchAgentRequest) error
 	StopAgent(ctx context.Context, agentID string) error
@@ -29,6 +31,8 @@ type OrchestrationFacade interface {
 	BindSessionGeneration(ctx context.Context, agentID string, generation uint64) error
 }
 
+// threadState 是 start/resume 成功后写入 thread store 和事件的状态快照。
+// 它把 provider 身份、prompt 快照索引和 Codex 运行时身份放在一起，避免多处重复拼装。
 type threadState struct {
 	PublicThreadID, ProviderThreadID, OwnerThreadID, AgentID  string
 	ParentAgentID, AgentType, AgentMemoryScope, Provider      string
@@ -40,16 +44,22 @@ type threadState struct {
 	PendingLaunch                                             bool
 }
 
+// threadMeta 是恢复/分叉时从持久化 thread row 读取的轻量元信息。
+// 它不包含运行时 session 指针，只承载重建请求所需的稳定字段。
 type threadMeta struct {
 	Name, Model, CWD, ParentAgentID, AgentType, AgentMemoryScope string
 	ConfigOverride                                               json.RawMessage
 	CreatedAt                                                    int64
 }
 
+// sessionGenerationProvider 暴露 provider session 的 generation 编号。
+// 该编号用于停止/恢复时精确匹配当前 session，避免旧 goroutine 清理掉新 session。
 type sessionGenerationProvider interface {
 	SessionGeneration(agentID string) uint64
 }
 
+// bindSessionGeneration 把当前 session generation 绑定到 orchestration。
+// 如果运行时不支持 generation 可安全跳过，但支持时 generation 缺失必须报错阻断。
 func (s *service) bindSessionGeneration(ctx context.Context, agentID string) error {
 	if s.orchestration == nil || s.sessions == nil {
 		return nil
@@ -65,6 +75,8 @@ func (s *service) bindSessionGeneration(ctx context.Context, agentID string) err
 	return s.orchestration.BindSessionGeneration(ctx, strings.TrimSpace(agentID), generation)
 }
 
+// prepareStartRequest 完成启动前的请求规范化、Codex 身份注入和 agent id 预留。
+// 返回的 release 必须在 startOnce 结束时执行，确保失败路径不会留下进程内 id 预留。
 func (s *service) prepareStartRequest(ctx context.Context, req StartRequest) (StartRequest, string, func(), error) {
 	callerProvidedID := strings.TrimSpace(req.AgentID) != ""
 	req, agentID, err := normalizeStartRequest(req)
@@ -90,9 +102,8 @@ func (s *service) prepareStartRequest(ctx context.Context, req StartRequest) (St
 // completeStart 串起 thread/start 的主流程：先选 prompt，再组 start 提示。
 // provider 启动后再保存 thread 和 prompt snapshot，这个顺序不要调换。
 func (s *service) completeStart(ctx context.Context, req StartRequest, agentID string) (StartResult, error) {
-	// Router resolution runs before prompt assembly so its output (BaseInstructions)
-	// is visible to the assembly step, and its sidecar metadata (AgentKey,
-	// PromptVersionID) reaches the thread Upsert via threadState.
+	// 路由必须早于 prompt assembly，路由产出的 BaseInstructions 才能进入组装；
+	// AgentKey/PromptVersionID 等副产物也会通过 threadState 写入持久化记录。
 	if err := s.resolveRoutedPrompt(ctx, &req); err != nil {
 		return StartResult{}, err
 	}
@@ -164,11 +175,16 @@ func (s *service) CompleteLaunchIntent(_ context.Context, threadID string) {
 	s.pendingLaunchMu.Delete(threadID)
 	idempotency.ForgetMappedUnlessError(&s.launchIntentByThread, &s.launchIntentRegistry, threadID)
 }
+
+// startRequestFingerprint 生成 launch intent 幂等键使用的请求快照。
+// 临时字段和路由副产物会被清空，避免同一用户意图因内部补全字段不同而重复启动。
 func startRequestFingerprint(req StartRequest) StartRequest {
 	req.LaunchIntentID, req.AgentTitle, req.PromptAssemblyRef, req.PromptVersionID, req.PromptKeyStale = "", "", nil, nil, false
 	return req
 }
 
+// startOnce 执行一次实际启动流程，不处理 launch intent 的幂等封装。
+// agent id 预留在函数退出时释放，持久化唯一性由 thread/binding store 继续保证。
 func (s *service) startOnce(ctx context.Context, req StartRequest) (StartResult, error) {
 	req, agentID, releaseAgentID, err := s.prepareStartRequest(ctx, req)
 	if err != nil {
@@ -203,6 +219,8 @@ func (s *service) Resume(ctx context.Context, req ResumeRequest) (ResumeResult, 
 	return s.persistResumedSession(ctx, req, state, displayName, session)
 }
 
+// establishStartedSession 启动 provider session 并绑定 generation。
+// 任一步失败都会尝试停止已创建的 agent，并用 RetainOnError 保留原始启动错误。
 func (s *service) establishStartedSession(
 	ctx context.Context,
 	req StartRequest,
@@ -413,10 +431,8 @@ func (s *service) persistResumedSession(
 	if err := s.persistThreadState(ctx, threadState, true); err != nil {
 		s.logResumePersistFailure(req.AgentID, publicThreadID, providerThreadID, err)
 		if isBindingConflictError(err) {
-			// Binding conflict means the codex session carries a UUID that
-			// belongs to another active agent. Kill the zombie session to
-			// prevent delta events from arriving on a half-alive channel,
-			// and force a clean re-start on the next user interaction.
+			// binding 冲突说明当前 codex session 带着其它 agent 已占用的 UUID。
+			// 这里关闭僵尸 agent，避免半活连接继续推送 delta，并让下一次用户输入走干净重启。
 			if s.logger != nil {
 				s.logger.Error("thread: binding conflict on resume — killing zombie session",
 					"agent_id", req.AgentID,
@@ -578,12 +594,9 @@ func allowDeferredStartedProviderUUID(session contract.Session, provider, agentI
 	return threadID == "" || threadID == agentID || strings.HasPrefix(strings.ToLower(threadID), "agent_")
 }
 
-// isBindingConflictError reports whether err is a binding-uniqueness
-// rejection (provider_thread_id or public_thread_id already belongs to a
-// different agent). These errors mean the threadState carries identifiers
-// that are wrong for the requesting agent, so publishing a thread.Started
-// event with them would poison the frontend's loaded_provider_thread_id
-// and trigger a provider_mismatch → stale-ID history reload → empty UI.
+// isBindingConflictError 判断错误是否为 binding 唯一性冲突。
+// provider_thread_id 或 public_thread_id 已属于其它 agent 时，不能发布 thread.Started，
+// 否则前端会缓存错误 provider id，后续历史加载会因 provider_mismatch 变成空 UI。
 func isBindingConflictError(err error) bool {
 	if err == nil {
 		return false

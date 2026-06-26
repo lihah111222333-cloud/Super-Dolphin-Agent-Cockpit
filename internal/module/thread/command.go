@@ -12,10 +12,9 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/util/clone"
 )
 
-// NOTE(P8): 这里仍处在过渡态；provider-neutral Session 只暴露 Configure /
-// Interrupt 等少量 typed surface，所以 SendCommand 目前只对高频命令做结构化
-// 处理，其余命令保留低频兼容壳。`thread/skills/list` 返回线程绑定的 active
-// skills，不同于扫描全量本地目录的 `skills/list`。
+// SendCommand 处理仍未拆成独立 typed handler 的线程命令。
+// 当前 provider-neutral Session 只暴露 Configure、Interrupt 等少量能力；低频命令会明确返回 unsupported，
+// `thread/skills/list` 语义上读取线程绑定的 active skills，不扫描本地全量 skill 目录。
 func (s *service) SendCommand(ctx context.Context, threadID, command, args string) (any, error) {
 	cmd := normalizeCommand(command)
 	if cmd == "/clear" {
@@ -98,10 +97,10 @@ const (
 	errContextCompactUnsupported     = "当前 provider 不支持上下文压缩（context_compact）"
 )
 
-// Error 返回错误文本。
+// Error 返回可直接展示给用户的能力错误文案。
 func (e *friendlyCapabilityError) Error() string { return e.message }
 
-// Unwrap 返回底层错误。
+// Unwrap 暴露底层 CapabilityError，便于调用方用 errors.As 判断 provider 能力缺失。
 func (e *friendlyCapabilityError) Unwrap() error { return e.cause }
 
 func newThreadCommandResult(command, threadID string) threadCommandResult {
@@ -179,7 +178,8 @@ func bindingProvider(binding *bindingstore.Binding) string {
 	return providerLabel(binding.Provider)
 }
 
-// GetConfig 读取配置。
+// GetConfig 读取线程当前配置。
+// 活跃 session 优先；pending_launch 或 session 缺失时会按持久化配置合成离线快照。
 func (s *service) GetConfig(ctx context.Context, threadID string) (dto.ThreadConfig, error) {
 	session, binding, err := s.resolveSession(ctx, threadID)
 	if err != nil {
@@ -278,7 +278,8 @@ func (s *service) pendingLaunchOfflineConfig(
 	return offline.Config, true, nil
 }
 
-// SetConfig 设置配置。
+// SetConfig 更新线程配置并同步 provider session。
+// patch 会先校验，再写入 session 与 thread store；任何一步失败都会返回错误，避免内存态和持久化状态分叉。
 func (s *service) SetConfig(ctx context.Context, threadID string, patch dto.ThreadConfigPatch) (dto.ThreadConfig, error) {
 	session, binding, err := s.resolveSession(ctx, threadID)
 	if err != nil {
@@ -310,7 +311,8 @@ func (s *service) SetConfig(ctx context.Context, threadID string, patch dto.Thre
 	return applyThreadConfigReturnPatch(cfg, patch), nil
 }
 
-// SetModel 设置模型。
+// SetModel 切换线程模型。
+// 模型名先做格式和 provider allow-list 校验，通过后再写 session 和持久化配置。
 func (s *service) SetModel(ctx context.Context, threadID, rawModel string) (dto.ThreadConfig, error) {
 	session, binding, err := s.resolveSession(ctx, threadID)
 	if err != nil {
@@ -361,13 +363,14 @@ func normalizeThreadConfigPatch(
 	})
 }
 
-// normalizeThreadConfigPatchOffline validates a thread config patch without an active session.
-// Model name format and effort range are checked, but session-scoped model whitelist validation is skipped.
+// normalizeThreadConfigPatchOffline 在没有活跃 session 时校验配置补丁。
+// 离线路径只能检查模型名格式和 effort 范围，不能访问 provider 的实时模型 allow-list。
 func normalizeThreadConfigPatchOffline(provider string, patch dto.ThreadConfigPatch) (dto.ThreadConfigPatch, error) {
 	return normalizeThreadConfigPatchBase(provider, patch, nil)
 }
 
-// normalizeThreadConfigPatchBase 规范化线程配置补丁base。
+// normalizeThreadConfigPatchBase 清理并校验线程配置补丁。
+// validateModel 非 nil 时执行 provider 侧模型校验；离线路径传 nil，只保留本地可验证规则。
 func normalizeThreadConfigPatchBase(
 	provider string,
 	patch dto.ThreadConfigPatch,
@@ -393,7 +396,8 @@ func normalizeThreadConfigPatchBase(
 	return patch, nil
 }
 
-// ensureAllowedModel 确保allowed模型。
+// ensureAllowedModel 校验模型是否在当前 provider session 的 allow-list 中。
+// provider 不支持模型目录时返回友好能力错误；目录为空则 fail-fast，避免接受不可确认的模型。
 func ensureAllowedModel(
 	ctx context.Context,
 	session contract.Session,
@@ -461,7 +465,8 @@ func validateThreadConfigEffort(provider, value string) error {
 	return fmt.Errorf("invalid effort %q", value)
 }
 
-// isModelRuneAllowed 判断模型runeallowed是否可用。
+// isModelRuneAllowed 限制模型名可用字符。
+// 只允许 provider 常见模型标识符需要的字母、数字和少量分隔符，防止控制字符进入配置。
 func isModelRuneAllowed(r rune) bool {
 	return r >= 'a' && r <= 'z' ||
 		r >= 'A' && r <= 'Z' ||

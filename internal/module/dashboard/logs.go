@@ -10,12 +10,14 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/util"
 )
 
+// matchesLogFilter 判断统一日志条目是否满足 source、字段和关键词过滤。
 func matchesLogFilter(entry LogEntry, filter LogFilter) bool {
 	return matchesLogSource(entry.Source, filter.Source) &&
 		matchesLogFields(entry, filter) &&
 		matchKeyword(filter.Keyword, entry)
 }
 
+// matchesLogSource 兼容 source 与 sourcelog 两种前端传值。
 func matchesLogSource(entrySource, filterSource string) bool {
 	source := strings.TrimSpace(filterSource)
 	if source == "" || strings.EqualFold(source, logSourceAll) {
@@ -25,6 +27,7 @@ func matchesLogSource(entrySource, filterSource string) bool {
 		strings.EqualFold(source, entrySource+"log")
 }
 
+// matchesLogFields 对 LogFilter 中的精确字段逐项匹配，空字段表示不过滤。
 func matchesLogFields(entry LogEntry, filter LogFilter) bool {
 	for _, field := range logFilterFields {
 		if !matchField(logFilterValue(filter, field), logEntryValue(entry, field)) {
@@ -34,11 +37,13 @@ func matchesLogFields(entry LogEntry, filter LogFilter) bool {
 	return true
 }
 
+// matchField 执行大小写不敏感的精确字段匹配。
 func matchField(expected, actual string) bool {
 	want := strings.TrimSpace(expected)
 	return want == "" || strings.EqualFold(want, strings.TrimSpace(actual))
 }
 
+// matchKeyword 在日志文本、身份和 extra JSON 中做大小写不敏感关键词匹配。
 func matchKeyword(keyword string, entry LogEntry) bool {
 	needle := strings.TrimSpace(keyword)
 	if needle == "" {
@@ -64,10 +69,12 @@ func matchKeyword(keyword string, entry LogEntry) bool {
 	return false
 }
 
+// containsFold 执行大小写不敏感的子串匹配。
 func containsFold(value, needle string) bool {
 	return strings.Contains(strings.ToLower(value), strings.ToLower(needle))
 }
 
+// sortLogEntries 按时间倒序稳定排序，并用 source/id 打破同时间戳并列。
 func sortLogEntries(entries []LogEntry) {
 	sort.SliceStable(entries, func(i, j int) bool {
 		if !entries[i].Timestamp.Equal(entries[j].Timestamp) {
@@ -80,7 +87,8 @@ func sortLogEntries(entries []LogEntry) {
 	})
 }
 
-// GetAuditLogs 读取auditlogs。
+// GetAuditLogs 读取审计日志并规整过滤条件。
+// store 缺失时返回空切片，limit 始终受 dashboard 日志上限约束。
 func (s *service) GetAuditLogs(ctx context.Context, filter auditlogstore.ListFilter) ([]auditlogstore.AuditEvent, error) {
 	return safeList(s.auditLogs != nil, func() ([]auditlogstore.AuditEvent, error) {
 		filter.EventType = strings.TrimSpace(filter.EventType)
@@ -92,7 +100,8 @@ func (s *service) GetAuditLogs(ctx context.Context, filter auditlogstore.ListFil
 	})
 }
 
-// GetBusLogs 读取buslogs。
+// GetBusLogs 读取 bus 异常日志并规整过滤条件。
+// store 缺失时返回空切片，避免可选 bus 日志能力阻断 dashboard。
 func (s *service) GetBusLogs(ctx context.Context, filter buslogstore.ListFilter) ([]buslogstore.BusExceptionLog, error) {
 	return safeList(s.busLogs != nil, func() ([]buslogstore.BusExceptionLog, error) {
 		filter.Category = strings.TrimSpace(filter.Category)

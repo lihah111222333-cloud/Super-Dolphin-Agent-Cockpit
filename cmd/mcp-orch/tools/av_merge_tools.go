@@ -18,7 +18,7 @@ type avMergeInput struct {
 	OutputPath string `json:"output_path,omitempty"`
 }
 
-// avMergeToolDefinitions 返回 av_merge 工具的定义列表。
+// avMergeToolDefinitions 注册 av_merge 工具；该工具直接调用本机 ffmpeg，失败时回传命令输出。
 func avMergeToolDefinitions() []ToolDefinition {
 	return buildToolDefinitions(
 		defineTool(
@@ -34,7 +34,7 @@ func avMergeToolDefinitions() []ToolDefinition {
 	)
 }
 
-// handleAVMerge 处理avmerge。
+// handleAVMerge 校验输入路径并生成合并后的 MPEG-4 文件；未显式传 output_path 时写入用户 Movies 目录。
 func handleAVMerge() ToolHandler {
 	return func(ctx context.Context, input json.RawMessage) (any, error) {
 		var in avMergeInput
@@ -63,7 +63,7 @@ func handleAVMerge() ToolHandler {
 			out = filepath.Join(dir, "merged-"+time.Now().Format("20060102-150405")+".mp4")
 		}
 
-		// -y overwrites output; -shortest trims to shortest stream; -c:v copy avoids re-encoding video
+		// 输出文件允许覆盖，视频轨直接 copy，音频按最短流截断后转 AAC。
 		cmd := exec.CommandContext(ctx, ffmpeg,
 			"-y",
 			"-i", in.VideoPath,

@@ -31,14 +31,17 @@ var Module = fx.Module("prompt",
 	),
 )
 
+// newMatchWhenEvaluator 暴露模板 auto-route 条件评估器给跨模块 contract。
 func newMatchWhenEvaluator() contract.MatchWhenEvaluator {
 	return EvaluateMatchWhen
 }
 
+// newEnableWhenEvaluator 暴露 section enable_when 条件评估器给跨模块 contract。
 func newEnableWhenEvaluator() contract.EnableWhenEvaluator {
 	return EvaluateEnableWhen
 }
 
+// promptHandlersParams 汇总 prompt RPC handler 装配需要的 store 和可选协作者。
 type promptHandlersParams struct {
 	fx.In
 
@@ -49,6 +52,7 @@ type promptHandlersParams struct {
 	Dispatcher *event.Dispatcher              `optional:"true"`
 }
 
+// registerPromptHandlers 用 fx 参数创建 prompt RPC handler map。
 func registerPromptHandlers(params promptHandlersParams) platformrpc.HandlerMapResult {
 	return buildPromptHandlersWithService(
 		newPromptServiceWithBuiltin(params.Store, params.Builtin, params.Sections),
@@ -60,8 +64,7 @@ func registerPromptHandlers(params promptHandlersParams) platformrpc.HandlerMapR
 	)
 }
 
-// ServiceFxParams resolves optional dependencies needed to surface the
-// user-configurable LSP prompt hint in the start system prompt.
+// ServiceFxParams 收集 prompt Service 的 fx 依赖，包含可选偏好存储和共享文件读取器。
 type ServiceFxParams struct {
 	fx.In
 	Cfg             *Config
@@ -71,9 +74,7 @@ type ServiceFxParams struct {
 	DisabledToolsFn DisabledBuiltinToolsFn `optional:"true"`
 }
 
-// NewServiceFx is the fx-facing constructor that wires the preference store,
-// shared-file reader, and disabled-tools function into the prompt Service.
-// NewServiceFx 为 fx 创建 prompt service。
+// NewServiceFx 是 fx 使用的 prompt Service 构造函数，负责注入可选配置来源。
 func NewServiceFx(p ServiceFxParams) Service {
 	opts := []ServiceOption{
 		WithPromptHintSources(p.Prefs, p.SharedFiles),

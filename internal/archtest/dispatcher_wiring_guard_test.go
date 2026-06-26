@@ -43,22 +43,8 @@ type dispatcherWiringGuardCase struct {
 
 func dispatcherWiringGuardCases() []dispatcherWiringGuardCase {
 	return []dispatcherWiringGuardCase{
-		{
-			name: "wakeup_dispatcher routes through NodeExecutorRouter",
-			path: filepath.Join("cmd", "mcp-orch", "orchestration", "wakeup_dispatcher.go"),
-			mustHave: []string{
-				// dispatcher struct 必须持有 NodeExecutorRouter 字段
-				"nodeRouter *NodeExecutorRouter",
-				// 必须有 setter 让 fx invoke 接线
-				"WithNodeRouter(router *NodeExecutorRouter)",
-				// handleClaimed 必须按 shouldRouteThroughNodeExecutor 路由
-				"shouldRouteThroughNodeExecutor",
-				"handleClaimedViaRouter",
-				"handleClaimedViaLegacyLauncher",
-				// 通过 router 路径必须真正调用 RouteByWakeup
-				"d.nodeRouter.RouteByWakeup",
-			},
-		},
+		wakeupDispatcherWiringCase(),
+		nodeExecutorDispatchRouteCase(),
 		{
 			name: "fx.go provides nodeexec executors + router wiring",
 			path: filepath.Join("cmd", "mcp-orch", "fx.go"),
@@ -145,6 +131,31 @@ func dispatcherWiringGuardCases() []dispatcherWiringGuardCase {
 	}
 }
 
+func wakeupDispatcherWiringCase() dispatcherWiringGuardCase {
+	return dispatcherWiringGuardCase{
+		name: "wakeup_dispatcher routes through NodeExecutorRouter",
+		path: filepath.Join("cmd", "mcp-orch", "orchestration", "wakeup_dispatcher.go"),
+		mustHave: []string{
+			"nodeRouter *NodeExecutorRouter",
+			"WithNodeRouter(router *NodeExecutorRouter)",
+			"shouldRouteThroughNodeExecutor",
+			"handleClaimedViaRouter",
+			"handleClaimedViaLegacyLauncher",
+		},
+	}
+}
+
+func nodeExecutorDispatchRouteCase() dispatcherWiringGuardCase {
+	return dispatcherWiringGuardCase{
+		name: "node executor dispatch calls RouteByWakeup",
+		path: filepath.Join("cmd", "mcp-orch", "orchestration", "node_executor_dispatch.go"),
+		mustHave: []string{
+			"func (d *WakeupDispatcher) handleClaimedViaRouter",
+			"d.nodeRouter.RouteByWakeup",
+		},
+	}
+}
+
 func assertDispatcherWiringMarkers(t *testing.T, root string, tc dispatcherWiringGuardCase) {
 	t.Helper()
 
@@ -187,7 +198,7 @@ func TestDispatcherWiringGuard_RouterMatchesNodeTypeSchema(t *testing.T) {
 	config := string(configData)
 
 	// nodeexec.config.go 的 NodeType 常量必须在 router 的 case 列表里都有镜像。
-	// 当前 schema：agent / automation / hybrid（蓝图 v2 §1.1）。
+	// 当前 schema 来源是配置真源里的 agent / automation / hybrid。
 	for _, nt := range []string{"agent", "automation", "hybrid"} {
 		// config.go 自身存在该 node_type 标识（schema 真源）
 		if !strings.Contains(config, nt) {

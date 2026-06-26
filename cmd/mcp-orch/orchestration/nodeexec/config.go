@@ -11,20 +11,15 @@ import (
 	sharedfilepath "github.com/anthropic-ai/super-agent-v3/internal/platform/sharedfilepath"
 )
 
-// AutomationKindCommandCard 是当前唯一实装的 automation.kind 取值（ADR-007 §6 登记表）。
-// 其余 kind（webhook / shell / mcp_call ...）字段位先行，后续按 ADR-007 §4 渐进开通。
+// AutomationKindCommandCard 是当前唯一实装的 automation.kind 取值。
+// 其他 kind 保留在 schema 之外；解析期间会 fail-fast，避免把未知执行通道当命令卡运行。
 const AutomationKindCommandCard = "command_card"
 
 // ErrUnsupportedAutomationKind 在 ParseAutomationConfig 收到非 command_card 的 kind 时返回；errors.Is 可用。
 var ErrUnsupportedAutomationKind = errors.New("nodeexec: unsupported automation.kind")
 
-// node.config 的 typed schema —— 蓝图 v2 §7 + 实施计划 S5.1 + S5.2。
-// 三种 node_type (agent/automation/hybrid) 各有一份完整 config，共享 inputs/outputs。
-// 骨架阶段：仅定义 struct + ParseNodeConfig；F1.x/F2.x/F3.x 真实使用。
-
-// =====================================================
-// 共享子配置（所有 node_type 通用）
-// =====================================================
+// 本文件定义 node.config 的 typed wire schema。
+// agent、automation、hybrid 各有独立 exec 配置，并共享 inputs/outputs 约定。
 
 // InputsConfig 是节点输入配置。
 type InputsConfig struct {
@@ -32,11 +27,11 @@ type InputsConfig struct {
 	FromNodes []string `json:"from_nodes,omitempty"`
 	// FromSharedfiles 列出要读的 sharedfile path（受 mcp-orch 白名单约束）。
 	FromSharedfiles []string `json:"from_sharedfiles,omitempty"`
-	// Summarization 是输入摘要/裁剪策略字段位（H7 真实实现）。
+	// Summarization 是输入摘要/裁剪策略配置；nil 表示不裁剪。
 	Summarization *SummarizationConfig `json:"summarization,omitempty"`
 }
 
-// SummarizationConfig 是输入裁剪/摘要策略（蓝图 v2 §10 补丁 11）。
+// SummarizationConfig 描述输入裁剪/摘要策略。
 type SummarizationConfig struct {
 	// Strategy: none (默认不动) | last_n (保留最后 N 条) | llm_summary (LLM 摘要).
 	Strategy  string `json:"strategy,omitempty"`
@@ -50,7 +45,7 @@ type OutputsConfig struct {
 	// ToArtifact 把结构化 tool result 里的本地文件物化为 sharedfile。
 	ToArtifact *ArtifactTarget `json:"to_artifact,omitempty"`
 	// ToNodeResult 是否把输出写入 task_dag_nodes.result JSONB。
-	// **仅适合 < 4KB 摘要**（蓝图 v2 §5 决策）；大输出走 ToSharedfile。
+	// 仅适合小摘要；大输出必须走 ToSharedfile，避免节点结果列膨胀。
 	ToNodeResult bool `json:"to_node_result,omitempty"`
 	// NodeResultEnvelope 显式控制 sharedfile-only 输出是否写入轻量 node.result envelope。
 	// nil/true = 写入 path/kind/dag/run/node；false = 用户明确禁用。
@@ -59,7 +54,7 @@ type OutputsConfig struct {
 	Schema json.RawMessage `json:"schema,omitempty"`
 }
 
-// SharedfileTarget 是一个 sharedfile 输出位置 + 写入策略（蓝图 v2 §10 补丁 14）。
+// SharedfileTarget 描述 sharedfile 输出位置和并发写策略。
 type SharedfileTarget struct {
 	Path string `json:"path"`
 	// LockMode: exclusive (独占) | append (追加合并) | shared (并发只读).
@@ -79,8 +74,8 @@ type ArtifactTarget struct {
 	Overwrite          string   `json:"overwrite,omitempty"`
 }
 
-// Validate enforces the fail-fast contract for outputs.to_artifact.
-// Validate 校验编排。
+// Validate 校验 outputs.to_artifact 的 fail-fast 边界。
+// source path/text 二选一，target path 必须带 run 占位，避免跨 run 覆盖。
 func (t *ArtifactTarget) Validate() error {
 	if t == nil {
 		return nil
@@ -132,7 +127,8 @@ type ArtifactTextPlan struct {
 	Overwrite   string
 }
 
-// BuildArtifactImportPlan 构建产物importplan。
+// BuildArtifactImportPlan 从结构化结果构建本地文件导入计划。
+// 仅接受 source_path_field；正文生成类 artifact 必须走 BuildArtifactTextPlan。
 func BuildArtifactImportPlan(target *ArtifactTarget, rawResult string, runID int64) (ArtifactImportPlan, error) {
 	if target == nil {
 		return ArtifactImportPlan{}, errors.New("outputs.to_artifact is required")
@@ -214,7 +210,8 @@ func extractArtifactSourcePath(rawResult, sourceTool, pathField string) (string,
 	return strings.TrimSpace(path), nil
 }
 
-// artifactPathFromValue 从值处理产物路径。
+// extractArtifactSourceText 从结构化 JSON 结果中读取 artifact 正文。
+// 缺字段时直接返回错误，避免生成空文档或把非目标工具输出误当正文。
 func extractArtifactSourceText(rawResult, sourceTool, textField string) (string, error) {
 	trimmed := strings.TrimSpace(rawResult)
 	if trimmed == "" {
@@ -231,6 +228,8 @@ func extractArtifactSourceText(rawResult, sourceTool, textField string) (string,
 	return strings.TrimSpace(text), nil
 }
 
+// artifactPathFromValue 在任意嵌套 JSON 值里递归查找 artifact 源路径。
+// 数组分支要求后续对象带工具标识，避免不同工具的同名字段串线。
 func artifactPathFromValue(value any, sourceTool, pathField string, requireTool bool) (string, bool) {
 	switch typed := value.(type) {
 	case map[string]any:
@@ -245,7 +244,8 @@ func artifactPathFromValue(value any, sourceTool, pathField string, requireTool 
 	return "", false
 }
 
-// artifactPathFromObject 从object处理产物路径。
+// artifactPathFromObject 从对象和常见 tool-result 容器中读取 artifact 源路径。
+// requireTool 为 true 时必须先命中工具名，避免数组中其他工具的同名字段被误选。
 func artifactPathFromObject(obj map[string]any, sourceTool, pathField string, requireTool bool) (string, bool) {
 	if path, ok := artifactPathFromDirectObject(obj, sourceTool, pathField, requireTool); ok {
 		return path, true
@@ -300,8 +300,8 @@ func artifactStringField(obj map[string]any, key string) (string, bool) {
 	return strings.TrimSpace(text), true
 }
 
-// OnFailureConfig 是节点失败处理策略（蓝图 v2 §7 + §10 补丁 8）。
-// 解码与 by_class lookup 的中间函数在 nodeexec/on_failure.go (S5.3)。
+// artifactTextFromValue 在任意嵌套 JSON 值里递归查找 artifact 正文。
+// 它与路径解析保持同一套容器键，保证 source_path 和 source_text 的来源一致。
 func artifactTextFromValue(value any, sourceTool, textField string, requireTool bool) (string, bool) {
 	switch typed := value.(type) {
 	case map[string]any:
@@ -316,6 +316,8 @@ func artifactTextFromValue(value any, sourceTool, textField string, requireTool 
 	return "", false
 }
 
+// artifactTextFromObject 从对象及常见结构化结果容器中读取 artifact 正文。
+// requireTool 为 true 时必须先命中工具名，防止数组中的其他工具结果被误选。
 func artifactTextFromObject(obj map[string]any, sourceTool, textField string, requireTool bool) (string, bool) {
 	if artifactObjectMatchesTool(obj, sourceTool, requireTool) {
 		return artifactStringField(obj, textField)
@@ -353,16 +355,12 @@ type OnFailureConfig struct {
 	EscalationChain []string `json:"escalation_chain,omitempty"`
 }
 
-// =====================================================
-// 三种 exec 配置（按 node_type 区分）
-// =====================================================
-
 // AgentExecConfig 是 node_type=agent 节点的 exec 块。
-// 字段对齐 orchestration_launch_agent 入参（F1.1 解码后映射）。
+// 字段会映射到 LaunchRequest 与 remote thread/start 配置，是 DAG 到 agent runtime 的跨模块 wire 边界。
 type AgentExecConfig struct {
 	Provider string `json:"provider,omitempty"` // claude | codex
 	Model    string `json:"model,omitempty"`    // opus | sonnet | ...
-	// Codex identity maps to thread/start config.codexHome/codexInstanceKey/codexModelProvider.
+	// Codex 身份字段会映射到 thread/start 的 codexHome/codexInstanceKey/codexModelProvider。
 	CodexHome          string           `json:"codex_home,omitempty"`
 	CodexInstanceKey   string           `json:"codex_instance_key,omitempty"`
 	CodexModelProvider string           `json:"codex_model_provider,omitempty"`
@@ -374,13 +372,13 @@ type AgentExecConfig struct {
 	Isolation          string           `json:"isolation,omitempty"`     // shared (默认) | worktree
 	AllowedTools       []string         `json:"allowed_tools,omitempty"` // 白名单
 	DisabledTools      []string         `json:"disabled_tools,omitempty"`
-	BudgetTokens       int64            `json:"budget_tokens,omitempty"` // 字段位，骨架不 enforce
+	BudgetTokens       int64            `json:"budget_tokens,omitempty"` // 预留给预算策略；当前执行器只透传不扣减
 	OnFailure          *OnFailureConfig `json:"on_failure,omitempty"`
 }
 
 // AutomationExecConfig 是 node_type=automation 节点的 exec 块。
 type AutomationExecConfig struct {
-	// Kind 为自动化执行通道，当前仅 "command_card" 实装；其余 kind 留位 ADR-007 渐进开通。空字符串视为 command_card（向下兼容）。详 ADR-007。
+	// Kind 为自动化执行通道，当前仅 command_card 可运行；空字符串兼容为 command_card，其他值 fail-fast。
 	Kind         string           `json:"kind,omitempty"`
 	CommandRef   string           `json:"command_ref"`    // 查 command_cards 表
 	Args         json.RawMessage  `json:"args,omitempty"` // 命令参数（结构由 command 决定）
@@ -393,10 +391,6 @@ type HybridExecConfig struct {
 	Automation *AutomationExecConfig `json:"automation,omitempty"`
 	Verifier   *AgentExecConfig      `json:"verifier,omitempty"`
 }
-
-// =====================================================
-// 顶层 config（三种 node_type 各一份）
-// =====================================================
 
 // AgentNodeConfig 是 node_type=agent 节点的完整 config。
 type AgentNodeConfig struct {
@@ -421,15 +415,11 @@ type HybridNodeConfig struct {
 	Outputs OutputsConfig    `json:"outputs,omitempty"`
 }
 
-// =====================================================
-// 解码器（S5.2）
-// =====================================================
-
 // ErrUnknownNodeType 在 ParseNodeConfig 收到未知 node_type 时返回；errors.Is 可用。
 var ErrUnknownNodeType = fmt.Errorf("nodeexec: unknown node_type")
 
-// ParsedNodeConfig 是 ParseNodeConfig 的返回值。
-// 按 NodeType 只有一个 *Config 字段非 nil；其他字段为 nil。
+// ParsedNodeConfig 是 ParseNodeConfig 的 tagged union 返回值。
+// 按 NodeType 只会填一个具体 Config 指针，调用方据此选择执行路径。
 type ParsedNodeConfig struct {
 	NodeType   string
 	Agent      *AgentNodeConfig
@@ -465,7 +455,8 @@ func ParseNodeConfig(nodeType string, raw json.RawMessage) (*ParsedNodeConfig, e
 	}
 }
 
-// ValidateLaunchCWDForNodeConfig 为节点配置校验启动工作目录。
+// ValidateLaunchCWDForNodeConfig 从节点配置提取并校验启动 cwd。
+// agent 和 hybrid verifier 必须显式提供合法 cwd；automation 节点没有 launch cwd。
 func ValidateLaunchCWDForNodeConfig(nodeType string, raw json.RawMessage) (string, error) {
 	parsed, err := ParseNodeConfig(nodeType, raw)
 	if err != nil {
@@ -508,7 +499,7 @@ func ParseAgentConfig(raw json.RawMessage) (*AgentNodeConfig, error) {
 }
 
 // ParseAutomationConfig 解码 node_type=automation 的完整 config。
-// 空 kind 默认填 AutomationKindCommandCard（向下兼容）；非 command_card 的 kind 返回 ErrUnsupportedAutomationKind。
+// 空 kind 兼容为 command_card；非 command_card 立即返回 ErrUnsupportedAutomationKind。
 func ParseAutomationConfig(raw json.RawMessage) (*AutomationNodeConfig, error) {
 	var cfg AutomationNodeConfig
 	if len(raw) == 0 {
@@ -524,7 +515,6 @@ func ParseAutomationConfig(raw json.RawMessage) (*AutomationNodeConfig, error) {
 	case "":
 		cfg.Exec.Kind = AutomationKindCommandCard
 	case AutomationKindCommandCard:
-		// ok
 	default:
 		return nil, fmt.Errorf("%w: %q (allowed: command_card)", ErrUnsupportedAutomationKind, cfg.Exec.Kind)
 	}

@@ -61,7 +61,8 @@ func (s *service) drainBusWorker(ctx context.Context, name string, stop func(con
 	}
 }
 
-// onAgentLaunched 处理on代理launched。
+// onAgentLaunched 将 agent 启动事件投递到串行 worker。
+// 回调不直接写 binding，避免 bus 线程承担慢 I/O，也让 shutdown 可等待未完成的写入。
 func (s *service) onAgentLaunched(ev agentdto.AgentLaunched) {
 	if s == nil || s.agentLaunchedWorker == nil || s.bindingStore == nil {
 		return
@@ -78,7 +79,8 @@ func (s *service) onAgentLaunched(ev agentdto.AgentLaunched) {
 	s.agentLaunchedWorker.Enqueue(key, ev)
 }
 
-// processAgentLaunched 处理进程代理launched。
+// processAgentLaunched 根据 provider 启动事件补写 binding 中的 session 身份。
+// 事件可能缺 agent_id，因此先用 threadID 反查 binding；只有 UUID 可恢复且历史文件存在时才写 provider_thread_id。
 func (s *service) processAgentLaunched(ev agentdto.AgentLaunched) {
 	if s == nil || s.bindingStore == nil {
 		return
@@ -87,7 +89,7 @@ func (s *service) processAgentLaunched(ev agentdto.AgentLaunched) {
 	agentID := strings.TrimSpace(ev.AgentID)
 	sessionID := strings.TrimSpace(ev.SessionID)
 	ctx := context.Background()
-	// Claude system:init may not carry agent_id; resolve from threadID → binding.
+	// Claude system:init 可能不带 agent_id，因此用 threadID 反查 binding 作为权威身份。
 	binding, err := s.resolveBindingForEvent(ctx, agentID, threadID)
 	if err != nil || binding == nil {
 		return
@@ -117,7 +119,8 @@ func (s *service) recordAgentLaunchSessionUUID(ctx context.Context, binding *bin
 	s.logger.Info("thread: updated session_uuid from agent event", "thread_id", threadID, "agent_id", agentID, "session_uuid", sessionID)
 }
 
-// recordAgentLaunchProviderThreadID 记录代理启动provider线程ID。
+// recordAgentLaunchProviderThreadID 从启动事件记录可恢复的 provider thread id。
+// 已存在的真实 UUID 不会被覆盖；无法定位 provider 历史文件时只记日志，避免写入不可恢复身份。
 func (s *service) recordAgentLaunchProviderThreadID(ctx context.Context, binding *bindingstore.Binding, threadID, agentID, sessionID string) {
 	providerThreadID := normalizeProviderThreadID(binding.Provider, sessionID)
 	if providerThreadID == "" {
@@ -152,7 +155,8 @@ func (s *service) recordAgentLaunchProviderThreadID(ctx context.Context, binding
 	s.logger.Info("thread: updated provider_thread_id from agent event", "thread_id", threadID, "agent_id", agentID, "provider_thread_id", providerThreadID)
 }
 
-// syncAgentLaunchCWD 同步代理启动工作目录。
+// syncAgentLaunchCWD 将启动事件里的 CWD 回写到 binding。
+// 只有原 binding 还没有可信 CWD 时才写入；若新旧目录冲突，拒绝事件值以保护后续 prompt 可见性判断。
 func (s *service) syncAgentLaunchCWD(ctx context.Context, binding *bindingstore.Binding, threadID, nextCWD string) {
 	agentID, nextCWD, ok := normalizedAgentLaunchCWD(s, binding, nextCWD)
 	if !ok {
@@ -187,7 +191,8 @@ func (s *service) syncAgentLaunchCWD(ctx context.Context, binding *bindingstore.
 	}
 }
 
-// normalizedAgentLaunchCWD 处理normalized代理启动工作目录。
+// normalizedAgentLaunchCWD 校验启动事件具备可写 CWD 的最小条件。
+// 返回的目录已按 prompt 比较规则规范化，调用方可直接用于冲突判断和持久化。
 func normalizedAgentLaunchCWD(s *service, binding *bindingstore.Binding, nextCWD string) (string, string, bool) {
 	if s == nil || s.bindingStore == nil || binding == nil {
 		return "", "", false
@@ -200,11 +205,12 @@ func normalizedAgentLaunchCWD(s *service, binding *bindingstore.Binding, nextCWD
 	return agentID, nextCWD, true
 }
 
-// maxSessionRecoveryAttempts limits session-level recovery attempts per agent
-// to prevent infinite loops (WS dies → recover → WS dies → recover → ...).
+// maxSessionRecoveryAttempts 限制单个 agent 的 session 级恢复次数。
+// 被动断线反复出现时停止自动拉起，避免恢复循环占满 provider 和数据库资源。
 const maxSessionRecoveryAttempts = 2
 
-// onAgentFailed handles passive session death. When the codexapp
+// onAgentFailed 将可恢复的被动断线事件交给恢复 worker。
+// 非 recoverable 事件不自动重连，避免用户主动停止或归档后的 session 被重新拉起。
 func (s *service) onAgentFailed(ev agentdto.AgentFailed) {
 	if s == nil || s.sessionRecoveryWorker == nil {
 		return
@@ -221,7 +227,8 @@ func (s *service) onAgentFailed(ev agentdto.AgentFailed) {
 	s.sessionRecoveryWorker.Enqueue(target, ev)
 }
 
-// processSessionRecovery 处理进程会话recovery。
+// processSessionRecovery 执行单个 agent 的会话恢复流程。
+// 它会检查生命周期阻断、限制恢复次数、驱逐旧 session，并在可取消等待窗口后触发后台 Resume。
 func (s *service) processSessionRecovery(ctx context.Context, ev agentdto.AgentFailed) {
 	if s == nil {
 		return

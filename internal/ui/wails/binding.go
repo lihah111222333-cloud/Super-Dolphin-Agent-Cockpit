@@ -19,34 +19,37 @@ import (
 )
 
 const (
+	// defaultGroup 是未显式分组的新窗口使用的默认窗口组。
 	defaultGroup = "default"
 )
 
+// App 是暴露给 Wails 前端的后端绑定对象。
+// 它同时持有 RPC dispatch、窗口状态和拖拽文件登记表，跨 goroutine 字段必须通过各自 mutex 访问。
 type App struct {
-	dispatch         func(ctx context.Context, method string, params json.RawMessage) (json.RawMessage, error)
-	emitter          func(event string, data any)
-	pushRuntimeEvent func(ctx context.Context, event string, data any)
-	wailsApp         *application.App
-	windowTitle      string
-	debug            bool
-	observability    *observability.Service
+	dispatch         func(ctx context.Context, method string, params json.RawMessage) (json.RawMessage, error) // 前端 callAPI 的后端 RPC 分发入口
+	emitter          func(event string, data any)                                                              // Wails 原生事件发送器
+	pushRuntimeEvent func(ctx context.Context, event string, data any)                                         // WebSocket runtime 事件推送入口
+	wailsApp         *application.App                                                                          // Wails 应用实例，原生 dialog 和窗口操作依赖它
+	windowTitle      string                                                                                    // 新窗口标题
+	debug            bool                                                                                      // 是否启用 devtools 和调试窗口行为
+	observability    *observability.Service                                                                    // callAPI trace 写入服务
 
-	group string
+	group string // 当前窗口组
 
-	windowStateMu         sync.Mutex
-	windowBootstrap       map[string]any
-	windowBootstrapByName map[string]map[string]any
-	windowGroups          map[string]string
+	windowStateMu         sync.Mutex                // 保护窗口启动快照和窗口组映射
+	windowBootstrap       map[string]any            // 兼容旧入口的一次性启动快照
+	windowBootstrapByName map[string]map[string]any // 按窗口名登记的一次性启动快照
+	windowGroups          map[string]string         // 窗口名到窗口组的映射
 
-	droppedFilesMu sync.Mutex
-	droppedFiles   map[string]droppedFileRecord
+	droppedFilesMu sync.Mutex                   // 保护近期拖拽文件登记表
+	droppedFiles   map[string]droppedFileRecord // 路径到可读取窗口和过期时间的映射
 
-	openNewWindowInvoker func(group string, n int, uiBootstrap, cwd string) (string, error)
-	saveDirectoryInvoker func(defaultPath string) (string, error)
-	currentWindowNameFn  func() string
+	openNewWindowInvoker func(group string, n int, uiBootstrap, cwd string) (string, error) // 测试可替换的新窗口打开函数
+	saveDirectoryInvoker func(defaultPath string) (string, error)                           // 测试可替换的目录选择函数
+	currentWindowNameFn  func() string                                                      // 测试可替换的当前窗口名函数
 }
 
-// CallAPI 调用API。
+// CallAPI 处理前端统一 RPC 调用，并围绕 dispatch 记录脱敏 trace。
 func (a *App) CallAPI(method string, params json.RawMessage) (any, error) {
 	method, params, ctx, err := a.prepareCallAPIRequest(method, params)
 	if err != nil {
@@ -71,7 +74,7 @@ func (a *App) CallAPI(method string, params json.RawMessage) (any, error) {
 	return decodeAPIResult(result)
 }
 
-// prepareCallAPIRequest 准备callAPI请求。
+// prepareCallAPIRequest 校验前端 RPC 请求并建立 trace 上下文。
 func (a *App) prepareCallAPIRequest(method string, params json.RawMessage) (string, json.RawMessage, context.Context, error) {
 	if a == nil || a.dispatch == nil {
 		return "", nil, nil, errors.New("wails binding: dispatch is not configured")
@@ -95,6 +98,7 @@ func (a *App) prepareCallAPIRequest(method string, params json.RawMessage) (stri
 	return method, params, ctx, nil
 }
 
+// stripCallAPITraceParams 在进入严格 RPC handler 前剥离前端 trace/meta 字段。
 func stripCallAPITraceParams(method string, params json.RawMessage) json.RawMessage {
 	if method == "ui/log" {
 		return stripFrontendTraceMeta(params)
@@ -102,6 +106,7 @@ func stripCallAPITraceParams(method string, params json.RawMessage) json.RawMess
 	return stripFrontendMeta(params)
 }
 
+// contextWithObservabilityTraceFromLogger 把 logger trace 注入 observability 上下文。
 func contextWithObservabilityTraceFromLogger(ctx context.Context) context.Context {
 	traceID := pkglogger.TraceIDFromContext(ctx)
 	spanID := pkglogger.SpanIDFromContext(ctx)
@@ -111,7 +116,7 @@ func contextWithObservabilityTraceFromLogger(ctx context.Context) context.Contex
 	return observability.ContextWithSpan(ctx, traceID, spanID, pkglogger.ParentSpanIDFromContext(ctx))
 }
 
-// recordCallAPITrace 记录callAPItrace。
+// recordCallAPITrace 记录 callAPI 生命周期事件；只写参数大小和键名，不落原始参数。
 func (a *App) recordCallAPITrace(ctx context.Context, method string, params json.RawMessage, startedAt time.Time, kind string, phase string, duration time.Duration, status observability.Status, callErr error) error {
 	if a == nil || a.observability == nil || !a.observability.Enabled() {
 		return nil
@@ -140,6 +145,7 @@ func (a *App) recordCallAPITrace(ctx context.Context, method string, params json
 	return a.observability.Record(ctx, event)
 }
 
+// wailsParamKeys 提取 JSON object 顶层键名，用于脱敏 trace 元数据。
 func wailsParamKeys(raw json.RawMessage) []string {
 	var obj map[string]json.RawMessage
 	if len(raw) == 0 || json.Unmarshal(raw, &obj) != nil {
@@ -153,6 +159,7 @@ func wailsParamKeys(raw json.RawMessage) []string {
 	return keys
 }
 
+// wailsTraceStatus 根据耗时把 callAPI trace 标为 OK 或慢调用。
 func wailsTraceStatus(method string, duration time.Duration) observability.Status {
 	if duration > wailsSlowThreshold(method) {
 		return observability.StatusSlow
@@ -160,6 +167,7 @@ func wailsTraceStatus(method string, duration time.Duration) observability.Statu
 	return observability.StatusOK
 }
 
+// wailsSlowThreshold 返回不同前端 RPC 方法的慢调用阈值。
 func wailsSlowThreshold(method string) time.Duration {
 	switch {
 	case strings.TrimSpace(method) == "thread/start":
@@ -171,10 +179,8 @@ func wailsSlowThreshold(method string) time.Duration {
 	}
 }
 
-// LaunchAgent preserves the legacy desktop entrypoint while routing creation
-// through the typed V3 thread/start RPC using the V2 baseInstructions field.
-// The legacy name is deferred until a first-class thread naming flow is restored.
-// LaunchAgent 启动代理。
+// LaunchAgent 保留旧桌面绑定入口，并转发到 typed thread/start RPC。
+// name 暂不入参传递，避免在正式线程命名流程恢复前写入不一致的展示名。
 func (a *App) LaunchAgent(name, prompt, cwd string) (any, error) {
 	_ = name
 	return a.callAPIObject("thread/start", map[string]string{
@@ -183,8 +189,7 @@ func (a *App) LaunchAgent(name, prompt, cwd string) (any, error) {
 	})
 }
 
-// StopAgent keeps the V2 method name while delegating execution to thread/stop.
-// StopAgent 停止代理。
+// StopAgent 保留旧桌面绑定方法名，并把停止请求委托给 thread/stop。
 func (a *App) StopAgent(threadID string) error {
 	_, err := a.callAPIObject("thread/stop", map[string]string{
 		"threadId": strings.TrimSpace(threadID),
@@ -192,28 +197,28 @@ func (a *App) StopAgent(threadID string) error {
 	return err
 }
 
-// ListAgents 列出代理。
+// ListAgents 通过统一 RPC 返回 agent 列表，保持旧 Wails 方法兼容。
 func (a *App) ListAgents() (any, error) {
 	return a.callAPIObject("agent/list", struct{}{})
 }
 
-// GetBuildInfo 读取buildinfo。
+// GetBuildInfo 返回桌面前端展示用的构建信息。
 func (a *App) GetBuildInfo() map[string]string {
 	return currentBuildInfo()
 }
 
-// GetGroup 读取group。
+// GetGroup 返回当前窗口所属分组，空值时由窗口状态逻辑回到默认组。
 func (a *App) GetGroup() string {
 	return a.currentWindowGroup()
 }
 
-// OpenNewWindow 打开newwindow。
+// OpenNewWindow 打开同组或指定组的新窗口，并保持旧 Wails 绑定签名。
 func (a *App) OpenNewWindow(group string, n int, uiBootstrap, cwd string) error {
 	_, err := a.openNewWindow(group, n, uiBootstrap, cwd)
 	return err
 }
 
-// openNewWindow 打开newwindow。
+// openNewWindow 创建新窗口并登记一次性启动快照，测试可替换 invoker。
 func (a *App) openNewWindow(group string, n int, uiBootstrap, cwd string) (string, error) {
 	if a != nil && a.openNewWindowInvoker != nil {
 		return a.openNewWindowInvoker(group, n, uiBootstrap, cwd)
@@ -231,8 +236,7 @@ func (a *App) openNewWindow(group string, n int, uiBootstrap, cwd string) (strin
 	if title == "" {
 		title = applicationTitle()
 	}
-	// Backend propagates bootstrap values into the window URL; frontend
-	// consumers read ao_ui_bootstrap/ao_window_cwd from window.location.search.
+	// 前端从 window.location.search 读取 ao_ui_bootstrap/ao_window_cwd。
 	name := buildWindowName(group, n)
 	window := createWindow(app, title, a.debug, name, uiBootstrap, cwd, a)
 	if window == nil {
@@ -242,6 +246,7 @@ func (a *App) openNewWindow(group string, n int, uiBootstrap, cwd string) (strin
 	return fmt.Sprintf("%d", window.ID()), nil
 }
 
+// bindRuntime 绑定 Wails runtime，让后端事件可以发往当前窗口。
 func (a *App) bindRuntime(wailsApp *application.App) {
 	a.wailsApp = wailsApp
 	a.emitter = func(event string, data any) {
@@ -252,6 +257,7 @@ func (a *App) bindRuntime(wailsApp *application.App) {
 	}
 }
 
+// emitRuntimeEvent 向当前窗口发送 runtime 事件，并在可用时同步推送 WebSocket。
 func (a *App) emitRuntimeEvent(event string, data any) {
 	event = strings.TrimSpace(event)
 	if a == nil || event == "" {
@@ -265,6 +271,7 @@ func (a *App) emitRuntimeEvent(event string, data any) {
 	}
 }
 
+// callContext 返回前端调用使用的基础 context。
 func (a *App) callContext() context.Context {
 	if a != nil && a.wailsApp != nil {
 		if ctx := a.wailsApp.Context(); ctx != nil {
@@ -274,6 +281,7 @@ func (a *App) callContext() context.Context {
 	return context.Background()
 }
 
+// callAPIObject 用 Go 对象参数调用内部 RPC 并返回解码后的结果。
 func (a *App) callAPIObject(method string, params any) (any, error) {
 	data, err := json.Marshal(params)
 	if err != nil {
@@ -282,27 +290,25 @@ func (a *App) callAPIObject(method string, params any) (any, error) {
 	return a.CallAPI(method, json.RawMessage(data))
 }
 
-// stripFrontendMeta removes _ao-prefixed metadata fields that the frontend
-// injects into every CallAPI payload (e.g. _aoClientKind, _aoClientRoute).
-// These are useful for logging but must not reach StrictHandler RPC endpoints
-// which reject unknown fields.
+// stripFrontendMeta 移除前端专用 meta 字段，避免 strict handler 因未知字段拒绝请求。
 func stripFrontendMeta(raw json.RawMessage) json.RawMessage {
 	return stripJSONFields(raw, func(key string) bool {
 		return strings.HasPrefix(key, "_ao")
 	})
 }
 
+// stripFrontendTraceMeta 只移除 trace meta，保留 ui/log 需要的客户端来源字段。
 func stripFrontendTraceMeta(raw json.RawMessage) json.RawMessage {
 	return stripJSONFields(raw, func(key string) bool {
 		return key == "_aoTraceparent" || key == "_aoTraceId" || key == "_aoSpanId"
 	})
 }
 
-// stripJSONFields 处理stripJSON字段。
+// stripJSONFields 按谓词删除 JSON object 顶层字段，非 object 或重编码失败时保留原载荷。
 func stripJSONFields(raw json.RawMessage, shouldStrip func(string) bool) json.RawMessage {
 	var obj map[string]json.RawMessage
 	if err := json.Unmarshal(raw, &obj); err != nil {
-		return raw // not an object — pass through as-is
+		return raw // 非 object 载荷直接交给下游 strict handler 判断。
 	}
 	changed := false
 	for key := range obj {
@@ -321,7 +327,7 @@ func stripJSONFields(raw json.RawMessage, shouldStrip func(string) bool) json.Ra
 	return cleaned
 }
 
-// frontendTraceContext 处理前端trace上下文。
+// frontendTraceContext 从前端 meta 中恢复 traceparent，元数据不一致时 fail-fast。
 func frontendTraceContext(ctx context.Context, raw json.RawMessage) (context.Context, error) {
 	if !isJSONObject(raw) {
 		return ctx, nil
@@ -347,10 +353,12 @@ func frontendTraceContext(ctx context.Context, raw json.RawMessage) (context.Con
 	return pkglogger.WithTraceContext(ctx, traceID, spanID, ""), nil
 }
 
+// isJSONObject 快速判断 RawMessage 是否为 JSON object。
 func isJSONObject(raw json.RawMessage) bool {
 	return strings.HasPrefix(strings.TrimSpace(string(raw)), "{")
 }
 
+// decodeFrontendMetaObject 解码前端 meta object，空载荷按空 object 处理。
 func decodeFrontendMetaObject(raw json.RawMessage) (map[string]json.RawMessage, error) {
 	var obj map[string]json.RawMessage
 	if err := json.Unmarshal(raw, &obj); err != nil {
@@ -359,7 +367,7 @@ func decodeFrontendMetaObject(raw json.RawMessage) (map[string]json.RawMessage, 
 	return obj, nil
 }
 
-// validateFrontendTraceMetadata 校验前端trace元数据。
+// validateFrontendTraceMetadata 校验拆分后的 trace id/span id 与显式 meta 字段一致。
 func validateFrontendTraceMetadata(obj map[string]json.RawMessage, traceID, spanID string) error {
 	if metadataTraceID, ok, err := frontendStringField(obj, "_aoTraceId"); err != nil {
 		return err
@@ -374,6 +382,7 @@ func validateFrontendTraceMetadata(obj map[string]json.RawMessage, traceID, span
 	return nil
 }
 
+// frontendStringField 从前端 meta object 中读取 string 字段并校验类型。
 func frontendStringField(obj map[string]json.RawMessage, key string) (string, bool, error) {
 	raw, ok := obj[key]
 	if !ok {
@@ -386,7 +395,7 @@ func frontendStringField(obj map[string]json.RawMessage, key string) (string, bo
 	return value, true, nil
 }
 
-// parseFrontendTraceparent 解析前端traceparent。
+// parseFrontendTraceparent 解析前端传入的 W3C traceparent。
 func parseFrontendTraceparent(value string) (string, string, error) {
 	parts := strings.Split(value, "-")
 	if len(parts) != 4 {
@@ -408,6 +417,8 @@ func parseFrontendTraceparent(value string) (string, string, error) {
 	return traceID, spanID, nil
 }
 
+// validateTraceID 校验前端 trace id 是否符合 W3C traceparent 要求。
+// 非法或全零 ID 会直接拒绝，避免把无效链路写入观测日志。
 func validateTraceID(value string) error {
 	if len(value) != 32 || !isLowerHex(value) || allZeroHex(value) {
 		return fmt.Errorf("invalid trace id")
@@ -415,6 +426,8 @@ func validateTraceID(value string) error {
 	return nil
 }
 
+// validateSpanID 校验前端 span id 是否符合 W3C traceparent 要求。
+// 非法或全零 ID 会直接拒绝，避免父子 span 关系被错误串联。
 func validateSpanID(value string) error {
 	if len(value) != 16 || !isLowerHex(value) || allZeroHex(value) {
 		return fmt.Errorf("invalid span id")
@@ -422,6 +435,8 @@ func validateSpanID(value string) error {
 	return nil
 }
 
+// validateTraceFlags 校验 trace flags 为两位小写十六进制。
+// 这里不解释采样语义，只保证前端传入的 traceparent 格式可被后端记录。
 func validateTraceFlags(value string) error {
 	if len(value) != 2 || !isLowerHex(value) {
 		return fmt.Errorf("invalid flags")
@@ -429,7 +444,7 @@ func validateTraceFlags(value string) error {
 	return nil
 }
 
-// isLowerHex 判断lowerhex是否可用。
+// isLowerHex 判断字符串是否只包含小写十六进制字符。
 func isLowerHex(value string) bool {
 	for _, ch := range value {
 		if (ch < '0' || ch > '9') && (ch < 'a' || ch > 'f') {
@@ -439,6 +454,7 @@ func isLowerHex(value string) bool {
 	return true
 }
 
+// allZeroHex 判断十六进制 ID 是否全零。
 func allZeroHex(value string) bool {
 	for _, ch := range value {
 		if ch != '0' {
@@ -448,6 +464,7 @@ func allZeroHex(value string) bool {
 	return true
 }
 
+// decodeAPIResult 把 RPC JSON 结果还原为前端可消费的 Go 值。
 func decodeAPIResult(result json.RawMessage) (any, error) {
 	if len(result) == 0 || string(result) == "null" {
 		return nil, nil
@@ -459,7 +476,7 @@ func decodeAPIResult(result json.RawMessage) (any, error) {
 	return value, nil
 }
 
-// currentBuildInfo 处理当前buildinfo。
+// currentBuildInfo 汇总运行平台、版本和 VCS 构建信息供前端展示。
 func currentBuildInfo() map[string]string {
 	info := map[string]string{
 		"version": "dev",
@@ -482,7 +499,7 @@ func currentBuildInfo() map[string]string {
 	return info
 }
 
-// applyBuildSetting 应用buildsetting。
+// applyBuildSetting 将 Go build setting 中的 VCS 字段写入构建信息。
 func applyBuildSetting(info map[string]string, key, value string) {
 	switch key {
 	case "vcs.revision":
@@ -500,6 +517,7 @@ func applyBuildSetting(info map[string]string, key, value string) {
 	}
 }
 
+// shortCommit 截短构建注入的 commit hash，便于 UI 展示。
 func shortCommit(raw string) string {
 	raw = strings.TrimSpace(raw)
 	if len(raw) <= 12 {

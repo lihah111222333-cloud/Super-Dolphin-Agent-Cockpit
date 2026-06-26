@@ -18,14 +18,12 @@ type TurnRequest struct {
 	ManualSkillSelection bool            `json:"manualSkillSelection,omitempty"`
 	OutputSchema         json.RawMessage `json:"outputSchema,omitempty"`
 	Overrides            TurnOverrides   `json:"overrides"`
-	// AdditionalWorkingDirectories carries the trusted per-turn workspace
-	// expansion used by local tools. It is not forwarded to Codex app-server.
+	// AdditionalWorkingDirectories 承载单次 turn 允许本地工具进入的额外可信目录。
+	// 字段只约束本机工具执行边界，不转发给 Codex app-server。
 	AdditionalWorkingDirectories []string    `json:"additionalWorkingDirectories,omitempty"`
 	MCP                          MCPManifest `json:"mcp"`
-	// DedupeKey carries the turn layer's in-memory idempotency token so
-	// StartTurn can register it on the tracker. It is intentionally not
-	// forwarded to the provider wire format today — codex / claudecli
-	// driver idempotency is a follow-up once the SQL persistence lands.
+	// DedupeKey 是 turn 层内存幂等键，用来把 StartTurn 绑定到本地执行跟踪。
+	// 字段不进入 provider 线格式，避免把本地调度状态泄漏给 codex/claudecli 驱动。
 	DedupeKey string `json:"-"`
 }
 
@@ -40,10 +38,10 @@ type InputItem = shareddto.InputItem
 
 // SkillRef 是 turn / steer 请求中携带的 skill 引用。
 //
-// V1 cutover 之后，注入模式不再由 Mode 字段驱动：
-//   - Codex 通过 provider-native .agents/skills mirror 自己发现 skills
-//   - Claude 通过 provider-native .claude/skills mirror / provider home skills 自己发现 skills
-//   - 旧 Mode/Effective() 三态已无生产消费方，spec §11 同步清理。
+// SkillRef 进入 provider 前只保留稳定引用元数据，注入内容由 provider 自己从镜像目录发现：
+//   - Codex 通过 .agents/skills 镜像目录发现 skills。
+//   - Claude 通过 .claude/skills 或 provider 主目录 skills 发现 skills。
+//   - 旧 Mode/Effective() 三态不再参与生产链路，保留值只用于兼容历史 payload。
 //
 // 字段语义：
 //   - Name：skill 标识符。
@@ -55,7 +53,7 @@ type InputItem = shareddto.InputItem
 //     链路不消费该字段注入正文，PrepareTurn 会在归一化阶段清空它。
 //   - Summary：摘要文本（UI/观测与 hydration 输出）。
 //   - Source：决策来源，供观测性日志划分 manual/force/trigger/native；
-//     expand 仅作为历史观测值兼容保留，V1 provider-native 链路不再产生它。
+//     expand 仅作为旧观测值兼容保留，当前 provider 镜像链路不再产生它。
 type SkillRef struct {
 	Key          string      `json:"key,omitempty"`
 	Name         string      `json:"name"`
@@ -71,6 +69,7 @@ type SkillRef struct {
 // SkillSource 追踪 SkillRef 的决策来源，供日志 / 断点 / 断言使用。
 type SkillSource string
 
+// SkillSource 常量列出 SkillRef 来源分类，未知来源应由 Valid 拒绝。
 const (
 	SkillSourceUnspecified SkillSource = ""
 	// SkillSourceManual：用户在 UI 显式勾选。
@@ -79,9 +78,9 @@ const (
 	SkillSourceForce SkillSource = "force"
 	// SkillSourceTrigger：软匹配来源标记；生产链路仅保留元数据，不驱动摘要注入语义。
 	SkillSourceTrigger SkillSource = "trigger"
-	// SkillSourceExpand：历史 skill_expand 二次注入来源；V1 不再由生产链路产生。
+	// SkillSourceExpand：兼容旧 skill_expand 二次注入来源；当前生产链路不再产生。
 	SkillSourceExpand SkillSource = "expand"
-	// SkillSourceNative：provider-native skills；本 harness 不注入 body，仅记录元数据。
+	// SkillSourceNative：provider 原生 skill 来源；当前链路只记录元数据，不注入正文。
 	SkillSourceNative SkillSource = "native"
 )
 

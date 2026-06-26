@@ -1,10 +1,6 @@
-// Package notify hosts the orch-side notifier wiring. It reuses the
-// shared platform library (internal/platform/notify) and provides its
-// own notifier + flusher implementations with its own fx Provide set
-// and bus subscribers so the dual-Fx tree rule from the P21 P2 plan
-// is respected. The concrete Notifier / Flusher are defined locally
-// to avoid importing internal/module/notify (mcp-service-convention
-// S3.1).
+// Package notify 提供 mcp-orch 侧通知装配。
+// 它复用 internal/platform/notify 的传输和安全逻辑，但在 orch 进程内独立提供 notifier、flusher 和 bus 订阅。
+// 这样编排进程不需要 import core module 的通知模块，也能共享同一套渠道解析与 webhook 防护。
 package notify
 
 import (
@@ -15,9 +11,8 @@ import (
 	taskdto "github.com/anthropic-ai/super-agent-v3/internal/dto/task"
 )
 
-// terminalNodeStatuses lists the taskdag statuses that justify firing
-// a notification. Non-terminal transitions (running, pending, ...) are
-// ignored because they produce noise without actionable content.
+// terminalNodeStatuses 列出值得发送通知的 taskdag 终态。
+// running、pending 等中间态不发送，避免通知队列被不可行动的状态变更刷屏。
 var terminalNodeStatuses = map[string]bool{
 	"done":      true,
 	"succeeded": true,
@@ -29,20 +24,17 @@ var terminalNodeStatuses = map[string]bool{
 	"skipped":   true,
 }
 
-// isTerminalNodeStatus normalises and checks the transition target. We
-// lowercase once so any storage-layer canonicalisation quirks don't
-// leak into the subscriber's control flow.
+// isTerminalNodeStatus 归一化并判断目标状态是否为终态。
+// 这里统一 trim/lower，避免存储层大小写差异泄漏到订阅器控制流。
 func isTerminalNodeStatus(status string) bool {
 	return terminalNodeStatuses[strings.ToLower(strings.TrimSpace(status))]
 }
 
-// resolveNodeAlias implements the P2 plan's strict alias precedence:
+// resolveNodeAlias 按节点优先的顺序解析通知渠道别名：
 //
 //	node.config.notify_channel > dag.metadata.notify_channel > drop/error
 //
-// Returning an empty string means "drop" — the scheduler must not fall
-// back to NOTIFY_DEFAULT_CHANNEL for DAG events. Callers that get
-// empty simply skip enqueue.
+// 返回空字符串表示丢弃该事件；DAG 通知不使用全局默认渠道，避免把用户 DAG 结果误发到不明确目标。
 func resolveNodeAlias(node *taskdag.Node, dag *taskdag.DAG) string {
 	if node != nil {
 		if v := extractNotifyChannel(node.Config); v != "" {
@@ -57,12 +49,8 @@ func resolveNodeAlias(node *taskdag.Node, dag *taskdag.DAG) string {
 	return ""
 }
 
-// extractNotifyChannel decodes a JSON object and returns the string
-// value at the "notify_channel" key. Non-object or missing keys
-// produce empty. Kept permissive (tolerates trailing whitespace,
-// mixed-case keys) because both node.Config and dag.Metadata are
-// user-authored in practice.
-// extractNotifyChannel 提取notifychannel。
+// extractNotifyChannel 从用户可编辑 JSON 对象里提取 notify_channel。
+// 非对象、缺字段或解析失败都返回空字符串，表示该对象不参与通知路由；大小写和空白保持宽容。
 func extractNotifyChannel(raw json.RawMessage) string {
 	if len(raw) == 0 {
 		return ""
@@ -84,9 +72,8 @@ func extractNotifyChannel(raw json.RawMessage) string {
 	return ""
 }
 
-// nodeTerminalTitle builds a user-facing headline for a terminal node
-// event. We keep the title short because Dingtalk / Feishu headers
-// show only the first ~40 chars legibly.
+// nodeTerminalTitle 为节点终态事件生成面向用户的短标题。
+// 标题刻意保持短，适配钉钉/飞书这类只清晰展示前几十个字符的卡片头部。
 func nodeTerminalTitle(ev taskdto.TaskNodeStatusChanged) string {
 	node := strings.TrimSpace(ev.NodeKey)
 	if node == "" {

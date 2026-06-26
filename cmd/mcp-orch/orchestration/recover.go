@@ -15,6 +15,7 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 )
 
+// recover reason 常量会写入事件日志，调用方靠它区分人工恢复、卡住检测和进程退出恢复。
 const (
 	recoverReasonManual      = "manual"
 	recoverReasonStall       = "stall_detected"
@@ -22,12 +23,14 @@ const (
 	turnResumeReasonRecover  = "recover_succeeded"
 )
 
+// StallDetector 根据 agent 更新时间判断 turn_running 是否卡住。
+// 它只报告 stalled，不直接恢复进程，恢复动作由调用方决定。
 type StallDetector struct {
-	threshold time.Duration
-	logger    *slog.Logger
+	threshold time.Duration // 超过该时长未更新即视为卡住
+	logger    *slog.Logger  // 可选告警日志
 }
 
-// CheckStall 处理checkstall。
+// CheckStall 检查 agent 是否仍处于 turn_running 且超过卡住阈值。
 func (d *StallDetector) CheckStall(agent *agentRuntime) bool {
 	if agent.state != agentdto.StateTurnRunning {
 		return false
@@ -39,13 +42,12 @@ func (d *StallDetector) CheckStall(agent *agentRuntime) bool {
 	return stalled
 }
 
-// Recover restarts the agent process and replays persisted DAG-backed work when
-// the stored wakeup is still fenced to the same active turn.
-// Recover 恢复编排。
+// Recover 恢复 agent 运行态，并在 DAG wakeup 仍绑定同一 active turn 时重放待执行工作。
 func (s *service) Recover(ctx context.Context, agentID string) error {
 	return s.recoverWithReason(ctx, agentID, recoverReasonManual)
 }
 
+// recoverWithReason 按当前 agent 所属运行模式选择本地进程恢复或 launcher 恢复。
 func (s *service) recoverWithReason(ctx context.Context, agentID, reason string) error {
 	if s.canRecoverAgentViaLauncher(ctx, agentID) {
 		return s.recoverLauncherWithReason(ctx, agentID, reason)
@@ -53,6 +55,8 @@ func (s *service) recoverWithReason(ctx context.Context, agentID, reason string)
 	return s.recoverLocalWithReason(ctx, agentID, reason)
 }
 
+// recoverLocalWithReason 在 service 锁内停止旧进程、重建本地进程，并发布恢复事件。
+// 若恢复前存在可重放的 DAG wakeup，成功后会发布 turn resumed 事件。
 func (s *service) recoverLocalWithReason(ctx context.Context, agentID, reason string) error {
 	return s.withAgentLocked(agentID, func(agent *agentRuntime) error {
 		threadID := agent.threadID
@@ -72,7 +76,8 @@ func (s *service) recoverLocalWithReason(ctx context.Context, agentID, reason st
 	})
 }
 
-// recoverAgent 恢复代理。
+// recoverAgent 执行本地进程恢复的核心步骤：保存可重放 turn、强停旧进程、清理状态并重启。
+// 调用方必须已持有 agent 锁，失败时保持错误向上传递，不吞掉不完整恢复。
 func recoverAgent(ctx context.Context, s *service, agent *agentRuntime) (bool, error) {
 	activeTurnID := strings.TrimSpace(agent.activeTurnID)
 	replay, shouldReplay, err := loadRecoveredTurnSubmission(ctx, s, agent)
@@ -109,17 +114,19 @@ func recoverAgent(ctx context.Context, s *service, agent *agentRuntime) (bool, e
 	return true, nil
 }
 
+// shouldWriteRecoveryNoReplayFallback 判断恢复后没有可重放 turn 时是否需要补写 no-report fallback。
 func shouldWriteRecoveryNoReplayFallback(agent *agentRuntime, activeTurnID string) bool {
 	return agent != nil && strings.TrimSpace(agent.lastReport) == "" &&
 		(strings.TrimSpace(activeTurnID) != "" || len(agent.reportRequesters) > 0)
 }
 
+// normalizeRecoveryState 将 agent 状态推进到 recovering，保证后续 startProcess 使用一致状态。
 func normalizeRecoveryState(ctx context.Context, s *service, agent *agentRuntime) error {
 	return s.fireOrForceLocked(ctx, agent, agentdto.TriggerRecoverRequested)
 }
 
-// Replay is currently supported only when the active turn can be reconstructed
-// from persisted DAG wakeup payloads.
+// loadRecoveredTurnSubmission 从持久化 DAG wakeup 中恢复 active turn 的提交内容。
+// 只有 wakeup 仍处于 sent 且绑定同一 turn 时才返回 shouldReplay=true。
 func loadRecoveredTurnSubmission(ctx context.Context, s *service, agent *agentRuntime) (TurnSubmission, bool, error) {
 	activeTurnID, ok := validateRecoveryContext(s, agent)
 	if !ok {
@@ -139,7 +146,7 @@ func loadRecoveredTurnSubmission(ctx context.Context, s *service, agent *agentRu
 	return submission, true, nil
 }
 
-// findReplayWakeup 查找replaywakeup。
+// findReplayWakeup 查找当前 agent 下仍绑定 active turn 的可重放 wakeup。
 func findReplayWakeup(ctx context.Context, s *service, agent *agentRuntime, activeTurnID string) (*taskdag.Wakeup, error) {
 	nodes, err := s.recoveryStore.ListRunningNodesByAssignee(ctx, agent.id)
 	if err != nil {
@@ -160,10 +167,12 @@ func findReplayWakeup(ctx context.Context, s *service, agent *agentRuntime, acti
 	return nil, nil
 }
 
+// nodeMatchesActiveTurn 判断运行中节点是否仍指向恢复前的 active turn。
 func nodeMatchesActiveTurn(node taskdag.Node, activeTurnID string) bool {
 	return node.ActiveTurnID != nil && strings.TrimSpace(*node.ActiveTurnID) == activeTurnID
 }
 
+// loadReplayWakeup 读取节点记录中的 active wakeup；缺失 wakeup 是恢复数据损坏，必须报错。
 func loadReplayWakeup(ctx context.Context, s *service, node taskdag.Node, activeTurnID string) (*taskdag.Wakeup, error) {
 	if node.ActiveWakeupID == nil || *node.ActiveWakeupID <= 0 {
 		return nil, fmt.Errorf("recover replay: node %s/%s missing active wakeup for turn %q", node.DagKey, node.NodeKey, activeTurnID)
@@ -175,6 +184,7 @@ func loadReplayWakeup(ctx context.Context, s *service, node taskdag.Node, active
 	return wakeup, nil
 }
 
+// decodeReplayWakeupSubmission 将 wakeup payload 解码为待重放的 turn submission。
 func decodeReplayWakeupSubmission(wakeup *taskdag.Wakeup, agent *agentRuntime, activeTurnID string) (TurnSubmission, error) {
 	submission, err := decodeRecoveredTurnSubmission(wakeup.PromptPayload, agent, activeTurnID)
 	if err != nil {
@@ -183,6 +193,7 @@ func decodeReplayWakeupSubmission(wakeup *taskdag.Wakeup, agent *agentRuntime, a
 	return submission, nil
 }
 
+// validateRecoveryContext 校验恢复重放所需的 service、agent、active turn 和 recovery store。
 func validateRecoveryContext(s *service, agent *agentRuntime) (string, bool) {
 	if s == nil || agent == nil {
 		return "", false
@@ -194,7 +205,7 @@ func validateRecoveryContext(s *service, agent *agentRuntime) (string, bool) {
 	return activeTurnID, true
 }
 
-// wakeupEligibleForReplay 为replay处理wakeupeligible。
+// wakeupEligibleForReplay 确认 wakeup 仍为 sent 且 fence 到同一 turn，避免重放过期任务。
 func wakeupEligibleForReplay(agent *agentRuntime, activeTurnID string, wakeup *taskdag.Wakeup) bool {
 	if wakeup == nil || strings.TrimSpace(wakeup.Status) != "sent" {
 		return false
@@ -209,6 +220,7 @@ func wakeupEligibleForReplay(agent *agentRuntime, activeTurnID string, wakeup *t
 	return targetAgentID == "" || agent == nil || targetAgentID == agent.id
 }
 
+// decodeRecoveredTurnSubmission 兼容解码新版 TurnSubmission 和旧版 submitParams payload。
 func decodeRecoveredTurnSubmission(raw json.RawMessage, agent *agentRuntime, activeTurnID string) (TurnSubmission, error) {
 	raw = append(json.RawMessage(nil), raw...)
 	var direct TurnSubmission
@@ -232,6 +244,7 @@ func decodeRecoveredTurnSubmission(raw json.RawMessage, agent *agentRuntime, act
 	return TurnSubmission{}, fmt.Errorf("unsupported prompt payload shape")
 }
 
+// normalizeRecoveredTurnSubmission 补齐恢复重放所需的 agent、thread 和 expected turn 字段。
 func normalizeRecoveredTurnSubmission(agent *agentRuntime, activeTurnID string, submission TurnSubmission) TurnSubmission {
 	normalized := cloneTurnSubmission(submission)
 	if agent != nil {
@@ -245,6 +258,7 @@ func normalizeRecoveredTurnSubmission(agent *agentRuntime, activeTurnID string, 
 	return normalized
 }
 
+// replayRecoveredTurn 把恢复出的 submission 插回队列头部，并重新触发 turn_enqueued。
 func replayRecoveredTurn(ctx context.Context, s *service, agent *agentRuntime, submission TurnSubmission) error {
 	if agent == nil {
 		return nil
@@ -256,16 +270,17 @@ func replayRecoveredTurn(ctx context.Context, s *service, agent *agentRuntime, s
 	return s.fireOrForceLocked(ctx, agent, agentdto.TriggerTurnEnqueued)
 }
 
-// Launcher-backed recovery helpers moved from factory.go to keep orchestration factory focused.
+// launcherRecoveryAttempt 保存 launcher 恢复跨锁阶段所需的快照和 seq fence。
 type launcherRecoveryAttempt struct {
-	agentID, threadID, turnID string
-	expectedSeq               uint64
-	launching                 agentRuntime
-	replay                    TurnSubmission
-	shouldReplay              bool
-	req                       LaunchRequest
+	agentID, threadID, turnID string         // 恢复前的身份与 turn，用于提交后发布 resumed 事件
+	expectedSeq               uint64         // launchSeq fence，防止旧启动结果覆盖新 agent
+	launching                 agentRuntime   // 传给 launcher 的锁外运行快照
+	replay                    TurnSubmission // 可选的恢复重放提交
+	shouldReplay              bool           // 是否需要恢复 active turn
+	req                       LaunchRequest  // 由恢复状态派生的 launcher 请求
 }
 
+// canRecoverAgentViaLauncher 判断当前 agent 是否由 launcher 管理且仍可远端恢复。
 func (s *service) canRecoverAgentViaLauncher(ctx context.Context, agentID string) bool {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -273,6 +288,7 @@ func (s *service) canRecoverAgentViaLauncher(ctx context.Context, agentID string
 	return err == nil && shouldRecoverViaLauncher(ctx, s, agent)
 }
 
+// recoverLauncherWithReason 停止远端 runtime 后重新 Launch，并按 seq fence 提交结果。
 func (s *service) recoverLauncherWithReason(ctx context.Context, agentID, reason string) error {
 	attempt, err := s.prepareLauncherRecovery(ctx, agentID, reason)
 	if err != nil {
@@ -293,6 +309,7 @@ func (s *service) recoverLauncherWithReason(ctx context.Context, agentID, reason
 	return s.commitLauncherRecoverySuccess(ctx, attempt, result)
 }
 
+// prepareLauncherRecovery 在锁内进入 recovering 状态并复制 launcher 恢复所需快照。
 func (s *service) prepareLauncherRecovery(ctx context.Context, agentID, reason string) (launcherRecoveryAttempt, error) {
 	var attempt launcherRecoveryAttempt
 	err := s.withAgentLocked(agentID, func(agent *agentRuntime) error {
@@ -318,6 +335,7 @@ func (s *service) prepareLauncherRecovery(ctx context.Context, agentID, reason s
 	return attempt, err
 }
 
+// commitLauncherRecoveryFailure 在恢复启动失败时写入失败状态和 no-report fallback。
 func (s *service) commitLauncherRecoveryFailure(ctx context.Context, attempt launcherRecoveryAttempt, launchErr error) error {
 	s.mu.Lock()
 	agent, err := lookupAgentBySeqLocked(s.agents, attempt.agentID, attempt.expectedSeq)
@@ -333,7 +351,8 @@ func (s *service) commitLauncherRecoveryFailure(ctx context.Context, attempt lau
 	return err
 }
 
-// commitLauncherRecoverySuccess 处理commit启动器recoverysuccess。
+// commitLauncherRecoverySuccess 在 seq fence 命中时采用新 launcher 状态并完成恢复。
+// rekey 或持久化失败会主动停止新 runtime，避免留下孤儿远端 agent。
 func (s *service) commitLauncherRecoverySuccess(ctx context.Context, attempt launcherRecoveryAttempt, result LaunchResult) error {
 	s.mu.Lock()
 	agent, err := lookupAgentBySeqLocked(s.agents, attempt.agentID, attempt.expectedSeq)
@@ -372,6 +391,7 @@ func (s *service) commitLauncherRecoverySuccess(ctx context.Context, attempt lau
 	return nil
 }
 
+// finishLauncherRecoveryTurnLocked 在恢复成功后补写 fallback 或重放 turn，并发布 resumed。
 func (s *service) finishLauncherRecoveryTurnLocked(ctx context.Context, agent *agentRuntime, attempt launcherRecoveryAttempt) error {
 	if !attempt.shouldReplay {
 		if shouldWriteRecoveryNoReplayFallback(agent, attempt.turnID) {
@@ -388,6 +408,7 @@ func (s *service) finishLauncherRecoveryTurnLocked(ctx context.Context, agent *a
 	return nil
 }
 
+// notifyRecoveryFailure 在自动恢复失败且没有 report 时写入可见 fallback，避免 UI 长期空白。
 func (s *service) notifyRecoveryFailure(ctx context.Context, agentID string, recoverErr error) error {
 	return s.withAgentLocked(agentID, func(agent *agentRuntime) error {
 		if strings.TrimSpace(agent.lastReport) == "" {

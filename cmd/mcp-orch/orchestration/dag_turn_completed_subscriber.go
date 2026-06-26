@@ -32,7 +32,8 @@ func isTerminalNodeStatus(status string) bool {
 	return false
 }
 
-// DAGSubscriberDeps keeps the TurnCompleted subscriber on narrow ports.
+// DAGSubscriberDeps 收拢 TurnCompleted 订阅器需要的最小端口。
+// 可选端口缺失时只跳过对应副作用，节点状态推进仍由 LookupStore/FlowStore 负责。
 type DAGSubscriberDeps struct {
 	fx.In
 
@@ -47,9 +48,8 @@ type DAGSubscriberDeps struct {
 	NodeRouter       *NodeExecutorRouter       `optional:"true"`
 }
 
-// RegisterDAGTurnCompletedSubscriber advances DAG node state independently
-// from the agent-runtime TurnCompleted subscribers.
-// RegisterDAGTurnCompletedSubscriber 注册DAGturncompleted订阅器。
+// RegisterDAGTurnCompletedSubscriber 注册 TurnCompleted 到 DAG 节点状态的桥接订阅。
+// lifecycle 停止时先取消上下文再取消订阅，避免 shutdown 期间继续推进节点。
 func RegisterDAGTurnCompletedSubscriber(lc fx.Lifecycle, dispatcher *event.Dispatcher, deps DAGSubscriberDeps, logger *slog.Logger) {
 	if logger == nil {
 		logger = pkglogger.Get()
@@ -80,7 +80,8 @@ func RegisterDAGTurnCompletedSubscriber(lc fx.Lifecycle, dispatcher *event.Dispa
 	})
 }
 
-// handleDAGTurnCompleted 处理DAGturncompleted。
+// handleDAGTurnCompleted 根据 thread_id 找到由该 turn 驱动的 DAG 节点并推进终态。
+// 同一 thread_id 命中多个节点会告警但逐个处理，避免脏数据导致其他节点卡住。
 func handleDAGTurnCompleted(ctx context.Context, deps DAGSubscriberDeps, logger *slog.Logger, ev turndto.TurnCompleted) {
 	threadID := strings.TrimSpace(ev.ThreadID)
 	if threadID == "" {
@@ -116,7 +117,8 @@ func handleDAGTurnCompleted(ctx context.Context, deps DAGSubscriberDeps, logger 
 	stopSpawnedAgentForSubscriber(ctx, deps, logger, threadID)
 }
 
-// advanceNodeForTurnCompleted 为turncompleted处理advance节点。
+// advanceNodeForTurnCompleted 把一次 turn 完成事件映射成节点 done/failed。
+// 已经终态的节点只计幂等跳过，防止重复 hook 或重放事件覆盖最终状态。
 func advanceNodeForTurnCompleted(ctx context.Context, deps DAGSubscriberDeps, logger *slog.Logger, node *taskdag.Node, ev turndto.TurnCompleted) {
 	if isTerminalNodeStatus(node.Status) {
 		dagSubscriberMetrics.IncIdempotentSkipped()

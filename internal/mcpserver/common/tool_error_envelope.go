@@ -12,9 +12,8 @@ import (
 	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
 )
 
-// ToolErrorEnvelope is the machine-readable tool error payload returned from
-// tools/call after a specific tool handler has been selected. JSON-RPC
-// transport/protocol errors still use JSON-RPC error responses.
+// ToolErrorEnvelope 是工具 handler 已选定后由 tools/call 返回的机器可读错误载荷。
+// JSON-RPC transport/protocol 层错误仍使用 JSON-RPC error response，不走这个 envelope。
 type ToolErrorEnvelope struct {
 	Success   bool           `json:"success"`
 	Error     string         `json:"error"`
@@ -50,10 +49,8 @@ func (e ToolErrorEnvelope) ToPlainText() string {
 	return strings.TrimSpace(sb.String())
 }
 
-// appendErrorEnvelopeMeta cherry-picks meta keys that are immediately
-// useful to the LLM. Unknown meta keys stay in the structuredContent
-// JSON for callers that need them, but we don't echo every meta entry
-// into the plain-text channel.
+// appendErrorEnvelopeMeta 只挑选 LLM 立即可用的 meta 字段写入纯文本。
+// 未识别字段仍留在 structuredContent，避免把全部结构化数据重复灌进文本通道。
 func appendErrorEnvelopeMeta(sb *strings.Builder, meta map[string]any) {
 	if len(meta) == 0 {
 		return
@@ -62,6 +59,7 @@ func appendErrorEnvelopeMeta(sb *strings.Builder, meta map[string]any) {
 	appendSuggestedColumnsMeta(sb, meta["suggested_columns"])
 }
 
+// appendErrorEnvelopeLineMeta 输出定位类 meta，帮助调用方直接跳到问题行。
 func appendErrorEnvelopeLineMeta(sb *strings.Builder, meta map[string]any) {
 	if line, ok := meta["line"].(int); ok {
 		fmt.Fprintf(sb, "Line: %d\n", line)
@@ -71,6 +69,7 @@ func appendErrorEnvelopeLineMeta(sb *strings.Builder, meta map[string]any) {
 	}
 }
 
+// appendSuggestedColumnsMeta 输出 parser/patch 工具给出的列建议，兼容两种 slice 形态。
 func appendSuggestedColumnsMeta(sb *strings.Builder, raw any) {
 	switch cols := raw.(type) {
 	case []map[string]any:
@@ -80,6 +79,7 @@ func appendSuggestedColumnsMeta(sb *strings.Builder, raw any) {
 	}
 }
 
+// appendSuggestedColumnMaps 渲染已经解码成 map 的 suggested_columns。
 func appendSuggestedColumnMaps(sb *strings.Builder, cols []map[string]any) {
 	if len(cols) == 0 {
 		return
@@ -91,6 +91,7 @@ func appendSuggestedColumnMaps(sb *strings.Builder, cols []map[string]any) {
 	}
 }
 
+// appendSuggestedColumnAnyMaps 渲染 JSON 解码后仍为 []any 的 suggested_columns。
 func appendSuggestedColumnAnyMaps(sb *strings.Builder, cols []any) {
 	if len(cols) == 0 {
 		return
@@ -110,12 +111,14 @@ func appendSuggestedColumnAnyMaps(sb *strings.Builder, cols []any) {
 	}
 }
 
+// suggestedColumnValues 从 suggested_columns 条目中提取标识符和列号。
 func suggestedColumnValues(item map[string]any) (string, int) {
 	ident, _ := item["identifier"].(string)
 	col, _ := numericMetaInt(item["column"])
 	return ident, col
 }
 
+// numericMetaInt 将 JSON number 或已解码整数转为 int，其他类型返回 false。
 func numericMetaInt(value any) (int, bool) {
 	switch v := value.(type) {
 	case int:
@@ -127,7 +130,8 @@ func numericMetaInt(value any) (int, bool) {
 	}
 }
 
-// ToolResultIsError 处理工具结果is错误。
+// ToolResultIsError 判断工具结果是否应标记为 MCP isError。
+// 明确的 ToolErrorEnvelope 优先；普通对象只在 success=false 时视为错误。
 func ToolResultIsError(value any) bool {
 	switch envelope := value.(type) {
 	case ToolErrorEnvelope:
@@ -152,8 +156,8 @@ func ToolResultIsError(value any) bool {
 	return marker.Success != nil && !*marker.Success
 }
 
-// CodedToolError allows call sites and recovery code to pin a stable error
-// code when string classification would be ambiguous.
+// CodedToolError 允许调用点或 recover 路径显式固定错误 code。
+// 当字符串分类容易歧义时，用它保留 retryable、hint 和 meta 等稳定信号。
 type CodedToolError struct {
 	Err       error
 	Code      string
@@ -162,7 +166,7 @@ type CodedToolError struct {
 	Meta      map[string]any
 }
 
-// Error 返回错误文本。
+// Error 返回底层错误文本，nil receiver 或 nil Err 返回空字符串。
 func (e *CodedToolError) Error() string {
 	if e == nil || e.Err == nil {
 		return ""
@@ -178,7 +182,7 @@ func (e *CodedToolError) Unwrap() error {
 	return e.Err
 }
 
-// NewCodedToolError 创建coded工具错误。
+// NewCodedToolError 创建带稳定 code/hint 的工具错误，err 为空时使用 code 作为错误文本。
 func NewCodedToolError(code string, err error, retryable bool, hint string) error {
 	if err == nil {
 		err = errors.New(strings.TrimSpace(code))
@@ -186,7 +190,7 @@ func NewCodedToolError(code string, err error, retryable bool, hint string) erro
 	return &CodedToolError{Err: err, Code: strings.TrimSpace(code), Retryable: retryable, Hint: strings.TrimSpace(hint)}
 }
 
-// NewPanicToolError 创建panic工具错误。
+// NewPanicToolError 将工具 handler panic 转为不可重试的内部错误。
 func NewPanicToolError(recovered any) error {
 	return &CodedToolError{
 		Err:       fmt.Errorf("panic recovered: %v", recovered),
@@ -196,12 +200,12 @@ func NewPanicToolError(recovered any) error {
 	}
 }
 
-// NewToolErrorEnvelope 创建工具错误包装。
+// NewToolErrorEnvelope 使用默认 meta 创建工具错误 envelope。
 func NewToolErrorEnvelope(toolName string, err error) ToolErrorEnvelope {
 	return NewToolErrorEnvelopeWithMeta(toolName, "", err, nil)
 }
 
-// NewToolErrorEnvelopeWithMeta 创建带meta的工具错误包装。
+// NewToolErrorEnvelopeWithMeta 分类错误并合并语言、分类器和调用方传入的 meta。
 func NewToolErrorEnvelopeWithMeta(toolName, languageID string, err error, extraMeta map[string]any) ToolErrorEnvelope {
 	code, retryable, hint, codedMeta := ClassifyToolError(toolName, err)
 	meta := map[string]any{"tool": strings.TrimSpace(toolName)}
@@ -247,6 +251,7 @@ func ClassifyToolError(toolName string, err error) (code string, retryable bool,
 	return "tool_error", false, "next: inspect the tool error message and logs, then retry after fixing the reported issue", nil
 }
 
+// toolErrorClassifier 描述一条工具错误分类规则，按顺序匹配第一条命中项。
 type toolErrorClassifier struct {
 	code      string
 	retryable bool
@@ -254,6 +259,7 @@ type toolErrorClassifier struct {
 	match     func(error, string, string) bool
 }
 
+// toolErrorClassifiers 按优先级排列工具错误分类规则，具体工具错误必须先于通用错误。
 var toolErrorClassifiers = []toolErrorClassifier{
 	{
 		code: "patch_no_match",
@@ -489,14 +495,17 @@ func isLaunchRequestInvalidMessage(message string) bool {
 		strings.Contains(message, "must be project, user, or local")
 }
 
+// staticToolHint 将固定提示包装成 classifier 所需的函数签名。
 func staticToolHint(value string) func(string, string) string {
 	return func(string, string) string { return value }
 }
 
+// isTaskTool 判断工具名是否属于 task_* orchestration 工具族。
 func isTaskTool(toolName string) bool {
 	return strings.HasPrefix(strings.ToLower(strings.TrimSpace(toolName)), "task_")
 }
 
+// isLaunchAgentTool 判断工具名是否是启动 agent 的入口。
 func isLaunchAgentTool(toolName string) bool {
 	switch strings.ToLower(strings.TrimSpace(toolName)) {
 	case "launch_agent", "orchestration_launch_agent":
@@ -506,6 +515,7 @@ func isLaunchAgentTool(toolName string) bool {
 	}
 }
 
+// isEditTool 判断工具名是否是 LSP edit 或通用 edit。
 func isEditTool(toolName string) bool {
 	switch strings.ToLower(strings.TrimSpace(toolName)) {
 	case "edit", "lsp_edit":
@@ -515,14 +525,17 @@ func isEditTool(toolName string) bool {
 	}
 }
 
+// isTaskUpdateNodeTool 判断工具名是否为 task_update_node。
 func isTaskUpdateNodeTool(toolName string) bool {
 	return strings.ToLower(strings.TrimSpace(toolName)) == "task_update_node"
 }
 
+// isTaskCreateDAGTool 判断工具名是否为 task_create_dag。
 func isTaskCreateDAGTool(toolName string) bool {
 	return strings.ToLower(strings.TrimSpace(toolName)) == "task_create_dag"
 }
 
+// firstNonEmptyString 返回首个非空字符串，用于 coded error 字段兜齐。
 func firstNonEmptyString(values ...string) string {
 	for _, value := range values {
 		if strings.TrimSpace(value) != "" {
@@ -532,6 +545,7 @@ func firstNonEmptyString(values ...string) string {
 	return ""
 }
 
+// errorText 安全读取 error 文本，nil error 返回空字符串。
 func errorText(err error) string {
 	if err == nil {
 		return ""
@@ -539,6 +553,7 @@ func errorText(err error) string {
 	return err.Error()
 }
 
+// normalizeEnvelopeLanguageID 规范化 envelope 里的 language_id，便于前端分组展示。
 func normalizeEnvelopeLanguageID(languageID string) string {
 	return strings.ToLower(strings.TrimSpace(languageID))
 }

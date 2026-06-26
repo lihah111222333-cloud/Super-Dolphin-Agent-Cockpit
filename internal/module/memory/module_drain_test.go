@@ -13,12 +13,11 @@ import (
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
-// drainTestNestedRuntime satisfies nestedIngestRuntime and records every
-// AddToolReadResult call so tests can verify the worker drained pending
-// entries before exit.
+// drainTestNestedRuntime 实现 nestedIngestRuntime 并记录每次 AddToolReadResult。
+// 测试通过调用顺序确认 Stop 前排队的嵌套读取任务没有被丢弃。
 type drainTestNestedRuntime struct {
 	mu    sync.Mutex
-	calls []string // threadIDs in the order AddToolReadResult was called
+	calls []string // 按 AddToolReadResult 调用顺序记录 threadID
 }
 
 func (r *drainTestNestedRuntime) AddToolReadResult(threadID, _, _, _ string) {
@@ -33,9 +32,8 @@ func (r *drainTestNestedRuntime) callCount() int {
 	return len(r.calls)
 }
 
-// drainTestTeamLifecycle satisfies teampkg.Lifecycle for drain tests. It
-// counts StartSession/StopSession calls atomically so the test can read
-// them without racing the coordinator's dispatcher goroutine.
+// drainTestTeamLifecycle 实现 drain 测试所需的 teampkg.Lifecycle。
+// Start/Stop 计数使用 atomic，避免断言与 coordinator dispatcher goroutine 发生数据竞争。
 type drainTestTeamLifecycle struct {
 	startCalls atomic.Int64
 	stopCalls  atomic.Int64
@@ -51,35 +49,21 @@ func (n *drainTestTeamLifecycle) StopSession(_ context.Context, _ string) error 
 	return nil
 }
 
-// TestMemoryHookWorkerDrainsOnStop is the P22 P2 behavioral guard for
-// drainMemoryHooks: with all three bus-callback workers
-// (autoDreamScheduler, nestedIngestWorker, teamSyncCoordinator) started
-// and pre-loaded with pending work, drainMemoryHooks must Stop every
-// owner so their processed counters catch up to the enqueued ones
-// before it returns, and post-drain Enqueue calls must be silently
-// dropped.
-//
-// Shutdown is the only user-observable correctness boundary for these
-// workers — if one fails to drain, shutdown silently loses the work
-// that was pending. This test locks that invariant so future additions
-// to drainMemoryHooks (new worker types, reordered drains) cannot
-// regress it without failing here first.
+// TestMemoryHookWorkerDrainsOnStop 固定 drainMemoryHooks 的关闭边界。
+// 三类 bus callback worker 预先排入工作后，Stop 必须让可 drain 的 worker 处理完待办并拒绝关闭后的新入队。
+// 对用户可见的正确性边界是 shutdown；新增 worker 或调整 drain 顺序时不能静默丢掉已入队任务。
 func TestMemoryHookWorkerDrainsOnStop(t *testing.T) {
 	t.Parallel()
 
-	// autoDreamScheduler: enabled hooks + nil consolidator = fast-path
-	// that short-circuits inside autoDreamThreadEligible so process()
-	// just increments processedTotal. Mirrors the existing
-	// auto_dream_scheduler_test.go pattern.
+	// autoDreamScheduler 使用启用 hook 与 nil consolidator，走快速短路路径，只推进 processedTotal。
 	hooks := newTestHooks(withEnabled(true))
 	scheduler := newAutoDreamScheduler(hooks, pkglogger.Get())
 
-	// nestedIngestWorker: a tiny runtime that records every dispatch.
+	// nestedIngestWorker 使用记录型 runtime，便于断言所有 dispatch 都被 drain。
 	rt := &drainTestNestedRuntime{}
 	nested := newNestedIngestWorker(rt, pkglogger.Get())
 
-	// teamSyncCoordinator: noop lifecycle; store nil so
-	// StartSessionFromThreadEvent takes the ev.CWD-only branch.
+	// teamSyncCoordinator 使用空 lifecycle 和 nil store，覆盖仅依赖事件 CWD 的分支。
 	var svc teampkg.Lifecycle = &drainTestTeamLifecycle{}
 	teamSync := newTeamSyncCoordinator(svc, nil, pkglogger.Get())
 
@@ -88,39 +72,25 @@ func TestMemoryHookWorkerDrainsOnStop(t *testing.T) {
 	const enqueuePerWorker = 3
 	enqueueDrainTestWork(scheduler, nested, teamSync, enqueuePerWorker)
 
-	// autoDreamScheduler.Stop is lossy: runWorker exits on stopCh
-	// without draining the remaining channel buffer (see
-	// auto_dream_scheduler.go runWorker — no drainPending branch on
-	// stopCh). Under parallel test load the scheduler's goroutine may
-	// not have pulled all 3 enqueued thread-scheduler entries before
-	// drainMemoryHooks fires; that would race the lossy Stop and drop
-	// entries. Poll for the scheduler to catch up before calling
-	// drainMemoryHooks. nested / teamSync both drain their pending map
-	// inside Stop, so they do not need a pre-wait.
+	// autoDreamScheduler.Stop 本身不 drain channel buffer；并行测试下先按已处理数量校准期望值。
+	// 否则 drainMemoryHooks 触发 Stop 时会与未消费 buffer 竞争并丢条目。
+	// nested/teamSync 会在 Stop 内 drain pending map，不需要预等待。
 	waitSchedulerProcessed(scheduler, enqueuePerWorker)
 
-	// drainMemoryHooks is the subject under test. It must drain every
-	// worker in turn, bounded by ctx, before returning.
+	// drainMemoryHooks 是被测目标，必须在 ctx 边界内按顺序 drain 每个 worker 后再返回。
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 	drainMemoryHooks(ctx, scheduler, nested, teamSync, nil)
 
-	// After drain every worker's ProcessedTotal must reflect the
-	// pending work it observed. autoDreamScheduler dedup is per-threadID
-	// too (queue of strings; repeated identical IDs still enqueue as
-	// separate channel sends), so ProcessedTotal matches enqueue count.
+	// drain 后每个 worker 的 ProcessedTotal 都要覆盖它观察到的待办工作。
+	// autoDreamScheduler 的队列按字符串发送，重复 threadID 仍按多次入队计数。
 	assertDrainTestProcessed(t, scheduler, nested, teamSync, rt, enqueuePerWorker)
 
-	// A second Stop per owner must be a no-op (idempotent). This also
-	// confirms the workers closed doneCh — Stop observes it already
-	// closed on the repeat call and returns immediately.
+	// 每个 owner 的第二次 Stop 必须是幂等空操作，并能观察到 doneCh 已关闭后立即返回。
 	assertDrainStopsIdempotent(t, ctx, scheduler, nested, teamSync)
 
-	// Enqueue after drain must be silently dropped across every owner
-	// (the gate closed when Stop fired). This prevents a post-shutdown
-	// bus straggler from pushing work that would never be processed.
-	// autoDreamScheduler counts post-gate drops via DroppedTotal;
-	// nested / teamSync expose EnqueuedTotal directly.
+	// Stop 关闭闸门后，drain 后的 Enqueue 必须被所有 owner 丢弃。
+	// 这样 shutdown 后的 bus 尾随事件不会写入永远不会被处理的工作。
 	assertPostDrainEnqueuesDropped(t, scheduler, nested, teamSync)
 }
 
@@ -133,8 +103,7 @@ func startDrainTestWorkers(scheduler *autoDreamScheduler, nested *nestedIngestWo
 func enqueueDrainTestWork(scheduler *autoDreamScheduler, nested *nestedIngestWorker, teamSync *teamSyncCoordinator, count int) {
 	for i := 0; i < count; i++ {
 		scheduler.Enqueue("thread-scheduler")
-		// Unique persistedPath per call so nestedIngestWorker's coalesce key
-		// does not collapse the enqueues; the drain must process each entry.
+		// 每次使用不同 persistedPath，避免 nestedIngestWorker 的 coalesce key 合并入队。
 		nested.Enqueue("thread-nested", "tool", "result", "/tmp/path-"+string(rune('0'+i)))
 		teamSync.EnqueueStart(threaddto.Started{
 			ThreadID: "thread-teamsync",
@@ -166,15 +135,14 @@ func assertDrainTestProcessed(
 	if got := scheduler.ProcessedTotal(); got < int64(want) {
 		t.Errorf("autoDreamScheduler ProcessedTotal = %d, want >= %d", got, want)
 	}
-	// nestedIngestWorker's pending-set was keyed by unique persistedPaths,
-	// so all three must have been dispatched.
+	// nestedIngestWorker 的 pending set 使用唯一 persistedPath，因此三条都必须被派发。
 	if got := nested.ProcessedTotal(); got != int64(want) {
 		t.Errorf("nestedIngestWorker ProcessedTotal = %d, want %d", got, want)
 	}
 	if got := rt.callCount(); got != want {
 		t.Errorf("nestedIngestWorker AddToolReadResult calls = %d, want %d", got, want)
 	}
-	// teamSyncCoordinator is strict FIFO with no coalescing.
+	// teamSyncCoordinator 保持严格 FIFO，不做合并。
 	if got := teamSync.ProcessedTotal(); got != int64(want) {
 		t.Errorf("teamSyncCoordinator ProcessedTotal = %d, want %d", got, want)
 	}

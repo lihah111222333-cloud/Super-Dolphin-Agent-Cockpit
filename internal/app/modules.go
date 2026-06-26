@@ -47,8 +47,8 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/store/uipreference"
 )
 
-// Module wires the core app surface. It intentionally exposes the ctl control plane
-// for externally started MCP binaries, but does not launch or supervise MCP processes.
+// Module 组装桌面和后台共享的核心应用面。
+// 它只暴露给外部 MCP 进程使用的控制面，不在桌面进程内启动或监管 MCP 子进程。
 var Module = fx.Options(
 	fx.Provide(NewLogger),
 	fx.Provide(pidregistry.New),
@@ -79,8 +79,8 @@ var Module = fx.Options(
 	thread.Module,
 	turn.Module,
 	turnobservation.Module,
-	// P21 模块：P1b cron 计划任务、P2 多平台通知、P3 session insights。
-	// 三者均采用 fx optional 依赖，缺少上游依赖时自动降级为 noop，不阻塞整体装配图闭合。
+	// 定时任务、通知和洞察模块均采用 fx optional 依赖。
+	// 缺少上游依赖时保持 no-op，不阻塞桌面主体装配图闭合。
 	cron.Module,
 	notify.Module,
 	insight.Module,
@@ -90,15 +90,13 @@ var Module = fx.Options(
 	promptIntentE2EFixtureModule(),
 	// claudecli.Module,
 	codexapp.Module,
-	toolbridge.Module, // P15 新增：始终加载
+	toolbridge.Module, // 始终加载 provider 工具桥，供内置工具和 peer 调用共用。
 	toolbridgeAdaptersModule(),
 	toolbridgeCodexBindingModule(),
 	sharedFileAdapterModule(),
 
-	// orchestration is handled entirely by the standalone mcp-orch MCP server;
-	// the desktop app must NOT embed its own orchestration module, otherwise
-	// localLauncher re-spawns the desktop binary as a subprocess which exits
-	// immediately and causes agent state to go to "failed".
+	// DAG 编排由独立 mcp-orch MCP server 承担。
+	// 桌面进程不能再嵌入 orchestration module，否则本地 launcher 会把桌面二进制当子进程拉起并导致 agent 失败。
 	fx.Provide(
 		AsRPCRunner,
 		fx.Annotate(newMCPOrchDAGRuntime, fx.As(new(contract.DAGRuntime))),
@@ -109,6 +107,7 @@ var Module = fx.Options(
 	),
 )
 
+// promptIntentE2EFixtureModule 仅在显式配置 fixture path 时加载 e2e provider。
 func promptIntentE2EFixtureModule() fx.Option {
 	if strings.TrimSpace(os.Getenv(e2efixture.FixturePathEnv)) == "" {
 		return fx.Options()
@@ -119,6 +118,7 @@ func promptIntentE2EFixtureModule() fx.Option {
 	return e2efixture.Module
 }
 
+// provideNativeToolDescriptors 从 unified registry 暴露原生工具描述。
 func provideNativeToolDescriptors(registry *unified.Registry) []contract.NativeToolDescriptor {
 	if registry == nil {
 		return nil
@@ -126,8 +126,8 @@ func provideNativeToolDescriptors(registry *unified.Registry) []contract.NativeT
 	return registry.NativeTools()
 }
 
-// provideDisabledBuiltinToolsFn bridges uistate soft-filter resolution into
-// prompt.DisabledBuiltinToolsFn without creating a prompt→uistate import cycle.
+// provideDisabledBuiltinToolsFn 将 UI 偏好的内置工具软过滤接入 prompt。
+// 这里做成函数桥接，避免 prompt 包直接依赖 uistate 包形成反向导入。
 func provideDisabledBuiltinToolsFn(prefs uipreference.Store, tools []contract.NativeToolDescriptor) prompt.DisabledBuiltinToolsFn {
 	index := make(map[string]contract.NativeToolDescriptor, len(tools))
 	for _, t := range tools {
@@ -138,14 +138,13 @@ func provideDisabledBuiltinToolsFn(prefs uipreference.Store, tools []contract.Na
 	}
 }
 
-// AsRPCRunner 把应用装配处理为RPCrunner。
+// AsRPCRunner 将 RPC server 注册为 platform runner。
 func AsRPCRunner(server *rpc.Server) RunnerResult {
 	return RunnerResult{Runner: server}
 }
 
-// initProviderHooks wires module-layer functions into provider/shared hooks
-// so the provider layer can use CaptureToolResult, ResetToolResultScope, and
-// TrimInjectedSkillBlocks without importing module packages directly.
+// initProviderHooks 把 module 层能力接入 provider/shared 钩子。
+// provider 层通过这些钩子使用工具结果捕获和技能块裁剪，避免直接导入 module 包。
 func initProviderHooks() {
 	providershared.SetCaptureToolResultHook(func(meta providershared.ToolResultMeta, raw string) providershared.ToolResultRecord {
 		result := turn.CaptureToolResult(turn.ToolResultMeta{

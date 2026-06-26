@@ -17,9 +17,10 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 )
 
+// ErrRunNotFound 表示按 run_key 读取运行记录失败。
 var ErrRunNotFound = errors.New("orchestration: run_key not found")
 
-// GetRun 读取运行记录。
+// GetRun 按 run_key 读取运行记录和对应 runtime nodes。
 func (s *service) GetRun(ctx context.Context, req contract.GetRunRequest) (contract.GetRunResponse, error) {
 	if s == nil || s.runStore == nil {
 		return contract.GetRunResponse{}, ErrRunStoreUnset
@@ -38,7 +39,7 @@ func (s *service) GetRun(ctx context.Context, req contract.GetRunRequest) (contr
 	return getRunResponse(ctx, s.runStore, runKey, run)
 }
 
-// ListRuns 列出运行记录。
+// ListRuns 按 dag_key 和可选 status 列出运行记录。
 func (s *service) ListRuns(ctx context.Context, req contract.ListRunsRequest) (contract.ListRunsResponse, error) {
 	if s == nil || s.runStore == nil {
 		return contract.ListRunsResponse{}, ErrRunStoreUnset
@@ -55,7 +56,7 @@ func (s *service) ListRuns(ctx context.Context, req contract.ListRunsRequest) (c
 	return contract.ListRunsResponse{Runs: mapRuns(rows)}, nil
 }
 
-// TerminateDAG 处理terminateDAG。
+// TerminateDAG 终止一次运行中的 DAG run，并停止该 run 拉起的子 agent。
 func (s *service) TerminateDAG(ctx context.Context, req TerminateDAGRequest) error {
 	dagKey, runKey, run, err := s.terminableRun(ctx, req)
 	if err != nil || run == nil {
@@ -75,7 +76,8 @@ func (s *service) TerminateDAG(ctx context.Context, req TerminateDAGRequest) err
 	return s.stopSpawnedAgentThreads(ctx, dagKey, run.ID, result.SpawnedThreadIDs)
 }
 
-// terminableRun 处理terminable运行记录。
+// terminableRun 校验终止请求并返回可终止的 run。
+// 非 running/cancelled 的 run 视为无需终止，调用方会直接返回 nil。
 func (s *service) terminableRun(ctx context.Context, req TerminateDAGRequest) (string, string, *taskdag.Run, error) {
 	dagKey, runKey := strings.TrimSpace(req.DagKey), strings.TrimSpace(req.RunKey)
 	if s == nil || s.runStore == nil {
@@ -108,7 +110,7 @@ func (s *service) terminableRun(ctx context.Context, req TerminateDAGRequest) (s
 	}
 }
 
-// stopSpawnedAgentThreads 停止spawned代理线程。
+// stopSpawnedAgentThreads 停止 DAG run 启动过的子 agent 线程，并合并失败。
 func (s *service) stopSpawnedAgentThreads(ctx context.Context, dagKey string, runID int64, threadIDs []string) error {
 	var stopErrs []error
 	for _, threadID := range threadIDs {
@@ -126,10 +128,12 @@ func (s *service) stopSpawnedAgentThreads(ctx context.Context, dagKey string, ru
 	return nil
 }
 
+// terminateStopResultError 判断 StopSpawnedAgent 的结果是否需要作为终止错误返回。
 func terminateStopResultError(result StopResult, err error) bool {
 	return err != nil || (result != "" && result != StopResultSuccess && result != StopResultSkippedAlreadyStopped && result != StopResultSkippedAlreadyArchived)
 }
 
+// mapRuns 将存储层 run 列表映射为 contract DTO。
 func mapRuns(items []taskdag.Run) []contract.Run {
 	mapped := make([]contract.Run, 0, len(items))
 	for _, item := range items {
@@ -138,6 +142,7 @@ func mapRuns(items []taskdag.Run) []contract.Run {
 	return mapped
 }
 
+// dagRunDTO 将 taskdag.Run 转为 contract.Run，并复制可变 JSON/指针字段。
 func dagRunDTO(row taskdag.Run) contract.Run {
 	out := contract.Run{ID: row.ID, RunKey: row.RunKey, DagKey: row.DagKey, DagVersionSnapshot: row.DagVersionSnapshot, TriggerSource: row.TriggerSource, Status: row.Status, StartedAt: row.StartedAt, BudgetUsed: row.BudgetUsed, CreatedAt: row.CreatedAt, UpdatedAt: row.UpdatedAt}
 	out.FinishedAt, out.BudgetLimit = shared.CloneTime(row.FinishedAt), shared.CloneInt64(row.BudgetLimit)
@@ -145,6 +150,7 @@ func dagRunDTO(row taskdag.Run) contract.Run {
 	return out
 }
 
+// partitionedOps 按 op_kind 拆分 ApplyOps 请求，便于分别 plan 和 persist。
 type partitionedOps struct {
 	dagUpdates nodeexec.Ops
 	adds       nodeexec.Ops
@@ -152,11 +158,11 @@ type partitionedOps struct {
 	removes    nodeexec.Ops
 }
 
+// ErrDuplicateOpForNode 表示同一批 ops 里多个节点级 op 命中同一 node_key。
 var ErrDuplicateOpForNode = errors.New("orchestration: duplicate op for same node_key in batch")
 
-// 同批 dedup（R2 P1）：同一个 node_key 不允许被多条 node-scoped op 同时命中，
-// 护住「后写覆盖/先改再删/先加再删」这类语义歧义。重复命中 → fail-fast 包
-// ErrDuplicateOpForNode / ErrApplyOpsInvalid。
+// partitionOps 同批去重节点级操作。
+// 同一个 node_key 不允许被多条 node-scoped op 命中，避免后写覆盖、先改再删、先加再删这类语义歧义。
 func partitionOps(ops nodeexec.Ops) (partitionedOps, error) {
 	var p partitionedOps
 	seenNodeOps := make(map[string]seenNodeOp) // normalized node_key -> first op
@@ -171,7 +177,7 @@ func partitionOps(ops nodeexec.Ops) (partitionedOps, error) {
 	return p, nil
 }
 
-// appendPartitionedOp 追加partitionedop。
+// appendPartitionedOp 将单条 typed op 放入对应分区，并检查同节点重复操作。
 func appendPartitionedOp(p *partitionedOps, seenNodeOps map[string]seenNodeOp, index int, op nodeexec.Op) error {
 	switch v := op.(type) {
 	case nodeexec.OpUpdateDAG:
@@ -200,11 +206,13 @@ func appendPartitionedOp(p *partitionedOps, seenNodeOps map[string]seenNodeOp, i
 	return nil
 }
 
+// seenNodeOp 记录某个 node_key 首次出现的 op 信息，用于重复操作报错。
 type seenNodeOp struct {
 	index int
 	kind  nodeexec.OpKind
 }
 
+// rememberNodeOp 记录节点级 op 的目标 node_key，重复命中时返回 fail-fast 错误。
 func rememberNodeOp(seen map[string]seenNodeOp, nodeKey string, index int, kind nodeexec.OpKind) error {
 	key := strings.TrimSpace(nodeKey)
 	if key == "" {
@@ -218,9 +226,7 @@ func rememberNodeOp(seen map[string]seenNodeOp, nodeKey string, index int, kind 
 	return nil
 }
 
-// runOpsBatch executes partitioned ApplyOps in one transaction with OCC and
-// running-DAG mutation guards before planning, persisting, and bumping version.
-// runOpsBatch 运行opsbatch。
+// runOpsBatch 在同一事务中执行 ApplyOps 的前置校验、规划、持久化和版本 bump。
 func runOpsBatch(ctx context.Context, tx taskdag.DAGOpsStore, dagKey string, baseVersion int64, parts partitionedOps) (contract.ApplyOpsResponse, error) {
 	current, existing, schedule, err := preflightOpsBatch(ctx, tx, dagKey, baseVersion, parts)
 	if err != nil {
@@ -243,8 +249,8 @@ func runOpsBatch(ctx context.Context, tx taskdag.DAGOpsStore, dagKey string, bas
 	return contract.ApplyOpsResponse{NewVersion: newVersion}, nil
 }
 
-// preflightOpsBatch 跑 runOpsBatch 的前置检查：上锁 + OCC 同庄判定 + DAG 状态读 +
-// F4.5 不变量。作为 runOpsBatch 的助手拆出避免父函数超过 cyclomatic complexity 上限。
+// preflightOpsBatch 执行 runOpsBatch 的事务前置检查。
+// 它负责持锁读取版本、校验 OCC、读取 DAG 状态，并阻断运行中 DAG 的节点结构变更。
 func preflightOpsBatch(ctx context.Context, tx taskdag.DAGOpsStore, dagKey string, baseVersion int64, parts partitionedOps) (int64, []taskdag.Node, taskdag.DAGSchedule, error) {
 	current, err := tx.GetDAGVersionForUpdate(ctx, dagKey)
 	if err != nil {
@@ -281,6 +287,7 @@ func preflightOpsBatch(ctx context.Context, tx taskdag.DAGOpsStore, dagKey strin
 	return current, existing, schedule, nil
 }
 
+// dagScheduleForOps 只在 update_dag 存在时读取当前调度字段，减少无关 store 访问。
 func dagScheduleForOps(ctx context.Context, tx taskdag.DAGOpsStore, dagKey string, parts partitionedOps) (taskdag.DAGSchedule, error) {
 	if len(parts.dagUpdates) == 0 {
 		return taskdag.DAGSchedule{}, nil
@@ -304,11 +311,9 @@ func bumpDAGVersionTx(ctx context.Context, tx taskdag.DAGOpsStore, dagKey string
 	return newVersion, nil
 }
 
-// enforceRunningDAGInvariants 是 F4.5 主体：在 DAG 状态为 running 或存在
-// running run 时拒绝会改写节点结构的 ApplyOps。runtime append 尚未闭环前，
-// running add_node 只写模板节点会让当前 run 看不到/调度不到新节点，因此必须
-// fail-fast。update_dag 只改未来调度 / 展示元数据，当前 run 已持有 version
-// snapshot，不需要阻断。
+// enforceRunningDAGInvariants 在 DAG 运行中或存在 active run 时拒绝节点结构变更。
+// add/update/remove 只写模板节点，当前 run 的 runtime snapshot 看不到这些变更，因此必须 fail-fast。
+// update_dag 只影响未来调度或展示元数据，当前 run 已持有版本快照，不需要阻断。
 //
 // 设计取舍：
 //   - add_node / update_node / remove_node 在 draft 下合法，但 running 下必须显式拒绝。
@@ -330,6 +335,7 @@ func rejectTerminalDAGOps(dagStatus string) error {
 	}
 }
 
+// runningDAGReason 返回 DAG 当前是否有运行态，以及对应的人类可读原因。
 func runningDAGReason(dagStatus string, activeRuns int64) (string, bool) {
 	if dagStatus == "running" {
 		return "dag is running", true
@@ -340,6 +346,7 @@ func runningDAGReason(dagStatus string, activeRuns int64) (string, bool) {
 	return "", false
 }
 
+// rejectNodeOpsInRunningDAG 拒绝 running DAG 上会改变节点结构的操作。
 func rejectNodeOpsInRunningDAG(reason string, parts partitionedOps) error {
 	for _, item := range []struct {
 		name string
@@ -426,7 +433,8 @@ func normalizeDAGPatch(patch nodeexec.DAGPatch) nodeexec.DAGPatch {
 	return nodeexec.DAGPatch{Title: trimStringPtr(patch.Title), Description: trimStringPtr(patch.Description), Trigger: trimStringPtr(patch.Trigger), CronExpr: trimStringPtr(patch.CronExpr), OwnerID: trimStringPtr(patch.OwnerID), ScheduleEnabled: patch.ScheduleEnabled}
 }
 
-// validateDAGPatch 校验DAG补丁。
+// validateDAGPatch 校验 update_dag patch 并计算最终调度状态。
+// trigger、cron_expr 和 schedule_enabled 会合并当前存储值一起检查，避免单字段更新留下非法组合。
 func validateDAGPatch(patch nodeexec.DAGPatch, current taskdag.DAGSchedule) (taskdag.DAGSchedule, error) {
 	if isEmptyDAGPatch(patch) {
 		return taskdag.DAGSchedule{}, fmt.Errorf("%w: update_dag patch must set at least one field", ErrApplyOpsInvalid)
@@ -460,7 +468,8 @@ func finalDAGSchedule(current taskdag.DAGSchedule, patch nodeexec.DAGPatch) task
 	return schedule
 }
 
-// validateDAGPatchFinalSchedule 校验DAG补丁final计划。
+// validateDAGPatchFinalSchedule 校验 update_dag 后的最终调度组合。
+// scheduled 必须有 cron_expr，非 scheduled 不允许残留 cron_expr，保证持久化状态可被 cron 扫描器直接消费。
 func validateDAGPatchFinalSchedule(patch nodeexec.DAGPatch, final taskdag.DAGSchedule) error {
 	if patch.Trigger == nil && patch.CronExpr == nil && patch.ScheduleEnabled == nil {
 		return nil
@@ -480,7 +489,8 @@ func validateDAGPatchFinalSchedule(patch nodeexec.DAGPatch, final taskdag.DAGSch
 	return nil
 }
 
-// isEmptyDAGPatch 判断emptyDAG补丁是否可用。
+// isEmptyDAGPatch 判断 update_dag 是否没有携带任何可变字段。
+// 空 patch 没有业务效果，必须在进入持久化前 fail-fast。
 func isEmptyDAGPatch(patch nodeexec.DAGPatch) bool {
 	return patch.Title == nil && patch.Description == nil && patch.Trigger == nil && patch.CronExpr == nil && patch.OwnerID == nil && patch.ScheduleEnabled == nil
 }
@@ -507,9 +517,8 @@ func existingNodesForPlan(nodes []taskdag.Node) []nodeexec.ExistingNode {
 	return out
 }
 
-// existingFullForPlan 把 taskdag.Node + add 后的 spec 列表合并成
-// PlanUpdateNodes 需要的 ExistingNodeFull 切片。add 节点 status 默认 pending
-// （migration 0072 task_dag_nodes.status default = 'pending'）。
+// existingFullForPlan 把 taskdag.Node 与新增 NodeSpec 合并为 PlanUpdateNodes 所需投影。
+// 新增节点在模板层默认 pending，保证后续 update/remove plan 能看到同批 add 的节点。
 func existingFullForPlan(nodes []taskdag.Node, addSpecs []nodeexec.NodeSpec) []nodeexec.ExistingNodeFull {
 	out := make([]nodeexec.ExistingNodeFull, 0, len(nodes)+len(addSpecs))
 	for _, n := range nodes {
@@ -579,7 +588,8 @@ func dagPatchInput(dagKey string, planned plannedDAGPatch) taskdag.UpdateDAGPatc
 	}
 }
 
-// nextRunAtForFinalSchedule 为final计划处理next运行记录at。
+// nextRunAtForFinalSchedule 根据最终调度组合计算下一次 next_run_at。
+// 未触碰调度字段、关闭调度或非 scheduled 时返回 nil，避免无关 update_dag 意外推进计划时间。
 func nextRunAtForFinalSchedule(patch nodeexec.DAGPatch, schedule taskdag.DAGSchedule) *time.Time {
 	if patch.Trigger == nil && patch.CronExpr == nil && patch.ScheduleEnabled == nil {
 		return nil

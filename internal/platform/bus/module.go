@@ -21,7 +21,7 @@ var Module = fx.Module(
 	fx.Invoke(registerLifecycle),
 )
 
-// SubscriberResult is the fx-compatible output wrapper for a SubscriberSpec.
+// SubscriberResult 将单个 SubscriberSpec 输出到 fx group，供 SubscriberGroup 统一启动和取消。
 type SubscriberResult struct {
 	fx.Out
 
@@ -51,7 +51,8 @@ func provideLogSink(p logSinkParams) *LogSink {
 	})
 }
 
-// NewSubscriberGroup 创建订阅器group。
+// NewSubscriberGroup 收集 fx group 中的订阅声明，并复制一份供生命周期启动使用。
+// intake 初始为 true，OnStop 会先关闭 intake 再取消订阅，避免停止阶段接入新回调。
 func NewSubscriberGroup(in subscriberGroupIn) *SubscriberGroup {
 	return &SubscriberGroup{dispatcher: in.Dispatcher, specs: append([]SubscriberSpec(nil), in.Specs...), intake: true}
 }

@@ -19,7 +19,8 @@ var ErrInvalidSkillName = errors.New("invalid skill name")
 //go:embed all:embedded_skills
 var builtInSkillFS embed.FS
 
-// validateSkillName keeps runtime skill identifiers strict.
+// validateSkillName 校验运行时 skill 名称。
+// 这里只接受 identity 包认可的稳定名称，失败时统一返回 ErrInvalidSkillName 供 RPC 映射。
 func validateSkillName(name string) (string, error) {
 	if normalized, ok := skillidentity.ValidateName(name); ok {
 		return normalized, nil
@@ -35,19 +36,14 @@ func normalizeSkillIdentityName(name, displayName string) (string, string, error
 	return normalizedName, normalizedDisplay, nil
 }
 
-// ============================================================================
-// P20.1 §3.2 审批粒度升级：artifact-level identity helpers
-// ============================================================================
-
-// ArtifactKind constants — aliases for the canonical contract values.
+// Skill artifact 审批粒度常量，直接复用 contract 层的 wire 值。
 const (
 	ArtifactKindMetadata = contract.ArtifactKindMetadata
 	ArtifactKindBody     = contract.ArtifactKindBody
 	ArtifactKindResource = contract.ArtifactKindResource
 )
 
-// IsValidArtifactKind delegates to contract.IsValidArtifactKind.
-// IsValidArtifactKind 判断valid产物kind是否可用。
+// IsValidArtifactKind 校验 artifact kind 是否是跨模块约定的审批粒度。
 func IsValidArtifactKind(kind string) bool { return contract.IsValidArtifactKind(kind) }
 
 // RepoFingerprint 生成项目根目录的稳定 128-bit 指纹，作为审批缓存 key 的第一维数据。
@@ -55,7 +51,8 @@ func RepoFingerprint(projectRoot string) string {
 	return repofingerprint.MustCompute(projectRoot)
 }
 
-// NormalizeArtifactLocator 规范化产物locator。
+// NormalizeArtifactLocator 按 artifact kind 规范化审批定位符。
+// metadata 必须为空，body 只允许 SKILL.md 及其锚点，resource 必须是 skill 目录内相对路径。
 func NormalizeArtifactLocator(kind, locator string) (string, error) {
 	if !IsValidArtifactKind(kind) {
 		return "", fmt.Errorf("invalid artifact kind: %q", kind)
@@ -80,7 +77,8 @@ func normalizeMetadataLocator(trimmed string) (string, error) {
 	return "", nil
 }
 
-// normalizeBodyLocator 规范化正文locator。
+// normalizeBodyLocator 规范化正文审批定位符。
+// 空值等价于 SKILL.md；锚点不能包含路径分隔符，避免伪装成资源路径。
 func normalizeBodyLocator(trimmed string) (string, error) {
 	if trimmed == "" {
 		return "SKILL.md", nil
@@ -106,7 +104,8 @@ func normalizeBodyLocator(trimmed string) (string, error) {
 	return base + "#" + anchor, nil
 }
 
-// normalizeResourceLocator 规范化resourcelocator。
+// normalizeResourceLocator 规范化资源审批定位符。
+// 资源路径必须留在 skill 目录内，任何绝对路径、空路径或目录逃逸都 fail-fast。
 func normalizeResourceLocator(trimmed string) (string, error) {
 	if trimmed == "" {
 		return "", errors.New("resource locator cannot be empty")
@@ -124,7 +123,7 @@ func normalizeResourceLocator(trimmed string) (string, error) {
 	return cleaned, nil
 }
 
-// TrustScope is a type alias for contract.TrustScope.
+// TrustScope 是 contract.TrustScope 的别名，保持 skill 前端 DTO 的 wire 类型不变。
 type TrustScope = contract.TrustScope
 
 const (
@@ -134,7 +133,8 @@ const (
 	TrustSigned  = contract.TrustSigned
 )
 
-// parseTrustScope parses frontmatter string to TrustScope.
+// parseTrustScope 将 frontmatter 中的 trust 字符串解析为 TrustScope。
+// 未知值返回 TrustUnknown，由后续根目录推断逻辑决定最终信任域。
 func parseTrustScope(raw string) TrustScope {
 	switch strings.ToLower(strings.TrimSpace(raw)) {
 	case "user", "trusted":
@@ -148,8 +148,8 @@ func parseTrustScope(raw string) TrustScope {
 	}
 }
 
-// inferTrustFromRoot infers trust scope from skill root directory.
-// inferTrustFromRoot 从根目录处理infertrust。
+// inferTrustFromRoot 根据 skill 所在根目录推断信任域。
+// projectRoot 命中时视为项目技能，userRoot 命中时视为用户技能，无法识别时按项目技能处理。
 func inferTrustFromRoot(dir, projectRoot, userRoot string) TrustScope {
 	dir = normalizeTrustRoot(dir)
 	if dir == "" {

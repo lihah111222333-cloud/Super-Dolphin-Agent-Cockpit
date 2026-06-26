@@ -7,15 +7,10 @@ import (
 	"testing"
 )
 
-// TestMultiLSPTransportCompatFreeze enforces P22 P4 §309-311: the multilsp
-// transport's server-request compatibility contract must live in a
-// single authoritative file (cmd/mcp-lsp/multilsp/transport_compat.go),
-// not inlined inside transport.go or elsewhere under cmd/mcp-lsp/multilsp.
+// TestMultiLSPTransportCompatFreeze 固定 multilsp server-request 兼容表的唯一来源。
+// 所有冻结的方法字面量必须集中在 transport_compat.go，不能散落到 transport.go 或其他实现文件。
 //
-// The guard pins every frozen method literal in the compat contract
-// to the producer file. Any future entry must land in
-// transport_compat.go so code review and downstream consumers see the
-// contract change as a single-file diff.
+// 该守卫让后续兼容项新增集中成单文件 diff，便于代码审查和下游适配方确认协议变化。
 func TestMultiLSPTransportCompatFreeze(t *testing.T) {
 	const (
 		dir      = "../../cmd/mcp-lsp/multilsp"
@@ -64,7 +59,7 @@ func assertFrozenCompatLiteralsOutsideProducer(t *testing.T, dir, producer strin
 		text := string(data)
 		for _, tok := range frozen {
 			if strings.Contains(text, tok) {
-				t.Errorf("%s: frozen LSP compat literal %s appears outside %s (P22 P4 §309-311: register the method + response shape in %s instead of inlining)", path, tok, producer, producer)
+				t.Errorf("%s: frozen LSP compat literal %s appears outside %s (register the method + response shape in %s instead of inlining)", path, tok, producer, producer)
 			}
 		}
 	}

@@ -54,10 +54,10 @@ type session struct {
 	rolloutToolOrder     []string
 	processedApprovals   map[string]*processedApprovalEntry
 	runtimeConfig        map[string]any
-	// turnOutputAccumulator buffers per-turn output; key = provider turn UUID.
+	// turnOutputAccumulator 按 provider turn UUID 暂存流式输出，供完成事件合并后再分发。
 	turnOutputAccumulator map[string]*turnOutputBuffer
 	accumulatorMu         sync.Mutex
-	// poolRelease releases a P21 multi-provider Codex pool slot; nil outside pool mode.
+	// poolRelease 释放当前 session 持有的池槽位；非池模式为空，Close 路径必须只调用一次。
 	poolRelease            func()
 	poolReleaseOnce        sync.Once
 	prepareTools           func(context.Context, contract.CodexToolSurfaceScope) ([]codexprotocol.DynamicToolSchema, error)
@@ -66,7 +66,7 @@ type session struct {
 	dynamicToolsEnabled    bool
 	toolSurfaceReleaseOnce sync.Once
 	toolSurfaceID          atomic.Value
-	// runtime owns the session-private reader / health / recovery goroutines.
+	// runtime 持有当前会话私有的读取、健康检查和恢复 goroutine。
 	runtime *SessionRuntime
 }
 
@@ -104,6 +104,8 @@ func newSession(
 	)
 }
 
+// newSessionWithOptions 创建 Codex app 会话并完成 transport、历史读取器和运行时句柄组装。
+// 如果 transport 启动失败，会立即释放已占用的池槽位，避免 ServerPool 的引用计数滞留。
 func newSessionWithOptions(
 	transportCtx context.Context,
 	logger *slog.Logger,
@@ -127,13 +129,11 @@ func newSessionWithOptions(
 	}
 	t, err := newTransport(transportCtx, url)
 	if err != nil {
-		// On spawn failure we must still release the pool slot we
-		// reserved so the next Acquire sees accurate refCount.
+		// transport 启动失败时也要释放预占的池槽位，确保下一次 Acquire 看到准确引用计数。
 		releaseSessionPoolSlot(cfg)
 		return nil, err
 	}
-	// P22 P1c: session ctx derives from transportCtx so shutdown of the
-	// transport (or the caller's scope) cascades into session.Close path.
+	// session ctx 从 transportCtx 派生，调用方取消 transport 上下文时会级联触发会话关闭。
 	ctx, cancel := context.WithCancel(transportCtx)
 	agentLog := pkglogger.NewAgentLogger(agentID)
 	s := &session{
@@ -156,12 +156,13 @@ func newSessionWithOptions(
 	}
 	s.poolRelease = cfg.poolRelease
 	s.noteReadActivity()
-	// P1c: newSession only builds the runtime handle. Start() is an explicit
-	// production call site inside driver.StartSession / driver.ResumeSession.
+	// newSession 只组装运行时句柄；真正启动由 driver.StartSession/ResumeSession 显式触发。
 	s.runtime = newSessionRuntime(s, agentLog)
 	return s, nil
 }
 
+// resolveSessionTransportURL 选择会话要连接的 Codex app-server 地址。
+// 池模式优先使用已分配 URL；非池模式在缺少显式地址时要求 ServerManager 启动本地服务。
 func resolveSessionTransportURL(
 	ctx context.Context,
 	serverURL string,
@@ -203,6 +204,8 @@ func withPoolServer(url string, release func()) sessionOption {
 	}
 }
 
+// onInboundMessage 分发 Codex app 主动发来的请求或通知。
+// 带 ID 的工具调用会进入异步工具桥，未知请求必须明确返回错误，避免 provider 侧等待悬空。
 func (s *session) onInboundMessage(ctx context.Context, resp Responder, msg RawMessage) {
 	s.noteReadActivity()
 	if toolHandler := s.manager.getToolHandler(); len(msg.ID) != 0 && toolHandler != nil && isToolCallMethod(msg.Method) {
@@ -270,6 +273,8 @@ func isToolCallMethod(method string) bool {
 	}
 	return false
 }
+
+// Capabilities 返回会话能力集副本，避免调用方修改共享模板。
 func (s *session) Capabilities() dto.CapabilitySet { return cloneCaps(s.caps) }
 
 func (s *session) setRuntimeConfig(cfg map[string]any) {
@@ -278,6 +283,8 @@ func (s *session) setRuntimeConfig(cfg map[string]any) {
 	s.runtimeConfig = shared.CloneRuntimeConfigMap(cfg)
 }
 
+// RuntimeConfigSnapshot 返回线程配置快照并统一历史字段别名。
+// 返回值始终是克隆后的 map，调用方可以安全补字段而不会改写会话内状态。
 func (s *session) RuntimeConfigSnapshot() map[string]any {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -306,6 +313,8 @@ func (s *session) RuntimeConfigSnapshot() map[string]any {
 	return out
 }
 
+// StartTurn 启动 provider turn，并记录本地 turn handle、trace 和可重放状态。
+// 动态工具和模型解析必须在远端调用前完成，失败时不会登记 active turn。
 func (s *session) StartTurn(ctx context.Context, req dto.TurnRequest) (contract.TurnHandle, error) {
 	threadID, err := requireThreadID(s, req.ThreadID)
 	if err != nil {
@@ -318,8 +327,8 @@ func (s *session) StartTurn(ctx context.Context, req dto.TurnRequest) (contract.
 	if params.DynamicTools, err = s.prepareTurnDynamicTools(ctx, req); err != nil {
 		return nil, err
 	}
-	// Fill model/effort from session runtimeConfig if not set by turn request.
-	// thread/config/set stores these in runtimeConfig; they take effect on the next turn.
+	// turn 请求未显式设置 model/effort 时，从会话 runtimeConfig 补齐。
+	// thread/config/set 写入的值会在下一次 turn/start 生效。
 	if params.Model == "" {
 		params.Model = s.runtimeConfigString("model")
 	}
@@ -367,6 +376,8 @@ func (s *session) contextWithTurnTrace(ctx context.Context, providerTurnID strin
 	return observability.ContextWithTrace(ctx, h.trace)
 }
 
+// resolveTurnStartModel 在 model/list 可用时把默认模型解析成 provider 当前支持的具体模型。
+// 解析失败只记录告警并沿用原值，避免一次模型列表异常阻断用户显式 turn/start。
 func (s *session) resolveTurnStartModel(ctx context.Context, requested string) string {
 	requested = strings.TrimSpace(requested)
 	if s == nil || s.transport == nil {
@@ -395,6 +406,8 @@ func (s *session) resolveTurnStartModel(ctx context.Context, requested string) s
 	return model
 }
 
+// Steer 向当前线程的指定 turn 发送 steering 输入。
+// ExpectedTurnID 是调用方的并发保护，缺失时立即失败，避免把指令投递到未知 turn。
 func (s *session) Steer(ctx context.Context, req dto.SteerRequest) error {
 	threadID, err := requireThreadID(s, req.ThreadID)
 	if err != nil {
@@ -408,6 +421,8 @@ func (s *session) Steer(ctx context.Context, req dto.SteerRequest) error {
 	return err
 }
 
+// Interrupt 中断指定 turn；请求未带 turnID 时使用会话记录的 active turn。
+// 如果两者都为空会立即报错，防止向 provider 发送无目标的 interrupt。
 func (s *session) Interrupt(ctx context.Context, req dto.InterruptRequest) error {
 	threadID, err := requireThreadID(s, req.ThreadID)
 	if err != nil {
@@ -424,6 +439,8 @@ func (s *session) Interrupt(ctx context.Context, req dto.InterruptRequest) error
 	return err
 }
 
+// ForceComplete 强制完成当前或指定 provider turn，并在远端确认后关闭本地 turn handle。
+// 找不到目标 turn 时按幂等语义直接返回，避免重复 completion 触发错误。
 func (s *session) ForceComplete(ctx context.Context, req dto.ForceCompleteRequest) error {
 	threadID, err := requireThreadID(s, req.ThreadID)
 	if err != nil {
@@ -440,6 +457,8 @@ func (s *session) ForceComplete(ctx context.Context, req dto.ForceCompleteReques
 	return nil
 }
 
+// callForceComplete 调用 provider 的 turn/forceComplete，并兼容旧版不接受 turnId 的 payload。
+// 只有明确属于 turnId 字段校验失败时才回退，其他远端错误必须原样返回。
 func (s *session) callForceComplete(ctx context.Context, threadID, turnID string) error {
 	_, err := callWithTimeout(ctx, callTargetFunc(s.callTransport), 10*time.Second, "turn/forceComplete", forceCompleteParams(threadID, turnID, true))
 	if err == nil {
@@ -466,6 +485,8 @@ func forceCompleteParams(threadID, turnID string, includeTurnID bool) map[string
 	return params
 }
 
+// forceCompleteTurnIDFallbackEligible 判断错误是否适合走旧版 forceComplete payload。
+// 只匹配远端 schema/字段拒绝类错误，避免隐藏真实的执行失败或网络异常。
 func forceCompleteTurnIDFallbackEligible(err error) bool {
 	if err == nil {
 		return false
@@ -485,6 +506,8 @@ func forceCompleteTurnIDFallbackEligible(err error) bool {
 	return false
 }
 
+// ListThreads 从 provider 读取线程列表，并兼容新旧两种返回形态。
+// 结构化 ThreadRef 优先；旧版只返回字符串 ID 时会转换为最小 ThreadRef。
 func (s *session) ListThreads(ctx context.Context) ([]dto.ThreadRef, error) {
 	raw, err := callWithTimeout(ctx, callTargetFunc(s.callTransport), 10*time.Second, "thread/list", map[string]any{})
 	if err != nil {
@@ -509,6 +532,8 @@ func (s *session) ListThreads(ctx context.Context) ([]dto.ThreadRef, error) {
 	return threads, nil
 }
 
+// ForkThread 请求 provider 复制当前线程，并只把新线程 ID 暴露给上层契约。
+// requireThreadID 在远端调用前阻断空线程，避免创建来源不明的 fork。
 func (s *session) ForkThread(ctx context.Context, req dto.ForkRequest) (dto.ForkResult, error) {
 	threadID, err := requireThreadID(s, req.ThreadID)
 	if err != nil {
@@ -525,6 +550,8 @@ func (s *session) ForkThread(ctx context.Context, req dto.ForkRequest) (dto.Fork
 	return dto.ForkResult{NewThreadID: id}, nil
 }
 
+// Configure 将线程配置 patch 委托给 Codex 专用配置流程。
+// 该入口保留 contract.Session 形状，实际校验和持久化边界由 configureThread 负责。
 func (s *session) Configure(ctx context.Context, patch dto.ThreadConfigPatch) error {
 	return s.configureThread(ctx, patch)
 }

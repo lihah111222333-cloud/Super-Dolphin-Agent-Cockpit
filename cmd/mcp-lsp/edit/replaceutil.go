@@ -15,6 +15,8 @@ const (
 	ReplaceRangeMaxContextLines     = 5
 )
 
+// contentIndex 保存文本行内容与字节偏移索引。
+// replace_range 匹配器用它在 LSP 行号、byte offset 和展示窗口之间稳定转换。
 type contentIndex struct {
 	raw   string
 	lines []string
@@ -22,7 +24,8 @@ type contentIndex struct {
 	end   []int
 }
 
-// GuardContentAndReplacement 检查内容替换内容。
+// GuardContentAndReplacement 限制目标内容和替换内容的体积上限。
+// 超限直接返回错误，避免编辑工具在大文件或大替换块上隐式降级。
 func GuardContentAndReplacement(content string, replacement string) error {
 	if len(content) > ReplaceRangeMaxContentBytes {
 		return fmt.Errorf("%w: content exceeds %d bytes", ErrInvalidPatch, ReplaceRangeMaxContentBytes)
@@ -33,15 +36,14 @@ func GuardContentAndReplacement(content string, replacement string) error {
 	return nil
 }
 
-// ShouldForceBypass reports whether callers should enable the internal
-// large-content bypass path for replace_range follow-up operations.
-// ShouldForceBypass 判断强制绕过是否可用。
+// ShouldForceBypass 按内容长度决定是否进入大内容旁路路径。
+// 该判断只看内容长度，调用方仍需继续执行 GuardContentAndReplacement。
 func ShouldForceBypass(contentLen int) bool {
 	return contentLen > ReplaceRangeForceBypassMaxBytes
 }
 
-// OffsetToLine converts a byte offset into a 1-based LSP line number.
-// OffsetToLine 把偏移量处理为行。
+// OffsetToLine 将字节偏移转换成 1-based 展示行号。
+// 偏移越界会返回错误，避免工具层展示错误落点。
 func OffsetToLine(content string, offset int) (int, error) {
 	index, err := indexContent(content)
 	if err != nil {
@@ -50,8 +52,8 @@ func OffsetToLine(content string, offset int) (int, error) {
 	return index.lineForOffset(offset)
 }
 
-// BuildEditContext renders the surrounding lines and the old/new change block, and returns the affected window bounds.
-// BuildEditContext 构建编辑上下文。
+// BuildEditContext 渲染替换前后的上下文窗口。
+// 返回的窗口边界用于工具回显和歧义诊断，输入 offset 必须先通过边界校验。
 func BuildEditContext(content string, startOffset int, endOffset int, replacement string) (string, int, int, error) {
 	if err := GuardContentAndReplacement(content, replacement); err != nil {
 		return "", 0, 0, err
@@ -115,7 +117,8 @@ func editContextDisplayWindowEnd(windowEnd int, startOffset int, endOffset int, 
 	return windowEnd
 }
 
-// indexContent 建立索引内容。
+// indexContent 建立行文本与字节偏移索引。
+// 这里保留原始内容用于后续 offset 校验，同时把 CRLF 规整到展示行。
 func indexContent(content string) (contentIndex, error) {
 	if err := GuardContentAndReplacement(content, ""); err != nil {
 		return contentIndex{}, err

@@ -14,11 +14,8 @@ import (
 	jrpcserver "github.com/creachadair/jrpc2/server"
 )
 
-// TestSubscribeHooks_PersistsDesiredStateOnLiveCallFailure asserts
-// P22 P2 bootstrap-S2: a live-call SubscribeHooks failure must store
-// the desired subscription state so the reconnect replay path can
-// heal it. Pre-P22 P2 bootstrap-S2 this path dropped the params on
-// the floor and required manual resubscribe.
+// TestSubscribeHooks_PersistsDesiredStateOnLiveCallFailure 验证实时 SubscribeHooks 失败时仍保存期望订阅状态。
+// 断线重连会依赖这份状态重放订阅；若这里丢失参数，后续只能靠人工重新订阅。
 func TestSubscribeHooks_PersistsDesiredStateOnLiveCallFailure(t *testing.T) {
 	t.Parallel()
 
@@ -69,9 +66,7 @@ func assertSubscribeHooksState(t *testing.T, client *Client, scope mcpdto.Select
 
 func assertSubscribeHooksReplayPending(t *testing.T, client *Client) {
 	t.Helper()
-	// markReplayPending is part of the contract — diagnostics must
-	// distinguish this "initial call failed" path from a
-	// reconnect-time replay failure.
+	// markReplayPending 是诊断边界：初始调用失败要和重连期间 replay 失败分开呈现。
 	client.hooks.mu.Lock()
 	state := client.hooks.replayState
 	lastErr := client.hooks.lastReplayErr

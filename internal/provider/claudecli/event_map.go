@@ -15,7 +15,7 @@ import (
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
-// RegisterTranslators 注册translators。
+// RegisterTranslators 将 Claude provider 原始事件翻译器注册到统一 dispatcher。
 func RegisterTranslators(dispatcher *unified.EventDispatcher) {
 	if dispatcher == nil {
 		return
@@ -23,6 +23,7 @@ func RegisterTranslators(dispatcher *unified.EventDispatcher) {
 	dispatcher.Register(translateClaudeEvent)
 }
 
+// translateClaudeEvent 按 UI token、状态、agent、turn、tool 的顺序翻译并发布事件。
 func translateClaudeEvent(raw dto.RawProviderEvent, publish func(ev any)) {
 	unified.PublishUITokensUpdated(raw.Data, publish)
 	if ev, ok := translateStatusPatchEvent(raw); ok {
@@ -42,6 +43,7 @@ func translateClaudeEvent(raw dto.RawProviderEvent, publish func(ev any)) {
 	}
 }
 
+// translateStatusPatchEvent 翻译重启等 provider 状态补丁事件。
 func translateStatusPatchEvent(raw dto.RawProviderEvent) (any, bool) {
 	switch raw.EventType {
 	case "agent:status_patch":
@@ -58,7 +60,7 @@ func translateStatusPatchEvent(raw dto.RawProviderEvent) (any, bool) {
 	}
 }
 
-// translateAgentEvent 处理translate代理事件。
+// translateAgentEvent 翻译 agent 生命周期事件。
 func translateAgentEvent(raw dto.RawProviderEvent) (any, bool) {
 	switch raw.EventType {
 	case "agent:launched":
@@ -91,7 +93,7 @@ func translateAgentEvent(raw dto.RawProviderEvent) (any, bool) {
 	}
 }
 
-// translateTurnEvent 处理translateturn事件。
+// translateTurnEvent 翻译 turn 生命周期和输出增量事件。
 func translateTurnEvent(raw dto.RawProviderEvent) (any, bool) {
 	switch raw.EventType {
 	case "turn:started":
@@ -140,6 +142,7 @@ func translateTurnEvent(raw dto.RawProviderEvent) (any, bool) {
 	}
 }
 
+// translateToolEvent 翻译工具开始/结束事件，并把大结果交给共享结果捕获器。
 func translateToolEvent(raw dto.RawProviderEvent) (any, bool) {
 	switch raw.EventType {
 	case "tool:use_begin":
@@ -170,6 +173,7 @@ func translateToolEvent(raw dto.RawProviderEvent) (any, bool) {
 	}
 }
 
+// agentSessionHeader 从事件 data 中抽取 agent/session 公共头。
 func agentSessionHeader(data any) shared.AgentSessionHeader {
 	return shared.AgentSessionHeader{
 		AgentHeader: shared.AgentHeader{
@@ -183,6 +187,7 @@ func agentSessionHeader(data any) shared.AgentSessionHeader {
 	}
 }
 
+// turnHeader 从事件 data 中抽取 turn 公共头。
 func turnHeader(data any) shared.TurnHeader {
 	header := agentSessionHeader(data).AgentHeader
 	return shared.TurnHeader{
@@ -191,6 +196,7 @@ func turnHeader(data any) shared.TurnHeader {
 	}
 }
 
+// toolHeader 从事件 data 中抽取 tool call 公共头。
 func toolHeader(data any) shared.ToolCallHeader {
 	return shared.ToolCallHeader{
 		TurnHeader: turnHeader(data),
@@ -199,6 +205,7 @@ func toolHeader(data any) shared.ToolCallHeader {
 	}
 }
 
+// eventTime 解析 provider timestamp，缺失或格式不兼容时使用当前时间。
 func eventTime(data any) time.Time {
 	raw := dataString(data, "timestamp", "ts")
 	if parsed := platformshared.ParseRFC3339Loose(raw); !parsed.IsZero() {

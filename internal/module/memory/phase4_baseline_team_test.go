@@ -10,19 +10,11 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 )
 
-// Phase 4.0 baseline tests for team injection paths (p25 L86 flagged the
-// existing entrypoint_provider_test cases all use team=nil). These lock
-// the team=non-nil branch so a future Phase 4.1 ranking change cannot
-// silently drop team-block injection.
+// 这些基线测试覆盖 team manager 非空时的入口注入路径。
+// 既有 entrypoint_provider_test 主要走 team=nil；这里锁住 team block 注入，避免后续排序调整静默漏掉团队记忆。
 //
-// CONTRACT NOTE — runtime-ready gate isolation (reviewer E): the
-// team-memory runtime-ready flag is process-global. We use the project's
-// shared `withTeamMemoryRuntimeReady(t, ready)` helper (see
-// `subpkg_compat_test.go`) which goes through `SwapRuntimeReadyFuncForTest`
-// to install a per-test function pointer (and a Cleanup that restores
-// the previous one), so concurrent t.Parallel() tests in the same
-// package don't fight over a single atomic.Bool. Tests in this file
-// therefore do NOT call `t.Parallel()`.
+// runtime-ready gate 是进程级开关；本文件通过 withTeamMemoryRuntimeReady 安装逐测函数指针，
+// 并用 Cleanup 恢复旧值，避免同包并发测试争用同一个 atomic.Bool。因此这些测试不调用 t.Parallel()。
 
 func TestPhase4BaselineEntrypointProviderInjectsTeamBlock(t *testing.T) {
 	t.Setenv(envHarnessKind, "")
@@ -54,15 +46,8 @@ func TestPhase4BaselineEntrypointProviderInjectsTeamBlock(t *testing.T) {
 }
 
 func TestPhase4BaselineEntrypointProviderTeamDisabledOmitsTeamBlock(t *testing.T) {
-	// Counter-baseline (reviewer D upgrade, sharpened by reviewer H):
-	// keep runtime-ready ON to defend against a FUTURE regression that
-	// wires runtime-ready into the entrypoint-injection gating path.
-	// Today gate.InjectTeamMemIndex (gate.go:87) reads only TeamMemEnabled
-	// — runtime-ready is checked deeper in team_manager.isTeamMemoryEnabled
-	// and does NOT participate in this entrypoint short-circuit. Pinning
-	// runtime-ready=true here ensures that if someone later folds the
-	// runtime-ready check into entrypoint gating, this test will FAIL
-	// (currently TeamMemEnabled=false alone suffices to omit the block).
+	// runtime-ready 保持开启，专门验证入口注入只受 TeamMemEnabled 控制。
+	// 如果未来把 runtime-ready 折进入口短路条件，TeamMemEnabled=false 的反例会立刻失败。
 	t.Setenv(envHarnessKind, "")
 	withTeamMemoryRuntimeReady(t, true)
 	cfg := newPhase4BaselineConfig(t, false)
@@ -135,18 +120,10 @@ func assertPhase4BaselineOmits(t *testing.T, got, value, context string) {
 	}
 }
 
-// TestPhase4BaselineCrossScopeFilePathDisjoint locks the cross-scope
-// invariant that a same-name entry in private + team scopes lives in
-// distinct files on disk. Renamed from "CrossScopeManifestFixture"
-// (reviewer D: the original name suggested a ranking baseline, but the
-// assertion only verifies FilePath disjointness — a real Phase 4.1 子项
-// 3 ranking baseline must additionally compare scoring deltas, which is
-// out of scope here). This test is the prerequisite fixture for that
-// future ranking baseline.
+// 该测试锁定私有与团队作用域同名条目的文件隔离。
+// 这个用例只验证 FilePath 不共享；排序分值差异需要另起测试覆盖，不能从本断言推断。
 func TestPhase4BaselineCrossScopeFilePathDisjoint(t *testing.T) {
-	// Use two completely disjoint temp roots so each BuildManifest scans
-	// only its own scope. (Default cfg.AutoMemPathOverride layout puts
-	// teamRoot under privateRoot, which would let walkDir cross scopes.)
+	// 使用两个完全独立的临时根，避免默认嵌套布局让 BuildManifest 跨作用域 walkDir。
 	privateRoot, teamRoot := newPhase4CrossScopeRoots(t)
 
 	const sharedName = "Cross-scope baseline name"
@@ -170,9 +147,7 @@ func TestPhase4BaselineCrossScopeFilePathDisjoint(t *testing.T) {
 	if privateFilePath == teamFilePath {
 		t.Fatalf("baseline expected distinct FilePath across scopes; got both=%q", privateFilePath)
 	}
-	// FilePath-disjoint fixture established. A real Phase 4.1 子项 3
-	// ranking baseline must additionally drive the same-name pair through
-	// the ranking pipeline and assert the team-side score advantage.
+	// 这里仅确认路径隔离；同名条目的排序优势要由排序管线测试单独断言。
 }
 
 func newPhase4CrossScopeRoots(t *testing.T) (string, string) {

@@ -7,17 +7,8 @@ import (
 	"testing"
 )
 
-// TestOrchestrationReportProtocolFreeze enforces P22 P4 §64 / §122 /
-// §283: the agent/reportEvent / agent/rememberReportRequest RPC
-// method names and the special thread/status/changed terminal event
-// type must live in a single authoritative protocol file
-// (cmd/mcp-orch/orchestration/report_protocol.go). Sibling report.go
-// and rpc.go must reference the exported symbols instead of inlining
-// the literals.
-//
-// Freezing the surface in one place means any contract change is a
-// single-file diff that code review, archtests, and downstream
-// consumers can audit together.
+// TestOrchestrationReportProtocolFreeze 锁定报告 RPC 方法名和终态事件类型的唯一出处。
+// report.go 与 rpc.go 必须引用 report_protocol.go 中的导出常量，避免协议字面量在多处漂移。
 func TestOrchestrationReportProtocolFreeze(t *testing.T) {
 	const (
 		dir      = "../../cmd/mcp-orch/orchestration"
@@ -69,8 +60,7 @@ func assertNoFrozenReportLiteralsOutsideProducer(t *testing.T, dir, producer str
 func assertReportProtocolProducerOwnsLiterals(t *testing.T, dir, producer string, frozen []string) {
 	t.Helper()
 
-	// Also verify report_protocol.go still owns each frozen literal,
-	// so deletions cannot silently weaken the freeze.
+	// 同时确认 report_protocol.go 仍持有这些字面量，避免删除常量时静默削弱守卫。
 	data, err := os.ReadFile(filepath.Join(dir, producer))
 	if err != nil {
 		t.Fatalf("read %s: %v", producer, err)

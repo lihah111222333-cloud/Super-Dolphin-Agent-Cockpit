@@ -21,7 +21,8 @@ var (
 	ErrAmbiguousMatch   = errors.New("ambiguous match")
 )
 
-// Hunk is the parsed replace_range patch contract consumed by the edit engine.
+// Hunk 是 replace_range patch 解析后的内部契约。
+// OldText/NewText 承载实际变更，BeforeContext/AfterContext 用于匹配时消歧。
 type Hunk struct {
 	OldText       string
 	NewText       string
@@ -35,8 +36,8 @@ type patchBodyLine struct {
 	text string
 }
 
-// Parse accepts either an implicit single hunk or a single explicit "@@ " hunk.
-// Parse 解析LSP。
+// Parse 解析单个 replace_range hunk。
+// 它只接受隐式单 hunk 或一个显式 "@@" hunk，出现多个 hunk 会 fail-fast。
 func Parse(patch string) (Hunk, error) {
 	lines, err := normalizePatchLines(patch)
 	if err != nil {
@@ -62,9 +63,8 @@ func Parse(patch string) (Hunk, error) {
 	return parseHunkBody(lines)
 }
 
-// ParseMulti accepts a single implicit hunk, a leading implicit hunk followed
-// by explicit hunks, or multiple explicit "@@ " hunks.
-// ParseMulti 解析multi。
+// ParseMulti 解析 replace_range 的多 hunk 输入。
+// 它兼容首个隐式 hunk，但会限制 hunk 数量，避免一次工具调用生成过大编辑。
 func ParseMulti(patch string) ([]Hunk, error) {
 	lines, err := normalizePatchLines(patch)
 	if err != nil {
@@ -96,10 +96,8 @@ func ParseMulti(patch string) ([]Hunk, error) {
 	return hunks, nil
 }
 
-// parseImplicitHunk handles a patch with no leading "@@ " header. Lines before
-// the first header form an implicit first hunk; any later header starts an
-// explicit hunk.
-// parseImplicitHunk 解析隐式hunk。
+// parseImplicitHunk 解析首段没有 "@@" 头的补丁。
+// 第一段作为隐式 hunk，后续显式 hunk 仍走统一解析和数量上限。
 func parseImplicitHunk(lines []string) ([]Hunk, error) {
 	headerIndex := slices.IndexFunc(lines[1:], isPatchHeader)
 	if headerIndex < 0 {
@@ -139,7 +137,8 @@ func normalizeLLMPatchEnvelope(lines []string) []string {
 	return dropUnifiedDiffFileHeaders(trimmed)
 }
 
-// dropApplyPatchEnvelope 去掉应用补丁包装。
+// dropApplyPatchEnvelope 移除 Codex apply_patch 外壳。
+// 这让 LSP edit 工具复用 hunk 解析逻辑，而不接受文件路径层面的越权信息。
 func dropApplyPatchEnvelope(lines []string) []string {
 	if len(lines) == 0 || lines[0] != "*** Begin Patch" {
 		return lines
@@ -169,7 +168,8 @@ func containsPatchHeader(lines []string) bool {
 	return slices.ContainsFunc(lines, isPatchHeader)
 }
 
-// normalizePatchLines 规范化补丁行。
+// normalizePatchLines 统一换行并执行 patch 体积限制。
+// 超过字节数或行数上限会立即报错，避免超大输入拖垮匹配器。
 func normalizePatchLines(patch string) ([]string, error) {
 	if patch == "" {
 		return nil, ErrEmptyPatch
@@ -188,7 +188,8 @@ func normalizePatchLines(patch string) ([]string, error) {
 	return lines, nil
 }
 
-// splitPatchHeaders 拆分补丁头部。
+// splitPatchHeaders 按 "@@" 头拆分显式 hunk。
+// 头部格式会在拆分时先校验，避免后续解析阶段误接受坏块。
 func splitPatchHeaders(lines []string) ([][]string, error) {
 	var blocks [][]string
 	var current []string
@@ -214,7 +215,8 @@ func splitPatchHeaders(lines []string) ([][]string, error) {
 	return blocks, nil
 }
 
-// parseHunkBody 解析hunk正文。
+// parseHunkBody 把 hunk 正文拆成变更文本和前后锚点。
+// 纯插入必须携带至少一行上下文，否则没有安全落点会被拒绝。
 func parseHunkBody(lines []string) (Hunk, error) {
 	if len(lines) == 0 {
 		return Hunk{}, fmt.Errorf("%w: patch hunk body is empty", ErrInvalidPatch)
@@ -250,9 +252,8 @@ func parseHunkBody(lines []string) (Hunk, error) {
 	}, nil
 }
 
-// classifyBodyLines parses each body line, returning the classified lines and
-// the indices of the first and last changed (non-context) lines.
-// classifyBodyLines 分类正文行。
+// classifyBodyLines 校验并分类 hunk 正文的上下文、删除和新增行。
+// 返回首尾变更位置，供 parseHunkBody 提取 before/after 锚点。
 func classifyBodyLines(body []string, startOffset int) ([]patchBodyLine, int, int, error) {
 	parsed := make([]patchBodyLine, 0, len(body))
 	firstChange, lastChange := -1, -1

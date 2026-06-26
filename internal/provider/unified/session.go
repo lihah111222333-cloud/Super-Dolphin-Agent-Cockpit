@@ -13,7 +13,7 @@ import (
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
-// SessionManager manages active sessions by agent ID.
+// SessionManager 按 agent ID 管理活跃 provider session，并用 generation 防止旧清理误删新会话。
 type SessionManager struct {
 	mu             sync.RWMutex
 	sessions       map[string]sessionEntry
@@ -21,12 +21,13 @@ type SessionManager struct {
 	logger         *slog.Logger
 }
 
+// sessionEntry 记录单个内存 session 及其代际，代际用于异步清理时的 CAS 保护。
 type sessionEntry struct {
 	generation uint64
 	session    contract.Session
 }
 
-// NewSessionManager 创建会话manager。
+// NewSessionManager 创建空的内存 session 管理器，logger 缺失时使用包级默认 logger。
 func NewSessionManager(logger *slog.Logger) *SessionManager {
 	if logger == nil {
 		logger = pkglogger.Get()
@@ -37,7 +38,8 @@ func NewSessionManager(logger *slog.Logger) *SessionManager {
 	}
 }
 
-// Register 注册unified provider。
+// Register 绑定 agent ID 到新 session，并关闭被替换的旧 session。
+// 返回的 generation 供调用方后续按代际移除，避免覆盖新注册会话。
 func (m *SessionManager) Register(agentID string, session contract.Session) uint64 {
 	id := normalizeAgentID(agentID)
 	if id == "" || session == nil {
@@ -58,7 +60,7 @@ func (m *SessionManager) Register(agentID string, session contract.Session) uint
 	return generation
 }
 
-// Get 读取unified provider。
+// Get 按 agent ID 读取当前内存 session，缺失时返回 contract.ErrSessionNotFound 包装错误。
 func (m *SessionManager) Get(agentID string) (contract.Session, error) {
 	id := normalizeAgentID(agentID)
 	m.mu.RLock()
@@ -70,7 +72,7 @@ func (m *SessionManager) Get(agentID string) (contract.Session, error) {
 	return nil, fmt.Errorf("%w for agent %q", contract.ErrSessionNotFound, agentID)
 }
 
-// SessionGeneration 处理会话代际。
+// SessionGeneration 返回当前 session 代际，空 agent 或未注册时返回 0。
 func (m *SessionManager) SessionGeneration(agentID string) uint64 {
 	id := normalizeAgentID(agentID)
 	if id == "" {
@@ -81,7 +83,7 @@ func (m *SessionManager) SessionGeneration(agentID string) uint64 {
 	return m.sessions[id].generation
 }
 
-// Remove 移除unified provider。
+// Remove 按 agent ID 和 generation 移除 session，generation 不匹配说明已有新会话接管。
 func (m *SessionManager) Remove(agentID string, generation uint64) {
 	if m == nil {
 		return
@@ -97,7 +99,7 @@ func (m *SessionManager) Remove(agentID string, generation uint64) {
 	m.closeRemovedSession(id, session)
 }
 
-// RemoveCurrent 移除当前。
+// RemoveCurrent 移除 agent 当前 session，不检查 generation，供显式停止路径使用。
 func (m *SessionManager) RemoveCurrent(agentID string) {
 	if m == nil {
 		return
@@ -113,7 +115,7 @@ func (m *SessionManager) RemoveCurrent(agentID string) {
 	m.closeRemovedSession(id, session)
 }
 
-// CloseAll 关闭all。
+// CloseAll 排空当前 session 表并逐个关闭；正常 Close 超时或失败时再执行 ForceStop。
 func (m *SessionManager) CloseAll(ctx context.Context) {
 	if m == nil {
 		return
@@ -133,6 +135,7 @@ func (m *SessionManager) CloseAll(ctx context.Context) {
 	}
 }
 
+// drain 在锁内复制并清空 session 表，保证 CloseAll 之后不会重复关闭同一批 session。
 func (m *SessionManager) drain() map[string]sessionEntry {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -145,6 +148,7 @@ func (m *SessionManager) drain() map[string]sessionEntry {
 	return out
 }
 
+// removeEntry 在锁内执行删除，requireMatch 为 true 时只删除指定 generation。
 func (m *SessionManager) removeEntry(agentID string, generation uint64, requireMatch bool) (contract.Session, bool) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -160,6 +164,7 @@ func (m *SessionManager) removeEntry(agentID string, generation uint64, requireM
 	return entry.session, true
 }
 
+// closeRemovedSession 用统一超时关闭被移除 session，失败时降级到 ForceStop 并记录日志。
 func (m *SessionManager) closeRemovedSession(agentID string, session contract.Session) {
 	closeCtx, cancel := platformconfig.WithSessionCloseTimeout(context.Background())
 	defer cancel()
@@ -171,6 +176,7 @@ func (m *SessionManager) closeRemovedSession(agentID string, session contract.Se
 	}
 }
 
+// nextGenerationLocked 在持锁状态下生成非零 generation，溢出到 0 时跳过零值。
 func (m *SessionManager) nextGenerationLocked() uint64 {
 	m.nextGeneration++
 	if m.nextGeneration == 0 {
@@ -179,6 +185,7 @@ func (m *SessionManager) nextGenerationLocked() uint64 {
 	return m.nextGeneration
 }
 
+// closeSession 在受保护 goroutine 中调用 provider Close，调用方通过 ctx 控制最长等待时间。
 func closeSession(ctx context.Context, session contract.Session) error {
 	if session == nil {
 		return nil
@@ -195,6 +202,7 @@ func closeSession(ctx context.Context, session contract.Session) error {
 	}
 }
 
+// normalizeAgentID 标准化 agent ID，避免空白字符造成重复 session 键。
 func normalizeAgentID(agentID string) string {
 	return strings.TrimSpace(agentID)
 }

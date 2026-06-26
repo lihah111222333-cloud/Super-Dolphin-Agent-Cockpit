@@ -12,6 +12,7 @@ import (
 )
 
 // CreateMainWindow 创建桌面主窗口。
+// 主窗口固定使用 main 分组，不携带一次性 bootstrap，子窗口入口由 openNewWindow 负责。
 func CreateMainWindow(app *application.App, title string, debug bool) {
 	if app == nil {
 		return
@@ -19,6 +20,7 @@ func CreateMainWindow(app *application.App, title string, debug bool) {
 	createWindow(app, title, debug, "main", "", "")
 }
 
+// newWindowOptions 构造桌面窗口默认参数，并把 bootstrap/cwd 编入 URL。
 func newWindowOptions(title string, debug bool, name, uiBootstrap, cwd string) application.WebviewWindowOptions {
 	options := application.WebviewWindowOptions{
 		Name:                   "main",
@@ -35,12 +37,13 @@ func newWindowOptions(title string, debug bool, name, uiBootstrap, cwd string) a
 	if name = strings.TrimSpace(name); name != "" {
 		options.Name = name
 	}
-	// Backend propagates bootstrap values into the window URL; frontend
-	// consumers read ao_ui_bootstrap/ao_window_cwd from the query string.
+	// 后端把 bootstrap 值放进窗口 URL，前端从查询串读取 ao_ui_bootstrap/ao_window_cwd。
 	options.URL = windowURL(uiBootstrap, cwd)
 	return options
 }
 
+// createWindow 创建 Wails WebviewWindow 并绑定文件拖拽事件。
+// binding 为空时仍能创建窗口，只是拖拽文件不会登记到后端读取白名单。
 func createWindow(app *application.App, title string, debug bool, name, uiBootstrap, cwd string, bindings ...*App) *application.WebviewWindow {
 	if app == nil {
 		return nil
@@ -50,6 +53,8 @@ func createWindow(app *application.App, title string, debug bool, name, uiBootst
 	return window
 }
 
+// firstAppBinding 返回可选绑定中的第一个 App。
+// 这是 createWindow 的可选依赖入口，测试可不传绑定以跳过拖拽白名单登记。
 func firstAppBinding(bindings []*App) *App {
 	if len(bindings) == 0 {
 		return nil
@@ -57,7 +62,7 @@ func firstAppBinding(bindings []*App) *App {
 	return bindings[0]
 }
 
-// bindFileDrop 绑定文件drop。
+// bindFileDrop 绑定原生文件拖拽事件，并把文件路径登记到读取白名单。
 func bindFileDrop(window *application.WebviewWindow, app *application.App, binding *App) {
 	if window == nil || app == nil {
 		return
@@ -80,6 +85,7 @@ func bindFileDrop(window *application.WebviewWindow, app *application.App, bindi
 	})
 }
 
+// emitFilesDroppedEvent 发送文件拖拽事件，优先走绑定对象的 runtime 推送。
 func emitFilesDroppedEvent(app *application.App, binding *App, payload map[string]any) {
 	if binding != nil {
 		binding.emitRuntimeEvent("files-dropped", payload)
@@ -91,6 +97,7 @@ func emitFilesDroppedEvent(app *application.App, binding *App, payload map[strin
 	app.Event.Emit("files-dropped", payload)
 }
 
+// buildFilesDroppedPayload 构造前端文件拖拽事件载荷。
 func buildFilesDroppedPayload(files []string, details *application.DropTargetDetails) (map[string]any, bool) {
 	if len(files) == 0 {
 		return nil, false
@@ -104,6 +111,7 @@ func buildFilesDroppedPayload(files []string, details *application.DropTargetDet
 	return payload, true
 }
 
+// fileDropDetails 提取 Wails 提供的拖拽目标元素信息。
 func fileDropDetails(details *application.DropTargetDetails) map[string]any {
 	if details == nil {
 		return nil
@@ -117,7 +125,7 @@ func fileDropDetails(details *application.DropTargetDetails) map[string]any {
 	}
 }
 
-// windowURL 处理windowURL。
+// windowURL 生成窗口入口 URL，并附加启动快照和工作目录参数。
 func windowURL(uiBootstrap, cwd string) string {
 	base := strings.TrimSpace(os.Getenv("FRONTEND_DEVSERVER_URL"))
 	if base == "" {
@@ -147,6 +155,7 @@ func windowURL(uiBootstrap, cwd string) string {
 	return parsed.String()
 }
 
+// buildWindowName 生成同组窗口名，使用时间戳避免重复。
 func buildWindowName(group string, n int) string {
 	prefix := strings.TrimSpace(group)
 	if prefix == "" {

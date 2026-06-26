@@ -47,7 +47,7 @@ func TestSplitFrontmatterCases(t *testing.T) {
 			name:   "unclosed_frontmatter_returns_no_frontmatter",
 			in:     "---\nname: x\n",
 			wantOK: false,
-			// fall-through: full content is the body when no close fence found
+			// 没有闭合 fence 时，完整内容都应作为 body 返回。
 			wantBody: "---\nname: x\n",
 		},
 		{
@@ -80,16 +80,16 @@ func TestIsFenceCases(t *testing.T) {
 			t.Fatalf("IsFence(%q) = false, want true", line)
 		}
 	}
-	// Negative cases — each was a real false-close vector before Phase 2.0.
+	// 负例覆盖曾经容易误判为闭合 fence 的真实输入形态。
 	for _, line := range []string{
 		"--",
 		"----",
-		" ---",  // leading space
-		"\t---", // leading tab
+		" ---",  // 前置空格。
+		"\t---", // 前置 tab。
 		"---x",
 		"---inline---",
-		"--- inline",  // closing fence + suffix
-		"---trailing", // dashes glued to text
+		"--- inline",  // 闭合 fence 后仍有后缀。
+		"---trailing", // 短横线与正文粘连。
 	} {
 		if IsFence(line) {
 			t.Fatalf("IsFence(%q) = true, want false", line)
@@ -102,10 +102,10 @@ func TestIsFenceCases(t *testing.T) {
 // do not terminate the frontmatter block.
 func TestSplitFrontmatterRejectsFalseCloseFences(t *testing.T) {
 	cases := []string{
-		"---\nname: x\n----\n",              // 4 dashes
-		"---\nname: x\n---inline-mark---\n", // inline fence-like text
-		"---\nname: x\n--- trailing\n",      // dashes + word
-		"---\nname: x\n  ---\n",             // indented `---`
+		"---\nname: x\n----\n",              // 四个短横线不是闭合 fence。
+		"---\nname: x\n---inline-mark---\n", // 行内类似 fence 的文本不应闭合。
+		"---\nname: x\n--- trailing\n",      // 短横线后跟单词不应闭合。
+		"---\nname: x\n  ---\n",             // 缩进 fence 不应闭合。
 	}
 	for _, in := range cases {
 		_, _, ok := SplitFrontmatter(in)
@@ -126,8 +126,7 @@ func TestStripUTF8BOM(t *testing.T) {
 	if got := StripUTF8BOM(""); got != "" {
 		t.Fatalf("StripUTF8BOM empty = %q, want empty", got)
 	}
-	// Phase 2.0.2: stacked BOMs must all be stripped so a crafted file
-	// `\ufeff\ufeff---...` cannot bypass frontmatter detection.
+	// 堆叠 BOM 必须全部剥离，避免构造的 `\ufeff\ufeff---...` 绕过 frontmatter 检测。
 	if got := StripUTF8BOM(bom + bom + "---\nname: x\n---\nbody\n"); !strings.HasPrefix(got, "---\n") {
 		t.Fatalf("StripUTF8BOM did not strip stacked BOMs; prefix = %q", got)
 	}
@@ -156,9 +155,8 @@ func TestScanFrontmatterHeaderStripsBOMOnFirstLineSoSplitFrontmatterAccepts(t *t
 }
 
 func TestScanFrontmatterHeaderUnterminatedReportsNoFrontmatter(t *testing.T) {
-	// With no second fence within the limit the scanner returns whatever it
-	// read so SplitFrontmatter then reports no frontmatter, which is the safe
-	// default (the YAML is NOT injected into the prompt).
+	// 限制范围内没有第二个 fence 时，scanner 返回已读内容。
+	// SplitFrontmatter 随后判定无 frontmatter，确保 YAML 不会被注入 prompt。
 	input := "---\nname: x\n" + strings.Repeat("line\n", 1000)
 	header, err := ScanFrontmatterHeader(strings.NewReader(input), 64)
 	if err != nil {
@@ -169,7 +167,7 @@ func TestScanFrontmatterHeaderUnterminatedReportsNoFrontmatter(t *testing.T) {
 	}
 }
 
-// --- Phase 2.1.AB.6 小清理 B：AB.5 新增 4 个导出函数的直测 ---
+// UTF-16 与 HTML 注释清理 helper 的直接回归测试。
 
 func TestJSStringLengthCases(t *testing.T) {
 	cases := []struct {
@@ -180,8 +178,8 @@ func TestJSStringLengthCases(t *testing.T) {
 		{"empty", "", 0},
 		{"ascii", "hello", 5},
 		{"bmp_chinese", "你好", 2},
-		{"emoji_supplementary", "😀", 2}, // U+1F600 → surrogate pair = 2 UTF-16 units
-		{"mixed", "a你😀", 1 + 1 + 2},     // ascii + bmp + surrogate pair
+		{"emoji_supplementary", "😀", 2}, // 补充平面 emoji 是 surrogate pair，占 2 个 UTF-16 unit。
+		{"mixed", "a你😀", 1 + 1 + 2},     // ASCII、BMP 字符和 surrogate pair 混合。
 		{"crlf", "a\r\nb", 4},
 	}
 	for _, c := range cases {
@@ -201,7 +199,7 @@ func TestUTF16CodeUnitsCases(t *testing.T) {
 	}{
 		{"ascii", 'a', 1},
 		{"bmp", '中', 1},
-		{"supplementary", 0x1F600, 2}, // emoji 😀
+		{"supplementary", 0x1F600, 2}, // 补充平面字符需要 2 个 UTF-16 unit。
 		{"max_bmp", 0xFFFF, 1},
 		{"min_supplementary", 0x10000, 2},
 	}
@@ -225,9 +223,9 @@ func TestTruncateAtCodeUnitLimitCases(t *testing.T) {
 		{"exact_limit", "hello", 5, "hello"},
 		{"ascii_truncate", "hello world", 5, "hello"},
 		{"truncate_at_newline_boundary", "line1\nline2\nline3", 12, "line1\nline2"},
-		{"newline_at_zero_position", "\nrest", 1, ""},     // lastNewline >= 0 boundary fix
-		{"surrogate_pair_keeps_emoji", "ab😀cd", 4, "ab😀"}, // emoji = 2 units; 4-unit limit fits ab+emoji exactly
-		{"surrogate_pair_drops_emoji", "ab😀cd", 3, "ab"},  // 3-unit limit cannot fit emoji's 2 units
+		{"newline_at_zero_position", "\nrest", 1, ""},     // 首字符为换行时不应越界。
+		{"surrogate_pair_keeps_emoji", "ab😀cd", 4, "ab😀"}, // 4-unit 限制刚好容纳 ab 加 emoji。
+		{"surrogate_pair_drops_emoji", "ab😀cd", 3, "ab"},  // 3-unit 限制不能容纳 emoji 的两个 unit。
 		{"empty", "", 5, ""},
 		{"limit_zero", "hello", 0, ""},
 	}
@@ -249,22 +247,21 @@ func TestStripHTMLCommentsCases(t *testing.T) {
 		{"no_comments", "hello world", "hello world"},
 		{"midline_inline_preserved", "before <!-- middle --> after\n", "before <!-- middle --> after\n"},
 		{"line_only_dropped", "<!-- whole line -->\n", ""},
-		{"line_with_residue_kept", "<!-- gone --> visible\n", " visible\n"}, // residue keeps leading space
+		{"line_with_residue_kept", "<!-- gone --> visible\n", " visible\n"}, // 同行剩余文本保留原前导空格。
 		{"multiline_block", "before\n<!-- start\nbody\nend -->\nafter\n", "before\nafter\n"},
 		{"unclosed_eof_kept_as_content", "before\n<!-- never closed", "before\n<!-- never closed"},
 		{"empty", "", ""},
-		// HTML5 forbids nested comments — the first --> closes; trailing
-		// `--> outer -->` survives as plain text on the close line.
+		// HTML5 不支持嵌套注释；第一个 --> 关闭后，后续内容按普通文本保留。
 		{"nested_attempt_first_close_wins", "<!-- outer <!-- inner --> outer -->\n", " outer -->\n"},
 		{"nested_attempt_multiline", "<!-- outer\n<!-- inner\n--> rest -->\n", " rest -->\n"},
-		// CDATA shields its body from comment scanning.
+		// CDATA 内容不参与 HTML 注释扫描。
 		{"cdata_multiline_protects_comment", "before\n<![CDATA[\n<!-- not a comment -->\n]]>\nafter\n", "before\n<![CDATA[\n<!-- not a comment -->\n]]>\nafter\n"},
 		{"cdata_singleline_keeps_inline_comment", "<![CDATA[ <!-- preserved --> ]]>\n", "<![CDATA[ <!-- preserved --> ]]>\n"},
 		{"cdata_unclosed_eof_kept", "head\n<![CDATA[\n<!-- looks like comment -->\n", "head\n<![CDATA[\n<!-- looks like comment -->\n"},
-		// Fenced code blocks preserve inline-styled comment lines.
+		// fenced code block 内的 HTML 注释样式文本必须保留。
 		{"fence_protects_comment", "```\n<!-- not stripped -->\n```\n", "```\n<!-- not stripped -->\n```\n"},
 		{"fence_tilde_protects_comment", "~~~\n<!-- preserved -->\n~~~\n", "~~~\n<!-- preserved -->\n~~~\n"},
-		// Two consecutive multi-line comments back-to-back: both dropped.
+		// 连续多行注释应全部删除。
 		{"two_block_comments", "a\n<!-- one\nstill one -->\nmid\n<!-- two\nstill two -->\nz\n", "a\nmid\nz\n"},
 	}
 	for _, c := range cases {
@@ -276,17 +273,9 @@ func TestStripHTMLCommentsCases(t *testing.T) {
 	}
 }
 
-// FuzzStripHTMLComments exercises the scanner with arbitrary byte streams
-// and pins two invariants that hold regardless of malformed input:
-//
-//  1. The function never panics.
-//  2. It is idempotent: stripping twice yields the same output as
-//     stripping once. Without idempotence, downstream cache layers that
-//     re-feed already-stripped content would observe drifting hashes.
-//
-// Run with `go test -fuzz=FuzzStripHTMLComments ./internal/module/memory/parse/`
-// to extend coverage; the corpus seeds below cover the historical edge
-// cases (nested attempts, CDATA, fence interactions, unclosed openers).
+// FuzzStripHTMLComments 用任意字节流覆盖 HTML 注释扫描器，并固定两个不变量：
+// 函数不能 panic；重复清理两次必须与清理一次结果一致，避免下游缓存看到漂移 hash。
+// 如需扩展覆盖，可运行 `go test -fuzz=FuzzStripHTMLComments ./internal/module/memory/parse/`。
 func FuzzStripHTMLComments(f *testing.F) {
 	seeds := []string{
 		"",

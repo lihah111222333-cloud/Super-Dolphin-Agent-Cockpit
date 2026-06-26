@@ -12,28 +12,20 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/sharedfilepath"
 )
 
-// T4.1 + T4.4 Registry / discovery 工具：
-//   - list_models: 暴露 super-dolphin 支持的 provider→models
-//   - shared_file_list: 列已存在的 sharedfile + 暴露允许写入的路径前缀，
-//     防止 AI / UI 撞 “path prefix not in whitelist” 错误谌不透明
-//     （骨架阶段吃狗粮 B-10 / PE-1）
-//
-// T4.2 prompt_list / T4.3 command_list 已在 prompt_tools.go / command_tools.go
-// 通过 resourceToolDefinitions(...) 暴露，本文件不重复。
+// Registry/discovery 工具集中暴露模型列表和 sharedfile 列表。
+// prompt_list 与 command_list 在各自文件中注册，本文件只负责跨资源发现入口。
 
-// =====================================================
-// list_models (T4.1)
-// =====================================================
+// ----- list_models -----
 
 // ListModelsInput 是 list_models 工具的可选过滤器。
 type ListModelsInput struct {
 	Provider string `json:"provider,omitempty"` // 可选：claude | codex；空表示全部
 }
 
-// ProviderModels 列出某 provider 支持的 model 名称集。
+// ProviderModels 复用模型注册表 DTO，保持 list_models 的 wire shape 与注册表单源一致。
 type ProviderModels = modelregistry.ProviderModels
 
-// ListModelsResult 是 list_models 的返回结构。
+// ListModelsResult 同时保留 providers 与通用 data 字段，兼容旧调用方和列表 envelope。
 type ListModelsResult struct {
 	Providers []ProviderModels `json:"providers"`
 	Data      []ProviderModels `json:"data"`
@@ -56,7 +48,7 @@ func WithModelRegistry(registry modelregistry.Registry) ListModelsOption {
 	}
 }
 
-// HandleListModels 返回 super-dolphin 支持的 provider→models 列表。
+// HandleListModels 返回当前打包版本可发现的 provider→models 列表；未知 provider 直接报错。
 func HandleListModels(opts ...ListModelsOption) ToolHandler {
 	registry := listModelsRegistry(opts)
 	return func(ctx context.Context, raw json.RawMessage) (any, error) {
@@ -85,6 +77,7 @@ func HandleListModels(opts ...ListModelsOption) ToolHandler {
 	}
 }
 
+// newListModelsResult 构造 list_models envelope，并标记当前打包版本是否支持对应 provider。
 func newListModelsResult(providers []ProviderModels) ListModelsResult {
 	providers = markModelProviderAvailability(providers)
 	env := newListEnvelope(providers, 0, "next: use provider/model values in launch_agent or DAG node config")
@@ -98,6 +91,7 @@ func newListModelsResult(providers []ProviderModels) ListModelsResult {
 	}
 }
 
+// markModelProviderAvailability 给 provider 快照补充可用性字段，不修改注册表原始数据。
 func markModelProviderAvailability(providers []ProviderModels) []ProviderModels {
 	out := make([]ProviderModels, len(providers))
 	for i, provider := range providers {
@@ -109,6 +103,7 @@ func markModelProviderAvailability(providers []ProviderModels) []ProviderModels 
 	return out
 }
 
+// modelProviderAvailability 描述当前 mcp-orch 打包版本是否能直接启动该 provider。
 func modelProviderAvailability(provider string) (bool, string) {
 	provider = strings.TrimSpace(provider)
 	if provider == "codex" {
@@ -117,10 +112,12 @@ func modelProviderAvailability(provider string) (bool, string) {
 	return false, fmt.Sprintf("model provider %q is not supported in this packaged build", provider)
 }
 
+// boolPtr 返回 bool 指针，供 JSON omitempty 区分“明确不可用”和“旧注册表未声明”。
 func boolPtr(value bool) *bool {
 	return &value
 }
 
+// listModelsRegistry 应用测试/生产注入的注册表选项；未配置时由 handler fail-fast。
 func listModelsRegistry(opts []ListModelsOption) modelregistry.Registry {
 	cfg := listModelsConfig{}
 	for _, opt := range opts {
@@ -129,9 +126,7 @@ func listModelsRegistry(opts []ListModelsOption) modelregistry.Registry {
 	return cfg.registry
 }
 
-// =====================================================
-// shared_file_list (T4.4)
-// =====================================================
+// ----- shared_file_list -----
 
 // SharedFileListInput 是 shared_file_list 工具的过滤器。
 type SharedFileListInput struct {
@@ -139,14 +134,14 @@ type SharedFileListInput struct {
 	Limit  int32  `json:"limit,omitempty"`  // 可选上限
 }
 
-// SharedFileEntry 是 shared_file_list 返回的单条记录（不含 content，避免泄漏大块数据）。
+// SharedFileEntry 是 shared_file_list 的轻量 wire 记录，不含 content，避免列表接口泄漏大块正文。
 type SharedFileEntry struct {
 	Path      string `json:"path"`
 	UpdatedBy string `json:"updated_by"`
 	UpdatedAt string `json:"updated_at"`
 }
 
-// SharedFileListResult 是 shared_file_list 的返回结构。
+// SharedFileListResult 同时暴露 files 与 data 字段，并返回允许写入前缀供模型继续操作。
 type SharedFileListResult struct {
 	Files             []SharedFileEntry `json:"files"`
 	Data              []SharedFileEntry `json:"data"`
@@ -158,7 +153,7 @@ type SharedFileListResult struct {
 	AllowedPrefixHint string            `json:"allowed_prefix_hint"`
 }
 
-// HandleSharedFileList 列已存在的 sharedfile，并暴露允许写入的路径前缀。
+// HandleSharedFileList 列出已存在 sharedfile；内容读取必须走 shared_file_read，列表只给路径元数据。
 func HandleSharedFileList(store sharedfilestore.Store) ToolHandler {
 	return makeHandler(store, "shared file store", func(ctx context.Context, in SharedFileListInput) (SharedFileListResult, error) {
 		rows, err := store.List(ctx, sharedfilestore.ListFilter{
@@ -180,6 +175,7 @@ func HandleSharedFileList(store sharedfilestore.Store) ToolHandler {
 	})
 }
 
+// newSharedFileListResult 构造 shared_file_list envelope，并附带允许写入的路径前缀。
 func newSharedFileListResult(entries []SharedFileEntry, limit int) SharedFileListResult {
 	env := newListEnvelope(entries, limit, "next: use shared_file_read pos=shared:<path> to read content")
 	return SharedFileListResult{
@@ -194,8 +190,7 @@ func newSharedFileListResult(entries []SharedFileEntry, limit int) SharedFileLis
 	}
 }
 
-// registryToolDefinitions 是 T4.1 + T4.4 工具的注册聚合。
-// T4.2 prompt_list / T4.3 command_list 已在各自包里通过 resourceToolDefinitions 注册，不重复。
+// registryToolDefinitions 注册跨资源发现工具，避免各资源工具文件互相依赖。
 func registryToolDefinitions(sharedFile sharedfilestore.Store, models modelregistry.Registry) []ToolDefinition {
 	return buildToolDefinitions(
 		defineTool("list_models", "List super-dolphin supported provider→models. Optional 'provider' filter (claude | codex). AI 设计师可用此查 exec.model 字段允许的取值。", ObjectSchema(map[string]Schema{

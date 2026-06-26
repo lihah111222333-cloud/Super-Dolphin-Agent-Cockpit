@@ -7,11 +7,8 @@ import (
 	"github.com/prometheus/client_golang/prometheus/testutil"
 )
 
-// TestCountersIncrementIndependently is a smoke test for P22 P4 S6b:
-// each counter is reachable and Inc() actually moves the underlying
-// value. Guards against accidentally re-declaring a counter in a way
-// that shadows the exported accessor (e.g. promauto panic on dup
-// registration surfaces here instead of at process start).
+// TestSkillMetricsExporterSnapshotIncludesHostToolOutcomes 覆盖 skill metrics 的核心计数器。
+// 每个 counter 都必须可达且 Inc 后数值前进，避免重复声明或遮蔽导出的采集器。
 func TestSkillMetricsExporterSnapshotIncludesHostToolOutcomes(t *testing.T) {
 	skillmetrics.ResetForTesting()
 	t.Cleanup(skillmetrics.ResetForTesting)

@@ -1,17 +1,18 @@
 package contract
 
-// SkillConfig holds skill-specific configuration.
+// SkillConfig 保存技能发现和加载时使用的运行配置。
 type SkillConfig struct {
 	ProgressiveDisclosure bool
 	TokenBudget           int
 }
 
-// AgentConfig holds agent-specific configuration.
+// AgentConfig 保存 agent runtime 的默认行为配置。
 type AgentConfig struct {
 	PersistentSubagentDefault bool
 }
 
-// NotifyConfig carries the P21 P2 external-webhook egress settings.
+// NotifyConfig 是外部 webhook 通知的出站策略配置。
+// 私网放行、超时和队列容量都在这里进入 runtime，调用方不能用零值静默绕过策略。
 type NotifyConfig struct {
 	ChannelsJSON     string
 	AllowPrivateCIDR bool
@@ -29,7 +30,7 @@ const (
 	LSPServiceShell  = "shell"
 )
 
-// LSPConfig holds language-service startup and indexing configuration.
+// LSPConfig 保存 language-service 启动、索引和项目适配配置。
 type LSPConfig struct {
 	NoiseDirNames                    []string
 	GoDirectoryFilters               []string
@@ -38,17 +39,15 @@ type LSPConfig struct {
 	DisableInitialWorkspaceBootstrap bool
 }
 
-// LSPProjectAdapterConfig holds per-language project discovery configuration.
+// LSPProjectAdapterConfig 保存单个语言服务的项目发现规则。
 type LSPProjectAdapterConfig struct {
 	RootMarkers           []string
 	IgnoredDirNames       []string
 	FirstSourceExtensions []string
 }
 
-// Config is the root configuration struct shared across the application.
-// The canonical constructor (New) lives in internal/platform/config; this
-// file only hosts the type definitions so that lower layers (module, store)
-// can depend on them without importing a platform package.
+// Config 是应用共享的根配置 wire 结构。
+// 构造与默认值由 internal/platform/config 负责；contract 只放类型，供 module/store 低层包引用。
 type Config struct {
 	SQLitePath  string
 	RPCAddr     string
@@ -60,13 +59,14 @@ type Config struct {
 	LSP         LSPConfig
 }
 
-// RuntimeConfigField 描述运行时配置字段的规范名和兼容别名。
+// RuntimeConfigField 描述 runtime 配置字段的规范名和可接受别名。
+// 配置读取方按 Keys 顺序查找，保证新旧 wire 名称兼容但仍收敛到规范名。
 type RuntimeConfigField struct {
 	Canonical string
 	Aliases   []string
 }
 
-// Keys 返回规范名加别名，供配置读取函数按兼容顺序查找。
+// Keys 返回规范名加别名的查找顺序。
 func (f RuntimeConfigField) Keys() []string {
 	keys := make([]string, 0, 1+len(f.Aliases))
 	keys = append(keys, f.Canonical)

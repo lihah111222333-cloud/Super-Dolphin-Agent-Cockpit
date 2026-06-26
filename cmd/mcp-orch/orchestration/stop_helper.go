@@ -11,8 +11,10 @@ import (
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
+// StopResult 是 StopSpawnedAgent 对调用方和指标暴露的标准结果枚举。
 type StopResult string
 
+// StopSpawnedAgent 结果常量。
 const (
 	StopResultSuccess                StopResult = "success"
 	StopResultSkippedAlreadyStopped  StopResult = "skipped_already_stopped"
@@ -23,20 +25,24 @@ const (
 	StopResultFailed                 StopResult = "failed"
 )
 
+// AgentThreadLookup 是按 thread 反查 agent 绑定并更新持久化状态的窄接口。
 type AgentThreadLookup interface {
 	GetByThreadID(ctx context.Context, threadID string) (*PersistedThread, error)
 	UpdateStatus(ctx context.Context, params PersistedThreadStatusUpdate) error
 }
 
+// StopAgentService 是停止 agent 所需的最小 service 接口。
 type StopAgentService interface {
 	StopAgent(ctx context.Context, agentID string) error
 }
 
+// stopSpawnedAgentSink 是 StopSpawnedAgent 指标计数器接口。
 type stopSpawnedAgentSink interface {
 	Inc(result StopResult)
 }
 
-// StopSpawnedAgent 停止spawned代理。
+// StopSpawnedAgent 根据 spawned thread 反查 agent 并执行停止。
+// 已停止/已归档视为幂等成功；真实失败会保留错误返回给调用方。
 func StopSpawnedAgent(ctx context.Context, threads AgentThreadLookup, svc StopAgentService, threadID string) (StopResult, error) {
 	threadID = strings.TrimSpace(threadID)
 	logger := pkglogger.Get()
@@ -63,6 +69,7 @@ func StopSpawnedAgent(ctx context.Context, threads AgentThreadLookup, svc StopAg
 	return finalizeStopOutcome(logger, threadID, agentID, result, stopErr)
 }
 
+// StopSpawnedAgentMetrics 汇总 StopSpawnedAgent 各类结果计数。
 type StopSpawnedAgentMetrics struct {
 	Success                int64
 	SkippedAlreadyStopped  int64
@@ -73,6 +80,7 @@ type StopSpawnedAgentMetrics struct {
 	Failed                 int64
 }
 
+// stopSpawnedAgentCounter 用原子计数记录 stop helper 结果，供测试和诊断读取。
 type stopSpawnedAgentCounter struct {
 	success                atomic.Int64
 	skippedAlreadyStopped  atomic.Int64
@@ -83,7 +91,7 @@ type stopSpawnedAgentCounter struct {
 	failed                 atomic.Int64
 }
 
-// Inc 累加编排。
+// Inc 按 StopResult 累加对应指标。
 func (c *stopSpawnedAgentCounter) Inc(result StopResult) {
 	if c == nil {
 		return
@@ -106,7 +114,7 @@ func (c *stopSpawnedAgentCounter) Inc(result StopResult) {
 	}
 }
 
-// Snapshot 处理快照。
+// Snapshot 返回当前计数快照，不暴露底层 atomic 字段。
 func (c *stopSpawnedAgentCounter) Snapshot() StopSpawnedAgentMetrics {
 	if c == nil {
 		return StopSpawnedAgentMetrics{}
@@ -124,16 +132,17 @@ func (c *stopSpawnedAgentCounter) Snapshot() StopSpawnedAgentMetrics {
 
 var defaultStopSpawnedAgentCounter = &stopSpawnedAgentCounter{}
 
+// recordStopSpawnedAgentMetric 记录全局 StopSpawnedAgent 结果指标。
 func recordStopSpawnedAgentMetric(result StopResult) {
 	defaultStopSpawnedAgentCounter.Inc(result)
 }
 
-// StopSpawnedAgentCounters 停止spawned代理counters。
+// StopSpawnedAgentCounters 返回 spawned agent 停止路径的全局计数快照。
 func StopSpawnedAgentCounters() StopSpawnedAgentMetrics {
 	return defaultStopSpawnedAgentCounter.Snapshot()
 }
 
-// resolveAgentIDForStop 为stop解析代理ID。
+// resolveAgentIDForStop 从持久化 thread 反查 agent id，并把前置失败映射为 StopResult。
 func resolveAgentIDForStop(ctx context.Context, logger logHandle, threads AgentThreadLookup, svc StopAgentService, threadID string) (string, *PersistedThread, StopResult, error) {
 	if threadID == "" {
 		recordStopSpawnedAgentMetric(StopResultSkippedNoThreadID)
@@ -175,9 +184,8 @@ func resolveAgentIDForStop(ctx context.Context, logger logHandle, threads AgentT
 	return agentID, thread, "", nil
 }
 
-// finalizeStopOutcome handles the §2.4 post-stop branch: log + return.
-// Idempotent results (success / skipped_already_*) drop the error;
-// real failures propagate the underlying error for caller logging.
+// finalizeStopOutcome 统一停止后的日志和返回值。
+// 幂等结果会吞掉底层错误，真实失败继续把错误交给调用方记录和处理。
 func finalizeStopOutcome(logger logHandle, threadID, agentID string, result StopResult, stopErr error) (StopResult, error) {
 	switch result {
 	case StopResultSuccess:
@@ -202,16 +210,15 @@ func finalizeStopOutcome(logger logHandle, threadID, agentID string, result Stop
 	}
 }
 
-// logHandle is the subset of *slog.Logger used by stop_helper.go. Keeping
-// it narrow lets callers pass either pkglogger.Get() or any test stub.
+// logHandle 是 stop_helper.go 需要的最小日志接口。
+// 保持窄接口，方便生产传 pkglogger.Get()，测试传轻量 stub。
 type logHandle interface {
 	Info(msg string, args ...any)
 	Warn(msg string, args ...any)
 }
 
-// isThreadNotFound mirrors archive.go:archiveLookupNotFound — the two
-// sentinels surface "thread row was not found" rather than a real
-// store failure. ADR-016 §2.2 maps this to skipped_no_thread_id.
+// isThreadNotFound 识别“线程行不存在”这类可幂等跳过的查找结果。
+// 它只处理 not found 语义，真正的 store 失败会保留给调用方。
 func isThreadNotFound(err error) bool {
 	if err == nil {
 		return false
@@ -219,14 +226,8 @@ func isThreadNotFound(err error) bool {
 	return errors.Is(err, errAgentNotFound) || platformdb.IsNotFound(err)
 }
 
-// classifyStopError implements the §2.4 switch — translate the error
-// returned by service.StopAgent into a StopResult label.
-//
-// String-match for "is not running" / "is stopping" is the documented
-// temporary tactic: helpers.go:196 / helpers.go:199 /
-// service_launcher_bridge.go:355,428,492,497 build the error via
-// fmt.Errorf, so there is no sentinel to errors.Is against until a
-// follow-up introduces errAgentNotRunning.
+// classifyStopError 将 service.StopAgent 的错误归类为 StopResult。
+// not running / is stopping 目前来自普通 fmt.Errorf 文本，尚无 sentinel 可供 errors.Is。
 func classifyStopError(err error) StopResult {
 	if err == nil {
 		return StopResultSuccess

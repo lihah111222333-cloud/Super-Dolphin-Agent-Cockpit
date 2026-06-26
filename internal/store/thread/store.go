@@ -9,6 +9,8 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/store/sqlc"
 )
 
+// querier 描述 thread store 依赖的 sqlc 查询集合。
+// 测试可用窄接口替换真实 *sqlc.Queries，生产路径仍由 NewStore 注入完整查询器。
 type querier interface {
 	AgentThreadRunningExists(ctx context.Context, arg sqlc.AgentThreadRunningExistsParams) (int64, error)
 	AgentThreadExists(ctx context.Context, arg sqlc.AgentThreadExistsParams) (int64, error)
@@ -33,16 +35,18 @@ type querier interface {
 	UpsertAgentThread(ctx context.Context, arg sqlc.UpsertAgentThreadParams) error
 }
 
+// store 实现线程持久化边界，负责 SQLC 行与 domain DTO 的双向映射。
 type store struct {
 	q querier
 }
 
-// NewStore 创建存储。
+// NewStore 创建 sqlc 支撑的线程 store。
+// 调用方必须传入已初始化的查询器，这里不做 nil 兜底，避免启动配置错误延后暴露。
 func NewStore(q *sqlc.Queries) Store {
 	return &store{q: q}
 }
 
-// GetByThreadID 按线程ID读取线程存储。
+// GetByThreadID 按线程ID读取线程记录，并统一包装底层数据库错误。
 func (s *store) GetByThreadID(ctx context.Context, threadID string) (*Thread, error) {
 	row, err := s.q.GetAgentThreadByID(ctx, sqlc.GetAgentThreadByIDParams{ThreadID: threadID})
 	if err != nil {
@@ -52,7 +56,7 @@ func (s *store) GetByThreadID(ctx context.Context, threadID string) (*Thread, er
 	return &result, nil
 }
 
-// GetByPort 按port读取线程存储。
+// GetByPort 按本地端口读取线程记录，用于桌面进程恢复和端口反查。
 func (s *store) GetByPort(ctx context.Context, port int32) (*Thread, error) {
 	row, err := s.q.GetAgentThreadByPort(ctx, sqlc.GetAgentThreadByPortParams{Port: int64(port)})
 	if err != nil {
@@ -62,7 +66,7 @@ func (s *store) GetByPort(ctx context.Context, port int32) (*Thread, error) {
 	return &result, nil
 }
 
-// ListAll 列出all。
+// ListAll 列出全部线程记录，保留完整 config_override 供上层自行裁剪。
 func (s *store) ListAll(ctx context.Context) ([]Thread, error) {
 	rows, err := s.q.ListAgentThreads(ctx)
 	if err != nil {
@@ -71,7 +75,7 @@ func (s *store) ListAll(ctx context.Context) ([]Thread, error) {
 	return mapThreadList(rows), nil
 }
 
-// ListConfigsByIDs 按ids列出配置。
+// ListConfigsByIDs 只批量读取线程配置字段，避免恢复路径拉取不需要的大行。
 func (s *store) ListConfigsByIDs(ctx context.Context, threadIDs []string) ([]Thread, error) {
 	rows, err := s.q.ListAgentThreadConfigsByIDs(ctx, sqlc.ListAgentThreadConfigsByIDsParams{ThreadIds: threadIDs})
 	if err != nil {
@@ -80,7 +84,7 @@ func (s *store) ListConfigsByIDs(ctx context.Context, threadIDs []string) ([]Thr
 	return mapConfigList(rows), nil
 }
 
-// ListRunning 列出running。
+// ListRunning 列出仍处于运行状态的线程记录。
 func (s *store) ListRunning(ctx context.Context) ([]Thread, error) {
 	rows, err := s.q.ListRunningAgentThreads(ctx)
 	if err != nil {
@@ -89,7 +93,7 @@ func (s *store) ListRunning(ctx context.Context) ([]Thread, error) {
 	return mapRunningThreadList(rows), nil
 }
 
-// ListRecoverable 列出recoverable。
+// ListRecoverable 列出可恢复线程，供启动后的会话恢复扫描使用。
 func (s *store) ListRecoverable(ctx context.Context) ([]Thread, error) {
 	rows, err := s.q.ListRecoverableAgentThreads(ctx)
 	if err != nil {
@@ -98,7 +102,7 @@ func (s *store) ListRecoverable(ctx context.Context) ([]Thread, error) {
 	return mapRecoverableThreadList(rows), nil
 }
 
-// ListRunningAgents 列出running代理。
+// ListRunningAgents 列出运行中 agent 的轻量状态，用于 UI 和生命周期计数。
 func (s *store) ListRunningAgents(ctx context.Context) ([]RunningAgent, error) {
 	rows, err := s.q.ListRunningAgents(ctx)
 	if err != nil {
@@ -116,7 +120,7 @@ func (s *store) ListRunningAgents(ctx context.Context) ([]RunningAgent, error) {
 	return result, nil
 }
 
-// Upsert 新增或更新记录。
+// Upsert 写入或刷新线程记录；bool 字段在 SQLite 层按 0/1 存储。
 func (s *store) Upsert(ctx context.Context, params UpsertParams) error {
 	return wrapThreadError(s.q.UpsertAgentThread(ctx, sqlc.UpsertAgentThreadParams{
 		ThreadID:         params.ThreadID,
@@ -141,7 +145,7 @@ func (s *store) Upsert(ctx context.Context, params UpsertParams) error {
 	}), "upsert")
 }
 
-// SavePromptSnapshot 保存prompt快照。
+// SavePromptSnapshot 保存线程的 prompt 快照，线程不存在时返回 store not found 错误。
 func (s *store) SavePromptSnapshot(ctx context.Context, threadID string, snapshot PromptSnapshot) error {
 	if snapshot.SectionSnapshot == nil {
 		snapshot.SectionSnapshot = map[string]string{}
@@ -163,7 +167,7 @@ func (s *store) SavePromptSnapshot(ctx context.Context, threadID string, snapsho
 	return nil
 }
 
-// LoadPromptSnapshot 加载prompt快照。
+// LoadPromptSnapshot 读取 prompt 快照，空载荷和 JSON null 都按没有快照处理。
 func (s *store) LoadPromptSnapshot(ctx context.Context, threadID string) (*PromptSnapshot, error) {
 	payload, err := s.q.LoadAgentThreadPromptSnapshot(ctx, sqlc.LoadAgentThreadPromptSnapshotParams{ThreadID: threadID})
 	if err != nil {
@@ -185,7 +189,7 @@ func (s *store) LoadPromptSnapshot(ctx context.Context, threadID string) (*Promp
 	return snapshot, nil
 }
 
-// UpdateStatus 更新状态。
+// UpdateStatus 更新线程状态和更新时间。
 func (s *store) UpdateStatus(ctx context.Context, params UpdateStatusParams) error {
 	return wrapThreadError(s.q.UpdateAgentThreadStatus(ctx, sqlc.UpdateAgentThreadStatusParams{
 		ThreadID:  params.ThreadID,
@@ -194,7 +198,7 @@ func (s *store) UpdateStatus(ctx context.Context, params UpdateStatusParams) err
 	}), "update_status")
 }
 
-// UpdateLaunchResult 更新启动结果。
+// UpdateLaunchResult 回写启动后生成的 agent key 与 prompt 版本。
 func (s *store) UpdateLaunchResult(ctx context.Context, params UpdateLaunchResultParams) error {
 	return wrapThreadError(s.q.UpdateAgentThreadLaunchResult(ctx, sqlc.UpdateAgentThreadLaunchResultParams{
 		ThreadID:        params.ThreadID,
@@ -204,17 +208,17 @@ func (s *store) UpdateLaunchResult(ctx context.Context, params UpdateLaunchResul
 	}), "update_launch_result")
 }
 
-// DeleteByThreadID 按线程ID删除线程存储。
+// DeleteByThreadID 按线程ID删除线程记录。
 func (s *store) DeleteByThreadID(ctx context.Context, threadID string) error {
 	return wrapThreadError(s.q.DeleteAgentThreadByID(ctx, sqlc.DeleteAgentThreadByIDParams{ThreadID: threadID}), "delete_by_thread_id")
 }
 
-// ResetRunning 重置running。
+// ResetRunning 在进程启动恢复前清理遗留运行态。
 func (s *store) ResetRunning(ctx context.Context) error {
 	return wrapThreadError(s.q.ResetRunningAgentThreads(ctx), "reset_running")
 }
 
-// ExpireStale 处理expirestale。
+// ExpireStale 将超过 cutoff 的 pending/running 线程批量过期。
 func (s *store) ExpireStale(ctx context.Context, params ExpireStaleParams) (int64, error) {
 	count, err := s.q.ExpireStaleAgentThreads(ctx, sqlc.ExpireStaleAgentThreadsParams{
 		UpdatedAt:   params.UpdatedAt,
@@ -226,7 +230,7 @@ func (s *store) ExpireStale(ctx context.Context, params ExpireStaleParams) (int6
 	return count, nil
 }
 
-// RunningExists 处理runningexists。
+// RunningExists 判断指定线程是否仍处于运行态。
 func (s *store) RunningExists(ctx context.Context, threadID string) (bool, error) {
 	v, err := s.q.AgentThreadRunningExists(ctx, sqlc.AgentThreadRunningExistsParams{ThreadID: threadID})
 	if err != nil {
@@ -235,7 +239,7 @@ func (s *store) RunningExists(ctx context.Context, threadID string) (bool, error
 	return v != 0, nil
 }
 
-// ListCwds 列出cwds。
+// ListCwds 列出线程工作目录，用于 UI 项目范围和历史入口。
 func (s *store) ListCwds(ctx context.Context) ([]ThreadCwd, error) {
 	rows, err := s.q.ListAgentThreadCwds(ctx)
 	if err != nil {
@@ -244,7 +248,7 @@ func (s *store) ListCwds(ctx context.Context) ([]ThreadCwd, error) {
 	return mapThreadCwds(rows), nil
 }
 
-// ListCwdsByPrefix 按prefix列出cwds。
+// ListCwdsByPrefix 按目录前缀筛选线程工作目录。
 func (s *store) ListCwdsByPrefix(ctx context.Context, prefix string) ([]ThreadCwd, error) {
 	rows, err := s.q.ListAgentThreadCwdsByPrefix(ctx, sqlc.ListAgentThreadCwdsByPrefixParams{Column1: &prefix})
 	if err != nil {
@@ -253,7 +257,7 @@ func (s *store) ListCwdsByPrefix(ctx context.Context, prefix string) ([]ThreadCw
 	return mapThreadCwdsByPrefix(rows), nil
 }
 
-// CountChildren 统计children。
+// CountChildren 统计指定父 agent 派生出的子线程数量。
 func (s *store) CountChildren(ctx context.Context, parentAgentID string) (int64, error) {
 	count, err := s.q.CountChildAgentThreads(ctx, sqlc.CountChildAgentThreadsParams{ParentAgentID: parentAgentID})
 	if err != nil {
@@ -262,7 +266,7 @@ func (s *store) CountChildren(ctx context.Context, parentAgentID string) (int64,
 	return count, nil
 }
 
-// Exists 判断线程存储是否可用。
+// Exists 判断线程记录是否存在。
 func (s *store) Exists(ctx context.Context, threadID string) (bool, error) {
 	v, err := s.q.AgentThreadExists(ctx, sqlc.AgentThreadExistsParams{ThreadID: threadID})
 	if err != nil {
@@ -271,7 +275,7 @@ func (s *store) Exists(ctx context.Context, threadID string) (bool, error) {
 	return v != 0, nil
 }
 
-// CountAll 统计all。
+// CountAll 统计全部线程记录数量。
 func (s *store) CountAll(ctx context.Context) (int64, error) {
 	count, err := s.q.CountAllThreads(ctx)
 	if err != nil {
@@ -280,10 +284,12 @@ func (s *store) CountAll(ctx context.Context) (int64, error) {
 	return count, nil
 }
 
+// wrapThreadError 统一给 thread store 错误补充操作名和存储名。
 func wrapThreadError(err error, operation string) error {
 	return platformdb.WrapStoreError(err, operation, "thread")
 }
 
+// boolToInt64 将 Go bool 转为 SQLite 约定的 0/1。
 func boolToInt64(b bool) int64 {
 	if b {
 		return 1
@@ -291,6 +297,7 @@ func boolToInt64(b bool) int64 {
 	return 0
 }
 
+// mapThreadByID 映射按 thread_id 查询返回的完整线程行。
 func mapThreadByID(row sqlc.GetAgentThreadByIDRow) Thread {
 	return Thread{
 		ThreadID:         row.ThreadID,
@@ -320,6 +327,7 @@ func mapThreadByID(row sqlc.GetAgentThreadByIDRow) Thread {
 	}
 }
 
+// mapThreadByPort 映射按端口查询返回的完整线程行。
 func mapThreadByPort(row sqlc.GetAgentThreadByPortRow) Thread {
 	return Thread{
 		ThreadID:         row.ThreadID,
@@ -349,6 +357,7 @@ func mapThreadByPort(row sqlc.GetAgentThreadByPortRow) Thread {
 	}
 }
 
+// mapConfigList 映射批量配置查询结果，只填充调用方需要的配置字段。
 func mapConfigList(rows []sqlc.ListAgentThreadConfigsByIDsRow) []Thread {
 	result := make([]Thread, len(rows))
 	for i, row := range rows {
@@ -361,7 +370,7 @@ func mapConfigList(rows []sqlc.ListAgentThreadConfigsByIDsRow) []Thread {
 	return result
 }
 
-// mapThreadList 映射线程list。
+// mapThreadList 映射全量线程列表查询结果。
 func mapThreadList(rows []sqlc.ListAgentThreadsRow) []Thread {
 
 	result := make([]Thread, len(rows))
@@ -396,7 +405,7 @@ func mapThreadList(rows []sqlc.ListAgentThreadsRow) []Thread {
 	return result
 }
 
-// mapRunningThreadList 映射running线程list。
+// mapRunningThreadList 映射运行中线程列表查询结果。
 func mapRunningThreadList(rows []sqlc.ListRunningAgentThreadsRow) []Thread {
 	result := make([]Thread, len(rows))
 	for i, row := range rows {
@@ -430,7 +439,7 @@ func mapRunningThreadList(rows []sqlc.ListRunningAgentThreadsRow) []Thread {
 	return result
 }
 
-// mapRecoverableThreadList 映射recoverable线程list。
+// mapRecoverableThreadList 映射可恢复线程列表查询结果。
 func mapRecoverableThreadList(rows []sqlc.ListRecoverableAgentThreadsRow) []Thread {
 	result := make([]Thread, len(rows))
 	for i, row := range rows {
@@ -464,6 +473,7 @@ func mapRecoverableThreadList(rows []sqlc.ListRecoverableAgentThreadsRow) []Thre
 	return result
 }
 
+// mapThreadCwds 映射线程工作目录列表。
 func mapThreadCwds(rows []sqlc.ListAgentThreadCwdsRow) []ThreadCwd {
 	result := make([]ThreadCwd, len(rows))
 	for i, row := range rows {
@@ -475,6 +485,7 @@ func mapThreadCwds(rows []sqlc.ListAgentThreadCwdsRow) []ThreadCwd {
 	return result
 }
 
+// mapThreadCwdsByPrefix 映射按前缀查询出的线程工作目录列表。
 func mapThreadCwdsByPrefix(rows []sqlc.ListAgentThreadCwdsByPrefixRow) []ThreadCwd {
 	result := make([]ThreadCwd, len(rows))
 	for i, row := range rows {
@@ -486,6 +497,7 @@ func mapThreadCwdsByPrefix(rows []sqlc.ListAgentThreadCwdsByPrefixRow) []ThreadC
 	return result
 }
 
+// stringFromAny 兼容不同驱动返回的 nullable text 形态。
 func stringFromAny(value any) string {
 	if value == nil {
 		return ""

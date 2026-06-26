@@ -12,9 +12,8 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/store/sqlc"
 )
 
-// TestUpsertForwardsCodexIdentity asserts P21 P1a persistence: when the
-// caller supplies codex identity in UpsertParams, all three fields reach the
-// underlying sqlc param struct unchanged.
+// TestUpsertForwardsCodexIdentity 锁住 Codex identity 写入路径。
+// 调用方显式传入三段 identity 时，store 必须原样传给 sqlc 参数，不能在中间层丢字段。
 func TestUpsertForwardsCodexIdentity(t *testing.T) {
 	t.Parallel()
 
@@ -48,8 +47,8 @@ func TestUpsertForwardsCodexIdentity(t *testing.T) {
 	}
 }
 
-// TestGetByAgentIDSurfacesCodexIdentity asserts the read path maps the three
-// new sqlc columns into the Binding struct consumers see.
+// TestGetByAgentIDSurfacesCodexIdentity 锁住按 agent id 读取时的 identity 映射。
+// sqlc 行里的三段字段必须进入 Binding，供上层恢复 Codex 实例上下文。
 func TestGetByAgentIDSurfacesCodexIdentity(t *testing.T) {
 	t.Parallel()
 
@@ -85,7 +84,7 @@ func TestGetByAgentIDSurfacesCodexIdentity(t *testing.T) {
 	}
 }
 
-// TestGetByProviderThreadSurfacesCodexIdentity covers the second read path.
+// TestGetByProviderThreadSurfacesCodexIdentity 覆盖按 provider thread 读取时的同一映射边界。
 func TestGetByProviderThreadSurfacesCodexIdentity(t *testing.T) {
 	t.Parallel()
 
@@ -113,7 +112,7 @@ func TestGetByProviderThreadSurfacesCodexIdentity(t *testing.T) {
 	}
 }
 
-// TestListAgentThreadBindingsSurfacesCodexIdentity covers the list read path.
+// TestListAgentThreadBindingsSurfacesCodexIdentity 覆盖列表读取路径，避免批量查询遗漏 identity 字段。
 func TestListAgentThreadBindingsSurfacesCodexIdentity(t *testing.T) {
 	t.Parallel()
 
@@ -147,12 +146,8 @@ func TestListAgentThreadBindingsSurfacesCodexIdentity(t *testing.T) {
 	}
 }
 
-// TestUpsertSQLPreservesCodexIdentityOnEmpty asserts the migration 0048
-// discipline: the ON CONFLICT DO UPDATE SET clause for each codex identity
-// column uses the "” preserves existing value" CASE. A caller passing ”
-// must not clobber an already-populated identity. The immutable trigger then
-// catches any attempt to rewrite a non-empty value with a different
-// non-empty one; that side is covered by the migration SQL lint below.
+// TestUpsertSQLPreservesCodexIdentityOnEmpty 校验 SQL upsert 的空值保留规则。
+// 调用方传空字符串时不能覆盖已有 identity；非空改写由下方迁移 SQL 检查覆盖。
 func TestUpsertSQLPreservesCodexIdentityOnEmpty(t *testing.T) {
 	t.Parallel()
 
@@ -167,15 +162,14 @@ func TestUpsertSQLPreservesCodexIdentityOnEmpty(t *testing.T) {
 	}
 }
 
-// TestMigration0048ExtendsImmutableTrigger asserts the migration declares
-// the three new identity columns as immutable once set (non-empty -> different
-// non-empty). This is the schema-level counterpart to the CASE guard above.
+// 校验数据库迁移声明 identity 一经设置不可改写。
+// 这是数据库层对 upsert CASE 保护的补充，防止非空值被另一个非空值替换。
 func TestMigration0048ExtendsImmutableTrigger(t *testing.T) {
 	t.Parallel()
 
 	sql := readRepoFile(t, filepath.Join("migrations", "0048_binding_codex_identity.sql"))
 	for _, col := range []string{"codex_home", "codex_instance_key", "codex_model_provider"} {
-		// Match "OLD.<col> <> '' AND NEW.<col> IS DISTINCT FROM OLD.<col>"
+		// 匹配迁移 SQL 中“旧值非空且新旧不同”的不可变触发条件。
 		pattern := regexp.MustCompile(
 			`OLD\.` + regexp.QuoteMeta(col) + `\s*<>\s*''\s+AND\s+NEW\.` +
 				regexp.QuoteMeta(col) + `\s+IS\s+DISTINCT\s+FROM\s+OLD\.` + regexp.QuoteMeta(col))
@@ -189,9 +183,8 @@ func TestMigration0048ExtendsImmutableTrigger(t *testing.T) {
 	}
 }
 
-// readRepoFile walks up from the current test file location to the repository
-// root (where go.mod lives) and reads `rel`. Using this helper keeps tests
-// independent of the working directory used by go test.
+// readRepoFile 从当前测试文件向上找到 go.mod 后读取相对路径。
+// 这样测试不依赖 go test 的启动目录，也不会静默读错仓库外文件。
 func readRepoFile(t *testing.T, rel string) string {
 	t.Helper()
 	_, file, _, ok := runtime.Caller(0)

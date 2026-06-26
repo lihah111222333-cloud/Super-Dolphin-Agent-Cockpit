@@ -20,7 +20,7 @@ type store struct {
 	q querier
 }
 
-// NewStore 创建存储。
+// NewStore 创建基于 sqlc 的 feedback 存储。
 func NewStore(q *sqlc.Queries) Store {
 	return &store{q: q}
 }
@@ -28,7 +28,8 @@ func NewStore(q *sqlc.Queries) Store {
 var errEmptyThreadID = errors.New("feedback.Insert: thread_id is required")
 var errEmptyEventType = errors.New("feedback.Insert: event_type is required")
 
-// Insert 插入feedback存储。
+// Insert 追加一条 feedback 事件。
+// thread_id 和 event_type 必填，空 payload 会规范化为 JSON 对象，保证分析侧总能按 JSON 读取。
 func (s *store) Insert(ctx context.Context, ev Event) (Event, error) {
 	threadID := strings.TrimSpace(ev.ThreadID)
 	if threadID == "" {
@@ -57,7 +58,8 @@ func (s *store) Insert(ctx context.Context, ev Event) (Event, error) {
 	return fromRow(row), nil
 }
 
-// ListByThread 按线程列出feedback存储。
+// ListByThread 列出指定线程的 feedback 事件。
+// limit 非正时收敛到 100，避免 UI 查询未限制地扫描历史反馈。
 func (s *store) ListByThread(ctx context.Context, threadID string, limit int32) ([]Event, error) {
 	threadID = strings.TrimSpace(threadID)
 	if threadID == "" {
@@ -76,7 +78,8 @@ func (s *store) ListByThread(ctx context.Context, threadID string, limit int32) 
 	return mapRows(rows), nil
 }
 
-// ListByAgentKey 按代理键列出feedback存储。
+// ListByAgentKey 列出指定 agent_key 的 feedback 事件。
+// agent_key 必须显式提供，避免把跨 agent 的质量信号混在同一分析结果中。
 func (s *store) ListByAgentKey(ctx context.Context, agentKey string, limit int32) ([]Event, error) {
 	agentKey = strings.TrimSpace(agentKey)
 	if agentKey == "" {

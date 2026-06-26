@@ -39,6 +39,8 @@ var (
 	errPostgresInstallerMissing    = errors.New("mcp_server: postgres installer is not configured")
 )
 
+// Service 定义 MCP server 配置管理的跨模块入口。
+// 该接口只读写配置和执行 HTTP tools/list 探测，不直接启动 stdio/http MCP 进程。
 type Service interface {
 	AddServers(context.Context, AddServersRequest) (AddServersResult, error)
 	ListServers(context.Context) (ListServersResult, error)
@@ -52,20 +54,27 @@ type Service interface {
 	DeleteServer(context.Context, DeleteServerRequest) (DeleteServerResult, error)
 }
 
+// ConfigDocument 是落盘配置文件的 JSON 外壳。
+// mcpServers 字段保持与 provider 原生配置兼容，内部读写前会复制为 store DTO。
 type ConfigDocument struct {
 	MCPServers map[string]ServerConfig `json:"mcpServers"`
 }
 
+// AddServersRequest 是前端和 RPC 传入的新增 MCP server 配置请求。
 type AddServersRequest = contract.MCPServerAddRequest
 
+// DeleteServerRequest 指定当前 workspace 下要删除的 MCP server 名称。
 type DeleteServerRequest struct {
 	ServerName string `json:"serverName"`
 }
 
+// ServerConfig 是跨模块共享的 MCP server 配置 wire 类型。
 type ServerConfig = contract.MCPServerConfig
 
+// AddServersResult 返回新增配置的落盘路径和按名称排序后的 server 列表。
 type AddServersResult = contract.MCPServerAddResult
 
+// ListServersResult 返回 workspace 配置路径和已规范化的 server 映射。
 type ListServersResult = contract.MCPServerListResult
 
 // ListServerToolsRequest 指定要通过 HTTP MCP tools/list 拉取工具的服务端名称。
@@ -80,12 +89,16 @@ type ListServerToolsResult struct {
 	Tools      []mcpdto.MCPTool `json:"tools"`
 }
 
+// DeleteServerResult 返回被删除的 server 名称和配置路径。
+// Deleted 只在 store 确认删除成功后为 true，名称不存在会走错误路径。
 type DeleteServerResult struct {
 	ConfigPath string `json:"configPath"`
 	ServerName string `json:"serverName"`
 	Deleted    bool   `json:"deleted"`
 }
 
+// service 是 MCP server 配置管理的实现。
+// store 负责持久化，httpClient 只用于 HTTP transport 的 tools/list 探测，installer 只服务默认 postgres 写入。
 type service struct {
 	store             MCPServerConfigStore
 	httpClient        mcpHTTPDoer
@@ -93,12 +106,14 @@ type service struct {
 	sqlitePath        string
 }
 
-// NewService 创建服务。
+// NewService 创建未绑定持久化 store 的 MCP server 服务。
+// 该构造仅用于不需要写配置的装配路径；调用写接口会 fail-fast。
 func NewService() Service {
 	return NewServiceWithStore(nil)
 }
 
-// NewServiceWithStore 创建带配置存储的 MCP server 服务。
+// NewServiceWithStore 创建带配置 store 的 MCP server 服务。
+// 默认 postgres installer 会被注入，SQLite 路径仍从请求或环境变量解析。
 func NewServiceWithStore(store MCPServerConfigStore) Service {
 	return newServiceWithStoreInstallerAndSQLitePath(store, newNPMPostgresInstaller(), "")
 }
@@ -112,15 +127,20 @@ func NewServiceWithStoreAndConfig(store MCPServerConfigStore, cfg *platformconfi
 	return newServiceWithStoreInstallerAndSQLitePath(store, newNPMPostgresInstaller(), sqlitePath)
 }
 
+// newServiceWithStoreAndInstaller 创建带测试 installer 的服务实例。
+// 该入口只给同包测试注入 installer，生产代码应使用公开构造函数。
 func newServiceWithStoreAndInstaller(store MCPServerConfigStore, installer postgresInstaller) *service {
 	return newServiceWithStoreInstallerAndSQLitePath(store, installer, "")
 }
 
+// newServiceWithStoreInstallerAndSQLitePath 汇总所有可注入依赖。
+// sqlitePath 会在构造时 trim，后续 StartSQLiteServer 按请求、构造路径和环境变量顺序解析。
 func newServiceWithStoreInstallerAndSQLitePath(store MCPServerConfigStore, installer postgresInstaller, sqlitePath string) *service {
 	return &service{store: store, httpClient: defaultMCPHTTPClient, postgresInstaller: installer, sqlitePath: strings.TrimSpace(sqlitePath)}
 }
 
-// AddServers 添加servers。
+// AddServers 校验并写入当前 workspace 的 MCP server 配置。
+// 名称、transport、HTTP URL、stdio command/env 都会先规范化；同名 server 已存在时直接报错。
 func (s *service) AddServers(ctx context.Context, req AddServersRequest) (AddServersResult, error) {
 	ctx = mcpServerContext(ctx)
 	if err := ctx.Err(); err != nil {
@@ -154,7 +174,8 @@ func (s *service) AddServers(ctx context.Context, req AddServersRequest) (AddSer
 	return AddServersResult{ConfigPath: configPath, ServerNames: names}, nil
 }
 
-// ListServers 列出servers。
+// ListServers 读取当前进程 workspace 的 MCP server 配置。
+// workspace 解析失败或 store 缺失都会返回错误，不回退到空配置。
 func (s *service) ListServers(ctx context.Context) (ListServersResult, error) {
 	ctx = mcpServerContext(ctx)
 	if err := ctx.Err(); err != nil {
@@ -168,7 +189,8 @@ func (s *service) ListServers(ctx context.Context) (ListServersResult, error) {
 	return s.ListServersForCWD(ctx, workspaceRoot)
 }
 
-// ListServersForCWD 为工作目录列出servers。
+// ListServersForCWD 读取指定 cwd 对应 workspace 的 MCP server 配置。
+// 返回的 map 是副本，调用方修改结果不会污染 store 缓存。
 func (s *service) ListServersForCWD(ctx context.Context, cwd string) (ListServersResult, error) {
 	ctx = mcpServerContext(ctx)
 	if err := ctx.Err(); err != nil {
@@ -262,12 +284,14 @@ type mcpServerConfigProvider struct {
 	svc Service
 }
 
-// AsMCPServerConfigProvider 把mcp_server处理为MCP服务端配置provider。
+// AsMCPServerConfigProvider 将 Service 适配为 provider 层可消费的 MCPServerConfigProvider。
+// 适配器只暴露 enabled 配置，避免 provider 拉起已关闭的 server。
 func AsMCPServerConfigProvider(svc Service) contract.MCPServerConfigProvider {
 	return mcpServerConfigProvider{svc: svc}
 }
 
-// ListMCPServerConfigs 列出MCP服务端配置。
+// ListMCPServerConfigs 返回指定 cwd 下 provider 可启动的 MCP server 配置。
+// service 缺失是装配错误，会直接返回 error，避免 provider 静默无 MCP 工具。
 func (p mcpServerConfigProvider) ListMCPServerConfigs(ctx context.Context, cwd string) (map[string]contract.MCPServerConfig, error) {
 	if p.svc == nil {
 		return nil, errors.New("mcp server service is not configured")
@@ -279,6 +303,7 @@ func (p mcpServerConfigProvider) ListMCPServerConfigs(ctx context.Context, cwd s
 	return enabledMCPServersToContract(result.MCPServers), nil
 }
 
+// rejectExistingMCPServers 检查新增 server 是否和已有配置重名。
 func rejectExistingMCPServers(existing map[string]ServerConfig, names []string) error {
 	for _, name := range names {
 		if _, ok := existing[name]; ok {
@@ -288,6 +313,8 @@ func rejectExistingMCPServers(existing map[string]ServerConfig, names []string) 
 	return nil
 }
 
+// normalizeListServerToolsName 校验 tools/list 请求中的 server 名称。
+// 名称必须无首尾空白，避免 RPC 层和 store 层对同一个名字出现两种表示。
 func normalizeListServerToolsName(req ListServerToolsRequest) (string, error) {
 	name := strings.TrimSpace(req.ServerName)
 	if name == "" || name != req.ServerName {
@@ -296,6 +323,8 @@ func normalizeListServerToolsName(req ListServerToolsRequest) (string, error) {
 	return name, nil
 }
 
+// insertMCPServerConfigs 按排序后的名称逐个写入新增配置。
+// 任一 InsertServer 返回 false 都视为并发重名冲突，调用方应整体返回错误。
 func insertMCPServerConfigs(
 	ctx context.Context,
 	store MCPServerConfigStore,
@@ -319,6 +348,8 @@ func insertMCPServerConfigs(
 	return nil
 }
 
+// mcpHTTPClient 返回用于 HTTP MCP tools/list 的客户端。
+// 服务未注入自定义 client 时使用带超时的默认 client。
 func (s *service) mcpHTTPClient() mcpHTTPDoer {
 	if s != nil && s.httpClient != nil {
 		return s.httpClient
@@ -326,6 +357,8 @@ func (s *service) mcpHTTPClient() mcpHTTPDoer {
 	return defaultMCPHTTPClient
 }
 
+// requireStore 确认 MCP server 配置 store 已注入。
+// 写入和读取配置都必须走该检查，避免 nil store 被解释成空配置。
 func (s *service) requireStore() (MCPServerConfigStore, error) {
 	if s == nil || s.store == nil {
 		return nil, errMCPServerStoreNotConfigured

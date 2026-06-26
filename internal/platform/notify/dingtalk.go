@@ -13,18 +13,8 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 )
 
-// RenderDingtalk builds the signed webhook URL and Markdown card body
-// for a Dingtalk robot. The robot accepts POSTed JSON at the signed URL
-// (query params timestamp + sign).
-//
-// Signature algorithm (official spec):
-//
-//	stringToSign := timestamp_ms + "\n" + secret
-//	sign := base64(urlEncode(HMAC-SHA256(secret, stringToSign)))
-//
-// The rendered body is a Dingtalk markdown card so colour / icon
-// follows NotifyLevel.
-// RenderDingtalk 渲染dingtalk。
+// RenderDingtalk 生成钉钉机器人签名 URL 和 markdown 卡片体。
+// 签名按官方 timestamp_ms + "\n" + secret 规则计算，正文先做标题/正文规范化防止 mention 注入。
 func RenderDingtalk(cfg ChannelConfig, msg contract.NotifyMessage, timestampMS int64) (signedURL string, body []byte, contentType string, err error) {
 	if cfg.Platform != PlatformDingtalk {
 		return "", nil, "", fmt.Errorf("dingtalk: wrong platform %q", cfg.Platform)
@@ -69,8 +59,7 @@ func RenderDingtalk(cfg ChannelConfig, msg contract.NotifyMessage, timestampMS i
 	return u.String(), body, "application/json", nil
 }
 
-// dingtalkSign computes the urlencoded base64 HMAC-SHA256 per the
-// Dingtalk spec. Exposed for tests.
+// dingtalkSign 按钉钉规范计算 urlencoded base64 HMAC-SHA256，保留为私有函数供同包测试覆盖。
 func dingtalkSign(secret string, timestampMS int64) (string, error) {
 	if strings.TrimSpace(secret) == "" {
 		return "", fmt.Errorf("%w: dingtalk secret is empty", ErrMissingField)
@@ -84,9 +73,7 @@ func dingtalkSign(secret string, timestampMS int64) (string, error) {
 	return url.QueryEscape(raw), nil
 }
 
-// levelMarker maps the NotifyLevel into a plain-text header decoration
-// used by all three platforms. Level icons are plain unicode so they
-// survive markdown escaping unchanged.
+// levelMarker 把 NotifyLevel 映射为三端通用的纯文本头部标记。
 func levelMarker(level contract.NotifyLevel) string {
 	switch level {
 	case contract.NotifyLevelWarn:

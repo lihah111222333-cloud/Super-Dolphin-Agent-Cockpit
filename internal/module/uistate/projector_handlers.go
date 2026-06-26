@@ -14,14 +14,14 @@ import (
 
 var uiOutputDeltaLogSampler = pkglogger.NewEverySampler(1000)
 
-// applyAgentStateChanged 应用代理状态changed。
+// applyAgentStateChanged 将 agent 状态事件投影到线程和 agent 摘要。
+// Codex 事件可能携带 provider threadID，这里会先解析公开 threadID 再更新 sidebar。
 func (s *service) applyAgentStateChanged(ev agentdto.StateChanged) {
 	threadID := strings.TrimSpace(ev.ThreadID)
 	agentID := strings.TrimSpace(ev.AgentID)
 	newState := strings.TrimSpace(ev.NewState)
 	applyMutation(s, threadID, func() {
-		// codex events use providerThreadID as ThreadID; resolve to the
-		// public thread ID (agentId) so state updates match the existing sidebar entry.
+		// Codex 事件可能把 providerThreadID 放在 ThreadID；先映射到公开 threadID，避免生成重复 sidebar 行。
 		if agentID != "" {
 			if resolved := s.resolveThreadIDByAgentLocked(agentID); resolved != "" {
 				threadID = resolved
@@ -55,7 +55,8 @@ func (s *service) applyAgentStateChanged(ev agentdto.StateChanged) {
 	})
 }
 
-// applyAgentLaunched 应用代理launched。
+// applyAgentLaunched 在会话启动时建立线程和 agent 摘要。
+// 首次启动会设置 MCP startup overlay，直到后续 turn 或状态事件清除。
 func (s *service) applyAgentLaunched(ev agentdto.AgentLaunched) {
 	threadID := strings.TrimSpace(ev.ThreadID)
 	agentID := strings.TrimSpace(ev.AgentID)
@@ -198,11 +199,8 @@ func (s *service) applyThreadStarted(ev threaddto.Started) {
 			Name:    strings.TrimSpace(ev.Name),
 		})
 		if agentID != "" {
-			// thread.Started is a full session initialization event.
-			// Unlike incremental events, all identity fields must be
-			// replaced, not merged — stale values (e.g. a model leaked
-			// from a different provider) must be cleared even when the
-			// new value is empty.
+			// thread.Started 是完整会话初始化事件，运行身份字段必须整体替换。
+			// 即使新值为空也要清掉旧值，避免上一次 provider 的 model 泄漏到新会话。
 			s.replaceAgentOnThreadStarted(agentID, AgentSummary{
 				ID:               agentID,
 				ThreadID:         threadID,
@@ -221,17 +219,14 @@ func (s *service) applyThreadStarted(ev threaddto.Started) {
 	})
 }
 
-// replaceAgentOnThreadStarted overwrites all runtime-identity fields of an
-// existing AgentSummary with the values from a thread.Started event.  Unlike
-// upsertAgentSummary (which uses chooseString and keeps old non-empty values),
-// this resets fields that are authoritative from thread.Started — preventing a
-// stale model from a previous provider from persisting across session restarts.
+// replaceAgentOnThreadStarted 用 thread.Started 的权威运行身份覆盖已有 AgentSummary。
+// 它故意不沿用 upsertAgentSummary 的非空保留策略，避免会话重启后残留旧 provider/model。
 func (s *service) replaceAgentOnThreadStarted(agentID string, next AgentSummary) {
 	for i := range s.state.Agents {
 		if s.state.Agents[i].ID != agentID {
 			continue
 		}
-		// Preserve fields that thread.Started does not own.
+		// thread.Started 不负责的展示字段继续保留，避免覆盖父子关系和最近消息。
 		next.Name = chooseString(next.Name, s.state.Agents[i].Name)
 		next.ParentID = chooseString(next.ParentID, s.state.Agents[i].ParentID)
 		next.LastReport = chooseString(next.LastReport, s.state.Agents[i].LastReport)
@@ -243,7 +238,7 @@ func (s *service) replaceAgentOnThreadStarted(agentID string, next AgentSummary)
 	s.state.Agents = append(s.state.Agents, next)
 }
 
-// applyThreadUpdated 应用线程updated。
+// applyThreadUpdated 同步线程名称和可选模型字段，并刷新 sidebar/state 投影。
 func (s *service) applyThreadUpdated(ev threaddto.Updated) {
 	threadID, name := strings.TrimSpace(ev.ThreadID), strings.TrimSpace(ev.Name)
 	if threadID == "" {
@@ -270,7 +265,8 @@ func (s *service) applyThreadUpdated(ev threaddto.Updated) {
 	s.emitProjectionUpdatedEvents(s.projectionUpdatedLocked("sidebar"), s.projectionUpdatedLocked("state"))
 }
 
-// applyThreadStopped 应用线程stopped。
+// applyThreadStopped 清理活动 turn、overlay 和 patch 序列，并按停止状态更新线程摘要。
+// deleted 状态会删除线程可见项，避免前端继续显示已移除线程。
 func (s *service) applyThreadStopped(ev threaddto.Stopped) {
 	threadID := strings.TrimSpace(ev.ThreadID)
 	agentID := strings.TrimSpace(ev.AgentID)
@@ -329,7 +325,8 @@ func threadStoppedLastMessage(status, reason string) string {
 	}
 }
 
-// applyTurnStarted 应用turnstarted。
+// applyTurnStarted 建立 active turn，并清理上一次消息摘要。
+// 已存在的 turnID 会被视为重复事件，不再生成 patch。
 func (s *service) applyTurnStarted(ev turndto.TurnStarted) {
 	turnID := strings.TrimSpace(ev.TurnID)
 	threadID := strings.TrimSpace(ev.ThreadID)
@@ -376,7 +373,7 @@ func (s *service) applyTurnStarted(ev turndto.TurnStarted) {
 	})
 }
 
-// applyTurnInterrupted 应用turninterrupted。
+// applyTurnInterrupted 将 active turn 移入 recent 列表，并把线程状态恢复为 idle。
 func (s *service) applyTurnInterrupted(ev turndto.TurnInterrupted) {
 	turnID := strings.TrimSpace(ev.TurnID)
 	threadID := strings.TrimSpace(ev.ThreadID)
@@ -413,6 +410,7 @@ func (s *service) applyTurnInterrupted(ev turndto.TurnInterrupted) {
 	})
 }
 
+// applyTurnCompleted 将完成事件归档到 recent 列表，并根据结果推导线程状态。
 func (s *service) applyTurnCompleted(ev turndto.TurnCompleted) {
 	threadID := strings.TrimSpace(ev.ThreadID)
 	agentID := strings.TrimSpace(ev.AgentID)
@@ -439,6 +437,7 @@ func (s *service) applyTurnCompleted(ev turndto.TurnCompleted) {
 	})
 }
 
+// applyTurnResumed 恢复 turn 活动深度，并刷新线程 patch。
 func (s *service) applyTurnResumed(ev turndto.TurnResumed) {
 	threadID, agentID := strings.TrimSpace(ev.ThreadID), strings.TrimSpace(ev.AgentID)
 	applyMutation(s, threadID, func() {
@@ -447,6 +446,8 @@ func (s *service) applyTurnResumed(ev turndto.TurnResumed) {
 		}
 	}, func() uidto.UIThreadPatch { return s.refreshThreadPatchLocked(threadID, agentID, "turn/resumed") })
 }
+
+// applyTurnInputReceived 标记线程重新进入活动 turn，供 sidebar 状态立即更新。
 func (s *service) applyTurnInputReceived(ev turndto.TurnInputReceived) {
 	threadID, agentID := strings.TrimSpace(ev.ThreadID), strings.TrimSpace(ev.AgentID)
 	applyMutation(s, threadID, func() {
@@ -456,7 +457,8 @@ func (s *service) applyTurnInputReceived(ev turndto.TurnInputReceived) {
 	}, func() uidto.UIThreadPatch { return s.refreshThreadPatchLocked(threadID, agentID, "turn/inputReceived") })
 }
 
-// applyTurnOutputDelta 应用turnoutputdelta。
+// applyTurnOutputDelta 只将 message stream 增量拼接到线程和 agent 的 lastMessage。
+// 非 message stream 不参与 sidebar 摘要，避免 reasoning/tool 输出污染用户可读消息。
 func (s *service) applyTurnOutputDelta(ev turndto.TurnOutputDelta) {
 	stream, delta := strings.TrimSpace(ev.Stream), strings.TrimSpace(ev.Delta)
 	if s.logger != nil && uiOutputDeltaLogSampler.ShouldLog("received:"+stream) {

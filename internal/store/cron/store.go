@@ -11,6 +11,7 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/store/sqlc"
 )
 
+// querier 是 cron store 使用的 sqlc 查询子集，测试可用窄接口替身覆盖状态流转。
 type querier interface {
 	CreateCronJob(ctx context.Context, arg sqlc.CreateCronJobParams) (sqlc.CronJob, error)
 	GetCronJobByID(ctx context.Context, arg sqlc.GetCronJobByIDParams) (sqlc.CronJob, error)
@@ -37,15 +38,18 @@ type querier interface {
 	ListCronJobsClaimedBy(ctx context.Context, arg sqlc.ListCronJobsClaimedByParams) ([]sqlc.CronJob, error)
 }
 
+// store 实现 cron Store，所有数据库错误统一通过 wrap 带上 cron 操作名。
 type store struct{ q querier }
 
+// cronClaimBusyRetryAttempts 是 SQLite claim 遇到 busy 或 locked 时的有限重试次数。
 const cronClaimBusyRetryAttempts = 3
 
-// NewStore returns the production Store backed by the sqlc queries.
+// NewStore 使用 sqlc 查询对象创建生产 cron Store。
 func NewStore(q *sqlc.Queries) Store { return &store{q: q} }
 
-// ----- validation helpers -----
+// ----- 校验与转换辅助 -----
 
+// requireID 校验任务或运行记录 ID，空值会阻断写入和查询。
 func requireID(id string) (string, error) {
 	id = strings.TrimSpace(id)
 	if id == "" {
@@ -54,6 +58,7 @@ func requireID(id string) (string, error) {
 	return id, nil
 }
 
+// requireClaim 同时校验任务 ID 和 claim token，租约相关写操作必须持有二者。
 func requireClaim(id, token string) (string, string, error) {
 	id, err := requireID(id)
 	if err != nil {
@@ -65,6 +70,7 @@ func requireClaim(id, token string) (string, string, error) {
 	return id, token, nil
 }
 
+// ts 将 time.Time 转为毫秒时间戳，零值按 0 写入数据库。
 func ts(t time.Time) int64 {
 	if t.IsZero() {
 		return 0
@@ -72,6 +78,7 @@ func ts(t time.Time) int64 {
 	return platformdb.Millis(t)
 }
 
+// tsPtr 将可选时间转成毫秒指针，零值表示 SQL NULL。
 func tsPtr(t time.Time) *int64 {
 	if t.IsZero() {
 		return nil
@@ -80,6 +87,7 @@ func tsPtr(t time.Time) *int64 {
 	return &ms
 }
 
+// bytesOrDefault 为 JSON 配置字段提供显式默认字节，避免写入空 blob。
 func bytesOrDefault(b []byte, def string) []byte {
 	if len(b) == 0 {
 		return []byte(def)
@@ -87,8 +95,9 @@ func bytesOrDefault(b []byte, def string) []byte {
 	return b
 }
 
-// ----- jobs -----
+// ----- 任务 -----
 
+// CreateJob 校验必需字段并创建 cron job；schedule type 缺失时按存储契约写入 cron。
 func (s *store) CreateJob(ctx context.Context, p CreateJobParams) (Job, error) {
 	if _, err := requireID(p.ID); err != nil {
 		return Job{}, wrap(err, "create_job")
@@ -131,6 +140,7 @@ func (s *store) CreateJob(ctx context.Context, p CreateJobParams) (Job, error) {
 	return fromCronJob(row), nil
 }
 
+// GetJobByID 按 ID 读取 cron job，并把 sqlc not found 映射为领域错误。
 func (s *store) GetJobByID(ctx context.Context, id string) (Job, error) {
 	id, err := requireID(id)
 	if err != nil {
@@ -146,6 +156,7 @@ func (s *store) GetJobByID(ctx context.Context, id string) (Job, error) {
 	return fromCronJob(row), nil
 }
 
+// ListJobs 列出全部 cron job，并统一转换为领域 Job。
 func (s *store) ListJobs(ctx context.Context) ([]Job, error) {
 	rows, err := s.q.ListCronJobs(ctx)
 	if err != nil {
@@ -158,6 +169,7 @@ func (s *store) ListJobs(ctx context.Context) ([]Job, error) {
 	return out, nil
 }
 
+// DeleteJob 删除指定 cron job，空 ID 会在进入 sqlc 前被拒绝。
 func (s *store) DeleteJob(ctx context.Context, id string) error {
 	id, err := requireID(id)
 	if err != nil {
@@ -166,6 +178,7 @@ func (s *store) DeleteJob(ctx context.Context, id string) error {
 	return wrap(s.q.DeleteCronJob(ctx, sqlc.DeleteCronJobParams{ID: id}), "delete_job")
 }
 
+// UpdateJobSchedule 覆盖任务调度和执行配置，必需字段缺失时直接返回错误。
 func (s *store) UpdateJobSchedule(ctx context.Context, p UpdateJobScheduleParams) error {
 	if _, err := requireID(p.ID); err != nil {
 		return wrap(err, "update_job_schedule")
@@ -199,6 +212,7 @@ func (s *store) UpdateJobSchedule(ctx context.Context, p UpdateJobScheduleParams
 	}), "update_job_schedule")
 }
 
+// SetJobEnabled 切换任务启停状态，并同步更新时间戳。
 func (s *store) SetJobEnabled(ctx context.Context, id string, enabled bool, now time.Time) error {
 	id, err := requireID(id)
 	if err != nil {
@@ -211,6 +225,7 @@ func (s *store) SetJobEnabled(ctx context.Context, id string, enabled bool, now 
 	}), "set_job_enabled")
 }
 
+// PatchNextRunAt 只更新下一次调度时间，供 scheduler 在计算后持久化游标。
 func (s *store) PatchNextRunAt(ctx context.Context, id string, nextRunAt time.Time, now time.Time) error {
 	id, err := requireID(id)
 	if err != nil {
@@ -223,8 +238,10 @@ func (s *store) PatchNextRunAt(ctx context.Context, id string, nextRunAt time.Ti
 	}), "patch_next_run_at")
 }
 
-// ----- claim / lease -----
+// ----- 认领与租约 -----
 
+// ClaimDueJobsForUpdate 使用 claim token 抢占到期任务，并返回已转换的领域 Job。
+// SQLite busy 或 locked 只在有限次数内重试，避免 scheduler 长时间卡住。
 func (s *store) ClaimDueJobsForUpdate(ctx context.Context, p ClaimDueJobsForUpdateParams) ([]Job, error) {
 	if strings.TrimSpace(p.ClaimToken) == "" {
 		return nil, wrap(ErrEmptyClaimToken, "claim_due_jobs")
@@ -254,6 +271,7 @@ func (s *store) ClaimDueJobsForUpdate(ctx context.Context, p ClaimDueJobsForUpda
 	return out, nil
 }
 
+// claimDueJobsWithRetry 包装 SQLite 抢占时的短暂 busy 重试；ctx 取消时立即退出。
 func (s *store) claimDueJobsWithRetry(ctx context.Context, arg sqlc.ClaimDueJobsForUpdateParams) ([]sqlc.CronJob, error) {
 	var lastErr error
 	for attempt := 1; attempt <= cronClaimBusyRetryAttempts; attempt++ {
@@ -275,6 +293,7 @@ func (s *store) claimDueJobsWithRetry(ctx context.Context, arg sqlc.ClaimDueJobs
 	return nil, lastErr
 }
 
+// RenewLease 在 claim token 匹配时刷新租约，到期或 token 不匹配会返回领域错误。
 func (s *store) RenewLease(ctx context.Context, p LeaseParams) error {
 	id, token, err := requireClaim(p.ID, p.ClaimToken)
 	if err != nil {
@@ -295,6 +314,7 @@ func (s *store) RenewLease(ctx context.Context, p LeaseParams) error {
 	return nil
 }
 
+// ExtendClaim 只延长当前 claim 的租约，数据库拒绝缩短 TTL 或 token 不匹配时返回错误。
 func (s *store) ExtendClaim(ctx context.Context, p LeaseParams) error {
 	id, token, err := requireClaim(p.ID, p.ClaimToken)
 	if err != nil {
@@ -310,15 +330,14 @@ func (s *store) ExtendClaim(ctx context.Context, p LeaseParams) error {
 		return wrap(err, "extend_claim")
 	}
 	if rows == 0 {
-		// Either token mismatch or the caller asked for a shorter TTL
-		// than the current one. Both are benign from the store POV;
-		// expose token-mismatch as an error so upper layers can branch
-		// on it without accidentally downgrading TTLs.
+		// 受影响行数为 0 可能是 token 不匹配，也可能是调用方试图缩短 TTL。
+		// 两种情况都不能静默成功，上层需要按 ErrClaimTokenMismatch 分支处理。
 		return wrap(ErrClaimTokenMismatch, "extend_claim")
 	}
 	return nil
 }
 
+// ReleaseClaim 释放当前 claim，必须带匹配 token 才能避免误释放别的 worker 租约。
 func (s *store) ReleaseClaim(ctx context.Context, id, claimToken string, now time.Time) error {
 	id, token, err := requireClaim(id, claimToken)
 	if err != nil {
@@ -338,6 +357,7 @@ func (s *store) ReleaseClaim(ctx context.Context, id, claimToken string, now tim
 	return nil
 }
 
+// MarkFinished 在 claim token 匹配时标记任务完成，并写入下一次运行时间和最近 turn。
 func (s *store) MarkFinished(ctx context.Context, p MarkFinishedParams) error {
 	id, token, err := requireClaim(p.ID, p.ClaimToken)
 	if err != nil {
@@ -360,6 +380,7 @@ func (s *store) MarkFinished(ctx context.Context, p MarkFinishedParams) error {
 	return nil
 }
 
+// MarkFailed 在 claim token 匹配时记录失败信息，空状态按 failed 持久化。
 func (s *store) MarkFailed(ctx context.Context, p MarkFailedParams) error {
 	id, token, err := requireClaim(p.ID, p.ClaimToken)
 	if err != nil {
@@ -389,6 +410,7 @@ func (s *store) MarkFailed(ctx context.Context, p MarkFailedParams) error {
 	return nil
 }
 
+// SetActiveTurn 记录当前运行中的 thread 和 turn，只有持有 claim 的 worker 可以更新。
 func (s *store) SetActiveTurn(ctx context.Context, p SetActiveTurnParams) error {
 	id, token, err := requireClaim(p.ID, p.ClaimToken)
 	if err != nil {
@@ -411,8 +433,9 @@ func (s *store) SetActiveTurn(ctx context.Context, p SetActiveTurnParams) error 
 	return nil
 }
 
-// ----- runs -----
+// ----- 运行记录 -----
 
+// InsertRun 创建一次 cron job run 记录，空状态按 pending 写入。
 func (s *store) InsertRun(ctx context.Context, p InsertRunParams) (Run, error) {
 	if _, err := requireID(p.ID); err != nil {
 		return Run{}, wrap(err, "insert_run")
@@ -440,6 +463,7 @@ func (s *store) InsertRun(ctx context.Context, p InsertRunParams) (Run, error) {
 	return fromCronJobRun(row), nil
 }
 
+// CASRunStatus 通过期望状态做原子状态转换，失败时返回状态流转被拒绝。
 func (s *store) CASRunStatus(ctx context.Context, p CASRunStatusParams) error {
 	if _, err := requireID(p.ID); err != nil {
 		return wrap(err, "cas_run_status")
@@ -460,6 +484,7 @@ func (s *store) CASRunStatus(ctx context.Context, p CASRunStatusParams) error {
 	return nil
 }
 
+// SetRunTurn 绑定 run 与实际提交的 turn 信息，未命中运行记录时返回领域 not found。
 func (s *store) SetRunTurn(ctx context.Context, p SetRunTurnParams) error {
 	if _, err := requireID(p.ID); err != nil {
 		return wrap(err, "set_run_turn")
@@ -481,6 +506,7 @@ func (s *store) SetRunTurn(ctx context.Context, p SetRunTurnParams) error {
 	return nil
 }
 
+// GetRunByID 按运行记录 ID 读取 Run，并统一处理 not found 映射。
 func (s *store) GetRunByID(ctx context.Context, id string) (Run, error) {
 	id, err := requireID(id)
 	if err != nil {
@@ -496,6 +522,7 @@ func (s *store) GetRunByID(ctx context.Context, id string) (Run, error) {
 	return fromCronJobRun(row), nil
 }
 
+// GetRunByDedupeKey 通过幂等键读取运行记录，空 key 按未找到处理。
 func (s *store) GetRunByDedupeKey(ctx context.Context, dedupeKey string) (Run, error) {
 	key := strings.TrimSpace(dedupeKey)
 	if key == "" {
@@ -511,6 +538,7 @@ func (s *store) GetRunByDedupeKey(ctx context.Context, dedupeKey string) (Run, e
 	return fromCronJobRun(row), nil
 }
 
+// ListRunsByJob 列出指定任务的运行记录，未传 limit 时使用 100 条窗口限制返回量。
 func (s *store) ListRunsByJob(ctx context.Context, jobID string, limit int32) ([]Run, error) {
 	jobID, err := requireID(jobID)
 	if err != nil {
@@ -533,6 +561,7 @@ func (s *store) ListRunsByJob(ctx context.Context, jobID string, limit int32) ([
 	return out, nil
 }
 
+// ListUnresolvedRuns 列出仍需调度器收尾处理的运行记录。
 func (s *store) ListUnresolvedRuns(ctx context.Context) ([]Run, error) {
 	rows, err := s.q.ListUnresolvedCronJobRuns(ctx)
 	if err != nil {
@@ -545,6 +574,7 @@ func (s *store) ListUnresolvedRuns(ctx context.Context) ([]Run, error) {
 	return out, nil
 }
 
+// firstNonEmpty 返回第一个非空字符串，用于保留调用方显式传入的调度类型。
 func firstNonEmpty(a, b string) string {
 	if strings.TrimSpace(a) != "" {
 		return a
@@ -552,6 +582,7 @@ func firstNonEmpty(a, b string) string {
 	return b
 }
 
+// GetRunningRunByTurnID 按 turn ID 查找仍在运行中的 Run，供 turn 回调定位 cron run。
 func (s *store) GetRunningRunByTurnID(ctx context.Context, turnID string) (Run, error) {
 	turnID = strings.TrimSpace(turnID)
 	if turnID == "" {
@@ -567,6 +598,7 @@ func (s *store) GetRunningRunByTurnID(ctx context.Context, turnID string) (Run, 
 	return fromCronJobRun(row), nil
 }
 
+// ListJobsClaimedBy 列出指定 worker 当前持有的任务，空 claimedBy 不触发全表扫描。
 func (s *store) ListJobsClaimedBy(ctx context.Context, claimedBy string) ([]Job, error) {
 	claimedBy = strings.TrimSpace(claimedBy)
 	if claimedBy == "" {
@@ -583,6 +615,7 @@ func (s *store) ListJobsClaimedBy(ctx context.Context, claimedBy string) ([]Job,
 	return out, nil
 }
 
+// boolToInt 将 Go bool 转成 SQLite 使用的 0/1 整数。
 func boolToInt(b bool) int64 {
 	if b {
 		return 1
@@ -590,6 +623,7 @@ func boolToInt(b bool) int64 {
 	return 0
 }
 
+// wrap 为 cron store 错误附加操作名和实体名，保留上层 errors.Is 判断能力。
 func wrap(err error, operation string) error {
 	return platformdb.WrapStoreError(err, operation, "cron")
 }

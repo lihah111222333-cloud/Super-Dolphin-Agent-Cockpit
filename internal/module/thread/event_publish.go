@@ -35,7 +35,7 @@ func (s *service) publishThreadLaunched(state threadState) {
 }
 
 func (s *service) publishThreadStopped(threadID, agentID, status, reason string) {
-	// Only WARN for non-intentional / suspect statuses; normal stops use Info.
+	// 非用户主动停止的归档状态用 WARN 标记；正常停止只走 Info，避免告警噪声。
 	if status == statusArchived {
 		pkglogger.Warn("thread: publishThreadStopped ARCHIVED",
 			"thread_id", threadID,
@@ -73,6 +73,8 @@ func (s *service) publishMessagesPage(threadID string, totalCount, pages int) {
 	s.emitMessagesPage(event.(threaddto.MessagesPage))
 }
 
+// threadTraceSpan 保存一次 thread 操作的 trace 上下文和事件公共字段。
+// Start 和 SpawnIfNeeded 会在执行前创建 span，结束时复用同一份字段记录 done/error。
 type threadTraceSpan struct {
 	ctx       context.Context
 	trace     observability.TraceContext
@@ -84,6 +86,9 @@ type threadTraceSpan struct {
 	startedAt time.Time
 }
 
+// beginThreadTraceSpan 为 thread start/spawn 创建子 span 并立即记录 begin 事件。
+// 它会继承传入 context 的 trace id 和 parent span；没有上游 trace 时生成新的 trace id，
+// 并把新 span 写回 context，保证后续 provider 启动、状态持久化和事件发布共享同一条观测链路。
 func (s *service) beginThreadTraceSpan(
 	ctx context.Context,
 	kind, threadID, agentID string,
@@ -115,6 +120,8 @@ func (s *service) beginThreadTraceSpan(
 	return span
 }
 
+// finishThreadTraceSpan 根据最终错误状态记录 done 或 error 事件。
+// 调用方通过 defer 执行它，因此即使 start/spawn 中途失败也能保留耗时和错误消息。
 func (s *service) finishThreadTraceSpan(span threadTraceSpan, err error) {
 	status := observability.StatusOK
 	message := ""
@@ -127,6 +134,8 @@ func (s *service) finishThreadTraceSpan(span threadTraceSpan, err error) {
 	s.recordThreadTraceEvent(span, phase, status, time.Since(span.startedAt).Milliseconds(), message)
 }
 
+// recordThreadTraceEvent 将 thread trace span 转换为 observability.TraceEvent 并写入观测服务。
+// tracing 未装配时直接跳过；写入失败只记录 warning，不反向影响线程启动、恢复或事件发布主流程。
 func (s *service) recordThreadTraceEvent(
 	span threadTraceSpan,
 	phase string,

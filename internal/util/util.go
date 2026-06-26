@@ -1,6 +1,5 @@
-// Package util provides lightweight, dependency-free helpers shared across
-// the module layer.  Functions here have no internal/* imports beyond the
-// standard library and pkg/logger.
+// Package util 放置模块层共享的轻量 helper。
+// 本包避免依赖 internal/*，防止通用工具把模块依赖方向拉乱。
 package util
 
 import (
@@ -10,14 +9,12 @@ import (
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
-// FirstNonEmpty returns the first non-blank (after TrimSpace) value, or "".
-// FirstNonEmpty 处理firstnonempty。
+// FirstNonEmpty 返回第一个 TrimSpace 后非空的值，所有值为空时返回空字符串。
 func FirstNonEmpty(values ...string) string {
 	return FirstTrimmed(values...)
 }
 
-// FirstTrimmed returns the first value that is non-empty after TrimSpace.
-// FirstTrimmed 处理firsttrimmed。
+// FirstTrimmed 返回第一个 TrimSpace 后非空的值，并返回裁剪后的结果。
 func FirstTrimmed(values ...string) string {
 	for _, value := range values {
 		if value = strings.TrimSpace(value); value != "" {
@@ -27,8 +24,7 @@ func FirstTrimmed(values ...string) string {
 	return ""
 }
 
-// ClampLimit clamps val into [min, max] with a default fallback.
-// ClampLimit 返回clamplimit。
+// ClampLimit 将分页或数量限制收敛到允许范围；低于 min 时使用调用方给出的默认值。
 func ClampLimit(val, min, max, defaultVal int) int {
 	if val < min {
 		return defaultVal
@@ -39,8 +35,7 @@ func ClampLimit(val, min, max, defaultVal int) int {
 	return val
 }
 
-// NonNilContext returns ctx, or context.Background() if ctx is nil.
-// NonNilContext 处理nonnil上下文。
+// NonNilContext 为 nil context 提供 Background，便于下游统一传递。
 func NonNilContext(ctx context.Context) context.Context {
 	if ctx == nil {
 		return context.Background()
@@ -48,16 +43,15 @@ func NonNilContext(ctx context.Context) context.Context {
 	return ctx
 }
 
-// LogIgnoredError logs an error that is intentionally not propagated.
-// LogIgnoredError 处理日志ignored错误。
+// LogIgnoredError 记录被调用方明确选择不继续传播的错误。
+// logger 或 err 为空时不输出，避免清理路径产生额外噪声。
 func LogIgnoredError(logger *pkglogger.Logger, msg string, err error) {
 	if err != nil && logger != nil {
 		logger.Warn(msg, "error", err)
 	}
 }
 
-// IsRemoteTurnInput returns true if value looks like an HTTP(S) URL.
-// IsRemoteTurnInput 判断remoteturninput是否可用。
+// IsRemoteTurnInput 判断 turn 输入是否是 HTTP(S) 远程地址。
 func IsRemoteTurnInput(value string) bool {
 	value = strings.TrimSpace(value)
 	return strings.HasPrefix(value, "http://") || strings.HasPrefix(value, "https://")

@@ -29,7 +29,9 @@ type MemoryIndexEntry struct {
 	CanonicalName string
 }
 
-// ParseMemoryIndex 解析记忆索引。
+// ParseMemoryIndex 解析 MEMORY.md 指针索引。
+// 输入会先清理 BOM 和 CRLF；任一非空行格式不符合索引语法时立即返回错误，
+// 避免损坏索引被部分接受。
 func ParseMemoryIndex(content string) ([]MemoryIndexEntry, error) {
 	content = parse.StripUTF8BOM(content)
 	lines := strings.Split(strings.ReplaceAll(content, "\r\n", "\n"), "\n")
@@ -48,7 +50,8 @@ func ParseMemoryIndex(content string) ([]MemoryIndexEntry, error) {
 	return entries, nil
 }
 
-// ReadMemoryIndex 读取记忆索引。
+// ReadMemoryIndex 从磁盘读取并解析 MEMORY.md。
+// 读取路径必须先通过根目录包含校验，防止调用方传入越界路径读取任意文件。
 func ReadMemoryIndex(path string) ([]MemoryIndexEntry, error) {
 	validatedPath, err := ValidateMemoryReadPath(filepath.Dir(path), path)
 	if err != nil {
@@ -61,7 +64,8 @@ func ReadMemoryIndex(path string) ([]MemoryIndexEntry, error) {
 	return ParseMemoryIndex(string(content))
 }
 
-// WriteMemoryIndex 写入记忆索引。
+// WriteMemoryIndex 根据记忆条目重写根目录下的 MEMORY.md。
+// 写入使用原子替换，索引内容只保存指针和短 hook，不内联完整记忆正文。
 func WriteMemoryIndex(root string, entries []MemoryEntry) error {
 	indexEntries, err := buildMemoryIndex(root, entries)
 	if err != nil {
@@ -70,7 +74,8 @@ func WriteMemoryIndex(root string, entries []MemoryEntry) error {
 	return writeAtomicFile(memoryIndexPath(root), []byte(formatMemoryIndex(indexEntries)), 0o644)
 }
 
-// UpdateMemoryIndex 更新记忆索引。
+// UpdateMemoryIndex 重新扫描根目录并刷新 MEMORY.md。
+// 扫描失败或索引写入失败都会返回错误，调用方不能继续假定索引已更新。
 func UpdateMemoryIndex(root string) ([]MemoryIndexEntry, error) {
 	entries, err := scanMemoryEntries(root)
 	if err != nil {
@@ -82,12 +87,14 @@ func UpdateMemoryIndex(root string) ([]MemoryIndexEntry, error) {
 	return buildMemoryIndex(root, entries)
 }
 
-// RebuildMemoryIndex 处理rebuild记忆索引。
+// RebuildMemoryIndex 是对 UpdateMemoryIndex 的兼容入口。
+// 保留该名称供外部恢复流程调用，实际重建语义统一由 UpdateMemoryIndex 维护。
 func RebuildMemoryIndex(root string) ([]MemoryIndexEntry, error) {
 	return UpdateMemoryIndex(root)
 }
 
-// scanMemoryEntries 扫描记忆条目。
+// scanMemoryEntries 扫描根目录下可进入索引的记忆条目。
+// 不存在的根目录返回空列表；遍历过程中遇到非法路径或解析错误会立即失败。
 func scanMemoryEntries(root string) ([]MemoryEntry, error) {
 	exists, err := memoryEntriesRootExists(root)
 	if err != nil {
@@ -117,6 +124,8 @@ func scanMemoryEntries(root string) ([]MemoryEntry, error) {
 	return entries, nil
 }
 
+// memoryEntriesRootExists 判断记忆根目录是否存在。
+// 不存在不是错误，调用方可据此生成空索引；其它 stat 错误需要上抛。
 func memoryEntriesRootExists(root string) (bool, error) {
 	if _, err := os.Stat(root); errorsIsNotExist(err) {
 		return false, nil
@@ -126,7 +135,8 @@ func memoryEntriesRootExists(root string) (bool, error) {
 	return true, nil
 }
 
-// scannedMemoryEntry 处理scanned记忆条目。
+// scannedMemoryEntry 处理 WalkDir 扫描到的单个路径。
+// 它会跳过索引文件和整理日志目录，并对候选 markdown 再做读路径校验。
 func scannedMemoryEntry(root, path string, d fs.DirEntry, walkErr error) (MemoryEntry, bool, bool, error) {
 	if walkErr != nil {
 		return MemoryEntry{}, false, false, walkErr
@@ -147,12 +157,16 @@ func scannedMemoryEntry(root, path string, d fs.DirEntry, walkErr error) (Memory
 	return entry, false, true, nil
 }
 
+// shouldSkipScannedMemoryPath 判断扫描路径是否不应进入记忆索引。
+// MEMORY.md 和 consolidation 日志不是用户记忆正文，必须从索引重建中排除。
 func shouldSkipScannedMemoryPath(root, path string) bool {
 	return filepath.Ext(path) != ".md" ||
 		filepath.Base(path) == memoryIndexFileName ||
 		isConsolidationLogPath(root, path)
 }
 
+// readMemoryEntryFile 读取单个记忆文件并补齐运行时索引字段。
+// frontmatter 缺 name 时使用文件名兜底，但 canonical name 始终按最终名称生成。
 func readMemoryEntryFile(path string) (MemoryEntry, error) {
 	parsed, err := ParseMemoryFile(path)
 	if err != nil {
@@ -172,6 +186,8 @@ func readMemoryEntryFile(path string) (MemoryEntry, error) {
 	return entry, nil
 }
 
+// buildMemoryIndex 将去重后的记忆条目转换为 MEMORY.md 指针行。
+// 同名条目只保留最新版本，避免索引中出现多个 canonical name 相同的入口。
 func buildMemoryIndex(root string, entries []MemoryEntry) ([]MemoryIndexEntry, error) {
 	uniqueEntries := uniqueEntriesByCanonicalName(entries)
 	indexEntries := make([]MemoryIndexEntry, 0, len(uniqueEntries))
@@ -190,6 +206,8 @@ func buildMemoryIndex(root string, entries []MemoryEntry) ([]MemoryIndexEntry, e
 	return indexEntries, nil
 }
 
+// formatMemoryIndex 把索引条目渲染为 MEMORY.md 文本。
+// 空索引返回空字符串；非空索引以换行结尾，保持文件写入稳定。
 func formatMemoryIndex(entries []MemoryIndexEntry) string {
 	lines := make([]string, 0, len(entries))
 	for _, entry := range entries {
@@ -205,7 +223,8 @@ func formatMemoryIndex(entries []MemoryIndexEntry) string {
 	return strings.Join(lines, "\n") + "\n"
 }
 
-// formatMemoryEntry 格式化记忆条目。
+// formatMemoryEntry 将结构化记忆条目序列化为 markdown 文件。
+// frontmatter 字段使用 JSON 字符串编码，避免标题、描述或别名中的特殊字符破坏解析。
 func formatMemoryEntry(entry MemoryEntry) string {
 	frontmatter := entry.Frontmatter
 	lines := []string{
@@ -233,6 +252,8 @@ func formatMemoryEntry(entry MemoryEntry) string {
 	return strings.Join(lines, "\n")
 }
 
+// parseIndexLine 解析 MEMORY.md 中的一条指针行。
+// 格式必须是 markdown link，可选 hook 只在右括号后用破折号承载。
 func parseIndexLine(line string) (MemoryIndexEntry, error) {
 	if !strings.HasPrefix(line, "- [") {
 		return MemoryIndexEntry{}, fmt.Errorf("invalid MEMORY.md line: %q", line)
@@ -253,7 +274,8 @@ func parseIndexLine(line string) (MemoryIndexEntry, error) {
 	return entry, nil
 }
 
-// parseMemoryFrontmatter 解析记忆frontmatter。
+// parseMemoryFrontmatter 解析记忆文件 frontmatter。
+// 仅识别当前 schema 支持的字段；未知字段会被忽略，避免旧数据扩展阻断读取。
 func parseMemoryFrontmatter(frontmatter string) MemoryFrontmatter {
 	parsed := MemoryFrontmatter{}
 	for line := range strings.SplitSeq(frontmatter, "\n") {
@@ -283,6 +305,8 @@ func parseMemoryFrontmatter(frontmatter string) MemoryFrontmatter {
 	return parsed
 }
 
+// assignMemoryFrontmatterScalar 写入 title/source 这类标量扩展字段。
+// 该函数集中处理可选字段，防止主解析 switch 继续膨胀。
 func assignMemoryFrontmatterScalar(parsed *MemoryFrontmatter, key, value string) {
 	value = parseScalar(value)
 	switch key {
@@ -293,6 +317,8 @@ func assignMemoryFrontmatterScalar(parsed *MemoryFrontmatter, key, value string)
 	}
 }
 
+// normalizeLoadedEntry 规整从磁盘加载的记忆条目。
+// 它会裁剪正文和字段空白，并把类型重新解析到已知枚举，避免脏 frontmatter 泄漏到索引。
 func normalizeLoadedEntry(entry MemoryEntry) MemoryEntry {
 	entry.Frontmatter.Name = strings.Join(strings.Fields(entry.Frontmatter.Name), " ")
 	entry.Frontmatter.Description = strings.Join(strings.Fields(entry.Frontmatter.Description), " ")
@@ -306,6 +332,8 @@ func normalizeLoadedEntry(entry MemoryEntry) MemoryEntry {
 	return entry
 }
 
+// parseScalar 解析 frontmatter 标量值。
+// 优先按 JSON 字符串解码，失败时兼容裸字符串和简单引号包裹写法。
 func parseScalar(raw string) string {
 	raw = strings.TrimSpace(raw)
 	if raw == "" {
@@ -318,7 +346,8 @@ func parseScalar(raw string) string {
 	return strings.Trim(strings.TrimSpace(raw), "\"'")
 }
 
-// parseStringList 解析stringlist。
+// parseStringList 解析 frontmatter 中的字符串列表。
+// 兼容 JSON 数组和逗号分隔写法，最终通过 normalizeStringSlice 去重和清洗。
 func parseStringList(raw string) []string {
 	raw = strings.TrimSpace(raw)
 	if raw == "" {
@@ -341,6 +370,8 @@ func parseStringList(raw string) []string {
 	return normalizeStringSlice(values)
 }
 
+// hookFromEntry 生成 MEMORY.md 索引中的短 hook。
+// 优先使用 description，缺失时取正文首个非空行，并按固定 rune 预算截断。
 func hookFromEntry(entry MemoryEntry) string {
 	hook := strings.TrimSpace(entry.Frontmatter.Description)
 	if hook == "" {
@@ -350,11 +381,15 @@ func hookFromEntry(entry MemoryEntry) string {
 	return truncateRunes(hook, memoryHookMaxRunes)
 }
 
+// formatStringList 将字符串列表编码为 frontmatter 可读的 JSON 数组。
+// json.Marshal 对 []string 不应失败，失败时沿用空字符串语义。
 func formatStringList(values []string) string {
 	encoded, _ := json.Marshal(values)
 	return string(encoded)
 }
 
+// truncateRunes 按 rune 数截断文本。
+// 该函数用于 prompt hook 等展示字段，不按字节截断以避免切碎多字节字符。
 func truncateRunes(text string, limit int) string {
 	if limit <= 0 {
 		return ""
@@ -366,6 +401,8 @@ func truncateRunes(text string, limit int) string {
 	return strings.TrimSpace(string(runes[:limit]))
 }
 
+// firstNonEmptyLine 返回文本的第一条非空行。
+// 自动整理生成 description 时用它提取最短可读摘要。
 func firstNonEmptyLine(text string) string {
 	for line := range strings.SplitSeq(text, "\n") {
 		line = strings.TrimSpace(line)
@@ -376,12 +413,15 @@ func firstNonEmptyLine(text string) string {
 	return ""
 }
 
+// fallbackEntryName 从文件名生成缺省记忆名称。
+// 仅在旧文件缺少 name frontmatter 时使用，避免索引中出现空标题。
 func fallbackEntryName(path string) string {
 	base := strings.TrimSuffix(filepath.Base(path), filepath.Ext(path))
 	return strings.Join(strings.Fields(base), " ")
 }
 
-// uniqueEntriesByCanonicalName 按canonical名称处理unique条目。
+// uniqueEntriesByCanonicalName 按 canonical name 去重记忆条目。
+// 同名冲突时保留更新时间最新的文件，时间相同则用路径排序保证结果稳定。
 func uniqueEntriesByCanonicalName(entries []MemoryEntry) []MemoryEntry {
 	if len(entries) == 0 {
 		return nil
@@ -405,6 +445,8 @@ func uniqueEntriesByCanonicalName(entries []MemoryEntry) []MemoryEntry {
 	return uniqueEntries
 }
 
+// preferMemoryEntry 判断候选条目是否应替换当前同名条目。
+// 更新时间优先，路径作为稳定 tie-breaker，保证重建索引可重复。
 func preferMemoryEntry(candidate, current MemoryEntry) bool {
 	if candidate.UpdatedAt.Equal(current.UpdatedAt) {
 		return candidate.FilePath < current.FilePath
@@ -412,6 +454,8 @@ func preferMemoryEntry(candidate, current MemoryEntry) bool {
 	return candidate.UpdatedAt.After(current.UpdatedAt)
 }
 
+// sortEntries 按 canonical name 和文件路径稳定排序记忆条目。
+// 索引写入依赖该顺序，减少无意义 diff。
 func sortEntries(entries []MemoryEntry) {
 	sort.Slice(entries, func(i, j int) bool {
 		left := entries[i].CanonicalName
@@ -423,17 +467,20 @@ func sortEntries(entries []MemoryEntry) {
 	})
 }
 
+// errorsIsNotExist 判断错误是否为 os.IsNotExist。
+// nil 错误返回 false，便于 stat 分支直接调用。
 func errorsIsNotExist(err error) bool {
 	return err != nil && os.IsNotExist(err)
 }
 
 const (
-	// memoryFileBaseMaxBytes mirrors the legacy memory project-key budget, but
-	// filename truncation below must be UTF-8 aware because macOS rejects paths
-	// that split a multibyte rune with "illegal byte sequence".
+	// memoryFileBaseMaxBytes 是记忆文件名主体的字节预算。
+	// 截断必须保持 UTF-8 完整；macOS 会拒绝切断多字节字符的路径。
 	memoryFileBaseMaxBytes = 96
 )
 
+// memoryFileBase 为记忆名称生成稳定文件名主体。
+// 名称没有可 slug 化字符时退回短 hash，避免生成空文件名。
 func memoryFileBase(name string) string {
 	if !hasSlugRune(name) {
 		return "mem-" + shared.ShortHash(CanonicalName(name))
@@ -441,7 +488,8 @@ func memoryFileBase(name string) string {
 	return memoryFileSlug(name)
 }
 
-// memoryFileSlug 处理记忆文件slug。
+// memoryFileSlug 将记忆名称转换为可读、稳定且有字节上限的 slug。
+// 超限时保留前缀并追加短 hash，避免不同长名称截断后碰撞。
 func memoryFileSlug(raw string) string {
 	normalized := norm.NFC.String(strings.TrimSpace(raw))
 	var builder strings.Builder
@@ -471,7 +519,8 @@ func memoryFileSlug(raw string) string {
 	return prefix + "-" + shared.ShortHash(normalized)
 }
 
-// truncateUTF8Bytes 截断utf8bytes。
+// truncateUTF8Bytes 按字节预算截断字符串且不切断 UTF-8 rune。
+// 文件名预算以字节计，但路径必须保持有效 UTF-8。
 func truncateUTF8Bytes(text string, maxBytes int) string {
 	if maxBytes <= 0 || strings.TrimSpace(text) == "" {
 		return ""
@@ -493,6 +542,8 @@ func truncateUTF8Bytes(text string, maxBytes int) string {
 	return builder.String()
 }
 
+// hasSlugRune 判断文本中是否存在可用于 slug 的字母或数字。
+// 没有可用字符时文件名必须走 hash 兜底。
 func hasSlugRune(text string) bool {
 	for _, r := range text {
 		if unicode.IsLetter(r) || unicode.IsDigit(r) {

@@ -16,6 +16,8 @@ var (
 	ErrTimeout  = errors.New("store: timeout")
 )
 
+// StoreError 为 store 层错误补充操作、实体和分类信息。
+// Err 保留原始原因，Kind 用于 errors.Is 归类，调用方可以同时拿到人类可读上下文和稳定错误类型。
 type StoreError struct {
 	Operation string
 	Entity    string
@@ -23,7 +25,7 @@ type StoreError struct {
 	Err       error
 }
 
-// Error 返回错误文本。
+// Error 按已有操作和实体字段拼出 store 错误文本。
 func (e *StoreError) Error() string {
 	switch {
 	case e.Operation == "" && e.Entity == "":
@@ -37,10 +39,10 @@ func (e *StoreError) Error() string {
 	}
 }
 
-// Unwrap 返回底层错误。
+// Unwrap 返回底层错误，保留 errors.Is/As 穿透能力。
 func (e *StoreError) Unwrap() error { return e.Err }
 
-// Is 判断平台数据库是否可用。
+// Is 先按 store 分类匹配，再回落到底层错误链。
 func (e *StoreError) Is(target error) bool {
 	if e.Kind != nil && target == e.Kind {
 		return true
@@ -48,7 +50,8 @@ func (e *StoreError) Is(target error) bool {
 	return errors.Is(e.Err, target)
 }
 
-// WrapStoreError 包装存储错误。
+// WrapStoreError 为 store 错误附加操作和实体上下文。
+// 已经是 StoreError 时保持原样，避免重复包装改变外层错误分类。
 func WrapStoreError(err error, operation, entity string) error {
 	if err == nil {
 		return nil
@@ -65,17 +68,17 @@ func WrapStoreError(err error, operation, entity string) error {
 	}
 }
 
-// IsNotFound 判断notfound是否可用。
+// IsNotFound 判断错误是否表示记录不存在。
 func IsNotFound(err error) bool {
 	return errors.Is(err, ErrNotFound) || errors.Is(err, sql.ErrNoRows)
 }
 
-// IsConflict 判断conflict是否可用。
+// IsConflict 判断错误是否表示持久化冲突或唯一约束冲突。
 func IsConflict(err error) bool {
 	return errors.Is(err, ErrConflict) || IsUniqueViolation(err)
 }
 
-// IsTimeout 判断超时是否可用。
+// IsTimeout 判断错误是否属于超时或 SQLite 写入锁竞争。
 func IsTimeout(err error) bool {
 	if errors.Is(err, ErrTimeout) || errors.Is(err, context.DeadlineExceeded) {
 		return true

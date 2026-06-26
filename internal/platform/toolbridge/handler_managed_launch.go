@@ -6,10 +6,9 @@ import (
 	"strings"
 )
 
-// This file contains all logic for injecting managed launch context
-// (provider / model / effort) into orchestration_launch_agent tool
-// calls, including preference resolution and compatibility checks.
+// 本文件负责把当前 provider/model/effort 上下文注入 launch_agent 与 DAG agent 节点。
 
+// injectManagedLaunchContext 根据工具名分发 managed launch 参数注入逻辑。
 func (h *Handler) injectManagedLaunchContext(ctx context.Context, req ToolCallRequest) ToolCallRequest {
 	switch {
 	case isManagedLaunchToolName(req.Name):
@@ -21,7 +20,8 @@ func (h *Handler) injectManagedLaunchContext(ctx context.Context, req ToolCallRe
 	}
 }
 
-// injectManagedLaunchToolContext 处理injectmanaged启动工具上下文。
+// injectManagedLaunchToolContext 为单个 launch_agent 调用继承当前线程的启动上下文。
+// 只补缺省参数，不覆盖调用方显式传入的 provider/model/effort/cwd。
 func (h *Handler) injectManagedLaunchToolContext(ctx context.Context, req ToolCallRequest) ToolCallRequest {
 	binding, ok := h.resolveCurrentToolCallBinding(ctx, req)
 	if !ok || strings.TrimSpace(binding.AgentID) == "" {
@@ -78,6 +78,7 @@ func managedLaunchParentThreadID(req ToolCallRequest, binding toolCallBinding) s
 	return firstNonEmptyString(binding.CodexThreadID, binding.AgentID, req.AgentID, binding.ProviderThreadID, req.ThreadID)
 }
 
+// isManagedLaunchToolName 判断工具名是否为单 agent 启动入口。
 func isManagedLaunchToolName(name string) bool {
 	switch strings.TrimSpace(name) {
 	case "launch_agent", "orchestration_launch_agent":
@@ -87,6 +88,7 @@ func isManagedLaunchToolName(name string) bool {
 	}
 }
 
+// resolveManagedLaunchDefaults 按 UI 偏好和父线程 runtime 计算子 agent 默认启动参数。
 func (h *Handler) resolveManagedLaunchDefaults(ctx context.Context, binding toolCallBinding, args map[string]any, launchCWD string) (string, string, string) {
 	provider, prefModel, prefEffort := h.resolveManagedLaunchDefaultsFromPreferences(ctx, binding, args, launchCWD)
 	model, effort := h.resolveManagedLaunchModelEffortFromParent(ctx, binding)
@@ -94,6 +96,7 @@ func (h *Handler) resolveManagedLaunchDefaults(ctx context.Context, binding tool
 	return provider, firstNonEmptyString(model, prefModel), firstNonEmptyString(effort, prefEffort)
 }
 
+// resolveManagedLaunchModelEffortFromParent 从父线程 runtime 中读取已使用的模型与 effort。
 func (h *Handler) resolveManagedLaunchModelEffortFromParent(ctx context.Context, binding toolCallBinding) (string, string) {
 	for _, threadID := range []string{binding.AgentID, binding.CodexThreadID, binding.ProviderThreadID} {
 		stored, ok := h.readStoredThreadRuntime(ctx, threadID)
@@ -110,6 +113,7 @@ func (h *Handler) resolveManagedLaunchModelEffortFromParent(ctx context.Context,
 	return "", ""
 }
 
+// resolveManagedLaunchDefaultsFromPreferences 读取 UI provider 偏好作为新 agent 的默认值。
 func (h *Handler) resolveManagedLaunchDefaultsFromPreferences(ctx context.Context, binding toolCallBinding, args map[string]any, launchCWD string) (string, string, string) {
 	prefs, ok := h.readMergedUIPreferences(ctx, firstNonEmptyString(mapString(args, "cwd"), launchCWD, binding.CWD))
 	if !ok {
@@ -126,6 +130,7 @@ func (h *Handler) resolveManagedLaunchDefaultsFromPreferences(ctx context.Contex
 	return provider, firstNonEmptyString(model, defaultModel), firstNonEmptyString(effort, defaultEffort)
 }
 
+// readMergedUIPreferences 读取指定 cwd 的合并 UI 偏好；失败只记录告警并允许后续来源接管。
 func (h *Handler) readMergedUIPreferences(ctx context.Context, cwd string) (map[string]any, bool) {
 	if h == nil || h.preferences == nil {
 		return nil, false
@@ -140,6 +145,7 @@ func (h *Handler) readMergedUIPreferences(ctx context.Context, cwd string) (map[
 	return prefs, true
 }
 
+// preferenceString 从偏好 map 中读取字符串值。
 func preferenceString(values map[string]any, key string) string {
 	if len(values) == 0 {
 		return ""
@@ -155,7 +161,7 @@ func preferenceString(values map[string]any, key string) string {
 	return strings.TrimSpace(text)
 }
 
-// normalizeProviderPreferenceScope 规范化providerpreference作用域。
+// normalizeProviderPreferenceScope 统一 provider 偏好作用域名称，兼容 Claude/Codex 的别名。
 func normalizeProviderPreferenceScope(provider string) string {
 	normalized := strings.ToLower(strings.TrimSpace(provider))
 	switch {
@@ -168,6 +174,7 @@ func normalizeProviderPreferenceScope(provider string) string {
 	}
 }
 
+// defaultProviderLaunchConfig 返回 provider 对应的默认模型与 effort。
 func defaultProviderLaunchConfig(provider string) (string, string) {
 	if normalizeProviderPreferenceScope(provider) == "claude" {
 		return "sonnet", "high"
@@ -175,6 +182,7 @@ func defaultProviderLaunchConfig(provider string) (string, string) {
 	return "gpt-5.5", "xhigh"
 }
 
+// compatibleManagedLaunchModelEffort 过滤与目标 provider 不兼容的模型和 effort。
 func compatibleManagedLaunchModelEffort(provider, model, effort string) (string, string) {
 	provider = normalizeProviderPreferenceScope(provider)
 	model = strings.TrimSpace(model)
@@ -188,7 +196,7 @@ func compatibleManagedLaunchModelEffort(provider, model, effort string) (string,
 	return model, effort
 }
 
-// managedLaunchModelCompatible 处理managed启动模型compatible。
+// managedLaunchModelCompatible 判断模型名是否能用于目标 provider。
 func managedLaunchModelCompatible(provider, model string) bool {
 	model = strings.ToLower(strings.TrimSpace(model))
 	if model == "" {
@@ -202,6 +210,7 @@ func managedLaunchModelCompatible(provider, model string) bool {
 	return strings.HasPrefix(model, "gpt-")
 }
 
+// managedLaunchEffortCompatible 判断 effort 是否能用于目标 provider。
 func managedLaunchEffortCompatible(provider, effort string) bool {
 	switch strings.ToLower(strings.TrimSpace(effort)) {
 	case "high", "medium", "low":
@@ -215,6 +224,7 @@ func managedLaunchEffortCompatible(provider, effort string) bool {
 	}
 }
 
+// firstNonEmptyString 返回第一个清理后非空的字符串。
 func firstNonEmptyString(values ...string) string {
 	for _, value := range values {
 		if value = strings.TrimSpace(value); value != "" {
@@ -224,6 +234,7 @@ func firstNonEmptyString(values ...string) string {
 	return ""
 }
 
+// warnManagedLaunchConfigTrace 记录 launch_agent 参数继承的调试信息。
 func (h *Handler) warnManagedLaunchConfigTrace(ctx context.Context, req ToolCallRequest) {
 	if strings.TrimSpace(req.Name) != "orchestration_launch_agent" {
 		return
@@ -246,7 +257,7 @@ func (h *Handler) warnManagedLaunchConfigTrace(ctx context.Context, req ToolCall
 	)
 }
 
-// readStoredThreadRuntime 读取stored线程运行时。
+// readStoredThreadRuntime 读取 thread config override 中的模型、effort 与 runtime。
 func (h *Handler) readStoredThreadRuntime(ctx context.Context, threadID string) (storedThreadRuntime, bool) {
 	if h == nil || h.threadStore == nil || strings.TrimSpace(threadID) == "" {
 		return storedThreadRuntime{}, false
@@ -262,6 +273,7 @@ func (h *Handler) readStoredThreadRuntime(ctx context.Context, threadID string) 
 	return stored, true
 }
 
+// decodeStoredThreadRuntime 从原始 override JSON 中提取 runtime 段。
 func decodeStoredThreadRuntime(raw json.RawMessage) (map[string]any, bool) {
 	var stored storedThreadRuntime
 	if err := json.Unmarshal(raw, &stored); err != nil || len(stored.Runtime) == 0 {

@@ -1,4 +1,4 @@
-// Package ctxutil provides context-aware timeout helpers.
+// Package ctxutil 集中管理后端共享的 context 超时值和包装函数。
 package ctxutil
 
 import (
@@ -6,6 +6,7 @@ import (
 	"time"
 )
 
+// 后端跨模块默认超时；调用方通过对应 wrapper 复用，避免散落硬编码。
 const (
 	LaunchTimeout             = 30 * time.Second
 	StartupTimeout            = 30 * time.Second
@@ -23,7 +24,8 @@ const (
 	PromptIntentDraftTimeout  = DreamConsolidationTimeout
 )
 
-// WithTimeout 设置超时。
+// WithTimeout 在缺省 context 时补 Background，并只在 timeout 为正数时创建 deadline。
+// 非正超时返回空 cancel，调用方仍可统一 defer cancel。
 func WithTimeout(ctx context.Context, timeout time.Duration) (context.Context, context.CancelFunc) {
 	if ctx == nil {
 		ctx = context.Background()
@@ -34,7 +36,7 @@ func WithTimeout(ctx context.Context, timeout time.Duration) (context.Context, c
 	return context.WithTimeout(ctx, timeout)
 }
 
-// WithTimeoutIfNone 设置超时ifnone。
+// WithTimeoutIfNone 仅在上游尚无 deadline 时补默认超时，避免缩短调用方已设置的生命周期。
 func WithTimeoutIfNone(ctx context.Context, timeout time.Duration) (context.Context, context.CancelFunc) {
 	if ctx == nil {
 		ctx = context.Background()
@@ -48,32 +50,32 @@ func WithTimeoutIfNone(ctx context.Context, timeout time.Duration) (context.Cont
 	return WithTimeout(ctx, timeout)
 }
 
-// WithInitialThreadIDTimeout 设置initial线程ID超时。
+// WithInitialThreadIDTimeout 限制 provider 初始线程 ID 回填等待时间。
 func WithInitialThreadIDTimeout(ctx context.Context) (context.Context, context.CancelFunc) {
 	return WithTimeout(ctx, InitialThreadIDTimeout)
 }
 
-// WithSessionCloseTimeout 设置会话close超时。
+// WithSessionCloseTimeout 限制会话关闭路径的资源释放等待时间。
 func WithSessionCloseTimeout(ctx context.Context) (context.Context, context.CancelFunc) {
 	return WithTimeout(ctx, SessionCloseTimeout)
 }
 
-// WithDBQueryTimeout 设置数据库查询超时。
+// WithDBQueryTimeout 为普通数据库查询设置共享超时。
 func WithDBQueryTimeout(ctx context.Context) (context.Context, context.CancelFunc) {
 	return WithTimeout(ctx, DBQueryTimeout)
 }
 
-// WithTxCleanupTimeout 设置txcleanup超时。
+// WithTxCleanupTimeout 为事务清理设置短超时，避免失败路径长期占用连接。
 func WithTxCleanupTimeout(ctx context.Context) (context.Context, context.CancelFunc) {
 	return WithTimeout(ctx, TxCleanupTimeout)
 }
 
-// WithRPCRequestTimeout 设置RPC请求超时。
+// WithRPCRequestTimeout 为本地 MCP/RPC 请求设置默认超时。
 func WithRPCRequestTimeout(ctx context.Context) (context.Context, context.CancelFunc) {
 	return WithTimeout(ctx, RPCRequestTimeout)
 }
 
-// WithPeerTimeout 设置peer超时。
+// WithPeerTimeout 为 peer 操作设置可取消 context；timeout 非正时只提供取消能力。
 func WithPeerTimeout(ctx context.Context, timeout time.Duration) (context.Context, context.CancelFunc) {
 	if ctx == nil {
 		ctx = context.Background()

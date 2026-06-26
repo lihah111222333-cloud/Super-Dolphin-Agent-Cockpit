@@ -6,7 +6,8 @@ import (
 	"strings"
 )
 
-// configurationRequestHandlerFromInitOptions 从init选项处理configuration请求处理器。
+// configurationRequestHandlerFromInitOptions 从初始化选项里抽取 workspace/configuration 响应。
+// 没有 settings 时返回 nil，让 server 看到未支持该请求而不是收到空配置。
 func configurationRequestHandlerFromInitOptions(initOptions map[string]any) ServerRequestHandler {
 	settings, ok := initOptions["settings"].(map[string]any)
 	if !ok || len(settings) == 0 {

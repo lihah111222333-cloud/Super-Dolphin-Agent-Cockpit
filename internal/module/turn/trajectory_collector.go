@@ -16,22 +16,18 @@ import (
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
-// maxDrainedEntries caps the drained dedup map. When exceeded, the map is
-// cleared. A duplicate terminal arriving after 10k+ turns is astronomically
-// unlikely, so this is a safe trade-off vs unbounded memory growth.
+// maxDrainedEntries 限制已输出 turn 的去重表大小。
+// 超限后清空去重表，避免长期进程内存无界增长；极晚重复终态会被当作新事件处理。
 const maxDrainedEntries = 10_000
 
-// Trajectory is the per-turn fact aggregate produced by the collector. It is
-// in-memory only and meant to be consumed by Step 3 evaluator / Step 4
-// extractor; it is never persisted by this layer.
+// Trajectory 是收集器产出的单 turn 事实聚合，仅驻留内存，供 evaluator 和 extractor 消费。
 type Trajectory struct {
 	TurnID      string
 	LocalTurnID string
 	ThreadID    string
 	AgentID     string
 	SessionID   string
-	// Cwd is left empty by the collector: it has no view of the agent's
-	// working directory. Step 4 extractor backfills this via ThreadID.
+	// 收集器看不到 agent 工作目录，因此 Cwd 由后续消费者按 ThreadID 补齐。
 	Cwd            string
 	StartedAt      time.Time
 	EndedAt        time.Time
@@ -42,7 +38,7 @@ type Trajectory struct {
 	TokenUsage     *TokenSnapshot
 }
 
-// ToolCall is a per-call slice of the trajectory.
+// ToolCall 是轨迹中的单次工具调用快照。
 type ToolCall struct {
 	CallID    string
 	Name      string
@@ -52,15 +48,11 @@ type ToolCall struct {
 	Error     string
 	StartedAt time.Time
 	EndedAt   time.Time
-	// DiffCount counts how many ToolDiffUpdated events resolved to this
-	// call via observation.LookupCall. Step 2 brief did not list this
-	// field; it was added so TestAttributesToolDiffViaCallIDMap has an
-	// observable side-effect to assert against.
+	// DiffCount 统计通过 observation 归因到此 call 的 ToolDiffUpdated 事件数。
 	DiffCount int
 }
 
-// TokenSnapshot mirrors observation.TokenSnapshot but exposes int values to
-// downstream consumers (Step 3/4 expect ints, observation stores int64).
+// TokenSnapshot 是下游消费使用的 int 版本 token 快照，来源 observation 中的 int64 事实。
 type TokenSnapshot struct {
 	InputTokens         int
 	OutputTokens        int
@@ -68,29 +60,20 @@ type TokenSnapshot struct {
 	ContextWindowTokens int
 }
 
-// Collector aggregates per-turn lifecycle facts. It subscribes to the same
-// bus dispatcher as observation but does not duplicate observation's work:
-// it reads observation Contract for terminal precedence, token merge,
-// skills selection, and call-id attribution. The push direction stays
-// observation -> collector -> downstream consumer.
+// Collector 聚合每个 turn 的生命周期事实，并从 observation Contract 读取终态、token、skill 和 call 归因。
 type Collector struct {
 	mu       sync.Mutex
 	contract observation.ObservationReader
 	logger   *pkglogger.Logger
 
-	// turnID -> partial trajectory accumulated until terminal arrives.
+	// partials 按 turnID 暂存尚未进入终态的轨迹片段。
 	partials map[string]*partialTrajectory
 
-	// Trajectories whose turn reached terminal but Drain has not yet
-	// returned them.
+	// completed 保存已到终态但尚未被 Drain 返回的轨迹。
 	completed []Trajectory
 
-	// drained tracks turns whose trajectory has already been emitted, so
-	// a late-arriving second terminal event (e.g. TurnCompleted after
-	// TurnInterrupted) does not re-emit. Bounded to maxDrainedEntries;
-	// when the limit is reached, the map is cleared. This is acceptable
-	// because a duplicate terminal arriving after 10k+ turns is
-	// astronomically unlikely in practice.
+	// drained 记录已输出的 turn，防止 late terminal 让同一轨迹重复进入 completed。
+	// 表大小受 maxDrainedEntries 限制，超限时整体清空。
 	drained map[string]struct{}
 }
 
@@ -104,11 +87,7 @@ type partialTrajectory struct {
 	callOrder []string
 }
 
-// NewTrajectoryCollector builds an empty Collector. contract may be nil
-// when observation is not wired in the deployment; in that case the
-// collector still accepts events but materialized trajectories carry no
-// terminal / token / skills data.
-// NewTrajectoryCollector 创建trajectory收集器。
+// NewTrajectoryCollector 创建空轨迹收集器；未注入 observation 时仍接收事件但缺少终态/token/skill 快照。
 func NewTrajectoryCollector(contract observation.ObservationReader, logger *pkglogger.Logger) *Collector {
 	if logger == nil {
 		logger = pkglogger.Get()
@@ -121,10 +100,7 @@ func NewTrajectoryCollector(contract observation.ObservationReader, logger *pkgl
 	}
 }
 
-// Snapshot returns the current partial trajectory for a turn. terminal
-// fields are pulled live from the contract. Returns ok=false when the turn
-// is unknown to the collector (no events yet, or already drained).
-// Snapshot 处理快照。
+// Snapshot 返回指定 turn 的当前未完成轨迹，已经 Drain 过或从未见过的 turn 返回 ok=false。
 func (c *Collector) Snapshot(turnID string) (Trajectory, bool) {
 	turnID = strings.TrimSpace(turnID)
 	if turnID == "" {
@@ -139,10 +115,7 @@ func (c *Collector) Snapshot(turnID string) (Trajectory, bool) {
 	return c.materializeLocked(p), true
 }
 
-// Drain returns every trajectory whose turn has reached terminal since the
-// previous Drain call. It is safe for concurrent use; a turn is returned
-// at most once across the full lifetime of the collector.
-// Drain 等待队列里已接收的任务收尾。
+// Drain 取出自上次调用以来进入终态的轨迹；同一个 turn 在收集器生命周期内最多返回一次。
 func (c *Collector) Drain() []Trajectory {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -154,7 +127,7 @@ func (c *Collector) Drain() []Trajectory {
 	return out
 }
 
-// onTurnStarted 处理onturnstarted。
+// onTurnStarted 初始化 partial trajectory，并保存可从 TurnStarted 直接获得的线程/agent 信息。
 func (c *Collector) onTurnStarted(ev turndto.TurnStarted) {
 	turnID := strings.TrimSpace(ev.TurnID)
 	if turnID == "" {
@@ -172,30 +145,29 @@ func (c *Collector) onTurnStarted(ev turndto.TurnStarted) {
 	if aid := strings.TrimSpace(ev.AgentID); aid != "" {
 		p.agentID = aid
 	}
-	// TurnStarted carries no SessionID (shared.TurnHeader nests
-	// AgentHeader, not AgentSessionHeader). Trajectory.SessionID is left
-	// for Step 4 extractor to backfill via thread/agent state.
+	// TurnStarted 不携带 SessionID；该字段由后续消费者根据线程或 agent 状态补齐。
 	if p.startedAt.IsZero() && !ev.Timestamp.IsZero() {
 		p.startedAt = ev.Timestamp
 	}
 }
 
+// onTurnCompleted 把 completed 事件归入统一终态 drain 路径。
 func (c *Collector) onTurnCompleted(ev turndto.TurnCompleted) {
 	c.onTurnTerminal(ev.TurnID)
 }
 
+// onTurnInterrupted 把 interrupted 事件归入统一终态 drain 路径。
 func (c *Collector) onTurnInterrupted(ev turndto.TurnInterrupted) {
 	c.onTurnTerminal(ev.TurnID)
 }
 
+// onTurnStalled 把 stalled 事件归入统一终态 drain 路径。
 func (c *Collector) onTurnStalled(ev turndto.TurnStalled) {
 	c.onTurnTerminal(ev.TurnID)
 }
 
-// onTurnTerminal funnels every terminal-class turn event through a single
-// drain path. It is idempotent against the same turn firing terminal more
-// than once (e.g. interrupted then late completed): the drained set guards
-// the second call.
+// onTurnTerminal 将所有终态事件归并到同一 drain 路径。
+// 同一 turn 多次触发终态时由 drained 保证幂等，避免中断后又完成导致重复输出。
 func (c *Collector) onTurnTerminal(turnID string) {
 	turnID = strings.TrimSpace(turnID)
 	if turnID == "" {
@@ -208,9 +180,7 @@ func (c *Collector) onTurnTerminal(turnID string) {
 	}
 	p, ok := c.partials[turnID]
 	if !ok {
-		// Terminal arrived before we ever saw TurnStarted - still emit
-		// a minimal trajectory so observation facts (terminal, tokens)
-		// are not lost to the consumer.
+		// 终态可能先于 TurnStarted 到达；仍创建最小轨迹，避免 observation 中的终态/token 丢给消费者。
 		p = c.ensurePartialLocked(turnID)
 	}
 	traj := c.materializeLocked(p)
@@ -224,6 +194,7 @@ func (c *Collector) onTurnTerminal(turnID string) {
 	c.drained[turnID] = struct{}{}
 }
 
+// onToolCallBegin 按 callID 记录工具调用开始信息，并保留 begin 到达顺序。
 func (c *Collector) onToolCallBegin(ev tooldto.ToolCallBegin) {
 	callID := strings.TrimSpace(ev.CallID)
 	turnID := strings.TrimSpace(ev.TurnID)
@@ -248,7 +219,7 @@ func (c *Collector) onToolCallBegin(ev tooldto.ToolCallBegin) {
 	p.callOrder = append(p.callOrder, callID)
 }
 
-// onToolCallEnd 处理on工具callend。
+// onToolCallEnd 补齐工具结果和失败信息，允许 End 先于 Begin 到达时创建最小记录。
 func (c *Collector) onToolCallEnd(ev tooldto.ToolCallEnd) {
 	callID := strings.TrimSpace(ev.CallID)
 	if callID == "" {
@@ -266,8 +237,7 @@ func (c *Collector) onToolCallEnd(ev tooldto.ToolCallEnd) {
 	p := c.ensurePartialLocked(turnID)
 	tc, ok := p.toolCalls[callID]
 	if !ok {
-		// End arrived before Begin (out-of-order). Create the entry so
-		// the result/failure is not lost.
+		// End 可能先于 Begin 到达；创建最小记录，避免结果和失败信息丢失。
 		tc = &ToolCall{CallID: callID}
 		p.toolCalls[callID] = tc
 		p.callOrder = append(p.callOrder, callID)
@@ -283,6 +253,7 @@ func (c *Collector) onToolCallEnd(ev tooldto.ToolCallEnd) {
 	}
 }
 
+// toolCallEndTurnID 优先使用事件自带 turnID，缺失时通过 observation 归因表回查。
 func (c *Collector) toolCallEndTurnID(callID, rawTurnID string) string {
 	turnID := strings.TrimSpace(rawTurnID)
 	if turnID != "" {
@@ -291,15 +262,14 @@ func (c *Collector) toolCallEndTurnID(callID, rawTurnID string) string {
 	if c.contract == nil {
 		return ""
 	}
-	// Defensive: ToolCallEnd without TurnID should resolve via the
-	// observation attribution map.
+	// ToolCallEnd 缺 turnID 时只能依赖 observation 归因表；未命中则不猜测归属。
 	if owner, ok := c.contract.LookupCall(callID); ok {
 		return owner
 	}
 	return ""
 }
 
-// onToolDiffUpdated 处理on工具diffupdated。
+// onToolDiffUpdated 只给已归因且已开始的工具调用累加 diff 次数，孤儿 diff 会被丢弃。
 func (c *Collector) onToolDiffUpdated(ev tooldto.ToolDiffUpdated) {
 	callID := strings.TrimSpace(ev.CallID)
 	if callID == "" || c.contract == nil {
@@ -307,8 +277,7 @@ func (c *Collector) onToolDiffUpdated(ev tooldto.ToolDiffUpdated) {
 	}
 	owner, ok := c.contract.LookupCall(callID)
 	if !ok {
-		// No attribution - drop. Step 2 explicitly forbids attaching
-		// orphan diffs to an arbitrary turn.
+		// 无法归因的 diff 直接丢弃，不能挂到任意 turn 上制造假调用。
 		return
 	}
 	c.mu.Lock()
@@ -322,18 +291,14 @@ func (c *Collector) onToolDiffUpdated(ev tooldto.ToolDiffUpdated) {
 	}
 	tc, ok := p.toolCalls[callID]
 	if !ok {
-		// Without a prior Begin we have no ToolCall to attach to. Do
-		// not synthesize one here - that would let an isolated diff
-		// fabricate a phantom call.
+		// 没有 Begin 就没有可挂载的 ToolCall；不能为孤立 diff 合成假调用。
 		return
 	}
 	tc.DiffCount++
 }
 
-// materializeLocked copies a partial trajectory into a Trajectory value.
-// The caller must hold c.mu. Terminal / tokens / skills / timestamps are
-// pulled from the observation Contract when present; ToolCalls are copied
-// in the order Begin events arrived.
+// materializeLocked 将 partial trajectory 复制为对外 Trajectory 值，调用方必须持有 c.mu。
+// 终态、token、skill 和时间戳优先来自 observation Contract；工具调用按 Begin 到达顺序复制。
 func (c *Collector) materializeLocked(p *partialTrajectory) Trajectory {
 	tj := Trajectory{
 		TurnID:      p.turnID,
@@ -350,7 +315,7 @@ func (c *Collector) materializeLocked(p *partialTrajectory) Trajectory {
 	return tj
 }
 
-// applyContractSnapshot 应用contract快照。
+// applyContractSnapshot 从 observation Contract 补齐终态、时间戳、token 和 skill 事实。
 func (c *Collector) applyContractSnapshot(tj *Trajectory, turnID string) {
 	if t, ok := c.contract.Terminal(turnID); ok {
 		tj.TerminalState = string(t.Kind)
@@ -376,6 +341,7 @@ func (c *Collector) applyContractSnapshot(tj *Trajectory, turnID string) {
 	tj.SkillsSelected = c.contract.SkillsSelected(turnID)
 }
 
+// materializeToolCalls 按 Begin 到达顺序复制工具调用，避免 map 遍历导致输出抖动。
 func materializeToolCalls(p *partialTrajectory) []ToolCall {
 	toolCalls := make([]ToolCall, 0, len(p.callOrder))
 	for _, id := range p.callOrder {
@@ -386,6 +352,7 @@ func materializeToolCalls(p *partialTrajectory) []ToolCall {
 	return toolCalls
 }
 
+// ensurePartialLocked 返回或创建指定 turn 的 partial trajectory，调用方必须持有 c.mu。
 func (c *Collector) ensurePartialLocked(turnID string) *partialTrajectory {
 	if p, ok := c.partials[turnID]; ok {
 		return p
@@ -398,10 +365,7 @@ func (c *Collector) ensurePartialLocked(turnID string) *partialTrajectory {
 	return p
 }
 
-// SubscribeTrajectory mounts every collector handler onto dispatcher and
-// returns a single cancel that tears them all down. dispatcher==nil or
-// c==nil yields a no-op cancel.
-// SubscribeTrajectory 处理subscribetrajectory。
+// SubscribeTrajectory 把 collector 事件处理器挂到 dispatcher，并返回统一 cancel。
 func SubscribeTrajectory(dispatcher *event.Dispatcher, c *Collector, contract observation.ObservationReader, logger *pkglogger.Logger) context.CancelFunc {
 	if dispatcher == nil || c == nil {
 		return func() {}
@@ -424,10 +388,7 @@ func SubscribeTrajectory(dispatcher *event.Dispatcher, c *Collector, contract ob
 	}
 }
 
-// NewTrajectorySubscribers is the fx provider that exposes the collector's
-// bus subscriptions through the platform SubscriberGroup. It mirrors
-// observation.NewObservationSubscribers; BusModule owns lifecycle.
-// NewTrajectorySubscribers 创建trajectorysubscribers。
+// NewTrajectorySubscribers 声明轨迹收集器的 bus 订阅规格，生命周期由 BusModule 管理。
 func NewTrajectorySubscribers(c *Collector, contract observation.ObservationReader, logger *pkglogger.Logger) platformbus.SubscriberResult {
 	return platformbus.SubscriberResult{
 		Spec: buscontract.SubscriberSpec{

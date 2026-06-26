@@ -14,9 +14,8 @@ import (
 	cronstore "github.com/anthropic-ai/super-agent-v3/internal/store/cron"
 )
 
-// Service is the host-facing facade used by cronjob/* JSON-RPC methods.
-// All methods validate input before touching the store and return
-// already-mapped domain errors.
+// Service 是 cronjob/* JSON-RPC 方法面向宿主的业务门面。
+// 所有方法必须先校验输入再访问 store，并返回已映射的领域错误。
 type Service interface {
 	CreateJob(ctx context.Context, req CreateJobRequest) (Job, error)
 	GetJob(ctx context.Context, id string) (Job, error)
@@ -41,10 +40,8 @@ var (
 	ErrJobDisabled          = errors.New("cron: cannot trigger disabled job")
 )
 
-// CreateJobRequest is the validated input for CreateJob. NextRunAt is
-// optional: if zero, the service defaults it to now + 1 minute so the
-// scheduler will fire at its next tick. Phase 2b will replace this default
-// with a proper cron-expression parser.
+// CreateJobRequest 是 CreateJob 的已校验输入。
+// NextRunAt 可为空；为空时 service 默认设置为 now+1 minute，让 scheduler 下一轮 tick 可触发。
 type CreateJobRequest struct {
 	Name          string
 	Prompt        string
@@ -62,9 +59,8 @@ type CreateJobRequest struct {
 	MaxAttempts   int32
 }
 
-// UpdateJobRequest is the input for UpdateJob. All fields replace existing
-// values (no partial update semantics); callers must first GetJob to
-// construct a fully-populated request.
+// UpdateJobRequest 是 UpdateJob 的完整替换输入，不提供部分更新语义。
+// 调用方需要先 GetJob，再构造完整请求，避免误清空未展示字段。
 type UpdateJobRequest struct {
 	ID            string
 	Name          string
@@ -83,9 +79,8 @@ type UpdateJobRequest struct {
 	MaxAttempts   int32
 }
 
-// Job is the presentation-level projection of cronstore.Job. Unlike the
-// store DTO, time fields are encoded as RFC3339 strings for JSON consumers
-// and the skills JSONB is already decoded to a string slice.
+// Job 是 cronstore.Job 面向 RPC/JSON 消费方的展示投影。
+// 时间字段已转为 RFC3339 字符串，skills JSONB 也已解码为字符串切片。
 type Job struct {
 	ID              string   `json:"id"`
 	Name            string   `json:"name"`
@@ -116,7 +111,7 @@ type Job struct {
 	UpdatedAt       string   `json:"updated_at,omitempty"`
 }
 
-// Run is the presentation-level projection of cronstore.Run.
+// Run 是 cronstore.Run 面向 RPC/JSON 消费方的展示投影。
 type Run struct {
 	ID             string `json:"id"`
 	JobID          string `json:"job_id"`
@@ -133,8 +128,8 @@ type Run struct {
 	UpdatedAt      string `json:"updated_at,omitempty"`
 }
 
-// Store is the subset of the cron store surface consumed by this
-// module. Kept narrow so tests can stub only what the service exercises.
+// Store 是 cron service 使用的持久化最小接口。
+// 保持窄接口可以让测试只 stub CRUD 面，也避免 service 直接依赖 scheduler 专用 store 方法。
 //
 // 这个窄接口只给 CRUD service 用。scheduler 的恢复和续租直接用
 // cronstore.Store，别塞到这里。

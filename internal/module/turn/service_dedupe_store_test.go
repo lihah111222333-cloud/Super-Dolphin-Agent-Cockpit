@@ -12,9 +12,8 @@ import (
 	turndedupe "github.com/anthropic-ai/super-agent-v3/internal/store/turndedupe"
 )
 
-// fakeDedupeStore is an in-memory turndedupe.Store used so the
-// service-layer tests exercise the mirror-write + fallback code paths
-// without a live Postgres.
+// fakeDedupeStore 是内存版 turndedupe.Store。
+// 服务层测试用它覆盖镜像写入和读取回退分支，不需要连接真实持久化后端。
 type fakeDedupeStore struct {
 	mu       sync.Mutex
 	rows     map[string]turndedupe.Entry
@@ -96,9 +95,8 @@ func (f *fakeDedupeStore) GetLive(ctx context.Context, key string) (turndedupe.E
 
 func (f *fakeDedupeStore) Sweep(_ context.Context, _ time.Time) error { return nil }
 
-// serviceWithStore constructs a default turn service then plugs in the
-// fake store via the package-private setter so we can exercise the
-// mirror-write paths without going through fx.
+// serviceWithStore 构造默认 turn service 并注入测试用 dedupe store。
+// 这样可以直接覆盖镜像写入路径，而不需要通过 fx 装配完整依赖图。
 func serviceWithStore(store turndedupe.Store) *service {
 	return newService(silentLogger(), nil, nil, nil, nil, store, nil).(*service)
 }
@@ -167,8 +165,7 @@ func TestServiceLookupByDedupeKeyFallsBackToStore(t *testing.T) {
 	t.Parallel()
 	store := newFakeDedupeStore()
 	svc := serviceWithStore(store)
-	// Simulate a previous process that upserted but never got to
-	// register on the in-memory tracker of this instance.
+	// 模拟上一个进程已写入 store，但当前实例的内存 tracker 从未登记该 key。
 	now := time.Now()
 	store.rows["dk-recover"] = turndedupe.Entry{
 		DedupeKey:   "dk-recover",
@@ -191,8 +188,7 @@ func TestServiceLookupByDedupeKeyFallsBackToStore(t *testing.T) {
 
 func TestServiceLookupByDedupeKeyNoStoreStaysTrackerOnly(t *testing.T) {
 	t.Parallel()
-	// No store plugged in — the service must keep the tracker-only
-	// behavior exactly (ok=false, no error).
+	// 未注入 store 时必须保持纯 tracker 行为：未命中返回 ok=false 且不报错。
 	svc := newService(silentLogger(), nil, nil, nil, nil, nil, nil).(*service)
 	if _, ok, err := svc.LookupByDedupeKey(context.Background(), "dk-none"); ok || err != nil {
 		t.Fatalf("want (false, nil), got ok=%v err=%v", ok, err)

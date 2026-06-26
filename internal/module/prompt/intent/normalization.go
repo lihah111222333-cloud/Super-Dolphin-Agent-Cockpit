@@ -5,9 +5,11 @@ import (
 	"strings"
 )
 
+// promptIntentRecallTopicPattern 限制 recall topic 为小写连字符 slug，保证后续路由和去重稳定。
 var promptIntentRecallTopicPattern = regexp.MustCompile(`^[a-z0-9]+(?:-[a-z0-9]+)*$`)
 
-// NormalizeGeneratedCard 规范化generatedcard。
+// NormalizeGeneratedCard 规范化单张 LLM 生成卡片。
+// requestedKind 不合法时会尝试沿用卡片内 kind，避免创建期因为前端旧参数丢失可修复草稿。
 func NormalizeGeneratedCard(requestedKind string, rawInput string, card Card) Card {
 	kind, err := normalizeKind(requestedKind)
 	if err != nil {

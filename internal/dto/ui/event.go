@@ -6,13 +6,13 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/dto/shared"
 )
 
-// UIProjectionUpdated reports a projection snapshot revision change.
+// UIProjectionUpdated 报告 UI projection 快照版本变化。
 type UIProjectionUpdated struct {
 	shared.UIProjectionHeader
 	Revision int64 `json:"revision"`
 }
 
-// UITimelineAppended reports a new timeline item appended to a projection.
+// UITimelineAppended 报告 projection 追加了新的 timeline item。
 type UITimelineAppended struct {
 	shared.UITurnHeader
 	ItemID    string `json:"item_id"`
@@ -22,7 +22,7 @@ type UITimelineAppended struct {
 	ToolName  string `json:"tool_name,omitempty"`
 }
 
-// UITokensUpdated reports token usage changes for a thread projection.
+// UITokensUpdated 报告 thread projection 的 token 用量变化。
 type UITokensUpdated struct {
 	shared.UITurnHeader
 	InputTokens         int `json:"input_tokens,omitempty"`
@@ -31,7 +31,7 @@ type UITokensUpdated struct {
 	ContextWindowTokens int `json:"context_window_tokens,omitempty"`
 }
 
-// SkillsChanged reports local skill inventory mutations.
+// SkillsChanged 报告本地 skill 清单变化，字段只暴露可展示元数据，避免泄漏完整宿主路径。
 type SkillsChanged struct {
 	shared.EventHeader
 	SkillsDir       string   `json:"skillsDir,omitempty"`
@@ -46,7 +46,7 @@ type SkillsChanged struct {
 	Cwd             string   `json:"cwd,omitempty"`              // deprecated: intentionally left empty to avoid leaking host paths
 }
 
-// UIPreferencesChanged reports a persisted preference mutation.
+// UIPreferencesChanged 报告持久化偏好发生变化。
 type UIPreferencesChanged struct {
 	shared.EventHeader
 	Cwd   string `json:"cwd,omitempty"`
@@ -54,20 +54,20 @@ type UIPreferencesChanged struct {
 	Value any    `json:"value,omitempty"`
 }
 
-// UISharedFilesChanged reports shared file inventory mutations.
+// UISharedFilesChanged 报告共享文件清单发生变化。
 type UISharedFilesChanged struct {
 	shared.EventHeader
 	Path   string `json:"path,omitempty"`
 	Action string `json:"action,omitempty"`
 }
 
-// UIMemoryChanged reports durable memory inventory or status mutations.
+// UIMemoryChanged 报告持久化 memory 清单或状态变化。
 type UIMemoryChanged struct {
 	shared.EventHeader
 	Action string `json:"action,omitempty"`
 }
 
-// UIPromptsChanged reports prompt asset inventory mutations.
+// UIPromptsChanged 报告 prompt 资产清单变化。
 type UIPromptsChanged struct {
 	shared.EventHeader
 	Cwd       string `json:"cwd,omitempty"`
@@ -76,6 +76,7 @@ type UIPromptsChanged struct {
 	Action    string `json:"action,omitempty"`
 }
 
+// ThreadPatchThread 是 UIThreadPatch 内的 thread 基础信息片段。
 type ThreadPatchThread struct {
 	ID        string     `json:"id"`
 	Name      string     `json:"name,omitempty"`
@@ -84,12 +85,14 @@ type ThreadPatchThread struct {
 	UpdatedAt *time.Time `json:"updatedAt,omitempty"`
 }
 
+// ThreadPatchTokenUsage 是 UIThreadPatch 内的 token 用量片段。
 type ThreadPatchTokenUsage struct {
 	UsedTokens          int     `json:"usedTokens,omitempty"`
 	ContextWindowTokens int     `json:"contextWindowTokens,omitempty"`
 	UsedPercent         float64 `json:"usedPercent,omitempty"`
 }
 
+// ThreadPatchActiveTurn 是 UIThreadPatch 内的活动 turn 片段。
 type ThreadPatchActiveTurn struct {
 	ID          string     `json:"id"`
 	ThreadID    string     `json:"threadId"`
@@ -99,7 +102,7 @@ type ThreadPatchActiveTurn struct {
 	CompletedAt *time.Time `json:"completedAt,omitempty"`
 }
 
-// UIThreadPatch reports a targeted incremental runtime patch for a thread.
+// UIThreadPatch 报告 thread 运行态的定向增量 patch，允许 UI 只刷新变更片段。
 type UIThreadPatch struct {
 	ThreadID          string                 `json:"threadId"`
 	Source            string                 `json:"source,omitempty"`
@@ -133,29 +136,29 @@ type UIThreadPatch struct {
 	Partial           bool                   `json:"partial,omitempty"`
 }
 
-// Type 返回事件分发用的类型编号。
+// Type 返回事件总线使用的稳定类型编号，保持 projection 更新事件可路由。
 func (UIProjectionUpdated) Type() uint32 { return shared.EventTypeUIProjectionUpdated }
 
-// Type 返回事件分发用的类型编号。
+// Type 返回事件总线使用的稳定类型编号，保持 timeline 追加事件可路由。
 func (UITimelineAppended) Type() uint32 { return shared.EventTypeUITimelineAppended }
 
-// Type 返回事件分发用的类型编号。
+// Type 返回事件总线使用的稳定类型编号，保持 token 用量更新事件可路由。
 func (UITokensUpdated) Type() uint32 { return shared.EventTypeUITokensUpdated }
 
-// Type 返回事件分发用的类型编号。
+// Type 返回事件总线使用的稳定类型编号，保持 skill 清单更新事件可路由。
 func (SkillsChanged) Type() uint32 { return shared.EventTypeUISkillsChanged }
 
-// Type 返回事件分发用的类型编号。
+// Type 返回事件总线使用的稳定类型编号，保持 thread patch 事件可路由。
 func (UIThreadPatch) Type() uint32 { return shared.EventTypeUIThreadPatch }
 
-// Type 返回事件分发用的类型编号。
+// Type 返回事件总线使用的稳定类型编号，保持偏好更新事件可路由。
 func (UIPreferencesChanged) Type() uint32 { return shared.EventTypeUIPreferencesChanged }
 
-// Type 返回事件分发用的类型编号。
+// Type 返回事件总线使用的稳定类型编号，保持共享文件更新事件可路由。
 func (UISharedFilesChanged) Type() uint32 { return shared.EventTypeUISharedFilesChanged }
 
-// Type 返回事件分发用的类型编号。
+// Type 返回事件总线使用的稳定类型编号，保持 memory 更新事件可路由。
 func (UIMemoryChanged) Type() uint32 { return shared.EventTypeUIMemoryChanged }
 
-// Type 返回事件分发用的类型编号。
+// Type 返回事件总线使用的稳定类型编号，保持 prompt 更新事件可路由。
 func (UIPromptsChanged) Type() uint32 { return shared.EventTypeUIPromptsChanged }

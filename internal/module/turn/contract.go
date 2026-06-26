@@ -19,13 +19,8 @@ type Service interface {
 	ForceCompleteTurn(ctx context.Context, session contract.Session) error
 	CleanupThread(ctx context.Context, threadID, reason string) error
 	TrackTurn(ctx context.Context, localID string) (TurnStatus, error)
-	// LookupByDedupeKey returns the tracked status of a non-terminal turn
-	// that previously registered the given dedupeKey via
-	// PrepareTurn/StartTurn. ok=false means "never submitted (in this
-	// process)" — callers such as cron crash-recovery must treat that as
-	// an absent submission per the P21 P1b plan. The tracker is
-	// in-memory, so a process restart erases registrations; a follow-up
-	// PR will persist dedupe_key to SQL for cross-process recovery.
+	// LookupByDedupeKey 返回当前进程内已登记的非终态 turn 状态。
+	// ok=false 只表示本进程未见过该 dedupe key；去重登记表不跨进程持久化，重启后调用方必须按未提交处理。
 	LookupByDedupeKey(ctx context.Context, dedupeKey string) (TurnStatus, bool, error)
 }
 
@@ -69,12 +64,8 @@ type PrepareInput struct {
 	ThreadRuntimeConfig          map[string]any
 	ThreadCaps                   dto.CapabilitySet
 	BinaryDir                    string
-	// DedupeKey is an optional per-submission idempotency token. Cron
-	// sets it to sha256(job_id||scheduled_at||idempotency_key) so a
-	// crash between "StartTurn returned" and "run.status advanced to
-	// submitted" can still resolve the turn via
-	// Service.LookupByDedupeKey instead of double-submitting. Empty
-	// means "no dedupe tracking" (the default; non-cron callers).
+	// DedupeKey 是可选的单次提交幂等键。
+	// cron 用它在 StartTurn 已返回但任务状态尚未写成 submitted 的窗口内反查本进程 turn，空值表示不登记。
 	DedupeKey string
 }
 
@@ -87,25 +78,22 @@ type TurnStatus struct {
 	interrupt  turnInterruptEnvelope
 }
 
-// ---------------------------------------------------------------------------
-// CronExecutorAdapter (was cron_adapter.go)
-// ---------------------------------------------------------------------------
-
-// CronExecutorAdapter wraps the full turn.Service into the narrow
-// contract.CronTurnExecutor interface consumed by the cron module.
+// CronExecutorAdapter 将完整 turn.Service 收窄为 cron 模块需要的执行接口。
+// 它是跨模块边界，避免 cron 直接依赖 turn 的全部交互能力。
 type CronExecutorAdapter struct {
 	svc Service
 }
 
-// NewCronExecutorAdapter creates an adapter. svc must not be nil.
-// NewCronExecutorAdapter 创建cronexecutor适配器。
+// NewCronExecutorAdapter 构造 cron turn adapter。
+// svc 必须非 nil；装配错误应在调用方暴露，而不是在 adapter 内静默吞掉。
 func NewCronExecutorAdapter(svc Service) *CronExecutorAdapter {
 	return &CronExecutorAdapter{svc: svc}
 }
 
 var _ contract.CronTurnExecutor = (*CronExecutorAdapter)(nil)
 
-// CronPrepareTurn 处理cronprepareturn。
+// CronPrepareTurn 将 cron 的窄输入转换为 PrepareInput。
+// 这里只透传 cron 需要的字段，避免把 UI-only 状态带入定时任务 turn。
 func (a *CronExecutorAdapter) CronPrepareTurn(ctx context.Context, session contract.Session, input contract.CronPrepareInput) (dto.TurnRequest, error) {
 	return a.svc.PrepareTurn(ctx, session, PrepareInput{
 		Prompt:              input.Prompt,
@@ -119,12 +107,13 @@ func (a *CronExecutorAdapter) CronPrepareTurn(ctx context.Context, session contr
 	})
 }
 
-// CronStartTurn 处理cron起点turn。
+// CronStartTurn 透传已准备好的 provider turn 请求。
+// 该阶段不再改写请求内容，失败由 turn.Service 保持原始错误边界。
 func (a *CronExecutorAdapter) CronStartTurn(ctx context.Context, session contract.Session, req dto.TurnRequest) (contract.TurnHandle, error) {
 	return a.svc.StartTurn(ctx, session, req)
 }
 
-// CronTrackTurn 处理crontrackturn。
+// CronTrackTurn 将 turn.Service 的状态投影成 cron 可持久化的窄 DTO。
 func (a *CronExecutorAdapter) CronTrackTurn(ctx context.Context, localID string) (contract.CronTurnStatus, error) {
 	st, err := a.svc.TrackTurn(ctx, localID)
 	if err != nil {
@@ -137,7 +126,8 @@ func (a *CronExecutorAdapter) CronTrackTurn(ctx context.Context, localID string)
 	}, nil
 }
 
-// CronLookupByDedupeKey 按去重键处理cronlookup。
+// CronLookupByDedupeKey 按幂等键查询当前进程内 turn 状态。
+// 只返回 cron 关心的状态字段，found=false 时调用方可继续执行恢复分支。
 func (a *CronExecutorAdapter) CronLookupByDedupeKey(ctx context.Context, dedupeKey string) (contract.CronTurnStatus, bool, error) {
 	st, found, err := a.svc.LookupByDedupeKey(ctx, dedupeKey)
 	if err != nil {

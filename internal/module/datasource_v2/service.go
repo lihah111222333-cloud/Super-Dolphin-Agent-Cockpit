@@ -67,23 +67,23 @@ type ImportFileTextResult struct {
 	Status      string `json:"status"`
 }
 
-// ListDocumentsRequest filters datasource_v2 documents and always requires an explicit limit.
+// ListDocumentsRequest 描述 datasource_v2 列表页的过滤条件；Limit 必须显式传入，避免接口静默返回过大结果集。
 type ListDocumentsRequest struct {
 	Keyword string `json:"keyword"`
 	Limit   int32  `json:"limit"`
 }
 
-// ListDocumentsResult returns the documents shown by the datasource table.
+// ListDocumentsResult 返回数据源列表页展示的文档摘要。
 type ListDocumentsResult struct {
 	Documents []DocumentResult `json:"documents"`
 }
 
-// GetDocumentRequest identifies one datasource_v2 document.
+// GetDocumentRequest 指定要读取的 datasource_v2 文档。
 type GetDocumentRequest struct {
 	DocumentID int64 `json:"documentId"`
 }
 
-// GetDocumentResult returns document metadata with persisted text chunks for inspection.
+// GetDocumentResult 返回单篇文档元信息和已持久化的正文分块，供详情页检查。
 type GetDocumentResult struct {
 	Document DocumentResult    `json:"document"`
 	Chunks   []TextChunkResult `json:"chunks"`
@@ -100,7 +100,7 @@ type SearchRelevantChunksResult struct {
 	Chunks []SemanticChunkResult `json:"chunks"`
 }
 
-// UpdateDocumentRequest edits metadata without rewriting imported text chunks.
+// UpdateDocumentRequest 描述只更新元数据的请求；正文分块不会在此路径重写。
 type UpdateDocumentRequest struct {
 	DocumentID int64  `json:"documentId"`
 	SourcePath string `json:"sourcePath"`
@@ -109,18 +109,18 @@ type UpdateDocumentRequest struct {
 	SizeBytes  int64  `json:"sizeBytes"`
 }
 
-// DeleteDocumentRequest identifies one datasource_v2 document to remove.
+// DeleteDocumentRequest 指定要删除的 datasource_v2 文档。
 type DeleteDocumentRequest struct {
 	DocumentID int64 `json:"documentId"`
 }
 
-// DeleteDocumentResult confirms the document removed by datasourceV2/delete.
+// DeleteDocumentResult 确认 datasourceV2/delete 删除的文档 ID 和结果状态。
 type DeleteDocumentResult struct {
 	DocumentID int64 `json:"documentId"`
 	Deleted    bool  `json:"deleted"`
 }
 
-// DocumentResult is the JSON shape shared by list, get, import, and update.
+// DocumentResult 是 list、get、import、update 共用的 JSON 文档形状。
 type DocumentResult struct {
 	DocumentID   int64     `json:"documentId"`
 	SourcePath   string    `json:"sourcePath"`
@@ -136,7 +136,7 @@ type DocumentResult struct {
 	UpdatedAt    time.Time `json:"updatedAt"`
 }
 
-// TextChunkResult exposes stored chunks for a single document detail view.
+// TextChunkResult 暴露单篇文档详情页需要展示的持久化分块。
 type TextChunkResult struct {
 	ID             int64     `json:"id"`
 	DocumentID     int64     `json:"documentId"`
@@ -208,7 +208,7 @@ func (s *service) ImportLocalFile(ctx context.Context, req ImportLocalFileReques
 	return importFileTextResult(*imported), nil
 }
 
-// ListDocuments reads datasource metadata for the UI table.
+// ListDocuments 按关键词和显式 limit 读取 datasource_v2 文档摘要；store 未注入或 limit 缺失时 fail-fast。
 func (s *service) ListDocuments(ctx context.Context, req ListDocumentsRequest) (ListDocumentsResult, error) {
 	if ctx == nil {
 		ctx = context.Background()
@@ -229,7 +229,7 @@ func (s *service) ListDocuments(ctx context.Context, req ListDocumentsRequest) (
 	return ListDocumentsResult{Documents: documentResults(docs)}, nil
 }
 
-// GetDocument reads one document and its text chunks for the detail view.
+// GetDocument 读取单篇文档和对应正文分块；文档 ID 必须由调用方显式提供。
 func (s *service) GetDocument(ctx context.Context, req GetDocumentRequest) (GetDocumentResult, error) {
 	if ctx == nil {
 		ctx = context.Background()
@@ -289,7 +289,7 @@ func (s *service) SearchRelevantChunks(
 	return SearchRelevantChunksResult{Chunks: semanticChunkResults(chunks)}, nil
 }
 
-// UpdateDocument validates metadata edits and persists them without touching chunks.
+// UpdateDocument 校验并持久化文档元数据编辑；它不触碰已导入的正文分块。
 func (s *service) UpdateDocument(ctx context.Context, req UpdateDocumentRequest) (DocumentResult, error) {
 	if ctx == nil {
 		ctx = context.Background()
@@ -308,7 +308,7 @@ func (s *service) UpdateDocument(ctx context.Context, req UpdateDocumentRequest)
 	return documentResult(*doc), nil
 }
 
-// DeleteDocument removes the document row and relies on store-level cascade for chunks.
+// DeleteDocument 删除指定文档，并依赖 store 层级联清理相关分块。
 func (s *service) DeleteDocument(ctx context.Context, req DeleteDocumentRequest) (DeleteDocumentResult, error) {
 	if ctx == nil {
 		ctx = context.Background()

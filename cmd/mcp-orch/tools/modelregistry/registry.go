@@ -56,12 +56,12 @@ func WithLogger(logger *slog.Logger) FileRegistryOption {
 	}
 }
 
-// NewDefaultRegistry 创建default注册表。
+// NewDefaultRegistry 使用默认路径解析逻辑创建文件注册表。
 func NewDefaultRegistry(opts ...FileRegistryOption) (*FileRegistry, error) {
 	return NewFileRegistry(DefaultRegistryPath(), opts...)
 }
 
-// NewFileRegistry 创建文件注册表。
+// NewFileRegistry 创建基于 YAML 文件的注册表，并立即加载一次以 fail-fast 暴露配置错误。
 func NewFileRegistry(path string, opts ...FileRegistryOption) (*FileRegistry, error) {
 	path = strings.TrimSpace(path)
 	if path == "" {
@@ -81,12 +81,12 @@ func NewFileRegistry(path string, opts ...FileRegistryOption) (*FileRegistry, er
 	return registry, nil
 }
 
-// NewStaticRegistry 创建static注册表。
+// NewStaticRegistry 创建内存注册表，复制输入切片以避免调用方后续修改影响查询结果。
 func NewStaticRegistry(providers []ProviderModels) StaticRegistry {
 	return StaticRegistry{providers: cloneProviders(providers)}
 }
 
-// ListProviders 列出providers。
+// ListProviders 重新加载文件后返回 provider 快照，保证工具侧看到最新模型配置。
 func (r *FileRegistry) ListProviders() ([]ProviderModels, error) {
 	if err := r.Reload(); err != nil {
 		return nil, err
@@ -103,12 +103,12 @@ func (r *FileRegistry) LookupProvider(name string) (ProviderModels, bool, error)
 	return provider, ok, nil
 }
 
-// Path 处理路径。
+// Path 返回当前文件注册表加载的配置路径。
 func (r *FileRegistry) Path() string {
 	return r.path
 }
 
-// Reload 重新加载注册表配置。
+// Reload 重新读取 YAML 并在锁内替换快照；解析失败时保留旧快照。
 func (r *FileRegistry) Reload() error {
 	providers, err := loadFile(r.path)
 	if err != nil {
@@ -126,7 +126,7 @@ func (r *FileRegistry) snapshot() []ProviderModels {
 	return cloneProviders(r.providers)
 }
 
-// ListProviders 列出providers。
+// ListProviders 返回静态注册表的 provider 副本，调用方修改结果不会影响注册表。
 func (r StaticRegistry) ListProviders() ([]ProviderModels, error) {
 	return cloneProviders(r.providers), nil
 }
@@ -170,7 +170,7 @@ func parse(raw []byte) ([]ProviderModels, error) {
 	return cloneProviders(cfg.Providers), nil
 }
 
-// validateProviders 校验providers。
+// validateProviders 校验 provider 列表非空、名称非空且每个 provider 至少有一个 model。
 func validateProviders(providers []ProviderModels) error {
 	if len(providers) == 0 {
 		return fmt.Errorf("model registry has no providers")

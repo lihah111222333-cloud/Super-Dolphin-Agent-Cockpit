@@ -13,16 +13,10 @@ import (
 	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
 )
 
-// F4.0 顶层校验测试：ApplyOps 在解码 ops + 形状校验阶段必须能区分四类失败
-// （unmarshal / op_kind 非法 / 缺 op_kind / base_version 负数），并对合法
-// ops 透传到下层 stub（返回 ErrLifecycleNotImplemented）。
-//
-// F4.0 top-level validation tests: ApplyOps must distinguish four failure
-// shapes (unmarshal / invalid op / missing op / negative base_version) before
-// any business work, and valid ops should fall through to the lifecycle stub.
+// ApplyOps 的顶层校验必须先区分 JSON 解码、op 缺失/非法和 base_version 负数等输入错误。
+// 合法 ops 才能进入业务分发，避免坏请求穿透到存储或节点执行层。
 
-// TestApplyOps_UpdateDAGDispatches 验证 F4.4 后 update_dag 已接入业务层，
-// 不再走 ErrLifecycleNotImplemented。
+// TestApplyOps_UpdateDAGDispatches 验证 update_dag 会进入业务层并推进 DAG 版本。
 func TestApplyOps_UpdateDAGDispatches(t *testing.T) {
 	t.Parallel()
 	stub := &stubDAGOpsStore{currentVersion: 1}
@@ -40,8 +34,7 @@ func TestApplyOps_UpdateDAGDispatches(t *testing.T) {
 	}
 }
 
-// TestApplyOps_InvalidOpKind 验证 op_kind=unknown 返回 InvalidArgument 类错误
-// （命中 ErrApplyOpsInvalid sentinel），且错误信息含 op_kind 字面量。
+// TestApplyOps_InvalidOpKind 验证未知 op 会返回输入错误，并在错误文本中保留原始 op。
 func TestApplyOps_InvalidOpKind(t *testing.T) {
 	t.Parallel()
 	s := &service{}
@@ -62,7 +55,7 @@ func TestApplyOps_InvalidOpKind(t *testing.T) {
 	}
 }
 
-// TestApplyOps_MissingOpKind 验证缺 op 字段 → InvalidArgument。
+// TestApplyOps_MissingOpKind 验证缺少 op 字段时不会落到生命周期 stub。
 func TestApplyOps_MissingOpKind(t *testing.T) {
 	t.Parallel()
 	s := &service{}
@@ -80,7 +73,7 @@ func TestApplyOps_MissingOpKind(t *testing.T) {
 	}
 }
 
-// TestApplyOps_UnmarshalFails 验证非合法 JSON → InvalidArgument。
+// TestApplyOps_UnmarshalFails 验证非法 JSON 会停在参数解码边界。
 func TestApplyOps_UnmarshalFails(t *testing.T) {
 	t.Parallel()
 	s := &service{}
@@ -95,6 +88,7 @@ func TestApplyOps_UnmarshalFails(t *testing.T) {
 	}
 }
 
+// TestApplyOps_PreservesNodeexecSentinelErrorChain 验证节点补丁校验错误不会被 ApplyOps 包装丢失。
 func TestApplyOps_PreservesNodeexecSentinelErrorChain(t *testing.T) {
 	t.Parallel()
 	s := &service{}
@@ -112,7 +106,7 @@ func TestApplyOps_PreservesNodeexecSentinelErrorChain(t *testing.T) {
 	}
 }
 
-// TestApplyOps_NegativeBaseVersion 验证 base_version<0 → InvalidArgument。
+// TestApplyOps_NegativeBaseVersion 验证负 base_version 会在业务分发前失败。
 func TestApplyOps_NegativeBaseVersion(t *testing.T) {
 	t.Parallel()
 	s := &service{}
@@ -130,8 +124,7 @@ func TestApplyOps_NegativeBaseVersion(t *testing.T) {
 	}
 }
 
-// TestApplyOps_StoreNotConfigured 验证 service.dagStore 未设时返 sentinel。
-// 未接裸构造路径。
+// TestApplyOps_StoreNotConfigured 验证裸构造 service 时返回明确的存储未接线错误。
 func TestApplyOps_StoreNotConfigured(t *testing.T) {
 	t.Parallel()
 	s := &service{}

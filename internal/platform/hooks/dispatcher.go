@@ -28,7 +28,8 @@ var (
 	errDispatchWorkerPanic = errors.New("hooks dispatch worker panic")
 )
 
-// HookDispatcher fans hook callbacks out to subscribed peers.
+// HookDispatcher 根据订阅表把 hook 回调 fanout 到 peer。
+// 它同时记录连续失败次数，便于 Manager 清理长期失联的 lease。
 type HookDispatcher struct {
 	registry     *HookRegistry
 	peerCallback contract.PeerCallback
@@ -38,9 +39,10 @@ type HookDispatcher struct {
 	failCounts   map[mcp.LeaseKey]int
 }
 
+// DispatcherOption 调整 HookDispatcher 的并发度、超时等运行参数。
 type DispatcherOption func(*HookDispatcher)
 
-// WithDispatcherParallelism 设置调度器parallelism。
+// WithDispatcherParallelism 设置单次 fanout 的最大并发 worker 数。
 func WithDispatcherParallelism(n int) DispatcherOption {
 	return func(d *HookDispatcher) {
 		if d != nil && n > 0 {
@@ -49,7 +51,7 @@ func WithDispatcherParallelism(n int) DispatcherOption {
 	}
 }
 
-// WithPeerTimeout 设置peer超时。
+// WithPeerTimeout 设置单个 peer callback 的超时时间。
 func WithPeerTimeout(timeout time.Duration) DispatcherOption {
 	return func(d *HookDispatcher) {
 		if d != nil && timeout > 0 {
@@ -58,7 +60,8 @@ func WithPeerTimeout(timeout time.Duration) DispatcherOption {
 	}
 }
 
-// NewHookDispatcher 创建hook调度器。
+// NewHookDispatcher 创建 hooks fanout 调度器。
+// registry 和 peer callback 是必需依赖，缺失时立即返回错误，避免运行期才发现无法 dispatch。
 func NewHookDispatcher(registry *HookRegistry, cb contract.PeerCallback, opts ...DispatcherOption) (*HookDispatcher, error) {
 	if registry == nil {
 		return nil, errNilHookRegistry
@@ -82,7 +85,7 @@ func NewHookDispatcher(registry *HookRegistry, cb contract.PeerCallback, opts ..
 	return dispatcher, nil
 }
 
-// DispatchBefore 派发before。
+// DispatchBefore 对订阅 topic 的 peer 执行 before 阶段回调。
 func (d *HookDispatcher) DispatchBefore(ctx context.Context, topic string, payload mcp.HookPayload) ([]peerDecision[mcp.BeforeDecision], error) {
 	return d.dispatchBeforeBySelector(ctx, mcp.Selector{Subscription: topic}, payload)
 }
@@ -91,7 +94,7 @@ func (d *HookDispatcher) dispatchBeforeBySelector(ctx context.Context, sel mcp.S
 	return dispatchBySelector(d, ctx, sel, payload, d.peerCallback.CallbackBefore)
 }
 
-// DispatchCheck 派发check。
+// DispatchCheck 对订阅 topic 的 peer 执行 check 阶段回调。
 func (d *HookDispatcher) DispatchCheck(ctx context.Context, topic string, payload mcp.HookPayload) ([]peerDecision[mcp.CheckDecision], error) {
 	return d.dispatchCheckBySelector(ctx, mcp.Selector{Subscription: topic}, payload)
 }
@@ -100,7 +103,7 @@ func (d *HookDispatcher) dispatchCheckBySelector(ctx context.Context, sel mcp.Se
 	return dispatchBySelector(d, ctx, sel, payload, d.peerCallback.CallbackCheck)
 }
 
-// DispatchAfter 派发后置。
+// DispatchAfter 对订阅 topic 的 peer 执行 after 阶段回调。
 func (d *HookDispatcher) DispatchAfter(ctx context.Context, topic string, payload mcp.HookPayload) ([]peerDecision[mcp.AfterDecision], error) {
 	return d.dispatchAfterBySelector(ctx, mcp.Selector{Subscription: topic}, payload)
 }
@@ -170,7 +173,8 @@ type dispatchWorkerState struct {
 	hasCurrent bool
 }
 
-// dispatchDecisions 派发decisions。
+// dispatchDecisions 用固定 worker 池并发调用 peer，并保持结果按 lease 输入顺序回填。
+// worker panic 会被转换成对应 lease 的失败结果，不让单个 peer 破坏整批 fanout。
 func dispatchDecisions[T any](
 	d *HookDispatcher,
 	ctx context.Context,
@@ -220,8 +224,7 @@ func (d *HookDispatcher) recordPeerResult(lease mcp.LeaseKey, err error) int {
 	return d.failCounts[lease]
 }
 
-// ForgetLease clears failure tracking for a lease after unsubscribe to avoid leaks.
-// ForgetLease 处理forget租约。
+// ForgetLease 在 unsubscribe 后清理连续失败计数，避免失效 lease 长期占用内存。
 func (d *HookDispatcher) ForgetLease(lease mcp.LeaseKey) {
 	d.failMu.Lock()
 	delete(d.failCounts, lease)

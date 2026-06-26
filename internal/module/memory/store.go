@@ -10,16 +10,20 @@ import (
 	shared "github.com/anthropic-ai/super-agent-v3/internal/module/memory/shared"
 )
 
+// diskStore 以磁盘 Markdown 文件实现记忆存储。
+// 所有写入通过 diskLockCoordinator 串行化，guard 负责团队记忆等额外写入校验。
 type diskStore struct {
 	root  string
 	guard memoryWriteGuard
 	locks *diskLockCoordinator
 }
 
+// newDiskStore 创建不带额外写入守卫的磁盘记忆存储。
 func newDiskStore(root string, locks *diskLockCoordinator) (*diskStore, error) {
 	return newDiskStoreWithGuard(root, nil, locks)
 }
 
+// newDiskStoreWithGuard 创建磁盘记忆存储，并在写文件前执行可选 guard。
 func newDiskStoreWithGuard(root string, guard memoryWriteGuard, locks *diskLockCoordinator) (*diskStore, error) {
 	normalizedRoot, err := normalizeStoreRoot(root)
 	if err != nil {
@@ -31,7 +35,7 @@ func newDiskStoreWithGuard(root string, guard memoryWriteGuard, locks *diskLockC
 	return &diskStore{root: normalizedRoot, guard: guard, locks: locks}, nil
 }
 
-// Root 处理根目录。
+// Root 返回规范化后的记忆根目录。
 func (s *diskStore) Root() string {
 	if s == nil {
 		return ""
@@ -39,17 +43,17 @@ func (s *diskStore) Root() string {
 	return s.root
 }
 
-// CreateStructured 创建structured。
+// CreateStructured 将结构化写请求转换为记忆条目后创建新文件。
 func (s *diskStore) CreateStructured(req MemoryWriteRequest, opts ...WriteOptions) (MemoryEntry, error) {
 	return s.Create(buildMemoryEntryFromWriteRequest(req), opts...)
 }
 
-// Create 创建记忆。
+// Create 创建新记忆条目，已存在同名规范化条目时返回 ErrMemoryAlreadyExists。
 func (s *diskStore) Create(entry MemoryEntry, opts ...WriteOptions) (MemoryEntry, error) {
 	return s.write(entry, false, resolveWriteOptions(opts))
 }
 
-// Read 读取记忆。
+// Read 按规范化名称读取记忆条目。
 func (s *diskStore) Read(name string) (MemoryEntry, error) {
 	root, err := s.rootOrError()
 	if err != nil {
@@ -69,34 +73,29 @@ func (s *diskStore) Read(name string) (MemoryEntry, error) {
 	return entry, nil
 }
 
-// Update 更新记忆。
+// Update 更新已存在的记忆条目，不存在时返回 ErrMemoryNotFound。
 func (s *diskStore) Update(entry MemoryEntry, opts ...WriteOptions) (MemoryEntry, error) {
 	return s.write(entry, true, resolveWriteOptions(opts))
 }
 
-// UpdateStructured 更新structured。
+// UpdateStructured 将结构化写请求转换为记忆条目后更新已有文件。
 func (s *diskStore) UpdateStructured(req MemoryWriteRequest, opts ...WriteOptions) (MemoryEntry, error) {
 	return s.Update(buildMemoryEntryFromWriteRequest(req), opts...)
 }
 
-// UpdateStructuredPath 更新structured路径。
+// UpdateStructuredPath 按指定文件路径更新结构化记忆。
+// 路径、名称和类型都必须匹配现有条目，避免把一个文件改写成另一类记忆。
 func (s *diskStore) UpdateStructuredPath(path string, req MemoryWriteRequest, opts ...WriteOptions) (MemoryEntry, error) {
 	return s.updatePath(path, buildMemoryEntryFromWriteRequest(req), resolveWriteOptions(opts))
 }
 
-// UpsertStructured writes the entry atomically inside a single
-// withDiskStoreLock acquisition: prepare → acquire lock →
-// writePreparedMemoryFile → updateIndexAfterMutation → release lock.
-// Skips validateMutationMode entirely — upsert always writes regardless
-// of pre-existence. Phase 自有.1a: closes the Create-then-Update RMW
-// window in upsertStructuredMemory where two independent lock
-// acquisitions allowed a racing writer to flip Create-failed-with-
-// AlreadyExists into an Update that silently overwrote a concurrently-
-// written entry from another goroutine / process.
+// UpsertStructured 在单次磁盘锁内完成 prepare、写文件和索引更新。
+// 它不检查 create/update 模式，目的是关闭先 Create 再 Update 带来的并发覆盖窗口。
 func (s *diskStore) UpsertStructured(req MemoryWriteRequest, opts ...WriteOptions) (MemoryEntry, error) {
 	return s.upsertWrite(buildMemoryEntryFromWriteRequest(req), resolveWriteOptions(opts))
 }
 
+// upsertWrite 在单次磁盘锁内写入条目并刷新索引。
 func (s *diskStore) upsertWrite(entry MemoryEntry, options WriteOptions) (MemoryEntry, error) {
 	root, err := s.rootOrError()
 	if err != nil {
@@ -118,7 +117,7 @@ func (s *diskStore) upsertWrite(entry MemoryEntry, options WriteOptions) (Memory
 	return written, err
 }
 
-// Delete 删除记忆。
+// Delete 按名称删除记忆条目，并在同一把磁盘锁内刷新索引。
 func (s *diskStore) Delete(name string, opts ...WriteOptions) error {
 	root, err := s.rootOrError()
 	if err != nil {
@@ -133,7 +132,7 @@ func (s *diskStore) Delete(name string, opts ...WriteOptions) error {
 	})
 }
 
-// DeletePath 删除路径。
+// DeletePath 按文件路径删除记忆条目，并在同一把磁盘锁内刷新索引。
 func (s *diskStore) DeletePath(path string, opts ...WriteOptions) error {
 	root, err := s.rootOrError()
 	if err != nil {
@@ -148,7 +147,7 @@ func (s *diskStore) DeletePath(path string, opts ...WriteOptions) error {
 	})
 }
 
-// RebuildIndex 处理rebuild索引。
+// RebuildIndex 重建记忆索引文件。
 func (s *diskStore) RebuildIndex() ([]MemoryIndexEntry, error) {
 	root, err := s.rootOrError()
 	if err != nil {
@@ -157,7 +156,8 @@ func (s *diskStore) RebuildIndex() ([]MemoryIndexEntry, error) {
 	return RebuildMemoryIndex(root)
 }
 
-// write 写入记忆。
+// write 在磁盘锁内执行 create/update 写入。
+// requireExisting 决定是否必须已有条目，写入成功后立即更新索引，避免索引和文件内容分离。
 func (s *diskStore) write(entry MemoryEntry, requireExisting bool, options WriteOptions) (MemoryEntry, error) {
 	root, err := s.rootOrError()
 	if err != nil {
@@ -185,7 +185,8 @@ func (s *diskStore) write(entry MemoryEntry, requireExisting bool, options Write
 	return written, err
 }
 
-// updatePath 更新路径。
+// updatePath 在磁盘锁内按路径更新条目。
+// 除路径安全外，还会校验现有文件的规范化名称和类型，防止跨条目覆盖。
 func (s *diskStore) updatePath(path string, entry MemoryEntry, options WriteOptions) (MemoryEntry, error) {
 	root, err := s.rootOrError()
 	if err != nil {
@@ -223,7 +224,8 @@ func (s *diskStore) updatePath(path string, entry MemoryEntry, options WriteOpti
 	return written, err
 }
 
-// WriteMemoryFile 写入记忆文件。
+// WriteMemoryFile 按 root 和 entry 写入单个记忆文件。
+// 这是低层 helper，不刷新索引；调用方需要自己处理索引一致性。
 func WriteMemoryFile(root string, entry MemoryEntry) (MemoryEntry, error) {
 	prepared, err := prepareWritableEntry(entry, false)
 	if err != nil {
@@ -232,6 +234,7 @@ func WriteMemoryFile(root string, entry MemoryEntry) (MemoryEntry, error) {
 	return writePreparedMemoryFile(root, prepared, nil)
 }
 
+// writePreparedMemoryFile 为已校验条目分配安全路径并写入磁盘。
 func writePreparedMemoryFile(root string, prepared MemoryEntry, guard memoryWriteGuard) (MemoryEntry, error) {
 	normalizedRoot, err := normalizeStoreRoot(root)
 	if err != nil {
@@ -244,7 +247,8 @@ func writePreparedMemoryFile(root string, prepared MemoryEntry, guard memoryWrit
 	return writePreparedMemoryFilePath(normalizedRoot, targetPath, prepared, guard)
 }
 
-// writePreparedMemoryFilePath 写入prepared记忆文件路径。
+// writePreparedMemoryFilePath 在指定安全路径写入已准备好的记忆条目。
+// 写入前先执行可选 guard 和内容校验，成功后重新读取文件作为返回值。
 func writePreparedMemoryFilePath(root, targetPath string, prepared MemoryEntry, guard memoryWriteGuard) (MemoryEntry, error) {
 	normalizedRoot, err := normalizeStoreRoot(root)
 	if err != nil {
@@ -271,7 +275,7 @@ func writePreparedMemoryFilePath(root, targetPath string, prepared MemoryEntry, 
 	return readMemoryEntryFile(targetPath)
 }
 
-// DeleteMemory 删除记忆。
+// DeleteMemory 按名称删除记忆文件，名称可走精确或模糊匹配。
 func DeleteMemory(root, name string) error {
 	normalizedRoot, err := normalizeStoreRoot(root)
 	if err != nil {
@@ -287,7 +291,7 @@ func DeleteMemory(root, name string) error {
 	return removeMemoryFile(normalizedRoot, entry.FilePath)
 }
 
-// DeleteMemoryPath 删除记忆路径。
+// DeleteMemoryPath 按路径删除记忆文件。
 func DeleteMemoryPath(root, path string) error {
 	normalizedRoot, err := normalizeStoreRoot(root)
 	if err != nil {
@@ -296,6 +300,7 @@ func DeleteMemoryPath(root, path string) error {
 	return removeMemoryFile(normalizedRoot, path)
 }
 
+// removeMemoryFile 校验删除目标并拒绝删除 MEMORY.md 入口文件。
 func removeMemoryFile(root, path string) error {
 	if filepath.Base(filepath.ToSlash(strings.TrimSpace(path))) == memoryIndexFileName {
 		return invalidMemoryWritePath("cannot remove memory entrypoint")
@@ -314,6 +319,7 @@ func removeMemoryFile(root, path string) error {
 	return nil
 }
 
+// normalizeStoreRoot 校验并标准化磁盘存储根目录。
 func normalizeStoreRoot(root string) (string, error) {
 	validatedRoot, err := shared.ValidateMemoryRoot(root)
 	if err != nil {
@@ -325,7 +331,8 @@ func normalizeStoreRoot(root string) (string, error) {
 	return strings.TrimSuffix(validatedRoot, string(os.PathSeparator)), nil
 }
 
-// prepareWritableEntry 准备writable条目。
+// prepareWritableEntry 标准化待写入条目并校验 frontmatter 与结构化内容。
+// validateContent 为 true 时会执行正文长度/截断规则校验。
 func prepareWritableEntry(entry MemoryEntry, validateContent bool) (MemoryEntry, error) {
 	entry = normalizeLoadedEntry(entry)
 	if strings.TrimSpace(entry.Content) == "" {
@@ -348,6 +355,7 @@ func prepareWritableEntry(entry MemoryEntry, validateContent bool) (MemoryEntry,
 	return entry, nil
 }
 
+// validateRequiredMemoryFrontmatter 校验写入所需的基础 frontmatter 字段。
 func validateRequiredMemoryFrontmatter(frontmatter MemoryFrontmatter) error {
 	if strings.TrimSpace(frontmatter.Name) == "" {
 		return fmt.Errorf("%w: name is required", ErrInvalidMemoryEntry)
@@ -364,6 +372,7 @@ func validateRequiredMemoryFrontmatter(frontmatter MemoryFrontmatter) error {
 	return nil
 }
 
+// validateStructuredMemoryContent 校验结构化类型的正文必须包含关键段落。
 func validateStructuredMemoryContent(memoryType MemoryType, content string) error {
 	switch memoryType {
 	case MemoryTypeFeedback, MemoryTypeProject:
@@ -374,6 +383,7 @@ func validateStructuredMemoryContent(memoryType MemoryType, content string) erro
 	return nil
 }
 
+// hasAnyStructuredMemorySection 判断正文是否包含任一指定结构化段落标题。
 func hasAnyStructuredMemorySection(content string, labels ...string) bool {
 	for _, label := range labels {
 		if hasStructuredMemorySection(content, label) {
@@ -383,6 +393,7 @@ func hasAnyStructuredMemorySection(content string, labels ...string) bool {
 	return false
 }
 
+// hasStructuredMemorySection 判断正文行是否包含指定段落标题。
 func hasStructuredMemorySection(content, label string) bool {
 	for line := range strings.SplitSeq(content, "\n") {
 		normalized := strings.ToLower(strings.TrimSpace(line))
@@ -395,6 +406,7 @@ func hasStructuredMemorySection(content, label string) bool {
 	return false
 }
 
+// buildMemoryEntryFromWriteRequest 将 RPC 写请求转换为内部 MemoryEntry。
 func buildMemoryEntryFromWriteRequest(req MemoryWriteRequest) MemoryEntry {
 	return MemoryEntry{
 		Frontmatter: MemoryFrontmatter{
@@ -409,6 +421,7 @@ func buildMemoryEntryFromWriteRequest(req MemoryWriteRequest) MemoryEntry {
 	}
 }
 
+// canonicalLookupName 规范化查询名称，并拒绝空名称。
 func canonicalLookupName(name string) (string, error) {
 	canonicalName := CanonicalName(name)
 	if canonicalName == "" {
@@ -417,6 +430,7 @@ func canonicalLookupName(name string) (string, error) {
 	return canonicalName, nil
 }
 
+// findMemoryEntry 按规范化名称查找去重后的记忆条目。
 func findMemoryEntry(root, canonicalName string) (MemoryEntry, bool, error) {
 	entries, err := scanMemoryEntries(root)
 	if err != nil {
@@ -430,6 +444,7 @@ func findMemoryEntry(root, canonicalName string) (MemoryEntry, bool, error) {
 	return MemoryEntry{}, false, nil
 }
 
+// findMemoryEntryForDelete 先按规范化名称精确查找，失败后再走模糊匹配。
 func findMemoryEntryForDelete(root, name string) (MemoryEntry, bool, error) {
 	if _, err := canonicalLookupName(name); err != nil {
 		return MemoryEntry{}, false, err
@@ -441,7 +456,8 @@ func findMemoryEntryForDelete(root, name string) (MemoryEntry, bool, error) {
 	return findMatchingMemoryEntry(root, name)
 }
 
-// findMatchingMemoryEntry 查找matching记忆条目。
+// findMatchingMemoryEntry 对删除请求执行模糊匹配。
+// 多个候选分数相同时使用 preferMemoryEntry 稳定选择，避免删除结果不确定。
 func findMatchingMemoryEntry(root, query string) (MemoryEntry, bool, error) {
 	entries, err := scanMemoryEntries(root)
 	if err != nil {
@@ -468,7 +484,8 @@ func findMatchingMemoryEntry(root, query string) (MemoryEntry, bool, error) {
 	return best, found, nil
 }
 
-// memoryDeleteMatchScore 处理记忆deletematchscore。
+// memoryDeleteMatchScore 计算删除查询与条目的匹配分数。
+// 名称权重最高，其次描述、hook 和正文，模糊包含关系使用较低分数。
 func memoryDeleteMatchScore(query string, entry MemoryEntry) int {
 	fields := []struct {
 		text  string
@@ -498,10 +515,12 @@ func memoryDeleteMatchScore(query string, entry MemoryEntry) int {
 	return best
 }
 
+// canonicalMemoryMatchText 规范化用于模糊匹配的文本。
 func canonicalMemoryMatchText(text string) string {
 	return CanonicalName(strings.ReplaceAll(strings.TrimSpace(text), "\n", " "))
 }
 
+// resolveMemoryFilePath 复用现有条目路径；新条目则按类型目录预留不冲突路径。
 func resolveMemoryFilePath(root string, entry MemoryEntry) (string, error) {
 	existing, exists, err := findMemoryEntry(root, entry.CanonicalName)
 	if err != nil {
@@ -515,7 +534,8 @@ func resolveMemoryFilePath(root string, entry MemoryEntry) (string, error) {
 	return reserveMemoryFilePath(root, dir, base, entry.CanonicalName)
 }
 
-// reserveMemoryFilePath 处理reserve记忆文件路径。
+// reserveMemoryFilePath 为新记忆分配可用文件名。
+// 先尝试可读名称，再追加短 hash 和序号，所有候选都必须通过写路径校验。
 func reserveMemoryFilePath(root, dir, base, canonicalName string) (string, error) {
 	candidates := []string{filepath.Join(dir, base+".md")}
 	hash := shared.ShortHash(canonicalName)
@@ -542,6 +562,7 @@ func reserveMemoryFilePath(root, dir, base, canonicalName string) (string, error
 	return "", fmt.Errorf("%w: unable to allocate file path", ErrInvalidMemoryEntry)
 }
 
+// memoryPathAvailable 判断路径是否尚未存在。
 func memoryPathAvailable(path string) (bool, error) {
 	_, err := os.Stat(path)
 	if errors.Is(err, os.ErrNotExist) {
@@ -550,6 +571,7 @@ func memoryPathAvailable(path string) (bool, error) {
 	return false, err
 }
 
+// validateMutationMode 校验 create/update 模式与现有条目状态是否匹配。
 func validateMutationMode(exists, requireExisting bool) error {
 	if requireExisting && !exists {
 		return ErrMemoryNotFound
@@ -560,6 +582,8 @@ func validateMutationMode(exists, requireExisting bool) error {
 	return nil
 }
 
+// updateIndexAfterMutation 在写操作完成后按需重建索引。
+// 批量写入可用 SkipIndex 延后索引维护；普通写入失败必须返回，避免磁盘条目和索引静默分叉。
 func updateIndexAfterMutation(root string, options WriteOptions) error {
 	if options.SkipIndex {
 		return nil
@@ -570,6 +594,8 @@ func updateIndexAfterMutation(root string, options WriteOptions) error {
 	return nil
 }
 
+// resolveWriteOptions 解析可变参数形式的写入选项。
+// 当前写路径只接受首个选项，保持旧调用兼容并避免多个选项叠加出隐式优先级。
 func resolveWriteOptions(opts []WriteOptions) WriteOptions {
 	if len(opts) == 0 {
 		return WriteOptions{}
@@ -577,6 +603,7 @@ func resolveWriteOptions(opts []WriteOptions) WriteOptions {
 	return opts[0]
 }
 
+// rootOrError 返回 diskStore 的规范化根目录，nil store 或空根目录直接报错以阻断后续路径校验。
 func (s *diskStore) rootOrError() (string, error) {
 	if s == nil {
 		return "", fmt.Errorf("%w: nil store", ErrInvalidMemoryRoot)

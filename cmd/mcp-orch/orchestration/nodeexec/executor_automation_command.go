@@ -20,17 +20,21 @@ const (
 
 var sensitiveCommandTextPattern = regexp.MustCompile(`(?i)\b(token|api[_-]?key|password|secret)=\S+`)
 
+// ShellCommandRunner 执行 automation command 卡片。
+// 调用前会校验风险级别、工作区边界和命令文本，失败时不启动 shell。
 type ShellCommandRunner struct{}
 
+// preparedAutomationCommand 保存一次命令执行所需的进程和可回传结果。
 type preparedAutomationCommand struct {
-	cmd            *exec.Cmd
-	stdout         *commandOutputBuffer
-	stderr         *commandOutputBuffer
-	command        string
-	normalizedArgs json.RawMessage
+	cmd            *exec.Cmd            // 已绑定 context/cwd/env 的 shell 进程
+	stdout         *commandOutputBuffer // 带上限的 stdout 缓冲区
+	stderr         *commandOutputBuffer // 带上限的 stderr 缓冲区
+	command        string               // 渲染后的命令，回传前会脱敏
+	normalizedArgs json.RawMessage      // 模板渲染后的结构化参数快照
 }
 
-// NewShellCommandRunner 创建 shell 命令 runner。
+// NewShellCommandRunner 创建无状态 shell 命令 runner。
+// runner 本身不持有工作区或环境，所有执行边界必须随 RunCommandCard 的 options 显式传入。
 func NewShellCommandRunner() *ShellCommandRunner { return &ShellCommandRunner{} }
 
 // RunCommandCard 运行命令卡；shell 执行必须显式标记 high 风险，并限制在允许工作区内。
@@ -50,6 +54,8 @@ func (ShellCommandRunner) RunCommandCard(ctx context.Context, card AutomationCom
 	return result, CommandExitError{ExitCode: result.ExitCode, Err: err}
 }
 
+// prepareAutomationCommand 渲染命令模板并组装可执行的 shell 进程。
+// 所有策略、安全和路径校验都在这里完成，调用方拿到结果后才能真正 Run。
 func prepareAutomationCommand(ctx context.Context, card AutomationCommandCard, args json.RawMessage, opts []AutomationCommandRunOptions) (preparedAutomationCommand, error) {
 	if err := validateAutomationCommandPolicy(card); err != nil {
 		return preparedAutomationCommand{}, err
@@ -126,6 +132,8 @@ func normalizeAutomationRunOptions(opts []AutomationCommandRunOptions) (Automati
 	}
 }
 
+// resolveAutomationCommandCWD 解析命令工作目录并确认它落在允许的 workspace root 内。
+// cwd 和 root 都会做 symlink 归一化，避免通过链接路径绕过执行边界。
 func resolveAutomationCommandCWD(opts AutomationCommandRunOptions) (string, error) {
 	cwd := strings.TrimSpace(opts.CWD)
 	if cwd == "" && len(opts.WorkspaceRoots) == 0 {
@@ -233,7 +241,8 @@ func newCommandOutputBuffer(label string, limit int) *commandOutputBuffer {
 	return &commandOutputBuffer{label: label, limit: limit}
 }
 
-// Write 写入编排。
+// Write 写入命令输出缓冲区，并在达到上限后继续报告完整写入长度。
+// 这样不会阻塞子进程 stdout/stderr，同时结果里保留截断标记供调用方判断。
 func (b *commandOutputBuffer) Write(p []byte) (int, error) {
 	b.total += len(p)
 	remaining := b.limit - b.buf.Len()
@@ -251,7 +260,8 @@ func (b *commandOutputBuffer) Write(p []byte) (int, error) {
 	return b.buf.Write(p)
 }
 
-// String 返回字符串表示。
+// String 返回已收集输出；如果发生截断，会追加截断说明。
+// 调用方会在回传前统一脱敏，所以这里不直接改写原始缓冲内容。
 func (b *commandOutputBuffer) String() string {
 	out := b.buf.String()
 	if !b.truncated {
@@ -274,10 +284,10 @@ type CommandExitError struct {
 	Err      error
 }
 
-// Error 返回错误文本。
+// Error 返回带退出码的命令失败描述，供 automation 错误分类识别为 hard failure。
 func (e CommandExitError) Error() string {
 	return fmt.Sprintf("command exited with code %d: %v", e.ExitCode, e.Err)
 }
 
-// Unwrap 返回底层错误。
+// Unwrap 返回 exec 层底层错误，保留 errors.Is/As 的判断能力。
 func (e CommandExitError) Unwrap() error { return e.Err }

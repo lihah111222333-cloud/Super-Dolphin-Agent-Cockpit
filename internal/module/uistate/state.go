@@ -48,9 +48,8 @@ type ThreadSummary struct {
 	AgentID   string     `json:"agent_id,omitempty"`
 	CreatedAt *time.Time `json:"createdAt,omitempty"`
 	UpdatedAt *time.Time `json:"updatedAt,omitempty"`
-	// LifecycleStatus is the DB lifecycle truth (created/stopped/archived).
-	// State remains the UI/runtime union field and may be overwritten by
-	// deriveThreadStatuses, so archive projection must not rely on State alone.
+	// LifecycleStatus 保存数据库里的线程生命周期真值。
+	// State 是 UI 和运行态共用字段，可能被 deriveThreadStatuses 覆盖，归档判断不能只看它。
 	LifecycleStatus string `json:"lifecycleStatus,omitempty"`
 	State           string `json:"state,omitempty"`
 	ThreadStatus    string `json:"threadStatus,omitempty"`

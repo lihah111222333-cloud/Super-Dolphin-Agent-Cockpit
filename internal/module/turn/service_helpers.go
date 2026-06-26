@@ -15,6 +15,7 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/util/idgen"
 )
 
+// ensureLocalTurnID 返回已有本地 turnID，缺失时生成新的 turn 前缀 ID。
 func ensureLocalTurnID(localID string) string {
 	if localID = strings.TrimSpace(localID); localID != "" {
 		return localID
@@ -22,6 +23,7 @@ func ensureLocalTurnID(localID string) string {
 	return idgen.NewID("turn")
 }
 
+// isTerminalTurnState 判断字符串状态是否属于 tracker 终态；空值和未知状态都保持非终态。
 func isTerminalTurnState(state string) bool {
 	switch TurnState(strings.TrimSpace(state)) {
 	case StateCompleted, StateInterrupted, StateFailed, StateStalled:
@@ -30,6 +32,7 @@ func isTerminalTurnState(state string) bool {
 	return false
 }
 
+// resolveBinaryDir 解析 provider manifest 使用的 peer 二进制目录，优先使用显式 peer 目录。
 func resolveBinaryDir() string {
 	if dir := resolvePeerBinDir(); dir != "" {
 		return dir
@@ -41,6 +44,7 @@ func resolveBinaryDir() string {
 	return filepath.Dir(exe)
 }
 
+// resolvePeerBinDir 从环境变量候选目录中挑选可用的 managed peer 目录。
 func resolvePeerBinDir() string {
 	dirs := peerBinDirCandidates()
 	if len(dirs) == 0 {
@@ -52,6 +56,7 @@ func resolvePeerBinDir() string {
 	return dirs[0]
 }
 
+// peerBinDirCandidates 解析 GO_AGENT_PEER_BIN_DIR，支持平台路径列表。
 func peerBinDirCandidates() []string {
 	raw := strings.TrimSpace(os.Getenv(peerBinDirEnv))
 	if raw == "" {
@@ -66,6 +71,7 @@ func peerBinDirCandidates() []string {
 	return dirs
 }
 
+// firstManagedPeerBinDir 返回第一个包含 mcp-lsp 或 mcp-orch 二进制的目录。
 func firstManagedPeerBinDir(dirs []string) string {
 	for _, dir := range dirs {
 		if hasManagedPeerBinary(dir) {
@@ -75,6 +81,7 @@ func firstManagedPeerBinDir(dirs []string) string {
 	return ""
 }
 
+// hasManagedPeerBinary 判断目录中是否存在受管 MCP peer 二进制。
 func hasManagedPeerBinary(dir string) bool {
 	for _, name := range []string{"mcp-lsp", "mcp-orch"} {
 		info, err := os.Stat(filepath.Join(dir, name))
@@ -85,6 +92,7 @@ func hasManagedPeerBinary(dir string) bool {
 	return false
 }
 
+// waitForHandle 等待 provider handle 完成、上下文取消或 deadline 到期。
 func waitForHandle(ctx context.Context, handle contract.TurnHandle, deadline time.Time) error {
 	if handle == nil {
 		return nil
@@ -101,6 +109,7 @@ func waitForHandle(ctx context.Context, handle contract.TurnHandle, deadline tim
 	}
 }
 
+// cleanupStaleToolResults 按 FRC 配置清理旧工具结果，并在有清理时记录 debug 日志。
 func (s *service) cleanupStaleToolResults(threadID string, input PrepareInput) {
 	result := cleanupToolResultLifecycle(threadID, input.Model, input.FRCConfig)
 	if s == nil || s.logger == nil || result.Cleared == 0 {
@@ -109,6 +118,7 @@ func (s *service) cleanupStaleToolResults(threadID string, input PrepareInput) {
 	s.logger.Debug("turn tool-result lifecycle cleanup", "thread_id", threadID, "cleared", result.Cleared, "kept", result.Kept, "deleted_files", result.DeletedFiles)
 }
 
+// turnMCPSnapshot 把 manifest 中实际声明的 MCP binary 名称回填到上下文快照。
 func turnMCPSnapshot(snapshot contract.MCPSnapshot, manifest dto.MCPManifest) contract.MCPSnapshot {
 	cloned := cloneMCPSnapshot(snapshot)
 	servers := make([]string, 0, len(manifest.Binaries))
@@ -143,6 +153,7 @@ func (s *service) hydrateMCPServerConfigs(ctx context.Context, input PrepareInpu
 	return input, nil
 }
 
+// normalizeTurnMCPSnapshot 规范化 turn 输入携带的 MCP 快照，并同步 server 名称列表。
 func normalizeTurnMCPSnapshot(snapshot contract.MCPSnapshot) (contract.MCPSnapshot, error) {
 	configs, names, err := normalizeTurnMCPServerConfigs(snapshot.ServerConfigs)
 	if err != nil {
@@ -154,6 +165,7 @@ func normalizeTurnMCPSnapshot(snapshot contract.MCPSnapshot) (contract.MCPSnapsh
 	return snapshot, nil
 }
 
+// mergeTurnConfiguredMCPServers 将持久化项目配置合入 turn 快照，已在线的可复用 HTTP server 会跳过。
 func mergeTurnConfiguredMCPServers(
 	snapshot contract.MCPSnapshot,
 	input map[string]contract.MCPServerConfig,
@@ -214,6 +226,7 @@ func normalizeTurnMCPServerConfigs(input map[string]contract.MCPServerConfig) (m
 	return out, enabledNames, nil
 }
 
+// normalizeTurnMCPServerConfig 根据 transport 分派到 HTTP 或 stdio 配置校验。
 func normalizeTurnMCPServerConfig(name string, config contract.MCPServerConfig) (contract.MCPServerConfig, error) {
 	transport := strings.TrimSpace(config.Transport)
 	if transport == "" {
@@ -229,6 +242,7 @@ func normalizeTurnMCPServerConfig(name string, config contract.MCPServerConfig) 
 	}
 }
 
+// normalizeTurnHTTPMCPServerConfig 校验 HTTP MCP server URL 和 headers。
 func normalizeTurnHTTPMCPServerConfig(name string, config contract.MCPServerConfig) (contract.MCPServerConfig, error) {
 	rawURL := strings.TrimSpace(config.URL)
 	if rawURL == "" {
@@ -246,6 +260,7 @@ func normalizeTurnHTTPMCPServerConfig(name string, config contract.MCPServerConf
 	}, nil
 }
 
+// normalizeTurnStdioMCPServerConfig 校验 stdio MCP server command、args 和 env。
 func normalizeTurnStdioMCPServerConfig(name string, config contract.MCPServerConfig) (contract.MCPServerConfig, error) {
 	command := strings.TrimSpace(config.Command)
 	if command == "" {
@@ -268,6 +283,7 @@ func normalizeTurnStdioMCPServerConfig(name string, config contract.MCPServerCon
 	}, nil
 }
 
+// normalizeTurnMCPServerHeaders 清理并校验 HTTP headers，空 key/value 会 fail-fast。
 func normalizeTurnMCPServerHeaders(serverName string, input map[string]string) (map[string]string, error) {
 	if len(input) == 0 {
 		return nil, nil
@@ -287,6 +303,7 @@ func normalizeTurnMCPServerHeaders(serverName string, input map[string]string) (
 	return out, nil
 }
 
+// normalizeTurnMCPServerArgs 清理 stdio args，空参数会 fail-fast。
 func normalizeTurnMCPServerArgs(serverName string, input []string) ([]string, error) {
 	if len(input) == 0 {
 		return nil, nil
@@ -302,6 +319,7 @@ func normalizeTurnMCPServerArgs(serverName string, input []string) ([]string, er
 	return out, nil
 }
 
+// normalizeTurnMCPServerEnv 清理 stdio env，空 key/value 会 fail-fast。
 func normalizeTurnMCPServerEnv(serverName string, input map[string]string) (map[string]string, error) {
 	if len(input) == 0 {
 		return nil, nil
@@ -344,10 +362,12 @@ func skipTurnConfiguredMCPServersWithActiveNames(existing []string, configs map[
 	return turnConfiguredMCPFilterResult(filteredConfigs, filteredNames)
 }
 
+// turnMCPServerConfigUsesReusableHTTP 判断配置是否可由已在线 HTTP server 复用。
 func turnMCPServerConfigUsesReusableHTTP(config contract.MCPServerConfig) bool {
 	return strings.EqualFold(strings.TrimSpace(config.Transport), "http")
 }
 
+// turnMCPServerNameSet 生成已声明 server 名称集合。
 func turnMCPServerNameSet(names []string) map[string]struct{} {
 	if len(names) == 0 {
 		return nil
@@ -362,6 +382,7 @@ func turnMCPServerNameSet(names []string) map[string]struct{} {
 	return out
 }
 
+// turnMCPServerNameIsActive 判断 server 名称是否已经在快照中 active，空名称视为 active 以便跳过。
 func turnMCPServerNameIsActive(active map[string]struct{}, name string) bool {
 	name = strings.TrimSpace(name)
 	if name == "" {
@@ -371,6 +392,7 @@ func turnMCPServerNameIsActive(active map[string]struct{}, name string) bool {
 	return ok
 }
 
+// turnConfiguredMCPFilterResult 规范化过滤结果，空集合返回 nil。
 func turnConfiguredMCPFilterResult(configs map[string]contract.MCPServerConfig, names []string) (map[string]contract.MCPServerConfig, []string) {
 	if len(configs) == 0 {
 		return nil, nil
@@ -378,6 +400,7 @@ func turnConfiguredMCPFilterResult(configs map[string]contract.MCPServerConfig, 
 	return configs, names
 }
 
+// turnMCPServerConfigLookupRoot 选择读取项目级 MCP 配置的根目录，GitRoot 优先于 CWD。
 func turnMCPServerConfigLookupRoot(input PrepareInput) string {
 	if root := strings.TrimSpace(input.GitRoot); root != "" {
 		return root
@@ -385,6 +408,7 @@ func turnMCPServerConfigLookupRoot(input PrepareInput) string {
 	return strings.TrimSpace(input.CWD)
 }
 
+// isManagedTurnMCPServerName 判断配置是否试图覆盖内置受管 peer 名称。
 func isManagedTurnMCPServerName(name string) bool {
 	switch strings.TrimSpace(name) {
 	case string(dto.FamilyLSP), string(dto.FamilyOrch):
@@ -418,6 +442,7 @@ func uniqueTurnMCPServerNames(groups ...[]string) []string {
 	return out
 }
 
+// turnMCPServerConfigNames 返回配置 map 中的非空 server 名称。
 func turnMCPServerConfigNames(configs map[string]contract.MCPServerConfig) []string {
 	if len(configs) == 0 {
 		return nil
@@ -431,6 +456,7 @@ func turnMCPServerConfigNames(configs map[string]contract.MCPServerConfig) []str
 	return names
 }
 
+// mergeTurnMCPServerConfigMaps 深拷贝并合并 MCP server 配置，extra 覆盖 base 同名项。
 func mergeTurnMCPServerConfigMaps(base, extra map[string]contract.MCPServerConfig) map[string]contract.MCPServerConfig {
 	if len(base) == 0 && len(extra) == 0 {
 		return nil
@@ -444,6 +470,7 @@ func mergeTurnMCPServerConfigMaps(base, extra map[string]contract.MCPServerConfi
 	return out
 }
 
+// copyTurnMCPServerConfigs 把输入配置复制到目标 map，并清理字符串字段。
 func copyTurnMCPServerConfigs(out map[string]contract.MCPServerConfig, input map[string]contract.MCPServerConfig) {
 	for name, config := range input {
 		name = strings.TrimSpace(name)
@@ -462,6 +489,7 @@ func copyTurnMCPServerConfigs(out map[string]contract.MCPServerConfig, input map
 	}
 }
 
+// cloneTurnStringList 复制字符串列表，空列表返回 nil。
 func cloneTurnStringList(input []string) []string {
 	if len(input) == 0 {
 		return nil
@@ -469,6 +497,7 @@ func cloneTurnStringList(input []string) []string {
 	return append([]string(nil), input...)
 }
 
+// normalizeTurnMCPEnabled 把 nil enabled 规范化为 true，保持历史默认启用语义。
 func normalizeTurnMCPEnabled(enabled *bool) *bool {
 	if enabled == nil {
 		return turnBoolPtr(true)
@@ -476,10 +505,12 @@ func normalizeTurnMCPEnabled(enabled *bool) *bool {
 	return turnBoolPtr(*enabled)
 }
 
+// turnMCPServerConfigEnabled 判断配置是否启用，nil enabled 视为启用。
 func turnMCPServerConfigEnabled(config contract.MCPServerConfig) bool {
 	return config.Enabled == nil || *config.Enabled
 }
 
+// cloneTurnBoolPtr 复制 bool 指针。
 func cloneTurnBoolPtr(input *bool) *bool {
 	if input == nil {
 		return nil
@@ -487,6 +518,7 @@ func cloneTurnBoolPtr(input *bool) *bool {
 	return turnBoolPtr(*input)
 }
 
+// turnBoolPtr 返回 bool 值的独立指针。
 func turnBoolPtr(value bool) *bool {
 	return &value
 }
@@ -511,10 +543,7 @@ func cloneTurnStringMap(input map[string]string) map[string]string {
 	return out
 }
 
-// ---------------------------------------------------------------------------
-// syntheticMemoryContext (was service_memory.go)
-// ---------------------------------------------------------------------------
-
+// syntheticMemoryContext 调用 turn context provider 生成注入 provider 的合成上下文。
 func (s *service) syntheticMemoryContext(
 	ctx context.Context,
 	session contract.Session,

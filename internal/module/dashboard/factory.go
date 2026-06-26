@@ -13,12 +13,16 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/util"
 )
 
+// logFilterField 是 dashboard 统一日志过滤字段的内部枚举。
 type logFilterField string
 
+// storedLogRow 约束可被统一映射为 LogEntry 的存储层日志行。
 type storedLogRow interface {
 	ailogstore.AILog | systemlogstore.SystemLog
 }
 
+// storedLogFields 是 system/AI 日志行共有字段的中间形态。
+// 泛型映射先抽取到这里，再组装为 dashboard wire DTO。
 type storedLogFields struct {
 	id         int64
 	timestamp  time.Time
@@ -36,6 +40,7 @@ type storedLogFields struct {
 	extra      json.RawMessage
 }
 
+// dashboard 日志过滤字段枚举，必须与 LogFilter 字段保持一一对应。
 const (
 	logFieldLevel     logFilterField = "level"
 	logFieldLogger    logFilterField = "logger"
@@ -46,6 +51,7 @@ const (
 	logFieldToolName  logFilterField = "tool_name"
 )
 
+// logFilterFields 是需要对 exact field 执行匹配的字段顺序。
 var logFilterFields = []logFilterField{
 	logFieldLevel,
 	logFieldLogger,
@@ -56,6 +62,8 @@ var logFilterFields = []logFilterField{
 	logFieldToolName,
 }
 
+// safeList 执行可选 reader 查询。
+// reader 未启用时返回空切片；查询返回 nil 时也规整为空切片以保持 JSON wire 兼容。
 func safeList[T any](enabled bool, query func() ([]T, error)) ([]T, error) {
 	if !enabled {
 		return []T{}, nil
@@ -67,7 +75,8 @@ func safeList[T any](enabled bool, query func() ([]T, error)) ([]T, error) {
 	return items, err
 }
 
-// ToFilter 把dashboard处理为过滤条件。
+// ToFilter 将 system/AI 统一日志 RPC 参数转换为 dashboard LogFilter。
+// camelCase 和 snake_case 参数都兼容，避免旧前端字段名失效。
 func (p logsParams) ToFilter(source string) LogFilter {
 	return LogFilter{
 		Source:    strings.TrimSpace(source),
@@ -83,7 +92,7 @@ func (p logsParams) ToFilter(source string) LogFilter {
 	}
 }
 
-// ToFilter 把dashboard处理为过滤条件。
+// ToFilter 将 audit log RPC 参数转换为 store 查询条件。
 func (p auditLogsParams) ToFilter() auditlogstore.ListFilter {
 	return auditlogstore.ListFilter{
 		EventType: strings.TrimSpace(p.EventType),
@@ -94,7 +103,7 @@ func (p auditLogsParams) ToFilter() auditlogstore.ListFilter {
 	}
 }
 
-// ToFilter 把dashboard处理为过滤条件。
+// ToFilter 将 bus log RPC 参数转换为 store 查询条件。
 func (p busLogsParams) ToFilter() buslogstore.ListFilter {
 	return buslogstore.ListFilter{
 		Category: strings.TrimSpace(p.Category),
@@ -104,7 +113,7 @@ func (p busLogsParams) ToFilter() buslogstore.ListFilter {
 	}
 }
 
-// ToFilter 把dashboard处理为过滤条件。
+// ToFilter 将 dashboard DAG 列表参数转换为 contract 过滤条件。
 func (p dagsParams) ToFilter() contract.ListDAGsFilter {
 	return contract.ListDAGsFilter{
 		Status:  strings.TrimSpace(p.Status),
@@ -113,7 +122,7 @@ func (p dagsParams) ToFilter() contract.ListDAGsFilter {
 	}
 }
 
-// logFilterValue 处理日志过滤条件值。
+// logFilterValue 读取 LogFilter 中指定字段的过滤值。
 func logFilterValue(filter LogFilter, field logFilterField) string {
 	switch field {
 	case logFieldLevel:
@@ -135,7 +144,7 @@ func logFilterValue(filter LogFilter, field logFilterField) string {
 	}
 }
 
-// logEntryValue 处理日志条目值。
+// logEntryValue 读取 LogEntry 中指定字段的实际值。
 func logEntryValue(entry LogEntry, field logFilterField) string {
 	switch field {
 	case logFieldLevel:
@@ -157,6 +166,7 @@ func logEntryValue(entry LogEntry, field logFilterField) string {
 	}
 }
 
+// newSystemLogListFilter 将统一 LogFilter 投影为 system log store 的过滤参数。
 func newSystemLogListFilter(filter LogFilter) systemlogstore.ListFilter {
 	return systemlogstore.ListFilter{
 		Level:     strings.TrimSpace(filter.Level),
@@ -171,6 +181,7 @@ func newSystemLogListFilter(filter LogFilter) systemlogstore.ListFilter {
 	}
 }
 
+// appendMappedLogs 将存储层日志映射为 LogEntry 并应用 dashboard 侧二次过滤。
 func appendMappedLogs[T any](
 	dst []LogEntry,
 	rows []T,
@@ -186,6 +197,7 @@ func appendMappedLogs[T any](
 	return dst
 }
 
+// mapLogEntry 将 system/AI 存储行转换为统一 dashboard LogEntry。
 func mapLogEntry[T storedLogRow](row T, source string) LogEntry {
 	fields := readStoredLogFields(row)
 	return LogEntry{
@@ -207,7 +219,8 @@ func mapLogEntry[T storedLogRow](row T, source string) LogEntry {
 	}
 }
 
-// readStoredLogFields 读取stored日志字段。
+// readStoredLogFields 抽取 system/AI 日志行共有字段。
+// 未知类型返回零值，调用方的泛型约束正常情况下不会走到该分支。
 func readStoredLogFields[T storedLogRow](row T) storedLogFields {
 	switch value := any(row).(type) {
 	case systemlogstore.SystemLog:

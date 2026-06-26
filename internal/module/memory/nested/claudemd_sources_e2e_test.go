@@ -3,10 +3,5 @@
 
 package nested
 
-// Phase 1.6 removed AutoMem / TeamMem MEMORY.md from the nested ClaudeMd
-// candidate set: MemoryEntrypointProvider in the parent memory package is
-// now the sole prompt-time injector for those files. The previous
-// integration test (TestCombinedClaudeMdSourcesInjectTeamEntrypointThroughBuildBaseUserContext)
-// asserted the deleted behaviour and is obsolete; equivalent coverage for the
-// new path lives in `internal/module/memory/entrypoint_provider_test.go`
-// alongside the `TestMemoryEntrypointProvider...` cases.
+// 嵌套 memory 包不再把 AutoMem/TeamMem MEMORY.md 纳入 ClaudeMd 候选集。
+// 父级 MemoryEntrypointProvider 负责 prompt 注入，相关覆盖位于 memory 包入口测试中。

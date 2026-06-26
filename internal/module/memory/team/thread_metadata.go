@@ -9,12 +9,14 @@ import (
 	threaddto "github.com/anthropic-ai/super-agent-v3/internal/dto/thread"
 )
 
+// Lifecycle 是团队记忆同步服务暴露给线程事件适配层的最小生命周期接口。
 type Lifecycle interface {
 	StartSession(context.Context, string, contract.BuildCtx) error
 	StopSession(context.Context, string) error
 }
 
-// BuildCtxFromThreadMetadata 从线程元数据构建ctx。
+// BuildCtxFromThreadMetadata 从线程元数据恢复 TeamSync 所需的 BuildCtx。
+// ConfigOverride 解析失败时退回 fallbackCWD，避免历史线程元数据格式差异阻断 stop/start 事件处理。
 func BuildCtxFromThreadMetadata(meta *contract.ThreadMetadata, fallbackCWD string) (contract.BuildCtx, bool) {
 	buildCtx := contract.BuildCtx{CWD: strings.TrimSpace(fallbackCWD)}
 	if meta == nil {
@@ -39,7 +41,8 @@ func BuildCtxFromThreadMetadata(meta *contract.ThreadMetadata, fallbackCWD strin
 	return buildCtx, buildCtx.CWD != ""
 }
 
-// boolMapValue 处理boolmap值。
+// boolMapValue 从 metadata 的动态 JSON map 中提取 bool session flags。
+// 非 bool 值会被忽略，避免旧客户端写入的扩展字段污染运行态开关。
 func boolMapValue(raw any) map[string]bool {
 	src, ok := raw.(map[string]any)
 	if !ok || len(src) == 0 {
@@ -62,7 +65,8 @@ func boolMapValue(raw any) map[string]bool {
 	return out
 }
 
-// StartSessionFromThreadEvent 从线程事件启动会话。
+// StartSessionFromThreadEvent 将 thread.Started 事件转成 TeamSync StartSession 调用。
+// 优先读取持久化线程元数据恢复 GitRoot/session flags，读取失败时使用事件自带 CWD 尽力启动。
 func StartSessionFromThreadEvent(svc Lifecycle, store contract.ThreadMetadataStore, ev threaddto.Started) error {
 	if svc == nil {
 		return nil
@@ -79,7 +83,8 @@ func StartSessionFromThreadEvent(svc Lifecycle, store contract.ThreadMetadataSto
 	return svc.StartSession(context.Background(), ev.ThreadID, buildCtx)
 }
 
-// StopSessionFromThreadEvent 从线程事件停止会话。
+// StopSessionFromThreadEvent 将 thread.Stopped 事件转成 TeamSync StopSession 调用。
+// stop 不依赖 BuildCtx，只需要 threadID，因此可在元数据缺失时继续执行最终 flush。
 func StopSessionFromThreadEvent(svc Lifecycle, ev threaddto.Stopped) error {
 	if svc == nil {
 		return nil

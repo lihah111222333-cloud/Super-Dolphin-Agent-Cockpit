@@ -56,8 +56,8 @@ func (q *SubmissionQueue) Dequeue() (turndto.TurnSubmission, bool) {
 	return cloneTurnSubmission(s), true
 }
 
-// Peek is currently used only in tests; kept for diagnostic/debugging use.
-// Peek 查看队头项目但不移除。
+// Peek 查看队头 turn 但不移除。
+// 生产路径不依赖它，主要用于诊断和测试队列顺序。
 func (q *SubmissionQueue) Peek() (turndto.TurnSubmission, bool) {
 	q.mu.Lock()
 	defer q.mu.Unlock()
@@ -67,14 +67,14 @@ func (q *SubmissionQueue) Peek() (turndto.TurnSubmission, bool) {
 	return cloneTurnSubmission(q.items[0]), true
 }
 
-// Len 返回队列长度。
+// Len 返回队列当前长度。
 func (q *SubmissionQueue) Len() int {
 	q.mu.Lock()
 	defer q.mu.Unlock()
 	return len(q.items)
 }
 
-// Clear 清理编排。
+// Clear 清空队列中尚未领取的 turn。
 func (q *SubmissionQueue) Clear() {
 	q.mu.Lock()
 	defer q.mu.Unlock()
@@ -110,7 +110,7 @@ func (s *service) prepareLaunchStateLocked(ctx context.Context, agent *agentRunt
 func (s *service) newAgentLocked(agentID string) *agentRuntime {
 	agent := &agentRuntime{
 		id: agentID,
-		// Initial construction starts in the machine's configured initial state.
+		// 初始构造从状态机配置的初始状态开始。
 		state:     agentdto.StateProvisioning,
 		updatedAt: time.Now(),
 		queue:     &SubmissionQueue{},
@@ -118,7 +118,7 @@ func (s *service) newAgentLocked(agentID string) *agentRuntime {
 	agent.sm = platformstatemachine.New(s.machineCfg, func() string {
 		return string(agent.state)
 	}, func(next string) {
-		// The state machine owns subsequent transitions through this sink.
+		// 后续状态转换都由状态机通过这个 sink 写回 agent.state。
 		agent.state = agentdto.AgentState(next)
 	})
 	return agent

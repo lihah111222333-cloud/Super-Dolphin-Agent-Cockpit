@@ -15,7 +15,8 @@ const (
 	RateLimitBackoff = 60 * time.Second
 )
 
-// ComputeRetryBackoff 计算重试backoff。
+// ComputeRetryBackoff 根据尝试次数和上次错误计算启动重试退避。
+// rate limit 错误使用固定长退避，其他错误按 attempt 线性放大。
 func ComputeRetryBackoff(attempt int, prevErr error) time.Duration {
 	if IsRateLimited(prevErr) {
 		return RateLimitBackoff
@@ -23,7 +24,8 @@ func ComputeRetryBackoff(attempt int, prevErr error) time.Duration {
 	return time.Duration(attempt) * launchRetryBase
 }
 
-// WaitRetryBackoff 等待重试backoff。
+// WaitRetryBackoff 等待启动重试退避并记录等待耗时。
+// ctx 取消时立即返回，调用方不应继续本轮启动。
 func WaitRetryBackoff(ctx context.Context, attempt int, agentID string, prevErr error) error {
 	delay := ComputeRetryBackoff(attempt, prevErr)
 	startedAt := time.Now()
@@ -60,7 +62,8 @@ var permanentLaunchPatterns = []string{"401", "unauthoriz", "authentication fail
 
 var transientLaunchPatterns = []string{"deadline exceeded", "connection refused", "transport unavailable", "empty thread id", "timed out", "i/o timeout"}
 
-// Classify 分类编排。
+// Classify 把启动错误归类为 permanent/transient/unknown。
+// permanent 优先匹配认证、配额、模型和 cwd 配置问题，避免对不可恢复错误反复重试。
 func Classify(err error) Class {
 	if err == nil {
 		return ClassTransient
@@ -82,7 +85,7 @@ func Classify(err error) Class {
 	return ClassUnknown
 }
 
-// IsRateLimited 判断ratelimited是否可用。
+// IsRateLimited 识别常见 rate limit 错误文本。
 func IsRateLimited(err error) bool {
 	if err == nil {
 		return false

@@ -15,6 +15,7 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/runtimeenv"
 )
 
+// SiliconFlow 视频生成默认配置。
 const (
 	sfSubmitURL = "https://api.siliconflow.cn/v1/video/submit"
 	sfStatusURL = "https://api.siliconflow.cn/v1/video/status"
@@ -22,11 +23,14 @@ const (
 	sfImageSize = "720x1280"
 )
 
+// videoGenerateInput 是视频生成工具的入参。
 type videoGenerateInput struct {
 	Prompt         string `json:"prompt"`
 	NegativePrompt string `json:"negative_prompt,omitempty"`
 }
 
+// siliconFlowAPIKey 从环境或视频设置文件读取 API key。
+// 缺 key 时直接报错，避免外部 API 调用用空凭据重试。
 func siliconFlowAPIKey() (string, error) {
 	apiKey := strings.TrimSpace(os.Getenv("SILICONFLOW_API_KEY"))
 	if apiKey != "" {
@@ -42,7 +46,8 @@ func siliconFlowAPIKey() (string, error) {
 	return apiKey, nil
 }
 
-// sfPost 处理sfpost。
+// sfPost 向 SiliconFlow 发送 JSON POST 请求并返回响应体。
+// 非 2xx 响应会带上服务端文本，便于用户判断额度、鉴权或参数问题。
 func sfPost(ctx context.Context, apiKey, url string, body any) ([]byte, error) {
 	b, err := json.Marshal(body)
 	if err != nil {
@@ -69,6 +74,7 @@ func sfPost(ctx context.Context, apiKey, url string, body any) ([]byte, error) {
 	return data, nil
 }
 
+// sfSubmit 提交视频生成任务并返回 requestID。
 func sfSubmit(ctx context.Context, apiKey string, in videoGenerateInput) (string, error) {
 	payload := map[string]any{"model": sfModel, "prompt": strings.TrimSpace(in.Prompt), "image_size": sfImageSize}
 	if strings.TrimSpace(in.NegativePrompt) != "" {
@@ -91,8 +97,8 @@ func sfSubmit(ctx context.Context, apiKey string, in videoGenerateInput) (string
 	return result.RequestID, nil
 }
 
-// sfPoll polls until Succeed/Failed (max 15 minutes).
-// sfPoll 处理sfpoll。
+// sfPoll 轮询视频生成结果，最多等待 15 分钟。
+// 上下文取消会立即返回，避免长轮询阻塞工具关闭。
 func sfPoll(ctx context.Context, apiKey, requestID string) (string, error) {
 	deadline := time.Now().Add(15 * time.Minute)
 	for time.Now().Before(deadline) {
@@ -130,7 +136,8 @@ func sfPoll(ctx context.Context, apiKey, requestID string) (string, error) {
 	return "", fmt.Errorf("siliconflow: request %s timed out", requestID)
 }
 
-// downloadVideoToDesktop 把downloadvideo处理为desktop。
+// downloadVideoToDesktop 将生成的视频下载到用户 Movies 目录。
+// Movies 不可创建时退回 home，但下载状态码异常仍然 fail-fast。
 func downloadVideoToDesktop(ctx context.Context, videoURL, requestID string) (string, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {

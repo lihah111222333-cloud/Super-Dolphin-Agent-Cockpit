@@ -14,10 +14,8 @@ import (
 	cronstore "github.com/anthropic-ai/super-agent-v3/internal/store/cron"
 )
 
-// Host RPC parameter types. These are the on-the-wire shapes; service-level
-// DTOs are in contract.go. next_run_at is supplied as RFC3339 string; when
-// omitted, the service falls back to now + 1 minute (phase 2b will replace
-// this with real cron-expression parsing).
+// JSON-RPC 参数类型保持前端 wire shape，业务层 DTO 在 service/contract 中转换。
+// next_run_at 仅接受 RFC3339 字符串；省略时由 service 根据当前调度策略计算首次运行时间。
 
 // cronCreateParams 是 cronjob/create 的 JSON-RPC 请求参数。
 type cronCreateParams struct {
@@ -29,8 +27,7 @@ type cronCreateParams struct {
 	Provider     string `json:"provider,omitempty"`
 	Model        string `json:"model,omitempty"`
 	CWD          string `json:"cwd"`
-	// json.RawMessage: justified -- open-ended provider config bag; decoded into
-	// map[string]any by decodeConfigMap and persisted as raw bytes in the store.
+	// provider config 是开放 JSON 包，service 负责校验后按原始 JSON 持久化。
 	Config        json.RawMessage `json:"config,omitempty"`
 	Skills        []string        `json:"skills,omitempty"`
 	NotifyChannel string          `json:"notify_channel,omitempty"`
@@ -39,50 +36,55 @@ type cronCreateParams struct {
 	MaxAttempts   int32           `json:"max_attempts,omitempty"`
 }
 
+// cronUpdateParams 是 cronjob/update 的 JSON-RPC 请求参数，复用创建字段以保持 wire 兼容。
 type cronUpdateParams struct {
 	ID string `json:"id"`
 	cronCreateParams
 }
 
+// cronIDParams 是只携带 job ID 的 cronjob/get、delete、runOnce 请求参数。
 type cronIDParams struct {
 	ID string `json:"id"`
 }
 
+// cronEnabledParams 是 cronjob/setEnabled 的 JSON-RPC 请求参数。
 type cronEnabledParams struct {
 	ID      string `json:"id"`
 	Enabled bool   `json:"enabled"`
 }
 
+// cronListRunsParams 是 cronjob/listRuns 的 JSON-RPC 请求参数。
 type cronListRunsParams struct {
 	JobID string `json:"job_id"`
 	Limit int32  `json:"limit,omitempty"`
 }
 
-// Host RPC response types. JSON tags match the original map keys to preserve
-// wire-format compatibility.
+// JSON-RPC 响应类型的 JSON tag 固定为前端既有字段名，避免破坏旧 UI 调用。
 
 // cronListResponse 是 cronjob/list 的 JSON-RPC 响应。
 type cronListResponse struct {
 	Jobs []Job `json:"jobs"`
 }
 
+// cronDeleteResponse 是 cronjob/delete 的 JSON-RPC 响应，返回被删除 job 的 ID。
 type cronDeleteResponse struct {
 	Deleted bool   `json:"deleted"`
 	ID      string `json:"id"`
 }
 
+// cronSetEnabledResponse 是 cronjob/setEnabled 的 JSON-RPC 响应，回显最终启用状态。
 type cronSetEnabledResponse struct {
 	ID      string `json:"id"`
 	Enabled bool   `json:"enabled"`
 }
 
+// cronListRunsResponse 是 cronjob/listRuns 的 JSON-RPC 响应，runs 为空时返回空切片。
 type cronListRunsResponse struct {
 	Runs []Run `json:"runs"`
 }
 
-// NewHandlers wires the cronjob/* host RPC methods. It is registered via
-// the Fx platformrpc.HandlerMapResult aggregate.
-// NewHandlers 创建处理器。
+// NewHandlers 注册 cronjob/* JSON-RPC handler。
+// handler 只做 wire 参数转换和错误码映射，调度持久化边界留在 service/scheduler。
 func NewHandlers(svc Service) platformrpc.HandlerMapResult {
 	return platformrpc.HandlerMapResult{Handlers: handler.Map{
 		"cronjob/create":     platformrpc.StrictHandler(createHandler(svc)),
@@ -111,7 +113,7 @@ func createHandler(svc Service) func(context.Context, cronCreateParams) (Job, er
 	}
 }
 
-// updateHandler 更新处理器。
+// updateHandler 构造 cronjob/update 的处理函数，先复用 createRequestFrom 做通用字段解析。
 func updateHandler(svc Service) func(context.Context, cronUpdateParams) (Job, error) {
 	return func(ctx context.Context, p cronUpdateParams) (Job, error) {
 		base, err := createRequestFrom(p.cronCreateParams)
@@ -213,10 +215,8 @@ func listRunsHandler(svc Service) func(context.Context, cronListRunsParams) (cro
 	}
 }
 
-// createRequestFrom normalizes the RPC wire shape into the service-level
-// CreateJobRequest. It parses next_run_at from RFC3339 when supplied and
-// defaults Enabled to true when the caller omits the field.
-// createRequestFrom 从cron创建请求。
+// createRequestFrom 将 JSON-RPC wire 参数转换为 service 层 CreateJobRequest。
+// enabled 省略时按启用处理；next_run_at 一旦提供必须是 RFC3339，避免模糊时间落库。
 func createRequestFrom(p cronCreateParams) (CreateJobRequest, error) {
 	enabled := true
 	if p.Enabled != nil {

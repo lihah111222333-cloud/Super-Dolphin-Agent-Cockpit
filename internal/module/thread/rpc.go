@@ -21,7 +21,8 @@ const (
 	capabilityRealtime       = "realtime"
 )
 
-// NewThreadHandlers 创建线程处理器。
+// NewThreadHandlers 注册 thread 模块暴露给 JSON-RPC 的所有方法。
+// 高频入口走 typed handler；少量低频命令仍经 SendCommand 兼容壳转发，并在 provider 不支持时返回能力错误。
 func NewThreadHandlers(svc Service, capResolver contract.CapabilityResolver) platformrpc.HandlerMapResult {
 	return platformrpc.HandlerMapResult{Handlers: handler.Map{
 		contract.ThreadRPCStart:   newStartHandler(svc),
@@ -40,9 +41,8 @@ func NewThreadHandlers(svc Service, capResolver contract.CapabilityResolver) pla
 		"thread/loaded/list": platformrpc.StrictHandler(func(ctx context.Context, _ struct{}) (any, error) {
 			return svc.ListByStatus(ctx, statusCreated)
 		}),
-		// thread/read and thread/resolve intentionally remain separate RPC names.
-		// `thread/read` keeps the V2 compatibility history wrapper, while
-		// `thread/resolve` remains the runtime identity lookup.
+		// thread/read 与 thread/resolve 保持两个 RPC 名称。
+		// 前者保留 UI 历史兼容包装，后者只做运行时身份解析，避免调用方混用返回形状。
 		"thread/read": newThreadReadHandler(svc),
 		"thread/resolve": newThreadCall(func(ctx context.Context, id string) (any, error) {
 			return svc.Get(ctx, id)
@@ -55,42 +55,34 @@ func NewThreadHandlers(svc Service, capResolver contract.CapabilityResolver) pla
 			return nil, svc.SetName(ctx, contract.ThreadIDFrom(ctx), p.Name)
 		}),
 		"thread/config/get": newThreadConfigGetHandler(svc),
-		// P9 backlog: 当前保留低频 SendCommand 兼容壳，typed contract 另行落地。
+		// thread/config/set 已有 typed 参数，内部仍复用配置更新主流程并保留旧命令兼容。
 		"thread/config/set": newThreadConfigSetHandler(svc),
 		"thread/model/set":  newModelSetHandler(svc),
 		"thread/clear":      newThreadCommandHandler(svc, "/clear"),
-		// P9 backlog: 当前保留低频 SendCommand 兼容壳，typed contract 另行落地。
+		// personality 仍通过 SendCommand 兼容壳触达 provider Configure。
 		"thread/personality/set": newThreadCommandHandler(svc, "/personality"),
 		"thread/approvals/set":   newApprovalsSetHandler(svc),
 		"thread/compact/start":   newCompactStartHandler(svc, capResolver),
-		// P9 backlog: 当前保留低频 SendCommand 兼容壳，typed contract 另行落地。
-		"thread/rollback": newThreadCommandHandler(svc, "/rollback"),
-		// P9 backlog: 当前保留低频 SendCommand 兼容壳，typed contract 另行落地。
-		"thread/undo": newThreadCommandHandler(svc, "/undo"),
-		// P9 backlog: 当前保留低频 SendCommand 兼容壳，typed contract 另行落地。
+		// 以下低频 provider 命令保留 RPC 名称，但能力未接入时会明确返回 unsupported。
+		"thread/rollback":                  newThreadCommandHandler(svc, "/rollback"),
+		"thread/undo":                      newThreadCommandHandler(svc, "/undo"),
 		"thread/backgroundTerminals/clean": newThreadCommandHandler(svc, "/clean"),
-		// P9 backlog: 当前保留低频 SendCommand 兼容壳，typed contract 另行落地。
-		"thread/mcp/list": newThreadCommandHandler(svc, "/mcp"),
+		"thread/mcp/list":                  newThreadCommandHandler(svc, "/mcp"),
 		// thread/skills/list: 走 thread 命令通道，语义上返回 thread 绑定的 active skills。
 		// 与 skills/list 不同：后者扫描本地 skill 目录，返回所有已安装的 skill 元信息。
-		// P9 backlog: 当前保留低频 SendCommand 兼容壳，typed contract 另行落地。
 		"thread/skills/list": newThreadCommandHandler(svc, "/skills"),
 
 		// thread/debugMemory 当前返回 Go runtime.MemStats。
-		// P7 backlog: V2 返回 agent 进程内存快照（通过 provider），不是宿主进程 stats。
-		// P7 补齐 provider-level memory stats 后替换此实现。
+		// 这是宿主进程调试快照，不代表 provider 子进程内存；调用方不能据此做 agent 资源判定。
 		"thread/debugMemory": newThreadCall(func(context.Context, string) (any, error) {
 			return runtimeMemoryStats(), nil
 		}),
 
-		// P9 backlog: 当前保留低频 SendCommand 兼容壳，typed contract 另行落地。
-		"thread/realtime/start": newCapabilityThreadCommandHandler(svc, capResolver, capabilityRealtime, "realtime/start"),
-		// P9 backlog: 当前保留低频 SendCommand 兼容壳，typed contract 另行落地。
+		// realtime 系列先做能力门控，再进入兼容命令壳；未声明能力时返回明确错误。
+		"thread/realtime/start":       newCapabilityThreadCommandHandler(svc, capResolver, capabilityRealtime, "realtime/start"),
 		"thread/realtime/appendAudio": newCapabilityThreadCommandHandler(svc, capResolver, capabilityRealtime, "realtime/appendAudio"),
-		// P9 backlog: 当前保留低频 SendCommand 兼容壳，typed contract 另行落地。
-		"thread/realtime/appendText": newCapabilityThreadCommandHandler(svc, capResolver, capabilityRealtime, "realtime/appendText"),
-		// P9 backlog: 当前保留低频 SendCommand 兼容壳，typed contract 另行落地。
-		"thread/realtime/stop": newCapabilityThreadCommandHandler(svc, capResolver, capabilityRealtime, "realtime/stop"),
+		"thread/realtime/appendText":  newCapabilityThreadCommandHandler(svc, capResolver, capabilityRealtime, "realtime/appendText"),
+		"thread/realtime/stop":        newCapabilityThreadCommandHandler(svc, capResolver, capabilityRealtime, "realtime/stop"),
 	}}
 }
 
@@ -122,12 +114,10 @@ func validateStartParams(p startParams) error {
 	return nil
 }
 
-// logStartRPCReceived 处理日志起点RPCreceived。
+// logStartRPCReceived 记录 thread/start 实际收到的路由和 provider 字段。
+// 日志只写标量和布尔值，用于区分前端漏传、后端解析和 config 覆盖问题。
 func logStartRPCReceived(p startParams, cfg map[string]any) {
-	// Observability: dump the params that thread/start actually received so
-	// we can distinguish "frontend never sent agent_key" from "backend
-	// dropped it" without running tcpdump. Values are scalar / boolean so
-	// log volume stays tame.
+	// 只记录标量和布尔字段，既能定位 agent_key 丢失边界，也避免把大块配置写进日志。
 	pkglogger.Info("thread/start: rpc received",
 		"agent_id", p.AgentID,
 		"agent_key", p.AgentKey,
@@ -187,7 +177,8 @@ func shouldWarnStartProviderIdentity(p startParams, cfg map[string]any) bool {
 		configTraceString(cfg, "codexModelProvider") != ""
 }
 
-// buildStartRequestFromParams 从params构建起点请求。
+// buildStartRequestFromParams 将 wire 参数转换为 service.Start 使用的 StartRequest。
+// selected skill 字段在这里折叠为内部 launch skill carrier，保留 scope/path 以区分同名 skill。
 func buildStartRequestFromParams(p startParams, cfg map[string]any) StartRequest {
 	return StartRequest{
 		AgentID:               p.AgentID,
@@ -211,8 +202,8 @@ func buildStartRequestFromParams(p startParams, cfg map[string]any) StartRequest
 		ToolSurfaceMode:       p.ToolSurfaceMode,
 		Config:                cfg,
 
-		// p20.3 §4.3：public payload 用 `selectedSkills` / `manualSkillSelection`，
-		// 内部合同归一化为 launch skill carriers；refs 保留 scope/path 以区分同名。
+		// public payload 使用 selectedSkills / manualSkillSelection，
+		// 内部归一为 launch skill carriers；refs 保留 scope/path 以区分同名。
 		LaunchSkillNames:  append([]string(nil), p.SelectedSkills...),
 		LaunchSkillRefs:   threadSkillRefsFromParams(p.SelectedSkillRefs, p.ManualSkillSelection),
 		ForceLaunchSkills: p.ManualSkillSelection,
@@ -223,7 +214,8 @@ func buildStartRequestFromParams(p startParams, cfg map[string]any) StartRequest
 	}
 }
 
-// threadSkillRefsFromParams 从params处理线程技能refs。
+// threadSkillRefsFromParams 把 RPC skill ref 参数整理为 provider DTO。
+// 手动选择会标记 source；调用方显式传入的 source 更精确时优先生效，空名称会被丢弃。
 func threadSkillRefsFromParams(params []skillRefParams, manual bool) []dto.SkillRef {
 	if len(params) == 0 {
 		return nil
@@ -254,7 +246,8 @@ func threadSkillRefsFromParams(params []skillRefParams, manual bool) []dto.Skill
 	return refs
 }
 
-// buildStartResponse 构建起点响应。
+// buildStartResponse 构造 thread/start 的 wire 响应。
+// snake_case 和 camelCase 字段同时保留，避免旧 UI 与新 contract 在升级期间读不到关键身份。
 func buildStartResponse(result StartResult) startResponse {
 	status := util.FirstNonEmpty(result.Status, "running")
 	sessionID := util.FirstNonEmpty(result.SessionID, result.ThreadID)
@@ -398,16 +391,16 @@ func newRecoverHandler(svc Service) handler.Func {
 	})
 }
 
-// cmd 构造低频命令的 SendCommand handler。
-// 高频命令已拆到 typed handler；剩余命令先保留 string args 兼容壳，P9 再补 typed contract。
+// newThreadCommandHandler 构造低频命令的 SendCommand handler。
+// 高频命令已拆到 typed handler；剩余命令保留 string args 兼容壳，并由 SendCommand 明确拒绝未支持命令。
 func newThreadCommandHandler(svc Service, command string) handler.Func {
 	return platformrpc.ThreadHandler(func(ctx context.Context, p commandParams) (any, error) {
 		return svc.SendCommand(ctx, contract.ThreadIDFrom(ctx), command, p.Args)
 	})
 }
 
-// V2 compatibility: accept both `policy` and `args`, while keeping V3's
-// explicit thread-scoped routing requirement.
+// newApprovalsSetHandler 同时接受 policy 和 args 两种 wire 字段。
+// thread id 仍从 thread-scoped RPC context 读取，避免请求体绕过路由校验。
 func newApprovalsSetHandler(svc Service) handler.Func {
 	return platformrpc.ThreadHandler(func(ctx context.Context, p approvalsSetParams) (any, error) {
 		args, err := resolveApprovalsSetArgs(p)

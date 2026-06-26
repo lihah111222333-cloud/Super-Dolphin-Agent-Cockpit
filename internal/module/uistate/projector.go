@@ -15,7 +15,8 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/util/clone"
 )
 
-// registerProjectionSubscriptions 注册projectionsubscriptions。
+// registerProjectionSubscriptions 将 UI 投影订阅挂到事件总线，并返回统一取消函数列表。
+// timeline 更新会在持锁状态下先生成 patch，再释放给事件发送方，避免漏掉同一线程的增量。
 func registerProjectionSubscriptions(dispatcher *event.Dispatcher, svc *service) []context.CancelFunc {
 	cancels := []context.CancelFunc{
 		contract.ResilientSubscribe(dispatcher, svc.applyAgentStateChanged, svc.logger),
@@ -61,7 +62,8 @@ func registerProjectionSubscriptions(dispatcher *event.Dispatcher, svc *service)
 	return cancels
 }
 
-// applyTokensUpdated 应用令牌updated。
+// applyTokensUpdated 将 token 统计事件投影到全局和线程维度。
+// TotalTokens 缺失时用输入/输出合计补齐，避免前端进度条没有分母。
 func (s *service) applyTokensUpdated(ev uidto.UITokensUpdated) {
 	threadID := strings.TrimSpace(ev.ThreadID)
 	applyMutation(s, threadID, func() {
@@ -96,7 +98,7 @@ func (s *service) applyTokensUpdated(ev uidto.UITokensUpdated) {
 	})
 }
 
-// applyItemStarted 应用itemstarted。
+// applyItemStarted 根据 item 类型增加线程活动深度和活动统计。
 func (s *service) applyItemStarted(ev turndto.ItemStarted) {
 	activity := classifyItemActivity(ev.ItemType, ev.RawType, ev.Command, ev.File)
 	if activity == "" {
@@ -131,7 +133,8 @@ func (s *service) applyItemStarted(ev turndto.ItemStarted) {
 	})
 }
 
-// applyItemCompleted 应用itemcompleted。
+// applyItemCompleted 根据 item 类型回落线程活动深度。
+// 深度不会降到负数，避免乱序完成事件破坏 sidebar 状态。
 func (s *service) applyItemCompleted(ev turndto.ItemCompleted) {
 	activity := classifyItemActivity(ev.ItemType, ev.RawType, ev.Command, ev.File)
 	if activity == "" {
@@ -160,7 +163,8 @@ func (s *service) applyItemCompleted(ev turndto.ItemCompleted) {
 	})
 }
 
-// applyToolCallBegin 应用工具callbegin。
+// applyToolCallBegin 将工具开始事件投影到线程活动状态和统计计数。
+// LSP 计数会先归一化工具名，以兼容 provider 前缀和旧 lsp_* 名称。
 func (s *service) applyToolCallBegin(ev tooldto.ToolCallBegin) {
 	activity := classifyToolActivity(ev.ToolName)
 	if activity == "" {
@@ -185,9 +189,7 @@ func (s *service) applyToolCallBegin(ev tooldto.ToolCallBegin) {
 				stats.ToolCalls = map[string]int64{}
 			}
 			stats.ToolCalls[toolName]++
-			// LSPCalls counts canonical LSP tools regardless of MCP namespace
-			// wrapping: ev.ToolName may arrive as "mcp__lsp__grep" from the
-			// MCP runtime or as legacy "lsp_grep" from older callers.
+			// LSPCalls 统计归一化后的 LSP 工具名，避免 provider 前缀或旧名称影响 UI 计数。
 			if isLSPActivityTool(normalizeToolName(toolName)) {
 				stats.LSPCalls++
 			}
@@ -204,6 +206,8 @@ func (s *service) applyToolCallBegin(ev tooldto.ToolCallBegin) {
 		return s.refreshThreadPatchLocked(threadID, agentID, "tool/call")
 	})
 }
+
+// applyToolCallEnd 根据工具结束事件回落协作或工具活动深度。
 func (s *service) applyToolCallEnd(ev tooldto.ToolCallEnd) {
 	activity := classifyToolActivity(ev.ToolName)
 	if activity == "" {
@@ -230,6 +234,8 @@ func (s *service) applyToolCallEnd(ev tooldto.ToolCallEnd) {
 		return s.refreshThreadPatchLocked(threadID, agentID, "tool/completed")
 	})
 }
+
+// applyToolApprovalRequested 增加审批等待深度，并为终端输入请求设置 overlay。
 func (s *service) applyToolApprovalRequested(ev tooldto.ToolApprovalRequested) {
 	threadID := strings.TrimSpace(ev.ThreadID)
 	agentID := strings.TrimSpace(ev.AgentID)
@@ -256,6 +262,8 @@ func (s *service) applyToolApprovalRequested(ev tooldto.ToolApprovalRequested) {
 		return s.refreshThreadPatchLocked(threadID, agentID, "tool/approvalRequested")
 	})
 }
+
+// applyToolApprovalResolved 回落审批等待深度，并在终端输入完成后清理 overlay。
 func (s *service) applyToolApprovalResolved(ev tooldto.ToolApprovalResolved) {
 	threadID := strings.TrimSpace(ev.ThreadID)
 	agentID := strings.TrimSpace(ev.AgentID)
@@ -282,7 +290,8 @@ func (s *service) applyToolApprovalResolved(ev tooldto.ToolApprovalResolved) {
 	})
 }
 
-// completedTurnSummary 处理completedturn摘要。
+// completedTurnSummary 合并 active turn 和完成事件，生成 recent turn 摘要。
+// active turn 中已有开始时间会保留，完成事件只覆盖结果状态和错误字段。
 func completedTurnSummary(current *TurnSummary, ev turndto.TurnCompleted) TurnSummary {
 	summary := TurnSummary{
 		ID:          strings.TrimSpace(ev.TurnID),

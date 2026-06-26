@@ -16,8 +16,7 @@ import (
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
-// cronProgressDrainGrace bounds the Stop wait for the cronProgressWorker
-// so shutdown never hangs on a stuck scheduler call.
+// cronProgressDrainGrace 限制 cronProgressWorker 停止等待时间，避免卡住进程退出。
 const cronProgressDrainGrace = 10 * time.Second
 
 // cronProgressEventKind 区分进度事件（续租）和终态事件（完成 turn）两种类型。
@@ -36,11 +35,7 @@ type cronProgressRequest struct {
 	terminalErr string
 }
 
-// cronProgressWorker is a single-goroutine worker that owns all
-// Scheduler DB calls previously done synchronously in bus callbacks.
-// Bus callbacks only perform O(1) enqueue; the worker drains and
-// dispatches to the appropriate Scheduler method.
-//
+// cronProgressWorker 用单 goroutine 串行执行 progress/terminal 事件引发的 Scheduler 写库。
 // bus 回调只入队，真正写库放到单 worker 里做。这样慢 DB 不会拖住事件分发，
 // 也能保持本进程内顺序。
 type cronProgressWorker struct {
@@ -75,8 +70,8 @@ func newCronProgressWorker(scheduler *Scheduler, logger *slog.Logger) *cronProgr
 	}
 }
 
-// Start spawns the worker goroutine. Idempotent.
-// Start 启动订阅或后台处理流程。
+// Start 启动进度 worker goroutine。
+// startOnce 保证幂等，panic 会被记录，避免事件订阅链直接崩溃。
 func (w *cronProgressWorker) Start() {
 	if w == nil {
 		return
@@ -93,9 +88,8 @@ func (w *cronProgressWorker) Start() {
 	})
 }
 
-// Stop closes the gate, drains pending requests, and waits bounded by
-// ctx for the worker to exit. Idempotent.
-// Stop 停止运行中的代理会话。
+// Stop 关闭入队入口并等待 worker 排空队列。
+// 等待时间受 ctx 和 cronProgressDrainGrace 共同限制，避免 shutdown 被慢写库拖死。
 func (w *cronProgressWorker) Stop(ctx context.Context) error {
 	if w == nil {
 		return nil

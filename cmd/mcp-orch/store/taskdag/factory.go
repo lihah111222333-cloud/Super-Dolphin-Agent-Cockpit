@@ -139,7 +139,7 @@ func parseLeaseDuration(value, operation, entity string) (sqlc.Interval, error) 
 	return interval, nil
 }
 
-// 把 sent wakeup 和 turn_id 绑起来。
+// bindWakeupTurnTx 把 sent wakeup 和 turn_id 绑起来。
 // requireBound=true 时，绑不上就报错，避免节点指向没有 wakeup 的 turn。
 func bindWakeupTurnTx(
 	ctx context.Context,
@@ -160,8 +160,6 @@ func bindWakeupTurnTx(
 	return count, nil
 }
 
-// 这里只统一错误包装；真正防并发靠 SQL 同时匹配 claim 字段。
-// rows=0 只是这次 claim 失效，不要在 helper 里变成错误。
 // fencedWakeupMutation 统一包装 wakeup 变更操作的错误，不含写重试（调用方管事务）。
 // rows=0 表示 claim fence miss，由调用方决定语义，不在此转换为错误。
 func fencedWakeupMutation(

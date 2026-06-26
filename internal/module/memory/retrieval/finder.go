@@ -22,7 +22,8 @@ type RelevantMemoryFinder struct {
 	readEntry      func(string) (MemoryEntry, error)
 }
 
-// NewRelevantMemoryFinder 创建relevant记忆finder。
+// NewRelevantMemoryFinder 创建相关记忆查找器。
+// 默认预算、结果数和候选数共同限制 prompt 注入规模，readEntry 可在测试中替换。
 func NewRelevantMemoryFinder() *RelevantMemoryFinder {
 	return &RelevantMemoryFinder{
 		BudgetBytes:    DefaultRelevantMemoryBudgetBytes,
@@ -32,12 +33,14 @@ func NewRelevantMemoryFinder() *RelevantMemoryFinder {
 	}
 }
 
-// FindRelevantMemories 查找relevantmemories。
+// FindRelevantMemories 在 manifest 中查找与查询相关的记忆。
+// 该入口不带 already surfaced 集合，适用于单次检索或后台预取首次运行。
 func (f *RelevantMemoryFinder) FindRelevantMemories(ctx context.Context, query string, manifest []MemoryEntry) ([]MemoryEntry, error) {
 	return f.FindRelevantMemoriesWithAlreadySurfaced(ctx, query, manifest, nil)
 }
 
-// FindRelevantMemoriesWithAlreadySurfaced 查找带alreadysurfaced的relevantmemories。
+// FindRelevantMemoriesWithAlreadySurfaced 查找尚未展示过的相关记忆。
+// 查询会先排序候选，再读取完整正文，最后按预算和 surfaced 集合去重选择。
 func (f *RelevantMemoryFinder) FindRelevantMemoriesWithAlreadySurfaced(
 	ctx context.Context,
 	query string,
@@ -58,12 +61,14 @@ func (f *RelevantMemoryFinder) FindRelevantMemoriesWithAlreadySurfaced(
 	return f.SelectRelevantMemoriesWithAlreadySurfaced(hydrated, f.budget(), alreadySurfaced), nil
 }
 
-// SelectRelevantMemories 选择relevantmemories。
+// SelectRelevantMemories 在预算内选择相关记忆。
+// 该入口不考虑历史 surfaced 集合，主要用于直接调用和测试。
 func (f *RelevantMemoryFinder) SelectRelevantMemories(entries []MemoryEntry, budget int) []MemoryEntry {
 	return f.SelectRelevantMemoriesWithAlreadySurfaced(entries, budget, nil)
 }
 
-// SelectRelevantMemoriesWithAlreadySurfaced 选择带alreadysurfaced的relevantmemories。
+// SelectRelevantMemoriesWithAlreadySurfaced 在预算内选择未展示过的记忆。
+// 选择过程同时按路径和内容 hash 去重，避免同一记忆重复占用 prompt。
 func (f *RelevantMemoryFinder) SelectRelevantMemoriesWithAlreadySurfaced(
 	entries []MemoryEntry,
 	budget int,
@@ -99,7 +104,8 @@ func (f *RelevantMemoryFinder) SelectRelevantMemoriesWithAlreadySurfaced(
 	return selected
 }
 
-// rankEntries 处理rank条目。
+// rankEntries 根据查询文本对 manifest 条目打分并截取候选集。
+// 这里只使用 header/路径等轻量字段，完整正文会在 hydrateEntries 阶段读取。
 func (f *RelevantMemoryFinder) rankEntries(query string, manifest []MemoryEntry) []MemoryEntry {
 	normalizedQuery, terms := searchTerms(query)
 	if normalizedQuery == "" || len(terms) == 0 || len(manifest) == 0 {

@@ -8,7 +8,8 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 )
 
-// inputScopedSectionDependency 处理inputscopedsectiondependency。
+// inputScopedSectionDependency 为 input-scoped 动态 section 生成稳定依赖对象。
+// 这里列入的字段会进入缓存 hash，新增上下文敏感 section 时必须同步补依赖，避免复用旧提示。
 func inputScopedSectionDependency(section PromptSection, input SectionContext) any {
 	switch section.Name {
 	case DynamicSectionSessionGuidance:
@@ -55,6 +56,8 @@ func inputScopedSectionDependency(section PromptSection, input SectionContext) a
 	}
 }
 
+// availableExpertsSectionDependency 把当前 cwd、启动提示、回合文本和显式 prompt key 纳入专家列表缓存键。
+// 专家候选依赖这些输入做匹配，少放任何一项都会让后续回合看到过期推荐。
 func availableExpertsSectionDependency(section PromptSection, input SectionContext) any {
 	startPrompt := ""
 	promptKey := ""
@@ -84,6 +87,7 @@ func availableExpertsSectionDependency(section PromptSection, input SectionConte
 	}
 }
 
+// cwdScopedSectionDependency 为只受项目目录影响的 catalog section 生成缓存依赖。
 func cwdScopedSectionDependency(section PromptSection, input SectionContext) any {
 	return struct {
 		Section string `json:"section"`
@@ -94,7 +98,8 @@ func cwdScopedSectionDependency(section PromptSection, input SectionContext) any
 	}
 }
 
-// memorySectionDependency 处理记忆sectiondependency。
+// memorySectionDependency 汇总会改变记忆注入结果的 cwd、子代理身份、session flags 和记忆环境变量。
+// 记忆 section 读取外部路径和 feature gate，必须把这些边界放进 hash，避免跨项目或跨模式串用缓存。
 func memorySectionDependency(section PromptSection, input SectionContext) any {
 	isChild, agentType := childAgentCacheDependency(input)
 	return struct {
@@ -140,11 +145,13 @@ func memorySectionDependency(section PromptSection, input SectionContext) any {
 	}
 }
 
+// memoryEntrypointSectionDependency 与完整记忆 section 共用缓存依赖，保证入口提示随同一组记忆配置失效。
 func memoryEntrypointSectionDependency(section PromptSection, input SectionContext) any {
 	return memorySectionDependency(section, input)
 }
 
-// envInfoSimpleSectionDependency 处理envinfosimplesectiondependency。
+// envInfoSimpleSectionDependency 记录环境提示会展示的工作区、平台、LSP 工具和模型元数据。
+// 这些值来自 BuildCtx 和本机环境，缓存键必须跟渲染内容保持同一口径。
 func envInfoSimpleSectionDependency(section PromptSection, input SectionContext) any {
 	return struct {
 		Section                      string   `json:"section"`
@@ -183,7 +190,8 @@ func envInfoSimpleSectionDependency(section PromptSection, input SectionContext)
 	}
 }
 
-// cacheByNameSectionDependency 按名称sectiondependency处理缓存。
+// cacheByNameSectionDependency 为默认按 section 名缓存的动态 section 提供额外依赖。
+// 返回 nil 表示退回纯名称缓存，只有内容确实受运行时配置影响的 section 才需要在这里列出字段。
 func cacheByNameSectionDependency(section PromptSection, input SectionContext) any {
 	switch section.Name {
 	case DynamicSectionOutputStyle:
@@ -248,7 +256,8 @@ func cacheByNameSectionDependency(section PromptSection, input SectionContext) a
 	}
 }
 
-// childAgentCacheDependency 处理child代理缓存dependency。
+// childAgentCacheDependency 判断 start-only 调用是否来自子代理，并返回可读的 agent type。
+// turn 阶段不再使用这条依赖，避免普通会话因为残留 parent 信息误判成子代理。
 func childAgentCacheDependency(input SectionContext) (bool, string) {
 	if input.Start == nil || input.Turn != nil || strings.TrimSpace(input.Start.ParentAgentID) == "" {
 		return false, ""
@@ -263,6 +272,7 @@ func childAgentCacheDependency(input SectionContext) (bool, string) {
 	return true, agentType
 }
 
+// trueFlagKeys 返回开启状态的 session flag，排序后用于稳定缓存 hash。
 func trueFlagKeys(flags map[string]bool) []string {
 	keys := make([]string, 0, len(flags))
 	for key, enabled := range flags {
@@ -273,6 +283,7 @@ func trueFlagKeys(flags map[string]bool) []string {
 	return sortedPromptValues(keys)
 }
 
+// sortedPromptFlagPairs 保留 true/false 两种 flag 状态，供需要区分显式关闭的 section 使用。
 func sortedPromptFlagPairs(flags map[string]bool) []string {
 	pairs := make([]string, 0, len(flags))
 	for key, enabled := range flags {
@@ -281,6 +292,7 @@ func sortedPromptFlagPairs(flags map[string]bool) []string {
 	return sortedPromptValues(pairs)
 }
 
+// sectionLanguageServerTools 提取当前会话可见的 LSP 工具名，保持与环境提示展示内容一致。
 func sectionLanguageServerTools(build BuildCtx) []string {
 	return canonicalPromptLSPTools(build.EnabledTools)
 }

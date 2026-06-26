@@ -527,7 +527,7 @@ func newRecoveryTestSession(t *testing.T, server *httptest.Server) *session {
 	if err != nil {
 		t.Fatalf("newSession() error = %v", err)
 	}
-	// P22 P1c: mirror driver.StartSession's explicit runtime.Start().
+	// 恢复路径也要显式启动 sidecar runtime，保持与 driver.StartSession 的生命周期一致。
 	s.runtime.Start()
 	s.setRuntimeConfigValue("cwd", t.TempDir())
 	return s

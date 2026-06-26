@@ -16,14 +16,20 @@ import (
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
+// contextKey 是 MCP server 写入 context 的私有 key 类型，避免与外部包 key 冲突。
 type contextKey string
 
+// CwdContextKey 保存工具调用的可信工作目录，旧路径仍会从这里读取。
 const CwdContextKey = contextKey("mcp_cwd")
 
+// ErrMissingContextCWD 表示严格上下文模式下没有可信 CWD。
 var ErrMissingContextCWD = errors.New("strict context enforcement: missing tool scope CWD")
+
+// ErrMissingWorkspaceRoots 表示严格上下文模式下没有可用 workspace roots。
 var ErrMissingWorkspaceRoots = errors.New("strict context enforcement: missing workspace roots")
 
-// WorkspaceRootFromContextStrict 从上下文strict处理工作区根目录。
+// WorkspaceRootFromContextStrict 从可信 tool scope 或旧 CWD context 读取当前工作区根。
+// 严格模式缺少 CWD 时返回 ErrMissingContextCWD，而不是使用进程 cwd 兜底。
 func WorkspaceRootFromContextStrict(ctx context.Context) (string, error) {
 	if ctx == nil {
 		return "", ErrMissingContextCWD
@@ -37,7 +43,8 @@ func WorkspaceRootFromContextStrict(ctx context.Context) (string, error) {
 	return "", ErrMissingContextCWD
 }
 
-// WorkspaceRootsFromContextStrict 从上下文strict处理工作区根目录。
+// WorkspaceRootsFromContextStrict 读取允许访问的 workspace roots。
+// 缺少可信 roots 时返回 ErrMissingWorkspaceRoots，避免工具默认扩大文件访问面。
 func WorkspaceRootsFromContextStrict(ctx context.Context) ([]string, error) {
 	if ctx == nil {
 		return nil, ErrMissingWorkspaceRoots
@@ -54,7 +61,8 @@ func WorkspaceRootsFromContextStrict(ctx context.Context) ([]string, error) {
 	return nil, ErrMissingWorkspaceRoots
 }
 
-// WorkspaceRootForPathFromContextStrict 从上下文strict处理工作区根目录路径。
+// WorkspaceRootForPathFromContextStrict 为目标绝对路径选择最具体的允许 workspace root。
+// 相对或空 target 使用主 root；越界绝对路径直接报错。
 func WorkspaceRootForPathFromContextStrict(ctx context.Context, target string) (string, error) {
 	roots, err := WorkspaceRootsFromContextStrict(ctx)
 	if err != nil {
@@ -77,7 +85,7 @@ func WorkspaceRootForPathFromContextStrict(ctx context.Context, target string) (
 	return best, nil
 }
 
-// WorkspaceRootFromContext 从上下文处理工作区根目录。
+// WorkspaceRootFromContext 读取可信 CWD，旧调用方可传 fallback 保持兼容。
 func WorkspaceRootFromContext(ctx context.Context, fallback string) string {
 	if scope, ok := ToolScopeFromContext(ctx); ok && scope.CWD != "" {
 		return scope.CWD
@@ -88,10 +96,12 @@ func WorkspaceRootFromContext(ctx context.Context, fallback string) string {
 	return fallback
 }
 
+// pathWithinRoot 判断 target 是否位于 root 内，委托共享路径工具处理大小写和分隔符差异。
 func pathWithinRoot(root, target string) bool {
 	return platformshared.ContainsPath(root, target)
 }
 
+// JSON-RPC 错误码常量，保持 MCP stdio 和 legacy HTTP transport 返回一致。
 const (
 	codeParseError    = -32700
 	codeInvalidReq    = -32600
@@ -101,16 +111,16 @@ const (
 	codeToolCall      = -32000
 )
 
+// ToolProvider 是 mcpserver/common 调用具体工具实现的最小接口。
 type ToolProvider interface {
 	ListTools(ctx context.Context) ([]MCPTool, error)
 	CallTool(ctx context.Context, name string, args json.RawMessage) (any, error)
 }
 
-// MCPTool is re-exported from the canonical DTO definition so that
-// ToolProvider and all mcpserver/common internal code can reference
-// it by short name without breaking the public API surface.
+// MCPTool 复用 canonical DTO 定义，让 common 包内部和 ToolProvider 使用同一工具描述类型。
 type MCPTool = mcpdto.MCPTool
 
+// Server 实现 stdio MCP JSON-RPC 服务端，负责初始化、工具列表和工具调用分发。
 type Server struct {
 	name      string
 	version   string
@@ -119,6 +129,7 @@ type Server struct {
 	ready     chan struct{} // closed when Run enters its read loop
 }
 
+// jsonRPCRequest 是 stdio/HTTP 共用的 JSON-RPC 请求结构。
 type jsonRPCRequest struct {
 	JSONRPC string          `json:"jsonrpc"`
 	ID      json.RawMessage `json:"id,omitempty"`
@@ -126,6 +137,7 @@ type jsonRPCRequest struct {
 	Params  json.RawMessage `json:"params,omitempty"`
 }
 
+// jsonRPCResponse 是 stdio/HTTP 共用的 JSON-RPC 响应结构。
 type jsonRPCResponse struct {
 	JSONRPC string          `json:"jsonrpc"`
 	ID      json.RawMessage `json:"id"`
@@ -133,30 +145,35 @@ type jsonRPCResponse struct {
 	Error   *jsonRPCError   `json:"error,omitempty"`
 }
 
+// jsonRPCError 是 JSON-RPC error 对象，只承载稳定 code 和可读 message。
 type jsonRPCError struct {
 	Code    int    `json:"code"`
 	Message string `json:"message"`
 }
 
+// initializeParams 保存 initialize 请求里当前只需要协商的 protocolVersion。
 type initializeParams struct {
 	ProtocolVersion string `json:"protocolVersion,omitempty"`
 }
 
+// textContent 是 MCP content 文本块的内部结构。
 type textContent struct {
 	Type string `json:"type"`
 	Text string `json:"text"`
 }
 
+// toolResultTextProvider 是旧工具结果的纯文本渲染接口，保留给历史实现兼容。
 type toolResultTextProvider interface {
 	ToolResultText() string
 }
 
+// readResult 是 readLoop 向 Run 主循环发送的一次读结果。
 type readResult struct {
 	payload json.RawMessage
 	err     error
 }
 
-// NewServer 创建服务端。
+// NewServer 创建 stdio MCP 服务端，并补齐空 name/version 的开发默认值。
 func NewServer(name, version string, transport *StdioTransport, tools ToolProvider) *Server {
 	if strings.TrimSpace(name) == "" {
 		name = "mcp-server"
@@ -167,14 +184,11 @@ func NewServer(name, version string, transport *StdioTransport, tools ToolProvid
 	return &Server{name: name, version: version, transport: transport, tools: tools, ready: make(chan struct{})}
 }
 
-// Ready returns a channel that is closed once the stdio server has entered
-// its read loop and is ready to accept JSON-RPC messages. Bootstrap runners
-// wait on this channel to guarantee that the local MCP tool-execution
-// surface is available before connecting to the control-plane jrpc2.
-// Ready 判断MCP 服务是否可用。
+// Ready 返回在 stdio server 进入读循环后关闭的通道。
+// Bootstrap runner 会等待它，确保本地 MCP 工具面已可用后再连接控制平面。
 func (s *Server) Ready() <-chan struct{} { return s.ready }
 
-// Run 启动MCP 服务后台流程。
+// Run 启动 stdio JSON-RPC 主循环；ctx 取消或 transport 关闭都会结束循环。
 func (s *Server) Run(ctx context.Context) error {
 	if ctx == nil {
 		ctx = context.Background()
@@ -223,6 +237,7 @@ func (s *Server) Run(ctx context.Context) error {
 	}
 }
 
+// startReadLoop 启动单独 goroutine 读取 transport，panic 会被记录而不是击穿 Run。
 func (s *Server) startReadLoop(results chan<- readResult) {
 	go func() {
 		defer func() {
@@ -235,6 +250,7 @@ func (s *Server) startReadLoop(results chan<- readResult) {
 	}()
 }
 
+// readLoop 持续读取 transport 消息并把错误也送回主循环，由 Run 统一决定是否退出。
 func (s *Server) readLoop(results chan<- readResult) {
 	defer close(results)
 	for {
@@ -246,6 +262,7 @@ func (s *Server) readLoop(results chan<- readResult) {
 	}
 }
 
+// handleMessage 解析单条 JSON-RPC 消息并写回响应，exit=true 表示收到退出通知。
 func (s *Server) handleMessage(ctx context.Context, payload json.RawMessage) (bool, error) {
 	var req jsonRPCRequest
 	if err := json.Unmarshal(payload, &req); err != nil {
@@ -284,6 +301,7 @@ func (s *Server) dispatch(ctx context.Context, req jsonRPCRequest) (*jsonRPCResp
 	}
 }
 
+// handleInitialize 返回 MCP serverInfo 和工具能力，缺省协议版本保持与客户端兼容。
 func (s *Server) handleInitialize(req jsonRPCRequest) *jsonRPCResponse {
 	var params initializeParams
 	if err := platformshared.DecodeInput(req.Params, &params); err != nil {
@@ -307,6 +325,7 @@ func (s *Server) handleInitialize(req jsonRPCRequest) *jsonRPCResponse {
 	return maybeResult(req.ID, result)
 }
 
+// handleToolsList 调用 ToolProvider 列出工具，provider 错误会变成 JSON-RPC internal error。
 func (s *Server) handleToolsList(ctx context.Context, req jsonRPCRequest) *jsonRPCResponse {
 	var params map[string]any
 	if err := platformshared.DecodeInput(req.Params, &params); err != nil {
@@ -320,7 +339,7 @@ func (s *Server) handleToolsList(ctx context.Context, req jsonRPCRequest) *jsonR
 	return maybeResult(req.ID, map[string]any{"tools": tools})
 }
 
-// handleToolsCall 处理工具call。
+// handleToolsCall 解码 tools/call、注入可信 scope，并把 handler 错误包装为工具错误 envelope。
 func (s *Server) handleToolsCall(ctx context.Context, req jsonRPCRequest) *jsonRPCResponse {
 	params, err := DecodeToolCallParams(req.Params)
 	if err != nil {
@@ -378,6 +397,7 @@ func (s *Server) handleToolsCall(ctx context.Context, req jsonRPCRequest) *jsonR
 	return resp
 }
 
+// listTools 在 provider 未注入时返回空列表，避免 tools/list 因可选 peer 缺失而 panic。
 func (s *Server) listTools(ctx context.Context) ([]MCPTool, error) {
 	if s.tools == nil {
 		return nil, nil
@@ -385,6 +405,7 @@ func (s *Server) listTools(ctx context.Context) ([]MCPTool, error) {
 	return s.tools.ListTools(ctx)
 }
 
+// reply 写出 JSON-RPC 响应；nil 响应用于 notification，不会触碰 transport。
 func (s *Server) reply(resp *jsonRPCResponse) error {
 	if resp == nil {
 		return nil
@@ -398,6 +419,7 @@ func (s *Server) reply(resp *jsonRPCResponse) error {
 	return nil
 }
 
+// maybeResult 只为带 ID 的请求构造响应，无 ID notification 按 JSON-RPC 规则不回复。
 func maybeResult(id json.RawMessage, result any) *jsonRPCResponse {
 	if !hasRequestID(id) {
 		return nil
@@ -409,6 +431,7 @@ func maybeResult(id json.RawMessage, result any) *jsonRPCResponse {
 	}
 }
 
+// errorResponse 构造 JSON-RPC error 响应，空 ID 会规范化为 null。
 func errorResponse(id json.RawMessage, code int, message string) *jsonRPCResponse {
 	return &jsonRPCResponse{
 		JSONRPC: "2.0",
@@ -420,6 +443,7 @@ func errorResponse(id json.RawMessage, code int, message string) *jsonRPCRespons
 	}
 }
 
+// callToolSafely 调用工具 provider，并把 panic 转换成稳定的 coded tool error。
 func callToolSafely(ctx context.Context, provider ToolProvider, name string, args json.RawMessage) (value any, err error) {
 	defer func() {
 		if recovered := recover(); recovered != nil {
@@ -433,6 +457,7 @@ func callToolSafely(ctx context.Context, provider ToolProvider, name string, arg
 	return provider.CallTool(ctx, name, args)
 }
 
+// toolCallResultResponse 同时生成结构化 MCP result 和原始 JSON，用于响应与载荷日志复用。
 func toolCallResultResponse(id json.RawMessage, value any) (*jsonRPCResponse, []byte, error) {
 	raw, err := json.Marshal(value)
 	if err != nil {
@@ -445,10 +470,12 @@ func toolCallResultResponse(id json.RawMessage, value any) (*jsonRPCResponse, []
 	return maybeResult(id, envelope), raw, nil
 }
 
+// hasRequestID 判断请求是否需要响应，空白 ID 视为 notification。
 func hasRequestID(id json.RawMessage) bool {
 	return len(bytes.TrimSpace(id)) != 0
 }
 
+// responseID 复制并规范化响应 ID，避免复用调用方的底层 buffer。
 func responseID(id json.RawMessage) json.RawMessage {
 	trimmed := bytes.TrimSpace(id)
 	if len(trimmed) == 0 {
@@ -457,6 +484,7 @@ func responseID(id json.RawMessage) json.RawMessage {
 	return append(json.RawMessage(nil), trimmed...)
 }
 
+// shouldStop 判断 transport EOF/pipe 关闭是否表示服务端应正常退出。
 func shouldStop(err error) bool {
 	return errors.Is(err, io.EOF) || errors.Is(err, io.ErrClosedPipe)
 }

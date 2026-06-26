@@ -46,7 +46,8 @@ type recoveryLifecycleIn struct {
 	Logger   *pkglogger.Logger `optional:"true"`
 }
 
-// registerRecoveryLifecycle 注册recovery生命周期。
+// registerRecoveryLifecycle 在 fx 启动阶段恢复未完成的 hook pending review。
+// 这里只读出并记录数量，真正的过期收敛由 resolver sweeper 路径处理。
 func registerRecoveryLifecycle(lc fx.Lifecycle, in recoveryLifecycleIn) {
 	if in.Resolver == nil || in.Manager == nil {
 		return

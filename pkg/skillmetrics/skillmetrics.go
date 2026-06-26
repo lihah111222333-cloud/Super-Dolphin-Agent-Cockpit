@@ -1,16 +1,5 @@
-// Package skillmetrics provides atomic counters for skill observability.
-//
-// 独立出 leaf 包的原因：计数点分散在 internal/module/skill (rollout_markers
-// trim 的 corruption fallback)、internal/platform/toolbridge (host-direct
-// tool 调用 outcome) 与 internal/provider/codexapp (enrich 失败) 三处，
-// 它们没有共同上游可放置纯观测计数；leaf pkg 让上下两层共用。
-//
-// 接入 Prometheus 由 internal/platform/metrics/skill.go 一侧 wrap CounterFunc。
-//
-// 历史背景（已删 counter）：先后删过若干 P20/P21 时期的 counter。这些 counter
-// 对应的源头服务方法（ExpandBody / ReadResource / SkillMCP child / SkillCatalogProvider
-// Redacted）已在 P3/P4 cutover 中删除（spec §11），counter 永远停在 0；P5f
-// 同步清理避免误导仪表盘。剩下的活 counter 都有真生产消费方。
+// Package skillmetrics 提供 skill 运行路径的进程内观测计数器。
+// 计数点分布在 skill 模块、toolbridge 和 Codex provider，放在 leaf 包可让上下层共享而不制造反向依赖。
 package skillmetrics
 
 import "sync/atomic"
@@ -28,17 +17,17 @@ var (
 // IncArtifactApprovalMiss LookupArtifact 对已建 artifact key 查询返回未审批时 +1。
 func IncArtifactApprovalMiss() { artifactApprovalMissTotal.Add(1) }
 
-// IncSkillArtifactApprovalMiss 是 module/skill/approval.go 用的显式 alias
-// （命名 self-documenting，未来 internal/module/skill 重命名包时无需改 caller）。
+// IncSkillArtifactApprovalMiss 是 module/skill/approval.go 使用的显式别名。
+// 保留别名可让调用点表达业务含义，而不暴露底层 artifact 指标命名。
 func IncSkillArtifactApprovalMiss() { IncArtifactApprovalMiss() }
 
-// ArtifactApprovalMiss 读当前值。
+// ArtifactApprovalMiss 返回 artifact key 未审批命中的累计数。
 func ArtifactApprovalMiss() uint64 { return artifactApprovalMissTotal.Load() }
 
 // IncTrimCorruptionFallback pair-fenced trim 找不到成对 footer 回落 legacy 时 +1。
 func IncTrimCorruptionFallback() { trimCorruptionFallbackCount.Add(1) }
 
-// TrimCorruptionFallback 读当前值。
+// TrimCorruptionFallback 返回 trim 损坏回退累计数。
 func TrimCorruptionFallback() uint64 { return trimCorruptionFallbackCount.Load() }
 
 const (
@@ -64,38 +53,38 @@ func IncHostToolCallOutcome(outcome string) {
 	}
 }
 
-// HostToolCallOK 处理host工具callok。
+// HostToolCallOK 返回 host-direct tool 调用成功累计数。
 func HostToolCallOK() uint64 { return hostToolCallOKTotal.Load() }
 
-// HostToolCallCWDMissing 处理host工具call工作目录missing。
+// HostToolCallCWDMissing 返回 host-direct tool 缺少 cwd 的累计数。
 func HostToolCallCWDMissing() uint64 { return hostToolCallCWDMissingTotal.Load() }
 
-// HostToolCallApprovalRequired 处理host工具call审批必需。
+// HostToolCallApprovalRequired 返回 host-direct tool 需要审批的累计数。
 func HostToolCallApprovalRequired() uint64 { return hostToolCallApprovalReqTotal.Load() }
 
-// HostToolCallError 处理host工具call错误。
+// HostToolCallError 返回 host-direct tool 错误累计数。
 func HostToolCallError() uint64 { return hostToolCallErrorTotal.Load() }
 
 // IncEnrichFailure 记录 codexapp tool-call params enrich fail-soft 失败一次。
 // 导出层目标名：enrich_failures_total。
 func IncEnrichFailure() { enrichFailuresTotal.Add(1) }
 
-// EnrichFailures 补充failures。
+// EnrichFailures 返回 codexapp tool-call 参数 enrich 失败累计数。
 func EnrichFailures() uint64 { return enrichFailuresTotal.Load() }
 
-// Snapshot 一次性读 counter 快照，顺序稳定，仅用于诊断 / 测试。
-// 快照非原子——期间可能有并发自增，这是可接受的。
+// Snapshot 是 skill 指标的一次读取快照。
+// 快照非原子，并发自增可能出现在下一次读取中。
 type Snapshot struct {
-	ArtifactApprovalMissTotal    uint64
-	TrimCorruptionFallbackCount  uint64
-	HostToolCallOKTotal          uint64
-	HostToolCallCWDMissingTotal  uint64
-	HostToolCallApprovalReqTotal uint64
-	HostToolCallErrorTotal       uint64
-	EnrichFailuresTotal          uint64
+	ArtifactApprovalMissTotal    uint64 // artifact key 未审批命中次数。
+	TrimCorruptionFallbackCount  uint64 // trim 损坏回退次数。
+	HostToolCallOKTotal          uint64 // host-direct tool 成功次数。
+	HostToolCallCWDMissingTotal  uint64 // host-direct tool 缺少 cwd 次数。
+	HostToolCallApprovalReqTotal uint64 // host-direct tool 需要审批次数。
+	HostToolCallErrorTotal       uint64 // host-direct tool 错误次数。
+	EnrichFailuresTotal          uint64 // codexapp enrich 失败次数。
 }
 
-// Read 读当前 snapshot。
+// Read 返回当前 skill 指标快照。
 func Read() Snapshot {
 	return Snapshot{
 		ArtifactApprovalMissTotal:    artifactApprovalMissTotal.Load(),

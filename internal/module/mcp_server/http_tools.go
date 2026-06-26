@@ -98,6 +98,8 @@ func sendMCPHTTPJSONRPC(
 	return decodeMCPHTTPRPCResult(method, raw, expectResponse)
 }
 
+// buildMCPHTTPJSONRPCRequest 构造发往远端 HTTP MCP server 的 JSON-RPC 请求。
+// 它在发起网络调用前校验公网可访问 URL 并套用用户配置 header，失败会归类为 tools/list 请求错误。
 func buildMCPHTTPJSONRPCRequest(
 	ctx context.Context,
 	config ServerConfig,

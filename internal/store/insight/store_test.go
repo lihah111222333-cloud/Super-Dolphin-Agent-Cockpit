@@ -250,7 +250,7 @@ func TestUpsertQueryEnforcesPrecedenceAndNoRegression(t *testing.T) {
 		}
 	}
 
-	// Token counters must not regress.
+	// token 计数类字段只允许单调前进，避免旧 insight 覆盖较新的用量统计。
 	for _, col := range []string{"token_input", "token_output", "token_total",
 		"context_window_tokens", "tool_calls", "tool_failures", "approval_requests",
 		"duration_ms"} {

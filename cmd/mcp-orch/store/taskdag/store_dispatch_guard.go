@@ -144,7 +144,7 @@ func validateAutoAutomationExec(exec autoAutomationExec, label string) error {
 	return nil
 }
 
-// validateAutoHybridConfig 校验autohybrid配置。
+// validateAutoHybridConfig 校验 hybrid 节点至少包含 automation 或 verifier 配置。
 func validateAutoHybridConfig(raw json.RawMessage) error {
 	var cfg autoHybridConfig
 	if len(raw) > 0 {

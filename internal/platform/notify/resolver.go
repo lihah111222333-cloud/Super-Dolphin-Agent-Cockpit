@@ -1,16 +1,5 @@
-// Package notify is the cross-tree shared library backing the notify
-// module. It lives under internal/platform/notify so both core
-// (internal/module/notify) and cmd/mcp-orch can import it without
-// violating mcp-service-convention.md S3.1.
-//
-// The package provides:
-//   - ChannelConfig + Resolver: alias -> {platform, url, secret} lookup
-//     with duplicate-key-aware JSON parsing.
-//   - Webhook client: HTTPS-only, SSRF-guarded DialContext, redirect
-//     revalidation, ProxyFromEnvironment disabled.
-//   - Render helpers: markdownEscape, mention suppression, length
-//     truncation.
-//   - Per-platform signers / body builders for Dingtalk, Feishu, Slack.
+// Package notify 提供 core 和 mcp-orch 共享的通知基础设施。
+// 它负责 alias 解析、HTTPS-only webhook 发送、SSRF 防护、mention 清洗和三端消息渲染。
 package notify
 
 import (
@@ -20,9 +9,7 @@ import (
 	"strings"
 )
 
-// Platform identifies the webhook flavour backing a channel alias. The
-// set is closed in v1 so a typo in NOTIFY_CHANNELS_JSON fails fast at
-// startup instead of silently falling back to generic POST.
+// Platform 标识 channel alias 对应的 webhook 平台；未知值会在配置解析时 fail-fast。
 type Platform string
 
 const (
@@ -31,20 +18,16 @@ const (
 	PlatformSlack    Platform = "slack"
 )
 
-// ChannelConfig is the resolved configuration for one alias.
+// ChannelConfig 是单个 alias 解析后的跨模块 wire 配置。
 type ChannelConfig struct {
 	Platform Platform
-	// URL is the fully-qualified HTTPS webhook endpoint. Treated as a
-	// secret in logs (see render / webhook for redaction rules).
+	// URL 是完整 HTTPS webhook endpoint，日志输出前必须走脱敏规则。
 	URL string
-	// Secret is the HMAC key used by Dingtalk / Feishu. Slack leaves
-	// this empty because the URL itself is the secret.
+	// Secret 是钉钉/飞书 HMAC key；Slack 为空，因为 URL 本身就是凭据。
 	Secret string
 }
 
-// ErrDuplicateAlias / ErrUnsupportedPlatform / ErrMissingField /
-// ErrAliasNotFound let callers distinguish startup-time config errors
-// from runtime lookup misses.
+// 通知配置错误用于区分启动期配置问题和运行期 alias 未命中。
 var (
 	ErrDuplicateAlias      = errors.New("notify: duplicate channel alias")
 	ErrUnsupportedPlatform = errors.New("notify: unsupported platform")
@@ -52,22 +35,17 @@ var (
 	ErrAliasNotFound       = errors.New("notify: channel alias not found")
 )
 
-// Resolver maps a channel alias to its ChannelConfig. Implementations
-// are immutable after construction so lookups are lock-free.
+// Resolver 将 channel alias 映射为 ChannelConfig；实现构造后不可变，读取无需加锁。
 type Resolver interface {
 	Resolve(alias string) (ChannelConfig, error)
 }
 
-// staticResolver is the default Resolver backed by an in-memory map
-// parsed from NOTIFY_CHANNELS_JSON.
+// staticResolver 是从 NOTIFY_CHANNELS_JSON 解析出的默认内存 Resolver。
 type staticResolver struct {
 	channels map[string]ChannelConfig
 }
 
-// Resolve returns the ChannelConfig for the trimmed alias. An unknown
-// alias returns ErrAliasNotFound so callers can branch on
-// misconfiguration vs transient failures.
-// Resolve 解析平台notify。
+// Resolve 按修剪后的 alias 返回 ChannelConfig；未知 alias 用 ErrAliasNotFound 明确表示配置缺失。
 func (r *staticResolver) Resolve(alias string) (ChannelConfig, error) {
 	a := strings.TrimSpace(alias)
 	if a == "" {
@@ -80,22 +58,8 @@ func (r *staticResolver) Resolve(alias string) (ChannelConfig, error) {
 	return c, nil
 }
 
-// ParseChannelsJSON parses NOTIFY_CHANNELS_JSON into a Resolver. It
-// uses a duplicate-key-aware decoder so two keys with the same alias
-// (a common copy-paste misconfiguration) fail with ErrDuplicateAlias
-// instead of being silently collapsed by encoding/json's last-write-
-// wins semantics.
-//
-// The input shape is a JSON object of the form:
-//
-//	{
-//	  "slack.default":  {"platform":"slack",    "url":"https://..."},
-//	  "dingtalk.ops":   {"platform":"dingtalk", "url":"...", "secret":"..."},
-//	  "feishu.ops":     {"platform":"feishu",   "url":"...", "secret":"..."}
-//	}
-//
-// Empty / whitespace input parses to an empty resolver (no channels).
-// ParseChannelsJSON 解析channelsJSON。
+// ParseChannelsJSON 将 NOTIFY_CHANNELS_JSON 解析为不可变 Resolver。
+// 它先扫描顶层 key 以拒绝重复 alias，避免 encoding/json 最后写入覆盖前值导致配置误判。
 func ParseChannelsJSON(raw string) (Resolver, error) {
 	text := strings.TrimSpace(raw)
 	if text == "" {
@@ -113,9 +77,7 @@ func ParseChannelsJSON(raw string) (Resolver, error) {
 	for _, alias := range aliases {
 		rc, ok := decoded[alias]
 		if !ok {
-			// Defensive: scanTopLevelAliases already saw this key, but
-			// a malformed value would trip Unmarshal above. Skip rather
-			// than panic.
+			// 防御性分支：理论上扫描到的 key 必然已被 decoded 覆盖，异常时跳过而不是 panic。
 			continue
 		}
 		cfg, err := rc.toChannelConfig(alias)
@@ -127,16 +89,14 @@ func ParseChannelsJSON(raw string) (Resolver, error) {
 	return &staticResolver{channels: out}, nil
 }
 
-// rawChannel is the JSON shape for a single alias value. All fields
-// are strings so an accidental numeric / object value fails via
-// json.Unmarshal rather than silently coercing.
+// rawChannel 是单个 alias 的 JSON 形状，字段保持 string 以便错误类型直接由 json.Unmarshal 暴露。
 type rawChannel struct {
 	Platform string `json:"platform"`
 	URL      string `json:"url"`
 	Secret   string `json:"secret,omitempty"`
 }
 
-// toChannelConfig 把平台notify处理为channel配置。
+// toChannelConfig 校验平台、HTTPS URL 和必需 secret，错误会携带 alias 便于定位配置项。
 func (r rawChannel) toChannelConfig(alias string) (ChannelConfig, error) {
 	plat := Platform(strings.TrimSpace(strings.ToLower(r.Platform)))
 	switch plat {
@@ -151,7 +111,7 @@ func (r rawChannel) toChannelConfig(alias string) (ChannelConfig, error) {
 	if !strings.HasPrefix(url, "https://") {
 		return ChannelConfig{}, fmt.Errorf("%w: alias=%q url must be https", ErrMissingField, alias)
 	}
-	// Dingtalk + Feishu require a secret for HMAC; Slack does not.
+	// 钉钉和飞书必须有 HMAC secret；Slack 的凭据在 URL 中。
 	secret := strings.TrimSpace(r.Secret)
 	if (plat == PlatformDingtalk || plat == PlatformFeishu) && secret == "" {
 		return ChannelConfig{}, fmt.Errorf("%w: alias=%q %s requires secret", ErrMissingField, alias, plat)
@@ -159,11 +119,7 @@ func (r rawChannel) toChannelConfig(alias string) (ChannelConfig, error) {
 	return ChannelConfig{Platform: plat, URL: url, Secret: secret}, nil
 }
 
-// scanTopLevelAliases walks the top-level JSON object keys without
-// unmarshaling so duplicate aliases can be detected before
-// encoding/json silently collapses them. Keys seen more than once
-// surface ErrDuplicateAlias.
-// scanTopLevelAliases 扫描toplevelaliases。
+// scanTopLevelAliases 只扫描顶层 JSON key，专门用于在 typed unmarshal 前发现重复 alias。
 func scanTopLevelAliases(text string) ([]string, error) {
 	dec := json.NewDecoder(strings.NewReader(text))
 	dec.UseNumber()
@@ -190,8 +146,7 @@ func scanTopLevelAliases(text string) ([]string, error) {
 		}
 		seen[key] = struct{}{}
 		order = append(order, key)
-		// Skip the value — we don't care about shape here, Unmarshal
-		// will re-read the whole object for the typed decode.
+		// 顶层扫描只关心 key，value 形状交给后续 typed unmarshal 校验。
 		if err := skipValue(dec); err != nil {
 			return nil, fmt.Errorf("notify: parse channels value for %q: %w", key, err)
 		}
@@ -202,10 +157,7 @@ func scanTopLevelAliases(text string) ([]string, error) {
 	return order, nil
 }
 
-// skipValue consumes one JSON value from the decoder, including nested
-// arrays / objects. Used to fast-forward past an alias value once the
-// key has been recorded.
-// skipValue 处理skip值。
+// skipValue 从 decoder 中跳过一个完整 JSON 值，包括嵌套对象和数组。
 func skipValue(dec *json.Decoder) error {
 	tok, err := dec.Token()
 	if err != nil {

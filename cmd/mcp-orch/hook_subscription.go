@@ -9,8 +9,10 @@ import (
 	mcp "github.com/anthropic-ai/super-agent-v3/internal/dto/mcp"
 )
 
+// orchestrationHookSubscriptionID 是 mcp-orch 注册到主控的固定订阅标识。
 const orchestrationHookSubscriptionID = "mcp-orch-agent-lifecycle"
 
+// orchestrationHookTopics 是编排服务需要消费的 agent 生命周期事件集合。
 var orchestrationHookTopics = []string{
 	"agent.session.start",
 	"agent.state.change",
@@ -20,12 +22,13 @@ var orchestrationHookTopics = []string{
 	"agent.process.exit",
 }
 
-// hookSubscriber 定义向主控订阅 hook 事件的接口。
+// hookSubscriber 是 bootstrap client 订阅 hook 的窄接口，便于测试替换。
 type hookSubscriber interface {
 	SubscribeHooks(context.Context, string, []string, mcp.Selector, json.RawMessage, string) (*mcp.HookSubscribeResponse, error)
 }
 
-// subscribeOrchestrationHooks 向主控注册编排生命周期 hook 订阅，client 为 nil 时直接返回。
+// subscribeOrchestrationHooks 向主控注册编排生命周期 hook 订阅。
+// client 为 nil 或 topic 列表为空时直接返回，保证独立模式不被 hook 订阅阻断。
 func subscribeOrchestrationHooks(ctx context.Context, client hookSubscriber) error {
 	if client == nil {
 		return nil

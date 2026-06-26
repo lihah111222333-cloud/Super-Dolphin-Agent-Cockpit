@@ -27,7 +27,7 @@ func TestValidateSkillName(t *testing.T) {
 		{"foo/bar", false, ""},  // 路径分隔
 		{"foo\\bar", false, ""}, // windows 分隔
 		{"../etc", false, ""},   // 路径逃逸
-		{"foo bar", false, ""},  // runtime name 不允许空格，展示名走 display_name
+		{"foo bar", false, ""},  // 运行时名称不允许空格，展示名走 display_name
 		{"foo.md", false, ""},   // 点号
 		{"-foo", false, ""},     // 连字符开头
 		{"_foo", false, ""},     // 下划线开头
@@ -108,9 +108,7 @@ func TestTrustScopeMethods(t *testing.T) {
 	}
 }
 
-// ============================================================================
-// P20.1 §3.2 artifact helpers
-// ============================================================================
+// 以下 artifact helper 测试锁住 skill 资源定位的兼容规则，避免路径逃逸或错误 kind 被接受。
 
 func TestIsValidArtifactKind(t *testing.T) {
 	for _, ok := range []string{ArtifactKindMetadata, ArtifactKindBody, ArtifactKindResource} {
@@ -144,7 +142,7 @@ func TestRepoFingerprint_StableForSamePath(t *testing.T) {
 	if a != b {
 		t.Fatalf("fingerprint not stable for same path: %q vs %q", a, b)
 	}
-	// 32 hex chars = 128 bits
+	// 32 个十六进制字符对应 128 bit，长度变化会影响外部持久化键。
 	if len(a) != 32 {
 		t.Fatalf("fingerprint should be 32 hex chars, got %d: %q", len(a), a)
 	}

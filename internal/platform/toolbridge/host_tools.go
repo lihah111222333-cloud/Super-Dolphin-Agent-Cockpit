@@ -13,11 +13,8 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared/workflowtemplates"
 )
 
-// HostToolRegistry 暴露由 host 进程**直接执行**（不走 mcp-orch / mcp-lsp peer）
-// 的工具集合。当前生产装配只保留 memory_read / memory_write host-direct。
-//
-// nil HostToolRegistry 等价于 "no host-direct tools"：所有 ListToolsForCodex /
-// routeToolCall 调用必须 nil-safe，保证 standalone 模式仍可运行。
+// HostToolCall 是 host-direct 工具调用的内部 wire 结构。
+// Arguments 来自模型 JSON，cwd/agent/thread/call 元数据由 Handler 注入，不能由模型伪造。
 type HostToolCall struct {
 	Name      string
 	Arguments json.RawMessage
@@ -28,6 +25,8 @@ type HostToolCall struct {
 	CallID    string
 }
 
+// HostToolRegistry 暴露由 host 进程直接执行的工具集合，不经过 mcp-orch 或 mcp-lsp peer。
+// nil registry 表示当前图没有 host-direct 工具，列表和调用路径都必须保持 nil-safe。
 type HostToolRegistry interface {
 	// ListHostTools 列出 host 直跑的工具，结果会与 peer 工具合并送给模型。
 	ListHostTools() []mcpdto.MCPTool
@@ -39,19 +38,21 @@ type HostToolRegistry interface {
 	CallHostTool(ctx context.Context, call HostToolCall) (any, error)
 }
 
+// HostToolCWDPolicy 允许 registry 声明某个 host-direct 工具是否必须绑定 cwd。
+// 默认策略要求 cwd；只读或全局工具可显式豁免，避免无关工作区缺失阻断调用。
 type HostToolCWDPolicy interface {
 	RequiresCWD(name string) bool
 }
 
-// Removed skill tool names are kept only so stale Codex tool calls and
-// shadowing MCP peers are rejected explicitly. The implementations were
-// removed with the provider-native mirror cutover.
+// 已下线 skill 工具名保留在这里，只用于拒绝旧 Codex 调用和同名 MCP peer。
+// 实现不再存在，命中时必须返回明确失败，不能静默转投其它工具。
 const (
 	ToolNameReadSection             = "skill_read_section"
 	ToolNameLegacySkillExpandBody   = "skill_expand_body"
 	ToolNameLegacySkillReadResource = "skill_read_resource"
 )
 
+// workflow template host-direct 工具名。
 const (
 	ToolNameWorkflowTemplateList      = "workflow_template_list"
 	ToolNameWorkflowTemplateGet       = "workflow_template_get"
@@ -60,11 +61,14 @@ const (
 	ToolNameWorkflowTemplateRollback  = "workflow_template_rollback"
 )
 
+// WorkflowTemplateHostToolRegistry 将内置工作流模板库暴露为 host-direct 工具。
+// list/get/render 是只读入口，save/rollback 只改模板资产，不直接创建或运行 DAG。
 type WorkflowTemplateHostToolRegistry struct {
 	registry *workflowtemplates.Registry
 	loadErr  error
 }
 
+// workflowTemplateListInput 是 workflow_template_list 的模型输入，兼容筛选维度来自 JSON schema。
 type workflowTemplateListInput struct {
 	Category         string `json:"category,omitempty"`
 	BusinessFlow     string `json:"business_flow,omitempty"`
@@ -73,6 +77,8 @@ type workflowTemplateListInput struct {
 	Locale           string `json:"locale,omitempty"`
 }
 
+// workflowTemplateGetInput 是 workflow_template_get 的模型输入。
+// templateId/id 兼容前端与旧调用形态，内部会统一为 template_id。
 type workflowTemplateGetInput struct {
 	TemplateID      string `json:"template_id,omitempty"`
 	TemplateIDCamel string `json:"templateId,omitempty"`
@@ -81,6 +87,8 @@ type workflowTemplateGetInput struct {
 	Locale          string `json:"locale,omitempty"`
 }
 
+// workflowTemplateRenderInput 是 workflow_template_render_dag 的模型输入。
+// values/user_inputs 都保留用于兼容不同模板调用方，渲染结果只返回草稿。
 type workflowTemplateRenderInput struct {
 	TemplateID      string         `json:"template_id,omitempty"`
 	TemplateIDCamel string         `json:"templateId,omitempty"`
@@ -91,6 +99,8 @@ type workflowTemplateRenderInput struct {
 	RuntimeContext  map[string]any `json:"runtime_context,omitempty"`
 }
 
+// workflowTemplateSaveInput 是 workflow_template_save 的模型输入。
+// 字段对应模板资产的版本化存储边界，保存模板不会创建任务或启动 DAG。
 type workflowTemplateSaveInput struct {
 	TemplateID       string                           `json:"template_id,omitempty"`
 	TemplateIDCamel  string                           `json:"templateId,omitempty"`
@@ -110,6 +120,8 @@ type workflowTemplateSaveInput struct {
 	Draft            workflowtemplates.DAGDraft       `json:"draft,omitempty"`
 }
 
+// workflowTemplateRollbackInput 是 workflow_template_rollback 的模型输入。
+// templateId/id 兼容旧字段名，version 必须显式给出以避免回滚到不确定版本。
 type workflowTemplateRollbackInput struct {
 	TemplateID      string `json:"template_id,omitempty"`
 	TemplateIDCamel string `json:"templateId,omitempty"`
@@ -117,22 +129,27 @@ type workflowTemplateRollbackInput struct {
 	Version         int    `json:"version,omitempty"`
 }
 
+// workflowTemplateListResult 是模板列表工具返回给模型的 wire 外壳。
 type workflowTemplateListResult struct {
 	Templates []workflowtemplates.TemplateSummary `json:"templates"`
 }
 
+// workflowTemplateGetResult 是模板详情工具返回给模型的 wire 外壳。
 type workflowTemplateGetResult struct {
 	Template workflowtemplates.Template `json:"template"`
 }
 
+// workflowTemplateRenderResult 是渲染工具返回 DAG 草稿的 wire 外壳。
 type workflowTemplateRenderResult struct {
 	Draft workflowtemplates.DAGDraft `json:"draft"`
 }
 
+// workflowTemplateSaveResult 是保存工具返回新模板摘要的 wire 外壳。
 type workflowTemplateSaveResult struct {
 	Template workflowtemplates.TemplateSummary `json:"template"`
 }
 
+// workflowTemplateRollbackResult 是回滚工具返回当前激活版本摘要的 wire 外壳。
 type workflowTemplateRollbackResult struct {
 	Template workflowtemplates.TemplateSummary `json:"template"`
 }
@@ -196,6 +213,7 @@ func (r *WorkflowTemplateHostToolRegistry) CallHostTool(_ context.Context, call 
 	}
 }
 
+// isWorkflowTemplateToolName 判断工具名是否属于模板库 host-direct 工具集合。
 func isWorkflowTemplateToolName(name string) bool {
 	switch strings.TrimSpace(name) {
 	case ToolNameWorkflowTemplateList, ToolNameWorkflowTemplateGet, ToolNameWorkflowTemplateRenderDAG, ToolNameWorkflowTemplateSave, ToolNameWorkflowTemplateRollback:
@@ -205,6 +223,7 @@ func isWorkflowTemplateToolName(name string) bool {
 	}
 }
 
+// list 解码筛选条件并返回模板摘要；输入 JSON 使用严格解码，未知字段直接失败。
 func (r *WorkflowTemplateHostToolRegistry) list(raw json.RawMessage) (workflowTemplateListResult, error) {
 	var input workflowTemplateListInput
 	if err := decodeWorkflowTemplateToolInput(raw, &input); err != nil {
@@ -219,6 +238,7 @@ func (r *WorkflowTemplateHostToolRegistry) list(raw json.RawMessage) (workflowTe
 	return workflowTemplateListResult{Templates: templates}, nil
 }
 
+// get 按兼容字段解析模板 ID 和版本，返回完整模板定义。
 func (r *WorkflowTemplateHostToolRegistry) get(raw json.RawMessage) (workflowTemplateGetResult, error) {
 	var input workflowTemplateGetInput
 	if err := decodeWorkflowTemplateToolInput(raw, &input); err != nil {
@@ -231,6 +251,7 @@ func (r *WorkflowTemplateHostToolRegistry) get(raw json.RawMessage) (workflowTem
 	return workflowTemplateGetResult{Template: tpl}, nil
 }
 
+// renderDAG 把模板和模型输入渲染成 DAG 草稿；这里只返回草稿，不持久化也不启动执行。
 func (r *WorkflowTemplateHostToolRegistry) renderDAG(raw json.RawMessage) (workflowTemplateRenderResult, error) {
 	var input workflowTemplateRenderInput
 	if err := decodeWorkflowTemplateToolInput(raw, &input); err != nil {
@@ -257,6 +278,8 @@ func (r *WorkflowTemplateHostToolRegistry) renderDAG(raw json.RawMessage) (workf
 	return workflowTemplateRenderResult{Draft: draft}, nil
 }
 
+// save 将模型传入的模板草稿转换为版本化模板资产并写入 registry。
+// 保存失败会直接返回错误，调用方不会得到半成功状态。
 func (r *WorkflowTemplateHostToolRegistry) save(raw json.RawMessage) (workflowTemplateSaveResult, error) {
 	var input workflowTemplateSaveInput
 	if err := decodeWorkflowTemplateToolInput(raw, &input); err != nil {
@@ -293,6 +316,8 @@ func (r *WorkflowTemplateHostToolRegistry) save(raw json.RawMessage) (workflowTe
 	return workflowTemplateSaveResult{Template: summary}, nil
 }
 
+// rollback 将指定模板切回显式版本，并返回回滚后的模板摘要。
+// ID 或版本缺失都会 fail-fast，避免模型触发不确定回滚。
 func (r *WorkflowTemplateHostToolRegistry) rollback(raw json.RawMessage) (workflowTemplateRollbackResult, error) {
 	var input workflowTemplateRollbackInput
 	if err := decodeWorkflowTemplateToolInput(raw, &input); err != nil {
@@ -315,6 +340,7 @@ func (r *WorkflowTemplateHostToolRegistry) rollback(raw json.RawMessage) (workfl
 	return workflowTemplateRollbackResult{Template: summary}, nil
 }
 
+// summaryByID 从 registry 当前列表中查找模板摘要，供保存和回滚后回传一致的模型结果。
 func (r *WorkflowTemplateHostToolRegistry) summaryByID(id string) (workflowtemplates.TemplateSummary, error) {
 	for _, summary := range r.registry.ListTemplates() {
 		if summary.ID == id {
@@ -324,6 +350,7 @@ func (r *WorkflowTemplateHostToolRegistry) summaryByID(id string) (workflowtempl
 	return workflowtemplates.TemplateSummary{}, fmt.Errorf("workflow template %q summary not found", id)
 }
 
+// firstWorkflowTemplateID 返回第一个非空模板 ID，按新旧字段优先级保持兼容。
 func firstWorkflowTemplateID(ids ...string) string {
 	for _, id := range ids {
 		if trimmed := strings.TrimSpace(id); trimmed != "" {
@@ -333,6 +360,8 @@ func firstWorkflowTemplateID(ids ...string) string {
 	return ""
 }
 
+// getTemplateByInput 从 template_id/templateId/id/version 兼容字段中定位模板。
+// 找不到模板或版本不匹配时返回明确错误，避免渲染错版本。
 func (r *WorkflowTemplateHostToolRegistry) getTemplateByInput(ids ...any) (workflowtemplates.Template, error) {
 	id, version := workflowTemplateIDAndVersion(ids...)
 	if id == "" {
@@ -348,6 +377,8 @@ func (r *WorkflowTemplateHostToolRegistry) getTemplateByInput(ids ...any) (workf
 	return tpl, nil
 }
 
+// workflowTemplateIDAndVersion 从混合类型字段中抽取模板 ID 和版本字符串。
+// 前三个位置按 ID 兼容字段处理，之后的位置视为版本。
 func workflowTemplateIDAndVersion(values ...any) (string, string) {
 	var id string
 	for i, value := range values {
@@ -363,6 +394,7 @@ func workflowTemplateIDAndVersion(values ...any) (string, string) {
 	return id, ""
 }
 
+// workflowTemplateVersionString 将模型输入中的字符串、数字或 json.Number 统一为版本字符串。
 func workflowTemplateVersionString(value any) string {
 	switch v := value.(type) {
 	case string:
@@ -381,6 +413,8 @@ func workflowTemplateVersionString(value any) string {
 	}
 }
 
+// workflowTemplateSummaryMatches 判断模板摘要是否满足列表筛选条件。
+// 该 helper 与 registry 过滤规则保持一致，供测试或未来本地过滤复用。
 func workflowTemplateSummaryMatches(tpl workflowtemplates.TemplateSummary, input workflowTemplateListInput) bool {
 	category := strings.TrimSpace(input.Category)
 	if category != "" && tpl.Category != category {
@@ -397,6 +431,7 @@ func workflowTemplateSummaryMatches(tpl workflowtemplates.TemplateSummary, input
 	return input.SupportsSchedule == nil || tpl.SupportsSchedule == *input.SupportsSchedule
 }
 
+// workflowTemplateHasOutputType 判断模板输出类型列表是否包含目标类型。
 func workflowTemplateHasOutputType(outputTypes []string, want string) bool {
 	for _, outputType := range outputTypes {
 		if strings.TrimSpace(outputType) == want {
@@ -406,6 +441,8 @@ func workflowTemplateHasOutputType(outputTypes []string, want string) bool {
 	return false
 }
 
+// decodeWorkflowTemplateToolInput 严格解码模板工具输入。
+// 空输入按空对象处理；未知字段或尾随 JSON 都会报错，避免模型参数被静默吞掉。
 func decodeWorkflowTemplateToolInput(raw json.RawMessage, dst any) error {
 	trimmed := bytes.TrimSpace(raw)
 	if len(trimmed) == 0 || bytes.Equal(trimmed, []byte("null")) {
@@ -423,6 +460,7 @@ func decodeWorkflowTemplateToolInput(raw json.RawMessage, dst any) error {
 	return nil
 }
 
+// workflowTemplateListInputSchema 定义列表工具对模型可见的输入 schema。
 func workflowTemplateListInputSchema() map[string]any {
 	return map[string]any{
 		"type": "object",
@@ -439,6 +477,7 @@ func workflowTemplateListInputSchema() map[string]any {
 	}
 }
 
+// workflowTemplateGetInputSchema 定义详情工具的输入 schema，并保留 templateId/id 兼容字段。
 func workflowTemplateGetInputSchema() map[string]any {
 	return map[string]any{
 		"type": "object",
@@ -454,6 +493,8 @@ func workflowTemplateGetInputSchema() map[string]any {
 	}
 }
 
+// workflowTemplateRenderInputSchema 定义渲染工具的输入 schema。
+// runtime_context 只是渲染提示，不会导致工具持久化或运行 DAG。
 func workflowTemplateRenderInputSchema() map[string]any {
 	return map[string]any{
 		"type": "object",
@@ -474,6 +515,7 @@ func workflowTemplateRenderInputSchema() map[string]any {
 	}
 }
 
+// workflowTemplateSaveInputSchema 定义保存工具的输入 schema，要求关键治理字段齐全。
 func workflowTemplateSaveInputSchema() map[string]any {
 	return map[string]any{
 		"type": "object",
@@ -500,6 +542,7 @@ func workflowTemplateSaveInputSchema() map[string]any {
 	}
 }
 
+// workflowTemplateRollbackInputSchema 定义回滚工具的输入 schema，强制指定版本。
 func workflowTemplateRollbackInputSchema() map[string]any {
 	return map[string]any{
 		"type": "object",
@@ -514,6 +557,7 @@ func workflowTemplateRollbackInputSchema() map[string]any {
 	}
 }
 
+// 模板工具给模型看的简短说明；这些是 wire 文案，不参与 Go 注释守卫。
 const descriptionWorkflowTemplateList = "List built-in government-enterprise workflow template summaries. Read-only; does not create DAGs or write files."
 const descriptionWorkflowTemplateGet = "Get one built-in government-enterprise workflow template with ui_schema, dag_template, review node, and final output contract."
 const descriptionWorkflowTemplateRenderDAG = "Render a built-in workflow template into a DAG draft from values/user_inputs. Read-only; does not persist or run the DAG."

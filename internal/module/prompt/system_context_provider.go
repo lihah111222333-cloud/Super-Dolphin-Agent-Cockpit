@@ -15,6 +15,7 @@ const (
 	systemContextMaxStatusLines = 20
 )
 
+// buildSystemContext 组装会随 turn 变化的系统上下文，目前包含 git status 和可选 cache breaker。
 func (s *service) buildSystemContext(ctx context.Context, buildCtx BuildCtx) SystemContext {
 	systemContext := SystemContext{}
 	if gitStatus := loadSystemContextGitStatus(ctx, buildCtx); gitStatus != "" {
@@ -29,6 +30,7 @@ func (s *service) buildSystemContext(ctx context.Context, buildCtx BuildCtx) Sys
 	return systemContext
 }
 
+// loadSystemContextGitStatus 根据 BuildCtx 选择仓库目录并读取简短 git status。
 func loadSystemContextGitStatus(ctx context.Context, buildCtx BuildCtx) string {
 	dir := systemContextRepoDir(buildCtx)
 	if dir == "" {
@@ -37,6 +39,7 @@ func loadSystemContextGitStatus(ctx context.Context, buildCtx BuildCtx) string {
 	return runSystemContextGitStatus(ctx, dir)
 }
 
+// systemContextRepoDir 优先使用当前 cwd，缺失时退回 git root。
 func systemContextRepoDir(buildCtx BuildCtx) string {
 	for _, value := range []string{strings.TrimSpace(buildCtx.CWD), strings.TrimSpace(buildCtx.GitRoot)} {
 		if value != "" {
@@ -46,6 +49,7 @@ func systemContextRepoDir(buildCtx BuildCtx) string {
 	return ""
 }
 
+// runSystemContextGitStatus 在固定超时内执行 git status，失败时返回可展示的降级文本。
 func runSystemContextGitStatus(ctx context.Context, dir string) string {
 	ctx, cancel := ctxutil.WithTimeout(ctx, systemContextCommandTimeout)
 	defer cancel()
@@ -59,6 +63,7 @@ func runSystemContextGitStatus(ctx context.Context, dir string) string {
 	return trimSystemContextGitStatus(string(output))
 }
 
+// trimSystemContextGitStatus 清理 git status 输出并限制行数，避免 prompt 被大型脏树撑爆。
 func trimSystemContextGitStatus(output string) string {
 	lines := make([]string, 0, systemContextMaxStatusLines)
 	for _, raw := range strings.Split(output, "\n") {
@@ -78,6 +83,7 @@ func trimSystemContextGitStatus(output string) string {
 	return strings.Join(trimmed, "\n")
 }
 
+// systemContextCacheBreaker 在配置开启时返回当前时间，用于强制系统上下文不复用旧缓存。
 func systemContextCacheBreaker(cfg *Config) string {
 	if cfg == nil || !cfg.EnableSystemContextCacheBreaker {
 		return ""

@@ -16,7 +16,8 @@ const (
 	maxRolloutToolNames   = 256
 )
 
-// dispatch 派发codexapp provider。
+// dispatch 统一发出 Codex provider 事件，并在发送前修正宿主可见身份。
+// Codex rollout 事件可能携带 provider 内部 UUID，这里会改写为宿主 agentID 以避免 UI 出现幽灵线程。
 func (s *session) dispatch(raw dto.RawProviderEvent) {
 	if s.dispatcher == nil {
 		pkglogger.Warn("codexapp: dispatch skipped: no dispatcher",
@@ -40,13 +41,12 @@ func (s *session) dispatch(raw dto.RawProviderEvent) {
 	s.dispatcher.Dispatch(raw)
 }
 
-// remapEventIdentity 处理remap事件身份。
+// remapEventIdentity 将 provider 事件中的 agent/thread 身份映射为宿主公开 ID。
+// 只要发现外来 ID 就记录告警，便于排查 provider UUID 泄漏到 UI 的来源。
 func (s *session) remapEventIdentity(eventType string, payload map[string]any, hostAgentID string) {
 	pid := payloadAgentID(payload)
 	tid := payloadThreadID(payload)
-	// Always forcefully remap both agent identity fields and thread identity
-	// fields to the host's public agentID. Codex/claudecli uses transient
-	// providerThreadIDs (UUIDs) which cause duplicate phantom cards in the UI.
+	// agent 与 thread 两套字段都强制改写，避免旧 payload 混用 snake/camel 字段时漏映射。
 	if pid != "" && pid != hostAgentID && s.logger != nil {
 		s.logger.Warn("codexapp: remapped alien agent_id in event",
 			"event_type", eventType, "original", pid, "mapped", hostAgentID)
@@ -61,7 +61,8 @@ func (s *session) remapEventIdentity(eventType string, payload map[string]any, h
 	payload["thread_id"] = hostAgentID
 }
 
-// finishTurn 处理finishturn。
+// finishTurn 根据 provider 终态事件关闭本地 turn handle。
+// optimistic=true 表示外层已确认成功；否则会从 payload 提取错误文本并转成 handle error。
 func (s *session) finishTurn(params json.RawMessage, optimistic bool) {
 	payload := decodeEventPayload(params)
 	turnID := payloadTurnID(payload)
@@ -103,9 +104,7 @@ func (s *session) takeTurn(turnID string) *turnHandle {
 		s.pendingTurn = nil
 	}
 	s.mu.Unlock()
-	// ADR-015 v4.1 §2.1 cleanup hook: drop the per-turn output accumulator
-	// outside s.mu (accumulator uses its own accumulatorMu to avoid nested
-	// locking).
+	// turn 结束后必须在 session 锁外清理输出累积器，避免与 accumulatorMu 形成嵌套锁。
 	s.dropTurnOutputAccumulator(turnID)
 	return h
 }
@@ -177,7 +176,8 @@ func isToolEndEvent(method string) bool {
 	}
 }
 
-// toolEndSuppressionPayload 处理工具endsuppression载荷。
+// toolEndSuppressionPayload 从 provider 事件中提取可用于去重的工具结束标识。
+// rollout response_item 与普通 tool.call.end 字段形态不同，缺 callID 或工具名时必须放弃抑制。
 func (s *session) toolEndSuppressionPayload(method string, payload map[string]any) (string, string, string, bool) {
 	item := codexToolItemPayload(payload)
 	switch strings.TrimSpace(stringValue(item, "type")) {
@@ -240,7 +240,8 @@ func (s *session) consumeSuppressedTurn(turnID string) bool {
 	return true
 }
 
-// consumeSuppressedToolEnd 处理consumesuppressed工具end。
+// consumeSuppressedToolEnd 消费一次已登记的工具结束抑制记录。
+// 支持 turnID 精确匹配、无 turnID 匹配和 MCP 长短工具名匹配，避免 forceComplete 后重复展示结束事件。
 func (s *session) consumeSuppressedToolEnd(turnID, callID, toolName string) bool {
 	callID = strings.TrimSpace(callID)
 	names := toolEndSuppressionToolNames(toolName)
@@ -325,7 +326,8 @@ func toolEndSuppressionKey(turnID, callID, toolName string) string {
 	return turnID + "\x00" + callID + "\x00" + toolName
 }
 
-// trackCodexRolloutToolName 跟踪codexrollout工具名称。
+// trackCodexRolloutToolName 在 rollout 事件流中补齐工具结束事件的 toolName。
+// Codex 的结束事件常只给 callID，因此需要从同一 callID 的开始事件缓存名称后再派发给 UI。
 func (s *session) trackCodexRolloutToolName(eventType string, payload map[string]any) bool {
 	if !isCodexRolloutToolEventType(eventType) {
 		return false
@@ -369,7 +371,8 @@ func isCodexRolloutToolEventType(eventType string) bool {
 	}
 }
 
-// rememberRolloutToolName 处理rememberrollout工具名称。
+// rememberRolloutToolName 记录 rollout callID 到工具名的短期映射。
+// 缓存有固定上限，避免长会话大量工具调用导致 map 无限增长。
 func (s *session) rememberRolloutToolName(callID, toolName string) {
 	callID = strings.TrimSpace(callID)
 	toolName = strings.TrimSpace(toolName)
@@ -415,7 +418,8 @@ func (s *session) rolloutEndToolName(callID string, item map[string]any) string 
 	return codexRolloutToolName(item)
 }
 
-// toolEventEndOutcome 处理工具事件endoutcome。
+// toolEventEndOutcome 从工具结束事件中推导成功状态和错误文本。
+// 顶层错误优先，嵌套 result 若声明失败也会覆盖 success，保证 UI 看到真实失败。
 func toolEventEndOutcome(eventType string, payload map[string]any) (bool, string) {
 	success := turnTerminalSuccess(eventType, payload)
 	errorText := stringValue(payload, "error", "message", "reason")
@@ -433,7 +437,8 @@ func toolEventEndOutcome(eventType string, payload map[string]any) (bool, string
 	return success, errorText
 }
 
-// toolEventResultOutcome 处理工具事件结果outcome。
+// toolEventResultOutcome 解析工具 result 包装并判断它是否携带失败信息。
+// 只有对象形态才进入 toolCallEndOutcome，纯文本或标量结果按成功透传。
 func toolEventResultOutcome(result any) (bool, string, bool) {
 	switch value := result.(type) {
 	case nil, string, float64, bool, []any:
@@ -464,9 +469,7 @@ func (s *session) failTurns(err error) {
 	s.activeTurnID = ""
 	s.pendingTurn = nil
 	s.mu.Unlock()
-	// ADR-015 v4.1 §2.1 cleanup hook: drop accumulators for every aborted
-	// turn so shutdownSession does not leak per-turn buffers. Use the keys
-	// (provider IDs) we just removed from s.turns.
+	// 失败所有 turn 时同步丢弃 providerID 对应的输出累积器，避免关闭后残留大文本缓冲。
 	for providerID, h := range turns {
 		s.dropTurnOutputAccumulator(providerID)
 		h.complete(err)

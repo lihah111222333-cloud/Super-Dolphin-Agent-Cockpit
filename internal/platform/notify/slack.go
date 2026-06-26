@@ -7,10 +7,8 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 )
 
-// RenderSlack builds a Slack Block Kit body. Slack incoming webhooks
-// treat the URL itself as the bearer credential (no HMAC); the
-// resolver keeps the URL hidden and we never log it verbatim.
-// RenderSlack 渲染slack。
+// RenderSlack 生成 Slack Block Kit 消息体。
+// Slack webhook URL 本身就是凭据，没有额外 HMAC；渲染层只返回 URL，日志脱敏由调用链负责。
 func RenderSlack(cfg ChannelConfig, msg contract.NotifyMessage) (postURL string, body []byte, contentType string, err error) {
 	if cfg.Platform != PlatformSlack {
 		return "", nil, "", fmt.Errorf("slack: wrong platform %q", cfg.Platform)

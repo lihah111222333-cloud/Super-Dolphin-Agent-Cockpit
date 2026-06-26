@@ -45,7 +45,7 @@ func newPromptRecallTracker() *promptRecallTracker {
 	return &promptRecallTracker{seen: map[string]map[string]struct{}{}}
 }
 
-// mark 标记编排。
+// mark 记录当前 thread 已 recall 的 topic，并返回本次是否重复 recall。
 func (t *promptRecallTracker) mark(threadID, topic string) bool {
 	if t == nil || threadID == "" || topic == "" {
 		return false
@@ -64,7 +64,7 @@ func (t *promptRecallTracker) mark(threadID, topic string) bool {
 	return false
 }
 
-// HandlePromptRecall 处理promptrecall。
+// HandlePromptRecall 注册 prompt_recall 工具，并为进程内重复 recall 提示维护记录器。
 func HandlePromptRecall(store promptRecallStore) ToolHandler {
 	return handlePromptRecall(store, newPromptRecallTracker())
 }
@@ -83,7 +83,8 @@ func recallToolDefinitions(store promptRecallStore) []ToolDefinition {
 	)
 }
 
-// recallPromptSection 处理recallpromptsection。
+// recallPromptSection 读取可信 cwd 下的 recall topic。
+// 未知 topic 返回工具级软错误，存储不可用或 scope 缺失则 fail-fast。
 func recallPromptSection(ctx context.Context, store promptRecallStore, input promptRecallInput, tracker *promptRecallTracker) (promptRecallResult, error) {
 	if err := requireDependency(store, "prompt store"); err != nil {
 		return promptRecallResult{}, err
@@ -109,9 +110,7 @@ func recallPromptSection(ctx context.Context, store promptRecallStore, input pro
 	body, err := store.GetSectionByRecallTopic(ctx, cwd, topic)
 	if err != nil {
 		if platformdb.IsNotFound(err) {
-			// Recall misses are tool-level soft results so the caller can read
-			// the hint and correct the topic instead of receiving an MCP call
-			// failure with the useful payload hidden by the framework.
+			// topic 未命中是可修正输入问题，返回软错误能让调用方看到 hint。
 			pkglogger.Warn("prompt_recall: call miss",
 				pkglogger.FieldToolName, "prompt_recall",
 				pkglogger.FieldTopic, topic,

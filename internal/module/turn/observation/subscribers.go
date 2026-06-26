@@ -16,16 +16,9 @@ import (
 	uidto "github.com/anthropic-ai/super-agent-v3/internal/dto/ui"
 )
 
-// Subscribe wires the six canonical observation facts onto an event
-// dispatcher. It returns a single cancel that tears down every
-// subscription. The caller owns the cancel and must invoke it on shutdown.
-//
-// The subscriber layer only pushes facts into the Contract; it does not
-// read from it. This is the one-way direction required by the P0b plan:
-// observation fans in from bus subscribers and fans out via Contract reads
-// to consumers (P3 collector, P0b extractor). turn/tracker must not import
-// this package.
-// Subscribe 注册事件订阅。
+// Subscribe 把事件总线上的 turn/tool/UI 事件写入 canonical observation Contract。
+// 返回的 cancel 会关闭全部订阅；本层只写不读，读取方通过 Contract 与 turn/tracker 解耦。
+// 事件乱序和重复由各 handler 的去重键、终态优先级和归因表处理。
 func Subscribe(dispatcher *event.Dispatcher, contract Contract, logger *pkglogger.Logger) context.CancelFunc {
 	if dispatcher == nil || contract == nil {
 		return func() {}
@@ -48,13 +41,8 @@ func Subscribe(dispatcher *event.Dispatcher, contract Contract, logger *pkglogge
 	}
 }
 
-// mapTerminalFromCompleted decodes a TurnCompleted DTO into an observation
-// Terminal. TurnCompleted.Success is a non-pointer bool, so we only promote
-// it into a Success pointer when Status is empty or completed — for every
-// other explicit Status we encode the failure/interrupt/abort/stall kind
-// and leave Success nil to avoid the "default true" trap the P0b plan
-// explicitly flagged.
-// mapTerminalFromCompleted 从completed映射terminal。
+// mapTerminalFromCompleted 把 TurnCompleted DTO 转为 observation Terminal。
+// Success 是非指针 bool，只有明确 completed 时才提升为指针，避免失败状态被默认 true 污染。
 func mapTerminalFromCompleted(ev turndto.TurnCompleted) Terminal {
 	status := strings.ToLower(strings.TrimSpace(ev.Status))
 	reason := platformPickReason(ev.Reason, ev.StopReason, ev.Error)
@@ -69,14 +57,14 @@ func mapTerminalFromCompleted(ev turndto.TurnCompleted) Terminal {
 		return Terminal{Kind: TerminalStalled, Reason: reason}
 	}
 	if !ev.Success {
-		// Non-success without an explicit status still must not be recorded
-		// as "completed" — keep it as failed with available reason context.
+		// success=false 但缺少显式状态时也不能记为 completed，保留可用原因并按 failed 处理。
 		return Terminal{Kind: TerminalFailed, Reason: reason}
 	}
 	success := true
 	return Terminal{Kind: TerminalCompleted, Success: &success, Reason: reason}
 }
 
+// platformPickReason 返回第一个非空原因字段，用于兼容不同 provider 的终止原因命名。
 func platformPickReason(parts ...string) string {
 	for _, p := range parts {
 		if s := strings.TrimSpace(p); s != "" {
@@ -86,6 +74,7 @@ func platformPickReason(parts ...string) string {
 	return ""
 }
 
+// onTurnStarted 记录 turn 的首次开始时间，空 turnID 事件不会污染共享状态。
 func onTurnStarted(c Contract) func(turndto.TurnStarted) {
 	return func(ev turndto.TurnStarted) {
 		turnID := strings.TrimSpace(ev.TurnID)
@@ -96,6 +85,7 @@ func onTurnStarted(c Contract) func(turndto.TurnStarted) {
 	}
 }
 
+// onTurnCompleted 写入终止状态和完成时间，由 Contract 负责终止优先级合并。
 func onTurnCompleted(c Contract) func(turndto.TurnCompleted) {
 	return func(ev turndto.TurnCompleted) {
 		turnID := strings.TrimSpace(ev.TurnID)
@@ -107,6 +97,7 @@ func onTurnCompleted(c Contract) func(turndto.TurnCompleted) {
 	}
 }
 
+// onTurnInterrupted 将显式中断事件写成 sticky terminal，避免后续 completed 覆盖。
 func onTurnInterrupted(c Contract) func(turndto.TurnInterrupted) {
 	return func(ev turndto.TurnInterrupted) {
 		turnID := strings.TrimSpace(ev.TurnID)
@@ -121,6 +112,7 @@ func onTurnInterrupted(c Contract) func(turndto.TurnInterrupted) {
 	}
 }
 
+// onTurnStalled 将 stalled 事件记录为终止状态，并保留 provider 给出的原因。
 func onTurnStalled(c Contract) func(turndto.TurnStalled) {
 	return func(ev turndto.TurnStalled) {
 		turnID := strings.TrimSpace(ev.TurnID)
@@ -135,33 +127,29 @@ func onTurnStalled(c Contract) func(turndto.TurnStalled) {
 	}
 }
 
+// onToolCallBegin 建立 callID 到 turnID 的归因，并按 callID 去重累加工具调用数。
 func onToolCallBegin(c Contract) func(tooldto.ToolCallBegin) {
 	return func(ev tooldto.ToolCallBegin) {
 		callID := strings.TrimSpace(ev.CallID)
 		turnID := strings.TrimSpace(ev.TurnID)
-		// ToolCallHeader embeds CallID + TurnHeader.TurnID, so we can bind
-		// the attribution as soon as the tool begins. ToolDiffUpdated later
-		// in the stream has no TurnID, and consumers must consult this
-		// mapping instead of guessing.
+		// ToolCallBegin 同时携带 callID 和 turnID，可立即建立归因。
+		// 后续 ToolDiffUpdated 不带 turnID，消费者只能查这张表，不能猜测归属。
 		c.AttributeCall(callID, turnID)
-		// Dedupe-gated count so a retried ToolCallBegin for the same call
-		// does not double-bump tool_calls.
+		// 按 callID 去重计数，避免同一次工具开始事件重放时重复累加 tool_calls。
 		if callID != "" && c.Dedupe(DedupeKey{CallID: callID}) {
 			c.IncrementToolCalls(turnID)
 		}
 	}
 }
 
+// onToolCallEnd 补齐工具调用归因，并只对失败结束事件去重计数。
 func onToolCallEnd(c Contract) func(tooldto.ToolCallEnd) {
 	return func(ev tooldto.ToolCallEnd) {
 		callID := strings.TrimSpace(ev.CallID)
 		turnID := strings.TrimSpace(ev.TurnID)
-		// Idempotent: if Begin already attributed the call we just overwrite
-		// with the same value. Memory.AttributeCall already tolerates this.
+		// Begin 已归因时再次写入同值是幂等的，Memory.AttributeCall 会容忍重复归因。
 		c.AttributeCall(callID, turnID)
-		// Dedupe by (callID, "end") so a retransmitted End does not double-
-		// bump tool_failures; the Begin dedupe key is different so both can
-		// fire independently.
+		// End 事件用独立 key 去重，避免重放重复累加失败数，同时不影响 Begin 的调用计数。
 		if !ev.Success && callID != "" &&
 			c.Dedupe(DedupeKey{CallID: callID, Key: "end"}) {
 			c.IncrementToolFailures(turnID)
@@ -169,18 +157,17 @@ func onToolCallEnd(c Contract) func(tooldto.ToolCallEnd) {
 	}
 }
 
+// onToolApprovalRequested 统计可归因到 turn 的审批请求，无法归因的事件直接丢弃。
 func onToolApprovalRequested(c Contract) func(tooldto.ToolApprovalRequested) {
 	return func(ev tooldto.ToolApprovalRequested) {
 		callID := strings.TrimSpace(ev.CallID)
 		turnID := strings.TrimSpace(ev.TurnID)
 		if turnID == "" {
-			// Approval events without a turn id cannot be attributed; drop
-			// rather than pollute an arbitrary per-turn bucket.
+			// 审批事件缺 turnID 时无法归因，直接丢弃，不能污染任意 turn 的计数桶。
 			return
 		}
-		// ApprovalID-scoped dedupe; falls back to CallID+request_id
-		// otherwise. Codex path fills ApprovalID; Claude path never fires
-		// here at all (the whole reason approval_requests_observed exists).
+		// 优先按 ApprovalID 去重；缺失时退回 CallID+request_id。
+		// Codex 路径会填 ApprovalID，Claude 路径不触发该事件，因此 observed 标志能区分未观测。
 		key := DedupeKey{
 			CallID: callID,
 			Key:    "approval:" + strings.TrimSpace(ev.ApprovalID),
@@ -191,15 +178,12 @@ func onToolApprovalRequested(c Contract) func(tooldto.ToolApprovalRequested) {
 	}
 }
 
+// onUITokensUpdated 只记录带 turnID 的 token 快照，线程级 token 另由专门路径处理。
 func onUITokensUpdated(c Contract) func(uidto.UITokensUpdated) {
 	return func(ev uidto.UITokensUpdated) {
 		turnID := strings.TrimSpace(ev.TurnID)
 		if turnID == "" {
-			// Claude path's UITokensUpdated is fixed to Projection="thread"
-			// and may carry no turn_id. We drop such events here rather
-			// than misattributing them to an arbitrary per-turn bucket;
-			// P3 collector is expected to read thread-level snapshots
-			// through a separate path if it cares.
+			// 线程级 token 事件可能没有 turn_id；这里直接丢弃，避免误归因到任意 turn。
 			return
 		}
 		snap := TokenSnapshot{
@@ -214,6 +198,7 @@ func onUITokensUpdated(c Contract) func(uidto.UITokensUpdated) {
 	}
 }
 
+// onRawProviderEvent 只把 raw event 写入去重集合，为后续消费者提供 best-effort 幂等线索。
 func onRawProviderEvent(c Contract) func(providerdto.BusRawProviderEvent) {
 	return func(ev providerdto.BusRawProviderEvent) {
 		if key := rawProviderDedupeKey(ev.Event); key != (DedupeKey{}) {
@@ -222,6 +207,7 @@ func onRawProviderEvent(c Contract) func(providerdto.BusRawProviderEvent) {
 	}
 }
 
+// rawProviderDedupeKey 从 raw provider payload 中提取稳定事件 ID，缺失时退化到事件类型+payload。
 func rawProviderDedupeKey(ev providerdto.RawProviderEvent) DedupeKey {
 	payload := rawPayloadMap(ev.Data)
 	if id := firstPayloadString(payload, "eventId", "event_id", "id"); id != "" {
@@ -236,6 +222,7 @@ func rawProviderDedupeKey(ev providerdto.RawProviderEvent) DedupeKey {
 	return DedupeKey{}
 }
 
+// rawPayloadMap 把 provider raw data 容忍地转成 map，失败返回 nil 表示没有可用去重字段。
 func rawPayloadMap(data any) map[string]any {
 	switch v := data.(type) {
 	case map[string]any:
@@ -253,6 +240,7 @@ func rawPayloadMap(data any) map[string]any {
 	}
 }
 
+// decodeRawPayload 解码 JSON object payload，非 object 或非法 JSON 视为不可提取。
 func decodeRawPayload(raw []byte) map[string]any {
 	var payload map[string]any
 	if err := json.Unmarshal(raw, &payload); err != nil {
@@ -261,6 +249,7 @@ func decodeRawPayload(raw []byte) map[string]any {
 	return payload
 }
 
+// firstPayloadString 按优先级从 payload 中取第一个非空字符串字段。
 func firstPayloadString(payload map[string]any, keys ...string) string {
 	for _, key := range keys {
 		if s := payloadString(payload[key]); s != "" {
@@ -270,6 +259,7 @@ func firstPayloadString(payload map[string]any, keys ...string) string {
 	return ""
 }
 
+// payloadString 提取字符串或 Stringer 值，其他类型不参与 ID 推导。
 func payloadString(value any) string {
 	switch v := value.(type) {
 	case string:

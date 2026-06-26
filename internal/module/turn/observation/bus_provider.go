@@ -1,6 +1,6 @@
 // Package observation 实现 turn 观测层，将事件总线上的原始事件流归一化为六个
 // 规范事实（terminal、token、timestamp、counts、call attribution、dedupe），
-// 供下游消费者（P3 collector、P0b extractor）通过 Contract 接口读取。
+// 供轨迹收集、提炼和 UI 状态等消费者通过 Contract 接口读取。
 package observation
 
 import (
@@ -13,8 +13,7 @@ import (
 	"github.com/kelindar/event"
 )
 
-// NewObservationSubscribers declares the observation bus subscriptions for BusModule.
-// NewObservationSubscribers 创建observationsubscribers。
+// NewObservationSubscribers 向 BusModule 声明 observation 的订阅规格，实际注册和关闭由 bus 统一管理。
 func NewObservationSubscribers(contract Contract, logger *pkglogger.Logger) platformbus.SubscriberResult {
 	return platformbus.SubscriberResult{
 		Spec: buscontract.SubscriberSpec{

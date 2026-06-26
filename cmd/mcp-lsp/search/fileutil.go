@@ -14,8 +14,10 @@ import (
 	platformshared "github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 )
 
+// binaryProbeBytes 是判断文件是否疑似二进制时读取的前缀字节数。
 const binaryProbeBytes = 512
 
+// 语言映射表用于在没有显式 language 参数时从扩展名或别名推断 LSP languageID。
 var (
 	languageByExtension = map[string]string{
 		".c":        "c",
@@ -74,24 +76,27 @@ var (
 	}
 )
 
+// PathInfo 是经过 workspace containment 校验后的文件路径信息。
 type PathInfo struct {
-	Root        string
-	AbsPath     string
-	DisplayPath string
+	Root        string // 命中的 workspace root。
+	AbsPath     string // 规范绝对路径。
+	DisplayPath string // 面向工具响应的相对或清理后路径。
 }
 
+// FileContent 保存文件读取结果及其规范路径信息。
 type FileContent struct {
-	Path       PathInfo
-	Content    string
-	TotalLines int
+	Path       PathInfo // 已校验路径。
+	Content    string   // 文本内容，二进制文件不会进入这里。
+	TotalLines int      // 规范化换行后的总行数。
 }
 
+// validatedFile 是读取文件后的内部结构，确保后续搜索只处理已校验候选。
 type validatedFile struct {
 	PathInfo PathInfo
 	Content  []byte
 }
 
-// NormalizeRoot 规范化根目录。
+// NormalizeRoot 规范化根目录，空 root 会回退到当前目录并解析符号链接。
 func NormalizeRoot(root string) (string, error) {
 	trimmed := strings.TrimSpace(root)
 	if trimmed == "" {
@@ -112,12 +117,12 @@ func NormalizeRoot(root string) (string, error) {
 	return cleaned, nil
 }
 
-// ResolvePath 解析路径。
+// ResolvePath 在单个 workspace root 内解析目标路径。
 func ResolvePath(root, target string) (PathInfo, error) {
 	return ResolvePathInRoots(root, nil, target)
 }
 
-// ResolvePathInRoots 在根目录解析路径。
+// ResolvePathInRoots 在多个可信 root 内解析目标路径，越界路径会 fail-fast。
 func ResolvePathInRoots(primaryRoot string, additionalRoots []string, target string) (PathInfo, error) {
 	roots, err := NormalizeRootSet(primaryRoot, additionalRoots)
 	if err != nil {
@@ -142,7 +147,7 @@ func ResolvePathInRoots(primaryRoot string, additionalRoots []string, target str
 	}, nil
 }
 
-// NormalizeRootSet 规范化根目录set。
+// NormalizeRootSet 规范化并去重 workspace roots，保留 primary root 在首位。
 func NormalizeRootSet(primaryRoot string, additionalRoots []string) ([]string, error) {
 	primary, err := NormalizeRoot(primaryRoot)
 	if err != nil {
@@ -209,7 +214,8 @@ func resolveAbsoluteCandidateInRoots(roots []string, target string) (string, str
 	return root, resolved, nil
 }
 
-// resolveAppManagedCandidate 解析appmanaged候选项。
+// resolveAppManagedCandidate 解析应用托管数据目录中的绝对路径。
+// 命中 app-managed 根时返回 appManaged=true，调用方可读取文件但不把它当作用户 workspace。
 func resolveAppManagedCandidate(target string) (string, string, bool, error) {
 	trimmed := strings.TrimSpace(target)
 	if trimmed == "" || !filepath.IsAbs(trimmed) {
@@ -253,7 +259,8 @@ func outsideWorkspaceRootsError(candidate string, roots []string) error {
 	return fmt.Errorf("path %s is outside workspace roots [%s]", candidate, strings.Join(roots, ", "))
 }
 
-// ReadToolFileContent 读取工具文件内容。
+// ReadToolFileContent 在单一 workspace 根内读取文本文件。
+// 该快捷入口复用多根校验，确保 symlink、二进制和超限文件不会被返回。
 func ReadToolFileContent(root, target string, maxBytes int) (FileContent, error) {
 	return ReadToolFileContentInRoots(root, nil, target, maxBytes)
 }
@@ -271,7 +278,8 @@ func ReadToolFileContentInRoots(root string, roots []string, target string, maxB
 	}, nil
 }
 
-// readValidatedFileInRoots 在根目录读取validated文件。
+// readValidatedFileInRoots 完成路径 containment、普通文件、大小和二进制校验后读取内容。
+// 任一校验失败都会返回错误，避免 file 工具对不可读目标静默降级。
 func readValidatedFileInRoots(root string, roots []string, target string, maxBytes int) (validatedFile, error) {
 	pathInfo, err := ResolvePathInRoots(root, roots, target)
 	if err != nil {
@@ -300,7 +308,8 @@ func readValidatedFileInRoots(root string, roots []string, target string, maxByt
 	return validatedFile{PathInfo: pathInfo, Content: content}, nil
 }
 
-// isSearchCandidate 判断search候选项是否可用。
+// isSearchCandidate 判断 WalkDir 候选文件是否允许进入搜索。
+// symlink、目录、超限文件和二进制文件都会被跳过，读取错误则显式返回。
 func isSearchCandidate(path string, entry os.DirEntry, maxBytes int) (bool, error) {
 	if entry == nil {
 		return false, fmt.Errorf("missing dir entry for %s", path)
@@ -398,8 +407,8 @@ func countNormalizedLines(content string) int {
 	return len(strings.Split(strings.ReplaceAll(content, "\r\n", "\n"), "\n"))
 }
 
-// resolveGoModCache returns the current GOMODCACHE path from environment.
-// Called per-walk (not cached) to support test isolation via t.Setenv.
+// resolveGoModCache 每次从环境变量解析当前 Go module cache。
+// 这里不缓存结果，测试通过 t.Setenv 切换 GOMODCACHE/GOPATH 时能立即生效。
 func resolveGoModCache() string {
 	if dir := os.Getenv("GOMODCACHE"); dir != "" {
 		return filepath.Clean(dir)
@@ -414,7 +423,8 @@ func resolveGoModCache() string {
 	return filepath.Join(home, "go", "pkg", "mod")
 }
 
-// isInsideGoModCache checks if absPath is inside the Go module cache.
+// isInsideGoModCache 判断路径是否位于 Go module cache。
+// 搜索默认排除依赖缓存，避免跨到外部模块源码产生噪声。
 func isInsideGoModCache(absPath string) bool {
 	cache := resolveGoModCache()
 	if cache != "" {
@@ -445,16 +455,17 @@ func shouldExcludePath(path string) bool {
 	return false
 }
 
-// isLinuxTopLevelTmpSegment 判断Linuxtopleveltmpsegment是否可用。
+// isLinuxTopLevelTmpSegment 识别系统顶层 tmp 目录段。
+// 顶层临时目录允许继续向下检查，避免把整个绝对路径因包含 tmp 而误排除。
 func isLinuxTopLevelTmpSegment(index int, segment, cleanedPath string) bool {
 	if segment != "tmp" {
 		return false
 	}
-	// /tmp/... (Linux/macOS symlink target)
+	// Linux 或 macOS 符号链接解析后的顶层 /tmp 路径。
 	if index == 1 && strings.HasPrefix(cleanedPath, "/tmp/") {
 		return true
 	}
-	// /private/tmp/... (macOS resolved symlink)
+	// macOS 解析后的 /private/tmp 路径。
 	if index == 2 && strings.HasPrefix(cleanedPath, "/private/tmp/") {
 		return true
 	}

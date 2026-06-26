@@ -16,29 +16,17 @@ import (
 // TestAutoDreamBusyDropsWithoutReplay
 // -----------------------------------------------------------------------------
 
-// TestAutoDreamBusyDropsWithoutReplay is the P22 P2 behavioral guard for
-// the auto-dream scheduler's drop-is-terminal contract. Enqueue is a
-// bounded, non-blocking send: when the queue is full the send takes the
-// default branch and bumps droppedTotal. Once a dispatcher *is* running,
-// those dropped events must stay dropped — the scheduler must not
-// secretly replay them via a retry buffer or a pending map.
-//
-// The existing TestAutoDreamSchedulerEnqueueOverflowCountsAsDropped
-// confirms the counter bumps; this test nails down the stronger
-// invariant: after Start observes only what's in the queue at Start
-// time, ProcessedTotal never exceeds the queue capacity regardless of
-// how many overflow events were dropped before Start.
+// TestAutoDreamBusyDropsWithoutReplay 锁定 auto-dream 队列“丢弃即终态”的行为。
+// Enqueue 是有界非阻塞写入：队列满时只增加 droppedTotal，不能把溢出事件放进重试缓冲或 pending map。
+// worker 启动后只能处理启动时已经在队列里的事件，ProcessedTotal 不能超过队列容量。
 func TestAutoDreamBusyDropsWithoutReplay(t *testing.T) {
 	t.Parallel()
-	// enabled=true + consolidator=nil keeps Enqueue on the production
-	// path and makes each process() call a fast increment-and-return,
-	// so the worker drains whatever is in the queue as quickly as the
-	// Go scheduler allows.
+	// enabled=true 且 consolidator=nil 会走生产 Enqueue 路径，同时让 process 快速自增返回，
+	// 便于测试只观察队列容量与丢弃语义。
 	hooks := newTestHooks(withEnabled(true))
 	s := newAutoDreamScheduler(hooks, pkglogger.Get())
 
-	// Fill the queue to its cap WITHOUT starting the worker — nothing
-	// drains the queue yet, so the buffer holds exactly cap entries.
+	// worker 未启动时先填满队列，确保缓冲区正好持有 cap 条事件。
 	for i := 0; i < autoDreamSchedulerQueueCap; i++ {
 		s.Enqueue("thread-filler")
 	}
@@ -46,8 +34,7 @@ func TestAutoDreamBusyDropsWithoutReplay(t *testing.T) {
 		t.Fatalf("DroppedTotal at cap = %d, want 0 (queue not yet full)", got)
 	}
 
-	// Push overflow events. The queue is full, so every one of these
-	// must take the drop branch and never reach the buffer.
+	// 队列满后继续写入必须走丢弃分支，不能进入缓冲区。
 	const overflow = 7
 	for i := 0; i < overflow; i++ {
 		s.Enqueue("thread-dropped")
@@ -56,13 +43,8 @@ func TestAutoDreamBusyDropsWithoutReplay(t *testing.T) {
 		t.Fatalf("DroppedTotal after overflow = %d, want %d", got, overflow)
 	}
 
-	// Now start the worker. It can only observe what's in the queue
-	// buffer (cap entries); the overflow events were never buffered, so
-	// the worker has no way to replay them. Poll for natural drain —
-	// Stop on this scheduler is lossy (runWorker exits on stopCh without
-	// draining the channel), so we must let the worker catch up before
-	// shutting it down, otherwise pending-but-not-yet-picked entries
-	// would be abandoned.
+	// worker 只能看到已入队的 cap 条事件；溢出事件从未进入缓冲区，不能被回放。
+	// Stop 会让 runWorker 直接退出，所以先轮询自然 drain，避免未取出的队列事件被测试自身截断。
 	s.Start()
 	deadline := time.Now().Add(2 * time.Second)
 	for time.Now().Before(deadline) {
@@ -78,10 +60,8 @@ func TestAutoDreamBusyDropsWithoutReplay(t *testing.T) {
 		t.Fatalf("Stop error = %v", err)
 	}
 
-	// The critical invariant: the worker processed the queue's contents
-	// exactly once each. Dropped events are terminal — their count
-	// never contributes to ProcessedTotal, and after the buffer drains
-	// no "replay" mechanism resurrects them.
+	// 核心不变量：worker 只处理队列内容且每条一次；丢弃事件不计入 ProcessedTotal，
+	// 队列 drain 后也不能被任何 replay 机制恢复。
 	if got := s.ProcessedTotal(); got != int64(autoDreamSchedulerQueueCap) {
 		t.Errorf("ProcessedTotal after drain = %d, want %d (no replay of dropped events)",
 			got, autoDreamSchedulerQueueCap)
@@ -114,20 +94,15 @@ func (s *stubAutoDreamExplicitScopeStore) ListAll(context.Context) ([]contract.T
 	return nil, nil
 }
 
-// TestAutoDreamRequiresExplicitProjectScope is the P22 P2 behavioral
-// guard for autoDreamAllowed's scope check: a thread that carries an
-// explicit AgentMemoryScope must not use the project-scope auto-dream
-// consolidator. maybeScheduleAutoDream must decline for such threads
-// (return false) and must not start a dream task.
+// TestAutoDreamRequiresExplicitProjectScope 锁定 autoDreamAllowed 的 scope 边界。
+// 带显式 AgentMemoryScope 的 thread 不能复用项目级 auto-dream consolidator；
+// maybeScheduleAutoDream 必须返回 false 且不能启动 dream task。
 
 func TestAutoDreamRequiresExplicitProjectScope(t *testing.T) {
 	t.Parallel()
 
-	// Build a thread that LOOKS like an auto-memory-root thread
-	// (threadKind=main, no parent/owner) but carries a non-empty
-	// AgentMemoryScope. That combination must cause autoDreamAllowed
-	// to refuse scheduling: child-agent scoped threads are not
-	// project-scope auto-dream writers.
+	// 构造一个看起来像 auto-memory-root 的 thread，但显式携带 AgentMemoryScope。
+	// 该组合必须被 autoDreamAllowed 拒绝，因为子 agent 作用域 thread 不是项目级 auto-dream 写入者。
 
 	now := time.Date(2026, 4, 24, 12, 0, 0, 0, time.UTC)
 	finishedAt := now.Unix()
@@ -214,13 +189,9 @@ func (r *recordingTeamLifecycle) snapshot() (starts, stops []string) {
 	return
 }
 
-// TestTeamSyncRuntimeSwapFinalFlush is the P22 P2 behavioral guard for
-// the team-sync coordinator's FIFO drain contract. A "runtime swap"
-// scenario is a sequence of thread-local Start/Stop events interleaved
-// with events for other threads — the kind of traffic that arises when
-// the user switches projects (Stop current session, Start new session).
-// The coordinator must deliver every event to the TeamSync lifecycle in
-// the order it was enqueued, with nothing lost during shutdown drain.
+// TestTeamSyncRuntimeSwapFinalFlush 锁定 team-sync coordinator 的 FIFO drain 行为。
+// runtime swap 会交错多个 thread 的 Start/Stop；Stop 必须按入队顺序交付所有事件，
+// 不能在 shutdown drain 中静默丢失最后一批生命周期通知。
 func TestTeamSyncRuntimeSwapFinalFlush(t *testing.T) {
 	t.Parallel()
 
@@ -228,10 +199,8 @@ func TestTeamSyncRuntimeSwapFinalFlush(t *testing.T) {
 	c := newTeamSyncCoordinator(lc, nil, pkglogger.Get())
 	c.Start()
 
-	// A realistic swap sequence: Start A, Stop A, Start B, Stop B,
-	// Start A again (user returns to the first project). The
-	// coordinator is strict FIFO per the dispatch loop, so these must
-	// arrive in order regardless of any wake coalescing.
+	// 模拟项目切换：A 启停、B 启停、再回到 A。dispatch loop 必须严格 FIFO，
+	// 即使 wake 被合并也不能打乱顺序。
 	ops := []struct {
 		kind string
 		id   string
@@ -251,9 +220,8 @@ func TestTeamSyncRuntimeSwapFinalFlush(t *testing.T) {
 		}
 	}
 
-	// Stop drains synchronously: by the time it returns every pending
-	// op has been dispatched to the lifecycle. This is the "final
-	// flush" guarantee — shutdown can never truncate the queue silently.
+	// Stop 同步 drain：返回时所有 pending op 都已交付给 lifecycle，
+	// 这是关闭阶段最后一次 flush 的保障，不能截断队列。
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 	if err := c.Stop(ctx); err != nil {

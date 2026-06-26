@@ -16,12 +16,8 @@ import (
 
 const managerShutdownTimeout = 5 * time.Second
 
-// BackgroundRunner satisfies the multilsp.Manager contract (see
-// manager.go) by returning the pool's recycler as a
-// platformrunner.Runner. A nil receiver or nil pool yields nil so the
-// root collector can safely drop it from `group:"runners"`. P22 P2
-// LSP-S1.
-// BackgroundRunner 处理后台runner。
+// BackgroundRunner 返回由 ManagerPool 持有的后台回收 runner。
+// nil manager 或 nil pool 表示当前实例没有独立后台任务，根 runner 聚合器会直接跳过。
 func (m *manager) BackgroundRunner() platformrunner.Runner {
 	if m == nil || m.pool == nil {
 		return nil
@@ -29,7 +25,8 @@ func (m *manager) BackgroundRunner() platformrunner.Runner {
 	return m.pool.RecyclerRunner()
 }
 
-// EnsureClient 确保客户端。
+// EnsureClient 为文件或语言准备可用的 LSP client。
+// 传入 filePath 时必须先解析到可信 workspace；空路径才退回语言级 client，避免跨 workspace 复用。
 func (m *manager) EnsureClient(ctx context.Context, filePath, languageID string) (Client, error) {
 	if strings.TrimSpace(filePath) != "" {
 		ref, err := m.resolveDocumentRef(ctx, filePath, languageID)
@@ -59,7 +56,7 @@ func (m *manager) close(closePool bool) error {
 	m.closed = true
 	m.mu.Unlock()
 
-	// Let any in-flight initialization observe the closed state and clean up before shutdown.
+	// 等待正在初始化的 client 先看到 closed 状态并完成清理，再统一 shutdown。
 	m.waitForEnsureOperations()
 
 	clients := m.collectAndClearClients()
@@ -92,7 +89,8 @@ func (m *manager) collectAndClearClients() []Client {
 	return clients
 }
 
-// shutdownClients 处理shutdownclients。
+// shutdownClients 依次关闭已摘除的 LSP client。
+// 每个 client 都有固定超时；函数保留第一个失败用于上报，但仍继续清理后续资源。
 func shutdownClients(clients []Client) error {
 	var firstErr error
 	for _, client := range clients {
@@ -173,7 +171,8 @@ func (m *manager) resolveLanguageWorkspace(ctx context.Context, languageID strin
 	return workspaceConfigForLanguageScope(scope, adapter)
 }
 
-// bootstrapLanguageClient 处理启动语言客户端。
+// bootstrapLanguageClient 为语言级 client 打开一个启动文件以触发服务器索引。
+// 禁用初始 bootstrap 时直接返回；目录遍历或 DidOpen 失败会向上返回，避免假装诊断可用。
 func (m *manager) bootstrapLanguageClient(ctx context.Context, client Client, root, languageID string) error {
 	if m != nil && m.disableInitialWorkspaceBootstrap {
 		return nil
@@ -224,7 +223,8 @@ func (m *manager) ensureClient(ctx context.Context, cfg workspaceConfig) (Client
 	return m.createAndRegisterClient(ctx, cfg)
 }
 
-// leaseBoundClient 处理租约bound客户端。
+// leaseBoundClient 只为仍绑定在当前 manager 的 client 创建租约。
+// client 已被回收或 manager 已关闭时返回未绑定状态，调用方据此重建或报错。
 func (m *manager) leaseBoundClient(client Client) (leasedClient, bool, error) {
 	if client == nil {
 		return leasedClient{client: client}, true, nil
@@ -256,7 +256,8 @@ func (m *manager) leaseClientLocked(client Client) leasedClient {
 	return leased
 }
 
-// lookupExistingClient 处理lookupexisting客户端。
+// lookupExistingClient 返回健康的已缓存 workspace client。
+// 发现死 client 时会先摘除、推进诊断代际并关闭旧实例，后续请求再创建新 client。
 func (m *manager) lookupExistingClient(key string) (Client, error) {
 	m.mu.RLock()
 	if m.closed {
@@ -281,7 +282,8 @@ func (m *manager) lookupExistingClient(key string) (Client, error) {
 	return nil, nil
 }
 
-// createAndRegisterClient 创建register客户端。
+// createAndRegisterClient 创建、初始化并登记新的 workspace client。
+// 初始化失败会立即关闭临时 client；登记时若已有并发创建成功的 client，则关闭当前实例并复用已有实例。
 func (m *manager) createAndRegisterClient(ctx context.Context, cfg workspaceConfig) (Client, error) {
 	if m.factory == nil {
 		return nil, ErrClientFactoryNil
@@ -431,7 +433,8 @@ func fullDocumentChangeText(changes []protocol.TextDocumentContentChangeEvent) (
 	return change.Text, true
 }
 
-// recoverFullDocumentDidChange 恢复fulldocumentdidchange。
+// recoverFullDocumentDidChange 在全文 DidChange 失败后尝试用 DidClose+DidOpen 恢复文档状态。
+// 原 client 恢复失败时才重建 client，并把原始错误、重开错误和重建错误合并返回。
 func (m *manager) recoverFullDocumentDidChange(ctx context.Context, client Client, ref documentRef, version int, text string, originalErr error) error {
 	reopenErr := m.withPooledClient(client, func() error {
 		if err := client.DidClose(ctx, ref.uri); err != nil {
@@ -457,7 +460,8 @@ func (m *manager) recoverFullDocumentDidChange(ctx context.Context, client Clien
 	return nil
 }
 
-// recordFullDocumentDidChange 记录fulldocumentdidchange。
+// recordFullDocumentDidChange 将成功的全文 DidChange 写入 bootstrap cache。
+// 缓存记录包含指纹、mtime 和 scope，后续诊断刷新可判断文档是否仍是同一内容版本。
 func (m *manager) recordFullDocumentDidChange(ctx context.Context, ref documentRef, version int, text string) error {
 	_, _, scope, err := m.resolvedScopeForURI(ctx, ref.uri, ref.languageID)
 	if err != nil {
@@ -493,12 +497,14 @@ func (m *manager) BootstrapDocument(ctx context.Context, uri string) error {
 	return m.bootstrapDocument(ctx, uri)
 }
 
-// BootstrapDocumentOpenOnly 处理启动document打开only。
+// BootstrapDocumentOpenOnly 只确保文档被打开，不等待诊断稳定。
+// 该入口供只需要 LSP 建立文档上下文的工具使用，避免被诊断轮询额外阻塞。
 func (m *manager) BootstrapDocumentOpenOnly(ctx context.Context, uri string) error {
 	return m.bootstrapDocumentOpenOnly(ctx, uri)
 }
 
-// LogMessage 处理日志消息。
+// LogMessage 将 LSP 日志通知映射到项目日志等级。
+// 没有 logger 时丢弃通知，避免语言服务器日志影响工具调用结果。
 func (m *manager) LogMessage(params protocol.LogMessageParams) error {
 	if m.logger == nil {
 		return nil
@@ -526,7 +532,8 @@ func (m *manager) documentClientWithoutDiagnosticsWait(ctx context.Context, uri 
 	return m.documentClientWithOptions(ctx, uri, documentClientOptions{})
 }
 
-// documentClientWithOptions 处理带选项的document客户端。
+// documentClientWithOptions 解析文档、执行 bootstrap，并按选项返回可用 client。
+// 不受当前 manager 管理的语言返回 nil client，调用方可走静态 fallback 而不是启动无关 LSP。
 func (m *manager) documentClientWithOptions(ctx context.Context, uri string, opts documentClientOptions) (Client, documentRef, error) {
 	ref, err := m.resolveDocumentRef(ctx, uri, "")
 	if err != nil {
@@ -550,7 +557,8 @@ func (m *manager) documentClientWithOptions(ctx context.Context, uri string, opt
 	return client, ref, nil
 }
 
-// waitDocumentDiagnosticsReady 等待document诊断ready。
+// waitDocumentDiagnosticsReady 在有外层 deadline 时等待单文档诊断稳定。
+// 显式打开的文档或不存在文件不等待，避免交互编辑路径被后台诊断轮询阻塞。
 func (m *manager) waitDocumentDiagnosticsReady(ctx context.Context, ref documentRef) error {
 	if _, ok := ctx.Deadline(); !ok {
 		return nil
@@ -605,10 +613,8 @@ func clientHealthy(client Client) bool {
 	return true
 }
 
-// touchWorkspaceActivity updates the lastActivity timestamp for the
-// workspace that owns the given client. This is called on every request
-// and notification to track idle time for automatic shutdown.
-// touchWorkspaceActivity 处理touch工作区activity。
+// touchWorkspaceActivity 更新拥有该 client 的 workspace 最近活动时间。
+// recycler 依赖这个时间判断 idle shutdown，所有请求/通知路径都应在使用 client 后触发。
 func (m *manager) touchWorkspaceActivity(client Client) {
 	if m == nil || client == nil {
 		return
@@ -624,7 +630,8 @@ func (m *manager) touchWorkspaceActivity(client Client) {
 	}
 }
 
-// isClientDeadError 判断客户端dead错误是否可用。
+// isClientDeadError 判断错误是否代表底层 LSP client 已不可继续复用。
+// 除显式 sentinel 外，也兼容常见进程管道关闭文本，便于触发重建而不是继续写死连接。
 func isClientDeadError(err error) bool {
 	if err == nil {
 		return false
@@ -641,7 +648,8 @@ func isClientDeadError(err error) bool {
 		strings.Contains(message, "use of closed")
 }
 
-// detachWorkspaceClient 处理detach工作区客户端。
+// detachWorkspaceClient 从 workspace map 中摘除指定 client。
+// expected 用于防止并发重建后误删新 client；函数只摘除不关闭，关闭责任留给调用方。
 func (m *manager) detachWorkspaceClient(key string, expected Client) *workspaceClient {
 	if m == nil {
 		return nil
@@ -659,7 +667,8 @@ func (m *manager) detachWorkspaceClient(key string, expected Client) *workspaceC
 	return workspace
 }
 
-// detachClient 处理detach客户端。
+// detachClient 按 client 指针从任意 workspace 中摘除缓存项。
+// 它用于错误恢复路径，调用方负责后续推进诊断代际和关闭旧连接。
 func (m *manager) detachClient(client Client) *workspaceClient {
 	if m == nil || client == nil {
 		return nil

@@ -18,10 +18,8 @@ import (
 var (
 	ErrInvalidMemoryRoot = errors.New("invalid memory root")
 
-	// SafeReadEntrypoint sentinel errors. Callers can match with errors.Is
-	// to distinguish failure modes that previously collapsed into a single
-	// boolean. Wraps os.ErrNotExist so legacy `errors.Is(err, os.ErrNotExist)`
-	// checks continue to work for the missing-file case.
+	// SafeReadEntrypoint 使用的哨兵错误。
+	// 调用方用 errors.Is 区分缺失、越界、目录和断链；NotFound 继续包裹 os.ErrNotExist 兼容旧判断。
 	ErrSafeReadNotFound    = fmt.Errorf("safe read: not found: %w", os.ErrNotExist)
 	ErrSafeReadContainment = errors.New("safe read: path escapes root")
 	ErrSafeReadIsDir       = errors.New("safe read: target is a directory")
@@ -190,35 +188,9 @@ func isRootOrNearRoot(path string) bool {
 	return !strings.Contains(trimmed, string(os.PathSeparator))
 }
 
-// SafeReadEntrypoint resolves root and the candidate path through symlinks,
-// confirms the resolved file lives under the resolved root, then reads its
-// bytes and returns os.FileInfo for the resolved file. On failure it
-// returns (nil, nil, err) where err is one of the sentinels above
-// (matchable via errors.Is) or a wrapped os error preserving Is-chain
-// semantics for permission/IO categories.
-//
-// Failure mapping:
-//   - root EvalSymlinks fails       -> ErrSafeReadBrokenLink (wraps cause)
-//   - indexPath Lstat ENOENT        -> ErrSafeReadNotFound
-//   - indexPath EvalSymlinks fails  -> ErrSafeReadBrokenLink (wraps cause)
-//   - parent dir EvalSymlinks fails -> ErrSafeReadBrokenLink (wraps cause)
-//   - resolved path escapes root    -> ErrSafeReadContainment
-//   - resolved path Stat ENOENT     -> ErrSafeReadNotFound
-//   - resolved path is a directory  -> ErrSafeReadIsDir
-//   - ReadFile fails                -> wrapped cause (errors.Is for ErrPermission etc still works)
-//
-// This is the single defense-in-depth read primitive for memory-system
-// entrypoints (MEMORY.md and nested CLAUDE.md).
-//
-
-// TOCTOU between Lstat/EvalSymlinks and ReadFile is best-effort.
-// A future os.OpenRoot-based implementation can close the TOCTOU window.
-// Tracked in p25 B-class infrastructure backlog
-// (docs/plans/迁移/p25记忆业务能力/p25记忆业务能力对齐.md basic
-// infrastructure gap table). Contract is already result-equivalent via
-// EvalSymlinks + ContainsPath (mapping §11.2 + §2.3 strong contracts);
-// OpenRoot only narrows the implementation race window, not a new
-// contract surface.
+// SafeReadEntrypoint 解析 root 和候选文件的真实路径，确认文件仍在 root 内后读取内容。
+// 这是 MEMORY.md 与嵌套 CLAUDE.md 的统一防逃逸读取入口；失败时返回可用 errors.Is 匹配的哨兵错误。
+// 当前 Lstat/EvalSymlinks 到 ReadFile 之间仍是尽力型 TOCTOU 防护，不能把它改成静默放行。
 func SafeReadEntrypoint(root, indexPath string) ([]byte, os.FileInfo, error) {
 	rootReal, err := safeReadRoot(root)
 	if err != nil {

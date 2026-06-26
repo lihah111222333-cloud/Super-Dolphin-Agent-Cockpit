@@ -9,7 +9,7 @@ type DispatchRetryMetrics struct {
 	RetryAlertTotal           int64
 }
 
-// DispatchRetryCounters 派发重试counters。
+// DispatchRetryCounters 从 dagmetrics 读取 dispatcher 重试计数快照。
 func DispatchRetryCounters() DispatchRetryMetrics {
 	snap := dagmetrics.Read()
 	perNode := make(map[string]int64, len(snap.RetryCountPerNode))
@@ -24,7 +24,7 @@ func DispatchRetryCounters() DispatchRetryMetrics {
 	}
 }
 
-// ResetDispatchRetryForTesting 为testing重置dispatch重试。
+// ResetDispatchRetryForTesting 重置全局 dispatcher 重试指标。
 func ResetDispatchRetryForTesting() {
 	dagmetrics.ResetForTesting()
 }

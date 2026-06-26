@@ -1,8 +1,5 @@
-// Package safego centralizes panic-safe goroutine launchers for the
-// backend. Every in-tree goroutine that is not a first-class part of the
-// Go runtime (e.g. a server main loop started by a library) must go
-// through Go so panics are logged with ctx + label instead of
-// crashing the process.
+// Package safego 提供带 panic 保护的 goroutine 启动入口。
+// 非库内部主循环的后端 goroutine 应通过 Go 启动，保证 panic 会带 ctx 和 label 进入日志。
 package safego
 
 import (
@@ -12,17 +9,8 @@ import (
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
-// Go launches fn in a new goroutine with panic recovery. On panic
-// it logs the ctx + label + panic value + stack to the supplied logger
-// and returns without crashing the process.
-//
-// The ctx is threaded into fn so callers can honor cancellation; passing
-// context.Background() is fine when no upstream ctx is available (e.g.
-// fire-and-forget fan-out from a sync event handler).
-//
-// label must be a short, stable identifier like "skill.scheduleFlush" so
-// operators can grep telemetry.
-// Go 处理go。
+// Go 在新 goroutine 中运行 fn，并在 panic 时记录 label、panic 值和堆栈。
+// ctx 会传入 fn 供其响应取消；logger 为空时回退到全局日志器，避免恢复路径再 panic。
 func Go(ctx context.Context, logger *pkglogger.Logger, label string, fn func(context.Context)) {
 	if fn == nil {
 		return
@@ -40,7 +28,7 @@ func Go(ctx context.Context, logger *pkglogger.Logger, label string, fn func(con
 						"stack", string(debug.Stack()),
 					)
 				} else {
-					// Fallback to global logger if caller passed nil.
+					// 调用方没有提供 logger 时仍要保留 panic 证据。
 					pkglogger.Error("safego: recovered panic",
 						"label", label,
 						"panic", rec,

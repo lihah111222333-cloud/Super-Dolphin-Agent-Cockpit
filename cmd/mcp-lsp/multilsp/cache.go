@@ -30,8 +30,7 @@ type lspCacheKey struct {
 	URI                  string `json:"uri"`
 	LanguageSpecificHash string `json:"language_specific_hash,omitempty"`
 
-	// Workspace and Language are legacy persistent-cache fields retained so
-	// older cache files can still be read and then rewritten with the scoped key.
+	// 旧磁盘缓存可能只写入 Workspace/Language；读取后会按 scoped key 重写，避免丢失既有缓存。
 	Workspace string `json:"workspace,omitempty"`
 	Language  string `json:"language,omitempty"`
 }
@@ -63,13 +62,8 @@ type lspCacheConfig struct {
 	Logger     *slog.Logger
 }
 
-// lspCacheStore holds per-workspace LSP document bootstrap state and
-// lets expired entries age out. Pre-P22 P2 LSP-S2 the struct also
-// owned a 1h background cleanup loop launched from newLSPCacheStore.
-// The cleanup is now amortised across every
-// Load/Upsert/WorkspaceDocuments via maybeCleanup, which the plan
-// (§483 / §490) classifies as the correct pattern — no constructor-owned
-// goroutine, no extra shutdown path beyond the resource's own Close().
+// lspCacheStore 保存 LSP 文档启动缓存、最近 scope 索引和删除墓碑。
+// TTL 清理在读写入口摊销执行，构造函数不启动后台 goroutine，关闭路径也不承担额外清理责任。
 type lspCacheStore struct {
 	mu sync.RWMutex
 
@@ -120,17 +114,18 @@ func newLSPCacheStore(cfg lspCacheConfig) (*lspCacheStore, error) {
 			return nil, fmt.Errorf("persistent cache load: %w", err)
 		}
 	}
-	// P22 P2 LSP-S2: no background cleanup goroutine; TTL expiry is
-	// applied inline by maybeCleanup on every Load/Upsert/WorkspaceDocuments.
+	// 过期清理由读写路径触发，避免缓存构造时隐式启动长期 goroutine。
 	return store, nil
 }
 
-// Enabled 判断LSP是否启用。
+// Enabled 报告缓存实例是否已创建。
+// nil store 会被视为关闭状态，调用方可据此跳过缓存路径。
 func (s *lspCacheStore) Enabled() bool {
 	return s != nil
 }
 
-// Load 加载LSP。
+// Load 按完整缓存 key 读取未过期文档记录。
+// 命中删除墓碑或 TTL 过期时返回 false，防止旧持久化记录被重新使用。
 func (s *lspCacheStore) Load(key lspCacheKey) (lspCacheValue, bool) {
 	if s == nil {
 		return lspCacheValue{}, false
@@ -161,7 +156,8 @@ func (s *lspCacheStore) Load(key lspCacheKey) (lspCacheValue, bool) {
 	return result.value, result.ok
 }
 
-// Upsert 新增或更新记录。
+// Upsert 写入文档缓存并清除同 key 墓碑。
+// 持久化开启时会同步落盘，落盘失败直接返回给调用方，避免内存和磁盘状态悄悄分叉。
 func (s *lspCacheStore) Upsert(value lspCacheValue) error {
 	if s == nil {
 		return nil
@@ -175,7 +171,8 @@ func (s *lspCacheStore) Upsert(value lspCacheValue) error {
 	})
 }
 
-// Delete 删除LSP。
+// Delete 从内存和磁盘缓存中移除文档记录。
+// 它不写墓碑，适合普通过期或显式释放场景。
 func (s *lspCacheStore) Delete(key lspCacheKey) error {
 	if s == nil {
 		return nil
@@ -187,7 +184,8 @@ func (s *lspCacheStore) Delete(key lspCacheKey) error {
 	})
 }
 
-// Tombstone 标记记录已删除。
+// Tombstone 删除记录并留下短期墓碑。
+// 墓碑用于阻止旧磁盘缓存或延迟刷新把已释放文档重新加载回来。
 func (s *lspCacheStore) Tombstone(key lspCacheKey) error {
 	if s == nil {
 		return nil
@@ -201,7 +199,8 @@ func (s *lspCacheStore) Tombstone(key lspCacheKey) error {
 	})
 }
 
-// WorkspaceDocuments 处理工作区documents。
+// WorkspaceDocuments 返回指定 workspace 下未过期的缓存文档。
+// 结果按最近更新时间倒序排列，更新时间相同则按 URI 稳定排序。
 func (s *lspCacheStore) WorkspaceDocuments(workspace string) []lspCacheValue {
 	if s == nil {
 		return nil
@@ -229,7 +228,8 @@ func (s *lspCacheStore) WorkspaceDocuments(workspace string) []lspCacheValue {
 	})
 }
 
-// ScopeDocuments 处理作用域documents。
+// ScopeDocuments 返回指定 resolved scope 下未过期的缓存文档。
+// scope key 与 workspace key 必须同时匹配，避免跨 agent 或跨 worktree 泄漏诊断状态。
 func (s *lspCacheStore) ScopeDocuments(scope ResolvedLSPToolScope) []lspCacheValue {
 	if s == nil {
 		return nil
@@ -257,7 +257,7 @@ func (s *lspCacheStore) ScopeDocuments(scope ResolvedLSPToolScope) []lspCacheVal
 	})
 }
 
-// WorkspaceURIs 处理工作区uris。
+// WorkspaceURIs 返回指定 workspace 的缓存文档 URI 列表。
 func (s *lspCacheStore) WorkspaceURIs(workspace string) []string {
 	values := s.WorkspaceDocuments(workspace)
 	uris := make([]string, 0, len(values))
@@ -267,7 +267,7 @@ func (s *lspCacheStore) WorkspaceURIs(workspace string) []string {
 	return uris
 }
 
-// ScopeURIs 处理作用域uris。
+// ScopeURIs 返回指定 resolved scope 的缓存文档 URI 列表。
 func (s *lspCacheStore) ScopeURIs(scope ResolvedLSPToolScope) []string {
 	values := s.ScopeDocuments(scope)
 	uris := make([]string, 0, len(values))
@@ -277,7 +277,8 @@ func (s *lspCacheStore) ScopeURIs(scope ResolvedLSPToolScope) []string {
 	return uris
 }
 
-// RememberDocumentScope 处理rememberdocument作用域。
+// RememberDocumentScope 记录文档最近一次解析出的 resolved scope。
+// 该索引用于后续释放或重新启动时找回文档归属，不写入持久化缓存。
 func (s *lspCacheStore) RememberDocumentScope(uri string, scope ResolvedLSPToolScope, fingerprint string) error {
 	if s == nil || strings.TrimSpace(uri) == "" {
 		return nil
@@ -293,7 +294,8 @@ func (s *lspCacheStore) RememberDocumentScope(uri string, scope ResolvedLSPToolS
 	return nil
 }
 
-// LastResolvedScope 处理last已解析作用域。
+// LastResolvedScope 查询文档最近一次记录的 resolved scope。
+// 空 URI 或未命中时返回 false，调用方需要重新解析目标作用域。
 func (s *lspCacheStore) LastResolvedScope(uri string) (lspDocumentIndexValue, bool) {
 	if s == nil || strings.TrimSpace(uri) == "" {
 		return lspDocumentIndexValue{}, false
@@ -326,21 +328,16 @@ func (s *lspCacheStore) cachePath() string {
 	return filepath.Join(dir, lspCacheFileName)
 }
 
-// Close is retained as the *lspCacheStore shutdown hook for API
-// stability. Pre-P22 P2 LSP-S2 it closed the stopCh that drove the
-// background cleanupLoop; cleanup is now amortised across every access,
-// so this method is a no-op. Keeping the method means callers like
-// closeBootstrapCoordinator don't need to change and a future persistent
-// flush-on-close can hang off the same entry point without another
-// refactor.
-// Close 关闭 LSP 管理器资源。
+// Close 保留缓存关闭钩子但当前不做额外工作。
+// 清理和持久化都发生在读写路径；保留方法是为了让上层资源释放流程保持统一。
 func (s *lspCacheStore) Close() {
 	if s == nil {
 		return
 	}
 }
 
-// maybeCleanup 处理maybecleanup。
+// maybeCleanup 摊销清理过期文档和过期墓碑。
+// 持久化开启时，发生变更会立即重写磁盘状态；失败只记录告警，不阻断当前缓存读写。
 func (s *lspCacheStore) maybeCleanup() {
 	if s == nil {
 		return
@@ -475,7 +472,8 @@ func (s *lspCacheStore) persistLocked() error {
 	return s.writePersistentPayloadLocked(payload)
 }
 
-// persistentDiskStateLocked 处理persistentdisk状态locked。
+// persistentDiskStateLocked 在持锁状态下生成磁盘快照。
+// 墓碑为空时省略字段，避免持久化文件长期保留空 map 噪声。
 func (s *lspCacheStore) persistentDiskStateLocked() lspCacheDiskState {
 	disk := lspCacheDiskState{
 		Documents:  make([]lspCacheValue, 0, len(s.memory)),
@@ -495,7 +493,8 @@ func (s *lspCacheStore) persistentDiskStateLocked() lspCacheDiskState {
 	return disk
 }
 
-// writePersistentPayloadLocked 写入persistent载荷locked。
+// writePersistentPayloadLocked 通过临时文件加 rename 原子写入缓存文件。
+// 任一步失败都会清理临时文件并返回错误，避免留下半写入 JSON。
 func (s *lspCacheStore) writePersistentPayloadLocked(payload []byte) error {
 	path := s.cachePath()
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
@@ -529,7 +528,8 @@ func (s *lspCacheStore) expired(value lspCacheValue, now time.Time) bool {
 	return now.Sub(value.UpdatedAt) > s.config.TTL
 }
 
-// String 返回字符串表示。
+// String 生成缓存 key 的稳定拼接形式。
+// 分隔符使用 NUL，避免普通路径或语言标识里的字符造成歧义。
 func (k lspCacheKey) String() string {
 	return cacheKeyScope(k) + "\x00" +
 		cacheKeyWorkspace(k) + "\x00" +

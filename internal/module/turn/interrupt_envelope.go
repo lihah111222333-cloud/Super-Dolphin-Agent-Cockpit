@@ -6,6 +6,8 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 )
 
+// turnInterruptEnvelope 是 RPC 响应里携带的中断判定摘要。
+// 它只描述本次中断的 UI 可见结果，不参与 tracker 状态推进。
 type turnInterruptEnvelope struct {
 	confirmed      bool
 	mode           string
@@ -16,15 +18,19 @@ type turnInterruptEnvelope struct {
 	activeObserved bool
 }
 
+// interruptEnvelope 返回 TurnStatus 内部保存的中断摘要，供 RPC 结果构造使用。
 func (s TurnStatus) interruptEnvelope() turnInterruptEnvelope {
 	return s.interrupt
 }
 
+// attachInterruptEnvelope 把中断摘要附加到状态副本上。
+// 调用方拿到的是返回值副本，tracker 内部状态不会因此被写入 UI envelope。
 func attachInterruptEnvelope(status TurnStatus, envelope turnInterruptEnvelope) TurnStatus {
 	status.interrupt = envelope
 	return status
 }
 
+// buildTurnInterruptEnvelope 根据中断前后状态推导 UI 可展示的 settle mode。
 func buildTurnInterruptEnvelope(
 	beforeRaw string,
 	afterRaw string,
@@ -50,6 +56,7 @@ func buildTurnInterruptEnvelope(
 	}
 }
 
+// buildTurnInterruptTimeoutEnvelope 构造 provider 已收到中断但本地等待超时的摘要。
 func buildTurnInterruptTimeoutEnvelope(beforeRaw string, afterRaw string, waitedMS int64) turnInterruptEnvelope {
 	return turnInterruptEnvelope{
 		confirmed:      true,
@@ -62,6 +69,8 @@ func buildTurnInterruptTimeoutEnvelope(beforeRaw string, afterRaw string, waited
 	}
 }
 
+// normalizeTurnInterruptState 把 provider 与 tracker 的多种终止词折叠成 UI 分支需要的少数类别。
+// 未知状态原样返回，让前端和日志仍能看到 provider 的真实字面量。
 func normalizeTurnInterruptState(raw string) string {
 	state := strings.ToLower(strings.TrimSpace(raw))
 	switch state {
@@ -76,6 +85,7 @@ func normalizeTurnInterruptState(raw string) string {
 	}
 }
 
+// interruptSettleMode 把确认结果和最终状态映射为前端可分支处理的中断模式。
 func interruptSettleMode(confirmed bool, afterState string) string {
 	if confirmed {
 		return "interrupt_confirmed"
@@ -90,10 +100,12 @@ func interruptSettleMode(confirmed bool, afterState string) string {
 	}
 }
 
+// interruptConfirmed 只接受 tracker 明确进入 interrupted；completed/failed 等迟到终态不算确认中断。
 func interruptConfirmed(state string) bool {
 	return strings.EqualFold(strings.TrimSpace(state), "interrupted")
 }
 
+// interruptProviderID 优先使用已追踪状态里的 providerID，缺失时回退到当前 handle。
 func interruptProviderID(status TurnStatus, handle contract.TurnHandle) string {
 	if providerID := strings.TrimSpace(status.ProviderID); providerID != "" {
 		return providerID

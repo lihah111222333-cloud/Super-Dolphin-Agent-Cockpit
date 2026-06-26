@@ -7,24 +7,28 @@ import (
 	"time"
 )
 
+// Status 表示单个 SQLite release gate 的归档结果。
 type Status string
 
+// SQLite release gate 的最终状态常量。
 const (
 	StatusPass    Status = "PASS"
 	StatusFail    Status = "FAIL"
 	StatusSkipped Status = "SKIPPED"
 )
 
+// Gate 描述一个 release gate 的命令、工作目录和失败归属。
 type Gate struct {
-	ID           string
-	Title        string
-	Priority     string
-	Command      []string
-	CWD          string
-	BlockerOwner string
-	Description  string
+	ID           string   // 稳定 gate 编号，报告校验依赖它去重和排序。
+	Title        string   // 面向发布报告的人类可读标题。
+	Priority     string   // 发布优先级，P0 gate 失败时阻断整体报告通过。
+	Command      []string // 实际执行的命令及参数，Run 会原样传给 exec.CommandContext。
+	CWD          string   // 相对仓库根目录的执行目录。
+	BlockerOwner string   // 非 P0 gate 失败时的默认承接人。
+	Description  string   // gate 覆盖的发布风险说明。
 }
 
+// mcpOrchSQLiteSmokePackages 列出 SQLite 切换后必须保留的 mcp-orch 包烟测范围。
 var mcpOrchSQLiteSmokePackages = []string{
 	"./cmd/mcp-orch",
 	"./cmd/mcp-orch/fxadapter",
@@ -35,10 +39,13 @@ var mcpOrchSQLiteSmokePackages = []string{
 	"./cmd/mcp-orch/tools",
 }
 
+// CommandString 将命令切片渲染为报告中的可读命令行。
 func (g Gate) CommandString() string {
 	return strings.Join(g.Command, " ")
 }
 
+// sqliteGateDefinitions 是 SQLite 发布门禁的固定定义。
+// 调用方必须通过 Definitions 获取副本，避免测试或运行期修改污染全局定义。
 var sqliteGateDefinitions = []Gate{
 	{
 		ID:          "G1",
@@ -156,12 +163,15 @@ var sqliteGateDefinitions = []Gate{
 	},
 }
 
+// sqliteGoTestCommand 构造标准 go test 命令，保证所有 gate 使用一致的 -run 与 -count 参数。
 func sqliteGoTestCommand(runPattern string, packages ...string) []string {
 	command := append([]string{"go", "test"}, packages...)
 	command = append(command, "-run", runPattern, "-count=1")
 	return command
 }
 
+// sqliteGoTestCommandWithTags 构造需要 build tags 的 go test 命令。
+// tags 为空时不会追加 -tags，避免生成空标签参数影响普通 gate。
 func sqliteGoTestCommandWithTags(runPattern string, tags []string, packages ...string) []string {
 	command := []string{"go", "test", "-v"}
 	if len(tags) > 0 {
@@ -172,26 +182,30 @@ func sqliteGoTestCommandWithTags(runPattern string, tags []string, packages ...s
 	return command
 }
 
+// Result 记录单个 release gate 的执行证据。
 type Result struct {
-	Gate       Gate
-	Command    string
-	CWD        string
-	StartedAt  time.Time
-	EndedAt    time.Time
-	ExitCode   int
-	RawLogPath string
-	Status     Status
+	Gate       Gate      // 对应的 gate 定义快照。
+	Command    string    // 报告中展示的命令字符串。
+	CWD        string    // 实际执行目录。
+	StartedAt  time.Time // gate 开始时间，使用 UTC 记录。
+	EndedAt    time.Time // gate 结束时间，使用 UTC 记录。
+	ExitCode   int       // 进程退出码；未执行成功解析时保持 -1。
+	RawLogPath string    // 原始日志文件路径，报告使用 slash 格式保持跨平台稳定。
+	Status     Status    // 归档状态，P0 gate 必须为 PASS。
 }
 
+// Report 汇总一次 SQLite release gate 运行的环境和全部 gate 结果。
 type Report struct {
-	CommitSHA string
-	OS        string
-	Arch      string
-	StartedAt time.Time
-	EndedAt   time.Time
-	Results   []Result
+	CommitSHA string    // 运行时仓库 HEAD，用于回溯发布证据。
+	OS        string    // 运行平台 GOOS。
+	Arch      string    // 运行平台 GOARCH。
+	StartedAt time.Time // 整体报告开始时间。
+	EndedAt   time.Time // 整体报告结束时间。
+	Results   []Result  // 每个 gate 的执行结果。
 }
 
+// Definitions 返回 gate 定义的防御性副本。
+// Command 切片也会复制，避免调用方修改返回值后影响后续发布门禁。
 func Definitions() []Gate {
 	gates := make([]Gate, len(sqliteGateDefinitions))
 	for i, gate := range sqliteGateDefinitions {
@@ -201,6 +215,8 @@ func Definitions() []Gate {
 	return gates
 }
 
+// ValidateResults 校验报告结果是否与 gate 定义一致。
+// allowPartial 仅放宽缺失 gate 的检查，P0 状态、未知 gate 和重复结果仍然 fail-fast。
 func ValidateResults(gates []Gate, results []Result, allowPartial bool) error {
 	gateByID, err := mapGateDefinitions(gates)
 	if err != nil {
@@ -216,6 +232,7 @@ func ValidateResults(gates []Gate, results []Result, allowPartial bool) error {
 	return requireAllGatesReported(gates, seen)
 }
 
+// mapGateDefinitions 按 gate ID 建立索引，并拒绝重复定义。
 func mapGateDefinitions(gates []Gate) (map[string]Gate, error) {
 	gateByID := make(map[string]Gate, len(gates))
 	for _, gate := range gates {
@@ -227,6 +244,7 @@ func mapGateDefinitions(gates []Gate) (map[string]Gate, error) {
 	return gateByID, nil
 }
 
+// validateResultEntries 逐条校验结果并返回已出现的 gate 集合。
 func validateResultEntries(gateByID map[string]Gate, results []Result) (map[string]Result, error) {
 	seen := make(map[string]Result, len(results))
 	for _, result := range results {
@@ -237,6 +255,7 @@ func validateResultEntries(gateByID map[string]Gate, results []Result) (map[stri
 	return seen, nil
 }
 
+// validateResultEntry 校验单条结果的身份、必填证据和 P0 通过状态。
 func validateResultEntry(gateByID map[string]Gate, seen map[string]Result, result Result) error {
 	gateID := result.Gate.ID
 	if gateID == "" {
@@ -265,6 +284,7 @@ func validateResultEntry(gateByID map[string]Gate, seen map[string]Result, resul
 	return nil
 }
 
+// validateP0ResultStatus 保证 P0 gate 不允许被跳过或失败。
 func validateP0ResultStatus(gate Gate, result Result) error {
 	if gate.Priority != "P0" {
 		return nil
@@ -278,6 +298,7 @@ func validateP0ResultStatus(gate Gate, result Result) error {
 	return nil
 }
 
+// requireAllGatesReported 在完整报告模式下确保每个定义的 gate 都有结果。
 func requireAllGatesReported(gates []Gate, seen map[string]Result) error {
 	for _, gate := range gates {
 		if seen[gate.ID].Gate.ID == "" {
@@ -287,6 +308,8 @@ func requireAllGatesReported(gates []Gate, seen map[string]Result) error {
 	return nil
 }
 
+// RenderMarkdown 将 gate 报告渲染为稳定排序的 Markdown 表格。
+// 非 P0 失败且未声明 owner 时显式标记 UNASSIGNED，避免发布报告吞掉责任人缺口。
 func RenderMarkdown(report Report) string {
 	var b strings.Builder
 	b.WriteString("# SQLite Release Gate Report\n\n")
@@ -326,10 +349,12 @@ func RenderMarkdown(report Report) string {
 	return b.String()
 }
 
+// writeRow 写入单行键值表格，并复用统一的 Markdown 单元格转义。
 func writeRow(b *strings.Builder, key, value string) {
 	b.WriteString("| " + escapeCell(key) + " | " + escapeCell(value) + " |\n")
 }
 
+// escapeRow 转义一整行 Markdown 单元格，保持列数和换行展示稳定。
 func escapeRow(values []string) []string {
 	escaped := make([]string, 0, len(values))
 	for _, value := range values {
@@ -338,6 +363,7 @@ func escapeRow(values []string) []string {
 	return escaped
 }
 
+// escapeCell 转义 Markdown 表格中的分隔符和换行。
 func escapeCell(value string) string {
 	value = strings.ReplaceAll(value, "\\", "\\\\")
 	value = strings.ReplaceAll(value, "|", "\\|")
@@ -346,6 +372,7 @@ func escapeCell(value string) string {
 	return value
 }
 
+// formatTime 用 UTC RFC3339 输出时间；零值保持为空，便于报告表示未产生的时间。
 func formatTime(ts time.Time) string {
 	if ts.IsZero() {
 		return ""
@@ -353,6 +380,7 @@ func formatTime(ts time.Time) string {
 	return ts.UTC().Format(time.RFC3339)
 }
 
+// gateSortKey 将 G1/G2 这类编号转成数字排序键，未知格式排在末尾。
 func gateSortKey(id string) int {
 	if !strings.HasPrefix(id, "G") {
 		return 1000

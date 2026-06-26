@@ -14,10 +14,8 @@ var Module = fx.Module("platform.cachekeepalive",
 	fx.Invoke(bindManagerShutdown),
 )
 
-// bindManagerShutdown wires the cachekeepalive Manager as a resource whose
-// drain runs in fx.OnStop. Manager is not a long-running worker (no Start);
-// timers are passive time.AfterFunc. Shutdown drains in-flight pings and
-// cancels all timers — strictly resource close per §10.30.
+// bindManagerShutdown 将 cachekeepalive Manager 作为 fx 资源挂入 OnStop。
+// Manager 没有 Start 循环，只有被动 time.AfterFunc；停止时必须先 drain ping 再释放 timer。
 func bindManagerShutdown(lc fx.Lifecycle, m *Manager, logger *pkglogger.Logger) {
 	if m == nil {
 		return

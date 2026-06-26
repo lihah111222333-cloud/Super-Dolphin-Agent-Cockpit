@@ -19,6 +19,7 @@ import (
 	"go.uber.org/fx"
 )
 
+// Module 注册 Wails 桌面 UI、RPC handler、资源服务和生命周期桥接。
 var Module = fx.Module("ui.wails",
 	fx.Provide(
 		NewApp,
@@ -35,6 +36,7 @@ var Module = fx.Module("ui.wails",
 	fx.Invoke(bindEventBridge),
 )
 
+// appParams 汇总创建 App 绑定所需的跨模块依赖。
 type appParams struct {
 	fx.In
 
@@ -45,11 +47,13 @@ type appParams struct {
 	PushBridge    *rpc.PushBridge
 }
 
+// provideAppUpdateRequestQuit 把 WailsLifecycle 的退出请求暴露给 app update 模块。
 func provideAppUpdateRequestQuit(lifecycle *WailsLifecycle) appupdate.RequestQuit {
 	return lifecycle.RequestQuit
 }
 
-// NewApp 创建app。
+// NewApp 创建暴露给 Wails 前端的后端绑定对象。
+// 它只装配 RPC dispatch、runtime event 推送和观测依赖，不持有业务模块状态。
 func NewApp(p appParams) *App {
 	return &App{
 		dispatch: p.Dispatcher.Dispatch,
@@ -63,18 +67,19 @@ func NewApp(p appParams) *App {
 	}
 }
 
-// NewService 创建服务。
+// NewService 把 App 绑定包装为 Wails application.Service。
 func NewService(app *App) application.Service {
 	return application.NewService(app)
 }
 
+// activeAgentCounterParams 汇总创建活跃 agent 计数器所需依赖。
 type activeAgentCounterParams struct {
 	fx.In
 
 	Threads contract.ThreadLister
 }
 
-// NewActiveAgentCounter 创建active代理counter。
+// NewActiveAgentCounter 创建活跃 agent 计数器；缺失线程来源时 fail-fast 返回错误。
 func NewActiveAgentCounter(p activeAgentCounterParams) ActiveAgentCounter {
 	if p.Threads != nil {
 		return ActiveAgentCounterFunc(func(ctx context.Context) (int, error) {
@@ -96,6 +101,7 @@ func NewActiveAgentCounter(p activeAgentCounterParams) ActiveAgentCounter {
 	})
 }
 
+// applicationParams 汇总创建 Wails application 所需依赖。
 type applicationParams struct {
 	fx.In
 
@@ -106,12 +112,13 @@ type applicationParams struct {
 	Frontend  FrontendFS `optional:"true"`
 }
 
-// httpAssetRunnerResult mirrors app.RunnerResult to avoid an import cycle.
+// httpAssetRunnerResult 镜像 app.RunnerResult，避免 ui/wails 反向导入 app 包。
 type httpAssetRunnerResult struct {
 	fx.Out
 	Runner platformrunner.Runner `group:"runners"`
 }
 
+// httpAssetServerParams 汇总 HTTP asset server 运行所需依赖。
 type httpAssetServerParams struct {
 	fx.In
 
@@ -122,6 +129,7 @@ type httpAssetServerParams struct {
 }
 
 // NewWailsApplication 创建 Wails 桌面应用。
+// 窗口标题和调试开关来自绑定对象，避免应用层重复解析桌面配置。
 func NewWailsApplication(p applicationParams) *application.App {
 	title := applicationTitle()
 	debug := false
@@ -158,10 +166,12 @@ func NewWailsApplication(p applicationParams) *application.App {
 	return wailsApp
 }
 
+// applicationTitle 返回桌面应用标题。
 func applicationTitle() string {
 	return "Super Dolphin"
 }
 
+// isDebug 根据配置判断 Wails 是否启用调试模式。
 func isDebug(cfg *config.Config) bool {
 	if cfg == nil {
 		return false
@@ -169,6 +179,7 @@ func isDebug(cfg *config.Config) bool {
 	return strings.EqualFold(strings.TrimSpace(cfg.LogLevel), "debug")
 }
 
+// bindWailsLifecycle 把 Fx shutdowner 绑定到 Wails 退出流程。
 func bindWailsLifecycle(lifecycle *WailsLifecycle, shutdowner fx.Shutdowner, logger *slog.Logger) {
 	if lifecycle == nil {
 		return
@@ -178,6 +189,7 @@ func bindWailsLifecycle(lifecycle *WailsLifecycle, shutdowner fx.Shutdowner, log
 	})
 }
 
+// bindEventBridge 将 EventBridge 挂到 Fx 生命周期。
 func bindEventBridge(lc fx.Lifecycle, bridge *EventBridge) {
 	if bridge == nil {
 		return

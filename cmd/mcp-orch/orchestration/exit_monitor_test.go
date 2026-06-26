@@ -15,12 +15,11 @@ import (
 )
 
 // -----------------------------------------------------------------------------
-// Helpers shared across P22 P3 exit-monitor tests.
+// exit monitor 测试辅助函数。
 // -----------------------------------------------------------------------------
 
-// newP3TestService builds a bare service wired with a dispatcher + session
-// cleaner. Callers inject agents via svc.agents[...] before exercising the
-// runner actor. Parallel-safe because each call returns a fresh service.
+// newP3TestService 构造仅包含 dispatcher 和 session cleaner 的最小 service。
+// 每次调用都返回独立实例，测试可并行注入 svc.agents 后验证 runner actor。
 func newP3TestService(t *testing.T) (*service, *event.Dispatcher, *stopTestSessionCleaner) {
 	t.Helper()
 	dispatcher := event.NewDispatcher()
@@ -29,9 +28,8 @@ func newP3TestService(t *testing.T) (*service, *event.Dispatcher, *stopTestSessi
 	return svc, dispatcher, cleaner
 }
 
-// spawnP3TestCmd starts a short-lived sleep subprocess registered with the
-// exit monitor so tests can force a real cmd.Wait path without waiting for
-// the full 30s fallback.
+// spawnP3TestCmd 启动短生命周期子进程并注册到 exit monitor。
+// 测试借它覆盖真实 cmd.Wait 路径，而不必等待生产默认的长超时。
 func spawnP3TestCmd(t *testing.T, svc *service, agentID string, launchSeq uint64) *exec.Cmd {
 	t.Helper()
 	cmd := newLongRunningTestCommand()
@@ -56,7 +54,7 @@ func spawnP3TestCmd(t *testing.T, svc *service, agentID string, launchSeq uint64
 }
 
 // -----------------------------------------------------------------------------
-// Test 1: exit events are exactly-once per (agentID, launchSeq)
+// 测试 1：同一 (agentID, launchSeq) 只发布一次退出事件
 // -----------------------------------------------------------------------------
 
 func TestExitEventExactlyOnceByLaunchSeq(t *testing.T) {
@@ -68,7 +66,7 @@ func TestExitEventExactlyOnceByLaunchSeq(t *testing.T) {
 	agent.launchSeq = 5
 	svc.agents[agent.id] = agent
 
-	// First Emit lands and triggers the state transition.
+	// 第一次 Emit 应触发状态迁移。
 	svc.exitMonitor.Emit("agent-1", 5, nil)
 	select {
 	case result := <-svc.exitMonitor.ExitEvents():
@@ -84,8 +82,7 @@ func TestExitEventExactlyOnceByLaunchSeq(t *testing.T) {
 		t.Fatalf("lastExitedSeq after first Emit = %d, want 5", lastExited)
 	}
 
-	// Second Emit for the same (agentID, launchSeq) is swallowed by the
-	// monitor's fence — the events channel stays empty.
+	// 同一 (agentID, launchSeq) 的第二次 Emit 会被 monitor 栅栏吞掉，事件通道保持为空。
 	svc.exitMonitor.Emit("agent-1", 5, errors.New("duplicate"))
 	select {
 	case ev := <-svc.exitMonitor.ExitEvents():
@@ -93,9 +90,7 @@ func TestExitEventExactlyOnceByLaunchSeq(t *testing.T) {
 	case <-time.After(50 * time.Millisecond):
 	}
 
-	// Even if a caller bypasses the monitor and calls handleProcessExit
-	// directly with the same seq, the per-agent fence in handleProcessExit
-	// guards against duplicate state transitions.
+	// 即使调用方绕过 monitor 直接传入同一 seq，handleProcessExit 的 agent 级栅栏也会挡住重复迁移。
 	svc.handleProcessExit(context.Background(), "agent-1", 5, errors.New("bypass"))
 	svc.mu.RLock()
 	lastExitedAfter := agent.lastExitedSeq
@@ -106,7 +101,7 @@ func TestExitEventExactlyOnceByLaunchSeq(t *testing.T) {
 }
 
 // -----------------------------------------------------------------------------
-// Test 2: stop path reuses the same exit owner; no double-transition
+// 测试 2：stop 路径复用同一个退出归属方，不能重复迁移
 // -----------------------------------------------------------------------------
 
 func TestStopPathReusesExitOwner(t *testing.T) {
@@ -118,7 +113,7 @@ func TestStopPathReusesExitOwner(t *testing.T) {
 	agent.launchSeq = 7
 	svc.agents[agent.id] = agent
 
-	// Round 1: synthetic launcher stop emits an exit event.
+	// 第一次：模拟 launcher stop 发布退出事件。
 	svc.exitMonitor.Emit("agent-2", 7, nil)
 	select {
 	case result := <-svc.exitMonitor.ExitEvents():
@@ -127,8 +122,7 @@ func TestStopPathReusesExitOwner(t *testing.T) {
 		t.Fatal("synthetic Emit did not publish")
 	}
 
-	// Round 2: simulate a racing cmd.Wait delivering the same (agentID, seq).
-	// The fence + exactly-once channel contract must swallow it.
+	// 第二次：模拟并发 cmd.Wait 送达同一 (agentID, seq)，栅栏和 exactly-once 通道必须吞掉它。
 	svc.exitMonitor.Emit("agent-2", 7, errors.New("cmd.Wait race"))
 	select {
 	case ev := <-svc.exitMonitor.ExitEvents():
@@ -145,7 +139,7 @@ func TestStopPathReusesExitOwner(t *testing.T) {
 }
 
 // -----------------------------------------------------------------------------
-// Test 3: runner shutdown waits for monitor.Drain before returning
+// 测试 3：runner shutdown 返回前必须等待 monitor.Drain
 // -----------------------------------------------------------------------------
 
 func TestShutdownDrainWaitOwner(t *testing.T) {
@@ -160,9 +154,8 @@ func TestShutdownDrainWaitOwner(t *testing.T) {
 	go func() { runDone <- NewRunnerActor(silentLogger(), svc).Run(ctx) }()
 	waitForAgentMonitor(t, svc, "agent-3", 1)
 
-	// Cancel the runner ctx — drainOnStop must Drain the monitor before
-	// Run returns. Kick the process ourselves so cmd.Wait actually returns;
-	// in production this comes from StopAllAgents' SIGTERM path.
+	// 取消 runner ctx 后，drainOnStop 必须先 Drain monitor 再让 Run 返回。
+	// 测试中手动结束进程以触发 cmd.Wait；生产路径由 StopAllAgents 的 SIGTERM 完成。
 	go func() {
 		time.Sleep(50 * time.Millisecond)
 		_ = cmd.Process.Kill()
@@ -178,8 +171,7 @@ func TestShutdownDrainWaitOwner(t *testing.T) {
 		t.Fatal("runner did not return after drainOnStop")
 	}
 
-	// At this point Drain should have joined every Arm goroutine.
-	// Second Drain is idempotent and returns immediately.
+	// 此时 Drain 应已等待所有 Arm goroutine 退出；第二次 Drain 必须幂等并立即返回。
 	drainCtx, drainCancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
 	defer drainCancel()
 	if err := svc.exitMonitor.Drain(drainCtx); err != nil {
@@ -188,7 +180,7 @@ func TestShutdownDrainWaitOwner(t *testing.T) {
 }
 
 // -----------------------------------------------------------------------------
-// Test 4: kill timeout still emits exactly one exit event
+// 测试 4：强杀超时路径仍只发布一次退出事件
 // -----------------------------------------------------------------------------
 
 func TestKillTimeoutStillEmitsSingleExitEvent(t *testing.T) {
@@ -196,12 +188,10 @@ func TestKillTimeoutStillEmitsSingleExitEvent(t *testing.T) {
 	svc, _, _ := newP3TestService(t)
 	spawnP3TestCmd(t, svc, "agent-4", 3)
 
-	// Shrink processExitWaitTimeout so waitForProcessExit hits its force-kill
-	// branch quickly, mirroring the P1c §crash-window contract.
+	// 缩短等待窗口，让 waitForProcessExit 快速进入强杀分支并验证崩溃窗口只发布一次退出事件。
 	svc.processExitWaitTimeout = 50 * time.Millisecond
 
-	// Run the actor so exit events get consumed; the process is still alive
-	// until waitForProcessExit's forceKill fires.
+	// 启动 actor 消费退出事件；进程会保持存活，直到 waitForProcessExit 的 forceKill 触发。
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	runDone := make(chan error, 1)
@@ -209,12 +199,11 @@ func TestKillTimeoutStillEmitsSingleExitEvent(t *testing.T) {
 	waitForAgentMonitor(t, svc, "agent-4", 3)
 
 	if err := svc.waitForProcessExit(context.Background(), "agent-4", 3); err != nil {
-		// waitForProcessExit returns nil on successful force-kill; an error
-		// means the process was already gone (which is also fine).
+		// 成功强杀时 waitForProcessExit 返回 nil；非 nil 通常表示进程已先行退出，也属于可接受路径。
 		t.Logf("waitForProcessExit returned %v (expected on force-kill path)", err)
 	}
 
-	// Wait for lastExitedSeq to advance via the monitor event delivery.
+	// 等待 monitor 投递退出事件并推进 lastExitedSeq。
 	deadline := time.Now().Add(2 * time.Second)
 	for time.Now().Before(deadline) {
 		svc.mu.RLock()
@@ -232,8 +221,7 @@ func TestKillTimeoutStillEmitsSingleExitEvent(t *testing.T) {
 		t.Fatalf("lastExitedSeq = %d, want 3 (single exit event)", finalSeq)
 	}
 
-	// Now a synthetic extra Emit for the same seq must be swallowed — fence
-	// on monitor plus fence in handleProcessExit.
+	// 同一 seq 的额外合成 Emit 必须被 monitor 与 handleProcessExit 的双重栅栏吞掉。
 	svc.exitMonitor.Emit("agent-4", 3, errors.New("duplicate after kill"))
 	select {
 	case ev := <-svc.exitMonitor.ExitEvents():
@@ -246,16 +234,12 @@ func TestKillTimeoutStillEmitsSingleExitEvent(t *testing.T) {
 }
 
 // -----------------------------------------------------------------------------
-// Test 5: process exit transitions through the state machine once per seq
+// 测试 5：process exit 对每个 seq 只推进一次状态机
 // -----------------------------------------------------------------------------
 
-// TestProcessExitStateMachine verifies that handleProcessExit is exactly-once
-// per (agentID, launchSeq) and that the lastExitedSeq fence prevents a
-// duplicate call from re-running the state-machine transition, session
-// cleanup, or stopped/failed publishes. The specific target state depends on
-// the prior state machine state and is exercised by broader launch_test /
-// stop_test flows — here we only assert the exactly-once invariant that P3
-// adds at the handler level.
+// TestProcessExitStateMachine 验证 handleProcessExit 对同一 (agentID, launchSeq) 只生效一次。
+// lastExitedSeq 栅栏必须阻止重复调用再次触发状态机迁移、session cleanup 或 stopped/failed 发布；
+// 具体目标状态由更宽的 launch/stop 测试覆盖，这里只锁定处理器层的幂等边界。
 func TestProcessExitStateMachine(t *testing.T) {
 	t.Parallel()
 	svc, _, cleaner := newP3TestService(t)
@@ -284,9 +268,8 @@ func TestProcessExitStateMachine(t *testing.T) {
 		t.Fatalf("session cleanup calls = %d, want 1", len(cleaner.removeGeneration))
 	}
 
-	// Duplicate handleProcessExit on the same (agentID, launchSeq): fence
-	// must block the second run — no extra session cleanup, no re-transition,
-	// lastExitedSeq unchanged.
+	// 同一 (agentID, launchSeq) 的重复 handleProcessExit 必须被栅栏挡住。
+	// 不应发生额外 session cleanup、重复迁移或 lastExitedSeq 改写。
 	svc.handleProcessExit(context.Background(), "agent-5", 9, errors.New("duplicate"))
 	if len(cleaner.removeGeneration) != 1 {
 		t.Fatalf("session cleanup calls after duplicate = %d, want 1 (fence broken)", len(cleaner.removeGeneration))
@@ -298,7 +281,7 @@ func TestProcessExitStateMachine(t *testing.T) {
 		t.Fatalf("lastExitedSeq after duplicate = %d, want 9", dupSeq)
 	}
 
-	// Stale-seq call (seq older than current) is also a no-op.
+	// 旧 seq 调用也必须是 no-op。
 	svc.handleProcessExit(context.Background(), "agent-5", 5, nil)
 	if len(cleaner.removeGeneration) != 1 {
 		t.Fatalf("session cleanup calls after stale = %d, want 1", len(cleaner.removeGeneration))
@@ -306,7 +289,7 @@ func TestProcessExitStateMachine(t *testing.T) {
 }
 
 // -----------------------------------------------------------------------------
-// Monitor unit-level: Drain rejects late Arm and joins in-flight waits
+// monitor 单元层：Drain 拒绝后续 Arm，并等待进行中的 wait
 // -----------------------------------------------------------------------------
 
 func TestExitMonitorDrainClosesGate(t *testing.T) {
@@ -321,7 +304,7 @@ func TestExitMonitorDrainClosesGate(t *testing.T) {
 
 	m.Arm(exitmonitor.Target{AgentID: "a", LaunchSeq: 1, Cmd: cmd})
 
-	// Drain in a goroutine so the test can observe the gate flipping.
+	// 在 goroutine 中 Drain，方便测试观察 gate 翻转。
 	drainDone := make(chan error, 1)
 	go func() {
 		drainCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
@@ -329,14 +312,14 @@ func TestExitMonitorDrainClosesGate(t *testing.T) {
 		drainDone <- m.Drain(drainCtx)
 	}()
 
-	// Kill the cmd so Drain can finish.
+	// 结束进程，让 Drain 可以收束。
 	_ = cmd.Process.Kill()
 
 	if err := <-drainDone; err != nil {
 		t.Fatalf("Drain err = %v, want nil", err)
 	}
 
-	// After Drain, Arm must refuse new targets.
+	// Drain 后 Arm 必须拒绝新的目标。
 	other := newLongRunningTestCommand()
 	if err := other.Start(); err != nil {
 		t.Fatalf("cmd.Start(): %v", err)
@@ -348,8 +331,7 @@ func TestExitMonitorDrainClosesGate(t *testing.T) {
 }
 
 // -----------------------------------------------------------------------------
-// stopTestSessionCleaner may already be declared in stop_test.go; we avoid
-// redeclaring by referencing it from this file only through newP3TestService.
+// stopTestSessionCleaner 由 stop_test.go 提供，本文件仅通过 newP3TestService 间接引用。
 // -----------------------------------------------------------------------------
 
 var _ sync.Locker = (*sync.Mutex)(nil) // keep sync import stable for future helpers

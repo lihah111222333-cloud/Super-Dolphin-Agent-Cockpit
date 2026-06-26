@@ -15,7 +15,8 @@ var (
 	errHandoffMissingAgentKey = errors.New("thread/handoff: target agent_key is required")
 )
 
-// Handoff 处理交接。
+// Handoff 从源 thread 构造目标 agent 的交接启动请求。
+// 它只读取源线程历史和 runtime 快照，不修改源线程状态；目标启动失败会把错误直接返回给调用方。
 func (s *service) Handoff(ctx context.Context, req HandoffRequest) (HandoffResult, error) {
 	ctx = util.NonNilContext(ctx)
 

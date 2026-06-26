@@ -1,15 +1,10 @@
-// Package insight consumes the Canonical Turn Observation Contract and
-// persists per-turn aggregate metrics through internal/store/insight.
+// Package insight 消费 Canonical Turn Observation Contract，
+// 并把每轮 terminal 事实汇总写入 internal/store/insight。
 //
-// The module wires together three pieces:
-//   - subscriber (bus.ResilientSubscribe → queue): terminal events push a
-//     small flush signal onto a bounded channel; callbacks do zero work
-//     beyond enqueueing.
-//   - flusher (platformrunner.Runner): drains the queue, reads facts from
-//     observation.Contract, and UPSERTs into insight.Store. Runs until
-//     ctx cancels; shutdown is a bounded drain (5s) per the P3 plan.
-//   - service: read-side API consumed by dashboard RPC handlers from the
-//     persisted rows.
+// 模块由三段组成：subscriber 只把 terminal 事件放入有界队列；
+// flusher 作为 platformrunner.Runner 从 observation.Contract 读取事实并 UPSERT；
+// service 只提供 dashboard RPC 使用的只读查询。关闭时 flusher 有界排空队列，
+// 避免总线回调直接访问跨模块状态或阻塞关闭路径。
 package insight
 
 import (
@@ -19,21 +14,20 @@ import (
 	insightstore "github.com/anthropic-ai/super-agent-v3/internal/store/insight"
 )
 
-// Service re-exports the contract interface so in-package references
-// (and downstream consumers that already import insight) keep working.
+// Service 重新导出 contract.InsightService，保持包内和既有下游导入路径稳定。
 type Service = contract.InsightService
 
-// Re-export contract types as local aliases for backwards compatibility.
+// Snapshot 是 insight 对外兼容的快照别名，实际 wire 类型由 contract 定义。
 type Snapshot = contract.InsightSnapshot
+
+// ApprovalSnapshot 是审批观测快照的兼容别名，dashboard 仍可从 insight 包引用。
 type ApprovalSnapshot = contract.InsightApprovalSnapshot
 
-// ErrInvalidLimit re-exports the contract sentinel.
+// ErrInvalidLimit 重新导出 contract 层分页错误，避免 RPC 层重复定义 sentinel。
 var ErrInvalidLimit = contract.ErrInsightInvalidLimit
 
-// flushSignal is what the subscriber pushes onto the queue. Everything
-// the flusher needs to read observation + build the Insight row is
-// carried on the signal so the flusher never blocks on cross-module
-// lookups.
+// flushSignal 是 subscriber 推入队列的轻量信号。
+// 它携带 flusher 读取 observation 并构造 Insight 行所需的定位字段，避免总线回调做跨模块查询。
 type flushSignal struct {
 	LocalTurnID string
 	ThreadID    string
@@ -43,10 +37,8 @@ type flushSignal struct {
 	Retried     bool
 }
 
-// mapTerminalKindToStatus translates the observation.TerminalKind string
-// into the insight.Status string expected by the DB. The two layers
-// agree on all values except empty-string "" → "unknown"; this helper
-// is the one place that boundary is crossed.
+// mapTerminalKindToStatus 将 observation.TerminalKind 转为 DB 侧 insight.Status。
+// 两层只在空字符串上不一致：这里统一映射为 unknown，避免持久化空状态。
 func mapTerminalKindToStatus(k string) string {
 	if k == "" {
 		return insightstore.StatusUnknown

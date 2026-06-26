@@ -102,12 +102,7 @@ type agentArchiver interface {
 
 // 下列包级 enum 切片是 schema 与 handler 层 requireEnum 的单一真源。
 // 修改 schema 字面量时必须同步切片，反之亦然。
-// memory_scope drift 暂不在本批改（见 docs/plans/dag改造实施计划.md §10
-// follow-up），保留 validateMemoryScope 独立路径。
-//
-// The slices below are the single source of truth shared by the schema
-// builder and the handler-layer requireEnum fallback. The memory_scope
-// drift follow-up is tracked separately (see plans §10).
+// memory_scope 仍走独立校验函数，避免把语义范围和 launch provider/context 枚举混在一起。
 var (
 	launchAgentProviderEnum    = []string{"codex", "claude"}
 	launchAgentContextModeEnum = []string{launchContextModeMinimal, launchContextModeFocused, launchContextModeForked}
@@ -126,12 +121,13 @@ var (
 	launchAgentCodexNativeDenyTools = []string{contract.CodexNativeToolSpawnAgent}
 )
 
-// HandleLaunchAgent 处理启动代理。
+// HandleLaunchAgent 注册 launch_agent 工具处理器，默认使用当前可执行文件重启子进程。
 func HandleLaunchAgent(svc contract.OrchestrationService) ToolHandler {
 	return handleLaunchAgentWithExeFn(svc, os.Executable)
 }
 
-// handleLaunchAgentWithExeFn 处理带exefn的启动代理。
+// handleLaunchAgentWithExeFn 构造启动请求并处理同步快照启动或异步后台启动。
+// agent_id 预留必须覆盖整个启动窗口，防止并发请求同时启动同一逻辑 agent。
 func handleLaunchAgentWithExeFn(svc contract.OrchestrationService, exeFn func() (string, error)) ToolHandler {
 	return makeHandler(svc, "orchestration service", func(ctx context.Context, in LaunchAgentInput) (map[string]any, error) {
 		req, err := launchRequestForHandler(ctx, svc, in, exeFn)
@@ -172,14 +168,8 @@ func handleLaunchAgentWithExeFn(svc contract.OrchestrationService, exeFn func() 
 			}
 			return successResult(launchAgentAcceptedResult(snapshot, req.AgentID)), nil
 		}
-		// Async launch: return immediately so the MCP tool call never blocks
-		// longer than the codex app-server's tool-call timeout. The actual
-		// launch runs in the background; callers poll list/report tools for
-		// status without blocking this tool call.
-		//
-		// Bounded lifetime: context.Background() is acceptable here because
-		// AsyncLaunchTimeout caps the goroutine's maximum duration. No
-		// service-level lifecycle ctx is available in the tools package.
+		// 异步启动立即返回，避免 MCP 工具调用超过 app-server 超时；
+		// 后台 goroutine 有 AsyncLaunchTimeout 上限，调用方通过 list/report 工具观察结果。
 		go func() {
 			defer releaseAgentID()
 			bgCtx, cancel := platformconfig.WithTimeout(context.Background(), platformconfig.AsyncLaunchTimeout)
@@ -225,7 +215,8 @@ func rejectChildAgentDelegation(ctx context.Context, svc contract.OrchestrationS
 	return fmt.Errorf("%s", subAgentDelegationDepthLimitMessage)
 }
 
-// matchingAgentID 处理matching代理ID。
+// matchingAgentID 在已有快照里查找同一逻辑 agent id。
+// 活跃 agent 直接复用，stopping/archived 状态则 fail-fast，避免同名重启覆盖未收尾状态。
 func matchingAgentID(ctx context.Context, svc contract.OrchestrationService, agentID string) (contract.AgentSnapshot, bool, error) {
 	agentID = strings.TrimSpace(agentID)
 	if agentID == "" {
@@ -252,7 +243,7 @@ func matchingAgentID(ctx context.Context, svc contract.OrchestrationService, age
 	return contract.AgentSnapshot{}, false, nil
 }
 
-// activeAgentState 判断 agent 是否处于活跃状态（可接受新消息）。
+// activeAgentState 归类仍可接收消息或仍在启动/恢复中的 agent 状态。
 func activeAgentState(state string) bool {
 	switch strings.TrimSpace(state) {
 	case "provisioning", "idle", "turn_queued", "turn_starting", "turn_running", "awaiting_user_input", "recovering":
@@ -262,12 +253,12 @@ func activeAgentState(state string) bool {
 	}
 }
 
-// stoppingAgentState 判断 agent 是否处于 stopping 状态。
+// stoppingAgentState 识别正在停止但尚未收口的 agent 状态。
 func stoppingAgentState(state string) bool {
 	return strings.TrimSpace(state) == "stopping"
 }
 
-// archivedAgentState 判断 agent 是否处于已归档/停止状态。
+// archivedAgentState 识别会阻止同名重启的已停止或已归档状态。
 func archivedAgentState(state string) bool {
 	switch strings.TrimSpace(state) {
 	case "stopped", "archived":
@@ -277,7 +268,7 @@ func archivedAgentState(state string) bool {
 	}
 }
 
-// blocksLaunchAgentIDState 判断 agent 状态是否会阻止重复使用同一 ID 启动。
+// blocksLaunchAgentIDState 汇总会阻止重复使用同一 ID 启动的状态集合。
 func blocksLaunchAgentIDState(state string) bool {
 	return activeAgentState(state) || stoppingAgentState(state) || archivedAgentState(state)
 }
@@ -295,7 +286,8 @@ func launchAgentAcceptedResult(snapshot contract.AgentSnapshot, reservedID strin
 	return result
 }
 
-// reserveLaunchAgentID 处理reserve启动代理ID。
+// reserveLaunchAgentID 在进程内登记启动中的 agent id，并返回释放函数。
+// 这个锁只覆盖本进程并发；已有运行态 ID 仍以 orchestration service 快照为准。
 func reserveLaunchAgentID(ctx context.Context, svc contract.OrchestrationService, requested string) (string, func(), bool, error) {
 	existing, activeExisting, err := existingLaunchAgentIDs(ctx, svc)
 	if err != nil {
@@ -329,7 +321,8 @@ func reserveLaunchAgentID(ctx context.Context, svc contract.OrchestrationService
 	return candidate, releaseLaunchAgentID(candidate), true, nil
 }
 
-// existingLaunchAgentIDs 处理existing启动代理ids。
+// existingLaunchAgentIDs 汇总 runtime id、agent_id 和 launch_id，供新启动避开冲突。
+// activeExisting 只记录会阻塞复用的状态，历史 stopped/archived 仍由上层给出明确错误。
 func existingLaunchAgentIDs(ctx context.Context, svc contract.OrchestrationService) (map[string]struct{}, map[string]struct{}, error) {
 	existing := make(map[string]struct{})
 	activeExisting := make(map[string]struct{})
@@ -382,7 +375,7 @@ func releaseLaunchAgentID(agentID string) func() {
 	}
 }
 
-// HandleSendMessage 处理send消息。
+// HandleSendMessage 向已有 agent 提交文本 turn；wait_report=true 时只允许 idle 后续消息。
 func HandleSendMessage(svc contract.OrchestrationService) ToolHandler {
 	return makeHandler(svc, "orchestration service", func(ctx context.Context, in SendMessageInput) (map[string]any, error) {
 		if sendMessageShouldWaitReport(in) {
@@ -399,7 +392,7 @@ func HandleSendMessage(svc contract.OrchestrationService) ToolHandler {
 	})
 }
 
-// HandleStopAgent 处理stop代理。
+// HandleStopAgent 停止或归档 agent，并可等待 list_agents 快照进入终态。
 func HandleStopAgent(svc contract.OrchestrationService) ToolHandler {
 	return makeHandler(svc, "orchestration service", func(ctx context.Context, in stopAgentInput) (map[string]any, error) {
 		agentID, err := resolveAgentIDInput(in.AgentID, in.Pos)
@@ -431,7 +424,7 @@ func HandleStopAgent(svc contract.OrchestrationService) ToolHandler {
 	})
 }
 
-// HandleListAgents 处理list代理。
+// HandleListAgents 列出 agent 快照，默认只返回活跃项且不携带报告正文。
 func HandleListAgents(svc contract.OrchestrationService) ToolHandler {
 	return makeHandler(svc, "orchestration service", func(ctx context.Context, in ListAgentsInput) (any, error) {
 		cwdFilter, err := listAgentsCWDFilter(ctx, in.CWD)
@@ -516,14 +509,9 @@ func hydrateListAgentReports(ctx context.Context, svc contract.OrchestrationServ
 	return nil
 }
 
-// launchRequestFromExecutable 从可执行文件启动请求。
+// launchRequestFromExecutable 把工具入参转换成服务层 LaunchRequest。
+// Command 只保留当前可执行文件路径；远端 launcher 会通过 Env 读取 provider/model 等运行配置。
 func launchRequestFromExecutable(in LaunchAgentInput, exe string) (contract.LaunchRequest, error) {
-	// NOTE: the old standalone-mcp-orch guard has been removed.  When
-	// GO_AGENT_CTL_RPC_ADDR is set the orchestration service uses
-	// remoteLauncher which delegates to thread/start on the main app's RPC
-	// server and never touches the Command field.  The guard was a relic of
-	// the previous architecture where the desktop app embedded its own
-	// orchestration module.
 	name, err := requireTrimmed(in.Name, "name")
 	if err != nil {
 		return contract.LaunchRequest{}, err
@@ -645,10 +633,6 @@ func normalizedLaunchContextMode(raw string) string {
 func validateLaunchProvider(raw string) (string, error) {
 	// provider 可选；空串/纯空白 → codex。
 	// 非空时走 requireEnum 与 launchAgentProviderEnum 校验（单源驱动）。
-	//
-	// provider is optional; empty/whitespace defaults to codex. Non-empty values
-	// are validated by requireEnum against launchAgentProviderEnum (single source
-	// of truth shared with the schema).
 	lower := strings.ToLower(strings.TrimSpace(raw))
 	if lower == "" {
 		return "codex", nil
@@ -676,15 +660,14 @@ func validateMemoryScope(raw string) (string, error) {
 	}
 }
 
-// launchEnv 启动env。
+// launchEnv 组装传给子 agent 运行时的环境变量，空字段不写入 Env。
 func launchEnv(provider, model, effort, codexHome, codexInstanceKey, codexModelProvider string) []string {
 	var env []string
 	if provider = strings.TrimSpace(provider); provider != "" {
 		env = append(env, "AGENT_PROVIDER="+provider)
 	}
 	if model = strings.TrimSpace(model); model != "" {
-		// remoteLauncher.Launch reads this back via envValue(req.Env, "AGENT_MODEL")
-		// and forwards it as the `model` field on thread/start.
+		// 远端 launcher 会把 AGENT_MODEL 转成 thread/start 的 model 字段。
 		env = append(env, "AGENT_MODEL="+model)
 	}
 	if effort = strings.TrimSpace(effort); effort != "" {

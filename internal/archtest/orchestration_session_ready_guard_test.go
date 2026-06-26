@@ -7,22 +7,12 @@ import (
 	"testing"
 )
 
-// TestOrchestrationSessionReadyWaiterContractGuard is the P22 P4 S4a
-// side-channel-interface guard for cmd/mcp-orch/orchestration. Pre-P4
-// the orchestration service used a local `sessionReadyWaiter` interface
-// and type-asserted turnStarter to it at runtime, letting the "is the
-// session ready to accept a turn?" semantics remain a private extension
-// of whatever concrete implementation happened to be wired. P4 §279
-// forbids that: WaitForSessionReady is now part of the owner contract
-// contract.OrchestrationTurnStarter, and the service calls it directly.
+// TestOrchestrationSessionReadyWaiterContractGuard 锁定 orchestration 等待 session ready 的公开边界。
+// 服务层必须通过 contract.OrchestrationTurnStarter.WaitForSessionReady 调用 owner contract，
+// 不能在运行时用私有 sessionReadyWaiter 侧向接口补能力，否则具体实现会绕过编译期约束。
 //
-// The guard enforces two invariants by file-text scan so the side-channel
-// cannot silently reappear:
-//  1. cmd/mcp-orch/orchestration does not re-declare `type
-//     sessionReadyWaiter interface`. Historical comments that mention
-//     the old name are permitted (the migration note in helpers.go).
-//  2. cmd/mcp-orch/orchestration/helpers.go does not perform the
-//     `.(sessionReadyWaiter)` type assertion.
+// 文件文本扫描同时校验两件事：不得重新声明本地 sessionReadyWaiter 接口，
+// helpers.go 也不得再对 turnStarter 做 `.(sessionReadyWaiter)` 类型断言。
 func TestOrchestrationSessionReadyWaiterContractGuard(t *testing.T) {
 	t.Parallel()
 	root := repoRootForGuardTests(t)

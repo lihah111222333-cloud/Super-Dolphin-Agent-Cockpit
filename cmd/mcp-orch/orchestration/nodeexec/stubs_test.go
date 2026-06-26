@@ -16,8 +16,8 @@ func stubExecutorCases() []struct {
 		exec     NodeExecutor
 		nodeType string
 	}{
-		// AgentExecutor / AutomationExecutor 在 F1.1 / F2.1 后不再是 stub。
-		// 本表只覆盖仍为 stub 的 Hybrid。
+		// AgentExecutor / AutomationExecutor 已有真实实现。
+		// 本表只覆盖仍保持占位行为的 Hybrid。
 		{"HybridExecutor", HybridExecutor{}, "hybrid"},
 	}
 }

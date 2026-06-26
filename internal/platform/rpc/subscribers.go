@@ -9,8 +9,8 @@ import (
 	"github.com/kelindar/event"
 )
 
-// NewRPCPushSubscribers declares RPC push bus subscriptions for BusModule.
-// NewRPCPushSubscribers 创建RPCpushsubscribers。
+// NewRPCPushSubscribers 声明 RPC push 订阅规格，交给 BusModule 统一注册和取消。
+// bridge 自带 dispatcher 时优先使用它，保证 push 与审批事件在同一事件总线上。
 func NewRPCPushSubscribers(worker *pushNotificationWorker, bridge *PushBridge, logger *pkglogger.Logger) platformbus.SubscriberResult {
 	return platformbus.SubscriberResult{
 		Spec: platformbus.SubscriberSpec{

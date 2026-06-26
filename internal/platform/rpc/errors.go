@@ -2,7 +2,7 @@ package rpc
 
 import "github.com/anthropic-ai/super-agent-v3/internal/contract"
 
-// Error code constants — delegate to contract.
+// RPC 错误码常量直接复用 contract 层定义，避免跨层 code 漂移。
 const (
 	CodeNotFound        = contract.CodeNotFound
 	CodeInvalidState    = contract.CodeInvalidState
@@ -13,24 +13,23 @@ const (
 	CodeMethodNotFound  = contract.CodeMethodNotFound
 )
 
-// RPC error constructors.
-// ErrNotFound 处理errnotfound。
+// ErrNotFound 构造资源不存在 RPC 错误。
 func ErrNotFound(msg string) error { return rpcError(CodeNotFound, msg) }
 
-// ErrInvalidState 处理errinvalid状态。
+// ErrInvalidState 构造状态不允许 RPC 错误。
 func ErrInvalidState(msg string) error { return rpcError(CodeInvalidState, msg) }
 
-// ErrConflict 处理errconflict。
+// ErrConflict 构造冲突 RPC 错误。
 func ErrConflict(msg string) error { return rpcError(CodeConflict, msg) }
 
-// ErrCapabilityGate 处理errcapabilitygate。
+// ErrCapabilityGate 构造能力门禁 RPC 错误。
 func ErrCapabilityGate(msg string) error { return rpcError(CodeCapabilityGate, msg) }
 
-// ErrApprovalTimeout 处理err审批超时。
+// ErrApprovalTimeout 构造审批超时 RPC 错误。
 func ErrApprovalTimeout(msg string) error { return rpcError(CodeApprovalTimeout, msg) }
 
-// ErrInvalidParams 处理errinvalidparams。
+// ErrInvalidParams 构造参数非法 RPC 错误。
 func ErrInvalidParams(msg string) error { return rpcError(CodeInvalidParams, msg) }
 
-// ErrMethodNotFound 处理errmethodnotfound。
+// ErrMethodNotFound 构造方法不存在 RPC 错误。
 func ErrMethodNotFound(msg string) error { return rpcError(CodeMethodNotFound, msg) }

@@ -34,15 +34,11 @@ var Module = fx.Module("cron",
 	fx.Provide(NewCronProgressSubscribers),
 )
 
-// provideStore narrows the fully-featured cronstore.Store into the
-// module-local Store interface. cronstore.Store is a superset, so
-// the assignment is legal; the narrower facade keeps the service
-// layer decoupled from the sqlc-backed implementation surface.
+// provideStore 将完整 cronstore.Store 收窄为模块内 Store 接口。
+// 这样 service 只依赖 CRUD 需要的 store 面，避免被 sqlc 实现细节牵连。
 func provideStore(s cronstore.Store) Store { return s }
 
-// provideSchedulerConfig returns the zero SchedulerConfig so callers who
-// don't supply one (via fx.Decorate or fx.Supply) get the Default*
-// timings from withDefaults().
+// provideSchedulerConfig 返回零值 SchedulerConfig，让 withDefaults 统一补齐默认时序。
 func provideSchedulerConfig() SchedulerConfig { return SchedulerConfig{} }
 
 // turnSubmitterParams lets provideTurnSubmitter discover an optional
@@ -70,6 +66,8 @@ type turnSubmitterParams struct {
 	ThreadService contract.CronThreadStarter `optional:"true"`
 }
 
+// provideTurnSubmitter 根据可选依赖决定使用真实 turn adapter 或 NoopTurnSubmitter。
+// Service 和 Resolver 必须同时存在；缺一半时 fail-fast 的 Noop 会保留启动能力但拒绝提交 turn。
 func provideTurnSubmitter(p turnSubmitterParams) TurnSubmitter {
 	if p.Service == nil || p.Resolver == nil {
 		return NoopTurnSubmitter{}
@@ -81,6 +79,7 @@ func provideTurnSubmitter(p turnSubmitterParams) TurnSubmitter {
 	return adapter
 }
 
+// schedulerParams 收集构造 Scheduler 所需依赖，Dispatcher 可选接入事件发布。
 type schedulerParams struct {
 	fx.In
 
@@ -91,6 +90,7 @@ type schedulerParams struct {
 	Dispatcher *event.Dispatcher `optional:"true"`
 }
 
+// provideScheduler 构造 Scheduler，并在 Dispatcher 存在时开启事件分发。
 func provideScheduler(p schedulerParams) *Scheduler {
 	logger := p.Logger
 	if logger == nil {
@@ -103,10 +103,12 @@ func provideScheduler(p schedulerParams) *Scheduler {
 	return s
 }
 
+// provideTickActor 将 tick actor 注入 runner group。
 func provideTickActor(logger *slog.Logger, s *Scheduler) contract.Runner {
 	return NewTickActor(logger, s)
 }
 
+// provideLeaseActor 将 lease heartbeat actor 注入 runner group。
 func provideLeaseActor(logger *slog.Logger, s *Scheduler) contract.Runner {
 	return NewLeaseActor(logger, s)
 }

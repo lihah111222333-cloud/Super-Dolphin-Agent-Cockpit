@@ -15,6 +15,8 @@ import (
 )
 
 const fallbackDiscoveryDir = "/tmp"
+
+// peerHealthProbeTimeout 限制 discovery 健康探测耗时，防止启动路径被失效 peer 地址拖住。
 const peerHealthProbeTimeout = 250 * time.Millisecond
 
 func discoveryRootDir() string {
@@ -25,17 +27,15 @@ func discoveryRootDir() string {
 	return filepath.Clean(dir)
 }
 
-// discoveryPath returns the conventional path for the peer discovery file.
-// Format: <temp>/super-agent-mcp-{binary}-{parentPID}.port
+// discoveryPath 返回 peer discovery 文件路径。
+// 文件名带 binary 和 parentPID，避免同一机器上多个父进程的 peer 地址互相覆盖。
 func discoveryPath(binaryName string, parentPID int) string {
 	return filepath.Join(discoveryRootDir(),
 		fmt.Sprintf("super-agent-mcp-%s-%d.port", binaryName, parentPID))
 }
 
-// WriteDiscoveryFile atomically writes the HTTP listen address to the
-// discovery file so that BuildManifest() can find the peer's HTTP endpoint.
-// Uses write-to-temp + rename for crash-safe, race-free updates.
-// WriteDiscoveryFile 写入discovery文件。
+// WriteDiscoveryFile 原子写入 peer HTTP 监听地址。
+// 采用临时文件加 rename，避免 BuildManifest 读到半写入内容；文件权限收紧到当前用户可读写。
 func WriteDiscoveryFile(binaryName string, parentPID int, addr string) error {
 	path := discoveryPath(binaryName, parentPID)
 	tmp := path + ".tmp"
@@ -45,9 +45,8 @@ func WriteDiscoveryFile(binaryName string, parentPID int, addr string) error {
 	return os.Rename(tmp, path)
 }
 
-// ReadDiscoveryAddr reads the peer HTTP listen address from the discovery file.
-// Returns the address string (e.g. "127.0.0.1:9091") or an error if not found.
-// ReadDiscoveryAddr 读取discoveryaddr。
+// ReadDiscoveryAddr 从 discovery 文件读取 peer HTTP 地址。
+// 空文件视为损坏并返回错误，调用方不能把空地址当作未发现静默处理。
 func ReadDiscoveryAddr(binaryName string, parentPID int) (string, error) {
 	path := discoveryPath(binaryName, parentPID)
 	data, err := os.ReadFile(path)
@@ -61,33 +60,29 @@ func ReadDiscoveryAddr(binaryName string, parentPID int) (string, error) {
 	return addr, nil
 }
 
-// CleanupDiscoveryFile removes the discovery file for a given binary.
-// CleanupDiscoveryFile 处理cleanupdiscovery文件。
+// CleanupDiscoveryFile 删除指定 binary 和父进程对应的 discovery 文件。
 func CleanupDiscoveryFile(binaryName string, parentPID int) error {
 	return os.Remove(discoveryPath(binaryName, parentPID))
 }
 
-// DiscoverPeerHTTPAddr reads and verifies a peer HTTP endpoint. Stale
-// discovery is fail-closed: if the address cannot answer a short MCP ping, the
-// discovery file is removed and no address is returned.
-// DiscoverPeerHTTPAddr 处理discoverpeerHTTPaddr。
+// DiscoverPeerHTTPAddr 读取并探测当前父进程下的 peer HTTP 地址。
+// 失效 discovery 会被 fail-closed 清理，避免继续使用 stale 端口。
 func DiscoverPeerHTTPAddr(binaryName string) (string, error) {
 	return DiscoverPeerHTTPAddrWithToken(binaryName, "")
 }
 
-// DiscoverPeerHTTPAddrWithToken 处理带令牌的discoverpeerHTTPaddr。
+// DiscoverPeerHTTPAddrWithToken 使用 bearer token 探测当前父进程下的 peer HTTP 地址。
 func DiscoverPeerHTTPAddrWithToken(binaryName, token string) (string, error) {
 	return DiscoverPeerHTTPAddrForParentWithToken(binaryName, os.Getpid(), token)
 }
 
-// DiscoverPeerHTTPAddrForParent is the parent-PID-aware form used by tests and
-// parent processes that need to inspect a specific discovery file.
-// DiscoverPeerHTTPAddrForParent 为parent处理discoverpeerHTTPaddr。
+// DiscoverPeerHTTPAddrForParent 读取并探测指定父进程的 peer HTTP 地址。
+// 测试和外层进程可用它检查非当前进程的 discovery 文件。
 func DiscoverPeerHTTPAddrForParent(binaryName string, parentPID int) (string, error) {
 	return DiscoverPeerHTTPAddrForParentWithToken(binaryName, parentPID, "")
 }
 
-// DiscoverPeerHTTPAddrForParentWithToken 处理带令牌的discoverpeerHTTPaddrparent。
+// DiscoverPeerHTTPAddrForParentWithToken 使用 bearer token 探测指定父进程的 peer HTTP 地址。
 func DiscoverPeerHTTPAddrForParentWithToken(binaryName string, parentPID int, token string) (string, error) {
 	addr, err := ReadDiscoveryAddr(binaryName, parentPID)
 	if err != nil {
@@ -100,13 +95,13 @@ func DiscoverPeerHTTPAddrForParentWithToken(binaryName string, parentPID int, to
 	return addr, nil
 }
 
-// ProbePeerHTTPAddr verifies that addr speaks the MCP HTTP ping endpoint.
-// ProbePeerHTTPAddr 处理probepeerHTTPaddr。
+// ProbePeerHTTPAddr 验证地址是否提供 MCP HTTP ping 端点。
 func ProbePeerHTTPAddr(addr string) error {
 	return ProbePeerHTTPAddrWithToken(addr, "")
 }
 
-// ProbePeerHTTPAddrWithToken 处理带令牌的probepeerHTTPaddr。
+// ProbePeerHTTPAddrWithToken 携带可选 bearer token 验证 MCP HTTP ping 端点。
+// 非 2xx、非 JSON-RPC 2.0 或返回 error 字段都会视为不可用。
 func ProbePeerHTTPAddrWithToken(addr, token string) error {
 	addr = strings.TrimSpace(addr)
 	if !IsValidHTTPAddr(addr) {
@@ -157,9 +152,8 @@ func newPeerProbeRequest(addr, token string, body io.Reader) (*http.Request, err
 	return req, nil
 }
 
-// WritePeerDiscovery writes the discovery file using the current process's
-// parent PID. This is intended for use inside a peer process.
-// WritePeerDiscovery 写入peerdiscovery。
+// WritePeerDiscovery 使用当前进程父 PID 写入 peer discovery 文件。
+// 该函数在 peer 进程内部调用，父 PID 异常时立即报错，避免写入无法归属的地址文件。
 func WritePeerDiscovery(binaryName string, addr string) error {
 	ppid := os.Getppid()
 	if ppid <= 1 {
@@ -168,9 +162,8 @@ func WritePeerDiscovery(binaryName string, addr string) error {
 	return WriteDiscoveryFile(binaryName, ppid, addr)
 }
 
-// CleanupPeerDiscovery removes the discovery file using the current process's
-// parent PID. Intended for use in peer process shutdown.
-// CleanupPeerDiscovery 处理cleanuppeerdiscovery。
+// CleanupPeerDiscovery 在 peer 进程退出时删除当前父 PID 对应的 discovery 文件。
+// 父 PID 已失效时直接跳过，避免 shutdown 路径因清理文件失败放大错误。
 func CleanupPeerDiscovery(binaryName string) error {
 	ppid := os.Getppid()
 	if ppid <= 1 {
@@ -179,8 +172,8 @@ func CleanupPeerDiscovery(binaryName string) error {
 	return CleanupDiscoveryFile(binaryName, ppid)
 }
 
-// IsValidHTTPAddr does a basic check that addr looks like host:port.
-// IsValidHTTPAddr 判断validHTTPaddr是否可用。
+// IsValidHTTPAddr 检查地址是否是带有效端口的 host:port。
+// 这里只做格式边界校验，实际 MCP 可用性由 ProbePeerHTTPAddr 负责。
 func IsValidHTTPAddr(addr string) bool {
 	_, portStr, err := net.SplitHostPort(addr)
 	if err != nil {

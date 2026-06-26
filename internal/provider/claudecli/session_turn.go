@@ -21,12 +21,15 @@ const (
 	retryMaxDelay  = 10 * time.Second
 )
 
+// turnRetryState 保存一次 Claude turn 自动重试所需的原始 payload 和取消函数。
+// payload 必须复制保存，后续重试不能依赖调用方输入切片仍然有效。
 type turnRetryState struct {
 	payload []byte
 	attempt int
 	cancel  context.CancelFunc
 }
 
+// isTransientTerminalReason 判断 Claude terminal_reason 是否适合自动重试。
 func isTransientTerminalReason(reason string) bool {
 	switch strings.TrimSpace(reason) {
 	case "rate_limited", "overloaded", "server_error":
@@ -36,6 +39,8 @@ func isTransientTerminalReason(reason string) bool {
 	}
 }
 
+// isTransientErrorText 用错误文本兜住 Claude 未结构化的临时故障。
+// 空错误通常来自 CLI 对上游临时错误的折叠事件，也按 transient 处理。
 func isTransientErrorText(errStr string) bool {
 	text := strings.ToLower(strings.TrimSpace(errStr))
 	if text == "" {
@@ -47,6 +52,7 @@ func isTransientErrorText(errStr string) bool {
 		strings.Contains(text, "529")
 }
 
+// isTransientTurnError 从 turn:complete 事件中识别可重试失败。
 func isTransientTurnError(raw dto.RawProviderEvent) bool {
 	if dataBool(raw.Data, "success") {
 		return false
@@ -57,7 +63,8 @@ func isTransientTurnError(raw dto.RawProviderEvent) bool {
 	return isTransientErrorText(dataString(raw.Data, "error"))
 }
 
-// shouldRetryTransientError 判断重试transient错误是否可用。
+// shouldRetryTransientError 在 Claude turn 临时失败时安排一次异步重试。
+// 它只在 active turn 与 pendingRetry 都未漂移时生效，并先发布 retrying 状态给前端。
 func (s *session) shouldRetryTransientError(raw dto.RawProviderEvent) bool {
 	if raw.EventType != "turn:complete" || dataBool(raw.Data, "success") {
 		return false
@@ -104,7 +111,8 @@ func (s *session) shouldRetryTransientError(raw dto.RawProviderEvent) bool {
 	return true
 }
 
-// executeRetry 执行重试。
+// executeRetry 等待退避时间后复用原始 payload 重新发送。
+// 等待期间如果 turn 结束或 retry context 被取消，必须静默退出，避免旧请求写入新 turn。
 func (s *session) executeRetry(retryCtx context.Context, retry *turnRetryState, handle *turnHandle, payload []byte) {
 	if retryCtx == nil || retry == nil || handle == nil {
 		return
@@ -121,6 +129,7 @@ func (s *session) executeRetry(retryCtx context.Context, retry *turnRetryState, 
 	}
 }
 
+// waitRetryDelay 等待退避时间，并把 turn 完成或 retry 取消视为放弃重试。
 func waitRetryDelay(retryCtx context.Context, handle *turnHandle, delay time.Duration) bool {
 	timer := time.NewTimer(delay)
 	defer timer.Stop()
@@ -133,7 +142,8 @@ func waitRetryDelay(retryCtx context.Context, handle *turnHandle, delay time.Dur
 	return false
 }
 
-// sendRetryLocked 处理send重试locked。
+// sendRetryLocked 在持锁状态下确认 turn/transport 未漂移后重发 payload。
+// 任一检查失败都会清掉 active turn，让调用方用错误完成原 handle。
 func (s *session) sendRetryLocked(retry *turnRetryState, handle *turnHandle, payload []byte) error {
 	if s.pendingRetry != retry || s.activeTurn != handle || s.transport == nil || !s.transport.readyForSend() {
 		s.takeActiveTurnLocked()
@@ -146,6 +156,7 @@ func (s *session) sendRetryLocked(retry *turnRetryState, handle *turnHandle, pay
 	return nil
 }
 
+// retryDelay 根据重试次数计算指数退避，并受 retryMaxDelay 限制。
 func retryDelay(attempt int) time.Duration {
 	if attempt <= 1 {
 		return retryBaseDelay
@@ -157,6 +168,7 @@ func retryDelay(attempt int) time.Duration {
 	return delay
 }
 
+// errorMessageFromTerminalReason 将 Claude terminal_reason 转成用户可读错误。
 func errorMessageFromTerminalReason(reason string) string {
 	switch strings.TrimSpace(reason) {
 	case "rate_limited":
@@ -170,7 +182,8 @@ func errorMessageFromTerminalReason(reason string) string {
 	}
 }
 
-// prepareTurnLocked 准备turnlocked。
+// prepareTurnLocked 在持锁状态下完成 turn payload、重启检查和 active turn 绑定。
+// 任何编码或 transport 检查失败都会回滚 active turn，避免留下不可完成的 handle。
 func (s *session) prepareTurnLocked(ctx context.Context, req dto.TurnRequest) ([]byte, string, *turnHandle, error) {
 	blocks := composeTurnContent(req, s.imageTracker)
 	if len(blocks) == 0 {
@@ -202,6 +215,7 @@ func (s *session) prepareTurnLocked(ctx context.Context, req dto.TurnRequest) ([
 	return payload, currentTurnID(handle), handle, nil
 }
 
+// buildSteerPayload 把 steer 请求复用普通 turn 的内容组装规则编码为 CLI payload。
 func buildSteerPayload(req dto.SteerRequest, tracker *imageHashTracker) ([]byte, error) {
 	blocks := composeTurnContent(dto.TurnRequest{
 		ThreadID:             req.ThreadID,
@@ -218,6 +232,7 @@ func buildSteerPayload(req dto.SteerRequest, tracker *imageHashTracker) ([]byte,
 	return marshalTurnContentPayload(blocks)
 }
 
+// sendSteer 校验目标 turn 后把 steer payload 写入当前 Claude transport。
 func (s *session) sendSteer(payload []byte, expectedTurnID string) (string, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -228,6 +243,7 @@ func (s *session) sendSteer(payload []byte, expectedTurnID string) (string, erro
 	return turnID, s.transport.Send(payload)
 }
 
+// activeSteerTurnLocked 在持锁状态下确认 steer 目标仍是当前打开的 turn。
 func (s *session) activeSteerTurnLocked(expectedTurnID string) (string, error) {
 	if err := ensureTurnOpen(s.activeTurn); err != nil {
 		return "", err
@@ -241,6 +257,7 @@ func (s *session) activeSteerTurnLocked(expectedTurnID string) (string, error) {
 	return currentTurnID(s.activeTurn), nil
 }
 
+// ensureTurnOpen 确认 turn handle 存在且尚未完成。
 func ensureTurnOpen(handle *turnHandle) error {
 	if handle == nil {
 		return errors.New("claudecli: no active turn")
@@ -253,6 +270,7 @@ func ensureTurnOpen(handle *turnHandle) error {
 	}
 }
 
+// validateExpectedTurn 防止 steer 请求写入已经切换的 active turn。
 func validateExpectedTurn(expectedTurnID, activeTurnID string) error {
 	expectedTurnID = strings.TrimSpace(expectedTurnID)
 	if expectedTurnID == "" || strings.EqualFold(expectedTurnID, activeTurnID) {
@@ -268,8 +286,8 @@ func marshalTurnPayload(text string) ([]byte, error) {
 	}})
 }
 
-// marshalTurnContentPayload wraps an Anthropic-style content blocks array in
-// the claude CLI stream-json user-message envelope.
+// marshalTurnContentPayload 把 Anthropic content block 数组包装成 Claude CLI stream-json 用户消息。
+// 这里保持 wire 形态集中，避免图片和纯文本路径各自拼 envelope 时漂移。
 func marshalTurnContentPayload(blocks []map[string]any) ([]byte, error) {
 	return json.Marshal(map[string]any{
 		"type": "user",
@@ -280,18 +298,8 @@ func marshalTurnContentPayload(blocks []map[string]any) ([]byte, error) {
 	})
 }
 
-// composeTurnContent splits image-typed inputs into native Anthropic image
-// content blocks and routes everything else through composeTurnText into a
-// single trailing text block. Image blocks are emitted first because the model
-// reads content in order and most prompts ask about the image afterwards.
-//
-// If an image cannot be encoded (oversize, read error, unsupported MIME), the
-// input falls through to the text-hint path so the turn is not lost.
-//
-// When tracker is non-nil, identical images sent earlier in the same session
-// (matched by sha256 of the raw bytes) are replaced with a small text
-// placeholder so the API does not re-process the same vision payload.
-// composeTurnContent 处理composeturn内容。
+// composeTurnContent 将图片输入拆成 Anthropic image block，并把其余输入合并成尾部文本 block。
+// 图片编码失败时降为文本提示以保住 turn；同一会话内重复图片会换成占位文本，避免重复处理 vision payload。
 func composeTurnContent(req dto.TurnRequest, tracker *imageHashTracker) []map[string]any {
 	blocks := make([]map[string]any, 0, len(req.Inputs)+1)
 	passthrough := make([]dto.InputItem, 0, len(req.Inputs))
@@ -308,11 +316,7 @@ func composeTurnContent(req dto.TurnRequest, tracker *imageHashTracker) []map[st
 		}
 		if blk != nil {
 			blocks = append(blocks, dedupedOrOriginalBlock(blk, tracker))
-			// Preserve any caller-provided caption text that came riding on
-			// the same image input. The frontend currently emits text in a
-			// separate {type:'text'} item, but other callers may inline a
-			// caption with the image; passing it through keeps that text in
-			// the prompt instead of silently dropping it.
+			// 保留随图片同行传入的说明文字，避免非前端调用方的 caption 被静默丢弃。
 			if text := strings.TrimSpace(input.Content); text != "" {
 				passthrough = append(passthrough, dto.InputItem{Type: "text", Content: text})
 			}
@@ -331,9 +335,8 @@ func composeTurnContent(req dto.TurnRequest, tracker *imageHashTracker) []map[st
 	return blocks
 }
 
-// dedupedOrOriginalBlock returns a small text placeholder when the image
-// block's bytes have already been sent in this session, otherwise it returns
-// the original block (and records the bytes so future dupes hit the cache).
+// dedupedOrOriginalBlock 在本会话已发送过同图时返回文本占位 block。
+// 首次出现的图片会记录原始字节 hash，后续重复图片不再触发 provider 的 vision 处理。
 func dedupedOrOriginalBlock(block map[string]any, tracker *imageHashTracker) map[string]any {
 	if tracker == nil {
 		return block

@@ -11,7 +11,8 @@ import (
 	"github.com/kelindar/event"
 )
 
-// startKeepaliveRelay 启动keepaliverelay。
+// startKeepaliveRelay 注册 keepalive 相关事件订阅，并返回一次性取消函数。
+// 启动、空闲、turn 完成和停止事件共同维护 timer，避免失效会话继续静默 ping。
 func startKeepaliveRelay(dispatcher *event.Dispatcher, manager *Manager, logger *pkglogger.Logger) func() {
 	if dispatcher == nil || manager == nil {
 		return func() {}

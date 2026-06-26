@@ -1,0 +1,17 @@
+{
+  "workflow_key": "20260626-0651-backend-comments",
+  "status": "dispatching",
+  "created_at": "2026-06-26T06:51:00+09:00",
+  "worker_count": 30,
+  "prod_go_files": 1119,
+  "initial_single_file_guard": "pass",
+  "nodes": {
+    "P00": "pending", "P01": "pending", "P02": "pending", "P03": "pending", "P04": "pending",
+    "P05": "pending", "P06": "pending", "P07": "pending", "P08": "pending", "P09": "pending",
+    "P10": "pending", "P11": "pending", "P12": "pending", "P13": "pending", "P14": "pending",
+    "P15": "pending", "P16": "pending", "P17": "pending", "P18": "pending", "P19": "pending",
+    "P20": "pending", "P21": "pending", "P22": "pending", "P23": "pending", "P24": "pending",
+    "P25": "pending", "P26": "pending", "P27": "pending", "P28": "pending", "P29": "pending",
+    "PN": "pending"
+  }
+}

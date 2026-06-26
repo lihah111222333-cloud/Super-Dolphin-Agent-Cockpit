@@ -1,7 +1,5 @@
-// Package feedback persists append-only user/system feedback events tagged
-// with the agent_key and prompt_version_id that were active at the moment of
-// the event. Aggregations of these rows are the raw signal for "独立优化每个
-// agent" (per-agent metrics, prompt A/B comparison).
+// Package feedback 持久化用户和系统反馈事件。
+// 事件会记录触发时的 agent_key 和 prompt_version_id，供后续按 agent 或 prompt 版本做质量分析。
 package feedback
 
 import (
@@ -10,23 +8,22 @@ import (
 	"time"
 )
 
-// Store is the write + read surface the feedback module uses.
+// Store 是 feedback 模块的读写边界。
+// 写入保持 append-only，列表接口只按线程或 agent_key 投影历史事件。
 type Store interface {
 	Insert(ctx context.Context, ev Event) (Event, error)
 	ListByThread(ctx context.Context, threadID string, limit int32) ([]Event, error)
 	ListByAgentKey(ctx context.Context, agentKey string, limit int32) ([]Event, error)
 }
 
-// Event is the domain DTO for an agent_feedback_events row.
+// Event 是 agent_feedback_events 的跨模块 DTO。
+// EventType 允许自由扩展，但常见值需保持 UI 和分析任务可识别：
 //
-// EventType is a free-form string but common values (documented for UI/
-// analysis consumers, not enforced by the store) are:
-//
-//	thumbs_up, thumbs_down  — explicit user satisfaction signal
-//	retry                   — user re-ran same turn; signal of partial failure
-//	edit                    — user edited prompt then re-sent
-//	handoff_out             — this thread was superseded by a handoff
-//	user_override_route     — user manually pinned agent_key, overriding router
+//	thumbs_up, thumbs_down  — 用户显式满意度信号
+//	retry                   — 用户重跑同一 turn，表示前次结果不完整
+//	edit                    — 用户编辑 prompt 后重新发送
+//	handoff_out             — 当前 thread 被 handoff 取代
+//	user_override_route     — 用户手动指定 agent_key，覆盖自动路由
 type Event struct {
 	ID              int64           `json:"id"`
 	ThreadID        string          `json:"thread_id"`

@@ -14,13 +14,13 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 )
 
-// stubRouterStore 实现 taskdag.Store 所需的最小方法。其它方法走 nil 嵌入�?
-// panic �?路由器测试不会调到它们�?
+// stubRouterStore 实现 taskdag.Store 所需的最小方法。
+// 其它方法保留 nil 嵌入，路由器测试不会触达这些持久化路径。
 type stubRouterStore struct {
 	taskdag.Store
 	nodes   []taskdag.Node
 	listErr error
-	// ADR-017 v1.2 §2.4：dispatchAgent �?UpdateRunningNodeStatus �?ready→running�?
+	// 记录 ready 到 running 的推进，避免测试绕过节点启动前的状态边界。
 	runningStatusErr   error                             // 默认 nil（成功路径）
 	runningStatusCalls []taskdag.RunningNodeStatusUpdate // 记录调用详情
 }
@@ -51,8 +51,8 @@ func (s *stubRouterStore) ListRunNodes(_ context.Context, _ string, runID int64)
 
 func routerTestRunID(id int64) *int64 { return &id }
 
-// UpdateRunningNodeStatus 覆盖 taskdag.Store 嵌入，避�?advanceAgentNodeToRunning
-// nil-embedding panic。记录调�?+ �?runningStatusErr（默�?nil = success）�?
+// UpdateRunningNodeStatus 覆盖 taskdag.Store 嵌入，避免 advanceAgentNodeToRunning
+// 触发 nil-embedding panic；记录调用并允许注入状态推进错误。
 func (s *stubRouterStore) UpdateRunningNodeStatus(_ context.Context, input taskdag.RunningNodeStatusUpdate) (*taskdag.Node, error) {
 	s.runningStatusCalls = append(s.runningStatusCalls, input)
 	if s.runningStatusErr != nil {
@@ -61,8 +61,8 @@ func (s *stubRouterStore) UpdateRunningNodeStatus(_ context.Context, input taskd
 	return &taskdag.Node{DagKey: input.DagKey, NodeKey: input.NodeKey, Status: input.Status}, nil
 }
 
-// stubAgentLauncher �?nodeexec.AgentLauncher 的最小实�?�?不真�?process�?
-// 只回 threadID + 可�?error�?
+// stubAgentLauncher 是 nodeexec.AgentLauncher 的最小实现，不启动真实进程。
+// 测试只关心路由传入的请求、threadID 和可注入错误。
 type stubAgentLauncher struct {
 	threadID string
 	err      error
@@ -80,8 +80,8 @@ func (l *stubAgentLauncher) LaunchAgent(_ context.Context, req contract.LaunchRe
 	return l.threadID, l.err
 }
 
-// TestNodeExecutorRouter_RoutesAgentNode：node_type=agent �?wakeup 应通过
-// AgentExecutor.Execute �?注入�?launcher�?
+// TestNodeExecutorRouter_RoutesAgentNode 验证 agent 节点会经由 AgentExecutor
+// 执行，并把唤醒请求转换为 launcher 可见的启动参数。
 func TestNodeExecutorRouter_RoutesAgentNode(t *testing.T) {
 	t.Parallel()
 	launcher := &stubAgentLauncher{threadID: "thread-x"}
@@ -220,8 +220,8 @@ func TestNodeExecutorRouter_LifecycleHookTimeoutDoesNotBlockDispatch(t *testing.
 	}
 }
 
-// TestNodeExecutorRouter_EmptyNodeTypeDefaultsToAgent：F1.0 dogfood DAG 兼容 �?
-// node_type 为空时兜底当 agent，避�?dogfood DAG 节点全被�?validation 失败�?
+// TestNodeExecutorRouter_EmptyNodeTypeDefaultsToAgent 验证旧 DAG 未写 node_type
+// 时仍按 agent 处理，避免历史节点在启动路由上被误判为 validation 失败。
 func TestNodeExecutorRouter_EmptyNodeTypeDefaultsToAgent(t *testing.T) {
 	t.Parallel()
 	launcher := &stubAgentLauncher{threadID: "thread-y"}
@@ -231,7 +231,7 @@ func TestNodeExecutorRouter_EmptyNodeTypeDefaultsToAgent(t *testing.T) {
 			DagKey:   "dag-1",
 			NodeKey:  "n1",
 			RunID:    routerTestRunID(7),
-			NodeType: "", // �?
+			NodeType: "", // 旧 DAG 可能缺省该字段。
 			Title:    "n1",
 			Config:   testRawConfig(t, `{"exec":{"agent_key":"a","cwd":"/tmp/node-cwd"},"first_turn":"x"}`),
 			Status:   "ready",
@@ -249,8 +249,8 @@ func TestNodeExecutorRouter_EmptyNodeTypeDefaultsToAgent(t *testing.T) {
 	}
 }
 
-// TestNodeExecutorRouter_HybridReturnsValidationFailure：F3.1 未落地，hybrid
-// 暂留�?validation 类失败，�?dispatcher �?permanent fail（ADR-008 对齐）�?
+// TestNodeExecutorRouter_HybridReturnsValidationFailure 验证 hybrid 节点当前仍
+// 返回 validation 失败，让 dispatcher 按不可重试路径处理。
 func TestNodeExecutorRouter_HybridReturnsValidationFailure(t *testing.T) {
 	t.Parallel()
 	store := &stubRouterStore{
@@ -271,8 +271,8 @@ func TestNodeExecutorRouter_HybridReturnsValidationFailure(t *testing.T) {
 	}
 }
 
-// TestNodeExecutorRouter_NodeNotFoundIsFrameworkError：节点不�?DAG 中应
-// �?error（framework fault）让 dispatcher �?retry �?可能是临�?DB 同步漂移�?
+// TestNodeExecutorRouter_NodeNotFoundIsFrameworkError 验证唤醒指向的节点缺失时
+// 透出框架错误，给 dispatcher 保留重试临时同步漂移的机会。
 func TestNodeExecutorRouter_NodeNotFoundIsFrameworkError(t *testing.T) {
 	t.Parallel()
 	store := &stubRouterStore{nodes: []taskdag.Node{}}
@@ -285,8 +285,8 @@ func TestNodeExecutorRouter_NodeNotFoundIsFrameworkError(t *testing.T) {
 	}
 }
 
-// TestNodeExecutorRouter_StoreListErrorPropagates：store ListNodes 失败应作�?
-// framework error 透出，给 dispatcher transient retry 机会�?
+// TestNodeExecutorRouter_StoreListErrorPropagates 验证 store 查询失败会透出，
+// 由 dispatcher 按临时框架错误决定是否重试。
 func TestNodeExecutorRouter_StoreListErrorPropagates(t *testing.T) {
 	t.Parallel()
 	sentinel := errors.New("db reset")
@@ -300,8 +300,8 @@ func TestNodeExecutorRouter_StoreListErrorPropagates(t *testing.T) {
 	}
 }
 
-// TestNodeExecutorRouter_MissingDagInfoIsFrameworkError：dag_key/node_key 任一
-// 空都�?framework-fail；正常生�?enqueue 不会触发，但防御性测试守住该约定�?
+// TestNodeExecutorRouter_MissingDagInfoIsFrameworkError 验证 dag_key/node_key
+// 缺失会被视为框架错误；正常入队不会触发该路径。
 func TestNodeExecutorRouter_MissingDagInfoIsFrameworkError(t *testing.T) {
 	t.Parallel()
 	router := NewNodeExecutorRouter(&stubRouterStore{}, nil, nil, nil, nil, nil)
@@ -324,9 +324,8 @@ func TestNodeExecutorRouter_MissingRunIDIsFrameworkError(t *testing.T) {
 	}
 }
 
-// TestServiceAgentLauncher_AdapterReturnsThreadIDOnSuccess: serviceAgentLauncher
-// 适配器把 service.LaunchAgentSnapshot �?(AgentSnapshot, error) �?(threadID, error)�?
-// 不易直接构�?*service 因依赖众�?�?�?NewServiceAgentLauncher(nil) 应安全�?
+// TestServiceAgentLauncher_AdapterReturnsThreadIDOnSuccess 覆盖 serviceAgentLauncher
+// 的 nil service 边界，避免适配层在依赖未装配时 panic。
 func TestServiceAgentLauncher_NilReceiverSafe(t *testing.T) {
 	t.Parallel()
 	adapter := NewServiceAgentLauncher(nil)
@@ -350,7 +349,7 @@ func TestStoreNodeSpawnRecorder_NilStoreFailsFast(t *testing.T) {
 	}
 }
 
-// stubAutomationCmdGetter �?AutomationExecutor 测试用的 CommandGetter 假实现�?
+// stubAutomationCmdGetter 是 AutomationExecutor 测试用的 CommandGetter 假实现。
 type stubAutomationCmdGetter struct{}
 
 func (stubAutomationCmdGetter) GetCommandCard(_ context.Context, cardKey string) (nodeexec.AutomationCommandCard, error) {
@@ -361,7 +360,7 @@ func (stubAutomationCmdGetter) GetCommandCard(_ context.Context, cardKey string)
 	}, nil
 }
 
-// stubAutomationCmdRunner �?AutomationExecutor 测试用的 CommandRunner 假实现�?
+// stubAutomationCmdRunner 是 AutomationExecutor 测试用的 CommandRunner 假实现。
 type stubAutomationCmdRunner struct {
 	stdout string
 }

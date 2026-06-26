@@ -6,13 +6,9 @@ import (
 	"testing"
 )
 
-// TestBoundary_DynamicLivesInUncachedTail_MCPInstructions asserts the
-// invariant Phase 3 will lean on: DANGEROUS-class dynamic sections (here
-// mcp_instructions) must render into Boundary.UncachedTail, never into
-// Boundary.CachedPrefix. The CachedPrefix is what Phase 3 routes through
-// --system-prompt and is required to stay bytewise stable for Anthropic
-// org ephemeral cache (5-min TTL) to hit; MCP server connect/disconnect is
-// expected to invalidate the tail, not the prefix.
+// TestBoundary_DynamicLivesInUncachedTail_MCPInstructions 固定动态危险内容的缓存边界。
+// MCP instructions 必须进入 Boundary.UncachedTail，不能污染 CachedPrefix，
+// 这样 MCP server 连接变化只会影响动态尾部，不会破坏稳定 system prompt 前缀。
 func TestBoundary_DynamicLivesInUncachedTail_MCPInstructions(t *testing.T) {
 	t.Setenv(envClaudeSimple, "")
 	t.Setenv(envPromptStartCurrentDate, "2026-04-22")
@@ -51,10 +47,8 @@ func TestBoundary_DynamicLivesInUncachedTail_MCPInstructions(t *testing.T) {
 	}
 }
 
-// TestBoundary_MemoryIsStartOnly asserts that the memory behavior-rules
-// section is start-only: AssembleTurn must not emit it again. This matches
-// Claude Code's memory semantics (rules injected once at thread start, never
-// re-emitted per turn) and keeps per-turn dynamic content bounded.
+// TestBoundary_MemoryIsStartOnly 固定 memory behavior-rules 只在 start 阶段注入。
+// AssembleTurn 不能重复输出该 section，避免每 turn 动态内容无界膨胀。
 func TestBoundary_MemoryIsStartOnly(t *testing.T) {
 	spec, ok := dynamicSectionSpecForName(DynamicSectionMemory)
 	if !ok {
@@ -65,13 +59,9 @@ func TestBoundary_MemoryIsStartOnly(t *testing.T) {
 	}
 }
 
-// TestBoundary_RuntimeExtrasExcludesStaticSections guards against a subtle
-// duplication regression: earlier drafts of includeRuntimeExtraSection only
-// filtered known dynamic slots, so every static section (identity,
-// system_constraints, ...) was mirrored into UserContext.runtimeExtras.
-// That would ship the full static body twice per turn (once in the cacheable
-// system prompt prefix, once in the synthetic user meta) and poison the
-// prompt cache. The filter must drop PromptRegionStatic sections outright.
+// TestBoundary_RuntimeExtrasExcludesStaticSections 防止 static section 被镜像到 runtimeExtras。
+// static 内容已经在可缓存 system prompt 前缀中，若再次进入 synthetic user meta，
+// 会导致每 turn 重复发送完整静态正文并破坏 prompt cache。
 func TestBoundary_RuntimeExtrasExcludesStaticSections(t *testing.T) {
 	t.Setenv(envClaudeSimple, "")
 	t.Setenv(envPromptStartCurrentDate, "2026-04-22")
@@ -90,7 +80,7 @@ func TestBoundary_RuntimeExtrasExcludesStaticSections(t *testing.T) {
 	if extras == "" {
 		return
 	}
-	// A leak would carry verbatim phrases from the static section bodies.
+	// 泄漏时 runtimeExtras 会带上 static section 正文中的固定短语。
 	leakMarkers := []string{
 		"You are Claude Code, Anthropic's official CLI", // identity
 		"System constraints:",
@@ -107,12 +97,9 @@ func TestBoundary_RuntimeExtrasExcludesStaticSections(t *testing.T) {
 	}
 }
 
-// TestBoundary_MemorySectionRelativeOrder pins the order in which durable
-// memory-related dynamic slots are scheduled. Rules (`memory`) must come
-// before the rendered MEMORY.md (`memory_entrypoint`) so the model sees how
-// to use memory before seeing the raw index. Agent memory is intentionally
-// absent: the product surface has been removed, so the prompt contract must
-// not keep a silent empty section.
+// TestBoundary_MemorySectionRelativeOrder 固定持久记忆相关动态 section 的顺序。
+// memory 规则必须先于 MEMORY.md 渲染内容，让模型先看到使用方式再看到索引正文；
+// agent_memory 产品面已移除，prompt 契约不能保留静默空 section。
 func TestBoundary_MemorySectionRelativeOrder(t *testing.T) {
 	if _, ok := dynamicSectionSpecForName("agent_memory"); ok {
 		t.Fatal("agent memory dynamic section must not be registered")

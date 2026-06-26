@@ -1,3 +1,4 @@
+// Package commandcard 提供命令卡片的只读持久化接口和前端 JSON wire DTO。
 package commandcard
 
 import (
@@ -6,18 +7,18 @@ import (
 	"time"
 )
 
-// Reader provides read-only access to command cards.
-// This is the shared interface consumed by both internal modules and cmd/mcp-orch.
+// Reader 定义命令卡片只读访问边界，供内部模块和 cmd/mcp-orch 共用。
 type Reader interface {
 	List(ctx context.Context, filter ListFilter) ([]CommandCard, error)
 }
 
+// ListFilter 是命令卡片列表过滤条件，Limit 由调用方控制窗口大小。
 type ListFilter struct {
 	Keyword string
 	Limit   int32
 }
 
-// CommandCard is the shared domain DTO for command cards.
+// CommandCard 是命令卡片的跨模块 DTO，ArgsSchema 保持原始 JSON 以便 UI 动态渲染参数。
 type CommandCard struct {
 	ID              int64           `json:"id"`
 	CardKey         string          `json:"card_key"`

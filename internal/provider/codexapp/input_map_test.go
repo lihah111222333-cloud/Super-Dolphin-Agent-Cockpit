@@ -15,8 +15,8 @@ func TestBuildTurnStartParams(t *testing.T) {
 			{Type: "text", Content: "hello"},
 		},
 		Skills: []dto.SkillRef{
-			// Skill metadata is now injected into baseInstructions (P3 Task 5);
-			// per-turn skill body inlining is removed. SelectedSkills still forwarded.
+			// skill 元数据已在会话级 baseInstructions 注入，单个 turn 不再内联正文。
+			// SelectedSkills 仍需透传，供 provider 侧保留选择痕迹。
 			{Name: "planner", Prompt: "use the planner"},
 			{Name: " reviewer "},
 		},
@@ -29,7 +29,7 @@ func TestBuildTurnStartParams(t *testing.T) {
 	}
 
 	got := buildTurnStartParams("thread-1", req)
-	// No per-turn skill block: Input contains only the user text.
+	// 单个 turn 不再追加 skill 正文块，Input 只保留用户文本。
 	want := turnStartParams{
 		ThreadID:             "thread-1",
 		Input:                []turnInputItem{{Type: "text", Text: "hello", Content: "hello"}},
@@ -94,7 +94,7 @@ func TestBuildTurnStartParamsIncludesAttachments(t *testing.T) {
 	}
 
 	got := buildTurnStartParams("thread-1", req)
-	// system-reminder is now injected once at session start; per-turn only has attachment + user text.
+	// system-reminder 只在会话启动时注入，单个 turn 仅保留附件和用户文本。
 	if len(got.Input) != 2 {
 		t.Fatalf("len(buildTurnStartParams().Input) = %d, want 2", len(got.Input))
 	}
@@ -114,7 +114,7 @@ func TestBuildTurnStartParamsIncludesSystemContext(t *testing.T) {
 		Inputs:       []dto.InputItem{{Type: "text", Content: "hello"}},
 		TurnAssembly: dto.TurnAssembly{SystemContext: systemContext},
 	})
-	// SystemContext is now injected once at session start; per-turn only has user text.
+	// SystemContext 只在会话启动时注入，单个 turn 只发送用户文本。
 	if len(got.Input) != 1 {
 		t.Fatalf("len(buildTurnStartParams().Input) = %d, want 1", len(got.Input))
 	}
@@ -134,7 +134,7 @@ func TestBuildTurnSteerParams(t *testing.T) {
 			{Type: "text", Content: "hello"},
 		},
 		Skills: []dto.SkillRef{
-			// Skill metadata is now in baseInstructions; no per-turn body injection.
+			// skill 元数据由 baseInstructions 承载，steer 请求同样不注入正文。
 			{Name: "planner", Prompt: "use the planner"},
 			{Name: " reviewer "},
 		},
@@ -145,7 +145,7 @@ func TestBuildTurnSteerParams(t *testing.T) {
 	}
 
 	got := buildTurnSteerParams("thread-1", req)
-	// No per-turn skill block: input contains only the user text.
+	// steer 输入不追加 per-turn skill 块，只包含用户文本和选择元数据。
 	want := map[string]any{
 		"threadId":             "thread-1",
 		"expectedTurnId":       "turn-1",

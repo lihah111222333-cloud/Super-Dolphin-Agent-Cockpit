@@ -13,18 +13,14 @@ import (
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
-// configFanoutNotifier is the subset of contract.ToolNotifier the worker
-// uses. Declaring it here lets tests drive the worker with a fake that
-// only implements NotifyConfigChanged, without having to also stub the
-// other notify verbs (NotifyBySubscription / NotifyByCapability / ...).
+// configFanoutNotifier 是 worker 需要的 ToolNotifier 最小能力。
+// 测试只需 fake NotifyConfigChanged，不必实现其他通知方法。
 type configFanoutNotifier interface {
 	NotifyConfigChanged(ctx context.Context, topic string, scope *dto.SelectorScope, configVersion int64, payload json.RawMessage) error
 }
 
-// configFanoutWorkerDrainGrace bounds the OnStop wait for pending config-
-// change notifies. Matches the other P22 P2 drain budgets so the global
-// OnStop cost stays predictable when multiple subsystems are shutting
-// down concurrently.
+// configFanoutWorkerDrainGrace 限制配置 fanout worker 的 OnStop 等待时间。
+// peer RPC 卡住时关闭路径必须有界返回，避免拖住全局生命周期。
 const configFanoutWorkerDrainGrace = 10 * time.Second
 
 type configFanoutRequest struct {
@@ -32,25 +28,8 @@ type configFanoutRequest struct {
 	payload map[string]any
 }
 
-// configFanoutWorker is the P22 P2 single owner of the bus-event →
-// ToolNotifier.NotifyConfigChanged fanout path.
-//
-// Pre-P2 shape: `registerConfigChangeSubscriptions` wired 8 bus callbacks
-// that synchronously called `publishConfigChanged`, which itself called
-// `notifier.NotifyConfigChanged(context.Background(), ...)` on the
-// dispatcher goroutine. The `context.Background()` bypass meant there was
-// no way for Lifecycle.OnStop to cancel an in-flight notify — it just
-// cancelled the subscription and left whatever peer RPC was in progress
-// to finish on its own.
-//
-// P2 shape: the callback only calls Enqueue. A tracked worker drains the
-// FIFO queue under its own cancellable fanoutCtx; Stop(ctx) cancels that
-// ctx + waits bounded by ctx for the worker to exit, so any peer RPC in
-// `ToolNotifier.NotifyConfigChanged` observes ctx.Err() cleanly. This is
-// the contract pinned by `TestConfigFanoutWorkerUsesCancelableContext`
-// (docs/plans/迁移/p22/P2_BusRuntimeDecoupling.md:415) and the P2 §验收
-// bullet "config_change … 不再以 context.Background() 旁路 publish /
-// shutdown cancel".
+// configFanoutWorker 串行处理配置变更事件到 ToolNotifier 的 fanout。
+// bus callback 只入队，worker 负责推进版本、marshal payload 和调用 peer；Stop(ctx) 会取消 fanoutCtx 并等待队列排空。
 type configFanoutWorker struct {
 	notifier configFanoutNotifier
 	versions configVersionSource
@@ -73,6 +52,7 @@ type configFanoutWorker struct {
 	processedTotal atomic.Int64
 }
 
+// newConfigFanoutWorker 创建配置 fanout worker 并为 peer 通知准备可取消 context。
 func newConfigFanoutWorker(notifier configFanoutNotifier, versions configVersionSource, logger *pkglogger.Logger) *configFanoutWorker {
 	if logger == nil {
 		logger = pkglogger.Get()
@@ -90,10 +70,8 @@ func newConfigFanoutWorker(notifier configFanoutNotifier, versions configVersion
 	}
 }
 
-// Start spawns the worker goroutine. Idempotent. When notifier/versions is
-// nil the worker short-circuits: doneCh closes immediately so Stop is a
-// no-op and Enqueue remains a cheap silent drop.
-// Start 启动平台mcpcontrol流程。
+// Start 启动单 worker goroutine。
+// notifier 或 versions 缺失时立即关闭 doneCh，Enqueue 保持廉价丢弃，避免半初始化 fanout。
 func (w *configFanoutWorker) Start() {
 	if w == nil {
 		return
@@ -114,10 +92,8 @@ func (w *configFanoutWorker) Start() {
 	})
 }
 
-// Enqueue queues a config-change fanout request. Safe to call from bus
-// callbacks: O(1) slice append + non-blocking wake signal, no Notify call
-// on the callback goroutine. Post-Stop calls are silently dropped.
-// Enqueue 把项目追加到队尾。
+// Enqueue 记录一次配置变更 fanout 请求。
+// 它适合 bus callback 调用，只做非阻塞唤醒；Stop 后的新请求会被丢弃以封住关闭入口。
 func (w *configFanoutWorker) Enqueue(topic string, payload map[string]any) {
 	if w == nil {
 		return
@@ -140,10 +116,8 @@ func (w *configFanoutWorker) Enqueue(topic string, payload map[string]any) {
 	}
 }
 
-// FanoutCtx returns the cancellable ctx the worker passes to
-// NotifyConfigChanged. Exposed for tests that need to observe the
-// cancellation plumbing without poking internal fields.
-// FanoutCtx 处理fanoutctx。
+// FanoutCtx 返回传给 NotifyConfigChanged 的可取消 context。
+// 暴露它是为了测试关闭取消链路，不允许外部直接修改 worker 内部状态。
 func (w *configFanoutWorker) FanoutCtx() context.Context {
 	if w == nil {
 		return context.Background()
@@ -151,9 +125,8 @@ func (w *configFanoutWorker) FanoutCtx() context.Context {
 	return w.fanoutCtx
 }
 
-// Stop closes the gate, cancels fanoutCtx, drains pending requests, and
-// waits bounded by ctx for the worker to exit. Idempotent.
-// Stop 停止平台mcpcontrol流程。
+// Stop 关闭入队入口、取消 fanoutCtx 并等待 worker 排空已接收请求。
+// 等待时间受调用方 ctx 或 configFanoutWorkerDrainGrace 限制，重复调用只执行一次关闭动作。
 func (w *configFanoutWorker) Stop(ctx context.Context) error {
 	if w == nil {
 		return nil
@@ -181,14 +154,14 @@ func (w *configFanoutWorker) Stop(ctx context.Context) error {
 	return firstErr
 }
 
-// EnqueuedTotal / ProcessedTotal expose the observability counters for
-// tests and future metric hookup (P22 observability lane).
-// EnqueuedTotal 处理enqueuedtotal。
+// EnqueuedTotal 返回已接收的配置变更请求数量。
 func (w *configFanoutWorker) EnqueuedTotal() int64 { return w.enqueuedTotal.Load() }
 
-// ProcessedTotal 处理processedtotal。
+// ProcessedTotal 返回已完成 fanout 的配置变更请求数量。
 func (w *configFanoutWorker) ProcessedTotal() int64 { return w.processedTotal.Load() }
 
+// runWorker 监听 wake/stop 信号并串行排空队列。
+// stop 信号到达后仍会处理已经入队的请求，随后关闭 doneCh。
 func (w *configFanoutWorker) runWorker() {
 	defer close(w.doneCh)
 	for {
@@ -202,11 +175,8 @@ func (w *configFanoutWorker) runWorker() {
 	}
 }
 
-// drainPending pops each queued request under the lock and dispatches it
-// with the lock released, preserving FIFO order. FIFO is load-bearing
-// because advanceConfigVersion is serialized through the worker: peers
-// observe monotonically increasing configVersion in exactly the same
-// order the bus events enqueued.
+// drainPending 在锁内取出当前批次，再释放锁执行 peer 通知。
+// FIFO 顺序很重要：configVersion 在 worker 中串行递增，peer 看到的版本顺序必须和事件入队顺序一致。
 func (w *configFanoutWorker) drainPending() {
 	for {
 		w.mu.Lock()
@@ -224,7 +194,8 @@ func (w *configFanoutWorker) drainPending() {
 	}
 }
 
-// dispatch 派发平台mcpcontrol。
+// dispatch 序列化单个配置变更并通知匹配 peer。
+// payload 无法 marshal 或 peer 通知失败只记录日志，不阻断后续配置事件；LSP scope 释放是同一事件的附加通知。
 func (w *configFanoutWorker) dispatch(req configFanoutRequest) {
 	raw, err := json.Marshal(req.payload)
 	if err != nil {

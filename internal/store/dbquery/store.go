@@ -17,7 +17,8 @@ type store struct {
 	timeout time.Duration
 }
 
-// NewStore 创建存储。
+// NewStore 创建同时支持通用 Query 和旧 Placeholder 接口的 dbquery 存储。
+// timeout 非正时使用受控默认值，避免只读 SQL 长时间占用独占连接。
 func NewStore(q sqlc.Querier, db platformdb.Queryable, timeout time.Duration) Store {
 	if timeout <= 0 {
 		timeout = defaultQueryTimeout
@@ -25,7 +26,8 @@ func NewStore(q sqlc.Querier, db platformdb.Queryable, timeout time.Duration) St
 	return &store{q: q, db: db, timeout: timeout}
 }
 
-// NewQueryStore 创建查询存储。
+// NewQueryStore 创建只暴露通用 Query 的 dbquery 存储。
+// 该入口用于不需要 sqlc PlaceholderDBQuery 的调用方，db 必须能提供独占 SQLite 连接。
 func NewQueryStore(db platformdb.Queryable, timeout time.Duration) Store {
 	if timeout <= 0 {
 		timeout = defaultQueryTimeout
@@ -33,7 +35,8 @@ func NewQueryStore(db platformdb.Queryable, timeout time.Duration) Store {
 	return &store{db: db, timeout: timeout}
 }
 
-// Query 处理查询。
+// Query 执行受白名单约束的只读 SQL。
+// 所有 SQL 在执行前都会经过文本、占位符和表引用校验，并通过独占连接开启 SQLite query_only。
 func (s *store) Query(ctx context.Context, query string, args ...any) ([]map[string]any, error) {
 	if s == nil || s.db == nil {
 		return nil, wrapDBQueryError(errors.New("dbquery store is not initialized"), "query")
@@ -46,9 +49,8 @@ func (s *store) Query(ctx context.Context, query string, args ...any) ([]map[str
 	return rows, nil
 }
 
-// Placeholder preserves the legacy PlaceholderDBQuery compatibility path until
-// callers migrate to the generic Query contract.
-// Placeholder 处理placeholder。
+// Placeholder 保留 PlaceholderDBQuery 的兼容读取入口。
+// 新调用方应使用 Query；这里仍按 store 错误包装返回，避免旧接口直接泄露 sqlc 错误。
 func (s *store) Placeholder(ctx context.Context) ([]PlaceholderRow, error) {
 	if s == nil || s.q == nil {
 		return nil, wrapDBQueryError(errors.New("dbquery store is not initialized"), "placeholder")

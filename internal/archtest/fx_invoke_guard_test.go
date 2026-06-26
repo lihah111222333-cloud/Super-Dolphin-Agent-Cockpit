@@ -2,26 +2,9 @@ package archtest
 
 import "testing"
 
-// TestFXInvokeGuard is the P22 fx.Invoke runtime-ownership guard shell
-// (P0 骨架; see docs/plans/迁移/p22/P0_RuntimeOwnershipSkeleton.md §守卫改动建议-1).
-//
-// What P0 delivers here:
-//   - A subtest that ties this guard to the same rootBridgeAllowlist used
-//     by TestLifecycleOnStartGuard, so future matcher work cannot fork the
-//     exemption list.
-//   - A negative sanity check that file-level exemption is not accidentally
-//     permitted (isRootBridgeException is keyed on (path, symbol)).
-//   - Matcher subtests declared as t.Skip, tagged by owning slice. Each
-//     downstream PR replaces its tc.skipReason with a real matcher call and
-//     flips the subtest red→green alongside the fix.
-//
-// Matchers owned by downstream slices (see README.md §Finding -> gate 速查):
-//   - P1a (Finding 1): fx.Invoke(spawnToolbridgePeers) inside
-//     internal/provider/codexapp/module.go
-//   - P2 (Finding 9 wiring side): fx.Invoke(SetToolHandler/SetListTools) late
-//     setter injection under internal/platform/toolbridge/module.go
-//   - P2 (thread lane wiring): fx.Invoke(bindDispatcher) / fx.Invoke(bindPromptStore)
-//     post-construction mutation under internal/module/thread
+// TestFXInvokeGuard 锁住 fx.Invoke 运行时所有权 guard 的共享 allowlist。
+// 这里先确认 root bridge 例外必须按“文件+符号”精确匹配，避免后续 matcher 把整文件放行。
+// 暂未落地的 matcher 子测保持 t.Skip，让后续实现能在同一 guard 中补齐真实扫描。
 func TestFXInvokeGuard(t *testing.T) {
 	t.Parallel()
 
@@ -40,9 +23,7 @@ func TestFXInvokeGuard(t *testing.T) {
 
 	t.Run("file_level_exemption_is_not_permitted", func(t *testing.T) {
 		t.Parallel()
-		// Picking a random extra symbol inside a root-bridge file MUST NOT
-		// be exempt — P0 explicitly forbids "any call inside this file is
-		// fine" carve-outs.
+		// root bridge 文件里的其他符号不能顺带豁免；例外必须精确到 call-site 符号。
 		if isRootBridgeException("cmd/mcp-lsp/fx.go", "newBootstrapRunner") {
 			t.Error("file-level exemption leaked: newBootstrapRunner should not be treated as a root bridge")
 		}
@@ -82,10 +63,8 @@ func TestFXInvokeGuard(t *testing.T) {
 	}
 }
 
-// knownRootBridgeCallSites is the minimum expected set of (call_site_path,
-// symbol) pairs that must remain in rootBridgeAllowlist. When a new cmd/*
-// sidecar grows its own root bridge, add it both here and in
-// rootBridgeAllowlist — the overlap is intentional so drift fails the suite.
+// knownRootBridgeCallSites 返回必须留在 rootBridgeAllowlist 中的最小 root bridge 集合。
+// 新 sidecar 增加 root bridge 时要同步这里和 allowlist，让漂移能在测试里失败。
 func knownRootBridgeCallSites() []struct{ path, symbol string } {
 	return []struct{ path, symbol string }{
 		{"internal/app/app.go", "BindRuntime"},

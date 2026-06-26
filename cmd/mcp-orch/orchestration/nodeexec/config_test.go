@@ -135,7 +135,7 @@ func TestParseAutomationConfig_RoundTrip(t *testing.T) {
 	}
 }
 
-// TestParseAutomationConfig_KindEmptyDefaultsToCommandCard验证空 kind 默认填 command_card（向下兼容 ADR-007）。
+// TestParseAutomationConfig_KindEmptyDefaultsToCommandCard 验证旧配置缺省 kind 时仍映射到 command_card。
 func TestParseAutomationConfig_KindEmptyDefaultsToCommandCard(t *testing.T) {
 	t.Parallel()
 	cases := []string{
@@ -169,7 +169,7 @@ func TestParseAutomationConfig_KindCommandCardRoundTrip(t *testing.T) {
 	}
 }
 
-// TestParseAutomationConfig_UnknownKindRejected验证未实装 kind 被 fail-fast 拒绝（ADR-007 §4）。
+// TestParseAutomationConfig_UnknownKindRejected 验证未实装 kind 会被 fail-fast 拒绝。
 func TestParseAutomationConfig_UnknownKindRejected(t *testing.T) {
 	t.Parallel()
 	raw := json.RawMessage(`{"exec":{"kind":"webhook","command_ref":"x"}}`)
@@ -357,8 +357,7 @@ func contains(s, substr string) bool {
 	return false
 }
 
-// Automation result materialization regression tests live here to keep
-// executor_automation_test.go below the per-file guard while reusing package stubs.
+// Automation result 物化回归测试放在本文件，复用同包 stubs 并避免 executor_automation_test.go 继续膨胀。
 func TestAutomationExecutor_EmptyInputsOutputs_KeepsF21Behaviour(t *testing.T) {
 	t.Parallel()
 	getter := &stubAutomationGetter{card: AutomationCommandCard{CardKey: "k", CommandTemplate: "x", Enabled: true}}
@@ -408,17 +407,16 @@ func TestClassifyAutomationError(t *testing.T) {
 	}
 }
 
-// TestEnforceNodeResultSizeCap_Boundary 边界测试：4096 byte 通过、4097 byte 拒绝。
-// ADR-006 决策点：等于 cap 算 OK，超过即 validation 失败。
+// TestEnforceNodeResultSizeCap_Boundary 验证 node.result 大小边界：等于 cap 通过，超过即 validation 失败。
 func TestEnforceNodeResultSizeCap_Boundary(t *testing.T) {
 	if NodeResultSizeCapBytes != 4096 {
 		t.Fatalf("ADR-006 cap drift; NodeResultSizeCapBytes = %d, want 4096", NodeResultSizeCapBytes)
 	}
-	// exactly 4096 bytes → OK
+	// 恰好 4096 bytes 是允许写入 node.result 的上限。
 	if out := enforceNodeResultSizeCap(make([]byte, 4096)); out != nil {
 		t.Fatalf("4096-byte payload must pass; got outcome=%+v", out)
 	}
-	// 4097 bytes → reject
+	// 4097 bytes 已超过上限，必须拒绝写入。
 	out := enforceNodeResultSizeCap(make([]byte, 4097))
 	if out == nil {
 		t.Fatalf("4097-byte payload must be rejected; got nil")
@@ -472,7 +470,7 @@ func TestAutomationExecutor_Outputs_OversizeResultRejected(t *testing.T) {
 
 // TestAutomationExecutor_Outputs_OversizeViaSharedfile_OK 验证 sharedfile 旁路：
 // stdout > 4KB 但 to_node_result=false + to_sharedfile=path → node.result 只写小 envelope
-// → 不触发 size cap rejection。这是 ADR-006 给运营者的「修复路径」。
+// → 不触发 size cap rejection，这是大输出场景的推荐修复路径。
 func TestAutomationExecutor_Outputs_OversizeViaSharedfile_OK(t *testing.T) {
 	bigStdout := strings.Repeat("y", 5000)
 	getter := &stubAutomationGetter{card: AutomationCommandCard{CardKey: "k", CommandTemplate: "x", Enabled: true}}

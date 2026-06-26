@@ -10,27 +10,16 @@ import (
 	retrieval "github.com/anthropic-ai/super-agent-v3/internal/module/memory/retrieval"
 )
 
-// Phase 4.0 baseline test helpers — extracted from
-// phase4_baseline_invalidation_test.go / phase4_baseline_team_test.go so
-// the assertion plumbing stays in one place. Reviewer F flagged that
-// keeping helpers next to the first user couples them to that file's
-// lifecycle (rename / split would break cross-file callers).
+// 本文件集中放置 memory baseline 测试共用 helper。
+// invalidation 与 team 两组测试共享这些断言，集中维护可避免某个测试文件重命名或拆分时破坏跨文件调用。
 //
-// CONTRACT NOTE — exact-once vs last-call ⊇ split (reviewer F):
-//   * UI RPC mutation paths use `recordingSectionInvalidator` (records
-//     the full call slice). Helper `assertRecordedInvalidation` enforces
-//     exact-once: callers MUST reset rec.calls before the path under
-//     test, and exactly one matching call must remain.
-//   * Consolidation paths use `sectionInvalidatorStub` (last-write-wins:
-//     `s.reason = reason`, `s.names = names`). The consolidator may
-//     trigger invalidate multiple times within one RunConsolidation
-//     (lifecycle hooks + autoDream); only the last call survives.
-//     Tests there assert reason==InvalidateMemoryWrite ∧ names⊇expected
-//     directly via `snapshot()` — exact-once is mathematically
-//     unavailable on that stub and would be wrong contract anyway.
+// 两类 stub 的断言边界不同：
+//   - UI RPC mutation 路径使用 recordingSectionInvalidator，保留完整调用切片；
+//     assertRecordedInvalidation 要求调用方在执行前清空 rec.calls，且最终恰好一次命中。
+//   - Consolidation 路径使用 sectionInvalidatorStub，只保留最后一次 reason/names；
+//     consolidator 单次运行可能多次 invalidate，因此这些测试只能断言最后快照覆盖期望 section。
 //
-// Both stubs share the same wire format (reason + section names); the
-// difference is purely how many calls each retains.
+// 两类 stub 的 wire 形状都是 reason + section names，差异只在保留一次还是保留全量调用。
 
 func sectionSet(names []string) map[string]struct{} {
 	out := make(map[string]struct{}, len(names))
@@ -54,13 +43,9 @@ func writeMemoryIndexFixture(t *testing.T, root string, lines ...string) {
 	}
 }
 
-// assertRecordedInvalidation enforces the exact-once contract on the
-// UI RPC stub. Callers must reset rec.calls before exercising the path
-// under test; helper then asserts that the recorder saw exactly one
-// call matching (reason, names⊇wantSections). Reviewer B's upgrade from
-// the earlier OR semantics ("any historical match passes") so future
-// setup paths that pre-warm invalidations cannot silently swallow
-// regressions.
+// assertRecordedInvalidation 校验 UI RPC stub 的 exact-once 约束。
+// 调用方必须在执行被测路径前清空 rec.calls；helper 只接受恰好一次 reason 匹配且 names 覆盖期望 section。
+// 这样预热或 setup 里的历史 invalidation 不会掩盖被测路径缺失通知的问题。
 func assertRecordedInvalidation(
 	t *testing.T,
 	rec *recordingSectionInvalidator,
@@ -113,10 +98,8 @@ func newPhase4UIDeps(t *testing.T) (memoryHandlerDeps, string, string) {
 	return deps, projectRoot, privateRoot
 }
 
-// findEntriesByName returns all manifest entries with a matching
-// frontmatter Name (case-sensitive). Used by the cross-scope fixture
-// baseline to assert presence without coupling to BuildManifest's exact
-// entry count (which can include auxiliary files like the index).
+// findEntriesByName 返回 frontmatter Name 精确匹配的 manifest entries。
+// 测试只关心目标条目存在，不绑定 BuildManifest 的完整条目数量，因为 index 等辅助文件也可能进入 manifest。
 func findEntriesByName(entries []retrieval.MemoryEntry, name string) []retrieval.MemoryEntry {
 	out := make([]retrieval.MemoryEntry, 0, 1)
 	for _, e := range entries {

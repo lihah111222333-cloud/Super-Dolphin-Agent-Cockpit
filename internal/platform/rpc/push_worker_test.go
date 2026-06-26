@@ -11,9 +11,8 @@ import (
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
-// fakePushBroadcaster records NotifyAll calls so tests can assert the
-// worker (not the bus callback) drove them and that the ctx the worker
-// passes through is the cancellable pushCtx.
+// fakePushBroadcaster 记录 NotifyAll 调用，供测试区分通知是否由 worker 驱动。
+// 这里还保存传入 context 的状态，用来确认 worker 使用的是可取消的 pushCtx。
 type fakePushBroadcaster struct {
 	mu      sync.Mutex
 	calls   []fakePushCall
@@ -29,8 +28,7 @@ type fakePushCall struct {
 }
 
 func (f *fakePushBroadcaster) NotifyAll(ctx context.Context, _ *PushBridge, method string, params any) {
-	// Signal "notify entered" exactly once so tests can synchronise on
-	// the worker having consumed the batch.
+	// 首次进入 NotifyAll 时通知测试协程，确认 worker 已经消费到该批通知。
 	if f.entered != nil {
 		select {
 		case <-f.entered:
@@ -208,18 +206,8 @@ func TestRPCPushWorkerDoesNotEmbedThreadPatchIntoDifferentSourceMethod(t *testin
 	}
 }
 
-// TestRPCPushQueuePreservesLegacyExpansion is the P22 P2 §TDD test named
-// in docs/plans/迁移/p22/P2_BusRuntimeDecoupling.md:415.
-//
-// Contract (dual invariant):
-//  1. The worker must use the cancellable pushCtx passed by Stop, not
-//     `context.Background()` as the pre-P2 callback path did.
-//  2. Legacy expansion semantics (thread/started → thread/started +
-//     ui/thread/changed + ui/sidebar/changed) must arrive at NotifyAll
-//     in the exact order the expander produced them. The worker batches
-//     one push-request per bus event and drains it serially, so the
-//     source notification and its legacy-refresh companions must stay
-//     together + in-order.
+// TestRPCPushQueuePreservesLegacyExpansion 锁定 push worker 的扩展通知顺序。
+// worker 必须使用 Stop 可取消的 pushCtx，并把 source 通知及其兼容刷新通知按 expander 产出的顺序串行送达 NotifyAll。
 func TestRPCPushQueuePreservesLegacyExpansion(t *testing.T) {
 	t.Parallel()
 
@@ -233,10 +221,7 @@ func TestRPCPushQueuePreservesLegacyExpansion(t *testing.T) {
 		_ = worker.Stop(ctx)
 	}()
 
-	// Drive the same expansion the production callback uses. Using
-	// ExpandNotifications here (instead of hard-coding a 3-element slice)
-	// means if the legacy expander semantics ever drift, this test flags
-	// it too.
+	// 复用生产回调使用的扩展函数；如果兼容刷新语义漂移，测试会跟着暴露。
 	expanded := eventsurface.ExpandNotifications(eventsurface.MethodThreadStarted, map[string]any{
 		"thread_id": "thread-A",
 	})
@@ -276,10 +261,8 @@ func TestRPCPushQueuePreservesLegacyExpansion(t *testing.T) {
 	}
 }
 
-// TestRPCPushWorkerUsesCancelablePushCtx pins the other half of
-// `rpc push 不再以 context.Background() 旁路 publish/shutdown cancel`
-// (P2:438): Stop must cancel pushCtx and make an in-flight NotifyAll
-// observe ctx.Err() == context.Canceled promptly.
+// TestRPCPushWorkerUsesCancelablePushCtx 锁定 worker 自有 context 的取消路径。
+// Stop 必须取消 pushCtx，并让正在执行的 NotifyAll 及时观察到 context.Canceled。
 func TestRPCPushWorkerUsesCancelablePushCtx(t *testing.T) {
 	t.Parallel()
 
@@ -329,8 +312,8 @@ func TestRPCPushWorkerUsesCancelablePushCtx(t *testing.T) {
 	}
 }
 
-// TestRPCPushWorkerEnqueueNonBlocking mirrors the other P2 workers: a
-// blocked NotifyAll must not pin the dispatcher callback goroutine.
+// TestRPCPushWorkerEnqueueNonBlocking 确认入队路径不被阻塞的 NotifyAll 拖住。
+// 这保护 bus callback goroutine，不让慢推送反向卡住事件分发。
 func TestRPCPushWorkerEnqueueNonBlocking(t *testing.T) {
 	t.Parallel()
 
@@ -366,9 +349,8 @@ func TestRPCPushWorkerEnqueueNonBlocking(t *testing.T) {
 	}
 }
 
-// TestRPCPushWorkerEmptyNotificationDropped verifies the cheap callback-
-// side filters: empty batch and batches whose entries all have blank
-// methods never reach the queue.
+// TestRPCPushWorkerEmptyNotificationDropped 锁定 callback 侧的廉价过滤。
+// 空批次或 method 全为空白的批次不能进入队列，避免 worker 消耗无意义任务。
 func TestRPCPushWorkerEmptyNotificationDropped(t *testing.T) {
 	t.Parallel()
 
