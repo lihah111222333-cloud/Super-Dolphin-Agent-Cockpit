@@ -212,7 +212,8 @@ func TestMemoryConstructorsUseIsMemoryEnabled(t *testing.T) {
 	if rulesText != nil {
 		t.Fatalf("MemoryRulesProvider.Resolve() = %#v, want nil in simple mode", rulesText)
 	}
-	contextText, err := NewContextProvider(cfg).Resolve(context.Background(), contract.SectionContext{
+	provider := mustNewContextProvider(t, cfg)
+	contextText, err := provider.Resolve(context.Background(), contract.SectionContext{
 		Turn: &contract.TurnInput{ThreadID: "thread-1"},
 	})
 	if err != nil {
@@ -366,7 +367,8 @@ func TestGatePathOverrideProvenanceLayering(t *testing.T) {
 	if got := cfg.ResolvedAutoMemPathOverride(); got != trusted {
 		t.Fatalf("ResolvedAutoMemPathOverride() = %q, want %q", got, trusted)
 	}
-	if got := NewContextProvider(cfg).memoryRoot; got != trusted {
+	provider := mustNewContextProvider(t, cfg)
+	if got := provider.memoryRoot; got != trusted {
 		t.Fatalf("NewContextProvider().memoryRoot = %q, want %q", got, trusted)
 	}
 	envOverride := filepath.Join(t.TempDir(), "env-memory")
@@ -394,7 +396,8 @@ func TestGateRulesProvidersRespectProductKillSwitch(t *testing.T) {
 	if rulesText != nil {
 		t.Fatalf("MemoryRulesProvider.Resolve() = %#v, want nil when product kill switch is off", rulesText)
 	}
-	contextText, err := NewContextProvider(cfg).Resolve(context.Background(), contract.SectionContext{
+	provider := mustNewContextProvider(t, cfg)
+	contextText, err := provider.Resolve(context.Background(), contract.SectionContext{
 		Turn: &contract.TurnInput{ThreadID: "thread-1", UserText: "review notes"},
 	})
 	if err != nil {

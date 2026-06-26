@@ -172,7 +172,11 @@ func (p *MemoryRulesProvider) Resolve(_ context.Context, input contract.SectionC
 		SearchPastContextEnabled: gate.SearchPastContextEnabled,
 		ExtraGuidelines:          p.resolvedExtraGuidelines(),
 	}
-	text := p.engine.LoadMemoryPrompt(p.promptMode(input.BuildCtx, gate, &opts), gate.AutoEnabled, opts)
+	mode, err := p.promptMode(input.BuildCtx, gate, &opts)
+	if err != nil {
+		return nil, err
+	}
+	text := p.engine.LoadMemoryPrompt(mode, gate.AutoEnabled, opts)
 	if text == nil || strings.TrimSpace(*text) == "" {
 		return nil, nil
 	}
@@ -197,29 +201,35 @@ func (p *MemoryRulesProvider) promptMode(
 	buildCtx contract.BuildCtx,
 	gate MemoryGateSnapshot,
 	opts *MemoryRuleOptions,
-) MemoryMode {
+) (MemoryMode, error) {
 	if !gate.AutoEnabled {
-		return ""
+		return "", nil
 	}
-	autoDir := p.resolvedAutoMemPath(buildCtx)
+	autoDir, err := p.resolvedAutoMemPath(buildCtx)
+	if err != nil {
+		return "", err
+	}
 	if opts != nil {
 		opts.AutoMemPath = autoDir
 	}
 	if gate.KairosActive {
-		return MemoryModeKairos
+		return MemoryModeKairos, nil
 	}
-	_, teamDir, ok := p.combinedMemoryPaths(buildCtx)
+	_, teamDir, ok, err := p.combinedMemoryPaths(buildCtx)
+	if err != nil {
+		return "", err
+	}
 	if !ok {
-		return MemoryModeStandard
+		return MemoryModeStandard, nil
 	}
 	if opts != nil {
 		opts.TeamMemPath = teamDir
 	}
-	return MemoryModeCombined
+	return MemoryModeCombined, nil
 }
 
 // resolvedAutoMemPath 解析当前 BuildCtx 下的 private auto memory 目录。
-func (p *MemoryRulesProvider) resolvedAutoMemPath(buildCtx contract.BuildCtx) string {
+func (p *MemoryRulesProvider) resolvedAutoMemPath(buildCtx contract.BuildCtx) (string, error) {
 	cfg := memoryConfig(p.cfg)
 	projectRoot := strings.TrimSpace(buildCtx.GitRoot)
 	if projectRoot == "" {
@@ -230,25 +240,28 @@ func (p *MemoryRulesProvider) resolvedAutoMemPath(buildCtx contract.BuildCtx) st
 	}
 	autoDir, err := resolvedStoreRoot(cfg.RootDir, projectRoot, configuredAutoMemPathOverride(cfg))
 	if err != nil {
-		return ""
+		return "", err
 	}
-	return strings.TrimSpace(autoDir)
+	return strings.TrimSpace(autoDir), nil
 }
 
 // combinedMemoryPaths 同时解析 private 和 team memory 目录；缺任一路径则退回 standard 模式。
-func (p *MemoryRulesProvider) combinedMemoryPaths(buildCtx contract.BuildCtx) (string, string, bool) {
+func (p *MemoryRulesProvider) combinedMemoryPaths(buildCtx contract.BuildCtx) (string, string, bool, error) {
 	if p == nil || p.team == nil {
-		return "", "", false
+		return "", "", false, nil
 	}
-	autoDir := p.resolvedAutoMemPath(buildCtx)
+	autoDir, err := p.resolvedAutoMemPath(buildCtx)
+	if err != nil {
+		return "", "", false, err
+	}
 	if autoDir == "" {
-		return "", "", false
+		return "", "", false, nil
 	}
 	teamDir := strings.TrimSpace(p.team.GetTeamMemPath(buildCtx))
 	if teamDir == "" {
-		return "", "", false
+		return "", "", false, nil
 	}
-	return autoDir, teamDir, true
+	return autoDir, teamDir, true, nil
 }
 
 // MemoryContextProvider 在每个 turn 准备相关记忆附件和历史片段输入。
@@ -276,15 +289,30 @@ type TurnContextPayload = contract.TurnContextPayload
 
 // NewContextProvider 创建 turn 时读取 memory 的 provider。
 // 这里只记住检索根；目录准备、权限和写入仍由 Service/Hooks 处理。
-func NewContextProvider(cfg *Config) *MemoryContextProvider {
+func NewContextProvider(cfg *Config) (*MemoryContextProvider, error) {
 	cfg = memoryConfig(cfg)
-	root, _ := resolvedStoreRoot(cfg.RootDir, cfg.ProjectRoot, configuredAutoMemPathOverride(cfg))
+	root := ""
+	if shouldValidateMemoryRoot(cfg) {
+		resolvedRoot, err := resolvedStoreRoot(cfg.RootDir, cfg.ProjectRoot, configuredAutoMemPathOverride(cfg))
+		if err != nil {
+			return nil, err
+		}
+		root = resolvedRoot
+	}
 	return &MemoryContextProvider{
 		cfg:        cfg,
 		memoryRoot: strings.TrimSpace(root),
 		timeNow:    time.Now,
 		turns:      map[string]*prefetchTurnState{},
-	}
+	}, nil
+}
+
+// shouldValidateMemoryRoot 判断当前构造路径是否已经声明了可解析的 memory root。
+// 仅启用历史搜索但未配置 root 的测试/运行态不需要触碰磁盘根目录。
+func shouldValidateMemoryRoot(cfg *Config) bool {
+	cfg = memoryConfig(cfg)
+	return memoryProductEnabled(cfg) &&
+		(strings.TrimSpace(cfg.RootDir) != "" || strings.TrimSpace(configuredAutoMemPathOverride(cfg)) != "")
 }
 
 // AsTurnContextProvider 把记忆规则提供器暴露为 turn 上下文提供器。
@@ -332,9 +360,13 @@ func (p *MemoryContextProvider) PrepareTurnContext(
 	gate := ResolveMemoryGate(buildCtx, p.cfg)
 	p.rememberTurnGate(threadID, gate)
 	surfacedState := p.surfacedState(threadID)
-	entries, ready, attemptPrefetch := p.prepareTurnAttachments(ctx, threadID, query, gate, surfacedState)
+	entries, ready, attemptPrefetch, prefetchErr := p.prepareTurnAttachments(ctx, threadID, query, gate, surfacedState)
 	payload := TurnContextPayload{Attachments: freezeRelevantMemoryAttachments(entries, p.now())}
 	payload.Attachments = p.appendKairosDateChangeAttachment(threadID, gate, payload.Attachments)
+	if prefetchErr != nil {
+		payload.Inputs = memoryPrefetchErrorInputs(prefetchErr)
+		return payload
+	}
 	if attemptPrefetch && !ready {
 		return payload
 	}
@@ -348,10 +380,10 @@ func (p *MemoryContextProvider) prepareTurnAttachments(
 	threadID, query string,
 	gate MemoryGateSnapshot,
 	surfacedState RelevantPrefetchSurfacedState,
-) ([]MemoryEntry, bool, bool) {
+) ([]MemoryEntry, bool, bool, error) {
 	attemptPrefetch := p.shouldAttemptTurnPrefetch(gate, query, surfacedState)
-	entries, ready := p.consumePrefetchEntries(ctx, threadID, query, gate)
-	return entries, ready, attemptPrefetch
+	entries, ready, err := p.consumePrefetchEntries(ctx, threadID, query, gate)
+	return entries, ready, attemptPrefetch, err
 }
 
 // shouldAttemptTurnPrefetch 检查 feature gate、query 和 surfaced 预算是否允许启动预取。
@@ -399,6 +431,18 @@ func memoryHistorySearchErrorInputs(err error) []shareddto.InputItem {
 		Type:    "filecontent",
 		Name:    "Memory history search error",
 		Content: "memory history search failed:\n" + err.Error(),
+	}}
+}
+
+// memoryPrefetchErrorInputs 把相关记忆预取失败显式交给本轮 turn，避免错误被误判成无命中。
+func memoryPrefetchErrorInputs(err error) []shareddto.InputItem {
+	if err == nil {
+		return nil
+	}
+	return []shareddto.InputItem{{
+		Type:    "filecontent",
+		Name:    "Memory prefetch error",
+		Content: "memory prefetch failed:\n" + err.Error(),
 	}}
 }
 
@@ -461,22 +505,28 @@ func (p *MemoryContextProvider) consumePrefetchEntries(
 	ctx context.Context,
 	threadID, query string,
 	gate MemoryGateSnapshot,
-) ([]MemoryEntry, bool) {
+) ([]MemoryEntry, bool, error) {
 	manager, handle, startedNew := p.startRelevantPrefetch(ctx, threadID, query, gate)
 	if manager == nil || handle == nil {
-		return nil, false
+		return nil, false, nil
 	}
 	if startedNew {
-		return nil, false
+		return nil, false, nil
+	}
+	if handle.State() == prefetchStateReady {
+		if err := handle.Err(); err != nil {
+			p.clearHandle(threadID, handle)
+			return nil, true, err
+		}
 	}
 	entries, ok := manager.ConsumeIfReady(handle)
 	if !ok {
-		return nil, false
+		return nil, false, nil
 	}
 	filtered := manager.FilterAlreadySurfaced(entries)
 	p.markSurfacedEntries(threadID, manager, filtered)
 	p.clearHandle(threadID, handle)
-	return filtered, true
+	return filtered, true, nil
 }
 
 // startRelevantPrefetch 记住每个 thread 当前 query 的预取任务。
