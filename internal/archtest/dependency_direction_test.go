@@ -24,6 +24,7 @@ var providerAllowedExternal = map[string]bool{
 	"github.com/kelindar/event":    true,
 	"go.uber.org/fx":               true,
 	"golang.org/x/net":             true,
+	"golang.org/x/sync":            true,
 	"golang.org/x/sys":             true,
 }
 

@@ -106,6 +106,9 @@ func (t *transport) request(ctx context.Context, method string, params any) (jso
 	}
 	if err := t.writeMessageContext(ctx, request); err != nil {
 		t.removePending(key)
+		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+			t.abortBlockedWrite(err)
+		}
 		return nil, err
 	}
 	select {
@@ -113,6 +116,7 @@ func (t *transport) request(ctx context.Context, method string, params any) (jso
 		return platformshared.CloneRawMessage(outcome.result), outcome.err
 	case <-ctx.Done():
 		t.removePending(key)
+		t.abortBlockedWrite(ctx.Err())
 		return nil, ctx.Err()
 	}
 }

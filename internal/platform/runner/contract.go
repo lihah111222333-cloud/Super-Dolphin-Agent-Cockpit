@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"time"
+
+	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
 )
 
 // workerRunnerShutdownGrace 限制 WorkerRunner 传给 Stop 的独立关闭时间。
@@ -58,7 +60,7 @@ func (r *workerRunner) Run(ctx context.Context) error {
 	r.worker.Start()
 	closeOnce(r.ready)
 	<-ctx.Done()
-	shutdownCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), workerRunnerShutdownGrace)
+	shutdownCtx, cancel := platformconfig.WithTimeout(context.WithoutCancel(ctx), workerRunnerShutdownGrace)
 	defer cancel()
 	if err := r.worker.Stop(shutdownCtx); err != nil && !errors.Is(err, context.Canceled) {
 		return err

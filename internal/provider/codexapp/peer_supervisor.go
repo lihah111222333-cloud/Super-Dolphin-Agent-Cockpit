@@ -15,6 +15,7 @@ import (
 
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/discovery"
 	platformrunner "github.com/anthropic-ai/super-agent-v3/internal/platform/runner"
+	"github.com/anthropic-ai/super-agent-v3/internal/util/safego"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
@@ -108,8 +109,7 @@ func WithPeerNames(names []string) PeerSupervisorOption {
 	return func(s *PeerSupervisor) {
 		out := make([]string, 0, len(names))
 		for _, n := range names {
-			n = strings.TrimSpace(n)
-			if n != "" {
+			if n = strings.TrimSpace(n); n != "" {
 				out = append(out, n)
 			}
 		}
@@ -404,7 +404,7 @@ func (s *PeerSupervisor) abortUnregisteredPeer(h peerHandle) {
 	}
 	_ = h.ClosePipe()
 	_ = h.Signal(sigForceKill)
-	go func() { _ = h.Wait() }()
+	safego.Go(context.Background(), nil, "codexapp.peerSupervisor.abortUnregisteredPeer", func(context.Context) { _ = h.Wait() })
 }
 
 // shutdown 执行 EOF、SIGTERM、SIGKILL 的 peer 关闭升级流程。

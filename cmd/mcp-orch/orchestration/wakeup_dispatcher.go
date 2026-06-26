@@ -192,7 +192,7 @@ func (d *WakeupDispatcher) handleClaimed(ctx context.Context, w *taskdag.Wakeup)
 	if turncompletionretry.IsWakeup(w) {
 		return d.handleTurnCompletionRetryWakeup(ctx, w)
 	}
-	if isDAGWakeup(w) {
+	if shouldRouteThroughNodeExecutor := isDAGWakeup(w); shouldRouteThroughNodeExecutor {
 		// DAG wakeup 的路由入口集中在 handleClaimedViaRouter，便于保持 sent/fail fence 一致。
 		return d.handleClaimedViaRouter(ctx, w)
 	}
