@@ -109,6 +109,59 @@ require_positive_number() {
   fi
 }
 
+validate_vite_dev_url() {
+  local raw="$1"
+  local authority rest
+  case "$raw" in
+    http://*) rest="${raw#http://}" ;;
+    https://*) rest="${raw#https://}" ;;
+    *)
+      echo "❌ VITE_DEV_URL must use loopback http/https with host and port, got: $raw" >&2
+      exit 1
+      ;;
+  esac
+  authority="${rest%%/*}"
+  authority="${authority%%\?*}"
+  authority="${authority%%#*}"
+  if [ -z "$authority" ] || [ "$authority" != "${authority#*@}" ]; then
+    echo "❌ VITE_DEV_URL must use loopback http/https with host and port, got: $raw" >&2
+    exit 1
+  fi
+  case "$authority" in
+    \[*\]:*)
+      VITE_DEV_HOST="${authority%%]*}"
+      VITE_DEV_HOST="${VITE_DEV_HOST#[}"
+      VITE_DEV_PORT="${authority##*:}"
+      ;;
+    *:*)
+      VITE_DEV_HOST="${authority%:*}"
+      VITE_DEV_PORT="${authority##*:}"
+      ;;
+    *)
+      echo "❌ VITE_DEV_URL must use loopback http/https with host and port, got: $raw" >&2
+      exit 1
+      ;;
+  esac
+  case "$VITE_DEV_PORT" in
+    ''|*[!0-9]*)
+      echo "❌ VITE_DEV_URL must use loopback http/https with host and port, got: $raw" >&2
+      exit 1
+      ;;
+  esac
+  if [ "$VITE_DEV_PORT" -le 0 ]; then
+    echo "❌ VITE_DEV_URL must use loopback http/https with host and port, got: $raw" >&2
+    exit 1
+  fi
+  case "$VITE_DEV_HOST" in
+    localhost|127.0.0.1|::1)
+      ;;
+    *)
+      echo "❌ VITE_DEV_URL must use loopback http/https with host and port, got: $raw" >&2
+      exit 1
+      ;;
+  esac
+}
+
 rebuild_peer_binaries() {
   local peer_dir="${GO_AGENT_PEER_BIN_DIR:-$PROJECT_DIR}"
   mkdir -p "$peer_dir"
@@ -608,16 +661,7 @@ if [ "$FRONTEND_DEVSERVER_URL" != "$VITE_DEV_URL" ]; then
   echo "❌ FRONTEND_DEVSERVER_URL must match VITE_DEV_URL for Wails readiness, got FRONTEND_DEVSERVER_URL=$FRONTEND_DEVSERVER_URL VITE_DEV_URL=$VITE_DEV_URL" >&2
   exit 1
 fi
-VITE_DEV_HOST="${VITE_DEV_URL#http://}"
-VITE_DEV_HOST="${VITE_DEV_HOST#https://}"
-VITE_DEV_HOST="${VITE_DEV_HOST%%/*}"
-VITE_DEV_PORT="${VITE_DEV_HOST##*:}"
-VITE_DEV_HOST="${VITE_DEV_HOST%:*}"
-# 守卫规则：VITE_DEV_URL 必须包含 host/port；该规则不覆盖 Vite 外部 bind 旁路风险。
-if [ -z "$VITE_DEV_HOST" ] || [ -z "$VITE_DEV_PORT" ] || [ "$VITE_DEV_HOST" = "$VITE_DEV_PORT" ]; then
-  echo "❌ VITE_DEV_URL must include host and port, got: $VITE_DEV_URL" >&2
-  exit 1
-fi
+validate_vite_dev_url "$VITE_DEV_URL"
 SUPER_DOLPHIN_BACKEND_HOT_RELOAD="${SUPER_DOLPHIN_BACKEND_HOT_RELOAD:-0}"
 SUPER_DOLPHIN_FRONTEND_READY_ATTEMPTS="${SUPER_DOLPHIN_FRONTEND_READY_ATTEMPTS:-300}"
 SUPER_DOLPHIN_BACKEND_READY_ATTEMPTS="${SUPER_DOLPHIN_BACKEND_READY_ATTEMPTS:-300}"
