@@ -446,11 +446,12 @@ type SessionInsight struct {
 }
 
 type SharedFile struct {
-	Path      string `db:"path" json:"path"`
-	Content   string `db:"content" json:"content"`
-	UpdatedBy string `db:"updated_by" json:"updated_by"`
-	CreatedAt int64  `db:"created_at" json:"created_at"`
-	UpdatedAt int64  `db:"updated_at" json:"updated_at"`
+	Path            string `db:"path" json:"path"`
+	Content         string `db:"content" json:"content"`
+	ContentLocation string `db:"content_location" json:"content_location"`
+	UpdatedBy       string `db:"updated_by" json:"updated_by"`
+	CreatedAt       int64  `db:"created_at" json:"created_at"`
+	UpdatedAt       int64  `db:"updated_at" json:"updated_at"`
 }
 
 type SystemLog struct {

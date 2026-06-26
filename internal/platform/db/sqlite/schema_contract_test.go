@@ -79,6 +79,40 @@ func TestSQLiteBaselineFixtureForeignKeys(t *testing.T) {
 	}
 }
 
+func TestSharedFilesContentLocationMigrationPreservesOldRowsAsInline(t *testing.T) {
+	db := openBaselineDB(t)
+	mustExec(t, db, "DROP INDEX IF EXISTS idx_shared_files_updated_at")
+	mustExec(t, db, "DROP TABLE shared_files")
+	mustExec(t, db, `
+		CREATE TABLE shared_files (
+			path TEXT PRIMARY KEY,
+			content TEXT NOT NULL,
+			updated_by TEXT NOT NULL DEFAULT '',
+			created_at INTEGER NOT NULL,
+			updated_at INTEGER NOT NULL
+		)
+	`)
+	mustExec(t, db, "CREATE INDEX idx_shared_files_updated_at ON shared_files(updated_at DESC)")
+	mustExec(t, db, `
+		INSERT INTO shared_files (path, content, updated_by, created_at, updated_at)
+		VALUES ('reports/empty.md', '', 'test', 1710000000000, 1710000000001)
+	`)
+
+	execFile(t, db, "internal/platform/db/sqlite/migrations/108_shared_files_content_location.sql")
+
+	assertNotNullColumns(t, db, "shared_files", []string{"content", "content_location", "updated_by", "created_at", "updated_at"})
+	assertTableSQLContains(t, db, "shared_files", []string{"content_location IN ('inline', 'disk')"})
+	assertIndex(t, db, "shared_files", "idx_shared_files_updated_at", false, "")
+
+	var content, location string
+	if err := db.QueryRow("SELECT content, content_location FROM shared_files WHERE path = ?", "reports/empty.md").Scan(&content, &location); err != nil {
+		t.Fatalf("read migrated shared file: %v", err)
+	}
+	if content != "" || location != "inline" {
+		t.Fatalf("migrated shared file content=%q location=%q, want empty inline", content, location)
+	}
+}
+
 func baselineContracts() map[string]tableContract {
 	return map[string]tableContract{
 		"schema_migrations": {PrimaryKey: []string{"version"}, NotNull: []string{"name", "filename", "applied_at"}},
@@ -106,7 +140,7 @@ func baselineContracts() map[string]tableContract {
 		"command_cards":         {PrimaryKey: []string{"id"}, NotNull: []string{"card_key", "title", "description", "command_template", "args_schema", "risk_level", "enabled", "created_by", "updated_by", "created_at", "updated_at"}, Checks: []string{"json_valid(args_schema)", "enabled IN (0, 1)"}, Indexes: []string{"idx_command_cards_risk_enabled"}},
 		"command_card_versions": {PrimaryKey: []string{"id"}, NotNull: []string{"card_key", "title", "description", "command_template", "args_schema", "risk_level", "enabled", "created_by", "updated_by", "created_at", "archived_at"}, Checks: []string{"json_valid(args_schema)", "enabled IN (0, 1)"}, Indexes: []string{"idx_command_card_versions_key_id"}},
 		"command_card_runs":     {PrimaryKey: []string{"id"}, NotNull: []string{"card_key", "requested_by", "params", "rendered_command", "risk_level", "status", "requires_review", "output", "error", "created_at", "updated_at"}, Checks: []string{"json_valid(params)", "requires_review IN (0, 1)"}, Indexes: []string{"idx_command_card_runs_status_created", "idx_command_card_runs_card_key"}},
-		"shared_files":          {PrimaryKey: []string{"path"}, NotNull: []string{"content", "updated_by", "created_at", "updated_at"}, Indexes: []string{"idx_shared_files_updated_at"}},
+		"shared_files":          {PrimaryKey: []string{"path"}, NotNull: []string{"content", "content_location", "updated_by", "created_at", "updated_at"}, Checks: []string{"content_location IN ('inline', 'disk')"}, Indexes: []string{"idx_shared_files_updated_at"}},
 		"datasource_v2_documents": {
 			PrimaryKey: []string{"id"},
 			NotNull:    []string{"source_path", "file_name", "extension", "size_bytes", "chunk_count", "total_chars", "status", "created_at", "updated_at"},

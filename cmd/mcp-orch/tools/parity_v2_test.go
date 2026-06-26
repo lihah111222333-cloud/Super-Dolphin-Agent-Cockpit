@@ -154,6 +154,19 @@ func TestHandleWorkspaceGetRunNilMapsToNotFound(t *testing.T) {
 	}
 }
 
+func TestWorkspaceCreateRunToolRejectsSourceRootOutsideScope(t *testing.T) {
+	handler := HandleWorkspaceCreateRun(stubWorkspaceService{})
+	ctx := common.WithToolScope(context.Background(), common.ToolScope{CWD: t.TempDir()})
+
+	_, err := handler(ctx, mustRawInput(t, WorkspaceCreateRunRequest{SourceRoot: t.TempDir()}))
+	if err == nil {
+		t.Fatal("HandleWorkspaceCreateRun() error = nil, want source root scope rejection")
+	}
+	if !strings.Contains(err.Error(), "outside allowed workspace roots") {
+		t.Fatalf("HandleWorkspaceCreateRun() error = %v, want allowed workspace roots rejection", err)
+	}
+}
+
 func TestHandleWorkspaceGetRunWrappedNotFoundMapsToNotFound(t *testing.T) {
 	var gotRunKey string
 	handler := HandleWorkspaceGetRun(stubWorkspaceService{

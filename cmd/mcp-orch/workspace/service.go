@@ -100,11 +100,7 @@ func buildRun(req CreateRunRequest) (storeworkspace.WorkspaceRun, error) {
 	if err := validateRunKey(runKey); err != nil {
 		return storeworkspace.WorkspaceRun{}, err
 	}
-	sourceRoot, err := resolveSourceRoot(req.SourceRoot, req.CWD)
-	if err != nil {
-		return storeworkspace.WorkspaceRun{}, err
-	}
-	workspacePath, err := resolveWorkspacePath(req, runKey, sourceRoot)
+	sourceRoot, workspacePath, err := resolveRunRoots(req, runKey)
 	if err != nil {
 		return storeworkspace.WorkspaceRun{}, err
 	}
@@ -128,6 +124,29 @@ func buildRun(req CreateRunRequest) (storeworkspace.WorkspaceRun, error) {
 		Metadata:      append([]byte(nil), req.Metadata...),
 		FinishedAt:    req.FinishedAt,
 	}, nil
+}
+
+// resolveRunRoots 解析 create 请求里的 source/workspace 路径，并按可信 roots 做包含校验。
+func resolveRunRoots(req CreateRunRequest, runKey string) (string, string, error) {
+	allowedRoots, err := requestAllowedWorkspaceRoots(req.CWD, req.AllowedSourceRoots)
+	if err != nil {
+		return "", "", err
+	}
+	sourceRoot, err := resolveSourceRoot(req.SourceRoot, req.CWD)
+	if err != nil {
+		return "", "", err
+	}
+	if err := ensurePathWithinAllowedWorkspaceRoots("sourceRoot", sourceRoot, allowedRoots); err != nil {
+		return "", "", err
+	}
+	workspacePath, err := resolveWorkspacePath(req, runKey, sourceRoot)
+	if err != nil {
+		return "", "", err
+	}
+	if err := ensurePathWithinAllowedWorkspaceRoots("workspacePath", workspacePath, allowedRoots); err != nil {
+		return "", "", err
+	}
+	return sourceRoot, workspacePath, nil
 }
 
 // validateRunKey 校验 run key 长度和字符集。
@@ -237,6 +256,16 @@ func (s *service) UpdateRunStatus(ctx context.Context, input storeworkspace.Upda
 func (s *service) MergeRun(ctx context.Context, req MergeRunRequest) (*MergeRunResult, error) {
 	run, err := s.requireRun(ctx, req.RunKey, statusActive)
 	if err != nil {
+		return nil, err
+	}
+	allowedRoots, err := requestAllowedWorkspaceRoots("", req.AllowedSourceRoots)
+	if err != nil {
+		return nil, err
+	}
+	if err := ensurePathWithinAllowedWorkspaceRoots("sourceRoot", run.SourceRoot, allowedRoots); err != nil {
+		return nil, err
+	}
+	if err := ensurePathWithinAllowedWorkspaceRoots("workspacePath", run.WorkspacePath, allowedRoots); err != nil {
 		return nil, err
 	}
 	updatedBy := strings.TrimSpace(req.UpdatedBy)
