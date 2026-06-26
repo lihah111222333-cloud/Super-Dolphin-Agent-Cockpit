@@ -34,6 +34,9 @@ func (d *driver) prepareStartSessionRequest(ctx context.Context, req dto.StartSe
 	if err := validateStartCodexIdentityShape(req.Config); err != nil {
 		return req, err
 	}
+	if err := validateCodexNativeToolPolicyConfig(req.Config); err != nil {
+		return req, err
+	}
 	requestedHome := providershared.ConfigString(req.Config, contract.CodexHomeKey)
 	providerHome, err := selectCodexProviderHome(requestedHome)
 	if err != nil {
@@ -273,6 +276,9 @@ func putCodexString(config map[string]any, key, value string) error {
 // 携带 Codex identity 时必须走 pool；pool 缺失、禁用或 identity 非法都会 fail-closed，避免误用 ambient home。
 // 成功 acquire 的 server 会把 URL 和 release 绑定进 session，启动背压错误原样返回给调用方。
 func (d *driver) resolveSessionOptions(ctx context.Context, req dto.StartSessionRequest) ([]sessionOption, error) {
+	if err := validateCodexNativeToolPolicyConfig(req.Config); err != nil {
+		return nil, err
+	}
 	policy := codexNativeToolPolicyFromConfig(req.Config)
 	if d == nil || d.pool == nil {
 		if _, err := providershared.ResolveCodexIdentity(req.Config); err == nil {
@@ -397,7 +403,7 @@ func (d *driver) resolveResumeOptions(ctx context.Context, req dto.ResumeSession
 	}
 	if d == nil || d.pool == nil || !enabled {
 		if hasIdentity {
-			return nil, errCodexIdentityRequiresPool()
+			return nil, errors.New("codexapp: codex identity requires pool-backed app-server")
 		}
 		return legacySessionOptionsForNativeToolPolicy(policy)
 	}
@@ -429,10 +435,6 @@ func (d *driver) resolveResumeOptions(ctx context.Context, req dto.ResumeSession
 	return []sessionOption{withPoolServer(url, release)}, nil
 }
 
-func errCodexIdentityRequiresPool() error {
-	return errors.New("codexapp: codex identity requires pool-backed app-server")
-}
-
 func (d *driver) missingResumeIdentityOptions(req dto.ResumeSessionRequest, strict bool) ([]sessionOption, error) {
 	err := errors.New("codex identity required for resume")
 	if !strict {
@@ -446,18 +448,13 @@ func (d *driver) missingResumeIdentityOptions(req dto.ResumeSessionRequest, stri
 // 这些值只用于新 app-server 启动，不写回线程运行时配置。
 func withPoolSpawnSessionConfig(ctx context.Context, workDir string, cfg map[string]any, policy codexNativeToolPolicy) context.Context {
 	roots := trustedWorkspaceRoots(workDir, providershared.ConfigStringSlice(cfg, contract.RuntimeConfigAdditionalWorkingDirectories.Keys()...))
-	binaryDir := providershared.ResolveBinaryDir(workDir, cfg)
 	ctx = withPoolSpawnWorkDir(ctx, workDir)
-	ctx = withPoolSpawnLSPConfig(ctx, roots, binaryDir)
+	ctx = withPoolSpawnLSPConfig(ctx, roots, providershared.ResolveBinaryDir(workDir, cfg))
 	return withPoolSpawnNativeToolPolicy(ctx, policy)
 }
 
 func resumeIdentity(req dto.ResumeSessionRequest) (providershared.CodexIdentity, bool) {
-	identity := providershared.CodexIdentity{
-		Home:          strings.TrimSpace(req.CodexHome),
-		InstanceKey:   strings.TrimSpace(req.CodexInstanceKey),
-		ModelProvider: strings.TrimSpace(req.CodexModelProvider),
-	}
+	identity := providershared.CodexIdentity{Home: strings.TrimSpace(req.CodexHome), InstanceKey: strings.TrimSpace(req.CodexInstanceKey), ModelProvider: strings.TrimSpace(req.CodexModelProvider)}
 	if identity.Home == "" || identity.InstanceKey == "" || identity.ModelProvider == "" {
 		return providershared.CodexIdentity{}, false
 	}
@@ -474,20 +471,6 @@ func (d *driver) warnLegacyIdentityFallback(agentID string, err error) {
 	)
 }
 
-func (d *driver) warnSkillMirrorIssue(message string, err error) {
-	if d == nil || d.logger == nil || err == nil {
-		return
-	}
-	d.logger.Warn(message, slog.String("error", err.Error()))
-}
-
-// poolRoutingEnabled 解析 ServerPool 路由环境开关。
-// 空值表示启用且 strict；非法布尔值直接报错，避免启动时悄悄改走 legacy 路径。
-func poolRoutingEnabled() (bool, error) {
-	enabled, _, err := poolRoutingDecision()
-	return enabled, err
-}
-
 func poolRoutingDecision() (enabled bool, strict bool, err error) {
 	raw := strings.TrimSpace(os.Getenv(poolRoutingEnvVar))
 	if raw == "" {
@@ -502,9 +485,7 @@ func poolRoutingDecision() (enabled bool, strict bool, err error) {
 
 const codexDisabledNativeToolsConfigKey = "codexDisabledNativeTools"
 
-type codexNativeToolPolicy struct {
-	contract.CodexNativeToolPolicy
-}
+type codexNativeToolPolicy struct{ contract.CodexNativeToolPolicy }
 
 func codexNativeToolPolicyFromConfig(cfg map[string]any) codexNativeToolPolicy {
 	return codexNativeToolPolicy{CodexNativeToolPolicy: contract.NewCodexNativeToolPolicy(codexDisabledNativeToolIDs(cfg))}
@@ -515,42 +496,41 @@ func codexNativeToolPolicyFromDisabled(ids []string) codexNativeToolPolicy {
 }
 
 func codexDisabledNativeToolIDs(cfg map[string]any) []string {
-	if len(cfg) == 0 {
-		return nil
-	}
-	return cleanCodexNativeToolIDs(rawStringList(cfg[codexDisabledNativeToolsConfigKey]))
+	values, _ := rawStringList(cfg[codexDisabledNativeToolsConfigKey])
+	return cleanCodexNativeToolIDs(values)
 }
 
-func rawStringList(value any) []string {
+func validateCodexNativeToolPolicyConfig(cfg map[string]any) error {
+	_, err := rawStringList(cfg[codexDisabledNativeToolsConfigKey])
+	return err
+}
+
+// rawStringList 严格解析 native tool 禁用列表，遇到非字符串元素会直接阻断启动。
+func rawStringList(value any) ([]string, error) {
 	switch v := value.(type) {
+	case nil:
+		return nil, nil
 	case []string:
-		return append([]string(nil), v...)
+		return append([]string(nil), v...), nil
 	case []any:
-		return stringListFromAny(v)
-	case string:
-		return []string{v}
-	default:
-		return nil
-	}
-}
-
-func stringListFromAny(values []any) []string {
-	out := make([]string, 0, len(values))
-	for _, value := range values {
-		text, ok := value.(string)
-		if !ok {
-			continue
+		out := make([]string, 0, len(v))
+		for _, value := range v {
+			text, ok := value.(string)
+			if !ok {
+				return nil, fmt.Errorf("%s must be []string or []any of strings, got element %T", codexDisabledNativeToolsConfigKey, value)
+			}
+			out = append(out, text)
 		}
-		out = append(out, text)
+		return out, nil
+	default:
+		return nil, fmt.Errorf("%s must be []string or []any of strings, got %T", codexDisabledNativeToolsConfigKey, value)
 	}
-	return out
 }
 
 func cleanCodexNativeToolIDs(values []string) []string {
 	seen := make(map[string]struct{}, len(values))
 	for _, value := range values {
-		id := strings.TrimSpace(value)
-		if id != "" {
+		if id := strings.TrimSpace(value); id != "" {
 			seen[id] = struct{}{}
 		}
 	}

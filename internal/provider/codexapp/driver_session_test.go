@@ -152,7 +152,7 @@ func TestDriverReportRuntimeUsesParsedServerURLPort(t *testing.T) {
 	reporter := &stubRuntimeReporter{}
 	t.Setenv("CODEX_APP_SERVER_URL", " ws://127.0.0.1:9123/ws ")
 	got := newDriver(nil, nil, nil, reporter, nil, nil, nil, nil, nil).(*driver)
-	got.reportRuntime(" agent-1 ")
+	got.reportRuntime(" agent-1 ", got.serverURL)
 	if reporter.calls != 1 {
 		t.Fatalf("ReportRuntime() calls = %d, want 1", reporter.calls)
 	}

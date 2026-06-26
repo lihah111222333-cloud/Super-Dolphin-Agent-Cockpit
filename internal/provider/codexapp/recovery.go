@@ -30,10 +30,14 @@ const (
 )
 
 type turnReplayState struct {
-	localID    string
-	providerID string
-	params     turnStartParams
-	handle     *turnHandle
+	localID, providerID string
+	params              turnStartParams
+	handle              *turnHandle
+}
+
+type replayTurnStatus struct {
+	Active *bool
+	Turn   struct{ Active *bool }
 }
 
 // CheckHealth 检查 transport 是否仍能响应本地健康探测。
@@ -331,6 +335,10 @@ func (s *session) replayPendingTurn(ctx context.Context) error {
 	if err := validatePendingTurnSnapshot(snapshot); err != nil {
 		return err
 	}
+	lost, err := s.confirmPendingTurnLost(ctx, snapshot)
+	if err != nil || !lost {
+		return err
+	}
 	s.logReplayPendingTurn(snapshot)
 	newProviderID, err := s.replayTurnStart(ctx, snapshot.params)
 	if err != nil {
@@ -339,6 +347,30 @@ func (s *session) replayPendingTurn(ctx context.Context) error {
 	s.applyReplayedTurn(snapshot, newProviderID)
 	s.logReplayedTurn(snapshot, newProviderID)
 	return nil
+}
+
+// confirmPendingTurnLost 查询 provider 侧 turn 状态；仍 active 时禁止重放，避免同一输入执行两次。
+func (s *session) confirmPendingTurnLost(ctx context.Context, snapshot *turnReplayState) (bool, error) {
+	providerID := strings.TrimSpace(snapshot.providerID)
+	if providerID == "" {
+		return false, errors.New("codexapp: replay provider turn id is required")
+	}
+	raw, err := callWithTimeout(ctx, s.transport, 10*time.Second, "turn/status", map[string]any{"threadId": snapshot.params.ThreadID, "turnId": providerID})
+	if err != nil {
+		return false, fmt.Errorf("codexapp: turn/status before replay failed: %w", err)
+	}
+	var payload replayTurnStatus
+	if err := json.Unmarshal(raw, &payload); err != nil {
+		return false, fmt.Errorf("codexapp: turn/status before replay decode failed: %w", err)
+	}
+	active := payload.Active
+	if payload.Turn.Active != nil {
+		active = payload.Turn.Active
+	}
+	if active == nil {
+		return false, errors.New("codexapp: turn/status before replay missing active state")
+	}
+	return !*active, nil
 }
 
 func (s *session) pendingTurnSnapshot() *turnReplayState {
