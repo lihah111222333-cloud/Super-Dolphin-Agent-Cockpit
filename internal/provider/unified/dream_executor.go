@@ -18,7 +18,7 @@ import (
 
 // dreamProviderOrderEnv 是 failover 顺序覆盖环境变量。
 // CSV 格式（如 "codex,claude"），列出的 provider 按指定顺序在前，
-// 未列出的按字母序补后。未识别的 provider 名忽略。
+// 未列出的按字母序补后。未识别的 provider 名会阻断启动。
 const dreamProviderOrderEnv = "DREAM_PROVIDER_ORDER"
 
 // defaultDreamTimeout 是统一 dream 调度的单次调用上限。
@@ -40,6 +40,15 @@ type dreamExecutor struct {
 
 // NewDreamExecutor 汇总所有 provider 的 dream executor，并解析环境变量覆盖后的 failover 顺序。
 func NewDreamExecutor(providers []contract.DreamExecutorProvider, logger *slog.Logger) contract.DreamExecutor {
+	executor, err := newDreamExecutor(providers, logger)
+	if err != nil {
+		return dreamExecutorConfigError{err: err}
+	}
+	return executor
+}
+
+// newDreamExecutor 是 Fx 装配使用的显式错误构造路径，配置错误必须在启动期返回。
+func newDreamExecutor(providers []contract.DreamExecutorProvider, logger *slog.Logger) (contract.DreamExecutor, error) {
 	if logger == nil {
 		logger = pkglogger.Get()
 	}
@@ -60,7 +69,11 @@ func NewDreamExecutor(providers []contract.DreamExecutorProvider, logger *slog.L
 		resolver.executors[name] = provider.Executor
 	}
 	override := os.Getenv(dreamProviderOrderEnv)
-	resolver.order = resolveProviderOrder(resolver.order, override)
+	order, err := resolveProviderOrder(resolver.order, override)
+	if err != nil {
+		return nil, err
+	}
+	resolver.order = order
 	logger.Debug("dream executor registered", "providers", resolver.order)
 	if strings.TrimSpace(override) != "" {
 		logger.Info("dream provider order overridden",
@@ -68,17 +81,31 @@ func NewDreamExecutor(providers []contract.DreamExecutorProvider, logger *slog.L
 			"resolved", resolver.order,
 		)
 	}
-	return resolver
+	return resolver, nil
+}
+
+type dreamExecutorConfigError struct {
+	err error
+}
+
+// ExecuteDream 返回构造期配置错误，兼容旧构造入口但不继续执行 provider 调用。
+func (e dreamExecutorConfigError) ExecuteDream(context.Context, string) (string, error) {
+	return "", e.err
+}
+
+// ExecuteDreamWithOptions 返回构造期配置错误，避免带选项入口绕过启动配置校验。
+func (e dreamExecutorConfigError) ExecuteDreamWithOptions(context.Context, string, contract.DreamOptions) (string, error) {
+	return "", e.err
 }
 
 // resolveProviderOrder 解析 DREAM_PROVIDER_ORDER 覆盖。override 空 → 全部字母序。
 // 非空时列出且已注册的 provider 按 CSV 顺序在前，剩下的字母序补后。
-// 未识别名/重复名/空项均忽略。纯函数便于单测。
-func resolveProviderOrder(registered []string, override string) []string {
+// 未识别名会返回错误阻断启动，重复名/空项仍按幂等输入处理。纯函数便于单测。
+func resolveProviderOrder(registered []string, override string) ([]string, error) {
 	out := append([]string(nil), registered...)
 	if strings.TrimSpace(override) == "" {
 		sort.Strings(out)
-		return out
+		return out, nil
 	}
 	inSet := make(map[string]bool, len(out))
 	for _, n := range out {
@@ -88,8 +115,11 @@ func resolveProviderOrder(registered []string, override string) []string {
 	var ordered []string
 	for raw := range strings.SplitSeq(override, ",") {
 		n := normalizeDreamProviderName(raw)
-		if n == "" || !inSet[n] || used[n] {
+		if n == "" || used[n] {
 			continue
+		}
+		if !inSet[n] {
+			return nil, fmt.Errorf("unknown %s provider %q", dreamProviderOrderEnv, n)
 		}
 		ordered = append(ordered, n)
 		used[n] = true
@@ -101,7 +131,7 @@ func resolveProviderOrder(registered []string, override string) []string {
 		}
 	}
 	sort.Strings(rest)
-	return append(ordered, rest...)
+	return append(ordered, rest...), nil
 }
 
 // ExecuteDream 使用默认选项执行 dream 蒸馏，实际 provider 选择交给 ExecuteDreamWithOptions。
