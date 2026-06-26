@@ -451,7 +451,7 @@ func (s *service) deletePersonalLocal(ctx context.Context, name, dir, scope, per
 }
 
 // ReadRemote 从公开 URL 读取远程 skill 文本。
-// URL 必须通过 egress 白名单校验，响应体按 maxSkillFileBytes 限制读取。
+// URL 必须通过 egress 白名单校验，响应体会多读 1 字节用于识别超限并显式报错。
 func (s *service) ReadRemote(ctx context.Context, url string) (any, error) {
 	targetURL, err := httpegress.ValidatePublicURL(url)
 	if err != nil {
@@ -469,9 +469,12 @@ func (s *service) ReadRemote(ctx context.Context, url string) (any, error) {
 	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
 		return nil, fmt.Errorf("fetch remote skill failed status=%d", resp.StatusCode)
 	}
-	body, err := io.ReadAll(io.LimitReader(resp.Body, maxSkillFileBytes))
+	body, err := io.ReadAll(io.LimitReader(resp.Body, maxSkillFileBytes+1))
 	if err != nil {
 		return nil, err
+	}
+	if len(body) > maxSkillFileBytes {
+		return nil, fmt.Errorf("remote skill too large: exceeds %d bytes", maxSkillFileBytes)
 	}
 	return map[string]any{"skill": map[string]any{"url": targetURL, "content": string(body)}}, nil
 }

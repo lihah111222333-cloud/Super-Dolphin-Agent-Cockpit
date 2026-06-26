@@ -1,0 +1,15 @@
+path	owner_task	mode	notes
+internal/module/cron/	P1-cron	RW	Cron schedule validation, runtime config, scheduler recovery tests.
+internal/module/turn/	P2-turn-memory-prompt	RW	Turn durable dedupe error propagation and tests only.
+internal/module/memory/	P2-turn-memory-prompt	RW	Memory root, prefetch, and rules-provider error behavior.
+internal/module/prompt/	P2-turn-memory-prompt	RW	Prompt enable_when fail-fast behavior and tests.
+internal/module/skill/	P3-skill	RW	Skill remote read, command output, home, import boundary fixes.
+internal/contract/orchestration.go	P4-contract-app	RW	Final-output metadata parse error contract.
+internal/contract/dag_final_output_test.go	P4-contract-app	RW	Regression coverage for final-output metadata parse errors.
+internal/app/thread_orchestration_adapter.go	P4-contract-app	RW	Noop orchestration facade should surface unconfigured errors.
+internal/app/*thread*orchestration*_test.go	P4-contract-app	RW	Tests for orchestration adapter behavior.
+internal/store/	ALL	NO-TOUCH	No schema/store changes in this wave.
+frontend-app/	ALL	NO-TOUCH	No frontend changes.
+cmd/agent-terminal/frontend/	ALL	NO-TOUCH	No legacy frontend changes.
+docs/archive/	ALL	NO-TOUCH	No historical artifact edits.
+.agent/workflows/20260626-1224-core-review-fixes/	orchestrator	RW	Workflow state, evidence, and handoff only.

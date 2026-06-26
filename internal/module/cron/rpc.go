@@ -265,6 +265,8 @@ func mapRPCError(err error) error {
 		errors.Is(err, ErrMissingName),
 		errors.Is(err, ErrMissingPrompt),
 		errors.Is(err, ErrMissingSchedule),
+		errors.Is(err, ErrInvalidScheduleExpr),
+		errors.Is(err, ErrInvalidTimezone),
 		errors.Is(err, ErrInvalidMaxAttempts),
 		errors.Is(err, ErrInvalidConfig),
 		errors.Is(err, ErrProviderNotSupported),

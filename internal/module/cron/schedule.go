@@ -23,9 +23,11 @@ var cronParser = robfigcron.NewParser(
 // 具体 parser 错误通过 fmt.Errorf 的 wrapping 继续传到调用方和日志。
 var ErrInvalidScheduleExpr = errors.New("cron: invalid schedule_expr")
 
+// ErrInvalidTimezone 标记 timezone 字段无法被 Go 时区库解析。
+var ErrInvalidTimezone = errors.New("cron: invalid timezone")
+
 // ParseSchedule 解析 cron 表达式并返回可复用的下一次运行时间计算函数。
-// 空或非法 timezone 目前按 UTC 处理，这是历史兼容行为。
-// 若要改成失败，Create/Update 校验也要一起改。
+// 空 timezone 按 UTC 处理；非法 timezone 直接报错，避免任务落库后跑错时区。
 func ParseSchedule(scheduleExpr, timezone string) (func(after time.Time) time.Time, error) {
 	expr := strings.TrimSpace(scheduleExpr)
 	if expr == "" {
@@ -37,9 +39,11 @@ func ParseSchedule(scheduleExpr, timezone string) (func(after time.Time) time.Ti
 	}
 	loc := time.UTC
 	if tz := strings.TrimSpace(timezone); tz != "" {
-		if parsed, err := time.LoadLocation(tz); err == nil {
-			loc = parsed
+		parsed, err := time.LoadLocation(tz)
+		if err != nil {
+			return nil, fmt.Errorf("%w: timezone %q: %v", ErrInvalidTimezone, tz, err)
 		}
+		loc = parsed
 	}
 	return func(after time.Time) time.Time {
 		if after.IsZero() {

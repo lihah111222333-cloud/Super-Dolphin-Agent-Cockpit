@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"maps"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -284,7 +285,7 @@ func assertFullChainSideEffects(t *testing.T, h *fxHarness, wantDisplayName stri
 
 func newFxHarness(t *testing.T) *fxHarness {
 	t.Helper()
-	h := &fxHarness{projectRoot: t.TempDir()}
+	h := &fxHarness{projectRoot: newGitProjectRoot(t)}
 	codexHome := filepath.Join(h.projectRoot, "codex-home")
 	if err := os.MkdirAll(codexHome, 0o700); err != nil {
 		t.Fatalf("create codex home fixture: %v", err)
@@ -354,6 +355,16 @@ func newFxHarness(t *testing.T) *fxHarness {
 		}
 	})
 	return h
+}
+
+func newGitProjectRoot(t *testing.T) string {
+	t.Helper()
+	projectRoot := t.TempDir()
+	cmd := exec.Command("git", "init", projectRoot)
+	if output, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("git init %s: %v\n%s", projectRoot, err, string(output))
+	}
+	return projectRoot
 }
 
 func mustRegisterProvider(t *testing.T, registry promptpkg.PromptRegistry, name string, build func(promptpkg.SectionContext) string) {

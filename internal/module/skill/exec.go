@@ -280,15 +280,16 @@ type limitedBuffer struct {
 // Write 写入受限缓冲区。
 // 超过 limit 的内容会被截断但仍返回已消费长度，防止子进程因 pipe 回压卡住。
 func (b *limitedBuffer) Write(p []byte) (int, error) {
+	written := len(p)
 	if b.limit <= b.buf.Len() {
-		return len(p), nil
+		return written, nil
 	}
 	remaining := b.limit - b.buf.Len()
 	if len(p) > remaining {
 		p = p[:remaining]
 	}
 	_, _ = b.buf.Write(p)
-	return len(p), nil
+	return written, nil
 }
 
 // String 返回当前缓冲区内容。

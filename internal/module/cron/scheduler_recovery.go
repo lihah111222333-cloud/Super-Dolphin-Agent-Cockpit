@@ -44,6 +44,10 @@ func (s *Scheduler) CompleteTurn(ctx context.Context, turnID string, success boo
 // markTerminalFailed 将 running run 标记为 failed 并计算下一次重试时间。
 func (s *Scheduler) markTerminalFailed(ctx context.Context, job cronstore.Job, run cronstore.Run, terminalErr string) error {
 	now := s.now().UTC()
+	nextRetryAt, err := s.nextRetry(job, now)
+	if err != nil {
+		return err
+	}
 	s.casLogPublish(ctx, cronstore.CASRunStatusParams{
 		ID: run.ID, ExpectedStatus: cronstore.StatusRunning, NextStatus: cronstore.StatusFailed,
 		Error: terminalErr, UpdatedAt: now,
@@ -56,7 +60,7 @@ func (s *Scheduler) markTerminalFailed(ctx context.Context, job cronstore.Job, r
 		LastStatus:  cronstore.StatusFailed,
 		LastErrorAt: now,
 		LastError:   terminalErr,
-		NextRetryAt: s.nextRetry(job, now),
+		NextRetryAt: nextRetryAt,
 		Now:         now,
 	})
 }
@@ -64,14 +68,16 @@ func (s *Scheduler) markTerminalFailed(ctx context.Context, job cronstore.Job, r
 // markFinished 将 running run 标记为 finished 并推算 job 的下一次运行时间。
 func (s *Scheduler) markFinished(ctx context.Context, job cronstore.Job, run cronstore.Run, turnID string, scheduledAt time.Time) error {
 	now := s.now().UTC()
+	nextRunAt, err := ComputeNextRunAt(job.ScheduleExpr, job.Timezone, now)
+	if err != nil {
+		return err
+	}
+	if nextRunAt.IsZero() {
+		return errors.New("cron: computed next_run_at is zero")
+	}
 	s.casLogPublish(ctx, cronstore.CASRunStatusParams{
 		ID: run.ID, ExpectedStatus: cronstore.StatusRunning, NextStatus: cronstore.StatusFinished, UpdatedAt: now,
 	}, "running->finished", job.ID, run.ID, cronstore.StatusFinished, turnID, "", scheduledAt)
-	nextRunAt, err := ComputeNextRunAt(job.ScheduleExpr, job.Timezone, now)
-	if err != nil || nextRunAt.IsZero() {
-		// 表达式解析异常时保留旧 next_run_at，避免一次解析回归把 job 永久停住。
-		nextRunAt = job.NextRunAt
-	}
 	return s.store.MarkFinished(ctx, cronstore.MarkFinishedParams{
 		ID:         job.ID,
 		ClaimToken: job.ClaimToken,
@@ -84,15 +90,15 @@ func (s *Scheduler) markFinished(ctx context.Context, job cronstore.Job, run cro
 
 // nextRetry 计算下一次重试时间。
 // 重试次数耗尽或重试会跨过下一次正常 schedule 时返回零值，交给正常 tick 接管。
-func (s *Scheduler) nextRetry(job cronstore.Job, now time.Time) time.Time {
+func (s *Scheduler) nextRetry(job cronstore.Job, now time.Time) (time.Time, error) {
 	if job.MaxAttempts <= 0 || job.FailureCount+1 >= job.MaxAttempts {
-		return time.Time{}
+		return time.Time{}, nil
 	}
 	nextRunAt, err := ComputeNextRunAt(job.ScheduleExpr, job.Timezone, now)
 	if err != nil {
-		nextRunAt = job.NextRunAt
+		return time.Time{}, err
 	}
-	return NextRetryAt(s.cfg.Backoff, now, nextRunAt, job.FailureCount+1)
+	return NextRetryAt(s.cfg.Backoff, now, nextRunAt, job.FailureCount+1), nil
 }
 
 // RenewLeases 是 lease actor 的续租入口。

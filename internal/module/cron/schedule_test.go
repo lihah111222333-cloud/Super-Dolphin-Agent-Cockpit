@@ -3,6 +3,7 @@ package cron
 import (
 	"errors"
 	"math/rand"
+	"strings"
 	"testing"
 	"time"
 )
@@ -20,6 +21,14 @@ func TestParseScheduleRejectsInvalid(t *testing.T) {
 	_, err := ParseSchedule("not a cron", "UTC")
 	if !errors.Is(err, ErrInvalidScheduleExpr) {
 		t.Fatalf("want ErrInvalidScheduleExpr, got %v", err)
+	}
+}
+
+func TestParseScheduleRejectsInvalidTimezone(t *testing.T) {
+	t.Parallel()
+	_, err := ParseSchedule("* * * * *", "Mars/Olympus")
+	if err == nil || !strings.Contains(err.Error(), "timezone") {
+		t.Fatalf("want timezone validation error, got %v", err)
 	}
 }
 

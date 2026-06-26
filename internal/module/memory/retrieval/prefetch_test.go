@@ -64,6 +64,49 @@ func TestPrefetchManagerCancelsTurnScopedContext(t *testing.T) {
 	}
 }
 
+func TestPrefetchManagerConsumeIfReadyDoesNotHideLookupErrors(t *testing.T) {
+	tests := []struct {
+		name          string
+		buildManifest func(string) ([]MemoryEntry, error)
+		findRelevant  func(context.Context, string, []MemoryEntry) ([]MemoryEntry, error)
+	}{
+		{
+			name: "build manifest error",
+			buildManifest: func(string) ([]MemoryEntry, error) {
+				return nil, errors.New("manifest unavailable")
+			},
+			findRelevant: func(context.Context, string, []MemoryEntry) ([]MemoryEntry, error) {
+				return []MemoryEntry{{FilePath: "should-not-run.md"}}, nil
+			},
+		},
+		{
+			name: "find relevant error",
+			buildManifest: func(string) ([]MemoryEntry, error) {
+				return []MemoryEntry{{FilePath: "alpha.md"}}, nil
+			},
+			findRelevant: func(context.Context, string, []MemoryEntry) ([]MemoryEntry, error) {
+				return nil, errors.New("finder unavailable")
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			manager := NewPrefetchManager("/tmp/memory-root")
+			manager.buildManifest = tt.buildManifest
+			manager.findRelevant = tt.findRelevant
+
+			handle := manager.StartRelevantMemoryPrefetch(context.Background(), "review")
+			waitForHandle(t, handle)
+			if _, ok := manager.ConsumeIfReady(handle); ok {
+				t.Fatalf("ConsumeIfReady() ok = true, want false when Err() = %v", handle.Err())
+			}
+			if handle.Err() == nil {
+				t.Fatal("PrefetchHandle.Err() = nil, want lookup error")
+			}
+		})
+	}
+}
+
 func TestPrefetchManagerDiscardsStaleGeneration(t *testing.T) {
 	manager := NewPrefetchManager("/tmp/memory-root")
 	releaseFirst := make(chan struct{})

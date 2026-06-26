@@ -48,6 +48,18 @@ func TestDefaultSuperDolphinHome(t *testing.T) {
 	}
 }
 
+func TestDefaultSuperDolphinHomeDoesNotFallbackToTemp(t *testing.T) {
+	t.Setenv("SUPER_DOLPHIN_HOME", "")
+	t.Setenv("HOME", "")
+	t.Setenv("USERPROFILE", "")
+	t.Setenv("HOMEDRIVE", "")
+	t.Setenv("HOMEPATH", "")
+
+	if got := defaultSuperDolphinHome(); got != "" {
+		t.Fatalf("defaultSuperDolphinHome() without env/home = %q, want empty fail-fast path", got)
+	}
+}
+
 func TestResolveOwnerIdentityStableAndScoped(t *testing.T) {
 	home := t.TempDir()
 

@@ -126,8 +126,13 @@ func (m *PrefetchManager) StartRelevantMemoryPrefetch(ctx context.Context, query
 }
 
 // ConsumeIfReady 只消费当前 generation 的 ready handle，并通过 CAS 保证结果最多返回一次。
+// ready handle 若携带构建或检索错误，会 fail-closed 返回 ok=false；调用方可通过 handle.Err() 区分错误和未就绪。
 func (m *PrefetchManager) ConsumeIfReady(handle *PrefetchHandle) ([]MemoryEntry, bool) {
 	if m == nil || handle == nil || handle.state.Load() != PrefetchStateReady {
+		return nil, false
+	}
+	if handle.Err() != nil {
+		handle.state.CompareAndSwap(PrefetchStateReady, PrefetchStateDiscarded)
 		return nil, false
 	}
 	if !m.isCurrentGeneration(handle.generation) {

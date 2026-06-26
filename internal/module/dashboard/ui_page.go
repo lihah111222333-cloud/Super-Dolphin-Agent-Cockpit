@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 	"sync"
 
@@ -425,7 +426,10 @@ func (s *service) listDashboardFinalOutputRefs(ctx context.Context) ([]FinalOutp
 				return runErr
 			}
 			for _, run := range runs {
-				ref, ok := finalOutputRefFromRun(run)
+				ref, ok, parseErr := finalOutputRefFromRun(run)
+				if parseErr != nil {
+					return parseErr
+				}
 				if !ok {
 					continue
 				}
@@ -463,7 +467,10 @@ func (s *service) listDashboardFinalOutputRefsFromSnapshot(ctx context.Context) 
 			return nil, runErr
 		}
 		for _, run := range runs {
-			ref, ok := finalOutputRefFromRun(run)
+			ref, ok, parseErr := finalOutputRefFromRun(run)
+			if parseErr != nil {
+				return nil, parseErr
+			}
 			if !ok {
 				continue
 			}
@@ -478,10 +485,14 @@ func (s *service) listDashboardFinalOutputRefsFromSnapshot(ctx context.Context) 
 }
 
 // finalOutputRefFromRun 从 run 元数据中提取 final output 文件引用，metadata 不含 final_output 时返回 false。
-func finalOutputRefFromRun(run contract.Run) (FinalOutputRef, bool) {
-	output, ok := contract.FinalOutputFileFromRunMetadata(run.Metadata)
+// 损坏的 metadata 必须返回错误，避免 dashboard 把坏产物记录当作“无产物”。
+func finalOutputRefFromRun(run contract.Run) (FinalOutputRef, bool, error) {
+	output, ok, err := contract.FinalOutputFileFromRunMetadataStrict(run.Metadata)
+	if err != nil {
+		return FinalOutputRef{}, false, fmt.Errorf("dashboard final_output metadata for run %q: %w", strings.TrimSpace(run.RunKey), err)
+	}
 	if !ok {
-		return FinalOutputRef{}, false
+		return FinalOutputRef{}, false, nil
 	}
 	return FinalOutputRef{
 		Path:          output.Path,
@@ -489,7 +500,7 @@ func finalOutputRefFromRun(run contract.Run) (FinalOutputRef, bool) {
 		DagKey:        strings.TrimSpace(run.DagKey),
 		SourceNodeKey: strings.TrimSpace(output.SourceNodeKey),
 		Kind:          "file",
-	}, true
+	}, true, nil
 }
 
 // buildSharedFileRetention 根据 final output 引用标记共享文件保留状态。

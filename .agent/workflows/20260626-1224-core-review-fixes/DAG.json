@@ -1,0 +1,48 @@
+{
+  "workflow_key": "20260626-1224-core-review-fixes",
+  "status": "done",
+  "nodes": [
+    {
+      "id": "P0-plan",
+      "title": "Prepare ownership and task cards",
+      "deps": [],
+      "owner": "orchestrator",
+      "state": "done"
+    },
+    {
+      "id": "P1-cron",
+      "title": "Fix cron schedule fail-fast behavior",
+      "deps": ["P0-plan"],
+      "owner": "agent-1",
+      "state": "done"
+    },
+    {
+      "id": "P2-turn-memory-prompt",
+      "title": "Fix turn dedupe and memory/prompt silent failures",
+      "deps": ["P0-plan"],
+      "owner": "agent-2",
+      "state": "done"
+    },
+    {
+      "id": "P3-skill",
+      "title": "Fix skill truncation, output, home, and import guards",
+      "deps": ["P0-plan"],
+      "owner": "agent-3",
+      "state": "done"
+    },
+    {
+      "id": "P4-contract-app",
+      "title": "Fix orchestration boundary error signaling",
+      "deps": ["P0-plan"],
+      "owner": "agent-4",
+      "state": "done"
+    },
+    {
+      "id": "PN-integration",
+      "title": "Review diffs and run integration verification",
+      "deps": ["P1-cron", "P2-turn-memory-prompt", "P3-skill", "P4-contract-app"],
+      "owner": "orchestrator",
+      "state": "done"
+    }
+  ]
+}

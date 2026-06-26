@@ -362,11 +362,11 @@ func ensureSourceOutsideRoots(roots []string, resolvedSource, originalSource str
 	for _, root := range roots {
 		rootPath, err := canonicalProjectPath(root)
 		if err != nil {
-			continue
+			return fmt.Errorf("resolve skills root %q: %w", root, err)
 		}
 		outside, err := pathEscapesRoot(rootPath, resolvedSource)
 		if err != nil {
-			continue
+			return fmt.Errorf("check source against skills root %q: %w", rootPath, err)
 		}
 		if !outside {
 			return fmt.Errorf("source is inside skills root: %s", originalSource)

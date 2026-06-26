@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -405,6 +406,31 @@ func TestSchedulerTerminalEventMarksFinished(t *testing.T) {
 	}
 }
 
+func TestSchedulerTerminalEventRejectsInvalidScheduleInsteadOfReusingNextRunAt(t *testing.T) {
+	t.Parallel()
+	store := &recordingCronStore{}
+	s := newTestScheduler(t, store, &programmableSubmitter{})
+	job := cronstore.Job{
+		ID:           "job-1",
+		ScheduleExpr: "not a cron",
+		Timezone:     "UTC",
+		ClaimToken:   "tok",
+		NextRunAt:    s.now().Add(24 * time.Hour),
+	}
+	run := cronstore.Run{ID: "run-1", JobID: job.ID, TurnID: "turn-1", Status: cronstore.StatusRunning, ScheduledAt: s.now()}
+	store.listUnresolvedFn = func(context.Context) ([]cronstore.Run, error) { return []cronstore.Run{run}, nil }
+	store.getJobFn = func(context.Context, string) (cronstore.Job, error) { return job, nil }
+	store.markFinishedFn = func(_ context.Context, p cronstore.MarkFinishedParams) error {
+		t.Fatalf("MarkFinished reused old next_run_at on invalid schedule: %+v", p)
+		return nil
+	}
+
+	err := s.CompleteTurn(context.Background(), "turn-1", true, "")
+	if err == nil || !strings.Contains(err.Error(), "schedule_expr") {
+		t.Fatalf("CompleteTurn error = %v, want schedule_expr validation error", err)
+	}
+}
+
 func TestSchedulerTerminalEventMarksFailed(t *testing.T) {
 	t.Parallel()
 	store := &recordingCronStore{}
@@ -428,6 +454,37 @@ func TestSchedulerTerminalEventMarksFailed(t *testing.T) {
 	last := store.casCalls[len(store.casCalls)-1]
 	if last.ExpectedStatus != cronstore.StatusRunning || last.NextStatus != cronstore.StatusFailed {
 		t.Fatalf("CAS = %s -> %s, want running -> failed", last.ExpectedStatus, last.NextStatus)
+	}
+}
+
+func TestSchedulerStartFailureRejectsInvalidRetrySchedule(t *testing.T) {
+	t.Parallel()
+	store := &recordingCronStore{}
+	sub := &programmableSubmitter{
+		startFn: func(context.Context, StartTurnRequest) (StartTurnResult, error) {
+			return StartTurnResult{}, errors.New("provider down")
+		},
+	}
+	s := newTestScheduler(t, store, sub)
+	job := cronstore.Job{
+		ID:           "job-1",
+		ScheduleExpr: "not a cron",
+		Timezone:     "UTC",
+		ClaimToken:   "tok",
+		NextRunAt:    s.now().Add(24 * time.Hour),
+		MaxAttempts:  3,
+	}
+	store.claimFn = func(context.Context, cronstore.ClaimDueJobsForUpdateParams) ([]cronstore.Job, error) {
+		return []cronstore.Job{job}, nil
+	}
+	store.markFailedFn = func(_ context.Context, p cronstore.MarkFailedParams) error {
+		t.Fatalf("MarkFailed reused old next_run_at on invalid schedule: %+v", p)
+		return nil
+	}
+
+	err := s.RunTick(context.Background())
+	if err == nil || !strings.Contains(err.Error(), "schedule_expr") {
+		t.Fatalf("RunTick error = %v, want schedule_expr validation error", err)
 	}
 }
 

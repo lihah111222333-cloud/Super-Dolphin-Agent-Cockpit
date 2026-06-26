@@ -2,6 +2,7 @@ package memory
 
 import (
 	"log/slog"
+	"testing"
 )
 
 // testHooksOption 是 MemoryLifecycleHooks 测试构造的函数式选项。
@@ -40,6 +41,15 @@ func withTestCfg(cfg *Config) testHooksOption {
 // （例如 markCrossScopeSameNameWarned）时使用。
 func withLocks(c *diskLockCoordinator) testHooksOption {
 	return func(h *MemoryLifecycleHooks) { h.locks = c }
+}
+
+// newTestGitProjectRoot 创建可被 AutoMem 解析的项目根目录。
+// resolvedStoreRoot 现在会暴露 GetAutoMemPath 错误，测试不能再用非 git 临时目录伪装项目根。
+func newTestGitProjectRoot(t *testing.T) string {
+	t.Helper()
+	projectRoot := t.TempDir()
+	initGitRepoForMemoryTest(t, projectRoot)
+	return projectRoot
 }
 
 // newTestHooks 构造一个 locks 字段已就绪的 MemoryLifecycleHooks，

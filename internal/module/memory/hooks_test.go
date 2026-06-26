@@ -15,7 +15,7 @@ import (
 
 func TestRememberIntentWritesImmediatelyFromUserInput(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "memory-root")
-	projectRoot := filepath.Join(t.TempDir(), "project")
+	projectRoot := newTestGitProjectRoot(t)
 	hooks := newMemoryLifecycleHooks(&Config{
 		Enabled:     true,
 		RootDir:     root,
@@ -50,7 +50,7 @@ func TestRememberIntentWritesImmediatelyFromUserInput(t *testing.T) {
 
 func TestRememberIntentHonorsSkipIndex(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "memory-root")
-	projectRoot := filepath.Join(t.TempDir(), "project")
+	projectRoot := newTestGitProjectRoot(t)
 	hooks := newMemoryLifecycleHooks(&Config{
 		Enabled:     true,
 		SkipIndex:   true,
@@ -77,9 +77,21 @@ func TestRememberIntentHonorsSkipIndex(t *testing.T) {
 	}
 }
 
+func TestResolvedStoreRootProjectRootFailureReturnsError(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "memory-root")
+	projectRoot := filepath.Join(t.TempDir(), "missing-project")
+	storeRoot, err := resolvedStoreRoot(root, projectRoot, "")
+	if err == nil {
+		t.Fatalf("resolvedStoreRoot() error = nil, want AutoMem path failure for %q (storeRoot=%q)", projectRoot, storeRoot)
+	}
+	if !strings.Contains(err.Error(), "resolve git root") {
+		t.Fatalf("resolvedStoreRoot() error = %v, want resolve git root failure", err)
+	}
+}
+
 func TestForgetIntentDeletesMatchingMemory(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "memory-root")
-	projectRoot := filepath.Join(t.TempDir(), "project")
+	projectRoot := newTestGitProjectRoot(t)
 	hooks := newMemoryLifecycleHooks(&Config{
 		Enabled:     true,
 		RootDir:     root,
@@ -113,7 +125,7 @@ func TestForgetIntentDeletesMatchingMemory(t *testing.T) {
 
 func TestMemoryLifecycleHooksOnTurnEndUsesAutoMemPathOverride(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "memory-root")
-	projectRoot := filepath.Join(t.TempDir(), "project")
+	projectRoot := newTestGitProjectRoot(t)
 	override := filepath.Join(t.TempDir(), "override", "memory")
 	hooks := newMemoryLifecycleHooks(&Config{
 		Enabled:             true,
@@ -157,7 +169,7 @@ func userTurnInputEvent(threadID, turnID, text string) turndto.TurnInputReceived
 }
 
 func TestWriteAgentMemoryValidation(t *testing.T) {
-	hooks := newMemoryLifecycleHooks(&Config{Enabled: true, EnableTools: true, RootDir: t.TempDir(), ProjectRoot: t.TempDir()}, nil, nil, nil, nil, nil, nil, nil)
+	hooks := newMemoryLifecycleHooks(&Config{Enabled: true, EnableTools: true, RootDir: t.TempDir(), ProjectRoot: newTestGitProjectRoot(t)}, nil, nil, nil, nil, nil, nil, nil)
 	tests := []struct {
 		name string
 		req  contract.AgentMemoryWriteRequest
@@ -188,7 +200,7 @@ func TestWriteAgentMemoryValidation(t *testing.T) {
 
 func TestWriteAgentMemoryFeedbackWritesPrivateAndInvalidates(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "memory-root")
-	projectRoot := filepath.Join(t.TempDir(), "project")
+	projectRoot := newTestGitProjectRoot(t)
 
 	invalidator := &sectionInvalidatorStub{}
 	cfg := &Config{Enabled: true, EnableTools: true, RootDir: root, ProjectRoot: projectRoot}
@@ -254,7 +266,7 @@ func assertAgentMemoryStoredFeedback(t *testing.T, entries []MemoryEntry) {
 
 func TestReadAgentMemoryReadsEntryVisibleInMemoryCenter(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "memory-root")
-	projectRoot := filepath.Join(t.TempDir(), "project")
+	projectRoot := newTestGitProjectRoot(t)
 	cfg := &Config{Enabled: true, EnableTools: true, RootDir: root, ProjectRoot: projectRoot}
 	hooks := newMemoryLifecycleHooks(cfg, nil, nil, nil, nil, nil, nil, nil)
 
@@ -284,7 +296,7 @@ func TestReadAgentMemoryReadsEntryVisibleInMemoryCenter(t *testing.T) {
 
 func TestReadAgentMemoryReadsExistingDurablePrivateEntry(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "memory-root")
-	projectRoot := filepath.Join(t.TempDir(), "project")
+	projectRoot := newTestGitProjectRoot(t)
 	cfg := &Config{Enabled: true, EnableTools: true, RootDir: root, ProjectRoot: projectRoot}
 	hooks := newMemoryLifecycleHooks(cfg, nil, nil, nil, nil, nil, nil, nil)
 	storeRoot, err := resolvedStoreRoot(root, projectRoot, "")
@@ -323,7 +335,7 @@ func TestReadAgentMemoryReadsExistingDurablePrivateEntry(t *testing.T) {
 
 func TestReadAgentMemoryByPathReturnsRelativeSourcePath(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "memory-root")
-	projectRoot := filepath.Join(t.TempDir(), "project")
+	projectRoot := newTestGitProjectRoot(t)
 	cfg := &Config{Enabled: true, EnableTools: true, RootDir: root, ProjectRoot: projectRoot}
 	hooks := newMemoryLifecycleHooks(cfg, nil, nil, nil, nil, nil, nil, nil)
 	storeRoot, err := resolvedStoreRoot(root, projectRoot, "")
@@ -360,7 +372,7 @@ func TestReadAgentMemoryByPathReturnsRelativeSourcePath(t *testing.T) {
 
 func TestReadAgentMemoryReadsExistingDurableTeamEntry(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "memory-root")
-	projectRoot := filepath.Join(t.TempDir(), "project")
+	projectRoot := newTestGitProjectRoot(t)
 	cfg := &Config{Enabled: true, EnableTools: true, RootDir: root, ProjectRoot: projectRoot, Features: MemoryFeatureFlags{TeamMemory: true}}
 	hooks := newMemoryLifecycleHooks(cfg, nil, nil, nil, nil, nil, nil, nil)
 	teamRoot, err := configuredTeamMemRoot(cfg)
@@ -399,7 +411,7 @@ func TestReadAgentMemoryReadsExistingDurableTeamEntry(t *testing.T) {
 
 func TestReadAgentMemoryDefaultScopeReadsPrivateMemory(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "memory-root")
-	projectRoot := filepath.Join(t.TempDir(), "project")
+	projectRoot := newTestGitProjectRoot(t)
 	cfg := &Config{Enabled: true, EnableTools: true, RootDir: root, ProjectRoot: projectRoot}
 	hooks := newMemoryLifecycleHooks(cfg, nil, nil, nil, nil, nil, nil, nil)
 	storeRoot, err := resolvedStoreRoot(root, projectRoot, "")
@@ -423,7 +435,7 @@ func TestReadAgentMemoryDefaultScopeReadsPrivateMemory(t *testing.T) {
 }
 
 func TestReadAgentMemoryTeamScopeDisabledReturnsUnsupportedScope(t *testing.T) {
-	hooks := newMemoryLifecycleHooks(&Config{Enabled: true, EnableTools: true, RootDir: t.TempDir(), ProjectRoot: t.TempDir()}, nil, nil, nil, nil, nil, nil, nil)
+	hooks := newMemoryLifecycleHooks(&Config{Enabled: true, EnableTools: true, RootDir: t.TempDir(), ProjectRoot: newTestGitProjectRoot(t)}, nil, nil, nil, nil, nil, nil, nil)
 	_, err := hooks.ReadAgentMemory(context.Background(), contract.MemoryReadRequest{Name: "x", Scope: contract.MemoryScopeTeam})
 	if code := contract.AgentMemoryErrorCode(err); code != "unsupported_scope" {
 		t.Fatalf("error code = %q, want unsupported_scope (err=%v)", code, err)
@@ -432,7 +444,7 @@ func TestReadAgentMemoryTeamScopeDisabledReturnsUnsupportedScope(t *testing.T) {
 
 func TestReadAgentMemoryTypeMismatchReturnsNotFound(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "memory-root")
-	projectRoot := filepath.Join(t.TempDir(), "project")
+	projectRoot := newTestGitProjectRoot(t)
 	hooks := newMemoryLifecycleHooks(&Config{Enabled: true, EnableTools: true, RootDir: root, ProjectRoot: projectRoot}, nil, nil, nil, nil, nil, nil, nil)
 	storeRoot, err := resolvedStoreRoot(root, projectRoot, "")
 	if err != nil {
@@ -458,9 +470,9 @@ func TestReadAgentMemoryValidationAndDisabled(t *testing.T) {
 		req  contract.MemoryReadRequest
 		code string
 	}{
-		{name: "feature disabled", cfg: &Config{Enabled: false, EnableTools: true, RootDir: t.TempDir(), ProjectRoot: t.TempDir()}, req: contract.MemoryReadRequest{Name: "x", Scope: contract.MemoryScopeUser}, code: "feature_disabled"},
-		{name: "tools disabled", cfg: &Config{Enabled: true, EnableTools: false, RootDir: t.TempDir(), ProjectRoot: t.TempDir()}, req: contract.MemoryReadRequest{Name: "x", Scope: contract.MemoryScopeUser}, code: "tools_disabled"},
-		{name: "empty name path", cfg: &Config{Enabled: true, EnableTools: true, RootDir: t.TempDir(), ProjectRoot: t.TempDir()}, req: contract.MemoryReadRequest{Scope: contract.MemoryScopeUser}, code: "invalid_input"},
+		{name: "feature disabled", cfg: &Config{Enabled: false, EnableTools: true, RootDir: t.TempDir(), ProjectRoot: newTestGitProjectRoot(t)}, req: contract.MemoryReadRequest{Name: "x", Scope: contract.MemoryScopeUser}, code: "feature_disabled"},
+		{name: "tools disabled", cfg: &Config{Enabled: true, EnableTools: false, RootDir: t.TempDir(), ProjectRoot: newTestGitProjectRoot(t)}, req: contract.MemoryReadRequest{Name: "x", Scope: contract.MemoryScopeUser}, code: "tools_disabled"},
+		{name: "empty name path", cfg: &Config{Enabled: true, EnableTools: true, RootDir: t.TempDir(), ProjectRoot: newTestGitProjectRoot(t)}, req: contract.MemoryReadRequest{Scope: contract.MemoryScopeUser}, code: "invalid_input"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -478,7 +490,7 @@ func TestReadAgentMemoryValidationAndDisabled(t *testing.T) {
 
 func TestReadAgentMemoryRejectsPathOutsideMemoryRoot(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "memory-root")
-	projectRoot := filepath.Join(t.TempDir(), "project")
+	projectRoot := newTestGitProjectRoot(t)
 	hooks := newMemoryLifecycleHooks(&Config{Enabled: true, EnableTools: true, RootDir: root, ProjectRoot: projectRoot}, nil, nil, nil, nil, nil, nil, nil)
 	_, err := hooks.ReadAgentMemory(context.Background(), contract.MemoryReadRequest{Path: "../outside.md", Scope: contract.MemoryScopeUser})
 	if err == nil {
@@ -529,7 +541,7 @@ func TestRelativeAgentMemoryReadPathDoesNotLeakUnsafeAbsolutePath(t *testing.T) 
 }
 
 func TestReadAgentMemoryMissingEntryReturnsNotFound(t *testing.T) {
-	hooks := newMemoryLifecycleHooks(&Config{Enabled: true, EnableTools: true, RootDir: t.TempDir(), ProjectRoot: t.TempDir()}, nil, nil, nil, nil, nil, nil, nil)
+	hooks := newMemoryLifecycleHooks(&Config{Enabled: true, EnableTools: true, RootDir: t.TempDir(), ProjectRoot: newTestGitProjectRoot(t)}, nil, nil, nil, nil, nil, nil, nil)
 	_, err := hooks.ReadAgentMemory(context.Background(), contract.MemoryReadRequest{Name: "missing", Scope: contract.MemoryScopeUser})
 	if err == nil {
 		t.Fatal("ReadAgentMemory() error = nil, want not_found")
@@ -540,7 +552,7 @@ func TestReadAgentMemoryMissingEntryReturnsNotFound(t *testing.T) {
 }
 
 func TestReadAgentMemoryUnsupportedScopes(t *testing.T) {
-	hooks := newMemoryLifecycleHooks(&Config{Enabled: true, EnableTools: true, RootDir: t.TempDir(), ProjectRoot: t.TempDir()}, nil, nil, nil, nil, nil, nil, nil)
+	hooks := newMemoryLifecycleHooks(&Config{Enabled: true, EnableTools: true, RootDir: t.TempDir(), ProjectRoot: newTestGitProjectRoot(t)}, nil, nil, nil, nil, nil, nil, nil)
 	for _, scope := range []contract.MemoryScope{contract.MemoryScopeProject, contract.MemoryScopeLocal, contract.MemoryScope("private")} {
 		t.Run(string(scope), func(t *testing.T) {
 			_, err := hooks.ReadAgentMemory(context.Background(), contract.MemoryReadRequest{Name: "x", Scope: scope})
@@ -590,7 +602,7 @@ func assertUIMemoryEntryVisible(t *testing.T, entries []UIMemoryEntry, name, sou
 }
 
 func TestWriteAgentMemoryDisabled(t *testing.T) {
-	hooks := newMemoryLifecycleHooks(&Config{Enabled: false, EnableTools: true, RootDir: t.TempDir(), ProjectRoot: t.TempDir()}, nil, nil, nil, nil, nil, nil, nil)
+	hooks := newMemoryLifecycleHooks(&Config{Enabled: false, EnableTools: true, RootDir: t.TempDir(), ProjectRoot: newTestGitProjectRoot(t)}, nil, nil, nil, nil, nil, nil, nil)
 	_, err := hooks.WriteAgentMemory(context.Background(), validAgentMemoryRequest(nil))
 	if !errors.Is(err, contract.ErrFeatureDisabled) || contract.AgentMemoryErrorCode(err) != "feature_disabled" {
 		t.Fatalf("WriteAgentMemory() error = %v, want feature_disabled", err)

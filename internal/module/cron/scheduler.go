@@ -406,7 +406,10 @@ func (s *Scheduler) observeStartedTurn(ctx context.Context, job cronstore.Job, r
 // finalizeFailure 在 StartTurn 失败时将 run 标记为 failed 并计算下一次重试时间。
 func (s *Scheduler) finalizeFailure(ctx context.Context, job cronstore.Job, run cronstore.Run, scheduledAt time.Time, startErr error) error {
 	now := s.now().UTC()
-	nextRetry := s.nextRetry(job, now)
+	nextRetry, err := s.nextRetry(job, now)
+	if err != nil {
+		return err
+	}
 	// run 级 CAS 失败不阻断 job 级 MarkFailed，但要记录，便于排查收尾期 DB 抖动。
 	s.casLogPublish(ctx, cronstore.CASRunStatusParams{
 		ID: run.ID, ExpectedStatus: cronstore.StatusSubmitting, NextStatus: cronstore.StatusFailed,

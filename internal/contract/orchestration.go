@@ -465,6 +465,13 @@ type FinalOutputFileRef struct {
 	SourceNodeKey string
 }
 
+var (
+	// ErrFinalOutputMetadataInvalid 表示 run metadata JSON 无法解析。
+	ErrFinalOutputMetadataInvalid = errors.New("final output metadata is invalid")
+	// ErrFinalOutputInvalid 表示 metadata.final_output 无法按支持的文件输出形状解析。
+	ErrFinalOutputInvalid = errors.New("final_output is invalid")
+)
+
 // finalOutputMetadataEnvelope 匹配 run metadata 中 final_output 外层对象。
 type finalOutputMetadataEnvelope struct {
 	FinalOutput json.RawMessage `json:"final_output"`
@@ -480,34 +487,47 @@ type finalOutputFilePayload struct {
 	} `json:"sharedfile"`
 }
 
-// FinalOutputFileFromRunMetadata 从运行记录 metadata 中提取最终文件产物。
-// 非 file 类型、空 JSON 或无法解析的载荷都会返回 ok=false，由调用方决定是否忽略。
-func FinalOutputFileFromRunMetadata(metadataJSON json.RawMessage) (FinalOutputFileRef, bool) {
+// FinalOutputFileFromRunMetadataStrict 从运行记录 metadata 中提取最终文件产物。
+// 缺失、非 file 类型或空路径返回 ok=false；JSON 结构损坏会返回显式错误，避免调用方误当成“无产物”。
+func FinalOutputFileFromRunMetadataStrict(metadataJSON json.RawMessage) (FinalOutputFileRef, bool, error) {
 	if isEmptyJSON(metadataJSON) {
-		return FinalOutputFileRef{}, false
+		return FinalOutputFileRef{}, false, nil
 	}
 	var metadata finalOutputMetadataEnvelope
-	if err := json.Unmarshal(metadataJSON, &metadata); err != nil || isEmptyJSON(metadata.FinalOutput) {
-		return FinalOutputFileRef{}, false
+	if err := json.Unmarshal(metadataJSON, &metadata); err != nil {
+		return FinalOutputFileRef{}, false, fmt.Errorf("%w: parse run metadata: %w", ErrFinalOutputMetadataInvalid, err)
+	}
+	if isEmptyJSON(metadata.FinalOutput) {
+		return FinalOutputFileRef{}, false, nil
 	}
 	var output finalOutputFilePayload
 	if err := json.Unmarshal(metadata.FinalOutput, &output); err != nil {
-		return FinalOutputFileRef{}, false
+		return FinalOutputFileRef{}, false, fmt.Errorf("%w: parse final_output: %w", ErrFinalOutputInvalid, err)
 	}
 	if kind := strings.TrimSpace(output.Kind); kind != "" && kind != "file" {
-		return FinalOutputFileRef{}, false
+		return FinalOutputFileRef{}, false, nil
 	}
 	path := strings.TrimSpace(output.Path)
 	if path == "" && output.SharedFile != nil {
 		path = strings.TrimSpace(output.SharedFile.Path)
 	}
 	if path == "" {
-		return FinalOutputFileRef{}, false
+		return FinalOutputFileRef{}, false, nil
 	}
 	return FinalOutputFileRef{
 		Path:          path,
 		SourceNodeKey: strings.TrimSpace(output.SourceNodeKey),
-	}, true
+	}, true, nil
+}
+
+// FinalOutputFileFromRunMetadata 从运行记录 metadata 中提取最终文件产物。
+// 这是兼容旧调用方的宽松 wrapper，解析错误会折叠成 ok=false；需要区分坏数据时应调用 Strict 版本。
+func FinalOutputFileFromRunMetadata(metadataJSON json.RawMessage) (FinalOutputFileRef, bool) {
+	ref, ok, err := FinalOutputFileFromRunMetadataStrict(metadataJSON)
+	if err != nil {
+		return FinalOutputFileRef{}, false
+	}
+	return ref, ok
 }
 
 // isEmptyJSON 判断 RawMessage 是否为空值或 JSON null。

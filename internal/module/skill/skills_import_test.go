@@ -433,6 +433,21 @@ func TestImportLocalDirRejectsSourceInsideProjectSkillsRoot(t *testing.T) {
 	}
 }
 
+func TestEnsureSourceOutsideRootsReturnsRootResolutionError(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	root := filepath.Join(dir, "loop")
+	mustSymlink(t, root, root)
+	source := filepath.Join(t.TempDir(), "source")
+	mustMkdirAll(t, source)
+
+	err := ensureSourceOutsideRoots([]string{root}, source, source)
+	if err == nil || !strings.Contains(err.Error(), "resolve skills root") {
+		t.Fatalf("ensureSourceOutsideRoots() error = %v, want root resolution error", err)
+	}
+}
+
 func TestImportLocalDirAcceptsSourceOutsideProjectRoot(t *testing.T) {
 	t.Parallel()
 

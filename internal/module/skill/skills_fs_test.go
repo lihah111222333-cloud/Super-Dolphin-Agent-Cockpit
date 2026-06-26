@@ -1,6 +1,7 @@
 package skill
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"io"
@@ -613,6 +614,26 @@ func TestReadRemoteHonorsContextCancellation(t *testing.T) {
 	}
 	if !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatalf("ReadRemote() error = %v, want context deadline exceeded", err)
+	}
+}
+
+func TestReadRemoteRejectsOversizeBody(t *testing.T) {
+	t.Parallel()
+
+	svc := newTestSkillService(t)
+	svc.http = &http.Client{Transport: skillRoundTripFunc(func(req *http.Request) (*http.Response, error) {
+		body := bytes.Repeat([]byte("x"), maxSkillFileBytes+1)
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Body:       io.NopCloser(bytes.NewReader(body)),
+			Header:     make(http.Header),
+			Request:    req,
+		}, nil
+	})}
+
+	_, err := svc.ReadRemote(context.Background(), "https://example.com/SKILL.md")
+	if err == nil || !strings.Contains(err.Error(), "remote skill too large") {
+		t.Fatalf("ReadRemote() error = %v, want remote skill too large", err)
 	}
 }
 

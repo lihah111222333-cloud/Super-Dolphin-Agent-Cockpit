@@ -18,7 +18,7 @@ import (
 )
 
 func TestMergeUIMemoryEntriesUsesTeamGuardWhenKeptEntryIsTeam(t *testing.T) {
-	projectRoot := t.TempDir()
+	projectRoot := newTestGitProjectRoot(t)
 	privateRoot := filepath.Join(t.TempDir(), "private")
 	cfg := &Config{
 		Enabled:             true,
@@ -83,7 +83,7 @@ func TestMergeUIMemoryEntriesUsesTeamGuardWhenKeptEntryIsTeam(t *testing.T) {
 }
 
 func TestRollbackMergedEntryUsesTeamGuardWhenTargetIsTeam(t *testing.T) {
-	projectRoot := t.TempDir()
+	projectRoot := newTestGitProjectRoot(t)
 	privateRoot := filepath.Join(t.TempDir(), "private")
 	cfg := &Config{
 		Enabled:             true,
@@ -118,7 +118,7 @@ func TestRollbackMergedEntryUsesTeamGuardWhenTargetIsTeam(t *testing.T) {
 }
 
 func TestMergeUIMemoryEntriesRollsBackKeptEntryWhenDeleteAbsorbedFails(t *testing.T) {
-	projectRoot := t.TempDir()
+	projectRoot := newTestGitProjectRoot(t)
 	privateRoot := filepath.Join(t.TempDir(), "private")
 	cfg := &Config{
 		Enabled:             true,
@@ -221,7 +221,7 @@ func assertRollbackFailureIndexesPreserved(t *testing.T, fixture mergeRollbackDe
 }
 
 func TestMergeUIMemoryEntriesUpdatesAndDeletesRequestedPathsWhenDuplicateNamesExist(t *testing.T) {
-	projectRoot := t.TempDir()
+	projectRoot := newTestGitProjectRoot(t)
 	privateRoot := filepath.Join(t.TempDir(), "private")
 	cfg := &Config{
 		Enabled:             true,
@@ -312,7 +312,7 @@ func assertDuplicateMergeResult(t *testing.T, privateRoot string, paths duplicat
 }
 
 func TestMergeUIMemoryEntriesRejectsDifferentTypesAndKeepsBoth(t *testing.T) {
-	projectRoot := t.TempDir()
+	projectRoot := newTestGitProjectRoot(t)
 	privateRoot := filepath.Join(t.TempDir(), "private")
 	cfg := &Config{
 		Enabled:             true,
@@ -363,7 +363,7 @@ func TestMergeUIMemoryEntriesRejectsDifferentTypesAndKeepsBoth(t *testing.T) {
 }
 
 func TestMergeUIMemoryEntriesRejectsDissimilarEntriesAndKeepsBoth(t *testing.T) {
-	projectRoot := t.TempDir()
+	projectRoot := newTestGitProjectRoot(t)
 	privateRoot := filepath.Join(t.TempDir(), "private")
 	cfg := &Config{
 		Enabled:             true,
@@ -472,6 +472,34 @@ func TestDeleteUISharedFileAllowsUnreferencedSharedFile(t *testing.T) {
 	}
 	if deleter.calls != 1 || deleter.paths[0] != "scratch/intermediate.md" {
 		t.Fatalf("Delete() calls=%d paths=%v", deleter.calls, deleter.paths)
+	}
+}
+
+func TestDeleteUISharedFileRejectsMalformedFinalOutputMetadata(t *testing.T) {
+	t.Parallel()
+
+	deleter := &recordingSharedFileDeleter{}
+	deps := memoryHandlerDeps{
+		SharedFilesDeleter: deleter,
+		Orchestration: &finalOutputOrchestrationStub{
+			dags: []contract.DAGSummary{{DagKey: "dag-1"}},
+			runs: []contract.Run{{
+				RunKey:   "run-1",
+				DagKey:   "dag-1",
+				Metadata: json.RawMessage(`{"final_output":{"sharedfile":"reports/final.md"}}`),
+			}},
+		},
+	}
+
+	deleted, err := deleteUISharedFile(context.Background(), deps, uiSharedFileDeleteParams{Path: "scratch/intermediate.md"})
+	if err == nil || !strings.Contains(err.Error(), "final_output") {
+		t.Fatalf("deleteUISharedFile() error = %v, want malformed final_output guard failure", err)
+	}
+	if deleted {
+		t.Fatal("deleteUISharedFile() deleted = true, want false")
+	}
+	if deleter.calls != 0 {
+		t.Fatalf("Delete() calls = %d, want 0", deleter.calls)
 	}
 }
 

@@ -263,7 +263,11 @@ func collectDAGProtectedPaths(ctx context.Context, dagRuntime contract.DAGRuntim
 		return fmt.Errorf("run scan reached safety limit %d", runScanLimit)
 	}
 	for _, run := range runs.Runs {
-		if ref, ok := contract.FinalOutputFileFromRunMetadata(run.Metadata); ok {
+		ref, ok, parseErr := contract.FinalOutputFileFromRunMetadataStrict(run.Metadata)
+		if parseErr != nil {
+			return fmt.Errorf("parse final_output metadata for run %q: %w", strings.TrimSpace(run.RunKey), parseErr)
+		}
+		if ok {
 			addProtectedPath(protected, ref.Path, "final_output")
 		}
 		if run.Status == "running" {
