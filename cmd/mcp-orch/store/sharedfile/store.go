@@ -3,6 +3,7 @@ package sharedfile
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io/fs"
 
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/sqlc"
@@ -14,6 +15,12 @@ import (
 
 // sharedfile store 同时维护磁盘正文和 DB 索引。
 // 磁盘配置启用时正文以磁盘为准，DB 保存索引和可内联的小正文；Config.CWD 为空时保持 DB-only 兼容。
+
+// sharedfile 正文位置常量，对应 shared_files.content_location CHECK 约束。
+const (
+	contentLocationInline = "inline"
+	contentLocationDisk   = "disk"
+)
 
 type store struct {
 	q   *sqlc.Queries
@@ -39,14 +46,15 @@ func (s *store) Upsert(ctx context.Context, params UpsertParams) (*SharedFile, e
 	if err != nil {
 		return nil, wrapSharedFileError(err, "upsert")
 	}
-	dbContent, writeErr := writeDiskAndDecideInline(s.cfg, cleaned, params.Content)
+	dbContent, contentLocation, writeErr := writeDiskAndDecideInline(s.cfg, cleaned, params.Content)
 	if writeErr != nil {
 		return nil, wrapSharedFileError(writeErr, "upsert")
 	}
 	row, err := s.q.UpsertSharedFile(ctx, sqlc.UpsertSharedFileParams{
-		Path:      cleaned,
-		Content:   dbContent,
-		UpdatedBy: params.UpdatedBy,
+		Path:            cleaned,
+		Content:         dbContent,
+		ContentLocation: contentLocation,
+		UpdatedBy:       params.UpdatedBy,
 	})
 	if err != nil {
 		return nil, wrapSharedFileError(err, "upsert")
@@ -59,7 +67,7 @@ func (s *store) Upsert(ctx context.Context, params UpsertParams) (*SharedFile, e
 	return &mapped, nil
 }
 
-// Get 读取 sharedfile；磁盘正文存在时以磁盘为准，缺失时回退 DB inline 内容。
+// Get 读取 sharedfile；inline 记录以 DB content 为准，disk 记录必须读到磁盘正文。
 func (s *store) Get(ctx context.Context, path string) (*SharedFile, error) {
 	cleaned, err := sharedfilepath.ValidateReadPath(path)
 	if err != nil {
@@ -74,10 +82,29 @@ func (s *store) Get(ctx context.Context, path string) (*SharedFile, error) {
 		return nil, wrapSharedFileError(dbErr, "get")
 	}
 	if !s.cfg.Enabled() {
-		if !dbHit {
-			return nil, wrapSharedFileError(dbErr, "get")
-		}
+		return dbSharedFile(mapped, dbHit, dbErr)
+	}
+	if !dbHit {
+		return nil, wrapSharedFileError(dbErr, "get")
+	}
+	if row.ContentLocation == contentLocationInline {
 		return &mapped, nil
+	}
+	return s.diskBackedSharedFile(cleaned, mapped, row.ContentLocation)
+}
+
+// dbSharedFile 返回 DB-only 模式下的 sharedfile 记录。
+func dbSharedFile(mapped SharedFile, dbHit bool, dbErr error) (*SharedFile, error) {
+	if !dbHit {
+		return nil, wrapSharedFileError(dbErr, "get")
+	}
+	return &mapped, nil
+}
+
+// diskBackedSharedFile 读取 disk 位置正文；正文缺失时直接报错，不能回退 DB 空串。
+func (s *store) diskBackedSharedFile(cleaned string, mapped SharedFile, contentLocation string) (*SharedFile, error) {
+	if contentLocation != contentLocationDisk {
+		return nil, wrapSharedFileError(fmt.Errorf("invalid content_location %q for %q", contentLocation, cleaned), "get")
 	}
 	abs, resolveErr := s.cfg.ResolveReadAbs(cleaned)
 	if resolveErr != nil {
@@ -92,10 +119,7 @@ func (s *store) Get(ctx context.Context, path string) (*SharedFile, error) {
 	if !errors.Is(readErr, fs.ErrNotExist) {
 		return nil, wrapSharedFileError(readErr, "get")
 	}
-	if !dbHit {
-		return nil, wrapSharedFileError(dbErr, "get")
-	}
-	return &mapped, nil
+	return nil, wrapSharedFileError(fmt.Errorf("disk content %q missing: %w", cleaned, readErr), "get")
 }
 
 // List 按前缀列出 sharedfile 索引，不读取磁盘正文。
@@ -136,25 +160,25 @@ func (s *store) Delete(ctx context.Context, path string) (int64, error) {
 	return count, nil
 }
 
-// writeDiskAndDecideInline 在磁盘模式下先写正文，再决定 DB 是否内联保存。
-// 超过阈值时 DB content 留空，读取路径必须回磁盘；未启用磁盘配置时保留 DB-only 行为。
-func writeDiskAndDecideInline(cfg sharedfilefs.Config, cleanedRel, content string) (string, error) {
+// writeDiskAndDecideInline 在磁盘模式下先写正文，再决定 DB content 和 content_location。
+// 超过阈值时 DB content 留空且标记 disk；未启用磁盘配置时保持 inline 行为。
+func writeDiskAndDecideInline(cfg sharedfilefs.Config, cleanedRel, content string) (string, string, error) {
 	if !cfg.Enabled() {
-		return content, nil
+		return content, contentLocationInline, nil
 	}
 	abs, resolveErr := cfg.ResolveWriteAbs(cleanedRel)
 	if resolveErr != nil {
-		return "", resolveErr
+		return "", "", resolveErr
 	}
 	// .gitignore 维护不参与正文正确性：失败不阻断写入，helper 内部用 Sync.Once 降低重复成本。
 	_ = sharedfilegitignore.Ensure(cfg.CWD, nil)
 	if writeErr := sharedfilefs.WriteAtomic(abs, []byte(content)); writeErr != nil {
-		return "", writeErr
+		return "", "", writeErr
 	}
 	if len(content) > cfg.ResolvedThreshold() {
-		return "", nil
+		return "", contentLocationDisk, nil
 	}
-	return content, nil
+	return content, contentLocationInline, nil
 }
 
 // mapSharedFile 将 sqlc 行映射为 sharedfile DTO。
