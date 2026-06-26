@@ -202,6 +202,31 @@ func TestWorkspaceCreateRunValidatesInputAndPropagatesStoreError(t *testing.T) {
 	}
 }
 
+func TestWorkspaceCreateRunRejectsSourceRootOutsideScope(t *testing.T) {
+	t.Parallel()
+
+	allowedRoot := t.TempDir()
+	sourceRoot := t.TempDir()
+	store := newWorkspaceHandlerTestStore()
+	svc := NewService(store, nil)
+
+	_, err := svc.CreateRun(context.Background(), CreateRunRequest{
+		RunKey:     "run-outside",
+		SourceRoot: sourceRoot,
+		CWD:        allowedRoot,
+		CreatedBy:  "tester",
+	})
+	if err == nil {
+		t.Fatal("CreateRun() error = nil, want source root scope rejection")
+	}
+	if !strings.Contains(err.Error(), "outside allowed workspace roots") {
+		t.Fatalf("CreateRun() error = %v, want allowed workspace roots rejection", err)
+	}
+	if store.upsertRunCalls != 0 {
+		t.Fatalf("UpsertRun calls = %d, want 0 when source root is out of scope", store.upsertRunCalls)
+	}
+}
+
 type workspaceHandlerTestStore struct {
 	mu sync.Mutex
 

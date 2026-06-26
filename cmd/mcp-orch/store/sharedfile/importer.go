@@ -50,9 +50,10 @@ func (s *store) ImportLocalFile(ctx context.Context, params ImportLocalFileParam
 		return nil, err
 	}
 	row, err := s.q.UpsertSharedFile(ctx, sqlc.UpsertSharedFileParams{
-		Path:      cleanedTarget,
-		Content:   "",
-		UpdatedBy: importUpdatedBy(params.UpdatedBy),
+		Path:            cleanedTarget,
+		Content:         "",
+		ContentLocation: contentLocationDisk,
+		UpdatedBy:       importUpdatedBy(params.UpdatedBy),
 	})
 	if err != nil {
 		_ = os.Remove(targetAbs)

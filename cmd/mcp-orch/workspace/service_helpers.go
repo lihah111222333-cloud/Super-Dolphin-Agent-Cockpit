@@ -269,6 +269,53 @@ func validateRelativePath(raw string) (string, error) {
 	return path, nil
 }
 
+// requestAllowedWorkspaceRoots 归一化创建或合并请求携带的可信根目录。
+// 显式 roots 优先；旧路径没有 roots 但有 CWD 时，把 CWD 当作单一边界。
+func requestAllowedWorkspaceRoots(cwd string, roots []string) ([]string, error) {
+	raw := append([]string(nil), roots...)
+	if len(raw) == 0 && strings.TrimSpace(cwd) != "" {
+		raw = []string{cwd}
+	}
+	if len(raw) == 0 {
+		return nil, nil
+	}
+	out := make([]string, 0, len(raw))
+	seen := make(map[string]struct{}, len(raw))
+	for _, root := range raw {
+		trimmed := strings.TrimSpace(root)
+		if trimmed == "" {
+			continue
+		}
+		if !filepath.IsAbs(trimmed) {
+			return nil, fmt.Errorf("allowed workspace root %q must be absolute", root)
+		}
+		cleaned := filepath.Clean(trimmed)
+		if _, ok := seen[cleaned]; ok {
+			continue
+		}
+		seen[cleaned] = struct{}{}
+		out = append(out, cleaned)
+	}
+	if len(out) == 0 {
+		return nil, errors.New("allowed workspace roots are empty")
+	}
+	return out, nil
+}
+
+// ensurePathWithinAllowedWorkspaceRoots 拒绝对可信根之外的 source/workspace 路径继续写入。
+func ensurePathWithinAllowedWorkspaceRoots(label, path string, roots []string) error {
+	if len(roots) == 0 {
+		return nil
+	}
+	cleaned := filepath.Clean(path)
+	for _, root := range roots {
+		if platformshared.ContainsPath(root, cleaned) {
+			return nil
+		}
+	}
+	return fmt.Errorf("%s %s is outside allowed workspace roots [%s]", label, cleaned, strings.Join(roots, ", "))
+}
+
 // hashFile 计算文件 SHA-256。
 func hashFile(path string) (string, error) {
 	file, err := os.Open(path)

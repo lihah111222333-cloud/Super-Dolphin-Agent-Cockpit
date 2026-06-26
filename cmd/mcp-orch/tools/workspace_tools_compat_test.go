@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	workspace "github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/workspace"
+	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/common"
 )
 
 type compatWorkspaceServiceStub struct {
@@ -76,7 +77,8 @@ func TestHandleWorkspaceMergeRunIncludesV2CompatFields(t *testing.T) {
 		},
 	})
 
-	result, err := handler(context.Background(), mustRawInput(t, WorkspaceMergeRunRequest{
+	ctx := common.WithToolScope(context.Background(), common.ToolScope{CWD: t.TempDir()})
+	result, err := handler(ctx, mustRawInput(t, WorkspaceMergeRunRequest{
 		RunKey:        "run-1",
 		DryRun:        true,
 		DeleteRemoved: true,

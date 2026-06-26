@@ -30,26 +30,28 @@ type RunFile = storeworkspace.WorkspaceRunFile
 // CreateRunRequest 是创建 workspace run 的服务层请求。
 // SourceRoot 必填；WorkspacePath 为空时服务会在 .workspace/<runKey> 下创建隔离目录。
 type CreateRunRequest struct {
-	RunKey        string          `json:"run_key,omitempty"`
-	DagKey        string          `json:"dag_key,omitempty"`
-	SourceRoot    string          `json:"source_root"`
-	WorkspacePath string          `json:"workspace_path,omitempty"`
-	CWD           string          `json:"cwd,omitempty"`
-	Status        string          `json:"status,omitempty"`
-	CreatedBy     string          `json:"created_by,omitempty"`
-	UpdatedBy     string          `json:"updated_by,omitempty"`
-	Files         []string        `json:"files,omitempty"`
-	Metadata      json.RawMessage `json:"metadata,omitempty"`
-	FinishedAt    *time.Time      `json:"finished_at,omitempty"`
+	RunKey             string          `json:"run_key,omitempty"`
+	DagKey             string          `json:"dag_key,omitempty"`
+	SourceRoot         string          `json:"source_root"`
+	WorkspacePath      string          `json:"workspace_path,omitempty"`
+	CWD                string          `json:"cwd,omitempty"`
+	Status             string          `json:"status,omitempty"`
+	CreatedBy          string          `json:"created_by,omitempty"`
+	UpdatedBy          string          `json:"updated_by,omitempty"`
+	Files              []string        `json:"files,omitempty"`
+	Metadata           json.RawMessage `json:"metadata,omitempty"`
+	FinishedAt         *time.Time      `json:"finished_at,omitempty"`
+	AllowedSourceRoots []string        `json:"-"`
 }
 
 // MergeRunRequest 是从 workspace 合并回 source root 的写入请求。
 // DryRun 只评估不写文件，DeleteRemoved 控制是否允许安全删除源文件。
 type MergeRunRequest struct {
-	RunKey        string `json:"run_key"`
-	UpdatedBy     string `json:"updated_by,omitempty"`
-	DryRun        bool   `json:"dry_run,omitempty"`
-	DeleteRemoved bool   `json:"delete_removed,omitempty"`
+	RunKey             string   `json:"run_key"`
+	UpdatedBy          string   `json:"updated_by,omitempty"`
+	DryRun             bool     `json:"dry_run,omitempty"`
+	DeleteRemoved      bool     `json:"delete_removed,omitempty"`
+	AllowedSourceRoots []string `json:"-"`
 }
 
 // MergeFileResult 记录单个文件的 merge 判定结果。

@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	workspace "github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/workspace"
+	mcpcommon "github.com/anthropic-ai/super-agent-v3/internal/mcpserver/common"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 )
 
@@ -160,17 +161,23 @@ func createWorkspaceRun(ctx context.Context, svc workspace.Service, input Worksp
 	if err != nil {
 		return nil, err
 	}
+	cwd, allowedRoots, err := workspaceCreateScope(ctx, sourceRoot)
+	if err != nil {
+		return nil, err
+	}
 	metadata, err := marshalMapToJSON(input.Metadata)
 	if err != nil {
 		return nil, err
 	}
 	run, err := svc.CreateRun(ctx, workspace.CreateRunRequest{
-		RunKey:     strings.TrimSpace(input.RunKey),
-		DagKey:     strings.TrimSpace(input.DagKey),
-		SourceRoot: sourceRoot,
-		CreatedBy:  strings.TrimSpace(input.CreatedBy),
-		Files:      trimNonEmpty(input.Files),
-		Metadata:   metadata,
+		RunKey:             strings.TrimSpace(input.RunKey),
+		DagKey:             strings.TrimSpace(input.DagKey),
+		SourceRoot:         sourceRoot,
+		CWD:                cwd,
+		CreatedBy:          strings.TrimSpace(input.CreatedBy),
+		Files:              trimNonEmpty(input.Files),
+		Metadata:           metadata,
+		AllowedSourceRoots: allowedRoots,
 	})
 	if err != nil {
 		return nil, err
@@ -234,11 +241,16 @@ func mergeWorkspaceRun(ctx context.Context, svc workspace.Service, input Workspa
 	if err != nil {
 		return nil, err
 	}
+	allowedRoots, err := trustedWorkspaceRoots(ctx)
+	if err != nil {
+		return nil, err
+	}
 	result, err := svc.MergeRun(ctx, workspace.MergeRunRequest{
-		RunKey:        runKey,
-		UpdatedBy:     strings.TrimSpace(input.UpdatedBy),
-		DryRun:        input.DryRun,
-		DeleteRemoved: input.DeleteRemoved,
+		RunKey:             runKey,
+		UpdatedBy:          strings.TrimSpace(input.UpdatedBy),
+		DryRun:             input.DryRun,
+		DeleteRemoved:      input.DeleteRemoved,
+		AllowedSourceRoots: allowedRoots,
 	})
 	if err != nil {
 		return nil, err
@@ -293,6 +305,29 @@ func trimNonEmpty(values []string) []string {
 		return nil
 	}
 	return trimmed
+}
+
+// workspaceCreateScope 从可信工具作用域解析 create 请求允许访问的根目录。
+// sourceRoot 为绝对路径时必须落在 roots 内；相对路径使用主 root 作为 CWD。
+func workspaceCreateScope(ctx context.Context, sourceRoot string) (string, []string, error) {
+	cwd, err := mcpcommon.WorkspaceRootForPathFromContextStrict(ctx, sourceRoot)
+	if err != nil {
+		return "", nil, err
+	}
+	roots, err := trustedWorkspaceRoots(ctx)
+	if err != nil {
+		return "", nil, err
+	}
+	return cwd, roots, nil
+}
+
+// trustedWorkspaceRoots 读取调用方可信 workspace roots，缺失时阻断写工具。
+func trustedWorkspaceRoots(ctx context.Context) ([]string, error) {
+	roots, err := mcpcommon.WorkspaceRootsFromContextStrict(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return roots, nil
 }
 
 // marshalMapToJSON 将工具层 metadata map 编成服务层 raw JSON。

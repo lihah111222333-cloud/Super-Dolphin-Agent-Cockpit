@@ -27,7 +27,7 @@ func (q *Queries) DeleteSharedFile(ctx context.Context, arg DeleteSharedFilePara
 }
 
 const getSharedFile = `-- name: GetSharedFile :one
-SELECT path, content, updated_by, created_at, updated_at
+SELECT path, content, content_location, updated_by, created_at, updated_at
 FROM shared_files
 WHERE path = ?
 `
@@ -42,6 +42,7 @@ func (q *Queries) GetSharedFile(ctx context.Context, arg GetSharedFileParams) (S
 	err := row.Scan(
 		&i.Path,
 		&i.Content,
+		&i.ContentLocation,
 		&i.UpdatedBy,
 		&i.CreatedAt,
 		&i.UpdatedAt,
@@ -50,7 +51,7 @@ func (q *Queries) GetSharedFile(ctx context.Context, arg GetSharedFileParams) (S
 }
 
 const listSharedFiles = `-- name: ListSharedFiles :many
-SELECT path, content, updated_by, created_at, updated_at
+SELECT path, content, content_location, updated_by, created_at, updated_at
 FROM shared_files
 WHERE (?1 = '' OR path LIKE '%' || ?1 || '%')
 ORDER BY updated_at DESC, path ASC
@@ -74,6 +75,7 @@ func (q *Queries) ListSharedFiles(ctx context.Context, arg ListSharedFilesParams
 		if err := rows.Scan(
 			&i.Path,
 			&i.Content,
+			&i.ContentLocation,
 			&i.UpdatedBy,
 			&i.CreatedAt,
 			&i.UpdatedAt,
@@ -92,27 +94,35 @@ func (q *Queries) ListSharedFiles(ctx context.Context, arg ListSharedFilesParams
 }
 
 const upsertSharedFile = `-- name: UpsertSharedFile :one
-INSERT INTO shared_files (path, content, updated_by, created_at, updated_at)
-VALUES (?, ?, ?, (CAST(strftime('%s','now') AS INTEGER) * 1000), (CAST(strftime('%s','now') AS INTEGER) * 1000))
+INSERT INTO shared_files (path, content, content_location, updated_by, created_at, updated_at)
+VALUES (?, ?, ?, ?, (CAST(strftime('%s','now') AS INTEGER) * 1000), (CAST(strftime('%s','now') AS INTEGER) * 1000))
 ON CONFLICT (path) DO UPDATE
 SET content = EXCLUDED.content,
+    content_location = EXCLUDED.content_location,
     updated_by = EXCLUDED.updated_by,
     updated_at = (CAST(strftime('%s','now') AS INTEGER) * 1000)
-RETURNING path, content, updated_by, created_at, updated_at
+RETURNING path, content, content_location, updated_by, created_at, updated_at
 `
 
 type UpsertSharedFileParams struct {
-	Path      string `db:"path" json:"path"`
-	Content   string `db:"content" json:"content"`
-	UpdatedBy string `db:"updated_by" json:"updated_by"`
+	Path            string `db:"path" json:"path"`
+	Content         string `db:"content" json:"content"`
+	ContentLocation string `db:"content_location" json:"content_location"`
+	UpdatedBy       string `db:"updated_by" json:"updated_by"`
 }
 
 func (q *Queries) UpsertSharedFile(ctx context.Context, arg UpsertSharedFileParams) (SharedFile, error) {
-	row := q.db.QueryRowContext(ctx, upsertSharedFile, arg.Path, arg.Content, arg.UpdatedBy)
+	row := q.db.QueryRowContext(ctx, upsertSharedFile,
+		arg.Path,
+		arg.Content,
+		arg.ContentLocation,
+		arg.UpdatedBy,
+	)
 	var i SharedFile
 	err := row.Scan(
 		&i.Path,
 		&i.Content,
+		&i.ContentLocation,
 		&i.UpdatedBy,
 		&i.CreatedAt,
 		&i.UpdatedAt,
