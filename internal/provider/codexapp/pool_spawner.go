@@ -21,18 +21,13 @@ import (
 // 它必须复用池专属的命令构造和环境白名单，避免父进程残留的 CODEX_HOME 或数据库变量泄漏。
 // 启动失败时返回带 stderr 尾部的错误，调用方可直接写入池的退避状态。
 func runPoolSpawn(ctx context.Context, home, modelProvider string, registry *pidregistry.Registry, logger *slog.Logger) (*transport, error) {
-	if logger == nil {
-		logger = pkglogger.Get()
-	}
+	logger = defaultCodexAppLogger(logger)
 	if err := ensureCodexCLIAvailable(ctx); err != nil {
 		return nil, err
 	}
 	startupCtx, cancel := withTimeout(ctx, transportReadyTimeout)
 	defer cancel()
-	cmd, err := BuildPoolSpawnCmd(startupCtx, PoolSpawnArgs{
-		Home:      home,
-		ExtraArgs: append(poolSpawnNativeLSPConfigOverrideArgs([]string{"model_provider=" + tomlString(modelProvider)}), poolSpawnAppServerArgs(startupCtx)...),
-	})
+	cmd, err := BuildPoolSpawnCmd(startupCtx, PoolSpawnArgs{Home: home, ExtraArgs: append(poolSpawnNativeLSPConfigOverrideArgs([]string{"model_provider=" + tomlString(modelProvider)}), poolSpawnAppServerArgs(startupCtx)...)})
 	if err != nil {
 		return nil, err
 	}
@@ -67,7 +62,10 @@ func runPoolSpawn(ctx context.Context, home, modelProvider string, registry *pid
 	go t.watchLocalProcess(proc)
 	if registry != nil {
 		if pid := t.localPID(); pid > 0 {
-			registry.Register(pid, "codex-app-server-pool", map[string]string{"codex_home": home, "work_dir": workDir})
+			if err := registry.RegisterChecked(pid, "codex-app-server-pool", map[string]string{"codex_home": home, "work_dir": workDir}); err != nil {
+				_ = t.shutdownTransport(false)
+				return nil, fmt.Errorf("codexapp: pool pidregistry register: %w", err)
+			}
 		}
 	}
 	// 建立池持有的控制 WebSocket 和 initialize 握手，避免 app-server 启动后因零客户端超时退出。
@@ -76,11 +74,7 @@ func runPoolSpawn(ctx context.Context, home, modelProvider string, registry *pid
 		_ = t.shutdownTransport(false)
 		return nil, fmt.Errorf("codexapp: pool establish: %w", err)
 	}
-	logger.Info("codexapp: pool spawned app-server",
-		slog.String("codex_home", home),
-		slog.String("work_dir", workDir),
-		slog.String("server_url", serverURL),
-	)
+	logger.Info("codexapp: pool spawned app-server", slog.String("codex_home", home), slog.String("work_dir", workDir), slog.String("server_url", serverURL))
 	return t, nil
 }
 
@@ -125,8 +119,7 @@ func withPoolSpawnLSPConfig(ctx context.Context, roots []string, binaryDir strin
 }
 
 func poolSpawnAppServerArgs(ctx context.Context) []string {
-	value := poolSpawnContextValue[[]string](ctx, poolSpawnAppServerArgsContextKey{})
-	return append([]string(nil), value...)
+	return append([]string(nil), poolSpawnContextValue[[]string](ctx, poolSpawnAppServerArgsContextKey{})...)
 }
 
 func poolSpawnPolicySignature(ctx context.Context) string {
@@ -142,20 +135,17 @@ func poolSpawnPolicySignature(ctx context.Context) string {
 }
 
 func poolSpawnWorkspaceRoots(ctx context.Context) []string {
-	value := poolSpawnContextValue[[]string](ctx, poolSpawnWorkspaceRootsContextKey{})
-	return append([]string(nil), value...)
+	return append([]string(nil), poolSpawnContextValue[[]string](ctx, poolSpawnWorkspaceRootsContextKey{})...)
 }
 
 func poolSpawnMCPBinaryDir(ctx context.Context) string {
 	return strings.TrimSpace(poolSpawnContextValue[string](ctx, poolSpawnMCPBinaryDirContextKey{}))
 }
 
-func poolSpawnContextValue[T any](ctx context.Context, key any) T {
-	var zero T
-	if ctx == nil {
-		return zero
+func poolSpawnContextValue[T any](ctx context.Context, key any) (value T) {
+	if ctx != nil {
+		value, _ = ctx.Value(key).(T)
 	}
-	value, _ := ctx.Value(key).(T)
 	return value
 }
 
@@ -258,25 +248,7 @@ func buildPoolSpawnEnv(parent []string, home, workDir string) []string {
 
 // codexSpawnEnvAllowlist 列出允许传给子 app-server 的父进程环境变量。
 // 其他 CODEX_*、OPENAI_* 污染项会被剥离，确保 CODEX_HOME 是唯一身份来源。
-var codexSpawnEnvAllowlist = []string{
-	"PATH",
-	"HOME",
-	"USER",
-	"LOGNAME",
-	"LANG",
-	"LC_ALL",
-	"LC_CTYPE",
-	"LC_MESSAGES",
-	"TZ",
-	"TMPDIR",
-	"TEMP",
-	"TMP",
-	"SHELL",
-	"SSL_CERT_FILE", "SSL_CERT_DIR",
-	"HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY",
-	sidecarRuntimeModeEnv, sidecarRuntimeResourcesEnv, providershared.SuperDolphinHomeEnv,
-	codexRelayBootstrapTokenEnv,
-}
+var codexSpawnEnvAllowlist = []string{"PATH", "HOME", "USER", "LOGNAME", "LANG", "LC_ALL", "LC_CTYPE", "LC_MESSAGES", "TZ", "TMPDIR", "TEMP", "TMP", "SHELL", "SSL_CERT_FILE", "SSL_CERT_DIR", "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY", sidecarRuntimeModeEnv, sidecarRuntimeResourcesEnv, providershared.SuperDolphinHomeEnv, codexRelayBootstrapTokenEnv}
 
 // buildAllowlistedSpawnEnv 从父环境中只保留允许传递给 codex app-server 的变量。
 // overrides 会在数据库环境拦截后覆盖同名值，最终再补齐 loopback no_proxy 以保证本地握手可达。
@@ -322,9 +294,7 @@ func splitEnv(kv string) (string, string, bool) {
 // NewTransportSpawner 构造供 ServerPool 使用的 app-server 启动器。
 // 每次调用都会为指定 codexHome 启动独立进程；并发、去重和释放由池按 identity+owner 负责。
 func NewTransportSpawner(registry *pidregistry.Registry, logger *slog.Logger) Spawner {
-	if logger == nil {
-		logger = pkglogger.Get()
-	}
+	logger = defaultCodexAppLogger(logger)
 	return func(ctx context.Context, home, modelProvider string) (SpawnedServer, error) {
 		t, err := runPoolSpawn(ctx, home, modelProvider, registry, logger)
 		if err != nil {
@@ -332,4 +302,11 @@ func NewTransportSpawner(registry *pidregistry.Registry, logger *slog.Logger) Sp
 		}
 		return wrapTransport(t), nil
 	}
+}
+
+func defaultCodexAppLogger(logger *slog.Logger) *slog.Logger {
+	if logger != nil {
+		return logger
+	}
+	return pkglogger.Get()
 }

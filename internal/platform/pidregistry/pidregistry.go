@@ -2,6 +2,7 @@ package pidregistry
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -60,9 +61,16 @@ func New() *Registry {
 }
 
 // Register 登记子进程并立即持久化，确保崩溃后仍可回收。
+// 旧调用面保留无返回值；需要 fail-fast 的启动路径必须使用 RegisterChecked。
 func (r *Registry) Register(pid int, kind string, meta map[string]string) {
+	_ = r.RegisterChecked(pid, kind, meta)
+}
+
+// RegisterChecked 登记子进程并返回持久化错误。
+// 持久化失败会回滚本次登记，调用方必须停止刚启动的子进程。
+func (r *Registry) RegisterChecked(pid int, kind string, meta map[string]string) error {
 	if r == nil || pid <= 1 {
-		return
+		return nil
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -72,7 +80,11 @@ func (r *Registry) Register(pid int, kind string, meta map[string]string) {
 		StartedAt: time.Now().Format(time.RFC3339),
 		Meta:      meta,
 	}
-	r.persist()
+	if err := r.persist(); err != nil {
+		delete(r.children, pid)
+		return err
+	}
+	return nil
 }
 
 // Unregister 在子进程正常退出时移除登记并持久化。
@@ -83,7 +95,7 @@ func (r *Registry) Unregister(pid int) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	delete(r.children, pid)
-	r.persist()
+	_ = r.persist()
 }
 
 // Close 删除当前应用的 registry 文件，表示正常关闭无需后续清理。
@@ -211,8 +223,8 @@ func sigkillSurvivors(sigtermed []staleOrphan) int {
 }
 
 // persist 通过临时文件加 rename 原子写入 registry。
-// 失败只告警不 panic，避免进程登记故障反向影响主流程。
-func (r *Registry) persist() {
+// 写入失败必须返回给调用方，不能让新子进程在无 registry 保护下继续运行。
+func (r *Registry) persist() error {
 	data := registryFile{
 		AppPID:   r.appPID,
 		Children: make([]ChildInfo, 0, len(r.children)),
@@ -222,18 +234,23 @@ func (r *Registry) persist() {
 	}
 	raw, err := json.Marshal(data)
 	if err != nil {
+		err = fmt.Errorf("pidregistry: marshal registry: %w", err)
 		pkglogger.Warn("pidregistry: marshal failed", "error", err)
-		return
+		return err
 	}
 	tmp := r.path + ".tmp"
 	if err := os.WriteFile(tmp, raw, 0o644); err != nil {
+		err = fmt.Errorf("pidregistry: write registry: %w", err)
 		pkglogger.Warn("pidregistry: write failed", "error", err)
-		return
+		return err
 	}
 	if err := os.Rename(tmp, r.path); err != nil {
+		err = fmt.Errorf("pidregistry: rename registry: %w", err)
 		pkglogger.Warn("pidregistry: rename failed", "error", err)
 		_ = os.Remove(tmp)
+		return err
 	}
+	return nil
 }
 
 // registryPath 返回指定 app PID 对应的 registry 文件路径。
