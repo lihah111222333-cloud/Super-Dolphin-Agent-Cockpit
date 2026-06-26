@@ -1,13 +1,17 @@
 # 规格符合性审查者提示词模板
 
-派发规格符合性审查者子代理时使用此模板。
+创建规格符合性审查 DAG node 时使用此模板。该 node 必须依赖对应实现 node 完成。
 
 **目的：** 验证实现者构建的是被请求的内容（不多也不少）
 
 ```
-Task tool (general-purpose):
-  description: "Review spec compliance for Task N"
-  prompt: |
+mcp-orch DAG node:
+  node_key: "task-n-spec-review"
+  title: "Review spec compliance for Task N"
+  node_type: "agent"
+  assigned_to: "[stable-reviewer-id]"
+  depends_on: ["task-n-implement"]
+  config.exec.prompt: |
     You are reviewing whether an implementation matches its specification.
 
     ## What Was Requested
@@ -55,9 +59,10 @@ Task tool (general-purpose):
 
     **Verify by reading code, not by trusting report.**
 
-    Report:
-    - ✅ Spec compliant (if everything matches after code inspection)
-    - ❌ Issues found: [list specifically what's missing or extra, with file:line references]
+	    Report:
+	    - ✅ Spec compliant (if everything matches after code inspection)
+	    - ❌ Issues found: [list specifically what's missing or extra, with file:line references]
+	    - Node evidence: dag_key, node_key, run_id, and intended task_update_node status
 ```
 
-上面的代码块是要发送给子代理的英文模板，保持原文以便直接使用。
+上面的代码块是 DAG node 的 prompt payload 模板，保持英文正文以便直接使用。

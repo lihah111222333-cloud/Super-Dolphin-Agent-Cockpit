@@ -12,6 +12,8 @@ aliases: ["@子代理驱动开发", "@子代理开发", "@subagent-driven-develo
 
 **核心原则：** 每个任务使用新子代理 + 两阶段审查（先规格、后质量）= 高质量、快速迭代
 
+**super-agent-v3 强制前置：** 在本仓库中，子代理生命周期必须先进入 mcp-orch DAG。启动任何实现者或审查者前，先用 `task_create_dag` 建图；用户要求执行时用 `task_start_dag` 启动 run；ready 节点需要指派时用 `task_dispatch_node`；每次状态变化用 `task_update_node` 写入 `running`、`done`、`failed` 或 `blocked`。如果当前环境没有暴露这些工具，先向用户说明限制，不要启动子代理。
+
 ## 何时使用
 
 ```dot
@@ -46,42 +48,42 @@ digraph process {
 
     subgraph cluster_per_task {
         label="Per Task";
-        "Dispatch implementer subagent (./implementer-prompt.md)" [shape=box];
+        "Create/start implementer DAG node (./implementer-prompt.md)" [shape=box];
         "Implementer subagent asks questions?" [shape=diamond];
         "Answer questions, provide context" [shape=box];
-        "Implementer subagent implements, tests, commits, self-reviews" [shape=box];
-        "Dispatch spec reviewer subagent (./spec-reviewer-prompt.md)" [shape=box];
+        "Implementer subagent implements, tests, commits, self-reviews; update node status" [shape=box];
+        "Create/start spec reviewer DAG node (./spec-reviewer-prompt.md)" [shape=box];
         "Spec reviewer subagent confirms code matches spec?" [shape=diamond];
         "Implementer subagent fixes spec gaps" [shape=box];
-        "Dispatch code quality reviewer subagent (./code-quality-reviewer-prompt.md)" [shape=box];
+        "Create/start code quality reviewer DAG node (./code-quality-reviewer-prompt.md)" [shape=box];
         "Code quality reviewer subagent approves?" [shape=diamond];
         "Implementer subagent fixes quality issues" [shape=box];
-        "Mark task complete in TodoWrite" [shape=box];
+        "Mark DAG node done and update_plan complete" [shape=box];
     }
 
-    "Read plan, extract all tasks with full text, note context, create TodoWrite" [shape=box];
+    "Read plan, extract all tasks with full text, note context, create task_create_dag + update_plan" [shape=box];
     "More tasks remain?" [shape=diamond];
-    "Dispatch final code reviewer subagent for entire implementation" [shape=box];
+    "Create/start final code reviewer DAG node for entire implementation" [shape=box];
     "Use superpowers:结束开发分支" [shape=box style=filled fillcolor=lightgreen];
 
-    "Read plan, extract all tasks with full text, note context, create TodoWrite" -> "Dispatch implementer subagent (./implementer-prompt.md)";
-    "Dispatch implementer subagent (./implementer-prompt.md)" -> "Implementer subagent asks questions?";
+    "Read plan, extract all tasks with full text, note context, create task_create_dag + update_plan" -> "Create/start implementer DAG node (./implementer-prompt.md)";
+    "Create/start implementer DAG node (./implementer-prompt.md)" -> "Implementer subagent asks questions?";
     "Implementer subagent asks questions?" -> "Answer questions, provide context" [label="yes"];
-    "Answer questions, provide context" -> "Dispatch implementer subagent (./implementer-prompt.md)";
-    "Implementer subagent asks questions?" -> "Implementer subagent implements, tests, commits, self-reviews" [label="no"];
-    "Implementer subagent implements, tests, commits, self-reviews" -> "Dispatch spec reviewer subagent (./spec-reviewer-prompt.md)";
-    "Dispatch spec reviewer subagent (./spec-reviewer-prompt.md)" -> "Spec reviewer subagent confirms code matches spec?";
+    "Answer questions, provide context" -> "Create/start implementer DAG node (./implementer-prompt.md)";
+    "Implementer subagent asks questions?" -> "Implementer subagent implements, tests, commits, self-reviews; update node status" [label="no"];
+    "Implementer subagent implements, tests, commits, self-reviews; update node status" -> "Create/start spec reviewer DAG node (./spec-reviewer-prompt.md)";
+    "Create/start spec reviewer DAG node (./spec-reviewer-prompt.md)" -> "Spec reviewer subagent confirms code matches spec?";
     "Spec reviewer subagent confirms code matches spec?" -> "Implementer subagent fixes spec gaps" [label="no"];
-    "Implementer subagent fixes spec gaps" -> "Dispatch spec reviewer subagent (./spec-reviewer-prompt.md)" [label="re-review"];
-    "Spec reviewer subagent confirms code matches spec?" -> "Dispatch code quality reviewer subagent (./code-quality-reviewer-prompt.md)" [label="yes"];
-    "Dispatch code quality reviewer subagent (./code-quality-reviewer-prompt.md)" -> "Code quality reviewer subagent approves?";
+    "Implementer subagent fixes spec gaps" -> "Create/start spec reviewer DAG node (./spec-reviewer-prompt.md)" [label="re-review"];
+    "Spec reviewer subagent confirms code matches spec?" -> "Create/start code quality reviewer DAG node (./code-quality-reviewer-prompt.md)" [label="yes"];
+    "Create/start code quality reviewer DAG node (./code-quality-reviewer-prompt.md)" -> "Code quality reviewer subagent approves?";
     "Code quality reviewer subagent approves?" -> "Implementer subagent fixes quality issues" [label="no"];
-    "Implementer subagent fixes quality issues" -> "Dispatch code quality reviewer subagent (./code-quality-reviewer-prompt.md)" [label="re-review"];
-    "Code quality reviewer subagent approves?" -> "Mark task complete in TodoWrite" [label="yes"];
-    "Mark task complete in TodoWrite" -> "More tasks remain?";
-    "More tasks remain?" -> "Dispatch implementer subagent (./implementer-prompt.md)" [label="yes"];
-    "More tasks remain?" -> "Dispatch final code reviewer subagent for entire implementation" [label="no"];
-    "Dispatch final code reviewer subagent for entire implementation" -> "Use superpowers:结束开发分支";
+    "Implementer subagent fixes quality issues" -> "Create/start code quality reviewer DAG node (./code-quality-reviewer-prompt.md)" [label="re-review"];
+    "Code quality reviewer subagent approves?" -> "Mark DAG node done and update_plan complete" [label="yes"];
+    "Mark DAG node done and update_plan complete" -> "More tasks remain?";
+    "More tasks remain?" -> "Create/start implementer DAG node (./implementer-prompt.md)" [label="yes"];
+    "More tasks remain?" -> "Create/start final code reviewer DAG node for entire implementation" [label="no"];
+    "Create/start final code reviewer DAG node for entire implementation" -> "Use superpowers:结束开发分支";
 }
 ```
 
@@ -131,12 +133,12 @@ You: 我正在使用子代理驱动开发来执行这份计划。
 
 [Read plan file once: docs/superpowers/plans/feature-plan.md]
 [Extract all 5 tasks with full text and context]
-[Create TodoWrite with all tasks]
+[Create task_create_dag and update_plan with all tasks]
 
 Task 1: Hook installation script
 
 [Get Task 1 text and context (already extracted)]
-[Dispatch implementation subagent with full task text + context]
+[task_start_dag, then task_dispatch_node for implementation subagent with full task text + context]
 
 Implementer: "Before I begin - should the hook be installed at user or system level?"
 
@@ -149,18 +151,18 @@ Implementer: "Got it. Implementing now..."
   - Self-review: Found I missed --force flag, added it
   - Committed
 
-[Dispatch spec compliance reviewer]
+[task_dispatch_node for spec compliance reviewer]
 Spec reviewer: ✅ Spec compliant - all requirements met, nothing extra
 
 [Get git SHAs, dispatch code quality reviewer]
 Code reviewer: Strengths: Good test coverage, clean. Issues: None. Approved.
 
-[Mark Task 1 complete]
+[task_update_node status=done; mark Task 1 complete]
 
 Task 2: Recovery modes
 
 [Get Task 2 text and context (already extracted)]
-[Dispatch implementation subagent with full task text + context]
+[task_dispatch_node for implementation subagent with full task text + context]
 
 Implementer: [No questions, proceeds]
 Implementer:
@@ -169,7 +171,7 @@ Implementer:
   - Self-review: All good
   - Committed
 
-[Dispatch spec compliance reviewer]
+[task_dispatch_node for spec compliance reviewer]
 Spec reviewer: ❌ Issues:
   - Missing: Progress reporting (spec says "report every 100 items")
   - Extra: Added --json flag (not requested)
@@ -180,7 +182,7 @@ Implementer: Removed --json flag, added progress reporting
 [Spec reviewer reviews again]
 Spec reviewer: ✅ Spec compliant now
 
-[Dispatch code quality reviewer]
+[task_dispatch_node for code quality reviewer]
 Code reviewer: Strengths: Solid. Issues (Important): Magic number (100)
 
 [Implementer fixes]
@@ -194,7 +196,7 @@ Code reviewer: ✅ Approved
 ...
 
 [After all tasks]
-[Dispatch final code-reviewer]
+[task_dispatch_node for final code-reviewer]
 Final reviewer: All requirements met, ready to merge
 
 Done!
@@ -236,6 +238,7 @@ Done!
 
 **绝不要：**
 - 未经用户明确同意就在 main/master 分支上开始实现
+- 跳过 `task_create_dag` / `task_start_dag` / `task_dispatch_node` / `task_update_node` 生命周期记录
 - 跳过审查（规格符合性或代码质量）
 - 带着未修复问题继续
 - 并行派发多个实现子代理（会冲突）

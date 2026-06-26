@@ -14,6 +14,8 @@ aliases: ["@调度并行代理", "@并行代理调度", "@parallel-agent-orchest
 
 **核心原则：** 每个独立问题域派发一个代理。让它们并发工作。
 
+**super-agent-v3 强制要求：** 并行代理必须通过 mcp-orch 生命周期可观测化。先用 `task_create_dag` 建一个包含所有独立域的 DAG；用户要求执行时用 `task_start_dag` 启动 run；缺少 `assigned_to` 或需要人工指派的 ready 节点用 `task_dispatch_node`；完成、失败或阻塞用 `task_update_node` 写回。当前环境没有这些工具时，不要启动子代理，只能向用户说明限制并做单代理只读分析。
+
 ## 何时使用
 
 ```dot
@@ -67,12 +69,21 @@ digraph when_to_use {
 ### 3. 并行派发
 
 ```typescript
-// In Claude Code / AI environment
-Task("Fix agent-tool-abort.test.ts failures")
-Task("Fix batch-completion-behavior.test.ts failures")
-Task("Fix tool-approval-race-conditions.test.ts failures")
-// All three run concurrently
+task_create_dag({
+  dag_key: "fix-independent-test-failures",
+  nodes: [
+    { node_key: "agent-tool-abort", assigned_to: "worker", depends_on: [] },
+    { node_key: "batch-completion", assigned_to: "worker", depends_on: [] },
+    { node_key: "tool-approval-race", assigned_to: "worker", depends_on: [] }
+  ]
+})
+task_start_dag("fix-independent-test-failures")
+task_dispatch_node("agent-tool-abort", run_id, assigned_to)
+task_dispatch_node("batch-completion", run_id, assigned_to)
+task_dispatch_node("tool-approval-race", run_id, assigned_to)
 ```
+
+如果当前平台只暴露 Codex 多代理 fallback，不要把它当成本仓库的子代理执行路径；向用户说明 mcp-orch 工具缺失，并等待用户决定是否改为单代理审查。
 
 ### 4. 审阅并集成
 
@@ -172,6 +183,7 @@ Agent 3 → Fix tool-approval-race-conditions.test.ts
 2. **检查冲突**：代理是否编辑了相同代码？
 3. **运行完整套件**：验证所有修复能一起工作
 4. **抽查**：代理可能犯系统性错误
+5. **写回状态**：每个 node 用 `task_update_node` 写入最终状态；fallback 时用 `update_plan` 和报告替代，并说明限制。
 
 ## 真实影响
 
