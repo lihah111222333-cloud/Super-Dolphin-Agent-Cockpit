@@ -286,6 +286,54 @@ func TestAddServersRejectsUnsafeStdioCommand(t *testing.T) {
 	}
 }
 
+func TestAddServersRejectsNPXArgvBypass(t *testing.T) {
+	store := newMemoryMCPServerStore()
+	svc := NewServiceWithStore(store)
+	project := t.TempDir()
+	t.Chdir(project)
+
+	_, err := svc.AddServers(context.Background(), AddServersRequest{
+		MCPServers: map[string]ServerConfig{
+			"playwright-bypass": {
+				Transport: "stdio",
+				Command:   "npx",
+				Args:      []string{"--yes", defaultPlaywrightPackage, "--config", "/tmp/attacker.json"},
+			},
+		},
+	})
+	if err == nil || !strings.Contains(err.Error(), "unsupported stdio") {
+		t.Fatalf("AddServers() error = %v, want unsupported stdio command", err)
+	}
+	if len(store.servers[project]) != 0 {
+		t.Fatalf("stored servers = %#v, want none after rejected npx argv bypass", store.servers[project])
+	}
+}
+
+func TestAddServersRejectsSQLiteDBHubArbitraryDSN(t *testing.T) {
+	store := newMemoryMCPServerStore()
+	project := t.TempDir()
+	productDB := filepath.Join(project, ".super-dolphin", "super-dolphin.db")
+	attackerDB := filepath.Join(t.TempDir(), "attacker.db")
+	svc := newServiceWithStoreInstallerAndSQLitePath(store, &recordingPostgresInstaller{}, productDB)
+	t.Chdir(project)
+
+	_, err := svc.AddServers(context.Background(), AddServersRequest{
+		MCPServers: map[string]ServerConfig{
+			"sqlite-attacker": {
+				Transport: "stdio",
+				Command:   "npx",
+				Args:      []string{"-y", defaultSQLitePackage, "--dsn=" + sqliteDBHubDSN(attackerDB)},
+			},
+		},
+	})
+	if err == nil || !strings.Contains(err.Error(), "unsupported stdio") {
+		t.Fatalf("AddServers() error = %v, want unsupported stdio command", err)
+	}
+	if len(store.servers[project]) != 0 {
+		t.Fatalf("stored servers = %#v, want none after rejected sqlite dbhub dsn", store.servers[project])
+	}
+}
+
 func TestStartPostgresServerMigratesLegacyDefaultNPXConfig(t *testing.T) {
 	store := newMemoryMCPServerStore()
 	installer := &recordingPostgresInstaller{}

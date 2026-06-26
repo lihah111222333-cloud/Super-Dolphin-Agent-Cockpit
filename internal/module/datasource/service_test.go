@@ -2,6 +2,7 @@ package datasource
 
 import (
 	"bytes"
+	"compress/zlib"
 	"context"
 	"errors"
 	"os"
@@ -251,6 +252,41 @@ func TestUploadFileRejectsSourceOutsideWorkspace(t *testing.T) {
 	}
 }
 
+func TestUploadFileRejectsSymlinkEscapingWorkspace(t *testing.T) {
+	svc := NewService()
+	project := t.TempDir()
+	t.Chdir(project)
+	outside := filepath.Join(t.TempDir(), "outside.txt")
+	if err := os.WriteFile(outside, []byte("outside workspace through symlink"), 0o600); err != nil {
+		t.Fatalf("write outside source: %v", err)
+	}
+	sourceDir := datasourceSourceDir(t, project)
+	link := filepath.Join(sourceDir, "linked.txt")
+	if err := os.Symlink(outside, link); err != nil {
+		t.Fatalf("create symlink: %v", err)
+	}
+
+	_, err := svc.UploadFile(context.Background(), UploadFileRequest{SourcePath: link})
+	if err == nil || !strings.Contains(err.Error(), "outside workspace") {
+		t.Fatalf("UploadFile() error = %v, want symlink outside workspace rejection", err)
+	}
+	if _, statErr := os.Stat(filepath.Join(project, ".agent", "datasources", "uploads")); !errors.Is(statErr, os.ErrNotExist) {
+		t.Fatalf("upload dir stat error = %v, want not exist", statErr)
+	}
+}
+
+func TestExtractPDFTextRejectsOversizedFlateStream(t *testing.T) {
+	source := filepath.Join(t.TempDir(), "large.pdf")
+	if err := os.WriteFile(source, compressedPDFWithText(t, strings.Repeat("x", 10*1024*1024+1)), 0o600); err != nil {
+		t.Fatalf("write compressed pdf: %v", err)
+	}
+
+	_, err := extractPDFText(source)
+	if err == nil || !strings.Contains(err.Error(), "too large") {
+		t.Fatalf("extractPDFText() error = %v, want decompressed size rejection", err)
+	}
+}
+
 func TestListFilesReturnsSortedFileNamesFromUploadDir(t *testing.T) {
 	svc := NewService()
 	project := t.TempDir()
@@ -399,6 +435,25 @@ func minimalPDFWithText(text string) []byte {
 		"3 0 obj << /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >> endobj\n" +
 		"4 0 obj << /Length 0 >> stream\n" + body + "\nendstream endobj\n" +
 		"5 0 obj << /Type /Font /Subtype /Type1 /BaseFont /Helvetica >> endobj\n" +
+		"trailer << /Root 1 0 R >>\n%%EOF\n")
+}
+
+func compressedPDFWithText(t *testing.T, text string) []byte {
+	t.Helper()
+	var compressed bytes.Buffer
+	writer := zlib.NewWriter(&compressed)
+	if _, err := writer.Write([]byte("BT (" + text + ") Tj ET")); err != nil {
+		t.Fatalf("compress pdf stream: %v", err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatalf("close zlib writer: %v", err)
+	}
+	return []byte("%PDF-1.4\n" +
+		"1 0 obj << /Type /Catalog /Pages 2 0 R >> endobj\n" +
+		"2 0 obj << /Type /Pages /Kids [3 0 R] /Count 1 >> endobj\n" +
+		"3 0 obj << /Type /Page /Parent 2 0 R /Contents 4 0 R >> endobj\n" +
+		"4 0 obj << /Filter /FlateDecode /Length 0 >> stream\n" +
+		compressed.String() + "\nendstream endobj\n" +
 		"trailer << /Root 1 0 R >>\n%%EOF\n")
 }
 

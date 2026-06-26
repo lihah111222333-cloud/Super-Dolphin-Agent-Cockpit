@@ -19,7 +19,7 @@ const (
 	mcpHTTPAcceptHeader     = "application/json, text/event-stream"
 )
 
-var defaultMCPHTTPClient = &http.Client{Timeout: 30 * time.Second}
+var defaultMCPHTTPClient = httpegress.NewPublicHTTPClient(30 * time.Second)
 
 type mcpHTTPDoer interface {
 	Do(*http.Request) (*http.Response, error)
@@ -84,6 +84,30 @@ func sendMCPHTTPJSONRPC(
 	if err != nil {
 		return nil, fmt.Errorf("%w: %s: %v", errMCPServerToolsRequestFailed, method, err)
 	}
+	raw, err := readCheckedMCPHTTPResponse(resp, method)
+	if err != nil {
+		return nil, err
+	}
+	if !expectResponse && len(bytes.TrimSpace(raw)) == 0 {
+		return nil, nil
+	}
+	return decodeMCPHTTPRPCResult(method, raw, expectResponse)
+}
+
+// readCheckedMCPHTTPResponse 校验 HTTP 响应边界并限量读取 body，异常响应会立即返回错误。
+func readCheckedMCPHTTPResponse(resp *http.Response, method string) ([]byte, error) {
+	if resp == nil {
+		return nil, fmt.Errorf("%w: %s returned nil HTTP response", errMCPServerToolsRequestFailed, method)
+	}
+	if err := rejectMCPHTTPUnsafeResponseURL(resp); err != nil {
+		if resp.Body != nil {
+			_ = resp.Body.Close()
+		}
+		return nil, err
+	}
+	if resp.Body == nil {
+		return nil, fmt.Errorf("%w: %s returned nil response body", errMCPServerToolsRequestFailed, method)
+	}
 	defer resp.Body.Close()
 	raw, err := readMCPHTTPResponseBody(resp.Body)
 	if err != nil {
@@ -92,10 +116,7 @@ func sendMCPHTTPJSONRPC(
 	if err := rejectMCPHTTPStatus(resp.StatusCode, method, raw); err != nil {
 		return nil, err
 	}
-	if !expectResponse && len(bytes.TrimSpace(raw)) == 0 {
-		return nil, nil
-	}
-	return decodeMCPHTTPRPCResult(method, raw, expectResponse)
+	return raw, nil
 }
 
 // buildMCPHTTPJSONRPCRequest 构造发往远端 HTTP MCP server 的 JSON-RPC 请求。
@@ -130,6 +151,17 @@ func buildMCPHTTPJSONRPCRequest(
 		return nil, err
 	}
 	return req, nil
+}
+
+// rejectMCPHTTPUnsafeResponseURL 校验最终响应 URL，拦截 HTTP client 跟随重定向后落到本机或内网的情况。
+func rejectMCPHTTPUnsafeResponseURL(resp *http.Response) error {
+	if resp.Request == nil || resp.Request.URL == nil {
+		return nil
+	}
+	if _, err := httpegress.ValidatePublicURL(resp.Request.URL.String()); err != nil {
+		return fmt.Errorf("%w: redirected URL rejected: %v", errMCPServerToolsRequestFailed, err)
+	}
+	return nil
 }
 
 func applyMCPHTTPHeaders(req *http.Request, headers map[string]string) error {

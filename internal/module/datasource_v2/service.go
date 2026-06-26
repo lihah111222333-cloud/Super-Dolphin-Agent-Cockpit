@@ -26,9 +26,15 @@ var (
 	errDatasourceV2TextTooLarge        = errors.New("datasource v2: text is too large")
 	errDatasourceV2DocumentIDRequired  = errors.New("datasource v2: documentId is required")
 	errDatasourceV2ListLimitRequired   = errors.New("datasource v2: limit must be positive")
+	errDatasourceV2ListLimitTooLarge   = errors.New("datasource v2: limit is too large")
 	errDatasourceV2SearchQueryRequired = errors.New("datasource v2: semantic query is required")
 	errDatasourceV2MissingFileName     = errors.New("datasource v2: fileName is required")
 	errDatasourceV2SizeBytesInvalid    = errors.New("datasource v2: sizeBytes must be non-negative")
+)
+
+const (
+	datasourceV2MaxImportBytes = 10 * 1024 * 1024
+	datasourceV2MaxListLimit   = 1000
 )
 
 // Service 暴露 datasource_v2 的文件正文导入能力。
@@ -216,8 +222,8 @@ func (s *service) ListDocuments(ctx context.Context, req ListDocumentsRequest) (
 	if err := s.requireStore(); err != nil {
 		return ListDocumentsResult{}, err
 	}
-	if req.Limit <= 0 {
-		return ListDocumentsResult{}, errDatasourceV2ListLimitRequired
+	if err := validateDatasourceV2Limit(req.Limit); err != nil {
+		return ListDocumentsResult{}, err
 	}
 	docs, err := s.store.ListDocuments(ctx, datasourcev2store.ListDocumentsParams{
 		Keyword: strings.TrimSpace(req.Keyword),
@@ -266,8 +272,8 @@ func (s *service) SearchRelevantChunks(
 	if err := s.requireStore(); err != nil {
 		return SearchRelevantChunksResult{}, err
 	}
-	if req.Limit <= 0 {
-		return SearchRelevantChunksResult{}, errDatasourceV2ListLimitRequired
+	if err := validateDatasourceV2Limit(req.Limit); err != nil {
+		return SearchRelevantChunksResult{}, err
 	}
 	query := strings.TrimSpace(req.Query)
 	if query == "" {
@@ -427,6 +433,9 @@ func prepareValidatedImportSource(ctx context.Context, sourcePath string) (impor
 	if !isSupportedDatasourceV2Extension(extension) {
 		return importSource{}, fmt.Errorf("%w: %s", errUnsupportedFileExtension, extension)
 	}
+	if info.Size() > datasourceV2MaxImportBytes {
+		return importSource{}, errDatasourceV2TextTooLarge
+	}
 	return importSource{
 		path:      sourcePath,
 		fileName:  filepath.Base(sourcePath),
@@ -511,6 +520,17 @@ func importFileTextResult(doc datasourcev2store.Document) ImportFileTextResult {
 		TotalChars:  doc.TotalChars,
 		Status:      doc.Status,
 	}
+}
+
+// validateDatasourceV2Limit 确保列表和语义检索都有明确上限，避免前端或 prompt 请求无界读取。
+func validateDatasourceV2Limit(limit int32) error {
+	if limit <= 0 {
+		return errDatasourceV2ListLimitRequired
+	}
+	if limit > datasourceV2MaxListLimit {
+		return errDatasourceV2ListLimitTooLarge
+	}
+	return nil
 }
 
 // validateUpdateDocumentRequest 校验更新请求并构建 store 参数，路径或扩展名不合法时 fail-fast。

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"net/url"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -80,6 +81,27 @@ func TestListServerToolsRejectsLoopbackHTTPURLBeforeRequest(t *testing.T) {
 	}
 	if client.called {
 		t.Fatal("ListServerTools() sent HTTP request before rejecting private URL")
+	}
+}
+
+func TestListServerToolsRejectsRedirectToLoopback(t *testing.T) {
+	store := newMemoryMCPServerStore()
+	client := &redirectToLoopbackMCPHTTPDoer{t: t}
+	svc := NewServiceWithStore(store).(*service)
+	svc.httpClient = client
+	project := t.TempDir()
+	t.Chdir(project)
+	store.seed(project, "remote", ServerConfig{
+		Transport: "http",
+		URL:       "https://example.com/mcp",
+	})
+
+	_, err := svc.ListServerTools(context.Background(), ListServerToolsRequest{ServerName: "remote"})
+	if err == nil || !strings.Contains(err.Error(), "private network") {
+		t.Fatalf("ListServerTools() error = %v, want redirect-to-loopback rejection", err)
+	}
+	if !slices.Equal(client.methods, []string{"initialize"}) {
+		t.Fatalf("methods = %#v, want request stopped after redirected initialize", client.methods)
 	}
 }
 
@@ -173,6 +195,38 @@ func (d *scriptedMCPHTTPDoer) responseForMCPMethod(
 		d.t.Fatalf("unexpected JSON-RPC method %q", call.Method)
 		return nil, errors.New("unexpected method")
 	}
+}
+
+type redirectToLoopbackMCPHTTPDoer struct {
+	t       *testing.T
+	methods []string
+}
+
+func (d *redirectToLoopbackMCPHTTPDoer) Do(req *http.Request) (*http.Response, error) {
+	d.t.Helper()
+	call, err := decodeScriptedMCPHTTPCall(req)
+	if err != nil {
+		return nil, err
+	}
+	d.methods = append(d.methods, call.Method)
+	resp := scriptedMCPHTTPResponse(call.ID, map[string]any{
+		"protocolVersion": "2024-11-05",
+		"capabilities":    map[string]any{"tools": map[string]any{}},
+		"serverInfo":      map[string]any{"name": "redirected", "version": "dev"},
+	}, false)
+	redirected := req.Clone(req.Context())
+	redirected.URL = mustParseURL(d.t, "http://127.0.0.1/mcp")
+	resp.Request = redirected
+	return resp, nil
+}
+
+func mustParseURL(t *testing.T, raw string) *url.URL {
+	t.Helper()
+	parsed, err := url.Parse(raw)
+	if err != nil {
+		t.Fatalf("parse URL %q: %v", raw, err)
+	}
+	return parsed
 }
 
 func scriptedMCPHTTPResponse(id json.RawMessage, payload map[string]any, isError bool) *http.Response {

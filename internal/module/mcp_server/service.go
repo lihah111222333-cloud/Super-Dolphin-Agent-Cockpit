@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 
@@ -146,7 +147,11 @@ func (s *service) AddServers(ctx context.Context, req AddServersRequest) (AddSer
 	if err := ctx.Err(); err != nil {
 		return AddServersResult{}, err
 	}
-	additions, names, err := normalizeMCPServers(req.MCPServers)
+	sqliteProductDBPath, err := s.sqliteProductDBPathForMCPServers(req.MCPServers)
+	if err != nil {
+		return AddServersResult{}, err
+	}
+	additions, names, err := normalizeMCPServers(req.MCPServers, sqliteProductDBPath)
 	if err != nil {
 		return AddServersResult{}, err
 	}
@@ -172,6 +177,18 @@ func (s *service) AddServers(ctx context.Context, req AddServersRequest) (AddSer
 	}
 
 	return AddServersResult{ConfigPath: configPath, ServerNames: names}, nil
+}
+
+// sqliteProductDBPathForMCPServers 仅在新增配置包含 sqlite npx 包时解析产品数据库路径。
+// 这样普通 HTTP/Playwright/Postgres 配置不依赖 sqlite 环境，但 dbhub argv 不能指向任意文件。
+func (s *service) sqliteProductDBPathForMCPServers(input map[string]ServerConfig) (string, error) {
+	if !mcpServersContainSQLiteNPXPackage(input) {
+		return "", nil
+	}
+	if s == nil {
+		return "", errMCPServerStoreNotConfigured
+	}
+	return s.resolveSQLiteDatabasePath("")
 }
 
 // ListServers 读取当前进程 workspace 的 MCP server 配置。
@@ -224,7 +241,7 @@ func (s *service) ListServerTools(ctx context.Context, req ListServerToolsReques
 	if !ok {
 		return ListServerToolsResult{}, fmt.Errorf("%w: %s", errServerNotFound, name)
 	}
-	config, err = normalizeServerConfig(name, config)
+	config, err = normalizeServerConfig(name, config, "")
 	if err != nil {
 		return ListServerToolsResult{}, err
 	}
@@ -408,7 +425,10 @@ func mcpServerContext(ctx context.Context) context.Context {
 }
 
 // normalizeMCPServers 校验并整理待写入的 MCP server 配置。
-func normalizeMCPServers(input map[string]ServerConfig) (map[string]ServerConfig, []string, error) {
+func normalizeMCPServers(
+	input map[string]ServerConfig,
+	sqliteProductDBPath string,
+) (map[string]ServerConfig, []string, error) {
 	if len(input) == 0 {
 		return nil, nil, errMissingMCPServers
 	}
@@ -425,7 +445,7 @@ func normalizeMCPServers(input map[string]ServerConfig) (map[string]ServerConfig
 		if _, ok := servers[name]; ok {
 			return nil, nil, fmt.Errorf("%w: %s", errDuplicateServerName, name)
 		}
-		config, err := normalizeServerConfig(name, rawConfig)
+		config, err := normalizeServerConfig(name, rawConfig, sqliteProductDBPath)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -437,7 +457,7 @@ func normalizeMCPServers(input map[string]ServerConfig) (map[string]ServerConfig
 }
 
 // normalizeServerConfig 规范化 MCP server 配置，按 transport 分别校验 HTTP 与 stdio 字段。
-func normalizeServerConfig(name string, config ServerConfig) (ServerConfig, error) {
+func normalizeServerConfig(name string, config ServerConfig, sqliteProductDBPath string) (ServerConfig, error) {
 	transport := strings.TrimSpace(config.Transport)
 	if transport == "" {
 		return ServerConfig{}, fmt.Errorf("%w: %s", errMissingServerTransport, name)
@@ -446,7 +466,7 @@ func normalizeServerConfig(name string, config ServerConfig) (ServerConfig, erro
 	case "http":
 		return normalizeHTTPServerConfig(name, config)
 	case "stdio":
-		return normalizeStdioServerConfig(name, config)
+		return normalizeStdioServerConfig(name, config, sqliteProductDBPath)
 	default:
 		return ServerConfig{}, fmt.Errorf("%w: %s", errUnsupportedTransport, transport)
 	}
@@ -473,7 +493,7 @@ func normalizeHTTPServerConfig(name string, config ServerConfig) (ServerConfig, 
 	}, nil
 }
 
-func normalizeStdioServerConfig(name string, config ServerConfig) (ServerConfig, error) {
+func normalizeStdioServerConfig(name string, config ServerConfig, sqliteProductDBPath string) (ServerConfig, error) {
 	command := strings.TrimSpace(config.Command)
 	if command == "" {
 		return ServerConfig{}, fmt.Errorf("%w: %s", errMissingServerCommand, name)
@@ -482,7 +502,7 @@ func normalizeStdioServerConfig(name string, config ServerConfig) (ServerConfig,
 	if err != nil {
 		return ServerConfig{}, err
 	}
-	if !allowedStdioServerCommand(command, args) {
+	if !allowedStdioServerCommand(command, args, sqliteProductDBPath) {
 		return ServerConfig{}, fmt.Errorf("%w: %s", errUnsupportedStdioCommand, name)
 	}
 	env, err := normalizeStringMap(config.Env, errMissingServerEnvName, errMissingServerEnvValue, name)
@@ -498,23 +518,82 @@ func normalizeStdioServerConfig(name string, config ServerConfig) (ServerConfig,
 	}, nil
 }
 
-func allowedStdioServerCommand(command string, args []string) bool {
-	base := strings.ToLower(strings.TrimSpace(filepath.Base(command)))
-	base = strings.TrimSuffix(strings.TrimSuffix(base, ".exe"), ".cmd")
+func allowedStdioServerCommand(command string, args []string, sqliteProductDBPath string) bool {
+	base := stdioCommandBase(command)
 	if base == defaultPostgresCommand {
-		return true
+		return slices.Equal(args, []string{defaultPostgresDatabaseURL})
 	}
 	if base != "npx" {
 		return false
 	}
-	for _, arg := range args {
-		switch strings.TrimSpace(arg) {
-		case defaultPostgresPackage, defaultSQLitePackage, defaultPlaywrightPackage,
-			legacyDefaultSQLitePackage, brokenSQLitePackage:
-			return true
+	return allowedNPXServerArgs(args, sqliteProductDBPath)
+}
+
+// allowedNPXServerArgs 只接受项目内置 MCP server 的完整 argv，避免在包名后追加任意参数绕过 stdio 边界。
+func allowedNPXServerArgs(args []string, sqliteProductDBPath string) bool {
+	switch {
+	case slices.Equal(args, []string{defaultPlaywrightPackage}):
+		return true
+	case slices.Equal(args, []string{"-y", defaultPostgresPackage, defaultPostgresDatabaseURL}):
+		return true
+	case isDefaultSQLiteNPXArgs(args, sqliteProductDBPath):
+		return true
+	case isLegacySQLiteNPXArgs(args, sqliteProductDBPath):
+		return true
+	default:
+		return false
+	}
+}
+
+// isDefaultSQLiteNPXArgs 只识别当前 dbhub 默认启动形态，dsn 内容由 SQLite 启动入口负责固定来源。
+func isDefaultSQLiteNPXArgs(args []string, sqliteProductDBPath string) bool {
+	return len(args) == 3 &&
+		args[0] == "-y" &&
+		args[1] == defaultSQLitePackage &&
+		sqliteProductDBPath != "" &&
+		args[2] == "--dsn="+sqliteDBHubDSN(sqliteProductDBPath)
+}
+
+// isLegacySQLiteNPXArgs 只放行可迁移的旧 sqlite 默认形态，防止读取历史配置时被任意 npx 参数污染。
+func isLegacySQLiteNPXArgs(args []string, sqliteProductDBPath string) bool {
+	databasePath := legacySQLiteDatabasePath(args)
+	if databasePath == "" || sqliteProductDBPath == "" {
+		return false
+	}
+	normalized, err := normalizeSQLiteDatabasePath(databasePath)
+	if err != nil {
+		return false
+	}
+	return normalized == sqliteProductDBPath
+}
+
+// mcpServersContainSQLiteNPXPackage 检查新增配置里是否包含 sqlite npx 包，用于决定是否需要解析产品 DB 路径。
+func mcpServersContainSQLiteNPXPackage(input map[string]ServerConfig) bool {
+	for _, config := range input {
+		if stdioCommandBase(config.Command) != "npx" {
+			continue
+		}
+		for _, arg := range config.Args {
+			if isSQLiteNPXPackage(strings.TrimSpace(arg)) {
+				return true
+			}
 		}
 	}
 	return false
+}
+
+func isSQLiteNPXPackage(arg string) bool {
+	switch arg {
+	case defaultSQLitePackage, legacyDefaultSQLitePackage, brokenSQLitePackage:
+		return true
+	default:
+		return false
+	}
+}
+
+func stdioCommandBase(command string) string {
+	base := strings.ToLower(strings.TrimSpace(filepath.Base(command)))
+	return strings.TrimSuffix(strings.TrimSuffix(base, ".exe"), ".cmd")
 }
 
 func normalizeHeaders(serverName string, input map[string]string) (map[string]string, error) {
