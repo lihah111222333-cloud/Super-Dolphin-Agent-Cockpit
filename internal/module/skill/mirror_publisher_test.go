@@ -355,6 +355,37 @@ func TestSkillMirrorPublisherRejectsCanonicalSymlinkEntries(t *testing.T) {
 	}
 }
 
+func TestSkillMirrorPublisherStopsOnOversizedCanonicalFile(t *testing.T) {
+	project := t.TempDir()
+	dir := filepath.Join(project, ".agent", "skills", "build")
+	writeSkillContent(t, dir, "build", "# build\n")
+	hugeFile := filepath.Join(dir, "references", "huge.bin")
+	if err := os.MkdirAll(filepath.Dir(hugeFile), 0o755); err != nil {
+		t.Fatalf("MkdirAll oversized support dir: %v", err)
+	}
+	if err := os.WriteFile(hugeFile, make([]byte, maxSkillFileBytes+1), 0o644); err != nil {
+		t.Fatalf("WriteFile oversized support file: %v", err)
+	}
+	record := canonicalSkillRecord{
+		Name:        "build",
+		Scope:       skillScopeProject,
+		Dir:         dir,
+		SkillFile:   filepath.Join(dir, skillMainFile),
+		ContentHash: "content",
+		DirHash:     "dir",
+		info:        SkillInfo{Name: "build"},
+	}
+	root := providerProjectMirrorRoot(SkillProviderCodex, project)
+
+	_, err := PublishSkillMirrors(context.Background(), []canonicalSkillRecord{record}, []SkillMirrorTarget{
+		{TargetID: "codex:project:repo", Provider: SkillProviderCodex, Scope: skillScopeProject, Root: root, CanonicalRootID: "repo"},
+	})
+	if err == nil || !strings.Contains(err.Error(), "too large") {
+		t.Fatalf("PublishSkillMirrors oversized file error = %v, want too large", err)
+	}
+	assertMissing(t, filepath.Join(root, "build", skillMainFile))
+}
+
 func TestSkillMirrorPublisherRejectsUnsafeManifestSkillNames(t *testing.T) {
 	project := t.TempDir()
 	writeSkillWithSupportFiles(t, filepath.Join(project, ".agent", "skills", "build"), "build")
