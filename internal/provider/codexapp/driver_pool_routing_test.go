@@ -632,9 +632,9 @@ func TestPoolRoutingDisabledStillRejectsInvalidIdentityConfig(t *testing.T) {
 func TestPoolRoutingFlagFalsyStaysDisabled(t *testing.T) {
 	for _, v := range []string{"0", "false"} {
 		t.Setenv(poolRoutingEnvVar, v)
-		enabled, err := poolRoutingEnabled()
+		enabled, _, err := poolRoutingDecision()
 		if err != nil {
-			t.Fatalf("poolRoutingEnabled(%q) error = %v", v, err)
+			t.Fatalf("poolRoutingDecision(%q) error = %v", v, err)
 		}
 		if enabled {
 			t.Fatalf("flag %q must parse as disabled", v)
