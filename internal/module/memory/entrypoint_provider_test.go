@@ -292,7 +292,7 @@ func TestMemoryEntrypointProviderRespectsInjectPromptEntrypoint(t *testing.T) {
 }
 
 func TestMemoryContextProviderResolveAlwaysReturnsNil(t *testing.T) {
-	provider := NewContextProvider(&Config{Enabled: true, RootDir: t.TempDir(), ProjectRoot: newTestGitProjectRoot(t)})
+	provider := mustNewContextProvider(t, &Config{Enabled: true, RootDir: t.TempDir(), ProjectRoot: newTestGitProjectRoot(t)})
 	cases := []contract.SectionContext{
 		{Start: &contract.StartInput{}},
 		{Turn: &contract.TurnInput{ThreadID: "t1", UserText: "hi there"}},

@@ -18,6 +18,7 @@ import (
 	turndto "github.com/anthropic-ai/super-agent-v3/internal/dto/turn"
 	rpcpkg "github.com/anthropic-ai/super-agent-v3/internal/platform/rpc"
 	"github.com/kelindar/event"
+	"go.uber.org/fx"
 )
 
 func TestNewConfigFallsBackToProjectRoot(t *testing.T) {
@@ -70,6 +71,35 @@ func TestServiceEnsureRootUsesAutoMemPathOverride(t *testing.T) {
 	}
 	if !info.IsDir() {
 		t.Fatalf("%q is not a directory", override)
+	}
+}
+
+func TestMemoryModuleInvalidProjectRootFailsConstruction(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "memory-root")
+	badProjectRoot := filepath.Join(t.TempDir(), "not-a-git-repo")
+	if err := os.MkdirAll(badProjectRoot, 0o755); err != nil {
+		t.Fatalf("MkdirAll(%q) error = %v", badProjectRoot, err)
+	}
+
+	var provider *MemoryContextProvider
+	app := fx.New(
+		fx.NopLogger,
+		fx.Provide(
+			func() *contract.Config { return &contract.Config{} },
+			func() contract.PromptAssemblyService { return memoryPromptAssemblyStub{} },
+			func() *slog.Logger { return slog.New(slog.NewTextHandler(io.Discard, nil)) },
+		),
+		Module,
+		fx.Replace(&Config{Enabled: true, RootDir: root, ProjectRoot: badProjectRoot}),
+		fx.Populate(&provider),
+	)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := app.Start(ctx); err == nil || !strings.Contains(err.Error(), "resolve git root") {
+		if err == nil {
+			_ = app.Stop(context.Background())
+		}
+		t.Fatalf("app.Start(memory.Module) error = %v, want invalid memory project root to fail startup", err)
 	}
 }
 
@@ -300,6 +330,24 @@ func waitForExtractedMemory(t *testing.T, root, needle string) {
 
 type historyStub struct {
 	messages []providerdto.Message
+}
+
+type memoryPromptAssemblyStub struct{}
+
+func (memoryPromptAssemblyStub) AssembleStart(context.Context, contract.StartInput) (contract.StartAssembly, error) {
+	return contract.StartAssembly{}, nil
+}
+
+func (memoryPromptAssemblyStub) AssembleTurn(context.Context, contract.TurnInput) (contract.TurnAssembly, error) {
+	return contract.TurnAssembly{}, nil
+}
+
+func (memoryPromptAssemblyStub) AssembleAgent(context.Context, contract.AgentInput) (contract.StartAssembly, error) {
+	return contract.StartAssembly{}, nil
+}
+
+func (memoryPromptAssemblyStub) Invalidate(context.Context, contract.InvalidateReason) error {
+	return nil
 }
 
 func (s historyStub) ReadHistory(context.Context, string, int) ([]providerdto.Message, error) {
