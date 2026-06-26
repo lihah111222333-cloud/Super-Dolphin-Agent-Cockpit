@@ -1,22 +1,17 @@
 package skill
 
 import (
-	"crypto/sha256"
-	"encoding/binary"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"hash"
-	"io/fs"
 	"log/slog"
 	"os"
 	"path/filepath"
-	"sort"
 	"strings"
 	"time"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/module/skill/mirrorpath"
+	"github.com/anthropic-ai/super-agent-v3/internal/module/skill/skillhash"
 )
 
 const skillMirrorManifestFile = ".super-dolphin-skill-mirror.json"
@@ -302,80 +297,8 @@ func validatePersonalMirrorCanonicalID(name, canonicalID string) (string, error)
 	return parts[1], nil
 }
 
-type mirrorHashFile struct {
-	rel  string
-	mode fs.FileMode
-	data []byte
-}
-
 func stableMirrorDirectoryHash(root string) (string, error) {
-	absRoot, err := filepath.Abs(strings.TrimSpace(root))
-	if err != nil {
-		return "", fmt.Errorf("normalize mirror root: %w", err)
-	}
-	files, err := collectMirrorHashFiles(filepath.Clean(absRoot))
-	if err != nil {
-		return "", err
-	}
-	sort.SliceStable(files, func(i, j int) bool { return files[i].rel < files[j].rel })
-	return hashMirrorFiles(files), nil
-}
-
-func collectMirrorHashFiles(root string) ([]mirrorHashFile, error) {
-	var files []mirrorHashFile
-	err := filepath.WalkDir(root, func(path string, entry fs.DirEntry, walkErr error) error {
-		file, err := readMirrorHashFile(root, path, entry, walkErr)
-		if err != nil || file == nil {
-			return err
-		}
-		files = append(files, *file)
-		return nil
-	})
-	return files, err
-}
-
-// readMirrorHashFile 读取参与 mirror hash 的普通文件。
-// manifest 自身不参与内容 hash，symlink、目录和越界相对路径由 mirrorpath 统一拒绝。
-func readMirrorHashFile(root, path string, entry fs.DirEntry, walkErr error) (*mirrorHashFile, error) {
-	if walkErr != nil || entry == nil || entry.IsDir() {
-		return nil, walkErr
-	}
-	info, err := mirrorpath.SafeFileInfo(path, entry)
-	if err != nil {
-		return nil, err
-	}
-	rel, err := mirrorpath.SafeRelative(root, path)
-	if err != nil || rel == skillMirrorManifestFile {
-		return nil, err
-	}
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return nil, fmt.Errorf("read mirror file %s: %w", path, err)
-	}
-	return &mirrorHashFile{rel: rel, mode: info.Mode(), data: data}, nil
-}
-
-func hashMirrorFiles(files []mirrorHashFile) string {
-	h := sha256.New()
-	for _, file := range files {
-		writeHashBytes(h, []byte(file.rel))
-		writeHashUint32(h, uint32(file.mode.Perm()))
-		writeHashBytes(h, file.data)
-	}
-	return hex.EncodeToString(h.Sum(nil))
-}
-
-func writeHashBytes(h hash.Hash, value []byte) {
-	var size [8]byte
-	binary.BigEndian.PutUint64(size[:], uint64(len(value)))
-	_, _ = h.Write(size[:])
-	_, _ = h.Write(value)
-}
-
-func writeHashUint32(h hash.Hash, value uint32) {
-	var data [4]byte
-	binary.BigEndian.PutUint32(data[:], value)
-	_, _ = h.Write(data[:])
+	return skillhash.StableMirrorDirectoryHash(root, skillMirrorManifestFile)
 }
 
 func filterCanonicalRecordsForScope(records []canonicalSkillRecord, scope string) []canonicalSkillRecord {

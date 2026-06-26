@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/module/skill/mirrorpath"
+	"github.com/anthropic-ai/super-agent-v3/internal/module/skill/skillhash"
 )
 
 // mirrorLockRegistry 按 provider mirror 根目录保存写入锁。
@@ -407,7 +408,11 @@ func unchangedOwnedMirror(managed, exists bool, entry SkillMirrorEntry, oldHash,
 	if scope != skillScopeProject {
 		return true, nil
 	}
-	data, err := os.ReadFile(filepath.Join(dir, skillMainFile))
+	tracker, err := skillhash.NewContentLimitTracker(dir)
+	if err != nil {
+		return false, err
+	}
+	data, err := skillhash.ReadFileWithLimits(filepath.Join(dir, skillMainFile), tracker.Limits())
 	if err != nil {
 		return false, err
 	}
@@ -477,7 +482,11 @@ func replaceMirrorSkillDir(root, name, canonicalDir, scope string, displayName .
 // copyCanonicalSkillDir 把真实 skill 复制到 mirror。
 // symlink、越界路径和非常规文件都要拒绝。
 func copyCanonicalSkillDir(src, dst, scope string, identity ...skillMirrorIdentity) error {
-	err := filepath.WalkDir(src, func(path string, entry fs.DirEntry, walkErr error) error {
+	tracker, err := skillhash.NewContentLimitTracker(src)
+	if err != nil {
+		return err
+	}
+	err = filepath.WalkDir(src, func(path string, entry fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
 			return walkErr
 		}
@@ -488,7 +497,7 @@ func copyCanonicalSkillDir(src, dst, scope string, identity ...skillMirrorIdenti
 		if rel == "." {
 			return nil
 		}
-		return copyCanonicalSkillEntry(path, filepath.Join(dst, filepath.FromSlash(rel)), rel, scope, entry)
+		return copyCanonicalSkillEntry(path, filepath.Join(dst, filepath.FromSlash(rel)), rel, scope, entry, &tracker)
 	})
 	if err != nil {
 		return err
@@ -518,7 +527,7 @@ func safeCanonicalCopyRelativePath(root, path string) (string, error) {
 }
 
 // copyCanonicalSkillEntry 复制一个 canonical skill 到 mirror 目录。
-func copyCanonicalSkillEntry(src, dst, rel, scope string, entry fs.DirEntry) error {
+func copyCanonicalSkillEntry(src, dst, rel, scope string, entry fs.DirEntry, tracker *skillhash.ContentLimitTracker) error {
 	info, err := entry.Info()
 	if err != nil {
 		return err
@@ -532,17 +541,13 @@ func copyCanonicalSkillEntry(src, dst, rel, scope string, entry fs.DirEntry) err
 	if !info.Mode().IsRegular() {
 		return fmt.Errorf("canonical skill path is not regular: %s", src)
 	}
-	data, err := os.ReadFile(src)
-	if err != nil {
+	if err := tracker.AddFile(src, info.Size()); err != nil {
 		return err
 	}
 	if scope == skillScopeProject && strings.EqualFold(filepath.Base(filepath.ToSlash(rel)), skillMainFile) {
-		data = []byte(capProjectMirrorTrustFrontmatter(string(data)))
+		return copyCanonicalSkillMainFile(src, dst, rel, info.Mode(), tracker)
 	}
-	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
-		return err
-	}
-	return os.WriteFile(dst, data, mirrorFileMode(rel, info.Mode(), data))
+	return copyCanonicalResourceFile(src, dst, rel, info.Mode(), tracker)
 }
 
 // capProjectMirrorTrustFrontmatter 限制项目 mirror frontmatter 的信任范围。
