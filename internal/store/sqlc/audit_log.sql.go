@@ -52,7 +52,7 @@ func (q *Queries) InsertAuditEvent(ctx context.Context, arg InsertAuditEventPara
 }
 
 const listAuditEvents = `-- name: ListAuditEvents :many
-SELECT id, ts, event_type, action, result, actor, target, detail, level, '{}' AS extra
+SELECT id, ts, event_type, action, result, actor, target, detail, level, extra
 FROM audit_events
 WHERE (?1 = '' OR event_type = ?1)
   AND (?2 = '' OR action = ?2)
@@ -77,20 +77,7 @@ type ListAuditEventsParams struct {
 	LimitCount      int64       `db:"limit_count" json:"limit_count"`
 }
 
-type ListAuditEventsRow struct {
-	ID        int64  `db:"id" json:"id"`
-	Ts        int64  `db:"ts" json:"ts"`
-	EventType string `db:"event_type" json:"event_type"`
-	Action    string `db:"action" json:"action"`
-	Result    string `db:"result" json:"result"`
-	Actor     string `db:"actor" json:"actor"`
-	Target    string `db:"target" json:"target"`
-	Detail    string `db:"detail" json:"detail"`
-	Level     string `db:"level" json:"level"`
-	Extra     string `db:"extra" json:"extra"`
-}
-
-func (q *Queries) ListAuditEvents(ctx context.Context, arg ListAuditEventsParams) ([]ListAuditEventsRow, error) {
+func (q *Queries) ListAuditEvents(ctx context.Context, arg ListAuditEventsParams) ([]AuditEvent, error) {
 	rows, err := q.db.QueryContext(ctx, listAuditEvents,
 		arg.EventTypeFilter,
 		arg.ActionFilter,
@@ -103,9 +90,9 @@ func (q *Queries) ListAuditEvents(ctx context.Context, arg ListAuditEventsParams
 		return nil, err
 	}
 	defer rows.Close()
-	items := []ListAuditEventsRow{}
+	items := []AuditEvent{}
 	for rows.Next() {
-		var i ListAuditEventsRow
+		var i AuditEvent
 		if err := rows.Scan(
 			&i.ID,
 			&i.Ts,

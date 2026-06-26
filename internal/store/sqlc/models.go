@@ -56,6 +56,19 @@ type AgentStatus struct {
 	UpdatedAt   int64           `db:"updated_at" json:"updated_at"`
 }
 
+type AuditEvent struct {
+	ID        int64  `db:"id" json:"id"`
+	Ts        int64  `db:"ts" json:"ts"`
+	EventType string `db:"event_type" json:"event_type"`
+	Action    string `db:"action" json:"action"`
+	Result    string `db:"result" json:"result"`
+	Actor     string `db:"actor" json:"actor"`
+	Target    string `db:"target" json:"target"`
+	Detail    string `db:"detail" json:"detail"`
+	Level     string `db:"level" json:"level"`
+	Extra     string `db:"extra" json:"extra"`
+}
+
 type CronJob struct {
 	ID              string          `db:"id" json:"id"`
 	Name            string          `db:"name" json:"name"`

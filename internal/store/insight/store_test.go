@@ -191,6 +191,77 @@ func TestListRecentPassesThrough(t *testing.T) {
 	}
 }
 
+func TestListMethodsRejectOversizedLimit(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name string
+		run  func(*store) error
+	}{
+		{
+			name: "recent",
+			run: func(s *store) error {
+				_, err := s.ListRecent(context.Background(), 501)
+				return err
+			},
+		},
+		{
+			name: "by thread",
+			run: func(s *store) error {
+				_, err := s.ListByThread(context.Background(), "thread-1", 501)
+				return err
+			},
+		},
+		{
+			name: "approval requests",
+			run: func(s *store) error {
+				_, err := s.ListObservedApprovalRequests(context.Background(), "thread-1", 501)
+				return err
+			},
+		},
+		{
+			name: "token turns",
+			run: func(s *store) error {
+				_, err := s.ListObservedTokenTurns(context.Background(), "thread-1", 501)
+				return err
+			},
+		},
+	}
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			called := false
+			s := &store{q: &insightQuerierStub{
+				listByThreadFn: func(context.Context, sqlc.ListSessionInsightsByThreadParams) ([]sqlc.ListSessionInsightsByThreadRow, error) {
+					called = true
+					return nil, nil
+				},
+				listRecentFn: func(context.Context, sqlc.ListRecentSessionInsightsParams) ([]sqlc.ListRecentSessionInsightsRow, error) {
+					called = true
+					return nil, nil
+				},
+				listApprovalFn: func(context.Context, sqlc.ListObservedApprovalRequestsParams) ([]sqlc.ListObservedApprovalRequestsRow, error) {
+					called = true
+					return nil, nil
+				},
+				listTokenTurnsFn: func(context.Context, sqlc.ListObservedTokenTurnsParams) ([]sqlc.ListObservedTokenTurnsRow, error) {
+					called = true
+					return nil, nil
+				},
+			}}
+			err := tc.run(s)
+			if err == nil || !strings.Contains(err.Error(), "limit") {
+				t.Fatalf("oversized limit error = %v, want limit rejection", err)
+			}
+			if called {
+				t.Fatal("oversized limit reached sqlc query")
+			}
+		})
+	}
+}
+
 // ----- observed-filter query lint -----
 
 func TestListObservedApprovalRequestsForwardsThreadID(t *testing.T) {

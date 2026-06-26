@@ -111,7 +111,7 @@ type Querier interface {
 	ListAgentThreadCwds(ctx context.Context) ([]ListAgentThreadCwdsRow, error)
 	ListAgentThreadCwdsByPrefix(ctx context.Context, arg ListAgentThreadCwdsByPrefixParams) ([]ListAgentThreadCwdsByPrefixRow, error)
 	ListAgentThreads(ctx context.Context) ([]ListAgentThreadsRow, error)
-	ListAuditEvents(ctx context.Context, arg ListAuditEventsParams) ([]ListAuditEventsRow, error)
+	ListAuditEvents(ctx context.Context, arg ListAuditEventsParams) ([]AuditEvent, error)
 	ListBusExceptionLogs(ctx context.Context, arg ListBusExceptionLogsParams) ([]ListBusExceptionLogsRow, error)
 	ListCommandCardVersions(ctx context.Context, arg ListCommandCardVersionsParams) ([]ListCommandCardVersionsRow, error)
 	ListCommandCards(ctx context.Context, arg ListCommandCardsParams) ([]ListCommandCardsRow, error)

@@ -357,6 +357,43 @@ func TestQueryRowLimit(t *testing.T) {
 	}
 }
 
+func TestExecuteQueryUsesInjectedLimitForExecution(t *testing.T) {
+	t.Parallel()
+
+	db := newDBQuerySQLiteDB(t)
+	tx, err := db.Begin()
+	if err != nil {
+		t.Fatalf("Begin() error = %v", err)
+	}
+	for i := 0; i < maxQueryRows+1; i++ {
+		if _, err := tx.Exec("INSERT INTO agent_threads(thread_id, status, score) VALUES (?, 'bulk', 0)", fmt.Sprintf("implicit-%05d", i)); err != nil {
+			_ = tx.Rollback()
+			t.Fatalf("insert implicit limit row %d: %v", i, err)
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatalf("Commit() error = %v", err)
+	}
+
+	rows, err := executeQuery(context.Background(), db, defaultQueryTimeout, "SELECT thread_id FROM agent_threads ORDER BY thread_id")
+	if err != nil {
+		t.Fatalf("executeQuery() error = %v, want injected SQL limit to bound the result", err)
+	}
+	if len(rows) != maxQueryRows {
+		t.Fatalf("executeQuery() rows = %d, want injected limit %d", len(rows), maxQueryRows)
+	}
+}
+
+func TestInjectLimitIfMissingDetectsExistingLimitAfterNewline(t *testing.T) {
+	t.Parallel()
+
+	query := "SELECT thread_id FROM agent_threads\nLIMIT $1"
+	got := injectLimitIfMissing(query, maxQueryRows)
+	if got != query {
+		t.Fatalf("injectLimitIfMissing() = %q, want existing LIMIT unchanged", got)
+	}
+}
+
 func newDBQuerySQLiteDB(t *testing.T) *sql.DB {
 	t.Helper()
 
