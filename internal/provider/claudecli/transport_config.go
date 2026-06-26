@@ -2,6 +2,7 @@ package claudecli
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -470,9 +471,12 @@ func normalizeEffort(model, effort string) string {
 }
 
 // writeManifestConfig 将 MCP manifest 写成 Claude CLI 可读取的临时配置文件。
-// 没有有效 server 时返回空路径；写入或关闭失败会清理临时文件并返回错误。
+// 空 manifest 返回空路径；只要有 server 被拒绝就返回错误，避免静默少挂 MCP 能力。
 func writeManifestConfig(manifest dto.MCPManifest, cwd string) (string, func(), error) {
-	servers := manifestServers(manifest, cwd)
+	servers, err := manifestServers(manifest, cwd)
+	if err != nil {
+		return "", nil, err
+	}
 	if len(servers) == 0 {
 		return "", nil, nil
 	}
@@ -499,22 +503,23 @@ func writeManifestConfig(manifest dto.MCPManifest, cwd string) (string, func(), 
 	return path, cleanup, nil
 }
 
-func manifestServers(manifest dto.MCPManifest, cwd string) map[string]any {
+func manifestServers(manifest dto.MCPManifest, cwd string) (map[string]any, error) {
 	cwd = strings.TrimSpace(cwd)
 	servers := make(map[string]any, len(manifest.Binaries))
 	for _, bin := range manifest.Binaries {
-		name, server, ok := manifestServer(bin, cwd)
-		if ok {
-			servers[name] = server
+		name, server, err := manifestServer(bin, cwd)
+		if err != nil {
+			return nil, err
 		}
+		servers[name] = server
 	}
-	return servers
+	return servers, nil
 }
 
-func manifestServer(bin dto.MCPBinary, cwd string) (string, map[string]any, bool) {
+func manifestServer(bin dto.MCPBinary, cwd string) (string, map[string]any, error) {
 	name := strings.TrimSpace(bin.Name)
 	if name == "" {
-		return "", nil, false
+		return "", nil, fmt.Errorf("claudecli: rejected mcp manifest server: missing name")
 	}
 
 	// HTTP 模式只把已运行 peer 的 URL 写给 Claude，不在 provider 配置里启动新进程。
@@ -525,29 +530,29 @@ func manifestServer(bin dto.MCPBinary, cwd string) (string, map[string]any, bool
 		}
 		applyHeaders(server, bin.Headers)
 		applyAutoApprove(server, bin.AutoApprove)
-		return name, server, true
+		return name, server, nil
 	}
 
 	// stdio 模式必须先校验命令来源，只允许托管 sidecar 或显式允许的 MCP 包。
-	server, ok := buildStdioServer(bin, cwd)
-	if !ok {
-		return "", nil, false
+	server, err := buildStdioServer(bin, cwd)
+	if err != nil {
+		return "", nil, fmt.Errorf("claudecli: rejected mcp manifest server %q: %w", name, err)
 	}
-	return name, server, true
+	return name, server, nil
 }
 
 // buildStdioServer 将单个 stdio MCP 二进制转换为 Claude 配置项。
-// 命令为空或不在 allowlist 内会被跳过，避免把任意本地命令写入 provider 配置。
-func buildStdioServer(bin dto.MCPBinary, cwd string) (map[string]any, bool) {
+// 命令为空或不在 allowlist 内会直接报错，避免 provider 缺能力却继续运行。
+func buildStdioServer(bin dto.MCPBinary, cwd string) (map[string]any, error) {
 	if len(bin.Command) == 0 {
-		return nil, false
+		return nil, errors.New("missing stdio command")
 	}
 	command := strings.TrimSpace(bin.Command[0])
 	if command == "" {
-		return nil, false
+		return nil, errors.New("empty stdio command")
 	}
 	if !allowedStdioMCPCommand(command, bin.Command[1:]) {
-		return nil, false
+		return nil, fmt.Errorf("stdio command %q is not allowed", command)
 	}
 	server := map[string]any{"command": command}
 	if len(bin.Command) > 1 {
@@ -560,7 +565,7 @@ func buildStdioServer(bin dto.MCPBinary, cwd string) (map[string]any, bool) {
 	if cwd != "" {
 		server["cwd"] = cwd
 	}
-	return server, true
+	return server, nil
 }
 
 // allowedStdioMCPCommand 控制 Claude MCP 配置里可被拉起的 stdio 命令范围。

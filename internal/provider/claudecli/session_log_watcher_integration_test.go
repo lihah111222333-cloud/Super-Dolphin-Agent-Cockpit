@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
+	agentdto "github.com/anthropic-ai/super-agent-v3/internal/dto/agent"
 
 	"github.com/kelindar/event"
 
@@ -36,7 +37,7 @@ func TestHandleSystemInitRawRecordsProviderSessionUUID(t *testing.T) {
 		}
 	}()
 
-	s.handleSystemInitRaw(tr, dto.RawProviderEvent{EventType: "system:init", Data: map[string]any{"session_id": sessionID}})
+	s.handleSystemInitRaw(tr, dto.RawProviderEvent{EventType: "system:init", Data: map[string]any{"session_id": sessionID, "timestamp": "2026-04-13T00:00:00Z"}})
 
 	if recovery.recordAgentID != "agent-1" || recovery.recordSessionUUID != sessionID {
 		t.Fatalf("recorded recovery = (%q,%q), want (agent-1,%s)", recovery.recordAgentID, recovery.recordSessionUUID, sessionID)
@@ -69,7 +70,7 @@ func TestHandleSystemInitRawStartsLogWatcherAndUsesRuntimeContextWindow(t *testi
 	}
 	s.markThreadReady()
 
-	s.handleSystemInitRaw(tr, dto.RawProviderEvent{EventType: "system:init", Data: map[string]any{"session_id": sessionID, "context_window": 888}})
+	s.handleSystemInitRaw(tr, dto.RawProviderEvent{EventType: "system:init", Data: map[string]any{"session_id": sessionID, "context_window": 888, "timestamp": "2026-04-13T00:00:00Z"}})
 	assertLogWatcherEvent(t, rawEvents)
 }
 
@@ -150,6 +151,73 @@ func TestDispatchTokenUsageIfCurrentRejectsStaleIdentity(t *testing.T) {
 	case ev := <-rawEvents:
 		t.Fatalf("unexpected raw event = %#v", ev)
 	case <-time.After(100 * time.Millisecond):
+	}
+}
+
+func TestDispatchTokenUsageIfCurrentPublishesProviderErrorForBadTimestamp(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		timestamp string
+		wantCode  string
+	}{
+		{name: "missing", wantCode: "claude_log_missing_timestamp"},
+		{name: "invalid", timestamp: "not-a-time", wantCode: "claude_log_invalid_timestamp"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			rawEvents, agentErrors, session, tr := newLogWatcherTimestampErrorTest(t)
+			session.dispatchTokenUsageIfCurrent(tr, logWatcherIdentity{sessionID: session.sessionID, threadID: session.threadID}, 2, sessionLogUsage{Timestamp: tc.timestamp, InputTokens: 1, OutputTokens: 1, TotalTokens: 2})
+			got := requireLogWatcherAgentError(t, agentErrors)
+			if got.Code != tc.wantCode {
+				t.Fatalf("AgentError.Code = %q, want %s", got.Code, tc.wantCode)
+			}
+			select {
+			case ev := <-rawEvents:
+				t.Fatalf("unexpected token event for bad timestamp = %#v", ev)
+			case <-time.After(100 * time.Millisecond):
+			}
+		})
+	}
+}
+
+func newLogWatcherTimestampErrorTest(t *testing.T) (<-chan dto.BusRawProviderEvent, <-chan agentdto.AgentError, *session, *transport) {
+	t.Helper()
+	bus := event.NewDispatcher()
+	t.Cleanup(func() { _ = bus.Close() })
+	dispatcher := unified.NewEventDispatcher(bus, nil)
+	RegisterTranslators(dispatcher)
+
+	rawEvents := make(chan dto.BusRawProviderEvent, 1)
+	agentErrors := make(chan agentdto.AgentError, 1)
+	cancelRaw := event.Subscribe(bus, func(ev dto.BusRawProviderEvent) {
+		if ev.Event.EventType == "tokens:log_watcher" {
+			rawEvents <- ev
+		}
+	})
+	t.Cleanup(cancelRaw)
+	cancelErr := event.Subscribe(bus, func(ev agentdto.AgentError) { agentErrors <- ev })
+	t.Cleanup(cancelErr)
+
+	tr := &transport{}
+	s := &session{
+		threadID:        "11111111-2222-3333-4444-555555555555",
+		publicThreadID:  "thread-public",
+		sessionID:       "11111111-2222-3333-4444-555555555555",
+		transport:       tr,
+		logWatcherGen:   2,
+		eventDispatcher: dispatcher,
+		history:         &historyBackend{sessionDir: t.TempDir()},
+	}
+	return rawEvents, agentErrors, s, tr
+}
+
+func requireLogWatcherAgentError(t *testing.T, ch <-chan agentdto.AgentError) agentdto.AgentError {
+	t.Helper()
+	select {
+	case ev := <-ch:
+		return ev
+	case <-time.After(time.Second):
+		t.Fatal("AgentError was not published")
+		return agentdto.AgentError{}
 	}
 }
 

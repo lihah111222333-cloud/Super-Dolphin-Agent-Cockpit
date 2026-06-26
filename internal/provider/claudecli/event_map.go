@@ -1,6 +1,8 @@
 package claudecli
 
 import (
+	"encoding/json"
+	"strings"
 	"time"
 
 	agentdto "github.com/anthropic-ai/super-agent-v3/internal/dto/agent"
@@ -25,6 +27,11 @@ func RegisterTranslators(dispatcher *unified.EventDispatcher) {
 
 // translateClaudeEvent 按 UI token、状态、agent、turn、tool 的顺序翻译并发布事件。
 func translateClaudeEvent(raw dto.RawProviderEvent, publish func(ev any)) {
+	if rawErr, agentErr, ok := claudeTimestampProviderError(raw); ok {
+		publish(dto.BusRawProviderEvent{Event: rawErr})
+		publish(agentErr)
+		return
+	}
 	unified.PublishUITokensUpdated(raw.Data, publish)
 	if ev, ok := translateStatusPatchEvent(raw); ok {
 		publish(ev)
@@ -41,6 +48,89 @@ func translateClaudeEvent(raw dto.RawProviderEvent, publish func(ev any)) {
 	if ev, ok := translateToolEvent(raw); ok {
 		publish(ev)
 	}
+}
+
+const (
+	claudeMissingTimestampCode = "claude_missing_timestamp"
+	claudeInvalidTimestampCode = "claude_invalid_timestamp"
+)
+
+// claudeTimestampProviderError 把缺失或坏格式 timestamp 转成显式 provider error。
+// 调用方会在正常 typed 翻译前短路，避免坏事件继续生成零时间生命周期或工具事件。
+func claudeTimestampProviderError(raw dto.RawProviderEvent) (dto.RawProviderEvent, agentdto.AgentError, bool) {
+	if !claudeEventRequiresTimestamp(raw.EventType) {
+		return dto.RawProviderEvent{}, agentdto.AgentError{}, false
+	}
+	rawTimestamp := dataString(raw.Data, "timestamp", "ts")
+	if rawTimestamp != "" && !platformshared.ParseRFC3339Loose(rawTimestamp).IsZero() {
+		return dto.RawProviderEvent{}, agentdto.AgentError{}, false
+	}
+	code := claudeMissingTimestampCode
+	message := "claudecli: provider event missing timestamp"
+	if rawTimestamp != "" {
+		code = claudeInvalidTimestampCode
+		message = "claudecli: provider event invalid timestamp"
+	}
+	rawErr := claudeProviderErrorRaw(raw.Data, code, message, raw.EventType, rawTimestamp)
+	return rawErr, claudeAgentErrorFromRaw(rawErr), true
+}
+
+func claudeEventRequiresTimestamp(eventType string) bool {
+	switch strings.TrimSpace(eventType) {
+	case "agent:status_patch",
+		"system:init",
+		"agent:state_changed",
+		"agent:stopped",
+		"agent:failed",
+		"turn:started",
+		"turn:input_received",
+		"assistant:message_delta",
+		"turn:interrupted",
+		"turn:complete",
+		"tool:use_begin",
+		"tool:use_end",
+		"tokens:log_watcher":
+		return true
+	default:
+		return false
+	}
+}
+
+// claudeProviderErrorRaw 构造 unified common translator 已支持的 raw error 形状。
+// error 事件自身使用当前时间；source_event_type/raw_timestamp 保留原坏事件的来源。
+func claudeProviderErrorRaw(source any, code, message, sourceEventType, rawTimestamp string) dto.RawProviderEvent {
+	data := map[string]any{
+		"agent_id":          dataString(source, "agent_id"),
+		"thread_id":         dataString(source, "thread_id"),
+		"session_id":        dataString(source, "session_id"),
+		"turn_id":           dataString(source, "turn_id"),
+		"call_id":           dataString(source, "call_id"),
+		"tool_name":         dataString(source, "tool_name"),
+		"timestamp":         time.Now().UTC().Format(time.RFC3339Nano),
+		"code":              strings.TrimSpace(code),
+		"message":           strings.TrimSpace(message) + ": " + strings.TrimSpace(sourceEventType),
+		"source_event_type": strings.TrimSpace(sourceEventType),
+		"raw_timestamp":     strings.TrimSpace(rawTimestamp),
+	}
+	return dto.RawProviderEvent{EventType: "error", Data: data}
+}
+
+func claudeAgentErrorFromRaw(raw dto.RawProviderEvent) agentdto.AgentError {
+	return agentdto.AgentError{
+		AgentSessionHeader: agentSessionHeader(raw.Data),
+		RawType:            raw.EventType,
+		Message:            dataString(raw.Data, "message"),
+		Code:               dataString(raw.Data, "code"),
+		Payload:            claudeProviderErrorPayload(raw.Data),
+	}
+}
+
+func claudeProviderErrorPayload(data any) json.RawMessage {
+	raw, err := json.Marshal(data)
+	if err != nil {
+		return nil
+	}
+	return raw
 }
 
 // translateStatusPatchEvent 翻译重启等 provider 状态补丁事件。
@@ -205,11 +295,12 @@ func toolHeader(data any) shared.ToolCallHeader {
 	}
 }
 
-// eventTime 解析 provider timestamp，缺失或格式不兼容时使用当前时间。
+// eventTime 解析 provider timestamp，缺失或格式不兼容时返回零值时间。
+// 零值让上游坏事件保持可见，不能用当前时间伪造成正常 provider 时间。
 func eventTime(data any) time.Time {
 	raw := dataString(data, "timestamp", "ts")
 	if parsed := platformshared.ParseRFC3339Loose(raw); !parsed.IsZero() {
 		return parsed
 	}
-	return time.Now()
+	return time.Time{}
 }

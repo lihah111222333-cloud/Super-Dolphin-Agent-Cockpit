@@ -3,6 +3,7 @@ package claudecli
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -11,7 +12,6 @@ import (
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	"github.com/anthropic-ai/super-agent-v3/internal/util/ctxutil"
-	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
 const claudeAuthPreflightTimeout = 10 * time.Second
@@ -25,20 +25,23 @@ type claudeAuthStatus struct {
 }
 
 // preflightClaudeAuth 在启动 Claude CLI 前做认证预检。
-// 只有命令明确返回 loggedIn=false 时才阻断；状态不可判定时继续启动，让 CLI 返回真实错误。
+// 认证状态必须明确可判定；命令失败或缺少 loggedIn 都会阻断，避免把登录问题推迟到子进程启动后才暴露。
 func (d *driver) preflightClaudeAuth(ctx context.Context, binary, cwd string, cfg cliLaunchConfig) error {
 	checkCtx, cancel := ctxutil.WithTimeout(ctx, claudeAuthPreflightTimeout)
 	defer cancel()
 	status, raw, statusErr := d.authStatus(checkCtx, binary, cwd, cfg)
-	inconclusive := statusErr != nil
-	if inconclusive {
-		pkglogger.Warn("claudecli: auth status preflight inconclusive; continuing launch", "error", statusErr)
+	if statusErr != nil {
+		detail := strings.TrimSpace(raw)
+		if detail == "" {
+			return fmt.Errorf("claudecli: auth status preflight failed: %w", statusErr)
+		}
+		return fmt.Errorf("claudecli: auth status preflight failed: %w: %s", statusErr, detail)
 	}
-	if inconclusive || status.LoggedIn {
-		return nil
+	loggedIn, err := parseClaudeAuthLoggedIn(raw)
+	if err != nil {
+		return fmt.Errorf("claudecli: auth status inconclusive: %w", err)
 	}
-	if !claudeAuthStatusReportsLoggedOut(raw) {
-		pkglogger.Warn("claudecli: auth status preflight missing loggedIn=false; continuing launch", "raw", strings.TrimSpace(raw))
+	if loggedIn {
 		return nil
 	}
 	detail := strings.TrimSpace(raw)
@@ -48,15 +51,23 @@ func (d *driver) preflightClaudeAuth(ctx context.Context, binary, cwd string, cf
 	return fmt.Errorf("claudecli: authentication required: %s", detail)
 }
 
-// claudeAuthStatusReportsLoggedOut 判断原始 JSON 是否明确声明 loggedIn=false。
-func claudeAuthStatusReportsLoggedOut(raw string) bool {
+// parseClaudeAuthLoggedIn 要求 auth status JSON 明确携带 loggedIn 布尔值。
+// 缺字段或坏 JSON 都是不可信状态，调用方必须 fail-fast，而不能继续启动 CLI。
+func parseClaudeAuthLoggedIn(raw string) (bool, error) {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		return false, errors.New("empty auth status")
+	}
 	var payload struct {
 		LoggedIn *bool `json:"loggedIn"`
 	}
-	if err := json.Unmarshal([]byte(strings.TrimSpace(raw)), &payload); err != nil || payload.LoggedIn == nil {
-		return false
+	if err := json.Unmarshal([]byte(trimmed), &payload); err != nil {
+		return false, fmt.Errorf("decode auth status: %w", err)
 	}
-	return !*payload.LoggedIn
+	if payload.LoggedIn == nil {
+		return false, errors.New("missing loggedIn")
+	}
+	return *payload.LoggedIn, nil
 }
 
 // runClaudeAuthStatus 执行 Claude CLI 认证状态查询，并复用启动环境里的 provider env。

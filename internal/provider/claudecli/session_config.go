@@ -195,7 +195,7 @@ func (s *session) ForceComplete(ctx context.Context, req dto.ForceCompleteReques
 		return nil
 	}
 	if tr != nil {
-		if err := tr.signalProcess(sigInterrupt); err != nil {
+		if err := normalizeSignalError(tr.signalProcess(sigInterrupt)); err != nil {
 			return err
 		}
 	}
