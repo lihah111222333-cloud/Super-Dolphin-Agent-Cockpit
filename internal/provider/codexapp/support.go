@@ -43,10 +43,7 @@ func mustJSON(v any) json.RawMessage {
 }
 
 func initializeParams() map[string]any {
-	return map[string]any{
-		"clientInfo":   map[string]any{"name": "super-agent-v3", "version": "1.0"},
-		"capabilities": map[string]any{"experimentalApi": true},
-	}
+	return map[string]any{"clientInfo": map[string]any{"name": "super-agent-v3", "version": "1.0"}, "capabilities": map[string]any{"experimentalApi": true}}
 }
 
 func normalizeCodexAppEffort(effort string) string {
@@ -58,11 +55,7 @@ func normalizeCodexAppEffort(effort string) string {
 }
 
 func newTurnHandle(localID, providerID string) *turnHandle {
-	return &turnHandle{
-		localID:    strings.TrimSpace(localID),
-		providerID: strings.TrimSpace(providerID),
-		done:       make(chan struct{}),
-	}
+	return &turnHandle{localID: strings.TrimSpace(localID), providerID: strings.TrimSpace(providerID), done: make(chan struct{})}
 }
 
 // LocalID 返回宿主侧用于追踪本轮 turn 的本地 ID。
@@ -430,7 +423,7 @@ func (d *driver) finishStartedSession(s *session, req dto.StartSessionRequest, r
 	if port := parsePortFromURL(s.transport.serverURL); port > 0 {
 		s.setRuntimeConfigValue("port", port)
 	}
-	d.reportRuntime(s.agentID)
+	d.reportRuntime(s.agentID, s.transport.serverURL)
 	return s
 }
 
@@ -466,7 +459,7 @@ func (d *driver) finishResumedSession(ctx context.Context, s *session, req dto.R
 	}
 	d.restoreApprovalPolicy(ctx, s, threadID)
 	applyResumeNativeToolRuntimePolicy(s, req.CodexDisabledNativeTools)
-	d.reportRuntime(s.agentID)
+	d.reportRuntime(s.agentID, s.transport.serverURL)
 	return s
 }
 
@@ -609,7 +602,7 @@ func (d *driver) restoreApprovalPolicy(ctx context.Context, s *session, threadID
 	s.setRuntimeConfigValue("approvalPolicy", s.approvalPolicyValue())
 }
 
-func (d *driver) reportRuntime(agentID string) {
+func (d *driver) reportRuntime(agentID, serverURL string) {
 	if d == nil || d.reporter == nil {
 		return
 	}
@@ -624,7 +617,7 @@ func (d *driver) reportRuntime(agentID string) {
 	// Codex App protocol exposes a provider-reported control/runtime port.
 	if err := d.reporter.ReportRuntime(ctx, contract.RuntimeReport{
 		AgentID:  agentID,
-		Port:     parsePortFromURL(d.serverURL),
+		Port:     parsePortFromURL(serverURL),
 		Provider: d.Name(),
 	}); err != nil {
 		d.logger.Warn("codexapp: report runtime failed", "agent_id", agentID, "error", err)
