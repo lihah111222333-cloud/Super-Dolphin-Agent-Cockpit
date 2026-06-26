@@ -13,20 +13,13 @@ import (
 func (s *service) Archive(ctx context.Context, threadID string) error {
 	ctx = util.NonNilContext(ctx)
 	caller := archiveCallerStack()
-	pkglogger.Info("thread: Archive() ENTERED",
-		"thread_id", threadID,
-		"caller", caller,
-	)
+	pkglogger.Info("thread: Archive() ENTERED", "thread_id", threadID, "caller", caller)
 	if handled, err := s.archivePendingLaunchThread(ctx, threadID, caller); handled || err != nil {
 		return err
 	}
 	stopState, err := s.resolveThreadStopState(ctx, threadID)
 	if err != nil {
-		pkglogger.Warn("thread: Archive() resolveThreadStopState FAILED",
-			"thread_id", threadID,
-			"error", err,
-			"caller", caller,
-		)
+		pkglogger.Warn("thread: Archive() resolveThreadStopState FAILED", "thread_id", threadID, "error", err, "caller", caller)
 		return err
 	}
 	pkglogger.Info("thread: Archive() resolved stopState",
@@ -48,16 +41,22 @@ func (s *service) Archive(ctx context.Context, threadID string) error {
 	s.cleanupThreadScratchpad(ctx, stopState.stoppedID, stopState.binding)
 	s.cleanupThreadTurns(ctx, "thread_archived", stopState.targets...)
 	s.publishThreadStopped(stopState.stoppedID, stopState.agentID, statusArchived, "archived")
-	pkglogger.Info("thread: Archive() COMPLETED",
-		"thread_id", threadID,
-		"stopped_id", stopState.stoppedID,
-		"caller", caller,
-	)
+	pkglogger.Info("thread: Archive() COMPLETED", "thread_id", threadID, "stopped_id", stopState.stoppedID, "caller", caller)
 	return nil
 }
 
 // archivePendingLaunchThread 归档待处理启动线程。
 func (s *service) archivePendingLaunchThread(ctx context.Context, threadID string, caller string) (bool, error) {
+	return s.transitionPendingLaunchThread(ctx, threadID, caller, statusArchived, "archived_pending_launch", true)
+}
+
+// unarchivePendingLaunchThread 恢复尚未绑定 provider 的 pending_launch 线程。
+func (s *service) unarchivePendingLaunchThread(ctx context.Context, threadID string, caller string) (bool, error) {
+	return s.transitionPendingLaunchThread(ctx, threadID, caller, statusCreated, "unarchived_pending_launch", false)
+}
+
+// transitionPendingLaunchThread 只更新 pending_launch 线程状态并发布投影事件；这类线程没有 binding/session。
+func (s *service) transitionPendingLaunchThread(ctx context.Context, threadID, caller, status, reason string, completeIntent bool) (bool, error) {
 	if s == nil || s.threadStore == nil {
 		return false, nil
 	}
@@ -75,25 +74,25 @@ func (s *service) archivePendingLaunchThread(ctx context.Context, threadID strin
 	if !pendingLaunch {
 		return false, nil
 	}
-	if err := s.updateThreadStatus(ctx, id, statusArchived); err != nil {
+	if err := s.updateThreadStatus(ctx, id, status); err != nil {
 		return true, err
 	}
-	s.CompleteLaunchIntent(ctx, id)
-	s.publishThreadStopped(id, "", statusArchived, "archived_pending_launch")
-	pkglogger.Info("thread: Archive() pending_launch fast-path",
-		"thread_id", id,
-		"caller", caller,
-	)
+	if completeIntent {
+		s.CompleteLaunchIntent(ctx, id)
+	}
+	s.publishThreadStopped(id, "", status, reason)
+	pkglogger.Info("thread: pending_launch lifecycle fast-path", "thread_id", id, "status", status, "reason", reason, "caller", caller)
 	return true, nil
 }
 
 // Unarchive 恢复已归档线程并重新打开后续会话恢复入口。
 func (s *service) Unarchive(ctx context.Context, threadID string) error {
+	ctx = util.NonNilContext(ctx)
 	caller := archiveCallerStack()
-	pkglogger.Info("thread: Unarchive() ENTERED",
-		"thread_id", threadID,
-		"caller", caller,
-	)
+	pkglogger.Info("thread: Unarchive() ENTERED", "thread_id", threadID, "caller", caller)
+	if handled, err := s.unarchivePendingLaunchThread(ctx, threadID, caller); handled || err != nil {
+		return err
+	}
 	if err := s.updateThreadStatus(ctx, threadID, statusCreated); err != nil {
 		return err
 	}
@@ -108,10 +107,7 @@ func (s *service) Unarchive(ctx context.Context, threadID string) error {
 	s.evictZombieSession(ctx, threadID)
 	// 提前后台恢复，尽量让用户发送第一条消息时会话已经可用。
 	s.backgroundResumeIfNeeded(ctx, threadID)
-	pkglogger.Info("thread: Unarchive() COMPLETED",
-		"thread_id", threadID,
-		"caller", caller,
-	)
+	pkglogger.Info("thread: Unarchive() COMPLETED", "thread_id", threadID, "caller", caller)
 	return nil
 }
 
