@@ -1,6 +1,7 @@
 package config
 
 import (
+	"fmt"
 	"os"
 	"slices"
 	"strings"
@@ -81,39 +82,69 @@ func DefaultLSPConfig() contract.LSPConfig {
 	}
 }
 
-func lspConfigFromEnv() contract.LSPConfig {
+// lspConfigFromEnv 从环境变量覆盖默认 LSP 配置。
+// 每个显式覆盖都必须能解析出有效值，否则启动失败，避免 LSP 扫描边界被坏配置放宽。
+func lspConfigFromEnv() (contract.LSPConfig, error) {
 	cfg := cloneLSPConfig(DefaultLSPConfig())
-	cfg.NoiseDirNames = envStringSliceOr("LSP_NOISE_DIRS", cfg.NoiseDirNames)
-	cfg.GoDirectoryFilters = envStringSliceOr("LSP_GO_DIRECTORY_FILTERS", cfg.GoDirectoryFilters)
-	cfg.DocumentFallbackLanguageIDs = envStringSliceOr("LSP_DOCUMENT_FALLBACK_LANGUAGES", cfg.DocumentFallbackLanguageIDs)
-	cfg.DisableInitialWorkspaceBootstrap = envBoolOr("LSP_DISABLE_INITIAL_WORKSPACE_BOOTSTRAP", cfg.DisableInitialWorkspaceBootstrap)
-	applyProjectAdapterEnv(cfg.ProjectAdapters, contract.LSPServiceJSTS, "LSP_JSTS")
-	applyProjectAdapterEnv(cfg.ProjectAdapters, contract.LSPServicePython, "LSP_PYTHON")
-	applyProjectAdapterEnv(cfg.ProjectAdapters, contract.LSPServiceRust, "LSP_RUST")
-	applyProjectAdapterEnv(cfg.ProjectAdapters, contract.LSPServiceJava, "LSP_JAVA")
-	applyProjectAdapterEnv(cfg.ProjectAdapters, contract.LSPServiceCSS, "LSP_CSS")
-	applyProjectAdapterEnv(cfg.ProjectAdapters, contract.LSPServiceShell, "LSP_SHELL")
-	return cfg
+	var err error
+	if cfg.NoiseDirNames, err = envStringSliceOr("LSP_NOISE_DIRS", cfg.NoiseDirNames); err != nil {
+		return contract.LSPConfig{}, err
+	}
+	if cfg.GoDirectoryFilters, err = envStringSliceOr("LSP_GO_DIRECTORY_FILTERS", cfg.GoDirectoryFilters); err != nil {
+		return contract.LSPConfig{}, err
+	}
+	if cfg.DocumentFallbackLanguageIDs, err = envStringSliceOr("LSP_DOCUMENT_FALLBACK_LANGUAGES", cfg.DocumentFallbackLanguageIDs); err != nil {
+		return contract.LSPConfig{}, err
+	}
+	if cfg.DisableInitialWorkspaceBootstrap, err = envBoolOr("LSP_DISABLE_INITIAL_WORKSPACE_BOOTSTRAP", cfg.DisableInitialWorkspaceBootstrap); err != nil {
+		return contract.LSPConfig{}, err
+	}
+	for _, adapter := range []struct {
+		service string
+		prefix  string
+	}{
+		{service: contract.LSPServiceJSTS, prefix: "LSP_JSTS"},
+		{service: contract.LSPServicePython, prefix: "LSP_PYTHON"},
+		{service: contract.LSPServiceRust, prefix: "LSP_RUST"},
+		{service: contract.LSPServiceJava, prefix: "LSP_JAVA"},
+		{service: contract.LSPServiceCSS, prefix: "LSP_CSS"},
+		{service: contract.LSPServiceShell, prefix: "LSP_SHELL"},
+	} {
+		if err := applyProjectAdapterEnv(cfg.ProjectAdapters, adapter.service, adapter.prefix); err != nil {
+			return contract.LSPConfig{}, err
+		}
+	}
+	return cfg, nil
 }
 
-func applyProjectAdapterEnv(adapters map[string]contract.LSPProjectAdapterConfig, service, prefix string) {
+func applyProjectAdapterEnv(adapters map[string]contract.LSPProjectAdapterConfig, service, prefix string) error {
 	cfg := adapters[service]
-	cfg.RootMarkers = envStringSliceOr(prefix+"_ROOT_MARKERS", cfg.RootMarkers)
-	cfg.IgnoredDirNames = envStringSliceOr(prefix+"_IGNORED_DIRS", cfg.IgnoredDirNames)
-	cfg.FirstSourceExtensions = envStringSliceOr(prefix+"_FIRST_SOURCE_EXTENSIONS", cfg.FirstSourceExtensions)
+	var err error
+	if cfg.RootMarkers, err = envStringSliceOr(prefix+"_ROOT_MARKERS", cfg.RootMarkers); err != nil {
+		return err
+	}
+	if cfg.IgnoredDirNames, err = envStringSliceOr(prefix+"_IGNORED_DIRS", cfg.IgnoredDirNames); err != nil {
+		return err
+	}
+	if cfg.FirstSourceExtensions, err = envStringSliceOr(prefix+"_FIRST_SOURCE_EXTENSIONS", cfg.FirstSourceExtensions); err != nil {
+		return err
+	}
 	adapters[service] = cfg
+	return nil
 }
 
-func envStringSliceOr(key string, fallback []string) []string {
-	value := strings.TrimSpace(os.Getenv(key))
-	if value == "" {
-		return slices.Clone(fallback)
+// envStringSliceOr 解析逗号分隔配置；显式非空但没有有效条目时直接报错。
+func envStringSliceOr(key string, fallback []string) ([]string, error) {
+	raw, ok := os.LookupEnv(key)
+	value := strings.TrimSpace(raw)
+	if !ok || value == "" {
+		return slices.Clone(fallback), nil
 	}
 	values := configutil.SplitConfigStringSlice(value)
 	if len(values) == 0 {
-		return slices.Clone(fallback)
+		return nil, fmt.Errorf("%s must contain at least one non-empty value", key)
 	}
-	return values
+	return values, nil
 }
 
 func cloneLSPConfig(cfg contract.LSPConfig) contract.LSPConfig {
