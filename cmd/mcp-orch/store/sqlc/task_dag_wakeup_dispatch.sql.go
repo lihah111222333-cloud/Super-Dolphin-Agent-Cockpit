@@ -246,7 +246,7 @@ WHERE id = ?3
   AND claimed_by = ?5
   AND lease_expires_at = ?6
   AND lease_expires_at >= (CAST(strftime('%s','now') AS INTEGER) * 1000)
-  AND attempt_count < 8
+  AND attempt_count < ?7
 `
 
 type RetryTaskDagWakeupParams struct {
@@ -256,6 +256,7 @@ type RetryTaskDagWakeupParams struct {
 	ClaimedAt      *int64      `db:"claimed_at" json:"claimed_at"`
 	ClaimedBy      string      `db:"claimed_by" json:"claimed_by"`
 	LeaseExpiresAt *int64      `db:"lease_expires_at" json:"lease_expires_at"`
+	MaxAttempts    int64       `db:"max_attempts" json:"max_attempts"`
 }
 
 func (q *Queries) RetryTaskDagWakeup(ctx context.Context, arg RetryTaskDagWakeupParams) (int64, error) {
@@ -266,6 +267,7 @@ func (q *Queries) RetryTaskDagWakeup(ctx context.Context, arg RetryTaskDagWakeup
 		arg.ClaimedAt,
 		arg.ClaimedBy,
 		arg.LeaseExpiresAt,
+		arg.MaxAttempts,
 	)
 	if err != nil {
 		return 0, err

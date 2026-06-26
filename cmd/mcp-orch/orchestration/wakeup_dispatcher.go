@@ -31,11 +31,12 @@ const (
 
 // WakeupDispatcherConfig 控制 dispatcher 单轮领取和重试节奏；零值会在启动前补齐默认值。
 type WakeupDispatcherConfig struct {
-	ClaimedBy     string
-	LeaseInterval string
-	BatchLimit    int32
-	TickInterval  time.Duration
-	RetryInterval string
+	ClaimedBy        string
+	LeaseInterval    string
+	BatchLimit       int32
+	TickInterval     time.Duration
+	RetryInterval    string
+	MaxRetryAttempts int
 }
 
 // ConfigOrDefaults 填充 dispatcher 配置默认值，并为 claimed_by 生成进程内唯一标识。
@@ -87,12 +88,7 @@ func NewWakeupDispatcher(store taskdag.Store, launcher WakeupLauncher, logger *s
 	if logger == nil {
 		logger = pkglogger.Get()
 	}
-	return &WakeupDispatcher{
-		store:    store,
-		launcher: launcher,
-		logger:   logger,
-		cfg:      cfg.ConfigOrDefaults(),
-	}, nil
+	return &WakeupDispatcher{store: store, launcher: launcher, logger: logger, cfg: cfg.ConfigOrDefaults()}, nil
 }
 
 // WithNodeRouter 设置 wakeup 调度器使用的节点路由器。
@@ -114,12 +110,7 @@ func (d *WakeupDispatcher) WithDispatchRetryAlertSink(sink DispatchRetryAlertSin
 // ClaimedBy 返回 wakeup 当前领取者标识。
 func (d *WakeupDispatcher) ClaimedBy() string { return d.cfg.ClaimedBy }
 
-// Run 是 dispatcher 主循环，每 cfg.TickInterval 调一次 ProcessBatch。
-// ctx 取消时直接返回 ctx.Err()，由 fx OnStop 或调用方等待 goroutine 收口。
-//
-// 单 tick 失败不退出循环（claim 失败可能是瞬态 DB 抖动；下一 tick 重试），
-// ctx canceled 才停。Run 不开 goroutine —— 调用方负责 go d.Run(ctx)，让
-// 调用方能 wait/cancel 该 goroutine 的启动和停止过程。
+// Run 按 TickInterval 驱动 ProcessBatch；单 tick 失败只记录，ctx 取消才退出。
 func (d *WakeupDispatcher) Run(ctx context.Context) error {
 	if ctx == nil {
 		ctx = context.Background()
@@ -142,17 +133,12 @@ func (d *WakeupDispatcher) Run(ctx context.Context) error {
 				"reason", ctx.Err())
 			return ctx.Err()
 		case <-ticker.C:
-			if _, err := d.ProcessBatch(ctx); err != nil {
-				// processBatch 已经 logWarn 过；这里只是不退出循环。
-				continue
-			}
+			_, _ = d.ProcessBatch(ctx)
 		}
 	}
 }
 
-// ProcessBatch 是 dispatcher 的完整处理轮次：claim 一批 wakeup 后按类型投递。
-// 成功会写 sent，瞬时失败会按 RetryInterval 放回 pending，永久失败会写 failed。
-// launcher 为空时保留 claim-only Tick 路径，方便只验证领取和 lease 的调用方。
+// ProcessBatch claim 一批 wakeup 后按类型投递；launcher 为空时只执行 Tick。
 func (d *WakeupDispatcher) ProcessBatch(ctx context.Context) (int, error) {
 	if ctx == nil {
 		ctx = context.Background()
@@ -180,8 +166,7 @@ func (d *WakeupDispatcher) ProcessBatch(ctx context.Context) (int, error) {
 	return handled, nil
 }
 
-// wakeupFence 把 ClaimDueWakeups 返回的 fence 字段（claimedAt/leaseAt
-// 可能为 nil）展开成 time.Time 值，让后续 MarkSent/Retry/Fail 能直接用。
+// wakeupFence 保存 ClaimDueWakeups 返回的 CAS 字段。
 type wakeupFence struct {
 	claimedAt time.Time
 	leaseAt   time.Time
@@ -200,7 +185,6 @@ func extractFence(w *taskdag.Wakeup) wakeupFence {
 }
 
 // handleClaimed 推进单条已领取 wakeup，单条失败不会中断整批处理。
-// 内部修复 wakeup 在本地处理，DAG wakeup 走 NodeExecutor，非 DAG wakeup 走启动接口。
 func (d *WakeupDispatcher) handleClaimed(ctx context.Context, w *taskdag.Wakeup) bool {
 	if w == nil {
 		return false
@@ -234,11 +218,6 @@ func (d *WakeupDispatcher) handleTurnCompletionRetryWakeup(ctx context.Context, 
 		lastErr := truncateWakeupError("turn.completed completion retry invalid: " + res.Err.Error())
 		return d.markPermanentDAGFailure(ctx, w, fence, lastErr, res.Err, true, failedWakeupOutcome(lastErr))
 	}
-}
-
-// shouldRouteThroughNodeExecutor 判断 wakeup 是否应交给 NodeExecutor router。
-func (d *WakeupDispatcher) shouldRouteThroughNodeExecutor(w *taskdag.Wakeup) bool {
-	return d != nil && isDAGWakeup(w)
 }
 
 // handleClaimedViaLegacyLauncher 处理非 DAG wakeup 的启动投递。
@@ -312,13 +291,9 @@ func (d *WakeupDispatcher) markPermanentFail(ctx context.Context, w *taskdag.Wak
 	return true
 }
 
-// DAG wakeup 重试前先看 DAG/node 配置；到上限就失败并处理下游。
-// 非 DAG wakeup 保留旧的 SQL hard cap。
+// DAG wakeup 重试前先看 DAG/node 配置；非 DAG wakeup 使用 dispatcher 上限。
 func (d *WakeupDispatcher) markTransientRetry(ctx context.Context, w *taskdag.Wakeup, fence wakeupFence, failure dispatchFailure) bool {
-	// DAG-driven wakeup 走 metadata/node config 决策。
-	// 当前 attempt_count >= MaxAttempts 直接 fail + cascade 下游（按
-	// FailFast）；attempt_count 还没到上限走旧的 RetryWakeup 路径。
-	// 非 DAG wakeup（DagKey/NodeKey 空）走兼容路径，保留 SQL 8 hard cap.
+	// DAG-driven wakeup 走 metadata/node config 决策，其余交给通用 retry fence。
 	if w.DagKey != "" && w.NodeKey != "" {
 		if handled, decided := d.tryDAGFailWithCascade(ctx, w, fence, failure); decided {
 			return handled
@@ -327,13 +302,13 @@ func (d *WakeupDispatcher) markTransientRetry(ctx context.Context, w *taskdag.Wa
 	return d.retryWakeup(ctx, w, fence, failure)
 }
 
-// retryWakeup 把 wakeup 放回 pending，并设置 next_retry_at。
-// rows=0 可能是到达上限，也可能是这次 claim 已失效。
+// retryWakeup 把 wakeup 放回 pending；rows=0 表示达到上限或 claim 失效。
 func (d *WakeupDispatcher) retryWakeup(ctx context.Context, w *taskdag.Wakeup, fence wakeupFence, failure dispatchFailure) bool {
 	rows, err := d.store.RetryWakeup(ctx, taskdag.RetryWakeupInput{
 		ID:             w.ID,
 		RetryInterval:  d.cfg.RetryInterval,
 		LastError:      failure.lastErr,
+		MaxAttempts:    d.cfg.MaxRetryAttempts,
 		ClaimedAt:      fence.claimedAt,
 		ClaimedBy:      w.ClaimedBy,
 		LeaseExpiresAt: fence.leaseAt,
@@ -344,7 +319,7 @@ func (d *WakeupDispatcher) retryWakeup(ctx context.Context, w *taskdag.Wakeup, f
 		return false
 	}
 	if rows == 0 {
-		// SQL 层 attempt_count >= 8 硬上限兜底：转 FailWakeup，避免 dispatching 死锁。
+		// Retry fence miss 或到达上限时转 FailWakeup，避免 dispatching 死锁。
 		return d.handleRetryHardCap(ctx, w, fence, failure)
 	}
 	d.recordRetryAccepted(ctx, w, failure)

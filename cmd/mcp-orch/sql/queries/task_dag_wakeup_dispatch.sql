@@ -65,7 +65,7 @@ WHERE id = sqlc.arg(id)
   AND claimed_by = sqlc.arg(claimed_by)
   AND lease_expires_at = sqlc.arg(lease_expires_at)
   AND lease_expires_at >= (CAST(strftime('%s','now') AS INTEGER) * 1000)
-  AND attempt_count < 8;
+  AND attempt_count < sqlc.arg(max_attempts);
 
 -- name: FailTaskDagWakeup :execrows
 UPDATE task_dag_wakeups

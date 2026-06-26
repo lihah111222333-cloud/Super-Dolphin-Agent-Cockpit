@@ -468,6 +468,7 @@ type BindWakeupTurnInput struct {
 type RetryWakeupInput struct {
 	RetryInterval  string
 	LastError      string
+	MaxAttempts    int
 	ID             int64
 	ClaimedAt      time.Time
 	ClaimedBy      string

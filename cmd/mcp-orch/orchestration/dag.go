@@ -9,6 +9,7 @@ import (
 
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/orchestration/nodeevents"
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/orchestration/nodeexec"
+	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/orchestration/taskupdatelease"
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/taskdag"
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
@@ -207,10 +208,14 @@ func (s *service) UpdateNodeStatus(ctx context.Context, req UpdateNodeStatusRequ
 	}
 	var result DAGNode
 	err = s.withDAGStore(func(store taskdag.OrchestrationStore) error {
-		oldStatus, vErr := s.validateNodeTransition(ctx, store, input)
+		current, vErr := s.validateNodeTransition(ctx, store, input)
 		if vErr != nil {
 			return vErr
 		}
+		if err := taskupdatelease.Validate(ctx, store, current, defaultWakeupLeaseInterval); err != nil {
+			return err
+		}
+		oldStatus := current.Status
 		if input.Status == "done" {
 			if flow, ok := store.(taskdag.NodeFlowStore); ok {
 				return s.completeNodeWithDownstream(ctx, flow, input, oldStatus, &result)
@@ -239,31 +244,31 @@ func (s *service) UpdateNodeStatus(ctx context.Context, req UpdateNodeStatusRequ
 
 // validateNodeTransition 在公开 task_update_node 写入前读取 run-scoped 当前状态。
 // 该校验只覆盖工具/RPC 入口；dispatcher 热路径依赖 SQL fence 和状态白名单阻止并发写。
-func (s *service) validateNodeTransition(ctx context.Context, store taskdag.OrchestrationStore, input taskdag.NodeStatusUpdate) (string, error) {
+func (s *service) validateNodeTransition(ctx context.Context, store taskdag.OrchestrationStore, input taskdag.NodeStatusUpdate) (taskdag.Node, error) {
 	runReader, ok := any(store).(taskdag.RunNodeReadStore)
 	if !ok {
-		return "", fmt.Errorf("validate transition: store does not implement RunNodeReadStore for run_id=%d", input.RunID)
+		return taskdag.Node{}, fmt.Errorf("validate transition: store does not implement RunNodeReadStore for run_id=%d", input.RunID)
 	}
 	nodes, err := runReader.ListRunNodes(ctx, input.DagKey, input.RunID)
 	if err != nil {
-		return "", fmt.Errorf("validate transition: list run nodes %s run_id=%d: %w", input.DagKey, input.RunID, err)
+		return taskdag.Node{}, fmt.Errorf("validate transition: list run nodes %s run_id=%d: %w", input.DagKey, input.RunID, err)
 	}
-	var fromStatus string
+	var current taskdag.Node
 	found := false
 	for _, n := range nodes {
 		if n.NodeKey == input.NodeKey {
-			fromStatus = n.Status
+			current = n
 			found = true
 			break
 		}
 	}
 	if !found {
-		return "", fmt.Errorf("validate transition: node %s/%s not found", input.DagKey, input.NodeKey)
+		return taskdag.Node{}, fmt.Errorf("validate transition: node %s/%s not found", input.DagKey, input.NodeKey)
 	}
-	if err := nodeexec.ValidateTransition(nodeexec.NodeStatus(fromStatus), nodeexec.NodeStatus(input.Status)); err != nil {
-		return "", err
+	if err := nodeexec.ValidateTransition(nodeexec.NodeStatus(current.Status), nodeexec.NodeStatus(input.Status)); err != nil {
+		return taskdag.Node{}, err
 	}
-	return fromStatus, nil
+	return current, nil
 }
 
 // completeNodeWithDownstream 完成节点时让 store 统一处理下游和 run 收尾。
