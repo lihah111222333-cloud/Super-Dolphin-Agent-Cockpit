@@ -2,6 +2,7 @@ package wails
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -133,7 +134,7 @@ func NewRPCHandlers(app *App, cfg *config.Config, uiState contract.UIProjectStat
 			return handlePathOpen(ctx, cfg, uiState, p)
 		}),
 		"ui/copyText": rpc.StrictHandler(func(ctx context.Context, p copyTextParams) (any, error) {
-			return handleCopyText(app, strings.TrimSpace(p.Text))
+			return handleCopyText(app, p.Text)
 		}),
 		"ui/buildInfo": rpc.StrictHandler(func(ctx context.Context, _ clientMetaParams) (any, error) {
 			return currentBuildInfo(), nil
@@ -251,8 +252,11 @@ func handlePathOpen(
 	return openScopedPath(ctx, p.FilePath, p.Line, p.Column, roots)
 }
 
-// handleCopyText 处理剪贴板写入；headless 模式返回软失败给前端。
+// handleCopyText 处理剪贴板写入；空文本直接拒绝，headless 模式返回软失败给前端。
 func handleCopyText(app *App, text string) (map[string]any, error) {
+	if strings.TrimSpace(text) == "" {
+		return nil, errors.New("clipboard text is empty")
+	}
 	if app == nil || app.wailsApp == nil {
 		return map[string]any{
 			"ok":    false,

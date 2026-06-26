@@ -397,6 +397,30 @@ func TestHandleCopyTextHeadlessReturnsSoftFailure(t *testing.T) {
 	}
 }
 
+func TestCopyTextPreservesLeadingAndTrailingWhitespace(t *testing.T) {
+	source, err := os.ReadFile("rpc.go")
+	if err != nil {
+		t.Fatalf("ReadFile(rpc.go) error = %v", err)
+	}
+	text := string(source)
+	if strings.Contains(text, "handleCopyText(app, strings.TrimSpace(p.Text))") {
+		t.Fatal("ui/copyText trims clipboard text before calling handleCopyText")
+	}
+	if !strings.Contains(text, "return handleCopyText(app, p.Text)") {
+		t.Fatal("ui/copyText must pass p.Text to handleCopyText without trimming")
+	}
+}
+
+func TestCopyTextRejectsBlankText(t *testing.T) {
+	_, err := handleCopyText(&App{}, " \n\t ")
+	if err == nil {
+		t.Fatal("handleCopyText() error = nil, want blank text rejection")
+	}
+	if !strings.Contains(err.Error(), "clipboard text is empty") {
+		t.Fatalf("handleCopyText() error = %v, want clipboard text is empty", err)
+	}
+}
+
 func newWailsRPCServer(t *testing.T, app *App) *rpcpkg.Server {
 	t.Helper()
 
