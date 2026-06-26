@@ -12,8 +12,8 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/sqlctx"
 )
 
-// Phase 3.4 / 3B · CompleteNode 自动 enqueue 下游：节点完成后查 DAG 拓扑找
-// ready 下游节点（依赖已满足），对每个生成 wakeup；同事务保证一致性。
+// 节点完成后会在同一事务内检查 DAG 拓扑，找出依赖已满足的下游节点并尝试生成 wakeup。
+// 事务内同时推进下游状态和 run 终态，避免调用方看到节点已完成但下游尚未可派发的中间态。
 //
 // idempotency_key 用 `dag/<dagKey>/<nodeKey>/start` 形式保证：同一 downstream
 // 节点重复触发只会 INSERT 一行，第二次起 ON CONFLICT 静默跳过；
@@ -25,11 +25,12 @@ const (
 	// 自动派发\"。dispatcher 端不依赖该值做分支，仅作为日志/审计区分点。
 	downstreamWakeupKind = "node_start"
 	// terminalSuccessStatus 是唯一能满足下游 depends_on 的终态值；failed /
-	// canceled 走 Phase 3.5 fail-fast 决策，不算「依赖满足」。
+	// canceled 会触发失败级联或终态收口，不算「依赖满足」。
 	terminalSuccessStatus = "done"
 )
 
-// CompleteNodeAndScheduleDownstream 完成节点计划downstream。
+// CompleteNodeAndScheduleDownstream 在同一事务内完成节点、推进可运行下游并尝试收尾 run。
+// 下游 enqueue 只发生在完成状态为 done 时；run 终态判定仍会在任意终态后执行。
 func (s *store) CompleteNodeAndScheduleDownstream(ctx context.Context, input CompleteNodeInput) (*CompleteNodeWithDownstreamResult, error) {
 	if err := requireRuntimeRunID("complete_and_schedule_downstream", input.RunID); err != nil {
 		return nil, err
@@ -48,10 +49,8 @@ func (s *store) CompleteNodeAndScheduleDownstream(ctx context.Context, input Com
 		if node == nil {
 			return nil
 		}
-		// 下游调度仅限 done 终态：failed / cancelled / skipped 走下游不会被
-		// dependsOn 满足，不需 enqueue。但 F6.2 终态判定在任何终态后都要尝试。
-		// Downstream scheduling stays gated on done — failed/cancelled/skipped
-		// terminals do not satisfy dependsOn and need no enqueue.
+		// 下游调度仅限 done 终态；failed/cancelled/skipped 不满足 depends_on。
+		// run 终态判定仍要在任何终态后执行，确保失败路径也能及时收口。
 		if node.Status == terminalSuccessStatus {
 			scheduled, promoted, scheduleErr := scheduleDownstreamWakeupsTx(ctx, txStore, node)
 			if scheduleErr != nil {
@@ -60,9 +59,7 @@ func (s *store) CompleteNodeAndScheduleDownstream(ctx context.Context, input Com
 			result.ScheduledDownstream = scheduled
 			result.PromotedDownstream = promoted
 		}
-		// F6.2 同事务内推进 run.status：节点全终态时按优先级
-		// (failed > cancelled > succeeded) 写 task_dag_runs.status + finished_at。
-		// F6.2: same-tx run finalize — priority failed > cancelled > succeeded.
+		// 同事务内推进 run.status：所有节点终态后按 failed > cancelled > succeeded 写 finished_at。
 		finalized, finalizeErr := maybeFinalizeRunTx(ctx, txStore, node.DagKey, runIDValue(node.RunID))
 		if finalizeErr != nil {
 			return finalizeErr
@@ -90,13 +87,10 @@ func lockRunForCompletionTx(ctx context.Context, txStore *store, dagKey string, 
 	return nil
 }
 
-// maybeFinalizeRunTx 调 sqlc 生代的 FinalizeTaskDagRunIfAllNodesTerminal，把
+// maybeFinalizeRunTx 调 sqlc 生成的 FinalizeTaskDagRunIfAllNodesTerminal，把
 // “节点全终态时按优先级推进 run.status” 一句 SQL 完成。最多返 1 行
 // (run_key, status)；返 0 行表示节点未全部终态、或 dag_key 下无 running run。
-//
-// maybeFinalizeRunTx invokes the F6.2 finalize SQL; it is idempotent because
-// the WHERE clause only matches a 'running' run, so re-running it after the
-// first successful flip simply returns zero rows.
+// WHERE 只匹配 running run，重复调用在首次成功后会返回 0 行，保持幂等。
 func maybeFinalizeRunTx(ctx context.Context, txStore *store, dagKey string, runID int64) (*FinalizedRunInfo, error) {
 	if err := requireRuntimeRunID("finalize_run", runID); err != nil {
 		return nil, err
@@ -111,9 +105,8 @@ func maybeFinalizeRunTx(ctx context.Context, txStore *store, dagKey string, runI
 	if len(rows) == 0 {
 		return nil, nil
 	}
-	// SQL WHERE dag_key=$1 + status='running' 命中至多 1 行（56 partial unique
-	// guarantees a single running run per dag_key）；取首行、多余行是 DB drift 不静默。
-	// At most one running run per dag_key (0076 partial unique); take the first.
+	// SQL 的 running run 唯一约束保证同一 dag_key 至多命中 1 行；
+	// 如果数据库约束漂移导致多行，后续唯一约束/测试应暴露问题，这里不做静默合并。
 	first := rows[0]
 	if first.Status == "succeeded" {
 		if err := writeRunFinalOutputMetadataTx(ctx, txStore, dagKey, runID); err != nil {
@@ -360,22 +353,14 @@ WHERE dag_key = ?2
   AND id = ?3
   AND status = 'succeeded'`
 
-// scheduleDownstreamWakeupsTx assumes caller has already completed the
-// upstream node row inside txStore's transaction. It re-reads the entire DAG
-// node set (cheap; DAGs are tens of nodes max) so it can evaluate every
-// downstream candidate's depends_on against the post-completion status map.
-//
-// F6.3: 同事务内对每个「依赖已满足」的 pending 下游节点做两件事：
+// scheduleDownstreamWakeupsTx 对每个「依赖已满足」的 pending 下游节点做两件事：
 //  1. promote pending→ready（PromoteSingleNodePendingToReady SQL）—— 无论
 //     assigned_to 是否为空，状态机层面都要推进，以暴露「ready 但未指派」
 //     可观测态；下次外部接管 / 人工补 assigned_to 时直接进 dispatcher。
-//  2. 仅当 assigned_to 非空时，enqueue wakeup（F6.4 跳过空 assigned_to 路由
-//     仍然成立）。
+//  2. 仅当 assigned_to 非空时 enqueue wakeup；空 assigned_to 只记录阻断事件。
 //
-// EN: F6.3 + F6.4 dual responsibility — every dependency-satisfied pending
-// downstream node is promoted to ready in the same tx, while wakeup enqueue
-// stays gated on a non-empty assigned_to per F6.4. The two concerns are
-// decoupled: promote = state-machine truth; enqueue = dispatch routing.
+// 它重新读取 run 内节点列表，用完成后的状态图评估全部候选，保证 promote 和 enqueue
+// 基于同一个事务视图。
 func scheduleDownstreamWakeupsTx(ctx context.Context, txStore *store, completed *Node) ([]ScheduledDownstreamWakeup, []PromotedDownstreamNode, error) {
 	completedRunID := runIDValue(completed.RunID)
 	if err := requireRuntimeRunID("schedule_downstream", completedRunID); err != nil {
@@ -461,31 +446,16 @@ func dependsSatisfiedForUpstream(cand *Node, completedKey string, statusByKey ma
 	return allDependenciesSatisfied(deps, statusByKey), nil
 }
 
-// tryEnqueueDownstream enqueues a downstream wakeup for a candidate node
-// whose dependencies have already been confirmed satisfied (and promoted
-// pending→ready) by the caller. Returns (nil, nil) when assigned_to is empty
-// (F6.4 routing skip) or when the INSERT was deduped by ON CONFLICT.
-//
-// F6.3 refactor: depends_on / status checks moved up to
-// dependsSatisfiedForUpstream so promote + enqueue share a single decision.
-// tryEnqueueDownstream 处理tryenqueuedownstream。
+// tryEnqueueDownstream 为已确认依赖满足且已 promote 的候选节点创建 wakeup。
+// assigned_to 为空或幂等 INSERT 被去重时返回 nil，不把未指派节点误判成派发失败。
 func tryEnqueueDownstream(
 	ctx context.Context,
 	txStore *store,
 	cand *Node,
 ) (*ScheduledDownstreamWakeup, error) {
 	agentID := strings.TrimSpace(cand.AssignedTo)
-	// F6.4：assigned_to 为空 → 跳过 wakeup enqueue。否则 dispatcher 走
-	// LaunchAgent 会因 "agent id is required" 失败，retry 耗尽后把节点判
-	// 死成 permanent failed（详见 docs/plans/dag改造实施计划.md follow-up
-	// F6.4）。节点已在调用方 promote 到 ready，等待外部 agent / 人工接管
-	// 后再进入 running，避免误杀未指派节点。
-	//
-	// EN: When the candidate has no assigned_to we deliberately skip the
-	// wakeup enqueue: otherwise the dispatcher's LaunchAgent rejects the
-	// empty agent id, exhausts retries, and the node ends up permanently
-	// failed. The caller has already promoted the node to ready, so an
-	// external/manual flow can later move it to running.
+	// assigned_to 为空时只记录派发阻断事件，不创建 wakeup。
+	// 节点已经 promote 到 ready，后续由外部 agent 或人工补齐 assignee 后再进入派发。
 	if agentID == "" {
 		err := fmt.Errorf("assigned_to required for automatic downstream dispatch")
 		return nil, appendDispatchBlockedEvent(ctx, txStore, cand, runIDValue(cand.RunID), "downstream", err)
@@ -514,10 +484,8 @@ func tryEnqueueDownstream(
 		return nil, enqErr
 	}
 	if rows == 0 {
-		// ON CONFLICT (idempotency_key) skipped: a prior upstream
-		// completion (or replayed call) already enqueued the same
-		// downstream wakeup. Returning nil here keeps the caller's
-		// invariant len(scheduled) == new INSERTs this call performed.
+		// 幂等键命中说明同一个下游 wakeup 已由先前完成或重放调用写入；
+		// 返回 nil 让 ScheduledDownstream 只统计本次真正新增的行。
 		return nil, nil
 	}
 	return &ScheduledDownstreamWakeup{
@@ -549,7 +517,7 @@ func decodeDependsOn(raw json.RawMessage) ([]string, error) {
 	return deps, nil
 }
 
-// dependsOnIncludes 判断 deps 列表中是否包含 nodeKey（忽略首尾空白）。
+// dependsOnIncludes 在去除首尾空白后检查 deps 是否包含 nodeKey。
 func dependsOnIncludes(deps []string, nodeKey string) bool {
 	for _, d := range deps {
 		if strings.TrimSpace(d) == nodeKey {
@@ -559,7 +527,7 @@ func dependsOnIncludes(deps []string, nodeKey string) bool {
 	return false
 }
 
-// allDependenciesSatisfied 判断 deps 中每个非空 key 是否都在 statusByKey 里为 done。
+// allDependenciesSatisfied 确认 deps 中每个非空 key 的状态都已达到 done。
 func allDependenciesSatisfied(deps []string, statusByKey map[string]string) bool {
 	for _, d := range deps {
 		d = strings.TrimSpace(d)

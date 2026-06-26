@@ -5,15 +5,15 @@ import (
 	"time"
 )
 
-// RuntimeReport mirrors the fields accepted by orchestration.reportRuntime.
+// RuntimeReport 是 provider 上报运行时元数据的 contract 层载荷。
 type RuntimeReport struct {
 	AgentID  string
 	Port     int
 	Provider string
 }
 
-// RuntimeReporter lets in-process providers publish runtime metadata without
-// importing the orchestration module directly.
+// RuntimeReporter 允许进程内 provider 发布运行时元数据。
+// provider 通过该端口上报端口和类型，不直接导入 orchestration 模块。
 type RuntimeReporter interface {
 	ReportRuntime(ctx context.Context, report RuntimeReport) error
 }

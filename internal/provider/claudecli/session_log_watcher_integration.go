@@ -73,7 +73,8 @@ func (s *session) startLogWatcherIfCurrent(tr *transport) {
 	watcher.stopAndWait()
 }
 
-// prepareLogWatcherStart 准备日志watcher起点。
+// prepareLogWatcherStart 在当前 transport 身份稳定后准备启动 usage log watcher。
+// 它会递增 generation 并摘下旧 watcher，后续安装时用 generation 防止并发重启串线。
 func (s *session) prepareLogWatcherStart(tr *transport) (logWatcherStartState, bool) {
 	if s == nil || tr == nil || s.history == nil {
 		return logWatcherStartState{}, false
@@ -128,7 +129,8 @@ func (s *session) logWatcherMatchesLocked(tr *transport, state logWatcherStartSt
 		strings.TrimSpace(s.threadID) == state.identity.threadID
 }
 
-// dispatchTokenUsageIfCurrent 派发令牌usageif当前。
+// dispatchTokenUsageIfCurrent 只在 watcher 身份仍匹配当前 session 时派发 token usage。
+// transport、generation、sessionID 和 threadID 任一漂移都会丢弃，避免旧 watcher 覆盖新会话。
 func (s *session) dispatchTokenUsageIfCurrent(tr *transport, identity logWatcherIdentity, generation uint64, usage sessionLogUsage) {
 	usageSessionID := strings.TrimSpace(usage.SessionID)
 	if usageSessionID != "" && !strings.EqualFold(usageSessionID, identity.sessionID) {
@@ -306,7 +308,8 @@ func (s *session) awaitSessionRestartLocked(prepared preparedSessionRestart, nex
 	return nil
 }
 
-// rollbackSessionRestartLocked 处理rollback会话restartlocked。
+// rollbackSessionRestartLocked 在 Claude transport 重启失败时恢复旧 snapshot。
+// 调用方进入时持有 s.mu；需要临时解锁派发失败状态，再重新加锁保持上层锁语义。
 func (s *session) rollbackSessionRestartLocked(prepared preparedSessionRestart, err error) error {
 	stagedCurrent := s.transport == prepared.transport
 	var failurePatch dto.RawProviderEvent
@@ -330,7 +333,8 @@ func (s *session) rollbackSessionRestartLocked(prepared preparedSessionRestart, 
 	return err
 }
 
-// stagedTurnSettingsLocked 处理stagedturnsettingslocked。
+// stagedTurnSettingsLocked 计算本轮 turn 应使用的模型、effort 和 MCP manifest。
+// pending 配置、turn override 和 manifest 变更都会影响是否需要重启 transport。
 func (s *session) stagedTurnSettingsLocked(req dto.TurnRequest) stagedSessionState {
 	currentModel := strings.TrimSpace(s.model)
 	currentDisplayModel := claudeLaunchDisplayModel(currentModel, s.history)
@@ -386,7 +390,8 @@ func (s *session) applyPendingStagedSettingsLocked(next *stagedSessionState) {
 	}
 }
 
-// consumeNoopPendingLocked 处理consumenoop待处理locked。
+// consumeNoopPendingLocked 提交无需重启即可生效的 pending 配置。
+// 当 pending 值与当前 transport 一致时清空 pending 标记，避免后续 turn 反复触发检查。
 func (s *session) consumeNoopPendingLocked(next stagedSessionState) {
 	if next.appliedPendingModel {
 		s.overrideModel = next.appliedPendingModelText

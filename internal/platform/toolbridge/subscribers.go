@@ -9,8 +9,8 @@ import (
 	"github.com/kelindar/event"
 )
 
-// NewToolbridgeDiffFallbackSubscribers declares the diff fallback subscription for BusModule.
-// NewToolbridgeDiffFallbackSubscribers 创建toolbridgediff兜底subscribers。
+// NewToolbridgeDiffFallbackSubscribers 声明 ToolCallEnd 的 diff fallback 订阅。
+// 返回的 cancel 使用 sync.Once 包装，避免总线重复 shutdown 时重复取消。
 func NewToolbridgeDiffFallbackSubscribers(tracker *diffFallbackTracker) platformbus.SubscriberResult {
 	return platformbus.SubscriberResult{
 		Spec: platformbus.SubscriberSpec{

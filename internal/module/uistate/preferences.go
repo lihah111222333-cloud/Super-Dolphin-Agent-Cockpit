@@ -51,7 +51,8 @@ func splitFallbackPreferenceKey(raw string) (string, string, bool) {
 	return scope, strings.TrimSpace(key), ok && strings.TrimSpace(key) != ""
 }
 
-// normalizePreferenceKey 规范化preference键。
+// normalizePreferenceKey 将旧 snake_case 偏好键映射到当前点分命名。
+// 该兼容层保证旧前端或旧存储值仍能被同一读取路径消费。
 func normalizePreferenceKey(key string) string {
 	switch strings.TrimSpace(key) {
 	case "active_thread_id":
@@ -117,7 +118,8 @@ func isEmptyProviderPreference(value any) bool {
 	return ok && strings.TrimSpace(text) == ""
 }
 
-// preferenceValue 处理preference值。
+// preferenceValue 按 key 返回单项偏好值，并对 map/slice 做深拷贝。
+// 公开 RPC 使用该函数，避免调用方拿到内部 Preferences 的可变引用。
 func preferenceValue(prefs Preferences, key string) any {
 	switch normalizePreferenceKey(key) {
 	case preferenceActiveThreadID:
@@ -190,11 +192,8 @@ func activeThreadPreference(threads []ThreadSummary, current string) string {
 	return ""
 }
 
-// projectArchivedThreadStatus merges DB-side archived status into the
-// preference-driven archive map. LifecycleStatus is the DB lifecycle truth;
-// State is only a fallback for old in-memory/test snapshots because it is a
-// runtime/UI union field overwritten by deriveThreadStatuses.
-// projectArchivedThreadStatus 处理项目archived线程状态。
+// projectArchivedThreadStatus 将 DB 生命周期中的 archived 状态合并进偏好归档 map。
+// LifecycleStatus 是持久化真值；State 只用于兼容内存或测试快照中的旧字段。
 func projectArchivedThreadStatus(threads []ThreadSummary, archived map[string]int64) map[string]int64 {
 	out := cloneTimestampMap(archived)
 	for _, thread := range threads {
@@ -240,7 +239,7 @@ func deriveMainAgentID(agents []AgentSummary, current string) string {
 	return strings.TrimSpace(agents[0].ID)
 }
 
-// buildThreadGroups 构建线程groups。
+// buildThreadGroups 按 pinned、普通和 archived 分组线程，供 sidebar 直接渲染。
 func buildThreadGroups(threads []ThreadSummary, pinned, archived map[string]int64) []ThreadGroup {
 	var pinnedThreads, archivedThreads, otherThreads []ThreadSummary
 	for _, thread := range threads {
@@ -329,7 +328,8 @@ func normalizeJSONObject(value any) map[string]any {
 	return clone.JSONMap(typed)
 }
 
-// normalizeTimestampMap 规范化timestampmap。
+// normalizeTimestampMap 将 JSON 对象中的正数时间戳转换为 threadID -> 毫秒值。
+// 空 key、非数字或非正数会被丢弃，避免污染 pin/archive 排序。
 func normalizeTimestampMap(value any) map[string]int64 {
 	typed, ok := value.(map[string]any)
 	if !ok {
@@ -376,7 +376,8 @@ func cloneTimestampMap(input map[string]int64) map[string]int64 {
 	return out
 }
 
-// asInt64 把uistate处理为int64。
+// asInt64 接收偏好 JSON 解码后的常见数值形态，并返回可用于排序的 int64。
+// 不支持的类型返回 false，让调用方按无效偏好处理而不是默默写入零值。
 func asInt64(value any) (int64, bool) {
 	switch typed := value.(type) {
 	case int:
@@ -395,7 +396,8 @@ func asInt64(value any) (int64, bool) {
 	}
 }
 
-// asPositiveInt 把uistate处理为positiveint。
+// asPositiveInt 解析正整数偏好值，并用 minVal 阻断过小或不可解析输入。
+// 返回 0 表示该字段无效，调用方会保留默认显示边界。
 func asPositiveInt(value any, minVal int) int {
 	switch typed := value.(type) {
 	case string:

@@ -18,30 +18,32 @@ import (
 	"github.com/kelindar/event"
 )
 
-// AgentContextSource provides agent snapshots used to build MCP context responses.
+// AgentContextSource 提供 agent 快照，用于生成 MCP context 响应。
 type AgentContextSource interface {
 	GetAgentSnapshot(agentID string) (*contract.AgentSnapshot, error)
 }
 
-// ContextProvider resolves a context request for a registered MCP tool instance.
+// ContextProvider 为已注册 MCP 工具实例解析 context 请求。
 type ContextProvider interface {
 	GetContext(ctx context.Context, instance *ToolInstance, req dto.ContextRequest) (dto.ContextResponse, error)
 }
 
-// EventSink handles event notifications emitted by a registered MCP tool instance.
+// EventSink 处理已注册 MCP 工具实例上报的事件通知。
 type EventSink interface {
 	HandleEvent(ctx context.Context, instance *ToolInstance, req dto.EventNotify) error
 }
 
-// LogSink handles log notifications emitted by a registered MCP tool instance.
+// LogSink 处理已注册 MCP 工具实例上报的日志通知。
 type LogSink interface {
 	HandleLog(ctx context.Context, instance *ToolInstance, req dto.LogNotify) error
 }
 
+// ackResponse 是 event/log 类通知的统一确认响应。
 type ackResponse struct {
 	OK bool `json:"ok"`
 }
 
+// controlEvent 是 MCP peer 上报事件进入进程内事件总线的载荷。
 type controlEvent struct {
 	Lease      dto.LeaseKey    `json:"lease"`
 	EventID    string          `json:"event_id,omitempty"`
@@ -52,10 +54,10 @@ type controlEvent struct {
 
 const controlEventType uint32 = 0xC7100001
 
-// Type 返回事件分发用的类型编号。
+// Type 返回事件总线使用的稳定类型编号。
 func (controlEvent) Type() uint32 { return controlEventType }
 
-// NewHandlers 创建处理器。
+// NewHandlers 组装 MCP 控制面 RPC handler；缺省依赖会落到本包默认实现，缺核心依赖则在调用时 fail-fast。
 func NewHandlers(p HandlerDeps) rpc.HandlerMapResult {
 	contextProvider := p.Context
 	if contextProvider == nil {
@@ -126,7 +128,7 @@ func NewHandlers(p HandlerDeps) rpc.HandlerMapResult {
 	}}
 }
 
-// requestApproval 处理请求审批。
+// requestApproval 把 MCP approval 请求转发到 UI bridge，超时由请求参数或默认 peer 超时控制。
 func requestApproval(
 	ctx context.Context,
 	registry *ToolRegistry,
@@ -174,6 +176,7 @@ func requestApproval(
 	})
 }
 
+// approvalDecisionSource 将 approval 结果映射为协议字段，保留 auto approve 和 UI 决策来源。
 func approvalDecisionSource(decision contract.ApprovalDecision) string {
 	switch strings.TrimSpace(decision.Reason) {
 	case "auto_approved":
@@ -183,11 +186,12 @@ func approvalDecisionSource(decision contract.ApprovalDecision) string {
 	}
 }
 
+// registryContextProvider 从注册表实例和 orchestration 快照拼装 MCP context 响应。
 type registryContextProvider struct {
 	agents AgentContextSource
 }
 
-// GetContext 读取上下文。
+// GetContext 读取请求 scope 的上下文，并按 req.Keys 做白名单过滤。
 func (p registryContextProvider) GetContext(_ context.Context, instance *ToolInstance, req dto.ContextRequest) (dto.ContextResponse, error) {
 	snapshot, err := p.lookupAgentSnapshot(req.AgentID)
 	if err != nil {
@@ -200,6 +204,7 @@ func (p registryContextProvider) GetContext(_ context.Context, instance *ToolIns
 	return buildContextResponse(req.Scope, platformshared.FilterKeys(payload, req.Keys))
 }
 
+// lookupAgentSnapshot 读取 agent 快照；请求了 agent_id 但来源不可用时直接返回参数错误。
 func (p registryContextProvider) lookupAgentSnapshot(agentID string) (*contract.AgentSnapshot, error) {
 	agentID = strings.TrimSpace(agentID)
 	if agentID == "" {
@@ -215,6 +220,7 @@ func (p registryContextProvider) lookupAgentSnapshot(agentID string) (*contract.
 	return snapshot, nil
 }
 
+// resolveAgentContextSource 优先使用显式来源，否则从 orchestration 服务适配 AgentContextSource。
 func resolveAgentContextSource(explicit AgentContextSource, orchestration contract.OrchestrationService) AgentContextSource {
 	if explicit != nil {
 		return explicit
@@ -226,12 +232,13 @@ func resolveAgentContextSource(explicit AgentContextSource, orchestration contra
 	return source
 }
 
+// defaultEventSink 将 MCP event 写入事件总线并输出控制面日志。
 type defaultEventSink struct {
 	dispatcher *event.Dispatcher
 	logger     *pkglogger.Logger
 }
 
-// HandleEvent 处理事件。
+// HandleEvent 校验事件类型后发布 controlEvent；没有 dispatcher 时只记录日志不吞掉入参错误。
 func (s defaultEventSink) HandleEvent(_ context.Context, instance *ToolInstance, req dto.EventNotify) error {
 	if strings.TrimSpace(req.EventType) == "" {
 		return errInvalidParams("mcp event_type is required")
@@ -251,11 +258,12 @@ func (s defaultEventSink) HandleEvent(_ context.Context, instance *ToolInstance,
 	return nil
 }
 
+// defaultLogSink 将 MCP peer 日志转写到进程 logger。
 type defaultLogSink struct {
 	logger *pkglogger.Logger
 }
 
-// HandleLog 处理日志。
+// HandleLog 校验日志消息并追加 MCP 元数据字段；未配置 logger 时直接丢弃有效日志。
 func (s defaultLogSink) HandleLog(ctx context.Context, instance *ToolInstance, req dto.LogNotify) error {
 	message := strings.TrimSpace(req.Message)
 	if message == "" {
@@ -268,6 +276,7 @@ func (s defaultLogSink) HandleLog(ctx context.Context, instance *ToolInstance, r
 	return nil
 }
 
+// controlLogLevel 将 peer 字符串级别映射到 slog.Level，未知级别按 info 处理。
 func controlLogLevel(level string) slog.Level {
 	switch strings.ToUpper(strings.TrimSpace(level)) {
 	case "DEBUG":
@@ -281,7 +290,7 @@ func controlLogLevel(level string) slog.Level {
 	}
 }
 
-// controlLogArgs 处理control日志args。
+// controlLogArgs 构造 MCP 日志的结构化字段，用户字段按 key 排序以保持输出稳定。
 func controlLogArgs(instance *ToolInstance, req dto.LogNotify) []any {
 	if instance == nil {
 		instance = &ToolInstance{}
@@ -315,6 +324,7 @@ func controlLogArgs(instance *ToolInstance, req dto.LogNotify) []any {
 	return args
 }
 
+// serverFromContext 只返回当前 jrpc2 server，供需要 UI bridge server 的 handler 使用。
 func serverFromContext(ctx context.Context) (server *jrpc2.Server, err error) {
 	server, _, err = resolveServerPeer(ctx)
 	return server, err

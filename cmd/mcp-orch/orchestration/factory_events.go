@@ -175,7 +175,8 @@ func agentHeader(agent *agentState) shareddto.AgentHeader {
 	}
 }
 
-// agentEventTime 处理代理事件时间。
+// agentEventTime 为事件选择最接近当前状态变化的时间。
+// updatedAt 优先，其次启动/退出时间；都缺失时返回平台统一的初始时间。
 func agentEventTime(agent *agentState) time.Time {
 	if agent == nil {
 		return shared.FirstEventTime()

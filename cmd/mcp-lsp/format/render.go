@@ -13,7 +13,8 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/protocol"
 )
 
-// RenderJSON 渲染JSON。
+// RenderJSON 将工具结构化结果渲染成稳定缩进 JSON。
+// 关闭 HTML escape，避免路径、代码片段和泛型符号在展示层被额外转义。
 func RenderJSON(value any) (string, error) {
 	var buffer bytes.Buffer
 	encoder := json.NewEncoder(&buffer)
@@ -25,7 +26,8 @@ func RenderJSON(value any) (string, error) {
 	return strings.TrimRight(buffer.String(), "\n"), nil
 }
 
-// RenderLineNumberedText 渲染行带行号文本。
+// RenderLineNumberedText 为文本窗口补 1-based 行号。
+// startLine 非法时从 1 开始，保证 read_file 回显始终可定位。
 func RenderLineNumberedText(content string, startLine int) string {
 	lines := strings.Split(strings.ReplaceAll(content, "\r\n", "\n"), "\n")
 	if len(lines) == 0 {
@@ -45,7 +47,8 @@ func RenderLineNumberedText(content string, startLine int) string {
 	return builder.String()
 }
 
-// RenderGroupedLocations 渲染分组位置。
+// RenderGroupedLocations 将按文件分组的位置结果渲染成纯文本。
+// 函数范围只在结果携带时展示，用于提示下一步精读范围。
 func RenderGroupedLocations(result protocol.GroupedLocationResult) string {
 	if len(result.Data) == 0 {
 		return ""
@@ -80,12 +83,13 @@ func RenderGroupedLocations(result protocol.GroupedLocationResult) string {
 	return strings.TrimRight(builder.String(), "\n")
 }
 
-// RenderCompactList 渲染紧凑列表list。
+// RenderCompactList 渲染紧凑列表 wire 结构。
 func RenderCompactList[T any](list CompactList[T]) (string, error) {
 	return RenderJSON(list)
 }
 
-// NormalizeForDisplay 为显示规范化LSP。
+// NormalizeForDisplay 根据结果类型套用展示层 normalizer。
+// 未登记类型原样返回，避免工具结果被意外改写。
 func NormalizeForDisplay[T any](value T) T {
 	if normalizer, ok := displayNormalizers[reflect.TypeOf(value)]; ok {
 		return normalizer(value).(T)
@@ -93,7 +97,8 @@ func NormalizeForDisplay[T any](value T) T {
 	return value
 }
 
-// workspaceSymbolLocationAny 转换工作区符号位置任意值用于展示。
+// workspaceSymbolLocationAny 规整 workspace symbol 的 location union。
+// 它兼容结构体、指针和 map 形态，统一把 URI 和坐标转成展示格式。
 func workspaceSymbolLocationAny(location any) any {
 	switch value := location.(type) {
 	case nil:
@@ -143,7 +148,8 @@ func rangeMapForDisplay(value map[string]any) map[string]any {
 	return out
 }
 
-// positionMapForDisplay 为显示处理位置map。
+// positionMapForDisplay 转换 map 形态 position 的 line/character/column 字段。
+// 非数值字段会被保留，避免破坏未知 LSP 扩展字段。
 func positionMapForDisplay(value map[string]any) map[string]any {
 	out := cloneAnyMap(value)
 	for _, key := range []string{"line", "character", "column"} {

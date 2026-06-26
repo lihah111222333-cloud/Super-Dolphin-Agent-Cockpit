@@ -150,10 +150,8 @@ func TestNestedRuntimeAddsReadToolTriggersFromToolResult(t *testing.T) {
 	}
 }
 
-// TestNestedRuntimePersistedToolReadHonorsCacheRoot verifies the P24
-// cache-root-threading happy path: a persistedPath under the configured
-// SetToolReadCacheRoot is read via shared.SafeReadEntrypoint and its
-// `Contents of <path>:` line surfaces as a pending trigger.
+// TestNestedRuntimePersistedToolReadHonorsCacheRoot 验证持久化 tool read 缓存根的成功路径。
+// persistedPath 位于 SetToolReadCacheRoot 下时，shared.SafeReadEntrypoint 可以读取内容并提取 pending trigger。
 func TestNestedRuntimePersistedToolReadHonorsCacheRoot(t *testing.T) {
 	cacheRoot := t.TempDir()
 	repoRoot := filepath.Join(t.TempDir(), "repo")
@@ -167,9 +165,7 @@ func TestNestedRuntimePersistedToolReadHonorsCacheRoot(t *testing.T) {
 	runtime.SetToolReadCacheRoot(cacheRoot)
 	buildCtx := contract.BuildCtx{GitRoot: repoRoot, CWD: cwd}
 	runtime.ObserveBuildContext("thread-1", buildCtx)
-	// Empty preview forces the helper to fall back to the persisted file; if
-	// the SafeReadEntrypoint plumbing is wrong the test fails because no
-	// trigger is produced.
+	// 空 preview 会强制 helper 读取持久化文件；SafeReadEntrypoint 接线错误时不会产生 trigger。
 	runtime.AddToolReadResult("thread-1", "Read", "", persistedPath)
 	pending := runtime.ConsumePending("thread-1", buildCtx)
 	want := target
@@ -178,11 +174,8 @@ func TestNestedRuntimePersistedToolReadHonorsCacheRoot(t *testing.T) {
 	}
 }
 
-// TestNestedRuntimePersistedToolReadRejectsOutsideCacheRoot verifies the P24
-// cache-root-threading containment guarantee: a persistedPath that resolves
-// outside SetToolReadCacheRoot is rejected by shared.SafeReadEntrypoint and
-// the helper falls back to the in-memory preview (here empty), so no trigger
-// surfaces.
+// TestNestedRuntimePersistedToolReadRejectsOutsideCacheRoot 验证持久化 tool read 不能越过缓存根。
+// persistedPath 解析到 SetToolReadCacheRoot 外部时会被 shared.SafeReadEntrypoint 拒绝，因此不会产生 trigger。
 func TestNestedRuntimePersistedToolReadRejectsOutsideCacheRoot(t *testing.T) {
 	cacheRoot := t.TempDir()
 	outsideRoot := t.TempDir()
@@ -200,11 +193,8 @@ func TestNestedRuntimePersistedToolReadRejectsOutsideCacheRoot(t *testing.T) {
 	}
 }
 
-// TestNestedRuntimePersistedToolReadFailsClosedWhenCacheRootUnset verifies the
-// P24 fail-closed contract: if SetToolReadCacheRoot was never called the
-// helper refuses to read any persistedPath even when the file would be
-// otherwise valid, so a misconfigured deployment cannot accidentally re-open
-// the unbounded read.
+// TestNestedRuntimePersistedToolReadFailsClosedWhenCacheRootUnset 验证未配置缓存根时按关闭处理。
+// SetToolReadCacheRoot 从未调用时，即使 persistedPath 指向有效文件也拒绝读取，避免配置缺失时放开无界读。
 func TestNestedRuntimePersistedToolReadFailsClosedWhenCacheRootUnset(t *testing.T) {
 	dir := t.TempDir()
 	persistedPath := filepath.Join(dir, "tool-output.txt")
@@ -212,7 +202,7 @@ func TestNestedRuntimePersistedToolReadFailsClosedWhenCacheRootUnset(t *testing.
 		t.Fatalf("write persisted tool output: %v", err)
 	}
 	runtime := NewNestedRuntime(newTestDependencies(testDepsOptions{}))
-	// Intentionally do NOT call SetToolReadCacheRoot.
+	// 特意不调用 SetToolReadCacheRoot，用来覆盖未配置缓存根的拒绝路径。
 	buildCtx := contract.BuildCtx{GitRoot: "/repo", CWD: "/repo/service"}
 	runtime.ObserveBuildContext("thread-1", buildCtx)
 	runtime.AddToolReadResult("thread-1", "Read", "", persistedPath)

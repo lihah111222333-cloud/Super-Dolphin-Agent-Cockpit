@@ -11,10 +11,8 @@ import (
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
-// fakeTeamSyncLifecycle is a minimal teampkg.Lifecycle used to observe the
-// coordinator from the outside. startBlock lets a test pin the worker
-// goroutine inside StartSession so we can prove the callback path does not
-// share that goroutine.
+// fakeTeamSyncLifecycle 是测试用的最小 teampkg.Lifecycle。
+// startBlock 可把 worker 固定在 StartSession 内，便于断言总线回调只入队、不共享慢路径 goroutine。
 type fakeTeamSyncLifecycle struct {
 	mu         sync.Mutex
 	starts     []threadStartRecord
@@ -58,20 +56,9 @@ func (f *fakeTeamSyncLifecycle) StopIDs() []string {
 	return out
 }
 
-// TestTeamSyncCallbackEnqueueOnly is the P22 P2 Finding 5/6 TDD test named
-// in docs/plans/迁移/p22/P2_BusRuntimeDecoupling.md:415.
-//
-// It pins StartSession inside the fake lifecycle so we can prove two facts
-// in one shot:
-//
-//  1. A burst of EnqueueStart / EnqueueStop calls never blocks on the
-//     lifecycle's slow-path. That's the whole reason Finding 5 exists —
-//     pre-P2 the callback called StartSessionFromThreadEvent directly,
-//     which was how git/repo-slug resolution + remote pull ended up on
-//     the dispatcher goroutine.
-//  2. While StartSession is still pinned, the lifecycle must not have
-//     observed any Stop calls either — the worker is strictly serial, so
-//     the pending Stops have to wait behind the stuck Start.
+// TestTeamSyncCallbackEnqueueOnly 固定 StartSession 慢路径来验证两个当前不变量：
+// EnqueueStart/EnqueueStop 在突发调用时不能阻塞总线回调；worker 仍必须串行执行，
+// 因此 Stop 操作要排在被卡住的 Start 后面。
 func TestTeamSyncCallbackEnqueueOnly(t *testing.T) {
 	t.Parallel()
 
@@ -143,7 +130,7 @@ func waitForTeamSyncProcessed(t *testing.T, c *teamSyncCoordinator, want int64, 
 
 func assertTeamSyncLifecycleTotals(t *testing.T, svc *fakeTeamSyncLifecycle, wantStarts, wantStops int) {
 	t.Helper()
-	// All enqueued ops must reach the lifecycle (lossless).
+	// 已入队的操作必须全部到达 lifecycle，验证 Stop 前的队列不丢事件。
 	if got := svc.StartCount(); got != wantStarts {
 		t.Errorf("StartSession total = %d, want %d (lossless)", got, wantStarts)
 	}
@@ -152,9 +139,8 @@ func assertTeamSyncLifecycleTotals(t *testing.T, svc *fakeTeamSyncLifecycle, wan
 	}
 }
 
-// TestTeamSyncCoordinatorEnqueueAfterStopDrops mirrors the gate semantics
-// used by the auto-dream scheduler and nested ingest worker: once Stop
-// fires, further Enqueue* is silently dropped rather than buffered.
+// TestTeamSyncCoordinatorEnqueueAfterStopDrops 验证 Stop 后的 Enqueue 不再进入队列。
+// 这与 auto-dream scheduler 和 nested ingest worker 的关闭门控一致，防止关闭后积压新任务。
 func TestTeamSyncCoordinatorEnqueueAfterStopDrops(t *testing.T) {
 	t.Parallel()
 
@@ -182,10 +168,8 @@ func TestTeamSyncCoordinatorEnqueueAfterStopDrops(t *testing.T) {
 	}
 }
 
-// TestTeamSyncCoordinatorPreservesFIFOOrder verifies that ops land on the
-// lifecycle in the same order they were enqueued. The runtime-swap + final
-// flush invariant inside TeamSyncService depends on Start-before-Stop
-// ordering at the service boundary; the coordinator must not reorder.
+// TestTeamSyncCoordinatorPreservesFIFOOrder 验证 lifecycle 按入队顺序收到操作。
+// TeamSyncService 的 runtime 切换和最终 flush 依赖 Start-before-Stop 顺序，coordinator 不能重排。
 func TestTeamSyncCoordinatorPreservesFIFOOrder(t *testing.T) {
 	t.Parallel()
 
@@ -233,9 +217,8 @@ func TestTeamSyncCoordinatorPreservesFIFOOrder(t *testing.T) {
 	}
 }
 
-// TestTeamSyncCoordinatorBlankThreadIDIsNoop matches the blank-input
-// short-circuit of the other P2 workers — an empty threadID neither hits
-// EnqueuedTotal nor reaches the lifecycle.
+// TestTeamSyncCoordinatorBlankThreadIDIsNoop 验证空 threadID 会在入队前短路。
+// 空输入不能增加 EnqueuedTotal，也不能触达 lifecycle。
 func TestTeamSyncCoordinatorBlankThreadIDIsNoop(t *testing.T) {
 	t.Parallel()
 
@@ -261,24 +244,19 @@ func TestTeamSyncCoordinatorBlankThreadIDIsNoop(t *testing.T) {
 	}
 }
 
-// TestTeamSyncCoordinatorStopDrainsPending verifies the lossless Stop
-// contract: an enqueued op that wasn't yet processed via wake is still
-// drained through the stopCh branch before Stop returns.
+// TestTeamSyncCoordinatorStopDrainsPending 验证 Stop 会排空已入队但尚未处理的操作。
+// 即使 wake 路径还没处理，stopCh 分支也必须在 Stop 返回前完成 drain。
 func TestTeamSyncCoordinatorStopDrainsPending(t *testing.T) {
 	t.Parallel()
 
-	// Build a lifecycle that blocks the first Start so we can reliably pack
-	// a pending queue behind it, then releases on demand.
+	// 构造一个会卡住首个 Start 的 lifecycle，便于稳定制造后续待处理队列。
 	block := make(chan struct{})
 	svc := &fakeTeamSyncLifecycle{startBlock: block}
 	c := newTeamSyncCoordinator(svc, nil, pkglogger.Get())
 	c.Start()
 
-	// Seed the worker with one in-flight Start, then queue several more
-	// ops behind it. We can't observe "worker is inside StartSession" from
-	// the outside directly, but EnqueuedTotal climbing to 1 is enough: the
-	// wake channel is cap 1, so the worker has either consumed it and is
-	// now blocked in StartSession, or will consume on the next schedule.
+	// 先让 worker 拿到一个 Start，再把更多操作排在后面。
+	// 外部无法直接观察 worker 是否已进入 StartSession；EnqueuedTotal 达到 1 足以证明 wake 已触发。
 	c.EnqueueStart(threaddto.Started{ThreadID: "thread-in-flight", CWD: "/tmp"})
 	deadline := time.Now().Add(500 * time.Millisecond)
 	for time.Now().Before(deadline) {
@@ -290,7 +268,7 @@ func TestTeamSyncCoordinatorStopDrainsPending(t *testing.T) {
 	c.EnqueueStart(threaddto.Started{ThreadID: "thread-queued", CWD: "/tmp"})
 	c.EnqueueStop(threaddto.Stopped{ThreadID: "thread-queued"})
 
-	// Unblock and stop concurrently; Stop must wait for the drain.
+	// 释放阻塞并立即 Stop；Stop 必须等队列排空后才返回。
 	close(block)
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()

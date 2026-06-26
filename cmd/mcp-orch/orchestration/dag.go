@@ -17,6 +17,7 @@ import (
 
 const defaultDAGStatus = "draft"
 
+// createDAGParams 是 task_create_dag 工具层的 JSON 入参，保留旧 camelCase 兼容。
 type createDAGParams struct {
 	DagKey      string                `json:"dag_key"`
 	Title       string                `json:"title"`
@@ -44,6 +45,7 @@ func (p *createDAGParams) UnmarshalJSON(data []byte) error {
 	})
 }
 
+// createDAGNodeParams 是 task_create_dag 内单个节点的 JSON 入参。
 type createDAGNodeParams struct {
 	NodeKey    string          `json:"node_key"`
 	Title      string          `json:"title"`
@@ -84,12 +86,14 @@ func (p *createDAGNodeParams) UnmarshalJSON(data []byte) error {
 	})
 }
 
+// listDAGsParams 是 task_list_dags 的筛选入参。
 type listDAGsParams struct {
 	Status  string `json:"status,omitempty"`
 	Keyword string `json:"keyword,omitempty"`
 	Limit   int    `json:"limit,omitempty"`
 }
 
+// updateNodeParams 是 task_update_node 的 JSON 入参，嵌入 dag/node 定位字段。
 type updateNodeParams struct {
 	dagNodeParams
 	RunID  int64           `json:"run_id"`
@@ -233,10 +237,8 @@ func (s *service) UpdateNodeStatus(ctx context.Context, req UpdateNodeStatusRequ
 	return result, nil
 }
 
-// validateNodeTransition checks the run-scoped current status before public
-// task_update_node writes; dispatcher fast paths use SQL fences instead.
-//
-// 这里管公开工具/RPC；dispatcher 热路径靠 SQL 状态白名单挡住并发写。
+// validateNodeTransition 在公开 task_update_node 写入前读取 run-scoped 当前状态。
+// 该校验只覆盖工具/RPC 入口；dispatcher 热路径依赖 SQL fence 和状态白名单阻止并发写。
 func (s *service) validateNodeTransition(ctx context.Context, store taskdag.OrchestrationStore, input taskdag.NodeStatusUpdate) (string, error) {
 	runReader, ok := any(store).(taskdag.RunNodeReadStore)
 	if !ok {
@@ -264,7 +266,7 @@ func (s *service) validateNodeTransition(ctx context.Context, store taskdag.Orch
 	return fromStatus, nil
 }
 
-// 完成节点时让 store 统一处理下游和 run 收尾。
+// completeNodeWithDownstream 完成节点时让 store 统一处理下游和 run 收尾。
 // service 只发布事件和记日志，不自己重新扫 DAG。
 func (s *service) completeNodeWithDownstream(ctx context.Context, flow taskdag.NodeFlowStore, input taskdag.NodeStatusUpdate, oldStatus string, result *DAGNode) error {
 	res, err := flow.CompleteNodeAndScheduleDownstream(ctx, taskdag.CompleteNodeInput(input))
@@ -284,7 +286,7 @@ func (s *service) completeNodeWithDownstream(ctx context.Context, flow taskdag.N
 	return nil
 }
 
-// 公开调用把节点标 failed 时，下游 pending 节点也要一起处理。
+// failNodeWithDownstream 在公开调用把节点标 failed 时同步处理下游 pending 节点。
 // 否则它们会一直等一个永远不会 done 的上游。
 func (s *service) failNodeWithDownstream(ctx context.Context, flow taskdag.NodeFlowStore, input taskdag.NodeStatusUpdate, oldStatus string, result *DAGNode) error {
 	reason := string(input.Result)
@@ -302,7 +304,7 @@ func (s *service) failNodeWithDownstream(ctx context.Context, flow taskdag.NodeF
 	return nil
 }
 
-// task_create_dag 写的是模板，不是正在跑的 run。
+// upsertDAG 写入 DAG 模板记录，而不是正在跑的 run。
 // runtime node只在 StartDAG 时从模板复制出来。
 func upsertDAG(ctx context.Context, store taskdag.DAGMutationStore, req CreateDAGRequest) (*taskdag.DAG, error) {
 	dagKey := strings.TrimSpace(req.DagKey)
@@ -319,9 +321,8 @@ func upsertDAG(ctx context.Context, store taskdag.DAGMutationStore, req CreateDA
 	})
 }
 
-// upsertDAGNodes writes template nodes, using the optional batch port when the
-// store exposes it so DAGMutationStore stays within its interface budget.
-// upsertDAGNodes 写入 DAG 节点并同步依赖边。
+// upsertDAGNodes 写入 DAG 模板节点并同步依赖边。
+// store 若暴露批量端口则一次性写入；否则逐节点 Upsert，保持 DAGMutationStore 的基础接口足够窄。
 func upsertDAGNodes(ctx context.Context, store taskdag.DAGMutationStore, dagKey string, nodes []CreateDAGNodeRequest) error {
 	if len(nodes) == 0 {
 		return nil
@@ -375,6 +376,7 @@ func loadDAGDetail(ctx context.Context, store taskdag.DAGDetailStore, dagKey str
 	return DAGDetail{DAG: summary, Nodes: mapDAGNodes(nodes)}, nil
 }
 
+// dagNodeFromRequest 将 API 层节点请求转换为 taskdag 存储模型。
 func dagNodeFromRequest(dagKey string, req CreateDAGNodeRequest) taskdag.Node {
 	return taskdag.Node{
 		DagKey:     strings.TrimSpace(dagKey),
@@ -388,6 +390,7 @@ func dagNodeFromRequest(dagKey string, req CreateDAGNodeRequest) taskdag.Node {
 	}
 }
 
+// dependsOnJSON 清理 depends_on 后编码为 JSON 数组，空依赖写入 []。
 func dependsOnJSON(values []string) json.RawMessage {
 	trimmed := make([]string, 0, len(values))
 	for _, value := range values {
@@ -402,6 +405,7 @@ func dependsOnJSON(values []string) json.RawMessage {
 	return raw
 }
 
+// nodeStatusUpdateFromRequest 校验 task_update_node 必填字段并转换为 store 入参。
 func nodeStatusUpdateFromRequest(req UpdateNodeStatusRequest) (taskdag.NodeStatusUpdate, error) {
 	if strings.TrimSpace(req.DagKey) == "" {
 		return taskdag.NodeStatusUpdate{}, errors.New("dag key is required")
@@ -418,6 +422,7 @@ func nodeStatusUpdateFromRequest(req UpdateNodeStatusRequest) (taskdag.NodeStatu
 	return taskdag.NodeStatusUpdate{DagKey: strings.TrimSpace(req.DagKey), NodeKey: strings.TrimSpace(req.NodeKey), RunID: req.RunID, Status: strings.TrimSpace(req.Status), Result: append(json.RawMessage(nil), req.Result...)}, nil
 }
 
+// getRunResponse 读取 run 对应的 runtime nodes，并组装 contract.GetRunResponse。
 func getRunResponse(ctx context.Context, runStore taskdag.RunStore, runKey string, run *taskdag.Run) (contract.GetRunResponse, error) {
 	if run == nil {
 		return contract.GetRunResponse{}, fmt.Errorf("%w: %s", ErrRunNotFound, runKey)
@@ -433,6 +438,7 @@ func getRunResponse(ctx context.Context, runStore taskdag.RunStore, runKey strin
 	return contract.GetRunResponse{Run: dagRunDTO(*run), Nodes: mapDAGNodes(nodes)}, nil
 }
 
+// mapDAGSummaries 将存储层 DAG 列表映射为 API 摘要。
 func mapDAGSummaries(items []taskdag.DAG) []DAGSummary {
 	mapped := make([]DAGSummary, 0, len(items))
 	for _, item := range items {
@@ -441,6 +447,7 @@ func mapDAGSummaries(items []taskdag.DAG) []DAGSummary {
 	return mapped
 }
 
+// mapDAGNodes 将存储层节点列表映射为 API DTO。
 func mapDAGNodes(items []taskdag.Node) []DAGNode {
 	mapped := make([]DAGNode, 0, len(items))
 	for _, item := range items {
@@ -449,6 +456,7 @@ func mapDAGNodes(items []taskdag.Node) []DAGNode {
 	return mapped
 }
 
+// dagSummaryDTO 将 taskdag.DAG 转为对外摘要，并复制可变字段。
 func dagSummaryDTO(item taskdag.DAG) DAGSummary {
 	return DAGSummary{
 		ID:              item.ID,
@@ -470,10 +478,12 @@ func dagSummaryDTO(item taskdag.DAG) DAGSummary {
 	}
 }
 
+// dagScheduleEnabled 判断 DAG 是否处于可调度状态。
 func dagScheduleEnabled(item taskdag.DAG) bool {
 	return strings.TrimSpace(item.Trigger) == "scheduled" && strings.TrimSpace(item.CronExpr) != "" && item.NextRunAt != nil
 }
 
+// dagNodeDTO 将 taskdag.Node 转为对外节点 DTO，并保留运行态字段。
 func dagNodeDTO(item taskdag.Node) DAGNode {
 	return DAGNode{
 		ID:             item.ID,
@@ -494,12 +504,12 @@ func dagNodeDTO(item taskdag.Node) DAGNode {
 		ActiveTurnID:   trimStringPtr(item.ActiveTurnID),
 		ActiveWakeupID: shared.CloneInt64(item.ActiveWakeupID),
 		LastEventAt:    shared.CloneTime(item.LastEventAt),
-		// F1.5 / ADR-009: spawning_thread_id 透出给 task_get_dag / DAG detail
-		// 调用方（UI 拼「节点行 → 子 agent thread」跳转链接）。
+		// spawning_thread_id 透出给 task_get_dag / DAG detail，供 UI 从节点行跳到子 agent thread。
 		SpawningThreadID: trimStringPtr(item.SpawningThreadID),
 	}
 }
 
+// decodeDependsOn 将节点依赖 JSON 转为字符串列表；非法 JSON 返回 nil。
 func decodeDependsOn(raw json.RawMessage) []string {
 	if len(raw) == 0 {
 		return nil
@@ -511,28 +521,19 @@ func decodeDependsOn(raw json.RawMessage) []string {
 	return values
 }
 
-// =====================================================
-// DAG 启动和停止过程入口（S2.1 骨架接口位 + stub）
-// =====================================================
-//
-// StartDAG / TerminateDAG / ApplyOps 的真实实现在 T1.2 / F4.x / F6.x 落地；
-// 骨架阶段只定签名 + ErrLifecycleNotImplemented，让上层接口稳定。
-//
-// 真正运行时还会创建 task_dag_runs 行 + snapshot dag.version + 写
-// node.run_id 等（见蓝图 v2 §5 决策"DAG 模板 + run 实例"模型 + S3.3 migration）。
+// ----- DAG 生命周期入口 -----
+// 本区集中处理 DAG run 启动、终止、删除和 ApplyOps。
+// StartDAG 会创建 run 并复制模板版本；ApplyOps 只改模板和未来调度，不直接改运行中 runtime node。
 
-// ErrLifecycleNotImplemented 是骨架阶段 stub 方法的 sentinel 错误。
-// errors.Is 可用：errors.Is(err, ErrLifecycleNotImplemented)。
+// ErrLifecycleNotImplemented 是 legacy 未接线依赖的 sentinel 错误。
+// 生产路径不应命中；测试裸构造或缺少 store 时可用 errors.Is 判断。
 var ErrLifecycleNotImplemented = errors.New("orchestration lifecycle: not implemented in skeleton stage (T1.2/F4.x/F6.x)")
 
 // ErrDAGNotFound 表示 StartDAG / TerminateDAG 调用时 dag_key 不存在。
-//
-// ErrDAGNotFound is returned when StartDAG / TerminateDAG is invoked with a
-// dag_key that does not exist in storage.
 var ErrDAGNotFound = errors.New("orchestration: dag_key not found")
 
-// ErrDAGAlreadyRunning 是 F6.5 前 T1.2-mid 单 run 约束的历史 sentinel。
-// 0089 移除 dag-level running unique 后 StartDAG 不再正常返回它。
+// ErrDAGAlreadyRunning 是保留给删除/终止冲突翻译的历史 sentinel。
+// 现在 StartDAG 支持按 run_key 幂等创建，不再用它表达正常的单 run 限制。
 //
 // 处理建议（与 ErrIdempotencyKeyExhausted 对照，"前者等/取消，后者换 idem"）：
 // 调用方应轮询当前 run 直至完成 / 主动 Terminate 后用同 idem 重试，不需要换 idem。
@@ -563,8 +564,8 @@ func (e *IdempotencyKeyExhaustedError) Unwrap() error { return ErrIdempotencyKey
 // StartDAG。生产路径 ProvideService 会 setter 注入 RunStore。
 var ErrRunStoreUnset = errors.New("orchestration: run store not configured")
 
-// StartDAGRequest / StartDAGResponse 现为 contract 包类型别名，让 service
-// 能直接实现 contract.OrchestrationService 接口（T1.1 接通）。
+// StartDAGRequest / StartDAGResponse 是 contract 包类型别名。
+// 别名让 service 直接满足 contract.OrchestrationService，同时避免本包复制 wire DTO。
 type StartDAGRequest = contract.StartDAGRequest
 type StartDAGResponse = contract.StartDAGResponse
 
@@ -611,16 +612,8 @@ var ErrVersionConflict = errors.New("orchestration: apply_ops version conflict")
 // taskdag.Store 同时实现两者、不会命中。
 var ErrApplyOpsStoreNotConfigured = errors.New("orchestration: apply_ops dag store does not implement DAGOpsStore/DAGOpsTxRunner")
 
-// ApplyOps 对 DAG 执行一组 typed ops（add_node / update_node / remove_node /
-// update_dag），带 base_version OCC。是 AI 设计师 + UI 表单 + ops MCP 工具
-// 的同一接入点。
-//
-// 顶层分三段（F4.0）：
-//  1. base_version 非负（OCC 单调约束的必要条件）；
-//  2. ops 透过 nodeexec.Ops UnmarshalJSON 解码为 typed slice — 解码本身
-//     包含 op discriminator 白名单校验（缺 op / 未知 op 都在那一层报错）；
-//  3. 透传到 applyTypedOps 跑业务（F4.1-F4.4 落地，骨架返
-//     ErrLifecycleNotImplemented）。
+// ApplyOps 对 DAG 执行一组 typed ops（add_node / update_node / remove_node / update_dag），带 base_version OCC。
+// 它是 AI 设计器、UI 表单和 ops MCP 工具的同一写入口：先校验版本，再解码白名单 op，最后进入事务规划和持久化。
 //
 // 错误分类决策：所有顶层失败统一包装 ErrApplyOpsInvalid，上层 MCP
 // handler（translate*Error）按 errors.Is 转译为中英双语用户消息。这样
@@ -635,32 +628,23 @@ func (s *service) ApplyOps(ctx context.Context, req contract.ApplyOpsRequest) (c
 
 	var ops nodeexec.Ops
 	// ops 字段为空时按「无操作」处理：解码空 RawMessage 在 encoding/json
-	// 里会 panic 不直观，提前归一为 "null"。下游 applyTypedOps 收到 nil
-	// slice 走主路径，由 F4.1+ 决定是 noop 还是错。
+	// 里会 panic 不直观，提前归一为 "null"。下游 applyTypedOps 会按当前 DAG
+	// 版本决定是否返回同版本 no-op。
 	raw := req.Ops
 	if len(raw) == 0 {
 		raw = json.RawMessage("null")
 	}
 	if err := json.Unmarshal(raw, &ops); err != nil {
-		// nodeexec.Ops.UnmarshalJSON 已经分类返出三种子错（顶层 JSON 不是
-		// 数组 / 单条 header 不解 / op discriminator 缺失或未知），这里
-		// 统一包成 ErrApplyOpsInvalid 让上层 errors.Is 命中。原始信息
-		// 通过 %w 保留供调试 / 日志。
-		// nodeexec.Ops.UnmarshalJSON already classifies the three sub-cases
-		// (bad outer JSON / bad item header / missing or unknown op
-		// discriminator); wrap them all as ErrApplyOpsInvalid so callers can
-		// match with errors.Is. 双 %w 链（Go 1.20+）保留 nodeexec sentinel
-		// 子错误链，让 errors.Is 仍能命中具体分类。
+		// nodeexec.Ops.UnmarshalJSON 已分类返出三种子错：顶层 JSON 非数组、单条 header 解析失败、
+		// op discriminator 缺失或未知。这里统一包成 ErrApplyOpsInvalid，同时保留 nodeexec sentinel 链路。
 		return contract.ApplyOpsResponse{}, fmt.Errorf("%w: %w", ErrApplyOpsInvalid, err)
 	}
 
 	return s.applyTypedOps(ctx, req.DagKey, req.BaseVersion, ops)
 }
 
-// applyTypedOps 是 4 个 op_kind 业务实现的容器（F4.1-F4.4）。F4.1 接 add_node、
-// F4.2 接 update_node，F4.3 接 remove_node，F4.4 接 update_dag。空 ops 返 noop。
-
-// applyTypedOps 把节点更新操作转换成状态机可执行的变更。
+// applyTypedOps 是 4 个 op_kind 的事务入口。
+// 它先做空操作短路，再把 add/update/remove/update_dag 统一交给 dag_query.go 的 plan/persist helper。
 func (s *service) applyTypedOps(ctx context.Context, dagKey string, baseVersion int64, ops nodeexec.Ops) (contract.ApplyOpsResponse, error) {
 	if s == nil || s.dagStore == nil {
 		return contract.ApplyOpsResponse{}, ErrApplyOpsStoreNotConfigured
@@ -673,9 +657,8 @@ func (s *service) applyTypedOps(ctx context.Context, dagKey string, baseVersion 
 	if err != nil {
 		return contract.ApplyOpsResponse{}, err
 	}
-	// R3 P2 #3 空 ops 事务外短路：apply_ops 不带 add/update/remove 时不需走事务也不需 FOR UPDATE
-	// 锁。仅需拿到当前 task_dags.version 与 base_version 对齐判 OCC 同庄、返回同一 version
-	// 即可。避免「合法调用但什么都不干」仍然白付 OCC 锁代价（并发则反过来变成锁竞争热点）。
+	// 空 ops 在事务外短路：没有 add/update/remove/update_dag 时只需比对当前 version。
+	// 这样合法 no-op 不会白付 FOR UPDATE 锁成本，也避免高并发下形成无意义锁竞争。
 	if isNoopOpsBatch(parts) {
 		return s.applyEmptyOpsShortCircuit(ctx, dagKey, baseVersion)
 	}
@@ -698,12 +681,12 @@ func (s *service) applyTypedOps(ctx context.Context, dagKey string, baseVersion 
 	return resp, nil
 }
 
+// isNoopOpsBatch 判断 ApplyOps 是否没有任何实际变更。
 func isNoopOpsBatch(parts partitionedOps) bool {
 	return len(parts.dagUpdates) == 0 && len(parts.adds) == 0 && len(parts.updates) == 0 && len(parts.removes) == 0
 }
 
-// applyEmptyOpsShortCircuit keeps noop ApplyOps lock-free while preserving the
-// same OCC and missing-store errors as the transactional write path.
+// applyEmptyOpsShortCircuit 让 no-op ApplyOps 保持无锁，同时保留与事务写路径一致的 OCC 错误语义。
 func (s *service) applyEmptyOpsShortCircuit(ctx context.Context, dagKey string, baseVersion int64) (contract.ApplyOpsResponse, error) {
 	reader, ok := s.dagStore.(taskdag.DAGVersionReader)
 	if !ok {

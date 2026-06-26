@@ -69,12 +69,12 @@ var _ Service = (*service)(nil)
 
 type ServiceOption func(*service)
 
-// WithObservability 设置observability。
+// WithObservability 注入可选观测服务，用于记录 UI patch 和 timeline trace。
 func WithObservability(trace *observability.Service) ServiceOption {
 	return func(s *service) { s.trace = trace }
 }
 
-// NewService 创建服务。
+// NewService 创建 uistate 服务，并初始化内存投影、fallback 偏好和 timeline 状态。
 func NewService(
 	logger *slog.Logger,
 	threads contract.ThreadLister,
@@ -127,7 +127,8 @@ func (s *service) loadInitialState(ctx context.Context) error {
 	return nil
 }
 
-// buildInitialState 构建initial状态。
+// buildInitialState 从 thread 和 orchestration 模块读取首屏快照。
+// 任一依赖读取失败都会返回错误，避免用不完整初始状态启动 UI 投影。
 func buildInitialState(ctx context.Context, threads contract.ThreadLister, agents contract.OrchestrationService) (UIState, error) {
 	state := UIState{}
 	if threads != nil {
@@ -194,7 +195,8 @@ func summarizeAgents(items []contract.AgentSnapshot) []AgentSummary {
 	return out
 }
 
-// GetState 读取状态。
+// GetState 返回完整 UIState 快照，并叠加偏好、diff state 和 timeline 投影。
+// store 回填只补展示字段，不覆盖事件流已经投影出的运行时状态。
 func (s *service) GetState(ctx context.Context) (*UIState, error) {
 	prefs, err := s.GetPreferences(ctx)
 	if err != nil {
@@ -206,17 +208,13 @@ func (s *service) GetState(ctx context.Context) (*UIState, error) {
 	if s.timeline != nil {
 		snapshot.TimelineByThread = s.timeline.Snapshot()
 	}
-	// Snapshot derivation runs before DB enrich. That is acceptable because the
-	// enrich pass only backfills an empty runtime provider; it does not rewrite a
-	// non-empty provider that is already present in runtimeMap. Correctness here
-	// therefore depends on upstream provider sources remaining authoritative; the
-	// known pending-launch default-to-codex source was closed in B2+
-	// (internal/module/thread/factory.go:266).
+	// Snapshot 先来自事件流投影，再用 store 做展示层回填。
+	// enrichFromDB 只补空 provider，不会覆盖 runtimeMap 中已有的上游权威值。
 	s.enrichFromDB(ctx, snapshot.Agents, snapshot.Threads, snapshot.AgentRuntimeByID)
 	return snapshot, nil
 }
 
-// GetSidebar 读取sidebar。
+// GetSidebar 返回 sidebar 专用快照，并记录偏好读取、内存快照和 DB 回填耗时。
 func (s *service) GetSidebar(ctx context.Context) (*Sidebar, error) {
 	t0 := time.Now()
 	prefs, err := s.GetPreferences(ctx)
@@ -240,7 +238,8 @@ func (s *service) GetSidebar(ctx context.Context) (*Sidebar, error) {
 	return snapshot, nil
 }
 
-// GetPreferences 读取preferences。
+// GetPreferences 读取当前 scope 的 UI 偏好。
+// 当持久化 store 未注入时使用内存 fallback，供测试或轻量启动路径保持同一 wire 形态。
 func (s *service) GetPreferences(ctx context.Context) (*Preferences, error) {
 	scope := preferenceScopeFromContext(ctx)
 	var (
@@ -260,7 +259,8 @@ func (s *service) GetPreferences(ctx context.Context) (*Preferences, error) {
 	return clonePreferences(buildPreferences(scope, values)), nil
 }
 
-// SetPreference 设置preference。
+// SetPreference 校验并保存 UI 偏好，同时发出偏好变更和受影响投影的更新事件。
+// 偏好 key 为空或值类型不合法会立即返回错误，避免静默写入不可消费配置。
 func (s *service) SetPreference(ctx context.Context, key string, value any) error {
 	key = normalizePreferenceKey(key)
 	if key == "" {
@@ -318,7 +318,8 @@ func (s *service) workspaceRunsLocked() []WorkspaceRunSummary {
 	return cloneWorkspaceRuns(items)
 }
 
-// fallbackPreferencesLocked 处理兜底preferenceslocked。
+// fallbackPreferencesLocked 合并全局和当前 scope 的内存偏好。
+// scope 内配置覆盖全局配置，保持与持久化 store 的读取顺序一致。
 func (s *service) fallbackPreferencesLocked(scope string) map[string]any {
 	values := map[string]any{}
 	for rawKey, value := range s.fallbackPrefs {
@@ -373,7 +374,8 @@ func decodePreferenceValue(raw json.RawMessage) any {
 
 func marshalPreferenceValue(value any) (json.RawMessage, error) { return json.Marshal(value) }
 
-// stateSnapshot 处理状态快照。
+// stateSnapshot 在读锁内复制 UIState，并补齐 sidebar 派生字段。
+// 返回值是可修改副本，调用方可以继续叠加偏好或 diff state 而不污染内存投影。
 func (s *service) stateSnapshot(ctx context.Context) *UIState {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -426,7 +428,8 @@ func (s *service) applyThreadOverlaysLocked(threads []ThreadSummary, now time.Ti
 	}
 }
 
-// overlayActiveLocked 处理overlayactivelocked。
+// overlayActiveLocked 判断线程 overlay 是否仍在 TTL 内。
+// 没有过期时间的 overlay 视为手动清理型，直到 clearThreadOverlayLocked 移除。
 func (s *service) overlayActiveLocked(thread ThreadSummary, now time.Time) bool {
 	threadID := strings.TrimSpace(thread.ID)
 	if threadID == "" {
@@ -452,7 +455,8 @@ func (s *service) effectiveThreadSummaryLocked(thread ThreadSummary, now time.Ti
 	return thread
 }
 
-// setThreadOverlayLocked 设置线程overlaylocked。
+// setThreadOverlayLocked 写入线程 overlay，并按 priority/TTL 控制可见性。
+// 已存在更高优先级 overlay 时不覆盖，避免低优先级提示打断错误或停止状态。
 func (s *service) setThreadOverlayLocked(threadID, overlayType, text string, priority int, ttl time.Duration) {
 	threadID = strings.TrimSpace(threadID)
 	overlayType = strings.TrimSpace(overlayType)
@@ -479,7 +483,7 @@ func (s *service) setThreadOverlayLocked(threadID, overlayType, text string, pri
 	s.overlayExpiryByThread[threadID] = now.Add(ttl)
 }
 
-// clearThreadOverlayLocked 清理线程overlaylocked。
+// clearThreadOverlayLocked 清理指定线程 overlay；overlayType 非空时只清理匹配类型。
 func (s *service) clearThreadOverlayLocked(threadID, overlayType string) {
 	threadID = strings.TrimSpace(threadID)
 	overlayType = strings.TrimSpace(overlayType)

@@ -15,7 +15,7 @@ import (
 	platformshared "github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 )
 
-// GetState 读取状态。
+// GetState 返回 agent 当前状态；runtime 缺失时回退到持久化 thread 快照。
 func (s *service) GetState(ctx context.Context, agentID string) (AgentStateResult, error) {
 	var result AgentStateResult
 	err := s.withAgentReadLockedByAgentID(ctx, agentID, func(agent *agentRuntime) error {
@@ -32,7 +32,7 @@ func (s *service) GetState(ctx context.Context, agentID string) (AgentStateResul
 	return result, err
 }
 
-// GetReport 读取report。
+// GetReport 返回 agent 最新 report；runtime 缺失时读取磁盘持久化 report。
 func (s *service) GetReport(ctx context.Context, agentID string) (AgentReportResult, error) {
 	var result AgentReportResult
 	err := s.withAgentReadLockedByAgentID(ctx, agentID, func(agent *agentRuntime) error {
@@ -45,6 +45,7 @@ func (s *service) GetReport(ctx context.Context, agentID string) (AgentReportRes
 	return result, err
 }
 
+// persistedAgentReport 从持久化 thread 快照定位 report 文件，并恢复展示所需的 seq 和时间戳。
 func (s *service) persistedAgentReport(ctx context.Context, agentID string) (AgentReportResult, error) {
 	snapshot, err := s.persistedAgentSnapshot(ctx, agentID)
 	if err != nil {
@@ -66,7 +67,8 @@ func (s *service) persistedAgentReport(ctx context.Context, agentID string) (Age
 	}, nil
 }
 
-// RememberReportRequest 处理rememberreport请求。
+// RememberReportRequest 记录哪个 agent 请求了目标 agent 的最终 report。
+// requester 去重在锁内完成，避免同一 requester 被重复唤醒。
 func (s *service) RememberReportRequest(ctx context.Context, req RememberReportRequest) (RememberReportRequestResult, error) {
 	agentID := strings.TrimSpace(req.AgentID)
 	requesterID := strings.TrimSpace(req.RequesterID)
@@ -88,7 +90,7 @@ func (s *service) RememberReportRequest(ctx context.Context, req RememberReportR
 	return result, err
 }
 
-// HandleReportEvent 处理report事件。
+// HandleReportEvent 接收 provider/hook report 事件并更新 runtime 或持久化 fallback。
 func (s *service) HandleReportEvent(ctx context.Context, event ReportEvent) (ReportEventResult, error) {
 	agentID := strings.TrimSpace(event.AgentID)
 	if agentID == "" {
@@ -114,6 +116,7 @@ func (s *service) HandleReportEvent(ctx context.Context, event ReportEvent) (Rep
 	return result, err
 }
 
+// reportEventFallbackResult 在 runtime 已丢失但事件仍带 report 或 stop 信号时尝试持久化收口。
 func (s *service) reportEventFallbackResult(ctx context.Context, agentID, eventType, report string, runtimeErr error) (ReportEventResult, bool) {
 	if !errors.Is(runtimeErr, errAgentNotFound) {
 		return ReportEventResult{}, false
@@ -158,6 +161,7 @@ func (s *service) applyReportEventWithoutRuntime(ctx context.Context, agentID, e
 	return result, err == nil
 }
 
+// setReportLocked 在持有 agent 锁时更新内存 report 和 seq 水位。
 func setReportLocked(ctx context.Context, agent *agentRuntime, report string) {
 	report = strings.TrimSpace(report)
 	if agent == nil || report == "" {
@@ -170,7 +174,7 @@ func setReportLocked(ctx context.Context, agent *agentRuntime, report string) {
 	agent.updatedAt = updatedAt
 }
 
-// persistAgentReportFileAndGC 持久化代理report文件gc。
+// persistAgentReportFileAndGC 原子持久化 report 文件，并清理同 cwd 下已停止 agent 的过期 report。
 func (s *service) persistAgentReportFileAndGC(ctx context.Context, record reportstore.Record) error {
 	if strings.TrimSpace(record.Report) == "" || strings.TrimSpace(record.Cwd) == "" {
 		return nil
@@ -190,6 +194,7 @@ func (s *service) persistAgentReportFileAndGC(ctx context.Context, record report
 	}, time.Now(), s.logger)
 }
 
+// agentReportFileRecordFromRuntime 从内存 runtime 快照提取 reportstore 写入记录。
 func agentReportFileRecordFromRuntime(agent *agentRuntime) reportstore.Record {
 	if agent == nil {
 		return reportstore.Record{}
@@ -204,6 +209,7 @@ func agentReportFileRecordFromRuntime(agent *agentRuntime) reportstore.Record {
 	}
 }
 
+// agentReportFileRecordFromSnapshot 从持久化 snapshot 提取 reportstore 读取定位信息。
 func agentReportFileRecordFromSnapshot(snapshot AgentSnapshot) reportstore.Record {
 	return reportstore.Record{
 		AgentID: snapshot.AgentID,
@@ -213,6 +219,7 @@ func agentReportFileRecordFromSnapshot(snapshot AgentSnapshot) reportstore.Recor
 	}
 }
 
+// nextPersistedReportRecord 基于磁盘已有 seq 生成下一版持久化 report 记录。
 func (s *service) nextPersistedReportRecord(ctx context.Context, snapshot AgentSnapshot, report string) (reportstore.Record, error) {
 	record := agentReportFileRecordFromSnapshot(snapshot)
 	persisted, err := reportstore.ReadPersistedRecord(record)
@@ -225,7 +232,7 @@ func (s *service) nextPersistedReportRecord(ctx context.Context, snapshot AgentS
 	return record, nil
 }
 
-// normalizeDisplayReportText 规范化显示report文本。
+// normalizeDisplayReportText 清理 report 换行和空白；短 token 多行会折叠为一行展示。
 func normalizeDisplayReportText(raw string) string {
 	text := strings.TrimSpace(strings.ReplaceAll(strings.ReplaceAll(raw, "\r\n", "\n"), "\r", "\n"))
 	if text == "" {
@@ -255,6 +262,7 @@ func normalizeDisplayReportText(raw string) string {
 	return strings.Join(trimmed, "\n")
 }
 
+// shouldCollapseDisplayReportLines 判断多行短 token 是否更适合折叠展示。
 func shouldCollapseDisplayReportLines(lines []string) bool {
 	if len(lines) < 2 {
 		return false
@@ -267,7 +275,7 @@ func shouldCollapseDisplayReportLines(lines []string) bool {
 	return true
 }
 
-// isSimpleDisplayReportToken 判断simple显示report令牌是否可用。
+// isSimpleDisplayReportToken 判断单行是否只是短 token，而不是自然语言段落。
 func isSimpleDisplayReportToken(line string) bool {
 	runes := []rune(strings.TrimSpace(line))
 	if len(runes) == 0 || len(runes) > 24 {
@@ -284,6 +292,7 @@ func isSimpleDisplayReportToken(line string) bool {
 	return true
 }
 
+// agentReportLocked 在持锁状态下组装 report 响应，并复制 requester 切片防止外部修改。
 func agentReportLocked(agent *agentRuntime) AgentReportResult {
 	requesters := append([]string(nil), agent.reportRequesters...)
 	var metadata *AgentReportMetadata
@@ -300,6 +309,7 @@ func agentReportLocked(agent *agentRuntime) AgentReportResult {
 	}
 }
 
+// rememberReportRequesterLocked 在持锁状态下记录 requester，大小写不敏感地去重。
 func rememberReportRequesterLocked(ctx context.Context, agent *agentRuntime, requesterID string) {
 	for _, existing := range agent.reportRequesters {
 		if strings.EqualFold(existing, requesterID) {
@@ -311,6 +321,7 @@ func rememberReportRequesterLocked(ctx context.Context, agent *agentRuntime, req
 	agent.updatedAt = resolveEventTime(ctx, agent.updatedAt)
 }
 
+// drainReportRequestersLocked 取出并清空等待 report 的 requester 列表。
 func drainReportRequestersLocked(ctx context.Context, agent *agentRuntime) []string {
 	requesters := append([]string(nil), agent.reportRequesters...)
 	agent.reportRequesters = nil
@@ -318,6 +329,7 @@ func drainReportRequestersLocked(ctx context.Context, agent *agentRuntime) []str
 	return requesters
 }
 
+// turnCompletedReportText 从 turn.completed 事件中提取适合展示的 report 文本。
 func turnCompletedReportText(ev turndto.TurnCompleted) string {
 	if text := platformshared.FirstTrimmed(ev.Result, ev.Summary, ev.Message); text != "" {
 		return text
@@ -331,6 +343,7 @@ func turnCompletedReportText(ev turndto.TurnCompleted) string {
 	return "turn failed without detail"
 }
 
+// extractReportFromEventData 从 hook event JSON 里递归提取 report/summary/text 字段。
 func extractReportFromEventData(raw json.RawMessage) string {
 	if len(raw) == 0 {
 		return ""
@@ -342,7 +355,7 @@ func extractReportFromEventData(raw json.RawMessage) string {
 	return reportTextFromPayload(payload)
 }
 
-// reportTextFromPayload 从载荷报告文本。
+// reportTextFromPayload 在事件 payload 和常见嵌套字段中查找可展示 report。
 func reportTextFromPayload(payload map[string]any) string {
 	if len(payload) == 0 {
 		return ""
@@ -360,17 +373,21 @@ func reportTextFromPayload(payload map[string]any) string {
 	return ""
 }
 
+// firstReportTextPayloadString 按 provider 常见字段优先级提取第一段 report 文本。
 func firstReportTextPayloadString(payload map[string]any) string {
 	return platformshared.FirstPayloadString(payload, "report", "summary", "uiText", "text", "message", "output", "result")
 }
 
+// reportEventTypeFlag 标记 report event 是否代表终态或 runtime 丢失。
 type reportEventTypeFlag uint8
 
+// report event 分类位。
 const (
 	reportEventTypeTerminal reportEventTypeFlag = 1 << iota
 	reportEventTypeRuntimeLossStop
 )
 
+// reportEventTypeFlags 将多种 provider 事件命名归一到终态和 runtime-loss 标记。
 func reportEventTypeFlags(eventType string) reportEventTypeFlag {
 	switch eventType {
 	case "connection.dead",
@@ -398,10 +415,12 @@ func reportEventTypeFlags(eventType string) reportEventTypeFlag {
 	}
 }
 
+// isTerminalReportEventType 判断 event type 是否表示 turn/report 已终结。
 func isTerminalReportEventType(eventType string) bool {
 	return reportEventTypeFlags(eventType)&reportEventTypeTerminal != 0
 }
 
+// isTerminalThreadStatusValue 判断 thread status 是否已经进入终态。
 func isTerminalThreadStatusValue(status string) bool {
 	switch status {
 	case "error", "idle", "not_loaded", "notloaded", "system_error", "systemerror":
@@ -411,11 +430,13 @@ func isTerminalThreadStatusValue(status string) bool {
 	}
 }
 
+// isRuntimeLossStopEventType 判断事件是否代表 runtime 断开并需要持久化 stopped。
 func isRuntimeLossStopEventType(eventType string) bool {
 	eventType = strings.ToLower(strings.TrimSpace(eventType))
 	return reportEventTypeFlags(eventType)&reportEventTypeRuntimeLossStop != 0
 }
 
+// isTerminalReportEvent 结合事件类型和 thread status payload 判断 report 是否终态。
 func isTerminalReportEvent(eventType string, raw json.RawMessage) bool {
 	eventType = strings.ToLower(strings.TrimSpace(eventType))
 	if eventType == ReportEventTypeThreadStatusChanged {
@@ -424,6 +445,7 @@ func isTerminalReportEvent(eventType string, raw json.RawMessage) bool {
 	return isTerminalReportEventType(eventType)
 }
 
+// isTerminalThreadStatus 从 thread status event payload 中解析终态状态。
 func isTerminalThreadStatus(raw json.RawMessage) bool {
 	if len(raw) == 0 {
 		return false

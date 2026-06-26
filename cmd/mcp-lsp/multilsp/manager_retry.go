@@ -15,7 +15,8 @@ const (
 	transientLSPRequestMaxRetries = 3
 )
 
-// request 处理请求。
+// request 包装一次可重试的 LSP JSON-RPC 请求。
+// 只对幂等读类能力重试瞬时 content modified 或死连接；非可重放方法会先重建 client 再返回错误。
 func (m *manager) request(ctx context.Context, client Client, method string, params any) (json.RawMessage, error) {
 	if client == nil {
 		return nil, fmt.Errorf("request %s: client is nil", method)
@@ -145,7 +146,8 @@ func (m *manager) rebuildClientAfterNonReplayableFailure(ctx context.Context, cl
 	return nil
 }
 
-// rebuildClientAfterFailure 处理rebuild客户端后置failure。
+// rebuildClientAfterFailure 在 client 失效后摘除旧连接并按原 workspace 配置重建。
+// restore=true 时会恢复 bootstrap 过的文档状态；诊断代际会先推进，防止旧推送覆盖新 client。
 func (m *manager) rebuildClientAfterFailure(ctx context.Context, client Client, restore bool) (Client, error) {
 	detached := m.detachClient(client)
 	if detached == nil || detached.client == nil {

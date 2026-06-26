@@ -10,6 +10,7 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 )
 
+// 工作台诊断扫描上限；精确 run_key 不受列表扫描路径影响。
 const (
 	defaultWorkflowDiagnosticsLimit = 25
 	maxWorkflowDiagnosticsLimit     = 100
@@ -39,7 +40,7 @@ type WorkflowDiagnosticsOutput struct {
 	Hint       string             `json:"hint,omitempty"`
 }
 
-// WorkflowRecoveryActionInput 描述工作台触发的受控恢复动作。
+// WorkflowRecoveryActionInput 是工作台触发受控恢复动作的 wire 入参。
 // cancel_with_cleanup 需要 dag/run，retry_failed_node 需要 run_id/node。
 type WorkflowRecoveryActionInput struct {
 	Pos     string `json:"pos,omitempty"`
@@ -51,7 +52,7 @@ type WorkflowRecoveryActionInput struct {
 	Reason  string `json:"reason,omitempty"`
 }
 
-// WorkflowRecoveryActionOutput 返回恢复入口的执行结果。
+// WorkflowRecoveryActionOutput 是恢复入口的兼容响应。
 // 当前只有 cancel_with_cleanup 会真正落到后端终止动作。
 type WorkflowRecoveryActionOutput struct {
 	Action  string `json:"action"`
@@ -63,6 +64,8 @@ type WorkflowRecoveryActionOutput struct {
 	Reason  string `json:"reason,omitempty"`
 }
 
+// workflowDiagnosticsQuery 是已标准化的工作台查询条件。
+// 多个字段同时存在时表示交集过滤，而不是任选其一。
 type workflowDiagnosticsQuery struct {
 	dagKey        string
 	runKey        string
@@ -165,6 +168,8 @@ func workflowDiagnosticsQueryFromInput(in WorkflowDiagnosticsInput) (workflowDia
 	return query, nil
 }
 
+// mergeWorkflowPos 合并 pos 解析结果与显式入参。
+// 冲突时立即报错，避免同一次诊断在两个 run/node 间静默漂移。
 func mergeWorkflowPos(dst *string, value, field string) error {
 	value = strings.TrimSpace(value)
 	if value == "" {
@@ -177,6 +182,8 @@ func mergeWorkflowPos(dst *string, value, field string) error {
 	return nil
 }
 
+// hasIdentifier 判断查询是否具备至少一个有界定位符。
+// 没有定位符时会拒绝扫描，避免工作台误触全库诊断。
 func (q workflowDiagnosticsQuery) hasIdentifier() bool {
 	return q.dagKey != "" ||
 		q.runKey != "" ||
@@ -186,6 +193,7 @@ func (q workflowDiagnosticsQuery) hasIdentifier() bool {
 		q.childThreadID != ""
 }
 
+// normalizeWorkflowDiagnosticsLimit 限制近期扫描返回量。
 func normalizeWorkflowDiagnosticsLimit(limit int) int {
 	if limit <= 0 {
 		return defaultWorkflowDiagnosticsLimit
@@ -212,6 +220,7 @@ func workflowDiagnostics(ctx context.Context, svc contract.OrchestrationService,
 	return newWorkflowDiagnosticsOutput(runs, query), nil
 }
 
+// workflowDiagnosticsByRunKey 走精确 run 读取路径。
 func workflowDiagnosticsByRunKey(ctx context.Context, svc contract.OrchestrationService, runKey string) ([]contract.GetRunResponse, error) {
 	resp, err := svc.GetRun(ctx, contract.GetRunRequest{RunKey: runKey})
 	if err != nil {
@@ -220,6 +229,8 @@ func workflowDiagnosticsByRunKey(ctx context.Context, svc contract.Orchestration
 	return []contract.GetRunResponse{resp}, nil
 }
 
+// workflowDiagnosticsByScan 按 DAG 列表扫描最近 run。
+// 每个候选 run 都会再读取完整快照，确保节点诊断字段来自同一服务层响应。
 func workflowDiagnosticsByScan(
 	ctx context.Context,
 	svc contract.OrchestrationService,
@@ -249,6 +260,8 @@ func workflowDiagnosticsByScan(
 	return out, nil
 }
 
+// workflowDiagnosticDAGKeys 决定扫描哪些 DAG。
+// 指定 dag_key 时不再列表扫描，避免额外扩大诊断范围。
 func workflowDiagnosticDAGKeys(
 	ctx context.Context,
 	svc contract.OrchestrationService,
@@ -270,6 +283,8 @@ func workflowDiagnosticDAGKeys(
 	return keys, nil
 }
 
+// newWorkflowDiagnosticsOutput 过滤并压缩诊断结果。
+// run 级命中会返回全部节点，节点级命中只返回相关节点，减少工作台噪音。
 func newWorkflowDiagnosticsOutput(runs []contract.GetRunResponse, query workflowDiagnosticsQuery) WorkflowDiagnosticsOutput {
 	out := WorkflowDiagnosticsOutput{Limit: query.limit, Hint: "next: use task_get_run for the full runtime snapshot"}
 	for _, resp := range runs {
@@ -290,6 +305,7 @@ func newWorkflowDiagnosticsOutput(runs []contract.GetRunResponse, query workflow
 	return out
 }
 
+// workflowRunIdentityMatches 校验 run_key/run_id 这类强身份字段。
 func workflowRunIdentityMatches(run contract.Run, query workflowDiagnosticsQuery) bool {
 	if query.runKey != "" && run.RunKey != query.runKey {
 		return false
@@ -300,6 +316,7 @@ func workflowRunIdentityMatches(run contract.Run, query workflowDiagnosticsQuery
 	return true
 }
 
+// workflowRunMatches 判断 run 元数据或事件是否匹配 trace 查询。
 func workflowRunMatches(run contract.Run, query workflowDiagnosticsQuery) bool {
 	if !workflowRunIdentityMatches(run, query) {
 		return false
@@ -310,6 +327,8 @@ func workflowRunMatches(run contract.Run, query workflowDiagnosticsQuery) bool {
 	return true
 }
 
+// workflowMatchingNodes 返回符合节点定位条件的运行节点。
+// 当只有 run 级条件命中时返回全部节点，供工作台展示完整运行上下文。
 func workflowMatchingNodes(nodes []contract.DAGNode, run contract.Run, query workflowDiagnosticsQuery) []contract.DAGNode {
 	out := make([]contract.DAGNode, 0, len(nodes))
 	for _, node := range nodes {
@@ -323,6 +342,7 @@ func workflowMatchingNodes(nodes []contract.DAGNode, run contract.Run, query wor
 	return out
 }
 
+// workflowNodeMatches 判断节点是否命中 node_key、child_thread_id 或 trace 查询。
 func workflowNodeMatches(node contract.DAGNode, query workflowDiagnosticsQuery) bool {
 	if query.nodeKey != "" && node.NodeKey != query.nodeKey {
 		return false
@@ -336,6 +356,8 @@ func workflowNodeMatches(node contract.DAGNode, query workflowDiagnosticsQuery) 
 	return true
 }
 
+// rawMessageContains 在 JSON 原文中做轻量 trace 匹配。
+// 这里不解析 schema，避免诊断工具依赖所有历史 result/config 形状。
 func rawMessageContains(raw json.RawMessage, value string) bool {
 	value = strings.TrimSpace(value)
 	return value != "" && strings.Contains(string(raw), value)
@@ -367,6 +389,7 @@ func enrichWorkflowNodes(nodes []contract.DAGNode) []contract.DAGNode {
 	return out
 }
 
+// workflowArtifactCount 汇总 run 级 final_output 与节点产物数量。
 func workflowArtifactCount(run contract.Run, nodes []contract.DAGNode) int {
 	count := 0
 	if _, ok := contract.FinalOutputFileFromRunMetadata(run.Metadata); ok {
@@ -378,6 +401,8 @@ func workflowArtifactCount(run contract.Run, nodes []contract.DAGNode) int {
 	return count
 }
 
+// workflowDerivedState 只为展示派生工作台状态。
+// 它不会写回 run.Status，避免诊断视图改变运行时真状态。
 func workflowDerivedState(run contract.Run, nodes []contract.DAGNode) string {
 	status := strings.TrimSpace(run.Status)
 	switch status {
@@ -399,6 +424,7 @@ func workflowDerivedState(run contract.Run, nodes []contract.DAGNode) string {
 	}
 }
 
+// workflowBlockedReason 为派生状态挑选用户可读的阻塞原因。
 func workflowBlockedReason(state string, nodes []contract.DAGNode) string {
 	switch state {
 	case "waiting_for_assignee":
@@ -417,6 +443,7 @@ func workflowBlockedReason(state string, nodes []contract.DAGNode) string {
 	return ""
 }
 
+// workflowNextAction 将派生状态映射到工作台建议动作。
 func workflowNextAction(state string) string {
 	switch state {
 	case "active":
@@ -434,6 +461,8 @@ func workflowNextAction(state string) string {
 	}
 }
 
+// workflowRecoveryActions 暴露当前允许的恢复动作。
+// retry_failed_node 先展示但禁用，直到运行时 reset/retry 合约真正落地。
 func workflowRecoveryActions(run contract.Run) []contract.WorkflowRecoveryAction {
 	switch workflowDerivedState(run, nil) {
 	case "active", "waiting_for_assignee", "waiting_timer":
@@ -456,6 +485,7 @@ func workflowRecoveryActions(run contract.Run) []contract.WorkflowRecoveryAction
 	}
 }
 
+// workflowNodeNextAction 根据节点运行态给出局部建议动作。
 func workflowNodeNextAction(node contract.DAGNode) string {
 	switch strings.TrimSpace(node.Status) {
 	case "pending", "ready":
@@ -475,6 +505,7 @@ func workflowNodeNextAction(node contract.DAGNode) string {
 	}
 }
 
+// nodeWaitingForAssignee 找到首个等待人工派发的节点。
 func nodeWaitingForAssignee(nodes []contract.DAGNode) *contract.DAGNode {
 	for i := range nodes {
 		status := strings.TrimSpace(nodes[i].Status)
@@ -485,6 +516,7 @@ func nodeWaitingForAssignee(nodes []contract.DAGNode) *contract.DAGNode {
 	return nil
 }
 
+// nodeWaitingForTimer 找到首个已分配但还没有 wakeup 的节点。
 func nodeWaitingForTimer(nodes []contract.DAGNode) *contract.DAGNode {
 	for i := range nodes {
 		status := strings.TrimSpace(nodes[i].Status)
@@ -495,6 +527,8 @@ func nodeWaitingForTimer(nodes []contract.DAGNode) *contract.DAGNode {
 	return nil
 }
 
+// firstFailedNode 返回首个失败节点用于摘要展示。
+// 仅用于 UI 摘要，不参与恢复动作的可执行性判定。
 func firstFailedNode(nodes []contract.DAGNode) *contract.DAGNode {
 	for i := range nodes {
 		if strings.TrimSpace(nodes[i].Status) == "failed" {
@@ -504,6 +538,8 @@ func firstFailedNode(nodes []contract.DAGNode) *contract.DAGNode {
 	return nil
 }
 
+// hasRecoverableFailedNode 判断是否存在理论可恢复的失败节点。
+// 这里只给工作台展示候选动作，真正 retry 仍由恢复入口校验并阻断未闭环能力。
 func hasRecoverableFailedNode(nodes []contract.DAGNode) bool {
 	for _, node := range nodes {
 		if strings.TrimSpace(node.Status) == "failed" && recoverableFailureClass(node.FailureClass) {
@@ -513,6 +549,7 @@ func hasRecoverableFailedNode(nodes []contract.DAGNode) bool {
 	return false
 }
 
+// recoverableFailureClass 定义工作台认为可恢复的失败分类集合。
 func recoverableFailureClass(class string) bool {
 	switch strings.TrimSpace(class) {
 	case "transient", "timeout", "rate_limit", "tool_error", "agent_interrupted":
@@ -522,6 +559,8 @@ func recoverableFailureClass(class string) bool {
 	}
 }
 
+// failureClassFromRaw 从已落库 result 形状中提取失败分类。
+// 解析失败返回空值，诊断展示不能因为某个节点 result 损坏而整体中断。
 func failureClassFromRaw(raw json.RawMessage) string {
 	if len(raw) == 0 {
 		return ""
@@ -546,6 +585,8 @@ func failureClassFromRaw(raw json.RawMessage) string {
 	return ""
 }
 
+// artifactLinksFromRaw 从节点 result 中提取工作台可跳转的产物链接。
+// 同时兼容 sharedfile、artifact_links、artifacts 和旧 output_file 字段。
 func artifactLinksFromRaw(raw json.RawMessage, nodeKey string) []contract.WorkflowArtifactLink {
 	if len(raw) == 0 {
 		return nil
@@ -574,6 +615,7 @@ func artifactLinksFromRaw(raw json.RawMessage, nodeKey string) []contract.Workfl
 	return links
 }
 
+// appendNormalizedArtifactLinks 归一化已结构化的产物链接。
 func appendNormalizedArtifactLinks(
 	dst []contract.WorkflowArtifactLink,
 	links []contract.WorkflowArtifactLink,
@@ -585,6 +627,7 @@ func appendNormalizedArtifactLinks(
 	return dst
 }
 
+// appendArtifactLink 追加单个非空产物链接。
 func appendArtifactLink(dst []contract.WorkflowArtifactLink, kind, label, path, nodeKey string) []contract.WorkflowArtifactLink {
 	path = strings.TrimSpace(path)
 	if path == "" {
@@ -600,6 +643,8 @@ func appendArtifactLink(dst []contract.WorkflowArtifactLink, kind, label, path, 
 	})
 }
 
+// firstNonEmpty 返回第一段非空文本，供兼容字段择优使用。
+// 传入顺序就是兼容优先级，不在这里做额外默认值推断。
 func firstNonEmpty(values ...string) string {
 	for _, value := range values {
 		if strings.TrimSpace(value) != "" {
@@ -609,6 +654,8 @@ func firstNonEmpty(values ...string) string {
 	return ""
 }
 
+// runCancelWithCleanup 将工作台取消动作转成 task_terminate_dag 请求。
+// 错误沿用 task 生命周期翻译逻辑，保持聊天层提示一致。
 func runCancelWithCleanup(
 	ctx context.Context,
 	svc contract.OrchestrationService,
@@ -635,6 +682,8 @@ func runCancelWithCleanup(
 	}, nil
 }
 
+// rejectRetryFailedNode 显式拒绝未实现的节点重试动作。
+// 仍然先解析 run_id/node_key，确保错误能告诉调用方具体卡在哪个节点。
 func rejectRetryFailedNode(in WorkflowRecoveryActionInput) (WorkflowRecoveryActionOutput, error) {
 	runID, err := resolveRunIDInput(in.RunID, in.Pos)
 	if err != nil {

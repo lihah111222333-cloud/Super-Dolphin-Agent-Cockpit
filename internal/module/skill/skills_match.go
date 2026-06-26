@@ -13,7 +13,8 @@ type matchItem struct {
 	MatchedTerms []string `json:"matched_terms,omitempty"`
 }
 
-// MatchPreview 判断preview是否匹配。
+// MatchPreview 预览当前输入会自动匹配哪些 skill。
+// 它同时合并 agent/thread 配置技能和本地触发词匹配，返回结果只用于 UI 预览不改变状态。
 func (s *service) MatchPreview(ctx context.Context, agentID, threadID, text string, input []UserInput) (any, error) {
 	resolvedThreadID := resolveSkillMatchPreviewThreadID(agentID, threadID)
 	matches, err := s.newSkillsAutoMatchCollector(ctx)(resolvedThreadID, text, input)
@@ -71,8 +72,8 @@ func (s *service) collectConfiguredAutoMatchedSkills(ctx context.Context, resolv
 	if err != nil {
 		return nil, err
 	}
-	// Config-read derived matches remain the compatibility source until
-	// provider context can express explicit vs force configured bindings.
+	// 目前配置读取仍是 agent/thread 绑定 skill 的兼容来源。
+	// provider context 暂不能区分显式配置和强制配置，因此这里只标记为 configured。
 	items := make([]autoMatchedSkill, 0)
 	for _, name := range configuredSkillNames(config) {
 		if canonicalName, ok := skillidentity.CanonicalNameForAlias(name, skills); ok {
@@ -90,7 +91,8 @@ func (s *service) readConfiguredSkillState(ctx context.Context, resolvedID strin
 	return s.ReadConfig(ctx, resolvedID)
 }
 
-// configuredSkillNames 处理configured技能名称。
+// configuredSkillNames 从配置 payload 中提取 skill 名称列表。
+// 只接受字符串数组或 []any 中的字符串，其他形态视为未配置。
 func configuredSkillNames(config any) []string {
 	payload, ok := config.(map[string]any)
 	if !ok {
@@ -126,7 +128,8 @@ func collectLocalAutoMatchedSkills(prompt string, skills []SkillInfo) []autoMatc
 	return matches
 }
 
-// dedupeAutoMatchedSkills 去重automatchedskills。
+// dedupeAutoMatchedSkills 按 skill 名称和匹配来源去重。
+// 同一个 skill 可以同时以 configured 和 trigger 方式出现，二者需要保留给 UI 区分。
 func dedupeAutoMatchedSkills(matches []autoMatchedSkill) []autoMatchedSkill {
 	uniq := make([]autoMatchedSkill, 0, len(matches))
 	seen := make(map[string]struct{}, len(matches))
@@ -143,7 +146,8 @@ func dedupeAutoMatchedSkills(matches []autoMatchedSkill) []autoMatchedSkill {
 	return uniq
 }
 
-// joinMatchText 处理joinmatch文本。
+// joinMatchText 合并用户文本和附件输入中的可匹配字段。
+// URL 不参与匹配，避免仅因链接地址中的词触发 skill。
 func joinMatchText(text string, input []UserInput) string {
 	parts := []string{strings.TrimSpace(text)}
 	for _, item := range input {

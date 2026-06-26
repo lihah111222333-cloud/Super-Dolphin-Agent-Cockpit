@@ -187,15 +187,14 @@ func (s *service) recordUITrace(method, threadID, agentID, turnID, callID, toolN
 	})
 }
 
-// threadPatchLocked 处理线程补丁locked。
+// threadPatchLocked 组装单线程 UI patch，调用方必须已持有 service 锁。
+// patch 只包含当前线程相关的派生字段和增量数据，超大 payload 会在发送前降级为刷新请求。
 func (s *service) threadPatchLocked(threadID, source string) uidto.UIThreadPatch {
 	id := strings.TrimSpace(threadID)
 	if id == "" {
 		return uidto.UIThreadPatch{}
 	}
-	// Forward-compatible fields. The backend publishes them now; frontend
-	// thread-live-patch.js can start consuming activeThreadId/mainAgentId/partial
-	// once that bridge path is upgraded.
+	// 这些字段已经属于后端 patch wire，前端可按需消费；发送端始终保持同一结构。
 	patch := uidto.UIThreadPatch{
 		ThreadID:          id,
 		Source:            strings.TrimSpace(source),
@@ -297,7 +296,8 @@ func (s *service) nextPatchSequenceLocked(threadID string) int64 {
 
 const threadPatchMaxPayloadBytes = 64 * 1024
 
-// applyThreadDiffLocked 应用线程difflocked。
+// applyThreadDiffLocked 将当前 diff 文本或恢复提示写入线程 patch。
+// diff 被清空但 revision 前进时要求前端刷新，避免继续展示旧 diff。
 func (s *service) applyThreadDiffLocked(patch *uidto.UIThreadPatch, threadID, source string) {
 	if patch == nil {
 		return
@@ -359,7 +359,8 @@ func (s *service) threadSummaryLocked(threadID string) (ThreadSummary, bool) {
 	return ThreadSummary{}, false
 }
 
-// eventThreadActivityLocked 处理事件线程activitylocked。
+// eventThreadActivityLocked 解析事件线程活动记录，缺少 threadID 或活动状态时记录告警并跳过。
+// 返回的 threadActivity 只在调用方持锁期间有效。
 func (s *service) eventThreadActivityLocked(threadID, agentID, source string) (string, *threadActivity, bool) {
 	threadID = strings.TrimSpace(threadID)
 	if threadID == "" {
@@ -394,7 +395,7 @@ func (s *service) mainAgentIDLocked() string {
 	return strings.TrimSpace(deriveMainAgentID(s.state.Agents, ""))
 }
 
-// mainAgentStateLocked 处理main代理状态locked。
+// mainAgentStateLocked 从主 agent 对应线程和 agent 摘要中推导 patch 使用的主状态。
 func (s *service) mainAgentStateLocked() string {
 	mainAgentID := s.mainAgentIDLocked()
 	if mainAgentID == "" {
@@ -417,7 +418,8 @@ func (s *service) mainAgentStateLocked() string {
 	return ""
 }
 
-// applyRuntimePreferenceLocked 应用运行时preferencelocked。
+// applyRuntimePreferenceLocked 将会影响 UI 运行态的偏好同步到内存状态。
+// 调用方负责持锁和持久化；这里只做字段投影，不写 store。
 func (s *service) applyRuntimePreferenceLocked(key string, value any) {
 	switch normalizePreferenceKey(key) {
 	case preferenceActiveThreadID:

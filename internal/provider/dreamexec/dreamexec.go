@@ -58,7 +58,8 @@ type realCommander struct{}
 // NewRealCommander 生产用 commander。
 func NewRealCommander() Commander { return realCommander{} }
 
-// Run 启动dreamexec provider后台流程。
+// Run 执行一次真实 CLI 子进程并返回受限 stdout。
+// ctx 取消优先于退出码错误；binary 缺失会映射为哨兵错误供 dispatcher failover。
 func (realCommander) Run(ctx context.Context, binary string, args []string, input string, maxStdoutBytes int64) ([]byte, error) {
 	if strings.TrimSpace(binary) == "" {
 		return nil, errors.New("dreamexec: binary is empty")
@@ -123,7 +124,8 @@ type limitedWriter struct {
 	n   int64
 }
 
-// Write 写入dreamexec provider。
+// Write 写入受限缓冲区并统计已接收字节数。
+// 超过上限的部分会被丢弃但返回完整 len(p)，调用方通过 n 判断是否溢出。
 func (lw *limitedWriter) Write(p []byte) (int, error) {
 	remaining := lw.max - lw.n
 	if remaining <= 0 {
@@ -150,7 +152,7 @@ type RunOptions struct {
 	MaxRetries     int   // fence/JSON 解析失败时 retry 次数（建议 0 或 1）
 
 	// OnUsage 在 Run 检测到结构化 CLI 输出（claude envelope / codex JSONL）并提取到非零
-	// usage 时被调用。Step 2 入口：wrapper 传入 dreammetrics.AddTokens 路由。
+	// usage 时被调用；wrapper 通常传入 dreammetrics.AddTokens。
 	// nil 或收到零值 usage 时不调用（守门 fallback 路径不污染 counter）。
 	OnUsage func(TokenUsage)
 }
@@ -238,10 +240,10 @@ type parseAttemptError struct {
 	err error
 }
 
-// Error 返回错误文本。
+// Error 返回底层解析错误文本。
 func (e parseAttemptError) Error() string { return e.err.Error() }
 
-// Unwrap 返回底层错误。
+// Unwrap 暴露底层解析错误，供 errors.As/Is 判断是否属于可重试解析失败。
 func (e parseAttemptError) Unwrap() error { return e.err }
 
 func isParseFailure(err error) bool {

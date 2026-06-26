@@ -140,7 +140,8 @@ func decodeUTF16Text(content []byte, littleEndian bool) (string, error) {
 	return string(utf16.Decode(codeUnits)), nil
 }
 
-// hasPrefix 检查 content 是否以指定字节序列开头。
+// hasPrefix 做 BOM 前缀匹配。
+// 这里不用 bytes.HasPrefix 的唯一原因是调用点以可变参数写十六进制字节更直观。
 func hasPrefix(content []byte, prefix ...byte) bool {
 	if len(content) < len(prefix) {
 		return false

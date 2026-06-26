@@ -14,9 +14,8 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/store/sqlc"
 )
 
-// Integration tests that verify the Phase 3.6 disk-source / DB-index split.
-// Use sharedFileQuerierStub from store_test.go as the in-memory DB while a
-// t.TempDir() backs the disk side, so these read/write a real filesystem.
+// 本文件验证 sharedfile 的磁盘正文与 DB 索引分离边界。
+// 测试用内存 row store 承担 DB 侧，用 t.TempDir() 承担真实文件系统读写。
 
 func newDiskBackedStore(t *testing.T) (*store, *fakeRowStore, sharedfilefs.Config) {
 	t.Helper()
@@ -71,8 +70,7 @@ func TestUpsert_LargeFile_DBHasNoBody(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Upsert error = %v", err)
 	}
-	// Caller still sees the content they wrote (we backfill from input
-	// when DB row came back empty).
+	// 大文件写入后 DB 行不存正文，返回值仍要回填调用方刚写入的内容。
 	if got.Content != big {
 		t.Fatalf("returned content len = %d, want %d", len(got.Content), len(big))
 	}
@@ -94,9 +92,7 @@ func TestGet_DiskHit_OverridesDBContent(t *testing.T) {
 	t.Parallel()
 	s, rows, cfg := newDiskBackedStore(t)
 
-	// Pre-seed DB with empty content (large-file convention) and the disk
-	// with the canonical body. Get must return the disk body, not the
-	// empty DB string.
+	// 预置大文件约定下的空 DB 正文，并在磁盘侧写入权威正文；Get 必须以磁盘正文为准。
 	now := time.Date(2026, 4, 30, 12, 0, 0, 0, time.UTC)
 	rows.byPath["dag/dag-1/output.json"] = sqlc.SharedFile{
 		Path: "dag/dag-1/output.json", Content: "", UpdatedBy: "agent",
@@ -117,7 +113,7 @@ func TestGet_DiskHit_OverridesDBContent(t *testing.T) {
 	if got.Content != "disk-canonical" {
 		t.Fatalf("Content = %q, want disk-canonical", got.Content)
 	}
-	// Metadata still comes from DB.
+	// 元数据仍来自 DB 行，磁盘只承担正文来源。
 	if got.UpdatedBy != "agent" {
 		t.Fatalf("UpdatedBy = %q, want agent (from DB)", got.UpdatedBy)
 	}
@@ -185,7 +181,7 @@ func TestList_DoesNotScanDisk(t *testing.T) {
 	t.Parallel()
 	s, rows, cfg := newDiskBackedStore(t)
 
-	// Add a disk-only file (no DB row); List must not pick it up.
+	// 只有磁盘文件、没有 DB 行的孤儿文件不应出现在 List 结果里。
 	abs := filepath.Join(cfg.CWD, sharedfilefs.SandboxDir, "handoff/orphan/disk-only.md")
 	if err := os.MkdirAll(filepath.Dir(abs), 0o755); err != nil {
 		t.Fatalf("mkdir err = %v", err)
@@ -193,7 +189,7 @@ func TestList_DoesNotScanDisk(t *testing.T) {
 	if err := os.WriteFile(abs, []byte("orphan"), 0o644); err != nil {
 		t.Fatalf("seed disk err = %v", err)
 	}
-	// Add two real DB rows.
+	// 两条真实 DB 行才是 List 的索引来源。
 	rows.byPath["dag/dag-1/x.md"] = sqlc.SharedFile{Path: "dag/dag-1/x.md"}
 	rows.byPath["dag/dag-1/y.md"] = sqlc.SharedFile{Path: "dag/dag-1/y.md"}
 

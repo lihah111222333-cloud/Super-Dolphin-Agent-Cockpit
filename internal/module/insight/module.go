@@ -11,7 +11,7 @@ import (
 
 // Module 将 insight subscriber、flusher、service 和 RPC handler 注入 Fx 树。
 // subscriber 注入 BusModule 的 bus.subscribers 组；flusher 注入 runners 组由 platformrunner.RunGroup 驱动。
-// 该模块不导入 turn/tracker，保证单向 observation 依赖关系不被破坏。
+// 该模块不导入 turn 写入路径，保证 observation 到 insight 的单向依赖不被反向打破。
 var Module = fx.Module("insight",
 	fx.Provide(
 		provideCollector,

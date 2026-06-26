@@ -11,6 +11,7 @@ import (
 	"github.com/creachadair/jrpc2"
 )
 
+// handleHookSubscribe 将当前注册 peer 订阅到 hook topic，入参校验和错误映射由 handleHookRPC 统一处理。
 func handleHookSubscribe(
 	ctx context.Context,
 	registry *ToolRegistry,
@@ -24,6 +25,7 @@ func handleHookSubscribe(
 	)
 }
 
+// handleHookResolve 处理当前 peer 对待决 hook 的决策，依赖 idempotency_key 防止重复决策。
 func handleHookResolve(
 	ctx context.Context,
 	registry *ToolRegistry,
@@ -37,6 +39,7 @@ func handleHookResolve(
 	)
 }
 
+// handleHookPending 读取当前 peer 可见的待决 hook；shared-service peer 必须显式传 agent_id。
 func handleHookPending(
 	ctx context.Context,
 	registry *ToolRegistry,
@@ -58,7 +61,7 @@ func handleHookPending(
 	)
 }
 
-// resolveHookPendingAgentID 解析hook待处理代理ID。
+// resolveHookPendingAgentID 约束 pending 查询只能落在 peer 自身 agent，shared-service 例外需显式指定。
 func resolveHookPendingAgentID(instance *ToolInstance, req dto.HookPendingRequest) (string, error) {
 	instanceAgentID := ""
 	if instance != nil {
@@ -77,14 +80,17 @@ func resolveHookPendingAgentID(instance *ToolInstance, req dto.HookPendingReques
 	}
 }
 
+// validateHookSubscribeRequest 暴露给测试和复用方，保持与 RPC 路径一致的错误映射。
 func validateHookSubscribeRequest(req dto.HookSubscribeRequest) error {
 	return asHookRPCError(validateHookSubscribeInput(req))
 }
 
+// validateHookResolveRequest 暴露给测试和复用方，保持与 RPC 路径一致的错误映射。
 func validateHookResolveRequest(req dto.HookResolveRequest) error {
 	return asHookRPCError(validateHookResolveInput(req))
 }
 
+// resolveCurrentRegisteredInstance 用当前 jrpc2 server 反查租约，再读取可调用实例快照。
 func resolveCurrentRegisteredInstance(ctx context.Context, registry *ToolRegistry) (*ToolInstance, error) {
 	server, err := serverFromContext(ctx)
 	if err != nil {
@@ -97,7 +103,7 @@ func resolveCurrentRegisteredInstance(ctx context.Context, registry *ToolRegistr
 	return resolveRegisteredInstance(registry, lease, false)
 }
 
-// lookupLeaseByServer 按服务端处理lookup租约。
+// lookupLeaseByServer 在注册表中查找绑定当前 jrpc2 server 的租约，供自描述 RPC 使用。
 func (r *ToolRegistry) lookupLeaseByServer(server *jrpc2.Server) (LeaseKey, bool) {
 	if r == nil || server == nil {
 		return LeaseKey{}, false
@@ -122,6 +128,7 @@ func (r *ToolRegistry) lookupLeaseByServer(server *jrpc2.Server) (LeaseKey, bool
 	return LeaseKey{}, false
 }
 
+// decodePayloadMap 将 approval payload 解成 map；非对象 JSON 会作为原始 payload 透传。
 func decodePayloadMap(raw json.RawMessage) map[string]any {
 	if len(raw) == 0 {
 		return nil
@@ -133,6 +140,7 @@ func decodePayloadMap(raw json.RawMessage) map[string]any {
 	return map[string]any{"payload": append(json.RawMessage(nil), raw...)}
 }
 
+// timeDurationMillis 将客户端毫秒超时转换为 Duration，非正数使用默认 notify 超时。
 func timeDurationMillis(timeoutMs int) time.Duration {
 	if timeoutMs <= 0 {
 		return defaultNotifyTimeout

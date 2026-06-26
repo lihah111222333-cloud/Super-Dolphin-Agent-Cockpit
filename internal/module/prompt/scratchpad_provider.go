@@ -8,14 +8,15 @@ import (
 
 var _ DynamicSectionProvider = ScratchpadProvider{}
 
+// ScratchpadProvider 注入会话专属临时目录，避免代理把中间产物写进系统 /tmp 或项目目录。
 type ScratchpadProvider struct{}
 
-// SectionName 处理section名称。
+// SectionName 返回 scratchpad 动态 section 的注册名。
 func (ScratchpadProvider) SectionName() string {
 	return DynamicSectionScratchpad
 }
 
-// Resolve 解析prompt。
+// Resolve 仅在 BuildCtx 提供 ScratchpadDir 时渲染提示；目录缺失表示该运行面未启用 scratchpad。
 func (ScratchpadProvider) Resolve(_ context.Context, input SectionContext) (*string, error) {
 	dir := strings.TrimSpace(input.BuildCtx.ScratchpadDir)
 	if dir == "" {

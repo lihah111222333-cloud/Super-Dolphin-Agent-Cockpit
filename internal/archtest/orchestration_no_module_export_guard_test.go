@@ -7,25 +7,12 @@ import (
 	"testing"
 )
 
-// TestOrchestrationNoModuleExport is the P22 P4 S4c1 guard preregistered
-// at P4 §TDD line 257. The orchestration subpackage must not export a
-// package-level `Module` fx.Option; root assembly (cmd/mcp-orch/fx.go
-// buildOrchestrationOptions) is authoritative for which pieces get
-// wired together. Subpackage must only expose the constituent building
-// blocks (ProvideService / ProvideServiceInterface /
-// ProvideHookAfterHandler / ProvideRPCFacade / RegisterTurnLifecycle
-// / RegisterApprovalLifecycle) — not a bundled `Module`.
+// TestOrchestrationNoModuleExport 防止 orchestration 子包重新导出 package-level Module。
+// 根入口 cmd/mcp-orch/fx.go 的 buildOrchestrationOptions 才能决定哪些 provider 组合到一起；
+// 子包只暴露独立 building blocks，避免重新形成不透明的协议外壳。
 //
-// P4 plan §278 rationale: "Module 退回 cmd/mcp-orch 根入口组装". Hiding
-// the Module forces any consumer to go through the root entry for
-// assembly choices, preventing `cmd/mcp-*` subpackages from growing
-// opaque protocol-shell exports again.
-//
-// The guard scans every non-test .go file in
-// cmd/mcp-orch/orchestration and fails if it re-declares `var Module =`
-// or `func Module(` at top level. Comment mentions of the pre-S4c1
-// shape are allowed (the migration note in service.go documents the
-// removal for future readers).
+// 该 guard 扫描 cmd/mcp-orch/orchestration 下所有非测试 Go 文件，发现顶层 `var Module`
+// 或 `func Module(` 就失败。注释中的历史说明不会触发，只有实际代码 token 会被拦截。
 func TestOrchestrationNoModuleExport(t *testing.T) {
 	t.Parallel()
 	root := repoRootForGuardTests(t)
@@ -36,9 +23,7 @@ func TestOrchestrationNoModuleExport(t *testing.T) {
 		t.Fatalf("read %s: %v", dir, err)
 	}
 
-	// Two token shapes to forbid: `var Module` at statement start (the
-	// pre-S4c1 shape) and `func Module(` (some authors rewrite a var
-	// into an equivalent helper to dodge a var-only guard).
+	// 同时禁止 `var Module` 和 `func Module(`，防止把被移除的模块出口换一种写法带回来。
 	forbidden := []string{
 		"\nvar Module ",
 		"\nvar Module=",
@@ -59,9 +44,7 @@ func TestOrchestrationNoModuleExport(t *testing.T) {
 		if err != nil {
 			t.Fatalf("read %s: %v", path, err)
 		}
-		// Normalize leading file: prepend a newline so the first line
-		// also matches the "\nvar Module " pattern if a var declaration
-		// lives at line 1.
+		// 文件开头补一个换行，让第一行声明也能命中 "\nvar Module " 模式。
 		src := "\n" + string(data)
 		for _, token := range forbidden {
 			if strings.Contains(src, token) {

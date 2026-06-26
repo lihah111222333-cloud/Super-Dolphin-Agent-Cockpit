@@ -9,9 +9,8 @@ import (
 	bindingstore "github.com/anthropic-ai/super-agent-v3/internal/store/binding"
 )
 
-// pingBlockingSession is a KeepaliveCapable that blocks inside SendKeepalive
-// until its ctx is cancelled. It signals entry via `entered` so tests can
-// synchronize on "ping is in-flight" without sleeping.
+// pingBlockingSession 在 SendKeepalive 内阻塞，直到 ctx 被取消。
+// entered 用于让测试精确等待 ping 已进入执行路径，避免依赖 sleep。
 type pingBlockingSession struct {
 	plainSession
 	entered chan struct{}
@@ -30,20 +29,9 @@ func (s *pingBlockingSession) SendKeepalive(ctx context.Context) error {
 	return err
 }
 
-// TestCacheKeepaliveDrainCancelsPendingPing is the P22 P2 §TDD test named
-// in docs/plans/迁移/p22/P2_BusRuntimeDecoupling.md:415.
-//
-// Contract: while a keepalive ping is stuck inside SendKeepalive,
-// Shutdown(ctx) must
-//
-//  1. cancel the ambient pingCtx so the blocked session sees ctx.Err();
-//  2. wait for the in-flight ping goroutine to unwind before returning;
-//  3. return bounded by the caller's ctx (not hang past the shutdown
-//     grace budget).
-//
-// Pre-P2 shape: executePing used context.Background() and was not
-// tracked, so Shutdown() only cleared the timer map — the ping
-// goroutine could outlive the module Lifecycle.OnStop entirely.
+// TestCacheKeepaliveDrainCancelsPendingPing 固定 keepalive 关闭路径的 drain 约束。
+// 当 SendKeepalive 内的 ping 被卡住时，Shutdown 必须取消 Manager 持有的 pingCtx、
+// 等待已进入的 goroutine 退出，并受调用方 shutdown ctx 的时间预算约束。
 func TestCacheKeepaliveDrainCancelsPendingPing(t *testing.T) {
 	t.Parallel()
 
@@ -82,10 +70,8 @@ func newDrainTestManager() (*Manager, *pingBlockingSession) {
 
 func fireKeepalivePing(t *testing.T, m *Manager) <-chan struct{} {
 	t.Helper()
-	// Fire the ping path directly instead of waiting keepaliveInterval
-	// (55 minutes) for the scheduled AfterFunc. The test mirrors the
-	// production closure: enterPing + pingInflight.Done + executePing,
-	// so it goes through the same drain bookkeeping Shutdown depends on.
+	// 直接触发 ping 路径，避免等待长周期定时器。
+	// 这里保留生产闭包的 enterPing/pingInflight/executePing 顺序，覆盖 Shutdown 依赖的 drain 计数。
 	timerRef := m.snapshotTimer("session-1", nil)
 	if timerRef == nil || timerRef.timer == nil {
 		t.Fatalf("register did not schedule timer")
@@ -113,7 +99,7 @@ func waitForKeepaliveEntry(t *testing.T, session *pingBlockingSession) {
 
 func assertPingGoroutineDrained(t *testing.T, pingDone <-chan struct{}) {
 	t.Helper()
-	// Ping goroutine must have unwound before Shutdown returned.
+	// Shutdown 返回前，已进入的 ping goroutine 必须退出。
 	select {
 	case <-pingDone:
 	default:
@@ -123,9 +109,7 @@ func assertPingGoroutineDrained(t *testing.T, pingDone <-chan struct{}) {
 
 func assertKeepaliveObservedCancellation(t *testing.T, session *pingBlockingSession) {
 	t.Helper()
-	// SendKeepalive must have observed ctx.Err() (i.e. the cancellation
-	// came through the Manager-owned pingCtx, not via the session closing
-	// itself).
+	// SendKeepalive 必须观察到 Manager 持有的 pingCtx 取消，而不是仅由 session 自身关闭带出。
 	select {
 	case err := <-session.exited:
 		if !errors.Is(err, context.Canceled) {
@@ -136,10 +120,8 @@ func assertKeepaliveObservedCancellation(t *testing.T, session *pingBlockingSess
 	}
 }
 
-// TestCacheKeepaliveShutdownGatesNewPings verifies the enterPing gate:
-// after Shutdown has closed the drain gate, a fresh AfterFunc-style
-// invocation must be rejected before it registers another in-flight
-// counter.
+// TestCacheKeepaliveShutdownGatesNewPings 验证 Shutdown 关闭 drain gate 后会拒绝新 ping。
+// 这样新的定时器回调不能再登记 in-flight 计数。
 func TestCacheKeepaliveShutdownGatesNewPings(t *testing.T) {
 	t.Parallel()
 
@@ -152,7 +134,7 @@ func TestCacheKeepaliveShutdownGatesNewPings(t *testing.T) {
 	if m.enterPing() {
 		t.Fatal("enterPing returned true after Shutdown; gate not closed")
 	}
-	// Redundant Shutdown must be a no-op and not deadlock.
+	// 重复 Shutdown 应为 no-op，不能死锁。
 	if err := m.Shutdown(context.Background()); err != nil {
 		t.Errorf("second Shutdown err = %v, want nil (idempotent)", err)
 	}

@@ -105,7 +105,8 @@ type threadResumeParams struct {
 	Personality           string `json:"personality,omitempty"`
 }
 
-// NewDriverFactory 创建driver工厂。
+// NewDriverFactory 构造 Codex provider 的 DriverFactory。
+// factory 持有可热替换的动态工具回调；每次 Create 都复制当前回调，避免会话间共享可变工具面。
 func NewDriverFactory(
 	logger *slog.Logger,
 	dispatcher *unified.EventDispatcher,
@@ -174,7 +175,8 @@ func NewDriverFactory(
 	return factory
 }
 
-// SetListTools 设置list工具。
+// SetListTools 更新动态工具列表回调。
+// 回调在锁内替换，后续创建的 driver 才会读取新值，已启动会话不被原地改写。
 func (f *DriverFactory) SetListTools(fn func(context.Context) ([]codexprotocol.DynamicToolSchema, error)) {
 	if f == nil {
 		return
@@ -184,7 +186,8 @@ func (f *DriverFactory) SetListTools(fn func(context.Context) ([]codexprotocol.D
 	f.listTools = fn
 }
 
-// SetPrepareTools 设置prepare工具。
+// SetPrepareTools 更新会话级动态工具准备回调。
+// 该回调参与 Start/Resume 的工具面绑定，nil 表示当前运行环境不提供动态工具。
 func (f *DriverFactory) SetPrepareTools(fn func(context.Context, contract.CodexToolSurfaceScope) ([]codexprotocol.DynamicToolSchema, error)) {
 	if f == nil {
 		return
@@ -194,7 +197,8 @@ func (f *DriverFactory) SetPrepareTools(fn func(context.Context, contract.CodexT
 	f.prepareTools = fn
 }
 
-// SetReleaseTools 设置release工具。
+// SetReleaseTools 更新工具面释放回调。
+// session 关闭路径会调用它归还作用域资源，替换动作需持锁防止与 Create 竞态。
 func (f *DriverFactory) SetReleaseTools(fn func(contract.CodexToolSurfaceScope) error) {
 	if f == nil {
 		return
@@ -204,7 +208,8 @@ func (f *DriverFactory) SetReleaseTools(fn func(contract.CodexToolSurfaceScope) 
 	f.releaseTools = fn
 }
 
-// SetBindTools 设置bind工具。
+// SetBindTools 更新恢复路径的工具面绑定回调。
+// Resume 会用它把既有 thread scope 重新绑定到新 session。
 func (f *DriverFactory) SetBindTools(fn func(contract.CodexToolSurfaceScope) error) {
 	if f == nil {
 		return
@@ -250,7 +255,8 @@ func (f *DriverFactory) currentReleaseTools() func(contract.CodexToolSurfaceScop
 	return f.releaseTools
 }
 
-// newDriver 创建driver。
+// newDriver 创建单个 Codex driver 实例。
+// 环境变量里的 app-server URL 优先；否则只在 legacy ServerManager 已运行时复用共享地址。
 func newDriver(logger *slog.Logger, eventDispatcher *unified.EventDispatcher, approvals *rpc.ApprovalManager, reporter contract.RuntimeReporter, manager *ServerManager, pool *ServerPool, mirror contract.SkillMirrorReconciler, recovery contract.SessionRecoveryReporter, listTools ...func(context.Context) ([]codexprotocol.DynamicToolSchema, error)) contract.Driver {
 	if logger == nil {
 		logger = pkglogger.Get()
@@ -277,10 +283,11 @@ func newDriver(logger *slog.Logger, eventDispatcher *unified.EventDispatcher, ap
 	}
 }
 
-// Name 处理名称。
+// Name 返回 provider 注册名。
 func (d *driver) Name() string { return "codex" }
 
-// StartSession 启动会话。
+// StartSession 准备 Codex home、工具面和 runtime 后启动新线程会话。
+// runtime 必须先于 start RPC 启动，否则 app-server 响应没有 reader 接收。
 func (d *driver) StartSession(ctx context.Context, req dto.StartSessionRequest) (contract.Session, error) {
 	var err error
 	req, err = d.prepareStartSessionRequest(ctx, req)
@@ -301,11 +308,7 @@ func (d *driver) StartSession(ctx context.Context, req dto.StartSessionRequest) 
 	}
 	s.prepareTools, s.listTools, s.releaseTools = d.prepareTools, d.listTools, d.releaseTools
 	s.dynamicToolsEnabled = contract.ToolSurfaceModeUsesDynamicTools(req.ToolSurfaceMode)
-	// P22 P1c: explicit runtime start. newSession no longer spawns
-	// reader / health goroutines, so StartSession is the sole production
-	// launch point for this session's runtime handle. Start BEFORE any
-	// subsequent transport.Call (startDynamicSession dispatches RPCs whose
-	// responses require the runtime-owned reader to be live).
+	// runtime 拥有 reader、health 和恢复 goroutine；任何后续 RPC 都要求 reader 已经在线。
 	if s.runtime != nil {
 		s.runtime.Start()
 	}
@@ -325,7 +328,8 @@ func (d *driver) StartSession(ctx context.Context, req dto.StartSessionRequest) 
 	return d.startDynamicSession(ctx, s, req)
 }
 
-// ResumeSession 处理恢复会话。
+// ResumeSession 按已持久化的 Codex identity 恢复远端线程。
+// 恢复失败会清理新建 session 并清掉过期 provider thread 绑定，避免下一次继续读错历史。
 func (d *driver) ResumeSession(ctx context.Context, req dto.ResumeSessionRequest) (contract.Session, error) {
 	var err error
 	req, err = d.prepareResumeSessionRequest(ctx, req)
@@ -346,10 +350,7 @@ func (d *driver) ResumeSession(ctx context.Context, req dto.ResumeSessionRequest
 	}
 	s.prepareTools, s.listTools, s.releaseTools = d.prepareTools, d.listTools, d.releaseTools
 	s.dynamicToolsEnabled = contract.ToolSurfaceModeUsesDynamicTools(toolSurfaceMode)
-	// P22 P1c: explicit runtime start BEFORE resumeRemoteThread; the latter
-	// issues a thread/resume RPC whose response lands via the runtime-owned
-	// reader. If resume fails below, cleanupFailedSession → ForceStop →
-	// runtime.Stop idempotently drains the runtime.
+	// resume RPC 的响应也依赖 runtime-owned reader；失败时 ForceStop 会幂等 drain runtime。
 	if s.runtime != nil {
 		s.runtime.Start()
 	}
@@ -368,6 +369,8 @@ func (d *driver) ResumeSession(ctx context.Context, req dto.ResumeSessionRequest
 	return d.finishResumedSession(ctx, s, req, threadID), nil
 }
 
+// ResolveResumeSessionIdentity 为恢复请求补齐 Codex home、instance key 和 model provider。
+// 恢复路径不能退回默认身份；任何类型错误或 home 解析失败都会阻断，避免读错历史线程。
 func (d *driver) ResolveResumeSessionIdentity(_ context.Context, req dto.ResumeSessionRequest) (dto.ResumeSessionRequest, error) {
 	if err := validateStartCodexIdentityShape(req.Config); err != nil {
 		return req, err
@@ -425,7 +428,8 @@ func (d *driver) clearStaleProviderThreadID(agentID, message string) {
 	}
 }
 
-// AllowedModels 处理allowed模型。
+// AllowedModels 从 app-server 查询当前 Codex provider 可用模型。
+// 解码失败会直接返回错误，调用方不能拿空列表当作成功降级。
 func (s *session) AllowedModels(ctx context.Context) ([]string, error) {
 	raw, err := callWithTimeout(ctx, callTargetFunc(s.callTransport), 10*time.Second, "model/list", map[string]any{})
 	if err != nil {
@@ -490,7 +494,8 @@ func buildThreadResumeParams(req dto.ResumeSessionRequest) threadResumeParams {
 	return params
 }
 
-// codexSandboxWireJSON 处理codex沙箱wireJSON。
+// codexSandboxWireJSON 将 Codex sandbox wire 值规整成 app-server 接受的 JSON。
+// 字符串和对象两种历史形态都兼容；无法识别时原样返回，让下游按真实输入报错。
 func codexSandboxWireJSON(raw json.RawMessage) json.RawMessage {
 	raw = json.RawMessage(strings.TrimSpace(string(raw)))
 	if len(raw) == 0 {

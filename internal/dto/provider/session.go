@@ -42,8 +42,7 @@ type PromptAssemblySnapshot struct {
 }
 
 // StartAssembly 是 StartSessionRequest 中的 prompt 组装载荷。
-// UserContext 和 SystemContext 在 Phase 3 迁移完成前仍同时嵌入 BaseInstructions，
-// 消费方不能依赖 UserContext 为唯一载体。
+// UserContext/SystemContext 是结构化上下文载体；BaseInstructions 仍保留兼容内容，消费者不能只依赖单一路径。
 type StartAssembly struct {
 	DisplayName           string                  `json:"displayName,omitempty"`
 	BaseInstructions      string                  `json:"baseInstructions,omitempty"`
@@ -53,21 +52,12 @@ type StartAssembly struct {
 	Snapshot              PromptAssemblySnapshot  `json:"snapshot"`
 	SuppressedTools       []string                `json:"suppressedTools,omitempty"`
 
-	// UserContext mirrors TurnAssembly.UserContext: a structured map of
-	// per-start user meta entries (currentDate, runtimeExtras, gitStatus,
-	// claudeMd, ...). Introduced so provider bridges can route these to the
-	// synthetic user meta message (Claude prependUserContext equivalent)
-	// instead of the cacheable system prompt prefix. Until the migration in
-	// Phase 3 completes, consumers must not rely on UserContext being the
-	// sole carrier; the same data is still embedded into BaseInstructions for
-	// backward compatibility.
+	// UserContext 是 start 阶段用户上下文的结构化 map。
+	// provider bridge 可将它路由到非缓存用户上下文消息；兼容期内 BaseInstructions 仍可能携带同类内容。
 	UserContext map[string]string `json:"userContext,omitempty"`
-	// UserContextText is the rendered UserContext string (same rendering used
-	// by TurnAssembly.UserContextText).
+	// UserContextText 是 UserContext 的渲染文本，供只接收字符串的 provider 路径复用。
 	UserContextText string `json:"userContextText,omitempty"`
-	// SystemContext carries the per-start system context dict (git status,
-	// cache breaker, ...). Populated in parallel with BaseInstructions during
-	// the transition; Phase 3 will stop embedding it into BaseInstructions.
+	// SystemContext 携带 start 阶段系统上下文，如 git status、cache breaker 等。
 	SystemContext SystemContext `json:"systemContext,omitempty"`
 }
 
@@ -92,16 +82,12 @@ type StartSessionRequest struct {
 	Config          map[string]any `json:"config,omitempty"`
 	ToolSurfaceMode string         `json:"toolSurfaceMode,omitempty"`
 
-	// LaunchSkillNames is the legacy additive launch-time skill selection
-	// carrier. The current production path does not turn this into
-	// baseInstructions, manifests, or dynamic skill tools; provider drivers
-	// reconcile provider-native mirrors and let Claude/Codex discover skills.
+	// LaunchSkillNames 是旧客户端仍会发送的启动 skill 名称列表。
+	// 当前 provider-native 路径不把它注入正文或 manifest，只作为兼容 wire 字段保留。
 	LaunchSkillNames []string `json:"launchSkillNames,omitempty"`
-	// LaunchSkillRefs carries the precise UI launch selection for diagnostics
-	// and same-name preservation. It is not a prompt injection path.
+	// LaunchSkillRefs 携带 UI 选中的精确 skill 引用，用于诊断和同名保真，不作为 prompt 注入路径。
 	LaunchSkillRefs []SkillRef `json:"launchSkillRefs,omitempty"`
-	// ForceLaunchSkills mirrors the legacy UI manualSkillSelection flag.
-	// It is retained for wire compatibility with existing clients.
+	// ForceLaunchSkills 保留旧客户端手动选择 skill 的 wire 兼容标志。
 	ForceLaunchSkills bool `json:"forceLaunchSkills,omitempty"`
 }
 

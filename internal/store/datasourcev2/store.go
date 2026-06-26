@@ -49,7 +49,8 @@ type store struct {
 	runInTx txRunner
 }
 
-// NewStore creates a datasource_v2 store without a transaction runner for narrow unit tests.
+// NewStore 创建 datasource_v2 的 sqlc 存储实现。
+// 该入口不配置事务 runner，仅适用于窄单元测试或只读场景。
 func NewStore(q *sqlc.Queries) Store {
 	return newStore(q, q, nil)
 }
@@ -58,7 +59,8 @@ func newStore(q querier, queries *sqlc.Queries, runInTx txRunner) Store {
 	return &store{q: q, queries: queries, runInTx: runInTx}
 }
 
-// WithTx runs the datasource_v2 write flow inside a SQLite transaction.
+// WithTx 在同一个 SQLite 事务内执行 datasource_v2 写流程。
+// 导入文档时需要先删除旧分块再写入新分块，缺少事务 runner 时直接返回错误。
 func (s *store) WithTx(ctx context.Context, fn func(txStore Store) error) error {
 	if fn == nil {
 		return wrapDatasourceV2Error(errors.New("transaction callback is required"), "with_tx")
@@ -72,7 +74,8 @@ func (s *store) WithTx(ctx context.Context, fn func(txStore Store) error) error 
 	return wrapDatasourceV2Error(err, "with_tx")
 }
 
-// ListDocuments reads datasource_v2 documents with an explicit limit.
+// ListDocuments 按过滤条件列出 datasource_v2 文档元数据。
+// 调用方必须显式传入正数 limit，避免无界扫描导入文档表。
 func (s *store) ListDocuments(ctx context.Context, params ListDocumentsParams) ([]Document, error) {
 	if err := validateListDocumentsParams(params); err != nil {
 		return nil, wrapDatasourceV2Error(err, "list_documents")
@@ -91,7 +94,8 @@ func (s *store) ListDocuments(ctx context.Context, params ListDocumentsParams) (
 	return docs, nil
 }
 
-// GetDocument reads one datasource_v2 document metadata row.
+// GetDocument 按 ID 读取单个 datasource_v2 文档元数据。
+// 非正 ID 会在进入 sqlc 前失败，防止把无效主键交给存储层兜底。
 func (s *store) GetDocument(ctx context.Context, documentID int64) (*Document, error) {
 	if documentID <= 0 {
 		return nil, wrapDatasourceV2Error(errors.New("document id is required"), "get_document")
@@ -104,7 +108,8 @@ func (s *store) GetDocument(ctx context.Context, documentID int64) (*Document, e
 	return &doc, nil
 }
 
-// ListChunks reads persisted document text chunks in chunk order.
+// ListChunks 读取指定文档已经持久化的文本分块。
+// 查询结果由 SQL 保持分块顺序，调用方可直接用于重建文档内容。
 func (s *store) ListChunks(ctx context.Context, documentID int64) ([]TextChunk, error) {
 	if documentID <= 0 {
 		return nil, wrapDatasourceV2Error(errors.New("document id is required"), "list_chunks")
@@ -142,7 +147,8 @@ func (s *store) SearchChunks(ctx context.Context, params SearchChunksParams) ([]
 	return chunks, nil
 }
 
-// UpsertImporting writes or resets document metadata to importing status.
+// UpsertImporting 写入或重置文档元数据为 importing 状态。
+// 重新导入同一路径时会复用唯一键并清空后续 ready 流程需要重新生成的摘要字段。
 func (s *store) UpsertImporting(ctx context.Context, params UpsertDocumentParams) (*Document, error) {
 	if err := validateUpsertDocumentParams(params); err != nil {
 		return nil, wrapDatasourceV2Error(err, "upsert_importing")
@@ -160,7 +166,8 @@ func (s *store) UpsertImporting(ctx context.Context, params UpsertDocumentParams
 	return &doc, nil
 }
 
-// UpdateDocument edits document metadata without touching chunks or ready status.
+// UpdateDocument 更新文档基础元数据。
+// 该方法不触碰分块、向量和 ready 状态，避免编辑文件名时破坏已完成导入结果。
 func (s *store) UpdateDocument(ctx context.Context, params UpdateDocumentParams) (*Document, error) {
 	if err := validateUpdateDocumentParams(params); err != nil {
 		return nil, wrapDatasourceV2Error(err, "update_document")
@@ -179,7 +186,8 @@ func (s *store) UpdateDocument(ctx context.Context, params UpdateDocumentParams)
 	return &doc, nil
 }
 
-// DeleteDocument deletes a document and its cascade-owned text chunks.
+// DeleteDocument 删除文档及其级联拥有的文本分块。
+// 当 SQL 未删除任何行时返回 not found，调用方不应把重复删除当作成功。
 func (s *store) DeleteDocument(ctx context.Context, documentID int64) error {
 	if documentID <= 0 {
 		return wrapDatasourceV2Error(errors.New("document id is required"), "delete_document")
@@ -194,7 +202,8 @@ func (s *store) DeleteDocument(ctx context.Context, documentID int64) error {
 	return nil
 }
 
-// DeleteChunks deletes old text chunks for one document.
+// DeleteChunks 删除指定文档的旧文本分块。
+// 导入重跑会先清空旧分块，再在同一事务内写入新的向量分块。
 func (s *store) DeleteChunks(ctx context.Context, documentID int64) error {
 	if documentID <= 0 {
 		return wrapDatasourceV2Error(errors.New("document id is required"), "delete_chunks")
@@ -205,7 +214,8 @@ func (s *store) DeleteChunks(ctx context.Context, documentID int64) error {
 	return wrapDatasourceV2Error(err, "delete_chunks")
 }
 
-// InsertChunk persists one text chunk.
+// InsertChunk 持久化一个文本分块及其向量。
+// 写入前校验 embedding 字节长度必须等于维度乘以 float32 宽度，避免 sqlite-vec 查询期才失败。
 func (s *store) InsertChunk(ctx context.Context, params InsertChunkParams) error {
 	if err := validateInsertChunkParams(params); err != nil {
 		return wrapDatasourceV2Error(err, "insert_chunk")
@@ -223,7 +233,8 @@ func (s *store) InsertChunk(ctx context.Context, params InsertChunkParams) error
 	}), "insert_chunk")
 }
 
-// MarkReady marks an importing document ready and writes text summary fields.
+// MarkReady 将 importing 文档标记为 ready。
+// 只有所有分块写入完成后才能调用，并同步写入内容哈希、分块数和总字符数。
 func (s *store) MarkReady(ctx context.Context, params MarkReadyParams) (*Document, error) {
 	if err := validateMarkReadyParams(params); err != nil {
 		return nil, wrapDatasourceV2Error(err, "mark_ready")
@@ -249,6 +260,8 @@ func validateListDocumentsParams(params ListDocumentsParams) error {
 	return nil
 }
 
+// validateSearchChunksParams 校验向量检索参数。
+// embedding 必须是与导入模型一致的 float32 BLOB，否则 sqlite-vec 会在查询阶段报维度错误。
 func validateSearchChunksParams(params SearchChunksParams) error {
 	switch {
 	case params.Limit <= 0:
@@ -294,6 +307,8 @@ func validateUpdateDocumentParams(params UpdateDocumentParams) error {
 	}
 }
 
+// validateInsertChunkParams 校验分块写入的文档、顺序和正文计数字段。
+// 向量字段交给 validateInsertChunkVectorParams 统一检查，保持错误边界清晰。
 func validateInsertChunkParams(params InsertChunkParams) error {
 	switch {
 	case params.DocumentID <= 0:
@@ -311,6 +326,8 @@ func validateInsertChunkParams(params InsertChunkParams) error {
 	}
 }
 
+// validateInsertChunkVectorParams 校验分块向量的模型、维度和字节长度。
+// 这里按 float32 四字节约束提前失败，避免持久化不可检索的数据。
 func validateInsertChunkVectorParams(params InsertChunkParams) error {
 	switch {
 	case len(params.Embedding) == 0:

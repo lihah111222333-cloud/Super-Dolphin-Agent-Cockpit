@@ -15,7 +15,7 @@ const (
 	updateVersionEnv  = "SUPER_DOLPHIN_UPDATE_VERSION"
 )
 
-// ConfigureServiceFromEnv 从env处理configure服务。
+// ConfigureServiceFromEnv 从环境变量读取 service metadata，并用 defaultVersion 兜住版本缺失。
 func ConfigureServiceFromEnv(defaultVersion string) {
 	SetServiceMetadata(
 		firstLogValue(os.Getenv(serviceNameEnv), "super-dolphin"),
@@ -24,7 +24,7 @@ func ConfigureServiceFromEnv(defaultVersion string) {
 	)
 }
 
-// SetServiceMetadata 设置服务元数据。
+// SetServiceMetadata 更新全局 service metadata，并重建当前日志器让后续日志带上新字段。
 func SetServiceMetadata(name, version, env string) {
 	name = firstLogValue(name, "super-dolphin")
 	version = firstLogValue(version, "dev")
@@ -39,6 +39,7 @@ func SetServiceMetadata(name, version, env string) {
 	rebuildActiveLogger()
 }
 
+// applyGlobalAttrs 为新建日志器绑定当前 service/env/project 字段。
 func applyGlobalAttrs(logger *slog.Logger) *slog.Logger {
 	if logger == nil {
 		return nil
@@ -50,6 +51,7 @@ func applyGlobalAttrs(logger *slog.Logger) *slog.Logger {
 	return logger.With(attrs...)
 }
 
+// currentGlobalAttrs 在锁内复制全局 metadata，避免 logger 重建时读到半更新状态。
 func currentGlobalAttrs() []any {
 	logFileMu.Lock()
 	project := strings.TrimSpace(globalProject)
@@ -74,6 +76,7 @@ func currentGlobalAttrs() []any {
 	return attrs
 }
 
+// rebuildActiveLogger 使用当前模式、级别和文件状态重建全局日志器。
 func rebuildActiveLogger() {
 	logFileMu.Lock()
 	f := logFile
@@ -87,6 +90,7 @@ func rebuildActiveLogger() {
 	storeLogger(newLogger(mode, level))
 }
 
+// normalizeLogEnv 将常见环境别名收敛为 dev/test/prod，其余值保持小写透传。
 func normalizeLogEnv(raw string) string {
 	switch strings.ToLower(strings.TrimSpace(raw)) {
 	case "dev", "development", "local", "debug":
@@ -103,6 +107,7 @@ func normalizeLogEnv(raw string) string {
 	}
 }
 
+// firstLogValue 返回第一个非空白值，供环境变量优先级选择使用。
 func firstLogValue(values ...string) string {
 	for _, value := range values {
 		if trimmed := strings.TrimSpace(value); trimmed != "" {

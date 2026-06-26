@@ -10,6 +10,7 @@ import (
 
 type MatchMode string
 
+// seek 匹配模式按从严格到宽松的顺序尝试，后续模式只在前序模式未命中时使用。
 const (
 	seekMatchExact             MatchMode = "exact"
 	seekMatchTrimRight         MatchMode = "trim_right"
@@ -18,9 +19,8 @@ const (
 	seekMatchEscapeNormalized  MatchMode = "escape_normalized"
 )
 
-// SeekSequence finds the first occurrence of pattern in lines using the 4-pass
-// relaxed matching strategy mandated by the migration plan.
-// SeekSequence 查找序列。
+// SeekSequence 在行列表中查找 pattern 的首个安全落点。
+// 它按严格到宽松的匹配模式依次尝试，仍未命中时返回 ErrSequenceNotFound。
 func SeekSequence(lines []string, pattern []string, start int) (int, MatchMode, error) {
 	if len(pattern) == 0 {
 		return -1, "", fmt.Errorf("%w: empty pattern", ErrSequenceNotFound)
@@ -59,7 +59,8 @@ func seekSequenceMode(lines []string, pattern []string, start int, end int, mode
 	return -1
 }
 
-// collectSequenceMatches 收集序列matches。
+// collectSequenceMatches 返回同一种匹配模式下的全部候选行。
+// 调用方可据此判断是否需要上下文锚点进一步消歧。
 func collectSequenceMatches(lines []string, pattern []string) ([]int, MatchMode) {
 	if len(pattern) == 0 || len(pattern) > len(lines) {
 		return nil, ""
@@ -88,7 +89,8 @@ func sequenceMatchAt(lines []string, pattern []string, start int, mode MatchMode
 	return true
 }
 
-// lineMatch 判断行是否匹配。
+// lineMatch 按指定模式比较单行文本。
+// 宽松模式只处理空白、Unicode 标点和转义层级差异，不改动原始文本。
 func lineMatch(have string, want string, mode MatchMode) bool {
 	switch mode {
 	case seekMatchExact:
@@ -120,10 +122,8 @@ func trimRightSpace(value string) string {
 	return strings.TrimRight(value, " \t\r\n")
 }
 
-// normalizeUnicode maps common Unicode punctuation variants to their ASCII
-// equivalents. Ported from V2's hand-written replacement table which matches
-// codex-rs apply-patch seek_sequence.rs:76-94.
-// normalizeUnicode 规范化Unicode。
+// normalizeUnicode 把常见 Unicode 标点和空格折叠成 ASCII 形式。
+// 该函数只服务于补丁匹配容错，不会改变最终写入的 replacement。
 func normalizeUnicode(s string) string {
 	var b strings.Builder
 	for _, r := range s {
@@ -140,24 +140,12 @@ func normalizeUnicode(s string) string {
 			b.WriteRune(r)
 		}
 	}
-	// Apply NFC normalization after the replacement table so that
-	// combining character sequences (e.g. e+\u0301) are also handled.
+	// 替换表之后再做 NFC，确保组合字符也能在宽松匹配中对齐。
 	return norm.NFC.String(b.String())
 }
 
-// normalizeEscape collapses common escape-level differences that arise when
-// LLMs generate patch old_text with one fewer (or one more) layer of
-// backslash escaping than the actual file content.
-//
-// Rules (applied left-to-right, greedy):
-//   - `\"` → `"` (backslash-quote → quote)
-//   - `\\` → `\` (double-backslash → single-backslash)
-//   - `\n`  → `\n` (literal backslash-n stays; real newline is already split)
-//   - `\t`  → `\t` (literal backslash-t stays)
-//
-// This is intentionally a last-resort fallback; earlier passes (exact,
-// trim_right, trim_both, unicode_normalized) take priority.
-// normalizeEscape 规范化转义。
+// normalizeEscape 折叠常见反斜杠转义层级差异。
+// 它是最后兜底的匹配模式，只让引号和反斜杠少一层转义，保留字面 \n 与 \t。
 func normalizeEscape(s string) string {
 	var b strings.Builder
 	b.Grow(len(s))

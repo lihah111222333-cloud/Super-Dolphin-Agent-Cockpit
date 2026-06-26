@@ -9,16 +9,17 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 )
 
+// readFileAdapter 把 fs.FS 适配成只暴露 ReadFile 的最小接口。
 type readFileAdapter struct {
 	fsys iofs.FS
 }
 
-// ReadFile 读取文件。
+// ReadFile 从适配的 fs.FS 中读取内置 prompt 资源。
 func (a readFileAdapter) ReadFile(name string) ([]byte, error) {
 	return iofs.ReadFile(a.fsys, name)
 }
 
-// NewDefaultRegistry 创建default注册表。
+// NewDefaultRegistry 从嵌入资源创建内置 prompt registry。
 func NewDefaultRegistry() (contract.BuiltinPromptRegistry, error) {
 	sub, err := iofs.Sub(embeddedAssets, "assets")
 	if err != nil {
@@ -27,7 +28,7 @@ func NewDefaultRegistry() (contract.BuiltinPromptRegistry, error) {
 	return LoadRegistryFromFS(readFileAdapter{fsys: sub})
 }
 
-// LoadRegistryFromFS 从fs加载注册表。
+// LoadRegistryFromFS 从给定文件系统加载 manifest、模板和正文，并在构建 registry 前完成校验。
 func LoadRegistryFromFS(source readFileFS) (*Registry, error) {
 	manifest, err := loadManifest(source)
 	if err != nil {
@@ -47,6 +48,7 @@ func LoadRegistryFromFS(source readFileFS) (*Registry, error) {
 	return newRegistry(templates), nil
 }
 
+// loadManifest 读取并校验 manifest.json，返回已清理的模板路径列表。
 func loadManifest(source readFileFS) (manifestConfig, error) {
 	data, err := source.ReadFile("manifest.json")
 	if err != nil {
@@ -63,6 +65,7 @@ func loadManifest(source readFileFS) (manifestConfig, error) {
 	return manifest, nil
 }
 
+// loadTemplate 读取单个模板配置和其引用的 section 正文。
 func loadTemplate(source readFileFS, path string) (loadedTemplate, error) {
 	data, err := source.ReadFile(path)
 	if err != nil {
@@ -83,6 +86,7 @@ func loadTemplate(source readFileFS, path string) (loadedTemplate, error) {
 	return loadedTemplate{Path: path, Config: cfg, Sections: sections}, nil
 }
 
+// loadSections 读取模板声明的正文文件，并清理首尾空白。
 func loadSections(source readFileFS, templatePath string, sections []sectionConfig) ([]loadedSection, error) {
 	loaded := make([]loadedSection, 0, len(sections))
 	for _, section := range sections {
@@ -98,12 +102,14 @@ func loadSections(source readFileFS, templatePath string, sections []sectionConf
 	return loaded, nil
 }
 
+// normalizeManifest 清理 manifest 中的模板路径。
 func normalizeManifest(manifest *manifestConfig) {
 	for i := range manifest.Templates {
 		manifest.Templates[i] = strings.TrimSpace(manifest.Templates[i])
 	}
 }
 
+// normalizeTemplate 清理模板配置字段，并规范可选 JSON 条件。
 func normalizeTemplate(cfg *templateConfig) {
 	cfg.PromptKey = strings.TrimSpace(cfg.PromptKey)
 	cfg.Kind = strings.TrimSpace(cfg.Kind)
@@ -123,6 +129,7 @@ func normalizeTemplate(cfg *templateConfig) {
 	}
 }
 
+// normalizeSection 清理 section 配置字段，并规范启用条件 JSON。
 func normalizeSection(section *sectionConfig) {
 	section.SectionKey = strings.TrimSpace(section.SectionKey)
 	section.Region = strings.TrimSpace(section.Region)
@@ -132,6 +139,7 @@ func normalizeSection(section *sectionConfig) {
 	section.EnableWhen = normalizeRawJSON(section.EnableWhen)
 }
 
+// normalizeRawJSON 把空白或 null JSON 视为未配置，其他内容保持原始 JSON。
 func normalizeRawJSON(raw json.RawMessage) json.RawMessage {
 	trimmed := strings.TrimSpace(string(raw))
 	if trimmed == "" || trimmed == "null" {

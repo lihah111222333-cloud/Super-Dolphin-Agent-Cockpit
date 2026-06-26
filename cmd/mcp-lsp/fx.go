@@ -45,11 +45,11 @@ type registryToolProvider struct {
 	semanticToolsAvailable func(context.Context) bool
 }
 
-// run boots the MCP binary itself. The core process only exposes ctl/* endpoints
-// and manifest metadata; external executors decide when and how this binary starts.
+// run 组装并启动 mcp-lsp sidecar 自身的 fx 应用。
+// 该进程只暴露 ctl 工具与 manifest 元数据，stdout 必须保留给 MCP stdio 协议通道。
 func run() error {
-	// MCP stdio transport uses stdout for JSON-RPC messages.
-	// Force all logging to stderr so it does not pollute the MCP channel.
+	// MCP stdio 协议把 stdout 当作 JSON-RPC 通道；日志必须固定写 stderr。
+	// 如果这里回到 stdout，客户端会把普通日志当作协议帧解析而失败。
 	pkglogger.InitWithConsoleWriter(os.Stderr)
 
 	app := fx.New(
@@ -95,10 +95,8 @@ func run() error {
 			fx.Annotate(newBootstrapRunner, fx.ResultTags(`group:"runners"`)),
 			fx.Annotate(newStdioRunner, fx.ResultTags(`group:"runners"`)),
 			fx.Annotate(newHTTPRunner, fx.ResultTags(`group:"runners"`)),
-			// P22 P2 LSP-S1: per-language ManagerPool recyclers now
-			// join the root runner group instead of being launched from
-			// NewManagerPool's constructor. `flatten` unpacks the slice
-			// so each recycler becomes its own Runner entry.
+			// 每种语言 ManagerPool 的后台 recycler 由根运行组托管，构造函数只负责建模。
+			// flatten 会把 runner 切片拆成独立成员，确保 fx 生命周期统一启动和停止。
 			fx.Annotate(provideLSPBackgroundRunners, fx.ResultTags(`group:"runners,flatten"`)),
 		),
 		fx.Invoke(func() { common.RegisterToolResultPlainTextRenderer(tools.FormatToPlainText) }),
@@ -135,10 +133,8 @@ func newBootstrapRunner(cfg bootstrap.Config, client *bootstrap.Client, server *
 	return bootstrapRunner{cfg: cfg, client: client, stdioReady: server.Ready()}
 }
 
-// provideLSPBackgroundRunners lifts each language manager's background
-// runner (today: its ManagerPool recycler) into the root
-// `group:"runners"` aggregation. See cmd/mcp-lsp/runtime.go
-// *Manager.BackgroundRunners and P22 P2 LSP-S1.
+// provideLSPBackgroundRunners 将语言 manager 的后台 runner 挂到根运行组。
+// 后台 recycler 必须受 fx 生命周期管理，避免构造阶段隐式启动 goroutine。
 func provideLSPBackgroundRunners(m *Manager) []platformrunner.Runner {
 	return m.BackgroundRunners()
 }
@@ -356,10 +352,8 @@ func handleToolCall(ctx context.Context, defs []toolDefinition, name string, arg
 // Run 启动 LSP bootstrap 流程，等待 stdio server 就绪后按模式决定是否连接控制面 RPC。
 func (r bootstrapRunner) Run(ctx context.Context) error {
 	r.client.InstallLogRelay()
-	// Dual-channel startup ordering: wait for the local stdio MCP server
-	// to be ready before connecting to the control-plane jrpc2. This
-	// guarantees the tool-execution surface is available when the
-	// control plane starts dispatching requests.
+	// 双通道启动顺序：先等本地 stdio MCP server 就绪，再连接控制面 jrpc2。
+	// 这样控制面开始派发请求时，工具执行通道已经存在。
 	if r.stdioReady != nil {
 		select {
 		case <-r.stdioReady:
@@ -378,8 +372,7 @@ func (r bootstrapRunner) Run(ctx context.Context) error {
 		<-ctx.Done()
 		return nil
 	}
-	// Only register when running as independent peer (GO_AGENT_PEER_MODE=1).
-	// Sidecar mode (spawned by codex/claude) skips registration to avoid sweeper conflicts.
+	// 只有独立 peer 模式才注册控制面；provider 拉起的 sidecar 避免和宿主 sweeper 抢占生命周期。
 	if os.Getenv("GO_AGENT_PEER_MODE") != "1" {
 		pkglogger.Info("mcp-lsp bootstrap skipped (sidecar mode)",
 			"rpc_addr", r.cfg.RPCAddr,
@@ -422,14 +415,8 @@ func bindRuntime(lc fx.Lifecycle, params runtimeParams) {
 
 	lc.Append(fx.Hook{
 		OnStart: func(context.Context) error {
-			// Sidecar lifecycle: context.Background() is intentional here.
-			// Unlike the main app (internal/app/runner.go) which derives runCtx
-			// from an owner-supplied RootCtxProvider, sidecars run as independent
-			// child processes. Their lifetime is governed by:
-			//   1. Parent process kill / OnShutdown callback → fx.Shutdowner.Shutdown()
-			//   2. RunGroup self-exit → requestShutdown()
-			// Both paths converge on OnStop, which calls cancel() and waits for
-			// the run group to drain via the done channel.
+			// sidecar 是独立子进程，不能继承主应用 RootCtxProvider。
+			// 父进程关闭、控制面 OnShutdown 或 RunGroup 自退出最终都会进入 OnStop，统一 cancel 并等待 done。
 			runCtx, runCancel := context.WithCancel(context.Background())
 			cancel = runCancel
 			runtimesafe.SafeGo(runCtx, log, "mcp-lsp.runtime.runGroup", func(context.Context) {

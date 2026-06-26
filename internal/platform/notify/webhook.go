@@ -13,12 +13,10 @@ import (
 	"time"
 )
 
-// DefaultTimeout bounds any single webhook POST. External webhooks have
-// no SLA; a stuck host must not tie up the notifier's flush worker.
+// DefaultTimeout 限制单次 webhook POST，避免外部服务卡住通知 flusher。
 const DefaultTimeout = 10 * time.Second
 
-// ErrDisallowedScheme / ErrDisallowedAddress / ErrInvalidURL surface
-// SSRF-relevant rejections so callers / tests can branch on them.
+// SSRF 和 URL 校验错误用于调用方和测试区分安全拒绝与普通传输失败。
 var (
 	ErrDisallowedScheme    = errors.New("notify: only https scheme is allowed")
 	ErrDisallowedAddress   = errors.New("notify: target address is disallowed")
@@ -26,9 +24,7 @@ var (
 	ErrIPv6ZoneIDForbidden = errors.New("notify: ipv6 zone id is forbidden")
 )
 
-// WebhookClientConfig is an optional knob bag for NewWebhookClient.
-// Zero values land on sensible defaults for production; tests override
-// AllowPrivateCIDR (to exercise the positive SSRF path) and Timeout.
+// WebhookClientConfig 配置 webhook 客户端；生产零值安全，测试可打开 AllowPrivateCIDR 覆盖正向路径。
 type WebhookClientConfig struct {
 	Timeout          time.Duration
 	AllowPrivateCIDR bool
@@ -36,30 +32,15 @@ type WebhookClientConfig struct {
 	MaxResponseBytes int64
 }
 
-// WebhookClient is the SSRF-guarded HTTPS client shared by every
-// platform sender. It enforces four layers of defence documented in
-// the P2 plan:
-//
-//  1. Scheme: only https is accepted; http / file / ftp / empty reject
-//     at build time so a misconfigured alias cannot bypass.
-//  2. DialContext: rejects any resolved IP that matches the SSRF
-//     block list (loopback, private, link-local, ULA, multicast).
-//     Dial IP is checked on every TCP connect so DNS rebinding cannot
-//     slip a second resolution past the first.
-//  3. Redirects: CheckRedirect re-runs scheme + DialContext against
-//     the new URL on every hop; forged 302 -> http://169.254/...
-//     rebinds are refused.
-//  4. Proxy: explicitly nil so HTTP_PROXY / HTTPS_PROXY / no_proxy
-//     cannot route webhook traffic through a local interception proxy.
+// WebhookClient 是三端通知共享的 HTTPS-only 客户端。
+// 它在初始 URL、redirect 和 DialContext 三处执行 SSRF 校验，并禁用环境代理。
 type WebhookClient struct {
 	http             *http.Client
 	userAgent        string
 	maxResponseBytes int64
 }
 
-// NewWebhookClient constructs a WebhookClient with the given config.
-// AllowPrivateCIDR=false is the production default.
-// NewWebhookClient 创建webhook客户端。
+// NewWebhookClient 创建带 SSRF 防护的 webhook 客户端；生产默认拒绝私网和非 HTTPS 目标。
 func NewWebhookClient(cfg WebhookClientConfig) *WebhookClient {
 	timeout := cfg.Timeout
 	if timeout <= 0 {
@@ -74,8 +55,7 @@ func NewWebhookClient(cfg WebhookClientConfig) *WebhookClient {
 		maxResp = 64 * 1024
 	}
 	transport := &http.Transport{
-		// Proxy deliberately nil so environmental HTTP_PROXY /
-		// HTTPS_PROXY cannot intercept webhook egress.
+		// 显式禁用环境代理，避免 HTTP_PROXY/HTTPS_PROXY 劫持 webhook 出站流量。
 		Proxy: nil,
 		DialContext: (&ssrfGuardedDialer{
 			Dialer:           &net.Dialer{Timeout: timeout, KeepAlive: 30 * time.Second},
@@ -104,22 +84,11 @@ func NewWebhookClient(cfg WebhookClientConfig) *WebhookClient {
 	}
 }
 
-// HTTPClient exposes the underlying *http.Client so tests can tune
-// transport-level knobs (for example TLSClientConfig when hitting an
-// httptest.NewTLSServer). Production callers should not need this.
-// HTTPClient 处理HTTP客户端。
+// HTTPClient 暴露底层客户端给测试调整 TLS/transport 参数，生产路径不应依赖它修改行为。
 func (c *WebhookClient) HTTPClient() *http.Client { return c.http }
 
-// Post issues POST <target> with the given body and content type. The
-// caller is responsible for JSON / form encoding; this method is
-// transport-only.
-//
-// Returned error wraps ErrDisallowedScheme / ErrDisallowedAddress /
-// ErrInvalidURL when the guards fire, or a generic transport error
-// otherwise. The response body is read and discarded up to
-// maxResponseBytes so TCP teardown is clean and no memory is wasted
-// on chatty webhook servers.
-// Post 处理post。
+// Post 发送已编码的 webhook 请求，并在请求前校验 HTTPS 目标。
+// 响应体只读取受限字节数用于连接复用，避免大响应占用内存。
 func (c *WebhookClient) Post(ctx context.Context, target, contentType string, body []byte) error {
 	u, err := url.Parse(target)
 	if err != nil {
@@ -139,8 +108,7 @@ func (c *WebhookClient) Post(ctx context.Context, target, contentType string, bo
 		return fmt.Errorf("notify: post [redacted url]: %w", err)
 	}
 	defer resp.Body.Close()
-	// Drain a bounded prefix so keep-alive works and a large body
-	// cannot balloon memory.
+	// 只丢弃受限前缀以维持 keep-alive，同时防止大响应撑爆内存。
 	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, c.maxResponseBytes))
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return fmt.Errorf("notify: unexpected status %d", resp.StatusCode)
@@ -148,8 +116,7 @@ func (c *WebhookClient) Post(ctx context.Context, target, contentType string, bo
 	return nil
 }
 
-// validateHTTPSURL performs the scheme + host checks used in both the
-// initial request and the CheckRedirect hop.
+// validateHTTPSURL 执行初始请求和 redirect 复用的 scheme/host/IPv6 zone 校验。
 func validateHTTPSURL(u *url.URL) error {
 	if u == nil {
 		return fmt.Errorf("%w: nil url", ErrInvalidURL)
@@ -166,7 +133,7 @@ func validateHTTPSURL(u *url.URL) error {
 	return nil
 }
 
-// validateRedirectTarget 校验redirecttarget。
+// validateRedirectTarget 对重定向目标重新解析 DNS，并拒绝指向受限地址的跳转。
 func validateRedirectTarget(ctx context.Context, u *url.URL, allowPrivateCIDR bool) error {
 	if err := validateHTTPSURL(u); err != nil {
 		return err
@@ -193,17 +160,13 @@ func validateRedirectTarget(ctx context.Context, u *url.URL, allowPrivateCIDR bo
 	return nil
 }
 
-// ssrfGuardedDialer wraps net.Dialer. DialContext resolves the target
-// host, rejects blocked IPs before any socket is opened, then connects
-// to a vetted resolved IP. Connecting to the resolved IP (rather than
-// asking net.Dialer to resolve the hostname again) keeps the DNS
-// rebinding check tied to the exact address being dialed.
+// ssrfGuardedDialer 包装 net.Dialer，先解析并校验 IP，再连接到已校验地址以抵御 DNS rebinding。
 type ssrfGuardedDialer struct {
 	*net.Dialer
 	allowPrivateCIDR bool
 }
 
-// DialContext 处理dial上下文。
+// DialContext 解析 host、拒绝受限 IP，并逐个尝试连接已校验的解析结果。
 func (d *ssrfGuardedDialer) DialContext(ctx context.Context, network, addr string) (net.Conn, error) {
 	if d.Dialer == nil {
 		d.Dialer = &net.Dialer{Timeout: DefaultTimeout}
@@ -238,19 +201,13 @@ func (d *ssrfGuardedDialer) DialContext(ctx context.Context, network, addr strin
 	return nil, lastErr
 }
 
-// cgnet / ula are parsed once at package init so the isBlockedIP hot
-// path does not allocate on every connect.
+// 额外阻断网段在包初始化时解析，避免每次连接时分配。
 var (
 	cgnet = &net.IPNet{IP: net.IPv4(100, 64, 0, 0), Mask: net.CIDRMask(10, 32)}
 	ula   = &net.IPNet{IP: net.ParseIP("fc00::"), Mask: net.CIDRMask(7, 128)}
 )
 
-// isBlockedIP returns true for addresses the P2 plan refuses by
-// default: loopback, link-local, private RFC 1918 + RFC 6598, ULA,
-// multicast, unspecified. The check is the first line of defence
-// against DNS rebinding: even if a hostname resolves to a public IP
-// at resolve time and a private IP at connect time, this guard
-// catches the connect-time IP.
+// isBlockedIP 判断地址是否属于默认拒绝范围，是抵御 DNS rebinding 的连接时防线。
 func isBlockedIP(ip net.IP) bool {
 	if ip == nil {
 		return true
@@ -258,7 +215,7 @@ func isBlockedIP(ip net.IP) bool {
 	return isBlockedByStdlib(ip) || isBlockedByRange(ip)
 }
 
-// isBlockedByStdlib 按stdlib判断blocked。
+// isBlockedByStdlib 使用标准库覆盖未指定、回环、链路本地、组播和私网地址。
 func isBlockedByStdlib(ip net.IP) bool {
 	return ip.IsUnspecified() ||
 		ip.IsLoopback() ||
@@ -269,14 +226,12 @@ func isBlockedByStdlib(ip net.IP) bool {
 		ip.IsPrivate()
 }
 
+// isBlockedByRange 补充标准库未显式覆盖或需要读者可见的保留网段。
 func isBlockedByRange(ip net.IP) bool {
-	// RFC 6598 (carrier-grade NAT 100.64.0.0/10) is not covered by
-	// IsPrivate; add it explicitly so shared tenancy CGN ranges do
-	// not leak webhook egress.
+	// RFC 6598 carrier-grade NAT 不由 IsPrivate 覆盖，需要显式阻断共享租户网段。
 	if cgnet.Contains(ip) {
 		return true
 	}
-	// IPv6 ULA (fc00::/7). Go's IsPrivate already covers this, but the
-	// explicit check keeps readers from chasing the stdlib definition.
+	// IPv6 ULA 已由 IsPrivate 覆盖，这里保留显式判断让防护范围可读。
 	return ula.Contains(ip)
 }

@@ -11,13 +11,11 @@ import (
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
-// DefaultQueueCapacity backs the bounded intake channel. Overridable
-// via config.NotifyConfig.QueueCapacity.
+// DefaultQueueCapacity 是通知入队 channel 的默认容量，可由 NotifyConfig.QueueCapacity 覆盖。
 const DefaultQueueCapacity = 512
 
-// Notifier is the core-side MessageNotifier implementation. It wraps a
-// bounded channel; TryEnqueue is non-blocking so a stuck flusher cannot
-// backpressure the bus callback that called us.
+// Notifier 是 core 侧 MessageNotifier 实现，用有界 channel 隔离调用方和后台 flusher。
+// TryEnqueue 保持非阻塞，避免 webhook 发送卡住后反压总线回调。
 type Notifier struct {
 	logger   *slog.Logger
 	queue    chan contract.NotifyRequest
@@ -27,11 +25,7 @@ type Notifier struct {
 
 var _ contract.MessageNotifier = (*Notifier)(nil)
 
-// NewNotifier constructs a Notifier. A nil logger falls back to the
-// package default; a nil resolver is treated as "no channels" — every
-// TryEnqueue for an alias then fails with ErrNotifyAliasNotFound, which
-// is preferable to a silent drop.
-// NewNotifier 创建notifier。
+// NewNotifier 创建非阻塞通知队列，nil resolver 会让入队 fail-fast 而不是静默丢弃未知 alias。
 func NewNotifier(logger *slog.Logger, resolver Resolver, capacity int) *Notifier {
 	if logger == nil {
 		logger = pkglogger.Get()
@@ -46,15 +40,8 @@ func NewNotifier(logger *slog.Logger, resolver Resolver, capacity int) *Notifier
 	}
 }
 
-// TryEnqueue validates the request and non-blocking enqueues it.
-// Returns:
-//   - contract.ErrNotifyAliasNotFound when the alias is empty or not
-//     configured — callers must treat this as a misconfiguration, not
-//     a transient failure.
-//   - contract.ErrNotifyQueueFull when the bounded channel is full —
-//     the flusher is behind or stuck; caller drops the signal.
-//
-// TryEnqueue 处理tryenqueue。
+// TryEnqueue 先解析 alias 再非阻塞入队。
+// 未配置 alias 返回 ErrNotifyAliasNotFound；队列已满返回 ErrNotifyQueueFull 并增加 dropped 指标。
 func (n *Notifier) TryEnqueue(ctx context.Context, req contract.NotifyRequest) error {
 	if n == nil {
 		return contract.ErrNotifyAliasNotFound
@@ -63,8 +50,7 @@ func (n *Notifier) TryEnqueue(ctx context.Context, req contract.NotifyRequest) e
 	if alias == "" {
 		return contract.ErrNotifyAliasNotFound
 	}
-	// Resolve up front so an unknown alias does not pollute the queue
-	// and waste a worker tick parsing the same unknown alias later.
+	// 入队前解析 alias，避免未知 channel 占用队列并让 worker 重复处理同一配置错误。
 	if n.resolver == nil {
 		return contract.ErrNotifyAliasNotFound
 	}
@@ -84,14 +70,11 @@ func (n *Notifier) TryEnqueue(ctx context.Context, req contract.NotifyRequest) e
 	}
 }
 
-// Dropped exposes the total number of TryEnqueue rejections because
-// the queue was full. Useful for metrics scraping.
-// Dropped 处理dropped。
+// Dropped 返回因队列满导致的入队拒绝累计数，供 metrics 或诊断读取。
 func (n *Notifier) Dropped() int64 { return n.dropped.Load() }
 
-// queueForFlusher exposes the channel to the flusher package-private
-// so external callers cannot read from it.
+// queueForFlusher 只在包内暴露队列给 flusher，外部调用方不能直接消费通知。
 func (n *Notifier) queueForFlusher() chan contract.NotifyRequest { return n.queue }
 
-// resolverForFlusher mirrors queueForFlusher.
+// resolverForFlusher 让 flusher 使用同一份不可变 resolver。
 func (n *Notifier) resolverForFlusher() Resolver { return n.resolver }

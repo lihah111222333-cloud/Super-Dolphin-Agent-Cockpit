@@ -10,9 +10,7 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/sqlc"
 )
 
-// TestLookupNodesBySpawningThread_ReverseLookupReturnsMatchingRows is the
-// ADR-017 v1.2 搂2.2 happy path: a single node carrying the given thread id is
-// returned by the reverse lookup.
+// TestLookupNodesBySpawningThread_ReverseLookupReturnsMatchingRows 验证反查能返回携带指定 thread id 的唯一节点。
 func TestLookupNodesBySpawningThread_ReverseLookupReturnsMatchingRows(t *testing.T) {
 	t.Parallel()
 	store, db, now := newTaskDAGTestStore()
@@ -47,9 +45,8 @@ func TestLookupNodesBySpawningThread_ReverseLookupReturnsMatchingRows(t *testing
 	}
 }
 
-// TestLookupNodesBySpawningThread_NoMatch_ReturnsEmptySliceNoError verifies
-// that a thread id with no matching row returns an empty slice (not
-// pgx.ErrNoRows) 鈥?ADR-017 搂2.2 contract for "lookup miss".
+// TestLookupNodesBySpawningThread_NoMatch_ReturnsEmptySliceNoError 验证无匹配行时返回空切片且不报错。
+// 调用方收到空切片即可识别 lookup miss，不需要额外区分 pgx.ErrNoRows。
 func TestLookupNodesBySpawningThread_NoMatch_ReturnsEmptySliceNoError(t *testing.T) {
 	t.Parallel()
 	store, _, _ := newTaskDAGTestStore()
@@ -62,15 +59,13 @@ func TestLookupNodesBySpawningThread_NoMatch_ReturnsEmptySliceNoError(t *testing
 	}
 }
 
-// TestLookupNodesBySpawningThread_FiltersNullSpawningThread verifies the
-// `spawning_thread_id IS NOT NULL` guard 鈥?node rows without a spawning
-// thread (legacy automation nodes, never-spawned templates) must not be
-// returned even when threadID is empty.
+// TestLookupNodesBySpawningThread_FiltersNullSpawningThread 验证查询必须排除 NULL spawning_thread_id。
+// 即使传入空 threadID，旧自动化节点或尚未 spawn 的模板节点也不能被匹配。
 func TestLookupNodesBySpawningThread_FiltersNullSpawningThread(t *testing.T) {
 	t.Parallel()
 	store, db, now := newTaskDAGTestStore()
 	runID := db.runs["run-1"].ID
-	// node without spawning_thread_id (NULL): must never match.
+	// 缺少 spawning_thread_id 的节点不能被空 threadID 匹配。
 	db.nodes[dagRunNodeKey("dag-1", "node-1", runID)] = sqlc.TaskDagNode{
 		ID:        10,
 		DagKey:    "dag-1",
@@ -82,7 +77,7 @@ func TestLookupNodesBySpawningThread_FiltersNullSpawningThread(t *testing.T) {
 		Result:    []byte(`{}`),
 		CreatedAt: timestamptzValue(now),
 		UpdatedAt: timestamptzValue(now),
-		// SpawningThreadID intentionally zero-value (NULL).
+		// SpawningThreadID 故意保持零值，对应数据库 NULL。
 	}
 	got, err := store.(NodeSpawningThreadLookup).LookupNodesBySpawningThread(context.Background(), "")
 	if err != nil {
@@ -93,11 +88,8 @@ func TestLookupNodesBySpawningThread_FiltersNullSpawningThread(t *testing.T) {
 	}
 }
 
-// TestLookupNodesBySpawningThread_MultipleRowsReturnedDescByUpdatedAt covers
-// the N>1 "dirty data" case (ADR-017 搂2.2): partial index has no UNIQUE so
-// retry / recovery can leave more than one node with the same thread id.
-// Lookup returns all of them ordered by updated_at DESC, id DESC 鈥?caller
-// iterates and applies idempotent advancement on each.
+// TestLookupNodesBySpawningThread_MultipleRowsReturnedDescByUpdatedAt 覆盖多个节点共享同一 thread id 的脏数据场景。
+// 查询返回全部匹配项并按 updated_at DESC、id DESC 排序，调用方再逐个做幂等推进。
 func TestLookupNodesBySpawningThread_MultipleRowsReturnedDescByUpdatedAt(t *testing.T) {
 	t.Parallel()
 	store, db, now := newTaskDAGTestStore()
@@ -143,8 +135,8 @@ func TestLookupNodesBySpawningThread_MultipleRowsReturnedDescByUpdatedAt(t *test
 	}
 }
 
-// TestLookupNodesBySpawningThread_DoesNotMatchDifferentThreadID ensures the
-// query is strict on the thread id (no prefix / substring matching).
+// TestLookupNodesBySpawningThread_DoesNotMatchDifferentThreadID 验证查询严格按完整 thread id 匹配。
+// 前缀或子串相同都不能命中其他 thread。
 func TestLookupNodesBySpawningThread_DoesNotMatchDifferentThreadID(t *testing.T) {
 	t.Parallel()
 	store, db, now := newTaskDAGTestStore()

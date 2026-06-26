@@ -9,8 +9,7 @@ import (
 
 const (
 	overlayTypeMCPStartup = "mcp_startup"
-	// Terminal wait rendering is wired through snapshot/patch payloads, but a live
-	// producer still needs raw terminal interaction events to set this overlay.
+	// 终端等待态最终通过 snapshot/patch 下发；实时事件只负责设置这层 overlay。
 	overlayTypeTerminalWait     = "terminal_wait"
 	overlayPriorityMCPStartup   = 40
 	overlayPriorityTerminalWait = 90
@@ -162,9 +161,9 @@ func normalizeSidebarAgent(agent *AgentSummary) {
 	}
 }
 
-// buildAgentRuntimeEntry 构建代理运行时条目。
+// buildAgentRuntimeEntry 将 AgentSummary 转成 sidebar runtime wire 字段。
+// providerThreadId 优先使用 provider UUID，缺失时才回退公开 threadID，保持旧前端兼容。
 func buildAgentRuntimeEntry(agent *AgentSummary, agentID, threadID string) map[string]any {
-	// providerThreadId: prefer codex UUID, fall back to public threadID
 	providerTID := agent.ProviderThreadID
 	if providerTID == "" {
 		providerTID = threadID
@@ -194,8 +193,7 @@ func buildAgentRuntimeEntry(agent *AgentSummary, agentID, threadID string) map[s
 	if agent.LastMessage != "" {
 		runtimeEntry["lastMessage"] = agent.LastMessage
 	}
-	// Capabilities: derive from provider name (static per driver).
-	// codex supports context_compact + model_switch; claude does not.
+	// capabilities 是按 provider 静态推导的前端能力开关，不能从会话状态临时猜测。
 	switch strings.ToLower(strings.TrimSpace(agent.Provider)) {
 	case "codex":
 		runtimeEntry["capabilities"] = []string{"context_compact", "model_switch"}
@@ -205,9 +203,8 @@ func buildAgentRuntimeEntry(agent *AgentSummary, agentID, threadID string) map[s
 	return runtimeEntry
 }
 
-// buildLogPath derives the conventional log directory from the project CWD.
-// Matches the frontend's buildCwdLogPath in thread-copy-utils.js.
-// buildLogPath 构建日志路径。
+// buildLogPath 根据项目 CWD 生成 sidebar 兼容的日志目录。
+// 该格式属于后端 wire 字段，前端只消费结果而不再承担路径推导。
 func buildLogPath(cwd string) string {
 	cwd = strings.TrimSpace(cwd)
 	if cwd == "" || cwd == "." {
@@ -220,7 +217,8 @@ func buildLogPath(cwd string) string {
 	return "~/.multi-agent/log/" + name + "/"
 }
 
-// deriveThreadStatuses 处理derive线程statuses。
+// deriveThreadStatuses 为 sidebar 线程填充状态、agent 关联和最近错误信息。
+// overlay 状态优先于运行态，避免启动/等待类提示被普通 agent 状态覆盖。
 func deriveThreadStatuses(sidebar *Sidebar, agents sidebarAgentLookup, recentByThread map[string]TurnSummary) {
 	for i := range sidebar.Threads {
 		thread := &sidebar.Threads[i]
@@ -259,10 +257,9 @@ func resolveSidebarAgent(thread *ThreadSummary, agents sidebarAgentLookup) *Agen
 	return agents.byID[agentID]
 }
 
-// deriveInterruptible 处理deriveinterruptible。
+// deriveInterruptible 只为 sidebar 快照计算可中断状态。
+// patch payload 和前端按钮还有独立 gate，不能把这个 map 当作全局中断权限来源。
 func deriveInterruptible(sidebar *Sidebar) {
-	// Sidebar snapshot gate only: patch payload interruptibility and frontend
-	// controls are separate chains and must not infer coverage from this map.
 	activeTurnID := ""
 	activeThreadID := ""
 	if sidebar.ActiveTurn != nil {
@@ -275,6 +272,7 @@ func deriveInterruptible(sidebar *Sidebar) {
 	}
 }
 
+// deriveStatusHeaders 根据 overlay 或归一化状态生成 sidebar 标题和详情。
 func deriveStatusHeaders(sidebar *Sidebar) {
 	for i := range sidebar.Threads {
 		thread := &sidebar.Threads[i]
@@ -290,6 +288,7 @@ func deriveStatusHeaders(sidebar *Sidebar) {
 	}
 }
 
+// sidebarThreadOverlay 返回线程 overlay 对应的状态、标题和详情。
 func sidebarThreadOverlay(thread *ThreadSummary) (string, string, string, bool) {
 	if thread == nil {
 		return "", "", "", false
@@ -301,7 +300,7 @@ func sidebarThreadOverlay(thread *ThreadSummary) (string, string, string, bool) 
 	return status, overlayHeaderText(thread.OverlayType, thread.OverlayText), overlayDetails(thread.OverlayType), true
 }
 
-// latestTurnsByThread 按线程处理latestturn。
+// latestTurnsByThread 为每个线程选择最近的 turn，active turn 优先参与比较。
 func latestTurnsByThread(active *TurnSummary, items []TurnSummary) map[string]TurnSummary {
 	out := make(map[string]TurnSummary, len(items)+1)
 	if active != nil && strings.TrimSpace(active.ThreadID) != "" {
@@ -320,7 +319,8 @@ func latestTurnsByThread(active *TurnSummary, items []TurnSummary) map[string]Tu
 	return out
 }
 
-// sidebarThreadStatus 处理sidebar线程状态。
+// sidebarThreadStatus 按生命周期、终止态、active turn、线程态和 agent 态推导展示状态。
+// 顺序不能随意调整，否则 archived/error 等终态可能被运行中状态覆盖。
 func sidebarThreadStatus(thread *ThreadSummary, agent *AgentSummary, active *TurnSummary) string {
 	if thread != nil {
 		if status, ok := lifecycleSidebarStatus(thread.LifecycleStatus); ok {
@@ -346,6 +346,7 @@ func sidebarThreadStatus(thread *ThreadSummary, agent *AgentSummary, active *Tur
 	return "idle"
 }
 
+// lifecycleSidebarStatus 将线程生命周期终态映射为 sidebar 状态。
 func lifecycleSidebarStatus(raw string) (string, bool) {
 	switch strings.ToLower(strings.TrimSpace(raw)) {
 	case "archived":
@@ -355,6 +356,8 @@ func lifecycleSidebarStatus(raw string) (string, bool) {
 	}
 }
 
+// terminalSidebarStatus 将 archived/error/failed/stopped 等终止态锁定为 sidebar 展示状态。
+// 一旦命中终止态，后续 agent 运行态不能再覆盖它，避免已结束线程被显示成运行中。
 func terminalSidebarStatus(raw string) (string, bool) {
 	switch strings.ToLower(strings.TrimSpace(raw)) {
 	case "archived", "error", "failed":
@@ -366,7 +369,7 @@ func terminalSidebarStatus(raw string) (string, bool) {
 	}
 }
 
-// normalizeSidebarStatus 规范化sidebar状态。
+// normalizeSidebarStatus 将 provider/thread 原始状态映射为前端支持的状态集合。
 func normalizeSidebarStatus(raw string) string {
 	switch strings.ToLower(strings.TrimSpace(raw)) {
 	case "starting":
@@ -392,6 +395,7 @@ func normalizeSidebarStatus(raw string) string {
 	}
 }
 
+// sidebarInterruptible 判断归一化状态是否允许前端展示 interrupt 控制。
 func sidebarInterruptible(status string) bool {
 	switch normalizeSidebarStatus(status) {
 	case "starting", "thinking", "responding", "running", "editing", "waiting", "syncing":
@@ -401,7 +405,8 @@ func sidebarInterruptible(status string) bool {
 	}
 }
 
-// sidebarStatusText 处理sidebar状态文本。
+// sidebarStatusText 将 sidebar 状态映射为中文标题和详情文本。
+// 错误态没有详情时给出固定提示，避免前端显示空错误说明。
 func sidebarStatusText(status, lastMessage string) (string, string) {
 	switch normalizeSidebarStatus(status) {
 	case "starting":
@@ -424,6 +429,7 @@ func sidebarStatusText(status, lastMessage string) (string, string) {
 	}
 }
 
+// firstNonEmptyString 返回第一个非空白字符串，用于兼容多个旧字段来源。
 func firstNonEmptyString(values ...string) string {
 	for _, value := range values {
 		if text := strings.TrimSpace(value); text != "" {

@@ -2,10 +2,8 @@ package thread
 
 import "github.com/anthropic-ai/super-agent-v3/internal/dto/shared"
 
-// Started reports a thread becoming active and routable.
-// PendingLaunch=true means the backend created a placeholder row but has not
-// forked the provider CLI yet; the actual spawn happens on the first turn via
-// SpawnIfNeeded and is reported as a separate Launched event.
+// Started 报告 thread 已变为可路由状态。
+// PendingLaunch=true 时仅持久化占位 thread；首次 turn 触发 SpawnIfNeeded 后才启动 provider CLI。
 type Started struct {
 	shared.EventHeader
 	ThreadID         string `json:"thread_id"`
@@ -18,8 +16,7 @@ type Started struct {
 	PendingLaunch    bool   `json:"pending_launch,omitempty"`
 }
 
-// Launched reports that a previously pending_launch thread has successfully
-// spawned its provider CLI. Carries the router decision made at spawn time.
+// Launched 报告 pending_launch thread 已成功启动 provider CLI，并携带启动时的路由结果。
 type Launched struct {
 	shared.EventHeader
 	ThreadID         string `json:"thread_id"`
@@ -33,7 +30,7 @@ type Launched struct {
 	PromptVersionID  *int64 `json:"prompt_version_id,omitempty"`
 }
 
-// Stopped reports a thread becoming inactive.
+// Stopped 报告 thread 已进入非活动状态，Status/Reason 给出停止原因。
 type Stopped struct {
 	shared.EventHeader
 	ThreadID string `json:"thread_id"`
@@ -42,7 +39,7 @@ type Stopped struct {
 	Reason   string `json:"reason,omitempty"`
 }
 
-// MessagesPage reports a thread message page refresh.
+// MessagesPage 报告 thread 消息分页刷新，供 UI 同步总数和页数。
 type MessagesPage struct {
 	shared.EventHeader
 	ThreadID   string `json:"thread_id"`
@@ -50,7 +47,7 @@ type MessagesPage struct {
 	Pages      int    `json:"pages"`
 }
 
-// Compacted reports a thread compact lifecycle completion.
+// Compacted 报告 thread 压缩流程完成，包含压缩前后的 token 估算。
 type Compacted struct {
 	shared.EventHeader
 	ThreadID     string `json:"thread_id"`
@@ -61,7 +58,7 @@ type Compacted struct {
 	Estimated    bool   `json:"estimated,omitempty"`
 }
 
-// Updated reports a thread modification such as a name or model change.
+// Updated 报告 thread 元数据变更，例如名称或模型变化。
 type Updated struct {
 	shared.EventHeader
 	ThreadID string  `json:"thread_id"`
@@ -69,41 +66,33 @@ type Updated struct {
 	Model    *string `json:"model,omitempty"`
 }
 
-// SpawnRouting carries the router decision made inside the lazy
-// SpawnIfNeeded path for a pending-launch thread. It lives in this shared
-// dto package so both the thread module (which produces it) and the turn
-// module (whose turn/start handler forwards it to the UI) can reference
-// the same type without re-introducing a thread↔turn import cycle.
+// SpawnRouting 承载 pending-launch thread 在惰性 SpawnIfNeeded 路径里的路由决策。
+// 放在共享 DTO 包是为了让 thread 生产方和 turn/start 转发方共用类型，避免重新引入 thread 与 turn 的循环依赖。
 //
-// Empty SpawnRouting means the SpawnIfNeeded call was a no-op (thread was
-// already running, stopped, or archived). Non-empty means a fresh spawn
-// just ran and these are its routing outputs; the UI uses them to fill
-// the per-thread routing badge that thread/start could not surface, since
-// pending_launch threads defer routing to the first turn.
+// 空值表示 SpawnIfNeeded 没有启动新进程；非空表示刚完成一次新 spawn，UI 用它补齐 thread/start 无法提前给出的路由徽标。
 type SpawnRouting struct {
 	AgentKey string `json:"agent_key,omitempty"`
-	// AgentTitle is the human-readable persona label ("SQL 与数据建模专家") so
-	// the UI does not have to re-map slugs to names.
+	// AgentTitle 是可直接展示的人格名称，UI 不需要再用 slug 反查名称。
 	AgentTitle      string `json:"agent_title,omitempty"`
 	PromptKey       string `json:"prompt_key,omitempty"`
 	PromptVersionID *int64 `json:"prompt_version_id,omitempty"`
 	PromptKeyStale  bool   `json:"prompt_key_stale,omitempty"`
 }
 
-// Type 返回事件分发用的类型编号。
+// Type 返回事件总线使用的稳定类型编号，保持 thread started 事件可路由。
 func (Started) Type() uint32 { return shared.EventTypeThreadStarted }
 
-// Type 返回事件分发用的类型编号。
+// Type 返回事件总线使用的稳定类型编号，保持 thread stopped 事件可路由。
 func (Stopped) Type() uint32 { return shared.EventTypeThreadStopped }
 
-// Type 返回事件分发用的类型编号。
+// Type 返回事件总线使用的稳定类型编号，保持消息分页事件可路由。
 func (MessagesPage) Type() uint32 { return shared.EventTypeThreadMessagesPage }
 
-// Type 返回事件分发用的类型编号。
+// Type 返回事件总线使用的稳定类型编号，保持压缩完成事件可路由。
 func (Compacted) Type() uint32 { return shared.EventTypeThreadCompacted }
 
-// Type 返回事件分发用的类型编号。
+// Type 返回事件总线使用的稳定类型编号，保持 thread updated 事件可路由。
 func (Updated) Type() uint32 { return shared.EventTypeThreadUpdated }
 
-// Type 返回事件分发用的类型编号。
+// Type 返回事件总线使用的稳定类型编号，保持 lazy launch 完成事件可路由。
 func (Launched) Type() uint32 { return shared.EventTypeThreadLaunched }

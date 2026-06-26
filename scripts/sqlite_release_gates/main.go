@@ -12,8 +12,11 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/devtools/sqlitereleasegate"
 )
 
+// defaultReportPath 是 SQLite 发布闸门默认写入的 Markdown 报告位置。
 const defaultReportPath = "docs/cc/数据库切换/sqlite-release-gate-report.md"
 
+// main 解析 SQLite 发布闸门 CLI 参数并执行检查。
+// 即使 gate 运行失败也会先写报告，保证失败现场能被后续排查读取。
 func main() {
 	var (
 		out          = flag.String("out", filepath.FromSlash(defaultReportPath), "markdown report path")
@@ -52,6 +55,7 @@ func main() {
 	}
 }
 
+// cleanRequiredFlagPath 在 filepath.Clean 前拒绝空路径，避免空 flag 被清理成当前目录。
 func cleanRequiredFlagPath(name, raw string) (string, error) {
 	trimmed := strings.TrimSpace(raw)
 	if trimmed == "" {
@@ -60,6 +64,7 @@ func cleanRequiredFlagPath(name, raw string) (string, error) {
 	return filepath.Clean(trimmed), nil
 }
 
+// splitIDs 解析逗号分隔的 gate ID 列表，并跳过空白片段。
 func splitIDs(raw string) []string {
 	raw = strings.TrimSpace(raw)
 	if raw == "" {
@@ -76,6 +81,7 @@ func splitIDs(raw string) []string {
 	return ids
 }
 
+// fatalf 将 CLI 错误写入 stderr 后以 1 退出，保持脚本失败语义一致。
 func fatalf(format string, args ...any) {
 	_, _ = fmt.Fprintf(os.Stderr, format+"\n", args...)
 	os.Exit(1)

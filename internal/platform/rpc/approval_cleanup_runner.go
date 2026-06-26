@@ -8,12 +8,8 @@ import (
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
-// ApprovalCleanupRunner wraps the approval-timeout cleanup ticker as a
-// platformrunner.Runner. Introduced by P22 P1b (Finding 4) to move the
-// long-running cleanup loop from `bindApprovalLifecycle -> OnStart ->
-// go startApprovalCleanupLoop(...)` into the root `group:"runners"`
-// aggregation. Startup restore stays in bindApprovalLifecycle; this runner
-// only owns the ticker-driven cleanup.
+// ApprovalCleanupRunner 把审批超时清理 ticker 托管为 platformrunner.Runner。
+// 启动恢复仍归 bindApprovalLifecycle 负责；这里仅拥有长期运行的定时清理循环。
 type ApprovalCleanupRunner struct {
 	approvals *ApprovalManager
 	logger    *pkglogger.Logger
@@ -21,17 +17,13 @@ type ApprovalCleanupRunner struct {
 	timeout   time.Duration
 }
 
-// NewApprovalCleanupRunner is the fx constructor; returned as
-// platformrunner.Runner so the module-level Provide list can tag it with
-// `group:"runners"` without referencing the concrete struct.
-//
-// The ApprovalManager may be nil (some test / partial-wiring configs); the
-// Run loop handles that by blocking on ctx.Done without doing any work.
-// NewApprovalCleanupRunner 创建审批cleanuprunner。
+// NewApprovalCleanupRunner 是 fx 构造入口，返回 Runner 以便挂入根 run group。
+// ApprovalManager 可在部分测试装配中为空，Run 会只等待 ctx 结束而不执行清理。
 func NewApprovalCleanupRunner(approvals *ApprovalManager, logger *pkglogger.Logger) platformrunner.Runner {
 	return newApprovalCleanupRunnerWithConfig(approvals, logger, defaultApprovalCleanupInterval, DefaultApprovalTimeout)
 }
 
+// newApprovalCleanupRunnerWithConfig 构造可注入 interval/timeout 的清理 runner。
 func newApprovalCleanupRunnerWithConfig(approvals *ApprovalManager, logger *pkglogger.Logger, interval, timeout time.Duration) *ApprovalCleanupRunner {
 	if logger == nil {
 		logger = pkglogger.Get()
@@ -44,10 +36,8 @@ func newApprovalCleanupRunnerWithConfig(approvals *ApprovalManager, logger *pkgl
 	}
 }
 
-// Run implements platformrunner.Runner. Blocks on the cleanup ticker until
-// ctx.Done; returns ctx.Err(). The timeout is captured on the runner instance
-// at construction time so parallel tests do not race on package-level defaults.
-// Run 启动平台RPC后台流程。
+// Run 启动审批清理循环，直到 ctx 取消后返回 ctx.Err。
+// timeout 在构造时固定，避免并行测试修改包级默认值造成竞态。
 func (r *ApprovalCleanupRunner) Run(ctx context.Context) error {
 	if r == nil || r.approvals == nil || r.interval <= 0 {
 		<-ctx.Done()
@@ -66,6 +56,7 @@ func (r *ApprovalCleanupRunner) Run(ctx context.Context) error {
 	}
 }
 
+// tick 执行一次超时审批清理，并在数量减少时记录告警。
 func (r *ApprovalCleanupRunner) tick() {
 	timeout := r.timeout
 	if timeout <= 0 {

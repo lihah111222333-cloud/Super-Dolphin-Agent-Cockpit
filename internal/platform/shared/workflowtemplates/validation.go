@@ -8,8 +8,10 @@ import (
 	"strings"
 )
 
+// templateIDPattern 约束模板 ID 使用 category/kebab-case 形式，避免 UI 和持久化层出现歧义。
 var templateIDPattern = regexp.MustCompile(`^[a-z0-9]+(?:-[a-z0-9]+)*/[a-z0-9]+(?:-[a-z0-9]+)*$`)
 
+// allowedOutputTypes 是当前模板系统可声明的最终产物类型白名单。
 var allowedOutputTypes = map[string]struct{}{
 	"video":    {},
 	"pptx":     {},
@@ -20,6 +22,7 @@ var allowedOutputTypes = map[string]struct{}{
 	"json":     {},
 }
 
+// allowedFieldTypes 是 UI schema 支持的字段类型白名单。
 var allowedFieldTypes = map[string]struct{}{
 	"text":         {},
 	"textarea":     {},
@@ -34,11 +37,13 @@ var allowedFieldTypes = map[string]struct{}{
 	"boolean":      {},
 }
 
+// supportedRuntimeNodeTypes 是运行时已真正支持的 DAG 节点类型。
 var supportedRuntimeNodeTypes = map[string]struct{}{
 	"agent":      {},
 	"automation": {},
 }
 
+// supportedRuntimeCapabilities 是模板 compatibility 可声明的运行时能力。
 var supportedRuntimeCapabilities = map[string]struct{}{
 	"workflow.node.agent":        {},
 	"workflow.node.automation":   {},
@@ -47,6 +52,7 @@ var supportedRuntimeCapabilities = map[string]struct{}{
 	"workflow.final_output":      {},
 }
 
+// validateTemplate 执行模板静态校验，不要求运行时可执行配置完整。
 func validateTemplate(tpl Template) error {
 	for _, check := range []func(Template) error{
 		validateTemplateFields,
@@ -64,6 +70,7 @@ func validateTemplate(tpl Template) error {
 	return nil
 }
 
+// validatePublishedTemplate 在静态校验后追加运行时节点配置校验，用于保存/发布路径。
 func validatePublishedTemplate(tpl Template) error {
 	if err := validateTemplate(tpl); err != nil {
 		return err
@@ -71,6 +78,7 @@ func validatePublishedTemplate(tpl Template) error {
 	return validateRuntimeNodeConfigs(tpl.DAGTemplate.Nodes)
 }
 
+// validateTemplateFields 聚合模板元数据、产物类型和最终节点关系校验。
 func validateTemplateFields(tpl Template) error {
 	for _, check := range []func(Template) error{
 		validateTemplateIdentity,
@@ -86,6 +94,7 @@ func validateTemplateFields(tpl Template) error {
 	return nil
 }
 
+// validateTemplateIdentity 校验模板 ID 和版本号，保证版本索引可排序且不为空。
 func validateTemplateIdentity(tpl Template) error {
 	if !templateIDPattern.MatchString(tpl.ID) {
 		return fmt.Errorf("id %q must use category/kebab-case path format", tpl.ID)
@@ -96,6 +105,7 @@ func validateTemplateIdentity(tpl Template) error {
 	return nil
 }
 
+// validateTemplateText 要求中英文标题和描述同时存在，避免前端展示缺文案。
 func validateTemplateText(tpl Template) error {
 	if strings.TrimSpace(tpl.Title.Zh) == "" || strings.TrimSpace(tpl.Title.En) == "" {
 		return errors.New("title.zh and title.en are required")
@@ -106,6 +116,7 @@ func validateTemplateText(tpl Template) error {
 	return nil
 }
 
+// validateTemplateCategory 限制模板只能进入已支持的业务分类。
 func validateTemplateCategory(tpl Template) error {
 	switch strings.TrimSpace(tpl.Category) {
 	case "government-enterprise":
@@ -120,6 +131,7 @@ func validateTemplateCategory(tpl Template) error {
 	return nil
 }
 
+// validateTemplateOutputTypes 校验模板至少声明一个已支持的输出类型。
 func validateTemplateOutputTypes(tpl Template) error {
 	if len(tpl.OutputTypes) == 0 {
 		return errors.New("output_types is required")
@@ -132,6 +144,7 @@ func validateTemplateOutputTypes(tpl Template) error {
 	return nil
 }
 
+// validateTemplateReviewAndFinal 校验人工复核、UI schema 和最终输出节点的强约束。
 func validateTemplateReviewAndFinal(tpl Template) error {
 	if !tpl.RequiresReview {
 		return errors.New("requires_review must be true")
@@ -151,6 +164,7 @@ func validateTemplateReviewAndFinal(tpl Template) error {
 	return nil
 }
 
+// validateUIFields 校验 UI schema 的字段唯一性、文案和路径占位符。
 func validateUIFields(tpl Template) error {
 	seen := make(map[string]struct{}, len(tpl.UISchema))
 	for _, field := range tpl.UISchema {
@@ -161,6 +175,7 @@ func validateUIFields(tpl Template) error {
 	return nil
 }
 
+// validateUIField 校验单个 UI 字段，并登记 key 以阻止重复字段。
 func validateUIField(field UIField, seen map[string]struct{}, prefixes []string) error {
 	key := strings.TrimSpace(field.Key)
 	if key == "" {
@@ -182,6 +197,7 @@ func validateUIField(field UIField, seen map[string]struct{}, prefixes []string)
 	return validateUIPathPlaceholder(key, field, prefixes)
 }
 
+// validateUIFieldText 要求字段的中文标签、占位和帮助文案完整。
 func validateUIFieldText(key string, field UIField) error {
 	if strings.TrimSpace(field.Label.Zh) == "" {
 		return fmt.Errorf("ui_schema field %q label.zh is required", key)
@@ -195,6 +211,7 @@ func validateUIFieldText(key string, field UIField) error {
 	return nil
 }
 
+// validateUIOptions 校验枚举型字段的选项值和中文标签。
 func validateUIOptions(key string, field UIField) error {
 	if field.Type != "select" && field.Type != "multi_select" {
 		return nil
@@ -207,6 +224,7 @@ func validateUIOptions(key string, field UIField) error {
 	return nil
 }
 
+// validateUIPathPlaceholder 对 path 字段的占位路径复用输出路径白名单。
 func validateUIPathPlaceholder(key string, field UIField, prefixes []string) error {
 	if field.Type != "path" || strings.TrimSpace(field.Placeholder.Zh) == "" {
 		return nil
@@ -217,6 +235,7 @@ func validateUIPathPlaceholder(key string, field UIField, prefixes []string) err
 	return nil
 }
 
+// validateNodes 校验 DAG 节点列表、节点 key 唯一性和最终复核关系。
 func validateNodes(tpl Template) error {
 	nodeIndex := make(map[string]int, len(tpl.DAGTemplate.Nodes))
 	if len(tpl.DAGTemplate.Nodes) == 0 {
@@ -230,6 +249,7 @@ func validateNodes(tpl Template) error {
 	return validateFinalReviewRelationship(tpl, nodeIndex)
 }
 
+// validateNodeTemplate 校验单个节点的基础字段、UI 配置和输出映射。
 func validateNodeTemplate(tpl Template, node NodeTemplate, nodeIndex map[string]int, index int) error {
 	key := strings.TrimSpace(node.NodeKey)
 	if key == "" {
@@ -254,6 +274,7 @@ func validateNodeTemplate(tpl Template, node NodeTemplate, nodeIndex map[string]
 	return nil
 }
 
+// validateRuntimeNodeConfigs 校验节点配置是否满足当前运行时真正能执行的 contract。
 func validateRuntimeNodeConfigs(nodes []NodeTemplate) error {
 	for _, node := range nodes {
 		if err := validateRuntimeNodeConfig(node); err != nil {
@@ -263,6 +284,7 @@ func validateRuntimeNodeConfigs(nodes []NodeTemplate) error {
 	return nil
 }
 
+// validateRuntimeNodeConfig 校验单个运行时节点类型和 agent exec.cwd 要求。
 func validateRuntimeNodeConfig(node NodeTemplate) error {
 	key := strings.TrimSpace(node.NodeKey)
 	nodeType := strings.TrimSpace(strings.ToLower(node.NodeType))
@@ -285,6 +307,7 @@ func validateRuntimeNodeConfig(node NodeTemplate) error {
 	return nil
 }
 
+// validateNodeUIConfig 校验节点 UI 元数据，确保工作台能展示和解释执行计划。
 func validateNodeUIConfig(key string, config map[string]any) error {
 	ui, ok := objectMap(config["ui"])
 	if !ok {
@@ -303,6 +326,7 @@ func validateNodeUIConfig(key string, config map[string]any) error {
 	return nil
 }
 
+// validateNodeOutputMapping 校验普通节点和最终节点的输出目标配置。
 func validateNodeOutputMapping(tpl Template, node NodeTemplate) error {
 	outputs, ok := objectMap(node.Config["outputs"])
 	if !ok {
@@ -320,6 +344,7 @@ func validateNodeOutputMapping(tpl Template, node NodeTemplate) error {
 	return validateFinalNodeOutputMapping(tpl, outputs)
 }
 
+// validateFinalNodeOutputMapping 校验最终节点输出与模板 final_output 声明完全一致。
 func validateFinalNodeOutputMapping(tpl Template, outputs map[string]any) error {
 	switch strings.TrimSpace(tpl.FinalOutput.Kind) {
 	case "sharedfile":
@@ -344,6 +369,7 @@ func validateFinalNodeOutputMapping(tpl Template, outputs map[string]any) error 
 	return nil
 }
 
+// validateFinalReviewRelationship 确认 review 节点存在、位于 final 之前并被 final 依赖。
 func validateFinalReviewRelationship(tpl Template, nodeIndex map[string]int) error {
 	finalIndex, ok := nodeIndex[tpl.DAGTemplate.FinalNodeKey]
 	if !ok {
@@ -363,6 +389,7 @@ func validateFinalReviewRelationship(tpl Template, nodeIndex map[string]int) err
 	return nil
 }
 
+// validateCompatibility 校验 trust、runtime、node type 和能力声明，阻止模板声明未实现能力。
 func validateCompatibility(tpl Template) error {
 	if err := validateTrustMetadata(tpl.Trust); err != nil {
 		return err
@@ -376,6 +403,7 @@ func validateCompatibility(tpl Template) error {
 	return validateCompatibilityCapabilities(tpl.Compatibility.RequiredCapabilities)
 }
 
+// validateTrustMetadata 要求模板来源和可信等级明确。
 func validateTrustMetadata(trust TrustMetadata) error {
 	if strings.TrimSpace(trust.Level) == "" {
 		return errors.New("trust.level is required")
@@ -386,6 +414,7 @@ func validateTrustMetadata(trust TrustMetadata) error {
 	return nil
 }
 
+// validateCompatibilityRuntime 将模板限定在当前 dag-v2 runtime。
 func validateCompatibilityRuntime(compatibility Compatibility) error {
 	if strings.TrimSpace(compatibility.Runtime) != "dag-v2" {
 		return errors.New("compatibility.runtime must be dag-v2")
@@ -393,6 +422,7 @@ func validateCompatibilityRuntime(compatibility Compatibility) error {
 	return nil
 }
 
+// validateCompatibilityNodeTypes 校验 compatibility 中声明的节点类型均已支持。
 func validateCompatibilityNodeTypes(nodeTypes []string) error {
 	if len(nodeTypes) == 0 {
 		return errors.New("compatibility.node_types is required")
@@ -406,6 +436,7 @@ func validateCompatibilityNodeTypes(nodeTypes []string) error {
 	return nil
 }
 
+// unsupportedRuntimeNodeTypeError 对规划中但未落地的节点类型返回更明确的错误。
 func unsupportedRuntimeNodeTypeError(nodeType, normalized string) error {
 	if normalized == "hybrid" || normalized == "hitl" || normalized == "human" {
 		return fmt.Errorf("compatibility node_type %q is not available until runtime support lands", nodeType)
@@ -413,6 +444,7 @@ func unsupportedRuntimeNodeTypeError(nodeType, normalized string) error {
 	return fmt.Errorf("compatibility node_type %q is not supported", nodeType)
 }
 
+// validateCompatibilityCapabilities 校验模板所需能力均在当前运行时白名单内。
 func validateCompatibilityCapabilities(capabilities []string) error {
 	if len(capabilities) == 0 {
 		return errors.New("compatibility.required_capabilities is required")
@@ -426,6 +458,7 @@ func validateCompatibilityCapabilities(capabilities []string) error {
 	return nil
 }
 
+// validateVideoContract 对 video 输出模板追加 artifact 输出约束。
 func validateVideoContract(tpl Template) error {
 	if !hasOutputType(tpl.OutputTypes, "video") {
 		return nil
@@ -436,6 +469,7 @@ func validateVideoContract(tpl Template) error {
 	return validateVideoArtifactContract(tpl)
 }
 
+// validateVideoArtifactContract 校验 video 模板最终节点必须接入 video_with_audio 产物。
 func validateVideoArtifactContract(tpl Template) error {
 	finalNode, ok := findNode(tpl.DAGTemplate.Nodes, tpl.DAGTemplate.FinalNodeKey)
 	if !ok {
@@ -458,6 +492,7 @@ func validateVideoArtifactContract(tpl Template) error {
 	return validateVideoArtifactPath(fmt.Sprint(artifact["path_template"]))
 }
 
+// validateVideoArtifactPath 要求 video artifact 路径包含运行时可替换的唯一占位。
 func validateVideoArtifactPath(pathTemplate string) error {
 	if strings.Contains(pathTemplate, "{{run_id}}") || strings.Contains(pathTemplate, "{{run_key}}") || strings.Contains(pathTemplate, "{{output_path}}") {
 		return nil
@@ -480,6 +515,7 @@ func validateDocumentContract(tpl Template) error {
 	return validateDocumentArtifactFields(artifact)
 }
 
+// documentArtifactTarget 读取文档模板最终节点的 artifact 输出配置。
 func documentArtifactTarget(tpl Template) (map[string]any, error) {
 	finalNode, ok := findNode(tpl.DAGTemplate.Nodes, tpl.DAGTemplate.FinalNodeKey)
 	if !ok {
@@ -496,6 +532,7 @@ func documentArtifactTarget(tpl Template) (map[string]any, error) {
 	return artifact, nil
 }
 
+// validateDocumentArtifactFields 校验文档模板必须走 document_renderer 文本输入路径。
 func validateDocumentArtifactFields(artifact map[string]any) error {
 	if fmt.Sprint(artifact["source_tool"]) != "document_renderer" {
 		return errors.New("document template source_tool must be document_renderer")
@@ -512,11 +549,13 @@ func validateDocumentArtifactFields(artifact map[string]any) error {
 	return nil
 }
 
+// validDocumentArtifactPath 判断文档 artifact 路径是否能表达 docx/pdf 目标格式。
 func validDocumentArtifactPath(pathTemplate string) bool {
 	path := strings.ToLower(strings.TrimSpace(pathTemplate))
 	return strings.Contains(path, "{{output_format}}") || strings.HasSuffix(path, ".docx") || strings.HasSuffix(path, ".pdf")
 }
 
+// reviewNodeKey 按稳定顺序选择模板中的 review 节点 key。
 func reviewNodeKey(tpl Template) string {
 	keys := make([]string, 0)
 	for _, node := range tpl.DAGTemplate.Nodes {
@@ -532,6 +571,7 @@ func reviewNodeKey(tpl Template) string {
 	return keys[0]
 }
 
+// hasOutputType 判断输出类型列表是否包含指定类型。
 func hasOutputType(items []string, want string) bool {
 	for _, item := range items {
 		if strings.TrimSpace(item) == want {
@@ -541,15 +581,18 @@ func hasOutputType(items []string, want string) bool {
 	return false
 }
 
+// hasDocumentOutputType 判断模板是否声明 docx 或 pdf 输出。
 func hasDocumentOutputType(items []string) bool {
 	return hasOutputType(items, "docx") || hasOutputType(items, "pdf")
 }
 
+// objectMap 安全提取 map[string]any，nil map 视为不存在。
 func objectMap(value any) (map[string]any, bool) {
 	out, ok := value.(map[string]any)
 	return out, ok && out != nil
 }
 
+// findNode 按 node_key 查找模板节点。
 func findNode(nodes []NodeTemplate, key string) (NodeTemplate, bool) {
 	for _, node := range nodes {
 		if node.NodeKey == key {
@@ -559,6 +602,7 @@ func findNode(nodes []NodeTemplate, key string) (NodeTemplate, bool) {
 	return NodeTemplate{}, false
 }
 
+// contains 判断字符串切片是否包含目标值。
 func contains(items []string, want string) bool {
 	for _, item := range items {
 		if item == want {

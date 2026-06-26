@@ -49,7 +49,8 @@ func resolveGoToolchainForModule(goModPath string, env []string) (GoToolchainInf
 	return toolchain, nil
 }
 
-// requiredGoVersionFromMod 从mod处理必需go版本。
+// requiredGoVersionFromMod 读取 go.mod 中声明的最低 Go 版本。
+// toolchain 指令高于 go 指令时也会参与比较，确保后续 PATH 选择满足模块要求。
 func requiredGoVersionFromMod(goModPath string) (string, error) {
 	data, err := os.ReadFile(goModPath)
 	if err != nil {
@@ -153,6 +154,8 @@ func goToolchainCandidates(pathValue string) []goToolchainCandidate {
 	return candidates
 }
 
+// goToolchainCandidateForDir 在候选 bin 目录中查找可执行的 go 命令。
+// seenDirs 记录规范化后的目录，避免 PATH 中的重复目录反复触发版本探测。
 func goToolchainCandidateForDir(dir string, seenDirs map[string]struct{}) (goToolchainCandidate, bool) {
 	if strings.TrimSpace(dir) == "" {
 		return goToolchainCandidate{}, false
@@ -174,7 +177,8 @@ func goToolchainCandidateForDir(dir string, seenDirs map[string]struct{}) (goToo
 	return goToolchainCandidate{}, false
 }
 
-// goExecutableVersion 处理go可执行文件版本。
+// goExecutableVersion 运行候选 go 命令并解析其版本号。
+// 探测受超时保护，避免坏二进制或卡住的 wrapper 阻塞 LSP scope 解析。
 func goExecutableVersion(path string) (goVersion, error) {
 	ctx, cancel := platformconfig.WithTimeout(context.Background(), goVersionProbeTimeout)
 	defer cancel()
@@ -272,7 +276,8 @@ func (v goVersion) compare(other goVersion) int {
 	return v.patch - other.patch
 }
 
-// String 返回字符串表示。
+// String 以 major.minor.patch 格式输出 Go 版本。
+// patch 缺省时已在解析阶段补零，便于比较和错误信息复用同一表示。
 func (v goVersion) String() string {
 	return fmt.Sprintf("%d.%d.%d", v.major, v.minor, v.patch)
 }

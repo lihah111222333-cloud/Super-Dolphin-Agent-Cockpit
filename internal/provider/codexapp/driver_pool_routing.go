@@ -19,8 +19,8 @@ import (
 	providershared "github.com/anthropic-ai/super-agent-v3/internal/provider/shared"
 )
 
-// poolRoutingEnvVar is the binary-level override for ServerPool routing.
-// When unset, routing is fail-closed instead of falling back to ServerManager.
+// poolRoutingEnvVar 是进程级 ServerPool 路由开关。
+// 未设置时默认启用 strict pool，携带 Codex identity 的会话不能退回共享 ServerManager。
 const (
 	poolRoutingEnvVar         = "CODEXAPP_USE_POOL"
 	defaultCodexInstanceKey   = "default"
@@ -28,7 +28,8 @@ const (
 	localCodexModelProvider   = "openai"
 )
 
-// prepareStartSessionRequest 准备起点会话请求。
+// prepareStartSessionRequest 解析 Codex provider home 并写入启动身份配置。
+// 技能镜像必须在选定 home 后同步，避免 app-server 看到旧 provider mirror。
 func (d *driver) prepareStartSessionRequest(ctx context.Context, req dto.StartSessionRequest) (dto.StartSessionRequest, error) {
 	if err := validateStartCodexIdentityShape(req.Config); err != nil {
 		return req, err
@@ -58,7 +59,8 @@ func (d *driver) prepareStartSessionRequest(ctx context.Context, req dto.StartSe
 	return req, nil
 }
 
-// validateStartCodexIdentityShape 校验起点codex身份shape。
+// validateStartCodexIdentityShape 校验启动配置里的 Codex 身份字段类型。
+// 只接受 string，避免 map/数组等值穿透到 provider home 选择和 pool identity。
 func validateStartCodexIdentityShape(config map[string]any) error {
 	for _, key := range []string{contract.CodexHomeKey, contract.CodexInstanceKeyKey, contract.CodexModelProviderKey} {
 		if raw, ok := config[key]; ok && raw != nil {
@@ -70,7 +72,8 @@ func validateStartCodexIdentityShape(config map[string]any) error {
 	return nil
 }
 
-// prepareResumeSessionRequest 准备恢复会话请求。
+// prepareResumeSessionRequest 恢复会话前重新解析 Codex home 并刷新技能镜像。
+// Resume 依赖历史绑定身份，解析失败时必须阻断，不能退回默认 home。
 func (d *driver) prepareResumeSessionRequest(ctx context.Context, req dto.ResumeSessionRequest) (dto.ResumeSessionRequest, error) {
 	var err error
 	req, err = d.ResolveResumeSessionIdentity(ctx, req)
@@ -98,7 +101,8 @@ func (d *driver) prepareResumeSessionRequest(ctx context.Context, req dto.Resume
 	return req, nil
 }
 
-// reconcileProviderMirrors 对齐providermirrors。
+// reconcileProviderMirrors 将 canonical skill roots 同步到 Codex 可发现的 provider mirror。
+// mirror 组件缺失直接报错，因为继续启动会造成 runtime 技能面与项目配置不一致。
 func (d *driver) reconcileProviderMirrors(ctx context.Context, cwd, home string) error {
 	if d == nil || d.mirror == nil {
 		return errors.New("codex skill mirror reconciler is required")
@@ -168,7 +172,8 @@ func defaultCodexCLIHome() (string, error) {
 	return "", fmt.Errorf("resolve default codex home realpath: %w", err)
 }
 
-// comparableCodexHomePath 处理comparablecodexhome路径。
+// comparableCodexHomePath 将用户输入的 codexHome 标准化成可比较的绝对路径。
+// 支持当前用户的 ~ 展开，但拒绝 ~user 形式，避免跨用户路径被静默误解析。
 func comparableCodexHomePath(raw string) (string, error) {
 	path := strings.TrimSpace(raw)
 	if path == "" {
@@ -206,7 +211,8 @@ func comparableCodexHomePath(raw string) (string, error) {
 	return "", fmt.Errorf("codexHome canonicalize: %w", err)
 }
 
-// withDefaultCodexIdentity 设置defaultcodex身份。
+// withDefaultCodexIdentity 克隆启动配置并补齐 Codex identity 三元组。
+// 原 map 不会被原地修改，调用方可以安全保留请求原始配置用于日志或重试。
 func withDefaultCodexIdentity(config map[string]any, home, fallbackModelProvider string) (map[string]any, error) {
 	home = strings.TrimSpace(home)
 	if home == "" {
@@ -263,26 +269,9 @@ func putCodexString(config map[string]any, key, value string) error {
 	return nil
 }
 
-// resolveSessionOptions is called by StartSession to decide whether
-// the new session should connect through the ServerPool (P21
-// multi-provider Codex) or fall back to the legacy ServerManager
-// shared-instance URL.
-//
-// Routing rules (most-specific first):
-//
-//  1. Pool not wired -> no options (legacy path).
-//  2. Pool explicitly disabled + no identity -> no options (legacy path).
-//  3. Pool explicitly disabled + valid identity -> fail closed. The
-//     prepared identity owns CODEX_HOME/mirrors, so legacy shared app-server
-//     routing would run against the ambient home instead.
-//  4. Pool enabled + invalid identity -> fail closed. StartSession must not
-//     silently fall back to the shared app-server.
-//  5. Valid identity + available pool -> Acquire a SpawnedServer and
-//     attach its URL + release to the session via withPoolServer.
-//     ErrSpawnBackoff is surfaced to the caller so retry pressure is
-//     visible at the StartSession seam.
-//
-// resolveSessionOptions 解析会话选项。
+// resolveSessionOptions 为 StartSession 选择共享 app-server 或独立 ServerPool。
+// 携带 Codex identity 时必须走 pool；pool 缺失、禁用或 identity 非法都会 fail-closed，避免误用 ambient home。
+// 成功 acquire 的 server 会把 URL 和 release 绑定进 session，启动背压错误原样返回给调用方。
 func (d *driver) resolveSessionOptions(ctx context.Context, req dto.StartSessionRequest) ([]sessionOption, error) {
 	policy := codexNativeToolPolicyFromConfig(req.Config)
 	if d == nil || d.pool == nil {
@@ -304,7 +293,8 @@ func (d *driver) resolveSessionOptions(ctx context.Context, req dto.StartSession
 	return d.acquirePoolSessionOptions(ctx, req, policy, identity)
 }
 
-// resolveStartPoolIdentity 解析起点pool身份。
+// resolveStartPoolIdentity 解析 StartSession 的 pool identity 和开关状态。
+// 一旦请求包含身份字段，解析失败就返回错误，避免退回共享 app-server。
 func (d *driver) resolveStartPoolIdentity(req dto.StartSessionRequest) (providershared.CodexIdentity, bool, error) {
 	enabled, _, err := poolRoutingDecision()
 	if err != nil {
@@ -335,6 +325,8 @@ func hasStartCodexIdentityConfig(config map[string]any) bool {
 	return false
 }
 
+// acquirePoolSessionOptions 从 ServerPool 取得独立 app-server 并绑定 release 回调。
+// pool 返回空 URL 时必须立即 release，避免泄漏已占用的 server slot。
 func (d *driver) acquirePoolSessionOptions(ctx context.Context, req dto.StartSessionRequest, policy codexNativeToolPolicy, identity providershared.CodexIdentity) ([]sessionOption, error) {
 	owner := strings.TrimSpace(req.AgentID)
 	workDir := strings.TrimSpace(req.CWD)
@@ -394,7 +386,8 @@ func canonicalStartRuntimeConfig(config map[string]any) map[string]any {
 	return out
 }
 
-// resolveResumeOptions 解析恢复选项。
+// resolveResumeOptions 为 ResumeSession 选择 pool 或 legacy 路径。
+// 带 Codex 身份的恢复必须走 pool；非 strict legacy 仅用于老线程兼容并会记录告警。
 func (d *driver) resolveResumeOptions(ctx context.Context, req dto.ResumeSessionRequest) ([]sessionOption, error) {
 	policy := codexNativeToolPolicyFromDisabled(req.CodexDisabledNativeTools)
 	identity, hasIdentity := resumeIdentity(req)
@@ -449,6 +442,8 @@ func (d *driver) missingResumeIdentityOptions(req dto.ResumeSessionRequest, stri
 	return nil, err
 }
 
+// withPoolSpawnSessionConfig 把工作区、LSP roots 和 native tool policy 注入 pool spawn context。
+// 这些值只用于新 app-server 启动，不写回线程运行时配置。
 func withPoolSpawnSessionConfig(ctx context.Context, workDir string, cfg map[string]any, policy codexNativeToolPolicy) context.Context {
 	roots := trustedWorkspaceRoots(workDir, providershared.ConfigStringSlice(cfg, contract.RuntimeConfigAdditionalWorkingDirectories.Keys()...))
 	binaryDir := providershared.ResolveBinaryDir(workDir, cfg)
@@ -486,8 +481,8 @@ func (d *driver) warnSkillMirrorIssue(message string, err error) {
 	d.logger.Warn(message, slog.String("error", err.Error()))
 }
 
-// poolRoutingEnabled parses the env override. Missing / empty means enabled
-// and strict so valid identity uses the ServerPool by default.
+// poolRoutingEnabled 解析 ServerPool 路由环境开关。
+// 空值表示启用且 strict；非法布尔值直接报错，避免启动时悄悄改走 legacy 路径。
 func poolRoutingEnabled() (bool, error) {
 	enabled, _, err := poolRoutingDecision()
 	return enabled, err
@@ -567,7 +562,8 @@ func cleanCodexNativeToolIDs(values []string) []string {
 	return out
 }
 
-// ApplyThreadStartParams 应用线程起点params。
+// ApplyThreadStartParams 在禁用 native tool 时强制 StartThread 使用 read-only sandbox。
+// approvalPolicy 同步改为 never，避免 app-server 再向前端发起本地执行审批。
 func (p codexNativeToolPolicy) ApplyThreadStartParams(params *threadStartParams) {
 	if params == nil || !p.RequiresReadOnlySandbox() {
 		return
@@ -576,7 +572,8 @@ func (p codexNativeToolPolicy) ApplyThreadStartParams(params *threadStartParams)
 	params.ApprovalPolicy = "never"
 }
 
-// ApplyThreadResumeParams 应用线程恢复params。
+// ApplyThreadResumeParams 在 ResumeThread 参数上恢复 native tool 限制。
+// Resume 使用字符串 sandbox 形态，因此这里与 Start 参数的 JSON 形态分开处理。
 func (p codexNativeToolPolicy) ApplyThreadResumeParams(params *threadResumeParams) {
 	if params == nil || !p.RequiresReadOnlySandbox() {
 		return
@@ -601,7 +598,8 @@ func codexReadOnlySandbox(raw json.RawMessage) json.RawMessage {
 	return json.RawMessage(`{"read-only":null}`)
 }
 
-// codexSandboxIsReadOnly 处理codex沙箱isreadonly。
+// codexSandboxIsReadOnly 兼容 Codex sandbox 的字符串和对象两种 wire 形态。
+// 只识别 read-only/readOnly，其他 malformed JSON 一律按非只读处理。
 func codexSandboxIsReadOnly(raw json.RawMessage) bool {
 	raw = json.RawMessage(strings.TrimSpace(string(raw)))
 	if len(raw) == 0 {

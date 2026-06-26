@@ -14,12 +14,14 @@ import (
 	"time"
 )
 
+// videoWithAudioInput 是一站式视频加配音工具的入参。
 type videoWithAudioInput struct {
 	Prompt         string `json:"prompt"`
 	VoiceText      string `json:"voice_text"`
 	NegativePrompt string `json:"negative_prompt,omitempty"`
 }
 
+// videoWithAudioToolDefinitions 注册视频、TTS、ffmpeg 合成工具定义。
 func videoWithAudioToolDefinitions() []ToolDefinition {
 	return buildToolDefinitions(
 		defineTool(
@@ -35,7 +37,8 @@ func videoWithAudioToolDefinitions() []ToolDefinition {
 	)
 }
 
-// handleVideoWithAudio 处理带audio的video。
+// handleVideoWithAudio 串联 TTS、视频生成和 ffmpeg 合成。
+// 任一步失败都直接返回错误，避免产出只有部分素材的成功响应。
 func handleVideoWithAudio() ToolHandler {
 	return func(ctx context.Context, input json.RawMessage) (any, error) {
 		var in videoWithAudioInput
@@ -54,13 +57,13 @@ func handleVideoWithAudio() ToolHandler {
 			return nil, err
 		}
 
-		// Step 1: TTS (fast, do first)
+		// 先生成 TTS，失败时直接停止，避免继续等待耗时的视频任务。
 		audioPath, err := generateTTS(ctx, apiKey, in.VoiceText, "")
 		if err != nil {
 			return nil, fmt.Errorf("tts: %w", err)
 		}
 
-		// Step 2: Video generation (slow, ~10 min)
+		// 再提交视频生成任务；轮询会响应 ctx 取消，避免工具关闭时长时间阻塞。
 		videoIn := videoGenerateInput{Prompt: in.Prompt, NegativePrompt: in.NegativePrompt}
 		requestID, err := sfSubmit(ctx, apiKey, videoIn)
 		if err != nil {
@@ -75,7 +78,7 @@ func handleVideoWithAudio() ToolHandler {
 			return nil, fmt.Errorf("video download: %w", err)
 		}
 
-		// Step 3: Merge
+		// 最后合成音视频，任何 ffmpeg 错误都会带上两个输入路径便于排查。
 		mergedPath, err := mergeAV(ctx, videoPath, audioPath)
 		if err != nil {
 			return nil, fmt.Errorf("merge audio and video (video_path=%q audio_path=%q): %w", videoPath, audioPath, err)
@@ -90,7 +93,7 @@ func handleVideoWithAudio() ToolHandler {
 	}
 }
 
-// generateTTS 处理generatetts。
+// generateTTS 调用 SiliconFlow TTS 并把音频写入本地文件。
 func generateTTS(ctx context.Context, apiKey, text, voice string) (string, error) {
 	text = strings.TrimSpace(text)
 	if text == "" {
@@ -121,6 +124,7 @@ func generateTTS(ctx context.Context, apiKey, text, voice string) (string, error
 	return dest, nil
 }
 
+// newTTSRequest 构造带鉴权头的 TTS HTTP 请求。
 func newTTSRequest(ctx context.Context, apiKey, text, voice string) (*http.Request, error) {
 	body, err := json.Marshal(map[string]any{
 		"model": sfTTSModel,
@@ -139,6 +143,7 @@ func newTTSRequest(ctx context.Context, apiKey, text, voice string) (*http.Reque
 	return req, nil
 }
 
+// ttsStatusError 读取 TTS 错误响应体并保留状态码。
 func ttsStatusError(resp *http.Response) error {
 	data, err := io.ReadAll(resp.Body)
 	if err != nil {
@@ -147,6 +152,7 @@ func ttsStatusError(resp *http.Response) error {
 	return fmt.Errorf("status %d: %s", resp.StatusCode, strings.TrimSpace(string(data)))
 }
 
+// mediaOutputPath 生成 Movies 目录下的时间戳输出路径。
 func mediaOutputPath(prefix, ext string) (string, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
@@ -159,6 +165,7 @@ func mediaOutputPath(prefix, ext string) (string, error) {
 	return filepath.Join(dir, prefix+"-"+time.Now().Format("20060102-150405")+"."+ext), nil
 }
 
+// writeResponseBody 将响应流写入目标文件。
 func writeResponseBody(dest string, body io.Reader) error {
 	f, err := os.Create(dest)
 	if err != nil {
@@ -171,6 +178,8 @@ func writeResponseBody(dest string, body io.Reader) error {
 	return nil
 }
 
+// mergeAV 用 ffmpeg 将已下载的视频和 TTS 音频合成到新的 MP4。
+// 使用 -shortest 防止任一轨道过长造成尾部黑屏或静音拖尾，ffmpeg 输出原样进入错误信息。
 func mergeAV(ctx context.Context, videoPath, audioPath string) (string, error) {
 	out, err := mediaOutputPath("merged", "mp4")
 	if err != nil {

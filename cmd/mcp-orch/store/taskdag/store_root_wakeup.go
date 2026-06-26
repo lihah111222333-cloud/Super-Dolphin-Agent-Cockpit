@@ -29,10 +29,8 @@ func (s *store) ScheduleRootWakeups(ctx context.Context, dagKey string, runID in
 	return inserted, nil
 }
 
-// PromoteAndScheduleRunRoots promotes root runtime nodes to ready and then
-// enqueues wakeups for roots that already have an assignee.
-//
-// 这是 StartDAG 的根节点启动和停止过程入口：promote 和 enqueue 分离，确保未指派
+// PromoteAndScheduleRunRoots 是 StartDAG 的根节点启动和停止过程入口。
+// promote 和 enqueue 分离，确保未指派
 // 根节点也能从 pending 进入可观察的 ready 态，而不是静默停在 pending。
 func PromoteAndScheduleRunRoots(ctx context.Context, store RunStore, dagKey string, runID int64) (int64, int64, error) {
 	readyRootNodes, err := store.PromoteRootNodesToReady(ctx, dagKey, runID)

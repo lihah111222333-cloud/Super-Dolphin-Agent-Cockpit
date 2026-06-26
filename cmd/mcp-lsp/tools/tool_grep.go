@@ -19,12 +19,14 @@ import (
 )
 
 const (
+	// grep 输出预算和提示文本保持稳定，便于模型按提示继续缩小查询。
 	defaultSearchResults = 50
 	maxSearchResults     = 50
 	grepTruncatedHint    = "next: adjust max_results, narrow path/glob, refine query, or search a specific file"
 	grepFuncRangeHint    = "next: file action=read_file pos=<file>:<func_start> limit=<func_end-func_start+1>"
 )
 
+// grepToolInput 是 grep 工具的外部入参，支持 path/paths/file_paths 三种路径写法。
 type grepToolInput struct {
 	Action        string   `json:"action"`
 	Query         string   `json:"query,omitempty"`
@@ -37,7 +39,7 @@ type grepToolInput struct {
 	MaxResults    int      `json:"max_results,omitempty"`
 }
 
-// UnmarshalJSON 解码JSON。
+// UnmarshalJSON 解码 grep 入参，并把兼容路径字段统一到 Path/Paths。
 func (input *grepToolInput) UnmarshalJSON(raw []byte) error {
 	var decoded struct {
 		Action        string          `json:"action"`
@@ -76,11 +78,13 @@ func (input *grepToolInput) UnmarshalJSON(raw []byte) error {
 	return nil
 }
 
+// grepPathInput 保存一个兼容路径字段的原始 JSON。
 type grepPathInput struct {
 	name string
 	raw  json.RawMessage
 }
 
+// decodeGrepPathInputs 合并 path、paths 和 file_paths，保持单路径与多路径互斥表示。
 func decodeGrepPathInputs(inputs ...grepPathInput) (string, []string, error) {
 	paths := make([]string, 0, len(inputs))
 	for _, input := range inputs {
@@ -100,6 +104,7 @@ func decodeGrepPathInputs(inputs ...grepPathInput) (string, []string, error) {
 	}
 }
 
+// decodeGrepPathInput 解码单个路径字段，接受字符串或字符串数组。
 func decodeGrepPathInput(input grepPathInput) ([]string, error) {
 	raw := bytes.TrimSpace(input.raw)
 	if len(raw) == 0 || bytes.Equal(raw, []byte("null")) {
@@ -116,6 +121,7 @@ func decodeGrepPathInput(input grepPathInput) ([]string, error) {
 	return nil, fmt.Errorf("%s must be a string or an array of strings", input.name)
 }
 
+// normalizeGrepPathList 校验路径数组，拒绝空数组和空字符串项。
 func normalizeGrepPathList(name string, paths []string) ([]string, error) {
 	if len(paths) == 0 {
 		return nil, fmt.Errorf("%s array must contain at least one path", name)
@@ -131,11 +137,13 @@ func normalizeGrepPathList(name string, paths []string) ([]string, error) {
 	return normalized, nil
 }
 
+// grepFileRows 是 grep 响应中单文件的表格化匹配行。
 type grepFileRows struct {
 	Cols []string `json:"cols"`
 	Rows [][]any  `json:"rows"`
 }
 
+// grepResponse 是 grep 工具的结构化响应，包含截断和下一步提示。
 type grepResponse struct {
 	Data              map[string]grepFileRows `json:"data"`
 	Total             int                     `json:"total"`
@@ -147,7 +155,7 @@ type grepResponse struct {
 	Hint              string                  `json:"hint,omitempty"`
 }
 
-// NewGrepHandler 创建grep处理器。
+// NewGrepHandler 创建 grep 工具处理器，支持 text_search 和 ast_search。
 func NewGrepHandler(cfg Config) Handler {
 	handler := handlerBase{
 		root:     resolveRoot(cfg.WorkspaceRoot),
@@ -156,7 +164,7 @@ func NewGrepHandler(cfg Config) Handler {
 	return Handler(wrapToolHandler("grep", middleware.TierSlow, handler.handleGrep))
 }
 
-// handleGrep 处理grep。
+// handleGrep 分发 grep action，并统一做结果截断、日志和空响应处理。
 func (h handlerBase) handleGrep(ctx context.Context, params json.RawMessage) (any, error) {
 	input, err := decodeToolParams[grepToolInput](params, decodeLenient)
 	if err != nil {
@@ -214,6 +222,7 @@ func (h handlerBase) handleGrep(ctx context.Context, params json.RawMessage) (an
 	return resp, nil
 }
 
+// grepMessage 组合 regex fallback 和 payload 截断提示。
 func grepMessage(regexFallback bool, dropped int) string {
 	parts := make([]string, 0, 2)
 	if regexFallback {
@@ -228,6 +237,8 @@ func grepMessage(regexFallback bool, dropped int) string {
 	return strings.Join(parts, "; ")
 }
 
+// searchSiblingWorkspaceOnRuntimeFallback 在运行时工作区路径解析失败时查找兄弟 worktree。
+// 该 fallback 只在主搜索无结果时启用，避免覆盖明确工作区范围。
 func searchSiblingWorkspaceOnRuntimeFallback(ctx context.Context, opts search.TextSearchOptions) ([]search.SearchMatch, error) {
 	relPath, root, parent, ok := runtimeSiblingSearchScope(ctx, opts)
 	if !ok {
@@ -246,7 +257,8 @@ func searchSiblingWorkspaceOnRuntimeFallback(ctx context.Context, opts search.Te
 	return searchUniqueSiblingWorkspaceText(ctx, opts, root, relPath, candidates)
 }
 
-// runtimeSiblingSearchScope 处理运行时siblingsearch作用域。
+// runtimeSiblingSearchScope 计算运行时兄弟 worktree fallback 的搜索范围。
+// 只有在显式开启 fallback、请求是相对单路径、且根目录有可用父目录时才返回候选范围。
 func runtimeSiblingSearchScope(ctx context.Context, opts search.TextSearchOptions) (string, string, string, bool) {
 	if !common.RuntimeWorkspaceScopeFallbackFromContext(ctx) {
 		return "", "", "", false
@@ -348,7 +360,8 @@ func appendUniqueWorkspaceCandidates(candidates []string, extra ...string) []str
 	return candidates
 }
 
-// searchUniqueSiblingWorkspaceText 搜索uniquesibling工作区文本。
+// searchUniqueSiblingWorkspaceText 在兄弟 worktree 候选中执行文本搜索。
+// 多个候选同时命中说明运行时根目录已不唯一，直接报错提醒调用方传入可信 work_dir。
 func searchUniqueSiblingWorkspaceText(ctx context.Context, opts search.TextSearchOptions, root, relPath string, candidates []string) ([]search.SearchMatch, error) {
 	if len(candidates) == 0 {
 		return nil, nil
@@ -398,7 +411,8 @@ func capGrepResponseBytes(resp *grepResponse, maxBytes int) {
 	}
 }
 
-// dropLastGrepRow 去掉lastgreprow。
+// dropLastGrepRow 从行数最多的文件中移除一条匹配，用于把结构化响应压回预算内。
+// 如果该文件只剩一行，直接移除整个文件块，保证 showing 计数同步下降。
 func dropLastGrepRow(resp *grepResponse) bool {
 	var maxFile string
 	var maxRows int
@@ -425,7 +439,8 @@ func dropLastGrepRow(resp *grepResponse) bool {
 	return true
 }
 
-// buildGrepResponse 构建grep响应。
+// buildGrepResponse 把搜索匹配按文件聚合成稳定的结构化响应。
+// 当任一匹配带函数范围时，所有文件统一补齐 func_start/func_end 列以保持表格 schema 一致。
 func buildGrepResponse(matches []search.SearchMatch, total int, truncated bool) grepResponse {
 	data := make(map[string]grepFileRows, len(matches))
 	hasFuncRanges := false
@@ -442,9 +457,7 @@ func buildGrepResponse(matches []search.SearchMatch, total int, truncated bool) 
 		block.Rows = append(block.Rows, row)
 		data[match.File] = block
 	}
-	// Backfill cols on every file once we know whether func ranges
-	// appeared anywhere in the result set, so the schema-declared
-	// column layout matches actual row widths file-by-file.
+	// 所有匹配遍历完后才能知道是否存在函数范围列；统一回填列头和空值，避免同一响应内 schema 漂移。
 	for path, block := range data {
 		block.Cols = grepRowCols(hasFuncRanges)
 		if hasFuncRanges {
@@ -490,10 +503,8 @@ func grepResponseHasFuncRanges(resp grepResponse) bool {
 	return false
 }
 
-// grepRowCols returns the column header that matches what buildGrepResponse
-// actually writes into rows. Skipping func_start/func_end columns when no
-// hit reports an enclosing function avoids advertising fields that aren't
-// present in any row.
+// grepRowCols 返回与 buildGrepResponse 实际行宽一致的列头。
+// 没有任何命中携带函数范围时不声明 func_start/func_end，避免调用方读取不存在的字段。
 func grepRowCols(includeFuncRange bool) []string {
 	base := []string{"line", "col", "text"}
 	if includeFuncRange {
@@ -511,7 +522,8 @@ func padGrepRows(rows [][]any, width int) [][]any {
 	return rows
 }
 
-// ToPlainText 渲染为纯文本。
+// ToPlainText 将结构化 grep 结果渲染为确定顺序的纯文本。
+// 纯文本通道保留截断和下一步 hint，方便模型继续缩小查询。
 func (r grepResponse) ToPlainText() string {
 	if r.Total == 0 {
 		return "No matches found."
@@ -524,7 +536,7 @@ func (r grepResponse) ToPlainText() string {
 	}
 	sb.WriteString("\n")
 
-	// Sort file paths to have deterministic output order
+	// 固定文件输出顺序，避免 map 遍历导致快照和模型上下文抖动。
 	var files []string
 	for f := range r.Data {
 		files = append(files, f)
@@ -567,10 +579,8 @@ func (r grepResponse) formatGrepRow(sb *strings.Builder, file string, row []any)
 	fmt.Fprintf(sb, "%s:%d:%d: %s%s\n", file, lineVal, colVal, textVal, funcInfo)
 }
 
-// numericRowValue tolerates both int (typical first call) and float64
-// (post JSON round-trip) so plain-text rendering doesn't silently
-// produce L0:0 if the response was demoted to map[string]any along
-// the way (e.g. budget overflow re-marshal).
+// numericRowValue 兼容首次构建的 int 和 JSON 往返后的 float64。
+// 预算压缩可能把响应降级成 map[string]any，缺少这个转换会在纯文本里静默输出 L0:0。
 func numericRowValue(v any) int {
 	switch x := v.(type) {
 	case int:

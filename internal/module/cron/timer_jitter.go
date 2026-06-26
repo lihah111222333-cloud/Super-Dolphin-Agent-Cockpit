@@ -1,8 +1,5 @@
-// Package cron exposes the host-side CRUD surface and the scheduler runtime
-// for scheduled agent tasks.
-//
-// 这里有两件事：service 先把坏配置挡住；scheduler 只跑已入库的 job，
-// 靠 CAS 和 claim_token 防止重复推进。
+// Package cron 提供定时任务的 CRUD 接口和调度运行时。
+// service 先把坏配置挡住；scheduler 只推进已入库的 job，并靠 CAS 与 claim_token 防止重复执行。
 package cron
 
 import (

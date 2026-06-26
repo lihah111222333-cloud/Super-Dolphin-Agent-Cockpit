@@ -8,10 +8,10 @@ import (
 	"testing"
 )
 
-// F4.2: PlanUpdateNodes 纯函数单测 —— 验证 ops + existing 投影 →
-// (adjacency, []UpdateNodeChange, err) 的契约。
+// PlanUpdateNodes 纯函数单测覆盖 ops 与 existing 的投影结果，
+// 确保 adjacency、变更列表和错误边界保持一致。
 
-// ---- happy path ----
+// ---- 正向路径 ----
 
 // 单条 update：改 title，不动 depends_on。adjacency 应与 existing 一致。
 func TestPlanUpdateNodes_TitleOnly_Happy(t *testing.T) {
@@ -157,7 +157,7 @@ func TestPlanUpdateNodes_DependsOnUnknown(t *testing.T) {
 	}
 }
 
-// ---- 负面：节点 status 不允许 update（F4.5 提前防御）----
+// ---- 负面：节点 status 不允许 update（提前防御）----
 
 func TestPlanUpdateNodes_StatusRunning_Rejected(t *testing.T) {
 	t.Parallel()
@@ -212,7 +212,7 @@ func TestPlanUpdateNodes_WrongOpKind(t *testing.T) {
 	}
 }
 
-// ---- 空 ops noop ----
+// ---- 空 ops 不改变现有图 ----
 
 func TestPlanUpdateNodes_EmptyOps_Noop(t *testing.T) {
 	t.Parallel()

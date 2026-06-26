@@ -121,9 +121,6 @@ func (s *store) TerminateRun(ctx context.Context, input TerminateRunInput) (Term
 	return result, nil
 }
 
-// terminateRunTx 的顺序不能随意调整：先停节点，再停 wakeup，最后翻 run
-// status。这样即使最后一步发现 run 已被其它路径取消，也可以安全读取已有
-// spawned_thread_id 返回给上层做 agent lifecycle 清理。
 // terminateRunTx 是 TerminateRun 的事务体：先取消节点，再取消 wakeup，最后取消 run 行。
 // 顺序不能颠倒，这样即使最后一步幂等重入也能正确收集 spawned thread ids。
 func terminateRunTx(ctx context.Context, txq *sqlc.Queries, txdb sqlc.DBTX, input TerminateRunInput, reason string, event []byte) ([]string, error) {
@@ -367,7 +364,7 @@ func scanTaskDagRunRow(scanner taskDagRunScanner) (taskDagRunRow, error) {
 }
 
 // fromTaskDagRun 把 sqlc 生成的行结构体转成 contract 层 Run。
-// SQLite epoch milliseconds map to time.Time; nullable columns map to nil.
+// SQLite epoch 毫秒会统一转为 time.Time，可空列保持 nil。
 func fromTaskDagRun(row sqlc.TaskDagRun) Run {
 	return fromTaskDagRunRaw(row.ID, row.RunKey, row.DagKey, row.DagVersionSnapshot, row.TriggerSource, row.Status, row.StartedAt, row.FinishedAt, row.Events, row.BudgetUsed, row.BudgetLimit, row.Metadata, row.CreatedAt, row.UpdatedAt)
 }

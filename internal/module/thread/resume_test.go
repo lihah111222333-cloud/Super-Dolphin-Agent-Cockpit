@@ -312,6 +312,7 @@ func TestServiceResumeDropsDefaultPlaceholderName(t *testing.T) {
 
 func TestServiceResumeBackfillsDefaultCodexIdentityWhenPackagedRuntime(t *testing.T) {
 	codexHome := t.TempDir()
+	wantCodexHome := canonicalCodexHomeForTest(t, codexHome)
 	t.Setenv("SUPER_DOLPHIN_RUNTIME_MODE", "packaged")
 	const providerThreadID = "11111111-2222-3333-4444-555555555552"
 	rolloutPath := writeExistingProviderHistoryFile(t)
@@ -336,14 +337,14 @@ func TestServiceResumeBackfillsDefaultCodexIdentityWhenPackagedRuntime(t *testin
 	sessions := &stubSessionProvider{}
 	starter := &stubSessionStarter{
 		onResume: func(_ context.Context, req dto.ResumeSessionRequest) (contract.Session, error) {
-			if req.CodexHome != codexHome ||
+			if req.CodexHome != wantCodexHome ||
 				req.CodexInstanceKey != defaultCodexInstanceKey ||
 				req.CodexModelProvider != defaultCodexModelProvider {
 				t.Fatalf("resume codex identity = (%q,%q,%q), want (%q,%q,%q)",
 					req.CodexHome,
 					req.CodexInstanceKey,
 					req.CodexModelProvider,
-					codexHome,
+					wantCodexHome,
 					defaultCodexInstanceKey,
 					defaultCodexModelProvider)
 			}
@@ -358,14 +359,14 @@ func TestServiceResumeBackfillsDefaultCodexIdentityWhenPackagedRuntime(t *testin
 	if err != nil {
 		t.Fatalf("Resume() error = %v", err)
 	}
-	if bindings.upsert.CodexHome != codexHome ||
+	if bindings.upsert.CodexHome != wantCodexHome ||
 		bindings.upsert.CodexInstanceKey != defaultCodexInstanceKey ||
 		bindings.upsert.CodexModelProvider != defaultCodexModelProvider {
 		t.Fatalf("persisted codex identity = (%q,%q,%q), want (%q,%q,%q)",
 			bindings.upsert.CodexHome,
 			bindings.upsert.CodexInstanceKey,
 			bindings.upsert.CodexModelProvider,
-			codexHome,
+			wantCodexHome,
 			defaultCodexInstanceKey,
 			defaultCodexModelProvider)
 	}

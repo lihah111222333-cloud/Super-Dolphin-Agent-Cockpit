@@ -1,36 +1,37 @@
 // Package main 是 mcp-lsp sidecar 进程的入口，通过 MCP stdio 协议暴露 LSP 工具能力。
 package main
 
-// schema helpers — mirrors cmd/mcp-orch/tools/types.go pattern.
+// schema helpers 统一生成 MCP 工具输入 schema，保持各工具声明的 JSON 形状一致。
 
 type schema = map[string]any
 
-// stringProp 创建字符串类型属性 schema。
+// stringProp 生成字符串属性 schema，并透传面向工具调用方的说明文本。
 func stringProp(desc string) schema {
 	return schema{"type": "string", "description": desc}
 }
 
-// integerProp 创建整数类型属性 schema。
+// integerProp 生成整数属性 schema，供位置、数量和限制类字段复用。
 func integerProp(desc string) schema {
 	return schema{"type": "integer", "description": desc}
 }
 
-// booleanProp 创建布尔类型属性 schema。
+// booleanProp 生成布尔属性 schema，用于开关类工具参数。
 func booleanProp(desc string) schema {
 	return schema{"type": "boolean", "description": desc}
 }
 
-// enumProp 创建带枚举值限制的字符串属性 schema。
+// enumProp 生成带枚举约束的字符串属性 schema，限制 action/direction 等固定取值。
 func enumProp(desc string, values ...string) schema {
 	return schema{"type": "string", "description": desc, "enum": values}
 }
 
-// arrayOfStringsProp 创建字符串数组属性 schema。
+// arrayOfStringsProp 生成字符串数组属性 schema，用于多路径或过滤条件列表。
 func arrayOfStringsProp(desc string) schema {
 	return schema{"type": "array", "description": desc, "items": map[string]any{"type": "string"}}
 }
 
-// stringOrArrayOfStringsProp 创建接受字符串或字符串数组的属性 schema。
+// stringOrArrayOfStringsProp 生成兼容单值和多值的属性 schema。
+// grep 的 path 字段需要同时兼容旧单字符串和新数组形态。
 func stringOrArrayOfStringsProp(desc string) schema {
 	return schema{
 		"description": desc,
@@ -41,7 +42,8 @@ func stringOrArrayOfStringsProp(desc string) schema {
 	}
 }
 
-// NewObjectSchema 创建 object 类型 schema，支持指定属性和必填字段列表。
+// NewObjectSchema 生成关闭 additionalProperties 的对象 schema。
+// 未声明字段会在工具解码阶段被拒绝，避免调用方拼错参数后静默忽略。
 func NewObjectSchema(props map[string]schema, required ...string) schema {
 	s := schema{"type": "object", "additionalProperties": false}
 	if len(props) > 0 {
@@ -57,9 +59,7 @@ func NewObjectSchema(props map[string]schema, required ...string) schema {
 	return s
 }
 
-// ---------------------------------------------------------------------------
-// Per-tool schemas
-// ---------------------------------------------------------------------------
+// 各工具 schema 按 MCP 暴露的 action 分组，字段说明就是模型可见的调用约束。
 
 var lspFileSchema = NewObjectSchema(map[string]schema{
 	"action":     enumProp("Action", "open_file", "read_file", "diagnostics"),
@@ -140,7 +140,8 @@ var lspCompletionSchema = NewObjectSchema(map[string]schema{
 	"work_dir":    lspWorkDirProp(),
 }, "pos")
 
-// lspWorkDirProp 创建 work_dir 属性 schema，描述工具调用的可信工作区根目录。
+// lspWorkDirProp 生成 work_dir 属性 schema。
+// work_dir 会被当作本次工具调用的可信工作区根，路径解析必须落在该根下。
 func lspWorkDirProp() schema {
 	return stringProp("Explicit working directory for this tool call. Absolute paths are accepted as the call's trusted workspace root; relative work_dir paths resolve against the current trusted CWD, and relative tool paths resolve under it.")
 }

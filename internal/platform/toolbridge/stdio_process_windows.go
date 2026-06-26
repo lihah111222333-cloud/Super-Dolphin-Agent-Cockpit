@@ -15,14 +15,17 @@ import (
 )
 
 const (
+	// Windows CreationFlags 常量用于隐藏 stdio MCP 窗口并创建独立进程组。
 	stdioCreateNewProcessGroup = 0x00000200
 	stdioCreateNoWindow        = 0x08000000
 )
 
+// stdioProcessGuard 保存 Windows Job Object 句柄，Close 时负责释放整棵进程树。
 type stdioProcessGuard struct {
 	handle windows.Handle
 }
 
+// stdioConfigureCommand 配置 Windows stdio MCP 子进程的隐藏窗口和独立进程组。
 func stdioConfigureCommand(cmd *exec.Cmd) {
 	if cmd == nil {
 		return
@@ -33,7 +36,8 @@ func stdioConfigureCommand(cmd *exec.Cmd) {
 	}
 }
 
-// stdioAttachProcessGuard 处理stdioattach进程守卫。
+// stdioAttachProcessGuard 把 stdio MCP 子进程加入 KillOnClose Job Object。
+// Job 创建或绑定失败只记录告警并回退到单进程关闭路径。
 func stdioAttachProcessGuard(cmd *exec.Cmd) *stdioProcessGuard {
 	if cmd == nil || cmd.Process == nil {
 		return nil
@@ -62,7 +66,7 @@ func stdioAttachProcessGuard(cmd *exec.Cmd) *stdioProcessGuard {
 	return &stdioProcessGuard{handle: handle}
 }
 
-// stdioTerminateProcessTree 处理stdioterminate进程tree。
+// stdioTerminateProcessTree 优先终止 Job Object，失败时再尝试 Kill 单个进程。
 func stdioTerminateProcessTree(cmd *exec.Cmd, guard *stdioProcessGuard) error {
 	var jobErr error
 	if guard != nil && guard.handle != 0 {
@@ -82,10 +86,12 @@ func stdioTerminateProcessTree(cmd *exec.Cmd, guard *stdioProcessGuard) error {
 	return errors.Join(jobErr, err)
 }
 
+// stdioExpectedCloseWaitError 在 Windows 上保留 Wait 错误，由调用方决定是否上报。
 func stdioExpectedCloseWaitError(err error) error {
 	return err
 }
 
+// stdioCleanupProcessTree 关闭 Job Object 句柄；KillOnClose 会清理仍挂住的子进程。
 func stdioCleanupProcessTree(_ *exec.Cmd, guard *stdioProcessGuard) error {
 	if guard == nil || guard.handle == 0 {
 		return nil
@@ -98,6 +104,7 @@ func stdioCleanupProcessTree(_ *exec.Cmd, guard *stdioProcessGuard) error {
 	return err
 }
 
+// stdioCreateKillOnCloseJob 创建带 KillOnJobClose 标志的 Windows Job Object。
 func stdioCreateKillOnCloseJob() (windows.Handle, error) {
 	h, err := windows.CreateJobObject(nil, nil)
 	if err != nil {
@@ -120,6 +127,7 @@ func stdioCreateKillOnCloseJob() (windows.Handle, error) {
 	return h, nil
 }
 
+// stdioProcessGone 判断 Windows 进程或 Job 句柄是否已不可用。
 func stdioProcessGone(err error) bool {
 	if err == nil {
 		return false

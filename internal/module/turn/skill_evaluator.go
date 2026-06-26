@@ -2,26 +2,18 @@ package turn
 
 import "strings"
 
-// EvaluationVerdict is the evaluator's heuristic decision over a Trajectory.
-// Reason is a stable enum string consumed by metrics / audit; update tests
-// whenever a new value is introduced.
+// EvaluationVerdict 是轨迹是否进入提炼队列的判断结果，Reason 使用稳定枚举便于指标和审计聚合。
 type EvaluationVerdict struct {
 	Eligible bool
 	Reason   string
 }
 
-// Evaluator decides whether a Trajectory is worth feeding into the LLM
-// distillation queue.
-//
-// Implementations must be stateless and pure: the same input must produce
-// the same verdict (including Reason) on every call. Implementations must
-// not read the candidate store, call an LLM, or touch the network.
+// Evaluator 判断轨迹是否值得交给 LLM 提炼；实现必须保持纯函数，不读写存储、不访问网络。
 type Evaluator interface {
 	Evaluate(t Trajectory) EvaluationVerdict
 }
 
-// Reason enum values. Add a constant and update the table-driven test
-// whenever a new reason is introduced.
+// Reason 常量是 evaluator 的稳定拒绝原因枚举。
 const (
 	ReasonOK                      = "ok"
 	ReasonNonCompletedTerminal    = "non_completed_terminal"
@@ -31,25 +23,18 @@ const (
 	ReasonAllToolCallsFailed      = "all_tool_calls_failed"
 )
 
-// DefaultEvaluator implements the five ordered heuristic rules documented in
-// docs/plans/迁移/p21/P0b/step-3-skill-evaluator.md. MaxToolCalls=0 means no
-// upper bound.
+// DefaultEvaluator 按固定顺序执行终态、成功标记、工具数量和失败比例检查；MaxToolCalls=0 表示不设上限。
 type DefaultEvaluator struct {
 	MinToolCalls int
 	MaxToolCalls int
 }
 
-// NewDefaultEvaluator returns the recommended defaults (MinToolCalls=2,
-// MaxToolCalls unbounded). Wired via fx into the downstream Step 4
-// extractor.
-// NewDefaultEvaluator 创建defaultevaluator。
+// NewDefaultEvaluator 返回默认启发式规则：至少两个工具调用，默认不设置上限。
 func NewDefaultEvaluator() *DefaultEvaluator {
 	return &DefaultEvaluator{MinToolCalls: 2}
 }
 
-// Evaluate implements the Evaluator interface. It does not mutate the input
-// Trajectory (ToolCalls are not reordered, Cwd is not backfilled, etc.).
-// Evaluate 处理evaluate。
+// Evaluate 按固定顺序判断轨迹是否值得进入 LLM 提炼队列，并且不修改输入轨迹。
 func (e *DefaultEvaluator) Evaluate(t Trajectory) EvaluationVerdict {
 	if reason := terminalRejectionReason(t); reason != "" {
 		return EvaluationVerdict{Eligible: false, Reason: reason}
@@ -66,6 +51,7 @@ func (e *DefaultEvaluator) Evaluate(t Trajectory) EvaluationVerdict {
 	return EvaluationVerdict{Eligible: true, Reason: ReasonOK}
 }
 
+// terminalRejectionReason 在非 completed 或显式失败时返回拒绝原因。
 func terminalRejectionReason(t Trajectory) string {
 	state := strings.ToLower(strings.TrimSpace(t.TerminalState))
 	if state != "completed" {
@@ -77,6 +63,7 @@ func terminalRejectionReason(t Trajectory) string {
 	return ""
 }
 
+// normalizedMinToolCalls 把负数下限归零，避免错误配置拒绝所有轨迹。
 func normalizedMinToolCalls(minTools int) int {
 	if minTools < 0 {
 		return 0
@@ -84,10 +71,12 @@ func normalizedMinToolCalls(minTools int) int {
 	return minTools
 }
 
+// toolCallLimitExceeded 判断工具调用数量是否超过可选上限。
 func toolCallLimitExceeded(count, maxTools int) bool {
 	return maxTools > 0 && count > maxTools
 }
 
+// allToolCallsFailed 判断是否所有工具调用都失败，空列表不算失败集合。
 func allToolCallsFailed(calls []ToolCall) bool {
 	if len(calls) == 0 {
 		return false
@@ -100,5 +89,5 @@ func allToolCallsFailed(calls []ToolCall) bool {
 	return true
 }
 
-// Compile-time assertion that *DefaultEvaluator implements Evaluator.
+// 编译期断言确保 DefaultEvaluator 持续满足 Evaluator 接口。
 var _ Evaluator = (*DefaultEvaluator)(nil)

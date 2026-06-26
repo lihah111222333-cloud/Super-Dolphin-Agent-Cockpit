@@ -33,20 +33,21 @@ type sharedFileDTO struct {
 	UpdatedAt time.Time `json:"updated_at"`
 }
 
-// HandleSharedFileRead 处理shared文件read。
+// HandleSharedFileRead 读取数据库中的 sharedfile，支持 pos=shared:<path> 兼容定位。
 func HandleSharedFileRead(store sharedfilestore.Store) ToolHandler {
 	return makeHandler(store, "shared file store", func(ctx context.Context, in sharedFileReadInput) (sharedFileDTO, error) {
 		return readSharedFile(ctx, store, in)
 	})
 }
 
-// HandleSharedFileWrite 处理shared文件write。
+// HandleSharedFileWrite 写入 sharedfile，并通过路径白名单限制 agent 可写范围。
 func HandleSharedFileWrite(store sharedfilestore.Store) ToolHandler {
 	return makeHandler(store, "shared file store", func(ctx context.Context, in sharedFileWriteInput) (sharedFileDTO, error) {
 		return writeSharedFile(ctx, store, in)
 	})
 }
 
+// sharedFileToolDefinitions 注册 shared_file_read/shared_file_write 工具。
 func sharedFileToolDefinitions(store sharedfilestore.Store) []ToolDefinition {
 	return buildToolDefinitions(
 		defineTool("shared_file_read", "Read a shared file by path. Shared files are stored in the database and can be accessed by all agents.", ObjectSchema(map[string]Schema{
@@ -60,6 +61,7 @@ func sharedFileToolDefinitions(store sharedfilestore.Store) []ToolDefinition {
 	)
 }
 
+// readSharedFile 校验读取路径并把 not-found 统一为工具层错误。
 func readSharedFile(ctx context.Context, store sharedfilestore.Store, input sharedFileReadInput) (sharedFileDTO, error) {
 	if err := requireDependency(store, "shared file store"); err != nil {
 		return sharedFileDTO{}, err
@@ -80,7 +82,7 @@ func readSharedFile(ctx context.Context, store sharedfilestore.Store, input shar
 	return sharedFileFromStore(*file), nil
 }
 
-// writeSharedFile 写入shared文件。
+// writeSharedFile 校验写路径和内容大小后 upsert sharedfile，store 返回空结果时 fail-fast。
 func writeSharedFile(ctx context.Context, store sharedfilestore.Store, input sharedFileWriteInput) (sharedFileDTO, error) {
 	if err := requireDependency(store, "shared file store"); err != nil {
 		return sharedFileDTO{}, err
@@ -110,6 +112,7 @@ func writeSharedFile(ctx context.Context, store sharedfilestore.Store, input sha
 	return sharedFileFromStore(*file), nil
 }
 
+// sharedFileFromStore 把持久化 sharedfile 行映射成工具 wire DTO，不暴露额外内部列。
 func sharedFileFromStore(file sharedfilestore.SharedFile) sharedFileDTO {
 	return sharedFileDTO{
 		Path:      file.Path,

@@ -21,7 +21,7 @@ import (
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
-// Wakeup dispatcher defaults and wakeup kind handling live here.
+// wakeup dispatcher 默认值集中在这里，避免 claim、retry 和 tick 间隔在多个入口发散。
 const (
 	defaultWakeupClaimBatchLimit  = 10
 	defaultWakeupLeaseInterval    = "00:00:30"
@@ -29,7 +29,7 @@ const (
 	defaultWakeupRetryInterval    = "00:02:00"
 )
 
-// WakeupDispatcherConfig decides one dispatcher tick; zero values use defaults.
+// WakeupDispatcherConfig 控制 dispatcher 单轮领取和重试节奏；零值会在启动前补齐默认值。
 type WakeupDispatcherConfig struct {
 	ClaimedBy     string
 	LeaseInterval string
@@ -38,7 +38,7 @@ type WakeupDispatcherConfig struct {
 	RetryInterval string
 }
 
-// ConfigOrDefaults 合并唤醒调度配置和默认值。
+// ConfigOrDefaults 填充 dispatcher 配置默认值，并为 claimed_by 生成进程内唯一标识。
 func (c WakeupDispatcherConfig) ConfigOrDefaults() WakeupDispatcherConfig {
 	out := c
 	if out.ClaimedBy == "" {
@@ -62,13 +62,15 @@ func (c WakeupDispatcherConfig) ConfigOrDefaults() WakeupDispatcherConfig {
 
 var dispatcherClaimedBySeq atomic.Uint64
 
+// WakeupLauncher 是非 DAG wakeup 投递所需的启动接口。
 type WakeupLauncher interface {
 	LaunchAgent(ctx context.Context, req LaunchRequest) error
 }
 
+// WakeupDispatcher 负责 claim due wakeup、投递执行、按结果 retry/fail/mark sent。
 type WakeupDispatcher struct {
 	store    taskdag.Store
-	launcher WakeupLauncher // Phase 3.2 起：claim 后真去 launch_agent
+	launcher WakeupLauncher // 非 DAG wakeup 的启动入口；DAG wakeup 优先走 nodeRouter。
 	logger   *slog.Logger
 	cfg      WakeupDispatcherConfig
 
@@ -112,8 +114,8 @@ func (d *WakeupDispatcher) WithDispatchRetryAlertSink(sink DispatchRetryAlertSin
 // ClaimedBy 返回 wakeup 当前领取者标识。
 func (d *WakeupDispatcher) ClaimedBy() string { return d.cfg.ClaimedBy }
 
-// Run 是 Phase 3.2 dispatcher 主循环。每 cfg.TickInterval（默认 10s）调
-// 一次 ProcessBatch；ctx 取消（fx OnStop 触发）时优雅返回 ctx.Err()。
+// Run 是 dispatcher 主循环，每 cfg.TickInterval 调一次 ProcessBatch。
+// ctx 取消时直接返回 ctx.Err()，由 fx OnStop 或调用方等待 goroutine 收口。
 //
 // 单 tick 失败不退出循环（claim 失败可能是瞬态 DB 抖动；下一 tick 重试），
 // ctx canceled 才停。Run 不开 goroutine —— 调用方负责 go d.Run(ctx)，让
@@ -148,12 +150,9 @@ func (d *WakeupDispatcher) Run(ctx context.Context) error {
 	}
 }
 
-// ProcessBatch 是 dispatcher 一轮处理：claim 一批 wakeup，对每条调
-// launcher.LaunchAgent；按结果推进状态：成功 MarkWakeupSent，transient
-// 失败 RetryWakeup（next_retry_at = now + RetryInterval），permanent 失败
-// FailWakeup。返回处理过的条数（含成功/失败）。Phase 3.1 的 Tick 仅做
-// claim + log，本方法是 3.2 的真处理路径。当 launcher 为 nil 时退化到
-// Tick 行为以兼容 3.1 单元路径。
+// ProcessBatch 是 dispatcher 的完整处理轮次：claim 一批 wakeup 后按类型投递。
+// 成功会写 sent，瞬时失败会按 RetryInterval 放回 pending，永久失败会写 failed。
+// launcher 为空时保留 claim-only Tick 路径，方便只验证领取和 lease 的调用方。
 func (d *WakeupDispatcher) ProcessBatch(ctx context.Context) (int, error) {
 	if ctx == nil {
 		ctx = context.Background()
@@ -188,6 +187,7 @@ type wakeupFence struct {
 	leaseAt   time.Time
 }
 
+// extractFence 从 wakeup 行提取 CAS fence，nil 时间会保留为零值交给 store 比对。
 func extractFence(w *taskdag.Wakeup) wakeupFence {
 	var f wakeupFence
 	if w.ClaimedAt != nil {
@@ -199,9 +199,8 @@ func extractFence(w *taskdag.Wakeup) wakeupFence {
 	return f
 }
 
-// handleClaimed advances one claimed wakeup without aborting the rest of the
-// batch: internal repair wakeups are handled locally, DAG wakeups route through
-// NodeExecutor, and non-DAG wakeups use the legacy launcher.
+// handleClaimed 推进单条已领取 wakeup，单条失败不会中断整批处理。
+// 内部修复 wakeup 在本地处理，DAG wakeup 走 NodeExecutor，非 DAG wakeup 走启动接口。
 func (d *WakeupDispatcher) handleClaimed(ctx context.Context, w *taskdag.Wakeup) bool {
 	if w == nil {
 		return false
@@ -210,13 +209,13 @@ func (d *WakeupDispatcher) handleClaimed(ctx context.Context, w *taskdag.Wakeup)
 		return d.handleTurnCompletionRetryWakeup(ctx, w)
 	}
 	if isDAGWakeup(w) {
-		// Router wiring marker: handleClaimedViaRouter calls d.nodeRouter.RouteByWakeup.
+		// DAG wakeup 的路由入口集中在 handleClaimedViaRouter，便于保持 sent/fail fence 一致。
 		return d.handleClaimedViaRouter(ctx, w)
 	}
 	return d.handleClaimedViaLegacyLauncher(ctx, w)
 }
 
-// 这是 turn.completed 的修复 wakeup，不会启动 agent。
+// handleTurnCompletionRetryWakeup 处理 turn.completed 的修复 wakeup，不会启动 agent。
 // 它只重放“完成节点 + 调度下游”，失败再按普通 retry/fail 处理。
 func (d *WakeupDispatcher) handleTurnCompletionRetryWakeup(ctx context.Context, w *taskdag.Wakeup) bool {
 	fence := extractFence(w)
@@ -237,11 +236,13 @@ func (d *WakeupDispatcher) handleTurnCompletionRetryWakeup(ctx context.Context, 
 	}
 }
 
+// shouldRouteThroughNodeExecutor 判断 wakeup 是否应交给 NodeExecutor router。
 func (d *WakeupDispatcher) shouldRouteThroughNodeExecutor(w *taskdag.Wakeup) bool {
 	return d != nil && isDAGWakeup(w)
 }
 
-// handleClaimedViaLegacyLauncher 是 wiring batch 前原造逻辑，保留不动。
+// handleClaimedViaLegacyLauncher 处理非 DAG wakeup 的启动投递。
+// 它仍复用 wakeup fence，避免过期 claim 覆盖其它 dispatcher 的处理结果。
 func (d *WakeupDispatcher) handleClaimedViaLegacyLauncher(ctx context.Context, w *taskdag.Wakeup) bool {
 	fence := extractFence(w)
 	req := buildLaunchRequestFromWakeup(*w)
@@ -256,7 +257,7 @@ func (d *WakeupDispatcher) handleClaimedViaLegacyLauncher(ctx context.Context, w
 	return d.markTransientRetry(ctx, w, fence, dispatchFailure{lastErr: lastErr, launchErr: launchErr, outcome: failedWakeupOutcome(lastErr)})
 }
 
-// 这里只把 wakeup 标成 sent，不决定节点是 running 还是 done。
+// markLaunched 只把 wakeup 标成 sent，不决定节点是 running 还是 done。
 // rows=0 说明这次 claim 已过期或已被别人处理。
 func (d *WakeupDispatcher) markLaunched(ctx context.Context, w *taskdag.Wakeup, fence wakeupFence) bool {
 	rows, err := d.store.MarkWakeupSent(ctx, taskdag.MarkWakeupSentInput{
@@ -283,6 +284,7 @@ func (d *WakeupDispatcher) markLaunched(ctx context.Context, w *taskdag.Wakeup, 
 	return true
 }
 
+// markPermanentFail 将非 DAG wakeup 写入 failed，并记录失败指标。
 func (d *WakeupDispatcher) markPermanentFail(ctx context.Context, w *taskdag.Wakeup, fence wakeupFence, lastErr string, launchErr error) bool {
 	rows, err := d.store.FailWakeup(ctx, taskdag.FailWakeupInput{
 		ID:             w.ID,
@@ -325,7 +327,7 @@ func (d *WakeupDispatcher) markTransientRetry(ctx context.Context, w *taskdag.Wa
 	return d.retryWakeup(ctx, w, fence, failure)
 }
 
-// 重试就是把 wakeup 放回 pending，并设置 next_retry_at。
+// retryWakeup 把 wakeup 放回 pending，并设置 next_retry_at。
 // rows=0 可能是到达上限，也可能是这次 claim 已失效。
 func (d *WakeupDispatcher) retryWakeup(ctx context.Context, w *taskdag.Wakeup, fence wakeupFence, failure dispatchFailure) bool {
 	rows, err := d.store.RetryWakeup(ctx, taskdag.RetryWakeupInput{
@@ -374,18 +376,16 @@ func (d *WakeupDispatcher) emitDispatchRetryAlert(ctx context.Context, alert Dis
 	})
 }
 
-// buildLaunchRequestFromWakeup 把 legacy / non-router wakeup 行映射到 LaunchRequest。
-// Router-driven DAG wakeups no longer depend on UpstreamOutputs prompt hints;
-// main-path upstream context uses explicit inputs.from_nodes plus node.result
-// envelopes. The DownstreamWakeupPayload.UpstreamOutputs branch remains only
-// for old/manual wakeups that still carry the legacy payload.
+// buildLaunchRequestFromWakeup 把非 router wakeup 行映射到 LaunchRequest。
+// DAG 主路径使用 inputs.from_nodes 和 node.result 取上游上下文；UpstreamOutputs
+// 只服务仍携带旧 payload 的手工 wakeup，避免影响当前 DAG dispatch。
 func buildLaunchRequestFromWakeup(w taskdag.Wakeup) LaunchRequest {
 	req := LaunchRequest{AgentID: strings.TrimSpace(w.TargetAgentID)}
 	payload := append(json.RawMessage(nil), w.PromptPayload...)
 	if len(payload) == 0 {
 		return req
 	}
-	// Phase 3.9: DAG-driven payload 优先。
+	// DAG payload 能提供 agent 和上游输出提示时优先使用，保持旧手工 wakeup 可读。
 	var dag taskdag.DownstreamWakeupPayload
 	if err := json.Unmarshal(payload, &dag); err == nil && len(dag.UpstreamOutputs) > 0 {
 		if strings.TrimSpace(dag.AgentID) != "" {
@@ -414,14 +414,12 @@ func truncateWakeupError(s string) string {
 	return s[:limit] + "…(truncated)"
 }
 
-// Tick 执行一次 batch claim：调 store.ClaimDueWakeups，把 status=pending 且
+// Tick 执行一次 claim-only batch：调 store.ClaimDueWakeups，把 status=pending 且
 // 已到 next_retry_at 的 wakeup 取最多 BatchLimit 条转入 dispatching；返回这次
-// 实际 claim 到的条数。无 due wakeup 时返回 (0, nil) —— "空跑" 是合法状态，
-// 不应被视作错误（与 plan §3.1 验证「无 due wakeup 空跑」对齐）。
+// 实际 claim 到的条数。无 due wakeup 时返回 (0, nil)，空跑是合法状态。
 //
-// Phase 3.1 不在本方法内调用 launcher：claim 后只打 info 日志，wakeup 会停
-// 在 dispatching 状态直到 3.3 reclaim cron 把 lease 过期的回收成 pending，
-// 或 3.2 主循环接管处理。这是有意的——3.1 单独可 ship + 单测覆盖 claim 行为。
+// 本方法不调用 launcher，claim 后只记录日志；被领取但未处理的 wakeup 依靠
+// lease 过期回收，适合测试和诊断领取路径。
 func (d *WakeupDispatcher) Tick(ctx context.Context) (int, error) {
 	if ctx == nil {
 		ctx = context.Background()
@@ -462,8 +460,8 @@ func (d *WakeupDispatcher) Tick(ctx context.Context) (int, error) {
 	return len(claimed), nil
 }
 
-// tryDAGFailWithCascade decides whether a DAG wakeup has exhausted retries.
-// It returns decided=false when the normal retry path may still run.
+// tryDAGFailWithCascade 判断 DAG wakeup 是否已经耗尽重试预算。
+// 返回 decided=false 表示仍可走普通 retry 路径；读取 retry 配置失败会显式失败。
 //
 // DAG metadata / runtime node config 读取失败时显式失败，保留
 // node-level retry/on_failure 约定可见性。

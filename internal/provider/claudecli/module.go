@@ -11,7 +11,7 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/provider/unified"
 )
 
-// driverFactoryParams collects the fx dependencies for NewDriverFactory.
+// driverFactoryParams 收集 Claude driver factory 的 fx 依赖。
 type driverFactoryParams struct {
 	fx.In
 
@@ -25,7 +25,8 @@ type driverFactoryParams struct {
 	Tracer      *observability.Service           `optional:"true"`
 }
 
-// NewDriverFactory 创建driver工厂。
+// NewDriverFactory 构造 Claude provider 的 DriverFactory。
+// NativeTools 在这里声明默认禁用策略，防止 provider-native 工具绕过项目治理入口。
 func NewDriverFactory(p driverFactoryParams) contract.DriverFactory {
 	return contract.DriverFactory{
 		Name: "claude",

@@ -335,6 +335,7 @@ func TestServiceStartPersistsCodexIdentityFromSessionRuntimeConfig(t *testing.T)
 	bindings := &stubBindingStore{}
 	sessions := &stubSessionProvider{}
 	codexHome := t.TempDir()
+	wantCodexHome := canonicalCodexHomeForTest(t, codexHome)
 	starter := &startOnlySessionStarter{
 		onStart: func(context.Context, dto.StartSessionRequest) (contract.Session, error) {
 			session := &stubSession{
@@ -360,7 +361,7 @@ func TestServiceStartPersistsCodexIdentityFromSessionRuntimeConfig(t *testing.T)
 		t.Fatalf("Start() error = %v", err)
 	}
 
-	if bindings.upsert.CodexHome != codexHome ||
+	if bindings.upsert.CodexHome != wantCodexHome ||
 		bindings.upsert.CodexInstanceKey != "default" ||
 		bindings.upsert.CodexModelProvider != "openai" {
 		t.Fatalf("binding codex identity = %q/%q/%q, want runtime identity", bindings.upsert.CodexHome, bindings.upsert.CodexInstanceKey, bindings.upsert.CodexModelProvider)
@@ -370,7 +371,7 @@ func TestServiceStartPersistsCodexIdentityFromSessionRuntimeConfig(t *testing.T)
 		t.Fatalf("decodeStoredThreadConfig() error = %v", err)
 	}
 	storedRuntime := storedConfig.Runtime
-	if storedRuntime["codexHome"] != codexHome ||
+	if storedRuntime["codexHome"] != wantCodexHome ||
 		storedRuntime["codexInstanceKey"] != "default" ||
 		storedRuntime["codexModelProvider"] != "openai" {
 		t.Fatalf("stored runtime codex identity = %#v, want session runtime identity", storedRuntime)
@@ -480,8 +481,8 @@ func TestNewThreadHandlersDispatchStartRejectsInvalidConfig(t *testing.T) {
 	}
 }
 
-// TestServiceStartForwardsLaunchSkills p20.3 §4.3：StartRequest.LaunchSkillNames /
-// LaunchSkillRefs / ForceLaunchSkills 必须原样进入 dto.StartSessionRequest，且不覆写其它字段。
+// TestServiceStartForwardsLaunchSkills 验证启动请求会原样转发显式指定的 launch skill 字段。
+// 这些字段属于 provider 启动边界，不能在 thread service 内被重排或丢弃。
 func TestServiceStartForwardsLaunchSkills(t *testing.T) {
 	t.Parallel()
 
@@ -520,8 +521,8 @@ func TestServiceStartForwardsLaunchSkills(t *testing.T) {
 	}
 }
 
-// TestServiceStartLeavesLaunchSkillsEmptyByDefault p20.3 §4.3：旧 caller 不填
-// LaunchSkillNames/ForceLaunchSkills 时，DTO 必须保持零值，不下发任何 skill 字段。
+// TestServiceStartLeavesLaunchSkillsEmptyByDefault 验证未显式指定 launch skill 时保持零值。
+// 默认路径不能隐式下发 skill 字段，避免旧调用方被新字段改变启动行为。
 func TestServiceStartLeavesLaunchSkillsEmptyByDefault(t *testing.T) {
 	t.Parallel()
 

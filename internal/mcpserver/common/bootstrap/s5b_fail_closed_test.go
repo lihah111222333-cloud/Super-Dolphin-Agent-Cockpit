@@ -12,18 +12,12 @@ import (
 	jrpcserver "github.com/creachadair/jrpc2/server"
 )
 
-// TestPendingHooks_BootAgentIDDoesNotFallback asserts P22 P4 S5b /
-// plan §316: cfg.AgentID is the sole authoritative source for the
-// PendingHooks identity. Pre-S5b a missing cfg.AgentID would fall
-// back to boot.AgentID, letting a peer read pending reviews under
-// an identity that was never provisioned in the current config.
-// The fail-closed contract means the call now errors before it ever
-// reaches the wire.
+// TestPendingHooks_BootAgentIDDoesNotFallback 验证 PendingHooks 只信任 cfg.AgentID。
+// cfg.AgentID 为空时必须在本地 fail-closed，不能回退 boot.AgentID 后向 peer 发起 RPC。
 func TestPendingHooks_BootAgentIDDoesNotFallback(t *testing.T) {
 	t.Parallel()
 
-	// Even with a live conn, cfg.AgentID empty must error-out before
-	// the RPC is dispatched so the peer cannot see boot.AgentID.
+	// 即使连接可用，空 cfg.AgentID 也必须在发出 RPC 前失败，避免 peer 看到 boot.AgentID。
 	var calls int
 	local := jrpcserver.NewLocal(handler.Map{
 		mcpdto.MethodHookPending: platformrpc.StrictHandler(func(context.Context, mcpdto.HookPendingRequest) (mcpdto.HookPendingResponse, error) {
@@ -50,24 +44,12 @@ func TestPendingHooks_BootAgentIDDoesNotFallback(t *testing.T) {
 	}
 }
 
-// TestHandleCallback_UnknownMethodFailsClosed asserts P22 P4 S5b /
-// plan §315: handleCallback must not silently ACK an unknown method
-// anymore. Pre-S5b the trailing `return map[string]bool{"ok": true}`
-// swallowed every method that wasn't tools/list, tools/call, a hook
-// method, shutdown, or config_changed — meaning a peer typo or a
-// new control-plane method we never opted into looked like success.
-//
-// The test invokes handleCallback directly against an in-memory
-// client and asserts a JSON-RPC-style MethodNotFound error. Using
-// the private entry point lets the test assert the fail-closed
-// surface without spinning up a peer.
+// TestHandleCallback_UnknownMethodFailsClosed 验证未知 callback method 不会被静默 ACK。
+// 用内存 client 直接调用 handleCallback，确保未登记的控制面方法返回 MethodNotFound。
 func TestHandleCallback_UnknownMethodFailsClosed(t *testing.T) {
 	t.Parallel()
 
-	// jrpc2.NewServer + NewLocal give us a Request with an unknown
-	// method plumbed through OnCallback. Register the method on the
-	// local peer so jrpc2 doesn't reject it at the transport layer;
-	// the handler itself just re-invokes the client's OnCallback.
+	// 本地 peer 先登记未知方法，避免 transport 层提前拒绝；真正断言发生在 handleCallback。
 	var handlerResult any
 	var handlerErr error
 	local := jrpcserver.NewLocal(handler.Map{
@@ -81,13 +63,7 @@ func TestHandleCallback_UnknownMethodFailsClosed(t *testing.T) {
 		conn: local.Client,
 	}
 
-	// Simulate the callback path by calling handleCallback directly
-	// with a fake jrpc2.Request. Since jrpc2.Request cannot be
-	// constructed from the public API, exercise the behavior via
-	// dispatchRequest (notification path) + the public surface
-	// instead: a notification for an unknown method must not error
-	// (no response surface) but an internal dispatchLifecycleRequest
-	// must return handled=false.
+	// jrpc2.Request 不能直接构造，fakeJRPCRequest 通过 loopback 捕获真实请求对象。
 	req := fakeJRPCRequest(t, "never.opted.in")
 	handlerResult, handlerErr = client.handleCallback(context.Background(), req)
 	if handlerErr == nil {
@@ -101,11 +77,8 @@ func TestHandleCallback_UnknownMethodFailsClosed(t *testing.T) {
 	}
 }
 
-// fakeJRPCRequest constructs a minimal jrpc2.Request via the same
-// NewLocal loopback used elsewhere in this package's tests. The
-// request is synthesised by registering a passthrough handler that
-// captures the *jrpc2.Request it receives, then invoking a synthetic
-// call from the test client side.
+// fakeJRPCRequest 通过 NewLocal loopback 生成最小 jrpc2.Request。
+// passthrough handler 捕获服务端收到的请求对象，供私有 callback 入口复用。
 func fakeJRPCRequest(t *testing.T, method string) *jrpc2.Request {
 	t.Helper()
 
@@ -118,7 +91,7 @@ func fakeJRPCRequest(t *testing.T, method string) *jrpc2.Request {
 	}, &jrpcserver.LocalOptions{Server: &jrpc2.ServerOptions{}})
 	t.Cleanup(func() { _ = local.Close() })
 
-	// Fire a no-wait notify so the handler captures its Request.
+	// Notify 不需要响应体，但仍会让 handler 捕获到真实 Request。
 	if err := local.Client.Notify(context.Background(), method, nil); err != nil {
 		t.Fatalf("Notify(%q) error = %v", method, err)
 	}

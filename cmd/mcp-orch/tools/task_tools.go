@@ -12,13 +12,9 @@ import (
 	mcpcommon "github.com/anthropic-ai/super-agent-v3/internal/mcpserver/common"
 )
 
-// 下列包级 enum 切片是 schema 与 handler requireEnum 的单一真正来源。
-// 修改 schema 字面量时必须同步切片，反之亦然 —— 编译期通过类型 + 单测覆盖
-// 防止 drift。命名规约：<tool>_<field>_Enum。
-//
-// The slices below are the single source of truth shared by the schema
-// builder (EnumStringSchema) and the handler-layer requireEnum fallback.
-// Any change to one must update the other; tests cover the wiring.
+// 下列枚举切片同时驱动 schema 和 handler 层校验。
+// 新增工具字段枚举时放在这里，避免工具描述允许的值与运行时拒绝的值不一致。
+// 命名规约：<tool>_<field>_Enum。
 var (
 	listDAGsStatusEnum   = []string{"draft", "active", "ready", "running", "archived"}
 	listRunsStatusEnum   = []string{"running", "succeeded", "failed", "cancelled"}
@@ -27,7 +23,8 @@ var (
 	recoveryActionEnum   = []string{"cancel_with_cleanup", "retry_failed_node"}
 )
 
-// CreateDAGInput 是 task_create_dag MCP 工具的 typed 入参。
+// CreateDAGInput 是 task_create_dag 的 wire 入参。
+// handler 会把它转换成服务层请求，并在创建期拦截坏拓扑、保留节点类型和缺失执行身份。
 type CreateDAGInput struct {
 	AgentID           string               `json:"agent_id"`
 	DagKey            string               `json:"dag_key"`
@@ -44,7 +41,8 @@ type CreateDAGInput struct {
 	Nodes             []CreateDAGNodeInput `json:"nodes,omitempty"`
 }
 
-// DAGScheduleInput 是 task_create_dag 中调度配置的子结构体。
+// DAGScheduleInput 承载创建期可直接落库的调度默认值。
+// 定时表达式和需要并发版本保护的字段必须走 apply_ops，避免创建入口绕过 OCC。
 type DAGScheduleInput struct {
 	Trigger           string `json:"trigger,omitempty"`
 	DefaultRetry      int    `json:"default_retry,omitempty"`
@@ -54,7 +52,8 @@ type DAGScheduleInput struct {
 	QueuePolicy       string `json:"queue_policy,omitempty"`
 }
 
-// CreateDAGNodeInput 是 task_create_dag 中单个节点的入参结构体。
+// CreateDAGNodeInput 是创建 DAG 时单个节点的 wire 结构。
+// execution 保留嵌套配置，扁平字段只做兼容输入，最终都会归一到服务层节点请求。
 type CreateDAGNodeInput struct {
 	NodeKey    string             `json:"node_key"`
 	Title      string             `json:"title"`
@@ -71,7 +70,8 @@ type CreateDAGNodeInput struct {
 	TimeoutSec int                `json:"timeout_sec,omitempty"`
 }
 
-// DAGExecutionInput 是节点执行参数的子结构体。
+// DAGExecutionInput 描述节点启动子 agent 时需要的执行身份和超时策略。
+// 空结构不会写入 metadata，缺少必填身份会在创建校验阶段直接报错。
 type DAGExecutionInput struct {
 	OnFailure  string `json:"on_failure,omitempty"`
 	Pool       string `json:"pool,omitempty"`
@@ -80,20 +80,23 @@ type DAGExecutionInput struct {
 	TimeoutSec int    `json:"timeout_sec,omitempty"`
 }
 
-// DAGKeyInput 是通用的 DAG key 入参结构体，支持 pos 和旧版 dag_key 字段。
+// DAGKeyInput 是只读/写 DAG 工具的兼容定位符。
+// pos 是首选扁平定位符，dag_key 仍接收旧调用方输入，二者冲突时由解析函数 fail-fast。
 type DAGKeyInput struct {
 	DagKey string `json:"dag_key"`
 	Pos    string `json:"pos,omitempty"`
 }
 
-// ListDAGsInput 是 task_list_dags MCP 工具的 typed 入参。
+// ListDAGsInput 是 DAG 列表工具的过滤条件。
+// status 枚举在 handler 层校验，limit 只影响返回裁剪，不改变服务层查询语义。
 type ListDAGsInput struct {
 	Status  string `json:"status,omitempty"`
 	Keyword string `json:"keyword,omitempty"`
 	Limit   int    `json:"limit,omitempty"`
 }
 
-// ListDAGsOutput 是 task_list_dags 的返回结构，兼容 envelope 和 legacy 格式。
+// ListDAGsOutput 是 DAG 列表的兼容返回结构。
+// DAGs 保留旧字段，Data/Total/Showing 给通用列表控件使用，避免 UI 改造时改动工具名。
 type ListDAGsOutput struct {
 	DAGs      []contract.DAGSummary `json:"dags"`
 	Data      []contract.DAGSummary `json:"data"`
@@ -103,6 +106,8 @@ type ListDAGsOutput struct {
 	Hint      string                `json:"hint,omitempty"`
 }
 
+// ListRunsOutput 是运行列表的兼容返回结构。
+// Runs 和 Data 指向同一批数据，既保留旧工具调用方，也支持通用列表控件分页展示。
 type ListRunsOutput struct {
 	Runs      []contract.Run `json:"runs"`
 	Data      []contract.Run `json:"data"`
@@ -123,11 +128,8 @@ type UpdateNodeInput struct {
 	Result  string `json:"result,omitempty"`
 }
 
-// DispatchNodeInput 是 task_dispatch_node MCP 工具的 typed 入参。
-// F6.5 后 run_id 必填，用来定位当前 run 的 runtime node。
-//
-// DispatchNodeInput is the typed input for the task_dispatch_node MCP tool.
-// All fields are required; run_id scopes the runtime node.
+// DispatchNodeInput 是单节点派发工具的 wire 入参。
+// run_id 必须随 dag_key/node_key 一起提供，确保派发的是某次运行中的节点而不是 DAG 模板节点。
 type DispatchNodeInput struct {
 	DagKey     string `json:"dag_key"`
 	NodeKey    string `json:"node_key"`
@@ -136,7 +138,8 @@ type DispatchNodeInput struct {
 	AssignedTo string `json:"assigned_to"`
 }
 
-// HandleCreateDAG 处理创建 DAG 的工具调用。
+// HandleCreateDAG 将工具入参归一化后创建 DAG 模板。
+// agent_id 以调用作用域为准，拒绝让外部 JSON 伪造创建者身份。
 func HandleCreateDAG(svc contract.OrchestrationService) ToolHandler {
 	return makeHandler(svc, "orchestration service", func(ctx context.Context, in CreateDAGInput) (any, error) {
 		req, err := createDAGRequestFromInput(in, trustedAgentID(ctx))
@@ -155,7 +158,8 @@ func trustedAgentID(ctx context.Context) string {
 	return ""
 }
 
-// HandleGetDAG 处理读取 DAG 的工具调用。
+// HandleGetDAG 解析兼容定位符并读取 DAG 模板。
+// 解析失败会停在工具层，避免空 dag_key 落到服务层产生模糊错误。
 func HandleGetDAG(svc contract.OrchestrationService) ToolHandler {
 	return makeHandler(svc, "orchestration service", func(ctx context.Context, in DAGKeyInput) (any, error) {
 		dagKey, err := resolveDAGKeyInput(in.DagKey, in.Pos)
@@ -166,7 +170,8 @@ func HandleGetDAG(svc contract.OrchestrationService) ToolHandler {
 	})
 }
 
-// HandleListDAGs 处理列出 DAG 的工具调用。
+// HandleListDAGs 校验列表过滤条件并返回兼容分页对象。
+// status 不允许静默透传未知值，防止工具描述和运行时结果分叉。
 func HandleListDAGs(svc contract.OrchestrationService) ToolHandler {
 	return makeHandler(svc, "orchestration service", func(ctx context.Context, in ListDAGsInput) (any, error) {
 		filter, err := listDAGsFilterFromInput(in)
@@ -181,7 +186,8 @@ func HandleListDAGs(svc contract.OrchestrationService) ToolHandler {
 	})
 }
 
-// HandleUpdateNode 处理更新节点状态的工具调用。
+// HandleUpdateNode 更新某次运行中的节点状态。
+// run_id 是运行时边界，done/failed 会触发后续调度或失败级联，不能当作模板状态更新。
 func HandleUpdateNode(svc contract.OrchestrationService) ToolHandler {
 	return makeHandler(svc, "orchestration service", func(ctx context.Context, in UpdateNodeInput) (any, error) {
 		req, err := updateNodeRequestFromInput(in)
@@ -192,15 +198,8 @@ func HandleUpdateNode(svc contract.OrchestrationService) ToolHandler {
 	})
 }
 
-// HandleDispatchNode 是 task_dispatch_node MCP 工具的 handler（ADR-004 §Open Q1）。
-// 这是“启动某个节点”的入口：先补 assigned_to，再入队 wakeup。
-// 当前没有旧版单节点启动工具，别和 task_start_dag 的整图启动混用。
-// 在 service.DispatchNode 返 ErrDispatchStoreUnset / ErrDispatchNodeIneligible
-// 时转中英双语错误，让使用者一眼看出不能继续的原因。
-//
-// HandleDispatchNode wires the task_dispatch_node MCP tool. Sentinel errors
-// (ErrDispatchStoreUnset / ErrDispatchNodeIneligible) are translated into
-// bilingual messages here so callers get actionable context.
+// HandleDispatchNode 是单节点派发入口：补 assigned_to 后入队 wakeup。
+// 它只推进 pending/ready 的运行时节点，不启动整张 DAG；store 未接线或节点不可派发时会返回中英双语阻断错误。
 func HandleDispatchNode(svc contract.OrchestrationService) ToolHandler {
 	return makeHandler(svc, "orchestration service", func(ctx context.Context, in DispatchNodeInput) (any, error) {
 		req, err := dispatchNodeRequestFromInput(in)
@@ -232,7 +231,8 @@ func translateDispatchNodeError(req contract.DispatchNodeRequest, err error) err
 	return err
 }
 
-// StartDAGInput 是 task_start_dag MCP 工具的 typed 入参（T1.1）。
+// StartDAGInput 是整图启动工具的 wire 入参。
+// trigger_source 会先按工具枚举校验；idempotency_key 原样交给服务层处理重复启动。
 type StartDAGInput struct {
 	DagKey         string `json:"dag_key"`
 	Pos            string `json:"pos,omitempty"`
@@ -240,7 +240,8 @@ type StartDAGInput struct {
 	IdempotencyKey string `json:"idempotency_key,omitempty"`
 }
 
-// TerminateDAGInput 是 task_terminate_dag MCP 工具的 typed 入参。
+// TerminateDAGInput 定位要终止的运行。
+// pos 可同时携带 dag/run 定位符，reason 只做审计记录，不参与状态判定。
 type TerminateDAGInput struct {
 	DagKey string `json:"dag_key"`
 	RunKey string `json:"run_key"`
@@ -248,27 +249,22 @@ type TerminateDAGInput struct {
 	Reason string `json:"reason,omitempty"`
 }
 
+// DeleteDAGInput 是删除 DAG 模板的兼容定位符。
+// pos 优先用于扁平定位，dag_key 保留给旧工具调用方，解析冲突时直接报错。
 type DeleteDAGInput struct {
 	DagKey string `json:"dag_key"`
 	Pos    string `json:"pos,omitempty"`
 }
 
-// GetRunInput 是 task_get_run MCP 工具的 typed 入参（T3.1）。
-// GetRunInput is the typed input for the task_get_run MCP tool (T3.1).
+// GetRunInput 通过 run_key 或 pos 读取单次 DAG 运行。
+// pos 适合新 UI 的扁平定位符，run_key 保留给现有 MCP 调用方。
 type GetRunInput struct {
 	RunKey string `json:"run_key"`
 	Pos    string `json:"pos,omitempty"`
 }
 
-// ListRunsInput 是 task_list_runs MCP 工具的 typed 入参（T3.2）。
-// dag_key 必填；status / limit 可选。status 枚举与 migration 0080
-// task_dag_runs.status CHECK 对齐：service / store 不重复校验，错误
-// status 由 DB CHECK 拒绝。
-//
-// ListRunsInput is the typed input for the task_list_runs MCP tool (T3.2).
-// dag_key required; status / limit optional. The status enum mirrors
-// migration 0080 task_dag_runs.status CHECK; service / store skip
-// re-validation and rely on the DB CHECK to reject illegal values.
+// ListRunsInput 是运行列表工具的过滤条件。
+// dag_key/pos 负责限定 DAG，status 非空时必须命中工具枚举，避免非法状态一路传到持久化层。
 type ListRunsInput struct {
 	DagKey string `json:"dag_key"`
 	Pos    string `json:"pos,omitempty"`
@@ -276,8 +272,8 @@ type ListRunsInput struct {
 	Limit  int32  `json:"limit,omitempty"`
 }
 
-// ApplyOpsInput 是 task_dag_apply_ops MCP 工具的 typed 入参（T2.1）。
-// Ops 是 raw JSON：service 内部用 nodeexec.Ops UnmarshalJSON 解码为 typed Op slice。
+// ApplyOpsInput 是 DAG 模板变更工具的 wire 入参。
+// base_version 原样传给服务层做 OCC；Ops 保持 raw JSON，由 nodeexec 解码并统一校验。
 type ApplyOpsInput struct {
 	DagKey      string          `json:"dag_key"`
 	Pos         string          `json:"pos,omitempty"`
@@ -297,16 +293,8 @@ type ApplyOpsInput struct {
 	Patch       json.RawMessage `json:"patch,omitempty"`
 }
 
-// HandleListRuns 是 task_list_runs MCP 工具的 handler（T3.2）。
-// 调 service.ListRuns 后返回 {runs: [...]} 包对象（留 next_cursor / total
-// 等扩展位）。list 路径无业务 sentinel（DAG 不存在返空 slice，store
-// 未定义判空为 sentinel），错误走默认 fallback。
-//
-// HandleListRuns is the task_list_runs MCP tool handler (T3.2). It calls
-// service.ListRuns and returns {runs: [...]} (object wrapper reserves room
-// for next_cursor / total etc.). The list path has no business sentinels
-// (a missing DAG yields an empty slice rather than an error), so errors
-// fall through to the default translation.
+// HandleListRuns 返回运行列表的包装对象。
+// list 路径没有业务哨兵错误，DAG 未命中时保持空 slice；其他错误由通用工具错误转换处理。
 func HandleListRuns(svc contract.OrchestrationService) ToolHandler {
 	return makeHandler(svc, "orchestration service", func(ctx context.Context, in ListRunsInput) (any, error) {
 		req, err := listRunsRequestFromInput(in)
@@ -364,13 +352,8 @@ func listDAGsFilterFromInput(in ListDAGsInput) (contract.ListDAGsFilter, error) 
 	}, nil
 }
 
-// listRunsRequestFromInput 把 ListRunsInput 校验为 contract.ListRunsRequest。
-// status 可选：空串视为「不过滤」放行；非空必须命中 listRunsStatusEnum
-// （与 schema 单源 + DB CHECK 三层互锁）。
-//
-// listRunsRequestFromInput validates the ListRunsInput. status is optional:
-// empty means "no filter"; a non-empty value must hit listRunsStatusEnum
-// (single source shared with the schema; mirrored by the migration CHECK).
+// listRunsRequestFromInput 把 ListRunsInput 校验为服务层请求。
+// status 为空表示不过滤；非空必须命中工具枚举，和 schema 共用同一份值域。
 func listRunsRequestFromInput(in ListRunsInput) (contract.ListRunsRequest, error) {
 	dagKey, err := resolveDAGKeyInput(in.DagKey, in.Pos)
 	if err != nil {
@@ -391,21 +374,14 @@ func listRunsRequestFromInput(in ListRunsInput) (contract.ListRunsRequest, error
 	}, nil
 }
 
-// HandleStartDAG 是 task_start_dag MCP 工具的 handler（T1.1）。
-// 它创建 run、复制模板节点，并把根节点推到 ready。
+// HandleStartDAG 创建一次 DAG run、复制模板节点，并把根节点推到 ready。
 // 未指派的根节点不会自动失败，会等 task_dispatch_node 或人工接管。
 //
-// 错误转译（路线 N）：
+// 错误转译：
 //   - ErrIdempotencyKeyExhausted → 中英双语提示 + 携带旧 RunKey + status，
 //     方便 AI agent 决策是否换 idempotency_key 重试。
 //   - ErrDAGAlreadyRunning → 中英双语提示。
 //   - ErrDAGNotFound → 中英双语提示 + 提示先调 task_create_dag。
-//
-// Error translation (route N):
-//   - ErrIdempotencyKeyExhausted → bilingual hint with previous RunKey +
-//     status so the AI caller can decide to retry with a fresh idempotency_key.
-//   - ErrDAGAlreadyRunning → bilingual hint.
-//   - ErrDAGNotFound → bilingual hint pointing the caller to task_create_dag.
 func HandleStartDAG(svc contract.OrchestrationService) ToolHandler {
 	return makeHandler(svc, "orchestration service", func(ctx context.Context, in StartDAGInput) (any, error) {
 		req, err := startDAGRequestFromInput(in)
@@ -420,7 +396,8 @@ func HandleStartDAG(svc contract.OrchestrationService) ToolHandler {
 	})
 }
 
-// HandleTerminateDAG 处理终止 DAG 的工具调用。
+// HandleTerminateDAG 终止指定 DAG run。
+// 终止错误会在工具层翻译成可操作提示，避免调用方把状态冲突误当作瞬时失败重试。
 func HandleTerminateDAG(svc contract.OrchestrationService) ToolHandler {
 	return makeHandler(svc, "orchestration service", func(ctx context.Context, in TerminateDAGInput) (any, error) {
 		req, err := terminateDAGRequestFromInput(in)
@@ -434,7 +411,8 @@ func HandleTerminateDAG(svc contract.OrchestrationService) ToolHandler {
 	})
 }
 
-// HandleDeleteDAG 处理删除 DAG 的工具调用。
+// HandleDeleteDAG 删除 DAG 模板。
+// 删除前只解析定位符，运行状态和引用约束由服务层统一判定。
 func HandleDeleteDAG(svc contract.OrchestrationService) ToolHandler {
 	return makeHandler(svc, "orchestration service", func(ctx context.Context, in DeleteDAGInput) (any, error) {
 		dagKey, err := resolveDAGKeyInput(in.DagKey, in.Pos)
@@ -448,13 +426,8 @@ func HandleDeleteDAG(svc contract.OrchestrationService) ToolHandler {
 	})
 }
 
-// startDAGRequestFromInput 把 StartDAGInput 校验为 contract.StartDAGRequest。
-// trigger_source 可选：非空必须命中 startDAGTriggerEnum（schema 单源 +
-// migration 0082 CHECK 双闸）。
-//
-// startDAGRequestFromInput validates the StartDAGInput. trigger_source is
-// optional; a non-empty value must hit startDAGTriggerEnum (single source
-// shared with the schema; mirrored by migration 0082 CHECK).
+// startDAGRequestFromInput 把 StartDAGInput 校验为服务层请求。
+// trigger_source 可选；非空必须命中工具枚举，idempotency_key 只裁剪空白不改写语义。
 func startDAGRequestFromInput(in StartDAGInput) (contract.StartDAGRequest, error) {
 	dagKey, err := resolveDAGKeyInput(in.DagKey, in.Pos)
 	if err != nil {

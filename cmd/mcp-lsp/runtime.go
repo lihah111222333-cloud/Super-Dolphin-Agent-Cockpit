@@ -23,7 +23,8 @@ import (
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
-// Manager is the local runtime hook point for LSP and exec resources.
+// Manager 汇总 mcp-lsp 进程内的语言 registry、后台 runner 和 scope 释放器。
+// 它是 MCP 工具层进入 LSP runtime 的本地边界，不直接暴露具体 ManagerPool 实现。
 type Manager struct {
 	registry          manager.Registry
 	root              string
@@ -31,10 +32,8 @@ type Manager struct {
 	releaseScopes     []multilsp.ScopeReleaser
 }
 
-// BackgroundRunners returns the long-running owners this Manager
-// contributes to the root `group:"runners"` aggregation. Currently
-// the per-language ManagerPool recyclers. See P22 P2 LSP-S1
-// (docs/plans/迁移/p22/P2_BusRuntimeDecoupling.md §480-494).
+// BackgroundRunners 返回需要交给根 runner 聚合器托管的 LSP 后台任务。
+// 当前主要是各语言 ManagerPool 的 recycler；nil Manager 返回 nil，便于上层统一过滤。
 func (m *Manager) BackgroundRunners() []platformrunner.Runner {
 	if m == nil {
 		return nil
@@ -42,7 +41,8 @@ func (m *Manager) BackgroundRunners() []platformrunner.Runner {
 	return m.backgroundRunners
 }
 
-// newManager 创建manager。
+// newManager 根据平台配置组装语言适配器、安装器、registry 和后台 runner。
+// 配置缺失、runtime 根目录缺失或语言适配器不完整都会立即返回错误，避免启动半可用 LSP 服务。
 func newManager(cfg *platformconfig.Config) (*Manager, error) {
 	if cfg == nil {
 		return nil, errors.New("platform config is required")
@@ -110,7 +110,8 @@ func runtimeWorkspaceRoots() ([]string, error) {
 	return nil, errors.New("runtime workspace roots env is required")
 }
 
-// runtimeWorkspaceRootsFromEnv 从env处理运行时工作区根目录。
+// runtimeWorkspaceRootsFromEnv 从环境变量读取 sidecar 可信工作区根。
+// 显式配置为空会返回 configured=true，调用方据此 fail-fast 而不是退回进程 cwd。
 func runtimeWorkspaceRootsFromEnv() ([]string, bool, error) {
 	if rawRoots, ok := os.LookupEnv("GO_AGENT_LSP_ROOTS"); ok {
 		rawRoots = strings.TrimSpace(rawRoots)
@@ -263,7 +264,8 @@ func registerRuntimeAdapter(
 	return mgr.BackgroundRunner(), scopeReleaserFromManager(mgr), nil
 }
 
-// bundledAdapterServer 处理bundled适配器服务端。
+// bundledAdapterServer 为一个语言适配器选择打包内置的 LSP server。
+// 同一适配器声明的多个语言必须映射到同一二进制，否则返回错误防止启动错配 server。
 func bundledAdapterServer(adapter multilsp.LanguageAdapter, bundle runtimeenv.LSPBundle) (runtimeenv.LSPServer, error) {
 	var selected runtimeenv.LSPServer
 	for _, languageID := range adapter.LanguageIDs() {
@@ -360,7 +362,8 @@ func runtimeScopedResolver(mgr multilsp.Manager) manager.ScopedManagerResolver {
 	return multilsp.NewRegistryScopedResolver(mgr)
 }
 
-// setupInstaller 处理setupinstaller。
+// setupInstaller 注册按需安装各语言 LSP server 的命令。
+// 仅在未使用打包 LSP bundle 时启用，避免运行时覆盖应用随包携带的二进制。
 func setupInstaller() *installer.Provider {
 	inst := installer.NewProvider()
 
@@ -437,7 +440,8 @@ func createFallbackManager(adapters *multilsp.LanguageAdapterRegistry, root stri
 	})
 }
 
-// createGenericManagerWithBinary 创建带二进制的genericmanager。
+// createGenericManagerWithBinary 创建可热更新二进制路径的通用 multilsp manager。
+// ClientFactory 按每次解析出的 workspace root 设置子进程 Dir，避免不同项目共享同一启动目录。
 func createGenericManagerWithBinary(adapter multilsp.LanguageAdapter, adapters *multilsp.LanguageAdapterRegistry, root string, log *slog.Logger, binaryOverride string, packagedLSP bool) (multilsp.Manager, error) {
 	command, err := adapter.ServerCommand(context.Background(), multilsp.ResolvedLanguageScope{})
 	if err != nil {
@@ -453,13 +457,8 @@ func createGenericManagerWithBinary(adapter multilsp.LanguageAdapter, adapters *
 		LanguageAdapters:                 adapters,
 		DisableInitialWorkspaceBootstrap: true,
 		ClientFactory: multilsp.ClientFactoryWithEnvFunc(func(rootDir string, env []string, h protocol.NotificationHandler) (multilsp.Client, error) {
-			// rootDir is supplied per-call from cfg.rootPath so the
-			// language server subprocess Dir tracks the workspace being
-			// initialised.
-			// For example, this follows ctx _cwd from an agent in
-			// another project. It falls back to the manager's startup
-			// root only when the caller has not resolved a specific
-			// workspace yet.
+			// rootDir 来自本次 workspace 解析结果，让语言服务器子进程跟随调用方项目。
+			// 只有调用方尚未解析到具体 workspace 时，才退回 manager 启动根目录。
 			dir := rootDir
 			if strings.TrimSpace(dir) == "" {
 				dir = root
@@ -480,7 +479,8 @@ func createGenericManagerWithBinary(adapter multilsp.LanguageAdapter, adapters *
 
 const packagedPyrightNoSystemPythonPath = "/__super_dolphin_no_system_python__/python"
 
-// runtimeAdapterInitOptions 处理运行时适配器init选项。
+// runtimeAdapterInitOptions 复制适配器 init options 并补充打包 LSP 的运行约束。
+// 打包 Pyright 使用哨兵 pythonPath，防止它隐式探测系统 Python 造成跨环境差异。
 func runtimeAdapterInitOptions(adapter multilsp.LanguageAdapter, packagedLSP bool) map[string]any {
 	initOptions := adapter.InitOptions(multilsp.ResolvedLanguageScope{})
 	if !packagedLSP || !adapterSupportsLanguage(adapter, "python") {
@@ -524,7 +524,8 @@ type runtimeBinaryOverride struct {
 	value string
 }
 
-// Set 设置LSP。
+// Set 在 installer 或 bundle 解析到新二进制后更新后续 client 使用的路径。
+// 空路径会被忽略，避免把已验证的可执行文件覆盖成不可启动状态。
 func (b *runtimeBinaryOverride) Set(path string) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -533,7 +534,8 @@ func (b *runtimeBinaryOverride) Set(path string) {
 	}
 }
 
-// Get 读取LSP。
+// Get 返回当前语言 server 二进制路径。
+// 读锁保证并发创建 client 时能看到一致的路径字符串。
 func (b *runtimeBinaryOverride) Get() string {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
@@ -545,7 +547,8 @@ type runtimeBinaryManager struct {
 	binary *runtimeBinaryOverride
 }
 
-// RegistryScopedResolver 处理注册表scoped解析器。
+// RegistryScopedResolver 暴露 runtime manager 的按工具作用域解析能力。
+// nil receiver 返回 nil，registry 会继续使用非 scoped 路径而不是解引用 panic。
 func (m *runtimeBinaryManager) RegistryScopedResolver() manager.ScopedManagerResolver {
 	if m == nil {
 		return nil
@@ -553,7 +556,8 @@ func (m *runtimeBinaryManager) RegistryScopedResolver() manager.ScopedManagerRes
 	return multilsp.NewRegistryScopedResolver(m.Manager)
 }
 
-// ReleaseScope 处理release作用域。
+// ReleaseScope 将 runtimeBinaryManager 的释放请求转交给底层 ManagerPool。
+// 底层不支持 ScopeReleaser 时返回零值结果，保持非池实现的兼容边界。
 func (m *runtimeBinaryManager) ReleaseScope(req multilsp.ReleaseScopeRequest) (multilsp.ReleaseScopeResult, error) {
 	if m == nil {
 		return multilsp.ReleaseScopeResult{}, nil
@@ -580,7 +584,8 @@ func (m *Manager) Close() error {
 	return nil
 }
 
-// ReleaseScope 处理release作用域。
+// ReleaseScope 将 MCP DTO 转换为 multilsp release 请求并广播给所有语言池。
+// 每个语言池独立统计命中/关闭/忙碌租约，首个关闭错误会随聚合结果返回给调用方。
 func (m *Manager) ReleaseScope(req mcpdto.LSPReleaseScopeRequest) (mcpdto.LSPReleaseScopeResult, error) {
 	if m == nil {
 		return mcpdto.LSPReleaseScopeResult{}, nil

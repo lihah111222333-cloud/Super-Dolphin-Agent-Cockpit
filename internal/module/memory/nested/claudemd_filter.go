@@ -11,17 +11,9 @@ import (
 
 // shouldSkipInjectedSource 拦截不应由 nested 包注入的来源类型（AutoMem/TeamMem），防止双重注入。
 func shouldSkipInjectedSource(source ClaudeMdSource, _ GateSnapshot) bool {
-	// Phase 1.6 removed AutoMem / TeamMem from the nested ClaudeMd candidate
-	// set. If those types still appear in a future regression, reject them
-	// here outright — nested no longer owns prompt-time MEMORY.md injection.
-	// The GateSnapshot parameter is retained on the signature so callers
-	// don't need updating if a future per-source gate is reintroduced.
-	//
-	// Defense-in-depth; the full rationale lives in
-	// claudemd_candidates.go::resolveClaudeMdCandidates. (Note: secret
-	// scanning happens at the entrypoint provider, not at this filter —
-	// the rationale comment over there mentions both, but only sanitization
-	// parity is enforced here.)
+	// AutoMem/TeamMem 的 MEMORY.md 不属于 nested CLAUDE.md 来源；若未来回归中再次
+	// 出现在 source 列表，直接拒绝，防止绕过入口 provider 的清洗、截断和密钥扫描。
+	// GateSnapshot 参数保留在签名里，便于后续恢复按来源门控时不改调用点。
 	switch source.Type {
 	case sourceTypeAutoMem, sourceTypeTeamMem:
 		return true

@@ -5,7 +5,8 @@ import (
 	"strings"
 )
 
-// resolutionPreviewPaths 处理resolutionpreview路径。
+// resolutionPreviewPaths 根据动作计算 preview 的源路径、目标路径和 hash。
+// 覆盖类动作会交换 source/target；新建 personal skill 会落到 imported 个人根。
 func resolutionPreviewPaths(item skillResolutionItem, entry skillResolutionProviderEntry, p skillResolutionPreviewParams, superHome string) skillResolutionPreviewItem {
 	preview := skillResolutionPreviewItem{Action: p.Action, Provider: entry.Provider, SourceProvider: entry.Provider, SourcePathID: entry.SourcePathID}
 	switch p.Action {

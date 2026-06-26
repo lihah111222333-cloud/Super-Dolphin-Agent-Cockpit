@@ -101,7 +101,7 @@ func isLegacyDefaultPostgresServerConfig(config ServerConfig) bool {
 		len(config.Env) == 0
 }
 
-// replaceDefaultPostgresServer 只迁移完全匹配旧默认值的 postgres 配置。
+// replaceDefaultPostgresServer 只转换完全匹配内置默认值的 postgres 配置。
 // 这里不碰自定义 command，避免把用户手写的 MCP server 误改成内置默认值。
 func (s *service) replaceDefaultPostgresServer(ctx context.Context, config ServerConfig) (string, error) {
 	workspaceRoot, servers, err := s.resolveWorkspaceServers(ctx, "")

@@ -13,11 +13,8 @@ type registryScopedResolver struct {
 	pool *ManagerPool
 }
 
-// NewRegistryScopedResolver exposes the manager's pool through the manager
-// package's small resolver interface. Keeping the adapter here avoids a
-// manager -> multilsp import cycle while ensuring production registry calls
-// route through ManagerPool.ForScope.
-// NewRegistryScopedResolver 创建注册表scoped解析器。
+// NewRegistryScopedResolver 将 multilsp manager pool 暴露为 registry 可用的 scoped resolver。
+// 适配器留在 multilsp 包内，既避免 manager 包反向依赖 multilsp，也保证生产调用走 ManagerPool.ForScope。
 func NewRegistryScopedResolver(m Manager) lspmanager.ScopedManagerResolver {
 	concrete, ok := m.(*manager)
 	if !ok || concrete == nil || concrete.pool == nil {
@@ -26,7 +23,8 @@ func NewRegistryScopedResolver(m Manager) lspmanager.ScopedManagerResolver {
 	return registryScopedResolver{pool: concrete.pool}
 }
 
-// ForToolScope 为工具作用域处理LSP。
+// ForToolScope 将 MCP 工具作用域解析为对应的 scoped LSP manager。
+// 解析过程会校验 workspace roots 和目标路径 containment，失败时直接返回错误阻止跨项目复用。
 func (r registryScopedResolver) ForToolScope(scope lspmanager.ToolScope) (lspmanager.ScopedManager, error) {
 	if r.pool == nil {
 		return lspmanager.ScopedManager{}, errors.New("LSP manager pool is nil")
@@ -42,7 +40,8 @@ func (r registryScopedResolver) ForToolScope(scope lspmanager.ToolScope) (lspman
 	return managerScopedManager(scoped), nil
 }
 
-// CurrentManagersForToolScope 为工具作用域处理当前managers。
+// CurrentManagersForToolScope 返回当前已存在且匹配工具作用域的 manager 快照。
+// 它只读池内 clone，不会创建新 manager；当前 workspace roots 不匹配的快照会被过滤掉。
 func (r registryScopedResolver) CurrentManagersForToolScope(scope lspmanager.ToolScope) ([]lspmanager.ScopedManager, error) {
 	if r.pool == nil {
 		return nil, errors.New("LSP manager pool is nil")
@@ -123,7 +122,8 @@ func (r registryScopedResolver) adapterForLanguage(languageID string) (LanguageA
 	return adapter, nil
 }
 
-// registryBaseScope 处理注册表base作用域。
+// registryBaseScope 将 manager.ToolScope 规范化为 LSPToolScope 的基础形态。
+// 目标路径必须落在可信 workspace roots 内；languageID 缺失时才按目标文件推断。
 func (r registryScopedResolver) registryBaseScope(scope lspmanager.ToolScope) (LSPToolScope, error) {
 	cwd := canonicalScopePath(scope.CWD, "")
 	if cwd == "" && r.pool != nil && r.pool.primary != nil {

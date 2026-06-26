@@ -12,6 +12,7 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/devtools/capcontract"
 )
 
+// defaultCapabilityRoots 是 capability manifest 默认扫描的跨模块契约根目录。
 var defaultCapabilityRoots = []string{
 	"internal/contract",
 	"internal/provider",
@@ -19,9 +20,10 @@ var defaultCapabilityRoots = []string{
 	"cmd/mcp-orch/tools",
 }
 
+// capabilityManifestPath 是生成文件的规范位置，check 模式会用它比对工作区状态。
 const capabilityManifestPath = "docs/doc/codemap/capability-contract/capability_manifest.json"
 
-// main 解析参数并执行命令行入口流程。
+// main 解析 capability manifest 命令行参数，并执行生成或只检查模式。
 func main() {
 	check := flag.Bool("check", false, "verify generated capability manifest without modifying the worktree")
 	rootsFlag := flag.String("roots", strings.Join(defaultCapabilityRoots, ","), "comma-separated roots to scan")
@@ -60,6 +62,8 @@ func main() {
 		manifest.Summary.TotalPackages, manifest.Summary.TotalFunctions, manifest.Summary.TotalMethods, manifest.Summary.TotalInterfaces)
 }
 
+// buildCapabilityManifest 扫描源码并返回 manifest 及其稳定 JSON 表示。
+// 已有 manifest 的 generated_at 会被复用，避免 check 模式因为日期漂移失败。
 func buildCapabilityManifest(repoRoot string, roots []string, outPath string) (*capcontract.Manifest, []byte, error) {
 	generatedAt := time.Now().Format("2006-01-02")
 	if existing, ok := existingCapabilityGeneratedAt(filepath.Join(repoRoot, filepath.FromSlash(outPath))); ok {
@@ -76,6 +80,7 @@ func buildCapabilityManifest(repoRoot string, roots []string, outPath string) (*
 	return manifest, data, nil
 }
 
+// checkCapabilityManifest 对比磁盘文件和新生成内容，不匹配时提示调用生成命令。
 func checkCapabilityManifest(path string, want []byte) error {
 	got, err := os.ReadFile(path)
 	if err != nil {
@@ -87,6 +92,7 @@ func checkCapabilityManifest(path string, want []byte) error {
 	return nil
 }
 
+// parseRoots 解析逗号分隔的扫描根目录，并统一为 slash 路径。
 func parseRoots(raw string) []string {
 	parts := strings.Split(raw, ",")
 	roots := make([]string, 0, len(parts))
@@ -99,6 +105,7 @@ func parseRoots(raw string) []string {
 	return roots
 }
 
+// existingCapabilityGeneratedAt 读取已有 manifest 日期，读取失败时返回 ok=false。
 func existingCapabilityGeneratedAt(path string) (string, bool) {
 	manifest, err := capcontract.LoadManifest(path)
 	if err != nil || strings.TrimSpace(manifest.GeneratedAt) == "" {
@@ -107,7 +114,7 @@ func existingCapabilityGeneratedAt(path string) (string, bool) {
 	return strings.TrimSpace(manifest.GeneratedAt), true
 }
 
-// findRepoRoot 查找仓库根目录。
+// findRepoRoot 从 start 向上查找包含 go.mod 和 CLAUDE.md 的仓库根目录。
 func findRepoRoot(start string) (string, error) {
 	dir, err := filepath.Abs(start)
 	if err != nil {
@@ -125,6 +132,7 @@ func findRepoRoot(start string) (string, error) {
 	}
 }
 
+// fileExists 判断路径是否存在且不是目录。
 func fileExists(path string) bool {
 	info, err := os.Stat(path)
 	return err == nil && !info.IsDir()

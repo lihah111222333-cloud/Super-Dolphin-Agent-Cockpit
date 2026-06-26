@@ -9,15 +9,11 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/module/skill/skillhash"
 )
 
-// ErrSkillSystemReviewRequired is returned before any system-scope skill write
-// that lacks an explicit human/admin review decision.
+// ErrSkillSystemReviewRequired 表示 system scope skill 写入缺少人工审批信息。
 var ErrSkillSystemReviewRequired = errors.New("skill system review required")
 
-// RequireSkillSystemReview gates writes into the user/system skill root. Project
-// scope never reaches this gate. System scope requires a stable slug, content
-// hash, repo fingerprint, reviewer and reason so callers can persist/audit the
-// decision before retrying the write.
-// RequireSkillSystemReview 处理require技能systemreview。
+// RequireSkillSystemReview 校验 system scope 写入必须携带完整审批上下文。
+// project scope 不进入该 gate；system scope 缺少 slug/hash/repo/reviewer/reason 任一字段都会阻断。
 func RequireSkillSystemReview(scope, slug, contentHash, repoFingerprint, approvedBy, reason string) error {
 	if strings.EqualFold(strings.TrimSpace(scope), skillScopeSystem) &&
 		(strings.TrimSpace(slug) == "" || strings.TrimSpace(contentHash) == "" || strings.TrimSpace(repoFingerprint) == "" || strings.TrimSpace(approvedBy) == "" || strings.TrimSpace(reason) == "") {
@@ -30,7 +26,7 @@ func skillContentHash(content string) string { return skillhash.Content(content)
 
 func skillDirContentHash(root string) (string, error) { return skillhash.Dir(root) }
 
-// resolveSymlinkPath 解析symlink路径。
+// resolveSymlinkPath 解析符号链接的最终目标，解析失败时返回原路径。
 func resolveSymlinkPath(path string) string {
 	if realPath, err := filepath.EvalSymlinks(path); err == nil {
 		return realPath

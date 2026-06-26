@@ -54,8 +54,9 @@ func digestClaudeMdCandidates(candidates []claudeMdCandidate) string {
 	return hex.EncodeToString(hasher.Sum(nil))
 }
 
-// resolveClaudeMdCandidates 按 managed/user/project/addDir 顺序收集所有候选项。
-// Phase 1.6 起不再追加 AutoMem/TeamMem，防止双重注入。
+// resolveClaudeMdCandidates 按 managed、user、project、addDir 顺序收集 CLAUDE.md 候选项。
+// AutoMem/TeamMem 的 MEMORY.md 由 MemoryEntrypointProvider 单独注入，不进入 nested
+// 候选集，避免同一记忆入口走两套清洗和密钥扫描规则。
 func resolveClaudeMdCandidates(cfg ClaudeMdResolveConfig, gate GateSnapshot) ([]claudeMdCandidate, error) {
 	seen := make(map[string]struct{}, 16)
 	candidates := make([]claudeMdCandidate, 0, 16)
@@ -75,15 +76,9 @@ func resolveClaudeMdCandidates(cfg ClaudeMdResolveConfig, gate GateSnapshot) ([]
 			return nil, err
 		}
 	}
-	// Phase 1.6: AutoMem / TeamMem MEMORY.md are NOT appended here anymore.
-	// MemoryEntrypointProvider (in the parent memory package) is the sole
-	// owner of the prompt-injected MEMORY.md; duplicating it through the
-	// ClaudeMd source pipeline produced double injection with divergent
-	// stripping rules (frontmatter was stripped only on the entrypoint path).
-	//
-	// Do NOT re-add via nested unless sanitization (BOM / frontmatter / HTML
-	// comments / truncation) and team secret scanning are unified with
-	// MemoryEntrypointProvider; otherwise the divergence regresses.
+	// 记忆入口文件不能在这里追加：nested 来源负责 CLAUDE.md/规则文件，
+	// MEMORY.md 入口负责持久化记忆索引。混用会造成重复注入，并让 BOM/frontmatter/
+	// HTML 注释清理、长度截断和团队密钥扫描边界分裂。
 	return candidates, nil
 }
 
@@ -182,15 +177,9 @@ func appendClaudeMdCandidate(candidates *[]claudeMdCandidate, seen map[string]st
 	if !ok {
 		return nil
 	}
-	// Phase 2.1.B: resolveClaudeMdCandidatePath EvalSymlinks the path but
-	// does NOT confirm the resolved location stays inside the candidate's
-	// intended base. A symlink at <baseDir>/CLAUDE.md pointing at
-	// /etc/passwd would otherwise enqueue an out-of-base file for nested
-	// injection. Resolve BaseDir through symlinks too (e.g. macOS /var
-	// -> /private/var) so the containment compare uses two canonical
-	// paths, then reject candidates whose resolved path escapes the
-	// resolved BaseDir. loadStandardClaudeMdSource performs the same check
-	// at load time as defense-in-depth.
+	// 候选路径和 BaseDir 都解析符号链接后再做包含关系判断，避免
+	// <baseDir>/CLAUDE.md 指向根目录外文件并被 nested 注入。加载阶段还会再次校验，
+	// 防止候选收集和读取之间符号链接被替换。
 	if candidate.BaseDir != "" {
 		resolvedBase := candidate.BaseDir
 		if evaled, err := filepath.EvalSymlinks(candidate.BaseDir); err == nil {

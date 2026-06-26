@@ -22,6 +22,7 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/util/pathutil"
 )
 
+// buildRPCPrepareInput 将 turn/start RPC 参数拆成普通输入和 skill 输入后构造 PrepareInput。
 func buildRPCPrepareInput(p turnStartParams, session contract.Session, threadRuntimeConfig map[string]any) PrepareInput {
 	items, inputSkills := buildTurnStartInputs(p.Input)
 	return buildPrepareInput(prepareInputSpec{
@@ -50,6 +51,7 @@ func buildRPCPrepareInput(p turnStartParams, session contract.Session, threadRun
 	}, session)
 }
 
+// resolveTurnRPCCWD 使用线程运行时配置中的 cwd 作为权威值，拒绝请求携带的不一致 cwd。
 func resolveTurnRPCCWD(requestCWD string, threadRuntimeConfig map[string]any) (string, error) {
 	requestCWD = strings.TrimSpace(requestCWD)
 	authoritativeCWD, err := strictRuntimeCWD(threadRuntimeConfig, "thread runtime config")
@@ -65,7 +67,7 @@ func resolveTurnRPCCWD(requestCWD string, threadRuntimeConfig map[string]any) (s
 	return authoritativeCWD, nil
 }
 
-// sameTurnRPCCWD 处理sameturnrpccwd。
+// sameTurnRPCCWD 比较请求 cwd 与权威 cwd，Windows 下按大小写不敏感路径处理。
 func sameTurnRPCCWD(requestCWD, authoritativeCWD string) bool {
 	if requestCWD == authoritativeCWD {
 		return true
@@ -84,6 +86,7 @@ func sameTurnRPCCWD(requestCWD, authoritativeCWD string) bool {
 	return normalizedRequest == normalizedAuthoritative
 }
 
+// strictRuntimeCWD 从运行时配置读取 cwd，类型错误会转成 RPC invalid params。
 func strictRuntimeCWD(cfg map[string]any, label string) (string, error) {
 	cwd, err := configutil.StrictString(cfg, label, "cwd")
 	if err != nil {
@@ -92,6 +95,7 @@ func strictRuntimeCWD(cfg map[string]any, label string) (string, error) {
 	return cwd, nil
 }
 
+// buildTurnStartInputs 把 RPC input 拆为 provider 输入项和 name-only skill 请求。
 func buildTurnStartInputs(raw []turnInputItemParams) ([]InputItem, []string) {
 	items := make([]InputItem, 0, len(raw))
 	skills := make([]string, 0, len(raw))
@@ -108,6 +112,7 @@ func buildTurnStartInputs(raw []turnInputItemParams) ([]InputItem, []string) {
 	return items, skills
 }
 
+// resolveTurnSession 立即解析当前线程 session，缺失时返回可展示的 RPC 状态错误。
 func resolveTurnSession(ctx context.Context, resolver contract.SessionResolver) (contract.Session, error) {
 	if resolver == nil {
 		return nil, platformrpc.ErrInvalidState("turn rpc: session resolver is not configured")
@@ -122,6 +127,7 @@ func resolveTurnSession(ctx context.Context, resolver contract.SessionResolver) 
 	return session, nil
 }
 
+// withTurnSession 解析 session 后执行 RPC 回调，供无需等待 launch 的接口复用。
 func withTurnSession(ctx context.Context, resolver contract.SessionResolver, fn func(context.Context, contract.Session) (any, error)) (any, error) {
 	session, err := resolveTurnSession(ctx, resolver)
 	if err != nil {
@@ -130,6 +136,7 @@ func withTurnSession(ctx context.Context, resolver contract.SessionResolver, fn 
 	return fn(ctx, session)
 }
 
+// resolveReadyTurnSession 在 pending launch 场景等待 session 出现，避免首 turn 抢跑。
 func resolveReadyTurnSession(ctx context.Context, resolver contract.SessionResolver) (contract.Session, error) {
 	if resolver == nil {
 		return nil, platformrpc.ErrInvalidState("turn rpc: session resolver is not configured")
@@ -147,6 +154,7 @@ func resolveReadyTurnSession(ctx context.Context, resolver contract.SessionResol
 	return waitForReadyTurnSession(waitCtx, resolver, threadID)
 }
 
+// lookupReadyTurnSession 做一次 session 查询，nil session 会规范化为 ErrSessionNotFound。
 func lookupReadyTurnSession(
 	ctx context.Context,
 	resolver contract.SessionResolver,
@@ -162,6 +170,7 @@ func lookupReadyTurnSession(
 	return session, nil
 }
 
+// readyTurnWaitContext 给 ready 等待补默认超时，调用方已有 deadline 时不覆盖。
 func readyTurnWaitContext(ctx context.Context) (context.Context, context.CancelFunc) {
 	return ctxutil.WithTimeoutIfNone(ctx, ctxutil.LaunchTimeout)
 }
@@ -190,6 +199,7 @@ func waitForReadyTurnSession(
 	}
 }
 
+// withReadyTurnSession 等待 session 可用后执行回调，用于 start/steer 这类可触发 launch 的接口。
 func withReadyTurnSession(ctx context.Context, resolver contract.SessionResolver, fn func(context.Context, contract.Session) (any, error)) (any, error) {
 	session, err := resolveReadyTurnSession(ctx, resolver)
 	if err != nil {
@@ -198,6 +208,7 @@ func withReadyTurnSession(ctx context.Context, resolver contract.SessionResolver
 	return fn(ctx, session)
 }
 
+// applyTurnStartConfig 在首 turn 提交前应用审批策略补丁；空策略保持 session 当前配置。
 func applyTurnStartConfig(ctx context.Context, session contract.Session, p turnStartParams) error {
 	policy := strings.TrimSpace(p.ApprovalPolicy)
 	if policy == "" {
@@ -206,12 +217,7 @@ func applyTurnStartConfig(ctx context.Context, session contract.Session, p turnS
 	return session.Configure(ctx, dto.ThreadConfigPatch{Approvals: &policy})
 }
 
-// P22 P4 S2: PendingLaunchSpawner was formerly defined here and exported
-// as turn.PendingLaunchSpawner; that placed the owner-side contract in a
-// consumer package (side-channel hidden contract). The interface now
-// lives in internal/contract as contract.PendingLaunchSpawner; turn only
-// consumes it.
-
+// collectTurnStartUserInput 提取用于 pending launch 路由判断的第一段用户文本。
 func collectTurnStartUserInput(p turnStartParams) string {
 	if text := strings.TrimSpace(p.Prompt); text != "" {
 		return text
@@ -227,14 +233,12 @@ func collectTurnStartUserInput(p turnStartParams) string {
 	return ""
 }
 
-// turnStartHandler 处理turn起点处理器。
+// turnStartHandler 处理 turn/start：必要时启动 pending provider、校验 cwd，再提交首个 turn。
 func turnStartHandler(svc Service, resolver contract.SessionResolver, spawner contract.PendingLaunchSpawner, capResolver contract.CapabilityResolver, runtimeReader ThreadStateConfigReader) handler.Func {
 	_ = capResolver
 	return platformrpc.ThreadHandler(func(ctx context.Context, p turnStartParams) (any, error) {
-		// C1: if this thread is still in pending_launch state, fork the
-		// provider CLI now using the first-turn user text for router
-		// evaluation. SpawnIfNeeded is a no-op for already-running
-		// threads, so eager-path threads are unaffected.
+		// pending_launch 线程在首个 turn/start 才真正启动 provider，并用首轮用户文本参与路由。
+		// 已运行线程在 SpawnIfNeeded 内是 no-op，不影响 eager 启动路径。
 		spawnRouting, err := traceSpawnIfNeeded(ctx, spawner, p)
 		if err != nil {
 			return nil, err
@@ -269,10 +273,8 @@ func turnStartHandler(svc Service, resolver contract.SessionResolver, spawner co
 				return nil, err
 			}
 			completeLaunchIntentIfAvailable(ctx, spawner)
-			// Forward the routing decision made by SpawnIfNeeded so the UI
-			// can fill its per-thread badge. Empty fields are elided via
-			// omitempty on turnStartResult; eager-path threads already got
-			// their routing from thread/start's response.
+			// 把 SpawnIfNeeded 的路由结果透传给 UI，用于补齐线程 badge。
+			// eager 启动线程已从 thread/start 拿到路由信息，这里的空字段会被 omitempty 隐去。
 			result := turnStartResult{
 				TurnID:          handle.LocalID(),
 				AgentKey:        spawnRouting.AgentKey,
@@ -286,6 +288,7 @@ func turnStartHandler(svc Service, resolver contract.SessionResolver, spawner co
 	})
 }
 
+// traceSpawnIfNeeded 在 pending_launch 线程上启动 provider，并返回 UI 需要展示的路由信息。
 func traceSpawnIfNeeded(ctx context.Context, spawner contract.PendingLaunchSpawner, p turnStartParams) (threaddto.SpawnRouting, error) {
 	if spawner == nil {
 		return threaddto.SpawnRouting{}, nil
@@ -297,6 +300,7 @@ func traceSpawnIfNeeded(ctx context.Context, spawner contract.PendingLaunchSpawn
 	return routing, nil
 }
 
+// tracedReadyTurnSession 在等待 session ready 时包裹 tracing span，方便定位首 turn 卡住阶段。
 func tracedReadyTurnSession(ctx context.Context, svc Service, resolver contract.SessionResolver) (context.Context, contract.Session, error) {
 	readyCtx := ctx
 	var readySpan turnTraceSpan
@@ -315,6 +319,7 @@ func tracedReadyTurnSession(ctx context.Context, svc Service, resolver contract.
 	return readyCtx, session, nil
 }
 
+// completeLaunchIntentIfAvailable 在 turn 成功提交后关闭 launch intent，避免 UI 继续显示待启动。
 func completeLaunchIntentIfAvailable(ctx context.Context, spawner contract.PendingLaunchSpawner) {
 	completer, ok := spawner.(contract.LaunchIntentCompleter)
 	if !ok {
@@ -323,7 +328,7 @@ func completeLaunchIntentIfAvailable(ctx context.Context, spawner contract.Pendi
 	completer.CompleteLaunchIntent(ctx, contract.ThreadIDFrom(ctx))
 }
 
-// turnSteerHandler 处理turnsteer处理器。
+// turnSteerHandler 处理 turn/steer：复用 start 输入解析，但要求 provider 支持消息发送能力。
 func turnSteerHandler(svc Service, resolver contract.SessionResolver, capResolver contract.CapabilityResolver, runtimeReader ThreadStateConfigReader) handler.Func {
 	_ = capResolver
 	return platformrpc.ThreadHandler(func(ctx context.Context, p turnSteerParams) (any, error) {
@@ -368,6 +373,7 @@ func turnSteerHandler(svc Service, resolver contract.SessionResolver, capResolve
 	})
 }
 
+// turnInterruptHandler 处理 turn/interrupt，并把本地等待超时转换成 ok=false 的中断结果。
 func turnInterruptHandler(svc Service, resolver contract.SessionResolver) handler.Func {
 	return platformrpc.ThreadHandler(func(ctx context.Context, p turnInterruptParams) (any, error) {
 		return withTurnSession(ctx, resolver, func(ctx context.Context, session contract.Session) (any, error) {
@@ -383,6 +389,7 @@ func turnInterruptHandler(svc Service, resolver contract.SessionResolver) handle
 	})
 }
 
+// turnForceCompleteHandler 处理强制完成请求，只负责把 service 成功结果映射为 RPC payload。
 func turnForceCompleteHandler(svc Service, resolver contract.SessionResolver) handler.Func {
 	return platformrpc.ThreadHandler(func(ctx context.Context, p threadIDOnlyParams) (any, error) {
 		return withTurnSession(ctx, resolver, func(ctx context.Context, session contract.Session) (any, error) {
@@ -394,6 +401,7 @@ func turnForceCompleteHandler(svc Service, resolver contract.SessionResolver) ha
 	})
 }
 
+// approvalRespondHandler 将 UI 审批响应转交给 provider approval responder，并要求显式决策。
 func approvalRespondHandler(approver contract.ApprovalResponder) handler.Func {
 	return platformrpc.StrictHandler(func(ctx context.Context, p approvalRespondParams) (any, error) {
 		if approver == nil {
@@ -409,6 +417,7 @@ func approvalRespondHandler(approver contract.ApprovalResponder) handler.Func {
 	})
 }
 
+// skillName 从兼容输入项中提取 skill 名称，非 skill 类型返回空。
 func (p turnInputItemParams) skillName() string {
 	if !strings.EqualFold(strings.TrimSpace(p.Type), "skill") {
 		return ""
@@ -416,7 +425,7 @@ func (p turnInputItemParams) skillName() string {
 	return util.FirstTrimmed(p.Name, p.Text, p.Content, p.Path)
 }
 
-// inputItem 处理inputitem。
+// inputItem 将兼容 text/content/path/url 形态归一化为 provider 输入项。
 func (p turnInputItemParams) inputItem() (InputItem, bool) {
 	item := InputItem{
 		Type:    util.FirstTrimmed(p.Type),

@@ -47,9 +47,8 @@ func symbolKindName(kind protocol.SymbolKind) string {
 	return fmt.Sprintf("SymbolKind(%d)", kind)
 }
 
-// FormatToPlainText checks if the result is a complex structured type
-// that requires specialized plain-text / Markdown formatting for the LLM.
-// FormatToPlainText 把LSP格式化为纯文本。
+// FormatToPlainText 将复杂工具结果渲染为面向模型阅读的纯文本。
+// 只处理已知结构化响应；未知类型返回 ok=false 交给默认 JSON 渲染。
 func FormatToPlainText(result any) (string, bool) {
 	if result == nil {
 		return "", false
@@ -66,10 +65,8 @@ func FormatToPlainText(result any) (string, bool) {
 	return formatCompactList(result)
 }
 
-// formatBudgetOverflow renders the {error_code: result_too_large, ...}
-// envelope produced by middleware.WithOutputBudget into LLM-readable
-// guidance instead of dumping raw JSON.
-// formatBudgetOverflow 把 result_too_large 信封渲染为 LLM 可读的提示文本。
+// formatBudgetOverflow 将 result_too_large 信封转成人类可读提示。
+// 输出包含实际字节数、预算和 next_action，避免模型只看到原始 JSON 后继续扩大结果。
 func formatBudgetOverflow(result any) (string, bool) {
 	payload, ok := result.(map[string]any)
 	if !ok {
@@ -127,7 +124,8 @@ func appendBudgetNextAction(sb *strings.Builder, value any) {
 	}
 }
 
-// formatXrefAndOutline 格式化xrefoutline。
+// formatXrefAndOutline 渲染跳转、调用层级和文档大纲类结果。
+// 这些结果保留 file:line:col 形态，便于后续直接传给 read_file 或 inspect。
 func formatXrefAndOutline(result any) (string, bool) {
 	switch val := result.(type) {
 	case protocol.GroupedLocationResult:
@@ -144,7 +142,7 @@ func formatXrefAndOutline(result any) (string, bool) {
 	return "", false
 }
 
-// formatOtherStructures 格式化otherstructures。
+// formatOtherStructures 渲染补全、折叠、签名和 workspace symbol 等非位置类 LSP 结果。
 func formatOtherStructures(result any) (string, bool) {
 	switch val := result.(type) {
 	case []protocol.WorkspaceSymbolResult:
@@ -233,8 +231,8 @@ func formatOutgoingCalls(sb *strings.Builder, outgoing []protocol.CallHierarchyO
 	}
 }
 
-// callSiteRanges renders call ranges in path:line form so the LLM can
-// copy them directly into a follow-up file.read_file or inspect call.
+// callSiteRanges 将调用点范围渲染成 path:line:col 列表。
+// 输出保持工具可复制格式，方便后续精确读取调用位置。
 func callSiteRanges(path string, ranges []protocol.Range) string {
 	if len(ranges) == 0 {
 		return "(none)"

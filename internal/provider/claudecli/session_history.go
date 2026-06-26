@@ -9,7 +9,8 @@ import (
 	platformshared "github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 )
 
-// ReadHistory 读取history。
+// ReadHistory 从 Claude 历史后端读取统一消息列表。
+// 旧调用方可能传入本地 agentID，空结果时会再尝试已解析的 Claude UUID，但后端错误不会被吞掉。
 func (s *session) ReadHistory(ctx context.Context, threadID string, limit int) ([]dto.Message, error) {
 	if s.history == nil {
 		return nil, errors.New("claudecli: history backend is not configured")
@@ -22,8 +23,7 @@ func (s *session) ReadHistory(ctx context.Context, threadID string, limit int) (
 	if err != nil {
 		return nil, err
 	}
-	// Fallback: when the requested threadID (e.g. agentID) has no history,
-	// try the session's resolved threadID (e.g. claude UUID from system:init).
+	// 兼容本地 agentID 与 Claude UUID 分离的旧线程，只有空结果才尝试已解析 ID。
 	if len(messages) == 0 {
 		resolved := strings.TrimSpace(s.ThreadID())
 		if resolved != "" && resolved != target {
@@ -36,7 +36,8 @@ func (s *session) ReadHistory(ctx context.Context, threadID string, limit int) (
 	return toProviderHistory(messages), nil
 }
 
-// ReadMessagesPage 读取消息page。
+// ReadMessagesPage 分页读取 Claude JSONL 历史并转换为 provider DTO。
+// 只有请求 ID 没有任何条目时才尝试当前会话的真实 Claude UUID，避免掩盖读取错误。
 func (s *session) ReadMessagesPage(ctx context.Context, threadID string, req dto.MessagePageRequest) (dto.MessagePageResult, error) {
 	if s.history == nil {
 		return dto.MessagePageResult{}, errors.New("claudecli: history backend is not configured")

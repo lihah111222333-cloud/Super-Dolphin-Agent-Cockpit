@@ -13,6 +13,7 @@ import (
 )
 
 const (
+	// TraceDiagnosis* 常量限制诊断响应体大小和各类摘要数量，避免一次查询返回过大 payload。
 	TraceDiagnosisDefaultLimit       = 80
 	TraceDiagnosisMaxLimit           = 200
 	TraceDiagnosisMaxSlowSummaries   = 20
@@ -30,6 +31,7 @@ const (
 )
 
 var (
+	// trace 诊断对外暴露的稳定错误，用于 RPC 层区分缺参和服务不可用。
 	ErrTraceDiagnosisMissingTraceID     = errors.New("observability trace diagnosis requires trace_id")
 	ErrTraceDiagnosisServiceUnavailable = errors.New("observability trace diagnosis service unavailable")
 )
@@ -37,6 +39,7 @@ var (
 const redactedPath = "[REDACTED_PATH]"
 
 var (
+	// 诊断输出脱敏正则，先处理 secret 模式，再处理身份和路径类字段。
 	diagnosisEmailPattern    = regexp.MustCompile(`[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}`)
 	diagnosisPhonePattern    = regexp.MustCompile(`\+?\d[\d .()\-]{7,}\d`)
 	diagnosisIPv4Pattern     = regexp.MustCompile(`\b(?:\d{1,3}\.){3}\d{1,3}\b`)
@@ -47,8 +50,10 @@ var (
 	diagnosisUNCPathPattern  = regexp.MustCompile(`\\\\[^\s,;]+`)
 )
 
+// TraceDiagnosisSource 表示诊断事件来源，区分内存索引、JSONL tail 或两者合并。
 type TraceDiagnosisSource string
 
+// TraceDiagnosisRequest 是 trace 诊断入口请求；CWD/WorkspaceRoot 只用于路径相对化和脱敏。
 type TraceDiagnosisRequest struct {
 	TraceID       string `json:"trace_id"`
 	Limit         int    `json:"limit,omitempty"`
@@ -58,6 +63,7 @@ type TraceDiagnosisRequest struct {
 	WorkspaceRoot string `json:"workspace_root,omitempty"`
 }
 
+// TraceDiagnosis 是对单个 trace 的聚合诊断结果，字段会在返回前按大小上限裁剪。
 type TraceDiagnosis struct {
 	TraceID          string                       `json:"trace_id"`
 	Limit            int                          `json:"limit"`
@@ -81,6 +87,7 @@ type TraceDiagnosis struct {
 	TailTruncated    bool                         `json:"tail_truncated,omitempty"`
 }
 
+// TraceDiagnosisTimelineItem 是诊断时间线中的单条事件摘要。
 type TraceDiagnosisTimelineItem struct {
 	Timestamp    time.Time  `json:"ts,omitzero"`
 	Status       Status     `json:"status,omitempty"`
@@ -96,12 +103,14 @@ type TraceDiagnosisTimelineItem struct {
 	Code         CodeAnchor `json:"code,omitzero"`
 }
 
+// TraceDiagnosisSpanSummary 汇总慢 span 的最小定位信息。
 type TraceDiagnosisSpanSummary struct {
 	SpanID     string `json:"span_id,omitempty"`
 	Method     string `json:"method,omitempty"`
 	DurationMS int64  `json:"duration_ms,omitempty"`
 }
 
+// TraceDiagnosisErrorSummary 汇总 error/panic 事件，includeStack 为 true 时携带受限 stack。
 type TraceDiagnosisErrorSummary struct {
 	SpanID     string       `json:"span_id,omitempty"`
 	Method     string       `json:"method,omitempty"`
@@ -111,6 +120,7 @@ type TraceDiagnosisErrorSummary struct {
 	Stack      []StackFrame `json:"stack,omitempty"`
 }
 
+// TraceDiagnosisRelatedIDs 收集诊断结果中出现的关联 ID，列表会去重并按上限裁剪。
 type TraceDiagnosisRelatedIDs struct {
 	ThreadIDs []string `json:"thread_ids,omitempty"`
 	AgentIDs  []string `json:"agent_ids,omitempty"`
@@ -119,7 +129,7 @@ type TraceDiagnosisRelatedIDs struct {
 	ToolNames []string `json:"tool_names,omitempty"`
 }
 
-// DiagnoseTrace 按 trace ID 生成诊断结果。
+// DiagnoseTrace 按 trace ID 生成诊断结果；内存索引优先，必要时补读 JSONL tail。
 func (s *Service) DiagnoseTrace(ctx context.Context, req TraceDiagnosisRequest) (TraceDiagnosis, error) {
 	rawTraceID := strings.TrimSpace(req.TraceID)
 	if rawTraceID == "" {
@@ -143,6 +153,7 @@ func (s *Service) DiagnoseTrace(ctx context.Context, req TraceDiagnosisRequest) 
 	return enforceTraceDiagnosisPayloadLimit(s.diagnosisFromQueryResult(diagnosis, result, req, projector)), nil
 }
 
+// normalizeTraceDiagnosisLimit 规范化诊断事件数量限制，避免过大请求拖垮响应。
 func normalizeTraceDiagnosisLimit(limit int) int {
 	if limit <= 0 {
 		return TraceDiagnosisDefaultLimit
@@ -153,6 +164,7 @@ func normalizeTraceDiagnosisLimit(limit int) int {
 	return limit
 }
 
+// diagnosisFromQueryResult 将 QueryResult 事件投影为诊断摘要，并记录来源和截断状态。
 func (s *Service) diagnosisFromQueryResult(diagnosis TraceDiagnosis, result QueryResult, req TraceDiagnosisRequest, projector traceDiagnosisProjector) TraceDiagnosis {
 	diagnosis.Source = traceDiagnosisSourceFromQuery(result)
 	diagnosis.Truncated = result.Truncated
@@ -162,6 +174,7 @@ func (s *Service) diagnosisFromQueryResult(diagnosis TraceDiagnosis, result Quer
 	return diagnosis
 }
 
+// diagnosisQuery 先查内存索引，再按配置和请求补读 tail，二者都有结果时合并。
 func (s *Service) diagnosisQuery(ctx context.Context, query Query, forceRefresh bool, diagnosis *TraceDiagnosis, projector traceDiagnosisProjector) QueryResult {
 	memory := s.index.Query(query)
 	if s.tail == nil {
@@ -179,6 +192,7 @@ func (s *Service) diagnosisQuery(ctx context.Context, query Query, forceRefresh 
 	return mergeQueryResults(memory, tail, query.Limit)
 }
 
+// diagnosisTailQuery 根据 forceRefresh 选择强制新读 tail 或使用服务内默认 tail 查询路径。
 func (s *Service) diagnosisTailQuery(ctx context.Context, query Query, forceRefresh bool) (QueryResult, error) {
 	if forceRefresh {
 		return s.queryTailFresh(ctx, query)
@@ -186,6 +200,7 @@ func (s *Service) diagnosisTailQuery(ctx context.Context, query Query, forceRefr
 	return s.queryTail(ctx, query)
 }
 
+// addTailStatus 把 tail 查询统计和错误投影到诊断结果，tail 异常会让结果降级而非整体失败。
 func (d *TraceDiagnosis) addTailStatus(result QueryResult, err error, projector traceDiagnosisProjector) {
 	d.TailAttempted = true
 	d.TailFresh = err == nil
@@ -205,6 +220,7 @@ func (d *TraceDiagnosis) addTailStatus(result QueryResult, err error, projector 
 	}
 }
 
+// tailDecodeWarnings 将最多 TraceDiagnosisMaxTailWarnings 个 JSONL 解码错误转成人类可读提示。
 func tailDecodeWarnings(errors []TailDecodeError, projector traceDiagnosisProjector) []string {
 	limit := len(errors)
 	if limit > TraceDiagnosisMaxTailWarnings {
@@ -217,6 +233,7 @@ func tailDecodeWarnings(errors []TailDecodeError, projector traceDiagnosisProjec
 	return warnings
 }
 
+// tailDecodeWarning 格式化单个 tail 解码错误，并对路径和错误文本做脱敏。
 func tailDecodeWarning(decodeError TailDecodeError, projector traceDiagnosisProjector) string {
 	parts := []string{"jsonl decode error"}
 	if file := projector.path(decodeError.File); file != "" {
@@ -234,6 +251,7 @@ func tailDecodeWarning(decodeError TailDecodeError, projector traceDiagnosisProj
 	return projector.string(strings.Join(parts, " "))
 }
 
+// traceDiagnosisSourceFromQuery 根据 QueryResult 来源和事件数量确定对外 source。
 func traceDiagnosisSourceFromQuery(result QueryResult) TraceDiagnosisSource {
 	if len(result.Events) == 0 {
 		return TraceDiagnosisSourceNone
@@ -250,7 +268,7 @@ func traceDiagnosisSourceFromQuery(result QueryResult) TraceDiagnosisSource {
 	}
 }
 
-// addEventSummary 添加事件摘要。
+// addEventSummary 将事件加入时间线，并按状态填充慢调用、错误和 panic 摘要。
 func (d *TraceDiagnosis) addEventSummary(event TraceEvent, includeStack bool, projector traceDiagnosisProjector) {
 	d.Timeline = append(d.Timeline, timelineItemFromEvent(event, projector))
 	d.RelatedIDs.addEvent(event, projector)
@@ -265,6 +283,7 @@ func (d *TraceDiagnosis) addEventSummary(event TraceEvent, includeStack bool, pr
 	}
 }
 
+// timelineItemFromEvent 生成时间线项，所有字符串和路径都经过 projector 脱敏。
 func timelineItemFromEvent(event TraceEvent, projector traceDiagnosisProjector) TraceDiagnosisTimelineItem {
 	return TraceDiagnosisTimelineItem{
 		Timestamp:    event.Timestamp,
@@ -282,10 +301,12 @@ func timelineItemFromEvent(event TraceEvent, projector traceDiagnosisProjector) 
 	}
 }
 
+// spanSummaryFromEvent 生成慢 span 摘要。
 func spanSummaryFromEvent(event TraceEvent, projector traceDiagnosisProjector) TraceDiagnosisSpanSummary {
 	return TraceDiagnosisSpanSummary{SpanID: projector.string(event.SpanID), Method: projector.string(event.Method), DurationMS: event.DurationMS}
 }
 
+// errorSummaryFromEvent 生成错误或 panic 摘要，stack 是否输出由请求控制。
 func errorSummaryFromEvent(event TraceEvent, includeStack bool, projector traceDiagnosisProjector) TraceDiagnosisErrorSummary {
 	summary := TraceDiagnosisErrorSummary{SpanID: projector.string(event.SpanID), Method: projector.string(event.Method), Status: projector.status(event.Status), Error: projector.string(event.Error), DurationMS: event.DurationMS}
 	if includeStack {
@@ -294,16 +315,20 @@ func errorSummaryFromEvent(event TraceEvent, includeStack bool, projector traceD
 	return summary
 }
 
+// traceDiagnosisProjector 负责诊断输出的路径相对化、敏感信息脱敏和字符串限长。
 type traceDiagnosisProjector struct{ roots []string }
 
+// newTraceDiagnosisProjector 从请求中的 workspace/cwd 构造可公开的路径根。
 func newTraceDiagnosisProjector(req TraceDiagnosisRequest) traceDiagnosisProjector {
 	return traceDiagnosisProjector{roots: diagnosisRoots(req.WorkspaceRoot, req.CWD)}
 }
 
+// codeAnchor 对源码锚点做路径和函数名脱敏。
 func (p traceDiagnosisProjector) codeAnchor(anchor CodeAnchor) CodeAnchor {
 	return CodeAnchor{File: p.path(anchor.File), Function: p.string(anchor.Function), Line: anchor.Line}
 }
 
+// stack 裁剪并脱敏 stack frame，避免一次 panic 泄露大量本机路径。
 func (p traceDiagnosisProjector) stack(frames []StackFrame) []StackFrame {
 	limit := len(frames)
 	if limit > TraceDiagnosisMaxStackFrames {
@@ -316,10 +341,12 @@ func (p traceDiagnosisProjector) stack(frames []StackFrame) []StackFrame {
 	return out
 }
 
+// status 复用字符串脱敏流程处理状态值，保持输出管线一致。
 func (p traceDiagnosisProjector) status(status Status) Status {
 	return Status(p.string(string(status)))
 }
 
+// string 规范化多行文本、脱敏 secret/身份/路径并按诊断字符串上限截断。
 func (p traceDiagnosisProjector) string(value string) string {
 	value = normalizeMultiline(value)
 	for _, pattern := range secretPatterns {
@@ -336,7 +363,7 @@ func (p traceDiagnosisProjector) string(value string) string {
 	return truncateUTF8(value, TraceDiagnosisMaxStringBytes)
 }
 
-// path 处理路径。
+// path 将 workspace 内路径转换为相对路径，workspace 外路径统一替换为 redactedPath。
 func (p traceDiagnosisProjector) path(value string) string {
 	value = strings.TrimSpace(normalizeMultiline(value))
 	if value == "" {
@@ -369,11 +396,12 @@ func (p traceDiagnosisProjector) path(value string) string {
 	return redactedPath
 }
 
+// diagnosisForeignPathLike 判断字符串是否像外部绝对路径，命中时不直接暴露。
 func diagnosisForeignPathLike(value string) bool {
 	return diagnosisWinPathPattern.MatchString(value) || diagnosisUNCPathPattern.MatchString(value) || diagnosisHomePathPattern.MatchString(value) || strings.HasPrefix(value, "/")
 }
 
-// diagnosisRoots 处理诊断根目录。
+// diagnosisRoots 清理请求中的 workspace/cwd 根目录，只保留有效绝对路径。
 func diagnosisRoots(values ...string) []string {
 	roots := make([]string, 0, len(values))
 	for _, value := range values {
@@ -394,11 +422,12 @@ func diagnosisRoots(values ...string) []string {
 	return roots
 }
 
+// diagnosisSlashAbs 判断 slash 风格绝对路径，兼容 filepath 在不同平台的行为差异。
 func diagnosisSlashAbs(value string) bool {
 	return strings.HasPrefix(value, "/")
 }
 
-// diagnosisSlashRelativePath 处理诊断斜杠相对路径。
+// diagnosisSlashRelativePath 将 slash 风格候选路径转换为 root 下相对路径。
 func diagnosisSlashRelativePath(root string, candidate string) (string, bool) {
 	if !diagnosisSlashAbs(root) || !diagnosisSlashAbs(candidate) {
 		return "", false
@@ -419,7 +448,7 @@ func diagnosisSlashRelativePath(root string, candidate string) (string, bool) {
 	return rel, true
 }
 
-// diagnosisRelativePath 处理诊断相对路径。
+// diagnosisRelativePath 将本机路径转换为 root 下相对路径，并拒绝逃逸 root 的结果。
 func diagnosisRelativePath(root string, candidate string) (string, bool) {
 	rel, err := filepath.Rel(root, candidate)
 	if err != nil || rel == "." || filepath.IsAbs(rel) || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
@@ -428,10 +457,12 @@ func diagnosisRelativePath(root string, candidate string) (string, bool) {
 	return rel, true
 }
 
+// diagnosisString 对单个字符串应用默认诊断脱敏规则。
 func diagnosisString(value string) string {
 	return newTraceDiagnosisProjector(TraceDiagnosisRequest{}).string(value)
 }
 
+// addEvent 收集事件关联 ID，所有值先经过 projector 脱敏和限长。
 func (ids *TraceDiagnosisRelatedIDs) addEvent(event TraceEvent, projector traceDiagnosisProjector) {
 	ids.ThreadIDs = appendUniqueBounded(ids.ThreadIDs, event.ThreadID, projector)
 	ids.AgentIDs = appendUniqueBounded(ids.AgentIDs, event.AgentID, projector)
@@ -440,6 +471,7 @@ func (ids *TraceDiagnosisRelatedIDs) addEvent(event TraceEvent, projector traceD
 	ids.ToolNames = appendUniqueBounded(ids.ToolNames, event.ToolName, projector)
 }
 
+// appendUniqueBounded 追加唯一值，并强制 RelatedIDs 的全局数量上限。
 func appendUniqueBounded(values []string, value string, projector traceDiagnosisProjector) []string {
 	value = projector.string(value)
 	if value == "" || len(values) >= TraceDiagnosisMaxRelatedIDs {
@@ -453,6 +485,7 @@ func appendUniqueBounded(values []string, value string, projector traceDiagnosis
 	return append(values, value)
 }
 
+// enforceTraceDiagnosisPayloadLimit 反复裁剪诊断结果直到 JSON 体积落入硬上限。
 func enforceTraceDiagnosisPayloadLimit(diagnosis TraceDiagnosis) TraceDiagnosis {
 	for traceDiagnosisPayloadSize(diagnosis) > TraceDiagnosisMaxSerializedBytes {
 		if !trimTraceDiagnosisPayload(&diagnosis) {
@@ -463,6 +496,7 @@ func enforceTraceDiagnosisPayloadLimit(diagnosis TraceDiagnosis) TraceDiagnosis 
 	return diagnosis
 }
 
+// traceDiagnosisPayloadSize 返回诊断 JSON 字节数；无法序列化时视为超限。
 func traceDiagnosisPayloadSize(diagnosis TraceDiagnosis) int {
 	data, err := json.Marshal(diagnosis)
 	if err != nil {
@@ -471,7 +505,7 @@ func traceDiagnosisPayloadSize(diagnosis TraceDiagnosis) int {
 	return len(data)
 }
 
-// trimTraceDiagnosisPayload 处理裁剪trace诊断载荷。
+// trimTraceDiagnosisPayload 按时间线、摘要、关联 ID、tail warning 的顺序移除最旧内容。
 func trimTraceDiagnosisPayload(diagnosis *TraceDiagnosis) bool {
 	switch {
 	case len(diagnosis.Timeline) > 0:
@@ -491,7 +525,7 @@ func trimTraceDiagnosisPayload(diagnosis *TraceDiagnosis) bool {
 	return true
 }
 
-// trim 处理裁剪。
+// trim 从 RelatedIDs 中移除最旧的一项，按字段顺序逐类裁剪。
 func (ids *TraceDiagnosisRelatedIDs) trim() bool {
 	switch {
 	case len(ids.ThreadIDs) > 0:

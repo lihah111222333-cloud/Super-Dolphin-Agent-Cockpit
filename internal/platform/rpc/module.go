@@ -15,6 +15,7 @@ import (
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
+// Module 组装 RPC server、handler、push bridge、审批生命周期和后台 runner。
 var Module = fx.Module("rpc",
 	fx.Provide(
 		NewServer,
@@ -33,11 +34,8 @@ var Module = fx.Module("rpc",
 				server:  server,
 			}
 		},
-		// P22 P1b Finding 4: approval-cleanup ticker owned by run.Group via
-		// the root `group:"runners"` aggregation. bindApprovalLifecycle now
-		// only handles startup restore + on-connect replay + OnStop shutdown
-		// of pending approvals; the long-running cleanup loop lives in
-		// ApprovalCleanupRunner (approval_cleanup_runner.go).
+		// 审批清理 ticker 由根 runners 聚合托管；bindApprovalLifecycle 只处理
+		// 启动恢复、UI 重连重放和停止时 pending 审批清理。
 		fx.Annotate(NewApprovalCleanupRunner, fx.ResultTags(`group:"runners"`)),
 	),
 	fx.Provide(
@@ -47,6 +45,7 @@ var Module = fx.Module("rpc",
 	fx.Invoke(bindApprovalLifecycle),
 )
 
+// approvalRequester 把 contract 层审批请求桥接到 RPC ApprovalManager。
 type approvalRequester struct {
 	manager *ApprovalManager
 	bridge  *PushBridge
@@ -56,7 +55,7 @@ type approvalRequester struct {
 var _ contract.ApprovalRequester = approvalRequester{}
 var _ contract.RPCDispatcher = (*Server)(nil)
 
-// RequestApproval 处理请求审批。
+// RequestApproval 将 contract.ApprovalRequest 转换为 RPC 内部 DTO 并派发给活跃客户端。
 func (r approvalRequester) RequestApproval(ctx context.Context, req contract.ApprovalRequest) (contract.ApprovalDecision, error) {
 	if r.manager == nil {
 		return contract.ApprovalDecision{}, ErrInvalidState("approval manager is nil")
@@ -75,6 +74,7 @@ func (r approvalRequester) RequestApproval(ctx context.Context, req contract.App
 	})
 }
 
+// activeServer 优先选择 UI peer 作为审批回调目标，缺失时退回任意活跃 peer。
 func (r approvalRequester) activeServer() *jrpc2.Server {
 	if r.server == nil {
 		return nil
@@ -90,6 +90,7 @@ func (r approvalRequester) activeServer() *jrpc2.Server {
 	return nil
 }
 
+// Params 是 Server 构造所需的 fx 输入参数。
 type Params struct {
 	fx.In
 
@@ -98,25 +99,27 @@ type Params struct {
 	TraceRecorder TraceRecorder `optional:"true"`
 }
 
-// HandlerMapResult is the fx-compatible output wrapper for handler.Map.
+// HandlerMapResult 是 handler.Map 的 fx 输出包装。
 type HandlerMapResult struct {
 	fx.Out
 
 	Handlers handler.Map `group:"rpc_handlers"`
 }
 
-// HTTPRoute advertises an optional HTTP binding that an external router may mount.
+// HTTPRoute 描述可被外部 router 挂载的可选 HTTP 入口。
 type HTTPRoute struct {
 	Path    string
 	Handler http.Handler
 }
 
+// HTTPRouteResult 是 HTTPRoute 的 fx 输出包装。
 type HTTPRouteResult struct {
 	fx.Out
 
 	Route HTTPRoute `group:"rpc_http_routes"`
 }
 
+// serverParams 是注册 handler 时需要的 fx 输入。
 type serverParams struct {
 	fx.In
 
@@ -125,10 +128,12 @@ type serverParams struct {
 	Handlers []handler.Map `group:"rpc_handlers"`
 }
 
+// registerAllHandlers 把所有分组提供的 handler.Map 注册到 Server。
 func registerAllHandlers(server *Server, p serverParams) {
 	server.Register(p.Handlers...)
 }
 
+// provideWSRoute 暴露默认 WebSocket 路由，供宿主 HTTP server 挂载。
 func provideWSRoute(server *Server) HTTPRouteResult {
 	if server == nil {
 		return HTTPRouteResult{}
@@ -141,6 +146,7 @@ func provideWSRoute(server *Server) HTTPRouteResult {
 	}
 }
 
+// newPushNotificationWorkerProvider 构造 RPC push worker 并补齐默认 logger。
 func newPushNotificationWorkerProvider(bridge *PushBridge, server *Server, logger *pkglogger.Logger) *pushNotificationWorker {
 	if logger == nil {
 		logger = pkglogger.Get()
@@ -148,10 +154,8 @@ func newPushNotificationWorkerProvider(bridge *PushBridge, server *Server, logge
 	return newPushNotificationWorker(server, bridge, logger)
 }
 
-// bindApprovalLifecycle owns startup restore + on-connect replay + OnStop
-// shutdown for pending approvals. P22 P1b Finding 4 extracted the long
-// cleanup loop into ApprovalCleanupRunner; this fx.Hook no longer spawns
-// background goroutines.
+// bindApprovalLifecycle 负责审批启动恢复、UI 重连重放和停止时 pending 清理。
+// 长期运行的 cleanup ticker 已交给 ApprovalCleanupRunner，避免 fx hook 自行起后台 goroutine。
 func bindApprovalLifecycle(lc fx.Lifecycle, approvals *ApprovalManager, bridge *PushBridge, server *Server, logger *pkglogger.Logger) {
 	if logger == nil {
 		logger = pkglogger.Get()
@@ -167,6 +171,7 @@ func bindApprovalLifecycle(lc fx.Lifecycle, approvals *ApprovalManager, bridge *
 	})
 }
 
+// registerApprovalRestoreOnConnect 在 UI 连接建立时重放仍在等待的审批请求。
 func registerApprovalRestoreOnConnect(approvals *ApprovalManager, bridge *PushBridge, server *Server, logger *pkglogger.Logger) {
 	if server == nil {
 		return
@@ -178,11 +183,10 @@ func registerApprovalRestoreOnConnect(approvals *ApprovalManager, bridge *PushBr
 	})
 }
 
-// P22 P1b Finding 4: startApprovalLifecycle was deleted. Its two roles have
-// split: startup restore runs inline inside bindApprovalLifecycle.OnStart
-// (via restoreActiveApprovals), and the long-running cleanup ticker is now
-// owned by ApprovalCleanupRunner (approval_cleanup_runner.go).
+// 运行边界：审批启动恢复保留在 bindApprovalLifecycle.OnStart，
+// 长期 cleanup ticker 由 ApprovalCleanupRunner 托管到根 runners 聚合。
 
+// restoreActiveApprovals 对当前所有活跃连接尝试恢复 pending 审批。
 func restoreActiveApprovals(ctx context.Context, approvals *ApprovalManager, bridge *PushBridge, server *Server) error {
 	if approvals == nil || server == nil {
 		return nil
@@ -195,6 +199,7 @@ func restoreActiveApprovals(ctx context.Context, approvals *ApprovalManager, bri
 	return nil
 }
 
+// restorePendingApprovals 只在 UI peer 上重新派发 pending 审批。
 func restorePendingApprovals(ctx context.Context, approvals *ApprovalManager, bridge *PushBridge, server *Server, current *jrpc2.Server) error {
 	if approvals == nil || server == nil || current == nil {
 		return nil
@@ -205,6 +210,7 @@ func restorePendingApprovals(ctx context.Context, approvals *ApprovalManager, br
 	return approvals.RestorePending(ctx, bridge, current)
 }
 
+// shutdownPendingApprovals 在停止阶段等待短暂 grace 后清理未完成审批。
 func shutdownPendingApprovals(ctx context.Context, approvals *ApprovalManager, logger *pkglogger.Logger) error {
 	const grace = 5 * time.Second
 	if approvals == nil {
@@ -220,7 +226,7 @@ func shutdownPendingApprovals(ctx context.Context, approvals *ApprovalManager, l
 	return nil
 }
 
-// waitPendingApprovals 等待待处理approvals。
+// waitPendingApprovals 轮询等待 pending 审批清空，直到 ctx 取消或 grace 到期。
 func waitPendingApprovals(ctx context.Context, approvals *ApprovalManager, grace time.Duration) {
 	if approvals == nil || grace <= 0 {
 		return

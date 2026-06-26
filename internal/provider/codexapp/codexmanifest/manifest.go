@@ -37,7 +37,8 @@ type manifestEntry struct {
 	PackageSHA256 string `json:"package_sha256"`
 }
 
-// WriteManaged 写入managed。
+// WriteManaged 写入托管安装的 Codex manifest。
+// manifest 同时固定下载源 SHA 和最终二进制 SHA，后续启动前会用它阻断被替换的安装目录。
 func WriteManaged(target, version, assetName, sourceSHA256, codexPath, executableName string) error {
 	sourceSHA256, err := normalizeSHA256(sourceSHA256)
 	if err != nil {
@@ -73,7 +74,8 @@ func WriteManaged(target, version, assetName, sourceSHA256, codexPath, executabl
 	return nil
 }
 
-// VerifyManaged 验证managed。
+// VerifyManaged 校验托管安装的 Codex manifest，并返回可启动的二进制路径。
+// 下载源校验和、包内路径、二进制摘要和 app-server 探测任一不匹配，都会阻断该安装继续使用。
 func VerifyManaged(ctx context.Context, target, expectedSourceSHA256, executableName string, verifier Verifier) (string, error) {
 	manifest, expectedSourceSHA256, err := readExpected(target, expectedSourceSHA256)
 	if err != nil {
@@ -90,7 +92,8 @@ func VerifyManaged(ctx context.Context, target, expectedSourceSHA256, executable
 	return binaryPath, nil
 }
 
-// VerifyBundled 验证bundled。
+// VerifyBundled 校验随应用打包分发的 Codex 二进制。
+// manifest 路径按资源根目录推导，避免 packaged 模式意外退回用户 PATH。
 func VerifyBundled(ctx context.Context, binaryPath string, verifier Verifier) error {
 	manifestPath, relPath, err := bundledInfo(binaryPath)
 	if err != nil {
@@ -160,7 +163,8 @@ func validateBundled(manifest File, expectedRelPath string) (string, error) {
 	return packageSHA256, nil
 }
 
-// verifyBinary 验证二进制。
+// verifyBinary 校验 Codex 二进制权限、摘要和 app-server 可用性。
+// verifier 缺失直接报错，避免 manifest 检查在测试或启动路径中被静默跳过。
 func verifyBinary(ctx context.Context, kind, binaryPath, packageSHA256 string, verifier Verifier) error {
 	if verifier == nil {
 		return fmt.Errorf("%s Codex verifier is required", kind)
@@ -194,7 +198,8 @@ func read(path, kind string) (File, error) {
 	return manifest, nil
 }
 
-// ManagedBinaryPath 处理managed二进制路径。
+// ManagedBinaryPath 返回托管安装约定的 Codex 二进制相对路径。
+// manifest 使用 slash 形态保存，保证不同平台读写同一 wire 格式。
 func ManagedBinaryPath(executableName string) string {
 	return filepath.ToSlash(filepath.Join("codex_cli_bin", "bin", executableName))
 }

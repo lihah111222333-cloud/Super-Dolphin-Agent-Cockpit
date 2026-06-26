@@ -1,21 +1,13 @@
-// Package observation defines the pure data types and interfaces for the
-// Canonical Turn Observation Contract (P21 plans P0b / P3).
-//
-// This package lives in the dto layer so that consumers (insight, dashboard,
-// extractors) can depend on it without importing the module/turn subtree,
-// eliminating the horizontal module-to-module dependency that the onion
-// architecture forbids.
-//
-// The implementation (Memory, subscribers, bus wiring) stays in
-// internal/module/turn/observation which imports this package for the
-// canonical type definitions.
+// Package observation 定义 turn observation 的纯 DTO 和读写接口。
+// 包放在 dto 层，insight、dashboard、extractor 等消费者可依赖它，而不横向导入 turn 模块实现。
 package observation
 
 import "time"
 
-// TerminalKind classifies how a turn ended.
+// TerminalKind 标识 turn 的终止类型。
 type TerminalKind string
 
+// turn 终止类型常量。
 const (
 	TerminalUnknown     TerminalKind = ""
 	TerminalCompleted   TerminalKind = "completed"
@@ -25,20 +17,16 @@ const (
 	TerminalAborted     TerminalKind = "aborted"
 )
 
-// Terminal is one observed terminal event. Success is a pointer so callers
-// can distinguish "unknown" from "false"; TurnCompleted.Success in the DTO
-// layer is a non-pointer bool and must be unwrapped before reaching here.
+// Terminal 是一次观测到的 turn 终止事件。
+// Success 使用指针，让消费者区分未知和明确失败。
 type Terminal struct {
 	Kind    TerminalKind
 	Success *bool
 	Reason  string
 }
 
-// TokenSnapshot is a normalized per-turn token accounting fact. Zero fields
-// mean "not observed in this event" and must not overwrite previously
-// observed non-zero values. Projection records the UI projection granularity
-// of the source event ("thread" / "turn" / ...); consumers that want strict
-// per-turn accounting should ignore snapshots with Projection="thread".
+// TokenSnapshot 是标准化后的单 turn token 观测快照。
+// 零值表示本事件未观测到该字段，不应覆盖已有非零值；Projection 用于区分 thread/turn 等投影粒度。
 type TokenSnapshot struct {
 	Input               int64
 	Output              int64
@@ -48,20 +36,16 @@ type TokenSnapshot struct {
 	Observed            bool
 }
 
-// DedupeKey identifies a single raw or typed event for de-duplication.
-// By convention exactly one of RawEventID / CallID / Key is set.
+// DedupeKey 标识一个需要去重的原始或类型化事件。
+// 约定 RawEventID、CallID、Key 三者只设置一个，避免多个维度误合并。
 type DedupeKey struct {
 	RawEventID string
 	CallID     string
 	Key        string
 }
 
-// Counts is the per-turn aggregate of observed tool / approval activity.
-// Observed flags distinguish "provider did not emit the event family"
-// (false) from "observed and the count is legitimately zero" (true,
-// value 0). ApprovalRequestsObserved flips true the first time an
-// approval event is recorded — the Claude path never emits these so a
-// collector reading Counts for a Claude turn sees observed=false.
+// Counts 是单 turn 的工具和审批活动聚合计数。
+// Observed 标志区分 provider 未发出此类事件和已观测但计数为零两种情况。
 type Counts struct {
 	ToolCalls                int32
 	ToolCallsObserved        bool
@@ -71,17 +55,15 @@ type Counts struct {
 	ApprovalRequestsObserved bool
 }
 
-// Timestamps records the first-observed start and the latest-observed
-// completion for a turn. Either field can be zero when the corresponding
-// event has not arrived yet.
+// Timestamps 记录 turn 首次开始和最近完成时间。
+// 对应事件尚未到达时字段允许为零值。
 type Timestamps struct {
 	StartedAt   time.Time
 	CompletedAt time.Time
 }
 
-// ObservationReader is the read-only facet consumed by trajectory collectors,
-// insight flushers, and extractors. It deliberately excludes mutation and
-// dedupe methods.
+// ObservationReader 是轨迹采集、insight flush 和 extractor 使用的只读接口。
+// 它刻意不暴露写入和去重方法，防止消费者修改 observation 状态。
 type ObservationReader interface {
 	ResolveLocalTurn(providerID string) (localID string, ok bool)
 	ResolveProviderTurn(localID string) (providerID string, ok bool)
@@ -93,8 +75,8 @@ type ObservationReader interface {
 	Timestamps(localTurnID string) (Timestamps, bool)
 }
 
-// ObservationWriter is the mutation facet owned by observation subscribers and
-// turn internals. Downstream consumers must not depend on this interface.
+// ObservationWriter 是 observation subscriber 和 turn 内部持有的写入接口。
+// 下游消费者不应依赖该接口，以免绕过 observation owner。
 type ObservationWriter interface {
 	MapTurn(localID, providerID string) (ok bool)
 	AttributeCall(callID, localTurnID string) (ok bool)
@@ -109,8 +91,8 @@ type ObservationWriter interface {
 	RecordCompletedAt(localTurnID string, at time.Time)
 }
 
-// Contract is the facade that observation owners write to and consumers read
-// from. All methods are safe for concurrent use.
+// Contract 是 observation owner 写入、消费者读取的统一门面。
+// 实现必须保证并发安全，因为事件总线和读取方可能同时访问。
 type Contract interface {
 	ObservationReader
 	ObservationWriter

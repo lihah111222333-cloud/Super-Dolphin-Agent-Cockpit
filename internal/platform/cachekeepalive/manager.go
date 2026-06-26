@@ -16,13 +16,12 @@ import (
 
 const keepaliveInterval = 55 * time.Minute
 
-// cachekeepaliveShutdownGrace bounds the wait for in-flight keepalive pings
-// to observe ctx cancellation. Matches the other P22 P2 drain budgets
-// (auto-dream scheduler / nested ingest worker / hook dispatch worker) so
-// the global OnStop cost stays predictable.
+// cachekeepaliveShutdownGrace 限制 Shutdown 等待进行中 keepalive ping 响应 ctx 取消的时间。
+// 该上限避免模块停止时被会话传输层卡住，让 fx OnStop 成本保持可预测。
 const cachekeepaliveShutdownGrace = 10 * time.Second
 
-// KeepaliveCapable marks sessions that support silent keepalive turns.
+// KeepaliveCapable 标记支持静默 keepalive turn 的会话实现。
+// Manager 只通过该窄接口发 ping，避免把 provider 具体类型暴露给平台层。
 type KeepaliveCapable interface {
 	SendKeepalive(ctx context.Context) error
 }
@@ -43,20 +42,15 @@ type Manager struct {
 	mu     sync.Mutex
 	timers map[string]*agentTimer
 
-	// P22 P2 (cachekeepalive): pingCtx is the ambient ctx passed to every
-	// in-flight SendKeepalive invocation. Shutdown cancels it so a ping
-	// that has already reached the session transport sees ctx.Err() and
-	// bails out cleanly. pingInflight tracks those in-flight goroutines so
-	// Shutdown can wait for them to finish bounded by its own ctx — the
-	// P2 §验收 bullet "cachekeepalive 不再由 bus callback 直接持有 timer /
-	// session runtime" pins this drain-on-stop contract.
+	// pingCtx 会传入每一次 SendKeepalive；Shutdown 先取消它，再等待已进入传输层的 ping 退出。
+	// pingInflight 只统计真正开始执行的 AfterFunc，避免关闭门闩后新 timer 逃出 drain 统计。
 	pingCtx      context.Context
 	pingCancel   context.CancelFunc
 	pingInflight sync.WaitGroup
 	drainClosed  chan struct{}
 }
 
-// NewManager 创建manager。
+// NewManager 创建 cache keepalive 管理器，并为后续 ping 提前建立可取消的共享上下文。
 func NewManager(
 	resolver contract.SessionResolver,
 	bindingStore bindingstore.Store,
@@ -79,7 +73,8 @@ func NewManager(
 	}
 }
 
-// HandleAgentLaunched 处理代理launched。
+// HandleAgentLaunched 在代理会话建立后注册 keepalive timer。
+// 事件缺少 session/thread/agent 绑定时直接跳过，避免为无法解析的会话保留后台 timer。
 func (m *Manager) HandleAgentLaunched(ev agentdto.AgentLaunched) {
 	if m == nil {
 		return
@@ -105,7 +100,8 @@ func (m *Manager) HandleAgentLaunched(ev agentdto.AgentLaunched) {
 	}
 }
 
-// resolveLaunchAgentID 解析启动代理ID。
+// resolveLaunchAgentID 解析启动事件里的 agentID，必要时通过 threadStore 回查绑定。
+// 返回的 bool 标记是否使用回查路径，供调用方记录可观测日志。
 func (m *Manager) resolveLaunchAgentID(ctx context.Context, agentID, threadID string) (string, bool) {
 	if agentID != "" && m.hasBinding(ctx, agentID) {
 		return agentID, false
@@ -124,7 +120,8 @@ func (m *Manager) resolveLaunchAgentID(ctx context.Context, agentID, threadID st
 	return resolvedAgentID, true
 }
 
-// ResetTimerByAgent 按代理重置timer。
+// ResetTimerByAgent 在代理有新活动后重置对应 keepalive timer。
+// 调用方只需要提供 agentID；内部在锁内找到当前 session，避免暴露 timer 句柄。
 func (m *Manager) ResetTimerByAgent(agentID string) {
 	if m == nil {
 		return
@@ -144,7 +141,8 @@ func (m *Manager) ResetTimerByAgent(agentID string) {
 	m.scheduleLocked(timerRef)
 }
 
-// StopTimerByAgent 按代理停止timer。
+// StopTimerByAgent 停止指定代理的所有 keepalive timer。
+// 代理结束或绑定失效时调用，确保旧 session 不再发起静默 ping。
 func (m *Manager) StopTimerByAgent(agentID string) {
 	if m == nil {
 		return
@@ -165,10 +163,8 @@ func (m *Manager) StopTimerByAgent(agentID string) {
 	}
 }
 
-// Shutdown closes the drain gate, cancels pingCtx (so any in-flight
-// SendKeepalive sees ctx.Err()), stops every scheduled timer, and waits
-// bounded by ctx for in-flight ping goroutines to unwind. Idempotent.
-// Shutdown 发送 LSP 关闭请求。
+// Shutdown 关闭 drain 门闩、取消 pingCtx、停止所有 timer，并按 ctx 有界等待进行中的 ping 退出。
+// 该方法可重复调用；第一次之后 drainClosed 已关闭，后续调用直接返回。
 func (m *Manager) Shutdown(ctx context.Context) error {
 	if m == nil {
 		return nil
@@ -208,9 +204,8 @@ func (m *Manager) Shutdown(ctx context.Context) error {
 	}
 }
 
-// closeDrainGate returns true iff this call is the first to close the gate.
-// Subsequent Shutdown invocations short-circuit so the cancel + wait only
-// happens once.
+// closeDrainGate 只允许第一次 Shutdown 关闭 drain gate。
+// drainClosed 是一次性门闩；后续调用返回 false，避免重复 cancel 或等待同一批 ping。
 func (m *Manager) closeDrainGate() bool {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -223,9 +218,8 @@ func (m *Manager) closeDrainGate() bool {
 	}
 }
 
-// drainActive reports whether Shutdown has closed the gate. Timer
-// callbacks consult this under mu to avoid starting a new ping after
-// Shutdown has started waiting on pingInflight.
+// drainActive 判断 Shutdown 是否已关闭门闩。
+// timer 回调在锁内检查它，避免 Shutdown 开始等待后又启动新的 ping。
 func (m *Manager) drainActive() bool {
 	if m == nil || m.drainClosed == nil {
 		return false
@@ -250,10 +244,8 @@ func (m *Manager) executePing(sessionUUID string, fired *time.Timer) {
 	m.deliverPing(ctx, sessionUUID, timerRef, kc)
 }
 
-// preparePing resolves the snapshot + ambient ctx for a firing keepalive
-// timer. Returns (nil, nil) when the timer was already invalidated (e.g.
-// Shutdown cleared it) or when pingCtx is already cancelled — in either
-// case the caller must bail out without touching the session runtime.
+// preparePing 为触发的 keepalive timer 取快照并选择共享上下文。
+// timer 已失效或 pingCtx 已取消时返回 nil，调用方必须退出且不能触碰会话运行时。
 func (m *Manager) preparePing(sessionUUID string, fired *time.Timer) (*agentTimer, context.Context) {
 	timerRef := m.snapshotTimer(sessionUUID, fired)
 	if timerRef == nil {
@@ -272,9 +264,8 @@ func (m *Manager) preparePing(sessionUUID string, fired *time.Timer) (*agentTime
 	return timerRef, ctx
 }
 
-// resolvePingPeer checks gate conditions (live binding + keepalive-capable
-// session) and returns the session to ping, or nil after removing the
-// timer when no eligible peer exists.
+// resolvePingPeer 只在 agent binding 仍 live 且当前会话实现 KeepaliveCapable 时返回 peer。
+// 任一边界不满足都会移除对应 timer，防止失效代理或不支持 keepalive 的会话继续自我续约。
 func (m *Manager) resolvePingPeer(ctx context.Context, sessionUUID string, fired *time.Timer, timerRef *agentTimer) KeepaliveCapable {
 	if !m.canPing(ctx, timerRef) {
 		if m.logger != nil {
@@ -291,18 +282,9 @@ func (m *Manager) resolvePingPeer(ctx context.Context, sessionUUID string, fired
 	return kc
 }
 
-// deliverPing invokes SendKeepalive and reschedules the keepalive timer
-// afterwards — on success and on failure alike — unless Shutdown cancelled
-// pingCtx, in which case a fresh 55-minute timer would outlive the module
-// Lifecycle so the reset is skipped.
-//
-// Rescheduling on failure matters because the keepalive runs as a silent
-// turn whose events are not dispatched; the cachekeepalive relay therefore
-// no longer receives a TurnCompleted to re-arm the timer when a ping fails,
-// so the loop must be self-sustaining here. A dead agent does not loop
-// forever: the next fire's resolvePingPeer re-checks the binding and drops
-// the timer once no live peer remains.
-// deliverPing 处理deliverping。
+// deliverPing 调用 SendKeepalive，并在上下文仍有效时重新布置下一次 timer。
+// keepalive 是静默 turn，失败时不会依赖 TurnCompleted 重新触发，因此这里必须自维持循环；
+// 下一次触发会重新检查 live binding，失效代理会被移除而不是无限重试。
 func (m *Manager) deliverPing(ctx context.Context, sessionUUID string, timerRef *agentTimer, kc KeepaliveCapable) {
 	err := kc.SendKeepalive(ctx)
 	if err != nil && m.logger != nil {
@@ -324,7 +306,7 @@ func (m *Manager) canPing(ctx context.Context, t *agentTimer) bool {
 	return m.keepaliveSession(ctx, t.threadID) != nil
 }
 
-// hasLiveBinding 判断livebinding是否可用。
+// hasLiveBinding 检查 agent 绑定是否仍存在且未归档，用于阻止旧 timer ping 已结束的会话。
 func (m *Manager) hasLiveBinding(ctx context.Context, t *agentTimer) bool {
 	if m == nil || t == nil || m.bindingStore == nil {
 		return false
@@ -336,7 +318,7 @@ func (m *Manager) hasLiveBinding(ctx context.Context, t *agentTimer) bool {
 	return !bindingRef.Archived
 }
 
-// keepaliveSession 处理keepalive会话。
+// keepaliveSession 通过 threadID 解析当前会话，并只接受实现 KeepaliveCapable 的 provider。
 func (m *Manager) keepaliveSession(ctx context.Context, threadID string) KeepaliveCapable {
 	if m == nil || m.resolver == nil {
 		return nil
@@ -402,9 +384,7 @@ func (m *Manager) scheduleLocked(timerRef *agentTimer) {
 	if timerRef.timer != nil {
 		timerRef.timer.Stop()
 	}
-	// P22 P2: don't re-arm after drain has started; the timer would
-	// register a new pingInflight.Add that Shutdown already finished
-	// waiting for, leaving a goroutine unaccounted for.
+	// drain 启动后禁止重新布置 timer，否则新的 AfterFunc 可能在 Shutdown 完成等待后才进入 pingInflight。
 	if m.drainActive() {
 		timerRef.timer = nil
 		return
@@ -422,10 +402,8 @@ func (m *Manager) scheduleLocked(timerRef *agentTimer) {
 	timerRef.timer = fired
 }
 
-// enterPing gates the transition from "timer fired" to "actively running
-// a ping". It returns false if Shutdown has already closed drainClosed;
-// in that case the AfterFunc closure exits without calling executePing so
-// the manager's pingInflight counter stays accurate.
+// enterPing 控制 timer 触发到实际执行 ping 的并发入口。
+// Shutdown 已关闭门闩时返回 false，确保 pingInflight 只统计真正进入执行的回调。
 func (m *Manager) enterPing() bool {
 	m.mu.Lock()
 	defer m.mu.Unlock()

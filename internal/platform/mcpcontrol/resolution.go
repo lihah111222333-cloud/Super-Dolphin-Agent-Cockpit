@@ -10,6 +10,7 @@ import (
 	platformshared "github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 )
 
+// resolveRegisteredInstance 按租约查找已注册实例，默认拒绝 stale peer 参与控制面调用。
 func resolveRegisteredInstance(registry *ToolRegistry, key dto.LeaseKey, allowStale bool) (*ToolInstance, error) {
 	return lookupLease(leaseLookupOptions{
 		registry:   registry,
@@ -18,7 +19,7 @@ func resolveRegisteredInstance(registry *ToolRegistry, key dto.LeaseKey, allowSt
 	})
 }
 
-// contextPayload 处理上下文载荷。
+// contextPayload 根据请求 scope 生成最小上下文载荷，只暴露该 scope 允许读取的字段。
 func contextPayload(scope string, instance *ToolInstance, snapshot *contract.AgentSnapshot) (map[string]any, error) {
 	agentID, threadID, status, pid := contextAgentFields(instance, snapshot)
 	switch strings.TrimSpace(scope) {
@@ -57,6 +58,7 @@ func contextPayload(scope string, instance *ToolInstance, snapshot *contract.Age
 	}
 }
 
+// contextAgentFields 优先使用 orchestration 快照，缺失时回退到注册表实例上的实时字段。
 func contextAgentFields(instance *ToolInstance, snapshot *contract.AgentSnapshot) (string, string, string, int) {
 	if snapshot == nil {
 		return instance.AgentID, instance.ThreadID, instance.Status, instance.PID
@@ -64,6 +66,7 @@ func contextAgentFields(instance *ToolInstance, snapshot *contract.AgentSnapshot
 	return strings.TrimSpace(snapshot.ID), strings.TrimSpace(snapshot.ThreadID), strings.TrimSpace(snapshot.State), snapshot.PID
 }
 
+// buildContextResponse 将上下文 map 编码为协议响应，并记录本次读取的观测时间。
 func buildContextResponse(scope string, payload map[string]any) (dto.ContextResponse, error) {
 	raw, err := json.Marshal(payload)
 	if err != nil {
@@ -77,14 +80,14 @@ func buildContextResponse(scope string, payload map[string]any) (dto.ContextResp
 	}, nil
 }
 
-// FindActiveByKind 按kind查找active。
+// FindActiveByKind 返回指定 client kind 的 active 实例快照，供共享控制面路由使用。
 func (r *ToolRegistry) FindActiveByKind(clientKind string) []*ToolInstance {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	return r.findActiveByKindLocked(strings.TrimSpace(clientKind))
 }
 
-// FindActiveForScope 为作用域查找active。
+// FindActiveForScope 先精确匹配 agent/thread，再放宽到 agent，最后才选择 shared-service peer。
 func (r *ToolRegistry) FindActiveForScope(scope ToolScope) []*ToolInstance {
 	scope = normalizeToolScope(scope)
 	peers := r.FindActiveByKind(scope.Family)
@@ -112,6 +115,7 @@ func (r *ToolRegistry) FindActiveForScope(scope ToolScope) []*ToolInstance {
 	})
 }
 
+// findActiveByKindLocked 在 byClientKind 索引内读取 active 实例；调用方必须已持有读锁。
 func (r *ToolRegistry) findActiveByKindLocked(clientKind string) []*ToolInstance {
 	keys, ok := r.byClientKind[clientKind]
 	if !ok {
@@ -127,6 +131,7 @@ func (r *ToolRegistry) findActiveByKindLocked(clientKind string) []*ToolInstance
 	return result
 }
 
+// filterActivePeers 保留符合谓词的实例，nil peer 或 nil 谓词都会被排除。
 func filterActivePeers(peers []*ToolInstance, keep func(*ToolInstance) bool) []*ToolInstance {
 	if keep == nil {
 		return nil

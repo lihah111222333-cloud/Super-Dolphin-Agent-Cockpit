@@ -6,12 +6,8 @@ import (
 	"time"
 )
 
-// TestPoolRecyclerRunExitsOnCtxCancel asserts the P22 P2 LSP-S1
-// runner contract: poolRecycler.Run must return once the supplied
-// ctx is cancelled, with no residual goroutine. Pre-P22 P2 the
-// recycler was driven by a constructor-launched goroutine and its
-// own stopCh; those are gone, and the runner owner (root
-// group:"runners" bridge) must be able to drive shutdown via ctx.
+// TestPoolRecyclerRunExitsOnCtxCancel 固定 poolRecycler 的 runner 关闭边界。
+// Run 必须在传入 ctx 取消后返回且不留下后台 goroutine，关闭责任由根 runner 聚合器统一驱动。
 func TestPoolRecyclerRunExitsOnCtxCancel(t *testing.T) {
 	pool := NewManagerPool(nil, defaultPoolSize)
 	r := pool.RecyclerRunner()
@@ -23,7 +19,7 @@ func TestPoolRecyclerRunExitsOnCtxCancel(t *testing.T) {
 	done := make(chan error, 1)
 	go func() { done <- r.Run(ctx) }()
 
-	// Give the loop a moment to arm the ticker.
+	// 等待 loop 装载 ticker，避免 cancel 早于 goroutine 进入 select。
 	time.Sleep(5 * time.Millisecond)
 	cancel()
 
@@ -37,32 +33,24 @@ func TestPoolRecyclerRunExitsOnCtxCancel(t *testing.T) {
 	}
 }
 
-// TestNewManagerPoolDoesNotLaunchRecyclerGoroutine asserts the P22 P2
-// LSP-S1 invariant that the constructor no longer self-spawns the
-// recycler goroutine. After construction the recycler must exist
-// (TouchShard still works) but the loop goroutine must not be
-// running yet — only Run(ctx) starts it.
+// TestNewManagerPoolDoesNotLaunchRecyclerGoroutine 确认构造池时不会自启动 recycler。
+// recycler 对象必须存在以支持 TouchShard 记账，但只有 Run(ctx) 会启动循环。
 func TestNewManagerPoolDoesNotLaunchRecyclerGoroutine(t *testing.T) {
 	pool := NewManagerPool(nil, defaultPoolSize)
 	if pool.recycler == nil {
 		t.Fatalf("NewManagerPool did not create a recycler")
 	}
-	// TouchShard should still work for callers that touched it
-	// before the runner is started; it's pure bookkeeping.
+	// runner 启动前 TouchShard 仍应可用；它只更新记账时间，不依赖循环运行。
 	pool.recycler.TouchShard(0)
 
-	// StopAll must not hang or panic even though the recycler has
-	// never been Started in this test — it is now a no-op for the
-	// recycler lifecycle (owned by ctx).
+	// recycler 从未 Run 时 StopAll 也不能阻塞或 panic，生命周期由 ctx 统一控制。
 	if err := pool.StopAll(); err != nil {
 		t.Fatalf("StopAll() error = %v", err)
 	}
 }
 
-// TestPoolRecyclerRunNilReceiverBlocks asserts that a nil recycler's
-// Run(ctx) blocks until ctx.Done() and returns nil. This keeps
-// RecyclerRunner()'s nil-receiver branch wire-compatible with the
-// root group:"runners" aggregation.
+// TestPoolRecyclerRunNilReceiverBlocks 固定 nil recycler 的兼容行为。
+// Run(ctx) 会阻塞到 ctx.Done() 后返回 nil，根 runner 聚合器无需为 nil receiver 写特殊分支。
 func TestPoolRecyclerRunNilReceiverBlocks(t *testing.T) {
 	var nilRecycler *poolRecycler
 	ctx, cancel := context.WithCancel(context.Background())

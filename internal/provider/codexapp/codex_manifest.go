@@ -10,10 +10,12 @@ const codexManagedManifestName = codexmanifest.Name
 
 type codexManifestVerifier struct{}
 
-// IsExecutable 判断路径是否指向可执行文件。
+// IsExecutable 复用 provider 的平台可执行文件判定。
+// manifest 校验通过这个接口隔离文件权限和 Windows 头部检查细节。
 func (codexManifestVerifier) IsExecutable(path string) bool { return isExecutable(path) }
 
-// ValidCLI 判断 Codex CLI 是否可用。
+// ValidCLI 验证指定 Codex CLI 能否启动 app-server。
+// 只有二进制可实际服务当前 provider 时 manifest 才算可信。
 func (codexManifestVerifier) ValidCLI(ctx context.Context, path string) bool {
 	return validCodexCLI(ctx, path)
 }

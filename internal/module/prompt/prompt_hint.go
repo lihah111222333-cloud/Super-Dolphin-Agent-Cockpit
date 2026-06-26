@@ -9,17 +9,15 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 )
 
-// These must stay in lockstep with the write side in
-// internal/module/uistate/config_rpc.go (lspPromptHintOverrideKey,
-// lspPromptHintDefaultPath). If either string changes there, change it here.
+// prompt hint 读写两侧必须共用同一组 key/path。
+// 写入侧在 internal/module/uistate/config_rpc.go；任一字符串变更时两边要同步更新。
 const (
 	promptHintOverridePreferenceKey = "config/lspPromptHint.override"
 	promptHintDefaultSharedFilePath = "prompts/lsp-mandatory-prefix.md"
 )
 
-// resolvePromptHint returns the user-configurable LSP prompt hint for the given
-// cwd. Preference override wins over the shared-file default. Returns an empty
-// string if neither is configured or wired.
+// resolvePromptHint 读取当前 cwd 可见的用户配置 LSP prompt hint。
+// 用户偏好覆盖值优先于共享文件默认值；未配置、依赖未注入或读取失败时返回空串，不阻断 prompt 组装。
 func (s *service) resolvePromptHint(ctx context.Context, cwd string) string {
 	if s == nil {
 		return ""
@@ -30,6 +28,7 @@ func (s *service) resolvePromptHint(ctx context.Context, cwd string) string {
 	return s.readPromptHintDefault(ctx)
 }
 
+// readPromptHintOverride 读取当前 cwd 的用户偏好覆盖值；未配置或读取失败时返回空串并记录日志。
 func (s *service) readPromptHintOverride(ctx context.Context, cwd string) string {
 	if s.prefs == nil {
 		return ""
@@ -40,8 +39,7 @@ func (s *service) readPromptHintOverride(ctx context.Context, cwd string) string
 	case contract.IsNotFound(err):
 		return ""
 	default:
-		// Non-fatal: assembly must not fail because the override lookup hit a
-		// transient store error. Log so operators can see the silent fallback.
+		// prompt 组装不能因提示前缀读取的瞬时 store 错误失败；记录日志供运维排查。
 		if s.logger != nil {
 			s.logger.Warn("prompt_hint.override_read_failed", "cwd", cwd, "error", err.Error())
 		}
@@ -50,7 +48,7 @@ func (s *service) readPromptHintOverride(ctx context.Context, cwd string) string
 	return decodePromptHintRaw(raw)
 }
 
-// readPromptHintDefault 读取prompthintdefault。
+// readPromptHintDefault 读取共享文件中的默认 LSP prompt hint，未配置时返回空串。
 func (s *service) readPromptHintDefault(ctx context.Context) string {
 	if s.sharedFiles == nil {
 		return ""
@@ -72,6 +70,7 @@ func (s *service) readPromptHintDefault(ctx context.Context) string {
 	}
 }
 
+// decodePromptHintRaw 支持字符串 JSON、null 和旧格式原始文本。
 func decodePromptHintRaw(raw json.RawMessage) string {
 	if len(raw) == 0 {
 		return ""

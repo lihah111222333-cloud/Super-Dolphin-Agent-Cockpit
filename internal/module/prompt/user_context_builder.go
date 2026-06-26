@@ -13,28 +13,32 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 )
 
+// runtimeExtrasRelevanceDisclaimer 约束 synthetic user message 中的 runtime extras 只在相关问题里使用。
 const runtimeExtrasRelevanceDisclaimer = "Only use the following runtime extras when they are directly relevant to the user's current request."
 
+// userContextPayload 保存会被注入 synthetic user message 的上下文字段。
 type userContextPayload map[string]string
 
+// userContextCache 按 key 缓存 user context 片段，generation 变化会使旧结果失效。
 type userContextCache struct {
-	mu         sync.RWMutex
-	generation uint64
-	values     map[string]userContextPayload
+	mu         sync.RWMutex                  // 保护 generation 和 values 的并发读写
+	generation uint64                        // 全量失效代际，防止旧计算结果回写
+	values     map[string]userContextPayload // 按内容摘要缓存的 user context 副本
 }
 
+// newUserContextCache 创建空的并发安全 user context cache。
 func newUserContextCache() *userContextCache {
 	return &userContextCache{values: map[string]userContextPayload{}}
 }
 
-// Generation 处理代际。
+// Generation 返回当前缓存代际，调用方用它避免把失效前的结果写回。
 func (c *userContextCache) Generation() uint64 {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 	return c.generation
 }
 
-// Lookup 按名称查找注册项。
+// Lookup 在 generation 匹配时返回缓存副本，避免调用方修改内部 map。
 func (c *userContextCache) Lookup(key string, generation uint64) (userContextPayload, bool) {
 	key = strings.TrimSpace(key)
 	if key == "" {
@@ -52,7 +56,7 @@ func (c *userContextCache) Lookup(key string, generation uint64) (userContextPay
 	return cloneUserContextPayload(payload), true
 }
 
-// Store 保存prompt。
+// Store 在 generation 未变化时写入缓存副本；代际不一致表示结果已过期。
 func (c *userContextCache) Store(key string, generation uint64, payload userContextPayload) bool {
 	key = strings.TrimSpace(key)
 	if key == "" {
@@ -67,7 +71,7 @@ func (c *userContextCache) Store(key string, generation uint64, payload userCont
 	return true
 }
 
-// InvalidateAll 处理invalidateall。
+// InvalidateAll 提升代际并清空全部 user context 缓存。
 func (c *userContextCache) InvalidateAll() uint64 {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -76,7 +80,7 @@ func (c *userContextCache) InvalidateAll() uint64 {
 	return c.generation
 }
 
-// BuildBaseUserContext 构建baseuser上下文。
+// BuildBaseUserContext 将 Claude.md 来源渲染为基础 user context；无内容时返回 nil。
 func BuildBaseUserContext(sources []contract.ClaudeMdSource) map[string]string {
 	block := renderClaudeMdSources(sources)
 	if strings.TrimSpace(block) == "" {
@@ -85,7 +89,7 @@ func BuildBaseUserContext(sources []contract.ClaudeMdSource) map[string]string {
 	return userContextPayload{"claudeMd": block}
 }
 
-// CollectRuntimeUserContext 收集运行时user上下文。
+// CollectRuntimeUserContext 收集当前日期和动态 runtime extras，并与调用方附加上下文合并。
 func CollectRuntimeUserContext(input TurnInput, resolved []ResolvedPromptSection) map[string]string {
 	currentDateValue := strings.TrimSpace(input.CurrentDate)
 	if currentDateValue == "" {
@@ -101,7 +105,7 @@ func CollectRuntimeUserContext(input TurnInput, resolved []ResolvedPromptSection
 	return MergeRuntimeUserContext(extras, input.RuntimeUserContext)
 }
 
-// MergeRuntimeUserContext 合并运行时user上下文。
+// MergeRuntimeUserContext 合并基础和附加 user context，忽略空 key/value。
 func MergeRuntimeUserContext(base, extras map[string]string) map[string]string {
 	merged := cloneUserContextPayload(base)
 	if merged == nil {
@@ -118,16 +122,11 @@ func MergeRuntimeUserContext(base, extras map[string]string) map[string]string {
 	return merged
 }
 
-// includeRuntimeExtraSection decides whether a resolved section's content
-// should be mirrored into the userContext `runtimeExtras` entry that feeds
-// the synthetic user meta message. The filter excludes:
+// includeRuntimeExtraSection 判断 resolved section 是否需要镜像到 runtimeExtras。
+// 该内容会进入 synthetic user meta message，因此要排除已经在 cacheable system prompt 中出现的内容：
 //
-//   - Static-region sections (identity, system_constraints, ...): they are
-//     already carried by the cacheable system prompt prefix; duplicating
-//     them into runtimeExtras would bloat every turn and poison the cache.
-//   - session_guidance / env_info_simple / language: these surface in the
-//     system prompt as first-class sections, so a second copy in
-//     runtimeExtras is redundant.
+//   - static region sections：已在缓存前缀中，重复注入会膨胀每个 turn
+//   - session_guidance / env_info_simple / language：已作为独立 system section 注入
 func includeRuntimeExtraSection(section ResolvedPromptSection) bool {
 	if strings.TrimSpace(section.Content) == "" {
 		return false
@@ -145,6 +144,8 @@ func includeRuntimeExtraSection(section ResolvedPromptSection) bool {
 	}
 }
 
+// runtimeExtraContents 收集允许进入 synthetic user message 的动态 section 内容。
+// 返回值不包含空内容，顺序沿用已解析 sections 的顺序。
 func runtimeExtraContents(resolved []ResolvedPromptSection) []string {
 	runtimeBlocks := make([]string, 0, len(resolved))
 	for _, section := range resolved {
@@ -155,6 +156,8 @@ func runtimeExtraContents(resolved []ResolvedPromptSection) []string {
 	return runtimeBlocks
 }
 
+// buildBaseUserContext 读取并缓存 CLAUDE.md 来源渲染结果。
+// cache key 由可见来源的路径、类型、来源和内容摘要组成，避免内容变化后复用旧上下文。
 func (s *service) buildBaseUserContext(_ context.Context, sources []contract.ClaudeMdSource) userContextPayload {
 	cacheKey := baseUserContextCacheKey(sources)
 	generation := s.userContextCache.Generation()
@@ -166,6 +169,7 @@ func (s *service) buildBaseUserContext(_ context.Context, sources []contract.Cla
 	return userContextPayload(base)
 }
 
+// resolveClaudeMdSources 从可选 provider 读取 CLAUDE.md 来源，并返回调用方可独立修改的副本。
 func (s *service) resolveClaudeMdSources(ctx context.Context, buildCtx BuildCtx) ([]contract.ClaudeMdSource, error) {
 	if s == nil || s.claudeMdProvider == nil {
 		return nil, nil
@@ -177,6 +181,8 @@ func (s *service) resolveClaudeMdSources(ctx context.Context, buildCtx BuildCtx)
 	return cloneClaudeMdSources(sources), nil
 }
 
+// baseUserContextCacheKey 为可见 CLAUDE.md 来源生成稳定缓存键。
+// 内容摘要参与 key，确保同一路径文件变更后不会命中旧 user context。
 func baseUserContextCacheKey(sources []contract.ClaudeMdSource) string {
 	visible := visibleClaudeMdSources(sources)
 	if len(visible) == 0 {
@@ -192,6 +198,7 @@ func baseUserContextCacheKey(sources []contract.ClaudeMdSource) string {
 	return "base-user-context:" + hex.EncodeToString(hasher.Sum(nil))
 }
 
+// visibleClaudeMdSources 过滤条件来源和空内容来源，只保留会进入当前 turn 的 CLAUDE.md。
 func visibleClaudeMdSources(sources []contract.ClaudeMdSource) []contract.ClaudeMdSource {
 	visible := make([]contract.ClaudeMdSource, 0, len(sources))
 	for _, source := range sources {
@@ -203,14 +210,9 @@ func visibleClaudeMdSources(sources []contract.ClaudeMdSource) []contract.Claude
 	return visible
 }
 
-// Phase 2.1.D：项目 CLAUDE.md 不信任化
-//
-// project / add_dir 来源的 CLAUDE.md 由 PR 作者、依赖仓库或第三方 checkout 写入，
-// 必须当作不可信内容处理。L1：用 fence 标签包裹 + 注入前导句让模型把内容当作
-// 信息源而非用户/系统指令；L2：单文件、聚合总量、文件数三道上限防 DoS / 资源放大。
-//
-// 可信源（managed / user / automem）保留原渲染路径，零行为变化。
-// teammem 仍走原 <team-memory-content source="shared"> fence。
+// 不可信 CLAUDE.md 来源必须当作项目背景资料，而不是用户或系统指令。
+// project/add_dir 可能来自 PR、依赖仓库或第三方 checkout，因此需要 fence、防逃逸和资源上限。
+// managed/user/automem 继续走可信渲染路径；teammem 保留 shared team memory fence。
 const (
 	// fence tag 不附 attrs：header 行 "Contents of <PATH>:" 已显示路径，重复只会增加转义
 	// 面。不加 attrs 则 fence 头是纯字面量，attacker 控制路径中的特殊字符（`<` `>`
@@ -247,6 +249,8 @@ func isUntrustedClaudeMdSource(source contract.ClaudeMdSource) bool {
 	return !isTrustedSourceLabel(origin) && !isTrustedSourceLabel(typ)
 }
 
+// isTrustedSourceLabel 判断来源标签是否属于受控来源白名单。
+// 未知标签默认不可信，防止新增来源忘记接入 fence 保护。
 func isTrustedSourceLabel(s string) bool {
 	switch s {
 	case "managed", "user", "automem", "teammem":
@@ -255,9 +259,6 @@ func isTrustedSourceLabel(s string) bool {
 	return false
 }
 
-// escapeUntrustedClaudeMdContent 防 fence 逃逸：在内容中出现的同名 fence 标签里
-// 插入零宽空格（U+200B），让模型看到的形态明显是被打断的标签，不会被当成关闭 fence。
-// 由于零宽空格不在 fence 关键字里，已 escape 过的内容不会被二次破坏。
 // truncateAtRuneBoundary 在 limit 字节位置退到上一个 UTF-8 rune 开始边界，避免
 // 输出以 continuation byte 结尾的非法序列。退位最多 3 字节（UTF-8 最长 4 字节）。
 // 调用者保证 limit < len(content)。
@@ -272,6 +273,8 @@ func truncateAtRuneBoundary(content string, limit int) string {
 	return content[:cut]
 }
 
+// escapeUntrustedClaudeMdContent 在同名 fence 标签里插入零宽空格，防止内容伪造关闭标签。
+// 零宽空格不在 fence 关键字里，已经处理过的内容再次处理也不会破坏可读性。
 func escapeUntrustedClaudeMdContent(content string) string {
 	const zwsp = "\u200b"
 	openTag := "<" + untrustedClaudeMdFenceTag
@@ -281,7 +284,8 @@ func escapeUntrustedClaudeMdContent(content string) string {
 	return content
 }
 
-// renderClaudeMdSources 渲染claudemdsources。
+// renderClaudeMdSources 渲染所有可见 CLAUDE.md 来源。
+// 不可信来源会受单文件、总字节数和文件数限制；被跳过的来源会追加可见提示。
 func renderClaudeMdSources(sources []contract.ClaudeMdSource) string {
 	visible := visibleClaudeMdSources(sources)
 	blocks := make([]string, 0, len(visible))
@@ -320,7 +324,8 @@ func renderClaudeMdSources(sources []contract.ClaudeMdSource) string {
 	return strings.TrimSpace(joinBlocks(blocks...))
 }
 
-// renderClaudeMdSource 渲染claudemdsource。
+// renderClaudeMdSource 渲染单个 CLAUDE.md 来源。
+// 不可信来源会进入隔离 fence 并截断超限内容，teammem 保留共享记忆专用标签。
 func renderClaudeMdSource(source contract.ClaudeMdSource) string {
 	header := "Contents of " + strings.TrimSpace(source.Path)
 	if description := strings.TrimSpace(source.Description); description != "" {
@@ -360,6 +365,8 @@ func renderClaudeMdSource(source contract.ClaudeMdSource) string {
 	return header + ":\n" + content
 }
 
+// sourceDigest 返回来源内容摘要，优先使用 provider 已提供的 digest。
+// 缺失 digest 时现场计算 SHA-256，确保缓存 key 覆盖内容变化。
 func sourceDigest(source contract.ClaudeMdSource) string {
 	if digest := strings.TrimSpace(source.Digest); digest != "" {
 		return digest
@@ -368,7 +375,7 @@ func sourceDigest(source contract.ClaudeMdSource) string {
 	return hex.EncodeToString(sum[:])
 }
 
-// cloneUserContextPayload 复制user上下文载荷。
+// cloneUserContextPayload 复制并清理 user context 载荷，避免缓存和调用方共享可变 map。
 func cloneUserContextPayload(payload map[string]string) userContextPayload {
 	if len(payload) == 0 {
 		return nil
@@ -387,6 +394,8 @@ func cloneUserContextPayload(payload map[string]string) userContextPayload {
 	return cloned
 }
 
+// cloneClaudeMdSources 深拷贝 CLAUDE.md 来源切片。
+// Globs 会复制新切片，避免 provider 返回值被后续渲染或测试修改。
 func cloneClaudeMdSources(sources []contract.ClaudeMdSource) []contract.ClaudeMdSource {
 	if len(sources) == 0 {
 		return nil

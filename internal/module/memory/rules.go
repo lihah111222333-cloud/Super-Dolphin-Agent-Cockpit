@@ -177,7 +177,8 @@ var standardSearchingPastContextRules = []string{
 
 var defaultMemoryRuleEngine = sync.OnceValue(NewMemoryRuleEngine)
 
-// NewMemoryRuleEngine 创建记忆ruleengine。
+// NewMemoryRuleEngine 构造标准记忆规则引擎。
+// 行为表会深拷贝到实例内，调用方后续读取规则时不会修改包级默认模板。
 func NewMemoryRuleEngine() *MemoryRuleEngine {
 	engine := &MemoryRuleEngine{
 		order: append([]MemoryType(nil), diskMemoryTypes...),
@@ -189,7 +190,8 @@ func NewMemoryRuleEngine() *MemoryRuleEngine {
 	return engine
 }
 
-// BuildMemoryLines 构建记忆行。
+// BuildMemoryLines 使用默认规则引擎生成标准模式的记忆提示文本。
+// skipIndex 和 extraGuidelines 只影响提示内容，不触发任何磁盘读写。
 func BuildMemoryLines(skipIndex, searchPastContextEnabled bool, extraGuidelines []string) string {
 	return defaultMemoryRuleEngine().BuildMemoryLines(MemoryRuleOptions{
 		SkipIndex:                skipIndex,
@@ -198,7 +200,8 @@ func BuildMemoryLines(skipIndex, searchPastContextEnabled bool, extraGuidelines 
 	})
 }
 
-// LoadMemoryPrompt 加载记忆prompt。
+// LoadMemoryPrompt 根据记忆模式返回可注入的系统提示片段。
+// autoEnabled 关闭或模式未知时返回 nil，提示汇编器据此跳过 memory 规则区块。
 func LoadMemoryPrompt(mode MemoryMode, autoEnabled, skipIndex, searchPastContextEnabled bool, extraGuidelines []string) *string {
 	return defaultMemoryRuleEngine().LoadMemoryPrompt(mode, autoEnabled, MemoryRuleOptions{
 		SkipIndex:                skipIndex,
@@ -207,7 +210,8 @@ func LoadMemoryPrompt(mode MemoryMode, autoEnabled, skipIndex, searchPastContext
 	})
 }
 
-// RulesForType 为type处理rules。
+// RulesForType 返回指定记忆类型的行为规则副本。
+// 未知类型返回 false；已知类型也返回克隆值，避免调用方改动引擎内部状态。
 func (e *MemoryRuleEngine) RulesForType(memoryType MemoryType) (MemoryTypeBehavior, bool) {
 	behavior, ok := resolvedRuleEngine(e).rules[ParseMemoryType(string(memoryType))]
 	if !ok {
@@ -216,7 +220,8 @@ func (e *MemoryRuleEngine) RulesForType(memoryType MemoryType) (MemoryTypeBehavi
 	return cloneBehavior(behavior), true
 }
 
-// LoadMemoryPrompt 加载记忆prompt。
+// LoadMemoryPrompt 按当前模式选择标准、combined 或 kairos 规则提示。
+// 该函数只组装提示文本，不解析路径、不读写记忆文件。
 func (e *MemoryRuleEngine) LoadMemoryPrompt(mode MemoryMode, autoEnabled bool, opts MemoryRuleOptions) *string {
 	if !autoEnabled {
 		return nil
@@ -233,6 +238,8 @@ func (e *MemoryRuleEngine) LoadMemoryPrompt(mode MemoryMode, autoEnabled bool, o
 	}
 }
 
+// loadStandardMemoryPrompt 渲染标准模式规则。
+// 空结果返回 nil，避免向 prompt 注入空动态区块。
 func (e *MemoryRuleEngine) loadStandardMemoryPrompt(opts MemoryRuleOptions) *string {
 	text := strings.TrimSpace(e.BuildMemoryLines(opts))
 	if text == "" {
@@ -241,6 +248,8 @@ func (e *MemoryRuleEngine) loadStandardMemoryPrompt(opts MemoryRuleOptions) *str
 	return &text
 }
 
+// loadCombinedMemoryPrompt 渲染 private/team 双 scope 模式规则。
+// 只有 private 和 team 根目录都存在时才会生成文本。
 func (e *MemoryRuleEngine) loadCombinedMemoryPrompt(opts MemoryRuleOptions) *string {
 	text := strings.TrimSpace(buildCombinedMemoryPrompt(resolvedRuleEngine(e), opts))
 	if text == "" {
@@ -249,6 +258,8 @@ func (e *MemoryRuleEngine) loadCombinedMemoryPrompt(opts MemoryRuleOptions) *str
 	return &text
 }
 
+// loadKairosMemoryPrompt 渲染 kairos daily log 模式规则。
+// 该模式复用 daily log 提示，不暴露标准 taxonomy 的写入路径。
 func (e *MemoryRuleEngine) loadKairosMemoryPrompt(opts MemoryRuleOptions) *string {
 	text := strings.TrimSpace(BuildDailyLogPrompt(opts.SkipIndex, opts.SearchPastContextEnabled, opts.ExtraGuidelines))
 	if text == "" {
@@ -257,7 +268,8 @@ func (e *MemoryRuleEngine) loadKairosMemoryPrompt(opts MemoryRuleOptions) *strin
 	return &text
 }
 
-// BuildMemoryLines 构建记忆行。
+// BuildMemoryLines 组装标准模式下的完整规则章节。
+// 章节顺序稳定，便于测试快照和 provider 侧 prompt diff 定位变化。
 func (e *MemoryRuleEngine) BuildMemoryLines(opts MemoryRuleOptions) string {
 	engine := resolvedRuleEngine(e)
 	sections := make([]string, 0, 9)
@@ -283,7 +295,8 @@ func (e *MemoryRuleEngine) BuildMemoryLines(opts MemoryRuleOptions) string {
 	return strings.Join(sections, "\n\n")
 }
 
-// buildCombinedMemoryPrompt 构建combined记忆prompt。
+// buildCombinedMemoryPrompt 组装 private/team 双 scope 模式提示。
+// 任一根目录为空都返回空字符串，避免给模型承诺不可用的写入位置。
 func buildCombinedMemoryPrompt(engine *MemoryRuleEngine, opts MemoryRuleOptions) string {
 	engine = resolvedRuleEngine(engine)
 	autoDir := strings.TrimSpace(opts.AutoMemPath)
@@ -315,6 +328,8 @@ func buildCombinedMemoryPrompt(engine *MemoryRuleEngine, opts MemoryRuleOptions)
 	return strings.Join(sections, "\n\n")
 }
 
+// combinedMemorySystemLines 生成 combined 模式的系统说明。
+// 内容明确记忆目录已由 runtime 准备好，模型不应自行探测或创建目录。
 func combinedMemorySystemLines(autoDir, teamDir string) []string {
 	return []string{
 		fmt.Sprintf("You have a persistent, file-based memory system with two directories: a private directory at `%s` and a shared team directory at `%s`.", autoDir, teamDir),
@@ -325,6 +340,8 @@ func combinedMemorySystemLines(autoDir, teamDir string) []string {
 	}
 }
 
+// combinedMemoryScopeLines 说明 private/team scope 的可见性差异。
+// 这些文案用于帮助模型选择写入范围，不代表访问控制实现本身。
 func combinedMemoryScopeLines(autoDir, teamDir string) []string {
 	return []string{
 		fmt.Sprintf("`private` memories are shared only with the current user and are stored at `%s`.", autoDir),
@@ -333,6 +350,8 @@ func combinedMemoryScopeLines(autoDir, teamDir string) []string {
 	}
 }
 
+// combinedTaxonomyLines 渲染 combined 模式下各记忆类型的默认 scope 倾向。
+// 类型定义来自规则引擎，scope 文案只用于提示层决策。
 func combinedTaxonomyLines(engine *MemoryRuleEngine) []string {
 	engine = resolvedRuleEngine(engine)
 	scopes := map[MemoryType]string{
@@ -350,6 +369,8 @@ func combinedTaxonomyLines(engine *MemoryRuleEngine) []string {
 	return lines
 }
 
+// combinedExclusionRules 返回 combined 模式额外禁写规则。
+// 团队记忆会被共享，因此在标准排除项之外再次强调密钥禁止写入。
 func combinedExclusionRules() []string {
 	return append(
 		cloneStrings(standardExclusionRules),
@@ -357,6 +378,8 @@ func combinedExclusionRules() []string {
 	)
 }
 
+// combinedSaveRules 生成 combined 模式的保存步骤说明。
+// skipIndex 开启时只允许写 topic 文件，避免模型继续维护可能被截断的入口索引。
 func combinedSaveRules(skipIndex bool, autoDir, teamDir string) []string {
 	indexPrivate := filepath.ToSlash(memoryIndexPath(autoDir))
 	indexTeam := filepath.ToSlash(memoryIndexPath(teamDir))
@@ -367,7 +390,7 @@ func combinedSaveRules(skipIndex bool, autoDir, teamDir string) []string {
 		"Organize memories semantically by topic, not chronologically.",
 		"Update or remove memories that turn out to be wrong or outdated.",
 		"Do not write duplicate memories. First check whether an existing memory should be updated instead.",
-		// Phase 4.1a 子项 3.1 (combined-only cross-scope same-name pre-check):
+		// combined 模式下 feedback 名称会影响 private/team 冲突处理，写前需要检查另一 scope。
 		"When saving a `feedback` in combined mode, first scan the already-injected `MEMORY.md` indexes for any same-name `feedback` in the other scope. If found, prefer updating the team version (it overrides private for project-wide guidance) or rename to avoid conflict.",
 	}
 	if skipIndex {
@@ -382,6 +405,8 @@ func combinedSaveRules(skipIndex bool, autoDir, teamDir string) []string {
 	}, rules...)
 }
 
+// combinedAccessRules 生成 combined 模式的读取和不可见处理规则。
+// scope 是权限边界，提示层不能通过猜测路径或换 scope 绕过 runtime 授权。
 func combinedAccessRules() []string {
 	return []string{
 		"Read private or team memory when it seems relevant, or when the user references prior work with teammates or others in the organization.",
@@ -391,12 +416,14 @@ func combinedAccessRules() []string {
 		"Visibility is decided by runtime `sanitize + resolve + authorize`; knowing a `name`, `path`, or `@agent` does not grant access.",
 		"`scope` is an ACL boundary, not a fifth memory type.",
 		"Treat `deny`, `not_visible`, and `local_unavailable` as unavailable; do not retry via another root or scope.",
-		// Phase 4.1a 子项 1+2 (combined-only type-specific access guidance):
+		// feedback/project 类型在协作场景更容易影响后续贡献者，读取规则需单独强调。
 		"Read `feedback` memory to guide behavior so the user — and the next contributor working on this project — does not need to repeat the same working guidance twice.",
 		"Read `project` memory when shared decisions, owners, or affected modules might shape your answer; flag breaking changes for collaborators when a project memory says they are affected.",
 	}
 }
 
+// taxonomyLines 渲染标准模式下的记忆类型说明。
+// 返回值只包含提示文案，不暴露内部规则结构给调用方。
 func (e *MemoryRuleEngine) taxonomyLines() []string {
 	engine := resolvedRuleEngine(e)
 	lines := make([]string, 0, len(engine.order)+1)
@@ -408,6 +435,8 @@ func (e *MemoryRuleEngine) taxonomyLines() []string {
 	return lines
 }
 
+// renderBehaviorSection 按记忆类型渲染 save/access/trust 等行为章节。
+// base 规则先于类型细则出现，确保通用禁止项不会被类型规则冲淡。
 func (e *MemoryRuleEngine) renderBehaviorSection(title string, base []string, pick func(MemoryTypeBehavior) []string) string {
 	engine := resolvedRuleEngine(e)
 	parts := []string{title, renderBullets(base)}
@@ -417,6 +446,8 @@ func (e *MemoryRuleEngine) renderBehaviorSection(title string, base []string, pi
 	return strings.Join(nonEmpty(parts), "\n")
 }
 
+// resolvedRuleEngine 返回可用规则引擎，nil 时回退包级默认实例。
+// 默认实例通过 sync.OnceValue 构造，避免重复分配和跨 goroutine 竞态。
 func resolvedRuleEngine(engine *MemoryRuleEngine) *MemoryRuleEngine {
 	if engine != nil {
 		return engine
@@ -424,6 +455,8 @@ func resolvedRuleEngine(engine *MemoryRuleEngine) *MemoryRuleEngine {
 	return defaultMemoryRuleEngine()
 }
 
+// renderSection 将标题和清理后的 bullet 行合并成一个 prompt 章节。
+// 空章节返回空字符串，由上层 nonEmpty 过滤。
 func renderSection(title string, lines []string) string {
 	cleaned := normalizeStringSlice(lines)
 	if len(cleaned) == 0 {

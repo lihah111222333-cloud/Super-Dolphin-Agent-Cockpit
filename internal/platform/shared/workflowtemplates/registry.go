@@ -19,23 +19,24 @@ var embeddedAssets embed.FS
 
 // Registry 负责加载和渲染内置工作流模板，保持只读且无数据库副作用。
 type Registry struct {
-	mu               sync.RWMutex
-	order            []string
-	templates        map[string]Template
-	templateVersions map[string]map[int]Template
+	mu               sync.RWMutex                // 保护模板列表和版本索引。
+	order            []string                    // manifest 顺序或首次保存顺序。
+	templates        map[string]Template         // 当前活跃模板版本。
+	templateVersions map[string]map[int]Template // 每个模板保留的历史版本。
 }
 
+// manifest 对应内置模板 manifest.json，只声明允许从 embed.FS 读取的模板 YAML 路径。
 type manifest struct {
 	Version   int      `json:"version"`
 	Templates []string `json:"templates"`
 }
 
-// NewDefaultRegistry 从仓库内置资源加载政企工作流模板。
+// NewDefaultRegistry 从仓库内置资源加载工作流模板，启动期校验失败会直接返回错误。
 func NewDefaultRegistry() (*Registry, error) {
 	return Load(embeddedAssets)
 }
 
-// Load 从文件系统加载 manifest 和模板资源。
+// Load 从文件系统加载 manifest 和模板资源，路径逃逸、重复 ID 或 schema 错误都会阻断。
 func Load(fsys fs.FS) (*Registry, error) {
 	raw, err := fs.ReadFile(fsys, "assets/manifest.json")
 	if err != nil {
@@ -72,7 +73,7 @@ func (r *Registry) ListTemplates(filters ...ListFilter) []TemplateSummary {
 	return out
 }
 
-// GetTemplate 返回指定模板的完整定义。
+// GetTemplate 在读锁内取当前活跃模板定义；未命中时不触发默认模板或磁盘回退。
 func (r *Registry) GetTemplate(id string) (Template, bool) {
 	if r == nil {
 		return Template{}, false
@@ -83,7 +84,7 @@ func (r *Registry) GetTemplate(id string) (Template, bool) {
 	return tpl, ok
 }
 
-// SaveTemplate 保存一个已通过 schema 校验的模板版本，并把该版本设为当前活跃版本。
+// SaveTemplate 校验并登记一个新模板版本，同一 ID/version 重复会 fail-fast。
 func (r *Registry) SaveTemplate(tpl Template) error {
 	if r == nil {
 		return errors.New("workflowtemplates: registry is nil")
@@ -150,6 +151,7 @@ func (r *Registry) RenderDAGDraft(req RenderRequest) (DAGDraft, error) {
 	return buildDAGDraft(tpl, req, values, nodes, finalOutput), nil
 }
 
+// loadTemplates 按 manifest 顺序加载并校验所有模板，重复 ID 会阻断启动。
 func loadTemplates(fsys fs.FS, items []string) (*Registry, error) {
 	reg := &Registry{
 		order:            make([]string, 0, len(items)),
@@ -174,6 +176,7 @@ func loadTemplates(fsys fs.FS, items []string) (*Registry, error) {
 	return reg, nil
 }
 
+// loadTemplate 读取单个 YAML 模板文件，并拒绝 manifest 中的路径逃逸。
 func loadTemplate(fsys fs.FS, item string) (Template, error) {
 	clean := filepath.ToSlash(filepath.Clean(item))
 	if clean == "." || strings.HasPrefix(clean, "../") || filepath.IsAbs(clean) {
@@ -240,6 +243,7 @@ func TemplateFromSaveRequest(req SaveTemplateRequest) (Template, error) {
 	}, nil
 }
 
+// renderNodes 渲染节点标题、负责人和配置，同时补齐 agent 节点 exec.cwd。
 func renderNodes(nodes []NodeTemplate, values map[string]string) []NodeTemplate {
 	out := make([]NodeTemplate, 0, len(nodes))
 	for _, node := range nodes {
@@ -253,6 +257,7 @@ func renderNodes(nodes []NodeTemplate, values map[string]string) []NodeTemplate 
 	return out
 }
 
+// ensureAgentExecCWD 为 agent 节点补齐 exec.cwd，避免运行时节点缺工作目录。
 func ensureAgentExecCWD(node *NodeTemplate, cwd string) {
 	if node == nil || strings.TrimSpace(strings.ToLower(node.NodeType)) != "agent" {
 		return
@@ -276,6 +281,7 @@ func ensureAgentExecCWD(node *NodeTemplate, cwd string) {
 	node.Config["exec"] = exec
 }
 
+// buildDAGDraft 组装只读 DAG 草案，不写入 DAG 存储也不启动节点。
 func buildDAGDraft(tpl Template, req RenderRequest, values map[string]string, nodes []NodeTemplate, finalOutput FinalOutput) DAGDraft {
 	return DAGDraft{
 		TemplateID:      tpl.ID,
@@ -297,6 +303,7 @@ func buildDAGDraft(tpl Template, req RenderRequest, values map[string]string, no
 	}
 }
 
+// templateSummaryLocked 在调用方持锁时构造模板摘要，包含可回滚版本列表。
 func (r *Registry) templateSummaryLocked(tpl Template) TemplateSummary {
 	return TemplateSummary{
 		ID:                tpl.ID,
@@ -317,6 +324,7 @@ func (r *Registry) templateSummaryLocked(tpl Template) TemplateSummary {
 	}
 }
 
+// sortedTemplateVersions 生成目录 API 使用的稳定版本列表，nil map 会返回空切片。
 func sortedTemplateVersions(versions map[int]Template) []int {
 	out := make([]int, 0, len(versions))
 	for version := range versions {
@@ -326,6 +334,7 @@ func sortedTemplateVersions(versions map[int]Template) []int {
 	return out
 }
 
+// firstListFilter 兼容可变参数调用，只使用第一个筛选条件。
 func firstListFilter(filters []ListFilter) ListFilter {
 	if len(filters) == 0 {
 		return ListFilter{}
@@ -333,6 +342,7 @@ func firstListFilter(filters []ListFilter) ListFilter {
 	return filters[0]
 }
 
+// templateSummaryMatches 判断模板摘要是否满足目录筛选条件，空筛选值表示不限制。
 func templateSummaryMatches(tpl TemplateSummary, filter ListFilter) bool {
 	if !matchesOptionalText(tpl.Category, filter.Category) {
 		return false
@@ -346,6 +356,7 @@ func templateSummaryMatches(tpl TemplateSummary, filter ListFilter) bool {
 	return filter.SupportsSchedule == nil || tpl.SupportsSchedule == *filter.SupportsSchedule
 }
 
+// matchesOptionalText 在筛选值为空时视为匹配。
 func matchesOptionalText(got string, want string) bool {
 	want = strings.TrimSpace(want)
 	return want == "" || got == want

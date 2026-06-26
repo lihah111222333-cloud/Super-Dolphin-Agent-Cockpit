@@ -11,12 +11,15 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 )
 
+// WorkspaceMergeFileResult 是 workspace merge 单文件结果的工具层 DTO。
 type WorkspaceMergeFileResult struct {
 	Path   string `json:"path"`
 	Action string `json:"action"`
 	Reason string `json:"reason,omitempty"`
 }
 
+// WorkspaceMergeRunResult 是 workspace_merge_run 的兼容响应。
+// WorkspaceRoot 和 FilesMerged 保留旧 UI 字段，值来自 WorkspacePath 和 Merged。
 type WorkspaceMergeRunResult struct {
 	RunKey        string                     `json:"run_key"`
 	Status        string                     `json:"status"`
@@ -35,6 +38,8 @@ type WorkspaceMergeRunResult struct {
 	Files         []WorkspaceMergeFileResult `json:"files,omitempty"`
 }
 
+// workspaceRunDTO 是 workspace run 暴露给 MCP 工具和 UI 的稳定形状。
+// Files 需要从 run file 表补齐，不能只依赖 run 主表。
 type workspaceRunDTO struct {
 	ID            int64           `json:"id"`
 	RunKey        string          `json:"run_key"`
@@ -52,6 +57,7 @@ type workspaceRunDTO struct {
 	Files         []string        `json:"files"`
 }
 
+// workspaceRunDTOFromRun 将服务层 run 映射为工具层 DTO。
 func workspaceRunDTOFromRun(ctx context.Context, svc workspace.Service, run *workspace.Run) (*workspaceRunDTO, error) {
 	if run == nil {
 		return nil, nil
@@ -78,6 +84,7 @@ func workspaceRunDTOFromRun(ctx context.Context, svc workspace.Service, run *wor
 	}, nil
 }
 
+// mapWorkspaceRuns 批量映射 workspace run 列表。
 func mapWorkspaceRuns(ctx context.Context, svc workspace.Service, runs []workspace.Run) ([]workspaceRunDTO, error) {
 	if len(runs) == 0 {
 		return nil, nil
@@ -93,6 +100,7 @@ func mapWorkspaceRuns(ctx context.Context, svc workspace.Service, runs []workspa
 	return mapped, nil
 }
 
+// convertMergeResult 将服务层 merge 结果转换为工具层兼容响应。
 func convertMergeResult(r *workspace.MergeRunResult, deleteRemoved bool) *WorkspaceMergeRunResult {
 	if r == nil {
 		return nil
@@ -123,7 +131,8 @@ func convertMergeResult(r *workspace.MergeRunResult, deleteRemoved bool) *Worksp
 	}
 }
 
-// listWorkspaceRunFiles 列出工作区运行记录文件。
+// listWorkspaceRunFiles 为兼容 DTO 补齐工作区文件路径。
+// svc 缺失或 run_key 为空时返回空列表，保持读取型 DTO 构造不越过服务边界。
 func listWorkspaceRunFiles(ctx context.Context, svc workspace.Service, runKey string) ([]string, error) {
 	if svc == nil || strings.TrimSpace(runKey) == "" {
 		return []string{}, nil

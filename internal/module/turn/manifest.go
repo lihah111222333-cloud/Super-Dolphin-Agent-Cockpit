@@ -10,11 +10,13 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/discovery"
 )
 
+// manifestBuilder 封装 provider manifest 构建函数，并补充 turn 运行时的二进制目录。
 type manifestBuilder struct {
 	binaryDir string
 	buildFn   contract.ManifestBuildFunc
 }
 
+// newManifestBuilder 创建 manifest 构建器；buildFn 由上层注入以便测试替换。
 func newManifestBuilder(binaryDir string, buildFn contract.ManifestBuildFunc) *manifestBuilder {
 	return &manifestBuilder{
 		binaryDir: strings.TrimSpace(binaryDir),
@@ -22,7 +24,7 @@ func newManifestBuilder(binaryDir string, buildFn contract.ManifestBuildFunc) *m
 	}
 }
 
-// Build 构建turn。
+// Build 将 PrepareInput 中的工作区、MCP 快照和 peer 地址汇总成 provider 可消费的 manifest。
 func (b *manifestBuilder) Build(input PrepareInput, threadID string) dto.MCPManifest {
 	peerAddrs, peerTokens := discoverPeers()
 	return b.buildFn(dto.ManifestContext{
@@ -39,6 +41,7 @@ func (b *manifestBuilder) Build(input PrepareInput, threadID string) dto.MCPMani
 	})
 }
 
+// binaryDirFor 优先使用 turn 输入里的二进制目录，缺省时回退到服务启动时配置。
 func (b *manifestBuilder) binaryDirFor(binaryDir string) string {
 	if binaryDir = strings.TrimSpace(binaryDir); binaryDir != "" {
 		return binaryDir
@@ -46,6 +49,7 @@ func (b *manifestBuilder) binaryDirFor(binaryDir string) string {
 	return strings.TrimSpace(b.binaryDir)
 }
 
+// mcpServerConfigBinaries 把线程运行时 MCP server 配置转成稳定排序的 manifest binary 列表。
 func mcpServerConfigBinaries(configs map[string]contract.MCPServerConfig) []dto.MCPBinary {
 	if len(configs) == 0 {
 		return nil
@@ -62,6 +66,7 @@ func mcpServerConfigBinaries(configs map[string]contract.MCPServerConfig) []dto.
 	return binaries
 }
 
+// mcpServerConfigBinary 按 transport 构造 HTTP 或 stdio binary，无效 stdio 命令会被跳过。
 func mcpServerConfigBinary(name string, config contract.MCPServerConfig) (dto.MCPBinary, bool) {
 	switch strings.ToLower(strings.TrimSpace(config.Transport)) {
 	case "http":
@@ -86,6 +91,7 @@ func mcpServerConfigBinary(name string, config contract.MCPServerConfig) (dto.MC
 	}
 }
 
+// cloneMCPServerArgs 复制 stdio 参数并去掉空白项，避免 manifest 带入不可见空参数。
 func cloneMCPServerArgs(args []string) []string {
 	if len(args) == 0 {
 		return nil
@@ -121,8 +127,7 @@ func cloneMCPServerHeaders(headers map[string]string) map[string]string {
 	return out
 }
 
-// discoverPeers probes for running peer HTTP endpoints. Returns nil maps if none.
-// discoverPeers 处理discoverpeers。
+// discoverPeers 探测已启动的 LSP/Orch peer HTTP 端点，并附带同一 session token。
 func discoverPeers() (map[dto.ToolFamily]string, map[dto.ToolFamily]string) {
 	token := bootstrap.SessionTokenFromEnv()
 	addrs := make(map[dto.ToolFamily]string)

@@ -7,20 +7,15 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 )
 
-// Phase 4.0 baseline tests: lock down the prompt-section invalidation
-// contract on every UI RPC mutation entry. Spike 子项 1 (see p25 Phase
-// 4.0a spike report) confirmed the invalidation chain is complete;
-// these tests turn that audit into regression guards so a future Phase
-// 4.1 / 自有.1 change cannot silently drop the invalidate call.
+// 本文件锁定 UI RPC 写入路径的 prompt-section invalidation 行为。
+// 每个持久化写入口都必须触发 Memory、MemoryContext 和 MemoryEntrypoint 失效；
+// 若未来改动漏掉 invalidate 调用，这组测试应在同次变更中失败。
 //
-// Convention: assert (reason == InvalidateMemoryWrite) ∧ names ⊇
-// expectedSections, **exact-once** (reviewer B upgrade). Durable paths
-// invalidate Memory + MemoryContext + MemoryEntrypoint.
+// 断言约定：reason 必须是 InvalidateMemoryWrite，names 覆盖期望 section，
+// 并且每个持久化路径只记录一次失效事件。
 
 //
-// Helpers (`sectionSet`, `assertRecordedInvalidation`,
-// `assertRecordedNoSections`, `newPhase4UIDeps`, `findEntriesByName`)
-// live in `phase4_baseline_helpers_test.go`.
+// 辅助函数集中在同包 helper 测试文件，保持本文件只呈现失效行为断言。
 
 func TestPhase4BaselineUpsertUIMemoryEntryInvalidatesDurableSections(t *testing.T) {
 	deps, projectRoot, _ := newPhase4UIDeps(t)
@@ -44,7 +39,7 @@ func TestPhase4BaselineUpsertUIMemoryEntryInvalidatesDurableSections(t *testing.
 		contract.DynamicSectionMemoryEntrypoint,
 	)
 
-	// Reset and assert update path also invalidates.
+	// 清空创建路径记录，只断言 update 路径本身也会触发失效。
 	rec.mu.Lock()
 	rec.calls = nil
 	rec.mu.Unlock()
@@ -84,7 +79,7 @@ func TestPhase4BaselineDeleteUIMemoryEntryInvalidatesDurableSections(t *testing.
 		t.Fatalf("upsertUIMemoryEntry(create fixture) error = %v", err)
 	}
 
-	// Reset so we only see the delete-time signal, not the create.
+	// 清空创建 fixture 的记录，只观察 delete 路径发出的失效信号。
 	rec.mu.Lock()
 	rec.calls = nil
 	rec.mu.Unlock()

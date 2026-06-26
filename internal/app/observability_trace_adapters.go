@@ -8,17 +8,21 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/rpc"
 )
 
+// busTraceRecorder 将 bus trace 写入 observability 服务。
 type busTraceRecorder struct {
 	svc *platformobservability.Service
 }
 
+// busTraceRecorder 必须满足 bus.TraceRecorder。
 var _ bus.TraceRecorder = busTraceRecorder{}
 
+// provideBusTraceRecorder 提供 bus trace adapter。
 func provideBusTraceRecorder(svc *platformobservability.Service) bus.TraceRecorder {
 	return busTraceRecorder{svc: svc}
 }
 
-// RecordTrace 记录trace。
+// RecordTrace 记录 bus trace。
+// observability 服务未接线时直接返回，保持 tracing 为可选能力。
 func (r busTraceRecorder) RecordTrace(ctx context.Context, record bus.TraceRecord) error {
 	if r.svc == nil {
 		return nil
@@ -46,22 +50,25 @@ func (r busTraceRecorder) RecordTrace(ctx context.Context, record bus.TraceRecor
 	})
 }
 
+// rpcTraceRecorder 将 RPC trace 写入 observability 服务。
 type rpcTraceRecorder struct {
 	svc *platformobservability.Service
 }
 
+// rpcTraceRecorder 必须满足 rpc.TraceRecorder。
 var _ rpc.TraceRecorder = rpcTraceRecorder{}
 
+// provideRPCTraceRecorder 提供 RPC trace adapter。
 func provideRPCTraceRecorder(svc *platformobservability.Service) rpc.TraceRecorder {
 	return rpcTraceRecorder{svc: svc}
 }
 
-// Enabled 判断应用装配是否启用。
+// Enabled 判断 RPC tracing 是否启用。
 func (r rpcTraceRecorder) Enabled() bool {
 	return r.svc != nil && r.svc.Enabled()
 }
 
-// RecordTrace 记录trace。
+// RecordTrace 记录 RPC trace。
 func (r rpcTraceRecorder) RecordTrace(ctx context.Context, record rpc.TraceRecord) error {
 	if r.svc == nil {
 		return nil

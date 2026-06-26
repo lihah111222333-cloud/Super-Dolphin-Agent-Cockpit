@@ -6,17 +6,11 @@ import (
 	"testing"
 )
 
-// TestBootstrapSubscribeHooksPersistsDesiredStateOnLiveFailure
-// enforces P22 P2 bootstrap-S2 / plan §498 / §504: the live-call
-// failure branch of SubscribeHooks must persist the desired
-// subscription state before returning the error so the reconnect
-// path (replayHookSubscriptions) can retry.
+// TestBootstrapSubscribeHooksPersistsDesiredStateOnLiveFailure 确认 SubscribeHooks 的 live-call
+// 失败分支会先持久化期望订阅状态再返回错误，保证重连路径可重放订阅。
 //
-// This archtest is deliberately source-shape based: it verifies that
-// hooks.go still contains both `c.hooks.store(` and
-// `c.hooks.markReplayPending(` inside the file so a future refactor
-// that drops the persistence call fails the build rather than
-// silently regressing the contract.
+// 该 archtest 有意使用源码形状检查：hooks.go 必须同时保留 `c.hooks.store(` 和
+// `c.hooks.markReplayPending(`，未来重构如果删掉持久化调用会直接失败。
 func TestBootstrapSubscribeHooksPersistsDesiredStateOnLiveFailure(t *testing.T) {
 	const path = "../../internal/mcpserver/common/bootstrap/hooks.go"
 	data, err := os.ReadFile(path)
@@ -26,25 +20,12 @@ func TestBootstrapSubscribeHooksPersistsDesiredStateOnLiveFailure(t *testing.T) 
 	text := string(data)
 
 	required := []string{
-		"c.hooks.store(",             // desired state must be persisted
-		"c.hooks.markReplayPending(", // and marked as pending replay
+		"c.hooks.store(",             // 必须持久化期望状态
+		"c.hooks.markReplayPending(", // 并标记为待重放
 	}
 	for _, tok := range required {
 		if !strings.Contains(text, tok) {
-			t.Errorf("%s: expected %q to be present (P22 P2 bootstrap-S2: live-call failure must persist desired state for replay)", path, tok)
-		}
-	}
-
-	// Also sanity-check the contract docstring stays. If someone
-	// removes the comment block, they probably removed the
-	// behaviour too.
-	for _, anchor := range []string{
-		"P22 P2",
-		"§498",
-		"§504",
-	} {
-		if !strings.Contains(text, anchor) {
-			t.Errorf("%s: expected SubscribeHooks contract docstring to still reference %q", path, anchor)
+			t.Errorf("%s: expected %q to be present (live-call failure must persist desired state for replay)", path, tok)
 		}
 	}
 }

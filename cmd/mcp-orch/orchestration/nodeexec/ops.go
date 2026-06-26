@@ -8,8 +8,8 @@ import (
 	"strings"
 )
 
-// task_dag_apply_ops typed payload —— 蓝图 v2 §9 + 实施计划 S4.1 + S4.2。
-// 4 个动词 + base_version OCC 是 AI 设计师与用户共用的"动态可重写 DAG"原语。
+// 本文件定义 task_dag_apply_ops 的 typed payload。
+// 4 个动词和 base_version OCC 是 DAG 在线编辑的 wire 契约；这里只负责解码、编码和字段白名单。
 // 本文件只定义 wire schema 和 marshal/unmarshal 契约；ApplyOps 的状态变更由
 // orchestration service 层执行，nodeexec 侧测试覆盖 typed dispatch、strict
 // decode、三态 patch 与 banned-field 拦截。
@@ -58,7 +58,7 @@ type NodeSpec struct {
 	NodeType   string          `json:"node_type"` // agent | automation | hybrid
 	AssignedTo string          `json:"assigned_to,omitempty"`
 	DependsOn  []string        `json:"depends_on,omitempty"`
-	Config     json.RawMessage `json:"config,omitempty"` // 由 ParseNodeConfig 解码（S5.2）
+	Config     json.RawMessage `json:"config,omitempty"` // 由 ParseNodeConfig 解码
 }
 
 // OpAddNode 加节点。draft/ready 下由 service 层持久化到模板；running/active run
@@ -70,7 +70,8 @@ type OpAddNode struct {
 // Kind 返回 DAG patch 操作类型。
 func (OpAddNode) Kind() OpKind { return OpKindAddNode }
 
-// UnmarshalJSON 解码JSON。
+// UnmarshalJSON 严格解码 add_node op。
+// 未知字段会返回带允许字段列表的错误，避免调用方以为额外字段已被持久化。
 func (op *OpAddNode) UnmarshalJSON(data []byte) error {
 	type addNodeWire struct {
 		Op   OpKind   `json:"op"`
@@ -86,7 +87,8 @@ func (op *OpAddNode) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-// UnmarshalJSON 解码JSON。
+// UnmarshalJSON 严格解码创建节点的 wire 字段。
+// NodeSpec 是编辑视图，禁止通过未知字段把执行态字段混入模板节点。
 func (n *NodeSpec) UnmarshalJSON(data []byte) error {
 	if string(data) == "null" {
 		*n = NodeSpec{}
@@ -111,8 +113,8 @@ func addNodeStrictDecodeError(err error, allowed string) error {
 	return err
 }
 
-// NodePatch 是 update_node 允许修改的节点字段白名单。F4.2 落地后唯一接收的
-// patch 顶层 key 是 4 个：title / assigned_to / depends_on / config。任何其他
+// NodePatch 是 update_node 允许修改的节点字段白名单。
+// patch 顶层 key 只接收 title / assigned_to / depends_on / config。任何其他
 // 顶层 key（含禁改的 node_key / node_type / status / agent_key 与拼写错误的
 // 随机字段）由 UnmarshalJSON 严格拒。
 //
@@ -120,7 +122,7 @@ func addNodeStrictDecodeError(err error, allowed string) error {
 //   - Title / AssignedTo: *string —— nil 不改 / 指向 "" 清空 / 指向 v 改成 v
 //   - DependsOn: *[]string —— nil 不改 / *[] 清空 / *[a,b] 设置
 //   - Config: json.RawMessage —— 空（len==0 或 "null"）不改 / 非空覆盖整个 JSON
-//     （结构性 patch 留给 schema 解码后再做，骨架阶段语义保持"整片替换"）
+//     （结构性 patch 留给 schema 解码后再做，当前语义保持"整片替换"）
 //
 // 关键不变量：禁改 status —— status 由生命周期路径管，ApplyOps 不许碰；禁改
 // node_key / node_type —— wire 上无字段位、即便用户硬塞也由 strict unmarshal
@@ -135,8 +137,8 @@ type NodePatch struct {
 }
 
 // ErrNodePatchBannedField 是 NodePatch.UnmarshalJSON 遇到禁改字段时返回的
-// sentinel。errors.Is 可命中。F4.2 service 层把它包成 ErrApplyOpsInvalid
-// 上抛，让 MCP 调用方收到「禁改字段」的明确反馈。
+// sentinel。errors.Is 可命中，service 层会把它包成 ErrApplyOpsInvalid 上抛，
+// 让 MCP 调用方收到「禁改字段」的明确反馈。
 //
 // 拒的场景：
 //   - patch 顶层出现非白名单 key（含禁改 4 件套 + 拼写错误随机 key）。
@@ -149,8 +151,8 @@ var ErrNodePatchBannedField = errors.New("node patch: banned field")
 // 生命周期管，node_key / node_type 不可改；agent_key 只允许作为完整 exec
 // 配置的一部分出现在直接路径 config.exec.agent_key。
 //
-// 深层校验对应 R2 P1（嵌套 banned key 测试 gap）：拒掉
-// `{"config":{"agent_key":"evil"}}` 与 `{"config":{"nested":{"status":"x"}}}`。
+// 深层校验会拒掉 `{"config":{"agent_key":"evil"}}`
+// 与 `{"config":{"nested":{"status":"x"}}}` 这类绕过顶层字段的写法。
 // 与 executor_automation.go 的 automationOutputsForbiddenKeys 不同：
 // 后者是 outputs 子 schema 的「agent prompt 注入」语义，本集合只管节点
 // 身份与生命周期字段。
@@ -164,15 +166,8 @@ var nodePatchBannedDeepKeys = map[string]struct{}{
 // UnmarshalJSON 走 strict 模式：用 json.Decoder + DisallowUnknownFields 做
 // 顶层白名单校验，再递归扫 config 内层禁改 key。
 //
-// 实现说明（R1 P1 #1 改造）：
-//   - stdlib 标准做法是 json.NewDecoder(...).DisallowUnknownFields()。原先
-//     双 pass map[string]json.RawMessage 也能做，但注释把它说成「标准做法」
-//     不准确——decoder strict 模式才是 stdlib 一等公民。
-//   - decoder 在解码到非白名单字段时返回 `json: unknown field "extra"` 错误。
-//     我们包成 ErrNodePatchBannedField 让 errors.Is 路径不变。
-//   - 用 type alias 跳过 UnmarshalJSON 自调用，防递归。
-//   - 顶层 strict 解码 + 单独遍 walk patch.Config 做深层 banned key 校验，
-//     避免漏掉 `config.agent_key` 这类「藏在内层」的禁改字段。
+// decoder 在解码到非白名单字段时会返回 `json: unknown field "extra"`；
+// 这里统一包成 ErrNodePatchBannedField，同时递归扫描 patch.Config，避免禁改字段藏进内层对象。
 func (p *NodePatch) UnmarshalJSON(data []byte) error {
 	if string(data) == "null" {
 		*p = NodePatch{}
@@ -235,7 +230,8 @@ func walkConfigForBannedKeys(v any, path []string) error {
 	return nil
 }
 
-// isAllowedConfigAgentKey 判断allowed配置代理键是否可用。
+// isAllowedConfigAgentKey 只允许 agent_key 出现在 exec.agent_key 或 exec.verifier.agent_key。
+// 其它路径的 agent_key 会改变节点路由身份，必须由 strict patch 拦截。
 func isAllowedConfigAgentKey(key string, path []string) bool {
 	if key != "agent_key" || len(path) == 0 {
 		return false
@@ -308,7 +304,8 @@ func (ops Ops) MarshalJSON() ([]byte, error) {
 	return json.Marshal(out)
 }
 
-// UnmarshalJSON 解码JSON。
+// UnmarshalJSON 解码 ops 数组并按 op discriminator 分派到具体类型。
+// 任一元素缺 op 或出现未知 op 都会 fail-fast，避免 service 层收到半解码 payload。
 func (ops *Ops) UnmarshalJSON(data []byte) error {
 	if string(data) == "null" {
 		*ops = nil
@@ -334,7 +331,8 @@ func (ops *Ops) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-// decodeOp 解码op。
+// decodeOp 根据 op kind 解码具体操作。
+// 这里只做 wire 层分派；拓扑、状态和持久化约束由 plan/service 层继续校验。
 func decodeOp(kind OpKind, item json.RawMessage) (Op, error) {
 	switch kind {
 	case OpKindUpdateDAG:

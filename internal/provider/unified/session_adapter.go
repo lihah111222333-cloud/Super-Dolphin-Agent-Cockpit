@@ -4,38 +4,38 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 )
 
-// sessionProviderAdapter adapts SessionManager to the thread module's narrow lookup contract.
+// sessionProviderAdapter 把 SessionManager 收窄为 thread 和 turn 模块使用的 session 查询接口。
 type sessionProviderAdapter struct {
 	manager *SessionManager
 }
 
+// sessionCleanerAdapter 把 SessionManager 收窄为 orchestration 清理路径使用的移除接口。
 type sessionCleanerAdapter struct {
 	manager *SessionManager
 }
 
-// NewSessionProvider 创建会话provider。
+// NewSessionProvider 创建 thread 模块使用的 session 查询适配器。
 func NewSessionProvider(manager *SessionManager) *sessionProviderAdapter {
 	return &sessionProviderAdapter{manager: manager}
 }
 
-// NewTurnSessionProvider returns a narrow session lookup for the turn module.
-// The returned adapter satisfies any interface that requires GetSession(agentID) (Session, error).
-// NewTurnSessionProvider 创建turn会话provider。
+// NewTurnSessionProvider 创建 turn 模块使用的 session 查询适配器。
+// 返回值保持窄接口形态，避免 turn 模块依赖完整 SessionManager。
 func NewTurnSessionProvider(manager *SessionManager) *sessionProviderAdapter {
 	return &sessionProviderAdapter{manager: manager}
 }
 
-// NewSessionCleaner 创建会话cleaner。
+// NewSessionCleaner 创建 orchestration 会话清理适配器，清理路径只暴露移除能力。
 func NewSessionCleaner(manager *SessionManager) contract.OrchestrationSessionCleaner {
 	return &sessionCleanerAdapter{manager: manager}
 }
 
-// GetSession 读取会话。
+// GetSession 按 agent ID 读取内存 session，错误语义保持与 SessionManager.Get 一致。
 func (a *sessionProviderAdapter) GetSession(agentID string) (contract.Session, error) {
 	return a.manager.Get(agentID)
 }
 
-// RemoveSession 移除会话。
+// RemoveSession 移除当前 agent session，nil adapter 在清理路径中安全忽略。
 func (a *sessionProviderAdapter) RemoveSession(agentID string) {
 	if a == nil || a.manager == nil {
 		return
@@ -43,7 +43,7 @@ func (a *sessionProviderAdapter) RemoveSession(agentID string) {
 	a.manager.RemoveCurrent(agentID)
 }
 
-// SessionGeneration 处理会话代际。
+// SessionGeneration 返回当前 session 代际，nil adapter 按未注册处理。
 func (a *sessionProviderAdapter) SessionGeneration(agentID string) uint64 {
 	if a == nil || a.manager == nil {
 		return 0
@@ -51,7 +51,7 @@ func (a *sessionProviderAdapter) SessionGeneration(agentID string) uint64 {
 	return a.manager.SessionGeneration(agentID)
 }
 
-// RemoveSessionGeneration 移除会话代际。
+// RemoveSessionGeneration 只移除匹配 generation 的 session，防止异步清理删掉新会话。
 func (a *sessionProviderAdapter) RemoveSessionGeneration(agentID string, generation uint64) {
 	if a == nil || a.manager == nil {
 		return
@@ -59,7 +59,7 @@ func (a *sessionProviderAdapter) RemoveSessionGeneration(agentID string, generat
 	a.manager.Remove(agentID, generation)
 }
 
-// RemoveSession 移除会话。
+// RemoveSession 通过 cleaner 适配器移除当前 session，供 orchestration 停止路径调用。
 func (a *sessionCleanerAdapter) RemoveSession(agentID string) {
 	if a == nil || a.manager == nil {
 		return
@@ -67,7 +67,7 @@ func (a *sessionCleanerAdapter) RemoveSession(agentID string) {
 	a.manager.RemoveCurrent(agentID)
 }
 
-// RemoveSessionGeneration 移除会话代际。
+// RemoveSessionGeneration 通过 cleaner 适配器执行代际保护的 session 移除。
 func (a *sessionCleanerAdapter) RemoveSessionGeneration(agentID string, generation uint64) {
 	if a == nil || a.manager == nil {
 		return

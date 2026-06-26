@@ -138,18 +138,11 @@ func requireTrimmed(value, field string) (string, error) {
 	return strings.TrimSpace(value), nil
 }
 
-// requireEnum 给 handler 层做兜底的 enum 字符串校验，与 StringSchema enum
-// 共用同一份 allowed（通过 EnumValues 从 schema 反取，单源驱动）。
+// requireEnum 给 handler 层做 enum 字符串校验，与 StringSchema enum 共用同一份 allowed。
 //   - value 为空（trim 后）→ 返 "<field> is required" 错（与 requireTrimmed 同语义，但
 //     调用方只在「该字段必填且需校验枚举」场景使用）。
 //   - 不在 allowed 内 → 返中英双语错误，列出 allowed 候选值。
 //   - 命中 → 返 trim 后的值。
-//
-// requireEnum is the handler-layer fallback validator for string enum
-// fields. It shares the allowed-values slice with the schema via
-// EnumValues so there is a single source of truth. Returns a bilingual
-// error (Chinese + English) when the value is outside the allowed set,
-// keeping the style aligned with translateStartDAGError.
 func requireEnum(value, field string, allowed []string) (string, error) {
 	trimmed := strings.TrimSpace(value)
 	if trimmed == "" {
@@ -188,7 +181,8 @@ func normalizeListLimit(limit, defaultLimit, maxLimit int) int {
 	return limit
 }
 
-// marshalRawJSON 编码原始JSON。
+// marshalRawJSON 把工具输入中的结构化值编码成 RawMessage。
+// 空字符串/空对象是否保留由 opts 控制，避免调用方各自实现不同的 nil/{} 语义。
 func marshalRawJSON(value any, opts rawJSONOptions) (json.RawMessage, error) {
 	switch current := value.(type) {
 	case string:

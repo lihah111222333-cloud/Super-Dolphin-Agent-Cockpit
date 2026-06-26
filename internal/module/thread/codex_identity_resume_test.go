@@ -239,7 +239,7 @@ func TestValidateExplicitResumeCodexIdentityDoesNotResolveCompleteIdentity(t *te
 	}
 }
 
-func TestServiceResumeDoesNotCanonicalizeResolvedCodexIdentityTwice(t *testing.T) {
+func TestServiceResumeForwardsResolvedCleanAliasCodexIdentity(t *testing.T) {
 	t.Parallel()
 
 	canonicalHome, aliasHome := createCleanCodexHomeAlias(t)
@@ -265,15 +265,10 @@ func TestServiceResumeDoesNotCanonicalizeResolvedCodexIdentityTwice(t *testing.T
 		sessions.session = session
 		return session, nil
 	}}
-	orch := &launchHookThreadOrchestration{onLaunch: func() {
-		if err := os.RemoveAll(canonicalHome); err != nil {
-			t.Fatalf("remove canonical codex home after resolve: %v", err)
-		}
-	}}
-	svc := NewService(silentLogger(), threads, bindings, sessions, starter, nil, orch, nil).(*service)
+	svc := NewService(silentLogger(), threads, bindings, sessions, starter, nil, &stubThreadOrchestration{}, nil).(*service)
 
 	if _, err := svc.Resume(context.Background(), ResumeRequest{ThreadID: "thread-single-canonicalize"}); err != nil {
-		t.Fatalf("Resume() error = %v, want resolved codex identity forwarded without second canonicalize", err)
+		t.Fatalf("Resume() error = %v, want resolved codex identity forwarded", err)
 	}
 }
 

@@ -7,37 +7,28 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/util/repofingerprint"
 )
 
-// Redactor is the second-pass redactor used by the skill extractor. Redact
-// returns the redacted text, the names of the patterns that fired (for
-// metric labelling), and a redactor-internal failure (NOT a "no match"
-// signal).
+// Redactor 是 skill 提炼链路的二次脱敏接口。
+// Redact 返回脱敏文本、命中的规则名和脱敏器内部错误；未命中不是错误。
 //
-// hits non-empty = at least one pattern fired; hits empty = nothing
-// matched. err != nil means the redactor itself failed (e.g. a regex
-// compile fault) and the caller should treat the redaction as failed.
+// hits 非空表示至少一条规则命中；err 非空表示规则执行失败，调用方必须视为脱敏失败。
 type Redactor interface {
 	Redact(input string) (output string, hits []string, err error)
 }
 
-// redactionPattern is the must-cover spec table. Each named pattern is
-// replaced with [REDACTED:<name>] when matched, and <name> is appended to
-// hits. When adding a pattern, mirror the change in redaction_test.go so
-// coverage stays load-bearing.
+// redactionPattern 描述一条必须覆盖的脱敏规则。
+// 命中后会替换为 [REDACTED:<name>] 并记录规则名；新增规则时需同步测试以锁住覆盖面。
 type redactionPattern struct {
 	name string
 	re   *regexp.Regexp
 }
 
-// DefaultRedactor implements Redactor with a fixed regex pattern set. The
-// patterns are evaluated in declaration order; one input may be matched by
-// more than one pattern in a single Redact call.
+// DefaultRedactor 使用固定正则规则集实现 Redactor。
+// 规则按声明顺序执行，同一输入允许一次 Redact 命中多条规则。
 type DefaultRedactor struct {
 	patterns []redactionPattern
 }
 
-// NewDefaultRedactor compiles the fixed pattern set. A compile failure
-// panics so the fault is caught at process start, not deep inside a turn.
-// NewDefaultRedactor 创建defaultredactor。
+// NewDefaultRedactor 编译固定脱敏规则；内置规则编译失败会 panic，确保启动阶段暴露问题。
 func NewDefaultRedactor() *DefaultRedactor {
 	specs := []struct {
 		name, expr string
@@ -57,13 +48,11 @@ func NewDefaultRedactor() *DefaultRedactor {
 		{"age_sops_header", `-----BEGIN AGE ENCRYPTED FILE-----`},
 		{"uri_credentials", `(?i)\b[a-z][a-z0-9+.-]*://[^/\s:@]+:[^/\s@]+@`},
 		{"ssh_public_key", `\bssh-(?:rsa|ed25519) [A-Za-z0-9+/=]{40,}`},
-		// credential env name followed by '=' or ':'; value runs to the next whitespace.
+		// 凭据环境变量值只截到下一个空白，避免误吞后续普通文本。
 		{"credential_env", `(?i)\b(OPENAI_API_KEY|ANTHROPIC_API_KEY|AWS_(?:SECRET_)?ACCESS_KEY(?:_ID)?|GITHUB_TOKEN|HF_TOKEN|HUGGINGFACE_TOKEN|SLACK_(?:BOT_)?TOKEN|STRIPE_SECRET_KEY|GOOGLE_API_KEY|NPM_TOKEN|PYPI_TOKEN|DATABASE_URL|POSTGRES_CONNECTION_STRING|SUPER_DOLPHIN_SQLITE_PATH|SUPER_DOLPHIN_INTERNAL_SQLITE_PATH|SENTRY_AUTH_TOKEN|DATABRICKS_TOKEN|AZURE_CLIENT_SECRET)\s*[=:]\s*\S+`},
-		// HTTP cookie header (Cookie / Set-Cookie).
+		// Cookie 头通常是一整行敏感内容，需要整体替换。
 		{"http_cookie", `(?i)\b(?:Cookie|Set-Cookie)\s*:\s*[^\r\n]+`},
-		// Generic long hex / base64 blobs (32+ chars). long_hex is listed
-		// first because pure-hex strings are also valid base64; ordering
-		// the more specific pattern first preserves accurate hit labels.
+		// 长 hex 也是合法 base64，先匹配更具体的 hex 才能保留准确命中标签。
 		{"long_hex", `\b[0-9a-fA-F]{32,}\b`},
 		{"long_base64", `[A-Za-z0-9+/=]{32,}`},
 	}
@@ -71,7 +60,7 @@ func NewDefaultRedactor() *DefaultRedactor {
 	for _, s := range specs {
 		re, err := regexp.Compile(s.expr)
 		if err != nil {
-			// archguard:ignore panic_count -- builtin redaction regexps must compile during package initialization.
+			// archguard:ignore panic_count -- 内置脱敏正则必须在启动阶段编译成功。
 			panic(fmt.Sprintf("redaction pattern %q compile failed: %v", s.name, err))
 		}
 		rs = append(rs, redactionPattern{name: s.name, re: re})
@@ -79,10 +68,7 @@ func NewDefaultRedactor() *DefaultRedactor {
 	return &DefaultRedactor{patterns: rs}
 }
 
-// Redact applies every pattern in declaration order. The same text may be
-// rewritten by multiple patterns. nil receiver is a documented no-op so
-// callers can plug a zero value for tests / partial wiring.
-// Redact 脱敏turn。
+// Redact 按声明顺序应用全部脱敏规则；nil receiver 是测试和局部 wiring 的显式 no-op。
 func (r *DefaultRedactor) Redact(input string) (string, []string, error) {
 	if r == nil || len(r.patterns) == 0 {
 		return input, nil, nil
@@ -100,13 +86,10 @@ func (r *DefaultRedactor) Redact(input string) (string, []string, error) {
 	return out, hits, nil
 }
 
-// RepoFingerprint derives the canonical 128-bit repo scope key. It delegates
-// to internal/util/repofingerprint so turn, skill, cron, and insight code
-// share one implementation. Empty / whitespace cwd returns the empty string.
-// RepoFingerprint 处理仓库fingerprint。
+// RepoFingerprint 生成仓库作用域指纹，复用 shared 实现以保证 turn/skill/cron 结果一致。
 func RepoFingerprint(cwd string) string {
 	return repofingerprint.MustCompute(cwd)
 }
 
-// Compile-time assertion that *DefaultRedactor satisfies Redactor.
+// 编译期断言确保 DefaultRedactor 持续满足 Redactor 接口。
 var _ Redactor = (*DefaultRedactor)(nil)

@@ -7,14 +7,8 @@ import (
 	"sync"
 )
 
-// imageHashTracker keeps the sha256 of image content blocks already emitted
-// in the current claude CLI session so subsequent identical images can be
-// replaced with a small text placeholder instead of re-sending the raw bytes.
-//
-// Lifecycle: one tracker is attached to each *session at construction time
-// and lives as long as the session does. After a process restart the tracker
-// is empty; the first re-paste of an image already in the resumed history
-// will resend the bytes once before subsequent dupes get deduplicated.
+// imageHashTracker 记录当前 Claude CLI 会话已经发送过的图片 sha256。
+// 它随 session 创建和释放，内部加锁支持 steer/retry 路径并发触达；进程重启后缓存清空。
 type imageHashTracker struct {
 	mu   sync.Mutex
 	seen map[string]struct{}
@@ -24,10 +18,8 @@ func newImageHashTracker() *imageHashTracker {
 	return &imageHashTracker{seen: map[string]struct{}{}}
 }
 
-// markIfNew hashes raw and either records it (returns hashHex, true) when the
-// bytes are new to this session, or returns (hashHex, false) when we have
-// already sent them. Empty input returns ("", true) so the caller can keep
-// the original block.
+// markIfNew 计算图片字节 hash 并记录本会话首次出现的图片。
+// 空输入返回新图片语义，让调用方保留原 block；重复图片返回 hash 供占位符引用。
 func (t *imageHashTracker) markIfNew(raw []byte) (string, bool) {
 	if t == nil || len(raw) == 0 {
 		return "", true
@@ -43,10 +35,8 @@ func (t *imageHashTracker) markIfNew(raw []byte) (string, bool) {
 	return full, true
 }
 
-// imageBlockBytes returns the raw bytes referenced by a base64-source image
-// content block, or nil for url-source / non-image blocks. Used by the dedup
-// path to compute a stable hash without re-reading the source file.
-// imageBlockBytes 处理imageblockbytes。
+// imageBlockBytes 提取 base64 image content block 中的原始字节。
+// URL 图片和非图片 block 返回 nil，去重路径不会重新读取外部资源。
 func imageBlockBytes(block map[string]any) []byte {
 	if block == nil {
 		return nil
@@ -72,10 +62,8 @@ func imageBlockBytes(block map[string]any) []byte {
 	return decoded
 }
 
-// dedupedImagePlaceholderBlock builds a tiny text block that stands in for an
-// image we have already attached earlier in this session. The hash prefix is
-// included so the model can correlate the placeholder with the prior bytes
-// if it needs to reason about identity (rare, but harmless when present).
+// dedupedImagePlaceholderBlock 构造重复图片的文本占位 block。
+// 文本里带 hash 前缀，模型需要判断图片身份时仍可与前文图片关联。
 func dedupedImagePlaceholderBlock(hashHex string) map[string]any {
 	short := hashHex
 	if len(short) > 12 {

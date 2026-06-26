@@ -11,22 +11,20 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/store/sqlc"
 )
 
-// querier is the narrow subset of sqlc.Queries that this store actually uses.
-// Accepting an interface in tests keeps the dependency on the generated
-// sqlc types loose; NewStore still takes the concrete *sqlc.Queries for
-// production wiring.
+// querier 是 commandcard store 依赖的 sqlc 查询子集，测试可用窄接口替身覆盖。
 type querier interface {
 	ListCommandCards(ctx context.Context, arg sqlc.ListCommandCardsParams) ([]sqlc.ListCommandCardsRow, error)
 }
 
+// store 实现命令卡片只读查询，生产入口仍由 *sqlc.Queries 构造。
 type store struct {
 	q querier
 }
 
-// NewStore 创建存储。
+// NewStore 使用生产 sqlc 查询对象创建 commandcard Reader。
 func NewStore(q *sqlc.Queries) Reader { return &store{q: q} }
 
-// List 列出commandcard存储。
+// List 按关键字读取启用范围内的命令卡片，并保持 ArgsSchema 原始 JSON。
 func (s *store) List(ctx context.Context, filter ListFilter) ([]CommandCard, error) {
 	rows, err := s.q.ListCommandCards(ctx, sqlc.ListCommandCardsParams{
 		Keyword:    filter.Keyword,
@@ -42,6 +40,7 @@ func (s *store) List(ctx context.Context, filter ListFilter) ([]CommandCard, err
 	return cards, nil
 }
 
+// fromSQLCRow 将 sqlc 查询行转换为命令卡片 JSON wire DTO。
 func fromSQLCRow(row sqlc.ListCommandCardsRow) CommandCard {
 	return CommandCard{
 		ID:              row.ID,
@@ -61,6 +60,7 @@ func fromSQLCRow(row sqlc.ListCommandCardsRow) CommandCard {
 	}
 }
 
+// timePtr 兼容 SQLite 和测试替身返回的时间类型，未知类型记录告警并按空值处理。
 func timePtr(value any) *time.Time {
 	switch ts := value.(type) {
 	case nil:

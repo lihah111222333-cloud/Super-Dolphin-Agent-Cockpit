@@ -6,7 +6,8 @@ import (
 	mcp "github.com/anthropic-ai/super-agent-v3/internal/dto/mcp"
 )
 
-// MergeDuring 合并during。
+// MergeDuring 合并 check 阶段多个 peer 的决策。
+// abort/warn/continue 按风险优先级收敛，失败 lease 会随结果返回给 Manager。
 func MergeDuring(decisions []peerDecision[mcp.CheckDecision]) MergeResult[mcp.CheckDecision] {
 	normalized, failed, lost := normalizeCheckDecisions(decisions)
 	return MergeResult[mcp.CheckDecision]{
@@ -27,7 +28,7 @@ func normalizeCheckDecisions(decisions []peerDecision[mcp.CheckDecision]) ([]mcp
 	})
 }
 
-// mergeCheckDecision 合并checkdecision。
+// mergeCheckDecision 选择 check 阶段最终决策，并保留同决策 peer 提供的 severity/reason。
 func mergeCheckDecision(decisions []mcp.CheckDecision) mcp.CheckDecision {
 	if len(decisions) == 0 {
 		return mcp.CheckDecision{Decision: mcp.HookDecisionContinue}

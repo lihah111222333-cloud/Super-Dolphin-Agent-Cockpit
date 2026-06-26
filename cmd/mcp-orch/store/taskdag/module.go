@@ -18,14 +18,11 @@ var Module = fx.Module("store.taskdag",
 		// ProvideDispatchNodeStore 把同一 *store 作为 DispatchNodeStore (task_dispatch_node)。
 		// 编译期同样由 store_compile_assertions_test.go 守住。
 		ProvideDispatchNodeStore,
-		// ProvideNodeSpawnRecorderStore 把同一 *store 作为 NodeSpawnRecorderStore (F1.5)。
-		// W1 fx wiring 依赖该 narrow port 构造 NodeExecutorRouter。编译期由
-		// store_compile_assertions_test.go 中 var _ NodeSpawnRecorderStore = (*store)(nil) 守住。
+		// ProvideNodeSpawnRecorderStore 把同一 *store 作为节点 spawn 写回窄端口。
+		// NodeExecutorRouter 只依赖该接口写回 spawning_thread_id，编译期断言守住接口实现。
 		ProvideNodeSpawnRecorderStore,
-		// ProvideNodeSpawningThreadLookup 把同一 *store 作为 NodeSpawningThreadLookup（ADR-017 §2.2），
-		// DAG turn.completed subscriber + hookConsumer thread.stopped fallback 复用
-		// 该窄端口反查 spawning_thread_id。编译期由 store_compile_assertions_test.go
-		// 中 var _ NodeSpawningThreadLookup = (*store)(nil) 守住。
+		// ProvideNodeSpawningThreadLookup 把同一 *store 作为 spawning_thread_id 反查窄端口。
+		// turn.completed 订阅和 thread.stopped 兜底路径共用该接口，编译期断言守住实现。
 		ProvideNodeSpawningThreadLookup,
 	),
 )
@@ -35,15 +32,14 @@ func NewStoreFromDB(db *sql.DB) Store {
 	return NewStore(db)
 }
 
-// ProvideNodeSpawnRecorderStore 从聚合 Store type-assert 出 F1.5 / ADR-009
-// nodeexec.AgentExecutor 写回 spawning_thread_id 所需的窄端口 NodeSpawnRecorderStore。
-// 断言安全性由 store_compile_assertions_test.go 静态守住。
+// ProvideNodeSpawnRecorderStore 从聚合 Store 中取出节点 spawn 写回窄接口。
+// nodeexec.AgentExecutor 只需要写 spawning_thread_id；接口收窄由编译期断言守住。
 func ProvideNodeSpawnRecorderStore(store Store) NodeSpawnRecorderStore {
 	return store.(NodeSpawnRecorderStore)
 }
 
 // ProvideNodeSpawningThreadLookup 从聚合 Store 中取出节点 spawning 线程反查窄接口。
-// DAG turn.completed subscriber 和 hookConsumer thread.stopped fallback 依赖该接口。
+// turn.completed 订阅和 thread.stopped 兜底路径依赖该接口。
 // 断言安全性由 store_compile_assertions_test.go 静态守住。
 func ProvideNodeSpawningThreadLookup(store Store) NodeSpawningThreadLookup {
 	return store.(NodeSpawningThreadLookup)

@@ -9,17 +9,12 @@ import (
 	"time"
 )
 
-// defaultClipboardRetention is the age beyond which temp clipboard PNGs
-// (written by SaveClipboardImage) are removed at app startup. The bytes
-// survive in claude CLI's session jsonl regardless, so dropping the temp
-// file does not break history rendering — the frontend falls back to the
-// data: URL recovered from history metadata.
+// defaultClipboardRetention 是启动时清理临时剪贴板 PNG 的年龄阈值。
+// 历史渲染仍可从会话元数据中的 data URL 恢复图片，因此删除临时文件不会破坏旧消息。
 const defaultClipboardRetention = 7 * 24 * time.Hour
 
-// cleanupStaleClipboardImages walks dir and removes "clipboard-*.png" files
-// whose modification time is older than retention. Errors on individual
-// files are logged and skipped — cleanup is best-effort.
-// cleanupStaleClipboardImages 处理cleanupstaleclipboardimages。
+// cleanupStaleClipboardImages 清理超过 retention 的临时剪贴板 PNG。
+// 单文件错误只记录并跳过，启动清理不能阻断桌面应用。
 func cleanupStaleClipboardImages(logger *slog.Logger, dir string, retention time.Duration) (removed, kept int) {
 	if retention <= 0 || strings.TrimSpace(dir) == "" {
 		return 0, 0
@@ -42,17 +37,17 @@ func cleanupStaleClipboardImages(logger *slog.Logger, dir string, retention time
 	return removed, kept
 }
 
+// cleanupResult 表示单个剪贴板临时文件的清理结果。
 type cleanupResult int
 
 const (
+	// 剪贴板临时文件清理结果。
 	cleanupResultSkipped cleanupResult = iota
 	cleanupResultRemoved
 	cleanupResultKept
 )
 
-// handleClipboardEntry classifies one directory entry and, when appropriate,
-// removes it. Splitting this out keeps cleanupStaleClipboardImages itself
-// inside the project's cyclomatic-complexity budget.
+// handleClipboardEntry 判断并清理单个临时文件，复杂分支从主流程拆出以便维护。
 func handleClipboardEntry(logger *slog.Logger, dir string, entry fs.DirEntry, cutoff time.Time) cleanupResult {
 	if !isClipboardCleanupCandidate(entry) {
 		return cleanupResultSkipped
@@ -72,6 +67,7 @@ func handleClipboardEntry(logger *slog.Logger, dir string, entry fs.DirEntry, cu
 	return cleanupResultRemoved
 }
 
+// logCleanupSummary 在有实际清理活动时输出汇总日志。
 func logCleanupSummary(logger *slog.Logger, dir string, retention time.Duration, removed, kept int) {
 	if logger == nil || (removed == 0 && kept == 0) {
 		return
@@ -84,6 +80,7 @@ func logCleanupSummary(logger *slog.Logger, dir string, retention time.Duration,
 	)
 }
 
+// isClipboardCleanupCandidate 判断目录项是否是本应用创建的剪贴板 PNG。
 func isClipboardCleanupCandidate(entry fs.DirEntry) bool {
 	if entry == nil || entry.IsDir() {
 		return false
@@ -95,6 +92,7 @@ func isClipboardCleanupCandidate(entry fs.DirEntry) bool {
 	return strings.EqualFold(filepath.Ext(name), ".png")
 }
 
+// logCleanupWarn 在 logger 可用时记录剪贴板清理警告。
 func logCleanupWarn(logger *slog.Logger, msg string, args ...any) {
 	if logger == nil {
 		return

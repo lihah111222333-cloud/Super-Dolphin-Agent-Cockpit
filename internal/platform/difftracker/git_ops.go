@@ -16,6 +16,7 @@ import (
 
 var ErrNotGitRepository = errors.New("difftracker: not a git repository")
 
+// git 命令执行上限；index.lock 竞争只做短重试，避免工具调用长时间卡住。
 const (
 	gitCommandTimeout = 4 * time.Second
 	gitRetryAttempts  = 2
@@ -73,7 +74,8 @@ func readHEADContent(ctx context.Context, root, relPath string) ([]byte, error) 
 	return nil, err
 }
 
-// execGitCommand 处理execgit命令。
+// execGitCommand 执行 git 子命令并只对 index.lock 竞争做有界重试。
+// 其他错误立即返回，避免在非 git 目录或权限错误上静默等待。
 func execGitCommand(ctx context.Context, dir string, args ...string) ([]byte, error) {
 	var lastErr error
 	for attempt := 0; attempt <= gitRetryAttempts; attempt++ {
@@ -93,7 +95,8 @@ func execGitCommand(ctx context.Context, dir string, args ...string) ([]byte, er
 	return nil, lastErr
 }
 
-// execGitCommandOnce 处理execgit命令once。
+// execGitCommandOnce 在固定超时内执行一次 git 子命令。
+// stderr 会进入错误消息，not-a-repo 错误会映射为 ErrNotGitRepository 供调用方判定。
 func execGitCommandOnce(ctx context.Context, dir string, args ...string) ([]byte, error) {
 	if ctx == nil {
 		ctx = context.Background()

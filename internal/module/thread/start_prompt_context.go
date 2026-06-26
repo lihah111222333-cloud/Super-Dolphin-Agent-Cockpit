@@ -84,7 +84,7 @@ func applyConfiguredSessionFlagDefaults(flags map[string]bool, cfg *contract.Con
 	return out
 }
 
-// hasConfiguredSessionFlag 判断configured会话flag是否可用。
+// hasConfiguredSessionFlag 判断会话 flag 集合是否包含任一指定配置项。
 func hasConfiguredSessionFlag(flags map[string]bool, names ...string) bool {
 	if len(flags) == 0 || len(names) == 0 {
 		return false
@@ -138,7 +138,8 @@ func resolvePromptGitContext(cwd, hintRoot string, cfg *contract.Config) promptG
 	return promptGitContext{Root: projectRoot}
 }
 
-// discoverPromptGitContext 处理discoverpromptgit上下文。
+// discoverPromptGitContext 沿 CWD 向上查找 git 根目录并识别 worktree。
+// .git 为文件时会解析 gitdir 指向，确保 prompt context 使用主仓根而不是隔离 worktree 的内部元数据目录。
 func discoverPromptGitContext(path string) promptGitContext {
 	for dir := resolvePromptCWD(path); dir != ""; dir = filepath.Dir(dir) {
 		gitPath := filepath.Join(dir, ".git")
@@ -157,7 +158,7 @@ func discoverPromptGitContext(path string) promptGitContext {
 	return promptGitContext{}
 }
 
-// parsePromptGitFile 解析promptgit文件。
+// parsePromptGitFile 读取 .git 文件并解析真实 gitdir 上下文。
 func parsePromptGitFile(dir, gitPath string) promptGitContext {
 	raw, err := os.ReadFile(gitPath)
 	if err != nil {
@@ -404,7 +405,7 @@ func cloneFlags(flags map[string]bool) map[string]bool {
 	return cloned
 }
 
-// ---- output-style helpers (formerly start_prompt_context_style.go) ----
+// ---- output-style 辅助函数 ----
 
 func configOutputStyle(cfg map[string]any, keys ...string) *contract.OutputStyleConfig {
 	for _, key := range keys {
@@ -471,7 +472,7 @@ func styleKeepCodingInstructions(style *contract.OutputStyleConfig) *bool {
 	return cloneOptionalBool(style.KeepCodingInstructions)
 }
 
-// ---- FRC config helpers (formerly frc_config.go) ----
+// ---- FRC 配置辅助函数 ----
 
 func configFRCConfig(cfg map[string]any, keys ...string) *contract.FRCConfig {
 	for _, key := range keys {
@@ -512,7 +513,8 @@ func normalizeFRCConfig(value any) *contract.FRCConfig {
 	}
 }
 
-// configInt 处理配置int。
+// configInt 从 runtime config 中读取整数兼容字段。
+// 它按传入 key 顺序支持 camelCase/snake_case 和 JSON 数字/字符串形态，无法解析时返回 0 交由上层默认策略处理。
 func configInt(cfg map[string]any, keys ...string) int {
 	for _, key := range keys {
 		switch value := cfg[key].(type) {

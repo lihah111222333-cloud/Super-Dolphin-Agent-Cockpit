@@ -11,7 +11,8 @@ import (
 	platformrpc "github.com/anthropic-ai/super-agent-v3/internal/platform/rpc"
 )
 
-// NewHandlers 创建处理器。
+// NewHandlers 注册 datasource/* JSON-RPC handler。
+// RPC 层只做服务缺失检查和错误码映射，文件路径安全由 Service 负责。
 func NewHandlers(svc Service) platformrpc.HandlerMapResult {
 	return platformrpc.HandlerMapResult{Handlers: handler.Map{
 		"datasource/upload": platformrpc.StrictHandler(uploadHandler(svc)),
@@ -34,7 +35,7 @@ func uploadHandler(svc Service) func(context.Context, UploadFileRequest) (Upload
 	}
 }
 
-// listHandler 处理 datasource/list 请求。
+// listHandler 处理 datasource/list 请求，服务未接线时返回 invalid state。
 func listHandler(svc Service) func(context.Context, struct{}) (ListFilesResult, error) {
 	return func(ctx context.Context, _ struct{}) (ListFilesResult, error) {
 		if svc == nil {
@@ -48,7 +49,7 @@ func listHandler(svc Service) func(context.Context, struct{}) (ListFilesResult, 
 	}
 }
 
-// deleteHandler 处理 datasource/delete 请求。
+// deleteHandler 处理 datasource/delete 请求，并复用 datasourceRPCError 映射路径错误。
 func deleteHandler(svc Service) func(context.Context, DeleteFileRequest) (DeleteFileResult, error) {
 	return func(ctx context.Context, req DeleteFileRequest) (DeleteFileResult, error) {
 		if svc == nil {
@@ -63,6 +64,7 @@ func deleteHandler(svc Service) func(context.Context, DeleteFileRequest) (Delete
 }
 
 // datasourceRPCError 将 datasource 业务错误映射为标准 jrpc2 错误码。
+// 未识别错误原样返回，保留调用栈上下文给上层日志。
 func datasourceRPCError(err error) error {
 	switch {
 	case errors.Is(err, errMissingSourcePath),

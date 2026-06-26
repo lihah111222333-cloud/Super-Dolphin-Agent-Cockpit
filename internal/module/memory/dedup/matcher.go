@@ -1,4 +1,4 @@
-// Package dedup 见 tokenizer.go。
+// Package dedup 实现 durable memory 写入前的重复检测、合并和溢出处理。
 package dedup
 
 import (
@@ -21,7 +21,8 @@ type EntrySnapshot struct {
 	Scope       string   // "private" / "team"
 }
 
-// MatchResult 描述一次重复查找的结果。
+// MatchResult 是一次重复查找的只读结果。
+// Target 只复制候选条目快照，调用方必须在自身作用域检查通过后才能决定覆盖路径。
 type MatchResult struct {
 	Found  bool
 	Target EntrySnapshot // 被匹配到的已有条目

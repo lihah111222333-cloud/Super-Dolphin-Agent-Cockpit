@@ -28,15 +28,8 @@ type hookContextEnvelope struct {
 	Event json.RawMessage `json:"event"`
 }
 
-// startEventRelay subscribes to bus events and forwards them to the
-// hookDispatchWorker for serial DispatchAfter fanout. It returns a cancel
-// function that unsubscribes all listeners; the worker lifecycle is owned
-// separately by registerEventRelayLifecycle so OnStop can drain pending
-// dispatches bounded by ctx.
-//
-// P22 P2 (hooks/event_relay fanout): the bus callback body intentionally
-// contains no `go` / SafeGo / DispatchAfter call — only Enqueue.
-// startEventRelay 启动事件relay。
+// startEventRelay 订阅核心 bus 事件并转换为 hooks worker 请求。
+// 返回的 cancel 只负责取消订阅；worker 的启动和排空由 runner 生命周期托管，bus callback 不能直接 fanout 到 peer。
 func startEventRelay(dispatcher *event.Dispatcher, worker *hookDispatchWorker, logger *pkglogger.Logger) func() {
 	if logger == nil {
 		logger = pkglogger.Get()
@@ -96,10 +89,8 @@ func startEventRelay(dispatcher *event.Dispatcher, worker *hookDispatchWorker, l
 	}
 }
 
-// enqueueHookDispatch applies the pre-P2 validity filter (non-empty topic /
-// agentID / context) before the request reaches the worker queue. Keeping
-// the filter on the callback side means bad events never pay a queue
-// slot, but it is still only cheap map-style checks and a worker Enqueue.
+// enqueueHookDispatch 在入队前执行轻量有效性检查。
+// topic、agentID 或 context 缺失的事件不占用 worker 队列，合法事件仍只进行一次非阻塞 Enqueue。
 func enqueueHookDispatch(worker *hookDispatchWorker, topic string, timestamp time.Time, payload mcp.HookPayload) {
 	if worker == nil || strings.TrimSpace(topic) == "" || strings.TrimSpace(payload.AgentID) == "" {
 		return
@@ -132,7 +123,8 @@ func mustMarshalHookEvent(event any) json.RawMessage {
 	return raw
 }
 
-// isFinalAnswerItemCompleted 判断finalansweritemcompleted是否可用。
+// isFinalAnswerItemCompleted 判断 completed item 是否代表最终回答阶段。
+// 解析失败或缺少 phase 时按 false 处理，避免把普通增量误发为 turn progress hook。
 func isFinalAnswerItemCompleted(ev turndto.ItemCompleted) bool {
 	if !strings.EqualFold(strings.TrimSpace(ev.ItemType), "agentMessage") {
 		return false

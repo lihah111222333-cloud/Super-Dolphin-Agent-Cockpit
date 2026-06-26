@@ -11,11 +11,12 @@ import (
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
 )
 
-// ManifestBuildFunc builds MCP binary metadata for external executors.
+// ManifestBuildFunc 构建外部执行器需要的 MCP binary manifest。
 type ManifestBuildFunc func(ctx dto.ManifestContext) dto.MCPManifest
 
-// BuildManifest returns declarative MCP binary metadata for external executors.
-// BuildManifest 构建manifest。
+// BuildManifest 根据 provider 上下文生成 MCP binary manifest。
+// 它优先使用 HTTP proxy/peer 地址；没有可用 HTTP 通道时才落回 stdio binary，
+// 并在落回前补齐受控环境变量和 LSP 工作区根。
 func BuildManifest(ctx dto.ManifestContext) dto.MCPManifest {
 	families := []dto.ToolFamily{dto.FamilyLSP, dto.FamilyOrch}
 
@@ -71,7 +72,8 @@ func BuildManifest(ctx dto.ManifestContext) dto.MCPManifest {
 	return dto.MCPManifest{Binaries: appendExtraManifestBinaries(bins, ctx.ExtraBinaries)}
 }
 
-// appendExtraManifestBinaries 追加extramanifest二进制。
+// appendExtraManifestBinaries 追加调用方显式传入的额外 MCP binary。
+// 同名 binary 会被忽略，避免外部配置覆盖核心 lsp/orch 入口。
 func appendExtraManifestBinaries(bins []dto.MCPBinary, extras []dto.MCPBinary) []dto.MCPBinary {
 	if len(extras) == 0 {
 		return bins
@@ -102,8 +104,11 @@ func appendExtraManifestBinaries(bins []dto.MCPBinary, extras []dto.MCPBinary) [
 	return bins
 }
 
+// manifestProjectRootEnvKey 是 MCP 子进程识别当前项目根的环境变量名。
 const manifestProjectRootEnvKey = "PROJECT_ROOT"
 
+// addMCPProjectRootEnv 为 stdio MCP 子进程补齐 PROJECT_ROOT。
+// 查找顺序是显式 env、当前进程 env、ManifestContext.ProjectRoot、再从 binaryDir 向上推导。
 func addMCPProjectRootEnv(env map[string]string, ctx dto.ManifestContext) {
 	if value := strings.TrimSpace(env[manifestProjectRootEnvKey]); value != "" {
 		env[manifestProjectRootEnvKey] = normalizeManifestProjectRoot(value)
@@ -122,6 +127,8 @@ func addMCPProjectRootEnv(env map[string]string, ctx dto.ManifestContext) {
 	}
 }
 
+// inferManifestProjectRootFromBinaryDir 从 binaryDir 向上寻找包含 SQLite migrations 的项目根。
+// 找不到时返回空串，让调用方保留无 PROJECT_ROOT 的显式失败边界。
 func inferManifestProjectRootFromBinaryDir(binaryDir string) string {
 	dir := normalizeManifestProjectRoot(binaryDir)
 	if dir == "" {
@@ -139,6 +146,8 @@ func inferManifestProjectRootFromBinaryDir(binaryDir string) string {
 	}
 }
 
+// normalizeManifestProjectRoot 清理 manifest 使用的项目根路径。
+// 相对路径会尽量转成绝对路径，Abs 失败时保留清理后的原路径供后续校验处理。
 func normalizeManifestProjectRoot(path string) string {
 	path = strings.TrimSpace(path)
 	if path == "" {
@@ -152,11 +161,14 @@ func normalizeManifestProjectRoot(path string) string {
 	return filepath.Clean(path)
 }
 
+// hasManifestMigrationsDir 判断目录是否具备本项目 SQLite migrations 结构。
 func hasManifestMigrationsDir(root string) bool {
 	info, err := os.Stat(filepath.Join(root, "internal", "platform", "db", "sqlite", "migrations"))
 	return err == nil && info.IsDir()
 }
 
+// addLSPWorkspaceRootEnv 为 LSP MCP binary 注入单根和多根工作区环境变量。
+// roots 必须可 JSON 编码；编码失败代表内部不变量被破坏，因此直接 panic 暴露。
 func addLSPWorkspaceRootEnv(env map[string]string, ctx dto.ManifestContext) {
 	roots := normalizeManifestWorkspaceRoots(ctx.CWD, ctx.AdditionalWorkingDirectories)
 	if len(roots) == 0 {
@@ -164,14 +176,15 @@ func addLSPWorkspaceRootEnv(env map[string]string, ctx dto.ManifestContext) {
 	}
 	raw, err := json.Marshal(roots)
 	if err != nil {
-		// archguard:ignore panic_count -- []string workspace roots must always JSON-encode.
+		// archguard:ignore panic_count -- []string workspace roots 必须始终可 JSON 编码。
 		panic(fmt.Sprintf("manifest workspace roots must encode as JSON: %v", err))
 	}
 	env["GO_AGENT_LSP_ROOT"] = roots[0]
 	env["GO_AGENT_LSP_ROOTS"] = string(raw)
 }
 
-// normalizeManifestWorkspaceRoots 规范化manifest工作区根目录。
+// normalizeManifestWorkspaceRoots 规范化主工作区和额外工作区根目录。
+// 主 cwd 不可解析时返回 nil，避免给 LSP 子进程注入不可信根。
 func normalizeManifestWorkspaceRoots(cwd string, dirs []string) []string {
 	out := make([]string, 0, len(dirs)+1)
 	seen := map[string]struct{}{}
@@ -200,7 +213,8 @@ func normalizeManifestWorkspaceRoots(cwd string, dirs []string) []string {
 	return out
 }
 
-// normalizeManifestWorkspaceRoot 规范化manifest工作区根目录。
+// normalizeManifestWorkspaceRoot 规范化单个 manifest 工作区根目录。
+// 相对路径只有在有 base 时才按 base 解析，避免凭当前进程目录静默兜底。
 func normalizeManifestWorkspaceRoot(base, path string) string {
 	path = strings.TrimSpace(path)
 	if path == "" {
@@ -222,6 +236,7 @@ func normalizeManifestWorkspaceRoot(base, path string) string {
 	return filepath.Clean(abs)
 }
 
+// cloneManifestEnv 复制 manifest env，并在复制后移除禁止透传的数据库变量。
 func cloneManifestEnv(in map[string]string) map[string]string {
 	if len(in) == 0 {
 		return map[string]string{}
@@ -295,7 +310,7 @@ func ScrubDatabaseEnvMap(env map[string]string) {
 	}
 }
 
-// mcpLegacyEnvAliases 是规范键到旧别名的映射，用于从历史 env 升级到新键。
+// 兼容输入键映射表，将旧控制面键收敛到规范环境变量。
 var mcpLegacyEnvAliases = map[string][]string{
 	"GO_AGENT_CTL_RPC_ADDR":       {"RPC_ADDR"},
 	"GO_AGENT_CTL_INSTANCE_ID":    {"GO_AGENT_MCP_INSTANCE_ID"},
@@ -308,7 +323,8 @@ var mcpLegacyEnvAliases = map[string][]string{
 	"GO_AGENT_CTL_BOOTSTRAP_JSON": {"GO_AGENT_MCP_BOOT_CONTEXT"},
 }
 
-// normalizeManifestEnv 规范化manifestenv。
+// normalizeManifestEnv 规范化 MCP manifest 环境变量。
+// 它会提升兼容别名、补齐必需控制面变量，并在返回前再次清理数据库连接信息。
 func normalizeManifestEnv(in map[string]string) map[string]string {
 	out := cloneManifestEnv(in)
 	for key, aliases := range mcpLegacyEnvAliases {

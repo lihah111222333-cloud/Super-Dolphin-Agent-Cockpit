@@ -23,16 +23,18 @@ var (
 	errNilHookReviewStore = errors.New("hooks review store is nil")
 )
 
-// HookResolver manages the escalate -> pending -> resolve lifecycle.
+// HookResolver 管理 after escalate 到 pending review 再到 resolve 的持久化流程。
+// 所有权限检查都以 subscriber lease 为准，避免非触发方确认或拒绝审批。
 type HookResolver struct {
 	store      contract.HookReviewStore
 	logger     *pkglogger.Logger
 	defaultTTL time.Duration // pending review 默认 TTL，默认 5 分钟
 }
 
+// ResolverOption 调整 HookResolver 的 TTL 和日志依赖。
 type ResolverOption func(*HookResolver)
 
-// WithResolverTTL 设置解析器TTL。
+// WithResolverTTL 设置 pending review 默认过期时间。
 func WithResolverTTL(ttl time.Duration) ResolverOption {
 	return func(r *HookResolver) {
 		if r != nil && ttl > 0 {
@@ -41,7 +43,7 @@ func WithResolverTTL(ttl time.Duration) ResolverOption {
 	}
 }
 
-// WithResolverLogger 设置解析器日志器。
+// WithResolverLogger 注入 resolver 使用的结构化 logger。
 func WithResolverLogger(logger *pkglogger.Logger) ResolverOption {
 	return func(r *HookResolver) {
 		if r != nil && logger != nil {
@@ -50,7 +52,7 @@ func WithResolverLogger(logger *pkglogger.Logger) ResolverOption {
 	}
 }
 
-// NewHookResolver 创建hook解析器。
+// NewHookResolver 创建 HookResolver 并校验持久化 store。
 func NewHookResolver(store contract.HookReviewStore, opts ...ResolverOption) (*HookResolver, error) {
 	if store == nil {
 		return nil, errNilHookReviewStore
@@ -69,8 +71,8 @@ func NewHookResolver(store contract.HookReviewStore, opts ...ResolverOption) (*H
 	return resolver, nil
 }
 
-// Escalate converts an after-phase escalate result into a durable pending review.
-// Escalate 处理escalate。
+// Escalate 将 after 阶段的 escalate 决策保存为 pending review。
+// topic、agentID、hook_call_id 和 subscriber lease 都必须完整，缺失时立即报错而不是创建不可处理的审批。
 func (r *HookResolver) Escalate(ctx context.Context, hookCallID string, payload mcp.HookPayload, subscriberLease mcp.LeaseKey, ttlMs int64) (mcp.PendingHookReview, error) {
 	if err := r.validate(); err != nil {
 		return mcp.PendingHookReview{}, err
@@ -87,8 +89,8 @@ func (r *HookResolver) Escalate(ctx context.Context, hookCallID string, payload 
 	return r.store.GetPendingReview(ctx, review.HookCallID)
 }
 
-// Resolve handles ctl/hook/resolve and converges the pending review idempotently.
-// Resolve 解析平台hooks。
+// Resolve 处理 ctl/hook/resolve 并保证幂等收敛。
+// 调用方 lease 必须匹配原 subscriber lease；已解析记录会回读 canonical decision 作为响应。
 func (r *HookResolver) Resolve(ctx context.Context, callerLease mcp.LeaseKey, req mcp.HookResolveRequest) (mcp.HookResolveResponse, error) {
 	if err := r.validate(); err != nil {
 		return mcp.HookResolveResponse{}, err
@@ -177,8 +179,7 @@ func validateSubscriberLeaseOwner(hookCallID, storedSubscriberLease string, call
 	)
 }
 
-// SweepExpired scans timed-out pending reviews and applies the default reject action.
-// SweepExpired 处理sweepexpired。
+// SweepExpired 扫描过期 pending review 并按默认 reject 收敛。
 func (r *HookResolver) SweepExpired(ctx context.Context) (int, error) {
 	if err := r.validate(); err != nil {
 		return 0, err
@@ -186,8 +187,8 @@ func (r *HookResolver) SweepExpired(ctx context.Context) (int, error) {
 	return r.store.CancelExpiredReviews(contextOrBackground(ctx))
 }
 
-// CancelByLease cancels all pending reviews for a specific subscriber lease during shutdown races.
-// CancelByLease 按租约处理cancel。
+// CancelByLease 在 subscriber lease 关闭时取消它名下的 pending review。
+// lease 会先格式化校验，避免错误 lease 字符串误删其他订阅的审批。
 func (r *HookResolver) CancelByLease(ctx context.Context, subscriberLease mcp.LeaseKey) (int, error) {
 	if err := r.validate(); err != nil {
 		return 0, err
@@ -200,8 +201,7 @@ func (r *HookResolver) CancelByLease(ctx context.Context, subscriberLease mcp.Le
 	return r.store.CancelPendingReviewsByLease(contextOrBackground(ctx), resolvedSubscriberLease)
 }
 
-// CancelByAgent cancels all pending reviews for a given agent during shutdown races.
-// CancelByAgent 按代理处理cancel。
+// CancelByAgent 在 agent 关闭或恢复竞态中取消该 agent 的 pending review。
 func (r *HookResolver) CancelByAgent(ctx context.Context, agentID string) (int, error) {
 	if err := r.validate(); err != nil {
 		return 0, err
@@ -214,8 +214,7 @@ func (r *HookResolver) CancelByAgent(ctx context.Context, agentID string) (int, 
 	return r.store.CancelPendingReviewsByAgent(contextOrBackground(ctx), agentID)
 }
 
-// ListPendingReviews returns pending reviews for a specific agent in store order.
-// ListPendingReviews 列出待处理reviews。
+// ListPendingReviews 按 store 顺序读取指定 agent 的 pending review。
 func (r *HookResolver) ListPendingReviews(ctx context.Context, agentID string) ([]mcp.PendingHookReview, error) {
 	if err := r.validate(); err != nil {
 		return nil, err
@@ -228,8 +227,7 @@ func (r *HookResolver) ListPendingReviews(ctx context.Context, agentID string) (
 	return r.store.ListPendingReviews(contextOrBackground(ctx), agentID)
 }
 
-// RecoverOnStartup reloads pending reviews during process startup.
-// RecoverOnStartup 恢复onstartup。
+// RecoverOnStartup 在进程启动时重载未完成的 pending review。
 func (r *HookResolver) RecoverOnStartup(ctx context.Context) ([]mcp.PendingHookReview, error) {
 	if err := r.validate(); err != nil {
 		return nil, err
@@ -294,7 +292,8 @@ func (r *HookResolver) reviewTTL() time.Duration {
 	return r.defaultTTL
 }
 
-// resolveHookCallID 解析hookcallID。
+// resolveHookCallID 在显式参数和 payload 字段之间收敛唯一 hook_call_id。
+// 两边同时提供且不一致时直接报错，避免审批记录和回调载荷使用不同主键。
 func resolveHookCallID(explicitHookCallID, payloadHookCallID string) (string, error) {
 	explicitHookCallID = strings.TrimSpace(explicitHookCallID)
 	payloadHookCallID = strings.TrimSpace(payloadHookCallID)

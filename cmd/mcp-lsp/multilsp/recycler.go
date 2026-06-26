@@ -30,12 +30,8 @@ const (
 
 var clientRSSBytesForRecycler = clientRSSBytes
 
-// poolRecycler is the background loop that periodically scans managed
-// LSP server processes and recycles ones whose RSS exceeds the configured
-// limit. Pre-P22 P2 it spun itself up from NewManagerPool via a
-// self-owned goroutine + stopCh pair; it is now a plain
-// platformrunner.Runner owned by the root `group:"runners"` bridge.
-// See docs/plans/迁移/p22/P2_BusRuntimeDecoupling.md §480-494.
+// poolRecycler 周期性扫描池内 LSP 子进程的 RSS 和 workspace 闲置时间。
+// 它只实现 platformrunner.Runner，不自行启动 goroutine；启动和停止都由根 runner 聚合器负责。
 type poolRecycler struct {
 	pool     *ManagerPool
 	interval time.Duration
@@ -44,8 +40,7 @@ type poolRecycler struct {
 	lastActive map[int]time.Time
 }
 
-// Compile-time assertion: poolRecycler satisfies the Runner contract
-// consumed by the `group:"runners"` aggregation.
+// 编译期确认 poolRecycler 满足根 runner 聚合器消费的 Runner 合约。
 var _ platformrunner.Runner = (*poolRecycler)(nil)
 
 func newPoolRecycler(pool *ManagerPool) *poolRecycler {
@@ -56,7 +51,8 @@ func newPoolRecycler(pool *ManagerPool) *poolRecycler {
 	}
 }
 
-// TouchShard 处理touchshard。
+// TouchShard 记录指定 shard 的最近访问时间。
+// recycler 用它避免刚被请求命中的 shard 立刻进入 RSS 扫描，降低活跃请求被回收打断的概率。
 func (r *poolRecycler) TouchShard(index int) {
 	if r == nil {
 		return
@@ -66,10 +62,8 @@ func (r *poolRecycler) TouchShard(index int) {
 	r.mu.Unlock()
 }
 
-// Run drives the recycler check loop until ctx is cancelled. A nil
-// receiver is accepted as a no-op so callers that rely on
-// ManagerPool.RecyclerRunner() without a pool still wire cleanly.
-// Run 启动LSP后台流程。
+// Run 按固定间隔执行回收检查，直到 ctx 取消。
+// nil receiver 会等待 ctx 后返回，便于根 runner 聚合器统一调度而不需要额外判空分支。
 func (r *poolRecycler) Run(ctx context.Context) error {
 	if r == nil {
 		<-ctx.Done()
@@ -110,7 +104,8 @@ func (r *poolRecycler) checkManager(index int, mgr *manager, scope ResolvedLSPTo
 	}
 }
 
-// recycleIfNeeded 处理recycleifneeded。
+// recycleIfNeeded 在单个 workspace client 超过 RSS 上限时尝试回收。
+// 仍有活跃租约时只记录日志不关闭进程，避免正在执行的 LSP 请求被异步切断。
 func (r *poolRecycler) recycleIfNeeded(mgr *manager, scope ResolvedLSPToolScope, workspace workspaceClient) {
 	rssBytes, pid, err := clientRSSBytesForRecycler(workspace.client)
 	if err != nil || pid <= 0 {
@@ -174,10 +169,8 @@ func (r *poolRecycler) shouldCheck(index int) bool {
 	return last.IsZero() || time.Since(last) >= r.interval/2
 }
 
-// checkIdleWorkspaces shuts down workspace clients that have not received
-// any request within idleTimeout. The next request will trigger a lazy
-// restart via ensureClient.
-// checkIdleWorkspaces 处理checkidleworkspaces。
+// checkIdleWorkspaces 关闭超过 idleTimeout 未收到请求的 workspace client。
+// 有活跃租约的 client 会跳过，下一次请求会通过 ensureClient 懒启动新的 LSP 子进程。
 func (r *poolRecycler) checkIdleWorkspaces(mgr *manager, scope ResolvedLSPToolScope) {
 	if mgr == nil || managerIsClosed(mgr) {
 		return
@@ -283,7 +276,8 @@ func appendRecyclerRSSProbeArgs(args []any, client Client) []any {
 	return append(args, "pid", pid, "rss_bytes", rssBytes)
 }
 
-// recycleWorkspaceClient 处理recycle工作区客户端。
+// recycleWorkspaceClient 从 manager 中摘除目标 workspace client 后重建同一 workspace。
+// 摘除阶段会再次确认租约，关闭和重启错误合并返回，调用方据此记录一次完整回收结果。
 func recycleWorkspaceClient(mgr *manager, scope ResolvedLSPToolScope, workspace workspaceClient) (bool, error) {
 	detached := detachWorkspaceClientIfIdle(mgr, workspace.key, workspace.client)
 	if detached == nil || detached.client == nil {
@@ -325,7 +319,8 @@ func recycleRestoreContext(scope ResolvedLSPToolScope, cfg workspaceConfig) cont
 	return WithResolvedLSPToolScope(ctx, scope)
 }
 
-// recycleResolvedScope 处理recycle已解析作用域。
+// recycleResolvedScope 为回收后的重启补齐 ResolvedLSPToolScope。
+// 优先复用已有 manager key；缺失时从 workspace 配置重建，失败则保留原 scope 以便日志仍可关联。
 func recycleResolvedScope(scope ResolvedLSPToolScope, cfg workspaceConfig) ResolvedLSPToolScope {
 	if scope.WorkspaceKey != "" || scope.ManagerKey != "" {
 		return scope
@@ -380,7 +375,8 @@ func snapshotWorkspaceClients(mgr *manager) []workspaceClient {
 	return items
 }
 
-// detachWorkspaceClientIfIdle 处理detach工作区客户端ifidle。
+// detachWorkspaceClientIfIdle 在持锁状态下摘除指定 workspace client。
+// expected 用于防止快照过期误删新 client；存在活跃租约时直接返回 nil。
 func detachWorkspaceClientIfIdle(mgr *manager, key string, expected Client) *workspaceClient {
 	if mgr == nil {
 		return nil
@@ -464,7 +460,8 @@ func psRSSBytes(pid int) (uint64, error) {
 	return kilobytes * 1024, nil
 }
 
-// rssLimitBytesForLanguage 为语言处理rsslimitbytes。
+// rssLimitBytesForLanguage 返回指定语言的 LSP RSS 回收阈值。
+// Go 系列语言默认阈值更低且有独立环境变量，其余语言使用通用阈值。
 func rssLimitBytesForLanguage(languageID string) uint64 {
 	lang := normalizeLanguageID(languageID)
 	if lang == "go" || lang == "gomod" || lang == "gosum" || lang == "gowork" {

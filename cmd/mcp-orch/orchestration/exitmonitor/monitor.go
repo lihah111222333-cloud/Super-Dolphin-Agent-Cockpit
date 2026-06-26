@@ -11,24 +11,14 @@ import (
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
-// Monitor is the single owner of `cmd.Wait()` for every locally
-// launched orchestration process, introduced by P22 P3 to replace the
-// fire-and-forget `go a.waitForExit(...)` that used to live in
-// runnerActor.Run (Finding 8).
+// Monitor 是本地编排进程 cmd.Wait 的唯一拥有者。
+// 它用 (agentID, launchSeq) 做 exactly-once 围栏，让本地 Wait 和远端合成退出事件不会重复推进状态。
 //
-// Responsibilities:
-//   - Arm: start a goroutine that runs cmd.Wait() for one (agentID, launchSeq,
-//     cmd) triple. Goroutines are tracked in a WaitGroup so Drain can join
-//     them at shutdown.
-//   - Emit: synthetic-exit entry used by launcher-driven stops that bypass
-//     cmd.Wait (e.g. remote AgentLauncher.Stop — no local cmd, so no Wait).
-//     Emit shares the same (agentID, launchSeq) fence as Arm.
-//   - ExitEvents: read-only channel the runnerActor consumes on every Run
-//     iteration. Exactly one event per (agentID, launchSeq) ever reaches
-//     consumers, so handleProcessExit is safe to treat as exactly-once.
-//   - Drain: closes the gate (no new Arm accepted), waits for every
-//     in-flight cmd.Wait to finish. Called by runnerActor.drainOnStop after
-//     ctx is cancelled. bounded by the caller's ctx.
+// 职责：
+//   - Arm 为本地 cmd 启动 Wait goroutine，并用 WaitGroup 让 Drain 能在关闭时等待收尾。
+//   - Emit 供远端 launcher 停止成功但没有本地 cmd 的路径合成退出事件。
+//   - ExitEvents 暴露只读事件流，runnerActor 负责消费。
+//   - Drain 关闭新 Arm 入口，并按调用方 ctx 等待已经在路上的 Wait goroutine。
 type Monitor struct {
 	logger *slog.Logger
 	events chan Event
@@ -38,25 +28,26 @@ type Monitor struct {
 	closed bool
 	fired  map[string]struct{}
 
-	// publishBlockTimeout bounds the worst-case `events <- ...` backpressure
-	// before the monitor logs a drop. Tuned so a stuck actor is visible in
-	// logs rather than pinning every wait goroutine.
+	// publishBlockTimeout 限制事件通道阻塞的最长等待时间。
+	// actor 卡住时宁可记录丢弃，也不能永久占住所有 Wait goroutine。
 	publishBlockTimeout time.Duration
 }
 
+// Target 描述一次本地进程监听的身份围栏和进程句柄。
 type Target struct {
 	AgentID   string
 	LaunchSeq uint64
 	Cmd       *exec.Cmd
 }
 
+// Event 是 Monitor 向 runnerActor 发出的进程退出事件。
 type Event struct {
 	AgentID   string
 	LaunchSeq uint64
 	Err       error
 }
 
-// New 创建编排。
+// New 创建进程退出监视器。
 func New(logger *slog.Logger) *Monitor {
 	if logger == nil {
 		logger = pkglogger.Get()
@@ -69,11 +60,8 @@ func New(logger *slog.Logger) *Monitor {
 	}
 }
 
-// Arm starts a cmd.Wait goroutine for target. Returns false if the monitor
-// has already been closed by Drain — callers in that window must NOT assume
-// the process will emit an exit event via the monitor; they are responsible
-// for synchronous cleanup.
-// Arm 开始监听进程退出。
+// Arm 为 target 启动 cmd.Wait goroutine。
+// Drain 关闭入口后返回 false，调用方必须自行同步清理，不能假设后续会收到退出事件。
 func (m *Monitor) Arm(target Target) bool {
 	if target.Cmd == nil {
 		return false
@@ -93,23 +81,17 @@ func (m *Monitor) Arm(target Target) bool {
 	return true
 }
 
-// Emit is the synthetic-exit path for launcher-driven stops that do NOT have
-// a local cmd to Wait on (e.g. remote launcher.Stop succeeded). Shares the
-// exactly-once fence with Arm so accidental double-emit is a no-op.
-// Emit 发布进程退出事件。
+// Emit 发布没有本地 cmd.Wait 的合成退出事件。
+// 它与 Arm 共用 exactly-once 围栏，因此重复发同一 (agentID, launchSeq) 会被忽略。
 func (m *Monitor) Emit(agentID string, launchSeq uint64, err error) {
 	m.publishExit(agentID, launchSeq, err)
 }
 
-// ExitEvents returns the read-only event stream. runnerActor.Run is the
-// only production consumer.
-// ExitEvents 返回进程退出事件通道。
+// ExitEvents 返回只读退出事件流；生产路径只有 runnerActor 消费。
 func (m *Monitor) ExitEvents() <-chan Event { return m.events }
 
-// Drain closes the gate (no more Arm) and blocks until every in-flight
-// cmd.Wait goroutine has finished. Callers pass a bounded ctx for the
-// shutdown budget.
-// Drain 等待队列里已接收的任务收尾。
+// Drain 关闭新 Arm 入口，并等待已启动的 cmd.Wait goroutine 结束。
+// 调用方必须传带超时的 ctx，避免 shutdown 被异常子进程无限拖住。
 func (m *Monitor) Drain(ctx context.Context) error {
 	m.mu.Lock()
 	m.closed = true
@@ -124,10 +106,8 @@ func (m *Monitor) Drain(ctx context.Context) error {
 	}
 }
 
-// publishExit enforces the exactly-once-per-(agentID, launchSeq) fence and
-// pushes the event onto the buffered channel. It is safe for concurrent use;
-// Arm goroutines, Emit callers, and tests all route through here.
-// publishExit 发布exit。
+// publishExit 先抢占 (agentID, launchSeq) 围栏，再把退出事件送入缓冲通道。
+// Arm goroutine、Emit 调用方和测试都走这里，因此必须并发安全。
 func (m *Monitor) publishExit(agentID string, seq uint64, err error) {
 	if agentID == "" || seq == 0 {
 		return
@@ -153,8 +133,8 @@ func (m *Monitor) publishExit(agentID string, seq uint64, err error) {
 	}
 }
 
-// claimFire attempts to reserve the (agentID, launchSeq) fence slot. Returns
-// false if the slot was already claimed by an earlier publish.
+// claimFire 抢占 (agentID, launchSeq) 退出事件围栏。
+// 返回 false 表示同一进程生命周期的退出事件已发布过，调用方必须跳过重复投递。
 func (m *Monitor) claimFire(agentID string, seq uint64) bool {
 	key := exitMonitorFenceKey(agentID, seq)
 	m.mu.Lock()

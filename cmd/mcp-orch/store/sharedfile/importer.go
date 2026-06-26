@@ -15,12 +15,14 @@ import (
 	sharedfilepath "github.com/anthropic-ai/super-agent-v3/internal/platform/sharedfilepath"
 )
 
+// sharedfile 导入错误分类哨兵。
 var (
 	ErrImportValidation     = errors.New("sharedfile: import validation failed")
 	ErrImportInfrastructure = errors.New("sharedfile: import infrastructure failed")
 )
 
-// ImportLocalFile 导入local文件。
+// ImportLocalFile 校验本地源文件后复制到 sharedfile 磁盘区，并写入 DB 索引。
+// DB 写失败会删除已复制目标，避免磁盘和索引长期不一致。
 func (s *store) ImportLocalFile(ctx context.Context, params ImportLocalFileParams) (*SharedFile, error) {
 	if s == nil || s.q == nil {
 		return nil, importInfrastructure("store not configured", nil)
@@ -60,7 +62,7 @@ func (s *store) ImportLocalFile(ctx context.Context, params ImportLocalFileParam
 	return &mapped, nil
 }
 
-// validateImportSource 校验importsource。
+// validateImportSource 校验源路径存在、非 symlink、非目录且是普通文件。
 func validateImportSource(params ImportLocalFileParams) (string, fs.FileInfo, error) {
 	source := strings.TrimSpace(params.SourcePath)
 	if source == "" {
@@ -90,7 +92,7 @@ func validateImportSource(params ImportLocalFileParams) (string, fs.FileInfo, er
 	return sourceAbs, info, nil
 }
 
-// ensureImportAllowed 确保importallowed。
+// ensureImportAllowed 校验大小、扩展名和源路径白名单。
 func ensureImportAllowed(params ImportLocalFileParams, sourceAbs, targetRel string, size int64) error {
 	if params.MaxBytes < 0 {
 		return importValidation("max_bytes must be non-negative")
@@ -107,7 +109,7 @@ func ensureImportAllowed(params ImportLocalFileParams, sourceAbs, targetRel stri
 	return nil
 }
 
-// ensureImportExtension 确保importextension。
+// ensureImportExtension 要求源文件和目标路径扩展名都在允许列表内。
 func ensureImportExtension(allowed []string, sourceAbs, targetRel string) error {
 	if len(allowed) == 0 {
 		return nil
@@ -137,7 +139,7 @@ func ensureImportExtension(allowed []string, sourceAbs, targetRel string) error 
 	return nil
 }
 
-// ensureImportSourceRoot 确保importsource根目录。
+// ensureImportSourceRoot 解析真实路径后确认源文件位于允许根目录内。
 func ensureImportSourceRoot(roots []string, sourceAbs string) error {
 	if len(roots) == 0 {
 		return importValidation("allowed_source_roots is required")
@@ -162,13 +164,14 @@ func ensureImportSourceRoot(roots []string, sourceAbs string) error {
 	return importValidation("source path outside allowed_source_roots")
 }
 
+// pathWithinRoot 判断清理后的路径是否位于指定根目录下。
 func pathWithinRoot(absPath, root string) bool {
 	cleanPath := filepath.Clean(absPath)
 	cleanRoot := filepath.Clean(root)
 	return cleanPath == cleanRoot || strings.HasPrefix(cleanPath, cleanRoot+string(filepath.Separator))
 }
 
-// copyImportToTarget 把import复制为target。
+// copyImportToTarget 通过同目录临时文件复制导入内容，再 rename 到目标路径。
 func copyImportToTarget(sourceAbs, targetAbs string, params ImportLocalFileParams) error {
 	if err := ensureImportOverwrite(targetAbs, params.Overwrite); err != nil {
 		return err
@@ -191,7 +194,7 @@ func copyImportToTarget(sourceAbs, targetAbs string, params ImportLocalFileParam
 	return nil
 }
 
-// ensureImportOverwrite 确保importoverwrite。
+// ensureImportOverwrite 校验 overwrite 策略，默认 fail 防止误覆盖。
 func ensureImportOverwrite(targetAbs, rawOverwrite string) error {
 	overwrite := strings.TrimSpace(rawOverwrite)
 	if overwrite == "" {
@@ -212,7 +215,7 @@ func ensureImportOverwrite(targetAbs, rawOverwrite string) error {
 	}
 }
 
-// writeImportTempFile 写入importtemp文件。
+// writeImportTempFile 写入并 fsync 临时文件；返回后由调用方负责 rename。
 func writeImportTempFile(sourceAbs, targetAbs string, maxBytes int64) (string, error) {
 	tmp, err := os.CreateTemp(filepath.Dir(targetAbs), filepath.Base(targetAbs)+".tmp-")
 	if err != nil {
@@ -240,7 +243,7 @@ func writeImportTempFile(sourceAbs, targetAbs string, maxBytes int64) (string, e
 	return tmpPath, nil
 }
 
-// streamCopyWithLimit 返回带limit的流copy。
+// streamCopyWithLimit 以流式复制源文件，并在超过 maxBytes 时返回 validation 错误。
 func streamCopyWithLimit(dst *os.File, sourceAbs string, maxBytes int64) error {
 	src, err := os.Open(sourceAbs)
 	if err != nil {
@@ -261,6 +264,7 @@ func streamCopyWithLimit(dst *os.File, sourceAbs string, maxBytes int64) error {
 	return nil
 }
 
+// importUpdatedBy 返回导入记录的 updated_by，空值使用固定系统身份。
 func importUpdatedBy(raw string) string {
 	if updatedBy := strings.TrimSpace(raw); updatedBy != "" {
 		return updatedBy
@@ -268,10 +272,12 @@ func importUpdatedBy(raw string) string {
 	return "sharedfile-importer"
 }
 
+// importValidation 包装用户输入校验错误，便于上层区分可修正问题。
 func importValidation(reason string) error {
 	return fmt.Errorf("%w: %s", ErrImportValidation, reason)
 }
 
+// importInfrastructure 包装文件系统或 DB 等基础设施错误。
 func importInfrastructure(reason string, err error) error {
 	if err == nil {
 		return fmt.Errorf("%w: %s", ErrImportInfrastructure, reason)

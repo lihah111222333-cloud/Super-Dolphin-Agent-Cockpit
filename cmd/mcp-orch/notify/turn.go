@@ -13,23 +13,16 @@ import (
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
-// AgentAliasResolver maps (agentID, threadID) into a channel alias or
-// empty when no alias applies. v1 has no per-agent notify binding yet,
-// so the default resolver always returns empty ("drop"). When a future
-// schema change lands (for example a column on agent_threads), the
-// replacement is a single fx.Decorate away.
+// AgentAliasResolver 把 agentID/threadID 映射为通知渠道别名。
+// 返回空字符串表示显式丢弃；默认实现不推导渠道，避免 core turn 事件误发。
 type AgentAliasResolver func(agentID, threadID string) string
 
-// dropAllAliasResolver is the default resolver. It honours the P2
-// plan's stance that core turn terminals 不能天然反推出通知目标; without
-// an explicit opt-in alias source, we drop.
+// dropAllAliasResolver 是默认 alias 解析器。
+// 没有显式 opt-in 渠道来源时，core turn 终态事件只计 skipped，不进入通知队列。
 func dropAllAliasResolver(string, string) string { return "" }
 
-// TurnNotifier bridges orchestration.NotifyTap -> contract.MessageNotifier.
-// Every terminal event is resolved through AgentAliasResolver; empty
-// alias means drop (plan-compliant). When an alias is present the
-// notifier builds a contract.NotifyMessage and TryEnqueues — errors
-// are logged + counted, never bubbled to the hook consumer.
+// TurnNotifier 将 orchestration.NotifyTap 事件桥接到 contract.MessageNotifier。
+// 每个终态事件都先经 AgentAliasResolver 解析渠道；入队失败只记录日志和计数，不反向阻断 hook consumer。
 type TurnNotifier struct {
 	logger        *slog.Logger
 	notifier      contract.MessageNotifier
@@ -40,15 +33,11 @@ type TurnNotifier struct {
 	enqueueErrors atomic.Int64
 }
 
-// Compile-time check: TurnNotifier satisfies orchestration.NotifyTap.
+// 编译期确认 TurnNotifier 满足 orchestration.NotifyTap。
 var _ orchestration.NotifyTap = (*TurnNotifier)(nil)
 
-// NewTurnNotifier wires a TurnNotifier with a resolver. A nil resolver
-// falls back to dropAllAliasResolver so the tap is safely installed
-// even when the deployment has no alias source wired in; every
-// terminal still passes through the hook consumer unchanged and the
-// skipped counter tracks the "no alias, dropped" branch.
-// NewTurnNotifier 创建turnnotifier。
+// NewTurnNotifier 装配 turn 通知 tap。
+// resolver 为空时使用 dropAllAliasResolver，让未配置 alias 的部署只计 skipped，不影响 hook 消费链路。
 func NewTurnNotifier(logger *slog.Logger, notifier contract.MessageNotifier, resolver AgentAliasResolver) *TurnNotifier {
 	if logger == nil {
 		logger = pkglogger.Get()
@@ -59,8 +48,7 @@ func NewTurnNotifier(logger *slog.Logger, notifier contract.MessageNotifier, res
 	return &TurnNotifier{logger: logger, notifier: notifier, aliasResolver: resolver}
 }
 
-// OnTurnCompleted implements orchestration.NotifyTap.
-// OnTurnCompleted 处理onturncompleted。
+// OnTurnCompleted 处理 turn 完成事件；无 alias 时按计划丢弃并计数。
 func (t *TurnNotifier) OnTurnCompleted(ctx context.Context, ev turndto.TurnCompleted) {
 	alias := t.lookupAlias(ev.AgentID, ev.ThreadID)
 	if alias == "" {
@@ -75,8 +63,7 @@ func (t *TurnNotifier) OnTurnCompleted(ctx context.Context, ev turndto.TurnCompl
 	t.enqueue(ctx, alias, contract.NotifyMessage{Title: title, Body: body, Level: level})
 }
 
-// OnTurnInterrupted implements orchestration.NotifyTap.
-// OnTurnInterrupted 处理onturninterrupted。
+// OnTurnInterrupted 处理 turn 中断事件，通知级别固定为 warn。
 func (t *TurnNotifier) OnTurnInterrupted(ctx context.Context, ev turndto.TurnInterrupted) {
 	alias := t.lookupAlias(ev.AgentID, ev.ThreadID)
 	if alias == "" {
@@ -97,8 +84,7 @@ func (t *TurnNotifier) OnTurnInterrupted(ctx context.Context, ev turndto.TurnInt
 	})
 }
 
-// OnThreadStopped implements orchestration.NotifyTap.
-// OnThreadStopped 处理on线程stopped。
+// OnThreadStopped 处理线程停止事件，当前只发信息级通知。
 func (t *TurnNotifier) OnThreadStopped(ctx context.Context, ev threaddto.Stopped) {
 	alias := t.lookupAlias(ev.AgentID, ev.ThreadID)
 	if alias == "" {
@@ -118,9 +104,8 @@ func (t *TurnNotifier) OnThreadStopped(ctx context.Context, ev threaddto.Stopped
 	})
 }
 
-// lookupAlias centralises trim + resolver delegation. Returning "" from
-// the resolver (default behaviour) lines up with the P2 plan's
-// drop/error policy for core turn terminals without an explicit alias.
+// lookupAlias 统一 trim 输入并委托 resolver。
+// resolver 返回空字符串时表示没有明确通知目标，调用方按 skipped 处理。
 func (t *TurnNotifier) lookupAlias(agentID, threadID string) string {
 	if t == nil || t.aliasResolver == nil {
 		return ""
@@ -128,6 +113,7 @@ func (t *TurnNotifier) lookupAlias(agentID, threadID string) string {
 	return strings.TrimSpace(t.aliasResolver(strings.TrimSpace(agentID), strings.TrimSpace(threadID)))
 }
 
+// enqueue 向平台通知队列写入消息；失败只计数和日志，不向 hook 链路冒泡。
 func (t *TurnNotifier) enqueue(ctx context.Context, alias string, msg contract.NotifyMessage) {
 	if t.notifier == nil {
 		t.enqueueErrors.Add(1)
@@ -147,15 +133,14 @@ func (t *TurnNotifier) enqueue(ctx context.Context, alias string, msg contract.N
 	t.enqueued.Add(1)
 }
 
-// TurnMetrics mirrors the DAGNotifier surface for dashboards.
+// TurnMetrics 是 turn 通知器的只读计数器快照。
 type TurnMetrics struct {
 	Skipped       int64
 	Enqueued      int64
 	EnqueueErrors int64
 }
 
-// Metrics returns a point-in-time snapshot.
-// Metrics 处理指标。
+// Metrics 返回 turn 通知计数器快照。
 func (t *TurnNotifier) Metrics() TurnMetrics {
 	if t == nil {
 		return TurnMetrics{}
@@ -167,14 +152,13 @@ func (t *TurnNotifier) Metrics() TurnMetrics {
 	}
 }
 
-// buildTurnCompletedMessage renders a compact title + body for a
-// TurnCompleted event. Raw payload fields (Result / Summary) are
-// passed through unedited because the flusher's MarkdownEscape /
-// NormalizeBody pipeline owns the escaping + truncation.
+// buildTurnCompletedMessage 为 TurnCompleted 事件生成简短标题和正文。
+// Result/Summary 原文交给 flusher 的 MarkdownEscape/NormalizeBody 管线统一转义和截断。
 func buildTurnCompletedMessage(ev turndto.TurnCompleted) (title, body string) {
 	return buildTurnCompletedTitle(ev), buildTurnCompletedBody(ev)
 }
 
+// buildTurnCompletedTitle 生成 turn 完成通知标题，优先带上 turn_id。
 func buildTurnCompletedTitle(ev turndto.TurnCompleted) string {
 	title := "Turn " + resolvedTurnCompletedStatus(ev)
 	if id := strings.TrimSpace(ev.TurnID); id != "" {
@@ -183,6 +167,7 @@ func buildTurnCompletedTitle(ev turndto.TurnCompleted) string {
 	return title
 }
 
+// resolvedTurnCompletedStatus 在事件未给 status 时从 Success 推导终态文案。
 func resolvedTurnCompletedStatus(ev turndto.TurnCompleted) string {
 	status := strings.TrimSpace(ev.Status)
 	if status != "" {
@@ -194,6 +179,7 @@ func resolvedTurnCompletedStatus(ev turndto.TurnCompleted) string {
 	return "failed"
 }
 
+// buildTurnCompletedBody 组装 turn 完成通知正文，空字段会被跳过。
 func buildTurnCompletedBody(ev turndto.TurnCompleted) string {
 	parts := make([]string, 0, 5)
 	parts = appendTurnCompletedField(parts, "Agent", ev.AgentID)
@@ -203,6 +189,7 @@ func buildTurnCompletedBody(ev turndto.TurnCompleted) string {
 	return strings.Join(appendTurnCompletedResult(parts, ev), "\n")
 }
 
+// appendTurnCompletedField 追加非空的 label/value 行。
 func appendTurnCompletedField(parts []string, label, value string) []string {
 	if value = strings.TrimSpace(value); value == "" {
 		return parts
@@ -210,6 +197,7 @@ func appendTurnCompletedField(parts []string, label, value string) []string {
 	return append(parts, label+": "+value)
 }
 
+// appendTurnCompletedResult 追加 Result/Summary/Message 三者中优先出现的正文。
 func appendTurnCompletedResult(parts []string, ev turndto.TurnCompleted) []string {
 	if v := strings.TrimSpace(ev.Result); v != "" {
 		return append(parts, "Result:\n"+v)

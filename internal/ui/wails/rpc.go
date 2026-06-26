@@ -15,19 +15,23 @@ import (
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
+// codeLocateLimit 限制一次 ui/code/locate 返回的候选数量。
 const codeLocateLimit = 24
 
+// clientMetaParams 承载前端客户端来源元数据。
 type clientMetaParams struct {
 	ClientKind  string `json:"_aoClientKind,omitempty"`
 	ClientRoute string `json:"_aoClientRoute,omitempty"`
 }
 
+// scopeParams 承载代码和路径类 RPC 的项目范围选择。
 type scopeParams struct {
 	Project  string   `json:"project,omitempty"`
 	Projects []string `json:"projects,omitempty"`
 	clientMetaParams
 }
 
+// codeSaveParams 是 ui/code/save 的请求参数。
 type codeSaveParams struct {
 	FilePath  string `json:"filePath"`
 	Content   string `json:"content"`
@@ -35,11 +39,13 @@ type codeSaveParams struct {
 	scopeParams
 }
 
+// codeLocateParams 是 ui/code/locate 的请求参数。
 type codeLocateParams struct {
 	FilePath string `json:"filePath"`
 	scopeParams
 }
 
+// codeOpenParams 是 ui/code/open 的请求参数。
 type codeOpenParams struct {
 	FilePath string `json:"filePath"`
 	Line     int    `json:"line,omitempty"`
@@ -47,6 +53,7 @@ type codeOpenParams struct {
 	scopeParams
 }
 
+// pathOpenParams 是 ui/path/open 的请求参数。
 type pathOpenParams struct {
 	FilePath string `json:"filePath"`
 	Line     int    `json:"line,omitempty"`
@@ -54,32 +61,39 @@ type pathOpenParams struct {
 	scopeParams
 }
 
+// copyTextParams 是 ui/copyText 的请求参数。
 type copyTextParams struct {
 	Text string `json:"text"`
 	clientMetaParams
 }
 
+// selectProjectDirParams 是项目目录选择 RPC 的请求参数。
 type selectProjectDirParams struct {
 	DefaultPath string `json:"defaultPath,omitempty"`
 	clientMetaParams
 }
 
+// selectFilesParams 是文件选择 RPC 的请求参数。
 type selectFilesParams struct {
 	DefaultPath string             `json:"defaultPath,omitempty"`
 	Filters     []selectFileFilter `json:"filters,omitempty"`
 	clientMetaParams
 }
 
+// selectFileFilter 描述前端传给原生文件选择器的可选过滤器。
+// DisplayName/Pattern 保持桌面 RPC wire 字段，具体合法性由 dialog 归一化阶段处理。
 type selectFileFilter struct {
 	DisplayName string `json:"displayName"`
 	Pattern     string `json:"pattern"`
 }
 
+// saveClipboardImageParams 是保存剪贴板图片 RPC 的请求参数。
 type saveClipboardImageParams struct {
 	Base64Payload string `json:"base64Payload"`
 	clientMetaParams
 }
 
+// saveTextFileParams 是导出文本文件 RPC 的请求参数。
 type saveTextFileParams struct {
 	DefaultPath     string `json:"defaultPath,omitempty"`
 	DefaultFilename string `json:"defaultFilename"`
@@ -87,6 +101,7 @@ type saveTextFileParams struct {
 	clientMetaParams
 }
 
+// openNewWindowParams 是打开新桌面窗口 RPC 的请求参数。
 type openNewWindowParams struct {
 	Group       string         `json:"group,omitempty"`
 	N           int            `json:"n,omitempty"`
@@ -96,15 +111,13 @@ type openNewWindowParams struct {
 	clientMetaParams
 }
 
+// windowBootstrapGetParams 是获取窗口启动快照 RPC 的请求参数。
 type windowBootstrapGetParams struct {
 	clientMetaParams
 }
 
-// NewRPCHandlers registers desktop-only UI helpers behind the generic RPC
-// bridge. P22 P4 S1b: the uiState parameter is the narrow
-// contract.UIProjectStateFacade — ui/wails no longer depends on
-// internal/module/uistate's fat Service interface.
-// NewRPCHandlers 创建RPC处理器。
+// NewRPCHandlers 注册桌面专用 UI helper RPC。
+// uiState 只依赖 contract.UIProjectStateFacade，避免 ui/wails 反向依赖 uistate 服务实现。
 func NewRPCHandlers(app *App, cfg *config.Config, uiState contract.UIProjectStateFacade) rpc.HandlerMapResult {
 	return rpc.HandlerMapResult{Handlers: handler.Map{
 		"ui/code/save": rpc.StrictHandler(func(ctx context.Context, p codeSaveParams) (any, error) {
@@ -178,6 +191,8 @@ func NewRPCHandlers(app *App, cfg *config.Config, uiState contract.UIProjectStat
 	}}
 }
 
+// handleCodeSave 先按前端传入的 project/projects 解析允许的项目根，再保存范围内文件。
+// 保存只允许落在这些根目录内；项目范围解析、越界路径、缺失目标或写入失败都会直接返回错误。
 func handleCodeSave(
 	ctx context.Context,
 	cfg *config.Config,
@@ -191,6 +206,8 @@ func handleCodeSave(
 	return saveScopedFile(p.FilePath, p.Content, roots, p.CreateNew)
 }
 
+// handleCodeLocate 先解析项目范围，再在允许根目录内定位候选文件。
+// 定位只返回轻量路径元数据并受 codeLocateLimit 截断；项目状态读取、范围解析或搜索错误会返回给 RPC 调用方。
 func handleCodeLocate(
 	ctx context.Context,
 	cfg *config.Config,
@@ -204,6 +221,8 @@ func handleCodeLocate(
 	return locateScopedFile(ctx, p.FilePath, roots, codeLocateLimit)
 }
 
+// handleCodeOpen 先解析项目范围，再构建代码预览并尝试打开本地编辑器。
+// 预览只读取允许根目录内的目标文件；越界、缺失、二进制/超大文件或系统打开失败按下层错误返回。
 func handleCodeOpen(
 	ctx context.Context,
 	cfg *config.Config,
@@ -217,6 +236,8 @@ func handleCodeOpen(
 	return openScopedFile(ctx, p.FilePath, p.Line, p.Column, roots)
 }
 
+// handlePathOpen 先解析项目范围，再用系统默认程序打开范围内文件或目录。
+// 该 RPC 不读取文件内容；空路径、越界路径、目标不存在或系统打开失败都会阻断并返回错误。
 func handlePathOpen(
 	ctx context.Context,
 	cfg *config.Config,
@@ -230,6 +251,7 @@ func handlePathOpen(
 	return openScopedPath(ctx, p.FilePath, p.Line, p.Column, roots)
 }
 
+// handleCopyText 处理剪贴板写入；headless 模式返回软失败给前端。
 func handleCopyText(app *App, text string) (map[string]any, error) {
 	if app == nil || app.wailsApp == nil {
 		return map[string]any{
@@ -244,7 +266,7 @@ func handleCopyText(app *App, text string) (map[string]any, error) {
 	return map[string]any{"ok": ok}, nil
 }
 
-// handleUILog 处理UI日志。
+// handleUILog 接收前端日志批次，写入后端日志并记录脱敏 observability 事件。
 func handleUILog(ctx context.Context, app *App, params map[string]any) (map[string]any, error) {
 	clientKind := extractFirstString(params, "_aoClientKind")
 	clientRoute := extractFirstString(params, "_aoClientRoute")
@@ -288,9 +310,9 @@ func handleUILog(ctx context.Context, app *App, params map[string]any) (map[stri
 	return map[string]any{"ok": true, "ingested": ingested}, nil
 }
 
+// normalizeFrontendLogLevel 降低高频成功探针的日志等级，避免正常轮询刷屏。
 func normalizeFrontendLogLevel(level, scope, event string) string {
-	// High-frequency successful lifecycle probes are diagnostics, even when an
-	// already-loaded frontend bundle reports them as warn.
+	// 已加载的旧前端包可能把成功探针报成 warn，这里按诊断日志处理。
 	if scope == "scroll" {
 		return "debug"
 	}
@@ -306,7 +328,7 @@ func normalizeFrontendLogLevel(level, scope, event string) string {
 	return level
 }
 
-// frontendLogEntries 处理前端日志条目。
+// frontendLogEntries 规范化单条或批量前端日志参数。
 func frontendLogEntries(params map[string]any) []map[string]any {
 	entries := make([]map[string]any, 0, 1)
 	switch typed := params["entries"].(type) {
@@ -326,6 +348,7 @@ func frontendLogEntries(params map[string]any) []map[string]any {
 	return []map[string]any{params}
 }
 
+// frontendLogMetadata 提取前端日志的等级、范围、事件和时间戳。
 func frontendLogMetadata(entry map[string]any) (string, string, string, string) {
 	level := strings.ToLower(strings.TrimSpace(extractFirstString(entry, "level")))
 	scope := strings.TrimSpace(extractFirstString(entry, "scope"))
@@ -334,6 +357,7 @@ func frontendLogMetadata(entry map[string]any) (string, string, string, string) 
 	return level, scope, event, timestamp
 }
 
+// frontendLogIDs 从日志顶层或 fields 中提取 thread/agent ID。
 func frontendLogIDs(entry map[string]any) (string, string) {
 	threadID := strings.TrimSpace(extractFirstString(entry, "thread_id", "threadId"))
 	agentID := strings.TrimSpace(extractFirstString(entry, "agent_id", "agentId"))
@@ -350,7 +374,7 @@ func frontendLogIDs(entry map[string]any) (string, string) {
 	return threadID, agentID
 }
 
-// buildFrontendLogArgs 构建前端日志args。
+// buildFrontendLogArgs 构建前端日志字段，保留客户端来源和关联线程信息。
 func buildFrontendLogArgs(
 	entry map[string]any,
 	clientKind string,
@@ -387,6 +411,7 @@ func buildFrontendLogArgs(
 	return args
 }
 
+// emitFrontendLog 按前端传入的等级写入后端结构化日志。
 func emitFrontendLog(ctx context.Context, level string, msg string, args []any) {
 	logger := pkglogger.Get()
 	switch level {
@@ -401,6 +426,7 @@ func emitFrontendLog(ctx context.Context, level string, msg string, args []any) 
 	}
 }
 
+// extractFirstString 按优先级提取第一个非空字符串字段。
 func extractFirstString(values map[string]any, keys ...string) string {
 	for _, key := range keys {
 		value, _ := values[key].(string)
@@ -411,12 +437,14 @@ func extractFirstString(values map[string]any, keys ...string) string {
 	return ""
 }
 
+// handleUIWindowBootstrapGet 消费当前窗口的一次性启动快照。
 func handleUIWindowBootstrapGet(app *App) map[string]map[string]any {
 	return map[string]map[string]any{
 		"snapshot": app.consumeWindowBootstrapSnapshot(),
 	}
 }
 
+// handleUIOpenNewWindow 创建同组或指定组的新桌面窗口。
 func handleUIOpenNewWindow(app *App, p openNewWindowParams) (map[string]any, error) {
 	if p.N < 0 {
 		return nil, fmt.Errorf("wails binding: n must be a non-negative integer")
@@ -438,6 +466,7 @@ func handleUIOpenNewWindow(app *App, p openNewWindowParams) (map[string]any, err
 	}, nil
 }
 
+// resolveUIBootstrap 校验或编码新窗口启动快照。
 func resolveUIBootstrap(raw string, snapshot map[string]any) (string, error) {
 	if len(snapshot) != 0 {
 		return encodeWindowBootstrapSnapshot(snapshot)

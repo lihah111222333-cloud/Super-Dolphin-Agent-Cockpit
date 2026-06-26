@@ -11,8 +11,8 @@ import (
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
-// NewCronProgressSubscribers declares cron progress subscriptions for BusModule.
-// NewCronProgressSubscribers 创建cronprogresssubscribers。
+// NewCronProgressSubscribers 声明 cron progress/terminal 事件订阅。
+// 注册时创建单 worker 串行处理续租和终态写回；取消函数只执行一次，避免重复关闭 worker。
 func NewCronProgressSubscribers(scheduler *Scheduler, logger *pkglogger.Logger) platformbus.SubscriberResult {
 	return platformbus.SubscriberResult{
 		Spec: contract.SubscriberSpec{

@@ -12,8 +12,10 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/observability"
 )
 
+// toolTraceSpanSeq 为本进程内 toolbridge trace span 生成递增后缀。
 var toolTraceSpanSeq atomic.Uint64
 
+// recordToolTrace 记录 toolbridge trace 事件，tracer 未启用时保持空操作。
 func (h *Handler) recordToolTrace(ctx context.Context, event observability.TraceEvent) {
 	if h == nil || h.tracer == nil {
 		return
@@ -24,6 +26,7 @@ func (h *Handler) recordToolTrace(ctx context.Context, event observability.Trace
 	}
 }
 
+// beginToolTraceContext 为一次工具调用创建或延续 trace/span 上下文。
 func beginToolTraceContext(ctx context.Context) context.Context {
 	trace, _ := observability.TraceFromContext(ctx)
 	parentSpanID := trace.SpanID
@@ -35,7 +38,7 @@ func beginToolTraceContext(ctx context.Context) context.Context {
 	return observability.ContextWithTrace(ctx, trace)
 }
 
-// fillToolTrace 处理fill工具trace。
+// fillToolTrace 填充 trace/span/code/status 默认值，并按错误状态采集 stack。
 func fillToolTrace(ctx context.Context, event *observability.TraceEvent) {
 	fillToolTraceDefaults(event)
 	if trace, ok := observability.TraceFromContext(ctx); ok {
@@ -61,6 +64,7 @@ func fillToolTrace(ctx context.Context, event *observability.TraceEvent) {
 	}
 }
 
+// fillToolTraceDefaults 填充 toolbridge trace 事件的时间、kind、code 和状态默认值。
 func fillToolTraceDefaults(event *observability.TraceEvent) {
 	if event.Timestamp.IsZero() {
 		event.Timestamp = time.Now()
@@ -76,14 +80,17 @@ func fillToolTraceDefaults(event *observability.TraceEvent) {
 	}
 }
 
+// shouldCaptureToolStack 判断当前状态是否需要记录调用栈。
 func shouldCaptureToolStack(status observability.Status) bool {
 	return status == observability.StatusError || status == observability.StatusSlow || status == observability.StatusPanic
 }
 
+// nextToolTraceSpan 生成本地唯一的 toolbridge span id。
 func nextToolTraceSpan(method string) string {
 	return "toolbridge:" + method + ":" + formatUint(toolTraceSpanSeq.Add(1))
 }
 
+// formatUint 在无额外分配的情况下格式化正整数。
 func formatUint(v uint64) string {
 	if v == 0 {
 		return "0"
@@ -98,10 +105,12 @@ func formatUint(v uint64) string {
 	return string(buf[i:])
 }
 
+// toolTraceStackConfig 返回 toolbridge trace 栈采集的固定上限配置。
 func toolTraceStackConfig() observability.Config {
 	return observability.Config{TraceStacks: map[observability.Status]bool{observability.StatusSlow: true, observability.StatusError: true, observability.StatusPanic: true}, StackMaxFrames: 8, StackMaxBytes: 4096}
 }
 
+// toolTraceBeginEvent 构造工具调用开始 trace 事件。
 func toolTraceBeginEvent(req ToolCallRequest) observability.TraceEvent {
 	metadata := toolTraceBeginMetadata(req)
 	return observability.TraceEvent{
@@ -118,6 +127,7 @@ func toolTraceBeginEvent(req ToolCallRequest) observability.TraceEvent {
 	}
 }
 
+// toolTraceBeginMetadata 构造开始事件 metadata，并只记录敏感参数键名不记录值。
 func toolTraceBeginMetadata(req ToolCallRequest) map[string]any {
 	targetPeer := strings.TrimSpace(req.ClientKind)
 	if targetPeer == "" {
@@ -136,6 +146,7 @@ func toolTraceBeginMetadata(req ToolCallRequest) map[string]any {
 	return metadata
 }
 
+// sensitiveToolArgumentKeys 返回参数中可能包含密钥的键名。
 func sensitiveToolArgumentKeys(raw json.RawMessage) []string {
 	var args map[string]json.RawMessage
 	if err := json.Unmarshal(raw, &args); err != nil {
@@ -151,6 +162,7 @@ func sensitiveToolArgumentKeys(raw json.RawMessage) []string {
 	return keys
 }
 
+// isSensitiveToolArgumentKey 判断参数键名是否疑似包含敏感信息。
 func isSensitiveToolArgumentKey(key string) bool {
 	normalized := strings.ToLower(strings.TrimSpace(key))
 	return strings.Contains(normalized, "api_key") ||
@@ -159,6 +171,7 @@ func isSensitiveToolArgumentKey(key string) bool {
 		strings.Contains(normalized, "token")
 }
 
+// toolTraceEndEvent 构造工具调用结束 trace 事件。
 func toolTraceEndEvent(req ToolCallRequest, result any, callErr error, elapsed time.Duration, affectedFiles int) observability.TraceEvent {
 	success := callErr == nil && toolTraceResultSuccess(result)
 	status := observability.StatusOK
@@ -186,6 +199,7 @@ func toolTraceEndEvent(req ToolCallRequest, result any, callErr error, elapsed t
 	}
 }
 
+// toolTraceErrorSummary 返回 trace status 对应的简短错误摘要。
 func toolTraceErrorSummary(status observability.Status) string {
 	if status == observability.StatusError {
 		return "tool call failed"
@@ -193,6 +207,7 @@ func toolTraceErrorSummary(status observability.Status) string {
 	return ""
 }
 
+// toolTraceResultSuccess 从 ToolCallResult 判断工具调用是否成功。
 func toolTraceResultSuccess(result any) bool {
 	if r, ok := result.(*ToolCallResult); ok && r != nil {
 		return r.Success
@@ -203,6 +218,7 @@ func toolTraceResultSuccess(result any) bool {
 	return true
 }
 
+// toolTraceJSONSize 估算结果 JSON 字节数；不可序列化时返回 0。
 func toolTraceJSONSize(value any) int {
 	if value == nil {
 		return 0
@@ -214,6 +230,7 @@ func toolTraceJSONSize(value any) int {
 	return len(data)
 }
 
+// toolDiffTraceEvent 构造工具 diff 发布 trace 事件。
 func toolDiffTraceEvent(req ToolCallRequest, result difftracker.DiffResult, elapsed time.Duration, err error) observability.TraceEvent {
 	status := observability.StatusOK
 	if err != nil {

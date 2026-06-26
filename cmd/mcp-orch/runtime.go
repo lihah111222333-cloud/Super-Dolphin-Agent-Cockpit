@@ -66,7 +66,7 @@ type runtimeParams struct {
 
 // newLogger 初始化日志写入器，优先写入 /tmp/mcp-orch-<pid>.log，失败时回退到 stderr。
 func newLogger(cfg *platformconfig.Config) *slog.Logger {
-	// MCP stdio uses stdout for JSON-RPC; keep local fallback logs off stdout.
+	// MCP stdio 的 stdout 留给 JSON-RPC，日志回退也只能写 stderr 或文件。
 	logPath := fmt.Sprintf("/tmp/mcp-orch-%d.log", os.Getpid())
 	if f, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644); err == nil {
 		pkglogger.InitWithConsoleWriter(f)
@@ -76,15 +76,15 @@ func newLogger(cfg *platformconfig.Config) *slog.Logger {
 	return pkglogger.Get()
 }
 
-// newQueries 创建 sqlc 查询集。
+// newQueries 创建 mcp-orch store 使用的 sqlc 查询集。
 func newQueries(db *sql.DB) *sqlc.Queries { return sqlc.New(db) }
 
-// newAgentThreadStore 创建线程存储。
+// newAgentThreadStore 创建 orchestration 读取持久化 thread 的适配 store。
 func newAgentThreadStore(db *sql.DB) orchestration.AgentThreadStore {
 	return agentstore.NewThreadStore(db)
 }
 
-// newAgentBindingStore 创建 agent 绑定存储。
+// newAgentBindingStore 创建 orchestration 读取 provider binding 的适配 store。
 func newAgentBindingStore(db *sql.DB) orchestration.AgentBindingStore {
 	return agentstore.NewBindingStore(db)
 }
@@ -120,6 +120,7 @@ func (noopSessionCleaner) RemoveSessionGeneration(sessionID string, generation u
 	_ = generation
 }
 
+// newNoopSessionCleaner 返回 standalone 模式下的空 session cleaner。
 func newNoopSessionCleaner() contract.OrchestrationSessionCleaner {
 	return noopSessionCleaner{}
 }
@@ -137,6 +138,7 @@ func (noopTurnStarter) WaitForSessionReady(context.Context, string, time.Duratio
 	return nil
 }
 
+// newNoopTurnStarter 返回 standalone 模式下的 turn starter，占位实现会 fail-fast。
 func newNoopTurnStarter() contract.OrchestrationTurnStarter {
 	return noopTurnStarter{}
 }
@@ -163,10 +165,12 @@ func newModelRegistry(logger *slog.Logger) (modelregistry.Registry, error) {
 	return nil, fmt.Errorf("model registry load failed for %s: %w", modelregistry.DefaultRegistryPath(), err)
 }
 
+// newBuiltinPromptRegistry 创建内置 prompt registry，供 mcp-orch 工具直接读取。
 func newBuiltinPromptRegistry() (contract.BuiltinPromptRegistry, error) {
 	return builtinprompts.NewDefaultRegistry()
 }
 
+// newRegistry 汇总 orchestration、workspace、prompt 等依赖并注册 MCP tools。
 func newRegistry(p newRegistryParams) tools.Registry {
 	return tools.NewRegistry(tools.Dependencies{
 		Orchestration:  p.Orchestration,
@@ -179,6 +183,7 @@ func newRegistry(p newRegistryParams) tools.Registry {
 	})
 }
 
+// newStdioServer 创建 mcp-orch stdio MCP server，stdout 使用已绑定的 MCP 输出通道。
 func newStdioServer(registry tools.Registry) *common.Server {
 	stdout := mcpStdout.Load()
 	if stdout == nil {
@@ -188,16 +193,17 @@ func newStdioServer(registry tools.Registry) *common.Server {
 	return common.NewServer("mcp-orch", "dev", transport, registryToolProvider{registry: registry})
 }
 
-// newStdioRunner adapts the stdio *common.Server as a Runner for the run group.
+// newStdioRunner 将 stdio MCP server 适配为 run group runner。
 func newStdioRunner(server *common.Server) platformrunner.Runner {
 	return server
 }
 
+// newBootstrapRunner 创建 peer bootstrap runner，等待 stdio server ready 后再注册主控。
 func newBootstrapRunner(cfg bootstrap.Config, client *bootstrap.Client, server *common.Server) platformrunner.Runner {
 	return bootstrapRunner{cfg: cfg, client: client, stdioReady: server.Ready()}
 }
 
-// 这里只转 registry，不解释 scope。
+// ListTools 只把 registry 定义转换为 MCP tool 列表，不解释 scope。
 // scope 已经由上游放进 ctx，别在这里让 stdio/bootstrap 分叉。
 func (p registryToolProvider) ListTools(context.Context) ([]mcpdto.MCPTool, error) {
 	defs := p.registry.List()
@@ -221,6 +227,7 @@ func (p registryToolProvider) CallTool(ctx context.Context, name string, args js
 	return handleToolCall(ctx, p.registry, name, args)
 }
 
+// marshalInputSchema 将工具 schema 复制为 JSON，空 schema 输出空对象。
 func marshalInputSchema(schema tools.Schema) (json.RawMessage, error) {
 	if len(schema) == 0 {
 		return json.RawMessage("{}"), nil
@@ -232,6 +239,7 @@ func marshalInputSchema(schema tools.Schema) (json.RawMessage, error) {
 	return raw, nil
 }
 
+// handleToolCall 查找并调用 registry tool，未知工具和未配置 handler 都直接报错。
 func handleToolCall(ctx context.Context, registry tools.Registry, name string, args json.RawMessage) (any, error) {
 	def, ok := registry.Lookup(strings.TrimSpace(name))
 	if !ok {
@@ -243,7 +251,7 @@ func handleToolCall(ctx context.Context, registry tools.Registry, name string, a
 	return def.Handler(ctx, args)
 }
 
-// 只有 peer 模式才向主控注册，让 toolbridge 能代理 tools/list 和 tools/call。
+// Run 在 peer 模式才向主控注册，让 toolbridge 能代理 tools/list 和 tools/call。
 // 普通 stdio sidecar 不能注册，否则可能被主控当独立 peer 清理掉。
 func (r bootstrapRunner) Run(ctx context.Context) error {
 	r.client.InstallLogRelay()
@@ -262,10 +270,7 @@ func (r bootstrapRunner) Run(ctx context.Context) error {
 		<-ctx.Done()
 		return nil
 	}
-	// Only register with the control plane when running as an independent
-	// peer (GO_AGENT_PEER_MODE=1), spawned by ServerManager for toolbridge.
-	// When codex spawns mcp-orch as a stdio MCP sidecar, bootstrap
-	// registration causes sweeper eviction that kills the process.
+	// 只有独立 peer 模式才向控制面注册；stdio sidecar 若注册，会被 sweeper 误认为可回收进程。
 	if os.Getenv("GO_AGENT_PEER_MODE") != "1" {
 		pkglogger.Info("mcp-orch bootstrap skipped (sidecar mode)",
 			"rpc_addr", r.cfg.RPCAddr,
@@ -286,8 +291,7 @@ func (r bootstrapRunner) Run(ctx context.Context) error {
 		)
 		return err
 	}
-	// P15: subscribe to lifecycle hooks so hookConsumer receives
-	// agent.session.start / agent.turn.* / agent.state.change / agent.process.exit.
+	// bootstrap 成功后订阅生命周期 hook，让 hookConsumer 能接收 session、turn、state 和进程退出事件。
 	if err := subscribeOrchestrationHooks(ctx, r.client); err != nil {
 		return errors.Join(err, r.client.Close())
 	}
@@ -314,14 +318,8 @@ func bindRuntime(lc fx.Lifecycle, params runtimeParams) {
 
 	lc.Append(fx.Hook{
 		OnStart: func(context.Context) error {
-			// Sidecar lifecycle: context.Background() is intentional here.
-			// Unlike the main app (internal/app/runner.go) which derives runCtx
-			// from an owner-supplied RootCtxProvider, sidecars run as independent
-			// child processes. Their lifetime is governed by:
-			//   1. Parent process kill / OnShutdown callback → fx.Shutdowner.Shutdown()
-			//   2. RunGroup self-exit → requestShutdown()
-			// Both paths converge on OnStop, which calls cancel() and waits for
-			// the run group to drain via the done channel.
+			// sidecar 是独立子进程，故意用 background context 作为 run group 根。
+			// 父进程关闭和 run group 自行退出最终都会进入 OnStop，由 cancel 和 done channel 收口。
 			runCtx, runCancel := context.WithCancel(context.Background())
 			cancel = runCancel
 			runtimesafe.SafeGo(runCtx, logger, "mcp-orch.runtime.runGroup", func(context.Context) {

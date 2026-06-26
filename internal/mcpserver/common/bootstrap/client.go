@@ -17,16 +17,14 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/dto/mcp"
 )
 
+// 默认时序与队列容量，控制心跳、RPC 超时、报告排队和回调 drain 的上限。
 const (
 	defaultHeartbeatInterval = 10 * time.Second
 	defaultHeartbeatTimeout  = 5 * time.Second
 	defaultRPCTimeout        = 5 * time.Second
 	defaultReportQueueLimit  = 128
-	// defaultCallbackDrainTimeout bounds how long Close() waits for
-	// in-flight OnShutdown / OnConfigChanged callback goroutines to
-	// drain. Keep it below the overall shutdown budget so a stuck
-	// application callback cannot pin bootstrap shutdown. P22 P2
-	// bootstrap-S1 / plan §499 / §505.
+	// defaultCallbackDrainTimeout 限制 Close() 等待 OnShutdown/OnConfigChanged 回调退出的时间。
+	// 必须低于整体退出预算，避免应用层回调卡死 bootstrap shutdown。
 	defaultCallbackDrainTimeout = 2 * time.Second
 )
 
@@ -60,13 +58,8 @@ type Client struct {
 	boot                   bootSnapshot
 	hooks                  hookState
 
-	// callbackWG tracks in-flight OnShutdown / OnConfigChanged
-	// goroutines. Pre-P22 P2 bootstrap-S1 fireShutdown /
-	// fireConfigChanged launched the application callback as a bare
-	// goroutine with no owner, so those callbacks could outlive the
-	// bootstrap client and Close() had no join/drain point. The
-	// WaitGroup plus drainCallbacks() give Close() a bounded,
-	// observable drain (plan §499 / §505).
+	// callbackWG 跟踪 OnShutdown/OnConfigChanged 回调 goroutine。
+	// 生命周期回调必须由 Client 拥有；Close() 通过 drainCallbacks 做有界等待，避免回调泄漏到 client 关闭之后。
 	callbackWG sync.WaitGroup
 }
 
@@ -91,11 +84,11 @@ type Config struct {
 	OnConfigChanged      func(mcp.ConfigChangedNotify)
 	OnLSPReleaseScope    func(context.Context, mcp.LSPReleaseScopeRequest) (mcp.LSPReleaseScopeResult, error)
 	Hooks                HookConfig
-	OnToolsList          func(context.Context) (any, error)                             // P15: tools/list callback
-	OnToolsCall          func(ctx context.Context, params json.RawMessage) (any, error) // P15: tools/call callback
+	OnToolsList          func(context.Context) (any, error)                             // tools/list 回调入口
+	OnToolsCall          func(ctx context.Context, params json.RawMessage) (any, error) // tools/call 回调入口
 }
 
-// New 创建MCP 服务。
+// New 创建控制平面 Client，并在构造阶段完成配置归一化。
 func New(cfg Config) *Client {
 	cfg, boot := normalizeConfig(cfg)
 	return &Client{
@@ -109,7 +102,7 @@ func New(cfg Config) *Client {
 	}
 }
 
-// Start 启动MCP 服务流程。
+// Start 连接控制平面、完成 register，并启动心跳和离线报告 flush 流程。
 func (c *Client) Start(ctx context.Context) error {
 	if strings.TrimSpace(c.cfg.RPCAddr) == "" {
 		pkglogger.Warn("bootstrap start skipped: GO_AGENT_CTL_RPC_ADDR missing",
@@ -158,7 +151,7 @@ func (c *Client) Start(ctx context.Context) error {
 	return nil
 }
 
-// Context 处理上下文。
+// Context 优先通过控制平面读取上下文；传输断开时退回 bootSnapshot 快照。
 func (c *Client) Context(ctx context.Context, scope string, keys []string) (*mcp.ContextResponse, error) {
 	conn, degraded := c.currentConn()
 	if conn == nil || degraded {
@@ -186,7 +179,7 @@ func (c *Client) Context(ctx context.Context, scope string, keys []string) (*mcp
 	return normalizeContextResponse(scope, &resp), nil
 }
 
-// EmitEvent 处理emit事件。
+// EmitEvent 向控制平面发送生命周期事件；传输断开时写本地审计 fallback。
 func (c *Client) EmitEvent(ctx context.Context, eventType string, payload any) error {
 	raw, err := marshalRaw(payload)
 	if err != nil {
@@ -218,7 +211,7 @@ func (c *Client) EmitEvent(ctx context.Context, eventType string, payload any) e
 	return nil
 }
 
-// RequestApproval 处理请求审批。
+// RequestApproval 发送审批请求，live RPC 不可用时返回明确的 approval unavailable 错误。
 func (c *Client) RequestApproval(ctx context.Context, req mcp.ApprovalRequest) (*mcp.ApprovalResponse, error) {
 	conn, degraded := c.currentConn()
 	if conn == nil || degraded {
@@ -238,7 +231,7 @@ func (c *Client) RequestApproval(ctx context.Context, req mcp.ApprovalRequest) (
 	return &resp, nil
 }
 
-// Report 报告MCP 服务。
+// Report 发送运行报告；传输断开时进入有界离线队列，队列满则返回错误。
 func (c *Client) Report(ctx context.Context, req mcp.ReportRequest) (*mcp.ReportResponse, error) {
 	normalized := c.normalizeReportRequest(req)
 	conn, degraded := c.currentConn()
@@ -313,11 +306,8 @@ func (c *Client) Close() error {
 	return nil
 }
 
-// drainCallbacks waits up to timeout for every in-flight OnShutdown /
-// OnConfigChanged goroutine launched via spawnCallback to return. A
-// non-nil error indicates some callback outlived the drain budget;
-// the caller still proceeds so a stuck application handler cannot
-// pin bootstrap shutdown. P22 P2 bootstrap-S1 (plan §499 / §505).
+// drainCallbacks 等待由 spawnCallback 启动的 OnShutdown/OnConfigChanged goroutine 退出。
+// 超时返回错误但调用方仍继续关闭流程，避免应用回调卡住 bootstrap shutdown。
 func (c *Client) drainCallbacks(timeout time.Duration) error {
 	done := make(chan struct{})
 	go func() {

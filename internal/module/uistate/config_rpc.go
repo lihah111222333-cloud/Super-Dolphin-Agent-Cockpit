@@ -17,14 +17,17 @@ import (
 )
 
 const (
+	// config RPC 偏好键和打包应用 home 解析参数。
 	lspPromptHintOverrideKey = "config/lspPromptHint.override"
 	packagedAppHomeEnvKey    = "SUPER_DOLPHIN_HOME"
-	// lspPromptHintDefaultPath is the shared-file source for the default injected prompt hint.
+	// lspPromptHintDefaultPath 指向默认注入提示的 shared-file 来源。
 	lspPromptHintDefaultPath = "prompts/lsp-mandatory-prefix.md"
 )
 
+// errConfigPreferenceStoreRequired 表示写配置时缺少偏好存储依赖。
 var errConfigPreferenceStoreRequired = errors.New("uistate: ui preference store is not configured")
 
+// runtimeConfigResult 是 config/read 返回给前端的运行时配置视图。
 type runtimeConfigResult struct {
 	Model                 string                   `json:"model"`
 	ModelProvider         any                      `json:"modelProvider"`
@@ -38,6 +41,7 @@ type runtimeConfigResult struct {
 	ToolRouting           runtimeConfigToolRouting `json:"toolRouting"`
 }
 
+// runtimeConfigToolRouting 描述前端可读的工具路由配置。
 type runtimeConfigToolRouting struct {
 	Mode                string  `json:"mode"`
 	RouterModel         string  `json:"routerModel"`
@@ -48,11 +52,13 @@ type runtimeConfigToolRouting struct {
 	TimeoutSec          int     `json:"timeoutSec"`
 }
 
+// lspPromptHintWriteParams 是 LSP prompt hint 写接口入参。
 type lspPromptHintWriteParams struct {
 	Hint string `json:"hint,omitempty"`
 	Cwd  string `json:"cwd,omitempty"`
 }
 
+// lspPromptHintResult 返回默认 hint、覆盖 hint 和最终生效 hint。
 type lspPromptHintResult struct {
 	Hint         string `json:"hint"`
 	DefaultHint  string `json:"defaultHint"`
@@ -60,7 +66,7 @@ type lspPromptHintResult struct {
 	UsingDefault bool   `json:"usingDefault"`
 }
 
-// NewConfigHandlers 创建配置处理器。
+// NewConfigHandlers 注册配置读取、LSP prompt hint 和 builtin tools 配置 RPC。
 func NewConfigHandlers(
 	cfg *contract.Config,
 	prefs uipreference.Store,
@@ -89,7 +95,7 @@ func NewConfigHandlers(
 	}}
 }
 
-// readRuntimeConfig 读取运行时配置。
+// readRuntimeConfig 读取默认配置并叠加当前 active thread 的运行时覆盖。
 func readRuntimeConfig(
 	ctx context.Context,
 	cfg *contract.Config,
@@ -120,6 +126,7 @@ func readRuntimeConfig(
 	return result
 }
 
+// applyRuntimeConfigOverrides 将线程 runtime config 的字符串和对象字段覆盖到结果上。
 func applyRuntimeConfigOverrides(result *runtimeConfigResult, cfg map[string]any) {
 	if result == nil || len(cfg) == 0 {
 		return
@@ -128,7 +135,7 @@ func applyRuntimeConfigOverrides(result *runtimeConfigResult, cfg map[string]any
 	applyRuntimeObjectOverrides(result, cfg)
 }
 
-// applyRuntimeStringOverrides 应用运行时stringoverrides。
+// applyRuntimeStringOverrides 应用字符串类 runtime override，空值不会覆盖默认配置。
 func applyRuntimeStringOverrides(result *runtimeConfigResult, cfg map[string]any) {
 	if value := runtimeConfigString(cfg, "modelProvider"); value != "" {
 		result.ModelProvider = value
@@ -147,6 +154,7 @@ func applyRuntimeStringOverrides(result *runtimeConfigResult, cfg map[string]any
 	}
 }
 
+// applyRuntimeObjectOverrides 应用对象类 runtime override，例如 sandbox 和 toolRouting。
 func applyRuntimeObjectOverrides(result *runtimeConfigResult, cfg map[string]any) {
 	if value, ok := cfg["sandbox"]; ok && value != nil {
 		result.Sandbox = value
@@ -156,6 +164,7 @@ func applyRuntimeObjectOverrides(result *runtimeConfigResult, cfg map[string]any
 	}
 }
 
+// defaultRuntimeConfig 从静态配置生成前端默认运行时视图。
 func defaultRuntimeConfig(cfg *contract.Config) runtimeConfigResult {
 	return runtimeConfigResult{
 		Model:                 "gpt-5.5",
@@ -179,6 +188,7 @@ func defaultRuntimeConfig(cfg *contract.Config) runtimeConfigResult {
 	}
 }
 
+// readActiveThreadID 从 UI preference 中读取当前 cwd 的 active thread。
 func readActiveThreadID(ctx context.Context, prefs uipreference.Store, cwd string) string {
 	if prefs == nil {
 		return ""
@@ -198,6 +208,7 @@ func readActiveThreadID(ctx context.Context, prefs uipreference.Store, cwd strin
 	return strings.TrimSpace(value)
 }
 
+// firstRuntimeConfigValue 返回第一个非空运行时配置字符串。
 func firstRuntimeConfigValue(values ...string) string {
 	for _, value := range values {
 		if value = strings.TrimSpace(value); value != "" {
@@ -207,6 +218,7 @@ func firstRuntimeConfigValue(values ...string) string {
 	return ""
 }
 
+// runtimeConfigString 从动态 map 中按候选 key 读取非空字符串。
 func runtimeConfigString(cfg map[string]any, keys ...string) string {
 	for _, key := range keys {
 		value, ok := cfg[key].(string)
@@ -220,7 +232,7 @@ func runtimeConfigString(cfg map[string]any, keys ...string) string {
 	return ""
 }
 
-// runtimeToolRouting 处理运行时工具routing。
+// runtimeToolRouting 解析运行时工具路由配置，只有至少一个字段生效时才返回 ok=true。
 func runtimeToolRouting(base runtimeConfigToolRouting, raw any) (runtimeConfigToolRouting, bool) {
 	values, ok := raw.(map[string]any)
 	if !ok {
@@ -262,6 +274,7 @@ func runtimeToolRouting(base runtimeConfigToolRouting, raw any) (runtimeConfigTo
 	return out, true
 }
 
+// runtimeConfigFloat 从动态配置读取数值，兼容 JSON 默认的 float64。
 func runtimeConfigFloat(cfg map[string]any, key string) float64 {
 	switch value := cfg[key].(type) {
 	case float64:
@@ -277,6 +290,7 @@ func runtimeConfigFloat(cfg map[string]any, key string) float64 {
 	}
 }
 
+// runtimeConfigInt 从动态配置读取整数，兼容 JSON float64。
 func runtimeConfigInt(cfg map[string]any, key string) int {
 	switch value := cfg[key].(type) {
 	case int:
@@ -290,6 +304,7 @@ func runtimeConfigInt(cfg map[string]any, key string) int {
 	}
 }
 
+// configCWD 返回前端可用工作目录，打包资源目录会映射到用户 home 下的应用目录。
 func configCWD(cfg *contract.Config) string {
 	if cfg == nil {
 		return ""
@@ -302,11 +317,11 @@ func configCWD(cfg *contract.Config) string {
 	if isPackagedResourceRoot(clean) {
 		return packagedAppHomeCWD()
 	}
-	// Intentional: frontend needs cwd for project context and scope-aware UI state.
+	// 前端需要 cwd 来展示项目上下文并读取作用域化 UI 状态，不能回落到资源目录。
 	return clean
 }
 
-// packagedAppHomeCWD 处理packagedapphome工作目录。
+// packagedAppHomeCWD 解析打包应用的默认工作目录，环境变量非法时返回空值。
 func packagedAppHomeCWD() string {
 	value := strings.TrimSpace(os.Getenv(packagedAppHomeEnvKey))
 	if value == "" {
@@ -323,11 +338,13 @@ func packagedAppHomeCWD() string {
 	return clean
 }
 
+// isPackagedResourceRoot 判断路径是否是只读打包资源根目录。
 func isPackagedResourceRoot(root string) bool {
 	info, err := os.Stat(filepath.Join(root, "runtime-manifest.json"))
 	return err == nil && !info.IsDir()
 }
 
+// readLSPPromptHint 合并 shared-file 默认 hint 和用户覆盖值。
 func readLSPPromptHint(
 	ctx context.Context,
 	prefs uipreference.Store,
@@ -345,6 +362,7 @@ func readLSPPromptHint(
 	return buildLSPPromptHintResult(defaultHint, overrideHint), nil
 }
 
+// writeLSPPromptHint 写入当前 cwd 的 LSP prompt hint 覆盖，并返回新的生效视图。
 func writeLSPPromptHint(
 	ctx context.Context,
 	prefs uipreference.Store,
@@ -368,6 +386,7 @@ func writeLSPPromptHint(
 	return buildLSPPromptHintResult(defaultHint, overrideHint), nil
 }
 
+// readDefaultLSPPromptHint 从 shared file store 读取内置 LSP 必读提示，缺文件时返回空。
 func readDefaultLSPPromptHint(ctx context.Context, sharedFiles sharedfilestore.Reader) (string, error) {
 	if sharedFiles == nil {
 		return "", nil
@@ -386,7 +405,7 @@ func readDefaultLSPPromptHint(ctx context.Context, sharedFiles sharedfilestore.R
 	}
 }
 
-// readLSPPromptOverride 读取LSPpromptoverride。
+// readLSPPromptOverride 读取当前 cwd 的 LSP prompt hint 覆盖值，非字符串会转成文本。
 func readLSPPromptOverride(ctx context.Context, prefs uipreference.Store, cwd string) (string, error) {
 	if prefs == nil {
 		return "", nil
@@ -409,6 +428,7 @@ func readLSPPromptOverride(ctx context.Context, prefs uipreference.Store, cwd st
 	}
 }
 
+// buildLSPPromptHintResult 根据覆盖值是否为空决定最终使用默认 hint 还是用户 hint。
 func buildLSPPromptHintResult(defaultHint, overrideHint string) *lspPromptHintResult {
 	usingDefault := strings.TrimSpace(overrideHint) == ""
 	hint := overrideHint

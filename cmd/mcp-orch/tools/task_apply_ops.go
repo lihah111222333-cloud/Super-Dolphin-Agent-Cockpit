@@ -10,9 +10,12 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 )
 
+// applyOpsActionEnum 是扁平 action 入口允许的操作集合。
+// schema 和 handler 共用这份枚举，避免工具描述允许但运行时拒绝的漂移。
 var applyOpsActionEnum = []string{"update_dag", "add_node", "update_node", "remove_node", "apply_ops_raw"}
 
-// HandleApplyOps 处理应用ops。
+// HandleApplyOps 处理 DAG 模板 ops 写入工具调用。
+// 输入会先统一转成 ApplyOpsRequest，raw ops 与扁平 action 混用时立即报错。
 func HandleApplyOps(svc contract.OrchestrationService) ToolHandler {
 	return makeHandler(svc, "orchestration service", func(ctx context.Context, in ApplyOpsInput) (any, error) {
 		req, err := applyOpsRequestFromInput(in)
@@ -23,6 +26,8 @@ func HandleApplyOps(svc contract.OrchestrationService) ToolHandler {
 	})
 }
 
+// applyOpsRequestFromInput 解析 DAG 定位符并构造服务层写入请求。
+// base_version 原样透传给服务层做 OCC，避免 handler 自行判断并发版本。
 func applyOpsRequestFromInput(in ApplyOpsInput) (contract.ApplyOpsRequest, error) {
 	dagKey, err := resolveDAGKeyInput(in.DagKey, in.Pos)
 	if err != nil {
@@ -39,7 +44,8 @@ func applyOpsRequestFromInput(in ApplyOpsInput) (contract.ApplyOpsRequest, error
 	}, nil
 }
 
-// applyOpsPayloadFromInput 从input应用ops载荷。
+// applyOpsPayloadFromInput 将 raw ops 或扁平 action 统一编码为 nodeexec.Ops JSON。
+// raw ops 与扁平字段不能同时出现，防止调用方以为局部字段会覆盖 raw payload。
 func applyOpsPayloadFromInput(in ApplyOpsInput) (json.RawMessage, error) {
 	action := strings.TrimSpace(in.Action)
 	if action == "" {
@@ -71,6 +77,8 @@ func applyOpsPayloadFromInput(in ApplyOpsInput) (json.RawMessage, error) {
 	return validatedApplyOpsPayload(raw)
 }
 
+// validatedApplyOpsPayload 校验即将落库的 ops payload。
+// 当前重点拦截保留能力，后续新增校验应放在这里保持所有入口一致。
 func validatedApplyOpsPayload(raw json.RawMessage) (json.RawMessage, error) {
 	if err := rejectReservedApplyOpsCapabilities(raw); err != nil {
 		return nil, err
@@ -78,6 +86,8 @@ func validatedApplyOpsPayload(raw json.RawMessage) (json.RawMessage, error) {
 	return raw, nil
 }
 
+// rejectReservedApplyOpsCapabilities 拒绝尚未闭环运行时能力的节点类型。
+// 这里直接解码 typed ops，确保 raw 批量入口也不能绕过 create/update 的限制。
 func rejectReservedApplyOpsCapabilities(raw json.RawMessage) error {
 	var ops nodeexec.Ops
 	if err := json.Unmarshal(raw, &ops); err != nil {
@@ -95,7 +105,8 @@ func rejectReservedApplyOpsCapabilities(raw json.RawMessage) error {
 	return nil
 }
 
-// flatApplyOpFromInput 从input处理flat应用op。
+// flatApplyOpFromInput 把单个扁平 action 转成 nodeexec 可识别的 op 对象。
+// 每个分支只填充对应 action 的必要字段，未知 action 保持 fail-fast。
 func flatApplyOpFromInput(action string, in ApplyOpsInput) (map[string]any, error) {
 	switch action {
 	case "update_dag":
@@ -131,7 +142,8 @@ func flatApplyOpFromInput(action string, in ApplyOpsInput) (map[string]any, erro
 	}
 }
 
-// flatAddNodeFromInput 从input处理flatadd节点。
+// flatAddNodeFromInput 构造 add_node 的最小节点对象。
+// config 和 depends_on 只在显式传入时写入，避免无意覆盖后端默认行为。
 func flatAddNodeFromInput(in ApplyOpsInput) (map[string]any, error) {
 	nodeKey, err := requireTrimmed(in.NodeKey, "node_key")
 	if err != nil {
@@ -162,7 +174,8 @@ func flatAddNodeFromInput(in ApplyOpsInput) (map[string]any, error) {
 	return node, nil
 }
 
-// flatDAGPatchFromInput 从input处理flatDAG补丁。
+// flatDAGPatchFromInput 生成 update_dag patch。
+// raw patch 与扁平字段互斥，防止同一字段出现两个来源时产生隐式优先级。
 func flatDAGPatchFromInput(in ApplyOpsInput) (map[string]any, error) {
 	if hasExplicitRawJSON(in.Patch) {
 		if hasFlatDAGPatchFields(in) {
@@ -192,7 +205,8 @@ func flatDAGPatchFromInput(in ApplyOpsInput) (map[string]any, error) {
 	return patch, nil
 }
 
-// flatNodePatchFromInput 从input处理flat节点补丁。
+// flatNodePatchFromInput 生成 update_node patch。
+// 空 patch 会被拒绝，避免产生“成功但没有实际改动”的写操作。
 func flatNodePatchFromInput(in ApplyOpsInput) (map[string]any, error) {
 	if hasExplicitRawJSON(in.Patch) {
 		if hasFlatNodePatchFields(in) {
@@ -219,6 +233,8 @@ func flatNodePatchFromInput(in ApplyOpsInput) (map[string]any, error) {
 	return patch, nil
 }
 
+// rawObjectMap 将高级 raw patch 解为对象并保留字段名上下文。
+// 非对象 JSON 会立即报错，因为 ops patch 只能表达对象级变更。
 func rawObjectMap(raw json.RawMessage, field string) (map[string]any, error) {
 	var obj map[string]any
 	if err := json.Unmarshal(raw, &obj); err != nil {
@@ -230,6 +246,8 @@ func rawObjectMap(raw json.RawMessage, field string) (map[string]any, error) {
 	return obj, nil
 }
 
+// hasFlatDAGPatchFields 判断 update_dag 是否使用了任一扁平字段。
+// 该结果只用于和 raw patch 互斥检查，避免两个来源争夺同一 patch 语义。
 func hasFlatDAGPatchFields(in ApplyOpsInput) bool {
 	return strings.TrimSpace(in.Title) != "" ||
 		strings.TrimSpace(in.Description) != "" ||
@@ -238,6 +256,8 @@ func hasFlatDAGPatchFields(in ApplyOpsInput) bool {
 		strings.TrimSpace(in.OwnerID) != ""
 }
 
+// hasFlatNodePatchFields 判断 update_node 是否使用了任一扁平字段。
+// depends_on 的空切片也算显式输入，因为它表达“清空依赖”而不是未传字段。
 func hasFlatNodePatchFields(in ApplyOpsInput) bool {
 	return strings.TrimSpace(in.Title) != "" ||
 		strings.TrimSpace(in.AssignedTo) != "" ||
@@ -245,6 +265,8 @@ func hasFlatNodePatchFields(in ApplyOpsInput) bool {
 		hasExplicitRawJSON(in.Config)
 }
 
+// trimStringSlicePreserveEmpty 清理字符串切片但保留显式空切片。
+// nil 表示未传字段，空切片表示调用方明确要清空 depends_on。
 func trimStringSlicePreserveEmpty(values []string) []string {
 	if values == nil {
 		return nil

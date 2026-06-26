@@ -13,14 +13,9 @@ import (
 	cronstore "github.com/anthropic-ai/super-agent-v3/internal/store/cron"
 )
 
-// CompleteTurn applies a terminal turn event to the cron run that is currently
-// tracking turnID. RunTick only moves a submitted turn into running; this
-// method is invoked by the BusModule terminal-event subscriber once the turn
-// actually completes or fails. Missing/non-running rows are surfaced so crash
-// recovery races cannot silently drop terminal state.
-//
-// 这是 turn 终态写回 cron run 的入口。找不到 running run 要报错，
-// 方便发现 recovery 或事件顺序问题。
+// CompleteTurn 将 turn 终态事件写回当前追踪该 turnID 的 cron run。
+// RunTick 只把已提交 turn 推到 running；终态由 BusModule 订阅事件后进入这里。
+// 找不到 running run 会返回错误，方便暴露恢复流程或事件顺序问题。
 func (s *Scheduler) CompleteTurn(ctx context.Context, turnID string, success bool, terminalErr string) error {
 	turnID = strings.TrimSpace(turnID)
 	if turnID == "" {
@@ -74,8 +69,7 @@ func (s *Scheduler) markFinished(ctx context.Context, job cronstore.Job, run cro
 	}, "running->finished", job.ID, run.ID, cronstore.StatusFinished, turnID, "", scheduledAt)
 	nextRunAt, err := ComputeNextRunAt(job.ScheduleExpr, job.Timezone, now)
 	if err != nil || nextRunAt.IsZero() {
-		// Preserve the current NextRunAt so a parse regression doesn't
-		// wedge the job into "never schedules again".
+		// 表达式解析异常时保留旧 next_run_at，避免一次解析回归把 job 永久停住。
 		nextRunAt = job.NextRunAt
 	}
 	return s.store.MarkFinished(ctx, cronstore.MarkFinishedParams{
@@ -88,10 +82,8 @@ func (s *Scheduler) markFinished(ctx context.Context, job cronstore.Job, run cro
 	})
 }
 
-// nextRetry returns the timestamp of the next retry attempt, respecting
-// the P1b plan's "retry 必须被下一次 schedule 上界截断" rule. Returns
-// time.Time{} when retries are exhausted or the next retry would cross
-// into the next schedule.
+// nextRetry 计算下一次重试时间。
+// 重试次数耗尽或重试会跨过下一次正常 schedule 时返回零值，交给正常 tick 接管。
 func (s *Scheduler) nextRetry(job cronstore.Job, now time.Time) time.Time {
 	if job.MaxAttempts <= 0 || job.FailureCount+1 >= job.MaxAttempts {
 		return time.Time{}
@@ -103,13 +95,8 @@ func (s *Scheduler) nextRetry(job cronstore.Job, now time.Time) time.Time {
 	return NextRetryAt(s.cfg.Backoff, now, nextRunAt, job.FailureCount+1)
 }
 
-// RenewLeases is the entry point for the lease actor. It pulls the jobs
-// currently claimed by this scheduler and bumps their lease expiration
-// by LeaseTTL. Any renew failure (token mismatch, DB hiccup) is logged
-// and otherwise ignored — a dropped lease simply means another
-// scheduler gets to claim the job next tick, which is the intended
-// recovery path.
-// RenewLeases 续租仍由当前实例持有的 cron run。
+// RenewLeases 是 lease actor 的续租入口。
+// 它只延长当前实例 claim 的 job；单个续租失败只记录日志，后续 tick/recovery 会接手过期 claim。
 func (s *Scheduler) RenewLeases(ctx context.Context) error {
 	jobs, err := s.store.ListJobsClaimedBy(ctx, s.cfg.ClaimedBy)
 	if err != nil {
@@ -133,12 +120,9 @@ func (s *Scheduler) RenewLeases(ctx context.Context) error {
 	return nil
 }
 
-// RecoverDanglingRuns re-attaches observation for unresolved runs after a
-// process restart. It never calls StartTurn; submitting-window recovery
-// only probes the provider dedupe index and then observes an existing turn.
-//
-// 恢复只接管 submitting/submitted/running。没有 turn_id 的 submitting
-// 只能先 Lookup，不能重新提交。
+// RecoverDanglingRuns 在进程重启后重新接管未解决的 cron run。
+// 恢复流程绝不调用 StartTurn；submitting 窗口只查 provider 去重索引再观察既有 turn。
+// 只处理 submitting/submitted/running，避免重启后对同一 dedupeKey 重复提交。
 func (s *Scheduler) RecoverDanglingRuns(ctx context.Context) error {
 	runs, err := s.store.ListUnresolvedRuns(ctx)
 	if err != nil {
@@ -261,11 +245,8 @@ func (s *Scheduler) finalizeRecoveredObserveLost(ctx context.Context, job cronst
 	return s.store.MarkFailed(ctx, cronstore.MarkFailedParams{ID: job.ID, ClaimToken: job.ClaimToken, LastRunAt: run.ScheduledAt, LastTurnID: turnID, LastStatus: cronstore.StatusObserveLost, LastErrorAt: now, LastError: err.Error(), Now: now})
 }
 
-// ExtendClaimForTurnProgress extends the active job lease when the turn bus
-// reports progress, keeping long-running turns from losing their claim.
-//
-// 这里只延长当前 scheduler 持有且 active_turn_id 匹配的 job。
-// 抢不到就交给后续 tick/recovery。
+// ExtendClaimForTurnProgress 在 turn 进度事件到达时延长 active job 的 claim。
+// 这里只续租当前 scheduler 持有且 active_turn_id 匹配的 job；找不到匹配项时交给后续 tick/recovery。
 func (s *Scheduler) ExtendClaimForTurnProgress(ctx context.Context, turnID string) error {
 	if strings.TrimSpace(turnID) == "" {
 		return nil
@@ -284,7 +265,8 @@ func (s *Scheduler) ExtendClaimForTurnProgress(ctx context.Context, turnID strin
 	return nil
 }
 
-// decodeSkillList 从 JSONB 字节解码技能名称列表，解析失败或为空时返回 nil。
+// decodeSkillList 从 run 快照中的 JSONB 字节解码技能名称列表。
+// 它只服务恢复提交请求的字段投影；解析失败返回 nil，后续 StartTurn/Observe 边界仍决定是否失败。
 func decodeSkillList(raw json.RawMessage) []string {
 	if len(raw) == 0 {
 		return nil

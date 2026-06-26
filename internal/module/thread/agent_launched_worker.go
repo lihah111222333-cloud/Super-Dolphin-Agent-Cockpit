@@ -13,35 +13,18 @@ import (
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
-// agentLaunchedDrainGrace bounds the shutdown wait for
-// agentLaunchedWorker so registerSubscriptions.OnStop can't hang if the
-// binding store write or prompt-assembly invalidate stalls on I/O during
-// drain. Matches nestedIngestDrainGrace so subscription shutdown stays bounded.
+// agentLaunchedDrainGrace 限制 agent 启动事件 worker 的停止等待时间。
+// 绑定写入或 prompt 缓存失效卡在 I/O 上时，订阅 OnStop 也不能无限阻塞。
 const agentLaunchedDrainGrace = 10 * time.Second
 
-// agentLaunchedProcessor is the narrow contract over *service the worker
-// needs. processAgentLaunched carries the full pre-P22 body of
-// onAgentLaunched (resolveBindingForEvent + syncAgentLaunchCWD +
-// UpdateSessionUUID + invalidatePromptAssembly); the worker just owns
-// the goroutine and coalesces per-agent bursts.
+// agentLaunchedProcessor 是 worker 对 thread service 的最小依赖。
+// worker 只负责串行化和合并事件，真正的绑定解析、CWD 同步和缓存失效由 service 执行。
 type agentLaunchedProcessor interface {
 	processAgentLaunched(ev agentdto.AgentLaunched)
 }
 
-// agentLaunchedWorker is the P22 P2 (thread S4) single owner of the
-// onAgentLaunched -> binding store + prompt invalidation slow-path.
-//
-// Pre-P22 shape: the bus callback synchronously resolved the binding,
-// updated the session UUID, synced the CWD and invalidated the
-// prompt-assembly cache — all on the dispatcher's callback goroutine.
-// Multiple events for the same agent each redid the same DB reads /
-// writes.
-//
-// S4 shape: the callback only calls Enqueue. A single tracked worker
-// goroutine drains a pending map keyed by agentID (or threadID when
-// agentID is absent on the event); repeated events for the same key
-// coalesce to the latest payload. Stop drains pending bounded by ctx so
-// subscription OnStop stays bounded even when the DB is slow.
+// agentLaunchedWorker 串行处理 AgentLaunched 事件中的慢路径副作用。
+// bus 回调只入队；worker 按 agentID 或回退 threadID 合并突发事件，并在 Stop 时按 ctx 有界 drain。
 type agentLaunchedWorker struct {
 	processor agentLaunchedProcessor
 	logger    *slog.Logger
@@ -64,10 +47,8 @@ func newAgentLaunchedWorker(processor agentLaunchedProcessor, logger *slog.Logge
 	return &agentLaunchedWorker{processor: processor, logger: logger, pending: map[string]agentdto.AgentLaunched{}, wake: make(chan struct{}, 1), stopCh: make(chan struct{}), doneCh: make(chan struct{})}
 }
 
-// Start spawns the worker goroutine. Idempotent. When processor is nil
-// the worker short-circuits: doneCh closes so Stop is immediate and
-// Enqueue remains a cheap no-op.
-// Start 启动线程流程。
+// Start 启动后台 worker goroutine。
+// processor 为空时直接关闭 doneCh，使 Stop 立即返回且 Enqueue 仍是低成本 no-op。
 func (w *agentLaunchedWorker) Start() {
 	if w == nil {
 		return
@@ -88,12 +69,8 @@ func (w *agentLaunchedWorker) Start() {
 	})
 }
 
-// Enqueue records an AgentLaunched event for deferred processing. Safe
-// to call from bus callbacks: O(1) map write + non-blocking wake, no DB
-// I/O, no invalidation on the callback goroutine. The key is the
-// event's agentID; callers pass threadID as a fallback when agentID is
-// empty (Claude system:init omits agent_id on first turn).
-// Enqueue 把项目追加到队尾。
+// Enqueue 记录等待异步处理的 AgentLaunched 事件。
+// bus 回调里只做 O(1) map 写入和非阻塞唤醒；key 为空时丢弃，停止后到达的事件也丢弃。
 func (w *agentLaunchedWorker) Enqueue(key string, ev agentdto.AgentLaunched) {
 	if w == nil {
 		return
@@ -120,12 +97,8 @@ func (w *agentLaunchedWorker) Enqueue(key string, ev agentdto.AgentLaunched) {
 	}
 }
 
-// Stop closes the gate, drains pending, and waits bounded by ctx for
-// the worker goroutine to exit. Idempotent. Enqueue after Stop is
-// silently dropped (gate closed); this is the only drop path and is
-// necessary because post-Stop delivery would race with cancelled
-// subscriptions.
-// Stop 停止线程流程。
+// Stop 关闭入队入口并等待 worker 有界退出。
+// 关闭后到达的事件会被静默丢弃，这是避免已取消订阅继续写绑定的唯一丢弃路径。
 func (w *agentLaunchedWorker) Stop(ctx context.Context) error {
 	if w == nil {
 		return nil
@@ -152,15 +125,13 @@ func (w *agentLaunchedWorker) Stop(ctx context.Context) error {
 	return firstErr
 }
 
-// EnqueuedTotal / CoalescedTotal / ProcessedTotal expose observability
-// counters for tests and future metric hookup (P22 observability lane).
-// EnqueuedTotal 处理enqueuedtotal。
+// EnqueuedTotal 返回已成功入队的事件数，供测试和观测读取。
 func (w *agentLaunchedWorker) EnqueuedTotal() int64 { return w.enqueuedTotal.Load() }
 
-// CoalescedTotal 处理coalescedtotal。
+// CoalescedTotal 返回按同一 key 合并掉的重复事件数。
 func (w *agentLaunchedWorker) CoalescedTotal() int64 { return w.coalescedTotal.Load() }
 
-// ProcessedTotal 处理processedtotal。
+// ProcessedTotal 返回已交给 service 处理的事件数。
 func (w *agentLaunchedWorker) ProcessedTotal() int64 { return w.processedTotal.Load() }
 
 func (w *agentLaunchedWorker) runWorker() {
@@ -176,10 +147,8 @@ func (w *agentLaunchedWorker) runWorker() {
 	}
 }
 
-// drainPending pulls the current pending set out under the lock, then
-// invokes processAgentLaunched for each entry with the lock released.
-// processAgentLaunched already handles its own errors (warn-log + skip);
-// the worker only has to count.
+// drainPending 取出当前待处理集合并在锁外调用 service。
+// processAgentLaunched 自行记录错误并跳过失败事件，worker 只维护处理计数。
 func (w *agentLaunchedWorker) drainPending() {
 	for {
 		w.mu.Lock()

@@ -22,9 +22,7 @@ type fakeTaskDAGDB struct {
 	nodes   map[string]sqlc.TaskDagNode
 	ops     []string
 	locks   map[string]bool
-	// F6.2: runs 鐢ㄤ簬妯℃嫙 task_dag_runs 涓€琛岋紝閿槸 run_key锛沠inalize SQL 鎷︽埅浼氳鍐欏畠銆?
-	// F6.2: runs simulates task_dag_runs rows keyed by run_key so the finalize
-	// SQL interceptor can mutate run.status when all nodes reach terminal.
+	// runs 模拟 task_dag_runs 表，按 run_key 存放行，finalize 分支会在所有节点终态后更新 run.status。
 	runs                  map[string]sqlc.TaskDagRun
 	beforeFailNonTerminal func(dagKey, nodeKey string)
 	wakeupSeq             int64
@@ -203,10 +201,7 @@ func (db *fakeTaskDAGDB) Exec(_ context.Context, sql string, args ...any) (pgcon
 	return db.execCommandLocked(sql, args...)
 }
 
-// promoteSingleNodePendingToReady 澶嶇幇 F6.3 PromoteSingleNodePendingToReady SQL
-// 鐨勮涔夛細浠呭綋 node 杩樺湪 pending 鏃舵墠鎺ㄨ繘鍒?ready锛屽苟杩斿洖鍙楀奖鍝嶈鏁般€?
-// promoteSingleNodePendingToReady mirrors the F6.3 SQL: only flip when the
-// node row is still in 'pending', otherwise return 0 affected rows.
+// Query 复刻 fake DB 里会返回多行的 SQL 分支；单节点推进只允许 pending -> ready，否则返回 0 行。
 func (db *fakeTaskDAGDB) Query(_ context.Context, sql string, args ...any) (pgx.Rows, error) {
 	db.mu.Lock()
 	defer db.mu.Unlock()
@@ -217,13 +212,8 @@ func (db *fakeTaskDAGDB) Query(_ context.Context, sql string, args ...any) (pgx.
 	return &stubTaskDAGRows{rows: rows}, nil
 }
 
-// finalizeRunIfAllNodesTerminal 澶嶇幇 F6.2 SQL 鐨勮涔夛細鍦ㄥ悓涓€涓?fake DB 涓婃壂
-// dag_key 涓嬭妭鐐圭姸鎬侊紝鎸変紭鍏堢骇 (failed > cancelled > succeeded) 鍐冲畾
-// final_status锛涜妭鐐硅繕鏈夐潪缁堟€佹垨 dag_key 涓嬫棤 running run 鏃惰繑鍥?0 琛屻€?
-//
-// finalizeRunIfAllNodesTerminal mirrors the F6.2 finalize SQL semantics inside
-// the fake DB. Empty result rows mean either some nodes are still non-terminal
-// or no 'running' run exists for dag_key.
+// QueryRow 复刻 fake DB 里只返回一行的 SQL 分支；finalize 会按 failed > cancelled > succeeded 决定最终 run 状态。
+// 若还有非终态节点或 dag_key 下没有 running run，则返回空结果以匹配 store 的软未命中路径。
 func (db *fakeTaskDAGDB) QueryRow(_ context.Context, sql string, args ...any) pgx.Row {
 	db.mu.Lock()
 	defer db.mu.Unlock()
@@ -231,13 +221,7 @@ func (db *fakeTaskDAGDB) QueryRow(_ context.Context, sql string, args ...any) pg
 	return stubTaskDAGRow{values: values, err: err}
 }
 
-// lookupNodesBySpawningThread mirrors the ADR-017 搂2.2 reverse-lookup query:
-// SELECT * FROM task_dag_nodes WHERE spawning_thread_id = $1 AND
-// spawning_thread_id IS NOT NULL ORDER BY updated_at DESC, id DESC.
-// updateRunningNodeStatus mirrors the W4-fence UpdateRunningTaskDagNodeStatus
-// SQL: only flip when current status is in ('pending','ready') (matches the
-// production fence post W4 fix). Returns pgx.ErrNoRows otherwise so the store
-// surfaces the same "not in fence" path as production.
+// updateTag 构造 UPDATE 结果行数；传入错误时保留原错误，便于 fake SQL 分支复刻生产未命中路径。
 func updateTag(count int64, err error) (pgconn.CommandTag, error) {
 	if err != nil {
 		return pgconn.CommandTag{}, err
@@ -279,11 +263,8 @@ func nilIfZero(value int64) *int64 {
 	return &value
 }
 
-// updateNodeSpawningThread mirrors the F1.5 CTE SQL: capture previous value
-// then UPDATE. The CTE row shape is intentionally narrower than TaskDagNode;
-// the order must match
-// task_dag_node_spawning_thread.sql.go's Scan call so stubTaskDAGRow can
-// assign cleanly.
+// updateNodeSpawningThread 复刻更新 spawning_thread_id 的 CTE：先捕获旧值，再更新可运行节点。
+// 返回列比完整 TaskDagNode 更窄，顺序必须保持与 sqlc Scan 调用一致。
 func (db *fakeTaskDAGDB) updateNodeSpawningThread(args ...any) ([]any, error) {
 	if len(args) != 4 {
 		return nil, fmt.Errorf("spawning thread args len = %d, want 4", len(args))
@@ -327,14 +308,8 @@ func (db *fakeTaskDAGDB) updateNodeSpawningThread(args ...any) ([]any, error) {
 	}, nil
 }
 
-// appendRunEvent mirrors the F1.5 AppendTaskDagRunEvent SQL: find the running
-// run for dag_key, concat events || $2::jsonb; apply the 50-event ring trim
-// (port-unification batch); return run_key. Returns pgx.ErrNoRows when no
-// running run matches (the store treats that as a soft miss).
-//
-// The fake parses+re-serialises the events array as a real JSON []any (rather
-// than the previous raw-bytes concat trick) so that the ring trim semantics
-// match production: when length > 50 keep only the last 50 entries.
+// appendRunEvent 复刻运行中 run 的事件追加逻辑，并应用 50 条环形裁剪。
+// fake 会解析并重新序列化 JSON 数组，避免字节拼接掩盖生产语义差异。
 func (db *fakeTaskDAGDB) appendRunEvent(args ...any) ([]any, error) {
 	if err := requireFakeTaskDAGArgs(args, 3, "append event",
 		fakeTaskDAGTypedArg[string](0, "dag key"),

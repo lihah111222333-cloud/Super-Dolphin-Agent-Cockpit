@@ -5,8 +5,8 @@ import (
 	"time"
 )
 
-// Memory is an in-memory Contract implementation suitable for tests and for
-// the default production wiring. It is safe for concurrent use.
+// Memory 是并发安全的内存 observation 实现，供默认 wiring 和测试替身使用。
+// 所有对外读取都会返回值或副本，避免调用方改写内部状态。
 type Memory struct {
 	mu          sync.RWMutex
 	localToProv map[string]string        // 本地 turnID → provider turnID 映射
@@ -20,8 +20,7 @@ type Memory struct {
 	timestamps  map[string]Timestamps    // 按 turnID 存储的开始/完成时间戳
 }
 
-// NewMemory returns an empty Memory contract.
-// NewMemory 创建记忆。
+// NewMemory 创建空的并发安全观察存储，用于默认 wiring 和测试替身。
 func NewMemory() *Memory {
 	return &Memory{
 		localToProv: map[string]string{},
@@ -70,7 +69,7 @@ func (m *Memory) ResolveProviderTurn(local string) (string, bool) {
 	return id, ok
 }
 
-// AttributeCall 处理attributecall。
+// AttributeCall 把 provider callID 归因到本地 turn，后续工具结束事件可借此补 turnID。
 func (m *Memory) AttributeCall(callID, localTurnID string) bool {
 	if callID == "" || localTurnID == "" {
 		return false
@@ -81,7 +80,7 @@ func (m *Memory) AttributeCall(callID, localTurnID string) bool {
 	return true
 }
 
-// LookupCall 处理lookupcall。
+// LookupCall 根据 provider callID 查询本地 turnID。
 func (m *Memory) LookupCall(callID string) (string, bool) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
@@ -89,7 +88,7 @@ func (m *Memory) LookupCall(callID string) (string, bool) {
 	return id, ok
 }
 
-// RecordTokens 记录令牌。
+// RecordTokens 合并指定 turn 的 token 快照，只用非零字段覆盖已有值。
 func (m *Memory) RecordTokens(turnID string, snap TokenSnapshot) TokenSnapshot {
 	if turnID == "" {
 		return snap
@@ -101,7 +100,7 @@ func (m *Memory) RecordTokens(turnID string, snap TokenSnapshot) TokenSnapshot {
 	return merged
 }
 
-// Tokens 处理令牌。
+// Tokens 返回指定 turn 的最新 token 快照。
 func (m *Memory) Tokens(turnID string) (TokenSnapshot, bool) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
@@ -109,7 +108,7 @@ func (m *Memory) Tokens(turnID string) (TokenSnapshot, bool) {
 	return t, ok
 }
 
-// mergeTokens 合并令牌。
+// mergeTokens 按增量快照语义合并 token 字段；未观测字段保留旧值。
 func mergeTokens(prev, next TokenSnapshot) TokenSnapshot {
 	out := prev
 	if next.Input != 0 {
@@ -133,7 +132,7 @@ func mergeTokens(prev, next TokenSnapshot) TokenSnapshot {
 	return out
 }
 
-// RecordTerminal 记录terminal。
+// RecordTerminal 写入 turn 的粘性终态；Interrupted/Aborted 一旦出现就不再被覆盖。
 func (m *Memory) RecordTerminal(turnID string, t Terminal) Terminal {
 	if turnID == "" {
 		return t
@@ -145,7 +144,7 @@ func (m *Memory) RecordTerminal(turnID string, t Terminal) Terminal {
 		m.terminals[turnID] = t
 		return t
 	}
-	// Locked kinds stay forever.
+	// 中断和放弃是粘性终态，不能被迟到的 completed/failed 覆盖。
 	if prev.Kind == TerminalInterrupted || prev.Kind == TerminalAborted {
 		return prev
 	}
@@ -163,7 +162,7 @@ func (m *Memory) RecordTerminal(turnID string, t Terminal) Terminal {
 	return prev
 }
 
-// Terminal 处理terminal。
+// Terminal 返回指定 turn 的粘性终止状态。
 func (m *Memory) Terminal(turnID string) (Terminal, bool) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
@@ -171,7 +170,7 @@ func (m *Memory) Terminal(turnID string) (Terminal, bool) {
 	return t, ok
 }
 
-// SetSkillsSelected 设置skillsselected。
+// SetSkillsSelected 保存 turn 已选 skill slug，并复制切片避免调用方后续修改影响内存状态。
 func (m *Memory) SetSkillsSelected(turnID string, slugs []string) {
 	if turnID == "" {
 		return
@@ -182,18 +181,17 @@ func (m *Memory) SetSkillsSelected(turnID string, slugs []string) {
 	m.mu.Unlock()
 }
 
-// SkillsSelected 处理skillsselected。
+// SkillsSelected 返回 turn 已选 skill slug 的副本，避免调用方修改内部切片。
 func (m *Memory) SkillsSelected(turnID string) []string {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	return append([]string(nil), m.skills[turnID]...)
 }
 
-// Dedupe 去重turn。
+// Dedupe 记录事件去重键并返回是否首次出现；空键按唯一事件处理，不折叠未知来源。
 func (m *Memory) Dedupe(key DedupeKey) bool {
 	if key == (DedupeKey{}) {
-		// No identifier — treat as unique. Observation must not silently
-		// collapse events that arrive without any dedupe key.
+		// 缺少去重标识时按唯一事件处理，避免把无 key 事件静默折叠到一起。
 		return true
 	}
 	m.mu.Lock()
@@ -205,7 +203,7 @@ func (m *Memory) Dedupe(key DedupeKey) bool {
 	return true
 }
 
-// IncrementToolCalls 累加工具calls。
+// IncrementToolCalls 递增工具调用计数并标记该计数已被观测。
 func (m *Memory) IncrementToolCalls(turnID string) int32 {
 	return m.bumpCounter(turnID, func(c *Counts) {
 		c.ToolCalls++
@@ -213,7 +211,7 @@ func (m *Memory) IncrementToolCalls(turnID string) int32 {
 	}).ToolCalls
 }
 
-// IncrementToolFailures 累加工具failures。
+// IncrementToolFailures 递增工具失败计数并标记该计数已被观测。
 func (m *Memory) IncrementToolFailures(turnID string) int32 {
 	return m.bumpCounter(turnID, func(c *Counts) {
 		c.ToolFailures++
@@ -221,7 +219,7 @@ func (m *Memory) IncrementToolFailures(turnID string) int32 {
 	}).ToolFailures
 }
 
-// IncrementApprovalRequests 累加审批请求。
+// IncrementApprovalRequests 递增审批请求计数并标记该计数已被观测。
 func (m *Memory) IncrementApprovalRequests(turnID string) int32 {
 	return m.bumpCounter(turnID, func(c *Counts) {
 		c.ApprovalRequests++
@@ -229,6 +227,7 @@ func (m *Memory) IncrementApprovalRequests(turnID string) int32 {
 	}).ApprovalRequests
 }
 
+// bumpCounter 在锁内更新指定 turn 的计数快照；空 turnID 只返回计算后的零值副本。
 func (m *Memory) bumpCounter(turnID string, apply func(*Counts)) Counts {
 	if turnID == "" {
 		var zero Counts
@@ -243,7 +242,7 @@ func (m *Memory) bumpCounter(turnID string, apply func(*Counts)) Counts {
 	return c
 }
 
-// Counts 处理counts。
+// Counts 返回工具调用、失败和审批请求的聚合计数。
 func (m *Memory) Counts(turnID string) (Counts, bool) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
@@ -251,7 +250,7 @@ func (m *Memory) Counts(turnID string) (Counts, bool) {
 	return c, ok
 }
 
-// RecordStartedAt 记录startedat。
+// RecordStartedAt 只记录第一次开始时间，避免迟到或重复事件改写原始启动点。
 func (m *Memory) RecordStartedAt(turnID string, at time.Time) {
 	if turnID == "" || at.IsZero() {
 		return
@@ -265,7 +264,7 @@ func (m *Memory) RecordStartedAt(turnID string, at time.Time) {
 	}
 }
 
-// RecordCompletedAt 记录completedat。
+// RecordCompletedAt 保存最新完成时间，允许迟到事件把终止时间推进但不回退。
 func (m *Memory) RecordCompletedAt(turnID string, at time.Time) {
 	if turnID == "" || at.IsZero() {
 		return
@@ -279,7 +278,7 @@ func (m *Memory) RecordCompletedAt(turnID string, at time.Time) {
 	}
 }
 
-// Timestamps 处理timestamps。
+// Timestamps 返回 turn 的开始和完成时间戳快照。
 func (m *Memory) Timestamps(turnID string) (Timestamps, bool) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()

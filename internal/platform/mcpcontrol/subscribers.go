@@ -9,8 +9,7 @@ import (
 	"github.com/kelindar/event"
 )
 
-// NewMCPConfigChangeSubscribers declares config-change bus subscriptions for BusModule.
-// NewMCPConfigChangeSubscribers 创建MCP配置changesubscribers。
+// NewMCPConfigChangeSubscribers 声明 MCP 配置变更总线订阅，并用 sync.Once 保证取消函数只执行一次。
 func NewMCPConfigChangeSubscribers(worker *configFanoutWorker, logger *pkglogger.Logger) platformbus.SubscriberResult {
 	return platformbus.SubscriberResult{
 		Spec: platformbus.SubscriberSpec{

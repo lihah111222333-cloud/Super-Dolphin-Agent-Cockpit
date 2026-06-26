@@ -30,7 +30,8 @@ type rolloutContentItem struct {
 	ImageURL string `json:"image_url,omitempty"`
 }
 
-// readLocalRollout 读取localrollout。
+// readLocalRollout 读取 Codex rollout JSONL 并返回最近的对话消息。
+// codexHome 用于定位多实例 sessions 目录，避免误读默认 ~/.codex 的同名 thread。
 func readLocalRollout(threadID, codexHome string, limit int) ([]Message, error) {
 	path, err := findRolloutPath(threadID, codexHome)
 	if err != nil {
@@ -55,7 +56,8 @@ func readLocalRollout(threadID, codexHome string, limit int) ([]Message, error) 
 	return trimMessages(messages, limit), nil
 }
 
-// parseRolloutLine 解析rollout行。
+// parseRolloutLine 将 Codex response_item 事件转成统一历史消息。
+// 系统注入块和纯环境噪声会被过滤，用户侧图片/附件 metadata 会保留下来。
 func parseRolloutLine(raw []byte) (Message, bool) {
 	var line rolloutLine
 	if err := json.Unmarshal(raw, &line); err != nil || line.Type != "response_item" {
@@ -216,7 +218,8 @@ func stripTagBlock(text, closeTag string) string {
 	return ""
 }
 
-// stripAgentsMDBlock 处理strip代理mdblock。
+// stripAgentsMDBlock 去掉 Codex 注入到用户消息开头的 AGENTS.md 指令块。
+// 优先按 </instructions> 截断，兼容旧格式时才退回空行分隔。
 func stripAgentsMDBlock(text string) string {
 	const closeInstructions = "</instructions>"
 	lower := strings.ToLower(text)
@@ -240,8 +243,8 @@ func trimInjectedLSPHint(text string) string {
 	return text
 }
 
-// trimInjectedSkillBlock 委托给共享包。P20 Phase 3 统一两家 provider 的识别逻辑，
-// 日后新增格式（如 Phase 4 的 [skill:name::mode@v1]）只需在 rollout_markers.go 中升级。
+// trimInjectedSkillBlock 委托共享包裁剪 provider 注入的技能块。
+// Claude 与 Codex 共用识别规则，新增 marker 形态只需在 rollout_markers.go 维护一次。
 func trimInjectedSkillBlock(text string) string {
 	return providershared.TrimInjectedSkillBlocks(text)
 }
@@ -254,12 +257,8 @@ func normalizeRolloutInputType(kind string) string {
 	return kind
 }
 
-// findRolloutPath locates the newest rollout jsonl for threadID under
-// the given codex home. An empty codexHome falls back to ~/.codex so
-// single-provider deployments keep working unchanged; multi-provider
-// callers (see P21 Track B) pass the canonicalized codexHome that was
-// persisted with the thread's binding, which is the only way to find
-// rollout files written by a non-default codex instance.
+// findRolloutPath 在指定 Codex home 下查找 threadID 最新的 rollout JSONL。
+// 多实例线程必须使用绑定时持久化的 canonical codexHome；空 home 只作为显式开启的 legacy 兼容路径。
 func findRolloutPath(threadID, codexHome string) (string, error) {
 	root, err := resolveRolloutRoot(codexHome)
 	if err != nil {
@@ -277,11 +276,8 @@ func findRolloutPath(threadID, codexHome string) (string, error) {
 	return matches[len(matches)-1], nil
 }
 
-// resolveRolloutRoot picks the directory whose sessions/ subtree is
-// searched. A non-empty codexHome wins verbatim; it is expected to be
-// a canonicalized absolute path already (see providershared
-// .CanonicalizeCodexHome). Empty codexHome is a legacy-only fallback
-// and now requires an explicit opt-in env flag.
+// resolveRolloutRoot 选择要扫描 sessions/ 子树的 Codex home。
+// 非空 codexHome 按已 canonicalize 的绑定值使用；空值需要显式环境开关才会退回默认 ~/.codex。
 func resolveRolloutRoot(codexHome string) (string, error) {
 	if trimmed := strings.TrimSpace(codexHome); trimmed != "" {
 		return trimmed, nil

@@ -162,7 +162,8 @@ func renderTranscriptMessages(messages []providerdto.Message) string {
 	return strings.Join(lines, "\n")
 }
 
-// filterManifestDuplicates 处理过滤条件manifestduplicates。
+// filterManifestDuplicates 过滤已经存在于 manifest 中的抽取候选。
+// 同时按 canonical name 和描述建立 seen 集合，避免把已有记忆再次写入磁盘。
 func filterManifestDuplicates(items []ExtractedMemory, manifest []MemoryEntry) []ExtractedMemory {
 	if len(items) == 0 || len(manifest) == 0 {
 		return items
@@ -187,12 +188,16 @@ func filterManifestDuplicates(items []ExtractedMemory, manifest []MemoryEntry) [
 	return filtered
 }
 
+// addManifestKey 向去重集合加入非空 canonical key。
+// 空 key 会跳过，避免把所有无名条目误判为同一项。
 func addManifestKey(seen map[string]struct{}, key string) {
 	if key = strings.TrimSpace(key); key != "" {
 		seen[key] = struct{}{}
 	}
 }
 
+// extractInternalMemories 使用启发式规则从 transcript 中抽取候选记忆。
+// 结果仍会经过 manifest 去重和 normalizeExtractedMemories 限制，防止启发式过度写入。
 func extractInternalMemories(messages []providerdto.Message, manifest []MemoryEntry, limit int) []ExtractedMemory {
 	candidates := make([]ExtractedMemory, 0, minInt(len(messages), limit))
 	for _, msg := range messages {
@@ -205,7 +210,8 @@ func extractInternalMemories(messages []providerdto.Message, manifest []MemoryEn
 	return normalizeExtractedMemories(filterManifestDuplicates(candidates, manifest), limit)
 }
 
-// internalMemoryFromMessage 从消息处理internal记忆。
+// internalMemoryFromMessage 将单条消息转换为可能的记忆候选。
+// 代码块内容直接跳过；角色和 cue 决定记忆类型，避免普通对话被无差别保存。
 func internalMemoryFromMessage(msg providerdto.Message) (ExtractedMemory, bool) {
 	text := condensedMemoryText(msg.Content)
 	if text == "" || strings.Contains(text, "```") {

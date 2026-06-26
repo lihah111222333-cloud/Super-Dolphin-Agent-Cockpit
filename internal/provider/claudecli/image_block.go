@@ -11,12 +11,11 @@ import (
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
 )
 
-// maxImageInlineBytes caps the raw bytes of a single image we'll inline as a
-// base64 source. Anthropic Messages API rejects base64 images above ~5 MiB.
+// maxImageInlineBytes 限制单张内联图片的原始字节数。
+// Anthropic Messages API 会拒绝超过约 5MiB 的 base64 图片，超限要在本地 fail-fast。
 const maxImageInlineBytes = 5 * 1024 * 1024
 
-// imageMIMEByExt is the recognised set of inline image MIME types that
-// Anthropic Messages API supports as base64 sources.
+// imageMIMEByExt 定义 Claude vision 支持内联编码的图片后缀和 MIME。
 var imageMIMEByExt = map[string]string{
 	".png":  "image/png",
 	".jpg":  "image/jpeg",
@@ -25,9 +24,8 @@ var imageMIMEByExt = map[string]string{
 	".webp": "image/webp",
 }
 
-// isImageInputType reports whether the InputItem.Type marks the input as an
-// image. Frontend currently emits "localImage"; rpc may have lowercased it.
-// "image" alone is the remote-URL form.
+// isImageInputType 判断 InputItem.Type 是否表示图片输入。
+// 前端会发送 localImage，RPC 可能转为小写；单独的 image 表示远程 URL 形态。
 func isImageInputType(t string) bool {
 	switch strings.ToLower(strings.TrimSpace(t)) {
 	case "image", "local_image", "localimage":
@@ -36,17 +34,9 @@ func isImageInputType(t string) bool {
 	return false
 }
 
-// imageBlockFromInput attempts to construct an Anthropic-style image content
-// block from an InputItem. It returns (nil, nil) when the input is not an
-// image we know how to encode, in which case the caller should fall back to
-// the legacy text-hint pathway. It returns (nil, err) when the input *is*
-// an image we tried to encode but failed (read error, oversize), so the
-// caller can decide whether to surface the error or degrade.
-//
-// When the InputItem carries both a local Path and a data: URL preview (the
-// frontend sends both for clipboard pastes), a Path read failure falls back
-// to the data: URL so a missing temp file does not break the turn.
-// imageBlockFromInput 从input处理imageblock。
+// imageBlockFromInput 将 InputItem 转成 Anthropic image content block。
+// 非图片或不支持的 URL 返回 nil 交给文本 hint 路径；已识别图片若读取失败或超限则返回错误。
+// 剪贴板图片同时带 Path 和 data: URL 时，本地临时文件丢失可退回 data: URL 预览。
 func imageBlockFromInput(input dto.InputItem) (map[string]any, error) {
 	if !isImageInputType(input.Type) {
 		return nil, nil
@@ -74,7 +64,8 @@ func imageBlockFromInput(input dto.InputItem) (map[string]any, error) {
 	return nil, nil
 }
 
-// imageBlockFromPath reads a local image file and emits a base64 source block.
+// imageBlockFromPath 读取本地图片并生成 base64 source block。
+// 不支持的扩展名返回 nil，让调用方走文本 hint；读文件和大小超限错误会向上暴露。
 func imageBlockFromPath(path string) (map[string]any, error) {
 	ext := strings.ToLower(filepath.Ext(path))
 	mediaType, ok := imageMIMEByExt[ext]
@@ -96,8 +87,8 @@ func imageBlockFromPath(path string) (map[string]any, error) {
 	return base64ImageBlock(mediaType, bytes), nil
 }
 
-// imageBlockFromURL handles the URL form. data: URLs are parsed inline; http(s)
-// URLs are passed through as a url-source block (Anthropic supports both).
+// imageBlockFromURL 处理 data: 和 http(s) 两种图片 URL wire 形态。
+// 其他 scheme 不报错，调用方会继续保留原始文本提示。
 func imageBlockFromURL(rawURL string) (map[string]any, error) {
 	if strings.HasPrefix(rawURL, "data:") {
 		return parseDataURLImage(rawURL)
@@ -119,8 +110,8 @@ func imageBlockFromURL(rawURL string) (map[string]any, error) {
 	return nil, nil
 }
 
-// parseDataURLImage parses a data:image/<mime>;base64,<data> URL into a base64
-// source block. Returns (nil, nil) if the URL is not a recognised image data URL.
+// parseDataURLImage 将 data:image/<mime>;base64,<data> 解析成 base64 source block。
+// 非图片 data URL 返回 nil；base64 损坏或超限会返回错误阻断图片编码。
 func parseDataURLImage(rawURL string) (map[string]any, error) {
 	mediaType, data, ok := splitImageDataURL(rawURL)
 	if !ok {
@@ -139,9 +130,8 @@ func parseDataURLImage(rawURL string) (map[string]any, error) {
 	}, nil
 }
 
-// splitImageDataURL parses `data:image/<type>;base64,<data>` into its mediaType
-// and base64 payload. Returns ok=false for any URL that is not a base64-encoded
-// image data URL (callers fall back to the legacy text-hint pathway).
+// splitImageDataURL 拆分图片 data URL 的 mediaType 和 base64 payload。
+// 只有显式带 base64 token 的 image/* URL 才会被接受。
 func splitImageDataURL(rawURL string) (mediaType, data string, ok bool) {
 	const prefix = "data:"
 	if !strings.HasPrefix(rawURL, prefix) {
@@ -172,8 +162,8 @@ func hasBase64Token(tokens []string) bool {
 	return false
 }
 
-// validateBase64ImagePayload verifies a base64 image string decodes cleanly and
-// stays under the inline size cap. Returns nil when the payload is acceptable.
+// validateBase64ImagePayload 校验图片 base64 可解码且未超过内联大小上限。
+// 空 payload 和损坏编码都视为真实错误，不能静默降级成空图片。
 func validateBase64ImagePayload(data string) error {
 	decoded, decErr := base64.StdEncoding.DecodeString(data)
 	if decErr != nil {

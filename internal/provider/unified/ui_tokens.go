@@ -11,7 +11,7 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 )
 
-// PublishUITokensUpdated 发布UI令牌updated。
+// PublishUITokensUpdated 将 provider token payload 翻译为 UI token 更新事件。
 func PublishUITokensUpdated(data any, publish func(ev any)) {
 	if publish == nil {
 		return
@@ -27,14 +27,14 @@ func PublishUITokensUpdated(data any, publish func(ev any)) {
 	publish(ev)
 }
 
-// tokensUpdatedEvent 处理令牌updated事件。
+// tokensUpdatedEvent 从多种 provider token 字段形态中提取当前 turn 的 token 用量。
 func tokensUpdatedEvent(payload map[string]any) (uidto.UITokensUpdated, bool) {
 	usage := nestedMap(payload, "usage")
 	tokenUsage := nestedMap(payload, "tokenUsage")
 	totalUsage := nestedMap(tokenUsage, "total")
 	lastUsage := nestedMap(tokenUsage, "last")
 
-	// V2 parity: prefer tokenUsage.last (current turn) over tokenUsage.total (cumulative)
+	// 优先使用 tokenUsage.last 表示当前 turn，用 total 仅作缺字段时的兼容输入。
 	input, hasInput := firstInt(lastUsage, totalUsage, "inputTokens", "input_tokens")
 	if !hasInput {
 		input, hasInput = firstInt(usage, payload, "inputTokens", "input_tokens", "promptTokens", "prompt_tokens")
@@ -77,7 +77,7 @@ func tokensUpdatedEvent(payload map[string]any) (uidto.UITokensUpdated, bool) {
 	}, true
 }
 
-// payloadMap 处理载荷map。
+// payloadMap 将 map、RawMessage 或 []byte payload 转为 map；无法解析时返回 nil 阻断发布。
 func payloadMap(data any) map[string]any {
 	switch typed := data.(type) {
 	case map[string]any:
@@ -96,11 +96,13 @@ func payloadMap(data any) map[string]any {
 	return nil
 }
 
+// nestedMap 读取嵌套 map 字段，类型不匹配时按缺失处理。
 func nestedMap(payload map[string]any, key string) map[string]any {
 	value, _ := payload[key].(map[string]any)
 	return value
 }
 
+// firstInt 先读 preferred，再读 fallback，用于区分当前 turn 与累计 token 字段。
 func firstInt(preferred, fallback map[string]any, keys ...string) (int, bool) {
 	if value, ok := intFromMap(preferred, keys...); ok {
 		return value, true
@@ -108,6 +110,7 @@ func firstInt(preferred, fallback map[string]any, keys ...string) (int, bool) {
 	return intFromMap(fallback, keys...)
 }
 
+// contextWindowValue 从顶层、tokenUsage 或 usage 中读取模型上下文窗口大小。
 func contextWindowValue(payload, usage map[string]any) (int, bool) {
 	tokenUsage := nestedMap(payload, "tokenUsage")
 	keys := []string{"modelContextWindow", "contextWindow", "contextWindowTokens", "context_window", "context_window_tokens"}
@@ -125,7 +128,7 @@ func contextWindowValue(payload, usage map[string]any) (int, bool) {
 	return 0, false
 }
 
-// intFromMap 从map处理int。
+// intFromMap 从多个候选键读取整数，兼容 JSON number、Go int 和数字字符串。
 func intFromMap(payload map[string]any, keys ...string) (int, bool) {
 	for _, key := range keys {
 		value, ok := payload[key]
@@ -150,7 +153,7 @@ func intFromMap(payload map[string]any, keys ...string) (int, bool) {
 	return 0, false
 }
 
-// stringValue 处理string值。
+// stringValue 从多个候选键读取非空字符串，JSON number 保留原始文本形式。
 func stringValue(payload map[string]any, keys ...string) string {
 	for _, key := range keys {
 		value, ok := payload[key]
@@ -169,6 +172,7 @@ func stringValue(payload map[string]any, keys ...string) string {
 	return ""
 }
 
+// tokenEventTime 解析 provider 事件时间；缺失或格式错误时使用当前时间标记投影更新时间。
 func tokenEventTime(payload map[string]any) time.Time {
 	raw := stringValue(payload, "timestamp", "ts")
 	for _, layout := range []string{time.RFC3339Nano, time.RFC3339} {

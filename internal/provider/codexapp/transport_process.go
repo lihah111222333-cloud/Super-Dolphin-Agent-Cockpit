@@ -51,6 +51,8 @@ func nonNilContext(ctx context.Context) context.Context {
 	return ctx
 }
 
+// Write 追加 stderr 数据并只保留末尾 limit 字节。
+// 该 buffer 会被多个 goroutine 读取或写入，必须在锁内完成裁剪以保证诊断尾部一致。
 func (b *limitedBuffer) Write(p []byte) (int, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -64,6 +66,8 @@ func (b *limitedBuffer) Write(p []byte) (int, error) {
 	return n, err
 }
 
+// String 返回当前 stderr 尾部快照。
+// 调用方只用于诊断输出，因此这里复制 bytes.Buffer 的字符串视图而不暴露内部缓冲区。
 func (b *limitedBuffer) String() string {
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -158,6 +162,8 @@ func (p *localProcess) listenResult() (string, error, bool) {
 	return p.listenURL, p.listenErr, p.listenSet
 }
 
+// waitForListenURL 等待 app-server 在 stderr 中报告监听地址。
+// 进程提前退出时返回进程错误；上下文取消时立即停止等待，避免启动路径卡死。
 func (p *localProcess) waitForListenURL(ctx context.Context) (string, error) {
 	ctx = nonNilContext(ctx)
 	if url, err, ok := p.listenResult(); ok {
@@ -226,6 +232,8 @@ func enrichSpawnError(err error, proc *localProcess) error {
 	return fmt.Errorf("%w: %s", err, stderr)
 }
 
+// spawnLocal 启动本地 Codex app-server 并等待其监听地址可用。
+// 启动失败会强制杀进程、等待 stderr 收尾并返回带诊断尾部的错误。
 func (t *transport) spawnLocal(ctx context.Context) error {
 	if t.processRunning() {
 		return nil
@@ -236,10 +244,8 @@ func (t *transport) spawnLocal(ctx context.Context) error {
 	}
 	argv := localSpawnAppServerArgs()
 	pkglogger.Info("codexapp: spawning local app-server", "argv", argv)
-	// Wrap in the platform-appropriate FD-limit raiser. On macOS GUI-launched
-	// processes inherit launchd's default 256 soft limit, which is too low
-	// for batch agent scenarios; the Unix wrapper raises it before exec. On
-	// Windows the wrapper is a no-op — the default handle limit is adequate.
+	// 按平台包一层 fd 上限提升器：macOS 图形启动会继承 launchd 的 256 软限制，
+	// 批量 agent 场景容易耗尽；Unix 包装器会在 exec 前提升，Windows 保持原样。
 	cmd := wrapWithFDLimit(argv)
 	cmd.Env = contract.ScrubDatabaseEnv(os.Environ())
 	cmd.Stdout = io.Discard
@@ -292,6 +298,8 @@ func (t *transport) spawnLocal(ctx context.Context) error {
 	return nil
 }
 
+// collectProcessStderr 收集 app-server stderr，同时解析监听地址作为启动就绪信号。
+// listenReady 只会设置一次；未发现地址或 scanner 出错时必须写入失败结果唤醒等待方。
 func (t *transport) collectProcessStderr(proc *localProcess, stderr io.ReadCloser) {
 	defer close(proc.stderrDone)
 	if stderr == nil {
@@ -375,6 +383,8 @@ func (t *transport) localProcessReady() error {
 	return errors.New("codexapp: local process not running")
 }
 
+// stopProcess 停止本地 app-server，并在优雅关闭超时后升级为强杀。
+// 关闭前会快照子进程列表，退出后统一清理后代，避免 CLI 派生进程残留。
 func (t *transport) stopProcess(graceful bool) error {
 	t.stateMu.Lock()
 	proc := t.process
@@ -416,7 +426,7 @@ func (t *transport) processRunning() bool {
 	return proc != nil && proc.running()
 }
 
-// localPID returns the PID of the local app-server process, or 0 if unavailable.
+// localPID 返回本地 app-server 进程 PID；进程不存在或尚未启动时返回 0。
 func (t *transport) localPID() int {
 	proc := t.currentProcess()
 	if proc == nil || proc.cmd == nil || proc.cmd.Process == nil {

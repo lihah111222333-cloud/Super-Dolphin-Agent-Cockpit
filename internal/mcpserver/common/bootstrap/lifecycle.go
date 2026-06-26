@@ -101,16 +101,8 @@ func (c *Client) handleNotify(req *jrpc2.Request) {
 	}
 }
 
-// handleCallback dispatches server-initiated callbacks to the
-// appropriate registered handler. P22 P4 S5b / plan §315: the
-// previous trailing `return map[string]bool{"ok": true}, nil`
-// silently ACK'd any unknown method, meaning a peer typo or a new
-// control-plane method we did not opt into would look like a
-// success. That contract is now fail-closed: dispatchRequest owns
-// shutdown/config_changed, and handleCallback returns a JSON-RPC
-// MethodNotFound error for anything else unless a handler is
-// explicitly registered.
-// handleCallback 处理callback。
+// handleCallback 分发控制平面主动发起的 callback。
+// 未显式注册的 callback 一律返回 MethodNotFound，避免 peer 拼写错误或新方法被静默 ACK。
 func (c *Client) handleCallback(ctx context.Context, req *jrpc2.Request) (any, error) {
 	if resp, handled, err := c.dispatchToolCallback(ctx, req); handled {
 		return resp, err
@@ -131,9 +123,8 @@ func (c *Client) handleCallback(ctx context.Context, req *jrpc2.Request) (any, e
 	return map[string]bool{"ok": true}, nil
 }
 
-// dispatchToolCallback 路由 tools/list 和 tools/call 回调，未注册时返回错误。
+// dispatchToolCallback 路由 tools/list 和 tools/call 回调；未注册 handler 时 fail-closed。
 func (c *Client) dispatchToolCallback(ctx context.Context, req *jrpc2.Request) (any, bool, error) {
-	// P15: route tools/list and tools/call to registered handlers.
 	switch req.Method() {
 	case "tools/list":
 		if c.cfg.OnToolsList == nil {
@@ -195,10 +186,8 @@ func (c *Client) dispatchLifecycleRequest(req *jrpc2.Request) (handled bool, err
 	return false, nil
 }
 
-// errBootstrapUnknownMethod is the wire error surfaced when a
-// server-initiated callback uses a method this client has not opted
-// into. Uses contract.CodeMethodNotFound (-31008).
-// See P22 P4 S5b / plan §315.
+// errBootstrapUnknownMethod 返回服务端回调未知方法的线协议错误。
+// 使用 contract.CodeMethodNotFound，确保 peer typo 或未接入的新方法不会被静默 ACK。
 func errBootstrapUnknownMethod(method string) error {
 	return jrpc2.Errorf(jrpc2.Code(contract.CodeMethodNotFound), "bootstrap: unknown callback method: %s", strings.TrimSpace(method))
 }
@@ -220,13 +209,8 @@ func (c *Client) fireConfigChanged(notify mcp.ConfigChangedNotify) {
 	c.spawnCallback(func() { c.cfg.OnConfigChanged(notify) })
 }
 
-// spawnCallback launches an application-supplied callback (OnShutdown
-// or OnConfigChanged) while keeping its lifecycle owned by the
-// bootstrap client. Pre-P22 P2 bootstrap-S1 these were fire-and-forget
-// `go callback(...)` statements; the wait group + closed-check replace
-// that with a bounded drain contract honoured by Close() via
-// drainCallbacks. A spawn that races past Close() returns without
-// launching a goroutine so the drain is not extended indefinitely.
+// spawnCallback 启动应用侧生命周期回调，并把 goroutine 纳入 Client 的 WaitGroup 管理。
+// 如果与 Close() 竞争时发现 client 已关闭，则不再启动新 goroutine，避免无限延长 drain。
 func (c *Client) spawnCallback(fn func()) {
 	if fn == nil {
 		return

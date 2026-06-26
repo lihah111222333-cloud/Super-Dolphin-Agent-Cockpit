@@ -9,12 +9,13 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 )
 
+// DAG prompt 身份诊断扫描上限，避免聊天层误触全库读取。
 const (
 	defaultDAGPromptIdentityDiagnosisLimit = 50
 	maxDAGPromptIdentityDiagnosisLimit     = 200
 )
 
-// DiagnoseDAGPromptIdentityGapsInput 是历史 DAG prompt 身份诊断的只读入参。
+// DiagnoseDAGPromptIdentityGapsInput 是存量 DAG prompt 身份诊断的只读入参。
 // dag_key/pos 为空时按 limit 扫描 DAG 列表；不执行任何修复或写入。
 type DiagnoseDAGPromptIdentityGapsInput struct {
 	DagKey string `json:"dag_key,omitempty"`
@@ -22,7 +23,7 @@ type DiagnoseDAGPromptIdentityGapsInput struct {
 	Limit  int    `json:"limit,omitempty"`
 }
 
-// DAGPromptIdentityGap 描述一个历史 DAG 节点缺失的执行者身份字段。
+// DAGPromptIdentityGap 记录存量 DAG 节点缺失的执行者身份字段。
 // MissingFields 使用完整字段路径，方便聊天层直接转译给用户或运维。
 type DAGPromptIdentityGap struct {
 	DagKey          string   `json:"dag_key"`
@@ -35,7 +36,7 @@ type DAGPromptIdentityGap struct {
 	RecentRunStatus string   `json:"recent_run_status,omitempty"`
 }
 
-// DAGPromptIdentityDiagnosticsOutput 是历史坏 DAG 诊断结果。
+// DAGPromptIdentityDiagnosticsOutput 是存量坏 DAG 诊断结果。
 // ReadOnly 永远为 true，Remediation 明确要求显式重绑或重建，避免误读为自动修复。
 type DAGPromptIdentityDiagnosticsOutput struct {
 	Gaps                     []DAGPromptIdentityGap `json:"gaps"`
@@ -51,6 +52,8 @@ type DAGPromptIdentityDiagnosticsOutput struct {
 	Remediation              string                 `json:"remediation"`
 }
 
+// dagPromptIdentityDiagnosisScan 保存一次诊断扫描的明细和边界。
+// 输出层依赖这些字段告诉用户是否可能还有未扫描的存量 DAG。
 type dagPromptIdentityDiagnosisScan struct {
 	Details                  []contract.DAGDetail
 	ScannedDAGs              int
@@ -58,10 +61,13 @@ type dagPromptIdentityDiagnosisScan struct {
 	DAGScanPossiblyTruncated bool
 }
 
+// diagnosticConfig 是诊断用的轻量节点配置，只保留 exec 子树。
 type diagnosticConfig struct {
 	Exec *diagnosticExec
 }
 
+// diagnosticExec 表示节点 config.exec 中与 prompt 身份相关的字段。
+// 字段保持和已落库 JSON 名一致，方便直接指出缺失路径。
 type diagnosticExec struct {
 	PromptKey          string               `json:"prompt_key,omitempty"`
 	AgentKey           string               `json:"agent_key,omitempty"`
@@ -72,6 +78,7 @@ type diagnosticExec struct {
 	Verifier           *diagnosticAgentExec `json:"verifier,omitempty"`
 }
 
+// diagnosticAgentExec 表示 hybrid verifier 这类嵌套 agent 执行身份。
 type diagnosticAgentExec struct {
 	PromptKey          string `json:"prompt_key,omitempty"`
 	AgentKey           string `json:"agent_key,omitempty"`
@@ -81,12 +88,13 @@ type diagnosticAgentExec struct {
 	CodexModelProvider string `json:"codex_model_provider,omitempty"`
 }
 
+// recentRunSnapshot 缓存每个 DAG 最近一次 run 的轻量状态。
 type recentRunSnapshot struct {
 	RunKey string
 	Status string
 }
 
-// HandleDiagnoseDAGPromptIdentityGaps 返回只读历史 DAG prompt 身份诊断 handler。
+// HandleDiagnoseDAGPromptIdentityGaps 返回只读存量 DAG prompt 身份诊断 handler。
 // 它只调用 DAG/runs 读取接口；发现问题后要求显式 task_dag_apply_ops 重绑或重建。
 func HandleDiagnoseDAGPromptIdentityGaps(svc contract.OrchestrationService) ToolHandler {
 	return makeHandler(svc, "orchestration service", func(ctx context.Context, in DiagnoseDAGPromptIdentityGapsInput) (DAGPromptIdentityDiagnosticsOutput, error) {
@@ -195,6 +203,8 @@ func collectDAGPromptIdentityGaps(details []contract.DAGDetail) ([]DAGPromptIden
 	return gaps, nil
 }
 
+// diagnoseNodePromptIdentityGaps 识别单个节点缺失的 prompt 身份字段。
+// 非 agent/hybrid 节点不参与诊断，避免把 automation 配置误判为坏 DAG。
 func diagnoseNodePromptIdentityGaps(node contract.DAGNode) ([]DAGPromptIdentityGap, error) {
 	cfg, hasExec, err := decodeDiagnosticConfig(node)
 	if err != nil {
@@ -214,7 +224,7 @@ func diagnoseNodePromptIdentityGaps(node contract.DAGNode) ([]DAGPromptIdentityG
 }
 
 // decodeDiagnosticConfig 只解析诊断需要的 config.exec 字段。
-// 它不会按运行时 schema 补默认值，历史坏数据会按原样暴露出来。
+// 它不会按运行时 schema 补默认值，坏数据会按原样暴露出来。
 func decodeDiagnosticConfig(node contract.DAGNode) (diagnosticConfig, bool, error) {
 	if !hasExplicitRawJSON(node.Config) {
 		return diagnosticConfig{}, false, nil
@@ -234,6 +244,7 @@ func decodeDiagnosticConfig(node contract.DAGNode) (diagnosticConfig, bool, erro
 	return diagnosticConfig{Exec: &exec}, true, nil
 }
 
+// diagnoseAgentPromptIdentityGap 检查普通 agent 节点是否缺 prompt_key/agent_key。
 func diagnoseAgentPromptIdentityGap(node contract.DAGNode, exec *diagnosticExec) []DAGPromptIdentityGap {
 	if exec == nil || strings.TrimSpace(exec.PromptKey) != "" || strings.TrimSpace(exec.AgentKey) != "" {
 		return nil
@@ -244,6 +255,7 @@ func diagnoseAgentPromptIdentityGap(node contract.DAGNode, exec *diagnosticExec)
 	})}
 }
 
+// diagnoseHybridPromptIdentityGap 检查 hybrid verifier 的嵌套执行身份。
 func diagnoseHybridPromptIdentityGap(node contract.DAGNode, exec *diagnosticExec) []DAGPromptIdentityGap {
 	if exec == nil || exec.Verifier == nil {
 		return nil
@@ -255,6 +267,8 @@ func diagnoseHybridPromptIdentityGap(node contract.DAGNode, exec *diagnosticExec
 	return []DAGPromptIdentityGap{newPromptIdentityGap(node, missing)}
 }
 
+// hybridVerifierMissingFields 返回 verifier 启动所需但缺失的字段路径。
+// provider 为空时立即返回，因为无法判断是否还需要 Codex 专属字段。
 func hybridVerifierMissingFields(verifier *diagnosticAgentExec) []string {
 	var missing []string
 	if strings.TrimSpace(verifier.PromptKey) == "" && strings.TrimSpace(verifier.AgentKey) == "" {
@@ -270,6 +284,7 @@ func hybridVerifierMissingFields(verifier *diagnosticAgentExec) []string {
 	return missing
 }
 
+// missingCodexVerifierIdentityFields 检查 Codex verifier 必须绑定的 provider home 身份。
 func missingCodexVerifierIdentityFields(verifier *diagnosticAgentExec) []string {
 	var missing []string
 	if strings.TrimSpace(verifier.CodexHome) == "" {
@@ -284,6 +299,8 @@ func missingCodexVerifierIdentityFields(verifier *diagnosticAgentExec) []string 
 	return missing
 }
 
+// newPromptIdentityGap 构造面向用户的缺口记录。
+// 空 node_type 按 agent 处理，保持和运行时默认节点类型一致。
 func newPromptIdentityGap(node contract.DAGNode, missing []string) DAGPromptIdentityGap {
 	nodeType := strings.TrimSpace(node.NodeType)
 	if nodeType == "" {
@@ -299,6 +316,8 @@ func newPromptIdentityGap(node contract.DAGNode, missing []string) DAGPromptIden
 	}
 }
 
+// enrichPromptIdentityGapsWithRecentRuns 补充每个缺口对应 DAG 的最近 run。
+// 同一 DAG 会走本地缓存，避免列表诊断时重复查询 run 表。
 func enrichPromptIdentityGapsWithRecentRuns(
 	ctx context.Context,
 	svc contract.OrchestrationService,
@@ -316,6 +335,8 @@ func enrichPromptIdentityGapsWithRecentRuns(
 	return nil
 }
 
+// recentRunForDAG 读取并缓存某个 DAG 最近一次运行状态。
+// 没有运行记录不是错误，返回空快照让诊断结果继续展示。
 func recentRunForDAG(
 	ctx context.Context,
 	svc contract.OrchestrationService,
@@ -337,6 +358,8 @@ func recentRunForDAG(
 	return recent, nil
 }
 
+// newDAGPromptIdentityDiagnosticsOutput 组装只读诊断响应。
+// Remediation 明确要求显式重绑或重建，防止调用方期待自动修复。
 func newDAGPromptIdentityDiagnosticsOutput(
 	gaps []DAGPromptIdentityGap,
 	scan dagPromptIdentityDiagnosisScan,

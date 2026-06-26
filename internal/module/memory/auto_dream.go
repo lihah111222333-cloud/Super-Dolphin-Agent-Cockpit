@@ -13,8 +13,11 @@ import (
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
+// ErrConsolidationExtractFuncRequired 表示 consolidation 入口没有可用的 LLM extract 函数。
 var ErrConsolidationExtractFuncRequired = errors.New("dream extract func is not configured")
 
+// AutoDreamConsolidator 负责把 durable memory 的索引、主题文件和日志合并成稳定记忆。
+// 它通过磁盘锁串行化写入，避免并发 consolidation 互相覆盖 MEMORY.md 或 topic 文件。
 type AutoDreamConsolidator struct {
 	cfg       *Config
 	extractor *MemoryExtractor
@@ -22,6 +25,8 @@ type AutoDreamConsolidator struct {
 	locks     *diskLockCoordinator
 }
 
+// consolidationRunOptions 收纳一次 consolidation 的可测试选项。
+// now、onLocked 和 runtimeContext 只影响时间戳、测试同步点和 prompt 背景，不改变写入边界。
 type consolidationRunOptions struct {
 	cfg            *Config
 	now            func() time.Time
@@ -29,6 +34,8 @@ type consolidationRunOptions struct {
 	runtimeContext string
 }
 
+// preparedConsolidation 是进入 extract 前已完成校验和加锁的运行上下文。
+// guard 必须由调用方在成功提交或失败回滚时完成，确保锁文件生命周期闭合。
 type preparedConsolidation struct {
 	root           string
 	cfg            *Config
@@ -39,7 +46,8 @@ type preparedConsolidation struct {
 	locks          *diskLockCoordinator
 }
 
-// Consolidate 处理consolidate。
+// Consolidate 对指定 memoryRoot 执行一次手动 consolidation。
+// 路径会先经过 store root 规范化和 agent-memory 拒绝检查，缺少 extract 函数时直接返回错误。
 func (c *AutoDreamConsolidator) Consolidate(ctx context.Context, memoryRoot string, extractFn ExtractFunc) error {
 	cfg, err := c.consolidationConfig(memoryRoot, nil)
 	if err != nil {
@@ -48,6 +56,8 @@ func (c *AutoDreamConsolidator) Consolidate(ctx context.Context, memoryRoot stri
 	return c.consolidateWithOptions(ctx, memoryRoot, extractFn, consolidationRunOptions{cfg: cfg})
 }
 
+// consolidationConfig 选择本次 consolidation 使用的 Config。
+// 显式 cfg 优先，其次使用 consolidator 注入配置；两者缺失时沿用路径拒绝逻辑返回配置错误。
 func (c *AutoDreamConsolidator) consolidationConfig(path string, cfg *Config) (*Config, error) {
 	if cfg != nil {
 		return cfg, nil
@@ -58,7 +68,8 @@ func (c *AutoDreamConsolidator) consolidationConfig(path string, cfg *Config) (*
 	return nil, rejectConsolidationPath(nil, path)
 }
 
-// consolidateWithOptions 处理带选项的consolidate。
+// consolidateWithOptions 执行带测试钩子的 consolidation 主流程。
+// 它负责获取锁、加载输入、决定是否调用 extract，并在提交失败时回滚锁文件时间戳。
 func (c *AutoDreamConsolidator) consolidateWithOptions(
 	ctx context.Context,
 	memoryRoot string,
@@ -90,6 +101,8 @@ func (c *AutoDreamConsolidator) consolidateWithOptions(
 	return err
 }
 
+// shouldRunConsolidationExtract 判断当前输入是否值得调用 LLM extract。
+// 没有主题、日志和有效索引内容时只刷新索引时间戳，避免空输入触发无意义写入。
 func shouldRunConsolidationExtract(input consolidationPromptInput) bool {
 	if len(consolidationCandidates(input.TopicEntries)) > 0 {
 		return true
@@ -101,6 +114,8 @@ func shouldRunConsolidationExtract(input consolidationPromptInput) bool {
 	return indexContent != "" && indexContent != "(missing)" && indexContent != "(empty)"
 }
 
+// refreshConsolidationWithoutExtract 在无可合并内容时只刷新索引和 consolidation 记录。
+// 写入仍走磁盘锁，保证与正常 extract 路径的并发保护一致。
 func refreshConsolidationWithoutExtract(root string, now func() time.Time, locks *diskLockCoordinator) error {
 	if locks == nil {
 		locks = newDiskLockCoordinator()
@@ -113,7 +128,8 @@ func refreshConsolidationWithoutExtract(root string, now func() time.Time, locks
 	})
 }
 
-// prepareConsolidation 准备consolidation。
+// prepareConsolidation 校验 root、配置和 extract 函数，并获取 consolidation 锁。
+// 成功返回后调用方必须调用 guard.Complete，否则旧锁时间戳无法恢复或释放。
 func (c *AutoDreamConsolidator) prepareConsolidation(
 	ctx context.Context,
 	memoryRoot string,
@@ -151,7 +167,8 @@ func (c *AutoDreamConsolidator) prepareConsolidation(
 	return preparedConsolidation{root: root, cfg: opts.cfg, now: now, extractFn: extractFn, guard: guard, runtimeContext: opts.runtimeContext, locks: c.locks}, nil
 }
 
-// runConsolidationExtract 运行consolidationextract。
+// runConsolidationExtract 调用 extract 函数生成记忆，并在同一个磁盘锁内删除旧文件、写新文件和刷新索引。
+// 任一步失败都会向上返回错误，让外层 guard 回滚本次 consolidation 标记。
 func (c *AutoDreamConsolidator) runConsolidationExtract(
 	ctx context.Context,
 	run preparedConsolidation,
@@ -180,6 +197,8 @@ func (c *AutoDreamConsolidator) runConsolidationExtract(
 	})
 }
 
+// resolveExtractFunc 选择调用方显式传入或 consolidator 注入的 extract 函数。
+// nil 返回表示装配缺失，调用方需要 fail-fast。
 func (c *AutoDreamConsolidator) resolveExtractFunc(extractFn ExtractFunc) ExtractFunc {
 	if extractFn != nil {
 		return extractFn
@@ -190,6 +209,8 @@ func (c *AutoDreamConsolidator) resolveExtractFunc(extractFn ExtractFunc) Extrac
 	return c.extractFn
 }
 
+// limit 返回本次 extract 允许产出的最大记忆条数。
+// extractor 缺失时使用默认上限，避免配置不完整导致无限制生成。
 func (c *AutoDreamConsolidator) limit() int {
 	if c == nil || c.extractor == nil {
 		return defaultExtractMaxItems
@@ -197,18 +218,16 @@ func (c *AutoDreamConsolidator) limit() int {
 	return c.extractor.limit()
 }
 
-// ---------------------------------------------------------------------------
-// autoDreamScheduler (was auto_dream_scheduler.go)
-// ---------------------------------------------------------------------------
+// ----- Auto Dream 调度器 -----
 
-// autoDreamSchedulerQueueCap bounds the in-memory queue of threadIDs waiting
-// for auto-dream eligibility evaluation.
+// autoDreamSchedulerQueueCap 限制等待 auto-dream eligibility 检查的 threadID 队列长度。
 const autoDreamSchedulerQueueCap = 64
 
-// autoDreamSchedulerDrainGrace is the shutdown budget for draining the
-// queue + waiting for any in-flight dream task before RunnerModule shutdown.
+// autoDreamSchedulerDrainGrace 是关闭时排空队列并等待当前 dream task 的最长时间。
 const autoDreamSchedulerDrainGrace = 10 * time.Second
 
+// autoDreamScheduler 串行消费 thread.stopped 信号并决定是否启动 auto-dream。
+// 队列满时丢弃新信号并计数；Stop 会取消 taskCtx 并等待 worker 退出。
 type autoDreamScheduler struct {
 	hooks  *MemoryLifecycleHooks
 	logger *slog.Logger
@@ -228,6 +247,8 @@ type autoDreamScheduler struct {
 	scheduledTotal atomic.Int64
 }
 
+// newAutoDreamScheduler 创建 auto-dream 调度器并绑定独立 task context。
+// logger 缺失时使用包默认 logger，避免后台 worker panic 或丢弃事件时没有审计日志。
 func newAutoDreamScheduler(hooks *MemoryLifecycleHooks, logger *slog.Logger) *autoDreamScheduler {
 	if logger == nil {
 		logger = pkglogger.Get()
@@ -244,7 +265,8 @@ func newAutoDreamScheduler(hooks *MemoryLifecycleHooks, logger *slog.Logger) *au
 	}
 }
 
-// Start 启动记忆流程。
+// Start 启动单个 auto-dream worker。
+// hooks 未启用时直接关闭 doneCh，让 Stop 不会阻塞等待未启动的 goroutine。
 func (s *autoDreamScheduler) Start() {
 	if s == nil {
 		return
@@ -265,7 +287,8 @@ func (s *autoDreamScheduler) Start() {
 	})
 }
 
-// Enqueue 把项目追加到队尾。
+// Enqueue 非阻塞地把 threadID 放入待检查队列。
+// 空 threadID、已停止调度器或满队列都会丢弃，避免总线回调被后台 consolidation 阻塞。
 func (s *autoDreamScheduler) Enqueue(threadID string) {
 	if s == nil {
 		return
@@ -291,7 +314,8 @@ func (s *autoDreamScheduler) Enqueue(threadID string) {
 	}
 }
 
-// Stop 停止记忆流程。
+// Stop 关闭调度器并等待 worker 或正在执行的 dream task 退出。
+// 传入 ctx 没有短 deadline 时会套用 drain grace，防止 RunnerModule 关闭无限等待。
 func (s *autoDreamScheduler) Stop(ctx context.Context) error {
 	if s == nil {
 		return nil
@@ -319,15 +343,17 @@ func (s *autoDreamScheduler) Stop(ctx context.Context) error {
 	return firstErr
 }
 
-// DroppedTotal 处理droppedtotal。
+// DroppedTotal 返回因停止或队列满而丢弃的 threadID 数量。
 func (s *autoDreamScheduler) DroppedTotal() int64 { return s.droppedTotal.Load() }
 
-// ProcessedTotal 处理processedtotal。
+// ProcessedTotal 返回 worker 已消费并尝试调度的 threadID 数量。
 func (s *autoDreamScheduler) ProcessedTotal() int64 { return s.processedTotal.Load() }
 
-// ScheduledTotal 处理scheduledtotal。
+// ScheduledTotal 返回实际启动 auto-dream task 的次数。
 func (s *autoDreamScheduler) ScheduledTotal() int64 { return s.scheduledTotal.Load() }
 
+// runWorker 串行处理队列，直到 Stop 关闭 stopCh。
+// 它是唯一读取 queue 的 goroutine，保证 maybeScheduleAutoDream 不会并发启动多个 dream task。
 func (s *autoDreamScheduler) runWorker() {
 	defer close(s.doneCh)
 	for {
@@ -340,7 +366,8 @@ func (s *autoDreamScheduler) runWorker() {
 	}
 }
 
-// process 处理进程。
+// process 对单个 threadID 执行 eligibility 检查和调度。
+// context.Canceled 属于关闭路径，不记录为失败；其他错误写 warning 但不终止 worker。
 func (s *autoDreamScheduler) process(threadID string) {
 	if strings.TrimSpace(threadID) == "" {
 		return

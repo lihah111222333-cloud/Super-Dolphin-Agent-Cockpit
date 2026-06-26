@@ -6,27 +6,20 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 )
 
-// Phase B.1 baseline tests for the inject-path downgrade flag contract
-// (mapping §10). p25 B-class queue analysis + 独立 reviewer 验证后
-// 确认 mapping §10 已被现有 gate.go + nested/claudemd_filter.go +
-// SuppressForOverlay 等价覆盖（详见 p25 文档 B-class 表的销账理由）。
+// 本组测试锁定 inject-path downgrade 旗标的兼容边界。
+// 这些字面量来自外部 provider 兼容约定，不能因为内部字段改名而被放宽成 contains 或通配匹配。
 //
 // 本组测试锁定的两件事：
 //
 //  1. SessionFlag 字面量契约（tengu_moth_copse / tengu_paper_halyard 等）
-//     与 Claude Code 兼容性绑定，误改字面量（"tengu_moth_corpse"）会
-//     静默 break overlay 模式，需 baseline 防回归。grep 全仓现有测试
-//     未覆盖这些字面量。
+//     与 Claude Code 兼容性绑定，拼写变动会静默破坏 overlay 模式。
 //
-//  2. SuppressForOverlay 短路新增的 InjectPromptEntrypoint 字段
-//     （gate.go:55-56 / :88，introduced after
-//     TestResolveMemoryGateOverlaySuppressesIndexAndPrefetch was
-//     written，原测试只 cover InjectMemoryIndex/InjectTeamMemIndex/
-//     EnableRelevantPrefetch 三项）。
+//  2. SuppressForOverlay 必须覆盖 InjectPromptEntrypoint。
+//     该字段与 InjectMemoryIndex 独立，未来可以只关闭 prompt 入口而保留底层 memory store。
 //
 // 现有覆盖（不重复）：
 //   - TestResolveMemoryGateOverlaySuppressesIndexAndPrefetch
-//     (config_test.go:418) — 4 field overlay short-circuit
+//     (config_test.go:418) - overlay short-circuit
 //   - TestMemoryRulesProviderSuppressedInOverlay (config_test.go:456)
 //   - TestMemoryEntrypointProviderRespectsInjectPromptEntrypoint
 //     (entrypoint_provider_test.go:257)
@@ -70,9 +63,8 @@ func TestPhaseB1_TenguPaperHalyardSessionFlagMapsToSkipProjectLocalClaudeMd(t *t
 	}
 }
 
-// Counter-baseline: unknown SessionFlags must NOT enable downgrade
-// (defends against accidental wildcard / contains match in
-// gateFlagEnabled / gateFlagValue).
+// 未知 SessionFlag 不能触发降级。
+// 这防止 gateFlagEnabled/gateFlagValue 被误改成 contains 或通配匹配。
 func TestPhaseB1_UnknownSessionFlagDoesNotEnableDowngrade(t *testing.T) {
 	t.Setenv(envHarnessKind, "")
 	cfg := &Config{Enabled: true, Features: MemoryFeatureFlags{TeamMemory: true}}
@@ -93,13 +85,8 @@ func TestPhaseB1_UnknownSessionFlagDoesNotEnableDowngrade(t *testing.T) {
 	}
 }
 
-// TestPhaseB1_SuppressForOverlayCoversInjectPromptEntrypoint extends
-// TestResolveMemoryGateOverlaySuppressesIndexAndPrefetch (config_test.go:418)
-// with the InjectPromptEntrypoint field introduced after that test was
-// written (gate.go:55-56 / :88). InjectPromptEntrypoint today tracks
-// InjectMemoryIndex but is its own field so future overlay-light modes
-// can disable just the prompt entrypoint while keeping the underlying
-// memory store live; in claude_code overlay it must be false.
+// overlay 模式必须短路 prompt 入口。
+// InjectPromptEntrypoint 现在跟随 InjectMemoryIndex，但仍是独立字段；claude_code overlay 下必须关闭。
 func TestPhaseB1_SuppressForOverlayCoversInjectPromptEntrypoint(t *testing.T) {
 	t.Setenv(envHarnessKind, "claude_code")
 	cfg := &Config{

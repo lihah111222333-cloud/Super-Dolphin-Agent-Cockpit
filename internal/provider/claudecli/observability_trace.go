@@ -34,7 +34,8 @@ func (s *session) recordProviderTrace(ctx context.Context, event observability.T
 	}
 }
 
-// fillClaudeTrace 处理fillclaudetrace。
+// fillClaudeTrace 补齐 Claude provider trace 事件的默认字段。
+// 调用方可预先设置 Method/Code/Status；这里只填缺失值并按错误状态捕获栈。
 func fillClaudeTrace(ctx context.Context, event *observability.TraceEvent) {
 	if event.Timestamp.IsZero() {
 		event.Timestamp = time.Now()

@@ -1,23 +1,6 @@
-// Package cron 提供 DAG 改造 Scheduler 蓝图 v2 §5 所需的 cron daemon 进程入口
-// 进程入口与到点触发实现：
-//
-//   - F5.1（本文件）：cron daemon 进程入口 + 接 robfig/cron + Tick 占位
-//   - F5.2：Tick 真实业务 SQL —— 扫 next_run_at <= now 的 trigger=scheduled
-//     DAG，调 StartDAG 注入适配口，避免反向依赖 orchestration 主包。
-//   - F5.3：多实例锁 —— 通过 SQLite runtime_locks 防止多副本 daemon
-//     重复触发同一批到期 DAG。
-//
-// 拆出独立子包是因为 cmd/mcp-orch/orchestration 已在包文件数预算上限（默认
-// 30，含 factory.go 后实际 31 个非测试文件）。在主包再开一个 scheduler_cron.go
-// 会触发 archtest 守卫；建子包同时让 cron 关注点物理隔离，便于后续 F5.2 /
-// F5.3 单独演进。
-//
-// English summary:
-// Package cron is the cron-daemon process entrypoint skeleton for the DAG
-// rework Scheduler (blueprint v2 §5). It wraps robfig/cron/v3, scans due
-// next_run_at rows, triggers StartDAG through an injected adapter, and gates
-// each Tick with a SQLite runtime lock. Lives in its own subpackage to
-// avoid pushing the orchestration package over the archtest file-count budget.
+// Package cron 实现 scheduled DAG 的 cron 守护进程。
+// 它封装 robfig/cron，扫描 next_run_at 已到期的 DAG，通过注入端口启动 run，并用 runtime lock 防止多副本重复触发。
+// 该包独立于 orchestration 主包，避免 cron 实现反向依赖父包装配细节。
 package cron
 
 import (
@@ -33,65 +16,40 @@ import (
 	robcron "github.com/robfig/cron/v3"
 )
 
-// Ticker 是 cron daemon 每次到点回调的下游接口。F5.2 将由 orchestration 主
-// 包实现：扫描 next_run_at <= now 的 trigger=scheduled DAG，对每个调用
-// service.StartDAG。F5.1 仅 stub 调用并 log。
-//
-// 用接口注入而非直接依赖 orchestration.Scheduler，避免反向引用主包；同时
-// 让单测可以塞 stub。
-//
-// Ticker is the downstream contract invoked on every cron tick. F5.2 will
-// provide the real implementation in the orchestration package (scan
-// next_run_at and call StartDAG); F5.1 only invokes the stub and logs.
+// Ticker 是 cron 每次到点回调的下游接口。
+// 实现方负责扫描到期 DAG 并启动 run；这里用接口注入避免 cron 子包 import orchestration 父包。
 type Ticker interface {
 	Tick(ctx context.Context, now time.Time) (int, error)
 }
 
 // Config 是 CronScheduler 构造参数。
-// Config holds CronScheduler construction parameters.
 type Config struct {
 	// Spec 是 robfig/cron 表达式或预定义快捷符（如 "@hourly" / "@every 1m"）。
-	// Spec is a robfig/cron expression or predefined shortcut.
 	Spec string
 	// Logger 用于结构化日志输出。
-	// Logger is the structured logger.
 	Logger *slog.Logger
-	// Ticker 是到点回调下游；F5.1 必填以暴露依赖注入；F5.2 由 orchestration
-	// 提供真实实现。
-	// Ticker is the downstream tick callback; required even in F5.1 to keep
-	// the dependency wiring explicit.
+	// Ticker 是到点回调下游；缺失时构造失败，避免 cron 启动后只打日志不触发业务。
 	Ticker Ticker
 	// Location 决定 cron 调度时区，默认 UTC。
-	// Location controls cron timezone, default UTC.
 	Location *time.Location
 	// TickTimeout 是单次 Tick 的超时时间，默认 30s。
-	// TickTimeout is the timeout for a single Tick, default 30s.
 	TickTimeout time.Duration
 }
 
-// Sentinel errors for defensive construction / state checks.
+// CronScheduler 构造和状态检查使用的 sentinel 错误。
 var (
 	// ErrNilTicker 表示构造时缺少 Ticker 依赖。
-	// ErrNilTicker indicates a missing Ticker dependency.
 	ErrNilTicker = errors.New("cron: nil ticker")
 	// ErrNilLogger 表示构造时缺少 logger。
-	// ErrNilLogger indicates a missing logger.
 	ErrNilLogger = errors.New("cron: nil logger")
 	// ErrEmptySpec 表示构造时缺少 cron 表达式。
-	// ErrEmptySpec indicates a missing cron spec.
 	ErrEmptySpec = errors.New("cron: empty spec")
 	// ErrAlreadyStarted 表示重复 Start。
-	// ErrAlreadyStarted indicates Start was called twice.
 	ErrAlreadyStarted = errors.New("cron: already started")
 )
 
 // CronScheduler 是 cron daemon 进程的薄包装。
-//
-// 字段不可变（构造后只读）：spec/logger/ticker/cron/location。
-// state 字段（started/entryID）受 mu 保护，避免 Start/Stop 并发竞争。
-//
-// CronScheduler is a thin cron-daemon wrapper. Immutable fields are
-// established at construction; the started/entryID state is mu-protected.
+// 构造后只读字段保存调度配置；started、entryID 和 rootCtx 受 mu 保护，避免 Start/Stop 并发竞争。
 type CronScheduler struct {
 	spec        string
 	logger      *slog.Logger
@@ -108,7 +66,6 @@ type CronScheduler struct {
 }
 
 // NewCronScheduler 校验参数并构造一个未启动的 CronScheduler。
-// NewCronScheduler validates inputs and returns an unstarted CronScheduler.
 func NewCronScheduler(cfg Config) (*CronScheduler, error) {
 	if cfg.Ticker == nil {
 		return nil, ErrNilTicker
@@ -127,8 +84,7 @@ func NewCronScheduler(cfg Config) (*CronScheduler, error) {
 	if tickTimeout <= 0 {
 		tickTimeout = 30 * time.Second
 	}
-	// 预解析 spec —— 提前失败比 cron loop 内部失败更友好。
-	// Pre-parse the spec to fail fast before the cron loop boots.
+	// 预解析 spec：在 cron loop 启动前 fail-fast，避免后台 goroutine 中才暴露配置错误。
 	parser := robcron.NewParser(
 		robcron.Minute | robcron.Hour | robcron.Dom | robcron.Month | robcron.Dow | robcron.Descriptor,
 	)
@@ -151,9 +107,6 @@ func NewCronScheduler(cfg Config) (*CronScheduler, error) {
 
 // Start 把 Tick 挂到 robfig/cron 调度循环并启动 daemon。
 // 第二次 Start 返回 ErrAlreadyStarted；不会自动重启 / 复用已退出的实例。
-//
-// Start hooks Tick into the robfig/cron loop and launches the daemon. A
-// second Start returns ErrAlreadyStarted.
 func (s *CronScheduler) Start(ctx context.Context) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -167,8 +120,7 @@ func (s *CronScheduler) Start(ctx context.Context) error {
 	id, err := s.cron.AddFunc(s.spec, s.Tick)
 	if err != nil {
 		cancel()
-		// 构造期已 Parse 过；这里仍兜底，避免 robfig 行为变化时静默吞错。
-		// We pre-parsed in NewCronScheduler; keep this fallback for safety.
+		// 构造期已 Parse 过；这里仍保留错误返回，避免 robfig 行为变化时静默吞错。
 		return fmt.Errorf("cron: add func: %w", err)
 	}
 	s.entryID = id
@@ -186,10 +138,6 @@ func (s *CronScheduler) Start(ctx context.Context) error {
 
 // Stop 优雅关闭 cron loop。可重复调用 / 未 Start 时也安全。
 // Stop 会阻塞直到 robfig/cron 内部 goroutine 退出（其 ctx.Done()）。
-//
-// Stop gracefully shuts down the cron loop. It is idempotent and safe to
-// call without a matching Start. Blocks until robfig/cron's internal
-// goroutine drains.
 func (s *CronScheduler) Stop() error {
 	s.mu.Lock()
 	if !s.started {
@@ -206,7 +154,6 @@ func (s *CronScheduler) Stop() error {
 		cancel()
 	}
 	// 不在 mu 内等待，避免与 robfig/cron 内部回调时序耦合。
-	// Wait outside the mutex to avoid coupling with robfig's internal timing.
 	ctx := c.Stop()
 	<-ctx.Done()
 	s.logger.Info("cron daemon stopped",
@@ -215,14 +162,8 @@ func (s *CronScheduler) Stop() error {
 	return nil
 }
 
-// Tick 是 cron 到点回调（F5.1 占位）。F5.1 范围只 log + 委托给 Ticker；真实
-// next_run_at 扫描、StartDAG 触发由 F5.2 在 Ticker 实现里落地。Tick 公开
-// 是为了让单测在不启动 cron loop 的情况下直接驱动行为。
-//
-// Tick is the cron callback (F5.1 placeholder). Within F5.1 scope it only
-// logs and delegates to Ticker; real next_run_at scanning lands in F5.2 via
-// the Ticker implementation. Tick is exported so tests can exercise the
-// behavior without booting the cron loop.
+// Tick 是 cron 到点回调，负责建立单次超时上下文并委托 Ticker。
+// 公开该方法是为了测试可以不启动 cron loop 直接驱动一次调度扫描。
 func (s *CronScheduler) Tick() {
 	now := time.Now().In(s.location)
 	s.logger.Info("cron tick scheduled",
@@ -262,17 +203,19 @@ const (
 )
 
 const (
+	// scheduledTriggerSource 是 scheduled DAG run 的 trigger_source 固定值。
 	scheduledTriggerSource    = "scheduled"
 	runtimeLockCleanupTimeout = 5 * time.Second
 	runtimeLockRenewInterval  = time.Minute
 )
 
+// dagCronParser 是 DAG cron_expr 的共享解析器；裸表达式会在归一化阶段补 UTC。
 var dagCronParser = robcron.NewParser(
 	robcron.Minute | robcron.Hour | robcron.Dom | robcron.Month | robcron.Dow | robcron.Descriptor,
 )
 
 // TickError 给 Tick 调用方暴露可匹配的错误分类。
-// TickError exposes a matchable error class to Tick callers.
+// Class 区分配置校验和基础设施失败，Op 标明失败发生在哪个扫描阶段。
 type TickError struct {
 	Class string
 	Op    string
@@ -303,24 +246,25 @@ func classifyTickError(class, op string, err error) error {
 }
 
 // DueDAG 是一次 Tick 扫到的 scheduled DAG 最小投影。
-// DueDAG is the minimal projection scanned by one Tick.
+// cron 子包只需要这些字段即可计算下一次触发并构造幂等启动请求。
 type DueDAG struct {
 	DagKey   string
 	CronExpr string
 	DueAt    time.Time
 }
 
-// DAGScheduleStore scans due DAGs; schedule advancement is owned by StartDAG.
+// DAGScheduleStore 负责扫描到期 DAG；推进 next_run_at 由 StartDAG 的持久化路径负责。
 type DAGScheduleStore interface {
 	DueDAGs(ctx context.Context, now time.Time) ([]DueDAG, error)
 }
 
 // DAGStarter 是 StartDAG 的反向依赖适配口，避免 cron 子包 import 父包。
-// DAGStarter adapts StartDAG without importing the parent orchestration package.
 type DAGStarter interface {
 	StartDAG(ctx context.Context, req ScheduledDAGStartRequest) error
 }
 
+// ScheduledDAGStartRequest 是 cron 子包传给 DAG 启动端口的 wire DTO。
+// 它同时携带本次 due_at 和下一次 next_run_at，让启动路径能在同一事务内处理幂等与计划推进。
 type ScheduledDAGStartRequest struct {
 	DagKey         string
 	TriggerSource  string
@@ -329,14 +273,16 @@ type ScheduledDAGStartRequest struct {
 	NextRunAt      time.Time
 }
 
-// ScheduledDAGTicker 实现 F5.2：扫描 next_run_at 到期 DAG 并触发 StartDAG。
-// ScheduledDAGTicker implements F5.2 next_run_at scanning and StartDAG triggering.
+// ScheduledDAGTicker 扫描 next_run_at 到期 DAG 并触发 StartDAG。
+// Tick 期间持有 runtime lock，确保多副本 mcp-orch 不会重复启动同一批计划 run。
 type ScheduledDAGTicker struct {
 	store   DAGScheduleStore
 	starter DAGStarter
 	locker  RuntimeLocker
 }
 
+// ScheduledDAGTickerConfig 是 ScheduledDAGTicker 的显式依赖集合。
+// Store、Starter、Locker 缺一都会 fail-fast，避免调度器启动但无法产生业务效果。
 type ScheduledDAGTickerConfig struct {
 	Store   DAGScheduleStore
 	Starter DAGStarter
@@ -344,13 +290,14 @@ type ScheduledDAGTickerConfig struct {
 }
 
 var (
+	// ScheduledDAGTicker 构造和状态更新路径使用的 sentinel 错误。
 	ErrNilScheduleStore     = errors.New("cron: nil schedule store")
 	ErrNilDAGStarter        = errors.New("cron: nil dag starter")
 	ErrNilLockPool          = errors.New("cron: nil runtime lock provider")
 	ErrScheduleStateChanged = errors.New("cron: scheduled dag state changed before next_run_at update")
 )
 
-// NewScheduledDAGTicker 创建scheduledDAGticker。
+// NewScheduledDAGTicker 创建 scheduled DAG ticker；store、starter、locker 缺一即失败。
 func NewScheduledDAGTicker(cfg ScheduledDAGTickerConfig) (*ScheduledDAGTicker, error) {
 	if cfg.Store == nil {
 		return nil, ErrNilScheduleStore
@@ -368,16 +315,19 @@ func NewScheduledDAGTicker(cfg ScheduledDAGTickerConfig) (*ScheduledDAGTicker, e
 	}, nil
 }
 
+// RuntimeLocker 是 cron 多实例互斥锁端口。
 type RuntimeLocker interface {
 	TryLock(ctx context.Context) (RuntimeLockHandle, bool, error)
 }
 
+// RuntimeLockHandle 是已获取 runtime lock 的续租和释放句柄。
 type RuntimeLockHandle interface {
 	Renew(ctx context.Context) error
 	Unlock(ctx context.Context) error
 }
 
-// Tick 处理tick。
+// Tick 扫描到期 DAG 并按计划启动 run。
+// 整个扫描期间持有 runtime lock，后台续租失败会取消本轮上下文并把错误归类返回。
 func (t *ScheduledDAGTicker) Tick(ctx context.Context, now time.Time) (triggered int, err error) {
 	if ctx == nil {
 		ctx = context.Background()
@@ -413,6 +363,7 @@ func (t *ScheduledDAGTicker) Tick(ctx context.Context, now time.Time) (triggered
 	return triggered, joinDAGErrors(dagErrs)
 }
 
+// tryRuntimeLock 获取本轮 scheduled 扫描的多实例锁。
 func (t *ScheduledDAGTicker) tryRuntimeLock(ctx context.Context) (RuntimeLockHandle, bool, error) {
 	handle, acquired, err := t.locker.TryLock(ctx)
 	if err != nil {
@@ -447,6 +398,7 @@ func (t *ScheduledDAGTicker) startRuntimeLockRenewal(ctx context.Context, handle
 	return errCh
 }
 
+// releaseRuntimeLock 在独立 cleanup timeout 内释放锁；释放失败会写入本轮返回错误。
 func (t *ScheduledDAGTicker) releaseRuntimeLock(handle RuntimeLockHandle, result *error) {
 	cleanupCtx, cancel := platformconfig.WithTimeout(context.Background(), runtimeLockCleanupTimeout)
 	defer cancel()
@@ -455,6 +407,7 @@ func (t *ScheduledDAGTicker) releaseRuntimeLock(handle RuntimeLockHandle, result
 	}
 }
 
+// triggerDueDAG 计算下一次运行时间，并通过 starter 写入本次 scheduled run。
 func (t *ScheduledDAGTicker) triggerDueDAG(ctx context.Context, dag DueDAG, now time.Time) error {
 	nextRunAt, err := t.nextRunAt(dag, now)
 	if err != nil {
@@ -473,6 +426,7 @@ func (t *ScheduledDAGTicker) triggerDueDAG(ctx context.Context, dag DueDAG, now 
 	return nil
 }
 
+// nextRunAt 校验 cron_expr 并计算本轮之后的下一次触发时间。
 func (t *ScheduledDAGTicker) nextRunAt(dag DueDAG, now time.Time) (time.Time, error) {
 	next, err := NextDAGRunAt(dag.CronExpr, now)
 	if err != nil {
@@ -481,11 +435,13 @@ func (t *ScheduledDAGTicker) nextRunAt(dag DueDAG, now time.Time) (time.Time, er
 	return next, nil
 }
 
+// scheduledIdempotencyKey 用 dag_key + due_at 构造幂等键，防止同一到期点重复启动。
 func scheduledIdempotencyKey(dag DueDAG) string {
 	dueAt := dag.DueAt.UTC().Format(time.RFC3339Nano)
 	return "scheduled:" + strings.TrimSpace(dag.DagKey) + ":" + dueAt
 }
 
+// joinDAGErrors 合并多个 DAG 启动错误；单错误保持原链路便于 errors.Is。
 func joinDAGErrors(errs []error) error {
 	switch len(errs) {
 	case 0:
@@ -497,11 +453,8 @@ func joinDAGErrors(errs []error) error {
 	}
 }
 
-// ParseDAGCronExpr parses the DAG cron contract. Bare cron expressions are
-// interpreted in UTC; callers that need wall-clock local time must prefix the
-// expression with CRON_TZ=<IANA>, for example:
-// CRON_TZ=Asia/Shanghai 0 8 * * *.
-// ParseDAGCronExpr 解析DAGcronexpr。
+// ParseDAGCronExpr 解析 DAG cron 表达式。
+// 裸表达式按 UTC 解释；需要本地墙钟时间时必须显式加 CRON_TZ=<IANA> 前缀。
 func ParseDAGCronExpr(cronExpr string) (robcron.Schedule, error) {
 	spec, err := normalizedDAGCronSpec(cronExpr)
 	if err != nil {
@@ -514,7 +467,7 @@ func ParseDAGCronExpr(cronExpr string) (robcron.Schedule, error) {
 	return schedule, nil
 }
 
-// NextDAGRunAt 处理nextDAG运行记录at。
+// NextDAGRunAt 返回 after 之后的下一次 DAG 计划触发时间。
 func NextDAGRunAt(cronExpr string, after time.Time) (time.Time, error) {
 	schedule, err := ParseDAGCronExpr(cronExpr)
 	if err != nil {
@@ -523,6 +476,7 @@ func NextDAGRunAt(cronExpr string, after time.Time) (time.Time, error) {
 	return schedule.Next(after.UTC()), nil
 }
 
+// normalizedDAGCronSpec 压缩空白并为裸 cron 表达式补上 UTC 时区。
 func normalizedDAGCronSpec(cronExpr string) (string, error) {
 	spec := strings.TrimSpace(cronExpr)
 	if spec == "" {
@@ -539,6 +493,7 @@ func normalizedDAGCronSpec(cronExpr string) (string, error) {
 	return "CRON_TZ=UTC " + normalized, nil
 }
 
+// hasDAGCronTZPrefix 判断 cron 首字段是否已显式声明时区。
 func hasDAGCronTZPrefix(field string) bool {
 	return strings.HasPrefix(field, "TZ=") || strings.HasPrefix(field, "CRON_TZ=")
 }

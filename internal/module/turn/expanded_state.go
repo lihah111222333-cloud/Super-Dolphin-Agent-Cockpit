@@ -10,10 +10,8 @@ import (
 )
 
 // ExpandedArtifact 记录一次 skill artifact 的注入历史。
-//
-// P20.1 §3.6：expanded state 的去重键从 P20 原设计的纯 `name` 升级到
-// 五元组 `(name, kind, locator, hash)`，避免同 skill 不同 body/resource
-// 被错误去重。
+// 去重维度包含 name、kind、locator 和 hash，避免同一 skill 的正文、
+// 资源文件或 metadata 互相压制。
 type ExpandedArtifact struct {
 	// Name 是 skill 标识符，已规范化为小写 trim。
 	Name string
@@ -32,8 +30,8 @@ type ExpandedArtifact struct {
 	LastUsedAt time.Time
 }
 
-// ExpandedArtifactState 线程安全的 artifact 注入状态表，实现 P20.1 §3.6 的
-// 细粒度去重。状态与 turn lifecycle 绑定：
+// ExpandedArtifactState 是线程安全的 artifact 注入状态表。
+// 它与 turn 进度绑定，用 TTL 限制“已注入”记忆的有效窗口：
 //
 //   - TTL 默认 5 turn：`turnIdx - entry.LastTurnIdx < TTL` 视为 Fresh（已注入）
 //   - `Reset()` 清空所有条目：thread resume / history compact / 显式刷新时调
@@ -41,12 +39,12 @@ type ExpandedArtifact struct {
 //
 // 使用时建议绑定到 turn service 的 session 级字段，供 Resolver 查询/更新。
 type ExpandedArtifactState struct {
-	mu      sync.RWMutex
-	ttl     int
-	entries map[string]ExpandedArtifact
+	mu      sync.RWMutex                // 保护 entries 的并发读写
+	ttl     int                         // Fresh 判定使用的 turn 数窗口
+	entries map[string]ExpandedArtifact // artifact key 到最近注入记录
 }
 
-// DefaultExpandedTTL 是 P20.1 §3.6 建议的 TTL（turn 数）。
+// DefaultExpandedTTL 是 artifact 注入记忆默认保留的 turn 数窗口。
 const DefaultExpandedTTL = 5
 
 // NewExpandedArtifactState 构造一个新的 state。ttl <= 0 时兜底为 DefaultExpandedTTL。
@@ -68,11 +66,9 @@ func (s *ExpandedArtifactState) TTL() int {
 	return s.ttl
 }
 
-// Mark 把一次注入记录写入 state。
-//
-// 从 SkillRef 提取 (name, version hash) 作为 artifact hash；Kind 与 Locator
-// 当前默认 body/SKILL.md（artifact 审批入口；P3 cutover 之后 codex 走
-// 会传入更细的 kind/locator，但本 Phase 只做 body 场景的骨架）。
+// Mark 把一次 SkillRef 注入写入 state。
+// SkillRef 只携带 name/version，因此这里按 body/SKILL.md 记录；更细的
+// artifact 粒度由 MarkArtifact 入口直接传入。
 func (s *ExpandedArtifactState) Mark(ref dto.SkillRef, turnIdx int) ExpandedArtifact {
 	if s == nil {
 		return ExpandedArtifact{}
@@ -117,8 +113,8 @@ func (s *ExpandedArtifactState) MarkArtifact(name, kind, locator, hash string, t
 	return entry
 }
 
-// IsFresh 判断对应 SkillRef 的 artifact 是否在 TTL 内已注入过。
-// 同 name 但不同 kind/locator/hash 互不抑制（P20.1 §3.6 细粒度语义）。
+// IsFresh 判断对应 SkillRef 的默认 body artifact 是否仍在 TTL 窗口内。
+// 同 name 但 kind、locator 或 hash 不同的 artifact 不会互相抑制。
 func (s *ExpandedArtifactState) IsFresh(ref dto.SkillRef, turnIdx int) bool {
 	if s == nil {
 		return false
@@ -130,7 +126,8 @@ func (s *ExpandedArtifactState) IsFresh(ref dto.SkillRef, turnIdx int) bool {
 	return s.isFreshByKey(ArtifactKey(probe.Name, probe.Kind, probe.Locator, probe.Hash), probe.Hash, turnIdx)
 }
 
-// IsArtifactFresh 直接按 (name, kind, locator, hash) 查询 Fresh，供 Phase 6 工具使用。
+// IsArtifactFresh 按完整 artifact 维度查询是否仍在 TTL 窗口内。
+// 调用方可以传入资源文件或 metadata locator，避免只按 skill 名称误判。
 func (s *ExpandedArtifactState) IsArtifactFresh(name, kind, locator, hash string, turnIdx int) bool {
 	if s == nil {
 		return false
@@ -148,6 +145,8 @@ func (s *ExpandedArtifactState) IsArtifactFresh(name, kind, locator, hash string
 	return s.isFreshByKey(ArtifactKey(normalizedName, normalizedKind, normalizedLocator, normalizedHash), normalizedHash, turnIdx)
 }
 
+// isFreshByKey 在锁内按 artifact key 和完整 hash 判定是否仍在 TTL 内。
+// 完整 hash 用于补强短 hash key，turnIdx 倒退时强制视为不 fresh 以便 resume 后重注入。
 func (s *ExpandedArtifactState) isFreshByKey(key, fullHash string, turnIdx int) bool {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -231,8 +230,8 @@ func (s *ExpandedArtifactState) Snapshot() []ExpandedArtifact {
 	return out
 }
 
-// ArtifactKey 是 P20.1 §3.6 的 map key 生成器，对外导出供 expanded state
-// 调用方构造一致的 artifact 审批键。
+// ArtifactKey 生成 expanded state 使用的稳定 map key。
+// 外部调用方用同一规则构造审批键，确保 body/resource/metadata 共用一致的短 hash 策略。
 //
 // 格式：lower(name) + "::" + kind + "::" + locator + "@" + short(hash)
 // 其中 short(hash) 取前 12 位小写 hex，与 skill.approvalKey 短 hash 策略一致。
@@ -247,9 +246,8 @@ func ArtifactKey(name, kind, locator, hash string) string {
 	return lowerName + "::" + kind + "::" + locator + "@" + shortHash
 }
 
-// normalizeArtifactKind 将输入规范化为已知 kind 常量，未知值兜底为 body。
-// 与 skill.IsValidArtifactKind 语义对齐但更宽松：对非法值不报错而是降级，
-// 因为 expanded state 作为内部缓存结构不应打断主流程。
+// normalizeArtifactKind 将输入规范化为已知 kind 常量。
+// 未知值只在内部缓存层按 body 处理，不改变外部 artifact 校验和审批边界。
 func normalizeArtifactKind(kind string) string {
 	switch strings.TrimSpace(strings.ToLower(kind)) {
 	case contract.ArtifactKindMetadata:
@@ -261,9 +259,8 @@ func normalizeArtifactKind(kind string) string {
 	}
 }
 
-// artifactFromRef 将 SkillRef 映射为 ExpandedArtifact（本 Phase 默认 body/SKILL.md）。
-// SkillRef.Version 被当作 artifact hash 使用（Phase 1 hydrate 阶段把
-// SkillInfo.ContentHash 的前 12 位写入 Version）。
+// artifactFromRef 将 SkillRef 映射为默认 body artifact。
+// SkillRef.Version 承载内容 hash 的短版本，用于跨 turn 判断同一 skill 正文是否已注入。
 func artifactFromRef(ref dto.SkillRef, turnIdx int) ExpandedArtifact {
 	name := strings.ToLower(strings.TrimSpace(ref.Name))
 	if name == "" {

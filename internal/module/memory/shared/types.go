@@ -8,10 +8,10 @@ import (
 	"golang.org/x/text/unicode/norm"
 )
 
-// MemoryType 是记忆条目的分类标签，用于过滤和路由。
+// MemoryType 是记忆条目的 wire 分类标签，用于磁盘 frontmatter、UI 过滤和检索路由。
 type MemoryType string
 
-// 记忆类型枚举：unknown 为解析失败兜底，其余为业务分类。
+// 记忆类型枚举；unknown 只表示解析失败或未知输入，不能作为新写入类型。
 const (
 	MemoryTypeUnknown   MemoryType = "unknown"
 	MemoryTypeUser      MemoryType = "user"
@@ -46,7 +46,8 @@ func (t MemoryType) IsKnown() bool {
 	}
 }
 
-// MemoryFrontmatter 是记忆文件 YAML frontmatter 的结构化表示。
+// MemoryFrontmatter 是记忆文件 YAML frontmatter 的 wire 结构。
+// 字段 tag 兼容磁盘 Markdown 文件，新增字段必须保持旧文件可解析。
 type MemoryFrontmatter struct {
 	Name        string      `yaml:"name"`
 	Description string      `yaml:"description"`
@@ -59,7 +60,8 @@ type MemoryFrontmatter struct {
 	Source string `yaml:"source,omitempty"`
 }
 
-// MemoryEntry 是加载到内存中的单条记忆，包含 frontmatter 元数据与正文内容。
+// MemoryEntry 是加载到内存中的单条记忆。
+// yaml:"-" 字段只在进程内参与索引、排序和路径校验，不写回 frontmatter。
 type MemoryEntry struct {
 	Frontmatter   MemoryFrontmatter `yaml:",inline"`
 	Content       string            `yaml:"-"`
@@ -68,7 +70,8 @@ type MemoryEntry struct {
 	UpdatedAt     time.Time         `yaml:"-"`
 }
 
-// ParsedMemory 是从磁盘解析后的记忆文件结构，含原始内容和 include 引用列表。
+// ParsedMemory 是磁盘解析结果，保留原文、正文和 include 引用。
+// ContentDiffersFromDisk 用于提示解析层是否做过规范化，调用方不能把它当成用户编辑。
 type ParsedMemory struct {
 	Content                string
 	RawContent             string

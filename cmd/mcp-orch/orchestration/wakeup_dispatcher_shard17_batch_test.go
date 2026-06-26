@@ -209,7 +209,7 @@ func TestBuildLaunchRequestFromWakeupDecodesJSONPayload(t *testing.T) {
 	req := buildLaunchRequestFromWakeup(w)
 	// json tag 走 Go 字段反射默认行为（exact field name），所以 agent_id 不会
 	// 被读到。但 AgentID 既不存在又不为空时，buildLaunchRequest 会用 wakeup
-	// fallback。验证 fallback 生效即可——payload 正式 schema 在 Phase 3.4 定。
+	// fallback。验证 fallback 生效即可，payload 结构由 buildLaunchRequest 兼容处理。
 	if req.AgentID != "fallback-agent" {
 		t.Fatalf("AgentID = %q, want fallback-agent (json tag mismatch ignored, fallback applied)", req.AgentID)
 	}
@@ -265,10 +265,10 @@ func TestWakeupDispatcherRunSurvivesClaimErrorAndContinues(t *testing.T) {
 	}
 }
 
-// Phase 3.5w 新增：DAG-aware retry 决策。
+// 下列用例覆盖带 DAG 节点的 retry 决策。
 
-// makeDAGWakeup 是 makeClaimedWakeup 的 DAG 版：DagKey/NodeKey 非空让
-// markTransientRetry 走新加的 tryDAGFailWithCascade 决策路径。
+// makeDAGWakeup 构造带 DagKey/NodeKey 的 claimed wakeup。
+// 非空 DAG 标识会让 markTransientRetry 进入 tryDAGFailWithCascade 分支。
 func makeDAGWakeup(id int64, dagKey, nodeKey, agent string, attempt int32, ts time.Time) taskdag.Wakeup {
 	w := makeClaimedWakeup(id, agent, attempt, ts)
 	w.DagKey = dagKey

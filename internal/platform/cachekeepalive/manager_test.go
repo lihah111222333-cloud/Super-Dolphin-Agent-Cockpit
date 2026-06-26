@@ -77,9 +77,8 @@ func newTestManager(resolver contract.SessionResolver, bindings bindingstore.Sto
 	}
 }
 
-// shutdownForTest wraps Shutdown with a short bounded ctx so existing tests
-// can keep using `t.Cleanup(m.shutdownForTest)` style cleanups after the
-// P22 P2 signature change.
+// shutdownForTest 用短超时 ctx 包装 Shutdown，供测试在 t.Cleanup 中幂等收尾。
+// 这样每个用例都走真实关闭路径，同时避免失败时长期阻塞。
 func (m *Manager) shutdownForTest() {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
@@ -220,9 +219,8 @@ func TestDeliverPingReschedulesOnFailure(t *testing.T) {
 	m.register("session-1", "agent-1", "thread-1")
 	before := requireAgentTimer(t, m.snapshotTimer("session-1", nil), "before")
 
-	// A failed keepalive ping must still re-arm the timer: the silent turn
-	// dispatches no TurnCompleted, so deliverPing is the only path that keeps
-	// the keepalive loop alive after a failure.
+	// keepalive ping 失败后仍必须重新布置 timer：静默 turn 不会派发 TurnCompleted。
+	// deliverPing 是失败路径维持 keepalive 循环的唯一入口。
 	timerRef := &agentTimer{sessionUUID: "session-1", agentID: "agent-1", threadID: "thread-1"}
 	m.deliverPing(context.Background(), "session-1", timerRef, &failingKeepaliveSession{})
 

@@ -21,19 +21,15 @@ const (
 	lifecycleHookExecutionTimeout = time.Second
 )
 
-// NodeLifecycleHooks is the production hook set injected into node executors.
-// Keeping it as a named type lets fx distinguish the lifecycle hook map from
-// ad-hoc map[HookPoint]HookHandler values in tests.
-//
-// hook 只做观察和通知，不能决定节点状态。
-// 节点状态以 store、subscriber 和 dispatcher 写入为准。
+// NodeLifecycleHooks 是注入 node executor 的生产 hook 集合。
+// 命名类型让 fx 能区分生产 hook map 和测试临时 map；hook 只能观察/通知，不能决定节点状态。
 type NodeLifecycleHooks map[nodeexec.HookPoint]nodeexec.HookHandler
 
 type loggingNodeLifecycleHook struct {
 	logger *slog.Logger
 }
 
-// ProvideNodeLifecycleHooks 提供节点生命周期 hook 集合。
+// ProvideNodeLifecycleHooks 提供默认的节点 lifecycle 日志 hook 集合。
 func ProvideNodeLifecycleHooks(logger *slog.Logger) NodeLifecycleHooks {
 	handler := loggingNodeLifecycleHook{logger: logger}
 	return NodeLifecycleHooks{
@@ -44,7 +40,7 @@ func ProvideNodeLifecycleHooks(logger *slog.Logger) NodeLifecycleHooks {
 	}
 }
 
-// ProvideAutomationExecutor 提供自动化节点执行器。
+// ProvideAutomationExecutor 为 fx 构造带 lifecycle hooks 的 automation executor。
 func ProvideAutomationExecutor(
 	getter nodeexec.AutomationCommandGetter,
 	runner nodeexec.AutomationCommandRunner,
@@ -53,7 +49,8 @@ func ProvideAutomationExecutor(
 	return nodeexec.NewAutomationExecutor(getter, runner, nodeexec.WithAutomationHooks(map[nodeexec.HookPoint]nodeexec.HookHandler(hooks)))
 }
 
-// Handle 处理节点执行请求并回写结果。
+// Handle 记录节点生命周期事件。
+// hook 失败不会影响节点状态，因此当前实现只做诊断日志。
 func (h loggingNodeLifecycleHook) Handle(_ context.Context, point nodeexec.HookPoint, node nodeexec.Node, outcome nodeexec.NodeOutcome) error {
 	logger := h.logger
 	if logger == nil {
@@ -214,7 +211,8 @@ func patchAgentExecModel(raw json.RawMessage, model string) (json.RawMessage, er
 	return json.Marshal(root)
 }
 
-// appendAgentValidationDiagnostic 把代理节点校验错误追加到诊断列表。
+// appendAgentValidationDiagnostic 把上一次 validation 错误追加到 agent first_turn。
+// 用于 retry/diagnostic 路径，避免覆盖用户原始提示。
 func appendAgentValidationDiagnostic(raw json.RawMessage, summary string) (json.RawMessage, error) {
 	root, err := rawJSONObject(raw)
 	if err != nil {
@@ -351,7 +349,7 @@ func (d *WakeupDispatcher) handleClaimedViaRouter(ctx context.Context, w *taskda
 	case nodeexec.NodeStatusFailed:
 		return d.handleFailedRouterOutcome(ctx, w, fence, outcome)
 	default:
-		// done / skipped / waiting_human / zero-value all mean this wakeup is complete.
+		// done、skipped、waiting_human 和零值都表示本次 wakeup 已由 router 收敛。
 		return d.markLaunched(ctx, w, fence)
 	}
 }

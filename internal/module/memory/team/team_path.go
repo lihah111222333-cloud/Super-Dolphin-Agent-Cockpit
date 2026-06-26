@@ -16,6 +16,7 @@ import (
 
 const maxTeamPathDecodePasses = 4
 
+// teamPathError 把底层路径校验失败包装成 key 或写路径对应的公开错误，避免 UI/RPC 混淆读写边界。
 type teamPathError func(string) error
 
 // sanitizePathKey 对路径键进行字符串级规范化（Unicode NFKC、URL 解码、斜杠统一），
@@ -55,7 +56,7 @@ func validateTeamMemWritePathBasic(file string) error {
 	return err
 }
 
-// validateTeamMemCandidate 校验teammem候选项。
+// validateTeamMemCandidate 校验 team memory 写入候选路径并返回安全相对路径。
 func validateTeamMemCandidate(root, file string, wrap teamPathError) (string, error) {
 	rootDir, err := validateTeamMemRoot(root, wrap)
 	if err != nil {

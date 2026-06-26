@@ -12,12 +12,15 @@ const (
 	MethodUISidebarChanged = "ui/sidebar/changed"
 )
 
+// Notification 是发送到前端事件面的单条通知。
+// Method/Payload 保持旧 UI wire 形状，ExpandNotifications 会在必要时追加兼容刷新通知。
 type Notification struct {
 	Method  string
 	Payload any
 }
 
-// ExpandNotifications 处理expandnotifications。
+// ExpandNotifications 展开当前事件和旧 UI 兼容刷新事件。
+// 空 method 直接丢弃；thread/sidebar 兼容通知只在载荷能定位 agent 或 thread 时追加。
 func ExpandNotifications(method string, payload any) []Notification {
 	method = strings.TrimSpace(method)
 	if method == "" {

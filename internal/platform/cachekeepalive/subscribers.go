@@ -9,8 +9,8 @@ import (
 	"github.com/kelindar/event"
 )
 
-// NewCacheKeepaliveSubscribers declares cachekeepalive relay subscriptions for BusModule.
-// NewCacheKeepaliveSubscribers 创建缓存keepalivesubscribers。
+// NewCacheKeepaliveSubscribers 声明 cachekeepalive 的 bus 订阅规格。
+// cancel 由 SubscriberGroup 托管并用 sync.Once 包装，确保 fx 停止重入时只注销一次。
 func NewCacheKeepaliveSubscribers(manager *Manager, logger *pkglogger.Logger) platformbus.SubscriberResult {
 	return platformbus.SubscriberResult{
 		Spec: platformbus.SubscriberSpec{

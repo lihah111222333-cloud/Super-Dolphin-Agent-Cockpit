@@ -13,24 +13,8 @@ import (
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
-// SessionRuntime is the session-private RunnerModule owner introduced by
-// P22 P1c. It replaces the implicit reader / health / recovery goroutines
-// that newSession() used to spawn, and collapses the three fire-and-forget
-// paths (transport call failure, connection.dead notification, idle health
-// failure) into a single coalesced, stop-gated signal stream.
-//
-// Lifecycle (per docs/plans/迁移/p22/P1c_CodexAppSessionRuntime.md §目标架构):
-//
-//	newSession()                     → builds session + runtime handle only
-//	StartSession / ResumeSession     → runtime.Start() (single explicit startup)
-//	session.handleConnectionDead /
-//	session.checkIdleHealth /
-//	session.callTransport            → only emit signals; runtime owns workers
-//	session.Close / ForceStop        → runtime.Stop() (cancel + drain, single ingress)
-//
-// The sync path in callTransport still calls session.attemptRecovery directly
-// because it is already owner-tracked by its caller goroutine; SessionRuntime
-// only owns the async signal-driven recovery worker plus reader / health.
+// SessionRuntime 管理单个 Codex 会话的 reader、健康探测和异步恢复 worker。
+// Start 只启动一次，Stop 关闭 stop gate 并等待所有 worker 收尾；同步 RPC 恢复仍由调用方 goroutine 直接执行。
 type SessionRuntime struct {
 	s      *session
 	logger *slog.Logger
@@ -44,23 +28,20 @@ type SessionRuntime struct {
 
 	wg sync.WaitGroup
 
-	// signalCh is a size-1 buffered channel. NotifyRecovery enqueues up to
-	// one signal at a time; further bursts are counted as "coalesced" rather
-	// than queued, which is what P1c §需冻结的兼容语义 demands.
+	// signalCh 只缓存一个恢复信号，突发故障会合并计数，避免恢复 worker 积压重复重连。
 	signalCh chan string
 
-	// Reader lifecycle is owned here because P1c requires Close / ForceStop
-	// to join reader without going through session.waitReadLoopStopped helper.
+	// reader 生命周期归 runtime 管理，Stop 必须能取消并等待当前 ReadLoop 退出。
 	readerMu     sync.Mutex
 	readerDone   chan struct{}
 	readerCancel context.CancelFunc
 
-	// Config (overridable for tests via sessionRuntimeOption).
+	// 健康探测配置，可由测试通过 sessionRuntimeOption 覆盖。
 	healthInterval      time.Duration
 	healthIdleThreshold time.Duration
 	now                 func() time.Time
 
-	// Observability counters. Emitted in structured logs on Stop.
+	// 恢复信号计数会在 Stop 时写入结构化日志，供测试和诊断读取。
 	recoverySignalTotal    atomic.Int64
 	recoveryCoalescedTotal atomic.Int64
 	droppedSignalTotal     atomic.Int64
@@ -100,18 +81,15 @@ func newSessionRuntime(s *session, logger *slog.Logger, opts ...sessionRuntimeOp
 	return r
 }
 
-// Start is idempotent: the first call spawns reader + health + recovery
-// workers; every subsequent call is a no-op. StartSession / ResumeSession
-// are the only production callers; tests call Start() directly.
-// Start 启动codexapp provider流程。
+// Start 幂等启动 reader、健康探测和恢复 worker。
+// 生产路径只应由 StartSession/ResumeSession 调用；重复调用不会创建第二组 goroutine。
 func (r *SessionRuntime) Start() {
 	r.startedOnce.Do(func() {
 		r.started.Store(true)
 		r.logger.Info("codexapp: session_runtime.start",
 			"agent_id", r.s.agentID,
 			"thread_id", r.s.ThreadID())
-		// Reader is spawned via spawnReader (tracked outside wg so restart
-		// on recovery does not race with wg.Wait).
+		// reader 单独跟踪，恢复时可以替换 reader，而不会和 Stop 的 wg.Wait 竞争。
 		r.spawnReader()
 		r.wg.Add(2)
 		go r.safeRunHealthLoop()
@@ -119,18 +97,16 @@ func (r *SessionRuntime) Start() {
 	})
 }
 
-// Started reports whether Start has been called at least once.
-// Started 记录阶段开始并返回开始时间。
+// Started 返回 Start 是否至少执行过一次。
+// 该状态只表示 runtime 已进入启动路径，不保证 reader 当前仍存活。
 func (r *SessionRuntime) Started() bool { return r.started.Load() }
 
-// Stopped reports whether Stop has been initiated.
-// Stopped 处理stopped。
+// Stopped 返回 Stop 是否已经开始执行。
+// 一旦为 true，新的恢复信号和 reader 重启都必须被 stop gate 拒绝。
 func (r *SessionRuntime) Stopped() bool { return r.stopped.Load() }
 
-// Stop closes the stop gate, cancels the session context, joins reader /
-// health / recovery, and records the drain latency. Idempotent: second and
-// subsequent callers block on drainCh until the first Stop finishes.
-// Stop 停止codexapp provider流程。
+// Stop 关闭 stop gate、取消 session context，并等待 reader/health/recovery 全部退出。
+// 多个调用方并发 Stop 时，只有第一个执行清理，其余调用方等待 drainCh 完成。
 func (r *SessionRuntime) Stop() {
 	first := false
 	r.stopOnce.Do(func() {
@@ -138,8 +114,7 @@ func (r *SessionRuntime) Stop() {
 		r.stopped.Store(true)
 		startedAt := r.now()
 		close(r.stopCh)
-		// Cancel the session's own ctx — propagates to reader ReadLoop,
-		// health ticker, recovery worker's Reconnect.
+		// 取消 session context 会传播到 ReadLoop、健康探测和恢复中的 Reconnect。
 		r.s.cancel()
 		r.cancelReader()
 		r.wg.Wait()
@@ -160,18 +135,17 @@ func (r *SessionRuntime) Stop() {
 	}
 }
 
-// Drained returns a channel closed once Stop has completed.
-// Drained 标记运行时已经完成收尾。
+// Drained 返回 Stop 完成后关闭的通道。
+// 外部只应等待该通道，不应尝试自行关闭或替换 runtime 内部状态。
 func (r *SessionRuntime) Drained() <-chan struct{} { return r.drainCh }
 
-// NotifyRecovery enqueues a recovery signal under the stop gate.
+// NotifyRecovery 在 stop gate 未关闭时提交一次恢复信号。
 //
-//   - Gate closed  → signal dropped (droppedSignalTotal incremented).
-//   - Inbox empty  → signal enqueued (recoverySignalTotal incremented).
-//   - Inbox full   → signal coalesced (recoveryCoalescedTotal incremented).
+//   - gate 已关闭：丢弃并计入 droppedSignalTotal。
+//   - inbox 为空：入队并计入 recoverySignalTotal。
+//   - inbox 已满：合并并计入 recoveryCoalescedTotal。
 //
-// The source tag is a short identifier: "connection-dead", "health-failure",
-// "transport-call" — matching P1c §覆盖问题 three ingress paths.
+// source 是短标签，当前用于区分 connection-dead、health-failure、transport-call 等入口。
 func (r *SessionRuntime) NotifyRecovery(source, reason string) {
 	select {
 	case <-r.stopCh:
@@ -194,15 +168,16 @@ func (r *SessionRuntime) NotifyRecovery(source, reason string) {
 	}
 }
 
-// RecoverySignalsTotal / RecoveryCoalescedTotal / DroppedSignalsTotal expose
-// the internal counters for test assertions and future metric hookup (P2).
-// RecoverySignalsTotal 处理recoverysignalstotal。
+// RecoverySignalsTotal 返回已进入恢复队列的信号数。
+// 该值用于测试和诊断，不代表恢复最终成功次数。
 func (r *SessionRuntime) RecoverySignalsTotal() int64 { return r.recoverySignalTotal.Load() }
 
-// RecoveryCoalescedTotal 处理recoverycoalescedtotal。
+// RecoveryCoalescedTotal 返回因恢复队列已满而被合并的信号数。
+// 用它可以判断连接抖动是否集中爆发，而不是逐个排队重连。
 func (r *SessionRuntime) RecoveryCoalescedTotal() int64 { return r.recoveryCoalescedTotal.Load() }
 
-// DroppedSignalsTotal 处理droppedsignalstotal。
+// DroppedSignalsTotal 返回 stop gate 关闭后被丢弃的恢复信号数。
+// Stop 期间出现增长是预期行为，表示关闭路径没有再启动恢复。
 func (r *SessionRuntime) DroppedSignalsTotal() int64 { return r.droppedSignalTotal.Load() }
 
 func (r *SessionRuntime) safeRunHealthLoop() {
@@ -226,9 +201,8 @@ func (r *SessionRuntime) runHealthLoop() {
 	}
 }
 
-// tickHealth runs one health probe. On transport failure it converts the
-// failure into a recovery signal; it never spawns its own worker.
-// tickHealth 处理tickhealth。
+// tickHealth 执行一次空闲健康探测，并把 transport 故障转换为恢复信号。
+// RPC 协议类错误说明服务仍在响应，不会触发恢复。
 func (r *SessionRuntime) tickHealth() {
 	if r.s.recovery == nil {
 		return
@@ -243,8 +217,7 @@ func (r *SessionRuntime) tickHealth() {
 	}
 	r.logger.Warn("codexapp: health check failed", "error", err)
 	msg := strings.ToLower(err.Error())
-	// RPC protocol errors are "server alive, returned error"; not a transport
-	// problem, no recovery.
+	// RPC 协议错误代表 server 活着但拒绝了请求，不属于连接失活。
 	if strings.Contains(msg, "rpc error") ||
 		strings.Contains(msg, "invalid request") ||
 		strings.Contains(msg, "method not found") {
@@ -260,7 +233,8 @@ func (r *SessionRuntime) safeRunRecoveryWorker() {
 	r.runRecoveryWorker()
 }
 
-// runRecoveryWorker 运行recoveryworker。
+// runRecoveryWorker 串行消费恢复信号并调用 session 恢复流程。
+// worker 只在 stop gate 关闭时退出，单次恢复失败会记录告警但不终止 worker。
 func (r *SessionRuntime) runRecoveryWorker() {
 	for {
 		select {
@@ -276,11 +250,8 @@ func (r *SessionRuntime) runRecoveryWorker() {
 	}
 }
 
-// spawnReader starts a new reader goroutine if the stop gate is open and no
-// reader is currently tracked. Returns true when a goroutine was spawned.
-// Callers that need to replace an existing reader (e.g. attemptRecovery after
-// Reconnect) must waitReader first.
-// spawnReader 处理spawn读取器。
+// spawnReader 在 stop gate 未关闭且没有活跃 reader 时启动新的 ReadLoop goroutine。
+// 恢复路径替换 reader 前必须先 waitReader，避免两个 reader 同时消费同一 WebSocket。
 func (r *SessionRuntime) spawnReader() bool {
 	r.readerMu.Lock()
 	defer r.readerMu.Unlock()
@@ -314,15 +285,14 @@ func (r *SessionRuntime) spawnReader() bool {
 	return true
 }
 
-// restartReader is attemptRecovery's hook for spawning a fresh reader after a
-// successful Reconnect. It assumes waitReader has already joined the old one.
-// Returns false when the stop gate is closed.
+// restartReader 在 Reconnect 成功后启动新的读取 goroutine。
+// 调用方必须先等待旧 reader 退出；Stop gate 已关闭时返回 false。
 func (r *SessionRuntime) restartReader() bool {
 	return r.spawnReader()
 }
 
-// cancelReader cancels the current reader's context so ReadLoop exits.
-// Called by Stop and from tests that need to prove drain semantics.
+// cancelReader 取消当前 reader 上下文，让 ReadLoop 自行退出。
+// Stop 和验证 drain 行为的测试会共用这条关闭路径。
 func (r *SessionRuntime) cancelReader() {
 	r.readerMu.Lock()
 	cancel := r.readerCancel
@@ -332,8 +302,8 @@ func (r *SessionRuntime) cancelReader() {
 	}
 }
 
-// waitReader blocks until the current reader's goroutine has finished, or
-// ctx cancels. Returns nil if no reader is tracked.
+// waitReader 等待当前 reader goroutine 退出，或在 ctx 取消时返回错误。
+// 没有已登记 reader 时返回 nil，表示恢复流程无需等待旧读取器。
 func (r *SessionRuntime) waitReader(ctx context.Context) error {
 	r.readerMu.Lock()
 	done := r.readerDone
@@ -349,8 +319,8 @@ func (r *SessionRuntime) waitReader(ctx context.Context) error {
 	}
 }
 
-// waitReaderDone blocks unconditionally on the current reader's done channel.
-// Used by Stop, which cannot fail.
+// waitReaderDone 无条件等待当前 reader 的 done 通道。
+// Stop 路径不能返回错误，因此使用这个不可失败的收尾 helper。
 func (r *SessionRuntime) waitReaderDone() {
 	r.readerMu.Lock()
 	done := r.readerDone
@@ -361,16 +331,15 @@ func (r *SessionRuntime) waitReaderDone() {
 	<-done
 }
 
-// errRuntimeStopped is returned by attemptRecovery when the runtime has been
-// stopped mid-flight (e.g. Close raced with a callTransport retry).
+// errRuntimeStopped 表示恢复过程中 runtime 已停止。
+// 常见场景是 Close 与 callTransport 重试并发，调用方应按会话关闭处理。
 var (
 	errRuntimeStopped = errors.New("codexapp: session runtime stopped")
 	errSessionClosing = errors.New("codexapp: session closing")
 )
 
-// recoverWorkerPanic catches any panic from a session runtime worker goroutine,
-// logging it with structured context so the process stays alive. This replaces
-// what would otherwise be a fatal crash from an unrecovered panic.
+// recoverWorkerPanic 捕获 session runtime worker goroutine 的 panic。
+// 它记录结构化上下文并保住进程，避免单个后台 worker 的未恢复 panic 直接崩溃宿主。
 func (r *SessionRuntime) recoverWorkerPanic(label string, rec any) {
 	if rec != nil {
 		r.logger.Error("codexapp: recovered worker panic",

@@ -16,16 +16,20 @@ import (
 	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
 )
 
+// copyOptions 控制工作区文件复制方式。
 type copyOptions struct {
 	Atomic bool
 	Mode   os.FileMode
 }
 
+// runFilePaths 保存同一相对文件在源目录和工作区中的绝对路径。
 type runFilePaths struct {
 	SourcePath    string
 	WorkspacePath string
 }
 
+// inspectedRunFile 是一次文件检查的快照。
+// hash 为空表示对应文件不存在，不把缺失和空文件混淆。
 type inspectedRunFile struct {
 	RelativePath    string
 	Paths           runFilePaths
@@ -35,13 +39,16 @@ type inspectedRunFile struct {
 	WorkspaceExists bool
 }
 
+// mergeEvaluationKind 区分普通文件更新和 workspace 删除文件两类判定。
 type mergeEvaluationKind string
 
+// merge 文件判定类型。
 const (
 	mergeEvaluationTracked mergeEvaluationKind = "tracked"
 	mergeEvaluationRemoved mergeEvaluationKind = "removed"
 )
 
+// mergeFileSnapshot 固化 merge 判定所需的哈希和 dry-run 状态。
 type mergeFileSnapshot struct {
 	File               storeworkspace.WorkspaceRunFile
 	RelativePath       string
@@ -50,6 +57,7 @@ type mergeFileSnapshot struct {
 	DryRun             bool
 }
 
+// copyRunFile 将源文件复制到对应 workspace 路径。
 func copyRunFile(run storeworkspace.WorkspaceRun, rel string) error {
 	paths := runPaths(&run, rel)
 	if err := copyPreserveMode(paths.SourcePath, paths.WorkspacePath, copyOptions{}); err != nil {
@@ -58,6 +66,7 @@ func copyRunFile(run storeworkspace.WorkspaceRun, rel string) error {
 	return nil
 }
 
+// copyFileAtomic 原子复制文件到目标路径并设置权限。
 func copyFileAtomic(source, target string, perm os.FileMode) error {
 	return copyPreserveMode(source, target, copyOptions{
 		Atomic: true,
@@ -65,6 +74,8 @@ func copyFileAtomic(source, target string, perm os.FileMode) error {
 	})
 }
 
+// copyPreserveMode 按源文件权限复制内容。
+// Atomic=true 时用于写回 source root，先写临时文件再 rename。
 func copyPreserveMode(sourcePath, targetPath string, opts copyOptions) error {
 	sourceFile, err := os.Open(sourcePath)
 	if err != nil {
@@ -87,7 +98,8 @@ func copyPreserveMode(sourcePath, targetPath string, opts copyOptions) error {
 	return copyPreserveModeDirect(sourceFile, targetPath, perm)
 }
 
-// copyPreserveModeAtomic 复制preserve模式atomic。
+// copyPreserveModeAtomic 通过临时文件和 rename 完成原子替换。
+// 写回源文件前拒绝目标 symlink，避免 workspace merge 跟随链接写出根目录。
 func copyPreserveModeAtomic(source *os.File, targetPath string, perm os.FileMode) error {
 	if err := ensureCopyTarget(targetPath, true); err != nil {
 		return err
@@ -120,6 +132,8 @@ func copyPreserveModeAtomic(source *os.File, targetPath string, perm os.FileMode
 	return nil
 }
 
+// copyPreserveModeDirect 直接覆盖目标文件。
+// 该路径只用于初始化 workspace 文件，不承担 source root 写回安全边界。
 func copyPreserveModeDirect(source *os.File, targetPath string, perm os.FileMode) error {
 	if err := ensureCopyTarget(targetPath, false); err != nil {
 		return err
@@ -135,6 +149,7 @@ func copyPreserveModeDirect(source *os.File, targetPath string, perm os.FileMode
 	return targetFile.Close()
 }
 
+// ensureCopyTarget 创建目标目录，并按需拒绝 symlink 目标。
 func ensureCopyTarget(target string, rejectSymlink bool) error {
 	if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
 		return err
@@ -148,6 +163,7 @@ func ensureCopyTarget(target string, rejectSymlink bool) error {
 	return nil
 }
 
+// runPaths 根据 run 和相对路径生成源/工作区绝对路径。
 func runPaths(run *Run, rel string) runFilePaths {
 	return runFilePaths{
 		SourcePath:    filepath.Join(run.SourceRoot, rel),
@@ -155,6 +171,8 @@ func runPaths(run *Run, rel string) runFilePaths {
 	}
 }
 
+// inspectRunFile 校验相对路径并计算源/工作区哈希。
+// 读取失败会携带相对路径上下文，便于 merge 报告定位。
 func inspectRunFile(run *Run, rel string) (inspectedRunFile, error) {
 	normalized, err := validateRelativePath(rel)
 	if err != nil {
@@ -179,6 +197,8 @@ func inspectRunFile(run *Run, rel string) (inspectedRunFile, error) {
 	}, nil
 }
 
+// evaluateTrackedMergeFile 判定单个跟踪文件的 merge 动作。
+// DeleteRemoved 命中时走删除判定，否则用源/工作区哈希做冲突检测。
 func evaluateTrackedMergeFile(
 	run *Run,
 	file RunFile,
@@ -205,6 +225,7 @@ func evaluateTrackedMergeFile(
 	}, mergeEvaluationTracked)
 }
 
+// evaluateMergeFileState 按判定类型分发到更新或删除逻辑。
 func evaluateMergeFileState(
 	snapshot mergeFileSnapshot,
 	kind mergeEvaluationKind,
@@ -221,6 +242,8 @@ func evaluateMergeFileState(
 	}
 }
 
+// evaluateRemovedMergeFileState 判定 workspace 已删除文件能否同步删除 source。
+// source 相对 baseline 有漂移时标记 conflict，不执行删除。
 func evaluateRemovedMergeFileState(
 	file storeworkspace.WorkspaceRunFile,
 	snapshot mergeFileSnapshot,
@@ -241,7 +264,8 @@ func evaluateRemovedMergeFileState(
 	return file, MergeFileResult{Path: snapshot.RelativePath, Action: action}
 }
 
-// evaluateTrackedMergeFileState 处理evaluatetrackedmerge文件状态。
+// evaluateTrackedMergeFileState 判定普通文件的 merge 状态。
+// workspace 未改则 unchanged，source 漂移则 conflict，其余可写回 source。
 func evaluateTrackedMergeFileState(
 	file storeworkspace.WorkspaceRunFile,
 	snapshot mergeFileSnapshot,
@@ -267,6 +291,7 @@ func evaluateTrackedMergeFileState(
 	return file, MergeFileResult{Path: snapshot.RelativePath, Action: "merged"}
 }
 
+// prepareRunFiles 为创建 run 的文件列表生成持久化 file 记录。
 func prepareRunFiles(run *Run, files []string) ([]storeworkspace.WorkspaceRunFile, error) {
 	prepared := make([]storeworkspace.WorkspaceRunFile, 0, len(files))
 	for _, rel := range files {
@@ -279,6 +304,7 @@ func prepareRunFiles(run *Run, files []string) ([]storeworkspace.WorkspaceRunFil
 	return prepared, nil
 }
 
+// upsertRunFiles 批量写入 run file 记录。
 func upsertRunFiles(ctx context.Context, runStore storeworkspace.Store, files []storeworkspace.WorkspaceRunFile) error {
 	for _, file := range files {
 		if _, err := runStore.UpsertFile(ctx, file); err != nil {
@@ -288,6 +314,8 @@ func upsertRunFiles(ctx context.Context, runStore storeworkspace.Store, files []
 	return nil
 }
 
+// buildRunFile 根据源文件快照构造 run file 记录。
+// 源文件不存在直接报错，避免创建出无法 merge 的跟踪项。
 func buildRunFile(run *Run, rel string) (storeworkspace.WorkspaceRunFile, error) {
 	inspected, err := inspectRunFile(run, rel)
 	if err != nil {
@@ -311,12 +339,15 @@ func buildRunFile(run *Run, rel string) (storeworkspace.WorkspaceRunFile, error)
 	}, nil
 }
 
+// runStatusErrorMapper 将 store 错误转换为公开或内部错误。
 type runStatusErrorMapper func(runKey string, err error) error
 
+// passthroughRunStatusError 原样返回状态更新错误。
 func passthroughRunStatusError(_ string, err error) error {
 	return err
 }
 
+// publicRunStatusError 将 not found 转成包含 runKey 的公开错误。
 func publicRunStatusError(runKey string, err error) error {
 	if platformdb.IsNotFound(err) {
 		return fmt.Errorf("run %q not found", runKey)
@@ -324,7 +355,8 @@ func publicRunStatusError(runKey string, err error) error {
 	return err
 }
 
-// updateRunStatusAndEmit 更新运行记录状态emit。
+// updateRunStatusAndEmit 更新 run 状态并在状态变化时发事件。
+// 先读取旧状态再写入，确保事件里能带上准确的 oldStatus。
 func (s *service) updateRunStatusAndEmit(
 	ctx context.Context,
 	input storeworkspace.UpdateRunStatusInput,
@@ -354,6 +386,8 @@ func (s *service) updateRunStatusAndEmit(
 	return updated, nil
 }
 
+// transitionMergeRun 执行带 fromStatus 栅栏的 merge 状态转换。
+// metadata 记录本次 merge 摘要，供事件和后续诊断复盘。
 func (s *service) transitionMergeRun(
 	ctx context.Context,
 	run *Run,
@@ -377,6 +411,8 @@ func (s *service) transitionMergeRun(
 	return transitioned, nil
 }
 
+// typedRPCAdapter 为 jrpc2 handler 包一层参数校验。
+// 校验失败时不进入服务层，保持 RPC 边界 fail-fast。
 func typedRPCAdapter[P any, R any](
 	call func(context.Context, P) (R, error),
 	validators ...func(P) error,
@@ -392,30 +428,38 @@ func typedRPCAdapter[P any, R any](
 	}
 }
 
+// validateCreateRunParams 校验创建 run 的必填参数。
 func validateCreateRunParams(p createRunParams) error {
 	return required(p.SourceRoot, "source_root")
 }
 
+// validateRunKeyParams 校验只需要 run_key 的请求。
 func validateRunKeyParams(p runKeyParams) error {
 	return required(p.RunKey, "run_key")
 }
 
+// validateMergeRunParams 校验 merge 请求。
 func validateMergeRunParams(p mergeRunParams) error {
 	return required(p.RunKey, "run_key")
 }
 
+// validateAbortRunParams 校验 abort 请求。
 func validateAbortRunParams(p abortRunParams) error {
 	return required(p.RunKey, "run_key")
 }
 
+// validateListRunFilesParams 校验列出 run 文件的请求。
 func validateListRunFilesParams(p listRunFilesParams) error {
 	return required(p.RunKey, "run_key")
 }
 
+// validateRunFileParams 校验读取单个 run 文件的请求。
 func validateRunFileParams(p runFileParams) error {
 	return required2(p.RunKey, "run_key", p.Path, "path")
 }
 
+// decodeLegacyRunParams 先解当前字段，再读取旧 camelCase 字段补齐。
+// 这样新字段总是优先，兼容逻辑不会覆盖显式的新协议值。
 func decodeLegacyRunParams[L any](
 	data []byte,
 	decodeCurrent func() error,

@@ -7,9 +7,9 @@ import (
 	"strings"
 )
 
-// Phase 3.7 / 3C · sharedfile 路径 schema + sandbox 边界
+// sharedfilepath 定义 sharedfile 读写路径的 lexical 安全边界。
 //
-// 五个白名单 prefix（详见 docs/plans/自动化2.md §3 路径 schema）：
+// 写路径只允许固定业务前缀：
 //   handoff/   dag/   inbox/   reports/   _internal/
 //
 // 读路径只做 traversal/absolute 校验（ValidateReadPath），不做白名单 ——
@@ -17,6 +17,7 @@ import (
 // 单会让 list/dashboard 上的旧行 read 直接 500。
 
 const (
+	// sharedfile 写路径允许的顶层前缀。
 	prefixHandoff  = "handoff/"
 	prefixDag      = "dag/"
 	prefixInbox    = "inbox/"
@@ -34,6 +35,7 @@ var (
 	ErrPathPrefixNotAllowed = errors.New("sharedfile: path prefix not in whitelist")
 )
 
+// writePrefixes 是写入路径白名单；读路径只做 lexical 安全校验。
 var writePrefixes = []string{
 	prefixHandoff,
 	prefixDag,
@@ -44,16 +46,14 @@ var writePrefixes = []string{
 
 // WritePrefixes 返回白名单写入路径前缀的拷贝。
 // MCP 工具 (如 shared_file_list) 可用此向 AI / UI 暴露允许的路径前缀，
-// 避免 “path prefix not in whitelist” 错误不透明 (骨架阶段吃狗粮 B-10/PE-1)。
+// 避免 “path prefix not in whitelist” 错误对调用方不透明。
 func WritePrefixes() []string {
 	copied := make([]string, len(writePrefixes))
 	copy(copied, writePrefixes)
 	return copied
 }
 
-// ValidateWritePath enforces the full schema (whitelist + traversal +
-// absolute) and returns the canonical-cleaned relative path.
-// ValidateWritePath 校验write路径。
+// ValidateWritePath 校验完整写入 schema，返回标准化后的相对路径。
 func ValidateWritePath(raw string) (string, error) {
 	cleaned, err := cleanRelative(raw)
 	if err != nil {
@@ -65,46 +65,35 @@ func ValidateWritePath(raw string) (string, error) {
 	return cleaned, nil
 }
 
-// ValidateAgentWritePath 校验代理write路径。
+// ValidateAgentWritePath 是 agent 写入路径入口，目前与普通写入共享同一白名单。
 func ValidateAgentWritePath(raw string) (string, error) {
 	return ValidateWritePath(raw)
 }
 
-// ValidateReadPath only enforces the lexical safety net (no traversal, no
-// absolute path). Skipping the prefix whitelist on read keeps existing rows
-// that pre-date the schema readable; their content still passes through
-// downstream defenses (size guards / sandbox path resolution in 3.6).
-// ValidateReadPath 校验read路径。
+// ValidateReadPath 只拒绝绝对路径和 traversal，保留读取旧前缀数据的兼容性。
 func ValidateReadPath(raw string) (string, error) {
 	return cleanRelative(raw)
 }
 
-// cleanRelative trims, normalizes path separators, rejects absolute paths
-// and rejects any traversal escape after path.Clean. The returned cleaned
-// value is what callers should hand off to disk / DB layers — never reuse
-// the raw input.
-// cleanRelative 处理clean相对。
+// cleanRelative 标准化路径分隔符并拒绝绝对路径或父目录逃逸。
+// 返回值是 disk/DB 层唯一可继续使用的路径形式，调用方不要复用 raw。
 func cleanRelative(raw string) (string, error) {
 	trimmed := strings.TrimSpace(raw)
 	if trimmed == "" {
 		return "", ErrPathEmpty
 	}
-	// Normalize Windows-style separators before any further check; the
-	// canonical store form uses `/`.
+	// 先统一 Windows 分隔符；store 内部的规范形式始终使用 `/`。
 	normalized := strings.ReplaceAll(trimmed, "\\", "/")
-	// Reject any caller that hands us `/abs/path` or platform-absolute
-	// (`C:/...`); the sandbox is always relative to <cwd>/.agnet/shared.
+	// sandbox 始终相对 `<cwd>/.agnet/shared`，因此拒绝 `/abs/path` 和 `C:/...` 等绝对路径。
 	if strings.HasPrefix(normalized, "/") || filepath.IsAbs(normalized) {
 		return "", ErrPathAbsolute
 	}
 	cleaned := path.Clean(normalized)
-	// path.Clean preserves leading `..` segments; reject them outright so
-	// the resolved disk path can never escape the sandbox.
+	// path.Clean 会保留前导 `..` 段；这里直接拒绝，避免磁盘解析后逃出 sandbox。
 	if cleaned == "." || cleaned == ".." || strings.HasPrefix(cleaned, "../") {
 		return "", ErrPathTraversal
 	}
-	// path.Clean strips leading `./`; defensive trim of leading `/` in
-	// case input was something like `\foo` that survived ReplaceAll.
+	// 防御性去掉前导 `/`，处理反斜杠转换后仍残留根路径形态的输入。
 	cleaned = strings.TrimPrefix(cleaned, "/")
 	if cleaned == "" {
 		return "", ErrPathEmpty
@@ -112,6 +101,7 @@ func cleanRelative(raw string) (string, error) {
 	return cleaned, nil
 }
 
+// hasAnyPrefix 判断路径是否匹配任一白名单前缀。
 func hasAnyPrefix(s string, prefixes []string) bool {
 	for _, p := range prefixes {
 		if strings.HasPrefix(s, p) {

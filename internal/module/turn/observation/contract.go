@@ -1,23 +1,14 @@
-// Package observation owns the Canonical Turn Observation implementation for
-// the P21 plans (P0b / P3). It normalizes the raw + typed event streams into
-// six facts that downstream consumers read.
-//
-// Pure data types and interfaces now live in internal/dto/observation so that
-// consumers (insight, dashboard, extractors) can depend on them without
-// importing the module/turn subtree. This package re-exports every public
-// symbol from the dto package as type aliases so existing callers inside the
-// turn module continue to compile without changes.
+// Package observation 将 turn、tool、UI 事件归一化为终态、token、计数、时间戳、调用归因和去重事实。
+// DTO 与接口定义由 internal/dto/observation 承载，本包通过别名复用这些类型，避免消费者依赖 turn 子树。
 package observation
 
 import (
 	dtoobs "github.com/anthropic-ai/super-agent-v3/internal/dto/observation"
 )
 
-// ─── type aliases ────────────────────────────────────────────────────────────
-// Every public type and constant defined in dto/observation is re-exported
-// here so that existing in-module callers (memory.go, subscribers.go, etc.)
-// and tests keep working without import changes.
+// 下面的别名让 turn 内部实现复用 dto/observation 的公共契约，避免出现两套事实类型。
 
+// TerminalKind 表示 turn 终止状态分类的 wire 类型别名。
 type TerminalKind = dtoobs.TerminalKind
 
 const (
@@ -29,17 +20,29 @@ const (
 	TerminalAborted     = dtoobs.TerminalAborted
 )
 
+// Terminal 是 observation 记录的终态事实别名。
 type Terminal = dtoobs.Terminal
+
+// TokenSnapshot 是 provider token 快照事实别名。
 type TokenSnapshot = dtoobs.TokenSnapshot
+
+// DedupeKey 是事件去重键的事实别名。
 type DedupeKey = dtoobs.DedupeKey
+
+// Counts 是工具调用、失败和审批计数事实别名。
 type Counts = dtoobs.Counts
+
+// Timestamps 是 turn 开始和完成时间事实别名。
 type Timestamps = dtoobs.Timestamps
 
+// ObservationReader 是只读 observation 契约别名。
 type ObservationReader = dtoobs.ObservationReader
-type ObservationWriter = dtoobs.ObservationWriter
-type Contract = dtoobs.Contract
 
-// ─── implementation helpers ─────────────────────────────────────────────────
+// ObservationWriter 是写入 observation 事实的契约别名。
+type ObservationWriter = dtoobs.ObservationWriter
+
+// Contract 聚合 observation 读写能力，供 turn wiring 和消费者共享。
+type Contract = dtoobs.Contract
 
 // terminalPrecedence 返回 RecordTerminal 使用的优先级顺序，数值越大越优先。
 // Interrupted/Aborted 为粘性种类，即便同优先级也不会被覆盖。

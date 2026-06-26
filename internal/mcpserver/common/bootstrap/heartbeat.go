@@ -13,6 +13,7 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/metrics"
 )
 
+// heartbeatWarnAfter 控制连续心跳失败达到多少次后升级为 warn 日志。
 const heartbeatWarnAfter = 3
 
 // startHeartbeatLocked 在已持有 mu 锁的情况下启动心跳 goroutine，替换旧的 hbCancel。
@@ -36,7 +37,7 @@ func (c *Client) startHeartbeatLocked() {
 	}()
 }
 
-// runHeartbeat 运行heartbeat。
+// runHeartbeat 按协商间隔发送心跳；租约被拒绝时触发重新 register。
 func (c *Client) runHeartbeat(ctx context.Context) {
 	failures := 0
 	for {
@@ -47,9 +48,7 @@ func (c *Client) runHeartbeat(ctx context.Context) {
 		rejected, next, err := c.sendHeartbeat(ctx, timeout)
 		if err != nil {
 			failures++
-			// P22 P4 S6b / plan §322: count every heartbeat failure,
-			// not just warn-level ones, so operators can see churn
-			// even under the 3-strike warn threshold.
+			// 每次心跳失败都计数；warn 阈值只是日志降噪，指标仍要反映短暂抖动。
 			metrics.BootstrapHeartbeatFailures.WithLabelValues(c.cfg.BinaryName, c.cfg.ClientKind).Inc()
 			if failures >= heartbeatWarnAfter {
 				pkglogger.Warn("bootstrap heartbeat failed",
@@ -106,7 +105,7 @@ func waitForHeartbeat(ctx context.Context, interval time.Duration) bool {
 	}
 }
 
-// sendHeartbeat 处理sendheartbeat。
+// sendHeartbeat 发送一次心跳，并返回租约是否被拒绝以及服务端建议的下一次间隔。
 func (c *Client) sendHeartbeat(ctx context.Context, timeout time.Duration) (bool, time.Duration, error) {
 	conn, lease := c.callTarget()
 	if conn == nil || lease.Generation == 0 {

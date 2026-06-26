@@ -12,25 +12,28 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/util/safego"
 )
 
+// Runner 是平台后台组件的统一启停 contract，Run 必须在 ctx 取消后尽快返回。
 type Runner interface {
 	Run(ctx context.Context) error
 }
 
-// NoopRunner is a Runner that blocks until its context is cancelled.
-// Used as a placeholder when an optional component is disabled.
+// NoopRunner 在上下文取消前保持阻塞，用作可选组件关闭时的占位 runner。
 type NoopRunner struct{}
 
-// Run 启动平台runner后台流程。
+// Run 等待调用方取消上下文，不主动产生业务错误。
 func (NoopRunner) Run(ctx context.Context) error {
 	<-ctx.Done()
 	return nil
 }
 
+// GroupOptions 控制 RunGroup 的进程级行为。
 type GroupOptions struct {
+	// EnableSignals 允许 RunGroup 监听 SIGINT/SIGTERM 并触发统一取消。
 	EnableSignals bool
 }
 
-// RunGroup 运行group。
+// RunGroup 并发启动一组 runner，任一 runner、父上下文或系统信号结束都会取消其余成员。
+// 返回值优先保留真实 runner 错误，避免仅把主动取消包装成根因。
 func RunGroup(ctx context.Context, runners []Runner, options GroupOptions) error {
 	if len(runners) == 0 {
 		return errors.New("no runners registered")
@@ -71,6 +74,8 @@ func RunGroup(ctx context.Context, runners []Runner, options GroupOptions) error
 	return firstErr
 }
 
+// runOne 执行单个 runner，并把 panic 转成错误返回给 RunGroup 聚合。
+// 这里不直接 recover 后吞错，调用方仍能按普通错误路径触发整体取消。
 func runOne(ctx context.Context, runner Runner) (err error) {
 	defer func() {
 		if r := recover(); r != nil {
@@ -80,6 +85,8 @@ func runOne(ctx context.Context, runner Runner) (err error) {
 	return runner.Run(ctx)
 }
 
+// startSignalWatcher 在独立 goroutine 中等待终止信号，并把信号转成错误事件。
+// rootCtx 取消后会停止 signal.Notify，避免测试或多 runner 进程残留订阅。
 func startSignalWatcher(rootCtx context.Context) <-chan error {
 	errCh := make(chan error, 1)
 	safego.Go(rootCtx, nil, "runner.group.signal", func(ctx context.Context) {
@@ -96,6 +103,7 @@ func startSignalWatcher(rootCtx context.Context) <-chan error {
 	return errCh
 }
 
+// preferRunGroupError 合并 runner、信号和上下文错误，优先保留第一个非取消根因。
 func preferRunGroupError(current, next error) error {
 	if next == nil {
 		return current

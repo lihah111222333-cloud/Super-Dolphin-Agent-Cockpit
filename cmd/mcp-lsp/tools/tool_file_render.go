@@ -10,8 +10,10 @@ import (
 )
 
 const (
+	// defaultFunctionModeLimit 是函数窗口读取的默认最大行数。
 	defaultFunctionModeLimit = 300
 
+	// lineWindowReason* 标记 read_file 降级到行窗口的原因，最终展示在 footer。
 	lineWindowReasonExplicit        = "explicit"
 	lineWindowReasonBatch           = "batch"
 	lineWindowReasonNoLSP           = "no symbol provider available"
@@ -19,6 +21,7 @@ const (
 	lineWindowReasonOutsideFunction = "line is outside any function"
 )
 
+// renderReadContent 是旧测试兼容入口，按显式行窗口渲染内容。
 func renderReadContent(content string, offset, limit int, _ bool) string {
 	req := readFileRequest{rawPath: "file", line: offset, limit: limit}
 	return renderLineWindow("file", content, req, lineWindowReasonExplicit)
@@ -70,7 +73,7 @@ func renderLineWindowWithinBudget(displayPath, content string, req readFileReque
 	return truncateRenderedReadText(appendReadBudgetTruncation(renderLineWindow(displayPath, content, candidateReq, reason), budgetBytes), displayPath, start+1, budgetBytes)
 }
 
-// renderLineWindow 渲染行window。
+// renderLineWindow 渲染 1-based 行号窗口，并自动向上包含紧邻注释。
 func renderLineWindow(displayPath, content string, req readFileRequest, reason string) string {
 	lines := splitNormalizedLines(content)
 	if content == "" {
@@ -105,10 +108,12 @@ func renderLineWindow(displayPath, content string, req readFileRequest, reason s
 	return fmt.Sprintf("TEXT\n%s\n\n%s", rendered, footer)
 }
 
+// fitsReadTextBudget 判断渲染结果是否落在工具输出预算内。
 func fitsReadTextBudget(text string, budgetBytes int) bool {
 	return budgetBytes <= 0 || len([]byte(text)) <= budgetBytes
 }
 
+// appendReadBudgetTruncation 在被预算裁剪的输出末尾追加可见提示。
 func appendReadBudgetTruncation(rendered string, budgetBytes int) string {
 	return fmt.Sprintf("%s\n[truncated to fit output budget %d bytes]", rendered, budgetBytes)
 }
@@ -158,7 +163,7 @@ func truncateUTF8Bytes(text string, maxBytes int) string {
 	return text[:cut] + suffix
 }
 
-// renderLineWindowFooter 渲染行windowfooter。
+// renderLineWindowFooter 生成行窗口范围、limit、降级原因和下一段读取提示。
 func renderLineWindowFooter(displayPath string, requestedStart, start, end, total, limit int, reason string) string {
 	parts := []string{fmt.Sprintf("scope=lines L%d-L%d of %d total", start, end, total)}
 	if limit > 0 {
@@ -182,7 +187,7 @@ func renderLineWindowFooter(displayPath string, requestedStart, start, end, tota
 	return "[" + strings.Join(parts, "; ") + "]"
 }
 
-// renderFunctionWindow 渲染函数window。
+// renderFunctionWindow 渲染完整函数窗口，并在超出 limit 时保留可重试提示。
 func renderFunctionWindow(content, name string, startLine, endLine, limit int) string {
 	lines := splitNormalizedLines(content)
 	if content == "" || len(lines) == 0 {
@@ -212,6 +217,7 @@ func renderFunctionWindow(content, name string, startLine, endLine, limit int) s
 	return fmt.Sprintf("TEXT\n%s\n\n%s", rendered, footer)
 }
 
+// renderFunctionFooter 生成函数窗口 footer，标明实际函数范围和是否被裁剪。
 func renderFunctionFooter(name string, start, end, renderEnd, fullLineCount int, capped bool) string {
 	label := strings.TrimSpace(name)
 	if label == "" {
@@ -223,6 +229,7 @@ func renderFunctionFooter(name string, start, end, renderEnd, fullLineCount int,
 	return fmt.Sprintf("[scope=function %s L%d-L%d]", label, start, end)
 }
 
+// enclosingFunctionName 返回包含目标行的最内层函数名。
 func enclosingFunctionName(symbols []protocol.DocumentSymbol, zeroBasedLine int) string {
 	name, ok := findFunctionName(symbols, zeroBasedLine)
 	if !ok {
@@ -231,7 +238,7 @@ func enclosingFunctionName(symbols []protocol.DocumentSymbol, zeroBasedLine int)
 	return name
 }
 
-// findFunctionName 查找函数名称。
+// findFunctionName 深度优先查找包含目标行的函数或方法名。
 func findFunctionName(symbols []protocol.DocumentSymbol, zeroBasedLine int) (string, bool) {
 	for _, symbol := range symbols {
 		start, end, ok := symbolBounds(symbol)
@@ -248,7 +255,8 @@ func findFunctionName(symbols []protocol.DocumentSymbol, zeroBasedLine int) (str
 	return "", false
 }
 
-// symbolBounds 处理符号边界。
+// symbolBounds 把 LSP symbol range 转成可比较的 0-based 行范围。
+// LSP 结束列为 0 时表示上一行结束，需回退一行避免范围多吃下一声明。
 func symbolBounds(symbol protocol.DocumentSymbol) (startLine, endLine int, ok bool) {
 	startLine = symbol.Range.Start.Line
 	endLine = symbol.Range.End.Line
@@ -266,7 +274,8 @@ func symbolBounds(symbol protocol.DocumentSymbol) (startLine, endLine int, ok bo
 
 var singleLineCommentPrefixes = []string{"//", "#", "--"}
 
-// isCommentLine 判断comment行是否可用。
+// isCommentLine 判断上一行是否属于可随读取窗口一起带出的注释。
+// 只识别常见单行注释和块注释边界，避免把空行或普通代码误并入上下文。
 func isCommentLine(line string) bool {
 	trimmed := strings.TrimSpace(line)
 	if trimmed == "" {
@@ -285,7 +294,8 @@ func isCommentLine(line string) bool {
 	return false
 }
 
-// isBlockCommentMarkerMatch 判断blockcommentmarkermatch是否可用。
+// isBlockCommentMarkerMatch 判断一行是否包含块注释边界。
+// 它同时支持单行块注释和多行块注释的首尾标记，供向上扩展窗口时维护块状态。
 func isBlockCommentMarkerMatch(trimmed, prefix, suffix string) bool {
 	firstIdx := strings.Index(trimmed, prefix)
 	lastIdx := strings.LastIndex(trimmed, suffix)
@@ -299,7 +309,8 @@ func isBlockCommentMarkerMatch(trimmed, prefix, suffix string) bool {
 	return strings.HasPrefix(trimmed, prefix) || strings.HasSuffix(trimmed, suffix)
 }
 
-// isLicenseLine 判断license行是否可用。
+// isLicenseLine 识别文件头 license/copyright 行。
+// 读取函数附近上下文时不把 license 当作业务注释向下粘连，避免窗口被文件头撑大。
 func isLicenseLine(line string) bool {
 	lower := strings.ToLower(line)
 	if strings.Contains(lower, "copyright") && (strings.Contains(lower, "(c)") || strings.Contains(lower, "202") || strings.Contains(lower, "201")) {
@@ -320,7 +331,8 @@ var blockCommentSuffixes = []struct {
 	{"'''", "'''"},
 }
 
-// checkBlockCommentMarker 处理checkblockcommentmarker。
+// checkBlockCommentMarker 检查上一行是否是块注释结束或完整块注释。
+// 返回 marker 让 expandStartToIncludeComments 能继续向上追溯多行块的起点。
 func checkBlockCommentMarker(line string) (isBlock bool, marker string, singleLine bool) {
 	trimmed := strings.TrimSpace(line)
 	for _, item := range blockCommentSuffixes {
@@ -354,7 +366,8 @@ func shouldStopOnNonComment(line string) bool {
 	return !isCommentLine(line) || isLicenseLine(line)
 }
 
-// expandStartToIncludeComments 把expand起点处理为includecomments。
+// expandStartToIncludeComments 把行窗口起点向上扩展到相邻注释块。
+// 最多回看固定行数，防止异常长文件头或未闭合块注释把 read_file 响应拖出预算。
 func expandStartToIncludeComments(lines []string, startLine int) int {
 	const maxCommentExpandLines = 20
 	current := startLine

@@ -6,11 +6,7 @@ import (
 	"testing"
 )
 
-// DetectCycle 单测覆盖矩阵：
-//   - happy path: 空图 / 单节点无依赖 / DAG 链 / DAG 树
-//   - 环: 自环 / 二节点对环 / 三节点链环
-//   - 外部依赖: depends_on 引用了 adjacency 外的节点 → 视为外部、不入图
-
+// TestDetectCycle_Empty 覆盖空图输入，确保 DAG 校验把无节点视为可执行。
 func TestDetectCycle_Empty(t *testing.T) {
 	t.Parallel()
 	if err := DetectCycle(map[string][]string{}); err != nil {
@@ -18,7 +14,7 @@ func TestDetectCycle_Empty(t *testing.T) {
 	}
 }
 
-// TestDetectCycle_NilAdjacency 防御性 nil map 不该 panic（R3 P3 #5）。
+// TestDetectCycle_NilAdjacency 确认 nil adjacency 不会 panic。
 // 调用点上游可能因 0-item ops 生 nil map，走同「空图」路径。
 func TestDetectCycle_NilAdjacency(t *testing.T) {
 	t.Parallel()
@@ -28,6 +24,7 @@ func TestDetectCycle_NilAdjacency(t *testing.T) {
 	}
 }
 
+// TestDetectCycle_SingleNodeNoDeps 覆盖单节点无依赖图，避免孤立节点被误判成环。
 func TestDetectCycle_SingleNodeNoDeps(t *testing.T) {
 	t.Parallel()
 	if err := DetectCycle(map[string][]string{"a": nil}); err != nil {
@@ -35,6 +32,7 @@ func TestDetectCycle_SingleNodeNoDeps(t *testing.T) {
 	}
 }
 
+// TestDetectCycle_LinearChain 覆盖线性依赖链，确保入度递减能完整拓扑排序。
 func TestDetectCycle_LinearChain(t *testing.T) {
 	t.Parallel()
 	// a -> b -> c -> d (b depends on a, c depends on b, d depends on c)
@@ -49,6 +47,7 @@ func TestDetectCycle_LinearChain(t *testing.T) {
 	}
 }
 
+// TestDetectCycle_Diamond 覆盖菱形依赖，避免共享上游造成重复入度或误报环。
 func TestDetectCycle_Diamond(t *testing.T) {
 	t.Parallel()
 	// a -> {b,c} -> d
@@ -63,6 +62,7 @@ func TestDetectCycle_Diamond(t *testing.T) {
 	}
 }
 
+// TestDetectCycle_SelfLoop 确认单节点自环返回可识别的 CycleError。
 func TestDetectCycle_SelfLoop(t *testing.T) {
 	t.Parallel()
 	adj := map[string][]string{
@@ -84,6 +84,7 @@ func TestDetectCycle_SelfLoop(t *testing.T) {
 	}
 }
 
+// TestDetectCycle_TwoNodePair 覆盖两个节点互相依赖的最小闭环。
 func TestDetectCycle_TwoNodePair(t *testing.T) {
 	t.Parallel()
 	// a depends b, b depends a
@@ -105,6 +106,7 @@ func TestDetectCycle_TwoNodePair(t *testing.T) {
 	}
 }
 
+// TestDetectCycle_ThreeNodeLoop 覆盖三节点链式闭环，锁住返回节点的稳定顺序。
 func TestDetectCycle_ThreeNodeLoop(t *testing.T) {
 	t.Parallel()
 	// a -> b -> c -> a (each depends on prev)
@@ -127,6 +129,7 @@ func TestDetectCycle_ThreeNodeLoop(t *testing.T) {
 	}
 }
 
+// TestDetectCycle_CycleAdjacentToDAGPart 确认健康 DAG 片段不会污染相邻闭环结果。
 func TestDetectCycle_CycleAdjacentToDAGPart(t *testing.T) {
 	t.Parallel()
 	// 链 a -> b 健康，但 c <-> d 互依，应只把 c d 列出来。
@@ -149,6 +152,7 @@ func TestDetectCycle_CycleAdjacentToDAGPart(t *testing.T) {
 	}
 }
 
+// TestDetectCycle_ExternalDepIgnored 确认 adjacency 外的依赖被当作外部节点处理。
 func TestDetectCycle_ExternalDepIgnored(t *testing.T) {
 	t.Parallel()
 	// "b" 依赖 "external"，external 不在 adjacency 中 → 应视为已存在外部
@@ -162,12 +166,11 @@ func TestDetectCycle_ExternalDepIgnored(t *testing.T) {
 	}
 }
 
-// BenchmarkDetectCycle_1000Nodes 超大图床型 benchmark（R3 P3 #5）。
-// 构造 1000 节点线性链 + 末节点依赖首节点闭环，跡实 Kahn O(V+E)
-// 在千节点量级上的常数。运行：go test -bench=BenchmarkDetectCycle .
+// BenchmarkDetectCycle_1000Nodes 覆盖千节点线性链和闭环的基准路径。
+// 它观察 Kahn O(V+E) 在较大 DAG 上的常数成本；运行：go test -bench=BenchmarkDetectCycle .
 //
-// 环检测路径（1 ring）与无环路径（1000-node DAG）都临伍，看出「无环
-// 提前返 nil」还是「有环 出 newCycleError」的中位数表现。
+// 环检测路径（1 ring）与无环路径（1000-node DAG）都覆盖，便于比较正常返回
+// 与构造 CycleError 时的中位数表现。
 func BenchmarkDetectCycle_1000Nodes(b *testing.B) {
 	const N = 1000
 	nodes := make([]string, N)
@@ -179,7 +182,7 @@ func BenchmarkDetectCycle_1000Nodes(b *testing.B) {
 	for i := 0; i < N; i++ {
 		if i == 0 {
 			dagAdj[nodes[i]] = nil
-			cycleAdj[nodes[i]] = []string{nodes[N-1]} // 闭环后凃
+			cycleAdj[nodes[i]] = []string{nodes[N-1]} // 让首节点依赖尾节点，形成闭环。
 		} else {
 			dagAdj[nodes[i]] = []string{nodes[i-1]}
 			cycleAdj[nodes[i]] = []string{nodes[i-1]}
@@ -217,9 +220,10 @@ func itoaCycle(i int) string {
 	return string(buf[pos:])
 }
 
-// --- v2 (R3 P2 #2) Tarjan SCC 拆环单测 ---
+// ----- Tarjan SCC 拆环测试 -----
 
-// 单环向后兼容：Components 应为一个，内容 = Nodes。
+// TestDetectCycle_SingleCycle_ComponentsHasOneEntry 确认单环只生成一个 Component。
+// Nodes 字段仍保持与 Component 内容一致，兼容只读 Nodes 的调用方。
 func TestDetectCycle_SingleCycle_ComponentsHasOneEntry(t *testing.T) {
 	adj := map[string][]string{
 		"a": {"b"},
@@ -241,7 +245,7 @@ func TestDetectCycle_SingleCycle_ComponentsHasOneEntry(t *testing.T) {
 	}
 }
 
-// 两个独立环应被拆为两个 Components。
+// TestDetectCycle_TwoIndependentCycles_TwoComponents 确认两个互不相连的环会拆成两个 Component。
 func TestDetectCycle_TwoIndependentCycles_TwoComponents(t *testing.T) {
 	// {a,b} 环 加 {c,d} 环、互不干涉。
 	adj := map[string][]string{
@@ -271,8 +275,8 @@ func TestDetectCycle_TwoIndependentCycles_TwoComponents(t *testing.T) {
 	}
 }
 
-// 复杂场景：健康链 + 两个环 + 环下游捞不出的节点。验证环被准确拆，且不把
-// 「环下游节点」误当成环报出来。
+// TestDetectCycle_HealthyChainPlusTwoCycles 覆盖健康链、两个环和环下游节点的混合图。
+// 环下游节点无法完成拓扑排序，但不属于 SCC，不能被误报进 Components。
 func TestDetectCycle_HealthyChainPlusTwoCycles(t *testing.T) {
 	// a→b 健康链；{c,d} 环 1；{e,f,g} 环 2（e→f→g→e）。
 	// h 依赖 c（环外下游，c 捞不出 h 也拓扑不出、但 h 本身不在环中）。
@@ -311,7 +315,7 @@ func TestDetectCycle_HealthyChainPlusTwoCycles(t *testing.T) {
 	}
 }
 
-// 单节点自环：Components 不该丢。
+// TestDetectCycle_SelfLoop_ComponentsCarryNode 确认单节点自环也会写入 Components。
 func TestDetectCycle_SelfLoop_ComponentsCarryNode(t *testing.T) {
 	adj := map[string][]string{
 		"x": {"x"},

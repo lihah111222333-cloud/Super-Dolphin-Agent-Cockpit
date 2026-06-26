@@ -7,23 +7,9 @@ import (
 	"testing"
 )
 
-// TestUIWailsNoDirectUIStateImport is the P22 P4 S1b import-direction
-// guard: internal/ui/wails MUST NOT directly import
-// internal/module/uistate. UI frontends depend on the narrow contract
-// facade (contract.UIProjectStateFacade) and the shared contract DTOs,
-// not the module's private Service.
-//
-// P4 plan §1 target architecture: "只依赖 rpc.Server.Dispatch、公共
-// contract 或专用 facade". P4 §147 lists ui/wails as a first-wave
-// implementation lane; this test locks the invariant so the facade
-// seam cannot silently regress.
-//
-// The guard scans every non-test .go file under internal/ui/wails and
-// fails if any carries the forbidden import. Test files are out of
-// scope (stubs sometimes need to reach into the module to construct
-// realistic fixtures — see e.g. the pre-S1b `code_scope_test.go`
-// snapshot). Once S1b lands, even test files are clean but we only
-// enforce the production contract here.
+// TestUIWailsNoDirectUIStateImport 锁定 ui/wails 到 uistate 的依赖方向。
+// 生产代码只能通过 contract.UIProjectStateFacade 和共享 DTO 访问 UI 状态，不能直接依赖模块私有 Service。
+// 扫描范围刻意限制为非测试 Go 文件，测试桩仍可构造更贴近生产的 fixture。
 func TestUIWailsNoDirectUIStateImport(t *testing.T) {
 	t.Parallel()
 	root := repoRootForGuardTests(t)
@@ -58,12 +44,8 @@ func TestUIWailsNoDirectUIStateImport(t *testing.T) {
 	}
 }
 
-// TestUIWailsActiveAgentPredicateFromContract locks the P22 P4 §74
-// hidden-contract fix: the "is agent active?" predicate now lives in
-// the contract package (contract.IsActiveAgentState), not as a local
-// helper in ui/wails. Keeping the check here prevents future drift where
-// someone re-introduces `isActiveAgentState` privately and lets
-// ui/wails and orchestration diverge on what "active" means.
+// TestUIWailsActiveAgentPredicateFromContract 确认“agent 是否活跃”的判断来自 contract 包。
+// 这样 ui/wails 和 orchestration 共享同一状态定义，避免本地 helper 重新分叉。
 func TestUIWailsActiveAgentPredicateFromContract(t *testing.T) {
 	t.Parallel()
 	root := repoRootForGuardTests(t)

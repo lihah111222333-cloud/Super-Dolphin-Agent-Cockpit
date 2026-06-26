@@ -1,8 +1,7 @@
 package nodeexec
 
-// OnFailure 策略 lookup —— 蓝图 v2 §10 补丁 8 + 实施计划 S5.3 + 审查 M-1。
-// dispatcher 拿到 NodeOutcome.FailureClass 后，调 ResolveOnFailureStrategy 决定
-// 下一步动作。骨架阶段：纯查表函数；F12.1 智能重试 dispatcher 真实派发。
+// 本文件集中处理 FailureClass 到 OnFailureStrategy 的查表规则。
+// dispatcher 拿到 NodeOutcome.FailureClass 后调用这里决定 retry、升级模型、跳过或 fail-fast。
 
 // ResolveOnFailureStrategy 根据 FailureClass 查 OnFailureConfig.ByClass，
 // 未命中走 Default，Default 也未配置走 OnFailureRetry（保守兜底）。

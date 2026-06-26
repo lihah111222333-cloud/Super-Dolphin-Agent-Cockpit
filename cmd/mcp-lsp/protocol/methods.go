@@ -1,5 +1,6 @@
 package protocol
 
+// LSP JSON-RPC 方法名常量集中维护，避免工具层和协议层拼写漂移。
 const (
 	MethodInitialize              = "initialize"
 	MethodInitialized             = "initialized"

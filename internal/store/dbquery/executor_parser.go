@@ -5,7 +5,8 @@ import (
 	"strings"
 )
 
-// collectCTEInfo 收集cteinfo。
+// collectCTEInfo 解析 WITH 查询中的 CTE 名称并返回外层 SELECT。
+// CTE 名称只作为当前查询的局部来源，后续表白名单扫描不能把它当作真实数据库表。
 func collectCTEInfo(query string) (map[string]struct{}, string, error) {
 	names := make(map[string]struct{})
 	trimmed := strings.TrimSpace(query)
@@ -55,7 +56,8 @@ func readCTEName(value string, index int) (string, int, error) {
 	return normalizeIdentifier(name), next, nil
 }
 
-// skipCTEColumnsAndBody 处理skipctecolumns正文。
+// skipCTEColumnsAndBody 跳过 CTE 的列列表、AS 关键字和子查询正文。
+// 括号或 AS 结构不完整时立即返回 errInvalidCTESyntax，避免后续表扫描误读半截 SQL。
 func skipCTEColumnsAndBody(value string, index int) (int, error) {
 	index = skipSpaces(value, index)
 	if index < len(value) && value[index] == '(' {
@@ -122,7 +124,8 @@ func skipMaterialized(value string, index int) int {
 	}
 }
 
-// readIdentifier 读取identifier。
+// readIdentifier 读取普通或双引号包裹的 SQL 标识符。
+// 返回的 next 指向标识符之后，调用方会继续判断点号限定名和表函数形态。
 func readIdentifier(value string, index int) (string, int, bool) {
 	if index >= len(value) {
 		return "", index, false
@@ -164,7 +167,8 @@ func skipBalanced(value string, index int) (int, error) {
 	return 0, errors.New("dbquery query has unbalanced parentheses")
 }
 
-// advanceBalancedQuote 处理advancebalancedquote。
+// advanceBalancedQuote 推进括号扫描中的单引号和双引号状态。
+// 引号内的括号不参与深度计算，防止字符串字面量破坏 CTE 子查询边界。
 func advanceBalancedQuote(value string, index int, inSingleQuote, inDoubleQuote *bool) (int, bool) {
 	ch := value[index]
 	switch {

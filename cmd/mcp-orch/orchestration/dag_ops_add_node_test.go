@@ -12,9 +12,9 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 )
 
-// F4.1 add_node 真实业务实现单测。覆盖矩阵：
+// add_node 真实业务实现单测覆盖以下契约边界：
 //   - happy: add 单节点 / add 带 depends_on 指向现有节点
-//   - happy: PT-4 raw ops 透传（MCP handler 形状 → ApplyOps → 实际 add_node）
+//   - happy: raw ops 透传（MCP handler 形状 → ApplyOps → 实际 add_node）
 //   - cycle: A→B + B→A 二节点对环；A→B→C→A 三节点链环
 //   - cycle: 跨现有节点引入环（add 节点的依赖回指自己上游）
 //   - OCC: base_version stale 返 ErrVersionConflict
@@ -31,8 +31,8 @@ type stubDAGOpsStore struct {
 	currentVersion int64
 	versionErr     error
 	versionReads   []int64
-	dagStatus      string // F4.5 现 DAG 状态；空串 = "draft" (默认)
-	getDagErr      error  // F4.5 模拟 GetDAG 错误用
+	dagStatus      string // 当前 DAG 状态；空串表示测试默认 draft。
+	getDagErr      error  // 模拟 GetDAG 错误，用于覆盖状态读取失败。
 	dagTrigger     string
 	dagCronExpr    string
 
@@ -41,7 +41,7 @@ type stubDAGOpsStore struct {
 
 	upsertErr error
 	bumpErr   error
-	// activeRuns simulates task_dag_runs.status='running' rows for this dag.
+	// activeRuns 模拟当前 DAG 下 task_dag_runs.status='running' 的行数。
 	activeRuns    int64
 	activeRunsErr error
 	deleteRows    *int64
@@ -69,9 +69,8 @@ func (s *stubDAGOpsStore) GetDAGVersion(_ context.Context, _ string) (int64, err
 	return s.currentVersion, nil
 }
 
-// GetDAG 返回一个带当前 dagStatus 的 *taskdag.DAG。F4.5 引入 dag.status 不变量后，
-// runOpsBatch 在事务内会调 GetDAG；默认 "draft" 保现有测试不被破坏。要验证
-// F4.5 拒集逻辑、在测试里显式写 stub.dagStatus = "running"。
+// GetDAG 返回一个带当前 dagStatus 的 *taskdag.DAG。
+// runOpsBatch 在事务内读取 DAG 状态；默认 draft 覆盖可编辑路径，需要验证拒绝路径时显式设置 running。
 func (s *stubDAGOpsStore) GetDAG(_ context.Context, _ string) (*taskdag.DAG, error) {
 	if s.getDagErr != nil {
 		return nil, s.getDagErr
@@ -255,8 +254,8 @@ func TestApplyOps_AddNodeWithDeps_Happy(t *testing.T) {
 	}
 }
 
-// PT-4: raw ops（即 MCP handler 透传原样的 json.RawMessage）能完整跑到 add_node 业务。
-// 这覆盖了 T2.1 dispatch shape 与 F4.1 业务的整链拼接。
+// TestApplyOps_RawOpsPassthrough_PT4 验证 MCP handler 原样透传的 json.RawMessage 能完整进入 add_node 业务。
+// 该用例覆盖 wire payload、ApplyOps 解码和 typed op 执行之间的边界。
 func TestApplyOps_RawOpsPassthrough_PT4(t *testing.T) {
 	t.Parallel()
 	stub := &stubDAGOpsStore{currentVersion: 0}
@@ -363,16 +362,16 @@ func TestApplyOps_AddNode_CycleThreeNodes(t *testing.T) {
 // 与现有节点联动的环：现有节点 x 依赖待加节点 y，
 // 同时 y 又依赖现有 x → 环。但 add_node 不允许改现有节点 depends，
 // 所以这里造成环只能是「现有节点 x，新增 y 把 x 加到 y 的 depends，
-// 同时 x 的 depends 历史已含 y」—— ApplyOps 阶段假设现有节点是合法的，
+// 同时 x 的 depends 已含 y」—— ApplyOps 阶段假设现有节点是合法的，
 // 此场景在 ApplyOps add_node 期间不应发生。退而验证：现有图含 a→b，
 // 新增 c 依赖 b、再有 a 现有依赖 c 是不可能（因为 a 在 c 之前就 fixed）。
-// 该 case 留给 F4.2 update_node 测试。
+// 该场景属于 update_node 修改现有边的责任，不在 add_node 测试中重复覆盖。
 //
 // 本测试覆盖：现有图链 a→b 上加 c 依赖 a，且 a 的 depends_on 含 c
 // （buildAddNodePlan 用 existing.DependsOn 把 a→c 这条边带进 adjacency）。
 func TestApplyOps_AddNode_CycleAgainstExisting(t *testing.T) {
 	t.Parallel()
-	// 现有图 a→b（b depends a）。a 的 DependsOn 历史含 "c"（外部依赖），
+	// 现有图 a→b（b depends a）。a 的 DependsOn 已含 "c"（外部依赖），
 	// 现在 add c depends b → 环 a→b→c→a。
 	stub := &stubDAGOpsStore{
 		currentVersion: 0,
@@ -527,7 +526,7 @@ func TestApplyOps_EmptyOps_NoopReturnsCurrentVersion(t *testing.T) {
 	if len(stub.upsertCalls) != 0 {
 		t.Fatalf("empty ops: upsert should not be called, got %d calls", len(stub.upsertCalls))
 	}
-	// R3 P2 #3 事务外短路断言：
+	// 空 ops 必须走事务外短路：
 	//   - lockCalls=0：GetDAGVersionForUpdate 不应被调（避免白付 OCC 锁代价）
 	//   - readCalls=1：走 GetDAGVersion 事务外读（需要拿到当前 version 校 OCC）
 	//   - listCalls=0：不需 ListNodes（空 ops 不需环检测 plan）
@@ -542,7 +541,8 @@ func TestApplyOps_EmptyOps_NoopReturnsCurrentVersion(t *testing.T) {
 	}
 }
 
-// R3 P2 #3 补充：空 ops + base_version stale 仍该返 OCC 冲突错，但仍走事务外。
+// TestApplyOps_EmptyOps_BaseVersionStale_ReturnsConflict 验证空 ops 也必须检查 base_version。
+// 即使不进入写事务，stale base_version 仍要返回 OCC 冲突，不能被 noop 路径吞掉。
 func TestApplyOps_EmptyOps_BaseVersionStale_ReturnsConflict(t *testing.T) {
 	stub := &stubDAGOpsStore{currentVersion: 9}
 	s := makeApplyOpsService(stub)

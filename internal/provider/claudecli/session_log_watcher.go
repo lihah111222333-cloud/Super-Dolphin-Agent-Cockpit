@@ -108,7 +108,8 @@ func (w *sessionLogWatcher) stopAndWait() {
 	<-w.doneCh
 }
 
-// pollLoop 处理pollloop。
+// pollLoop 周期扫描当前 Claude session JSONL 的增量 usage。
+// 单次读取错误只写 Debug，watcher 继续运行以覆盖文件稍后出现或被轮换的情况。
 func (w *sessionLogWatcher) pollLoop() {
 	defer close(w.doneCh)
 	ticker := time.NewTicker(w.pollInterval)
@@ -133,7 +134,8 @@ func (w *sessionLogWatcher) pollOnce() error {
 	return w.pollTargetFile(target)
 }
 
-// pollTarget 处理polltarget。
+// pollTarget 解析本轮要扫描的日志文件和起始 offset。
+// 文件不存在会重置状态但不报错，因为 Claude 可能尚未创建 session JSONL。
 func (w *sessionLogWatcher) pollTarget() (sessionLogPollTarget, bool, error) {
 	if w == nil || w.resolvePath == nil {
 		return sessionLogPollTarget{}, false, nil
@@ -209,7 +211,8 @@ func (w *sessionLogWatcher) scanPollFile(file *os.File) (int64, error) {
 	return file.Seek(0, io.SeekCurrent)
 }
 
-// dispatchScannedUsage 派发scannedusage。
+// dispatchScannedUsage 解析一行日志并在 usage 变化时回调。
+// stopCh 关闭前后都会检查，避免 watcher 停止后仍向 session 派发旧 token 事件。
 func (w *sessionLogWatcher) dispatchScannedUsage(raw []byte) error {
 	if w.stopped() {
 		return errSessionLogWatcherStopped
@@ -225,7 +228,8 @@ func (w *sessionLogWatcher) dispatchScannedUsage(raw []byte) error {
 	return nil
 }
 
-// syncFileState 同步文件状态。
+// syncFileState 同步当前文件路径、offset 和 mtime。
+// 文件切换、截断或同大小改写都会重置 offset，避免漏读或重复使用旧 usage。
 func (w *sessionLogWatcher) syncFileState(path string, size int64, modTime time.Time) int64 {
 	w.mu.Lock()
 	defer w.mu.Unlock()
@@ -279,7 +283,8 @@ func (w *sessionLogWatcher) stopped() bool {
 	}
 }
 
-// parseLogLineUsage 解析日志行usage。
+// parseLogLineUsage 从 Claude assistant 日志行提取 token usage。
+// cache creation/read token 会计入输入 token，缺少 input/output 基础字段则忽略该行。
 func parseLogLineUsage(raw []byte) (sessionLogUsage, bool) {
 	decoder := json.NewDecoder(bytes.NewReader(raw))
 	decoder.UseNumber()
@@ -320,7 +325,8 @@ func parseLogLineUsage(raw []byte) (sessionLogUsage, bool) {
 	}, true
 }
 
-// logString 处理日志string。
+// logString 从日志 payload 中按候选 key 提取字符串。
+// json.Number 会转成字符串，用于兼容 provider 偶发的数字型 ID。
 func logString(payload map[string]any, keys ...string) string {
 	for _, key := range keys {
 		value, ok := payload[key]
@@ -341,7 +347,8 @@ func logString(payload map[string]any, keys ...string) string {
 	return ""
 }
 
-// logInt 处理日志int。
+// logInt 从日志 payload 中按候选 key 宽松读取整数。
+// 解析成功才返回 ok=true，调用方据此判断必填 usage 字段是否存在。
 func logInt(payload map[string]any, keys ...string) (int, bool) {
 	for _, key := range keys {
 		value, ok := payload[key]

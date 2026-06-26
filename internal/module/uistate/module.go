@@ -45,9 +45,7 @@ var Module = fx.Module("uistate",
 		}
 		return NewService(p.Logger, p.ThreadLister, p.Agents, p.Preferences, newBindingAdapter(p.Bindings), rcl, WithObservability(p.Trace))
 	}),
-	// P22 P4 S1b: publish the narrow contract.UIProjectStateFacade so
-	// ui/wails and other frontends can consume GetProjects without
-	// importing this package.
+	// 对外只发布窄 ProjectState facade，让 UI 层读取项目状态时不依赖 uistate 包内实现。
 	fx.Provide(NewProjectStateFacade),
 	fx.Provide(NewUIStateHandlers),
 	fx.Provide(fx.Annotate(
@@ -78,7 +76,8 @@ func newBindingAdapter(store bindingstore.Store) bindingLookup {
 	return &bindingAdapter{store: store}
 }
 
-// ListAgentThreadBindings 列出代理线程bindings。
+// ListAgentThreadBindings 将持久化 binding 行转换成 uistate 需要的最小字段集合。
+// 这里统一 trim 跨模块 wire 字段，避免 sidebar runtime 回填继续传播空白 ID。
 func (a *bindingAdapter) ListAgentThreadBindings(ctx context.Context) ([]bindingEntry, error) {
 	rows, err := a.store.ListAgentThreadBindings(ctx)
 	if err != nil {
@@ -100,7 +99,8 @@ func (a *bindingAdapter) ListAgentThreadBindings(ctx context.Context) ([]binding
 	return out, nil
 }
 
-// loadBatchConfigs 加载batch配置。
+// loadBatchConfigs 批量读取 thread runtime 配置，返回 bool 表示是否已覆盖本轮读取路径。
+// 读取失败只影响 UI runtime 补充字段，调用方会记录告警并保持内存投影可用。
 func (s *service) loadBatchConfigs(ctx context.Context, threads []ThreadSummary) (map[string]map[string]any, bool) {
 	if s.runtimeConfig == nil {
 		return nil, false
@@ -126,7 +126,8 @@ func (s *service) loadBatchConfigs(ctx context.Context, threads []ThreadSummary)
 	return batchConfigs, true
 }
 
-// enrichFromDB 从数据库补充uistate。
+// enrichFromDB 用 binding 和 runtime 配置补齐内存快照里的 provider/thread 运行时字段。
+// 该步骤只做展示层回填，不改变 store 中的状态；读取失败不会覆盖事件流投影结果。
 func (s *service) enrichFromDB(ctx context.Context, agents []AgentSummary, threads []ThreadSummary, runtimeMap map[string]map[string]any) {
 	var byAgent map[string]bindingEntry
 	if s.bindings != nil {
@@ -166,7 +167,8 @@ func (s *service) enrichFromDB(ctx context.Context, agents []AgentSummary, threa
 	}
 }
 
-// applyBindingToThreadRuntime 把binding应用为线程运行时。
+// applyBindingToThreadRuntime 将 agent binding 回填到线程 runtime map。
+// 该路径只填补缺失字段；已有 provider/threadID 视为上游权威值，不能被历史 binding 覆盖。
 func applyBindingToThreadRuntime(thread ThreadSummary, idx map[string]bindingEntry, runtimeMap map[string]map[string]any) {
 	if thread.AgentID == "" {
 		return
@@ -176,11 +178,8 @@ func applyBindingToThreadRuntime(thread ThreadSummary, idx map[string]bindingEnt
 		return
 	}
 	rt := ensureThreadRuntime(thread, entry, runtimeMap)
-	// Defensive note: this is a backfill-only path. We intentionally fill the
-	// provider only when runtimeMap is missing it; if a non-empty provider here
-	// is stale, correction must come from the upstream authoritative sources.
-	// The known pending-launch default-to-codex source was closed in the B2+
-	// thread fix (see internal/module/thread/factory.go:266).
+	// 这里是展示层回填路径，只在 runtimeMap 缺 provider 时填充。
+	// 已存在 provider 可能来自实时事件或 thread runtime 配置，必须由上游权威来源纠正。
 	if rt["provider"] == nil || rt["provider"] == "" {
 		rt["provider"] = entry.Provider
 	}

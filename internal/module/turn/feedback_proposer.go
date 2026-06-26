@@ -9,30 +9,23 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 )
 
-// FeedbackItem is the narrow projection of a memory entry that the
-// FeedbackProposer needs. It decouples turn from the memory module's
-// concrete ExtractedMemory type; the wiring layer maps between the two.
+// FeedbackItem 是反馈提炼兼容入口需要的最小记忆投影，避免 turn 包依赖 memory 模块的具体类型。
 type FeedbackItem struct {
 	Content string
 }
 
-// FeedbackProposer is a dormant compatibility shim for the removed legacy
-// candidate backend path. It intentionally does not call an LLM or write a
-// candidate row in V1.
+// FeedbackProposer 是已停用反馈提炼入口的兼容 shim，只保留旧调用方的构造和方法形状。
 type FeedbackProposer struct {
 	dream  contract.DreamExecutor
 	logger *slog.Logger
 }
 
-// NewFeedbackProposer keeps the old constructor shape so stale callers compile
-// while the live candidate writer remains disabled.
-// NewFeedbackProposer 创建feedbackproposer。
+// NewFeedbackProposer 保留旧构造器签名，当前只返回禁用的兼容 shim。
 func NewFeedbackProposer(dream contract.DreamExecutor, _ any, logger *slog.Logger) *FeedbackProposer {
 	return &FeedbackProposer{dream: dream, logger: logger}
 }
 
-// Propose no-ops because the live old candidate pipeline is removed.
-// Propose 处理propose。
+// Propose 只记录禁用日志，不调用 LLM 也不写旧候选结果存储。
 func (fp *FeedbackProposer) Propose(ctx context.Context, topicKey string, feedbacks []FeedbackItem, repoFingerprint string) error {
 	if fp.logger != nil {
 		fp.logger.Info("feedback skill candidate pipeline disabled",
@@ -45,10 +38,7 @@ func (fp *FeedbackProposer) Propose(ctx context.Context, topicKey string, feedba
 	return nil
 }
 
-// ---------------------------------------------------------------------------
-// Feedback proposal prompt builder (was feedback_proposer_prompt.go)
-// ---------------------------------------------------------------------------
-
+// buildFeedbackProposalPrompt 生成旧反馈聚合提示词；当前保留给兼容路径和测试使用。
 func buildFeedbackProposalPrompt(topicKey string, feedbackContents []string) string {
 	var sb strings.Builder
 	sb.WriteString("你是一个技能提炼专家。以下是用户在多次协作中反复给出的同类反馈：\n\n")

@@ -9,11 +9,12 @@ import (
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/mcp"
 )
 
+// lspReleaseScopeDispatcher 是控制面暴露给上层的 LSP scope 释放能力。
 type lspReleaseScopeDispatcher interface {
 	DispatchLSPReleaseScope(ctx context.Context, req dto.LSPReleaseScopeRequest) (dto.LSPReleaseScopeResult, error)
 }
 
-// releaseScopeRequestFromConfigPayload 从配置载荷处理release作用域请求。
+// releaseScopeRequestFromConfigPayload 从 agent/thread 停止事件生成 LSP manager 释放请求。
 func releaseScopeRequestFromConfigPayload(payload map[string]any) (dto.LSPReleaseScopeRequest, bool) {
 	if payload == nil {
 		return dto.LSPReleaseScopeRequest{}, false
@@ -49,6 +50,7 @@ func releaseScopeRequestFromConfigPayload(payload map[string]any) (dto.LSPReleas
 	}
 }
 
+// firstNonEmptyString 返回首个非空字符串，用于保留调用方原因并在缺失时回退到事件名。
 func firstNonEmptyString(values ...string) string {
 	for _, value := range values {
 		if trimmed := strings.TrimSpace(value); trimmed != "" {
@@ -58,10 +60,8 @@ func firstNonEmptyString(values ...string) string {
 	return ""
 }
 
-// DispatchLSPReleaseScope sends the mcp-lsp admin callback to the exact
-// trusted LSP peer for the scope, the same agent's LSP peer, or an explicit
-// shared LSP peer. It never falls back to an unrelated agent-bound peer.
-// DispatchLSPReleaseScope 派发LSPrelease作用域。
+// DispatchLSPReleaseScope 向可信 LSP peer 发送 manager 释放回调。
+// 目标只允许精确 scope、同 agent LSP 或 shared LSP，绝不回退到无关 agent-bound peer。
 func (r *ToolRegistry) DispatchLSPReleaseScope(ctx context.Context, req dto.LSPReleaseScopeRequest) (dto.LSPReleaseScopeResult, error) {
 	if r == nil {
 		return dto.LSPReleaseScopeResult{}, errPeerUnavailable("mcp registry is nil")
@@ -104,6 +104,7 @@ func (r *ToolRegistry) DispatchLSPReleaseScope(ctx context.Context, req dto.LSPR
 	return combined, errors.Join(errs...)
 }
 
+// normalizeLSPReleaseScopeRequest 清理 scope 请求字段，避免空白字符影响路由匹配。
 func normalizeLSPReleaseScopeRequest(req dto.LSPReleaseScopeRequest) dto.LSPReleaseScopeRequest {
 	req.ScopeKind = strings.TrimSpace(req.ScopeKind)
 	req.AgentID = strings.TrimSpace(req.AgentID)
@@ -113,7 +114,7 @@ func normalizeLSPReleaseScopeRequest(req dto.LSPReleaseScopeRequest) dto.LSPRele
 	return req
 }
 
-// validateLSPReleaseScopeRequest 校验LSPrelease作用域请求。
+// validateLSPReleaseScopeRequest 校验不同 scope kind 的必填字段，非法 scope 直接拒绝。
 func validateLSPReleaseScopeRequest(req dto.LSPReleaseScopeRequest) error {
 	switch req.ScopeKind {
 	case dto.LSPReleaseScopeAgentThread:
@@ -134,6 +135,7 @@ func validateLSPReleaseScopeRequest(req dto.LSPReleaseScopeRequest) error {
 	return nil
 }
 
+// releaseScopeTargets 根据 scope kind 选择 LSP peer，manager_key 请求广播给所有 active LSP。
 func (r *ToolRegistry) releaseScopeTargets(req dto.LSPReleaseScopeRequest) []*ToolInstance {
 	if req.ScopeKind == dto.LSPReleaseScopeManagerKey {
 		return r.FindActiveByKind(dto.ClientKindLSP)
@@ -145,6 +147,7 @@ func (r *ToolRegistry) releaseScopeTargets(req dto.LSPReleaseScopeRequest) []*To
 	})
 }
 
+// mergeLSPReleaseScopeResult 合并多个 LSP peer 的释放结果，计数累加且 key 列表去重。
 func mergeLSPReleaseScopeResult(dst *dto.LSPReleaseScopeResult, src dto.LSPReleaseScopeResult) {
 	if dst == nil {
 		return
@@ -157,6 +160,7 @@ func mergeLSPReleaseScopeResult(dst *dto.LSPReleaseScopeResult, src dto.LSPRelea
 	dst.ManagerKeys = appendUniqueStrings(dst.ManagerKeys, src.ManagerKeys...)
 }
 
+// appendUniqueStrings 追加非空唯一字符串，保持原始出现顺序。
 func appendUniqueStrings(dst []string, values ...string) []string {
 	for _, value := range values {
 		value = strings.TrimSpace(value)

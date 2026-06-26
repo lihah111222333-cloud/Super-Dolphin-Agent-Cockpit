@@ -6,10 +6,12 @@ import (
 	"time"
 )
 
+// Reader 提供 prompt template 的只读列表能力。
 type Reader interface {
 	List(ctx context.Context, filter ListFilter) ([]PromptTemplate, error)
 }
 
+// ListFilter 是 prompt template 列表查询过滤条件。
 type ListFilter struct {
 	AgentKey       string
 	Keyword        string
@@ -18,6 +20,7 @@ type ListFilter struct {
 	Limit          int32
 }
 
+// PromptTemplate 是 prompt 模板当前版本的运行时投影。
 type PromptTemplate struct {
 	ID             int64           `json:"id"`
 	PromptKey      string          `json:"prompt_key"`
@@ -39,6 +42,7 @@ type PromptTemplate struct {
 	Priority       int32           `json:"priority"`
 }
 
+// PromptTemplateSection 是 prompt 模板中的可召回段落。
 type PromptTemplateSection struct {
 	ID          int64  `json:"id"`
 	TemplateID  int64  `json:"template_id"`
@@ -51,6 +55,7 @@ type PromptTemplateSection struct {
 	Enabled     bool   `json:"enabled"`
 }
 
+// Store 提供 prompt template 的读写、版本和事务能力。
 type Store interface {
 	Reader
 	WithTx(ctx context.Context, fn func(txStore Store) error) error
@@ -62,6 +67,7 @@ type Store interface {
 	Upsert(ctx context.Context, template PromptTemplate) (*PromptTemplate, error)
 }
 
+// PromptTemplateVersion 是 prompt 模板历史版本快照。
 type PromptTemplateVersion struct {
 	ID              int64
 	PromptKey       string

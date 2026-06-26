@@ -85,9 +85,8 @@ func TestDispatcherF151FiveNodeDAGMetricsEndpointAndAlert(t *testing.T) {
 	}
 }
 
-// TestDispatcherDAGRetryFailsAtMaxAttemptsWithFailFastCascade 验证�?
-// default_retry=0（MaxAttempts=1�? fail_fast=true，AttemptCount=1（首次失败即达上限）
-// �?markPermanentFail + FailNodeAndCancelDownstream(FailFast=true)，不再调 RetryWakeup�?
+// TestDispatcherDAGRetryFailsAtMaxAttemptsWithFailFastCascade 验证 fail_fast DAG 达到最大重试时的级联失败。
+// default_retry=0 表示首次失败即达上限，dispatcher 应写 permanent fail 并取消下游，不再写 RetryWakeup。
 func TestDispatcherDAGRetryFailsAtMaxAttemptsWithFailFastCascade(t *testing.T) {
 	now := time.Date(2026, 4, 30, 12, 0, 0, 0, time.UTC)
 	store := &dispatcherStubStore{
@@ -239,9 +238,8 @@ func TestDispatcherDAGRetryExhaustionSkipsCascadeWhenFailWakeupFenceMisses(t *te
 	}
 }
 
-// TestDispatcherDAGRetryFailsAtMaxAttemptsNoFailFast 验证 fail_fast=false 时仍�?
-// FailNodeAndCancelDownstream（store 层根�?FailFast 自决是否级联，这里只�?
-// dispatcher �?FailFast=false 透传过去）�?
+// TestDispatcherDAGRetryFailsAtMaxAttemptsNoFailFast 验证非 fail_fast DAG 达到最大重试时的失败写入。
+// dispatcher 仍会调用 FailNodeAndCancelDownstream，但必须把 FailFast=false 原样传给 store 层。
 func TestDispatcherDAGRetryFailsAtMaxAttemptsNoFailFast(t *testing.T) {
 	now := time.Date(2026, 4, 30, 12, 0, 0, 0, time.UTC)
 	store := &dispatcherStubStore{
@@ -292,10 +290,8 @@ func TestDispatcherDAGRetryPolicyFailsFastWhenRunNodesUnavailable(t *testing.T) 
 	}
 }
 
-// TestDispatcherAgentFailureClassesRetryUntilMaxAttempts verifies the F1.4
-// basic retry contract for AgentExecutor failure classes. transient/quota/
-// validation all get the same bounded retry treatment here; smarter by_class
-// routing remains F12.1.
+// TestDispatcherAgentFailureClassesRetryUntilMaxAttempts 固定 agent 执行失败分类的有界重试。
+// transient/quota/validation 在这里都走相同重试上限；更细粒度的 by_class 路由不由本测试覆盖。
 func TestDispatcherAgentFailureClassesRetryUntilMaxAttempts(t *testing.T) {
 	now := time.Date(2026, 5, 13, 9, 0, 0, 0, time.UTC)
 	tests := []struct {

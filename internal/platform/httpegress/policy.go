@@ -7,6 +7,7 @@ import (
 	"strings"
 )
 
+// unsafeHeaderNames 列出调用方不得覆盖的传输层头，避免绕过出站请求边界。
 var unsafeHeaderNames = map[string]struct{}{
 	"accept":              {},
 	"connection":          {},
@@ -55,6 +56,8 @@ func ValidateHeaders(headers map[string]string) error {
 	return nil
 }
 
+// isUnsafeHTTPHost 判断主机名是否会落到本机、内网、链路本地或非 FQDN 目标。
+// 只在这里收口 SSRF 主机判定，调用方拿到 true 必须拒绝请求而不是降级放行。
 func isUnsafeHTTPHost(host string) bool {
 	normalized := strings.Trim(strings.ToLower(host), ".")
 	if normalized == "localhost" || strings.HasSuffix(normalized, ".localhost") {

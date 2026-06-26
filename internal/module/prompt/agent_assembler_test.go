@@ -6,9 +6,8 @@ import (
 	"testing"
 )
 
-// TestAssembleAgent_OverrideSystemPromptTakesPriority mirrors Claude Code's
-// override.systemPrompt direct-passthrough branch: when the caller supplies
-// an explicit override, neither section resolution nor env-details apply.
+// TestAssembleAgent_OverrideSystemPromptTakesPriority 锁定 override.systemPrompt 的直通路径。
+// 调用方显式覆盖系统提示词时，不再解析 section，也不追加子代理环境说明。
 func TestAssembleAgent_OverrideSystemPromptTakesPriority(t *testing.T) {
 	t.Setenv(envClaudeSimple, "")
 	svc := NewService(&Config{}, nil)
@@ -59,10 +58,8 @@ func TestAssembleAgent_OverrideSystemPromptDoesNotUsePromptAsDisplayName(t *test
 	}
 }
 
-// TestAssembleAgent_ExploreRedactsClaudeMdAndGitStatus verifies the
-// Explore/Plan agent-type post-processing: claudeMd is scrubbed from
-// UserContext and SystemContext (gitStatus) is nilled so the subagent does
-// not inherit the caller's repo context.
+// TestAssembleAgent_ExploreRedactsClaudeMdAndGitStatus 验证探索/计划类子代理会清理继承上下文。
+// claudeMd 和 gitStatus 不应透传给子代理，避免把主线程仓库状态当作子任务事实。
 func TestAssembleAgent_ExploreRedactsClaudeMdAndGitStatus(t *testing.T) {
 	t.Setenv(envClaudeSimple, "")
 	t.Setenv(envPromptStartCurrentDate, "2026-04-22")
@@ -100,8 +97,7 @@ func TestAssembleAgent_ExploreRedactsClaudeMdAndGitStatus(t *testing.T) {
 	}
 }
 
-// TestAssembleAgent_DefaultKeepsContext asserts the non-Explore/Plan default
-// path: claudeMd/SystemContext are preserved, but env-details still appended.
+// TestAssembleAgent_DefaultKeepsContext 验证默认子代理保留上下文，同时仍追加环境说明。
 func TestAssembleAgent_DefaultKeepsContext(t *testing.T) {
 	t.Setenv(envClaudeSimple, "")
 	t.Setenv(envPromptStartCurrentDate, "2026-04-22")
@@ -121,8 +117,7 @@ func TestAssembleAgent_DefaultKeepsContext(t *testing.T) {
 	if !strings.Contains(assembly.BaseInstructions, "Subagent runtime guardrails") {
 		t.Fatalf("default agent BaseInstructions missing env-details block:\n%s", assembly.BaseInstructions)
 	}
-	// UserContext.currentDate is always populated (Phase 3); default agent
-	// keeps it so the synthetic meta message includes the date.
+	// 默认子代理保留 currentDate，确保 synthetic meta message 仍包含日期。
 	if _, ok := assembly.UserContext["currentDate"]; !ok {
 		t.Fatalf("default agent UserContext missing currentDate: %#v", assembly.UserContext)
 	}

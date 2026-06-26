@@ -9,6 +9,8 @@ import (
 	storeworkspace "github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/workspace"
 )
 
+// Service 定义 workspace run 的服务边界。
+// 实现负责持久化 run/file 状态，并在 merge 时处理源目录与工作区文件安全。
 type Service interface {
 	CreateRun(ctx context.Context, req CreateRunRequest) (*Run, error)
 	GetRun(ctx context.Context, runKey string) (*Run, error)
@@ -19,9 +21,14 @@ type Service interface {
 	GetRunFile(ctx context.Context, runKey, path string) (*RunFile, error)
 }
 
+// Run 是 store 层 workspace run 的领域别名。
 type Run = storeworkspace.WorkspaceRun
+
+// RunFile 是 store 层 workspace run file 的领域别名。
 type RunFile = storeworkspace.WorkspaceRunFile
 
+// CreateRunRequest 是创建 workspace run 的服务层请求。
+// SourceRoot 必填；WorkspacePath 为空时服务会在 .workspace/<runKey> 下创建隔离目录。
 type CreateRunRequest struct {
 	RunKey        string          `json:"run_key,omitempty"`
 	DagKey        string          `json:"dag_key,omitempty"`
@@ -36,6 +43,8 @@ type CreateRunRequest struct {
 	FinishedAt    *time.Time      `json:"finished_at,omitempty"`
 }
 
+// MergeRunRequest 是从 workspace 合并回 source root 的写入请求。
+// DryRun 只评估不写文件，DeleteRemoved 控制是否允许安全删除源文件。
 type MergeRunRequest struct {
 	RunKey        string `json:"run_key"`
 	UpdatedBy     string `json:"updated_by,omitempty"`
@@ -43,12 +52,15 @@ type MergeRunRequest struct {
 	DeleteRemoved bool   `json:"delete_removed,omitempty"`
 }
 
+// MergeFileResult 记录单个文件的 merge 判定结果。
+// Action/Reason 来自服务层冲突检测，调用方不能把缺失项当作已成功写入。
 type MergeFileResult struct {
 	Path   string `json:"path"`
 	Action string `json:"action"`
 	Reason string `json:"reason,omitempty"`
 }
 
+// MergeRunResult 汇总一次 workspace merge 的状态和文件结果。
 type MergeRunResult struct {
 	RunKey        string            `json:"run_key"`
 	Status        string            `json:"status"`
@@ -63,7 +75,8 @@ type MergeRunResult struct {
 	Files         []MergeFileResult `json:"files,omitempty"`
 }
 
-// UnmarshalJSON 解码JSON。
+// UnmarshalJSON 同时接受 snake_case 和旧 camelCase workspace run 字段。
+// 当前字段优先，旧字段只在当前字段为空时补齐，避免覆盖新调用方显式值。
 func (r *CreateRunRequest) UnmarshalJSON(data []byte) error {
 	type raw CreateRunRequest
 	var legacy struct {
@@ -95,6 +108,8 @@ func (r *CreateRunRequest) UnmarshalJSON(data []byte) error {
 	})
 }
 
+// mergeLegacyCreateRunRequest 合并旧 camelCase 创建请求字段。
+// snake_case 当前字段优先，旧字段只补空值，避免旧客户端覆盖新客户端显式输入。
 func mergeLegacyCreateRunRequest(r *CreateRunRequest, legacy struct {
 	RunKey        string     `json:"runKey"`
 	DagKey        string     `json:"dagKey"`
@@ -116,6 +131,7 @@ func mergeLegacyCreateRunRequest(r *CreateRunRequest, legacy struct {
 	}
 }
 
+// coalesceString 在当前字段为空时使用旧字段。
 func coalesceString(current, legacy string) string {
 	if strings.TrimSpace(current) != "" {
 		return current

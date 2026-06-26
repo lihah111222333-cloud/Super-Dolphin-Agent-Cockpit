@@ -5,32 +5,25 @@ import (
 	"time"
 )
 
-// TestNewLSPCacheStoreDoesNotSpawnCleanupGoroutine asserts P22 P2
-// LSP-S2: the cache store constructor must not launch a background
-// cleanup goroutine. Pre-P22 P2 it called `go store.cleanupLoop()`,
-// which held its own stopCh and outlived every caller. Cleanup is
-// now amortised on access, so the goroutine is gone entirely.
+// TestNewLSPCacheStoreDoesNotSpawnCleanupGoroutine 确认缓存构造函数不会启动后台清理 goroutine。
+// 过期清理由访问入口摊销执行，测试用 goroutine 数量边界防止缓存生命周期回退。
 func TestNewLSPCacheStoreDoesNotSpawnCleanupGoroutine(t *testing.T) {
 	store := mustLSPCacheStore(t, lspCacheConfig{TTL: 5 * time.Millisecond})
 	if store == nil {
 		t.Fatalf("newLSPCacheStore returned nil")
 	}
 
-	// Close is a no-op after P22 P2 LSP-S2; it must not panic or
-	// leak even when invoked multiple times in a row.
+	// Close 当前只保留幂等关闭钩子；连续调用不应 panic 或泄漏资源。
 	store.Close()
 	store.Close()
 }
 
-// TestLSPCacheStoreMaybeCleanupPurgesExpiredInline asserts the
-// post-S2 invariant that expired entries age out the next time any
-// accessor runs maybeCleanup (Load / Upsert / WorkspaceDocuments).
-// Without the background loop, callers now carry the cleanup budget,
-// so this path must stay correct.
+// TestLSPCacheStoreMaybeCleanupPurgesExpiredInline 确认没有后台清理循环时，过期项会在下一次访问时被就地清除。
+// Load/Upsert/WorkspaceDocuments 都会承担这段清理预算，避免旧缓存长期留在内存中。
 func TestLSPCacheStoreMaybeCleanupPurgesExpiredInline(t *testing.T) {
 	now := time.Unix(1_000, 0).UTC()
 	store := mustLSPCacheStore(t, lspCacheConfig{TTL: 10 * time.Second})
-	// Freeze the clock so we can drive expiry deterministically.
+	// 固定时钟，便于测试精确推进 TTL 过期边界。
 	store.now = func() time.Time { return now }
 
 	key := lspCacheKey{Workspace: "ws", Language: "go", URI: "file:///a.go"}
@@ -39,7 +32,7 @@ func TestLSPCacheStoreMaybeCleanupPurgesExpiredInline(t *testing.T) {
 		t.Fatalf("Load() after Upsert = !ok, want ok")
 	}
 
-	// Advance past TTL; next accessor should evict inline.
+	// 推进到 TTL 之后；下一次读取应同步淘汰内存项。
 	now = now.Add(30 * time.Second)
 	if _, ok := store.Load(key); ok {
 		t.Fatalf("Load() after TTL = ok, want evicted")

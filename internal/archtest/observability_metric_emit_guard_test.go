@@ -6,22 +6,13 @@ import (
 	"testing"
 )
 
-// TestObservabilityMetricAnchorsWired enforces P22 P4 S6b /
-// observability-contract §322: the three stable metric counters
-// (bootstrap_heartbeat_failures_total,
-// bootstrap_report_queue_dropped_total,
-// bootstrap_reconnect_attempts_total) must stay declared in
-// internal/platform/metrics and emitted at their documented
-// injection sites with the documented label dimensions.
+// TestObservabilityMetricAnchorsWired 固定三类 bootstrap 指标的声明和发射点。
+// 这些计数器会跨 metrics 包和 bootstrap 注入点协作，测试用源码锚点防止重构时漏接标签维度。
 //
-// Source-shape based for the same reason as the log-event guard in
-// observability_log_event_guard_test.go: the emission paths are
-// triggered by reconnect / drain / heartbeat loops that are expensive
-// to synthesise from a unit test, but pinning the literal to its
-// producer file gives the same freeze with zero runtime cost.
+// 这里选择源码形状检查，原因与 log-event guard 一致：重连、drain、heartbeat 循环很难低成本触发。
+// 锚定生产文件中的字面量可以冻结接线位置，同时避免引入额外运行时依赖。
 func TestObservabilityMetricAnchorsWired(t *testing.T) {
-	// 1. metrics package declares the three counters with documented
-	//    names and label dimensions.
+	// metrics 包必须保留三类计数器及其标签维度。
 	metricsPath := "../../internal/platform/metrics/metrics.go"
 	data, err := os.ReadFile(metricsPath)
 	if err != nil {
@@ -42,8 +33,7 @@ func TestObservabilityMetricAnchorsWired(t *testing.T) {
 		}
 	}
 
-	// 2. Each producer must still reference its metric accessor at
-	//    the right injection site.
+	// 每个生产者必须继续在对应注入点引用指标 accessor。
 	producers := []struct {
 		path   string
 		tokens []string

@@ -22,6 +22,7 @@ const (
 	promptDraftListLimit = 1000          // 列出草稿的最大条数
 )
 
+// promptSlugPattern 将标题中的非小写字母数字片段折叠成 prompt_key 连字符。
 var promptSlugPattern = regexp.MustCompile(`[^a-z0-9]+`)
 
 // CommitResult 是草稿提交成功后的返回结果。

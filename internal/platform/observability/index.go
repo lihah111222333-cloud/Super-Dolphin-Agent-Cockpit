@@ -2,6 +2,7 @@ package observability
 
 import "sync"
 
+// Index 是进程内 trace 事件索引，按 trace/thread/slow/error 多维保留有限事件窗口。
 type Index struct {
 	mu         sync.Mutex
 	next       uint64
@@ -14,18 +15,19 @@ type Index struct {
 	errorRefs  seqRing
 }
 
+// seqRing 保存索引引用的事件序号窗口，cap 控制每个 key 最多保留多少条。
 type seqRing struct {
 	cap  int
 	seqs []uint64
 }
 
-// NewIndex 创建索引。
+// NewIndex 创建内存索引并补齐缺省容量，所有内部 map 从这里初始化。
 func NewIndex(cfg Config) *Index {
 	cfg = normalizeIndexConfig(cfg)
 	return &Index{cfg: cfg, events: make(map[uint64]TraceEvent, cfg.IndexMaxEvents), traceRefs: map[string]*seqRing{}, threadRefs: map[string]*seqRing{}, slowRefs: seqRing{cap: cfg.IndexMaxSlowEvents}, errorRefs: seqRing{cap: cfg.IndexMaxErrorEvents}}
 }
 
-// Add 添加平台observability。
+// Add 写入一条事件并更新各维度索引；超过全局容量时同步驱逐旧事件引用。
 func (i *Index) Add(event TraceEvent) {
 	i.mu.Lock()
 	defer i.mu.Unlock()
@@ -51,7 +53,7 @@ func (i *Index) Add(event TraceEvent) {
 	}
 }
 
-// Query 处理查询。
+// Query 根据 Query 选择最窄索引读取事件，再应用过滤和 limit。
 func (i *Index) Query(query Query) QueryResult {
 	i.mu.Lock()
 	defer i.mu.Unlock()
@@ -61,14 +63,14 @@ func (i *Index) Query(query Query) QueryResult {
 	return QueryResult{Source: QuerySourceMemory, Events: events, Truncated: truncated}
 }
 
-// TraceKeyCount 处理trace键count。
+// TraceKeyCount 返回当前仍有事件引用的 trace key 数量。
 func (i *Index) TraceKeyCount() int {
 	i.mu.Lock()
 	defer i.mu.Unlock()
 	return len(i.traceRefs)
 }
 
-// LatestTraceContextByThread 按线程处理latesttrace上下文。
+// LatestTraceContextByThread 返回指定 thread 最近一条带 traceID 的上下文。
 func (i *Index) LatestTraceContextByThread(threadID string) (TraceContext, bool) {
 	i.mu.Lock()
 	defer i.mu.Unlock()
@@ -86,6 +88,7 @@ func (i *Index) LatestTraceContextByThread(threadID string) (TraceContext, bool)
 	return TraceContext{}, false
 }
 
+// querySeqs 按 query 选择初始序号集合，优先使用最具体的索引。
 func (i *Index) querySeqs(query Query) []uint64 {
 	switch {
 	case query.TraceID != "":
@@ -101,6 +104,7 @@ func (i *Index) querySeqs(query Query) []uint64 {
 	}
 }
 
+// filterSeqs 在候选序号上应用完整 Query 条件，并原地复用切片容量。
 func (i *Index) filterSeqs(seqs []uint64, query Query) []uint64 {
 	out := seqs[:0]
 	for _, seq := range seqs {
@@ -112,6 +116,7 @@ func (i *Index) filterSeqs(seqs []uint64, query Query) []uint64 {
 	return out
 }
 
+// keySeqs 读取指定 key 的 ring，并清理已被全局事件表驱逐的旧序号。
 func (i *Index) keySeqs(refs map[string]*seqRing, key string) []uint64 {
 	ring := refs[key]
 	if ring == nil {
@@ -125,6 +130,7 @@ func (i *Index) keySeqs(refs map[string]*seqRing, key string) []uint64 {
 	return append([]uint64(nil), ring.seqs...)
 }
 
+// eventsForSeqs 按 limit 返回最近事件，truncated 表示候选集合被裁剪。
 func (i *Index) eventsForSeqs(seqs []uint64, limit int) ([]TraceEvent, bool) {
 	truncated := false
 	if limit > 0 && len(seqs) > limit {
@@ -140,6 +146,7 @@ func (i *Index) eventsForSeqs(seqs []uint64, limit int) ([]TraceEvent, bool) {
 	return out, truncated
 }
 
+// appendKeyRef 把事件序号追加到某个 key 的 ring，必要时创建 ring。
 func (i *Index) appendKeyRef(refs map[string]*seqRing, key string, cap int, seq uint64) {
 	ring := refs[key]
 	if ring == nil {
@@ -149,6 +156,7 @@ func (i *Index) appendKeyRef(refs map[string]*seqRing, key string, cap int, seq 
 	ring.append(seq)
 }
 
+// evict 从全局事件表和所有二级索引中移除指定序号。
 func (i *Index) evict(seq uint64) {
 	event, ok := i.events[seq]
 	if !ok {
@@ -165,6 +173,7 @@ func (i *Index) evict(seq uint64) {
 	}
 }
 
+// removeKeyRef 从指定 key 的 ring 中移除序号，ring 为空时删除 key。
 func (i *Index) removeKeyRef(refs map[string]*seqRing, key string, seq uint64) {
 	if key == "" {
 		return
@@ -177,6 +186,7 @@ func (i *Index) removeKeyRef(refs map[string]*seqRing, key string, seq uint64) {
 	}
 }
 
+// append 向 ring 追加序号，超出容量时保留最新窗口。
 func (r *seqRing) append(seq uint64) {
 	if r.cap <= 0 {
 		return
@@ -187,6 +197,7 @@ func (r *seqRing) append(seq uint64) {
 	}
 }
 
+// remove 从 ring 中删除指定序号，保持其余序号相对顺序。
 func (r *seqRing) remove(seq uint64) {
 	for n, value := range r.seqs {
 		if value == seq {
@@ -197,6 +208,7 @@ func (r *seqRing) remove(seq uint64) {
 	}
 }
 
+// prune 丢弃已不存在于全局事件表的序号引用。
 func (r *seqRing) prune(events map[uint64]TraceEvent) {
 	out := r.seqs[:0]
 	for _, seq := range r.seqs {
@@ -207,7 +219,7 @@ func (r *seqRing) prune(events map[uint64]TraceEvent) {
 	r.seqs = out
 }
 
-// normalizeIndexConfig 规范化索引配置。
+// normalizeIndexConfig 为索引容量补默认值，避免零值配置导致索引完全不保留事件。
 func normalizeIndexConfig(cfg Config) Config {
 	if cfg.IndexMaxEvents <= 0 {
 		cfg.IndexMaxEvents = 5000

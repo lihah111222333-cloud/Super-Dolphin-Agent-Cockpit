@@ -26,7 +26,8 @@ type httpRunner struct {
 	bearerToken string
 }
 
-// newHTTPRunner 在 peer 模式下创建 HTTP MCP runner，非 peer 模式返回空阻塞 runner。
+// newHTTPRunner 根据 peer 配置选择 HTTP MCP runner 或空阻塞 runner。
+// 非 peer 模式仍要阻塞进程生命周期，避免 sidecar 初始化后立即退出。
 func newHTTPRunner(handlers ToolHandlers) platformrunner.Runner {
 	if os.Getenv("GO_AGENT_PEER_MODE") != "1" {
 		return lspBlockRunner{}

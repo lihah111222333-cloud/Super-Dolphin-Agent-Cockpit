@@ -74,9 +74,7 @@ func buildStartAssemblyInput(req StartRequest, threadID string, buildCtx contrac
 		ScratchpadDir:                buildCtx.ScratchpadDir,
 		FRCConfig:                    buildCtx.FRCConfig,
 		KeepCodingInstructions:       buildCtx.KeepCodingInstructions,
-		// Legacy additive carrier only. Production skill discovery is handled
-		// by provider-native mirror reconciliation in provider drivers, not by
-		// prompt-catalog rendering.
+		// 兼容旧 wire 载体；生产 skill 发现由 provider 驱动的镜像同步处理，不由 prompt catalog 渲染。
 		LaunchSkillNames:  append([]string(nil), req.LaunchSkillNames...),
 		LaunchSkillRefs:   cloneProviderSkillRefs(req.LaunchSkillRefs),
 		ForceLaunchSkills: req.ForceLaunchSkills,

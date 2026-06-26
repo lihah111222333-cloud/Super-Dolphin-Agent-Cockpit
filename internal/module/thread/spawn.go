@@ -36,7 +36,8 @@ func isPendingLaunchIntent(req StartRequest) bool {
 	return true
 }
 
-// startPendingThread 启动待处理线程。
+// startPendingThread 写入 pending_launch 线程，但不 fork provider 进程。
+// 它持久化首轮启动所需配置，并立即发布 started，让 UI 能展示“待输入后启动”的线程。
 func (s *service) startPendingThread(ctx context.Context, req StartRequest, agentID string) (StartResult, error) {
 	if s == nil || s.threadStore == nil {
 		return StartResult{}, errors.New("thread store is not configured")
@@ -112,7 +113,8 @@ func (s *service) startPendingThread(ctx context.Context, req StartRequest, agen
 	}, nil
 }
 
-// isThreadPendingLaunch 判断线程待处理启动是否可用。
+// isThreadPendingLaunch 判断 thread store 中的线程是否仍处于 pending_launch。
+// store 未装配、thread 为空或 id 缺失都按非 pending 处理，实际写路径仍由调用方 fail-fast。
 func (s *service) isThreadPendingLaunch(ctx context.Context, threadID string) (bool, error) {
 	if s == nil || s.threadStore == nil {
 		return false, nil
@@ -139,7 +141,8 @@ func (s *service) acquirePendingLaunchLock(threadID string) *sync.Mutex {
 	return m.(*sync.Mutex)
 }
 
-// SpawnIfNeeded 处理spawnifneeded。
+// SpawnIfNeeded 在 pending_launch 线程收到首个真实用户输入时拉起 provider 会话。
+// 同一 thread_id 通过专属锁串行化，launch intent 的已知错误会直接返回，失败后会标记线程并发布停止事件。
 func (s *service) SpawnIfNeeded(ctx context.Context, threadID, userInputForRouter, requestCWD string) (launched bool, routing SpawnRouting, err error) {
 	ctx = util.NonNilContext(ctx)
 	threadID = strings.TrimSpace(threadID)
@@ -193,7 +196,8 @@ func validateSpawnIfNeededInputs(s *service, threadID string) error {
 	return nil
 }
 
-// loadPendingLaunchRow 加载待处理启动row。
+// loadPendingLaunchRow 读取待启动线程并判断是否仍需要 spawn。
+// 非 pending 或状态已变化返回 needSpawn=false，让重复首轮请求保持幂等。
 func (s *service) loadPendingLaunchRow(ctx context.Context, threadID string) (*threadstore.Thread, bool, error) {
 	row, err := s.threadStore.GetByThreadID(ctx, threadID)
 	if err != nil {
@@ -211,7 +215,8 @@ func (s *service) loadPendingLaunchRow(ctx context.Context, threadID string) (*t
 	return row, true, nil
 }
 
-// buildPendingSpawnRequest 构建待处理spawn请求。
+// buildPendingSpawnRequest 从 pending row 和首轮输入重建 StartRequest。
+// 存储 CWD 是权威值，请求 CWD 只用于校验；若规范化后 agent id 被改写，直接报错阻断错误绑定。
 func buildPendingSpawnRequest(row *threadstore.Thread, agentID, userInputForRouter, requestCWD string) (StartRequest, error) {
 	cwd, err := resolvePendingLaunchCWD(row.Cwd, requestCWD)
 	if err != nil {
@@ -250,7 +255,8 @@ func buildPendingSpawnRequest(row *threadstore.Thread, agentID, userInputForRout
 	return normalized, nil
 }
 
-// cleanupFailedPendingLaunch 处理cleanupfailed待处理启动。
+// cleanupFailedPendingLaunch 处理 pending_launch spawn 失败后的状态收口。
+// 带 launch intent 的线程会记录保留错误、标记 failed 并发布 stopped；无 intent 的早期失败只释放进程内锁。
 func (s *service) cleanupFailedPendingLaunch(ctx context.Context, threadID, agentID string, cause error) error {
 	if cause == nil || s == nil || s.threadStore == nil {
 		return cause
@@ -296,7 +302,8 @@ func resolvePendingLaunchCWD(storedCWD, requestCWD string) (string, error) {
 	return stored, nil
 }
 
-// runPendingSpawn 运行待处理spawn。
+// runPendingSpawn 执行 pending_launch 的真实启动流程。
+// prompt 路由和 assembly 并行准备；provider 启动后必须成功持久化 session，失败路径会关闭已拉起 agent 并清理 scratchpad。
 func (s *service) runPendingSpawn(
 	ctx context.Context,
 	req *StartRequest,
@@ -387,7 +394,8 @@ func prependAgentBadge(displayName, agentTitle, agentKey string) string {
 	return prefix + displayName
 }
 
-// cleanupPendingSpawn 处理cleanup待处理spawn。
+// cleanupPendingSpawn 是 runPendingSpawn 的失败清理钩子。
+// active 为真时释放临时 scratchpad；若 provider 已经启动但持久化未完成，还会停止新 agent 防止孤儿进程。
 func cleanupPendingSpawn(
 	ctx context.Context,
 	s *service,
@@ -407,8 +415,8 @@ func cleanupPendingSpawn(
 	}
 }
 
-// publishPendingSpawnLaunched emits thread.launched after pending spawn commit.
-// publishPendingSpawnLaunched 发布待处理spawnlaunched。
+// publishPendingSpawnLaunched 在 pending spawn 持久化完成后发布 thread.launched。
+// 事件使用 session 中解析出的 provider 身份和有效配置，保证 UI 收到的是可恢复的最终线程状态。
 func publishPendingSpawnLaunched(
 	s *service,
 	req *StartRequest,
@@ -462,7 +470,8 @@ func persistentSubagentDefaultEnabled(flags map[string]bool) bool {
 	return false
 }
 
-// applyPersistentSubagentToolPolicy 应用persistentsubagent工具策略。
+// applyPersistentSubagentToolPolicy 在 managed 子代理默认开启时隐藏临时 spawn_agent 工具。
+// 只有两个工具同时存在才移除临时入口，避免缺少 managed 工具时把唯一可用入口删掉。
 func applyPersistentSubagentToolPolicy(enabledTools []string, flags map[string]bool) []string {
 	if !persistentSubagentDefaultEnabled(flags) || len(enabledTools) == 0 {
 		return enabledTools
@@ -490,8 +499,8 @@ func applyPersistentSubagentToolPolicy(enabledTools []string, flags map[string]b
 	return filtered
 }
 
-// applyTitleExtractionFallback updates the display name by extracting a title from
-// the user prompt if the thread is currently unnamed or holds the fallback title.
+// applyTitleExtractionFallback 在默认标题下尝试从首轮 prompt 提取展示名。
+// 已有用户标题保持不变，避免 pending spawn 完成时覆盖手动命名。
 func applyTitleExtractionFallback(displayName, prompt string) string {
 	if displayName == "" || displayName == "新对话" {
 		if ext := ExtractTitle(prompt); ext != "" {

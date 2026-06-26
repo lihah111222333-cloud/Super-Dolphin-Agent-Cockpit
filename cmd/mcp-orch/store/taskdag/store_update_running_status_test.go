@@ -10,18 +10,12 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/sqlc"
 )
 
-// TestUpdateRunningNodeStatus_FenceAcceptsPendingAndReady locks in the W4 SQL
-// fence relax (cmd/mcp-orch/sql/queries/task_dag_node_runtime.sql).
+// TestUpdateRunningNodeStatus_FenceAcceptsPendingAndReady 锁定 running 状态更新的 SQL fence。
 //
-// Before the fix, UpdateRunningTaskDagNodeStatus' WHERE clause was
-// `status IN ('pending')` 鈥?so once F6.3 promote_single_node_pending_to_ready
-// flipped a root node to 'ready', the dispatcher's subsequent attempt to push
-// it into 'running' silently matched 0 rows and the node was wedged forever.
+// UpdateRunningTaskDagNodeStatus 必须允许 pending 和 ready 两种起点进入 running；
+// 如果只允许 pending，已被调度器提升到 ready 的根节点会在派发时匹配 0 行并卡住。
 //
-// The fix relaxes the fence to `status IN ('pending', 'ready')`. This test
-// exercises both legal starting points and asserts terminal status becomes
-// running, plus that an already-running / terminal node is rejected by the
-// fence (no regression on the upper bound).
+// 测试同时覆盖合法起点和 already-running/terminal 拒绝路径，防止 fence 上界被放宽。
 func TestUpdateRunningNodeStatus_FenceAcceptsPendingAndReady(t *testing.T) {
 	t.Parallel()
 

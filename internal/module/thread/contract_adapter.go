@@ -15,9 +15,8 @@ type serviceThreadListerAdapter struct {
 	svc Service
 }
 
-// NewThreadLister returns a contract.ThreadLister backed by the given Service.
-// Returns nil when svc is nil so callers can safely wire optional deps.
-// NewThreadLister 创建线程lister。
+// NewThreadLister 将 thread.Service 暴露为 contract.ThreadLister。
+// svc 为空时返回 nil，允许上层按可选依赖装配而不制造空 adapter。
 func NewThreadLister(svc Service) contract.ThreadLister {
 	if svc == nil {
 		return nil
@@ -25,7 +24,8 @@ func NewThreadLister(svc Service) contract.ThreadLister {
 	return &serviceThreadListerAdapter{svc: svc}
 }
 
-// List 列出线程。
+// List 将 thread.Ref 投影为跨模块 contract.ThreadRef。
+// adapter 不回查额外状态，避免 prompt/cron 等调用方触发 thread 模块的副作用。
 func (a *serviceThreadListerAdapter) List(ctx context.Context) ([]contract.ThreadRef, error) {
 	refs, err := a.svc.List(ctx)
 	if err != nil {
@@ -49,10 +49,8 @@ type serviceConfigReaderAdapter struct {
 	svc Service
 }
 
-// NewThreadConfigReader returns a contract.ThreadConfigReader backed by the
-// given Service. The returned adapter also satisfies
-// contract.ThreadRuntimeConfigReader. Returns nil when svc is nil.
-// NewThreadConfigReader 创建线程配置读取器。
+// NewThreadConfigReader 将 thread.Service 暴露为线程配置读取器。
+// 同一个 adapter 也实现 runtime config 读取接口；svc 为空时返回 nil 以支持可选装配。
 func NewThreadConfigReader(svc Service) contract.ThreadConfigReader {
 	if svc == nil {
 		return nil
@@ -60,9 +58,8 @@ func NewThreadConfigReader(svc Service) contract.ThreadConfigReader {
 	return &serviceConfigReaderAdapter{svc: svc}
 }
 
-// NewThreadRuntimeConfigReader returns a contract.ThreadRuntimeConfigReader
-// backed by the same adapter as NewThreadConfigReader.
-// NewThreadRuntimeConfigReader 创建线程运行时配置读取器。
+// NewThreadRuntimeConfigReader 返回与 NewThreadConfigReader 相同的 runtime config adapter。
+// 它只读 thread 模块状态，不负责启动或恢复 provider session。
 func NewThreadRuntimeConfigReader(svc Service) contract.ThreadRuntimeConfigReader {
 	if svc == nil {
 		return nil
@@ -70,12 +67,13 @@ func NewThreadRuntimeConfigReader(svc Service) contract.ThreadRuntimeConfigReade
 	return &serviceConfigReaderAdapter{svc: svc}
 }
 
-// GetConfig 读取配置。
+// GetConfig 透传 Service.GetConfig，用于跨模块读取线程可见配置。
 func (a *serviceConfigReaderAdapter) GetConfig(ctx context.Context, threadID string) (dto.ThreadConfig, error) {
 	return a.svc.GetConfig(ctx, threadID)
 }
 
-// ReadRuntimeConfig 读取运行时配置。
+// ReadRuntimeConfig 读取单个线程的 runtime config。
+// 底层 Service 未实现该窄接口时返回 nil，表示装配中没有该能力而不是空配置持久化。
 func (a *serviceConfigReaderAdapter) ReadRuntimeConfig(ctx context.Context, threadID string) (map[string]any, error) {
 	type runtimeReader interface {
 		ReadRuntimeConfig(ctx context.Context, threadID string) (map[string]any, error)
@@ -86,7 +84,8 @@ func (a *serviceConfigReaderAdapter) ReadRuntimeConfig(ctx context.Context, thre
 	return nil, nil
 }
 
-// ReadRuntimeConfigs 读取运行时配置。
+// ReadRuntimeConfigs 批量读取线程 runtime config。
+// Service 不支持批量接口时返回 nil，调用方需要按能力存在与否选择路径。
 func (a *serviceConfigReaderAdapter) ReadRuntimeConfigs(ctx context.Context, threadIDs []string) (map[string]map[string]any, error) {
 	type runtimeReader interface {
 		ReadRuntimeConfigs(ctx context.Context, threadIDs []string) (map[string]map[string]any, error)
@@ -97,7 +96,8 @@ func (a *serviceConfigReaderAdapter) ReadRuntimeConfigs(ctx context.Context, thr
 	return nil, nil
 }
 
-// ReadThreadStateRuntimeConfig 读取线程状态运行时配置。
+// ReadThreadStateRuntimeConfig 只读取 thread store 中的离线 runtime 状态。
+// 它不会访问 provider session，适合在 prompt 构建等只需要持久化边界的路径调用。
 func (a *serviceConfigReaderAdapter) ReadThreadStateRuntimeConfig(ctx context.Context, threadID string) (map[string]any, error) {
 	type runtimeReader interface {
 		ReadThreadStateRuntimeConfig(ctx context.Context, threadID string) (map[string]any, error)
@@ -108,28 +108,22 @@ func (a *serviceConfigReaderAdapter) ReadThreadStateRuntimeConfig(ctx context.Co
 	return nil, nil
 }
 
-// ---------------------------------------------------------------------------
-// CronStarterAdapter (was cron_adapter.go)
-// ---------------------------------------------------------------------------
-
-// CronStarterAdapter wraps the full thread.Service into the narrow
-// contract.CronThreadStarter interface consumed by the cron module.
+// CronStarterAdapter 将完整 thread.Service 收窄为 cron 模块需要的启动接口。
+// 该 adapter 是跨模块边界，避免 cron 直接依赖 thread 的完整生命周期 API。
 type CronStarterAdapter struct {
 	svc Service
 }
 
-// NewCronStarterAdapter creates an adapter. svc must not be nil.
-// NewCronStarterAdapter 创建cronstarter适配器。
+// NewCronStarterAdapter 构造 cron 启动 adapter。
+// 调用方必须传入非 nil service；这里不做兜底，错误应在装配阶段暴露。
 func NewCronStarterAdapter(svc Service) *CronStarterAdapter {
 	return &CronStarterAdapter{svc: svc}
 }
 
 var _ contract.CronThreadStarter = (*CronStarterAdapter)(nil)
 
-// CronStartThread translates the narrow cron request into a full
-// thread.StartRequest, delegates to Service.Start, and projects the
-// result back into the narrow cron result.
-// CronStartThread 处理cron起点线程。
+// CronStartThread 将 cron 的窄启动请求转换为 StartRequest。
+// 返回值只暴露 cron 后续追踪需要的 thread/agent 身份，避免泄露 thread 模块内部响应结构。
 func (a *CronStarterAdapter) CronStartThread(ctx context.Context, req contract.CronStartThreadRequest) (contract.CronStartThreadResult, error) {
 	res, err := a.svc.Start(ctx, StartRequest{
 		Provider: req.Provider,

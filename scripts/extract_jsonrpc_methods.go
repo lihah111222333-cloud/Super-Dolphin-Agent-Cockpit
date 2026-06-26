@@ -14,7 +14,7 @@ import (
 	"strings"
 )
 
-// main 解析参数并执行命令行入口流程。
+// main 扫描指定模块中的 JSON-RPC 注册点，并按字典序输出 method 名称。
 func main() {
 	roots := []string{
 		"internal/module/thread",
@@ -51,6 +51,7 @@ func main() {
 	}
 }
 
+// shouldSkipWalkPath 判断 WalkDir 当前路径是否需要跳过，并把遍历错误写到 stderr。
 func shouldSkipWalkPath(path string, d fs.DirEntry, walkErr error, isTestFile bool) bool {
 	if walkErr != nil {
 		fmt.Fprintf(os.Stderr, "extract_jsonrpc_methods: walk %s: %v\n", path, walkErr)
@@ -62,6 +63,7 @@ func shouldSkipWalkPath(path string, d fs.DirEntry, walkErr error, isTestFile bo
 	return !strings.HasSuffix(path, ".go") || isTestFile
 }
 
+// parseAndCollectFile 解析 Go 文件并收集其中的字符串常量，解析失败只记录错误后跳过该文件。
 func parseAndCollectFile(fset *token.FileSet, path string, files *[]*ast.File, consts map[string]string) {
 	file, err := parser.ParseFile(fset, path, nil, parser.SkipObjectResolution)
 	if err != nil {
@@ -72,6 +74,7 @@ func parseAndCollectFile(fset *token.FileSet, path string, files *[]*ast.File, c
 	collectStringConsts(file, consts)
 }
 
+// collectExtractedMethods 从 AST 节点中提取已注册的 JSON-RPC method 名称。
 func collectExtractedMethods(n ast.Node, consts map[string]string, methods map[string]struct{}) {
 	if call, ok := n.(*ast.CallExpr); ok {
 		collectBindMethods(call, consts, methods)
@@ -84,7 +87,7 @@ func collectExtractedMethods(n ast.Node, consts map[string]string, methods map[s
 	}
 }
 
-// collectCompositeLiteralMethods 收集compositeliteralmethods。
+// collectCompositeLiteralMethods 从 handler.Map 字面量 key 中收集 method 名称。
 func collectCompositeLiteralMethods(lit *ast.CompositeLit, consts map[string]string, methods map[string]struct{}) {
 	if !isMethodMapLiteral(lit) {
 		return
@@ -100,7 +103,7 @@ func collectCompositeLiteralMethods(lit *ast.CompositeLit, consts map[string]str
 	}
 }
 
-// collectBindMethods 收集bindmethods。
+// collectBindMethods 从 bindMethods(handler.Map{...}) 调用中收集 method 名称。
 func collectBindMethods(call *ast.CallExpr, consts map[string]string, methods map[string]struct{}) {
 	if !isBindMethodsCall(call) || len(call.Args) == 0 {
 		return
@@ -120,7 +123,7 @@ func collectBindMethods(call *ast.CallExpr, consts map[string]string, methods ma
 	}
 }
 
-// extractedMethod 处理extractedmethod。
+// extractedMethod 从 register 调用或 s.methods[...] 索引表达式中提取 method 名称。
 func extractedMethod(n ast.Node, consts map[string]string) string {
 	switch x := n.(type) {
 	case *ast.IndexExpr:
@@ -138,11 +141,13 @@ func extractedMethod(n ast.Node, consts map[string]string) string {
 	return ""
 }
 
+// isBindMethodsCall 判断调用是否是本脚本关注的 bindMethods。
 func isBindMethodsCall(call *ast.CallExpr) bool {
 	sel, ok := call.Fun.(*ast.SelectorExpr)
 	return ok && sel.Sel != nil && sel.Sel.Name == "bindMethods"
 }
 
+// isMethodMapLiteral 判断复合字面量是否是 handler.Map。
 func isMethodMapLiteral(lit *ast.CompositeLit) bool {
 	sel, ok := lit.Type.(*ast.SelectorExpr)
 	if !ok || sel.Sel == nil || sel.Sel.Name != "Map" {
@@ -152,7 +157,7 @@ func isMethodMapLiteral(lit *ast.CompositeLit) bool {
 	return ok && pkg.Name == "handler"
 }
 
-// collectStringConsts 收集stringconsts。
+// collectStringConsts 收集文件级字符串常量，供 method 常量引用解析使用。
 func collectStringConsts(file *ast.File, out map[string]string) {
 	for _, decl := range file.Decls {
 		gen, ok := decl.(*ast.GenDecl)
@@ -176,7 +181,7 @@ func collectStringConsts(file *ast.File, out map[string]string) {
 	}
 }
 
-// methodFromMethodsIndex 从methods索引处理method。
+// methodFromMethodsIndex 从 s.methods[...] 形式中解析 method 名称。
 func methodFromMethodsIndex(idx *ast.IndexExpr, consts map[string]string) (string, bool) {
 	sel, ok := idx.X.(*ast.SelectorExpr)
 	if !ok || sel.Sel == nil || sel.Sel.Name != "methods" {
@@ -189,6 +194,7 @@ func methodFromMethodsIndex(idx *ast.IndexExpr, consts map[string]string) (strin
 	return methodFromExpr(idx.Index, consts)
 }
 
+// isRegisterCall 判断调用是否是 register 函数或方法。
 func isRegisterCall(call *ast.CallExpr) bool {
 	switch fn := call.Fun.(type) {
 	case *ast.Ident:
@@ -200,6 +206,7 @@ func isRegisterCall(call *ast.CallExpr) bool {
 	}
 }
 
+// methodFromExpr 从字符串字面量或已收集常量中解析 method 名称。
 func methodFromExpr(expr ast.Expr, consts map[string]string) (string, bool) {
 	switch v := expr.(type) {
 	case *ast.BasicLit:
@@ -218,7 +225,7 @@ func methodFromExpr(expr ast.Expr, consts map[string]string) (string, bool) {
 	}
 }
 
-// validMethod 判断method是否可用。
+// validMethod 校验 method 名称只包含 JSON-RPC 路径常用字符。
 func validMethod(s string) bool {
 	s = strings.TrimSpace(s)
 	if s == "" {

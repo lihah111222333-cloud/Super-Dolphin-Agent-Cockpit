@@ -242,6 +242,8 @@ func matchVersion(method string, tpl workflowtemplates.Template, version any) er
 	return nil
 }
 
+// versionText 将 JSON-RPC 入参里的版本值标准化成字符串。
+// 该函数只负责兼容不同 JSON 解码形态，版本是否存在由 matchVersion 继续判定。
 func versionText(value any) string {
 	switch current := value.(type) {
 	case nil:

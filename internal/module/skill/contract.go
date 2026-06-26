@@ -11,17 +11,25 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 )
 
-// ErrMissingCWD aliases the canonical contract sentinel so errors.Is works
-// regardless of whether the caller imported skill or contract.
+// ErrMissingCWD 是 contract sentinel 的兼容别名。
+// 调用方无论导入 skill 还是 contract，errors.Is 都能命中同一个错误。
 var ErrMissingCWD = contract.ErrSkillMissingCWD
+
+// skill 范围和冲突 sentinel errors，供 RPC 与跨模块调用方用 errors.Is 判断失败类型。
 var ErrInvalidSkillScope = errors.New("invalid skill scope")
 var ErrSkillSystemScopeRemoved = errors.New("skill system scope has been removed")
 var ErrSkillSameNameConflict = contract.ErrSkillSameNameConflict
 
+// SkillProvider 是 provider 标识的本包兼容别名。
 type SkillProvider = contract.SkillProvider
+
+// SkillMirrorReport 是 provider mirror 发布结果的本包兼容别名。
 type SkillMirrorReport = contract.SkillMirrorReport
+
+// SkillMirrorReportItem 是单个 mirror 发布项结果的本包兼容别名。
 type SkillMirrorReportItem = contract.SkillMirrorReportItem
 
+// ExecResult 描述 skill 命令执行后的退出码、输出和运行上下文。
 type ExecResult struct {
 	ExitCode int    `json:"exitCode"`
 	Stdout   string `json:"stdout"`
@@ -30,9 +38,8 @@ type ExecResult struct {
 	CWD      string `json:"cwd,omitempty"`
 }
 
-// SkillInfo is a type alias for contract.SkillInfo. The canonical definition
-// now lives in internal/contract so that cross-module consumers (dashboard,
-// prompt) do not need to import internal/module/skill.
+// SkillInfo 是 contract.SkillInfo 的兼容别名。
+// dashboard/prompt 等跨模块消费者应依赖 contract，而不是导入 skill 实现包。
 type SkillInfo = contract.SkillInfo
 
 const (
@@ -40,24 +47,23 @@ const (
 	SkillProviderCodex  = contract.SkillProviderCodex
 )
 
-// WithCWD delegates to contract.WithSkillCWD. Kept for backward compatibility
-// so existing callers (e.g. dashboard) that import skill.WithCWD keep compiling.
-// WithCWD 设置技能查询使用的工作目录。
+// WithCWD 将技能查询使用的工作目录写入 context，保留旧调用方的 skill.WithCWD 入口。
 func WithCWD(ctx context.Context, cwd string) context.Context {
 	return contract.WithSkillCWD(ctx, cwd)
 }
 
+// cwdFromContext 从 context 读取技能工作目录，缺失时返回空串。
 func cwdFromContext(ctx context.Context) string {
 	return contract.SkillCWDFromContext(ctx)
 }
 
+// requireCWD 从 context 读取技能工作目录，缺失时返回统一 sentinel error。
 func requireCWD(ctx context.Context) (string, error) {
 	return contract.RequireSkillCWD(ctx)
 }
 
-// Service is the backwards-compatible aggregate for the skill module itself
-// and the RPC handler surface. Cross-module consumers should depend on the
-// narrow ports below instead of this full method set.
+// Service 是 skill 模块和 RPC handler 共用的聚合接口。
+// 跨模块消费者应优先依赖下方窄接口，避免把写入、远程和审批能力一并暴露出去。
 type Service interface {
 	contract.ApprovalSource
 	SkillCommandExecutor
@@ -72,32 +78,31 @@ type Service interface {
 	TrustRevisionSource
 }
 
+// SkillCommandExecutor 执行 skill 运行命令，并返回结构化输出。
 type SkillCommandExecutor interface {
 	ExecCommand(ctx context.Context, command string, args []string, cwd string, env map[string]string) (ExecResult, error)
 }
 
-// SkillLister is a type alias for contract.SkillLister. The canonical
-// definition now lives in internal/contract so that cross-module consumers
-// (dashboard, prompt) do not need to import internal/module/skill.
+// SkillLister 是 contract.SkillLister 的兼容别名。
+// 跨模块消费者应依赖 internal/contract，避免直接导入 skill 模块实现面。
 type SkillLister = contract.SkillLister
 
-// SkillInventoryLister is a type alias for contract.SkillInventoryLister.
-// It is only for management inventory; runtime consumers should keep using
-// SkillLister so unresolved conflicts still fail closed.
+// SkillInventoryLister 是管理库存列表使用的兼容别名。
+// 运行时消费者应继续使用 SkillLister，保证未解决冲突时 fail-closed。
 type SkillInventoryLister = contract.SkillInventoryLister
 
+// SkillRevisionSource 提供 skill 列表变更版本号。
 type SkillRevisionSource interface {
 	SkillRevision() uint64
 }
 
+// TrustRevisionSource 提供审批/信任状态变更版本号。
 type TrustRevisionSource interface {
 	TrustRevision() uint64
 }
 
-// SkillCatalogSource is the legacy prompt-catalog compatibility dependency:
-// metadata listing, approval probing, and revision invalidation. Current V1
-// production skill discovery is provider-native mirror based; prompt no
-// longer wires a skill catalog injector on the hot path.
+// SkillCatalogSource 是 prompt catalog 兼容面需要的窄依赖集合。
+// 它只覆盖 metadata 列表、审批查询和版本失效，生产发现路径仍以 provider mirror 为准。
 type SkillCatalogSource interface {
 	SkillLister
 	contract.ApprovalSource
@@ -105,41 +110,43 @@ type SkillCatalogSource interface {
 	TrustRevisionSource
 }
 
-// SkillHydrationSource is a type alias for contract.SkillHydrationSource.
-// The canonical definition now lives in internal/contract so that the turn
-// module can depend on contract instead of importing skill directly.
+// SkillHydrationSource 是 contract.SkillHydrationSource 的兼容别名。
+// turn 模块通过 contract 依赖该能力，避免反向依赖 skill 实现。
 type SkillHydrationSource = contract.SkillHydrationSource
 
+// skillLocalMutationStore 定义本地 skill 文件读写和导入删除能力。
+// 这些方法会触及项目或个人 skill 根目录，调用方必须带 cwd/scope 以通过边界校验。
 type skillLocalMutationStore interface {
 	ListLocalFiles(ctx context.Context, p listSkillFilesParams) (any, error)
 	WriteLocal(ctx context.Context, path, content string, scope ...string) (any, error)
-	// CreateSkill is the host-side project-scope self-learning entry point.
-	// It is a thin wrapper over WriteLocal(..., scope=project) and rejects
-	// requests missing cwd with ErrMissingCWD.
+	// CreateSkill 是宿主侧项目范围自学习入口；缺少 cwd 时返回 ErrMissingCWD。
 	CreateSkill(ctx context.Context, p createSkillParams) (any, error)
-	// ImportLocalDir supports mode=auto|single|batch; auto preserves single
-	// skill imports and expands container directories into direct child skills.
+	// ImportLocalDir 支持 auto/single/batch；auto 保留单 skill 导入并展开容器目录的直接子 skill。
 	ImportLocalDir(ctx context.Context, p importSkillDirParams) (any, error)
 	DeleteLocal(ctx context.Context, p DeleteSkillParams) (any, error)
 }
 
+// DeleteSkillParams 描述删除 canonical skill 时的目标名称和 scope。
 type DeleteSkillParams struct {
 	Name         string
 	Scope        string
 	PersonalType string
 }
 
+// skillRemoteStore 定义远程 skill 读写能力，当前用于 RPC 兼容面。
 type skillRemoteStore interface {
 	ReadRemote(ctx context.Context, url string) (any, error)
 	WriteRemote(ctx context.Context, name, content string) (any, error)
 }
 
+// skillConfigStore 定义 skill 配置和摘要写入能力。
 type skillConfigStore interface {
 	ReadConfig(ctx context.Context, agentID string) (any, error)
 	WriteSkillContent(ctx context.Context, name, content string) (any, error)
 	WriteSummary(ctx context.Context, name, summary string) (any, error)
 }
 
+// skillPreviewer 提供 skill 匹配预览能力，供管理 UI 调试候选结果。
 type skillPreviewer interface {
 	MatchPreview(ctx context.Context, agentID, threadID, text string, input []UserInput) (any, error)
 }
@@ -173,6 +180,7 @@ func (s *service) ReconcileProviderMirrors(ctx context.Context, cwd string, targ
 	return report, nil
 }
 
+// reconcileMirrorProjectRoot 解析 provider mirror 发布使用的项目根，缺失 cwd 时 fail-fast。
 func (s *service) reconcileMirrorProjectRoot(ctx context.Context, cwd string) (string, error) {
 	cwd = strings.TrimSpace(cwd)
 	if cwd == "" {
@@ -203,6 +211,7 @@ func reconcileProviderMirrorScope(ctx context.Context, report *SkillMirrorReport
 	return err
 }
 
+// mirrorTargetsForScope 过滤出指定 scope 的 provider mirror 目标。
 func mirrorTargetsForScope(targets []SkillMirrorTarget, scope string) []SkillMirrorTarget {
 	var out []SkillMirrorTarget
 	for _, target := range targets {
@@ -213,6 +222,7 @@ func mirrorTargetsForScope(targets []SkillMirrorTarget, scope string) []SkillMir
 	return out
 }
 
+// mirrorRecordsForScope 获取 effective canonical records，并按目标 scope 过滤。
 func mirrorRecordsForScope(ctx context.Context, store *canonicalStore, cwd, scope string) ([]canonicalSkillRecord, []canonicalSkillConflict, error) {
 	records, conflicts, err := store.EffectiveSet(ctx, cwd)
 	if err != nil {
@@ -221,6 +231,7 @@ func mirrorRecordsForScope(ctx context.Context, store *canonicalStore, cwd, scop
 	return filterCanonicalRecordsForScope(records, scope), conflicts, nil
 }
 
+// reconcileProjectRoot 将 cwd/configured 解析为最近项目根，解析失败时保留已知路径。
 func reconcileProjectRoot(cwd, configured string) string {
 	cwd = strings.TrimSpace(cwd)
 	if cwd == "" {
@@ -295,6 +306,7 @@ func (s *service) providerMirrorTargets(cwd string, targets []contract.SkillProv
 	return uniqueMirrorTargets(out), nil
 }
 
+// normalizeProviderMirrorProvider 校验 provider mirror 仅支持 claude/codex。
 func normalizeProviderMirrorProvider(provider string) (SkillProvider, error) {
 	normalized := SkillProvider(strings.ToLower(strings.TrimSpace(provider)))
 	if normalized != SkillProviderClaude && normalized != SkillProviderCodex {
@@ -303,6 +315,7 @@ func normalizeProviderMirrorProvider(provider string) (SkillProvider, error) {
 	return normalized, nil
 }
 
+// isProjectProviderMirrorRoot 判断目标目录是否为当前项目 provider mirror 根。
 func isProjectProviderMirrorRoot(cwd string, provider SkillProvider, skillsRoot string) bool {
 	home := strings.TrimSpace(os.Getenv("SUPER_DOLPHIN_HOME"))
 	return sameCleanPath(providerProjectMirrorRoot(provider, strings.TrimSpace(cwd)), skillsRoot) ||
@@ -310,6 +323,7 @@ func isProjectProviderMirrorRoot(cwd string, provider SkillProvider, skillsRoot 
 			sameCleanPath(filepath.Join(home, "provider-mirrors", "project", string(provider), "skills"), skillsRoot)
 }
 
+// providerPersonalMirrorTargetKind 识别 personal mirror 目标类型，不允许的显式 home 返回空串。
 func (s *service) providerPersonalMirrorTargetKind(provider SkillProvider, target contract.SkillProviderMirrorTarget) string {
 	switch {
 	case s.isAppManagedProviderMirrorRoot(provider, target.HomeRoot, target.SkillsRoot):
@@ -323,11 +337,13 @@ func (s *service) providerPersonalMirrorTargetKind(provider SkillProvider, targe
 	}
 }
 
+// isAppManagedProviderMirrorRoot 判断目标是否为应用托管的 provider home。
 func (s *service) isAppManagedProviderMirrorRoot(provider SkillProvider, homeRoot, skillsRoot string) bool {
 	expectedHome := filepath.Join(s.resolvedSuperDolphinHome(), "providers", string(provider))
 	return sameCleanPath(expectedHome, homeRoot) && sameCleanPath(filepath.Join(expectedHome, "skills"), skillsRoot)
 }
 
+// isDefaultProviderMirrorRoot 判断目标是否为 provider 默认个人技能目录。
 func isDefaultProviderMirrorRoot(provider SkillProvider, homeRoot, skillsRoot string) bool {
 	expectedSkills := providerPersonalMirrorRoot(provider)
 	if expectedSkills == "" {
@@ -336,6 +352,7 @@ func isDefaultProviderMirrorRoot(provider SkillProvider, homeRoot, skillsRoot st
 	return sameCleanPath(filepath.Dir(expectedSkills), homeRoot) && sameCleanPath(expectedSkills, skillsRoot)
 }
 
+// explicitProviderMirrorRootAllowed 校验显式 provider home 是否被调用方授权。
 func explicitProviderMirrorRootAllowed(target contract.SkillProviderMirrorTarget) bool {
 	if !target.AllowExplicitHome {
 		return false
@@ -347,6 +364,7 @@ func explicitProviderMirrorRootAllowed(target contract.SkillProviderMirrorTarget
 	return sameCleanPath(filepath.Join(home, "skills"), target.SkillsRoot)
 }
 
+// sameCleanPath 对两个路径做 realpath-aware 清理后比较。
 func sameCleanPath(a, b string) bool {
 	aa, errA := realpathAwareCleanPath(a)
 	bb, errB := realpathAwareCleanPath(b)
@@ -382,6 +400,7 @@ func realpathAwareCleanPath(path string) (string, error) {
 	}
 }
 
+// reversePathParts 反转路径后缀片段，供 realpath 拼接使用。
 func reversePathParts(parts []string) []string {
 	out := make([]string, len(parts))
 	for i := range parts {
@@ -390,6 +409,7 @@ func reversePathParts(parts []string) []string {
 	return out
 }
 
+// appendCanonicalConflictReportItems 把 canonical 同名冲突转换为每个目标 mirror 的报告项。
 func appendCanonicalConflictReportItems(report *SkillMirrorReport, targets []SkillMirrorTarget, conflicts []canonicalSkillConflict) {
 	if report == nil || len(conflicts) == 0 {
 		return

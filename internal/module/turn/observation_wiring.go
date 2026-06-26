@@ -6,6 +6,7 @@ import (
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
 )
 
+// recordSkillsSelected 将 PrepareTurn 选中的 skill 归一化后写入 observation，未启用 observation 时跳过。
 func (s *service) recordSkillsSelected(localID string, skills []dto.SkillRef) {
 	if s == nil || s.observation == nil {
 		return
@@ -13,6 +14,7 @@ func (s *service) recordSkillsSelected(localID string, skills []dto.SkillRef) {
 	s.observation.SetSkillsSelected(localID, selectedSkillSlugs(skills))
 }
 
+// selectedSkillSlugs 去重保留 skill 展示名，避免同名不同大小写重复写入 observation。
 func selectedSkillSlugs(skills []dto.SkillRef) []string {
 	slugs := make([]string, 0, len(skills))
 	seen := make(map[string]struct{}, len(skills))
@@ -31,7 +33,7 @@ func selectedSkillSlugs(skills []dto.SkillRef) []string {
 	return slugs
 }
 
-// mapObservationTurn 映射observationturn。
+// mapObservationTurn 建立本地 turnID 与 provider turnID 的双向映射，冲突时只告警不覆盖。
 func (s *service) mapObservationTurn(localID, providerID string) {
 	if s == nil || s.observation == nil {
 		return
@@ -49,7 +51,7 @@ func (s *service) mapObservationTurn(localID, providerID string) {
 	}
 }
 
-// turnAttachmentRefs 处理turnattachmentrefs。
+// turnAttachmentRefs 提取输入项中可展示的附件引用，按 path、URL、name 的优先级取第一项。
 func turnAttachmentRefs(inputs []dto.InputItem) []string {
 	refs := make([]string, 0, len(inputs))
 	for _, item := range inputs {

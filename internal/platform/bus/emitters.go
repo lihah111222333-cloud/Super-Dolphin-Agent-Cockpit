@@ -13,12 +13,12 @@ type domainEmitters struct {
 	dispatcher *event.Dispatcher
 }
 
-// newDomainEmitters 创建持有 dispatcher 的 domainEmitters 实例。
+// newDomainEmitters 封装 dispatcher 引用，供领域 emitter 共享同一事件总线。
 func newDomainEmitters(dispatcher *event.Dispatcher) *domainEmitters {
 	return &domainEmitters{dispatcher: dispatcher}
 }
 
-// Dispatcher 返回底层 *event.Dispatcher；e 为 nil 时返回 nil。
+// Dispatcher 返回领域 emitter 使用的底层 dispatcher；nil receiver 表示 emitter 未装配。
 func (e *domainEmitters) Dispatcher() *event.Dispatcher {
 	if e == nil {
 		return nil
@@ -29,12 +29,12 @@ func (e *domainEmitters) Dispatcher() *event.Dispatcher {
 // ThreadEmitters 提供 Thread 领域事件的发射能力。
 type ThreadEmitters struct{ *domainEmitters }
 
-// NewThreadEmitters 创建 ThreadEmitters，注入 dispatcher。
+// NewThreadEmitters 为 Thread 领域提供基于同一 dispatcher 的事件发射器集合。
 func NewThreadEmitters(dispatcher *event.Dispatcher) *ThreadEmitters {
 	return &ThreadEmitters{domainEmitters: newDomainEmitters(dispatcher)}
 }
 
-// NewUISharedFilesChangedEmitter 创建 UI 共享文件变更事件的 Emitter。
+// NewUISharedFilesChangedEmitter 暴露 UI shared-files 变更事件的跨模块 emitter。
 func NewUISharedFilesChangedEmitter(dispatcher *event.Dispatcher) contract.UISharedFilesChangedEmitter {
 	return contract.NewEmitter[uidto.UISharedFilesChanged](dispatcher)
 }

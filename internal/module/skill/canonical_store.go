@@ -24,6 +24,7 @@ type canonicalStore struct {
 	appProfile       string
 }
 
+// canonicalSkillRecord 是一个真实 skill 目录扫描出的规范记录，provider mirror 只从这些记录生成。
 type canonicalSkillRecord struct {
 	Name         string
 	Scope        string
@@ -35,12 +36,14 @@ type canonicalSkillRecord struct {
 	info         SkillInfo
 }
 
+// canonicalSkillConflict 描述 canonical skill 集合中必须人工处理的冲突。
 type canonicalSkillConflict struct {
 	Kind    string
 	Name    string
 	Sources []canonicalSkillConflictSource
 }
 
+// canonicalSkillConflictSource 记录冲突来源的路径、scope 和 hash，供 UI 展示和策略选择。
 type canonicalSkillConflictSource struct {
 	Name         string
 	Scope        string
@@ -60,10 +63,12 @@ type canonicalScanRoot struct {
 	defaultTrust TrustScope
 }
 
+// skillSameNameConflictError 包装同名冲突列表，保留 errors.Is 判断能力。
 type skillSameNameConflictError struct {
 	Conflicts []canonicalSkillConflict
 }
 
+// projectSkillPolicy 是项目根下保存的 skill 选择/屏蔽策略。
 type projectSkillPolicy struct {
 	Version                   int                                  `json:"version"`
 	DisablePersonalForProject []projectSkillPolicyDisabledPersonal `json:"disable_personal_for_project,omitempty"`
@@ -71,11 +76,13 @@ type projectSkillPolicy struct {
 	KeepExternalProviderSkill []projectSkillKeepExternalProvider   `json:"keep_external_provider_skill,omitempty"`
 }
 
+// projectSkillPolicyDisabledPersonal 表示项目禁用某个 personal skill 来源。
 type projectSkillPolicyDisabledPersonal struct {
 	Name         string `json:"name"`
 	PersonalType string `json:"personal_type"`
 }
 
+// projectSkillKeepSelected 表示项目在同名 skill 来源中固定选择某一项。
 type projectSkillKeepSelected struct {
 	Name                 string                     `json:"name"`
 	SelectedSourceID     string                     `json:"selected_source_id"`
@@ -85,12 +92,14 @@ type projectSkillKeepSelected struct {
 	Sources              []projectSkillPolicySource `json:"sources,omitempty"`
 }
 
+// projectSkillKeepExternalProvider 记录项目允许保留的外部 provider mirror skill。
 type projectSkillKeepExternalProvider struct {
 	Name       string `json:"name"`
 	Provider   string `json:"provider"`
 	SourceHash string `json:"source_hash"`
 }
 
+// projectSkillPolicySource 保存策略写入时看到的候选来源快照。
 type projectSkillPolicySource struct {
 	CanonicalID  string `json:"canonical_id"`
 	Scope        string `json:"scope"`
@@ -114,10 +123,12 @@ func (e skillSameNameConflictError) Error() string {
 // Unwrap 暴露底层错误，方便 errors.Is 或 errors.As 判断。
 func (e skillSameNameConflictError) Unwrap() error { return ErrSkillSameNameConflict }
 
+// newCanonicalStore 创建 canonical store，默认使用当前进程 owner 身份。
 func newCanonicalStore(superDolphinHome string) *canonicalStore {
 	return &canonicalStore{superDolphinHome: strings.TrimSpace(superDolphinHome)}
 }
 
+// newCanonicalStoreForOwner 创建指定 owner 的 canonical store，用于 provider mirror reconciliation。
 func newCanonicalStoreForOwner(superDolphinHome, osUID, appProfile string) *canonicalStore {
 	return &canonicalStore{
 		superDolphinHome: strings.TrimSpace(superDolphinHome),
@@ -144,6 +155,7 @@ func (s *canonicalStore) EffectiveSet(_ context.Context, cwd string) ([]canonica
 	return canonicalRecordsWithoutConflicts(records, conflicts), conflicts, nil
 }
 
+// scan 扫描所有 canonical roots 并按 name/scope/personalType 稳定排序。
 func (s *canonicalStore) scan(cwd string) ([]canonicalSkillRecord, error) {
 	roots := s.scanRoots(cwd)
 	records := make([]canonicalSkillRecord, 0, len(roots))
@@ -257,6 +269,7 @@ func visitCanonicalSkillFile(root canonicalScanRoot, path string, entry os.DirEn
 	}, nil
 }
 
+// canonicalSameNameConflicts 找出同名 skill 多来源冲突，调用方必须 fail-closed 或展示给用户处理。
 func canonicalSameNameConflicts(records []canonicalSkillRecord) []canonicalSkillConflict {
 	byName := make(map[string][]canonicalSkillRecord, len(records))
 	displayName := make(map[string]string, len(records))
@@ -282,6 +295,7 @@ func canonicalSameNameConflicts(records []canonicalSkillRecord) []canonicalSkill
 	return conflicts
 }
 
+// canonicalConflictSources 将冲突记录转为稳定排序的来源摘要。
 func canonicalConflictSources(records []canonicalSkillRecord) []canonicalSkillConflictSource {
 	sources := make([]canonicalSkillConflictSource, 0, len(records))
 	for _, record := range records {
@@ -304,6 +318,7 @@ func canonicalConflictSources(records []canonicalSkillRecord) []canonicalSkillCo
 	return sources
 }
 
+// canonicalRecordsWithoutConflicts 移除所有仍处于同名冲突的记录，避免运行时偷偷选边。
 func canonicalRecordsWithoutConflicts(records []canonicalSkillRecord, conflicts []canonicalSkillConflict) []canonicalSkillRecord {
 	conflicted := make(map[string]struct{}, len(conflicts))
 	for _, conflict := range conflicts {
@@ -319,6 +334,7 @@ func canonicalRecordsWithoutConflicts(records []canonicalSkillRecord, conflicts 
 	return filtered
 }
 
+// applyEffectivePolicies 依次应用项目策略和 personal 策略，得到运行时 effective records。
 func (s *canonicalStore) applyEffectivePolicies(cwd string, records []canonicalSkillRecord) ([]canonicalSkillRecord, error) {
 	filtered, err := applyProjectSkillPolicy(cwd, records)
 	if err != nil {
@@ -327,6 +343,7 @@ func (s *canonicalStore) applyEffectivePolicies(cwd string, records []canonicalS
 	return s.applyPersonalSkillPolicy(filtered)
 }
 
+// applyProjectSkillPolicy 读取项目策略并应用禁用 personal 与 keep-selected 规则。
 func applyProjectSkillPolicy(cwd string, records []canonicalSkillRecord) ([]canonicalSkillRecord, error) {
 	policy, err := readProjectSkillPolicy(cwd)
 	if err != nil {
@@ -339,6 +356,7 @@ func applyProjectSkillPolicy(cwd string, records []canonicalSkillRecord) ([]cano
 	return applyProjectKeepSelectedPolicy(filtered, policy.KeepSelected)
 }
 
+// applyProjectDisabledPersonalPolicy 移除项目显式禁用的 personal skill 来源。
 func applyProjectDisabledPersonalPolicy(records []canonicalSkillRecord, disabledItems []projectSkillPolicyDisabledPersonal) ([]canonicalSkillRecord, error) {
 	if len(disabledItems) == 0 {
 		return records, nil
@@ -361,6 +379,7 @@ func applyProjectDisabledPersonalPolicy(records []canonicalSkillRecord, disabled
 	}), nil
 }
 
+// applyProjectKeepSelectedPolicy 按项目选择策略保留或排除同名 skill 来源。
 func applyProjectKeepSelectedPolicy(records []canonicalSkillRecord, selections []projectSkillKeepSelected) ([]canonicalSkillRecord, error) {
 	if len(selections) == 0 {
 		return records, nil
@@ -375,6 +394,7 @@ func applyProjectKeepSelectedPolicy(records []canonicalSkillRecord, selections [
 	}), nil
 }
 
+// projectSelectionByName 校验并按规范化名称索引 keep-selected 策略。
 func projectSelectionByName(selections []projectSkillKeepSelected) (map[string]projectSkillKeepSelected, error) {
 	selectionByName := make(map[string]projectSkillKeepSelected, len(selections))
 	for _, selection := range selections {
@@ -388,6 +408,7 @@ func projectSelectionByName(selections []projectSkillKeepSelected) (map[string]p
 	return selectionByName, nil
 }
 
+// keepCanonicalRecordForProjectSelection 判断单条记录是否被项目 keep-selected 策略保留。
 func keepCanonicalRecordForProjectSelection(record canonicalSkillRecord, selectionByName map[string]projectSkillKeepSelected, sourceIDsByName map[string]map[string]struct{}) bool {
 	selection, ok := selectionByName[strings.ToLower(record.Name)]
 	if !ok {
@@ -404,6 +425,7 @@ func keepCanonicalRecordForProjectSelection(record canonicalSkillRecord, selecti
 	return sourceID == selectedSourceID
 }
 
+// canonicalSourceIDsByName 建立 skill 名称到来源 ID 集合的索引。
 func canonicalSourceIDsByName(records []canonicalSkillRecord) map[string]map[string]struct{} {
 	sourceIDsByName := make(map[string]map[string]struct{}, len(records))
 	for _, record := range records {
@@ -419,6 +441,7 @@ func canonicalSourceIDsByName(records []canonicalSkillRecord) map[string]map[str
 	return sourceIDsByName
 }
 
+// canonicalSourceIDExistsForName 判断策略中的来源 ID 是否仍存在于当前扫描结果。
 func canonicalSourceIDExistsForName(sourceIDsByName map[string]map[string]struct{}, name, sourceID string) bool {
 	sourceID = strings.TrimSpace(sourceID)
 	if sourceID == "" {
@@ -432,6 +455,7 @@ func canonicalSourceIDExistsForName(sourceIDsByName map[string]map[string]struct
 	return ok
 }
 
+// readProjectSkillPolicy 从项目 skill root 读取策略文件，读取前拒绝可写 symlink 路径。
 func readProjectSkillPolicy(cwd string) (projectSkillPolicy, error) {
 	var policy projectSkillPolicy
 	path := filepath.Join(defaultProjectSkillsRoot(projectRootForCWD(cwd, "")), projectSkillPolicyFile)
@@ -444,6 +468,7 @@ func readProjectSkillPolicy(cwd string) (projectSkillPolicy, error) {
 	return policy, nil
 }
 
+// writeProjectDisablePersonalPolicy 追加项目禁用 personal 来源策略并写回策略文件。
 func writeProjectDisablePersonalPolicy(cwd, name, personalType string) (string, error) {
 	name, _, err := normalizeSkillIdentityName(name, "")
 	if err != nil {
@@ -483,6 +508,7 @@ func projectPolicyKeepsExternalProviderSkill(policy projectSkillPolicy, name str
 	return false
 }
 
+// appendProjectDisabledPersonal 去重追加 disabled personal 策略项。
 func appendProjectDisabledPersonal(items []projectSkillPolicyDisabledPersonal, next projectSkillPolicyDisabledPersonal) []projectSkillPolicyDisabledPersonal {
 	for _, item := range items {
 		if strings.EqualFold(item.Name, next.Name) && strings.EqualFold(item.PersonalType, next.PersonalType) {
@@ -492,6 +518,7 @@ func appendProjectDisabledPersonal(items []projectSkillPolicyDisabledPersonal, n
 	return append(items, next)
 }
 
+// canonicalSourceID 生成策略中使用的稳定来源 ID。
 func canonicalSourceID(record canonicalSkillRecord) string {
 	name := strings.TrimSpace(record.Name)
 	switch strings.TrimSpace(record.Scope) {
@@ -507,6 +534,7 @@ func canonicalSourceID(record canonicalSkillRecord) string {
 	}
 }
 
+// readJSONFileIfExists 读取可选 JSON 文件；不存在或空文件都视为无策略。
 func readJSONFileIfExists(path string, dst any) error {
 	data, err := os.ReadFile(path)
 	if errors.Is(err, os.ErrNotExist) {
@@ -543,6 +571,7 @@ func writeSkillPolicyJSON(path string, value any, mode os.FileMode) (string, err
 	return skillContentHash(string(data)), nil
 }
 
+// filterCanonicalRecords 按谓词复制保留 canonical records。
 func filterCanonicalRecords(records []canonicalSkillRecord, keep func(canonicalSkillRecord) bool) []canonicalSkillRecord {
 	filtered := make([]canonicalSkillRecord, 0, len(records))
 	for _, record := range records {
@@ -553,6 +582,7 @@ func filterCanonicalRecords(records []canonicalSkillRecord, keep func(canonicalS
 	return filtered
 }
 
+// stringSliceContains 判断字符串切片是否包含 trim 后的目标值。
 func stringSliceContains(items []string, want string) bool {
 	want = strings.TrimSpace(want)
 	for _, item := range items {

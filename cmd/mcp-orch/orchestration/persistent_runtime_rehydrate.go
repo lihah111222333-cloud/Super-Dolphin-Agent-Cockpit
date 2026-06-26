@@ -15,10 +15,8 @@ import (
 	platformstatemachine "github.com/anthropic-ai/super-agent-v3/internal/platform/statemachine"
 )
 
-// ensureRuntimeForPersistedAgent repairs the gap after mcp-orch restarts:
-// the UI can still list persisted agent threads, while this process's
-// in-memory runtime map is empty. For remote Codex agents, the persisted
-// provider binding is enough to route the next turn back to the same thread.
+// ensureRuntimeForPersistedAgent 在 mcp-orch 重启后补建内存 runtime。
+// UI 仍能看到持久化 agent 线程，但当前进程的 runtime map 为空；远端 Codex agent 可依靠持久化 provider 绑定继续路由下一轮 turn。
 func (s *service) ensureRuntimeForPersistedAgent(ctx context.Context, agentID string) {
 	agentID = strings.TrimSpace(agentID)
 	if !s.canRehydratePersistedRuntime(agentID) {
@@ -46,7 +44,8 @@ func (s *service) ensureRuntimeForPersistedAgent(ctx context.Context, agentID st
 		"cwd", agent.cwd)
 }
 
-// canRehydratePersistedRuntime 判断rehydratepersisted运行时是否可用。
+// canRehydratePersistedRuntime 判断当前 agent 是否可以从持久化绑定重建 runtime。
+// 只有支持重建的 launcher、binding store 和缺失内存 runtime 同时满足时才继续。
 func (s *service) canRehydratePersistedRuntime(agentID string) bool {
 	if s == nil {
 		return false
@@ -245,7 +244,8 @@ func persistedRuntimeReport(agentID string, source persistedRuntimeSource, threa
 	return report, nil
 }
 
-// persistedThreadForBinding 为binding处理persisted线程。
+// persistedThreadForBinding 根据 provider thread 或 agentID 找到持久化线程。
+// provider thread 优先，兼容旧数据时再回退到 agentID。
 func (s *service) persistedThreadForBinding(ctx context.Context, agentID, remoteThreadID string) (*PersistedThread, error) {
 	if s.agentThreads == nil {
 		return nil, platformdb.ErrNotFound

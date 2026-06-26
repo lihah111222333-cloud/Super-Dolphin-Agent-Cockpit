@@ -6,7 +6,8 @@ import (
 	"strings"
 )
 
-// IsRuntimeAssetTemplate 判断运行时assettemplate是否可用。
+// IsRuntimeAssetTemplate 判断模板是否属于运行时资产模板。
+// default_rule agent 或 intent 标签会进入运行时资产目录，普通提示词不会暴露给该列表。
 func IsRuntimeAssetTemplate(template PromptTemplate) bool {
 	if strings.TrimSpace(template.AgentKey) == "default_rule" {
 		return true
@@ -20,7 +21,8 @@ func IsRuntimeAssetTemplate(template PromptTemplate) bool {
 	return false
 }
 
-// TemplateTags 处理templatetags。
+// TemplateTags 解析模板 tags JSON。
+// 解析失败时记录警告并返回 nil，调用方应把它视为没有可用标签。
 func TemplateTags(raw json.RawMessage) []string {
 	var tags []string
 	if err := json.Unmarshal(raw, &tags); err != nil {

@@ -29,7 +29,7 @@ type Chunk struct {
 	EndToken   int
 }
 
-// DefaultChunkOptions 处理defaultchunk选项。
+// DefaultChunkOptions 返回适合 RAG 索引的默认 token 分块窗口。
 func DefaultChunkOptions() ChunkOptions {
 	return ChunkOptions{
 		TargetTokens: 500,
@@ -38,7 +38,8 @@ func DefaultChunkOptions() ChunkOptions {
 	}
 }
 
-// SplitText 拆分文本。
+// SplitText 将 UTF-8 文本拆成连续 chunk，优先在段落或标点边界切分。
+// 选项非法、文本非法或无有效 token 时返回明确错误。
 func SplitText(text string, opts ChunkOptions) ([]Chunk, error) {
 	if err := validateOptions(opts); err != nil {
 		return nil, err
@@ -83,6 +84,7 @@ func SplitText(text string, opts ChunkOptions) ([]Chunk, error) {
 	return chunks, nil
 }
 
+// targetBoundary 在找不到自然边界时按目标 token 数强制切分。
 func targetBoundary(text string, tokens []chunkToken, startToken int, opts ChunkOptions) boundaryCandidate {
 	endToken := startToken + opts.TargetTokens
 	endByte := len(text)
@@ -95,7 +97,7 @@ func targetBoundary(text string, tokens []chunkToken, startToken int, opts Chunk
 	}
 }
 
-// validateOptions 校验选项。
+// validateOptions 校验 token 窗口的基本顺序关系，避免分块循环无法推进。
 func validateOptions(opts ChunkOptions) error {
 	if opts.TargetTokens <= 0 || opts.MinTokens <= 0 || opts.MaxTokens <= 0 {
 		return fmt.Errorf("%w: token limits must be positive", ErrInvalidOptions)
@@ -109,12 +111,14 @@ func validateOptions(opts ChunkOptions) error {
 	return nil
 }
 
+// chunkToken 记录 tokenizer 产生的粗粒度 token 在原文中的 byte 范围。
+// 分块时使用 byte 范围回切原文，避免重新拼接导致内容丢失。
 type chunkToken struct {
-	startByte int
-	endByte   int
+	startByte int // token 在原文中的起始 byte 下标
+	endByte   int // token 在原文中的结束 byte 下标（左闭右开）
 }
 
-// tokenizeText 处理tokenize文本。
+// tokenizeText 将文本切成粗粒度 token，并保留原文 byte 边界用于无损切片。
 func tokenizeText(text string) ([]chunkToken, error) {
 	if !utf8.ValidString(text) {
 		return nil, fmt.Errorf("%w: input is not valid UTF-8", ErrInvalidText)
@@ -152,6 +156,7 @@ func tokenizeText(text string) ([]chunkToken, error) {
 	return tokens, nil
 }
 
+// isWordRune 判断 rune 是否属于非 CJK 的连续词字符。
 func isWordRune(r rune) bool {
 	if isCJKRune(r) {
 		return false
@@ -159,18 +164,21 @@ func isWordRune(r rune) bool {
 	return r == '_' || unicode.IsLetter(r) || unicode.IsDigit(r)
 }
 
+// isCJKRune 判断 rune 是否属于常见 CJK 脚本；CJK 文本按单字推进。
 func isCJKRune(r rune) bool {
 	return unicode.In(r, unicode.Han, unicode.Hiragana, unicode.Katakana, unicode.Hangul)
 }
 
+// boundaryCandidate 描述一个可用切分点及其排序依据。
+// 选择时先看语义边界 rank，再看它离目标 token 数的距离。
 type boundaryCandidate struct {
-	endToken int
-	endByte  int
-	rank     int
-	distance int
+	endToken int // 切分点后的 token 下标
+	endByte  int // 原文 byte 切分位置
+	rank     int // 标点/段落边界优先级，数值越小越好
+	distance int // 与目标 token 数的距离
 }
 
-// bestBoundary 处理最佳boundary。
+// bestBoundary 在 min/max token 窗口内寻找最接近目标大小的自然切分点。
 func bestBoundary(text string, tokens []chunkToken, startToken int, opts ChunkOptions) (boundaryCandidate, bool) {
 	left := startToken + opts.MinTokens
 	right := startToken + opts.MaxTokens
@@ -200,6 +208,7 @@ func bestBoundary(text string, tokens []chunkToken, startToken int, opts ChunkOp
 	return best, found
 }
 
+// betterBoundary 先偏好接近目标 token 数，再偏好更强语义边界。
 func betterBoundary(candidate, best boundaryCandidate) bool {
 	if candidate.distance != best.distance {
 		return candidate.distance < best.distance
@@ -210,7 +219,7 @@ func betterBoundary(candidate, best boundaryCandidate) bool {
 	return candidate.endToken < best.endToken
 }
 
-// boundaryAt 处理boundaryat。
+// boundaryAt 判断指定 token 之后是否存在可用边界，并返回切分 byte 位置和边界等级。
 func boundaryAt(text string, tokens []chunkToken, endToken int) (int, int, bool) {
 	if endToken <= 0 || endToken > len(tokens) {
 		return 0, 0, false
@@ -236,10 +245,12 @@ func boundaryAt(text string, tokens []chunkToken, endToken int) (int, int, bool)
 	return previous.endByte, rank, true
 }
 
+// hasParagraphBreak 判断 token 间隔中是否包含段落空行，段落边界优先级最高。
 func hasParagraphBreak(text string) bool {
 	return strings.Count(text, "\n") >= 2
 }
 
+// lastNonSpaceRune 返回片段末尾最后一个非空白 rune，用于判断标点边界。
 func lastNonSpaceRune(text string) (rune, bool) {
 	for len(text) > 0 {
 		r, size := utf8.DecodeLastRuneInString(text)
@@ -251,6 +262,7 @@ func lastNonSpaceRune(text string) (rune, bool) {
 	return 0, false
 }
 
+// boundaryRank 给不同标点边界分级，数值越小表示越适合切分。
 func boundaryRank(r rune) (int, bool) {
 	switch {
 	case strings.ContainsRune("。！？.!?", r):
@@ -266,11 +278,13 @@ func boundaryRank(r rune) (int, bool) {
 	}
 }
 
+// isBoundaryRune 判断 rune 是否是 tokenizer 应附着到前一个 token 的边界标点。
 func isBoundaryRune(r rune) bool {
 	_, ok := boundaryRank(r)
 	return ok
 }
 
+// abs 返回整数绝对值，用于比较候选边界与目标 token 数的距离。
 func abs(n int) int {
 	if n < 0 {
 		return -n

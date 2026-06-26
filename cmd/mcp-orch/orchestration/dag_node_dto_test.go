@@ -6,14 +6,8 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/taskdag"
 )
 
-// F1.5 / ADR-009: dagNodeDTO 必须把 store/taskdag.Node.SpawningThreadID
-// 透出到 contract.DAGNode.SpawningThreadID（不再让 UI 自己解析 result jsonb）。
-//
-// dagNodeDTO must surface store/taskdag.Node.SpawningThreadID through to
-// contract.DAGNode.SpawningThreadID; otherwise UI consumers (T6.1/T8.1) would
-// still need to parse result jsonb to recover the child thread id (defeating
-// the purpose of the field).
-
+// TestDagNodeDTO_PropagatesSpawningThreadID 锁定 dagNodeDTO 的子线程字段透传。
+// 这个字段是 UI 定位子线程的跨层边界，不能退回到让调用方解析 result JSON。
 func TestDagNodeDTO_PropagatesSpawningThreadID(t *testing.T) {
 	thread := "thread-x"
 	in := taskdag.Node{

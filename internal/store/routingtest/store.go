@@ -1,7 +1,5 @@
-// Package routingtest is the read-only store layer for the
-// prompt_routing_tests table (migration 0041). Operators author rows
-// manually; router/runTests iterates them and asserts the live RuleRouter
-// still maps each input to the expected prompt_key.
+// Package routingtest 提供 prompt_routing_tests 表的只读存储层。
+// 这些用例由运维或管理员维护，router/runTests 会读取启用行来验证 RuleRouter 仍能映射到预期 prompt_key。
 package routingtest
 
 import (
@@ -12,9 +10,8 @@ import (
 	sqlc "github.com/anthropic-ai/super-agent-v3/internal/store/sqlc"
 )
 
-// Reader is the only interface consumers need. Write/CRUD is intentionally
-// left for operators to do via SQL or a future admin UI — keeping the module
-// read-only avoids the "CI accidentally mutates production tests" footgun.
+// Reader 是 routing test 对外暴露的只读接口。
+// 写入留给 SQL 或未来管理 UI，避免 CI 或运行时测试误改生产路由用例。
 type Reader interface {
 	ListEnabled(ctx context.Context) ([]RoutingTest, error)
 }
@@ -33,12 +30,14 @@ type store struct {
 	q *sqlc.Queries
 }
 
-// NewStore returns the sqlc-backed Reader. Pass a *sqlc.Queries backed by
-// database/sql; returns a Reader so downstream code can swap in fakes for tests.
+// NewStore 创建基于 sqlc 的只读 routing test 存储。
+// 返回 Reader 便于调用方在测试中替换 fake，同时保持生产实现不暴露写接口。
 func NewStore(q *sqlc.Queries) Reader {
 	return &store{q: q}
 }
 
+// ListEnabled 读取所有启用的 prompt routing 测试用例。
+// 该方法只做行映射，不在存储层修改 enabled 状态或补写测试结果。
 func (s *store) ListEnabled(ctx context.Context) ([]RoutingTest, error) {
 	rows, err := s.q.ListEnabledPromptRoutingTests(ctx)
 	if err != nil {

@@ -11,12 +11,14 @@ import (
 	platformshared "github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 )
 
+// ToolScopeContextKey 保存 tools/call 顶层 metadata 归一化后的可信 scope。
 const ToolScopeContextKey = contextKey("mcp_tool_scope")
+
+// RuntimeWorkspaceScopeFallbackContextKey 标记运行时可使用 workspace scope fallback。
 const RuntimeWorkspaceScopeFallbackContextKey = contextKey("mcp_runtime_workspace_scope_fallback")
 
-// ToolScope is the trusted per-call scope carried on top-level tools/call
-// metadata. Tool arguments are intentionally excluded so model-provided
-// agent_id/cwd fields cannot override this server-owned scope.
+// ToolScope 是每次 tools/call 顶层 metadata 携带的可信作用域。
+// 工具 arguments 不参与作用域提取，避免模型传入的 agent_id/cwd 覆盖服务端拥有的边界。
 type ToolScope struct {
 	AgentID        string
 	ThreadID       string
@@ -27,9 +29,8 @@ type ToolScope struct {
 	Family         string
 }
 
-// ToolCallParams is the shared stdio/control-plane tools/call payload. Private
-// metadata keys are part of the peer wire contract; keep the leading
-// underscores and do not replace them with public argument fields.
+// ToolCallParams 是 stdio/control-plane 共用的 tools/call payload。
+// 私有 metadata key 是 peer 线协议的一部分，必须保留下划线形式，不能改成公开参数字段。
 type ToolCallParams struct {
 	Name         string          `json:"name"`
 	Arguments    json.RawMessage `json:"arguments,omitempty"`
@@ -52,7 +53,7 @@ func DecodeToolCallParams(raw json.RawMessage) (ToolCallParams, error) {
 	return params, nil
 }
 
-// Scope 处理作用域。
+// Scope 从 tools/call 顶层私有 metadata 生成可信 ToolScope。
 func (p ToolCallParams) Scope(family string) ToolScope {
 	return NormalizeToolScope(ToolScope{
 		AgentID:  p.MetaAgentID,
@@ -95,7 +96,7 @@ func WithToolScope(ctx context.Context, scope ToolScope) context.Context {
 	return ctx
 }
 
-// ToolScopeFromContext 从上下文处理工具作用域。
+// ToolScopeFromContext 从 context 读取并重新归一化 ToolScope，空 scope 视为不存在。
 func ToolScopeFromContext(ctx context.Context) (ToolScope, bool) {
 	if ctx == nil {
 		return ToolScope{}, false
@@ -116,7 +117,7 @@ func WithRuntimeWorkspaceScopeFallback(ctx context.Context) context.Context {
 	return context.WithValue(ctx, RuntimeWorkspaceScopeFallbackContextKey, true)
 }
 
-// RuntimeWorkspaceScopeFallbackFromContext 从上下文处理运行时工作区作用域兜底。
+// RuntimeWorkspaceScopeFallbackFromContext 读取运行时 workspace fallback 标记。
 func RuntimeWorkspaceScopeFallbackFromContext(ctx context.Context) bool {
 	if ctx == nil {
 		return false
@@ -125,7 +126,7 @@ func RuntimeWorkspaceScopeFallbackFromContext(ctx context.Context) bool {
 	return value
 }
 
-// isEmpty 判断empty是否可用。
+// isEmpty 判断 scope 是否没有任何可信调用边界字段。
 func (scope ToolScope) isEmpty() bool {
 	return scope.AgentID == "" &&
 		scope.ThreadID == "" &&
@@ -136,6 +137,7 @@ func (scope ToolScope) isEmpty() bool {
 		scope.Family == ""
 }
 
+// normalizeScopeFamily 将历史 MCP peer 名称收敛为稳定 family，供日志和授权判断使用。
 func normalizeScopeFamily(family string) string {
 	trimmed := strings.TrimSpace(family)
 	switch strings.ToLower(trimmed) {
@@ -150,6 +152,7 @@ func normalizeScopeFamily(family string) string {
 	}
 }
 
+// normalizeScopeCWD 只接受绝对路径；Windows 上保留 POSIX 风格根路径给跨平台 peer 使用。
 func normalizeScopeCWD(cwd string) string {
 	cwd = strings.TrimSpace(cwd)
 	if cwd == "" {
@@ -211,14 +214,17 @@ func normalizeWorkspaceRoot(base, root string) string {
 	return ""
 }
 
+// isSlashRootedPOSIXPath 判断路径是否是 POSIX 绝对路径，排除 Windows drive alias。
 func isSlashRootedPOSIXPath(path string) bool {
 	return strings.HasPrefix(path, "/") && !strings.HasPrefix(path, "//") && !isWindowsDriveAlias(path)
 }
 
+// isWindowsDriveAlias 判断 /C: 这类 Windows drive alias，避免误当成 POSIX root。
 func isWindowsDriveAlias(path string) bool {
 	return len(path) >= 3 && path[0] == '/' && isWindowsDriveLetter(path[1]) && path[2] == ':'
 }
 
+// isWindowsDriveLetter 判断字节是否为 ASCII drive letter。
 func isWindowsDriveLetter(b byte) bool {
 	return (b >= 'A' && b <= 'Z') || (b >= 'a' && b <= 'z')
 }

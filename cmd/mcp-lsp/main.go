@@ -17,8 +17,8 @@ const (
 	binaryVersion = "dev"
 )
 
-// mcpStdout holds the original stdout exclusively for the MCP JSON-RPC
-// protocol. All other output is redirected to stderr.
+// mcpStdout 保存原始 stdout 供 MCP JSON-RPC 协议独占使用。
+// main 会把普通日志输出重定向到 stderr，避免破坏 stdio 帧。
 var mcpStdout atomic.Pointer[os.File]
 
 // main 初始化 sidecar 运行环境，保护 MCP stdout 通道后启动服务，异常时以非零码退出。
@@ -32,7 +32,7 @@ func main() {
 		_, _ = os.Stderr.WriteString("mcp-lsp sidecar runtime env failed: " + err.Error() + "\n")
 		os.Exit(1)
 	}
-	// Cap GOMAXPROCS for this lightweight sidecar (see cmd/mcp-orch/main.go).
+	// sidecar 只处理轻量协议转发，限制调度线程避免和宿主/工具进程抢占 CPU。
 	if runtime.GOMAXPROCS(0) > 2 {
 		runtime.GOMAXPROCS(2)
 	}
@@ -41,7 +41,8 @@ func main() {
 	os.Exit(runMain())
 }
 
-// runMain 运行 LSP 主逻辑，失败时返回非零退出码。
+// runMain 启动 LSP sidecar 并把错误转换为进程退出码。
+// 日志写 stderr，stdout 继续留给 MCP JSON-RPC 帧。
 func runMain() int {
 	if err := run(); err != nil {
 		pkglogger.Get().Error("mcp-lsp failed", "error", err)

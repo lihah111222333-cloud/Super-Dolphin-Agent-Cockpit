@@ -5,35 +5,19 @@ import (
 	"testing"
 )
 
-// TestToolbridgeCompatibilityFallbackRemoved is the P22 P4 S3c
-// behavioral guard pre-registered at P4 §TDD line 257. It locks the
-// fail-closed contract on the proxy JSON-RPC dispatch: unknown methods
-// must return jsonRPCCodeMethodMiss (-32601) with a method-not-found
-// body, NOT a silent 200-ACK or any other compatibility fallback
-// (§fallback / §fail-closed).
-//
-// The pre-P4 concern was about compatibility drift — if the proxy
-// silently ACKs methods it doesn't implement, downstream MCP clients
-// can depend on speculative methods that might behave differently (or
-// simply be absent) in a real server, and we'd never notice. The
-// fail-closed path ensures clients surface the mismatch immediately.
-//
-// This test deliberately shares fixtures with handler_test.go's
-// existing proxy-error coverage (see TestProxyToolCall_RejectsMissing
-// RuntimeAsInvalidParams for a sibling pattern); the handshake methods
-// covered here are the ones we positively support, whereas the
-// unknown-method case closes the door on silent compatibility.
+// TestToolbridgeCompatibilityFallbackRemoved 固定代理 JSON-RPC 的 fail-closed 行为。
+// 未支持的方法必须返回 MethodMiss，而不是用 200 ACK 伪装成功，避免客户端依赖不存在的兼容方法。
+// 这里复用 handler_test.go 的代理 fixture，只覆盖“未知方法”这一条边界。
 func TestToolbridgeCompatibilityFallbackRemoved(t *testing.T) {
 	t.Parallel()
 
-	// A selection of plausible-but-not-supported method names. Each
-	// must fail with MethodMiss; none may silent-ACK.
+	// 这些方法看起来合理但当前不支持；每一个都必须返回 MethodMiss。
 	unknownMethods := []string{
-		"tools/describe",   // looks like a tools/* extension
-		"prompts/list",     // a real MCP method we do not proxy
-		"completions/list", // future-looking method
-		"proxy.ping",       // made-up "compat" method
-		"",                 // empty method name
+		"tools/describe",   // 形似 tools/* 扩展
+		"prompts/list",     // 真实 MCP 方法，但本代理不转发
+		"completions/list", // 预留形态的方法名
+		"proxy.ping",       // 虚构的兼容方法
+		"",                 // 空方法名
 	}
 
 	for _, method := range unknownMethods {

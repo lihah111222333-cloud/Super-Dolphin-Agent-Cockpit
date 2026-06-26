@@ -7,13 +7,14 @@ import (
 	"unicode/utf8"
 )
 
+// LineMatcher 保存文本或正则行匹配器，并返回 rune 级起始列。
 type LineMatcher struct {
 	needle        string
 	regex         *regexp.Regexp
 	caseSensitive bool
 }
 
-// NewLineMatcher 创建行matcher。
+// NewLineMatcher 根据查询模式创建行匹配器，空查询和非法正则会 fail-fast 返回错误。
 func NewLineMatcher(query string, regexMode, caseSensitive bool) (LineMatcher, error) {
 	needle := strings.TrimSpace(query)
 	if needle == "" {
@@ -35,7 +36,7 @@ func NewLineMatcher(query string, regexMode, caseSensitive bool) (LineMatcher, e
 	return LineMatcher{needle: strings.ToLower(needle)}, nil
 }
 
-// Find 查找平台shared。
+// Find 在单行文本中查找匹配位置，返回值按 rune 计数以适配 UI 列号。
 func (m LineMatcher) Find(line string) (int, bool) {
 	if m.regex != nil {
 		loc := m.regex.FindStringIndex(line)

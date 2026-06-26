@@ -84,7 +84,8 @@ type HookAfterHandlerParams struct {
 	EventBus          *event.Dispatcher                `optional:"true"`
 }
 
-// ProvideHookAfterHandler 提供hook后置处理器。
+// ProvideHookAfterHandler 把 provider hook 事件接入 orchestration 状态同步。
+// 可选 DAG 端口只影响 DAG fallback 和 TurnCompleted 桥接，不影响普通 agent hook。
 func ProvideHookAfterHandler(p HookAfterHandlerParams) contract.BootstrapHookAfterHandler {
 	return newHookConsumerInternal(
 		p.Service,
@@ -137,7 +138,8 @@ func newHookConsumerInternal(
 	return c
 }
 
-// After 处理后置。
+// After 解码 provider hook payload 并分派到对应 topic。
+// 解码失败只批准并跳过，hook 不能阻断 provider 主流程。
 func (c *hookConsumer) After(ctx context.Context, payload mcp.HookPayload) (mcp.AfterDecision, error) {
 	decision := mcp.AfterDecision{Decision: mcp.HookDecisionApprove}
 	if c == nil || c.svc == nil {
@@ -152,7 +154,7 @@ func (c *hookConsumer) After(ctx context.Context, payload mcp.HookPayload) (mcp.
 	return decision, nil
 }
 
-// dispatchAfterTopic 派发后置topic。
+// dispatchAfterTopic 按 hook topic 选择具体事件解码器。
 func (c *hookConsumer) dispatchAfterTopic(ctx context.Context, topic string, envelope hookContextEnvelope) {
 	switch topic {
 	case hookTopicSessionStart:
@@ -206,7 +208,8 @@ func (c *hookConsumer) handleProcessExitTopic(ctx context.Context, envelope hook
 	}
 }
 
-// handleThreadStarted 处理线程started。
+// handleThreadStarted 绑定 provider thread_id 并更新 runtime provider 快照。
+// provisioning/recovering 期间的线程归属由 pending launch 逻辑接管，避免旧线程覆盖新会话。
 func (c *hookConsumer) handleThreadStarted(ctx context.Context, ev threaddto.Started) {
 	provider := normalizeRuntimeProvider(ev.Provider)
 	err := c.svc.withAgentLocked(ev.AgentID, func(agent *agentRuntime) error {
@@ -228,8 +231,8 @@ func (c *hookConsumer) handleThreadStarted(ctx context.Context, ev threaddto.Sta
 	c.logUnexpectedHookError("thread started", ev.AgentID, ev.ThreadID, err)
 }
 
-// shouldDeferIdleHook keeps launch/recovery commit as the single writer for
-// provisioning/recovering -> idle; other states use normal hook sync.
+// shouldDeferIdleHook 让 launch/recover 提交流程独占 provisioning/recovering 到 idle 的写入。
+// 其他状态仍按普通 hook 同步，避免启动中 idle hook 与 commitLaunchSuccessLocked 重复 fire。
 func shouldDeferIdleHook(nextState string, agentState agentdto.AgentState) bool {
 	if nextState != string(agentdto.StateIdle) {
 		return false
@@ -237,7 +240,8 @@ func shouldDeferIdleHook(nextState string, agentState agentdto.AgentState) bool 
 	return agentState == agentdto.StateProvisioning || agentState == agentdto.StateRecovering
 }
 
-// handleStateChanged 处理状态changed。
+// handleStateChanged 根据 provider 状态事件同步本地状态机。
+// session fence 会丢弃旧会话事件，空 SessionID 保留兼容但不能覆盖已换代的状态。
 func (c *hookConsumer) handleStateChanged(ctx context.Context, ev agentdto.StateChanged) {
 	nextState := strings.TrimSpace(ev.NewState)
 	if !isKnownMirroredState(nextState) {
@@ -245,10 +249,8 @@ func (c *hookConsumer) handleStateChanged(ctx context.Context, ev agentdto.State
 		return
 	}
 	err := c.svc.withAgentLocked(ev.AgentID, func(agent *agentRuntime) error {
-		// P22 P4 §121/§282: enforce session-identity fence. Hook events
-		// stamped with a stale launchSeq (i.e. emitted before the agent
-		// was re-launched) must not be allowed to mutate the current
-		// session's state. Empty SessionID is treated as legacy input.
+		// session fence 防止旧进程/旧线程的状态事件写入当前会话。
+		// 空 SessionID 来自早期 provider 事件，仍按兼容输入处理。
 		if !agentSessionFenceOK(agent, ev.SessionID) {
 			c.logger.Warn("orchestration: dropping stale state-change event (session fence)",
 				"agent_id", ev.AgentID,
@@ -259,10 +261,8 @@ func (c *hookConsumer) handleStateChanged(ctx context.Context, ev agentdto.State
 			)
 			return nil
 		}
-		// Launch/recover owns the provisioning->idle and recovering->idle
-		// transitions via commitLaunchSuccessLocked. If the launcher subprocess
-		// reports idle while we're still mid-launch, defer to the main flow to
-		// avoid a double-fire of launch_succeeded (single-writer principle).
+		// launch/recover 提交流程负责把 provisioning/recovering 推到 idle。
+		// 启动过程中收到 idle hook 时延后处理，避免 launch_succeeded 被重复触发。
 		if shouldDeferIdleHook(nextState, agent.state) {
 			c.logger.Info("orchestration: deferring hook idle event to launch/recover commit",
 				"agent_id", agent.id,
@@ -294,7 +294,8 @@ func (c *hookConsumer) handleStateChanged(ctx context.Context, ev agentdto.State
 	c.logUnexpectedHookError("state change", ev.AgentID, ev.ThreadID, err)
 }
 
-// handleThreadStopped 处理线程stopped。
+// handleThreadStopped 把 provider stopped 事件同步到本地 runtime，并触发 DAG 兜底失败推进。
+// 被抑制或不属于当前会话的 stopped 事件只记录为跳过，不再推进状态。
 func (c *hookConsumer) handleThreadStopped(ctx context.Context, ev threaddto.Stopped) {
 	stoppedAccepted := true
 	err := c.svc.withAgentLocked(ev.AgentID, func(agent *agentRuntime) error {
@@ -321,8 +322,8 @@ func (c *hookConsumer) handleThreadStopped(ctx context.Context, ev threaddto.Sto
 		return
 	}
 
-	// ADR-017 v1.2 §2.5 + §3.4 锁外修正：DAG fallback 分支。锁释放后同步调，
-	// 与 agent runtime 推进解耦；推进失败 log warn 不抛。
+	// DAG 兜底失败推进在锁外执行，避免节点状态写回反向占用 agent runtime 锁。
+	// 推进失败只记录日志和指标，不影响线程 stopped 的本地状态收敛。
 	c.runThreadStoppedDAGFallback(ctx, ev.ThreadID)
 
 	if c.notifyTap != nil {
@@ -442,7 +443,8 @@ func mustMarshalHookReportEvent(event any) json.RawMessage {
 	return raw
 }
 
-// isFinalAnswerItem 判断finalansweritem是否可用。
+// isFinalAnswerItem 判断 turn item 是否代表最终回答。
+// 支持多种 phase 写法，避免 provider 版本差异导致 final report 漏写。
 func isFinalAnswerItem(ev turndto.ItemCompleted) bool {
 	if !strings.EqualFold(strings.TrimSpace(ev.ItemType), "agentMessage") || len(ev.Payload) == 0 {
 		return false
@@ -495,16 +497,13 @@ func isKnownMirroredState(state string) bool {
 	}
 }
 
-// resolveTransitionPath performs a BFS over TransitionDefinitions to find
-// the shortest sequence of triggers that drives the state machine from
-// `from` to `to`. Returns nil if no path exists. The returned slice
-// contains trigger names in firing order.
-// resolveTransitionPath 解析transition路径。
+// resolveTransitionPath 在状态定义表上找 from 到 to 的最短 trigger 序列。
+// 找不到路径时返回 nil，调用方必须报错，不能直接改状态字段。
 func resolveTransitionPath(from, to string) []string {
 	if from == to {
 		return nil
 	}
-	// Build adjacency: state -> [{trigger, dest}, ...]
+	// 以状态为 key 建邻接表，value 记录触发器和目标状态。
 	type edge struct {
 		trigger string
 		dest    string
@@ -513,7 +512,7 @@ func resolveTransitionPath(from, to string) []string {
 	for _, td := range agentdto.TransitionDefinitions {
 		adj[string(td.From)] = append(adj[string(td.From)], edge{trigger: string(td.Trigger), dest: string(td.To)})
 	}
-	// BFS parent map: state -> (trigger that led here, previous state)
+	// BFS parent map 保留抵达每个状态的触发器和上一个状态。
 	type step struct {
 		trigger string
 		prev    string
@@ -529,12 +528,12 @@ func resolveTransitionPath(from, to string) []string {
 			}
 			visited[e.dest] = step{trigger: e.trigger, prev: cur}
 			if e.dest == to {
-				// Reconstruct path.
+				// 回溯触发器路径。
 				var path []string
 				for s := to; s != from; s = visited[s].prev {
 					path = append(path, visited[s].trigger)
 				}
-				// Reverse to get firing order.
+				// 反转为实际 firing 顺序。
 				for i, j := 0, len(path)-1; i < j; i, j = i+1, j-1 {
 					path[i], path[j] = path[j], path[i]
 				}
@@ -546,18 +545,8 @@ func resolveTransitionPath(from, to string) []string {
 	return nil
 }
 
-// hookSyncFireLocked drives the agent state machine from its current state
-// to targetState using the transition table. It resolves the shortest
-// trigger path for the (current -> target) transition and fires each
-// trigger through the state machine so that sm.Fire owns every step.
-//
-// Intermediate transitions are fired silently (via sm.FireCtx) so that
-// only the final before/after pair is published as a single state-change
-// event with the hookSyncTrigger label.
-//
-// If no path exists in the transition table, the helper returns an error
-// — callers must not fall back to direct assignment.
-// hookSyncFireLocked 处理hooksyncfirelocked。
+// hookSyncFireLocked 用状态表把当前状态推进到 targetState。
+// 中间状态只走 sm.FireCtx，最终仅发布一次 hook_state_sync 事件；找不到路径时返回错误而不是直接赋值。
 func (s *service) hookSyncFireLocked(ctx context.Context, agent *agentRuntime, targetState string) error {
 	if agent == nil || agent.sm == nil {
 		return errors.New("state machine is not initialized")
@@ -573,8 +562,7 @@ func (s *service) hookSyncFireLocked(ctx context.Context, agent *agentRuntime, t
 			before, targetState, agent.id,
 		)
 	}
-	// Fire each trigger through the state machine. The SM's external-
-	// storage mutator updates agent.state on each step.
+	// 每个 trigger 都必须经状态机执行；外部存储 mutator 会在每一步同步 agent.state。
 	for _, trigger := range path {
 		if err := agent.sm.FireCtx(ctx, stateless.Trigger(trigger)); err != nil {
 			return fmt.Errorf(
@@ -588,12 +576,9 @@ func (s *service) hookSyncFireLocked(ctx context.Context, agent *agentRuntime, t
 	return nil
 }
 
-// hookSyncForceStoppedLocked drives the agent state machine to StateStopped
-// regardless of the current state. It delegates to hookSyncFireLocked
-// which resolves the shortest BFS path through the transition table.
-// For states that cannot reach StateStopped (e.g. provisioning,
-// recovering), the helper falls back to StateFailed since the hook
-// represents an actual process exit.
+// hookSyncForceStoppedLocked 将状态机推进到 stopped。
+// 如果当前状态无法到达 stopped（例如 provisioning/recovering），则改走 failed；
+// stopped hook 代表真实进程退出，不能绕过状态机直接写字段。
 func (s *service) hookSyncForceStoppedLocked(ctx context.Context, agent *agentRuntime) error {
 	if agent == nil || agent.sm == nil {
 		return errors.New("state machine is not initialized")
@@ -601,12 +586,11 @@ func (s *service) hookSyncForceStoppedLocked(ctx context.Context, agent *agentRu
 	if agent.state == agentdto.StateStopped {
 		return nil
 	}
-	// Try the primary path to StateStopped.
+	// 优先尝试正常到达 stopped 的转换路径。
 	if err := s.hookSyncFireLocked(ctx, agent, string(agentdto.StateStopped)); err == nil {
 		return nil
 	}
-	// Fallback: states like provisioning/recovering cannot reach stopped
-	// but can reach failed via launch_failed. Accept failed as the
-	// terminal state rather than bypassing the state machine.
+	// provisioning/recovering 等状态不能到达 stopped，但能经 launch_failed 到达 failed。
+	// 接受 failed 作为终态，避免绕过状态机。
 	return s.hookSyncFireLocked(ctx, agent, string(agentdto.StateFailed))
 }

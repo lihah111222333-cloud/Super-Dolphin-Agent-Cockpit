@@ -24,9 +24,8 @@ import (
 	providershared "github.com/anthropic-ai/super-agent-v3/internal/provider/shared"
 )
 
-// PoolSpawnArgs drives BuildPoolSpawnCmd. Home is injected as CODEX_HOME,
-// ExtraArgs are appended after `codex app-server`, and ParentEnv keeps the
-// builder unit-testable with synthetic parent environments.
+// PoolSpawnArgs 描述 ServerPool 启动 Codex app-server 所需的外部输入。
+// Home 会注入为 CODEX_HOME，ExtraArgs 追加到 app-server 命令后，ParentEnv 让环境过滤可被测试覆盖。
 type PoolSpawnArgs struct {
 	Home      string
 	ExtraArgs []string
@@ -79,29 +78,9 @@ func commandLeaf(arg string) string {
 	return arg
 }
 
-// BuildPoolSpawnCmd assembles a *exec.Cmd that the ServerPool spawner
-// Start()s. The recipe combines three plan-mandated pieces:
-//
-//  1. Shell wrapper for ulimit. macOS GUI-launched processes inherit
-//     launchd's 256 fd soft limit, which starves batch agent scenarios
-//     (100 agents × 2 MCP servers each). Running under sh -c 'ulimit
-//     -n 1048576 ...; exec codex ...' guarantees the child starts with
-//     a high limit regardless of launch context (.app / terminal /
-//     launchd).
-//  2. Env allowlist via buildAllowlistedSpawnEnv — strips everything
-//     outside the closed allowlist (PATH / HOME / USER / ...) and
-//     injects CODEX_HOME=<Home>. Overrides win over parent values so
-//     a stale CODEX_HOME in the parent can't bleed through.
-//  3. Setpgid so the child and its descendants land in a new process
-//     group — orphan sweepers can then kill the whole tree by
-//     negative pgid when the parent exits uncleanly.
-//
-// The function only builds the *exec.Cmd; starting + stderr pumping +
-// listen URL parsing + transport registration remain the caller's
-// responsibility. Keeping the function pure makes it straightforward
-// to unit-test the env / argv / SysProcAttr shape without actually
-// spawning a child.
-// BuildPoolSpawnCmd 构建poolspawncmd。
+// BuildPoolSpawnCmd 组装 ServerPool spawner 将要启动的 exec.Cmd。
+// 命令会提高文件描述符上限、按 allowlist 重建环境并注入 CODEX_HOME，同时把子进程放入独立进程组。
+// 本函数只构建命令；启动、stderr 转发、listen URL 解析和 transport 注册仍由调用方负责。
 func BuildPoolSpawnCmd(ctx context.Context, args PoolSpawnArgs) (*exec.Cmd, error) {
 	home := strings.TrimSpace(args.Home)
 	if home == "" {
@@ -111,9 +90,7 @@ func BuildPoolSpawnCmd(ctx context.Context, args PoolSpawnArgs) (*exec.Cmd, erro
 	if err != nil {
 		return nil, err
 	}
-	// Do not use exec.CommandContext: startup-timeout ctx cancels after listen
-	// URL discovery, while process lifetime belongs to transport.shutdownTransport.
-	// The ctx here only supports pre-cancel checks and I/O-level waits.
+	// 不用 exec.CommandContext：启动超时 ctx 在 listen URL 发现后会取消，进程生命周期属于 transport.shutdownTransport。
 	extraArgs := append(poolSpawnNativeLSPConfigArgs(ctx, workDir), args.ExtraArgs...)
 	argv := buildCodexAppServerArgs(localSpawnListenURL(), extraArgs)
 	cmd := wrapWithFDLimit(argv)
@@ -129,7 +106,8 @@ func BuildPoolSpawnCmd(ctx context.Context, args PoolSpawnArgs) (*exec.Cmd, erro
 	return cmd, nil
 }
 
-// poolSpawnNativeLSPConfigArgs 处理poolspawnnativeLSP配置args。
+// poolSpawnNativeLSPConfigArgs 为 pool 启动的 Codex CLI 注入内置 LSP MCP 配置。
+// 即使没有 workspace roots，只要有二进制目录也显式传 GO_AGENT_LSP_ROOTS=[]，避免子进程扫描错误目录。
 func poolSpawnNativeLSPConfigArgs(ctx context.Context, workDir string) []string {
 	roots := poolSpawnWorkspaceRoots(ctx)
 	if len(roots) == 0 && strings.TrimSpace(workDir) != "" {
@@ -178,7 +156,8 @@ func tomlString(value string) string {
 	return strconv.Quote(strings.TrimSpace(value))
 }
 
-// extractCodexWheel 提取codexwheel。
+// extractCodexWheel 解压 Python wheel 形态的 Codex release。
+// 只接受 codex_cli_bin/ 前缀内的文件并统计总解压字节，防止归档逃逸或超量写入。
 func extractCodexWheel(wheelPath, targetDir string) error {
 	reader, err := zip.OpenReader(wheelPath)
 	if err != nil {
@@ -263,7 +242,8 @@ func extractCodexTarGz(archivePath, targetDir string) error {
 	return extractCodexTarStream(tar.NewReader(gzipReader), targetDir)
 }
 
-// extractCodexTarStream 提取codextar流。
+// extractCodexTarStream 解压 tar.gz 形态的 Codex release。
+// 每个 entry 会经过路径和总字节数校验，任何异常都会中断安装。
 func extractCodexTarStream(reader *tar.Reader, targetDir string) error {
 	var total int64
 	for {
@@ -351,7 +331,8 @@ func addCodexExtractedBytes(total *int64, written int64) error {
 	return nil
 }
 
-// ensureCodexInstallLayout 确保codex安装layout。
+// ensureCodexInstallLayout 确保解压结果包含托管安装约定的 Codex 可执行文件。
+// release 布局不匹配时会查找真实二进制并安装 wrapper，找不到则 fail-fast。
 func ensureCodexInstallLayout(targetDir string) error {
 	expected := filepath.Join(targetDir, "codex_cli_bin", "bin", codexExecutableFileName())
 	if _, err := os.Stat(expected); err == nil {
@@ -375,7 +356,8 @@ func ensureCodexInstallLayout(targetDir string) error {
 	return chmodCodexInstallHelpers(targetDir)
 }
 
-// chmodCodexInstallHelpers 处理chmodcodex安装helpers。
+// chmodCodexInstallHelpers 修正 Codex release 中主程序和 rg helper 的执行权限。
+// 部分归档格式会丢失 mode bit，安装后必须显式 chmod 才能被 app-server 启动。
 func chmodCodexInstallHelpers(targetDir string) error {
 	for _, path := range []string{
 		filepath.Join(targetDir, "codex_cli_bin", "bin", codexExecutableFileName()),
@@ -390,7 +372,8 @@ func chmodCodexInstallHelpers(targetDir string) error {
 	return nil
 }
 
-// findExtractedCodexExecutable 查找extractedcodex可执行文件。
+// findExtractedCodexExecutable 在解压目录中查找可执行 Codex 二进制。
+// 找到多个时立即报错，避免托管安装选择不确定的 app-server 入口。
 func findExtractedCodexExecutable(root string) (string, error) {
 	var found string
 	err := filepath.WalkDir(root, func(path string, entry fs.DirEntry, walkErr error) error {
@@ -479,7 +462,8 @@ func codexInstallVersionParts(name string) ([]int, bool) {
 	return out, true
 }
 
-// compareIntParts 处理compareintparts。
+// compareIntParts 比较语义版本拆出的整数片段。
+// 缺失片段按 0 处理，使 v1.2 与 v1.2.0 排序保持一致。
 func compareIntParts(a, b []int) int {
 	for i := 0; i < len(a) || i < len(b); i++ {
 		av, bv := 0, 0
@@ -496,7 +480,8 @@ func compareIntParts(a, b []int) int {
 	return 0
 }
 
-// downloadCodexAsset 处理downloadcodexasset。
+// downloadCodexAsset 下载 Codex release asset 并按固定 SHA-256 写入目标文件。
+// URL 必须来自官方 release 或显式信任的镜像，避免自动安装接受任意来源。
 func downloadCodexAsset(ctx context.Context, rawURL, checksum, target string) error {
 	if strings.TrimSpace(rawURL) == "" {
 		return errors.New("Codex release asset download URL is empty")
@@ -520,7 +505,8 @@ func downloadCodexAsset(ctx context.Context, rawURL, checksum, target string) er
 	return writeCodexDownloadBody(resp.Body, checksum, target)
 }
 
-// validateCodexAssetDownloadURL 校验codexassetdownloadURL。
+// validateCodexAssetDownloadURL 校验 Codex release 下载地址是否可信。
+// 非 GitHub 官方地址必须显式开启 trusted mirror，且仍要通过镜像 URL 校验。
 func validateCodexAssetDownloadURL(rawURL string) error {
 	parsed, err := url.Parse(rawURL)
 	if err != nil || parsed.Scheme == "" || parsed.Host == "" {
@@ -551,7 +537,8 @@ func validateCodexDownloadResponse(resp *http.Response) error {
 	return nil
 }
 
-// writeCodexDownloadBody 写入codexdownload正文。
+// writeCodexDownloadBody 将下载流写入目标文件并校验 SHA-256。
+// 使用 O_EXCL 和大小上限，避免覆盖既有安装包或接受超量响应。
 func writeCodexDownloadBody(body io.Reader, checksum, target string) error {
 	out, err := os.OpenFile(target, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
 	if err != nil {

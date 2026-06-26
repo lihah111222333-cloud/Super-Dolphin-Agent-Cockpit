@@ -11,7 +11,8 @@ import (
 	"github.com/pmezard/go-difflib/difflib"
 )
 
-// BeginSnapshot 处理begin快照。
+// BeginSnapshot 记录目标仓库当前脏文件的文本快照。
+// 脏文件数量或文件大小超过保护阈值时直接返回错误，避免后续工具事件携带不可控 diff。
 func BeginSnapshot(ctx context.Context, path string) (*Snapshot, error) {
 	root, err := findGitRoot(ctx, path)
 	if err != nil {
@@ -31,9 +32,8 @@ func BeginSnapshot(ctx context.Context, path string) (*Snapshot, error) {
 	return &Snapshot{RepoRoot: root, DirtyFiles: dirtyFiles, root: root, beforeFiles: beforeFiles}, nil
 }
 
-// EmitCurrentGitDiff emits the current working-tree diff against HEAD.
-// It is intended for post-tool-call fallback paths where no before snapshot exists.
-// EmitCurrentGitDiff 处理emit当前gitdiff。
+// EmitCurrentGitDiff 在缺少调用前快照时直接输出当前工作区相对 HEAD 的 diff。
+// 这是工具调用后兜底路径，只能反映当前状态，无法区分调用前已经存在的脏改动。
 func EmitCurrentGitDiff(ctx context.Context, path string) (string, []string, error) {
 	root, err := findGitRoot(ctx, path)
 	if err != nil {
@@ -43,7 +43,8 @@ func EmitCurrentGitDiff(ctx context.Context, path string) (string, []string, err
 	return EmitGitDiff(ctx, snapshot)
 }
 
-// EmitGitDiff 处理emitgitdiff。
+// EmitGitDiff 根据调用前 Snapshot 和当前工作区生成统一 diff。
+// 返回的 affected 列表包含发生变化的路径；diff 正文仍会按文本和总大小阈值过滤。
 func EmitGitDiff(ctx context.Context, snapshot *Snapshot) (string, []string, error) {
 	if snapshot == nil || strings.TrimSpace(snapshot.root) == "" {
 		return "", nil, nil
@@ -129,7 +130,7 @@ func captureBeforeFile(ctx context.Context, repoRoot, relPath string) (beforeFil
 	return beforeFileState{path: relPath, head: head, before: before, tracked: tracked, existedBefore: existedBefore}, true, nil
 }
 
-// emitDiffBlock 处理emitdiffblock。
+// emitDiffBlock 生成单个路径的 diff 块，并跳过未变化、二进制或超限内容。
 func emitDiffBlock(ctx context.Context, snapshot *Snapshot, relPath string) (string, bool, error) {
 	state, hadBefore, err := snapshotState(ctx, snapshot, relPath)
 	if err != nil {
@@ -216,7 +217,8 @@ func looksBinary(data []byte) bool {
 	return slices.Contains(data, byte(0))
 }
 
-// buildUnifiedDiffBlockWithState 构建带状态的unifieddiffblock。
+// buildUnifiedDiffBlockWithState 根据 tracked/existed 状态生成 git 风格文件头。
+// 新增或删除文件必须落到 /dev/null，调用方已经完成二进制和大小过滤。
 func buildUnifiedDiffBlockWithState(path string, tracked bool, before string, afterExists bool, after string) string {
 	clean := normalizeDiffPath(path)
 	if clean == "" || (tracked == afterExists && before == after) {

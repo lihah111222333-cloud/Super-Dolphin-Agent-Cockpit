@@ -28,7 +28,8 @@ func normalizeClaudeHistory(messages []Message) []Message {
 	return out
 }
 
-// normalizeClaudeHistoryMessage 规范化claudehistory消息。
+// normalizeClaudeHistoryMessage 清理单条 Claude 历史消息中的注入噪声。
+// 用户消息会移除开头的系统上下文块；非用户消息只做空内容过滤。
 func normalizeClaudeHistoryMessage(msg Message) (Message, bool) {
 	if !strings.EqualFold(strings.TrimSpace(msg.Role), "user") {
 		msg.Content = strings.TrimSpace(msg.Content)
@@ -57,7 +58,8 @@ func trimInjectedClaudeLSPHint(text string) string {
 	return text
 }
 
-// trimInjectedClaudeSkillBlock 委托给共享包。P20 Phase 3 两家 provider 统一 trim 逻辑。
+// trimInjectedClaudeSkillBlock 委托共享包裁剪 provider 注入的技能块。
+// Claude 和 Codex 必须共用识别规则，否则同一线程跨 provider 恢复时历史会不一致。
 func trimInjectedClaudeSkillBlock(text string) string {
 	return providershared.TrimInjectedSkillBlocks(text)
 }
@@ -109,7 +111,8 @@ func stripClaudeTagBlock(text, closeTag string) string {
 	return ""
 }
 
-// stripClaudeAgentsMDBlock 处理stripclaude代理mdblock。
+// stripClaudeAgentsMDBlock 去掉 Claude 历史中注入到用户消息开头的 AGENTS.md 块。
+// 优先按 instructions 结束标签裁剪，旧格式才退回空行分隔。
 func stripClaudeAgentsMDBlock(text string) string {
 	const closeInstructions = "</instructions>"
 	lower := strings.ToLower(text)

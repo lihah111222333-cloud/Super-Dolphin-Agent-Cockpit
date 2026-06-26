@@ -16,16 +16,10 @@ import (
 	uiwails "github.com/anthropic-ai/super-agent-v3/internal/ui/wails"
 )
 
-// TestAppModuleGraphIsClosed validates that every fx.Provide in the
-// core app Module resolves against declared fx.In dependencies. This
-// does NOT run constructors (fx.ValidateApp is dry-run over the DAG),
-// so the db / pgxpool / toolbridge side effects never fire \u2014 we only
-// check that adding a new module (P21 cron / notify / insight) did
-// not introduce a missing dependency.
+// TestAppModuleGraphIsClosed 验证核心 app Module 的 fx.Provide 都能满足声明的 fx.In 依赖。
+// fx.ValidateApp 只做 DAG dry-run，不执行构造函数，因此不会触发 db、pgxpool 或 toolbridge 副作用。
 //
-// Failure here is loud: fx.ValidateApp reports the unresolved type +
-// which consumer needed it, which is exactly the diagnostic we want
-// when someone forgets to fx.Provide a new dep.
+// 失败时 fx 会报告缺失类型和消费方，便于定位新增模块漏 provide 的问题。
 func TestAppModuleGraphIsClosed(t *testing.T) {
 	t.Parallel()
 
@@ -65,18 +59,13 @@ func TestAppModuleGraphProvidesWorkflowTemplateService(t *testing.T) {
 }
 
 func appGraphValidationOptions() []fx.Option {
-	// Supply the frontend filesystem because RunDesktop normally
-	// injects it. Empty io/fs satisfies uiwails.Module's declared
-	// dependency without booting wails.
+	// RunDesktop 正常会注入前端文件系统；这里用空 fs 满足 uiwails.Module 依赖，避免启动 Wails。
 	frontend := fx.Supply(uiwails.FrontendFS{FS: emptyFS{}})
 
-	// A dispatcher is normally provided by platform/bus. ValidateApp
-	// is dry-run so the real provider is not invoked, but we inject a
-	// stand-in to satisfy any provider whose signature declares the
-	// value as a non-optional input.
+	// dispatcher 正常由 platform/bus 提供；dry-run 中注入占位值即可满足非 optional 依赖。
 	_ = event.NewDispatcher() // build/test sanity
 
-	// Silent logger so the dry-run doesn't spam stderr.
+	// 静默 logger 避免 dry-run 往 stderr 输出噪声。
 	_ = slog.New(slog.NewTextHandler(io.Discard, nil))
 	var stateReader contract.ThreadStateConfigReader
 
@@ -89,6 +78,7 @@ func appGraphValidationOptions() []fx.Option {
 	}
 }
 
+// emptyFS 是测试用空前端文件系统，任何文件请求都按不存在处理。
 type emptyFS struct{}
 
 func (emptyFS) Open(string) (fs.File, error) { return nil, fs.ErrNotExist }

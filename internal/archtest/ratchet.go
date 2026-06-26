@@ -131,7 +131,8 @@ func FreezeTestBaseline(opts CheckOptions) Baseline {
 	return freezeBaselineFiltered(opts, true)
 }
 
-// freezeBaselineFiltered 处理freezebaselinefiltered。
+// freezeBaselineFiltered 扫描指定类型文件并生成只记录真实违规的 baseline。
+// testsOnly 控制生产/测试基线分流，路径统一转成 slash 形式保证跨平台稳定。
 func freezeBaselineFiltered(opts CheckOptions, testsOnly bool) Baseline {
 	repoRoot := opts.RepoRoot
 	if repoRoot == "" {

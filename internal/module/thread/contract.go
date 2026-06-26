@@ -9,9 +9,8 @@ import (
 	threaddto "github.com/anthropic-ai/super-agent-v3/internal/dto/thread"
 )
 
-// SpawnRouting re-exports the shared dto type so in-package call sites can
-// keep using the short `thread.SpawnRouting` name. The canonical definition
-// lives in internal/dto/thread/event.go to avoid a thread↔turn import cycle.
+// SpawnRouting 复用 shared dto 中的 pending spawn 路由结果。
+// canonical 类型放在 dto/thread/event.go，避免 thread 与 turn 包互相导入。
 type SpawnRouting = threaddto.SpawnRouting
 
 // Service 是 thread 模块对外的入口。
@@ -23,16 +22,9 @@ type Service interface {
 	Fork(ctx context.Context, threadID string) (ForkResult, error)
 	Recover(ctx context.Context, threadID string) (RecoverResult, error)
 	Handoff(ctx context.Context, req HandoffRequest) (HandoffResult, error)
-	// SpawnIfNeeded forks the provider CLI for a thread that was created
-	// in pending_launch state (see Start with empty prompt). Safe to call
-	// concurrently; only the first caller per thread actually spawns.
-	// Returns launched=true iff this call performed the spawn. When
-	// launched=true the returned SpawnRouting carries the routing decision
-	// (agent_key / prompt_key / prompt_version_id)
-	// so callers such as turn/start can forward it to the UI — pending-spawn
-	// threads never surface this on thread/start since routing runs lazily.
-	// requestCWD is validation-only; the pending row's stored cwd remains
-	// authoritative and mismatches fail before provider launch side effects.
+	// SpawnIfNeeded 为 pending_launch 线程在首个 turn 到达时 fork provider CLI。
+	// 同一 thread 可并发调用，但只有第一个调用会真正启动；launched=true 时返回路由结果，
+	// 供 turn/start 转发给 UI。requestCWD 只参与校验，pending row 里的 CWD 才是权威值。
 	SpawnIfNeeded(ctx context.Context, threadID, userInputForRouter, requestCWD string) (launched bool, routing threaddto.SpawnRouting, err error)
 
 	List(ctx context.Context) ([]Ref, error)
@@ -57,13 +49,10 @@ type Service interface {
 type StartRequest struct {
 	Provider, AgentID, ParentAgentID, AgentType, AgentMemoryScope string
 	CWD, Model, ModelProvider, Name                               string
-	// Deprecated: use Name for display-name semantics; Prompt is kept only for legacy callers.
+	// Prompt 只保留给旧调用方作为 display name 别名，新入口应使用 Name。
 	Prompt, BaseInstructions string
-	// BaseInstructionBlocks is populated by resolveRoutedPrompt when the
-	// picked prompt_template has rows in prompt_template_sections. It flows
-	// through buildStartAssemblyInput into contract.StartInput so the
-	// assembler can merge the blocks into resolved sections (region-aware
-	// cached/uncached split). Empty means legacy monolithic-text behavior.
+	// BaseInstructionBlocks 由路由命中的 prompt_template_sections 填充。
+	// 它会进入 prompt assembler 做 region-aware 合并；为空时表示仍使用单段 BaseInstructions。
 	BaseInstructionBlocks        []contract.BaseInstructionBlock
 	DeveloperInstructions        string
 	ApprovalPolicy               string
@@ -81,50 +70,28 @@ type StartRequest struct {
 	MCPSnapshot                  contract.MCPSnapshot
 	SessionFlags                 map[string]bool
 	Config                       map[string]any
-	// LaunchSkillNames / ForceLaunchSkills are legacy additive launch-time
-	// skill selection fields. They remain on the public payload for backward
-	// compatibility; V1 skill runtime uses provider-native mirrors instead of
-	// prompt catalog injection.
+	// LaunchSkillNames / ForceLaunchSkills 保留启动 payload 的旧 skill 选择字段。
+	// 当前 skill runtime 通过 provider-native mirror 注入；这些字段只用于兼容已有调用方。
 	LaunchSkillNames  []string
 	LaunchSkillRefs   []dto.SkillRef
 	ForceLaunchSkills bool
 
-	// AgentKey is optional. When non-empty, the service skips router
-	// classification and uses this agent_key directly. Empty + empty
-	// BaseInstructions triggers router.
+	// AgentKey 非空时直接使用指定 agent_key，跳过自动路由；为空且 BaseInstructions 为空时才触发路由。
 	AgentKey string
-	// PromptVersionID is filled by the service after it materializes a
-	// prompt_versions row for this thread start; it is not an input.
+	// PromptVersionID 由 service 在 materialize prompt_versions 后填入，不是调用方输入。
 	PromptVersionID *int64
-	// PromptKey may be supplied by the caller as an explicit "use this exact
-	// prompt_template" pin (UI's launch-prompt preference). When non-empty
-	// and pointing at an enabled row, it takes precedence over AgentKey
-	// routing. When the caller leaves it empty, resolveRoutedPrompt fills it
-	// with the picked template's key for downstream observability and UI
-	// display (agent_key is the role slug; prompt_key is the specific row).
+	// PromptKey 是调用方显式 pin 的 prompt_template。
+	// 命中启用模板时优先级高于 AgentKey；为空时由路由填入命中的模板 key，供观测和 UI 展示。
 	PromptKey string
-	// AgentTitle is filled by resolveRoutedPrompt from picked.Title once the
-	// router settles on a template. Not an input. Surfaced to the UI so the
-	// sidebar can show a human-readable persona label ("SQL 与数据建模专家")
-	// next to the thread name instead of the opaque agent_key slug.
+	// AgentTitle 由路由命中的模板 Title 填入，用于 UI 显示人类可读的 agent 标签。
 	AgentTitle string
-	// PromptKeyStale is set to true by pickRoutedTemplate when the caller
-	// supplied a non-empty PromptKey that does not resolve to any enabled
-	// prompt_template row (either the row was deleted or its Enabled flag
-	// was flipped off). It propagates through newStartResult into the RPC
-	// response so the UI can self-clean its activePromptKey preference and
-	// notify the user. Not an input. Must remain false for the wire-degrade
-	// path (no promptStore wired) — that case is a transient backend issue
-	// rather than a stale pin and the UI must not clear the user's pref.
+	// PromptKeyStale 表示调用方 pin 的 PromptKey 未命中启用模板。
+	// 该信号会进入 RPC 响应，UI 据此清理本地 activePromptKey；prompt store 未装配的降级路径不能置 true。
 	PromptKeyStale                bool
 	OwnerThreadID, LaunchIntentID string
 
-	// DeferSpawn opts into the C1 "pending_launch" flow: the service writes
-	// the agent_threads row without forking the provider CLI and returns a
-	// StartResult with PendingLaunch=true. The real spawn happens lazily in
-	// SpawnIfNeeded once turn/start arrives with real user input that router
-	// can classify. Legacy callers (Handoff, Resume, tests) leave this false
-	// and get the eager fork path unchanged.
+	// DeferSpawn 表示只写 pending_launch 线程，不立即 fork provider CLI。
+	// 首个 turn 带真实用户输入进入 SpawnIfNeeded 后才路由和启动；普通调用方保持 false 走立即启动路径。
 	DeferSpawn bool
 }
 
@@ -138,26 +105,17 @@ type StartResult struct {
 	ModelProvider  string `json:"modelProvider,omitempty"`
 	CWD            string `json:"cwd,omitempty"`
 	ApprovalPolicy string `json:"approvalPolicy,omitempty"`
-	// Routing metadata surfaced to the UI so the sidebar can show which agent
-	// the router picked, which prompt_template hit, and which prompt_versions
-	// row was injected.
+	// 路由元数据供 UI 展示命中的 agent、prompt_template 和 prompt_versions 快照。
 	AgentKey string `json:"agent_key,omitempty"`
-	// AgentTitle is the human-readable persona label ("SQL 与数据建模专家") that
-	// the UI shows on the routing badge. Equal to the picked template's
-	// Title. Empty when the caller took a path that did not touch the router.
+	// AgentTitle 是 UI badge 展示的人类可读 persona 名称；未走路由时为空。
 	AgentTitle      string `json:"agent_title,omitempty"`
 	PromptKey       string `json:"prompt_key,omitempty"`
 	PromptVersionID *int64 `json:"prompt_version_id,omitempty"`
-	// PromptKeyStale mirrors StartRequest.PromptKeyStale: when true, the
-	// caller-supplied prompt_key did not resolve to an enabled template row
-	// and the UI should clear its activePromptKey preference. False (zero
-	// value) means the pin resolved successfully or the caller never pinned
-	// anything; either way the UI must preserve the pref unchanged.
+	// PromptKeyStale 镜像 StartRequest.PromptKeyStale，true 时 UI 应清理失效 prompt pin。
+	// false 表示 pin 有效或调用方未 pin，UI 必须保留原偏好。
 	PromptKeyStale bool `json:"prompt_key_stale,omitempty"`
-	// PendingLaunch=true means the backend wrote the thread row but did not
-	// fork the provider CLI yet. The real spawn happens on the first turn,
-	// once router has a real user input to classify. UI should render such
-	// threads with a "pending" marker and flip to running on thread.launched.
+	// PendingLaunch=true 表示后端已写 thread row 但尚未 fork provider CLI。
+	// UI 应展示 pending 状态，并在 thread.launched 到达后切换为 running。
 	PendingLaunch bool `json:"pending_launch,omitempty"`
 }
 
@@ -195,13 +153,11 @@ type ForkResult struct {
 	ForkedFrom  string `json:"forked_from,omitempty"`
 }
 
-// HandoffRequest moves the active conversation from one agent to another.
-// The service keeps the source thread running (user may return) and starts
-// a fresh thread for the target agent, linked back via OwnerThreadID.
+// HandoffRequest 描述从源 thread 切到目标 agent 的交接请求。
+// 源 thread 保持可返回状态，新 thread 通过 OwnerThreadID 关联回源 thread。
 type HandoffRequest struct {
 	SourceThreadID, TargetAgentKey string
-	// Optional initial message to seed the new thread's display name.
-	// Empty falls back to "handoff from <source>".
+	// InitialMessage 用作新 thread 初始展示名；为空时由 service 生成交接标题。
 	InitialMessage string
 }
 

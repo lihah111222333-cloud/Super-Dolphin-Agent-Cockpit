@@ -15,10 +15,13 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/sqlctx"
 )
 
+// sqliteRuntimeLockLease 是 scheduled DAG cron 多实例锁的租约时长。
 const sqliteRuntimeLockLease = 2 * time.Minute
 
+// runtimeLockProcessStartNonce 区分同一主机同一 PID 复用后的 holder 身份。
 var runtimeLockProcessStartNonce = strconv.FormatInt(time.Now().UTC().UnixNano(), 36)
 
+// sqlDAGScheduleStore 把 sqlc 查询集适配为 cron.DAGScheduleStore。
 type sqlDAGScheduleStore struct {
 	q *sqlc.Queries
 }
@@ -169,6 +172,7 @@ func runtimeLockHolder() (string, error) {
 	return fmt.Sprintf("%s:%d:%s", host, os.Getpid(), runtimeLockProcessStartNonce), nil
 }
 
+// acquireRuntimeLockSQL 通过 INSERT ... ON CONFLICT 抢占已过期的 runtime lock。
 const acquireRuntimeLockSQL = `
 INSERT INTO runtime_locks (lock_key, holder, lease_expires_at, updated_at)
 VALUES (?, ?, ?, ?)
@@ -179,6 +183,7 @@ SET holder = EXCLUDED.holder,
 WHERE runtime_locks.lease_expires_at < ?
 `
 
+// renewRuntimeLockSQL 只允许当前 holder 续租，避免覆盖其他实例新抢到的锁。
 const renewRuntimeLockSQL = `
 UPDATE runtime_locks
 SET lease_expires_at = ?,
@@ -186,6 +191,7 @@ SET lease_expires_at = ?,
 WHERE lock_key = ? AND holder = ?
 `
 
+// releaseRuntimeLockSQL 只释放当前 holder 持有的锁。
 const releaseRuntimeLockSQL = `
 DELETE FROM runtime_locks
 WHERE lock_key = ? AND holder = ?

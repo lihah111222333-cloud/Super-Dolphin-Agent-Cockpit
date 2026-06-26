@@ -14,11 +14,14 @@ import (
 	"log/slog"
 )
 
+// teamSync watcher 的防抖和同步写入抑制窗口。
 const (
 	teamSyncWatcherDebounce    = 300 * time.Millisecond
 	teamSyncWatcherSuppressFor = time.Second
 )
 
+// teamSyncWatcher 监听团队记忆目录变化，并把稳定后的本地变更推送到远端。
+// watched 和 suppressedPaths 由 mu 保护；closed/done 控制 loop 生命周期，Close 可选择最终 flush。
 type teamSyncWatcher struct {
 	service       *TeamSyncService
 	logger        *slog.Logger
@@ -37,7 +40,8 @@ type teamSyncWatcher struct {
 	loopCancel      context.CancelFunc
 }
 
-// newTeamSyncWatcher 创建teamsyncwatcher。
+// newTeamSyncWatcher 创建团队记忆目录 watcher。
+// 创建时会解析 canonicalRoot 并递归注册目录；遇到符号链接或不可解析路径直接失败。
 func newTeamSyncWatcher(service *TeamSyncService, root string, logger *slog.Logger) (*teamSyncWatcher, error) {
 	canonicalRoot, err := resolveTeamMemRealPath(root, invalidTeamMemWritePath)
 	if err != nil {
@@ -70,7 +74,7 @@ func newTeamSyncWatcher(service *TeamSyncService, root string, logger *slog.Logg
 	return w, nil
 }
 
-// Start 启动记忆流程。
+// Start 启动 watcher loop；loop 使用 safego 托管，异常会进入统一日志。
 func (w *teamSyncWatcher) Start() {
 	if w == nil {
 		return
@@ -80,7 +84,8 @@ func (w *teamSyncWatcher) Start() {
 	})
 }
 
-// Close 关闭记忆资源。
+// Close 关闭 watcher loop 并等待退出。
+// flush 为 true 时会在 watcher 停止后推送一次本地变更，使用 WithoutCancel 避免被 loop 取消影响。
 func (w *teamSyncWatcher) Close(ctx context.Context, flush bool) error {
 	if w == nil {
 		return nil
@@ -107,7 +112,8 @@ func (w *teamSyncWatcher) Close(ctx context.Context, flush bool) error {
 	return nil
 }
 
-// Suppress 处理suppress。
+// Suppress 暂时忽略指定路径的 fsnotify 事件。
+// 远端拉取写盘会触发本地事件，抑制窗口避免把同步自身的写入再次推送到远端。
 func (w *teamSyncWatcher) Suppress(paths ...string) {
 	if w == nil || len(paths) == 0 {
 		return
@@ -122,6 +128,7 @@ func (w *teamSyncWatcher) Suppress(paths ...string) {
 	}
 }
 
+// suppressed 判断当前是否仍有未过期的抑制路径。
 func (w *teamSyncWatcher) suppressed() bool {
 	w.mu.Lock()
 	defer w.mu.Unlock()
@@ -129,6 +136,8 @@ func (w *teamSyncWatcher) suppressed() bool {
 	return len(w.suppressedPaths) > 0
 }
 
+// loop 串行处理 watcher 事件、错误和防抖 timer。
+// 退出时关闭 done 并释放底层 fsnotify watcher。
 func (w *teamSyncWatcher) loop() {
 	defer close(w.done)
 	defer w.closeWatcher()
@@ -141,6 +150,7 @@ func (w *teamSyncWatcher) loop() {
 	}
 }
 
+// newStoppedTeamSyncTimer 创建默认停止的 timer，避免 loop 启动后立即触发 push。
 func newStoppedTeamSyncTimer() *time.Timer {
 	timer := time.NewTimer(time.Hour)
 	if !timer.Stop() {
@@ -149,6 +159,7 @@ func newStoppedTeamSyncTimer() *time.Timer {
 	return timer
 }
 
+// handleLoopIteration 处理 watcher loop 的单次 select，返回 true 表示 loop 应退出。
 func (w *teamSyncWatcher) handleLoopIteration(timer *time.Timer, dirty *bool) bool {
 	select {
 	case <-w.closed:
@@ -163,6 +174,7 @@ func (w *teamSyncWatcher) handleLoopIteration(timer *time.Timer, dirty *bool) bo
 	}
 }
 
+// handleWatcherLoopError 记录 fsnotify 错误并 fail-closed 退出 loop。
 func (w *teamSyncWatcher) handleWatcherLoopError(err error, ok bool) bool {
 	if ok && err != nil {
 		w.warn("team sync watcher failed", "error", err)
@@ -170,6 +182,7 @@ func (w *teamSyncWatcher) handleWatcherLoopError(err error, ok bool) bool {
 	return true
 }
 
+// handleWatcherLoopEvent 处理 fsnotify 事件，并在检测到变更时重置防抖 timer。
 func (w *teamSyncWatcher) handleWatcherLoopEvent(timer *time.Timer, dirty *bool, event fsnotify.Event, ok bool) bool {
 	if !ok {
 		return true
@@ -186,6 +199,8 @@ func (w *teamSyncWatcher) handleWatcherLoopEvent(timer *time.Timer, dirty *bool,
 	return false
 }
 
+// flushWatcherLoopPush 在防抖窗口结束后推送本地变更。
+// 如果 loop context 已取消则跳过，Close(flush=true) 会在 loop 退出后另做最终推送。
 func (w *teamSyncWatcher) flushWatcherLoopPush(dirty *bool) {
 	if !*dirty {
 		return
@@ -203,7 +218,8 @@ func (w *teamSyncWatcher) flushWatcherLoopPush(dirty *bool) {
 	}
 }
 
-// handleEvent 处理事件。
+// handleEvent 校验单个 fsnotify 事件是否代表需要推送的本地变更。
+// 根目录真实路径发生漂移时 fail-closed，防止符号链接替换后继续监听错误位置。
 func (w *teamSyncWatcher) handleEvent(event fsnotify.Event) (bool, error) {
 	if w == nil || w.service == nil {
 		return false, nil
@@ -230,7 +246,7 @@ func (w *teamSyncWatcher) handleEvent(event fsnotify.Event) (bool, error) {
 	return true, nil
 }
 
-// eventPath 处理事件路径。
+// eventPath 规范化事件路径，并过滤根外、内部状态文件和空路径事件。
 func (w *teamSyncWatcher) eventPath(path string) (string, bool, error) {
 	cleaned := cleanWatchPath(path)
 	if cleaned == "" {
@@ -253,6 +269,7 @@ func (w *teamSyncWatcher) eventPath(path string) (string, bool, error) {
 	return cleaned, true, nil
 }
 
+// detectDirty 重新扫描本地 checksum，判断是否偏离最近同步状态。
 func (w *teamSyncWatcher) detectDirty() (bool, error) {
 	if w == nil || w.service == nil {
 		return false, nil
@@ -267,6 +284,7 @@ func (w *teamSyncWatcher) detectDirty() (bool, error) {
 	return checksum != w.service.syncedChecksum(), nil
 }
 
+// ensureStableRoot 确认团队记忆根目录没有在 watcher 生命周期内漂移。
 func (w *teamSyncWatcher) ensureStableRoot() error {
 	current, err := resolveTeamMemRealPath(w.root, invalidTeamMemWritePath)
 	if err != nil {
@@ -278,6 +296,7 @@ func (w *teamSyncWatcher) ensureStableRoot() error {
 	return nil
 }
 
+// addRecursive 递归注册目录 watcher，并拒绝符号链接目录。
 func (w *teamSyncWatcher) addRecursive(root string) error {
 	return filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
 		if err != nil {
@@ -293,6 +312,7 @@ func (w *teamSyncWatcher) addRecursive(root string) error {
 	})
 }
 
+// addWatch 注册单个目录，重复路径会被去重。
 func (w *teamSyncWatcher) addWatch(path string) error {
 	cleaned := cleanWatchPath(path)
 	if cleaned == "" {
@@ -313,6 +333,7 @@ func (w *teamSyncWatcher) addWatch(path string) error {
 	return nil
 }
 
+// isSuppressed 判断路径是否还在同步写入抑制窗口内。
 func (w *teamSyncWatcher) isSuppressed(path string) bool {
 	w.mu.Lock()
 	defer w.mu.Unlock()
@@ -321,6 +342,7 @@ func (w *teamSyncWatcher) isSuppressed(path string) bool {
 	return ok && w.now().Before(expiry)
 }
 
+// cleanupSuppressedLocked 清理已过期的 suppress 记录。
 func (w *teamSyncWatcher) cleanupSuppressedLocked() {
 	now := w.now()
 	for path, expiry := range w.suppressedPaths {
@@ -330,18 +352,21 @@ func (w *teamSyncWatcher) cleanupSuppressedLocked() {
 	}
 }
 
+// closeWatcher 释放底层 fsnotify watcher，忽略重复关闭错误。
 func (w *teamSyncWatcher) closeWatcher() {
 	if w != nil && w.watcher != nil {
 		_ = w.watcher.Close()
 	}
 }
 
+// warn 通过注入 logger 记录 watcher 警告；logger 为空时静默。
 func (w *teamSyncWatcher) warn(message string, args ...any) {
 	if w != nil && w.logger != nil {
 		w.logger.Warn(message, args...)
 	}
 }
 
+// resetTeamSyncTimer 安全重置防抖 timer，并排空可能已经触发的事件。
 func resetTeamSyncTimer(timer *time.Timer, duration time.Duration) {
 	if timer == nil {
 		return
@@ -355,6 +380,7 @@ func resetTeamSyncTimer(timer *time.Timer, duration time.Duration) {
 	timer.Reset(duration)
 }
 
+// cleanWatchPath 标准化 watcher 路径，非法路径返回空字符串。
 func cleanWatchPath(path string) string {
 	if path == "" {
 		return ""
@@ -366,6 +392,7 @@ func cleanWatchPath(path string) string {
 	return cleaned
 }
 
+// pathIsDir 使用 Lstat 判断路径是否为目录，并拒绝符号链接。
 func pathIsDir(path string) (bool, error) {
 	info, err := os.Lstat(path)
 	if err != nil {
@@ -380,6 +407,7 @@ func pathIsDir(path string) (bool, error) {
 	return info.IsDir(), nil
 }
 
+// contextWithoutWatcherCancel 返回不受 watcher loop cancel 影响的 context。
 func contextWithoutWatcherCancel(ctx context.Context) context.Context {
 	if ctx == nil {
 		return context.Background()
@@ -387,6 +415,7 @@ func contextWithoutWatcherCancel(ctx context.Context) context.Context {
 	return context.WithoutCancel(ctx)
 }
 
+// contextDoneChan 返回 context 的 Done channel，nil context 返回 nil channel。
 func contextDoneChan(ctx context.Context) <-chan struct{} {
 	if ctx == nil {
 		return nil

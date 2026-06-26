@@ -5,9 +5,8 @@ import (
 	"strings"
 )
 
-// ToolScope is the trusted control-plane routing scope derived from
-// top-level tools/call metadata. It intentionally has no session dimension:
-// routing is clientKind/family + agentID/threadID only.
+// ToolScope 是从 tools/call 元数据推导的可信控制面路由 scope。
+// 它有意不包含 session 维度；路由只看 clientKind/family 与 agentID/threadID。
 type ToolScope struct {
 	AgentID  string
 	ThreadID string
@@ -17,6 +16,7 @@ type ToolScope struct {
 	Family   string
 }
 
+// normalizeToolScope 清理路由字段，并只接受绝对 cwd 参与后续匹配。
 func normalizeToolScope(scope ToolScope) ToolScope {
 	scope.AgentID = strings.TrimSpace(scope.AgentID)
 	scope.ThreadID = strings.TrimSpace(scope.ThreadID)
@@ -27,6 +27,7 @@ func normalizeToolScope(scope ToolScope) ToolScope {
 	return scope
 }
 
+// normalizeScopeCWD 返回清理后的绝对路径；相对路径不会进入可信路由 scope。
 func normalizeScopeCWD(cwd string) string {
 	cwd = strings.TrimSpace(cwd)
 	if cwd == "" {

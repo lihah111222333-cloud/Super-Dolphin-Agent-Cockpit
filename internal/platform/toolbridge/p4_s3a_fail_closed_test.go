@@ -9,32 +9,13 @@ import (
 	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
 )
 
-// TestToolbridgePersistentSubagentRejectsMissingRuntime is the P22 P4 S3a
-// umbrella guard (test name pre-registered at P4 §TDD line 257). It
-// locks the invariant that the `spawn_agent` policy gate fails closed —
-// returning contract.ErrThreadRuntimeRequired or
-// contract.ErrPersistentSubagentRuntimeRequired — instead of silently
-// falling back to `cfg.Agent.PersistentSubagentDefault` when thread or
-// runtime identity is missing.
+// TestToolbridgePersistentSubagentRejectsMissingRuntime 锁定 spawn_agent 策略门禁的 fail-closed 行为。
+// 当 thread 身份或 runtime 配置缺失时，routeToolCall 必须返回对应错误，不能借用
+// cfg.Agent.PersistentSubagentDefault 继续创建持久子 agent。
 //
-// Pre-P4 drift (P4 plan §51 / §141): persistentSubagentRequired used to
-// read cfg.Agent.PersistentSubagentDefault any time runtime lookup
-// failed, making "missing thread row" silently behave like the global
-// default. The e84b688 fix landed fail-closed behavior; this test is
-// the shared behavioral anchor that pre-existing
-// TestToolBridge_RejectsSpawnAgent{Without,Stored}Runtime tests roll
-// into the single name promised by P4 §257.
-//
-// Contract (P4 §98-99 / §276):
-//   - Missing thread identity  → contract.ErrThreadRuntimeRequired
-//   - Missing runtime config   → contract.ErrPersistentSubagentRuntimeRequired
-//   - PersistentSubagentDefault is only consulted when thread AND runtime
-//     were successfully loaded; it may not be borrowed to "recover" from
-//     a failed identity lookup. To prove this we enable
-//     PersistentSubagentDefault on the handler config and still expect
-//     the missing-identity cases to error out — if the old fallback were
-//     still in place, the handler would succeed and emit the block
-//     message instead.
+// 该用例同时覆盖无 thread 身份、thread 存在但 runtime 行缺失两类入口。
+// 测试会刻意启用 PersistentSubagentDefault，确保默认值只在 thread 与 runtime
+// 都加载成功后才可用于策略判定。
 func TestToolbridgePersistentSubagentRejectsMissingRuntime(t *testing.T) {
 	t.Parallel()
 
@@ -46,8 +27,7 @@ func TestToolbridgePersistentSubagentRejectsMissingRuntime(t *testing.T) {
 	}{
 		{
 			name: "missing thread identity",
-			// Default newHandlerForTest has no bindingStore / threadStore
-			// wired, so thread identity cannot be resolved.
+			// 默认测试 Handler 未接入 bindingStore / threadStore，因此无法解析 thread 身份。
 			handlerSetup: nil,
 			req: ToolCallRequest{
 				Name:      "spawn_agent",
@@ -74,9 +54,8 @@ func TestToolbridgePersistentSubagentRejectsMissingRuntime(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			h, _ := newHandlerForTest()
-			// Enable PersistentSubagentDefault so this test would PASS
-			// under the pre-P4 silent-fallback behavior but must still
-			// FAIL-closed under the post-e84b688 contract.
+			// 故意启用 PersistentSubagentDefault；即便全局默认允许持久子 agent，
+			// 缺少身份或 runtime 时也必须 fail-closed。
 			h.cfg = &platformconfig.Config{
 				Agent: platformconfig.AgentConfig{PersistentSubagentDefault: true},
 			}

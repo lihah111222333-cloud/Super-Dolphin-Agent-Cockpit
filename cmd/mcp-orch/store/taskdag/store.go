@@ -22,7 +22,7 @@ type store struct {
 	q  *sqlc.Queries
 }
 
-// NewStore 创建存储。
+// NewStore 创建 taskdag 存储实现，并复用同一 sqlc 查询集封装所有窄接口。
 func NewStore(db sqlc.DBTX) Store { return &store{db: db, q: sqlc.New(db)} }
 
 // requireRuntimeRunID 确保 run_id 非零；零值意味着调用方传入了模板节点操作，应 fail-fast。
@@ -41,7 +41,7 @@ func (s *store) WithTx(ctx context.Context, fn func(txStore DAGMutationStore) er
 	}), "with_tx", "task_dag")
 }
 
-// UpsertDAG 创建或更新 DAG 模板行，返回写入后的完整快照。
+// UpsertDAG 创建或更新 DAG 模板行，只影响模板元数据，不触碰已展开的 runtime run。
 func (s *store) UpsertDAG(ctx context.Context, dag DAG) (*DAG, error) {
 	return queryOneWrite(ctx, func() (sqlc.UpsertTaskDagRow, error) {
 		return s.q.UpsertTaskDag(ctx, sqlc.UpsertTaskDagParams{
@@ -55,7 +55,7 @@ func (s *store) UpsertDAG(ctx context.Context, dag DAG) (*DAG, error) {
 	}, "upsert", "task_dag", fromDAGUpsertRow)
 }
 
-// ListDAGs 按过滤条件列出 DAG 列表。
+// ListDAGs 按状态、关键字和 limit 下推过滤；空过滤由 SQL 返回默认可见模板集合。
 func (s *store) ListDAGs(ctx context.Context, filter ListDAGsFilter) ([]DAG, error) {
 	return queryMany(func() ([]sqlc.ListTaskDagsRow, error) {
 		return s.q.ListTaskDags(ctx, sqlc.ListTaskDagsParams{
@@ -106,7 +106,7 @@ func (s *store) DeleteDAG(ctx context.Context, dagKey string) (int64, error) {
 	return rows, wrapTaskDAGError(err, "delete", "task_dag")
 }
 
-// UpsertNode 创建或更新节点模板行，返回写入后的完整快照。
+// UpsertNode 创建或更新 DAG 节点模板；runtime 节点副本只能由 StartRun 展开后再改。
 func (s *store) UpsertNode(ctx context.Context, node Node) (*Node, error) {
 	return queryOneWrite(ctx, func() (sqlc.UpsertTaskDagNodeRow, error) {
 		return s.q.UpsertTaskDagNode(ctx, sqlc.UpsertTaskDagNodeParams{
@@ -139,7 +139,7 @@ func (s *store) PatchNodeConfigIfUnchanged(ctx context.Context, input NodeConfig
 	}, "patch_config", "task_dag_node", fromNodePatchConfigRow)
 }
 
-// DeleteNode 删除节点模板行，返回受影响行数。
+// DeleteNode 删除模板节点并返回受影响行数；runtime run 副本不走这个模板删除入口。
 func (s *store) DeleteNode(ctx context.Context, dagKey, nodeKey string) (int64, error) {
 	return queryValueWrite(ctx, func() (int64, error) {
 		return s.q.DeleteTaskDagNode(ctx, sqlc.DeleteTaskDagNodeParams{
@@ -149,14 +149,13 @@ func (s *store) DeleteNode(ctx context.Context, dagKey, nodeKey string) (int64, 
 	}, "delete", "task_dag_node")
 }
 
-// UpdateNodeStatus 更新节点状态。
+// UpdateNodeStatus 更新 runtime 节点状态，要求 run_id 命中副本，避免误写模板节点。
 func (s *store) UpdateNodeStatus(ctx context.Context, input NodeStatusUpdate) (*Node, error) {
 	if err := requireRuntimeRunID("update_status", input.RunID); err != nil {
 		return nil, err
 	}
-	// R1 dead code 清理：原 2 份 SQL（UpdateTaskDagNodeStatus / UpdateTaskDagNodeStatusFlexible）
-	// 逻辑上完全重复，合并为 Flexible 一份。本函数保留为发布层 sentinel（NodeStatusUpdate
-	// 与 FlexibleNodeStatusUpdate 输入名字不同），但底层走同一 query。
+	// UpdateNodeStatus 与 flexible 状态更新共用同一条 SQL。
+	// 两个入口的输入类型不同，保留本方法能让旧调用方继续使用稳定接口。
 	return updateNodeStatusWrite(ctx, func() (sqlc.UpdateTaskDagNodeStatusFlexibleRow, error) {
 		return s.q.UpdateTaskDagNodeStatusFlexible(ctx, sqlc.UpdateTaskDagNodeStatusFlexibleParams{
 			Status:  input.Status,
@@ -168,7 +167,7 @@ func (s *store) UpdateNodeStatus(ctx context.Context, input NodeStatusUpdate) (*
 	}, "update_status", fromNodeStatusFlexibleRow)
 }
 
-// ListNodes 列出 dag_key 下的所有模板节点。
+// ListNodes 列出 dag_key 下的模板节点，用于编辑/展示 DAG 结构，不包含 runtime 副本状态。
 func (s *store) ListNodes(ctx context.Context, dagKey string) ([]Node, error) {
 	return queryMany(func() ([]sqlc.ListTaskDagNodesRow, error) {
 		return s.q.ListTaskDagNodes(ctx, sqlc.ListTaskDagNodesParams{DagKey: dagKey})
@@ -190,7 +189,7 @@ func (s *store) AssignNode(ctx context.Context, input AssignNodeInput) (*Node, e
 	}, "assign", "task_dag_node", fromNodeAssignRow)
 }
 
-// ListRunNodes 列出指定 run_id 下的所有 runtime 节点副本。
+// ListRunNodes 列出指定 run_id 下的 runtime 节点副本，供调度器按运行态状态图推进。
 func (s *store) ListRunNodes(ctx context.Context, dagKey string, runID int64) ([]Node, error) {
 	return queryMany(func() ([]sqlc.ListTaskDagRunNodesRow, error) {
 		return s.q.ListTaskDagRunNodes(ctx, sqlc.ListTaskDagRunNodesParams{
@@ -200,22 +199,16 @@ func (s *store) ListRunNodes(ctx context.Context, dagKey string, runID int64) ([
 	}, "list_run", "task_dag_node", fromNodeRunListRow)
 }
 
-// LookupNodesBySpawningThread reverses task_dag_nodes.spawning_thread_id back
-// to the node rows that spawned the given child thread id. ADR-017 v1.2 §2.2.
-//
-// Empty result slice (not platformdb.ErrNotFound) means no node currently
-// carries this thread id. N>1 results are normal on retry / recovery chains
-// (migration 0083 partial index has no UNIQUE clause + F1.5 write entry-point
-// is not single-writer); the caller iterates and applies idempotent
-// advancement on every row.
-// LookupNodesBySpawningThread 按spawning线程处理lookup节点。
+// LookupNodesBySpawningThread 通过 spawning_thread_id 反查产生子线程的 runtime 节点。
+// 空结果表示当前没有节点持有该 thread id；多行结果在重试/恢复链路里合法，
+// 调用方需要逐行做幂等推进，不能把它当成唯一索引。
 func (s *store) LookupNodesBySpawningThread(ctx context.Context, threadID string) ([]Node, error) {
 	return queryMany(func() ([]sqlc.LookupNodesBySpawningThreadRow, error) {
 		return s.q.LookupNodesBySpawningThread(ctx, sqlc.LookupNodesBySpawningThreadParams{SpawningThreadID: sqlc.TextValuePtr(&threadID)})
 	}, "lookup_by_spawning_thread", "task_dag_node", fromNodeLookupBySpawningThreadRow)
 }
 
-// ListRunningNodesByAssignee 按assignee列出running节点。
+// ListRunningNodesByAssignee 列出 assignee 当前持有的 running 节点，用于恢复与重复派发防护。
 func (s *store) ListRunningNodesByAssignee(ctx context.Context, assignee string) ([]Node, error) {
 	return queryMany(func() ([]sqlc.ListRunningTaskDagNodesByAssigneeRow, error) {
 		return s.q.ListRunningTaskDagNodesByAssignee(ctx, sqlc.ListRunningTaskDagNodesByAssigneeParams{AssignedTo: assignee})
@@ -319,7 +312,7 @@ func (s *store) UpdateAwaitingVerifyNodeStatus(ctx context.Context, input Awaiti
 	}, "update_awaiting_verify_status", fromNodeUpdateAwaitingVerifyRow)
 }
 
-// CompleteNode 完成节点。
+// CompleteNode 写入 runtime 节点终态和 result，run_id fence 防止模板节点或旧运行被误完成。
 func (s *store) CompleteNode(ctx context.Context, input CompleteNodeInput) (*Node, error) {
 	if err := requireRuntimeRunID("complete", input.RunID); err != nil {
 		return nil, err
@@ -397,7 +390,8 @@ func wrapTaskDAGError(err error, operation, entity string) error {
 	return platformdb.WrapStoreError(err, operation, entity)
 }
 
-// intervalValue converts textual interval input into epoch-millisecond deltas expected by SQLite sqlc queries.
+// intervalValue 解析工具层传入的自然语言区间，并转成 SQLite 查询使用的毫秒差值。
+// 空值或无法识别的单位会立即报错，避免调度 lease/重试间隔静默落到 0。
 func intervalValue(value string) (sqlc.Interval, error) {
 	trimmed := strings.TrimSpace(value)
 	if trimmed == "" {

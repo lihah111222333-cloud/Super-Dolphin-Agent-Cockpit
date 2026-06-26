@@ -51,7 +51,8 @@ func (s *service) effectiveDAGRuntime() contract.DAGRuntime {
 	return s.orchestration
 }
 
-// ListDAGs 列出dags。
+// ListDAGs 列出 dashboard 可见的 DAG 摘要。
+// 优先使用数据库快照以减少对编排服务的依赖；无快照时要求 DAG runtime 已配置。
 func (s *service) ListDAGs(ctx context.Context, filter contract.ListDAGsFilter) ([]contract.DAGSummary, error) {
 	filter.Status = strings.TrimSpace(filter.Status)
 	filter.Keyword = strings.TrimSpace(filter.Keyword)
@@ -66,7 +67,8 @@ func (s *service) ListDAGs(ctx context.Context, filter contract.ListDAGsFilter) 
 	return runtime.ListDAGs(ctx, filter)
 }
 
-// GetDAGDetail 读取 DAG 详情。
+// GetDAGDetail 读取 DAG 模板详情。
+// dagKey 为空直接报错；快照和 runtime 两条路径都不返回部分详情。
 func (s *service) GetDAGDetail(ctx context.Context, dagKey string) (*contract.DAGDetail, error) {
 	key := strings.TrimSpace(dagKey)
 	if key == "" {
@@ -86,7 +88,8 @@ func (s *service) GetDAGDetail(ctx context.Context, dagKey string) (*contract.DA
 	return &detail, nil
 }
 
-// ListDAGRuns 列出DAG运行记录。
+// ListDAGRuns 列出指定 DAG 的运行记录。
+// limit 会被 clamp，status 只做 trim 后下传，具体枚举由 runtime/store 负责。
 func (s *service) ListDAGRuns(ctx context.Context, dagKey, status string, limit int32) ([]contract.Run, error) {
 	key := strings.TrimSpace(dagKey)
 	if key == "" {
@@ -115,7 +118,8 @@ func (s *service) ListDAGRuns(ctx context.Context, dagKey, status string, limit 
 	return resp.Runs, nil
 }
 
-// GetDAGRun 读取DAG运行记录。
+// GetDAGRun 读取单次 DAG run 详情。
+// nodes 为 nil 时转换为空切片，保持前端 JSON wire 兼容。
 func (s *service) GetDAGRun(ctx context.Context, runKey string) (contract.GetRunResponse, error) {
 	key := strings.TrimSpace(runKey)
 	if key == "" {
@@ -175,7 +179,8 @@ func (s *service) CreateAndStartDAG(ctx context.Context, req contract.CreateDAGR
 	return detail, started, nil
 }
 
-// StartDAG 启动DAG。
+// StartDAG 以手动触发方式启动 DAG。
+// dashboard 入口只允许 manual trigger，防止 UI 越权模拟 scheduler 触发来源。
 func (s *service) StartDAG(ctx context.Context, dagKey, triggerSource, idempotencyKey string) (contract.StartDAGResponse, error) {
 	runtime := s.effectiveDAGRuntime()
 	if runtime == nil {
@@ -199,7 +204,8 @@ func (s *service) StartDAG(ctx context.Context, dagKey, triggerSource, idempoten
 	})
 }
 
-// DispatchDAGNode 派发DAG节点。
+// DispatchDAGNode 将指定 DAG run 的节点派发给目标 agent/thread。
+// 请求字段必须完整，runtime 未实现 DispatchNode 时返回配置错误。
 func (s *service) DispatchDAGNode(ctx context.Context, req contract.DispatchNodeRequest) (contract.DispatchNodeResponse, error) {
 	runtime := s.effectiveDAGRuntime()
 	if runtime == nil {
@@ -232,7 +238,8 @@ func (s *service) DispatchDAGNode(ctx context.Context, req contract.DispatchNode
 	return dispatcher.DispatchNode(ctx, request)
 }
 
-// TerminateDAG 处理terminateDAG。
+// TerminateDAG 终止指定 DAG run。
+// reason 为空时使用 user_requested，确保审计和状态变更都有可读原因。
 func (s *service) TerminateDAG(ctx context.Context, dagKey, runKey, reason string) error {
 	runtime := s.effectiveDAGRuntime()
 	if runtime == nil {
@@ -257,7 +264,8 @@ func (s *service) TerminateDAG(ctx context.Context, dagKey, runKey, reason strin
 	})
 }
 
-// DeleteDAG 删除DAG。
+// DeleteDAG 删除 DAG 模板。
+// 仅当 runtime 显式实现 DAGDeleteRuntime 时开放，避免 dashboard 调用未声明能力。
 func (s *service) DeleteDAG(ctx context.Context, dagKey string) error {
 	runtime := s.effectiveDAGRuntime()
 	if runtime == nil {
@@ -274,7 +282,8 @@ func (s *service) DeleteDAG(ctx context.Context, dagKey string) error {
 	return deleter.DeleteDAG(ctx, contract.DeleteDAGRequest{DagKey: key})
 }
 
-// ApplyDAGOps 应用DAGops。
+// ApplyDAGOps 将前端编辑操作应用到 DAG 模板。
+// baseVersion 不能为负，ops 必须是非空 JSON 数组，防止空补丁覆盖模板。
 func (s *service) ApplyDAGOps(ctx context.Context, req contract.ApplyOpsRequest) (contract.ApplyOpsResponse, error) {
 	runtime := s.effectiveDAGRuntime()
 	if runtime == nil {

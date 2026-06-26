@@ -7,6 +7,8 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/dto/mcp"
 )
 
+// MCPServerConfig 是工作区 MCP server 配置的跨模块 wire 形状。
+// Enabled 为指针用于区分“未写入该字段”和“显式关闭”。
 type MCPServerConfig struct {
 	Transport string            `json:"transport,omitempty"`
 	URL       string            `json:"url,omitempty"`
@@ -17,31 +19,33 @@ type MCPServerConfig struct {
 	Enabled   *bool             `json:"enabled,omitempty"`
 }
 
+// MCPServerConfigProvider 读取指定工作区解析后的 MCP server 配置集合。
 type MCPServerConfigProvider interface {
 	ListMCPServerConfigs(ctx context.Context, cwd string) (map[string]MCPServerConfig, error)
 }
 
-// MCPServerAddRequest 是跨模块写入 MCP server 配置的输入，避免业务模块依赖具体实现。
+// MCPServerAddRequest 是跨模块写入 MCP server 配置的输入。
+// 业务模块只提交标准 mcpServers map，具体文件合并和持久化由控制模块处理。
 type MCPServerAddRequest struct {
 	MCPServers map[string]MCPServerConfig `json:"mcpServers"`
 }
 
-// MCPServerAddResult 返回 MCP server 配置写入位置和本次写入的服务名。
+// MCPServerAddResult 返回配置写入位置和本次写入的服务名列表。
 type MCPServerAddResult struct {
 	ConfigPath  string   `json:"configPath"`
 	ServerNames []string `json:"serverNames"`
 }
 
-// MCPServerListResult 返回当前工作区解析到的 MCP server 配置集合。
+// MCPServerListResult 返回当前工作区解析到的 MCP server 配置集合和来源路径。
 type MCPServerListResult struct {
 	ConfigPath string                     `json:"configPath"`
 	MCPServers map[string]MCPServerConfig `json:"mcpServers"`
 }
 
-// MCPPostgresServerStartRequest 是默认 Postgres MCP server 显式启动入口的跨模块请求。
+// MCPPostgresServerStartRequest 是默认 Postgres MCP server 显式启动入口的空请求。
 type MCPPostgresServerStartRequest struct{}
 
-// MCPPostgresServerStartResult 返回默认 Postgres MCP server 配置的写入结果。
+// MCPPostgresServerStartResult 返回默认 Postgres MCP server 配置写入后的状态。
 type MCPPostgresServerStartResult struct {
 	ConfigPath string          `json:"configPath"`
 	ServerName string          `json:"serverName"`
@@ -55,11 +59,13 @@ type MCPPostgresServerStarter interface {
 }
 
 // MCPSQLiteServerStartRequest 是默认 SQLite MCP server 显式启动入口的跨模块请求。
+// DatabasePath 为空时由实现按当前工作区策略解析，非空时必须显式写入配置。
 type MCPSQLiteServerStartRequest struct {
 	DatabasePath string `json:"databasePath,omitempty"`
 }
 
 // MCPSQLiteServerStartResult 返回默认 SQLite MCP server 配置的写入和开启结果。
+// Added 表示是否新增配置，Enabled 表示写入后是否处于启用状态。
 type MCPSQLiteServerStartResult struct {
 	ConfigPath string          `json:"configPath"`
 	ServerName string          `json:"serverName"`
@@ -68,10 +74,10 @@ type MCPSQLiteServerStartResult struct {
 	Config     MCPServerConfig `json:"config"`
 }
 
-// MCPSQLiteServerStopRequest 是默认 SQLite MCP server 显式关闭入口的跨模块请求。
+// MCPSQLiteServerStopRequest 是默认 SQLite MCP server 显式关闭入口的空请求。
 type MCPSQLiteServerStopRequest struct{}
 
-// MCPSQLiteServerStopResult 返回默认 SQLite MCP server 被关闭后的状态。
+// MCPSQLiteServerStopResult 返回默认 SQLite MCP server 被关闭后的配置状态。
 type MCPSQLiteServerStopResult struct {
 	ConfigPath string `json:"configPath"`
 	ServerName string `json:"serverName"`
@@ -84,7 +90,7 @@ type MCPSQLiteServerController interface {
 	StopSQLiteServer(context.Context, MCPSQLiteServerStopRequest) (MCPSQLiteServerStopResult, error)
 }
 
-// MCPPlaywrightServerStartRequest 是默认 Playwright MCP server 显式启动入口的跨模块请求。
+// MCPPlaywrightServerStartRequest 是默认 Playwright MCP server 显式启动入口的空请求。
 type MCPPlaywrightServerStartRequest struct{}
 
 // MCPPlaywrightServerStartResult 返回默认 Playwright MCP server 配置的写入和开启结果。
@@ -96,10 +102,10 @@ type MCPPlaywrightServerStartResult struct {
 	Config     MCPServerConfig `json:"config"`
 }
 
-// MCPPlaywrightServerStopRequest 是默认 Playwright MCP server 显式关闭入口的跨模块请求。
+// MCPPlaywrightServerStopRequest 是默认 Playwright MCP server 显式关闭入口的空请求。
 type MCPPlaywrightServerStopRequest struct{}
 
-// MCPPlaywrightServerStopResult 返回默认 Playwright MCP server 被关闭后的状态。
+// MCPPlaywrightServerStopResult 返回默认 Playwright MCP server 被关闭后的配置状态。
 type MCPPlaywrightServerStopResult struct {
 	ConfigPath string `json:"configPath"`
 	ServerName string `json:"serverName"`
@@ -119,6 +125,7 @@ type MCPServerConfigWriter interface {
 }
 
 // StoreMCPServerConfigParams 是写入 MCP server 配置表的最小输入。
+// WorkspaceRoot+Name 定位一条配置，Config 保留完整 wire 结构供 store 持久化。
 type StoreMCPServerConfigParams struct {
 	WorkspaceRoot string
 	Name          string
@@ -133,10 +140,11 @@ type MCPServerConfigStore interface {
 	SetServerEnabled(context.Context, string, string, bool) (bool, error)
 }
 
-// ToolInstance is a registry snapshot for a connected MCP peer.
+// ToolInstance 是已连接 MCP peer 的 registry 快照。
+// LeaseKey 是新控制面主键，LeaseID 仅为旧调用方读取保留。
 type ToolInstance struct {
 	Lease mcp.LeaseKey
-	// Deprecated: use LeaseKey. Will be removed after 2026-06-30.
+	// Deprecated: use LeaseKey.
 	LeaseID       string
 	BinaryName    string
 	AgentID       string
@@ -151,7 +159,7 @@ type ToolInstance struct {
 	ConfigVersion int64
 }
 
-// ToolRegistry coordinates ctl/* peer registration and instance lifecycle.
+// ToolRegistry 维护 ctl/* peer 注册、心跳、查询和关闭生命周期。
 type ToolRegistry interface {
 	Register(ctx context.Context, req mcp.RegisterRequest) (mcp.RegisterResponse, error)
 	Heartbeat(ctx context.Context, req mcp.HeartbeatRequest) (mcp.HeartbeatResponse, error)
@@ -159,7 +167,7 @@ type ToolRegistry interface {
 	ShutdownInstance(ctx context.Context, key mcp.LeaseKey, req mcp.ShutdownRequest) error
 }
 
-// ToolNotifier fans notifications out to connected peers.
+// ToolNotifier 按订阅、能力或 selector 把通知扇出给已连接 peer。
 type ToolNotifier interface {
 	NotifyBySubscription(ctx context.Context, topic, method string, params any) error
 	NotifyByCapability(ctx context.Context, capability, method string, params any) error
@@ -167,21 +175,21 @@ type ToolNotifier interface {
 	NotifyConfigChanged(ctx context.Context, topic string, scope *mcp.SelectorScope, configVersion int64, payload json.RawMessage) error
 }
 
-// ToolHookCallback dispatches topic-based hook callbacks to subscribed peers.
+// ToolHookCallback 按 topic 把 hook 回调分发给订阅 peer。
 type ToolHookCallback interface {
 	CallbackHookBefore(ctx context.Context, topic string, payload mcp.HookPayload) error
 	CallbackHookCheck(ctx context.Context, topic string, payload mcp.HookPayload) error
 	CallbackHookAfter(ctx context.Context, topic string, payload mcp.HookPayload) error
 }
 
-// PeerCallback dispatches lease-targeted hook callbacks to a specific peer.
+// PeerCallback 按 lease key 把 hook 回调定向发送给单个 peer。
 type PeerCallback interface {
 	CallbackBefore(ctx context.Context, lease mcp.LeaseKey, payload mcp.HookPayload) (mcp.BeforeDecision, error)
 	CallbackCheck(ctx context.Context, lease mcp.LeaseKey, payload mcp.HookPayload) (mcp.CheckDecision, error)
 	CallbackAfter(ctx context.Context, lease mcp.LeaseKey, payload mcp.HookPayload) (mcp.AfterDecision, error)
 }
 
-// ToolControlPlane preserves the full registry surface for integrations that need it.
+// ToolControlPlane 合并注册、通知与 hook 回调端口，供需要完整控制面的集成层使用。
 type ToolControlPlane interface {
 	ToolRegistry
 	ToolNotifier

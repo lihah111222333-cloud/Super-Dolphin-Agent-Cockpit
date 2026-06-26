@@ -10,7 +10,8 @@ import (
 
 var traceSpanSeq atomic.Uint64
 
-// RecordTrace 记录trace。
+// RecordTrace 补齐 provider trace 默认字段并写入观测服务。
+// tracer 为空时直接返回；写入失败只告警，不能反向影响 provider 主流程。
 func RecordTrace(ctx context.Context, tracer *observability.Service, event observability.TraceEvent, provider string, code observability.CodeAnchor) {
 	if tracer == nil {
 		return
@@ -35,7 +36,8 @@ func fillTraceEvent(ctx context.Context, event *observability.TraceEvent, provid
 	}
 }
 
-// fillTraceDefaults 处理filltracedefaults。
+// fillTraceDefaults 为 provider trace 事件填充时间、状态、代码锚点和 provider 元数据。
+// 已由调用方设置的字段不会被覆盖，便于特殊事件自定义状态。
 func fillTraceDefaults(event *observability.TraceEvent, provider string, code observability.CodeAnchor) {
 	if event.Timestamp.IsZero() {
 		event.Timestamp = time.Now()
@@ -61,7 +63,8 @@ func captureTraceStack(status observability.Status) bool {
 	return status == observability.StatusError || status == observability.StatusSlow || status == observability.StatusPanic
 }
 
-// ErrorSummary 处理错误摘要。
+// ErrorSummary 返回 provider trace 状态对应的默认错误摘要。
+// 当前只对错误状态给出通用文案，其他状态保持空摘要。
 func ErrorSummary(status observability.Status) string {
 	if status == observability.StatusError {
 		return "provider operation failed"
@@ -69,7 +72,8 @@ func ErrorSummary(status observability.Status) string {
 	return ""
 }
 
-// TraceStatus 处理trace状态。
+// TraceStatus 将 error 映射为 provider trace 状态。
+// nil 表示 OK，非 nil 统一视为错误，细分状态由调用方显式设置。
 func TraceStatus(err error) observability.Status {
 	if err != nil {
 		return observability.StatusError

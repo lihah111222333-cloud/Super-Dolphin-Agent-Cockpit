@@ -97,10 +97,8 @@ func startRecoveryToolBridgeServer(t *testing.T, connections chan<- *websocket.C
 
 func stopReadLoopForReconnect(t *testing.T, s *session) {
 	t.Helper()
-	// P22 P1c: the reader loop is now owned by SessionRuntime. Simulate the
-	// "connection lost" condition the old helper was proving by closing the
-	// transport socket + cancelling the runtime's current reader context,
-	// then waiting on the runtime-owned done channel.
+	// reader loop 由 SessionRuntime 持有；重连测试通过关闭 socket 并取消当前 reader ctx 模拟断线。
+	// 等待 runtime 的 done channel 收口后再重连，避免旧 reader 和新连接并发消费同一会话。
 	s.transport.closed.Store(true)
 	defer s.transport.closed.Store(false)
 	s.transport.closeSocket()
@@ -151,9 +149,7 @@ func TestToolBridge_Recovery_CancelInflight(t *testing.T) {
 		t.Fatalf("Close() error = %v", err)
 	}
 	assertInflightCanceled(t, canceled)
-	// P22 P1c: s.Close() already drained the runtime above; the historical
-	// waitReadLoopStopped assertion is now redundant because runtime.Stop()
-	// joins the reader before Close returns.
+	// Close 会 drain runtime reader；这里不再额外等待 reader，避免重复验证同一关闭边界。
 }
 
 func setCancelInflightHandler(manager *ServerManager, started chan<- struct{}, canceled chan<- error) {
@@ -213,8 +209,7 @@ func newStartedRecoverySession(t *testing.T, serverURL string, manager *ServerMa
 	if err != nil {
 		t.Fatalf("newSession() error = %v", err)
 	}
-	// P22 P1c: production code starts the runtime via driver.StartSession /
-	// ResumeSession. Tests that call newSession directly must mimic that.
+	// 生产路径由 driver.StartSession/ResumeSession 启动 runtime；直接 newSession 的测试必须手动补齐。
 	s.setThreadID("thread-1")
 	s.setRuntimeConfigValue("cwd", t.TempDir())
 	s.runtime.Start()
@@ -317,7 +312,7 @@ func reconnectRecoverySession(t *testing.T, s *session, connections <-chan *webs
 	if first == second {
 		t.Fatal("reconnect did not establish a new websocket connection")
 	}
-	// P22 P1c: reader is owned by runtime; restart via runtime.restartReader().
+	// reader 归 runtime 管理；重连建立新 socket 后必须通过 runtime.restartReader() 重新接收消息。
 	if s.runtime != nil && !s.runtime.restartReader() {
 		t.Fatal("runtime.restartReader() returned false")
 	}

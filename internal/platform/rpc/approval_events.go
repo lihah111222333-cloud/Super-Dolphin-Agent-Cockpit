@@ -14,6 +14,7 @@ import (
 )
 
 const (
+	// DefaultApprovalCallbackMethod 是通用工具审批回调方法名。
 	DefaultApprovalCallbackMethod          = "approval/request"
 	approvalCallbackMethodCommandExecution = "item/commandExecution/requestApproval"
 	approvalCallbackMethodFileChange       = "item/fileChange/requestApproval"
@@ -22,6 +23,7 @@ const (
 	legacyApprovalEventMethod              = "tool.approval.requested"
 )
 
+// publishRequested 向事件总线发布审批已请求事件，供 UI 和审计订阅。
 func (m *ApprovalManager) publishRequested(pending *pendingApproval) {
 	if pending == nil || pending.dispatcher == nil {
 		return
@@ -34,6 +36,7 @@ func (m *ApprovalManager) publishRequested(pending *pendingApproval) {
 	})
 }
 
+// publishResolved 向事件总线发布审批已完成事件，并保留决策原因。
 func (m *ApprovalManager) publishResolved(pending *pendingApproval, decision contract.ApprovalDecision, err error) {
 	if pending == nil || pending.dispatcher == nil {
 		return
@@ -46,14 +49,17 @@ func (m *ApprovalManager) publishResolved(pending *pendingApproval, decision con
 	})
 }
 
+// callbackMethod 根据请求来源和兼容别名选择客户端回调方法。
 func callbackMethod(req ApprovalRequest) string {
 	return approvalMethodCatalog.callback(req)
 }
 
+// isRequestUserInputKind 判断审批 kind 是否表示用户输入请求。
 func isRequestUserInputKind(kind string) bool {
 	return strings.EqualFold(strings.TrimSpace(kind), "request_user_input")
 }
 
+// callbackParams 构造客户端审批回调参数，保留原 payload 中的额外字段。
 func callbackParams(pending *pendingApproval) map[string]any {
 	req := pending.request
 	params := shared.CloneJSONMap(req.Payload)
@@ -77,6 +83,7 @@ func callbackParams(pending *pendingApproval) map[string]any {
 	return params
 }
 
+// approvalHeader 组装 tool approval 事件头，保证 requested/resolved 使用同一身份字段。
 func approvalHeader(req ApprovalRequest, timestamp time.Time) shareddto.ToolApprovalHeader {
 	return shareddto.ToolApprovalHeader{
 		ToolCallHeader: shareddto.ToolCallHeader{
@@ -97,6 +104,7 @@ func approvalHeader(req ApprovalRequest, timestamp time.Time) shareddto.ToolAppr
 	}
 }
 
+// approvalRequestedAt 从 payload 中解析事件时间，缺失时回退到 pending 创建时间。
 func approvalRequestedAt(pending *pendingApproval) time.Time {
 	if pending == nil {
 		return shared.FirstEventTime()
@@ -104,10 +112,12 @@ func approvalRequestedAt(pending *pendingApproval) time.Time {
 	return shared.ResolveEventTime(context.Background(), pending.request.Payload, pending.createdAt)
 }
 
+// approvalResolvedAt 从决策 payload 中解析完成时间，缺失时使用当前事件时间。
 func approvalResolvedAt(decision contract.ApprovalDecision) time.Time {
 	return shared.ResolveEventTime(context.Background(), approvalDecisionPayload(decision))
 }
 
+// approvalDecisionPayload 尝试把决策 detail 解析为事件时间可读取的 map。
 func approvalDecisionPayload(decision contract.ApprovalDecision) map[string]any {
 	if len(decision.Detail) == 0 {
 		return nil

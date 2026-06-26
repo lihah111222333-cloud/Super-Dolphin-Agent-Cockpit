@@ -13,12 +13,14 @@ import (
 )
 
 const (
+	// edit*Timeout 控制 replace_range 的磁盘确认、函数上下文查询和 LSP 同步窗口。
 	editDiskConfirmTimeout    = 750 * time.Millisecond
 	editFunctionLookupTimeout = 500 * time.Millisecond
 	editLSPSyncTimeout        = 2 * time.Second
 	editRecoveryLogFile       = "mcp-lsp-edit-recovery.jsonl"
 )
 
+// replacePlan 是 build 阶段产物，记录替换后的内容和用于回显/定位的上下文。
 type replacePlan struct {
 	updatedContent     string
 	matchedBy          string
@@ -33,6 +35,7 @@ type replacePlan struct {
 	functionLookupLine int
 }
 
+// replaceRangeResult 是 replace_range 成功或 no_change 时返回给工具调用方的结构化结果。
 type replaceRangeResult struct {
 	editEnvelope
 	MatchedBy         string `json:"matched_by,omitempty"`
@@ -51,6 +54,7 @@ type replaceRangeResult struct {
 	FuncBody          string `json:"func_body,omitempty"`
 }
 
+// replaceRangeFailure 保留失败时的定位线索，提示模型下一步用 file.read_file 精读。
 type replaceRangeFailure struct {
 	Success              bool           `json:"success"`
 	Error                string         `json:"error"`
@@ -66,18 +70,21 @@ type replaceRangeFailure struct {
 	DiagnosticGeneration uint64         `json:"diagnostic_generation,omitempty"`
 }
 
+// functionContext 保存一次编辑影响到的函数范围和正文摘要。
 type functionContext struct {
 	Start int
 	End   int
 	Body  string
 }
 
+// replaceSyncResult 是 LSP DidChange/diagnostic 同步确认的结果。
 type replaceSyncResult struct {
 	lspSync bool
 	warning string
 	err     error
 }
 
+// editDiskConfirmResult 是磁盘内容和 git diff 确认的结果。
 type editDiskConfirmResult struct {
 	confirmed bool
 	warning   string
@@ -85,17 +92,15 @@ type editDiskConfirmResult struct {
 	err       error
 }
 
+// replaceUpdateDecision 汇总 LSP 和磁盘两条确认路径的最终决策。
 type replaceUpdateDecision struct {
 	lspSync bool
 	warning string
 	err     error
 }
 
-// ToPlainText extends editEnvelope.ToPlainText with the edit-context
-// window and (only for relaxed match modes) a verification nudge. The
-// raw replaced/replacement bodies stay in structuredContent for any
-// diff-aware UI but no longer bloat the LLM-facing channel.
-// ToPlainText 渲染为纯文本。
+// ToPlainText 在基础编辑结果后补充命中位置和编辑上下文。
+// 原始替换前后正文只保留在 structuredContent 中，避免纯文本通道被大块 diff 挤占。
 func (r replaceRangeResult) ToPlainText() string {
 	base := r.editEnvelope.ToPlainText()
 	if !strings.EqualFold(strings.TrimSpace(r.Status), "applied") {
@@ -116,7 +121,8 @@ func (r replaceRangeResult) ToPlainText() string {
 	return strings.TrimSpace(sb.String()) + "\n\nEdit context:\n" + context
 }
 
-// ToPlainText 渲染为纯文本。
+// ToPlainText 将 replace_range 失败结果渲染成可继续操作的文本。
+// 失败时优先给出 hint、候选位置和下一步 read_file 命令，不直接倾倒整文件。
 func (r replaceRangeFailure) ToPlainText() string {
 	var sb strings.Builder
 	header := "Tool error in \"edit\""
@@ -147,11 +153,8 @@ func appendCandidateLocations(sb *strings.Builder, meta map[string]any) {
 	}
 }
 
-// appendFailureNextStep gives the model a copy-pasteable file.read_file
-// call instead of dumping the whole file. We don't try to compute the
-// correct offset here (the patch text already tells the model what line
-// it expected); we just point at the file with the known length so the
-// model can pick a window itself.
+// appendFailureNextStep 给模型返回可直接复用的 file.read_file 下一步。
+// 这里不猜具体偏移，patch 本身已有期望上下文；只给文件和行数，让调用方自行缩小窗口。
 func appendFailureNextStep(sb *strings.Builder, r replaceRangeFailure) {
 	if r.FilePath == "" {
 		return
@@ -164,7 +167,8 @@ func appendFailureNextStep(sb *strings.Builder, r replaceRangeFailure) {
 	fmt.Fprintf(sb, "next: file action=read_file pos=%s\n", r.FilePath)
 }
 
-// handleReplaceRange 处理replace范围。
+// handleReplaceRange 执行 patch 风格文本替换，并在写入后同步 LSP。
+// 该流程必须持有文件锁、保留回滚路径，并把受影响函数上下文返回给调用方排查。
 func (h EditHandler) handleReplaceRange(ctx context.Context, req EditRequest) (any, error) {
 	log := newEditStageLogger("replace_range", req.FilePath)
 	stage := log.Started("workspace_roots")
@@ -245,6 +249,7 @@ func (h EditHandler) handleReplaceRange(ctx context.Context, req EditRequest) (a
 	return h.buildAppliedResult(path, plan, lspSync, warning, functionCtx), nil
 }
 
+// buildNoChangeResult 返回语义化 no_change，保留 manager 诊断代际方便调用方判断新旧。
 func (h EditHandler) buildNoChangeResult(manager lspmanager.Manager, path string, warning string) replaceRangeResult {
 	return replaceRangeResult{
 		editEnvelope: editEnvelope{
@@ -411,7 +416,8 @@ func buildPatchReplacePlan(content string, patch string) (replacePlan, error) {
 	return buildHunksReplacePlan(content, hunks)
 }
 
-// buildHunksReplacePlan 构建hunksreplaceplan。
+// buildHunksReplacePlan 把已解析 hunk 匹配到当前文件并生成一次完整替换计划。
+// 多 hunk 按匹配结果顺序应用，返回的上下文用于失败排查和 relaxed match 验证。
 func buildHunksReplacePlan(content string, hunks []editpkg.Hunk) (replacePlan, error) {
 	matches, err := editpkg.MatchContext(content, hunks)
 	if err != nil {

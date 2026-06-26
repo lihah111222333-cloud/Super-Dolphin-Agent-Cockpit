@@ -55,15 +55,9 @@ type MemoryLifecycleHooks struct {
 	feedbackTracker     *FeedbackTracker
 	onFeedbackThreshold func(topicKey string, group []ExtractedMemory)
 
-	// stateMu serialises all reads and writes of the six maps below.
-	// The plain map choice (vs sync.Map) is intentional: this is a
-	// coarse-grained mutex over the whole turn/extraction bookkeeping
-	// surface, and ExtractionState values carry their own mu for
-	// finer-grained field protection once a *ExtractionState reference
-	// has been resolved under stateMu (the maps never delete entries
-	// that other goroutines may still hold a reference to, so the
-	// reference itself stays valid after stateMu is released).
-	// New callers MUST hold stateMu while touching any of these maps.
+	// stateMu 串行保护下面六张 turn/extraction 追踪表。
+	// 这里使用普通 map 加粗粒度锁；ExtractionState 自己再保护内部字段。调用方拿到
+	// *ExtractionState 后可以释放 stateMu，但新增访问这些 map 的代码必须先持有 stateMu。
 	stateMu           sync.Mutex
 	states            map[string]*ExtractionState    // guarded by stateMu
 	activeTurns       map[string]string              // guarded by stateMu
@@ -73,16 +67,9 @@ type MemoryLifecycleHooks struct {
 	handledTurnInputs map[string]struct{}            // guarded by stateMu
 	extractWG         sync.WaitGroup
 
-	// drainMu + drainClosed guard the extractWG against the classic
-	// sync.WaitGroup race: once DrainPendingExtraction calls Wait(),
-	// concurrent Add(1) from a new enqueueBackgroundExtraction can panic
-	// with "WaitGroup is reused before previous Wait has returned".
-	// drainClosed is set monotonically in Drain (close-path semantics);
-	// new enqueues entering after Drain are dropped. Field is named
-	// `drainClosed` (not `drainPending`) to avoid confusion with the
-	// unrelated `drainPending()` method on nestedIngestWorker /
-	// teamSyncCoordinator in the same package, which empty a queue
-	// rather than flag a close.
+	// drainMu 和 drainClosed 防止后台抽取 WaitGroup 被并发 Add/Wait 复用。
+	// DrainPendingExtraction 设置关闭标志后，新 enqueue 会被拒绝；字段名刻意用
+	// drainClosed，区别于本包其它组件中“清空队列”的 drainPending。
 	drainMu     sync.Mutex
 	drainClosed bool
 
@@ -91,12 +78,9 @@ type MemoryLifecycleHooks struct {
 
 	dedupFilter *dedup.Filter
 
-	// locks is the process-scoped memory coordinator shared across all
-	// diskStore instances and cross-scope warning dedupe for this lifecycle.
-	// Required field — constructors (provideMemoryLifecycleHooks, newTestHooks)
-	// MUST set it. memoryCoordinator() is a pure getter; lazy-init is forbidden
-	// because it would race callers and silently overwrite the
-	// consolidator-shared instance wired in module.go.
+	// locks 是进程内共享的记忆协调器，负责 diskStore 锁和跨 scope 告警去重。
+	// 构造函数必须显式注入；memoryCoordinator 只是 getter，不能懒加载，否则会和
+	// module.go 里给整理器共享的实例竞争并覆盖。
 	locks *diskLockCoordinator
 }
 
@@ -117,11 +101,14 @@ var forgetIntentPatterns = []*regexp.Regexp{
 	regexp.MustCompile(`(?is)^\s*把\s+(.+?)\s*(?:从记忆里删除|从记忆中删除|从记忆删除|从记忆里移除)\s*$`),
 }
 
-// NewService 创建模块服务并注入存储和运行依赖。
+// NewService 创建记忆服务并绑定整理器与生命周期 hooks。
+// cfg 或 consolidator 缺失时只补齐模块内可控默认值，真实根目录和抽取函数仍在调用阶段校验。
 func NewService(cfg *Config, logger *slog.Logger, consolidator *AutoDreamConsolidator, hooks *MemoryLifecycleHooks) Service {
 	return newServiceWithConsolidator(cfg, logger, consolidator, hooks)
 }
 
+// newServiceWithConsolidator 是测试和 fx provider 共用的构造入口。
+// 它会把最新配置同步给 consolidator，确保手动整理和后台整理使用同一套根目录规则。
 func newServiceWithConsolidator(cfg *Config, logger *slog.Logger, consolidator *AutoDreamConsolidator, hooks *MemoryLifecycleHooks) Service {
 	if cfg == nil {
 		cfg = &Config{}
@@ -133,7 +120,8 @@ func newServiceWithConsolidator(cfg *Config, logger *slog.Logger, consolidator *
 	return &service{cfg: cfg, logger: logger, consolidator: consolidator, dreamHooks: hooks}
 }
 
-// MemoryCoordinator 返回底层记忆协调器。
+// MemoryCoordinator 暴露生命周期 hooks 中共享的磁盘锁协调器。
+// 调用方只读取该实例，不在服务层新建，避免不同写入路径拿到不同锁域。
 func (s *service) MemoryCoordinator() *diskLockCoordinator {
 	if s == nil || s.dreamHooks == nil {
 		return nil
@@ -141,7 +129,8 @@ func (s *service) MemoryCoordinator() *diskLockCoordinator {
 	return s.dreamHooks.memoryCoordinator()
 }
 
-// Config 返回服务当前配置。
+// Config 返回服务配置快照。
+// 服务未初始化时返回零值配置，调用方仍需在具体读写入口做 fail-fast 校验。
 func (s *service) Config() Config {
 	if s == nil || s.cfg == nil {
 
@@ -150,12 +139,14 @@ func (s *service) Config() Config {
 	return *s.cfg
 }
 
-// RootDir 返回当前服务使用的根目录。
+// RootDir 返回配置中的原始记忆根目录字符串。
+// 该值未解析 project override；真正读写前必须走 resolvedStoreRoot。
 func (s *service) RootDir() string {
 	return strings.TrimSpace(s.Config().RootDir)
 }
 
-// EnsureRoot 确保记忆根目录存在且可用。
+// EnsureRoot 创建当前私有和可选团队记忆根目录。
+// 上下文取消、路径解析失败或 mkdir 失败都会立即返回错误，不用空目录兜底。
 func (s *service) EnsureRoot(ctx context.Context) error {
 	select {
 	case <-ctx.Done():
@@ -190,6 +181,8 @@ func (s *service) EnsureRoot(ctx context.Context) error {
 }
 
 // RunConsolidation 启动一次手动记忆整理任务。
+// 它先确保根目录存在，再让 consolidator 读取磁盘；成功后失效 prompt 区块，
+// 让后续 turn 使用整理后的记忆索引。
 func (s *service) RunConsolidation(ctx context.Context) error {
 	if s == nil || s.consolidator == nil {
 		return ErrConsolidationExtractFuncRequired
@@ -211,7 +204,8 @@ func (s *service) RunConsolidation(ctx context.Context) error {
 	return nil
 }
 
-// GetDreamTaskStatus 读取 dream 整理任务状态。
+// GetDreamTaskStatus 返回当前自动整理任务快照。
+// hooks 缺失时返回零值，表示本进程没有正在管理的 dream task。
 func (s *service) GetDreamTaskStatus() DreamTaskSnapshot {
 	if s == nil || s.dreamHooks == nil {
 		return DreamTaskSnapshot{}
@@ -219,7 +213,8 @@ func (s *service) GetDreamTaskStatus() DreamTaskSnapshot {
 	return s.dreamHooks.GetDreamTaskStatus()
 }
 
-// KillDreamTask 终止正在运行的 dream 整理任务。
+// KillDreamTask 请求终止正在运行的 dream 整理任务。
+// 服务或 hooks 缺失时按“没有任务运行”返回，避免误报已停止。
 func (s *service) KillDreamTask() error {
 	if s == nil || s.dreamHooks == nil {
 		return ErrDreamTaskNotRunning
@@ -227,6 +222,8 @@ func (s *service) KillDreamTask() error {
 	return s.dreamHooks.KillDreamTask()
 }
 
+// consolidationRunOptions 组装手动整理的运行参数。
+// runtimeContext 来源于上次整理 stamp 和会话统计，只影响提示信息，不改变读写根目录。
 func (s *service) consolidationRunOptions(ctx context.Context, root string) consolidationRunOptions {
 	return consolidationRunOptions{
 		cfg:            s.cfg,
@@ -234,7 +231,8 @@ func (s *service) consolidationRunOptions(ctx context.Context, root string) cons
 	}
 }
 
-// manualConsolidationRuntimeContext 构建手动整理任务所需的 runtime 上下文。
+// manualConsolidationRuntimeContext 构建手动整理任务的运行提示上下文。
+// stamp 读取失败只影响上下文丰富度，不能阻断用户主动发起的整理。
 func (s *service) manualConsolidationRuntimeContext(ctx context.Context, root string) string {
 	if s == nil || s.dreamHooks == nil {
 		return ""
@@ -253,6 +251,8 @@ func (s *service) manualConsolidationRuntimeContext(ctx context.Context, root st
 	return buildConsolidationRuntimeContext("manual consolidation request", sessions, stamp.lastSuccessTime(), "")
 }
 
+// onThreadStart 在 thread 启动时记录记忆 hook 已就绪。
+// 该回调不做持久化工作，避免 thread start 事件被记忆模块阻塞。
 func (h *MemoryLifecycleHooks) onThreadStart(_ context.Context, evt threaddto.Started) {
 	if h == nil || !h.enabled || h.logger == nil {
 		return
@@ -260,6 +260,8 @@ func (h *MemoryLifecycleHooks) onThreadStart(_ context.Context, evt threaddto.St
 	h.logger.Debug("memory thread hook ready", "thread_id", strings.TrimSpace(evt.ThreadID))
 }
 
+// onTurnEnd 处理 turn 完成后的显式记忆意图和运行时检测意图。
+// 显式输入优先，避免同一轮既按 remember/forget 处理又被自动检测重复写入。
 func (h *MemoryLifecycleHooks) onTurnEnd(ctx context.Context, evt turndto.TurnCompleted) {
 	if h.shouldSkipTurnEnd(ctx, evt) {
 		return
@@ -356,9 +358,9 @@ func (h *MemoryLifecycleHooks) writeIntent(ctx context.Context, threadID string,
 	return nil
 }
 
-// checkDedupAndHandle runs the dedup filter check and handles Skip/Merge.
-// Returns true if the write was fully handled (caller should not proceed).
-// checkDedupAndHandle 检查记忆去重并执行对应处理。
+// checkDedupAndHandle 在写入前执行去重决策。
+// 返回 true 表示本次写入已被 skip 或 merge 完成，调用方不能继续执行普通 upsert。
+// 去重扫描失败会返回错误并阻断写入，避免重复记忆在告警失败时继续扩散。
 func (h *MemoryLifecycleHooks) checkDedupAndHandle(entry MemoryWriteRequest, store memoryStructuredStore, scope string, options WriteOptions) (bool, error) {
 	if h.dedupFilter == nil {
 		return false, nil
@@ -386,6 +388,8 @@ func (h *MemoryLifecycleHooks) checkDedupAndHandle(entry MemoryWriteRequest, sto
 	return false, nil
 }
 
+// tryDedupMerge 将去重器给出的 merge 结果写回当前 store。
+// 只有支持写入的 store 才执行 merge；不支持时交还调用方继续普通写入路径。
 func (h *MemoryLifecycleHooks) tryDedupMerge(result dedup.CheckResult, store memoryStructuredStore, memType MemoryType, options WriteOptions) (bool, error) {
 	ws, ok := store.(memoryWriteStore)
 	if !ok {
@@ -399,17 +403,17 @@ func (h *MemoryLifecycleHooks) tryDedupMerge(result dedup.CheckResult, store mem
 	return true, nil
 }
 
+// maybeOverflowMerge 在普通写入成功后触发同 scope 溢出合并。
+// 只对可写 store 生效，避免只读或测试替身误进入删除路径。
 func (h *MemoryLifecycleHooks) maybeOverflowMerge(store memoryStructuredStore, memType MemoryType, options WriteOptions) {
 	if ws, ok := store.(memoryWriteStore); ok {
 		h.handleDedupOverflow(ws, memType, options)
 	}
 }
 
-// handleDedupOverflow checks and executes overflow merges within the current
-// write store only. The global dedup filter scans cross-scope for duplicate
-// detection, but overflow control must never use private-scope instructions
-// to mutate a team store or vice versa.
-// handleDedupOverflow 处理去重队列超过上限的情况。
+// handleDedupOverflow 只在当前写入 store 内执行溢出合并。
+// 全局去重可以跨 scope 检测重复，但溢出删除不能拿 private 的指令去改 team store，
+// 也不能反向操作，避免越过记忆 scope 边界。
 func (h *MemoryLifecycleHooks) handleDedupOverflow(store memoryWriteStore, memType MemoryType, options WriteOptions) {
 	if store == nil {
 		return
@@ -431,7 +435,8 @@ func (h *MemoryLifecycleHooks) handleDedupOverflow(store memoryWriteStore, memTy
 	}
 }
 
-// storeScopeName 返回记忆存储 scope 的显示名称。
+// storeScopeName 返回当前 store 对应的 scope 标签。
+// 团队根目录与 store 根目录相同才标记为 team，其余写入路径默认视为 private。
 func storeScopeName(store memoryWriteStore, h *MemoryLifecycleHooks) string {
 	if store == nil {
 		return ""
@@ -446,13 +451,9 @@ func storeScopeName(store memoryWriteStore, h *MemoryLifecycleHooks) string {
 	return "private"
 }
 
-// warnCrossScopeSameName logs a single warn (dedup'd by name) when the
-// same-name entry exists in BOTH the selected store and the other store
-// of the (primary, secondary) pair. Combined mode invariant: explicit
-// writes pick one scope, but if the entry already exists in the other
-// scope under the same name, future retrieval may surface either copy
-// depending on ranking. The warn signals this divergence to operators
-// without blocking the write. Phase 4.1a 子项 3.3.
+// warnCrossScopeSameName 在显式写入遇到跨 scope 同名条目时只告警一次。
+// combined 模式下写入会选择一个 scope，但另一个 scope 的同名记忆仍可能被检索排序命中；
+// 告警提醒运维者处理分歧，不阻断用户本次写入。
 func (h *MemoryLifecycleHooks) warnCrossScopeSameName(name string, selected, primary, secondary memoryStructuredStore, primaryScope, secondaryScope string) {
 	if h == nil || h.logger == nil {
 		return
@@ -486,11 +487,8 @@ func (h *MemoryLifecycleHooks) warnCrossScopeSameName(name string, selected, pri
 	)
 }
 
-// scopeNamesForIntentStores returns the scope tag corresponding to the
-// (primary, secondary) pair returned by intentDiskStores. Mirrors the
-// routing logic at intentDiskStores: when no team store is available,
-// primary is always private; otherwise primary depends on
-// defaultTeamMemoryType. Phase 4.1a 子项 3.3.
+// scopeNamesForIntentStores 返回 intentDiskStores 对应的 primary/secondary scope 标签。
+// 没有团队 store 时 primary 固定为 private；有团队 store 时由记忆类型默认 scope 决定。
 func scopeNamesForIntentStores(memoryType MemoryType, hasSecondary bool) (primaryScope, secondaryScope string) {
 	if !hasSecondary {
 		return "private", ""
@@ -501,6 +499,8 @@ func scopeNamesForIntentStores(memoryType MemoryType, hasSecondary bool) (primar
 	return "private", "team"
 }
 
+// deleteIntent 在 private/team 可见 store 中删除显式 forget 命中的记忆。
+// 删除成功后立即失效 prompt 区块，避免下一轮仍注入已删除的索引内容。
 func (h *MemoryLifecycleHooks) deleteIntent(ctx context.Context, threadID string, intent ForgetIntent) error {
 	options := h.writeOptions(ctx, threadID)
 	primary, secondary, err := h.intentDiskStores(ctx, threadID, MemoryTypeUnknown)
@@ -514,6 +514,8 @@ func (h *MemoryLifecycleHooks) deleteIntent(ctx context.Context, threadID string
 	return nil
 }
 
+// memoryCoordinator 返回 hooks 持有的共享磁盘锁协调器。
+// nil hooks 返回 nil，调用方必须按无协调器路径显式处理。
 func (h *MemoryLifecycleHooks) memoryCoordinator() *diskLockCoordinator {
 	if h == nil {
 		return nil
@@ -521,6 +523,8 @@ func (h *MemoryLifecycleHooks) memoryCoordinator() *diskLockCoordinator {
 	return h.locks
 }
 
+// diskStore 根据 hooks 当前根目录配置创建可写磁盘 store。
+// 路径解析失败会返回错误，禁止退回未解析根目录继续写。
 func (h *MemoryLifecycleHooks) diskStore() (memoryWriteStore, error) {
 	root, err := resolvedStoreRoot(h.rootDir, h.projectRoot, h.autoMemPathOverride)
 	if err != nil {
@@ -534,6 +538,8 @@ type ForgetIntent struct {
 	Query    string
 }
 
+// handleExplicitUserMemoryIntent 识别并执行用户显式 remember/forget 指令。
+// 未识别为记忆指令时返回 handled=false；识别后所有写删错误都原样返回给调用方记录。
 func (h *MemoryLifecycleHooks) handleExplicitUserMemoryIntent(
 	ctx context.Context,
 	evt turndto.TurnCompleted,
@@ -549,6 +555,8 @@ func (h *MemoryLifecycleHooks) handleExplicitUserMemoryIntent(
 	return true, h.writeDetectedIntent(ctx, evt, intent)
 }
 
+// handleExplicitIntentError 记录显式记忆指令失败。
+// handled=false 表示普通文本，不应记录为记忆错误。
 func (h *MemoryLifecycleHooks) handleExplicitIntentError(threadID string, handled bool, err error) {
 	if !handled || err == nil || h == nil || h.logger == nil {
 		return
@@ -556,7 +564,9 @@ func (h *MemoryLifecycleHooks) handleExplicitIntentError(threadID string, handle
 	h.logger.Warn("memory explicit intent failed", "thread_id", strings.TrimSpace(threadID), "error", err)
 }
 
-// resolvedStoreRoot 解析当前记忆存储根目录。
+// resolvedStoreRoot 解析最终可写记忆根目录。
+// 显式 override 必须通过 ValidateMemoryRoot；没有 override 时按 projectRoot 派生 AutoMem，
+// 再退回配置根目录，任何空根目录都返回错误。
 func resolvedStoreRoot(baseRoot, projectRoot, autoMemPathOverride string) (string, error) {
 	if override := strings.TrimSpace(autoMemPathOverride); override != "" {
 		validatedOverride, err := shared.ValidateMemoryRoot(override)

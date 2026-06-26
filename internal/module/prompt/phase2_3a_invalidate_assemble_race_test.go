@@ -12,7 +12,7 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 )
 
-// Phase 2.3a: Invalidate × Assemble 并发交叉测试.
+// Invalidate × Assemble 并发交叉测试覆盖 prompt 缓存代际切换和 singleflight 竞态。
 //
 // 锁定的契约（assembler.go / cache.go / user_context_builder.go 现有实现满足，
 // 本组测试防回归）：
@@ -20,27 +20,19 @@ import (
 //  1. AssembleStart 与 InvalidateSections 并发 race-free（go test -race 验证）
 //  2. cache.Generation() 在并发 reader 干扰下严格单调递增
 //  3. singleflight 中途 invalidate：旧 generation 桶被 store 后，新 generation
-//     lookup 不会命中旧 entry → 重新 compute → 看到 fresh value（关键 race
-//     scenario，p24 Phase 2.0.1 / 2.1.AB 多次审查反复提到的缺口）
+//     lookup 不会命中旧 entry → 重新 compute → 看到 fresh value（关键竞态场景）
 //  4. Invalidate 一次同时 reset prompt.cache 和 userContextCache（双 cache
 //     协调不变量；防未来重构漏掉一份导致 stale userContext）
 //
-// 历史背景：p25 Phase 4.0a spike 子项 1 已确认所有 prompt-relevant 写入点都接
-// invalidateMemorySections，所以本组测试聚焦于 invalidate 与 assemble 在并发下
-// 的协调，而不是 invalidate 链路覆盖度。
+// 本组测试聚焦 invalidate 与 assemble 在并发下的协调，不验证所有写入点是否接入失效链路。
 
 func TestPhase2_3aConcurrentAssembleStartInvalidateRaceFree(t *testing.T) {
 	t.Parallel()
 	svc := NewService(&Config{}, nil)
 	internal := svc.(*service)
-	cwd := t.TempDir()
-	// Prime the cache so InvalidateSections has entries to drop and concurrent
-	// readers exercise the flight singleflight path.
-	if _, err := svc.AssembleStart(context.Background(), StartInput{
-		Provider: "claudecli",
-		CWD:      cwd,
-		Language: "English",
-	}); err != nil {
+	input := phase2ConcurrentStartInput()
+	// 先填充缓存，让 InvalidateSections 有可删除条目，并让并发 reader 覆盖 singleflight 路径。
+	if _, err := svc.AssembleStart(context.Background(), input); err != nil {
 		t.Fatalf("priming AssembleStart() error = %v", err)
 	}
 
@@ -57,19 +49,13 @@ func TestPhase2_3aConcurrentAssembleStartInvalidateRaceFree(t *testing.T) {
 			defer wg.Done()
 			ctx := context.Background()
 			for r := 0; r < rounds; r++ {
-				assembly, err := svc.AssembleStart(ctx, StartInput{
-					Provider: "claudecli",
-					CWD:      cwd,
-					Language: "English",
-				})
+				assembly, err := svc.AssembleStart(ctx, input)
 				if err != nil {
 					t.Errorf("AssembleStart() error = %v", err)
 					return
 				}
-				// Snapshot generation must be monotonic across the run; we
-				// can't pin a specific value here because writers race in
-				// parallel, but >=0 (never panics / returns garbage) is a
-				// minimal safety check.
+				// snapshot generation 只要求不超过当前 generation；writer 并发推进时不能固定具体值。
+				// 这个检查同时防止 panic 或垃圾值越界。
 				if assembly.Snapshot.Generation > internal.cache.Generation() {
 					t.Errorf("snapshot generation %d > current cache generation %d",
 						assembly.Snapshot.Generation, internal.cache.Generation())
@@ -88,9 +74,8 @@ func TestPhase2_3aConcurrentAssembleStartInvalidateRaceFree(t *testing.T) {
 	}
 	wg.Wait()
 
-	// Sanity: writers performed writers*rounds invalidations; generation must
-	// have advanced at least that many times (could be higher if priming or
-	// section computation triggered extra invalidations).
+	// writer 共执行 writers*rounds 次失效，generation 至少应推进这么多次。
+	// 预热或 section 计算触发额外失效时允许更高。
 	finalGen := internal.cache.Generation()
 	if finalGen < uint64(writers*rounds) {
 		t.Errorf("final generation = %d, want at least %d (writers*rounds)", finalGen, writers*rounds)
@@ -101,7 +86,7 @@ func TestPhase2_3aGenerationMonotonicUnderConcurrentReaders(t *testing.T) {
 	t.Parallel()
 	svc := NewService(&Config{}, nil)
 	internal := svc.(*service)
-	cwd := t.TempDir()
+	input := phase2ConcurrentStartInput()
 
 	const (
 		readers       = 8
@@ -120,11 +105,7 @@ func TestPhase2_3aGenerationMonotonicUnderConcurrentReaders(t *testing.T) {
 					return
 				default:
 				}
-				_, _ = svc.AssembleStart(ctx, StartInput{
-					Provider: "claudecli",
-					CWD:      cwd,
-					Language: "English",
-				})
+				_, _ = svc.AssembleStart(ctx, input)
 			}
 		}()
 	}
@@ -145,8 +126,16 @@ func TestPhase2_3aGenerationMonotonicUnderConcurrentReaders(t *testing.T) {
 	rwg.Wait()
 }
 
-// TestPhase2_3aSingleflightInvalidateNoStaleStore — Phase 2.3 关键 race
-// scenario:
+// phase2ConcurrentStartInput 避免并发压力测试在每轮 reader 中启动 git status 子进程。
+// 这些测试只验证 section cache/invalidate 协调，SystemContext 有独立测试覆盖。
+func phase2ConcurrentStartInput() StartInput {
+	return StartInput{
+		Provider: "claudecli",
+		Language: "English",
+	}
+}
+
+// 本测试锁定 singleflight 与 invalidate 的关键竞态：
 //
 //  1. AssembleStart 触发自定义 section Compute（带 sleep）— singleflight 持
 //     有 (generation_v1, cacheKey) 锁
@@ -184,15 +173,15 @@ func TestPhase2_3aSingleflightInvalidateNoStaleStore(t *testing.T) {
 		resultCh <- phase2AssembleResult{assembly, err}
 	}()
 
-	// Step 2: 等自定义 compute 已经在旧 generation 下进入 singleflight，
-	// 然后在 store 触发前 invalidate。
+	// 步骤 2：等自定义 compute 已经在旧 generation 下进入 singleflight，
+	// 然后在 store 触发前执行 invalidate。
 	waitForPhase2SingleflightComputeStart(t, gate, resultCh)
 	if err := svc.Invalidate(context.Background(), contract.InvalidateMemoryWrite); err != nil {
 		t.Fatalf("Invalidate() error = %v", err)
 	}
 	gate.release()
 
-	// Step 3: 等第一次 AssembleStart 完成（store 到旧 generation 桶）.
+	// 步骤 3：等第一次 AssembleStart 完成，结果应写入旧 generation 桶。
 	first := <-resultCh
 	if first.err != nil {
 		t.Fatalf("first AssembleStart() error = %v", first.err)
@@ -201,8 +190,8 @@ func TestPhase2_3aSingleflightInvalidateNoStaleStore(t *testing.T) {
 		t.Fatalf("first assembly missing counter=1: %q", first.assembly.BaseInstructions)
 	}
 
-	// Step 4: 第二次 AssembleStart 用新 generation lookup → miss → fresh
-	// compute → counter=2.
+	// 步骤 4：第二次 AssembleStart 用新 generation lookup → miss，
+	// 重新 compute 后应得到 counter=2。
 	second, err := svc.AssembleStart(context.Background(), StartInput{
 		Provider: "claudecli",
 		CWD:      cwd,
@@ -284,12 +273,12 @@ func waitForPhase2SingleflightComputeStart(
 	}
 }
 
-// TestPhase2_3aInvalidateRoutingContract — 两路 invalidate 路由契约：
+// 本测试锁定两路 invalidate 路由契约：
 //
 //   - `service.Invalidate(ctx, reason)` (assembler.go:137) = 全清模式：同时
 //     advance prompt.cache 和 userContextCache 的 generation。防御性 reset。
 //
-//   - `service.InvalidateSections(reason, names...)` (invalidation.go:15) =
+//   - 细粒度路径：`service.InvalidateSections(reason, names...)` (invalidation.go:15) =
 //     section-fine-grained：仅 advance prompt.cache。userContextCache **不动**
 //     —— 它是 content-aware sources-keyed（baseUserContextCacheKey 用
 //     sourceDigest 作为 key 的一部分），source content 变化时 cacheKey 自动

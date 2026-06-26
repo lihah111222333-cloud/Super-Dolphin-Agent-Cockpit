@@ -1,5 +1,4 @@
-// Package clone provides deep-copy helpers for common Go types used across
-// the module layer.
+// Package clone 提供模块层常用 Go 类型的深拷贝工具。
 package clone
 
 import (
@@ -7,8 +6,8 @@ import (
 	"time"
 )
 
-// RawMessage returns a deep copy of a json.RawMessage.
-// RawMessage 处理原始消息。
+// RawMessage 复制 JSON 原始字节，避免跨模块 DTO 共享可变底层切片。
+// 空输入统一返回 nil，保持调用方现有的“未设置”判断。
 func RawMessage(message json.RawMessage) json.RawMessage {
 	if len(message) == 0 {
 		return nil
@@ -16,8 +15,8 @@ func RawMessage(message json.RawMessage) json.RawMessage {
 	return append(json.RawMessage(nil), message...)
 }
 
-// Strings returns a deep copy of a string slice.
-// Strings 处理strings。
+// Strings 复制字符串切片，避免调用方修改共享配置列表。
+// 空输入统一返回 nil，保持配置缺省和空列表的现有兼容行为。
 func Strings(input []string) []string {
 	if len(input) == 0 {
 		return nil
@@ -25,8 +24,8 @@ func Strings(input []string) []string {
 	return append([]string(nil), input...)
 }
 
-// StringMap returns a deep copy of a string-to-string map.
-// StringMap 处理stringmap。
+// StringMap 复制 string map 顶层，供跨模块传递标签、参数等只含标量的配置。
+// 空输入统一返回 nil，避免把缺省配置误写成空对象。
 func StringMap(input map[string]string) map[string]string {
 	if len(input) == 0 {
 		return nil
@@ -38,8 +37,8 @@ func StringMap(input map[string]string) map[string]string {
 	return cloned
 }
 
-// JSONMap returns a deep copy of a JSON-like map.
-// JSONMap 处理JSONmap。
+// JSONMap 递归复制 JSON 风格 map 中的 map 和 slice，避免 runtime 配置被调用方改写。
+// 空输入返回空 map，兼容需要继续写入字段的调用路径。
 func JSONMap(input map[string]any) map[string]any {
 	if len(input) == 0 {
 		return map[string]any{}
@@ -51,8 +50,7 @@ func JSONMap(input map[string]any) map[string]any {
 	return cloned
 }
 
-// RuntimeConfigMap returns a deep copy of a runtime configuration map.
-// RuntimeConfigMap 处理运行时配置map。
+// RuntimeConfigMap 深拷贝 runtime 配置 map，JSON 编解码失败时退回浅层 map 拷贝。
 func RuntimeConfigMap(cfg map[string]any) map[string]any {
 	if len(cfg) == 0 {
 		return nil
@@ -68,8 +66,8 @@ func RuntimeConfigMap(cfg map[string]any) map[string]any {
 	return out
 }
 
-// Time returns a deep copy of a *time.Time pointer.
-// Time 处理时间。
+// Time 复制 time.Time 指针，避免 DTO 调用方共享可修改的时间值。
+// nil 输入保持 nil，表示对应时间字段没有被设置。
 func Time(value *time.Time) *time.Time {
 	if value == nil {
 		return nil
@@ -78,6 +76,7 @@ func Time(value *time.Time) *time.Time {
 	return &cloned
 }
 
+// cloneJSONValue 递归复制 JSON 风格值中的 map 和 slice。
 func cloneJSONValue(value any) any {
 	switch typed := value.(type) {
 	case map[string]any:
@@ -93,6 +92,7 @@ func cloneJSONValue(value any) any {
 	}
 }
 
+// copyMapAny 复制 map 顶层，作为 JSON 深拷贝失败时的保守退路。
 func copyMapAny(input map[string]any) map[string]any {
 	out := make(map[string]any, len(input))
 	for key, value := range input {

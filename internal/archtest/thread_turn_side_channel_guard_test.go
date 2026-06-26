@@ -7,23 +7,9 @@ import (
 	"testing"
 )
 
-// TestThreadTurnPendingLaunchSpawnerContractGuard is the P22 P4 S2
-// side-channel-interface guard: the PendingLaunchSpawner contract must
-// live in internal/contract (owner-neutral), not in the turn consumer
-// package. Pre-P4 the interface was exported as
-// `turn.PendingLaunchSpawner` and the thread owning module had to
-// import turn just to declare `var _ turn.PendingLaunchSpawner =
-// (Service)(nil)` — a classic side-channel hidden contract (§2.5, §281).
-//
-// The guard enforces two invariants by file-text scan:
-//  1. internal/module/turn does not re-declare `type
-//     PendingLaunchSpawner interface`. Name-squatting the interface in
-//     the consumer package is exactly what S2 removed.
-//  2. internal/module/thread/module.go references the contract version
-//     (`contract.PendingLaunchSpawner`) and not `turn.PendingLaunchSpawner`,
-//     so the thread→turn import cycle stays broken.
-//
-// Test name matches P4 §TDD line 257: TestThreadTurnPendingLaunchSpawnerContractGuard.
+// TestThreadTurnPendingLaunchSpawnerContractGuard 固定 PendingLaunchSpawner 的归属。
+// 接口必须位于 internal/contract，不能回到 turn 消费包，否则 thread 模块会重新产生反向依赖。
+// 测试通过源码扫描约束两件事：turn 包不能重新声明接口；thread/module.go 必须引用 contract 版本。
 func TestThreadTurnPendingLaunchSpawnerContractGuard(t *testing.T) {
 	t.Parallel()
 	root := repoRootForGuardTests(t)
@@ -36,9 +22,7 @@ func TestThreadTurnPendingLaunchSpawnerContractGuard(t *testing.T) {
 func assertTurnDoesNotDeclarePendingLaunchSpawner(t *testing.T, turnDir string) {
 	t.Helper()
 
-	// turn must not re-export PendingLaunchSpawner as an interface type.
-	// Comments that mention the old name are fine — the token below is the
-	// real violation.
+	// turn 包不能重新导出 PendingLaunchSpawner 接口；只有真实声明才算违规。
 	entries, err := os.ReadDir(turnDir)
 	if err != nil {
 		t.Fatalf("read %s: %v", turnDir, err)
@@ -70,9 +54,7 @@ func assertTurnDoesNotDeclarePendingLaunchSpawner(t *testing.T, turnDir string) 
 func assertThreadModuleUsesContractPendingLaunchSpawner(t *testing.T, root string) {
 	t.Helper()
 
-	// thread/module.go must reference contract.PendingLaunchSpawner (the
-	// post-S2 home) and must NOT reference turn.PendingLaunchSpawner in code
-	// positions. Comment mentions of the old name are allowed.
+	// thread/module.go 必须引用 contract.PendingLaunchSpawner，并避免在代码位置重新引用 turn 版本。
 	threadModule := filepath.Join(root, "internal", "module", "thread", "module.go")
 	data, err := os.ReadFile(threadModule)
 	if err != nil {
@@ -82,10 +64,7 @@ func assertThreadModuleUsesContractPendingLaunchSpawner(t *testing.T, root strin
 	if !strings.Contains(src, "contract.PendingLaunchSpawner") {
 		t.Errorf("thread/module.go must reference contract.PendingLaunchSpawner after P4 S2")
 	}
-	// Forbid active references to the old symbol in non-comment contexts.
-	// var _ turn.PendingLaunchSpawner = ... and fx.As(new(turn.PendingLaunchSpawner))
-	// are the two pre-S2 shapes. Both begin at column 0-ish and use `turn.` as a real
-	// package qualifier — so we match those precise tokens.
+	// 只匹配会形成真实包依赖的旧符号形态，注释中的文字说明不应触发失败。
 	forbiddenRefs := []string{
 		"var _ turn.PendingLaunchSpawner",
 		"fx.As(new(turn.PendingLaunchSpawner))",

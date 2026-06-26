@@ -1,14 +1,5 @@
-// Package dreammetrics provides atomic counters for DreamExecutor observability.
-//
-// 独立出 leaf 包的原因：
-//   - 计数点集中在 internal/provider/unified/dream_executor.go dispatcher 层；
-//   - 未来 claudecli/codexapp 真实现 provider 也可能直接埋点；
-//   - 这些位置 import 方向各异，提升到 leaf pkg/dreammetrics 供上下层共用。
-//
-// 当前无 Prometheus 集成，这些 atomic counter 通过 Read() Snapshot 返回供未来
-// exporter 读取；接入 Prometheus 时只改 exporter，调用点保持不变。
-//
-// 仿 pkg/skillmetrics 的 in-process counter 模式 (P20.1 同源)。
+// Package dreammetrics 提供 DreamExecutor 的进程内观测计数器。
+// 计数点分布在 provider dispatcher 和适配层，放在 leaf 包可让上下层共享而不引入反向依赖。
 package dreammetrics
 
 import "sync/atomic"
@@ -20,44 +11,42 @@ var (
 	allNotConfiguredTotal atomic.Uint64
 	promptOversizeTotal   atomic.Uint64
 
-	// token counter（P3 backlog Step 1）— Step 2 接入 dream provider 解析出的 usage 后
-	// 通过 AddTokens 上报；Step 1 阶段 dispatcher 还拿不到 usage，counter 暂停留在 0。
-	// 语义与主线 session_log_watcher.parseLogLineUsage 一致：inputTokens 已含 cacheCreation，
-	// 不单独计；cacheRead 单列是因为它是命中缓存的成本/时延优化信号，与新 token 不同性质。
+	// token 计数由 provider 解析出 usage 后通过 AddTokens 上报。
+	// input 已包含 cacheCreation；cacheRead 单列用于观察缓存命中带来的成本和时延差异。
 	tokensInputTotal     atomic.Uint64
 	tokensOutputTotal    atomic.Uint64
 	tokensCacheReadTotal atomic.Uint64
 )
 
-// IncSuccess 单次 dream 蒸馏成功（dispatcher 命中某 provider 返回非 nil 结果）+1。
+// IncSuccess 记录一次 dream 蒸馏成功。
 func IncSuccess() { successTotal.Add(1) }
 
-// Success 读当前值。
+// Success 返回 dream 蒸馏成功累计数。
 func Success() uint64 { return successTotal.Load() }
 
 // IncProviderSkipped 单个 provider 返回 ErrDreamExecutorNotConfigured 跳过（dispatcher 继续 failover）+1。
 // failover 链路若多个 provider 都跳过，会累加多次。
 func IncProviderSkipped() { providerSkippedTotal.Add(1) }
 
-// ProviderSkipped 读当前值。
+// ProviderSkipped 返回 provider 未配置跳过累计数。
 func ProviderSkipped() uint64 { return providerSkippedTotal.Load() }
 
 // IncProviderFailed 单个 provider 返回非 NotConfigured 真错误（dispatcher 立即短路）+1。
 func IncProviderFailed() { providerFailedTotal.Add(1) }
 
-// ProviderFailed 读当前值。
+// ProviderFailed 返回 provider 真错误累计数。
 func ProviderFailed() uint64 { return providerFailedTotal.Load() }
 
 // IncAllNotConfigured failover 链路全部 provider 返回 NotConfigured，整轮 dream 失败 +1。
 func IncAllNotConfigured() { allNotConfiguredTotal.Add(1) }
 
-// AllNotConfigured 读当前值。
+// AllNotConfigured 返回整条 failover 链均未配置的累计数。
 func AllNotConfigured() uint64 { return allNotConfiguredTotal.Load() }
 
 // IncPromptOversize prompt 长度超过 dispatcher size cap 被 fail-fast 拒绝 +1。
 func IncPromptOversize() { promptOversizeTotal.Add(1) }
 
-// PromptOversize 读当前值。
+// PromptOversize 返回 prompt 过大被拒绝的累计数。
 func PromptOversize() uint64 { return promptOversizeTotal.Load() }
 
 // AddTokens 累加单次 dream 成功的 token usage。
@@ -69,29 +58,29 @@ func AddTokens(input, output, cacheRead uint64) {
 	tokensCacheReadTotal.Add(cacheRead)
 }
 
-// TokensInput 读当前累计值。
+// TokensInput 返回输入 token 累计数。
 func TokensInput() uint64 { return tokensInputTotal.Load() }
 
-// TokensOutput 读当前累计值。
+// TokensOutput 返回输出 token 累计数。
 func TokensOutput() uint64 { return tokensOutputTotal.Load() }
 
-// TokensCacheRead 读当前累计值。
+// TokensCacheRead 返回 cache read token 累计数。
 func TokensCacheRead() uint64 { return tokensCacheReadTotal.Load() }
 
-// Snapshot 一次性读全部 counter 的快照，顺序稳定，仅用于诊断 / 测试。
-// 快照非原子——期间可能有并发自增，这是可接受的。
+// Snapshot 是 DreamExecutor 指标的一次读取快照。
+// 快照非原子，并发自增可能出现在下一次读取中。
 type Snapshot struct {
-	SuccessTotal          uint64
-	ProviderSkippedTotal  uint64
-	ProviderFailedTotal   uint64
-	AllNotConfiguredTotal uint64
-	PromptOversizeTotal   uint64
-	TokensInputTotal      uint64
-	TokensOutputTotal     uint64
-	TokensCacheReadTotal  uint64
+	SuccessTotal          uint64 // dream 蒸馏成功次数。
+	ProviderSkippedTotal  uint64 // provider 未配置而跳过的次数。
+	ProviderFailedTotal   uint64 // provider 返回真错误的次数。
+	AllNotConfiguredTotal uint64 // failover 链全部未配置的次数。
+	PromptOversizeTotal   uint64 // prompt 超过大小限制被拒绝的次数。
+	TokensInputTotal      uint64 // 输入 token 累计值。
+	TokensOutputTotal     uint64 // 输出 token 累计值。
+	TokensCacheReadTotal  uint64 // cache read token 累计值。
 }
 
-// Read 读当前 snapshot。
+// Read 返回当前 DreamExecutor 指标快照。
 func Read() Snapshot {
 	return Snapshot{
 		SuccessTotal:          successTotal.Load(),

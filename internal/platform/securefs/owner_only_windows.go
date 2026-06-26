@@ -10,6 +10,7 @@ import (
 	"golang.org/x/sys/windows"
 )
 
+// CheckExistingOwnerOnly 校验 Windows 路径 ACL 只允许当前用户、Administrators 和 SYSTEM 写入。
 func CheckExistingOwnerOnly(path string, info os.FileInfo) error {
 	if info != nil && !info.IsDir() && info.Mode().Perm()&0o200 == 0 {
 		return fmt.Errorf("SQLite path is read-only: %s", RedactPath(path))
@@ -20,6 +21,7 @@ func CheckExistingOwnerOnly(path string, info os.FileInfo) error {
 	return nil
 }
 
+// RestrictOwnerOnly 重写 DACL 后再次执行 owner-only 校验。
 func RestrictOwnerOnly(path string, _ os.FileMode) error {
 	if err := setWindowsOwnerOnlyACL(path); err != nil {
 		return fmt.Errorf("restrict path ACL %s: %s", RedactPath(path), SafeErrorForPath(err, path))
@@ -27,6 +29,7 @@ func RestrictOwnerOnly(path string, _ os.FileMode) error {
 	return CheckExistingOwnerOnly(path, nil)
 }
 
+// setWindowsOwnerOnlyACL 为文件或目录设置受保护 DACL，目录会向子项继承。
 func setWindowsOwnerOnlyACL(path string) error {
 	userSID, err := currentUserSID()
 	if err != nil {
@@ -66,6 +69,7 @@ func setWindowsOwnerOnlyACL(path string) error {
 	)
 }
 
+// checkWindowsOwnerOnlyACL 读取现有 DACL 并确认当前用户具备写权限且没有宽泛写授权。
 func checkWindowsOwnerOnlyACL(path string) error {
 	userSID, err := currentUserSID()
 	if err != nil {
@@ -96,6 +100,7 @@ func checkWindowsOwnerOnlyACL(path string) error {
 	return nil
 }
 
+// scanDACLForUnsafeWrite 遍历 allow ACE，发现非 owner 宽泛写权限时立即报错。
 func scanDACLForUnsafeWrite(dacl *windows.ACL, userSID *windows.SID) (bool, error) {
 	currentUserCanWrite := false
 	for i := uint16(0); i < dacl.AceCount; i++ {
@@ -112,6 +117,7 @@ func scanDACLForUnsafeWrite(dacl *windows.ACL, userSID *windows.SID) (bool, erro
 	return currentUserCanWrite, nil
 }
 
+// inspectAllowedACE 判断单条 allow ACE 是否授予当前用户写权限或暴露不安全写权限。
 func inspectAllowedACE(ace *windows.ACCESS_ALLOWED_ACE, userSID *windows.SID) (bool, error) {
 	if ace.Header.AceType != windows.ACCESS_ALLOWED_ACE_TYPE {
 		return false, nil
@@ -130,6 +136,7 @@ func inspectAllowedACE(ace *windows.ACCESS_ALLOWED_ACE, userSID *windows.SID) (b
 	return false, nil
 }
 
+// allowSID 构造授予指定 SID 完全控制权的 ACL 条目。
 func allowSID(sid *windows.SID, trusteeType windows.TRUSTEE_TYPE, inheritance uint32) windows.EXPLICIT_ACCESS {
 	return windows.EXPLICIT_ACCESS{
 		AccessPermissions: windows.GENERIC_ALL,
@@ -143,6 +150,7 @@ func allowSID(sid *windows.SID, trusteeType windows.TRUSTEE_TYPE, inheritance ui
 	}
 }
 
+// grantsWrite 判断访问掩码是否包含任何可修改文件或 ACL 的权限。
 func grantsWrite(mask windows.ACCESS_MASK) bool {
 	const writeMask windows.ACCESS_MASK = windows.GENERIC_ALL |
 		windows.GENERIC_WRITE |
@@ -157,6 +165,7 @@ func grantsWrite(mask windows.ACCESS_MASK) bool {
 	return mask&writeMask != 0
 }
 
+// currentUserSID 返回当前进程 token 里的用户 SID。
 func currentUserSID() (*windows.SID, error) {
 	token, err := windows.OpenCurrentProcessToken()
 	if err != nil {

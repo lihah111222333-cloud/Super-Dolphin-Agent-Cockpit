@@ -110,6 +110,8 @@ func appliedMigrations(ctx context.Context, db *sql.DB) (map[string]bool, error)
 	return applied, nil
 }
 
+// applyMigration 在单个事务内执行迁移文件并记录 schema_migrations。
+// 迁移脚本已自行写入 marker 时只提交事务，不重复插入记录；任何执行失败都会回滚。
 func applyMigration(ctx context.Context, db *sql.DB, dir, name string) error {
 	body, err := os.ReadFile(filepath.Join(dir, name))
 	if err != nil {
@@ -171,6 +173,8 @@ func execMigrationSegments(ctx context.Context, tx *sql.Tx, body string) error {
 	return nil
 }
 
+// splitMigrationBody 按 SQL 脚本里的分段标记拆分迁移内容。
+// 没有标记的旧脚本保持整体执行，空分段会被忽略以避免执行无意义语句。
 func splitMigrationBody(body string) []string {
 	const sentinel = "-- SPLIT --"
 	var (

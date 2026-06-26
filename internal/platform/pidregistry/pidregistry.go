@@ -13,21 +13,20 @@ import (
 )
 
 const (
-	// filePrefix is the naming convention for PID registry files.
+	// filePrefix 和 fileSuffix 定义 PID registry 文件命名。
 	filePrefix = "super-agent-pids-"
 	fileSuffix = ".json"
-	// orphanKillGrace is how long to wait after SIGTERM before SIGKILL.
+	// orphanKillGrace 是 SIGTERM 后等待进程自行退出的时间。
 	orphanKillGrace = 3 * time.Second
 )
 
-// registryDir returns the directory for PID registry files. On Unix this is
-// typically /tmp (cleaned on reboot, natural safety net for stale files);
-// on Windows it is whatever os.TempDir() resolves to per-user.
+// registryDir 返回 PID registry 文件所在目录。
+// Unix 下通常是 /tmp，重启会自然清理；Windows 下使用当前用户的临时目录。
 func registryDir() string {
 	return os.TempDir()
 }
 
-// ChildInfo describes a subprocess registered with the PID registry.
+// ChildInfo 描述一个由当前应用登记的子进程。
 type ChildInfo struct {
 	PID       int               `json:"pid"`
 	Kind      string            `json:"kind"`
@@ -35,14 +34,14 @@ type ChildInfo struct {
 	Meta      map[string]string `json:"meta,omitempty"`
 }
 
-// registryFile is the on-disk JSON structure.
+// registryFile 是 PID registry 的磁盘 JSON 结构。
 type registryFile struct {
 	AppPID   int         `json:"app_pid"`
 	Children []ChildInfo `json:"children"`
 }
 
-// Registry tracks subprocess PIDs for crash-safe cleanup.
-// Each application instance gets its own file keyed by app PID.
+// Registry 跟踪子进程 PID，用于应用异常退出后的清理。
+// 每个应用进程独占一个以 app PID 命名的 registry 文件。
 type Registry struct {
 	mu       sync.Mutex
 	appPID   int
@@ -50,8 +49,7 @@ type Registry struct {
 	children map[int]ChildInfo
 }
 
-// New creates a new PID registry for the current process.
-// New 创建平台pidregistry。
+// New 为当前进程创建 PID registry。
 func New() *Registry {
 	pid := os.Getpid()
 	return &Registry{
@@ -61,8 +59,7 @@ func New() *Registry {
 	}
 }
 
-// Register adds a child process to the registry and persists to disk.
-// Register 注册平台pidregistry。
+// Register 登记子进程并立即持久化，确保崩溃后仍可回收。
 func (r *Registry) Register(pid int, kind string, meta map[string]string) {
 	if r == nil || pid <= 1 {
 		return
@@ -78,8 +75,7 @@ func (r *Registry) Register(pid int, kind string, meta map[string]string) {
 	r.persist()
 }
 
-// Unregister removes a child process from the registry (normal exit).
-// Unregister 注销平台pidregistry。
+// Unregister 在子进程正常退出时移除登记并持久化。
 func (r *Registry) Unregister(pid int) {
 	if r == nil {
 		return
@@ -90,8 +86,7 @@ func (r *Registry) Unregister(pid int) {
 	r.persist()
 }
 
-// Close removes the registry file. Called during normal shutdown.
-// Close 关闭平台pidregistry资源。
+// Close 删除当前应用的 registry 文件，表示正常关闭无需后续清理。
 func (r *Registry) Close() {
 	if r == nil {
 		return
@@ -102,27 +97,20 @@ func (r *Registry) Close() {
 	_ = os.Remove(r.path + ".tmp")
 }
 
-// staleOrphan describes a process registered in a stale PID registry file.
+// staleOrphan 是从过期 registry 文件中发现的仍存活子进程。
 type staleOrphan struct {
 	pid  int
 	kind string
 }
 
-// CleanupStale finds PID registry files from dead app instances and kills
-// their registered children. Returns the total number of processes killed.
-//
-// All orphaned processes are SIGTERM'd concurrently, then we wait once for
-// the grace period before SIGKILL'ing survivors.
-// CleanupStale 处理cleanupstale。
+// CleanupStale 清理死亡应用遗留的子进程，并返回最终确认退出的数量。
+// 流程先发送 SIGTERM，再等待固定 grace，最后强制结束仍存活的进程。
 func CleanupStale() int {
 	return CleanupStaleWithProtectedPIDs(nil)
 }
 
-// CleanupStaleWithProtectedPIDs is like CleanupStale but skips protected PIDs.
-// Callers should pass the current runtime process tree plus its ancestry so a
-// stale registry from a dead parent cannot kill the live runtime that is doing
-// the cleanup.
-// CleanupStaleWithProtectedPIDs 处理带protectedpids的cleanupstale。
+// CleanupStaleWithProtectedPIDs 清理过期 registry，同时跳过受保护 PID。
+// 调用方应传入当前 runtime 进程树和祖先进程，避免误杀正在执行清理的活跃 runtime。
 func CleanupStaleWithProtectedPIDs(protectedPIDs map[int]struct{}) int {
 	staleFiles := findStaleRegistryFiles()
 	if len(staleFiles) == 0 {
@@ -146,8 +134,7 @@ func CleanupStaleWithProtectedPIDs(protectedPIDs map[int]struct{}) int {
 	return killed
 }
 
-// collectStaleOrphans gathers alive PIDs from stale registry files.
-// collectStaleOrphans 收集staleorphans。
+// collectStaleOrphans 从过期 registry 文件中收集仍存活且未受保护的子进程。
 func collectStaleOrphans(staleFiles []staleFile, protectedPIDs map[int]struct{}) []staleOrphan {
 	var orphans []staleOrphan
 	for _, sf := range staleFiles {
@@ -164,9 +151,7 @@ func collectStaleOrphans(staleFiles []staleFile, protectedPIDs map[int]struct{})
 	return orphans
 }
 
-// sigtermOrphans sends SIGTERM (or the platform equivalent) to all orphans
-// and returns those successfully signalled.
-// sigtermOrphans 处理sigtermorphans。
+// sigtermOrphans 向孤儿进程发送 SIGTERM 或平台等价信号，并返回成功发信号的进程。
 func sigtermOrphans(orphans []staleOrphan) []staleOrphan {
 	sigtermed := make([]staleOrphan, 0, len(orphans))
 	for _, o := range orphans {
@@ -182,7 +167,7 @@ func sigtermOrphans(orphans []staleOrphan) []staleOrphan {
 	return sigtermed
 }
 
-// waitForOrphanExit polls until all sigtermed processes have exited or the grace period elapses.
+// waitForOrphanExit 轮询等待已发 SIGTERM 的进程退出，直到 grace 到期。
 func waitForOrphanExit(sigtermed []staleOrphan) {
 	deadline := time.Now().Add(orphanKillGrace)
 	for time.Now().Before(deadline) {
@@ -193,6 +178,7 @@ func waitForOrphanExit(sigtermed []staleOrphan) {
 	}
 }
 
+// allProcessesGone 判断所有候选进程是否都已经退出。
 func allProcessesGone(orphans []staleOrphan) bool {
 	for _, o := range orphans {
 		if isProcessAlive(o.pid) {
@@ -202,7 +188,7 @@ func allProcessesGone(orphans []staleOrphan) bool {
 	return true
 }
 
-// sigkillSurvivors force-kills any processes still alive after the grace period.
+// sigkillSurvivors 强制结束 grace 后仍存活的进程，并返回确认退出数量。
 func sigkillSurvivors(sigtermed []staleOrphan) int {
 	killed := 0
 	for _, o := range sigtermed {
@@ -224,7 +210,8 @@ func sigkillSurvivors(sigtermed []staleOrphan) int {
 	return killed
 }
 
-// persist writes the registry to disk atomically (write-to-tmp + rename).
+// persist 通过临时文件加 rename 原子写入 registry。
+// 失败只告警不 panic，避免进程登记故障反向影响主流程。
 func (r *Registry) persist() {
 	data := registryFile{
 		AppPID:   r.appPID,
@@ -249,16 +236,18 @@ func (r *Registry) persist() {
 	}
 }
 
+// registryPath 返回指定 app PID 对应的 registry 文件路径。
 func registryPath(appPID int) string {
 	return filepath.Join(registryDir(), filePrefix+strconv.Itoa(appPID)+fileSuffix)
 }
 
+// staleFile 是过期 registry 文件及其已解析内容。
 type staleFile struct {
 	path string
 	registryFile
 }
 
-// findStaleRegistryFiles 查找stale注册表文件。
+// findStaleRegistryFiles 查找 app 进程已死亡的 registry 文件。
 func findStaleRegistryFiles() []staleFile {
 	pattern := filepath.Join(registryDir(), filePrefix+"*"+fileSuffix)
 	matches, err := filepath.Glob(pattern)
@@ -275,33 +264,31 @@ func findStaleRegistryFiles() []staleFile {
 		}
 		var rf registryFile
 		if err := json.Unmarshal(data, &rf); err != nil {
-			// Corrupt file — remove it.
+			// 损坏的 registry 文件无法恢复，直接删除以免后续反复扫描。
 			_ = os.Remove(path)
 			continue
 		}
-		// Skip our own file.
+		// 当前进程自己的 registry 文件仍在维护中，不能作为 stale 文件处理。
 		if rf.AppPID == myPID {
 			continue
 		}
-		// Check if the app process is still alive.
 		if isProcessAlive(rf.AppPID) {
-			continue // app is still running, don't touch it
+			continue // app 仍在运行，不能清理它登记的子进程。
 		}
 		stale = append(stale, staleFile{path: path, registryFile: rf})
 	}
 	return stale
 }
 
+// cleanupStaleFiles 删除已经处理完的过期 registry 文件。
 func cleanupStaleFiles(files []staleFile) {
 	for _, sf := range files {
 		_ = os.Remove(sf.path)
 	}
 }
 
-// RegistryFilesMatchingKind reads all stale files and returns PIDs of a given kind.
-// This is used as a fallback by the orphan sweeper for backwards compatibility
-// with codex app-server processes that weren't tracked by the registry.
-// RegistryFilesMatchingKind 处理注册表文件matchingkind。
+// RegistryFilesMatchingKind 从过期 registry 文件中返回指定 kind 的 PID。
+// 这是 orphan sweeper 兼容旧 app-server 追踪方式的补充入口。
 func RegistryFilesMatchingKind(kind string) []int {
 	staleFiles := findStaleRegistryFiles()
 	var pids []int
@@ -315,16 +302,12 @@ func RegistryFilesMatchingKind(kind string) []int {
 	return pids
 }
 
-// HasStaleFiles returns true if there are PID registry files from dead
-// app instances. Used to decide whether to use registry-based cleanup or
-// fall back to the legacy ps-scan approach.
-// HasStaleFiles 判断stale文件是否可用。
+// HasStaleFiles 判断是否存在死亡应用留下的 PID registry 文件。
 func HasStaleFiles() bool {
 	return len(findStaleRegistryFiles()) > 0
 }
 
-// StaleChildCount counts total alive children across all stale registry files.
-// StaleChildCount 处理stalechildcount。
+// StaleChildCount 统计所有过期 registry 文件中仍存活的子进程数量。
 func StaleChildCount() int {
 	staleFiles := findStaleRegistryFiles()
 	count := 0
@@ -338,8 +321,7 @@ func StaleChildCount() int {
 	return count
 }
 
-// StaleAppPIDs returns the app PIDs of dead registry files (for logging).
-// StaleAppPIDs 处理staleapppids。
+// StaleAppPIDs 返回过期 registry 对应的死亡 app PID，用于日志诊断。
 func StaleAppPIDs() []int {
 	staleFiles := findStaleRegistryFiles()
 	pids := make([]int, 0, len(staleFiles))
@@ -349,8 +331,7 @@ func StaleAppPIDs() []int {
 	return pids
 }
 
-// ParsePIDFromFilename extracts the app PID from a registry filename.
-// ParsePIDFromFilename 从filename解析进程 ID。
+// ParsePIDFromFilename 从 registry 文件名解析 app PID。
 func ParsePIDFromFilename(name string) (int, bool) {
 	name = filepath.Base(name)
 	if !strings.HasPrefix(name, filePrefix) || !strings.HasSuffix(name, fileSuffix) {

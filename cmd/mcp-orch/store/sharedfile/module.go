@@ -8,10 +8,8 @@ import (
 	sharedfilefs "github.com/anthropic-ai/super-agent-v3/internal/platform/sharedfilefs"
 )
 
-// Module wires Store with disk-source / DB-index behaviour. CWD comes from
-// platformconfig.Config.ProjectRoot (the same value memory store uses); when
-// it is empty (e.g. unit-test fx graph) the store transparently degrades to
-// DB-only mode.
+// Module 注册 sharedfile store 的 fx provider。
+// ProjectRoot 为空时使用 DB-only 模式，供轻量测试图复用；生产图会启用磁盘正文和 DB 索引。
 var Module = fx.Module("store.sharedfile",
 	fx.Provide(
 		provideConcreteStore,
@@ -25,6 +23,7 @@ var Module = fx.Module("store.sharedfile",
 	),
 )
 
+// provideConcreteStore 从平台配置解析 sharedfile 根目录后创建具体 store。
 func provideConcreteStore(q *sqlc.Queries, cfg *platformconfig.Config) (*store, error) {
 	fsCfg, err := sharedfileFSConfigFrom(cfg)
 	if err != nil {
@@ -33,16 +32,17 @@ func provideConcreteStore(q *sqlc.Queries, cfg *platformconfig.Config) (*store, 
 	return newStoreWithConfig(q, fsCfg), nil
 }
 
-// ProvideStore 提供存储。
+// ProvideStore 将具体 sharedfile store 暴露为 Store 接口。
 func ProvideStore(store *store) Store { return store }
 
 // ProvideReader 从聚合 Store 拆出 Reader。Store interface 显式嵌入 Reader
 // （见 contract.go:26-29），所以该转换编译期安全。
 func ProvideReader(store Store) Reader { return store }
 
-// ProvideImporter 提供importer。
+// ProvideImporter 将具体 sharedfile store 暴露为 Importer 接口。
 func ProvideImporter(store *store) Importer { return store }
 
+// sharedfileFSConfigFrom 从平台配置生成 sharedfile 磁盘存储配置。
 func sharedfileFSConfigFrom(cfg *platformconfig.Config) (sharedfilefs.Config, error) {
 	root, err := platformconfig.SharedFileRoot(cfg)
 	if err != nil {

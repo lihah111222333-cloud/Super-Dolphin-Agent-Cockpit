@@ -7,8 +7,7 @@ import (
 	"testing"
 )
 
-// F4.2: NodePatch strict UnmarshalJSON + AssignedTo 字段位单测。
-//
+// NodePatch 严格 UnmarshalJSON 和 AssignedTo 三态行为的回归测试。
 // 设计意图：update_node patch 顶层字段白名单 = {title, assigned_to, depends_on, config}。
 // 任何其他键（含 status / node_key / node_type / agent_key）都要 fail-fast 拒绝，
 // 防 AI 设计师或表单误传入「禁改字段」蒙混过关。
@@ -106,7 +105,7 @@ func TestNodePatch_UnmarshalStrict_EmptyOk(t *testing.T) {
 }
 
 // TestNodePatch_UnmarshalStrict_NestedBannedKeysInConfig 关键 case：
-// banned 4 件套藏在 patch.config 内层也要拒（R2 P1）。
+// 禁改字段藏在 patch.config 内层也要拒绝。
 // agent_key 是例外：完整 config 覆盖必须能保留合法 exec.agent_key /
 // exec.verifier.agent_key。
 //
@@ -206,7 +205,7 @@ func TestNodePatch_UnmarshalStrict_ConfigNonBannedNestedOK(t *testing.T) {
 
 // TestNodePatch_UnmarshalStrict_DecoderUnknownFieldErrorWrapped 确认
 // json.Decoder.DisallowUnknownFields 返回的 unknown-field 错误被包成
-// ErrNodePatchBannedField，errors.Is 与原 sentinel 行为一致（R1 P1 #1）。
+// ErrNodePatchBannedField，errors.Is 与原 sentinel 行为一致。
 func TestNodePatch_UnmarshalStrict_DecoderUnknownFieldErrorWrapped(t *testing.T) {
 	t.Parallel()
 	var p NodePatch

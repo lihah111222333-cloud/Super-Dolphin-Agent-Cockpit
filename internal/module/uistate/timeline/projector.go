@@ -15,7 +15,8 @@ import (
 
 var timelineOutputDeltaLogSampler = pkglogger.NewEverySampler(1000)
 
-// RegisterSubscriptions 注册subscriptions。
+// RegisterSubscriptions 注册 timeline 投影订阅，并把每个 cancel 返回给上层生命周期管理。
+// 对话消息不在这里投影，避免和 thread/messages 历史接口生成重复消息行。
 func RegisterSubscriptions(
 	dispatcher *event.Dispatcher,
 	svc Service,
@@ -32,8 +33,7 @@ func RegisterSubscriptions(
 		contract.ResilientSubscribe(dispatcher, turnStartedHandler(svc, onUpdated), logger),
 		contract.ResilientSubscribe(dispatcher, turnCompletedHandler(svc, onUpdated), logger),
 		contract.ResilientSubscribe(dispatcher, turnInterruptedHandler(svc, onUpdated), logger),
-		// TurnInputReceived no longer projects a user timeline item; dialog
-		// comes from thread/messages history RPC exclusively.
+		// 用户输入只由 thread/messages 历史接口提供，timeline 不再重复追加对话行。
 		contract.ResilientSubscribe(dispatcher, planDeltaHandler(svc, onUpdated), logger),
 		contract.ResilientSubscribe(dispatcher, planUpdatedHandler(svc, onUpdated), logger),
 		contract.ResilientSubscribe(dispatcher, agentErrorHandler(svc, onUpdated), logger),
@@ -65,7 +65,8 @@ func turnStartedHandler(svc Service, onUpdated func(string)) func(turndto.TurnSt
 	}
 }
 
-// turnCompletedHandler 处理turncompleted处理器。
+// turnCompletedHandler 追加 turn 结束标记，并在失败时补一条 error item。
+// 对话消息不再由 timeline 投影，避免 live 与历史消息 RPC 产生两套 ID。
 func turnCompletedHandler(svc Service, onUpdated func(string)) func(turndto.TurnCompleted) {
 	return func(ev turndto.TurnCompleted) {
 		threadID := strings.TrimSpace(ev.ThreadID)
@@ -74,9 +75,6 @@ func turnCompletedHandler(svc Service, onUpdated func(string)) func(turndto.Turn
 		}
 		agentID := strings.TrimSpace(ev.AgentID)
 		turnID := strings.TrimSpace(ev.TurnID)
-		// Dialog (user/assistant) items are no longer projected into the uistate
-		// timeline. They come exclusively from the thread/messages history RPC so
-		// that live and history paths share a single source of truth and id format.
 		failed := !ev.Success && util.FirstNonEmpty(
 			strings.TrimSpace(ev.Error),
 			strings.TrimSpace(ev.Reason),
@@ -113,7 +111,8 @@ func turnCompletedHandler(svc Service, onUpdated func(string)) func(turndto.Turn
 	}
 }
 
-// reasoningDeltaHandler 处理reasoningdelta处理器。
+// reasoningDeltaHandler 将 reasoning stream 增量合并到同一个 thinking item。
+// 非 reasoning stream 由其他投影链处理，避免 timeline 重复展示消息正文。
 func reasoningDeltaHandler(svc Service, onUpdated func(string)) func(turndto.TurnOutputDelta) {
 	return func(ev turndto.TurnOutputDelta) {
 		if timelineOutputDeltaLogSampler.ShouldLog(ev.Stream) {
@@ -139,7 +138,7 @@ func reasoningDeltaHandler(svc Service, onUpdated func(string)) func(turndto.Tur
 		agentID := strings.TrimSpace(ev.AgentID)
 		turnID := strings.TrimSpace(ev.TurnID)
 		id := timelineID("thinking", turnID)
-		// Try to append to existing thinking item for this turn.
+		// 同一 turn 的 reasoning 增量合并到单行，避免长推理过程刷出大量 timeline item。
 		if svc.UpdateByCallID(threadID, agentID, id, func(item *Item) {
 			item.Text += delta
 		}) {
@@ -161,6 +160,7 @@ func reasoningDeltaHandler(svc Service, onUpdated func(string)) func(turndto.Tur
 	}
 }
 
+// turnInterruptedHandler 追加 turn 被中断的 timeline 标记。
 func turnInterruptedHandler(svc Service, onUpdated func(string)) func(turndto.TurnInterrupted) {
 	return func(ev turndto.TurnInterrupted) {
 		threadID := strings.TrimSpace(ev.ThreadID)
@@ -178,6 +178,7 @@ func turnInterruptedHandler(svc Service, onUpdated func(string)) func(turndto.Tu
 	}
 }
 
+// itemStartedHandler 追加文件或命令 item 的运行中状态。
 func itemStartedHandler(svc Service, onUpdated func(string)) func(turndto.ItemStarted) {
 	return func(ev turndto.ItemStarted) {
 		threadID := strings.TrimSpace(ev.ThreadID)
@@ -205,6 +206,7 @@ func itemStartedHandler(svc Service, onUpdated func(string)) func(turndto.ItemSt
 	}
 }
 
+// toolCallBeginHandler 追加工具调用开始 item，并保存参数 preview。
 func toolCallBeginHandler(svc Service, onUpdated func(string)) func(tooldto.ToolCallBegin) {
 	return func(ev tooldto.ToolCallBegin) {
 		threadID := strings.TrimSpace(ev.ThreadID)
@@ -230,7 +232,7 @@ func toolCallBeginHandler(svc Service, onUpdated func(string)) func(tooldto.Tool
 	}
 }
 
-// toolCallEndHandler 处理工具callend处理器。
+// toolCallEndHandler 用工具结束事件完成已有 tool item，必要时走兼容恢复或兜底追加。
 func toolCallEndHandler(svc Service, onUpdated func(string)) func(tooldto.ToolCallEnd) {
 	return func(ev tooldto.ToolCallEnd) {
 		threadID := strings.TrimSpace(ev.ThreadID)
@@ -256,10 +258,8 @@ func toolCallEndHandler(svc Service, onUpdated func(string)) func(tooldto.ToolCa
 	}
 }
 
-// recoverToolEndByCallID handles ToolName-less End events: some runtimes
-// only echo CallID on the End event. We scan the timeline backwards for
-// a matching tool item and complete it.
-// recoverToolEndByCallID 按callID恢复工具end。
+// recoverToolEndByCallID 兼容只回传 CallID、不回传 ToolName 的工具结束事件。
+// 它会从线程 timeline 末尾反向查找匹配的 tool item，再用该 item 的工具名完成更新。
 func recoverToolEndByCallID(svc Service, threadID string, ev tooldto.ToolCallEnd, success bool) bool {
 	if strings.TrimSpace(ev.ToolName) != "" {
 		return false
@@ -285,6 +285,7 @@ func recoverToolEndByCallID(svc Service, threadID string, ev tooldto.ToolCallEnd
 	return false
 }
 
+// approvalRequestedHandler 追加等待审批的 timeline item。
 func approvalRequestedHandler(svc Service, onUpdated func(string)) func(tooldto.ToolApprovalRequested) {
 	return func(ev tooldto.ToolApprovalRequested) {
 		threadID := strings.TrimSpace(ev.ThreadID)
@@ -310,7 +311,7 @@ func approvalRequestedHandler(svc Service, onUpdated func(string)) func(tooldto.
 	}
 }
 
-// approvalResolvedHandler 处理审批已解析处理器。
+// approvalResolvedHandler 将审批 item 标记为 approved/rejected。
 func approvalResolvedHandler(svc Service, onUpdated func(string)) func(tooldto.ToolApprovalResolved) {
 	return func(ev tooldto.ToolApprovalResolved) {
 		threadID := strings.TrimSpace(ev.ThreadID)

@@ -611,14 +611,17 @@ func TestVerifyPackagedAppMacOSRejectsRuntimeManifestSymlinkEscape(t *testing.T)
 	app := writeMinimalPackagedMacOSApp(t)
 	resources := filepath.Join(app, "Contents", "Resources")
 	outside := t.TempDir()
-	if err := os.Symlink(outside, filepath.Join(resources, "lsp-escape")); err != nil {
+	if err := os.RemoveAll(filepath.Join(resources, "lsp")); err != nil {
+		t.Fatalf("remove packaged lsp dir before symlink escape fixture: %v", err)
+	}
+	if err := os.Symlink(outside, filepath.Join(resources, "lsp")); err != nil {
 		skipIfSymlinkPrivilegeNotHeld(t, err)
 		t.Fatalf("symlink escaped lsp bundle: %v", err)
 	}
 	writeRuntimeManifest(t, resources, map[string]string{
 		"bundled_codex_path":  "bin/codex",
 		"bundled_gopls_path":  "bin/gopls",
-		"lsp_bundle_path":     "lsp-escape",
+		"lsp_bundle_path":     "lsp",
 		"lsp_manifest_path":   "lsp/lsp-manifest.json",
 		"model_registry_path": "models.yaml",
 	})

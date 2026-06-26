@@ -14,9 +14,8 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 )
 
-// processSig is the internal signal abstraction used by the transport so that
-// platform implementations can map it onto syscall.Signal (Unix) or
-// TerminateProcess (Windows) without leaking syscall types into shared code.
+// processSig 是 transport 内部使用的跨平台进程信号抽象。
+// 共享代码只表达中断/终止/强杀意图，具体映射交给 Unix 或 Windows 实现。
 type processSig int
 
 const (
@@ -45,7 +44,8 @@ type transport struct {
 	writeMu sync.Mutex
 }
 
-// newTransport 创建传输。
+// newTransport 启动 Claude CLI 子进程并建立 stdin/stdout 流式通道。
+// 环境变量会先剥离数据库连接信息，再补 loopback NO_PROXY，防止 MCP 本地握手被代理劫持。
 func newTransport(binary string, args []string, cwd string, env []string) (*transport, error) {
 	if binary == "" {
 		binary = defaultClaudeCLIBin
@@ -100,11 +100,8 @@ func newTransport(binary string, args []string, cwd string, env []string) (*tran
 	return tr, nil
 }
 
-// ensureLoopbackNoProxy guarantees loopback hosts are in NO_PROXY. Claude CLI
-// (Node) honors HTTP_PROXY/HTTPS_PROXY for all outbound requests including the
-// loopback MCP endpoints we host — if the user runs a proxy like clash and
-// has not set NO_PROXY, the MCP handshake is routed through the proxy and
-// hangs, causing the CLI to emit an empty-error result event.
+// ensureLoopbackNoProxy 确保本地 MCP endpoint 不会被 HTTP 代理接管。
+// Claude CLI 的 Node 进程会继承 HTTP_PROXY；缺少 loopback NO_PROXY 时，本地握手可能被代理挂住并表现为空错误。
 func ensureLoopbackNoProxy(env []string) []string {
 	const loopbacks = "127.0.0.1,localhost,::1"
 	var existing []string
@@ -121,7 +118,8 @@ func ensureLoopbackNoProxy(env []string) []string {
 	return append(filtered, "NO_PROXY="+merged, "no_proxy="+merged)
 }
 
-// mergeCSV 合并csv。
+// mergeCSV 合并逗号分隔值并按大小写去重。
+// NO_PROXY 同时来自父进程和本地补丁，保持原始大小写可减少用户排查环境差异的成本。
 func mergeCSV(parts ...string) string {
 	seen := make(map[string]struct{}, 8)
 	out := make([]string, 0, 8)
@@ -177,7 +175,8 @@ func (t *transport) Receive() ([]byte, error) {
 	return nil, io.EOF
 }
 
-// Close 关闭claudecli provider资源。
+// Close 按 stdin 关闭、SIGTERM、强杀兜底的顺序停止 Claude CLI。
+// 返回值只反映信号发送错误，进程自然退出造成的 signal 状态会被 normalize。
 func (t *transport) Close() error {
 	if t == nil {
 		return nil
@@ -203,7 +202,8 @@ func (t *transport) Kill() error {
 	return normalizeSignalError(err)
 }
 
-// Running 返回底层进程是否仍在运行。
+// Running 判断 Claude CLI 进程是否仍可视为存活。
+// done channel 优先于 PID 探测，避免已 Wait 完的进程被操作系统短暂复用 PID 时误判。
 func (t *transport) Running() bool {
 	if t == nil {
 		return false
@@ -217,7 +217,8 @@ func (t *transport) Running() bool {
 	return err == nil && pid > 0
 }
 
-// readyForSend 为send判断claudecli provider。
+// readyForSend 检查当前 transport 是否还可以安全写入 stdin。
+// 重试路径会在持锁状态下调用它，必须同时确认 done、stdin 和子进程存活状态。
 func (t *transport) readyForSend() bool {
 	if t == nil {
 		return false
@@ -316,7 +317,8 @@ func newLimitedBuffer(limit int) *limitedBuffer {
 	return &limitedBuffer{limit: limit}
 }
 
-// String 返回字符串表示。
+// String 返回当前保留的 stderr 尾部内容。
+// limitedBuffer 可能被 wait goroutine 和错误路径同时读取，必须在锁内复制字符串。
 func (b *limitedBuffer) String() string {
 	if b == nil {
 		return ""
@@ -326,7 +328,8 @@ func (b *limitedBuffer) String() string {
 	return b.buf.String()
 }
 
-// Write 写入claudecli provider。
+// Write 追加 stderr 输出并只保留尾部固定字节数。
+// 返回值仍按底层 buffer 写入长度汇报，截断只影响后续错误摘要。
 func (b *limitedBuffer) Write(p []byte) (int, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()

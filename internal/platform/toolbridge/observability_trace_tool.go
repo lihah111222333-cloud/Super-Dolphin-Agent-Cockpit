@@ -15,10 +15,12 @@ import (
 
 const ToolNameObservabilityTraceGet = "observability_trace_get"
 
+// ObservabilityTraceHostToolRegistry 将本地 trace 诊断服务暴露为 host-direct 工具。
 type ObservabilityTraceHostToolRegistry struct {
 	svc *observability.Service
 }
 
+// observabilityTraceToolInput 是 observability_trace_get 的严格输入结构。
 type observabilityTraceToolInput struct {
 	TraceID      string `json:"trace_id"`
 	Limit        int    `json:"limit,omitempty"`
@@ -26,7 +28,7 @@ type observabilityTraceToolInput struct {
 	IncludeStack bool   `json:"include_stack,omitempty"`
 }
 
-// NewObservabilityTraceHostToolRegistry 创建observabilitytracehost工具注册表。
+// NewObservabilityTraceHostToolRegistry 创建 trace 诊断 host-direct registry。
 func NewObservabilityTraceHostToolRegistry(svc *observability.Service) *ObservabilityTraceHostToolRegistry {
 	if svc == nil {
 		return nil
@@ -34,7 +36,7 @@ func NewObservabilityTraceHostToolRegistry(svc *observability.Service) *Observab
 	return &ObservabilityTraceHostToolRegistry{svc: svc}
 }
 
-// ListHostTools 列出host工具。
+// ListHostTools 在 observability 服务启用时暴露 trace 诊断工具。
 func (r *ObservabilityTraceHostToolRegistry) ListHostTools() []mcpdto.MCPTool {
 	if r == nil || r.svc == nil || !r.svc.Enabled() {
 		return nil
@@ -43,17 +45,17 @@ func (r *ObservabilityTraceHostToolRegistry) ListHostTools() []mcpdto.MCPTool {
 	return []mcpdto.MCPTool{{Name: ToolNameObservabilityTraceGet, Description: descriptionObservabilityTraceGet, InputSchema: schema}}
 }
 
-// HasTool 判断工具是否可用。
+// HasTool 判断当前 registry 是否负责 trace 诊断工具。
 func (r *ObservabilityTraceHostToolRegistry) HasTool(name string) bool {
 	return r != nil && strings.TrimSpace(name) == ToolNameObservabilityTraceGet
 }
 
-// RequiresCWD 处理requires工作目录。
+// RequiresCWD 声明 trace 诊断不强制依赖 cwd，其它未知工具仍按默认要求 cwd。
 func (r *ObservabilityTraceHostToolRegistry) RequiresCWD(name string) bool {
 	return strings.TrimSpace(name) != ToolNameObservabilityTraceGet
 }
 
-// CallHostTool 调用host工具。
+// CallHostTool 校验 trace 输入并调用本地 observability 诊断服务。
 func (r *ObservabilityTraceHostToolRegistry) CallHostTool(ctx context.Context, call HostToolCall) (any, error) {
 	if r == nil || r.svc == nil {
 		return nil, contract.NewAgentMemoryError("trace_unavailable", fmt.Errorf("observability trace service is not configured"))
@@ -68,6 +70,7 @@ func (r *ObservabilityTraceHostToolRegistry) CallHostTool(ctx context.Context, c
 	return r.svc.DiagnoseTrace(ctx, observabilityTraceRequest(input, call))
 }
 
+// decodeObservabilityTraceInput 用严格 JSON 解码 trace 诊断参数，拒绝未知字段和尾随内容。
 func decodeObservabilityTraceInput(raw json.RawMessage) (observabilityTraceToolInput, error) {
 	var input observabilityTraceToolInput
 	trimmed := bytes.TrimSpace(raw)
@@ -85,6 +88,7 @@ func decodeObservabilityTraceInput(raw json.RawMessage) (observabilityTraceToolI
 	return input, validateObservabilityTraceInput(input)
 }
 
+// validateObservabilityTraceInput 校验 trace_id 与 limit 边界。
 func validateObservabilityTraceInput(input observabilityTraceToolInput) error {
 	if strings.TrimSpace(input.TraceID) == "" {
 		return fmt.Errorf("invalid observability_trace_get input: trace_id is required")
@@ -95,6 +99,7 @@ func validateObservabilityTraceInput(input observabilityTraceToolInput) error {
 	return nil
 }
 
+// observabilityTraceRequest 将工具输入和调用上下文映射为诊断请求。
 func observabilityTraceRequest(input observabilityTraceToolInput, call HostToolCall) observability.TraceDiagnosisRequest {
 	cwd := strings.TrimSpace(call.CWD)
 	return observability.TraceDiagnosisRequest{
@@ -107,6 +112,7 @@ func observabilityTraceRequest(input observabilityTraceToolInput, call HostToolC
 	}
 }
 
+// observabilityTraceInputSchema 描述 trace 诊断工具的模型可见参数。
 func observabilityTraceInputSchema() map[string]any {
 	return map[string]any{
 		"type": "object",
@@ -121,4 +127,5 @@ func observabilityTraceInputSchema() map[string]any {
 	}
 }
 
+// descriptionObservabilityTraceGet 提醒模型该工具只返回本地、脱敏且有界的 trace 诊断结果。
 const descriptionObservabilityTraceGet = "Diagnose a local observability trace by trace_id using bounded, redacted memory and JSONL tail data."

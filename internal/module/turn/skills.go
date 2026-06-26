@@ -9,9 +9,10 @@ import (
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
 )
 
+// skillResolver 将显式选择和候选 skill 解析为 provider turn payload。
 type skillResolver struct{}
 
-// Resolve 解析turn。
+// Resolve 优先保留显式选择，再按 prompt 命中自动候选，并按 skill 身份去重。
 func (r *skillResolver) Resolve(selected []dto.SkillRef, candidates []dto.SkillRef, prompt string) []dto.SkillRef {
 	explicit := normalizeSkillRefs(selected)
 	autoCandidates := normalizeSkillRefs(candidates)
@@ -40,8 +41,8 @@ func (r *skillResolver) Resolve(selected []dto.SkillRef, candidates []dto.SkillR
 	return resolved
 }
 
-// normalizeSkillRefs 把多组 SkillRef 合并去重；P20.1 §4 Phase 5 起去重键升级
-// 为 lower(name)+"@"+version。同 (name, version) 视为同一引用，会保留单条元数据；
+// normalizeSkillRefs 把多组 SkillRef 合并去重，去重键包含名称和版本。
+// 同 (name, version) 视为同一引用，会保留单条元数据；
 // version 不同则保留为两条，避免 hash 已变的新版本被旧版本静默覆盖。
 func normalizeSkillRefs(groups ...[]dto.SkillRef) []dto.SkillRef {
 	total := 0
@@ -58,9 +59,8 @@ func normalizeSkillRefs(groups ...[]dto.SkillRef) []dto.SkillRef {
 			ref.PersonalType = strings.TrimSpace(ref.PersonalType)
 			ref.Path = strings.TrimSpace(ref.Path)
 			ref.Version = strings.TrimSpace(ref.Version)
-			// Production turn payloads stay metadata-only. Legacy Prompt carriers
-			// may still arrive on the wire for backward compatibility, but
-			// provider-native mirror discovery owns body visibility now.
+			// 生产 turn payload 只保留 skill 元数据；旧客户端可能仍带 Prompt 字段，
+			// 但正文可见性由 provider-native mirror 负责，不能从这里透传正文。
 			ref.Prompt = ""
 			if ref.Name == "" {
 				continue
@@ -85,14 +85,12 @@ func normalizeSkillRefs(groups ...[]dto.SkillRef) []dto.SkillRef {
 
 // skillDedupKey 构造 SkillResolver 的去重键。
 //
-// P20.1 §4 Phase 5：把原来的纯 name 升级为 name@version，配合 expanded_state
-// 的 (name, kind, locator, hash) 工件键，让同一 skill 不同版本 / body / resource
-// 不再被错误折叠成单条。空 name 返回 ""，调用方应跳过；空 version 退化为
-// `name@`，等价于历史按 name 去重的语义，保证旧 payload 兼容。
+// 名称、版本和可选作用域共同决定同一条引用，避免同名不同版本或不同来源的 skill
+// 被折叠成单条。空 name 返回 ""，调用方应跳过；空 version 退化为 `name@`，
+// 保持旧 payload 的 name-only 兼容行为。
 //
-// V1 provider-native 选择链路继续把 UI 的 key/scope/personalType/path 纳入
-// 去重键，确保项目级与个人级同名 skill 在 turn payload 中不会退化成单条
-// name-only 引用。
+// provider-native 选择链路会把 UI 的 key/scope/personalType/path 纳入去重键，
+// 确保项目级与个人级同名 skill 在 turn payload 中不会退化成单条 name-only 引用。
 func skillDedupKey(ref dto.SkillRef) string {
 	name := strings.ToLower(strings.TrimSpace(ref.Name))
 	if name == "" {
@@ -110,7 +108,7 @@ func skillDedupKey(ref dto.SkillRef) string {
 	return name + "@" + strings.TrimSpace(ref.Version)
 }
 
-// autoMatch 判断auto是否匹配。
+// autoMatch 按 prompt 文本匹配候选 skill，已显式选择的 ref 不会再次返回。
 func (r *skillResolver) autoMatch(prompt string, refs []dto.SkillRef, seen map[string]bool) []dto.SkillRef {
 	prompt = strings.ToLower(strings.TrimSpace(prompt))
 	if prompt == "" || len(refs) == 0 {
@@ -132,7 +130,7 @@ func (r *skillResolver) autoMatch(prompt string, refs []dto.SkillRef, seen map[s
 	return matches
 }
 
-// mergeSkillRefMetadata 合并技能引用元数据。
+// mergeSkillRefMetadata 用后续 ref 补齐已有 ref 的空元数据，已有字段不被覆盖。
 func mergeSkillRefMetadata(existing, next dto.SkillRef) dto.SkillRef {
 	if strings.TrimSpace(existing.Summary) == "" {
 		existing.Summary = strings.TrimSpace(next.Summary)
@@ -155,6 +153,7 @@ func mergeSkillRefMetadata(existing, next dto.SkillRef) dto.SkillRef {
 	return existing
 }
 
+// matchesSkillPrompt 判断 prompt 是否显式或自然文本提到 skill 名称。
 func matchesSkillPrompt(prompt string, skillName string) bool {
 	if strings.Contains(prompt, "[skill:"+skillName+"]") {
 		return true
@@ -165,12 +164,12 @@ func matchesSkillPrompt(prompt string, skillName string) bool {
 	return strings.Contains(prompt, skillName)
 }
 
-// hydrateSkillRefs p20.2 §5 step 2-3：给 PrepareTurn 收到的 manual skill
-// 补全 Summary/Version。当 skillLookup 为 nil（optional fx 依赖未注入）
+// hydrateSkillRefs 给 PrepareTurn 收到的 skill 引用补全 Summary/Version。
+// 当 skillLookup 为 nil（optional fx 依赖未注入）
 // 或所有引用均已有摘要/版本时，直接返回原列表，不做任何多余 I/O。
 //
-// p20.17 §7：`ErrMissingCWD`（契约违反）必须 fail-fast 传回，由 PrepareTurn
-// 失败暴露；其他 scan 失败仍保持容忍（原 p20.2 行为），不阻断 turn 启动。
+// ErrSkillMissingCWD 和同名冲突属于契约错误，必须 fail-fast 传回 PrepareTurn；
+// 普通 scan/list 失败仍按容忍口径返回，避免阻断 turn 启动。
 func (s *service) hydrateSkillRefs(ctx context.Context, refs []dto.SkillRef, manualSkillSelection bool) ([]dto.SkillRef, error) {
 	if s == nil || s.skillLookup == nil || len(refs) == 0 {
 		return refs, nil
@@ -191,6 +190,7 @@ func (s *service) hydrateSkillRefs(ctx context.Context, refs []dto.SkillRef, man
 	return s.hydrateSkillRefsFromIndex(scopedCtx, refs, index, skillHydrationPolicy{ManualSkillSelection: manualSkillSelection})
 }
 
+// blockingSkillHydrationError 返回必须阻断 PrepareTurn 的 hydration 契约错误。
 func blockingSkillHydrationError(err error) error {
 	if errors.Is(err, contract.ErrSkillMissingCWD) || errors.Is(err, contract.ErrSkillSameNameConflict) {
 		return err
@@ -198,6 +198,7 @@ func blockingSkillHydrationError(err error) error {
 	return nil
 }
 
+// hydrateSkillRefsFromIndex 用已加载的 skill index 逐个补齐 SkillRef。
 func (s *service) hydrateSkillRefsFromIndex(ctx context.Context, refs []dto.SkillRef, index map[string]contract.SkillInfo, policy skillHydrationPolicy) ([]dto.SkillRef, error) {
 	out := make([]dto.SkillRef, 0, len(refs))
 	for _, ref := range refs {
@@ -247,7 +248,7 @@ func refsNeedHydration(refs []dto.SkillRef) bool {
 	return false
 }
 
-// skillInfoIndex 把 ListSkills 结果按明确 ref key 和 legacy lower(name) 索引。
+// skillInfoIndex 把 ListSkills 结果按明确 ref key 和 name-only 兼容 key 建索引。
 // name-only 同名仍 fail-closed；携带 scope/path 的 UI 选择可以精确命中同名项。
 func skillInfoIndex(infos []contract.SkillInfo) (map[string]contract.SkillInfo, error) {
 	index := make(map[string]contract.SkillInfo, len(infos))
@@ -273,16 +274,20 @@ func skillInfoIndex(infos []contract.SkillInfo) (map[string]contract.SkillInfo, 
 	return index, nil
 }
 
+// ambiguousSkillInfoMarker 标记 name-only 兼容索引中同名 skill 冲突的哨兵值。
 const ambiguousSkillInfoMarker = "__super_dolphin_ambiguous_skill__"
 
+// ambiguousSkillInfo 构造同名冲突哨兵，后续 lookup 必须 fail-closed。
 func ambiguousSkillInfo(name string) contract.SkillInfo {
 	return contract.SkillInfo{Name: strings.TrimSpace(name), Dir: ambiguousSkillInfoMarker}
 }
 
+// skillInfoAmbiguous 判断 SkillInfo 是否是同名冲突哨兵。
 func skillInfoAmbiguous(info contract.SkillInfo) bool {
 	return info.Dir == ambiguousSkillInfoMarker
 }
 
+// skillInfoLookupKey 生成 skill hydration 的精确查找 key，带 scope/path 时避免同名冲突。
 func skillInfoLookupKey(name, scope, personalType, dir string) string {
 	name = strings.ToLower(strings.TrimSpace(name))
 	if name == "" {
@@ -297,14 +302,17 @@ func skillInfoLookupKey(name, scope, personalType, dir string) string {
 	return name
 }
 
+// skillHydrationPolicy 描述当前 hydration 是否来自可信手动选择。
 type skillHydrationPolicy struct {
 	ManualSkillSelection bool
 }
 
+// allowUntrustedMetadata 只允许真实手选 ref 读取 untrusted skill 的摘要元数据。
 func (p skillHydrationPolicy) allowUntrustedMetadata(ref dto.SkillRef) bool {
 	return p.ManualSkillSelection && ref.Source == dto.SkillSourceManual
 }
 
+// allowHydratedSummary 判断能否把 SkillInfo.Summary 回填到 turn payload。
 func allowHydratedSummary(info contract.SkillInfo, ref dto.SkillRef, policy skillHydrationPolicy) bool {
 	if info.Trust.Trusted() {
 		return true
@@ -317,11 +325,11 @@ func allowHydratedSummary(info contract.SkillInfo, ref dto.SkillRef, policy skil
 //   - Version 空 + SkillInfo.ContentHash 非空 → 前 12 位 hex
 //   - trusted 或真实手选授权的 untrusted：Summary 空 + SkillInfo.Summary 非空 → 拷回
 //
-// PR-4 安全不变量：untrusted project/unknown skill 的作者 summary 只有在
-// ManualSkillSelection=true 且 ref.Source=manual 时才允许 hydrate。legacy
+// 安全边界：untrusted project/unknown skill 的作者 summary 只有在
+// ManualSkillSelection=true 且 ref.Source=manual 时才允许 hydrate。
 // Source=Unspecified、trigger、force 等来源不得因为 name-only hydration 看到 summary。
-// untrusted full body 不在 selected hydration 中注入；V1 provider runtime 也不再
-// 通过 turn 注入正文，而是由 provider-native mirror 交给 Claude/Codex 自己发现。
+// untrusted full body 不在 selected hydration 中注入；provider runtime 也不再
+// 通过 turn 注入正文，而是由 provider-native mirror 交给 Claude/Codex 自行发现。
 func (s *service) applyHydrationWithConflict(ctx context.Context, ref dto.SkillRef, index map[string]contract.SkillInfo, policy skillHydrationPolicy) (dto.SkillRef, error) {
 	info, found, err := hydrationInfoForRef(ref, index)
 	if err != nil {
@@ -333,11 +341,12 @@ func (s *service) applyHydrationWithConflict(ctx context.Context, ref dto.SkillR
 	ref = hydrateSkillVersion(ref, info)
 	ref = hydrateSkillSummary(ref, info, policy)
 	// Source 保留不动：调用方必须显式置 Source=manual 才表示真正的 manual 选择。
-	// Mode 字段已在 spec §11 cutover 后删除；provider 侧通过 provider-native
-	// mirrors 让 Codex/Claude 自己发现 skills，不再由 turn 注入正文或读取工具。
+	// provider 侧通过 provider-native mirrors 让 Codex/Claude 自己发现 skills，
+	// 不再由 turn 注入正文或读取工具。
 	return ref, nil
 }
 
+// hydrateSkillVersion 用 skill 内容 hash 的短值补齐空版本字段。
 func hydrateSkillVersion(ref dto.SkillRef, info contract.SkillInfo) dto.SkillRef {
 	if strings.TrimSpace(ref.Version) == "" && info.ContentHash != "" {
 		ref.Version = shortSkillHash(info.ContentHash)
@@ -345,6 +354,7 @@ func hydrateSkillVersion(ref dto.SkillRef, info contract.SkillInfo) dto.SkillRef
 	return ref
 }
 
+// hydrateSkillSummary 在信任策略允许时补齐空 Summary。
 func hydrateSkillSummary(ref dto.SkillRef, info contract.SkillInfo, policy skillHydrationPolicy) dto.SkillRef {
 	if allowHydratedSummary(info, ref, policy) && strings.TrimSpace(ref.Summary) == "" && strings.TrimSpace(info.Summary) != "" {
 		ref.Summary = info.Summary
@@ -352,6 +362,7 @@ func hydrateSkillSummary(ref dto.SkillRef, info contract.SkillInfo, policy skill
 	return ref
 }
 
+// hydrationInfoForRef 查找单个 ref 的 SkillInfo，同名冲突会返回 ErrSkillSameNameConflict。
 func hydrationInfoForRef(ref dto.SkillRef, index map[string]contract.SkillInfo) (contract.SkillInfo, bool, error) {
 	info, ok := index[skillInfoLookupKey(ref.Name, ref.Scope, ref.PersonalType, ref.Path)]
 	if !ok {
@@ -367,8 +378,7 @@ func hydrationInfoForRef(ref dto.SkillRef, index map[string]contract.SkillInfo) 
 }
 
 // shortSkillHash 取前 12 位 hex 作为 SkillRef.Version 的稳定版本标识。
-// 完整 sha256 太长，P20.1 §3.7 的 manifest cache key 也用短 hash；保持一致
-// 方便日后结合 skillRevision / approvalRevision 做统一的版本参考。
+// 完整 sha256 太长，短 hash 足以作为 turn payload 内的版本提示。
 func shortSkillHash(hash string) string {
 	hash = strings.TrimSpace(hash)
 	if len(hash) > 12 {

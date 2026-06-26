@@ -48,7 +48,7 @@ type CommandListOutput struct {
 	Hint      string           `json:"hint,omitempty"`
 }
 
-// HandleCommandList 处理命令list。
+// HandleCommandList 列出 command card，可按 keyword 过滤并保留旧数组返回形态。
 func HandleCommandList(store commandcardstore.Store) ToolHandler {
 	return makeHandler(store, "command card store", func(ctx context.Context, in commandListInput) (any, error) {
 		cards, err := listCommandCards(ctx, store, in)
@@ -62,13 +62,14 @@ func HandleCommandList(store commandcardstore.Store) ToolHandler {
 	})
 }
 
-// HandleCommandGet 处理命令get。
+// HandleCommandGet 读取单张 command card，支持 pos=command:<card_key> 与旧 card_key 字段。
 func HandleCommandGet(store commandcardstore.Store) ToolHandler {
 	return makeHandler(store, "command card store", func(ctx context.Context, in commandGetInput) (commandCardDTO, error) {
 		return getCommandCard(ctx, store, in)
 	})
 }
 
+// commandToolDefinitions 注册 command_list/command_get 这一组资源工具。
 func commandToolDefinitions(store commandcardstore.Store) []ToolDefinition {
 	return resourceToolDefinitions(resourceToolSpec{
 		ListName:        "command_list",
@@ -82,6 +83,7 @@ func commandToolDefinitions(store commandcardstore.Store) []ToolDefinition {
 	})
 }
 
+// listCommandCards 从 store 读取最多 resourceListLimit 条 command card 并映射为工具 DTO。
 func listCommandCards(ctx context.Context, store commandcardstore.Store, input commandListInput) ([]commandCardDTO, error) {
 	if err := requireDependency(store, "command card store"); err != nil {
 		return nil, err
@@ -96,6 +98,7 @@ func listCommandCards(ctx context.Context, store commandcardstore.Store, input c
 	return mapCommandCards(cards), nil
 }
 
+// newCommandListOutput 构造 envelope 返回，同时保留 commands 字段兼容旧调用方。
 func newCommandListOutput(cards []commandCardDTO) CommandListOutput {
 	env := newListEnvelope(cards, int(resourceListLimit), "next: use command_get pos=command:<card_key> for command details")
 	return CommandListOutput{
@@ -108,6 +111,7 @@ func newCommandListOutput(cards []commandCardDTO) CommandListOutput {
 	}
 }
 
+// getCommandCard 解析兼容定位字段并把 not-found 统一成工具层错误。
 func getCommandCard(ctx context.Context, store commandcardstore.Store, input commandGetInput) (commandCardDTO, error) {
 	if err := requireDependency(store, "command card store"); err != nil {
 		return commandCardDTO{}, err
@@ -124,6 +128,7 @@ func getCommandCard(ctx context.Context, store commandcardstore.Store, input com
 	return commandCardFromStore(*card), nil
 }
 
+// mapCommandCards 批量映射 store 行，保持返回顺序不变。
 func mapCommandCards(cards []commandcardstore.CommandCard) []commandCardDTO {
 	mapped := make([]commandCardDTO, 0, len(cards))
 	for _, card := range cards {
@@ -132,6 +137,7 @@ func mapCommandCards(cards []commandcardstore.CommandCard) []commandCardDTO {
 	return mapped
 }
 
+// commandCardFromStore 把持久化 command card 映射成 MCP wire DTO。
 func commandCardFromStore(card commandcardstore.CommandCard) commandCardDTO {
 	return commandCardDTO{
 		ID:              card.ID,

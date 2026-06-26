@@ -22,10 +22,14 @@ import (
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
+// typedEventPublisher 是反射分发表中的发布函数，负责把 any 还原成强类型事件。
 type typedEventPublisher func(*event.Dispatcher, any) bool
 
+// EventTranslator 将 provider 原始事件翻译为内部强类型事件。
+// 翻译器通过 publish 回调输出事件，便于一个 raw event 派生多个投影。
 type EventTranslator func(raw dto.RawProviderEvent, publish func(ev any))
 
+// typedEventPublishers 保存内部事件类型到发布函数的映射，未知类型必须显式拒绝。
 var typedEventPublishers = map[reflect.Type]typedEventPublisher{
 	typedEventType[agentdto.StateChanged]():         publishEvent[agentdto.StateChanged],
 	typedEventType[agentdto.AgentLaunched]():        publishEvent[agentdto.AgentLaunched],
@@ -71,7 +75,7 @@ var typedEventPublishers = map[reflect.Type]typedEventPublisher{
 	typedEventType[uidto.UIMemoryChanged]():         publishEvent[uidto.UIMemoryChanged],
 }
 
-// EventDispatcher manages raw driver events and republishes translated typed events.
+// EventDispatcher 接收 provider 原始事件，并按注册的 translator 重新发布为内部强类型事件。
 type EventDispatcher struct {
 	mu          sync.RWMutex
 	translators []EventTranslator
@@ -79,7 +83,7 @@ type EventDispatcher struct {
 	logger      *slog.Logger
 }
 
-// NewEventDispatcher 创建事件调度器。
+// NewEventDispatcher 创建事件调度器，并默认注册通用 provider 事件翻译器。
 func NewEventDispatcher(bus *event.Dispatcher, logger *slog.Logger) *EventDispatcher {
 	if logger == nil {
 		logger = pkglogger.Get()
@@ -91,8 +95,7 @@ func NewEventDispatcher(bus *event.Dispatcher, logger *slog.Logger) *EventDispat
 	}
 }
 
-// Register registers one event translator from a driver.
-// Register 注册unified provider。
+// Register 注册一个 provider 事件翻译器，nil 翻译器会被忽略以保护分发链。
 func (d *EventDispatcher) Register(t EventTranslator) {
 	if t == nil {
 		return
@@ -104,8 +107,7 @@ func (d *EventDispatcher) Register(t EventTranslator) {
 	d.translators = append(d.translators, t)
 }
 
-// Publish sends an already-normalized typed event to the shared event bus.
-// Publish 发布unified provider。
+// Publish 发布已经标准化的内部事件；未知事件类型会记录告警而不是静默丢弃。
 func (d *EventDispatcher) Publish(ev any) {
 	if d == nil {
 		return
@@ -115,8 +117,8 @@ func (d *EventDispatcher) Publish(ev any) {
 	}
 }
 
-// Dispatch sends one raw driver event through all registered translators.
-// Dispatch 派发unified provider。
+// Dispatch 先广播原始 provider 事件，再把快照化的 translator 列表逐个执行。
+// translator 列表复制后释放读锁，避免翻译器发布事件时阻塞后续注册。
 func (d *EventDispatcher) Dispatch(raw dto.RawProviderEvent) {
 	d.mu.RLock()
 	translators := make([]EventTranslator, len(d.translators))
@@ -140,6 +142,7 @@ func (d *EventDispatcher) Dispatch(raw dto.RawProviderEvent) {
 	}
 }
 
+// publishTypedEvent 根据事件实际类型查找发布器，bus 缺失时视为已处理以支持无事件总线测试。
 func publishTypedEvent(bus *event.Dispatcher, ev any) bool {
 	if bus == nil {
 		return true
@@ -151,11 +154,13 @@ func publishTypedEvent(bus *event.Dispatcher, ev any) bool {
 	return publisher(bus, ev)
 }
 
+// typedEventType 返回泛型事件的反射类型，保证分发表 key 与 publishEvent 的类型一致。
 func typedEventType[T event.Event]() reflect.Type {
 	var zero T
 	return reflect.TypeOf(zero)
 }
 
+// publishEvent 将 any 事件还原为指定强类型，类型不匹配时返回 false 给调用方告警。
 func publishEvent[T event.Event](bus *event.Dispatcher, ev any) bool {
 	typed, ok := ev.(T)
 	if !ok {
@@ -165,7 +170,8 @@ func publishEvent[T event.Event](bus *event.Dispatcher, ev any) bool {
 	return true
 }
 
-// translateCommonRawEvent 处理translatecommon原始事件。
+// translateCommonRawEvent 翻译通用 provider raw event，覆盖告警、错误、plan 和 item 生命周期。
+// 无 payload 或重试进度错误会被跳过，避免污染用户可见时间线。
 func translateCommonRawEvent(raw dto.RawProviderEvent, publish func(ev any)) {
 	if publish == nil {
 		return
@@ -237,6 +243,7 @@ func translateCommonRawEvent(raw dto.RawProviderEvent, publish func(ev any)) {
 	}
 }
 
+// commonAgentSessionHeader 从 provider payload 中提取 agent/session 头，兼容 camelCase 和 snake_case。
 func commonAgentSessionHeader(payload map[string]any) shareddto.AgentSessionHeader {
 	threadID := shared.FirstNonEmpty(
 		stringValue(payload, "threadId", "thread_id"),
@@ -257,6 +264,7 @@ func commonAgentSessionHeader(payload map[string]any) shareddto.AgentSessionHead
 	}
 }
 
+// commonTurnHeader 从 provider payload 中提取 turn 头，并复用 agent/session 头解析规则。
 func commonTurnHeader(payload map[string]any) shareddto.TurnHeader {
 	return shareddto.TurnHeader{
 		AgentHeader: commonAgentSessionHeader(payload).AgentHeader,
@@ -269,6 +277,7 @@ func commonTurnHeader(payload map[string]any) shareddto.TurnHeader {
 	}
 }
 
+// rawEventPayload 复制或序列化原始 payload，保证事件 DTO 不共享可变输入缓冲区。
 func rawEventPayload(data any) json.RawMessage {
 	switch typed := data.(type) {
 	case json.RawMessage:
@@ -284,6 +293,7 @@ func rawEventPayload(data any) json.RawMessage {
 	}
 }
 
+// marshalPreview 把候选字段序列化成可展示摘要，无法编码的值会继续尝试下一个候选。
 func marshalPreview(values ...any) string {
 	for _, value := range values {
 		if value == nil {
@@ -297,6 +307,7 @@ func marshalPreview(values ...any) string {
 	return ""
 }
 
+// boolValue 从 payload 多个候选键读取布尔值，字符串 true 也按 true 处理。
 func boolValue(payload map[string]any, keys ...string) bool {
 	for _, key := range keys {
 		switch typed := payload[key].(type) {
@@ -309,11 +320,13 @@ func boolValue(payload map[string]any, keys ...string) bool {
 	return false
 }
 
+// firstIntValue 从 payload 中读取第一个整数候选，缺失时返回 0。
 func firstIntValue(payload map[string]any, keys ...string) int {
 	value, _ := intFromMap(payload, keys...)
 	return value
 }
 
+// hasErrorPayload 判断 provider payload 是否表示失败，success=false 优先于错误文本。
 func hasErrorPayload(payload map[string]any) bool {
 	if value, ok := payload["success"].(bool); ok {
 		return !value
@@ -324,6 +337,7 @@ func hasErrorPayload(payload map[string]any) bool {
 	) != ""
 }
 
+// isWarningRawType 识别应进入 AgentWarning 的 provider raw type。
 func isWarningRawType(rawType string) bool {
 	switch strings.TrimSpace(rawType) {
 	case "warning", "configWarning", "windows/worldWritableWarning", "deprecationNotice":
@@ -333,6 +347,7 @@ func isWarningRawType(rawType string) bool {
 	}
 }
 
+// isErrorRawType 识别应进入 AgentError 的 provider raw type。
 func isErrorRawType(rawType string) bool {
 	switch strings.TrimSpace(rawType) {
 	case "error", "stream_error":
@@ -355,6 +370,8 @@ func isRetryProgressRawError(rawType string, payload map[string]any) bool {
 	return isRetryProgressMessage(message)
 }
 
+// isRetryProgressMessage 判断重试进度文案是否只表示 provider 正在重连。
+// 只接受带当前次数和总次数的格式，避免把真实错误误判成可忽略状态。
 func isRetryProgressMessage(message string) bool {
 	text := strings.ToLower(strings.TrimSpace(message))
 	if !strings.HasPrefix(text, "reconnecting") && !strings.HasPrefix(text, "retrying") {
@@ -375,6 +392,7 @@ func isRetryProgressMessage(message string) bool {
 	return err == nil
 }
 
+// isPlanDeltaRawType 识别 provider 输出的 plan delta 事件类型。
 func isPlanDeltaRawType(rawType string) bool {
 	switch strings.TrimSpace(rawType) {
 	case "item/plan/delta", "plan_delta", "agent/event/plan_delta":
@@ -384,6 +402,7 @@ func isPlanDeltaRawType(rawType string) bool {
 	}
 }
 
+// isPlanUpdatedRawType 识别 provider 输出的 plan 完整更新事件类型。
 func isPlanUpdatedRawType(rawType string) bool {
 	switch strings.TrimSpace(rawType) {
 	case "turn/plan/updated", "plan_update", "turn_plan":
@@ -393,6 +412,7 @@ func isPlanUpdatedRawType(rawType string) bool {
 	}
 }
 
+// isItemStartedRawType 识别 provider 输出的工作项开始事件类型。
 func isItemStartedRawType(rawType string) bool {
 	switch strings.TrimSpace(rawType) {
 	case "item/started", "item_started", "agent/event/item_started":
@@ -402,6 +422,7 @@ func isItemStartedRawType(rawType string) bool {
 	}
 }
 
+// isItemCompletedRawType 识别 provider 输出的工作项完成事件类型。
 func isItemCompletedRawType(rawType string) bool {
 	switch strings.TrimSpace(rawType) {
 	case "item/completed", "item_completed", "agent/event/item_completed", "rawResponseItem/completed":

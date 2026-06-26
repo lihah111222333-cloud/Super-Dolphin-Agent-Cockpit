@@ -14,14 +14,16 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 )
 
-// HookRegistry manages hook topic subscriptions keyed by lease.
+// HookRegistry 按 lease 管理 hook topic 订阅。
+// 内部同时维护 topic 索引和 lease 到订阅的映射，所有读写都通过同一把锁保持一致。
 type HookRegistry struct {
 	mu            sync.RWMutex
 	byTopic       map[string]map[mcp.LeaseKey]struct{}
 	subscriptions map[mcp.LeaseKey]*Subscription
 }
 
-// Subscription stores the last accepted hook subscription for a lease.
+// Subscription 保存某个 lease 当前生效的 hook 订阅。
+// 公共字段用于响应和调试，requestHash 只在包内判断重复订阅是否幂等。
 type Subscription struct {
 	SubscriptionID string
 	Topics         []string
@@ -33,8 +35,7 @@ type Subscription struct {
 	requestHash string
 }
 
-// Used by T1-5 manager.go.
-// NewHookRegistry 创建hook注册表。
+// NewHookRegistry 创建空的 hook 订阅注册表。
 func NewHookRegistry() *HookRegistry {
 	return &HookRegistry{
 		byTopic:       make(map[string]map[mcp.LeaseKey]struct{}),
@@ -42,7 +43,8 @@ func NewHookRegistry() *HookRegistry {
 	}
 }
 
-// Subscribe 注册事件订阅。
+// Subscribe 校验并注册 hook 订阅。
+// 相同 subscriptionID 和请求哈希会按幂等响应返回旧版本；内容变化会递增版本并重建 topic 索引。
 func (r *HookRegistry) Subscribe(lease mcp.LeaseKey, req mcp.HookSubscribeRequest) (mcp.HookSubscribeResponse, error) {
 	var err error
 	lease, err = validateLease(lease, hookSubscriptionLeaseValidation)
@@ -109,7 +111,7 @@ func (r *HookRegistry) Subscribe(lease mcp.LeaseKey, req mcp.HookSubscribeReques
 	}, nil
 }
 
-// Unsubscribe 处理unsubscribe。
+// Unsubscribe 删除 lease 对应订阅并同步清理 topic 索引。
 func (r *HookRegistry) Unsubscribe(lease mcp.LeaseKey) {
 	lease = trimLease(lease)
 
@@ -123,12 +125,13 @@ func (r *HookRegistry) Unsubscribe(lease mcp.LeaseKey) {
 	r.unsubscribeLocked(lease, subscription)
 }
 
-// GetSubscribers 读取subscribers。
+// GetSubscribers 返回订阅指定 topic 的 lease 列表。
 func (r *HookRegistry) GetSubscribers(topic string) []mcp.LeaseKey {
 	return r.GetSubscribersBySelector(mcp.Selector{Subscription: topic})
 }
 
-// GetSubscribersBySelector 按selector读取subscribers。
+// GetSubscribersBySelector 按 topic 和可选 selector scope 返回匹配 lease。
+// 返回结果稳定排序，避免 fanout 顺序因 map 遍历漂移。
 func (r *HookRegistry) GetSubscribersBySelector(sel mcp.Selector) []mcp.LeaseKey {
 	normalized := strings.TrimSpace(sel.Subscription)
 	if normalized == "" {
@@ -153,9 +156,8 @@ func (r *HookRegistry) GetSubscribersBySelector(sel mcp.Selector) []mcp.LeaseKey
 	return subscribers
 }
 
-// GetSubscription returns a copy of the stored subscription for a lease.
-// Used by T1-5 manager.go.
-// GetSubscription 读取subscription。
+// GetSubscription 返回 lease 当前订阅的副本。
+// 返回副本是为了阻断调用方修改注册表内部 slice、scope 或 raw message。
 func (r *HookRegistry) GetSubscription(lease mcp.LeaseKey) (*Subscription, bool) {
 	lease = trimLease(lease)
 
@@ -217,7 +219,8 @@ func subscriptionMatchesSelectorScope(subscription *Subscription, requested mcp.
 	return scopeMatches(requested, shared.NormalizeSelectorScope(subscription.Scope.Scope))
 }
 
-// normalizeTopics 规范化topics。
+// normalizeTopics 清理、排序并去重订阅 topic。
+// 空 topic 会被丢弃，调用方据此判断订阅请求是否有效。
 func normalizeTopics(topics []string) []string {
 	normalized := make([]string, 0, len(topics))
 	for _, topic := range topics {

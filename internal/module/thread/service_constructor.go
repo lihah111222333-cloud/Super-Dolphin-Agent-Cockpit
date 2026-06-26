@@ -15,7 +15,8 @@ import (
 	"github.com/kelindar/event"
 )
 
-// NewService 创建服务。
+// NewService 构造最小 thread 服务。
+// 该入口只装配 store、session、starter、turn 清理和 orchestration，适合不需要 prompt assembly 的测试或轻量运行时。
 func NewService(
 	logger *slog.Logger,
 	threadStore threadstore.Store,
@@ -29,7 +30,8 @@ func NewService(
 	return newService(logger, threadStore, bindingStore, nil, sessions, starter, turns, orchestration, threadEvents, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 }
 
-// NewServiceWithPromptAssembly 创建带promptassembly的服务。
+// NewServiceWithPromptAssembly 构造带 prompt assembly 的 thread 服务。
+// 它额外接入配置和工具 registry，使 thread/start 可以把 prompt、MCP 和工具上下文交给 prompt 模块组装。
 func NewServiceWithPromptAssembly(
 	logger *slog.Logger,
 	threadStore threadstore.Store,
@@ -46,7 +48,8 @@ func NewServiceWithPromptAssembly(
 	return newService(logger, threadStore, bindingStore, nil, sessions, starter, turns, orchestration, threadEvents, promptAssembly, cfg, toolRegistry, nil, nil, nil, nil, nil, nil)
 }
 
-// NewServiceWithPromptAssemblyAndSharedFiles 创建带promptassemblyshared文件的服务。
+// NewServiceWithPromptAssemblyAndSharedFiles 构造完整 thread 服务。
+// 除 prompt assembly 外，它还接入 shared files、runtime prompt catalog、match/enable_when 评估器和可选 tracing。
 func NewServiceWithPromptAssemblyAndSharedFiles(
 	logger *slog.Logger,
 	threadStore threadstore.Store,
@@ -74,7 +77,8 @@ func NewServiceWithPromptAssemblyAndSharedFiles(
 	return newService(logger, threadStore, bindingStore, sharedFiles, sessions, starter, turns, orchestration, threadEvents, promptAssembly, cfg, toolRegistry, mcpServers, promptStore, promptCatalog, matchWhenEval, enableWhenEval, tracing)
 }
 
-// newService 创建服务。
+// newService 统一完成 thread service wiring。
+// 构造阶段会创建事件 emitter、后台 worker 和进程内缓存；外层构造器只负责选择依赖集合。
 func newService(
 	logger *slog.Logger,
 	threadStore threadstore.Store,

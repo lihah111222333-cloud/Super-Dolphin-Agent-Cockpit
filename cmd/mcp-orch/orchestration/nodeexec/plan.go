@@ -8,16 +8,12 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 )
 
-// ApplyOps add_node 计划阶段 —— 把 typed ops 与 DAG 现有节点融合成
-// 「待入库节点列表 + 环检测 adjacency」。
+// 本文件把 typed DAG ops 归一化为可持久化的变更计划。
+// plan 层只做形状、拓扑和状态白名单校验；真正写库和版本 OCC 由 orchestration service 负责。
 //
 // 设计取舍：nodeexec 包不依赖 taskdag（types.go 注释明确解耦），故输入用
 // nodeexec.ExistingNode 描述现有节点（只含 NodeKey + DependsOn），输出 specs
 // 用 nodeexec.NodeSpec —— orchestration 层再把它映射成 taskdag.Node 写库。
-//
-// PlanAddNodes is the validation-only phase of ApplyOps add_node: it takes the
-// typed ops + a snapshot of current nodes, returns the adjacency map ready for
-// DetectCycle plus the validated NodeSpecs to persist.
 
 // ErrAddNodePlan 是 PlanAddNodes 形状校验失败时的 sentinel。
 // 调用方（service.applyTypedOps）需要把它包成 ErrApplyOpsInvalid。
@@ -30,20 +26,13 @@ type ExistingNode struct {
 	DependsOn []string
 }
 
-// PlanAddNodes 走两遍 pass：
+// PlanAddNodes 校验 add_node 操作并返回环检测用 adjacency 与待写入节点。
 //  1. 校验单个 ops：node_key 非空 + 与现有 / 同批不重名 + 不自依赖。
 //  2. 校验 depends_on 引用：必须命中 existing ∪ 同批 NodeKey；允许 ops 内
 //     互相引用不论顺序。
 //
 // 返回：adjacency（含 existing + new，传给 DetectCycle）/ 通过校验的 NodeSpec
 // 列表（保留 ops 原顺序，供 service 顺序 UpsertNode）/ 错误。
-//
-// PlanAddNodes performs two passes over the typed ops:
-//  1. Per-op validity (non-empty key, no name clash, no self-dependency)
-//  2. depends_on integrity (all keys point to existing or freshly-added nodes)
-//
-// Returns the cycle-detection adjacency, the accepted NodeSpecs preserved in
-// ops order (for caller to UpsertNode), and any validation error.
 func PlanAddNodes(ops Ops, existing []ExistingNode) (map[string][]string, []NodeSpec, error) {
 	adjacency, known := seedAdjacency(existing)
 	accepted := make([]NodeSpec, 0, len(ops))
@@ -63,7 +52,8 @@ func PlanAddNodes(ops Ops, existing []ExistingNode) (map[string][]string, []Node
 	return adjacency, accepted, nil
 }
 
-// ValidateCreateDAGNodes 校验createDAG节点。
+// ValidateCreateDAGNodes 复用 add_node 拓扑校验来检查创建 DAG 时的初始节点列表。
+// 这里只关心 node_key 唯一性、depends_on 引用和环，不触碰持久化。
 func ValidateCreateDAGNodes(nodes []contract.CreateDAGNodeRequest) error {
 	specs := make([]NodeSpec, len(nodes))
 	for i, n := range nodes {
@@ -72,7 +62,8 @@ func ValidateCreateDAGNodes(nodes []contract.CreateDAGNodeRequest) error {
 	return ValidateAddNodeTopology(specs)
 }
 
-// ValidateAddNodeTopology 校验add节点topology。
+// ValidateAddNodeTopology 校验新增节点集合自身的拓扑合法性。
+// 它会复用 PlanAddNodes 和 DetectCycle，作为 create/update 入口的轻量 fail-fast 检查。
 func ValidateAddNodeTopology(specs []NodeSpec) error {
 	ops := make(Ops, 0, len(specs))
 	for _, spec := range specs {
@@ -161,16 +152,12 @@ func NormalizeDependsOn(deps []string) []string {
 	return out
 }
 
-// =====================================================
-// F4.2: PlanUpdateNodes —— update_node ops 校验 + adjacency 推导
-// =====================================================
-
 // ErrUpdateNodePlan 是 PlanUpdateNodes 校验失败时的 sentinel。
 // 调用方（service.applyTypedOps）会把它包成 ErrApplyOpsInvalid。
 var ErrUpdateNodePlan = errors.New("update_node plan: invalid request")
 
-// ExistingNodeFull 是 PlanUpdateNodes 看节点的最小投影：含 status，
-// 用于 F4.5 提前防御（running / 终态 节点不许 update）。
+// ExistingNodeFull 是 PlanUpdateNodes 需要的节点最小投影。
+// status 用于阻止 running、retrying 或终态节点被在线编辑。
 type ExistingNodeFull struct {
 	NodeKey   string
 	DependsOn []string
@@ -186,8 +173,7 @@ type UpdateNodeChange struct {
 }
 
 // updateNodeStatusAllowed 列出 update_node 允许触发的节点 status 集合。
-// F4.2 节点维度防御：pending / ready 才允许 update；其他状态拒。
-// F4.5 再补 DAG.status 维度做完整防御。
+// 只有尚未执行或刚可执行的节点可编辑；运行中、退避中和终态节点都必须拒绝。
 var updateNodeStatusAllowed = map[string]struct{}{
 	string(NodeStatusPending): {},
 	string(NodeStatusReady):   {},
@@ -259,8 +245,8 @@ func updateChangeFromOp(idx int, op Op) (UpdateNodeChange, error) {
 	return UpdateNodeChange{NodeKey: key, Patch: upd.Patch}, nil
 }
 
-// ensureUpdatableStatus F4.5 提前防御：节点 status 必须 ∈ updateNodeStatusAllowed。
-// running / 终态 / retrying / waiting_human 一律拒。
+// ensureUpdatableStatus 校验 update_node 的目标仍处在可编辑状态。
+// running、终态、retrying、waiting_human 一律拒绝，避免在线改写已调度节点。
 func ensureUpdatableStatus(idx int, key, status string) error {
 	if _, ok := updateNodeStatusAllowed[status]; !ok {
 		return fmt.Errorf("%w: ops[%d] update_node %q status=%q not updatable (allowed: pending|ready)", ErrUpdateNodePlan, idx, key, status)
@@ -288,10 +274,6 @@ func applyDependsOnPatch(idx int, change UpdateNodeChange, adjacency map[string]
 	adjacency[change.NodeKey] = deps
 	return nil
 }
-
-// =====================================================
-// F4.3: PlanRemoveNodes —— remove_node ops 校验 + adjacency 推导
-// =====================================================
 
 // ErrRemoveNodePlan 是 PlanRemoveNodes 校验失败时的 sentinel。
 // 调用方（service.applyTypedOps）会把它包成 ErrApplyOpsInvalid。

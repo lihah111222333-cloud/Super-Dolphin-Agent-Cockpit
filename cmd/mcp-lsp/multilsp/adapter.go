@@ -14,9 +14,8 @@ import (
 	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
 )
 
-// LanguageAdapter owns every language-specific policy that the generic
-// manager/pool/cache pipeline needs. The manager consumes only the resolved
-// scope, command, env, bootstrap, cache, and capability outputs.
+// LanguageAdapter 封装每种语言接入 LSP manager/pool/cache 所需的差异策略。
+// manager 只消费解析后的 scope、启动命令、环境、引导缓存和能力开关，避免调用层感知具体语言。
 type LanguageAdapter interface {
 	LanguageIDs() []string
 	ResolveRoot(ctx context.Context, scope LSPToolScope, target string) (ResolvedLanguageScope, error)
@@ -62,7 +61,8 @@ type LanguageAdapterRegistry struct {
 	adapters map[string]LanguageAdapter
 }
 
-// NewLanguageAdapterRegistry 创建语言适配器注册表。
+// NewLanguageAdapterRegistry 创建语言适配器注册表，并按每个 adapter 声明的 language id 建索引。
+// 调用方可继续追加注册，重复 language id 会由后注册项覆盖。
 func NewLanguageAdapterRegistry(adapters ...LanguageAdapter) *LanguageAdapterRegistry {
 	registry := &LanguageAdapterRegistry{adapters: map[string]LanguageAdapter{}}
 	for _, adapter := range adapters {
@@ -71,12 +71,14 @@ func NewLanguageAdapterRegistry(adapters ...LanguageAdapter) *LanguageAdapterReg
 	return registry
 }
 
-// NewDefaultLanguageAdapterRegistry 创建default语言适配器注册表。
+// NewDefaultLanguageAdapterRegistry 使用当前 LSP 配置创建默认语言适配器注册表。
+// 配置中的 root marker、目录过滤和启动参数会在各 adapter 构造时固化。
 func NewDefaultLanguageAdapterRegistry() *LanguageAdapterRegistry {
 	return NewLanguageAdapterRegistryFromConfig(platformconfig.DefaultLSPConfig())
 }
 
-// Register 注册LSP。
+// Register 把一个语言 adapter 按规范化 language id 注册到表中。
+// nil receiver 或 nil adapter 直接忽略，便于测试按需组装最小注册表。
 func (r *LanguageAdapterRegistry) Register(adapter LanguageAdapter) {
 	if r == nil || adapter == nil {
 		return
@@ -93,7 +95,8 @@ func (r *LanguageAdapterRegistry) Register(adapter LanguageAdapter) {
 	}
 }
 
-// AdapterForLanguage 为语言处理适配器。
+// AdapterForLanguage 查找指定 language id 的 adapter。
+// language id 会先规范化，未注册或空注册表时返回 false。
 func (r *LanguageAdapterRegistry) AdapterForLanguage(languageID string) (LanguageAdapter, bool) {
 	if r == nil {
 		return nil, false
@@ -104,7 +107,8 @@ func (r *LanguageAdapterRegistry) AdapterForLanguage(languageID string) (Languag
 	return adapter, ok
 }
 
-// LanguageIDs 处理语言ids。
+// LanguageIDs 返回当前注册表中已登记的 language id。
+// 结果按字典序排序，保证 manifest 和测试快照稳定。
 func (r *LanguageAdapterRegistry) LanguageIDs() []string {
 	if r == nil {
 		return nil
@@ -124,10 +128,12 @@ type goLanguageAdapter struct {
 	noiseDirNames    []string
 }
 
-// LanguageIDs 处理语言ids。
+// LanguageIDs 返回 Go adapter 覆盖的文件语言。
+// gomod/gosum/gowork 与 go 文件共用同一套 root 和工具链解析。
 func (goLanguageAdapter) LanguageIDs() []string { return []string{"go", "gomod", "gosum", "gowork"} }
 
-// ResolveRoot 解析根目录。
+// ResolveRoot 为 Go 语言请求解析 LSP scope。
+// 它把 ResolveGoRoot 的工作根、模块根和工具链信息转换为 manager/pool/cache 可消费的结构。
 func (a goLanguageAdapter) ResolveRoot(_ context.Context, scope LSPToolScope, target string) (ResolvedLanguageScope, error) {
 	languageID := normalizeLanguageID(scope.LanguageID)
 	if languageID == "" {
@@ -154,12 +160,14 @@ func (a goLanguageAdapter) ResolveRoot(_ context.Context, scope LSPToolScope, ta
 	}, nil
 }
 
-// ServerCommand 处理服务端命令。
+// ServerCommand 返回 Go 语言服务启动命令。
+// gopls 的安装校验由 registry/installer 负责，这里只声明运行时可执行文件。
 func (goLanguageAdapter) ServerCommand(context.Context, ResolvedLanguageScope) (ServerCommand, error) {
 	return ServerCommand{Executable: "gopls"}, nil
 }
 
-// InitOptions 处理init选项。
+// InitOptions 生成 gopls 初始化选项。
+// directoryFilters 来自 adapter 配置或默认配置，用于把噪声目录排除在 LSP 索引之外。
 func (a goLanguageAdapter) InitOptions(ResolvedLanguageScope) map[string]any {
 	return map[string]any{
 		"semanticTokens":   true,
@@ -175,7 +183,8 @@ func (a goLanguageAdapter) resolvedDirectoryFilters() []string {
 	return slices.Clone(filters)
 }
 
-// EnvPolicy 处理env策略。
+// EnvPolicy 为 gopls 进程生成与当前 Go scope 匹配的环境覆盖。
+// 只覆盖 GOWORK/PATH/GOTOOLCHAIN，避免把请求外的环境策略混入 adapter。
 func (goLanguageAdapter) EnvPolicy(scope ResolvedLanguageScope) []string {
 	env := make([]string, 0, 3)
 	mode := scope.LanguageSpecific["goworkMode"]
@@ -196,19 +205,22 @@ func (goLanguageAdapter) EnvPolicy(scope ResolvedLanguageScope) []string {
 	return env
 }
 
-// BootstrapPolicy 处理启动策略。
+// BootstrapPolicy 声明 Go LSP 启动后需要打开目标文档。
+// 这样 gopls 能尽快产生诊断和符号索引。
 func (goLanguageAdapter) BootstrapPolicy(ResolvedLanguageScope) BootstrapPolicy {
 	return BootstrapPolicy{
 		OpenTarget: true,
 	}
 }
 
-// CacheKeyParts 处理缓存键parts。
+// CacheKeyParts 返回 Go scope 的语言专属缓存维度。
+// go.work 模式、模块根和工具链信息都会进入 key，防止不同 workspace 复用错误缓存。
 func (goLanguageAdapter) CacheKeyParts(scope ResolvedLanguageScope) map[string]string {
 	return copyLanguageSpecific(scope.LanguageSpecific)
 }
 
-// CapabilityPolicy 处理capability策略。
+// CapabilityPolicy 声明 Go adapter 需要真实 LSP client。
+// 没有 client 时不能降级成纯文本符号结果。
 func (goLanguageAdapter) CapabilityPolicy() ToolCapabilityPolicy {
 	return ToolCapabilityPolicy{RequiresLSPClient: true}
 }
@@ -224,12 +236,14 @@ type projectLanguageAdapter struct {
 	retryEmptyCallHierarchyPrepare bool
 }
 
-// LanguageIDs 处理语言ids。
+// LanguageIDs 返回项目型 adapter 负责的 language id 副本。
+// 返回副本避免调用方修改注册表内的语言集合。
 func (a projectLanguageAdapter) LanguageIDs() []string {
 	return append([]string(nil), a.languageIDs...)
 }
 
-// ResolveRoot 解析根目录。
+// ResolveRoot 为 TypeScript、Python 等项目型语言选择项目根。
+// 它优先使用 root marker，必要时在 cwd 下查找嵌套项目，最后才退回目录 scope。
 func (a projectLanguageAdapter) ResolveRoot(_ context.Context, scope LSPToolScope, target string) (ResolvedLanguageScope, error) {
 	languageID := normalizeLanguageID(scope.LanguageID)
 	if languageID == "" {
@@ -293,7 +307,8 @@ func (a projectLanguageAdapter) usesJSTSWorkspace() bool {
 	return slices.ContainsFunc(a.languageIDs, shouldUseJSTSWorkspace)
 }
 
-// shouldSearchNestedProjectRoot 判断searchnested项目根目录是否可用。
+// shouldSearchNestedProjectRoot 判断是否需要在 cwd 下继续查找嵌套项目根。
+// 当目标已经是源码文件且落在当前 root 内时不再向下扫描，避免误绑定 sibling 项目。
 func (a projectLanguageAdapter) shouldSearchNestedProjectRoot(root, target string) bool {
 	target = strings.TrimSpace(target)
 	if target == "" {
@@ -327,20 +342,24 @@ func (a projectLanguageAdapter) targetUsesSourceExtension(target string) bool {
 	return false
 }
 
-// ServerCommand 处理服务端命令。
+// ServerCommand 返回项目型语言服务的启动命令副本。
+// Args 会复制一份，避免调用方修改 adapter 内的配置模板。
 func (a projectLanguageAdapter) ServerCommand(context.Context, ResolvedLanguageScope) (ServerCommand, error) {
 	return ServerCommand{Executable: a.command.Executable, Args: append([]string(nil), a.command.Args...)}, nil
 }
 
-// InitOptions 处理init选项。
+// InitOptions 返回项目型语言服务的初始化选项副本。
+// 选项来自配置，调用方不能通过返回值反向污染 adapter。
 func (a projectLanguageAdapter) InitOptions(ResolvedLanguageScope) map[string]any {
 	return cloneAnyMap(a.initOptions)
 }
 
-// EnvPolicy 处理env策略。
+// EnvPolicy 当前不为项目型语言追加环境覆盖。
+// 这些服务继承 manager 统一筛选后的环境，避免 adapter 私自扩展进程变量。
 func (a projectLanguageAdapter) EnvPolicy(ResolvedLanguageScope) []string { return nil }
 
-// BootstrapPolicy 处理启动策略。
+// BootstrapPolicy 声明项目型语言启动后的文档打开和首选源码扩展。
+// ignoredDirNames 会复制返回，供 bootstrap 扫描时跳过依赖和构建产物。
 func (a projectLanguageAdapter) BootstrapPolicy(ResolvedLanguageScope) BootstrapPolicy {
 	return BootstrapPolicy{
 		OpenTarget:            true,
@@ -349,7 +368,8 @@ func (a projectLanguageAdapter) BootstrapPolicy(ResolvedLanguageScope) Bootstrap
 	}
 }
 
-// CacheKeyParts 处理缓存键parts。
+// CacheKeyParts 用 root kind 和语言 workspace root 区分项目型缓存。
+// 同一 cwd 下 marker 命中与目录回退会得到不同 key。
 func (a projectLanguageAdapter) CacheKeyParts(scope ResolvedLanguageScope) map[string]string {
 	return map[string]string{
 		"adapterRootKind": scope.RootKind,
@@ -357,7 +377,8 @@ func (a projectLanguageAdapter) CacheKeyParts(scope ResolvedLanguageScope) map[s
 	}
 }
 
-// CapabilityPolicy 处理capability策略。
+// CapabilityPolicy 声明项目型 adapter 需要真实 LSP client。
+// 部分服务会在空 call hierarchy prepare 时重试，策略由配置注入。
 func (a projectLanguageAdapter) CapabilityPolicy() ToolCapabilityPolicy {
 	return ToolCapabilityPolicy{
 		RequiresLSPClient:              true,
@@ -369,12 +390,14 @@ type documentFallbackAdapter struct {
 	languageIDs []string
 }
 
-// LanguageIDs 处理语言ids。
+// LanguageIDs 返回文档降级 adapter 覆盖的 language id 副本。
+// 这些语言只支持 best-effort 文档符号，不会启动外部 LSP 进程。
 func (a documentFallbackAdapter) LanguageIDs() []string {
 	return append([]string(nil), a.languageIDs...)
 }
 
-// ResolveRoot 解析根目录。
+// ResolveRoot 为文档降级路径生成最小 scope。
+// 它只需要稳定的 workspace root，后续工具会走非 LSP 的符号提取。
 func (a documentFallbackAdapter) ResolveRoot(_ context.Context, scope LSPToolScope, target string) (ResolvedLanguageScope, error) {
 	root := firstNonEmpty(scope.CWD, filepath.Dir(firstNonEmpty(target, scope.TargetPath)))
 	normalized, err := normalizeRegistryWorkspaceRoot(root)
@@ -390,31 +413,38 @@ func (a documentFallbackAdapter) ResolveRoot(_ context.Context, scope LSPToolSco
 	}, nil
 }
 
-// ServerCommand 处理服务端命令。
+// ServerCommand 对文档降级 adapter 返回空命令。
+// 调用方应根据 capability policy 走 fallback，而不是尝试启动进程。
 func (documentFallbackAdapter) ServerCommand(context.Context, ResolvedLanguageScope) (ServerCommand, error) {
 	return ServerCommand{}, nil
 }
 
-// InitOptions 处理init选项。
+// InitOptions 对文档降级 adapter 不提供初始化选项。
+// fallback 路径没有外部 server，因此无需发送 initialize payload。
 func (documentFallbackAdapter) InitOptions(ResolvedLanguageScope) map[string]any { return nil }
 
-// EnvPolicy 处理env策略。
+// EnvPolicy 对文档降级 adapter 不追加环境覆盖。
+// 没有进程启动时环境策略不参与执行。
 func (documentFallbackAdapter) EnvPolicy(ResolvedLanguageScope) []string { return nil }
 
-// BootstrapPolicy 处理启动策略。
+// BootstrapPolicy 对文档降级 adapter 返回空策略。
+// fallback 符号读取不需要预打开文档。
 func (documentFallbackAdapter) BootstrapPolicy(ResolvedLanguageScope) BootstrapPolicy {
 	return BootstrapPolicy{}
 }
 
-// CacheKeyParts 处理缓存键parts。
+// CacheKeyParts 对文档降级 adapter 不追加语言专属维度。
+// fallback 结果不写入 LSP 文档缓存。
 func (documentFallbackAdapter) CacheKeyParts(ResolvedLanguageScope) map[string]string { return nil }
 
-// CapabilityPolicy 处理capability策略。
+// CapabilityPolicy 声明该 adapter 只能走文档符号降级能力。
+// 这阻止 manager 为它创建真实 LSP client。
 func (documentFallbackAdapter) CapabilityPolicy() ToolCapabilityPolicy {
 	return ToolCapabilityPolicy{DocumentSymbolFallback: true}
 }
 
-// findProjectRoot 查找项目根目录。
+// findProjectRoot 从目标路径向上查找包含任一 marker 的项目根。
+// marker 未命中返回空字符串，调用方再决定是否走目录回退。
 func findProjectRoot(path string, markers []string) (string, error) {
 	absPath, err := platformNormalize(path)
 	if err != nil {

@@ -16,14 +16,8 @@ var (
 	agentFiles   = map[string]*os.File{}
 )
 
-// NewAgentLogger creates an *slog.Logger that writes to both the main log
-// file and a per-agent log file (agent-{agentID}.log) in the same directory.
-// The returned logger has "agent_id" pre-bound so every entry is tagged.
-//
-// If no main log file is open (tests, early init) it returns the global
-// logger with agent_id bound.  If the per-agent file cannot be created it
-// falls back to the global logger — main log flow is never interrupted.
-// NewAgentLogger 创建代理日志器。
+// NewAgentLogger 创建绑定 agent_id 的日志器，并在文件日志已开启时额外写入 agent 专属文件。
+// 主日志未打开或 agent 文件创建失败时回退到全局日志器，不能影响主日志链路。
 func NewAgentLogger(agentID string) *slog.Logger {
 	agentID = strings.TrimSpace(agentID)
 	if agentID == "" {
@@ -50,7 +44,7 @@ func NewAgentLogger(agentID string) *slog.Logger {
 		return getLogger().With("agent_id", agentID)
 	}
 
-	// Build a writer that fans out to console + main file + agent file.
+	// agent logger 必须和主日志共享控制台/主文件，同时追加 agent 专属文件。
 	var out io.Writer
 	if console != nil {
 		out = io.MultiWriter(console, mainFile, agentFile)
@@ -65,8 +59,8 @@ func NewAgentLogger(agentID string) *slog.Logger {
 	return l.With("agent_id", agentID)
 }
 
-// openOrReuseAgentFile returns an existing open file handle for the agent,
-// or opens a new one.  Returns nil on failure (caller falls back gracefully).
+// openOrReuseAgentFile 复用或打开 agent 专属日志文件。
+// 打开失败返回 nil，由调用方回退到主日志器。
 func openOrReuseAgentFile(agentID, path string) *os.File {
 	agentFilesMu.Lock()
 	defer agentFilesMu.Unlock()
@@ -81,9 +75,8 @@ func openOrReuseAgentFile(agentID, path string) *os.File {
 	return f
 }
 
-// CloseAgentLogger closes the per-agent log file for the given agent.
-// Safe to call multiple times or with unknown IDs.
-// CloseAgentLogger 关闭代理日志器。
+// CloseAgentLogger 关闭指定 agent 的专属日志文件。
+// 未知或已关闭 ID 会被忽略，便于 shutdown 路径重复调用。
 func CloseAgentLogger(agentID string) {
 	agentID = strings.TrimSpace(agentID)
 	if agentID == "" {
@@ -98,8 +91,7 @@ func CloseAgentLogger(agentID string) {
 	}
 }
 
-// closeAllAgentLoggers closes every open per-agent log file.
-// Called by ShutdownFileHandler during process exit.
+// closeAllAgentLoggers 关闭全部 agent 专属日志文件，供进程退出和文件 handler 关闭时调用。
 func closeAllAgentLoggers() {
 	agentFilesMu.Lock()
 	defer agentFilesMu.Unlock()

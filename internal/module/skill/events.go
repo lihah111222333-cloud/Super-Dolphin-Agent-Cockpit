@@ -14,10 +14,12 @@ import (
 	"github.com/kelindar/event"
 )
 
+// skillsChangedEmitter 是 UI skill 变更事件派发函数，测试可替换为捕获器。
 type skillsChangedEmitter func(uidto.SkillsChanged)
 
 const skillsChangedDebounceWindow = 100 * time.Millisecond
 
+// bindDispatcher 绑定 UI 事件派发器，service 为空时保持无操作以便测试装配复用。
 func (s *service) bindDispatcher(dispatcher *event.Dispatcher) {
 	if s == nil {
 		return
@@ -25,10 +27,12 @@ func (s *service) bindDispatcher(dispatcher *event.Dispatcher) {
 	s.emitSkillsChanged = contract.NewEmitter[uidto.SkillsChanged](dispatcher)
 }
 
+// publishSkillsChanged 发布不区分 personal type 的 skill 变更事件。
 func (s *service) publishSkillsChanged(ctx context.Context, action, name, scope string) {
 	s.publishSkillsChangedForPersonalType(ctx, action, name, scope, "")
 }
 
+// publishSkillsChangedForPersonalType 规范化变更元数据，并交给 debounce 队列合并发送。
 func (s *service) publishSkillsChangedForPersonalType(ctx context.Context, action, name, scope, personalType string) {
 	if s == nil || s.emitSkillsChanged == nil {
 		return
@@ -48,6 +52,8 @@ func (s *service) publishSkillsChangedForPersonalType(ctx context.Context, actio
 	})
 }
 
+// scheduleSkillsChanged 将 skill 变更放入短窗口 debounce。
+// 同一 scope/personal/project 位置的变更会合并，不同位置的事件会按顺序排队发送。
 func (s *service) scheduleSkillsChanged(next uidto.SkillsChanged) {
 	next = normalizeSkillsChanged(next)
 
@@ -57,9 +63,8 @@ func (s *service) scheduleSkillsChanged(next uidto.SkillsChanged) {
 	} else if skillsChangedMergeable(s.skillsChangedNext, next) {
 		s.skillsChangedNext = mergeSkillsChanged(s.skillsChangedNext, next)
 	} else {
-		// P0b F12: cross-scope or cross-cwd events cannot share one payload.
-		// Queue the buffered event for this debounce flush and start a fresh
-		// buffer for next so subscribers can attribute both mutations.
+		// 跨 scope 或跨 cwd 的事件不能共享一个 payload，否则订阅方无法判断要刷新哪一侧。
+		// 先把当前缓冲事件排队，再用 next 开新缓冲。
 		s.skillsChangedQueue = append(s.skillsChangedQueue, s.skillsChangedNext)
 		s.skillsChangedNext = next
 	}
@@ -67,14 +72,14 @@ func (s *service) scheduleSkillsChanged(next uidto.SkillsChanged) {
 	seq := s.skillsChangedSeq
 	s.skillsChangedMu.Unlock()
 
-	// Bounded lifetime: goroutine sleeps for skillsChangedDebounceWindow (100ms)
-	// then performs a non-blocking flush. Total duration ~100ms; no lifecycle ctx needed.
+	// 这个 goroutine 生命周期固定为一个 debounce 窗口，随后非阻塞 flush，不需要额外生命周期 ctx。
 	safego.Go(context.Background(), pkglogger.Get(), "skill.scheduleSkillsChangedFlush", func(context.Context) {
 		s.waitSkillsChangedDebounce()
 		s.flushSkillsChanged(seq)
 	})
 }
 
+// waitSkillsChangedDebounce 等待 debounce 窗口；测试可注入 delay 函数避免真实 sleep。
 func (s *service) waitSkillsChangedDebounce() {
 	if s != nil && s.skillsChangedDelay != nil {
 		s.skillsChangedDelay()
@@ -83,6 +88,7 @@ func (s *service) waitSkillsChangedDebounce() {
 	time.Sleep(skillsChangedDebounceWindow)
 }
 
+// flushSkillsChanged 只让最新 seq 负责发送，过期 goroutine 直接退出。
 func (s *service) flushSkillsChanged(seq uint64) {
 	s.skillsChangedMu.Lock()
 	if seq != s.skillsChangedSeq {
@@ -107,7 +113,8 @@ func (s *service) flushSkillsChanged(seq uint64) {
 	}
 }
 
-// skillsChangedLocation 处理skillschanged位置。
+// skillsChangedLocation 为项目级变更计算 repo fingerprint 和 cwd 相对路径。
+// 非项目 scope 不携带位置，避免 personal 事件被错误绑定到当前工作区。
 func (s *service) skillsChangedLocation(ctx context.Context, scope string) (string, string) {
 	if scope != skillScopeProject {
 		return "", ""
@@ -130,6 +137,7 @@ func (s *service) skillsChangedLocation(ctx context.Context, scope string) (stri
 	return fp, rel
 }
 
+// normalizeSkillsChanged 清理事件字段，并按 scope 移除不适用的 personal 或项目定位元数据。
 func normalizeSkillsChanged(next uidto.SkillsChanged) uidto.SkillsChanged {
 	next.SkillsDir = strings.TrimSpace(next.SkillsDir)
 	next.Name = strings.TrimSpace(next.Name)
@@ -153,6 +161,7 @@ func normalizeSkillsChanged(next uidto.SkillsChanged) uidto.SkillsChanged {
 	return syncSkillsChangedActionSummary(next)
 }
 
+// normalizeSkillsChangedAction 收敛常见动作名称，方便前端按 import/delete/write 分类刷新。
 func normalizeSkillsChangedAction(action string) string {
 	action = strings.TrimSpace(action)
 	switch {
@@ -169,13 +178,13 @@ func normalizeSkillsChangedAction(action string) string {
 	}
 }
 
+// mergeSkillsChanged 合并同一位置的多个 skill 变更事件。
 func mergeSkillsChanged(current, next uidto.SkillsChanged) uidto.SkillsChanged {
 	if current.Count == 0 {
 		return next
 	}
-	// P0b F12: scheduleSkillsChanged must handle cross-scope/cwd events by
-	// enqueueing current before starting next. Keep this fallback for any legacy
-	// direct callers, but new code should only call merge for mergeable events.
+	// scheduleSkillsChanged 会把跨 scope/cwd 事件拆成多个 payload。
+	// 这里保留兜底分支给旧调用方，避免把不同位置强行合并。
 	if !skillsChangedMergeable(current, next) {
 		return next
 	}
@@ -184,6 +193,7 @@ func mergeSkillsChanged(current, next uidto.SkillsChanged) uidto.SkillsChanged {
 	return syncSkillsChangedActionSummary(current)
 }
 
+// skillsChangedMergeable 判断两个事件是否可合并到同一 UI payload。
 func skillsChangedMergeable(current, next uidto.SkillsChanged) bool {
 	return current.Scope == next.Scope &&
 		current.PersonalType == next.PersonalType &&
@@ -191,7 +201,7 @@ func skillsChangedMergeable(current, next uidto.SkillsChanged) bool {
 		current.RelativePath == next.RelativePath
 }
 
-// mergeSkillsChangedMetadata 合并skillschanged元数据。
+// mergeSkillsChangedMetadata 合并时间戳、目录和名称；不同名称合并后清空 Name 表示批量变更。
 func mergeSkillsChangedMetadata(current, next uidto.SkillsChanged) uidto.SkillsChanged {
 	if next.Timestamp.After(current.Timestamp) {
 		current.EventHeader = next.EventHeader
@@ -205,6 +215,7 @@ func mergeSkillsChangedMetadata(current, next uidto.SkillsChanged) uidto.SkillsC
 	return current
 }
 
+// syncSkillsChangedActionSummary 同步旧 Action 字段和新 Actions 列表，保持前端兼容。
 func syncSkillsChangedActionSummary(ev uidto.SkillsChanged) uidto.SkillsChanged {
 	switch len(ev.Actions) {
 	case 0:
@@ -218,6 +229,7 @@ func syncSkillsChangedActionSummary(ev uidto.SkillsChanged) uidto.SkillsChanged 
 	return ev
 }
 
+// appendUniqueSkillsChangedActions 追加去重后的规范化动作名称。
 func appendUniqueSkillsChangedActions(dst []string, actions ...string) []string {
 	for _, action := range actions {
 		action = normalizeSkillsChangedAction(action)
@@ -229,6 +241,7 @@ func appendUniqueSkillsChangedActions(dst []string, actions ...string) []string 
 	return dst
 }
 
+// containsSkillsChangedAction 判断动作列表中是否已有目标动作。
 func containsSkillsChangedAction(actions []string, target string) bool {
 	for _, action := range actions {
 		if action == target {

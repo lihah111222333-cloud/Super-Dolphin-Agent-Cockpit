@@ -34,9 +34,8 @@ import (
 	"go.uber.org/fx"
 )
 
-// run boots the MCP binary itself. The core process only exposes ctl/* endpoints
-// and manifest metadata; external executors decide when and how this binary starts.
 // run 启动 mcp-orch 进程，完成依赖装配、RPC 监听和退出清理。
+// 该二进制只暴露编排侧工具、manifest 和控制端点，具体启动时机由外部 runtime 决定。
 func run() error {
 	remoteAddr := strings.TrimSpace(os.Getenv("GO_AGENT_CTL_RPC_ADDR"))
 	app := fx.New(
@@ -91,8 +90,8 @@ func run() error {
 func buildBootstrapConfig(shutdowner fx.Shutdowner, hookAfter contract.BootstrapHookAfterHandler, registry tools.Registry) bootstrap.Config {
 	cfg := bootstrap.ReadBootConfig()
 	cfg.AgentID = ""
-	// P15: register tools/list and tools/call so toolbridge can call this peer.
-	// toolbridge 只转发并注入 scope；真正的工具逻辑仍走同一份 registry。
+	// 注册 tools/list 和 tools/call，让 toolbridge 能以带 scope 的方式调用 mcp-orch。
+	// toolbridge 只负责转发和注入 scope，实际工具逻辑仍走同一份 registry。
 	p := registryToolProvider{registry: registry}
 	cfg.OnToolsList = func(ctx context.Context) (any, error) {
 		tools, err := p.ListTools(ctx)
@@ -178,11 +177,8 @@ func structuredToolResultIsError(raw []byte) bool {
 
 // buildOrchestrationOptions 组装编排模块的 fx 依赖，让 DAG、cron 和 runtime 能一起启动。
 func buildOrchestrationOptions(remoteAddr string) []fx.Option {
-	// P22 P4 S4c1: the orchestration subpackage no longer exports
-	// `var Module`; root assembly wires its providers + lifecycle hooks
-	// explicitly here. The archtest TestOrchestrationNoModuleExport
-	// locks this in place (see
-	// internal/archtest/orchestration_no_module_export_guard_test.go).
+	// orchestration 子包不导出 fx.Module；根装配层在这里显式串起 provider 和 lifecycle hook。
+	// 这让依赖方向保持在入口层，避免业务子包反向拥有应用装配边界。
 	options := []fx.Option{
 		fx.Module("orchestration",
 			fx.Provide(
@@ -193,16 +189,15 @@ func buildOrchestrationOptions(remoteAddr string) []fx.Option {
 				orchestration.ProvideRPCFacade,
 				provideSQLDAGScheduleStore,
 				provideSQLiteRuntimeLocker,
-				// ADR-017 v1.2 §2.9：DAG turn.completed subscriber 的窄端口 provider。
+				// 为 DAG turn.completed subscriber 提供窄端口，避免订阅器依赖完整 store/service。
 				orchestration.ProvideDAGSubscriberNodeFlowStore,
 				orchestration.ProvideDAGSubscriberStopAgentService,
 				orchestration.ProvideDAGSubscriberAgentThreadLookup,
 			),
 			fx.Invoke(orchestration.RegisterTurnLifecycle),
 			fx.Invoke(orchestration.RegisterApprovalLifecycle),
-			// ADR-017 v1.2 §2.1：第三路 TurnCompleted 订阅 —— 推进 DAG 节点状态流程。
-			// 与 RegisterTurnLifecycle（推 agent runtime）并列不重叠，
-			// 三路并发安全（v1.2 reviewer A 实证）。
+			// DAG turn.completed 订阅只推进 DAG 节点状态；agent runtime 推进仍由 RegisterTurnLifecycle 负责。
+			// 两条订阅路径职责分离，避免同一事件里互相覆盖运行态。
 			fx.Invoke(orchestration.RegisterDAGTurnCompletedSubscriber),
 			fx.Provide(fx.Annotate(orchestration.ProvideWakeupDispatcherRunner, fx.ResultTags(`group:"runners"`))),
 			fx.Provide(fx.Annotate(wakeupreclaim.ProvideWakeupReclaimerRunner, fx.ResultTags(`group:"runners"`))),
@@ -217,29 +212,22 @@ func buildOrchestrationOptions(remoteAddr string) []fx.Option {
 			// AutomationCommandRunner 接口适配：ShellCommandRunner 是 *T 类型，
 			// ProvideAutomationExecutor 要 AutomationCommandRunner 接口，fx 不会自动推断。
 			func(r *nodeexec.ShellCommandRunner) nodeexec.AutomationCommandRunner { return r },
-			// dispatcher-wiring batch §1：AgentExecutor / NodeExecutorRouter
-			// fx singletons + serviceAgentLauncher adapter。这些 provider 让 W1/W2 以来
-			// “孤儿”的 AgentExecutor / AutomationExecutor 代码正式被危口调到。
+			// AgentExecutor 和 NodeExecutorRouter 作为 fx 单例接入 dispatcher。
+			// serviceAgentLauncher 负责把 service 的启动能力收窄成 executor 需要的 launcher 端口。
 			orchestration.NewServiceAgentLauncher,
 			fxadapter.NewStoreNodeSpawnRecorder,
 			orchestration.ProvideNodeLifecycleHooks,
 			orchestration.ProvideAutomationExecutor,
-			// dispatcher-wiring closure：sharedfile 端口 adapter —— store/sharedfile.Store
-			// 适配成 nodeexec.SharedFileReader / SharedFileWriter，供 NodeExecutorRouter 预填
-			// RunContext。是 W2 端口结束处理后 dispatcher 路径能走 dogfood-grade DAG
-			// (cfg.Inputs.from_sharedfiles / outputs.to_sharedfile) 的必要 wiring。
+			// sharedfile 端口 adapter 把 store/sharedfile.Store 收窄成 nodeexec 读写端口。
+			// NodeExecutorRouter 预填 RunContext 时依赖它处理 inputs.from_sharedfiles 与 outputs.to_sharedfile。
 			orchestration.NewStoreSharedFileReader,
 			orchestration.NewStoreSharedFileWriter,
-			// round-3 merge fix: 走 ProvideAgentExecutor 包 WithRecorder option，
-			// 而不是直接 fx-resolve nodeexec NewAgentExecutor —— 后者 W2 端口结束处理后
-			// 变 variadic Option 形态，fx 直 Provide 只会拿 launcher 丢 recorder。
+			// 通过 ProvideAgentExecutor 注入 recorder option；直接提供 nodeexec.NewAgentExecutor 会丢失可变参数。
 			orchestration.ProvideAgentExecutor,
 			orchestration.NewNodeExecutorRouter,
 		),
-		// dispatcher-wiring batch §1：在 NewWakeupDispatcher 返 dispatcher 后装上
-		// nodeRouter。必须采用 fx.Invoke 而非 fx.Decorate：ProvideWakeupDispatcherRunner
-		// 返 Runner 接口而非其位 *WakeupDispatcher，无法被 decorate 拿到原始类型。
-		// 单独提供一个 *WakeupDispatcher provider，供 Runner / router-wire invoke 复用。
+		// WakeupDispatcher 先作为具体类型提供，再用 invoke 装上 nodeRouter。
+		// Runner provider 返回的是接口，无法通过 fx.Decorate 拿回具体 dispatcher。
 		fx.Provide(orchestration.ProvideWakeupDispatcher),
 		fx.Invoke(orchestration.WireWakeupDispatcherRouter),
 		fx.Invoke(orchestration.WireWakeupDispatcherRetryAlertSink),

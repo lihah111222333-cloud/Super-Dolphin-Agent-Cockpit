@@ -13,54 +13,28 @@ import (
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
-// sessionRecoveryDrainGrace bounds the shutdown wait for
-// sessionRecoveryWorker. Unlike the other thread-domain workers the
-// recovery path includes a 3s delay + a Resume network round-trip, so
-// its grace budget is a bit wider. Matches teamSyncCoordinator's drain
-// grace which has a similar cost profile.
+// sessionRecoveryDrainGrace 限制恢复 worker 停止时等待 goroutine 退出的时间。
+// 恢复路径包含 provider 关闭等待和一次 Resume 往返，因此预算比普通线程 worker 更宽。
 const sessionRecoveryDrainGrace = 15 * time.Second
 
-// sessionRecoveryReconnectDelay is the default reconnect delay used when
-// constructing a new service. Tests can override via service.reconnectDelay.
+// sessionRecoveryReconnectDelay 是 provider 断线后默认等待窗口。
+// 这段时间留给 Codex 等 provider 完成旧会话关闭，测试可通过 service.reconnectDelay 覆盖。
 const sessionRecoveryReconnectDelay = 3 * time.Second
 
-// sessionRecoverer is the narrow contract over *service that the worker
-// needs. processSessionRecovery carries the pre-P22 body of
-// onAgentFailed minus the outer SafeGo + time.Sleep: it rate-limits,
-// evicts the zombie session, waits (ctx-aware), and then invokes
-// backgroundResumeIfNeeded.
+// sessionRecoverer 是恢复 worker 依赖的最小 service 接口。
+// processSessionRecovery 负责限流、驱逐僵尸 session、可取消等待和后台 Resume，worker 只管排队与并发收束。
 type sessionRecoverer interface {
 	processSessionRecovery(ctx context.Context, ev agentdto.AgentFailed)
 }
 
-// sessionRecoveryWorker is the P22 P2 (thread S2) single owner of the
-// onAgentFailed -> session-level recovery slow-path.
-//
-// Pre-P22 shape: the bus callback checked the rate limit, evicted the
-// zombie session, and then fired a naked
-// runtimesafe.SafeGo(context.Background(), ...) that slept 3 seconds
-// before calling backgroundResumeIfNeeded. Nothing tracked those
-// goroutines; shutdown could never wait for them.
-//
-// S2 shape: the callback only calls Enqueue. The worker owns:
-//   - A pending map keyed by target (threadID preferred, agentID
-//     fallback) so repeated AgentFailed events for the same agent
-//     collapse to one recovery attempt per burst.
-//   - An inflight WaitGroup tracking per-event recovery goroutines so
-//     multi-agent failures still recover in parallel, but drain is
-//     bounded: Stop cancels the worker context (breaking the 3s sleep)
-//     and then waits on inflight before closing doneCh.
-//
-// The 3s "wait for Codex to close the thread" lives inside
-// processSessionRecovery as a ctx-aware select so Stop short-circuits
-// instead of blocking.
+// sessionRecoveryWorker 是 AgentFailed 事件到会话恢复慢路径之间的排队层。
+// pending map 以 threadID 优先、agentID 兜底聚合重复失败事件；inflight WaitGroup
+// 允许不同 agent 并行恢复，同时让 Stop 能取消等待并等所有恢复 goroutine 退出。
 type sessionRecoveryWorker struct {
 	recoverer sessionRecoverer
 	logger    *slog.Logger
 
-	// ctx is the per-worker context threaded into every
-	// processSessionRecovery call. cancel() fires from Stop, which
-	// unblocks any in-flight reconnect delay / Resume.
+	// ctx 传入每次 processSessionRecovery；Stop 调用 cancel 后会打断等待窗口和正在恢复的 Resume。
 	ctx    context.Context
 	cancel context.CancelFunc
 
@@ -72,9 +46,7 @@ type sessionRecoveryWorker struct {
 	startOnce, stopOnce sync.Once
 	stopCh, doneCh      chan struct{}
 
-	// inflight tracks per-event recovery goroutines. runWorker defers
-	// inflight.Wait() before close(doneCh) so Stop returns only after
-	// every recovery has observed ctx cancellation and returned.
+	// inflight 跟踪每个恢复 goroutine，doneCh 关闭前必须等它们全部观察到取消并返回。
 	inflight sync.WaitGroup
 
 	enqueuedTotal, coalescedTotal, processedTotal atomic.Int64
@@ -88,10 +60,8 @@ func newSessionRecoveryWorker(recoverer sessionRecoverer, logger *slog.Logger) *
 	return &sessionRecoveryWorker{recoverer: recoverer, logger: logger, ctx: ctx, cancel: cancel, pending: map[string]agentdto.AgentFailed{}, wake: make(chan struct{}, 1), stopCh: make(chan struct{}), doneCh: make(chan struct{})}
 }
 
-// Start spawns the worker dispatcher goroutine. Idempotent. When
-// recoverer is nil the worker short-circuits: doneCh closes so Stop is
-// immediate and Enqueue is a cheap no-op.
-// Start 启动线程流程。
+// Start 启动恢复分发 goroutine，重复调用只生效一次。
+// recoverer 为空时直接关闭 doneCh，让 Stop 立即返回、Enqueue 只保留廉价 no-op 行为。
 func (w *sessionRecoveryWorker) Start() {
 	if w == nil {
 		return
@@ -112,11 +82,8 @@ func (w *sessionRecoveryWorker) Start() {
 	})
 }
 
-// Enqueue records an AgentFailed event for deferred recovery. Safe to
-// call from bus callbacks: O(1) map write + non-blocking wake. The key
-// is target (threadID preferred, agentID fallback) to match
-// processSessionRecovery's shared.FirstNonEmpty semantics.
-// Enqueue 把项目追加到队尾。
+// Enqueue 记录一次待恢复的 AgentFailed 事件。
+// bus 回调里只做 O(1) map 写入和非阻塞唤醒；同一 target 的重复事件会合并成一次恢复尝试。
 func (w *sessionRecoveryWorker) Enqueue(target string, ev agentdto.AgentFailed) {
 	if w == nil {
 		return
@@ -143,10 +110,8 @@ func (w *sessionRecoveryWorker) Enqueue(target string, ev agentdto.AgentFailed) 
 	}
 }
 
-// Stop closes the gate, cancels the worker context (short-circuiting
-// the 3s reconnect delay and any in-flight Resume), and waits bounded
-// by ctx for the dispatcher + every recovery goroutine to exit.
-// Stop 停止线程流程。
+// Stop 关闭入队闸门、取消 worker context，并按 ctx/deadline 等待分发器和恢复 goroutine 退出。
+// 等待超时时返回 ctx 错误，调用方可据此记录 drain 风险。
 func (w *sessionRecoveryWorker) Stop(ctx context.Context) error {
 	if w == nil {
 		return nil
@@ -174,22 +139,17 @@ func (w *sessionRecoveryWorker) Stop(ctx context.Context) error {
 	return firstErr
 }
 
-// EnqueuedTotal / CoalescedTotal / ProcessedTotal expose observability
-// counters for tests and future metric hookup.
-// EnqueuedTotal 处理enqueuedtotal。
+// EnqueuedTotal 返回已入队事件数，用于测试和后续指标接入。
 func (w *sessionRecoveryWorker) EnqueuedTotal() int64 { return w.enqueuedTotal.Load() }
 
-// CoalescedTotal 处理coalescedtotal。
+// CoalescedTotal 返回因同 target 合并而没有新增恢复任务的事件数。
 func (w *sessionRecoveryWorker) CoalescedTotal() int64 { return w.coalescedTotal.Load() }
 
-// ProcessedTotal 处理processedtotal。
+// ProcessedTotal 返回实际执行完恢复处理的事件数。
 func (w *sessionRecoveryWorker) ProcessedTotal() int64 { return w.processedTotal.Load() }
 
 func (w *sessionRecoveryWorker) runWorker() {
-	// inflight.Wait is load-bearing: every recovery goroutine observes
-	// w.ctx.Done() (from cancel in Stop) and exits; this Wait ensures
-	// they all do before we close doneCh so Stop returns at the right
-	// moment.
+	// inflight.Wait 必须早于 doneCh 关闭，Stop 才能确认所有恢复 goroutine 已退出。
 	defer close(w.doneCh)
 	defer w.inflight.Wait()
 	for {
@@ -203,11 +163,8 @@ func (w *sessionRecoveryWorker) runWorker() {
 	}
 }
 
-// drainPending pulls the current pending set out under the lock, then
-// spawns one tracked goroutine per entry. Parallel dispatch preserves
-// pre-P22 behavior where concurrent failures recovered in parallel via
-// separate SafeGo goroutines; the difference is that those goroutines
-// are now WaitGroup-tracked so Stop is bounded.
+// drainPending 在锁内取出当前 pending 批次，再为每个 target 启动受 WaitGroup 跟踪的恢复 goroutine。
+// 批次内不同 agent 仍可并行恢复，但 Stop 可以通过 worker context 和 inflight 等待收束它们。
 func (w *sessionRecoveryWorker) drainPending() {
 	w.mu.Lock()
 	if len(w.pending) == 0 {

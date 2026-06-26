@@ -18,12 +18,8 @@ const (
 	configTopicThread = "config/thread"
 )
 
-// registerConfigChangeSubscriptions is the P22 P2 boundary for
-// `internal/platform/mcpcontrol/config_change.go`: the bus callback body
-// contains no NotifyConfigChanged call and no `context.Background()` —
-// only a worker Enqueue. Marshal + advanceConfigVersion + Notify all run
-// on the configFanoutWorker goroutine under its own cancellable ctx.
-// registerConfigChangeSubscriptions 注册配置changesubscriptions。
+// registerConfigChangeSubscriptions 订阅会影响 MCP 配置视图的 agent/thread 事件。
+// bus callback 只把轻量载荷入队；marshal、版本推进和 peer notify 都在 configFanoutWorker 中串行执行。
 func registerConfigChangeSubscriptions(
 	dispatcher *event.Dispatcher,
 	worker *configFanoutWorker,

@@ -27,14 +27,6 @@ const submitSessionReadyTimeout = 5 * time.Second
 
 const longWaitLogThreshold = 2 * time.Second
 
-// P22 P4 S4a: the local `sessionReadyWaiter` interface was deleted.
-// WaitForSessionReady is now part of the owner contract
-// contract.OrchestrationTurnStarter, so the service calls it directly
-// without a type-assertion side-channel. See
-// internal/contract/orchestration.go for the interface definition and
-// docs/plans/迁移/p22/P4_DependencyDirectionAndHiddenContracts.md
-// §279 for the rationale.
-
 func buildStatesFromDefinitions(defs []agentdto.TransitionDefinition) []platformstatemachine.StateConfig {
 	permits := make(map[string][]platformstatemachine.Permit, len(agentdto.StateDefinitions))
 	for _, def := range defs {
@@ -71,11 +63,6 @@ func (s *service) BindActiveTurnID(ctx context.Context, agentID, turnID string) 
 		return nil
 	})
 }
-
-// P22 P3: claimMonitorTargets is deleted. Exit monitoring is now armed at
-// launch time by startProcessLocked (and the launcher bridge for remote
-// launches) via exitmonitor.Monitor.Arm; the runnerActor is a pure consumer
-// of monitor.ExitEvents() and no longer polls for unmonitored cmds.
 
 // reconcileReadyStateLocked 在进程已就绪时修正本地状态和队列状态。
 func (s *service) reconcileReadyStateLocked(ctx context.Context, agent *agentRuntime) {
@@ -303,11 +290,8 @@ func (s *service) startProcessLocked(ctx context.Context, agent *agentRuntime) e
 		agent.processGuard = nil
 		return err
 	}
-	// P22 P3: arm the exit monitor immediately after a successful Start. The
-	// monitor spawns a tracked cmd.Wait goroutine that publishes exactly one
-	// exit event per (agent.id, agent.launchSeq) onto ExitEvents(); the
-	// runnerActor's main loop consumes that stream. monitoredSeq is kept as a
-	// test-visible flag so existing polling-based assertions keep working.
+	// Start 成功后立即把 cmd.Wait 交给 exit monitor。
+	// launchSeq 是退出事件围栏，monitoredSeq 只保留给测试和诊断确认该进程已被接管。
 	if s.exitMonitor != nil {
 		s.exitMonitor.Arm(exitmonitor.Target{
 			AgentID:   agent.id,
@@ -320,7 +304,8 @@ func (s *service) startProcessLocked(ctx context.Context, agent *agentRuntime) e
 	return nil
 }
 
-// fireOrForceLocked 触发状态机，并把非法迁移包装成带上下文的错误。
+// fireOrForceLocked 在持锁状态下触发状态机。
+// 非法迁移会带上当前状态、触发器和允许触发器列表，便于调用方快速定位卡住路径。
 func (s *service) fireOrForceLocked(ctx context.Context, agent *agentRuntime, trigger agentdto.AgentTrigger) error {
 	if ctx == nil {
 		ctx = context.Background()
@@ -368,15 +353,10 @@ func allowedTriggersForState(ctx context.Context, agent *agentRuntime, state str
 	return agentdto.AllowedTriggersStr(state), nil
 }
 
-// fireAndPublishLocked fires a state-machine trigger and publishes a
-// StateChanged event while the caller holds s.mu. publishStateChanged calls
-// Dispatcher.Publish, which (kelindar/event) fans out to subscriber goroutines
-// asynchronously. Those subscribers may in turn call back into the service and
-// attempt to acquire s.mu.
-//
-// TODO(convention): Publish 在持锁期间调用存在潜在风险——如果 kelindar/event
-// 的投递策略变更为同步，或 subscriber 在同一 goroutine 回调，将导致死锁。
-// 应将 Publish 移到锁外，或改为 trigger channel 解耦（参见 statemachine-event-convention B7）。
+// fireAndPublishLocked 触发状态机并发布 StateChanged 事件。
+// 调用方持有 s.mu；当前事件库异步扇出，订阅者即使回调 service 也不会在同一 goroutine 抢锁。
+// 注意：当前 kelindar/event 发布会异步扇出，所以持锁发布不会回调抢锁。
+// 如果事件库改为同步派发，这里必须迁到锁外或改成 trigger channel，避免死锁。
 func (s *service) fireAndPublishLocked(ctx context.Context, agent *agentRuntime, trigger agentdto.AgentTrigger) error {
 	before := string(agent.state)
 	if err := agent.sm.FireCtx(ctx, stateless.Trigger(string(trigger))); err != nil {
@@ -402,7 +382,8 @@ func (s *service) listAgents() []agentRuntime {
 	return agents
 }
 
-// Agent lookup and shared decode helpers moved from factory.go to keep orchestration factory focused.
+// discardStaleSuccessfulLaunch 处理恢复/启动竞争中已经成功但判定过期的 runtime。
+// 它会先停止新启动的 agent，再把原错误返回给调用方，避免泄漏不再归属当前状态机的线程。
 func (s *service) discardStaleSuccessfulLaunch(ctx context.Context, launching *agentRuntime, staleErr error) error {
 	if stopErr := s.launcher.Stop(ctx, launching); stopErr != nil {
 		s.logger.Warn("orchestration: discard stale successful launch stop failed", "agent_id", launching.id, "error", stopErr)

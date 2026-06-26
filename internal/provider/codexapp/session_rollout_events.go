@@ -11,7 +11,7 @@ import (
 	providershared "github.com/anthropic-ai/super-agent-v3/internal/provider/shared"
 )
 
-// translateCodexRolloutToolEvent 处理translatecodexrollout工具事件。
+// translateCodexRolloutToolEvent 把 Codex rollout tool 事件转换为内部 tool DTO。
 func translateCodexRolloutToolEvent(eventType string, payload map[string]any) (any, bool) {
 	switch strings.TrimSpace(eventType) {
 	case "response_item", "item/started", "item_started", "agent/event/item_started":
@@ -131,7 +131,7 @@ func buildCodexRolloutToolCallHeader(payload, item map[string]any) shareddto.Too
 	}
 }
 
-// codexRolloutToolName 处理codexrollout工具名称。
+// codexRolloutToolName 从 rollout payload 中提取工具名，MCP 工具会补齐 server 前缀。
 func codexRolloutToolName(item map[string]any) string {
 	if toolName := stringValue(item, "toolName", "tool_name"); toolName != "" {
 		return toolName
@@ -154,7 +154,7 @@ func codexRolloutToolName(item map[string]any) string {
 	return name
 }
 
-// codexFunctionCallArgumentsPreview 处理codex函数callargumentspreview。
+// codexFunctionCallArgumentsPreview 提取函数调用参数预览，供 UI 和日志展示。
 func codexFunctionCallArgumentsPreview(item map[string]any) string {
 	for _, key := range []string{"arguments", "args"} {
 		if value, ok := item[key]; ok && value != nil {
@@ -167,7 +167,7 @@ func codexFunctionCallArgumentsPreview(item map[string]any) string {
 	return ""
 }
 
-// codexMCPToolResultOutcome 处理codexMCP工具结果outcome。
+// codexMCPToolResultOutcome 解析 MCP 工具结果的成功状态和失败文本。
 func codexMCPToolResultOutcome(item map[string]any) (bool, string) {
 	result := nestedValue(item, "result")
 	if len(result) == 0 {
@@ -192,7 +192,7 @@ func codexMCPToolResultOutcome(item map[string]any) (bool, string) {
 	return false, shared.FirstNonEmpty(codexMCPToolResultContentText(resultPayload), "tool call failed")
 }
 
-// codexMCPToolErrorText 处理codexMCP工具错误文本。
+// codexMCPToolErrorText 从多种 MCP 错误字段中提取可读错误文本。
 func codexMCPToolErrorText(result map[string]any) string {
 	for _, key := range []string{"Err", "err", "Error", "error"} {
 		value := result[key]

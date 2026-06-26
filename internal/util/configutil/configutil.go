@@ -1,7 +1,5 @@
-// Package configutil provides pure utility functions for extracting typed
-// values from map[string]any configuration maps. These helpers are
-// intentionally dependency-free so that both provider and module layers can
-// use them without introducing circular imports.
+// Package configutil 提供从 map[string]any 中读取配置值的纯工具函数。
+// 该包不依赖业务层，provider 和 module 都可以复用而不引入循环依赖。
 package configutil
 
 import (
@@ -9,9 +7,8 @@ import (
 	"strings"
 )
 
-// ConfigString returns the first non-empty string value found under any of
-// the given keys. Values are sanitized via SanitizeConfigString.
-// ConfigString 处理配置string。
+// ConfigString 按候选键读取宽松字符串配置，并过滤常见前端哨兵值。
+// 仅用于兼容历史 UI 载荷；需要类型错误 fail-fast 的路径应使用 StrictString。
 func ConfigString(cfg map[string]any, keys ...string) string {
 	for _, key := range keys {
 		if value, ok := cfg[key].(string); ok {
@@ -23,9 +20,7 @@ func ConfigString(cfg map[string]any, keys ...string) string {
 	return ""
 }
 
-// StrictString returns the trimmed string for the first present key and errors
-// when that key exists with a non-string value.
-// StrictString 处理strictstring。
+// StrictString 读取第一个存在的字符串键；键存在但类型错误时 fail-fast。
 func StrictString(cfg map[string]any, label string, keys ...string) (string, error) {
 	value, key, ok := StrictValue(cfg, keys...)
 	if !ok {
@@ -38,9 +33,7 @@ func StrictString(cfg map[string]any, label string, keys ...string) (string, err
 	return strings.TrimSpace(text), nil
 }
 
-// StrictBool returns the bool for the first present key and errors when that
-// key exists with a non-bool value.
-// StrictBool 处理strictbool。
+// StrictBool 读取第一个存在的 bool 键；键存在但类型错误时 fail-fast。
 func StrictBool(cfg map[string]any, label string, keys ...string) (bool, error) {
 	value, key, ok := StrictValue(cfg, keys...)
 	if !ok {
@@ -53,7 +46,8 @@ func StrictBool(cfg map[string]any, label string, keys ...string) (bool, error) 
 	return flag, nil
 }
 
-// StrictValue 处理strict值。
+// StrictValue 返回第一个存在的原始配置值和命中的键名。
+// 它只判断键是否存在，类型约束交给 StrictString/StrictBool 这类上层读取器。
 func StrictValue(cfg map[string]any, keys ...string) (any, string, bool) {
 	for _, key := range keys {
 		if value, ok := cfg[key]; ok {
@@ -63,9 +57,7 @@ func StrictValue(cfg map[string]any, keys ...string) (any, string, bool) {
 	return nil, "", false
 }
 
-// SanitizeConfigString trims whitespace and rejects common JS/JSON
-// sentinel strings such as "undefined", "null", and "[object Object]".
-// SanitizeConfigString 清理配置string。
+// SanitizeConfigString 去掉空白，并过滤 "undefined"、"null" 等前端哨兵字符串。
 func SanitizeConfigString(value string) string {
 	value = strings.TrimSpace(value)
 	switch strings.ToLower(value) {
@@ -76,10 +68,8 @@ func SanitizeConfigString(value string) string {
 	}
 }
 
-// StringMap converts a map[string]any (typically from JSON) to a
-// map[string]string, keeping only entries where both key and value are
-// non-empty trimmed strings.
-// StringMap 处理stringmap。
+// StringMap 将 JSON 风格 map 转为 string map，只保留非空字符串键值。
+// 这是给松散前端 metadata 使用的兼容转换，严格配置字段不应依赖它吞掉类型错误。
 func StringMap(raw any) map[string]string {
 	input, _ := raw.(map[string]any)
 	if len(input) == 0 {
@@ -105,10 +95,8 @@ func StringMap(raw any) map[string]string {
 	return out
 }
 
-// ConfigStringSlice returns the first non-empty string slice found under
-// any of the given keys, normalizing the raw value via
-// NormalizeConfigStringSlice.
-// ConfigStringSlice 处理配置stringslice。
+// ConfigStringSlice 按候选键读取宽松字符串列表配置。
+// 它兼容 []string、[]any 和逗号分隔字符串，严格配置读取应在调用方先校验类型。
 func ConfigStringSlice(cfg map[string]any, keys ...string) []string {
 	for _, key := range keys {
 		values, ok := cfg[key]
@@ -122,10 +110,8 @@ func ConfigStringSlice(cfg map[string]any, keys ...string) []string {
 	return nil
 }
 
-// NormalizeConfigStringSlice coerces a value to []string. It accepts
-// []string, []any (extracting string elements), and a single
-// comma-separated string.
-// NormalizeConfigStringSlice 规范化配置stringslice。
+// NormalizeConfigStringSlice 将 []string、[]any 或逗号分隔字符串规范化为 []string。
+// 不支持的类型返回 nil，仅用于兼容路径，不能替代业务配置的显式校验。
 func NormalizeConfigStringSlice(values any) []string {
 	switch typed := values.(type) {
 	case []string:
@@ -139,9 +125,7 @@ func NormalizeConfigStringSlice(values any) []string {
 	}
 }
 
-// TrimConfigStringValues extracts non-empty trimmed strings from a []any
-// slice, discarding non-string elements.
-// TrimConfigStringValues 处理裁剪配置string值。
+// TrimConfigStringValues 从 []any 中提取非空字符串，忽略非字符串元素。
 func TrimConfigStringValues(values []any) []string {
 	out := make([]string, 0, len(values))
 	for _, value := range values {
@@ -159,9 +143,7 @@ func TrimConfigStringValues(values []any) []string {
 	return out
 }
 
-// SplitConfigStringSlice splits a comma-separated string into trimmed,
-// non-empty segments.
-// SplitConfigStringSlice 拆分配置stringslice。
+// SplitConfigStringSlice 将逗号分隔字符串拆成去空白后的非空片段。
 func SplitConfigStringSlice(value string) []string {
 	value = strings.TrimSpace(value)
 	if value == "" {
@@ -170,8 +152,7 @@ func SplitConfigStringSlice(value string) []string {
 	return TrimStrings(strings.Split(value, ","))
 }
 
-// TrimStrings trims whitespace from each string and discards empty entries.
-// TrimStrings 处理裁剪strings。
+// TrimStrings 去掉每个字符串的首尾空白并丢弃空项。
 func TrimStrings(values []string) []string {
 	out := make([]string, 0, len(values))
 	for _, value := range values {

@@ -6,10 +6,8 @@ import (
 	"testing"
 )
 
-// TestBootstrapHandleCallbackFailsClosedOnUnknownMethod enforces
-// P22 P4 S5b / plan §315: the bootstrap client's OnCallback must
-// not default-ACK unknown methods. The guard is source-shape based
-// to keep the wire-shape freeze audit-friendly.
+// TestBootstrapHandleCallbackFailsClosedOnUnknownMethod 验证 bootstrap client 不会默认 ACK 未知方法。
+// 该守卫检查源码形状，确保未知方法继续返回 method_not_found，wire 行为变化时 diff 可直接暴露。
 func TestBootstrapHandleCallbackFailsClosedOnUnknownMethod(t *testing.T) {
 	const path = "../../internal/mcpserver/common/bootstrap/lifecycle.go"
 	data, err := os.ReadFile(path)
@@ -20,31 +18,26 @@ func TestBootstrapHandleCallbackFailsClosedOnUnknownMethod(t *testing.T) {
 	required := []string{
 		"errBootstrapUnknownMethod(",
 		"dispatchLifecycleRequest(",
-		"§315",
 		"contract.CodeMethodNotFound",
 	}
 	for _, tok := range required {
 		if !strings.Contains(text, tok) {
-			t.Errorf("%s: expected %q to be present (P22 P4 S5b: fail-closed unknown method must stay wired)", path, tok)
+			t.Errorf("%s: expected %q to be present (fail-closed unknown method must stay wired)", path, tok)
 		}
 	}
-	// Pre-S5b pattern that must not return.
+	// 旧的默认成功响应形状不得重新出现。
 	forbidden := []string{
 		"return map[string]bool{\"ok\": true}, nil\n}\n\nfunc (c *Client) dispatchRequest",
 	}
 	for _, tok := range forbidden {
 		if strings.Contains(text, tok) {
-			t.Errorf("%s: forbidden pre-S5b shape reappeared near %q", path, tok)
+			t.Errorf("%s: forbidden default-ACK shape reappeared near %q", path, tok)
 		}
 	}
 }
 
-// TestBootstrapPendingHooksDropsBootAgentIDFallback enforces P22
-// P4 S5b / plan §316: PendingHooks must use cfg.AgentID as the
-// single authoritative identity source — no FirstNonEmpty fallback
-// to boot.AgentID. Source-shape based so the contract change is
-// visible in the guard diff when/if someone reintroduces the
-// fallback.
+// TestBootstrapPendingHooksDropsBootAgentIDFallback 验证 PendingHooks 只使用 cfg.AgentID 作为身份来源。
+// 守卫禁止重新引入 boot.AgentID fallback，避免订阅恢复路径在多身份场景下串到错误 agent。
 func TestBootstrapPendingHooksDropsBootAgentIDFallback(t *testing.T) {
 	const path = "../../internal/mcpserver/common/bootstrap/hooks.go"
 	data, err := os.ReadFile(path)
@@ -58,17 +51,18 @@ func TestBootstrapPendingHooksDropsBootAgentIDFallback(t *testing.T) {
 	}
 	for _, tok := range forbidden {
 		if strings.Contains(text, tok) {
-			t.Errorf("%s: forbidden FirstNonEmpty fallback present (P22 P4 S5b: cfg.AgentID must be the sole identity source)", path)
+			t.Errorf("%s: forbidden FirstNonEmpty fallback present (cfg.AgentID must be the sole identity source)", path)
 		}
 	}
 
 	required := []string{
 		"agentID := strings.TrimSpace(c.cfg.AgentID)",
-		"§316",
+		"errHookPendingAgentIDRequired()",
+		"mcp.HookPendingRequest{AgentID: agentID}",
 	}
 	for _, tok := range required {
 		if !strings.Contains(text, tok) {
-			t.Errorf("%s: expected %q to be present (P22 P4 S5b)", path, tok)
+			t.Errorf("%s: expected %q to be present (pending hooks must use cfg.AgentID only)", path, tok)
 		}
 	}
 }

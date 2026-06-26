@@ -18,7 +18,8 @@ type completionParams struct {
 	MaxResults int    `json:"max_results"`
 }
 
-// NewCompletionHandler 创建补全处理器。
+// NewCompletionHandler 注册 completion 工具处理器。
+// 输入使用 pos 统一定位文件和光标，返回结果按 max_results 裁剪为紧凑列表。
 func NewCompletionHandler(registry lspmanager.Registry) ToolHandler {
 	return newManagerTool("completion", middleware.TierNormal, registry, decodeLenient, func(ctx context.Context, registry lspmanager.Registry, req completionParams) (any, error) {
 		filePath, position, err := resolveFilePositionRequest(ctx, filePositionParams{
@@ -54,7 +55,8 @@ func NewCompletionHandler(registry lspmanager.Registry) ToolHandler {
 	})
 }
 
-// completionWithIdentifierEndRetry 处理带identifierend重试的补全。
+// completionWithIdentifierEndRetry 在原光标没有候选时尝试标识符边界位置。
+// 某些 LSP 只在词尾或词首返回补全；重试只读文件计算位置，不修改文档。
 func completionWithIdentifierEndRetry(ctx context.Context, manager lspmanager.Manager, filePath string, position protocol.Position) (*protocol.CompletionList, error) {
 	result, err := manager.Completion(ctx, filePath, position)
 	if err != nil {
@@ -83,7 +85,8 @@ func completionHasItems(result *protocol.CompletionList) bool {
 	return result != nil && len(result.Items) > 0
 }
 
-// identifierCompletionRetryPositions 处理identifier补全重试positions。
+// identifierCompletionRetryPositions 根据当前行标识符范围生成补全重试光标。
+// 行列越界直接报错，避免把无效 pos 静默修正到相邻字符。
 func identifierCompletionRetryPositions(filePath string, position protocol.Position) ([]protocol.Position, error) {
 	if position.Line < 0 || position.Character < 0 {
 		return nil, nil
@@ -109,7 +112,8 @@ func identifierCompletionRetryPositions(filePath string, position protocol.Posit
 	return completionRetryPositions(position.Line, position.Character, runes, start, end), nil
 }
 
-// completionIdentifierAnchor 处理补全identifier锚点。
+// completionIdentifierAnchor 选择用于扩展标识符范围的锚点字符。
+// 光标位于词尾时会回退一个字符；不在标识符上则返回 false，不触发重试。
 func completionIdentifierAnchor(runes []rune, character int) (int, bool) {
 	anchor := character
 	if anchor == len(runes) || !isCompletionIdentifierRune(runes[anchor]) {

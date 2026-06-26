@@ -12,14 +12,16 @@ import (
 	"unicode"
 )
 
-// ScanOptions 是扫描能力契约清单的入参，包含仓库根目录、扫描根路径和生成时间。
+// ScanOptions 是能力契约扫描入口参数。
+// RepoRoot 与 Roots 分离，确保报告中保留相对路径而不是本机绝对路径。
 type ScanOptions struct {
 	RepoRoot    string
 	Roots       []string
 	GeneratedAt string
 }
 
-// Scan 扫描模块。
+// Scan 扫描指定 Go 根目录并生成能力契约清单。
+// Roots 为空会直接报错，避免生成看似成功但没有覆盖面的空清单。
 func Scan(opts ScanOptions) (*Manifest, error) {
 	repoRoot := opts.RepoRoot
 	if repoRoot == "" {
@@ -85,7 +87,8 @@ func scanRoot(repoRoot, root string) ([]PackageManifest, error) {
 	return packages, nil
 }
 
-// findGoPackages 查找gopackages。
+// findGoPackages 查找包含非测试 Go 文件的包目录。
+// 目录会去重并排序，保证不同文件系统遍历顺序下生成物一致。
 func findGoPackages(root string) ([]string, error) {
 	var dirs []string
 	seen := map[string]bool{}
@@ -126,7 +129,8 @@ func shouldSkipDir(name string) bool {
 	}[name]
 }
 
-// scanPackage 扫描包。
+// scanPackage 扫描单个 Go 包并生成包级符号清单。
+// 测试包和 _test.go 会被过滤，避免测试 helper 污染生产能力面。
 func scanPackage(repoRoot, dir string) (*PackageManifest, error) {
 	fset := token.NewFileSet()
 	pkgs, err := parser.ParseDir(fset, dir, func(fi os.FileInfo) bool {
@@ -165,7 +169,7 @@ func scanPackage(repoRoot, dir string) (*PackageManifest, error) {
 	return manifest, nil
 }
 
-// extractFile 提取文件。
+// extractFile 把一个 AST 文件中的函数、方法、接口和结构体追加到包清单。
 func extractFile(file *ast.File, manifest *PackageManifest) {
 	for _, decl := range file.Decls {
 		switch d := decl.(type) {
@@ -211,7 +215,8 @@ func extractMethod(fn *ast.FuncDecl) MethodManifest {
 	return MethodManifest{Name: fn.Name.Name, Exported: isExported(fn.Name.Name), Receiver: typeToString(fn.Recv.List[0].Type), Params: params, Returns: returns}
 }
 
-// extractInterface 提取interface。
+// extractInterface 提取接口方法和嵌入类型。
+// 方法和嵌入列表会稳定排序，避免 AST 原始顺序变化影响 diff。
 func extractInterface(ts *ast.TypeSpec, iface *ast.InterfaceType) InterfaceManifest {
 	out := InterfaceManifest{Name: ts.Name.Name, Exported: isExported(ts.Name.Name)}
 	if iface.Methods == nil {
@@ -280,7 +285,8 @@ func extractReturnTypes(fields *ast.FieldList) []string {
 	return returns
 }
 
-// typeToString 把type处理为string。
+// typeToString 将常见 AST 类型表达式转换为清单中的稳定字符串。
+// 未覆盖的复合表达式交给 compositeTypeToString 处理，避免直接丢失签名信息。
 func typeToString(expr ast.Expr) string {
 	switch t := expr.(type) {
 	case *ast.Ident:
@@ -298,7 +304,8 @@ func typeToString(expr ast.Expr) string {
 	}
 }
 
-// compositeTypeToString 把compositetype处理为string。
+// compositeTypeToString 转换结构体、泛型、接口、函数和省略号等复合类型表达式。
+// 无法识别的表达式返回 unknown，使清单 diff 显式暴露解析盲区。
 func compositeTypeToString(expr ast.Expr) string {
 	switch t := expr.(type) {
 	case *ast.StructType:
@@ -336,7 +343,7 @@ func channelTypeToString(t *ast.ChanType) string {
 	}
 }
 
-// interfaceTypeToString 把interfacetype处理为string。
+// interfaceTypeToString 将匿名接口类型格式化为紧凑签名字符串。
 func interfaceTypeToString(iface *ast.InterfaceType) string {
 	if iface.Methods == nil || len(iface.Methods.List) == 0 {
 		return "interface{}"
@@ -371,7 +378,8 @@ func funcSignatureSuffix(fn *ast.FuncType) string {
 	return "(" + params + ") " + returns
 }
 
-// fieldListToString 把字段list处理为string。
+// fieldListToString 将字段列表格式化为签名片段。
+// 有名字段会保留名称，未命名字段只保留类型。
 func fieldListToString(fields *ast.FieldList, separator string) string {
 	if fields == nil || len(fields.List) == 0 {
 		return ""
@@ -428,7 +436,7 @@ func isExported(name string) bool {
 	return name != "" && unicode.IsUpper(rune(name[0]))
 }
 
-// computeSummary 计算摘要。
+// computeSummary 汇总包、函数、方法、接口、结构体及导出性计数。
 func computeSummary(packages []PackageManifest) ManifestSummary {
 	summary := ManifestSummary{TotalPackages: len(packages)}
 	for _, pkg := range packages {

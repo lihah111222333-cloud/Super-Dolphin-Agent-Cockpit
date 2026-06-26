@@ -16,70 +16,48 @@ import (
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
-// SpawnedServer is the narrow surface a ServerPool entry exposes. Real
-// production values wrap *transport; tests can inject a fake that
-// only cares about URL + Close. Keeping the interface small lets the
-// pool be unit-tested without booting the codex Rust binary.
+// SpawnedServer 是 ServerPool 持有的最小 app-server 生命周期接口。
+// 生产实现包装 transport，测试可注入 fake，避免单元测试必须启动 Codex 二进制。
 type SpawnedServer interface {
 	ServerURL() string
 	Close(ctx context.Context) error
 	Alive() bool
 }
 
-// Spawner is the factory the pool uses to create a new entry when a
-// codexHome has no existing server. It returns a SpawnedServer and
-// an error; transient errors are recorded against the home so future
-// Get calls back off according to SpawnBackoff.
+// Spawner 为指定 Codex 身份创建新的 app-server。
+// 临时启动错误会记录到池条目中，后续请求在 SpawnBackoff 窗口内直接返回缓存错误。
 type Spawner func(ctx context.Context, home, modelProvider string) (SpawnedServer, error)
 
-// PoolConfig sets the ServerPool's runtime knobs. Zero fields fall
-// back to defaults.
+// PoolConfig 配置 ServerPool 的空闲回收和启动退避参数。
+// 零值会使用默认值，调用方无需自己复制常量。
 type PoolConfig struct {
-	// IdleTimeout is the duration after which an unused non-session entry
-	// becomes eligible for eviction. Session-owned servers are closed as soon
-	// as their last release runs so archived agents reclaim app-server, MCP,
-	// and LSP child processes immediately.
+	// IdleTimeout 控制无引用条目多久后可被后台回收。
+	// session owner 最后一次 release 会立即关闭进程树，不等待该超时。
 	IdleTimeout time.Duration
-	// SpawnBackoff is the cooldown applied after a spawn failure: the
-	// same codexHome re-requested within this window returns the
-	// cached error without attempting a fresh spawn. Defaults to
-	// DefaultPoolSpawnBackoff.
+	// SpawnBackoff 控制同一身份启动失败后的冷却窗口。
+	// 窗口内返回缓存错误，避免反复拉起同一个失败进程。
 	SpawnBackoff time.Duration
 }
 
-// Defaults exposed so tests / callers can reference them without
-// hand-coding magic numbers.
+// ServerPool 默认空闲回收与启动退避时间。
 const (
 	DefaultPoolIdleTimeout  = 30 * time.Minute
 	DefaultPoolSpawnBackoff = 2 * time.Minute
 )
 
-// Sentinel errors for pool failure modes. Callers branch on these for
-// retry / failover decisions.
+// ServerPool 对外暴露的哨兵错误。
+// 调用方依赖这些错误区分退避、池关闭和身份配置问题。
 var (
 	ErrSpawnBackoff    = errors.New("codexapp: spawn backoff active for codexHome")
 	ErrPoolClosed      = errors.New("codexapp: server pool is closed")
 	ErrInvalidIdentity = errors.New("codexapp: invalid codex identity")
 )
 
-// ServerPool manages one SpawnedServer per canonicalized codex identity and
-// owning agent.
-// It is safe for concurrent use.
+// ServerPool 按 canonical Codex 身份和 owner 管理 app-server 实例。
+// 所有公开方法都受内部锁保护，可并发调用。
 //
-// Semantics:
-//   - Get resolves the identity (canonicalizes codexHome), returns
-//     the existing entry when present and alive, otherwise spawns a
-//     fresh one. The pool does not cap the number of simultaneously
-//     live servers.
-//   - Release decrements the entry refCount. When the owning session releases
-//     a server, the entry is removed and the owned process group is closed;
-//     Codex MCP/LSP sidecars inherit that group and are reclaimed with the
-//     app-server.
-//   - Spawn failures stamp the identity+owner entry with a backoff window so
-//     rapid retries don't thrash the underlying child-process machinery; the
-//     cached error is returned until SpawnBackoff
-//     elapses.
-//   - Close tears every entry down and refuses subsequent Get calls.
+// Acquire 会复用仍存活的条目，否则启动新进程；release 到零引用时立即关闭该进程树。
+// 启动失败会在 identity+owner 维度退避，Close 后拒绝后续 Acquire。
 type ServerPool struct {
 	logger  *slog.Logger
 	spawner Spawner
@@ -112,10 +90,8 @@ type poolEntry struct {
 	backoffUntil  time.Time
 }
 
-// NewServerPool constructs a pool. spawner is required; a nil spawner
-// produces a pool that always fails Get with ErrInvalidIdentity so
-// the mistake is loud.
-// NewServerPool 创建服务端pool。
+// NewServerPool 创建 Codex app-server 池。
+// spawner 为空时池仍可构造，但 Acquire 会显式失败，避免在 fx 装配阶段静默吞掉配置错误。
 func NewServerPool(logger *slog.Logger, spawner Spawner, cfg PoolConfig) *ServerPool {
 	if logger == nil {
 		logger = pkglogger.Get()
@@ -135,15 +111,10 @@ func NewServerPool(logger *slog.Logger, spawner Spawner, cfg PoolConfig) *Server
 	}
 }
 
-// Acquire returns the SpawnedServer bound to the identity, spawning a
-// new one if necessary. The returned release function MUST be called
-// exactly once when the caller is done with the server — it updates
-// the entry's refCount + lastUsed so idle eviction sees accurate
-// utilization.
+// Acquire 返回指定 Codex 身份和 owner 对应的 app-server，必要时会启动新进程。
+// 返回的 release 必须调用一次，用于维护引用计数和空闲时间；失败时 release 是安全 no-op。
 //
-// A nil server + non-nil error is always returned together; the
-// release callback is a safe no-op in that case.
-// Acquire 获取锁或租约。
+// 身份缺字段会 fail-fast，避免不同 provider 实例因为 home 相同而错误复用同一进程。
 func (p *ServerPool) Acquire(ctx context.Context, identity providershared.CodexIdentity, ownerKey string) (SpawnedServer, func(), error) {
 	home, key, provider, err := normalizePoolIdentity(identity)
 	if err != nil {
@@ -166,7 +137,7 @@ func (p *ServerPool) Acquire(ctx context.Context, identity providershared.CodexI
 		p.mu.Unlock()
 		return fastPath.server, fastPath.release, fastPath.err
 	}
-	// Respect spawn backoff before spawning.
+	// 启动新进程前先检查退避窗口，避免失败身份被快速重试打爆。
 	if err := p.checkBackoffLocked(fastPath.entry, fastPath.now); err != nil {
 		p.mu.Unlock()
 		return nil, newNoopRelease(), err
@@ -199,7 +170,8 @@ type acquireFastPathResult struct {
 	done    bool
 }
 
-// acquireFastPathLocked 处理acquirefast路径locked。
+// acquireFastPathLocked 在持锁状态下处理复用、关闭和死进程快路径。
+// 返回 done=false 时调用方必须释放锁后执行真正的 spawn，避免长时间持锁启动进程。
 func (p *ServerPool) acquireFastPathLocked(entryKey poolEntryKey) acquireFastPathResult {
 	result := acquireFastPathResult{release: newNoopRelease()}
 	if p.closed {
@@ -217,7 +189,7 @@ func (p *ServerPool) acquireFastPathLocked(entryKey poolEntryKey) acquireFastPat
 	if result.entry == nil {
 		return result
 	}
-	// Live entry: happy path.
+	// 存活条目直接增加引用计数并返回对应 release。
 	if result.entry.server != nil && result.entry.server.Alive() {
 		result.entry.refCount++
 		result.entry.lastUsed = result.now
@@ -226,9 +198,7 @@ func (p *ServerPool) acquireFastPathLocked(entryKey poolEntryKey) acquireFastPat
 		result.done = true
 		return result
 	}
-	// Dead entry: drop the stale reference so we fall through to
-	// the spawn path. Backoff state is preserved so a flapping
-	// server doesn't spin on respawn.
+	// 死条目只清空 server，保留退避状态，防止不稳定进程持续重启。
 	result.entry.server = nil
 	return result
 }
@@ -241,8 +211,7 @@ func (p *ServerPool) checkBackoffLocked(entry *poolEntry, now time.Time) error {
 }
 
 func (p *ServerPool) recordSpawnErrorLocked(entry *poolEntry, entryKey poolEntryKey, err error, now time.Time) {
-	// Record the failure for backoff. Preserve the existing
-	// entry slot if one exists so backoff state persists.
+	// 记录启动失败并保留条目，后续同一身份可复用退避状态。
 	if entry == nil {
 		entry = newPoolEntry(entryKey)
 		p.entries[entryKey] = entry
@@ -274,13 +243,8 @@ func newPoolEntry(entryKey poolEntryKey) *poolEntry {
 	}
 }
 
-// releaser returns the per-owner release callback used by Acquire. When the
-// final session releases an entry we remove it immediately and close the
-// app-server process group. That makes archive/trash reclaim the app-server
-// and its MCP/LSP sidecars without waiting for the periodic idle runner.
-// The callback is idempotent on the "already released" branch: an extra call
-// after deletion is a no-op.
-// releaser 处理releaser。
+// releaser 返回 Acquire 对应的引用释放闭包。
+// 最后一个引用释放时会删除池条目并关闭 app-server 进程树，重复调用只会成为 no-op。
 func (p *ServerPool) releaser(entryKey poolEntryKey) func() {
 	return func() {
 		var server SpawnedServer
@@ -305,11 +269,8 @@ func (p *ServerPool) releaser(entryKey poolEntryKey) func() {
 	}
 }
 
-// EvictIdle closes every entry whose lastUsed is older than
-// IdleTimeout. Intended to be invoked periodically by a Runner in
-// production; returns the number of entries evicted so callers can
-// emit a metric.
-// EvictIdle 处理evictidle。
+// EvictIdle 关闭超过 IdleTimeout 且无引用的池条目。
+// 该方法供后台 runner 周期调用，返回回收数量用于日志或指标。
 func (p *ServerPool) EvictIdle() int {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -334,9 +295,8 @@ func (p *ServerPool) EvictIdle() int {
 	return removed
 }
 
-// Close tears the pool down. Subsequent Acquire returns ErrPoolClosed.
-// Close is safe to call multiple times.
-// Close 关闭codexapp provider资源。
+// Close 关闭池中所有 app-server，并阻止后续 Acquire。
+// 多次调用是幂等的；单个条目关闭失败会返回第一个错误。
 func (p *ServerPool) Close(ctx context.Context) error {
 	p.mu.Lock()
 	entries, alreadyClosed := p.snapshotCloseEntriesLocked()
@@ -369,23 +329,16 @@ func (p *ServerPool) snapshotCloseEntriesLocked() ([]*poolEntry, bool) {
 	return entries, false
 }
 
-// Size returns the current number of pool entries. Useful for tests
-// and metrics.
-// Size 返回池内 manager 数量。
+// Size 返回当前池条目数量。
+// 该值主要用于测试和轻量观测，读取时持锁保证一致快照。
 func (p *ServerPool) Size() int {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	return len(p.entries)
 }
 
-// normalizePoolIdentity returns the canonicalized codexHome plus the
-// trimmed codexInstanceKey/codexModelProvider pair. The home produced by
-// providershared.ResolveCodexIdentity is already canonicalized; we re-run
-// CanonicalizeCodexHome here when callers pass raw input so the pool remains
-// the single authority on home->entry binding. P22 P1a requires the full
-// identity triple to fail closed: the pool key includes all three fields, so no
-// entry may silently collapse two providers that share the same home + instance
-// key.
+// normalizePoolIdentity 规范化池 key 所需的 Codex 身份三元组。
+// home、instanceKey、modelProvider 任一缺失都直接报错，避免多个 provider 实例静默合并。
 func normalizePoolIdentity(identity providershared.CodexIdentity) (home, key, provider string, err error) {
 	raw := strings.TrimSpace(identity.Home)
 	if raw == "" {
@@ -406,10 +359,8 @@ func normalizePoolIdentity(identity providershared.CodexIdentity) (home, key, pr
 	return canonical, key, provider, nil
 }
 
-// closeWithTimeout invokes Close with a background deadline so the
-// pool never blocks an eviction on a slow child process. Logged at
-// debug level because the failure rarely indicates real trouble —
-// shutdown ordering races commonly surface as transient Close errors.
+// closeWithTimeout 用后台超时关闭池条目。
+// 回收路径不能被慢进程无限阻塞；关闭失败只记 debug，因为常见于进程已先行退出的竞态。
 func closeWithTimeout(server SpawnedServer, timeout time.Duration, logger *slog.Logger, key poolEntryKey) {
 	ctx, cancel := withTimeout(context.Background(), timeout)
 	defer cancel()
@@ -439,7 +390,8 @@ func newPoolEvictRunner(logger *slog.Logger, pool *ServerPool) *poolEvictRunner 
 
 var _ platformrunner.Runner = (*poolEvictRunner)(nil)
 
-// Run 启动codexapp provider后台流程。
+// Run 周期性回收 ServerPool 中无引用的空闲条目。
+// pool 为空时只等待 ctx 结束，保持 runner 生命周期和上层一致。
 func (r *poolEvictRunner) Run(ctx context.Context) error {
 	if r.pool == nil {
 		<-ctx.Done()
@@ -463,9 +415,8 @@ func (r *poolEvictRunner) Run(ctx context.Context) error {
 
 func poolEvictRunnerAsRunner(r *poolEvictRunner) platformrunner.Runner { return r }
 
-// cleanPeerDiscoveryFiles removes HTTP discovery files for peer MCP processes.
-// Called during ServerManager shutdown as a safety net.
-// cleanPeerDiscoveryFiles 处理cleanpeerdiscovery文件。
+// cleanPeerDiscoveryFiles 清理当前进程写出的 peer MCP discovery 文件。
+// ServerManager shutdown 会调用它作为安全网，失败仅告警，不阻断主关闭流程。
 func cleanPeerDiscoveryFiles() {
 	myPID := os.Getpid()
 	for _, binary := range []string{"mcp-orch", "mcp-lsp"} {

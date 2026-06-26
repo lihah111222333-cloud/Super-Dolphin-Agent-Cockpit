@@ -15,13 +15,14 @@ import (
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
-// removed triggers
+// turn lifecycle 事件处理函数。
 
+// handleTurnCompletedEvent 使用 background context 处理 turn.completed 事件。
 func handleTurnCompletedEvent(svc *service, logger *slog.Logger, ev turndto.TurnCompleted) {
 	handleTurnCompletedEventWithCtx(svc, logger, ev, context.Background())
 }
 
-// handleTurnCompletedEventWithCtx 处理带ctx的turncompleted事件。
+// handleTurnCompletedEventWithCtx 处理 turn.completed，并在常规完成失败时尝试强制收口状态。
 func handleTurnCompletedEventWithCtx(svc *service, logger *slog.Logger, ev turndto.TurnCompleted, parent context.Context) {
 	if svc == nil {
 		return
@@ -88,11 +89,12 @@ func settleProviderTurnCompletionMismatch(svc *service, logger *slog.Logger, ev 
 	return true
 }
 
+// handleTurnInterruptedEvent 使用 background context 处理 turn.interrupted 事件。
 func handleTurnInterruptedEvent(svc *service, logger *slog.Logger, ev turndto.TurnInterrupted) {
 	handleTurnInterruptedEventWithCtx(svc, logger, ev, context.Background())
 }
 
-// handleTurnInterruptedEventWithCtx 处理带ctx的turninterrupted事件。
+// handleTurnInterruptedEventWithCtx 处理 turn.interrupted，并在状态漂移时尝试强制 idle。
 func handleTurnInterruptedEventWithCtx(svc *service, logger *slog.Logger, ev turndto.TurnInterrupted, parent context.Context) {
 	if svc == nil {
 		return
@@ -125,6 +127,7 @@ func handleTurnInterruptedEventWithCtx(svc *service, logger *slog.Logger, ev tur
 	logTurnInterruptedFailure(logger, ev, err, recovered, recoverErr)
 }
 
+// markAwaitingUserInput 将 active turn 推进到 awaiting_user_input。
 func (s *service) markAwaitingUserInput(ctx context.Context, agentID, turnID string) error {
 	return s.withAgentLocked(agentID, func(agent *agentRuntime) error {
 		if !userInputMatchesActiveTurn(agent, turnID) {
@@ -140,7 +143,7 @@ func (s *service) markAwaitingUserInput(ctx context.Context, agentID, turnID str
 	})
 }
 
-// resolveAwaitingUserInput 解析awaitinguserinput。
+// resolveAwaitingUserInput 将 awaiting_user_input 恢复为 turn_running，重复 resolved 视为幂等。
 func (s *service) resolveAwaitingUserInput(ctx context.Context, agentID, turnID, reason string) error {
 	reason = strings.TrimSpace(reason)
 	if reason == "" {
@@ -171,10 +174,12 @@ func (s *service) resolveAwaitingUserInput(ctx context.Context, agentID, turnID,
 	})
 }
 
+// ensureTurnRunningForUserInputLocked 确保 agent 已进入可请求用户输入的运行态。
 func (s *service) ensureTurnRunningForUserInputLocked(ctx context.Context, agent *agentRuntime) error {
 	return s.ensureTurnStartedLocked(ctx, agent, agentdto.TriggerUserInputRequested, agentdto.StateTurnRunning, agentdto.StateAwaitingUserInput)
 }
 
+// userInputMatchesActiveTurn 判断 approval 事件是否匹配当前 active turn。
 func userInputMatchesActiveTurn(agent *agentRuntime, turnID string) bool {
 	if agent == nil {
 		return false
@@ -187,6 +192,7 @@ func userInputMatchesActiveTurn(agent *agentRuntime, turnID string) bool {
 	return turnID == "" || turnID == activeTurnID
 }
 
+// handleToolApprovalRequestedEvent 将 request_user_input/tool approval 事件映射为 awaiting_user_input。
 func handleToolApprovalRequestedEvent(svc *service, logger *slog.Logger, ev tooldto.ToolApprovalRequested) {
 	if svc == nil || !isRequestUserInputEvent(ev.Kind) {
 		return
@@ -198,6 +204,7 @@ func handleToolApprovalRequestedEvent(svc *service, logger *slog.Logger, ev tool
 	}
 }
 
+// handleToolApprovalResolvedEvent 将 approval resolved 事件映射为用户输入已解决。
 func handleToolApprovalResolvedEvent(svc *service, logger *slog.Logger, ev tooldto.ToolApprovalResolved) {
 	if svc == nil || !isRequestUserInputEvent(ev.Kind) {
 		return
@@ -209,6 +216,7 @@ func handleToolApprovalResolvedEvent(svc *service, logger *slog.Logger, ev toold
 	}
 }
 
+// approvalResolveReason 将 approval 决策归一为 approve、timeout、cancel 或 reject。
 func approvalResolveReason(ev tooldto.ToolApprovalResolved) string {
 	if ev.Approved {
 		return "approve"
@@ -224,16 +232,18 @@ func approvalResolveReason(ev tooldto.ToolApprovalResolved) string {
 	}
 }
 
+// isRequestUserInputEvent 判断 tool approval 事件是否应驱动 user-input 状态。
 func isRequestUserInputEvent(kind string) bool {
-	// Ordinary tool approvals reach orchestration as kind "tool" because
-	// rpc.RequestApproval normalizes an empty approval kind to that live value.
+	// 普通 tool approval 进入 orchestration 时 kind 会被规范化为 "tool"，也需要驱动等待用户输入状态。
 	return strings.EqualFold(strings.TrimSpace(kind), "request_user_input") || strings.EqualFold(strings.TrimSpace(kind), "tool")
 }
 
+// shouldIgnoreUserInputErr 判断 user-input 状态事件是否已经幂等收口。
 func shouldIgnoreUserInputErr(err error) bool {
 	return err == nil || errors.Is(err, errAgentNotFound) || errors.Is(err, errTurnNotActive)
 }
 
+// userInputLogger 返回非 nil logger，避免事件路径因 logger 缺失 panic。
 func userInputLogger(logger *slog.Logger) *slog.Logger {
 	if logger != nil {
 		return logger
@@ -241,6 +251,7 @@ func userInputLogger(logger *slog.Logger) *slog.Logger {
 	return pkglogger.Get()
 }
 
+// interruptTurn 在 service 锁内中止当前 active turn。
 func (s *service) interruptTurn(ctx context.Context, agentID, turnID, reason string) error {
 	return s.withAgentLocked(agentID, func(agent *agentRuntime) error {
 		if err := s.ensureTurnAbortableLocked(ctx, agent); err != nil {
@@ -253,6 +264,7 @@ func (s *service) interruptTurn(ctx context.Context, agentID, turnID, reason str
 	})
 }
 
+// forceIdleAfterCompletionError 在完成事件处理失败时尝试把状态推进到终态。
 func (s *service) forceIdleAfterCompletionError(
 	ctx context.Context,
 	agentID string,
@@ -306,6 +318,7 @@ func (s *service) forceIdleAfterProviderTurnCompletion(ctx context.Context, ev t
 	return recovered, err
 }
 
+// forceIdleAfterInterruptionError 在中断事件处理失败时尝试把状态推进到 idle。
 func (s *service) forceIdleAfterInterruptionError(
 	ctx context.Context,
 	agentID string,
@@ -327,6 +340,7 @@ func (s *service) forceIdleAfterInterruptionError(
 	return recovered, err
 }
 
+// recoverTurnCompletionStateLocked 修正完成事件到达时可能残留的中间状态。
 func (s *service) recoverTurnCompletionStateLocked(ctx context.Context, agent *agentRuntime, success bool) error {
 	if agent == nil || agent.state == agentdto.StateIdle {
 		return nil
@@ -337,6 +351,7 @@ func (s *service) recoverTurnCompletionStateLocked(ctx context.Context, agent *a
 	return s.fireOrForceLocked(ctx, agent, completionRecoveryTrigger(success))
 }
 
+// recoverTurnInterruptionStateLocked 修正中断事件到达时可能残留的中间状态。
 func (s *service) recoverTurnInterruptionStateLocked(ctx context.Context, agent *agentRuntime) error {
 	if agent == nil || agent.state == agentdto.StateIdle {
 		return nil
@@ -347,6 +362,7 @@ func (s *service) recoverTurnInterruptionStateLocked(ctx context.Context, agent 
 	return s.fireOrForceLocked(ctx, agent, agentdto.TriggerTurnAborted)
 }
 
+// normalizeTurnCompletionStateLocked 在完成触发前补齐状态机要求的前置状态。
 func (s *service) normalizeTurnCompletionStateLocked(ctx context.Context, agent *agentRuntime, success bool) error {
 	switch agent.state {
 	case agentdto.StateTurnStarting:
@@ -364,10 +380,12 @@ func (s *service) normalizeTurnCompletionStateLocked(ctx context.Context, agent 
 	}
 }
 
+// ensureTurnAbortableLocked 确保 agent 已进入可被中止的 turn 运行态。
 func (s *service) ensureTurnAbortableLocked(ctx context.Context, agent *agentRuntime) error {
 	return s.ensureTurnStartedLocked(ctx, agent, agentdto.TriggerTurnAborted, agentdto.StateTurnRunning, agentdto.StateAwaitingUserInput)
 }
 
+// completionRecoveryTrigger 根据 completion 成功与否选择完成或中止触发。
 func completionRecoveryTrigger(success bool) agentdto.AgentTrigger {
 	if success {
 		return agentdto.TriggerTurnCompleted
@@ -375,7 +393,7 @@ func completionRecoveryTrigger(success bool) agentdto.AgentTrigger {
 	return agentdto.TriggerTurnAborted
 }
 
-// canForceIdleAfterTurnTerminal 判断强制idle后置turnterminal是否可用。
+// canForceIdleAfterTurnTerminal 判断终态事件失败后是否允许强制收口 active turn。
 func canForceIdleAfterTurnTerminal(agent *agentRuntime, turnID string) bool {
 	if agent == nil {
 		return false
@@ -412,6 +430,7 @@ func canRecoverProviderTurnCompletion(agent *agentRuntime, ev turndto.TurnComple
 	return turnCompletedEventMatchesAgentThread(agent, ev.ThreadID)
 }
 
+// turnCompletedEventMatchesAgentThread 判断 provider 完成事件是否属于当前 agent/thread。
 func turnCompletedEventMatchesAgentThread(agent *agentRuntime, threadID string) bool {
 	threadID = strings.TrimSpace(threadID)
 	if threadID == "" {
@@ -425,10 +444,12 @@ func turnCompletedEventMatchesAgentThread(agent *agentRuntime, threadID string) 
 	return false
 }
 
+// shouldIgnoreTurnLifecycleErr 判断终态事件错误是否可以视为已幂等收口。
 func shouldIgnoreTurnLifecycleErr(svc *service, agentID, turnID string, err error) bool {
 	return err == nil || errors.Is(err, errTurnNotActive) && turnTerminalConverged(svc, agentID, turnID)
 }
 
+// turnTerminalConverged 检查 agent 是否已经没有 active turn 且回到 idle。
 func turnTerminalConverged(svc *service, agentID, turnID string) bool {
 	if svc == nil {
 		return false
@@ -443,6 +464,7 @@ func turnTerminalConverged(svc *service, agentID, turnID string) bool {
 	return converged
 }
 
+// turnTerminalConvergedLocked 在持锁读取路径判断 turn 终态是否已收敛。
 func turnTerminalConvergedLocked(agent *agentRuntime, turnID string) bool {
 	if agent == nil {
 		return false
@@ -456,6 +478,7 @@ func turnTerminalConvergedLocked(agent *agentRuntime, turnID string) bool {
 	return strings.TrimSpace(turnID) != "" || strings.TrimSpace(agent.threadID) != ""
 }
 
+// logTurnCompletedEventReceived 记录收到的 completion 事件及 report 长度。
 func logTurnCompletedEventReceived(logger *slog.Logger, ev turndto.TurnCompleted) {
 	logger = userInputLogger(logger)
 	logger.Info("orchestration: turn completed event received",
@@ -467,6 +490,7 @@ func logTurnCompletedEventReceived(logger *slog.Logger, ev turndto.TurnCompleted
 		pkglogger.Int64("result_len", int64(len(strings.TrimSpace(turnCompletedReportText(ev))))))
 }
 
+// logTurnInterruptedEventReceived 记录收到的 interruption 事件和原因。
 func logTurnInterruptedEventReceived(logger *slog.Logger, ev turndto.TurnInterrupted) {
 	logger = userInputLogger(logger)
 	logger.Info("orchestration: turn interrupted event received",
@@ -477,6 +501,7 @@ func logTurnInterruptedEventReceived(logger *slog.Logger, ev turndto.TurnInterru
 		pkglogger.String("reason", strings.TrimSpace(ev.Reason)))
 }
 
+// logTurnTerminalProgress 根据耗时和错误选择 info/warn 记录终态处理进度。
 func logTurnTerminalProgress(
 	logger *slog.Logger,
 	message string,
@@ -506,7 +531,7 @@ func logTurnTerminalProgress(
 	logger.Info(message, attrs...)
 }
 
-// logTurnCompletionFailure 处理日志turn补全failure。
+// logTurnCompletionFailure 记录 completion 处理失败；已收敛缺失只打 debug。
 func logTurnCompletionFailure(
 	logger *slog.Logger,
 	ev turndto.TurnCompleted,
@@ -533,7 +558,7 @@ func logTurnCompletionFailure(
 	logger.Warn("orchestration: failed to handle turn completion", attrs...)
 }
 
-// logTurnInterruptedFailure 处理日志turninterruptedfailure。
+// logTurnInterruptedFailure 记录 interruption 处理失败；已收敛缺失只打 debug。
 func logTurnInterruptedFailure(
 	logger *slog.Logger,
 	ev turndto.TurnInterrupted,

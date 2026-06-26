@@ -5,18 +5,20 @@ import (
 	"encoding/json"
 )
 
-// ApprovalResponder handles tool call approval responses.
-// Implemented by platform/rpc.ApprovalManager so module/turn depends only on this contract.
+// ApprovalResponder 是 tool call 审批结果回写边界。
+// turn 模块只依赖该接口，具体请求状态和 RPC 通知由 platform/rpc 实现。
 type ApprovalResponder interface {
 	Respond(callID string, requestID *int64, decision ApprovalDecision) error
 }
 
-// ApprovalRequester requests a user approval decision.
+// ApprovalRequester 发起需要用户裁决的审批请求。
+// 实现负责阻塞等待或返回拒绝/取消，调用方不得自行伪造默认通过结果。
 type ApprovalRequester interface {
 	RequestApproval(ctx context.Context, req ApprovalRequest) (ApprovalDecision, error)
 }
 
-// ApprovalRequest captures the common approval request payload shared across modules.
+// ApprovalRequest 是跨模块共享的审批请求 wire 载荷。
+// CallID/ApprovalID 定位一次审批，Payload 保存工具相关上下文但不承诺具体 schema。
 type ApprovalRequest struct {
 	CallID       string
 	ApprovalID   string
@@ -30,15 +32,16 @@ type ApprovalRequest struct {
 	Payload      map[string]any
 }
 
-// ApprovalDecision captures the result of a tool-call approval.
+// ApprovalDecision 是一次审批的最终裁决。
+// Approved 为 nil 表示尚未形成裁决或被取消，调用方必须显式处理。
 type ApprovalDecision struct {
 	Approved *bool           `json:"approved,omitempty"`
 	Reason   string          `json:"reason,omitempty"`
 	Detail   json.RawMessage `json:"detail,omitempty"`
 }
 
-// ArtifactApprovalRequest identifies a skill artifact approval lookup without
-// forcing prompt/catalog packages to import the concrete skill approval cache.
+// ArtifactApprovalRequest 定位一次 skill artifact 审批查询。
+// prompt/catalog 通过该结构查询审批缓存，不依赖具体 skill approval 存储实现。
 type ArtifactApprovalRequest struct {
 	RepoFingerprint string
 	Name            string
@@ -47,8 +50,8 @@ type ArtifactApprovalRequest struct {
 	ContentHash     string
 }
 
-// ApprovalSource exposes read-only artifact approval state plus a monotonic
-// revision for prompt cache invalidation.
+// ApprovalSource 暴露只读 artifact 审批状态和单调递增 revision。
+// prompt 缓存用 revision 判断是否需要失效重算。
 type ApprovalSource interface {
 	LookupArtifactApproval(ctx context.Context, req ArtifactApprovalRequest) (bool, error)
 	ApprovalRevision() uint64

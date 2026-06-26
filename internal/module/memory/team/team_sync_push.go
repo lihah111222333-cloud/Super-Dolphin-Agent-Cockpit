@@ -6,11 +6,14 @@ import (
 	"strings"
 )
 
+// teamSyncBatch 是单次远端 push 请求的上传和删除集合。
 type teamSyncBatch struct {
 	Uploads map[string]string
 	Deletes []string
 }
 
+// preparedTeamSyncPush 是持锁准备好的推送计划。
+// localTree 用于最终确认远端状态是否覆盖当前本地快照，filtered 记录密钥扫描后的可推送文件。
 type preparedTeamSyncPush struct {
 	localChecksums map[string]string
 	localTree      string
@@ -18,7 +21,8 @@ type preparedTeamSyncPush struct {
 	batches        []teamSyncBatch
 }
 
-// pushLocked 处理pushlocked。
+// pushLocked 在持有 s.mu 时把本地团队记忆变更推送到远端。
+// 该流程会先执行密钥过滤，再按远端容量限制分批推送；冲突时最多 pull 后重试一次。
 func (s *TeamSyncService) pushLocked(ctx context.Context, trigger TeamSyncTrigger, retried bool) (TeamSyncPushResult, error) {
 	result := TeamSyncPushResult{}
 	plan, ok, err := s.preparePushLocked()
@@ -44,6 +48,7 @@ func (s *TeamSyncService) pushLocked(ctx context.Context, trigger TeamSyncTrigge
 	return s.finalizePushLocked(ctx, trigger, result, plan)
 }
 
+// buildTeamSyncBatches 根据远端容量上限把上传和删除操作拆成请求批次。
 func buildTeamSyncBatches(uploads map[string]string, deletes []string, limit int) []teamSyncBatch {
 	if len(uploads) == 0 && len(deletes) == 0 {
 		return nil
@@ -54,6 +59,8 @@ func buildTeamSyncBatches(uploads map[string]string, deletes []string, limit int
 	return buildLimitedTeamSyncBatches(uploads, deletes, limit)
 }
 
+// buildLimitedTeamSyncBatches 按稳定路径顺序拆分 push 批次。
+// 先上传后删除，保证同一批内的计数不超过远端声明的 max entries。
 func buildLimitedTeamSyncBatches(uploads map[string]string, deletes []string, limit int) []teamSyncBatch {
 	uploadKeys := sortedMapKeys(uploads)
 	deleteKeys := append([]string(nil), deletes...)
@@ -77,6 +84,8 @@ func buildLimitedTeamSyncBatches(uploads map[string]string, deletes []string, li
 	return batches
 }
 
+// preparePushLocked 扫描本地文件并构建 push 计划。
+// 本地 checksum 未变化时返回 ok=false；命中密钥的文件会从 uploads 中移除但记录到 Skipped。
 func (s *TeamSyncService) preparePushLocked() (preparedTeamSyncPush, bool, error) {
 	if !s.runtimeReadyLocked() {
 		return preparedTeamSyncPush{}, false, nil
@@ -100,6 +109,7 @@ func (s *TeamSyncService) preparePushLocked() (preparedTeamSyncPush, bool, error
 	}, true, nil
 }
 
+// pushBatchLocked 发送单个 push 批次，并带上当前远端 ETag 做并发保护。
 func (s *TeamSyncService) pushBatchLocked(ctx context.Context, batch teamSyncBatch) (TeamSyncPushResponse, error) {
 	return s.remote.PushFiles(ctx, TeamSyncPushRequest{
 		RepoSlug:      s.repoSlug,
@@ -110,7 +120,8 @@ func (s *TeamSyncService) pushBatchLocked(ctx context.Context, batch teamSyncBat
 	})
 }
 
-// handlePushBatchResponseLocked 处理pushbatch响应locked。
+// handlePushBatchResponseLocked 合并单个远端 push 响应。
+// 远端冲突会进入 pull-and-retry，NotFound 不清空本地，只把远端缺失记为失败让调用方可见。
 func (s *TeamSyncService) handlePushBatchResponseLocked(
 	ctx context.Context,
 	trigger TeamSyncTrigger,
@@ -136,7 +147,8 @@ func (s *TeamSyncService) handlePushBatchResponseLocked(
 	return false, updated, nil
 }
 
-// applyPushBatchLimitsLocked 应用pushbatchlimitslocked。
+// applyPushBatchLimitsLocked 学习远端返回的批次容量上限。
+// 如果响应只携带上限而没有实际应用结果，当前 push 会停止，下一次按新上限重新分批。
 func (s *TeamSyncService) applyPushBatchLimitsLocked(
 	result TeamSyncPushResult,
 	response TeamSyncPushResponse,
@@ -155,6 +167,8 @@ func (s *TeamSyncService) applyPushBatchLimitsLocked(
 	return false, result, nil
 }
 
+// handlePushConflictLocked 处理远端 ETag 冲突。
+// 首次冲突先拉取远端再重试一次；已重试仍冲突时合并远端失败和本地跳过文件后停止。
 func (s *TeamSyncService) handlePushConflictLocked(
 	ctx context.Context,
 	trigger TeamSyncTrigger,
@@ -178,6 +192,7 @@ func (s *TeamSyncService) handlePushConflictLocked(
 	return true, retry, nil
 }
 
+// finalizePushLocked 持久化 push 后的同步状态，并在远端接受变更时触发 prompt 失效。
 func (s *TeamSyncService) finalizePushLocked(
 	ctx context.Context,
 	trigger TeamSyncTrigger,
@@ -197,6 +212,7 @@ func (s *TeamSyncService) finalizePushLocked(
 	return result, nil
 }
 
+// appendTeamSyncUploads 将上传项追加到当前批次，到达限制时调用 flush。
 func appendTeamSyncUploads(
 	current *teamSyncBatch,
 	uploads map[string]string,
@@ -214,6 +230,7 @@ func appendTeamSyncUploads(
 	}
 }
 
+// appendTeamSyncDeletes 将删除项追加到当前批次，到达限制时调用 flush。
 func appendTeamSyncDeletes(
 	current *teamSyncBatch,
 	keys []string,
@@ -230,7 +247,8 @@ func appendTeamSyncDeletes(
 	}
 }
 
-// applyPushResponse 应用push响应。
+// applyPushResponse 把远端 push 响应写回本地 SyncState。
+// 只接受非空 path/checksum；远端删除会移除对应 checksum，空 checksum map 会被收敛为 nil。
 func applyPushResponse(state *SyncState, response TeamSyncPushResponse) {
 	if state == nil {
 		return
@@ -257,6 +275,7 @@ func applyPushResponse(state *SyncState, response TeamSyncPushResponse) {
 	}
 }
 
+// skippedFailures 把密钥扫描跳过的文件转换为失败 map，供 UI/RPC 展示。
 func skippedFailures(skipped []TeamMemSkippedFile) map[string]string {
 	if len(skipped) == 0 {
 		return nil
@@ -268,6 +287,7 @@ func skippedFailures(skipped []TeamMemSkippedFile) map[string]string {
 	return failed
 }
 
+// mergeFailures 合并两个文件失败 map，右侧同名路径覆盖左侧。
 func mergeFailures(left, right map[string]string) map[string]string {
 	if len(left) == 0 && len(right) == 0 {
 		return nil

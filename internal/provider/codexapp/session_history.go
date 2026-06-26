@@ -24,7 +24,8 @@ type rolloutReader struct {
 	transport *transport
 }
 
-// ReadHistory 读取history。
+// ReadHistory 从本地 rollout 文件读取 Codex 历史消息。
+// 本地历史缺失时返回空列表并告警；远端 history API 当前不可用，不做静默远端兜底。
 func (r *rolloutReader) ReadHistory(ctx context.Context, threadID, codexHome string, limit int) ([]Message, error) {
 	if messages, err := readLocalRollout(threadID, codexHome, limit); err == nil && len(messages) > 0 {
 		return messages, nil
@@ -37,7 +38,8 @@ func (r *rolloutReader) ReadHistory(ctx context.Context, threadID, codexHome str
 	return []Message{}, nil
 }
 
-// ReadHistory 读取history。
+// ReadHistory 读取当前 session 的 provider 历史并转换为统一 DTO。
+// 优先使用请求 threadID；若绑定未更新导致查不到 rollout，会尝试 session 当前 Codex thread UUID。
 func (s *session) ReadHistory(ctx context.Context, threadID string, limit int) ([]dto.Message, error) {
 	if s.history == nil {
 		return nil, errors.New("codexapp: history backend is not configured")
@@ -60,11 +62,8 @@ func (s *session) ReadHistory(ctx context.Context, threadID string, limit int) (
 	return toProviderHistory(messages), nil
 }
 
-// readHistoryFallback tries the session's actual codex thread UUID when the
-// primary threadID failed to find rollout history. This handles the case where
-// the binding's provider_thread_id wasn't updated (e.g. due to a prior binding
-// conflict) but the session knows the correct UUID from the live codex process.
-// readHistoryFallback 读取history兜底。
+// readHistoryFallback 用 session 当前 Codex thread UUID 再查一次本地 rollout。
+// 只有主查询没有消息时才走该路径，避免绑定漂移时用户看不到已发生的对话。
 func (s *session) readHistoryFallback(ctx context.Context, primaryTarget, codexHome string, limit int) []Message {
 	codexThreadID := strings.TrimSpace(s.ThreadID())
 	if codexThreadID == "" || codexThreadID == primaryTarget {
@@ -94,7 +93,8 @@ func toProviderHistory(messages []Message) []dto.Message {
 	return out
 }
 
-// CompactThread 处理紧凑列表线程。
+// CompactThread 请求 Codex app-server 对指定线程启动 compact。
+// threadID 为空会先经 requireThreadID 阻断，args 为空时只发送必要 threadId。
 func (s *session) CompactThread(ctx context.Context, threadID, args string) error {
 	target, err := requireThreadID(s, threadID)
 	if err != nil {

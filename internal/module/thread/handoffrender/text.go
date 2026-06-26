@@ -7,7 +7,8 @@ import (
 	threadstore "github.com/anthropic-ai/super-agent-v3/internal/store/thread"
 )
 
-// ThreadStatus 处理线程状态。
+// ThreadStatus 从 thread store 行中取出交接展示用状态。
+// nil 行返回空字符串，让渲染层可以统一跳过缺失字段。
 func ThreadStatus(row *threadstore.Thread) string {
 	if row == nil {
 		return ""
@@ -15,7 +16,7 @@ func ThreadStatus(row *threadstore.Thread) string {
 	return strings.TrimSpace(row.Status)
 }
 
-// ThreadID 处理线程ID。
+// ThreadID 从 thread store 行中取出交接展示用 thread id。
 func ThreadID(row *threadstore.Thread) string {
 	if row == nil {
 		return ""
@@ -23,7 +24,7 @@ func ThreadID(row *threadstore.Thread) string {
 	return strings.TrimSpace(row.ThreadID)
 }
 
-// ThreadCWD 处理线程工作目录。
+// ThreadCWD 从 thread store 行中取出交接展示用工作目录。
 func ThreadCWD(row *threadstore.Thread) string {
 	if row == nil {
 		return ""
@@ -31,12 +32,12 @@ func ThreadCWD(row *threadstore.Thread) string {
 	return strings.TrimSpace(row.Cwd)
 }
 
-// NormalizeText 规范化文本。
+// NormalizeText 将多行和多空白压成单行文本，供 handoff 摘要稳定渲染。
 func NormalizeText(raw string) string {
 	return strings.Join(strings.Fields(strings.ReplaceAll(strings.TrimSpace(raw), "\r\n", "\n")), " ")
 }
 
-// TruncateText 截断文本。
+// TruncateText 按 rune 截断展示文本并补省略号，避免中文被按 byte 切坏。
 func TruncateText(raw string, limit int) string {
 	raw = strings.TrimSpace(raw)
 	if raw == "" || limit <= 0 {

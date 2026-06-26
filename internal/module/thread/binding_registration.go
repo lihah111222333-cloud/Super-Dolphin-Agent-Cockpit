@@ -15,6 +15,8 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/util/identifier"
 )
 
+// bindingRegistration 是写入 binding store 前的规范化线程绑定请求。
+// 构造时已完成 provider thread id 校验，后续持久化逻辑不要再改写这些字段。
 type bindingRegistration struct {
 	AgentID, Provider, ProviderThreadID, PublicThreadID, CWD string
 	RolloutPath, SessionUUID, ParentAgentID, AgentType       string
@@ -23,12 +25,16 @@ type bindingRegistration struct {
 	CreatedAt                                                int64
 }
 
+// bindingWriteOutcome 描述一次 binding 写入是否真正落库。
+// Previous 保留旧记录，供调用方在校验失败时返回可解释的冲突信息。
 type bindingWriteOutcome struct {
 	AgentID   string
 	Persisted bool
 	Previous  *bindingstore.Binding
 }
 
+// normalizeThreadState 清理线程状态中的可变输入，并补齐创建时间。
+// 公开线程 ID 和 agent ID 是持久化主键边界，缺失时必须直接返回错误。
 func normalizeThreadState(state threadState) (threadState, error) {
 	trim := strings.TrimSpace
 	state.PublicThreadID, state.ProviderThreadID, state.OwnerThreadID = trim(state.PublicThreadID), trim(state.ProviderThreadID), trim(state.OwnerThreadID)
@@ -45,6 +51,8 @@ func normalizeThreadState(state threadState) (threadState, error) {
 	return state, nil
 }
 
+// normalizeBindingRegistration 将 threadState 收敛为 binding store 可写入的字段集合。
+// provider thread id 会按 provider 规则重新规范化，非法值在进入 store 前阻断。
 func normalizeBindingRegistration(state threadState) (bindingRegistration, error) {
 	if state.AgentID == "" || state.Provider == "" || state.PublicThreadID == "" {
 		return bindingRegistration{}, errors.New("binding requires agent, provider, and public thread ids")
@@ -60,6 +68,8 @@ func normalizeBindingRegistration(state threadState) (bindingRegistration, error
 	}, nil
 }
 
+// normalizeProviderThreadID 清理 provider 侧线程 ID。
+// Claude 只接受真实 CLI session UUID，非 UUID 值会被清空以避免错误绑定。
 func normalizeProviderThreadID(provider, id string) string {
 	id = strings.TrimSpace(id)
 	if strings.EqualFold(strings.TrimSpace(provider), "claude") && !identifier.IsClaudeCLISessionUUID(id) {
@@ -68,6 +78,8 @@ func normalizeProviderThreadID(provider, id string) string {
 	return id
 }
 
+// validateProviderThreadID 校验 provider thread id 是否满足 provider 自身格式。
+// 目前只有 Claude 需要 session UUID；其他 provider 允许空值或自有格式。
 func validateProviderThreadID(provider, id string) error {
 	provider = strings.TrimSpace(provider)
 	id = strings.TrimSpace(id)
@@ -80,7 +92,8 @@ func validateProviderThreadID(provider, id string) error {
 	return fmt.Errorf("claude provider_thread_id must be a session UUID")
 }
 
-// ensurePublicThreadAvailable 确保public线程available。
+// ensurePublicThreadAvailable 确认公开线程 ID 没有被其他 agent 占用。
+// 已存在但仍处于 pending launch 的记录允许继续绑定，避免启动过程误报冲突。
 func (s *service) ensurePublicThreadAvailable(ctx context.Context, state threadState) error {
 	if s == nil || s.threadStore == nil {
 		return nil
@@ -108,7 +121,8 @@ func (s *service) ensurePublicThreadAvailable(ctx context.Context, state threadS
 	return nil
 }
 
-// registerThreadBinding 注册线程binding。
+// registerThreadBinding 在校验 provider 和公开线程占用后持久化线程绑定。
+// binding store 未配置时只记录跳过日志，调用方仍可继续完成线程创建流程。
 func (s *service) registerThreadBinding(ctx context.Context, state threadState) (bindingWriteOutcome, error) {
 	if s == nil || s.bindingStore == nil {
 		s.logBindingSkipped(state.AgentID, "no binding store")
@@ -360,7 +374,8 @@ func bindingRequiresSessionUUID(existing *bindingstore.Binding, registration bin
 	return providerThreadID == "" || providerThreadID == strings.TrimSpace(existing.AgentID)
 }
 
-// bindingNeedsThreadMetadataUpdate 处理bindingneeds线程元数据更新。
+// bindingNeedsThreadMetadataUpdate 判断是否需要补写线程元数据。
+// 只补齐空字段或允许更新的 session UUID，不覆盖已经持久化的不可变信息。
 func bindingNeedsThreadMetadataUpdate(existing *bindingstore.Binding, registration bindingRegistration) bool {
 	return bindingNeedsInitialValue(strings.TrimSpace(existing.CodexThreadID), registration.PublicThreadID) ||
 		bindingNeedsSessionUUIDUpdate(existing, registration) ||
@@ -439,7 +454,8 @@ func validateCodexHomeAliasRepair(existing *bindingstore.Binding, registration b
 	}
 }
 
-// rollbackThreadBinding 处理rollback线程binding。
+// rollbackThreadBinding 回滚本次启动流程新写入或更新的 binding。
+// 原先不存在则删除新记录；原先存在则恢复快照，ctx 已取消时改用后台 context 完成补偿。
 func (s *service) rollbackThreadBinding(ctx context.Context, outcome bindingWriteOutcome) error {
 	if s == nil || s.bindingStore == nil || !outcome.Persisted {
 		return nil
@@ -472,7 +488,8 @@ func cloneBinding(binding *bindingstore.Binding) *bindingstore.Binding {
 	return &copy
 }
 
-// lookupPersistedAgentID 处理lookuppersisted代理ID。
+// lookupPersistedAgentID 从 thread store 查找已经持久化的 agent ID。
+// thread 不存在时返回带 ErrNotFound 的错误，供恢复路径区分缺记录和存储故障。
 func (s *service) lookupPersistedAgentID(ctx context.Context, threadID string) (string, bool, error) {
 	if s == nil || s.threadStore == nil {
 		return "", false, nil
@@ -495,7 +512,7 @@ type bindingRecoveryReporter struct {
 	logger *slog.Logger
 }
 
-// NewBindingRecoveryReporter 创建bindingrecoveryreporter。
+// NewBindingRecoveryReporter 创建会话恢复时回写 binding 的 reporter。
 func NewBindingRecoveryReporter(store bindingstore.Store, logger *slog.Logger) contract.SessionRecoveryReporter {
 	return &bindingRecoveryReporter{store: store, logger: logger}
 }

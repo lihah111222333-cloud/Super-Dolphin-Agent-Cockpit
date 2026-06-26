@@ -50,7 +50,8 @@ var (
 	errInvalidCTESyntax          = errors.New("dbquery query has invalid CTE syntax")
 )
 
-// executeQuery 执行查询。
+// executeQuery 执行经过校验的只读 SQL 并返回字段名映射结果。
+// 查询始终走 SQLite query_only 独占连接，并在读取结束后通过 finish 恢复连接状态。
 func executeQuery(ctx context.Context, queryer platformdb.Queryable, timeout time.Duration, query string, args ...any) (_ []map[string]any, err error) {
 	ctx, err = prepareQueryContext(ctx, queryer, query, len(args))
 	if err != nil {
@@ -88,10 +89,14 @@ func executeQuery(ctx context.Context, queryer platformdb.Queryable, timeout tim
 	return result, nil
 }
 
+// sqliteReadOnlyConnector 表示能为 dbquery 提供独占 SQLite 连接的查询源。
+// dbquery 需要在连接级别打开 query_only，因此不能复用普通 QueryContext 接口。
 type sqliteReadOnlyConnector interface {
 	Conn(context.Context) (*sql.Conn, error)
 }
 
+// openSQLiteReadOnlyRows 在独占连接上开启 query_only 并执行只读 SQL。
+// 返回的 finish 必须由调用方在 rows 读取结束后执行，用来关闭 rows、结束事务并恢复连接状态。
 func openSQLiteReadOnlyRows(ctx context.Context, queryer platformdb.Queryable, query string, args ...any) (*sql.Rows, platformdb.QueryFinish, error) {
 	connector, ok := queryer.(sqliteReadOnlyConnector)
 	if !ok {
@@ -134,6 +139,8 @@ func openSQLiteReadOnlyRows(ctx context.Context, queryer platformdb.Queryable, q
 	}, nil
 }
 
+// cleanupSQLiteReadOnlyQuery 按 rows、事务、连接的顺序释放只读查询资源。
+// 即使原始查询失败，也会尝试关闭 query_only 并归还连接，最后合并原始错误和清理错误。
 func cleanupSQLiteReadOnlyQuery(ctx context.Context, conn *sql.Conn, tx *sql.Tx, rows *sql.Rows, success bool, queryErr error) error {
 	var cleanupErr error
 	if rows != nil {
@@ -211,7 +218,8 @@ func validateQuery(query string, argCount int) error {
 	return validateAllowedTables(trimmed)
 }
 
-// validateQueryText 校验查询文本。
+// validateQueryText 校验 SQL 文本只包含单条 SELECT/WITH 查询。
+// 注释、分号、写操作关键字和高风险函数都会在执行前被拒绝。
 func validateQueryText(query string) error {
 	masked := strings.ToLower(maskQuotedStrings(query))
 	switch {
@@ -228,7 +236,8 @@ func validateQueryText(query string) error {
 	}
 }
 
-// validatePlaceholders 校验placeholders。
+// validatePlaceholders 校验查询占位符与参数数量一致。
+// SQLite `?` 和 PostgreSQL `$n` 不能混用，避免同一查询在不同驱动语义下绑定错位。
 func validatePlaceholders(query string, argCount int) error {
 	masked := maskQuotedStrings(query)
 	dollarMatches := placeholderPattern.FindAllStringSubmatch(masked, -1)
@@ -259,6 +268,8 @@ func validateNoPlaceholders(argCount int) error {
 	return fmt.Errorf("dbquery query expected 0 args, got %d", argCount)
 }
 
+// validateDollarPlaceholders 校验 PostgreSQL 风格占位符必须从 $1 连续编号。
+// 缺号或最大编号与参数数量不一致都会提前失败，避免参数错位后执行非预期查询。
 func validateDollarPlaceholders(matches [][]string, argCount int) error {
 	maxIndex := 0
 	seen := make(map[int]struct{}, len(matches))
@@ -283,7 +294,8 @@ func validateDollarPlaceholders(matches [][]string, argCount int) error {
 	return nil
 }
 
-// validateAllowedTables 校验allowedtables。
+// validateAllowedTables 校验查询只引用允许暴露给 dbquery 的表。
+// CTE 会先被拆出再扫描外层 SELECT，避免用 CTE 名称绕过真实表白名单。
 func validateAllowedTables(query string) error {
 	masked := strings.ToLower(maskQuotedStrings(query))
 	if name := disallowedFunctionName(masked); name != "" {
@@ -324,7 +336,8 @@ func disallowedFunctionName(query string) string {
 	return strings.ToLower(strings.TrimSpace(match[0]))
 }
 
-// tableReferences 处理table引用。
+// tableReferences 扫描 FROM/JOIN 中的真实表引用。
+// 返回允许表命中数量和违规表名列表，调用方据此要求至少引用一个白名单表。
 func tableReferences(query string, cteNames map[string]struct{}) (int, []string) {
 	refs := tableReferenceScan{}
 	for index := 0; index < len(query); index++ {
@@ -344,6 +357,8 @@ func tableReferences(query string, cteNames map[string]struct{}) (int, []string)
 	return refs.allowedRefs, refs.disallowed
 }
 
+// hasTableReference 判断查询是否包含 FROM 或 JOIN 表来源。
+// 它会跳过双引号标识符，避免把列名或别名里的关键字误判为真实表引用。
 func hasTableReference(query string) bool {
 	query = strings.ToLower(query)
 	for index := 0; index < len(query); index++ {
@@ -360,6 +375,8 @@ func hasTableReference(query string) bool {
 	return false
 }
 
+// tableReferenceScan 收集 SQL 表来源扫描结果。
+// allowedRefs 记录命中白名单的表数量，disallowed 保留去重后的违规表名。
 type tableReferenceScan struct {
 	allowedRefs int
 	disallowed  []string
@@ -406,6 +423,8 @@ func scanFromSources(query string, index int, cteNames map[string]struct{}, refs
 	}
 }
 
+// scanTableSource 从 FROM/JOIN 后扫描一个表来源。
+// CTE 名称会被视为局部来源跳过，带 schema 的限定名和表函数一律按违规来源处理。
 func scanTableSource(query string, index int, cteNames map[string]struct{}, refs *tableReferenceScan) int {
 	index = skipSpaces(query, index)
 	index = skipTableSourcePrefix(query, index)
@@ -480,6 +499,8 @@ const (
 	tableSourceJoin
 )
 
+// skipTableSourceTail 跳过表名后的 alias、ON 条件和括号表达式。
+// 返回值告诉上层继续扫描逗号表、JOIN，还是在 WHERE 等终止关键字处停止。
 func skipTableSourceTail(query string, index int) (int, tableSourceBoundary) {
 	for index < len(query) {
 		index = skipSpaces(query, index)
@@ -521,6 +542,8 @@ func isTableSourceTerminator(query string, index int) bool {
 	return false
 }
 
+// readQualifiedIdentifier 读取可带点号的 SQL 标识符。
+// qualified 标记是否出现 schema/table 形式，调用方据此阻断跨 schema 或函数式来源。
 func readQualifiedIdentifier(value string, index int) (string, int, bool, bool) {
 	first, next, ok := readIdentifier(value, index)
 	if !ok {
@@ -551,6 +574,8 @@ func normalizeQualifiedIdentifier(value string) string {
 	return strings.Join(parts, ".")
 }
 
+// isKeywordAt 判断指定位置是否是完整 SQL 关键字。
+// 前后字符必须不是标识符字符，避免把 from_id 之类字段名误判为 FROM。
 func isKeywordAt(value string, index int, keyword string) bool {
 	end := index + len(keyword)
 	if index < 0 || end > len(value) {
@@ -565,6 +590,8 @@ func isKeywordAt(value string, index int, keyword string) bool {
 	return end >= len(value) || !isIdentifierPart(value[end])
 }
 
+// skipQuotedIdentifier 跳过 SQLite 双引号标识符。
+// 它处理 "" 转义，供关键字和表来源扫描避开被引用的列名或别名。
 func skipQuotedIdentifier(value string, index int) (int, bool) {
 	if index >= len(value) || value[index] != '"' {
 		return index, false
@@ -581,7 +608,8 @@ func skipQuotedIdentifier(value string, index int) (int, bool) {
 	return len(value), false
 }
 
-// maskQuotedStrings 处理maskquotedstrings。
+// maskQuotedStrings 将 SQL 字符串字面量替换为空格。
+// 安全检查只关心结构性关键字，不能让用户字符串里的 SELECT、分号或注释符号造成误判。
 func maskQuotedStrings(query string) string {
 	var builder strings.Builder
 	builder.Grow(len(query))

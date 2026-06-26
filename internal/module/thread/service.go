@@ -34,8 +34,7 @@ const (
 
 var errLocalSessionAlreadyGone = errors.New("thread local session already gone")
 
-// SessionProvider is an alias for contract.SessionProvider.
-// Kept as a local type alias for backward compatibility within this package.
+// SessionProvider 复用跨模块会话查询接口，保留本包旧构造函数的类型签名兼容。
 type SessionProvider = contract.SessionProvider
 
 // sessionGenerationRemover 用于按 generation 精确移除已停止的 session，避免误删新建 session。
@@ -66,12 +65,10 @@ type service struct {
 	emitCompacted    func(threaddto.Compacted)
 	emitLaunched     func(threaddto.Launched)
 
-	// pendingLaunchMu serializes SpawnIfNeeded per thread_id so concurrent
-	// first-turns of a pending thread fork exactly one CLI process.
+	// pendingLaunchMu 按 thread_id 串行化 SpawnIfNeeded，避免 pending 线程的并发首轮请求 fork 多个 CLI。
 	pendingLaunchMu sync.Map // key: threadID(string), value: *sync.Mutex
 
-	// agentIDMu protects process-local agent_id reservations made while
-	// thread/start is still launching and has not persisted agent_threads yet.
+	// agentIDMu 保护进程内 agent_id 预留窗口；thread/start 持久化 agent_threads 前靠它拦截重复启动。
 	agentIDMu           sync.Mutex
 	agentIDReservations map[string]struct{}
 
@@ -83,38 +80,27 @@ type service struct {
 
 	resumeInFlight, resumeBlocked, sessionRecoveryCount sync.Map
 
-	// promptStore is optional; when nil, thread/start skips injection and the
-	// CLI falls back to its bundled system prompt. When wired, it powers the
-	// agent_key → prompt_text lookup in resolveRoutedPrompt.
+	// promptStore 是可选写路径；未装配时 thread/start 不注入路由 prompt，由 provider 使用自身默认提示词。
 	promptStore promptstore.Store
-	// promptCatalog is the runtime read path for routed prompts. It may combine
-	// repo-owned builtin prompts with DB-owned user assets; promptStore remains
-	// the write path for prompt_versions snapshots.
+	// promptCatalog 是运行时读路径，会合并内置模板和数据库模板；promptStore 只负责 snapshot 写入。
 	promptCatalog promptstore.RuntimePromptCatalog
 
-	// matchWhenEval evaluates a prompt_template's match_when JSONB expression
-	// against the current BuildCtx. Injected from prompt.EvaluateMatchWhen at
-	// construction time to avoid a direct thread→prompt import. Nil-safe:
-	// maybeAutoRouteByMatchWhen skips evaluation when nil.
+	// matchWhenEval 用当前 BuildCtx 评估 prompt_template.match_when。
+	// 由构造层注入以避免 thread 直接依赖 prompt 包；为 nil 时自动路由会跳过表达式评估。
 	matchWhenEval contract.MatchWhenEvaluator
 
-	// enableWhenEval keeps router prompt_versions snapshots aligned with assembler gates.
+	// enableWhenEval 复用 assembler 的 enable_when 规则，保证路由 snapshot 与最终注入结果一致。
 	enableWhenEval contract.EnableWhenEvaluator
 
 	reconnectDelay time.Duration
 
-	// agentLaunchedWorker is the P22 P2 (thread S4) single owner of the
-	// onAgentLaunched -> binding store write + prompt-assembly
-	// invalidation slow-path. Always constructed; processAgentLaunched
-	// guards on bindingStore so a nil-store service is still safe.
+	// agentLaunchedWorker 串行承接 onAgentLaunched 后的 binding 写入和 prompt
+	// 失效慢路径。worker 始终构造，真正写库前再检查 bindingStore，保证精简装配仍可运行。
 	agentLaunchedWorker *agentLaunchedWorker
 
-	// sessionRecoveryWorker is the P22 P2 (thread S2) single owner of
-	// the onAgentFailed -> session-level recovery slow-path (rate-limit,
-	// evict zombie, 3s reconnect delay, backgroundResumeIfNeeded). The
-	// pre-P22 naked runtimesafe.SafeGo(context.Background(), ...) + 3s
-	// time.Sleep moved into processSessionRecovery under a WaitGroup-
-	// tracked worker goroutine.
+	// sessionRecoveryWorker 承接 onAgentFailed 后的会话恢复慢路径。
+	// 它统一负责重试计数、清理僵尸 session、等待 provider 关闭窗口和后台恢复，
+	// Stop 时可取消等待并收束正在运行的恢复 goroutine。
 	sessionRecoveryWorker *sessionRecoveryWorker
 }
 
@@ -133,12 +119,12 @@ func (s *service) invalidatePromptAssembly(ctx context.Context, reason contract.
 	return s.promptAssembly.Invalidate(ctx, reason)
 }
 
-// List 列出线程。
+// List 返回当前 thread store 中的全部线程引用。
 func (s *service) List(ctx context.Context) ([]Ref, error) {
 	return s.listThreads(ctx, nil)
 }
 
-// Get 读取线程。
+// Get 按 thread id 读取单个线程，并补齐 binding 中的 provider 身份。
 func (s *service) Get(ctx context.Context, id string) (*Ref, error) {
 	thread, err := s.getThread(ctx, id)
 	if err != nil {
@@ -149,7 +135,7 @@ func (s *service) Get(ctx context.Context, id string) (*Ref, error) {
 	return &ref, nil
 }
 
-// ListByStatus 按状态列出线程。
+// ListByStatus 按持久化状态过滤线程；空状态表示返回全部。
 func (s *service) ListByStatus(ctx context.Context, status string) ([]Ref, error) {
 	want := strings.TrimSpace(status)
 	if want == "" {
@@ -160,7 +146,7 @@ func (s *service) ListByStatus(ctx context.Context, status string) ([]Ref, error
 	})
 }
 
-// ListByCWD 按工作目录列出线程。
+// ListByCWD 按 CWD 前缀过滤线程，供 UI 缩小当前项目线程列表。
 func (s *service) ListByCWD(ctx context.Context, cwdPrefix string) ([]Ref, error) {
 	prefix := strings.TrimSpace(cwdPrefix)
 	return s.listThreads(ctx, func(thread threadstore.Thread) bool {
@@ -168,7 +154,8 @@ func (s *service) ListByCWD(ctx context.Context, cwdPrefix string) ([]Ref, error
 	})
 }
 
-// SetName 设置名称。
+// SetName 更新本地线程名，并在 provider 支持时同步远端会话标题。
+// 本地持久化先完成；远端同步失败会返回错误，避免 UI 误以为两端已一致。
 func (s *service) SetName(ctx context.Context, threadID, name string) error {
 	thread, err := s.getThread(ctx, threadID)
 	if err != nil {
@@ -197,7 +184,8 @@ func (s *service) SetName(ctx context.Context, threadID, name string) error {
 	return nil
 }
 
-// Delete 删除线程。
+// Delete 删除线程的本地状态、binding、scratchpad 和关联 runtime。
+// pending_launch 线程没有真实 provider 进程，走单独路径清理并发布停止事件。
 func (s *service) Delete(ctx context.Context, threadID string) error {
 	ctx = util.NonNilContext(ctx)
 	id, err := normalizeThreadID(threadID)
@@ -240,7 +228,8 @@ func (s *service) resolveDeleteBinding(
 	return binding, false, err
 }
 
-// deletePendingLaunchThread 删除待处理启动线程。
+// deletePendingLaunchThread 删除尚未 fork provider 的 pending_launch 线程。
+// 它在 per-thread 锁内完成 store 删除和 launch intent 关闭，避免首轮输入并发拉起已删除线程。
 func (s *service) deletePendingLaunchThread(
 	ctx context.Context,
 	threadID string,
@@ -321,7 +310,8 @@ func (s *service) forgetThreadAgents(threadIDs ...string) {
 	}
 }
 
-// listThreads 列出线程。
+// listThreads 从 thread store 读取列表并应用可选过滤器。
+// 过滤只影响返回结果，不改变 store 状态；store 未装配时直接报错。
 func (s *service) listThreads(ctx context.Context, filter func(threadstore.Thread) bool) ([]Ref, error) {
 	if s.threadStore == nil {
 		return nil, errors.New("thread store is not configured")
@@ -404,7 +394,8 @@ func (s *service) resolveSession(ctx context.Context, threadID string) (contract
 	return session, binding, nil
 }
 
-// enrichRefIdentity 补充引用身份。
+// enrichRefIdentity 从 binding 补齐线程引用的 provider/session 身份。
+// binding 缺失不会让读取失败，因为列表页仍需要展示 thread store 中的存量记录。
 func (s *service) enrichRefIdentity(ctx context.Context, ref *Ref) {
 	if s == nil || s.bindingStore == nil || ref == nil {
 		return
@@ -442,12 +433,9 @@ func resolvedSessionID(binding *bindingstore.Binding) string {
 	return strings.TrimSpace(binding.ProviderThreadID)
 }
 
-// evictZombieSession removes a dead session (transport closed, context
-// canceled) left by Archive so that the next resolve path creates a fresh
-// session. RemoveSession triggers session.Close → shutdownSession →
-// poolRelease, which reclaims the old CLI process. It also clears the
-// resumeInFlight guard to allow backgroundResumeIfNeeded to proceed.
-// evictZombieSession 处理evict僵尸会话。
+// evictZombieSession 清理已断开但仍留在 session provider 中的旧会话。
+// RemoveSession 会触发 provider 侧关闭和进程回收；若线程未被停止或归档，再释放
+// resumeInFlight 标记，让后续后台恢复可以重新建立会话。
 func (s *service) evictZombieSession(ctx context.Context, threadID string) {
 	binding, err := s.resolveBinding(ctx, threadID)
 	if err != nil || binding == nil {
@@ -467,26 +455,22 @@ func (s *service) evictZombieSession(ctx context.Context, threadID string) {
 	if _, blocked := s.resumeLifecycleBlockReason(ctx, threadID, binding); blocked {
 		return
 	}
-	// Clear the stampede guard so backgroundResumeIfNeeded can proceed.
+	// 清除并发恢复标记，允许后续后台恢复重新检查当前 binding 和生命周期状态。
 	s.resumeInFlight.Delete(agentID)
 }
 
-// backgroundResumeIfNeeded checks whether the thread has a stored binding
-// (from a previous session) but no active session, and triggers a background
-// Resume so the session is ready by the time the user sends a message.
+// backgroundResumeIfNeeded 在已有持久化 binding 但当前无活跃 session 时触发后台 Resume。
+// 这样用户打开历史线程后，首条消息到达前 provider session 有机会提前恢复。
 //
-// context.Background() is used because the thread service has no lifecycle
-// context and the goroutine is naturally bounded: resumeInFlight prevents
-// stampede (at most one in-flight per agent), and Resume itself is a single
-// provider round-trip with provider-side timeouts.
+// 这里使用 context.Background()，因为 service 没有独立生命周期 context。
+// goroutine 由 resumeInFlight 限制为每个 agent 最多一次，Resume 本身仍受 provider 超时控制。
 func (s *service) backgroundResumeIfNeeded(ctx context.Context, threadID string) {
 	agentID, ok := s.backgroundResumeCandidate(ctx, threadID)
 	if !ok {
 		return
 	}
-	// Prevent stampede: skip if a resume was already attempted for this agent.
-	// The entry is never deleted — a failed resume stays marked so we don't
-	// retry in an infinite loop and exhaust the DB connection pool.
+	// 防止恢复风暴：同一 agent 已尝试恢复时直接跳过。
+	// 失败后保留标记，避免 ReadMessages 高频触发无限重试并耗尽数据库连接。
 	if _, loaded := s.resumeInFlight.LoadOrStore(agentID, struct{}{}); loaded {
 		return
 	}
@@ -496,15 +480,16 @@ func (s *service) backgroundResumeIfNeeded(ctx context.Context, threadID string)
 		}
 		if _, err := s.Resume(ctx, ResumeRequest{ThreadID: threadID}); err != nil {
 			util.LogIgnoredError(s.logger, "thread: background resume failed", err)
-			// Keep resumeInFlight entry to block further retries.
+			// 失败时保留 resumeInFlight，阻断后续自动重试。
 			return
 		}
-		// Only clear on success so subsequent ReadMessages can detect a live session.
+		// 成功后清除标记，后续 ReadMessages 可重新检查活跃 session。
 		s.resumeInFlight.Delete(agentID)
 	})
 }
 
-// backgroundResumeCandidate 处理后台恢复候选项。
+// backgroundResumeCandidate 判断线程是否需要后台恢复。
+// 只有存在可恢复 provider 历史、未被停止/归档阻断且当前没有活跃 session 时才返回 agent id。
 func (s *service) backgroundResumeCandidate(ctx context.Context, threadID string) (string, bool) {
 	binding, err := s.resolveBinding(ctx, threadID)
 	if err != nil || binding == nil {
@@ -535,7 +520,8 @@ func (s *service) backgroundResumeCandidate(ctx context.Context, threadID string
 	return agentID, true
 }
 
-// closeSessionForAgent 为代理关闭会话。
+// closeSessionForAgent 关闭并移除指定 agent 的本地 session。
+// 记录 generation 后再关闭，避免 stop 过程中误删同一 agent 后续新建的 session。
 func (s *service) closeSessionForAgent(ctx context.Context, agentID string) error {
 	if s.sessions == nil {
 		return nil

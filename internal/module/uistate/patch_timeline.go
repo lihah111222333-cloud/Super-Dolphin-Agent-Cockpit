@@ -13,7 +13,8 @@ type threadTimelinePatchState struct {
 	order []string
 }
 
-// applyThreadTimelineLocked 应用线程timelinelocked。
+// applyThreadTimelineLocked 将线程 timeline 的增量写入 UIThreadPatch。
+// 它会记住上次发送给前端的状态，只传 changed/removed/order，降低 patch payload 体积。
 func (s *service) applyThreadTimelineLocked(patch *uidto.UIThreadPatch, threadID string) {
 	if patch == nil || s.timeline == nil {
 		return
@@ -74,7 +75,8 @@ func buildTimelinePatchState(items []timeline.Item) threadTimelinePatchState {
 	return state
 }
 
-// diffTimelinePatch 处理difftimeline补丁。
+// diffTimelinePatch 比较上次和当前 timeline patch 状态。
+// 返回 changed、removed 和可选 order；顺序未变时不发送 order，避免前端重复排序。
 func diffTimelinePatch(previous, current threadTimelinePatchState) ([]uidto.PatchTimelineItem, []string, []string) {
 	changed := make([]uidto.PatchTimelineItem, 0, len(current.order))
 	for _, itemID := range current.order {

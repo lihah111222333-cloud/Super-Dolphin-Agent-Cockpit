@@ -6,25 +6,14 @@ import (
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
 )
 
-// ---------------------------------------------------------------------------
-// CronThreadStarter (was cron_thread.go)
-// ---------------------------------------------------------------------------
-
-// CronThreadStarter is the narrow contract surface that the cron module uses
-// to bootstrap a provider thread on a job's first trigger. The full
-// thread.Service satisfies a much wider interface; this seam keeps
-// cron decoupled from the thread module's implementation types.
-//
-// The production adapter (thread.CronStarterAdapter) wraps thread.Service;
-// see internal/module/thread/cron_adapter.go.
+// CronThreadStarter 是 cron 首次触发任务时启动 provider thread 的窄边界。
+// cron 只依赖该接口，不直接依赖完整 thread.Service；生产适配器负责从 thread.Service 拷贝所需字段。
 type CronThreadStarter interface {
 	CronStartThread(ctx context.Context, req CronStartThreadRequest) (CronStartThreadResult, error)
 }
 
-// CronStartThreadRequest carries the subset of thread-start inputs that the
-// cron scheduler's first-trigger bootstrap path actually populates. Fields
-// intentionally mirror thread.StartRequest's names so the adapter is a
-// trivial field copy.
+// CronStartThreadRequest 是 cron 首次启动 thread 时使用的最小 wire 入参。
+// 字段名保持与 thread start 输入一致，便于适配器做无业务逻辑的字段拷贝。
 type CronStartThreadRequest struct {
 	Provider string
 	CWD      string
@@ -33,24 +22,14 @@ type CronStartThreadRequest struct {
 	Config   map[string]any
 }
 
-// CronStartThreadResult carries the thread bootstrap outputs that the cron
-// scheduler needs to persist back onto the job row.
+// CronStartThreadResult 返回 cron 需要持久化回 job 行的 thread 和 agent 标识。
 type CronStartThreadResult struct {
 	ThreadID string
 	AgentID  string
 }
 
-// ---------------------------------------------------------------------------
-// CronTurnExecutor (was cron_turn.go)
-// ---------------------------------------------------------------------------
-
-// CronTurnExecutor is the narrow contract surface that the cron module's
-// TurnServiceAdapter uses to prepare, submit, track, and dedupe turns.
-// The full turn.Service satisfies a much wider interface; this seam keeps
-// cron decoupled from the turn module's implementation types.
-//
-// The production adapter (turn.CronExecutorAdapter) wraps turn.Service;
-// see internal/module/turn/cron_adapter.go.
+// CronTurnExecutor 是 cron 准备、提交、跟踪和去重 turn 的窄边界。
+// turn 模块实现具体生命周期，cron 只通过这里观察 local/provider 状态和 dedupe 结果。
 type CronTurnExecutor interface {
 	CronPrepareTurn(ctx context.Context, session Session, input CronPrepareInput) (dto.TurnRequest, error)
 	CronStartTurn(ctx context.Context, session Session, req dto.TurnRequest) (TurnHandle, error)
@@ -58,9 +37,8 @@ type CronTurnExecutor interface {
 	CronLookupByDedupeKey(ctx context.Context, dedupeKey string) (CronTurnStatus, bool, error)
 }
 
-// CronPrepareInput carries the subset of turn-preparation inputs that the
-// cron scheduler actually populates. Fields mirror turn.PrepareInput names
-// so the adapter is a trivial field copy.
+// CronPrepareInput 是 cron 准备 turn 时传入 turn 模块的最小字段集。
+// DedupeKey 跨 prepare/start/lookup 复用，保证重复调度不会静默创建多次 turn。
 type CronPrepareInput struct {
 	Prompt              string
 	Skills              []dto.SkillRef
@@ -72,8 +50,7 @@ type CronPrepareInput struct {
 	DedupeKey           string
 }
 
-// CronTurnStatus carries the turn-tracking fields that the cron scheduler
-// inspects after TrackTurn / LookupByDedupeKey.
+// CronTurnStatus 返回 cron 决策所需的 turn 跟踪字段。
 type CronTurnStatus struct {
 	LocalID    string
 	ProviderID string

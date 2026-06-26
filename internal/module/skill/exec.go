@@ -52,7 +52,8 @@ type execParamsWire struct {
 	Env     map[string]string `json:"env,omitempty"`
 }
 
-// UnmarshalJSON 解码JSON。
+// UnmarshalJSON 解码命令执行 RPC 入参。
+// 新 wire 格式使用 command/args；argv 仅用于兼容旧调用方，并会拆成相同的内部结构。
 func (p *execParams) UnmarshalJSON(data []byte) error {
 	var wire execParamsWire
 	if err := json.Unmarshal(data, &wire); err != nil {
@@ -89,7 +90,8 @@ func cloneExecEnv(input map[string]string) map[string]string {
 	return out
 }
 
-// ExecCommand 处理exec命令。
+// ExecCommand 执行受限的只读类外部命令。
+// 默认禁止 shell、代码运行时和高风险系统命令，失败时直接返回错误而不降级执行。
 func (s *service) ExecCommand(ctx context.Context, command string, args []string, cwd string, env map[string]string) (ExecResult, error) {
 	return s.execCommand(ctx, command, args, cwd, env, false)
 }
@@ -108,7 +110,8 @@ func (s *service) execCommand(ctx context.Context, command string, args []string
 	return runExecCommand(execCtx, name, base, args, dir, buildExecEnv(dir, env))
 }
 
-// validateExecCommand 校验exec命令。
+// validateExecCommand 校验命令 basename 是否允许执行。
+// allowShell 仅供内部受控路径使用，普通 RPC 入口必须阻断 shell 解释器和代码运行时。
 func validateExecCommand(command string, allowShell bool) (string, string, error) {
 	name := strings.TrimSpace(command)
 	base := normalizeExecToken(name)
@@ -126,7 +129,8 @@ func validateExecCommand(command string, allowShell bool) (string, string, error
 	}
 }
 
-// validateExecPayload 校验exec载荷。
+// validateExecPayload 校验命令参数中是否隐藏危险 token。
+// 非 shell 路径拒绝元字符；shell 路径会 tokenize 后继续检查包裹命令链。
 func validateExecPayload(base string, args []string, allowShell bool) error {
 	if !allowShell {
 		if err := validateExecArgs(args); err != nil {
@@ -216,7 +220,8 @@ func allowedPrefixedExecEnv() []string {
 	return env
 }
 
-// mergeExecEnv 合并execenv。
+// mergeExecEnv 合并执行环境变量白名单。
+// 只允许 PWD、固定 key 和受控前缀，避免调用方通过环境变量绕过命令限制。
 func mergeExecEnv(base []string, overlay map[string]string) []string {
 	if len(overlay) == 0 {
 		return base
@@ -272,7 +277,8 @@ type limitedBuffer struct {
 	limit int
 }
 
-// Write 写入技能。
+// Write 写入受限缓冲区。
+// 超过 limit 的内容会被截断但仍返回已消费长度，防止子进程因 pipe 回压卡住。
 func (b *limitedBuffer) Write(p []byte) (int, error) {
 	if b.limit <= b.buf.Len() {
 		return len(p), nil
@@ -285,5 +291,5 @@ func (b *limitedBuffer) Write(p []byte) (int, error) {
 	return len(p), nil
 }
 
-// String 返回字符串表示。
+// String 返回当前缓冲区内容。
 func (b *limitedBuffer) String() string { return b.buf.String() }

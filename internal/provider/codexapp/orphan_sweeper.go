@@ -6,6 +6,8 @@ import (
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
+// cleanOrphanedAppServersWithProtectedPIDs 清理已经脱离当前进程树的 Codex app-server。
+// extraProtectedPIDs 由调用方传入正在使用的 server，避免 sweep 误杀刚分配的进程。
 func cleanOrphanedAppServersWithProtectedPIDs(extraProtectedPIDs map[int]struct{}) int {
 	allProcs, appServerProcs := discoverAppServerProcesses()
 	if len(appServerProcs) == 0 {
@@ -46,7 +48,8 @@ func filterOrphanAppServers(procs []appServerProcessInfo, myTree map[int]struct{
 	return orphans
 }
 
-// sigtermAppServers 处理sigtermappservers。
+// sigtermAppServers 先对孤儿 app-server 发送 SIGTERM。
+// 已退出进程不计为错误；其他信号失败只记录告警并跳过后续强杀。
 func sigtermAppServers(orphans []appServerProcessInfo) []appServerProcessInfo {
 	sigtermed := make([]appServerProcessInfo, 0, len(orphans))
 	for _, proc := range orphans {
@@ -62,7 +65,8 @@ func sigtermAppServers(orphans []appServerProcessInfo) []appServerProcessInfo {
 	return sigtermed
 }
 
-// waitForAppServerExit 为app服务端exit等待codexapp provider。
+// waitForAppServerExit 等待已发送 SIGTERM 的 app-server 自行退出。
+// 宽限期结束后仍存活的进程会交给强杀阶段处理，这里不阻塞关闭流程。
 func waitForAppServerExit(sigtermed []appServerProcessInfo) {
 	deadline := time.Now().Add(appServerKillGracePeriod)
 	for time.Now().Before(deadline) {
@@ -80,7 +84,8 @@ func waitForAppServerExit(sigtermed []appServerProcessInfo) {
 	}
 }
 
-// sigkillAppServerSurvivors 处理sigkillapp服务端survivors。
+// sigkillAppServerSurvivors 对 SIGTERM 后仍存活的 app-server 升级强杀。
+// 每个 parent 处理完后继续扫 descendants，避免 MCP 子进程留下来占端口或文件句柄。
 func sigkillAppServerSurvivors(sigtermed []appServerProcessInfo, allProcs map[int]int) int {
 	killed := 0
 	for _, proc := range sigtermed {
@@ -118,7 +123,8 @@ func snapshotProcessDescendants(rootPID int) map[int]struct{} {
 	return tree
 }
 
-// killProcessDescendants 处理kill进程descendants。
+// killProcessDescendants 强制终止指定 root 的已知 descendant 集合。
+// root 本身不在这里处理，调用方负责先关闭父进程再清理子树。
 func killProcessDescendants(rootPID int, descendants map[int]struct{}) int {
 	if rootPID <= 1 || len(descendants) == 0 {
 		return 0
@@ -140,9 +146,8 @@ func killProcessDescendants(rootPID int, descendants map[int]struct{}) int {
 	return killed
 }
 
-// killDescendants kills remaining descendant processes of an app-server
-// (mcp-server-postgres, exa-mcp-server, etc.) that survived the parent shutdown.
-// killDescendants 处理killdescendants。
+// killDescendants 清理 app-server 关闭后仍存活的 MCP 子进程。
+// 这些进程可能来自外部 MCP server，父进程退出后仍需逐个 kill。
 func killDescendants(proc appServerProcessInfo, allProcs map[int]int) int {
 	killed := 0
 	descendants := buildProcessTree(proc.pid, allProcs)
@@ -165,14 +170,15 @@ func killDescendants(proc appServerProcessInfo, allProcs map[int]int) int {
 	return killed
 }
 
-// appServerProcessInfo holds PID and PPID for a discovered codex app-server process.
+// appServerProcessInfo 描述进程表中发现的 Codex app-server。
+// PPID 用于判断它是否已经脱离当前宿主进程树。
 type appServerProcessInfo struct {
 	pid  int
 	ppid int
 }
 
-// discoverAppServerProcesses delegates to the platform-specific process
-// enumerator (Unix: `ps`, Windows: no-op for Phase 1).
+// discoverAppServerProcesses 调用平台实现枚举 app-server 进程。
+// Unix 侧通过 ps 扫描，Windows 侧由对应实现决定可见范围，调用方只依赖抽象结果。
 func discoverAppServerProcesses() (allProcs map[int]int, appServers []appServerProcessInfo) {
 	return discoverAppServerProcessList()
 }

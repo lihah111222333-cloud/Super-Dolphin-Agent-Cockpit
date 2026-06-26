@@ -19,21 +19,20 @@ import (
 // Handler types
 // ---------------------------------------------------------------------------
 
-// HookBeforeHandler handles a ctl/hook/before callback from the core layer.
-// It receives the HookPayload and returns a BeforeDecision.
+// HookBeforeHandler 处理核心层发来的 ctl/hook/before 回调，并返回执行前决策。
 type HookBeforeHandler func(ctx context.Context, payload mcp.HookPayload) (mcp.BeforeDecision, error)
 
-// HookCheckHandler handles a ctl/hook/check callback from the core layer.
+// HookCheckHandler 处理核心层发来的 ctl/hook/check 回调，并返回中途检查决策。
 type HookCheckHandler func(ctx context.Context, payload mcp.HookPayload) (mcp.CheckDecision, error)
 
-// HookAfterHandler handles a ctl/hook/after callback from the core layer.
+// HookAfterHandler 处理核心层发来的 ctl/hook/after 回调，并返回收尾决策。
 type HookAfterHandler func(ctx context.Context, payload mcp.HookPayload) (mcp.AfterDecision, error)
 
 // ---------------------------------------------------------------------------
 // HookConfig — tool-side hook configuration
 // ---------------------------------------------------------------------------
 
-// HookConfig holds handler functions for hooks.
+// HookConfig 保存工具侧注册的 hook handler；nil handler 会触发各阶段的默认安全决策。
 type HookConfig struct {
 	OnBefore HookBeforeHandler
 	OnCheck  HookCheckHandler
@@ -90,11 +89,8 @@ func (hs *hookState) markReplayFailure(attempts int, err error) {
 	}
 }
 
-// markReplayPending records that a live SubscribeHooks call failed
-// and the desired state has been persisted so the reconnect path can
-// retry it. Carries the initial failure so operators can surface it
-// via the usual replay diagnostics without waiting for the first
-// reconnect attempt.
+// markReplayPending 记录 live SubscribeHooks 失败但期望订阅状态已持久化。
+// 初始错误会保留给诊断展示，避免等到下一次 reconnect 重放后才知道首个失败原因。
 func (hs *hookState) markReplayPending(err error) {
 	hs.mu.Lock()
 	defer hs.mu.Unlock()
@@ -120,9 +116,8 @@ func (hs *hookState) clearReplayFailure() {
 // Callback dispatch — invoked from dispatchRequest
 // ---------------------------------------------------------------------------
 
-// dispatchHookCallback routes a hook callback to the appropriate handler.
-// It returns (response, handled, error). If handled is false the method was
-// not a hook method and the caller should continue normal dispatch.
+// dispatchHookCallback 将 hook 回调路由到 before/check/after handler。
+// handled=false 表示该方法不属于 hook，调用方应继续后续 dispatch。
 func (c *Client) dispatchHookCallback(ctx context.Context, req *jrpc2.Request) (any, bool, error) {
 	switch req.Method() {
 	case mcp.MethodHookBefore:
@@ -185,24 +180,12 @@ func (c *Client) handleHookAfter(ctx context.Context, req *jrpc2.Request) (any, 
 // SubscribeHooks — outgoing RPC to core layer
 // ---------------------------------------------------------------------------
 
-// SubscribeHooks sends a ctl/hook/subscribe request to the core layer
-// and freezes the desired-state contract for required topics (P22 P2
-// bootstrap-S2 / plan §498 / §504):
-//
-//   - conn nil / degraded: persist the desired state so reconnect can
-//     replay, then return errHookSubscribeUnavailable. Unchanged.
-//   - live CallResult succeeds: persist on success. Unchanged.
-//   - live CallResult fails (new): persist the desired state before
-//     returning the error and mark the replay state as pending so the
-//     reconnect path picks it up. Pre-P22 P2 bootstrap-S2 this path
-//     dropped the subscription on the floor, so a first-call failure
-//     required manual resubscribe to self-heal.
-//
-// SubscribeHooks 处理subscribehooks。
+// SubscribeHooks 向控制平面注册 hook 订阅，并持久化期望订阅状态。
+// 连接不可用或 live 调用失败时也会保留订阅参数，下一次 reconnect 可自动重放；调用方仍收到原始错误。
 func (c *Client) SubscribeHooks(ctx context.Context, subscriptionID string, topics []string, scope mcp.Selector, filters json.RawMessage, mode string) (*mcp.HookSubscribeResponse, error) {
 	conn, degraded := c.currentConn()
 	if conn == nil || degraded {
-		// Store for later replay even if we cannot send right now.
+		// 即使当前无法发送，也要保存期望状态，保证 reconnect 后可重放。
 		c.hooks.store(subscriptionID, topics, scope, filters, mode)
 		return nil, errHookSubscribeUnavailable()
 	}
@@ -219,22 +202,18 @@ func (c *Client) SubscribeHooks(ctx context.Context, subscriptionID string, topi
 
 	var resp mcp.HookSubscribeResponse
 	if err := conn.CallResult(callCtx, mcp.MethodHookSubscribe, req, &resp); err != nil {
-		// Persist desired state so replayHookSubscriptions can retry
-		// on the next successful reconnect. markReplayPending lets
-		// diagnostics distinguish this path from a reconnect-time
-		// retry failure.
+		// live 调用失败也保留订阅参数；pending 状态让诊断区分首次失败与重连重放失败。
 		c.hooks.store(subscriptionID, topics, scope, filters, mode)
 		c.hooks.markReplayPending(err)
 		return nil, err
 	}
 
-	// Persist on success so reconnect can replay.
+	// 成功订阅后仍保存参数，连接恢复时沿用同一份期望状态。
 	c.hooks.store(subscriptionID, topics, scope, filters, mode)
 	return &resp, nil
 }
 
-// ResolveHook sends a ctl/hook/resolve request to the core layer.
-// ResolveHook 解析hook。
+// ResolveHook 将人工审批结果回写到控制平面，连接不可用时 fail-fast。
 func (c *Client) ResolveHook(ctx context.Context, req mcp.HookResolveRequest) (*mcp.HookResolveResponse, error) {
 	conn, degraded := c.currentConn()
 	if conn == nil || degraded {
@@ -251,19 +230,13 @@ func (c *Client) ResolveHook(ctx context.Context, req mcp.HookResolveRequest) (*
 	return &resp, nil
 }
 
-// PendingHooks fetches the current agent's pending hook reviews from the core layer.
-// PendingHooks 处理待处理hooks。
+// PendingHooks 拉取当前 agent 待处理的 hook review，缺少 authoritative agent_id 时拒绝读取。
 func (c *Client) PendingHooks(ctx context.Context) ([]mcp.PendingHookReview, error) {
 	conn, degraded := c.currentConn()
 	if conn == nil || degraded {
 		return nil, errHookPendingUnavailable()
 	}
-	// P22 P4 S5b / plan §316: the authoritative agent identity is
-	// c.cfg.AgentID; c.boot.AgentID is a startup snapshot for
-	// diagnostics only, not an identity source, and the legacy
-	// FirstNonEmpty-style fallback between them has been removed. If
-	// cfg.AgentID is empty we fail closed so a peer cannot silently
-	// read pending reviews under a different identity.
+	// c.cfg.AgentID 是唯一可信身份；boot snapshot 只用于诊断，不能作为读取 pending review 的身份兜底。
 	agentID := strings.TrimSpace(c.cfg.AgentID)
 	if agentID == "" {
 		return nil, errHookPendingAgentIDRequired()
@@ -282,17 +255,14 @@ func (c *Client) PendingHooks(ctx context.Context) ([]mcp.PendingHookReview, err
 	return append([]mcp.PendingHookReview(nil), resp.Reviews...), nil
 }
 
-// replayHookSubscriptions re-sends the last ctl/hook/subscribe after a
-// successful reconnect. Safe to call when no prior subscription exists.
-// replayHookSubscriptions 处理replayhooksubscriptions。
+// replayHookSubscriptions 在 reconnect 成功后重放最近一次 hook 订阅。
+// 没有历史订阅时直接返回；重放失败会记录 attempts 和 last error 供诊断面展示。
 func (c *Client) replayHookSubscriptions(ctx context.Context) error {
 	subID, topics, scope, filters, mode, ok := c.hooks.load()
 	if !ok {
 		return nil
 	}
-	// P22 P4 S6a / plan §321: stable log anchor for hook-replay start.
-	// Ops dashboards group by `event` to count replay attempts without
-	// pattern-matching free-text descriptions.
+	// event 字段是观测侧的稳定锚点，dashboard 依赖它统计 hook replay 起止。
 	pkglogger.Info("bootstrap hook replay begin",
 		"event", "bootstrap.hook_replay.begin",
 		"instance_id", c.instanceID,
@@ -323,8 +293,7 @@ func (c *Client) replayHookSubscriptions(ctx context.Context) error {
 			cancel()
 			if lastErr == nil {
 				c.hooks.clearReplayFailure()
-				// P22 P4 S6a / plan §321: stable log anchor for
-				// hook-replay successful completion.
+				// 成功结束也使用同一 event 名称，通过 outcome 区分结果。
 				pkglogger.Info("bootstrap hook subscription replayed",
 					"event", "bootstrap.hook_replay.end",
 					"outcome", "success",
@@ -354,9 +323,7 @@ func (c *Client) replayHookSubscriptions(ctx context.Context) error {
 		delay *= 2
 	}
 	c.hooks.markReplayFailure(attempts, lastErr)
-	// P22 P4 S6a / plan §321: stable log anchor for hook-replay
-	// terminal failure (paired with bootstrap.hook_replay.begin at
-	// function entry).
+	// 终态失败必须与 begin 成对打点，避免重连恢复问题只留下自由文本日志。
 	pkglogger.Error("bootstrap hook subscription replay failed",
 		"event", "bootstrap.hook_replay.end",
 		"outcome", "failed",
@@ -374,18 +341,22 @@ func (c *Client) replayHookSubscriptions(ctx context.Context) error {
 // Helpers
 // ---------------------------------------------------------------------------
 
+// errHookSubscribeUnavailable 返回 hook subscribe 连接不可用错误，供重放路径识别。
 func errHookSubscribeUnavailable() error {
 	return &hookUnavailableError{msg: "bootstrap: hook subscribe unavailable (disconnected)"}
 }
 
+// errHookResolveUnavailable 返回 hook resolve 连接不可用错误。
 func errHookResolveUnavailable() error {
 	return &hookUnavailableError{msg: "bootstrap: hook resolve unavailable (disconnected)"}
 }
 
+// errHookPendingUnavailable 返回 pending hook 查询连接不可用错误。
 func errHookPendingUnavailable() error {
 	return &hookUnavailableError{msg: "bootstrap: hook pending unavailable (disconnected)"}
 }
 
+// errHookPendingAgentIDRequired 在缺少 authoritative agent_id 时 fail-closed。
 func errHookPendingAgentIDRequired() error {
 	return errors.New("bootstrap: hook pending requires agent_id")
 }
@@ -393,5 +364,5 @@ func errHookPendingAgentIDRequired() error {
 // hookUnavailableError 标记 hook 连接不可用的非致命错误。
 type hookUnavailableError struct{ msg string }
 
-// Error 返回错误文本。
+// Error 返回 hook unavailable 的可读错误文本。
 func (e *hookUnavailableError) Error() string { return e.msg }

@@ -48,17 +48,19 @@ type editEnvelope struct {
 	DiagnosticGeneration uint64 `json:"diagnostic_generation,omitempty"`
 }
 
-// NewEditHandler 创建编辑处理器。
+// NewEditHandler 注册 edit 工具处理器。
+// 默认不绑定额外根目录，路径解析依赖调用上下文中的可信 workspace。
 func NewEditHandler(registry lspmanager.Registry) middleware.Handler {
 	return wrapToolHandler("edit", middleware.TierNormal, EditHandler{registry: registry}.Handle)
 }
 
-// NewEditHandlerWithRoot 创建带根目录的编辑处理器。
+// NewEditHandlerWithRoot 注册绑定固定根目录的 edit 工具处理器。
+// 该入口用于 sidecar 初始化已知根目录的场景，所有写入仍需通过后续路径校验。
 func NewEditHandlerWithRoot(root string, registry lspmanager.Registry) middleware.Handler {
 	return wrapToolHandler("edit", middleware.TierNormal, EditHandler{registry: registry, root: resolveRoot(root)}.Handle)
 }
 
-// HandleEdit 处理编辑。
+// HandleEdit 是旧版函数式入口，转交给 EditHandler 以复用统一校验和响应信封。
 func HandleEdit(ctx context.Context, registry lspmanager.Registry, params json.RawMessage) (any, error) {
 	return EditHandler{registry: registry}.Handle(ctx, params)
 }
@@ -151,10 +153,8 @@ func appendEditApplyStatus(sb *strings.Builder, e editEnvelope) {
 	}
 }
 
-// appendMatchedByNotice surfaces relaxed match modes (trim_right /
-// trim_both / unicode_normalized / escape_normalized / substring_exact)
-// as a verification nudge. Exact matches stay silent because the model
-// already trusts the patch text.
+// appendMatchedByNotice 在补丁通过宽松匹配命中时追加人工复核提示。
+// exact 命中保持静默；trim/unicode/escape/substring 命中都提示检查缩进和空白。
 func appendMatchedByNotice(sb *strings.Builder, matchedBy string) {
 	matchedBy = strings.TrimSpace(matchedBy)
 	if matchedBy == "" || matchedBy == "exact" {

@@ -10,8 +10,10 @@ import (
 	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
 )
 
+// errDatasourceContentEmpty 表示数据源文档解析后没有可检索内容，调用方应阻断写入。
 var errDatasourceContentEmpty = errors.New("datasource: extracted content is empty")
 
+// documentStore 按 workspaceRoot/name 持久化数据源文档内容，ensureTable 由锁保护只执行一次。
 type documentStore struct {
 	db platformdb.Queryable
 
@@ -19,7 +21,7 @@ type documentStore struct {
 	ensured bool
 }
 
-// NewDocumentStore 创建数据源文档存储；没有数据库句柄时返回 nil，让调用方按可选依赖处理。
+// NewDocumentStore 创建数据源文档存储；数据库句柄缺失时返回 nil 表示该可选能力未接入。
 func NewDocumentStore(db platformdb.Queryable) contract.DatasourceDocumentStore {
 	if db == nil {
 		return nil
@@ -143,6 +145,7 @@ func wrapDatasourceStoreError(err error, operation string) error {
 	return platformdb.WrapStoreError(err, operation, "datasource_document")
 }
 
+// createDatasourceDocumentsTableSQL 是 datasource_documents 的自建表 SQL，首次使用时由 ensureTable 执行。
 const createDatasourceDocumentsTableSQL = `
 CREATE TABLE IF NOT EXISTS datasource_documents (
 	workspace_root TEXT NOT NULL,
@@ -162,4 +165,5 @@ CREATE TABLE IF NOT EXISTS datasource_documents (
 );
 `
 
+// 编译期确认 documentStore 满足跨模块数据源文档存储接口。
 var _ contract.DatasourceDocumentStore = (*documentStore)(nil)

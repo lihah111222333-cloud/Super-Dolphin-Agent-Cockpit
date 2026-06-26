@@ -20,12 +20,14 @@ import (
 const peerReadyTimeout = 10 * time.Second
 const peerPollInterval = 300 * time.Millisecond
 
+// mcpClient 是 toolbridge 对 stdio/http MCP client 的统一最小接口。
 type mcpClient interface {
 	ListTools(context.Context) ([]mcpdto.MCPTool, error)
 	CallTool(context.Context, string, json.RawMessage, ToolCallRequest) (*ToolCallResult, error)
 	Close() error
 }
 
+// codexToolSurface 保存一次 Codex thread/start 动态工具面及其底层 MCP client。
 type codexToolSurface struct {
 	keys    []string
 	cwd     string
@@ -34,6 +36,7 @@ type codexToolSurface struct {
 	clients []mcpClient
 }
 
+// codexToolEntry 描述动态工具名到真实执行端的映射。
 type codexToolEntry struct {
 	name          string
 	realName      string
@@ -42,7 +45,8 @@ type codexToolEntry struct {
 	client        mcpClient
 }
 
-// PrepareCodexToolSurface 准备codex工具surface。
+// PrepareCodexToolSurface 为 Codex 会话准备 host、skill 和 MCP 动态工具面。
+// 任一 MCP binary 初始化失败会关闭已启动 client，避免半成品 surface 被绑定。
 func (h *Handler) PrepareCodexToolSurface(ctx context.Context, scope contract.CodexToolSurfaceScope) ([]contract.DynamicToolSchema, error) {
 	if err := validateCodexToolSurfaceScope(scope); err != nil {
 		return nil, err
@@ -71,6 +75,7 @@ func (h *Handler) PrepareCodexToolSurface(ctx context.Context, scope contract.Co
 	return out, nil
 }
 
+// validateCodexToolSurfaceScope 校验准备 surface 所需的 agent、cwd 和 manifest。
 func validateCodexToolSurfaceScope(scope contract.CodexToolSurfaceScope) error {
 	if strings.TrimSpace(scope.AgentID) == "" {
 		return fmt.Errorf("toolbridge: codex tool surface agent id is required")
@@ -84,6 +89,7 @@ func validateCodexToolSurfaceScope(scope contract.CodexToolSurfaceScope) error {
 	return nil
 }
 
+// addHostSurfaceTools 将 host-direct 工具加入 Codex surface。
 func (h *Handler) addHostSurfaceTools(surface *codexToolSurface, out *[]contract.DynamicToolSchema) error {
 	if h == nil || h.hostTools == nil {
 		return nil
@@ -96,6 +102,7 @@ func (h *Handler) addHostSurfaceTools(surface *codexToolSurface, out *[]contract
 	return nil
 }
 
+// addMCPSurfaceTools 启动 scope manifest 中的 MCP binary，并把工具加入 surface。
 func (h *Handler) addMCPSurfaceTools(ctx context.Context, scope contract.CodexToolSurfaceScope, surface *codexToolSurface, out *[]contract.DynamicToolSchema) error {
 	factory := h.stdioClientFactory
 	if factory == nil {
@@ -114,13 +121,15 @@ func (h *Handler) addMCPSurfaceTools(ctx context.Context, scope contract.CodexTo
 	return nil
 }
 
+// mcpSurfaceBinaryResult 保存单个 MCP binary 的 client 和 tools/list 结果。
 type mcpSurfaceBinaryResult struct {
 	binary providerdto.MCPBinary
 	client mcpClient
 	tools  []mcpdto.MCPTool
 }
 
-// prepareMCPSurfaceBinaries 准备MCPsurface二进制。
+// prepareMCPSurfaceBinaries 并发初始化 MCP binary 并拉取工具列表。
+// 首个错误会取消同批初始化并关闭已创建 client。
 func prepareMCPSurfaceBinaries(
 	ctx context.Context,
 	factory func(context.Context, providerdto.MCPBinary) (mcpClient, error),
@@ -182,6 +191,7 @@ func prepareMCPSurfaceBinaries(
 	return results, nil
 }
 
+// closeMCPClients 关闭已创建的 MCP client，供批量初始化失败时回滚。
 func closeMCPClients(results []mcpSurfaceBinaryResult) {
 	for _, result := range results {
 		if result.client != nil {
@@ -190,7 +200,7 @@ func closeMCPClients(results []mcpSurfaceBinaryResult) {
 	}
 }
 
-// addMCPToolsToSurface 把MCP工具添加为surface。
+// addMCPToolsToSurface 把 MCP 工具添加到 Codex surface，并补齐 canonical 名和 legacy alias。
 func addMCPToolsToSurface(surface *codexToolSurface, out *[]contract.DynamicToolSchema, family string, client mcpClient, tools []mcpdto.MCPTool) error {
 	for _, tool := range tools {
 		if _, reserved := reservedHostOnlySurfaceToolCanonicalName(family, tool.Name); reserved {
@@ -219,6 +229,7 @@ func addMCPToolsToSurface(surface *codexToolSurface, out *[]contract.DynamicTool
 	return nil
 }
 
+// addSurfaceTool 注册单个动态工具，重复工具名或冲突 alias 都会 fail-fast。
 func addSurfaceTool(surface *codexToolSurface, out *[]contract.DynamicToolSchema, tool mcpdto.MCPTool, entry codexToolEntry) error {
 	name := strings.TrimSpace(entry.name)
 	if name == "" {
@@ -241,6 +252,7 @@ func addSurfaceTool(surface *codexToolSurface, out *[]contract.DynamicToolSchema
 	return nil
 }
 
+// codexSurfaceDescription 为 LSP 工具补充 Codex 推荐工具说明。
 func codexSurfaceDescription(entry codexToolEntry, description string) string {
 	description = strings.TrimSpace(description)
 	name := strings.TrimSpace(entry.name)
@@ -256,6 +268,7 @@ func codexSurfaceDescription(entry codexToolEntry, description string) string {
 	return fmt.Sprintf("Recommended tool: %s. Why: %s", name, description)
 }
 
+// addSurfaceAlias 注册 alias 到 canonical 工具名的映射。
 func addSurfaceAlias(surface *codexToolSurface, alias, canonical string) error {
 	alias = strings.TrimSpace(alias)
 	canonical = strings.TrimSpace(canonical)
@@ -269,6 +282,7 @@ func addSurfaceAlias(surface *codexToolSurface, alias, canonical string) error {
 	return nil
 }
 
+// canonicalCodexToolName 将不同 peer family 的工具名折叠为 Codex 对外名称。
 func canonicalCodexToolName(family, name string) string {
 	name = canonicalToolName(name)
 	if strings.TrimSpace(family) == mcpdto.ClientKindOrch {
@@ -277,7 +291,7 @@ func canonicalCodexToolName(family, name string) string {
 	return name
 }
 
-// canonicalOrchestrationToolName 处理canonicalorchestration工具名称。
+// canonicalOrchestrationToolName 将 orchestration_* 旧名映射为短工具名。
 func canonicalOrchestrationToolName(name string) string {
 	switch strings.TrimSpace(name) {
 	case "orchestration_launch_agent":
@@ -301,6 +315,7 @@ func canonicalOrchestrationToolName(name string) string {
 	}
 }
 
+// legacyCodexToolAliases 返回短工具名对应的旧版和 MCP 命名空间别名。
 func legacyCodexToolAliases(family, canonical string) []string {
 	switch strings.TrimSpace(family) {
 	case mcpdto.ClientKindLSP:
@@ -315,10 +330,12 @@ func legacyCodexToolAliases(family, canonical string) []string {
 	return nil
 }
 
+// codexSurfaceKeys 生成 surface 可被查找的所有作用域 key。
 func codexSurfaceKeys(scope contract.CodexToolSurfaceScope) []string {
 	return nonEmptyUnique(surfaceIDKey(scope.SurfaceID), scope.AgentID, scope.ProviderThreadID, scope.LocalThreadID, scope.UIThreadID)
 }
 
+// surfaceIDKey 给显式 surfaceID 加前缀，避免与 agent/thread id 冲突。
 func surfaceIDKey(surfaceID string) string {
 	surfaceID = strings.TrimSpace(surfaceID)
 	if surfaceID == "" {
@@ -327,6 +344,7 @@ func surfaceIDKey(surfaceID string) string {
 	return "surface:" + surfaceID
 }
 
+// nonEmptyUnique 去除空字符串和重复值，保持首次出现顺序。
 func nonEmptyUnique(values ...string) []string {
 	seen := make(map[string]struct{}, len(values))
 	out := make([]string, 0, len(values))
@@ -344,7 +362,8 @@ func nonEmptyUnique(values ...string) []string {
 	return out
 }
 
-// routeCodexSurfaceToolCall 处理routecodexsurface工具call。
+// routeCodexSurfaceToolCall 优先把 scoped Codex 工具调用路由到已准备的 surface。
+// scoped 调用缺失 surface 时 fail-fast，避免退回全局 peer 造成错线程执行。
 func (h *Handler) routeCodexSurfaceToolCall(ctx context.Context, req ToolCallRequest) (*ToolCallResult, bool, error) {
 	surface := h.lookupCodexToolSurface(req)
 	if surface == nil {
@@ -365,6 +384,7 @@ func (h *Handler) routeCodexSurfaceToolCall(ctx context.Context, req ToolCallReq
 	return result, true, err
 }
 
+// lookupCodexToolSurface 按 threadID 或 agentID 查找已绑定的 Codex surface。
 func (h *Handler) lookupCodexToolSurface(req ToolCallRequest) *codexToolSurface {
 	if h == nil {
 		return nil
@@ -383,7 +403,8 @@ func (h *Handler) lookupCodexToolSurface(req ToolCallRequest) *codexToolSurface 
 	return nil
 }
 
-// callCodexSurfaceTool 调用codexsurface工具。
+// callCodexSurfaceTool 根据 surface entry 调用 host、skill 或 stdio MCP 工具。
+// 本函数负责补发 proxy lifecycle 事件，除非上游 context 已声明事件已发布。
 func (h *Handler) callCodexSurfaceTool(ctx context.Context, surface *codexToolSurface, req ToolCallRequest) (*ToolCallResult, error) {
 	canonical := surface.aliases[strings.TrimSpace(req.Name)]
 	if canonical == "" {
@@ -419,6 +440,7 @@ func (h *Handler) callCodexSurfaceTool(ctx context.Context, surface *codexToolSu
 	return result, err
 }
 
+// codexSurfaceLifecycleThreadID 选择 lifecycle 事件使用的 threadID，agent scoped surface 优先 agentID。
 func codexSurfaceLifecycleThreadID(req ToolCallRequest) string {
 	if agentID := strings.TrimSpace(req.AgentID); agentID != "" {
 		return agentID
@@ -426,7 +448,7 @@ func codexSurfaceLifecycleThreadID(req ToolCallRequest) string {
 	return strings.TrimSpace(req.ThreadID)
 }
 
-// Close 关闭平台toolbridge资源。
+// Close 关闭 surface 持有的全部 MCP client，返回第一个关闭错误。
 func (s *codexToolSurface) Close() error {
 	if s == nil {
 		return nil
@@ -440,17 +462,18 @@ func (s *codexToolSurface) Close() error {
 	return err
 }
 
+// listPeerTools 等待指定 peer 可用并调用 tools/list。
 func (h *Handler) listPeerTools(ctx context.Context, clientKind string) ([]mcpdto.MCPTool, error) {
 	if h == nil || h.registry == nil {
 		return nil, ErrNoPeerAvailable
 	}
-	// Peer processes may still be starting up. Poll with a short timeout.
+	// peer 进程可能仍在启动，短时间轮询可避免把正常冷启动误判为不可用。
 	peers, err := h.waitForPeer(ctx, clientKind)
 	if err != nil {
 		return nil, err
 	}
 
-	// Bootstrap peer callback returns {"tools":[...]} wrapper.
+	// bootstrap peer callback 使用 {"tools":[...]} 外壳，解码时保持与 MCP tools/list wire 结构一致。
 	var result peerToolsListResult
 	if err := peers[0].Peer.Callback(ctx, "tools/list", nil, &result); err != nil {
 		return nil, err
@@ -458,14 +481,14 @@ func (h *Handler) listPeerTools(ctx context.Context, clientKind string) ([]mcpdt
 	return result.Tools, nil
 }
 
-// waitForPeer 等待平台 toolbridge peer 可用。
+// waitForPeer 在短时间内轮询指定 kind 的活跃 peer。
 func (h *Handler) waitForPeer(ctx context.Context, clientKind string) ([]*mcpcontrol.ToolInstance, error) {
 	deadline := time.Now().Add(peerReadyTimeout)
 	for {
 		peers := h.registry.FindActiveByKind(clientKind)
 		if len(peers) >= 1 {
-			// Use the first active peer. Multiple peers can exist when the
-			// codex app-server also spawns MCP sidecars from a resumed thread.
+			// 同类 peer 并存时选择第一个活跃实例；恢复线程可能额外拉起 sidecar，
+			// 这里保持确定性选择，避免 tools/list 暴露面随枚举顺序外的状态抖动。
 			return peers[:1], nil
 		}
 		if time.Now().After(deadline) {
@@ -479,6 +502,7 @@ func (h *Handler) waitForPeer(ctx context.Context, clientKind string) ([]*mcpcon
 	}
 }
 
+// adaptMCPResponse 将 MCP tools/call 响应转换为内部 ToolCallResult。
 func adaptMCPResponse(resp peerToolCallResponse) (*ToolCallResult, error) {
 	items := make([]ToolCallContentItem, 0, len(resp.Content))
 	for _, item := range resp.Content {
@@ -505,6 +529,7 @@ func adaptMCPResponse(resp peerToolCallResponse) (*ToolCallResult, error) {
 	}, nil
 }
 
+// peerToolCallResponseIsEmptySuccess 判断 peer 是否返回了没有内容的成功响应。
 func peerToolCallResponseIsEmptySuccess(resp peerToolCallResponse, items []ToolCallContentItem) bool {
 	if resp.IsError {
 		return false
@@ -525,6 +550,7 @@ func peerToolCallResponseIsEmptySuccess(resp peerToolCallResponse, items []ToolC
 	return true
 }
 
+// toolCallEmptyPeerResult 将空成功响应转为显式失败，避免模型误以为工具有有效结果。
 func toolCallEmptyPeerResult() *ToolCallResult {
 	const message = "toolbridge: peer tool returned empty result"
 	return &ToolCallResult{
@@ -537,6 +563,7 @@ func toolCallEmptyPeerResult() *ToolCallResult {
 	}
 }
 
+// normalizeToolResultStructuredContent 解析 structuredContent，空值保持 nil。
 func normalizeToolResultStructuredContent(raw json.RawMessage) (json.RawMessage, error) {
 	if len(bytes.TrimSpace(raw)) == 0 {
 		return nil, nil
@@ -544,7 +571,7 @@ func normalizeToolResultStructuredContent(raw json.RawMessage) (json.RawMessage,
 	return common.StructuredContentFromRaw(raw)
 }
 
-// structuredContentReportsFailure 判断 structured content 是否报告失败。
+// structuredContentReportsFailure 判断 structuredContent 是否用 success/isError/ok 报告失败。
 func structuredContentReportsFailure(raw json.RawMessage) (bool, error) {
 	trimmed, isObject, err := normalizedStructuredContentObject(raw)
 	if err != nil || !isObject {
@@ -563,6 +590,7 @@ func structuredContentReportsFailure(raw json.RawMessage) (bool, error) {
 		(payload.OK != nil && !*payload.OK), nil
 }
 
+// normalizedStructuredContentObject 校验 structuredContent 是合法 JSON object。
 func normalizedStructuredContentObject(raw json.RawMessage) (json.RawMessage, bool, error) {
 	if len(raw) == 0 {
 		return nil, false, nil
@@ -577,6 +605,7 @@ func normalizedStructuredContentObject(raw json.RawMessage) (json.RawMessage, bo
 	return trimmed, true, nil
 }
 
+// toCodexDynamicTools 将 MCP tool schema 转成 Codex DynamicToolSchema。
 func toCodexDynamicTools(tools []mcpdto.MCPTool) []contract.DynamicToolSchema {
 	out := make([]contract.DynamicToolSchema, 0, len(tools))
 	for _, tool := range tools {
@@ -593,7 +622,7 @@ func toCodexDynamicTools(tools []mcpdto.MCPTool) []contract.DynamicToolSchema {
 	return out
 }
 
-// decodeToolCallRequest 解码工具call请求。
+// decodeToolCallRequest 解码模型侧 tool call 参数，并兼容多种 legacy 字段名。
 func decodeToolCallRequest(params json.RawMessage) (ToolCallRequest, error) {
 	if len(bytes.TrimSpace(params)) == 0 {
 		return ToolCallRequest{}, fmt.Errorf("toolbridge: missing tool call params")
@@ -639,6 +668,7 @@ func decodeToolCallRequest(params json.RawMessage) (ToolCallRequest, error) {
 	return req, nil
 }
 
+// hasPrivateScopeMetadata 判断调用参数是否带有内部 scope 元数据。
 func hasPrivateScopeMetadata(payload map[string]json.RawMessage) bool {
 	for _, key := range []string{MetadataKeyAgentID, MetadataKeyThreadID, MetadataKeyCallID} {
 		if len(bytes.TrimSpace(payload[key])) != 0 {

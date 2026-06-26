@@ -12,6 +12,7 @@ import (
 )
 
 const (
+	// 打包运行时注入给 owner、sidecar 和 provider 进程的环境变量名称。
 	controlRPCAddrEnv   = "GO_AGENT_CTL_RPC_ADDR"
 	httpAddrEnv         = "SUPER_DOLPHIN_HTTP_ADDR"
 	peerBinDirEnv       = "GO_AGENT_PEER_BIN_DIR"
@@ -30,56 +31,64 @@ const (
 	lspManifestName     = "lsp-manifest.json"
 )
 
+// runtimeDeps 收束可测试的系统依赖，避免测试直接改全局 os 函数。
 type runtimeDeps struct {
 	executable  func() (string, error)
 	userHomeDir func() (string, error)
 	setenv      func(string, string) error
 }
 
+// deps 是运行时环境配置的可替换系统依赖集合。
 var deps = runtimeDeps{
 	executable:  os.Executable,
 	userHomeDir: os.UserHomeDir,
 	setenv:      os.Setenv,
 }
 
+// bundledSidecarNames 是打包版必须携带的 peer sidecar 可执行文件。
 var bundledSidecarNames = []string{"mcp-orch", "mcp-lsp", "mcp-ida"}
 
-// PackagedRuntime describes the resources and app-owned data directories for a
-// packaged desktop runtime.
+// PackagedRuntime 汇总 packaged owner/sidecar 共用的资源路径，字段必须来自已校验包根。
 type PackagedRuntime struct {
-	ResourcesDir  string
-	BinDir        string
-	MigrationsDir string
-	AppDataDir    string
+	ResourcesDir  string // 包内 Resources 根目录。
+	BinDir        string // 包内可执行文件目录。
+	MigrationsDir string // 包内 SQLite migration 目录。
+	AppDataDir    string // 应用自管用户数据目录。
 }
 
+// SidecarRuntimeInput 是 sidecar 启动 contract 解析输入。
 type SidecarRuntimeInput struct {
-	ExecutablePath string
-	Env            map[string]string
+	ExecutablePath string            // sidecar 可执行路径；保留给兼容调用方。
+	Env            map[string]string // 父进程注入的环境变量。
 }
 
+// SidecarRuntimeContract 是 owner 传递给 sidecar 的最小运行时约束。
 type SidecarRuntimeContract struct {
-	Mode         string
-	ResourcesDir string
+	Mode         string // dev 或 packaged。
+	ResourcesDir string // dev 下为项目根，packaged 下为资源根。
 }
 
+// LSPBundle 是打包 LSP manifest 的解析结果，语言映射不能重复绑定 server。
 type LSPBundle struct {
-	BundleDir    string
-	ManifestPath string
-	Servers      map[string]LSPServer
-	Languages    map[string]LSPServer
+	BundleDir    string               // LSP bundle 根目录。
+	ManifestPath string               // 已加载的 manifest 路径。
+	Servers      map[string]LSPServer // 以 server id 索引的服务声明。
+	Languages    map[string]LSPServer // 以 language id 索引的服务声明。
 }
 
+// LSPServer 保留单个打包 LSP server 的执行路径和语言列表，路径需位于 bundle 根内。
 type LSPServer struct {
-	ID        string
-	Path      string
-	Languages []string
+	ID        string   // 规范化后的 server id。
+	Path      string   // 包内可执行文件路径。
+	Languages []string // 规范化后的 language id 列表。
 }
 
+// lspBundleManifest 映射 lsp-manifest.json 顶层结构。
 type lspBundleManifest struct {
 	Servers map[string]lspServerManifest `json:"servers"`
 }
 
+// lspServerManifest 映射单个 LSP server 的清单声明。
 type lspServerManifest struct {
 	Path      string   `json:"path"`
 	Version   string   `json:"version"`
@@ -87,7 +96,8 @@ type lspServerManifest struct {
 	Languages []string `json:"languages"`
 }
 
-// ConfigurePackagedApp 处理configurepackagedapp。
+// ConfigurePackagedApp 在 packaged owner 进程中注入包内运行时环境。
+// 开发模式直接返回；packaged 模式缺少 manifest、sidecar 或 LSP bundle 时立即报错。
 func ConfigurePackagedApp() error {
 	exe, err := deps.executable()
 	if err != nil {
@@ -117,7 +127,7 @@ func ConfigurePackagedApp() error {
 	return nil
 }
 
-// ConfigureSidecarRuntime 处理configuresidecar运行时。
+// ConfigureSidecarRuntime 根据父进程 contract 为 sidecar 注入项目根和打包工具链路径。
 func ConfigureSidecarRuntime() error {
 	contract, err := ResolveSidecarRuntimeContract(SidecarRuntimeInput{
 		Env: environmentMap(os.Environ()),
@@ -128,7 +138,7 @@ func ConfigureSidecarRuntime() error {
 	return applySidecarRuntimeContract(contract)
 }
 
-// ResolveSidecarRuntimeContract 解析sidecar运行时contract。
+// ResolveSidecarRuntimeContract 校验 sidecar 必需的 mode 和资源根环境变量。
 func ResolveSidecarRuntimeContract(input SidecarRuntimeInput) (SidecarRuntimeContract, error) {
 	mode := strings.TrimSpace(input.Env[runtimeModeEnv])
 	resources := strings.TrimSpace(input.Env[runtimeResourcesEnv])
@@ -147,10 +157,8 @@ func ResolveSidecarRuntimeContract(input SidecarRuntimeInput) (SidecarRuntimeCon
 	return SidecarRuntimeContract{Mode: mode, ResourcesDir: filepath.Clean(resources)}, nil
 }
 
-// PackagedRuntimeFromExecutable resolves the packaged runtime for callers that
-// still need the legacy PackagedRuntime shape. It delegates packaged/dev
-// classification to ResolveRuntime so path shape alone cannot select packaged.
-// PackagedRuntimeFromExecutable 从可执行文件处理packaged运行时。
+// PackagedRuntimeFromExecutable 为仍依赖旧 PackagedRuntime 结构的调用方解析打包运行时。
+// 是否属于 packaged 由 ResolveRuntime 决定，避免只靠路径形态误判。
 func PackagedRuntimeFromExecutable(executablePath, userHome string) (PackagedRuntime, bool) {
 	executablePath = strings.TrimSpace(executablePath)
 	userHome = strings.TrimSpace(userHome)
@@ -169,23 +177,27 @@ func PackagedRuntimeFromExecutable(executablePath, userHome string) (PackagedRun
 	return *resolved.PackagedRuntime, true
 }
 
+// packagedRuntimeFromResources 使用当前系统平台构造打包资源路径集合。
 func packagedRuntimeFromResources(resources, userHome string) PackagedRuntime {
 	return packagedRuntimeFromResourcesForOS(runtimeGOOS(), resources, userHome)
 }
 
+// packagedAppDataDir 返回当前系统平台的应用自管数据目录。
 func packagedAppDataDir(userHome string) string {
 	return packagedAppDataDirForOS(runtimeGOOS(), userHome)
 }
 
+// packagedResourcesDir 从当前系统平台的可执行路径推断包资源根。
 func packagedResourcesDir(executablePath string) string {
 	return packagedResourcesDirForOS(runtimeGOOS(), executablePath)
 }
 
+// applyPackagedEnv 根据资源根和用户目录注入 packaged owner 环境。
 func applyPackagedEnv(resources, userHome string) error {
 	return applyPackagedRuntimeEnv(packagedRuntimeFromResources(resources, userHome))
 }
 
-// LoadLSPBundleFromEnv 从env加载LSP包体。
+// LoadLSPBundleFromEnv 从环境变量加载 LSP bundle；两个变量必须同时存在。
 func LoadLSPBundleFromEnv() (LSPBundle, bool, error) {
 	bundleDir := strings.TrimSpace(os.Getenv(lspBundleDirEnv))
 	manifestPath := strings.TrimSpace(os.Getenv(lspManifestEnv))
@@ -199,7 +211,7 @@ func LoadLSPBundleFromEnv() (LSPBundle, bool, error) {
 	return bundle, true, err
 }
 
-// LoadLSPBundle 加载LSP包体。
+// LoadLSPBundle 读取并校验打包 LSP bundle manifest。
 func LoadLSPBundle(bundleDir, manifestPath string) (LSPBundle, error) {
 	bundleDir = strings.TrimSpace(bundleDir)
 	manifestPath = strings.TrimSpace(manifestPath)
@@ -223,7 +235,7 @@ func LoadLSPBundle(bundleDir, manifestPath string) (LSPBundle, error) {
 	return normalizeLSPBundle(bundleDir, manifestPath, manifest)
 }
 
-// normalizeLSPBundle 规范化LSP包体。
+// normalizeLSPBundle 规范化 server 和 language 映射，并拒绝重复 language 绑定。
 func normalizeLSPBundle(bundleDir, manifestPath string, manifest lspBundleManifest) (LSPBundle, error) {
 	bundle := LSPBundle{
 		BundleDir:    bundleDir,
@@ -262,7 +274,7 @@ func normalizeLSPBundle(bundleDir, manifestPath string, manifest lspBundleManife
 	return bundle, nil
 }
 
-// resolveLSPBundlePath 解析LSP包体路径。
+// resolveLSPBundlePath 清理 manifest 中的相对路径，并阻止路径逃出 LSP bundle。
 func resolveLSPBundlePath(bundleDir, relativePath string) (string, error) {
 	relativePath = strings.TrimSpace(relativePath)
 	if relativePath == "" {
@@ -282,7 +294,7 @@ func resolveLSPBundlePath(bundleDir, relativePath string) (string, error) {
 	return filepath.Join(bundleDir, clean), nil
 }
 
-// defaultLSPLanguages 处理defaultLSPlanguages。
+// defaultLSPLanguages 为缺少 languages 字段的内置 server 提供默认语言集合。
 func defaultLSPLanguages(serverID string) []string {
 	switch normalizeLSPKey(serverID) {
 	case "gopls":
@@ -303,6 +315,7 @@ func defaultLSPLanguages(serverID string) []string {
 	return nil
 }
 
+// normalizeLSPLanguages 去重、排序并清理 language id，保证映射稳定。
 func normalizeLSPLanguages(values []string) []string {
 	seen := map[string]struct{}{}
 	languages := make([]string, 0, len(values))
@@ -321,17 +334,18 @@ func normalizeLSPLanguages(values []string) []string {
 	return languages
 }
 
+// normalizeLSPKey 统一 server 和 language id 的大小写与空白。
 func normalizeLSPKey(value string) string {
 	return strings.ToLower(strings.TrimSpace(value))
 }
 
-// ServerForLanguage 为语言处理服务端。
+// ServerForLanguage 返回指定 language id 对应的打包 LSP server。
 func (b LSPBundle) ServerForLanguage(languageID string) (LSPServer, bool) {
 	server, ok := b.Languages[normalizeLSPKey(languageID)]
 	return server, ok
 }
 
-// SemanticLanguages 处理语义languages。
+// SemanticLanguages 返回 bundle 可提供语义能力的语言列表，顺序稳定。
 func (b LSPBundle) SemanticLanguages() []string {
 	languages := make([]string, 0, len(b.Languages))
 	for languageID := range b.Languages {
@@ -341,7 +355,7 @@ func (b LSPBundle) SemanticLanguages() []string {
 	return languages
 }
 
-// applyPackagedRuntimeEnv 应用packaged运行时env。
+// applyPackagedRuntimeEnv 校验包内 sidecar 和 LSP 后注入 owner 进程环境变量。
 func applyPackagedRuntimeEnv(runtime PackagedRuntime) error {
 	if err := requireBundledSidecars(runtime.BinDir); err != nil {
 		return err
@@ -379,9 +393,8 @@ func applyPackagedRuntimeEnv(runtime PackagedRuntime) error {
 	)
 }
 
-// LoadVideoEnv reads $SUPER_DOLPHIN_HOME/video.env and sets any KEY=VALUE
-// pairs it finds as environment variables. Missing file is silently ignored.
-// LoadVideoEnv 加载videoenv。
+// LoadVideoEnv 从 $SUPER_DOLPHIN_HOME/video.env 加载 KEY=VALUE 到环境变量。
+// 文件缺失视为未配置；读取或设置失败会返回错误，避免错误凭据被静默吞掉。
 func LoadVideoEnv() error {
 	path, err := videoEnvPath()
 	if err != nil {
@@ -410,7 +423,7 @@ func LoadVideoEnv() error {
 	return nil
 }
 
-// WriteVideoEnv 写入videoenv。
+// WriteVideoEnv 把 SiliconFlow API key 写入应用自管 video.env，文件权限仅允许当前用户读写。
 func WriteVideoEnv(apiKey string) error {
 	apiKey = strings.TrimSpace(apiKey)
 	if apiKey == "" {
@@ -430,6 +443,7 @@ func WriteVideoEnv(apiKey string) error {
 	return nil
 }
 
+// videoEnvPath 返回 video.env 路径；未设置 SUPER_DOLPHIN_HOME 时使用 packaged app data。
 func videoEnvPath() (string, error) {
 	home := strings.TrimSpace(os.Getenv(superDolphinHomeEnv))
 	if home == "" {
@@ -443,6 +457,7 @@ func videoEnvPath() (string, error) {
 	return filepath.Join(home, "video.env"), nil
 }
 
+// applySidecarRuntimeContract 把 owner 传入的 sidecar contract 转成进程环境。
 func applySidecarRuntimeContract(contract SidecarRuntimeContract) error {
 	setters := []func() error{
 		func() error { return setEnvIfEmpty(projectRootEnv, contract.ResourcesDir) },
@@ -463,6 +478,7 @@ func applySidecarRuntimeContract(contract SidecarRuntimeContract) error {
 	return runEnvSetters(setters...)
 }
 
+// runEnvSetters 按顺序执行环境写入，遇到第一处失败立即返回。
 func runEnvSetters(setters ...func() error) error {
 	for _, set := range setters {
 		if err := set(); err != nil {
@@ -472,6 +488,7 @@ func runEnvSetters(setters ...func() error) error {
 	return nil
 }
 
+// requireBundledSidecars 校验发行包内所有 peer sidecar 均可执行。
 func requireBundledSidecars(binDir string) error {
 	for _, name := range executableNamesForOS(runtimeGOOS(), bundledSidecarNames) {
 		path := filepath.Join(binDir, name)
@@ -482,27 +499,32 @@ func requireBundledSidecars(binDir string) error {
 	return nil
 }
 
+// requireExecutableFile 使用当前系统规则校验可执行文件。
 func requireExecutableFile(path string) error {
 	return requireExecutableFileForOS(runtimeGOOS(), path)
 }
 
+// newSessionToken 生成 owner 控制面会话 token；熵源失败属于不可恢复启动错误。
 func newSessionToken() string {
 	var raw [32]byte
 	if _, err := rand.Read(raw[:]); err != nil {
-		// archguard:ignore panic_count -- cryptographic entropy failure is unrecoverable for session-token generation.
+		// archguard:ignore panic_count -- 会话 token 熵源失败时无法安全继续启动。
 		panic("generate packaged control-plane session token: " + err.Error())
 	}
 	return "sd-" + hex.EncodeToString(raw[:])
 }
 
+// packagedPathEntries 返回当前系统 owner 进程使用的 PATH 条目。
 func packagedPathEntries(runtime PackagedRuntime) []string {
 	return packagedPathEntriesForOS(runtimeGOOS(), runtime)
 }
 
+// packagedSidecarPathEntries 返回当前系统 sidecar 进程使用的 PATH 条目。
 func packagedSidecarPathEntries(runtime PackagedRuntime) []string {
 	return packagedSidecarPathEntriesForOS(runtimeGOOS(), runtime)
 }
 
+// setControlledEnvPath 用去重后的受控条目覆盖指定 PATH 类环境变量。
 func setControlledEnvPath(key string, entries ...string) error {
 	seen := map[string]bool{}
 	out := make([]string, 0, len(entries))
@@ -515,6 +537,7 @@ func setControlledEnvPath(key string, entries ...string) error {
 	return setEnv(key, strings.Join(out, string(os.PathListSeparator)))
 }
 
+// appendPathEntry 去重追加非空路径条目。
 func appendPathEntry(out *[]string, seen map[string]bool, entry string) {
 	entry = strings.TrimSpace(entry)
 	if entry == "" || seen[entry] {
@@ -524,6 +547,7 @@ func appendPathEntry(out *[]string, seen map[string]bool, entry string) {
 	*out = append(*out, entry)
 }
 
+// setIfDir 仅当目录存在时写入环境变量。
 func setIfDir(key, dir string) error {
 	if info, err := os.Stat(dir); err == nil && info.IsDir() {
 		return setEnv(key, dir)
@@ -531,6 +555,7 @@ func setIfDir(key, dir string) error {
 	return nil
 }
 
+// setIfFile 仅当目标文件存在且变量未设置时写入环境变量。
 func setIfFile(key, path string) error {
 	if strings.TrimSpace(os.Getenv(key)) != "" {
 		return nil
@@ -541,6 +566,7 @@ func setIfFile(key, path string) error {
 	return nil
 }
 
+// setEnvIfEmpty 只在变量为空且 value 非空时写入，保留调用方显式配置。
 func setEnvIfEmpty(key, value string) error {
 	if strings.TrimSpace(os.Getenv(key)) != "" || strings.TrimSpace(value) == "" {
 		return nil
@@ -548,6 +574,7 @@ func setEnvIfEmpty(key, value string) error {
 	return setEnv(key, value)
 }
 
+// setEnv 写入环境变量，并把 key 带入错误便于定位失败项。
 func setEnv(key, value string) error {
 	if err := deps.setenv(key, value); err != nil {
 		return fmt.Errorf("%s: %w", key, err)

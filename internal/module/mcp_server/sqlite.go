@@ -20,19 +20,21 @@ const (
 	brokenSQLitePackage        = "mcp-server-sqlite"
 )
 
-// StartSQLiteServerRequest 是默认 sqlite MCP server 的显式启动请求。
+// StartSQLiteServerRequest 是默认 sqlite MCP server 的显式启动 RPC 请求。
+// DatabasePath 可由请求覆盖；为空时由 service 按配置和环境变量解析。
 type StartSQLiteServerRequest = contract.MCPSQLiteServerStartRequest
 
-// StartSQLiteServerResult 返回 sqlite MCP server 配置的写入和开启状态。
+// StartSQLiteServerResult 返回 sqlite 配置写入位置、本次是否新增以及最终 enabled 状态。
 type StartSQLiteServerResult = contract.MCPSQLiteServerStartResult
 
-// StopSQLiteServerRequest 是默认 sqlite MCP server 的显式关闭请求。
+// StopSQLiteServerRequest 是默认 sqlite MCP server 的显式关闭 RPC 请求。
 type StopSQLiteServerRequest = contract.MCPSQLiteServerStopRequest
 
-// StopSQLiteServerResult 返回 sqlite MCP server 关闭后的状态。
+// StopSQLiteServerResult 返回 sqlite 配置路径和关闭后的 enabled 状态。
 type StopSQLiteServerResult = contract.MCPSQLiteServerStopResult
 
 // StartSQLiteServer 写入或重新启用默认 sqlite stdio MCP server 配置。
+// 已存在可自动识别的内置默认配置时会转换到当前 dbhub 形态；用户自定义同名配置只切换 enabled。
 func (s *service) StartSQLiteServer(ctx context.Context, req StartSQLiteServerRequest) (StartSQLiteServerResult, error) {
 	ctx = mcpServerContext(ctx)
 	if err := ctx.Err(); err != nil {
@@ -138,6 +140,8 @@ func isLegacyDefaultSQLiteServerConfig(config ServerConfig) bool {
 	return legacySQLiteDatabasePath(config.Args) != ""
 }
 
+// legacySQLiteDatabasePath 识别可自动转换的 sqlite server 参数并提取数据库路径。
+// 只匹配项目内置默认形态，避免误把用户自定义 server 当作可转换配置。
 func legacySQLiteDatabasePath(args []string) string {
 	if len(args) == 3 &&
 		strings.TrimSpace(args[0]) == "-y" &&
@@ -170,6 +174,8 @@ func sqliteDBHubDSN(databasePath string) string {
 	return "sqlite:///" + filepath.ToSlash(path)
 }
 
+// replaceDefaultSQLiteServer 用当前 dbhub 配置替换可自动转换的默认 sqlite server。
+// 它先删除再插入同名配置，任一步失败都返回错误，避免留下半更新状态。
 func (s *service) replaceDefaultSQLiteServer(ctx context.Context, config ServerConfig) (string, error) {
 	workspaceRoot, servers, err := s.resolveWorkspaceServers(ctx, "")
 	if err != nil {
@@ -203,6 +209,8 @@ func (s *service) replaceDefaultSQLiteServer(ctx context.Context, config ServerC
 	return mcpServerConfigPath(workspaceRoot), nil
 }
 
+// setDefaultSQLiteServerEnabled 只切换默认 sqlite server 的 enabled 状态。
+// 配置行和 store 都必须存在，否则返回错误，避免 start/stop 静默失效。
 func (s *service) setDefaultSQLiteServerEnabled(ctx context.Context, enabled bool) error {
 	workspaceRoot, servers, err := s.resolveWorkspaceServers(ctx, "")
 	if err != nil {
@@ -225,6 +233,8 @@ func (s *service) setDefaultSQLiteServerEnabled(ctx context.Context, enabled boo
 	return nil
 }
 
+// resolveSQLiteDatabasePath 按请求、运行时配置和环境变量顺序解析 SQLite 数据库路径。
+// 所有候选都为空时返回错误，让默认 MCP server 启动明确失败而不是使用隐式路径。
 func (s *service) resolveSQLiteDatabasePath(requested string) (string, error) {
 	for _, candidate := range []string{
 		requested,

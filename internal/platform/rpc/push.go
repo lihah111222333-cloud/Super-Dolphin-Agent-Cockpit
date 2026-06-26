@@ -15,15 +15,16 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/eventsurface"
 )
 
+// retryProgressPushPattern 匹配 provider 内部重连重试进度文本。
 var retryProgressPushPattern = regexp.MustCompile(`(?i)^\s*(reconnecting|retrying)(\.\.\.)?\s+\d+\s*/\s*\d+\s*$`)
 
-// PushBridge bridges internal events into jrpc2 server push APIs.
+// PushBridge 把内部事件转换为 jrpc2 server 的 notify/callback 调用。
 type PushBridge struct {
 	dispatcher *event.Dispatcher
 	logger     *pkglogger.Logger
 }
 
-// NewPushBridge 创建push桥接。
+// NewPushBridge 创建 RPC push bridge，并补齐默认 logger。
 func NewPushBridge(dispatcher *event.Dispatcher, logger *pkglogger.Logger) *PushBridge {
 	if logger == nil {
 		logger = pkglogger.Get()
@@ -31,7 +32,7 @@ func NewPushBridge(dispatcher *event.Dispatcher, logger *pkglogger.Logger) *Push
 	return &PushBridge{dispatcher: dispatcher, logger: logger}
 }
 
-// NotifyClient 处理notify客户端。
+// NotifyClient 向单个 RPC 客户端发送通知，server 缺失时 fail-fast。
 func (b *PushBridge) NotifyClient(ctx context.Context, server *jrpc2.Server, method string, params any) error {
 	if server == nil {
 		return ErrInvalidState("rpc push server is nil")
@@ -39,7 +40,7 @@ func (b *PushBridge) NotifyClient(ctx context.Context, server *jrpc2.Server, met
 	return server.Notify(ctx, method, params)
 }
 
-// CallbackClient 处理callback客户端。
+// CallbackClient 向客户端发起 callback 并返回原始 JSON 结果。
 func (b *PushBridge) CallbackClient(ctx context.Context, server *jrpc2.Server, method string, params any) (json.RawMessage, error) {
 	if server == nil {
 		return nil, ErrInvalidState("rpc push server is nil")
@@ -58,14 +59,8 @@ func (b *PushBridge) CallbackClient(ctx context.Context, server *jrpc2.Server, m
 	return raw, nil
 }
 
-// subscribeCoreEventPushes is the P22 P2 boundary for
-// `internal/platform/rpc/push.go`: the bus callback body contains no
-// NotifyAll call and no `context.Background()` — only a worker Enqueue.
-// Legacy expansion (`eventsurface.ExpandNotifications`) stays on the
-// callback side because it's a deterministic, O(1), ctx-free pure
-// function; moving it to the worker wouldn't change behavior but would
-// make `TestExpandNotificationsAddsLegacyThreadRefresh` harder to keep
-// independent of worker timing.
+// subscribeCoreEventPushes 订阅核心事件并只把展开后的通知入队。
+// bus callback 不直接调用 NotifyAll，也不创建 context.Background，慢路径由 worker 托管。
 func subscribeCoreEventPushes(worker *pushNotificationWorker, dispatcher *event.Dispatcher, logger *pkglogger.Logger) []context.CancelFunc {
 	if worker == nil || dispatcher == nil {
 		return nil
@@ -77,6 +72,7 @@ func subscribeCoreEventPushes(worker *pushNotificationWorker, dispatcher *event.
 	return cancels
 }
 
+// typedPushMethods 是已经有强类型事件面负责推送的方法集合。
 var typedPushMethods = map[string]struct{}{
 	strings.ToLower(eventsurface.MethodUIStateChanged):       {},
 	strings.ToLower(eventsurface.MethodTurnStarted):          {},
@@ -98,6 +94,7 @@ var typedPushMethods = map[string]struct{}{
 	strings.ToLower(eventsurface.MethodAgentStopped):         {},
 }
 
+// subscribeRawProviderEventPushes 订阅 provider raw 事件，并过滤掉已有强类型覆盖的事件。
 func subscribeRawProviderEventPushes(worker *pushNotificationWorker, dispatcher *event.Dispatcher, logger *pkglogger.Logger) context.CancelFunc {
 	if worker == nil || dispatcher == nil {
 		return func() {}
@@ -107,6 +104,7 @@ func subscribeRawProviderEventPushes(worker *pushNotificationWorker, dispatcher 
 	}, logger)
 }
 
+// providerPushNotifications 把 raw provider event 转成前端通知列表。
 func providerPushNotifications(raw providerdto.RawProviderEvent) []eventsurface.Notification {
 	method := normalizeRawProviderPushMethod(raw.EventType)
 	if shouldSuppressRetryProgressRawProviderPush(method, raw.Data) {
@@ -138,6 +136,7 @@ func shouldSuppressRetryProgressRawProviderPush(method string, data any) bool {
 	return retryProgressPushPattern.MatchString(message)
 }
 
+// shouldSuppressTypedRawProviderPush 判断 raw 事件是否已被强类型 push 覆盖。
 func shouldSuppressTypedRawProviderPush(method string, data any) bool {
 	key := normalizedRawProviderMethodKey(method)
 	if _, ok := typedPushMethods[key]; ok {
@@ -149,6 +148,7 @@ func shouldSuppressTypedRawProviderPush(method string, data any) bool {
 	return isTypedToolLifecycleRawProviderEvent(method, data)
 }
 
+// typedRawProviderAliasMethods 是强类型事件的 raw provider 兼容别名集合。
 var typedRawProviderAliasMethods = map[string]struct{}{
 	normalizedRawProviderMethodKey("item/reasoning/summaryTextDelta"): {},
 	normalizedRawProviderMethodKey("message.delta"):                   {},
@@ -157,6 +157,7 @@ var typedRawProviderAliasMethods = map[string]struct{}{
 	normalizedRawProviderMethodKey("exec_output_delta"):               {},
 }
 
+// isTypedToolLifecycleRawProviderEvent 判断 raw 事件是否等价于强类型工具生命周期事件。
 func isTypedToolLifecycleRawProviderEvent(method string, data any) bool {
 	payload, ok := clonePayloadMap(data)
 	if !ok {
@@ -166,6 +167,7 @@ func isTypedToolLifecycleRawProviderEvent(method string, data any) bool {
 		isTypedToolCompletionRawProviderEvent(method, payload)
 }
 
+// isTypedToolStartRawProviderEvent 判断 raw 事件是否表示工具调用开始。
 func isTypedToolStartRawProviderEvent(method string, payload map[string]any) bool {
 	if _, ok := toolStartRawProviderMethods[normalizedRawProviderMethodKey(method)]; !ok {
 		return false
@@ -179,6 +181,7 @@ func isTypedToolStartRawProviderEvent(method string, payload map[string]any) boo
 	}
 }
 
+// isTypedToolCompletionRawProviderEvent 判断 raw 事件是否表示工具调用完成。
 func isTypedToolCompletionRawProviderEvent(method string, payload map[string]any) bool {
 	if _, ok := toolCompletionRawProviderMethods[normalizedRawProviderMethodKey(method)]; !ok {
 		return false
@@ -192,6 +195,7 @@ func isTypedToolCompletionRawProviderEvent(method string, payload map[string]any
 	}
 }
 
+// toolStartRawProviderMethods 是可能表示工具开始的 raw 方法集合。
 var toolStartRawProviderMethods = map[string]struct{}{
 	normalizedRawProviderMethodKey("item/started"):             {},
 	normalizedRawProviderMethodKey("item_started"):             {},
@@ -199,6 +203,7 @@ var toolStartRawProviderMethods = map[string]struct{}{
 	normalizedRawProviderMethodKey("response_item"):            {},
 }
 
+// toolCompletionRawProviderMethods 是可能表示工具完成的 raw 方法集合。
 var toolCompletionRawProviderMethods = map[string]struct{}{
 	normalizedRawProviderMethodKey("item/completed"):             {},
 	normalizedRawProviderMethodKey("item_completed"):             {},
@@ -209,10 +214,12 @@ var toolCompletionRawProviderMethods = map[string]struct{}{
 	normalizedRawProviderMethodKey("response_item"):              {},
 }
 
+// normalizedRawProviderMethodKey 标准化 raw provider 方法名用于集合查找。
 func normalizedRawProviderMethodKey(method string) string {
 	return strings.ToLower(strings.TrimSpace(method))
 }
 
+// toolLifecycleItemPayload 从 raw payload 中提取工具生命周期 item。
 func toolLifecycleItemPayload(payload map[string]any) map[string]any {
 	if item := nestedPayloadMap(payload, "item"); len(item) > 0 {
 		return item
@@ -223,6 +230,7 @@ func toolLifecycleItemPayload(payload map[string]any) map[string]any {
 	return payload
 }
 
+// toolLifecycleCallID 从 payload 或 item 中读取工具调用 ID。
 func toolLifecycleCallID(payload, item map[string]any) string {
 	if callID := firstPayloadString(payload, "callId", "call_id"); callID != "" {
 		return callID
@@ -230,6 +238,7 @@ func toolLifecycleCallID(payload, item map[string]any) string {
 	return firstPayloadString(item, "callId", "call_id")
 }
 
+// toolLifecycleToolName 从 payload、item 或 invocation 中读取工具名。
 func toolLifecycleToolName(payload, item map[string]any) string {
 	if toolName := firstPayloadString(payload, "name", "toolName", "tool_name", "tool"); toolName != "" {
 		return toolName
@@ -241,6 +250,7 @@ func toolLifecycleToolName(payload, item map[string]any) string {
 	return firstPayloadString(invocation, "tool", "name", "toolName", "tool_name")
 }
 
+// nestedPayloadMap 读取嵌套 map payload，类型不匹配时返回 nil。
 func nestedPayloadMap(payload map[string]any, key string) map[string]any {
 	if payload == nil {
 		return nil
@@ -249,6 +259,7 @@ func nestedPayloadMap(payload map[string]any, key string) map[string]any {
 	return child
 }
 
+// firstPayloadString 返回候选 key 中第一个非空字符串。
 func firstPayloadString(payload map[string]any, keys ...string) string {
 	for _, key := range keys {
 		if text := payloadString(payload, key); text != "" {
@@ -258,6 +269,7 @@ func firstPayloadString(payload map[string]any, keys ...string) string {
 	return ""
 }
 
+// payloadBool 兼容 bool 和字符串 true 的 payload 布尔字段。
 func payloadBool(payload map[string]any, keys ...string) bool {
 	for _, key := range keys {
 		switch value := payload[key].(type) {
@@ -270,11 +282,12 @@ func payloadBool(payload map[string]any, keys ...string) bool {
 	return false
 }
 
+// normalizeRawProviderPushMethod 复用审批方法目录的别名标准化逻辑。
 func normalizeRawProviderPushMethod(method string) string {
 	return approvalMethodCatalog.normalize(method)
 }
 
-// shouldPushRawProviderMethod 判断push原始providermethod是否可用。
+// shouldPushRawProviderMethod 判断 raw provider 方法是否允许直接 push 给前端。
 func shouldPushRawProviderMethod(method string) bool {
 	method = strings.TrimSpace(method)
 	if method == "" {

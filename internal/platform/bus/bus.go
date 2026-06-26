@@ -9,17 +9,18 @@ type Bus struct {
 	dispatcher *event.Dispatcher // 底层 kelindar/event 调度器
 }
 
-// New 创建一个新的 Bus 实例，内部初始化 kelindar/event Dispatcher。
+// New 创建带独立 dispatcher 的进程内事件总线实例。
 func New() *Bus {
 	return &Bus{dispatcher: event.NewDispatcher()}
 }
 
-// NewDispatcher 创建并返回一个独立的 *event.Dispatcher，供 fx 直接注入使用。
+// NewDispatcher 为 fx 图提供裸 *event.Dispatcher。
+// 运行时模块直接依赖 dispatcher，避免把 Bus 包装类型泄漏到业务层。
 func NewDispatcher() *event.Dispatcher {
 	return New().Dispatcher()
 }
 
-// Dispatcher 返回底层 *event.Dispatcher；b 为 nil 时返回 nil。
+// Dispatcher 返回底层 *event.Dispatcher；nil receiver 表示总线未装配。
 func (b *Bus) Dispatcher() *event.Dispatcher {
 	if b == nil {
 		return nil

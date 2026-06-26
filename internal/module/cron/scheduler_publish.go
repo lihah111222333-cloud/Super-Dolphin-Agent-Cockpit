@@ -12,12 +12,8 @@ import (
 	cronstore "github.com/anthropic-ai/super-agent-v3/internal/store/cron"
 )
 
-// WithDispatcher registers the event dispatcher that the scheduler
-// publishes JobRunStateChanged events on. Passing nil silently disables
-// event publishing — production wiring goes through fx (provideScheduler);
-// tests typically leave the dispatcher unset.
-//
-// dispatcher 只是通知 UI/订阅者；状态真值仍在数据库里。
+// WithDispatcher 设置调度器用于发布 JobRunStateChanged 的事件分发器。
+// dispatcher 只是通知 UI/订阅者；状态真值仍在数据库里，nil 仅表示当前运行模式不做事件广播。
 func (s *Scheduler) WithDispatcher(dispatcher *event.Dispatcher) *Scheduler {
 	if s != nil {
 		s.dispatcher = dispatcher
@@ -25,10 +21,8 @@ func (s *Scheduler) WithDispatcher(dispatcher *event.Dispatcher) *Scheduler {
 	return s
 }
 
-// publishRunState emits a JobRunStateChanged onto the dispatcher. It is
-// fire-and-forget: subscriber failures are owned by their own handlers.
-//
-// 发布失败不影响调度状态，订阅侧需要自己补偿或轮询。
+// publishRunState 发布 run 状态变化事件。
+// 事件是调度结果的旁路通知；订阅侧失败不能回滚已落库的 run/job 状态。
 func (s *Scheduler) publishRunState(jobID, runID, status, turnID, errStr string, scheduledAt time.Time) {
 	if s == nil || s.dispatcher == nil {
 		return
@@ -44,13 +38,8 @@ func (s *Scheduler) publishRunState(jobID, runID, status, turnID, errStr string,
 	})
 }
 
-// casLogPublish runs a CAS run-status transition; on error it logs a
-// warning labeled with the transition string (same fail-soft posture
-// the inline finalize sites had before consolidation), on success it
-// publishes a JobRunStateChanged. The transition arg is e.g.
-// "submitting->failed".
-//
-// 这个 helper 只做 run 行的可见状态更新；失败时仍让调用方继续释放 job claim。
+// casLogPublish 执行 run 状态 CAS 更新并在成功后广播状态变化。
+// 这个 helper 只做 run 行的可见状态更新；CAS 失败会记录 transition，调用方仍继续释放 job claim。
 func (s *Scheduler) casLogPublish(
 	ctx context.Context,
 	params cronstore.CASRunStatusParams,

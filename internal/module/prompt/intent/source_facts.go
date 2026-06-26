@@ -5,6 +5,7 @@ import (
 	"unicode"
 )
 
+// source profile 常量用于标识外部输入材料的来源类型，影响后续必填事实类别。
 const (
 	promptIntentSourceProfileExternalPrompt = "external_prompt" // 外部 system/provider/persona prompt
 	promptIntentSourceProfileReferenceDoc   = "reference_doc"   // 参考资料/文档
@@ -18,10 +19,10 @@ const (
 
 // promptIntentSourceFactRequirement 描述特定 source profile 下必须覆盖的关键要点类别。
 type promptIntentSourceFactRequirement struct {
-	category string
-	label    string
-	terms    []string
-	always   bool
+	category string   // source_facts.category 规范化后的目标类别
+	label    string   // 面向用户的问题提示标签
+	terms    []string // 原文命中这些词时该类别才必填
+	always   bool     // true 表示该来源类型下无条件必填
 }
 
 // promptIntentSourceFactIssues 根据 source profile 检查卡片是否覆盖了必要的来源事实类别，
@@ -177,6 +178,8 @@ func promptIntentFilterSourceFactRequirements(
 	return out
 }
 
+// promptIntentExternalPromptSourceFacts 返回外部 prompt 必须保留或转写的关键事实类别。
+// 身份和安全边界始终必填，工具协议等只在原文实际出现时要求覆盖。
 func promptIntentExternalPromptSourceFacts() []promptIntentSourceFactRequirement {
 	return []promptIntentSourceFactRequirement{
 		{category: "identity", label: "外部身份", always: true},
@@ -191,6 +194,7 @@ func promptIntentExternalPromptSourceFacts() []promptIntentSourceFactRequirement
 	}
 }
 
+// promptIntentTableDataSourceFacts 返回表格/价格表资料需要覆盖的字段、关键行和查询范围。
 func promptIntentTableDataSourceFacts() []promptIntentSourceFactRequirement {
 	return []promptIntentSourceFactRequirement{
 		{category: "topic", label: "资料主题", always: true},
@@ -202,6 +206,7 @@ func promptIntentTableDataSourceFacts() []promptIntentSourceFactRequirement {
 	}
 }
 
+// promptIntentAPIDocSourceFacts 返回 API 文档需要覆盖的接口、鉴权、返回和错误边界。
 func promptIntentAPIDocSourceFacts() []promptIntentSourceFactRequirement {
 	return []promptIntentSourceFactRequirement{
 		{category: "endpoint", label: "接口地址", always: true},
@@ -215,6 +220,7 @@ func promptIntentAPIDocSourceFacts() []promptIntentSourceFactRequirement {
 	}
 }
 
+// promptIntentWorkflowSOPSourceFacts 返回流程 SOP 需要覆盖的触发条件、输入、步骤和输出。
 func promptIntentWorkflowSOPSourceFacts() []promptIntentSourceFactRequirement {
 	return []promptIntentSourceFactRequirement{
 		{category: "trigger", label: "触发条件", terms: []string{"trigger", "when", "if", "触发", "当", "如果"}},
@@ -226,6 +232,7 @@ func promptIntentWorkflowSOPSourceFacts() []promptIntentSourceFactRequirement {
 	}
 }
 
+// promptIntentMeetingNotesSourceFacts 返回会议纪要需要覆盖的事实、决策、行动项和待确认事项。
 func promptIntentMeetingNotesSourceFacts() []promptIntentSourceFactRequirement {
 	return []promptIntentSourceFactRequirement{
 		{category: "facts", label: "事实背景", always: true},
@@ -237,6 +244,7 @@ func promptIntentMeetingNotesSourceFacts() []promptIntentSourceFactRequirement {
 	}
 }
 
+// promptIntentReferenceDocSourceFacts 返回参考资料需要覆盖的主题、要点、来源和使用方式。
 func promptIntentReferenceDocSourceFacts() []promptIntentSourceFactRequirement {
 	return []promptIntentSourceFactRequirement{
 		{category: "topic", label: "资料主题", always: true},
@@ -247,6 +255,7 @@ func promptIntentReferenceDocSourceFacts() []promptIntentSourceFactRequirement {
 	}
 }
 
+// promptIntentBusinessRuleSourceFacts 返回业务规则需要覆盖的规则正文、适用条件和执行方式。
 func promptIntentBusinessRuleSourceFacts() []promptIntentSourceFactRequirement {
 	return []promptIntentSourceFactRequirement{
 		{category: "rule", label: "规则内容", always: true},
@@ -257,6 +266,8 @@ func promptIntentBusinessRuleSourceFacts() []promptIntentSourceFactRequirement {
 	}
 }
 
+// promptIntentLooksLikeExternalCodingPrompt 判断原文是否像外部编码助手提示词。
+// 该结果只参与来源分类，不直接决定安全问题级别。
 func promptIntentLooksLikeExternalCodingPrompt(rawText string) bool {
 	return containsAnyPromptIntentTerm(rawText, []string{
 		"coding assistant",
@@ -269,6 +280,7 @@ func promptIntentLooksLikeExternalCodingPrompt(rawText string) bool {
 	})
 }
 
+// promptIntentLooksLikeAPIDoc 判断原文是否像 API 文档或接口说明。
 func promptIntentLooksLikeAPIDoc(rawText string) bool {
 	return containsAnyPromptIntentTerm(rawText, []string{
 		"api doc",
@@ -286,6 +298,7 @@ func promptIntentLooksLikeAPIDoc(rawText string) bool {
 	})
 }
 
+// promptIntentLooksLikeTableData 判断原文是否像表格、价格表或 spreadsheet 数据。
 func promptIntentLooksLikeTableData(rawText string) bool {
 	return containsAnyPromptIntentTerm(rawText, []string{
 		"pricing table",
@@ -302,6 +315,7 @@ func promptIntentLooksLikeTableData(rawText string) bool {
 	})
 }
 
+// promptIntentLooksLikeWorkflowSOP 判断原文是否像流程、runbook 或操作检查清单。
 func promptIntentLooksLikeWorkflowSOP(rawText string) bool {
 	return containsAnyPromptIntentTerm(rawText, []string{
 		"sop",
@@ -316,6 +330,7 @@ func promptIntentLooksLikeWorkflowSOP(rawText string) bool {
 	})
 }
 
+// promptIntentLooksLikeMeetingNotes 判断原文是否像会议纪要。
 func promptIntentLooksLikeMeetingNotes(rawText string) bool {
 	return containsAnyPromptIntentTerm(rawText, []string{
 		"meeting notes",
@@ -329,6 +344,7 @@ func promptIntentLooksLikeMeetingNotes(rawText string) bool {
 	})
 }
 
+// promptIntentLooksLikeBusinessRuleSource 判断原文是否像业务规则或政策说明。
 func promptIntentLooksLikeBusinessRuleSource(rawText string) bool {
 	return containsAnyPromptIntentTerm(rawText, []string{
 		"business rule",
@@ -340,6 +356,8 @@ func promptIntentLooksLikeBusinessRuleSource(rawText string) bool {
 	})
 }
 
+// promptIntentLooksLikeReferenceDoc 判断原文是否像通用参考文档。
+// 短文本不参与该分类，避免普通问题被误判成资料沉淀。
 func promptIntentLooksLikeReferenceDoc(rawText string) bool {
 	if compactRuneLen(rawText) < 80 {
 		return false

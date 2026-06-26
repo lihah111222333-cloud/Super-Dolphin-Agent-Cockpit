@@ -9,7 +9,8 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 )
 
-// HandleGetRun 处理get运行记录。
+// HandleGetRun 读取单次 DAG 运行快照。
+// run_key 可以来自 pos；找不到 run 时会转成双语错误，方便终端和聊天层直接展示。
 func HandleGetRun(svc contract.OrchestrationService) ToolHandler {
 	return makeHandler(svc, "orchestration service", func(ctx context.Context, in GetRunInput) (any, error) {
 		runKey, err := resolveRunKeyInput(in.RunKey, in.Pos)
@@ -24,6 +25,7 @@ func HandleGetRun(svc contract.OrchestrationService) ToolHandler {
 	})
 }
 
+// translateGetRunError 将服务层哨兵错误转成用户可执行的提示。
 func translateGetRunError(runKey string, err error) error {
 	if errors.Is(err, orchestration.ErrRunNotFound) {
 		return fmt.Errorf(
@@ -34,6 +36,7 @@ func translateGetRunError(runKey string, err error) error {
 	return err
 }
 
+// translateTerminateDAGError 保留 dag/run 双栅栏信息。
 func translateTerminateDAGError(req contract.TerminateDAGRequest, err error) error {
 	if errors.Is(err, orchestration.ErrRunNotFound) {
 		return fmt.Errorf(
@@ -44,6 +47,7 @@ func translateTerminateDAGError(req contract.TerminateDAGRequest, err error) err
 	return err
 }
 
+// translateDeleteDAGError 将删除前置条件失败解释为可操作消息。
 func translateDeleteDAGError(dagKey string, err error) error {
 	if errors.Is(err, orchestration.ErrDAGAlreadyRunning) {
 		return fmt.Errorf(
@@ -60,6 +64,7 @@ func translateDeleteDAGError(dagKey string, err error) error {
 	return err
 }
 
+// translateStartDAGError 将启动阶段的幂等和并发冲突展开给调用方。
 func translateStartDAGError(dagKey string, err error) error {
 	var exhausted *orchestration.IdempotencyKeyExhaustedError
 	if errors.As(err, &exhausted) {

@@ -8,20 +8,24 @@ import (
 	uidto "github.com/anthropic-ai/super-agent-v3/internal/dto/ui"
 )
 
+// diffStateRequest 描述一次 UI state 请求是否需要携带 diff 以及前端已知 revision。
 type diffStateRequest struct {
 	threadID    string
 	includeDiff bool
 	known       int
 }
 
+// diffStateSnapshot 是读取锁内 diff 状态后传给快照输出阶段的副本。
 type diffStateSnapshot struct {
 	threadID string
 	diffText string
 	revision int64
 }
 
+// diffStateRequestKey 是 context 中保存 diff 请求参数的私有 key。
 type diffStateRequestKey struct{}
 
+// withDiffStateRequest 把 diff 请求参数注入 context，供 GetState 快照阶段读取。
 func withDiffStateRequest(ctx context.Context, threadID string, includeDiff bool, known int) context.Context {
 	return context.WithValue(ctx, diffStateRequestKey{}, diffStateRequest{
 		threadID:    threadID,
@@ -30,6 +34,7 @@ func withDiffStateRequest(ctx context.Context, threadID string, includeDiff bool
 	})
 }
 
+// diffStateRequestFromContext 从 context 取回 diff 请求参数，缺失时返回零值。
 func diffStateRequestFromContext(ctx context.Context) diffStateRequest {
 	if ctx == nil {
 		return diffStateRequest{}
@@ -38,6 +43,7 @@ func diffStateRequestFromContext(ctx context.Context) diffStateRequest {
 	return value
 }
 
+// applyToolDiffUpdated 把工具 diff 事件写入 UI state，并在变更时发线程 patch。
 func (s *service) applyToolDiffUpdated(ev tooldto.ToolDiffUpdated) {
 	threadID := strings.TrimSpace(ev.ThreadID)
 	agentID := strings.TrimSpace(ev.AgentID)
@@ -55,7 +61,7 @@ func (s *service) applyToolDiffUpdated(ev tooldto.ToolDiffUpdated) {
 	})
 }
 
-// applyToolDiffUpdatedLocked 应用工具diffupdatedlocked。
+// applyToolDiffUpdatedLocked 在锁内更新指定 agent 的 diff 文本和 revision。
 func (s *service) applyToolDiffUpdatedLocked(agentID, threadID, diffText string, revision int64) bool {
 	agentID = strings.TrimSpace(agentID)
 	threadID = strings.TrimSpace(threadID)
@@ -86,6 +92,7 @@ func (s *service) applyToolDiffUpdatedLocked(agentID, threadID, diffText string,
 	return true
 }
 
+// diffStateSnapshot 在读锁内提取请求线程当前应返回的 diff 文本。
 func (s *service) diffStateSnapshot(ctx context.Context) diffStateSnapshot {
 	req := diffStateRequestFromContext(ctx)
 	threadID := strings.TrimSpace(req.threadID)
@@ -105,7 +112,7 @@ func (s *service) diffStateSnapshot(ctx context.Context) diffStateSnapshot {
 	}
 }
 
-// applyDiffStateSnapshot 应用diff状态快照。
+// applyDiffStateSnapshot 将 diff 快照写入 UIState；revision 未变化时返回 unchanged。
 func applyDiffStateSnapshot(ctx context.Context, snapshot *UIState, current diffStateSnapshot) {
 	if snapshot == nil || current.threadID == "" {
 		return
@@ -127,6 +134,7 @@ func applyDiffStateSnapshot(ctx context.Context, snapshot *UIState, current diff
 	snapshot.Unchanged = false
 }
 
+// currentDiffTextLocked 返回当前线程对应 agent 的 diff 文本，调用方必须持有锁。
 func (s *service) currentDiffTextLocked(threadID string) string {
 	agentID := s.diffAgentIDLocked(threadID)
 	if agentID == "" {
@@ -135,6 +143,7 @@ func (s *service) currentDiffTextLocked(threadID string) string {
 	return s.state.DiffTextByAgent[agentID]
 }
 
+// currentDiffRevisionLocked 返回当前线程对应 agent 的 diff revision，调用方必须持有锁。
 func (s *service) currentDiffRevisionLocked(threadID string) int64 {
 	agentID := s.diffAgentIDLocked(threadID)
 	if agentID == "" {
@@ -143,7 +152,7 @@ func (s *service) currentDiffRevisionLocked(threadID string) int64 {
 	return s.state.DiffRevisionByAgent[agentID]
 }
 
-// diffAgentIDLocked 处理diff代理IDlocked。
+// diffAgentIDLocked 选择承载线程 diff 的 agent，优先 active 主 agent，其次线程摘要和列表匹配。
 func (s *service) diffAgentIDLocked(threadID string) string {
 	threadID = strings.TrimSpace(threadID)
 	if threadID == "" {
@@ -165,7 +174,7 @@ func (s *service) diffAgentIDLocked(threadID string) string {
 	return ""
 }
 
-// activeDiffAgentIDLocked 处理activediff代理IDlocked。
+// activeDiffAgentIDLocked 只在请求线程是当前 active chat/cmd 线程时返回主 agent。
 func (s *service) activeDiffAgentIDLocked(threadID string) string {
 	if threadID != strings.TrimSpace(s.state.ActiveThreadID) && threadID != strings.TrimSpace(s.state.ActiveCmdThreadID) {
 		return ""
@@ -182,6 +191,7 @@ func (s *service) activeDiffAgentIDLocked(threadID string) string {
 	return ""
 }
 
+// cloneActivityStatsByThread 深拷贝按线程聚合的活动统计。
 func cloneActivityStatsByThread(input map[string]*ActivityStats) map[string]*ActivityStats {
 	if len(input) == 0 {
 		return nil
@@ -200,6 +210,7 @@ func cloneActivityStatsByThread(input map[string]*ActivityStats) map[string]*Act
 	return out
 }
 
+// cloneActivityStats 深拷贝单个线程活动统计。
 func cloneActivityStats(input *ActivityStats) *ActivityStats {
 	if input == nil {
 		return nil
@@ -212,6 +223,7 @@ func cloneActivityStats(input *ActivityStats) *ActivityStats {
 	}
 }
 
+// threadActivityStatsLocked 返回线程活动统计桶，不存在时在锁内创建。
 func (s *service) threadActivityStatsLocked(threadID string) *ActivityStats {
 	threadID = strings.TrimSpace(threadID)
 	if threadID == "" {
@@ -228,6 +240,7 @@ func (s *service) threadActivityStatsLocked(threadID string) *ActivityStats {
 	return current
 }
 
+// patchActivityStats 将内部活动统计转换为 UI patch DTO。
 func patchActivityStats(input *ActivityStats) *uidto.PatchActivityStats {
 	if input == nil {
 		return nil

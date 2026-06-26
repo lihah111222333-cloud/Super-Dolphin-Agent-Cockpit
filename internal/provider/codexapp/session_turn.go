@@ -147,9 +147,7 @@ func selectedSkillNames(skills []dto.SkillRef) []string {
 
 func turnInputsFromRequest(inputs []dto.InputItem, skills []dto.SkillRef, assembly dto.TurnAssembly) []turnInputItem {
 	items := make([]turnInputItem, 0, len(inputs)+len(assembly.Attachments)+3)
-	// NOTE: system-reminder (currentDate, runtimeExtras) and SystemContext (git status)
-	// are now injected once via baseInstructions in thread/start.
-	// Removed per-turn RenderUserContextMessage and FormatSystemContextBlock to save tokens.
+	// system reminder 和 git 上下文由 thread/start 的 baseInstructions 注入，turn/start 不再重复拼接。
 	for _, attachment := range assembly.Attachments {
 		if text := strings.TrimSpace(contract.RenderAttachmentText(attachment)); text != "" {
 			items = append(items, newTextTurnInput("text", text))
@@ -161,7 +159,8 @@ func turnInputsFromRequest(inputs []dto.InputItem, skills []dto.SkillRef, assemb
 	return items
 }
 
-// mapTurnInput 映射turninput。
+// mapTurnInput 将统一 turn 输入转换为 Codex app-server 支持的输入 item。
+// 未识别类型按文本 fallback，保证上层新增轻量类型时不会直接丢内容。
 func mapTurnInput(item dto.InputItem) turnInputItem {
 	switch strings.ToLower(strings.TrimSpace(item.Type)) {
 	case "", "text":
@@ -226,7 +225,8 @@ type turnOutputBuffer struct {
 	truncated bool
 }
 
-// appendTurnOutputDelta 追加turnoutputdelta。
+// appendTurnOutputDelta 将流式输出片段追加到 provider turn 的累积器。
+// 超过 1 MiB 后只记录 truncated，不再继续保存文本，防止长输出撑爆内存。
 func (s *session) appendTurnOutputDelta(turnID, delta string) {
 	if s == nil || turnID == "" || delta == "" {
 		return

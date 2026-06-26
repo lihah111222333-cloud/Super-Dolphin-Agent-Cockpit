@@ -11,9 +11,8 @@ import (
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
-// fakeHookFanout records DispatchAfter calls so tests can assert that the
-// worker (not the callback) is what reaches the Manager and that no
-// goroutine leaks past Stop.
+// fakeHookFanout 记录 DispatchAfter 调用。
+// 测试借它确认真正触达 Manager 的是 worker，而不是 callback 里临时启动的 goroutine。
 type fakeHookFanout struct {
 	mu    sync.Mutex
 	calls []hookDispatchRequest
@@ -38,14 +37,8 @@ func (f *fakeHookFanout) Calls() []hookDispatchRequest {
 	return out
 }
 
-// TestHookRelayDrainAfterShutdown is the P22 P2 TDD test named in
-// docs/plans/迁移/p22/P2_BusRuntimeDecoupling.md:415.
-//
-// Contract: any dispatch request that was enqueued before Stop fires
-// must reach DispatchAfter before Stop returns (bounded by ctx) — the
-// P2 §验收 bullet "hooks relay 在 shutdown 后无残留 in-flight dispatch 越过
-// stop" pins this down. A fire-and-forget `go func()` would not satisfy
-// it because Stop could return before the goroutine finished.
+// TestHookRelayDrainAfterShutdown 固定 hook relay 的停机排空边界。
+// Stop 触发前已经入队的请求必须在 Stop 返回前进入 DispatchAfter；否则 fire-and-forget 会让回调越过关闭点。
 func TestHookRelayDrainAfterShutdown(t *testing.T) {
 	t.Parallel()
 
@@ -72,9 +65,8 @@ func TestHookRelayDrainAfterShutdown(t *testing.T) {
 	}
 }
 
-// TestHookDispatchWorkerEnqueueNonBlockingUnderSlowFanout checks the
-// fire-and-forget replacement contract: even if DispatchAfter is pinned
-// inside a slow peer, bus callback Enqueue must not block.
+// TestHookDispatchWorkerEnqueueNonBlockingUnderSlowFanout 确认慢 fanout 不阻塞 Enqueue。
+// DispatchAfter 被卡住时，bus callback 仍只能入队，不能同步执行下游派发。
 func TestHookDispatchWorkerEnqueueNonBlockingUnderSlowFanout(t *testing.T) {
 	t.Parallel()
 
@@ -120,10 +112,8 @@ func TestHookDispatchWorkerEnqueueNonBlockingUnderSlowFanout(t *testing.T) {
 	_ = w.Stop(ctx)
 }
 
-// TestHookDispatchWorkerEnqueueAfterStopDrops documents the only drop
-// path in the lossless contract: once Stop fires, further Enqueue is
-// silently dropped. That's necessary because event_relay's cancel func
-// runs immediately after Stop and the subscriptions stop firing anyway.
+// TestHookDispatchWorkerEnqueueAfterStopDrops 固定 Stop 后的唯一丢弃路径。
+// Stop 之后订阅已停止，新的 Enqueue 必须不进入队列，避免关闭后的事件重新激活 worker。
 func TestHookDispatchWorkerEnqueueAfterStopDrops(t *testing.T) {
 	t.Parallel()
 
@@ -148,9 +138,8 @@ func TestHookDispatchWorkerEnqueueAfterStopDrops(t *testing.T) {
 	}
 }
 
-// TestHookDispatchWorkerPreservesFIFOOrder verifies that dispatch
-// requests reach the fanout in enqueue order. That matters for hook
-// observers that treat topics as a causal event stream.
+// TestHookDispatchWorkerPreservesFIFOOrder 确认派发请求按入队顺序到达 fanout。
+// hook observer 可能把 topic 当因果事件流消费，因此 worker 不能重排。
 func TestHookDispatchWorkerPreservesFIFOOrder(t *testing.T) {
 	t.Parallel()
 
@@ -187,10 +176,8 @@ func TestHookDispatchWorkerPreservesFIFOOrder(t *testing.T) {
 	}
 }
 
-// TestEnqueueHookDispatchFiltersInvalidPayloads keeps the pre-P2 input-
-// validation contract. Empty topic, empty agentID, or empty context must
-// never reach the worker queue — the callback's cheap filter rejects them
-// before spending a queue slot.
+// TestEnqueueHookDispatchFiltersInvalidPayloads 固定 callback 的快速输入过滤。
+// 空 topic、空 agentID 或空 context 不能进入 worker 队列，避免占用有限队列容量。
 func TestEnqueueHookDispatchFiltersInvalidPayloads(t *testing.T) {
 	t.Parallel()
 
@@ -216,7 +203,7 @@ func TestEnqueueHookDispatchFiltersInvalidPayloads(t *testing.T) {
 		{"empty context", "session.start", mcp.HookPayload{AgentID: "a", Context: nil}},
 	}
 
-	// "nil worker is a no-op" is special — use a nil worker explicitly.
+	// nil worker 是专门的 no-op 分支，必须显式传 nil 覆盖。
 	enqueueHookDispatch(nil, cases[0].topic, time.Now(), cases[0].payload)
 	for _, tc := range cases[1:] {
 		enqueueHookDispatch(w, tc.topic, time.Now(), tc.payload)

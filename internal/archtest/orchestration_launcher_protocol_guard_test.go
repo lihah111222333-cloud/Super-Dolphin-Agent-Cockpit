@@ -7,17 +7,11 @@ import (
 	"testing"
 )
 
-// TestOrchestrationLauncherProtocolFreeze enforces P22 P4 §62 / §120 /
-// §280: the remoteLauncher's outbound RPC method names and response
-// alias keys must live in explicit protocol constants shared with the
-// app-side thread RPC handlers, not scattered as raw string literals through
-// launcher.go or other siblings. Freezing the shell here ensures any change to
-// the outbound contract is visible as a diff in one place and guarded against
-// silent drift.
+// TestOrchestrationLauncherProtocolFreeze 固定 remoteLauncher 对外 RPC 协议面。
+// 出站方法名和响应 alias 必须集中在协议常量中，并与 app 侧 thread RPC handler 共享，
+// 避免 launcher.go 或相邻文件散落裸字符串导致契约漂移。
 //
-// The test scans every non-test .go file under
-// cmd/mcp-orch/orchestration. For each frozen literal, the only
-// accepted producer file is launcher_protocol.go.
+// 测试扫描 orchestration 包内所有非测试 Go 文件；每个冻结字面量只能出现在协议生产文件中。
 func TestOrchestrationLauncherProtocolFreeze(t *testing.T) {
 	const (
 		dir              = "../../cmd/mcp-orch/orchestration"
@@ -25,11 +19,8 @@ func TestOrchestrationLauncherProtocolFreeze(t *testing.T) {
 		contractProducer = "../../internal/contract/rpc_handler.go"
 	)
 
-	// The guard freezes remoteLauncher outbound RPC method names. The
-	// response alias keys (`threadId` / `agentId` / `turn_id`) deliberately
-	// overlap with inbound JSON struct tags elsewhere in the subpackage,
-	// so guarding them here would produce false positives; the key
-	// freeze lives inside launcher_protocol.go itself.
+	// 这里只冻结 remoteLauncher 出站 RPC 方法名。
+	// 响应 alias 会与包内入站 JSON tag 重名，若在这里扫描会误报；alias 自身由协议文件守住。
 	frozen := []string{
 		"\"thread/start\"",
 		"\"thread/fork\"",

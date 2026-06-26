@@ -12,9 +12,8 @@ import (
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
-// hookDispatchDrainGrace bounds the OnStop wait for the dispatch worker so
-// registerEventRelayLifecycle.OnStop never hangs on a stuck hook peer.
-// Mirrors the P22 P2 drain budgets used elsewhere in the memory lane.
+// hookDispatchDrainGrace 限制 hooks dispatch worker 的 OnStop 等待时间。
+// 卡住的 hook peer 不能拖住应用关闭；超时会由 Stop(ctx) 返回给生命周期托管方。
 const hookDispatchDrainGrace = 10 * time.Second
 
 type hookDispatchRequest struct {
@@ -23,27 +22,14 @@ type hookDispatchRequest struct {
 	eventTime time.Time
 }
 
-// hookDispatchFanout is the subset of *Manager the worker uses. Declaring
-// it here keeps the worker testable without spinning up a full hooks
-// Manager (registry + dispatcher + resolver + review store).
+// hookDispatchFanout 是 worker 需要的 Manager 最小能力。
+// 只依赖 DispatchAfter，测试可以用轻量 fake 覆盖队列和关闭行为。
 type hookDispatchFanout interface {
 	DispatchAfter(ctx context.Context, topic string, payload mcp.HookPayload) (mcp.AfterDecision, error)
 }
 
-// hookDispatchWorker is the P22 P2 single owner of the bus-event → Manager
-// DispatchAfter slow-path that event_relay.go previously drove with a
-// fire-and-forget `go func()` per event.
-//
-// Pre-P2 shape: every relayed bus event spawned a one-shot goroutine that
-// ran Manager.DispatchAfter with context.Background(); nothing tracked
-// those goroutines, so OnStop cancelled subscriptions but could not wait
-// for any still-in-flight hook fanout to finish.
-//
-// P2 shape: the relay callback only calls Enqueue. A single tracked worker
-// drains the FIFO queue and runs DispatchAfter serially under the
-// worker's own ctx, so Stop(ctx) can guarantee "no in-flight dispatch
-// leaks past shutdown" — the invariant the P2 §验收 section pins down as
-// "hooks relay 在 shutdown 后无残留 in-flight dispatch 越过 stop".
+// hookDispatchWorker 串行承接 bus 事件到 Manager.DispatchAfter 的 fanout。
+// bus callback 只入队，不直接调用 peer；Stop(ctx) 关闭入口并排空队列，避免关闭后仍有未托管的 dispatch。
 type hookDispatchWorker struct {
 	fanout hookDispatchFanout
 	logger *pkglogger.Logger
@@ -62,6 +48,7 @@ type hookDispatchWorker struct {
 	processedTotal atomic.Int64
 }
 
+// newHookDispatchWorker 创建 hooks dispatch worker 并补齐默认 logger。
 func newHookDispatchWorker(fanout hookDispatchFanout, logger *pkglogger.Logger) *hookDispatchWorker {
 	if logger == nil {
 		logger = pkglogger.Get()
@@ -75,9 +62,8 @@ func newHookDispatchWorker(fanout hookDispatchFanout, logger *pkglogger.Logger) 
 	}
 }
 
-// Start spawns the worker goroutine. Idempotent. When the fanout is nil
-// the worker short-circuits: doneCh closes immediately so Stop is a no-op.
-// Start 启动平台hooks流程。
+// Start 启动单 worker goroutine。
+// fanout 为空时立即关闭 doneCh，让 Stop 成为无副作用空等待；panic 会被捕获并写日志。
 func (w *hookDispatchWorker) Start() {
 	if w == nil {
 		return
@@ -98,11 +84,8 @@ func (w *hookDispatchWorker) Start() {
 	})
 }
 
-// Enqueue records a hook dispatch request. Safe to call from bus callbacks:
-// O(1) slice append + non-blocking wake signal, no DispatchAfter call on
-// the callback goroutine. Post-Stop calls are silently dropped because the
-// relay subscriptions are about to be cancelled anyway.
-// Enqueue 把项目追加到队尾。
+// Enqueue 记录一次 hook dispatch 请求并用非阻塞信号唤醒 worker。
+// 它只做 O(1) 入队，适合 bus callback 调用；Stop 后的新请求会被丢弃以封住关闭入口。
 func (w *hookDispatchWorker) Enqueue(topic string, eventTime time.Time, payload mcp.HookPayload) {
 	if w == nil {
 		return
@@ -126,9 +109,8 @@ func (w *hookDispatchWorker) Enqueue(topic string, eventTime time.Time, payload 
 	}
 }
 
-// Stop closes the gate, drains pending requests through the worker, and
-// waits bounded by ctx for the worker to exit. Idempotent.
-// Stop 停止平台hooks流程。
+// Stop 关闭入队入口、等待 worker 排空已接收请求，并受 ctx 或 hookDispatchDrainGrace 限制。
+// 多次调用只执行一次关闭动作。
 func (w *hookDispatchWorker) Stop(ctx context.Context) error {
 	if w == nil {
 		return nil
@@ -155,14 +137,14 @@ func (w *hookDispatchWorker) Stop(ctx context.Context) error {
 	return firstErr
 }
 
-// EnqueuedTotal / ProcessedTotal expose the observability counters for
-// tests and future metric hookup (P22 observability lane).
-// EnqueuedTotal 处理enqueuedtotal。
+// EnqueuedTotal 返回已接收的 relay 请求数量，供测试和指标采集读取。
 func (w *hookDispatchWorker) EnqueuedTotal() int64 { return w.enqueuedTotal.Load() }
 
-// ProcessedTotal 处理processedtotal。
+// ProcessedTotal 返回已完成 dispatch 的请求数量。
 func (w *hookDispatchWorker) ProcessedTotal() int64 { return w.processedTotal.Load() }
 
+// runWorker 监听 wake/stop 信号并串行排空队列。
+// stop 信号到达后仍会处理已经入队的请求，随后关闭 doneCh。
 func (w *hookDispatchWorker) runWorker() {
 	defer close(w.doneCh)
 	for {
@@ -176,10 +158,8 @@ func (w *hookDispatchWorker) runWorker() {
 	}
 }
 
-// drainPending pops each queued request under the lock and dispatches it
-// with the lock released, preserving FIFO order. DispatchAfter errors are
-// logged but never halt the worker — hook peers are individually
-// recoverable.
+// drainPending 在锁内取出当前批次，再释放锁执行 dispatch。
+// 这样保持 FIFO 批次顺序，同时避免 peer 调用阻塞入队路径；单个 peer 错误只记录不终止 worker。
 func (w *hookDispatchWorker) drainPending() {
 	for {
 		w.mu.Lock()
@@ -197,6 +177,8 @@ func (w *hookDispatchWorker) drainPending() {
 	}
 }
 
+// dispatch 为单个 relay 请求构造事件时间 context 并调用 hooks fanout。
+// DispatchAfter 错误只影响该请求，worker 继续处理后续队列项。
 func (w *hookDispatchWorker) dispatch(req hookDispatchRequest) {
 	ctx := platformshared.WithEventTime(context.Background(), req.eventTime)
 	if _, err := w.fanout.DispatchAfter(ctx, req.topic, req.payload); err != nil && w.logger != nil {

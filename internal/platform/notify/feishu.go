@@ -12,17 +12,8 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 )
 
-// RenderFeishu builds the interactive card body and signs per the
-// Feishu bot spec. Feishu validates the body, not the URL, so the
-// payload includes {timestamp, sign, ...} at the top level.
-//
-// Signature algorithm (official spec):
-//
-//	stringToSign := timestamp_sec + "\n" + secret
-//	sign := base64(HMAC-SHA256(stringToSign, "") ... )
-//	      (Go idiom: HMAC key is stringToSign, message is empty)
-//
-// RenderFeishu 渲染feishu。
+// RenderFeishu 生成飞书交互卡片体并按机器人规范签名。
+// 飞书校验 body 顶层 timestamp/sign，正文在模板包装前已去 mention、转义 markdown 并限长。
 func RenderFeishu(cfg ChannelConfig, msg contract.NotifyMessage, timestampSec int64) (postURL string, body []byte, contentType string, err error) {
 	if cfg.Platform != PlatformFeishu {
 		return "", nil, "", fmt.Errorf("feishu: wrong platform %q", cfg.Platform)
@@ -63,15 +54,13 @@ func RenderFeishu(cfg ChannelConfig, msg contract.NotifyMessage, timestampSec in
 	return cfg.URL, body, "application/json", nil
 }
 
-// feishuSign computes base64(HMAC-SHA256(key=timestamp\nsecret, msg=nil)).
-// Feishu uses the "key is stringToSign, message is empty" idiom which
-// differs from Dingtalk's "key is secret, message is stringToSign".
+// feishuSign 按飞书“key=timestamp\nsecret、message 为空”的 HMAC 规则计算签名。
 func feishuSign(secret string, timestampSec int64) (string, error) {
 	if strings.TrimSpace(secret) == "" {
 		return "", fmt.Errorf("%w: feishu secret is empty", ErrMissingField)
 	}
 	stringToSign := strconv.FormatInt(timestampSec, 10) + "\n" + secret
 	h := hmac.New(sha256.New, []byte(stringToSign))
-	// No Write — empty message is the spec.
+	// 飞书规范要求空消息体，签名内容只体现在 HMAC key 中。
 	return base64.StdEncoding.EncodeToString(h.Sum(nil)), nil
 }

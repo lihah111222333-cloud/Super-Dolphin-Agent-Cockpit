@@ -10,7 +10,7 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/store/sqlc"
 )
 
-// Compile-time interface check.
+// 编译期确认 store 完整实现 HookReviewStore。
 var _ contract.HookReviewStore = (*store)(nil)
 
 type querier interface {
@@ -26,13 +26,13 @@ type querier interface {
 	RecoverHookPendingReviews(ctx context.Context) ([]sqlc.RecoverHookPendingReviewsRow, error)
 }
 
-// store implements contract.HookReviewStore for hook_pending_reviews.
+// store 通过 hook_pending_reviews 表保存 MCP hook 人工审批状态。
 type store struct {
 	q querier
 }
 
-// NewStore creates a new HookReviewStore backed by generated sqlc queries.
-// NewStore 创建存储。
+// NewStore 创建基于 sqlc 的 hook review 存储。
+// q 为 nil 时保留空实现实例，测试可注入自定义 querier 验证错误路径。
 func NewStore(q *sqlc.Queries) contract.HookReviewStore {
 	if q == nil {
 		return &store{}
@@ -44,8 +44,8 @@ func newStoreForTest(q querier) *store {
 	return &store{q: q}
 }
 
-// SavePendingReview inserts a new pending hook review row.
-// SavePendingReview 保存待处理review。
+// SavePendingReview 保存等待人工决策的 hook review。
+// hookCallID 是幂等和后续恢复的主键，deadline 用于超时自动落到默认动作。
 func (s *store) SavePendingReview(ctx context.Context, review mcp.PendingHookReview) error {
 	err := s.q.SaveHookPendingReview(ctx, sqlc.SaveHookPendingReviewParams{
 		HookCallID:      review.HookCallID,
@@ -59,8 +59,8 @@ func (s *store) SavePendingReview(ctx context.Context, review mcp.PendingHookRev
 	return wrapErr(err, "save")
 }
 
-// GetPendingReview retrieves a single pending hook review by its call ID.
-// GetPendingReview 读取待处理review。
+// GetPendingReview 按 hookCallID 读取仍处于 pending 状态的 review。
+// 未命中时转换为 contract.ErrHookReviewNotFound，避免上层依赖 sqlc 错误形态。
 func (s *store) GetPendingReview(ctx context.Context, hookCallID string) (mcp.PendingHookReview, error) {
 	row, err := s.q.GetHookPendingReview(ctx, sqlc.GetHookPendingReviewParams{HookCallID: hookCallID})
 	if err != nil {
@@ -72,8 +72,8 @@ func (s *store) GetPendingReview(ctx context.Context, hookCallID string) (mcp.Pe
 	return pendingFromGet(row), nil
 }
 
-// ListPendingReviews returns all pending reviews for a given agent.
-// ListPendingReviews 列出待处理reviews。
+// ListPendingReviews 列出指定 agent 仍需处理的 hook review。
+// 该列表只返回 pending 行，已取消和已解析记录不会重新推给订阅者。
 func (s *store) ListPendingReviews(ctx context.Context, agentID string) ([]mcp.PendingHookReview, error) {
 	rows, err := s.q.ListHookPendingReviewsByAgent(ctx, sqlc.ListHookPendingReviewsByAgentParams{AgentID: agentID})
 	if err != nil {
@@ -86,8 +86,8 @@ func (s *store) ListPendingReviews(ctx context.Context, agentID string) ([]mcp.P
 	return result, nil
 }
 
-// ResolvePendingReview marks a pending review as resolved with the given decision.
-// ResolvePendingReview 解析待处理review。
+// ResolvePendingReview 写入人工决策并关闭 pending review。
+// idempotencyKey 已存在时直接成功，确保重试不会覆盖第一次决策。
 func (s *store) ResolvePendingReview(ctx context.Context, hookCallID, decision, reason, idempotencyKey, resolvedBy string) error {
 	if _, err := s.q.CheckHookReviewIdempotency(ctx, sqlc.CheckHookReviewIdempotencyParams{
 		HookCallID:     hookCallID,
@@ -115,8 +115,8 @@ func (s *store) ResolvePendingReview(ctx context.Context, hookCallID, decision, 
 	return nil
 }
 
-// GetResolvedReview returns the canonical decision metadata plus subscriber lease for a resolved review.
-// GetResolvedReview 读取已解析review。
+// GetResolvedReview 读取已解析 review 的最终决策和订阅租约。
+// 返回值供 hook 调用方确认决策来源，并在缺失时统一映射为 not found。
 func (s *store) GetResolvedReview(ctx context.Context, hookCallID string) (string, time.Time, string, error) {
 	row, err := s.q.GetHookResolvedReview(ctx, sqlc.GetHookResolvedReviewParams{HookCallID: hookCallID})
 	if err != nil {
@@ -128,8 +128,8 @@ func (s *store) GetResolvedReview(ctx context.Context, hookCallID string) (strin
 	return row.Decision, fromMSPtr(row.ResolvedAt), row.SubscriberLease, nil
 }
 
-// CancelPendingReviewsByLease marks all pending reviews for the given subscriber lease as cancelled.
-// CancelPendingReviewsByLease 按租约处理cancel待处理reviews。
+// CancelPendingReviewsByLease 取消同一订阅租约下的 pending review。
+// 订阅者断开时调用，避免旧租约的审批请求在恢复后继续阻塞。
 func (s *store) CancelPendingReviewsByLease(ctx context.Context, subscriberLease string) (int, error) {
 	rows, err := s.q.CancelHookPendingReviewsByLease(ctx, sqlc.CancelHookPendingReviewsByLeaseParams{
 		SubscriberLease: subscriberLease,
@@ -141,8 +141,8 @@ func (s *store) CancelPendingReviewsByLease(ctx context.Context, subscriberLease
 	return int(rows), nil
 }
 
-// CancelPendingReviewsByAgent marks all pending reviews for the given agent as cancelled.
-// CancelPendingReviewsByAgent 按代理处理cancel待处理reviews。
+// CancelPendingReviewsByAgent 取消指定 agent 的 pending review。
+// agent 结束或重启时调用，返回实际关闭的行数供上层记录清理结果。
 func (s *store) CancelPendingReviewsByAgent(ctx context.Context, agentID string) (int, error) {
 	rows, err := s.q.CancelHookPendingReviewsByAgent(ctx, sqlc.CancelHookPendingReviewsByAgentParams{
 		AgentID:    agentID,
@@ -154,9 +154,8 @@ func (s *store) CancelPendingReviewsByAgent(ctx context.Context, agentID string)
 	return int(rows), nil
 }
 
-// CancelExpiredReviews transitions all expired pending reviews to their default action.
-// Returns the number of reviews cancelled.
-// CancelExpiredReviews 处理cancelexpiredreviews。
+// CancelExpiredReviews 将已过 deadline 的 pending review 解析为默认动作。
+// 返回值是本轮超时关闭的数量，调用方可用于启动恢复和定时清理指标。
 func (s *store) CancelExpiredReviews(ctx context.Context) (int, error) {
 	now := time.Now().UTC()
 	rows, err := s.q.CancelExpiredHookReviews(ctx, sqlc.CancelExpiredHookReviewsParams{
@@ -169,8 +168,8 @@ func (s *store) CancelExpiredReviews(ctx context.Context) (int, error) {
 	return int(rows), nil
 }
 
-// RecoverOnStartup returns all reviews that are still pending (used at process start).
-// RecoverOnStartup 恢复onstartup。
+// RecoverOnStartup 读取进程启动时仍处于 pending 的 review。
+// 上层用它重新挂接订阅者可见状态，不会修改数据库中的 review 生命周期。
 func (s *store) RecoverOnStartup(ctx context.Context) ([]mcp.PendingHookReview, error) {
 	rows, err := s.q.RecoverHookPendingReviews(ctx)
 	if err != nil {

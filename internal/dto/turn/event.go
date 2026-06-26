@@ -2,12 +2,12 @@ package turn
 
 import "github.com/anthropic-ai/super-agent-v3/internal/dto/shared"
 
-// TurnStarted reports the beginning of a turn execution.
+// TurnStarted 报告一次 turn 执行开始。
 type TurnStarted struct {
 	shared.TurnHeader
 }
 
-// TurnCompleted reports a turn reaching a terminal result.
+// TurnCompleted 报告 turn 已到达终态，Success/Status/Reason 描述最终结果。
 type TurnCompleted struct {
 	shared.TurnHeader
 	Success    bool   `json:"success"`
@@ -20,26 +20,26 @@ type TurnCompleted struct {
 	StopReason string `json:"stop_reason,omitempty"`
 }
 
-// TurnInterrupted reports an interrupt applied to a running turn.
+// TurnInterrupted 报告运行中的 turn 已收到中断请求。
 type TurnInterrupted struct {
 	shared.TurnHeader
 	Reason string `json:"reason,omitempty"`
 }
 
-// TurnStalled reports a turn that stopped making progress.
+// TurnStalled 报告 turn 停止推进，Reason/StalledMS 用于观测卡顿原因和时长。
 type TurnStalled struct {
 	shared.TurnHeader
 	Reason    string `json:"reason,omitempty"`
 	StalledMS int64  `json:"stalled_ms,omitempty"`
 }
 
-// TurnResumed reports a stalled or paused turn resuming execution.
+// TurnResumed 报告停滞或暂停的 turn 恢复执行。
 type TurnResumed struct {
 	shared.TurnHeader
 	Reason string `json:"reason,omitempty"`
 }
 
-// TurnInputReceived reports new input accepted into an existing turn.
+// TurnInputReceived 报告已有 turn 接收了新的输入。
 type TurnInputReceived struct {
 	shared.TurnHeader
 	InputType string `json:"input_type"`
@@ -48,30 +48,30 @@ type TurnInputReceived struct {
 	Text      string `json:"text,omitempty"`
 }
 
-// TurnOutputDelta reports streamed output for a turn.
+// TurnOutputDelta 报告 turn 的流式输出增量。
 type TurnOutputDelta struct {
 	shared.TurnHeader
 	Stream string `json:"stream"`
 	Delta  string `json:"delta"`
 }
 
-// Type 返回事件分发用的类型编号。
+// Type 返回事件总线使用的稳定类型编号，保持 turn started 事件可路由。
 func (TurnStarted) Type() uint32 { return shared.EventTypeTurnStarted }
 
-// Type 返回事件分发用的类型编号。
+// Type 返回事件总线使用的稳定类型编号，保持 turn completed 事件可路由。
 func (TurnCompleted) Type() uint32 { return shared.EventTypeTurnCompleted }
 
-// Type 返回事件分发用的类型编号。
+// Type 返回事件总线使用的稳定类型编号，保持 turn interrupted 事件可路由。
 func (TurnInterrupted) Type() uint32 { return shared.EventTypeTurnInterrupted }
 
-// Type 返回事件分发用的类型编号。
+// Type 返回事件总线使用的稳定类型编号，保持 turn stalled 事件可路由。
 func (TurnStalled) Type() uint32 { return shared.EventTypeTurnStalled }
 
-// Type 返回事件分发用的类型编号。
+// Type 返回事件总线使用的稳定类型编号，保持 turn resumed 事件可路由。
 func (TurnResumed) Type() uint32 { return shared.EventTypeTurnResumed }
 
-// Type 返回事件分发用的类型编号。
+// Type 返回事件总线使用的稳定类型编号，保持 turn 输入事件可路由。
 func (TurnInputReceived) Type() uint32 { return shared.EventTypeTurnInputReceived }
 
-// Type 返回事件分发用的类型编号。
+// Type 返回事件总线使用的稳定类型编号，保持 turn 输出增量事件可路由。
 func (TurnOutputDelta) Type() uint32 { return shared.EventTypeTurnOutputDelta }

@@ -63,7 +63,8 @@ type AgentBindingStore interface {
 	SetArchived(ctx context.Context, params PersistedBindingArchiveUpdate) error
 }
 
-// listPersistedAgentSnapshots 列出persisted代理snapshots。
+// listPersistedAgentSnapshots 从持久化线程表恢复可展示的 agent 快照。
+// 同一 agent 只保留第一条快照，runtime 快照会在上层 merge 时覆盖动态字段。
 func (s *service) listPersistedAgentSnapshots(ctx context.Context) ([]AgentSnapshot, error) {
 	if s == nil || s.agentThreads == nil {
 		return nil, nil
@@ -88,7 +89,8 @@ func (s *service) listPersistedAgentSnapshots(ctx context.Context) ([]AgentSnaps
 	return snapshots, nil
 }
 
-// persistedAgentSnapshot 处理persisted代理快照。
+// persistedAgentSnapshot 按 agentID 或 threadID 查找持久化快照。
+// 先走 threadID 精确查询，失败后再列表扫描兼容旧绑定。
 func (s *service) persistedAgentSnapshot(ctx context.Context, agentID string) (AgentSnapshot, error) {
 	agentID = strings.TrimSpace(agentID)
 	if s == nil || s.agentThreads == nil || agentID == "" {
@@ -107,7 +109,8 @@ func (s *service) persistedAgentSnapshot(ctx context.Context, agentID string) (A
 	return AgentSnapshot{}, fmt.Errorf("%w: %s", errAgentNotFound, agentID)
 }
 
-// persistedAgentSnapshotByThreadID 按线程ID处理persisted代理快照。
+// persistedAgentSnapshotByThreadID 通过持久化 thread_id 查找并补齐 report 信息。
+// agentID 不匹配时返回 ok=false，让调用方继续兼容路径。
 func (s *service) persistedAgentSnapshotByThreadID(ctx context.Context, agentID string) (AgentSnapshot, bool, error) {
 	thread, err := s.agentThreads.GetByThreadID(ctx, agentID)
 	if err != nil {
@@ -201,7 +204,8 @@ func mergeAgentSnapshots(persisted, runtime []AgentSnapshot) []AgentSnapshot {
 	return merged
 }
 
-// overlayRuntimeSnapshot 处理overlay运行时快照。
+// overlayRuntimeSnapshot 用持久化字段覆盖 runtime 快照的展示身份。
+// runtime 的状态和动态字段保留，持久化名称、线程和创建时间用于跨重启展示稳定性。
 func overlayRuntimeSnapshot(persisted, runtime AgentSnapshot) AgentSnapshot {
 	if persisted.Name != "" {
 		runtime.Name = persisted.Name

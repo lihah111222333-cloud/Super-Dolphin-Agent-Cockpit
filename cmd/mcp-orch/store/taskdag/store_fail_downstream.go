@@ -9,17 +9,12 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/sqlctx"
 )
 
-// Phase 3.5 / 3B · 节点失败重试策略
-//
-// dispatcher 判定 wakeup 已 retry 上限后，调本方法把节点置 failed；如 caller
+// 节点失败重试耗尽后，dispatcher 调本方法把节点置 failed；如 caller
 // 决定 fail_fast=true（来自 DAG retry metadata），同事务内对所有
 // 直接或间接依赖该节点且仍处 pending 的下游节点级联标记 failed，避免它们
 // 永远卡在 pending（依赖永远不会变 done）。
-//
-// Primary node failure uses a non-terminal SQL fence so a late failure path
-// cannot rewrite a node another path already completed. The failure reason is
-// still written into result for forensic visibility; status stays "failed" to
-// avoid another enum.
+// 主节点失败写入使用非终态 SQL fence，迟到失败路径不能改写已完成节点；
+// result 里保留失败原因，方便排查一次失败是原发还是级联。
 
 const (
 	failNodeKindExhaustedRetries = "exhausted_retries"
@@ -88,10 +83,8 @@ func lockedNodeStatusBeforeFailTx(ctx context.Context, txStore *store, dagKey, n
 	return row.Status, nil
 }
 
-// failNodeTx writes a failed-status update for a single node row inside the
-// given transaction. The reason struct is JSON-encoded into the node's
-// `result` column so operators can distinguish primary vs cascade failures
-// without joining other tables.
+// failNodeTx 在当前事务内把单个非终态节点写成 failed。
+// 失败原因编码进 result，调用方无需额外 join 就能区分原发失败和级联失败。
 func failNodeTx(ctx context.Context, txStore *store, dagKey, nodeKey string, runID int64, reason failNodeReason) (*Node, error) {
 	encoded, err := json.Marshal(reason)
 	if err != nil {
@@ -108,11 +101,8 @@ func failNodeTx(ctx context.Context, txStore *store, dagKey, nodeKey string, run
 	}, "fail_non_terminal", fromNodeFailNonTerminalRow)
 }
 
-// cancelDownstreamTx walks the reverse-dependency graph from the failed node
-// and marks every transitively-dependent pending node as failed (cascade).
-// Nodes already in non-pending states are left alone — once a node has
-// started running or reached terminal we don't rewrite history.
-// cancelDownstreamTx 处理canceldownstreamtx。
+// cancelDownstreamTx 从失败节点出发遍历反向依赖图，级联失败所有仍为 pending 的下游节点。
+// 已开始运行或已到终态的节点不回写，避免覆盖它们自己的执行历史。
 func cancelDownstreamTx(ctx context.Context, txStore *store, dagKey, failedNodeKey string, runID int64, reason string) ([]CanceledDownstreamNode, error) {
 	if err := requireRuntimeRunID("cancel_downstream", runID); err != nil {
 		return nil, err
@@ -139,9 +129,8 @@ func cancelDownstreamTx(ctx context.Context, txStore *store, dagKey, failedNodeK
 			continue
 		}
 		visited[key] = true
-		// Recurse before status check: even if the current node is not
-		// pending, its descendants may still be reachable through other
-		// failed paths — propagate to keep cascade closure correct.
+		// 先扩展子节点再检查当前状态：当前节点即使不再 pending，
+		// 它的后代仍可能通过其它失败路径被级联命中。
 		queue = append(queue, dependents[key]...)
 		if nodeStatusByKey[key] != "pending" {
 			continue
@@ -179,8 +168,7 @@ func cascadeFailPendingNodeTx(ctx context.Context, txStore *store, dagKey, nodeK
 	return rows > 0, nil
 }
 
-// buildDependentIndex inverts each node's depends_on list so callers can
-// walk dependency arrows in the forward direction (\"who waits on me?\").
+// buildDependentIndex 反转每个节点的 depends_on 列表，供失败级联沿“谁依赖我”方向遍历。
 func buildDependentIndex(nodes []Node) (map[string][]string, error) {
 	dependents := make(map[string][]string, len(nodes))
 	for i := range nodes {

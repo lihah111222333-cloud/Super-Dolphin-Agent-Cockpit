@@ -55,12 +55,14 @@ func provideDreamExecutorProvider() contract.DreamExecutorProvider {
 	}
 }
 
-// ExecuteDream 执行dream。
+// ExecuteDream 使用默认选项执行一次 Codex dream 请求。
+// 该方法保留 contract 的简化入口，实际参数和指标处理集中在 ExecuteDreamWithOptions。
 func (e dreamExecutor) ExecuteDream(ctx context.Context, prompt string) (string, error) {
 	return e.ExecuteDreamWithOptions(ctx, prompt, contract.DreamOptions{})
 }
 
-// ExecuteDreamWithOptions 执行带选项的dream。
+// ExecuteDreamWithOptions 通过 codex exec --json 执行 dream 请求。
+// stdout 有硬上限且 token usage 会写入 dreammetrics；二进制缺失会转成 provider 可读错误。
 func (e dreamExecutor) ExecuteDreamWithOptions(ctx context.Context, prompt string, options contract.DreamOptions) (string, error) {
 	if err := ctx.Err(); err != nil {
 		return "", err

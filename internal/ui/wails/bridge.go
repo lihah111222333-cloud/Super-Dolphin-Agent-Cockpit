@@ -12,6 +12,8 @@ import (
 	"github.com/kelindar/event"
 )
 
+// EventBridge 把后端 event surface 转发给 Wails 前端。
+// Start/Stop 可能被 Fx 生命周期多次调用，因此 cancels 受 mutex 保护并保持幂等。
 type EventBridge struct {
 	dispatcher *event.Dispatcher
 	lifecycle  *WailsLifecycle
@@ -21,7 +23,8 @@ type EventBridge struct {
 	cancels []context.CancelFunc
 }
 
-// NewEventBridge 创建事件桥接。
+// NewEventBridge 创建桌面事件桥，并把后端事件面绑定到 Wails 生命周期。
+// logger 为空时使用全局 logger，其他依赖保持原样以便 Start 暴露装配问题。
 func NewEventBridge(dispatcher *event.Dispatcher, lifecycle *WailsLifecycle, slogLogger *slog.Logger) *EventBridge {
 	if slogLogger == nil {
 		slogLogger = pkglogger.Get()
@@ -33,7 +36,7 @@ func NewEventBridge(dispatcher *event.Dispatcher, lifecycle *WailsLifecycle, slo
 	}
 }
 
-// Start 启动桌面 UI 桥接流程。
+// Start 绑定后端事件订阅；重复调用只保留第一次订阅。
 func (b *EventBridge) Start() {
 	if b == nil {
 		return
@@ -53,7 +56,7 @@ func (b *EventBridge) Start() {
 	b.logger.Info("bridge: started", "subscriptions", len(b.cancels))
 }
 
-// Stop 停止桌面 UI 桥接流程。
+// Stop 取消所有事件订阅，并允许后续 Start 重新绑定。
 func (b *EventBridge) Stop() {
 	if b == nil {
 		return
@@ -69,6 +72,7 @@ func (b *EventBridge) Stop() {
 	}
 }
 
+// publish 展开后端事件通知并发送给新旧前端事件通道。
 func (b *EventBridge) publish(method string, payload any) {
 	if b == nil || b.lifecycle == nil {
 		return
@@ -84,6 +88,7 @@ func (b *EventBridge) publish(method string, payload any) {
 	}
 }
 
+// emitCompatAgentEvent 兼容旧前端监听的 agent-event 事件格式。
 func (b *EventBridge) emitCompatAgentEvent(method string, payload map[string]any) {
 	if b == nil || b.lifecycle == nil {
 		return
@@ -99,6 +104,7 @@ func (b *EventBridge) emitCompatAgentEvent(method string, payload map[string]any
 	})
 }
 
+// payloadToMap 将任意事件载荷规范化为 map，无法序列化时返回 error 字段。
 func payloadToMap(payload any) map[string]any {
 	switch typed := payload.(type) {
 	case nil:
@@ -119,6 +125,7 @@ func payloadToMap(payload any) map[string]any {
 	return result
 }
 
+// firstNonEmptyPayloadString 按优先级读取第一个非空字符串字段。
 func firstNonEmptyPayloadString(payload map[string]any, keys ...string) string {
 	for _, key := range keys {
 		value, _ := payload[key].(string)

@@ -9,7 +9,8 @@ import (
 
 const defaultApprovalCleanupInterval = time.Minute
 
-// Cleanup 处理cleanup。
+// Cleanup 把超过 timeout 的 pending 审批标记为超时失败。
+// lifecycleMu 防止定时清理、启动恢复和停止清理同时操作同一批 pending。
 func (m *ApprovalManager) Cleanup(timeout time.Duration) {
 	if m == nil || timeout <= 0 {
 		return
@@ -25,11 +26,11 @@ func (m *ApprovalManager) Cleanup(timeout time.Duration) {
 	}
 }
 
-// P22 P1b Finding 4: startApprovalCleanupLoop was deleted. The cleanup ticker
-// is owned by ApprovalCleanupRunner (approval_cleanup_runner.go) and joined
-// via the root `group:"runners"` aggregation.
+// 运行边界：审批清理 ticker 由 ApprovalCleanupRunner 托管到根 runners 聚合，
+// 本文件只保留恢复、快照和超时清理动作。
 
-// RestorePending 处理restore待处理。
+// RestorePending 在启动或 UI 重连时重新派发尚未完成的 pending 审批。
+// 成功重新派发的请求会刷新 TTL，避免刚恢复就被 cleanup 误判超时。
 func (m *ApprovalManager) RestorePending(ctx context.Context, bridge *PushBridge, server *jrpc2.Server) error {
 	if m == nil {
 		return nil
@@ -55,6 +56,7 @@ func (m *ApprovalManager) RestorePending(ctx context.Context, bridge *PushBridge
 	return firstErr
 }
 
+// refreshPendingTTL 在持锁状态下刷新 pending 创建时间。
 func (m *ApprovalManager) refreshPendingTTL(pending *pendingApproval) {
 	if pending == nil {
 		return
@@ -66,7 +68,7 @@ func (m *ApprovalManager) refreshPendingTTL(pending *pendingApproval) {
 	}
 }
 
-// PendingSnapshot 处理待处理快照。
+// PendingSnapshot 返回当前 pending 审批的安全副本，供生命周期和诊断读取。
 func (m *ApprovalManager) PendingSnapshot() []ApprovalRequest {
 	pending := m.snapshotPending()
 	out := make([]ApprovalRequest, 0, len(pending))

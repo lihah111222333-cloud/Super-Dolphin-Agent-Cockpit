@@ -8,7 +8,7 @@ import (
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
-// applyMutation centralizes the lock/mutate/patch/unlock/emit flow used by projection handlers.
+// applyMutation 统一 projection handler 的加锁、变更、构造 patch 和发事件流程。
 func applyMutation(s *service, threadID string, mutator func(), patchBuilder func() uidto.UIThreadPatch) {
 	if s == nil {
 		return
@@ -28,8 +28,10 @@ func applyMutation(s *service, threadID string, mutator func(), patchBuilder fun
 	s.emitThreadPatchEvent(patch)
 }
 
+// logFilePath 返回当前日志文件路径，供 UI 展示调试入口。
 func logFilePath() string { return pkglogger.CurrentLogFilePath() }
 
+// copyThreadGroups 深拷贝线程分组，避免快照调用方改写内部状态。
 func copyThreadGroups(items []ThreadGroup) []ThreadGroup {
 	out := make([]ThreadGroup, len(items))
 	for i := range items {
@@ -38,14 +40,17 @@ func copyThreadGroups(items []ThreadGroup) []ThreadGroup {
 	return out
 }
 
+// copyViewPrefs 深拷贝 chat/cmd 视图偏好。
 func copyViewPrefs(value ViewPrefs) ViewPrefs {
 	return ViewPrefs{Chat: clone.JSONMap(value.Chat), Cmd: clone.JSONMap(value.Cmd)}
 }
 
+// copyThreadCollections 深拷贝 chat/cmd 线程集合时间戳。
 func copyThreadCollections(value ThreadCollections) ThreadCollections {
 	return ThreadCollections{Chat: cloneTimestampMap(value.Chat), Cmd: cloneTimestampMap(value.Cmd)}
 }
 
+// threadLifecycleLocked 返回线程当前展示生命周期，调用方必须持有锁。
 func (s *service) threadLifecycleLocked(threadID string) string {
 	threadID = strings.TrimSpace(threadID)
 	if threadID == "" {
@@ -59,6 +64,7 @@ func (s *service) threadLifecycleLocked(threadID string) string {
 	return ""
 }
 
+// agentLifecycleLocked 返回 agent 当前展示生命周期，调用方必须持有锁。
 func (s *service) agentLifecycleLocked(agentID string) string {
 	agentID = strings.TrimSpace(agentID)
 	if agentID == "" {
@@ -72,6 +78,7 @@ func (s *service) agentLifecycleLocked(agentID string) string {
 	return ""
 }
 
+// recentTurnExistsLocked 判断 recent turn 列表中是否已有指定 turn。
 func (s *service) recentTurnExistsLocked(turnID string) bool {
 	turnID = strings.TrimSpace(turnID)
 	if turnID == "" {
@@ -85,6 +92,7 @@ func (s *service) recentTurnExistsLocked(turnID string) bool {
 	return false
 }
 
+// launchState 规范化 launch 中的空状态，保证 UI 至少看到 starting。
 func launchState(current string) string {
 	current = strings.TrimSpace(current)
 	if current == "" || strings.EqualFold(current, "starting") {
@@ -93,7 +101,7 @@ func launchState(current string) string {
 	return current
 }
 
-// normalizeAgentLifecycleState 规范化代理生命周期状态。
+// normalizeAgentLifecycleState 将后端生命周期状态映射为 UI 展示状态。
 func normalizeAgentLifecycleState(raw string) string {
 	switch strings.ToLower(strings.TrimSpace(raw)) {
 	case "provisioning", "turn_queued":
@@ -115,6 +123,7 @@ func normalizeAgentLifecycleState(raw string) string {
 	}
 }
 
+// sortedThreadPatchLocked 在发 patch 前稳定排序线程和 agent 列表。
 func (s *service) sortedThreadPatchLocked(threadID, source string) uidto.UIThreadPatch {
 	sortThreads(s.state.Threads)
 	sortAgents(s.state.Agents)

@@ -13,51 +13,21 @@ import (
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
-// TurnServiceAdapter implements TurnSubmitter on top of
-// contract.CronTurnExecutor. It bridges the cron scheduler's narrow
-// submit-and-observe contract into the real turn preparation + start +
-// track stack.
-//
-// Scope — phase 2b-integrate (v1):
-//   - StartTurn: requires the job row to already have ThreadID; the
-//     adapter resolves an existing Session via contract.SessionResolver,
-//     runs CronPrepareTurn -> CronStartTurn, and returns the handle's
-//     local id as the recorded turn_id. Agent bootstrap (creating an
-//     agent when the job fires for the first time) is NOT in this cut —
-//     that bootstrap pattern belongs in a follow-up that also fills
-//     thread_id onto the job row before the first tick.
-//   - LookupByDedupeKey: delegates to CronTurnExecutor.CronLookupByDedupeKey,
-//     which reads the in-memory tracker. That covers the common
-//     crash-recovery window (same process, transient failure between
-//     StartTurn returning and the run row CAS-advancing to
-//     submitted); a process restart erases the tracker, so the SQL
-//     persistence half of the P1b plan remains a follow-up. ok=false
-//     is mapped to ObservedTurn{Found:false} so the scheduler treats
-//     every tracker miss as "never submitted" per the plan.
-//   - Observe: delegates to CronTurnExecutor.CronTrackTurn; a not-found
-//     error maps to ErrTurnNotFound so the scheduler marks the run
-//     observe_lost per the P1b plan.
-//
-// 这个适配器只把 cron 请求翻译给 turn 层。run/job 的保存、重试和
-// observe_lost 都留给 Scheduler。
+// TurnServiceAdapter 基于 contract.CronTurnExecutor 实现 TurnSubmitter。
+// 它只桥接 cron 的提交/查重/观察接口到 turn 层，run/job 持久化、重试和 observe_lost 仍由 Scheduler 统一处理。
+// StartTurn 负责 ResolveSession -> CronPrepareTurn -> CronStartTurn；Lookup 只查本进程 tracker；Observe 只接管已提交 turn。
 type TurnServiceAdapter struct {
 	svc      contract.CronTurnExecutor
 	resolver contract.SessionResolver
 	logger   *slog.Logger
-	// bootstrapper is optional. When set, StartTurn invokes it on a job
-	// row whose ThreadID is still empty, then proceeds with the
-	// freshly-minted thread. A nil bootstrapper preserves the v1
-	// behavior of surfacing ErrJobNotBootstrapped so the scheduler
-	// marks the run failed and retries per its budget.
+	// bootstrapper 只在 job.thread_id 为空的首次触发路径使用；nil 时返回显式错误，避免落到默认线程。
 	bootstrapper ThreadBootstrapper
 }
 
 var _ TurnSubmitter = (*TurnServiceAdapter)(nil)
 
-// NewTurnServiceAdapter wires the adapter. Either dependency being nil
-// is a programmer error; callers should fall back to NoopTurnSubmitter
-// before reaching this constructor.
 // NewTurnServiceAdapter 创建 cron 到 turn service 的适配器。
+// svc 和 resolver 是跨模块提交链路的必填依赖，调用方应在构造前完成未接线处理。
 func NewTurnServiceAdapter(logger *slog.Logger, svc contract.CronTurnExecutor, resolver contract.SessionResolver) *TurnServiceAdapter {
 	if logger == nil {
 		logger = pkglogger.Get()
@@ -65,11 +35,8 @@ func NewTurnServiceAdapter(logger *slog.Logger, svc contract.CronTurnExecutor, r
 	return &TurnServiceAdapter{svc: svc, resolver: resolver, logger: logger}
 }
 
-// WithBootstrapper attaches a ThreadBootstrapper used for first-trigger
-// jobs. The method is wired from the fx factory (provideTurnSubmitter)
-// so the public constructor surface stays backwards-compatible; tests
-// can call it directly.
 // WithBootstrapper 设置 turn 适配器使用的线程引导器。
+// 该方法由 fx factory 补接，保持构造函数签名稳定；测试可直接注入。
 func (a *TurnServiceAdapter) WithBootstrapper(b ThreadBootstrapper) *TurnServiceAdapter {
 	if a == nil {
 		return nil
@@ -78,18 +45,10 @@ func (a *TurnServiceAdapter) WithBootstrapper(b ThreadBootstrapper) *TurnService
 	return a
 }
 
-// ErrJobNotBootstrapped is returned by StartTurn when the job row has
-// no ThreadID yet. Bootstrap of the background thread/agent is out of
-// scope for this PR; scheduler marks the run failed on this error and
-// will retry per its retry budget.
+// ErrJobNotBootstrapped 表示 job 尚未绑定 thread 且没有可用 bootstrapper。
+// scheduler 会把本次 run 标记失败并按重试预算处理，而不是创建隐式默认线程。
 var ErrJobNotBootstrapped = errors.New("cron: job thread_id is empty (agent/thread bootstrap not yet supported)")
 
-// StartTurn runs the CronPrepareTurn -> CronStartTurn pipeline.
-// DedupeKey is forwarded to the turn layer so a subsequent
-// LookupByDedupeKey can resolve the submission within the same process;
-// cross-process crash recovery still relies on the phase-1 store
-// CAS(pending->submitting) gate until the dedupe_key SQL column lands.
-//
 // StartTurn 只负责准备并启动 turn，返回本地 turn_id。
 // 它不写 cron_runs，也不处理终态事件。
 func (a *TurnServiceAdapter) StartTurn(ctx context.Context, req StartTurnRequest) (StartTurnResult, error) {
@@ -116,10 +75,7 @@ func (a *TurnServiceAdapter) resolveThreadAgent(ctx context.Context, req StartTu
 	threadID := strings.TrimSpace(req.ThreadID)
 	agentID := strings.TrimSpace(req.AgentID)
 	if threadID == "" {
-		// First-trigger path: ask the bootstrapper to mint a thread
-		// (and usually an agent) for this job. Keep the bootstrap call
-		// narrow — the scheduler is the one that persists the returned
-		// IDs via SetActiveTurn once StartTurn itself succeeds.
+		// 首次触发只让 bootstrapper 生成线程/agent；返回 ID 的持久化仍等 StartTurn 成功后由 scheduler 完成。
 		bootstrapped, err := a.bootstrapFirstRun(ctx, req)
 		if err != nil {
 			return nil, "", err
@@ -150,25 +106,14 @@ func (a *TurnServiceAdapter) executeTurn(ctx context.Context, session contract.S
 	}
 	turnID := strings.TrimSpace(handle.LocalID())
 	if turnID == "" {
-		// A CronStartTurn that returns without a local id is a
-		// contract violation. Fail loudly so the scheduler marks the
-		// run failed instead of persisting a phantom turn_id.
 		// 这里必须返回错误，不能造临时 id；否则恢复时无法重新 Observe。
 		return "", errors.New("cron: CronStartTurn returned empty local id")
 	}
 	return turnID, nil
 }
 
-// bootstrapFirstRun is the adapter-local helper that invokes the
-// ThreadBootstrapper on a job whose cron_jobs.thread_id is still
-// empty. When no bootstrapper is wired, the helper preserves the v1
-// contract by returning ErrJobNotBootstrapped so the scheduler can
-// fail the run and retry; a non-empty ThreadID from the bootstrapper
-// is required — an empty result is treated as a bootstrap failure
-// because we cannot proceed to CronPrepareTurn / CronStartTurn without
-// a thread.
-//
-// bootstrap 只用于首次触发且 job.thread_id 为空。
+// bootstrapFirstRun 只用于首次触发且 job.thread_id 为空。
+// 返回的 ThreadID 必须非空；否则无法 ResolveSession，也不能继续 CronPrepareTurn/CronStartTurn。
 // 返回的 ID 只有在 StartTurn 成功后才会被保存。
 func (a *TurnServiceAdapter) bootstrapFirstRun(ctx context.Context, req StartTurnRequest) (BootstrapResult, error) {
 	if a == nil || a.bootstrapper == nil {
@@ -191,16 +136,8 @@ func (a *TurnServiceAdapter) bootstrapFirstRun(ctx context.Context, req StartTur
 	return res, nil
 }
 
-// LookupByDedupeKey queries the in-memory turn tracker for a
-// non-terminal turn that registered dedupeKey. See the type-level doc
-// comment for the cross-process caveat: a process restart erases the
-// tracker, so the scheduler still falls back to "never submitted" in
-// that case and relies on the store's CAS(pending->submitting) guard.
-// Empty dedupeKey short-circuits to Found=false without hitting the
-// service so callers that haven't opted into dedupe see a cheap
-// deterministic answer.
-//
-// Lookup 只给恢复查重用。它不能启动 provider；查不到时怎么处理交给 Scheduler。
+// LookupByDedupeKey 只给恢复查重用，不能启动 provider。
+// 空 dedupeKey 直接返回 Found=false；本进程 tracker 查不到时，是否失败由 Scheduler 决定。
 func (a *TurnServiceAdapter) LookupByDedupeKey(ctx context.Context, dedupeKey string) (ObservedTurn, error) {
 	if a == nil || a.svc == nil {
 		return ObservedTurn{Found: false}, errors.New("cron: turn adapter not wired")
@@ -216,9 +153,7 @@ func (a *TurnServiceAdapter) LookupByDedupeKey(ctx context.Context, dedupeKey st
 	if !found {
 		return ObservedTurn{Found: false}, nil
 	}
-	// Prefer the local tracker id as the ObservedTurn.TurnID so the
-	// scheduler's bookkeeping stays consistent with StartTurn's return
-	// value (which also records handle.LocalID() as the turn_id).
+	// 优先使用本地 tracker id，与 StartTurn 返回并落库的 turn_id 保持一致。
 	turnID := strings.TrimSpace(status.LocalID)
 	if turnID == "" {
 		turnID = strings.TrimSpace(status.ProviderID)
@@ -226,12 +161,8 @@ func (a *TurnServiceAdapter) LookupByDedupeKey(ctx context.Context, dedupeKey st
 	return ObservedTurn{Found: true, TurnID: turnID}, nil
 }
 
-// Observe attaches a cheap liveness check via CronTurnExecutor.CronTrackTurn.
-// A tracker miss ("turn not found") maps to ErrTurnNotFound so the
-// scheduler marks the run observe_lost per the P1b plan; every other
-// error surfaces wrapped so the scheduler can log it.
-//
-// Observe 只接管已提交的 turn。找不到或无权追踪时，上层应转成 observe_lost。
+// Observe 只接管已提交的 turn。
+// 找不到 turn 时映射为 ErrTurnNotFound；其他错误保留上下文交给 Scheduler 记录和分类。
 func (a *TurnServiceAdapter) Observe(ctx context.Context, turnID string) error {
 	if a == nil || a.svc == nil {
 		return errors.New("cron: turn adapter not wired")
@@ -241,8 +172,7 @@ func (a *TurnServiceAdapter) Observe(ctx context.Context, turnID string) error {
 		return errors.New("cron: Observe requires a turn id")
 	}
 	if _, err := a.svc.CronTrackTurn(ctx, turnID); err != nil {
-		// CronTrackTurn currently wraps "turn not found" as a plain
-		// errors.New — compare on substring until a sentinel lands.
+		// CronTrackTurn 当前把 not found 包成普通 error，先用文本匹配维持 observe_lost 分类。
 		if strings.Contains(strings.ToLower(err.Error()), "turn not found") {
 			return ErrTurnNotFound
 		}
@@ -251,11 +181,8 @@ func (a *TurnServiceAdapter) Observe(ctx context.Context, turnID string) error {
 	return nil
 }
 
-// buildPrepareInput translates the cron-side StartTurnRequest into
-// contract.CronPrepareInput. Fields absent from the cron row (Files /
-// Images / CandidateSkills / MCPSnapshot / ...) default to their zero
-// values; the turn layer's PrepareTurn owns the fallback policy.
-//
+// buildPrepareInput 将 cron 侧 StartTurnRequest 投影成 contract.CronPrepareInput。
+// cron row 没有的 Files/Images/CandidateSkills/MCPSnapshot 等字段保持零值，由 turn 准备层决定如何解释。
 // 这里只做字段投影，不添加 cron 专属默认值。坏配置应该在 Create/Update 时被挡住。
 func (a *TurnServiceAdapter) buildPrepareInput(req StartTurnRequest) contract.CronPrepareInput {
 	skills := make([]providerdto.SkillRef, 0, len(req.Skills))
@@ -277,7 +204,8 @@ func (a *TurnServiceAdapter) buildPrepareInput(req StartTurnRequest) contract.Cr
 	}
 }
 
-// decodeRuntimeConfig 将原始 JSON 配置解码为 map[string]any，解码失败时静默返回 nil。
+// decodeRuntimeConfig 将已入库的 runtime config 投影为 turn 层需要的 map。
+// Create/Update 已负责校验 JSON；这里不修复坏数据，解析失败时让 turn 层按“无覆盖配置”处理。
 func decodeRuntimeConfig(raw json.RawMessage) map[string]any {
 	if len(raw) == 0 {
 		return nil

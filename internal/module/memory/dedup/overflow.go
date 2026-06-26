@@ -1,4 +1,4 @@
-// Package dedup 见 tokenizer.go。
+// Package dedup 实现 durable memory 写入前的重复检测、合并和溢出处理。
 package dedup
 
 import (
@@ -7,7 +7,7 @@ import (
 	"unicode/utf8"
 )
 
-// 溢出与合并相关常量
+// 溢出与合并相关常量。
 const (
 	MaxEntriesPerType       = 15   // 每种类型允许的最大条目数
 	MaxEntryContentRunes    = 1500 // 合并后内容的最大 rune 数
@@ -21,11 +21,12 @@ func FindMostSimilarPair(entries []EntrySnapshot) (i, j int, score float64, foun
 	if len(pairs) == 0 {
 		return 0, 0, 0, false
 	}
-	best := pairs[0] // sorted by score descending
+	best := pairs[0] // FindSimilarPairs 已按分数降序和稳定键排序。
 	return best.IdxA, best.IdxB, best.Score, true
 }
 
-// SimilarPair 描述一对包含系数较高的条目。
+// SimilarPair 记录一对可合并候选及其原始位置。
+// 调用方依赖下标回写 keep/delete 路径，因此这里保留 path、scope 和 score。
 type SimilarPair struct {
 	IdxA   int // 原始 entries 切片中的下标
 	IdxB   int // 原始 entries 切片中的下标
@@ -87,17 +88,16 @@ func TruncateOldestParagraphs(content string, maxRunes int) string {
 
 	paras := strings.Split(content, "\n\n")
 
-	// Remove paragraphs from the front until we fit within maxRunes,
-	// but always keep at least the last paragraph.
+	// 从最旧段落开始删除，直到符合上限；最后一个段落必须保留，避免返回空内容。
 	for len(paras) > 1 {
 		joined := strings.Join(paras, "\n\n")
 		if utf8.RuneCountInString(joined) <= maxRunes {
 			return joined
 		}
-		// Drop the oldest (first) paragraph
+		// 丢弃最旧段落，保留较新的上下文。
 		paras = paras[1:]
 	}
 
-	// Only one paragraph remains — return it regardless of length
+	// 只剩一个段落时即使超限也返回，避免合并结果变成空字符串。
 	return paras[0]
 }

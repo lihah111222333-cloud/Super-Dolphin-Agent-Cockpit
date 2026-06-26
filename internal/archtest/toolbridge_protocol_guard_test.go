@@ -7,27 +7,14 @@ import (
 	"testing"
 )
 
-// TestToolbridgeProtocolFreezeContractGuard is the P22 P4 S3b/S3c
-// guard: the toolbridge wire-protocol surface (private metadata keys +
-// proxy initialize handshake + supported method names + fail-closed
-// default) must be driven from the named constants in
-// internal/platform/toolbridge/protocol_contract.go, not scattered
-// magic strings. P4 §94-106 lists this freeze as a prerequisite for
-// S3d's import-direction refactor.
+// TestToolbridgeProtocolFreezeContractGuard 固定 toolbridge wire protocol 的常量来源。
+// 私有 metadata key、proxy initialize 握手、支持的方法名和 fail-closed default 分支
+// 都必须由 internal/platform/toolbridge/protocol_contract.go 的命名常量驱动，避免散落魔法字符串。
 //
-// The guard enforces three invariants by file-text scan:
-//  1. handler.go / proxy.go / diff_fallback.go no longer contain the
-//     bare magic strings they used pre-S3b. Those strings must come
-//     from protocol_contract.go constants.
-//  2. proxy.go preserves the fail-closed `default` branch that returns
-//     jsonRPCCodeMethodMiss for unknown methods (P4
-//     §fallback / §fail-closed: no silent ACK for unknown compatibility
-//     methods; test name matches P4 §TDD line 257
-//     TestToolbridgeCompatibilityFallbackRemoved).
-//  3. protocol_contract.go itself declares every constant the other
-//     files reference, preventing a silent split where someone adds
-//     a new magic string that passes the above checks only because it
-//     is not yet named.
+// 该 guard 通过文件文本扫描验证三类不变量：
+//  1. handler.go / proxy.go / diff_fallback.go 不再直接嵌入受保护的协议字面量。
+//  2. proxy.go 保留未知方法的 fail-closed default 分支，不能对未知兼容方法静默 ACK。
+//  3. protocol_contract.go 声明其他文件引用的所有常量，避免新增魔法字符串绕过集中定义。
 func TestToolbridgeProtocolFreezeContractGuard(t *testing.T) {
 	t.Parallel()
 	root := repoRootForGuardTests(t)
@@ -45,9 +32,8 @@ func TestToolbridgeProtocolFreezeContractGuard(t *testing.T) {
 	proxySrc := readFile("internal/platform/toolbridge/proxy.go")
 	contractSrc := readFile("internal/platform/toolbridge/protocol_contract.go")
 
-	// 1. handler.go must not embed the pre-S3b private metadata strings
-	//    as literal map keys. (Comments / docstrings mentioning the name
-	//    are allowed — only quoted forms inside a statement matter.)
+	// handler.go 不能把受保护的 private metadata key 作为语句里的字面量 map key。
+	// 注释或 docstring 提到名称允许存在；这里仅拦截会参与运行时协议的 quoted form。
 	forbiddenHandlerLiterals := []string{
 		`"_agentId":`,
 		`"_threadId":`,
@@ -60,7 +46,7 @@ func TestToolbridgeProtocolFreezeContractGuard(t *testing.T) {
 		}
 	}
 
-	// 2. proxy.go must not embed the pre-S3b initialize/method literals.
+	// proxy.go 不能直接嵌入 initialize、通知和工具方法名等协议字面量。
 	forbiddenProxyLiterals := []string{
 		`case "initialize":`,
 		`case "notifications/initialized":`,
@@ -76,12 +62,8 @@ func TestToolbridgeProtocolFreezeContractGuard(t *testing.T) {
 		}
 	}
 
-	// 3. proxy.go must keep fail-closed default branch that returns
-	//    jsonRPCCodeMethodMiss. This is the positive invariant behind
-	//    P4 §TDD line 257 TestToolbridgeCompatibilityFallbackRemoved.
-	//    We assert the literal token appears (exact match cheap; the
-	//    behavioral smoke test in toolbridge package exercises the
-	//    actual wire behavior).
+	// proxy.go 必须保留返回 jsonRPCCodeMethodMiss 的 fail-closed default 分支。
+	// 这里用便宜的字面量扫描锁住结构；实际 wire 行为由 toolbridge 包的行为测试覆盖。
 	requiredProxyTokens := []string{
 		"writeJSONRPCError(w, req.ID, jsonRPCCodeMethodMiss",
 	}
@@ -91,9 +73,8 @@ func TestToolbridgeProtocolFreezeContractGuard(t *testing.T) {
 		}
 	}
 
-	// 4. protocol_contract.go must declare every exported constant the
-	//    other files consume. Prevents silent drift where someone
-	//    references a name that does not exist.
+	// protocol_contract.go 必须声明其他文件消费的每个导出常量。
+	// 这能防止调用点引用不存在的集中常量，或绕开常量表新增协议字符串。
 	requiredConstants := []string{
 		"MetadataKeyAgentID",
 		"MetadataKeyThreadID",

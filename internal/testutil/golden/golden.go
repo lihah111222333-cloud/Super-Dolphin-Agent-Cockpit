@@ -14,23 +14,30 @@ import (
 	"github.com/pmezard/go-difflib/difflib"
 )
 
+// updateFiles 控制测试是否刷新 golden JSON 文件。
 var updateFiles = flag.Bool("update", false, "refresh golden JSON fixtures")
 
+// Domain 标识 golden 用例所属目录，是磁盘路径的一部分。
+// 新增值时需要保证目录名稳定，否则历史 fixture 会被重新定位。
 type Domain string
 
 const (
+	// golden 用例域名常量。
 	DomainTurnAgent   Domain = "turn-agent"
 	DomainTransport   Domain = "transport"
 	DomainIntegration Domain = "integration"
 )
 
+// Case 描述一个 golden JSON 用例的目录、域和名称。
+// Name 会参与路径拼接并拒绝目录穿越，避免测试更新越过 fixture 根目录。
 type Case struct {
 	BaseDir string
 	Domain  Domain
 	Name    string
 }
 
-// AssertJSON 处理assertJSON。
+// AssertJSON 对比 actual 的规范化 JSON 与 golden 文件。
+// 只有显式传入 -update 时才写回 fixture，普通测试失败会输出稳定 diff。
 func AssertJSON(t *testing.T, tc Case, actual any) {
 	t.Helper()
 
@@ -60,7 +67,7 @@ func AssertJSON(t *testing.T, tc Case, actual any) {
 	t.Fatalf("golden mismatch for %s:\n%s", path, unifiedDiff(want, got))
 }
 
-// path 处理路径。
+// path 生成 golden 文件路径，并拒绝空名称或目录穿越。
 func (tc Case) path() (string, error) {
 	baseDir := strings.TrimSpace(tc.BaseDir)
 	name := strings.TrimSpace(tc.Name)
@@ -80,6 +87,7 @@ func (tc Case) path() (string, error) {
 	return filepath.Join(baseDir, string(tc.Domain), cleanName+".golden.json"), nil
 }
 
+// writeGolden 刷新 golden 文件内容，测试失败由调用方 t.Fatalf 接管。
 func writeGolden(t *testing.T, path string, content []byte) {
 	t.Helper()
 
@@ -91,6 +99,8 @@ func writeGolden(t *testing.T, path string, content []byte) {
 	}
 }
 
+// canonicalJSON 将任意值序列化为稳定格式 JSON。
+// 序列化错误直接返回给测试，避免 golden 文件吸收不可编码值。
 func canonicalJSON(actual any) ([]byte, error) {
 	raw, err := json.Marshal(actual)
 	if err != nil {
@@ -99,6 +109,7 @@ func canonicalJSON(actual any) ([]byte, error) {
 	return canonicalBytes(raw)
 }
 
+// canonicalBytes 将 JSON 字节规范化为带末尾换行的缩进格式。
 func canonicalBytes(raw []byte) ([]byte, error) {
 	dec := json.NewDecoder(bytes.NewReader(raw))
 	dec.UseNumber()
@@ -120,10 +131,12 @@ func canonicalBytes(raw []byte) ([]byte, error) {
 	return append(pretty, '\n'), nil
 }
 
+// isEOF 只接受 decoder 的标准 EOF，供 trailing JSON 检查区分正常结束和解析错误。
 func isEOF(err error) bool {
 	return err == io.EOF
 }
 
+// unifiedDiff 生成 golden 期望值和实际值之间的 unified diff。
 func unifiedDiff(want, got []byte) string {
 	diff, err := difflib.GetUnifiedDiffString(difflib.UnifiedDiff{
 		A:        difflib.SplitLines(string(want)),

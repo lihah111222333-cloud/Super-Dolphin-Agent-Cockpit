@@ -1,8 +1,5 @@
 package codemapindex
 
-// GeneratorAnchor is the canonical truth value embedded into ai-index.json
-// by the Go generator (scripts/codemap_index.go). Any test or CI check
-// MUST verify that the on-disk index contains exactly this string in its
-// "generator" field. If a different toolchain (Python, Node, etc.) produces
-// the file, the anchor will be missing or wrong and tests will fail.
+// GeneratorAnchor 是 ai-index.json 中的生成器锚点。
+// 测试和 CI 用它确认索引来自 Go 生成器，其他工具链生成的文件会因锚点不匹配而失败。
 const GeneratorAnchor = "go:scripts/codemap_index.go:v1"

@@ -7,37 +7,18 @@ import (
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
-// Compatibility protocol contract for the multi-language LSP transport.
-// Collapses the previously inline `defaultServerRequestResult` switch
-// into an explicit, named set so the P4 plan's "LSP transport
-// compat fallback 需要显式 protocol contract 与守卫测试, 不能继续散落
-// 在 transport/client 实现中" (§309-311) becomes concrete and guardable.
-//
-// Each frozen method is either:
-//   - ACK'd with an empty struct result (client/registerCapability,
-//     client/unregisterCapability, window/workDoneProgress/create,
-//     and the workspace/*/refresh family), or
-//   - ACK'd with an `[]null` array matching the number of requested
-//     items (workspace/configuration).
-//
-// Any method outside this set returns ErrMethodNotSupported so the
-// transport layer can still surface genuinely unknown server-initiated
-// methods as JSON-RPC `MethodNotFound` rather than silently ACK'ing.
-//
-// The archtest in
-// internal/archtest/multilsp_transport_compat_guard_test.go pins the
-// method literals to this file so future additions have to land in
-// the contract file rather than buried inside transport.go.
+// 本文件集中声明多语言 LSP transport 允许自动 ACK 的服务端主动请求。
+// 未列入集合的方法必须返回 ErrMethodNotSupported，由上层映射为 JSON-RPC MethodNotFound，
+// 避免未知服务端请求被静默确认。
 
-// Server-initiated requests ACK'd with an empty struct result.
+// 服务端主动请求中可用空 struct 结果 ACK 的方法集合。
 const (
 	LSPCompatMethodClientRegisterCapability     = "client/registerCapability"
 	LSPCompatMethodClientUnregisterCapability   = "client/unregisterCapability"
 	LSPCompatMethodWindowWorkDoneProgressCreate = "window/workDoneProgress/create"
 )
 
-// Server-initiated workspace/*/refresh notifications ACK'd with an
-// empty struct result.
+// workspace/*/refresh 系列请求同样只需要空 struct 结果。
 const (
 	LSPCompatMethodWorkspaceSemanticTokensRefresh = "workspace/semanticTokens/refresh"
 	LSPCompatMethodWorkspaceCodeLensRefresh       = "workspace/codeLens/refresh"
@@ -45,13 +26,11 @@ const (
 	LSPCompatMethodWorkspaceDiagnosticRefresh     = "workspace/diagnostic/refresh"
 )
 
-// Server-initiated request answered with an empty []any slice
-// whose length matches the requested `items` count.
+// workspace/configuration 需要返回与请求 items 等长的空配置数组。
 const LSPCompatMethodWorkspaceConfiguration = "workspace/configuration"
 
-// lspCompatEmptyStructMethods lists every server-initiated method
-// this transport ACKs with `struct{}{}`. Adding a new method here
-// makes it the only place the freeze needs to change.
+// lspCompatEmptyStructMethods 是 transport 会以 struct{}{} ACK 的完整方法表。
+// 新增兼容方法必须先落到这里，避免分散在 transport 分支里形成隐式放行。
 var lspCompatEmptyStructMethods = []string{
 	LSPCompatMethodClientRegisterCapability,
 	LSPCompatMethodClientUnregisterCapability,
@@ -71,18 +50,8 @@ func isLSPCompatEmptyStructMethod(method string) bool {
 	return false
 }
 
-// dispatchCompatServerRequest resolves a server-initiated request
-// against the frozen compatibility contract. A method outside the
-// contract returns ErrMethodNotSupported, letting the caller surface
-// it as JSON-RPC `MethodNotFound` instead of silently ACK'ing.
-//
-// P22 P4 S6a / plan §321: every hit on the compatibility table is
-// logged with a stable `event=gopls.compat_fallback.hit` anchor so
-// ops dashboards can count compat fallbacks by method without
-// pattern-matching free-text messages. The ErrMethodNotSupported
-// branch is NOT a hit by this definition — it surfaces as
-// JSON-RPC MethodNotFound and belongs to a different contract
-// (future observability: genuinely unknown methods).
+// dispatchCompatServerRequest 根据兼容方法表处理服务端主动请求。
+// 命中兼容表时记录稳定事件供诊断统计；未命中的方法返回 ErrMethodNotSupported，不做静默 ACK。
 func dispatchCompatServerRequest(method string, params json.RawMessage) (any, error) {
 	if isLSPCompatEmptyStructMethod(method) {
 		pkglogger.Get().Info("LSP compat fallback hit",

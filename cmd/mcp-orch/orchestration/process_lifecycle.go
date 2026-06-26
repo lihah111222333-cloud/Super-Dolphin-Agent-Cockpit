@@ -40,8 +40,8 @@ func (s *service) removeSession(agent *agentRuntime) {
 	agent.sessionGeneration = 0
 }
 
-// 这里从队列取 turn，并在锁内先推进 agent 状态。
-// 如果状态推进失败，要把 turn 放回去，避免丢任务。
+// claimTurnWork 从各 agent 队列领取可执行 turn，并在锁内先推进状态。
+// 状态推进失败时会把 turn 放回队头，避免任务在并发状态变更中丢失。
 func (s *service) claimTurnWork(ctx context.Context) []turnWork {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -77,7 +77,9 @@ func (s *service) claimTurnWork(ctx context.Context) []turnWork {
 	return work
 }
 
-// 本地进程退出只处理一次；launchSeq 用来识别旧进程和重复事件。
+// handleProcessExit 把本地 cmd.Wait 结果同步回 agent runtime。
+// launchSeq 是进程生命周期围栏：旧进程、重复事件或合成退出只能命中一次；有效退出会清理 active turn，
+// 按退出原因推进 stopped/failed，并在终态缺 report 时尝试持久化兜底报告，持久化失败只记日志不重入状态机。
 func (s *service) handleProcessExit(ctx context.Context, agentID string, launchSeq uint64, err error) {
 	s.mu.Lock()
 
@@ -88,10 +90,8 @@ func (s *service) handleProcessExit(ctx context.Context, agentID string, launchS
 		s.mu.Unlock()
 		return
 	}
-	// P22 P3 exactly-once fence on (agentID, launchSeq): once an exit has been
-	// processed for this seq, every subsequent call (actor re-delivery,
-	// synthetic launcher Emit, test double-call) is a no-op so state
-	// transitions fire at most once per process lifetime.
+	// exactly-once 围栏：同一 launchSeq 的进程退出一旦处理过，
+	// actor 重投、合成退出或测试重复调用都不能再次触发状态迁移。
 	if agent.lastExitedSeq >= launchSeq {
 		s.logger.Debug("orchestration: duplicate process exit ignored (seq already drained)",
 			"agent_id", agentID, "launch_seq", launchSeq,
@@ -150,7 +150,8 @@ func (s *service) handleProcessExitTransition(ctx context.Context, agent *agentR
 	}
 }
 
-// waitForProcessExit 等待子进程退出并处理超时。
+// waitForProcessExit 等待指定 launchSeq 的子进程退出。
+// 超时后会尝试强制停止进程，避免 stop 调用无限等待。
 func (s *service) waitForProcessExit(ctx context.Context, agentID string, launchSeq uint64) error {
 	if launchSeq == 0 {
 		return nil
@@ -208,15 +209,15 @@ type runnerActor struct {
 	service *service
 }
 
-// NewRunnerActor 创建托管代理进程生命周期的 runner actor。
+// NewRunnerActor 创建本地 runtime 的 runner actor。
 func NewRunnerActor(logger *slog.Logger, service *service) platformrunner.Runner {
 	return &runnerActor{logger: logger, service: service}
 }
 
 const runnerShutdownDrainGrace = 30 * time.Second
 
-// 本地模式用这个 loop 消费 turn、处理进程退出、检查卡住的 agent。
-// remote 模式不注册它，turn 事件会从 launcher notify/hooks 回来。
+// Run 是本地模式的主循环，负责消费 turn、处理退出事件并检测卡住的 agent。
+// remote 模式不注册该 actor，turn 和状态事件由 launcher notify/hooks 回传。
 func (a *runnerActor) Run(ctx context.Context) error {
 	ticker := time.NewTicker(200 * time.Millisecond)
 	defer ticker.Stop()
@@ -290,7 +291,8 @@ func (a *runnerActor) drainOnStop(exitEvents <-chan exitmonitor.Event) {
 	a.flushRemainingExitEvents(exitEvents)
 }
 
-// flushRemainingExitEvents 在退出前补处理队列里的进程退出事件。
+// flushRemainingExitEvents 在 actor 退出前清空已到达的退出事件。
+// 不阻塞等待新事件，只处理当前缓冲区，避免 shutdown 尾部状态丢失。
 func (a *runnerActor) flushRemainingExitEvents(exitEvents <-chan exitmonitor.Event) {
 	for {
 		select {

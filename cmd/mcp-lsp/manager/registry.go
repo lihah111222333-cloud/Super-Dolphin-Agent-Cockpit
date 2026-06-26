@@ -49,7 +49,8 @@ var languageIDByExtension = map[string]string{
 	".yml":      "yaml",
 }
 
-// Registry route requests to different LSP Managers based on file type.
+// Registry 根据语言和目标文件把工具请求路由到对应 LSP Manager。
+// 它同时负责安装校验、诊断聚合和启动同步，是工具层进入 LSP runtime 的跨模块入口。
 type Registry interface {
 	GetManagerForFile(ctx context.Context, filePath string) (Manager, error)
 	GetManagerForFileWithLanguage(ctx context.Context, filePath string, languageID string) (Manager, error)
@@ -61,6 +62,8 @@ type Registry interface {
 	Close() error
 }
 
+// languageConfig 保存单个 language id 的 manager 绑定和安装策略。
+// scoped 非空时由生产 ManagerPool 决定具体 workspace/shard manager。
 type languageConfig struct {
 	manager       Manager
 	scoped        ScopedManagerResolver
@@ -68,14 +71,17 @@ type languageConfig struct {
 	binaryPath    string
 }
 
+// Installer 是注册表依赖的最小语言服务安装接口。
 type Installer interface {
 	EnsureInstalled(ctx context.Context, languageID string) (string, error)
 }
 
+// InstallerWithDetails 可返回安装来源状态，便于注册表记录最终二进制路径。
 type InstallerWithDetails interface {
 	EnsureInstalledDetailed(ctx context.Context, languageID string) (installer.InstallResult, error)
 }
 
+// BinaryPathSetter 允许 manager 接收安装器解析出的 LSP 二进制路径。
 type BinaryPathSetter interface {
 	SetBinaryPath(path string)
 }
@@ -86,7 +92,8 @@ type dynamicRegistry struct {
 	installer Installer
 }
 
-// NewRegistry 创建注册表。
+// NewRegistry 初始化带默认安装器的动态注册表。
+// 生产路径会通过安装器校验语言服务二进制，再把请求路由给对应 manager。
 func NewRegistry(inst *installer.Provider) *dynamicRegistry {
 	if inst == nil {
 		return NewRegistryWithInstaller(nil)
@@ -94,7 +101,8 @@ func NewRegistry(inst *installer.Provider) *dynamicRegistry {
 	return NewRegistryWithInstaller(inst)
 }
 
-// NewRegistryWithInstaller 创建带installer的注册表。
+// NewRegistryWithInstaller 初始化可注入安装器的动态注册表。
+// 测试可传 nil 关闭安装流程，生产路径会在解析 manager 前校验二进制。
 func NewRegistryWithInstaller(inst Installer) *dynamicRegistry {
 	return &dynamicRegistry{
 		managers:  make(map[string]*languageConfig),
@@ -102,12 +110,14 @@ func NewRegistryWithInstaller(inst Installer) *dynamicRegistry {
 	}
 }
 
-// Register 注册LSP。
+// Register 为需要安装校验的语言登记 manager。
+// 首次解析该语言时会运行安装器，失败会阻断工具调用。
 func (r *dynamicRegistry) Register(languageID string, manager Manager, scoped ...ScopedManagerResolver) {
 	r.register(languageID, manager, false, scoped...)
 }
 
-// RegisterNoInstall 注册no安装。
+// RegisterNoInstall 为无需二进制校验的语言登记 manager。
+// 适用于内建或文档型语言服务，避免为无需二进制的 adapter 触发安装器。
 func (r *dynamicRegistry) RegisterNoInstall(languageID string, manager Manager, scoped ...ScopedManagerResolver) {
 	r.register(languageID, manager, true, scoped...)
 }
@@ -125,7 +135,8 @@ func (r *dynamicRegistry) register(languageID string, manager Manager, skipInsta
 	r.managers[strings.ToLower(languageID)] = &languageConfig{manager: manager, scoped: resolver, skipInstaller: skipInstaller}
 }
 
-// GetManagerForFile 为文件读取manager。
+// GetManagerForFile 根据文件名推断语言并解析 manager。
+// 仅返回 manager 本体，调用方不需要 scope 元数据时使用。
 func (r *dynamicRegistry) GetManagerForFile(ctx context.Context, filePath string) (Manager, error) {
 	scoped, err := r.ResolveManagerForFile(ctx, filePath)
 	if err != nil {
@@ -134,12 +145,14 @@ func (r *dynamicRegistry) GetManagerForFile(ctx context.Context, filePath string
 	return scoped.Manager, nil
 }
 
-// ResolveManagerForFile 为文件解析manager。
+// ResolveManagerForFile 根据文件名推断语言并解析 scoped manager。
+// scoped 结果会携带 ManagerPool 解析出的缓存和诊断作用域。
 func (r *dynamicRegistry) ResolveManagerForFile(ctx context.Context, filePath string) (ScopedManager, error) {
 	return r.resolveManagerForTarget(ctx, DetectLanguageID(filePath), filePath, "")
 }
 
-// GetManagerForFileWithLanguage 读取带语言的manager文件。
+// GetManagerForFileWithLanguage 使用显式 language id 解析文件 manager。
+// languageID 为空时仍回退到文件名推断，保持旧调用兼容。
 func (r *dynamicRegistry) GetManagerForFileWithLanguage(ctx context.Context, filePath string, languageID string) (Manager, error) {
 	scoped, err := r.ResolveManagerForFileWithLanguage(ctx, filePath, languageID)
 	if err != nil {
@@ -148,7 +161,8 @@ func (r *dynamicRegistry) GetManagerForFileWithLanguage(ctx context.Context, fil
 	return scoped.Manager, nil
 }
 
-// ResolveManagerForFileWithLanguage 解析带语言的manager文件。
+// ResolveManagerForFileWithLanguage 返回显式语言下的 scoped manager。
+// 它会在返回前执行安装校验和 ManagerPool scope 解析。
 func (r *dynamicRegistry) ResolveManagerForFileWithLanguage(ctx context.Context, filePath string, languageID string) (ScopedManager, error) {
 	lang := strings.ToLower(strings.TrimSpace(languageID))
 	if lang == "" {
@@ -175,7 +189,8 @@ func (r *dynamicRegistry) resolveManagerForTarget(ctx context.Context, lang, tar
 	return r.scopedManagerForConfig(ctx, config, lang, targetPath, targetURI)
 }
 
-// GetManagerForLanguage 为语言读取manager。
+// GetManagerForLanguage 按 language id 解析 manager。
+// 调用方已经知道语言时使用，仍会执行安装校验。
 func (r *dynamicRegistry) GetManagerForLanguage(ctx context.Context, languageID string) (Manager, error) {
 	scoped, err := r.ResolveManagerForLanguage(ctx, languageID)
 	if err != nil {
@@ -184,7 +199,8 @@ func (r *dynamicRegistry) GetManagerForLanguage(ctx context.Context, languageID 
 	return scoped.Manager, nil
 }
 
-// ResolveManagerForLanguage 为语言解析manager。
+// ResolveManagerForLanguage 按 language id 解析 scoped manager。
+// 没有目标文件时仍会构造可信工具 scope，用于诊断和缓存审计。
 func (r *dynamicRegistry) ResolveManagerForLanguage(ctx context.Context, languageID string) (ScopedManager, error) {
 	lang := strings.ToLower(strings.TrimSpace(languageID))
 
@@ -203,7 +219,8 @@ func (r *dynamicRegistry) ResolveManagerForLanguage(ctx context.Context, languag
 	return r.scopedManagerForConfig(ctx, config, lang, "", "")
 }
 
-// ensureInstalled 确保安装状态。
+// ensureInstalled 在首次解析 manager 前确认语言服务二进制可用。
+// skipInstaller 或无安装器时直接返回；安装失败会阻断工具调用。
 func (r *dynamicRegistry) ensureInstalled(ctx context.Context, lang string, config *languageConfig) error {
 	if r.installer == nil || config == nil || config.skipInstaller {
 		return nil
@@ -230,7 +247,8 @@ func (r *dynamicRegistry) ensureInstalledPath(ctx context.Context, lang string) 
 	return r.installer.EnsureInstalled(ctx, lang)
 }
 
-// scopedManagerForConfig 为配置处理scopedmanager。
+// scopedManagerForConfig 根据语言配置和可信工具上下文构造 scoped manager。
+// 没有 scoped resolver 时返回静态 manager，有 resolver 时交给 ManagerPool 选择实例。
 func (r *dynamicRegistry) scopedManagerForConfig(ctx context.Context, config *languageConfig, lang, targetPath, targetURI string) (ScopedManager, error) {
 	if config == nil || config.manager == nil {
 		return ScopedManager{}, ErrUnsupportedLanguage
@@ -250,7 +268,8 @@ func (r *dynamicRegistry) scopedManagerForConfig(ctx context.Context, config *la
 	return scoped, nil
 }
 
-// Close 关闭 LSP 管理器资源。
+// Close 关闭全部已注册 manager 并清空注册表。
+// 多个关闭错误会合并返回，调用方可一次性看到所有资源释放失败。
 func (r *dynamicRegistry) Close() error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -277,7 +296,8 @@ func DetectLanguageID(path string) string {
 	return strings.TrimPrefix(ext, ".")
 }
 
-// Diagnostics 汇总匹配 manager 返回的诊断。
+// Diagnostics 按 manager 分组读取诊断后合并结果。
+// uris 为空时会遍历当前 scoped managers，覆盖已打开文档的诊断面。
 func (r *dynamicRegistry) Diagnostics(ctx context.Context, uris []string) ([]protocol.PublishDiagnosticsParams, error) {
 	var all []protocol.PublishDiagnosticsParams
 	byManager, err := r.managersForDiagnostics(ctx, uris)
@@ -294,7 +314,8 @@ func (r *dynamicRegistry) Diagnostics(ctx context.Context, uris []string) ([]pro
 	return all, nil
 }
 
-// WaitDiagnosticsStable 等待诊断稳定状态。
+// WaitDiagnosticsStable 等待目标 URI 所属 manager 的诊断稳定。
+// 任一 manager 返回错误都会立即上抛，避免把未就绪状态当作空诊断。
 func (r *dynamicRegistry) WaitDiagnosticsStable(ctx context.Context, uris []string) error {
 	byManager, err := r.managersForDiagnostics(ctx, uris)
 	if err != nil {
@@ -308,7 +329,8 @@ func (r *dynamicRegistry) WaitDiagnosticsStable(ctx context.Context, uris []stri
 	return nil
 }
 
-// CurrentDiagnosticGeneration 处理当前诊断代际。
+// CurrentDiagnosticGeneration 汇总所有 manager 的诊断代际。
+// 该值用于检测是否还有异步诊断刷新，不能作为持久化 ID。
 func (r *dynamicRegistry) CurrentDiagnosticGeneration() uint64 {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
@@ -319,7 +341,8 @@ func (r *dynamicRegistry) CurrentDiagnosticGeneration() uint64 {
 	return total
 }
 
-// BootstrapDocument 确保文档已打开并完成启动检查。
+// BootstrapDocument 根据 URI 选择 manager 并执行文档启动同步。
+// 语言不支持会直接返回错误，避免调用方误以为 LSP 已准备好。
 func (r *dynamicRegistry) BootstrapDocument(ctx context.Context, uri string) error {
 	path := strings.TrimPrefix(uri, "file://")
 	scoped, err := r.resolveManagerForTarget(ctx, DetectLanguageID(path), path, uri)
@@ -348,7 +371,8 @@ func (r *dynamicRegistry) currentScopedManagers(ctx context.Context) (map[Manage
 	return result, nil
 }
 
-// addCurrentScopedManagers 添加当前scopedmanagers。
+// addCurrentScopedManagers 收集某个语言当前活跃的 scoped managers。
+// seen 用 manager/scope key 去重，避免同一实例在诊断聚合中重复读取。
 func (r *dynamicRegistry) addCurrentScopedManagers(ctx context.Context, result map[Manager][]string, seen map[string]struct{}, lang string, cfg *languageConfig) error {
 	if cfg == nil || cfg.manager == nil {
 		return nil
@@ -398,7 +422,8 @@ func (r *dynamicRegistry) snapshotLanguageConfigs() map[string]*languageConfig {
 	return configs
 }
 
-// groupURIsByManager 按manager处理groupuris。
+// groupURIsByManager 将 URI 分配给支持其语言的 manager。
+// 不支持的语言会跳过，其他错误直接返回给 diagnostics 调用方。
 func (r *dynamicRegistry) groupURIsByManager(ctx context.Context, uris []string) (map[Manager][]string, error) {
 	result := make(map[Manager][]string)
 	for _, uri := range uris {
@@ -415,7 +440,8 @@ func (r *dynamicRegistry) groupURIsByManager(ctx context.Context, uris []string)
 	return result, nil
 }
 
-// registryToolScope 处理注册表工具作用域。
+// registryToolScope 从可信上下文构造注册表路由 scope。
+// CWD 缺失时必须从 context 严格解析 workspace root，不能使用进程当前目录兜底。
 func registryToolScope(ctx context.Context, lang, targetPath, targetURI string) (ToolScope, error) {
 	if ctx == nil {
 		ctx = context.Background()

@@ -12,13 +12,8 @@ const (
 	envEnablePromptAssembly            = "ENABLE_PROMPT_ASSEMBLY"
 	envEnableSystemContextCacheBreaker = "ENABLE_PROMPT_SYSTEM_CONTEXT_CACHE_BREAKER"
 	envClaudeSimple                    = "CLAUDE_CODE_SIMPLE"
-	// DISABLE_BUILTIN_STATIC_SECTIONS: set to true/1 to skip registering the
-	// hardcoded Claude-Code-parity static sections (identity / system_constraints
-	// / engineering / actions / tool_preferences / style / output_efficiency).
-	// Dynamic providers (language, env info, skill catalog, etc.) still run.
-	// Use this when the operator wants a DB-backed prompt_template to be the
-	// sole source of truth for the static system prompt instead of having
-	// mergeTemplateSections layer on top of built-ins.
+	// envDisableBuiltinStaticSections 为 true 时不注册内置静态 prompt section。
+	// 动态 provider 仍会运行；该开关用于让 DB prompt_template 独占静态系统提示。
 	envDisableBuiltinStaticSections = "DISABLE_BUILTIN_STATIC_SECTIONS"
 )
 
@@ -29,7 +24,8 @@ type Config struct {
 	EnableSystemContextCacheBreaker bool
 }
 
-// NewConfig 创建配置。
+// NewConfig 从环境变量读取 prompt 模块开关。
+// 这里不从 contract.Config 派生，确保启动时的实验开关与运行配置解耦。
 func NewConfig(_ *contract.Config) *Config {
 	return &Config{
 		EnableRegistry:                  parseBoolEnv(envEnablePromptRegistry, false),

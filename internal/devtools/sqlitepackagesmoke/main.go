@@ -17,14 +17,17 @@ import (
 	sqliteruntime "github.com/anthropic-ai/super-agent-v3/internal/platform/db/sqlite"
 )
 
+// nowFunc 允许测试固定包烟测写入的线程时间戳。
 var nowFunc = time.Now
 
+// smokeEnv 保存包烟测必须由外部脚本注入的环境路径。
 type smokeEnv struct {
-	packageRoot string
-	home        string
-	oldPGData   string
+	packageRoot string // 待验证的解包后项目根目录。
+	home        string // 包运行时使用的隔离 HOME。
+	oldPGData   string // 旧 PostgreSQL 数据目录，用于验证不会被当作运行时状态。
 }
 
+// main 在固定超时内运行 SQLite 包烟测，失败时用非零退出码阻断发布脚本。
 func main() {
 	ctx, cancel := platformconfig.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
@@ -34,6 +37,7 @@ func main() {
 	}
 }
 
+// run 准备包运行时、执行 SQLite 迁移校验，并把证据写到 stdout。
 func run(ctx context.Context) error {
 	env, cfg, db, err := prepareSmokeRuntime()
 	if err != nil {
@@ -46,6 +50,8 @@ func run(ctx context.Context) error {
 	return writeEvidence(cfg)
 }
 
+// prepareSmokeRuntime 校验烟测环境并打开包内 SQLite 数据库。
+// 成功返回的 db 由调用方关闭，失败路径不会隐藏配置或数据库打开错误。
 func prepareSmokeRuntime() (smokeEnv, *platformconfig.Config, *sql.DB, error) {
 	env, err := loadSmokeEnv()
 	if err != nil {
@@ -65,6 +71,7 @@ func prepareSmokeRuntime() (smokeEnv, *platformconfig.Config, *sql.DB, error) {
 	return env, cfg, db, nil
 }
 
+// loadSmokeEnv 读取烟测所需环境变量；缺少任一变量都会立即失败。
 func loadSmokeEnv() (smokeEnv, error) {
 	packageRoot, err := requiredEnv("PROJECT_ROOT")
 	if err != nil {
@@ -81,6 +88,8 @@ func loadSmokeEnv() (smokeEnv, error) {
 	return smokeEnv{packageRoot: packageRoot, home: home, oldPGData: oldPGData}, nil
 }
 
+// verifySmokeEnv 验证包烟测运行在 packaged 模式且仍携带旧 PostgreSQL 输入。
+// PostgreSQL 环境和旧数据目录必须存在，后续校验才有能力证明 SQLite runtime 会忽略它们。
 func verifySmokeEnv(env smokeEnv) error {
 	if got := strings.TrimSpace(os.Getenv("SUPER_DOLPHIN_RUNTIME_MODE")); !strings.EqualFold(got, "packaged") {
 		return fmt.Errorf("SUPER_DOLPHIN_RUNTIME_MODE = %q, want packaged", got)
@@ -102,6 +111,7 @@ func verifySmokeEnv(env smokeEnv) error {
 	return nil
 }
 
+// resolveSmokeConfig 解析 packaged 模式配置，并确认 SQLite 文件落在隔离 HOME 下。
 func resolveSmokeConfig(env smokeEnv) (*platformconfig.Config, error) {
 	cfg, err := platformconfig.New()
 	if err != nil {
@@ -117,11 +127,13 @@ func resolveSmokeConfig(env smokeEnv) (*platformconfig.Config, error) {
 	return cfg, nil
 }
 
+// migrateAndVerifySQLite 使用包内迁移目录推进 SQLite schema 并执行运行时校验。
 func migrateAndVerifySQLite(ctx context.Context, db *sql.DB, packageRoot string) error {
 	migrations := filepath.Join(packageRoot, "internal", "platform", "db", "sqlite", "migrations")
 	return runSQLiteChecks(ctx, db, migrations, packageRoot)
 }
 
+// runSQLiteChecks 验证 packaged SQLite 迁移、schema floor、关键 PRAGMA 和最小写入路径。
 func runSQLiteChecks(ctx context.Context, db *sql.DB, migrations, packageRoot string) error {
 	if err := sqliteruntime.RunMigrations(ctx, db, migrations); err != nil {
 		return fmt.Errorf("run packaged SQLite migrations: %w", err)
@@ -138,6 +150,7 @@ func runSQLiteChecks(ctx context.Context, db *sql.DB, migrations, packageRoot st
 	return insertSmokeThread(ctx, db, packageRoot)
 }
 
+// writeEvidence 输出包烟测证据，供发布脚本记录实际平台和 SQLite 路径。
 func writeEvidence(cfg *platformconfig.Config) error {
 	if _, err := os.Stat(cfg.SQLitePath); err != nil {
 		return fmt.Errorf("packaged runtime did not create SQLite DB: %w", err)
@@ -155,6 +168,7 @@ func writeEvidence(cfg *platformconfig.Config) error {
 	return err
 }
 
+// requiredEnv 读取非空环境变量，避免烟测在缺少输入时静默使用默认值。
 func requiredEnv(key string) (string, error) {
 	value := strings.TrimSpace(os.Getenv(key))
 	if value == "" {
@@ -163,6 +177,7 @@ func requiredEnv(key string) (string, error) {
 	return value, nil
 }
 
+// assertNoPostgresRuntimeArtifacts 扫描发布包，发现 PostgreSQL runtime 文件名立即失败。
 func assertNoPostgresRuntimeArtifacts(root string) error {
 	forbidden := []string{"postgres", "pg_ctl", "initdb", "postgres.bki"}
 	return filepath.WalkDir(root, func(path string, entry os.DirEntry, walkErr error) error {
@@ -179,6 +194,7 @@ func assertNoPostgresRuntimeArtifacts(root string) error {
 	})
 }
 
+// verifyPragma 校验 SQLite 运行时必须打开的 PRAGMA，防止包构建漏掉启动设置。
 func verifyPragma(ctx context.Context, db *sql.DB, name, want string) error {
 	var got string
 	if err := db.QueryRowContext(ctx, "PRAGMA "+name).Scan(&got); err != nil {
@@ -190,6 +206,7 @@ func verifyPragma(ctx context.Context, db *sql.DB, name, want string) error {
 	return nil
 }
 
+// insertSmokeThread 写入一条最小 agent_threads 记录，锁定 packaged schema 的基础写路径。
 func insertSmokeThread(ctx context.Context, db *sql.DB, packageRoot string) error {
 	now := nowFunc().UTC().UnixMilli()
 	_, err := db.ExecContext(ctx, `
@@ -202,6 +219,7 @@ VALUES (?, 'Package Smoke', 'sqlite package smoke', 'gpt-5', ?, 'running', ?, ?,
 	return nil
 }
 
+// samePath 比较清理后的路径；Windows 下按大小写不敏感规则处理包路径。
 func samePath(left, right string) bool {
 	left = filepath.Clean(left)
 	right = filepath.Clean(right)

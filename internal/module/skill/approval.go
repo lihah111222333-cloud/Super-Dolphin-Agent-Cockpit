@@ -14,7 +14,7 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/pkg/skillmetrics"
 )
 
-// ApprovalCache 是 P20 Phase 1 的 skill 审批决议持久化层。
+// ApprovalCache 是 skill artifact 审批决议的持久化缓存。
 //
 // 目的：对不受信任域（TrustProject，来自 git clone）的 skill，在 artifact approval
 // 查询前提供可持久化的审批状态；审批结果按 (name, content_hash[:12]) 键缓存，避免每次弹窗骚扰，
@@ -50,17 +50,17 @@ type ApprovalCache struct {
 //     从而失效本条审批，强制重审（TOCTOU 防御）。
 //   - Trust：审批时的信任归属结果（从 frontmatter 或 inferTrustFromRoot 得到）。
 //     注意：entry.Trust 记录的是审批当时的快照；若 skill 被移至不同 root，
-//     新 scan 产生的 SkillInfo.Trust 会不同，审批条目并不自动迁移。
+//     重新扫描产生的 SkillInfo.Trust 会不同，审批条目并不自动转移。
 //   - ApprovedAt：UTC 时标；重复 Approve 同一 (name, hash) 会覆盖。
 //   - ApprovedBy：批准人标识（用户名 / OAuth subject / “ci” 等）；可为空。
 type ApprovalEntry struct {
-	// RepoFingerprint：P20.1 新增。项目根稳定指纹（RepoFingerprint() 生成）；空串表示
-	// 旧 JSON / 全局审批范围。换项目后即使 name+hash 相同也会审批独立。
+	// RepoFingerprint 是项目根稳定指纹；空串表示旧 JSON 或全局审批范围。
+	// 换项目后即使 name+hash 相同也会审批独立。
 	RepoFingerprint string `json:"repo_fingerprint,omitempty"`
 	Name            string `json:"name"`
-	// ArtifactKind：P20.1 新增。metadata/body/resource。空串视同 body（旧 JSON 兼容）。
+	// ArtifactKind 标识 metadata/body/resource；空串视同 body，用于兼容旧 JSON。
 	ArtifactKind string `json:"artifact_kind,omitempty"`
-	// ArtifactLocator：P20.1 新增。经 NormalizeArtifactLocator 规范化后的稳定字符串。
+	// ArtifactLocator 是经 NormalizeArtifactLocator 规范化后的稳定字符串。
 	ArtifactLocator string     `json:"artifact_locator,omitempty"`
 	ContentHash     string     `json:"content_hash"`
 	Trust           TrustScope `json:"trust"`
@@ -68,7 +68,7 @@ type ApprovalEntry struct {
 	ApprovedBy      string     `json:"approved_by,omitempty"`
 }
 
-// ApprovalRequest 是 P20.1 artifact-level API（ApproveArtifact / LookupArtifact）的入参。
+// ApprovalRequest 是 artifact-level API（ApproveArtifact / LookupArtifact）的入参。
 // 旧 Approve / Lookup 等价于 "Kind=body, Locator=SKILL.md, RepoFingerprint=\"\"" 的特例。
 type ApprovalRequest struct {
 	RepoFingerprint string
@@ -131,14 +131,14 @@ func NewApprovalCache(path string) (*ApprovalCache, error) {
 }
 
 // loadEntriesFromPayload 从反序列化后的 JSON 载荷构建 entries map，
-// 并为旧 JSON 缺失的 P20.1 新字段提供向后兼容兜底。
+// 并为旧 JSON 缺失的 artifact 字段提供向后兼容。
 func loadEntriesFromPayload(payload approvalFile) map[string]ApprovalEntry {
 	entries := make(map[string]ApprovalEntry, len(payload.Entries))
 	for _, entry := range payload.Entries {
 		if entry.Name == "" || entry.ContentHash == "" {
 			continue
 		}
-		// P20.1：旧 JSON 缺失新字段 → 按 body/SKILL.md 兜底（向后兼容）。
+		// 旧 JSON 缺失 artifact 字段时按 body/SKILL.md 解释，保留既有审批记录。
 		if entry.ArtifactKind == "" {
 			entry.ArtifactKind = ArtifactKindBody
 		}
@@ -156,11 +156,11 @@ func loadEntriesFromPayload(payload approvalFile) map[string]ApprovalEntry {
 	return entries
 }
 
-// artifactApprovalKey 生成 P20.1 §3.2 规定的五元组 map key。
+// artifactApprovalKey 生成 repo/name/kind/locator/hash 五元组 map key。
 //
 // key 格式：<repo_fp>::<name>::<kind>::<locator>@<hash[:12]>
 //   - 字段均经过 lower/trim 规范化
-//   - repo_fp 为空时等价“全局范围 / legacy”（旧 JSON 向后兼容）
+//   - repo_fp 为空时等价全局范围，用于兼容早期 JSON
 //   - kind 为空视同 body
 //   - hash 取 12 位短 key；全 hash 写进 entry，Lookup 再做严格全匹配
 func artifactApprovalKey(req ApprovalRequest) string {
@@ -189,10 +189,8 @@ func (c *ApprovalCache) Lookup(name, contentHash string) (ApprovalEntry, bool) {
 	})
 }
 
-// LookupArtifact 是 P20.1 §3.2 artifact-level 查询入口。严格按全 hash 比对防碰撞。
-// P20.1 Phase 10 Step C：miss (未备案 / hash mismatch) 时计数；
-// nil receiver 的默认 no-approval 路径不计数（持有者未配置备案 cache，
-// 不属于 "合法查询但未命中" 的有效 miss）。
+// LookupArtifact 是 artifact-level 查询入口，严格按全 hash 比对防碰撞。
+// 未备案或 hash mismatch 会计入 miss；nil receiver 表示审批缓存未配置，不写入 miss 指标。
 func (c *ApprovalCache) LookupArtifact(req ApprovalRequest) (ApprovalEntry, bool) {
 	if c == nil {
 		skillmetrics.IncSkillArtifactApprovalMiss()
@@ -218,7 +216,7 @@ func (c *ApprovalCache) LookupArtifact(req ApprovalRequest) (ApprovalEntry, bool
 //   - name：经 validateSkillName 验证，不合法返回 ErrInvalidSkillName 的 wrapped error
 //     （调用方可 errors.Is(err, ErrInvalidSkillName) 检查）。
 //   - contentHash：不能为空，无格式强制但建议传 SHA-256 hex（8-64 字符）。
-//   - trust：若非法，兑底为 TrustProject（最不受信任）。
+//   - trust：若非法，降为 TrustProject（最不受信任）。
 //   - approvedBy：可为空字符串。
 //
 // 并发语义：
@@ -227,7 +225,7 @@ func (c *ApprovalCache) LookupArtifact(req ApprovalRequest) (ApprovalEntry, bool
 //   - 读路径 Lookup/Entries 不被盘 IO 阻塞。
 //
 // 幂等性：同一 (name, contentHash) 重复 Approve 会更新 ApprovedAt/ApprovedBy/Trust
-// 字段（修诂效果是“刷新批准时间戳”），返回值为最新 entry。
+// 字段（效果是“刷新批准时间戳”），返回值为最新 entry。
 //
 // 部分失败：写盘失败时，entry 已经写入内存 map、但盘上未更新，函数返回非 nil err
 // 与最新 entry。调用方应：
@@ -244,7 +242,7 @@ func (c *ApprovalCache) Approve(name, contentHash string, trust TrustScope, appr
 	})
 }
 
-// ApproveArtifact 是 P20.1 §3.2 artifact-level 写入入口。
+// ApproveArtifact 是 artifact-level 写入入口。
 //
 // 额外校验：
 //   - ArtifactKind：空 → 视同 body；非空时必须是合法 kind。
@@ -338,8 +336,7 @@ func (c *ApprovalCache) Revoke(name string) (int, error) {
 	return removed, nil
 }
 
-// Revision returns a monotonic in-memory approval revision.
-// Revision 处理revision。
+// Revision 返回内存中的单调递增审批版本号，用于缓存失效判断。
 func (c *ApprovalCache) Revision() uint64 {
 	if c == nil {
 		return 0

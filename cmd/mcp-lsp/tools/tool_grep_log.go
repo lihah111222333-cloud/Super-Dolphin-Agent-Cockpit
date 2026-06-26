@@ -8,6 +8,7 @@ import (
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
+// logGrepCallDecoded 记录 grep 入参解码后的有效限制，方便排查路径和大小写选择。
 func logGrepCallDecoded(input grepToolInput, limit int) {
 	pkglogger.Info("mcp-lsp grep call decoded", grepLogAttrs(input,
 		"requested_max_results", input.MaxResults,
@@ -16,7 +17,7 @@ func logGrepCallDecoded(input grepToolInput, limit int) {
 	)...)
 }
 
-// runGrepTextSearch 运行grep文本search。
+// runGrepTextSearch 运行文本搜索；主工作区无匹配时才尝试 runtime 兄弟工作区 fallback。
 func (handlerBase) runGrepTextSearch(ctx context.Context, input grepToolInput, limit int) ([]search.SearchMatch, error) {
 	root, roots, err := toolWorkspaceRoots(ctx)
 	if err != nil {
@@ -82,6 +83,7 @@ func (handlerBase) runGrepTextSearch(ctx context.Context, input grepToolInput, l
 	return fallbackMatches, nil
 }
 
+// filterAndLogGrepMatches 执行结果上限裁剪，并记录裁剪前后的数量。
 func filterAndLogGrepMatches(input grepToolInput, matches []search.SearchMatch, limit int) ([]search.SearchMatch, int, bool) {
 	filtered, total, truncated := search.FilterAndCapSearchMatches(matches, limit)
 	pkglogger.Info("mcp-lsp grep matches filtered", grepLogAttrs(input,
@@ -94,6 +96,7 @@ func filterAndLogGrepMatches(input grepToolInput, matches []search.SearchMatch, 
 	return filtered, total, truncated
 }
 
+// logGrepResponseEmpty 记录空结果，区分原始无匹配和过滤后为空。
 func logGrepResponseEmpty(input grepToolInput, rawMatches int, total int) {
 	pkglogger.Info("mcp-lsp grep response empty", grepLogAttrs(input,
 		"raw_matches", rawMatches,
@@ -101,6 +104,7 @@ func logGrepResponseEmpty(input grepToolInput, rawMatches int, total int) {
 	)...)
 }
 
+// finalizeGrepResponse 按工具预算裁剪 grep 响应并记录最终可见数量。
 func finalizeGrepResponse(input grepToolInput, resp *grepResponse) {
 	if resp == nil {
 		pkglogger.Warn("mcp-lsp grep response missing", grepLogAttrs(input)...)
@@ -124,6 +128,7 @@ func finalizeGrepResponse(input grepToolInput, resp *grepResponse) {
 	pkglogger.Info("mcp-lsp grep response ready", attrs...)
 }
 
+// grepLogAttrs 统一 grep 日志字段，避免每个阶段手写 path/query 信息。
 func grepLogAttrs(input grepToolInput, attrs ...any) []any {
 	base := []any{
 		"tool", "grep",
@@ -137,6 +142,7 @@ func grepLogAttrs(input grepToolInput, attrs ...any) []any {
 	return append(base, attrs...)
 }
 
+// grepCaseSensitiveLogValue 返回大小写配置的三态值，nil 表示使用默认 smart-case。
 func grepCaseSensitiveLogValue(input grepToolInput) any {
 	if input.CaseSensitive == nil {
 		return nil

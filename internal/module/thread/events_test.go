@@ -26,9 +26,8 @@ func TestThreadSubscriptionsUpdateSessionUUIDFromAgentLaunched(t *testing.T) {
 	}
 	svc := NewService(silentLogger(), nil, bindings, nil, nil, nil, nil, nil).(*service)
 	svc.bindDispatcher(dispatcher)
-	// P22 P2 thread S4: onAgentLaunched Enqueues into agentLaunchedWorker;
-	// the worker must be started for the test to observe the downstream
-	// UpdateSessionUUID write.
+	// onAgentLaunched 会把事件放入 agentLaunchedWorker；
+	// 测试必须启动 worker，才能观察后续 UpdateSessionUUID 写入。
 	svc.startBusWorkers()
 	cancels := registerThreadSubscriptions(svc)
 	defer func() {
@@ -84,8 +83,7 @@ func TestOnAgentLaunchedSkipsUnchangedSessionUUID(t *testing.T) {
 
 	bindings := &eventBindingStore{binding: &bindingstore.Binding{AgentID: "agent-1", SessionUUID: "session-uuid-1"}}
 	svc := NewService(silentLogger(), nil, bindings, nil, nil, nil, nil, nil).(*service)
-	// P22 P2 thread S4: Start + Stop the worker so the Enqueue lands and
-	// drains synchronously before the assertion runs.
+	// 启动再停止 worker，让入队事件在断言前同步 drain 完成。
 	svc.startBusWorkers()
 
 	svc.onAgentLaunched(newAgentLaunchedEvent(" agent-1 ", "thread-1", " session-uuid-1 "))
@@ -106,8 +104,7 @@ func TestOnAgentLaunchedUpdatesCWDAndInvalidatesWorktreePromptCache(t *testing.T
 	promptAssembly := &stubPromptAssemblyService{}
 	bindings := &eventBindingStore{binding: &bindingstore.Binding{AgentID: "agent-1"}}
 	svc := NewServiceWithPromptAssembly(silentLogger(), nil, bindings, nil, nil, nil, nil, nil, promptAssembly, nil, nil).(*service)
-	// P22 P2 thread S4: Start + Stop the worker so the Enqueue lands and
-	// drains synchronously before the assertion runs.
+	// 启动再停止 worker，让入队事件在断言前同步 drain 完成。
 	svc.startBusWorkers()
 
 	ev := newAgentLaunchedEvent("agent-1", "thread-1", "")

@@ -11,8 +11,11 @@ import (
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
+// updaterDetachedEnv 标记当前进程是否已经是后台安装子进程。
 const updaterDetachedEnv = "SUPER_DOLPHIN_UPDATER_DETACHED"
 
+// main 是 updater CLI 入口。
+// 首次启动只负责 detach，后台子进程才执行真实安装，避免替换正在运行的 app。
 func main() {
 	pkglogger.InitWithConsoleWriter(os.Stderr)
 	req, err := parseInstallRequest(os.Args[1:])
@@ -33,6 +36,7 @@ func main() {
 	}
 }
 
+// parseInstallRequest 解析 updater CLI 参数。
 func parseInstallRequest(args []string) (installRequest, error) {
 	flags := flag.NewFlagSet("super-dolphin-updater", flag.ContinueOnError)
 	flags.SetOutput(os.Stderr)
@@ -52,6 +56,7 @@ func parseInstallRequest(args []string) (installRequest, error) {
 	return req, nil
 }
 
+// startDetachedUpdater 重新启动一个脱离当前进程组的 updater 子进程。
 func startDetachedUpdater(logPath string) error {
 	output, closeOutput, err := openDetachedOutput(logPath)
 	if err != nil {
@@ -72,6 +77,8 @@ func startDetachedUpdater(logPath string) error {
 	return nil
 }
 
+// openDetachedOutput 打开后台 updater 的输出目标。
+// 未指定日志时写入 devnull，避免后台进程持有前台终端。
 func openDetachedOutput(logPath string) (*os.File, func(), error) {
 	path := strings.TrimSpace(logPath)
 	if path == "" {

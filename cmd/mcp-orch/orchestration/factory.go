@@ -35,9 +35,8 @@ func cleanupAgentState(agent *agentState) {
 	if agent.queue != nil {
 		agent.queue.Clear()
 	}
-	// Stop path: the active turn is being torn down, so turn-state fields
-	// must all go to zero together. clearAgentTurnStateLocked covers
-	// activeTurnID + threadID + exitedAt in one place.
+	// Stop 路径会拆掉当前活跃 turn，相关字段必须一起归零。
+	// clearAgentTurnStateLocked 统一处理 activeTurnID、threadID 和 exitedAt，避免半清理状态。
 	clearAgentTurnStateLocked(agent)
 }
 
@@ -288,7 +287,7 @@ func recoveryLaunchRequest(agent *agentRuntime) LaunchRequest {
 	}
 }
 
-// agentIdentityKind separates persisted-id API lookups from hook-only reverse lookups.
+// agentIdentityKind 区分普通 API 按本地 agentID 查找和可信 hook 反查远端标识的入口。
 type agentIdentityKind int
 
 const (
@@ -296,7 +295,7 @@ const (
 	agentIdentityAny
 )
 
-// lookupAgentByIDLocked keeps reverse-capable lookup for trusted hook/event ingestion paths.
+// lookupAgentByIDLocked 面向可信 hook/event 入口，允许用远端 agent/thread id 反查本地 runtime。
 func lookupAgentByIDLocked(agents map[string]*agentState, agentID string) (*agentState, error) {
 	return lookupAgentByIdentityLocked(agents, agentID, agentIdentityAny)
 }
@@ -504,7 +503,7 @@ func bindStoppedHookThreadLocked(agent *agentRuntime, threadID string) bool {
 	return bindHookThreadLocked(agent, threadID)
 }
 
-// recordPendingLaunchThreadLocked 记录启动阶段看到的新远端线程，供恢复判定使用。
+// recordPendingLaunchThreadLocked 记录启动期间看到的新远端线程，供恢复判定使用。
 func recordPendingLaunchThreadLocked(agent *agentRuntime, threadID string, eventTime time.Time) {
 	threadID = strings.TrimSpace(threadID)
 	if agent == nil || threadID == "" || !launchOwnsHookThreadBinding(agent.state) ||

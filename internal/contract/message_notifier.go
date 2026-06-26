@@ -5,66 +5,40 @@ import (
 	"errors"
 )
 
-// MessageNotifier is the external-webhook egress facade. Callers push a
-// pre-rendered NotifyRequest referencing a channel alias; the
-// implementation resolves the alias (via NotifyConfig) and enqueues the
-// HTTPS POST onto its flush worker.
-//
-// This contract is deliberately narrower than the three existing notify
-// surfaces (ToolNotifier / PushBridge / platform/rpc push) so the three
-// fanout models stay separately reasoned about. In particular:
-//   - TryEnqueue is non-blocking. Callback-style subscribers on a bus
-//     can call it directly without risking backpressure onto publish.
-//   - Implementations own retry / rate-limit / timeout policy. Callers
-//     must not assume delivery success from a nil return.
-//   - Secrets (webhook URL / HMAC key) never flow through NotifyRequest;
-//     callers pass only the alias and the resolver looks the secret up.
+// MessageNotifier 是外部 webhook 出站通知的窄门面。
+// 调用方只提交已渲染消息和 channel alias；实现负责解析 NotifyConfig、查找 secret、
+// 非阻塞入队并在 flush worker 中执行 HTTPS POST。nil error 仅表示成功入队，不代表送达成功。
 type MessageNotifier interface {
 	TryEnqueue(ctx context.Context, req NotifyRequest) error
 }
 
-// ErrNotifyQueueFull is returned when TryEnqueue cannot accept the
-// request because the implementation's bounded queue is full. The
-// caller must not retry in-line (the queue being full implies the
-// flush worker is under pressure); it should drop the signal and let
-// the next terminal event fire a fresh enqueue.
+// ErrNotifyQueueFull 表示 bounded queue 已满，TryEnqueue 无法接收请求。
+// 调用方不能同步重试压垮发布路径，应丢弃本次信号并等待下一次终态事件。
 var ErrNotifyQueueFull = errors.New("notify: queue full")
 
-// ErrNotifyAliasNotFound is returned when the channel alias is not
-// configured in NotifyConfig. Explicit so callers can distinguish
-// misconfiguration from a transient queue issue.
+// ErrNotifyAliasNotFound 表示 channel alias 未在 NotifyConfig 中配置。
+// 调用方可据此区分配置错误和瞬时队列压力。
 var ErrNotifyAliasNotFound = errors.New("notify: channel alias not found")
 
-// NotifyRequest is the wire-level request a bus subscriber (or any
-// other producer) pushes onto the notifier. The implementation renders
-// the Message via the channel's platform template and signs / transmits
-// the resulting body.
+// NotifyRequest 是 bus subscriber 或其他生产者提交给 notifier 的 wire 请求。
+// 请求不携带 webhook URL/HMAC 等 secret，只携带 alias 和平台无关消息体。
 type NotifyRequest struct {
-	// ChannelAlias is the stable key looked up in NotifyConfig. Empty
-	// string is rejected so accidental silent drops do not occur; the
-	// caller is expected to apply its own alias resolution policy
-	// (for example cron job_row.notify_channel) before enqueue.
+	// ChannelAlias 是 NotifyConfig 中的稳定键；空值必须被拒绝，避免静默丢通知。
 	ChannelAlias string
-	// Message is the fully-constructed payload — rendering rules for
-	// each platform still apply (mention suppression, length clamp,
-	// markdown escaping) but the content itself is the caller's
-	// responsibility. Never feed raw provider events here.
+	// Message 是调用方构造好的平台无关内容；不要直接传 raw provider event。
 	Message NotifyMessage
 }
 
-// NotifyMessage is the platform-agnostic body. Title / Body are
-// markdown-safe strings; Level tags severity so platform renderers can
-// pick a color / icon. Attachments is intentionally omitted in v1 to
-// keep the external-egress attack surface tight.
+// NotifyMessage 是平台无关的通知正文。
+// Title/Body 应由调用方处理成可安全渲染文本；Level 供平台渲染器选择颜色或图标。
 type NotifyMessage struct {
 	Title string
 	Body  string
 	Level NotifyLevel
 }
 
-// NotifyLevel classifies severity. Platform renderers map the level
-// onto their respective visual cues (Dingtalk markdown color, Feishu
-// card header color, Slack block formatting).
+// NotifyLevel 是外部通知的严重级别枚举。
+// 各平台渲染器把它映射到自己的视觉提示。
 type NotifyLevel string
 
 const (

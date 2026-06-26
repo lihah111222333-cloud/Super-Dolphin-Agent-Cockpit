@@ -11,16 +11,19 @@ import (
 	"github.com/wailsapp/wails/v3/pkg/application"
 )
 
+// runner 把 Wails application 适配成 platform runner。
 type runner struct {
 	app *application.App
 }
 
-// NewRunner 创建runner。
+// NewRunner 创建 Wails application runner。
+// app 为空时保留到 Run 阶段 fail-fast 返回错误，方便 Fx 装配阶段仍可构建接口值。
 func NewRunner(app *application.App) platformrunner.Runner {
 	return &runner{app: app}
 }
 
-// Run 启动桌面 UI 桥接后台流程。
+// Run 启动 Wails application，并在 context 取消时请求窗口退出。
+// Wails Run 在独立 goroutine 中执行，取消后最多等待短窗口让底层清理完成。
 func (r *runner) Run(ctx context.Context) error {
 	if r == nil || r.app == nil {
 		return errors.New("wails runner: application is not configured")
@@ -38,6 +41,7 @@ func (r *runner) Run(ctx context.Context) error {
 	}
 }
 
+// waitForQuit 等待 Wails Run 返回，超时则保留上游取消错误。
 func waitForQuit(done <-chan error, fallback error) error {
 	select {
 	case err := <-done:

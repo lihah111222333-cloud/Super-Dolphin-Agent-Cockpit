@@ -33,7 +33,7 @@ var staticSectionSpecs = []staticSectionSpec{
 	{name: SectionOutputEfficiency, order: 70, resolve: resolveOutputEfficiencySection},
 }
 
-// StaticSections 处理staticsections。
+// StaticSections 返回全部内置静态 section，顺序由 staticSectionSpecs 统一维护。
 func StaticSections() []PromptSection {
 	sections := make([]PromptSection, 0, len(staticSectionSpecs))
 	for _, spec := range staticSectionSpecs {
@@ -180,10 +180,8 @@ func resolveEngineeringSection(build BuildCtx) *string {
 	return staticSectionContent(text)(build)
 }
 
-// resolveOutputEfficiencySection picks between the concise external output
-// efficiency block and the ant-internal "Communicating with the user" long
-// form based on the USER_TYPE env gate (Claude Code parity: prompts.ts
-// L402-L428 branches on process.env.USER_TYPE === 'ant').
+// resolveOutputEfficiencySection 根据 USER_TYPE 选择外部简版输出规则或 ant 内部长版沟通规则。
+// 这个分支只影响 system prompt 文本，不读取业务状态，也不产生失败路径。
 func resolveOutputEfficiencySection(build BuildCtx) *string {
 	if isAntUserType() {
 		return staticSectionContent(sectionOutputEfficiencyAntText)(build)
@@ -207,9 +205,8 @@ func keepCodingInstructionsEnabled(build BuildCtx) bool {
 	return true
 }
 
-// sectionIdentityHeader mirrors Claude Code's `You are Claude Code...` opener
-// (prompts.ts L175-184). Duplication with the host CLI harness is accepted
-// per the P21 parity decision: both layers redundantly establish identity.
+// sectionIdentityHeader 固定主身份开场白。
+// host CLI 也会注入类似身份行，这里保留一份是为了让 prompt 层和宿主层的基线一致。
 const sectionIdentityHeader = `You are Claude Code, Anthropic's official CLI for Claude.`
 
 const sectionCyberRiskInstruction = `IMPORTANT: Assist with authorized security testing, defensive security, CTF challenges, and educational contexts. Refuse requests for destructive techniques, DoS attacks, mass targeting, supply chain compromise, or detection evasion for malicious purposes. Dual-use security tools (C2 frameworks, credential testing, exploit development) require clear authorization context: pentesting engagements, CTF competitions, security research, or defensive use cases.`
@@ -268,16 +265,14 @@ const sectionOutputEfficiencyText = `Output efficiency:
 - Prefer short direct sentences; if one sentence works, do not use three.
 - These brevity rules apply to user-facing text, not code or tool calls.`
 
-// sectionEngineeringAntSuffix appends the ant-internal engineering bullets
-// that strengthen honesty, verification, and Claude Code self-reporting. Only
-// applied when USER_TYPE=ant (Claude Code parity: prompts.ts L205-L246).
+// sectionEngineeringAntSuffix 是 ant 内部用户专用的工程补充规则。
+// 只在 USER_TYPE=ant 时追加，强调验证结果如实上报和工具自助入口。
 const sectionEngineeringAntSuffix = `- Do not falsely claim "all tests pass" or reduce failed checks to green results; report outcomes as they actually happened, without adding unnecessary disclaimers on checks that really passed.
 - If the user reports an issue with Claude Code itself, suggest ` + "`/issue`" + ` or ` + "`/share`" + ` instead of trying to reproduce it locally.
 - When the user seems stuck on how to use the tool, mention ` + "`/help`" + ` so they can see the available commands.`
 
-// sectionOutputEfficiencyAntText is the ant-internal long-form communication
-// guidance that replaces the concise external bullets. Claude Code parity:
-// prompts.ts L402-L428 ant branch.
+// sectionOutputEfficiencyAntText 是 ant 内部用户使用的长版沟通规则。
+// 它替换外部简版输出效率规则，避免同一 prompt 中重复约束用户可见文本。
 const sectionOutputEfficiencyAntText = `# Communicating with the user
 When sending user-facing text, you are writing for a person, not logging to a console. Lead with the answer, action, or decision; put supporting detail after it, in decreasing order of importance (inverted pyramid).
 
@@ -287,8 +282,6 @@ Do not backtrack mid-message ("actually, let me clarify..."); revise the first s
 
 Prefer short, direct sentences and tight paragraphs. Show code snippets when they are load-bearing, not as decoration. These communication rules apply to user-facing text only, not to code or tool calls.`
 
-// clientTagsOrDefault returns client-provided tags if present, otherwise falls
-// back to existing (for updates) or empty (for creates).
 // clientTagsOrDefault 优先使用客户端提供的 tags，否则回退到已有 tags 或空数组。
 func clientTagsOrDefault(clientTags json.RawMessage, existing json.RawMessage) json.RawMessage {
 	if len(clientTags) > 0 && string(clientTags) != "null" {
@@ -300,7 +293,7 @@ func clientTagsOrDefault(clientTags json.RawMessage, existing json.RawMessage) j
 	return json.RawMessage("[]")
 }
 
-// mergeClientTagsWithExistingInternalTags 合并带existinginternaltags的客户端tags。
+// mergeClientTagsWithExistingInternalTags 合并客户端 tags，并保留 intent/builtin 这类内部标记。
 func mergeClientTagsWithExistingInternalTags(clientTags json.RawMessage, existing json.RawMessage) json.RawMessage {
 	tags := promptTags(clientTags)
 	seen := make(map[string]struct{}, len(tags))

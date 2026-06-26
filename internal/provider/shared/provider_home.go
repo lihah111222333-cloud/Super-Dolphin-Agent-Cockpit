@@ -245,10 +245,8 @@ func packagedProjectMirrorEnabled(projectRoot string) (bool, error) {
 	if !packaged {
 		return false, nil
 	}
-	// Packaged runtime owns full write permission only under the app-managed
-	// Super Dolphin home. A Wails/macOS launch may surface the app bundle or
-	// root /Library as the selected cwd; those are not user-private writable
-	// project roots for provider-native mirror creation.
+	// 打包运行时只保证 app 管理的 Super Dolphin home 可写。
+	// Wails/macOS 启动时可能把 app bundle 或 /Library 暴露为 cwd，不能拿来创建 provider 镜像。
 	resources := strings.TrimSpace(os.Getenv(ProjectRootEnv))
 	if resources != "" && sameProviderPath(projectRoot, resources) {
 		return true, nil
@@ -427,8 +425,7 @@ func blockingSkillMirrorConflicts(conflicts []contract.SkillMirrorReportItem) []
 }
 
 func isBlockingSkillMirrorConflict(item contract.SkillMirrorReportItem) bool {
-	// Ordinary content conflicts are surfaced in the skill UI for user resolution.
-	// Provider startup only fails closed when the mirror root itself is unsafe or unusable.
+	// 普通内容冲突交给技能 UI 让用户处理；只有镜像根目录不安全或不可用时才阻断 provider 启动。
 	switch strings.ToLower(strings.TrimSpace(item.ConflictKind)) {
 	case "same_name",
 		"same_name_scope_conflict",

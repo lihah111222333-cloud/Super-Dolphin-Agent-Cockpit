@@ -23,6 +23,8 @@ var Module = fx.Module("datasource_v2",
 	fx.Invoke(registerPromptProvider),
 )
 
+// registerPromptProvider 将 datasource_v2 检索 provider 接入 prompt 动态段系统。
+// 依赖在精简运行模式下可以缺失；此时只跳过 prompt 注入，不影响导入和查询 RPC。
 func registerPromptProvider(p promptProviderParams) error {
 	if p.Registry == nil || p.Provider == nil {
 		return nil

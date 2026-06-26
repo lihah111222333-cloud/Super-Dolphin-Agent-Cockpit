@@ -10,25 +10,9 @@ import (
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
-// ProxyRunner is the P22 P2 Finding 9 owner of the toolbridge HTTP proxy
-// serve loop. Before P2 the proxy was started by
-// `registerProxyLifecycle -> OnStart -> go h.ServeProxy(listener)` which
-// left the serve goroutine unowned by run.Group and meant shutdown had to
-// close the listener from a separate path.
-//
-// Ownership split after P2:
-//
-//   - registerProxyLifecycle stays in fx.Module and only does the synchronous
-//     `net.Listen` + proxyAddr publish. It hands the listener to ProxyRunner
-//     via SetListener before run.Group picks up the runner.
-//   - ProxyRunner.Run(ctx) is registered in `group:"runners"`. It blocks on
-//     h.ServeProxy(listener) while ctx is alive. When ctx cancels it closes
-//     the listener itself (causing ServeProxy to return), joins the inner
-//     serve goroutine, then returns ctx.Err().
-//
-// A small inner goroutine exists inside Run because net/http's Serve is not
-// ctx-aware. It is owner-joined: we always block on `<-serveErr` before Run
-// returns, so it never outlives the actor.
+// ProxyRunner 持有 toolbridge HTTP proxy 的 serve loop。
+// registerProxyLifecycle 只做 net.Listen 和地址发布，Run 负责阻塞 ServeProxy、
+// 在 ctx 取消时关闭 listener，并等待内部 goroutine 退出，确保没有孤儿 serve loop。
 type ProxyRunner struct {
 	h      *Handler
 	logger *pkglogger.Logger
@@ -37,9 +21,8 @@ type ProxyRunner struct {
 	listener net.Listener
 }
 
-// NewProxyRunner constructs the runner. Handler may be nil; a nil handler
-// runner blocks on ctx and no-ops, mirroring the pre-P2 defensive branch.
-// NewProxyRunner 创建proxyrunner。
+// NewProxyRunner 创建 proxy runner。
+// Handler 可以为 nil；nil runner 只等待 ctx 结束，兼容无 toolbridge 的测试装配。
 func NewProxyRunner(h *Handler) *ProxyRunner {
 	logger := pkglogger.Get()
 	if h != nil && h.logger != nil {
@@ -48,19 +31,11 @@ func NewProxyRunner(h *Handler) *ProxyRunner {
 	return &ProxyRunner{h: h, logger: logger}
 }
 
-// asRunnerGroup narrows *ProxyRunner to platformrunner.Runner for the
-// group:"runners" tag output. Named helper (not an inline closure) so the
-// module-level Provide list stays readable.
+// asRunnerGroup 将 ProxyRunner 收窄为 run.Group runner 接口，供 Fx group tag 使用。
 func asRunnerGroup(r *ProxyRunner) platformrunner.Runner { return r }
 
-// SetListener hands over the listener that Run should serve. Called by
-// registerProxyLifecycle.OnStart after net.Listen succeeds; the addr is
-// published to proxyAddr in the same call so downstream lookup via
-// provideProxyAddrFn returns the real address before Run starts.
-//
-// Calling SetListener after Run has already observed the listener is a
-// no-op: Run reads once under the mutex and keeps the reference locally.
-// SetListener 设置listener。
+// SetListener 把 fx OnStart 已创建的 listener 交给 Run。
+// Run 只在启动时读取一次 listener；之后再调用 SetListener 不影响已运行的 serve loop。
 func (r *ProxyRunner) SetListener(ln net.Listener) {
 	if r == nil {
 		return
@@ -70,9 +45,7 @@ func (r *ProxyRunner) SetListener(ln net.Listener) {
 	r.mu.Unlock()
 }
 
-// Run implements platformrunner.Runner. See the type-level doc for the
-// shutdown contract.
-// Run 启动平台toolbridge后台流程。
+// Run 启动 proxy serve loop，并在 ctx 取消时关闭 listener、等待内部 goroutine 退出。
 func (r *ProxyRunner) Run(ctx context.Context) error {
 	if r == nil {
 		<-ctx.Done()
@@ -83,9 +56,7 @@ func (r *ProxyRunner) Run(ctx context.Context) error {
 	h := r.h
 	r.mu.Unlock()
 	if ln == nil || h == nil {
-		// Either net.Listen failed during OnStart or the handler was not
-		// provided. Nothing to serve; honor ctx cancellation so the
-		// run.Group actor unwinds cleanly.
+		// listener 或 handler 缺失时没有可服务对象，仍等待 ctx 以保持 run.Group 生命周期一致。
 		<-ctx.Done()
 		return ctx.Err()
 	}
@@ -94,9 +65,7 @@ func (r *ProxyRunner) Run(ctx context.Context) error {
 
 	select {
 	case err := <-serveErr:
-		// Serve returned without us cancelling; ServeProxy already swallows
-		// ErrServerClosed / ErrClosed to nil, so a non-nil err here is a
-		// genuine failure worth surfacing to run.Group.
+		// Serve 在未取消时返回说明 proxy 自身失败；ServeProxy 已过滤正常关闭错误。
 		if err != nil {
 			r.logger.Error("toolbridge: proxy serve failed", "error", err)
 		}
@@ -104,8 +73,7 @@ func (r *ProxyRunner) Run(ctx context.Context) error {
 	case <-ctx.Done():
 	}
 
-	// Shutdown: close the listener to unblock ServeProxy, then join so the
-	// inner goroutine never outlives Run.
+	// 关闭 listener 解除 ServeProxy 阻塞，再 join 内部 goroutine，避免它越过 Run 生命周期。
 	if closeErr := ln.Close(); closeErr != nil && !errors.Is(closeErr, net.ErrClosed) {
 		r.logger.Warn("toolbridge: close proxy listener during shutdown", "error", closeErr)
 	}
@@ -115,6 +83,7 @@ func (r *ProxyRunner) Run(ctx context.Context) error {
 	return ctx.Err()
 }
 
+// startProxyServe 在独立 goroutine 中运行 ServeProxy，并把 panic 转成错误返回。
 func startProxyServe(h *Handler, ln net.Listener) <-chan error {
 	serveErr := make(chan error, 1)
 	go func() {

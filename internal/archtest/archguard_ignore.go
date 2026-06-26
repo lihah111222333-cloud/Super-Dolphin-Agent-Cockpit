@@ -27,7 +27,7 @@ func collectArchGuardIgnores(fset *token.FileSet, node *ast.File) archGuardIgnor
 	return ignores
 }
 
-// parseArchGuardIgnoreMetrics 解析arch守卫ignore指标。
+// parseArchGuardIgnoreMetrics 从 archguard 注释中解析要忽略的度量名。
 func parseArchGuardIgnoreMetrics(text string) []string {
 	text = strings.TrimSpace(strings.TrimPrefix(strings.TrimPrefix(text, "//"), "/*"))
 	text = strings.TrimSpace(strings.TrimSuffix(text, "*/"))

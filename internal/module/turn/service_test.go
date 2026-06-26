@@ -566,11 +566,8 @@ func skillNames(refs []dto.SkillRef) []string {
 	return names
 }
 
-// TestServiceLookupByDedupeKeyRoundTrip exercises the
-// PrepareTurn -> StartTurn -> LookupByDedupeKey path end-to-end. The
-// dedupe key set on PrepareInput must flow through to TurnRequest
-// and end up registered on the tracker so a subsequent LookupByDedupeKey
-// hits the live turn.
+// TestServiceLookupByDedupeKeyRoundTrip 覆盖 PrepareTurn -> StartTurn -> LookupByDedupeKey 闭环。
+// PrepareInput 中的 dedupe key 必须传到 TurnRequest，并登记到 live turn 去重索引供后续查询命中。
 func TestServiceLookupByDedupeKeyRoundTrip(t *testing.T) {
 	t.Parallel()
 
@@ -609,8 +606,8 @@ func TestServiceLookupByDedupeKeyRoundTrip(t *testing.T) {
 	}
 }
 
-// TestServiceLookupByDedupeKeyEmpty verifies an empty key short-circuits
-// through the tracker and returns ok=false without error.
+// TestServiceLookupByDedupeKeyEmpty 验证空 key 会在去重查询入口短路。
+// 返回 ok=false 且不报错，调用方可把它当成“没有可复用 turn”处理。
 func TestServiceLookupByDedupeKeyEmpty(t *testing.T) {
 	t.Parallel()
 

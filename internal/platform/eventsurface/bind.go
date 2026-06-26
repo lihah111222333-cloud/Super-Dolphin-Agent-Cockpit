@@ -60,7 +60,7 @@ const (
 	MethodThreadStopped            = "thread/stopped"
 	MethodThreadMessages           = "thread/messages/page"
 	MethodThreadCompacted          = "thread/compacted"
-	// Deprecated: token usage now rides on ui/thread/patch; kept for reference only
+	// Deprecated: token usage 已迁移到 ui/thread/patch；常量仅保留 wire 兼容。
 	MethodThreadTokenUsage       = "thread/tokenusage/updated"
 	MethodSkillsChanged          = "skills/changed"
 	MethodUIPreferencesChanged   = "ui/preferences/changed"
@@ -77,9 +77,11 @@ const (
 	MethodCronJobRunStateChanged = "cron/job/runStateChanged"
 )
 
+// PublishFunc 是事件面向 UI/远端发布 JSON-RPC 通知的边界函数。
 type PublishFunc func(method string, payload any)
 
-// Bind 绑定平台eventsurface。
+// Bind 将核心 event bus 事件绑定到前端事件面发布函数。
+// dispatcher 或 publish 为空时直接返回空取消函数列表，并记录错误，避免半绑定事件管线继续运行。
 func Bind(dispatcher *event.Dispatcher, logger *pkglogger.Logger, publish PublishFunc) []context.CancelFunc {
 	if dispatcher == nil || publish == nil {
 		if logger != nil {
@@ -130,7 +132,8 @@ func taskNodeStatusChangedPayload(ev taskdto.TaskNodeStatusChanged) map[string]a
 	return payload
 }
 
-// bindCore 绑定core。
+// bindCore 绑定 turn 和全局状态事件。
+// 输出增量事件带采样 debug 日志，避免高频 token/command 输出刷爆日志。
 func bindCore(dispatcher *event.Dispatcher, logger *pkglogger.Logger, publish PublishFunc) []context.CancelFunc {
 	return []context.CancelFunc{
 		bus.ResilientSubscribe(dispatcher, func(ev agentdto.StateChanged) {

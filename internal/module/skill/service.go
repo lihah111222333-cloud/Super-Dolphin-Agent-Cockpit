@@ -55,7 +55,8 @@ var _ contract.SkillToolProvider = (*service)(nil)
 
 type SkillApprovalRequiredError = contract.SkillApprovalRequiredError
 
-// resolutionPreviewHash 处理resolutionpreviewhash。
+// resolutionPreviewHash 计算用户确认 preview 时必须回传的稳定 hash。
+// hash 覆盖动作、路径、源/目标 hash 和备份路径，防止 preview 后目录内容被换掉仍继续 apply。
 func resolutionPreviewHash(item skillResolutionItem, preview skillResolutionPreviewItem, p skillResolutionPreviewParams) string {
 	type previewEnvelope struct {
 		ConflictID          string `json:"conflict_id"`
@@ -96,14 +97,15 @@ func resolutionPreviewHash(item skillResolutionItem, preview skillResolutionPrev
 func hashResolutionEnvelope(v any) string {
 	data, err := json.Marshal(v)
 	if err != nil {
-		// archguard:ignore panic_count -- resolution envelopes are JSON-safe internal DTOs.
+		// archguard:ignore panic_count -- resolution envelope 只包含内部 JSON 安全 DTO。
 		panic("skill: hashResolutionEnvelope: " + err.Error())
 	}
 	sum := sha256.Sum256(data)
 	return hex.EncodeToString(sum[:])
 }
 
-// LookupArtifactApproval 处理lookup产物审批。
+// LookupArtifactApproval 查询 artifact 级审批缓存。
+// 缓存未配置时返回 false，让调用方继续走审批流程而不是放行。
 func (s *service) LookupArtifactApproval(_ context.Context, req contract.ArtifactApprovalRequest) (bool, error) {
 	if s.approval == nil {
 		return false, nil
@@ -118,7 +120,8 @@ func (s *service) LookupArtifactApproval(_ context.Context, req contract.Artifac
 	return ok, nil
 }
 
-// ApprovalRevision 处理审批revision。
+// ApprovalRevision 返回审批缓存 revision。
+// 缓存未配置时为 0，供前端判断是否需要刷新审批视图。
 func (s *service) ApprovalRevision() uint64 {
 	if s.approval == nil {
 		return 0
@@ -126,22 +129,24 @@ func (s *service) ApprovalRevision() uint64 {
 	return s.approval.Revision()
 }
 
-// SkillRevision 处理技能revision。
+// SkillRevision 返回技能变更事件序号。
+// 所有本地写入和导入都会递增该值，供动态工具面判断缓存是否过期。
 func (s *service) SkillRevision() uint64 {
 	return atomic.LoadUint64(&s.skillsChangedSeq)
 }
 
-// TrustRevision 处理trustrevision。
+// TrustRevision 返回信任相关视图的 revision。
+// 当前信任状态随 skill 元数据一起变化，因此复用 SkillRevision。
 func (s *service) TrustRevision() uint64 { return s.SkillRevision() }
 
-// NewService 创建服务。
+// NewService 创建无数据库依赖的 skill service。
+// 它会尝试加载本地审批缓存；加载失败时保留空缓存，由后续审批查询返回未命中。
 func NewService(projectRoot string) Service {
 	pr := strings.TrimSpace(projectRoot)
 	if pr != "" {
 		pr = filepath.Clean(pr)
 	}
-	// Load the artifact approval cache for read-only trust probes. If loading
-	// fails during construction, degrade to an empty cache.
+	// 审批缓存只用于只读 trust probe；构造期加载失败不能阻断整个模块启动。
 	approvalCache, _ := NewApprovalCache(DefaultApprovalCachePath())
 	return &service{
 		projectRoot:       pr,
@@ -259,7 +264,8 @@ func (s *service) personalSkillsRoot(personalType string) string {
 	return filepath.Join(s.resolvedSuperDolphinHome(), "skills", "personal", personalType)
 }
 
-// canonicalRootForTarget 为target处理canonical根目录。
+// canonicalRootForTarget 解析指定 scope/personalType 对应的 canonical skill 根目录。
+// project 和 personal 均必须有明确根目录，缺失配置时直接返回错误。
 func (s *service) canonicalRootForTarget(cwd, scope, personalType string) (string, string, string, error) {
 	normalizedScope, normalizedType, err := normalizeSkillTarget(scope, personalType)
 	if err != nil {
@@ -330,7 +336,8 @@ func resolveRequestedSkillTarget(scopeAndType ...string) (string, string) {
 	}
 }
 
-// writableSkillFileMode 处理writable技能文件模式。
+// writableSkillFileMode 决定写入 skill 文件时应使用的权限位。
+// 已存在文件沿用原权限，但 symlink 和目录会被拒绝，防止写入越界或覆盖目录。
 func writableSkillFileMode(path string) (os.FileMode, error) {
 	info, err := os.Lstat(path)
 	switch {
@@ -367,7 +374,7 @@ func (s *service) resolveSkillPath(target, cwd, scope string, personalType ...st
 	return s.resolveScopedSkillPath(cwd, target, scope, personalType...)
 }
 
-// resolveScopedSkillPath 解析scoped技能路径。
+// resolveScopedSkillPath 按 scope 解析 skill 目标路径，并阻止越界访问。
 func (s *service) resolveScopedSkillPath(cwd, target, scope string, personalType ...string) (string, error) {
 	root, err := s.resolveScopeRoot(cwd, scope, personalType...)
 	if err != nil {

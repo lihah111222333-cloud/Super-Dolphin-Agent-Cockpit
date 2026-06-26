@@ -74,7 +74,8 @@ func repairMismatchedSkillMirrorManifest(records []canonicalSkillRecord, target 
 	return manifest, nil
 }
 
-// rebuiltSkillMirrorManifest 处理rebuilt技能镜像manifest。
+// rebuiltSkillMirrorManifest 根据现有 mirror 目录重建 manifest。
+// 只接纳 hash 仍匹配 canonical 记录的目录，漂移或未知目录留给冲突处理。
 func rebuiltSkillMirrorManifest(records []canonicalSkillRecord, target SkillMirrorTarget) (SkillMirrorManifest, error) {
 	manifest := newSkillMirrorManifest(target)
 	for _, record := range recordsForMirrorTarget(records, target) {
@@ -280,7 +281,7 @@ func validatePersonalMirrorEntry(name string, entry SkillMirrorEntry) error {
 	return nil
 }
 
-// validatePersonalMirrorCanonicalID 校验personal镜像canonicalID。
+// validatePersonalMirrorCanonicalID 校验 personal mirror 的 canonical_id 与个人类型一致。
 func validatePersonalMirrorCanonicalID(name, canonicalID string) (string, error) {
 	parts := strings.Split(canonicalID, "/")
 	if len(parts) < 3 || parts[0] != skillScopePersonal {

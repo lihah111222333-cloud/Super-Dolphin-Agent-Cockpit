@@ -125,7 +125,7 @@ func cleanupManagedScratchpadDir(dir string) error {
 	return os.RemoveAll(filepath.Dir(filepath.Clean(dir)))
 }
 
-// isManagedScratchpadDir 判断managedscratchpad目录是否可用。
+// isManagedScratchpadDir 判断 scratchpad 路径是否属于本进程管理的临时命名空间。
 func isManagedScratchpadDir(dir string) bool {
 	cleaned := filepath.Clean(strings.TrimSpace(dir))
 	if cleaned == "." || cleaned == string(filepath.Separator) {

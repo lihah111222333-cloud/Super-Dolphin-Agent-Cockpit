@@ -15,17 +15,15 @@ import (
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
-// HTTPServerOption configures the deprecated Streamable HTTP MCP transport.
+// HTTPServerOption 配置 legacy Streamable HTTP MCP transport。
 //
-// Deprecated: HTTP MCP transport is retained only for legacy callers; use the
-// stdio MCP sidecar Server path for current tool execution.
+// Deprecated: HTTP MCP transport 仅保留给旧调用方；当前工具执行路径使用 stdio MCP sidecar Server。
 type HTTPServerOption func(*HTTPServer)
 
 // WithBearerToken configures bearer-token authentication for the deprecated
 // Streamable HTTP MCP transport.
 //
-// Deprecated: HTTP MCP transport is retained only for legacy callers; use the
-// stdio MCP sidecar Server path for current tool execution.
+// Deprecated: HTTP MCP transport 仅保留给旧调用方；当前工具执行路径使用 stdio MCP sidecar Server。
 // WithBearerToken 设置bearer令牌。
 func WithBearerToken(token string) HTTPServerOption {
 	return func(h *HTTPServer) {
@@ -33,12 +31,10 @@ func WithBearerToken(token string) HTTPServerOption {
 	}
 }
 
-// HTTPServer exposes the MCP JSON-RPC protocol over Streamable HTTP (POST /mcp).
-// Multiple Claude CLI instances can connect to the same endpoint concurrently,
-// eliminating the need for per-agent stdio sidecar processes.
+// HTTPServer 通过 legacy Streamable HTTP 暴露 MCP JSON-RPC 协议（POST /mcp）。
+// 多个旧 Claude CLI 实例可共用同一 endpoint；当前工具执行路径应使用 stdio sidecar Server。
 //
-// Deprecated: HTTP MCP transport is retained only for legacy callers; use the
-// stdio MCP sidecar Server path for current tool execution.
+// Deprecated: HTTP MCP transport 仅保留给旧调用方；当前工具执行路径使用 stdio MCP sidecar Server。
 type HTTPServer struct {
 	name        string
 	version     string
@@ -47,11 +43,10 @@ type HTTPServer struct {
 	bearerToken string
 }
 
-// NewHTTPServer creates an MCP server that speaks Streamable HTTP transport.
+// NewHTTPServer 创建使用 Streamable HTTP transport 的 legacy MCP server。
 //
-// Deprecated: HTTP MCP transport is retained only for legacy callers; use the
-// stdio MCP sidecar Server path for current tool execution.
-// NewHTTPServer 创建HTTP服务端。
+// Deprecated: HTTP MCP transport 仅保留给旧调用方；当前工具执行路径使用 stdio MCP sidecar Server。
+// NewHTTPServer 创建 legacy HTTP MCP 服务端，并应用可选鉴权配置。
 func NewHTTPServer(name, version string, tools ToolProvider, opts ...HTTPServerOption) *HTTPServer {
 	if strings.TrimSpace(name) == "" {
 		name = "mcp-server"
@@ -71,9 +66,8 @@ func NewHTTPServer(name, version string, tools ToolProvider, opts ...HTTPServerO
 // Start binds to listenAddr (use "127.0.0.1:0" for dynamic port) and begins
 // serving. Returns the actual address (including port) on success.
 //
-// Deprecated: HTTP MCP transport is retained only for legacy callers; use the
-// stdio MCP sidecar Server path for current tool execution.
-// Start 启动MCP 服务流程。
+// Deprecated: HTTP MCP transport 仅保留给旧调用方；当前工具执行路径使用 stdio MCP sidecar Server。
+// Start 绑定 HTTP 监听地址并启动 /mcp endpoint，返回实际监听地址。
 func (h *HTTPServer) Start(ctx context.Context, listenAddr string) (string, error) {
 	if listenAddr == "" {
 		listenAddr = "127.0.0.1:0"
@@ -110,9 +104,8 @@ func (h *HTTPServer) Start(ctx context.Context, listenAddr string) (string, erro
 
 // Stop gracefully shuts down the HTTP server.
 //
-// Deprecated: HTTP MCP transport is retained only for legacy callers; use the
-// stdio MCP sidecar Server path for current tool execution.
-// Stop 停止MCP 服务流程。
+// Deprecated: HTTP MCP transport 仅保留给旧调用方；当前工具执行路径使用 stdio MCP sidecar Server。
+// Stop 优雅关闭 legacy HTTP server；未启动时直接返回 nil。
 func (h *HTTPServer) Stop(ctx context.Context) error {
 	if h.server == nil {
 		return nil
@@ -121,7 +114,7 @@ func (h *HTTPServer) Stop(ctx context.Context) error {
 	return h.server.Shutdown(ctx)
 }
 
-// handleMCP 处理MCP。
+// handleMCP 处理单个 HTTP JSON-RPC 请求；notification 返回 202 且不写响应体。
 func (h *HTTPServer) handleMCP(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -158,6 +151,7 @@ func (h *HTTPServer) handleMCP(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// authorized 校验可选 bearer token；未配置 token 时允许 legacy 本地调用通过。
 func (h *HTTPServer) authorized(r *http.Request) bool {
 	token := strings.TrimSpace(h.bearerToken)
 	if token == "" {
@@ -196,6 +190,7 @@ func (h *HTTPServer) dispatch(ctx context.Context, req jsonRPCRequest) *jsonRPCR
 	}
 }
 
+// handleInitialize 返回 HTTP transport 的 MCP serverInfo 和工具能力。
 func (h *HTTPServer) handleInitialize(req jsonRPCRequest) *jsonRPCResponse {
 	var params initializeParams
 	if err := platformshared.DecodeInput(req.Params, &params); err != nil {
@@ -218,6 +213,7 @@ func (h *HTTPServer) handleInitialize(req jsonRPCRequest) *jsonRPCResponse {
 	return maybeResult(req.ID, result)
 }
 
+// handleToolsList 返回 legacy HTTP transport 可见的工具列表，未注入 provider 时为空列表。
 func (h *HTTPServer) handleToolsList(ctx context.Context, req jsonRPCRequest) *jsonRPCResponse {
 	if h.tools == nil {
 		return maybeResult(req.ID, map[string]any{"tools": []MCPTool{}})
@@ -229,7 +225,7 @@ func (h *HTTPServer) handleToolsList(ctx context.Context, req jsonRPCRequest) *j
 	return maybeResult(req.ID, map[string]any{"tools": tools})
 }
 
-// handleToolsCall 处理工具call。
+// handleToolsCall 执行 legacy HTTP tools/call，并复用 stdio 路径的 scope、日志和错误 envelope。
 func (h *HTTPServer) handleToolsCall(ctx context.Context, req jsonRPCRequest) *jsonRPCResponse {
 	params, err := DecodeToolCallParams(req.Params)
 	if err != nil {
@@ -284,6 +280,7 @@ func (h *HTTPServer) handleToolsCall(ctx context.Context, req jsonRPCRequest) *j
 	return resp
 }
 
+// writeJSONError 以 JSON-RPC error envelope 写出 HTTP 错误响应。
 func writeJSONError(w http.ResponseWriter, id json.RawMessage, code int, message string) {
 	w.Header().Set("Content-Type", "application/json")
 	resp := errorResponse(id, code, message)

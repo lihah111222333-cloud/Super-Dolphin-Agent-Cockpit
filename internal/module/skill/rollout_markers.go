@@ -7,7 +7,7 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/pkg/skillmetrics"
 )
 
-// skillBlockHeaderNewFormat 匹配 P20 新格式的 skill 注入块头行：
+// skillBlockHeaderNewFormat 匹配带 footer 的 skill 注入块头行：
 //
 //	[skill:<name>::<mode>@v<version>]
 //
@@ -16,22 +16,21 @@ import (
 // mode 接受任意小写字母串作为 rollout marker 标签；version 数字。
 var skillBlockHeaderNewFormat = regexp.MustCompile(`^\[skill:([a-z0-9][a-z0-9-]{0,63})::([a-z]+)@v(\d+)\]\s*$`)
 
-// skillBlockFooterNewFormat 匹配新格式结束标志。Phase 3 暂不做"仅剥此块保留
-// 后续"的精细操作（沿袭 legacy "剪到文末" 语义），但保留识别能力供 Phase 4+
-// 的多块场景使用。
+// skillBlockFooterNewFormat 匹配带 footer 的 skill 注入块结束标志。
+// header/footer 必须严格同名、同模式、同版本，避免误删普通用户文本。
 var skillBlockFooterNewFormat = regexp.MustCompile(`^\[/skill:([a-z0-9][a-z0-9-]{0,63})::([a-z]+)@v(\d+)\]\s*$`)
 
-// skillBlockHeaderLegacy 识别旧格式 header：[skill:<anything>]。
+// skillBlockHeaderLegacy 识别无 footer 的旧格式 header：[skill:<anything>]。
 //
 // 行为等价还原 codexapp/claudecli 旧实现：
 //
 //	strings.HasPrefix(line, "[skill:") && strings.Contains(line, "]")
 //
-// 即 legacy header 只要开头是 `[skill:` 且行内有 `]` 即认识。不作任何名字内容
+// 即旧格式 header 只要开头是 `[skill:` 且行内有 `]` 即认识。不作任何名字内容
 // 制约（空、含 `:`、含空格均允许），因为：
 //   - 新格式已在 ParseSkillBlockHeader 中优先匹配，如果 `[skill:foo::full@v1]`
-//     先命中不会进 legacy 分支。
-//   - legacy AND 判定仍要求后续命中 "摘要:" + "使用方式: " 两 marker，
+//     先命中不会进旧格式分支。
+//   - 旧格式判定仍要求后续命中 "摘要:" + "使用方式: " 两个标记，
 //     用户文本里偶尔出现 [skill:foo] 不会误剥。
 //
 // 这样覆盖旧实现能识别但严格 regex 会漏掉的两个 edge case：
@@ -40,7 +39,7 @@ var skillBlockFooterNewFormat = regexp.MustCompile(`^\[/skill:([a-z0-9][a-z0-9-]
 //	[skill:foo:bar]    → name 内部含 `:`
 var skillBlockHeaderLegacy = regexp.MustCompile(`^\[skill:[^\]]*\]`)
 
-// legacySkillMarkers 是旧格式注入块必须在 lookahead 窗口内 AND 命中的两个标记。
+// legacySkillMarkers 是旧格式注入块必须在 lookahead 窗口内同时命中的两个标记。
 // 对齐 codexapp/history_rollout.go 与 claudecli/history_trim.go 的原始实现，
 // 保证读取旧 rollout 文件时剥离行为不变。
 var legacySkillMarkers = []struct {
@@ -59,9 +58,9 @@ type SkillBlockFormat int
 
 const (
 	SkillBlockFormatNone SkillBlockFormat = iota
-	// SkillBlockFormatLegacy: [skill:<name>] + 后续 "摘要:" + "使用方式: " 标记
+	// SkillBlockFormatLegacy 表示无 footer 的旧格式块，需配合中文摘要/使用方式标记确认。
 	SkillBlockFormatLegacy
-	// SkillBlockFormatNew: [skill:<name>::<mode>@v<version>]
+	// SkillBlockFormatNew 表示带 name/mode/version 和配对 footer 的格式。
 	SkillBlockFormatNew
 )
 
@@ -72,9 +71,9 @@ const (
 // 在导入图上处于更高层）。有效值："full" / "summary" / "none"。
 type SkillBlockHeader struct {
 	Format  SkillBlockFormat
-	Name    string // 新格式 populate；legacy 为空字串
-	Mode    string // 新格式 populate（原始字符串）；legacy 为空
-	Version int    // 新格式 populate；legacy 为 0
+	Name    string // 带 footer 格式的 skill 名；旧格式为空字串
+	Mode    string // 带 footer 格式的原始 mode；旧格式为空
+	Version int    // 带 footer 格式的版本号；旧格式为 0
 }
 
 // ParseSkillBlockHeader 解析单行是否为 skill 注入块头部。
@@ -82,7 +81,7 @@ type SkillBlockHeader struct {
 // 识别两种格式：
 //  1. 新格式 `[skill:<name>::<mode>@v<ver>]`：字符级严格匹配，用户无合法理由
 //     写出这种串，因此 Format=New 可直接视为注入块。
-//  2. legacy `[skill:<任意>]`：可能是用户正常文本（如引用工具名），必须配合
+//  2. 旧格式 `[skill:<任意>]`：可能是用户正常文本（如引用工具名），必须配合
 //     后续 lookahead 窗口 AND 命中 legacySkillMarkers 才能判定注入块。
 //
 // 未匹配返回 Format=None。
@@ -102,7 +101,7 @@ func ParseSkillBlockHeader(line string) SkillBlockHeader {
 	return SkillBlockHeader{Format: SkillBlockFormatNone}
 }
 
-// ParseSkillBlockFooter 解析尾行。仅识别新格式尾标，legacy 无尾标。
+// ParseSkillBlockFooter 解析尾行。仅带 footer 的格式有尾标，旧格式没有尾标。
 // 返回 ok=false 表示非注入块尾行。
 func ParseSkillBlockFooter(line string) (SkillBlockHeader, bool) {
 	trimmed := strings.TrimSpace(line)
@@ -119,20 +118,20 @@ func ParseSkillBlockFooter(line string) (SkillBlockHeader, bool) {
 
 // TrimInjectedSkillBlocks 扫描 text，剥离所有识别到的注入 skill 块。
 //
-// 策略（P20.1 §3.4 加固）：
+// 当前裁剪策略：
 //   - **新格式**按 header/footer **成对裁剪**：仅删除 [header..footer] 闭区间，
 //     保留 block 后面的正常用户文本；支持同一 payload 内多个 block 顺序出现。
-//   - 新格式 header 存在但 footer 缺失 → 走损坏兑底：从 header 剪到 EOF，并记录
+//   - 新格式 header 存在但 footer 缺失 → 走损坏兜底：从 header 剪到 EOF，并记录
 //     `skill_trim_corruption_fallback_count` 指标（通过 *WithDiag 返回观测）。
-//   - **legacy 格式**保留“剪到 EOF”旧语义（旧格式无 footer 概念）；仅用于兼容
+//   - **旧格式**保留“剪到 EOF”语义（旧格式无 footer 概念）；仅用于兼容
 //     旧 rollout 回放，新写端不得再产 legacy 块。
 //
-// 未命中返回原 text。调用方须诂类诊断时用 TrimInjectedSkillBlocksWithDiag。
+// 未命中返回原 text。调用方需要分类诊断时用 TrimInjectedSkillBlocksWithDiag。
 func TrimInjectedSkillBlocks(text string) string {
 	return TrimInjectedSkillBlocksWithDiag(text).Text
 }
 
-// TrimResult 包装 trim 操作的诊断信息（P20.1 Phase 10 指标用途）。
+// TrimResult 包装 trim 操作的诊断信息，供调用方上报裁剪指标。
 type TrimResult struct {
 	// Text 是裁剪后的文本。
 	Text string
@@ -140,8 +139,8 @@ type TrimResult struct {
 	NewBlocksTrimmed int
 	// LegacyTrimmed 表示是否触发了 legacy “剪到 EOF”语义。
 	LegacyTrimmed bool
-	// FooterMissingCount 是新格式 header 存在但找不到对应 footer，走损坏兑底裁的次数。
-	// Phase 10 应将该值接入 skill_trim_corruption_fallback_count 指标。
+	// FooterMissingCount 是新格式 header 存在但找不到对应 footer，走损坏兜底裁剪的次数。
+	// 该值对应 skill_trim_corruption_fallback_count 指标。
 	FooterMissingCount int
 }
 
@@ -164,23 +163,19 @@ func TrimInjectedSkillBlocksWithDiag(text string) TrimResult {
 				i = footerIdx + 1
 				continue
 			}
-			// footer 缺失 → 损坏兑底：剪到 EOF
+			// footer 缺失时剪到 EOF，并记录损坏兜底指标。
 			res.FooterMissingCount++
-			// P20.1 Phase 10 Step C: 成对 footer 缺失 → trim 降级计数。
 			skillmetrics.IncTrimCorruptionFallback()
 			res.Text = strings.TrimRight(strings.Join(kept, "\n"), "\n")
 			return res
 		case SkillBlockFormatLegacy:
 			if looksLikeLegacyInjectedBlock(lines, i) {
-				// legacy 遗留语义：剪到 EOF。
-				// 注：legacy 格式是预期的历史数据路径，不是 P20.1 §3.4 定义的
-				// "corruption fallback"；因此不计入 skillmetrics.IncTrimCorruptionFallback()
-				// ——后者仅涉及 pair-fenced footer 缺失这一真正的异常场景。
+				// 旧格式没有 footer，只能剪到 EOF；这是兼容路径，不计入损坏兜底指标。
 				res.LegacyTrimmed = true
 				res.Text = strings.TrimRight(strings.Join(kept, "\n"), "\n")
 				return res
 			}
-			// AND 不命中，保留该行继续扰描
+			// 标记未全部命中时保留该行继续扫描。
 			kept = append(kept, lines[i])
 			i++
 		default:
@@ -213,7 +208,7 @@ func findMatchingSkillBlockFooter(lines []string, start int, header SkillBlockHe
 	return -1
 }
 
-// looksLikeLegacyInjectedBlock 复刻 codexapp/claudecli 双边原实现 looksLike* 逻辑：
+// looksLikeLegacyInjectedBlock 识别无 footer 的旧格式注入块：
 // 从 start 行起，向后扫描至多 legacySkillLookahead 行，累积 legacySkillMarkers
 // 的命中；遇到下一个 [skill:...] header 即停止。AND 全命中才判定为注入块。
 func looksLikeLegacyInjectedBlock(lines []string, start int) bool {

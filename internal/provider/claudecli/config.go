@@ -13,8 +13,7 @@ import (
 	providershared "github.com/anthropic-ai/super-agent-v3/internal/provider/shared"
 )
 
-// resolveAbsCWD ensures caller-provided CWD is absolute without inventing one.
-// resolveAbsCWD 解析abs工作目录。
+// resolveAbsCWD 将调用方提供的 cwd 转成绝对路径，但不会凭空发明缺失 cwd。
 func resolveAbsCWD(cwd string) string {
 	cwd = strings.TrimSpace(cwd)
 	if cwd == "" || cwd == "." {
@@ -32,6 +31,7 @@ func resolveAbsCWD(cwd string) string {
 	return cwd
 }
 
+// resolveBinaryPath 从环境变量或默认值解析 Claude CLI binary 路径。
 func resolveBinaryPath() string {
 	if bin := strings.TrimSpace(os.Getenv("CLAUDE_CLI_BIN")); bin != "" {
 		return bin
@@ -39,6 +39,7 @@ func resolveBinaryPath() string {
 	return defaultClaudeCLIBin
 }
 
+// configFromMap 将 provider runtime config 解析为 Claude CLI 启动配置。
 func configFromMap(cfg map[string]any) cliLaunchConfig {
 	return cliLaunchConfig{
 		ApprovalPolicy:              providershared.ConfigString(cfg, "approval_policy", "approvals"),
@@ -54,6 +55,7 @@ func configFromMap(cfg map[string]any) cliLaunchConfig {
 	}
 }
 
+// builtinToolsFromMap 读取显式 builtin tools 覆盖；nil 表示使用默认策略。
 func builtinToolsFromMap(cfg map[string]any) []string {
 	for _, key := range []string{"claude_builtin_tools", "claudeBuiltinTools", "builtin_tools", "builtinTools"} {
 		raw, ok := cfg[key]
@@ -69,10 +71,9 @@ func builtinToolsFromMap(cfg map[string]any) []string {
 	return nil
 }
 
-// disallowedBuiltinToolsFromMap preserves nil when no override key is present
-// so callers fall back to the legacy default disallow list, while an explicit
-// empty array in the config map yields a non-nil empty slice meaning "enable
-// every upstream built-in tool".
+// disallowedBuiltinToolsFromMap 读取禁用的上游内置工具列表。
+// 未配置时返回 nil 让调用方使用默认禁用列表；显式空数组返回非 nil 空切片，
+// 表示不禁用任何上游内置工具。
 func disallowedBuiltinToolsFromMap(cfg map[string]any) []string {
 	for _, key := range []string{"disallowed_tools", "disallowedTools", "disallowed_builtin_tools", "disallowedBuiltinTools"} {
 		raw, ok := cfg[key]
@@ -88,6 +89,7 @@ func disallowedBuiltinToolsFromMap(cfg map[string]any) []string {
 	return nil
 }
 
+// additionalDisallowedToolsFromMap 读取额外禁用工具列表；显式空数组表示不追加。
 func additionalDisallowedToolsFromMap(cfg map[string]any) []string {
 	for _, key := range []string{"additional_disallowed_tools", "additionalDisallowedTools", "extra_disallowed_tools", "extraDisallowedTools", "claude_additional_disallowed_tools", "claudeAdditionalDisallowedTools"} {
 		raw, ok := cfg[key]
@@ -103,7 +105,7 @@ func additionalDisallowedToolsFromMap(cfg map[string]any) []string {
 	return nil
 }
 
-// providerNativeSkillsDisabledFromMap 从map处理providernativeskillsdisabled。
+// providerNativeSkillsDisabledFromMap 解析是否禁用 provider 原生 skills。
 func providerNativeSkillsDisabledFromMap(cfg map[string]any) bool {
 	for _, key := range []string{"providerNativeSkills", "provider_native_skills"} {
 		raw, ok := cfg[key]
@@ -124,6 +126,7 @@ func providerNativeSkillsDisabledFromMap(cfg map[string]any) bool {
 	return false
 }
 
+// resolveStartAssembly 合并启动请求中的 prompt assembly、runtime context 和 provider 默认指令。
 func resolveStartAssembly(req dto.StartSessionRequest, cfg cliLaunchConfig, provider string) contract.StartAssembly {
 	assembly := req.StartAssembly
 	baseInstructions := promptSnapshotBaseInstructions(assembly.Snapshot, req.Instructions)
@@ -150,6 +153,7 @@ func resolveStartAssembly(req dto.StartSessionRequest, cfg cliLaunchConfig, prov
 	return assembly
 }
 
+// appendRuntimeContextToSnapshotBoundary 把 runtime context 放入 prompt snapshot 的 uncached tail。
 func appendRuntimeContextToSnapshotBoundary(
 	snapshot contract.PromptAssemblySnapshot,
 	runtimeContext string,
@@ -164,6 +168,7 @@ func appendRuntimeContextToSnapshotBoundary(
 	return snapshot
 }
 
+// appendPromptBlock 向已有 prompt 追加去重后的块内容。
 func appendPromptBlock(base, block string) string {
 	base = strings.TrimSpace(base)
 	block = strings.TrimSpace(block)
@@ -179,6 +184,7 @@ func appendPromptBlock(base, block string) string {
 	return base + "\n\n" + block
 }
 
+// normalizePromptSnapshot 填充 snapshot 缺省字段，保证恢复会话有完整上下文。
 func normalizePromptSnapshot(
 	snapshot contract.PromptAssemblySnapshot,
 	baseInstructions string,
@@ -200,12 +206,14 @@ func normalizePromptSnapshot(
 	return snapshot
 }
 
+// copyCapabilities 复制能力集合，避免 session 修改共享 map。
 func copyCapabilities(in dto.CapabilitySet) dto.CapabilitySet {
 	out := make(dto.CapabilitySet, len(in))
 	maps.Copy(out, in)
 	return out
 }
 
+// cloneConfigMap 深拷贝 runtime config，避免 session 内部修改调用方 map。
 func cloneConfigMap(cfg map[string]any) map[string]any {
 	if len(cfg) == 0 {
 		return nil
@@ -224,6 +232,7 @@ func cloneConfigMap(cfg map[string]any) map[string]any {
 	return out
 }
 
+// fallbackThreadID 返回恢复请求中已有的 threadID；新会话必须等待 provider 回报真实 id。
 func fallbackThreadID(agentID, threadID string) string {
 	if threadID = strings.TrimSpace(threadID); threadID != "" {
 		return threadID

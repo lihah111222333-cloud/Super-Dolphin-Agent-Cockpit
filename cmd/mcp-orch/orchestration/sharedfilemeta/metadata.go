@@ -13,8 +13,10 @@ import (
 	sharedfilepath "github.com/anthropic-ai/super-agent-v3/internal/platform/sharedfilepath"
 )
 
+// sharedFileMetadataMaxBytes 限制单次带元数据写入正文大小，避免内部 marker 路径承载大文件。
 const sharedFileMetadataMaxBytes = 1024 * 1024
 
+// sharedFileMetadataRecord 是正文 sharedfile 对应的 owner/producer 元数据格式。
 type sharedFileMetadataRecord struct {
 	Path          string `json:"path"`
 	OwnerNode     string `json:"owner_node"`
@@ -92,6 +94,7 @@ func ValidateWriteRequest(req nodeexec.SharedFileWriteRequest) (string, error) {
 	return cleaned, nil
 }
 
+// isAllowedSharedFileContentType 判断 sharedfile metadata 允许记录的内容类型。
 func isAllowedSharedFileContentType(contentType string) bool {
 	switch strings.ToLower(strings.TrimSpace(contentType)) {
 	case "application/json", "application/octet-stream", "text/markdown", "text/plain":
@@ -101,6 +104,7 @@ func isAllowedSharedFileContentType(contentType string) bool {
 	}
 }
 
+// hasControlCharacter 拒绝元数据字段里的换行和 NUL，避免 marker JSON 被日志/展示截断。
 func hasControlCharacter(value string) bool {
 	return strings.ContainsAny(value, "\x00\r\n")
 }

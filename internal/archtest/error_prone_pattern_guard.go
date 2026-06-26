@@ -201,28 +201,25 @@ func (g *errorPronePatternGuard) guardMultiAgentGlobalStatePattern() {
 	)
 }
 
-// guardSilentTurnLeakagePattern ensures keepalive (silent) turns are
-// properly gated at the decode path, stripped from history reads, and that
-// the heartbeat timer self-sustains even on ping failure.
+// guardSilentTurnLeakagePattern 锁定 keepalive 静默 turn 的三处边界。
+// 解码入口必须先拦截，记录读取必须剥离，心跳失败后也必须重置计时器，避免维护 turn 泄露到用户时间线。
 func (g *errorPronePatternGuard) guardSilentTurnLeakagePattern() {
-	// 1. Silent turn id must use a recognizable prefix constant.
+	// 1. 静默 turn id 必须使用可识别前缀，便于解码和记录读取复用同一判定。
 	const silentTurnRel = "internal/provider/claudecli/session_silent_turn.go"
 	g.requireContains(silentTurnRel, "silent turn id must use a recognizable prefix constant",
 		"keepaliveTurnIDPrefix",
 	)
-	// 2. Event decode path must gate keepalive turns before dispatch.
+	// 2. 事件解码必须在分发前截住 keepalive turn。
 	const eventsRel = "internal/provider/claudecli/session_events.go"
 	g.requireContains(eventsRel, "decoded stream events must gate keepalive turns before dispatch",
 		"isKeepaliveTurnEvent",
 	)
-	// 3. History reads must strip keepalive maintenance turns.
+	// 3. 记录读取必须删除 keepalive 维护 turn，避免 UI 和上下文恢复看到内部心跳。
 	const historyRel = "internal/module/thread/history.go"
 	g.requireContains(historyRel, "history reads must strip keepalive maintenance turns",
 		"dropKeepaliveTurns",
 	)
-	// 4. Keepalive timer must reschedule after both success and failure;
-	// deliverPing must call ResetTimerByAgent unconditionally (no early
-	// return on SendKeepalive error).
+	// 4. keepalive 成功或失败后都必须重新排期；SendKeepalive 报错不能提前跳过 ResetTimerByAgent。
 	const keepaliveRel = "internal/platform/cachekeepalive/manager.go"
 	g.requireContains(keepaliveRel, "keepalive timer must reschedule after both success and failure",
 		"kc.SendKeepalive(ctx)",
@@ -230,24 +227,22 @@ func (g *errorPronePatternGuard) guardSilentTurnLeakagePattern() {
 	)
 }
 
-// guardSessionIdentityPreservationPattern ensures Stop does not erase the
-// session UUID needed for post-stop history recovery, that binding
-// persistence detects session UUID updates, and that codex history
-// discovery falls back to session UUID.
+// guardSessionIdentityPreservationPattern 锁定停止后仍可恢复会话记录所需的 session UUID。
+// Stop 不能擦除该字段，binding 持久化必须识别 UUID 更新，Codex 记录查找在 provider thread 缺失时要回退到 UUID。
 func (g *errorPronePatternGuard) guardSessionIdentityPreservationPattern() {
-	// 1. Stop must not erase session uuid needed for history recovery.
+	// 1. Stop 不能擦除停止后记录恢复需要的 session uuid。
 	const stopRel = "internal/module/thread/stop.go"
 	g.requireNotContains(stopRel, "stop must not erase session uuid needed for history recovery",
 		"cleanupStoppedBinding",
 		`SessionUUID: ""`,
 	)
-	// 2. Binding persistence must detect and persist session uuid updates.
+	// 2. binding 持久化必须检测并写入 session uuid 更新。
 	const bindingRel = "internal/module/thread/binding_registration.go"
 	g.requireContains(bindingRel, "binding persistence must detect and persist session uuid updates",
 		"bindingNeedsSessionUUIDUpdate",
 		"bindingRequiresSessionUUID",
 	)
-	// 3. Codex history discovery must fallback to session uuid.
+	// 3. Codex 记录发现必须能在 provider thread id 缺失时使用 session uuid。
 	const historyRel = "internal/util/historyjsonl/history.go"
 	g.requireContains(historyRel, "codex history discovery must fallback to session uuid when provider thread id is missing",
 		"req.SessionUUID",
@@ -255,20 +250,17 @@ func (g *errorPronePatternGuard) guardSessionIdentityPreservationPattern() {
 	)
 }
 
-// guardLanguageAnchorPattern ensures the language prompt section always
-// anchors reply language — even when no explicit language is configured —
-// to prevent mixed-language drift in multi-lingual corpora.
+// guardLanguageAnchorPattern 锁定语言 prompt section 的默认锚点。
+// 即使没有显式语言配置，也要给回复语言一个稳定约束，避免多语言语料下回答语言漂移。
 //
-// Pre-condition: the guard activates once the fix is applied (i.e. the file
-// contains languageDefaultSectionText). Before that, the guard is inert so
-// main stays green while fix/language-mixing-anchor has not yet merged.
+// 文件中出现 languageDefaultSectionText 后才启用此守卫；未接入默认锚点的分支保持惯性通过。
 func (g *errorPronePatternGuard) guardLanguageAnchorPattern() {
 	const rel = "internal/module/prompt/brief_provider.go"
 	content, ok := g.read(rel)
 	if !ok {
 		return
 	}
-	// Activate only after the fix has landed.
+	// 默认锚点落地后再校验具体文本，避免未接入分支被旧守卫阻断。
 	if !strings.Contains(content, "languageDefaultSectionText") {
 		return
 	}
@@ -280,34 +272,28 @@ func (g *errorPronePatternGuard) guardLanguageAnchorPattern() {
 	)
 }
 
-// guardEmptyCWDPropagationPattern ensures child agents launched via
-// orchestration_launch_agent inherit their parent's cwd when the tool call
-// omits it. Without this, empty cwd propagates to agent_threads.cwd and the
-// sidebar snapshot, causing child agents to appear in every project view
-// (the "lottery" symptom from 2026-05-15).
+// guardEmptyCWDPropagationPattern 锁定子 agent 启动时的工作目录继承。
+// orchestration_launch_agent 省略 cwd 时必须继承父级 cwd，否则空 cwd 会进入持久化和侧栏投影，使子任务出现在错误项目视图。
 //
-// Also ensures pool server spawn passes workDir from the session request.
+// 同时校验 pool server spawn 使用 session 请求里的 workDir，保证进程启动边界和 UI 归属一致。
 func (g *errorPronePatternGuard) guardEmptyCWDPropagationPattern() {
-	// 1. Orchestration launcher must apply cwd defaults before forwarding.
+	// 1. Orchestration launcher 转发前必须补齐 cwd 默认值。
 	const launcherRel = "cmd/mcp-orch/orchestration/service_launcher_bridge.go"
 	g.requireContains(launcherRel, "child agents must inherit parent cwd when the tool call omits it",
 		"applyLaunchRequestDefaults",
 		"strings.TrimSpace(req.Cwd)",
 	)
-	// 2. Pool routing must pass workDir from session request to spawner.
+	// 2. pool 路由必须把 session request 的 workDir 传给 spawner。
 	const poolRel = "internal/provider/codexapp/driver_pool_routing.go"
 	g.requireContains(poolRel, "pool server spawn must pass thread cwd to spawner context",
 		"withPoolSpawnWorkDir",
 	)
 }
 
-// guardTerminalSignalCompletenessPattern ensures the frontend streaming
-// finalization logic covers ALL terminal signals, not just turn/completed.
-// Missing any terminal signal causes <pre> streaming placeholders to stick
-// until the next turn (the regression from 2026-05-15 commit 600db7d8).
+// guardTerminalSignalCompletenessPattern 锁定前端流式占位的收尾信号集合。
+// 所有终态信号都必须触发收尾，不能只依赖 turn/completed，否则中断或失败路径会把占位文本留到下一轮。
 //
-// The signal set must include: turn/completed, turn/interrupted,
-// agent/stopped, thread/stopped, agent/failed.
+// 信号集合必须包含 turn/completed、turn/interrupted、agent/stopped、thread/stopped 和 agent/failed。
 func (g *errorPronePatternGuard) guardTerminalSignalCompletenessPattern() {
 	const rel = "cmd/agent-terminal/frontend/vue-app/stores/thread-sync-helpers.js"
 	g.requireContains(rel, "streaming finalization must cover all terminal signals, not just turn/completed",
@@ -319,9 +305,8 @@ func (g *errorPronePatternGuard) guardTerminalSignalCompletenessPattern() {
 	)
 }
 
-// guardDSLTypeCoercionPattern locks the split between template match_when and
-// section enable_when: template-level tags_has is retired and must fail closed,
-// while section-level enable_when.tags_has keeps the dual-type evaluator.
+// guardDSLTypeCoercionPattern 锁定 template match_when 与 section enable_when 的类型边界。
+// template 级 tags_has 必须关闭，section 级 enable_when.tags_has 继续保留双类型求值器。
 func (g *errorPronePatternGuard) guardDSLTypeCoercionPattern() {
 	const rel = "internal/module/prompt/enable_when.go"
 	g.requireContains(rel, "section-level tags_has must keep dual-type evaluator",
@@ -337,10 +322,8 @@ func (g *errorPronePatternGuard) guardDSLTypeCoercionPattern() {
 	)
 }
 
-// guardRetiredPromptClassifierPattern locks the PromptClassifier removal. The
-// router now relies on template match_when + harness dynamic sections; the old
-// forked Claude classifier must not re-enter the Go runtime surface.
-// guardRetiredPromptClassifierPattern 检查retiredpromptclassifierpattern。
+// guardRetiredPromptClassifierPattern 锁定 PromptClassifier 从 Go runtime 面的移除。
+// 路由现在依赖 template match_when 和 harness 动态 section，不能重新引入分叉的 Claude 分类器。
 func (g *errorPronePatternGuard) guardRetiredPromptClassifierPattern() {
 	classifierFiles, err := filepath.Glob(filepath.Join(g.repoRoot, "internal", "module", "prompt", "classifier", "*.go"))
 	if err != nil {
@@ -437,7 +420,8 @@ func (g *errorPronePatternGuard) requireOrderInFunction(rel, name, note, before,
 	}
 }
 
-// functionBody 处理函数正文。
+// functionBody 从缓存源码中截取指定函数体。
+// 找不到函数时立即记录 guard 违规，避免后续模式检查在空字符串上误判通过。
 func (g *errorPronePatternGuard) functionBody(rel, name string) (string, bool) {
 	content, ok := g.read(rel)
 	if !ok {

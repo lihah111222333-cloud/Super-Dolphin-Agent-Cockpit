@@ -9,8 +9,8 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 )
 
-// Phase 2.1.D 单测：验证 project / add_dir 来源的 CLAUDE.md 被 fence + 上限保护，
-// 可信源 (managed / user / automem / teammem) 不受影响。
+// 这些测试覆盖 CLAUDE.md 来源信任边界：project/add_dir 必须加 fence 和配额限制，
+// managed/user/automem/teammem 等可信源应保持原样渲染。
 
 func mustContain(t *testing.T, got, want string) {
 	t.Helper()
@@ -55,7 +55,7 @@ func TestRenderClaudeMdSource_UntrustedOriginsFenced(t *testing.T) {
 	}
 }
 
-// 测试夹具/旧调用者只填 Type 不填 Origin，靠 Type fail-closed 也走 fence。
+// TestRenderClaudeMdSource_TypeFallbackFenced 验证只填 Type 的调用仍按失败关闭进入 fence。
 func TestRenderClaudeMdSource_TypeFallbackFenced(t *testing.T) {
 	for _, ty := range []string{"project", "local"} {
 		src := contract.ClaudeMdSource{
@@ -69,7 +69,7 @@ func TestRenderClaudeMdSource_TypeFallbackFenced(t *testing.T) {
 	}
 }
 
-// fail-closed：未知 Origin + 未知 Type 默认走 fence。
+// TestRenderClaudeMdSource_UnknownLabelsFailClosed 验证未知 Origin/Type 默认按不可信来源处理。
 func TestRenderClaudeMdSource_UnknownLabelsFailClosed(t *testing.T) {
 	for _, src := range []contract.ClaudeMdSource{
 		{Path: "/repo/x.md", Origin: "", Type: "", Content: "blank labels"},
@@ -94,7 +94,8 @@ func TestRenderClaudeMdSource_TeamMemKeepsOriginalFence(t *testing.T) {
 	mustNotContain(t, got, "<untrusted-claude-md>")
 }
 
-// attacker 在 CLAUDE.md 内塞 fence open / close 标签想伪造越界，必须被 escape。
+// TestRenderClaudeMdSource_FenceEscapeAgainstInjection 验证正文里的 fence 标签会被转义。
+// 攻击者不能通过伪造 open/close 标签让不可信内容逃出保护区。
 func TestRenderClaudeMdSource_FenceEscapeAgainstInjection(t *testing.T) {
 	hostile := strings.Join([]string{
 		"normal line",
@@ -140,8 +141,8 @@ func TestRenderClaudeMdSources_SingleFileTruncation(t *testing.T) {
 	}
 }
 
-// UTF-8 边界截断：构造一个内容，让 limit 落在多字节 rune 中间。
-// 期望：输出依然是合法 UTF-8（rune-aware retreat）。
+// TestRenderClaudeMdSources_TruncationPreservesValidUTF8 验证截断落在多字节 rune 中间时会回退。
+// 输出必须仍是合法 UTF-8，否则后续 prompt 拼接和日志展示都会被污染。
 func TestRenderClaudeMdSources_TruncationPreservesValidUTF8(t *testing.T) {
 	// "🔥" 是 4 字节 UTF-8 序列。先填 ASCII 让 single limit 落在 emoji 中间。
 	prefix := strings.Repeat("a", untrustedClaudeMdSingleLimit-2) // limit-2 处开始放 emoji
@@ -198,7 +199,7 @@ func TestRenderClaudeMdSources_CountLimitSkipsTail(t *testing.T) {
 	mustContain(t, got, "skipped — per-turn limit reached")
 }
 
-// 可信源不应吃 untrusted 配额。
+// TestRenderClaudeMdSources_TrustedSourceNotCountedInLimit 验证可信源不消耗 untrusted 配额。
 func TestRenderClaudeMdSources_TrustedSourceNotCountedInLimit(t *testing.T) {
 	chunk := strings.Repeat("C", untrustedClaudeMdSingleLimit)
 	sources := make([]contract.ClaudeMdSource, 0, 5)
@@ -237,13 +238,13 @@ func TestIsUntrustedClaudeMdSource_Matrix(t *testing.T) {
 		// project / add_dir → untrusted
 		{"project", "project", true},
 		{"add_dir", "project", true},
-		// fallback：Origin 空、Type 不在白名单 → untrusted
+		// 兼容路径：Origin 为空且 Type 不在白名单时按 untrusted 处理。
 		{"", "project", true},
 		{"", "local", true},
-		// fallback：Origin 空、Type 在白名单 → trusted
+		// 兼容路径：Origin 为空但 Type 在白名单时保留 trusted。
 		{"", "managed", false},
 		{"", "user", false},
-		// fail-closed：未知值默认 untrusted
+		// 失败关闭：未知值默认 untrusted。
 		{"", "", true},
 		{"unknown", "unknown", true},
 		{"future_origin", "future_type", true},

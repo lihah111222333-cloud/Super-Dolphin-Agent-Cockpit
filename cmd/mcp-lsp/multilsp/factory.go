@@ -47,7 +47,8 @@ type snapshotSyncRequest struct {
 	scope                   ResolvedLSPToolScope
 }
 
-// requestDocument 处理请求document。
+// requestDocument 为单文档 LSP 工具租用 client、构造参数并解码响应。
+// 缺少真实 client 时只走调用方提供的 missing 分支，避免把不支持能力伪装成空结果。
 func requestDocument[T any](
 	ctx context.Context,
 	m *manager,
@@ -136,7 +137,8 @@ func (m *manager) withPooledClient(client Client, fn func() error) error {
 	return fn()
 }
 
-// queryHierarchy 处理查询层级。
+// queryHierarchy 统一执行 call/type hierarchy 的 prepare 和方向查询。
+// prepare 为空时可按语言策略重试，最终仍为空则返回空结果而不是猜测层级。
 func queryHierarchy[I any, R any](
 	ctx context.Context,
 	m *manager,
@@ -185,7 +187,8 @@ func (m *manager) shouldRetryEmptyHierarchyPrepare(languageID, method string) bo
 	return m.capabilityPolicy(languageID).RetryEmptyCallHierarchyPrepare
 }
 
-// retryEmptyHierarchyPrepare 重试empty层级prepare。
+// retryEmptyHierarchyPrepare 在服务端短暂未建好索引时重试 hierarchy prepare。
+// 每次重试前都会 open-only 预热目标文档，超过上限仍返回最后一次结果。
 func retryEmptyHierarchyPrepare[T any](
 	ctx context.Context,
 	m *manager,
@@ -238,7 +241,8 @@ func unsupportedHierarchy[R any](operation string) hierarchyMissingFunc[R] {
 	}
 }
 
-// resolveHierarchyDirections 解析层级directions。
+// resolveHierarchyDirections 按请求方向调用 incoming/outgoing 等层级方法。
+// 每一步独立解码并写入结果对象，server 不支持能力时会转换成统一错误。
 func resolveHierarchyDirections[I any, R any](
 	ctx context.Context,
 	m *manager,
@@ -297,7 +301,8 @@ func decodeUnionListWithMode[T any](raw json.RawMessage, allowSingle bool, decod
 	return results, nil
 }
 
-// decodeRawMessages 解码原始消息。
+// decodeRawMessages 将 LSP 原始响应规整为列表形态。
+// allowSingle 打开时会把单个对象包装成数组，兼容不同 server 的返回差异。
 func decodeRawMessages(raw json.RawMessage, allowSingle bool) ([]json.RawMessage, error) {
 	trimmed := bytes.TrimSpace(raw)
 	if len(trimmed) == 0 || bytes.Equal(trimmed, []byte("null")) {
@@ -335,7 +340,8 @@ func (s *lspCacheStore) persistOnMutation(changed bool) error {
 	return nil
 }
 
-// syncSnapshotToClient 把快照同步为客户端。
+// syncSnapshotToClient 将文档快照写入 LSP client 并更新缓存状态。
+// 同步失败不会落缓存，确保下一次请求仍能重新 bootstrap。
 func (c *bootstrapCoordinator) syncSnapshotToClient(
 	ctx context.Context,
 	m *manager,
@@ -372,7 +378,8 @@ func (c *bootstrapCoordinator) syncSnapshotToClient(
 	return nil
 }
 
-// applySnapshotUpdate 应用快照更新。
+// applySnapshotUpdate 根据当前同步模式发送 didOpen/didChange。
+// 已打开文档更新失败时会尝试 close+open，仍失败则重建 client 后再打开。
 func (c *bootstrapCoordinator) applySnapshotUpdate(
 	ctx context.Context,
 	m *manager,
@@ -413,7 +420,8 @@ func reopenSnapshot(ctx context.Context, client Client, snapshot documentSnapsho
 	return client.DidOpen(ctx, snapshot.ref.uri, snapshot.ref.languageID, version, snapshot.text)
 }
 
-// cacheValueMatchesSnapshot 处理缓存值matches快照。
+// cacheValueMatchesSnapshot 判断缓存记录是否仍对应当前磁盘快照。
+// fingerprint 可用时优先比较 fingerprint，缺失时退到 size，避免误用旧版本号。
 func cacheValueMatchesSnapshot(value lspCacheValue, snapshot documentSnapshot) bool {
 	if value.Fingerprint != "" && snapshot.fingerprint != "" && value.Fingerprint != snapshot.fingerprint {
 		return false
@@ -492,7 +500,8 @@ func decodeWorkspaceSymbolUnion(payload json.RawMessage) (protocol.WorkspaceSymb
 	return protocol.WorkspaceSymbolResult{SymbolInformation: &info}, true, nil
 }
 
-// decodeCodeActionUnion 解码代码动作union。
+// decodeCodeActionUnion 解码 LSP codeAction 可能返回的 Command 或 CodeAction。
+// 未识别的空项返回 ok=false，由上层过滤而不是报错中断整个结果集。
 func decodeCodeActionUnion(payload json.RawMessage) (protocol.CodeActionResult, bool, error) {
 	var keys map[string]json.RawMessage
 	if err := json.Unmarshal(payload, &keys); err != nil {

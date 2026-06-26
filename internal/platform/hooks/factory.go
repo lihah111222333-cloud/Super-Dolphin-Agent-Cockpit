@@ -154,7 +154,8 @@ func scopeFieldMatches(subscriptionField, requestedField string) bool {
 	return subscriptionField == "" || requestedField == subscriptionField
 }
 
-// normalizePeerDecisions 规范化peerdecisions。
+// normalizePeerDecisions 归一化 peer 决策并拆分失败和失联 lease。
+// 连续失败达到阈值的 lease 会进入 lost 列表，Manager 随后负责取消订阅和 pending review。
 func normalizePeerDecisions[In any, Out any](
 	decisions []peerDecision[In],
 	normalize func(In) Out,

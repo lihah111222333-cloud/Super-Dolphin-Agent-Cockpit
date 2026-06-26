@@ -76,7 +76,8 @@ type responseError struct {
 	Data    json.RawMessage
 }
 
-// NewClient 创建客户端。
+// NewClient 用默认参数启动一个 LSP client。
+// 只暴露二进制和通知处理器的轻量入口，复杂调用方应使用 NewClientWithOptions。
 func NewClient(binary string, handler protocol.NotificationHandler) (Client, error) {
 	return NewClientWithOptions(Options{
 		Binary:              binary,
@@ -84,7 +85,8 @@ func NewClient(binary string, handler protocol.NotificationHandler) (Client, err
 	})
 }
 
-// NewClientWithOptions 创建带选项的客户端。
+// NewClientWithOptions 根据 Options 启动 LSP transport 并封装生命周期状态。
+// binary 为空会立即报错，启动参数、环境和 request handler 都在这里完成复制或默认化。
 func NewClientWithOptions(options Options) (Client, error) {
 	binary := strings.TrimSpace(options.Binary)
 	if binary == "" {
@@ -112,7 +114,8 @@ func NewClientWithOptions(options Options) (Client, error) {
 	}, nil
 }
 
-// Initialize 发送 LSP 初始化请求。
+// Initialize 发送 initialize/initialized 握手并记录 rootURI。
+// 同一个 client 只能初始化一次；失败会标记 transport 健康状态供 pool 淘汰。
 func (c *client) Initialize(ctx context.Context, rootURI string) error {
 	c.lifecycleMu.Lock()
 	defer c.lifecycleMu.Unlock()
@@ -149,7 +152,8 @@ func (c *client) Initialize(ctx context.Context, rootURI string) error {
 	return nil
 }
 
-// Shutdown 发送 LSP 关闭请求。
+// Shutdown 按 LSP 协议发送 shutdown 和 exit。
+// 未初始化的 client 只更新本地关闭状态，transport 关闭错误会透传给调用方。
 func (c *client) Shutdown(ctx context.Context) error {
 	c.lifecycleMu.Lock()
 	defer c.lifecycleMu.Unlock()
@@ -170,7 +174,8 @@ func (c *client) Shutdown(ctx context.Context) error {
 	return nil
 }
 
-// Request 发送 LSP 请求并等待响应。
+// Request 在 client 仍开放时发送 LSP request 并等待响应。
+// transport 级失败会标记 client 不健康，避免后续请求继续复用坏连接。
 func (c *client) Request(ctx context.Context, method string, params any) (json.RawMessage, error) {
 	if err := c.ensureOpen(); err != nil {
 		return nil, err
@@ -183,7 +188,8 @@ func (c *client) Request(ctx context.Context, method string, params any) (json.R
 	return result, nil
 }
 
-// Notify 发送通知消息。
+// Notify 在 client 仍开放时发送 LSP notification。
+// 通知失败同样会标记 client 不健康，因为底层通道已经不可再信任。
 func (c *client) Notify(ctx context.Context, method string, params any) error {
 	if err := c.ensureOpen(); err != nil {
 		return err
@@ -195,7 +201,8 @@ func (c *client) Notify(ctx context.Context, method string, params any) error {
 	return nil
 }
 
-// DidOpen 把文档打开事件转给 LSP。
+// DidOpen 把文档打开事件转成 LSP textDocument/didOpen。
+// version 和完整文本由调用方提供，client 不在这里维护文档副本。
 func (c *client) DidOpen(ctx context.Context, uri, languageID string, version int, text string) error {
 	params := protocol.DidOpenTextDocumentParams{
 		TextDocument: protocol.TextDocumentItem{
@@ -208,7 +215,8 @@ func (c *client) DidOpen(ctx context.Context, uri, languageID string, version in
 	return c.notifyTextDocument(ctx, protocol.MethodDidOpen, params)
 }
 
-// DidChange 把文档变更事件转给 LSP。
+// DidChange 把调用方准备好的增量或全量变更发送给 LSP。
+// changes 会复制一份，避免 transport 异步编码时读到外部修改。
 func (c *client) DidChange(ctx context.Context, uri string, version int, changes []protocol.TextDocumentContentChangeEvent) error {
 	params := protocol.DidChangeTextDocumentParams{
 		TextDocument: protocol.VersionedTextDocumentIdentifier{
@@ -220,7 +228,8 @@ func (c *client) DidChange(ctx context.Context, uri string, version int, changes
 	return c.notifyTextDocument(ctx, protocol.MethodDidChange, params)
 }
 
-// DidClose 把文档关闭事件转给 LSP。
+// DidClose 通知 LSP 释放指定文档状态。
+// 关闭不存在的文档由 server 自行处理，client 只保证消息格式正确。
 func (c *client) DidClose(ctx context.Context, uri string) error {
 	params := protocol.DidCloseTextDocumentParams{
 		TextDocument: protocol.TextDocumentIdentifier{URI: uri},
@@ -228,13 +237,15 @@ func (c *client) DidClose(ctx context.Context, uri string) error {
 	return c.notifyTextDocument(ctx, protocol.MethodDidClose, params)
 }
 
-// Close 关闭 LSP 管理器资源。
+// Close 标记 client 已关闭并释放底层 transport。
+// 这是本地资源收尾入口，不会再发送 LSP shutdown 请求。
 func (c *client) Close() error {
 	c.markShutdown()
 	return c.transport.Close()
 }
 
-// Healthy 处理healthy。
+// Healthy 报告 client 是否还能被 pool 复用。
+// nil、已 shutdown 或 transport 已关闭都会返回 false。
 func (c *client) Healthy() bool {
 	if c == nil {
 		return false
@@ -307,7 +318,8 @@ func decodeInitializeResult(result json.RawMessage) error {
 	return nil
 }
 
-// clientCapabilities 处理客户端capabilities。
+// clientCapabilities 声明本 sidecar 支持的 LSP 能力集合。
+// 这些能力决定 server 初始化后的返回形态，变更时要同步检查 format/render 层。
 func clientCapabilities() protocol.ClientCapabilities {
 	return protocol.ClientCapabilities{
 		Workspace: &protocol.WorkspaceClientCapability{
@@ -453,7 +465,8 @@ func (t *transport) joinWaitError(err error) error {
 	return err
 }
 
-// Write 写入LSP。
+// Write 记录 LSP stderr/stdout 片段并保持固定容量。
+// 超出 limit 时只保留尾部内容，避免失败诊断无限占用内存。
 func (b *limitedBuffer) Write(p []byte) (int, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -467,14 +480,16 @@ func (b *limitedBuffer) Write(p []byte) (int, error) {
 	return n, err
 }
 
-// String 返回字符串表示。
+// String 返回当前缓冲的尾部日志快照。
+// 读取时持锁，避免与 transport 写入并发访问 bytes.Buffer。
 func (b *limitedBuffer) String() string {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	return b.buf.String()
 }
 
-// Error 返回错误文本。
+// Error 把 JSON-RPC 错误码和消息组合成人类可读文本。
+// Data 保留在结构体上供上层需要时再做细分处理。
 func (e *responseError) Error() string {
 	return fmt.Sprintf("json-rpc error %d: %s", e.Code, e.Message)
 }

@@ -1,11 +1,12 @@
-// Package dedup 见 tokenizer.go。
+// Package dedup 实现 durable memory 写入前的重复检测、合并和溢出处理。
 package dedup
 
 import (
 	"strings"
 )
 
-// Decision 表示去重决策。
+// Decision 是重复检测后的写入动作。
+// 调用方据此决定新建、跳过或覆盖既有记忆文件。
 type Decision int
 
 const (
@@ -28,7 +29,7 @@ func Decide(oldBigrams, newBigrams map[string]struct{}) Decision {
 		return Skip
 	}
 
-	// Count how many of newBigrams are in oldBigrams.
+	// 只计算新内容中已有 bigram 的覆盖率，避免旧内容长度影响新增价值判断。
 	overlapCount := 0
 	for bg := range newBigrams {
 		if _, ok := oldBigrams[bg]; ok {

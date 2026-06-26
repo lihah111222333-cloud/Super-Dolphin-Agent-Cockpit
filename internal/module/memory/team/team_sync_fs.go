@@ -13,12 +13,14 @@ import (
 	shared "github.com/anthropic-ai/super-agent-v3/internal/module/memory/shared"
 )
 
+// teamSyncLocalFile 是本地团队记忆 Markdown 文件的扫描结果。
 type teamSyncLocalFile struct {
 	Checksum string
 	Content  string
 	Path     string
 }
 
+// teamSyncTargetPath 将远端相对路径解析为本地安全写入路径。
 func teamSyncTargetPath(root, rel string) (string, string, error) {
 	normalized, err := validateTeamMemKey(root, rel)
 	if err != nil {
@@ -32,7 +34,8 @@ func teamSyncTargetPath(root, rel string) (string, string, error) {
 	return normalized, validated, nil
 }
 
-// scanTeamMarkdownFiles 扫描teammarkdown文件。
+// scanTeamMarkdownFiles 扫描团队记忆目录下可同步的 Markdown 文件。
+// 符号链接、内部状态文件和临时文件会被拒绝或跳过，避免远端同步逃逸 root。
 func scanTeamMarkdownFiles(root string) (map[string]teamSyncLocalFile, error) {
 	root, ok, err := validateTeamSyncScanRoot(root)
 	if err != nil {
@@ -61,6 +64,7 @@ func scanTeamMarkdownFiles(root string) (map[string]teamSyncLocalFile, error) {
 	return files, nil
 }
 
+// validateTeamSyncScanRoot 校验扫描根目录是否存在且真实路径安全。
 func validateTeamSyncScanRoot(root string) (string, bool, error) {
 	root = strings.TrimSpace(root)
 	if root == "" {
@@ -78,7 +82,8 @@ func validateTeamSyncScanRoot(root string) (string, bool, error) {
 	return root, true, nil
 }
 
-// readTeamSyncMarkdownFile 读取teamsyncmarkdown文件。
+// readTeamSyncMarkdownFile 读取单个可同步 Markdown 文件。
+// 目录和内部文件会返回 ok=false；符号链接直接报错，防止同步内容越界。
 func readTeamSyncMarkdownFile(root, path string, d fs.DirEntry, walkErr error) (string, teamSyncLocalFile, bool, error) {
 	if walkErr != nil {
 		return "", teamSyncLocalFile{}, false, walkErr
@@ -112,7 +117,8 @@ func readTeamSyncMarkdownFile(root, path string, d fs.DirEntry, walkErr error) (
 	}, true, nil
 }
 
-// shouldIgnoreTeamSyncPath 判断ignoreteamsync路径是否可用。
+// shouldIgnoreTeamSyncPath 判断路径是否应排除在团队记忆同步之外。
+// 只同步 .md 文件，内部状态、临时文件和编辑器交换文件一律忽略。
 func shouldIgnoreTeamSyncPath(path string) bool {
 	path = strings.TrimSpace(filepath.ToSlash(path))
 	if path == "" {
@@ -133,6 +139,7 @@ func shouldIgnoreTeamSyncPath(path string) bool {
 	return false
 }
 
+// writeTeamSyncFile 通过 staging 文件写入团队记忆内容，再原子 rename 到目标路径。
 func writeTeamSyncFile(path, content string) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return err
@@ -144,7 +151,7 @@ func writeTeamSyncFile(path, content string) error {
 	return os.Rename(stagePath, path)
 }
 
-// pruneEmptyTeamDirs 裁剪emptyteam目录。
+// pruneEmptyTeamDirs 自底向上删除同步后留下的空目录。
 func pruneEmptyTeamDirs(root string) error {
 	var dirs []string
 	walkErr := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
@@ -168,7 +175,7 @@ func pruneEmptyTeamDirs(root string) error {
 	return nil
 }
 
-// diffServerChecksums 处理diff服务端checksums。
+// diffServerChecksums 比较本地文件和远端 checksum，生成上传内容和远端删除列表。
 func diffServerChecksums(local map[string]teamSyncLocalFile, server map[string]string) (map[string]string, []string) {
 	uploads := map[string]string{}
 	for path, file := range local {
@@ -191,6 +198,7 @@ func diffServerChecksums(local map[string]teamSyncLocalFile, server map[string]s
 	return uploads, deletes
 }
 
+// localChecksumMap 提取本地扫描结果中的 checksum map。
 func localChecksumMap(files map[string]teamSyncLocalFile) map[string]string {
 	if len(files) == 0 {
 		return nil
@@ -202,6 +210,7 @@ func localChecksumMap(files map[string]teamSyncLocalFile) map[string]string {
 	return checksums
 }
 
+// checksumMapsEqual 比较两个 checksum map，nil 与空 map 视为相等。
 func checksumMapsEqual(left, right map[string]string) bool {
 	left = cloneChecksumMap(left)
 	right = cloneChecksumMap(right)
@@ -216,6 +225,7 @@ func checksumMapsEqual(left, right map[string]string) bool {
 	return true
 }
 
+// checksumTree 将路径和 checksum 排序后计算稳定树 hash。
 func checksumTree(values map[string]string) string {
 	if len(values) == 0 {
 		return ""
@@ -231,12 +241,13 @@ func checksumTree(values map[string]string) string {
 	return hex.EncodeToString(hasher.Sum(nil))
 }
 
+// checksumContent 计算远端/本地内容一致性使用的 SHA-256，结果写入同步状态和差异比较。
 func checksumContent(content []byte) string {
 	sum := sha256.Sum256(content)
 	return hex.EncodeToString(sum[:])
 }
 
-// normalizeRemoteChecksums 规范化remotechecksums。
+// normalizeRemoteChecksums 合并远端显式 checksum 与文件内容派生 checksum，并过滤内部同步文件。
 func normalizeRemoteChecksums(checksums map[string]string, files map[string]TeamSyncFile) map[string]string {
 	normalized := cloneChecksumMap(checksums)
 	if len(files) == 0 {
@@ -262,6 +273,7 @@ func normalizeRemoteChecksums(checksums map[string]string, files map[string]Team
 	return normalized
 }
 
+// cloneStringMap 复制字符串 map，调用方可安全修改返回值而不污染同步状态缓存。
 func cloneStringMap(values map[string]string) map[string]string {
 	if len(values) == 0 {
 		return nil
@@ -273,6 +285,7 @@ func cloneStringMap(values map[string]string) map[string]string {
 	return cloned
 }
 
+// sortedMapKeys 返回稳定排序后的 map key，保证 checksum tree 和批量请求顺序可复现。
 func sortedMapKeys[T any](values map[string]T) []string {
 	keys := make([]string, 0, len(values))
 	for key := range values {
@@ -282,6 +295,7 @@ func sortedMapKeys[T any](values map[string]T) []string {
 	return keys
 }
 
+// sortedStringSet 返回稳定排序后的 set key，用于远端删除列表等持久化/日志输出。
 func sortedStringSet(values map[string]struct{}) []string {
 	keys := make([]string, 0, len(values))
 	for key := range values {
@@ -291,6 +305,7 @@ func sortedStringSet(values map[string]struct{}) []string {
 	return keys
 }
 
+// firstNonEmptyTeamString 返回第一个非空白字符串，用于在远端错误、路径和兜底文案间保留最具体信息。
 func firstNonEmptyTeamString(values ...string) string {
 	for _, value := range values {
 		if value = strings.TrimSpace(value); value != "" {

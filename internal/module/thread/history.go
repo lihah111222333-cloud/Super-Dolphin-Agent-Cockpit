@@ -24,12 +24,12 @@ import (
 const eventTypeAgentMessage = "agent_message"
 const defaultMessagesPageLimit = 300
 
-// keepaliveSentinelPrefix marks cache-keepalive maintenance turns. These silent
-// turns are filtered out of history before display so they (and any model
-// misbehaviour on them) never reach the UI timeline.
+// keepaliveSentinelPrefix 标记缓存保活用的维护 turn。
+// 展示历史前会过滤这些静默 turn，避免维护消息和模型回复进入 UI 时间线。
 const keepaliveSentinelPrefix = "[CACHE-KEEPALIVE]"
 
-// ReadHistory 读取history。
+// ReadHistory 从当前 provider session 读取线程历史。
+// 返回前会过滤 keepalive 维护 turn；session/binding 解析失败直接返回错误，不读取离线文件。
 func (s *service) ReadHistory(ctx context.Context, threadID string, limit int) ([]dto.Message, error) {
 	session, binding, err := s.resolveSession(ctx, threadID)
 	if err != nil {
@@ -51,12 +51,11 @@ type runtimeConfigReaderSession interface {
 	RuntimeConfigSnapshot() map[string]any
 }
 
-// ReadMessages 读取消息。
+// ReadMessages 返回 UI 分页消息列表。
+// pending_launch 线程尚无 binding/provider，会返回空页；普通线程会优先恢复 session，再按 provider 或 jsonl 历史分页。
 func (s *service) ReadMessages(ctx context.Context, threadID string, limit int, before string) (dto.ThreadMessagesResult, error) {
-	// C1 fast-path: pending_launch threads have no binding yet, so resolveBinding
-	// would fail with "no rows in result set". Return an empty result so the
-	// sidebar selection + auto-history-load sequence doesn't spam errors while
-	// the user is still composing their first turn.
+	// pending_launch 线程尚未写入 binding，按空页返回可让侧边栏自动加载保持安静。
+	// 真正的 provider 历史会在首轮 SpawnIfNeeded 持久化 binding 后再读取。
 	pendingLaunch, err := s.isThreadPendingLaunch(ctx, threadID)
 	if err != nil {
 		return dto.ThreadMessagesResult{}, err
@@ -71,7 +70,7 @@ func (s *service) ReadMessages(ctx context.Context, threadID string, limit int, 
 		}
 		return dto.ThreadMessagesResult{}, err
 	}
-	// Ensure session is resumed in background when thread is loaded after restart.
+	// 线程在重启后被打开时尝试后台恢复 session，避免用户下一条消息才触发冷启动。
 	s.backgroundResumeIfNeeded(ctx, threadID)
 	agentID := agentIDFromBinding(binding, threadID)
 	pageResult, err := s.readMessagesPageSource(ctx, threadID, binding, dto.MessagePageRequest{
@@ -96,7 +95,8 @@ func (s *service) ReadMessages(ctx context.Context, threadID string, limit int, 
 	}, nil
 }
 
-// ReadRuntimeConfig 读取运行时配置。
+// ReadRuntimeConfig 读取线程当前可见的 runtime config。
+// 活跃 session 的快照会覆盖离线持久化配置；session 缺失时只在可定位 binding 的情况下走离线路径。
 func (s *service) ReadRuntimeConfig(ctx context.Context, threadID string) (map[string]any, error) {
 	session, binding, err := s.resolveSession(ctx, threadID)
 	if err != nil {
@@ -129,7 +129,8 @@ func newThreadReadHandler(svc Service) handler.Func {
 	})
 }
 
-// ReadThreadHistory 读取线程history。
+// ReadThreadHistory 读取 provider 侧可见的历史 thread 列表。
+// provider 不返回列表时至少返回当前 thread id，保持旧 UI 的 history 面板不空白。
 func (s *service) ReadThreadHistory(ctx context.Context, threadID string) (*ReadHistoryResult, error) {
 	ref, err := s.Get(ctx, threadID)
 	if err != nil {
@@ -147,7 +148,8 @@ func (s *service) ReadThreadHistory(ctx context.Context, threadID string) (*Read
 	return buildReadHistoryResultFromThreads(threads, fallbackID), nil
 }
 
-// resolveBatchBinding 解析batchbinding。
+// resolveBatchBinding 在批量 runtime config 查询中为 thread 匹配 binding。
+// 优先使用 thread/agent id 直接索引，再退回 provider thread id，避免逐条访问 binding store。
 func resolveBatchBinding(threadID string, thread *threadstore.Thread, allBindings []bindingstore.Binding, bindingByAgent map[string]*bindingstore.Binding) *bindingstore.Binding {
 	if b, ok := bindingByAgent[threadID]; ok {
 		return b
@@ -166,7 +168,8 @@ func resolveBatchBinding(threadID string, thread *threadstore.Thread, allBinding
 	return nil
 }
 
-// resolveBatchSessionCfg 解析batch会话cfg。
+// resolveBatchSessionCfg 读取批量路径中的活跃 session runtime 快照。
+// session provider 未装配或 session 不支持快照接口时返回错误，让调用方决定是否仅使用离线配置。
 func (s *service) resolveBatchSessionCfg(binding *bindingstore.Binding) (map[string]any, error) {
 	if binding == nil {
 		return nil, nil
@@ -187,7 +190,8 @@ func (s *service) resolveBatchSessionCfg(binding *bindingstore.Binding) (map[str
 	return nil, errors.New("thread runtime config reader is not available")
 }
 
-// ReadRuntimeConfigs 读取运行时配置。
+// ReadRuntimeConfigs 批量读取多个线程的 runtime config。
+// 先加载 thread/binding 索引，再逐个合并离线配置和活跃 session 快照，避免 N 次 binding store 查询。
 func (s *service) ReadRuntimeConfigs(ctx context.Context, threadIDs []string) (map[string]map[string]any, error) {
 	allBindings, bindingByAgent, err := s.loadBatchBindingIndex(ctx)
 	if err != nil {
@@ -243,7 +247,8 @@ func (s *service) loadBatchThreadIndex(ctx context.Context, threadIDs []string) 
 	return idx, nil
 }
 
-// resolveBatchRuntime 解析batch运行时。
+// resolveBatchRuntime 合成单个线程的批量 runtime config。
+// 非 pending 线程缺 binding 会报错；活跃 session 缺失时保留离线配置，其他 session 错误直接返回。
 func (s *service) resolveBatchRuntime(
 	threadID string,
 	thread *threadstore.Thread,
@@ -364,11 +369,8 @@ func decorateThreadMessages(agentID string, messages []dto.Message) []dto.Messag
 	return out
 }
 
-// dropKeepaliveTurns removes cache-keepalive maintenance turns from a history
-// slice: the sentinel user message plus the assistant reply belonging to the
-// same turn. Applied before decorateThreadMessages so survivors keep
-// contiguous positional IDs and pagination cursors stay stable.
-// dropKeepaliveTurns 去掉keepaliveturn。
+// dropKeepaliveTurns 从历史中移除缓存保活 turn。
+// 它同时丢弃 sentinel user 消息和紧随其后的 assistant 回复，后续再补连续 ID，确保分页 cursor 稳定。
 func dropKeepaliveTurns(messages []dto.Message) []dto.Message {
 	if len(messages) == 0 {
 		return messages
@@ -427,7 +429,8 @@ func clampBeforeID(raw string) int64 {
 	return value
 }
 
-// parseBeforeCursor 解析beforecursor。
+// parseBeforeCursor 解析消息分页 before cursor。
+// 支持 RFC3339/RFC3339Nano 以及秒、毫秒、微秒、纳秒时间戳；非法值直接返回参数错误。
 func parseBeforeCursor(raw string) (time.Time, error) {
 	value := strings.TrimSpace(raw)
 	if value == "" {
@@ -465,7 +468,8 @@ func paginateMessagesBeforeTime(messages []dto.Message, limit int, cutoff time.T
 	return paginateMessagesByID(filtered, limit, 0)
 }
 
-// paginateMessagesByID 按ID处理paginate消息。
+// paginateMessagesByID 按消息 ID 倒序取一页。
+// before 为 0 表示取最新页；返回顺序保持从新到旧，匹配现有 UI 消费方式。
 func paginateMessagesByID(messages []dto.Message, limit int, before int64) []dto.Message {
 	if len(messages) == 0 {
 		return []dto.Message{}
@@ -490,7 +494,8 @@ func defaultEventTypeForRole(role string) string {
 	return ""
 }
 
-// Compact 处理紧凑列表。
+// Compact 调用 provider 压缩当前线程上下文，并发布 compact 事件。
+// provider 不支持时返回友好的 capability 错误；压缩后会触发 prompt assembly 清理，防止旧上下文继续参与后续 turn。
 func (s *service) Compact(ctx context.Context, threadID, args string) (dto.ThreadCompactResult, error) {
 	session, binding, err := s.resolveSession(ctx, threadID)
 	if err != nil {
@@ -545,7 +550,8 @@ func estimateThreadTokens(ctx context.Context, session contract.Session, threadI
 	return estimateHistoryTokens(messages), nil
 }
 
-// compactAfterTokens 处理紧凑列表后置令牌。
+// compactAfterTokens 在压缩后短轮询估算 token 数。
+// provider 压缩可能异步落盘，最多轮询三次；仍未下降时返回最后一次估算值供 UI 展示。
 func compactAfterTokens(ctx context.Context, session contract.Session, threadID string, before int) (int, error) {
 	last := before
 	for i := 0; i < 3; i++ {
@@ -614,7 +620,7 @@ func estimateTextTokens(text string) int {
 }
 
 // ---------------------------------------------------------------------------
-// Thread compact helpers (was compact.go)
+// thread 紧凑辅助函数
 // ---------------------------------------------------------------------------
 
 func (s *service) publishThreadCompacted(result dto.ThreadCompactResult) {
@@ -636,7 +642,8 @@ func (s *service) publishThreadCompacted(result dto.ThreadCompactResult) {
 
 type transientInvalidator func(context.Context, contract.InvalidateReason) error
 
-// RunPostCompactCleanup 运行post紧凑列表cleanup。
+// RunPostCompactCleanup 在紧凑完成后清理 transient prompt 缓存。
+// cleanup 失败会向调用方返回错误，避免继续使用已经失效的提示词组合。
 func (s *service) RunPostCompactCleanup(ctx context.Context, reason contract.InvalidateReason) error {
 	return runTransientInvalidators(ctx, reason, s.invalidatePromptAssembly)
 }

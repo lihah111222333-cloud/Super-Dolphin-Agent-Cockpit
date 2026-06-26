@@ -13,9 +13,10 @@ import (
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
+// requestIDHeader 是 HTTP 请求链路 ID 的头名。
 const requestIDHeader = "X-Request-ID"
 
-// withHTTPLogging 设置HTTPlogging。
+// withHTTPLogging 给 HTTP asset server 注入 trace、request id 和访问日志。
 func withHTTPLogging(logger *slog.Logger, next http.Handler) http.Handler {
 	if next == nil {
 		next = http.NotFoundHandler()
@@ -59,7 +60,7 @@ func withHTTPLogging(logger *slog.Logger, next http.Handler) http.Handler {
 	})
 }
 
-// httpTraceContext 处理HTTPtrace上下文。
+// httpTraceContext 从 traceparent 或 X-Request-ID 建立请求 trace 上下文。
 func httpTraceContext(ctx context.Context, r *http.Request) (context.Context, string, string, error) {
 	if ctx == nil {
 		ctx = context.Background()
@@ -93,7 +94,7 @@ func httpTraceContext(ctx context.Context, r *http.Request) (context.Context, st
 	return pkglogger.WithTraceContext(ctx, traceID, spanID, ""), traceID, requestID, nil
 }
 
-// parseHTTPTraceparent 解析HTTPtraceparent。
+// parseHTTPTraceparent 解析 W3C traceparent，格式错误会阻断请求。
 func parseHTTPTraceparent(raw string) (string, string, error) {
 	raw = strings.TrimSpace(raw)
 	if raw == "" {
@@ -119,14 +120,19 @@ func parseHTTPTraceparent(raw string) (string, string, error) {
 	return traceID, spanID, nil
 }
 
+// validTraceID 判断 trace id 是否为非零小写十六进制 16 字节值。
+// HTTP 入口用 bool 版本快速拒绝坏 traceparent，错误文本由调用方统一生成。
 func validTraceID(value string) bool {
 	return len(value) == 32 && isLowerHex(value) && !allZeroHex(value)
 }
 
+// validSpanID 判断 span id 是否为非零小写十六进制 8 字节值。
+// HTTP 入口用 bool 版本快速拒绝坏 traceparent，错误文本由调用方统一生成。
 func validSpanID(value string) bool {
 	return len(value) == 16 && isLowerHex(value) && !allZeroHex(value)
 }
 
+// clientIP 从代理头或 RemoteAddr 提取客户端 IP。
 func clientIP(r *http.Request) string {
 	if forwardedFor := strings.TrimSpace(r.Header.Get("X-Forwarded-For")); forwardedFor != "" {
 		first := strings.TrimSpace(strings.Split(forwardedFor, ",")[0])
@@ -144,13 +150,14 @@ func clientIP(r *http.Request) string {
 	return host
 }
 
+// httpLoggingResponseWriter 包装 ResponseWriter 以记录状态码和响应字节数。
 type httpLoggingResponseWriter struct {
 	http.ResponseWriter
 	status       int
 	bytesWritten int64
 }
 
-// WriteHeader 写入头部。
+// WriteHeader 只记录首次响应状态码，后续重复写头保持 net/http 原有行为。
 func (w *httpLoggingResponseWriter) WriteHeader(status int) {
 	if w.status != 0 {
 		return
@@ -159,7 +166,7 @@ func (w *httpLoggingResponseWriter) WriteHeader(status int) {
 	w.ResponseWriter.WriteHeader(status)
 }
 
-// Write 写入桌面 UI 桥接。
+// Write 透传响应体写入并累计实际写出的字节数，未显式写头时按 200 记录。
 func (w *httpLoggingResponseWriter) Write(data []byte) (int, error) {
 	if w.status == 0 {
 		w.status = http.StatusOK
@@ -169,6 +176,7 @@ func (w *httpLoggingResponseWriter) Write(data []byte) (int, error) {
 	return n, err
 }
 
+// statusCode 返回最终响应状态码，未显式写头时按 200 处理。
 func (w *httpLoggingResponseWriter) statusCode() int {
 	if w.status == 0 {
 		return http.StatusOK
@@ -176,14 +184,14 @@ func (w *httpLoggingResponseWriter) statusCode() int {
 	return w.status
 }
 
-// Flush 刷出缓存的响应数据。
+// Flush 在底层 writer 支持时透传刷新能力，避免日志包装破坏 streaming 响应。
 func (w *httpLoggingResponseWriter) Flush() {
 	if flusher, ok := w.ResponseWriter.(http.Flusher); ok {
 		flusher.Flush()
 	}
 }
 
-// Hijack 接管底层 HTTP 连接。
+// Hijack 在底层支持时透传连接接管，并把未写头的连接升级记录为 101。
 func (w *httpLoggingResponseWriter) Hijack() (net.Conn, *bufio.ReadWriter, error) {
 	hijacker, ok := w.ResponseWriter.(http.Hijacker)
 	if !ok {
@@ -195,7 +203,7 @@ func (w *httpLoggingResponseWriter) Hijack() (net.Conn, *bufio.ReadWriter, error
 	return hijacker.Hijack()
 }
 
-// Push 发送 HTTP/2 push 响应。
+// Push 仅在底层 writer 支持 HTTP/2 push 时透传，否则按标准 ErrNotSupported 返回。
 func (w *httpLoggingResponseWriter) Push(target string, opts *http.PushOptions) error {
 	pusher, ok := w.ResponseWriter.(http.Pusher)
 	if !ok {

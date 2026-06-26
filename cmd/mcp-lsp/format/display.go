@@ -8,7 +8,8 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/protocol"
 )
 
-// FromLSP 从LSP处理LSP。
+// FromLSP 将 LSP 0-based 坐标转换为用户可读的 1-based 坐标。
+// 负数保留原值，避免把缺省或哨兵值误展示成有效位置。
 func FromLSP(v int) int {
 	if v < 0 {
 		return v
@@ -16,7 +17,8 @@ func FromLSP(v int) int {
 	return v + 1
 }
 
-// FromLSPPtr 从LSP指针处理LSP。
+// FromLSPPtr 转换可选 LSP 坐标指针。
+// nil 表示该坐标未提供，必须原样保留给调用方区分。
 func FromLSPPtr(v *int) *int {
 	if v == nil {
 		return nil
@@ -25,21 +27,21 @@ func FromLSPPtr(v *int) *int {
 	return &value
 }
 
-// Position 转换位置用于展示。
+// Position 将 LSP position 转为展示坐标。
 func Position(pos protocol.Position) protocol.Position {
 	pos.Line = FromLSP(pos.Line)
 	pos.Character = FromLSP(pos.Character)
 	return pos
 }
 
-// Range 转换范围用于展示。
+// Range 将 LSP range 的起止位置都转为展示坐标。
 func Range(r protocol.Range) protocol.Range {
 	r.Start = Position(r.Start)
 	r.End = Position(r.End)
 	return r
 }
 
-// Ranges 转换范围用于展示。
+// Ranges 批量转换 range，空切片保持原样避免无意义分配。
 func Ranges(items []protocol.Range) []protocol.Range {
 	if len(items) == 0 {
 		return items
@@ -51,14 +53,14 @@ func Ranges(items []protocol.Range) []protocol.Range {
 	return out
 }
 
-// Location 转换位置用于展示。
+// Location 将 LSP location 转成可读路径和 1-based range。
 func Location(loc protocol.Location) protocol.Location {
 	loc.URI = URIToPath(loc.URI)
 	loc.Range = Range(loc.Range)
 	return loc
 }
 
-// LocationPtr 转换位置指针用于展示。
+// LocationPtr 转换可选 location，nil 表示 LSP 没有返回位置。
 func LocationPtr(loc *protocol.Location) *protocol.Location {
 	if loc == nil {
 		return nil
@@ -67,7 +69,8 @@ func LocationPtr(loc *protocol.Location) *protocol.Location {
 	return &converted
 }
 
-// LocationLinkPtr 转换位置链接指针用于展示。
+// LocationLinkPtr 转换 definition/implementation 可能返回的 location link。
+// target 与 origin range 都要保持同一套 1-based 展示坐标。
 func LocationLinkPtr(link *protocol.LocationLink) *protocol.LocationLink {
 	if link == nil {
 		return nil
@@ -83,7 +86,8 @@ func LocationLinkPtr(link *protocol.LocationLink) *protocol.LocationLink {
 	return &converted
 }
 
-// LocationResults 生成位置结果。
+// LocationResults 规整 references/definition 等工具的 union 位置结果。
+// 兼容 Location、Canonical 和 LocationLink 三种返回形态。
 func LocationResults(items []protocol.LocationResult) []protocol.LocationResult {
 	if len(items) == 0 {
 		return items
@@ -99,7 +103,8 @@ func LocationResults(items []protocol.LocationResult) []protocol.LocationResult 
 	return out
 }
 
-// DocumentSymbol 转换document符号用于展示。
+// DocumentSymbol 递归转换 document symbol 的范围坐标。
+// children 会复制到新切片，避免修改调用方持有的原始 LSP 响应。
 func DocumentSymbol(symbol protocol.DocumentSymbol) protocol.DocumentSymbol {
 	symbol.Range = Range(symbol.Range)
 	symbol.SelectionRange = Range(symbol.SelectionRange)
@@ -114,7 +119,7 @@ func DocumentSymbol(symbol protocol.DocumentSymbol) protocol.DocumentSymbol {
 	return symbol
 }
 
-// DocumentSymbols 转换document符号用于展示。
+// DocumentSymbols 批量转换文档符号树。
 func DocumentSymbols(items []protocol.DocumentSymbol) []protocol.DocumentSymbol {
 	if len(items) == 0 {
 		return items
@@ -126,13 +131,13 @@ func DocumentSymbols(items []protocol.DocumentSymbol) []protocol.DocumentSymbol 
 	return out
 }
 
-// TextEdit 转换文本编辑用于展示。
+// TextEdit 转换文本编辑范围，便于 code_action/edit 结果直接展示。
 func TextEdit(edit protocol.TextEdit) protocol.TextEdit {
 	edit.Range = Range(edit.Range)
 	return edit
 }
 
-// TextEdits 转换文本编辑用于展示。
+// TextEdits 批量转换文本编辑范围。
 func TextEdits(items []protocol.TextEdit) []protocol.TextEdit {
 	if len(items) == 0 {
 		return items
@@ -144,7 +149,8 @@ func TextEdits(items []protocol.TextEdit) []protocol.TextEdit {
 	return out
 }
 
-// WorkspaceEdit 转换工作区编辑用于展示。
+// WorkspaceEdit 转换工作区编辑中的 URI 和 range。
+// Changes 与 DocumentChanges 两种 LSP 形态都会被规整到可读路径。
 func WorkspaceEdit(edit *protocol.WorkspaceEdit) *protocol.WorkspaceEdit {
 	if edit == nil {
 		return nil
@@ -168,7 +174,7 @@ func WorkspaceEdit(edit *protocol.WorkspaceEdit) *protocol.WorkspaceEdit {
 	return out
 }
 
-// Diagnostic 转换诊断用于展示。
+// Diagnostic 转换诊断范围和相关信息位置。
 func Diagnostic(diag protocol.Diagnostic) protocol.Diagnostic {
 	diag.Range = Range(diag.Range)
 	for i := range diag.RelatedInformation {
@@ -177,7 +183,7 @@ func Diagnostic(diag protocol.Diagnostic) protocol.Diagnostic {
 	return diag
 }
 
-// Diagnostics 转换诊断用于展示。
+// Diagnostics 批量转换诊断结果。
 func Diagnostics(items []protocol.Diagnostic) []protocol.Diagnostic {
 	if len(items) == 0 {
 		return items
@@ -189,7 +195,7 @@ func Diagnostics(items []protocol.Diagnostic) []protocol.Diagnostic {
 	return out
 }
 
-// HoverResult 生成悬停结果。
+// HoverResult 转换 hover 结果中的可选范围。
 func HoverResult(result protocol.HoverResult) protocol.HoverResult {
 	if result.Range == nil {
 		return result
@@ -199,7 +205,7 @@ func HoverResult(result protocol.HoverResult) protocol.HoverResult {
 	return result
 }
 
-// CodeActionResults 生成代码动作结果。
+// CodeActionResults 转换 code action 结果中的诊断和 workspace edit。
 func CodeActionResults(items []protocol.CodeActionResult) []protocol.CodeActionResult {
 	if len(items) == 0 {
 		return items
@@ -218,7 +224,8 @@ func CodeActionResults(items []protocol.CodeActionResult) []protocol.CodeActionR
 	return out
 }
 
-// WorkspaceSymbolResults 生成工作区符号结果。
+// WorkspaceSymbolResults 规整 workspace symbol 的两种协议返回形态。
+// SymbolInformation 和 WorkspaceSymbol 都会转成可读路径。
 func WorkspaceSymbolResults(items []protocol.WorkspaceSymbolResult) []protocol.WorkspaceSymbolResult {
 	if len(items) == 0 {
 		return items
@@ -241,7 +248,7 @@ func WorkspaceSymbolResults(items []protocol.WorkspaceSymbolResult) []protocol.W
 	return out
 }
 
-// CallHierarchyResults 调用层级结果。
+// CallHierarchyResults 转换调用层级结果的 item URI 和 from/to ranges。
 func CallHierarchyResults(items []protocol.CallHierarchyResult) []protocol.CallHierarchyResult {
 	if len(items) == 0 {
 		return items
@@ -263,7 +270,7 @@ func CallHierarchyResults(items []protocol.CallHierarchyResult) []protocol.CallH
 	return out
 }
 
-// TypeHierarchyResults 生成type层级结果。
+// TypeHierarchyResults 转换类型层级中的 item URI 和 range。
 func TypeHierarchyResults(items []protocol.TypeHierarchyResult) []protocol.TypeHierarchyResult {
 	if len(items) == 0 {
 		return items
@@ -283,7 +290,8 @@ func TypeHierarchyResults(items []protocol.TypeHierarchyResult) []protocol.TypeH
 	return out
 }
 
-// SemanticTokensResult 生成语义令牌结果。
+// SemanticTokensResult 转换已解码语义 token 的展示坐标。
+// 原始 Data 不在这里重写，只处理工具层额外解码出的 Decoded 列表。
 func SemanticTokensResult(result *protocol.SemanticTokensResult) *protocol.SemanticTokensResult {
 	if result == nil {
 		return nil
@@ -301,7 +309,7 @@ func SemanticTokensResult(result *protocol.SemanticTokensResult) *protocol.Seman
 	return &out
 }
 
-// FoldingRange 转换折叠范围用于展示。
+// FoldingRange 转换折叠范围行列坐标。
 func FoldingRange(item protocol.FoldingRange) protocol.FoldingRange {
 	item.StartLine = FromLSP(item.StartLine)
 	item.StartCharacter = FromLSPPtr(item.StartCharacter)
@@ -310,7 +318,7 @@ func FoldingRange(item protocol.FoldingRange) protocol.FoldingRange {
 	return item
 }
 
-// FoldingRanges 转换折叠范围用于展示。
+// FoldingRanges 批量转换折叠范围。
 func FoldingRanges(items []protocol.FoldingRange) []protocol.FoldingRange {
 	if len(items) == 0 {
 		return items
@@ -322,13 +330,8 @@ func FoldingRanges(items []protocol.FoldingRange) []protocol.FoldingRange {
 	return out
 }
 
-// URIToPath converts a file:// URI to a display path. Paths are always
-// returned absolute (with forward slashes) so that consumers don't need
-// to guess what "workspace root" the path is relative to; an earlier
-// version called tryMakeRelative using mcp-lsp's startup os.Getwd(),
-// which produced misleading ../../other-project/foo.go output when the
-// caller's binding cwd differed from the manager startup directory.
-// URIToPath 把URI处理为路径。
+// URIToPath 将 file URI 或路径转成展示用绝对路径。
+// 这里始终返回斜杠规范化后的绝对路径，避免不同绑定 cwd 下出现误导性的相对路径。
 func URIToPath(uri string) string {
 	trimmed := strings.TrimSpace(uri)
 	if trimmed == "" {
@@ -342,7 +345,8 @@ func URIToPath(uri string) string {
 	return filepath.ToSlash(path)
 }
 
-// parseFileURI 解析文件URI。
+// parseFileURI 解析 file URI，保留非 file 输入原文。
+// Windows/UNC host 会拼回路径前缀，确保后续 filepath.Clean 能按路径处理。
 func parseFileURI(raw string) string {
 	parsed, err := url.Parse(raw)
 	if err != nil || !strings.EqualFold(parsed.Scheme, "file") {

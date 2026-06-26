@@ -6,12 +6,14 @@ import (
 	"time"
 )
 
-// Reader provides read-only access to prompt templates.
-// This is the shared interface consumed by both internal modules and cmd/mcp-orch.
+// Reader 提供 prompt template 的只读访问边界。
+// 内部模块和 mcp-orch 共用该接口，避免直接依赖 sqlc 行类型。
 type Reader interface {
 	List(ctx context.Context, filter ListFilter) ([]PromptTemplate, error)
 }
 
+// Store 是 prompt template、section、版本和 intent draft 的完整存储接口。
+// 写路径需要保留事务能力，动态 recall 相关方法必须按 cwd 隔离。
 type Store interface {
 	Reader
 	WithTx(ctx context.Context, fn func(txStore Store) error) error
@@ -20,26 +22,21 @@ type Store interface {
 	InsertVersion(ctx context.Context, version PromptTemplateVersion) (int64, error)
 	CreatePromptTemplate(ctx context.Context, template PromptTemplate) (*PromptTemplate, error)
 	Upsert(ctx context.Context, template PromptTemplate) (*PromptTemplate, error)
-	// ListSectionsByTemplateID returns the ordered sections for the given
-	// template, including disabled rows so the UI can re-enable them. Empty
-	// slice means the template has not been migrated to the sectioned layout
-	// yet; injection callers should fall back to PromptTemplate.PromptText.
+	// ListSectionsByTemplateID 读取指定模板的有序 section。
+	// 返回值包含 disabled 行，便于 UI 重新启用；空切片表示该模板仍只使用 PromptTemplate.PromptText。
 	ListSectionsByTemplateID(ctx context.Context, templateID int64) ([]PromptTemplateSection, error)
-	// ListSectionsByTemplateIDs returns ordered sections for multiple templates
-	// in one query. It mirrors ListSectionsByTemplateID semantics; callers that
-	// need injectable prompt content must filter disabled/recall/empty sections
-	// themselves.
+	// ListSectionsByTemplateIDs 批量读取多个模板的有序 section。
+	// 语义与单模板查询一致，注入路径仍需自行过滤 disabled、recall 和空正文 section。
 	ListSectionsByTemplateIDs(ctx context.Context, templateIDs []int64) ([]PromptTemplateSection, error)
-	// ListRecallSections returns all enabled recall sections across templates.
-	// It backs the harness-level recall_catalog dynamic section.
+	// ListRecallSections 读取当前 cwd 下启用的 recall section。
+	// 结果用于运行时 recall_catalog 动态段，不能跨工作目录混用。
 	ListRecallSections(ctx context.Context, cwd string) ([]PromptTemplateSection, error)
 	ListDefaultRuleSections(ctx context.Context, cwd string) ([]PromptTemplateSection, error)
-	// UpsertSection inserts or updates a single prompt_template_section row by
-	// (template_id, section_key). The UI-level "high-advanced debug" editor
-	// drives this; ordinary users never see it.
+	// UpsertSection 按 (template_id, section_key) 写入单个 prompt_template_section。
+	// 写入前会校验 region、trigger_type 和 recall_topic，防止动态段配置落库后才失败。
 	UpsertSection(ctx context.Context, section PromptTemplateSection) (*PromptTemplateSection, error)
-	// DeleteSection removes a section by (template_id, section_key). Returns
-	// platformdb.ErrNotFound when the pair does not match a row.
+	// DeleteSection 按 (template_id, section_key) 删除 section。
+	// 未命中时返回 platformdb.ErrNotFound，调用方可区分重复删除和真实删除。
 	DeleteSection(ctx context.Context, templateID int64, sectionKey string) error
 	UpsertRecallTopicTargetInCWD(ctx context.Context, cwd, topic string, templateID int64, sectionKey string) error
 	UpsertIntentDraft(ctx context.Context, draft PromptIntentDraft) (*PromptIntentDraft, error)
@@ -72,7 +69,8 @@ type RuntimePromptCatalog interface {
 	InsertVersion(ctx context.Context, version PromptTemplateVersion) (int64, error)
 }
 
-// PromptTemplate is the shared domain DTO for prompt templates.
+// PromptTemplate 是 prompt template 的跨模块 DTO。
+// JSON 字段名同时供 UI、mcp-orch 和内部运行时读取，不能泄露 sqlc 行类型。
 type PromptTemplate struct {
 	ID         int64           `json:"id"`
 	PromptKey  string          `json:"prompt_key"`
@@ -84,18 +82,18 @@ type PromptTemplate struct {
 	Variables  json.RawMessage `json:"variables"`
 	Tags       json.RawMessage `json:"tags"`
 	Enabled    bool            `json:"enabled"`
-	// ManuallyEdited protects seed-owned prompts from later seed migrations.
-	// UI/admin write paths set it true when updating an existing template.
+	// ManuallyEdited 表示该模板已由 UI 或管理路径手工改写。
+	// 种子同步遇到 true 时不能覆盖用户修改。
 	ManuallyEdited bool `json:"manually_edited"`
-	// MatchWhen is the template-level auto-routing rule (JSONB, opt-in).
-	// nil → 不参与自动路由（只能 explicit pin 或 default fallback）
-	// "{}" → 永远匹配（参与竞争但无筛选条件，用 priority 平溢）
+	// MatchWhen 是模板级自动路由规则（JSONB，显式启用）。
+	// nil → 不参与自动路由（只能显式指定或走默认模板）
+	// "{}" → 永远匹配（参与竞争但无筛选条件，用 priority 处理并列）
 	// JSON  → 当 BuildCtx 满足所有键时匹配
-	// 路由在 explicit pin 之后、main/default fallback 之前评估；
+	// 路由在显式指定之后、默认模板之前评估；
 	// 与段级 section.enable_when 独立，名字相似但语义不同。
 	MatchWhen json.RawMessage `json:"match_when,omitempty"`
-	// Priority is the tie-break key when multiple templates' match_when all fire.
-	// Higher wins. Default 0 (main/default 应保持 0 或最低)。
+	// Priority 是多个 match_when 同时命中时的排序键。
+	// 值越大优先级越高；默认模板应保持 0 或最低值。
 	Priority    int       `json:"priority"`
 	CreatedBy   string    `json:"created_by"`
 	UpdatedBy   string    `json:"updated_by"`
@@ -104,10 +102,8 @@ type PromptTemplate struct {
 	Description string    `json:"description"`
 }
 
-// PromptTemplateSection is a single ordered block within a prompt template.
-// Sections with region=="static" contribute to the cached prefix; region=="dynamic"
-// contributes to the uncached tail. EnableWhen is reserved for Step 2
-// feature-gate DSL; injection paths are responsible for filtering enabled rows.
+// PromptTemplateSection 是 prompt template 内的有序段落 DTO。
+// region=="static" 进入可缓存前缀，region=="dynamic" 进入非缓存尾部；注入路径负责过滤 enabled 和 enable_when。
 type PromptTemplateSection struct {
 	ID          int64           `json:"id"`
 	TemplateID  int64           `json:"template_id"`
@@ -119,8 +115,8 @@ type PromptTemplateSection struct {
 	Enabled     bool            `json:"enabled"`
 	TriggerType string          `json:"trigger_type"`
 	RecallTopic string          `json:"recall_topic"`
-	// TemplatePromptKey is populated by cross-template queries such as
-	// ListRecallSections; per-template section queries leave it empty.
+	// TemplatePromptKey 由跨模板查询填充，例如 ListRecallSections。
+	// 单模板 section 查询会保持为空，调用方不能把它当作必填字段。
 	TemplatePromptKey   string `json:"template_prompt_key,omitempty"`
 	TemplateTitle       string `json:"template_title,omitempty"`
 	TemplateDescription string `json:"template_description,omitempty"`
@@ -130,6 +126,8 @@ type PromptTemplateSection struct {
 	UpdatedAt           time.Time `json:"updated_at"`
 }
 
+// PromptTemplateVersion 是 prompt 版本归档 DTO。
+// SourceUpdatedAt 为空表示没有可比较的源更新时间，ArchivedAt 由归档路径写入。
 type PromptTemplateVersion struct {
 	ID              int64
 	PromptKey       string
@@ -148,6 +146,8 @@ type PromptTemplateVersion struct {
 	ArchivedAt      time.Time
 }
 
+// PromptIntentDraft 是 prompt intent 导入流程的草稿 DTO。
+// CWD 和 DraftKey 共同限定唯一草稿，GeneratedCard 与 Issues 以 JSON 原文跨模块传递。
 type PromptIntentDraft struct {
 	ID            int64
 	DraftKey      string
@@ -167,6 +167,8 @@ type PromptIntentDraft struct {
 	UpdatedAt     time.Time
 }
 
+// PromptIntentDraftListFilter 限定 intent draft 列表查询。
+// CWD 必填，Limit 必须显式给出，避免跨工作区扫描草稿表。
 type PromptIntentDraftListFilter struct {
 	CWD    string
 	Status string

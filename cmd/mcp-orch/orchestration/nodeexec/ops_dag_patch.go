@@ -15,7 +15,8 @@ var ErrDAGPatchUnknownField = errors.New("dag patch: unknown field")
 
 var ErrUpdateDAGPayloadInvalid = errors.New("update_dag: invalid payload")
 
-// UnmarshalJSON 解码JSON。
+// UnmarshalJSON 严格解码 update_dag op。
+// patch 缺失或 op/patch 之外的字段都会返回结构化错误，避免调用方误以为额外字段被接受。
 func (op *OpUpdateDAG) UnmarshalJSON(data []byte) error {
 	type updateDAGWire struct {
 		Op    OpKind    `json:"op"`
@@ -41,7 +42,8 @@ func (op *OpUpdateDAG) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-// UnmarshalJSON 解码JSON。
+// UnmarshalJSON 严格解码 DAG 元数据 patch。
+// 只允许白名单字段，status/version 等运行时字段必须留给 service 层管理。
 func (p *DAGPatch) UnmarshalJSON(data []byte) error {
 	if string(data) == "null" {
 		*p = DAGPatch{}

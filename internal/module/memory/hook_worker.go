@@ -11,15 +11,12 @@ import (
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
-// memoryHookDrainGrace bounds the Stop wait for the memoryHookWorker
-// so shutdown never hangs on a stuck disk I/O call.
+// memoryHookDrainGrace 限制 Stop 等待 worker 的最长时间，避免磁盘 I/O 卡住时拖住进程退出。
 const memoryHookDrainGrace = 10 * time.Second
 
-// ---------------------------------------------------------------------------
-// memoryHookWorker: async worker for bus callbacks that involve disk I/O
-// ---------------------------------------------------------------------------
+// ----- 记忆事件 worker -----
 
-// memoryHookEventKind distinguishes the two event types the worker handles.
+// memoryHookEventKind 标记 worker 当前处理的 turn 事件类型。
 type memoryHookEventKind int
 
 const (
@@ -27,17 +24,15 @@ const (
 	memoryHookTurnCompleted
 )
 
-// memoryHookRequest is the unit of work enqueued by bus callbacks.
+// memoryHookRequest 是 bus 回调投递给 worker 的最小任务单元。
 type memoryHookRequest struct {
 	kind          memoryHookEventKind
 	turnInput     turndto.TurnInputReceived
 	turnCompleted turndto.TurnCompleted
 }
 
-// memoryHookWorker is a single-goroutine worker that owns the disk I/O
-// previously done synchronously in onTurnInputReceived and onTurnCompleted
-// bus callbacks. Bus callbacks now only perform cheap in-memory checks
-// and enqueue the I/O-heavy work here.
+// memoryHookWorker 用单 goroutine 承接 turn 回调里的记忆磁盘 I/O。
+// bus 回调只做轻量内存记录并入队，真正的 remember/forget 和抽取写入都在这里顺序执行。
 type memoryHookWorker struct {
 	hooks  *MemoryLifecycleHooks
 	logger *pkglogger.Logger
@@ -56,6 +51,7 @@ type memoryHookWorker struct {
 	processedTotal atomic.Int64
 }
 
+// newMemoryHookWorker 创建记忆事件 worker，并在未注入 logger 时使用全局 logger。
 func newMemoryHookWorker(hooks *MemoryLifecycleHooks, logger *pkglogger.Logger) *memoryHookWorker {
 	if logger == nil {
 		logger = pkglogger.Get()
@@ -69,8 +65,7 @@ func newMemoryHookWorker(hooks *MemoryLifecycleHooks, logger *pkglogger.Logger) 
 	}
 }
 
-// Start spawns the worker goroutine. Idempotent.
-// Start 启动记忆流程。
+// Start 幂等启动 worker goroutine；hooks 缺失时直接关闭 doneCh，让 Stop 可立即返回。
 func (w *memoryHookWorker) Start() {
 	if w == nil {
 		return
@@ -91,9 +86,8 @@ func (w *memoryHookWorker) Start() {
 	})
 }
 
-// Stop closes the gate, drains pending requests, and waits bounded by
-// ctx for the worker to exit. Idempotent.
-// Stop 停止记忆流程。
+// Stop 幂等关闭入队入口并等待 worker drain。
+// 等待时间受调用方 ctx 和 memoryHookDrainGrace 共同限制。
 func (w *memoryHookWorker) Stop(ctx context.Context) error {
 	if w == nil {
 		return nil
@@ -120,9 +114,7 @@ func (w *memoryHookWorker) Stop(ctx context.Context) error {
 	return firstErr
 }
 
-// Enqueue records a hook request. Safe to call from bus callbacks: O(1)
-// slice append + non-blocking wake signal.
-// Enqueue 把项目追加到队尾。
+// Enqueue 从 bus 回调追加记忆任务，只做 O(1) 入队和非阻塞唤醒。
 func (w *memoryHookWorker) Enqueue(req memoryHookRequest) {
 	if w == nil {
 		return
@@ -142,6 +134,7 @@ func (w *memoryHookWorker) Enqueue(req memoryHookRequest) {
 	}
 }
 
+// runWorker 持有唯一的消费循环；收到 stop 后会先清空队列再关闭 doneCh。
 func (w *memoryHookWorker) runWorker() {
 	defer close(w.doneCh)
 	for {
@@ -155,6 +148,7 @@ func (w *memoryHookWorker) runWorker() {
 	}
 }
 
+// drainPending 批量取出当前队列后在锁外执行，避免磁盘 I/O 阻塞新的入队操作。
 func (w *memoryHookWorker) drainPending() {
 	for {
 		w.mu.Lock()
@@ -172,6 +166,8 @@ func (w *memoryHookWorker) drainPending() {
 	}
 }
 
+// dispatch 将 worker 请求分发回 MemoryLifecycleHooks。
+// 所有记忆磁盘写入都保持在 worker goroutine 上串行化。
 func (w *memoryHookWorker) dispatch(req memoryHookRequest) {
 	ctx := context.Background()
 	switch req.kind {

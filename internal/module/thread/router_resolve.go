@@ -35,7 +35,8 @@ func (s *service) runtimePromptCatalog() promptstore.RuntimePromptCatalog {
 	return s.promptCatalog
 }
 
-// resolveRoutedPrompt 解析routedprompt。
+// resolveRoutedPrompt 为 thread/start 选择并注入运行时 prompt 模板。
+// 调用方已提供 BaseInstructions 时不再路由；缺少可信 CWD 会直接报错，避免绕过模板可见性边界。
 func (s *service) resolveRoutedPrompt(ctx context.Context, req *StartRequest) error {
 	if shouldSkipRoutedPrompt(s, req) {
 		return nil
@@ -45,18 +46,15 @@ func (s *service) resolveRoutedPrompt(ctx context.Context, req *StartRequest) er
 		return fmt.Errorf("invalid params: prompt routing requires trusted cwd")
 	}
 
-	// Read enabled candidates once. Limit is generous; rule matching is cheap
-	// and list is unlikely to exceed a few hundred rows even in large orgs.
+	// 一次性读取启用候选；规则匹配成本低，200 条上限足够覆盖常见项目模板集合。
 	catalog := s.runtimePromptCatalog()
 	templates, err := catalog.ListTemplates(ctx, promptstore.RuntimeListFilter{CWD: trustedCWD, Limit: 200})
 	if err != nil {
 		return fmt.Errorf("router: list prompt_templates: %w", err)
 	}
 
-	// match_when auto-route: between explicit pins and main/default fallback.
-	// Runs only when neither PromptKey nor AgentKey was supplied. Picks the
-	// highest-priority enabled template whose match_when rules satisfy the
-	// current BuildCtx.
+	// match_when 自动路由只在没有显式 PromptKey/AgentKey 时运行，位于显式 pin 与默认模板之间。
+	// 它选择优先级最高且规则命中当前 BuildCtx 的模板。
 	s.maybeAutoRouteByMatchWhen(req, templates)
 
 	picked, err := s.pickRoutedTemplate(ctx, req, templates)
@@ -77,7 +75,8 @@ func (s *service) resolveRoutedPrompt(ctx context.Context, req *StartRequest) er
 	return s.applyPickedRoutedTemplate(ctx, req, picked)
 }
 
-// applyPickedRoutedTemplate 应用pickedroutedtemplate。
+// applyPickedRoutedTemplate 将命中的 prompt_template 写回启动请求。
+// 成功时会生成 prompt_versions 快照；快照写入失败直接返回错误，避免 thread 指向不可追溯的 prompt。
 func (s *service) applyPickedRoutedTemplate(
 	ctx context.Context,
 	req *StartRequest,
@@ -87,11 +86,9 @@ func (s *service) applyPickedRoutedTemplate(
 	if err != nil {
 		return err
 	}
-	// Materialize a prompt_versions snapshot so historical analyses can
-	// reproduce the exact prompt text that was injected into this thread.
+	// 写入 prompt_versions 快照，保证后续分析能复现本次注入的完整 prompt。
 	catalog := s.runtimePromptCatalog()
-	// Per Risk 1 (b): still record agent_key / prompt_key for observability
-	// even if version materialization fails.
+	// 先记录 agent_key / prompt_key，便于失败日志和调用方定位命中的模板。
 	req.AgentKey = picked.AgentKey
 	req.AgentTitle = picked.Title
 	req.PromptKey = picked.PromptKey
@@ -139,7 +136,8 @@ func promptCatalogCanInsertVersion(catalog promptstore.RuntimePromptCatalog) boo
 	return !ok || checker.CanInsertPromptVersion()
 }
 
-// routedTemplateInstructions 处理routedtemplateinstructions。
+// routedTemplateInstructions 读取命中模板的 section 并生成最终注入文本。
+// section 读取失败会阻断启动；enable_when 过滤后为空时返回空内容，让上层保留无注入状态。
 func (s *service) routedTemplateInstructions(ctx context.Context, req *StartRequest, picked *promptstore.PromptTemplate) (string, []contract.BaseInstructionBlock, error) {
 	catalog := s.runtimePromptCatalog()
 	sections, serr := catalog.ListSectionsByTemplateID(ctx, picked.ID)
@@ -164,40 +162,19 @@ func (s *service) routedTemplateInstructions(ctx context.Context, req *StartRequ
 	return contract.TextFromBaseInstructionBlocks(blocks), blocks, nil
 }
 
-// defaultPromptKey is the prompt_template used when the caller does not pin
-// an agent_key. It stamps a baseline persona on ad-hoc threads (e.g. user
-// opens a fresh conversation from the UI without picking a specialist). The
-// key is hardcoded rather than configurable because this harness's contract
-// is "agent_key is the identity key" — anything else is the default.
+// defaultPromptKey 是调用方未指定 agent_key 时使用的默认 prompt_template。
+// 该 key 固定代表普通主线程 persona，避免每次启动都依赖外部配置决定默认身份。
 const defaultPromptKey = "main/default"
 
-// pickRoutedTemplate selects the prompt_template to inject as the new agent
-// process's --system-prompt. This harness deliberately does NOT classify user
-// intent: it is a process-lifecycle layer, not a routing brain.
-//
-//   - Explicit AgentKey (set by the caller, e.g. orchestration_launch_agent
-//     with agent_key=sql-expert, or the UI's agent picker): look up the first
-//     enabled template whose agent_key matches.
-//   - Empty AgentKey (user opens a fresh thread without picking a specialist):
-//     fall back to the hardcoded defaultPromptKey persona. When picked, stamp
-//     req.AgentKey so downstream observability / persistence sees a concrete
-//     identity instead of "".
-//
-// Tag-based keyword classification lived here previously and has been removed
-// — upstream CLIs (Claude Code / Codex) perform their own in-session intent
-// handling; duplicating it at the harness layer created the "user-created
-// prompt is permanently shadowed by main/default fallback" footgun.
-// pickRoutedTemplate 处理pickroutedtemplate。
+// pickRoutedTemplate 按固定优先级选择启动时要注入的 prompt_template。
+// PromptKey 显式 pin 最高，AgentKey 次之；二者都为空时使用默认模板。这里不做用户意图分类，
+// 避免 harness 层覆盖上游 CLI 自己的会话内判断。
 func (s *service) pickRoutedTemplate(
 	_ context.Context,
 	req *StartRequest,
 	templates []promptstore.PromptTemplate,
 ) (*promptstore.PromptTemplate, error) {
-	// Explicit prompt_key beats everything else: it's the most specific pin
-	// the UI can give ("use this exact row"). If it doesn't resolve, refuse
-	// to fall through — the user picked this row, silently substituting a
-	// different one would be worse than leaving the request untouched and
-	// letting the upstream CLI use its bundled system prompt.
+	// PromptKey 是最具体的 UI pin；未命中时只标记 stale，不静默替换为其它模板。
 	if pinned := strings.TrimSpace(req.PromptKey); pinned != "" {
 		picked := findEnabledByPromptKey(templates, pinned)
 		if picked != nil {
@@ -211,11 +188,7 @@ func (s *service) pickRoutedTemplate(
 			req.AgentTitle = picked.Title
 			return picked, nil
 		}
-		// Caller pinned a prompt_key that did not resolve to an enabled
-		// row (deleted or disabled). Mark the request stale so newStartResult
-		// can echo the signal to the UI, which then clears its launch-prompt
-		// preference. We do NOT modify req.PromptKey — keeping the original
-		// pin lets the UI compare against its own pref for safety.
+		// 保留原 PromptKey，让 UI 能与本地偏好比较后安全清理。
 		req.PromptKeyStale = true
 		pkglogger.Warn("router: pinned prompt_key not found",
 			"prompt_key", pinned,
@@ -246,11 +219,8 @@ func findEnabledByPromptKey(templates []promptstore.PromptTemplate, promptKey st
 	return picked
 }
 
-// convertStoreSectionsToBlocks maps injectable prompt_template_sections rows into
-// the contract-layer BaseInstructionBlock shape consumed by assembler.go.
-// Unknown region strings degrade to Dynamic (safer: blocks end up in the
-// uncached tail rather than accidentally claiming cached-prefix slots).
-// convertStoreSectionsToBlocks 把存储sections转换为blocks。
+// convertStoreSectionsToBlocks 将可注入的 prompt_template_sections 转为 assembler 使用的 block。
+// 未知 region 按 Dynamic 处理，使其落入非缓存尾部，避免误占 static cached-prefix。
 func convertStoreSectionsToBlocks(sections []promptstore.PromptTemplateSection) []contract.BaseInstructionBlock {
 	if len(sections) == 0 {
 		return nil
@@ -313,22 +283,14 @@ func findByPromptKey(templates []promptstore.PromptTemplate, promptKey string) *
 	return nil
 }
 
-// d-clean: applyCandidatePoolMerge / candidateTemplateBlocks 已移除。
-// 候选池合并注入的设计已与"对齐 Claude 主线程单提示词"的目标冲突；
-// 路由现在的三档优先级为：
+// 候选池合并注入已移除；当前路由只选择一个最终模板。
+// 路由优先级为：
 //   1. 显式 pin (PromptKey / AgentKey) > 2. match_when 自动路由 >
 //   3. main/default 兜底。
 
-// maybeAutoRouteByMatchWhen fills req.PromptKey when no explicit pin was
-// supplied. It evaluates auto-route candidates in two stages: first the
-// "specific" pool (rows whose match_when has real filter conditions), then the
-// "fallback" pool (rows whose match_when is `{}`, opt-in always-match). Each
-// pool is sorted by Priority DESC (stable). Splitting the pools prevents a
-// high-priority `{}` row (e.g. main/general-zh priority=160) from shadowing
-// structured match_when prompts — the production bug that motivated this split.
-// All failure modes leave req.PromptKey untouched so the main/default
-// fallback still applies.
-// maybeAutoRouteByMatchWhen 按matchwhen处理maybeautoroute。
+// maybeAutoRouteByMatchWhen 在没有显式 pin 时按 match_when 自动填入 PromptKey。
+// 它先评估带真实条件的 specific 池，再评估 `{}` always-match fallback 池；任何未命中都保持 PromptKey 为空，
+// 让 main/default 兜底继续生效。
 func (s *service) maybeAutoRouteByMatchWhen(req *StartRequest, templates []promptstore.PromptTemplate) {
 	if req == nil {
 		return
@@ -359,11 +321,8 @@ func (s *service) maybeAutoRouteByMatchWhen(req *StartRequest, templates []promp
 		"fallback_count", len(fallback))
 }
 
-// evaluateMatchWhenPool walks one match_when pool (specific or fallback) in
-// the order the caller provided (already priority-DESC). On the first hit it
-// stamps req.PromptKey and returns true; otherwise returns false so the
-// caller can move on to the next stage. The peer-pool count is logged purely
-// for observability so a single line tells operators which stage fired.
+// evaluateMatchWhenPool 按优先级顺序评估一个 match_when 候选池。
+// 首个命中会写入 req.PromptKey 并返回 true；日志包含另一个池的数量，方便排查命中阶段。
 func (s *service) evaluateMatchWhenPool(
 	stage string,
 	pool []promptstore.PromptTemplate,
@@ -393,17 +352,9 @@ func (s *service) evaluateMatchWhenPool(
 	return false
 }
 
-// autoRouteCandidates partitions enabled match_when rows into two pools:
-//   - specific: match_when decodes to a non-empty object (real filter rules)
-//   - fallback: match_when decodes to the empty object `{}` (opt-in always-
-//     match). nil / null / invalid JSON are dropped entirely because they
-//     can never satisfy EvaluateMatchWhen anyway — keeping them in the pool
-//     would just be wasted iteration.
-//
-// Each pool is sorted by Priority DESC (stable). The caller evaluates
-// specific first, then fallback, so a low-priority prompt with real structured
-// match rules wins over a high-priority `{}` row.
-// autoRouteCandidates 处理autoroute候选项。
+// autoRouteCandidates 将启用模板拆成 specific 与 fallback 两个 match_when 池。
+// 非空对象进入 specific，空对象 `{}` 进入 fallback；nil、null、非法 JSON 会被丢弃，因为评估器无法命中它们。
+// 每个池按 Priority 降序稳定排序，调用方先评估 specific，避免 always-match 模板遮蔽结构化规则。
 func autoRouteCandidates(templates []promptstore.PromptTemplate) (specific, fallback []promptstore.PromptTemplate) {
 	specific = make([]promptstore.PromptTemplate, 0, len(templates))
 	fallback = make([]promptstore.PromptTemplate, 0, len(templates))
@@ -428,10 +379,8 @@ func autoRouteCandidates(templates []promptstore.PromptTemplate) (specific, fall
 	return specific, fallback
 }
 
-// isFallbackMatchWhen reports whether the raw JSON is the empty object `{}`.
-// nil / null / non-object / invalid JSON return false: only a real `{}` body
-// counts as the opt-in always-match fallback bucket. The nil check guards
-// against jsonb `null` decoding to a nil map and being mistaken for `{}`.
+// isFallbackMatchWhen 判断原始 JSON 是否为显式空对象 `{}`。
+// nil、null、非对象和非法 JSON 都返回 false，避免把 jsonb null 当成 always-match。
 func isFallbackMatchWhen(raw []byte) bool {
 	var expr map[string]any
 	if err := json.Unmarshal(raw, &expr); err != nil {
@@ -440,10 +389,8 @@ func isFallbackMatchWhen(raw []byte) bool {
 	return expr != nil && len(expr) == 0
 }
 
-// hasSpecificMatchWhen reports whether the raw JSON decodes to a non-empty
-// object with at least one filter key. Used to filter the specific pool —
-// anything else (null, [], string, number, invalid) is dropped because
-// EvaluateMatchWhen will not accept it anyway.
+// hasSpecificMatchWhen 判断原始 JSON 是否为带过滤字段的非空对象。
+// 其它形状会被丢弃，因为 EvaluateMatchWhen 不接受它们作为规则。
 func hasSpecificMatchWhen(raw []byte) bool {
 	var expr map[string]any
 	if err := json.Unmarshal(raw, &expr); err != nil {
@@ -452,19 +399,15 @@ func hasSpecificMatchWhen(raw []byte) bool {
 	return len(expr) > 0
 }
 
-// sortByPriorityDesc sorts the rows in-place by Priority descending with
-// stable secondary order (insertion order from the store).
+// sortByPriorityDesc 按 Priority 降序稳定排序，保留 store 返回的同优先级顺序。
 func sortByPriorityDesc(rows []promptstore.PromptTemplate) {
 	sort.SliceStable(rows, func(i, j int) bool {
 		return rows[i].Priority > rows[j].Priority
 	})
 }
 
-// buildMatchWhenCtx synthesizes a lightweight BuildCtx for router-phase
-// evaluation. Unlike buildStartCtx it does not touch config / registry but it
-// DOES resolve req.CWD through resolvePromptCWD so cwd_prefix / cwd_glob
-// rules actually compare against an absolute path — the UI commonly sends
-// req.CWD="." and a raw strings.HasPrefix(".", "/Users/...") would never hit.
+// buildMatchWhenCtx 构造路由阶段使用的轻量 BuildCtx。
+// 它不会访问 config 或 registry，但会把 req.CWD 规范化为绝对路径，使 cwd_prefix/cwd_glob 规则可稳定匹配。
 func buildMatchWhenCtx(req *StartRequest) contract.BuildCtx {
 	return contract.BuildCtx{
 		CWD:          resolvePromptCWD(req.CWD),

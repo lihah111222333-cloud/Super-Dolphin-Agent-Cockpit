@@ -5,6 +5,7 @@ import (
 	"time"
 )
 
+// timerDelayWithJitter 为周期任务增加最多 25% 的正向抖动，避免多实例同时触发。
 func timerDelayWithJitter(interval time.Duration) time.Duration {
 	if interval <= 0 {
 		return interval

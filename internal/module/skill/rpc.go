@@ -16,6 +16,7 @@ import (
 	platformrpc "github.com/anthropic-ai/super-agent-v3/internal/platform/rpc"
 )
 
+// namedContentHandler 将 name/content 形态的 skill RPC 包装成严格参数 handler。
 func namedContentHandler(fn func(context.Context, skillNamedContentParams) (any, error)) handler.Func {
 	return platformrpc.StrictHandler(func(ctx context.Context, p skillNamedContentParams) (any, error) {
 		return fn(ctx, p)
@@ -57,6 +58,8 @@ func skillMainFilePath(dir string) string {
 	return filepath.Join(dir, skillMainFile)
 }
 
+// skillRPCError 将 skill 模块内部错误统一映射为前端可识别的 JSON-RPC 错误。
+// 已经带 jrpc2 code 的错误保持原样，避免重复包裹后丢失调用方需要展示的 code。
 func skillRPCError(err error) error {
 	if err == nil {
 		return nil
@@ -74,6 +77,8 @@ func skillRPCError(err error) error {
 	return err
 }
 
+// skillRPCCommonError 把审批上下文外即可判定的通用错误转成 JSON-RPC 错误。
+// 缺少 cwd、文件不存在、同名冲突、参数非法和 toolstore 未配置在这里映射；未命中的错误返回 nil，继续交给审批映射或由调用方保留原始错误。
 func skillRPCCommonError(err error) error {
 	switch {
 	case errors.Is(err, ErrMissingCWD):
@@ -95,6 +100,8 @@ func skillRPCCommonError(err error) error {
 	}
 }
 
+// skillRPCApprovalError 将需要人工审批的 skill 错误保留为内部 RPC 错误。
+// 这类错误由前端按内容触发审批交互，不能被普通 invalid params 覆盖。
 func skillRPCApprovalError(err error) error {
 	switch {
 	case errors.Is(err, ErrSkillSystemReviewRequired):
@@ -104,6 +111,8 @@ func skillRPCApprovalError(err error) error {
 	}
 }
 
+// requireRequestCWD 校验 RPC 请求必须携带 cwd。
+// skill 读写都依赖项目根推导，缺失 cwd 时直接阻断，避免落到错误的默认目录。
 func requireRequestCWD(cwd string) error {
 	if strings.TrimSpace(cwd) == "" {
 		return skillRPCError(ErrMissingCWD)
@@ -122,6 +131,8 @@ func NewHandlersForService(svc Service, dreams ...contract.DreamExecutor) platfo
 	return newSkillHandlers(svc, dreams...)
 }
 
+// newSkillHandlers 汇总 skill 模块暴露给 host 的全部 RPC handler。
+// 这里仅做注册表组装，具体错误映射保留在各 handler 内，方便按能力边界返回 code。
 func newSkillHandlers(svc Service, dreams ...contract.DreamExecutor) platformrpc.HandlerMapResult {
 	var dream contract.DreamExecutor
 	if len(dreams) > 0 {
@@ -177,9 +188,8 @@ func skillToolHandlers(svc Service) handler.Map {
 	return toolstore.Handlers(impl.skillTools, impl.resolveSkillToolCWD, skillRPCError)
 }
 
-// skillCreateHandler is the host/UI RPC wrapper for project-scope skill
-// creation. It enforces cwd before scoping and then delegates to CreateSkill
-// (which routes through WriteLocal(..., scope=project)). See P21 P0a.
+// skillCreateHandler 是 host/UI 创建项目 skill 的 RPC 包装。
+// 它先校验 cwd 并写入上下文，再交给 CreateSkill 走 project scope 的 WriteLocal 路径。
 func skillCreateHandler(svc Service) func(context.Context, createSkillParams) (any, error) {
 	return func(ctx context.Context, p createSkillParams) (any, error) {
 		scopedCtx, err := scopedSkillContext(ctx, p.CWD)
@@ -403,6 +413,8 @@ func skillResolutionPreviewHandler(svc Service) func(context.Context, skillResol
 	}
 }
 
+// skillResolutionApplyHandler 执行用户确认过的 mirror 修复动作。
+// cwd 会在这里写入上下文，后续 preview hash 校验失败时直接返回 RPC 错误。
 func skillResolutionApplyHandler(svc Service) func(context.Context, skillResolutionApplyParams) (any, error) {
 	return func(ctx context.Context, p skillResolutionApplyParams) (any, error) {
 		if err := requireRequestCWD(p.CWD); err != nil {
@@ -420,6 +432,8 @@ func skillResolutionApplyHandler(svc Service) func(context.Context, skillResolut
 	}
 }
 
+// scopedSkillContext 校验 cwd 后把项目路径写入 context。
+// service 层只从 context 读取工作目录，因此这里是 RPC 边界的 fail-fast 入口。
 func scopedSkillContext(ctx context.Context, cwd string) (context.Context, error) {
 	if err := requireRequestCWD(cwd); err != nil {
 		return nil, err

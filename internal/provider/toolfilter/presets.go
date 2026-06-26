@@ -19,12 +19,8 @@ var workerDeniedTools = []string{
 	"orchestration_get_agent_report",
 }
 
-// ReviewerDecision returns a read-only tool preset for reviewer agents.
-// Wiring (next phase):
-// 1. Subscribe agent scope with HookRegistry.Subscribe("agent.tool.before", agentScope).
-// 2. Return ReviewerDecision() from the peer callback handler.
-// 3. Hook merge then intersects AllowedTools and unions DeniedTools automatically.
-// ReviewerDecision 处理reviewerdecision。
+// ReviewerDecision 返回审查 agent 的只读工具白名单。
+// 允许 LSP/文件读取类工具，显式拒绝编辑和 orchestration 生命周期工具，避免 review 角色越权修改。
 func ReviewerDecision() mcp.BeforeDecision {
 	return mcp.BeforeDecision{
 		Decision:     mcp.HookDecisionAllow,
@@ -33,8 +29,8 @@ func ReviewerDecision() mcp.BeforeDecision {
 	}
 }
 
-// WorkerDecision returns a preset that blocks orchestration tools for worker agents.
-// WorkerDecision 处理workerdecision。
+// WorkerDecision 返回 worker agent 的工具限制策略。
+// 默认允许普通工具，但拒绝 orchestration 控制类工具，防止 worker 自行拉起或操控其他 agent。
 func WorkerDecision() mcp.BeforeDecision {
 	return mcp.BeforeDecision{
 		Decision:    mcp.HookDecisionAllow,
@@ -42,8 +38,8 @@ func WorkerDecision() mcp.BeforeDecision {
 	}
 }
 
-// FullAccessDecision returns an unrestricted preset.
-// FullAccessDecision 处理fullaccessdecision。
+// FullAccessDecision 返回不追加限制的允许决策。
+// 该 preset 只用于明确受信任的控制面，调用方仍可在外层叠加 hook 规则。
 func FullAccessDecision() mcp.BeforeDecision {
 	return mcp.BeforeDecision{Decision: mcp.HookDecisionAllow}
 }

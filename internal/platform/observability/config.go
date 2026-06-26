@@ -7,8 +7,10 @@ import (
 	"strings"
 )
 
+// EnvMap 是测试用环境变量来源，实现 LookupEnv 以复用真实解析逻辑。
 type EnvMap map[string]string
 
+// Config 汇总 observability 的内存索引、JSONL、stack 和慢 RPC 阈值配置。
 type Config struct {
 	SchemaVersion           int
 	Enabled                 bool
@@ -36,6 +38,7 @@ type Config struct {
 	SlowRPCTurnStartMS      int
 }
 
+// intBound 描述一个整数环境变量的取值范围和写入 Config 的方式。
 type intBound struct {
 	key          string
 	min          int
@@ -44,12 +47,12 @@ type intBound struct {
 	set          func(*Config, int)
 }
 
-// ParseConfigFromEnv 从env解析配置。
+// ParseConfigFromEnv 从真实进程环境解析 observability 配置。
 func ParseConfigFromEnv() (Config, error) {
 	return ParseConfig(osEnv{})
 }
 
-// ParseConfig 解析配置。
+// ParseConfig 解析 observability 配置；显式关闭 tracing 时返回 disabled 配置且不继续校验其余项。
 func ParseConfig(env interface{ LookupEnv(string) (string, bool) }) (Config, error) {
 	cfg := defaultConfig(false)
 	enabled, present, err := parseOptionalBool(env, "OBS_TRACING_ENABLED")
@@ -79,24 +82,26 @@ func ParseConfig(env interface{ LookupEnv(string) (string, bool) }) (Config, err
 	return cfg, nil
 }
 
-// LookupEnv 处理lookupenv。
+// LookupEnv 从 EnvMap 读取键值，供测试注入确定性环境。
 func (env EnvMap) LookupEnv(key string) (string, bool) {
 	value, ok := env[key]
 	return value, ok
 }
 
+// osEnv 是真实 os.LookupEnv 的适配器。
 type osEnv struct{}
 
-// LookupEnv 处理lookupenv。
+// LookupEnv 代理 os.LookupEnv。
 func (osEnv) LookupEnv(key string) (string, bool) {
 	return os.LookupEnv(key)
 }
 
-// CaptureStackFor 为平台observability处理capturestack。
+// CaptureStackFor 判断指定状态是否需要捕获 stack。
 func (cfg Config) CaptureStackFor(status Status) bool {
 	return cfg.TraceStacks[status]
 }
 
+// defaultConfig 根据 debug 模式生成默认配置，并派生字符串字段大小上限。
 func defaultConfig(debug bool) Config {
 	cfg := Config{SchemaVersion: SchemaVersion, Debug: debug}
 	for _, bound := range bounds(debug) {
@@ -107,6 +112,7 @@ func defaultConfig(debug bool) Config {
 	return cfg
 }
 
+// parseDebug 读取 OBS_TRACE_DEBUG，非法 bool 会直接返回错误。
 func parseDebug(env interface{ LookupEnv(string) (string, bool) }) (bool, error) {
 	debug, _, err := parseOptionalBool(env, "OBS_TRACE_DEBUG")
 	if err != nil {
@@ -115,6 +121,7 @@ func parseDebug(env interface{ LookupEnv(string) (string, bool) }) (bool, error)
 	return debug, nil
 }
 
+// applyConfigBounds 逐项解析整数边界配置，任一越界或非法值都会 fail-fast。
 func applyConfigBounds(env interface{ LookupEnv(string) (string, bool) }, cfg *Config) error {
 	for _, bound := range bounds(cfg.Debug) {
 		value, err := parseBoundedInt(env, bound)
@@ -126,6 +133,7 @@ func applyConfigBounds(env interface{ LookupEnv(string) (string, bool) }, cfg *C
 	return nil
 }
 
+// parseOptionalBool 解析可选 bool 环境变量，空值视为未设置。
 func parseOptionalBool(env interface{ LookupEnv(string) (string, bool) }, key string) (bool, bool, error) {
 	raw, ok := env.LookupEnv(key)
 	if !ok || strings.TrimSpace(raw) == "" {
@@ -138,7 +146,7 @@ func parseOptionalBool(env interface{ LookupEnv(string) (string, bool) }, key st
 	return value, true, nil
 }
 
-// parseBoundedInt 解析boundedint。
+// parseBoundedInt 解析单个整数环境变量，并强制落在声明范围内。
 func parseBoundedInt(env interface{ LookupEnv(string) (string, bool) }, bound intBound) (int, error) {
 	raw, ok := env.LookupEnv(bound.key)
 	if !ok || strings.TrimSpace(raw) == "" {
@@ -154,6 +162,7 @@ func parseBoundedInt(env interface{ LookupEnv(string) (string, bool) }, bound in
 	return value, nil
 }
 
+// parseTraceStacks 读取需要捕获 stack 的状态集合，未配置时使用默认 slow/error/panic。
 func parseTraceStacks(env interface{ LookupEnv(string) (string, bool) }) (map[Status]bool, error) {
 	raw, ok := env.LookupEnv("OBS_TRACE_STACKS")
 	if !ok || strings.TrimSpace(raw) == "" {
@@ -162,6 +171,7 @@ func parseTraceStacks(env interface{ LookupEnv(string) (string, bool) }) (map[St
 	return parseStackStatuses(raw)
 }
 
+// parseStackStatuses 解析逗号分隔状态列表，空项或未知状态都会拒绝。
 func parseStackStatuses(raw string) (map[Status]bool, error) {
 	result := make(map[Status]bool)
 	for part := range strings.SplitSeq(raw, ",") {
@@ -177,6 +187,7 @@ func parseStackStatuses(raw string) (map[Status]bool, error) {
 	return result, nil
 }
 
+// validStackStatus 判断状态是否允许开启 stack 捕获。
 func validStackStatus(status Status) bool {
 	switch status {
 	case StatusSlow, StatusError, StatusPanic:
@@ -186,10 +197,12 @@ func validStackStatus(status Status) bool {
 	}
 }
 
+// defaultTraceStacks 返回默认捕获 stack 的状态集合。
 func defaultTraceStacks() map[Status]bool {
 	return map[Status]bool{StatusSlow: true, StatusError: true, StatusPanic: true}
 }
 
+// deriveStringMaxBytes 从事件最大体积派生单字符串上限，避免单字段挤占整条事件预算。
 func deriveStringMaxBytes(eventMaxBytes int) int {
 	limit := eventMaxBytes / 2
 	if limit > 512 {
@@ -198,7 +211,7 @@ func deriveStringMaxBytes(eventMaxBytes int) int {
 	return limit
 }
 
-// bounds 处理边界。
+// bounds 返回所有整数配置边界；debug 模式放宽内存索引容量但仍保留硬上限。
 func bounds(debug bool) []intBound {
 	indexMaxEvents := 5000
 	indexMaxTraceEvents := 128

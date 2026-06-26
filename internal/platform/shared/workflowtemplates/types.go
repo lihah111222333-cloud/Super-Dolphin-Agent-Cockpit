@@ -1,18 +1,18 @@
 package workflowtemplates
 
-// LocalizedText 保存模板入口、目录和表单字段的多语言展示文案。
+// LocalizedText 是模板 JSON/YAML 与前端列表共用的多语言文案载体。
 type LocalizedText struct {
 	Zh string `json:"zh" yaml:"zh"`
 	En string `json:"en,omitempty" yaml:"en,omitempty"`
 }
 
-// UIOption 描述 select/multi_select 字段的一个可选项。
+// UIOption 是 select/multi_select 字段在 wire payload 中的稳定选项。
 type UIOption struct {
 	Value string        `json:"value" yaml:"value"`
 	Label LocalizedText `json:"label" yaml:"label"`
 }
 
-// UIField 描述模板参数表单字段，前端据此渲染输入控件。
+// UIField 定义模板参数表单的跨模块 schema，前端渲染和后端校验共享同一组 key。
 type UIField struct {
 	Key         string        `json:"key" yaml:"key"`
 	Type        string        `json:"type" yaml:"type"`
@@ -23,7 +23,7 @@ type UIField struct {
 	Options     []UIOption    `json:"options,omitempty" yaml:"options"`
 }
 
-// Template 是仓库内置政企工作流模板的完整定义。
+// Template 是内置模板的完整 wire 定义，加载器会按该结构解析 YAML 并生成运行草案。
 type Template struct {
 	ID               string         `json:"id" yaml:"id"`
 	Version          int            `json:"version" yaml:"version"`
@@ -44,20 +44,20 @@ type Template struct {
 	FinalOutput      FinalOutput    `json:"final_output" yaml:"final_output"`
 }
 
-// TrustMetadata 标记模板来源和可信级别，发布/回滚时用于区分内置模板与用户保存版本。
+// TrustMetadata 在模板列表和保存请求中保留来源，避免内置模板与用户版本混用。
 type TrustMetadata struct {
 	Level  string `json:"level" yaml:"level"`
 	Source string `json:"source" yaml:"source"`
 }
 
-// Compatibility 记录模板需要的运行时能力，保存前必须和当前 DAG runtime 支持面匹配。
+// Compatibility 声明模板依赖的 runtime 能力，保存和渲染前都要用它做 fail-fast 校验。
 type Compatibility struct {
 	Runtime              string   `json:"runtime" yaml:"runtime"`
 	NodeTypes            []string `json:"node_types" yaml:"node_types"`
 	RequiredCapabilities []string `json:"required_capabilities" yaml:"required_capabilities"`
 }
 
-// TemplateSummary 是列表页和 DAG Designer list 工具使用的轻量模板信息。
+// TemplateSummary 是目录 API 的轻量返回体，只暴露列表筛选和预览需要的字段。
 type TemplateSummary struct {
 	ID                string        `json:"id"`
 	Version           int           `json:"version"`
@@ -76,7 +76,7 @@ type TemplateSummary struct {
 	AvailableVersions []int         `json:"available_versions"`
 }
 
-// ListFilter 描述模板目录的只读筛选条件。
+// ListFilter 是模板目录查询的进程内筛选条件，不参与 JSON wire 兼容。
 type ListFilter struct {
 	Category         string
 	BusinessFlow     string
@@ -84,7 +84,7 @@ type ListFilter struct {
 	SupportsSchedule *bool
 }
 
-// DAGTemplate 描述模板渲染后的 DAG 草案结构。
+// DAGTemplate 保存可参数化的 DAG 定义模板，渲染阶段才会替换模板变量。
 type DAGTemplate struct {
 	DAGKeyTemplate      string         `json:"dag_key_template" yaml:"dag_key_template"`
 	TitleTemplate       string         `json:"title_template" yaml:"title_template"`
@@ -94,7 +94,7 @@ type DAGTemplate struct {
 	Nodes               []NodeTemplate `json:"nodes" yaml:"nodes"`
 }
 
-// NodeTemplate 是模板节点定义；config 保持开放对象以贴合 DAG schema。
+// NodeTemplate 是模板节点的 wire 形态；config 保持开放对象以兼容 DAG 节点 schema。
 type NodeTemplate struct {
 	NodeKey    string         `json:"node_key" yaml:"node_key"`
 	Title      string         `json:"title" yaml:"title"`
@@ -104,7 +104,7 @@ type NodeTemplate struct {
 	Config     map[string]any `json:"config" yaml:"config"`
 }
 
-// ValidationRule 保存模板级 fail-fast 约束。
+// ValidationRule 汇总模板级 fail-fast 约束，防止渲染出缺少共享文件或终态节点的 DAG。
 type ValidationRule struct {
 	SharedFilePrefix         string   `json:"sharedfile_prefix,omitempty" yaml:"sharedfile_prefix"`
 	SharedFilePrefixes       []string `json:"sharedfile_prefixes,omitempty" yaml:"sharedfile_prefixes"`
@@ -112,14 +112,14 @@ type ValidationRule struct {
 	RequireFinalNodeKey      bool     `json:"require_final_node_key" yaml:"require_final_node_key"`
 }
 
-// FinalOutput 描述最终交付节点和输出路径。
+// FinalOutput 绑定最终交付节点和路径模板，调用方据此定位产物但不直接写文件。
 type FinalOutput struct {
 	NodeKey      string `json:"node_key" yaml:"node_key"`
 	Kind         string `json:"kind" yaml:"kind"`
 	PathTemplate string `json:"path_template" yaml:"path_template"`
 }
 
-// RenderRequest 把模板和用户参数渲染成 DAG 草案。
+// RenderRequest 是渲染 API 的入参，兼容新旧 user_inputs/values 两种参数来源。
 type RenderRequest struct {
 	TemplateID     string         `json:"template_id"`
 	Version        any            `json:"version,omitempty"`
@@ -129,7 +129,7 @@ type RenderRequest struct {
 	TemplateLocale string         `json:"template_locale,omitempty"`
 }
 
-// DAGDraft 是模板渲染后的可预览草案，不负责写入 DAG 存储。
+// DAGDraft 是模板渲染后的预览结果，保存前不会写入 DAG 运行态存储。
 type DAGDraft struct {
 	TemplateID      string         `json:"template_id"`
 	TemplateVersion int            `json:"template_version"`
@@ -144,7 +144,7 @@ type DAGDraft struct {
 	Metadata        map[string]any `json:"metadata"`
 }
 
-// SaveTemplateRequest 把已验证 DAG 草案保存成可复用模板版本，不触碰 runtime run/node 状态。
+// SaveTemplateRequest 是保存模板版本的 wire 请求，只持久化模板定义而不触碰运行态 run/node。
 type SaveTemplateRequest struct {
 	TemplateID       string         `json:"template_id"`
 	Version          int            `json:"version"`

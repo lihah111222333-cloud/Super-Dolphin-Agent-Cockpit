@@ -26,23 +26,20 @@ var Module = fx.Module("provider.codexapp",
 		provideDriverFactory,
 		fx.Annotate(provideContractDriverFactory, fx.ResultTags(`group:"drivers"`)),
 		fx.Annotate(provideDreamExecutorProvider, fx.ResultTags(`group:"dream_executors"`)),
-		// P21 Track B pool 基础设施：ServerPool + 周期 EvictIdle Runner。
-		// Codex sessions with an explicit identity route through this pool so
-		// session shutdown owns the app-server process group and sidecars.
+		// 显式 Codex identity 的会话通过 ServerPool 获取独立 app-server。
+		// 这样 session shutdown 才能拥有对应进程组和 sidecar 的释放边界。
 		provideServerPool,
 		newPoolEvictRunner,
 		fx.Annotate(poolEvictRunnerAsRunner, fx.ResultTags(`group:"runners"`)),
-		// P22 P1a: PeerSupervisor is the single RunnerModule owner for mcp-orch /
-		// mcp-lsp peer processes. See docs/plans/迁移/p22/P1a_CodexAppPeerSupervisor.md.
-		// Replaces the pre-P1a fx.Invoke(spawnToolbridgePeers) + fire-and-forget
-		// watchAndRestartPeer goroutines.
+		// PeerSupervisor 是 mcp-orch/mcp-lsp singleton peer 的唯一 Runner owner。
+		// peer 启动、重启和退出收敛到这里，避免散落 goroutine 绕过生命周期管理。
 		fx.Annotate(provideDefaultPeerSupervisor, fx.ResultTags(`group:"runners"`)),
 	),
 	fx.Invoke(RegisterTranslators),
 )
 
-// provideDefaultPeerSupervisor is the production constructor for PeerSupervisor.
-// Split out so the fx.Annotate above can type the result as platformrunner.Runner.
+// provideDefaultPeerSupervisor 构造生产使用的 PeerSupervisor runner。
+// 独立函数让 fx.Annotate 可以把具体类型收窄为 platformrunner.Runner。
 func provideDefaultPeerSupervisor(mgr *ServerManager, logger *slog.Logger, cfg *contract.Config) platformrunner.Runner {
 	return NewPeerSupervisor(mgr, logger, WithPeerWorkspaceRoots(configuredPeerWorkspaceRoots(cfg)))
 }
@@ -60,7 +57,8 @@ func configuredPeerWorkspaceRoots(cfg *contract.Config) func() []string {
 	}
 }
 
-// DriverFactoryParams holds the fx-injected dependencies for NewDriverFactory.
+// DriverFactoryParams 收集 NewDriverFactory 的 fx 依赖。
+// Pool 和 Mirror 参与 provider home 隔离；缺失时会在会话准备阶段 fail-fast。
 type DriverFactoryParams struct {
 	fx.In
 
@@ -85,10 +83,8 @@ func provideContractDriverFactory(factory *DriverFactory) contract.DriverFactory
 	return factory.DriverFactory
 }
 
-// ServerManager owns a single codex app-server process. Each agent
-// session creates its own independent WebSocket connection to
-// ServerURL(), providing natural isolation: one broken WS only affects
-// the owning session.
+// ServerManager 管理 legacy 共享 Codex app-server 进程。
+// 每个 session 仍独立建立 WebSocket，单条连接损坏不会直接拖垮其他 session。
 type ToolHandler func(context.Context, RawMessage) (any, error)
 
 type ServerManager struct {
@@ -106,16 +102,16 @@ type Responder interface {
 	RespondWithID(id json.RawMessage, result any, callErr error) error
 }
 
-// ServerManagerParams are the fx dependencies for NewServerManager.
+// ServerManagerParams 是 NewServerManager 需要的 fx 依赖。
+// PIDRegistry 用于启动和关闭时回收遗留子进程。
 type ServerManagerParams struct {
 	fx.In
 	Lifecycle   fx.Lifecycle
 	PIDRegistry *pidregistry.Registry
 }
 
-// ServerPoolParams carries the fx dependencies for provideServerPool.
-// The logger and pid registry are optional so downstream consumers can
-// construct the pool in tests without wiring the full app graph.
+// ServerPoolParams 承载 provideServerPool 的 fx 依赖。
+// logger 和 PID registry 可选，便于测试只构造 pool 而不接入完整应用图。
 type ServerPoolParams struct {
 	fx.In
 
@@ -124,16 +120,9 @@ type ServerPoolParams struct {
 	PIDRegistry *pidregistry.Registry `optional:"true"`
 }
 
-// provideServerPool builds a production ServerPool using the
-// transport-backed Spawner. The pool is closed on fx Stop so every
-// remaining app-server child receives SIGTERM before the process tree
-// tears down.
-//
-// The pool is intentionally provided independently of the legacy
-// ServerManager. Consumers that opt into pool-backed spawning will
-// take *ServerPool via fx; existing consumers keep talking to
-// ServerManager unchanged. That split lets the cutover land in a
-// follow-up PR once we have real codex-binary validation.
+// provideServerPool 用 transport-backed spawner 构造生产 ServerPool。
+// fx Stop 会关闭 pool，确保仍被占用的 app-server 子进程先收到 SIGTERM 再释放进程树。
+// 它与 legacy ServerManager 并行提供，调用方只有显式选择 pool 时才获得独立 app-server。
 func provideServerPool(p ServerPoolParams) *ServerPool {
 	logger := p.Logger
 	if logger == nil {
@@ -147,8 +136,8 @@ func provideServerPool(p ServerPoolParams) *ServerPool {
 	return pool
 }
 
-// NewServerManager creates and registers a ServerManager with the fx lifecycle.
-// NewServerManager 创建服务端manager。
+// NewServerManager 创建共享 app-server 管理器并注册 fx 生命周期钩子。
+// 启动时只做一次遗留进程清理，停止时负责关闭共享 transport 和 PID registry。
 func NewServerManager(p ServerManagerParams) *ServerManager {
 	m := &ServerManager{pidRegistry: p.PIDRegistry}
 	p.Lifecycle.Append(fx.Hook{
@@ -161,23 +150,24 @@ func NewServerManager(p ServerManagerParams) *ServerManager {
 	return m
 }
 
-// ServerURL returns the ws:// address of the shared app-server.
-// ServerURL 处理服务端URL。
+// ServerURL 返回共享 app-server 的 ws:// 地址。
+// 调用方只读这个快照，真正的连接有效性仍由 Running 或会话连接阶段校验。
 func (m *ServerManager) ServerURL() string {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return m.serverURL
 }
 
-// Running returns true if the shared app-server process is alive.
-// Running 返回底层进程是否仍在运行。
+// Running 判断共享 app-server 是否处于 ready 且底层进程仍存活。
+// 这里在锁内读取状态，避免 stop/start 与 UI 轮询看到不一致快照。
 func (m *ServerManager) Running() bool {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return m.ready && m.process != nil && m.process.processRunning()
 }
 
-// EnsureRunning 确保running。
+// EnsureRunning 确保共享 app-server 已启动并通过一次健康连接。
+// 进程不存在或不可用时会重新启动，启动失败直接返回错误而不伪造 serverURL。
 func (m *ServerManager) EnsureRunning(ctx context.Context) error {
 	if m == nil {
 		return nil
@@ -191,7 +181,8 @@ func (m *ServerManager) EnsureRunning(ctx context.Context) error {
 	return m.startLocked(ctx)
 }
 
-// SetToolHandler 设置工具处理器。
+// SetToolHandler 替换共享 app-server 回调到宿主的工具处理器。
+// handler 在锁内切换，避免会话启动期间读到半更新状态。
 func (m *ServerManager) SetToolHandler(h ToolHandler) {
 	if m == nil {
 		return
@@ -221,17 +212,13 @@ func (m *ServerManager) cleanupStaleProcesses() {
 
 func (m *ServerManager) cleanupStaleProcessesOnce() {
 	protected := currentRuntimeProtectionSet()
-	// Clean up processes registered by dead app instances via PID registry.
-	// This is precise (only kills processes we actually spawned) and fast
-	// (batch SIGTERM with a single grace period wait).
+	// 先清理 PID registry 记录的死实例进程，只终止确认为本应用创建过的子进程。
 	if killed := pidregistry.CleanupStaleWithProtectedPIDs(protected); killed > 0 {
 		pkglogger.Info("server_manager: cleaned stale registry processes at startup",
 			"killed", killed)
 	}
 
-	// Legacy fallback: also scan for orphaned processes that predate the
-	// PID registry (e.g. from older builds). This can be removed once all
-	// running builds include the PID registry.
+	// 再扫描早于 PID registry 的遗留孤儿进程，覆盖旧版本崩溃后留下的 sidecar。
 	if killed := cleanOrphanedMCPProcesses(protected); killed > 0 {
 		pkglogger.Info("server_manager: cleaned orphaned MCP processes at startup",
 			"killed", killed)
@@ -250,12 +237,11 @@ func (m *ServerManager) startLocked(ctx context.Context) error {
 		m.err = err
 		return err
 	}
-	// Register the app-server PID for crash-safe cleanup.
+	// 注册 app-server PID，宿主崩溃后的下一次启动可精确回收。
 	if pid := t.localPID(); pid > 0 {
 		m.pidRegistry.Register(pid, "codex-app-server", nil)
 	}
-	// Perform a single health-check connection+initialize to verify the
-	// process started correctly. Sessions will each create their own WS.
+	// 先做一次健康连接和 initialize，后续 session 会各自建立独立 WebSocket。
 	if err := t.establish(startupCtx); err != nil {
 		_ = t.Kill()
 		m.err = err
@@ -269,10 +255,9 @@ func (m *ServerManager) startLocked(ctx context.Context) error {
 	return nil
 }
 
-// stop 停止codexapp provider。
+// stop 停止共享 app-server transport 并清理残留 sidecar。
+// peer 进程由 PeerSupervisor 拥有，这里只处理 ServerManager 自己启动的 app-server。
 func (m *ServerManager) stop(ctx context.Context) error {
-	// P22 P1a: peer stop/drain moved to PeerSupervisor.shutdown; ServerManager
-	// only owns the shared app-server transport from this point onwards.
 	m.mu.Lock()
 	m.ready = false
 	process := m.process
@@ -290,7 +275,7 @@ func (m *ServerManager) stop(ctx context.Context) error {
 	pkglogger.Info("server_manager: stopping shared app-server")
 	err := process.shutdownTransport(true)
 
-	// Give MCP sidecar processes a moment to exit after codex receives SIGTERM.
+	// 给 Codex 收到 SIGTERM 后退出 MCP sidecar 的时间，再做残留扫描。
 	select {
 	case <-time.After(mcpOrphanCleanupGracePeriod):
 	case <-ctx.Done():
@@ -298,15 +283,15 @@ func (m *ServerManager) stop(ctx context.Context) error {
 
 	cleanResidualProcesses()
 
-	// 修复：确保所有进程都已经妥善停止或被清理后，再从 /tmp 中删除 PID 注册表文件
-	// 这样可以防止在长时间退出的过程中发生意外导致孤儿逃逸。
+	// 确认进程停止或清理完成后再关闭 PID registry，避免退出中途失去崩溃恢复线索。
 	if registry != nil {
 		registry.Close()
 	}
 	return err
 }
 
-// cleanResidualProcesses sweeps any MCP or app-server orphans after shutdown.
+// cleanResidualProcesses 在关闭后扫描并回收残留 MCP 或 app-server 孤儿。
+// 保护集会排除当前宿主进程树和调用方传入的活跃 server，避免误杀仍被使用的进程。
 func cleanResidualProcesses() {
 	protected := currentRuntimeProtectionSet()
 	if killed := cleanOrphanedMCPProcesses(protected); killed > 0 {
@@ -326,18 +311,16 @@ func resolveLocalTurnID(requested, fallback string) string {
 	return strings.TrimSpace(fallback)
 }
 
-// mcpProcessInfo holds PID and PPID for a discovered MCP sidecar process.
+// mcpProcessInfo 描述一次进程表扫描发现的 MCP sidecar。
+// PID/PPID 用于判断是否已脱离当前运行中的应用树。
 type mcpProcessInfo struct {
 	pid    int
 	ppid   int
 	binary string
 }
 
-// cleanOrphanedMCPProcesses finds mcp-orch and mcp-lsp processes that are
-// NOT part of the current application process tree. Such processes are
-// orphans from a previous run (crash, SIGKILL, run-debug restart, etc.).
-//
-// Returns the number of processes killed.
+// cleanOrphanedMCPProcesses 清理不属于当前应用进程树的 mcp-orch/mcp-lsp。
+// 返回实际 kill 成功的数量；受保护 PID 会跳过，防止误杀当前或上游工具进程。
 func cleanOrphanedMCPProcesses(extraProtectedPIDs map[int]struct{}) int {
 	allProcs, mcpProcs := discoverProcesses()
 	if len(mcpProcs) == 0 {
@@ -371,8 +354,7 @@ func filterOrphanMCPProcesses(procs []mcpProcessInfo, protectedPIDs map[int]stru
 		if proc.pid <= 1 {
 			continue
 		}
-		// A process with a live non-init parent belongs to another running
-		// application/tool runner, not to stale orphan cleanup.
+		// 仍有非 init 父进程的 MCP 属于其他运行中应用或工具，不按孤儿清理。
 		if proc.ppid > 1 {
 			continue
 		}
@@ -384,12 +366,8 @@ func filterOrphanMCPProcesses(procs []mcpProcessInfo, protectedPIDs map[int]stru
 	return orphans
 }
 
-// discoverProcesses returns:
-//   - allProcs: map[pid]ppid for the entire process table (used for tree building)
-//   - mcpProcs: filtered list of mcp-orch/mcp-lsp entries
-//
-// The implementation is platform-specific: Unix shells out to `ps`, while
-// Windows currently returns nil (Phase 2 will replace it with EnumProcesses).
+// discoverProcesses 返回完整 PID 父子关系和已过滤的 MCP sidecar 列表。
+// 平台差异封装在 discoverAllProcesses 中，调用方只依赖这里的抽象结果。
 func discoverProcesses() (allProcs map[int]int, mcpProcs []mcpProcessInfo) {
 	return discoverAllProcesses()
 }
@@ -466,9 +444,8 @@ func mergeProtectedPIDs(protected, extra map[int]struct{}) map[int]struct{} {
 	return protected
 }
 
-// buildProcessTree returns all PIDs that are descendants of rootPID
-// (including rootPID itself). Uses a children-map + BFS for O(N) traversal.
-// buildProcessTree 构建进程tree。
+// buildProcessTree 返回 rootPID 及其所有 descendant PID。
+// 先建 children map 再 BFS，避免在进程表上反复线性扫描。
 func buildProcessTree(rootPID int, allProcs map[int]int) map[int]struct{} {
 	children := make(map[int][]int, len(allProcs))
 	for pid, ppid := range allProcs {
@@ -491,11 +468,8 @@ func buildProcessTree(rootPID int, allProcs map[int]int) map[int]struct{} {
 	return tree
 }
 
-// buildProcessAncestry returns all PIDs on rootPID's parent chain (including
-// rootPID itself, excluding PID 1). It is used by orphan cleanup to avoid
-// killing an ancestor app-server when this binary is launched from an existing
-// tool runner: killing that ancestor's descendants can kill the current process.
-// buildProcessAncestry 构建进程ancestry。
+// buildProcessAncestry 返回 rootPID 到父链上的所有 PID，不包含 PID 1。
+// 孤儿清理用它保护上游工具或宿主，避免杀祖先进程时连带终止当前进程。
 func buildProcessAncestry(rootPID int, allProcs map[int]int) map[int]struct{} {
 	ancestry := make(map[int]struct{}, 8)
 	for pid := rootPID; pid > 1; {
@@ -513,10 +487,9 @@ func buildProcessAncestry(rootPID int, allProcs map[int]int) map[int]struct{} {
 	return ancestry
 }
 
-// killMCPProcess is implemented per-platform in process_unix.go /
-// process_windows.go.
+// killMCPProcess 由 process_unix.go 和 process_windows.go 分别实现。
+// 调用方只关心 PID 终止语义，平台细节不泄漏到清理流程。
 
-// mcpOrphanCleanupGracePeriod is the delay after stopping the codex process
-// before scanning for residual MCP sidecars. This gives the codex process
-// time to propagate SIGTERM to its MCP children.
+// mcpOrphanCleanupGracePeriod 是停止 Codex 后等待 MCP sidecar 自行退出的宽限期。
+// 宽限期结束后才扫描残留，减少正常退出路径上的误报和多余强杀。
 const mcpOrphanCleanupGracePeriod = 500 * time.Millisecond

@@ -9,7 +9,7 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 )
 
-// NotifyConfigChanged 处理notify配置changed。
+// NotifyConfigChanged 向订阅配置 topic 的 peer 广播版本变更，payload 会复制后再发送。
 func (r *ToolRegistry) NotifyConfigChanged(ctx context.Context, topic string, scope *dto.SelectorScope, configVersion int64, payload json.RawMessage) error {
 	topic = strings.TrimSpace(topic)
 	if topic == "" {
@@ -28,41 +28,42 @@ func (r *ToolRegistry) NotifyConfigChanged(ctx context.Context, topic string, sc
 	})
 }
 
-// NotifyBySelector 按selector处理notify。
+// NotifyBySelector 根据完整 selector 找到 active peer 并走统一 fanout 通知路径。
 func (r *ToolRegistry) NotifyBySelector(ctx context.Context, sel dto.Selector, method string, params any) error {
 	return r.notifyTargets(ctx, r.IntersectTargets(sel), method, params)
 }
 
-// CallbackHookBefore 处理callbackhookbefore。
+// CallbackHookBefore 向订阅 topic 的 hook peer 广播 before 回调，不聚合决策。
 func (r *ToolRegistry) CallbackHookBefore(ctx context.Context, topic string, payload dto.HookPayload) error {
 	return r.callbackHookTopic(ctx, topic, dto.MethodHookBefore, payload)
 }
 
-// CallbackHookCheck 处理callbackhookcheck。
+// CallbackHookCheck 向订阅 topic 的 hook peer 广播 check 回调，不聚合决策。
 func (r *ToolRegistry) CallbackHookCheck(ctx context.Context, topic string, payload dto.HookPayload) error {
 	return r.callbackHookTopic(ctx, topic, dto.MethodHookCheck, payload)
 }
 
-// CallbackHookAfter 处理callbackhook后置。
+// CallbackHookAfter 向订阅 topic 的 hook peer 广播 after 回调，用于通知清理或审计。
 func (r *ToolRegistry) CallbackHookAfter(ctx context.Context, topic string, payload dto.HookPayload) error {
 	return r.callbackHookTopic(ctx, topic, dto.MethodHookAfter, payload)
 }
 
-// CallbackBefore 处理callbackbefore。
+// CallbackBefore 对指定租约执行 before 回调并返回该 peer 的决策结果。
 func (r *ToolRegistry) CallbackBefore(ctx context.Context, lease dto.LeaseKey, payload dto.HookPayload) (dto.BeforeDecision, error) {
 	return callbackHookDecision[dto.BeforeDecision](ctx, r, lease, dto.MethodHookBefore, payload)
 }
 
-// CallbackCheck 处理callbackcheck。
+// CallbackCheck 对指定租约执行 check 回调并返回该 peer 的决策结果。
 func (r *ToolRegistry) CallbackCheck(ctx context.Context, lease dto.LeaseKey, payload dto.HookPayload) (dto.CheckDecision, error) {
 	return callbackHookDecision[dto.CheckDecision](ctx, r, lease, dto.MethodHookCheck, payload)
 }
 
-// CallbackAfter 处理callback后置。
+// CallbackAfter 对指定租约执行 after 回调并返回该 peer 的结果。
 func (r *ToolRegistry) CallbackAfter(ctx context.Context, lease dto.LeaseKey, payload dto.HookPayload) (dto.AfterDecision, error) {
 	return callbackHookDecision[dto.AfterDecision](ctx, r, lease, dto.MethodHookAfter, payload)
 }
 
+// callbackHookTopic 按 topic 广播 hook payload，发送前会复制 payload 并写入规范化 topic。
 func (r *ToolRegistry) callbackHookTopic(ctx context.Context, topic, method string, payload dto.HookPayload) error {
 	topic = strings.TrimSpace(topic)
 	if topic == "" {
@@ -73,6 +74,7 @@ func (r *ToolRegistry) callbackHookTopic(ctx context.Context, topic, method stri
 	return r.callbackTargets(ctx, r.snapshotTargets(r.bySubscription, topic), method, payload)
 }
 
+// callbackHookDecision 对单个租约执行带返回值的 hook callback，失败计数复用 fanout 目标调用逻辑。
 func callbackHookDecision[T any](
 	ctx context.Context,
 	registry *ToolRegistry,
@@ -98,6 +100,7 @@ func callbackHookDecision[T any](
 	return decision, err
 }
 
+// callbackTargets 把无返回值 hook callback 包装成通用 fanoutOperation。
 func (r *ToolRegistry) callbackTargets(ctx context.Context, targets []sendTarget, method string, params any) error {
 	return r.fanoutTargets(ctx, targets, method, fanoutOperation{
 		name: "callback",

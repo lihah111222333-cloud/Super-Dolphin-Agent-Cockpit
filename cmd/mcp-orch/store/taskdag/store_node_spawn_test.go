@@ -14,20 +14,12 @@ import (
 	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
 )
 
-// F1.5 / ADR-009 鈥?RecordNodeSpawn 鍐欏叆鍥炶矾鍗曟祴銆?
-//
-// 鐢ㄤ緥瑕嗙洊锛?
-//   1. 棣栨 spawn锛歴pawning_thread_id 浠庣┖鍐欏叆 thread-1锛屼笉 append events
-//      锛堝巻鍙茬┖銆佹棤鍙繚鐣欑殑 prev锛夈€?
-//   2. 閲嶈瘯 spawn锛歴pawning_thread_id 浠?thread-1 瑕嗙洊涓?thread-2锛屼笖鍚屼簨鍔″唴
-//      缁?dag_key 褰撳墠 running run 鐨?events 鏁扮粍 append 涓€鏉?node_spawn 鍘嗗彶銆?
-//   3. 閲嶈瘯 + 鏃?running run锛氳鐩栧彂鐢熶絾 events append silently miss
-//      锛圓ppendedEvent=false锛夛紝涓嶈涓洪敊璇紙spawn 鍘嗗彶鏄緟鍔╋紝缂哄け涓嶅簲鐮村潖 spawn 涓昏矾锛夈€?
-//   4. 鍏ュ弬闃插尽锛氱┖ thread_id 鎷掔粷锛涚┖ dag/node_key 鎷掔粷銆?
+// RecordNodeSpawn 的回归测试覆盖节点派生线程写入和重试覆盖。
+// 首次 spawn 只写 spawning_thread_id；重试 spawn 会追加 node_spawn 事件。
+// 缺少 running run 或关键入参为空时必须显式失败，避免派生线程历史丢失后仍被当成成功。
 
-// newSpawnRecorderTestStore 鍖呰 newTaskDAGTestStore 鐨勮仛鍚?Store 杩斿洖鍊硷紝鎻愬彇 narrow
-// port NodeSpawnRecorderStore銆侳1.5 鍚庣画淇锛氫粠鑱氬悎 Store 涓媶鍑?NodeSpawnRecorderStore
-// 浠ヨ繃 archtest TestInterfaceIsolationBudgets锛屾墍浠ユ祴璇曚笉鑳藉啀鐩存帴杩?Store 鎺ュ彛璋冦€?
+// newSpawnRecorderTestStore 从聚合测试 store 中取出 NodeSpawnRecorderStore 窄接口。
+// 测试只通过派生线程记录接口调用，防止回归成依赖完整 Store 的路径。
 func newSpawnRecorderTestStore() (NodeSpawnRecorderStore, *fakeTaskDAGDB, time.Time) {
 	s, db, now := newTaskDAGTestStore()
 	return s.(NodeSpawnRecorderStore), db, now
@@ -59,7 +51,7 @@ func TestRecordNodeSpawn_FirstSpawn_WritesFieldNoEvents(t *testing.T) {
 	if res.AppendedEvent {
 		t.Fatalf("AppendedEvent = true, want false on first spawn (no history yet)")
 	}
-	// Run.events should remain empty since first spawn doesn't write history.
+	// 首次 spawn 没有前序线程，run.events 必须保持为空。
 	run := db.runs["run-A"]
 	if len(run.Events) != 0 {
 		t.Fatalf("run.events = %q, want empty on first spawn", string(run.Events))
@@ -71,14 +63,14 @@ func TestRecordNodeSpawn_RetryOverwrite_AppendsEvent(t *testing.T) {
 	runID := seedRunID(db, "dag-1", "run-A")
 	seedRuntimeNode(t, db, now, runID, "n1", nil, "running", "agent-a")
 
-	// 鍏堝啓涓€閬?thread-1锛堥娆?spawn锛夈€?
+	// 先写入 thread-1，模拟首次 spawn。
 	mustRecordNodeSpawn(t, store, runID, "thread-1", "first spawn")
 
-	// 鍐嶅啓 thread-2 鈥斺€?閲嶈瘯鍦烘櫙锛氭棫 thread-1 搴旇繘 events 鍘嗗彶銆?
+	// 再写入 thread-2，模拟同一节点重试；旧线程应进入 run.events。
 	res := mustRecordNodeSpawn(t, store, runID, "thread-2", "retry spawn")
 	assertRetrySpawnResult(t, res, "thread-2", "thread-1", "run-A")
 
-	// 鏍￠獙 events 涓甫浜嗕竴鏉?node_spawn 鍘嗗彶锛坧rev_thread_id=thread-1, thread_id=thread-2锛夈€?
+	// 校验 events 中只追加了一条 node_spawn 覆盖历史。
 	assertSingleNodeSpawnEvent(t, db.runs["run-A"].Events, "n1", "thread-1", "thread-2")
 }
 
@@ -128,18 +120,16 @@ func TestRecordNodeSpawn_RetryWithoutRunningRunFailsFast(t *testing.T) {
 	store, db, now := newSpawnRecorderTestStore()
 	const runID int64 = 101
 	seedRuntimeNode(t, db, now, runID, "n1", nil, "running", "agent-a")
-	// 鏁呮剰涓?seedRun 鈥斺€?妯℃嫙銆孌AG 鏈夎妭鐐逛絾娌℃湁 running run銆嶏紙M3 涔嬪墠
-	// dispatcher-only 璺緞甯歌鐘舵€侊級銆?
+	// 不 seed running run，模拟节点存在但运行记录缺失的状态。
 
-	// First spawn 鍐欏叆銆?
+	// 首次 spawn 只写节点字段，不需要 run 事件。
 	if _, err := store.RecordNodeSpawn(context.Background(), RecordNodeSpawnInput{
 		DagKey: "dag-1", NodeKey: "n1", RunID: runID, ThreadID: "thread-1",
 	}); err != nil {
 		t.Fatalf("first spawn error = %v", err)
 	}
 
-	// 閲嶈瘯锛氳鐩栦細鍛戒腑缂哄け running run锛涗弗鏍?Fail-Fast 涓嬪繀椤昏繑鍥為敊璇紝
-	// 涓嶈兘鎶?event append 澶辫触浼鎴愭垚鍔熴€?
+	// 重试会尝试追加事件；缺少 running run 时必须失败，不能把事件缺失伪装成成功。
 	_, err := store.RecordNodeSpawn(context.Background(), RecordNodeSpawnInput{
 		DagKey: "dag-1", NodeKey: "n1", RunID: runID, ThreadID: "thread-2",
 	})
@@ -234,7 +224,7 @@ func TestRecordNodeSpawn_InputValidation(t *testing.T) {
 	cases := []struct {
 		name string
 		in   RecordNodeSpawnInput
-		want string // substring of expected error
+		want string // 期望错误片段
 	}{
 		{"empty_thread_id", RecordNodeSpawnInput{DagKey: "dag-1", NodeKey: "n1"}, "thread_id required"},
 		{"whitespace_thread_id", RecordNodeSpawnInput{DagKey: "dag-1", NodeKey: "n1", ThreadID: "   "}, "thread_id required"},
@@ -262,16 +252,9 @@ func stringValue(p *string) string {
 	return *p
 }
 
-// TestRecordNodeSpawn_EventsRingTrim_KeepsLastFifty 楠岃瘉绔彛鏀舵暃 batch 瀹炶鐨?
-// task_dag_runs.events 鐜舰鎴柇锛歛ppend 澶氫簬 50 鏉?node_spawn 浜嬩欢鏃讹紝浠呬繚鐣?
-// 鏈€杩?50 鏉★紙鎸夋椂闂村簭鏈€鏃╃殑琚涪鍑猴級銆俁1 P1 #5 + R2 P0 #2 淇銆?
-//
-// 娴佺▼锛氳鍚屼竴鑺傜偣閲嶈瘯 N 娆★紙thread-1 鈫?thread-2 鈫?... 鈫?thread-N锛夛紝姣忔閲嶈瘯
-// 锛坧rev != new锛夐兘浼?append 涓€鏉′簨浠躲€傛楠?N=60 鏃?events 闀垮害=50锛屼笖鏈€鏃╃殑
-// 10 鏉″凡琚涪寮冿紝鏈€杩?50 鏉?thread_id 鏄?thread-11 鈥?thread-60 鑼冨洿銆?
-//
-// 50 闃堝€兼槸 AppendTaskDagRunEvent SQL 鍐?CASE 鍐欐鐨勶紱闃堝€煎彉鏇存椂鏀?SQL 鍚庢湰娴嬭瘯
-// 璺熸敼 expectedCap 鍗冲彲銆?
+// TestRecordNodeSpawn_EventsRingTrim_KeepsLastFifty 验证 run.events 只保留最近 50 条 node_spawn 事件。
+// 连续 60 次 spawn 中第一次不写事件，后续重试各写一条；最终应保留 thread-11 到 thread-60 的覆盖历史。
+// expectedCap 必须与 AppendTaskDagRunEvent SQL 中的截断上限同步。
 func TestRecordNodeSpawn_EventsRingTrim_KeepsLastFifty(t *testing.T) {
 	const expectedCap = 50
 	const totalSpawns = 60
@@ -295,12 +278,11 @@ func TestRecordNodeSpawn_EventsRingTrim_KeepsLastFifty(t *testing.T) {
 	if err := json.Unmarshal(run.Events, &arr); err != nil {
 		t.Fatalf("decode events: %v; raw=%s", err, run.Events)
 	}
-	// 60 spawns: 绗?1 娆￠鍙戜笉鍐?events锛坧rev 绌猴級锛岀 2..60 娆℃瘡娆″啓 1 鏉?鈫?鍏?59 鏉°€?
-	// 59 > 50 鈫?鎴柇淇濈暀鏈€鍚?50 鏉°€傛渶鏃╀繚鐣欑殑鏄 11 娆″啓鍏ョ殑浜嬩欢锛堣鐩?thread-10鈫抰hread-11锛夈€?
+	// 60 次 spawn 中第 1 次不写事件，第 2..60 次各写 1 条；59 条超过上限后只保留最后 50 条。
 	if len(arr) != expectedCap {
 		t.Fatalf("events length = %d, want %d (ring trim)", len(arr), expectedCap)
 	}
-	// 绗竴鏉′繚鐣欑殑搴旀槸 thread_id=thread-11銆乸rev_thread_id=thread-10銆?
+	// 第一条保留事件应来自 thread-10 覆盖为 thread-11 的那次重试。
 	first := arr[0]
 	if first["thread_id"] != "thread-11" {
 		t.Fatalf("first kept event thread_id = %v, want thread-11", first["thread_id"])
@@ -308,7 +290,7 @@ func TestRecordNodeSpawn_EventsRingTrim_KeepsLastFifty(t *testing.T) {
 	if first["prev_thread_id"] != "thread-10" {
 		t.Fatalf("first kept event prev_thread_id = %v, want thread-10", first["prev_thread_id"])
 	}
-	// 鏈€鍚庝竴鏉″簲鏄渶鏂扮殑锛歵hread-60 / prev thread-59銆?
+	// 最后一条应是最新的 thread-59 覆盖为 thread-60。
 	last := arr[expectedCap-1]
 	if last["thread_id"] != "thread-60" {
 		t.Fatalf("last event thread_id = %v, want thread-60", last["thread_id"])
@@ -318,7 +300,7 @@ func TestRecordNodeSpawn_EventsRingTrim_KeepsLastFifty(t *testing.T) {
 	}
 }
 
-// itoa 鏈湴灏忚浆瀛楃涓诧紝閬垮厤寮?strconv锛堜繚鎸?import 琛ㄥ共鍑€锛夈€?
+// itoa 是测试本地的小整数转字符串工具，避免为了断言数据额外引入 strconv。
 func itoa(n int) string {
 	if n == 0 {
 		return "0"

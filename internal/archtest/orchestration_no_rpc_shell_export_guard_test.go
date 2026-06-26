@@ -7,16 +7,12 @@ import (
 	"testing"
 )
 
-// TestOrchestrationNoRPCShellExport enforces P22 P4 §117 / §277: the
-// cmd/mcp-orch/orchestration subpackage must not export the previous
-// `NewOrchestrationHandlers` constructor as a reusable RPC protocol
-// shell. The root assembly (cmd/mcp-orch) consumes the RPC handler
-// bundle exclusively through the explicitly-named `ProvideRPCFacade`
-// facade, and no other subpackage is permitted to type on the bundle.
+// TestOrchestrationNoRPCShellExport 防止 orchestration 子包重新导出旧 RPC 壳构造器。
+// cmd/mcp-orch 根装配层只能通过 ProvideRPCFacade 消费 handler bundle，
+// 其它子包不应把 orchestration 当作可复用 RPC 协议层。
 //
-// If any non-test .go in the subpackage reintroduces a `NewOrchestrationHandlers`
-// declaration, this test fails so the regression lands in the same PR
-// rather than drifting back into a protocol shell.
+// 任何非测试 Go 文件重新声明 NewOrchestrationHandlers 都会失败，
+// 让回归在同一变更中暴露，而不是悄悄滑回协议壳形态。
 func TestOrchestrationNoRPCShellExport(t *testing.T) {
 	const dir = "../../cmd/mcp-orch/orchestration"
 

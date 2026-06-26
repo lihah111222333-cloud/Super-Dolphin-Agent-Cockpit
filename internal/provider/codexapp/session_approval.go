@@ -100,7 +100,8 @@ func (s *session) approvalPolicyValue() string {
 	return strings.TrimSpace(value)
 }
 
-// beginProcessedApproval 处理beginprocessed审批。
+// beginProcessedApproval 为 approval 请求建立去重槽。
+// 返回 owner=false 表示已有 goroutine 正在处理同一请求，当前调用方只需要等待结果。
 func (s *session) beginProcessedApproval(key string) (*processedApprovalEntry, bool) {
 	if s == nil || key == "" {
 		return nil, true
@@ -129,7 +130,8 @@ func (s *session) purgeCompletedProcessedApprovalsLocked() {
 	}
 }
 
-// finishProcessedApproval 处理finishprocessed审批。
+// finishProcessedApproval 写入 approval 决策并唤醒等待方。
+// 失败结果不会留在去重表中，避免后续相同请求复用一次失败的临时状态。
 func (s *session) finishProcessedApproval(key string, entry *processedApprovalEntry, decision contract.ApprovalDecision, err error) {
 	if s == nil || entry == nil {
 		return
@@ -184,7 +186,8 @@ func (s *session) buildApprovalRequest(method string, payload map[string]any) (r
 	}, requestID, callID != ""
 }
 
-// sendApprovalDecision 处理send审批decision。
+// sendApprovalDecision 把宿主 approval 决策回写给 Codex app-server。
+// requestID 和 transport 都必须存在，否则 fail-fast 防止 provider 侧请求悬空。
 func (s *session) sendApprovalDecision(requestID int64, decision contract.ApprovalDecision) error {
 	if requestID <= 0 {
 		return errors.New("codexapp: approval request id is required")
@@ -279,7 +282,8 @@ func normalizeApprovalFingerprintValue(value any) any {
 	}
 }
 
-// waitProcessedApproval 等待审批请求处理完成。
+// waitProcessedApproval 等待同一 approval 请求的 owner 写入结果。
+// 任一外部 ctx 或 session ctx 取消都会立即返回，避免重复请求在关闭时卡住。
 func (s *session) waitProcessedApproval(ctx context.Context, entry *processedApprovalEntry) (contract.ApprovalDecision, error) {
 	if entry == nil {
 		return contract.ApprovalDecision{}, nil
@@ -307,7 +311,8 @@ func isRequestUserInputMethod(method string) bool {
 	return hasMethod(method, requestUserInputMethods)
 }
 
-// onNotification 处理onnotification。
+// onNotification 处理 Codex app-server 推送的通知事件。
+// 外来线程事件会被丢弃；turn 输出先补齐 result 再进入抑制和派发路径。
 func (s *session) onNotification(method string, params json.RawMessage) {
 	s.noteReadActivity()
 	if eventThread, ok := s.alienThreadEventThread(params); ok {
@@ -319,9 +324,7 @@ func (s *session) onNotification(method string, params json.RawMessage) {
 		)
 		return
 	}
-	// ADR-015 v4.1 §2.1: sniff TurnOutputDelta / TurnCompleted BEFORE
-	// shouldSuppressTurnEvent so suppressed-completed paths (forceCompleteTurn)
-	// still flush the accumulated buffer.
+	// 先合并流式输出，再判断是否抑制终态事件，确保 forceComplete 路径仍能释放累积结果。
 	params = s.sniffTurnOutput(method, params)
 	if s.shouldSuppressTurnEvent(method, params) {
 		pkglogger.Warn("codexapp: suppressed duplicate turn terminal event",
@@ -341,15 +344,10 @@ func (s *session) onNotification(method string, params json.RawMessage) {
 	s.handleNotificationAction(method, params)
 }
 
-// sniffTurnOutput inspects the incoming notification and:
-//   - accumulates stream="message" TurnOutputDelta payloads into the
-//     per-turn buffer (ADR-015 v4.1 §2.1)
-//   - on TurnCompleted-class events, merges the buffer into the payload
-//     under key "result" (and sets "truncated"=true when the buffer hit the
-//     1 MiB hard cap), returning a re-encoded params for downstream dispatch
+// sniffTurnOutput 把流式 message delta 累积到 turn buffer，并在终态事件中补回 result。
+// 这样下游仍只消费一个 TurnCompleted payload，同时保留 1 MiB 截断标记。
 //
-// For unrelated methods, sniffTurnOutput returns the original params
-// unchanged so the normal dispatch path is preserved bit-for-bit.
+// 非 turn 输出事件会原样返回，保持普通通知的派发行为不变。
 func (s *session) sniffTurnOutput(method string, params json.RawMessage) json.RawMessage {
 	switch {
 	case isMessageStreamDeltaEvent(method):
@@ -362,8 +360,8 @@ func (s *session) sniffTurnOutput(method string, params json.RawMessage) json.Ra
 	}
 }
 
-// absorbMessageDelta routes a stream="message" TurnOutputDelta payload into
-// the per-turn accumulator. No-op for malformed / empty payloads.
+// absorbMessageDelta 将 stream=message 的 TurnOutputDelta 写入对应 turn 累积器。
+// 缺 turnID 或 delta 为空时直接忽略，避免污染未知 turn 的结果。
 func (s *session) absorbMessageDelta(params json.RawMessage) {
 	payload := decodeEventPayload(params)
 	if normalizedTurnOutputStream(payload, "message") != "message" {
@@ -377,11 +375,8 @@ func (s *session) absorbMessageDelta(params json.RawMessage) {
 	s.appendTurnOutputDelta(turnID, delta)
 }
 
-// injectAccumulatedResult merges the accumulated message-stream content into
-// the TurnCompleted payload under "result" (and "truncated" when the 1 MiB
-// cap latched). Returns the rewritten params, falling back to the original
-// when no buffer or marshal fails.
-// injectAccumulatedResult 生成injectaccumulated结果。
+// injectAccumulatedResult 把累积的 message stream 合并进 TurnCompleted payload。
+// provider 已提供 result 时不会覆盖；编码失败或无累积内容时保持原 params。
 func (s *session) injectAccumulatedResult(params json.RawMessage) json.RawMessage {
 	payload := decodeEventPayload(params)
 	turnID := payloadTurnID(payload)
@@ -395,8 +390,7 @@ func (s *session) injectAccumulatedResult(params json.RawMessage) json.RawMessag
 	if payload == nil {
 		payload = map[string]any{}
 	}
-	// Do not clobber an existing payload["result"] the provider may already
-	// supply (defensive forward compatibility).
+	// provider 将来若原生提供 result，本地累积只作为补充，不能覆盖远端事实。
 	if _, ok := payload["result"]; !ok && merged != "" {
 		payload["result"] = merged
 	}
@@ -418,6 +412,8 @@ func (s *session) handleNotificationAction(method string, params json.RawMessage
 	}
 }
 
+// completeRolloutAssistantMessage 将 rollout 中的 assistant response_item 合成为本地 turn 完成事件。
+// 只有消息属于当前 active turn 时才会补完成，避免其他线程或历史回放误关闭正在运行的 turn。
 func (s *session) completeRolloutAssistantMessage(method string, params json.RawMessage) bool {
 	if strings.TrimSpace(method) != "response_item" {
 		return false

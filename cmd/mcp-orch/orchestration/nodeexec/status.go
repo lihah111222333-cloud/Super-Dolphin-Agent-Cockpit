@@ -2,10 +2,9 @@ package nodeexec
 
 import "fmt"
 
-// 节点状态转移合法性 —— 蓝图 v2 §8 状态机 + 实施计划 S7.1。
-// ValidateTransition 是 service.UpdateNodeStatus (S7.2) 的前置校验：
-// 防止 task_update_node 把节点直接从 pending 跳到 done 之类的非法转移。
-// 这条规则由 ADR docs/adr/0001-dag-v2-contracts.md (S16.1) 固化。
+// 本文件维护节点状态转换白名单。
+// service.UpdateNodeStatus 和 DAG 调度路径都依赖这里 fail-fast 拦截非法状态跳转，
+// 避免调用方绕过 dispatcher 直接把节点从 pending 改成终态。
 
 // transition 是 (from, to) 状态对，作为 legalTransitions map 的 key。
 type transition struct {
@@ -13,26 +12,18 @@ type transition struct {
 	To   NodeStatus
 }
 
-// legalTransitions 列出所有合法的 NodeStatus 转移（11 条）。
+// legalTransitions 列出当前 runtime 允许的 NodeStatus 转移。
 // 终态 done / failed / cancelled / skipped 没有 outgoing 转移（修改终态节点
 // 必须经 fork 或 reset，而不是直接改 status）。
 //
-// 入态条件见蓝图 v2 §8：
-//   - pending → ready                upstream 全 done，dispatcher 准备 pick
-//   - pending → cancelled            上游 fail_fast 级联取消
-//   - ready → running                dispatcher pick
-//   - ready → cancelled              上游 fail_fast 级联（含 ready 状态的节点）
-//   - running → done                 success
-//   - running → failed               fail + no retries / hard fail / timeout
-//   - running → retrying             fail + retries left
-//   - running → cancelled            用户终止当前 run
-//   - retrying → ready               退避结束，重新入队
-//   - retrying → failed              放弃重试
-//   - retrying → cancelled           上游 fail_fast 级联且当前节点正在退避
-//     （避免强制转 failed 误罪待重试节点）
+// 入态条件：
+//   - pending → ready：上游完成，dispatcher 可以领取。
+//   - pending/ready/retrying → cancelled：上游 fail_fast 或用户取消级联。
+//   - ready → running：executor 已被领取并启动。
+//   - running → done/failed/retrying/cancelled：执行完成、失败、进入退避或被取消。
+//   - retrying → ready/failed：退避结束重新入队，或超过尝试次数后终止。
 //
-// skipped / waiting_human / awaiting_verify 是 reserved 或 legacy 状态；runtime
-// 闭环前不再作为新的合法迁移目标。
+// skipped / waiting_human / awaiting_verify 是兼容保留状态；当前 runtime 不再把它们作为新的转换目标。
 var legalTransitions = map[transition]struct{}{
 	{NodeStatusPending, NodeStatusReady}:      {},
 	{NodeStatusPending, NodeStatusCancelled}:  {},

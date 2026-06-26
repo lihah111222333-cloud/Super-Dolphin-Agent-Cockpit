@@ -81,7 +81,8 @@ func currentTurnID(handle *turnHandle) string {
 	return handle.LocalID()
 }
 
-// applyRaw 应用原始。
+// applyRaw 处理 Claude CLI 解码后的 raw event。
+// 旧 transport、被 suppress 的 turn 和 keepalive turn 事件会被截断，避免污染当前 UI 状态。
 func (s *session) applyRaw(tr *transport, raw dto.RawProviderEvent) {
 	s.handleSystemInitRaw(tr, raw)
 	if !s.isCurrentTransport(tr) {
@@ -110,12 +111,8 @@ func (s *session) applyRaw(tr *transport, raw dto.RawProviderEvent) {
 	if shouldFinishTurnRaw(raw) && s.shouldRetryTransientError(raw) {
 		return
 	}
-	// A keepalive (silent) turn's decoded stream events (assistant text, tool
-	// calls, turn:complete) must never reach the UI. Gating here on the decode
-	// path keeps the suppression scoped to events that genuinely belong to the
-	// keepalive turn, leaving lifecycle events that merely co-occur (restart
-	// status patches, agent:stopped) untouched. finishTurnFromRaw still runs
-	// below, so SendKeepalive unblocks normally.
+	// keepalive 静默 turn 的 assistant/tool/complete 事件不能进入 UI。
+	// 这里仅截断属于 keepalive turn 的解码事件，restart 状态和 agent 停止事件仍可正常发布。
 	if !isKeepaliveTurnEvent(raw) {
 		s.dispatch(raw)
 	}
@@ -124,13 +121,13 @@ func (s *session) applyRaw(tr *transport, raw dto.RawProviderEvent) {
 	}
 }
 
-// isKeepaliveTurnEvent reports whether raw is a decoded stream event of a
-// keepalive (silent) turn, identified by the keepalive turn-id prefix.
+// isKeepaliveTurnEvent 判断 raw event 是否属于静默 keepalive turn。
 func isKeepaliveTurnEvent(raw dto.RawProviderEvent) bool {
 	return strings.HasPrefix(dataString(raw.Data, "turn_id"), keepaliveTurnIDPrefix)
 }
 
-// handleSystemInitRaw 处理systeminit原始。
+// handleSystemInitRaw 处理 Claude system:init 事件中的真实 session 身份。
+// 它会记录 provider UUID、启动 usage log watcher，并在 thread ID 改变时补发 agent:launched。
 func (s *session) handleSystemInitRaw(tr *transport, raw dto.RawProviderEvent) {
 	if raw.EventType != "system:init" {
 		return
@@ -151,11 +148,8 @@ func (s *session) handleSystemInitRaw(tr *transport, raw dto.RawProviderEvent) {
 	if newID := s.ThreadID(); newID != "" {
 		eventThreadID := s.EventThreadID()
 		if newID != prevID || eventThreadID != newID {
-			// When the previous thread ID was a placeholder (empty or
-			// an agent placeholder ID), use agentID as thread_id so the frontend
-			// matches this event to the existing session card instead
-			// of creating a duplicate. The real provider UUID is still
-			// carried in session_id for backend binding resolution.
+			// 旧 thread ID 还是占位值时，事件 thread_id 继续用 agentID 维持前端卡片匹配。
+			// 真实 provider UUID 放在 session_id，后端绑定逻辑仍能拿到准确身份。
 			displayThreadID := eventThreadID
 			if isPlaceholderThreadID(prevID) && s.agentID != "" {
 				displayThreadID = s.agentID
@@ -248,7 +242,8 @@ func (s *session) takeActiveToolInterruptEvents(turnID, reason string) []dto.Raw
 	return s.takeActiveToolInterruptEventsLocked(turnID, reason)
 }
 
-// takeActiveToolInterruptEventsLocked 处理takeactive工具interrupt事件locked。
+// takeActiveToolInterruptEventsLocked 为被中断的活跃工具调用补齐 tool:use_end。
+// 调用方必须持有 s.mu；返回后 activeToolCalls 会被清空，防止后续重复结束。
 func (s *session) takeActiveToolInterruptEventsLocked(turnID, reason string) []dto.RawProviderEvent {
 	if len(s.activeToolCalls) == 0 {
 		return nil
@@ -310,7 +305,8 @@ type contentBlock struct {
 	Input    json.RawMessage `json:"input"`
 }
 
-// decodeClaudeLine 解码claude行。
+// decodeClaudeLine 将 Claude CLI stdout 中的一行 stream JSON 解码成 raw event。
+// 未识别类型只记录告警并丢弃，避免未知 provider 事件破坏读循环。
 func decodeClaudeLine(line []byte, base rawBase) ([]dto.RawProviderEvent, error) {
 	var raw streamEvent
 	if err := json.Unmarshal(line, &raw); err != nil {
@@ -331,8 +327,6 @@ func decodeClaudeLine(line []byte, base rawBase) ([]dto.RawProviderEvent, error)
 		pkglogger.Get().Info("claudecli: rate_limit_event received", "agent_id", base.AgentID, "session_id", raw.SessionID)
 		return nil, nil
 	default:
-		// Attempt to parse out streaming deltas to not break streaming
-		// Log the unparsed events to confirm if they contain the real deltas!
 		pkglogger.Get().Warn("claudecli: unknown stream event type dropped", "raw_type", t, "line", string(line))
 		return nil, nil
 	}
@@ -353,7 +347,8 @@ func joinErrorsArray(errs []string) string {
 	return strings.Join(cleaned, "; ")
 }
 
-// decodeResultEvent 解码结果事件。
+// decodeResultEvent 将 Claude result 事件转换为 turn:complete。
+// 错误消息缺失时按 terminal_reason 生成兜底文案并记录原始字段，方便排查 provider 异常。
 func decodeResultEvent(raw streamEvent, base rawBase) []dto.RawProviderEvent {
 	data := baseData(base, raw.SessionID, raw.Timestamp)
 	success := !raw.IsError && !strings.EqualFold(strings.TrimSpace(raw.Subtype), "error")
@@ -392,7 +387,8 @@ func baseData(base rawBase, sessionID, timestamp string) map[string]any {
 	return buildEventData(base, sessionID, timestamp, nil)
 }
 
-// dataString 处理数据string。
+// dataString 从 raw event Data 中按候选 key 读取字符串。
+// 兼容 map[string]any 和 map[string]string 两种测试/运行时 payload 形态。
 func dataString(data any, keys ...string) string {
 	if m, ok := data.(map[string]any); ok {
 		for _, key := range keys {
@@ -423,7 +419,8 @@ func dataBool(data any, key string) bool {
 	return value
 }
 
-// dataInt 处理数据int。
+// dataInt 从 raw event Data 中按候选 key 宽松读取整数。
+// 支持 JSON number、Go int 系列和数字字符串，解析失败返回 ok=false。
 func dataInt(data any, keys ...string) (int, bool) {
 	m, _ := data.(map[string]any)
 	for _, key := range keys {

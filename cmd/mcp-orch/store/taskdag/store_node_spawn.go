@@ -13,9 +13,7 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/sqlctx"
 )
 
-// DAG v2 F1.5 / ADR-009: RecordNodeSpawn 是 nodeexec.AgentExecutor 在 child
-// agent thread spawn 成功后调用的入口。
-//
+// RecordNodeSpawn 是 nodeexec.AgentExecutor 在子 agent thread 创建成功后的写回入口。
 // 同事务两步：
 //  1. UpdateTaskDagNodeSpawningThread 覆盖 task_dag_nodes.spawning_thread_id
 //     并通过 CTE 拿出旧值（previous_spawning_thread_id）；
@@ -25,21 +23,7 @@ import (
 //     避免重试历史缺失被静默吞掉。
 //
 // 不在事务内 finalize run，因为 spawn 是 run.status 'running' 阶段事件，不会
-// 影响终态判定（终态由 F6.2 maybeFinalizeRunTx 负责）。
-//
-// RecordNodeSpawn is the entry point invoked by nodeexec.AgentExecutor after
-// a child agent thread is launched successfully (F1.5 / ADR-009). It runs in
-// a single SQLite BEGIN IMMEDIATE transaction:
-//   - Overwrite task_dag_nodes.spawning_thread_id (CTE returns the previous
-//     value alongside the updated row).
-//   - When the previous thread id is non-empty and differs from the new one,
-//     append a `node_spawn` event into the matching running run's events
-//     JSON array. A missing running run is a hard error so retry history
-//     cannot disappear silently.
-//
-// Finalization (F6.2) is deliberately not invoked here: spawn happens while
-// the run is still 'running', so terminal-status promotion stays the
-// CompleteNode path's responsibility.
+// 影响终态判定；终态推进仍由 CompleteNode 路径负责。
 func (s *store) RecordNodeSpawn(ctx context.Context, input RecordNodeSpawnInput) (*RecordNodeSpawnResult, error) {
 	dagKey := strings.TrimSpace(input.DagKey)
 	nodeKey := strings.TrimSpace(input.NodeKey)
@@ -48,8 +32,7 @@ func (s *store) RecordNodeSpawn(ctx context.Context, input RecordNodeSpawnInput)
 		return nil, fmt.Errorf("record_node_spawn: dag_key and node_key required")
 	}
 	if threadID == "" {
-		// Fail-fast: a missing thread_id likely means the launcher returned
-		// nil/empty; overwriting with empty would erase a valid prior value.
+		// thread_id 缺失通常意味着 launcher 返回了空结果；拒绝写入可避免擦掉已有有效值。
 		return nil, fmt.Errorf("record_node_spawn: thread_id required (refusing to overwrite with empty)")
 	}
 	if input.RunID <= 0 {
@@ -66,13 +49,8 @@ func (s *store) RecordNodeSpawn(ctx context.Context, input RecordNodeSpawnInput)
 	return &result, nil
 }
 
-// recordNodeSpawnTx 是事务体拆出的两步逻辑：UPDATE 节点 + （重试时）append events。
-// 拆为独立函数是为了把 RecordNodeSpawn 本体的圈复杂度压到代码守卫上限（§10）。
-//
-// recordNodeSpawnTx is the two-step transaction body (UPDATE the node, then
-// optionally append a node_spawn event on retry). Extracted as a free
-// function so the public RecordNodeSpawn stays under the cyclomatic
-// complexity guard (10).
+// recordNodeSpawnTx 是事务体拆出的两步逻辑：UPDATE 节点 + 重试改绑时 append events。
+// 拆为独立函数是为了让入口只表达参数校验和事务边界，实际写入顺序集中在这里维护。
 func recordNodeSpawnTx(ctx context.Context, txq *sqlc.Queries, dagKey, nodeKey string, runID int64, threadID string, result *RecordNodeSpawnResult) error {
 	current, err := txq.GetTaskDagRunNodeForUpdate(ctx, sqlc.GetTaskDagRunNodeForUpdateParams{
 		DagKey:  dagKey,
@@ -97,7 +75,7 @@ func recordNodeSpawnTx(ctx context.Context, txq *sqlc.Queries, dagKey, nodeKey s
 	}
 	result.Node = nodeFromSpawnRow(row)
 	result.PreviousThreadID = previousThreadID
-	// First spawn (prev empty) or idempotent retry (prev == new) keeps events lean.
+	// 首次 spawn 或幂等重试不追加事件，只有真实改绑才记录重试历史。
 	if result.PreviousThreadID == "" || result.PreviousThreadID == threadID {
 		return nil
 	}
@@ -106,9 +84,6 @@ func recordNodeSpawnTx(ctx context.Context, txq *sqlc.Queries, dagKey, nodeKey s
 
 // appendNodeSpawnEvent 封装「构造 payload + appendTaskDagRunEventTx」。
 // sql.ErrNoRows（dag_key 下无 running run）必须传错上去。
-//
-// appendNodeSpawnEvent wraps the marshal + append path so
-// recordNodeSpawnTx stays linear and under the complexity ceiling.
 func appendNodeSpawnEvent(ctx context.Context, txq *sqlc.Queries, dagKey, nodeKey string, runID int64, threadID string, result *RecordNodeSpawnResult) error {
 	payload, err := json.Marshal(nodeSpawnEvent{
 		Kind:         "node_spawn",
@@ -134,10 +109,6 @@ func appendNodeSpawnEvent(ctx context.Context, txq *sqlc.Queries, dagKey, nodeKe
 
 // nodeSpawnEvent 是写入 task_dag_runs.events JSON 数组的事件载荷。kind 固定
 // "node_spawn"；TS 用 RFC3339Nano 字符串方便 UI 直接渲染。
-//
-// nodeSpawnEvent is the JSON payload written into task_dag_runs.events. The
-// kind discriminator stays "node_spawn"; TS uses RFC3339Nano so the UI can
-// render it directly without re-parsing.
 type nodeSpawnEvent struct {
 	Kind         string `json:"kind"`
 	NodeKey      string `json:"node_key"`
@@ -146,10 +117,8 @@ type nodeSpawnEvent struct {
 	TS           string `json:"ts"`
 }
 
-// nodeFromSpawnRow projects the CTE row back into the domain Node type. The
-// CTE row carries the same 19 node columns as fromNode plus the extra
-// previous_spawning_thread_id, so this projection is a thin shim that reuses
-// fromNode's shape by manually copying fields.
+// nodeFromSpawnRow 把更新 spawning_thread_id 的 CTE 返回行投影成 Node。
+// 该行包含标准节点列和额外 previous_spawning_thread_id，投影时只复制 Node 需要的列。
 func nodeFromSpawnRow(row sqlc.UpdateTaskDagNodeSpawningThreadRow) *Node {
 	n := Node{
 		ID:               row.ID,

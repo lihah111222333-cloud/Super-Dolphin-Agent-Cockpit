@@ -17,7 +17,8 @@ type ReadmeCodemap struct {
 // readmeTableRowRe 用于从 README 表格行提取 ID、文件名和描述。
 var readmeTableRowRe = regexp.MustCompile(`^\|\s*(\d{2})\s*\|\s*\[([^\]]+)\]\([^)]+\)\s*\|\s*(.+?)\s*\|$`)
 
-// SyncREADME 同步readme。
+// SyncREADME 将 codemap 列表同步回 README 的固定表格区间。
+// 找不到表格或生成时间区块时保持文件不变，避免误改非标准 README。
 func SyncREADME(readmePath string, codemaps []ReadmeCodemap, generatedAt string) error {
 	lines, err := readLines(readmePath)
 	if err != nil || len(lines) == 0 {
@@ -35,7 +36,7 @@ func SyncREADME(readmePath string, codemaps []ReadmeCodemap, generatedAt string)
 	return os.WriteFile(readmePath, []byte(strings.Join(rebuilt, "\n")), 0644)
 }
 
-// readLines 读取文件内容并按换行符拆分为行切片。
+// readLines 读取 README 并保留行粒度，便于只重建受管表格区域。
 func readLines(path string) ([]string, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -44,7 +45,8 @@ func readLines(path string) ([]string, error) {
 	return strings.Split(string(data), "\n"), nil
 }
 
-// locateREADMESections 在行切片中定位表头行和"生成时间"标题行的索引。
+// locateREADMESections 定位受管表格的表头和生成时间标题。
+// ok=false 表示当前 README 不符合生成器预期，调用方应跳过写入。
 func locateREADMESections(lines []string) (tableHeaderIdx, generatedHeadingIdx int, ok bool) {
 	tableHeaderIdx = -1
 	generatedHeadingIdx = -1
@@ -72,7 +74,7 @@ func extractREADMEDescriptions(lines []string, tableHeaderIdx, generatedHeadingI
 	return descByFile
 }
 
-// rebuildREADMEPrefix 复制表头前缀并更新卷数描述行。
+// rebuildREADMEPrefix 复制表头前缀并更新卷数描述行，不重写其他人工说明。
 func rebuildREADMEPrefix(prefix []string, codemapCount int) []string {
 	cloned := append([]string(nil), prefix...)
 	for i, line := range cloned {
@@ -84,7 +86,7 @@ func rebuildREADMEPrefix(prefix []string, codemapCount int) []string {
 	return cloned
 }
 
-// rebuildREADMEBody 将前缀、表格行和生成时间拼接为最终行切片。
+// rebuildREADMEBody 拼接受管 README 内容，保留旧描述并刷新生成时间。
 func rebuildREADMEBody(prefix []string, codemaps []ReadmeCodemap, descByFile map[string]string, generatedAt string) []string {
 	rebuilt := append([]string(nil), prefix...)
 	for _, cm := range codemaps {

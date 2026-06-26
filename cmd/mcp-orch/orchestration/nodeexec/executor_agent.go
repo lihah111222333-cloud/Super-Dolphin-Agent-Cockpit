@@ -12,55 +12,19 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/util/idgen"
 )
 
-// AgentExecutor —— DAG 改造蓝图 v2 §1.1（F1.1 真实实现）+ F1.5 写回。
-//
-// 职责：把 node_type=agent 节点的 config.exec 解码成 typed AgentExecConfig，
-// 通过注入的 AgentLauncher（生产实现 = service.LaunchAgentSnapshot 或 wrapper）
-// 拉起子 agent；把 launcher 返回的 error 映射到 NodeOutcome.FailureClass，
-// 让上层 dispatcher（F1.4 智能重试）能按 by_class 分发策略。
-//
-// F1.5 新增：launch 成功 + 拿到 child thread_id 后，调注入的
-// NodeSpawnRecorder 把 thread_id 写回 task_dag_nodes.spawning_thread_id
-// （重试时旧值进 task_dag_runs.events 形成历史链）。生产 provider 要求 recorder
-// 非 nil；直接构造器保留 nil 只用于旧单测和纯 launch 语义。
-//
-// AgentExecutor wires the agent execution pathway: decode node.config.exec
-// into a typed AgentExecConfig, ask an AgentLauncher to start a sub-agent,
-// translate launch errors into classified NodeOutcomes so the smart-retry
-// dispatcher (F1.4) can dispatch by_class strategies, and — new in F1.5 —
-// once a child thread_id is returned, hand it to a NodeSpawnRecorder so
-// task_dag_nodes.spawning_thread_id is written back (ADR-009). Production
-// providers fail fast when the recorder is absent; the direct constructor only
-// permits nil for legacy unit tests and launch-only semantics.
-//
-// 与 wakeup_dispatcher 的边界：本 task 落地 NodeExecutor 抽象，dispatcher 当前
-// 仍可直接调 service.LaunchAgent（向后兼容）。F2/F3 才统一切到 NodeExecutor，
-// 届时 dispatcher 路径也会自动走 F1.5 写回。
+// AgentExecutor 执行 node_type=agent 节点：解析 config.exec、装配输入前缀、启动子 agent，
+// 并把启动失败归类进 NodeOutcome，供 dispatcher 按失败类别决定重试或终止。
+// 成功拿到 child thread_id 后会通过 NodeSpawnRecorder 写回节点行；生产 wiring 缺 recorder
+// 会在上层构造路径拦截，直接构造器的 nil recorder 仅用于不需要持久化写回的单测。
 type AgentExecutor struct {
 	launcher AgentLauncher
 	recorder NodeSpawnRecorder
 	hooks    map[HookPoint]HookHandler
 }
 
-// AgentLauncher 是 AgentExecutor 拉起子 agent 的最小接口面。
-//
-// F1.5 签名升级：返回值 `(threadID, error)` —— 成功时 threadID 是 child agent
-// 的 thread_id（用于回写 task_dag_nodes.spawning_thread_id），空串表示 launcher
-// 未能拿到 thread_id（recorder 会 fail-fast 拒写，避免错误覆盖之前的值）。
-// 生产实现可以适配 service.LaunchAgentSnapshot —— 其 (AgentSnapshot, error)
-// 返回值天然包含 ThreadID 字段。
-//
-// 接口签名刻意复用 contract.LaunchRequest（orchestration / dispatcher 同源），
-// 避免再造一份 launch 入参类型。
-//
-// AgentLauncher is the narrow surface AgentExecutor calls to start a child
-// agent. F1.5 widened the return to `(threadID, error)`: on success threadID
-// carries the child's thread id (consumed by NodeSpawnRecorder to write back
-// task_dag_nodes.spawning_thread_id); an empty string signals the launcher
-// could not surface a thread id (the recorder fails fast to avoid erasing a
-// previously recorded one). Production wiring adapts
-// service.LaunchAgentSnapshot whose (AgentSnapshot, error) result naturally
-// carries ThreadID.
+// AgentLauncher 是 AgentExecutor 启动子 agent 的最小端口。
+// 入参沿用 orchestration 既有的 contract.LaunchRequest；返回的 threadID 是写回
+// task_dag_nodes.spawning_thread_id 的唯一来源，空串会被记录路径拒绝，避免覆盖旧值。
 type AgentLauncher interface {
 	LaunchAgent(ctx context.Context, req contract.LaunchRequest) (threadID string, err error)
 }
@@ -81,71 +45,31 @@ type LaunchedThreadStopper interface {
 	StopLaunchedThread(ctx context.Context, threadID string) error
 }
 
-// NodeSpawnRecorder 是 F1.5 / ADR-009 引入的 thread_id 写回端口。
-// 生产实现是 store/taskdag.NodeSpawnRecorderStore —— *store 类型同时满足该
-// 接口；runID 限定本次 run 的节点行，测试注入 stub recorder 断言写回入参与
-// 重试 events 是否被 append。
-//
-// NodeSpawnRecorder is the F1.5 / ADR-009 write-back port. Production wiring
-// binds it to store/taskdag.NodeSpawnRecorderStore (*store satisfies it);
-// runID scopes the write-back to the current run; tests inject a stub that
-// captures the inputs and returns an injected error.
+// NodeSpawnRecorder 持久化 child thread_id 与 DAG 节点的绑定。
+// runID 把写回限定到当前运行，避免重试或并发 run 把其它节点行误覆盖。
 type NodeSpawnRecorder interface {
 	RecordNodeSpawn(ctx context.Context, dagKey, nodeKey string, runID int64, threadID string) error
 }
 
-// PrevNodeResultReader 以及 SharedfileReader 的 F1.2 端口已于收敛 batch 走。
-// AgentExecutor 现在统一从 RunContext 拿：
-//   - inputs.from_nodes 读取 → RunContext.PrevResults（dispatcher 预取后填入）；
-//   - inputs.from_sharedfiles 读取 → RunContext.SharedFileReader（三态返值端口）。
-//
-// 这样 AgentExecutor 与 AutomationExecutor 走同一个 inputs 端口语义，避免两条路径漂移。
-// PrevNodeResultReader / SharedfileReader 两个接口已被删除；生产侧 inputs 调用方
-// 只需填 RunContext。
-//
-// F1.2 prev/sharedfile readers were collapsed into RunContext fields so the
-// two executors share one inputs surface. PrevNodeResultReader and
-// SharedfileReader interfaces have been removed; callers wire data into
-// RunContext.PrevResults / RunContext.SharedFileReader instead.
-
-// Option configures an AgentExecutor at construction time. 端口收敛 batch 把双构造器
-// （NewAgentExecutor / NewAgentExecutorWithInputs）折叠到 functional options：
-// inputs 数据走 RunContext，构造器只用来锁 launcher / recorder / 未来辅助端口。
-//
-// Option follows the functional-options pattern so future ports (e.g. metrics
-// hook, lifecycle observer) can be added without breaking existing callers.
+// Option 在构造期注入 AgentExecutor 的可选端口。
+// inputs 数据不走构造器，而是随每次 Execute 的 RunContext 传入，避免跨 run 状态泄漏。
 type Option func(*AgentExecutor)
 
-// WithRecorder 注入 NodeSpawnRecorder（F1.5 / ADR-009 spawning_thread_id 写回端口）。
-// 生产 wiring 必须注入 recorder；不传该 option 时仅直接构造器保留 launch-only 旧单测语义。
-//
-// WithRecorder injects the F1.5 NodeSpawnRecorder. Production wiring must pass
-// it; omitting it is reserved for direct legacy tests and launch-only callers.
+// WithRecorder 注入 child thread_id 写回端口。
+// 生产路径应提供 recorder；省略时 Execute 只做启动，不会持久化 spawn 关系。
 func WithRecorder(recorder NodeSpawnRecorder) Option {
 	return func(e *AgentExecutor) { e.recorder = recorder }
 }
 
-// WithHooks registers lifecycle hooks for this executor. Hooks are best-effort:
-// router-level dispatch invokes and logs hook errors without changing the node
-// execution outcome.
-// WithHooks 设置hooks。
+// WithHooks 注册节点执行前后的扩展钩子。
+// hook 失败由 router 层记录，不改变节点自身的执行结果，避免观测逻辑反向影响调度。
 func WithHooks(hooks map[HookPoint]HookHandler) Option {
 	return func(e *AgentExecutor) { e.hooks = cloneHookHandlers(hooks) }
 }
 
-// NewAgentExecutor 构造一个 AgentExecutor。launcher 为 nil 时仍返回非 nil
-// executor —— Execute 在 launch 阶段把它归为 validation 失败（让 dispatcher
-// 走 by_class[validation] 策略，不至于直接 panic）。
-//
-// 端口收敛 batch 把 recorder 从位置参数改为 functional option (WithRecorder)；
-// 不传 option 等价于过去的 NewAgentExecutor(launcher, nil)。inputs 端口（prev
-// results / sharedfile reader）走 RunContext，不在此构造器。
-//
-// NewAgentExecutor returns an executor; passing a nil launcher does not panic
-// — Execute classifies it as a validation failure so the dispatcher can
-// decide how to surface the misconfiguration instead of crashing the run
-// loop. The recorder moved from positional arg to WithRecorder option;
-// passing no options is equivalent to the former (launcher, nil) call.
+// NewAgentExecutor 构造 agent 节点执行器。
+// launcher 为 nil 时不 panic，Execute 会把缺失 wiring 归为 validation 失败，
+// 让 dispatcher 以正常节点失败路径收敛，而不是让运行循环崩溃。
 func NewAgentExecutor(launcher AgentLauncher, opts ...Option) *AgentExecutor {
 	e := &AgentExecutor{launcher: launcher}
 	for _, opt := range opts {
@@ -156,20 +80,16 @@ func NewAgentExecutor(launcher AgentLauncher, opts ...Option) *AgentExecutor {
 	return e
 }
 
-// Execute 解码 node.config.exec → 调 launcher.LaunchAgent → 包装成 NodeOutcome。
-// 配置、输入装载和启动失败是节点级失败，必须通过 failed NodeOutcome 携带
-// FailureClass；error 通道只保留给 context/panic/dispatcher wiring 等框架故障。
-//
-// Execute is the NodeExecutor entry: decode config, call the launcher, wrap
-// success/failure into NodeOutcome. Node-level failures return a classified
-// failed outcome with nil error so the dispatcher can apply by-class policy.
+// Execute 运行 agent 节点并返回节点级 outcome。
+// 配置错误、输入读取失败和启动失败都通过带 FailureClass 的 NodeOutcome 表达；
+// error 通道只留给框架级中断或无法归属到节点的故障。
 func (e *AgentExecutor) Execute(ctx context.Context, node Node, runCtx RunContext) (NodeOutcome, error) {
 	if ctx == nil {
 		// nil ctx 兜底：与 dispatcher.ProcessBatch / Tick 一致的防御式取默认值。
 		ctx = context.Background()
 	}
 
-	// 1. 解码 typed config。
+	// 解码 typed config，失败时归为 validation，阻止错误配置进入 launcher。
 	cfg, parseErr := ParseAgentConfig(node.Config)
 	if parseErr != nil {
 		return NodeOutcome{
@@ -194,13 +114,8 @@ func (e *AgentExecutor) Execute(ctx context.Context, node Node, runCtx RunContex
 		return *failure, nil
 	}
 
-	// 3. F1.2 Inputs 装载：拉取 prev nodes result + sharedfiles 作为 prompt 前缀。
-	//    任一环节失败 → 如果指向 missing node_key / sharedfile path 则 validation；
-	//    其他错误（例如 DB 挑问）走 classifyAgentLaunchError 使 transient。
-	//    完整的拼接格式见 inputs.go::assembleInputsPrompt。
-	//    F1.2 Inputs assembly: gather prev node results + sharedfiles into a
-	//    prompt prefix. Missing refs map to validation; infra errors flow
-	//    through classifyAgentLaunchError (transient by default).
+	// 装载上游节点结果与 sharedfile 内容作为 prompt 前缀。
+	// 缺引用属于配置错误；读取端口异常保持原始分类，交给 dispatcher 的失败策略处理。
 	inputsPrefix, ierr := e.assembleInputs(ctx, cfg, runCtx, node)
 	if ierr != nil {
 		return NodeOutcome{
@@ -210,7 +125,7 @@ func (e *AgentExecutor) Execute(ctx context.Context, node Node, runCtx RunContex
 		}, nil
 	}
 
-	// 4. launcher == nil → validation：调用方拼线漏了 launcher，是配置问题。
+	// launcher 缺失说明生产 wiring 不完整，作为 validation 失败暴露给调用方。
 	if e.launcher == nil {
 		return NodeOutcome{
 			Status:       NodeStatusFailed,
@@ -219,7 +134,7 @@ func (e *AgentExecutor) Execute(ctx context.Context, node Node, runCtx RunContex
 		}, nil
 	}
 
-	// 5. 构造 LaunchRequest 并调 launcher；F1.2 inputsPrefix 拼在 first_turn 之前。
+	// 构造 LaunchRequest 并启动子 agent；inputsPrefix 必须在 first_turn 之前，保证上游上下文先进入模型。
 	req := buildLaunchRequestFromAgentConfig(cfg, node, runCtx)
 	req.Prompt = composePrompt(inputsPrefix, artifactOutputContract(cfg.Outputs.ToArtifact), cfg.FirstTurn)
 	threadID, launchErr := e.launchAgent(ctx, req, node, runCtx)
@@ -265,9 +180,8 @@ func classifiedAgentLaunchFailure(launchErr error) NodeOutcome {
 	}
 }
 
-// Hooks 返回 lifecycle hooks。未配置时返回 nil，保持骨架阶段兼容。
-//
-// Hooks reports lifecycle hook handlers. Nil means no hooks registered.
+// Hooks 返回 executor 当前注册的生命周期钩子副本。
+// 返回副本是为了避免外部调用方改写内部 map，nil 表示该节点类型没有扩展钩子。
 func (e *AgentExecutor) Hooks() map[HookPoint]HookHandler {
 	if e == nil {
 		return nil
@@ -275,7 +189,7 @@ func (e *AgentExecutor) Hooks() map[HookPoint]HookHandler {
 	return cloneHookHandlers(e.hooks)
 }
 
-// HasSpawnRecorder 判断spawnrecorder是否可用。
+// HasSpawnRecorder 暴露 recorder wiring 状态，供启动路径在进入 DAG 写回前做 fail-fast 校验。
 func (e *AgentExecutor) HasSpawnRecorder() bool {
 	return e != nil && e.recorder != nil
 }
@@ -324,7 +238,8 @@ func validateAgentLaunchIdentity(cfg *AgentNodeConfig) *NodeOutcome {
 	}
 }
 
-// validateCodexIdentityOverride 校验codex身份override。
+// validateCodexIdentityOverride 校验 Codex 身份覆盖字段必须成组出现。
+// 只配置其中一部分会让 provider home、实例 key 与 model provider 脱节，因此作为 validation 失败阻断。
 func validateCodexIdentityOverride(exec AgentExecConfig) *NodeOutcome {
 	home := strings.TrimSpace(exec.CodexHome)
 	instanceKey := strings.TrimSpace(exec.CodexInstanceKey)
@@ -418,17 +333,9 @@ func (e *AgentExecutor) usesPrePromptSpawnRecord() bool {
 	return ok
 }
 
-// spawnWriteback 是 F1.5 写回路径的独立 helper：launch 成功 → 调 recorder 记录
-// spawning_thread_id。返回值是 NodeOutcome.ErrorSummary 的候选填值：
-//   - 空串：recorder 跳过或写入成功，调用方保持原 outcome；
-//   - 非空：recorder 写入失败或前置条件缺失，调用方降级为 hard failure。
-//
-// 拆出独立函数主要为了把 Execute 的 CC 压住代码守卫上限（§10）。
-//
-// spawnWriteback is the F1.5 writeback helper. It returns an error summary:
-// empty when the recorder was either skipped or successful, non-empty when the
-// recorder failed or required writeback data is missing. Callers downgrade
-// launch success to a hard failure for non-empty summaries.
+// spawnWriteback 在子 agent 启动成功后写回 spawning_thread_id。
+// 返回空串表示无需改变成功 outcome；返回非空摘要表示持久化边界失败，调用方会把启动成功降为 hard failure，
+// 防止已经启动的子线程失去 DAG 节点归属。
 func (e *AgentExecutor) spawnWriteback(ctx context.Context, node Node, runCtx RunContext, threadID string) string {
 	summary, cause := e.recordSpawn(ctx, node, runCtx, threadID)
 	if cause != nil {
@@ -437,7 +344,8 @@ func (e *AgentExecutor) spawnWriteback(ctx context.Context, node Node, runCtx Ru
 	return summary
 }
 
-// recordSpawn 记录spawn。
+// recordSpawn 将 child thread_id 写入当前 DAG run 的节点行。
+// recorder 未配置时保持 launch-only 行为；但 threadID 或 DAG key 缺失会返回摘要，提醒调用方不要把未绑定线程当作成功节点。
 func (e *AgentExecutor) recordSpawn(ctx context.Context, node Node, runCtx RunContext, threadID string) (string, error) {
 	if e.recorder == nil {
 		return "", nil
@@ -468,14 +376,8 @@ func (e *AgentExecutor) stopLaunchedThreadAfterWritebackFailure(ctx context.Cont
 	return truncateErrSummary(summary + "; launched thread stopped")
 }
 
-// resolveSpawnKeys 从 RunContext / node 中提取 dagKey + nodeKey，优先 RunContext
-// （dispatcher 传的 truth source），缺失时回退到 node 自身字段。两者都空意味
-// 着上层 wiring 路跳了节点闭包，跳过写回不报错。
-//
-// resolveSpawnKeys extracts dagKey/nodeKey, preferring RunContext (the
-// dispatcher-supplied truth source) and falling back to the node's own
-// fields. Empty on both sides means the caller-side wiring skipped the
-// closure; the writeback is then silently a no-op.
+// resolveSpawnKeys 取写回所需的 dagKey 与 nodeKey。
+// RunContext 是 dispatcher 传入的运行时真值；node 字段仅作兼容补充，两处都缺失时上层会把写回视为失败摘要。
 func resolveSpawnKeys(node Node, runCtx RunContext) (string, string) {
 	dagKey := strings.TrimSpace(runCtx.DagKey)
 	if dagKey == "" {
@@ -511,7 +413,7 @@ func buildLaunchRequestFromAgentConfig(cfg *AgentNodeConfig, node Node, _ RunCon
 		Cwd:       cfg.Exec.CWD,
 		Language:  strings.TrimSpace(cfg.Exec.Language),
 		Prompt:    cfg.FirstTurn,
-		AgentType: node.NodeType, // "agent" 占位，F2/F3 hybrid 再细化
+		AgentType: node.NodeType, // 透传节点类型，供 launcher 保留 DAG 来源信息。
 		Env:       agentLaunchEnv(cfg.Exec),
 	}
 	return req
@@ -529,7 +431,8 @@ func validateAgentLaunchProvider(raw string) (string, error) {
 	}
 }
 
-// agentLaunchEnv 处理代理启动env。
+// agentLaunchEnv 将 agent exec 配置转成 launcher 可识别的环境变量。
+// 这里只写入显式配置项，避免空值覆盖 provider 侧已有身份或模型设置。
 func agentLaunchEnv(exec AgentExecConfig) []string {
 	env := make([]string, 0, 7)
 	if provider := strings.ToLower(strings.TrimSpace(exec.Provider)); provider != "" {
@@ -585,26 +488,9 @@ func sanitizeLaunchName(value string) string {
 	return strings.TrimSpace(string(runes))
 }
 
-// classifyAgentLaunchError 把 launcher 返回的 error 映射成 FailureClass。
-//
-// 与 cmd/mcp-orch/orchestration/launcherrors/errors.go::Classify
-// 同源思路（关键字命中），但目标空间不同：service 层只分 transient/permanent/
-// unknown，nodeexec 这层细化到 FailureClass{transient,quota,capability,validation}，
-// 让 OnFailureConfig.ByClass 能直接路由。
-//
-// 优先级（高 → 低）：
-//  1. quota（context length / usage limit / credits）—— 必须先于通用 permanent
-//     匹配，否则会被 401/403 之类的关键字捷足先登。
-//  2. capability（模型能力不足）→ capability。
-//  3. permanent（401/403/auth/payment）→ validation。
-//  4. transient（connection / timeout / rate limit）→ transient。
-//  5. 未知 → transient（保守兜底，让 dispatcher 走 by_class[transient] 重试）。
-//
-// classifyAgentLaunchError maps a launcher error to a FailureClass. The
-// priority order is quota → capability → validation → transient → fallback so
-// that overlapping substrings (e.g. "context_length_exceeded 401") resolve to
-// quota, matching the operator intent: quota issues need budget action, not
-// retry. Unknown errors default to transient (conservative).
+// classifyAgentLaunchError 将 launcher 错误映射到节点失败类别。
+// 匹配顺序必须保持 quota、capability、validation、transient：例如上下文超限同时带 401 时，
+// 应优先提示预算/上下文问题，而不是误判为凭据配置错误。未知错误归为 transient，让重试策略接管。
 func classifyAgentLaunchError(err error) FailureClass {
 	if err == nil {
 		return FailureClassTransient
@@ -697,11 +583,8 @@ func launchErrorMatchesAny(msg string, keywords []string) bool {
 	return false
 }
 
-// truncateErrSummary 限制 ErrorSummary 长度（< 1KB 内），与 NodeOutcome 注释
-// 「<1KB」约束对齐；超出截短并标记。
-//
-// truncateErrSummary keeps ErrorSummary within the <1KB envelope documented on
-// NodeOutcome.ErrorSummary; longer messages get truncated with a marker.
+// truncateErrSummary 将 ErrorSummary 控制在节点结果约定的 1KB 内。
+// 超长消息会截断并加标记，避免单个失败摘要撑大持久化记录和 UI 列表。
 func truncateErrSummary(s string) string {
 	const limit = 1000
 	if len(s) <= limit {

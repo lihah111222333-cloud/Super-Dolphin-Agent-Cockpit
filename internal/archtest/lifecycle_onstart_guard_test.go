@@ -10,26 +10,9 @@ import (
 	"testing"
 )
 
-// TestLifecycleOnStartGuard is the P22 fx.Lifecycle.OnStart runtime-ownership
-// guard shell (P0 骨架; see docs/plans/迁移/p22/P0_RuntimeOwnershipSkeleton.md
-// §守卫改动建议-2).
-//
-// What P0 delivers here:
-//   - Reuses the shared rootBridgeAllowlist; no file-level carve-out is ever
-//     introduced for OnStart.
-//   - Asserts each known root-bridge entry is exempt via (call_site_path,
-//     symbol), and that unrelated OnStart targets are NOT treated as bridges.
-//   - Documents the one-hop helper resolution contract (`OnStart -> helper
-//     -> go / SafeGo / NewTicker`) that every owning-slice matcher must
-//     implement before flipping its subtest red→green. P0 ships the contract
-//     as a skeleton; the AST walker is owned by the slice whose red-green
-//     sample lands first (likely P1b Finding 3 / 4).
-//
-// Matchers owned by downstream slices:
-//   - P1b (Finding 3, internal/platform/mcpcontrol/module.go): sweeper OnStart
-//   - P1b (Finding 4, internal/platform/rpc/module.go): approval cleanup loop
-//   - P2  (Finding 9, internal/platform/toolbridge/module.go): OnStart -> go ServeProxy
-//   - P2  (Finding 6, internal/module/memory/team/...): watcher OnStart
+// TestLifecycleOnStartGuard 固定 fx.Lifecycle.OnStart 的运行时归属守卫。
+// 它复用 rootBridgeAllowlist 验证根桥接豁免，并确保普通 OnStart 目标不会被误判成 bridge。
+// 子测试同时描述一跳 helper 解析边界：OnStart 包一层 helper 后启动 goroutine 或 ticker 也必须被识别。
 func TestLifecycleOnStartGuard(t *testing.T) {
 	t.Parallel()
 

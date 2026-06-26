@@ -7,12 +7,14 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 )
 
+// Registry 持有内置 prompt 模板和 section 的只读索引。
 type Registry struct {
 	templates            []contract.BuiltinPromptTemplate
 	templatesByPromptKey map[string]contract.BuiltinPromptTemplate
 	sectionsByTemplateID map[int64][]contract.BuiltinPromptSection
 }
 
+// newRegistry 按稳定顺序为模板和 section 分配内置负 ID。
 func newRegistry(loaded []loadedTemplate) *Registry {
 	sort.SliceStable(loaded, loadedTemplateLess(loaded))
 
@@ -32,7 +34,7 @@ func newRegistry(loaded []loadedTemplate) *Registry {
 	return registry
 }
 
-// loadedTemplateLess 处理loadedtemplateless。
+// loadedTemplateLess 定义内置模板排序规则，显式 ID 优先且按 ID 降序排列。
 func loadedTemplateLess(loaded []loadedTemplate) func(i, j int) bool {
 	return func(i, j int) bool {
 		left, right := loaded[i].Config, loaded[j].Config
@@ -49,6 +51,7 @@ func loadedTemplateLess(loaded []loadedTemplate) func(i, j int) bool {
 	}
 }
 
+// builtinTemplateID 返回显式模板 ID，未配置时按排序下标生成稳定负 ID。
 func builtinTemplateID(cfg templateConfig, index int) int64 {
 	if cfg.ID != nil {
 		return *cfg.ID
@@ -56,6 +59,7 @@ func builtinTemplateID(cfg templateConfig, index int) int64 {
 	return firstBuiltinID - int64(index)
 }
 
+// buildTemplate 把加载后的 JSON 配置转换为 contract DTO。
 func buildTemplate(id int64, cfg templateConfig) contract.BuiltinPromptTemplate {
 	return contract.BuiltinPromptTemplate{
 		ID:          id,
@@ -75,6 +79,7 @@ func buildTemplate(id int64, cfg templateConfig) contract.BuiltinPromptTemplate 
 	}
 }
 
+// buildSections 为模板 section 分配稳定负 ID 并转换为 contract DTO。
 func buildSections(templateID int64, nextID *int64, loaded []loadedSection) []contract.BuiltinPromptSection {
 	sections := make([]contract.BuiltinPromptSection, 0, len(loaded))
 	for _, item := range loaded {
@@ -84,6 +89,7 @@ func buildSections(templateID int64, nextID *int64, loaded []loadedSection) []co
 	return sections
 }
 
+// buildSection 构造单个内置 prompt section DTO。
 func buildSection(templateID, id int64, item loadedSection) contract.BuiltinPromptSection {
 	cfg := item.Config
 	return contract.BuiltinPromptSection{
@@ -100,7 +106,7 @@ func buildSection(templateID, id int64, item loadedSection) contract.BuiltinProm
 	}
 }
 
-// ListTemplates 列出templates。
+// ListTemplates 返回模板列表拷贝，避免调用方改写 registry 内部切片或 JSON。
 func (r *Registry) ListTemplates() []contract.BuiltinPromptTemplate {
 	out := make([]contract.BuiltinPromptTemplate, len(r.templates))
 	copy(out, r.templates)
@@ -111,7 +117,7 @@ func (r *Registry) ListTemplates() []contract.BuiltinPromptTemplate {
 	return out
 }
 
-// GetTemplate 读取template。
+// GetTemplate 按 prompt_key 返回模板拷贝。
 func (r *Registry) GetTemplate(promptKey string) (contract.BuiltinPromptTemplate, bool) {
 	template, ok := r.templatesByPromptKey[promptKey]
 	if !ok {
@@ -122,7 +128,7 @@ func (r *Registry) GetTemplate(promptKey string) (contract.BuiltinPromptTemplate
 	return template, true
 }
 
-// SectionsByTemplateID 按templateID处理sections。
+// SectionsByTemplateID 返回模板 section 拷贝，避免调用方改写 enable_when JSON。
 func (r *Registry) SectionsByTemplateID(templateID int64) []contract.BuiltinPromptSection {
 	sections := r.sectionsByTemplateID[templateID]
 	out := make([]contract.BuiltinPromptSection, len(sections))
@@ -133,6 +139,7 @@ func (r *Registry) SectionsByTemplateID(templateID int64) []contract.BuiltinProm
 	return out
 }
 
+// copyStrings 复制字符串切片，nil 保持 nil。
 func copyStrings(in []string) []string {
 	if in == nil {
 		return nil
@@ -142,6 +149,7 @@ func copyStrings(in []string) []string {
 	return out
 }
 
+// copyRawJSON 复制 RawMessage，防止调用方共享底层字节切片。
 func copyRawJSON(in json.RawMessage) json.RawMessage {
 	if in == nil {
 		return nil
@@ -151,6 +159,7 @@ func copyRawJSON(in json.RawMessage) json.RawMessage {
 	return out
 }
 
+// boolValue 解析可选 bool，nil 时返回调用方给定默认值。
 func boolValue(value *bool, fallback bool) bool {
 	if value == nil {
 		return fallback

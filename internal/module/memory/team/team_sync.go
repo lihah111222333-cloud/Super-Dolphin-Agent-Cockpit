@@ -18,8 +18,10 @@ import (
 
 const teamSyncGitTimeout = 4 * time.Second
 
+// TeamSyncTrigger 标记触发同步的来源，便于日志和 prompt 失效追踪。
 type TeamSyncTrigger string
 
+// 团队记忆同步触发来源。
 const (
 	TeamSyncTriggerInitial  TeamSyncTrigger = "initial_pull"
 	TeamSyncTriggerManual   TeamSyncTrigger = "manual"
@@ -27,6 +29,7 @@ const (
 	TeamSyncTriggerConflict TeamSyncTrigger = "conflict_retry"
 )
 
+// TeamSyncPullResult 描述一次远端拉取对本地团队记忆目录造成的影响。
 type TeamSyncPullResult struct {
 	Applied     bool
 	NotModified bool
@@ -35,6 +38,7 @@ type TeamSyncPullResult struct {
 	Paths       []string
 }
 
+// TeamSyncPushResult 描述一次本地推送的应用、重试和文件级失败情况。
 type TeamSyncPushResult struct {
 	Applied           bool
 	Retried           bool
@@ -43,10 +47,13 @@ type TeamSyncPushResult struct {
 	Failed            map[string]string
 }
 
+// teamSyncInvalidator 是同步成功后通知 prompt 缓存失效的最小接口。
 type teamSyncInvalidator interface {
 	Invalidate(context.Context, contract.InvalidateReason) error
 }
 
+// TeamSyncService 管理团队记忆目录与远端仓库之间的拉取、推送和 watcher 生命周期。
+// 所有运行态字段由 mu 保护，同一时间只允许一个 watcher 绑定当前 root/repoSlug。
 type TeamSyncService struct {
 	cfg             Config
 	manager         *TeamMemoryManager
@@ -65,6 +72,8 @@ type TeamSyncService struct {
 	watcher    *teamSyncWatcher
 }
 
+// teamSyncRuntime 是 StartSession 解析出的可运行配置快照。
+// 解析阶段先完成路径、repo slug、OAuth 和状态读取，入锁后只做状态切换和同步。
 type teamSyncRuntime struct {
 	buildCtx contract.BuildCtx
 	root     string
@@ -73,7 +82,8 @@ type teamSyncRuntime struct {
 	store    *teamSyncStateStore
 }
 
-// NewTeamSyncService 创建teamsync服务。
+// NewTeamSyncService 创建团队记忆同步服务。
+// cfg 为空时使用禁用配置，remote 和 repo slug 解析器保留为字段方便测试替换。
 func NewTeamSyncService(
 	cfg Config,
 	manager *TeamMemoryManager,
@@ -96,15 +106,19 @@ func NewTeamSyncService(
 	}
 }
 
+// startSessionDisabled 判断 start 请求是否没有可执行的服务或线程 ID。
 func (s *TeamSyncService) startSessionDisabled(threadID string) bool {
 	return s == nil || threadID == ""
 }
 
+// canReuseWatcherLocked 判断当前 watcher 是否已经覆盖同一个 root 和 repo。
+// 调用方必须持有 s.mu，复用时只追加 session，避免重复拉取和重建 fsnotify watcher。
 func (s *TeamSyncService) canReuseWatcherLocked(runtime teamSyncRuntime) bool {
 	return s.watcher != nil && s.root == runtime.root && s.repoSlug == runtime.repoSlug
 }
 
-// StartSession 启动会话。
+// StartSession 为线程启动团队记忆同步。
+// runtime 切换时先关闭旧 watcher，再在锁内完成初始拉取、校验本地 checksum 并安装新 watcher。
 func (s *TeamSyncService) StartSession(ctx context.Context, threadID string, buildCtx contract.BuildCtx) error {
 	threadID = strings.TrimSpace(threadID)
 	if s.startSessionDisabled(threadID) {
@@ -156,7 +170,7 @@ func (s *TeamSyncService) StartSession(ctx context.Context, threadID string, bui
 	return nil
 }
 
-// StopSession 停止会话。
+// StopSession 移除线程绑定；最后一个 session 退出时关闭 watcher 并执行最终推送。
 func (s *TeamSyncService) StopSession(ctx context.Context, threadID string) error {
 	threadID = strings.TrimSpace(threadID)
 	if s == nil || threadID == "" {
@@ -176,7 +190,8 @@ func (s *TeamSyncService) StopSession(ctx context.Context, threadID string) erro
 	return nil
 }
 
-// Shutdown 发送 LSP 关闭请求。
+// Shutdown 停止所有团队记忆同步 session，并关闭当前 watcher。
+// 该方法用于模块关机路径，必须清空 sessions，避免后续复用已关闭的运行态。
 func (s *TeamSyncService) Shutdown(ctx context.Context) error {
 	if s == nil {
 		return nil
@@ -193,20 +208,26 @@ func (s *TeamSyncService) Shutdown(ctx context.Context) error {
 	return nil
 }
 
+// pushLocalChanges 在锁内把当前本地变更推送到远端。
+// watcher 和手动入口共用此方法，避免并发推送与本地状态写入交错。
 func (s *TeamSyncService) pushLocalChanges(ctx context.Context, trigger TeamSyncTrigger) (TeamSyncPushResult, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.pushLocked(ctx, trigger, false)
 }
 
+// runtimeUnavailable 判断同步服务缺少 manager 或 remote 等硬依赖。
 func (s *TeamSyncService) runtimeUnavailable() bool {
 	return s == nil || s.manager == nil || s.remote == nil
 }
 
+// teamSyncGateEnabled 判断功能开关是否允许团队记忆同步运行。
 func teamSyncGateEnabled(gate GateSnapshot) bool {
 	return gate.AutoEnabled && gate.TeamMemEnabled && !gate.KairosActive
 }
 
+// projectRootForRuntime 选择用于解析远端仓库 slug 的项目根目录。
+// 优先使用 BuildCtx.GitRoot，其次配置提供的项目根，最后退回团队记忆根目录的父目录。
 func (s *TeamSyncService) projectRootForRuntime(buildCtx contract.BuildCtx, root string) string {
 	projectRoot := strings.TrimSpace(buildCtx.GitRoot)
 	if projectRoot == "" {
@@ -218,7 +239,8 @@ func (s *TeamSyncService) projectRootForRuntime(buildCtx contract.BuildCtx, root
 	return projectRoot
 }
 
-// resolveRuntime 解析运行时。
+// resolveRuntime 解析一次 session 启动所需的完整运行态。
+// 未满足开关、路径或 OAuth 条件时返回 ok=false；配置或状态读取失败时返回 error 阻断启动。
 func (s *TeamSyncService) resolveRuntime(ctx context.Context, buildCtx contract.BuildCtx) (teamSyncRuntime, bool, error) {
 	if s.runtimeUnavailable() {
 		return teamSyncRuntime{}, false, nil
@@ -250,10 +272,13 @@ func (s *TeamSyncService) resolveRuntime(ctx context.Context, buildCtx contract.
 	return teamSyncRuntime{buildCtx: cloneBuildCtx(buildCtx), root: root, repoSlug: repoSlug, state: state, store: store}, true, nil
 }
 
+// runtimeReadyLocked 检查锁内运行态是否足以执行 pull/push。
 func (s *TeamSyncService) runtimeReadyLocked() bool {
 	return s != nil && s.remote != nil && s.stateStore != nil && strings.TrimSpace(s.root) != "" && strings.TrimSpace(s.repoSlug) != ""
 }
 
+// refreshLocalChecksumLocked 重新扫描本地团队记忆文件并持久化 checksum。
+// 调用方必须持有 s.mu，确保 state 与磁盘写入顺序一致。
 func (s *TeamSyncService) refreshLocalChecksumLocked() error {
 	local, err := scanTeamMarkdownFiles(s.root)
 	if err != nil {
@@ -263,6 +288,8 @@ func (s *TeamSyncService) refreshLocalChecksumLocked() error {
 	return s.persistStateLocked()
 }
 
+// persistStateLocked 标准化后保存同步状态。
+// 调用方必须持有 s.mu；stateStore 为空表示同步尚未完成运行态初始化。
 func (s *TeamSyncService) persistStateLocked() error {
 	if s == nil || s.stateStore == nil {
 		return nil
@@ -271,6 +298,7 @@ func (s *TeamSyncService) persistStateLocked() error {
 	return s.stateStore.Save(s.state)
 }
 
+// cloneBuildCtx 深拷贝 BuildCtx 中会被 session 保存的切片和 map。
 func cloneBuildCtx(buildCtx contract.BuildCtx) contract.BuildCtx {
 	cloned := buildCtx
 	cloned.EnabledTools = append([]string(nil), buildCtx.EnabledTools...)
@@ -285,6 +313,8 @@ func cloneBuildCtx(buildCtx contract.BuildCtx) contract.BuildCtx {
 	return cloned
 }
 
+// resolveTeamRepoSlug 通过 git remote.origin.url 解析 owner/repo。
+// 命令受 teamSyncGitTimeout 限制，避免 StartSession 卡在 git 子进程上。
 func resolveTeamRepoSlug(ctx context.Context, projectRoot string) (string, error) {
 	projectRoot, err := shared.CleanAbsolutePath(projectRoot)
 	if err != nil {
@@ -308,7 +338,7 @@ func resolveTeamRepoSlug(ctx context.Context, projectRoot string) (string, error
 	return repoSlug, nil
 }
 
-// parseTeamRepoSlug 解析team仓库slug。
+// parseTeamRepoSlug 从 HTTPS、SSH 和 scp-like git remote URL 中提取 owner/repo。
 func parseTeamRepoSlug(raw string) string {
 	raw = strings.TrimSpace(raw)
 	if raw == "" {
@@ -334,6 +364,7 @@ func parseTeamRepoSlug(raw string) string {
 	return owner + "/" + repo
 }
 
+// execLookalikeParse 解析带 scheme 的 git remote URL，并返回去掉首尾斜杠的 path。
 func execLookalikeParse(raw string) (string, error) {
 	parsed, err := url.Parse(strings.TrimSpace(raw))
 	if err != nil {

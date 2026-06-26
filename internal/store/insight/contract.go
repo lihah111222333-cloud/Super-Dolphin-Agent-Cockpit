@@ -1,10 +1,5 @@
-// Package insight persists P21 P3 per-turn session metrics.
-//
-// This store is the DB surface; the collector / flush worker / dashboard
-// aggregation that live on top of it will land in Track F phase 2. The
-// UPSERT query enforces the precedence and non-regression invariants at
-// the SQL layer so a misbehaving consumer cannot silently downgrade a
-// terminal status or regress token counters.
+// Package insight 持久化每个 turn 的会话观测指标。
+// UPSERT 查询在 SQL 层维护终态优先级和计数非回退约束，避免消费者误把终态降级或回退 token 计数。
 package insight
 
 import (
@@ -14,7 +9,8 @@ import (
 	"time"
 )
 
-// Status constants mirror the P3 plan's status domain.
+// 会话 insight 状态常量。
+// 这些值会落库并供 UI 聚合使用，新增状态必须同步查询和展示层。
 const (
 	StatusUnknown     = "unknown"
 	StatusCompleted   = "completed"
@@ -24,14 +20,14 @@ const (
 	StatusStalled     = "stalled"
 )
 
-// Sentinel errors.
+// insight 存储哨兵错误。
 var (
 	ErrNotFound = errors.New("insight: session insight not found")
 	ErrEmptyID  = errors.New("insight: id is required")
 )
 
-// Store is the domain facade. All methods work with the Insight DTO; the
-// sqlc-level SessionInsight row never leaks to callers.
+// Store 是 session insight 的领域访问边界。
+// 所有方法只暴露 Insight DTO，sqlc 的 SessionInsight 行类型不能泄露给调用方。
 type Store interface {
 	Upsert(ctx context.Context, params UpsertParams) (Insight, error)
 	GetByLocalTurn(ctx context.Context, threadID, localTurnID string) (Insight, error)
@@ -41,9 +37,8 @@ type Store interface {
 	ListObservedTokenTurns(ctx context.Context, threadID string, limit int32) ([]TokenRow, error)
 }
 
-// Insight is the per-turn aggregate. Success is *bool so consumers can
-// distinguish "unknown" from "false"; see the P3 plan on the
-// TurnCompleted.Success non-pointer bool trap.
+// Insight 是单个 turn 的聚合观测结果。
+// Success 使用 *bool 区分未知和 false，避免未观测成功状态被误当作失败。
 type Insight struct {
 	ID                       int64
 	ThreadID                 string
@@ -75,10 +70,8 @@ type Insight struct {
 	UpdatedAt                time.Time
 }
 
-// UpsertParams drives Store.Upsert. SkillsSelected is optional JSON; nil
-// / empty is treated as "no change" by the SQL DO UPDATE clause (so the
-// collector can flush token / terminal updates without re-sending skills
-// every time).
+// UpsertParams 是 Store.Upsert 的写入参数。
+// SkillsSelected 为空时由 SQL 更新语句视为不变，便于采集器分批刷新 token 或终态字段。
 type UpsertParams struct {
 	ThreadID                 string
 	AgentID                  string
@@ -109,9 +102,8 @@ type UpsertParams struct {
 	UpdatedAt                time.Time
 }
 
-// ApprovalRow is the slim projection for ListObservedApprovalRequests.
-// It deliberately excludes unobserved turns so callers that want a
-// true average / percentile don't have to filter themselves.
+// ApprovalRow 是 ListObservedApprovalRequests 的轻量投影。
+// 它只包含已观测到审批请求的 turn，调用方计算均值或分位数时无需再过滤未观测行。
 type ApprovalRow struct {
 	ID               int64
 	ThreadID         string
@@ -122,7 +114,8 @@ type ApprovalRow struct {
 	CreatedAt        time.Time
 }
 
-// TokenRow is the slim projection for ListObservedTokenTurns.
+// TokenRow 是 ListObservedTokenTurns 的轻量投影。
+// 它只承载已采集 token 快照的 turn 摘要，不表示缺失 turn 的 token 值为 0。
 type TokenRow struct {
 	ID                  int64
 	ThreadID            string

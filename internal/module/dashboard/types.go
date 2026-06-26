@@ -7,10 +7,14 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 )
 
+// AgentSnapshot 复用 orchestration 的 agent 快照 wire 结构。
 type AgentSnapshot = contract.AgentSnapshot
+
+// AgentOverview 是列表页使用的轻量 agent 快照别名，保持与 AgentSnapshot JSON 兼容。
 type AgentOverview = AgentSnapshot
 
-// Dashboard 表示仪表盘顶层数据，包含 agent 列表、系统信息和 token 用量。
+// Dashboard 是 dashboard 首页的聚合 wire 结构。
+// Uptime 是本进程计算值，不直接来自 store。
 type Dashboard struct {
 	Agents     []AgentOverview `json:"agents"`
 	System     SystemInfo      `json:"system"`
@@ -36,7 +40,8 @@ type DashboardDAG struct {
 	HasFinalOutput bool          `json:"hasFinalOutput"`
 }
 
-// FinalOutputRef 描述一次 DAG run 产出的最终输出文件引用。
+// FinalOutputRef 是 sharedfile 保留检查使用的最终输出引用。
+// Path 是清理候选匹配主键，其余字段只服务 UI 回溯来源 run 和节点，不参与权限判断。
 type FinalOutputRef struct {
 	Path          string `json:"path"`
 	RunKey        string `json:"runKey,omitempty"`
@@ -46,6 +51,7 @@ type FinalOutputRef struct {
 }
 
 // TokenUsage 记录一次 dashboard 快照的 token 消耗统计。
+// 当前字段保留给前端兼容，未采集到指标时保持 omitempty。
 type TokenUsage struct {
 	InputTokens         int `json:"input_tokens,omitempty"`
 	OutputTokens        int `json:"output_tokens,omitempty"`
@@ -53,7 +59,8 @@ type TokenUsage struct {
 	ContextWindowTokens int `json:"context_window_tokens,omitempty"`
 }
 
-// SystemInfo 描述当前进程的构建版本、runtime 和内存状态。
+// SystemInfo 是 dashboard 首页展示的进程快照。
+// 构建信息来自编译变量，runtime/内存数据在请求时采样，因此不应被当成持久化状态。
 type SystemInfo struct {
 	StartedAt        time.Time `json:"started_at"`
 	BuildVersion     string    `json:"build_version"`
@@ -78,7 +85,8 @@ type TurnRef struct {
 	Timestamp time.Time `json:"timestamp,omitempty"`
 }
 
-// LogFilter 指定日志查询的过滤条件，空字段表示不过滤。
+// LogFilter 指定日志查询的统一过滤条件。
+// 空字段表示不过滤，Limit 在 service 入口统一 clamp。
 type LogFilter struct {
 	Source    string `json:"source,omitempty"`
 	Keyword   string `json:"keyword,omitempty"`
@@ -92,7 +100,8 @@ type LogFilter struct {
 	Limit     int    `json:"limit,omitempty"`
 }
 
-// LogEntry 是跨 system 和 AI 日志源统一格式化的日志条目。
+// LogEntry 是跨 system 和 AI 日志源统一格式化的 wire 条目。
+// Source 标记来源，Extra 保留原始 JSON 供前端展开详情。
 type LogEntry struct {
 	Source     string          `json:"source"`
 	ID         int64           `json:"id"`

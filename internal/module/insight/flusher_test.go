@@ -12,7 +12,7 @@ import (
 	insightstore "github.com/anthropic-ai/super-agent-v3/internal/store/insight"
 )
 
-// fakeInsightStore captures what the flusher attempts to persist.
+// fakeInsightStore 捕获 flusher 尝试持久化的参数，未注入回调的方法保持空结果。
 type fakeInsightStore struct {
 	upsertFn         func(context.Context, insightstore.UpsertParams) (insightstore.Insight, error)
 	listRecentFn     func(context.Context, int32) ([]insightstore.Insight, error)
@@ -68,8 +68,7 @@ func newTestFlusher(t *testing.T, obs observation.Contract, store insightstore.S
 	return f, col
 }
 
-// TestFlusherBuildsUpsertFromObservation verifies the single-signal path
-// reads every fact out of observation and lands it in the upsert params.
+// TestFlusherBuildsUpsertFromObservation 验证单个终态信号会从 observation 读取完整事实并写入 upsert 参数。
 func TestFlusherBuildsUpsertFromObservation(t *testing.T) {
 	t.Parallel()
 
@@ -157,9 +156,7 @@ func assertCompletedFlusherIdentity(t *testing.T, got insightstore.UpsertParams)
 	}
 }
 
-// TestFlusherMapsUnknownTerminalToStatusUnknown exercises the boundary
-// translation documented in P3 plan: observation.TerminalKind="" must
-// land as insight.Status="unknown" in the DB.
+// TestFlusherMapsUnknownTerminalToStatusUnknown 验证未知终态会落成 insight 的 unknown 状态。
 func TestFlusherMapsUnknownTerminalToStatusUnknown(t *testing.T) {
 	t.Parallel()
 
@@ -180,9 +177,7 @@ func TestFlusherMapsUnknownTerminalToStatusUnknown(t *testing.T) {
 	}
 }
 
-// TestFlusherRequeuesWhenObservationEmpty covers the race where the
-// collector fires a terminal signal before observation's own subscribers
-// have written the corresponding Terminal.
+// TestFlusherRequeuesWhenObservationEmpty 覆盖 collector 先于 observation 订阅者写入终态的竞争。
 func TestFlusherRequeuesWhenObservationEmpty(t *testing.T) {
 	t.Parallel()
 
@@ -240,8 +235,7 @@ func TestFlusherUsesSignalTimestampProviderAndCodexApprovalObserved(t *testing.T
 	}
 }
 
-// TestFlusherDrainRunsOnCancel verifies the 5s-bounded drain actually
-// flushes any in-flight signals when the runner context is cancelled.
+// TestFlusherDrainRunsOnCancel 验证 runner ctx 取消后仍会在有界 drain 内刷新队列中的信号。
 func TestFlusherDrainRunsOnCancel(t *testing.T) {
 	t.Parallel()
 
@@ -272,9 +266,8 @@ func TestFlusherDrainRunsOnCancel(t *testing.T) {
 	}
 }
 
-// TestFlusherLogsButIgnoresStoreError proves a DB hiccup does not tear
-// the runner down — the next terminal for the same turn will merge via
-// UPSERT anyway.
+// TestFlusherLogsButIgnoresStoreError 验证单次 DB 写入失败只记录日志，不会终止 runner。
+// 同一 turn 后续终态仍可通过 UPSERT 合并修正。
 func TestFlusherLogsButIgnoresStoreError(t *testing.T) {
 	t.Parallel()
 
@@ -286,7 +279,6 @@ func TestFlusherLogsButIgnoresStoreError(t *testing.T) {
 		},
 	}
 	f, _ := newTestFlusher(t, mem, store)
-	// handle must not panic or return anything observable; absence of a
-	// fatal here is the assertion.
+	// handle 不应 panic 或暴露可观察返回值；没有 fatal 就是本断言。
 	f.handle(context.Background(), flushSignal{LocalTurnID: "t", ThreadID: "th"})
 }

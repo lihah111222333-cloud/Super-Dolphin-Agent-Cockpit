@@ -18,6 +18,7 @@ import (
 	promptstore "github.com/anthropic-ai/super-agent-v3/internal/store/prompt"
 )
 
+// DryRunDisclaimer 是 dry-run RPC 的固定提示，明确该路径不会写库也不代表真实路由承诺。
 const DryRunDisclaimer = "这是创建前试问解释，不会写入路由索引，也不承诺真实模型一定做出相同选择。"
 
 // DraftResult 是单张草稿卡片的返回结果。
@@ -512,6 +513,8 @@ func promptIntentRequiredFieldIssues(kind Kind, card Card) []Issue {
 	return issues
 }
 
+// appendPromptIntentMissingIssue 在字段为空时追加 block 级问题。
+// 调用方传入已本地化的 message，便于不同 kind 使用更贴近用户的错误说明。
 func appendPromptIntentMissingIssue(issues []Issue, field, message, value string) []Issue {
 	if strings.TrimSpace(value) != "" {
 		return issues
@@ -523,11 +526,15 @@ func appendPromptIntentMissingIssue(issues []Issue, field, message, value string
 	})
 }
 
+// promptIntentVagueWhenToUse 检查 when_to_use 是否仍是泛化占位文本。
+// 仅匹配明确的禁用词，避免误伤用户写出的具体场景说明。
 func promptIntentVagueWhenToUse(value string) bool {
 	text := normalizePromptIntentComparableText(value)
 	return promptIntentEqualsAnyTerm(text, promptIntentVagueWhenToUseTerms)
 }
 
+// promptIntentVagueOutput 判断 output 是否短到无法指导模型产出结构化结果。
+// 该校验会结合长度和禁用词，防止“整理结果”这类低信息输出说明进入 ready 状态。
 func promptIntentVagueOutput(value string) bool {
 	text := normalizePromptIntentText(value)
 	return compactRuneLen(text) < 6 ||
@@ -535,6 +542,8 @@ func promptIntentVagueOutput(value string) bool {
 		(compactRuneLen(text) <= 16 && containsAnyPromptIntentTerm(text, promptIntentVagueOutputTerms))
 }
 
+// promptIntentNeedsSaveBoundary 判断草稿是否涉及保存、记忆或知识沉淀。
+// 命中时 expert 卡片必须说明保存边界，避免模型把建议误写成已持久化承诺。
 func promptIntentNeedsSaveBoundary(rawInput string, card Card) bool {
 	text := normalizePromptIntentText(strings.Join([]string{
 		rawInput,
@@ -548,6 +557,7 @@ func promptIntentNeedsSaveBoundary(rawInput string, card Card) bool {
 	return containsAnyPromptIntentTerm(text, promptIntentSaveBoundaryTerms)
 }
 
+// promptIntentSaveBoundaryTerms 是触发保存边界说明的中英文关键词集合。
 var promptIntentSaveBoundaryTerms = []string{
 	"保存",
 	"记忆",
@@ -566,6 +576,7 @@ var promptIntentSaveBoundaryTerms = []string{
 	"knowledge base",
 }
 
+// promptIntentVagueWhenToUseTerms 是 when_to_use 中不可接受的泛化占位短语。
 var promptIntentVagueWhenToUseTerms = []string{
 	"需要时使用",
 	"需要时",
@@ -580,6 +591,7 @@ var promptIntentVagueWhenToUseTerms = []string{
 	"any request",
 }
 
+// promptIntentVagueOutputTerms 是 output 中不可接受的低信息占位短语。
 var promptIntentVagueOutputTerms = []string{
 	"整理结果",
 	"回答用户",
@@ -591,6 +603,8 @@ var promptIntentVagueOutputTerms = []string{
 	"output result",
 }
 
+// promptIntentEqualsAnyTerm 按规范化后的可比较文本做等值匹配。
+// 末尾标点和空白不参与比较，避免中英文句号导致漏检。
 func promptIntentEqualsAnyTerm(text string, terms []string) bool {
 	for _, term := range terms {
 		if text == normalizePromptIntentComparableText(term) {
@@ -600,6 +614,7 @@ func promptIntentEqualsAnyTerm(text string, terms []string) bool {
 	return false
 }
 
+// normalizePromptIntentComparableText 生成用于低信息短语等值比较的文本。
 func normalizePromptIntentComparableText(text string) string {
 	return strings.Trim(normalizePromptIntentText(text), "。.!！ ")
 }

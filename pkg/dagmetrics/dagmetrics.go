@@ -1,6 +1,5 @@
-// Package dagmetrics provides process-local counters for DAG dispatch
-// observability. Prometheus wiring lives in internal/platform/metrics; keeping
-// the mutable counters here avoids internal/platform importing cmd/mcp-orch.
+// Package dagmetrics 记录 DAG 调度的进程内观测计数。
+// Prometheus wiring 在 internal/platform/metrics；计数器放在 leaf 包可避免 platform 反向导入 cmd/mcp-orch。
 package dagmetrics
 
 import (
@@ -13,25 +12,28 @@ import (
 const retryAlertThreshold uint64 = 3
 const maxTrackedRetryNodes = 256
 
+// NodeRetryCount 是对外暴露的单节点重试计数，字段名会进入指标导出和测试快照。
 type NodeRetryCount struct {
-	DagKey  string
-	NodeKey string
-	Count   uint64
+	DagKey  string // DAG 稳定标识。
+	NodeKey string // 节点稳定标识。
+	Count   uint64 // 已观察到的最大重试次数。
 }
 
+// Snapshot 是 DAG 指标的一次读取快照；读取过程中并发增量允许落到下一次快照。
 type Snapshot struct {
-	DispatchFailedTotal       uint64
-	RetryCountPerNode         []NodeRetryCount
-	RetryCountPerNodeOverflow uint64
-	RetryAlertTotal           uint64
+	DispatchFailedTotal       uint64           // dispatch 失败总数。
+	RetryCountPerNode         []NodeRetryCount // 按 DAG/node 排序后的有限节点重试计数。
+	RetryCountPerNodeOverflow uint64           // 超出 maxTrackedRetryNodes 后被丢弃的节点计数。
+	RetryAlertTotal           uint64           // 达到告警阈值的重试事件总数。
 }
 
+// RetryRecord 是 RecordRetry 返回给调用方的本次重试判定结果。
 type RetryRecord struct {
-	DagKey       string
-	NodeKey      string
-	Count        uint64
-	AttemptCount int32
-	ShouldAlert  bool
+	DagKey       string // 清理后的 DAG key。
+	NodeKey      string // 清理后的节点 key。
+	Count        uint64 // 记录中的最大重试次数。
+	AttemptCount int32  // 调用方本次上报的 attempt 数。
+	ShouldAlert  bool   // 本次 attempt 是否达到告警阈值。
 }
 
 var (
@@ -43,12 +45,13 @@ var (
 	retryByNode = map[string]NodeRetryCount{}
 )
 
-// IncDispatchFailed 累加dispatchfailed。
+// IncDispatchFailed 记录一次 DAG dispatch 失败。
 func IncDispatchFailed() {
 	dispatchFailedTotal.Add(1)
 }
 
-// RecordRetry 记录重试。
+// RecordRetry 记录节点重试，并在达到阈值时返回 ShouldAlert。
+// 空 DAG 或节点 key 会被忽略，节点序列过多时只增加 overflow，避免指标基数失控。
 func RecordRetry(dagKey, nodeKey string, attemptCount int32) RetryRecord {
 	dagKey = strings.TrimSpace(dagKey)
 	nodeKey = strings.TrimSpace(nodeKey)
@@ -82,7 +85,7 @@ func RecordRetry(dagKey, nodeKey string, attemptCount int32) RetryRecord {
 	}
 }
 
-// Read 读取DAG 指标。
+// Read 返回当前 DAG 指标快照，并稳定排序节点计数便于测试和导出。
 func Read() Snapshot {
 	mu.RLock()
 	retries := make([]NodeRetryCount, 0, len(retryByNode))
@@ -104,7 +107,7 @@ func Read() Snapshot {
 	}
 }
 
-// RetryCountForNode 为节点重试count。
+// RetryCountForNode 返回指定 DAG/node 已记录的最大重试次数。
 func RetryCountForNode(dagKey, nodeKey string) uint64 {
 	dagKey = strings.TrimSpace(dagKey)
 	nodeKey = strings.TrimSpace(nodeKey)
@@ -116,7 +119,7 @@ func RetryCountForNode(dagKey, nodeKey string) uint64 {
 	return retryByNode[dagKey+"\x00"+nodeKey].Count
 }
 
-// ResetForTesting 为testing重置DAG 指标。
+// ResetForTesting 清空所有 DAG 指标，仅供测试隔离使用。
 func ResetForTesting() {
 	dispatchFailedTotal.Store(0)
 	retryAlertTotal.Store(0)
@@ -126,6 +129,7 @@ func ResetForTesting() {
 	mu.Unlock()
 }
 
+// maxInt32 返回两个 int32 中的较大值。
 func maxInt32(a, b int32) int32 {
 	if a > b {
 		return a
@@ -133,6 +137,7 @@ func maxInt32(a, b int32) int32 {
 	return b
 }
 
+// maxUint64 返回两个 uint64 中的较大值。
 func maxUint64(a, b uint64) uint64 {
 	if a > b {
 		return a

@@ -6,7 +6,8 @@ import (
 	"strings"
 )
 
-// refreshAllDiagnosticTargets 刷新all诊断targets。
+// refreshAllDiagnosticTargets 刷新当前 filter 下已知的诊断目标。
+// 候选数量受 maxRefreshFiles 限制；缺失文件会同步走删除清理，不再请求 LSP。
 func (m *manager) refreshAllDiagnosticTargets(ctx context.Context, filter diagnosticFilter) error {
 	refs, err := m.allDiagnosticRefreshCandidates(ctx, filter)
 	if err != nil {
@@ -46,7 +47,8 @@ func (m *manager) refreshAllDiagnosticTargets(ctx context.Context, filter diagno
 	return nil
 }
 
-// allDiagnosticRefreshCandidates 处理all诊断refresh候选项。
+// allDiagnosticRefreshCandidates 汇总当前诊断快照和 scope cache 中的刷新候选。
+// URI 会按 language 去重，解析失败的旧记录会被跳过，避免一次 refresh 被陈旧缓存阻断。
 func (m *manager) allDiagnosticRefreshCandidates(ctx context.Context, filter diagnosticFilter) ([]documentRef, error) {
 	seen := map[string]struct{}{}
 	var refs []documentRef

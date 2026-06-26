@@ -7,11 +7,11 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/eventsurface"
 )
 
+// embeddedThreadPatchField 是过渡期嵌入源通知的 thread patch 字段名。
 const embeddedThreadPatchField = "_threadPatch"
 
-// embedThreadPatchRequests enriches matching source notifications with a
-// compatibility copy of ui/thread/patch. The standalone patch notification is
-// intentionally preserved until the frontend consumes _threadPatch directly.
+// embedThreadPatchRequests 将匹配的 ui/thread/patch 兼容副本嵌入源通知。
+// 独立 patch 通知仍保留，直到前端完全消费 _threadPatch 字段。
 func embedThreadPatchRequests(reqs []pushRequest) []pushRequest {
 	if len(reqs) == 0 {
 		return nil
@@ -23,7 +23,7 @@ func embedThreadPatchRequests(reqs []pushRequest) []pushRequest {
 	return out
 }
 
-// embedThreadPatchRequest 处理embed线程补丁请求。
+// embedThreadPatchRequest 在单个 push batch 中尝试嵌入 thread patch。
 func embedThreadPatchRequest(req pushRequest, previous []pushRequest) pushRequest {
 	next := req
 	next.notifications = make([]eventsurface.Notification, 0, len(req.notifications))
@@ -38,6 +38,7 @@ func embedThreadPatchRequest(req pushRequest, previous []pushRequest) pushReques
 	return next
 }
 
+// embedThreadPatch 查找唯一源通知并写入 thread patch 副本。
 func embedThreadPatch(previous []pushRequest, current []eventsurface.Notification, patch map[string]any) bool {
 	patchIdentities := payloadIdentitiesFrom(patch)
 	if patchIdentities.empty() {
@@ -56,12 +57,14 @@ func embedThreadPatch(previous []pushRequest, current []eventsurface.Notificatio
 	return true
 }
 
+// threadPatchTarget 表示可被嵌入 patch 的通知及其可修改 payload 副本。
 type threadPatchTarget struct {
 	notification *eventsurface.Notification
 	payload      map[string]any
 }
 
-// uniqueThreadPatchTarget 处理unique线程补丁target。
+// uniqueThreadPatchTarget 在当前和已处理 batch 中查找唯一可嵌入目标。
+// 找到多个候选或目标已占用时返回 false，避免把 patch 塞到错误通知。
 func uniqueThreadPatchTarget(previous []pushRequest, current []eventsurface.Notification, identities payloadIdentities, source string) (threadPatchTarget, bool) {
 	var target threadPatchTarget
 	found := false
@@ -95,6 +98,7 @@ func uniqueThreadPatchTarget(previous []pushRequest, current []eventsurface.Noti
 	return target, found
 }
 
+// visitThreadPatchTargets 从后往前遍历通知，优先匹配最近的源事件。
 func visitThreadPatchTargets(notifications []eventsurface.Notification, visit func(*eventsurface.Notification) bool) bool {
 	for i := len(notifications) - 1; i >= 0; i-- {
 		if !visit(&notifications[i]) {
@@ -104,7 +108,7 @@ func visitThreadPatchTargets(notifications []eventsurface.Notification, visit fu
 	return true
 }
 
-// matchingThreadPatchTarget 处理matching线程补丁target。
+// matchingThreadPatchTarget 判断单个通知是否是当前 patch 的嵌入目标。
 func matchingThreadPatchTarget(notification *eventsurface.Notification, identities payloadIdentities, source string) (threadPatchTarget, bool, bool) {
 	if notification == nil || !isThreadPatchEmbedTarget(notification.Method) {
 		return threadPatchTarget{}, false, false
@@ -122,10 +126,12 @@ func matchingThreadPatchTarget(notification *eventsurface.Notification, identiti
 	return threadPatchTarget{notification: notification, payload: payload}, false, true
 }
 
+// isThreadPatchNotification 判断通知是否为独立 thread patch。
 func isThreadPatchNotification(method string) bool {
 	return strings.TrimSpace(method) == eventsurface.MethodUIThreadPatch
 }
 
+// isThreadPatchEmbedTarget 判断方法是否允许承载嵌入的 thread patch。
 func isThreadPatchEmbedTarget(method string) bool {
 	switch strings.TrimSpace(method) {
 	case "", eventsurface.MethodUIThreadPatch, eventsurface.MethodUIThreadChanged, eventsurface.MethodUISidebarChanged:
@@ -135,7 +141,7 @@ func isThreadPatchEmbedTarget(method string) bool {
 	}
 }
 
-// threadPatchSourceMatchesMethod 处理线程补丁sourcematchesmethod。
+// threadPatchSourceMatchesMethod 判断 patch source 是否对应目标通知方法。
 func threadPatchSourceMatchesMethod(source, method string) bool {
 	sourceKey := normalizedPatchSourceKey(source)
 	methodKey := normalizedPatchSourceKey(method)
@@ -154,6 +160,7 @@ func threadPatchSourceMatchesMethod(source, method string) bool {
 	return false
 }
 
+// patchSourceMethodAliases 维护 patch source 与事件方法之间的兼容别名。
 var patchSourceMethodAliases = map[string][]string{
 	"turn/outputdelta": {
 		eventsurface.MethodAgentMessageDelta,
@@ -181,15 +188,18 @@ var patchSourceMethodAliases = map[string][]string{
 	},
 }
 
+// normalizedPatchSourceKey 标准化 patch source 或方法名。
 func normalizedPatchSourceKey(value string) string {
 	return strings.ToLower(strings.TrimSpace(value))
 }
 
+// compactPatchSourceKey 移除分隔符，用于兼容不同命名风格。
 func compactPatchSourceKey(value string) string {
 	replacer := strings.NewReplacer("/", "", "_", "", "-", "", " ", "")
 	return replacer.Replace(normalizedPatchSourceKey(value))
 }
 
+// clonePayloadMap 将任意 JSON-like payload 复制为 map，避免修改原对象。
 func clonePayloadMap(payload any) (map[string]any, bool) {
 	switch typed := payload.(type) {
 	case nil:
@@ -208,6 +218,7 @@ func clonePayloadMap(payload any) (map[string]any, bool) {
 	return out, true
 }
 
+// cloneStringAnyMap 浅复制 string-any map。
 func cloneStringAnyMap(in map[string]any) map[string]any {
 	out := make(map[string]any, len(in))
 	for key, value := range in {
@@ -216,11 +227,13 @@ func cloneStringAnyMap(in map[string]any) map[string]any {
 	return out
 }
 
+// payloadIdentities 提取用于匹配 patch 归属的 thread/agent 身份集合。
 type payloadIdentities struct {
 	threadIDs map[string]struct{}
 	agentIDs  map[string]struct{}
 }
 
+// payloadIdentitiesFrom 从 payload 中读取 threadID 和 agentID 身份。
 func payloadIdentitiesFrom(payload map[string]any) payloadIdentities {
 	return payloadIdentities{
 		threadIDs: payloadIdentitySet(payload, "threadId", "thread_id"),
@@ -228,10 +241,12 @@ func payloadIdentitiesFrom(payload map[string]any) payloadIdentities {
 	}
 }
 
+// empty 判断身份集合是否完全为空。
 func (ids payloadIdentities) empty() bool {
 	return len(ids.threadIDs) == 0 && len(ids.agentIDs) == 0
 }
 
+// payloadIdentitySet 从多个候选 key 中收集非空身份值。
 func payloadIdentitySet(payload map[string]any, keys ...string) map[string]struct{} {
 	out := map[string]struct{}{}
 	for _, key := range keys {
@@ -242,6 +257,7 @@ func payloadIdentitySet(payload map[string]any, keys ...string) map[string]struc
 	return out
 }
 
+// payloadIdentitiesMatch 优先按 threadID 匹配，缺失 threadID 时才按 agentID 匹配。
 func payloadIdentitiesMatch(source, patch payloadIdentities) bool {
 	if payloadIdentitySetsIntersect(source.threadIDs, patch.threadIDs) {
 		return true
@@ -251,7 +267,7 @@ func payloadIdentitiesMatch(source, patch payloadIdentities) bool {
 		payloadIdentitySetsIntersect(source.agentIDs, patch.agentIDs)
 }
 
-// payloadIdentitySetsIntersect 处理载荷身份setsintersect。
+// payloadIdentitySetsIntersect 判断两个身份集合是否有交集。
 func payloadIdentitySetsIntersect(left, right map[string]struct{}) bool {
 	if len(left) == 0 || len(right) == 0 {
 		return false
@@ -267,6 +283,7 @@ func payloadIdentitySetsIntersect(left, right map[string]struct{}) bool {
 	return false
 }
 
+// payloadString 从 payload 中读取并裁剪字符串字段。
 func payloadString(payload map[string]any, key string) string {
 	if payload == nil {
 		return ""

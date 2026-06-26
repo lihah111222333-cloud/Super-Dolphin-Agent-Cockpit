@@ -233,10 +233,9 @@ func TestWaitForSubmitSessionReadyLogsCompletion(t *testing.T) {
 }
 
 func TestWaitRetryBackoffLogsCompletion(t *testing.T) {
-	t.Parallel()
-
 	var buf bytes.Buffer
 	logger := slog.New(slog.NewTextHandler(&buf, nil))
+	// 该测试会临时替换包级 logger。保持串行执行，避免其他并行测试写入同一个 bytes.Buffer。
 	pkglogger.SetForTest(logger)
 	t.Cleanup(func() { pkglogger.SetForTest(silentLogger()) })
 

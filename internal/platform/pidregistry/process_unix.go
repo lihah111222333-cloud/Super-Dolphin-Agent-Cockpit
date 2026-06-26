@@ -8,6 +8,7 @@ import (
 	"syscall"
 )
 
+// isProcessAlive 在 Unix 上通过 kill(pid, 0) 判断进程是否存在且可访问。
 func isProcessAlive(pid int) bool {
 	if pid <= 1 {
 		return false
@@ -15,14 +16,17 @@ func isProcessAlive(pid int) bool {
 	return syscall.Kill(pid, 0) == nil
 }
 
+// sendSIGTERM 向目标进程发送温和终止信号。
 func sendSIGTERM(pid int) error {
 	return syscall.Kill(pid, syscall.SIGTERM)
 }
 
+// isNoSuchProcessErr 判断系统错误是否表示进程已经不存在。
 func isNoSuchProcessErr(err error) bool {
 	return errors.Is(err, syscall.ESRCH)
 }
 
+// forceKill 优先按进程组强制结束，失败后再尝试单进程 SIGKILL。
 func forceKill(pid int) error {
 	if pid <= 1 {
 		return fmt.Errorf("refusing to kill PID <= 1")

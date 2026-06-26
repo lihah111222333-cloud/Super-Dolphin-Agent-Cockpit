@@ -20,9 +20,8 @@ import (
 	"github.com/kelindar/event"
 )
 
-// NodeExecutorRouter dispatches DAG-driven wakeups by node_type; non-DAG wakeups stay on the legacy launcher.
-// router 读节点、准备 RunContext，并把必要的状态写回 store。
-// executor 只执行节点，不直接处理 wakeup 的 claim/retry/fail。
+// NodeExecutorRouter 根据 node_type 派发 DAG wakeup。
+// router 负责读节点、构造 RunContext 和必要的状态写回；executor 只执行节点，不处理 wakeup claim/retry/fail。
 type NodeExecutorRouter struct {
 	store            taskdag.Store
 	agentExec        *nodeexec.AgentExecutor
@@ -35,8 +34,8 @@ type NodeExecutorRouter struct {
 
 var errAgentReadyRunningWriteFailed = errors.New("node router: ready->running write failed")
 
-// NewNodeExecutorRouter constructs a router. Any of agentExec/autoExec/
-// sharedFileReader/sharedFileWriter may be nil — node_type-specific 失败规则：
+// NewNodeExecutorRouter 构造节点执行路由器。
+// agentExec/autoExec/sharedFileReader/sharedFileWriter 可为空，但只有节点实际引用缺失能力时才转为节点级失败：
 //   - executor nil → validation 失败；
 //   - sharedFileReader/Writer nil → 仅在节点 cfg 引用 sharedfile 时 nodeexec 层归
 //     validation；纯 inputs.from_nodes 节点不受影响。
@@ -126,17 +125,12 @@ func buildReplanPlannerPrompt(w *taskdag.Wakeup, failure dispatchFailure) string
 	return b.String()
 }
 
-// RouteByWakeup 是 dispatcher 调用入口：根据 wakeup 拿到的 dag/node 信息读取
-// 节点 row、构造 RunContext、按 node_type 派发执行。返回 (NodeOutcome, error)：
+// RouteByWakeup 是 dispatcher 调用入口：根据 wakeup 读取节点、构造 RunContext 并按 node_type 执行。
+// 返回 (NodeOutcome, error)：
 //   - error != nil 表示框架级失败（store 报错 / 不可恢复的内部错误）；
 //   - error == nil 时 outcome.Status 反映节点执行后的态。
 //
-// 调用方（dispatcher）据此决定 MarkWakeupSent / RetryWakeup / FailWakeup，
-// 以及 (automation 路径) 是否需要同步推进节点 status 到终态。
-//
-// RouteByWakeup is the dispatcher entrypoint. It fetches the node row,
-// builds a RunContext, and dispatches by node_type. Returned error signals a
-// framework-level fault; NodeOutcome carries node-level success/failure.
+// 调用方据此决定 MarkWakeupSent / RetryWakeup / FailWakeup，以及 automation 路径是否同步推进节点终态。
 func (r *NodeExecutorRouter) RouteByWakeup(ctx context.Context, w *taskdag.Wakeup) (nodeexec.NodeOutcome, error) {
 	if err := validateRouteInputs(r, w); err != nil {
 		return nodeexec.NodeOutcome{}, err
@@ -346,7 +340,8 @@ func taskNodeRunID(node *taskdag.Node) int64 {
 	return *node.RunID
 }
 
-// resolveNodeType 处理 nodeType 兜底逻辑：空串/未识别 → "agent" (F1.0 默认)。
+// resolveNodeType 归一化 node_type。
+// 空串按 agent 处理以兼容旧 DAG；未知值保留原样，由 dispatchByNodeType 返回 validation failure。
 func resolveNodeType(raw string) string {
 	t := strings.TrimSpace(raw)
 	if t == "" {
@@ -355,11 +350,11 @@ func resolveNodeType(raw string) string {
 	return t
 }
 
-// dispatchByNodeType 是本文件里别的「真」路由表：按 node_type 调对应 executor。
-// 拆出独立函数以满足 code-size guard 的 CC 阈值。
+// dispatchByNodeType 是 node_type 到 executor 的唯一生产路由表。
+// 拆出独立函数以保持 RouteByWakeup 的状态读取和执行派发边界清晰。
 //
 // wakeupID 是本轮 dispatcher 绑定的 wakeup row id，仅 dispatchAgent 用于
-// ready→running 推进（ADR-017 §2.4）。其他路径不需要。
+// ready→running 推进；其他路径不需要。
 func (r *NodeExecutorRouter) dispatchByNodeType(ctx context.Context, nodeType string, node nodeexec.Node, runCtx nodeexec.RunContext, wakeupID int64, oldStatus string) (nodeexec.NodeOutcome, error) {
 	switch nodeType {
 	case "agent":
@@ -377,13 +372,8 @@ func (r *NodeExecutorRouter) dispatchByNodeType(ctx context.Context, nodeType st
 	}
 }
 
-// dispatchAgent 类似 dispatchAutomation，但 child agent 是外部驱动的 —— router
-// 只负责 launch + 推 ready→running；subscriber（ADR-017 §2.1）后续推 done/failed。
-//
-// ADR-017 v1.2 §2.4 选项 C：launch 成功后用 UpdateRunningTaskDagNodeStatus
-// 写 running（白名单 IN ('pending','ready')，避免 UpdateNodeStatusFlexible
-// 反向覆盖 done→running）；sqlc 返 (TaskDagNode, error)，0 rows 错是 sql.ErrNoRows，
-// 走 race window D 分支（subscriber 已先推 done）。
+// dispatchAgent 只负责启动 child agent 并把节点推进到 running。
+// child agent 的 done/failed 由 TurnCompleted subscriber 推进；如果 subscriber 已先写终态，running 写会被视为幂等 race。
 func (r *NodeExecutorRouter) dispatchAgent(ctx context.Context, node nodeexec.Node, runCtx nodeexec.RunContext, wakeupID int64, oldStatus string) (nodeexec.NodeOutcome, error) {
 	var hooks map[nodeexec.HookPoint]nodeexec.HookHandler
 	if r.agentExec != nil {
@@ -564,13 +554,12 @@ type serviceAgentLauncher struct {
 	svc *service
 }
 
-// NewServiceAgentLauncher exposes the adapter to the fx layer.
-// NewServiceAgentLauncher 创建通过 thread service 启动代理的适配器。
+// NewServiceAgentLauncher 创建通过 thread service 启动 DAG agent 的适配器。
 func NewServiceAgentLauncher(svc *service) nodeexec.AgentLauncher {
 	return &serviceAgentLauncher{svc: svc}
 }
 
-// LaunchAgent 启动代理线程并返回运行标识。
+// LaunchAgent 启动代理线程并返回 provider thread_id。
 func (a *serviceAgentLauncher) LaunchAgent(ctx context.Context, req contract.LaunchRequest) (string, error) {
 	return a.LaunchAgentWithSpawnRecord(ctx, req, nil)
 }
@@ -597,7 +586,8 @@ func (a *serviceAgentLauncher) LaunchAgentWithSpawnRecord(ctx context.Context, r
 	return launchedThreadID, nil
 }
 
-// ValidateDAGAgentLaunch 校验 DAG 节点启动代理前的请求参数。
+// ValidateDAGAgentLaunch 校验 DAG agent 是否具备远端 launcher 写回能力。
+// 本地 launcher 无法返回稳定 thread_id，必须在启动前 fail-fast。
 func (a *serviceAgentLauncher) ValidateDAGAgentLaunch(_ context.Context, _ contract.LaunchRequest, dagKey, nodeKey string) error {
 	if a == nil || a.svc == nil {
 		return errors.New("service agent launcher: nil receiver")
@@ -626,7 +616,7 @@ func (a *serviceAgentLauncher) StopLaunchedThread(ctx context.Context, threadID 
 	return nil
 }
 
-// ProvideAgentExecutor 为 fx 提供代理节点执行器。
+// ProvideAgentExecutor 为 fx 提供带 spawn recorder 和 lifecycle hooks 的 agent executor。
 func ProvideAgentExecutor(launcher nodeexec.AgentLauncher, recorder nodeexec.NodeSpawnRecorder, hooks NodeLifecycleHooks) (*nodeexec.AgentExecutor, error) {
 	if recorder == nil {
 		return nil, errors.New("node router: agent executor requires node spawn recorder")

@@ -18,12 +18,13 @@ type store struct {
 	q querier
 }
 
-// NewStore 创建存储。
+// NewStore 创建基于 sqlc 的 system log 存储。
 func NewStore(q *sqlc.Queries) Store {
 	return &store{q: q}
 }
 
-// List 列出systemlog存储。
+// List 按多维过滤条件列出系统日志。
+// Keyword 会转换为大小写无关的 LIKE 条件，其余字段保持精确过滤以便排查单个 agent 或 thread。
 func (s *store) List(ctx context.Context, filter ListFilter) ([]SystemLog, error) {
 	rows, err := s.q.ListSystemLogs(ctx, sqlc.ListSystemLogsParams{
 		LevelFilter:     filter.Level,
@@ -48,7 +49,8 @@ func (s *store) List(ctx context.Context, filter ListFilter) ([]SystemLog, error
 	return result, nil
 }
 
-// Insert 插入systemlog存储。
+// Insert 写入一条系统日志。
+// 时间戳由 store 统一使用当前 UTC 毫秒，调用方只传日志级别、logger、message 和 raw JSON。
 func (s *store) Insert(ctx context.Context, params InsertParams) error {
 	return wrapSystemLogError(s.q.InsertSystemLog(ctx, sqlc.InsertSystemLogParams{
 		Ts:      platformdb.Millis(time.Now().UTC()),

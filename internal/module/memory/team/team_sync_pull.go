@@ -9,7 +9,8 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 )
 
-// pullLocked 处理pulllocked。
+// pullLocked 在持有 s.mu 时执行一次远端拉取。
+// 先用 hash/ETag 快速判断是否需要下载文件，NotFound 会清空本地同步状态并触发 prompt 失效。
 func (s *TeamSyncService) pullLocked(ctx context.Context, trigger TeamSyncTrigger) (TeamSyncPullResult, error) {
 	result := TeamSyncPullResult{}
 	if !s.runtimeReadyLocked() {
@@ -38,6 +39,8 @@ func (s *TeamSyncService) pullLocked(ctx context.Context, trigger TeamSyncTrigge
 	return s.applyPulledFilesLocked(ctx, trigger, hashes, remote)
 }
 
+// handlePullNotFoundLocked 收口远端 NotFound：清空本地团队记忆文件和同步状态，避免继续沿用旧 ETag/checksum。
+// 它不能改 watcher、session 绑定等运行态；只有实际删除文件时才标记 Applied/Cleared 并触发 prompt 失效。
 func (s *TeamSyncService) handlePullNotFoundLocked(ctx context.Context, trigger TeamSyncTrigger) (TeamSyncPullResult, error) {
 	result := TeamSyncPullResult{NotFound: true}
 	changed, err := s.clearLocalTeamRootLocked()
@@ -56,6 +59,7 @@ func (s *TeamSyncService) handlePullNotFoundLocked(ctx context.Context, trigger 
 	return result, nil
 }
 
+// handlePullNotModifiedLocked 刷新远端 ETag 和本地 checksum，但不改动文件内容。
 func (s *TeamSyncService) handlePullNotModifiedLocked(etag string, checksums map[string]string) (TeamSyncPullResult, error) {
 	if len(checksums) > 0 {
 		s.state.ServerChecksums = cloneChecksumMap(checksums)
@@ -67,6 +71,8 @@ func (s *TeamSyncService) handlePullNotModifiedLocked(etag string, checksums map
 	return TeamSyncPullResult{NotModified: true}, nil
 }
 
+// applyPulledFilesLocked 把远端文件集应用到本地目录并更新同步状态。
+// 只有文件实际变化时才标记 Applied 并通知 prompt 失效。
 func (s *TeamSyncService) applyPulledFilesLocked(
 	ctx context.Context,
 	trigger TeamSyncTrigger,
@@ -94,9 +100,8 @@ func (s *TeamSyncService) applyPulledFilesLocked(
 	return result, nil
 }
 
-// invalidateLocked reuses the same PromptAssemblyService.Invalidate primitive that
-// thread RunPostCompactCleanup currently delegates to for Phase I-1 cleanup.
-// invalidateLocked 处理invalidatelocked。
+// invalidateLocked 在团队记忆内容变化后通知 prompt 组装缓存失效。
+// 使用 WithoutCancel 脱离原请求取消，确保同步完成后的缓存失效仍能落地；失败只记录日志。
 func (s *TeamSyncService) invalidateLocked(ctx context.Context, trigger TeamSyncTrigger) {
 	if s == nil || s.invalidator == nil {
 		return
@@ -111,12 +116,14 @@ func (s *TeamSyncService) invalidateLocked(ctx context.Context, trigger TeamSync
 	}
 }
 
+// syncedChecksum 返回最近一次持久化的本地 checksum。
 func (s *TeamSyncService) syncedChecksum() string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return strings.TrimSpace(s.state.LastKnownChecksum)
 }
 
+// scanCurrentLocalChecksum 重新扫描 root 下团队记忆文件并计算 checksum。
 func (s *TeamSyncService) scanCurrentLocalChecksum(root string) (string, error) {
 	local, err := scanTeamMarkdownFiles(root)
 	if err != nil {
@@ -125,6 +132,8 @@ func (s *TeamSyncService) scanCurrentLocalChecksum(root string) (string, error) 
 	return checksumTree(localChecksumMap(local)), nil
 }
 
+// suppressWatcherWrites 暂时屏蔽当前 watcher 对指定路径的本地写事件。
+// 远端拉取写盘会触发 fsnotify，这里避免把同步自身的写入误判为用户本地修改。
 func (s *TeamSyncService) suppressWatcherWrites(paths []string) {
 	if s == nil || s.watcher == nil || len(paths) == 0 {
 		return
@@ -132,6 +141,7 @@ func (s *TeamSyncService) suppressWatcherWrites(paths []string) {
 	s.watcher.Suppress(paths...)
 }
 
+// applyRemoteFilesLocked 将远端文件快照同步到本地，并返回变化后的本地扫描结果。
 func (s *TeamSyncService) applyRemoteFilesLocked(remoteFiles map[string]TeamSyncFile) ([]string, map[string]teamSyncLocalFile, error) {
 	current, err := scanTeamMarkdownFiles(s.root)
 	if err != nil {
@@ -154,7 +164,7 @@ func (s *TeamSyncService) applyRemoteFilesLocked(remoteFiles map[string]TeamSync
 	return sortedStringSet(changed), updated, nil
 }
 
-// normalizeRemoteTeamSyncFiles 规范化remoteteamsync文件。
+// normalizeRemoteTeamSyncFiles 规范化远端文件路径，并跳过内部状态文件。
 func normalizeRemoteTeamSyncFiles(remoteFiles map[string]TeamSyncFile) map[string]TeamSyncFile {
 	if len(remoteFiles) == 0 {
 		return nil
@@ -173,6 +183,8 @@ func normalizeRemoteTeamSyncFiles(remoteFiles map[string]TeamSyncFile) map[strin
 	return normalized
 }
 
+// syncRemoteTeamFilesLocked 先写入远端存在的文件，再删除远端已不存在的本地文件。
+// 返回的 suppress 路径用于让 watcher 忽略这次同步造成的文件事件。
 func (s *TeamSyncService) syncRemoteTeamFilesLocked(
 	current map[string]teamSyncLocalFile,
 	remoteFiles map[string]TeamSyncFile,
@@ -189,7 +201,7 @@ func (s *TeamSyncService) syncRemoteTeamFilesLocked(
 	return append(suppress, removed...), nil
 }
 
-// writeRemoteTeamFilesLocked 写入remoteteam文件locked。
+// writeRemoteTeamFilesLocked 写入远端文件快照中新增或内容变化的文件。
 func (s *TeamSyncService) writeRemoteTeamFilesLocked(
 	current map[string]teamSyncLocalFile,
 	remoteFiles map[string]TeamSyncFile,
@@ -213,6 +225,7 @@ func (s *TeamSyncService) writeRemoteTeamFilesLocked(
 	return suppress, nil
 }
 
+// removeMissingRemoteTeamFilesLocked 删除远端快照中已不存在的本地团队记忆文件。
 func (s *TeamSyncService) removeMissingRemoteTeamFilesLocked(
 	current map[string]teamSyncLocalFile,
 	remoteFiles map[string]TeamSyncFile,
@@ -232,7 +245,8 @@ func (s *TeamSyncService) removeMissingRemoteTeamFilesLocked(
 	return suppress, nil
 }
 
-// clearLocalTeamRootLocked 清理localteam根目录locked。
+// clearLocalTeamRootLocked 清空本地团队记忆 Markdown 文件。
+// 删除前会 suppress watcher，避免远端 NotFound 清理动作被重新推回远端。
 func (s *TeamSyncService) clearLocalTeamRootLocked() (bool, error) {
 	files, err := scanTeamMarkdownFiles(s.root)
 	if err != nil {

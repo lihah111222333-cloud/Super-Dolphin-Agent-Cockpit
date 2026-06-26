@@ -10,16 +10,13 @@ import (
 	"golang.org/x/sys/windows"
 )
 
-// The Windows adapter: graceful SIGTERM semantics do not exist without a
-// shared console session, so SIGTERM and SIGKILL both map to
-// TerminateProcess. Live children of app instances that registered with us
-// are typically attached to the parent's Job Object (see codexapp /
-// claudecli Phase 2 guards), which means kill-on-close fires as soon as the
-// parent exits. forceKill still walks descendants here so we cover the
-// tail case where a stale registry file outlives the Job.
+// Windows 适配说明：没有共享 console session 时不存在可靠的 SIGTERM 语义，
+// 因此温和终止和强制终止都映射到 TerminateProcess。forceKill 仍遍历后代进程，
+// 用来覆盖 registry 文件比 Job Object 生命周期更长的尾部场景。
 
-const stillActive = 259 // STILL_ACTIVE exit code returned by GetExitCodeProcess.
+const stillActive = 259 // GetExitCodeProcess 返回的 STILL_ACTIVE 状态码。
 
+// isProcessAlive 通过 GetExitCodeProcess 判断 Windows 进程是否仍处于 STILL_ACTIVE。
 func isProcessAlive(pid int) bool {
 	if pid <= 1 {
 		return false
@@ -36,28 +33,30 @@ func isProcessAlive(pid int) bool {
 	return code == stillActive
 }
 
+// sendSIGTERM 在 Windows 上退化为 TerminateProcess。
 func sendSIGTERM(pid int) error {
 	return terminateByPID(pid)
 }
 
+// isNoSuchProcessErr 判断 Windows 错误是否表示进程已经不存在。
 func isNoSuchProcessErr(err error) bool {
 	return errors.Is(err, windows.ERROR_INVALID_PARAMETER) ||
 		errors.Is(err, windows.ERROR_NOT_FOUND)
 }
 
+// forceKill 先终止后代进程，再终止根进程，避免后代被系统进程重新收养后残留。
 func forceKill(pid int) error {
 	if pid <= 1 {
 		return fmt.Errorf("refusing to kill PID <= 1")
 	}
-	// Walk descendants first so that when we finally terminate the root,
-	// we do not leave survivors that a new parent (PID 4 / System) has
-	// already reparented.
+	// 先终止后代，再终止根进程，避免根进程退出后后代被系统进程收养而残留。
 	for _, descendant := range collectDescendants(pid) {
 		_ = terminateByPID(descendant)
 	}
 	return terminateByPID(pid)
 }
 
+// terminateByPID 打开 PROCESS_TERMINATE 句柄并终止目标进程。
 func terminateByPID(pid int) error {
 	h, err := windows.OpenProcess(windows.PROCESS_TERMINATE, false, uint32(pid))
 	if err != nil {
@@ -76,10 +75,8 @@ func terminateByPID(pid int) error {
 	return nil
 }
 
-// collectDescendants returns PIDs whose ancestry chain leads back to root.
-// We snapshot Toolhelp32 once, build a children index, then BFS from root.
-// Duplicates and the root itself are excluded from the returned slice.
-// collectDescendants 收集descendants。
+// collectDescendants 返回祖先链指向 root 的所有后代 PID。
+// 函数只快照一次 Toolhelp32，再从 root BFS，返回值不包含 root 本身。
 func collectDescendants(root int) []int {
 	snap, err := windows.CreateToolhelp32Snapshot(windows.TH32CS_SNAPPROCESS, 0)
 	if err != nil {

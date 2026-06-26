@@ -13,9 +13,8 @@ import (
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
-// stubAgentLaunchedProcessor satisfies agentLaunchedProcessor for tests.
-// It records every processed event and can be configured to block on a
-// signal so tests can observe drain ordering.
+// stubAgentLaunchedProcessor 是测试用 agentLaunchedProcessor。
+// 它记录所有已处理事件，并可通过 block channel 人为卡住处理过程以观察 drain 顺序。
 type stubAgentLaunchedProcessor struct {
 	mu    sync.Mutex
 	calls []agentdto.AgentLaunched
@@ -66,8 +65,8 @@ func newAgentLaunchedForWorker(agentID, threadID, sessionID string) agentdto.Age
 	}
 }
 
-// TestAgentLaunchedWorkerProcessesEnqueuedEvent verifies the happy path:
-// one Enqueue -> worker dispatch -> processor invoked with same event.
+// TestAgentLaunchedWorkerProcessesEnqueuedEvent 验证入队事件会经 worker 异步派发。
+// 收到的事件必须保持 agent/session 身份不变。
 func TestAgentLaunchedWorkerProcessesEnqueuedEvent(t *testing.T) {
 	t.Parallel()
 	stub := &stubAgentLaunchedProcessor{}
@@ -91,17 +90,15 @@ func TestAgentLaunchedWorkerProcessesEnqueuedEvent(t *testing.T) {
 	}
 }
 
-// TestAgentLaunchedWorkerCoalescesSameKey verifies coalescing: multiple
-// events for the same agentID piling up while the worker is processing
-// the first collapse to a single second dispatch carrying the latest
-// event.
+// TestAgentLaunchedWorkerCoalescesSameKey 验证同 agentID 的积压事件会合并。
+// worker 正在处理首个事件时，后续同 key 事件只保留最后一次，避免重复启动恢复流程。
 func TestAgentLaunchedWorkerCoalescesSameKey(t *testing.T) {
 	t.Parallel()
 	stub := &stubAgentLaunchedProcessor{block: make(chan struct{})}
 	w := newAgentLaunchedWorker(stub, pkglogger.Get())
 	w.Start()
 	defer func() {
-		// Drain blocked processor calls.
+		// 解除被阻塞的 processor 调用，确保 Stop 能正常返回。
 		go func() {
 			for {
 				select {
@@ -137,8 +134,8 @@ func TestAgentLaunchedWorkerCoalescesSameKey(t *testing.T) {
 	}
 }
 
-// TestAgentLaunchedWorkerStopDrainsPending verifies Stop processes
-// pending entries before exit.
+// TestAgentLaunchedWorkerStopDrainsPending 验证 Stop 退出前会处理待办条目。
+// 这是关闭路径的可见边界，不能让已入队的 agent launched 事件静默丢失。
 func TestAgentLaunchedWorkerStopDrainsPending(t *testing.T) {
 	t.Parallel()
 	stub := &stubAgentLaunchedProcessor{}
@@ -156,8 +153,8 @@ func TestAgentLaunchedWorkerStopDrainsPending(t *testing.T) {
 	}
 }
 
-// TestAgentLaunchedWorkerEnqueueAfterStopDrops confirms the gated-drop
-// contract.
+// TestAgentLaunchedWorkerEnqueueAfterStopDrops 验证关闭后的入队会被闸门丢弃。
+// 丢弃不增加 EnqueuedTotal，避免监控把关闭后的调用误计入待处理工作。
 func TestAgentLaunchedWorkerEnqueueAfterStopDrops(t *testing.T) {
 	t.Parallel()
 	stub := &stubAgentLaunchedProcessor{}
@@ -176,7 +173,8 @@ func TestAgentLaunchedWorkerEnqueueAfterStopDrops(t *testing.T) {
 	}
 }
 
-// TestAgentLaunchedWorkerStopIdempotent verifies a second Stop is a no-op.
+// TestAgentLaunchedWorkerStopIdempotent 验证 Stop 可重复调用。
+// 第二次 Stop 必须快速返回，避免 shutdown 聚合路径被已关闭 worker 卡住。
 func TestAgentLaunchedWorkerStopIdempotent(t *testing.T) {
 	t.Parallel()
 	stub := &stubAgentLaunchedProcessor{}
@@ -197,8 +195,8 @@ func TestAgentLaunchedWorkerStopIdempotent(t *testing.T) {
 	}
 }
 
-// TestAgentLaunchedWorkerNilProcessorShortCircuits verifies the worker
-// is a cheap no-op when constructed without a processor.
+// TestAgentLaunchedWorkerNilProcessorShortCircuits 验证缺少 processor 时 worker 只是轻量空操作。
+// 该路径用于可选回调未接入的测试和降级环境，不能 panic 或阻塞 Stop。
 func TestAgentLaunchedWorkerNilProcessorShortCircuits(t *testing.T) {
 	t.Parallel()
 	w := newAgentLaunchedWorker(nil, pkglogger.Get())
@@ -209,11 +207,8 @@ func TestAgentLaunchedWorkerNilProcessorShortCircuits(t *testing.T) {
 	}
 }
 
-// TestAgentLaunchedCallbackEnqueueOnly is the P22 P2 (thread S4)
-// behavioral guard matching TestTaskHandoffCallbackEnqueueOnly /
-// TestTeamSyncCallbackEnqueueOnly: onAgentLaunched must not invoke the
-// processor synchronously on the dispatcher goroutine; every hit goes
-// through the worker's Enqueue path.
+// TestAgentLaunchedCallbackEnqueueOnly 固定 onAgentLaunched 的 enqueue-only 行为。
+// 事件分发 goroutine 不能同步执行 processor；所有命中都必须进入 worker 队列，避免被业务处理阻塞。
 func TestAgentLaunchedCallbackEnqueueOnly(t *testing.T) {
 	t.Parallel()
 	stub := &stubAgentLaunchedProcessor{block: make(chan struct{})}

@@ -9,7 +9,8 @@ import (
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
 )
 
-// NewRelevantMemoryAttachment 创建relevant记忆attachment。
+// NewRelevantMemoryAttachment 构造 relevant memory 的 provider attachment。
+// limit 负数会收敛为 0，updatedAt 非零时同时写入毫秒和 RFC3339 字符串，保持 provider wire 兼容。
 func NewRelevantMemoryAttachment(
 	path, header, content string,
 	updatedAt time.Time,
@@ -34,7 +35,8 @@ func NewRelevantMemoryAttachment(
 	return NormalizeAttachmentEnvelope(envelope)
 }
 
-// NormalizeAttachmentEnvelope 规范化attachment包装。
+// NormalizeAttachmentEnvelope 清理 attachment wire 字段。
+// 路径转为 slash 风格，文本字段 trim，负数 limit/mtime 归零，避免下游 prompt 渲染收到非法值。
 func NormalizeAttachmentEnvelope(attachment dto.AttachmentEnvelope) dto.AttachmentEnvelope {
 	attachment.Kind = strings.TrimSpace(attachment.Kind)
 	attachment.Path = normalizeAttachmentPath(attachment.Path)
@@ -50,7 +52,8 @@ func NormalizeAttachmentEnvelope(attachment dto.AttachmentEnvelope) dto.Attachme
 	return attachment
 }
 
-// IsValidAttachmentEnvelope 判断validattachment包装是否可用。
+// IsValidAttachmentEnvelope 校验 attachment 是否足够安全地进入 prompt。
+// path、header、content 必须非空，且至少有一种时间字段用于解释来源新鲜度。
 func IsValidAttachmentEnvelope(attachment dto.AttachmentEnvelope) bool {
 	attachment = NormalizeAttachmentEnvelope(attachment)
 	if attachment.Path == "" || attachment.Header == "" || attachment.Content == "" {
@@ -59,7 +62,8 @@ func IsValidAttachmentEnvelope(attachment dto.AttachmentEnvelope) bool {
 	return attachment.MtimeMs > 0 || attachment.UpdatedAt != ""
 }
 
-// AttachmentDisplayName 处理attachment显示名称。
+// AttachmentDisplayName 生成 attachment 的 UI 展示名。
+// 优先使用路径 basename；空路径或无有效 basename 时返回稳定占位名。
 func AttachmentDisplayName(attachment dto.AttachmentEnvelope) string {
 	attachment = NormalizeAttachmentEnvelope(attachment)
 	if attachment.Path == "" {
@@ -71,7 +75,8 @@ func AttachmentDisplayName(attachment dto.AttachmentEnvelope) string {
 	return attachment.Path
 }
 
-// RenderAttachmentText 渲染attachment文本。
+// RenderAttachmentText 将 attachment 渲染为 provider prompt 文本块。
+// 无效 attachment 返回空串，调用方可直接跳过而不生成半截标签。
 func RenderAttachmentText(attachment dto.AttachmentEnvelope) string {
 	attachment = NormalizeAttachmentEnvelope(attachment)
 	if !IsValidAttachmentEnvelope(attachment) {

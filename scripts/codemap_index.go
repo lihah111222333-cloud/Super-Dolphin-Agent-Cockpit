@@ -20,33 +20,42 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/devtools/codemapindex"
 )
 
-// ---------- output types ----------
+// ----- 输出结构 -----
 
+// Index 是 ai-index.json 的顶层 wire 结构，字段名受生成文件消费者约束。
 type Index struct {
-	Version      string                `json:"version"`
-	Generator    string                `json:"generator"`
-	GeneratedAt  string                `json:"generated_at"`
-	Description  string                `json:"description"`
-	SectionIndex []string              `json:"section_index"`
-	Codemaps     []Codemap             `json:"codemaps"`
-	Files        map[string]*FileEntry `json:"files"`
+	Version      string                `json:"version"`       // 索引格式版本。
+	Generator    string                `json:"generator"`     // 生成器锚点，用于 README 同步识别。
+	GeneratedAt  string                `json:"generated_at"`  // 生成日期；check 模式会复用旧值避免漂移。
+	Description  string                `json:"description"`   // 给 AI/人类读取的索引说明。
+	SectionIndex []string              `json:"section_index"` // section ID 到标题的全局映射表。
+	Codemaps     []Codemap             `json:"codemaps"`      // 每份 codemap 的章节摘要。
+	Files        map[string]*FileEntry `json:"files"`         // 源码文件到 codemap 引用的索引。
 }
+
+// Codemap 描述单个 codemap markdown 文件及其可引用章节。
 type Codemap struct {
-	ID         string    `json:"id"`
-	File       string    `json:"file"`
-	Title      string    `json:"title"`
-	TotalLines int       `json:"total_lines"`
-	Sections   []Section `json:"sections"`
+	ID         string    `json:"id"`          // 两位文件编号。
+	File       string    `json:"file"`        // codemap markdown 文件名。
+	Title      string    `json:"title"`       // 文档一级标题。
+	TotalLines int       `json:"total_lines"` // markdown 总行数。
+	Sections   []Section `json:"sections"`    // 暴露到 README/索引的章节。
 }
+
+// Section 描述 markdown 章节在原文件中的行范围。
 type Section struct {
 	Title     string `json:"title"`
 	Level     int    `json:"level"`
 	StartLine int    `json:"start_line"`
 	EndLine   int    `json:"end_line"`
 }
+
+// FileEntry 保存源码文件命中的 codemap 引用列表。
 type FileEntry struct {
 	Refs []Ref `json:"refs"`
 }
+
+// Ref 是文件到 codemap section 的紧凑引用，字段名为压缩 JSON 体积而保持短名。
 type Ref struct {
 	CodemapID string `json:"c"`
 	SectionID int    `json:"s"`
@@ -54,14 +63,16 @@ type Ref struct {
 	EndLine   int    `json:"e"`
 }
 
-// ---------- internal types ----------
+// ----- 内部结构 -----
 
+// parsedMD 是解析后的 codemap markdown，保留原始行以便后续定位引用范围。
 type parsedMD struct {
 	id, file, title string
 	lines           []string
 	sections        []Section
 }
 
+// rawRef 在 section 标题压缩成 ID 前保存源码文件的原始引用。
 type rawRef struct {
 	codemapID string
 	section   string
@@ -69,9 +80,10 @@ type rawRef struct {
 	endLine   int
 }
 
+// maxRefsPerFile 限制单个源码文件的 codemap 引用数量，避免索引体积失控。
 const maxRefsPerFile = 20
 
-// main 解析参数并执行命令行入口流程。
+// main 生成或检查 codemap ai-index.json 与 README 同步内容。
 func main() {
 	check := flag.Bool("check", false, "verify docs/doc/codemap generated files without modifying the worktree")
 	flag.Parse()
@@ -122,19 +134,20 @@ func main() {
 		len(idx.Files), countRefs(idx.Files), len(idx.SectionIndex), len(idx.Codemaps))
 }
 
+// buildIndex 扫描 codemap 文档和源码文件，构建索引及 README 同步输入。
 func buildIndex(root, codemapDir, generatedAt string) (Index, []codemapindex.ReadmeCodemap, error) {
 	mds, err := loadCodemaps(codemapDir)
 	if err != nil {
 		return Index{}, nil, err
 	}
 
-	// Build raw refs (still using section title strings).
+	// raw refs 先保留 section 标题，后续统一压缩成 section ID。
 	rawFilesIndex, err := buildRawFilesIndex(root, mds)
 	if err != nil {
 		return Index{}, nil, err
 	}
 
-	// Convert rawRefs to compact Refs with section IDs.
+	// compact refs 复用全局 section table，降低 ai-index.json 体积。
 	filesIndex, secIndex := buildCompactFilesIndex(rawFilesIndex)
 
 	codemaps, readmeCodemaps := buildOutputCodemaps(mds)
@@ -151,6 +164,7 @@ func buildIndex(root, codemapDir, generatedAt string) (Index, []codemapindex.Rea
 	return idx, readmeCodemaps, nil
 }
 
+// checkGeneratedFiles 对比索引和 README 的生成内容，发现陈旧立即退出。
 func checkGeneratedFiles(indexPath string, indexData []byte, readmePath string, readmeCodemaps []codemapindex.ReadmeCodemap, generatedAt string) {
 	stale := !sameFileContent(indexPath, indexData)
 	expectedREADME, err := renderSyncedREADME(readmePath, readmeCodemaps, generatedAt)
@@ -167,6 +181,7 @@ func checkGeneratedFiles(indexPath string, indexData []byte, readmePath string, 
 	}
 }
 
+// sameFileContent 判断磁盘文件是否与期望内容完全一致，并输出差异来源。
 func sameFileContent(path string, want []byte) bool {
 	got, err := os.ReadFile(path)
 	if err != nil {
@@ -180,6 +195,7 @@ func sameFileContent(path string, want []byte) bool {
 	return false
 }
 
+// renderSyncedREADME 在临时目录中渲染 README，避免 check 模式修改工作区。
 func renderSyncedREADME(readmePath string, codemaps []codemapindex.ReadmeCodemap, generatedAt string) ([]byte, error) {
 	current, err := os.ReadFile(readmePath)
 	if err != nil {
@@ -200,6 +216,7 @@ func renderSyncedREADME(readmePath string, codemaps []codemapindex.ReadmeCodemap
 	return os.ReadFile(tmpPath)
 }
 
+// existingGeneratedAt 读取已有索引日期；读取失败或字段为空时返回 ok=false。
 func existingGeneratedAt(indexPath string) (string, bool) {
 	data, err := os.ReadFile(indexPath)
 	if err != nil {
@@ -214,6 +231,7 @@ func existingGeneratedAt(indexPath string) (string, bool) {
 	return strings.TrimSpace(idx.GeneratedAt), true
 }
 
+// countRefs 统计索引中全部文件引用数。
 func countRefs(files map[string]*FileEntry) int {
 	totalRefs := 0
 	for _, f := range files {
@@ -222,7 +240,7 @@ func countRefs(files map[string]*FileEntry) int {
 	return totalRefs
 }
 
-// loadCodemaps 加载codemaps。
+// loadCodemaps 读取编号 codemap markdown，并解析标题和章节范围。
 func loadCodemaps(codemapDir string) ([]parsedMD, error) {
 	mdFiles, err := scanMDFiles(codemapDir)
 	if err != nil {
@@ -251,7 +269,7 @@ func loadCodemaps(codemapDir string) ([]parsedMD, error) {
 	return mds, nil
 }
 
-// buildRawFilesIndex 构建原始文件索引。
+// buildRawFilesIndex 为每个源码文件查找命中的 codemap 段落范围。
 func buildRawFilesIndex(root string, mds []parsedMD) (map[string][]rawRef, error) {
 	srcFiles, err := codemapindex.ScanSourceFiles(root)
 	if err != nil {
@@ -286,7 +304,7 @@ func buildRawFilesIndex(root string, mds []parsedMD) (map[string][]rawRef, error
 	return filesIndex, nil
 }
 
-// buildCompactFilesIndex 构建紧凑列表文件索引。
+// buildCompactFilesIndex 将原始引用压缩为 section ID 引用，并按文件路径稳定排序。
 func buildCompactFilesIndex(rawFilesIndex map[string][]rawRef) (map[string]*FileEntry, []string) {
 	secSet := map[string]int{}
 	var secIndex []string
@@ -322,7 +340,7 @@ func buildCompactFilesIndex(rawFilesIndex map[string][]rawRef) (map[string]*File
 	return filesIndex, secIndex
 }
 
-// buildOutputCodemaps 构建outputcodemaps。
+// buildOutputCodemaps 生成对外 codemap 摘要和 README 同步数据。
 func buildOutputCodemaps(mds []parsedMD) ([]Codemap, []codemapindex.ReadmeCodemap) {
 	var codemaps []Codemap
 	readmeCodemaps := make([]codemapindex.ReadmeCodemap, 0, len(mds))
@@ -340,6 +358,7 @@ func buildOutputCodemaps(mds []parsedMD) ([]Codemap, []codemapindex.ReadmeCodema
 	return codemaps, readmeCodemaps
 }
 
+// scanMDFiles 递归收集 codemap 目录下的 markdown 文件。
 func scanMDFiles(dir string) ([]string, error) {
 	var r []string
 	if err := filepath.Walk(dir, func(p string, i os.FileInfo, e error) error {
@@ -356,6 +375,7 @@ func scanMDFiles(dir string) ([]string, error) {
 	return r, nil
 }
 
+// readLines 按行读取文件内容，保留空行以维持行号稳定。
 func readLines(p string) ([]string, error) {
 	d, err := os.ReadFile(p)
 	if err != nil {
@@ -364,6 +384,7 @@ func readLines(p string) ([]string, error) {
 	return strings.Split(string(d), "\n"), nil
 }
 
+// extractTitle 返回 markdown 的第一个一级标题。
 func extractTitle(lines []string) string {
 	for _, l := range lines {
 		if strings.HasPrefix(strings.TrimSpace(l), "# ") {
@@ -373,9 +394,10 @@ func extractTitle(lines []string) string {
 	return ""
 }
 
+// headingRe 匹配一到四级 markdown 标题。
 var headingRe = regexp.MustCompile(`^(#{1,4})\s+(.+)`)
 
-// parseSections 解析sections。
+// parseSections 解析 markdown 标题层级，并计算每个章节的行范围。
 func parseSections(lines []string) []Section {
 	type raw struct {
 		title        string
@@ -414,7 +436,7 @@ func parseSections(lines []string) []Section {
 	return out
 }
 
-// findRefs 查找refs。
+// findRefs 在 codemap 行中查找源码路径命中，并去重同一章节范围。
 func findRefs(cmID string, lines []string, secs []Section, terms []string) (refs []rawRef) {
 	matched := map[string]bool{}
 	for i, line := range lines {
@@ -440,7 +462,7 @@ func findRefs(cmID string, lines []string, secs []Section, terms []string) (refs
 	return refs
 }
 
-// blockRange 处理block范围。
+// blockRange 返回命中行所在的表格、代码块、列表项或段落范围。
 func blockRange(lines []string, ln int, secs []Section) (string, int, int) {
 	sec := ""
 	for _, s := range secs {
@@ -462,7 +484,7 @@ func blockRange(lines []string, ln int, secs []Section) (string, int, int) {
 	return sec, s, e
 }
 
-// tableRange 处理table范围。
+// tableRange 返回命中行所在 markdown 表格的连续行范围。
 func tableRange(lines []string, idx int) (int, int, bool) {
 	if idx < 0 || idx >= len(lines) {
 		return 0, 0, false
@@ -486,7 +508,7 @@ func tableRange(lines []string, idx int) (int, int, bool) {
 	return start, end, true
 }
 
-// codeBlockRange 处理代码block范围。
+// codeBlockRange 返回命中行所在 fenced code block 的行范围。
 func codeBlockRange(lines []string, idx int) (int, int, bool) {
 	inCode, start := false, 0
 	for i, line := range lines {
@@ -505,7 +527,7 @@ func codeBlockRange(lines []string, idx int) (int, int, bool) {
 	return 0, 0, false
 }
 
-// listItemRange 列出item范围。
+// listItemRange 返回命中行所在列表项及其缩进行的范围。
 func listItemRange(lines []string, idx int) (int, int, bool) {
 	if idx < 0 || idx >= len(lines) {
 		return 0, 0, false
@@ -527,6 +549,7 @@ func listItemRange(lines []string, idx int) (int, int, bool) {
 	return start, end, true
 }
 
+// paragraphRange 返回命中行所在普通段落的行范围。
 func paragraphRange(lines []string, idx int) (int, int) {
 	start, end := idx+1, idx+1
 	for i := idx - 1; i >= 0; i-- {

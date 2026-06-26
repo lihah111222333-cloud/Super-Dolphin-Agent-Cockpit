@@ -48,7 +48,8 @@ type diagnosticsWaitResult struct {
 	message                    string
 }
 
-// fetchDiagnosticsWithRetry 处理带重试的fetch诊断。
+// fetchDiagnosticsWithRetry 获取诊断并在启动未就绪时执行一次恢复流程。
+// app-managed 且位于 workspace roots 外的目标不会触发 LSP bootstrap，只返回带说明的空诊断。
 func (h handlerBase) fetchDiagnosticsWithRetry(ctx context.Context, uris []string) ([]protocol.PublishDiagnosticsParams, string, string, error) {
 	existingURIs := existingDiagnosticURIs(uris)
 	source, err := h.bootstrapDiagnostics(ctx, existingURIs)
@@ -79,7 +80,8 @@ func (h handlerBase) fetchDiagnosticsWithRetry(ctx context.Context, uris []strin
 	return items, source, message, nil
 }
 
-// bootstrapDiagnostics 处理启动诊断。
+// bootstrapDiagnostics 为已有文件触发诊断前置 bootstrap。
+// 文件列表为空时只读 manager 缓存；所有目标都在 app-managed 外部区时跳过 LSP 启动。
 func (h handlerBase) bootstrapDiagnostics(ctx context.Context, existingURIs []string) (string, error) {
 	if len(existingURIs) == 0 {
 		return "manager", nil
@@ -111,7 +113,8 @@ func (h handlerBase) waitDiagnosticsWithStartupRecovery(ctx context.Context, uri
 	return diagnosticsWaitResult{}, nil
 }
 
-// recoverDiagnosticsStartupWait 把诊断启动等待中的 panic 转成错误。
+// recoverDiagnosticsStartupWait 在诊断等待未就绪时尝试打开目标文档后重试。
+// 只有 ErrDiagnosticsNotReady 且存在真实文件时进入恢复路径，其他错误原样返回。
 func (h handlerBase) recoverDiagnosticsStartupWait(ctx context.Context, uris, existingURIs []string, waitErr error) (diagnosticsWaitResult, error) {
 	if !errors.Is(waitErr, lspmanager.ErrDiagnosticsNotReady) || len(existingURIs) == 0 {
 		return diagnosticsWaitResult{}, waitErr
@@ -136,7 +139,8 @@ func (h handlerBase) recoverDiagnosticsStartupWait(ctx context.Context, uris, ex
 	return diagnosticsWaitResult{recovered: true}, nil
 }
 
-// recoverPartialDiagnosticsWait 恢复partial诊断wait。
+// recoverPartialDiagnosticsWait 将批量等待失败降级为逐文件等待。
+// 至少一个目标 ready 时返回 partial 状态和缺失列表，调用方可把可用诊断先展示出来。
 func (h handlerBase) recoverPartialDiagnosticsWait(ctx context.Context, uris []string, batchErr error) (diagnosticsWaitResult, error) {
 	if !errors.Is(batchErr, lspmanager.ErrDiagnosticsNotReady) || len(uris) <= 1 {
 		return diagnosticsWaitResult{}, batchErr
@@ -184,7 +188,8 @@ func (h handlerBase) waitDiagnosticsTargetsIndividually(ctx context.Context, uri
 	return ready, missing, nil
 }
 
-// handleDiagnostics 处理诊断。
+// handleDiagnostics 是 file diagnostics 工具入口。
+// 它先把输入路径限制在可信 workspace roots 内，再返回按文件分组的诊断表。
 func (h handlerBase) handleDiagnostics(ctx context.Context, input fileToolInput) (any, error) {
 	if h.registry == nil {
 		return nil, errManagerUnavailable
@@ -224,7 +229,8 @@ func (h handlerBase) handleDiagnostics(ctx context.Context, input fileToolInput)
 	}, nil
 }
 
-// collectDiagnosticURIs 收集诊断uris。
+// collectDiagnosticURIs 将 file_path/file_paths 解析为可诊断的 file URI。
+// 每个目标必须通过 workspace containment 和普通文件校验，显示路径保留调用方传入的可读形式。
 func (h handlerBase) collectDiagnosticURIs(ctx context.Context, input fileToolInput) ([]string, map[string]string, error) {
 	targets := collectDiagnosticTargets(input)
 	if len(targets) == 0 {
@@ -274,7 +280,8 @@ func collectDiagnosticTargets(input fileToolInput) []string {
 	return targets
 }
 
-// existingDiagnosticURIs 处理existing诊断uris。
+// existingDiagnosticURIs 过滤出当前磁盘上仍存在的普通文件 URI。
+// symlink 和缺失文件不会进入 LSP bootstrap，避免诊断请求越过 workspace 根。
 func existingDiagnosticURIs(uris []string) []string {
 	if len(uris) == 0 {
 		return nil
@@ -330,7 +337,8 @@ func (h handlerBase) waitDiagnosticsStable(ctx context.Context, uris []string) (
 	return currentGeneration, nil
 }
 
-// openDiagnosticDocuments 打开诊断documents。
+// openDiagnosticDocuments 去重后打开一组诊断目标。
+// 单个文件打开失败会汇总为 joined error，但仍继续尝试其他目标，便于部分恢复。
 func (h handlerBase) openDiagnosticDocuments(ctx context.Context, uris []string) (int, error) {
 	count := 0
 	seen := make(map[string]struct{}, len(uris))
@@ -356,7 +364,8 @@ func (h handlerBase) openDiagnosticDocuments(ctx context.Context, uris []string)
 	return count, nil
 }
 
-// openDiagnosticDocument 打开诊断document。
+// openDiagnosticDocument 读取普通文件并向对应 LSP manager 发送 DidOpen。
+// 目标必须不是 symlink，manager 缺失会显式报错而不是返回空诊断。
 func (h handlerBase) openDiagnosticDocument(ctx context.Context, uri string) error {
 	path := format.URIToPath(uri)
 	info, err := os.Lstat(path)
@@ -383,7 +392,8 @@ func (h handlerBase) openDiagnosticDocument(ctx context.Context, uri string) err
 	return manager.DidOpen(ctx, uri, lspmanager.DetectLanguageID(path), 1, string(content))
 }
 
-// appManagedDiagnosticsOutsideWorkspace 处理appmanaged诊断outside工作区。
+// appManagedDiagnosticsOutsideWorkspace 判断诊断目标是否全部位于 app-managed 外部数据区。
+// 这种路径可被读取但不应启动 workspace LSP，以免把应用托管缓存误当用户项目。
 func appManagedDiagnosticsOutsideWorkspace(ctx context.Context, uris []string) (bool, string, error) {
 	root, roots, err := toolWorkspaceRoots(ctx)
 	if err != nil {
@@ -422,7 +432,8 @@ func emptyDiagnosticsForURIs(uris []string) []protocol.PublishDiagnosticsParams 
 	return items
 }
 
-// reactiveBootstrap 处理reactive启动。
+// reactiveBootstrap 对最多 maxReactiveBootstrap 个 URI 触发按需文档 bootstrap。
+// 去重后逐个执行，部分失败会合并错误返回，调用方据此决定是否进入恢复分支。
 func (h handlerBase) reactiveBootstrap(ctx context.Context, uris []string) (int, error) {
 	count := 0
 	seen := make(map[string]struct{}, len(uris))
@@ -470,7 +481,8 @@ func diagnosticMessageSummary(message string) string {
 	return string(runes[:maxDiagnosticSummaryRunes]) + "…"
 }
 
-// buildDiagnosticsTables 构建诊断tables。
+// buildDiagnosticsTables 将 LSP 诊断整理为工具响应表。
+// 同一文件内相同位置/严重级别/消息的重复诊断会去重，消息会裁剪到摘要长度。
 func buildDiagnosticsTables(items []protocol.PublishDiagnosticsParams, displayPaths map[string]string) []diagnosticsTable {
 	if len(items) == 0 {
 		return nil
@@ -516,7 +528,8 @@ func buildDiagnosticsTables(items []protocol.PublishDiagnosticsParams, displayPa
 	return tables
 }
 
-// diagnosticsMessageAfterFetch 处理诊断消息后置fetch。
+// diagnosticsMessageAfterFetch 在 partial 提示已被实际诊断覆盖时清空提示。
+// 如果仍有请求目标没有诊断行，则保留原提示帮助调用方判断缺口。
 func diagnosticsMessageAfterFetch(message string, uris []string, items []protocol.PublishDiagnosticsParams) string {
 	if !strings.Contains(message, "partial diagnostics") || len(uris) == 0 {
 		return message

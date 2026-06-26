@@ -50,15 +50,17 @@ type prepareSkillSpec struct {
 	Derived      []string
 }
 
+// prepareInputSession 是 PrepareInput 构建阶段需要读取的最小 session 能力接口。
 type prepareInputSession interface {
 	Capabilities() dto.CapabilitySet
 }
 
+// runtimeConfigSnapshotReader 允许 session 暴露当前运行时配置快照，用于补齐 turn 输入。
 type runtimeConfigSnapshotReader interface {
 	RuntimeConfigSnapshot() map[string]any
 }
 
-// buildPrepareInput 构建prepareinput。
+// buildPrepareInput 从 RPC/队列输入、技能来源和 session 能力构建 provider turn 的准备输入。
 func buildPrepareInput(spec prepareInputSpec, skills prepareSkillSpec, session prepareInputSession) PrepareInput {
 	var caps dto.CapabilitySet
 	if session != nil {
@@ -137,7 +139,7 @@ func mergePrepareInputRuntime(input PrepareInput, cfg map[string]any) PrepareInp
 	return input
 }
 
-// providerNativeSkillsDisabled 处理providernativeskillsdisabled。
+// providerNativeSkillsDisabled 读取新旧配置键，判断 provider 原生 skill 是否被显式禁用。
 func providerNativeSkillsDisabled(cfg map[string]any) bool {
 	for _, key := range contract.RuntimeConfigProviderNativeSkills.Keys() {
 		raw, ok := cfg[key]
@@ -158,6 +160,7 @@ func providerNativeSkillsDisabled(cfg map[string]any) bool {
 	return false
 }
 
+// configBool 从动态配置中读取第一个 bool 值，非 bool 旧值不会被隐式转换。
 func configBool(cfg map[string]any, keys ...string) bool {
 	for _, key := range keys {
 		if value, ok := cfg[key].(bool); ok {
@@ -167,6 +170,7 @@ func configBool(cfg map[string]any, keys ...string) bool {
 	return false
 }
 
+// configBoolMap 读取 session flags 一类 bool map，兼容 map[string]bool 与 JSON map。
 func configBoolMap(cfg map[string]any, keys ...string) map[string]bool {
 	for _, key := range keys {
 		value, ok := cfg[key]
@@ -180,7 +184,7 @@ func configBoolMap(cfg map[string]any, keys ...string) map[string]bool {
 	return nil
 }
 
-// normalizePrepareBoolMap 规范化prepareboolmap。
+// normalizePrepareBoolMap 清洗动态 bool map，忽略非 bool 值和空 key。
 func normalizePrepareBoolMap(value any) map[string]bool {
 	switch typed := value.(type) {
 	case map[string]bool:
@@ -203,6 +207,7 @@ func normalizePrepareBoolMap(value any) map[string]bool {
 	return nil
 }
 
+// configMCPSnapshot 从运行时配置中抽取 MCP server、tool 和指令增量快照。
 func configMCPSnapshot(cfg map[string]any) contract.MCPSnapshot {
 	return contract.MCPSnapshot{
 		Servers:                  configutil.ConfigStringSlice(cfg, contract.RuntimeConfigMCPServers.Keys()...),
@@ -212,6 +217,7 @@ func configMCPSnapshot(cfg map[string]any) contract.MCPSnapshot {
 	}
 }
 
+// configStringMap 从动态配置中读取字符串 map，并交给 configutil 做类型兼容。
 func configStringMap(cfg map[string]any, keys ...string) map[string]string {
 	for _, key := range keys {
 		value, ok := cfg[key]
@@ -225,6 +231,7 @@ func configStringMap(cfg map[string]any, keys ...string) map[string]string {
 	return nil
 }
 
+// firstNonEmptyStrings 返回首个非空字符串切片，并在返回前执行标准化。
 func firstNonEmptyStrings(primary, fallback []string) []string {
 	if out := configutil.NormalizeConfigStringSlice(primary); len(out) > 0 {
 		return out
@@ -235,6 +242,7 @@ func firstNonEmptyStrings(primary, fallback []string) []string {
 	return nil
 }
 
+// firstNonEmptyFlags 返回调用方已有 flags 或 fallback 的深拷贝，避免后续合并写穿来源 map。
 func firstNonEmptyFlags(primary, fallback map[string]bool) map[string]bool {
 	if len(primary) > 0 {
 		return clonePrepareFlags(primary)
@@ -242,6 +250,7 @@ func firstNonEmptyFlags(primary, fallback map[string]bool) map[string]bool {
 	return clonePrepareFlags(fallback)
 }
 
+// clonePrepareFlags 复制并清理 session flag key，空 key 不进入 provider 输入。
 func clonePrepareFlags(flags map[string]bool) map[string]bool {
 	if len(flags) == 0 {
 		return nil
@@ -259,7 +268,7 @@ func clonePrepareFlags(flags map[string]bool) map[string]bool {
 	return cloned
 }
 
-// applyPersistentSubagentToolPolicy 应用persistentsubagent工具策略。
+// applyPersistentSubagentToolPolicy 在持久子代理默认开启时移除旧 spawn_agent，避免两套入口并存。
 func applyPersistentSubagentToolPolicy(enabledTools []string, flags map[string]bool) []string {
 	if !persistentSubagentDefaultEnabled(flags) || len(enabledTools) == 0 {
 		return enabledTools
@@ -287,6 +296,7 @@ func applyPersistentSubagentToolPolicy(enabledTools []string, flags map[string]b
 	return filtered
 }
 
+// persistentSubagentDefaultEnabled 兼容多个历史 flag 名，判断 UI 是否要求托管子代理入口优先。
 func persistentSubagentDefaultEnabled(flags map[string]bool) bool {
 	if len(flags) == 0 {
 		return false
@@ -304,10 +314,12 @@ func persistentSubagentDefaultEnabled(flags map[string]bool) bool {
 	return false
 }
 
+// cloneMCPSnapshot 深拷贝 MCP 快照，调用方可安全继续修改自己的输入。
 func cloneMCPSnapshot(snapshot contract.MCPSnapshot) contract.MCPSnapshot {
 	return mergeMCPSnapshot(snapshot, contract.MCPSnapshot{})
 }
 
+// mergeMCPSnapshot 合并基础快照和运行时补充，server 配置名也会并入 server 列表。
 func mergeMCPSnapshot(base, extra contract.MCPSnapshot) contract.MCPSnapshot {
 	serverConfigs := mergeTurnMCPServerConfigMaps(base.ServerConfigs, extra.ServerConfigs)
 	return contract.MCPSnapshot{
@@ -320,6 +332,7 @@ func mergeMCPSnapshot(base, extra contract.MCPSnapshot) contract.MCPSnapshot {
 	}
 }
 
+// mergeMCPInstructions 合并 MCP 指令，base 优先覆盖 extra，返回前清理空 key/value。
 func mergeMCPInstructions(base, extra map[string]string) map[string]string {
 	if len(base) == 0 && len(extra) == 0 {
 		return nil
@@ -333,6 +346,7 @@ func mergeMCPInstructions(base, extra map[string]string) map[string]string {
 	return out
 }
 
+// appendMCPInstructions 把非空 MCP 指令写入目标 map，调用方负责合并优先级。
 func appendMCPInstructions(dst, src map[string]string) {
 	for key, value := range src {
 		key = strings.TrimSpace(key)
@@ -359,7 +373,7 @@ func readThreadRuntimeConfig(ctx context.Context, reader ThreadStateConfigReader
 	return clone.RuntimeConfigMap(cfg), nil
 }
 
-// requireTurnContext 处理requireturn上下文。
+// requireTurnContext 校验 session 和 threadID，并兼容 RPC middleware 注入的线程上下文。
 func requireTurnContext(
 	ctx context.Context,
 	session contract.Session,
@@ -380,10 +394,8 @@ func requireTurnContext(
 	if threadID == "" {
 		threadID = strings.TrimSpace(session.ThreadID())
 	}
-	// Fallback to the thread ID injected into context by the RPC
-	// ThreadScope middleware. This covers providers (e.g. Claude CLI)
-	// whose session.ThreadID() has not yet been resolved because the
-	// real provider UUID arrives asynchronously after the first turn.
+	// provider 真实 UUID 可能在首轮 turn 后才异步返回；此时回退到 RPC ThreadScope
+	// 注入的线程 ID，避免准备阶段因为 session.ThreadID 尚未解析而失败。
 	if threadID == "" {
 		threadID = strings.TrimSpace(contract.ThreadIDFrom(ctx))
 	}
@@ -393,7 +405,8 @@ func requireTurnContext(
 	return ctx, threadID, nil
 }
 
-// interruptAndWait 向 session 发送中断请求，标记 tracker 后可选等待 settle。返回 (是否已发送中断, 错误)。
+// interruptAndWait 先把中断请求发给 provider，再把本地 tracker 推进到 interrupting。
+// wait 由调用方决定是否等待 handle 收敛；返回值只表示 provider 中断请求是否已成功发出。
 func interruptAndWait(
 	ctx context.Context,
 	session contract.Session,
@@ -473,7 +486,7 @@ func normalizePrepareSkillRefs(skills prepareSkillSpec, manualSkillSelection boo
 	)
 }
 
-// dropNameOnlySkillRefsCoveredByExactRefs 按精确refs去掉名称only技能refscovered。
+// dropNameOnlySkillRefsCoveredByExactRefs 移除已被精确 ref 覆盖的 name-only skill，保留作用域信息。
 func dropNameOnlySkillRefsCoveredByExactRefs(names []dto.SkillRef, refs []dto.SkillRef) []dto.SkillRef {
 	if len(names) == 0 || len(refs) == 0 {
 		return names
@@ -496,6 +509,7 @@ func dropNameOnlySkillRefsCoveredByExactRefs(names []dto.SkillRef, refs []dto.Sk
 	return filtered
 }
 
+// exactSkillRefNameKeys 返回带 key/scope/path 等精确身份信息的 skill 名称集合。
 func exactSkillRefNameKeys(refs []dto.SkillRef) map[string]bool {
 	covered := make(map[string]bool, len(refs))
 	for _, ref := range refs {
@@ -508,6 +522,7 @@ func exactSkillRefNameKeys(refs []dto.SkillRef) map[string]bool {
 	return covered
 }
 
+// hasExactSkillRefIdentity 判断 SkillRef 是否携带足以区分同名 skill 的身份字段。
 func hasExactSkillRefIdentity(ref dto.SkillRef) bool {
 	return strings.TrimSpace(ref.Key) != "" ||
 		strings.TrimSpace(ref.Scope) != "" ||
@@ -515,6 +530,7 @@ func hasExactSkillRefIdentity(ref dto.SkillRef) bool {
 		strings.TrimSpace(ref.Path) != ""
 }
 
+// normalizeSkillRefsWithSource 把 RPC skillRef 参数转为 provider SkillRef，并保留显式 source。
 func normalizeSkillRefsWithSource(source dto.SkillSource, refs []skillRefParams) []dto.SkillRef {
 	out := make([]dto.SkillRef, 0, len(refs))
 	for _, raw := range refs {
@@ -537,6 +553,7 @@ func normalizeSkillRefsWithSource(source dto.SkillSource, refs []skillRefParams)
 	return out
 }
 
+// normalizeSkillNames 把多组 name-only skill 合并为去重后的 SkillRef 列表。
 func normalizeSkillNames(groups ...[]string) []dto.SkillRef {
 	refGroups := make([][]dto.SkillRef, 0, len(groups))
 	for _, names := range groups {
@@ -545,6 +562,7 @@ func normalizeSkillNames(groups ...[]string) []dto.SkillRef {
 	return normalizeSkillRefs(refGroups...)
 }
 
+// normalizeSkillNamesWithSource 给 name-only skill 标记来源，供后续 hydration 判断可信度。
 func normalizeSkillNamesWithSource(source dto.SkillSource, names []string) []dto.SkillRef {
 	refs := make([]dto.SkillRef, 0, len(names))
 	for _, raw := range names {
@@ -557,7 +575,8 @@ func normalizeSkillNamesWithSource(source dto.SkillSource, names []string) []dto
 	return refs
 }
 
-// decodeLegacyTurnParams 先将 data 解码到 target，再解码到 legacy，然后调用 merge 将旧字段补充到 target。
+// decodeLegacyTurnParams 先解码当前 wire 结构，再读取兼容字段并合并到 target。
+// merge 负责决定哪些旧字段仍允许回填，避免兼容输入静默覆盖当前参数。
 func decodeLegacyTurnParams[T any, L any](
 	data []byte,
 	target *T,
@@ -590,6 +609,7 @@ func newSteerRequest(req dto.TurnRequest, expectedTurnID string) dto.SteerReques
 	}
 }
 
+// cloneSkillRefs 复制 SkillRef 切片，避免 PrepareInput 与请求参数共享底层数组。
 func cloneSkillRefs(refs []dto.SkillRef) []dto.SkillRef {
 	if len(refs) == 0 {
 		return nil

@@ -23,6 +23,7 @@ import (
 )
 
 const (
+	// 日志读取默认值和可选来源，所有入口都经 resolveLogSource 规整。
 	defaultLogLimit = 100
 	maxLogLimit     = 500
 	logSourceAll    = "all"
@@ -30,6 +31,8 @@ const (
 	logSourceSystem = "system"
 )
 
+// service 聚合 dashboard 需要的 orchestration、store 和只读模块依赖。
+// 字段允许为 nil 的 reader 会在具体 list helper 中返回空切片；核心 orchestration 缺失时直接报错。
 type service struct {
 	orchestration  contract.OrchestrationService
 	dagRuntime     contract.DAGRuntime
@@ -47,11 +50,13 @@ type service struct {
 	startedAt      time.Time
 }
 
+// dashboardPromptScopeCWDKey 是 dashboard prompt 过滤使用的 context 私有 key。
 type dashboardPromptScopeCWDKey struct{}
 
 var _ Service = (*service)(nil)
 
-// NewService 创建服务。
+// NewService 创建 dashboard 服务。
+// 构造阶段只保存依赖，不访问 store；部分 reader 可为 nil，以支持精简运行模式。
 func NewService(
 	orchestrationSvc contract.OrchestrationService,
 	agentStatuses agentstatusstore.Store,
@@ -83,7 +88,8 @@ func NewService(
 	}
 }
 
-// newServiceWithDAGRuntime 创建带DAG运行时的服务。
+// newServiceWithDAGRuntime 创建带独立 DAG runtime 的 dashboard 服务。
+// 当 runtime 为 nil 时保留 orchestration 作为默认 DAGRuntime，便于旧 wiring 兼容。
 func newServiceWithDAGRuntime(
 	orchestrationSvc contract.OrchestrationService,
 	dagRuntime contract.DAGRuntime,
@@ -117,11 +123,14 @@ func newServiceWithDAGRuntime(
 	return svc
 }
 
+// skillInventoryFromLister 在 skill lister 同时支持 inventory 时提取增强接口。
+// 不支持时返回 nil，调用方再回退到 ListSkills。
 func skillInventoryFromLister(skills contract.SkillLister) contract.SkillInventoryLister {
 	inventory, _ := skills.(contract.SkillInventoryLister)
 	return inventory
 }
 
+// withDashboardPromptScopeCWD 将当前页面 cwd 放进 context，供 prompt/skill 列表过滤使用。
 func withDashboardPromptScopeCWD(ctx context.Context, cwd string) context.Context {
 	if ctx == nil {
 		ctx = context.Background()
@@ -129,6 +138,7 @@ func withDashboardPromptScopeCWD(ctx context.Context, cwd string) context.Contex
 	return context.WithValue(ctx, dashboardPromptScopeCWDKey{}, strings.TrimSpace(cwd))
 }
 
+// dashboardPromptScopeCWDFromContext 读取 dashboard 页面传递的 cwd scope，缺失时返回空字符串。
 func dashboardPromptScopeCWDFromContext(ctx context.Context) string {
 	if ctx == nil {
 		return ""
@@ -137,7 +147,8 @@ func dashboardPromptScopeCWDFromContext(ctx context.Context) string {
 	return strings.TrimSpace(value)
 }
 
-// GetDashboard 读取dashboard。
+// GetDashboard 构建 dashboard 首页概览。
+// agent 列表来自 orchestration，系统信息在本进程内采样；任一核心依赖失败直接返回错误。
 func (s *service) GetDashboard(ctx context.Context) (*Dashboard, error) {
 	agents, err := s.listAgents(ctx)
 	if err != nil {
@@ -151,7 +162,8 @@ func (s *service) GetDashboard(ctx context.Context) (*Dashboard, error) {
 	}, nil
 }
 
-// GetAgentDetail 读取代理detail。
+// GetAgentDetail 并发读取 agent 快照和报告。
+// orchestration 未配置或 agentID 为空时 fail-fast，避免详情页展示错 agent。
 func (s *service) GetAgentDetail(ctx context.Context, agentID string) (*AgentDetail, error) {
 	if s.orchestration == nil {
 		return nil, errors.New("dashboard: orchestration service is not configured")
@@ -198,7 +210,8 @@ func (s *service) GetAgentDetail(ctx context.Context, agentID string) (*AgentDet
 	}, nil
 }
 
-// GetSystemInfo 读取systeminfo。
+// GetSystemInfo 采样当前进程和 agent 数量。
+// orchestration 可缺省；存在时 ListAgents 失败会阻断，避免 agentCount 静默失真。
 func (s *service) GetSystemInfo(ctx context.Context) (*SystemInfo, error) {
 	agentCount := 0
 	if s.orchestration != nil {
@@ -212,7 +225,8 @@ func (s *service) GetSystemInfo(ctx context.Context) (*SystemInfo, error) {
 	return &info, nil
 }
 
-// GetLogs 读取logs。
+// GetLogs 按 source 合并 system/AI 日志。
+// source 不合法直接报错；两个来源都启用时按时间倒序合并并受 limit 约束。
 func (s *service) GetLogs(ctx context.Context, filter LogFilter) ([]LogEntry, error) {
 	mode, err := resolveLogSource(filter.Source)
 	if err != nil {
@@ -243,7 +257,8 @@ func (s *service) GetLogs(ctx context.Context, filter LogFilter) ([]LogEntry, er
 	return mergeLogEntries(systemEntries, aiEntries, limit), nil
 }
 
-// mergeLogEntries 合并日志条目。
+// mergeLogEntries 合并两个已按时间倒序排列的日志切片。
+// 它只取 limit 条，避免 dashboard 聚合时扩大前端传入的读取窗口。
 func mergeLogEntries(a, b []LogEntry, limit int) []LogEntry {
 	out := make([]LogEntry, 0, limit)
 	i, j := 0, 0
@@ -259,7 +274,8 @@ func mergeLogEntries(a, b []LogEntry, limit int) []LogEntry {
 	return out
 }
 
-// Query 处理查询。
+// Query 透传 dashboard 只读 SQL 查询到 dbquery store。
+// store 未配置时直接报错，避免调用方误以为空结果就是无数据。
 func (s *service) Query(ctx context.Context, query string, args ...any) ([]map[string]any, error) {
 	if s.dbQueries == nil {
 		return nil, errors.New("dashboard: dbquery store is not configured")
@@ -267,6 +283,8 @@ func (s *service) Query(ctx context.Context, query string, args ...any) ([]map[s
 	return s.dbQueries.Query(ctx, query, args...)
 }
 
+// listAgents 从 orchestration 读取 agent 快照并转换为 dashboard 概览。
+// orchestration 是该路径的硬依赖，缺失时返回显式配置错误。
 func (s *service) listAgents(ctx context.Context) ([]AgentOverview, error) {
 	if s.orchestration == nil {
 		return nil, errors.New("dashboard: orchestration service is not configured")
@@ -282,6 +300,8 @@ func (s *service) listAgents(ctx context.Context) ([]AgentOverview, error) {
 	return items, nil
 }
 
+// buildSystemInfo 汇总构建信息、runtime 信息和内存快照。
+// agentCount 由调用方提供，避免这里再次触发 orchestration 查询。
 func (s *service) buildSystemInfo(agentCount int) SystemInfo {
 	stats := runtimeMemoryStats()
 	build := loadBuildMetadata()
@@ -301,7 +321,8 @@ func (s *service) buildSystemInfo(agentCount int) SystemInfo {
 	}
 }
 
-// loadBuildMetadata 加载build元数据。
+// loadBuildMetadata 从 debug.BuildInfo 提取构建元数据。
+// 读不到构建信息时返回 dev/unknown 默认值，保证系统信息页面仍可渲染。
 func loadBuildMetadata() buildMetadata {
 	meta := buildMetadata{
 		version:   "dev",
@@ -325,7 +346,8 @@ func loadBuildMetadata() buildMetadata {
 	return meta
 }
 
-// applyBuildSetting 应用buildsetting。
+// applyBuildSetting 将 Go build setting 合并进 buildMetadata。
+// 只消费 vcs 相关 key，未知 key 保持忽略以兼容不同构建器。
 func applyBuildSetting(meta *buildMetadata, key, value string) {
 	if meta == nil {
 		return
@@ -342,6 +364,7 @@ func applyBuildSetting(meta *buildMetadata, key, value string) {
 	}
 }
 
+// shortCommit 将完整 git revision 缩短为 UI 展示用的 12 位字符串。
 func shortCommit(value string) string {
 	trimmed := strings.TrimSpace(value)
 	if len(trimmed) <= 12 {
@@ -350,17 +373,22 @@ func shortCommit(value string) string {
 	return trimmed[:12]
 }
 
+// runtimeMemoryStats 读取当前进程内存统计。
+// runtime.ReadMemStats 会短暂停顿调用线程，因此只在 dashboard 快照路径调用。
 func runtimeMemoryStats() runtime.MemStats {
 	var stats runtime.MemStats
 	runtime.ReadMemStats(&stats)
 	return stats
 }
 
+// logSourceMode 表示一次日志查询需要读取哪些后端日志源。
 type logSourceMode struct {
 	includeSystem bool
 	includeAI     bool
 }
 
+// resolveLogSource 将前端 source 字符串规整为日志读取模式。
+// 未知来源返回错误，防止拼写错误悄悄退回 all。
 func resolveLogSource(source string) (logSourceMode, error) {
 	switch strings.ToLower(strings.TrimSpace(source)) {
 	case "", logSourceAll:
@@ -374,6 +402,8 @@ func resolveLogSource(source string) (logSourceMode, error) {
 	}
 }
 
+// appendSystemLogs 从 system log store 追加满足过滤条件的日志。
+// store 为 nil 时返回已有 entries，支持无 system log 的轻量运行模式。
 func (s *service) appendSystemLogs(ctx context.Context, entries []LogEntry, filter LogFilter) ([]LogEntry, error) {
 	if s.systemLogs == nil {
 		return entries, nil
@@ -387,6 +417,8 @@ func (s *service) appendSystemLogs(ctx context.Context, entries []LogEntry, filt
 	}), nil
 }
 
+// appendAILogs 从 AI log store 追加满足过滤条件的日志。
+// store 为 nil 时返回已有 entries，错误不吞掉，交由 GetLogs 返回。
 func (s *service) appendAILogs(ctx context.Context, entries []LogEntry, filter LogFilter) ([]LogEntry, error) {
 	if s.aiLogs == nil {
 		return entries, nil

@@ -33,7 +33,8 @@ type threadStateFields struct {
 	PendingLaunch                                                      bool
 }
 
-// newThreadState 创建线程状态。
+// newThreadState 组装 thread store 的状态快照。
+// 不同来源的 threadID 优先级在这里统一，避免 start、fork、pending 路径写出互相不兼容的公共 ID。
 func newThreadState(kind threadStateKind, fields threadStateFields) threadState {
 	displayName := strings.TrimSpace(util.FirstNonEmpty(fields.Name, fields.Prompt))
 	state := threadState{
@@ -56,8 +57,7 @@ func newThreadState(kind threadStateKind, fields threadStateFields) threadState 
 	default:
 		state.PublicThreadID = util.FirstNonEmpty(fields.PublicThreadID, fields.RequestedThreadID, fields.AgentID)
 	}
-	// Keep provider_thread_id as-is — empty when the real UUID is not
-	// yet known (e.g. Claude resolves it asynchronously after launch).
+	// provider_thread_id 只有 provider 返回真实 UUID 后才写入；启动早期允许为空。
 	state.ProviderThreadID = strings.TrimSpace(fields.ProviderThreadID)
 	state.RolloutPath = fields.RolloutPath
 	state.SessionUUID = fields.SessionUUID
@@ -156,7 +156,8 @@ type threadEventFields struct {
 	Compacted, Estimated             bool
 }
 
-// newThreadEvent 创建线程事件。
+// newThreadEvent 根据线程状态字段构造对外事件 DTO。
+// threadID 为空时返回 nil，让调用方在发布前自然跳过无效事件。
 func newThreadEvent(kind threadEventKind, threadID string, fields threadEventFields) any {
 	header := shareddto.EventHeader{Timestamp: time.Now()}
 	threadID = strings.TrimSpace(threadID)

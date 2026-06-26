@@ -47,7 +47,8 @@ func literalExecTokens(base string, args []string) []shellToken {
 	return tokens
 }
 
-// shellCommandArg 处理shell命令arg。
+// shellCommandArg 从 shell 解释器参数中提取真正执行的命令字符串。
+// 支持 `sh -c`、PowerShell `-Command` 等入口；无法定位命令时返回 ok=false。
 func shellCommandArg(base string, args []string) (string, bool) {
 	if !isShellInterpreter(normalizeExecToken(base)) {
 		if len(args) == 0 {
@@ -111,7 +112,8 @@ func (t *shellTokenizer) handleQuotedToken(input string, idx int) int {
 	return t.handleDoubleQuotedToken(input, idx)
 }
 
-// handleDoubleQuotedToken 处理doublequoted令牌。
+// handleDoubleQuotedToken 处理双引号内的 token。
+// 双引号中仍需识别命令替换和反引号，否则危险命令可能藏在字符串插值里。
 func (t *shellTokenizer) handleDoubleQuotedToken(input string, idx int) int {
 	switch input[idx] {
 	case '"':
@@ -142,7 +144,8 @@ func (t *shellTokenizer) handleQuotedEscape(input string, idx int) int {
 	return idx + 1
 }
 
-// handleUnquotedToken 处理unquoted令牌。
+// handleUnquotedToken 处理未引用状态下的 token。
+// 分隔符会标记新的命令起点，供危险命令链检测只检查可执行位置。
 func (t *shellTokenizer) handleUnquotedToken(input string, idx int) int {
 	switch input[idx] {
 	case '\\':
@@ -210,7 +213,8 @@ func (t *shellTokenizer) appendCommandSubstitution(command string) {
 	t.nextCommandStart = false
 }
 
-// findCommandSubstitutionEnd 查找命令substitutionend。
+// findCommandSubstitutionEnd 查找 `$()` 命令替换的结束位置。
+// 扫描时保留引号和转义状态，避免嵌套括号被误判为结束。
 func findCommandSubstitutionEnd(input string, start int) int {
 	depth := 1
 	state := shellScanState{}

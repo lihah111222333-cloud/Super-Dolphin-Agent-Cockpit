@@ -554,7 +554,7 @@ func (s *service) resolutionApplyItem(p skillResolutionApplyParams) (skillResolu
 	return item, nil
 }
 
-// validateResolutionApplyAction 校验resolution应用动作。
+// validateResolutionApplyAction 校验 resolution apply 动作是否适用于当前冲突类型。
 func validateResolutionApplyAction(item skillResolutionItem, action string) error {
 	switch {
 	case item.Kind == skillConflictSameName:

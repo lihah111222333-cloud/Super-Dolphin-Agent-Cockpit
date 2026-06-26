@@ -16,9 +16,8 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/store/sqlc"
 )
 
-// Phase 3.6 / 3C 落地后，桌面端 sharedfile store 与 mcp-orch 端共用同一份
-// 磁盘 source / DB 索引语义；详见 cmd/mcp-orch/store/sharedfile/store.go
-// 头部注释。Config.CWD 为空时退化到 DB-only（兼容老 fixture）。
+// 本 store 统一维护 shared file 的数据库索引和可选磁盘正文。
+// Config.CWD 为空时只读写数据库，便于单元测试；启用磁盘模式时路径必须先通过 sharedfilepath 校验。
 
 type querier interface {
 	GetSharedFile(ctx context.Context, arg sqlc.GetSharedFileParams) (sqlc.SharedFile, error)
@@ -33,20 +32,23 @@ type store struct {
 	emitSharedFilesChanged func(uidto.UISharedFilesChanged)
 }
 
-// NewStore 创建存储。
+// NewStore 创建只使用数据库内联内容的 shared file 存储。
 func NewStore(q *sqlc.Queries) Store { return &store{q: q} }
 
-// NewStoreWithConfig 创建带配置的存储。
+// NewStoreWithConfig 创建带磁盘正文配置的 shared file 存储。
+// cfg 未启用时会退回数据库内联模式，不额外访问文件系统。
 func NewStoreWithConfig(q *sqlc.Queries, cfg sharedfilefs.Config) Store {
 	return &store{q: q, cfg: cfg}
 }
 
-// NewStoreWithConfigAndEmitter 创建带配置emitter的存储。
+// NewStoreWithConfigAndEmitter 创建带 UI 变更通知的 shared file 存储。
+// 写入或删除成功后会发布变更事件，供前端刷新共享文件列表。
 func NewStoreWithConfigAndEmitter(q *sqlc.Queries, cfg sharedfilefs.Config, emit func(uidto.UISharedFilesChanged)) Store {
 	return &store{q: q, cfg: cfg, emitSharedFilesChanged: emit}
 }
 
-// Get 读取sharedfile存储。
+// Get 读取指定路径的 shared file。
+// 启用磁盘模式时优先返回磁盘正文；磁盘文件缺失时才回退到数据库索引内容。
 func (s *store) Get(ctx context.Context, path string) (*SharedFile, error) {
 	cleaned, err := sharedfilepath.ValidateReadPath(path)
 	if err != nil {
@@ -85,7 +87,8 @@ func (s *store) Get(ctx context.Context, path string) (*SharedFile, error) {
 	return &mapped, nil
 }
 
-// Upsert 新增或更新记录。
+// Upsert 写入 shared file 并更新数据库索引。
+// 大文件正文只写磁盘，数据库保留路径和元数据；小文件会同时内联保存便于快速读取。
 func (s *store) Upsert(ctx context.Context, params UpsertParams) (*SharedFile, error) {
 	cleaned, err := sharedfilepath.ValidateWritePath(params.Path)
 	if err != nil {
@@ -111,7 +114,8 @@ func (s *store) Upsert(ctx context.Context, params UpsertParams) (*SharedFile, e
 	return &mapped, nil
 }
 
-// Delete 删除sharedfile存储。
+// Delete 删除指定路径的 shared file。
+// 数据库索引先删除；启用磁盘模式时再删除正文文件，并把磁盘错误返回给调用方。
 func (s *store) Delete(ctx context.Context, path string) (int64, error) {
 	cleaned, err := sharedfilepath.ValidateReadPath(path)
 	if err != nil {
@@ -136,7 +140,8 @@ func (s *store) Delete(ctx context.Context, path string) (int64, error) {
 	return count, nil
 }
 
-// List 列出sharedfile存储。
+// List 按前缀列出 shared file 索引。
+// 列表只返回数据库索引内容，不读取磁盘正文，避免列表页触发大量文件 IO。
 func (s *store) List(ctx context.Context, filter ListFilter) ([]SharedFile, error) {
 	rows, err := s.q.ListSharedFiles(ctx, sqlc.ListSharedFilesParams{
 		Prefix:     filter.Prefix,
@@ -160,11 +165,8 @@ func writeDiskAndDecideInline(cfg sharedfilefs.Config, cleanedRel, content strin
 	if resolveErr != nil {
 		return "", resolveErr
 	}
-	// Best-effort .gitignore hygiene (Phase 3.8): ensure
-	// `.agnet/shared/_internal/` is ignored. Sync.Once inside the helper
-	// makes the second-and-later calls free; failures are swallowed so
-	// the actual sharedfile write still proceeds — git hygiene is not a
-	// correctness invariant.
+	// .gitignore 维护是旁路卫生检查，不参与 shared file 写入正确性；
+	// helper 内部用 Sync.Once 保证重复调用成本很低，失败也不能阻断正文落盘。
 	_ = sharedfilegitignore.Ensure(cfg.CWD, nil)
 	if writeErr := sharedfilefs.WriteAtomic(abs, []byte(content)); writeErr != nil {
 		return "", writeErr

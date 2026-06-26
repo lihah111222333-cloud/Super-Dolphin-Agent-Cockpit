@@ -9,8 +9,8 @@ import (
 	"github.com/kelindar/event"
 )
 
-// NewHooksRelaySubscribers declares hook relay bus subscriptions for BusModule.
-// NewHooksRelaySubscribers 创建hooksrelaysubscribers。
+// NewHooksRelaySubscribers 声明 hooks relay 在 BusModule 中的订阅规格。
+// 返回的 cancel 受 sync.Once 保护，确保重复 shutdown 不会重复取消底层 event 订阅。
 func NewHooksRelaySubscribers(worker *hookDispatchWorker, logger *pkglogger.Logger) platformbus.SubscriberResult {
 	return platformbus.SubscriberResult{
 		Spec: platformbus.SubscriberSpec{

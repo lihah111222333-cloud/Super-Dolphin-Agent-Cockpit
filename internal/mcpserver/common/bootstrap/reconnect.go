@@ -12,6 +12,7 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/metrics"
 )
 
+// reconnectMaxDelay 是重连指数退避的上限。
 const reconnectMaxDelay = 30 * time.Second
 
 // handleStop 在 jrpc2 连接断开时触发，判断是否需要重连并启动重连 goroutine。
@@ -36,7 +37,7 @@ func (c *Client) handleStop(stopped *jrpc2.Client, err error) {
 	}()
 }
 
-// markDisconnected 标记disconnected。
+// markDisconnected 在锁内清空连接和租约，并决定是否启动唯一的重连循环。
 func (c *Client) markDisconnected(stopped *jrpc2.Client) (context.Context, bool) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -56,7 +57,7 @@ func (c *Client) markDisconnected(stopped *jrpc2.Client) (context.Context, bool)
 	return c.rootCtx, true
 }
 
-// reconnectLoop 处理reconnectloop。
+// reconnectLoop 按指数退避重连；成功后恢复心跳、flush 报告并重放 hook 订阅。
 func (c *Client) reconnectLoop(ctx context.Context) {
 	delay := time.Second
 	for {
@@ -65,10 +66,7 @@ func (c *Client) reconnectLoop(ctx context.Context) {
 		}
 		conn, reg, err := c.reconnectAttempt(ctx)
 		if err == nil {
-			// P22 P4 S6b / plan §322: count successful attempt
-			// before we mutate state so the counter reflects the
-			// outcome of reconnectAttempt itself, not the
-			// activation that follows.
+			// 先记录 reconnectAttempt 成功，再激活连接，指标只反映本次尝试结果。
 			metrics.BootstrapReconnectAttempts.WithLabelValues("success").Inc()
 			c.mu.Lock()
 			if c.closed || c.rootCtx != ctx {
@@ -87,8 +85,7 @@ func (c *Client) reconnectLoop(ctx context.Context) {
 			)
 			return
 		}
-		// P22 P4 S6b / plan §322: count failed attempt next to the
-		// existing warn log so the two signals move together.
+		// 失败指标与 warn 日志同步记录，便于观测侧按同一时间点关联。
 		metrics.BootstrapReconnectAttempts.WithLabelValues("fail").Inc()
 		pkglogger.Warn("bootstrap reconnect failed",
 			"instance_id", c.instanceID,

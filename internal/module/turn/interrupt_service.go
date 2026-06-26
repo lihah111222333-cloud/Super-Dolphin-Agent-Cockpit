@@ -9,7 +9,8 @@ import (
 	platformobs "github.com/anthropic-ai/super-agent-v3/internal/platform/observability"
 )
 
-// InterruptTurn 处理interruptturn。
+// InterruptTurn 向当前线程的 active turn 发送中断，并返回带 envelope 的最终判定状态。
+// 没有 active turn 时不报错，而是返回 no_active_turn envelope，方便 UI 幂等收口。
 func (s *service) InterruptTurn(ctx context.Context, session contract.Session, source string) (status TurnStatus, err error) {
 	ctx, threadID, err := requireTurnContext(ctx, session)
 	if err != nil {
@@ -31,6 +32,8 @@ func (s *service) InterruptTurn(ctx context.Context, session contract.Session, s
 	return s.finishInterrupt(ctx, active, before, start, waited)
 }
 
+// interruptBaseStatus 读取中断前的 tracker 状态。
+// 若 activeTurn 已存在但 tracker 快照缺失，则用 handle 生成最小 running 状态用于 envelope。
 func (s *service) interruptBaseStatus(active activeTurn, tracked bool) TurnStatus {
 	if !tracked {
 		return TurnStatus{}
@@ -45,7 +48,8 @@ func (s *service) interruptBaseStatus(active activeTurn, tracked bool) TurnStatu
 	}
 }
 
-// finishInterrupt 处理finishinterrupt。
+// finishInterrupt 在 provider 确认收到中断后等待本地 tracker 收敛，并构造响应 envelope。
+// 等待超时时保留 timeout envelope 和当前状态，避免 UI 把“已发送中断”误判成失败启动。
 func (s *service) finishInterrupt(
 	ctx context.Context,
 	active activeTurn,
@@ -73,6 +77,7 @@ func (s *service) finishInterrupt(
 	return attachInterruptEnvelope(after, envelope), nil
 }
 
+// interruptStatus 读取中断后的状态；若 watcher 尚未写回，则用 fallback/handle 合成状态。
 func (s *service) interruptStatus(active activeTurn, fallback TurnStatus, defaultState TurnState) TurnStatus {
 	if after, ok := s.tracker.Get(active.localID); ok {
 		return after
@@ -84,6 +89,7 @@ func (s *service) interruptStatus(active activeTurn, fallback TurnStatus, defaul
 	}
 }
 
+// timeoutInterruptStatus 只把本地等待超时转换为响应状态；调用方取消或其他错误继续冒泡。
 func (s *service) timeoutInterruptStatus(
 	ctx context.Context,
 	err error,

@@ -7,9 +7,8 @@ import (
 	"time"
 )
 
-// TestSweeperRunnerBlocksUntilContextDone pins the P22 P1b contract that the
-// runner is a blocking actor: Run returns only when ctx is cancelled, and
-// returns ctx.Err() so the run.Group sees a clean cancellation.
+// TestSweeperRunnerBlocksUntilContextDone 锁定 runner 的阻塞 actor 行为。
+// Run 只有在 ctx 取消后才返回，并把 ctx.Err() 交给 run.Group 作为正常收尾信号。
 func TestSweeperRunnerBlocksUntilContextDone(t *testing.T) {
 	t.Parallel()
 	sweeper := NewSweeperWithOptions(NewRegistry(), nil, SweeperOptions{
@@ -23,8 +22,7 @@ func TestSweeperRunnerBlocksUntilContextDone(t *testing.T) {
 	done := make(chan error, 1)
 	go func() { done <- runner.Run(ctx) }()
 
-	// Let the sweep fire at least once so we are exercising the live loop,
-	// not a cold start / early return path.
+	// 等待 sweep 至少触发一次，确保覆盖的是循环运行路径，而不是冷启动立即返回。
 	time.Sleep(25 * time.Millisecond)
 	select {
 	case err := <-done:
@@ -43,10 +41,8 @@ func TestSweeperRunnerBlocksUntilContextDone(t *testing.T) {
 	}
 }
 
-// TestSweeperRunnerPreservesJitterAndStaleTransitions checks that the
-// runner's outer wrapping does not change sweeper cadence / stale behaviour:
-// we assert the jitter+tick constants are still visible on the underlying
-// Sweeper (the runner must NOT recreate a sweeper with different options).
+// TestSweeperRunnerPreservesJitterAndStaleTransitions 校验 runner 包装层不改写 sweeper 节奏和 stale 逻辑。
+// underlying Sweeper 必须保留原 tick/jitter/timeout 配置，避免 runner 重新创建实例导致运维参数漂移。
 func TestSweeperRunnerPreservesJitterAndStaleTransitions(t *testing.T) {
 	t.Parallel()
 	opts := SweeperOptions{
@@ -63,8 +59,7 @@ func TestSweeperRunnerPreservesJitterAndStaleTransitions(t *testing.T) {
 	if r.sweeper != sweeper {
 		t.Fatalf("runner wraps a different sweeper instance: got %p, want %p", r.sweeper, sweeper)
 	}
-	// The P1b contract pins these defaults as authoritative; drift must be
-	// paired with a doc update.
+	// 这些默认值是生产心跳和清扫节奏的代码真值，漂移必须显式暴露给测试。
 	if defaultHeartbeatTTL != 30*time.Second {
 		t.Fatalf("defaultHeartbeatTTL drifted to %v, want 30s", defaultHeartbeatTTL)
 	}
@@ -76,9 +71,8 @@ func TestSweeperRunnerPreservesJitterAndStaleTransitions(t *testing.T) {
 	}
 }
 
-// TestSweeperHeartbeatUsesCodeTruthTTL30s freezes the P1b-required heartbeat
-// TTL constant so the runner (and any future documentation) cannot silently
-// downgrade it. This matches the P1b §TDD mandated test name.
+// TestSweeperHeartbeatUsesCodeTruthTTL30s 固定 heartbeat TTL 的代码真值。
+// runner 和文档都应跟随这个常量，不能悄悄缩短租约有效期。
 func TestSweeperHeartbeatUsesCodeTruthTTL30s(t *testing.T) {
 	t.Parallel()
 	if defaultHeartbeatTTL != 30*time.Second {
@@ -86,10 +80,9 @@ func TestSweeperHeartbeatUsesCodeTruthTTL30s(t *testing.T) {
 	}
 }
 
-// TestRunnerStopDrainsBeforeFinalCleanup exercises the stop ordering: when
-// the runner's ctx is cancelled, Run returns promptly; the registry's
-// OnStop (shutdownActiveLeases) is a separate concern and keeps working
-// after Run has unwound.
+// TestRunnerStopDrainsBeforeFinalCleanup 覆盖停止顺序。
+// runner ctx 取消后 Run 应及时返回；registry 的 shutdownActiveLeases 属于独立收尾路径，
+// 即使 Run 已退出也仍应可执行。
 func TestRunnerStopDrainsBeforeFinalCleanup(t *testing.T) {
 	t.Parallel()
 	reg := NewRegistry()
@@ -114,9 +107,7 @@ func TestRunnerStopDrainsBeforeFinalCleanup(t *testing.T) {
 		t.Fatal("Run did not return after cancel")
 	}
 
-	// After Run has returned we can still shut active leases; that is the
-	// final cleanup path owned by registerRegistryLifecycle.OnStop. The
-	// call should succeed on an empty registry.
+	// Run 返回后仍能关闭活跃租约；空 registry 上调用应成功，证明最终清理路径可独立运行。
 	stopCtx, stopCancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
 	defer stopCancel()
 	if err := reg.shutdownActiveLeases(stopCtx); err != nil {
@@ -124,9 +115,8 @@ func TestRunnerStopDrainsBeforeFinalCleanup(t *testing.T) {
 	}
 }
 
-// TestSweeperRunnerNilSweeperBlocksUntilDone covers the defensive path where
-// the runner is given a nil sweeper: it must not panic and must still honor
-// ctx cancellation.
+// TestSweeperRunnerNilSweeperBlocksUntilDone 覆盖 nil sweeper 的防御路径。
+// runner 不应 panic，并且仍然必须遵守 ctx 取消。
 func TestSweeperRunnerNilSweeperBlocksUntilDone(t *testing.T) {
 	t.Parallel()
 	runner := NewSweeperRunner(nil)

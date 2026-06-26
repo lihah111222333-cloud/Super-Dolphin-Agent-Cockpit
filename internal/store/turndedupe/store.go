@@ -10,9 +10,8 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/store/sqlc"
 )
 
-// querier is the narrow subset of *sqlc.Queries this store actually
-// calls. Splitting it out keeps unit tests free of a live pool — a
-// test fake implements only what is exercised.
+// querier 描述 turn 去重 store 依赖的 sqlc 查询集合。
+// 拆出窄接口后，单元测试可用 fake querier 避开真实连接池。
 type querier interface {
 	UpsertTurnDedupeRegistry(ctx context.Context, arg sqlc.UpsertTurnDedupeRegistryParams) error
 	BindTurnDedupeProviderID(ctx context.Context, arg sqlc.BindTurnDedupeProviderIDParams) error
@@ -21,20 +20,19 @@ type querier interface {
 	SweepTurnDedupeRegistry(ctx context.Context, arg sqlc.SweepTurnDedupeRegistryParams) error
 }
 
+// store 实现 turn 去重注册表的 SQLite 持久化边界。
 type store struct {
 	q querier
 }
 
-// NewStore wires the production sqlc-backed Store. Pool injection
-// happens at the fx layer via *sqlc.Queries.
-// NewStore 创建存储。
+// NewStore 创建 sqlc 支撑的 turn 去重 store。
+// 调用方必须传入已初始化的查询器，这里不做 nil 兜底，避免恢复去重路径静默失效。
 func NewStore(q *sqlc.Queries) Store { return &store{q: q} }
 
-// newStoreForTest exists so tests can plug in a fake querier without
-// exporting the internal struct.
+// newStoreForTest 让测试注入 fake querier，而不暴露内部 store 类型。
 func newStoreForTest(q querier) Store { return &store{q: q} }
 
-// Upsert 新增或更新记录。
+// Upsert 写入或刷新 dedupe key，空 key 或 local turn ID 会立即报错。
 func (s *store) Upsert(ctx context.Context, p UpsertParams) error {
 	key := strings.TrimSpace(p.DedupeKey)
 	if key == "" {
@@ -51,7 +49,7 @@ func (s *store) Upsert(ctx context.Context, p UpsertParams) error {
 	})
 }
 
-// BindProviderTurnID 绑定providerturnID。
+// BindProviderTurnID 给已登记的 dedupe key 绑定 provider turn ID。
 func (s *store) BindProviderTurnID(ctx context.Context, p BindProviderTurnIDParams) error {
 	key := strings.TrimSpace(p.DedupeKey)
 	if key == "" {
@@ -64,7 +62,7 @@ func (s *store) BindProviderTurnID(ctx context.Context, p BindProviderTurnIDPara
 	})
 }
 
-// MarkTerminal 标记terminal。
+// MarkTerminal 将 dedupe key 标记为终态，阻止后续 live 查询复用。
 func (s *store) MarkTerminal(ctx context.Context, dedupeKey string, now time.Time) error {
 	key := strings.TrimSpace(dedupeKey)
 	if key == "" {
@@ -77,7 +75,7 @@ func (s *store) MarkTerminal(ctx context.Context, dedupeKey string, now time.Tim
 	})
 }
 
-// GetLive 读取live。
+// GetLive 读取仍未终态的去重记录，未命中统一返回 ErrNotFound。
 func (s *store) GetLive(ctx context.Context, dedupeKey string) (Entry, error) {
 	key := strings.TrimSpace(dedupeKey)
 	if key == "" {
@@ -101,7 +99,7 @@ func (s *store) GetLive(ctx context.Context, dedupeKey string) (Entry, error) {
 	}, nil
 }
 
-// Sweep 清理过期记录。
+// Sweep 清理早于 cutoff 的旧去重记录，cutoff 零值会 fail-fast。
 func (s *store) Sweep(ctx context.Context, cutoff time.Time) error {
 	if cutoff.IsZero() {
 		return errors.New("turndedupe: sweep cutoff must be non-zero")
@@ -113,7 +111,7 @@ func (s *store) Sweep(ctx context.Context, cutoff time.Time) error {
 	)
 }
 
-// nonZero returns now when t is zero, otherwise t.
+// nonZero 在调用方未传时间时使用当前时间。
 func nonZero(t time.Time) time.Time {
 	if t.IsZero() {
 		return time.Now()
@@ -121,10 +119,12 @@ func nonZero(t time.Time) time.Time {
 	return t
 }
 
+// tsMS 将时间转成数据库存储使用的毫秒时间戳。
 func tsMS(t time.Time) int64 {
 	return platformdb.Millis(t)
 }
 
+// fromMS 将毫秒时间戳转成 time.Time，零值表示没有时间。
 func fromMS(ms int64) time.Time {
 	if ms == 0 {
 		return time.Time{}
@@ -132,6 +132,7 @@ func fromMS(ms int64) time.Time {
 	return platformdb.TimeFromMillis(ms)
 }
 
+// fromMSPtr 将可空毫秒时间戳转成 time.Time，nil 表示没有时间。
 func fromMSPtr(ms *int64) time.Time {
 	if ms == nil {
 		return time.Time{}

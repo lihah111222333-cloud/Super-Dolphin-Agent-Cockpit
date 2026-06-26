@@ -13,9 +13,8 @@ import (
 	turndto "github.com/anthropic-ai/super-agent-v3/internal/dto/turn"
 )
 
-// Phase 1.6 wired memory_entrypoint into every durable-write path. These
-// tests assert the new invalidation fires; they complement the existing
-// extractor-only test in TestMemoryLifecycleHooksExtractAndSaveInvalidatesPromptSections.
+// 这些测试覆盖 memory_entrypoint 在持久化写入后的失效触发。
+// 它们补足只验证 extractor 路径的用例，确保检测、删除和 auto-mem 写入都会刷新 prompt 动态段。
 
 func newHooksWithInvalidator(t *testing.T) (*MemoryLifecycleHooks, *sectionInvalidatorStub, string) {
 	t.Helper()
@@ -77,8 +76,8 @@ func TestDeleteIntentInvalidatesEntrypoint(t *testing.T) {
 	if _, err := store.CreateStructured(entry); err != nil {
 		t.Fatalf("CreateStructured() error = %v", err)
 	}
-	// Reset invalidator so we only see the delete-time signal, not the
-	// fixture-create call (which goes through a different store API).
+	// 重置 invalidator，只观察 deleteIntent 本次删除触发的信号。
+	// fixture 创建走的是另一条 store API，不能混入本断言。
 	invalidator.reason = ""
 	invalidator.names = nil
 
@@ -115,8 +114,8 @@ func TestOnTurnCompletedOutsideAutoMemDoesNotInvalidateEntrypoint(t *testing.T) 
 	threadID := "thread-1"
 	turnID := "turn-1"
 	hooks.onTurnStarted(turnStartedEvent(threadID, turnID))
-	// File outside the auto-mem root → consumeTurnTracking returns false →
-	// no invalidation should fire.
+	// 文件不在 auto-mem 根目录下时，consumeTurnTracking 应返回 false。
+	// 因而这里不应触发 memory_entrypoint 失效。
 	hooks.onToolDiffUpdated(tooldto.ToolDiffUpdated{
 		ThreadID: threadID,
 		Files:    []string{filepath.Join(t.TempDir(), "outside", "notes.md")},

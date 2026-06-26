@@ -57,6 +57,7 @@ func waitForStopAgentSettlement(ctx context.Context, svc contract.OrchestrationS
 	}
 }
 
+// stopAgentWaitTimeout 校验 wait timeout，并在未指定时使用报告等待的默认窗口。
 func stopAgentWaitTimeout(timeoutMS int) (time.Duration, error) {
 	if timeoutMS < 0 {
 		return 0, fmt.Errorf("timeout_ms must be non-negative")
@@ -67,6 +68,8 @@ func stopAgentWaitTimeout(timeoutMS int) (time.Duration, error) {
 	return defaultAgentReportWaitTimeout, nil
 }
 
+// stopAgentSettlementState 从 list_agents 同源快照读取目标 agent 状态。
+// 返回 found=false 表示快照里已不可见，调用方按 stop/archive 语义收口。
 func stopAgentSettlementState(ctx context.Context, svc contract.OrchestrationService, agentID string) (string, bool, error) {
 	agents, err := listAgentSnapshots(ctx, svc)
 	if err != nil {
@@ -80,6 +83,7 @@ func stopAgentSettlementState(ctx context.Context, svc contract.OrchestrationSer
 	return "", false, nil
 }
 
+// stopAgentSnapshotMatches 兼容 runtime id、agent_id 和 launch_id 三种历史标识。
 func stopAgentSnapshotMatches(agent contract.AgentSnapshot, agentID string) bool {
 	agentID = strings.TrimSpace(agentID)
 	return strings.TrimSpace(agent.ID) == agentID ||
@@ -87,6 +91,7 @@ func stopAgentSnapshotMatches(agent contract.AgentSnapshot, agentID string) bool
 		strings.TrimSpace(agent.LaunchID) == agentID
 }
 
+// stopAgentSettledState 判断 stop_agent 等待可以结束的终态。
 func stopAgentSettledState(state string) bool {
 	switch strings.TrimSpace(state) {
 	case "stopped", "failed", "archived":
@@ -96,6 +101,7 @@ func stopAgentSettledState(state string) bool {
 	}
 }
 
+// missingStopAgentState 把快照缺失转换成调用者期望的最终状态。
 func missingStopAgentState(archived bool) string {
 	if archived {
 		return "archived"
@@ -103,6 +109,7 @@ func missingStopAgentState(archived bool) string {
 	return "stopped"
 }
 
+// stopAgentWaitTimeoutError 保留 agent id 与底层超时原因，方便调用端诊断。
 func stopAgentWaitTimeoutError(agentID string, cause error) error {
 	return fmt.Errorf("timed out waiting for stop_agent agent %q to settle: %w", agentID, cause)
 }

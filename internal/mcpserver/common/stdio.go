@@ -16,6 +16,7 @@ import (
 // transportMode 表示 stdio 传输的帧格式模式。
 type transportMode int
 
+// stdio transport 模式常量，modeUnknown 表示尚未从输入流探测到 framing。
 const (
 	modeUnknown transportMode = iota
 	modeRawJSON
@@ -32,7 +33,7 @@ type StdioTransport struct {
 	writeMu sync.Mutex
 }
 
-// NewStdioTransport 创建stdio传输。
+// NewStdioTransport 创建支持 raw JSON 与 Content-Length framed 两种模式的 stdio transport。
 func NewStdioTransport(stdin io.Reader, stdout io.Writer) *StdioTransport {
 	transport := &StdioTransport{
 		reader: bufio.NewReader(stdin),
@@ -52,7 +53,7 @@ func (t *StdioTransport) Close() error {
 	return t.closer.Close()
 }
 
-// ReadMessage 读取消息。
+// ReadMessage 读取一条 MCP JSON-RPC 消息，首次读取时自动探测 framing 模式。
 func (t *StdioTransport) ReadMessage() (json.RawMessage, error) {
 	if err := t.ensureMode(); err != nil {
 		pkglogger.Warn("mcp stdio: read mode detection failed", "error", err)
@@ -72,7 +73,7 @@ func (t *StdioTransport) ReadMessage() (json.RawMessage, error) {
 	return msg, err
 }
 
-// WriteMessage 写入消息。
+// WriteMessage 按已探测到的模式写出 JSON-RPC 消息，并串行化并发写入。
 func (t *StdioTransport) WriteMessage(payload any) error {
 	raw, err := json.Marshal(payload)
 	if err != nil {
@@ -135,7 +136,7 @@ func (t *StdioTransport) readRaw() (json.RawMessage, error) {
 	return append(json.RawMessage(nil), raw...), nil
 }
 
-// readFramed 读取framed。
+// readFramed 读取 Content-Length framed 消息，并拒绝缺失或非法长度头。
 func (t *StdioTransport) readFramed() (json.RawMessage, error) {
 	length := -1
 	for {
@@ -177,7 +178,7 @@ func validateFramedJSON(body []byte) (json.RawMessage, error) {
 	return json.RawMessage(body), nil
 }
 
-// flushWriter 若 writer 实现了 Flush() error 则执行 flush，否则直接返回。
+// flushWriter 在 writer 支持 Flush 时刷新缓冲；普通 writer 不需要额外收尾。
 func flushWriter(writer io.Writer) error {
 	flusher, ok := writer.(interface{ Flush() error })
 	if !ok {

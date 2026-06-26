@@ -10,6 +10,7 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/config"
 )
 
+// Module 注册 observability 配置解析和服务构造。
 var Module = fx.Module("platform.observability",
 	fx.Provide(
 		ParseConfigFromEnv,
@@ -25,7 +26,7 @@ type serviceFromConfigParams struct {
 	Config    Config
 }
 
-// NewServiceFromConfig 从配置创建服务。
+// NewServiceFromConfig 根据运行配置创建 observability 服务并把 sink 关闭挂到 fx 生命周期。
 func NewServiceFromConfig(p serviceFromConfigParams) (*Service, error) {
 	if !p.Config.Enabled {
 		return NewDisabledService(p.Config), nil
@@ -47,7 +48,8 @@ func NewServiceFromConfig(p serviceFromConfigParams) (*Service, error) {
 	return NewService(p.Config, WithSink(sink), WithTailReader(NewTailReader(dir, p.Config))), nil
 }
 
-// traceProjectFromAppConfig 从app配置处理trace项目。
+// traceProjectFromAppConfig 从项目根目录推导 trace 项目名。
+// 配置缺失或根目录无效时直接报错，避免 trace 写入含糊目录。
 func traceProjectFromAppConfig(cfg *config.Config) (string, error) {
 	if cfg == nil {
 		return "", fmt.Errorf("observability tracing requires platform config")

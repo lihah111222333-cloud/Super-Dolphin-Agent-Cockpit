@@ -14,38 +14,29 @@ import (
 
 var _ contract.DynamicSectionProvider = (*MemoryEntrypointProvider)(nil)
 
-// MemoryEntrypointProvider injects the durable memory entrypoint files
-// (private MEMORY.md plus, when team memory is active, the team MEMORY.md)
-// at session start. It complements MemoryRulesProvider, which only carries
-// the behavioural rules: this provider carries the actual index content.
-//
-// The provider is start-only — turn-time retrieval is handled by
-// MemoryContextProvider / RelevantMemoryFinder. It is suppressed when
-// gate.InjectPromptEntrypoint is false (today identical to InjectMemoryIndex,
-// see resolveMemoryGate).
+// MemoryEntrypointProvider 在会话启动时注入持久化记忆入口文件。
+// 它只负责 AutoMem/TeamMem 的索引正文；每轮相关记忆检索由 retrieval 流程处理，
+// 并且受 ResolveMemoryGate 控制，避免底层 CLI 已注入时重复写入 prompt。
 type MemoryEntrypointProvider struct {
 	cfg    *Config
 	team   *TeamMemoryManager
 	logger *slog.Logger
 }
 
-// NewEntrypointProvider returns a MemoryEntrypointProvider wired to the
-// shared memory config and (optionally) the team memory manager. Either may
-// be nil; the provider is fully nil-safe and degrades to "no entrypoint".
-// NewEntrypointProvider 创建entrypointprovider。
+// NewEntrypointProvider 绑定记忆配置和可选团队记忆管理器。
+// 调用方允许传入 nil；解析阶段会按空入口处理，不在构造期读盘。
 func NewEntrypointProvider(cfg *Config, team *TeamMemoryManager, logger *slog.Logger) *MemoryEntrypointProvider {
 	return &MemoryEntrypointProvider{cfg: memoryConfig(cfg), team: team, logger: logger}
 }
 
-// SectionName implements contract.DynamicSectionProvider.
-// SectionName 处理section名称。
+// SectionName 返回 prompt 动态区块名，供 prompt 汇编器按区块缓存和失效。
 func (p *MemoryEntrypointProvider) SectionName() string {
 	return contract.DynamicSectionMemoryEntrypoint
 }
 
-// Resolve implements contract.DynamicSectionProvider. It runs only at
-// session start. Child agents use the prompt system for role-specific context.
-// Resolve 解析记忆。
+// Resolve 在会话启动阶段读取可注入的记忆入口内容。
+// 非启动 turn、功能关闭或 gate 禁止注入时返回空；读盘失败只跳过该入口并记录告警，
+// 避免记忆索引缺失阻断会话启动。
 func (p *MemoryEntrypointProvider) Resolve(_ context.Context, input contract.SectionContext) (*string, error) {
 	if p == nil || input.Start == nil || input.Turn != nil {
 		return nil, nil
@@ -75,14 +66,9 @@ const (
 	entrypointSourceTeam = "team"
 )
 
-// loadEntrypointBlock returns the rendered block for one entrypoint root, or
-// an empty string when the file is missing/empty/unreadable/secret-tainted.
-// The block is frontmatter- and HTML-comment-stripped, BOM-trimmed, and
-// entrypoint-truncated using the same limits applied elsewhere.
-//
-// Rendering uses the relative file name "MEMORY.md" instead of the full
-// absolute path so the OS user / home prefix is not leaked into the prompt.
-// loadEntrypointBlock 加载entrypointblock。
+// loadEntrypointBlock 从单个记忆根读取 MEMORY.md 并渲染为 prompt 片段。
+// 这里会清理 BOM、frontmatter、HTML 注释并做长度截断；团队记忆还会扫描密钥。
+// 渲染时只暴露相对文件名，避免把本机用户目录泄漏进模型上下文。
 func (p *MemoryEntrypointProvider) loadEntrypointBlock(root, source string) string {
 	root = strings.TrimSpace(root)
 	if root == "" {
@@ -133,10 +119,9 @@ func (p *MemoryEntrypointProvider) logTeamSecretSkip(findings []TeamMemSecretFin
 	)
 }
 
-// cleanEntrypointContent strips BOM, YAML frontmatter, and HTML block
-// comments before truncation runs. This mirrors what Claude's claudemd
-// layer applies to AutoMem / TeamMem entrypoints so injected text is not
-// padded with metadata that is irrelevant to the model.
+// cleanEntrypointContent 统一清理入口文件外壳，只保留要注入模型的正文。
+// 该步骤和 nested 的 CLAUDE.md 解析保持同一套语义，避免 frontmatter 或模板注释
+// 被当成用户记忆长期带入 prompt。
 func cleanEntrypointContent(raw string) string {
 	trimmed := strings.TrimSpace(parse.StripUTF8BOM(raw))
 	if trimmed == "" {
@@ -149,8 +134,9 @@ func cleanEntrypointContent(raw string) string {
 	return stripped
 }
 
-// resolvedAutoMemPath mirrors MemoryRulesProvider.resolvedAutoMemPath so
-// both providers see the same AutoMem root for a given BuildCtx.
+// resolvedAutoMemPath 按 BuildCtx 和配置解析 AutoMem 根目录。
+// 入口注入与规则提示必须共用同一套根目录解析，否则会出现规则指向一处、
+// 实际索引读取另一处的跨模块错配。
 func (p *MemoryEntrypointProvider) resolvedAutoMemPath(buildCtx contract.BuildCtx) string {
 	cfg := memoryConfig(p.cfg)
 	projectRoot := strings.TrimSpace(buildCtx.GitRoot)
@@ -167,8 +153,8 @@ func (p *MemoryEntrypointProvider) resolvedAutoMemPath(buildCtx contract.BuildCt
 	return strings.TrimSpace(autoDir)
 }
 
-// resolvedTeamMemPath returns the team-memory root for the current build
-// context, or empty when team memory is not configured / available.
+// resolvedTeamMemPath 读取当前构建上下文对应的团队记忆根目录。
+// 团队记忆未启用或管理器缺失时返回空，让 Resolve 自然跳过团队入口。
 func (p *MemoryEntrypointProvider) resolvedTeamMemPath(buildCtx contract.BuildCtx) string {
 	if p == nil || p.team == nil {
 		return ""
@@ -176,6 +162,8 @@ func (p *MemoryEntrypointProvider) resolvedTeamMemPath(buildCtx contract.BuildCt
 	return strings.TrimSpace(p.team.GetTeamMemPath(buildCtx))
 }
 
+// joinNonEmpty 拼接非空区块，并在拼接前统一裁剪外层空白。
+// 入口区块来自不同记忆根，保持这里的空值过滤可避免生成空标题或多余分隔符。
 func joinNonEmpty(parts []string, sep string) string {
 	out := make([]string, 0, len(parts))
 	for _, part := range parts {

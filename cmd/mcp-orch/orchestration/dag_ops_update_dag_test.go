@@ -11,11 +11,8 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 )
 
-// F4.4 update_dag 真实业务实现单测。覆盖矩阵：
-//   - happy: 更新 DAG 元数据字段并推进 version
-//   - happy: running DAG / active run 下允许 update_dag 调整未来调度元数据
-//   - reject: trigger 非枚举值
-//   - reject: 同批多个 update_dag 语义歧义
+// update_dag 业务测试覆盖 DAG 元数据更新和版本推进。
+// running DAG / active run 仍允许调整未来调度元数据；非法 trigger 和同批多个 update_dag 必须被拒绝。
 
 func TestApplyOps_UpdateDAG_Happy(t *testing.T) {
 	t.Parallel()

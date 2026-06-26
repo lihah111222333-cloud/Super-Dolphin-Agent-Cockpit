@@ -6,6 +6,7 @@ import (
 	"go.uber.org/fx"
 )
 
+// Module 注册 prompt store 的 fx provider。
 var Module = fx.Module("store.prompt",
 	fx.Provide(NewStoreFromDB),
 )

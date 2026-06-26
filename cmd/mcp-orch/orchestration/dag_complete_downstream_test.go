@@ -14,9 +14,8 @@ import (
 )
 
 // stubNodeFlowStore 实现 NodeFlowStore + OrchestrationStore 必需方法，
-// 验证 service.UpdateNodeStatus 的 Phase 3.5w 接通逻辑：status="done" 时
-// 应该走 CompleteNodeAndScheduleDownstream 而不是普通 UpdateNodeStatus。
-// S7.2 后补上 ListNodes，让 service 先取 from-status 走状态机校验。
+// 验证 service.UpdateNodeStatus 在 status="done" 时走 CompleteNodeAndScheduleDownstream。
+// ListNodes 提供当前 from-status，让 service 先做状态机校验再写入。
 type stubNodeFlowStore struct {
 	taskdag.OrchestrationStore // nil 嵌入：未覆盖方法 panic 暴露遗漏
 
@@ -29,7 +28,7 @@ type stubNodeFlowStore struct {
 	failErr       error
 	listRunCalls  []int64
 
-	// fromStatus 是 ListNodes 返回的当前 node.status（供 S7.2 转移校验取用）。
+	// fromStatus 是 ListNodes 返回的当前 node.status，供状态转移校验取用。
 	// 未设默认 "running" 让 done 转移合法，适配多数测试不需显式设置。
 	fromStatus string
 }
@@ -88,13 +87,13 @@ func (s *stubNodeFlowStore) UpdateNodeStatusFlexible(_ context.Context, _ taskda
 }
 
 // makeServiceWithStub 构造一个绑了 stubNodeFlowStore 的最小 service 用于
-// 测 dag.go::UpdateNodeStatus 的 Phase 3.5w 分支逻辑。
+// 测 UpdateNodeStatus 的 NodeFlowStore 路由分支。
 func makeServiceWithStub(stub taskdag.OrchestrationStore) *service {
 	return &service{dagStore: stub}
 }
 
-// TestUpdateNodeStatusDone_RoutesToCompleteNodeAndScheduleDownstream:
-// status="done" 应该走 CompleteNodeAndScheduleDownstream，不走普通 UpdateNodeStatus。
+// TestUpdateNodeStatusDone_RoutesToCompleteNodeAndScheduleDownstream 验证 done 状态走下游调度完成路径。
+// status="done" 不应走普通 UpdateNodeStatus。
 func TestUpdateNodeStatusDone_RoutesToCompleteNodeAndScheduleDownstream(t *testing.T) {
 	stub := &stubNodeFlowStore{
 		completeReply: &taskdag.CompleteNodeWithDownstreamResult{
@@ -169,8 +168,8 @@ func TestUpdateNodeStatusDonePublishesTaskNodeStatusChanged(t *testing.T) {
 	}
 }
 
-// TestUpdateNodeStatusNonDone_KeepsLegacyUpdate:
-// status != "done" 时仍走旧 UpdateNodeStatus 路径，不应触发 CompleteNodeAndScheduleDownstream。
+// TestUpdateNodeStatusNonDone_KeepsLegacyUpdate 验证非 done 状态保留普通 UpdateNodeStatus 路径。
+// 该路径不应触发 CompleteNodeAndScheduleDownstream。
 func TestUpdateNodeStatusNonDone_KeepsLegacyUpdate(t *testing.T) {
 	stub := &stubNodeFlowStore{fromStatus: "ready"} // ready → running 合法
 	s := makeServiceWithStub(stub)
@@ -271,8 +270,8 @@ func TestUpdateNodeStatusRequiresRunID(t *testing.T) {
 	}
 }
 
-// TestUpdateNodeStatus_RejectsIllegalTransition:
-// S7.2 验收：非法转移（pending → done 跳态）被拒。
+// TestUpdateNodeStatus_RejectsIllegalTransition 验证非法转移会在写 store 前被拒绝。
+// pending → done 属于跳态，不应触达下游 store。
 func TestUpdateNodeStatus_RejectsIllegalTransition(t *testing.T) {
 	stub := &stubNodeFlowStore{fromStatus: "pending"} // pending → done 非法
 	s := makeServiceWithStub(stub)
@@ -292,7 +291,7 @@ func TestUpdateNodeStatus_RejectsIllegalTransition(t *testing.T) {
 	}
 }
 
-// TestUpdateNodeStatus_RejectsTerminalSourceTransition:
+// TestUpdateNodeStatus_RejectsTerminalSourceTransition 验证终态节点不能重新进入 ready。
 // done → ready 是终态出态，必须被拒。
 func TestUpdateNodeStatus_RejectsTerminalSourceTransition(t *testing.T) {
 	stub := &stubNodeFlowStore{fromStatus: "done"}
@@ -310,7 +309,7 @@ func TestUpdateNodeStatus_RejectsTerminalSourceTransition(t *testing.T) {
 
 // nonFlowStub 只实现 OrchestrationStore，不实现 NodeFlowStore：模拟测试 mock 或
 // 老 store 实现。预期 service 退化到普通 UpdateNodeStatus（type assertion 失败）。
-// S7.2 后补 ListNodes 让 service 先走转移校验。
+// ListNodes 仍提供 from-status，确保退回普通写路径前先完成状态机校验。
 type nonFlowStub struct {
 	taskdag.OrchestrationStore // nil
 	updateCalls                []taskdag.NodeStatusUpdate
@@ -329,8 +328,8 @@ func (s *nonFlowStub) UpdateNodeStatus(_ context.Context, input taskdag.NodeStat
 	return &taskdag.Node{DagKey: input.DagKey, NodeKey: input.NodeKey, Status: input.Status}, nil
 }
 
-// TestUpdateNodeStatusDone_FallsBackWhenStoreLacksNodeFlowStore:
-// dagStore 不实现 NodeFlowStore 时退化到旧路径，不破坏老 store。
+// TestUpdateNodeStatusDone_FallsBackWhenStoreLacksNodeFlowStore 验证缺少 NodeFlowStore 时的兼容写路径。
+// dagStore 不实现 NodeFlowStore 时退回普通 UpdateNodeStatus，不破坏老 store。
 func TestUpdateNodeStatusDone_FallsBackWhenStoreLacksNodeFlowStore(t *testing.T) {
 	stub := &nonFlowStub{}
 	s := makeServiceWithStub(stub)

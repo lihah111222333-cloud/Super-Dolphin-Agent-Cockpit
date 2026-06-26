@@ -213,10 +213,8 @@ func startCodexTestServer(t *testing.T) string {
 func closeCodexTestSession(t *testing.T, s *session) {
 	t.Helper()
 
-	// P22 P1c: s.Close() now drains reader/health/recovery via runtime.Stop();
-	// callers no longer need to reach for a waitReadLoopStopped helper to
-	// prove drain. Keep this wrapper so existing tests do not need to know
-	// about SessionRuntime, but the body is just Close() + assertion.
+	// s.Close 会通过 runtime.Stop() 收敛 reader、health 和 recovery goroutine。
+	// 保留这个测试 helper，让调用方只关心关闭断言，不需要了解 SessionRuntime 细节。
 	if err := s.Close(context.Background()); err != nil {
 		t.Fatalf("Close() error = %v", err)
 	}

@@ -7,6 +7,8 @@ import (
 
 const defaultFRCKeepRecent = 2
 
+// FRCConfig 是 prompt FRC 功能的跨模块配置。
+// SupportedModels 经过 Normalize 后转为小写、去重、排序，便于快速二分匹配。
 type FRCConfig struct {
 	Enabled                      bool
 	SystemPromptSuggestSummaries bool
@@ -14,7 +16,8 @@ type FRCConfig struct {
 	KeepRecent                   int
 }
 
-// Normalize 规范化跨模块契约。
+// Normalize 复制并规范化 FRC 配置。
+// nil receiver 返回 nil；KeepRecent 非正数时使用受控默认值，避免调用方自行兜底。
 func (c *FRCConfig) Normalize() *FRCConfig {
 	if c == nil {
 		return nil
@@ -45,7 +48,8 @@ func (c *FRCConfig) Normalize() *FRCConfig {
 	return out
 }
 
-// EnabledForModel 为模型判断跨模块契约。
+// EnabledForModel 判断 FRC 是否对指定模型启用。
+// 空模型或空 SupportedModels 都视为未启用，防止配置缺失时扩大生效范围。
 func (c *FRCConfig) EnabledForModel(model string) bool {
 	normalized := c.Normalize()
 	if normalized == nil || !normalized.Enabled {
@@ -59,7 +63,8 @@ func (c *FRCConfig) EnabledForModel(model string) bool {
 	return index < len(normalized.SupportedModels) && normalized.SupportedModels[index] == model
 }
 
-// KeepRecentCount 处理keeprecentcount。
+// KeepRecentCount 返回 FRC 保留最近消息数量。
+// nil 配置使用受控默认值，与 Normalize 的默认策略保持一致。
 func (c *FRCConfig) KeepRecentCount() int {
 	normalized := c.Normalize()
 	if normalized == nil {

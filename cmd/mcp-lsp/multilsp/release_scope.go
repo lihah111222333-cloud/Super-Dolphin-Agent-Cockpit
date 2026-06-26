@@ -13,29 +13,33 @@ const (
 	ReleaseScopeManagerKey      = "manager_key"
 )
 
+// ReleaseScopeRequest 描述一次 LSP manager 释放请求，scope 字段决定关闭哪些缓存实例。
 type ReleaseScopeRequest struct {
-	ScopeKind  string
-	AgentID    string
-	ThreadID   string
-	ManagerKey string
-	Drain      bool
-	Reason     string
+	ScopeKind  string // 释放维度：agent/thread、agent 全线程或指定 manager key。
+	AgentID    string // agent 维度释放时的必填身份。
+	ThreadID   string // 单线程释放时的必填身份。
+	ManagerKey string // 指定 manager 释放时的精确缓存键。
+	Drain      bool   // true 时只有无忙碌租约才视为完全 drain。
+	Reason     string // 调用方提供的审计/日志原因。
 }
 
+// ReleaseScopeResult 汇总释放匹配、关闭和忙碌租约数量，供调用方判断是否需要重试。
 type ReleaseScopeResult struct {
-	MatchedManagers int
-	ClosedManagers  int
-	BusyLeases      int
-	Drained         bool
-	ScopeKeys       []string
-	ManagerKeys     []string
+	MatchedManagers int      // 命中 release 条件的 manager 数。
+	ClosedManagers  int      // 实际关闭的 manager 数。
+	BusyLeases      int      // 因仍有租约而不能关闭的 manager 数。
+	Drained         bool     // drain 请求是否已完全清空目标 manager。
+	ScopeKeys       []string // 命中的 scope key 列表。
+	ManagerKeys     []string // 命中的 manager key 列表。
 }
 
+// ScopeReleaser 是对外暴露的 LSP scope 释放能力，隐藏具体池实现。
 type ScopeReleaser interface {
 	ReleaseScope(req ReleaseScopeRequest) (ReleaseScopeResult, error)
 }
 
-// ReleaseScope 处理release作用域。
+// ReleaseScope 通过 manager 持有的池释放指定 LSP scope。
+// 非池 manager 不能执行精确释放，会返回错误让调用方显式感知配置不完整。
 func (m *manager) ReleaseScope(req ReleaseScopeRequest) (ReleaseScopeResult, error) {
 	if m == nil || m.pool == nil {
 		return ReleaseScopeResult{}, errors.New("LSP manager pool is nil")
@@ -43,7 +47,8 @@ func (m *manager) ReleaseScope(req ReleaseScopeRequest) (ReleaseScopeResult, err
 	return m.pool.ReleaseScope(req)
 }
 
-// ReleaseScope 处理release作用域。
+// ReleaseScope 从池中摘除匹配 scope 的 manager clone 并关闭可安全释放的实例。
+// 仍有活跃租约的 manager 只计入 BusyLeases，不会被强制关闭；Drain 用于调用方判断是否需要重试。
 func (p *ManagerPool) ReleaseScope(req ReleaseScopeRequest) (ReleaseScopeResult, error) {
 	if p == nil {
 		return ReleaseScopeResult{}, errors.New("LSP manager pool is nil")
@@ -62,7 +67,8 @@ func (p *ManagerPool) ReleaseScope(req ReleaseScopeRequest) (ReleaseScopeResult,
 	return result, firstErr
 }
 
-// ReleaseManagerKey 处理releasemanager键。
+// ReleaseManagerKey 释放指定 manager key 对应的 clone。
+// 它使用 drain=true，确保返回前能暴露忙碌租约导致的未完全释放状态。
 func (p *ManagerPool) ReleaseManagerKey(managerKey string) error {
 	_, err := p.ReleaseScope(ReleaseScopeRequest{
 		ScopeKind:  ReleaseScopeManagerKey,
@@ -85,7 +91,8 @@ func (p *ManagerPool) detachReleaseScopeManagers(req ReleaseScopeRequest) (Relea
 	return result, toClose
 }
 
-// detachReleaseScopeManagersFromShard 从shard处理detachrelease作用域managers。
+// detachReleaseScopeManagersFromShard 在单个 shard 锁内摘除可释放的 clone。
+// 有活跃租约的 clone 只记录 busy，不从 map 删除，避免正在使用的 client 被关闭。
 func (p *ManagerPool) detachReleaseScopeManagersFromShard(shard *managerShard, req ReleaseScopeRequest, seen map[*manager]struct{}) (ReleaseScopeResult, []*manager) {
 	if shard == nil {
 		return ReleaseScopeResult{}, nil
@@ -141,7 +148,8 @@ func mergeReleaseScopeResult(dst *ReleaseScopeResult, src ReleaseScopeResult) {
 	}
 }
 
-// closeReleaseScopeManagers 关闭release作用域managers。
+// closeReleaseScopeManagers 关闭已从池中摘除的 manager 列表。
+// 函数继续尝试关闭全部目标，只包装第一个错误返回，防止一个失败阻断其余资源清理。
 func closeReleaseScopeManagers(req ReleaseScopeRequest, managers []*manager) (int, error) {
 	var firstErr error
 	closed := 0
@@ -179,7 +187,8 @@ func normalizeReleaseScopeRequest(req ReleaseScopeRequest) ReleaseScopeRequest {
 	return req
 }
 
-// validateReleaseScopeRequest 校验release作用域请求。
+// validateReleaseScopeRequest 校验 release 请求包含当前释放维度所需的身份字段。
+// 缺少 scope kind 或必填 id 会立即报错，避免误释放更宽范围的 LSP manager。
 func validateReleaseScopeRequest(req ReleaseScopeRequest) error {
 	switch req.ScopeKind {
 	case ReleaseScopeAgentThread:
@@ -213,7 +222,8 @@ func releaseScopeMatches(req ReleaseScopeRequest, scope ResolvedLSPToolScope) bo
 	}
 }
 
-// activeLeasesForManager 为manager处理activeleases。
+// activeLeasesForManager 汇总某个 manager 当前全部 workspace client 的活跃租约。
+// 调用方用它决定 release/recycle 是否能安全关闭，不直接读取池内租约 map。
 func (p *ManagerPool) activeLeasesForManager(mgr *manager) int {
 	if p == nil || mgr == nil {
 		return 0

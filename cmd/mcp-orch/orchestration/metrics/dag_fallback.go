@@ -36,19 +36,19 @@ var dagFallback = &dagFallbackCounter{}
 // IncDAGFallbackLookupFailed 累加 DAG 兜底查询失败次数。
 func IncDAGFallbackLookupFailed() { dagFallback.lookupFailed.Add(1) }
 
-// IncDAGFallbackNoNode 累加DAG兜底no节点。
+// IncDAGFallbackNoNode 记录 stopped 线程未关联到 DAG 节点的次数。
 func IncDAGFallbackNoNode() { dagFallback.noNode.Add(1) }
 
-// IncDAGFallbackIdempotentSkipped 累加DAG兜底idempotentskipped。
+// IncDAGFallbackIdempotentSkipped 记录兜底推进命中已终态节点而跳过的次数。
 func IncDAGFallbackIdempotentSkipped() { dagFallback.idempotentSkipped.Add(1) }
 
-// IncDAGFallbackFailed 累加DAG兜底failed。
+// IncDAGFallbackFailed 记录兜底推进成功把节点标记为 failed 的次数。
 func IncDAGFallbackFailed() { dagFallback.failed.Add(1) }
 
-// IncDAGFallbackFailNodeErr 累加DAG兜底fail节点err。
+// IncDAGFallbackFailNodeErr 记录兜底推进调用 fail-node 持久化失败的次数。
 func IncDAGFallbackFailNodeErr() { dagFallback.failNodeErr.Add(1) }
 
-// DAGFallbackCounters 处理DAG兜底counters。
+// DAGFallbackCounters 返回 stopped-thread DAG 兜底推进的计数快照。
 func DAGFallbackCounters() DAGFallbackMetrics {
 	return dagFallback.snapshot()
 }

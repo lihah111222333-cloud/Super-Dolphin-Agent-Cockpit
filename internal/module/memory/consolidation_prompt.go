@@ -12,13 +12,19 @@ import (
 	memshared "github.com/anthropic-ai/super-agent-v3/internal/module/memory/shared"
 )
 
+// ErrConsolidationAgentMemoryPath 表示 consolidation 输入命中了 agent memory 目录。
+// dream 只能读取 durable memory，遇到 agent-scoped 路径必须拒绝，避免跨作用域泄露。
 var ErrConsolidationAgentMemoryPath = errors.New("dream cannot access agent memory path")
 
+// consolidationDocument 是 prompt 中可展示的单个 memory 文档。
+// Path 始终使用相对 memory root 的安全路径，Content 已去除 BOM 和首尾空白。
 type consolidationDocument struct {
 	Path    string
 	Content string
 }
 
+// consolidationPromptInput 汇总一次 consolidation prompt 所需的所有输入。
+// TopicEntries 用于旧文件清理，TopicDocuments/LogDocuments 用于给 extract 函数提供上下文。
 type consolidationPromptInput struct {
 	MemoryRoot     string
 	Limit          int
@@ -28,7 +34,8 @@ type consolidationPromptInput struct {
 	LogDocuments   []consolidationDocument
 }
 
-// loadConsolidationPromptInput 加载consolidationpromptinput。
+// loadConsolidationPromptInput 读取一次 consolidation 所需的索引、主题文件和日志文件。
+// 所有路径都会经过 agent-memory 拒绝检查和 read path 校验，任一非法路径都会 fail-fast。
 func loadConsolidationPromptInput(root string, cfg *Config) (consolidationPromptInput, error) {
 	normalizedRoot, err := normalizeStoreRoot(root)
 	if err != nil {
@@ -68,7 +75,8 @@ func loadConsolidationPromptInput(root string, cfg *Config) (consolidationPrompt
 	}, nil
 }
 
-// buildConsolidationPrompt 构建consolidationprompt。
+// buildConsolidationPrompt 渲染交给 extract 函数的 consolidation 指令。
+// prompt 明确要求只返回 JSON，并把可写数量限制写入文本，避免模型产出无限记忆。
 func buildConsolidationPrompt(input consolidationPromptInput) string {
 	limit := extractLimit(input.Limit, defaultExtractMaxItems)
 	parts := []string{
@@ -100,7 +108,8 @@ func buildConsolidationPrompt(input consolidationPromptInput) string {
 	return strings.Join(nonEmpty(parts), "\n\n")
 }
 
-// loadConsolidationIndexDocument 加载consolidation索引document。
+// loadConsolidationIndexDocument 读取 MEMORY.md 作为 consolidation 的索引输入。
+// 缺失或非法路径会返回错误；空文件会显式渲染为 `(empty)`，避免 prompt 丢上下文位置。
 func loadConsolidationIndexDocument(root string, cfg *Config) (consolidationDocument, error) {
 	path := memoryIndexPath(root)
 	if err := rejectConsolidationPath(cfg, path); err != nil {
@@ -127,7 +136,8 @@ func loadConsolidationIndexDocument(root string, cfg *Config) (consolidationDocu
 	return consolidationDocument{Path: memoryIndexFileName, Content: content}, nil
 }
 
-// scanConsolidationLogDocuments 扫描consolidation日志documents。
+// scanConsolidationLogDocuments 扫描 logs 目录中的 markdown 日志输入。
+// 日志目录不存在时返回空列表；遍历期间任一非法路径或读取错误都会中止本次 consolidation。
 func scanConsolidationLogDocuments(root string, cfg *Config) ([]consolidationDocument, error) {
 	logRoot := filepath.Join(root, "logs")
 	if err := rejectConsolidationPath(cfg, logRoot); err != nil {
@@ -158,6 +168,8 @@ func scanConsolidationLogDocuments(root string, cfg *Config) ([]consolidationDoc
 	return docs, nil
 }
 
+// consolidationLogRootExists 判断日志目录是否存在。
+// 不存在不是错误，其他 stat 错误直接返回给调用方。
 func consolidationLogRootExists(logRoot string) (bool, error) {
 	if _, err := os.Stat(logRoot); errors.Is(err, os.ErrNotExist) {
 		return false, nil
@@ -167,7 +179,8 @@ func consolidationLogRootExists(logRoot string) (bool, error) {
 	return true, nil
 }
 
-// readConsolidationLogDocument 读取consolidation日志document。
+// readConsolidationLogDocument 将 WalkDir 访问到的 markdown 文件转换为 consolidationDocument。
+// 目录、非 markdown 文件会被跳过；路径校验和读取错误会立即返回，避免 prompt 混入越界内容。
 func readConsolidationLogDocument(root string, cfg *Config, path string, d os.DirEntry, walkErr error) (consolidationDocument, bool, error) {
 	if walkErr != nil {
 		return consolidationDocument{}, false, walkErr
@@ -192,6 +205,8 @@ func readConsolidationLogDocument(root string, cfg *Config, path string, d os.Di
 	}, true, nil
 }
 
+// rejectConsolidationPath 拒绝 consolidation 访问 agent memory 路径。
+// 该函数集中保护 dream prompt 输入和后续文件清理路径，避免误读或误删 agent-scoped 文件。
 func rejectConsolidationPath(_ *Config, path string) error {
 	if memshared.IsHistoricalAgentMemoryPath(path) {
 		return ErrConsolidationAgentMemoryPath
@@ -199,6 +214,8 @@ func rejectConsolidationPath(_ *Config, path string) error {
 	return nil
 }
 
+// renderConsolidationDocument 把单个文档渲染成 prompt 片段。
+// 空内容显式标记为 `(empty)`，让模型知道文档存在但没有可提取事实。
 func renderConsolidationDocument(title string, doc consolidationDocument) string {
 	content := strings.TrimSpace(doc.Content)
 	if content == "" {
@@ -212,6 +229,8 @@ func renderConsolidationDocument(title string, doc consolidationDocument) string
 	return strings.Join(parts, "\n")
 }
 
+// renderConsolidationDocumentGroup 渲染一组同类文档。
+// 空组也会输出标题和 `(empty)`，保证 prompt 结构稳定，便于 extract 函数解析。
 func renderConsolidationDocumentGroup(title string, docs []consolidationDocument) string {
 	if len(docs) == 0 {
 		return strings.Join([]string{title, "(empty)"}, "\n")

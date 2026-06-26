@@ -6,8 +6,8 @@ import (
 	"testing"
 )
 
-// writeRolloutFixture creates a single rollout jsonl under the codex
-// home so the glob-based findRolloutPath has something to match.
+// writeRolloutFixture 在指定 codex home 下写入单个 rollout jsonl。
+// findRolloutPath 依赖 glob 查找历史文件，测试用这份 fixture 锁定目录形状。
 func writeRolloutFixture(t *testing.T, root, threadID string) string {
 	t.Helper()
 	dir := filepath.Join(root, "sessions", "2026", "04", "23")
@@ -21,10 +21,8 @@ func writeRolloutFixture(t *testing.T, root, threadID string) string {
 	return path
 }
 
-// TestFindRolloutPathHonoursCodexHome verifies the P21 Track B plumb:
-// a non-empty codexHome points the lookup at an alternate directory
-// tree, so a rollout file written by a non-default codex instance is
-// discoverable.
+// TestFindRolloutPathHonoursCodexHome 验证非空 codexHome 会把查找限定到指定目录树。
+// 非默认 Codex 实例写出的 rollout 文件必须可被发现，避免历史读取串回用户默认 home。
 func TestFindRolloutPathHonoursCodexHome(t *testing.T) {
 	t.Parallel()
 
@@ -40,12 +38,10 @@ func TestFindRolloutPathHonoursCodexHome(t *testing.T) {
 	}
 }
 
-// TestFindRolloutPathFallsBackToLegacyHome guards the single-provider
-// path: an empty codexHome must keep the pre-P21 ~/.codex lookup so
-// deployments that never opt into multi-provider binding still find
-// their rollout files.
+// TestFindRolloutPathFallsBackToLegacyHome 验证显式允许旧路径时，空 codexHome 仍查找 ~/.codex。
+// 该兼容只服务未配置多 provider home 的部署，调用方必须通过环境变量选择启用。
 func TestFindRolloutPathFallsBackToLegacyHome(t *testing.T) {
-	// Cannot run parallel — t.Setenv serialises HOME mutation.
+	// t.Setenv 会串行化 HOME 修改，因此本测试不能并行。
 	fakeHome := t.TempDir()
 	t.Setenv("HOME", fakeHome)
 	t.Setenv("USERPROFILE", fakeHome)
@@ -62,9 +58,8 @@ func TestFindRolloutPathFallsBackToLegacyHome(t *testing.T) {
 	}
 }
 
-// TestFindRolloutPathNotFound asserts the error path unchanged: when
-// no matching rollout exists, the caller sees a descriptive error so
-// history fallback can log + continue.
+// TestFindRolloutPathRequiresExplicitLegacyOptIn 验证旧 ~/.codex fallback 必须显式开启。
+// 缺少 codexHome 且未 opt-in 时直接返回错误，避免无意读取默认 home。
 func TestFindRolloutPathRequiresExplicitLegacyOptIn(t *testing.T) {
 	t.Setenv("CODEXAPP_ALLOW_LEGACY_DEFAULT_HOME", "")
 	if _, err := findRolloutPath("thread-legacy", ""); err == nil {
@@ -81,10 +76,8 @@ func TestFindRolloutPathNotFound(t *testing.T) {
 	}
 }
 
-// TestResolveRolloutRootTrimsWhitespace checks that a codexHome with
-// incidental whitespace still wins over the legacy fallback. The
-// session's runtimeConfigString trims on read, but we also trim here
-// so a hand-constructed test input can't silently fall through.
+// TestResolveRolloutRootTrimsWhitespace 验证带空白的 codexHome 仍优先于旧 fallback。
+// session runtimeConfigString 读取时会 trim，这里同时保护手写输入不会因空白静默落回默认 home。
 func TestResolveRolloutRootTrimsWhitespace(t *testing.T) {
 	t.Parallel()
 

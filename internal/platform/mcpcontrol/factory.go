@@ -14,21 +14,24 @@ import (
 	"github.com/creachadair/jrpc2"
 )
 
+// hookInvalidParamsError 标记 hook RPC 入参错误，外层会把它映射成 jrpc2 invalid params。
 type hookInvalidParamsError struct {
 	message string
 }
 
-// Error 返回错误文本。
+// Error 返回给 RPC 错误映射层使用的原始错误文本。
 func (e *hookInvalidParamsError) Error() string {
 	return e.message
 }
 
+// disconnectLeaseOptions 描述断开租约时的清理方式；timeout 表示 hook 清理也要受默认超时保护。
 type disconnectLeaseOptions struct {
 	ctx     context.Context
 	peer    Peer
 	timeout bool
 }
 
+// leaseLookupOptions 汇总租约查找的校验条件，避免不同 RPC 路径各自处理 stale 和 expected key。
 type leaseLookupOptions struct {
 	registry   *ToolRegistry
 	key        dto.LeaseKey
@@ -36,15 +39,18 @@ type leaseLookupOptions struct {
 	allowStale bool
 }
 
+// fanoutOperation 把 notify/callback 的具体 RPC 调用注入通用 fanout worker。
 type fanoutOperation struct {
 	name   string
 	invoke func(context.Context, Peer) error
 }
 
+// newHookInvalidParams 创建可被 hook RPC 层识别的参数错误，避免被统一包装成 internal error。
 func newHookInvalidParams(format string, args ...any) error {
 	return &hookInvalidParamsError{message: fmt.Sprintf(format, args...)}
 }
 
+// asHookRPCError 把 hook 参数错误转换为 MCP 协议错误，其他错误保持原样交给上层分类。
 func asHookRPCError(err error) error {
 	if err == nil {
 		return nil
@@ -56,6 +62,7 @@ func asHookRPCError(err error) error {
 	return err
 }
 
+// validateHookSubscribeInput 校验订阅 ID 和 topic，空 topic 会被忽略但不能全为空。
 func validateHookSubscribeInput(req dto.HookSubscribeRequest) error {
 	if strings.TrimSpace(req.SubscriptionID) == "" {
 		return newHookInvalidParams("hook subscription requires subscription_id")
@@ -68,6 +75,7 @@ func validateHookSubscribeInput(req dto.HookSubscribeRequest) error {
 	return newHookInvalidParams("hook subscription requires at least one topic")
 }
 
+// validateHookResolveInput 校验 hook 决策的幂等键和结果字段，缺字段直接阻断 RPC。
 func validateHookResolveInput(req dto.HookResolveRequest) error {
 	if strings.TrimSpace(req.HookCallID) == "" {
 		return newHookInvalidParams("hook resolve requires hook_call_id")
@@ -81,6 +89,7 @@ func validateHookResolveInput(req dto.HookResolveRequest) error {
 	return nil
 }
 
+// resolveServerPeer 从当前 jrpc2 handler 上下文恢复 server 和 Peer，非 handler 调用会 fail-fast。
 func resolveServerPeer(ctx context.Context) (server *jrpc2.Server, peer Peer, err error) {
 	defer func() {
 		if recovered := recover(); recovered != nil {
@@ -97,6 +106,7 @@ func resolveServerPeer(ctx context.Context) (server *jrpc2.Server, peer Peer, er
 	return server, peer, nil
 }
 
+// withResolvedInstance 先按请求租约解析当前实例，再把克隆后的实例交给业务处理函数。
 func withResolvedInstance[Req any, Resp any](
 	registry *ToolRegistry,
 	req Req,
@@ -111,6 +121,7 @@ func withResolvedInstance[Req any, Resp any](
 	return fn(instance)
 }
 
+// withCurrentRegisteredInstance 解析当前 RPC 连接对应的已注册实例，供 hook 类自描述请求使用。
 func withCurrentRegisteredInstance[Resp any](
 	ctx context.Context,
 	registry *ToolRegistry,
@@ -124,6 +135,7 @@ func withCurrentRegisteredInstance[Resp any](
 	return fn(instance)
 }
 
+// handleHookRPC 串起 hook RPC 的能力检查、入参校验、当前实例解析和错误分类。
 func handleHookRPC[Req any, Resp any](
 	ctx context.Context,
 	registry *ToolRegistry,
@@ -151,7 +163,7 @@ func handleHookRPC[Req any, Resp any](
 	})
 }
 
-// forEachInstanceBucket 为eachinstancebucket处理平台mcpcontrol。
+// forEachInstanceBucket 遍历实例参与的所有索引桶；调用方必须保证需要时已持有注册表锁。
 func (r *ToolRegistry) forEachInstanceBucket(
 	instance *ToolInstance,
 	fn func(index map[string]map[LeaseKey]struct{}, bucket string, key LeaseKey),
@@ -173,6 +185,7 @@ func (r *ToolRegistry) forEachInstanceBucket(
 	fn(r.byPeerKind, instance.PeerKind, key)
 }
 
+// disconnectLease 先清理 hook 生命周期再关闭 peer，避免失联租约留下待决 hook 状态。
 func (r *ToolRegistry) disconnectLease(key LeaseKey, opts disconnectLeaseOptions) error {
 	var err error
 	if key != (LeaseKey{}) {
@@ -186,7 +199,7 @@ func (r *ToolRegistry) disconnectLease(key LeaseKey, opts disconnectLeaseOptions
 	return err
 }
 
-// lookupLease 处理lookup租约。
+// lookupLease 在读锁下校验租约代际和状态，返回克隆实例以避免调用方越过锁修改注册表。
 func lookupLease(opts leaseLookupOptions) (*ToolInstance, error) {
 	if opts.registry == nil {
 		return nil, errLeaseNotFound("mcp registry is not configured")
@@ -216,7 +229,7 @@ func lookupLease(opts leaseLookupOptions) (*ToolInstance, error) {
 	return cloneInstance(instance), nil
 }
 
-// fanoutTargets 处理fanouttargets。
+// fanoutTargets 用有界 worker 并发通知目标 peer，等待全部目标返回后合并错误。
 func (r *ToolRegistry) fanoutTargets(
 	ctx context.Context,
 	targets []sendTarget,
@@ -249,6 +262,7 @@ func (r *ToolRegistry) fanoutTargets(
 	return joined
 }
 
+// runFanoutWorker 消费 fanout 任务并把每个目标的错误写回 errs，单个 peer panic 不会终止整批广播。
 func (r *ToolRegistry) runFanoutWorker(
 	ctx context.Context,
 	jobs <-chan sendTarget,
@@ -278,6 +292,7 @@ func (r *ToolRegistry) runFanoutWorker(
 	}
 }
 
+// invokeFanoutTarget 在 notifyTimeout 内调用目标 peer；连续失败达到阈值时会驱逐租约。
 func (r *ToolRegistry) invokeFanoutTarget(ctx context.Context, target sendTarget, operation fanoutOperation) error {
 	callCtx, cancel := withTimeoutContext(ctx, r.notifyTimeout)
 	defer cancel()
@@ -298,6 +313,7 @@ func (r *ToolRegistry) invokeFanoutTarget(ctx context.Context, target sendTarget
 	return nil
 }
 
+// baseConfigPayload 构造配置变更广播的基础载荷，只写入非空会话字段。
 func baseConfigPayload(eventType string, header shareddto.AgentSessionHeader) map[string]any {
 	payload := map[string]any{
 		"event": eventType,
@@ -308,6 +324,7 @@ func baseConfigPayload(eventType string, header shareddto.AgentSessionHeader) ma
 	return payload
 }
 
+// configPayloadHeader 把 agent/thread ID 包装成共享 header，供配置变更事件复用。
 func configPayloadHeader(agentID, threadID string) shareddto.AgentSessionHeader {
 	return shareddto.AgentSessionHeader{
 		AgentHeader: shareddto.AgentHeader{
@@ -319,7 +336,7 @@ func configPayloadHeader(agentID, threadID string) shareddto.AgentSessionHeader 
 	}
 }
 
-// mapHookHandlerError 映射hook处理器错误。
+// mapHookHandlerError 把 hook 处理器错误映射成稳定的 MCP 错误类别，持久化细节不外泄。
 func mapHookHandlerError(operation string, err error) error {
 	if err == nil {
 		return nil

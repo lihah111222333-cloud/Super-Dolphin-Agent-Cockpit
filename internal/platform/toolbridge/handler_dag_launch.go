@@ -6,7 +6,8 @@ import (
 	"strings"
 )
 
-// injectManagedDAGLaunchContext 处理injectmanagedDAG启动上下文。
+// injectManagedDAGLaunchContext 为 task_create_dag 的 agent 节点注入当前 Codex 启动上下文。
+// 只有能解析当前 binding 且参数是对象时才改写 arguments，序列化失败则保留原请求。
 func (h *Handler) injectManagedDAGLaunchContext(ctx context.Context, req ToolCallRequest) ToolCallRequest {
 	binding, ok := h.resolveCurrentToolCallBinding(ctx, req)
 	if !ok || strings.TrimSpace(binding.AgentID) == "" {
@@ -39,10 +40,12 @@ func (h *Handler) injectManagedDAGLaunchContext(ctx context.Context, req ToolCal
 	return req
 }
 
+// isManagedDAGLaunchToolName 判断工具名是否为 DAG 创建入口。
 func isManagedDAGLaunchToolName(name string) bool {
 	return strings.TrimSpace(name) == "task_create_dag"
 }
 
+// managedDAGLaunchProvider 根据当前 binding 推断 DAG agent 默认 provider。
 func managedDAGLaunchProvider(binding toolCallBinding) string {
 	provider := firstNonEmptyString(binding.Provider)
 	if provider == "" && strings.TrimSpace(binding.CodexModelProvider) != "" {
@@ -54,7 +57,8 @@ func managedDAGLaunchProvider(binding toolCallBinding) string {
 	return normalizeProviderPreferenceScope(provider)
 }
 
-// injectManagedDAGLaunchArgs 处理injectmanagedDAG启动args。
+// injectManagedDAGLaunchArgs 只改写 DAG 中的 agent 节点。
+// 已显式设置的 exec 字段不会被覆盖，避免父线程策略吞掉调用方指定的启动参数。
 func injectManagedDAGLaunchArgs(args map[string]any, binding toolCallBinding, provider string) bool {
 	nodes, ok := args["nodes"].([]any)
 	if !ok {
@@ -77,11 +81,13 @@ func injectManagedDAGLaunchArgs(args map[string]any, binding toolCallBinding, pr
 	return changed
 }
 
+// isDAGAgentNode 判断节点是否应按 agent 节点注入上下文；缺省 node_type 兼容旧模板。
 func isDAGAgentNode(node map[string]any) bool {
 	nodeType := strings.ToLower(mapString(node, "node_type"))
 	return nodeType == "" || nodeType == "agent"
 }
 
+// dagNodeExecMap 读取 DAG 节点的 config.exec 对象；结构不匹配时跳过该节点。
 func dagNodeExecMap(node map[string]any) map[string]any {
 	config, ok := node["config"].(map[string]any)
 	if !ok {
@@ -94,6 +100,7 @@ func dagNodeExecMap(node map[string]any) map[string]any {
 	return exec
 }
 
+// injectManagedDAGAgentExec 注入单个 agent 节点的 provider/Codex home/instance 信息。
 func injectManagedDAGAgentExec(exec map[string]any, binding toolCallBinding, provider string) bool {
 	changed := setArgStringIfMissing(exec, "provider", provider)
 	if normalizeProviderPreferenceScope(mapString(exec, "provider")) != "codex" {

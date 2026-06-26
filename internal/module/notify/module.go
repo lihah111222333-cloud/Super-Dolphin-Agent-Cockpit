@@ -12,24 +12,9 @@ import (
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
-// Module wires the core-side notify stack into the Fx tree.
-//
-// Provides:
-//   - platform.Resolver parsed from NotifyConfig.ChannelsJSON (empty
-//     JSON is a no-op resolver; every TryEnqueue returns
-//     ErrNotifyAliasNotFound without trying to reach any network).
-//   - *platform.WebhookClient configured with AllowPrivateCIDR /
-//     Timeout honoring NotifyConfig.
-//   - *platform.Notifier, exposed both as *platform.Notifier (for metrics)
-//     and as the contract.MessageNotifier interface (for downstream
-//     consumers).
-//   - *platform.Flusher, published into the shared group:"runners" slice so
-//     platformrunner.RunGroup drives it with the rest of the core
-//     Runners.
-//
-// Startup-time ChannelsJSON parse errors bubble out of fx.New so a
-// typo or duplicate alias trips app boot rather than leaking into the
-// first TryEnqueue.
+// Module 将通知 resolver、webhook client、队列 notifier 和关机 flusher 装配进 Fx。
+// ChannelsJSON 在启动期解析，配置错误会阻断应用启动；空配置只生成无操作 resolver，不触网。
+// Notifier 同时以具体类型和 contract.MessageNotifier 暴露，flusher 进入 runner group 参与统一关机。
 var Module = fx.Module("notify",
 	fx.Provide(
 		provideResolver,
@@ -73,11 +58,10 @@ func provideNotifier(logger *slog.Logger, cfg *contract.Config, resolver platfor
 	return platform.NewNotifier(logger, resolver, capacity)
 }
 
-// provideMessageNotifierContract narrows *platform.Notifier to the public
-// contract.MessageNotifier interface so downstream consumers (cron,
-// agent failure handlers, ...) don't bind to the concrete type.
+// provideMessageNotifierContract 将 notifier 收窄为公开接口，避免下游绑定平台层具体实现。
 func provideMessageNotifierContract(n *platform.Notifier) contract.MessageNotifier { return n }
 
+// provideFlusherParams 是创建通知 flusher 所需的 Fx 依赖集合。
 type provideFlusherParams struct {
 	fx.In
 

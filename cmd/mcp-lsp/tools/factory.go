@@ -24,14 +24,19 @@ import (
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
+// ToolHandler 是 MCP 工具层统一的处理函数类型。
 type ToolHandler = middleware.Handler
 
+// Handler 保留旧调用点使用的工具处理器别名。
 type Handler = ToolHandler
 
+// decodeMode 控制工具参数按原始、宽松或严格模式解码。
 type decodeMode int
 
+// actionHandler 是按 action 分发表中单个动作的处理函数。
 type actionHandler[T any] func(context.Context, T) (any, error)
 
+// 解码模式常量决定未知字段、空参数和原始 payload 的处理策略。
 const (
 	decodeRaw decodeMode = iota
 	decodeLenient
@@ -141,10 +146,8 @@ func formatDecodeParamsError(err error) error {
 	return fmt.Errorf("decode params: %w; %s", err, hint)
 }
 
-// legacyPositionMigrationHint detects the old {file_path, line, column}
-// fields in a strict-decode error and returns a migration hint pointing
-// callers at the unified pos parameter. It returns "" when the error is
-// unrelated to those fields so callers fall back to the generic hint.
+// legacyPositionMigrationHint 从严格解码错误中识别旧版 file_path/line/column 参数。
+// 只在命中旧字段时提示改用统一 pos 参数，其他错误保持通用修复建议。
 func legacyPositionMigrationHint(err error) string {
 	if err == nil {
 		return ""
@@ -215,7 +218,8 @@ func legacyActionAlias(label string, action string) string {
 	return ""
 }
 
-// legacyActionHint 处理legacy动作hint。
+// legacyActionHint 为历史 action 名称返回兼容提示。
+// 只提示仍被接受或有明确替代的旧名称，避免把任意拼写错误误导成兼容行为。
 func legacyActionHint(label string, action string) string {
 	switch label {
 	case "file":
@@ -249,7 +253,7 @@ func closestAction(action string, valid []string) string {
 	return best
 }
 
-// editDistance 处理编辑distance。
+// editDistance 计算短 action 名称的编辑距离，用于 unsupported action 的最近候选提示。
 func editDistance(a string, b string) int {
 	ar := []rune(a)
 	br := []rune(b)
@@ -348,14 +352,8 @@ func parsePos(pos string) (string, int, int, error) {
 	return filePath, line, col, nil
 }
 
-// parseFilePos accepts either "file:line" or "file:line:col". When
-// requireCol is true the caller demands the three-segment form. The
-// returned hasCol reports whether the caller passed the column segment.
-//
-// Centralising the parser lets the file tool reuse the same syntax (with
-// only file:line) that inspect/xref/completion already accept, so the
-// model can copy positions across tools without adapting the format.
-// parseFilePos 解析文件pos。
+// parseFilePos 解析 `file:line` 或 `file:line:col` 位置参数。
+// file 工具允许两段式，inspect/xref/completion 要求列号；统一解析器让模型可在工具间复用位置格式。
 func parseFilePos(pos string, requireCol bool) (string, int, int, bool, error) {
 	pos = strings.TrimSpace(pos)
 	if pos == "" {
@@ -378,9 +376,7 @@ func parseFilePos(pos string, requireCol bool) (string, int, int, bool, error) {
 	maybeLineStr := remaining[secondLastColon+1:]
 	maybeLine, ok := parsePositivePosSegment(maybeLineStr)
 	if !ok {
-		// remaining[secondLastColon+1:] is not a number → treat
-		// the second colon as part of the path (e.g. Windows
-		// drive paths) and parse "file:line".
+		// 倒数第二段不是数字时，把该冒号视为路径内容，例如 Windows 盘符路径。
 		return parseFileLinePos(pos, remaining, tail, requireCol)
 	}
 	return parseFileLineColumnPos(pos, remaining[:secondLastColon], maybeLine, tail)
@@ -532,7 +528,8 @@ type explicitToolWorkDirParams struct {
 	WorkDir string `json:"work_dir,omitempty"`
 }
 
-// contextWithExplicitToolWorkDir 处理带explicit工具work目录的上下文。
+// contextWithExplicitToolWorkDir 从工具请求参数中提取 work_dir 并写入 tool scope。
+// 空参数保持原 context；非法 JSON 或越界路径会直接返回错误。
 func contextWithExplicitToolWorkDir(ctx context.Context, params json.RawMessage) (context.Context, error) {
 	trimmed := bytes.TrimSpace(params)
 	if len(trimmed) == 0 || bytes.Equal(trimmed, []byte("null")) {
@@ -585,7 +582,8 @@ func ensureExplicitWorkDirWithinWorkspaceRoots(ctx context.Context, workDir stri
 	return fmt.Errorf("work_dir %s is outside workspace roots [%s]", workDir, strings.Join(roots, ", "))
 }
 
-// normalizeExplicitWorkDir 规范化explicitwork目录。
+// normalizeExplicitWorkDir 规范化工具请求中的显式 work_dir。
+// 相对路径必须基于可信 workspace root 展开，并且最终必须指向已存在目录。
 func normalizeExplicitWorkDir(ctx context.Context, workDir string) (string, error) {
 	trimmed := strings.TrimSpace(workDir)
 	if trimmed == "" {
@@ -616,12 +614,8 @@ func normalizeExplicitWorkDir(ctx context.Context, workDir string) (string, erro
 	return filepath.Clean(resolved), nil
 }
 
-// funcRangeEnricher fetches DocumentSymbols on demand so location-emitting
-// tools (inspect.definition, xref.references, ...) can attach
-// FuncStart/FuncEnd to each LocationResult. The cache keeps repeated
-// lookups for the same file cheap when a request returns multiple
-// locations clustered in one source file.
-// funcRangeEnricher 按需获取 DocumentSymbols 并缓存，用于给位置结果附加函数范围信息。
+// funcRangeEnricher 按需读取并缓存 DocumentSymbols。
+// inspect/xref 等位置型工具用它给 LocationResult 附加 FuncStart/FuncEnd，同一请求内同文件只查一次。
 type funcRangeEnricher struct {
 	ctx      context.Context
 	registry lspmanager.Registry
@@ -640,7 +634,8 @@ func newFuncRangeEnricher(ctx context.Context, registry lspmanager.Registry) *fu
 	}
 }
 
-// Symbols 处理符号。
+// Symbols 返回文件的 DocumentSymbols，并在请求级缓存中复用结果。
+// registry 或语言服务器错误会直接返回给调用方，避免生成没有函数范围的伪成功结果。
 func (p *funcRangeEnricher) Symbols(absPath string) ([]protocol.DocumentSymbol, error) {
 	if p == nil {
 		return nil, errors.New("funcRangeEnricher is nil")

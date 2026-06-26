@@ -7,24 +7,12 @@ import (
 	"testing"
 )
 
-// TestOrchestrationGenerationAwareSessionCleanerContractGuard is the P22
-// P4 S4b side-channel-interface guard. Pre-P4 the orchestration service
-// used a local `generationAwareSessionCleaner` interface and
-// type-asserted sessionCleaner to it at runtime so RemoveSessionGeneration
-// could remain an optional extension. P4 §279 forbids that:
-// RemoveSessionGeneration is now part of the owner contract
-// contract.OrchestrationSessionCleaner, and the service calls it
-// directly (see cmd/mcp-orch/orchestration/process_lifecycle.go
-// removeSession).
+// 这个测试守护 session 清理接口归属。
+// RemoveSessionGeneration 已经是 owner contract 的一部分，orchestration 生产代码不能再用本地接口加类型断言把它变成可选能力。
 //
-// The guard enforces two invariants by file-text scan:
-//  1. cmd/mcp-orch/orchestration does not re-declare `type
-//     generationAwareSessionCleaner interface` in any production file.
-//  2. cmd/mcp-orch/orchestration does not perform the
-//     `.(generationAwareSessionCleaner)` type assertion.
-//
-// Historical references in comments are allowed (the migration note in
-// process_lifecycle.go documents the removal for future readers).
+// 这个 guard 用文本扫描锁定两个禁区：
+//  1. 生产文件不能重新声明 generationAwareSessionCleaner 接口。
+//  2. 生产文件不能重新引入 generationAwareSessionCleaner 类型断言。
 func TestOrchestrationGenerationAwareSessionCleanerContractGuard(t *testing.T) {
 	t.Parallel()
 	root := repoRootForGuardTests(t)

@@ -32,6 +32,7 @@ const (
 	proxyAuthorizationHeader = "Authorization"
 )
 
+// proxyJSONRPCRequest 是 toolbridge HTTP proxy 接收的 JSON-RPC 请求外壳。
 type proxyJSONRPCRequest struct {
 	JSONRPC string          `json:"jsonrpc"`
 	ID      any             `json:"id,omitempty"`
@@ -39,6 +40,7 @@ type proxyJSONRPCRequest struct {
 	Params  json.RawMessage `json:"params,omitempty"`
 }
 
+// proxyJSONRPCResponse 是 toolbridge HTTP proxy 返回的 JSON-RPC 响应外壳。
 type proxyJSONRPCResponse struct {
 	JSONRPC string             `json:"jsonrpc"`
 	ID      any                `json:"id"`
@@ -46,17 +48,19 @@ type proxyJSONRPCResponse struct {
 	Error   *proxyJSONRPCError `json:"error,omitempty"`
 }
 
+// proxyJSONRPCError 是 JSON-RPC error 字段的最小结构。
 type proxyJSONRPCError struct {
 	Code    int    `json:"code"`
 	Message string `json:"message"`
 }
 
+// proxyToolCallParams 是 proxy tools/call 的严格参数结构。
 type proxyToolCallParams struct {
 	Name      string          `json:"name"`
 	Arguments json.RawMessage `json:"arguments,omitempty"`
 }
 
-// ServeProxy 处理serveproxy。
+// ServeProxy 在给定 listener 上启动 toolbridge HTTP JSON-RPC proxy。
 func (h *Handler) ServeProxy(ln net.Listener) error {
 	if h == nil {
 		return errors.New("toolbridge: nil handler")
@@ -74,10 +78,12 @@ func (h *Handler) ServeProxy(ln net.Listener) error {
 	return err
 }
 
+// newProxyAuthToken 创建本地 proxy bearer token。
 func newProxyAuthToken() string {
 	return platformshared.NewID("toolbridge_proxy")
 }
 
+// authorizeProxyRequest 校验 proxy Authorization header；空 token 仅用于旧测试路径。
 func (h *Handler) authorizeProxyRequest(r *http.Request) bool {
 	if h == nil {
 		return false
@@ -91,12 +97,14 @@ func (h *Handler) authorizeProxyRequest(r *http.Request) bool {
 	return subtle.ConstantTimeCompare([]byte(got), []byte(want)) == 1
 }
 
+// writeProxyUnauthorized 返回 bearer 认证失败响应。
 func writeProxyUnauthorized(w http.ResponseWriter) {
 	w.Header().Set("WWW-Authenticate", `Bearer realm="toolbridge"`)
 	http.Error(w, "toolbridge proxy authorization required", http.StatusUnauthorized)
 }
 
-// handleProxyRequest 处理proxy请求。
+// handleProxyRequest 处理 /mcp/{family}/{agentID} JSON-RPC 请求。
+// 未知 method fail-closed 返回 method not found，避免静默 ACK。
 func (h *Handler) handleProxyRequest(w http.ResponseWriter, r *http.Request) {
 	h.debug("proxy: incoming request", "method", r.Method, "path", r.URL.Path, "remote", r.RemoteAddr)
 	if !h.authorizeProxyRequest(r) {
@@ -141,12 +149,12 @@ func (h *Handler) handleProxyRequest(w http.ResponseWriter, r *http.Request) {
 	case ProxyMethodToolsCall:
 		h.handleProxyToolCall(w, r.Context(), req, family, agentID)
 	default:
-		// P22 P4 S3c fail-closed: unknown proxy methods return
-		// jsonRPCCodeMethodMiss instead of silent 200-ACK.
+		// 未知 method 必须显式返回 method-not-found，避免客户端误以为请求已被处理。
 		writeJSONRPCError(w, req.ID, jsonRPCCodeMethodMiss, "method not found")
 	}
 }
 
+// decodeProxyJSONRPCRequest 读取单个 JSON-RPC 请求，保留数字 id 的原始精度。
 func decodeProxyJSONRPCRequest(r *http.Request) (proxyJSONRPCRequest, error) {
 	var req proxyJSONRPCRequest
 	decoder := json.NewDecoder(r.Body)
@@ -157,6 +165,7 @@ func decodeProxyJSONRPCRequest(r *http.Request) (proxyJSONRPCRequest, error) {
 	return req, nil
 }
 
+// proxyDecodeErrorCode 将 HTTP body 解码错误映射为 JSON-RPC error code。
 func proxyDecodeErrorCode(err error) int {
 	var maxBytesErr *http.MaxBytesError
 	if errors.As(err, &maxBytesErr) {
@@ -165,7 +174,7 @@ func proxyDecodeErrorCode(err error) int {
 	return jsonRPCCodeParseError
 }
 
-// decodeProxyToolCallParams 解码proxy工具callparams。
+// decodeProxyToolCallParams 解码 proxy tools/call 参数，空 arguments 规范化为对象。
 func decodeProxyToolCallParams(raw json.RawMessage) (proxyToolCallParams, error) {
 	trimmed := bytes.TrimSpace(raw)
 	if len(trimmed) == 0 || bytes.Equal(trimmed, []byte("null")) {
@@ -186,6 +195,7 @@ func decodeProxyToolCallParams(raw json.RawMessage) (proxyToolCallParams, error)
 	return params, nil
 }
 
+// validateProxyToolFamily 确保工具名和 URL family 匹配，防止跨 peer family 调用。
 func validateProxyToolFamily(family, toolName string) error {
 	clientKind := familyToClientKind(family)
 	if clientKind == "" {
@@ -197,6 +207,7 @@ func validateProxyToolFamily(family, toolName string) error {
 	return nil
 }
 
+// handleProxyToolsList 返回指定 family 的工具列表。
 func (h *Handler) handleProxyToolsList(w http.ResponseWriter, ctx context.Context, id any, family string) {
 	clientKind := familyToClientKind(family)
 	if clientKind == "" {
@@ -215,6 +226,7 @@ func (h *Handler) handleProxyToolsList(w http.ResponseWriter, ctx context.Contex
 	writeJSONRPCResult(w, id, map[string]any{"tools": filterProxyPeerReservedHostTools(tools)})
 }
 
+// filterProxyPeerReservedHostTools 从 peer 列表中移除 host-only 保留工具。
 func filterProxyPeerReservedHostTools(tools []mcpdto.MCPTool) []mcpdto.MCPTool {
 	if len(tools) == 0 {
 		return tools
@@ -229,6 +241,7 @@ func filterProxyPeerReservedHostTools(tools []mcpdto.MCPTool) []mcpdto.MCPTool {
 	return out
 }
 
+// handleProxyOrchToolsList 合并 host-direct 与 orchestration peer 工具列表。
 func (h *Handler) handleProxyOrchToolsList(w http.ResponseWriter, ctx context.Context, id any) {
 	var hostTools []mcpdto.MCPTool
 	if h != nil && h.hostTools != nil {
@@ -250,7 +263,7 @@ func (h *Handler) handleProxyOrchToolsList(w http.ResponseWriter, ctx context.Co
 	writeJSONRPCResult(w, id, map[string]any{"tools": tools})
 }
 
-// handleProxyToolCall 处理proxy工具call。
+// handleProxyToolCall 解码 proxy tools/call，并发布工具生命周期事件。
 func (h *Handler) handleProxyToolCall(w http.ResponseWriter, ctx context.Context, req proxyJSONRPCRequest, family, agentID string) {
 	params, err := decodeProxyToolCallParams(req.Params)
 	if err != nil {
@@ -300,6 +313,7 @@ func (h *Handler) handleProxyToolCall(w http.ResponseWriter, ctx context.Context
 	writeJSONRPCResult(w, req.ID, payload)
 }
 
+// publishProxyToolCallBegin 发布 proxy 入口的工具开始事件。
 func (h *Handler) publishProxyToolCallBegin(req ToolCallRequest, started time.Time) {
 	if h == nil || h.dispatcher == nil {
 		return
@@ -313,7 +327,7 @@ func (h *Handler) publishProxyToolCallBegin(req ToolCallRequest, started time.Ti
 	})
 }
 
-// publishProxyToolCallEnd 发布proxy工具callend。
+// publishProxyToolCallEnd 发布 proxy 入口的工具结束事件。
 func (h *Handler) publishProxyToolCallEnd(req ToolCallRequest, started time.Time, result *ToolCallResult, callErr error) {
 	if h == nil || h.dispatcher == nil {
 		return
@@ -335,6 +349,7 @@ func (h *Handler) publishProxyToolCallEnd(req ToolCallRequest, started time.Time
 	event.Publish(h.dispatcher, ev)
 }
 
+// proxyToolCallHeader 构造 proxy tool lifecycle 事件头。
 func proxyToolCallHeader(req ToolCallRequest, ts time.Time) shareddto.ToolCallHeader {
 	return shareddto.ToolCallHeader{
 		TurnHeader: shareddto.TurnHeader{
@@ -351,6 +366,7 @@ func proxyToolCallHeader(req ToolCallRequest, ts time.Time) shareddto.ToolCallHe
 	}
 }
 
+// proxyToolResultPreview 生成 tool end 事件中的结果预览。
 func proxyToolResultPreview(result *ToolCallResult) string {
 	if result == nil {
 		return ""
@@ -365,6 +381,7 @@ func proxyToolResultPreview(result *ToolCallResult) string {
 	return string(raw)
 }
 
+// proxyToolCallErrorCode 将 tool call 错误映射为 JSON-RPC error code。
 func proxyToolCallErrorCode(err error) int {
 	switch {
 	case errors.Is(err, contract.ErrThreadRuntimeRequired),
@@ -376,7 +393,8 @@ func proxyToolCallErrorCode(err error) int {
 	}
 }
 
-// resolveProxyThreadID 解析proxy线程ID。
+// resolveProxyThreadID 通过 agentID 解析 proxy 调用所属 threadID。
+// LSP family 在无 binding store 时允许使用 agentID，其他 family 必须绑定到真实 thread。
 func (h *Handler) resolveProxyThreadID(ctx context.Context, agentID, family string) (string, error) {
 	agentID = strings.TrimSpace(agentID)
 	if agentID == "" {
@@ -399,6 +417,7 @@ func (h *Handler) resolveProxyThreadID(ctx context.Context, agentID, family stri
 	return threadID, nil
 }
 
+// callIDFromJSONRPCID 将 JSON-RPC id 转成工具 callID。
 func callIDFromJSONRPCID(id any) string {
 	if id == nil {
 		return ""
@@ -406,6 +425,7 @@ func callIDFromJSONRPCID(id any) string {
 	return fmt.Sprintf("%v", id)
 }
 
+// writeJSONRPCResult 写入 JSON-RPC success 响应；notification 不带 body。
 func writeJSONRPCResult(w http.ResponseWriter, id any, result any) {
 	if id == nil {
 		w.WriteHeader(http.StatusOK)
@@ -414,6 +434,7 @@ func writeJSONRPCResult(w http.ResponseWriter, id any, result any) {
 	writeProxyJSON(w, proxyJSONRPCResponse{JSONRPC: "2.0", ID: id, Result: result})
 }
 
+// writeJSONRPCError 写入 JSON-RPC error 响应。
 func writeJSONRPCError(w http.ResponseWriter, id any, code int, message string) {
 	writeProxyJSON(w, proxyJSONRPCResponse{
 		JSONRPC: "2.0",
@@ -422,12 +443,14 @@ func writeJSONRPCError(w http.ResponseWriter, id any, code int, message string) 
 	})
 }
 
+// writeProxyJSON 统一写入 proxy JSON 响应。
 func writeProxyJSON(w http.ResponseWriter, resp proxyJSONRPCResponse) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	_ = json.NewEncoder(w).Encode(resp)
 }
 
+// toMCPContent 将内部 content item 转为 MCP text content。
 func toMCPContent(items []ToolCallContentItem) []map[string]any {
 	if len(items) == 0 {
 		return []map[string]any{}
@@ -446,6 +469,7 @@ func toMCPContent(items []ToolCallContentItem) []map[string]any {
 	return content
 }
 
+// familyToClientKind 校验并返回 URL family 对应的 MCP client kind。
 func familyToClientKind(family string) string {
 	switch strings.TrimSpace(family) {
 	case mcpdto.ClientKindLSP:
@@ -459,6 +483,7 @@ func familyToClientKind(family string) string {
 	}
 }
 
+// extractPathParts 从 /mcp/{family}/{agentID} 路径中提取 family 和 agentID。
 func extractPathParts(path string) (string, string, error) {
 	parts := strings.Split(strings.Trim(path, "/"), "/")
 	if len(parts) != 3 || parts[0] != "mcp" {

@@ -121,9 +121,8 @@ func (s *session) RolloutPath() string {
 	if tid == "" {
 		return ""
 	}
-	// P21 Track B: honour codexHome when the session was started with a
-	// multi-provider binding. An empty codexHome keeps the legacy
-	// ~/.codex lookup for single-provider deployments.
+	// codexHome 来自会话 runtimeConfig，用于把 rollout 查找限制在当前 provider home。
+	// 为空时沿用默认 Codex home，兼容单 provider 的历史本地文件布局。
 	path, err := findRolloutPath(tid, s.runtimeConfigString("codexHome"))
 	if err != nil {
 		return ""
@@ -154,9 +153,8 @@ func (s *session) configureThread(ctx context.Context, patch dto.ThreadConfigPat
 }
 
 func (s *session) applyConfigSet(_ context.Context, _ string, patch dto.ThreadConfigPatch) error {
-	// V2 parity: model/effort are stored locally and applied via
-	// turn/start params (turnStartParams.Model / Effort) on the next turn.
-	// codex app-server does not have a thread/config/set RPC.
+	// Codex app-server 没有 thread/config/set RPC，model/effort 先保存在会话本地。
+	// 下一次 turn/start 通过 turnStartParams.Model/Effort 传给 provider。
 	if patch.Model != nil {
 		s.setRuntimeConfigValue("model", strings.TrimSpace(*patch.Model))
 	}
@@ -475,9 +473,8 @@ func (d *driver) finishResumedSession(ctx context.Context, s *session, req dto.R
 func (d *driver) startRemoteThreadWithDynamicTools(ctx context.Context, t *transport, req dto.StartSessionRequest, tools []codexprotocol.DynamicToolSchema) (startResult, error) {
 	params := d.buildThreadStartParams(req)
 	params.DynamicTools = tools
-	// dynamicTools schema is exposed to the model by the codex app-server
-	// itself — no need to duplicate tool names in developerInstructions
-	// (V2 parity: avoids wasting ~70k context tokens on tool catalog).
+	// dynamicTools schema 已由 codex app-server 暴露给模型，developerInstructions 不再重复塞工具名。
+	// 这避免把完整工具目录再次写入上下文，保留预算给真实任务内容。
 	return startRemoteThreadWithParams(ctx, t, req, params)
 }
 

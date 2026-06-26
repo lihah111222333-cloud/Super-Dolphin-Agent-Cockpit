@@ -175,9 +175,10 @@ func TestResumeUsesStoredRuntimeCodexIdentityWhenBindingIdentityIsEmpty(t *testi
 		SessionUUID:   providerUUID,
 		Cwd:           threads.thread.Cwd,
 	}}
+	wantCodexHome := canonicalCodexHomeForTest(t, codexHome)
 	sessions := &stubSessionProvider{}
 	starter := &stubSessionStarter{onResume: func(_ context.Context, req dto.ResumeSessionRequest) (contract.Session, error) {
-		if req.CodexHome != codexHome ||
+		if req.CodexHome != wantCodexHome ||
 			req.CodexInstanceKey != "default" ||
 			req.CodexModelProvider != "openai" {
 			t.Fatalf("resume codex identity = (%q,%q,%q), want stored runtime identity",
@@ -378,6 +379,7 @@ func TestPersistResumedSessionCanonicalizesStoredCodexIdentity(t *testing.T) {
 
 func assertPersistedCodexIdentity(t *testing.T, got bindingstore.UpsertParams, home, instanceKey, modelProvider string) {
 	t.Helper()
+	home = canonicalCodexHomeForTest(t, home)
 	if got.CodexHome != home ||
 		got.CodexInstanceKey != instanceKey ||
 		got.CodexModelProvider != modelProvider {
@@ -393,6 +395,7 @@ func assertPersistedCodexIdentity(t *testing.T, got bindingstore.UpsertParams, h
 
 func assertStoredRuntimeCodexIdentity(t *testing.T, raw json.RawMessage, home, instanceKey, modelProvider string) {
 	t.Helper()
+	home = canonicalCodexHomeForTest(t, home)
 	stored, err := decodeStoredThreadConfig(raw)
 	if err != nil {
 		t.Fatalf("decodeStoredThreadConfig() error = %v", err)
@@ -409,4 +412,13 @@ func assertStoredRuntimeCodexIdentity(t *testing.T, raw json.RawMessage, home, i
 			instanceKey,
 			modelProvider)
 	}
+}
+
+func canonicalCodexHomeForTest(t *testing.T, home string) string {
+	t.Helper()
+	canonical, err := contract.CanonicalizeCodexHome(home)
+	if err != nil {
+		t.Fatalf("CanonicalizeCodexHome(%q) error = %v", home, err)
+	}
+	return canonical
 }

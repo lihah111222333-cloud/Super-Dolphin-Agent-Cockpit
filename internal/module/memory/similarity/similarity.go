@@ -24,7 +24,7 @@ import (
 )
 
 // ---------------------------------------------------------------------------
-// Public types (子包独立的最小数据模型)
+// 公共类型：子包独立的最小数据模型
 // ---------------------------------------------------------------------------
 
 var ErrLLMConsolidate = errors.New("LLM consolidate")
@@ -102,6 +102,7 @@ func IgnoreKey(targetA, pathA, targetB, pathB string) string {
 	return a + "|" + b
 }
 
+// ignoreMgr 串行化 ignored set 文件的读改写，避免同一进程内并发忽略操作丢失更新。
 type ignoreMgr struct{ mu sync.Mutex }
 
 var ignoreMgrInst = &ignoreMgr{}
@@ -247,6 +248,7 @@ type PairInput struct {
 	B    PairInputEntry `json:"b"`
 }
 
+// PairInputEntry 是传给 LLM 的单条记忆快照；字段只保留决策所需内容，避免泄漏磁盘路径等内部细节。
 type PairInputEntry struct {
 	Scope       string `json:"scope"`
 	Name        string `json:"name"`
@@ -364,13 +366,11 @@ func loadPairInputs(ctx context.Context, deps Deps, cwd string, pairs []SimilarP
 
 // applyDecisions 把 LLM 决策应用到磁盘。详细分类策略见 ConsolidateAll 文档。
 //
-// M5: 依赖污染场景注意 —— pairs 来自 dedup.FindSimilarPairs，可能出现同一 entry
-// 跨多对（如 A↔B 与 A↔C）。本函数按顺序处理：pair[0] merge=true 删除 entry A 后，
-// pair[1] 在 mergeUIMemoryEntries 内重读 A 会失败 → 计入 Failed（不损坏数据）。
-// 用户看到 Failed 增加但 toast 文案不解释根因；当前接受该现象，未来可在
-// loadPairInputs 阶段去重。
+// pairs 来自 dedup.FindSimilarPairs，可能出现同一 entry 跨多对（如 A↔B 与 A↔C）。
+// 本函数按顺序处理：前一对 merge=true 删除 entry A 后，后一对再重读 A 会失败并计入 Failed。
+// 这样不会损坏数据，只会让用户看到 Failed 增加；如需更温和体验，可在 loadPairInputs 阶段去重。
 //
-// M1: ctx 取消（用户切走页面）时主动短路，避免串行写盘继续浪费资源。
+// ctx 取消（用户切走页面）时主动短路，避免串行写盘继续消耗模型和磁盘资源。
 func applyDecisions(ctx context.Context, deps Deps, cwd string, pairs []SimilarPair, decisions []Decision, readErrors map[int]error) ConsolidateResult {
 	byID := make(map[int]Decision, len(decisions))
 	duplicateIDs := make(map[int]bool)

@@ -6,6 +6,7 @@ import (
 	"strings"
 )
 
+// encodeWindowBootstrapSnapshot 将新窗口启动快照编码为 URL-safe 字符串。
 func encodeWindowBootstrapSnapshot(snapshot map[string]any) (string, error) {
 	if len(snapshot) == 0 {
 		return "", nil
@@ -17,6 +18,7 @@ func encodeWindowBootstrapSnapshot(snapshot map[string]any) (string, error) {
 	return base64.RawURLEncoding.EncodeToString(raw), nil
 }
 
+// decodeWindowBootstrapSnapshot 解码 URL 中的启动快照并校验其 JSON 结构。
 func decodeWindowBootstrapSnapshot(raw string) (map[string]any, error) {
 	encoded := strings.TrimSpace(raw)
 	if encoded == "" {
@@ -36,6 +38,7 @@ func decodeWindowBootstrapSnapshot(raw string) (map[string]any, error) {
 	return snapshot, nil
 }
 
+// normalizeWindowGroup 选择显式窗口组，空值时使用 fallback。
 func normalizeWindowGroup(group, fallback string) string {
 	if value := strings.TrimSpace(group); value != "" {
 		return value
@@ -43,7 +46,7 @@ func normalizeWindowGroup(group, fallback string) string {
 	return strings.TrimSpace(fallback)
 }
 
-// registerWindowState 注册window状态。
+// registerWindowState 登记窗口组和一次性启动快照。
 func (a *App) registerWindowState(name, group string, snapshot map[string]any) {
 	if a == nil {
 		return
@@ -77,6 +80,7 @@ func (a *App) registerWindowState(name, group string, snapshot map[string]any) {
 	a.windowBootstrapByName[name] = cloneWindowBootstrapSnapshot(snapshot)
 }
 
+// cloneWindowBootstrapSnapshot 复制启动快照，避免调用方修改内部状态。
 func cloneWindowBootstrapSnapshot(snapshot map[string]any) map[string]any {
 	if len(snapshot) == 0 {
 		return nil
@@ -88,7 +92,7 @@ func cloneWindowBootstrapSnapshot(snapshot map[string]any) map[string]any {
 	return cloned
 }
 
-// consumeWindowBootstrapSnapshot 处理consumewindow启动快照。
+// consumeWindowBootstrapSnapshot 消费当前窗口的一次性启动快照。
 func (a *App) consumeWindowBootstrapSnapshot() map[string]any {
 	if a == nil {
 		return nil
@@ -116,6 +120,7 @@ func (a *App) consumeWindowBootstrapSnapshot() map[string]any {
 	return nil
 }
 
+// consumeWindowBootstrapByNameLocked 在持锁状态下按窗口名取出并删除启动快照。
 func (a *App) consumeWindowBootstrapByNameLocked(name string) map[string]any {
 	name = strings.TrimSpace(name)
 	if name == "" || len(a.windowBootstrapByName) == 0 {
@@ -129,6 +134,7 @@ func (a *App) consumeWindowBootstrapByNameLocked(name string) map[string]any {
 	return cloneWindowBootstrapSnapshot(snapshot)
 }
 
+// currentWindowGroup 返回当前窗口组，缺失时使用默认组。
 func (a *App) currentWindowGroup() string {
 	if a == nil {
 		return defaultGroup
@@ -150,6 +156,7 @@ func (a *App) currentWindowGroup() string {
 	return defaultGroup
 }
 
+// currentWindowName 返回当前 Wails 窗口名，测试可通过 currentWindowNameFn 替换。
 func (a *App) currentWindowName() string {
 	if a == nil {
 		return ""

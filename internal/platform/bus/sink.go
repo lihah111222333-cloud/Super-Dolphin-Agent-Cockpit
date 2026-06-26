@@ -273,7 +273,8 @@ func busTraceIdentifiers(ev any) busTraceIDs {
 	}
 }
 
-// stringField 处理string字段。
+// stringField 从事件结构体或嵌套结构体中读取指定 string 字段。
+// trace 记录只消费字符串字段，其他类型会被忽略以避免反射 panic。
 func stringField(value reflect.Value, name string) string {
 	field := value.FieldByName(name)
 	if !field.IsValid() && value.Kind() == reflect.Struct {

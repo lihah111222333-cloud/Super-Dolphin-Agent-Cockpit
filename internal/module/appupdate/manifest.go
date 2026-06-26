@@ -15,8 +15,10 @@ import (
 	"strings"
 )
 
+// ErrNoUpdate 表示 manifest 版本不高于当前版本，没有可安装更新。
 var ErrNoUpdate = errors.New("no update available")
 
+// ManifestPayload 是签名 manifest 中参与签名的更新元数据。
 type ManifestPayload struct {
 	AppID          string           `json:"app_id"`
 	Channel        string           `json:"channel"`
@@ -25,11 +27,13 @@ type ManifestPayload struct {
 	Artifacts      []UpdateArtifact `json:"artifacts"`
 }
 
+// SignedManifest 是服务端发布的签名 manifest 外层结构。
 type SignedManifest struct {
 	Payload   ManifestPayload `json:"payload"`
 	Signature string          `json:"signature"`
 }
 
+// UpdateArtifact 描述单个平台的更新产物下载地址、hash 和大小。
 type UpdateArtifact struct {
 	Platform string `json:"platform"`
 	URL      string `json:"url"`
@@ -37,6 +41,7 @@ type UpdateArtifact struct {
 	Size     int64  `json:"size"`
 }
 
+// VerifyOptions 是校验 signed manifest 时由本地运行时提供的可信约束。
 type VerifyOptions struct {
 	PublicKey      []byte
 	AppID          string
@@ -117,7 +122,7 @@ func validatePayloadTarget(payload ManifestPayload, opts VerifyOptions) error {
 	return nil
 }
 
-// validateVersionWindow 校验版本window。
+// validateVersionWindow 校验 manifest 版本窗口，旧版本或同版本返回 ErrNoUpdate。
 func validateVersionWindow(payload ManifestPayload, current string) error {
 	updateVersion, err := parseManifestVersion(payload.Version)
 	if err != nil {
@@ -160,7 +165,7 @@ func artifactForPlatform(artifacts []UpdateArtifact, platform string) (UpdateArt
 	return UpdateArtifact{}, fmt.Errorf("app update artifact for platform %q not found", platform)
 }
 
-// validateArtifact 校验产物。
+// validateArtifact 校验更新产物 URL、sha256 和 size，失败时阻止下载。
 func validateArtifact(artifact UpdateArtifact) error {
 	artifactURL, err := url.Parse(artifact.URL)
 	if err != nil {
@@ -193,6 +198,7 @@ func validateSHA256Hex(value string) error {
 	return nil
 }
 
+// manifestVersion 是内部版本比较用的三段数字版本号。
 type manifestVersion [3]int
 
 // parseManifestVersion 将版本字符串（如 v1.2.3）解析为 [3]int 数组。

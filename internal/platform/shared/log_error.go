@@ -5,8 +5,7 @@ import (
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
-// LogIgnoredError delegates to util.LogIgnoredError.
-// LogIgnoredError 处理日志ignored错误。
+// LogIgnoredError 记录可忽略错误，保持 shared 包旧入口兼容。
 func LogIgnoredError(logger *pkglogger.Logger, msg string, err error) {
 	util.LogIgnoredError(logger, msg, err)
 }

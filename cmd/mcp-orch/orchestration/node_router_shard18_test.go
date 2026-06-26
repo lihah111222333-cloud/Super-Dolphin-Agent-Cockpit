@@ -11,11 +11,10 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 )
 
-// =====================================================
-// dispatcher-wiring closure：RunContext 三端口预填的单测覆盖�?
-// =====================================================
+// ----- RunContext 端口预填测试夹具 -----
+// 这些测试验证 router 在进入 executor 前填好上游结果、shared file 读写端口和生命周期 hook。
 
-// stubRouterPrevReader �?SharedFileReader 的最小测试假实现；记录调用次数�?
+// stubRouterPrevReader 是 SharedFileReader 的最小测试实现；记录调用次数以确认输入端口被使用。
 type stubRouterPrevReader struct {
 	contents map[string]string
 	calls    int
@@ -27,7 +26,7 @@ func (s *stubRouterPrevReader) ReadSharedFile(_ context.Context, path string) (s
 	return c, ok, nil
 }
 
-// stubRouterPrevWriter �?SharedFileWriter 的最小测试假实现；记录写入�?
+// stubRouterPrevWriter 是 SharedFileWriter 的最小测试实现；保留写入内容供断言输出端口。
 type stubRouterPrevWriter struct {
 	writes []struct {
 		path    string
@@ -47,8 +46,8 @@ func (s *stubRouterPrevWriter) WriteSharedFile(_ context.Context, path, content 
 	return nil
 }
 
-// recordingAgentLauncher �?launcher 测试假实�?�?暴露最后一�?LaunchRequest
-// 内含�?Prompt，让我们能断言 inputs prefix 真被注入�?
+// recordingAgentLauncher 记录 AgentExecutor 交给 launcher 的 LaunchRequest。
+// 测试只检查 Prompt 中的 inputs 前缀和上游内容，不启动真实 provider。
 type recordingAgentLauncher struct {
 	threadID string
 	calls    []contract.LaunchRequest
@@ -59,9 +58,8 @@ func (l *recordingAgentLauncher) LaunchAgent(_ context.Context, req contract.Lau
 	return l.threadID, nil
 }
 
-// TestNodeExecutorRouter_PrefetchPrevResults_FromNodes_NonEmpty:
-// cfg.Inputs.FromNodes 非空 �?prefetchPrevResults 真填上游 done 节点 result�?
-// AgentExecutor 通过 RunContext.PrevResults 把内容注入到 LaunchRequest.Prompt�?
+// TestNodeExecutorRouter_PrefetchPrevResults_FromNodes_NonEmpty 验证 from_nodes 会预取同 run 的 done 结果。
+// 预取内容必须通过 RunContext.PrevResults 注入到 agent prompt，缺失时下游 agent 看不到上游产物。
 func TestNodeExecutorRouter_PrefetchPrevResults_FromNodes_NonEmpty(t *testing.T) {
 	t.Parallel()
 	launcher := &recordingAgentLauncher{threadID: "thr-1"}
@@ -155,9 +153,8 @@ func TestNodeExecutorRouter_PrefetchPrevResults_StaysInsideRun(t *testing.T) {
 	}
 }
 
-// TestNodeExecutorRouter_PrefetchPrevResults_FiltersNonDoneUpstream:
-// 上游节点 status != done �?不入 PrevResults map；nodeexec.loadFromNodes 因此
-// �?validation "references unknown node_key"，保 fail-loud�?
+// TestNodeExecutorRouter_PrefetchPrevResults_FiltersNonDoneUpstream 验证非 done 上游不会进入 PrevResults。
+// 下游引用这种节点时必须得到 validation 结果，避免把未完成产物当成有效输入。
 func TestNodeExecutorRouter_PrefetchPrevResults_FiltersNonDoneUpstream(t *testing.T) {
 	t.Parallel()
 	launcher := &recordingAgentLauncher{threadID: "thr-2"}
@@ -166,7 +163,7 @@ func TestNodeExecutorRouter_PrefetchPrevResults_FiltersNonDoneUpstream(t *testin
 		nodes: []taskdag.Node{
 			{
 				DagKey: "dag-1", NodeKey: "upstream", RunID: routerTestRunID(7), NodeType: "agent",
-				Status: string(nodeexec.NodeStatusRunning), // �?done
+				Status: string(nodeexec.NodeStatusRunning), // 不是 done，不能作为 from_nodes 输入。
 				Result: testRawConfig(t, `{"x":1}`),
 			},
 			{
@@ -194,9 +191,8 @@ func TestNodeExecutorRouter_PrefetchPrevResults_FiltersNonDoneUpstream(t *testin
 	}
 }
 
-// TestNodeExecutorRouter_PrefetchPrevResults_EmptyResultPlaceholder:
-// 上游 done �?Result NULL �?nodeexec.loadFromNodes �?"(empty)" 占位分支�?
-// 不抛 validation�?
+// TestNodeExecutorRouter_PrefetchPrevResults_EmptyResultPlaceholder 验证 done 但结果为空的占位行为。
+// 空结果会以 "(empty)" 注入 prompt，表示节点完成但没有输出，而不是 validation 失败。
 func TestNodeExecutorRouter_PrefetchPrevResults_EmptyResultPlaceholder(t *testing.T) {
 	t.Parallel()
 	launcher := &recordingAgentLauncher{threadID: "thr-3"}
@@ -230,9 +226,8 @@ func TestNodeExecutorRouter_PrefetchPrevResults_EmptyResultPlaceholder(t *testin
 	}
 }
 
-// TestNodeExecutorRouter_SharedFileReader_Injected:
-// cfg.Inputs.FromSharedfiles 非空 + SharedFileReader 注入 �?reader 被调用，
-// 内容拼进 LaunchRequest.Prompt�?
+// TestNodeExecutorRouter_SharedFileReader_Injected 验证 from_sharedfiles 通过注入 reader 读取内容。
+// router 只负责把读取结果拼进 prompt；真实 shared file 权限和锁由 reader 实现负责。
 func TestNodeExecutorRouter_SharedFileReader_Injected(t *testing.T) {
 	t.Parallel()
 	launcher := &recordingAgentLauncher{threadID: "thr-4"}
@@ -263,9 +258,8 @@ func TestNodeExecutorRouter_SharedFileReader_Injected(t *testing.T) {
 	}
 }
 
-// TestNodeExecutorRouter_SharedFileWriter_Injected:
-// node_type=automation + outputs.to_sharedfile 配置 + SharedFileWriter 注入 �?
-// AutomationExecutor 通过 RunContext.SharedFileWriter 写入�?
+// TestNodeExecutorRouter_SharedFileWriter_Injected 验证 automation 输出通过注入 writer 写入 shared file。
+// 这里锁定 RunContext.SharedFileWriter 的传递路径，不触碰真实文件系统。
 func TestNodeExecutorRouter_SharedFileWriter_Injected(t *testing.T) {
 	t.Parallel()
 	autoExec := nodeexec.NewAutomationExecutor(
@@ -402,8 +396,8 @@ func TestNodeExecutorRouter_AutomationLifecycleHooks(t *testing.T) {
 	}
 }
 
-// TestNodeExecutorRouter_EmptyConfig_PortsStillNonNil:
-// �?cfg �?三端口字段保�?nil/empty 不报错；向后兼容 F1.0 dogfood DAG�?
+// TestNodeExecutorRouter_EmptyConfig_PortsStillNonNil 验证未声明 inputs/outputs 时端口保持空闲。
+// reader/writer 不能被误调用，保证默认配置不会产生隐式 shared file 副作用。
 func TestNodeExecutorRouter_EmptyConfig_PortsStillNonNil(t *testing.T) {
 	t.Parallel()
 	launcher := &recordingAgentLauncher{threadID: "thr-empty"}
@@ -427,7 +421,7 @@ func TestNodeExecutorRouter_EmptyConfig_PortsStillNonNil(t *testing.T) {
 	if outcome.Status != nodeexec.NodeStatusDone {
 		t.Fatalf("outcome.Status = %v, want done", outcome.Status)
 	}
-	// �?cfg.Inputs �?reader / writer 不被调用
+	// 没有 inputs/outputs 配置时，reader 和 writer 都必须保持未调用。
 	if reader.calls != 0 {
 		t.Fatalf("reader.calls = %d, want 0 (no inputs.from_sharedfiles)", reader.calls)
 	}
@@ -436,11 +430,9 @@ func TestNodeExecutorRouter_EmptyConfig_PortsStillNonNil(t *testing.T) {
 	}
 }
 
-// TestNodeExecutorRouter_ListNodesErrorPropagatesAsFrameworkErr:
-// prefetchPrevResults �?store.ListNodes 报错 �?framework err（让 dispatcher
-// �?transient retry，不是节点级 validation）�?
-// 注意：本测试用的 store 命中 prefetch（cfg.Inputs.FromNodes 非空）后才走
-// ListNodes 二次调用；首�?lookupTargetNode 用的是预�?nodes 列表�?
+// TestNodeExecutorRouter_ListNodesErrorPropagatesAsFrameworkErr 验证预取阶段的 store 错误向上冒泡。
+// 这种错误属于框架读依赖失败，应交给 dispatcher 重试，而不是落成节点级 validation。
+// 测试 store 首次查询供 lookupTargetNode 使用，第二次 from_nodes 预取才触发错误。
 func TestNodeExecutorRouter_ListNodesErrorPropagatesAsFrameworkErr(t *testing.T) {
 	t.Parallel()
 	launcher := &recordingAgentLauncher{threadID: "thr-err"}
@@ -466,13 +458,13 @@ func TestNodeExecutorRouter_ListNodesErrorPropagatesAsFrameworkErr(t *testing.T)
 	}
 }
 
-// router_helper_New 是只为测试用�?router 构造捷径，避免每处重复�?nil 列表�?
+// router_helper_New 是测试专用 router 构造捷径，避免每个用例重复传入空端口。
 func router_helper_New(store taskdag.Store, agentExec *nodeexec.AgentExecutor) *NodeExecutorRouter {
 	return NewNodeExecutorRouter(store, agentExec, nil, nil, nil, nil)
 }
 
-// stubRouterAutoStore 嵌入 stubRouterStore + 实现 NodeFlowStore，让
-// AutomationExecutor done 路径下的 CompleteNodeAndScheduleDownstream 走过去�?
+// stubRouterAutoStore 嵌入 stubRouterStore 并实现 NodeFlowStore。
+// automation done 路径会调用 CompleteNodeAndScheduleDownstream，测试用它捕获完成结果。
 type stubRouterAutoStore struct {
 	stubRouterStore
 	completeErr   error
@@ -519,8 +511,8 @@ func TestNodeExecutorRouter_AutomationCompleteErrorIsFrameworkError(t *testing.T
 	}
 }
 
-// stubRouterFlipFailStore �?ListNodes �?N 次后开始报错；用于触发 prefetch 路径
-// �?framework err 测试�?
+// stubRouterFlipFailStore 在 ListNodes/ListRunNodes 调用超过阈值后返回错误。
+// 它用于把 lookup 成功和预取失败拆开，精确覆盖 framework error 路径。
 type stubRouterFlipFailStore struct {
 	stubRouterStore
 	failAfter int

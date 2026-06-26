@@ -10,6 +10,8 @@ import (
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
+// editRecoveryLogEntry 记录“磁盘已写入但 LSP 同步未完成”的恢复线索。
+// 这些事件用于排查工具调用中断后文件实际已经修改的情况。
 type editRecoveryLogEntry struct {
 	CreatedAt string `json:"created_at"`
 	Event     string `json:"event"`
@@ -19,6 +21,8 @@ type editRecoveryLogEntry struct {
 	SyncError string `json:"sync_error,omitempty"`
 }
 
+// logEditDiskConfirmation 在 git diff 已确认改动落盘时写恢复日志。
+// 即使 LSP sync 随后失败，调用方也能从该日志知道需要以磁盘状态为准继续处理。
 func logEditDiskConfirmation(path string, diffBytes int, syncErr error) {
 	var syncError string
 	if syncErr != nil {
@@ -42,6 +46,7 @@ func logEditDiskConfirmation(path string, diffBytes int, syncErr error) {
 	}
 }
 
+// appendEditRecoveryLog 以 JSONL 追加恢复事件；找不到日志目录时视为禁用。
 func appendEditRecoveryLog(entry editRecoveryLogEntry) error {
 	dir, ok := editRecoveryLogDir()
 	if !ok {
@@ -64,6 +69,8 @@ func appendEditRecoveryLog(entry editRecoveryLogEntry) error {
 	return err
 }
 
+// editRecoveryLogDir 优先使用显式 fallback 目录，其次复用当前 logger 文件目录。
+// 两者都不可用时返回 false，让编辑主流程不因辅助日志失败而中断。
 func editRecoveryLogDir() (string, bool) {
 	if dir := strings.TrimSpace(os.Getenv("GO_AGENT_LOG_FALLBACK_DIR")); dir != "" {
 		abs, err := filepath.Abs(dir)

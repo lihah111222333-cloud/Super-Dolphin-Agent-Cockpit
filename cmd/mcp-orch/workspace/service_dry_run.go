@@ -7,7 +7,8 @@ import (
 	storeworkspace "github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/workspace"
 )
 
-// dryRunMerge 处理dry运行记录merge。
+// dryRunMerge 在不写 source 文件的情况下评估 merge 结果。
+// 它会短暂进入 merging 再恢复 active，保证和真实 merge 共用状态栅栏。
 func (s *service) dryRunMerge(
 	ctx context.Context,
 	run *Run,
@@ -37,6 +38,7 @@ func (s *service) dryRunMerge(
 	return result, nil
 }
 
+// buildDryRunResult 读取 run 文件并构造 dry-run 结果。
 func (s *service) buildDryRunResult(
 	ctx context.Context,
 	run *Run,

@@ -25,7 +25,7 @@ func (s *store) GetDAGVersionForUpdate(ctx context.Context, dagKey string) (int6
 
 // GetDAGVersion 是 GetDAGVersionForUpdate 的只读版本：不加任何锁，不需事务。
 // 专为「空 ops 短路」场景设计：调用方面拿当前版本号判定 base_version 是否同庄，
-// 但没有后续写操作，不需要 FOR UPDATE 的序列化代价（R3 P2 #3）。
+// 但没有后续写操作，不需要 FOR UPDATE 的序列化代价。
 func (s *store) GetDAGVersion(ctx context.Context, dagKey string) (int64, error) {
 	version, err := s.q.GetTaskDagVersion(ctx, sqlc.GetTaskDagVersionParams{DagKey: dagKey})
 	if err != nil {
@@ -34,19 +34,16 @@ func (s *store) GetDAGVersion(ctx context.Context, dagKey string) (int64, error)
 	return version, nil
 }
 
-// CountRunningRunsByDagKey is used by ApplyOps after GetDAGVersionForUpdate has
-// locked the DAG row. This is not a StartDAG pre-check; it is part of the
-// template mutation transaction that protects running executions.
-// CountRunningRunsByDagKey 按DAG键统计running运行记录。
+// CountRunningRunsByDagKey 在模板变更事务内统计指定 DAG 的 running run 数。
+// 调用方应已锁住 DAG 行；这里不是启动前预检，而是阻止运行中模板被改写的保护。
 func (s *store) CountRunningRunsByDagKey(ctx context.Context, dagKey string) (int64, error) {
 	return queryValue(func() (int64, error) {
 		return s.q.CountActiveTaskDagRunsByKey(ctx, sqlc.CountActiveTaskDagRunsByKeyParams{DagKey: dagKey})
 	}, "count_running", "task_dag_run")
 }
 
-// GetDAGSchedule reads the scheduling columns. ApplyOps calls this after
-// GetDAGVersionForUpdate has locked the row in the same transaction.
-// GetDAGSchedule 读取DAG计划。
+// GetDAGSchedule 在模板变更事务中读取调度列。
+// 调用方在同一事务内锁住 DAG 行后再读取，避免和计划更新并发错位。
 func (s *store) GetDAGSchedule(ctx context.Context, dagKey string) (DAGSchedule, error) {
 	row, err := s.q.GetTaskDagSchedule(ctx, sqlc.GetTaskDagScheduleParams{DagKey: dagKey})
 	if err != nil {
@@ -55,10 +52,8 @@ func (s *store) GetDAGSchedule(ctx context.Context, dagKey string) (DAGSchedule,
 	return DAGSchedule{Trigger: row.Trigger, CronExpr: row.CronExpr}, nil
 }
 
-// UpdateDAGPatch applies the F4.4 update_dag metadata whitelist under the
-// caller's DAGOps transaction. Nil pointer fields mean "leave the column as-is";
-// empty strings are deliberate values and are written through.
-// UpdateDAGPatch 更新DAG补丁。
+// UpdateDAGPatch 在调用方 DAGOps 事务内更新允许变更的模板字段。
+// nil 指针表示保留原列值，空字符串是显式写入值，不能被当成未提供。
 func (s *store) UpdateDAGPatch(ctx context.Context, input UpdateDAGPatchInput) (int64, error) {
 	return queryValueWrite(ctx, func() (int64, error) {
 		return s.q.UpdateTaskDagPatch(ctx, sqlc.UpdateTaskDagPatchParams{
@@ -108,9 +103,8 @@ func (s *store) BumpDAGVersion(ctx context.Context, dagKey string, expectedVersi
 	}, "bump_version", "task_dag")
 }
 
-// WithDAGOpsTx 是 DAGOpsTxRunner 接口的 *store 实现。复用事务 helper
-// 起 PG 事务，把 fn 拿到的 store 跨上事务 *sqlc.Queries，让 fn 内调
-// GetDAGVersionForUpdate / UpsertNode / BumpDAGVersion 同事务串起来。
+// WithDAGOpsTx 是 DAGOpsTxRunner 接口的 *store 实现。
+// 它用同一个 SQLite IMMEDIATE 事务重绑 sqlc 查询集，让版本读取、节点写入和版本 bump 串行提交。
 func (s *store) WithDAGOpsTx(ctx context.Context, fn func(tx DAGOpsStore) error) error {
 	return wrapTaskDAGError(sqlctx.WithImmediateTx(ctx, s.db, s.q, func(txq *sqlc.Queries, tx sqlc.DBTX) error {
 		return fn(&store{db: tx, q: txq})

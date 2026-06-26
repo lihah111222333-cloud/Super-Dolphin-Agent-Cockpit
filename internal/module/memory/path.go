@@ -36,7 +36,9 @@ type consolidationStamp struct {
 	LastSuccessAt string `json:"last_success_at,omitempty"`
 }
 
-// GetAutoMemPath 读取automem路径。
+// GetAutoMemPath 根据记忆根和项目根解析 AutoMem 项目目录。
+// baseRoot 和 projectRoot 都必须可校验；项目根会先规整到 canonical git root，
+// 再经过 SanitizePath 生成稳定目录名。
 func GetAutoMemPath(baseRoot, projectRoot string) (string, error) {
 	validatedRoot, err := shared.ValidateMemoryRoot(baseRoot)
 	if err != nil || validatedRoot == "" {
@@ -53,12 +55,15 @@ func GetAutoMemPath(baseRoot, projectRoot string) (string, error) {
 	return filepath.Join(root, memoryProjectsDir, SanitizePath(canonicalRoot), memoryProjectDirName), nil
 }
 
-// GetAutoMemDailyLogPath 读取automemdaily日志路径。
+// GetAutoMemDailyLogPath 返回指定日期的 AutoMem daily log 路径。
+// 路径解析复用 AutoMem 项目目录规则，避免 daily log 写到未授权根目录外。
 func GetAutoMemDailyLogPath(baseRoot, projectRoot string, now time.Time) (string, error) {
 	return getAutoMemDailyLogPath(baseRoot, projectRoot, now)
 }
 
-// FindCanonicalGitRoot 查找canonicalgit根目录。
+// FindCanonicalGitRoot 解析项目对应的 canonical git root。
+// 它通过 git 命令同时读取 worktree 根和 common git dir，处理 linked worktree 场景；
+// git 失败会返回错误而不是退回未经确认的路径。
 func FindCanonicalGitRoot(ctx context.Context, projectRoot string) (string, error) {
 	if ctx == nil {
 		ctx = context.Background()
@@ -98,12 +103,14 @@ func FindCanonicalGitRoot(ctx context.Context, projectRoot string) (string, erro
 	return gitRoot, nil
 }
 
-// SanitizePath 清理路径。
+// SanitizePath 将项目路径转换为适合作为记忆目录名的安全 key。
+// 具体规则集中在 pathutil 中，保证 memory 与其它模块使用同一套项目 key。
 func SanitizePath(raw string) string {
 	return pathutil.SanitizeMemoryProjectKey(raw)
 }
 
-// ValidateMemoryWritePath 校验记忆write路径。
+// ValidateMemoryWritePath 校验写入路径位于记忆根目录内。
+// 它会解析已存在路径的真实位置；候选路径逃逸根目录或包含非法输入时立即失败。
 func ValidateMemoryWritePath(root, file string) (string, error) {
 	validatedRoot, err := shared.ValidateMemoryRoot(root)
 	if err != nil {
@@ -130,7 +137,8 @@ func ValidateMemoryWritePath(root, file string) (string, error) {
 	return candidate, nil
 }
 
-// ValidateMemoryReadPath 校验记忆read路径。
+// ValidateMemoryReadPath 校验读取路径位于记忆根目录内且指向文件。
+// 与写入校验不同，读取要求目标已存在并非目录，防止工具读取越界或目录内容。
 func ValidateMemoryReadPath(root, file string) (string, error) {
 	validatedRoot, err := shared.ValidateMemoryRoot(root)
 	if err != nil {
@@ -162,7 +170,8 @@ func ValidateMemoryReadPath(root, file string) (string, error) {
 	return candidateReal, nil
 }
 
-// prepareMemoryPath 准备记忆路径。
+// prepareMemoryPath 标准化根目录和候选文件路径。
+// 它拒绝空路径、NUL 字节和不可解析路径，调用方通过 wrap 选择读/写错误类型。
 func prepareMemoryPath(validatedRoot, file string, wrap func(string) error) (string, string, error) {
 	file = norm.NFC.String(strings.TrimSpace(file))
 	if file == "" {
@@ -189,6 +198,8 @@ func prepareMemoryPath(validatedRoot, file string, wrap func(string) error) (str
 	return rootDir, candidate, nil
 }
 
+// resolveMemoryWritePath 解析写入路径中已存在的最深真实路径。
+// 目标文件尚不存在是合法写入场景，因此 os.ErrNotExist 不会阻断。
 func resolveMemoryWritePath(path string) (string, error) {
 	resolved, err := shared.RealPathDeepestExisting(path)
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
@@ -200,6 +211,8 @@ func resolveMemoryWritePath(path string) (string, error) {
 	return resolved, nil
 }
 
+// resolveExistingMemoryPath 解析必须存在的路径真实位置。
+// 读路径校验依赖它发现符号链接逃逸和不存在目标。
 func resolveExistingMemoryPath(path string) (string, error) {
 	resolved, err := shared.RealPathDeepestExisting(path)
 	if err != nil {
@@ -211,23 +224,32 @@ func resolveExistingMemoryPath(path string) (string, error) {
 	return resolved, nil
 }
 
+// invalidMemoryReadPath 包装读取路径校验错误。
+// 统一错误类型便于工具桥把失败映射为 invalid_path。
 func invalidMemoryReadPath(reason string) error {
 	return fmt.Errorf("%w: %s", ErrInvalidMemoryReadPath, reason)
 }
 
+// invalidMemoryWritePath 包装写入路径校验错误。
+// 调用方可通过 errors.Is 区分路径问题和底层 I/O 问题。
 func invalidMemoryWritePath(reason string) error {
 	return fmt.Errorf("%w: %s", ErrInvalidMemoryWritePath, reason)
 }
 
+// memoryIndexPath 返回根目录下的 MEMORY.md 索引路径。
+// 调用前根目录应已由上层解析和校验。
 func memoryIndexPath(root string) string {
 	return filepath.Join(root, memoryIndexFileName)
 }
 
+// memoryTypeDir 返回指定记忆类型的子目录路径。
+// 未知类型会被 ParseMemoryType 规整，避免直接拼接未经确认的类型字符串。
 func memoryTypeDir(root string, memoryType MemoryType) string {
 	return filepath.Join(root, string(ParseMemoryType(string(memoryType))))
 }
 
-// writeAtomicFile 写入atomic文件。
+// writeAtomicFile 通过临时文件和 rename 原子替换目标文件。
+// 目标路径先走写路径校验；任何写入、chmod、close 或 rename 失败都会保留错误给调用方。
 func writeAtomicFile(path string, data []byte, perm os.FileMode) error {
 	if perm == 0 {
 		perm = 0o644
@@ -269,7 +291,8 @@ func writeAtomicFile(path string, data []byte, perm os.FileMode) error {
 	return nil
 }
 
-// loadConsolidationStamp 加载consolidationstamp。
+// loadConsolidationStamp 读取自动整理 stamp。
+// stamp 缺失或为空表示尚未整理；JSON 损坏会返回错误，避免使用不可信时间状态。
 func loadConsolidationStamp(root string) (consolidationStamp, error) {
 	path, err := consolidationStampPath(root)
 	if err != nil {
@@ -292,6 +315,8 @@ func loadConsolidationStamp(root string) (consolidationStamp, error) {
 	return stamp, nil
 }
 
+// saveConsolidationStamp 原子写入自动整理 stamp。
+// 路径仍走记忆写入校验，避免整理状态文件逃逸根目录。
 func saveConsolidationStamp(root string, stamp consolidationStamp) error {
 	path, err := consolidationStampPath(root)
 	if err != nil {
@@ -304,6 +329,8 @@ func saveConsolidationStamp(root string, stamp consolidationStamp) error {
 	return writeAtomicFile(path, raw, 0o644)
 }
 
+// consolidationStampPath 返回整理状态文件路径。
+// 根目录会先规范化，再通过写路径校验生成最终路径。
 func consolidationStampPath(root string) (string, error) {
 	normalizedRoot, err := normalizeStoreRoot(root)
 	if err != nil {
@@ -312,6 +339,8 @@ func consolidationStampPath(root string) (string, error) {
 	return ValidateMemoryWritePath(normalizedRoot, filepath.Join(normalizedRoot, consolidationStampFile))
 }
 
+// recordConsolidation 记录一次成功整理时间。
+// 该时间用于后续 runtime context 和自动整理间隔判断。
 func recordConsolidation(root string, when time.Time) error {
 	stamp, err := loadConsolidationStamp(root)
 	if err != nil {
@@ -321,6 +350,8 @@ func recordConsolidation(root string, when time.Time) error {
 	return saveConsolidationStamp(root, stamp)
 }
 
+// recordConsolidationScan 记录一次整理扫描时间。
+// 扫描时间和成功时间分开保存，便于区分“检查过”与“真正写入整理结果”。
 func recordConsolidationScan(root string, when time.Time) error {
 	stamp, err := loadConsolidationStamp(root)
 	if err != nil {
@@ -330,6 +361,8 @@ func recordConsolidationScan(root string, when time.Time) error {
 	return saveConsolidationStamp(root, stamp)
 }
 
+// stampTimeString 将时间转为 UTC RFC3339Nano 字符串。
+// 零值时间会使用当前时间，避免写入不可解析的空成功时间。
 func stampTimeString(when time.Time) string {
 	if when.IsZero() {
 		when = time.Now()
@@ -337,14 +370,20 @@ func stampTimeString(when time.Time) string {
 	return when.UTC().Format(time.RFC3339Nano)
 }
 
+// lastScanTime 解析 stamp 中的最近扫描时间。
+// 空值或格式错误返回零值，由调用方按无历史处理。
 func (s consolidationStamp) lastScanTime() time.Time {
 	return parseStampTime(s.LastScanAt)
 }
 
+// lastSuccessTime 解析 stamp 中的最近成功整理时间。
+// 空值或格式错误返回零值，避免坏 stamp 影响启动。
 func (s consolidationStamp) lastSuccessTime() time.Time {
 	return parseStampTime(s.LastSuccessAt)
 }
 
+// parseStampTime 解析整理 stamp 时间字段。
+// 解析失败返回零值，不在时间读取路径制造额外错误。
 func parseStampTime(raw string) time.Time {
 	raw = strings.TrimSpace(raw)
 	if raw == "" {
@@ -357,6 +396,8 @@ func parseStampTime(raw string) time.Time {
 	return parsed
 }
 
+// consolidationCandidates 选择可参与整理的记忆条目。
+// 先按 canonical name 去重，再过滤掉没有有效正文的条目。
 func consolidationCandidates(entries []MemoryEntry) []MemoryEntry {
 	unique := uniqueEntriesByCanonicalName(entries)
 	selected := make([]MemoryEntry, 0, len(unique))
@@ -368,7 +409,8 @@ func consolidationCandidates(entries []MemoryEntry) []MemoryEntry {
 	return selected
 }
 
-// staleMemoryPaths 处理stale记忆路径。
+// staleMemoryPaths 找出整理后应删除的陈旧记忆文件。
+// 空正文文件和同名较旧副本都会被纳入删除列表，返回前会去重。
 func staleMemoryPaths(entries []MemoryEntry) []string {
 	selected := make(map[string]MemoryEntry, len(entries))
 	stale := make([]string, 0, len(entries))
@@ -398,6 +440,8 @@ func staleMemoryPaths(entries []MemoryEntry) []string {
 	return uniqueNonEmptyStrings(stale)
 }
 
+// uniqueNonEmptyStrings 清理、去重并保持字符串原始顺序。
+// 删除列表和路径列表复用它，避免重复操作同一文件。
 func uniqueNonEmptyStrings(values []string) []string {
 	if len(values) == 0 {
 		return nil
@@ -418,6 +462,8 @@ func uniqueNonEmptyStrings(values []string) []string {
 	return cleaned
 }
 
+// removeMemoryFiles 在记忆根目录内删除指定文件。
+// 每个路径都重新走写路径校验，NotExist 被视为已经删除。
 func removeMemoryFiles(root string, paths []string) error {
 	for _, path := range paths {
 		validatedPath, err := ValidateMemoryWritePath(root, path)
@@ -431,6 +477,8 @@ func removeMemoryFiles(root string, paths []string) error {
 	return nil
 }
 
+// writeConsolidatedMemories 将整理后的记忆条目写回磁盘。
+// 任何单条写入失败都会中断，避免索引与部分写入状态继续漂移。
 func writeConsolidatedMemories(root string, items []ExtractedMemory) error {
 	entries, err := prepareConsolidatedMemoryEntries(root, items)
 	if err != nil {
@@ -444,7 +492,8 @@ func writeConsolidatedMemories(root string, items []ExtractedMemory) error {
 	return nil
 }
 
-// prepareConsolidatedMemoryEntries 准备consolidated记忆条目。
+// prepareConsolidatedMemoryEntries 在写盘前构造并校验整理结果。
+// 每条结果都会解析目标文件路径，提前发现非法名称或越界写入。
 func prepareConsolidatedMemoryEntries(root string, items []ExtractedMemory) ([]MemoryEntry, error) {
 	if len(items) == 0 {
 		return nil, nil
@@ -468,6 +517,8 @@ func prepareConsolidatedMemoryEntries(root string, items []ExtractedMemory) ([]M
 	return entries, nil
 }
 
+// buildConsolidatedMemoryEntry 将抽取结果转换为可写 MemoryEntry。
+// 描述优先取正文首行并按 hook 预算截断，source 标记为 dream 以区分显式写入。
 func buildConsolidatedMemoryEntry(item ExtractedMemory) MemoryEntry {
 	item = normalizeExtractedMemory(item)
 	description := truncateRunes(firstNonEmptyLine(item.Content), memoryHookMaxRunes)
@@ -486,6 +537,8 @@ func buildConsolidatedMemoryEntry(item ExtractedMemory) MemoryEntry {
 	}
 }
 
+// consolidationName 为整理结果选择稳定名称。
+// 有描述时直接使用描述；否则按记忆类型生成兜底名称，避免空 name frontmatter。
 func consolidationName(item ExtractedMemory, description string) string {
 	if description != "" {
 		return description
@@ -513,10 +566,12 @@ var diskMemoryTypes = []MemoryType{
 	MemoryTypeReference,
 }
 
-// ParseMemoryType 解析记忆type。
+// ParseMemoryType 将字符串解析为共享记忆类型枚举。
+// 该包装让父包调用方不需要直接依赖 shared 子包。
 func ParseMemoryType(raw string) MemoryType { return shared.ParseMemoryType(raw) }
 
-// CanonicalName 处理canonical名称。
+// CanonicalName 生成记忆名称的 canonical key。
+// 该 key 用于索引去重、查找和跨 scope 同名检测。
 func CanonicalName(raw string) string { return shared.CanonicalName(raw) }
 
 type MemoryScope string

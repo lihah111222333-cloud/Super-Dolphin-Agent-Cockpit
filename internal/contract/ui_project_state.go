@@ -2,30 +2,15 @@ package contract
 
 import "context"
 
-// ProjectsSnapshot is the contract-level DTO for the user's pinned project
-// catalog: which paths are known and which one is currently active. It is
-// intentionally a flat value type so UI consumers (internal/ui/wails,
-// future CLI frontends) can depend on it without reaching back into
-// internal/module/uistate.
-//
-// P22 P4 §1: ui/wails must not directly import internal/module/uistate;
-// this DTO plus UIProjectStateFacade are the shared carrier that makes
-// that import-direction invariant enforceable.
+// ProjectsSnapshot 是用户项目目录的 contract 层 DTO。
+// 它只携带已知项目路径和当前激活路径，让 UI 层读取项目状态时不反向导入 uistate 模块。
 type ProjectsSnapshot struct {
 	Projects []string `json:"projects"`
 	Active   string   `json:"active"`
 }
 
-// UIProjectStateFacade is the narrow read contract UI frontends rely on
-// to enumerate registered project roots. internal/module/uistate supplies
-// the production implementation (via a thin adapter over its internal
-// Service); tests can substitute any type that returns a
-// *ProjectsSnapshot.
-//
-// This is the "专用 facade" branch of P22 P4 §1 target architecture —
-// UI consumers depend on this interface instead of uistate.Service, so
-// uistate's private types (Preferences, Sidebar, UIState, ...) never
-// leak across the module boundary.
+// UIProjectStateFacade 是 UI 前端枚举项目根目录的窄读接口。
+// 生产实现由 uistate adapter 提供；接口只返回 ProjectsSnapshot，避免泄露 uistate 私有结构。
 type UIProjectStateFacade interface {
 	GetProjects(ctx context.Context) (*ProjectsSnapshot, error)
 }

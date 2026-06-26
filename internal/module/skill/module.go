@@ -15,8 +15,8 @@ import (
 	auditstore "github.com/anthropic-ai/super-agent-v3/internal/store/auditlog"
 )
 
-// Skill matching currently runs on demand through skills/match/preview; runtime
-// session binding waits for the provider context to expose the required state.
+// Module 组装 skill 模块的 service、RPC handler 和启动期内置 skill 种子。
+// skill 自动匹配当前只在 `skills/match/preview` 按需执行，运行期绑定等待 provider context 提供状态。
 var Module = fx.Module("skill",
 	fx.Provide(
 		fx.Annotate(

@@ -13,7 +13,8 @@ import (
 
 const capThreadConfigure = "thread_configure"
 
-// Configure 应用运行时配置。
+// Configure 更新 Claude 会话允许运行时覆盖的配置。
+// 当前只支持 model/effort；其他字段直接返回能力错误，避免静默接受但不生效。
 func (s *session) Configure(ctx context.Context, patch dto.ThreadConfigPatch) error {
 	if err := shared.CheckCtx(ctx); err != nil {
 		return err
@@ -45,7 +46,8 @@ func stringPtr(value string) *string {
 	return &value
 }
 
-// applyConfiguredOverridesLocked 应用configuredoverrideslocked。
+// applyConfiguredOverridesLocked 在持锁状态下记录 model/effort 覆盖。
+// stagePending=true 表示新值要等下一次 transport restart 成功后再变成实际运行态。
 func (s *session) applyConfiguredOverridesLocked(patch dto.ThreadConfigPatch, stagePending bool) {
 	if patch.Model != nil {
 		value := strings.TrimSpace(*patch.Model)
@@ -131,7 +133,8 @@ var claudeAllowedModels = []string{
 	"claude-sonnet-4-6[1m]",
 }
 
-// AllowedModels 处理allowed模型。
+// AllowedModels 返回 UI 可选模型，并保留当前实际模型。
+// 当前模型可能来自 Claude settings 或旧配置，即使不在静态列表中也要追加，避免前端显示丢失。
 func (s *session) AllowedModels(context.Context) ([]string, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -143,7 +146,8 @@ func (s *session) AllowedModels(context.Context) ([]string, error) {
 	return append(models, current), nil
 }
 
-// ReadConfig 读取配置。
+// ReadConfig 汇总线程配置的覆盖值与当前 transport 生效值。
+// threadID 缺失代表会话尚未绑定到可配置线程，调用方需要得到明确错误。
 func (s *session) ReadConfig(context.Context, string) (dto.ThreadConfig, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -179,7 +183,8 @@ func modelAllowed(model string, allowed []string) bool {
 	return false
 }
 
-// ForceComplete 处理强制complete。
+// ForceComplete 将活跃 Claude turn 标记为完成并尝试中断底层进程。
+// providerID 不匹配时不做任何事，防止旧 UI 请求误关当前 turn。
 func (s *session) ForceComplete(ctx context.Context, req dto.ForceCompleteRequest) error {
 	if err := shared.CheckCtx(ctx); err != nil {
 		return err
@@ -212,7 +217,8 @@ func (s *session) forceCompleteTarget(providerID string) (*transport, *turnHandl
 	return s.transport, handle, turnID
 }
 
-// forceCompleteTurn 处理强制completeturn。
+// forceCompleteTurn 在确认 active turn 未漂移后发布完成事件。
+// suppressedTurns 会吞掉随后 CLI 可能补发的 terminal 事件，避免前端收到重复完成。
 func (s *session) forceCompleteTurn(target *turnHandle, turnID string) {
 	if target == nil || turnID == "" {
 		return

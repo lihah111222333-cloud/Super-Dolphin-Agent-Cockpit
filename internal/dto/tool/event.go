@@ -6,14 +6,14 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/dto/shared"
 )
 
-// ToolCallBegin reports the start of a tool invocation.
+// ToolCallBegin 报告一次工具调用开始，ArgumentsPreview 仅用于观测摘要。
 type ToolCallBegin struct {
 	shared.ToolCallHeader
 	RequestID        int64  `json:"request_id,omitempty"`
 	ArgumentsPreview string `json:"arguments_preview,omitempty"`
 }
 
-// ToolCallEnd reports the end of a tool invocation.
+// ToolCallEnd 报告一次工具调用结束，包含成功状态、结果摘要和持久化产物路径。
 type ToolCallEnd struct {
 	shared.ToolCallHeader
 	Success       bool   `json:"success"`
@@ -25,7 +25,7 @@ type ToolCallEnd struct {
 	ElapsedMS     int64  `json:"elapsed_ms,omitempty"`
 }
 
-// ToolApprovalRequested reports a tool call waiting for approval.
+// ToolApprovalRequested 报告工具调用进入审批等待状态。
 type ToolApprovalRequested struct {
 	shared.ToolApprovalHeader
 	RequestID int64  `json:"request_id,omitempty"`
@@ -33,7 +33,7 @@ type ToolApprovalRequested struct {
 	Kind      string `json:"kind,omitempty"`
 }
 
-// ToolApprovalResolved reports a final approval decision for a tool call.
+// ToolApprovalResolved 报告工具调用审批已给出最终决策。
 type ToolApprovalResolved struct {
 	shared.ToolApprovalHeader
 	Approved   bool   `json:"approved"`
@@ -42,7 +42,7 @@ type ToolApprovalResolved struct {
 	Kind       string `json:"kind,omitempty"`
 }
 
-// ToolDiffUpdated reports a diff extracted from a completed tool invocation.
+// ToolDiffUpdated 报告从已完成工具调用中提取出的 diff 更新。
 type ToolDiffUpdated struct {
 	Timestamp time.Time `json:"timestamp"`
 	ThreadID  string    `json:"threadId"`
@@ -54,17 +54,17 @@ type ToolDiffUpdated struct {
 	Revision  int64     `json:"revision,omitempty"`
 }
 
-// Type 返回事件分发用的类型编号。
+// Type 返回事件总线使用的稳定类型编号，保持工具调用开始事件可路由。
 func (ToolCallBegin) Type() uint32 { return shared.EventTypeToolCallBegin }
 
-// Type 返回事件分发用的类型编号。
+// Type 返回事件总线使用的稳定类型编号，保持工具调用结束事件可路由。
 func (ToolCallEnd) Type() uint32 { return shared.EventTypeToolCallEnd }
 
-// Type 返回事件分发用的类型编号。
+// Type 返回事件总线使用的稳定类型编号，保持工具审批请求事件可路由。
 func (ToolApprovalRequested) Type() uint32 { return shared.EventTypeToolApprovalRequested }
 
-// Type 返回事件分发用的类型编号。
+// Type 返回事件总线使用的稳定类型编号，保持工具审批结果事件可路由。
 func (ToolApprovalResolved) Type() uint32 { return shared.EventTypeToolApprovalResolved }
 
-// Type 返回事件分发用的类型编号。
+// Type 返回事件总线使用的稳定类型编号，保持工具 diff 更新事件可路由。
 func (ToolDiffUpdated) Type() uint32 { return shared.EventTypeToolDiffUpdated }

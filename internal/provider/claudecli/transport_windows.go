@@ -17,34 +17,28 @@ import (
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
-// setClaudeProcessAttrs is a no-op on Windows — the Job Object the guard
-// sets up after Start() replaces Unix-style process groups.
+// setClaudeProcessAttrs 在 Windows 上不设置 SysProcAttr。
+// 进程树控制由 Start 后创建的 Job Object 接管，不能套用 Unix 进程组语义。
 func setClaudeProcessAttrs(cmd *exec.Cmd) {
 	if cmd == nil {
 		return
 	}
 }
 
-// resolveClaudeBinary unwraps an npm shim .cmd/.ps1 so we spawn the real
-// claude.exe directly. Claude Code's `--system-prompt` arg is a 12KB+ block
-// with embedded newlines — routing it through cmd.exe (which is what Go does
-// for .cmd/.bat targets post-CVE-2024-24576) causes silent arg corruption
-// and the child exits immediately, surfacing as EOF on stdout.
-//
-// npm's wrapper template looks like:
+// resolveClaudeBinary 在 Windows 上解开 npm shim，尽量直接启动真实 claude.exe。
+// system prompt 常含大块换行文本，经 cmd.exe wrapper 转发会破坏参数并导致 stdout EOF。
+// npm wrapper 常见模板如下:
 //
 //	@ECHO off
 //	...
 //	"%dp0%\node_modules\@scope\pkg\bin\foo.exe"   %*
 //
-// If we recognise that pattern we return the absolute path to the embedded
-// .exe; otherwise we return the input unchanged (Go's LookPath still runs).
-// resolveClaudeBinary 解析claude二进制。
+// 识别到模板时返回内嵌 exe 绝对路径；否则保留 LookPath 结果，让调用链按常规失败。
 func resolveClaudeBinary(binary string) string {
 	if binary == "" {
 		binary = "claude"
 	}
-	// Explicit path — trust the caller.
+	// 显式路径由调用方负责可信性和可执行性。
 	if strings.ContainsAny(binary, `\/`) {
 		return binary
 	}
@@ -88,14 +82,14 @@ func unwrapNpmShim(cmdPath string) (string, bool) {
 	return abs, true
 }
 
-// processGuard wraps a Windows Job Object so a single TerminateJobObject can
-// reap the claude cli plus any helpers it forks. Kill-on-close protects us
-// if this process dies before calling close explicitly.
+// processGuard 用 Windows Job Object 包住 Claude CLI 进程树。
+// TerminateJobObject 可一次回收子进程，kill-on-close 也能覆盖宿主异常退出的清理路径。
 type processGuard struct {
 	handle windows.Handle
 }
 
-// attachProcessGuard 处理attach进程守卫。
+// attachProcessGuard 将已启动的 Claude 进程加入 kill-on-close Job Object。
+// 创建或绑定失败只记录告警并返回 nil，后续仍会按单进程 PID 路径尝试终止。
 func attachProcessGuard(cmd *exec.Cmd) *processGuard {
 	if cmd == nil || cmd.Process == nil {
 		return nil
@@ -134,7 +128,8 @@ func (g *processGuard) close() {
 	g.handle = 0
 }
 
-// signalClaudeProcess 处理signalclaude进程。
+// signalClaudeProcess 在 Windows 上优先终止 Job Object，失败后退到单 PID 终止。
+// processSig 的细分语义无法完整映射到 Windows，这里统一作为终止请求处理。
 func signalClaudeProcess(cmd *exec.Cmd, guard *processGuard, sig processSig) error {
 	_ = sig
 	if guard != nil && guard.handle != 0 {
@@ -148,7 +143,8 @@ func signalClaudeProcess(cmd *exec.Cmd, guard *processGuard, sig processSig) err
 	return terminateByPid(cmd.Process.Pid)
 }
 
-// terminateByPid 按进程 ID处理terminate。
+// terminateByPid 按 PID 打开进程并发送 TerminateProcess。
+// 进程已退出会返回带上下文的错误，外层 normalize 负责把可接受的 gone 状态归零。
 func terminateByPid(pid int) error {
 	if pid <= 0 {
 		return errors.New("invalid claude pid")

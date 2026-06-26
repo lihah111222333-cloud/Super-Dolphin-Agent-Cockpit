@@ -9,19 +9,23 @@ import (
 	"time"
 )
 
+// RelayPayload 是日志 relay hook 接收的稳定 payload。
 type RelayPayload struct {
-	SourceProcess string         `json:"source_process,omitempty"`
-	Level         string         `json:"level"`
-	Msg           string         `json:"msg"`
-	Fields        map[string]any `json:"fields,omitempty"`
+	SourceProcess string         `json:"source_process,omitempty"` // 来源进程，可由 hook 调用方补充。
+	Level         string         `json:"level"`                    // relay 使用的大写日志级别。
+	Msg           string         `json:"msg"`                      // slog record message。
+	Fields        map[string]any `json:"fields,omitempty"`         // 展平后的 slog attrs 和 record attrs。
 }
 
+// RelayHook 接收已写入本地日志后的 relay payload。
 type RelayHook func(context.Context, RelayPayload)
 
+// relayHookHolder 包装 hook，便于 atomic.Value 存储固定具体类型。
 type relayHookHolder struct {
 	hook RelayHook
 }
 
+// relayDisabledKey 是 context 中禁用 relay 的私有 key。
 type relayDisabledKey struct{}
 
 var relayHookState atomic.Value
@@ -30,22 +34,23 @@ func init() {
 	relayHookState.Store(relayHookHolder{})
 }
 
-// SetRelayHook 设置relayhook。
+// SetRelayHook 安装全局 relay hook；后续日志写入本地后会同步调用它。
 func SetRelayHook(h RelayHook) {
 	relayHookState.Store(relayHookHolder{hook: h})
 }
 
-// ClearRelayHook 清理relayhook。
+// ClearRelayHook 清空全局 relay hook。
 func ClearRelayHook() {
 	relayHookState.Store(relayHookHolder{})
 }
 
+// currentRelayHook 返回当前安装的 relay hook。
 func currentRelayHook() RelayHook {
 	holder, _ := relayHookState.Load().(relayHookHolder)
 	return holder.hook
 }
 
-// WithRelayDisabled 设置relaydisabled。
+// WithRelayDisabled 在 context 中标记本次日志不触发 relay。
 func WithRelayDisabled(ctx context.Context) context.Context {
 	if ctx == nil {
 		ctx = context.Background()
@@ -53,6 +58,7 @@ func WithRelayDisabled(ctx context.Context) context.Context {
 	return context.WithValue(ctx, relayDisabledKey{}, true)
 }
 
+// relayDisabled 判断当前 context 是否禁用了 relay。
 func relayDisabled(ctx context.Context) bool {
 	if ctx == nil {
 		return false
@@ -61,12 +67,14 @@ func relayDisabled(ctx context.Context) bool {
 	return disabled
 }
 
+// relayHandler 在底层 handler 写入后把日志记录同步给 relay hook。
 type relayHandler struct {
 	next   slog.Handler
 	attrs  []slog.Attr
 	groups []string
 }
 
+// wrapRelayHandler 为 handler 增加 relay 能力；nil handler 保持 nil。
 func wrapRelayHandler(next slog.Handler) slog.Handler {
 	if next == nil {
 		return next
@@ -74,12 +82,12 @@ func wrapRelayHandler(next slog.Handler) slog.Handler {
 	return &relayHandler{next: next}
 }
 
-// Enabled 判断日志是否启用。
+// Enabled 透传到底层 handler，保持 slog 级别判断一致。
 func (h *relayHandler) Enabled(ctx context.Context, level slog.Level) bool {
 	return h.next.Enabled(ctx, level)
 }
 
-// Handle 处理日志请求。
+// Handle 先写本地日志，再在未禁用 relay 且 hook 存在时发送 payload。
 func (h *relayHandler) Handle(ctx context.Context, rec slog.Record) error {
 	err := h.next.Handle(ctx, rec)
 	if relayDisabled(ctx) {
@@ -98,7 +106,7 @@ func (h *relayHandler) Handle(ctx context.Context, rec slog.Record) error {
 	return err
 }
 
-// WithAttrs 设置attrs。
+// WithAttrs 复制已绑定字段，确保 relay payload 包含 handler attrs。
 func (h *relayHandler) WithAttrs(attrs []slog.Attr) slog.Handler {
 	cloned := append([]slog.Attr{}, h.attrs...)
 	cloned = append(cloned, attrs...)
@@ -106,7 +114,7 @@ func (h *relayHandler) WithAttrs(attrs []slog.Attr) slog.Handler {
 	return &relayHandler{next: h.next.WithAttrs(attrs), attrs: cloned, groups: groups}
 }
 
-// WithGroup 设置group。
+// WithGroup 记录分组路径，确保 relay payload 的字段 key 与 slog group 对齐。
 func (h *relayHandler) WithGroup(name string) slog.Handler {
 	groups := append([]string{}, h.groups...)
 	if trimmed := strings.TrimSpace(name); trimmed != "" {
@@ -116,6 +124,7 @@ func (h *relayHandler) WithGroup(name string) slog.Handler {
 	return &relayHandler{next: h.next.WithGroup(name), attrs: attrs, groups: groups}
 }
 
+// relayLevelString 将 slog level 映射成 relay 约定的大写级别。
 func relayLevelString(level slog.Level) string {
 	switch {
 	case level >= slog.LevelError:
@@ -129,6 +138,7 @@ func relayLevelString(level slog.Level) string {
 	}
 }
 
+// relayRecordFields 合并 handler attrs 与 record attrs，并展开 group key。
 func relayRecordFields(groups []string, attrs []slog.Attr, rec slog.Record) map[string]any {
 	fields := map[string]any{}
 	if !rec.Time.IsZero() {
@@ -148,7 +158,7 @@ func relayRecordFields(groups []string, attrs []slog.Attr, rec slog.Record) map[
 	return fields
 }
 
-// relayAppendAttr 处理relayappendattr。
+// relayAppendAttr 递归展开 attr，并用 prefix 保留 slog group 层级。
 func relayAppendAttr(dst map[string]any, prefix string, attr slog.Attr) {
 	attr.Value = attr.Value.Resolve()
 	if attr.Equal(slog.Attr{}) {
@@ -177,7 +187,7 @@ func relayAppendAttr(dst map[string]any, prefix string, attr slog.Attr) {
 	dst[key] = relayValueAny(attr.Value)
 }
 
-// relayValueAny 处理relay值任意值。
+// relayValueAny 将 slog.Value 转成 relay payload 可 JSON 编码的值。
 func relayValueAny(value slog.Value) any {
 	switch value.Kind() {
 	case slog.KindString:
@@ -201,6 +211,7 @@ func relayValueAny(value slog.Value) any {
 	}
 }
 
+// relayAnyValue 处理 Any 值中的 error 和 Stringer，避免直接暴露复杂对象。
 func relayAnyValue(value any) any {
 	switch typed := value.(type) {
 	case nil:

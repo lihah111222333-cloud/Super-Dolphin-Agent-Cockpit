@@ -17,14 +17,8 @@ import (
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
-// peerHandle abstracts one running peer process so PeerSupervisor can be
-// exercised without real exec.Cmd spawns. Production uses execPeerHandle
-// (exec.Cmd + stdin write-pipe); tests inject a fake via peerLauncher.
-//
-// Wait() is single-shot and must only be called by the owner goroutine
-// (see PeerSupervisor.superviseOne). ClosePipe sends EOF to stdin, which
-// every peer binary treats as a graceful shutdown cue. Signal is the
-// escalation path used only by PeerSupervisor.shutdown.
+// peerHandle 抽象一个由 PeerSupervisor 拥有的 peer 进程。
+// Wait 只能由 superviseOne 所在 goroutine 调用一次；ClosePipe 发送 EOF 触发优雅退出，Signal 只用于关闭升级。
 type peerHandle interface {
 	Name() string
 	PID() int
@@ -33,17 +27,14 @@ type peerHandle interface {
 	Signal(sig processSig) error
 }
 
-// peerLauncher creates peerHandles for the supervisor. A real implementation
-// resolves the peer binary via resolvePeerBinDirs + findPeerBinary and
-// launches it; the test fake is a pure in-process channel-based stub.
+// peerLauncher 为 supervisor 创建 peerHandle。
+// 生产实现负责解析 peer 二进制并启动真实进程，测试可注入纯内存 fake 以覆盖重启和关闭路径。
 type peerLauncher interface {
 	Launch(ctx context.Context, name string) (peerHandle, error)
 }
 
-// peerPIDTracker is the narrow subset of pidregistry.Registry that the
-// supervisor needs. Declared as an interface so tests can inject a fake
-// tracker without a /tmp-backed registry file. *pidregistry.Registry
-// satisfies this interface by virtue of its Register/Unregister methods.
+// peerPIDTracker 是 PeerSupervisor 需要的 PID registry 最小接口。
+// 注册和注销由 supervisor 统一负责，测试可替换为 fake，避免依赖真实 /tmp registry 文件。
 type peerPIDTracker interface {
 	Register(pid int, kind string, meta map[string]string)
 	Unregister(pid int)
@@ -64,19 +55,18 @@ const (
 	peerClientKindEnv          = "GO_AGENT_CTL_CLIENT_KIND"
 )
 
-// managedPeerNames is the single source of truth for singleton peer binaries
-// owned by the codex app lifecycle. The supervisor launches them, orphan
-// cleanup matches them, and Windows discovery accepts their .exe variants.
+// managedPeerNames 是 Codex app 生命周期拥有的 singleton peer 清单。
+// supervisor 启动这些进程，孤儿清理也以同一清单识别残留二进制。
 var managedPeerNames = []string{"mcp-orch", "mcp-lsp"}
 
 var managedMCPBinaries = map[string]struct{}{"mcp-orch": {}, "mcp-lsp": {}}
 
-// defaultPeerNames is kept as a function so tests can override via
-// WithPeerNames without mutating the lifecycle-owned peer definition.
+// defaultPeerNames 返回 peer 清单副本。
+// 测试通过 WithPeerNames 覆盖时不会改动生产使用的全局定义。
 func defaultPeerNames() []string { return append([]string(nil), managedPeerNames...) }
 
-// Run keeps dev initial launch failures best-effort, but packaged runtime must
-// fail fast when bundled peers cannot start.
+// PeerSupervisor 监管 Codex app 依赖的 mcp-orch/mcp-lsp singleton peer。
+// packaged runtime 初始启动失败会 fail-fast；运行中退出会尝试一次重启并在关闭时统一 drain。
 type PeerSupervisor struct {
 	pidRegistry peerPIDTracker
 	logger      *slog.Logger
@@ -92,8 +82,7 @@ type PeerSupervisor struct {
 	stopGrace      time.Duration
 	killGrace      time.Duration
 
-	// cleanupHook is the final shutdown step — discovery-file sweep. Exposed as
-	// a field so tests can assert it ran without needing real /tmp side effects.
+	// cleanupHook 是关闭最后一步的 discovery 文件清理，测试可替换以避免真实 /tmp 副作用。
 	cleanupHook func()
 
 	workspaceRoots func() []string
@@ -102,16 +91,18 @@ type PeerSupervisor struct {
 	peers []peerHandle
 }
 
-// PeerSupervisorOption customises a PeerSupervisor. Production code uses the
-// bare NewPeerSupervisor; tests inject overrides via NewPeerSupervisorWithOptions.
+// PeerSupervisorOption 调整 PeerSupervisor 的启动、探测和关闭策略。
+// 生产路径通常使用默认值，测试通过 option 注入 launcher、tracker 和时间参数。
 type PeerSupervisorOption func(*PeerSupervisor)
 
-// WithPeerLauncher 设置peer启动器。
+// WithPeerLauncher 替换 peer 启动器。
+// 主要用于测试注入 fake launcher，生产路径默认使用 execPeerLauncher。
 func WithPeerLauncher(l peerLauncher) PeerSupervisorOption {
 	return func(s *PeerSupervisor) { s.launcher = l }
 }
 
-// WithPeerNames 设置peer名称。
+// WithPeerNames 覆盖需要监管的 peer 名称集合。
+// 空白名称会被过滤，避免 launcher 收到无效二进制名。
 func WithPeerNames(names []string) PeerSupervisorOption {
 	return func(s *PeerSupervisor) {
 		out := make([]string, 0, len(names))
@@ -125,12 +116,12 @@ func WithPeerNames(names []string) PeerSupervisorOption {
 	}
 }
 
-// WithPeerRestartBackoff 设置peerrestartbackoff。
+// WithPeerRestartBackoff 设置 superviseOne 重启失败后的等待时间。
 func WithPeerRestartBackoff(d time.Duration) PeerSupervisorOption {
 	return func(s *PeerSupervisor) { s.restartBackoff = d }
 }
 
-// WithPeerStopGrace 设置peerstopgrace。
+// WithPeerStopGrace 设置 peer 优雅停止与强杀之间的两个宽限期。
 func WithPeerStopGrace(stop, kill time.Duration) PeerSupervisorOption {
 	return func(s *PeerSupervisor) {
 		s.stopGrace = stop
@@ -138,7 +129,8 @@ func WithPeerStopGrace(stop, kill time.Duration) PeerSupervisorOption {
 	}
 }
 
-// WithPeerControlProbe 设置peercontrolprobe。
+// WithPeerControlProbe 设置控制面探测地址、间隔和次数。
+// attempts 允许为 0，表示完全跳过 best-effort 探测。
 func WithPeerControlProbe(addr string, every time.Duration, attempts int) PeerSupervisorOption {
 	return func(s *PeerSupervisor) {
 		if addr != "" {
@@ -153,30 +145,31 @@ func WithPeerControlProbe(addr string, every time.Duration, attempts int) PeerSu
 	}
 }
 
-// WithPeerCleanupHook 设置peercleanuphook。
+// WithPeerCleanupHook 替换最终 discovery 文件清理步骤。
+// 生产使用 cleanPeerDiscoveryFiles，测试用 hook 断言 shutdown 路径被调用。
 func WithPeerCleanupHook(fn func()) PeerSupervisorOption {
 	return func(s *PeerSupervisor) { s.cleanupHook = fn }
 }
 
-// WithPeerPIDTracker replaces the default pid registry.
-// WithPeerPIDTracker 设置peer进程 IDtracker。
+// WithPeerPIDTracker 替换默认 PID registry。
+// supervisor 会在启动、替换和关闭时维护注册记录，外部不应重复登记同一 peer。
 func WithPeerPIDTracker(t peerPIDTracker) PeerSupervisorOption {
 	return func(s *PeerSupervisor) { s.pidRegistry = t }
 }
 
-// WithPeerWorkspaceRoots 设置peer工作区根目录。
+// WithPeerWorkspaceRoots 为 execPeerLauncher 提供传给 LSP peer 的 workspace roots。
 func WithPeerWorkspaceRoots(fn func() []string) PeerSupervisorOption {
 	return func(s *PeerSupervisor) { s.workspaceRoots = fn }
 }
 
-// NewPeerSupervisor is the production constructor.
-// NewPeerSupervisor 创建peersupervisor。
+// NewPeerSupervisor 构造生产使用的 peer supervisor。
+// 实际初始化集中到 NewPeerSupervisorWithOptions，便于测试覆盖所有可变依赖。
 func NewPeerSupervisor(mgr *ServerManager, logger *slog.Logger, opts ...PeerSupervisorOption) *PeerSupervisor {
 	return NewPeerSupervisorWithOptions(mgr, logger, opts...)
 }
 
-// NewPeerSupervisorWithOptions is the test-friendly constructor. mgr may be nil.
-// NewPeerSupervisorWithOptions 创建带选项的peersupervisor。
+// NewPeerSupervisorWithOptions 构造可注入依赖的 peer supervisor。
+// mgr 可以为 nil；缺省 logger、launcher 和 cleanupHook 会在这里补齐。
 func NewPeerSupervisorWithOptions(mgr *ServerManager, logger *slog.Logger, opts ...PeerSupervisorOption) *PeerSupervisor {
 	var reg peerPIDTracker
 	if mgr != nil && mgr.pidRegistry != nil {
@@ -214,8 +207,8 @@ func NewPeerSupervisorWithOptions(mgr *ServerManager, logger *slog.Logger, opts 
 
 var _ platformrunner.Runner = (*PeerSupervisor)(nil)
 
-// Run implements platformrunner.Runner.
-// Run 启动codexapp provider后台流程。
+// Run 启动并监管 Codex app 依赖的 singleton peer 进程。
+// packaged 模式下初始启动失败会 fail-fast；开发模式保留 best-effort 跳过语义。
 func (s *PeerSupervisor) Run(ctx context.Context) error {
 	s.probeControlPlane(ctx)
 
@@ -260,10 +253,8 @@ func (s *PeerSupervisor) Run(ctx context.Context) error {
 	return ctx.Err()
 }
 
-// probeControlPlane dials the control RPC address up to controlProbeAttempts
-// times, sleeping controlProbeEvery between attempts. It is best-effort by
-// design: P1a §需冻结的兼容语义 writes down that a failed probe is NOT a hard
-// startup gate; supervisor continues into peer launch regardless.
+// probeControlPlane 按配置探测宿主控制面是否已可连接。
+// 探测失败不阻断 peer 启动，peer 本身仍会通过 bootstrap 环境拿到控制面地址并自行重试。
 func (s *PeerSupervisor) probeControlPlane(ctx context.Context) {
 	if s.controlProbeAttempts == 0 {
 		return
@@ -297,7 +288,8 @@ func (s *PeerSupervisor) currentControlAddr() string {
 	return strings.TrimSpace(s.controlAddr)
 }
 
-// superviseOne 处理superviseone。
+// superviseOne 监管单个 peer 的退出和重启。
+// ctx 结束时只走关闭路径；运行中异常退出会清 discovery 文件并按退避重启一次。
 func (s *PeerSupervisor) superviseOne(ctx context.Context, name string, initial peerHandle, wg *sync.WaitGroup) {
 	defer wg.Done()
 	current := initial
@@ -352,7 +344,8 @@ func (s *PeerSupervisor) clearPeerDiscovery(name string) {
 	}
 }
 
-// trackPeer appends a new handle.
+// trackPeer 记录新启动的 peer 并登记 PID。
+// PID registry 是崩溃后孤儿清理依据，因此只在 handle 有有效 PID 时写入。
 func (s *PeerSupervisor) trackPeer(h peerHandle) {
 	s.mu.Lock()
 	s.peers = append(s.peers, h)
@@ -362,8 +355,8 @@ func (s *PeerSupervisor) trackPeer(h peerHandle) {
 	}
 }
 
-// replacePeer swaps the current handle.
-// replacePeer 替换peer。
+// replacePeer 用重启后的 handle 替换旧 peer。
+// 替换同时维护 PID registry，避免旧 PID 残留导致后续清理误判。
 func (s *PeerSupervisor) replacePeer(old, next peerHandle) {
 	s.mu.Lock()
 	for i, h := range s.peers {
@@ -383,9 +376,8 @@ func (s *PeerSupervisor) replacePeer(old, next peerHandle) {
 	}
 }
 
-// shutdown runs the stop/drain escalation: EOF -> SIGTERM -> SIGKILL. It
-// joins the superviseOne goroutines via wg and never retries re-launches.
-// Split into phase helpers so each function stays under the CC guard limit.
+// shutdown 执行 EOF、SIGTERM、SIGKILL 的 peer 关闭升级流程。
+// 它等待 superviseOne goroutine 汇合，成功后注销 PID 并清理 discovery 文件，不再触发重启。
 func (s *PeerSupervisor) shutdown(wg *sync.WaitGroup) error {
 	peers := s.snapshotPeers()
 	s.closePeerPipes(peers)
@@ -399,7 +391,8 @@ func (s *PeerSupervisor) shutdown(wg *sync.WaitGroup) error {
 	return err
 }
 
-// closePeerPipes sends EOF to every peer.
+// closePeerPipes 向所有 peer 的 stdin 发送 EOF。
+// peer 二进制把 EOF 视为优雅退出信号，失败只记录在单个 handle 的关闭路径中。
 func (s *PeerSupervisor) closePeerPipes(peers []peerHandle) {
 	for _, h := range peers {
 		s.closePeerPipe(h)
@@ -416,8 +409,8 @@ func (s *PeerSupervisor) closePeerPipe(h peerHandle) {
 	}
 }
 
-// drainOrEscalate sends EOF, SIGTERM, then SIGKILL, returning a timeout if peers still do not drain.
-// drainOrEscalate 先等待正常退出，超时后升级终止。
+// drainOrEscalate 等待 peer 优雅退出，超时后依次升级 SIGTERM 和 SIGKILL。
+// 三段等待后仍未汇合会返回 timeout，调用方据此保留 PID registry 供下次启动清理。
 func (s *PeerSupervisor) drainOrEscalate(peers []peerHandle, wg *sync.WaitGroup) error {
 	done := make(chan struct{})
 	go func() {
@@ -473,10 +466,8 @@ func (s *PeerSupervisor) snapshotPeers() []peerHandle {
 	return out
 }
 
-// execPeerLauncher is the production peerLauncher. It resolves the peer
-// binary, starts it with GO_AGENT_PEER_MODE=1 in its own process group, and
-// returns a handle wrapping the exec.Cmd + stdin write-pipe. The supervisor
-// owns the pid-registry registration for every handle this launcher produces.
+// execPeerLauncher 是生产 peerLauncher。
+// 它解析 peer 二进制、注入 peer mode 环境并独立启动进程；PID 注册仍由 PeerSupervisor 统一维护。
 type execPeerLauncher struct {
 	logger         *slog.Logger
 	workspaceRoots func() []string
@@ -489,7 +480,8 @@ func newExecPeerLauncher(logger *slog.Logger) *execPeerLauncher {
 	return &execPeerLauncher{logger: logger}
 }
 
-// Launch 启动codexapp provider。
+// Launch 启动指定 peer 二进制并返回可监管 handle。
+// stdin pipe 由 supervisor 持有用于优雅关闭，启动失败会关闭已创建的 pipe，避免文件描述符泄漏。
 func (l *execPeerLauncher) Launch(_ context.Context, name string) (peerHandle, error) {
 	binDirs, err := resolvePeerBinDirs()
 	if err != nil {
@@ -532,7 +524,8 @@ type peerBinaryMissingError struct {
 	Dirs []string
 }
 
-// Error 返回错误文本。
+// Error 返回 peer 二进制缺失的诊断文本。
+// 文本包含候选目录，便于 packaged 环境定位打包或 PATH 问题。
 func (e *peerBinaryMissingError) Error() string {
 	return "peer binary not found: " + e.Name + " in " + strings.Join(e.Dirs, string(os.PathListSeparator))
 }
@@ -546,10 +539,11 @@ type execPeerHandle struct {
 	pipeClosed bool
 }
 
-// Name 处理名称。
+// Name 返回该 handle 对应的 peer 名称。
 func (h *execPeerHandle) Name() string { return h.name }
 
-// PID 处理进程 ID。
+// PID 返回底层进程 ID。
+// 进程尚未启动或 handle 已损坏时返回 0，调用方据此跳过 PID registry 操作。
 func (h *execPeerHandle) PID() int {
 	if h.cmd != nil && h.cmd.Process != nil {
 		return h.cmd.Process.Pid
@@ -557,7 +551,8 @@ func (h *execPeerHandle) PID() int {
 	return 0
 }
 
-// Wait 等待codexapp provider。
+// Wait 等待 peer 进程退出并关闭进程守卫。
+// 该方法必须单次调用；重复等待由 os/exec 语义决定为错误。
 func (h *execPeerHandle) Wait() error {
 	if h.cmd == nil {
 		return errors.New("peer_supervisor: execPeerHandle with nil cmd")
@@ -567,7 +562,8 @@ func (h *execPeerHandle) Wait() error {
 	return err
 }
 
-// ClosePipe 关闭pipe。
+// ClosePipe 关闭 peer stdin，向进程发送 EOF。
+// 方法内部幂等，shutdown 与 supervise cancel 同时触发时不会重复关闭文件。
 func (h *execPeerHandle) ClosePipe() error {
 	h.mu.Lock()
 	defer h.mu.Unlock()

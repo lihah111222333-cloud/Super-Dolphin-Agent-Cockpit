@@ -10,6 +10,7 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/util/toolresults"
 )
 
+// ToolResultMeta 描述一次工具调用结果的归属，用于预算作用域、文件命名和生命周期登记。
 type ToolResultMeta struct {
 	ThreadID  string
 	TurnID    string
@@ -18,6 +19,7 @@ type ToolResultMeta struct {
 	Timestamp time.Time
 }
 
+// ToolResultRecord 是传回 provider 上下文的预览和可选落盘路径。
 type ToolResultRecord struct {
 	Preview       string
 	PersistedPath string
@@ -25,7 +27,7 @@ type ToolResultRecord struct {
 	OriginalSize  int
 }
 
-// CaptureToolResult 生成capture工具结果。
+// CaptureToolResult 生成可放入上下文的工具结果预览，必要时把完整结果落盘并登记清理。
 func CaptureToolResult(meta ToolResultMeta, raw string) ToolResultRecord {
 	originalSize := toolResultCharCount(raw)
 	if originalSize == 0 {
@@ -51,6 +53,7 @@ func CaptureToolResult(meta ToolResultMeta, raw string) ToolResultRecord {
 	return record
 }
 
+// persistToolResult 把完整工具结果写入私有缓存文件；写入失败只影响完整回看，不阻断 turn。
 func persistToolResult(meta ToolResultMeta, raw string) string {
 	dir, err := toolResultStorageDir()
 	if err != nil {
@@ -63,6 +66,7 @@ func persistToolResult(meta ToolResultMeta, raw string) string {
 	return path
 }
 
+// toolResultStorageDir 确保工具结果缓存目录存在，并在找不到缓存根时返回错误。
 func toolResultStorageDir() (string, error) {
 	dir := toolresults.CacheDir()
 	if dir == "" {
@@ -74,6 +78,7 @@ func toolResultStorageDir() (string, error) {
 	return dir, nil
 }
 
+// toolResultFileName 用时间和清洗后的归属字段生成稳定且不会穿越目录的文件名。
 func toolResultFileName(meta ToolResultMeta) string {
 	ts := meta.Timestamp
 	if ts.IsZero() {
@@ -88,7 +93,7 @@ func toolResultFileName(meta ToolResultMeta) string {
 	return strings.Join(parts, "_") + ".txt"
 }
 
-// sanitizeToolResultSegment 清理工具结果segment。
+// sanitizeToolResultSegment 只保留小写字母和数字，其他字符压成连字符用于文件名片段。
 func sanitizeToolResultSegment(raw string) string {
 	raw = strings.TrimSpace(strings.ToLower(raw))
 	if raw == "" {

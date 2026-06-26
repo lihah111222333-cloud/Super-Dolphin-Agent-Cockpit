@@ -17,12 +17,13 @@ type PromptProvider struct {
 	svc Service
 }
 
-// NewPromptProvider 创建promptprovider。
+// NewPromptProvider 创建 datasource 动态 prompt provider。
+// svc 可在 Resolve 时再检查，缺失会作为 critical prompt section error 暴露。
 func NewPromptProvider(svc Service) *PromptProvider {
 	return &PromptProvider{svc: svc}
 }
 
-// SectionName 处理section名称。
+// SectionName 返回 datasource 动态段名称，必须与 prompt 组装契约保持一致。
 func (p *PromptProvider) SectionName() string {
 	return contract.DynamicSectionDatasource
 }
@@ -52,6 +53,7 @@ func (p *PromptProvider) Resolve(ctx context.Context, input contract.SectionCont
 }
 
 // renderDatasourcePromptSection 将文件名列表渲染为 prompt 段落文本。
+// 没有可用文件时返回空字符串，避免向模型注入无信息 datasource 段。
 func renderDatasourcePromptSection(fileNames []string) string {
 	names := make([]string, 0, len(fileNames))
 	for _, name := range fileNames {
@@ -75,7 +77,8 @@ func renderDatasourcePromptSection(fileNames []string) string {
 	return strings.Join(lines, "\n")
 }
 
-// renderDatasourceDocumentPromptSection 将文档内容列表渲染为带分节标题的 prompt 段落。
+// renderDatasourceDocumentPromptSection 将文档正文渲染为 prompt 段落。
+// 文档先规范化排序，保证相同 workspace 的 prompt 输入稳定。
 func renderDatasourceDocumentPromptSection(documents []DatasourceDocument) string {
 	documents = normalizeDatasourceDocuments(documents)
 	if len(documents) == 0 {

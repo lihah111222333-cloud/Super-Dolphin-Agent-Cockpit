@@ -15,16 +15,20 @@ import (
 	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
 )
 
+// nowFunc 允许测试固定 release gate 报告中的时间戳。
 var nowFunc = time.Now
 
+// RunOptions 描述一次 SQLite release gate 运行所需的仓库、日志和选择范围。
 type RunOptions struct {
-	RepoRoot     string
-	LogDir       string
-	Only         []string
-	Timeout      time.Duration
-	AllowPartial bool
+	RepoRoot     string        // 被验证的仓库根目录。
+	LogDir       string        // 每个 gate 原始日志的输出目录。
+	Only         []string      // 可选 gate ID 列表，支持逗号分隔。
+	Timeout      time.Duration // 单个 gate 的最大运行时间。
+	AllowPartial bool          // 是否允许只运行 Only 指定的子集。
 }
 
+// Run 顺序执行 SQLite release gate 并返回可写入发布证据的报告。
+// 参数校验、日志目录创建和结果校验都 fail-fast；即使结果校验失败，也会返回已收集的报告。
 func Run(ctx context.Context, opts RunOptions) (Report, error) {
 	repoRoot := strings.TrimSpace(opts.RepoRoot)
 	if repoRoot == "" {
@@ -70,6 +74,8 @@ func Run(ctx context.Context, opts RunOptions) (Report, error) {
 	return report, nil
 }
 
+// WriteReport 将 release gate 报告写成 Markdown 文件。
+// 报告路径不能为空，父目录不存在时会创建，写入失败直接返回错误给发布流程。
 func WriteReport(path string, report Report) error {
 	clean := strings.TrimSpace(path)
 	if clean == "" {
@@ -84,6 +90,8 @@ func WriteReport(path string, report Report) error {
 	return nil
 }
 
+// runGate 执行单个 gate，并把 stdout/stderr 与失败原因写入独立原始日志。
+// 默认结果是 FAIL/-1，只有命令成功退出才会改为 PASS，超时由 CommandContext 负责中止进程。
 func runGate(parent context.Context, repoRoot, logDir string, gate Gate, timeout time.Duration) Result {
 	started := nowFunc().UTC()
 	rawLogPath := filepath.Join(logDir, gate.ID+".log")
@@ -126,12 +134,15 @@ func runGate(parent context.Context, repoRoot, logDir string, gate Gate, timeout
 	return result
 }
 
+// writeGateLog 写入 gate 原始日志；日志是发布证据，写失败时直接 panic 阻断流程。
 func writeGateLog(path string, body []byte) {
 	if err := os.WriteFile(path, body, 0o644); err != nil {
 		panic(fmt.Sprintf("write sqlite release gate raw log %s: %v", path, err))
 	}
 }
 
+// selectGates 根据 Only 参数选择 gate，并按 gate 编号稳定排序。
+// 未指定 Only 时返回完整定义；指定未知 ID 时立即报错，避免生成看似成功的空报告。
 func selectGates(gates []Gate, only []string) ([]Gate, error) {
 	wanted := map[string]bool{}
 	for _, value := range only {
@@ -166,6 +177,7 @@ func selectGates(gates []Gate, only []string) ([]Gate, error) {
 	return selected, nil
 }
 
+// gitCommitSHA 读取被验证仓库的 HEAD SHA，作为报告和日志的可追溯锚点。
 func gitCommitSHA(ctx context.Context, repoRoot string) (string, error) {
 	cmd := exec.CommandContext(ctx, "git", "rev-parse", "HEAD")
 	cmd.Dir = repoRoot

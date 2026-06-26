@@ -8,7 +8,9 @@ import (
 	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
 )
 
-// lookupFunctionContextWithLog 处理带日志的lookup函数上下文。
+// lookupFunctionContextWithLog 在 replace_range 成功后用 LSP 找回受影响函数。
+// 这个步骤只用于回显上下文：manager 缺失、超时或找不到函数时记录日志并返回空，
+// 不回滚已经确认落盘的编辑。
 func (h EditHandler) lookupFunctionContextWithLog(ctx context.Context, manager lspmanager.Manager, path string, line int, content string, log *editStageLogger) functionContext {
 	if manager == nil {
 		log.Skipped("function_lookup", "manager_nil")

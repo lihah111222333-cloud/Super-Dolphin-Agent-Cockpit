@@ -13,12 +13,14 @@ const DefaultManifestFileLimit = 200
 
 type ManifestBuilder struct{ MaxFiles int }
 
-// NewManifestBuilder 创建manifest构建器。
+// NewManifestBuilder 创建相关记忆检索的 manifest 构建器。
+// 默认文件上限保护检索前置扫描，避免大目录一次性进入排序和读取。
 func NewManifestBuilder() *ManifestBuilder {
 	return &ManifestBuilder{MaxFiles: DefaultManifestFileLimit}
 }
 
-// BuildManifest 构建manifest。
+// BuildManifest 扫描记忆根目录并返回可检索条目快照。
+// 返回值是克隆后的条目，调用方修改不会影响 builder 内部或后续扫描。
 func (b *ManifestBuilder) BuildManifest(memoryRoot string) ([]MemoryEntry, error) {
 	entries, err := ScanHeadersSafe(memoryRoot)
 	if err != nil {
@@ -30,6 +32,8 @@ func (b *ManifestBuilder) BuildManifest(memoryRoot string) ([]MemoryEntry, error
 	return cloneEntries(entries), nil
 }
 
+// maxFiles 返回 manifest 扫描的文件上限。
+// 未配置或非法值回到默认上限，避免 nil builder 造成无限扫描。
 func (b *ManifestBuilder) maxFiles() int {
 	if b == nil || b.MaxFiles <= 0 {
 		return DefaultManifestFileLimit
@@ -37,7 +41,8 @@ func (b *ManifestBuilder) maxFiles() int {
 	return b.MaxFiles
 }
 
-// ScanHeadersSafe 扫描头部safe。
+// ScanHeadersSafe 只读取记忆文件头部并生成 manifest。
+// 根目录为空会失败；根目录不存在返回空列表，遍历过程中非法路径会被跳过。
 func ScanHeadersSafe(memoryRoot string) ([]MemoryEntry, error) {
 	root := strings.TrimSpace(memoryRoot)
 	if root == "" {
@@ -72,7 +77,8 @@ func ScanHeadersSafe(memoryRoot string) ([]MemoryEntry, error) {
 	return entries, nil
 }
 
-// manifestEntryFromPathSafe 从路径safe处理manifest条目。
+// manifestEntryFromPathSafe 将 WalkDir 命中的 markdown 文件转成 manifest 条目。
+// 它跳过目录、MEMORY.md 和无法通过读路径校验的文件，避免检索越界内容。
 func manifestEntryFromPathSafe(root, path string, d fs.DirEntry, walkErr error) (MemoryEntry, bool) {
 	if walkErr != nil || d == nil || d.IsDir() || filepath.Ext(path) != ".md" || filepath.Base(path) == memoryIndexFileName {
 		return MemoryEntry{}, false

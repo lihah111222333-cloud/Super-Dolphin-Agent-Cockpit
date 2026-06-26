@@ -6,73 +6,48 @@ var (
 	ErrSessionNotFound = errors.New("session not found")
 )
 
-// ---------------------------------------------------------------------------
-// Skill error sentinels & types — lifted from internal/module/skill so that
-// platform/toolbridge (and other low-level consumers) can match these errors
-// without importing the module layer.
-// ---------------------------------------------------------------------------
-
-// ErrSkillMissingCWD is the canonical sentinel for "cwd is required" errors
-// originating from the skill module. The skill package should set its own
-// ErrMissingCWD = contract.ErrSkillMissingCWD so errors.Is works across
-// layers.
+// ErrSkillMissingCWD 是 skill 模块 cwd 缺失错误的跨层哨兵。
+// platform/toolbridge 等低层消费者用 errors.Is 匹配它，不需要导入 skill 模块。
 var ErrSkillMissingCWD = errors.New("cwd is required")
 
-// ErrSkillSameNameConflict is returned when two or more canonical skills share
-// the same name and no explicit resolution policy selects a single source.
+// ErrSkillSameNameConflict 表示多个 canonical skill 同名且没有显式策略选择单一来源。
 var ErrSkillSameNameConflict = errors.New("skill same-name conflict")
 
-// SkillApprovalRequiredError signals that a skill artifact requires user
-// approval before execution. It carries the ApprovalRequest payload so
-// callers can surface the approval UI.
+// SkillApprovalRequiredError 表示 skill artifact 执行前需要用户审批。
+// Request 保留审批载荷，调用方据此展示审批 UI 并阻断执行。
 type SkillApprovalRequiredError struct {
 	Request ApprovalRequest
 }
 
 var errSkillApprovalRequired = errors.New("skill artifact approval required")
 
-// Error 返回错误文本。
+// Error 返回稳定的 skill 审批错误文本。
 func (e SkillApprovalRequiredError) Error() string {
 	return errSkillApprovalRequired.Error()
 }
 
-// Unwrap 返回底层错误。
+// Unwrap 暴露审批哨兵，允许 errors.Is 识别该错误类别。
 func (e SkillApprovalRequiredError) Unwrap() error { return errSkillApprovalRequired }
 
-// ---------------------------------------------------------------------------
-// Store-level sentinel errors (was store_errors.go)
-// ---------------------------------------------------------------------------
-
-// Store-level sentinel errors shared across modules.
-// These mirror the sentinels in platform/db but live in contract so that
-// module-layer code never needs to import platform/db directly.
+// 存储层哨兵错误由 contract 暴露给 module 层，避免 module 直接依赖 platform/db。
 var (
 	ErrNotFound = errors.New("store: not found")
 	ErrConflict = errors.New("store: conflict")
 )
 
-// IsNotFound reports whether err (or any error in its chain) matches
-// the store-not-found sentinel.
-// IsNotFound 判断notfound是否可用。
+// IsNotFound 判断错误链是否匹配存储层 not-found 哨兵。
 func IsNotFound(err error) bool {
 	return errors.Is(err, ErrNotFound)
 }
 
-// ---------------------------------------------------------------------------
-// Toolbridge runtime sentinels (was toolbridge_runtime_required.go)
-// ---------------------------------------------------------------------------
-
-// ErrThreadRuntimeRequired is the sentinel returned when a toolbridge
-// tool call cannot resolve a thread identity to apply per-thread policy
-// (e.g. spawn_agent policy enforcement).
+// ErrThreadRuntimeRequired 表示 toolbridge 调用无法解析 thread runtime。
+// 需要 thread 身份才能应用 per-thread 策略的工具必须返回该哨兵而不是静默降级。
 var ErrThreadRuntimeRequired = errors.New("toolbridge: thread runtime is required")
 
-// ErrPersistentSubagentRuntimeRequired is the sibling sentinel for the
-// specific case where thread identity resolves but the thread store has
-// no runtime config (so persistent_subagent_default cannot be evaluated).
+// ErrPersistentSubagentRuntimeRequired 表示 thread 存在但缺少 runtime config。
+// 这种情况下 persistent_subagent_default 无法求值，调用方必须阻断策略判断。
 var ErrPersistentSubagentRuntimeRequired = errors.New("toolbridge: persistent subagent runtime is required")
 
-// ErrPersistentSubagentFlagRequired is returned when a toolbridge
-// spawn_agent policy check has a runtime config, but that runtime does
-// not explicitly carry the persistent-subagent session flag.
+// ErrPersistentSubagentFlagRequired 表示 runtime config 未显式携带 persistent-subagent 标志。
+// spawn_agent 策略检查用它区分“缺少配置”与“显式关闭”。
 var ErrPersistentSubagentFlagRequired = errors.New("toolbridge: persistent subagent flag is required")

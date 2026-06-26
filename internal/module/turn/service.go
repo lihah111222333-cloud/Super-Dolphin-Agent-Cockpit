@@ -20,13 +20,14 @@ import (
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
-// skillHydrationPort is the turn service's minimal dependency for resolving
-// name-only skill references before provider submission.
+// skillHydrationPort 是 turn 服务解析 name-only skill 引用所需的最小依赖。
 type skillHydrationPort = contract.SkillHydrationSource
 
+// peerBinDirEnv 指定 provider manifest 查找内置 MCP peer 二进制的目录。
 const peerBinDirEnv = "GO_AGENT_PEER_BIN_DIR"
 
 // service 是 turn.Service 的核心实现，持有组装器、技能解析器、manifest 构建器和 tracker 等依赖。
+// tracker 负责进程内状态收敛，durable dedupe store 只作为重启恢复的 best-effort 镜像。
 type service struct {
 	logger                 *slog.Logger
 	assembler              *inputAssembler
@@ -40,36 +41,32 @@ type service struct {
 	mcpServers             contract.MCPServerConfigProvider
 	tracing                *platformobs.Service
 	interruptSettleTimeout time.Duration
-	// dedupeStore is the optional durable mirror for dedupe_key -> local_turn_id.
-	// nil when the deployment has not wired the turndedupe store; the tracker
-	// alone handles same-process dedupe in that case. When set, StartTurn
-	// upserts a registry row and Complete/Stall stamps terminal_at.
+	// dedupeStore 持久化 dedupe_key 到 local_turn_id 的镜像；未注入时只依赖进程内 tracker。
+	// 注入后 StartTurn 写入 registry，Complete/Stall 路径写 terminal_at，供重启恢复避重。
 	dedupeStore turndedupe.Store
 
-	// ctx/cancel bound to the service lifetime. Shutdown cancels ctx so
-	// background goroutines (watchTurn) can exit instead of waiting out
-	// full trackerTTL after the module stops.
+	// ctx/cancel 绑定服务生命周期；Shutdown 取消后，watchTurn 等后台 goroutine 不必等满 trackerTTL。
 	ctx       context.Context
 	ctxCancel context.CancelFunc
 }
 
+// steerableSession 是支持向活跃 provider turn 追加输入的 session 能力。
 type steerableSession interface {
 	Steer(ctx context.Context, req dto.SteerRequest) error
 }
 
-// NewService 创建服务。
+// NewService 创建只包含默认组装能力的 turn 服务，主要用于轻量测试和旧 wiring。
 func NewService(logger *slog.Logger) Service {
 	return newService(logger, nil, nil, nil, nil, nil, contract.BuildManifest, nil)
 }
 
-// NewServiceWithPromptAssembly 创建带promptassembly的服务。
+// NewServiceWithPromptAssembly 创建带 prompt assembly 能力的 turn 服务。
 func NewServiceWithPromptAssembly(logger *slog.Logger, promptAssembly contract.PromptAssemblyService) Service {
 	return newService(logger, promptAssembly, nil, nil, nil, nil, contract.BuildManifest, nil)
 }
 
-// NewServiceWithPromptAssemblyAndTurnContext p20.2 §5 step 1：skill.Service
-// 参数按 fx `optional:"true"` 注入，用于 PrepareTurn 的 name-only skill
-// hydrate；observation.Contract 同样 optional，用于 P21 canonical facts。
+// NewServiceWithPromptAssemblyAndTurnContext 创建完整 wiring 使用的 turn 服务。
+// skill、observation、dedupe、MCP 和 tracing 依赖均允许 optional 注入，缺失时只跳过对应能力。
 func NewServiceWithPromptAssemblyAndTurnContext(
 	logger *slog.Logger,
 	promptAssembly contract.PromptAssemblyService,
@@ -92,7 +89,7 @@ func NewServiceWithPromptAssemblyAndTurnContext(
 	return svc
 }
 
-// newService 创建服务。
+// newService 组装 turn 服务内部依赖，并创建服务级 context 供后台 watcher 统一退出。
 func newService(
 	logger *slog.Logger,
 	promptAssembly contract.PromptAssemblyService,
@@ -149,10 +146,9 @@ func (s *service) PrepareTurn(ctx context.Context, session contract.Session, inp
 	if err != nil {
 		return dto.TurnRequest{}, err
 	}
-	// V1 provider-native skill discovery 只在 turn 侧补全元数据，正文由
-	// Claude/Codex 从 provider-native mirror 自行发现；hydrate 是 optional
-	// 依赖：skillLookup==nil 时（NewService / NewServiceWithPromptAssembly
-	// 或 fx 未注入 skill.Service）原路直通。
+	// provider-native skill discovery 只在 turn 侧补全元数据，正文由
+	// Claude/Codex 从 provider-native mirror 自行发现；hydrate 是 optional 依赖，
+	// skillLookup 未注入时原路直通。
 	hydrated, hydrateErr := s.hydrateSkillRefs(contract.WithSkillCWD(ctx, input.CWD), input.Skills, input.ManualSkillSelection)
 	if hydrateErr != nil {
 		return dto.TurnRequest{}, hydrateErr
@@ -212,10 +208,8 @@ func (s *service) StartTurn(ctx context.Context, session contract.Session, req d
 	req.ThreadID = threadID
 	s.tracker.Cleanup()
 	s.tracker.Start(req.LocalID, "", req.ThreadID)
-	// Stamp the dedupe key on the tracked turn before dispatching so a
-	// concurrent LookupByDedupeKey can see this submission even if the
-	// provider call is in flight. RegisterDedupeKey is a no-op when
-	// req.DedupeKey is empty.
+	// provider 调用尚未返回时也可能有并发 LookupByDedupeKey，因此先把 dedupe key 写入 tracker。
+	// 空 key 在 RegisterDedupeKey 内是 no-op。
 	s.tracker.RegisterDedupeKey(req.LocalID, req.DedupeKey)
 	s.recordDedupeUpsert(ctx, req.DedupeKey, req.LocalID, req.ThreadID)
 	handle, err = session.StartTurn(ctx, req)
@@ -240,7 +234,7 @@ func (s *service) StartTurn(ctx context.Context, session contract.Session, req d
 	return handle, nil
 }
 
-// SteerTurn 处理steerturn。
+// SteerTurn 将新的输入追加到当前活跃 turn，expectedTurnID 不匹配时拒绝发送。
 func (s *service) SteerTurn(ctx context.Context, session contract.Session, expectedTurnID string, input PrepareInput) (contract.TurnHandle, error) {
 	ctx, threadID, err := requireTurnContext(ctx, session)
 	if err != nil {
@@ -289,7 +283,8 @@ func requireSteerableSession(session contract.Session) (steerableSession, error)
 	return steerer, nil
 }
 
-// ForceCompleteTurn 处理强制completeturn。
+// ForceCompleteTurn 请求 provider 强制完成当前线程的活跃 turn，并等待 tracker 收敛。
+// 若本地没有 tracked turn，只向 provider 发请求后返回，不制造新的 tracker 记录。
 func (s *service) ForceCompleteTurn(ctx context.Context, session contract.Session) error {
 	ctx, threadID, err := requireTurnContext(ctx, session)
 	if err != nil {
@@ -312,7 +307,7 @@ func (s *service) ForceCompleteTurn(ctx context.Context, session contract.Sessio
 	return s.waitForTurnSettle(ctx, active.localID, active.handle)
 }
 
-// TrackTurn 跟踪turn。
+// TrackTurn 只读取本进程 tracker 快照；没有记录时返回明确错误，不查询 durable dedupe registry。
 func (s *service) TrackTurn(ctx context.Context, localID string) (TurnStatus, error) {
 	ctx = util.NonNilContext(ctx)
 	if err := ctx.Err(); err != nil {
@@ -325,12 +320,9 @@ func (s *service) TrackTurn(ctx context.Context, localID string) (TurnStatus, er
 	return status, nil
 }
 
-// LookupByDedupeKey resolves a dedupeKey to the in-memory tracker
-// entry that registered it. See Service.LookupByDedupeKey for the
-// caller contract — ok=false means "never submitted (in this
-// process)", which is the scheduler's cue to proceed with a fresh
-// StartTurn via the normal pending→submitting path.
-// LookupByDedupeKey 按去重键处理lookup。
+// LookupByDedupeKey 先查本进程 tracker，再查 durable registry，用于 cron recovery 避免重复提交。
+// ok=false 表示可按正常 pending -> submitting 路径重新 StartTurn。
+// registry 命中只代表“看起来仍在运行”，终态行会在 SQL 层被过滤。
 func (s *service) LookupByDedupeKey(ctx context.Context, dedupeKey string) (TurnStatus, bool, error) {
 	ctx = util.NonNilContext(ctx)
 	if err := ctx.Err(); err != nil {
@@ -339,10 +331,8 @@ func (s *service) LookupByDedupeKey(ctx context.Context, dedupeKey string) (Turn
 	if status, ok := s.tracker.GetByDedupeKey(dedupeKey); ok {
 		return status, true, nil
 	}
-	// Tracker miss. Fall back to the durable registry when wired so a
-	// post-restart cron recovery can still resolve a previously-started
-	// turn to its local_turn_id. Empty key / missing store returns
-	// ok=false without reaching SQL.
+	// tracker 未命中时再查持久 registry，让重启后的 cron recovery 能识别已提交 turn。
+	// 空 key 或未注入 store 直接返回 ok=false，不访问 SQL。
 	if s.dedupeStore == nil {
 		return TurnStatus{}, false, nil
 	}
@@ -357,10 +347,8 @@ func (s *service) LookupByDedupeKey(ctx context.Context, dedupeKey string) (Turn
 		}
 		return TurnStatus{}, false, err
 	}
-	// Check if the registry hit is a "zombie" (the process that started it
-	// died without marking it terminal). If it hasn't been updated within
-	// trackerTTL, consider it expired. Returning ok=false allows the caller
-	// to retry (StartTurn will upsert and overwrite the zombie row).
+	// registry 命中但长时间未更新时，视为启动进程已退出且未写终态的僵尸记录。
+	// 返回 ok=false 允许调用方重试，StartTurn 会 upsert 覆盖旧行。
 	if time.Since(entry.UpdatedAt) > trackerTTL {
 		if s.logger != nil {
 			s.logger.Warn("turn: dedupe registry hit is expired (zombie)", "dedupe_key", key, "updated_at", entry.UpdatedAt)
@@ -368,9 +356,7 @@ func (s *service) LookupByDedupeKey(ctx context.Context, dedupeKey string) (Turn
 		return TurnStatus{}, false, nil
 	}
 
-	// A registry hit is treated as "running" because terminal rows are
-	// filtered at the SQL layer. Providing the tracker-shaped
-	// TurnStatus here lets callers share a single code path.
+	// SQL 层已过滤终态行，因此 registry 命中一律按 running 暴露成 tracker 形态。
 	return TurnStatus{
 		LocalID:    entry.LocalTurnID,
 		ProviderID: entry.ProviderTurnID,
@@ -378,11 +364,8 @@ func (s *service) LookupByDedupeKey(ctx context.Context, dedupeKey string) (Turn
 	}, true, nil
 }
 
-// recordDedupeUpsert is the StartTurn-side mirror write to the durable
-// registry. nil dedupeStore or empty key short-circuits so callers
-// that didn't opt into dedupe pay no cost. Errors are logged and
-// dropped — the tracker already holds the key, so durability is
-// strictly best-effort.
+// recordDedupeUpsert 在 StartTurn 侧把 dedupe key 写入持久 registry。
+// 未注入 store 或 key 为空时直接跳过；tracker 已持有 key，因此持久化是 best-effort。
 func (s *service) recordDedupeUpsert(ctx context.Context, dedupeKey, localID, threadID string) error {
 	if s == nil || s.dedupeStore == nil {
 		return nil
@@ -399,9 +382,8 @@ func (s *service) recordDedupeUpsert(ctx context.Context, dedupeKey, localID, th
 	})
 }
 
-// recordDedupeProviderID updates the registry row with the provider
-// turn id once StartTurn returns. Same best-effort semantics as
-// recordDedupeUpsert.
+// recordDedupeProviderID 在 StartTurn 返回 provider turnID 后回写 durable registry。
+// key 或 providerID 为空时跳过，避免把未完成的 provider 绑定写成脏行。
 func (s *service) recordDedupeProviderID(ctx context.Context, dedupeKey, providerID string) error {
 	if s == nil || s.dedupeStore == nil {
 		return nil
@@ -418,10 +400,7 @@ func (s *service) recordDedupeProviderID(ctx context.Context, dedupeKey, provide
 	})
 }
 
-// recordDedupeTerminal stamps terminal_at on the registry row so
-// future GetLive calls skip it. Resolves the dedupe key from the
-// tracker when called without an explicit key argument. Safe to
-// invoke even when nothing was previously upserted.
+// recordDedupeTerminal 给 registry 行写入 terminal_at，确保后续 GetLive 不再把它当作运行中 turn。
 func (s *service) recordDedupeTerminal(ctx context.Context, dedupeKey string) error {
 	if s == nil || s.dedupeStore == nil {
 		return nil
@@ -433,10 +412,8 @@ func (s *service) recordDedupeTerminal(ctx context.Context, dedupeKey string) er
 	return s.dedupeStore.MarkTerminal(ctx, key, time.Now())
 }
 
-// recordDedupeTerminalForLocalID looks up the dedupe key on the
-// tracker (the canonical source inside the process) and stamps the
-// registry terminal. Used from watchTurn / waitForTurnSettle which
-// only know the localID at the point of termination.
+// recordDedupeTerminalForLocalID 通过 tracker 反查 localID 对应的 dedupe key 并写终态。
+// watchTurn 和 waitForTurnSettle 到终止点时只知道 localID，因此不能直接按 key 更新。
 func (s *service) recordDedupeTerminalForLocalID(ctx context.Context, localID string) {
 	if s == nil || s.dedupeStore == nil {
 		return
@@ -448,7 +425,8 @@ func (s *service) recordDedupeTerminalForLocalID(ctx context.Context, localID st
 	s.recordDedupeTerminal(ctx, key)
 }
 
-// watchTurn 监听turn。
+// watchTurn 启动后台 watcher 等待 provider handle 完成，并在超时或服务关闭时写入终态。
+// watcher 最多等待 trackerTTL；服务关闭时会标记 stalled，让前端和 dedupe registry 都能收口。
 func (s *service) watchTurn(parentCtx context.Context, handle contract.TurnHandle, localID string, threadID string) {
 	if handle == nil {
 		return
@@ -476,8 +454,7 @@ func (s *service) watchTurn(parentCtx context.Context, handle contract.TurnHandl
 			s.finishTurnTraceSpan(span, errors.New("turn watch timed out"))
 			return
 		case <-ctx.Done():
-			// service shutdown; mark the turn stalled so the frontend can
-			// clear the loading state instead of hanging indefinitely.
+			// 服务关闭时把 turn 标记为 stalled，前端才能清掉 loading 状态而不是无限等待。
 			s.tracker.Stall(localID, "service_shutdown")
 			s.recordDedupeTerminalForLocalID(context.Background(), localID)
 			s.finishTurnTraceSpan(span, ctx.Err())
@@ -500,6 +477,7 @@ func (s *service) watchTurn(parentCtx context.Context, handle contract.TurnHandl
 }
 
 // waitForTurnSettle 等待 handle 完成并更新 tracker 状态，超时后返回 DeadlineExceeded。
+// 它同时推进 dedupe registry 终态，保证 force/interrupt 路径和 watcher 的收敛口径一致。
 func (s *service) waitForTurnSettle(ctx context.Context, localID string, handle contract.TurnHandle) error {
 	deadline := time.Now().Add(s.interruptSettleTimeout)
 	ctx = util.NonNilContext(ctx)
@@ -553,10 +531,7 @@ func (s *service) buildOverrides(caps dto.CapabilitySet, input PrepareInput) dto
 	return overrides
 }
 
-// Shutdown cancels the service-level ctx so background goroutines
-// (watchTurn) can exit promptly instead of waiting out the full
-// trackerTTL. Safe to call multiple times and on a nil service.
-// Shutdown 发送 LSP 关闭请求。
+// Shutdown 取消服务级 context，让 watchTurn 等后台 goroutine 及时退出；可重复调用。
 func (s *service) Shutdown() {
 	if s == nil || s.ctxCancel == nil {
 		return
@@ -564,6 +539,7 @@ func (s *service) Shutdown() {
 	s.ctxCancel()
 }
 
+// turnTraceSpan 保存一次 turn 追踪 span 的上下文和 begin/done 事件共享字段。
 type turnTraceSpan struct {
 	ctx       context.Context
 	trace     platformobs.TraceContext
