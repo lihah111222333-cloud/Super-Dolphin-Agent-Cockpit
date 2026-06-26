@@ -378,19 +378,22 @@ func (s *stubSession) SetThreadName(_ context.Context, threadID, name string) er
 }
 
 type stubThreadStore struct {
-	thread              *threadstore.Thread
-	threads             []threadstore.Thread
-	threadByID          map[string]*threadstore.Thread
-	getErr              error
-	upsert              threadstore.UpsertParams
-	upsertCount         int
-	upsertErr           error
-	existsErr           error
-	countChildrenErr    error
-	status              threadstore.UpdateStatusParams
-	promptSnapshot      *threadstore.PromptSnapshot
-	promptSnapshotError error
-	promptSnapshotID    string
+	thread                  *threadstore.Thread
+	threads                 []threadstore.Thread
+	threadByID              map[string]*threadstore.Thread
+	getErr                  error
+	upsert                  threadstore.UpsertParams
+	upsertCount             int
+	upsertErr               error
+	existsErr               error
+	countChildrenErr        error
+	status                  threadstore.UpdateStatusParams
+	promptSnapshot          *threadstore.PromptSnapshot
+	promptSnapshotError     error
+	savePromptSnapshotError error
+	loadPromptSnapshotError error
+	savePromptSnapshotIDs   []string
+	promptSnapshotID        string
 }
 
 func (s *stubThreadStore) GetByThreadID(_ context.Context, threadID string) (*threadstore.Thread, error) {
@@ -451,6 +454,10 @@ func (s *stubThreadStore) ListRunningAgents(context.Context) ([]threadstore.Runn
 }
 
 func (s *stubThreadStore) SavePromptSnapshot(_ context.Context, threadID string, snapshot threadstore.PromptSnapshot) error {
+	s.savePromptSnapshotIDs = append(s.savePromptSnapshotIDs, threadID)
+	if s.savePromptSnapshotError != nil {
+		return s.savePromptSnapshotError
+	}
 	if s.promptSnapshotError != nil {
 		return s.promptSnapshotError
 	}
@@ -462,6 +469,9 @@ func (s *stubThreadStore) SavePromptSnapshot(_ context.Context, threadID string,
 }
 
 func (s *stubThreadStore) LoadPromptSnapshot(context.Context, string) (*threadstore.PromptSnapshot, error) {
+	if s.loadPromptSnapshotError != nil {
+		return nil, s.loadPromptSnapshotError
+	}
 	if s.promptSnapshotError != nil {
 		return nil, s.promptSnapshotError
 	}

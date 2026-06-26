@@ -34,7 +34,7 @@ func (s *service) Fork(ctx context.Context, threadID string) (ForkResult, error)
 	if newThreadID == "" {
 		return ForkResult{}, errors.New("fork thread id is required")
 	}
-	snapshot, err := s.resolveStablePromptSnapshot(ctx, threadID, provider, contract.PromptAssemblySnapshot{})
+	snapshot, err := s.resolveAndSaveForkPromptSnapshot(ctx, threadID, newThreadID, provider)
 	if err != nil {
 		return ForkResult{}, err
 	}
@@ -93,6 +93,18 @@ func (s *service) Fork(ctx context.Context, threadID string) (ForkResult, error)
 		NewThreadID: newThreadID,
 		ForkedFrom:  bindingPublicThreadID(binding, threadID),
 	}, nil
+}
+
+// resolveAndSaveForkPromptSnapshot 读取父线程 snapshot，并在新 session 启动前保存到 fork 线程。
+func (s *service) resolveAndSaveForkPromptSnapshot(ctx context.Context, parentThreadID, newThreadID, provider string) (contract.PromptAssemblySnapshot, error) {
+	snapshot, err := s.resolveStablePromptSnapshot(ctx, parentThreadID, provider, contract.PromptAssemblySnapshot{})
+	if err != nil || promptSnapshotBlank(snapshot) {
+		return snapshot, err
+	}
+	if err := s.savePromptSnapshot(ctx, newThreadID, contract.StartAssembly{Snapshot: snapshot}); err != nil {
+		return contract.PromptAssemblySnapshot{}, fmt.Errorf("save fork prompt snapshot for %q: %w", strings.TrimSpace(newThreadID), err)
+	}
+	return snapshot, nil
 }
 
 // resolveForkContext 只从 thread meta 和 binding 取 provider/cwd。
