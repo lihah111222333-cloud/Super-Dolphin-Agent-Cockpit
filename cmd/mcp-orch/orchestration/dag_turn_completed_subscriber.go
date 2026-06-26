@@ -236,6 +236,7 @@ func advanceNodeFailedWithReason(ctx context.Context, flow taskdag.NodeFlowStore
 		logger.Debug("dag subscriber: fail fence rejected, node already terminal", "dag_key", node.DagKey, "node_key", node.NodeKey)
 	}
 	logger.Warn("dag subscriber: fail node failed", "dag_key", node.DagKey, "node_key", node.NodeKey, "error", err)
+	turncompletionretry.EnqueueTerminalFailureCompensation(ctx, flow, logger, node, reason, err, failFast)
 	return false
 }
 
