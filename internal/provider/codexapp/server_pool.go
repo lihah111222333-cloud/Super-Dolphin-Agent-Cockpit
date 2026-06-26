@@ -14,6 +14,7 @@ import (
 	platformrunner "github.com/anthropic-ai/super-agent-v3/internal/platform/runner"
 	providershared "github.com/anthropic-ai/super-agent-v3/internal/provider/shared"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
+	"golang.org/x/sync/singleflight"
 )
 
 // SpawnedServer 是 ServerPool 持有的最小 app-server 生命周期接口。
@@ -51,6 +52,7 @@ var (
 	ErrSpawnBackoff    = errors.New("codexapp: spawn backoff active for codexHome")
 	ErrPoolClosed      = errors.New("codexapp: server pool is closed")
 	ErrInvalidIdentity = errors.New("codexapp: invalid codex identity")
+	noopRelease        = func() {}
 )
 
 // ServerPool 按 canonical Codex 身份和 owner 管理 app-server 实例。
@@ -67,27 +69,19 @@ type ServerPool struct {
 	mu      sync.Mutex
 	entries map[poolEntryKey]*poolEntry
 	closed  bool
+	flight  singleflight.Group
 }
 
 type poolEntryKey struct {
-	home          string
-	instanceKey   string
-	modelProvider string
-	processPolicy string
-	ownerKey      string
+	home, instanceKey, modelProvider, processPolicy, ownerKey string
 }
 
 type poolEntry struct {
-	key           poolEntryKey
-	home          string
-	instanceKey   string
-	modelProvider string
-	ownerKey      string
-	server        SpawnedServer
-	lastUsed      time.Time
-	refCount      int
-	spawnErr      error
-	backoffUntil  time.Time
+	key                    poolEntryKey
+	server                 SpawnedServer
+	lastUsed, backoffUntil time.Time
+	refCount               int
+	spawnErr               error
 }
 
 // NewServerPool 创建 Codex app-server 池。
@@ -118,19 +112,13 @@ func NewServerPool(logger *slog.Logger, spawner Spawner, cfg PoolConfig) *Server
 func (p *ServerPool) Acquire(ctx context.Context, identity providershared.CodexIdentity, ownerKey string) (SpawnedServer, func(), error) {
 	home, key, provider, err := normalizePoolIdentity(identity)
 	if err != nil {
-		return nil, newNoopRelease(), err
+		return nil, noopRelease, err
 	}
 	ownerKey = strings.TrimSpace(ownerKey)
 	if ownerKey == "" {
-		return nil, newNoopRelease(), fmt.Errorf("%w: pool owner agentID is empty", ErrInvalidIdentity)
+		return nil, noopRelease, fmt.Errorf("%w: pool owner agentID is empty", ErrInvalidIdentity)
 	}
-	entryKey := poolEntryKey{
-		home:          home,
-		instanceKey:   key,
-		modelProvider: provider,
-		processPolicy: poolSpawnPolicySignature(ctx),
-		ownerKey:      ownerKey,
-	}
+	entryKey := poolEntryKey{home: home, instanceKey: key, modelProvider: provider, processPolicy: poolSpawnPolicySignature(ctx), ownerKey: ownerKey}
 	p.mu.Lock()
 	fastPath := p.acquireFastPathLocked(entryKey)
 	if fastPath.done {
@@ -140,25 +128,24 @@ func (p *ServerPool) Acquire(ctx context.Context, identity providershared.CodexI
 	// 启动新进程前先检查退避窗口，避免失败身份被快速重试打爆。
 	if err := p.checkBackoffLocked(fastPath.entry, fastPath.now); err != nil {
 		p.mu.Unlock()
-		return nil, newNoopRelease(), err
+		return nil, noopRelease, err
 	}
 	spawnAt := fastPath.now
 	p.mu.Unlock()
 
-	server, err := p.spawner(ctx, home, provider)
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	entry := p.entries[entryKey]
-	if err != nil {
-		p.recordSpawnErrorLocked(entry, entryKey, err, spawnAt)
-		return nil, newNoopRelease(), fmt.Errorf("codexapp: spawn %q: %w", home, err)
+	flightKey := fmt.Sprintf("%s\x00%s\x00%s\x00%s\x00%s", entryKey.home, entryKey.instanceKey, entryKey.modelProvider, entryKey.processPolicy, entryKey.ownerKey)
+	if _, err, _ := p.flight.Do(flightKey, func() (any, error) {
+		return p.spawnAndStore(ctx, entryKey, home, provider, spawnAt)
+	}); err != nil {
+		return nil, noopRelease, err
 	}
-	p.storeSpawnedLocked(entry, entryKey, server, spawnAt)
-	return server, p.releaser(entryKey), nil
-}
-
-func newNoopRelease() func() {
-	return func() {}
+	p.mu.Lock()
+	fastPath = p.acquireFastPathLocked(entryKey)
+	p.mu.Unlock()
+	if fastPath.done {
+		return fastPath.server, fastPath.release, fastPath.err
+	}
+	return nil, noopRelease, errors.New("codexapp: pool spawned server unavailable")
 }
 
 type acquireFastPathResult struct {
@@ -173,7 +160,7 @@ type acquireFastPathResult struct {
 // acquireFastPathLocked 在持锁状态下处理复用、关闭和死进程快路径。
 // 返回 done=false 时调用方必须释放锁后执行真正的 spawn，避免长时间持锁启动进程。
 func (p *ServerPool) acquireFastPathLocked(entryKey poolEntryKey) acquireFastPathResult {
-	result := acquireFastPathResult{release: newNoopRelease()}
+	result := acquireFastPathResult{release: noopRelease}
 	if p.closed {
 		result.err = ErrPoolClosed
 		result.done = true
@@ -203,6 +190,26 @@ func (p *ServerPool) acquireFastPathLocked(entryKey poolEntryKey) acquireFastPat
 	return result
 }
 
+// spawnAndStore 在 singleflight leader 中启动进程并写入池；引用计数由每个 Acquire 返回前单独增加。
+func (p *ServerPool) spawnAndStore(ctx context.Context, entryKey poolEntryKey, home, provider string, spawnAt time.Time) (SpawnedServer, error) {
+	server, err := p.spawner(ctx, home, provider)
+	p.mu.Lock()
+	entry := p.entries[entryKey]
+	if err != nil {
+		p.recordSpawnErrorLocked(entry, entryKey, err, spawnAt)
+		p.mu.Unlock()
+		return nil, fmt.Errorf("codexapp: spawn %q: %w", home, err)
+	}
+	if p.closed {
+		p.mu.Unlock()
+		closeWithTimeout(server, 2*time.Second, p.logger, entryKey)
+		return nil, ErrPoolClosed
+	}
+	p.storeSpawnedLocked(entry, entryKey, server, spawnAt)
+	p.mu.Unlock()
+	return server, nil
+}
+
 func (p *ServerPool) checkBackoffLocked(entry *poolEntry, now time.Time) error {
 	if entry == nil || entry.spawnErr == nil || !now.Before(entry.backoffUntil) {
 		return nil
@@ -216,9 +223,7 @@ func (p *ServerPool) recordSpawnErrorLocked(entry *poolEntry, entryKey poolEntry
 		entry = newPoolEntry(entryKey)
 		p.entries[entryKey] = entry
 	}
-	entry.spawnErr = err
-	entry.backoffUntil = now.Add(p.cfg.SpawnBackoff)
-	entry.lastUsed = now
+	entry.spawnErr, entry.backoffUntil, entry.lastUsed = err, now.Add(p.cfg.SpawnBackoff), now
 }
 
 func (p *ServerPool) storeSpawnedLocked(entry *poolEntry, entryKey poolEntryKey, server SpawnedServer, now time.Time) {
@@ -226,21 +231,11 @@ func (p *ServerPool) storeSpawnedLocked(entry *poolEntry, entryKey poolEntryKey,
 		entry = newPoolEntry(entryKey)
 		p.entries[entryKey] = entry
 	}
-	entry.server = server
-	entry.spawnErr = nil
-	entry.backoffUntil = time.Time{}
-	entry.refCount = 1
-	entry.lastUsed = now
+	entry.server, entry.spawnErr, entry.backoffUntil, entry.refCount, entry.lastUsed = server, nil, time.Time{}, 0, now
 }
 
 func newPoolEntry(entryKey poolEntryKey) *poolEntry {
-	return &poolEntry{
-		key:           entryKey,
-		home:          entryKey.home,
-		instanceKey:   entryKey.instanceKey,
-		modelProvider: entryKey.modelProvider,
-		ownerKey:      entryKey.ownerKey,
-	}
+	return &poolEntry{key: entryKey}
 }
 
 // releaser 返回 Acquire 对应的引用释放闭包。

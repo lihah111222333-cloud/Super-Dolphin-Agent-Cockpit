@@ -26,8 +26,8 @@ import (
 
 // recoveryOrderServer is a stub WS server that counts and records each RPC
 // method invocation order (across reconnects). It only replies to the methods
-// the recovery replay path needs to observe (initialize / thread/resume /
-// turn/start); every other request gets a generic `{ok:true}` reply.
+// the recovery replay path needs to observe; every other request gets a generic
+// `{ok:true}` reply.
 type recoveryOrderServer struct {
 	t *testing.T
 
@@ -70,6 +70,8 @@ func newRecoveryOrderServer(t *testing.T) (*recoveryOrderServer, string) {
 				result = mustJSON(map[string]any{"ok": true})
 			case "thread/resume":
 				result = mustJSON(map[string]any{"thread": map[string]any{"id": "thread-1"}})
+			case "turn/status":
+				result = mustJSON(map[string]any{"turn": map[string]any{"active": false}})
 			case "turn/start":
 				result = mustJSON(map[string]any{"turn": map[string]any{"id": fmt.Sprintf("turn-%d", len(srv.order))}})
 			default:
@@ -370,9 +372,9 @@ func TestSessionRuntimeRecoveryOrderDeterministic(t *testing.T) {
 
 	got := srv.snapshot()
 	// First connect already produced "initialize". Recovery should add, in order:
-	//   initialize (reconnect) → thread/resume → turn/start
+	//   initialize (reconnect) → thread/resume → turn/status → turn/start
 	// The frozen replay contract is in P1c §recovery replay 顺序.
-	wantSuffix := []string{"initialize", "thread/resume", "turn/start"}
+	wantSuffix := []string{"initialize", "thread/resume", "turn/status", "turn/start"}
 	if len(got) < len(wantSuffix) {
 		t.Fatalf("recorded methods = %v; want suffix %v", got, wantSuffix)
 	}

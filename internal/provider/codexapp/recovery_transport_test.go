@@ -456,6 +456,7 @@ func TestSessionAttemptRecoveryReplaysPendingTurn(t *testing.T) {
 type sessionRecoveryRPCRecorder struct {
 	mu              sync.Mutex
 	turnStarts      int
+	turnStatuses    int
 	initializeCalls int
 	threadResumes   int
 	threadResumeCWD string
@@ -475,6 +476,9 @@ func (r *sessionRecoveryRPCRecorder) handle(msg jsonRPCMessage) (json.RawMessage
 	case "turn/start":
 		current := r.incrementTurnStart()
 		return mustJSON(map[string]any{"turn": map[string]any{"id": fmt.Sprintf("turn-%d", current)}}), true
+	case "turn/status":
+		r.incrementTurnStatus()
+		return mustJSON(map[string]any{"turn": map[string]any{"active": false}}), true
 	default:
 		return mustJSON(map[string]any{"ok": true}), true
 	}
@@ -503,6 +507,12 @@ func (r *sessionRecoveryRPCRecorder) incrementTurnStart() int {
 	return r.turnStarts
 }
 
+func (r *sessionRecoveryRPCRecorder) incrementTurnStatus() {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.turnStatuses++
+}
+
 func (r *sessionRecoveryRPCRecorder) assertCounts(t *testing.T) {
 	t.Helper()
 	r.mu.Lock()
@@ -515,6 +525,9 @@ func (r *sessionRecoveryRPCRecorder) assertCounts(t *testing.T) {
 	}
 	if r.threadResumes != 1 {
 		t.Fatalf("thread/resume count = %d, want 1", r.threadResumes)
+	}
+	if r.turnStatuses != 1 {
+		t.Fatalf("turn/status count = %d, want 1", r.turnStatuses)
 	}
 	if r.threadResumeCWD == "" || r.threadResumeCWD == "." {
 		t.Fatalf("thread/resume cwd = %q, want runtime cwd", r.threadResumeCWD)
