@@ -11,6 +11,51 @@ export function createRuntimeSlice(runtime, deps) {
   };
 }
 
+function subscriptionUnsubscribe(subscription, label) {
+  if (typeof subscription === 'function') return subscription;
+  if (subscription && typeof subscription.unsubscribe === 'function') return subscription.unsubscribe;
+  throw new Error(`${label} unsubscribe handler is required`);
+}
+
+function pendingRuntimeSubscriptions(runtime) {
+  if (!runtime.pendingRuntimeSubscriptions) runtime.pendingRuntimeSubscriptions = new Set();
+  return runtime.pendingRuntimeSubscriptions;
+}
+
+function trackRuntimeSubscription(runtime, key, subscription, label) {
+  /*
+   * Wails 事件订阅可能异步发现 runtime 尚不可用。
+   * 只有 ready=true 后才记录 unsubscribe，destroy 会额外清理 pending 订阅。
+   */
+  const unsubscribe = subscriptionUnsubscribe(subscription, label);
+  if (subscription?.ready === undefined) {
+    runtime[key] = unsubscribe;
+    return;
+  }
+  if (!subscription.ready || typeof subscription.ready.then !== 'function') {
+    throw new Error(`${label} ready promise is required`);
+  }
+  const pending = { unsubscribe, active: true };
+  pendingRuntimeSubscriptions(runtime).add(pending);
+  void subscription.ready.then((ready) => {
+    runtime.pendingRuntimeSubscriptions?.delete(pending);
+    if (!pending.active) return;
+    if (ready === true) {
+      if (runtime[key] && runtime[key] !== unsubscribe) {
+        unsubscribe();
+        return;
+      }
+      runtime[key] = unsubscribe;
+      return;
+    }
+    if (runtime[key] === unsubscribe || !runtime[key]) runtime[key] = null;
+  }).catch((error) => {
+    runtime.pendingRuntimeSubscriptions?.delete(pending);
+    if (runtime[key] === unsubscribe) runtime[key] = null;
+    if (pending.active) runtime.addWarning('error', `${label}.failed`, { error: error?.message || String(error) });
+  });
+}
+
 function createLifecycleActions(runtime, deps) {
   const {
     isDagNodeStatusBridgeEvent,
@@ -31,10 +76,10 @@ function createLifecycleActions(runtime, deps) {
        * 重连后 ready 只同步当前线程，其他状态重新 bootstrap。
        */
       if (runtime.bridgeUnsubscribe) return;
-      runtime.bridgeUnsubscribe = onBridgeEvent(runtime.handleBridgeEvent, {
+      trackRuntimeSubscription(runtime, 'bridgeUnsubscribe', onBridgeEvent(runtime.handleBridgeEvent, {
         escalateCallbackError: (_error, evt) => isDagNodeStatusBridgeEvent(evt),
-      });
-      runtime.reconnectUnsubscribe = onRuntimeReconnect(() => {
+      }), 'runtime.bridge.subscribe');
+      trackRuntimeSubscription(runtime, 'reconnectUnsubscribe', onRuntimeReconnect(() => {
         const { activeThreadId, bootstrapStatus } = runtime.get();
         if (bootstrapStatus !== 'ready') {
           if (bootstrapStatus === 'loading') {
@@ -45,10 +90,17 @@ function createLifecycleActions(runtime, deps) {
           return;
         }
         if (activeThreadId) void runtime.get().syncThreadState(activeThreadId, { includeDiff: true, preserveActiveThreadId: true });
-      });
+      }), 'runtime.reconnect.subscribe');
     },
 
     destroy: () => {
+      if (runtime.pendingRuntimeSubscriptions) {
+        for (const pending of runtime.pendingRuntimeSubscriptions) {
+          pending.active = false;
+          pending.unsubscribe();
+        }
+        runtime.pendingRuntimeSubscriptions.clear();
+      }
       if (runtime.bridgeUnsubscribe) {
         runtime.bridgeUnsubscribe();
         runtime.bridgeUnsubscribe = null;

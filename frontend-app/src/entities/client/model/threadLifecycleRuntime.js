@@ -6,6 +6,15 @@ export function attachActiveThreadRpcRuntime(runtime, deps) {
   } = deps;
   const { get, requireCwd, notifyAction, addWarning } = runtime;
 
+  // 中断接口明确返回 ok:false 时必须带诊断，否则按桥接异常处理。
+  const interruptFailureMessage = (result) => {
+    for (const value of [result?.error, result?.message, result?.reason, result?.status, result?.mode]) {
+      const message = (value || '').toString().trim();
+      if (message) return message;
+    }
+    throw new Error('thread.interrupt ok:false response message is required');
+  };
+
   const activeThreadRPC = async (action, rpc) => {
     const currentState = get();
     const interruptTarget = action === 'thread.interrupt' ? activeThreadInterruptTarget(currentState) : null;
@@ -31,7 +40,13 @@ export function attachActiveThreadRpcRuntime(runtime, deps) {
         }
         payload = cleanObject({ cwd, threadId: target.threadId, source: 'ui_stop' });
       }
-      await rpc(cleanObject(payload));
+      const result = await rpc(cleanObject(payload));
+      if (action === 'thread.interrupt' && result?.ok === false) {
+        const message = interruptFailureMessage(result);
+        notifyAction(`${actionLabels[action]}失败：${message}`, 'warning', { threadId });
+        addWarning('warn', `${action}.failed`, { threadId, error: message });
+        return false;
+      }
       notifyAction({
         'thread.interrupt': '已发送中断请求',
         'thread.force_complete': '已发送强制完成请求',
