@@ -53,7 +53,7 @@ var (
 // executeQuery 执行经过校验的只读 SQL 并返回字段名映射结果。
 // 查询始终走 SQLite query_only 独占连接，并在读取结束后通过 finish 恢复连接状态。
 func executeQuery(ctx context.Context, queryer platformdb.Queryable, timeout time.Duration, query string, args ...any) (_ []map[string]any, err error) {
-	ctx, err = prepareQueryContext(ctx, queryer, query, len(args))
+	ctx, query, err = prepareQueryContext(ctx, queryer, query, len(args))
 	if err != nil {
 		return nil, err
 	}
@@ -164,25 +164,36 @@ func cleanupSQLiteReadOnlyQuery(ctx context.Context, conn *sql.Conn, tx *sql.Tx,
 	return errors.Join(queryErr, cleanupErr)
 }
 
-func prepareQueryContext(ctx context.Context, queryer platformdb.Queryable, query string, argCount int) (context.Context, error) {
+func prepareQueryContext(ctx context.Context, queryer platformdb.Queryable, query string, argCount int) (context.Context, string, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
 	if queryer == nil {
-		return nil, errors.New("dbquery queryer is not initialized")
+		return nil, "", errors.New("dbquery queryer is not initialized")
 	}
 	query = injectLimitIfMissing(query, maxQueryRows)
 	if err := validateQuery(query, argCount); err != nil {
-		return nil, err
+		return nil, "", err
 	}
-	return ctx, nil
+	return ctx, query, nil
 }
 
 func injectLimitIfMissing(query string, max int) string {
-	if strings.Contains(strings.ToUpper(maskQuotedStrings(query)), " LIMIT ") {
+	if hasLimitClause(query) {
 		return query
 	}
 	return query + fmt.Sprintf(" LIMIT %d", max)
+}
+
+// hasLimitClause 按 SQL 关键字识别已有 LIMIT，允许前面是换行或缩进。
+func hasLimitClause(query string) bool {
+	masked := strings.ToLower(maskQuotedStrings(query))
+	for index := 0; index < len(masked); index++ {
+		if isKeywordAt(masked, index, "limit") {
+			return true
+		}
+	}
+	return false
 }
 
 func finalizeQuery(errp *error, finish platformdb.QueryFinish) {

@@ -41,8 +41,8 @@ func TestSQLiteAuditLogInsertAndListFilters(t *testing.T) {
 	if len(rows) != 1 || rows[0].ID == 0 || rows[0].Action != "Create" {
 		t.Fatalf("List() = %+v", rows)
 	}
-	if string(rows[0].Extra) != `{}` {
-		t.Fatalf("List() Extra = %s, want metadata projection", rows[0].Extra)
+	if string(rows[0].Extra) != `{"large":"audit"}` {
+		t.Fatalf("List() Extra = %s, want inserted extra roundtrip", rows[0].Extra)
 	}
 }
 
