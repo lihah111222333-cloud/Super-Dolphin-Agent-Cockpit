@@ -16,6 +16,8 @@ import (
 
 var errPDFTextNotFound = errors.New("datasource: pdf text content not found")
 
+const datasourceMaxImportBytes = 10 * 1024 * 1024
+
 // extractPDFText 从 PDF 文件中提取所有 stream 的可读文本。
 // 这是轻量解析器，只服务 datasource 文本导入；无可用文本时返回 errPDFTextNotFound，避免空内容入库。
 func extractPDFText(sourcePath string) (string, error) {
@@ -28,8 +30,13 @@ func extractPDFText(sourcePath string) (string, error) {
 		return "", err
 	}
 	parts := make([]string, 0, len(streams))
+	totalBytes := 0
 	for _, stream := range streams {
 		if text := extractPDFTextFromStream(stream); text != "" {
+			totalBytes += len(text)
+			if totalBytes > datasourceMaxImportBytes {
+				return "", errDatasourceTextTooLarge
+			}
 			parts = append(parts, text)
 		}
 	}
@@ -96,6 +103,9 @@ func pdfStreamDictionary(prefix []byte) []byte {
 // decodePDFStream 根据 stream 字典决定是否执行 FlateDecode 解压。
 // 当前只支持明文和 zlib 压缩流，解压失败会阻断 datasource 导入。
 func decodePDFStream(dictionary, body []byte) ([]byte, error) {
+	if len(body) > datasourceMaxImportBytes {
+		return nil, errDatasourceTextTooLarge
+	}
 	if !bytes.Contains(dictionary, []byte("/FlateDecode")) {
 		return body, nil
 	}
@@ -104,9 +114,21 @@ func decodePDFStream(dictionary, body []byte) ([]byte, error) {
 		return nil, fmt.Errorf("decode flate pdf stream: %w", err)
 	}
 	defer reader.Close()
-	decoded, err := io.ReadAll(reader)
+	decoded, err := readLimitedPDFStream(reader)
 	if err != nil {
 		return nil, fmt.Errorf("read flate pdf stream: %w", err)
+	}
+	return decoded, nil
+}
+
+// readLimitedPDFStream 读取解压后的 PDF stream，并在超过 datasource 导入上限时立即阻断。
+func readLimitedPDFStream(reader io.Reader) ([]byte, error) {
+	decoded, err := io.ReadAll(io.LimitReader(reader, datasourceMaxImportBytes+1))
+	if err != nil {
+		return nil, err
+	}
+	if len(decoded) > datasourceMaxImportBytes {
+		return nil, errDatasourceTextTooLarge
 	}
 	return decoded, nil
 }

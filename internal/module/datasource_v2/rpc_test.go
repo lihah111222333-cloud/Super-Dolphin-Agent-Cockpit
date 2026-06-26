@@ -1,6 +1,8 @@
 package datasourcev2
 
 import (
+	"bytes"
+	"compress/zlib"
 	"context"
 	"encoding/json"
 	"errors"
@@ -165,6 +167,18 @@ func TestListDocumentsRPCUsesStoreFilter(t *testing.T) {
 	}
 }
 
+func TestListDocumentsRPCRejectsOversizedLimit(t *testing.T) {
+	store := newReadyDatasourceV2Store()
+	server := newDatasourceV2TestServer(NewService(store))
+	_, err := server.Dispatch(context.Background(), "datasourceV2/list", json.RawMessage(`{"keyword":"source","limit":1001}`))
+	if err == nil || !strings.Contains(err.Error(), "limit") {
+		t.Fatalf("Dispatch datasourceV2/list error = %v, want oversized limit rejection", err)
+	}
+	if store.listLimit != 0 {
+		t.Fatalf("store list limit = %d, want no store call after oversized limit", store.listLimit)
+	}
+}
+
 func TestGetDocumentRPCReturnsChunks(t *testing.T) {
 	t.Parallel()
 
@@ -261,6 +275,40 @@ func TestImportTextRPCRejectsSourceOutsideWorkspace(t *testing.T) {
 
 	if _, err := server.Dispatch(context.Background(), "datasourceV2/importText", payload); err == nil || !strings.Contains(err.Error(), "outside workspace") {
 		t.Fatalf("Dispatch error = %v, want outside workspace rejection", err)
+	}
+}
+
+func TestImportTextRPCRejectsSymlinkEscapingWorkspace(t *testing.T) {
+	project := t.TempDir()
+	t.Chdir(project)
+	outside := filepath.Join(t.TempDir(), "notes.txt")
+	if err := os.WriteFile(outside, []byte("outside workspace through symlink"), 0o600); err != nil {
+		t.Fatalf("write outside source: %v", err)
+	}
+	link := filepath.Join(project, "linked.txt")
+	if err := os.Symlink(outside, link); err != nil {
+		t.Fatalf("create symlink: %v", err)
+	}
+	server := newDatasourceV2TestServer(NewService(newRecordingDatasourceV2Store()))
+	payload, err := json.Marshal(ImportFileTextRequest{SourcePath: link})
+	if err != nil {
+		t.Fatalf("marshal payload: %v", err)
+	}
+
+	if _, err := server.Dispatch(context.Background(), "datasourceV2/importText", payload); err == nil || !strings.Contains(err.Error(), "outside workspace") {
+		t.Fatalf("Dispatch error = %v, want symlink outside workspace rejection", err)
+	}
+}
+
+func TestExtractPDFTextRejectsOversizedFlateStream(t *testing.T) {
+	source := filepath.Join(t.TempDir(), "large.pdf")
+	if err := os.WriteFile(source, compressedPDFWithText(t, strings.Repeat("x", 10*1024*1024+1)), 0o600); err != nil {
+		t.Fatalf("write compressed pdf: %v", err)
+	}
+
+	_, err := extractPDFText(source)
+	if err == nil || !strings.Contains(err.Error(), "too large") {
+		t.Fatalf("extractPDFText() error = %v, want decompressed size rejection", err)
 	}
 }
 
@@ -500,5 +548,24 @@ func minimalPDFWithText(text string) []byte {
 		"3 0 obj << /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >> endobj\n" +
 		"4 0 obj << /Length 0 >> stream\n" + body + "\nendstream endobj\n" +
 		"5 0 obj << /Type /Font /Subtype /Type1 /BaseFont /Helvetica >> endobj\n" +
+		"trailer << /Root 1 0 R >>\n%%EOF\n")
+}
+
+func compressedPDFWithText(t *testing.T, text string) []byte {
+	t.Helper()
+	var compressed bytes.Buffer
+	writer := zlib.NewWriter(&compressed)
+	if _, err := writer.Write([]byte("BT (" + text + ") Tj ET")); err != nil {
+		t.Fatalf("compress pdf stream: %v", err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatalf("close zlib writer: %v", err)
+	}
+	return []byte("%PDF-1.4\n" +
+		"1 0 obj << /Type /Catalog /Pages 2 0 R >> endobj\n" +
+		"2 0 obj << /Type /Pages /Kids [3 0 R] /Count 1 >> endobj\n" +
+		"3 0 obj << /Type /Page /Parent 2 0 R /Contents 4 0 R >> endobj\n" +
+		"4 0 obj << /Filter /FlateDecode /Length 0 >> stream\n" +
+		compressed.String() + "\nendstream endobj\n" +
 		"trailer << /Root 1 0 R >>\n%%EOF\n")
 }

@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
@@ -26,6 +27,25 @@ func TestStartSQLiteServerAddsDefaultNPXConfigAndEnablesIt(t *testing.T) {
 		t.Fatalf("StartSQLiteServer() = %#v, want added enabled sqlite", got)
 	}
 	assertStartedSQLiteServerConfig(t, store.servers[project][DefaultSQLiteServerName], dbPath)
+}
+
+func TestStartSQLiteServerRejectsRequestDatabasePathOverride(t *testing.T) {
+	store := newMemoryMCPServerStore()
+	project := t.TempDir()
+	productDB := filepath.Join(project, ".super-dolphin", "super-dolphin.db")
+	attackerDB := filepath.Join(t.TempDir(), "attacker.db")
+	writeSQLiteFixture(t, productDB)
+	writeSQLiteFixture(t, attackerDB)
+	svc := newServiceWithStoreInstallerAndSQLitePath(store, &recordingPostgresInstaller{}, productDB)
+	t.Chdir(project)
+
+	_, err := svc.StartSQLiteServer(context.Background(), StartSQLiteServerRequest{DatabasePath: attackerDB})
+	if err == nil || !strings.Contains(err.Error(), "databasePath") {
+		t.Fatalf("StartSQLiteServer() error = %v, want request databasePath rejection", err)
+	}
+	if len(store.servers[project]) != 0 {
+		t.Fatalf("stored servers = %#v, want no sqlite config after rejected override", store.servers[project])
+	}
 }
 
 func TestStopSQLiteServerDisablesDefaultConfigWithoutDeletingIt(t *testing.T) {
