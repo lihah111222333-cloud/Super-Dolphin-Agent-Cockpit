@@ -3,6 +3,7 @@ package main
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -87,19 +88,24 @@ func buildBootstrapConfig(shutdowner fx.Shutdowner) (bootstrap.Config, error) {
 		}
 	}
 	cfg.OnConfigChanged = func(notify mcp.ConfigChangedNotify) {
-		pkglogger.Info("mcp-ida config changed",
-			"binary_name", cfg.BinaryName,
-			"instance_id", cfg.InstanceID,
-			"scope", notify.Scope,
-			"config_version", notify.ConfigVersion,
-			"selector", notify.Selector,
-			"payload", string(notify.Payload),
-		)
+		logConfigChanged(notify)
 	}
 	cfg.OnShutdown = func(mcp.ShutdownRequest) {
 		platformshared.LogIgnoredError(pkglogger.Get(), "mcp-ida: OnShutdown", shutdowner.Shutdown())
 	}
 	return cfg, nil
+}
+
+// logConfigChanged 记录配置变更的排障元信息，不记录原始 payload，避免控制面配置内容泄漏。
+func logConfigChanged(notify mcp.ConfigChangedNotify) {
+	payloadHash := sha256.Sum256(notify.Payload)
+	pkglogger.Info("mcp-ida config changed",
+		"scope", notify.Scope,
+		"config_version", notify.ConfigVersion,
+		"selector", notify.Selector,
+		"payload_size", len(notify.Payload),
+		"payload_hash", fmt.Sprintf("%x", payloadHash),
+	)
 }
 
 // stripBootSnapshotCapabilities 从启动快照中删除 capabilities 字段，避免 IDA peer 误报工具能力。
