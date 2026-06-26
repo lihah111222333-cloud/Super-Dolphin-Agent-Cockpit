@@ -82,7 +82,7 @@ func assertRecordedInvalidation(
 
 func newPhase4UIDeps(t *testing.T) (memoryHandlerDeps, string, string) {
 	t.Helper()
-	projectRoot := t.TempDir()
+	projectRoot := newTestGitProjectRoot(t)
 	privateRoot := filepath.Join(t.TempDir(), "private")
 	cfg := &Config{
 		Enabled:             true,

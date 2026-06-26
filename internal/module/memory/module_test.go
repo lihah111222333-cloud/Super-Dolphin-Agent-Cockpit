@@ -22,7 +22,7 @@ import (
 
 func TestNewConfigFallsBackToProjectRoot(t *testing.T) {
 	t.Setenv(envMemoryRoot, "")
-	cfg := NewConfig(&contract.Config{ProjectRoot: t.TempDir()})
+	cfg := NewConfig(&contract.Config{ProjectRoot: newTestGitProjectRoot(t)})
 	if cfg == nil || cfg.RootDir == "" {
 		t.Fatalf("expected non-empty root dir, got %#v", cfg)
 	}

@@ -117,6 +117,35 @@ func TestApplyDeletesOnlyOldUnreferencedWorkFiles(t *testing.T) {
 	assertCleanupItem(t, items["handoff/work-old.md"], true, false, "older_than_work_ttl")
 }
 
+func TestPreviewRejectsMalformedFinalOutputMetadata(t *testing.T) {
+	t.Parallel()
+
+	now := time.Date(2026, 5, 30, 12, 0, 0, 0, time.UTC)
+	reader := &stubSharedFiles{files: []sharedfilestore.SharedFile{
+		{Path: "handoff/work-old.md", UpdatedAt: now.Add(-45 * 24 * time.Hour)},
+	}}
+	runtime := &stubDAGRuntime{
+		dags: []contract.DAGSummary{{DagKey: "daily"}},
+		runsByDag: map[string][]contract.Run{
+			"daily": {{
+				RunKey:   "run-final",
+				DagKey:   "daily",
+				Status:   "succeeded",
+				Metadata: json.RawMessage(`{"final_output":{"sharedfile":"reports/final.md"}}`),
+			}},
+		},
+	}
+
+	_, err := Preview(context.Background(), Deps{
+		Reader:     reader,
+		DAGRuntime: runtime,
+		Now:        func() time.Time { return now },
+	}, Params{WorkTTLDays: 30, Limit: 20})
+	if err == nil || !strings.Contains(err.Error(), "final_output") {
+		t.Fatalf("Preview() error = %v, want malformed final_output metadata error", err)
+	}
+}
+
 func finalOutputMetadata(t *testing.T, path string) json.RawMessage {
 	t.Helper()
 

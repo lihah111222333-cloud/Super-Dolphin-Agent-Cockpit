@@ -583,9 +583,14 @@ func resolvedStoreRoot(baseRoot, projectRoot, autoMemPathOverride string) (strin
 		return "", errors.New("memory root dir is empty")
 	}
 	if projectRoot = strings.TrimSpace(projectRoot); projectRoot != "" {
-		if root, err := GetAutoMemPath(baseRoot, projectRoot); err == nil && strings.TrimSpace(root) != "" {
-			return root, nil
+		root, err := GetAutoMemPath(baseRoot, projectRoot)
+		if err != nil {
+			return "", err
 		}
+		if strings.TrimSpace(root) == "" {
+			return "", errors.New("auto memory path is empty")
+		}
+		return root, nil
 	}
 	return baseRoot, nil
 }

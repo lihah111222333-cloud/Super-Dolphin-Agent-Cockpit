@@ -80,6 +80,33 @@ func TestExecCommandRejectsCodeExecutionRuntime(t *testing.T) {
 	}
 }
 
+func TestLimitedBufferReportsFullWriteAfterTruncating(t *testing.T) {
+	t.Parallel()
+
+	buffer := &limitedBuffer{limit: 3}
+	n, err := buffer.Write([]byte("abcde"))
+	if err != nil {
+		t.Fatalf("limitedBuffer.Write() error = %v", err)
+	}
+	if n != 5 {
+		t.Fatalf("limitedBuffer.Write() n = %d, want 5", n)
+	}
+	if got := buffer.String(); got != "abc" {
+		t.Fatalf("limitedBuffer.String() = %q, want capped content", got)
+	}
+
+	n, err = buffer.Write([]byte("fg"))
+	if err != nil {
+		t.Fatalf("limitedBuffer.Write() after cap error = %v", err)
+	}
+	if n != 2 {
+		t.Fatalf("limitedBuffer.Write() after cap n = %d, want 2", n)
+	}
+	if got := buffer.String(); got != "abc" {
+		t.Fatalf("limitedBuffer.String() after cap = %q, want unchanged cap", got)
+	}
+}
+
 func TestExecCommandFallsBackToProjectRoot(t *testing.T) {
 	t.Parallel()
 

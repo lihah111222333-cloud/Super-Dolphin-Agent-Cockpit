@@ -7,7 +7,7 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 )
 
-func TestEnableWhen_EmptyAndInvalidFailOpen(t *testing.T) {
+func TestEnableWhen_EmptyValuesStayOpenMalformedFailsClosed(t *testing.T) {
 	t.Parallel()
 	ctx := contract.BuildCtx{Language: "zh"}
 	cases := map[string][]byte{
@@ -16,14 +16,16 @@ func TestEnableWhen_EmptyAndInvalidFailOpen(t *testing.T) {
 		"whitespace":   []byte("   "),
 		"null":         []byte("null"),
 		"empty_object": []byte("{}"),
-		"malformed":    []byte("{not json"),
 	}
 	for name, raw := range cases {
 		t.Run(name, func(t *testing.T) {
 			if !EvaluateEnableWhen(raw, ctx, "") {
-				t.Fatalf("%s: expected fail-open (true), got false", name)
+				t.Fatalf("%s: expected empty enable_when to stay open, got false", name)
 			}
 		})
+	}
+	if EvaluateEnableWhen([]byte("{not json"), ctx, "") {
+		t.Fatal("malformed enable_when JSON must fail closed")
 	}
 }
 

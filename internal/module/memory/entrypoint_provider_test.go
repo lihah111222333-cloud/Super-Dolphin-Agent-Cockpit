@@ -15,9 +15,10 @@ import (
 func newEntrypointProviderTestSetup(t *testing.T) (*MemoryEntrypointProvider, contract.BuildCtx, string) {
 	t.Helper()
 	root := t.TempDir()
-	cfg := &Config{Enabled: true, RootDir: root, ProjectRoot: root}
+	projectRoot := newTestGitProjectRoot(t)
+	cfg := &Config{Enabled: true, RootDir: root, ProjectRoot: projectRoot}
 	provider := NewEntrypointProvider(cfg, nil, nil)
-	buildCtx := contract.BuildCtx{CWD: root, GitRoot: root}
+	buildCtx := contract.BuildCtx{CWD: projectRoot, GitRoot: projectRoot}
 	autoDir := provider.resolvedAutoMemPath(buildCtx)
 	if strings.TrimSpace(autoDir) == "" {
 		t.Fatalf("resolvedAutoMemPath() returned empty for cfg=%+v buildCtx=%+v", cfg, buildCtx)
@@ -291,7 +292,7 @@ func TestMemoryEntrypointProviderRespectsInjectPromptEntrypoint(t *testing.T) {
 }
 
 func TestMemoryContextProviderResolveAlwaysReturnsNil(t *testing.T) {
-	provider := NewContextProvider(&Config{Enabled: true, RootDir: t.TempDir(), ProjectRoot: t.TempDir()})
+	provider := NewContextProvider(&Config{Enabled: true, RootDir: t.TempDir(), ProjectRoot: newTestGitProjectRoot(t)})
 	cases := []contract.SectionContext{
 		{Start: &contract.StartInput{}},
 		{Turn: &contract.TurnInput{ThreadID: "t1", UserText: "hi there"}},

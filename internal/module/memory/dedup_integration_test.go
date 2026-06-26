@@ -125,7 +125,7 @@ func newWriteIntentDedupTestHooks(t *testing.T, teamEnabled bool) (*MemoryLifecy
 	if teamEnabled {
 		withTeamMemoryRuntimeReady(t, true)
 	}
-	projectRoot := t.TempDir()
+	projectRoot := newTestGitProjectRoot(t)
 	autoRoot := filepath.Join(t.TempDir(), "automem")
 	cfg := &Config{
 		Enabled:             true,

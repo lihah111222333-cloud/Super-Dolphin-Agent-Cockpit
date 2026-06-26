@@ -513,7 +513,10 @@ func dagFinalOutputReferencesPath(ctx context.Context, dagRuntime contract.DAGRu
 		return false, fmt.Errorf("run scan reached safety limit %d for DAG %q", sharedFileDeleteGuardRunLimit, dagKey)
 	}
 	for _, run := range runs.Runs {
-		ref, ok := contract.FinalOutputFileFromRunMetadata(run.Metadata)
+		ref, ok, parseErr := contract.FinalOutputFileFromRunMetadataStrict(run.Metadata)
+		if parseErr != nil {
+			return false, fmt.Errorf("parse final_output metadata for run %q: %w", strings.TrimSpace(run.RunKey), parseErr)
+		}
 		if ok && strings.TrimSpace(ref.Path) == target {
 			return true, nil
 		}

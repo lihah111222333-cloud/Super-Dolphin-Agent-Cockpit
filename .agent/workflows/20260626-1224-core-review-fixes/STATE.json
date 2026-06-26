@@ -1,0 +1,29 @@
+{
+  "workflow_key": "20260626-1224-core-review-fixes",
+  "last_updated": "2026-06-26T13:05:00+09:00",
+  "overall_status": "done",
+  "blocked_items": [],
+  "agents": {
+    "P1-cron": {
+      "agent_id": "019f01f7-681a-7c32-a5a8-a6b615edf985",
+      "nickname": "Lovelace"
+    },
+    "P2-turn-memory-prompt": {
+      "agent_id": "019f01f7-688d-7aa0-b252-f8efe95a233a",
+      "nickname": "Gibbs"
+    },
+    "P3-skill": {
+      "agent_id": "019f01f7-690f-72a2-8a4f-05b416fb2d83",
+      "nickname": "Mill"
+    },
+    "P4-contract-app": {
+      "agent_id": "019f01f7-6990-7ed2-a782-2095b1b5cf67",
+      "nickname": "Boole"
+    }
+  },
+  "next_actions": [
+    "Review final diff before commit",
+    "Stage only task-owned files if committing",
+    "Keep unrelated workspace changes out of any atomic commit"
+  ]
+}

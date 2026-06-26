@@ -96,7 +96,11 @@ func (a *TurnServiceAdapter) resolveThreadAgent(ctx context.Context, req StartTu
 
 // executeTurn 调用 CronPrepareTurn 和 CronStartTurn，返回本地 turn_id。
 func (a *TurnServiceAdapter) executeTurn(ctx context.Context, session contract.Session, req StartTurnRequest) (string, error) {
-	prepared, err := a.svc.CronPrepareTurn(ctx, session, a.buildPrepareInput(req))
+	input, err := a.buildPrepareInput(req)
+	if err != nil {
+		return "", err
+	}
+	prepared, err := a.svc.CronPrepareTurn(ctx, session, input)
 	if err != nil {
 		return "", fmt.Errorf("cron: prepare turn: %w", err)
 	}
@@ -184,14 +188,17 @@ func (a *TurnServiceAdapter) Observe(ctx context.Context, turnID string) error {
 // buildPrepareInput 将 cron 侧 StartTurnRequest 投影成 contract.CronPrepareInput。
 // cron row 没有的 Files/Images/CandidateSkills/MCPSnapshot 等字段保持零值，由 turn 准备层决定如何解释。
 // 这里只做字段投影，不添加 cron 专属默认值。坏配置应该在 Create/Update 时被挡住。
-func (a *TurnServiceAdapter) buildPrepareInput(req StartTurnRequest) contract.CronPrepareInput {
+func (a *TurnServiceAdapter) buildPrepareInput(req StartTurnRequest) (contract.CronPrepareInput, error) {
 	skills := make([]providerdto.SkillRef, 0, len(req.Skills))
 	for _, s := range req.Skills {
 		if name := strings.TrimSpace(s); name != "" {
 			skills = append(skills, providerdto.SkillRef{Name: name})
 		}
 	}
-	runtimeCfg := decodeRuntimeConfig(req.Config)
+	runtimeCfg, err := decodeRuntimeConfig(req.Config)
+	if err != nil {
+		return contract.CronPrepareInput{}, err
+	}
 	return contract.CronPrepareInput{
 		Prompt:              req.Prompt,
 		Skills:              skills,
@@ -201,18 +208,18 @@ func (a *TurnServiceAdapter) buildPrepareInput(req StartTurnRequest) contract.Cr
 		CWD:                 strings.TrimSpace(req.CWD),
 		ThreadRuntimeConfig: runtimeCfg,
 		DedupeKey:           strings.TrimSpace(req.DedupeKey),
-	}
+	}, nil
 }
 
 // decodeRuntimeConfig 将已入库的 runtime config 投影为 turn 层需要的 map。
-// Create/Update 已负责校验 JSON；这里不修复坏数据，解析失败时让 turn 层按“无覆盖配置”处理。
-func decodeRuntimeConfig(raw json.RawMessage) map[string]any {
+// 历史坏 JSON 必须返回错误，避免 turn 层误当作“无覆盖配置”继续运行。
+func decodeRuntimeConfig(raw json.RawMessage) (map[string]any, error) {
 	if len(raw) == 0 {
-		return nil
+		return nil, nil
 	}
 	var out map[string]any
 	if err := json.Unmarshal(raw, &out); err != nil {
-		return nil
+		return nil, fmt.Errorf("cron: runtime config: %w", err)
 	}
-	return out
+	return out, nil
 }

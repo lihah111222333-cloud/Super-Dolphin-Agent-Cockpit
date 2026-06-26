@@ -2,6 +2,7 @@ package memory
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -14,7 +15,7 @@ import (
 )
 
 func TestMemoryContextProviderPrepareTurnInputsStartsWithoutTurnStartedEvent(t *testing.T) {
-	cfg := &Config{Enabled: true, SkipIndex: true, RootDir: t.TempDir(), ProjectRoot: t.TempDir()}
+	cfg := &Config{Enabled: true, SkipIndex: true, RootDir: t.TempDir(), ProjectRoot: newTestGitProjectRoot(t)}
 	root, err := resolvedStoreRoot(cfg.RootDir, cfg.ProjectRoot, cfg.AutoMemPathOverride)
 	if err != nil {
 		t.Fatalf("resolvedStoreRoot() error = %v", err)
@@ -84,8 +85,27 @@ func TestMemoryContextProviderPrepareTurnInputsSearchesTranscriptWhenEnabled(t *
 	}
 }
 
+func TestMemoryContextProviderPrepareTurnInputsExposesReadHistoryError(t *testing.T) {
+	want := errors.New("history store unavailable")
+	cfg := &Config{Enabled: true, Features: MemoryFeatureFlags{SearchPastContext: true}}
+	provider := NewContextProvider(cfg)
+	inputs := provider.PrepareTurnInputs(context.Background(), historyStubSession{historyErr: want}, contract.BuildCtx{
+		SessionFlags: map[string]bool{"search_past_context": true},
+	}, "thread-1", "commit messages")
+	if len(inputs) != 1 {
+		t.Fatalf("len(PrepareTurnInputs()) = %d, want 1 explicit history error input", len(inputs))
+	}
+	if inputs[0].Type != "filecontent" {
+		t.Fatalf("input type = %q, want filecontent", inputs[0].Type)
+	}
+	if !strings.Contains(inputs[0].Content, "memory history search failed") ||
+		!strings.Contains(inputs[0].Content, want.Error()) {
+		t.Fatalf("history error input = %q, want explicit ReadHistory failure", inputs[0].Content)
+	}
+}
+
 func TestMemoryContextProviderPrepareTurnContextReturnsRelevantMemoryAttachments(t *testing.T) {
-	cfg := &Config{Enabled: true, SkipIndex: true, RootDir: t.TempDir(), ProjectRoot: t.TempDir()}
+	cfg := &Config{Enabled: true, SkipIndex: true, RootDir: t.TempDir(), ProjectRoot: newTestGitProjectRoot(t)}
 	root, err := resolvedStoreRoot(cfg.RootDir, cfg.ProjectRoot, cfg.AutoMemPathOverride)
 	if err != nil {
 		t.Fatalf("resolvedStoreRoot() error = %v", err)
@@ -132,7 +152,7 @@ func TestMemoryContextProviderPrepareTurnContextReturnsRelevantMemoryAttachments
 }
 
 func TestGateRelevantPrefetchSurfacedBytesLedger(t *testing.T) {
-	cfg := &Config{Enabled: true, SkipIndex: true, RootDir: t.TempDir(), ProjectRoot: t.TempDir()}
+	cfg := &Config{Enabled: true, SkipIndex: true, RootDir: t.TempDir(), ProjectRoot: newTestGitProjectRoot(t)}
 	root, err := resolvedStoreRoot(cfg.RootDir, cfg.ProjectRoot, cfg.AutoMemPathOverride)
 	if err != nil {
 		t.Fatalf("resolvedStoreRoot() error = %v", err)
@@ -196,7 +216,7 @@ func TestGateRelevantPrefetchSurfacedBytesLedger(t *testing.T) {
 }
 
 func TestMemoryContextProviderOnPromptInvalidateResetsSurfacedLedger(t *testing.T) {
-	cfg := &Config{Enabled: true, RootDir: t.TempDir(), ProjectRoot: t.TempDir()}
+	cfg := &Config{Enabled: true, RootDir: t.TempDir(), ProjectRoot: newTestGitProjectRoot(t)}
 	root, err := resolvedStoreRoot(cfg.RootDir, cfg.ProjectRoot, cfg.AutoMemPathOverride)
 	if err != nil {
 		t.Fatalf("resolvedStoreRoot() error = %v", err)
@@ -236,7 +256,8 @@ func TestMemoryHeaderUsesFreshnessLanguage(t *testing.T) {
 }
 
 type historyStubSession struct {
-	history []dto.Message
+	history    []dto.Message
+	historyErr error
 }
 
 func (historyStubSession) ThreadID() string                { return "thread-1" }
@@ -252,6 +273,9 @@ func (historyStubSession) ForkThread(context.Context, dto.ForkRequest) (dto.Fork
 	return dto.ForkResult{}, nil
 }
 func (s historyStubSession) ReadHistory(context.Context, string, int) ([]dto.Message, error) {
+	if s.historyErr != nil {
+		return nil, s.historyErr
+	}
 	return append([]dto.Message(nil), s.history...), nil
 }
 func (historyStubSession) Configure(context.Context, dto.ThreadConfigPatch) error { return nil }

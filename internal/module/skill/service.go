@@ -248,7 +248,6 @@ func normalizeSkillScope(scope string) (string, error) {
 	normalizedScope, _, err := normalizeSkillTarget(scope, "")
 	return normalizedScope, err
 }
-
 func (s *service) resolvedSuperDolphinHome() string {
 	if s != nil && strings.TrimSpace(s.superDolphinHome) != "" {
 		return strings.TrimSpace(s.superDolphinHome)
@@ -258,10 +257,11 @@ func (s *service) resolvedSuperDolphinHome() string {
 
 func (s *service) personalSkillsRoot(personalType string) string {
 	personalType = strings.TrimSpace(personalType)
-	if personalType == "" {
+	superDolphinHome := strings.TrimSpace(s.resolvedSuperDolphinHome())
+	if personalType == "" || superDolphinHome == "" {
 		return ""
 	}
-	return filepath.Join(s.resolvedSuperDolphinHome(), "skills", "personal", personalType)
+	return filepath.Join(superDolphinHome, "skills", "personal", personalType)
 }
 
 // canonicalRootForTarget 解析指定 scope/personalType 对应的 canonical skill 根目录。

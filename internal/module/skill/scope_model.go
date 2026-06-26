@@ -85,7 +85,7 @@ func defaultSuperDolphinHome() string {
 	if home, err := os.UserHomeDir(); err == nil && strings.TrimSpace(home) != "" {
 		return filepath.Join(home, ".super-dolphin")
 	}
-	return filepath.Join(os.TempDir(), "super-dolphin")
+	return ""
 }
 func defaultOwnerOSUID() string { return fmt.Sprint(os.Getuid()) }
 func defaultAppProfile() string {

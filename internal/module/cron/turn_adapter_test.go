@@ -230,6 +230,27 @@ func TestAdapterStartTurnEmptyLocalIDIsError(t *testing.T) {
 	}
 }
 
+func TestAdapterStartTurnRejectsMalformedRuntimeConfig(t *testing.T) {
+	t.Parallel()
+	svc := &fakeTurnService{
+		prepareFn: func(context.Context, contract.Session, contract.CronPrepareInput) (providerdto.TurnRequest, error) {
+			t.Fatal("CronPrepareTurn must not receive malformed runtime config")
+			return providerdto.TurnRequest{}, nil
+		},
+	}
+	sess := &fakeSession{threadID: "thread-1"}
+	a := NewTurnServiceAdapter(slog.Default(), svc, &fakeResolver{
+		known: map[string]contract.Session{"thread-1": sess},
+	})
+	_, err := a.StartTurn(context.Background(), StartTurnRequest{
+		ThreadID: "thread-1",
+		Config:   json.RawMessage(`{"bad":`),
+	})
+	if err == nil || !stringContains(err.Error(), "runtime config") {
+		t.Fatalf("StartTurn error = %v, want runtime config validation error", err)
+	}
+}
+
 // ----- Observe 路径 -----
 
 func TestAdapterObserveTranslatesTurnNotFound(t *testing.T) {
@@ -371,12 +392,20 @@ func TestAdapterStartTurnForwardsDedupeKey(t *testing.T) {
 
 // ----- decodeRuntimeConfig 路径 -----
 
-func TestDecodeRuntimeConfigMalformedReturnsNil(t *testing.T) {
+func TestDecodeRuntimeConfigMalformedReturnsError(t *testing.T) {
 	t.Parallel()
-	if out := decodeRuntimeConfig(json.RawMessage("not json")); out != nil {
-		t.Fatalf("malformed JSON should decode to nil, got %+v", out)
+	out, err := decodeRuntimeConfig(json.RawMessage("not json"))
+	if err == nil || !stringContains(err.Error(), "runtime config") {
+		t.Fatalf("malformed JSON error = %v, want runtime config validation error", err)
 	}
-	if out := decodeRuntimeConfig(nil); out != nil {
+	if out != nil {
+		t.Fatalf("malformed JSON output = %+v, want nil", out)
+	}
+	out, err = decodeRuntimeConfig(nil)
+	if err != nil {
+		t.Fatalf("nil JSON error = %v, want nil", err)
+	}
+	if out != nil {
 		t.Fatalf("nil JSON should decode to nil, got %+v", out)
 	}
 }

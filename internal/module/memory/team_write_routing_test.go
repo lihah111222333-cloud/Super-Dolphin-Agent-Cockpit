@@ -13,7 +13,7 @@ import (
 
 func TestTeamWriteIntentRoutesProjectMemoryToTeamStore(t *testing.T) {
 	withTeamMemoryRuntimeReady(t, true)
-	projectRoot := t.TempDir()
+	projectRoot := newTestGitProjectRoot(t)
 	autoRoot := filepath.Join(t.TempDir(), "automem")
 	cfg := &Config{
 		Enabled:             true,
@@ -60,7 +60,7 @@ func TestTeamWriteIntentRoutesProjectMemoryToTeamStore(t *testing.T) {
 
 func TestTeamWriteIntentKeepsUserMemoryPrivate(t *testing.T) {
 	withTeamMemoryRuntimeReady(t, true)
-	projectRoot := t.TempDir()
+	projectRoot := newTestGitProjectRoot(t)
 	autoRoot := filepath.Join(t.TempDir(), "automem")
 	cfg := &Config{
 		Enabled:             true,
@@ -98,7 +98,7 @@ func TestTeamWriteIntentKeepsUserMemoryPrivate(t *testing.T) {
 
 func TestTeamWriteIntentOverflowMergesWithinTeamScope(t *testing.T) {
 	withTeamMemoryRuntimeReady(t, true)
-	projectRoot := t.TempDir()
+	projectRoot := newTestGitProjectRoot(t)
 	autoRoot := filepath.Join(t.TempDir(), "automem")
 	cfg := &Config{
 		Enabled:             true,

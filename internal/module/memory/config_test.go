@@ -15,7 +15,7 @@ func TestNewConfigUsesEnvOverride(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "memory-root")
 	t.Setenv(envMemoryRoot, root)
 
-	cfg := NewConfig(&contract.Config{ProjectRoot: t.TempDir()})
+	cfg := NewConfig(&contract.Config{ProjectRoot: newTestGitProjectRoot(t)})
 	if cfg == nil {
 		t.Fatal("NewConfig() returned nil")
 	}
@@ -39,7 +39,7 @@ func TestNewConfigSupportsClaudeCompatOverridesAndFlags(t *testing.T) {
 	t.Setenv(envFeatureTeamMemory, "true")
 	t.Setenv(envFeatureSearchPastContext, "yes")
 
-	cfg := NewConfig(&contract.Config{ProjectRoot: t.TempDir()})
+	cfg := NewConfig(&contract.Config{ProjectRoot: newTestGitProjectRoot(t)})
 	if cfg == nil {
 		t.Fatal("NewConfig() returned nil")
 	}
@@ -74,7 +74,7 @@ func TestNewConfigSupportsClaudeCompatOverridesAndFlags(t *testing.T) {
 func TestSkeletonConfigsDefaultDisabledAndPlaceholderHelpers(t *testing.T) {
 	t.Setenv(envFeatureKairos, "0")
 
-	cfg := NewConfig(&contract.Config{ProjectRoot: t.TempDir()})
+	cfg := NewConfig(&contract.Config{ProjectRoot: newTestGitProjectRoot(t)})
 	if cfg == nil {
 		t.Fatal("NewConfig() returned nil")
 	}
@@ -103,7 +103,7 @@ func TestNewConfigAutoDreamIntentOverridesEnv(t *testing.T) {
 	t.Setenv(envMemoryExtractOnStop, "")
 
 	// Without an intent file, env default (false) wins.
-	cfg := NewConfig(&contract.Config{ProjectRoot: t.TempDir()})
+	cfg := NewConfig(&contract.Config{ProjectRoot: newTestGitProjectRoot(t)})
 	if cfg.ExtractOnStop {
 		t.Fatalf("ExtractOnStop = true, want false (no intent, no env)")
 	}
@@ -112,7 +112,7 @@ func TestNewConfigAutoDreamIntentOverridesEnv(t *testing.T) {
 	if err := WriteAutoDreamIntent(root, true); err != nil {
 		t.Fatalf("WriteAutoDreamIntent(true) error = %v", err)
 	}
-	cfg = NewConfig(&contract.Config{ProjectRoot: t.TempDir()})
+	cfg = NewConfig(&contract.Config{ProjectRoot: newTestGitProjectRoot(t)})
 	if !cfg.ExtractOnStop {
 		t.Fatalf("ExtractOnStop = false, want true (intent=true should override env)")
 	}
@@ -122,7 +122,7 @@ func TestNewConfigAutoDreamIntentOverridesEnv(t *testing.T) {
 		t.Fatalf("WriteAutoDreamIntent(false) error = %v", err)
 	}
 	t.Setenv(envMemoryExtractOnStop, "true")
-	cfg = NewConfig(&contract.Config{ProjectRoot: t.TempDir()})
+	cfg = NewConfig(&contract.Config{ProjectRoot: newTestGitProjectRoot(t)})
 	if cfg.ExtractOnStop {
 		t.Fatalf("ExtractOnStop = true, want false (intent=false should override env=true)")
 	}
@@ -202,7 +202,7 @@ func TestMemoryConstructorsUseIsMemoryEnabled(t *testing.T) {
 	t.Setenv(envEnableMemorySystem, "1")
 	t.Setenv(envClaudeSimple, "1")
 
-	cfg := &Config{Enabled: true, RootDir: t.TempDir(), ProjectRoot: t.TempDir()}
+	cfg := &Config{Enabled: true, RootDir: t.TempDir(), ProjectRoot: newTestGitProjectRoot(t)}
 	rulesText, err := NewRulesProvider(cfg, nil, nil).Resolve(context.Background(), contract.SectionContext{
 		Start: &contract.StartInput{},
 	})
@@ -319,7 +319,7 @@ func TestConfigAutoMemPathHelpers(t *testing.T) {
 	cfg := &Config{
 		Enabled:             true,
 		RootDir:             t.TempDir(),
-		ProjectRoot:         t.TempDir(),
+		ProjectRoot:         newTestGitProjectRoot(t),
 		AutoMemPathOverride: override,
 	}
 	if !cfg.HasAutoMemPathOverride() {
@@ -384,7 +384,7 @@ func TestGatePathOverrideProvenanceLayering(t *testing.T) {
 }
 
 func TestGateRulesProvidersRespectProductKillSwitch(t *testing.T) {
-	cfg := &Config{Enabled: false, RootDir: t.TempDir(), ProjectRoot: t.TempDir()}
+	cfg := &Config{Enabled: false, RootDir: t.TempDir(), ProjectRoot: newTestGitProjectRoot(t)}
 	rulesText, err := NewRulesProvider(cfg, nil, nil).Resolve(context.Background(), contract.SectionContext{
 		Start: &contract.StartInput{},
 	})

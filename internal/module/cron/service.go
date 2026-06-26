@@ -253,8 +253,8 @@ func (s *service) validateCreate(req *CreateJobRequest) error {
 	if strings.TrimSpace(req.Prompt) == "" {
 		return ErrMissingPrompt
 	}
-	if strings.TrimSpace(req.ScheduleExpr) == "" {
-		return ErrMissingSchedule
+	if err := validateScheduleInput(req.ScheduleExpr, req.Timezone); err != nil {
+		return err
 	}
 	if strings.TrimSpace(req.CWD) == "" {
 		return ErrMissingCWD
@@ -279,6 +279,16 @@ func (s *service) validateCreate(req *CreateJobRequest) error {
 		return fmt.Errorf("%w: %v", ErrInvalidConfig, err)
 	}
 	return nil
+}
+
+// validateScheduleInput 同时校验必填表达式和可选时区。
+// Create/Update 共享这个入口，避免调度阶段才发现坏 schedule。
+func validateScheduleInput(scheduleExpr, timezone string) error {
+	if strings.TrimSpace(scheduleExpr) == "" {
+		return ErrMissingSchedule
+	}
+	_, err := ParseSchedule(scheduleExpr, timezone)
+	return err
 }
 
 // decodeConfigMap 将原始 JSON 配置解析为 map[string]any。

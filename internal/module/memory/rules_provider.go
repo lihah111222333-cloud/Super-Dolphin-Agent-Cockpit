@@ -380,11 +380,26 @@ func (p *MemoryContextProvider) searchPastContextInputs(
 	if len(entries) > 0 && !memoryRetrievalLowConfidence(query, entries) {
 		return nil
 	}
-	snippets := p.searchPastContext(ctx, session, threadID, query)
+	snippets, err := p.searchPastContext(ctx, session, threadID, query)
+	if err != nil {
+		return memoryHistorySearchErrorInputs(err)
+	}
 	if len(snippets) == 0 {
 		return nil
 	}
 	return freezeTranscriptInputs(snippets)
+}
+
+// memoryHistorySearchErrorInputs 把历史检索失败显式传给本轮 turn，避免上层把错误误判成没有命中。
+func memoryHistorySearchErrorInputs(err error) []shareddto.InputItem {
+	if err == nil {
+		return nil
+	}
+	return []shareddto.InputItem{{
+		Type:    "filecontent",
+		Name:    "Memory history search error",
+		Content: "memory history search failed:\n" + err.Error(),
+	}}
 }
 
 func invalidTurnContextRequest(p *MemoryContextProvider, threadID, query string) bool {
@@ -558,15 +573,15 @@ func (p *MemoryContextProvider) searchPastContext(
 	ctx context.Context,
 	session contract.Session,
 	threadID, query string,
-) []transcriptSnippet {
+) ([]transcriptSnippet, error) {
 	if p == nil || session == nil {
-		return nil
+		return nil, nil
 	}
 	messages, err := session.ReadHistory(ctx, strings.TrimSpace(threadID), 200)
 	if err != nil {
-		return nil
+		return nil, err
 	}
-	return searchTranscriptSnippets(query, messages, defaultRelevantMemoryBudgetBytes/2)
+	return searchTranscriptSnippets(query, messages, defaultRelevantMemoryBudgetBytes/2), nil
 }
 
 // turnStateLocked 返回 thread 预取状态；调用方必须持有 p.mu。

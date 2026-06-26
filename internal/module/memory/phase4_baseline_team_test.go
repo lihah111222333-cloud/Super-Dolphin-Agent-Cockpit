@@ -76,7 +76,7 @@ func newPhase4BaselineConfig(t *testing.T, enableTeam bool) *Config {
 		Enabled:             true,
 		EnableTools:         true,
 		RootDir:             t.TempDir(),
-		ProjectRoot:         t.TempDir(),
+		ProjectRoot:         newTestGitProjectRoot(t),
 		AutoMemPathOverride: filepath.Join(t.TempDir(), "private"),
 	}
 	if enableTeam {

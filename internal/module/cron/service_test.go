@@ -6,6 +6,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -228,6 +229,83 @@ func TestCreateJobRejectsInvalidIdentity(t *testing.T) {
 				t.Fatalf("want ErrInvalidConfig, got %v", err)
 			}
 		})
+	}
+}
+
+func TestCreateAndUpdateRejectInvalidScheduleInputs(t *testing.T) {
+	t.Parallel()
+	cfg := newIdentityConfig(t)
+	base := CreateJobRequest{
+		Name:         "daily",
+		Prompt:       "p",
+		ScheduleExpr: "* * * * *",
+		Timezone:     "UTC",
+		Provider:     "codex",
+		CWD:          "/repo",
+		Config:       cfg,
+	}
+	cases := []struct {
+		name      string
+		mutate    func(*CreateJobRequest)
+		wantError string
+	}{
+		{
+			name:      "bad schedule expression",
+			mutate:    func(r *CreateJobRequest) { r.ScheduleExpr = "not a cron" },
+			wantError: "schedule_expr",
+		},
+		{
+			name:      "bad timezone",
+			mutate:    func(r *CreateJobRequest) { r.Timezone = "Mars/Olympus" },
+			wantError: "timezone",
+		},
+	}
+	for _, tc := range cases {
+		tc := tc
+		for _, op := range []string{"create", "update"} {
+			op := op
+			t.Run(tc.name+"/"+op, func(t *testing.T) {
+				t.Parallel()
+				store := &fakeStore{
+					createFn: func(context.Context, cronstore.CreateJobParams) (cronstore.Job, error) {
+						t.Fatalf("CreateJob reached store for invalid %s", tc.wantError)
+						return cronstore.Job{}, nil
+					},
+					updateFn: func(context.Context, cronstore.UpdateJobScheduleParams) error {
+						t.Fatalf("UpdateJob reached store for invalid %s", tc.wantError)
+						return nil
+					},
+				}
+				svc := newTestService(t, store)
+				req := base
+				tc.mutate(&req)
+				var err error
+				if op == "create" {
+					_, err = svc.CreateJob(context.Background(), req)
+				} else {
+					_, err = svc.UpdateJob(context.Background(), UpdateJobRequest{
+						ID:            "job-1",
+						Name:          req.Name,
+						Prompt:        req.Prompt,
+						ScheduleType:  req.ScheduleType,
+						ScheduleExpr:  req.ScheduleExpr,
+						Timezone:      req.Timezone,
+						Provider:      req.Provider,
+						Model:         req.Model,
+						CWD:           req.CWD,
+						Config:        req.Config,
+						Skills:        req.Skills,
+						NotifyChannel: req.NotifyChannel,
+						Enabled:       req.Enabled,
+						NextRunAt:     req.NextRunAt,
+						MaxAttempts:   req.MaxAttempts,
+					})
+				}
+				if err == nil || !strings.Contains(err.Error(), tc.wantError) {
+					t.Fatalf("%s error = %v, want %s validation error", op, err, tc.wantError)
+				}
+			})
+		}
 	}
 }
 

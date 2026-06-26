@@ -15,7 +15,7 @@ import (
 )
 
 func TestBuildUIMemorySnapshotIncludesDurableAndAgentMemories(t *testing.T) {
-	projectRoot := t.TempDir()
+	projectRoot := newTestGitProjectRoot(t)
 	privateRoot := filepath.Join(t.TempDir(), "private")
 	cfg := newUIMemorySnapshotConfig(t, projectRoot, privateRoot)
 	if err := os.MkdirAll(privateRoot, 0o755); err != nil {
@@ -251,7 +251,7 @@ func assertDurableAndAgentMemorySnapshot(t *testing.T, snapshot UIMemorySnapshot
 }
 
 func TestBuildUIMemorySnapshotAutoDreamReflectsConfigGates(t *testing.T) {
-	projectRoot := t.TempDir()
+	projectRoot := newTestGitProjectRoot(t)
 	privateRoot := filepath.Join(t.TempDir(), "private")
 	if err := os.MkdirAll(privateRoot, 0o755); err != nil {
 		t.Fatalf("MkdirAll(privateRoot) error = %v", err)
@@ -294,7 +294,7 @@ func TestBuildUIMemorySnapshotAutoDreamReflectsConfigGates(t *testing.T) {
 }
 
 func TestBuildUIMemorySnapshotSurfacesPersistedAutoDreamIntent(t *testing.T) {
-	projectRoot := t.TempDir()
+	projectRoot := newTestGitProjectRoot(t)
 	privateRoot := filepath.Join(t.TempDir(), "private")
 	if err := os.MkdirAll(privateRoot, 0o755); err != nil {
 		t.Fatalf("MkdirAll(privateRoot) error = %v", err)
@@ -321,7 +321,7 @@ func TestBuildUIMemorySnapshotSurfacesPersistedAutoDreamIntent(t *testing.T) {
 }
 
 func TestUIMemoryEntryCRUD(t *testing.T) {
-	projectRoot := t.TempDir()
+	projectRoot := newTestGitProjectRoot(t)
 	privateRoot := filepath.Join(t.TempDir(), "private")
 	cfg := &Config{
 		Enabled:             true,
@@ -391,7 +391,7 @@ func TestUIMemoryEntryCRUD(t *testing.T) {
 }
 
 func TestUIMemoryEntryRejectsTeamTargetWhenTeamMemoryDisabled(t *testing.T) {
-	projectRoot := t.TempDir()
+	projectRoot := newTestGitProjectRoot(t)
 	privateRoot := filepath.Join(t.TempDir(), "private")
 	cfg := &Config{
 		Enabled:             true,
@@ -418,7 +418,7 @@ func TestUIMemoryEntryRejectsTeamTargetWhenTeamMemoryDisabled(t *testing.T) {
 }
 
 func TestUpdateUIMemoryEntryReturnsRequestedPathWhenDuplicateNamesExist(t *testing.T) {
-	projectRoot := t.TempDir()
+	projectRoot := newTestGitProjectRoot(t)
 	privateRoot := filepath.Join(t.TempDir(), "private")
 	cfg := &Config{
 		Enabled:             true,
@@ -472,7 +472,7 @@ func TestUpdateUIMemoryEntryReturnsRequestedPathWhenDuplicateNamesExist(t *testi
 }
 
 func TestDeleteUIMemoryEntryDeletesRequestedPathWhenDuplicateNamesExist(t *testing.T) {
-	projectRoot := t.TempDir()
+	projectRoot := newTestGitProjectRoot(t)
 	privateRoot := filepath.Join(t.TempDir(), "private")
 	cfg := &Config{
 		Enabled:             true,
@@ -511,7 +511,7 @@ func TestDeleteUIMemoryEntryDeletesRequestedPathWhenDuplicateNamesExist(t *testi
 }
 
 func TestComputeUIMemoryHealthUsesFullContentNotPreviewOnly(t *testing.T) {
-	projectRoot := t.TempDir()
+	projectRoot := newTestGitProjectRoot(t)
 	privateRoot := filepath.Join(t.TempDir(), "private")
 	cfg := &Config{
 		Enabled:             true,
@@ -576,7 +576,7 @@ func TestReadUIMemoryEntryByPathRejectsEntrypointIndex(t *testing.T) {
 }
 
 func TestDeleteUIMemoryEntryRejectsEntrypointIndex(t *testing.T) {
-	projectRoot := t.TempDir()
+	projectRoot := newTestGitProjectRoot(t)
 	privateRoot := filepath.Join(t.TempDir(), "private")
 	cfg := &Config{
 

@@ -18,6 +18,7 @@ type fakeDedupeStore struct {
 	mu       sync.Mutex
 	rows     map[string]turndedupe.Entry
 	upsertFn func(context.Context, turndedupe.UpsertParams) error
+	bindFn   func(context.Context, turndedupe.BindProviderTurnIDParams) error
 	getFn    func(context.Context, string) (turndedupe.Entry, error)
 	termFn   func(context.Context, string) error
 
@@ -51,10 +52,13 @@ func (f *fakeDedupeStore) Upsert(ctx context.Context, p turndedupe.UpsertParams)
 	return nil
 }
 
-func (f *fakeDedupeStore) BindProviderTurnID(_ context.Context, p turndedupe.BindProviderTurnIDParams) error {
+func (f *fakeDedupeStore) BindProviderTurnID(ctx context.Context, p turndedupe.BindProviderTurnIDParams) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.bindCalls++
+	if f.bindFn != nil {
+		return f.bindFn(ctx, p)
+	}
 	if e, ok := f.rows[p.DedupeKey]; ok {
 		e.ProviderTurnID = p.ProviderTurnID
 		e.UpdatedAt = p.Now
@@ -134,6 +138,62 @@ func TestServiceStartTurnMirrorsToStore(t *testing.T) {
 	e := store.rows["dk-1"]
 	if e.LocalTurnID == "" || e.ThreadID != "thread-1" || e.ProviderTurnID != "p-1" {
 		t.Fatalf("mirror row = %+v", e)
+	}
+}
+
+func TestServiceStartTurnDedupeUpsertErrorAbortsProviderStart(t *testing.T) {
+	t.Parallel()
+	want := errors.New("dedupe upsert failed")
+	store := newFakeDedupeStore()
+	store.upsertFn = func(context.Context, turndedupe.UpsertParams) error {
+		return want
+	}
+	svc := serviceWithStore(store)
+	var providerStarted bool
+	sess := &stubSession{
+		threadID: "thread-upsert",
+		startTurn: func(context.Context, dto.TurnRequest) (contract.TurnHandle, error) {
+			providerStarted = true
+			return &stubTurnHandle{localID: "turn-upsert", providerID: "p-upsert", done: make(chan struct{})}, nil
+		},
+	}
+	req, err := svc.PrepareTurn(context.Background(), sess, PrepareInput{Prompt: "run", DedupeKey: "dk-upsert"})
+	if err != nil {
+		t.Fatalf("PrepareTurn() error = %v", err)
+	}
+	_, err = svc.StartTurn(context.Background(), sess, req)
+	if !errors.Is(err, want) {
+		t.Fatalf("StartTurn() error = %v, want %v", err, want)
+	}
+	if providerStarted {
+		t.Fatal("provider StartTurn must not run after dedupe upsert fails")
+	}
+}
+
+func TestServiceStartTurnDedupeProviderIDErrorSurfaces(t *testing.T) {
+	t.Parallel()
+	want := errors.New("provider id bind failed")
+	store := newFakeDedupeStore()
+	store.bindFn = func(context.Context, turndedupe.BindProviderTurnIDParams) error {
+		return want
+	}
+	svc := serviceWithStore(store)
+	sess := &stubSession{
+		threadID: "thread-bind",
+		startTurn: func(context.Context, dto.TurnRequest) (contract.TurnHandle, error) {
+			return &stubTurnHandle{localID: "turn-bind", providerID: "p-bind", done: make(chan struct{})}, nil
+		},
+	}
+	req, err := svc.PrepareTurn(context.Background(), sess, PrepareInput{Prompt: "run", DedupeKey: "dk-bind"})
+	if err != nil {
+		t.Fatalf("PrepareTurn() error = %v", err)
+	}
+	_, err = svc.StartTurn(context.Background(), sess, req)
+	if !errors.Is(err, want) {
+		t.Fatalf("StartTurn() error = %v, want %v", err, want)
+	}
+	if sess.lastInterrupt.ThreadID != "thread-bind" || sess.lastInterrupt.TurnID != "p-bind" {
+		t.Fatalf("interrupt request = %#v, want thread-bind/p-bind cleanup", sess.lastInterrupt)
 	}
 }
 

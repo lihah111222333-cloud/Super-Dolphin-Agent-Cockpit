@@ -27,7 +27,7 @@ type skillHydrationPort = contract.SkillHydrationSource
 const peerBinDirEnv = "GO_AGENT_PEER_BIN_DIR"
 
 // service 是 turn.Service 的核心实现，持有组装器、技能解析器、manifest 构建器和 tracker 等依赖。
-// tracker 负责进程内状态收敛，durable dedupe store 只作为重启恢复的 best-effort 镜像。
+// tracker 负责进程内状态收敛；dedupe store 一旦注入，StartTurn 的持久化写入失败会阻断提交。
 type service struct {
 	logger                 *slog.Logger
 	assembler              *inputAssembler
@@ -211,7 +211,10 @@ func (s *service) StartTurn(ctx context.Context, session contract.Session, req d
 	// provider 调用尚未返回时也可能有并发 LookupByDedupeKey，因此先把 dedupe key 写入 tracker。
 	// 空 key 在 RegisterDedupeKey 内是 no-op。
 	s.tracker.RegisterDedupeKey(req.LocalID, req.DedupeKey)
-	s.recordDedupeUpsert(ctx, req.DedupeKey, req.LocalID, req.ThreadID)
+	if err = s.recordDedupeUpsert(ctx, req.DedupeKey, req.LocalID, req.ThreadID); err != nil {
+		s.tracker.Complete(req.LocalID, false, err.Error())
+		return nil, err
+	}
 	handle, err = session.StartTurn(ctx, req)
 	if err != nil {
 		s.tracker.Complete(req.LocalID, false, err.Error())
@@ -227,7 +230,16 @@ func (s *service) StartTurn(ctx context.Context, session contract.Session, req d
 	s.tracker.AttachHandle(req.LocalID, handle)
 	providerID := handle.ProviderID()
 	s.tracker.BindProviderID(req.LocalID, providerID)
-	s.recordDedupeProviderID(ctx, req.DedupeKey, providerID)
+	if err = s.recordDedupeProviderID(ctx, req.DedupeKey, providerID); err != nil {
+		interruptErr := session.Interrupt(ctx, dto.InterruptRequest{
+			ThreadID: req.ThreadID,
+			TurnID:   providerID,
+			Source:   "dedupe_provider_id_bind_failed",
+		})
+		s.tracker.Complete(req.LocalID, false, err.Error())
+		terminalErr := s.recordDedupeTerminal(ctx, req.DedupeKey)
+		return nil, errors.Join(err, interruptErr, terminalErr)
+	}
 	s.mapObservationTurn(req.LocalID, providerID)
 	s.tracker.Update(req.LocalID, StateRunning)
 	s.watchTurn(ctx, handle, req.LocalID, req.ThreadID)
@@ -365,7 +377,7 @@ func (s *service) LookupByDedupeKey(ctx context.Context, dedupeKey string) (Turn
 }
 
 // recordDedupeUpsert 在 StartTurn 侧把 dedupe key 写入持久 registry。
-// 未注入 store 或 key 为空时直接跳过；tracker 已持有 key，因此持久化是 best-effort。
+// 未注入 store 或 key 为空时直接跳过；store 写入失败时返回错误阻断提交，避免重启恢复重复启动。
 func (s *service) recordDedupeUpsert(ctx context.Context, dedupeKey, localID, threadID string) error {
 	if s == nil || s.dedupeStore == nil {
 		return nil

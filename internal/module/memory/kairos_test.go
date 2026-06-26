@@ -44,7 +44,7 @@ func TestKairosLoadMemoryPromptUsesDailyLogProtocol(t *testing.T) {
 
 func TestKairosGetAutoMemDailyLogPath(t *testing.T) {
 	baseRoot := t.TempDir()
-	projectRoot := t.TempDir()
+	projectRoot := newTestGitProjectRoot(t)
 	initGitRepoForMemoryTest(t, projectRoot)
 	when := time.Date(2026, 4, 15, 9, 30, 0, 0, time.FixedZone("UTC+8", 8*60*60))
 	root, err := GetAutoMemPath(baseRoot, projectRoot)
@@ -71,7 +71,7 @@ func initGitRepoForMemoryTest(t *testing.T, root string) {
 
 func TestKairosDailyLogWriterAppendsAndRollsOver(t *testing.T) {
 	baseRoot := newTestMemoryRoot(t)
-	projectRoot := t.TempDir()
+	projectRoot := newTestGitProjectRoot(t)
 	cfg := &Config{
 		Enabled:     true,
 		RootDir:     baseRoot,
@@ -140,7 +140,7 @@ func TestKairosDailyLogWriterAppendsAndRollsOver(t *testing.T) {
 
 func TestKairosDurableTurnWritesWithoutExplicitRemember(t *testing.T) {
 	baseRoot := newTestMemoryRoot(t)
-	projectRoot := t.TempDir()
+	projectRoot := newTestGitProjectRoot(t)
 	cfg := &Config{
 		Enabled:     true,
 		RootDir:     baseRoot,
@@ -178,7 +178,7 @@ func TestKairosDurableTurnWritesWithoutExplicitRemember(t *testing.T) {
 
 func TestKairosDailyLogSkipsChildAgent(t *testing.T) {
 	baseRoot := newTestMemoryRoot(t)
-	projectRoot := t.TempDir()
+	projectRoot := newTestGitProjectRoot(t)
 	cfg := &Config{
 		Enabled:     true,
 		RootDir:     baseRoot,
@@ -213,7 +213,7 @@ func TestKairosDailyLogSkipsChildAgent(t *testing.T) {
 }
 
 func TestKairosDateChangeAttachmentTail(t *testing.T) {
-	cfg := &Config{Enabled: true, RootDir: t.TempDir(), ProjectRoot: t.TempDir(), Features: MemoryFeatureFlags{Kairos: true}}
+	cfg := &Config{Enabled: true, RootDir: t.TempDir(), ProjectRoot: newTestGitProjectRoot(t), Features: MemoryFeatureFlags{Kairos: true}}
 	provider := NewContextProvider(cfg)
 	current := time.Date(2026, 4, 15, 23, 55, 0, 0, time.FixedZone("UTC+8", 8*60*60))
 	provider.timeNow = func() time.Time { return current }

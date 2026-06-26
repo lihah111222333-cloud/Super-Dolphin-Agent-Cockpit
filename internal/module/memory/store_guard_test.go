@@ -79,7 +79,7 @@ func newTestTeamGuardedDiskStore(t *testing.T) *diskStore {
 	cfg := &Config{
 		Enabled:             true,
 		RootDir:             t.TempDir(),
-		ProjectRoot:         t.TempDir(),
+		ProjectRoot:         newTestGitProjectRoot(t),
 		AutoMemPathOverride: autoRoot,
 		Features:            MemoryFeatureFlags{TeamMemory: true},
 	}

@@ -19,7 +19,7 @@ import (
 func newHooksWithInvalidator(t *testing.T) (*MemoryLifecycleHooks, *sectionInvalidatorStub, string) {
 	t.Helper()
 	root := filepath.Join(t.TempDir(), "memory-root")
-	projectRoot := filepath.Join(t.TempDir(), "project")
+	projectRoot := newTestGitProjectRoot(t)
 	invalidator := &sectionInvalidatorStub{}
 	hooks := newMemoryLifecycleHooks(
 		&Config{Enabled: true, RootDir: root, ProjectRoot: projectRoot},

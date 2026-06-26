@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"errors"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	"github.com/anthropic-ai/super-agent-v3/internal/module/thread"
@@ -20,13 +21,16 @@ type threadOrchestrationAdapter struct {
 	svc contract.OrchestrationService
 }
 
-// noopThreadOrchestrationFacade 在未接 orchestration service 时保持 thread 生命周期非阻塞。
-type noopThreadOrchestrationFacade struct{}
+// errOrchestrationServiceUnavailable 表示 thread facade 缺少真实 orchestration service。
+var errOrchestrationServiceUnavailable = errors.New("orchestration service is unavailable")
 
-// newThreadOrchestrationFacade 根据 orchestration service 是否存在选择真实或 no-op facade。
+// missingThreadOrchestrationFacade 在未接 orchestration service 时阻断生命周期动作。
+type missingThreadOrchestrationFacade struct{}
+
+// newThreadOrchestrationFacade 根据 orchestration service 是否存在选择真实或 fail-fast facade。
 func newThreadOrchestrationFacade(p threadOrchestrationParams) thread.OrchestrationFacade {
 	if p.Service == nil {
-		return noopThreadOrchestrationFacade{}
+		return missingThreadOrchestrationFacade{}
 	}
 	return threadOrchestrationAdapter{svc: p.Service}
 }
@@ -60,22 +64,22 @@ func (a threadOrchestrationAdapter) BindSessionGeneration(ctx context.Context, a
 	return a.svc.BindSessionGeneration(ctx, agentID, generation)
 }
 
-// LaunchAgent 在 no-op facade 中不阻塞桌面线程生命周期。
-func (noopThreadOrchestrationFacade) LaunchAgent(context.Context, thread.LaunchAgentRequest) error {
-	return nil
+// LaunchAgent 在缺少 orchestration service 时返回显式错误，避免制造启动成功假象。
+func (missingThreadOrchestrationFacade) LaunchAgent(context.Context, thread.LaunchAgentRequest) error {
+	return errOrchestrationServiceUnavailable
 }
 
-// StopAgent 在 no-op facade 中直接成功。
-func (noopThreadOrchestrationFacade) StopAgent(context.Context, string) error {
-	return nil
+// StopAgent 在缺少 orchestration service 时返回显式错误，避免调用方误判已停止。
+func (missingThreadOrchestrationFacade) StopAgent(context.Context, string) error {
+	return errOrchestrationServiceUnavailable
 }
 
-// Recover 在 no-op facade 中直接成功。
-func (noopThreadOrchestrationFacade) Recover(context.Context, string) error {
-	return nil
+// Recover 在缺少 orchestration service 时返回显式错误，避免恢复流程被静默跳过。
+func (missingThreadOrchestrationFacade) Recover(context.Context, string) error {
+	return errOrchestrationServiceUnavailable
 }
 
-// BindSessionGeneration 在 no-op facade 中直接成功。
-func (noopThreadOrchestrationFacade) BindSessionGeneration(context.Context, string, uint64) error {
-	return nil
+// BindSessionGeneration 在缺少 orchestration service 时返回显式错误，避免 session 绑定成功假象。
+func (missingThreadOrchestrationFacade) BindSessionGeneration(context.Context, string, uint64) error {
+	return errOrchestrationServiceUnavailable
 }

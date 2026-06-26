@@ -1,5 +1,5 @@
 // Package prompt 实现 prompt section 注入和模板自动路由的条件判断。
-// enable_when 对坏 JSON 保持兼容注入；match_when 面向路由选择，坏规则会 fail-closed 跳过模板。
+// enable_when 和 match_when 都对坏 JSON fail-closed，避免损坏规则误注入提示内容。
 package prompt
 
 import (
@@ -10,12 +10,12 @@ import (
 )
 
 // EvaluateEnableWhen 判断 prompt_template_section 是否应注入当前 prompt。
-// 表达式使用 JSONB 键值 AND 匹配；空值或坏 JSON 视为无条件注入，以免历史手写行被静默移除。
+// 表达式使用 JSONB 键值 AND 匹配；空值视为无条件注入，坏 JSON fail-closed 跳过该 section。
 //
 // 支持的表达式形态：
 //
-//	null / empty / invalid JSON → 无条件注入
-//	{}                          → 无条件注入
+//	null / empty / {}            → 无条件注入
+//	invalid JSON                 → 不注入
 //	{"language":"zh"}           → buildCtx.Language == "zh" 时注入
 //	{"isWorktree":true}         → buildCtx.IsWorktree 为 true 时注入
 //	{"provider":"claude-cli",
@@ -39,8 +39,7 @@ func EvaluateEnableWhen(raw []byte, buildCtx contract.BuildCtx, userPrompt strin
 	}
 	var expr map[string]any
 	if err := json.Unmarshal([]byte(trimmed), &expr); err != nil {
-		// section 注入规则承载历史手写 JSON；坏表达式 fail-open，避免已存在的提示突然消失。
-		return true
+		return false
 	}
 	if len(expr) == 0 {
 		return true
