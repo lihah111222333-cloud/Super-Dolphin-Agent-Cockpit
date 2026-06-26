@@ -244,10 +244,6 @@ func remoteLauncherHeartbeat(ctx context.Context, client *jrpc2.Client, lease mc
 		}
 	}
 }
-func rpcString(v any) string {
-	s, _ := v.(string)
-	return strings.TrimSpace(s)
-}
 func managedAgentLaunchDisplayName(name string) string {
 	name = strings.Join(strings.Fields(strings.TrimSpace(name)), " ")
 	name = strings.Trim(name, "`\"'“”‘’[]()（）【】")
@@ -411,7 +407,8 @@ func (r *remoteLauncher) SubmitTurn(ctx context.Context, agent *agentRuntime, su
 	if err != nil {
 		return "", err
 	}
-	turnID := rpcString(resp[launcherwire.RespTurnID])
+	turnID, _ := resp[launcherwire.RespTurnID].(string)
+	turnID = strings.TrimSpace(turnID)
 	if turnID == "" {
 		return "", errors.New("remote launcher: empty turn id")
 	}
@@ -507,6 +504,10 @@ func (s *service) handleRemoteTurnCompleted(ctx context.Context, ev turndto.Turn
 	if s == nil || !s.hasRuntimeAgent(ev.AgentID) {
 		return
 	}
+	if strings.TrimSpace(ev.TurnID) == "" {
+		pkglogger.Warn("orchestration: remote turn completion missing turn_id", "agent_id", strings.TrimSpace(ev.AgentID), "thread_id", strings.TrimSpace(ev.ThreadID))
+		return
+	}
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -520,9 +521,7 @@ func (s *service) handleRemoteTurnCompleted(ctx context.Context, ev turndto.Turn
 	if err != nil && !errors.Is(err, errAgentNotFound) {
 		pkglogger.Warn("orchestration: remote turn completion report failed", "agent_id", strings.TrimSpace(ev.AgentID), "thread_id", strings.TrimSpace(ev.ThreadID), "turn_id", strings.TrimSpace(ev.TurnID), "error", err)
 	}
-	lifecycle := ev
-	lifecycle.TurnID = ""
-	handleTurnCompletedEventWithCtx(s, s.logger, lifecycle, eventCtx)
+	handleTurnCompletedEventWithCtx(s, s.logger, ev, eventCtx)
 }
 
 // handleRemoteTurnInterrupted 处理来自 remote launcher 的 turn 中断通知，写入 report 并推进状态机。

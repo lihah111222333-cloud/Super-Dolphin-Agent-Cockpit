@@ -10,12 +10,10 @@ import (
 
 	taskdag "github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/taskdag"
 	taskdto "github.com/anthropic-ai/super-agent-v3/internal/dto/task"
+	mcpcommon "github.com/anthropic-ai/super-agent-v3/internal/mcpserver/common"
 	"github.com/kelindar/event"
 )
 
-// stubNodeFlowStore 实现 NodeFlowStore + OrchestrationStore 必需方法，
-// 验证 service.UpdateNodeStatus 在 status="done" 时走 CompleteNodeAndScheduleDownstream。
-// ListNodes 提供当前 from-status，让 service 先做状态机校验再写入。
 type stubNodeFlowStore struct {
 	taskdag.OrchestrationStore // nil 嵌入：未覆盖方法 panic 暴露遗漏
 
@@ -27,10 +25,13 @@ type stubNodeFlowStore struct {
 	failReply     *taskdag.FailNodeResult
 	failErr       error
 	listRunCalls  []int64
+	renewCalls    []taskdag.RenewWorkerLeaseInput
+	renewRows     int64
+	renewRowsSet  bool
+	renewErr      error
 
-	// fromStatus 是 ListNodes 返回的当前 node.status，供状态转移校验取用。
-	// 未设默认 "running" 让 done 转移合法，适配多数测试不需显式设置。
 	fromStatus string
+	assignedTo string
 }
 
 func (s *stubNodeFlowStore) ListNodes(_ context.Context, dagKey string) ([]taskdag.Node, error) {
@@ -47,7 +48,11 @@ func (s *stubNodeFlowStore) nodeList(dagKey string, runID *int64) []taskdag.Node
 	if status == "" {
 		status = "running"
 	}
-	return []taskdag.Node{{DagKey: dagKey, NodeKey: "A", RunID: runID, Status: status}}
+	assignedTo := s.assignedTo
+	if assignedTo == "" {
+		assignedTo = "agent-A"
+	}
+	return []taskdag.Node{{DagKey: dagKey, NodeKey: "A", RunID: runID, Status: status, AssignedTo: assignedTo}}
 }
 
 func (s *stubNodeFlowStore) UpdateNodeStatus(_ context.Context, input taskdag.NodeStatusUpdate) (*taskdag.Node, error) {
@@ -86,10 +91,31 @@ func (s *stubNodeFlowStore) UpdateNodeStatusFlexible(_ context.Context, _ taskda
 	return nil, errors.New("not used in this test")
 }
 
-// makeServiceWithStub 构造一个绑了 stubNodeFlowStore 的最小 service 用于
-// 测 UpdateNodeStatus 的 NodeFlowStore 路由分支。
+func (s *stubNodeFlowStore) AcquireWorkerLease(context.Context, taskdag.AcquireWorkerLeaseInput) (int64, error) {
+	return 0, errors.New("not used in this test")
+}
+
+func (s *stubNodeFlowStore) RenewWorkerLease(_ context.Context, input taskdag.RenewWorkerLeaseInput) (int64, error) {
+	s.renewCalls = append(s.renewCalls, input)
+	if s.renewErr != nil {
+		return 0, s.renewErr
+	}
+	if s.renewRowsSet {
+		return s.renewRows, nil
+	}
+	return 1, nil
+}
+
+func (s *stubNodeFlowStore) ReleaseWorkerLease(context.Context, taskdag.ReleaseWorkerLeaseInput) error {
+	return errors.New("not used in this test")
+}
+
 func makeServiceWithStub(stub taskdag.OrchestrationStore) *service {
 	return &service{dagStore: stub}
+}
+
+func taskUpdateNodeTestContext() context.Context {
+	return mcpcommon.WithToolScope(context.Background(), mcpcommon.ToolScope{AgentID: "agent-A"})
 }
 
 // TestUpdateNodeStatusDone_RoutesToCompleteNodeAndScheduleDownstream 验证 done 状态走下游调度完成路径。
@@ -104,7 +130,7 @@ func TestUpdateNodeStatusDone_RoutesToCompleteNodeAndScheduleDownstream(t *testi
 		},
 	}
 	s := makeServiceWithStub(stub)
-	_, err := s.UpdateNodeStatus(context.Background(), UpdateNodeStatusRequest{
+	_, err := s.UpdateNodeStatus(taskUpdateNodeTestContext(), UpdateNodeStatusRequest{
 		DagKey:  "dag-1",
 		NodeKey: "A",
 		RunID:   42,
@@ -144,7 +170,7 @@ func TestUpdateNodeStatusDonePublishesTaskNodeStatusChanged(t *testing.T) {
 		},
 	}
 	s := &service{dagStore: stub, eventBus: dispatcher}
-	_, err := s.UpdateNodeStatus(context.Background(), UpdateNodeStatusRequest{
+	_, err := s.UpdateNodeStatus(taskUpdateNodeTestContext(), UpdateNodeStatusRequest{
 		DagKey:  "dag-1",
 		NodeKey: "A",
 		RunID:   runID,
@@ -173,7 +199,7 @@ func TestUpdateNodeStatusDonePublishesTaskNodeStatusChanged(t *testing.T) {
 func TestUpdateNodeStatusNonDone_KeepsLegacyUpdate(t *testing.T) {
 	stub := &stubNodeFlowStore{fromStatus: "ready"} // ready → running 合法
 	s := makeServiceWithStub(stub)
-	_, err := s.UpdateNodeStatus(context.Background(), UpdateNodeStatusRequest{
+	_, err := s.UpdateNodeStatus(taskUpdateNodeTestContext(), UpdateNodeStatusRequest{
 		DagKey:  "dag-1",
 		NodeKey: "A",
 		RunID:   43,
@@ -200,7 +226,7 @@ func TestUpdateNodeStatusFailed_RoutesLegalSourcesToFailCascade(t *testing.T) {
 		t.Run(fromStatus, func(t *testing.T) {
 			stub := &stubNodeFlowStore{fromStatus: fromStatus}
 			s := makeServiceWithStub(stub)
-			_, err := s.UpdateNodeStatus(context.Background(), UpdateNodeStatusRequest{
+			_, err := s.UpdateNodeStatus(taskUpdateNodeTestContext(), UpdateNodeStatusRequest{
 				DagKey:  "dag-1",
 				NodeKey: "A",
 				RunID:   47,
@@ -238,7 +264,7 @@ func requireFailedCascadeCall(t *testing.T, stub *stubNodeFlowStore, runID int64
 func TestUpdateNodeStatusFailed_RejectsPendingBeforeCascade(t *testing.T) {
 	stub := &stubNodeFlowStore{fromStatus: "pending"}
 	s := makeServiceWithStub(stub)
-	_, err := s.UpdateNodeStatus(context.Background(), UpdateNodeStatusRequest{
+	_, err := s.UpdateNodeStatus(taskUpdateNodeTestContext(), UpdateNodeStatusRequest{
 		DagKey:  "dag-1",
 		NodeKey: "A",
 		RunID:   48,
@@ -253,10 +279,41 @@ func TestUpdateNodeStatusFailed_RejectsPendingBeforeCascade(t *testing.T) {
 	}
 }
 
+func TestTaskUpdateNodeRejectsNonLeaseHolder(t *testing.T) {
+	stub := &stubNodeFlowStore{
+		fromStatus:   "ready",
+		assignedTo:   "agent-A",
+		renewRowsSet: true,
+		renewRows:    0,
+	}
+	s := makeServiceWithStub(stub)
+	ctx := mcpcommon.WithToolScope(context.Background(), mcpcommon.ToolScope{AgentID: "agent-B"})
+	_, err := s.UpdateNodeStatus(ctx, UpdateNodeStatusRequest{
+		DagKey:  "dag-1",
+		NodeKey: "A",
+		RunID:   49,
+		Status:  "running",
+	})
+	if err == nil || !strings.Contains(err.Error(), "lease") {
+		t.Fatalf("UpdateNodeStatus err = %v, want lease rejection", err)
+	}
+	if len(stub.updateCalls) != 0 || len(stub.completeCalls) != 0 || len(stub.failCalls) != 0 {
+		t.Fatalf("store update should not run after lease rejection: update=%d complete=%d fail=%d",
+			len(stub.updateCalls), len(stub.completeCalls), len(stub.failCalls))
+	}
+	if len(stub.renewCalls) != 1 {
+		t.Fatalf("RenewWorkerLease calls = %d, want 1", len(stub.renewCalls))
+	}
+	got := stub.renewCalls[0]
+	if got.TargetAgentID != "agent-A" || got.OwnerID != "agent-B" {
+		t.Fatalf("RenewWorkerLease input = %+v, want target agent-A owner agent-B", got)
+	}
+}
+
 func TestUpdateNodeStatusRequiresRunID(t *testing.T) {
 	stub := &stubNodeFlowStore{fromStatus: "ready"}
 	s := makeServiceWithStub(stub)
-	_, err := s.UpdateNodeStatus(context.Background(), UpdateNodeStatusRequest{
+	_, err := s.UpdateNodeStatus(taskUpdateNodeTestContext(), UpdateNodeStatusRequest{
 		DagKey:  "dag-1",
 		NodeKey: "A",
 		Status:  "running",
@@ -275,7 +332,7 @@ func TestUpdateNodeStatusRequiresRunID(t *testing.T) {
 func TestUpdateNodeStatus_RejectsIllegalTransition(t *testing.T) {
 	stub := &stubNodeFlowStore{fromStatus: "pending"} // pending → done 非法
 	s := makeServiceWithStub(stub)
-	_, err := s.UpdateNodeStatus(context.Background(), UpdateNodeStatusRequest{
+	_, err := s.UpdateNodeStatus(taskUpdateNodeTestContext(), UpdateNodeStatusRequest{
 		DagKey:  "dag-1",
 		NodeKey: "A",
 		RunID:   44,
@@ -296,7 +353,7 @@ func TestUpdateNodeStatus_RejectsIllegalTransition(t *testing.T) {
 func TestUpdateNodeStatus_RejectsTerminalSourceTransition(t *testing.T) {
 	stub := &stubNodeFlowStore{fromStatus: "done"}
 	s := makeServiceWithStub(stub)
-	_, err := s.UpdateNodeStatus(context.Background(), UpdateNodeStatusRequest{
+	_, err := s.UpdateNodeStatus(taskUpdateNodeTestContext(), UpdateNodeStatusRequest{
 		DagKey:  "dag-1",
 		NodeKey: "A",
 		RunID:   45,
@@ -307,20 +364,18 @@ func TestUpdateNodeStatus_RejectsTerminalSourceTransition(t *testing.T) {
 	}
 }
 
-// nonFlowStub 只实现 OrchestrationStore，不实现 NodeFlowStore：模拟测试 mock 或
-// 老 store 实现。预期 service 退化到普通 UpdateNodeStatus（type assertion 失败）。
-// ListNodes 仍提供 from-status，确保退回普通写路径前先完成状态机校验。
 type nonFlowStub struct {
 	taskdag.OrchestrationStore // nil
 	updateCalls                []taskdag.NodeStatusUpdate
+	renewCalls                 []taskdag.RenewWorkerLeaseInput
 }
 
 func (s *nonFlowStub) ListNodes(_ context.Context, dagKey string) ([]taskdag.Node, error) {
-	return []taskdag.Node{{DagKey: dagKey, NodeKey: "A", Status: "running"}}, nil
+	return []taskdag.Node{{DagKey: dagKey, NodeKey: "A", Status: "running", AssignedTo: "agent-A"}}, nil
 }
 
 func (s *nonFlowStub) ListRunNodes(_ context.Context, dagKey string, runID int64) ([]taskdag.Node, error) {
-	return []taskdag.Node{{DagKey: dagKey, NodeKey: "A", RunID: &runID, Status: "running"}}, nil
+	return []taskdag.Node{{DagKey: dagKey, NodeKey: "A", RunID: &runID, Status: "running", AssignedTo: "agent-A"}}, nil
 }
 
 func (s *nonFlowStub) UpdateNodeStatus(_ context.Context, input taskdag.NodeStatusUpdate) (*taskdag.Node, error) {
@@ -328,12 +383,23 @@ func (s *nonFlowStub) UpdateNodeStatus(_ context.Context, input taskdag.NodeStat
 	return &taskdag.Node{DagKey: input.DagKey, NodeKey: input.NodeKey, Status: input.Status}, nil
 }
 
-// TestUpdateNodeStatusDone_FallsBackWhenStoreLacksNodeFlowStore 验证缺少 NodeFlowStore 时的兼容写路径。
-// dagStore 不实现 NodeFlowStore 时退回普通 UpdateNodeStatus，不破坏老 store。
+func (s *nonFlowStub) AcquireWorkerLease(context.Context, taskdag.AcquireWorkerLeaseInput) (int64, error) {
+	return 0, errors.New("not used in this test")
+}
+
+func (s *nonFlowStub) RenewWorkerLease(_ context.Context, input taskdag.RenewWorkerLeaseInput) (int64, error) {
+	s.renewCalls = append(s.renewCalls, input)
+	return 1, nil
+}
+
+func (s *nonFlowStub) ReleaseWorkerLease(context.Context, taskdag.ReleaseWorkerLeaseInput) error {
+	return errors.New("not used in this test")
+}
+
 func TestUpdateNodeStatusDone_FallsBackWhenStoreLacksNodeFlowStore(t *testing.T) {
 	stub := &nonFlowStub{}
 	s := makeServiceWithStub(stub)
-	_, err := s.UpdateNodeStatus(context.Background(), UpdateNodeStatusRequest{
+	_, err := s.UpdateNodeStatus(taskUpdateNodeTestContext(), UpdateNodeStatusRequest{
 		DagKey:  "dag-1",
 		NodeKey: "A",
 		RunID:   46,

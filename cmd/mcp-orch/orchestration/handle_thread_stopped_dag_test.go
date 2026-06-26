@@ -32,9 +32,10 @@ func (f *fakeFallbackLookup) LookupNodesBySpawningThread(_ context.Context, _ st
 
 // fakeFallbackFlow �?NodeFlowStore 的测试桩，仅 FailNodeAndCancelDownstream 真实有效�?
 type fakeFallbackFlow struct {
-	failErr   error
-	failCalls atomic.Int64
-	lastInput taskdag.FailNodeInput
+	failErr      error
+	failCalls    atomic.Int64
+	lastInput    taskdag.FailNodeInput
+	enqueueCalls []taskdag.EnqueueWakeupInput
 }
 
 func (f *fakeFallbackFlow) FailNodeAndCancelDownstream(_ context.Context, input taskdag.FailNodeInput) (*taskdag.FailNodeResult, error) {
@@ -52,6 +53,11 @@ func (f *fakeFallbackFlow) CompleteNodeAndScheduleDownstream(_ context.Context, 
 
 func (f *fakeFallbackFlow) UpdateNodeStatusFlexible(_ context.Context, _ taskdag.FlexibleNodeStatusUpdate) (*taskdag.Node, error) {
 	return nil, errors.New("fakeFallbackFlow: UpdateNodeStatusFlexible not used by thread.stopped fallback")
+}
+
+func (f *fakeFallbackFlow) EnqueueWakeup(_ context.Context, input taskdag.EnqueueWakeupInput) (int64, error) {
+	f.enqueueCalls = append(f.enqueueCalls, input)
+	return 1, nil
 }
 
 // hookConsumerWithFallback wires hookConsumer + fake fallback ports. Tap nil.
@@ -105,6 +111,22 @@ func TestThreadStoppedDAGFallback_FailsReadyNode(t *testing.T) {
 	if delta.Failed != 1 {
 		t.Fatalf("expected metric Failed=1, got %+v", delta)
 	}
+}
+
+func TestThreadStoppedDAGFallback_RecordsCompensationWhenFailStoreFails(t *testing.T) {
+	lookup := &fakeFallbackLookup{
+		nodes: []taskdag.Node{{DagKey: "dag-a", NodeKey: "node-1", RunID: int64Ptr(7103), Status: "running"}},
+	}
+	flow := &fakeFallbackFlow{failErr: errors.New("db unavailable")}
+	hc := hookConsumerWithFallback(t, lookup, flow)
+	hc.runThreadStoppedDAGFallback(context.Background(), "thread-1")
+	if flow.failCalls.Load() != 1 {
+		t.Fatalf("FailNode calls = %d, want 1", flow.failCalls.Load())
+	}
+	if len(flow.enqueueCalls) != 1 {
+		t.Fatalf("enqueueCalls = %d, want 1 durable compensation record", len(flow.enqueueCalls))
+	}
+	assertTerminalFailureCompensation(t, flow.enqueueCalls[0], "dag-a", "node-1", 7103, "thread_stopped_fallback", "db unavailable")
 }
 
 func TestRecoveringOldThreadStoppedSkipsDAGFallback(t *testing.T) {

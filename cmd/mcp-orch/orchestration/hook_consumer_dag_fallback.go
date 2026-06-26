@@ -6,6 +6,7 @@ import (
 
 	orchmetrics "github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/orchestration/metrics"
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/orchestration/nodeexec"
+	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/orchestration/turncompletionretry"
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/taskdag"
 )
 
@@ -56,6 +57,7 @@ func (c *hookConsumer) failThreadStoppedFallbackNode(ctx context.Context, flow t
 		orchmetrics.IncDAGFallbackFailNodeErr()
 		c.logger.Warn("thread stopped fallback: fail node failed",
 			"dag_key", n.DagKey, "node_key", n.NodeKey, "error", failErr)
+		turncompletionretry.EnqueueTerminalFailureCompensation(ctx, flow, c.logger, &n, "thread_stopped_fallback", failErr, false)
 		return
 	}
 	orchmetrics.IncDAGFallbackFailed()
