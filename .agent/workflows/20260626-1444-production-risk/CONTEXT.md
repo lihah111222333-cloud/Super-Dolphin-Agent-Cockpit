@@ -19,4 +19,4 @@ The plan at `docs/plans/2026-06-26-production-reachable-risk-remediation.md` lis
 - No main-worktree implementation.
 
 ## Tooling Note
-The repository AGENTS policy prefers mcp-go-agent-orchestration tools. They are not exposed in this session, so this workflow uses `DAG.json`, `STATE.json`, and Codex blank-context worker agents as the fallback controller ledger.
+The repository AGENTS policy allows native sub-agent dispatch directly. This workflow uses `DAG.json`, `STATE.json`, and Codex blank-context worker agents as its controller ledger. Use `mcp-go-agent-orchestration` only when persistent DAG state, retry/lease semantics, or structured cross-agent handoff records are specifically needed.

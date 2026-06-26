@@ -206,7 +206,7 @@ React Doctor 剩余 `29` 个 diff 诊断：`3` 个 error、`26` 个 warning。�
 
 ## 子代理说明
 
-用户要求使用子代理针对性优化。本轮使用可用的 `multi_agent_v1` 子代理工具处理 `frontend-app/src/entities/client/model/useClientStore.js`。AGENTS.md 要求的 `mcp-go-agent-orchestration` DAG 生命周期工具未在当前工具集中暴露，因此未能使用该工具记录 DAG 生命周期。
+用户要求使用子代理针对性优化。本轮使用可用的 `multi_agent_v1` 子代理工具处理 `frontend-app/src/entities/client/model/useClientStore.js`。这是允许的原生子代理路径；本轮未记录持久 mcp-orch DAG 生命周期。
 
 子代理结果：
 

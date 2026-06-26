@@ -8,10 +8,10 @@ aliases: ["@子代理开发", "@子代理驱动开发", "@subagent-driven-develo
 
 这是 `子代理驱动开发` 的同名兼容入口。执行规则：
 
-- 每个实现者、规格审查者、代码质量审查者都必须是 mcp-orch DAG node。
-- 启动前 `task_create_dag`，执行 run 时 `task_start_dag`，需要指派 ready node 时 `task_dispatch_node`，状态变化时 `task_update_node`。
+- 每个实现者、规格审查者、代码质量审查者都可以用平台原生子代理直接派发；不要把生命周期强制绑定到 mcp-orch。
+- 只有任务需要持久 DAG、重试、租约或结构化交接记录时，才可选使用 `task_create_dag`、`task_start_dag`、`task_dispatch_node`、`task_update_node`。
 - 先规格符合性审查，再代码质量审查。
 - 审查发现问题必须回到实现 node 修复并复审。
-- 没有 mcp-go-agent-orchestration 工具时先说明限制，不要启动子代理。
+- 没有 mcp-go-agent-orchestration 工具不是阻断条件；使用当前平台可用的子代理能力，或在不适合派发时改为当前会话审查并说明观测限制。
 
 详细流程见 repo-local `子代理驱动开发` 技能。

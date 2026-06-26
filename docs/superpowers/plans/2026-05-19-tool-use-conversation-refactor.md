@@ -24,7 +24,7 @@ The application already has most backend lifecycle data needed for Codex-style t
 - Historical Codex rollout parsing currently accepts only message items in `internal/provider/codexapp/history_rollout.go:57`; tool calls/results in rollout JSONL are ignored.
 - Offline persisted history parsing has the same message-only limitation in `internal/util/historyjsonl/history.go:173`.
 
-`mcp-go-agent-orchestration` lifecycle tools (`task_create_dag`, `task_start_node`, `task_update_node`) were requested by repo policy but were not exposed in this Codex session. The research used Codex subagents plus local LSP tools instead.
+`mcp-go-agent-orchestration` lifecycle tools were not exposed in this Codex session. The research used Codex subagents plus local LSP tools, which is an allowed native subagent path; the run simply lacked persistent mcp-orch DAG observability.
 
 ## Scope Decision
 

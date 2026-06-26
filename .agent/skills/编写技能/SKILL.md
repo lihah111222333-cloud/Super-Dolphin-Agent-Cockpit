@@ -29,7 +29,7 @@ aliases: ["@编写技能", "@writing-skills"]
 - `description` 只写触发条件，不总结完整流程。
 - 常用入口保持短；复杂参考放子文件。
 - 项目专属约定写进 repo-local skill，不要污染个人通用技能。
-- 涉及子代理时必须写入 `task_create_dag` / `task_start_dag` / `task_dispatch_node` / `task_update_node` 生命周期。
+- 涉及子代理时不要强制绑定 `mcp-orch`；只有任务确实需要持久 DAG、重试、租约或跨代理交接记录时，才把 `task_create_dag` / `task_start_dag` / `task_dispatch_node` / `task_update_node` 写成可选编排路径。
 
 ## super-agent-v3 禁止项
 
@@ -38,5 +38,5 @@ aliases: ["@编写技能", "@writing-skills"]
 | 默认使用其他仓库、旧业务领域、旧数据库栈或旧子模块语境 | 使用 README、codemap、docs/契约 和源码事实 |
 | 把 `.agents/skills` 当 canonical truth | 改 `.agent/skills`，必要时同步 mirror |
 | 写其他仓库的子目录测试命令、旧守卫入口或旧提交门禁 | 使用 `./scripts/test_with_guard.sh`、`make guard`、`make test` |
-| 子代理只写 Task/spawn_agent | 先 mcp-orch DAG/run/node；工具缺失时停止并说明限制 |
+| 子代理只能走 mcp-orch 或工具缺失就停止 | 允许平台原生子代理/多代理；mcp-orch 只是可选观测与编排路径 |
 | provider mirror 漂移不报告 | 明确 owned canonical 与 ignored mirror 的状态 |

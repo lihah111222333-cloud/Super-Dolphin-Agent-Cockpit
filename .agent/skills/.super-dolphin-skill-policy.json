@@ -53,7 +53,7 @@
     {
       "name": "执行计划",
       "selected_source_id": "project/执行计划",
-      "selected_content_hash": "079389dd59f5946aacdeb2badf78dd3084b4dcda904956fea692062833ebb515",
+      "selected_content_hash": "826c8f6abf95c2debff1b0928f5c5a13e652e4d8d6fae927fc869df90d6fde2c",
       "excluded_source_ids": [
         "personal/hub/执行计划"
       ],
@@ -67,7 +67,7 @@
         {
           "canonical_id": "project/执行计划",
           "scope": "project",
-          "content_hash": "079389dd59f5946aacdeb2badf78dd3084b4dcda904956fea692062833ebb515"
+          "content_hash": "826c8f6abf95c2debff1b0928f5c5a13e652e4d8d6fae927fc869df90d6fde2c"
         }
       ]
     },
@@ -158,7 +158,7 @@
     {
       "name": "编写技能",
       "selected_source_id": "project/编写技能",
-      "selected_content_hash": "60d256b6b6bcd947ad4c80b667a89c1f662b4dac1a87cb4e98bfd93ce6a74832",
+      "selected_content_hash": "715737cf6e7e6babe9cff01a7ba58e8664f34d92c355dd4b224dd57170eb2715",
       "excluded_source_ids": [
         "personal/hub/编写技能"
       ],
@@ -172,14 +172,14 @@
         {
           "canonical_id": "project/编写技能",
           "scope": "project",
-          "content_hash": "60d256b6b6bcd947ad4c80b667a89c1f662b4dac1a87cb4e98bfd93ce6a74832"
+          "content_hash": "715737cf6e7e6babe9cff01a7ba58e8664f34d92c355dd4b224dd57170eb2715"
         }
       ]
     },
     {
       "name": "编写计划",
       "selected_source_id": "project/编写计划",
-      "selected_content_hash": "4bbdf5f18db1628d8ed8e712eee27181c928a649410d2a3feade0bcb7c097b8c",
+      "selected_content_hash": "dd7a085639d4bdcd1e4f7ac016ddc74d4fdc219790cacb5ff9f7ec720fc42b67",
       "excluded_source_ids": [
         "personal/hub/编写计划"
       ],
@@ -193,14 +193,14 @@
         {
           "canonical_id": "project/编写计划",
           "scope": "project",
-          "content_hash": "4bbdf5f18db1628d8ed8e712eee27181c928a649410d2a3feade0bcb7c097b8c"
+          "content_hash": "dd7a085639d4bdcd1e4f7ac016ddc74d4fdc219790cacb5ff9f7ec720fc42b67"
         }
       ]
     },
     {
       "name": "请求代码审查",
       "selected_source_id": "project/请求代码审查",
-      "selected_content_hash": "cfd2f3fb2ba3daad1215d29c29e62b89632e7278540dbfb94bebc53a95de6031",
+      "selected_content_hash": "8c297b1e05acfc0886e4b125cb60adede32e120d99a50bccbe9001b35fe30afe",
       "excluded_source_ids": [
         "personal/hub/请求代码审查"
       ],
@@ -214,14 +214,14 @@
         {
           "canonical_id": "project/请求代码审查",
           "scope": "project",
-          "content_hash": "cfd2f3fb2ba3daad1215d29c29e62b89632e7278540dbfb94bebc53a95de6031"
+          "content_hash": "8c297b1e05acfc0886e4b125cb60adede32e120d99a50bccbe9001b35fe30afe"
         }
       ]
     },
     {
       "name": "调度并行代理",
       "selected_source_id": "project/调度并行代理",
-      "selected_content_hash": "5d9a08219c7014d17215c1a8961bdb8ec1649dc46a12f28a0772eacff72b6d22",
+      "selected_content_hash": "6fa2933bb2994a1c609f57465715d8d54f9599a875e19d8f3b9b0d257036045d",
       "excluded_source_ids": [
         "personal/hub/调度并行代理"
       ],
@@ -235,7 +235,7 @@
         {
           "canonical_id": "project/调度并行代理",
           "scope": "project",
-          "content_hash": "5d9a08219c7014d17215c1a8961bdb8ec1649dc46a12f28a0772eacff72b6d22"
+          "content_hash": "6fa2933bb2994a1c609f57465715d8d54f9599a875e19d8f3b9b0d257036045d"
         }
       ]
     },
@@ -284,7 +284,7 @@
     {
       "name": "子代理驱动开发",
       "selected_source_id": "project/子代理驱动开发",
-      "selected_content_hash": "ad215e80c953e23d22fe313101162c5d2900ed74f5ebefe8c8f4d0fc06ae64a9",
+      "selected_content_hash": "1efbb0574f862c4ad019cc5880878372929451c7a2821cbdf49ce96212b7b8f6",
       "excluded_source_ids": [
         "personal/imported/子代理驱动开发"
       ],
@@ -298,7 +298,7 @@
         {
           "canonical_id": "project/子代理驱动开发",
           "scope": "project",
-          "content_hash": "ad215e80c953e23d22fe313101162c5d2900ed74f5ebefe8c8f4d0fc06ae64a9"
+          "content_hash": "1efbb0574f862c4ad019cc5880878372929451c7a2821cbdf49ce96212b7b8f6"
         }
       ]
     },

@@ -8,10 +8,9 @@ aliases: ["@并行代理调度", "@调度并行代理", "@parallel-agent-orchest
 
 这是 `调度并行代理` 的同名兼容入口。核心要求：
 
-- 先用 `task_create_dag` 建 DAG。
-- 每个独立任务一个 node。
-- 用 `task_start_dag` 启动 run；需要派发 ready node 时用 `task_dispatch_node`。
-- 用 `task_update_node` 写入 `running` / `done` / `failed` / `blocked`。
-- 如果当前 Codex 没有暴露 mcp-go-agent-orchestration 工具，先向用户说明限制，不要启动子代理；只能改为单代理只读分析或等待工具可用。
+- 每个独立任务一个子代理或任务节点。
+- 平台原生并行代理可直接使用；不要因为没有 mcp-go-agent-orchestration 就阻断派发。
+- 只有需要持久 DAG、重试、租约或结构化交接记录时，才可选使用 `task_create_dag`、`task_start_dag`、`task_dispatch_node`、`task_update_node`。
+- 不适合派发子代理时，改为单代理只读分析或当前会话执行，并说明观测限制。
 
-不要只用聊天摘要代替 DAG 状态。
+不要只用聊天摘要代替任务状态；使用 `update_plan`、子代理返回摘要，或在已选择 mcp-orch 时写回 DAG 状态。
