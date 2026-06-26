@@ -222,6 +222,7 @@ func newFakeImportDB(t *testing.T) *fakeImportDB {
 CREATE TABLE shared_files (
   path TEXT PRIMARY KEY,
   content TEXT NOT NULL,
+  content_location TEXT NOT NULL DEFAULT 'inline' CHECK (content_location IN ('inline', 'disk')),
   updated_by TEXT NOT NULL,
   created_at INTEGER NOT NULL,
   updated_at INTEGER NOT NULL

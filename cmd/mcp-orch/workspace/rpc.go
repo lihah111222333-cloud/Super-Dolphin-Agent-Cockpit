@@ -74,7 +74,12 @@ func handleMergeRun(svc Service) func(context.Context, mergeRunParams) (mergeRes
 
 // mergeRunRequestFromParams 将 RPC 参数转换为服务层 merge 请求。
 func mergeRunRequestFromParams(p mergeRunParams) MergeRunRequest {
-	return MergeRunRequest(p)
+	return MergeRunRequest{
+		RunKey:        p.RunKey,
+		UpdatedBy:     p.UpdatedBy,
+		DryRun:        p.DryRun,
+		DeleteRemoved: p.DeleteRemoved,
+	}
 }
 
 // handleAbortRun 处理 workspace/run/abort RPC。
