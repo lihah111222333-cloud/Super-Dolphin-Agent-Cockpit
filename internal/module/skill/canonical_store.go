@@ -205,13 +205,20 @@ func scanCanonicalRoot(root canonicalScanRoot) ([]canonicalSkillRecord, error) {
 	if strings.TrimSpace(root.path) == "" {
 		return nil, nil
 	}
-	if _, err := os.Stat(root.path); errors.Is(err, os.ErrNotExist) {
+	info, err := os.Lstat(root.path)
+	if errors.Is(err, os.ErrNotExist) {
 		return nil, nil
 	} else if err != nil {
 		return nil, err
 	}
+	if info.Mode()&os.ModeSymlink != 0 {
+		return nil, fmt.Errorf("canonical skill root is symlink: %s", root.path)
+	}
+	if !info.IsDir() {
+		return nil, fmt.Errorf("canonical skill root is not a directory: %s", root.path)
+	}
 	var records []canonicalSkillRecord
-	err := filepath.WalkDir(root.path, func(path string, entry os.DirEntry, walkErr error) error {
+	err = filepath.WalkDir(root.path, func(path string, entry os.DirEntry, walkErr error) error {
 		record, err := visitCanonicalSkillFile(root, path, entry, walkErr)
 		if err != nil || record == nil {
 			return err
@@ -239,6 +246,9 @@ func visitCanonicalSkillFile(root canonicalScanRoot, path string, entry os.DirEn
 	}
 	if !strings.EqualFold(entry.Name(), skillMainFile) {
 		return nil, nil
+	}
+	if entry.Type()&os.ModeSymlink != 0 {
+		return nil, fmt.Errorf("canonical skill file is symlink: %s", path)
 	}
 	parsed, err := parseSkillRecord(root.path, path, root.defaultTrust)
 	if err != nil {
