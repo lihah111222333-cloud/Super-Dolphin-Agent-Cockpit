@@ -598,7 +598,7 @@ func readSelectedUpdate(path string) (selectedUpdate, error) {
 	return staged, nil
 }
 
-// validateStagedUpdate 校验已下载的更新产物是否存在且 artifact 元数据合法。
+// validateStagedUpdate 校验产物存在、元数据合法，并重新计算 SHA-256 防止文件被替换。
 func validateStagedUpdate(staged selectedUpdate) error {
 	artifactPath := selectedArtifactPath(staged)
 	if strings.TrimSpace(artifactPath) == "" {
@@ -612,7 +612,7 @@ func validateStagedUpdate(staged selectedUpdate) error {
 	if err := validateArtifact(staged.Artifact); err != nil {
 		return err
 	}
-	return nil
+	return verifyStagedArtifactSHA256(artifactPath, staged.Artifact.SHA256)
 }
 
 // selectedArtifactPath 优先返回 ArtifactPath，为空时回退到 DMGPath。
