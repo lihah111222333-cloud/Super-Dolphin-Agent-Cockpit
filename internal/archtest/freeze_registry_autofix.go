@@ -188,8 +188,6 @@ func violationKindConst(kind ViolationKind) string {
 		return "ViolationIdentifier"
 	case ViolationPackageCount:
 		return "ViolationPackageCount"
-	case ViolationPackageLines:
-		return "ViolationPackageLines"
 	case ViolationDeadKey:
 		return "ViolationDeadKey"
 	case ViolationFuncComment:
