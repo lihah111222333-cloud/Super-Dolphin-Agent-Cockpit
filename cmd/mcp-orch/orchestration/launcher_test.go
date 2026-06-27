@@ -395,7 +395,7 @@ func TestService_LaunchWithLocal(t *testing.T) {
 		t.Fatalf("LaunchAgent() error = %v", err)
 	}
 	agent := svc.agents["agent-1"]
-	t.Cleanup(func() { _ = stopProcess(agent.cmd); _ = agent.cmd.Wait() })
+	t.Cleanup(func() { stopAndDrainServiceTestAgent(t, svc, agent) })
 	if agent.cmd == nil || agent.remoteThreadID != "" || agent.state != agentdto.StateIdle {
 		t.Fatalf("agent = %#v", agent)
 	}

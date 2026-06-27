@@ -36,12 +36,6 @@ func spawnP3TestCmd(t *testing.T, svc *service, agentID string, launchSeq uint64
 	if err := cmd.Start(); err != nil {
 		t.Fatalf("cmd.Start(): %v", err)
 	}
-	t.Cleanup(func() {
-		if cmd.Process != nil {
-			_ = cmd.Process.Kill()
-			_ = cmd.Wait()
-		}
-	})
 	agent := svc.newAgentLocked(agentID)
 	agent.cmd = cmd
 	agent.state = agentdto.StateIdle
@@ -50,6 +44,7 @@ func spawnP3TestCmd(t *testing.T, svc *service, agentID string, launchSeq uint64
 	svc.agents[agent.id] = agent
 	svc.exitMonitor.Arm(exitmonitor.Target{AgentID: agentID, LaunchSeq: launchSeq, Cmd: cmd})
 	agent.monitoredSeq = launchSeq
+	t.Cleanup(func() { stopAndDrainServiceTestAgent(t, svc, agent) })
 	return cmd
 }
 
@@ -300,7 +295,14 @@ func TestExitMonitorDrainClosesGate(t *testing.T) {
 	if err := cmd.Start(); err != nil {
 		t.Fatalf("cmd.Start(): %v", err)
 	}
-	t.Cleanup(func() { _ = cmd.Process.Kill(); _ = cmd.Wait() })
+	t.Cleanup(func() {
+		_ = cmd.Process.Kill()
+		drainCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+		if err := m.Drain(drainCtx); err != nil {
+			t.Fatalf("Drain cleanup err = %v", err)
+		}
+	})
 
 	m.Arm(exitmonitor.Target{AgentID: "a", LaunchSeq: 1, Cmd: cmd})
 

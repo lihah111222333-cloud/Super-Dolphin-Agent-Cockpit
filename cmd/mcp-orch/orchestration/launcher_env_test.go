@@ -96,14 +96,6 @@ func requireDatabaseEnvAbsent(t *testing.T, env []string) {
 	}
 }
 
-func stopAndWaitTestAgent(agent *agentRuntime) {
-	if agent == nil || agent.cmd == nil {
-		return
-	}
-	_ = stopProcess(agent.cmd)
-	_ = agent.cmd.Wait()
-}
-
 func stopAndDrainLocalLauncherTestAgent(t *testing.T, launcher *localLauncher, agent *agentRuntime) {
 	t.Helper()
 	if launcher == nil || launcher.exitMonitor == nil || agent == nil || agent.cmd == nil {
@@ -119,10 +111,12 @@ func stopAndDrainLocalLauncherTestAgent(t *testing.T, launcher *localLauncher, a
 
 func stopAndDrainServiceTestAgent(t *testing.T, svc *service, agent *agentRuntime) {
 	t.Helper()
-	if agent == nil || agent.cmd == nil {
+	if svc == nil || svc.exitMonitor == nil {
 		return
 	}
-	_ = stopProcess(agent.cmd)
+	if agent != nil && agent.cmd != nil {
+		_ = stopProcess(agent.cmd)
+	}
 	drainCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 	if err := svc.exitMonitor.Drain(drainCtx); err != nil {
