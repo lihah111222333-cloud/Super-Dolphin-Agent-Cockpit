@@ -179,7 +179,11 @@ func (s *Service) Query(ctx context.Context, query Query) QueryResult {
 		return memory
 	}
 	tail, err := s.queryTail(ctx, query)
-	if err != nil || len(tail.Events) == 0 {
+	if err != nil {
+		return queryResultWithTailFailure(memory, tail, err)
+	}
+	if len(tail.Events) == 0 {
+		memory.copyTailDiagnosticsFrom(tail)
 		return memory
 	}
 	if len(memory.Events) == 0 {
@@ -187,6 +191,22 @@ func (s *Service) Query(ctx context.Context, query Query) QueryResult {
 		return tail
 	}
 	return mergeQueryResults(memory, tail, query.Limit)
+}
+
+// queryResultWithTailFailure 保留内存查询结果，同时把 tail 读取失败暴露给上层。
+func queryResultWithTailFailure(memory QueryResult, tail QueryResult, err error) QueryResult {
+	result := memory
+	result.copyTailDiagnosticsFrom(tail)
+	if errors.Is(err, context.DeadlineExceeded) {
+		result.TailTimedOut = true
+	}
+	result.TailDecodeErrors = append(result.TailDecodeErrors, TailDecodeError{
+		Error: err.Error(),
+		Metadata: map[string]any{
+			"kind": "tail_read_error",
+		},
+	})
+	return result
 }
 
 // mergeQueryResults 合并内存和 tail 结果，按时间排序并保留 tail 诊断信息。

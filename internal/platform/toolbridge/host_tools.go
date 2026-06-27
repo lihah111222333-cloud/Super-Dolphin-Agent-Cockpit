@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	mcpdto "github.com/anthropic-ai/super-agent-v3/internal/dto/mcp"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared/workflowtemplates"
 )
@@ -66,6 +67,19 @@ const (
 type WorkflowTemplateHostToolRegistry struct {
 	registry *workflowtemplates.Registry
 	loadErr  error
+}
+
+// WorkflowTemplateWriteAuthority 是写入模板资产前必须通过的外部授权边界。
+// 默认生产图不装配写 registry；只有显式具备 admin/developer 能力或审批管理器时才能注入实现。
+type WorkflowTemplateWriteAuthority interface {
+	AuthorizeWorkflowTemplateWrite(context.Context, HostToolCall) error
+}
+
+// WorkflowTemplateWriteHostToolRegistry 暴露 save/rollback 写入口。
+// 它与默认只读 registry 分离，避免普通 Codex 动态工具面获得模板写能力。
+type WorkflowTemplateWriteHostToolRegistry struct {
+	*WorkflowTemplateHostToolRegistry
+	authority WorkflowTemplateWriteAuthority
 }
 
 // workflowTemplateListInput 是 workflow_template_list 的模型输入，兼容筛选维度来自 JSON schema。
@@ -160,6 +174,15 @@ func NewWorkflowTemplateHostToolRegistry() *WorkflowTemplateHostToolRegistry {
 	return &WorkflowTemplateHostToolRegistry{registry: registry, loadErr: err}
 }
 
+// NewWorkflowTemplateWriteHostToolRegistry 创建受授权保护的模板写工具注册表。
+func NewWorkflowTemplateWriteHostToolRegistry(authority WorkflowTemplateWriteAuthority) *WorkflowTemplateWriteHostToolRegistry {
+	registry, err := workflowtemplates.NewDefaultRegistry()
+	return &WorkflowTemplateWriteHostToolRegistry{
+		WorkflowTemplateHostToolRegistry: &WorkflowTemplateHostToolRegistry{registry: registry, loadErr: err},
+		authority:                        authority,
+	}
+}
+
 // ListHostTools 返回模板库的 list/get/render 三个只读工具，不创建 DAG、不写文件。
 func (r *WorkflowTemplateHostToolRegistry) ListHostTools() []mcpdto.MCPTool {
 	if r == nil {
@@ -168,29 +191,25 @@ func (r *WorkflowTemplateHostToolRegistry) ListHostTools() []mcpdto.MCPTool {
 	listSchema, _ := json.Marshal(workflowTemplateListInputSchema())
 	getSchema, _ := json.Marshal(workflowTemplateGetInputSchema())
 	renderSchema, _ := json.Marshal(workflowTemplateRenderInputSchema())
-	saveSchema, _ := json.Marshal(workflowTemplateSaveInputSchema())
-	rollbackSchema, _ := json.Marshal(workflowTemplateRollbackInputSchema())
 	return []mcpdto.MCPTool{
 		{Name: ToolNameWorkflowTemplateList, Description: descriptionWorkflowTemplateList, InputSchema: listSchema},
 		{Name: ToolNameWorkflowTemplateGet, Description: descriptionWorkflowTemplateGet, InputSchema: getSchema},
 		{Name: ToolNameWorkflowTemplateRenderDAG, Description: descriptionWorkflowTemplateRenderDAG, InputSchema: renderSchema},
-		{Name: ToolNameWorkflowTemplateSave, Description: descriptionWorkflowTemplateSave, InputSchema: saveSchema},
-		{Name: ToolNameWorkflowTemplateRollback, Description: descriptionWorkflowTemplateRollback, InputSchema: rollbackSchema},
 	}
 }
 
 // HasTool 判断工具名是否由政企模板库注册表处理。
 func (r *WorkflowTemplateHostToolRegistry) HasTool(name string) bool {
-	return r != nil && isWorkflowTemplateToolName(name)
+	return r != nil && isWorkflowTemplateReadToolName(name)
 }
 
 // RequiresCWD 声明模板库工具不依赖工作目录，避免无关 cwd 缺失阻断模板读取。
 func (r *WorkflowTemplateHostToolRegistry) RequiresCWD(name string) bool {
-	return !isWorkflowTemplateToolName(name)
+	return !isWorkflowTemplateReadToolName(name)
 }
 
 // CallHostTool 执行模板库只读工具；渲染只返回 DAG 草稿，不落库、不启动运行。
-func (r *WorkflowTemplateHostToolRegistry) CallHostTool(_ context.Context, call HostToolCall) (any, error) {
+func (r *WorkflowTemplateHostToolRegistry) CallHostTool(ctx context.Context, call HostToolCall) (any, error) {
 	if r == nil {
 		return nil, fmt.Errorf("workflow template tools are not configured")
 	}
@@ -205,11 +224,58 @@ func (r *WorkflowTemplateHostToolRegistry) CallHostTool(_ context.Context, call 
 	case ToolNameWorkflowTemplateRenderDAG:
 		return r.renderDAG(call.Arguments)
 	case ToolNameWorkflowTemplateSave:
+		return nil, workflowTemplateWriteApprovalRequired(ctx, call)
+	case ToolNameWorkflowTemplateRollback:
+		return nil, workflowTemplateWriteApprovalRequired(ctx, call)
+	default:
+		return nil, fmt.Errorf("workflow template tools: unknown tool %q", call.Name)
+	}
+}
+
+// ListHostTools 返回模板写工具 schema；该 registry 只应在授权边界明确存在时装配。
+func (r *WorkflowTemplateWriteHostToolRegistry) ListHostTools() []mcpdto.MCPTool {
+	if r == nil {
+		return nil
+	}
+	saveSchema, _ := json.Marshal(workflowTemplateSaveInputSchema())
+	rollbackSchema, _ := json.Marshal(workflowTemplateRollbackInputSchema())
+	return []mcpdto.MCPTool{
+		{Name: ToolNameWorkflowTemplateSave, Description: descriptionWorkflowTemplateSave, InputSchema: saveSchema},
+		{Name: ToolNameWorkflowTemplateRollback, Description: descriptionWorkflowTemplateRollback, InputSchema: rollbackSchema},
+	}
+}
+
+// HasTool 判断给定名称是否属于受保护的模板写工具。
+func (r *WorkflowTemplateWriteHostToolRegistry) HasTool(name string) bool {
+	return r != nil && isWorkflowTemplateWriteToolName(name)
+}
+
+// RequiresCWD 声明模板写工具不依赖工作目录；权限由 authority 单独判断。
+func (r *WorkflowTemplateWriteHostToolRegistry) RequiresCWD(name string) bool {
+	return !isWorkflowTemplateWriteToolName(name)
+}
+
+// CallHostTool 在授权通过后执行模板保存或回滚；缺少 authority 时返回审批请求。
+func (r *WorkflowTemplateWriteHostToolRegistry) CallHostTool(ctx context.Context, call HostToolCall) (any, error) {
+	if r == nil {
+		return nil, fmt.Errorf("workflow template write tools are not configured")
+	}
+	if r.loadErr != nil {
+		return nil, fmt.Errorf("workflow template registry unavailable: %w", r.loadErr)
+	}
+	if r.authority == nil {
+		return nil, workflowTemplateWriteApprovalRequired(ctx, call)
+	}
+	if err := r.authority.AuthorizeWorkflowTemplateWrite(ctx, call); err != nil {
+		return nil, err
+	}
+	switch strings.TrimSpace(call.Name) {
+	case ToolNameWorkflowTemplateSave:
 		return r.save(call.Arguments)
 	case ToolNameWorkflowTemplateRollback:
 		return r.rollback(call.Arguments)
 	default:
-		return nil, fmt.Errorf("workflow template tools: unknown tool %q", call.Name)
+		return nil, fmt.Errorf("workflow template write tools: unknown tool %q", call.Name)
 	}
 }
 
@@ -221,6 +287,45 @@ func isWorkflowTemplateToolName(name string) bool {
 	default:
 		return false
 	}
+}
+
+// isWorkflowTemplateReadToolName 判断工具名是否属于默认只读模板工具集合。
+func isWorkflowTemplateReadToolName(name string) bool {
+	switch strings.TrimSpace(name) {
+	case ToolNameWorkflowTemplateList, ToolNameWorkflowTemplateGet, ToolNameWorkflowTemplateRenderDAG:
+		return true
+	default:
+		return false
+	}
+}
+
+// isWorkflowTemplateWriteToolName 判断工具名是否属于需要授权的模板写工具集合。
+func isWorkflowTemplateWriteToolName(name string) bool {
+	switch strings.TrimSpace(name) {
+	case ToolNameWorkflowTemplateSave, ToolNameWorkflowTemplateRollback:
+		return true
+	default:
+		return false
+	}
+}
+
+// workflowTemplateWriteApprovalRequired 构造模板写工具的审批请求，阻断未授权调用。
+func workflowTemplateWriteApprovalRequired(_ context.Context, call HostToolCall) error {
+	toolName := strings.TrimSpace(call.Name)
+	return contract.SkillApprovalRequiredError{Request: contract.ApprovalRequest{
+		CallID:       strings.TrimSpace(call.CallID),
+		ToolName:     toolName,
+		AgentID:      strings.TrimSpace(call.AgentID),
+		ThreadID:     strings.TrimSpace(call.ThreadID),
+		TurnID:       strings.TrimSpace(call.TurnID),
+		Reason:       "workflow template write requires admin/developer approval",
+		Kind:         "workflow_template_write",
+		SourceMethod: toolName,
+		Payload: map[string]any{
+			"tool":                toolName,
+			"requires_capability": "admin_or_developer",
+		},
+	}}
 }
 
 // list 解码筛选条件并返回模板摘要；输入 JSON 使用严格解码，未知字段直接失败。
