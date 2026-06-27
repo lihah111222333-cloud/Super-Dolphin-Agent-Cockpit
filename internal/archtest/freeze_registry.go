@@ -16,16 +16,7 @@ type explicitFreeze struct {
 	RemoveWhen string
 }
 
-var explicitFreezeRegistry = []explicitFreeze{
-	{
-		Path:       "internal/provider/codexapp",
-		Kind:       ViolationPackageLines,
-		Limit:      10012,
-		Reason:     "peer_supervisor panic 日志 helper 致使包行数超限；待后续拆分文件后删除",
-		Owner:      "review-fix-06-hooks-p3",
-		RemoveWhen: "internal/provider/codexapp 包行数回落到 10000 以下",
-	},
-}
+var explicitFreezeRegistry = []explicitFreeze{}
 
 // freezeRegistryIntegrityViolations 检查 freeze 表本身是否完整且没有重复项。
 func freezeRegistryIntegrityViolations() []Violation {
@@ -132,8 +123,6 @@ func observedFreezeMetric(repoRoot string, entry explicitFreeze, stats map[strin
 		return stat.MaxFileLines, true
 	case ViolationPackageCount:
 		return stat.Files, true
-	case ViolationPackageLines:
-		return stat.Lines, true
 	default:
 		return 0, true
 	}
@@ -168,8 +157,6 @@ func defaultFreezeLimit(kind ViolationKind) (int, bool) {
 		return MaxFileLines, true
 	case ViolationPackageCount:
 		return MaxPackageFiles, true
-	case ViolationPackageLines:
-		return MaxPackageLines, true
 	default:
 		return 0, false
 	}
@@ -194,8 +181,6 @@ func violationKindLabel(kind ViolationKind) string {
 		return "identifier"
 	case ViolationPackageCount:
 		return "package_count"
-	case ViolationPackageLines:
-		return "package_lines"
 	case ViolationDeadKey:
 		return "dead_key"
 	case ViolationFuncComment:

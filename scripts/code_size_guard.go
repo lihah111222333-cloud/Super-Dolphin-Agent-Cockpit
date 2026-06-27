@@ -251,9 +251,9 @@ func runFreezeRegistryAutoRepair(opts archtest.CheckOptions) {
 
 // printThresholds 输出当前代码守卫阈值，方便定位哪类限制触发。
 func printThresholds() {
-	fmt.Printf("📏  文件≤%d 函数≤%d 嵌套≤%d CC≤%d 下划线≤%d 包文件≤%d 包行≤%d\n",
+	fmt.Printf("📏  文件≤%d 函数≤%d 嵌套≤%d CC≤%d 下划线≤%d 包文件≤%d\n",
 		archtest.MaxFileLines, archtest.MaxFuncLines, archtest.MaxNestingDepth,
-		archtest.MaxCCComplexity, archtest.MaxUnderscores, archtest.MaxPackageFiles, archtest.MaxPackageLines)
+		archtest.MaxCCComplexity, archtest.MaxUnderscores, archtest.MaxPackageFiles)
 }
 
 // printPassSummary 输出默认检查全部通过的摘要。

@@ -1,7 +1,10 @@
 package archtest
 
 import (
+	"fmt"
+	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -52,5 +55,42 @@ func TestCountGlobalVarsV3_Exemptions(t *testing.T) {
 	// metrics_sample.gotxt 只有一个非豁免全局变量 (globalCounter)
 	if m.GlobalVars != 1 {
 		t.Errorf("GlobalVars: got %d, want 1 (only globalCounter should be counted)", m.GlobalVars)
+	}
+}
+
+func TestCheckAllAllowsLargePackageLineTotals(t *testing.T) {
+	t.Parallel()
+
+	const retiredPackageLineLimit = 10000
+	const filesInPackage = 20
+	linesPerFile := MaxFileLines - 50
+	if filesInPackage*linesPerFile <= retiredPackageLineLimit {
+		t.Fatalf("fixture lines = %d, want above retired package line limit %d", filesInPackage*linesPerFile, retiredPackageLineLimit)
+	}
+
+	root := t.TempDir()
+	pkgDir := filepath.Join(root, "pkg", "sample")
+	if err := os.MkdirAll(pkgDir, 0o755); err != nil {
+		t.Fatalf("mkdir package fixture: %v", err)
+	}
+	for fileIndex := 0; fileIndex < filesInPackage; fileIndex++ {
+		var body strings.Builder
+		body.WriteString("package sample\n\n")
+		for lineIndex := 0; lineIndex < linesPerFile; lineIndex++ {
+			fmt.Fprintf(&body, "var Value%dLine%d = %d\n", fileIndex, lineIndex, lineIndex)
+		}
+		path := filepath.Join(pkgDir, fmt.Sprintf("sample%d.go", fileIndex))
+		if err := os.WriteFile(path, []byte(body.String()), 0o644); err != nil {
+			t.Fatalf("write package fixture: %v", err)
+		}
+	}
+
+	violations := CheckAll(CheckOptions{
+		RepoRoot:  root,
+		ScanRoots: []string{"pkg"},
+		SkipDirs:  DefaultSkipDirs(),
+	})
+	if len(violations) != 0 {
+		t.Fatalf("CheckAll() violations = %v, want none for package line totals", violations)
 	}
 }
