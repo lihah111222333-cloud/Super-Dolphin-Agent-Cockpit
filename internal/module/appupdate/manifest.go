@@ -4,6 +4,7 @@ package appupdate
 import (
 	"bytes"
 	"crypto/ed25519"
+	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
@@ -11,6 +12,7 @@ import (
 	"fmt"
 	"io"
 	"net/url"
+	"os"
 	"strconv"
 	"strings"
 )
@@ -258,4 +260,22 @@ func compareManifestVersions(left, right manifestVersion) int {
 		}
 	}
 	return 0
+}
+
+// verifyStagedArtifactSHA256 重新计算文件 SHA-256，与 manifest 记录不一致时 fail-fast。
+func verifyStagedArtifactSHA256(path, want string) error {
+	f, err := os.Open(path)
+	if err != nil {
+		return fmt.Errorf("open staged app update artifact for sha256: %w", err)
+	}
+	h := sha256.New()
+	_, copyErr := io.Copy(h, f)
+	_ = f.Close()
+	if copyErr != nil {
+		return fmt.Errorf("hash staged app update artifact: %w", copyErr)
+	}
+	if got := hex.EncodeToString(h.Sum(nil)); !strings.EqualFold(got, want) {
+		return fmt.Errorf("staged app update artifact sha256 = %s, want %s", got, want)
+	}
+	return nil
 }

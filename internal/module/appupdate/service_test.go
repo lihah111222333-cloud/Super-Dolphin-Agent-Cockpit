@@ -587,3 +587,24 @@ func waitForSignal(t *testing.T, signal <-chan struct{}, name string) {
 		t.Fatalf("timed out waiting for %s", name)
 	}
 }
+
+func TestInstallRejectsTamperedArtifact(t *testing.T) {
+	stageDir := t.TempDir()
+	svc := newService(Config{
+		Enabled:       true,
+		StageDir:      stageDir,
+		HelperPath:    "/bin/echo",
+		TargetAppPath: "/Applications/Super Dolphin.app",
+	}, nil, func() {})
+	// Write staged manifest with correct SHA-256, then overwrite artifact with different content.
+	writeSelectedInstallFixture(t, svc)
+	dmgPath := filepath.Join(stageDir, "fixture.dmg")
+	if err := os.WriteFile(dmgPath, []byte("tampered"), 0o600); err != nil {
+		t.Fatalf("WriteFile(tampered artifact) error = %v", err)
+	}
+
+	_, err := svc.Install(context.Background())
+	if err == nil || !strings.Contains(err.Error(), "sha256") {
+		t.Fatalf("Install() error = %v, want sha256 mismatch rejection", err)
+	}
+}
