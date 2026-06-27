@@ -12,7 +12,10 @@ import (
 )
 
 func TestPackagedResourcesDir(t *testing.T) {
-	got := packagedResourcesDirForOS("darwin", "/Applications/Super Dolphin.app/Contents/MacOS/agent-terminal")
+	got, err := packagedResourcesDirForOS("darwin", "/Applications/Super Dolphin.app/Contents/MacOS/agent-terminal")
+	if err != nil {
+		t.Fatalf("packagedResourcesDirForOS(darwin): %v", err)
+	}
 	want := filepath.FromSlash("/Applications/Super Dolphin.app/Contents/Resources")
 	if got != want {
 		t.Fatalf("packagedResourcesDir() = %q, want %q", got, want)
@@ -80,14 +83,20 @@ func TestPackagedResourcesDirDetectsWindowsBinExecutable(t *testing.T) {
 	makeDirs(t, root)
 	writeRuntimeManifestFixture(t, root, "windows-amd64")
 
-	got := packagedResourcesDirForOS("windows", filepath.Join(root, "bin", "agent-terminal.exe"))
+	got, err := packagedResourcesDirForOS("windows", filepath.Join(root, "bin", "agent-terminal.exe"))
+	if err != nil {
+		t.Fatalf("packagedResourcesDirForOS(windows): %v", err)
+	}
 	if got != root {
 		t.Fatalf("packagedResourcesDirForOS(windows) = %q, want %q", got, root)
 	}
 }
 
 func TestPackagedResourcesDirRejectsResourcesBinPeer(t *testing.T) {
-	got := packagedResourcesDir("/Applications/Super Dolphin.app/Contents/Resources/bin/mcp-orch")
+	got, err := packagedResourcesDir("/Applications/Super Dolphin.app/Contents/Resources/bin/mcp-orch")
+	if err != nil {
+		t.Fatalf("packagedResourcesDir: %v", err)
+	}
 	if got != "" {
 		t.Fatalf("packagedResourcesDir() = %q, want empty for sidecar peer binary", got)
 	}

@@ -73,7 +73,7 @@ SELECT id, draft_key, cwd, kind, raw_input, source_type, source_url,
        confidence, status, scope, CAST(issues AS BLOB) AS issues, created_at, updated_at
 FROM prompt_intent_drafts
 WHERE cwd = ?1
-  AND (?2 = '' OR status = ?2)
+  AND (?2 IS NULL OR status = ?2)
 ORDER BY updated_at DESC
 LIMIT ?3
 `

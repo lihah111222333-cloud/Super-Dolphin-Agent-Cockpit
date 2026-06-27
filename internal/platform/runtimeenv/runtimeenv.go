@@ -187,8 +187,8 @@ func packagedAppDataDir(userHome string) string {
 	return packagedAppDataDirForOS(runtimeGOOS(), userHome)
 }
 
-// packagedResourcesDir 从当前系统平台的可执行路径推断包资源根。
-func packagedResourcesDir(executablePath string) string {
+// packagedResourcesDir 从当前系统平台的可执行路径推断包资源根；不支持的平台返回错误。
+func packagedResourcesDir(executablePath string) (string, error) {
 	return packagedResourcesDirForOS(runtimeGOOS(), executablePath)
 }
 

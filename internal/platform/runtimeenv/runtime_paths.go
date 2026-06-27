@@ -37,29 +37,32 @@ func packagedAppDataDirForOS(goos, userHome string) string {
 }
 
 // packagedResourcesDirForOS 从可执行文件位置推断打包资源根目录。
-// 只有 macOS app bundle 和 Windows 发行包形态会被识别，普通开发二进制返回空串。
-func packagedResourcesDirForOS(goos, executablePath string) string {
+// 只有 macOS app bundle 和 Windows 发行包形态会被识别；其他平台不支持 packaged 路径推断，返回错误。
+func packagedResourcesDirForOS(goos, executablePath string) (string, error) {
 	executablePath = strings.TrimSpace(executablePath)
 	if executablePath == "" {
-		return ""
+		return "", nil
 	}
 	if goos == "darwin" {
-		return packagedMacOSResourcesDir(executablePath)
+		return packagedMacOSResourcesDir(executablePath), nil
 	}
-	if goos != "windows" || !strings.EqualFold(filepath.Ext(executablePath), ".exe") {
-		return ""
-	}
-	exeDir := filepath.Dir(executablePath)
-	if fileExists(filepath.Join(exeDir, runtimeManifestName)) {
-		return exeDir
-	}
-	if filepath.Base(exeDir) == "bin" {
-		parent := filepath.Dir(exeDir)
-		if fileExists(filepath.Join(parent, runtimeManifestName)) {
-			return parent
+	if goos == "windows" {
+		if !strings.EqualFold(filepath.Ext(executablePath), ".exe") {
+			return "", nil
 		}
+		exeDir := filepath.Dir(executablePath)
+		if fileExists(filepath.Join(exeDir, runtimeManifestName)) {
+			return exeDir, nil
+		}
+		if filepath.Base(exeDir) == "bin" {
+			parent := filepath.Dir(exeDir)
+			if fileExists(filepath.Join(parent, runtimeManifestName)) {
+				return parent, nil
+			}
+		}
+		return "", nil
 	}
-	return ""
+	return "", fmt.Errorf("packaged app not supported on platform %s", goos)
 }
 
 // packagedMacOSResourcesDir 只接受 .app/Contents/MacOS 下的可执行文件布局。
