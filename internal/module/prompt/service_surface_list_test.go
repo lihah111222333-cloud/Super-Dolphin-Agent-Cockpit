@@ -143,7 +143,7 @@ func TestPromptAssetsRPCListPreservesGlobalPendingDraftScope(t *testing.T) {
 		"hit_examples":["How much is plan A?"],
 		"miss_examples":["Write a Vue component"]
 	}`}
-	rawDraft, err := promptintent.HandleDraft(context.Background(), store, dream, nil, promptintent.DraftParams{
+	rawDraft, err := promptintent.HandleDraft(context.Background(), promptIntentStoreForTest(store), dream, nil, promptintent.DraftParams{
 		Kind:         "recall",
 		RawInput:     "Save this price list for all projects.",
 		Cwd:          "/repo/a",

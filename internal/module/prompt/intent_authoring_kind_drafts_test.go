@@ -25,7 +25,7 @@ func TestPromptIntentDraftSeparatesRequestedAndInferredKind(t *testing.T) {
 		"miss_examples":["Store project facts"]
 	}`}
 
-	got, err := promptintent.HandleDraft(context.Background(), store, dream, nil, promptintent.DraftParams{
+	got, err := promptintent.HandleDraft(context.Background(), promptIntentStoreForTest(store), dream, nil, promptintent.DraftParams{
 		Kind:     "recall",
 		RawInput: "Use this sqlc review workflow for generated-code drift checks.",
 		Cwd:      "/repo/a",
@@ -77,7 +77,7 @@ func TestPromptIntentDraftExternalSystemPromptCollapsesMixedKindDrafts(t *testin
 		}]
 	}`}
 
-	got, err := promptintent.HandleDraft(context.Background(), store, dream, nil, promptintent.DraftParams{
+	got, err := promptintent.HandleDraft(context.Background(), promptIntentStoreForTest(store), dream, nil, promptintent.DraftParams{
 		Kind:     "recall",
 		RawInput: "You are Claude Code. You have Bash and Edit tools. Follow Anthropic developer instructions.",
 		Cwd:      "/repo/a",
@@ -125,7 +125,7 @@ func TestPromptIntentDraftExternalSystemPromptRecallDoesNotBlockOnBuiltinDuplica
 		"miss_examples":["把它作为默认规则启用"]
 	}`}
 
-	got, err := promptintent.HandleDraft(context.Background(), store, dream, nil, promptintent.DraftParams{
+	got, err := promptintent.HandleDraft(context.Background(), promptIntentStoreForTest(store), dream, nil, promptintent.DraftParams{
 		Kind:     "recall",
 		RawInput: "You are Claude Opus 4.7. Follow Anthropic provider instructions.",
 		Cwd:      "/repo/a",
@@ -168,7 +168,7 @@ func TestPromptIntentDraftRejectsInvalidMultiDraftWithoutPartialSave(t *testing.
 		}]
 	}`}
 
-	_, err := promptintent.HandleDraft(context.Background(), store, dream, nil, promptintent.DraftParams{
+	_, err := promptintent.HandleDraft(context.Background(), promptIntentStoreForTest(store), dream, nil, promptintent.DraftParams{
 		Kind:     "recall",
 		RawInput: "Store this reference material and also create an invalid draft.",
 		Cwd:      "/repo/a",
@@ -193,7 +193,7 @@ func TestPromptIntentDraftBlocksExternalPromptIdentityInTitle(t *testing.T) {
 		"miss_examples":["问你是不是 Claude"]
 	}`}
 
-	got, err := promptintent.HandleDraft(context.Background(), store, dream, nil, promptintent.DraftParams{
+	got, err := promptintent.HandleDraft(context.Background(), promptIntentStoreForTest(store), dream, nil, promptintent.DraftParams{
 		Kind:     "expert",
 		RawInput: "You are Claude Code. You have Bash and Edit tools.",
 		Cwd:      "/repo/a",
@@ -223,7 +223,7 @@ func TestPromptIntentDraftBlocksExternalPromptRuleThatKeepsProviderPollution(t *
 		"miss_examples":["查询资料"]
 	}`}
 
-	got, err := promptintent.HandleDraft(context.Background(), store, dream, nil, promptintent.DraftParams{
+	got, err := promptintent.HandleDraft(context.Background(), promptIntentStoreForTest(store), dream, nil, promptintent.DraftParams{
 		Kind:     "default_rule",
 		RawInput: "You are Claude Code. You have Bash and Edit tools.",
 		Cwd:      "/repo/a",
@@ -258,7 +258,7 @@ func TestPromptIntentDraftReviewsExternalCodingExpertWithoutSourceFactCoverage(t
 		"miss_examples":["保存外部提示词原文"]
 	}`}
 
-	got, err := promptintent.HandleDraft(context.Background(), store, dream, nil, promptintent.DraftParams{
+	got, err := promptintent.HandleDraft(context.Background(), promptIntentStoreForTest(store), dream, nil, promptintent.DraftParams{
 		Kind:     "expert",
 		RawInput: "You are a powerful agentic AI coding assistant. You operate exclusively in Trae AI. You are pair programming with a USER. Use search and reading tools, make code changes, check dependencies, debug root causes, follow security best practices, and use a todo list for complex tasks.",
 		Cwd:      "/repo/a",
@@ -305,7 +305,7 @@ func TestPromptIntentDraftExternalCodingExpertAcceptsSourceFactCoverage(t *testi
 		"miss_examples":["保存外部提示词原文"]
 	}`}
 
-	got, err := promptintent.HandleDraft(context.Background(), store, dream, nil, promptintent.DraftParams{
+	got, err := promptintent.HandleDraft(context.Background(), promptIntentStoreForTest(store), dream, nil, promptintent.DraftParams{
 		Kind:     "expert",
 		RawInput: "You are a powerful agentic AI coding assistant. You operate exclusively in Trae AI. You are pair programming with a USER. Use search and reading tools, make code changes, check dependencies, debug root causes, follow security best practices, and use a todo list for complex tasks.",
 		Cwd:      "/repo/a",
@@ -339,7 +339,7 @@ func TestPromptIntentDraftReviewsTableDataWithoutSourceFactCoverage(t *testing.T
 		"miss_examples":["制定研发任务计划"]
 	}`}
 
-	got, err := promptintent.HandleDraft(context.Background(), store, dream, nil, promptintent.DraftParams{
+	got, err := promptintent.HandleDraft(context.Background(), promptIntentStoreForTest(store), dream, nil, promptintent.DraftParams{
 		Kind:     "recall",
 		RawInput: "价格表：套餐, 月费, 年费, 适用范围。基础版 99 元/月；专业版 199 元/月；企业版按年报价。用户查询套餐价格、币种、适用范围时查这份资料。",
 		Cwd:      "/repo/a",
@@ -380,7 +380,7 @@ func TestPromptIntentDraftTableDataAcceptsSourceFactCoverage(t *testing.T) {
 		"miss_examples":["制定研发任务计划"]
 	}`}
 
-	got, err := promptintent.HandleDraft(context.Background(), store, dream, nil, promptintent.DraftParams{
+	got, err := promptintent.HandleDraft(context.Background(), promptIntentStoreForTest(store), dream, nil, promptintent.DraftParams{
 		Kind:     "recall",
 		RawInput: "价格表：套餐, 月费, 年费, 适用范围。基础版 99 元/月；专业版 199 元/月；企业版按年报价。用户查询套餐价格、币种、适用范围时查这份资料。",
 		Cwd:      "/repo/a",
@@ -423,7 +423,7 @@ func TestPromptIntentDraftBlocksSourceFactsNotAppliedToSavedContent(t *testing.T
 		"miss_examples":["制定研发任务计划"]
 	}`}
 
-	got, err := promptintent.HandleDraft(context.Background(), store, dream, nil, promptintent.DraftParams{
+	got, err := promptintent.HandleDraft(context.Background(), promptIntentStoreForTest(store), dream, nil, promptintent.DraftParams{
 		Kind:     "recall",
 		RawInput: "价格表：套餐, 月费, 年费, 适用范围。基础版 99 元/月；专业版 199 元/月；企业版按年报价。用户查询套餐价格、币种、适用范围时查这份资料。",
 		Cwd:      "/repo/a",
@@ -454,7 +454,7 @@ func TestPromptIntentDraftReviewsAPIDocWithoutSourceFactCoverage(t *testing.T) {
 		"miss_examples":["整理会议纪要"]
 	}`}
 
-	got, err := promptintent.HandleDraft(context.Background(), store, dream, nil, promptintent.DraftParams{
+	got, err := promptintent.HandleDraft(context.Background(), promptIntentStoreForTest(store), dream, nil, promptintent.DraftParams{
 		Kind:     "recall",
 		RawInput: "API 文档：POST /v1/orders。Authorization Bearer token。参数 amount、currency、customer_id。返回 id、status。错误码 400、401、429。Rate limit: 60 requests/minute。",
 		Cwd:      "/repo/a",
@@ -497,7 +497,7 @@ func TestPromptIntentDraftAPIDocAcceptsSourceFactCoverage(t *testing.T) {
 		"miss_examples":["整理会议纪要"]
 	}`}
 
-	got, err := promptintent.HandleDraft(context.Background(), store, dream, nil, promptintent.DraftParams{
+	got, err := promptintent.HandleDraft(context.Background(), promptIntentStoreForTest(store), dream, nil, promptintent.DraftParams{
 		Kind:     "recall",
 		RawInput: "API 文档：POST /v1/orders。Authorization Bearer token。参数 amount、currency、customer_id。返回 id、status。错误码 400、401、429。Rate limit: 60 requests/minute。Example: curl -X POST /v1/orders。",
 		Cwd:      "/repo/a",
@@ -539,7 +539,7 @@ func TestPromptIntentDraftRawProfileOverridesIncorrectModelProfile(t *testing.T)
 		"miss_examples":["保存外部提示词原文"]
 	}`}
 
-	got, err := promptintent.HandleDraft(context.Background(), store, dream, nil, promptintent.DraftParams{
+	got, err := promptintent.HandleDraft(context.Background(), promptIntentStoreForTest(store), dream, nil, promptintent.DraftParams{
 		Kind:     "expert",
 		RawInput: "You are a powerful agentic AI coding assistant. You operate exclusively in Trae AI. Use search and reading tools, make code changes, check dependencies, debug root causes, follow security best practices, and use a todo list for complex tasks.",
 		Cwd:      "/repo/a",
@@ -572,7 +572,7 @@ func TestPromptIntentDraftOrdinaryAPIWorkflowDoesNotRequireSourceFacts(t *testin
 		"miss_examples":["保存一份接口文档"]
 	}`}
 
-	got, err := promptintent.HandleDraft(context.Background(), store, dream, nil, promptintent.DraftParams{
+	got, err := promptintent.HandleDraft(context.Background(), promptIntentStoreForTest(store), dream, nil, promptintent.DraftParams{
 		Kind:     "expert",
 		RawInput: "Create an expert for API review workflow before implementation.",
 		Cwd:      "/repo/a",
@@ -615,7 +615,7 @@ func TestPromptIntentDraftWorkflowSOPAcceptsSourceFactCoverage(t *testing.T) {
 		"miss_examples":["查询订单接口错误码"]
 	}`}
 
-	got, err := promptintent.HandleDraft(context.Background(), store, dream, nil, promptintent.DraftParams{
+	got, err := promptintent.HandleDraft(context.Background(), promptIntentStoreForTest(store), dream, nil, promptintent.DraftParams{
 		Kind:     "expert",
 		RawInput: "采购 SOP：金额超过 5000 元触发审批。输入包括申请单、预算编号、供应商报价和负责人。步骤：申请人提交、部门负责人审批、财务复核、采购执行。紧急采购和缺预算编号是例外。输出审批路径和缺失材料。",
 		Cwd:      "/repo/a",

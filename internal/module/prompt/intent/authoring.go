@@ -15,7 +15,6 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/module/prompt/intent/draftdream"
 	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
 	platformrpc "github.com/anthropic-ai/super-agent-v3/internal/platform/rpc"
-	promptstore "github.com/anthropic-ai/super-agent-v3/internal/store/prompt"
 )
 
 // DryRunDisclaimer 是 dry-run RPC 的固定提示，明确该路径不会写库也不代表真实路由承诺。
@@ -54,7 +53,7 @@ type DryRunResult struct {
 // 最后将草稿持久化并返回结果。
 func HandleDraft(
 	ctx context.Context,
-	promptStore promptstore.Store,
+	promptStore Store,
 	dream contract.DreamExecutor,
 	builtin contract.BuiltinPromptRegistry,
 	p DraftParams,
@@ -111,16 +110,16 @@ func promptIntentDraftDreamOptions(p DraftParams) contract.DreamOptions {
 // buildPromptIntentDrafts 对多张卡片逐一构建 DraftResult 和 PromptIntentDraft，返回两个等长切片。
 func buildPromptIntentDrafts(
 	ctx context.Context,
-	promptStore promptstore.Store,
+	promptStore Store,
 	builtin contract.BuiltinPromptRegistry,
 	cwd string,
 	requestedKind Kind,
 	rawInput string,
 	p DraftParams,
 	cards []Card,
-) ([]DraftResult, []promptstore.PromptIntentDraft, error) {
+) ([]DraftResult, []PromptIntentDraft, error) {
 	results := make([]DraftResult, 0, len(cards))
-	drafts := make([]promptstore.PromptIntentDraft, 0, len(cards))
+	drafts := make([]PromptIntentDraft, 0, len(cards))
 	for _, card := range cards {
 		result, draft, err := buildPromptIntentDraft(ctx, promptStore, builtin, cwd, requestedKind, rawInput, p, card)
 		if err != nil {
@@ -133,8 +132,8 @@ func buildPromptIntentDrafts(
 }
 
 // upsertPromptIntentDrafts 在事务中批量 upsert 草稿记录。
-func upsertPromptIntentDrafts(ctx context.Context, promptStore promptstore.Store, drafts []promptstore.PromptIntentDraft) error {
-	return promptStore.WithTx(ctx, func(txStore promptstore.Store) error {
+func upsertPromptIntentDrafts(ctx context.Context, promptStore Store, drafts []PromptIntentDraft) error {
+	return promptStore.WithTx(ctx, func(txStore Store) error {
 		for _, draft := range drafts {
 			if _, err := txStore.UpsertIntentDraft(ctx, draft); err != nil {
 				return err
@@ -146,7 +145,7 @@ func upsertPromptIntentDrafts(ctx context.Context, promptStore promptstore.Store
 
 // validatePromptIntentDraftRequest 校验草稿请求的必要字段：dream executor、prompt store、cwd、kind 和 raw_input。
 func validatePromptIntentDraftRequest(
-	promptStore promptstore.Store,
+	promptStore Store,
 	dream contract.DreamExecutor,
 	p DraftParams,
 ) (string, Kind, string, error) {
@@ -188,19 +187,19 @@ func buildPromptIntentDraftResult(
 	p DraftParams,
 	card Card,
 	extraIssues []Issue,
-) (DraftResult, promptstore.PromptIntentDraft, error) {
+) (DraftResult, PromptIntentDraft, error) {
 	issues := promptIntentDraftIssues(inferredKind, rawInput, card)
 	issues = append(issues, extraIssues...)
 	confidence, status := promptIntentDraftConfidenceAndStatus(issues)
 	cardJSON, err := json.Marshal(card)
 	if err != nil {
-		return DraftResult{}, promptstore.PromptIntentDraft{}, err
+		return DraftResult{}, PromptIntentDraft{}, err
 	}
 	issuesJSON, err := json.Marshal(issues)
 	if err != nil {
-		return DraftResult{}, promptstore.PromptIntentDraft{}, err
+		return DraftResult{}, PromptIntentDraft{}, err
 	}
-	draft := promptstore.PromptIntentDraft{
+	draft := PromptIntentDraft{
 		DraftKey:      draftKey,
 		CWD:           cwd,
 		Kind:          string(inferredKind),
@@ -231,25 +230,25 @@ func buildPromptIntentDraftResult(
 // buildPromptIntentDraft 为单张卡片构建草稿，包含 kind 推断、key 生成和重复检测。
 func buildPromptIntentDraft(
 	ctx context.Context,
-	promptStore promptstore.Store,
+	promptStore Store,
 	builtin contract.BuiltinPromptRegistry,
 	cwd string,
 	requestedKind Kind,
 	rawInput string,
 	p DraftParams,
 	card Card,
-) (DraftResult, promptstore.PromptIntentDraft, error) {
+) (DraftResult, PromptIntentDraft, error) {
 	inferredKind, err := normalizeKind(card.Kind)
 	if err != nil {
-		return DraftResult{}, promptstore.PromptIntentDraft{}, err
+		return DraftResult{}, PromptIntentDraft{}, err
 	}
 	draftKey, err := newPromptIntentDraftKeyFromEntropy(inferredKind)
 	if err != nil {
-		return DraftResult{}, promptstore.PromptIntentDraft{}, err
+		return DraftResult{}, PromptIntentDraft{}, err
 	}
 	duplicateIssues, err := promptIntentDuplicateIssues(ctx, promptStore, builtin, cwd, inferredKind, rawInput, card, p.EnableGlobal)
 	if err != nil {
-		return DraftResult{}, promptstore.PromptIntentDraft{}, err
+		return DraftResult{}, PromptIntentDraft{}, err
 	}
 	return buildPromptIntentDraftResult(draftKey, cwd, requestedKind, inferredKind, rawInput, p, card, duplicateIssues)
 }
@@ -274,7 +273,7 @@ func promptIntentDraftConfidenceAndStatus(issues []Issue) (float64, string) {
 // HandleDryRun 模拟草稿被使用时会触发的动作（不写入路由），帮助用户理解草稿效果。
 func HandleDryRun(
 	ctx context.Context,
-	promptStore promptstore.Store,
+	promptStore Store,
 	_ contract.DreamExecutor,
 	_ contract.BuiltinPromptRegistry,
 	p DryRunParams,
@@ -355,7 +354,7 @@ func newPromptIntentDraftKey(kind Kind, now time.Time, random []byte) (string, e
 
 // buildPromptIntentDraftPrompt 构建传给 LLM 的草稿生成 prompt，
 // default_rule 类型会附加当前项目已有规则列表以便检查冲突。
-func buildPromptIntentDraftPrompt(ctx context.Context, store promptstore.Store, cwd string, kind Kind, rawInput string) (string, error) {
+func buildPromptIntentDraftPrompt(ctx context.Context, store Store, cwd string, kind Kind, rawInput string) (string, error) {
 	var existingRules []string
 	if kind == KindDefaultRule {
 		sections, err := store.ListDefaultRuleSections(ctx, cwd)
@@ -620,7 +619,7 @@ func normalizePromptIntentComparableText(text string) string {
 }
 
 // promptIntentDryRunCard 从 draft_key 加载草稿卡片，或直接解析请求中的 card 字段。
-func promptIntentDryRunCard(ctx context.Context, promptStore promptstore.Store, p DryRunParams) (Card, error) {
+func promptIntentDryRunCard(ctx context.Context, promptStore Store, p DryRunParams) (Card, error) {
 	if draftKey := strings.TrimSpace(p.DraftKey); draftKey != "" {
 		if promptStore == nil {
 			return Card{}, errors.New("prompt store is required for prompt intent dry-run")

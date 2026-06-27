@@ -8,7 +8,6 @@ import (
 	"strings"
 
 	promptintent "github.com/anthropic-ai/super-agent-v3/internal/module/prompt/intent"
-	promptstore "github.com/anthropic-ai/super-agent-v3/internal/store/prompt"
 )
 
 // matchWhenStringValue 从 JSON 条件值中取字符串，类型不匹配时返回空串表示条件不成立。
@@ -51,12 +50,12 @@ func matchTagsHas(keyword string, userPrompt string) bool {
 // storePromptTemplateAndContent 保存模板，并在 section 化模板上把正文写入对应内容 section。
 func storePromptTemplateAndContent(
 	ctx context.Context,
-	store promptstore.Store,
-	template promptstore.PromptTemplate,
-	current *promptstore.PromptTemplate,
-	contentSection *promptstore.PromptTemplateSection,
+	store promptStore,
+	template promptTemplate,
+	current *promptTemplate,
+	contentSection *promptTemplateSection,
 	content string,
-) (*promptstore.PromptTemplate, error) {
+) (*promptTemplate, error) {
 	if contentSection != nil && current != nil {
 		template.PromptText = current.PromptText
 		template.Tags = withPromptInferredIntentTag(template.Tags, promptSectionInferredIntentKind(*contentSection))
@@ -83,10 +82,10 @@ func storePromptTemplateAndContent(
 // 对必须 section 化的 recall/default_rule 模板，找不到目标 section 会立即报错。
 func promptContentSectionTargetForWrite(
 	ctx context.Context,
-	store promptstore.Store,
-	current *promptstore.PromptTemplate,
+	store promptStore,
+	current *promptTemplate,
 	p PromptWriteRequest,
-) (*promptstore.PromptTemplateSection, error) {
+) (*promptTemplateSection, error) {
 	if current == nil || !p.ContentSet {
 		return nil, nil
 	}
@@ -103,26 +102,26 @@ func promptContentSectionTargetForWrite(
 
 // promptContentSectionForWrite 按模板 intent 选择最适合作为正文编辑入口的 section。
 func promptContentSectionForWrite(
-	template promptstore.PromptTemplate,
-	sections []promptstore.PromptTemplateSection,
-) *promptstore.PromptTemplateSection {
+	template promptTemplate,
+	sections []promptTemplateSection,
+) *promptTemplateSection {
 	if len(sections) == 0 {
 		return nil
 	}
 	switch promptTemplateIntentKindWithSections(template, sections) {
 	case "recall":
-		return firstPromptSectionMatching(sections, func(section promptstore.PromptTemplateSection) bool {
+		return firstPromptSectionMatching(sections, func(section promptTemplateSection) bool {
 			return strings.EqualFold(strings.TrimSpace(section.TriggerType), "recall")
 		})
 	case "default_rule":
-		if section := firstPromptSectionMatching(sections, func(section promptstore.PromptTemplateSection) bool {
+		if section := firstPromptSectionMatching(sections, func(section promptTemplateSection) bool {
 			return strings.TrimSpace(section.SectionKey) == "project_rule"
 		}); section != nil {
 			return section
 		}
 		return firstPromptSectionMatching(sections, promptSectionIsDirectlyInjectable)
 	case "expert":
-		if section := firstPromptSectionMatching(sections, func(section promptstore.PromptTemplateSection) bool {
+		if section := firstPromptSectionMatching(sections, func(section promptTemplateSection) bool {
 			return strings.TrimSpace(section.SectionKey) == "workflow"
 		}); section != nil {
 			return section
@@ -132,7 +131,7 @@ func promptContentSectionForWrite(
 }
 
 // promptTemplateRequiresSectionContent 判断模板是否必须通过 section 保存正文。
-func promptTemplateRequiresSectionContent(template promptstore.PromptTemplate, sections []promptstore.PromptTemplateSection) bool {
+func promptTemplateRequiresSectionContent(template promptTemplate, sections []promptTemplateSection) bool {
 	switch promptTemplateIntentKindWithSections(template, sections) {
 	case "recall", "default_rule":
 		return true
@@ -142,7 +141,7 @@ func promptTemplateRequiresSectionContent(template promptstore.PromptTemplate, s
 }
 
 // promptTemplateIntentKind 从 agent key 或 intent tag 识别模板类型。
-func promptTemplateIntentKind(template promptstore.PromptTemplate) string {
+func promptTemplateIntentKind(template promptTemplate) string {
 	if strings.TrimSpace(template.AgentKey) == "default_rule" {
 		return "default_rule"
 	}
@@ -161,8 +160,8 @@ func promptTemplateIntentKind(template promptstore.PromptTemplate) string {
 
 // promptTemplateIntentKindWithSections 优先使用模板显式 intent，缺失时从 sections 推断。
 func promptTemplateIntentKindWithSections(
-	template promptstore.PromptTemplate,
-	sections []promptstore.PromptTemplateSection,
+	template promptTemplate,
+	sections []promptTemplateSection,
 ) string {
 	if kind := promptTemplateIntentKind(template); kind != "" {
 		return kind
@@ -172,7 +171,7 @@ func promptTemplateIntentKindWithSections(
 
 // promptSectionsInferredIntentKind 从旧式 section-only 形态推断 recall 模板。
 // 只要存在普通可注入正文，就不再推断为 recall，避免误改普通模板。
-func promptSectionsInferredIntentKind(sections []promptstore.PromptTemplateSection) string {
+func promptSectionsInferredIntentKind(sections []promptTemplateSection) string {
 	hasRecallContent := false
 	for _, section := range sections {
 		if section.Enabled && promptSectionIsDirectlyInjectable(section) && strings.TrimSpace(section.Body) != "" {
@@ -189,7 +188,7 @@ func promptSectionsInferredIntentKind(sections []promptstore.PromptTemplateSecti
 }
 
 // promptSectionInferredIntentKind 识别单个启用 recall section 是否足以代表 recall intent。
-func promptSectionInferredIntentKind(section promptstore.PromptTemplateSection) string {
+func promptSectionInferredIntentKind(section promptTemplateSection) string {
 	if !section.Enabled {
 		return ""
 	}
@@ -204,9 +203,9 @@ func promptSectionInferredIntentKind(section promptstore.PromptTemplateSection) 
 
 // promptTemplateWithInferredSectionIntent 为缺少显式 intent 的 section-only 模板补充临时 intent tag。
 func promptTemplateWithInferredSectionIntent(
-	template promptstore.PromptTemplate,
-	sections []promptstore.PromptTemplateSection,
-) promptstore.PromptTemplate {
+	template promptTemplate,
+	sections []promptTemplateSection,
+) promptTemplate {
 	kind := promptSectionsInferredIntentKind(sections)
 	if kind == "" || promptTemplateIntentKind(template) != "" {
 		return template
@@ -237,9 +236,9 @@ func withPromptInferredIntentTag(raw json.RawMessage, kind string) json.RawMessa
 
 // firstPromptSectionMatching 返回第一个匹配 section 的副本，避免调用方修改原切片元素。
 func firstPromptSectionMatching(
-	sections []promptstore.PromptTemplateSection,
-	match func(promptstore.PromptTemplateSection) bool,
-) *promptstore.PromptTemplateSection {
+	sections []promptTemplateSection,
+	match func(promptTemplateSection) bool,
+) *promptTemplateSection {
 	for _, section := range sections {
 		if match(section) {
 			copy := section
@@ -250,7 +249,7 @@ func firstPromptSectionMatching(
 }
 
 // promptSectionIsDirectlyInjectable 判断 section 是否可作为普通 prompt 正文展示。
-func promptSectionIsDirectlyInjectable(section promptstore.PromptTemplateSection) bool {
+func promptSectionIsDirectlyInjectable(section promptTemplateSection) bool {
 	return !strings.EqualFold(strings.TrimSpace(section.TriggerType), "recall")
 }
 
@@ -274,7 +273,7 @@ type promptAssetDraftIssue struct {
 }
 
 // promptAssetItemsFromDrafts 将可保存草稿转为前端资产列表项。
-func promptAssetItemsFromDrafts(drafts []promptstore.PromptIntentDraft) []promptAssetRPCItem {
+func promptAssetItemsFromDrafts(drafts []promptIntentDraft) []promptAssetRPCItem {
 	items := make([]promptAssetRPCItem, 0, len(drafts))
 	for _, draft := range drafts {
 		items = append(items, promptAssetItemFromDraft(draft))
@@ -283,7 +282,7 @@ func promptAssetItemsFromDrafts(drafts []promptstore.PromptIntentDraft) []prompt
 }
 
 // promptAssetItemFromDraft 将单个 intent 草稿映射为待确认资产项。
-func promptAssetItemFromDraft(draft promptstore.PromptIntentDraft) promptAssetRPCItem {
+func promptAssetItemFromDraft(draft promptIntentDraft) promptAssetRPCItem {
 	card, cardPayload := promptAssetDraftCardPayload(draft)
 	issues := []promptAssetDraftIssue{}
 	_ = json.Unmarshal(draft.Issues, &issues)
@@ -316,7 +315,7 @@ func promptAssetItemFromDraft(draft promptstore.PromptIntentDraft) promptAssetRP
 }
 
 // promptAssetDraftCardPayload 解析并规范化草稿卡片，同时返回结构化 payload 供前端展示。
-func promptAssetDraftCardPayload(draft promptstore.PromptIntentDraft) (promptAssetDraftCard, map[string]any) {
+func promptAssetDraftCardPayload(draft promptIntentDraft) (promptAssetDraftCard, map[string]any) {
 	generated := promptintent.Card{}
 	if err := json.Unmarshal(draft.GeneratedCard, &generated); err == nil {
 		normalized := promptintent.NormalizeGeneratedCard(draft.Kind, draft.RawInput, generated)
@@ -336,7 +335,7 @@ func promptAssetDraftCardPayload(draft promptstore.PromptIntentDraft) (promptAss
 }
 
 // promptAssetDraftKind 优先使用卡片 kind，其次使用草稿 kind，最终按 expert 展示。
-func promptAssetDraftKind(draft promptstore.PromptIntentDraft, card promptAssetDraftCard) string {
+func promptAssetDraftKind(draft promptIntentDraft, card promptAssetDraftCard) string {
 	return firstNonEmpty(card.Kind, draft.Kind, "expert")
 }
 
