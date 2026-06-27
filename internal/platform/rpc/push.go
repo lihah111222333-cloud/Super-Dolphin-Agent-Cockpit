@@ -73,25 +73,14 @@ func subscribeCoreEventPushes(worker *pushNotificationWorker, dispatcher *event.
 }
 
 // typedPushMethods 是已经有强类型事件面负责推送的方法集合。
-var typedPushMethods = map[string]struct{}{
-	strings.ToLower(eventsurface.MethodUIStateChanged):       {},
-	strings.ToLower(eventsurface.MethodTurnStarted):          {},
-	strings.ToLower(eventsurface.MethodTurnCompleted):        {},
-	strings.ToLower(eventsurface.MethodAgentMessageDelta):    {},
-	strings.ToLower(eventsurface.MethodReasoningTextDelta):   {},
-	strings.ToLower(eventsurface.MethodCommandOutputDelta):   {},
-	strings.ToLower(eventsurface.MethodToolCall):             {},
-	strings.ToLower(eventsurface.MethodThreadStarted):        {},
-	strings.ToLower(eventsurface.MethodThreadStopped):        {},
-	strings.ToLower(eventsurface.MethodThreadMessages):       {},
-	strings.ToLower(eventsurface.MethodThreadCompacted):      {},
-	strings.ToLower(eventsurface.MethodSkillsChanged):        {},
-	strings.ToLower(eventsurface.MethodUIThreadPatch):        {},
-	strings.ToLower(eventsurface.MethodUISharedFilesChanged): {},
-	strings.ToLower(eventsurface.MethodUIMemoryChanged):      {},
-	strings.ToLower(eventsurface.MethodUIPromptsChanged):     {},
-	strings.ToLower(eventsurface.MethodAgentLaunched):        {},
-	strings.ToLower(eventsurface.MethodAgentStopped):         {},
+var typedPushMethods = newTypedPushMethods()
+
+func newTypedPushMethods() map[string]struct{} {
+	out := make(map[string]struct{}, len(eventsurface.AllTypedWireMethods()))
+	for _, method := range eventsurface.AllTypedWireMethods() {
+		out[strings.ToLower(method)] = struct{}{}
+	}
+	return out
 }
 
 // subscribeRawProviderEventPushes 订阅 provider raw 事件，并过滤掉已有强类型覆盖的事件。
@@ -289,36 +278,12 @@ func normalizeRawProviderPushMethod(method string) string {
 
 // shouldPushRawProviderMethod 判断 raw provider 方法是否允许直接 push 给前端。
 func shouldPushRawProviderMethod(method string) bool {
-	method = strings.TrimSpace(method)
+	method = strings.TrimSpace(approvalMethodCatalog.normalize(method))
 	if method == "" {
 		return false
 	}
 	if _, ok := typedPushMethods[strings.ToLower(method)]; ok {
 		return false
 	}
-	if approvalMethodCatalog.isPushMethod(method) {
-		return true
-	}
-	switch {
-	case strings.HasPrefix(method, "item/"),
-		strings.HasPrefix(method, "turn/plan/"),
-		strings.HasPrefix(method, "turn/diff/"),
-		strings.HasPrefix(method, "agent/event/"),
-		strings.HasPrefix(method, "account/"),
-		strings.HasPrefix(method, "app/list/"),
-		strings.HasPrefix(method, "fuzzyFileSearch/"),
-		strings.HasSuffix(method, "/requestApproval"):
-		return true
-	}
-	switch method {
-	case "error",
-		"configWarning",
-		"deprecationNotice",
-		"thread/name/updated",
-		"thread/tokenUsage/updated",
-		"thread/tokenusage/updated":
-		return true
-	default:
-		return false
-	}
+	return eventsurface.RawWireAllowed(eventsurface.RawWireAllowlistSpec(), method)
 }

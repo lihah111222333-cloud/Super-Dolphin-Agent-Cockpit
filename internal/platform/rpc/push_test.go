@@ -18,16 +18,12 @@ func TestProviderPushNotificationsForwardsCriticalSurface(t *testing.T) {
 		want []string
 	}{
 		{
-			name: "approval legacy method normalized and refreshed",
+			name: "approval legacy method is covered by typed surface",
 			raw: providerdto.RawProviderEvent{
 				EventType: legacyApprovalEventMethod,
 				Data:      map[string]any{"threadId": "thread-1", "reason": "approval needed"},
 			},
-			want: []string{
-				approvalCallbackMethodCommandExecution,
-				eventsurface.MethodUIThreadChanged,
-				eventsurface.MethodUISidebarChanged,
-			},
+			want: []string{},
 		},
 		{
 			name: "plan delta is forwarded",
@@ -68,12 +64,12 @@ func TestProviderPushNotificationsForwardsCriticalSurface(t *testing.T) {
 			want: []string{},
 		},
 		{
-			name: "token usage remains available",
+			name: "token usage is covered by typed surface",
 			raw: providerdto.RawProviderEvent{
 				EventType: "thread/tokenUsage/updated",
 				Data:      map[string]any{"threadId": "thread-1", "totalTokens": 42},
 			},
-			want: []string{"thread/tokenUsage/updated"},
+			want: []string{},
 		},
 	}
 
@@ -90,6 +86,31 @@ func TestProviderPushNotificationsForwardsCriticalSurface(t *testing.T) {
 	}
 }
 
+func TestShouldPushRawProviderMethodUsesEventSurfaceAllowlist(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		method string
+		want   bool
+	}{
+		{name: "legacy approval alias normalizes to typed method", method: legacyApprovalEventMethod, want: false},
+		{name: "raw item prefix allowed", method: "item/plan/delta", want: true},
+		{name: "raw suffix allowed", method: "item/custom/requestApproval", want: true},
+		{name: "typed method suppressed", method: eventsurface.MethodThreadStarted, want: false},
+		{name: "workspace run remains compat only", method: "workspace/run/created", want: false},
+		{name: "unknown rejected", method: "unknown/domain/event", want: false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			if got := shouldPushRawProviderMethod(tt.method); got != tt.want {
+				t.Fatalf("shouldPushRawProviderMethod(%q) = %v, want %v", tt.method, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestProviderPushNotificationsForwardsGenericItemLifecycle(t *testing.T) {
 	t.Parallel()
 
@@ -99,16 +120,12 @@ func TestProviderPushNotificationsForwardsGenericItemLifecycle(t *testing.T) {
 		want []string
 	}{
 		{
-			name: "generic item completed is forwarded",
+			name: "generic item completed is covered by typed surface",
 			raw: providerdto.RawProviderEvent{
 				EventType: eventsurface.MethodItemCompleted,
 				Data:      map[string]any{"threadId": "thread-1", "itemId": "item-1"},
 			},
-			want: []string{
-				eventsurface.MethodItemCompleted,
-				eventsurface.MethodUIThreadChanged,
-				eventsurface.MethodUISidebarChanged,
-			},
+			want: []string{},
 		},
 		{
 			name: "generic item started is forwarded",
@@ -161,6 +178,12 @@ func TestProviderPushNotificationsForwardsToolShapedItemsWithoutCallID(t *testin
 
 	for _, raw := range tests {
 		got := notificationMethods(providerPushNotifications(raw))
+		if raw.EventType == eventsurface.MethodItemCompleted {
+			if len(got) != 0 {
+				t.Fatalf("providerPushNotifications(%q) = %#v, want typed method suppressed", raw.EventType, got)
+			}
+			continue
+		}
 		if len(got) != 3 || got[0] != raw.EventType {
 			t.Fatalf("providerPushNotifications(%q) = %#v, want raw event plus refreshes", raw.EventType, got)
 		}
