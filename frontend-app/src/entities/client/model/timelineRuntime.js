@@ -344,13 +344,20 @@ function isMeaningfulCommandTimelineItem(item) {
   return Boolean(title.startsWith('$ ') && !GENERIC_COMMAND_TITLES.has(title.toLowerCase()));
 }
 
+function isVisibleApprovalTimelineItem(item) {
+  const requestId = positiveNumberFromFields(item, ['requestId', 'request_id']);
+  const status = normalizeString(item?.status);
+  return requestId > 0 && Boolean(status);
+}
+
 export function isVisibleTimelineItem(item) {
   if (item?.controlOnly) return false;
   if (isInjectedPromptTimelineItem(item)) return false;
   if (isMessageLifecycleTimelineItem(item)) return false;
   if (item?.role === 'user') return true;
-  if (normalizeString(item?.text)) return true;
   const kind = normalizeTimelineKind(item);
+  if (kind === 'approval') return isVisibleApprovalTimelineItem(item);
+  if (normalizeString(item?.text)) return true;
   if (kind === 'command') return !isToolBackedCommandTimelineItem(item) && isMeaningfulCommandTimelineItem(item);
   return kind === 'thinking' || kind === 'reasoning' || kind === 'tool' || kind === 'process' || kind === 'plan';
 }
