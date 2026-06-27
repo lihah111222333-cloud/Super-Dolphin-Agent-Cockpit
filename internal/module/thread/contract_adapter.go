@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"strings"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
@@ -166,6 +167,22 @@ type sessionStatusPort struct {
 	service Service
 }
 
+type serviceSessionPorts struct {
+	contract.SessionLifecyclePort
+	contract.SessionStatusPort
+}
+
+// NewSessionPorts 将 thread.Service 聚合成跨模块 session 端口。
+// 生产 RPC 入口应依赖该聚合端口逐步迁移，避免继续扩散完整 thread.Service。
+func NewSessionPorts(service Service) contract.SessionPorts {
+	return serviceSessionPorts{
+		SessionLifecyclePort: NewSessionLifecyclePort(service),
+		SessionStatusPort:    NewSessionStatusPort(service),
+	}
+}
+
+var _ contract.SessionPorts = serviceSessionPorts{}
+
 // NewSessionStatusPort 将 thread.Service 收窄为 session read/status 端口。
 // adapter 只投影列表和消息读取结果，不改变 thread 模块的状态来源。
 func NewSessionStatusPort(service Service) contract.SessionStatusPort {
@@ -187,6 +204,10 @@ func (p sessionStatusPort) ListSessions(ctx context.Context) ([]contract.Session
 
 // ReadMessages 透传 thread 消息分页读取，保持现有消息 DTO 与分页语义不变。
 func (p sessionStatusPort) ReadMessages(ctx context.Context, threadID string, limit int, before string) (dto.ThreadMessagesResult, error) {
+	threadID = strings.TrimSpace(threadID)
+	if threadID == "" {
+		return dto.ThreadMessagesResult{}, fmt.Errorf("session status: read messages thread id is required")
+	}
 	return p.service.ReadMessages(ctx, threadID, limit, before)
 }
 
@@ -333,9 +354,7 @@ func cloneSessionBoolMap(in map[string]bool) map[string]bool {
 		return nil
 	}
 	out := make(map[string]bool, len(in))
-	for key, value := range in {
-		out[key] = value
-	}
+	maps.Copy(out, in)
 	return out
 }
 

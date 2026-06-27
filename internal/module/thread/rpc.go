@@ -24,6 +24,12 @@ const (
 // NewThreadHandlers 注册 thread 模块暴露给 JSON-RPC 的所有方法。
 // 高频入口走 typed handler；少量低频命令仍经 SendCommand 兼容壳转发，并在 provider 不支持时返回能力错误。
 func NewThreadHandlers(svc Service, capResolver contract.CapabilityResolver) platformrpc.HandlerMapResult {
+	return newThreadHandlers(svc, NewSessionPorts(svc), capResolver)
+}
+
+// newThreadHandlers 组装 thread RPC handler map，并允许测试替换 session port。
+// 生产入口由 NewThreadHandlers 传入 thread.Service 的 session adapter，避免 handler 直接散落完整 service 依赖。
+func newThreadHandlers(svc Service, sessionPorts contract.SessionPorts, capResolver contract.CapabilityResolver) platformrpc.HandlerMapResult {
 	return platformrpc.HandlerMapResult{Handlers: handler.Map{
 		contract.ThreadRPCStart:   newStartHandler(svc),
 		contract.ThreadRPCFork:    newForkHandler(svc),
@@ -47,9 +53,7 @@ func NewThreadHandlers(svc Service, capResolver contract.CapabilityResolver) pla
 		"thread/resolve": newThreadCall(func(ctx context.Context, id string) (any, error) {
 			return svc.Get(ctx, id)
 		}),
-		"thread/messages": platformrpc.ThreadHandler(func(ctx context.Context, p messagesParams) (any, error) {
-			return svc.ReadMessages(ctx, contract.ThreadIDFrom(ctx), p.Limit, p.Before)
-		}),
+		"thread/messages": newThreadMessagesHandler(sessionPorts),
 
 		contract.ThreadRPCNameSet: platformrpc.ThreadHandler(func(ctx context.Context, p nameSetParams) (any, error) {
 			return nil, svc.SetName(ctx, contract.ThreadIDFrom(ctx), p.Name)
@@ -84,6 +88,17 @@ func NewThreadHandlers(svc Service, capResolver contract.CapabilityResolver) pla
 		"thread/realtime/appendText":  newCapabilityThreadCommandHandler(svc, capResolver, capabilityRealtime, "realtime/appendText"),
 		"thread/realtime/stop":        newCapabilityThreadCommandHandler(svc, capResolver, capabilityRealtime, "realtime/stop"),
 	}}
+}
+
+// newThreadMessagesHandler 让生产 thread/messages RPC 通过 session port 读取消息。
+// 这条只读入口是 SessionPorts 的首个真实消费点，避免一次性迁移 thread/start 主流程。
+func newThreadMessagesHandler(sessionPorts contract.SessionPorts) handler.Func {
+	return platformrpc.ThreadHandler(func(ctx context.Context, p messagesParams) (any, error) {
+		if sessionPorts == nil {
+			return nil, fmt.Errorf("thread/messages: session ports are required")
+		}
+		return sessionPorts.ReadMessages(ctx, contract.ThreadIDFrom(ctx), p.Limit, p.Before)
+	})
 }
 
 func newStartHandler(svc Service) handler.Func {
