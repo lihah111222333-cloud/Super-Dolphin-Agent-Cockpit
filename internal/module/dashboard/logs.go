@@ -5,8 +5,6 @@ import (
 	"sort"
 	"strings"
 
-	auditlogstore "github.com/anthropic-ai/super-agent-v3/internal/store/auditlog"
-	buslogstore "github.com/anthropic-ai/super-agent-v3/internal/store/buslog"
 	"github.com/anthropic-ai/super-agent-v3/internal/util"
 )
 
@@ -89,8 +87,8 @@ func sortLogEntries(entries []LogEntry) {
 
 // GetAuditLogs 读取审计日志并规整过滤条件。
 // store 缺失时返回空切片，limit 始终受 dashboard 日志上限约束。
-func (s *service) GetAuditLogs(ctx context.Context, filter auditlogstore.ListFilter) ([]auditlogstore.AuditEvent, error) {
-	return safeList(s.auditLogs != nil, func() ([]auditlogstore.AuditEvent, error) {
+func (s *service) GetAuditLogs(ctx context.Context, filter AuditLogFilter) ([]AuditEvent, error) {
+	return safeList(s.auditLogs != nil, func() ([]AuditEvent, error) {
 		filter.EventType = strings.TrimSpace(filter.EventType)
 		filter.Action = strings.TrimSpace(filter.Action)
 		filter.Actor = strings.TrimSpace(filter.Actor)
@@ -102,8 +100,8 @@ func (s *service) GetAuditLogs(ctx context.Context, filter auditlogstore.ListFil
 
 // GetBusLogs 读取 bus 异常日志并规整过滤条件。
 // store 缺失时返回空切片，避免可选 bus 日志能力阻断 dashboard。
-func (s *service) GetBusLogs(ctx context.Context, filter buslogstore.ListFilter) ([]buslogstore.BusExceptionLog, error) {
-	return safeList(s.busLogs != nil, func() ([]buslogstore.BusExceptionLog, error) {
+func (s *service) GetBusLogs(ctx context.Context, filter BusLogFilter) ([]BusExceptionLog, error) {
+	return safeList(s.busLogs != nil, func() ([]BusExceptionLog, error) {
 		filter.Category = strings.TrimSpace(filter.Category)
 		filter.Severity = strings.TrimSpace(filter.Severity)
 		filter.Keyword = strings.TrimSpace(filter.Keyword)

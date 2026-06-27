@@ -7,7 +7,6 @@ import (
 	"strings"
 
 	sharedfilepath "github.com/anthropic-ai/super-agent-v3/internal/platform/sharedfilepath"
-	sharedfilestore "github.com/anthropic-ai/super-agent-v3/internal/store/sharedfile"
 )
 
 // workflowMaterialUploadPrefix 限定 dashboard 可写入的 workflow 材料目录。
@@ -15,8 +14,8 @@ const workflowMaterialUploadPrefix = "reports/workflows/uploads/"
 
 // WriteWorkflowMaterial 将前端模板上传材料写入 workflow 专用 sharedfile 前缀。
 // sharedFiles 必须支持 Upserter；路径和内容都校验通过后才写入，避免 dashboard 任意写 sharedfile。
-func (s *service) WriteWorkflowMaterial(ctx context.Context, req WorkflowMaterialWriteRequest) (*sharedfilestore.SharedFile, error) {
-	writer, ok := s.sharedFiles.(sharedfilestore.Upserter)
+func (s *service) WriteWorkflowMaterial(ctx context.Context, req WorkflowMaterialWriteRequest) (*SharedFile, error) {
+	writer, ok := s.sharedFiles.(SharedFileWriter)
 	if !ok || writer == nil {
 		return nil, errors.New("dashboard: writable sharedfile store is not configured")
 	}
@@ -30,7 +29,7 @@ func (s *service) WriteWorkflowMaterial(ctx context.Context, req WorkflowMateria
 	if strings.TrimSpace(req.Content) == "" {
 		return nil, errors.New("dashboard: workflow material content is required")
 	}
-	return writer.Upsert(ctx, sharedfilestore.UpsertParams{
+	return writer.Upsert(ctx, SharedFileUpsertParams{
 		Path:      cleanedPath,
 		Content:   req.Content,
 		UpdatedBy: dashboardUICreatedBy,
