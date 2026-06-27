@@ -100,5 +100,11 @@
     "naked_returns": 0,
     "empty_funcs": 0,
     "todo_count": 0
+  },
+  "pkg/dreammetrics/dreammetrics_test.go": {
+    "max_complexity": 11
+  },
+  "pkg/skillmetrics/skillmetrics_test.go": {
+    "max_complexity": 13
   }
 }
