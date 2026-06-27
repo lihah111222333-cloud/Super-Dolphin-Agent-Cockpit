@@ -245,6 +245,31 @@ func TestBuildThreadStartParamsUsesStartAssemblyInstructions(t *testing.T) {
 	}
 }
 
+func TestBuildThreadStartParamsIgnoresPrefixShapeContent(t *testing.T) {
+	t.Parallel()
+
+	params := (&driver{}).buildThreadStartParams(dto.StartSessionRequest{
+		StartAssembly: dto.StartAssembly{
+			BaseInstructions:      "assembled base",
+			DeveloperInstructions: "assembled dev",
+			PrefixShape: dto.PrefixShape{
+				Hash:                "shape-hash",
+				StaticSectionNames:  []string{"identity"},
+				DynamicSectionNames: []string{"memory"},
+				CachedPrefixBytes:   12,
+				UncachedTailBytes:   8,
+			},
+		},
+	})
+
+	if params.BaseInstructions != "assembled base" {
+		t.Fatalf("BaseInstructions = %q, want assembled base", params.BaseInstructions)
+	}
+	if params.DeveloperInstructions != "assembled dev" {
+		t.Fatalf("DeveloperInstructions = %q, want assembled dev", params.DeveloperInstructions)
+	}
+}
+
 func TestBuildThreadStartParamsNormalizesMinimalEffortToLow(t *testing.T) {
 	t.Parallel()
 

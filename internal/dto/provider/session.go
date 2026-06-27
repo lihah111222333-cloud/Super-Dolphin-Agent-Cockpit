@@ -28,6 +28,18 @@ type PromptAssemblyBoundary struct {
 	UncachedTail string `json:"uncachedTail,omitempty"` // 每次重建的动态尾部内容。
 }
 
+// PrefixShape 描述 start prompt 的稳定形状，供日志和兼容性诊断使用，不携带正文内容。
+type PrefixShape struct {
+	Hash                string   `json:"hash,omitempty"`
+	StaticSectionNames  []string `json:"staticSectionNames,omitempty"`
+	DynamicSectionNames []string `json:"dynamicSectionNames,omitempty"`
+	SuppressedToolNames []string `json:"suppressedToolNames,omitempty"`
+	CachedPrefixBytes   int      `json:"cachedPrefixBytes,omitempty"`
+	UncachedTailBytes   int      `json:"uncachedTailBytes,omitempty"`
+	DeveloperBytes      int      `json:"developerBytes,omitempty"`
+	ChurnReason         string   `json:"churnReason,omitempty"`
+}
+
 // PromptAssemblySnapshot 是 prompt 组装的不可变快照，用于 resume 时的对比与调试。
 type PromptAssemblySnapshot struct {
 	DisplayName           string                  `json:"displayName,omitempty"`
@@ -51,6 +63,7 @@ type StartAssembly struct {
 	ResolvedSections      []ResolvedPromptSection `json:"resolvedSections,omitempty"`
 	Snapshot              PromptAssemblySnapshot  `json:"snapshot"`
 	SuppressedTools       []string                `json:"suppressedTools,omitempty"`
+	PrefixShape           PrefixShape             `json:"prefixShape,omitempty"`
 
 	// UserContext 是 start 阶段用户上下文的结构化 map。
 	// provider bridge 可将它路由到非缓存用户上下文消息；兼容期内 BaseInstructions 仍可能携带同类内容。
