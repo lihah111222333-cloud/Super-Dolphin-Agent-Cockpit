@@ -263,16 +263,71 @@ func runStdioMCPTestHelper() {
 	_ = child.Wait()
 }
 
+func TestStdioMCPClientInitializeUsesProxyProtocolVersion(t *testing.T) {
+	if os.Getenv("TOOLBRIDGE_STDIO_MCP_HELPER") == "1" {
+		runStdioMCPTestHelper()
+		return
+	}
+
+	initFile := filepath.Join(t.TempDir(), "init.json")
+	client, err := newStdioMCPClient(context.Background(), providerdto.MCPBinary{
+		Name: "version-helper",
+		Command: []string{
+			os.Args[0],
+			"-test.run=^TestStdioMCPClientInitializeUsesProxyProtocolVersion$",
+		},
+		Env: map[string]string{
+			"TOOLBRIDGE_STDIO_MCP_HELPER": "1",
+			"TOOLBRIDGE_STDIO_INIT_FILE":  initFile,
+		},
+	})
+	if err != nil {
+		t.Fatalf("newStdioMCPClient() error = %v", err)
+	}
+	t.Cleanup(func() { _ = client.Close() })
+
+	deadline := time.Now().Add(5 * time.Second)
+	var raw []byte
+	for time.Now().Before(deadline) {
+		raw, err = os.ReadFile(initFile)
+		if err == nil && len(raw) > 0 {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if len(raw) == 0 {
+		t.Fatal("timed out waiting for init.json")
+	}
+	var req struct {
+		Params struct {
+			ProtocolVersion string `json:"protocolVersion"`
+		} `json:"params"`
+	}
+	if err := json.Unmarshal(raw, &req); err != nil {
+		t.Fatalf("unmarshal init.json: %v", err)
+	}
+	if req.Params.ProtocolVersion != ProxyProtocolVersion {
+		t.Fatalf("protocolVersion = %q, want %q (must match HTTP proxy; was hardcoded 2024-11-05)", req.Params.ProtocolVersion, ProxyProtocolVersion)
+	}
+}
+
 func serveMinimalStdioMCP() {
 	decoder := json.NewDecoder(os.Stdin)
 	encoder := json.NewEncoder(os.Stdout)
 	for {
 		var req struct {
-			ID     int64  `json:"id"`
-			Method string `json:"method"`
+			ID     int64           `json:"id"`
+			Method string          `json:"method"`
+			Params json.RawMessage `json:"params"`
 		}
 		if err := decoder.Decode(&req); err != nil {
 			return
+		}
+		if req.Method == "initialize" {
+			if initFile := os.Getenv("TOOLBRIDGE_STDIO_INIT_FILE"); initFile != "" {
+				raw, _ := json.Marshal(map[string]any{"jsonrpc": "2.0", "method": req.Method, "params": req.Params})
+				_ = os.WriteFile(initFile, raw, 0o600)
+			}
 		}
 		switch req.Method {
 		case "initialize":
