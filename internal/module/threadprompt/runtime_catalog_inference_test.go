@@ -15,7 +15,7 @@ func TestRuntimeCatalogGetTemplateWithEmptyCWDSkipsStore(t *testing.T) {
 
 	store := &fakePromptStore{getErr: errors.New("store get should not be called")}
 
-	catalog := NewRuntimeCatalog(store, nil)
+	catalog := newRuntimeCatalogForStore(store, nil)
 	_, err := catalog.GetTemplate(context.Background(), "main/db-global", "")
 	if err == nil {
 		t.Fatal("GetTemplate() error = nil, want not found without trusted cwd")
@@ -42,7 +42,7 @@ func TestRuntimeCatalogGetTemplateWithEmptyCWDCanReadBuiltin(t *testing.T) {
 		"main/default": {ID: 1, PromptKey: "main/default", Title: "DB Default", Tags: mustJSONTags("scope.global"), Enabled: true},
 	}, getErr: errors.New("store get should not be called")}
 
-	catalog := NewRuntimeCatalog(store, builtin)
+	catalog := newRuntimeCatalogForStore(store, builtin)
 	got, err := catalog.GetTemplate(context.Background(), "main/default", "")
 	if err != nil {
 		t.Fatalf("GetTemplate() error = %v", err)
@@ -80,7 +80,7 @@ func TestRuntimeCatalogListTemplatesInfersRecallIntentFromRecallOnlySections(t *
 		},
 	}
 
-	catalog := NewRuntimeCatalog(store, nil)
+	catalog := newRuntimeCatalogForStore(store, nil)
 	templates, err := catalog.ListTemplates(context.Background(), RuntimeListFilter{CWD: "/repo/a"})
 	if err != nil {
 		t.Fatalf("ListTemplates() error = %v", err)
@@ -117,7 +117,7 @@ func TestRuntimeCatalogListTemplatesDoesNotInferRecallWhenInjectableSectionExist
 		},
 	}
 
-	catalog := NewRuntimeCatalog(store, nil)
+	catalog := newRuntimeCatalogForStore(store, nil)
 	templates, err := catalog.ListTemplates(context.Background(), RuntimeListFilter{CWD: "/repo/a"})
 	if err != nil {
 		t.Fatalf("ListTemplates() error = %v", err)
@@ -154,7 +154,7 @@ func TestRuntimeCatalogListTemplatesIgnoresDisabledInjectableSectionWhenInferrin
 		},
 	}
 
-	catalog := NewRuntimeCatalog(store, nil)
+	catalog := newRuntimeCatalogForStore(store, nil)
 	templates, err := catalog.ListTemplates(context.Background(), RuntimeListFilter{CWD: "/repo/a"})
 	if err != nil {
 		t.Fatalf("ListTemplates() error = %v", err)
@@ -192,7 +192,7 @@ func TestAvailableExpertsExcludesSectionOnlyRecallAssets(t *testing.T) {
 			},
 		},
 	}
-	provider := AvailableExpertsProvider{catalog: NewRuntimeCatalog(store, nil)}
+	provider := AvailableExpertsProvider{catalog: newRuntimeCatalogForStore(store, nil)}
 
 	text, err := provider.Resolve(context.Background(), contract.SectionContext{
 		Start:    &contract.StartInput{Prompt: "查询价格"},

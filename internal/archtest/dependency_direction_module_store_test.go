@@ -162,18 +162,6 @@ var moduleStoreImportAllowlist = map[string]map[string]string{
 	"internal/module/thread/stop.go": {
 		internalPrefix("internal/store/binding"): "D01 legacy module-to-store import",
 	},
-	"internal/module/threadprompt/default_rules_provider.go": {
-		internalPrefix("internal/store/prompt"): "D01 legacy module-to-store import",
-	},
-	"internal/module/threadprompt/providers.go": {
-		internalPrefix("internal/store/prompt"): "D01 legacy module-to-store import",
-	},
-	"internal/module/threadprompt/runtime_catalog.go": {
-		internalPrefix("internal/store/prompt"): "D01 legacy module-to-store import",
-	},
-	"internal/module/threadprompt/runtime_intent.go": {
-		internalPrefix("internal/store/prompt"): "D01 legacy module-to-store import",
-	},
 }
 
 type moduleStoreImportCollection struct {

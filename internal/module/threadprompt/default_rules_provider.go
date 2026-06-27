@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
-	promptstore "github.com/anthropic-ai/super-agent-v3/internal/store/prompt"
 )
 
 type ProjectDefaultRulesProvider struct{ catalog RuntimePromptCatalog }
@@ -44,7 +43,7 @@ func (p ProjectDefaultRulesProvider) Resolve(ctx context.Context, input contract
 	return &text, nil
 }
 
-func renderProjectDefaultRules(sections []promptstore.PromptTemplateSection) string {
+func renderProjectDefaultRules(sections []PromptTemplateSection) string {
 	sections = effectiveDefaultRuleSections(sections)
 	lines := []string{"项目和全局默认规则："}
 	for _, section := range sections {
@@ -62,8 +61,8 @@ func renderProjectDefaultRules(sections []promptstore.PromptTemplateSection) str
 }
 
 // effectiveDefaultRuleSections 按 identity 去重并保留作用域更精确的 default_rule section，维持原始顺序。
-func effectiveDefaultRuleSections(sections []promptstore.PromptTemplateSection) []promptstore.PromptTemplateSection {
-	byKey := map[string]promptstore.PromptTemplateSection{}
+func effectiveDefaultRuleSections(sections []PromptTemplateSection) []PromptTemplateSection {
+	byKey := map[string]PromptTemplateSection{}
 	order := make([]string, 0, len(sections))
 	for _, section := range sections {
 		key := defaultRuleIdentity(section)
@@ -77,7 +76,7 @@ func effectiveDefaultRuleSections(sections []promptstore.PromptTemplateSection) 
 			byKey[key] = section
 		}
 	}
-	out := make([]promptstore.PromptTemplateSection, 0, len(order))
+	out := make([]PromptTemplateSection, 0, len(order))
 	for _, key := range order {
 		if section, ok := byKey[key]; ok {
 			out = append(out, section)
@@ -87,7 +86,7 @@ func effectiveDefaultRuleSections(sections []promptstore.PromptTemplateSection) 
 }
 
 // defaultRuleIdentity 生成 default_rule section 的去重键，依次用 title+sectionKey、sectionKey、promptKey、body 作为候选。
-func defaultRuleIdentity(section promptstore.PromptTemplateSection) string {
+func defaultRuleIdentity(section PromptTemplateSection) string {
 	sectionKey := strings.ToLower(strings.TrimSpace(section.SectionKey))
 	if title := strings.ToLower(strings.TrimSpace(section.TemplateTitle)); title != "" {
 		if sectionKey != "" {
