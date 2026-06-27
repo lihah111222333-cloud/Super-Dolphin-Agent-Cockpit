@@ -543,7 +543,7 @@ func TestSkillModuleExposesMirrorReconcilerThroughFx(t *testing.T) {
 		fx.NopLogger,
 		fx.Provide(func() *contract.Config { return &contract.Config{ProjectRoot: t.TempDir()} }),
 		fx.Provide(func() *event.Dispatcher { return event.NewDispatcher() }),
-		fx.Provide(func() auditstore.Store { return &capturingSkillAuditStore{} }),
+		fx.Provide(func() auditstore.Store { return skillModuleAuditLogStoreStub{} }),
 		Module,
 		fx.Populate(&reconciler),
 	)
@@ -559,4 +559,14 @@ func TestSkillModuleExposesMirrorReconcilerThroughFx(t *testing.T) {
 	if reconciler == nil {
 		t.Fatalf("contract.SkillMirrorReconciler was not populated")
 	}
+}
+
+type skillModuleAuditLogStoreStub struct{}
+
+func (skillModuleAuditLogStoreStub) List(context.Context, auditstore.ListFilter) ([]auditstore.AuditEvent, error) {
+	return nil, nil
+}
+
+func (skillModuleAuditLogStoreStub) Insert(context.Context, auditstore.InsertParams) error {
+	return nil
 }

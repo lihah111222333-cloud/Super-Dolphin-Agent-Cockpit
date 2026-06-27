@@ -3,6 +3,8 @@ package skill
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"sort"
 	"strings"
@@ -57,9 +59,38 @@ func newService(deps serviceDeps) *service {
 	}
 	svc := NewService(projectRoot).(*service)
 	svc.bindDispatcher(deps.Dispatcher)
-	svc.auditStore = deps.AuditStore
+	svc.auditStore = adaptSkillAuditStore(deps.AuditStore)
 	svc.skillTools = toolstore.New(deps.DB)
 	return svc
+}
+
+type skillAuditLogStoreAdapter struct {
+	store auditstore.Store
+}
+
+// adaptSkillAuditStore 将 store 层 auditlog 写入接口收窄成 skill 模块本地端口。
+func adaptSkillAuditStore(store auditstore.Store) skillMutationAuditStore {
+	if store == nil {
+		return nil
+	}
+	return skillAuditLogStoreAdapter{store: store}
+}
+
+// Insert 把 skill 模块审计 DTO 显式映射到 auditlog store DTO，避免 store 类型进入业务实现文件。
+func (a skillAuditLogStoreAdapter) Insert(ctx context.Context, entry skillMutationAuditEntry) error {
+	if a.store == nil {
+		return errors.New("skill audit log store adapter is not configured")
+	}
+	return a.store.Insert(ctx, auditstore.InsertParams{
+		EventType: entry.EventType,
+		Action:    entry.Action,
+		Result:    entry.Result,
+		Actor:     entry.Actor,
+		Target:    entry.Target,
+		Detail:    entry.Detail,
+		Level:     entry.Level,
+		Extra:     json.RawMessage(entry.Extra),
+	})
 }
 
 // ProvideSkillLister 暴露只读 skill 列表接口给 prompt 和 provider 装配层。

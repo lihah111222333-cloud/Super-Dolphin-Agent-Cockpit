@@ -12,7 +12,6 @@ import (
 	"testing"
 
 	uidto "github.com/anthropic-ai/super-agent-v3/internal/dto/ui"
-	auditstore "github.com/anthropic-ai/super-agent-v3/internal/store/auditlog"
 )
 
 func TestSkillMirrorReconcilerDetectsProjectAndPersonalDriftActions(t *testing.T) {
@@ -623,14 +622,10 @@ func uidtoSkillsChangedForPersonalType(name, personalType string) uidto.SkillsCh
 
 type failingActionAuditStore struct {
 	failOnAction string
-	inserts      []auditstore.InsertParams
+	inserts      []skillMutationAuditEntry
 }
 
-func (s *failingActionAuditStore) List(context.Context, auditstore.ListFilter) ([]auditstore.AuditEvent, error) {
-	return nil, nil
-}
-
-func (s *failingActionAuditStore) Insert(_ context.Context, p auditstore.InsertParams) error {
+func (s *failingActionAuditStore) Insert(_ context.Context, p skillMutationAuditEntry) error {
 	if s.failOnAction != "" && p.Action == s.failOnAction {
 		return errors.New("injected audit failure")
 	}

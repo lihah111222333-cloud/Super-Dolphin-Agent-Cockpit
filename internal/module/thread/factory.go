@@ -1,13 +1,13 @@
 package thread
 
 import (
+	"context"
 	"encoding/json"
 	"strings"
 	"time"
 
 	shareddto "github.com/anthropic-ai/super-agent-v3/internal/dto/shared"
 	threaddto "github.com/anthropic-ai/super-agent-v3/internal/dto/thread"
-	threadstore "github.com/anthropic-ai/super-agent-v3/internal/store/thread"
 	"github.com/anthropic-ai/super-agent-v3/internal/util"
 	"github.com/anthropic-ai/super-agent-v3/internal/util/clone"
 )
@@ -30,6 +30,195 @@ type threadStateFields struct {
 	CreatedAt                                                          int64
 	PromptVersionID                                                    *int64
 	PendingLaunch                                                      bool
+}
+
+type threadBindingRecord struct {
+	AgentID            string
+	Provider           string
+	ProviderThreadID   string
+	CodexThreadID      string
+	RolloutPath        string
+	Cwd                string
+	ParentAgentID      string
+	AgentType          string
+	AgentMemoryScope   string
+	Archived           bool
+	CreatedAt          int64
+	UpdatedAt          int64
+	SessionUUID        string
+	CodexHome          string
+	CodexInstanceKey   string
+	CodexModelProvider string
+}
+
+type threadBindingUpsertParams struct {
+	AgentID            string
+	Provider           string
+	ProviderThreadID   string
+	CodexThreadID      string
+	RolloutPath        string
+	SessionUUID        string
+	Cwd                string
+	ParentAgentID      string
+	AgentType          string
+	AgentMemoryScope   string
+	CreatedAt          int64
+	UpdatedAt          int64
+	CodexHome          string
+	CodexInstanceKey   string
+	CodexModelProvider string
+}
+
+type threadBindingSessionUUIDUpdate struct {
+	SessionUUID string
+	UpdatedAt   int64
+	AgentID     string
+}
+
+type threadBindingProviderThreadIDUpdate struct {
+	ProviderThreadID string
+	UpdatedAt        int64
+	AgentID          string
+}
+
+type threadBindingCWDUpdate struct {
+	AgentID   string
+	Cwd       string
+	UpdatedAt int64
+}
+
+type threadBindingStorePort interface {
+	GetByProviderThread(ctx context.Context, provider, providerThreadID string) (*threadBindingRecord, error)
+	Upsert(ctx context.Context, params threadBindingUpsertParams) error
+	DeleteByAgentID(ctx context.Context, agentID string) error
+	UpdateSessionUUID(ctx context.Context, params threadBindingSessionUUIDUpdate) error
+	UpdateProviderThreadID(ctx context.Context, params threadBindingProviderThreadIDUpdate) error
+	GetByAgentID(ctx context.Context, agentID string) (*threadBindingRecord, error)
+	ListAgentThreadBindings(ctx context.Context) ([]threadBindingRecord, error)
+	UpdateAgentCwd(ctx context.Context, params threadBindingCWDUpdate) error
+}
+
+type threadConfigRecord struct {
+	ThreadID         string
+	AgentID          string
+	ParentAgentID    string
+	AgentType        string
+	AgentMemoryScope string
+	Name             string
+	Prompt           string
+	Model            string
+	Cwd              string
+	Status           string
+	Port             int32
+	PID              int32
+	CreatedAt        int64
+	UpdatedAt        int64
+	FinishedAt       *int64
+	LastEventType    string
+	ErrorMessage     string
+	WorkspaceRunKey  string
+	OwnerThreadID    string
+	ConfigOverride   json.RawMessage
+	AgentKey         string
+	PromptVersionID  *int64
+	PendingLaunch    bool
+	ManuallyRenamed  bool
+}
+
+type threadConfigStorePort interface {
+	GetByThreadID(ctx context.Context, threadID string) (*threadConfigRecord, error)
+	ListConfigsByIDs(ctx context.Context, threadIDs []string) ([]threadConfigRecord, error)
+}
+
+// runtimePromptCatalog 是 thread/start 路由需要的本地 prompt catalog 端口。
+// 真实 prompt store/catalog 只在 module.go 的 adapter 边界转换成本接口。
+type runtimePromptCatalog interface {
+	ListTemplates(ctx context.Context, filter runtimePromptListFilter) ([]runtimePromptTemplate, error)
+	ListSectionsByTemplateID(ctx context.Context, templateID int64) ([]runtimePromptTemplateSection, error)
+	InsertVersion(ctx context.Context, version runtimePromptTemplateVersion) (int64, error)
+}
+
+type runtimePromptListFilter struct {
+	AgentKey string
+	Keyword  string
+	CWD      string
+	Limit    int32
+}
+
+type runtimePromptTemplate struct {
+	ID             int64
+	PromptKey      string
+	Title          string
+	AgentKey       string
+	ToolName       string
+	PromptText     string
+	WhenToUse      string
+	Variables      json.RawMessage
+	Tags           json.RawMessage
+	Enabled        bool
+	ManuallyEdited bool
+	MatchWhen      json.RawMessage
+	Priority       int
+	CreatedBy      string
+	UpdatedBy      string
+	CreatedAt      time.Time
+	UpdatedAt      time.Time
+	Description    string
+}
+
+type runtimePromptTemplateSection struct {
+	ID                  int64
+	TemplateID          int64
+	SectionKey          string
+	Region              string
+	Ordinal             int
+	Body                string
+	EnableWhen          json.RawMessage
+	Enabled             bool
+	TriggerType         string
+	RecallTopic         string
+	TemplatePromptKey   string
+	TemplateTitle       string
+	TemplateDescription string
+	TemplateWhenToUse   string
+	TemplateTags        json.RawMessage
+	CreatedAt           time.Time
+	UpdatedAt           time.Time
+}
+
+type runtimePromptTemplateVersion struct {
+	ID              int64
+	PromptKey       string
+	Title           string
+	AgentKey        string
+	ToolName        string
+	PromptText      string
+	Variables       json.RawMessage
+	Tags            json.RawMessage
+	Description     string
+	Enabled         bool
+	CreatedBy       string
+	UpdatedBy       string
+	SourceUpdatedAt *time.Time
+	CreatedAt       time.Time
+	ArchivedAt      time.Time
+}
+
+type promptSnapshotRecord struct {
+	DisplayName           string
+	BaseInstructions      string
+	Boundary              *promptBoundaryRecord
+	DeveloperInstructions string
+	Provider              string
+	Version               int
+	Hash                  string
+	SectionSnapshot       map[string]string
+	Generation            uint64
+}
+
+type promptBoundaryRecord struct {
+	CachedPrefix string
+	UncachedTail string
 }
 
 // newThreadState 组装 thread store 的状态快照。
@@ -69,30 +258,6 @@ func newThreadState(kind threadStateKind, fields threadStateFields) threadState 
 	state.PromptVersionID = fields.PromptVersionID
 	state.PendingLaunch = fields.PendingLaunch
 	return state
-}
-
-func newThreadUpsertParams(thread threadstore.Thread) threadstore.UpsertParams {
-	return threadstore.UpsertParams{
-		ThreadID:         strings.TrimSpace(thread.ThreadID),
-		Name:             strings.TrimSpace(util.FirstNonEmpty(thread.Name, thread.Prompt)),
-		Prompt:           strings.TrimSpace(thread.Prompt),
-		Model:            strings.TrimSpace(thread.Model),
-		Cwd:              strings.TrimSpace(thread.Cwd),
-		Status:           strings.TrimSpace(thread.Status),
-		Port:             thread.Port,
-		PID:              thread.PID,
-		CreatedAt:        thread.CreatedAt,
-		UpdatedAt:        thread.UpdatedAt,
-		OwnerThreadID:    strings.TrimSpace(thread.OwnerThreadID),
-		ParentAgentID:    strings.TrimSpace(thread.ParentAgentID),
-		AgentType:        strings.TrimSpace(thread.AgentType),
-		AgentMemoryScope: strings.TrimSpace(thread.AgentMemoryScope),
-		ConfigOverride:   thread.ConfigOverride,
-		AgentKey:         strings.TrimSpace(thread.AgentKey),
-		PromptVersionID:  thread.PromptVersionID,
-		PendingLaunch:    thread.PendingLaunch,
-		ManuallyRenamed:  thread.ManuallyRenamed,
-	}
 }
 
 func newBindingUpsertParams(binding threadBindingRecord) threadBindingUpsertParams {

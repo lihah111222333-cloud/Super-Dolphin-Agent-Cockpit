@@ -18,10 +18,7 @@ import (
 
 const modulePath = "github.com/anthropic-ai/super-agent-v3"
 
-const (
-	moduleStoreImportPrefix       = modulePath + "/internal/store/"
-	moduleStoreLegacyImportBudget = 22
-)
+const moduleStoreImportPrefix = modulePath + "/internal/store/"
 
 var providerAllowedExternal = map[string]bool{
 	"github.com/BurntSushi/toml":   true,

@@ -11,7 +11,6 @@ import (
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
-	bindingstore "github.com/anthropic-ai/super-agent-v3/internal/store/binding"
 	"github.com/anthropic-ai/super-agent-v3/internal/util"
 	"github.com/anthropic-ai/super-agent-v3/internal/util/clone"
 )
@@ -253,7 +252,7 @@ func (s *service) lookupResumeThreadState(ctx context.Context, threadID string) 
 	}, nil
 }
 
-func mergeResumeBindingState(state *resumeState, binding *bindingstore.Binding) {
+func mergeResumeBindingState(state *resumeState, binding *threadBindingStoreRecord) {
 	if state == nil || binding == nil {
 		return
 	}

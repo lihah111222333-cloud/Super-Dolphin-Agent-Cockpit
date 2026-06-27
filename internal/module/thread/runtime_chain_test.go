@@ -131,7 +131,7 @@ func runtimeChainHiddenSubstrings() []string {
 
 func newRuntimeChainService(
 	store *fakePromptStore,
-	catalog threadprompt.RuntimePromptCatalog,
+	catalog promptstore.RuntimePromptCatalog,
 	promptAssembly contract.PromptAssemblyService,
 	sessions *stubSessionProvider,
 	starter contract.SessionStarter,

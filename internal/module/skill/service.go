@@ -19,7 +19,6 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	uidto "github.com/anthropic-ai/super-agent-v3/internal/dto/ui"
 	"github.com/anthropic-ai/super-agent-v3/internal/module/skill/toolstore"
-	auditstore "github.com/anthropic-ai/super-agent-v3/internal/store/auditlog"
 )
 
 const (
@@ -41,7 +40,7 @@ type service struct {
 	skillsChangedSeq   uint64
 	skillsChangedDelay func()
 	approval           *ApprovalCache
-	auditStore         auditstore.Store
+	auditStore         skillMutationAuditStore
 	mirrorTargets      []SkillMirrorTarget
 	skillTools         *toolstore.Store
 

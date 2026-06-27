@@ -9,8 +9,6 @@ import (
 	"strings"
 	"sync"
 	"testing"
-
-	auditstore "github.com/anthropic-ai/super-agent-v3/internal/store/auditlog"
 )
 
 func TestPersonalCanonicalExplicitReadAndWriteUsesPersonalType(t *testing.T) {
@@ -549,14 +547,10 @@ type capturingSkillAuditStore struct {
 	mu           sync.Mutex
 	insertErr    error
 	failOnAction string
-	inserts      []auditstore.InsertParams
+	inserts      []skillMutationAuditEntry
 }
 
-func (s *capturingSkillAuditStore) List(context.Context, auditstore.ListFilter) ([]auditstore.AuditEvent, error) {
-	return nil, nil
-}
-
-func (s *capturingSkillAuditStore) Insert(_ context.Context, p auditstore.InsertParams) error {
+func (s *capturingSkillAuditStore) Insert(_ context.Context, p skillMutationAuditEntry) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.insertErr != nil && (s.failOnAction == "" || s.failOnAction == p.Action) {
@@ -566,7 +560,7 @@ func (s *capturingSkillAuditStore) Insert(_ context.Context, p auditstore.Insert
 	return nil
 }
 
-func assertSkillMutationAuditActions(t *testing.T, inserts []auditstore.InsertParams, want ...string) {
+func assertSkillMutationAuditActions(t *testing.T, inserts []skillMutationAuditEntry, want ...string) {
 	t.Helper()
 	if len(inserts) != len(want) {
 		t.Fatalf("audit inserts = %+v, want actions %v", inserts, want)
