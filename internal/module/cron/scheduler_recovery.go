@@ -29,6 +29,9 @@ func (s *Scheduler) CompleteTurn(ctx context.Context, turnID string, success boo
 	if err != nil {
 		return err
 	}
+	if err := validateTerminalFence(job, run, turnID); err != nil {
+		return err
+	}
 	if success {
 		return s.markFinished(ctx, job, run, turnID, run.ScheduledAt)
 	}
@@ -60,6 +63,16 @@ func (s *Scheduler) terminalRunByTurnID(ctx context.Context, turnID string) (cro
 	return cronstore.Run{}, fmt.Errorf("cron: submitted/running run for turn %q not found: %w", turnID, cronstore.ErrJobRunNotFound)
 }
 
+// validateTerminalFence 在 run 终态落库前确认 job 当前 claim 仍然指向同一个 turn。
+// 旧 turn 的迟到事件必须停在这里，不能继续 CAS run 或释放新的 job claim。
+func validateTerminalFence(job cronstore.Job, run cronstore.Run, turnID string) error {
+	if run.JobID != job.ID || run.TurnID != turnID || job.ActiveTurnID != turnID || strings.TrimSpace(job.ClaimToken) == "" {
+		return fmt.Errorf("%w: job_id=%s run_id=%s turn_id=%s active_turn_id=%s",
+			cronstore.ErrClaimTokenMismatch, job.ID, run.ID, turnID, job.ActiveTurnID)
+	}
+	return nil
+}
+
 // markTerminalFailed 将 submitted/running run 标记为 failed 并计算下一次重试时间。
 func (s *Scheduler) markTerminalFailed(ctx context.Context, job cronstore.Job, run cronstore.Run, terminalErr string) error {
 	now := s.now().UTC()
@@ -75,15 +88,17 @@ func (s *Scheduler) markTerminalFailed(ctx context.Context, job cronstore.Job, r
 	}
 	s.publishRunState(job.ID, run.ID, cronstore.StatusFailed, run.TurnID, terminalErr, run.ScheduledAt)
 	return s.store.MarkFailed(ctx, cronstore.MarkFailedParams{
-		ID:          job.ID,
-		ClaimToken:  job.ClaimToken,
-		LastRunAt:   run.ScheduledAt,
-		LastTurnID:  run.TurnID,
-		LastStatus:  cronstore.StatusFailed,
-		LastErrorAt: now,
-		LastError:   terminalErr,
-		NextRetryAt: nextRetryAt,
-		Now:         now,
+		ID:                   job.ID,
+		ClaimToken:           job.ClaimToken,
+		RunID:                run.ID,
+		ExpectedActiveTurnID: run.TurnID,
+		LastRunAt:            run.ScheduledAt,
+		LastTurnID:           run.TurnID,
+		LastStatus:           cronstore.StatusFailed,
+		LastErrorAt:          now,
+		LastError:            terminalErr,
+		NextRetryAt:          nextRetryAt,
+		Now:                  now,
 	})
 }
 
@@ -104,12 +119,14 @@ func (s *Scheduler) markFinished(ctx context.Context, job cronstore.Job, run cro
 	}
 	s.publishRunState(job.ID, run.ID, cronstore.StatusFinished, turnID, "", scheduledAt)
 	return s.store.MarkFinished(ctx, cronstore.MarkFinishedParams{
-		ID:         job.ID,
-		ClaimToken: job.ClaimToken,
-		LastRunAt:  scheduledAt,
-		LastTurnID: turnID,
-		NextRunAt:  nextRunAt,
-		Now:        now,
+		ID:                   job.ID,
+		ClaimToken:           job.ClaimToken,
+		RunID:                run.ID,
+		ExpectedActiveTurnID: turnID,
+		LastRunAt:            scheduledAt,
+		LastTurnID:           turnID,
+		NextRunAt:            nextRunAt,
+		Now:                  now,
 	})
 }
 
@@ -260,7 +277,7 @@ func (s *Scheduler) finalizeRecoveredFailure(ctx context.Context, job cronstore.
 			slog.String("error", casErr.Error()),
 		)
 	}
-	return s.store.MarkFailed(ctx, cronstore.MarkFailedParams{ID: job.ID, ClaimToken: job.ClaimToken, LastRunAt: run.ScheduledAt, LastStatus: cronstore.StatusFailed, LastErrorAt: now, LastError: err.Error(), Now: now})
+	return s.store.MarkFailed(ctx, cronstore.MarkFailedParams{ID: job.ID, ClaimToken: job.ClaimToken, RunID: run.ID, ExpectedActiveTurnID: run.TurnID, LastRunAt: run.ScheduledAt, LastTurnID: run.TurnID, LastStatus: cronstore.StatusFailed, LastErrorAt: now, LastError: err.Error(), Now: now})
 }
 
 // finalizeRecoveredObserveLost 将恢复时无法追踪的 run 标记为 observe_lost，不触发重试。
@@ -273,7 +290,7 @@ func (s *Scheduler) finalizeRecoveredObserveLost(ctx context.Context, job cronst
 			slog.String("error", casErr.Error()),
 		)
 	}
-	return s.store.MarkFailed(ctx, cronstore.MarkFailedParams{ID: job.ID, ClaimToken: job.ClaimToken, LastRunAt: run.ScheduledAt, LastTurnID: turnID, LastStatus: cronstore.StatusObserveLost, LastErrorAt: now, LastError: err.Error(), Now: now})
+	return s.store.MarkFailed(ctx, cronstore.MarkFailedParams{ID: job.ID, ClaimToken: job.ClaimToken, RunID: run.ID, ExpectedActiveTurnID: turnID, LastRunAt: run.ScheduledAt, LastTurnID: turnID, LastStatus: cronstore.StatusObserveLost, LastErrorAt: now, LastError: err.Error(), Now: now})
 }
 
 // ExtendClaimForTurnProgress 在 turn 进度事件到达时延长 active job 的 claim。

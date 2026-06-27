@@ -2,6 +2,7 @@ package mcpserver
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -28,6 +29,7 @@ var (
 	errMissingHeaderValue          = errors.New("mcp_server: header value is required")
 	errInvalidConfigDocument       = errors.New("mcp_server: invalid config document")
 	errMCPServerStoreNotConfigured = errors.New("mcp_server: config store is not configured")
+	errMCPServerMigrationAnomaly   = errors.New("mcp_server: migration anomaly")
 )
 
 type configStore struct {
@@ -215,6 +217,9 @@ func (s *configStore) ensureTable(ctx context.Context) error {
 	if s.ensured {
 		return nil
 	}
+	if err := s.repairMCPServerConfigMigrationState(ctx); err != nil {
+		return err
+	}
 	if _, err := s.db.ExecContext(ctx, createMCPServerConfigsTableSQL); err != nil {
 		return wrapMCPServerStoreError(err, "ensure_table")
 	}
@@ -265,23 +270,98 @@ func (s *configStore) mcpServerConfigColumns(ctx context.Context) (map[string]bo
 	return columns, nil
 }
 
-func (s *configStore) rebuildLegacyTable(ctx context.Context) error {
-	for _, stmt := range []string{
-		`DROP TABLE IF EXISTS mcp_server_configs_next`,
-		createMCPServerConfigsNextTableSQL,
-		`INSERT INTO mcp_server_configs_next (
-			workspace_root, name, transport, url, headers, command, args, env, created_at, updated_at
-		)
-		SELECT workspace_root, name, transport, url, headers, '', '[]', '{}', created_at, updated_at
-		FROM mcp_server_configs`,
-		`DROP TABLE mcp_server_configs`,
-		`ALTER TABLE mcp_server_configs_next RENAME TO mcp_server_configs`,
-	} {
-		if _, err := s.db.ExecContext(ctx, stmt); err != nil {
-			return wrapMCPServerStoreError(err, "migrate_stdio")
+// repairMCPServerConfigMigrationState 在建表前处理上次重建遗留的 _next 表。
+// 主表缺失时直接恢复 rename；主表和 _next 同时存在代表迁移中断，必须 fail-fast，避免把 _next 中的配置读成空配置。
+func (s *configStore) repairMCPServerConfigMigrationState(ctx context.Context) error {
+	mainExists, err := s.mcpServerConfigTableExists(ctx, "mcp_server_configs")
+	if err != nil {
+		return err
+	}
+	nextExists, err := s.mcpServerConfigTableExists(ctx, "mcp_server_configs_next")
+	if err != nil {
+		return err
+	}
+	if !nextExists {
+		return nil
+	}
+	if mainExists {
+		return fmt.Errorf("%w: both mcp_server_configs and mcp_server_configs_next exist", errMCPServerMigrationAnomaly)
+	}
+	return s.runMCPServerMigrationTx(ctx, func(q platformdb.Queryable) error {
+		if _, err := q.ExecContext(ctx, `ALTER TABLE mcp_server_configs_next RENAME TO mcp_server_configs`); err != nil {
+			return wrapMCPServerStoreError(err, "repair_next.rename")
 		}
+		return nil
+	})
+}
+
+func (s *configStore) mcpServerConfigTableExists(ctx context.Context, table string) (bool, error) {
+	var count int
+	err := s.db.QueryRowContext(ctx, `
+		SELECT COUNT(*)
+		FROM sqlite_master
+		WHERE type = 'table' AND name = ?
+	`, table).Scan(&count)
+	if err != nil {
+		return false, wrapMCPServerStoreError(err, "table_exists")
+	}
+	return count > 0, nil
+}
+
+func (s *configStore) rebuildLegacyTable(ctx context.Context) error {
+	return s.runMCPServerMigrationTx(ctx, func(q platformdb.Queryable) error {
+		for _, stmt := range []string{
+			`DROP TABLE IF EXISTS mcp_server_configs_next`,
+			createMCPServerConfigsNextTableSQL,
+			`INSERT INTO mcp_server_configs_next (
+				workspace_root, name, transport, url, headers, command, args, env, created_at, updated_at
+			)
+			SELECT workspace_root, name, transport, url, headers, '', '[]', '{}', created_at, updated_at
+			FROM mcp_server_configs`,
+			`DROP TABLE mcp_server_configs`,
+			`ALTER TABLE mcp_server_configs_next RENAME TO mcp_server_configs`,
+		} {
+			if _, err := q.ExecContext(ctx, stmt); err != nil {
+				return wrapMCPServerStoreError(err, "migrate_stdio")
+			}
+		}
+		return nil
+	})
+}
+
+type mcpServerMigrationTxRunner interface {
+	withMCPServerMigrationTx(context.Context, func(platformdb.Queryable) error) error
+}
+
+// runMCPServerMigrationTx 用同一个 SQLite 事务包住 DDL 重建，避免 drop/rename 中途失败留下半迁移状态。
+func (s *configStore) runMCPServerMigrationTx(ctx context.Context, fn func(platformdb.Queryable) error) error {
+	if runner, ok := s.db.(mcpServerMigrationTxRunner); ok {
+		return runner.withMCPServerMigrationTx(ctx, fn)
+	}
+	beginner, ok := s.db.(interface {
+		BeginTx(context.Context, *sql.TxOptions) (*sql.Tx, error)
+	})
+	if !ok {
+		return fmt.Errorf("%w: database does not support transactions", errMCPServerMigrationAnomaly)
+	}
+	tx, err := beginner.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelSerializable})
+	if err != nil {
+		return wrapMCPServerStoreError(err, "migration.begin")
+	}
+	if err := fn(tx); err != nil {
+		return rollbackMCPServerMigrationTx(tx, err)
+	}
+	if err := tx.Commit(); err != nil {
+		return wrapMCPServerStoreError(err, "migration.commit")
 	}
 	return nil
+}
+
+func rollbackMCPServerMigrationTx(tx *sql.Tx, cause error) error {
+	if err := tx.Rollback(); err != nil && !errors.Is(err, sql.ErrTxDone) {
+		return errors.Join(cause, err)
+	}
+	return cause
 }
 
 func (s *configStore) addMCPServerEnabledColumn(ctx context.Context) error {
@@ -575,30 +655,6 @@ CREATE TABLE IF NOT EXISTS mcp_server_configs (
 );
 `
 
-const createMCPServerConfigsNextTableSQL = `
-CREATE TABLE mcp_server_configs_next (
-	workspace_root TEXT NOT NULL,
-	name TEXT NOT NULL,
-	transport TEXT NOT NULL,
-	url TEXT NOT NULL DEFAULT '',
-	headers TEXT NOT NULL DEFAULT '{}',
-	command TEXT NOT NULL DEFAULT '',
-	args TEXT NOT NULL DEFAULT '[]',
-	env TEXT NOT NULL DEFAULT '{}',
-	enabled INTEGER NOT NULL DEFAULT 1,
-	created_at INTEGER NOT NULL DEFAULT (CAST(strftime('%s','now') AS INTEGER) * 1000),
-	updated_at INTEGER NOT NULL DEFAULT (CAST(strftime('%s','now') AS INTEGER) * 1000),
-	PRIMARY KEY (workspace_root, name),
-	CHECK (workspace_root <> ''),
-	CHECK (name <> ''),
-	CHECK (transport <> ''),
-	CHECK (transport IN ('http', 'stdio')),
-	CHECK ((transport = 'http' AND url <> '') OR (transport = 'stdio' AND command <> '')),
-	CHECK (headers <> ''),
-	CHECK (args <> ''),
-	CHECK (env <> ''),
-	CHECK (enabled IN (0, 1))
-);
-`
+var createMCPServerConfigsNextTableSQL = strings.Replace(createMCPServerConfigsTableSQL, "CREATE TABLE IF NOT EXISTS mcp_server_configs", "CREATE TABLE mcp_server_configs_next", 1)
 
 var _ contract.MCPServerConfigStore = (*configStore)(nil)
