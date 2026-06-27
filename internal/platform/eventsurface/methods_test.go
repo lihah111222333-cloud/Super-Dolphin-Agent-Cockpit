@@ -74,19 +74,34 @@ func TestWireAllowlistCoversLegacyAndRawOpenMethods(t *testing.T) {
 	}
 }
 
+func TestRawWireAllowlistRejectsBridgeControlMethods(t *testing.T) {
+	spec := RawWireAllowlistSpec()
+	for _, method := range []string{
+		"rpc.failed",
+		"api.rpc.failed",
+		"task/node/statuschanged",
+		MethodTaskNodeStatusChanged,
+		"thread.send/failed",
+		"frontend.rpc.failed",
+	} {
+		if RawWireAllowed(spec, method) {
+			t.Fatalf("raw wire allowlist must not accept bridge-control method %q", method)
+		}
+	}
+}
+
 func frontendFrozenStringArray(t *testing.T, raw []byte, name string) []string {
 	t.Helper()
 	prefix := []byte("export const " + name + " = Object.freeze([")
-	start := bytes.Index(raw, prefix)
-	if start < 0 {
+	_, rest, ok := bytes.Cut(raw, prefix)
+	if !ok {
 		t.Fatalf("frontend list %s not found", name)
 	}
-	rest := raw[start+len(prefix):]
-	end := bytes.Index(rest, []byte("]);"))
-	if end < 0 {
+	body, _, ok := bytes.Cut(rest, []byte("]);"))
+	if !ok {
 		t.Fatalf("frontend list %s missing closing ]);", name)
 	}
-	matches := frontendStringRE.FindAllSubmatch(rest[:end], -1)
+	matches := frontendStringRE.FindAllSubmatch(body, -1)
 	out := make([]string, 0, len(matches))
 	for _, match := range matches {
 		out = append(out, string(match[1]))

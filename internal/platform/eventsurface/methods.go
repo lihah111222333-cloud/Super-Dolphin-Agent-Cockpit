@@ -1,6 +1,9 @@
 package eventsurface
 
-import "strings"
+import (
+	"slices"
+	"strings"
+)
 
 // RawWireAllowlist 描述 raw provider 事件仍允许直通前端的开放方法集合。
 type RawWireAllowlist struct {
@@ -91,10 +94,8 @@ func RawWireAllowed(spec RawWireAllowlist, method string) bool {
 	if method == "" {
 		return false
 	}
-	for _, exact := range spec.Methods {
-		if method == exact {
-			return true
-		}
+	if slices.Contains(spec.Methods, method) {
+		return true
 	}
 	for _, prefix := range spec.Prefixes {
 		if strings.HasPrefix(method, prefix) {

@@ -74,7 +74,6 @@ func TestProviderPushNotificationsForwardsCriticalSurface(t *testing.T) {
 	}
 
 	for _, tc := range tests {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
@@ -99,6 +98,10 @@ func TestShouldPushRawProviderMethodUsesEventSurfaceAllowlist(t *testing.T) {
 		{name: "raw suffix allowed", method: "item/custom/requestApproval", want: true},
 		{name: "typed method suppressed", method: eventsurface.MethodThreadStarted, want: false},
 		{name: "workspace run remains compat only", method: "workspace/run/created", want: false},
+		{name: "bridge control rpc failed rejected", method: "rpc.failed", want: false},
+		{name: "bridge control api rpc failed rejected", method: "api.rpc.failed", want: false},
+		{name: "bridge control task node status rejected", method: "task/node/statuschanged", want: false},
+		{name: "bridge control failed suffix rejected", method: "thread.send/failed", want: false},
 		{name: "unknown rejected", method: "unknown/domain/event", want: false},
 	}
 	for _, tt := range tests {
@@ -142,7 +145,6 @@ func TestProviderPushNotificationsForwardsGenericItemLifecycle(t *testing.T) {
 	}
 
 	for _, tc := range tests {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
@@ -227,6 +229,10 @@ func TestProviderPushNotificationsSkipsTypedAndMCPSurface(t *testing.T) {
 			}
 		}`)},
 		{EventType: "mcpServer/oauthLogin/completed", Data: map[string]any{"threadId": "thread-1"}},
+		{EventType: "rpc.failed", Data: map[string]any{"threadId": "thread-1"}},
+		{EventType: "api.rpc.failed", Data: map[string]any{"threadId": "thread-1"}},
+		{EventType: "task/node/statuschanged", Data: map[string]any{"threadId": "thread-1"}},
+		{EventType: "thread.send/failed", Data: map[string]any{"threadId": "thread-1"}},
 	}
 
 	for _, raw := range tests {
