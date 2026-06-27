@@ -12,7 +12,7 @@ import (
 func TestAvailableExpertsProviderUsesConsolidatedDeveloperExpertRoster(t *testing.T) {
 	t.Parallel()
 
-	provider := AvailableExpertsProvider{catalog: NewRuntimeCatalog(&fakePromptStore{
+	provider := AvailableExpertsProvider{catalog: newRuntimeCatalogForStore(&fakePromptStore{
 		templates: []promptstore.PromptTemplate{
 			expertTemplate("main/code-review", 30, "代码审查、diff 风险评估、回归与安全问题检查"),
 			expertTemplate("main/code-debug", 30, "错误排查、panic/exception/traceback 分析、最小复现定位"),
