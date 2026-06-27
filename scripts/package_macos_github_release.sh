@@ -4,11 +4,28 @@ set -euo pipefail
 root="$(git rev-parse --show-toplevel)"
 cd "$root"
 
+require_github_release_repo() {
+  local repo="${SUPER_DOLPHIN_UPDATE_GITHUB_REPO:-}"
+  if [[ -z "${repo//[[:space:]]/}" ]]; then
+    echo "SUPER_DOLPHIN_UPDATE_GITHUB_REPO is required" >&2
+    exit 1
+  fi
+  if [[ "$repo" == "xiaoxiaotest9527-bit/-" ]]; then
+    echo "known placeholder update repo is not allowed" >&2
+    exit 1
+  fi
+  if [[ ! "$repo" =~ ^[^/[:space:]]+/[^/[:space:]]+$ ]]; then
+    echo "SUPER_DOLPHIN_UPDATE_GITHUB_REPO must be owner/repo without whitespace" >&2
+    exit 1
+  fi
+  printf '%s\n' "$repo"
+}
+
 tag="${VERSION:?VERSION is required, for example v1.0.4}"
 default_package_version="${tag#v}"
 default_package_version="${default_package_version#V}"
 package_version="${SUPER_DOLPHIN_PACKAGE_VERSION:-$default_package_version}"
-github_release_repo="${SUPER_DOLPHIN_UPDATE_GITHUB_REPO:-xiaoxiaotest9527-bit/-}"
+github_release_repo="$(require_github_release_repo)"
 channel="${SUPER_DOLPHIN_UPDATE_CHANNEL:-gray}"
 minimum_version="${SUPER_DOLPHIN_UPDATE_MINIMUM_VERSION:-0.0.0}"
 stage_dir="${SUPER_DOLPHIN_RELEASE_STAGE_DIR:-$root/dist/release/github/$tag}"
@@ -116,6 +133,7 @@ go run "$root/cmd/super-dolphin-release-manifest" \
   -public-key "$SUPER_DOLPHIN_UPDATE_PUBLIC_KEY"
 
 export SUPER_DOLPHIN_RELEASE_PROFILE="${SUPER_DOLPHIN_RELEASE_PROFILE:-gray}"
+export SUPER_DOLPHIN_RELEASE_BUILD=1
 export SUPER_DOLPHIN_UPDATE_GITHUB_REPO="$github_release_repo"
 export SUPER_DOLPHIN_UPDATE_CHANNEL="$channel"
 export SUPER_DOLPHIN_UPDATE_VERSION="$package_version"

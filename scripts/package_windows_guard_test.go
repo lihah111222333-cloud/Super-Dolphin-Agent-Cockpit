@@ -1,6 +1,11 @@
 package main
 
-import "testing"
+import (
+	"os"
+	"os/exec"
+	"strings"
+	"testing"
+)
 
 func TestPackageWindowsScriptBuildsNativeWindowsPackage(t *testing.T) {
 	script := readScript(t, "package_windows.ps1")
@@ -27,6 +32,26 @@ func TestPackageWindowsScriptBuildsNativeWindowsPackage(t *testing.T) {
 	assertScriptOrder(t, script, "Build-CurrentFrontendApp", "Invoke-WindowsGoBuild -Output (Join-Path $Root 'bin/agent-terminal.exe') -Package './cmd/agent-terminal' -LdFlags $windowsGuiLdFlags")
 }
 
+func TestPackageWindowsWhatIfRunsCrossPlatformValidation(t *testing.T) {
+	pwsh, err := exec.LookPath("pwsh")
+	if err != nil {
+		t.Skip("pwsh not available for package_windows.ps1 -WhatIf validation")
+	}
+
+	cmd := exec.Command(pwsh, "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", "./package_windows.ps1", "-WhatIf")
+	cmd.Env = appendWSLEnvKeysWithGitWorktree(t, os.Environ(), "PATH")
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("package_windows.ps1 -WhatIf should validate without packaging: %v\n%s", err, output)
+	}
+	if strings.Contains(string(output), "package_windows.ps1 must run on Windows") {
+		t.Fatalf("-WhatIf reached Windows-only OS guard:\n%s", output)
+	}
+	if !strings.Contains(string(output), "Windows package WhatIf validation complete") {
+		t.Fatalf("-WhatIf output missing validation summary:\n%s", output)
+	}
+}
+
 func TestPackageWindowsScriptCopiesSQLiteRuntimeMigrations(t *testing.T) {
 	script := readScript(t, "package_windows.ps1")
 
@@ -50,7 +75,7 @@ func TestPackageWindowsScriptUsesIncrementalBuildPhaseCache(t *testing.T) {
 	assertScriptContains(t, script, "function Save-BuildPhaseCache")
 	assertScriptContains(t, script, "cache hit")
 
-	assertScriptContains(t, script, "Test-BuildPhaseCache -Name 'frontend' -Paths @((Join-Path $Root 'frontend-app/src'), (Join-Path $Root 'frontend-app/package-lock.json'))")
+	assertScriptContains(t, script, "Test-BuildPhaseCache -Name 'frontend' -Paths $frontendCachePaths -Inputs $frontendCacheInputs")
 	assertScriptContains(t, script, "Save-BuildPhaseCache")
 	assertScriptOrder(t, script, "Test-BuildPhaseCache -Name 'frontend'", "& npm ci")
 	assertScriptOrderAfter(t, script, "Test-BuildPhaseCache -Name 'frontend'", "& npm run build", "Save-BuildPhaseCache")
@@ -65,6 +90,34 @@ func TestPackageWindowsScriptUsesIncrementalBuildPhaseCache(t *testing.T) {
 
 	assertScriptOrder(t, script, "Assert-WindowsNativeArchitecture -Path (Join-Path $Root 'bin/agent-terminal.exe')", "Copy-PackagedLSPBundle -BundleRoot $Stage")
 	assertScriptOrder(t, script, "Copy-PackagedLSPBundle -BundleRoot $Stage", "Write-LSPManifest -BundleRoot $Stage")
+}
+
+func TestPackageWindowsFrontendBuildCacheKeyIncludesAllViteInputs(t *testing.T) {
+	script := readScript(t, "package_windows.ps1")
+
+	assertScriptContains(t, script, "Get-NodeVersionInput")
+	assertScriptContains(t, script, "Get-NPMVersionInput")
+	assertScriptContains(t, script, "SUPER_DOLPHIN_RELEASE_BUILD")
+	assertScriptContains(t, script, "Join-Path $Root 'frontend-app/package.json'")
+	assertScriptContains(t, script, "Join-Path $Root 'frontend-app/package-lock.json'")
+	assertScriptContains(t, script, "Join-Path $Root 'frontend-app/vite.config.js'")
+	assertScriptContains(t, script, "Join-Path $Root 'frontend-app/index.html'")
+	assertScriptContains(t, script, "Join-Path $Root 'frontend-app/public'")
+	assertScriptContains(t, script, "Join-Path $Root 'frontend-app/src'")
+	assertScriptContains(t, script, "NODE_VERSION=$(Get-NodeVersionInput)")
+	assertScriptContains(t, script, "NPM_VERSION=$(Get-NPMVersionInput)")
+	assertScriptOrder(t, script, "Join-Path $Root 'frontend-app/package.json'", "npm ci")
+	assertScriptOrder(t, script, "Join-Path $Root 'frontend-app/public'", "npm run build")
+}
+
+func TestPackageWindowsRejectsSensitiveVideoAPIKeyBeforeWritingEnv(t *testing.T) {
+	script := readScript(t, "package_windows.ps1")
+	body := powerShellFunctionBody(t, script, "Resolve-PackagedVideoEnv")
+
+	assertScriptContains(t, body, "if ((Get-EnvValue $VideoAPIKeyEnv).Trim() -ne '')")
+	assertScriptContains(t, body, "throw \"$VideoAPIKeyEnv must not be set for Windows packaging\"")
+	assertScriptDoesNotContain(t, script, "$contentLines.Add(\"$VideoAPIKeyEnv=$PackagedVideoAPIKey\")")
+	assertScriptDoesNotContain(t, body, "$script:PackagedVideoAPIKey = Get-EnvValue $VideoAPIKeyEnv")
 }
 
 func TestPackageWindowsBuildsDesktopExeWithoutConsoleWindow(t *testing.T) {
@@ -268,15 +321,18 @@ func TestPackageWindowsScriptBundlesVerifiedCodexAndLSP(t *testing.T) {
 	assertScriptOrder(t, script, "Copy-PackagedLSPBundle -BundleRoot $Stage", "Write-LSPManifest -BundleRoot $Stage")
 }
 
-func TestPackageWindowsScriptSupportsPackagedVideoAPIKey(t *testing.T) {
+func TestPackageWindowsScriptRejectsPackagedVideoAPIKey(t *testing.T) {
 	script := readScript(t, "package_windows.ps1")
 
 	assertScriptContains(t, script, "$VideoAPIKeyEnv = 'SILICONFLOW_API_KEY'")
 	assertScriptContains(t, script, "function Resolve-PackagedVideoEnv")
-	assertScriptContains(t, script, "Validate-EnvFileValue -Label $VideoAPIKeyEnv -Value $script:PackagedVideoAPIKey")
-	assertScriptContains(t, script, "$contentLines.Add(\"$VideoAPIKeyEnv=$PackagedVideoAPIKey\")")
+	assertScriptContains(t, script, "throw \"$VideoAPIKeyEnv must not be set for Windows packaging\"")
+	assertScriptContains(t, script, "Assert-PackagedEnvHasNoSensitiveKeys -BundleRoot $Stage")
+	assertScriptDoesNotContain(t, script, "Validate-EnvFileValue -Label $VideoAPIKeyEnv -Value $script:PackagedVideoAPIKey")
+	assertScriptDoesNotContain(t, script, "$contentLines.Add(\"$VideoAPIKeyEnv=$PackagedVideoAPIKey\")")
 	assertScriptOrder(t, script, "Resolve-PackagedVideoEnv", "Write-PackagedRelayEnv -BundleRoot $Stage")
-	assertScriptOrder(t, script, "Write-PackagedRelayEnv -BundleRoot $Stage", "Write-RuntimeManifest -BundleRoot $Stage")
+	assertScriptOrder(t, script, "Write-PackagedRelayEnv -BundleRoot $Stage", "Assert-PackagedEnvHasNoSensitiveKeys -BundleRoot $Stage")
+	assertScriptOrder(t, script, "Assert-PackagedEnvHasNoSensitiveKeys -BundleRoot $Stage", "Write-RuntimeManifest -BundleRoot $Stage")
 }
 
 func TestPackageWindowsScriptBundlesFFmpegForVideoTools(t *testing.T) {
