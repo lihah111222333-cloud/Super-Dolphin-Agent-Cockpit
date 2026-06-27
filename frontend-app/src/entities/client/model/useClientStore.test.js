@@ -1,3 +1,6 @@
+import fs from 'node:fs';
+import path from 'node:path';
+import { cwd } from 'node:process';
 import { beforeEach, expect, it, vi } from 'vitest';
 
 let bridgeCallback;
@@ -83,6 +86,19 @@ vi.mock('../../../shared/api/backendApi.js', () => ({
 }));
 
 import { resetClientStoreForTests, useClientStore } from './useClientStore.js';
+
+it('routes client store session-facing calls through sessionApi facade or injected deps', () => {
+  const source = fs.readFileSync(path.join(cwd(), 'src/entities/client/model/useClientStore.js'), 'utf8');
+  const backendImportBlock = source.match(/import\s*{([\s\S]*?)}\s*from '..\/..\/..\/shared\/api\/backendApi\.js';/)?.[1] || '';
+
+  expect(source).toContain("import { sessionApi } from '../../../shared/api/sessionApi.js';");
+  expect(backendImportBlock).not.toMatch(/\b(getThreadMessages|interruptTurn|startThread|startTurn)\b/);
+  expect(source).toMatch(/startThread: \(payload\) => sessionApi\.start\(payload\)/);
+  expect(source).toMatch(/startTurn: \(payload\) => sessionApi\.startTurn\(payload\)/);
+  expect(source).toMatch(/getThreadMessages: \(payload\) => sessionApi\.getThreadMessages\(payload\)/);
+  expect(source).toContain("runtime.activeThreadRPC('thread.interrupt', sessionApi.interruptTurn)");
+  expect(source).toContain('await sessionApi.startTurn({');
+});
 
 function registerBridgeEventHandlersForTest() {
   return useClientStore.getState().initializeEvents();
