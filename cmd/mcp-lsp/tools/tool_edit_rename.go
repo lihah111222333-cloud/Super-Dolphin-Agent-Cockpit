@@ -35,6 +35,10 @@ func (h EditHandler) handleRename(ctx context.Context, req EditRequest) (any, er
 	if strings.TrimSpace(req.Pos) == "" {
 		return nil, fmt.Errorf("rename requires pos (file_path:line:column)")
 	}
+	roots, err := trustedWorkspaceEditRoots(ctx)
+	if err != nil {
+		return nil, err
+	}
 	filePath, position, err := resolveFilePositionRequest(ctx, filePositionParams{Pos: req.Pos, LanguageID: req.LanguageID})
 	if err != nil {
 		return nil, fmt.Errorf("resolve rename position: %w", err)
@@ -50,7 +54,7 @@ func (h EditHandler) handleRename(ctx context.Context, req EditRequest) (any, er
 	if edit == nil {
 		return renameResult{Success: true, Message: "rename returned no changes"}, nil
 	}
-	affected, totalEdits, warning, err := h.applyWorkspaceEdit(ctx, edit, normalizeEditVersion(req.Version))
+	affected, totalEdits, warning, err := h.applyWorkspaceEdit(ctx, roots, edit, normalizeEditVersion(req.Version))
 	if err != nil {
 		return nil, fmt.Errorf("apply rename edits: %w", err)
 	}
@@ -64,10 +68,13 @@ func (h EditHandler) handleRename(ctx context.Context, req EditRequest) (any, er
 }
 
 // applyWorkspaceEdit 逐文件应用 WorkspaceEdit；任一文件失败则回滚已写文件。
-func (h EditHandler) applyWorkspaceEdit(ctx context.Context, edit *protocol.WorkspaceEdit, version int) ([]renameFileChange, int, string, error) {
+func (h EditHandler) applyWorkspaceEdit(ctx context.Context, roots []string, edit *protocol.WorkspaceEdit, version int) ([]renameFileChange, int, string, error) {
 	changes := mergeWorkspaceEditChanges(edit)
 	if len(changes) == 0 {
 		return nil, 0, "", nil
+	}
+	if err := validateWorkspaceEditFiles(ctx, roots, changes); err != nil {
+		return nil, 0, "", err
 	}
 
 	type writtenFile struct {

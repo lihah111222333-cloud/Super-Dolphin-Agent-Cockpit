@@ -11,7 +11,9 @@ import (
 
 	editpkg "github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/edit"
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/format"
+	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/protocol"
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/search"
+	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/common"
 	platformshared "github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 )
 
@@ -140,6 +142,99 @@ func resolveWorkspacePathInRoots(root string, roots []string, uri string) (strin
 		return "", fmt.Errorf("path %q is outside workspace roots [%s]", resolved, strings.Join(allowedRoots, ", "))
 	}
 	return resolved, nil
+}
+
+// trustedWorkspaceEditRoots 读取并规范化 WorkspaceEdit 可写入的可信根目录。
+// rename/code_action 属于高风险批量写入口，缺少可信 roots 时必须在请求 LSP 前失败。
+func trustedWorkspaceEditRoots(ctx context.Context) ([]string, error) {
+	root, roots, err := toolWorkspaceRoots(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("workspace edit requires trusted workspace roots: %w", err)
+	}
+	trustedRoots, err := search.NormalizeRootSet(root, roots)
+	if err != nil {
+		return nil, fmt.Errorf("workspace edit trusted roots: %w", err)
+	}
+	if len(trustedRoots) == 0 {
+		return nil, fmt.Errorf("workspace edit requires trusted workspace roots: %w", common.ErrMissingWorkspaceRoots)
+	}
+	return trustedRoots, nil
+}
+
+// validateWorkspaceEditFiles 预校验 WorkspaceEdit 的全部目标文件，确保批量编辑 all-or-none。
+// 校验会收集所有违规 URI；调用方必须在任何磁盘写入前调用它。
+func validateWorkspaceEditFiles(ctx context.Context, roots []string, changes map[string][]protocol.TextEdit) error {
+	if len(changes) == 0 {
+		return nil
+	}
+	if ctx == nil {
+		return fmt.Errorf("workspace edit requires trusted workspace roots: %w", common.ErrMissingWorkspaceRoots)
+	}
+	trustedRoots, err := normalizeWorkspaceEditRoots(roots)
+	if err != nil {
+		return err
+	}
+	violations := make([]string, 0)
+	for uri := range changes {
+		if err := validateWorkspaceEditURI(trustedRoots, uri); err != nil {
+			violations = append(violations, fmt.Sprintf(`{"uri":%q,"reason":%q}`, uri, err.Error()))
+		}
+	}
+	if len(violations) == 0 {
+		return nil
+	}
+	sort.Strings(violations)
+	return fmt.Errorf("workspace edit rejected: invalid_target_files=[%s]", strings.Join(violations, ", "))
+}
+
+// normalizeWorkspaceEditRoots 确认调用方传入的是非空可信根，并复用 search 的根规范化规则。
+func normalizeWorkspaceEditRoots(roots []string) ([]string, error) {
+	if len(roots) == 0 {
+		return nil, fmt.Errorf("workspace edit requires trusted workspace roots: %w", common.ErrMissingWorkspaceRoots)
+	}
+	trustedRoots, err := search.NormalizeRootSet(roots[0], roots[1:])
+	if err != nil {
+		return nil, fmt.Errorf("workspace edit trusted roots: %w", err)
+	}
+	if len(trustedRoots) == 0 {
+		return nil, fmt.Errorf("workspace edit requires trusted workspace roots: %w", common.ErrMissingWorkspaceRoots)
+	}
+	return trustedRoots, nil
+}
+
+// validateWorkspaceEditURI 确认单个 LSP file URI 指向可信根内的普通文件。
+func validateWorkspaceEditURI(roots []string, uri string) error {
+	absPath, err := format.AbsolutePathFromURI(uri)
+	if err != nil {
+		return err
+	}
+	pathInfo, err := search.ResolvePathInRoots(roots[0], roots[1:], absPath)
+	if err != nil {
+		return err
+	}
+	path := pathInfo.AbsPath
+	info, err := os.Lstat(path)
+	if err != nil {
+		return fmt.Errorf("stat %s: %w", path, err)
+	}
+	if info.Mode()&os.ModeSymlink != 0 {
+		resolved, err := filepath.EvalSymlinks(path)
+		if err != nil {
+			return fmt.Errorf("resolve symlink %s: %w", path, err)
+		}
+		resolved = filepath.Clean(resolved)
+		if !pathWithinAnyRoot(roots, resolved) {
+			return fmt.Errorf("symlink target %s is outside workspace roots [%s]", resolved, strings.Join(roots, ", "))
+		}
+		info, err = os.Stat(path)
+		if err != nil {
+			return fmt.Errorf("stat symlink target %s: %w", path, err)
+		}
+	}
+	if !info.Mode().IsRegular() {
+		return fmt.Errorf("target %s must reference a regular file", path)
+	}
+	return nil
 }
 
 // pathWithinAnyRoot 判断目标路径是否位于任一允许根目录下。
