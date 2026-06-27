@@ -12,7 +12,6 @@ import (
 	shareddto "github.com/anthropic-ai/super-agent-v3/internal/dto/shared"
 	turndto "github.com/anthropic-ai/super-agent-v3/internal/dto/turn"
 	platformbus "github.com/anthropic-ai/super-agent-v3/internal/platform/bus"
-	cronstore "github.com/anthropic-ai/super-agent-v3/internal/store/cron"
 	"github.com/kelindar/event"
 )
 
@@ -54,7 +53,7 @@ func TestCronProgressSubscribersRegisterCancelAndDeliver(t *testing.T) {
 	var mu sync.Mutex
 	var listCalls int
 	store := &recordingCronStore{
-		listJobsFn: func(context.Context) ([]cronstore.Job, error) {
+		listJobsFn: func(context.Context) ([]jobRecord, error) {
 			mu.Lock()
 			defer mu.Unlock()
 			listCalls++
@@ -91,7 +90,7 @@ func TestCronProgressWorkerWarnsAndCountsStaleTerminal(t *testing.T) {
 	var logs bytes.Buffer
 	logger := slog.New(slog.NewTextHandler(&logs, &slog.HandlerOptions{Level: slog.LevelDebug}))
 	store := &recordingCronStore{
-		listUnresolvedFn: func(context.Context) ([]cronstore.Run, error) {
+		listUnresolvedFn: func(context.Context) ([]runRecord, error) {
 			return nil, nil
 		},
 	}

@@ -6,8 +6,6 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
-
-	cronstore "github.com/anthropic-ai/super-agent-v3/internal/store/cron"
 )
 
 // tickActorRecorder counts how many ClaimDueJobsForUpdate fires so tests can
@@ -17,7 +15,7 @@ type tickActorRecorder struct {
 	ticks int32
 }
 
-func (r *tickActorRecorder) ClaimDueJobsForUpdate(ctx context.Context, p cronstore.ClaimDueJobsForUpdateParams) ([]cronstore.Job, error) {
+func (r *tickActorRecorder) ClaimDueJobsForUpdate(ctx context.Context, p claimDueJobsForUpdateParams) ([]jobRecord, error) {
 	atomic.AddInt32(&r.ticks, 1)
 	if r.claimFn != nil {
 		return r.claimFn(ctx, p)
@@ -61,10 +59,10 @@ func TestLeaseActorCallsRenewOnTick(t *testing.T) {
 	t.Parallel()
 	renewed := int32(0)
 	store := &recordingCronStore{
-		listJobsFn: func(context.Context) ([]cronstore.Job, error) {
-			return []cronstore.Job{{ID: "mine", ClaimedBy: "test", ClaimToken: "tok"}}, nil
+		listJobsFn: func(context.Context) ([]jobRecord, error) {
+			return []jobRecord{{ID: "mine", ClaimedBy: "test", ClaimToken: "tok"}}, nil
 		},
-		renewLeaseFn: func(context.Context, cronstore.LeaseParams) error {
+		renewLeaseFn: func(context.Context, leaseParams) error {
 			atomic.AddInt32(&renewed, 1)
 			return nil
 		},

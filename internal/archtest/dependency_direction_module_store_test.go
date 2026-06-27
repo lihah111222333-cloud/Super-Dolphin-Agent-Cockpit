@@ -9,27 +9,6 @@ import (
 )
 
 var moduleStoreImportAllowlist = map[string]map[string]string{
-	"internal/module/cron/contract.go": {
-		internalPrefix("internal/store/cron"): "D01 legacy module-to-store import",
-	},
-	"internal/module/cron/progress_subscriber.go": {
-		internalPrefix("internal/store/cron"): "D01 legacy module-to-store import",
-	},
-	"internal/module/cron/rpc.go": {
-		internalPrefix("internal/store/cron"): "D01 legacy module-to-store import",
-	},
-	"internal/module/cron/scheduler.go": {
-		internalPrefix("internal/store/cron"): "D01 legacy module-to-store import",
-	},
-	"internal/module/cron/scheduler_publish.go": {
-		internalPrefix("internal/store/cron"): "D01 legacy module-to-store import",
-	},
-	"internal/module/cron/scheduler_recovery.go": {
-		internalPrefix("internal/store/cron"): "D01 legacy module-to-store import",
-	},
-	"internal/module/cron/service.go": {
-		internalPrefix("internal/store/cron"): "D01 legacy module-to-store import",
-	},
 	"internal/module/dashboard/agent_status.go": {
 		internalPrefix("internal/store/agentstatus"): "D01 legacy module-to-store import",
 	},

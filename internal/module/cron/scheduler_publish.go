@@ -9,7 +9,6 @@ import (
 
 	crondto "github.com/anthropic-ai/super-agent-v3/internal/dto/cron"
 	shareddto "github.com/anthropic-ai/super-agent-v3/internal/dto/shared"
-	cronstore "github.com/anthropic-ai/super-agent-v3/internal/store/cron"
 )
 
 // WithDispatcher 设置调度器用于发布 JobRunStateChanged 的事件分发器。
@@ -42,7 +41,7 @@ func (s *Scheduler) publishRunState(jobID, runID, status, turnID, errStr string,
 // 这个 helper 只做 run 行的可见状态更新；CAS 失败会记录 transition，调用方仍继续释放 job claim。
 func (s *Scheduler) casLogPublish(
 	ctx context.Context,
-	params cronstore.CASRunStatusParams,
+	params casRunStatusParams,
 	transition, jobID, runID, status, turnID, errStr string,
 	scheduledAt time.Time,
 ) {

@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
-	cronstore "github.com/anthropic-ai/super-agent-v3/internal/store/cron"
 )
 
 // newIdentityConfig returns a valid codex identity config whose codexHome
@@ -41,21 +40,21 @@ func newIdentityConfig(t *testing.T) json.RawMessage {
 // fakeStore is a lightweight recording double for the narrow Store
 // interface the module consumes.
 type fakeStore struct {
-	createFn         func(context.Context, cronstore.CreateJobParams) (cronstore.Job, error)
-	getByIDFn        func(context.Context, string) (cronstore.Job, error)
-	listFn           func(context.Context) ([]cronstore.Job, error)
+	createFn         func(context.Context, createJobParams) (jobRecord, error)
+	getByIDFn        func(context.Context, string) (jobRecord, error)
+	listFn           func(context.Context) ([]jobRecord, error)
 	deleteFn         func(context.Context, string) error
-	updateFn         func(context.Context, cronstore.UpdateJobScheduleParams) error
+	updateFn         func(context.Context, updateJobScheduleParams) error
 	setEnabledFn     func(context.Context, string, bool, time.Time) error
-	listRunsByJobFn  func(context.Context, string, int32) ([]cronstore.Run, error)
+	listRunsByJobFn  func(context.Context, string, int32) ([]runRecord, error)
 	patchNextRunAtFn func(context.Context, string, time.Time, time.Time) error
 }
 
-func (f *fakeStore) CreateJob(ctx context.Context, p cronstore.CreateJobParams) (cronstore.Job, error) {
+func (f *fakeStore) CreateJob(ctx context.Context, p createJobParams) (jobRecord, error) {
 	if f.createFn != nil {
 		return f.createFn(ctx, p)
 	}
-	return cronstore.Job{ID: p.ID, Name: p.Name, Provider: p.Provider, CWD: p.CWD}, nil
+	return jobRecord{ID: p.ID, Name: p.Name, Provider: p.Provider, CWD: p.CWD}, nil
 }
 func (f *fakeStore) PatchNextRunAt(ctx context.Context, id string, nextRunAt time.Time, now time.Time) error {
 	if f.patchNextRunAtFn != nil {
@@ -64,13 +63,13 @@ func (f *fakeStore) PatchNextRunAt(ctx context.Context, id string, nextRunAt tim
 	return nil
 }
 
-func (f *fakeStore) GetJobByID(ctx context.Context, id string) (cronstore.Job, error) {
+func (f *fakeStore) GetJobByID(ctx context.Context, id string) (jobRecord, error) {
 	if f.getByIDFn != nil {
 		return f.getByIDFn(ctx, id)
 	}
-	return cronstore.Job{ID: id}, nil
+	return jobRecord{ID: id}, nil
 }
-func (f *fakeStore) ListJobs(ctx context.Context) ([]cronstore.Job, error) {
+func (f *fakeStore) ListJobs(ctx context.Context) ([]jobRecord, error) {
 	if f.listFn != nil {
 		return f.listFn(ctx)
 	}
@@ -82,7 +81,7 @@ func (f *fakeStore) DeleteJob(ctx context.Context, id string) error {
 	}
 	return nil
 }
-func (f *fakeStore) UpdateJobSchedule(ctx context.Context, p cronstore.UpdateJobScheduleParams) error {
+func (f *fakeStore) UpdateJobSchedule(ctx context.Context, p updateJobScheduleParams) error {
 	if f.updateFn != nil {
 		return f.updateFn(ctx, p)
 	}
@@ -94,7 +93,7 @@ func (f *fakeStore) SetJobEnabled(ctx context.Context, id string, enabled bool, 
 	}
 	return nil
 }
-func (f *fakeStore) ListRunsByJob(ctx context.Context, jobID string, limit int32) ([]cronstore.Run, error) {
+func (f *fakeStore) ListRunsByJob(ctx context.Context, jobID string, limit int32) ([]runRecord, error) {
 	if f.listRunsByJobFn != nil {
 		return f.listRunsByJobFn(ctx, jobID, limit)
 	}
@@ -175,11 +174,11 @@ func TestCreateJobRejectsNonCodexProvider(t *testing.T) {
 
 func TestCreateJobDefaultsProviderToCodex(t *testing.T) {
 	t.Parallel()
-	var got cronstore.CreateJobParams
+	var got createJobParams
 	store := &fakeStore{
-		createFn: func(_ context.Context, p cronstore.CreateJobParams) (cronstore.Job, error) {
+		createFn: func(_ context.Context, p createJobParams) (jobRecord, error) {
 			got = p
-			return cronstore.Job{ID: p.ID, Provider: p.Provider}, nil
+			return jobRecord{ID: p.ID, Provider: p.Provider}, nil
 		},
 	}
 	svc := newTestService(t, store)
@@ -193,7 +192,7 @@ func TestCreateJobDefaultsProviderToCodex(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateJob error = %v", err)
 	}
-	if got.Provider != cronstore.ProviderCodex {
+	if got.Provider != providerCodex {
 		t.Fatalf("Provider = %q, want codex", got.Provider)
 	}
 }
@@ -267,11 +266,11 @@ func TestCreateAndUpdateRejectInvalidScheduleInputs(t *testing.T) {
 			t.Run(tc.name+"/"+op, func(t *testing.T) {
 				t.Parallel()
 				store := &fakeStore{
-					createFn: func(context.Context, cronstore.CreateJobParams) (cronstore.Job, error) {
+					createFn: func(context.Context, createJobParams) (jobRecord, error) {
 						t.Fatalf("CreateJob reached store for invalid %s", tc.wantError)
-						return cronstore.Job{}, nil
+						return jobRecord{}, nil
 					},
-					updateFn: func(context.Context, cronstore.UpdateJobScheduleParams) error {
+					updateFn: func(context.Context, updateJobScheduleParams) error {
 						t.Fatalf("UpdateJob reached store for invalid %s", tc.wantError)
 						return nil
 					},
@@ -311,11 +310,11 @@ func TestCreateAndUpdateRejectInvalidScheduleInputs(t *testing.T) {
 
 func TestCreateJobDefaultsNextRunAtAndScheduleType(t *testing.T) {
 	t.Parallel()
-	var got cronstore.CreateJobParams
+	var got createJobParams
 	store := &fakeStore{
-		createFn: func(_ context.Context, p cronstore.CreateJobParams) (cronstore.Job, error) {
+		createFn: func(_ context.Context, p createJobParams) (jobRecord, error) {
 			got = p
-			return cronstore.Job{ID: p.ID}, nil
+			return jobRecord{ID: p.ID}, nil
 		},
 	}
 	svc := newTestService(t, store)
@@ -341,11 +340,11 @@ func TestCreateJobDefaultsNextRunAtAndScheduleType(t *testing.T) {
 
 func TestCreateJobDedupesAndTrimsSkills(t *testing.T) {
 	t.Parallel()
-	var got cronstore.CreateJobParams
+	var got createJobParams
 	store := &fakeStore{
-		createFn: func(_ context.Context, p cronstore.CreateJobParams) (cronstore.Job, error) {
+		createFn: func(_ context.Context, p createJobParams) (jobRecord, error) {
 			got = p
-			return cronstore.Job{ID: p.ID}, nil
+			return jobRecord{ID: p.ID}, nil
 		},
 	}
 	svc := newTestService(t, store)
@@ -375,8 +374,8 @@ func TestCreateJobDedupesAndTrimsSkills(t *testing.T) {
 func TestGetJobMapsNotFound(t *testing.T) {
 	t.Parallel()
 	store := &fakeStore{
-		getByIDFn: func(context.Context, string) (cronstore.Job, error) {
-			return cronstore.Job{}, cronstore.ErrJobNotFound
+		getByIDFn: func(context.Context, string) (jobRecord, error) {
+			return jobRecord{}, errStoreJobNotFound
 		},
 	}
 	svc := newTestService(t, store)
@@ -389,8 +388,8 @@ func TestGetJobMapsNotFound(t *testing.T) {
 func TestListJobsPassesThrough(t *testing.T) {
 	t.Parallel()
 	store := &fakeStore{
-		listFn: func(context.Context) ([]cronstore.Job, error) {
-			return []cronstore.Job{{ID: "a"}, {ID: "b"}}, nil
+		listFn: func(context.Context) ([]jobRecord, error) {
+			return []jobRecord{{ID: "a"}, {ID: "b"}}, nil
 		},
 	}
 	svc := newTestService(t, store)
@@ -451,11 +450,11 @@ func TestUpdateJobReValidatesIdentity(t *testing.T) {
 func TestListJobRunsPassesThrough(t *testing.T) {
 	t.Parallel()
 	store := &fakeStore{
-		listRunsByJobFn: func(_ context.Context, _ string, limit int32) ([]cronstore.Run, error) {
+		listRunsByJobFn: func(_ context.Context, _ string, limit int32) ([]runRecord, error) {
 			if limit == 0 {
 				t.Fatal("service must forward caller's limit, not rewrite to store default")
 			}
-			return []cronstore.Run{{ID: "r1", Status: cronstore.StatusPending}}, nil
+			return []runRecord{{ID: "r1", Status: statusPending}}, nil
 		},
 	}
 	svc := newTestService(t, store)
@@ -463,7 +462,7 @@ func TestListJobRunsPassesThrough(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ListJobRuns error = %v", err)
 	}
-	if len(runs) != 1 || runs[0].Status != cronstore.StatusPending {
+	if len(runs) != 1 || runs[0].Status != statusPending {
 		t.Fatalf("ListJobRuns = %+v", runs)
 	}
 }
@@ -487,7 +486,7 @@ func TestRunOnceBumpsNextRunAtPreservingOtherFields(t *testing.T) {
 	t.Parallel()
 	now := time.Unix(1_700_000_000, 0).UTC()
 
-	job := cronstore.Job{
+	job := jobRecord{
 		ID:            "job-1",
 		Name:          "daily",
 		Prompt:        "check",
@@ -508,7 +507,7 @@ func TestRunOnceBumpsNextRunAtPreservingOtherFields(t *testing.T) {
 	var gotID string
 	var gotNextRunAt time.Time
 	store := &fakeStore{
-		getByIDFn: func(_ context.Context, id string) (cronstore.Job, error) {
+		getByIDFn: func(_ context.Context, id string) (jobRecord, error) {
 			if id != "job-1" {
 				t.Fatalf("unexpected id %q", id)
 			}
@@ -535,8 +534,8 @@ func TestRunOnceBumpsNextRunAtPreservingOtherFields(t *testing.T) {
 func TestRunOnceReturnsErrNotFound(t *testing.T) {
 	t.Parallel()
 	store := &fakeStore{
-		getByIDFn: func(context.Context, string) (cronstore.Job, error) {
-			return cronstore.Job{}, cronstore.ErrJobNotFound
+		getByIDFn: func(context.Context, string) (jobRecord, error) {
+			return jobRecord{}, errStoreJobNotFound
 		},
 	}
 	svc := newTestService(t, store)
@@ -557,8 +556,8 @@ func TestRunOnceRejectsEmptyID(t *testing.T) {
 func TestRunOnceRejectsDisabledJob(t *testing.T) {
 	t.Parallel()
 	store := &fakeStore{
-		getByIDFn: func(context.Context, string) (cronstore.Job, error) {
-			return cronstore.Job{ID: "job-1", Enabled: false}, nil
+		getByIDFn: func(context.Context, string) (jobRecord, error) {
+			return jobRecord{ID: "job-1", Enabled: false}, nil
 		},
 	}
 	svc := newTestService(t, store)
