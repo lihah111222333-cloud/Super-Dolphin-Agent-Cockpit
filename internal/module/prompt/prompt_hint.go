@@ -53,13 +53,10 @@ func (s *service) readPromptHintDefault(ctx context.Context) string {
 	if s.sharedFiles == nil {
 		return ""
 	}
-	file, err := s.sharedFiles.Get(ctx, promptHintDefaultSharedFilePath)
+	content, err := s.sharedFiles.GetContent(ctx, promptHintDefaultSharedFilePath)
 	switch {
 	case err == nil:
-		if file == nil {
-			return ""
-		}
-		return file.Content
+		return content
 	case contract.IsNotFound(err):
 		return ""
 	default:

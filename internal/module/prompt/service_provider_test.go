@@ -93,6 +93,10 @@ func newInMemoryPromptStore() *inMemoryPromptStore {
 	}
 }
 
+func promptIntentStoreForTest(store any) promptIntentStoreAdapter {
+	return promptIntentStoreAdapter{store: promptStoreFromDependency(store)}
+}
+
 func (s *inMemoryPromptStore) List(_ context.Context, filter promptstore.ListFilter) ([]promptstore.PromptTemplate, error) {
 	s.listFilters = append(s.listFilters, filter)
 	items := make([]promptstore.PromptTemplate, 0, len(s.templates))

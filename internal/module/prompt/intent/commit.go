@@ -13,7 +13,6 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
 	platformrpc "github.com/anthropic-ai/super-agent-v3/internal/platform/rpc"
-	promptstore "github.com/anthropic-ai/super-agent-v3/internal/store/prompt"
 )
 
 const (
@@ -43,7 +42,7 @@ type DiscardResult struct {
 // 最后触发 section 缓存失效。
 func HandleCommit(
 	ctx context.Context,
-	promptStore promptstore.Store,
+	promptStore Store,
 	invalidator contract.SectionInvalidator,
 	builtin contract.BuiltinPromptRegistry,
 	p CommitParams,
@@ -56,7 +55,7 @@ func HandleCommit(
 		return nil, err
 	}
 	var result CommitResult
-	err = promptStore.WithTx(ctx, func(txStore promptstore.Store) error {
+	err = promptStore.WithTx(ctx, func(txStore Store) error {
 		draft, err := txStore.GetIntentDraft(ctx, cwd, p.DraftKey)
 		if err != nil {
 			return err
@@ -82,7 +81,7 @@ func HandleCommit(
 }
 
 // promptIntentCommitGlobalScope 根据草稿 scope 和请求参数决定是否全局提交；scope 不匹配时报错。
-func promptIntentCommitGlobalScope(draft *promptstore.PromptIntentDraft, p CommitParams) (bool, error) {
+func promptIntentCommitGlobalScope(draft *PromptIntentDraft, p CommitParams) (bool, error) {
 	scope := strings.TrimSpace(draft.Scope)
 	switch scope {
 	case "", "project":
@@ -101,7 +100,7 @@ func promptIntentCommitGlobalScope(draft *promptstore.PromptIntentDraft, p Commi
 }
 
 // HandleDiscard 将草稿状态更新为 rejected。
-func HandleDiscard(ctx context.Context, promptStore promptstore.Store, p DiscardParams) (any, error) {
+func HandleDiscard(ctx context.Context, promptStore Store, p DiscardParams) (any, error) {
 	if promptStore == nil {
 		return nil, errors.New("prompt store is required for prompt intent discard")
 	}
@@ -126,7 +125,7 @@ func HandleDiscard(ctx context.Context, promptStore promptstore.Store, p Discard
 // rejectSiblingPromptIntentDrafts 内的 ListIntentDrafts 和 UpdateIntentDraftStatus）
 // 均在同一 SQLite IMMEDIATE 事务内执行。IMMEDIATE 事务在 BEGIN 时即获取写锁，
 // 保证同批次两个并发提交只有一个能进入事务主体，另一个在重试后会看到兄弟草稿已被拒绝。
-func commitPromptIntentDraft(ctx context.Context, store promptstore.Store, builtin contract.BuiltinPromptRegistry, cwd string, draft *promptstore.PromptIntentDraft, global bool) (CommitResult, error) {
+func commitPromptIntentDraft(ctx context.Context, store Store, builtin contract.BuiltinPromptRegistry, cwd string, draft *PromptIntentDraft, global bool) (CommitResult, error) {
 	kind, err := normalizeKind(draft.Kind)
 	if err != nil {
 		return CommitResult{}, err
@@ -139,7 +138,7 @@ func commitPromptIntentDraft(ctx context.Context, store promptstore.Store, built
 	if err := validatePromptIntentCommitCard(kind, draft.RawInput, card); err != nil {
 		return CommitResult{}, err
 	}
-	var saved *promptstore.PromptTemplate
+	var saved *PromptTemplate
 	switch kind {
 	case KindExpert:
 		saved, err = commitPromptIntentExpert(ctx, store, builtin, cwd, draft.DraftKey, card, global)
@@ -161,13 +160,13 @@ func commitPromptIntentDraft(ctx context.Context, store promptstore.Store, built
 }
 
 // rejectSiblingPromptIntentDrafts 拒绝与已提交草稿同批次（同 origin_hash + raw_input + scope）的其他草稿。
-func rejectSiblingPromptIntentDrafts(ctx context.Context, store promptstore.Store, cwd string, committed *promptstore.PromptIntentDraft) error {
+func rejectSiblingPromptIntentDrafts(ctx context.Context, store Store, cwd string, committed *PromptIntentDraft) error {
 	originHash := strings.TrimSpace(committed.OriginHash)
 	rawInput := strings.TrimSpace(committed.RawInput)
 	if originHash == "" || rawInput == "" {
 		return nil
 	}
-	drafts, err := store.ListIntentDrafts(ctx, promptstore.PromptIntentDraftListFilter{
+	drafts, err := store.ListIntentDrafts(ctx, PromptIntentDraftListFilter{
 		CWD:    cwd,
 		Status: "ready_to_save",
 		Limit:  promptDraftListLimit,
@@ -187,7 +186,7 @@ func rejectSiblingPromptIntentDrafts(ctx context.Context, store promptstore.Stor
 }
 
 // samePromptIntentDraftBatch 判断两个草稿是否属于同一批次，排除已提交草稿自身。
-func samePromptIntentDraftBatch(committed *promptstore.PromptIntentDraft, draft promptstore.PromptIntentDraft, originHash, rawInput string) bool {
+func samePromptIntentDraftBatch(committed *PromptIntentDraft, draft PromptIntentDraft, originHash, rawInput string) bool {
 	if strings.TrimSpace(draft.DraftKey) == strings.TrimSpace(committed.DraftKey) {
 		return false
 	}
@@ -206,12 +205,12 @@ func promptIntentDraftScopeIsGlobal(scope string) bool {
 }
 
 // commitPromptIntentExpert 将 expert 类型草稿写入 prompt 模板，包含 identity/workflow/constraints/output 四个 section。
-func commitPromptIntentExpert(ctx context.Context, store promptstore.Store, builtin contract.BuiltinPromptRegistry, cwd, draftKey string, card Card, global bool) (*promptstore.PromptTemplate, error) {
+func commitPromptIntentExpert(ctx context.Context, store Store, builtin contract.BuiltinPromptRegistry, cwd, draftKey string, card Card, global bool) (*PromptTemplate, error) {
 	candidates, err := promptIntentPromptKeyCandidates(KindExpert, card.Title, "", draftKey)
 	if err != nil {
 		return nil, err
 	}
-	saved, err := createPromptIntentTemplateFromCandidates(ctx, store, cwd, global, promptstore.PromptTemplate{
+	saved, err := createPromptIntentTemplateFromCandidates(ctx, store, cwd, global, PromptTemplate{
 		Title:       strings.TrimSpace(card.Title),
 		PromptText:  "",
 		Description: strings.TrimSpace(card.Summary),
@@ -223,7 +222,7 @@ func commitPromptIntentExpert(ctx context.Context, store promptstore.Store, buil
 	if err != nil {
 		return nil, err
 	}
-	sections := []promptstore.PromptTemplateSection{
+	sections := []PromptTemplateSection{
 		{TemplateID: saved.ID, SectionKey: "identity", Region: "static", Ordinal: 10, Body: strings.TrimSpace(card.Title + "\n\n" + card.Summary), Enabled: true, TriggerType: "always"},
 		{TemplateID: saved.ID, SectionKey: "workflow", Region: "dynamic", Ordinal: 20, Body: strings.Join(trimmedPromptIntentExamples(card.Workflow), "\n"), Enabled: true, TriggerType: "always"},
 		{TemplateID: saved.ID, SectionKey: "constraints", Region: "dynamic", Ordinal: 30, Body: promptIntentExpertConstraintsBody(card), Enabled: true, TriggerType: "always"},
@@ -250,12 +249,12 @@ func promptIntentExpertConstraintsBody(card Card) string {
 }
 
 // commitPromptIntentRecall 将 recall 类型草稿写入 prompt 模板，并在 cwd 内锁定 recall_topic 防止重复。
-func commitPromptIntentRecall(ctx context.Context, store promptstore.Store, builtin contract.BuiltinPromptRegistry, cwd, draftKey string, card Card, global bool) (*promptstore.PromptTemplate, error) {
+func commitPromptIntentRecall(ctx context.Context, store Store, builtin contract.BuiltinPromptRegistry, cwd, draftKey string, card Card, global bool) (*PromptTemplate, error) {
 	candidates, err := promptIntentPromptKeyCandidates(KindRecall, card.Title, card.RecallTopic, draftKey)
 	if err != nil {
 		return nil, err
 	}
-	saved, err := createPromptIntentTemplateFromCandidates(ctx, store, cwd, global, promptstore.PromptTemplate{
+	saved, err := createPromptIntentTemplateFromCandidates(ctx, store, cwd, global, PromptTemplate{
 		Title:       strings.TrimSpace(card.Title),
 		PromptText:  "",
 		Description: strings.TrimSpace(card.Summary),
@@ -271,7 +270,7 @@ func commitPromptIntentRecall(ctx context.Context, store promptstore.Store, buil
 	if err := rejectDuplicateRecallTopicInCWD(ctx, store, cwd, card.RecallTopic, global, saved.ID, sectionKey); err != nil {
 		return nil, err
 	}
-	section, err := store.UpsertSection(ctx, promptstore.PromptTemplateSection{
+	section, err := store.UpsertSection(ctx, PromptTemplateSection{
 		TemplateID:  saved.ID,
 		SectionKey:  sectionKey,
 		Region:      "dynamic",
@@ -291,12 +290,12 @@ func commitPromptIntentRecall(ctx context.Context, store promptstore.Store, buil
 }
 
 // commitPromptIntentDefaultRule 将 default_rule 类型草稿写入 prompt 模板。
-func commitPromptIntentDefaultRule(ctx context.Context, store promptstore.Store, builtin contract.BuiltinPromptRegistry, cwd, draftKey string, card Card, global bool) (*promptstore.PromptTemplate, error) {
+func commitPromptIntentDefaultRule(ctx context.Context, store Store, builtin contract.BuiltinPromptRegistry, cwd, draftKey string, card Card, global bool) (*PromptTemplate, error) {
 	candidates, err := promptIntentPromptKeyCandidates(KindDefaultRule, card.Title, "", draftKey)
 	if err != nil {
 		return nil, err
 	}
-	saved, err := createPromptIntentTemplateFromCandidates(ctx, store, cwd, global, promptstore.PromptTemplate{
+	saved, err := createPromptIntentTemplateFromCandidates(ctx, store, cwd, global, PromptTemplate{
 		Title:       strings.TrimSpace(card.Title),
 		PromptText:  "",
 		Description: strings.TrimSpace(card.Summary),
@@ -308,7 +307,7 @@ func commitPromptIntentDefaultRule(ctx context.Context, store promptstore.Store,
 	if err != nil {
 		return nil, err
 	}
-	if _, err := store.UpsertSection(ctx, promptstore.PromptTemplateSection{
+	if _, err := store.UpsertSection(ctx, PromptTemplateSection{
 		TemplateID:  saved.ID,
 		SectionKey:  "project_rule",
 		Region:      "dynamic",
@@ -369,13 +368,13 @@ func shortPromptIntentKeySuffix(draftKey string) string {
 // 全部失败时返回 invalid_params 错误。
 func createPromptIntentTemplateFromCandidates(
 	ctx context.Context,
-	store promptstore.Store,
+	store Store,
 	cwd string,
 	global bool,
-	template promptstore.PromptTemplate,
+	template PromptTemplate,
 	candidates []string,
 	builtin contract.BuiltinPromptRegistry,
-) (*promptstore.PromptTemplate, error) {
+) (*PromptTemplate, error) {
 	var lastConflict error
 	for _, candidate := range candidates {
 		if promptIntentBuiltinPromptExists(builtin, candidate) {
@@ -409,7 +408,7 @@ func promptIntentBuiltinPromptExists(builtin contract.BuiltinPromptRegistry, pro
 }
 
 // createPromptIntentTemplate 写入单条 prompt 模板，补充 scope tag、enabled 和 created/updated_by 字段。
-func createPromptIntentTemplate(ctx context.Context, store promptstore.Store, cwd string, global bool, template promptstore.PromptTemplate) (*promptstore.PromptTemplate, error) {
+func createPromptIntentTemplate(ctx context.Context, store Store, cwd string, global bool, template PromptTemplate) (*PromptTemplate, error) {
 	cwd, err := requireCWD(cwd)
 	if err != nil {
 		return nil, err
@@ -461,7 +460,7 @@ func promptTags(raw json.RawMessage) []string {
 // 有则返回错误阻止重复提交。
 func rejectDuplicateRecallTopicInCWD(
 	ctx context.Context,
-	store promptstore.Store,
+	store Store,
 	cwd, topic string,
 	targetGlobal bool,
 	templateID int64,
@@ -474,7 +473,7 @@ func rejectDuplicateRecallTopicInCWD(
 	if err := store.LockRecallTopicInCWD(ctx, cwd, topic); err != nil {
 		return err
 	}
-	templates, err := store.List(ctx, promptstore.ListFilter{CWD: cwd, Limit: promptIntentDuplicateListLimit})
+	templates, err := store.List(ctx, ListFilter{CWD: cwd, Limit: promptIntentDuplicateListLimit})
 	if err != nil {
 		return err
 	}
@@ -491,8 +490,8 @@ func rejectDuplicateRecallTopicInCWD(
 
 // promptIntentRecallDuplicateExists 检查模板列表中是否存在与目标 topic 冲突的 recall section。
 func promptIntentRecallDuplicateExists(
-	templates []promptstore.PromptTemplate,
-	sectionsByID map[int64][]promptstore.PromptTemplateSection,
+	templates []PromptTemplate,
+	sectionsByID map[int64][]PromptTemplateSection,
 	cwd, topic string,
 	targetGlobal bool,
 	templateID int64,
@@ -514,7 +513,7 @@ func promptIntentRecallDuplicateExists(
 
 // promptIntentRecallDuplicateSectionExists 检查单个模板的 section 列表中是否有重复的 recall topic。
 func promptIntentRecallDuplicateSectionExists(
-	sections []promptstore.PromptTemplateSection,
+	sections []PromptTemplateSection,
 	topic string,
 	templateID int64,
 	sectionKey string,
@@ -529,7 +528,7 @@ func promptIntentRecallDuplicateSectionExists(
 
 // promptIntentRecallSectionDuplicatesTopic 判断单个 section 是否与目标 topic 重复（排除自身）。
 func promptIntentRecallSectionDuplicatesTopic(
-	section promptstore.PromptTemplateSection,
+	section PromptTemplateSection,
 	topic string,
 	templateID int64,
 	sectionKey string,
@@ -634,7 +633,7 @@ func requireNonEmptyPromptIntentFields(fields map[string]string) error {
 }
 
 // promptIntentDraftHasReviewIssue 判断草稿是否含有 review 级别问题，有则要求用户确认才能提交。
-func promptIntentDraftHasReviewIssue(draft *promptstore.PromptIntentDraft) bool {
+func promptIntentDraftHasReviewIssue(draft *PromptIntentDraft) bool {
 	var issues []Issue
 	if err := json.Unmarshal(draft.Issues, &issues); err != nil {
 		return true

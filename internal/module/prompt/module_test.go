@@ -4,6 +4,7 @@ import (
 	"context"
 	"io"
 	"log/slog"
+	"strings"
 	"testing"
 	"time"
 
@@ -21,6 +22,8 @@ type promptHandlerCollector struct {
 }
 
 type noopPromptStore struct{ promptstore.Store }
+
+type unknownPromptHandlerDependency struct{}
 
 func TestNewServiceRegistersBuiltInSlots(t *testing.T) {
 	svc := NewService(&Config{}, nil)
@@ -70,4 +73,24 @@ func TestNewPromptHandlersExposeLegacyPromptsMethods(t *testing.T) {
 			t.Fatalf("handler %q not registered", method)
 		}
 	}
+}
+
+func TestBuildPromptHandlersWithServiceRejectsUnknownDependency(t *testing.T) {
+	t.Parallel()
+
+	defer func() {
+		recovered := recover()
+		if recovered == nil {
+			t.Fatalf("buildPromptHandlersWithService() did not panic for unknown dependency")
+		}
+		message, ok := recovered.(string)
+		if !ok {
+			t.Fatalf("panic = %T(%v), want string", recovered, recovered)
+		}
+		if !strings.Contains(message, "unsupported prompt handler dependency prompt.unknownPromptHandlerDependency") {
+			t.Fatalf("panic = %q, want unsupported dependency message", message)
+		}
+	}()
+
+	buildPromptHandlersWithService(newPromptService(nil), unknownPromptHandlerDependency{})
 }

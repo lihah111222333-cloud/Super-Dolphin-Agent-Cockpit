@@ -26,7 +26,7 @@ func TestPromptIntentDraftAllowsConcreteMemoryLeakExpertWithoutSaveBoundary(t *t
 		"miss_examples":["Save today’s conversation as knowledge"]
 	}`}
 
-	got, err := promptintent.HandleDraft(context.Background(), store, dream, nil, promptintent.DraftParams{
+	got, err := promptintent.HandleDraft(context.Background(), promptIntentStoreForTest(store), dream, nil, promptintent.DraftParams{
 		Kind:     "expert",
 		RawInput: "Create an expert to debug Go memory leak incidents with pprof evidence.",
 		Cwd:      "/repo/a",
@@ -60,7 +60,7 @@ func TestPromptIntentDraftBlocksKnowledgeBaseReuseWithoutSaveBoundary(t *testing
 		"miss_examples":["继续修当前 bug"]
 	}`}
 
-	got, err := promptintent.HandleDraft(context.Background(), store, dream, nil, promptintent.DraftParams{
+	got, err := promptintent.HandleDraft(context.Background(), promptIntentStoreForTest(store), dream, nil, promptintent.DraftParams{
 		Kind:     "expert",
 		RawInput: "把每日对话整理成可长期复用的知识库条目",
 		Cwd:      "/repo/a",
@@ -91,7 +91,7 @@ func TestPromptIntentDraftNormalizesRecallTopicSlugBeforeReady(t *testing.T) {
 		"miss_examples":["Review frontend spacing"]
 	}`}
 
-	got, err := promptintent.HandleDraft(context.Background(), store, dream, nil, promptintent.DraftParams{
+	got, err := promptintent.HandleDraft(context.Background(), promptIntentStoreForTest(store), dream, nil, promptintent.DraftParams{
 		Kind:     "recall",
 		RawInput: "Add this SQLite prompt intent draft acceptance token for AI recall.",
 		Cwd:      "/repo/a",
@@ -132,7 +132,7 @@ func TestPromptIntentDraftBlocksVagueOutputContainingGenericResult(t *testing.T)
 		"miss_examples":["查询套餐价格"]
 	}`}
 
-	got, err := promptintent.HandleDraft(context.Background(), store, dream, nil, promptintent.DraftParams{
+	got, err := promptintent.HandleDraft(context.Background(), promptIntentStoreForTest(store), dream, nil, promptintent.DraftParams{
 		Kind:     "expert",
 		RawInput: "我希望你帮我整理每日对话，并提取有用的信息。",
 		Cwd:      "/repo/a",

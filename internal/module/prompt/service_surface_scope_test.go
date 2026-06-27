@@ -147,7 +147,7 @@ func TestPromptSectionsForTemplatesRejectsOutsideCWD(t *testing.T) {
 	}
 	svc := newPromptService(store)
 
-	_, err := svc.ListPromptSectionsByTemplates(context.Background(), "/repo/a", []promptstore.PromptTemplate{other})
+	_, err := svc.ListPromptSectionsByTemplates(context.Background(), "/repo/a", []promptTemplate{promptTemplateFromStore(other)})
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "outside cwd scope")
 	require.Zero(t, store.listSectionsByTemplateIDsCalls)
