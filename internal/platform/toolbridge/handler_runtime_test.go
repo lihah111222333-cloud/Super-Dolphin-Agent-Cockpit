@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"reflect"
+	"strings"
 	"testing"
 
 	bindingstore "github.com/anthropic-ai/super-agent-v3/internal/store/binding"
@@ -33,6 +34,22 @@ func TestToolCallRuntimeConfig_Pin(t *testing.T) {
 			assertToolCallBindingCalls(t, tt.handler.bindingStore, tt.wantBindingCalls)
 			assertToolCallThreadCalls(t, tt.handler.threadStore, tt.wantThreadCalls)
 		})
+	}
+}
+
+func TestSpawnAgentPolicy_BindingLookupErrorFailsClosed(t *testing.T) {
+	f := newToolCallRuntimeFixtures(t)
+	h := &Handler{
+		bindingStore: &toolCallBindingStoreStub{err: f.resolveErr},
+		threadStore:  &toolCallThreadStoreStub{},
+	}
+
+	_, err := h.spawnAgentPolicyMessage(context.Background(), ToolCallRequest{
+		Name:    "spawn_agent",
+		AgentID: "agent-1",
+	})
+	if err == nil || !strings.Contains(err.Error(), "policy unavailable") {
+		t.Fatalf("spawnAgentPolicyMessage() error = %v, want fail-closed policy unavailable error", err)
 	}
 }
 
