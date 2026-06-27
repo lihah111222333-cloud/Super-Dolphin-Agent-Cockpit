@@ -8,7 +8,6 @@ import (
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
-	bindingstore "github.com/anthropic-ai/super-agent-v3/internal/store/binding"
 	"github.com/anthropic-ai/super-agent-v3/internal/util/clone"
 )
 
@@ -32,7 +31,7 @@ func (s *service) SendCommand(ctx context.Context, threadID, command, args strin
 	case "/personality", "/approvals":
 		return sendConfigPatchCommand(ctx, session, cmd, threadID, args)
 	case "/interrupt":
-		return sendInterruptCommand(ctx, session, binding, threadID, args)
+		return sendInterruptCommand(ctx, session, threadBindingRecordFromStore(binding), threadID, args)
 	case "/compact":
 		return s.Compact(ctx, threadID, args)
 	case "/config/set", "/rollback", "/undo", "/clean", "/mcp", "/skills":
@@ -134,11 +133,11 @@ func sendConfigPatchCommand(
 func sendInterruptCommand(
 	ctx context.Context,
 	session contract.Session,
-	binding *bindingstore.Binding,
+	binding *threadBindingRecord,
 	threadID string,
 	args string,
 ) (threadCommandResult, error) {
-	req := dto.InterruptRequest{ThreadID: historyTargetID(binding, threadID), Source: strings.TrimSpace(args)}
+	req := dto.InterruptRequest{ThreadID: historyTargetIDRecord(binding, threadID), Source: strings.TrimSpace(args)}
 	if err := session.Interrupt(ctx, req); err != nil {
 		return threadCommandResult{}, err
 	}
@@ -171,7 +170,7 @@ func providerLabel(provider string) string {
 	return "active"
 }
 
-func bindingProvider(binding *bindingstore.Binding) string {
+func bindingRecordProvider(binding *threadBindingRecord) string {
 	if binding == nil {
 		return providerLabel("")
 	}
@@ -190,7 +189,7 @@ func (s *service) GetConfig(ctx context.Context, threadID string) (dto.ThreadCon
 		if handled {
 			return cfg, nil
 		}
-		cfg, handled, offlineErr = s.offlineConfigForMissingSession(ctx, threadID, binding, err)
+		cfg, handled, offlineErr = s.offlineConfigForMissingSession(ctx, threadID, threadBindingRecordFromStore(binding), err)
 		if offlineErr != nil {
 			return dto.ThreadConfig{}, offlineErr
 		}
@@ -207,49 +206,49 @@ func (s *service) GetConfig(ctx context.Context, threadID string) (dto.ThreadCon
 	if err != nil {
 		return dto.ThreadConfig{}, err
 	}
-	return s.normalizeThreadConfig(ctx, threadID, binding, cfg), nil
+	return s.normalizeThreadConfig(ctx, threadID, threadBindingRecordFromStore(binding), cfg), nil
 }
 
 func (s *service) offlineConfigForMissingSession(
 	ctx context.Context,
 	threadID string,
-	binding *bindingstore.Binding,
+	binding *threadBindingRecord,
 	resolveErr error,
 ) (dto.ThreadConfig, bool, error) {
 	if !errors.Is(resolveErr, contract.ErrSessionNotFound) {
 		return dto.ThreadConfig{}, false, nil
 	}
 	if binding == nil {
-		resolvedBinding, err := s.resolveBinding(ctx, threadID)
+		resolvedBinding, err := s.resolveThreadBindingRecord(ctx, threadID)
 		if err != nil {
 			return dto.ThreadConfig{}, false, err
 		}
 		binding = resolvedBinding
 	}
-	offline, err := s.buildOfflineConfig(ctx, threadID, binding)
+	offline, err := s.buildOfflineConfigRecord(ctx, threadID, binding)
 	if err != nil {
 		return dto.ThreadConfig{}, false, err
 	}
 	return offline.Config, true, nil
 }
 
-func (s *service) offlineRuntimeConfigForMissingSession(
+func (s *service) offlineRuntimeConfigForMissingSessionRecord(
 	ctx context.Context,
 	threadID string,
-	binding *bindingstore.Binding,
+	binding *threadBindingRecord,
 	resolveErr error,
 ) (map[string]any, bool, error) {
 	if !errors.Is(resolveErr, contract.ErrSessionNotFound) {
 		return nil, false, nil
 	}
 	if binding == nil {
-		resolvedBinding, err := s.resolveBinding(ctx, threadID)
+		resolvedBinding, err := s.resolveThreadBindingRecord(ctx, threadID)
 		if err != nil {
 			return nil, false, err
 		}
 		binding = resolvedBinding
 	}
-	offline, err := s.buildOfflineConfig(ctx, threadID, binding)
+	offline, err := s.buildOfflineConfigRecord(ctx, threadID, binding)
 	if err != nil {
 		return nil, false, err
 	}
@@ -285,7 +284,7 @@ func (s *service) SetConfig(ctx context.Context, threadID string, patch dto.Thre
 	if err != nil {
 		return dto.ThreadConfig{}, err
 	}
-	provider := bindingProvider(binding)
+	provider := bindingRecordProvider(threadBindingRecordFromStore(binding))
 	patch, err = normalizeThreadConfigPatch(ctx, session, provider, patch)
 	if err != nil {
 		return dto.ThreadConfig{}, err
@@ -318,7 +317,7 @@ func (s *service) SetModel(ctx context.Context, threadID, rawModel string) (dto.
 	if err != nil {
 		return dto.ThreadConfig{}, err
 	}
-	provider := bindingProvider(binding)
+	provider := bindingRecordProvider(threadBindingRecordFromStore(binding))
 	model, err := validateModelName(rawModel)
 	if err != nil {
 		return dto.ThreadConfig{}, err

@@ -8,7 +8,6 @@ import (
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
-	bindingstore "github.com/anthropic-ai/super-agent-v3/internal/store/binding"
 )
 
 type serviceThreadListerAdapter struct {
@@ -187,18 +186,19 @@ func (s *service) activeProviderThreadNameSession(agentID string) (contract.Sess
 }
 
 func (s *service) providerThreadNameTargetID(ctx context.Context, threadID, agentID string) (string, error) {
-	binding, err := s.providerThreadNameBinding(ctx, agentID)
+	binding, err := s.providerThreadNameBindingRecord(ctx, agentID)
 	if err != nil {
 		return "", err
 	}
-	return historyTargetID(binding, threadID), nil
+	return historyTargetIDRecord(binding, threadID), nil
 }
 
-func (s *service) providerThreadNameBinding(ctx context.Context, agentID string) (*bindingstore.Binding, error) {
-	if s == nil || s.bindingStore == nil {
+func (s *service) providerThreadNameBindingRecord(ctx context.Context, agentID string) (*threadBindingRecord, error) {
+	store := s.threadBindingStorePort()
+	if store == nil {
 		return nil, errors.New("thread/name/set: binding store is not configured")
 	}
-	binding, err := s.bindingStore.GetByAgentID(ctx, strings.TrimSpace(agentID))
+	binding, err := store.GetByAgentID(ctx, strings.TrimSpace(agentID))
 	if err != nil {
 		return nil, fmt.Errorf("thread/name/set: provider binding lookup failed: %w", err)
 	}

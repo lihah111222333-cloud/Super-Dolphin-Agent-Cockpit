@@ -12,15 +12,10 @@ import (
 	shareddto "github.com/anthropic-ai/super-agent-v3/internal/dto/shared"
 	threaddto "github.com/anthropic-ai/super-agent-v3/internal/dto/thread"
 	platformobs "github.com/anthropic-ai/super-agent-v3/internal/platform/observability"
+	"github.com/anthropic-ai/super-agent-v3/internal/util"
 	"github.com/anthropic-ai/super-agent-v3/internal/util/idempotency"
 	"github.com/anthropic-ai/super-agent-v3/internal/util/identifier"
 	"github.com/anthropic-ai/super-agent-v3/internal/util/safego"
-
-	bindingstore "github.com/anthropic-ai/super-agent-v3/internal/store/binding"
-	promptstore "github.com/anthropic-ai/super-agent-v3/internal/store/prompt"
-	sharedfilestore "github.com/anthropic-ai/super-agent-v3/internal/store/sharedfile"
-	threadstore "github.com/anthropic-ai/super-agent-v3/internal/store/thread"
-	"github.com/anthropic-ai/super-agent-v3/internal/util"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 	"github.com/kelindar/event"
 )
@@ -44,9 +39,9 @@ type sessionGenerationRemover interface {
 
 type service struct {
 	logger         *slog.Logger
-	threadStore    threadstore.Store
-	bindingStore   bindingstore.Store
-	sharedFiles    sharedfilestore.Store
+	threadStore    threadServiceStorePort
+	bindingStore   bindingServiceStorePort
+	sharedFiles    sharedFileServiceStorePort
 	sessions       SessionProvider
 	starter        SessionStarter
 	promptAssembly contract.PromptAssemblyService
@@ -81,9 +76,9 @@ type service struct {
 	resumeInFlight, resumeBlocked, sessionRecoveryCount sync.Map
 
 	// promptStore 是可选写路径；未装配时 thread/start 不注入路由 prompt，由 provider 使用自身默认提示词。
-	promptStore promptstore.Store
+	promptStore promptServiceStorePort
 	// promptCatalog 是运行时读路径，会合并内置模板和数据库模板；promptStore 只负责 snapshot 写入。
-	promptCatalog promptstore.RuntimePromptCatalog
+	promptCatalog promptServiceCatalogPort
 
 	// matchWhenEval 用当前 BuildCtx 评估 prompt_template.match_when。
 	// 由构造层注入以避免 thread 直接依赖 prompt 包；为 nil 时自动路由会跳过表达式评估。
@@ -141,7 +136,7 @@ func (s *service) ListByStatus(ctx context.Context, status string) ([]Ref, error
 	if want == "" {
 		return s.List(ctx)
 	}
-	return s.listThreads(ctx, func(thread threadstore.Thread) bool {
+	return s.listThreads(ctx, func(thread threadStoreRecord) bool {
 		return strings.EqualFold(strings.TrimSpace(thread.Status), want)
 	})
 }
@@ -149,7 +144,7 @@ func (s *service) ListByStatus(ctx context.Context, status string) ([]Ref, error
 // ListByCWD 按 CWD 前缀过滤线程，供 UI 缩小当前项目线程列表。
 func (s *service) ListByCWD(ctx context.Context, cwdPrefix string) ([]Ref, error) {
 	prefix := strings.TrimSpace(cwdPrefix)
-	return s.listThreads(ctx, func(thread threadstore.Thread) bool {
+	return s.listThreads(ctx, func(thread threadStoreRecord) bool {
 		return prefix == "" || strings.HasPrefix(strings.TrimSpace(thread.Cwd), prefix)
 	})
 }
@@ -213,7 +208,7 @@ func (s *service) Delete(ctx context.Context, threadID string) error {
 func (s *service) resolveDeleteBinding(
 	ctx context.Context,
 	threadID string,
-) (*bindingstore.Binding, bool, error) {
+) (*bindingStoreRecord, bool, error) {
 	if s.bindingStore == nil {
 		return nil, false, nil
 	}
@@ -233,7 +228,7 @@ func (s *service) resolveDeleteBinding(
 func (s *service) deletePendingLaunchThread(
 	ctx context.Context,
 	threadID string,
-	binding *bindingstore.Binding,
+	binding *bindingStoreRecord,
 ) (bool, error) {
 	if binding != nil {
 		return false, nil
@@ -267,7 +262,7 @@ func (s *service) deletePendingLaunchThread(
 func (s *service) deleteThreadRuntime(
 	ctx context.Context,
 	stopState threadStopState,
-	binding *bindingstore.Binding,
+	binding *bindingStoreRecord,
 ) error {
 	if binding == nil {
 		return nil
@@ -276,7 +271,7 @@ func (s *service) deleteThreadRuntime(
 }
 
 // deleteThreadBinding 从 binding store 删除 agent 关联记录。
-func (s *service) deleteThreadBinding(ctx context.Context, binding *bindingstore.Binding) error {
+func (s *service) deleteThreadBinding(ctx context.Context, binding *bindingStoreRecord) error {
 	if s.bindingStore == nil || binding == nil {
 		return nil
 	}
@@ -288,7 +283,7 @@ func (s *service) deleteThreadState(
 	ctx context.Context,
 	threadID string,
 	stopState threadStopState,
-	binding *bindingstore.Binding,
+	binding *bindingStoreRecord,
 ) error {
 	s.cleanupThreadScratchpad(ctx, threadID, binding)
 	s.forgetThreadAgents(stopState.targets...)
@@ -312,7 +307,7 @@ func (s *service) forgetThreadAgents(threadIDs ...string) {
 
 // listThreads 从 thread store 读取列表并应用可选过滤器。
 // 过滤只影响返回结果，不改变 store 状态；store 未装配时直接报错。
-func (s *service) listThreads(ctx context.Context, filter func(threadstore.Thread) bool) ([]Ref, error) {
+func (s *service) listThreads(ctx context.Context, filter func(threadStoreRecord) bool) ([]Ref, error) {
 	if s.threadStore == nil {
 		return nil, errors.New("thread store is not configured")
 	}
@@ -331,7 +326,7 @@ func (s *service) listThreads(ctx context.Context, filter func(threadstore.Threa
 }
 
 // getThread 按 threadID 从 store 读取单条记录。
-func (s *service) getThread(ctx context.Context, threadID string) (*threadstore.Thread, error) {
+func (s *service) getThread(ctx context.Context, threadID string) (*threadStoreRecord, error) {
 	id, err := normalizeThreadID(threadID)
 	if err != nil {
 		return nil, err
@@ -343,7 +338,7 @@ func (s *service) getThread(ctx context.Context, threadID string) (*threadstore.
 }
 
 // upsertThread 将线程记录写入 store，线程 store 未配置时报错。
-func (s *service) upsertThread(ctx context.Context, thread threadstore.Thread) error {
+func (s *service) upsertThread(ctx context.Context, thread threadStoreRecord) error {
 	if s.threadStore == nil {
 		return errors.New("thread store is not configured")
 	}
@@ -359,7 +354,7 @@ func (s *service) updateThreadStatus(ctx context.Context, threadID, status strin
 	if s.threadStore == nil {
 		return errors.New("thread store is not configured")
 	}
-	return s.threadStore.UpdateStatus(ctx, threadstore.UpdateStatusParams{
+	return s.threadStore.UpdateStatus(ctx, threadStoreStatusUpdate{
 		ThreadID:  id,
 		Status:    strings.TrimSpace(status),
 		UpdatedAt: time.Now().Unix(),
@@ -367,7 +362,7 @@ func (s *service) updateThreadStatus(ctx context.Context, threadID, status strin
 }
 
 // resolveBinding 按 threadID 解析 binding，通过多路径回退查找对应 agent。
-func (s *service) resolveBinding(ctx context.Context, threadID string) (*bindingstore.Binding, error) {
+func (s *service) resolveBinding(ctx context.Context, threadID string) (*bindingStoreRecord, error) {
 	id, err := normalizeThreadID(threadID)
 	if err != nil {
 		return nil, err
@@ -379,7 +374,7 @@ func (s *service) resolveBinding(ctx context.Context, threadID string) (*binding
 }
 
 // resolveSession 按 threadID 解析 binding 并从 session provider 获取 session。
-func (s *service) resolveSession(ctx context.Context, threadID string) (contract.Session, *bindingstore.Binding, error) {
+func (s *service) resolveSession(ctx context.Context, threadID string) (contract.Session, *bindingStoreRecord, error) {
 	binding, err := s.resolveBinding(ctx, threadID)
 	if err != nil {
 		return nil, nil, err
@@ -418,11 +413,11 @@ func (s *service) enrichRefIdentity(ctx context.Context, ref *Ref) {
 	}
 }
 
-func resolvedProviderThreadID(binding *bindingstore.Binding) string {
+func resolvedProviderThreadID(binding *bindingStoreRecord) string {
 	return recoverableBindingProviderThreadID(binding)
 }
 
-func resolvedSessionID(binding *bindingstore.Binding) string {
+func resolvedSessionID(binding *bindingStoreRecord) string {
 	if binding == nil {
 		return ""
 	}
@@ -572,7 +567,7 @@ func (s *service) setBindingArchived(ctx context.Context, threadID string, archi
 	if err != nil {
 		return err
 	}
-	return s.bindingStore.SetArchived(ctx, bindingstore.SetArchivedParams{
+	return s.bindingStore.SetArchived(ctx, bindingStoreArchiveUpdate{
 		AgentID:   strings.TrimSpace(binding.AgentID),
 		Archived:  archived,
 		UpdatedAt: time.Now().Unix(),

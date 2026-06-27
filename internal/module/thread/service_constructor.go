@@ -7,10 +7,6 @@ import (
 	threaddto "github.com/anthropic-ai/super-agent-v3/internal/dto/thread"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/bus"
 	platformobs "github.com/anthropic-ai/super-agent-v3/internal/platform/observability"
-	bindingstore "github.com/anthropic-ai/super-agent-v3/internal/store/binding"
-	promptstore "github.com/anthropic-ai/super-agent-v3/internal/store/prompt"
-	sharedfilestore "github.com/anthropic-ai/super-agent-v3/internal/store/sharedfile"
-	threadstore "github.com/anthropic-ai/super-agent-v3/internal/store/thread"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 	"github.com/kelindar/event"
 )
@@ -19,8 +15,8 @@ import (
 // 该入口只装配 store、session、starter、turn 清理和 orchestration，适合不需要 prompt assembly 的测试或轻量运行时。
 func NewService(
 	logger *slog.Logger,
-	threadStore threadstore.Store,
-	bindingStore bindingstore.Store,
+	threadStore threadServiceStorePort,
+	bindingStore bindingServiceStorePort,
 	sessions SessionProvider,
 	starter SessionStarter,
 	turns contract.TurnThreadCleaner,
@@ -34,8 +30,8 @@ func NewService(
 // 它额外接入配置和工具 registry，使 thread/start 可以把 prompt、MCP 和工具上下文交给 prompt 模块组装。
 func NewServiceWithPromptAssembly(
 	logger *slog.Logger,
-	threadStore threadstore.Store,
-	bindingStore bindingstore.Store,
+	threadStore threadServiceStorePort,
+	bindingStore bindingServiceStorePort,
 	sessions SessionProvider,
 	starter SessionStarter,
 	turns contract.TurnThreadCleaner,
@@ -52,9 +48,9 @@ func NewServiceWithPromptAssembly(
 // 除 prompt assembly 外，它还接入 shared files、runtime prompt catalog、match/enable_when 评估器和可选 tracing。
 func NewServiceWithPromptAssemblyAndSharedFiles(
 	logger *slog.Logger,
-	threadStore threadstore.Store,
-	bindingStore bindingstore.Store,
-	sharedFiles sharedfilestore.Store,
+	threadStore threadServiceStorePort,
+	bindingStore bindingServiceStorePort,
+	sharedFiles sharedFileServiceStorePort,
 	sessions SessionProvider,
 	starter SessionStarter,
 	turns contract.TurnThreadCleaner,
@@ -64,8 +60,8 @@ func NewServiceWithPromptAssemblyAndSharedFiles(
 	cfg *contract.Config,
 	toolRegistry contract.ToolRegistry,
 	mcpServers contract.MCPServerConfigProvider,
-	promptStore promptstore.Store,
-	promptCatalog promptstore.RuntimePromptCatalog,
+	promptStore promptServiceStorePort,
+	promptCatalog promptServiceCatalogPort,
 	matchWhenEval contract.MatchWhenEvaluator,
 	enableWhenEval contract.EnableWhenEvaluator,
 	tracingOpt ...*platformobs.Service,
@@ -81,9 +77,9 @@ func NewServiceWithPromptAssemblyAndSharedFiles(
 // 构造阶段会创建事件 emitter、后台 worker 和进程内缓存；外层构造器只负责选择依赖集合。
 func newService(
 	logger *slog.Logger,
-	threadStore threadstore.Store,
-	bindingStore bindingstore.Store,
-	sharedFiles sharedfilestore.Store,
+	threadStore threadServiceStorePort,
+	bindingStore bindingServiceStorePort,
+	sharedFiles sharedFileServiceStorePort,
 	sessions SessionProvider,
 	starter SessionStarter,
 	turns contract.TurnThreadCleaner,
@@ -93,8 +89,8 @@ func newService(
 	cfg *contract.Config,
 	toolRegistry contract.ToolRegistry,
 	mcpServers contract.MCPServerConfigProvider,
-	promptStore promptstore.Store,
-	promptCatalog promptstore.RuntimePromptCatalog,
+	promptStore promptServiceStorePort,
+	promptCatalog promptServiceCatalogPort,
 	matchWhenEval contract.MatchWhenEvaluator,
 	enableWhenEval contract.EnableWhenEvaluator,
 	tracing *platformobs.Service,

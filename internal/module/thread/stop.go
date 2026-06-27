@@ -7,7 +7,6 @@ import (
 	"strings"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
-	bindingstore "github.com/anthropic-ai/super-agent-v3/internal/store/binding"
 	"github.com/anthropic-ai/super-agent-v3/internal/util"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
@@ -15,10 +14,10 @@ import (
 // threadStopState 是停止线程时一次性计算出的运行时和持久化目标。
 // Stop 后续步骤复用这份快照，避免停止过程中 binding/thread 状态变化导致清理目标前后不一致。
 type threadStopState struct {
-	agentID   string                // 运行时 agent id
-	stoppedID string                // 写回 stopped 状态的 thread id
-	targets   []string              // 需要清理 turn/thread-agent 缓存的全部 thread id
-	binding   *bindingstore.Binding // 当前 thread 对应的 provider binding
+	agentID   string                    // 运行时 agent id
+	stoppedID string                    // 写回 stopped 状态的 thread id
+	targets   []string                  // 需要清理 turn/thread-agent 缓存的全部 thread id
+	binding   *threadBindingStoreRecord // 当前 thread 对应的 provider binding
 }
 
 // errResumeLifecycleBlocked 标记恢复请求被停止/归档生命周期阻断。
@@ -77,7 +76,7 @@ func (s *service) resetSessionRecoveryForThread(ctx context.Context, threadID st
 func (s *service) resumeLifecycleBlockReason(
 	ctx context.Context,
 	threadID string,
-	binding *bindingstore.Binding,
+	binding *threadBindingStoreRecord,
 ) (string, bool) {
 	binding = s.resolveResumeLifecycleBinding(ctx, threadID, binding)
 	if reason, blocked := s.resumeAgentLifecycleBlock(threadID, binding); blocked {
@@ -94,8 +93,8 @@ func (s *service) resumeLifecycleBlockReason(
 func (s *service) resolveResumeLifecycleBinding(
 	ctx context.Context,
 	threadID string,
-	binding *bindingstore.Binding,
-) *bindingstore.Binding {
+	binding *threadBindingStoreRecord,
+) *threadBindingStoreRecord {
 	if s == nil || binding != nil || s.bindingStore == nil {
 		return binding
 	}
@@ -108,7 +107,7 @@ func (s *service) resolveResumeLifecycleBinding(
 
 // resumeAgentLifecycleBlock 检查指定 agent 是否处于进程内停止阻断状态。
 // 停止流程先写入该标记，后台恢复看到后必须跳过，避免刚停止的 session 被重新拉起。
-func (s *service) resumeAgentLifecycleBlock(threadID string, binding *bindingstore.Binding) (string, bool) {
+func (s *service) resumeAgentLifecycleBlock(threadID string, binding *threadBindingStoreRecord) (string, bool) {
 	if s == nil {
 		return "", false
 	}
@@ -143,13 +142,14 @@ func resumeLifecycleStatusBlock(status string) (string, bool) {
 func (s *service) resumeLifecycleThreadStatus(
 	ctx context.Context,
 	threadID string,
-	binding *bindingstore.Binding,
+	binding *threadBindingStoreRecord,
 ) (string, bool) {
-	if s == nil || s.threadStore == nil {
+	store := s.threadConfigStorePort()
+	if store == nil {
 		return "", false
 	}
 	for _, id := range resumeLifecycleThreadIDs(threadID, binding) {
-		thread, err := s.threadStore.GetByThreadID(ctx, id)
+		thread, err := store.GetByThreadID(ctx, id)
 		if err != nil || thread == nil {
 			continue
 		}
@@ -160,7 +160,7 @@ func (s *service) resumeLifecycleThreadStatus(
 
 // resumeLifecycleThreadIDs 生成恢复生命周期检查需要查询的候选 thread id。
 // binding 里的 CodexThreadID 和 AgentID 都可能承载旧会话索引，必须一起检查。
-func resumeLifecycleThreadIDs(threadID string, binding *bindingstore.Binding) []string {
+func resumeLifecycleThreadIDs(threadID string, binding *threadBindingStoreRecord) []string {
 	candidates := []string{strings.TrimSpace(threadID)}
 	if binding != nil {
 		candidates = append(candidates,
@@ -226,7 +226,8 @@ func (s *service) Stop(ctx context.Context, threadID string) error {
 
 // stopPendingLaunchThread 停止待处理启动线程。
 func (s *service) stopPendingLaunchThread(ctx context.Context, threadID string) (bool, error) {
-	if s.threadStore == nil {
+	store := s.threadConfigStorePort()
+	if store == nil {
 		return false, nil
 	}
 	trimmed := strings.TrimSpace(threadID)
@@ -236,7 +237,7 @@ func (s *service) stopPendingLaunchThread(ctx context.Context, threadID string) 
 	mu := s.acquirePendingLaunchLock(trimmed)
 	mu.Lock()
 	defer mu.Unlock()
-	row, err := s.threadStore.GetByThreadID(ctx, trimmed)
+	row, err := store.GetByThreadID(ctx, trimmed)
 	if err != nil {
 		return false, err
 	}
@@ -263,7 +264,7 @@ func (s *service) resolveThreadStopState(ctx context.Context, threadID string) (
 
 // newThreadStopState 从 binding 和请求 thread id 推导停止目标。
 // stoppedID 用于状态写回，targets 用于缓存/turn 清理，二者不能混用。
-func newThreadStopState(binding *bindingstore.Binding, threadID string) threadStopState {
+func newThreadStopState(binding *threadBindingStoreRecord, threadID string) threadStopState {
 	return threadStopState{
 		agentID:   strings.TrimSpace(bindingAgentID(binding)),
 		stoppedID: stoppedThreadID(binding, threadID),
@@ -328,7 +329,7 @@ func (s *service) interruptStoppingThread(ctx context.Context, agentID, source s
 	}
 }
 
-func bindingAgentID(binding *bindingstore.Binding) string {
+func bindingAgentID(binding *threadBindingStoreRecord) string {
 	if binding == nil {
 		return ""
 	}
@@ -370,7 +371,7 @@ func (s *service) cleanupThreadTurns(ctx context.Context, reason string, threadI
 	}
 }
 
-func stopThreadTargets(binding *bindingstore.Binding, threadID string) []string {
+func stopThreadTargets(binding *threadBindingStoreRecord, threadID string) []string {
 	if binding == nil {
 		return uniqueThreadIDs(threadID)
 	}
@@ -382,7 +383,7 @@ func stopThreadTargets(binding *bindingstore.Binding, threadID string) []string 
 	)
 }
 
-func stoppedThreadID(binding *bindingstore.Binding, threadID string) string {
+func stoppedThreadID(binding *threadBindingStoreRecord, threadID string) string {
 	if binding == nil {
 		return strings.TrimSpace(threadID)
 	}

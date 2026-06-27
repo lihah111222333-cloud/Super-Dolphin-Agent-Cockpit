@@ -10,7 +10,6 @@ import (
 	"unicode"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
-	bindingstore "github.com/anthropic-ai/super-agent-v3/internal/store/binding"
 	"github.com/anthropic-ai/super-agent-v3/internal/util"
 )
 
@@ -139,15 +138,15 @@ func isManagedScratchpadDir(dir string) bool {
 	return rel != "." && rel != "" && !strings.HasPrefix(rel, "..")
 }
 
-func (s *service) cleanupThreadScratchpad(ctx context.Context, threadID string, binding *bindingstore.Binding) {
-	dir := s.threadScratchpadDir(ctx, threadID, binding)
+func (s *service) cleanupThreadScratchpadRecord(ctx context.Context, threadID string, binding *threadBindingRecord) {
+	dir := s.threadScratchpadDirRecord(ctx, threadID, binding)
 	if err := cleanupManagedScratchpadDir(dir); err != nil && s.logger != nil {
 		s.logger.Warn("thread scratchpad cleanup failed", "thread_id", threadID, "scratchpad_dir", dir, "error", err)
 	}
 }
 
-func (s *service) threadScratchpadDir(ctx context.Context, threadID string, binding *bindingstore.Binding) string {
-	offline, err := s.buildOfflineConfig(ctx, threadID, binding)
+func (s *service) threadScratchpadDirRecord(ctx context.Context, threadID string, binding *threadBindingRecord) string {
+	offline, err := s.buildOfflineConfigRecord(ctx, threadID, binding)
 	if err != nil {
 		return ""
 	}

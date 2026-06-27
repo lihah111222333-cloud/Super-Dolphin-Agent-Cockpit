@@ -12,7 +12,6 @@ import (
 	"time"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/module/skill/ownerperms"
-	auditstore "github.com/anthropic-ai/super-agent-v3/internal/store/auditlog"
 )
 
 const (
@@ -21,6 +20,25 @@ const (
 	personalSkillRecoveryRecordFile  = ".super-dolphin-skill-recovery.json"
 	personalSkillRecoverySnapshotDir = ".super-dolphin-recovery-snapshot"
 )
+
+// skillMutationAuditStore 是 skill 模块写审计事件需要的最小端口。
+// 生产装配在 module.go 里适配 auditlog store，避免业务实现直接依赖 store 包。
+type skillMutationAuditStore interface {
+	Insert(context.Context, skillMutationAuditEntry) error
+}
+
+// skillMutationAuditEntry 是 skill 模块内部审计写入 DTO。
+// 字段保持与 auditlog 入库面一一对应，但不向业务实现暴露 store 包类型。
+type skillMutationAuditEntry struct {
+	EventType string
+	Action    string
+	Result    string
+	Actor     string
+	Target    string
+	Detail    string
+	Level     string
+	Extra     json.RawMessage
+}
 
 type personalSkillArchiveRecord struct {
 	ArchiveID     string `json:"archive_id"`
@@ -331,7 +349,7 @@ func (s *service) writeSkillMutationAudit(ctx context.Context, action string, re
 		return err
 	}
 	actor, target, detail := skillMutationAuditFields(record)
-	return s.auditStore.Insert(ctx, auditstore.InsertParams{
+	return s.auditStore.Insert(ctx, skillMutationAuditEntry{
 		EventType: skillMutationAuditEventType,
 		Action:    action,
 		Result:    skillMutationAuditResult(action),

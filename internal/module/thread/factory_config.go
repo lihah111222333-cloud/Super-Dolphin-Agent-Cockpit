@@ -3,6 +3,7 @@ package thread
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"sort"
 	"strings"
@@ -15,8 +16,6 @@ import (
 	threaddto "github.com/anthropic-ai/super-agent-v3/internal/dto/thread"
 	platformbus "github.com/anthropic-ai/super-agent-v3/internal/platform/bus"
 	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
-	bindingstore "github.com/anthropic-ai/super-agent-v3/internal/store/binding"
-	threadstore "github.com/anthropic-ai/super-agent-v3/internal/store/thread"
 	"github.com/anthropic-ai/super-agent-v3/internal/util"
 	"github.com/anthropic-ai/super-agent-v3/internal/util/clone"
 	"github.com/kelindar/event"
@@ -52,18 +51,18 @@ type offlineConfigSnapshot struct {
 	Runtime map[string]any
 }
 
-// buildOfflineConfig 读取持久化线程配置和 binding，拼出无活跃 session 时 UI 可展示的配置快照。
+// buildOfflineConfigRecord 读取持久化线程配置和 binding，拼出无活跃 session 时 UI 可展示的配置快照。
 // 线程和 binding 都不存在时返回 not found；配置 JSON 损坏会直接报错，避免展示静默兜底值。
-func (s *service) buildOfflineConfig(
+func (s *service) buildOfflineConfigRecord(
 	ctx context.Context,
 	threadID string,
-	binding *bindingstore.Binding,
+	binding *threadBindingRecord,
 ) (offlineConfigSnapshot, error) {
 	id, err := normalizeThreadID(threadID)
 	if err != nil {
 		return offlineConfigSnapshot{}, err
 	}
-	thread, err := s.loadOfflineThread(ctx, id)
+	thread, err := s.loadOfflineThreadRecord(ctx, id)
 	if err != nil {
 		return offlineConfigSnapshot{}, err
 	}
@@ -95,14 +94,15 @@ func (s *service) buildOfflineConfig(
 	}, nil
 }
 
-func (s *service) loadOfflineThread(
+func (s *service) loadOfflineThreadRecord(
 	ctx context.Context,
 	threadID string,
-) (*threadstore.Thread, error) {
-	if s.threadStore == nil {
+) (*threadConfigRecord, error) {
+	store := s.threadConfigStorePort()
+	if store == nil {
 		return nil, nil
 	}
-	thread, err := s.threadStore.GetByThreadID(ctx, threadID)
+	thread, err := store.GetByThreadID(ctx, threadID)
 	switch {
 	case err == nil:
 		return thread, nil
@@ -114,7 +114,7 @@ func (s *service) loadOfflineThread(
 }
 
 // buildOfflineRuntimeConfig 构建offline运行时配置。
-func buildOfflineRuntimeConfig(stored storedThreadConfig, thread *threadstore.Thread, binding *bindingstore.Binding) map[string]any {
+func buildOfflineRuntimeConfig(stored storedThreadConfig, thread *threadConfigRecord, binding *threadBindingRecord) map[string]any {
 	cfg := map[string]any{
 		"approvalPolicy": offlineApprovalPolicy,
 		"toolRouting": map[string]any{
@@ -195,7 +195,7 @@ func cleanResumeStringList(value any) []string {
 	return out
 }
 
-func offlineThreadProvider(binding *bindingstore.Binding) string {
+func offlineThreadProvider(binding *threadBindingRecord) string {
 	if binding == nil {
 		return offlineProvider
 	}
@@ -211,14 +211,14 @@ func supportsThreadOverride(provider string) bool {
 	}
 }
 
-func offlineThreadModel(thread *threadstore.Thread) string {
+func offlineThreadModel(thread *threadConfigRecord) string {
 	if thread == nil {
 		return ""
 	}
 	return strings.TrimSpace(thread.Model)
 }
 
-func offlineThreadConfigRaw(thread *threadstore.Thread) json.RawMessage {
+func offlineThreadConfigRaw(thread *threadConfigRecord) json.RawMessage {
 	if thread == nil {
 		return nil
 	}
@@ -395,7 +395,7 @@ func (s *service) emitThreadModelUpdated(threadID string, model *string) {
 func (s *service) normalizeThreadConfig(
 	ctx context.Context,
 	threadID string,
-	binding *bindingstore.Binding,
+	binding *threadBindingRecord,
 	cfg dto.ThreadConfig,
 ) dto.ThreadConfig {
 	cfg.ThreadID = util.FirstNonEmpty(strings.TrimSpace(cfg.ThreadID), strings.TrimSpace(threadID))
@@ -423,19 +423,23 @@ func decodeLegacyParams[T any](raw []byte, target *T, legacyFn func([]byte, *T) 
 
 // resolveBindingChain 按多路索引恢复线程 binding。
 // 顺序是直接 agent_id、持久化/进程记忆的 agent_id、provider_thread_id；只有确认线程记录也缺失时才返回原始 not found。
-func (s *service) resolveBindingChain(ctx context.Context, threadID string) (*bindingstore.Binding, error) {
-	binding, err := s.bindingStore.GetByAgentID(ctx, threadID)
+func (s *service) resolveBindingChainRecord(ctx context.Context, threadID string) (*threadBindingRecord, error) {
+	store := s.threadBindingStorePort()
+	if store == nil {
+		return nil, errors.New("binding store is not configured")
+	}
+	binding, err := store.GetByAgentID(ctx, threadID)
 	switch {
 	case err == nil:
-		return s.rememberBinding(binding), err
+		return s.rememberBindingRecord(binding), err
 	case !platformdb.IsNotFound(err):
 		return nil, err
 	}
-	binding, threadMissing, missingErr, lookupErr := s.bindingByPersistedOrRememberedAgent(ctx, threadID)
+	binding, threadMissing, missingErr, lookupErr := s.bindingByPersistedOrRememberedAgentRecord(ctx, threadID)
 	if binding != nil || lookupErr != nil {
 		return binding, lookupErr
 	}
-	if binding, lookupErr := s.bindingByProviderThreadID(ctx, threadID); binding != nil || lookupErr != nil {
+	if binding, lookupErr := s.bindingByProviderThreadIDRecord(ctx, threadID); binding != nil || lookupErr != nil {
 		return binding, lookupErr
 	}
 	if threadMissing {
@@ -445,31 +449,36 @@ func (s *service) resolveBindingChain(ctx context.Context, threadID string) (*bi
 }
 
 // bindingByPersistedOrRememberedAgent 优先用持久化 agent 绑定查找，缺失时回退到内存记忆的 agent。
-func (s *service) bindingByPersistedOrRememberedAgent(ctx context.Context, threadID string) (*bindingstore.Binding, bool, error, error) {
+func (s *service) bindingByPersistedOrRememberedAgentRecord(ctx context.Context, threadID string) (*threadBindingRecord, bool, error, error) {
 	persistedAgentID, persistedFound, missingErr := s.lookupPersistedAgentID(ctx, threadID)
 	if missingErr != nil && !platformdb.IsNotFound(missingErr) {
 		return nil, false, nil, missingErr
 	}
 	if persistedFound {
-		if binding, lookupErr := s.bindingByResolvedAgentID(ctx, threadID, persistedAgentID); binding != nil || lookupErr != nil {
+		if binding, lookupErr := s.bindingByResolvedAgentIDRecord(ctx, threadID, persistedAgentID); binding != nil || lookupErr != nil {
 			return binding, false, nil, lookupErr
 		}
 	}
-	binding, lookupErr := s.bindingByResolvedAgentID(ctx, threadID, s.lookupThreadAgent(threadID))
+	binding, lookupErr := s.bindingByResolvedAgentIDRecord(ctx, threadID, s.lookupThreadAgent(threadID))
 	if platformdb.IsNotFound(missingErr) && platformdb.IsNotFound(lookupErr) {
 		lookupErr = nil
 	}
 	return binding, platformdb.IsNotFound(missingErr), missingErr, lookupErr
 }
 
-func (s *service) bindingByResolvedAgentID(ctx context.Context, threadID, agentID string) (*bindingstore.Binding, error) {
+// bindingByResolvedAgentIDRecord 用解析出的 agent id 查 binding；查不到要返回带 thread 上下文的错误。
+func (s *service) bindingByResolvedAgentIDRecord(ctx context.Context, threadID, agentID string) (*threadBindingRecord, error) {
 	if agentID == "" || agentID == threadID {
 		return nil, nil
 	}
-	binding, err := s.bindingStore.GetByAgentID(ctx, agentID)
+	store := s.threadBindingStorePort()
+	if store == nil {
+		return nil, errors.New("binding store is not configured")
+	}
+	binding, err := store.GetByAgentID(ctx, agentID)
 	switch {
 	case err == nil:
-		return s.rememberBinding(binding), nil
+		return s.rememberBindingRecord(binding), nil
 	case platformdb.IsNotFound(err):
 		return nil, fmt.Errorf("thread %q binding for resolved agent_id %q not found: %w", threadID, agentID, contract.ErrNotFound)
 	default:
@@ -477,17 +486,31 @@ func (s *service) bindingByResolvedAgentID(ctx context.Context, threadID, agentI
 	}
 }
 
-func (s *service) bindingByProviderThreadID(ctx context.Context, threadID string) (*bindingstore.Binding, error) {
+func (s *service) bindingByProviderThreadIDRecord(ctx context.Context, threadID string) (*threadBindingRecord, error) {
+	store := s.threadBindingStorePort()
+	if store == nil {
+		return nil, errors.New("binding store is not configured")
+	}
 	for _, provider := range []string{"codex", "claude"} {
-		binding, err := s.bindingStore.GetByProviderThread(ctx, provider, threadID)
+		binding, err := store.GetByProviderThread(ctx, provider, threadID)
 		switch {
 		case err == nil:
-			return s.rememberBinding(binding), nil
+			return s.rememberBindingRecord(binding), nil
 		case !platformdb.IsNotFound(err):
 			return nil, err
 		}
 	}
 	return nil, nil
+}
+
+func (s *service) rememberBindingRecord(binding *threadBindingRecord) *threadBindingRecord {
+	if binding != nil {
+		agentID := strings.TrimSpace(binding.AgentID)
+		for _, tid := range []string{binding.ProviderThreadID, binding.CodexThreadID, binding.AgentID} {
+			s.rememberThreadAgent(tid, agentID)
+		}
+	}
+	return binding
 }
 
 // NewThreadSubscribers 声明 thread 模块在总线上的订阅入口。

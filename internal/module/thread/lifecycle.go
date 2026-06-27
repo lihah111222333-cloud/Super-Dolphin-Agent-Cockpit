@@ -11,7 +11,6 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	platformobs "github.com/anthropic-ai/super-agent-v3/internal/platform/observability"
 
-	bindingstore "github.com/anthropic-ai/super-agent-v3/internal/store/binding"
 	"github.com/anthropic-ai/super-agent-v3/internal/util"
 	"github.com/anthropic-ai/super-agent-v3/internal/util/clone"
 	"github.com/anthropic-ai/super-agent-v3/internal/util/idempotency"
@@ -303,8 +302,8 @@ func (s *service) persistStartedSession(
 	if err := s.savePromptSnapshot(ctx, publicThreadID, assembly); err != nil {
 		err = idempotency.RetainOnError(err, s.stopAgent(ctx, agentID))
 		var cleanupErr error
-		if s.bindingStore != nil {
-			cleanupErr = errors.Join(cleanupErr, s.bindingStore.DeleteByAgentID(ctx, agentID))
+		if store := s.threadBindingStorePort(); store != nil {
+			cleanupErr = errors.Join(cleanupErr, store.DeleteByAgentID(ctx, agentID))
 		}
 		if s.threadStore != nil {
 			cleanupErr = errors.Join(cleanupErr, s.threadStore.DeleteByThreadID(ctx, publicThreadID))
@@ -524,16 +523,6 @@ func (s *service) lookupThreadMeta(ctx context.Context, threadID string) threadM
 
 func (s *service) stopAgent(ctx context.Context, agentID string) error {
 	return s.stopManagedAgent(ctx, strings.TrimSpace(agentID), true)
-}
-
-func (s *service) rememberBinding(binding *bindingstore.Binding) *bindingstore.Binding {
-	if binding != nil {
-		agentID := strings.TrimSpace(binding.AgentID)
-		for _, tid := range []string{binding.ProviderThreadID, binding.CodexThreadID, binding.AgentID} {
-			s.rememberThreadAgent(tid, agentID)
-		}
-	}
-	return binding
 }
 
 func (s *service) rememberThreadAgent(threadID, agentID string) {

@@ -12,8 +12,6 @@ import (
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
 	"github.com/anthropic-ai/super-agent-v3/internal/util/historyjsonl"
 
-	bindingstore "github.com/anthropic-ai/super-agent-v3/internal/store/binding"
-	threadstore "github.com/anthropic-ai/super-agent-v3/internal/store/thread"
 	"github.com/anthropic-ai/super-agent-v3/internal/util"
 	"github.com/anthropic-ai/super-agent-v3/internal/util/clone"
 	"github.com/anthropic-ai/super-agent-v3/internal/util/configutil"
@@ -74,10 +72,11 @@ func sessionRuntimeCodexIdentityConfig(session contract.Session) (map[string]any
 // injectParentCodexIdentityForStart 在子线程启动时继承父 agent 的 Codex 身份配置。
 func (s *service) injectParentCodexIdentityForStart(ctx context.Context, req StartRequest) StartRequest {
 	parentID := strings.TrimSpace(req.ParentAgentID)
-	if parentID == "" || s.bindingStore == nil {
+	store := s.threadBindingStorePort()
+	if parentID == "" || store == nil {
 		return req
 	}
-	parentBinding, err := s.bindingStore.GetByAgentID(ctx, parentID)
+	parentBinding, err := store.GetByAgentID(ctx, parentID)
 	if err != nil || parentBinding == nil {
 		if s.logger != nil {
 			s.logger.Warn("thread: child start parent codex identity lookup failed",
@@ -181,7 +180,7 @@ func validateResumeCodexIdentityPresentString(value any, present bool, key strin
 
 // injectParentCodexIdentity 将父 binding 的 Codex 身份补入子线程 runtime 配置。
 // 父级 home、instance key、model provider 任一缺失都不注入；调用方已显式设置的字段不会被覆盖。
-func injectParentCodexIdentity(cfg map[string]any, parent *bindingstore.Binding) (map[string]any, bool) {
+func injectParentCodexIdentity(cfg map[string]any, parent *threadBindingRecord) (map[string]any, bool) {
 	home := strings.TrimSpace(parent.CodexHome)
 	instanceKey := strings.TrimSpace(parent.CodexInstanceKey)
 	modelProvider := strings.TrimSpace(parent.CodexModelProvider)
@@ -247,14 +246,15 @@ func promptWorktreeSwitchRequiresInvalidation(prevCWD, nextCWD string, cfg *cont
 }
 
 func (s *service) lookupBindingCWD(ctx context.Context, agentID string) string {
-	if s.bindingStore == nil {
+	store := s.threadBindingStorePort()
+	if store == nil {
 		return ""
 	}
-	binding, err := s.bindingStore.GetByAgentID(ctx, strings.TrimSpace(agentID))
+	binding, err := store.GetByAgentID(ctx, strings.TrimSpace(agentID))
 	if err != nil || binding == nil {
 		return ""
 	}
-	s.rememberBinding(binding)
+	s.rememberBindingRecord(binding)
 	return strings.TrimSpace(binding.Cwd)
 }
 
@@ -353,7 +353,7 @@ func (s *service) recoverAgent(
 	return s.launchAgent(ctx, agentID, cwd, name, parentID, agentType, memoryScope, provider, model)
 }
 
-func bindingPublicThreadID(binding *bindingstore.Binding, fallback string) string {
+func bindingPublicThreadID(binding *threadBindingStoreRecord, fallback string) string {
 	if binding == nil {
 		return strings.TrimSpace(fallback)
 	}
@@ -374,7 +374,7 @@ func (s *service) maybeRegisterThreadBinding(
 	state threadState,
 	updateBinding bool,
 ) (bindingWriteOutcome, error) {
-	if !updateBinding || s.bindingStore == nil {
+	if !updateBinding || s.threadBindingStorePort() == nil {
 		return bindingWriteOutcome{}, nil
 	}
 	return s.registerThreadBinding(ctx, state)
@@ -404,7 +404,7 @@ func (s *service) upsertPublicThread(
 		return errors.New("thread: thread store is not configured")
 	}
 	displayName := strings.TrimSpace(util.FirstNonEmpty(state.Name, state.Prompt))
-	err := s.threadStore.Upsert(ctx, newThreadUpsertParams(threadstore.Thread{
+	err := s.upsertThread(ctx, threadConfigStoreRecord{
 		ThreadID:        state.PublicThreadID,
 		Name:            displayName,
 		Prompt:          displayName,
@@ -417,7 +417,7 @@ func (s *service) upsertPublicThread(
 		ConfigOverride:  clone.RawMessage(state.ConfigOverride),
 		AgentKey:        state.AgentKey,
 		PromptVersionID: state.PromptVersionID,
-	}))
+	})
 	if err == nil {
 		return nil
 	}
@@ -432,7 +432,7 @@ func (s *service) rememberStartedThread(state threadState) {
 	s.rememberThreadAgent(state.ProviderThreadID, state.AgentID)
 }
 
-func historyTargetID(binding *bindingstore.Binding, threadID string) string {
+func historyTargetID(binding *threadBindingStoreRecord, threadID string) string {
 	requestedID := strings.TrimSpace(threadID)
 	if binding == nil {
 		return requestedID
@@ -465,7 +465,7 @@ func recoverableProviderThreadID(provider, providerUUID, publicThreadID, rollout
 
 // recoverableBindingProviderThreadID 从 binding 中挑选可恢复的 provider thread UUID。
 // 只有 provider_thread_id 或 session_uuid 同时看起来是 UUID 且本地历史存在时才返回，防止 resume 指向不存在的 provider 历史。
-func recoverableBindingProviderThreadID(binding *bindingstore.Binding) string {
+func recoverableBindingProviderThreadID(binding *threadBindingStoreRecord) string {
 	if binding == nil {
 		return ""
 	}
@@ -481,7 +481,7 @@ func recoverableBindingProviderThreadID(binding *bindingstore.Binding) string {
 	return ""
 }
 
-func bindingHasProviderHistoryForUUID(binding *bindingstore.Binding, providerThreadID string) bool {
+func bindingHasProviderHistoryForUUID(binding *threadBindingStoreRecord, providerThreadID string) bool {
 	if binding == nil {
 		return false
 	}
@@ -500,7 +500,7 @@ func bindingHasProviderHistoryForUUID(binding *bindingstore.Binding, providerThr
 	return err == nil
 }
 
-func toRef(thread threadstore.Thread) Ref {
+func toRef(thread threadConfigStoreRecord) Ref {
 	name := strings.TrimSpace(util.FirstNonEmpty(thread.Name, thread.Prompt))
 	return Ref{
 		ID:        strings.TrimSpace(thread.ThreadID),
@@ -521,7 +521,7 @@ func normalizeThreadID(threadID string) (string, error) {
 	return "", errors.New("thread id is required")
 }
 
-func agentIDFromBinding(binding *bindingstore.Binding, fallback string) string {
+func agentIDFromBinding(binding *threadBindingStoreRecord, fallback string) string {
 	if binding != nil {
 		if agentID := strings.TrimSpace(binding.AgentID); agentID != "" {
 			return agentID
@@ -548,7 +548,7 @@ type messagePageReaderSession interface {
 	ReadMessagesPage(ctx context.Context, threadID string, req dto.MessagePageRequest) (dto.MessagePageResult, error)
 }
 
-func (s *service) readMessagesPageSource(ctx context.Context, threadID string, binding *bindingstore.Binding, req dto.MessagePageRequest) (dto.MessagePageResult, error) {
+func (s *service) readMessagesPageSource(ctx context.Context, threadID string, binding *threadBindingStoreRecord, req dto.MessagePageRequest) (dto.MessagePageResult, error) {
 	req.Limit = normalizeMessagesPageLimit(req.Limit)
 	req.Before = strings.TrimSpace(req.Before)
 	session, err := s.sessionForBinding(binding)
@@ -565,7 +565,7 @@ func (s *service) readMessagesPageSource(ctx context.Context, threadID string, b
 }
 
 // readMessagesPageFromSession 从会话读取消息page。
-func (s *service) readMessagesPageFromSession(ctx context.Context, threadID string, binding *bindingstore.Binding, session contract.Session, req dto.MessagePageRequest) (dto.MessagePageResult, error) {
+func (s *service) readMessagesPageFromSession(ctx context.Context, threadID string, binding *threadBindingStoreRecord, session contract.Session, req dto.MessagePageRequest) (dto.MessagePageResult, error) {
 	targetID := historyTargetID(binding, threadID)
 	if pager, ok := session.(messagePageReaderSession); ok {
 		return pager.ReadMessagesPage(ctx, targetID, req)
@@ -586,7 +586,7 @@ func (s *service) readMessagesPageFromSession(ctx context.Context, threadID stri
 }
 
 // readMessagesSource 读取消息source。
-func (s *service) readMessagesSource(ctx context.Context, threadID string, binding *bindingstore.Binding) ([]dto.Message, error) {
+func (s *service) readMessagesSource(ctx context.Context, threadID string, binding *threadBindingStoreRecord) ([]dto.Message, error) {
 	session, err := s.sessionForBinding(binding)
 	if err == nil && session != nil {
 		return session.ReadHistory(ctx, historyTargetID(binding, threadID), 0)
@@ -603,7 +603,7 @@ func (s *service) readMessagesSource(ctx context.Context, threadID string, bindi
 	return historyjsonl.ReadProviderMessagesOrError(req, err)
 }
 
-func readMessagesHistoryRequestForSession(threadID string, binding *bindingstore.Binding, session contract.Session) historyjsonl.ReadRequest {
+func readMessagesHistoryRequestForSession(threadID string, binding *threadBindingStoreRecord, session contract.Session) historyjsonl.ReadRequest {
 	req := historyjsonl.ReadRequest{ThreadID: strings.TrimSpace(threadID)}
 	if binding != nil {
 		sessionID := ""
@@ -622,7 +622,7 @@ func readMessagesHistoryRequestForSession(threadID string, binding *bindingstore
 	return req
 }
 
-func (s *service) sessionForBinding(binding *bindingstore.Binding) (contract.Session, error) {
+func (s *service) sessionForBinding(binding *threadBindingStoreRecord) (contract.Session, error) {
 	if binding == nil {
 		return nil, errors.New("thread binding is not configured")
 	}

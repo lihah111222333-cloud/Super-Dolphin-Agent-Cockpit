@@ -8,58 +8,7 @@ import (
 	"testing"
 )
 
-var moduleStoreImportAllowlist = map[string]map[string]string{
-	"internal/module/skill/personal_audit.go": {
-		internalPrefix("internal/store/auditlog"): "D01 legacy module-to-store import",
-	},
-	"internal/module/skill/service.go": {
-		internalPrefix("internal/store/auditlog"): "D01 legacy module-to-store import",
-	},
-	"internal/module/thread/command.go": {
-		internalPrefix("internal/store/binding"): "D01 legacy module-to-store import",
-	},
-	"internal/module/thread/contract_adapter.go": {
-		internalPrefix("internal/store/binding"): "D01 legacy module-to-store import",
-	},
-	"internal/module/thread/factory.go": {
-		internalPrefix("internal/store/thread"): "D01 legacy module-to-store import",
-	},
-	"internal/module/thread/factory_config.go": {
-		internalPrefix("internal/store/binding"): "D01 legacy module-to-store import",
-		internalPrefix("internal/store/thread"):  "D01 legacy module-to-store import",
-	},
-	"internal/module/thread/lifecycle.go": {
-		internalPrefix("internal/store/binding"): "D01 legacy module-to-store import",
-	},
-	"internal/module/thread/lifecycle_helpers.go": {
-		internalPrefix("internal/store/binding"): "D01 legacy module-to-store import",
-		internalPrefix("internal/store/thread"):  "D01 legacy module-to-store import",
-	},
-	"internal/module/thread/scratchpad.go": {
-		internalPrefix("internal/store/binding"): "D01 legacy module-to-store import",
-	},
-	"internal/module/thread/service.go": {
-		internalPrefix("internal/store/binding"):    "D01 legacy module-to-store import",
-		internalPrefix("internal/store/prompt"):     "D01 legacy module-to-store import",
-		internalPrefix("internal/store/sharedfile"): "D01 legacy module-to-store import",
-		internalPrefix("internal/store/thread"):     "D01 legacy module-to-store import",
-	},
-	"internal/module/thread/service_constructor.go": {
-		internalPrefix("internal/store/binding"):    "D01 legacy module-to-store import",
-		internalPrefix("internal/store/prompt"):     "D01 legacy module-to-store import",
-		internalPrefix("internal/store/sharedfile"): "D01 legacy module-to-store import",
-		internalPrefix("internal/store/thread"):     "D01 legacy module-to-store import",
-	},
-	"internal/module/thread/spawn.go": {
-		internalPrefix("internal/store/thread"): "D01 legacy module-to-store import",
-	},
-	"internal/module/thread/start_session_helpers.go": {
-		internalPrefix("internal/store/binding"): "D01 legacy module-to-store import",
-	},
-	"internal/module/thread/stop.go": {
-		internalPrefix("internal/store/binding"): "D01 legacy module-to-store import",
-	},
-}
+var moduleStoreImportAllowlist = map[string]map[string]string{}
 
 type moduleStoreImportCollection struct {
 	Legacy         []string
@@ -110,8 +59,8 @@ func TestCollectModuleStoreImports(t *testing.T) {
 	})
 }
 
-// assertModuleNoStoreImports 冻结 module 层现有 direct store import 面。
-// 新增未知 import、遗留 allowlist 漂移或超过预算都会失败；删除遗留 import 则允许继续推进解耦。
+// assertModuleNoStoreImports 阻断 module 非装配文件继续直接 import store。
+// 未登记 import 与过期 allowlist 都会失败；默认空 allowlist 代表目标违规面为零。
 func assertModuleNoStoreImports(t *testing.T, files []parsedFile) {
 	t.Helper()
 	collected := collectModuleStoreImports(files, moduleStoreImportAllowlist)
@@ -121,9 +70,6 @@ func assertModuleNoStoreImports(t *testing.T, files []parsedFile) {
 	}
 	if len(collected.StaleAllowlist) > 0 {
 		violations = append(violations, fmt.Sprintf("stale moduleStoreImportAllowlist entries (%d):\n%s", len(collected.StaleAllowlist), strings.Join(collected.StaleAllowlist, "\n")))
-	}
-	if len(collected.Legacy) > moduleStoreLegacyImportBudget {
-		violations = append(violations, fmt.Sprintf("legacy module store imports %d exceed budget %d", len(collected.Legacy), moduleStoreLegacyImportBudget))
 	}
 	failIfViolations(t, violations)
 }

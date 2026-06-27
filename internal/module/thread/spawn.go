@@ -13,7 +13,6 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
 	platformobs "github.com/anthropic-ai/super-agent-v3/internal/platform/observability"
-	threadstore "github.com/anthropic-ai/super-agent-v3/internal/store/thread"
 	"github.com/anthropic-ai/super-agent-v3/internal/util"
 	"github.com/anthropic-ai/super-agent-v3/internal/util/clone"
 	"github.com/anthropic-ai/super-agent-v3/internal/util/idempotency"
@@ -75,7 +74,7 @@ func (s *service) startPendingThread(ctx context.Context, req StartRequest, agen
 		OwnerThreadID:    req.OwnerThreadID,
 		PendingLaunch:    true,
 	})
-	if err := s.threadStore.Upsert(ctx, newThreadUpsertParams(threadstore.Thread{
+	if err := s.upsertThread(ctx, threadConfigStoreRecord{
 		ThreadID:         state.PublicThreadID,
 		Name:             state.Name,
 		Prompt:           state.Prompt,
@@ -92,7 +91,7 @@ func (s *service) startPendingThread(ctx context.Context, req StartRequest, agen
 		AgentKey:         state.AgentKey,
 		PromptVersionID:  nil,
 		PendingLaunch:    true,
-	})); err != nil {
+	}); err != nil {
 		return StartResult{}, fmt.Errorf("thread: upsert pending_launch row: %w", err)
 	} else if intentID := strings.TrimSpace(req.LaunchIntentID); intentID != "" {
 		s.launchIntentByThread.Store(state.PublicThreadID, intentID)
@@ -116,14 +115,15 @@ func (s *service) startPendingThread(ctx context.Context, req StartRequest, agen
 // isThreadPendingLaunch 判断 thread store 中的线程是否仍处于 pending_launch。
 // store 未装配、thread 为空或 id 缺失都按非 pending 处理，实际写路径仍由调用方 fail-fast。
 func (s *service) isThreadPendingLaunch(ctx context.Context, threadID string) (bool, error) {
-	if s == nil || s.threadStore == nil {
+	store := s.threadConfigStorePort()
+	if store == nil {
 		return false, nil
 	}
 	threadID = strings.TrimSpace(threadID)
 	if threadID == "" {
 		return false, nil
 	}
-	row, err := s.threadStore.GetByThreadID(ctx, threadID)
+	row, err := store.GetByThreadID(ctx, threadID)
 	if err != nil {
 		if platformdb.IsNotFound(err) {
 			return false, nil
@@ -190,7 +190,7 @@ func validateSpawnIfNeededInputs(s *service, threadID string) error {
 	if threadID == "" {
 		return errors.New("thread: SpawnIfNeeded requires thread_id")
 	}
-	if s == nil || s.threadStore == nil {
+	if s == nil || s.threadConfigStorePort() == nil {
 		return errors.New("thread store is not configured")
 	}
 	return nil
@@ -198,8 +198,8 @@ func validateSpawnIfNeededInputs(s *service, threadID string) error {
 
 // loadPendingLaunchRow 读取待启动线程并判断是否仍需要 spawn。
 // 非 pending 或状态已变化返回 needSpawn=false，让重复首轮请求保持幂等。
-func (s *service) loadPendingLaunchRow(ctx context.Context, threadID string) (*threadstore.Thread, bool, error) {
-	row, err := s.threadStore.GetByThreadID(ctx, threadID)
+func (s *service) loadPendingLaunchRow(ctx context.Context, threadID string) (*threadConfigStoreRecord, bool, error) {
+	row, err := s.getThread(ctx, threadID)
 	if err != nil {
 		if contract.IsNotFound(err) {
 			return nil, false, fmt.Errorf("thread: %w", err)
@@ -217,7 +217,7 @@ func (s *service) loadPendingLaunchRow(ctx context.Context, threadID string) (*t
 
 // buildPendingSpawnRequest 从 pending row 和首轮输入重建 StartRequest。
 // 存储 CWD 是权威值，请求 CWD 只用于校验；若规范化后 agent id 被改写，直接报错阻断错误绑定。
-func buildPendingSpawnRequest(row *threadstore.Thread, agentID, userInputForRouter, requestCWD string) (StartRequest, error) {
+func buildPendingSpawnRequest(row *threadConfigStoreRecord, agentID, userInputForRouter, requestCWD string) (StartRequest, error) {
 	cwd, err := resolvePendingLaunchCWD(row.Cwd, requestCWD)
 	if err != nil {
 		return StartRequest{}, err
@@ -258,7 +258,7 @@ func buildPendingSpawnRequest(row *threadstore.Thread, agentID, userInputForRout
 // cleanupFailedPendingLaunch 处理 pending_launch spawn 失败后的状态收口。
 // 带 launch intent 的线程会记录保留错误、标记 failed 并发布 stopped；无 intent 的早期失败只释放进程内锁。
 func (s *service) cleanupFailedPendingLaunch(ctx context.Context, threadID, agentID string, cause error) error {
-	if cause == nil || s == nil || s.threadStore == nil {
+	if cause == nil || s == nil || s.threadConfigStorePort() == nil {
 		return cause
 	}
 	threadID = strings.TrimSpace(threadID)
@@ -307,7 +307,7 @@ func resolvePendingLaunchCWD(storedCWD, requestCWD string) (string, error) {
 func (s *service) runPendingSpawn(
 	ctx context.Context,
 	req *StartRequest,
-	row *threadstore.Thread,
+	row *threadConfigStoreRecord,
 	agentID, threadID string,
 ) error {
 	if req.PromptAssemblyRef == nil {
@@ -420,7 +420,7 @@ func cleanupPendingSpawn(
 func publishPendingSpawnLaunched(
 	s *service,
 	req *StartRequest,
-	row *threadstore.Thread,
+	row *threadConfigStoreRecord,
 	session contract.Session,
 	agentID, threadID, displayName string,
 ) {
