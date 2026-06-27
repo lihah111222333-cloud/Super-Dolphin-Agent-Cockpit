@@ -47,7 +47,7 @@
     "lines": 327,
     "max_func_len": 60,
     "max_nesting": 3,
-    "max_complexity": 12,
+    "max_complexity": 8,
     "max_params": 5,
     "max_returns": 2,
     "max_underscore": 0,
@@ -56,21 +56,6 @@
     "naked_returns": 0,
     "empty_funcs": 0,
     "todo_count": 0
-  },
-  "internal/store/cron/store_test.go": {
-    "lines": 597,
-    "max_func_len": 33,
-    "max_nesting": 3,
-    "max_complexity": 12,
-    "max_params": 2,
-    "max_returns": 2,
-    "max_underscore": 0,
-    "global_vars": 0,
-    "panic_count": 0,
-    "naked_returns": 0,
-    "empty_funcs": 0,
-    "todo_count": 0,
-    "max_struct_fields": 20
   },
   "internal/store/interaction/store_test.go": {
     "lines": 497,
@@ -102,9 +87,31 @@
     "todo_count": 0
   },
   "pkg/dreammetrics/dreammetrics_test.go": {
-    "max_complexity": 11
+    "lines": 0,
+    "max_func_len": 0,
+    "max_nesting": 0,
+    "max_complexity": 11,
+    "max_params": 0,
+    "max_returns": 0,
+    "max_underscore": 0,
+    "global_vars": 0,
+    "panic_count": 0,
+    "naked_returns": 0,
+    "empty_funcs": 0,
+    "todo_count": 0
   },
   "pkg/skillmetrics/skillmetrics_test.go": {
-    "max_complexity": 13
+    "lines": 0,
+    "max_func_len": 0,
+    "max_nesting": 0,
+    "max_complexity": 13,
+    "max_params": 0,
+    "max_returns": 0,
+    "max_underscore": 0,
+    "global_vars": 0,
+    "panic_count": 0,
+    "naked_returns": 0,
+    "empty_funcs": 0,
+    "todo_count": 0
   }
 }
