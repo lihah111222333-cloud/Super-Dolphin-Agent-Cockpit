@@ -13,7 +13,7 @@ import (
 func TestAvailableExpertsProviderRendersStoreDeveloperExperts(t *testing.T) {
 	t.Parallel()
 
-	provider := AvailableExpertsProvider{catalog: NewRuntimeCatalog(&fakePromptStore{
+	provider := AvailableExpertsProvider{catalog: newRuntimeCatalogForStore(&fakePromptStore{
 		templates: []promptstore.PromptTemplate{
 			expertTemplate("main/git-ops", 20, "Git diff/log/blame、commit message、冲突解决、revert/cherry-pick"),
 			expertTemplate("main/docs", 20, "README、API 文档、注释、changelog、技术文档结构化"),
@@ -45,7 +45,7 @@ func TestAvailableExpertsProviderRendersBuiltinDeveloperExperts(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewDefaultRegistry() error = %v", err)
 	}
-	provider := AvailableExpertsProvider{catalog: NewRuntimeCatalog(nil, registry)}
+	provider := AvailableExpertsProvider{catalog: newRuntimeCatalogForStore(nil, registry)}
 
 	text, err := provider.Resolve(context.Background(), contract.SectionContext{
 		Turn:     &contract.TurnInput{UserText: "更新文档和 git commit", CWD: "/repo/a"},
