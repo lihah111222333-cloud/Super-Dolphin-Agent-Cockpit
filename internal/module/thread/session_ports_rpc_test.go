@@ -57,6 +57,121 @@ func TestNewThreadHandlersDispatchMessagesReturnsEnvelope(t *testing.T) {
 	}
 }
 
+func TestNewThreadHandlersDispatchListUsesSessionPorts(t *testing.T) {
+	t.Parallel()
+
+	stub := &stubThreadService{}
+	sessionPorts := &recordingSessionPorts{
+		listResult: []contract.SessionThreadSummary{{
+			ID:      "thread-1",
+			Name:    "demo",
+			AgentID: "agent-1",
+			Status:  "archived",
+		}},
+	}
+	server := newThreadTestServerWithSessionPorts(stub, sessionPorts)
+	raw, err := server.Dispatch(context.Background(), "thread/list", json.RawMessage(`{}`))
+	if err != nil {
+		t.Fatalf("Dispatch(thread/list) error = %v", err)
+	}
+	var got []contract.SessionThreadSummary
+	if err := json.Unmarshal(raw, &got); err != nil {
+		t.Fatalf("Unmarshal(thread/list) error = %v", err)
+	}
+	if !sessionPorts.listCalled || len(got) != 1 || got[0].ID != "thread-1" || got[0].Status != "archived" {
+		t.Fatalf("Dispatch(thread/list) = %#v, listCalled=%v", got, sessionPorts.listCalled)
+	}
+	if stub.listCalls != 0 {
+		t.Fatalf("thread/list called Service.List directly: calls=%d", stub.listCalls)
+	}
+}
+
+func TestNewThreadHandlersDispatchResumeUsesSessionPorts(t *testing.T) {
+	t.Parallel()
+
+	stub := &stubThreadService{}
+	sessionPorts := &recordingSessionPorts{
+		resumeResult: contract.SessionStartResult{
+			ThreadID:  "thread-9",
+			SessionID: "session-9",
+			Status:    "resumed",
+			Model:     "gpt-5.5",
+			CWD:       "/tmp/resume",
+		},
+	}
+	server := newThreadTestServerWithSessionPorts(stub, sessionPorts)
+	raw, err := server.Dispatch(context.Background(), "thread/resume", json.RawMessage(`{"threadId":"thread-9","path":"/tmp/legacy","cwd":"/tmp/resume","model":"gpt-5.5","provider":"codex"}`))
+	if err != nil {
+		t.Fatalf("Dispatch(thread/resume) error = %v", err)
+	}
+	got := decodeThreadHandlerMap(t, "thread/resume", raw)
+	requireThreadResumePortResponse(t, got)
+	requireThreadResumePortCall(t, sessionPorts)
+	requireServiceResumeNotCalled(t, stub)
+}
+
+func TestNewThreadHandlersDispatchForkUsesSessionPorts(t *testing.T) {
+	t.Parallel()
+
+	stub := &stubThreadService{}
+	sessionPorts := &recordingSessionPorts{
+		forkResult: contract.SessionForkResult{
+			NewThreadID:  "thread-7-fork",
+			ForkedFrom:   "thread-7",
+			KickoffState: "created_only",
+		},
+	}
+	server := newThreadTestServerWithSessionPorts(stub, sessionPorts)
+	raw, err := server.Dispatch(context.Background(), "thread/fork", json.RawMessage(`{"threadId":"thread-7"}`))
+	if err != nil {
+		t.Fatalf("Dispatch(thread/fork) error = %v", err)
+	}
+	var got struct {
+		Thread            threadInfo `json:"thread"`
+		KickoffState      string     `json:"kickoff_state"`
+		KickoffStateCamel string     `json:"kickoffState"`
+	}
+	if err := json.Unmarshal(raw, &got); err != nil {
+		t.Fatalf("Unmarshal(thread/fork) error = %v", err)
+	}
+	requireThreadForkPortResponse(t, got.Thread, got.KickoffState, got.KickoffStateCamel)
+	if sessionPorts.forkThread != "thread-7" {
+		t.Fatalf("SessionPorts.ForkSession thread = %q, want thread-7", sessionPorts.forkThread)
+	}
+	if stub.forkThreadID != "" {
+		t.Fatalf("thread/fork called Service.Fork directly: %q", stub.forkThreadID)
+	}
+}
+
+func requireThreadResumePortResponse(t *testing.T, got map[string]any) {
+	t.Helper()
+	if got["threadId"] != "thread-9" || got["sessionId"] != "session-9" || got["status"] != "resumed" {
+		t.Fatalf("Dispatch(thread/resume) = %#v", got)
+	}
+}
+
+func requireThreadResumePortCall(t *testing.T, ports *recordingSessionPorts) {
+	t.Helper()
+	want := contract.SessionResumeRequest{ThreadID: "thread-9", Path: "/tmp/legacy", CWD: "/tmp/resume", Model: "gpt-5.5", Provider: "codex"}
+	if ports.resumeReq != want {
+		t.Fatalf("SessionPorts.ResumeSession req = %#v, want %#v", ports.resumeReq, want)
+	}
+}
+
+func requireServiceResumeNotCalled(t *testing.T, stub *stubThreadService) {
+	t.Helper()
+	if stub.resumeReq.ThreadID != "" || stub.resumeReq.Path != "" || stub.resumeReq.CWD != "" || stub.resumeReq.Model != "" || stub.resumeReq.Provider != "" {
+		t.Fatalf("thread/resume called Service.Resume directly: %#v", stub.resumeReq)
+	}
+}
+
+func requireThreadForkPortResponse(t *testing.T, thread threadInfo, kickoffState, kickoffStateCamel string) {
+	t.Helper()
+	if thread.ID != "thread-7-fork" || thread.ForkedFrom != "thread-7" || kickoffState != "created_only" || kickoffStateCamel != "created_only" {
+		t.Fatalf("Dispatch(thread/fork) = thread:%#v kickoff:%q/%q", thread, kickoffState, kickoffStateCamel)
+	}
+}
+
 func requireThreadMessagesEnvelope(t *testing.T, got dto.ThreadMessagesResult) {
 	t.Helper()
 	if got.Total != 7 {
@@ -90,6 +205,12 @@ func newThreadTestServerWithSessionPorts(svc Service, sessionPorts contract.Sess
 }
 
 type recordingSessionPorts struct {
+	listCalled         bool
+	listResult         []contract.SessionThreadSummary
+	resumeReq          contract.SessionResumeRequest
+	resumeResult       contract.SessionStartResult
+	forkThread         string
+	forkResult         contract.SessionForkResult
 	readMessagesThread string
 	readMessagesLimit  int
 	readMessagesBefore string
@@ -102,20 +223,23 @@ func (*recordingSessionPorts) StartSession(context.Context, contract.SessionStar
 	return contract.SessionStartResult{}, errUnexpectedSessionPortCall
 }
 
-func (*recordingSessionPorts) ResumeSession(context.Context, string) (contract.SessionStartResult, error) {
-	return contract.SessionStartResult{}, errUnexpectedSessionPortCall
+func (p *recordingSessionPorts) ResumeSession(_ context.Context, req contract.SessionResumeRequest) (contract.SessionStartResult, error) {
+	p.resumeReq = req
+	return p.resumeResult, nil
 }
 
-func (*recordingSessionPorts) ForkSession(context.Context, string) (contract.SessionStartResult, error) {
-	return contract.SessionStartResult{}, errUnexpectedSessionPortCall
+func (p *recordingSessionPorts) ForkSession(_ context.Context, threadID string) (contract.SessionForkResult, error) {
+	p.forkThread = threadID
+	return p.forkResult, nil
 }
 
 func (*recordingSessionPorts) ArchiveSession(context.Context, string) error {
 	return errUnexpectedSessionPortCall
 }
 
-func (*recordingSessionPorts) ListSessions(context.Context) ([]contract.SessionThreadSummary, error) {
-	return nil, errUnexpectedSessionPortCall
+func (p *recordingSessionPorts) ListSessions(context.Context) ([]contract.SessionThreadSummary, error) {
+	p.listCalled = true
+	return p.listResult, nil
 }
 
 func (p *recordingSessionPorts) ReadMessages(_ context.Context, threadID string, limit int, before string) (dto.ThreadMessagesResult, error) {

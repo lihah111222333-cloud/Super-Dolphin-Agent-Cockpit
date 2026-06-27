@@ -32,18 +32,16 @@ func NewThreadHandlers(svc Service, capResolver contract.CapabilityResolver) pla
 func newThreadHandlers(svc Service, sessionPorts contract.SessionPorts, capResolver contract.CapabilityResolver) platformrpc.HandlerMapResult {
 	return platformrpc.HandlerMapResult{Handlers: handler.Map{
 		contract.ThreadRPCStart:   newStartHandler(svc),
-		contract.ThreadRPCFork:    newForkHandler(svc),
+		contract.ThreadRPCFork:    newForkHandler(sessionPorts),
 		contract.ThreadRPCStop:    newThreadEffect(svc.Stop),
-		"thread/resume":           newResumeHandler(svc),
+		"thread/resume":           newResumeHandler(sessionPorts),
 		"thread/recover":          newRecoverHandler(svc),
 		"thread/handoff":          newHandoffHandler(svc),
 		contract.ThreadRPCArchive: newTracedThreadEffect(contract.ThreadRPCArchive, svc.Archive),
 		"thread/unarchive":        newThreadEffect(svc.Unarchive),
 		"thread/delete":           newThreadEffect(svc.Delete),
 
-		"thread/list": platformrpc.StrictHandler(func(ctx context.Context, _ struct{}) (any, error) {
-			return svc.List(ctx)
-		}),
+		"thread/list": newThreadListHandler(sessionPorts),
 		"thread/loaded/list": platformrpc.StrictHandler(func(ctx context.Context, _ struct{}) (any, error) {
 			return svc.ListByStatus(ctx, statusCreated)
 		}),
@@ -90,8 +88,19 @@ func newThreadHandlers(svc Service, sessionPorts contract.SessionPorts, capResol
 	}}
 }
 
+// newThreadListHandler 让生产 thread/list RPC 通过 session status port 读取摘要。
+// 返回字段沿用 thread.Ref 的 JSON 形状，避免 list 迁移改变前端可见响应。
+func newThreadListHandler(sessionPorts contract.SessionPorts) handler.Func {
+	return platformrpc.StrictHandler(func(ctx context.Context, _ struct{}) (any, error) {
+		if sessionPorts == nil {
+			return nil, fmt.Errorf("thread/list: session ports are required")
+		}
+		return sessionPorts.ListSessions(ctx)
+	})
+}
+
 // newThreadMessagesHandler 让生产 thread/messages RPC 通过 session port 读取消息。
-// 这条只读入口是 SessionPorts 的首个真实消费点，避免一次性迁移 thread/start 主流程。
+// 这条只读入口保持分页 DTO 不变，避免一次性迁移 thread/start 主流程。
 func newThreadMessagesHandler(sessionPorts contract.SessionPorts) handler.Func {
 	return platformrpc.ThreadHandler(func(ctx context.Context, p messagesParams) (any, error) {
 		if sessionPorts == nil {
@@ -359,13 +368,16 @@ func newTracedThreadEffect(method string, fn func(context.Context, string) error
 	})
 }
 
-func newForkHandler(svc Service) handler.Func {
+func newForkHandler(sessionPorts contract.SessionPorts) handler.Func {
 	return newThreadCall(func(ctx context.Context, id string) (any, error) {
-		result, err := svc.Fork(ctx, id)
+		if sessionPorts == nil {
+			return nil, fmt.Errorf("thread/fork: session ports are required")
+		}
+		result, err := sessionPorts.ForkSession(ctx, id)
 		if err != nil {
 			return nil, err
 		}
-		return forkResponse{Thread: threadInfo{ID: result.NewThreadID, ForkedFrom: result.ForkedFrom}, KickoffState: string(result.KickoffState), KickoffStateCamel: string(result.KickoffState)}, nil
+		return forkResponse{Thread: threadInfo{ID: result.NewThreadID, ForkedFrom: result.ForkedFrom}, KickoffState: result.KickoffState, KickoffStateCamel: result.KickoffState}, nil
 	})
 }
 
@@ -496,9 +508,12 @@ func resolveApprovalsSetArgs(p approvalsSetParams) (string, error) {
 
 var errApprovalsSetArgsConflict = platformrpc.ErrInvalidParams("thread/approvals/set: policy and args must match when both are provided")
 
-func newResumeHandler(svc Service) handler.Func {
+func newResumeHandler(sessionPorts contract.SessionPorts) handler.Func {
 	return platformrpc.ThreadHandler(func(ctx context.Context, p resumeParams) (any, error) {
-		result, err := svc.Resume(ctx, ResumeRequest{
+		if sessionPorts == nil {
+			return nil, fmt.Errorf("thread/resume: session ports are required")
+		}
+		result, err := sessionPorts.ResumeSession(ctx, contract.SessionResumeRequest{
 			ThreadID: util.FirstNonEmpty(p.ThreadID, contract.ThreadIDFrom(ctx)),
 			Path:     p.Path,
 			CWD:      p.CWD,

@@ -81,6 +81,60 @@ func TestSessionLifecyclePortStartSessionUsesAdapterMapping(t *testing.T) {
 	}
 }
 
+func TestSessionLifecyclePortResumeSessionPreservesOverrides(t *testing.T) {
+	stub := &stubThreadService{
+		resumeResult: ResumeResult{
+			ThreadID:  "thread-9",
+			SessionID: "session-9",
+			Status:    "resumed",
+			Model:     "gpt-5",
+			CWD:       "/repo",
+		},
+	}
+	port := NewSessionLifecyclePort(stub)
+	got, err := port.ResumeSession(context.Background(), contract.SessionResumeRequest{
+		ThreadID: " thread-9 ",
+		Path:     "/legacy/path",
+		CWD:      "/repo",
+		Model:    "gpt-5",
+		Provider: "codex",
+	})
+	if err != nil {
+		t.Fatalf("ResumeSession() error = %v", err)
+	}
+	if stub.resumeReq.ThreadID != "thread-9" ||
+		stub.resumeReq.Path != "/legacy/path" ||
+		stub.resumeReq.CWD != "/repo" ||
+		stub.resumeReq.Model != "gpt-5" ||
+		stub.resumeReq.Provider != "codex" {
+		t.Fatalf("ResumeSession mapped request = %#v", stub.resumeReq)
+	}
+	if got.ThreadID != "thread-9" || got.SessionID != "session-9" || got.Status != "resumed" {
+		t.Fatalf("ResumeSession result = %#v, want projected resume result", got)
+	}
+}
+
+func TestSessionLifecyclePortForkSessionPreservesResultMetadata(t *testing.T) {
+	stub := &stubThreadService{
+		forkResult: ForkResult{
+			NewThreadID:  "thread-fork",
+			ForkedFrom:   "thread-parent",
+			KickoffState: ForkKickoffState("created_only"),
+		},
+	}
+	port := NewSessionLifecyclePort(stub)
+	got, err := port.ForkSession(context.Background(), " thread-parent ")
+	if err != nil {
+		t.Fatalf("ForkSession() error = %v", err)
+	}
+	if stub.forkThreadID != "thread-parent" {
+		t.Fatalf("ForkSession thread id = %q, want thread-parent", stub.forkThreadID)
+	}
+	if got != (contract.SessionForkResult{NewThreadID: "thread-fork", ForkedFrom: "thread-parent", KickoffState: "created_only"}) {
+		t.Fatalf("ForkSession result = %#v", got)
+	}
+}
+
 func TestSessionStatusPortReadMessagesRejectsEmptyThreadID(t *testing.T) {
 	stub := &stubThreadService{}
 	port := NewSessionStatusPort(stub)

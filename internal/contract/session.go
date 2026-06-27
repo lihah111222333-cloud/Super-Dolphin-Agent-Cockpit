@@ -84,6 +84,24 @@ type SessionStartResult struct {
 	PendingLaunch   bool   `json:"pending_launch,omitempty"`
 }
 
+// SessionResumeRequest 是 session port 的恢复 DTO。
+// Path/CWD/Model/Provider 保留 thread/resume 的现有覆盖项，RPC 迁移到 port 时不能丢这些输入。
+type SessionResumeRequest struct {
+	ThreadID string
+	Path     string
+	CWD      string
+	Model    string
+	Provider string
+}
+
+// SessionForkResult 是 session port 的 fork 结果。
+// 它保留 thread/fork wire 响应需要的来源线程和 kickoff 状态，避免 RPC 迁移后响应缩水。
+type SessionForkResult struct {
+	NewThreadID  string
+	ForkedFrom   string
+	KickoffState string
+}
+
 // SessionThreadSummary 是 session status 端口暴露给 UI/RPC 的线程摘要。
 type SessionThreadSummary struct {
 	ID               string `json:"id"`
@@ -103,8 +121,8 @@ type SessionThreadSummary struct {
 // SessionLifecyclePort 收窄 session 创建、恢复、fork 和归档入口。
 type SessionLifecyclePort interface {
 	StartSession(ctx context.Context, req SessionStartRequest) (SessionStartResult, error)
-	ResumeSession(ctx context.Context, threadID string) (SessionStartResult, error)
-	ForkSession(ctx context.Context, threadID string) (SessionStartResult, error)
+	ResumeSession(ctx context.Context, req SessionResumeRequest) (SessionStartResult, error)
+	ForkSession(ctx context.Context, threadID string) (SessionForkResult, error)
 	ArchiveSession(ctx context.Context, threadID string) error
 }
 
