@@ -3487,6 +3487,44 @@ function registerBridgeEventHandlersForTest() {
     expect(useClientStore.getState().forkDraft.open).toBe(false);
   });
 
+  it('marks inherited fork kickoff failure as partial instead of a full working success', async () => {
+    resetClientStoreForTests({
+      cwd: '/repo/app',
+      activeProject: '/repo/app',
+      activeThreadId: 'thread-1',
+      threads: [{ id: 'thread-1', name: 'Existing thread', provider: 'codex', status: 'idle' }],
+      timelinesByThread: {
+        'thread-1': [
+          { id: 'user-1', kind: 'user', text: 'fork this work' },
+          { id: 'assistant-1', kind: 'assistant', text: 'forkable context' },
+        ],
+      },
+    });
+    backend.startThread.mockResolvedValue({ threadId: 'thread-fork' });
+    backend.startTurn.mockRejectedValue(new Error('turn/start failed'));
+
+    await expect(useClientStore.getState().openForkDraft()).resolves.toBe(true);
+    await expect(useClientStore.getState().submitForkThread()).resolves.toBe('thread-fork');
+
+    const state = useClientStore.getState();
+    expect(state.actionNotice).toEqual(expect.objectContaining({
+      message: expect.stringContaining('开场消息发送失败'),
+      tone: 'warning',
+    }));
+    expect(state.threads[0]).toEqual(expect.objectContaining({
+      id: 'thread-fork',
+      status: '需要操作',
+      forkKickoffStatus: 'failed',
+      forkKickoffError: 'turn/start failed',
+    }));
+    expect(state.timelinesByThread['thread-fork'] || []).not.toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        id: expect.stringMatching(/^fork-kickoff-/),
+        optimistic: true,
+      }),
+    ]));
+  });
+
   it('includes selected shared files in fork baseInstructions', async () => {
     resetClientStoreForTests({
       cwd: '/repo/app',

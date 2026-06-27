@@ -135,12 +135,18 @@ func (s *service) defaultTrustForRoot(root, projectSkillsRoot string) TrustScope
 	return inferTrustFromRoot(root, projectSkillsRoot, "")
 }
 
+// parseSkillRecord 读取并解析单个 SKILL.md。
+// 扫描期必须先拒绝 symlink、非普通文件和超大文件，避免 canonical 刷新时越界读或耗尽内存。
 func parseSkillRecord(root, path string, defaultTrust TrustScope) (skillRecord, error) {
-	// 扫盘期先检查 SKILL.md 大小，再读取内容。
-	// 该限制与 ReadLocal/WriteLocal/ReadRemote 保持一致，避免恶意大文件在启动或刷新时耗尽内存。
-	stat, err := os.Stat(path)
+	stat, err := os.Lstat(path)
 	if err != nil {
 		return skillRecord{}, err
+	}
+	if stat.Mode()&os.ModeSymlink != 0 {
+		return skillRecord{}, fmt.Errorf("skill file is symlink: %s", path)
+	}
+	if !stat.Mode().IsRegular() {
+		return skillRecord{}, fmt.Errorf("skill file is not a regular file: %s", path)
 	}
 	if stat.Size() > maxSkillFileBytes {
 		return skillRecord{}, fmt.Errorf("skill file too large: %s is %d bytes, limit %d", path, stat.Size(), maxSkillFileBytes)
@@ -285,40 +291,15 @@ var metaScalarAppliers = map[string]func(*SkillInfo, string){
 	},
 }
 
-var triggerWordMetaKeys = map[string]struct{}{
-	"trigger_words": {},
-	"triggerwords":  {},
-	"triggers":      {},
-	"aliases":       {},
-	"tags":          {},
-	"keywords":      {},
-}
+var triggerWordMetaKeys = map[string]struct{}{"trigger_words": {}, "triggerwords": {}, "triggers": {}, "aliases": {}, "tags": {}, "keywords": {}}
 
-var forceWordMetaKeys = map[string]struct{}{
-	"force_words":     {},
-	"forcewords":      {},
-	"mandatory_words": {},
-	"must_words":      {},
-}
+var forceWordMetaKeys = map[string]struct{}{"force_words": {}, "forcewords": {}, "mandatory_words": {}, "must_words": {}}
 
-var allowedToolsMetaKeys = map[string]struct{}{
-	"allowed-tools": {},
-	"allowed_tools": {},
-	"allowedtools":  {},
-	"tools":         {},
-}
+var allowedToolsMetaKeys = map[string]struct{}{"allowed-tools": {}, "allowed_tools": {}, "allowedtools": {}, "tools": {}}
 
-var trustMetaKeys = map[string]struct{}{
-	"trust":       {},
-	"trust_scope": {},
-	"trustscope":  {},
-}
+var trustMetaKeys = map[string]struct{}{"trust": {}, "trust_scope": {}, "trustscope": {}}
 
-var disableModelInvocationMetaKeys = map[string]struct{}{
-	"disable-model-invocation": {},
-	"disable_model_invocation": {},
-	"disablemodelinvocation":   {},
-}
+var disableModelInvocationMetaKeys = map[string]struct{}{"disable-model-invocation": {}, "disable_model_invocation": {}, "disablemodelinvocation": {}}
 
 var replacesNativeMetaKeys = []string{
 	"replaces_native",

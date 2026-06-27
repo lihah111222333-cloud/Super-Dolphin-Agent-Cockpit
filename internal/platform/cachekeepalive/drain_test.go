@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	bindingstore "github.com/anthropic-ai/super-agent-v3/internal/store/binding"
+	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 )
 
 // pingBlockingSession 在 SendKeepalive 内阻塞，直到 ctx 被取消。
@@ -60,7 +60,7 @@ func newDrainTestManager() (*Manager, *pingBlockingSession) {
 		exited:  make(chan error, 1),
 	}
 	resolver := &resolverStub{session: session}
-	bindings := &bindingStoreStub{byAgent: map[string]*bindingstore.Binding{
+	bindings := &bindingStoreStub{byAgent: map[string]*contract.CacheKeepaliveBinding{
 		"agent-1": {AgentID: "agent-1"},
 	}}
 	m := newTestManager(resolver, bindings, nil)

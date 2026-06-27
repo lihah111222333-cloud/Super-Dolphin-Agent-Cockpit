@@ -192,12 +192,23 @@ func (d *WakeupDispatcher) handleClaimed(ctx context.Context, w *taskdag.Wakeup)
 	if turncompletionretry.IsWakeup(w) {
 		return d.handleTurnCompletionRetryWakeup(ctx, w)
 	}
-	if shouldRouteThroughNodeExecutor := isDAGWakeup(w); shouldRouteThroughNodeExecutor {
-		// DAG wakeup 的路由入口集中在 handleClaimedViaRouter，便于保持 sent/fail fence 一致。
+	if shouldRouteThroughNodeExecutor(w) {
+		if w.RunID == nil {
+			return d.handleClaimedViaRouter(ctx, w)
+		}
+		renewed, err := taskdag.RenewClaimedWakeupLease(ctx, d.store, w, d.cfg.LeaseInterval)
+		if err != nil {
+			d.logger.Warn("wakeup dispatcher: renew lease failed", "wakeup_id", w.ID, "error", err)
+			return false
+		}
+		*w = *renewed
 		return d.handleClaimedViaRouter(ctx, w)
 	}
 	return d.handleClaimedViaLegacyLauncher(ctx, w)
 }
+
+// shouldRouteThroughNodeExecutor 标记 DAG wakeup 必须经过 NodeExecutorRouter。
+func shouldRouteThroughNodeExecutor(w *taskdag.Wakeup) bool { return isDAGWakeup(w) }
 
 // handleTurnCompletionRetryWakeup 处理 turn.completed 的修复 wakeup，不会启动 agent。
 // 它只重放“完成节点 + 调度下游”，失败再按普通 retry/fail 处理。

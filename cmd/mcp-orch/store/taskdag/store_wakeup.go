@@ -47,6 +47,54 @@ func (s *store) ClaimDueWakeups(ctx context.Context, input ClaimDueWakeupsInput)
 	}, "claim_due", "task_dag_wakeup", fromClaimedWakeup)
 }
 
+// RenewClaimedWakeupLease 用 ClaimDueWakeups 返回行组装 CAS 续约请求。
+func RenewClaimedWakeupLease(ctx context.Context, store any, w *Wakeup, leaseInterval string) (*Wakeup, error) {
+	if store == nil || w == nil {
+		return nil, fmt.Errorf("renew claimed wakeup: store and wakeup required")
+	}
+	renewer, ok := store.(WakeupLeaseRenewer)
+	if !ok {
+		return nil, fmt.Errorf("renew claimed wakeup: store cannot renew lease")
+	}
+	input := RenewWakeupLeaseInput{ID: w.ID, LeaseInterval: leaseInterval, ClaimedBy: w.ClaimedBy}
+	if w.ClaimedAt != nil {
+		input.ClaimedAt = *w.ClaimedAt
+	}
+	if w.LeaseExpiresAt != nil {
+		input.LeaseExpiresAt = *w.LeaseExpiresAt
+	}
+	renewed, rows, err := renewer.RenewWakeupLease(ctx, input)
+	if err != nil {
+		return nil, err
+	}
+	if rows == 0 || renewed == nil {
+		return nil, fmt.Errorf("renew claimed wakeup: fence missed")
+	}
+	return renewed, nil
+}
+
+// RenewWakeupLease 在执行副作用前续约当前 claim，并返回更新后的 fence 行。
+// rows=0 表示 claim 已过期、被回收或已被其它 dispatcher 处理，调用方必须停止副作用。
+func (s *store) RenewWakeupLease(ctx context.Context, input RenewWakeupLeaseInput) (*Wakeup, int64, error) {
+	leaseInterval, err := parseLeaseDuration(input.LeaseInterval, "renew", "task_dag_wakeup")
+	if err != nil {
+		return nil, 0, err
+	}
+	rows, err := queryManyWrite(ctx, func() ([]sqlc.RenewTaskDagWakeupLeaseRow, error) {
+		return s.q.RenewTaskDagWakeupLease(ctx, sqlc.RenewTaskDagWakeupLeaseParams{
+			LeaseMs:        leaseInterval,
+			ID:             input.ID,
+			ClaimedAt:      timestampValue(input.ClaimedAt),
+			ClaimedBy:      input.ClaimedBy,
+			LeaseExpiresAt: timestampValue(input.LeaseExpiresAt),
+		})
+	}, "renew", "task_dag_wakeup", fromRenewedWakeup)
+	if err != nil || len(rows) == 0 {
+		return nil, int64(len(rows)), err
+	}
+	return &rows[0], 1, nil
+}
+
 // MarkWakeupSent 标记 wakeup 已发送给目标线程。
 func (s *store) MarkWakeupSent(ctx context.Context, input MarkWakeupSentInput) (int64, error) {
 	fence := wakeupFenceFromMark(input)
@@ -249,6 +297,31 @@ func fromWakeup(row sqlc.TaskDagWakeup) Wakeup {
 	}
 }
 func fromClaimedWakeup(row sqlc.ClaimDueTaskDagWakeupsRow) Wakeup {
+	return Wakeup{
+		ID:             row.ID,
+		DagKey:         row.DagKey,
+		NodeKey:        row.NodeKey,
+		RunID:          sqlc.Int8Ptr(row.RunID),
+		WakeupKind:     row.WakeupKind,
+		TargetAgentID:  row.TargetAgentID,
+		PromptPayload:  row.PromptPayload,
+		IdempotencyKey: row.IdempotencyKey,
+		Status:         row.Status,
+		AttemptCount:   int32(row.AttemptCount),
+		NextRetryAt:    timeValue(row.NextRetryAt),
+		ClaimedAt:      timestampPtr(row.ClaimedAt),
+		ClaimedBy:      row.ClaimedBy,
+		LeaseExpiresAt: timestampPtr(row.LeaseExpiresAt),
+		SentAt:         timestampPtr(row.SentAt),
+		BoundTurnID:    sqlc.TextPtr(row.BoundTurnID),
+		TurnBoundAt:    timestampPtr(row.TurnBoundAt),
+		LastError:      row.LastError,
+		CreatedAt:      timeValue(row.CreatedAt),
+		UpdatedAt:      timeValue(row.UpdatedAt),
+	}
+}
+
+func fromRenewedWakeup(row sqlc.RenewTaskDagWakeupLeaseRow) Wakeup {
 	return Wakeup{
 		ID:             row.ID,
 		DagKey:         row.DagKey,

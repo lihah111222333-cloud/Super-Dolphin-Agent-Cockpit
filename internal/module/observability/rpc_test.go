@@ -3,6 +3,7 @@ package observability
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"testing"
@@ -310,6 +311,36 @@ func TestTraceGetRPCReportsTailSourceAndTruncation(t *testing.T) {
 	got := dispatchQuery(t, server, "observability/trace/get", json.RawMessage(`{"traceId":"tail-trace"}`))
 	if got.Source != platformobs.QuerySourceJSONLTail || !got.Truncated || len(got.Events) != 1 {
 		t.Fatalf("tail response = %+v", got)
+	}
+}
+
+func TestTraceGetRPCReportsTailReadDegradation(t *testing.T) {
+	tail := platformobs.QueryTailReaderFunc(func(context.Context, platformobs.Query) (platformobs.QueryResult, error) {
+		return platformobs.QueryResult{
+			Source:           platformobs.QuerySourceJSONLTail,
+			TailFilesScanned: 4,
+			TailTimedOut:     true,
+		}, errors.New("tail reader unavailable")
+	})
+	svc := platformobs.NewService(testTraceConfig(), platformobs.WithTailReader(tail))
+	server := newTestRPCServer(t, svc)
+
+	raw, err := server.Dispatch(t.Context(), "observability/trace/get", json.RawMessage(`{"traceId":"tail-degraded","limit":10}`))
+	if err != nil {
+		t.Fatalf("Dispatch trace/get: %v", err)
+	}
+	var envelope map[string]any
+	if err := json.Unmarshal(raw, &envelope); err != nil {
+		t.Fatalf("unmarshal trace/get: %v", err)
+	}
+	if envelope["degraded"] != true {
+		t.Fatalf("degraded = %#v in %#v, want true", envelope["degraded"], envelope)
+	}
+	if envelope["tailError"] != "tail reader unavailable" {
+		t.Fatalf("tailError = %#v, want visible tail error", envelope["tailError"])
+	}
+	if envelope["tailTimedOut"] != true || envelope["tailFilesScanned"] != float64(4) {
+		t.Fatalf("tail diagnostics = timeout:%#v files:%#v, want preserved", envelope["tailTimedOut"], envelope["tailFilesScanned"])
 	}
 }
 

@@ -75,12 +75,16 @@ type recentListParams struct {
 // queryResponse 是 trace/thread/recent/slow/error 查询的统一 JSON 响应结构。
 // 摘要字段由服务端计算，前端不需要再扫描完整 events 才能展示慢事件和错误概览。
 type queryResponse struct {
-	Source          platformobs.QuerySource  `json:"source"`
-	Events          []platformobs.TraceEvent `json:"events"`
-	SlowestEvents   []platformobs.TraceEvent `json:"slowest_events"`
-	Errors          []platformobs.TraceEvent `json:"errors"`
-	TotalDurationMS int64                    `json:"total_duration_ms"`
-	Truncated       bool                     `json:"truncated"`
+	Source           platformobs.QuerySource  `json:"source"`
+	Events           []platformobs.TraceEvent `json:"events"`
+	SlowestEvents    []platformobs.TraceEvent `json:"slowest_events"`
+	Errors           []platformobs.TraceEvent `json:"errors"`
+	TotalDurationMS  int64                    `json:"total_duration_ms"`
+	Truncated        bool                     `json:"truncated"`
+	Degraded         bool                     `json:"degraded"`
+	TailError        string                   `json:"tailError,omitempty"`
+	TailTimedOut     bool                     `json:"tailTimedOut"`
+	TailFilesScanned int                      `json:"tailFilesScanned"`
 }
 
 // frontendIngestParams 是前端事件批量上报接口的 JSON-RPC 入参。
@@ -261,7 +265,7 @@ func frontendIngestHandler(svc *platformobs.Service) func(context.Context, front
 func responseFromRecentResult(result platformobs.QueryResult, params recentListParams, limit int) queryResponse {
 	events := filterRecentEvents(result.Events, params)
 	events = latestTraceEventsFirst(events, limit)
-	return queryResponse{
+	response := queryResponse{
 		Source:          result.Source,
 		Events:          events,
 		SlowestEvents:   slowestEvents(events, summaryEventLimit),
@@ -269,18 +273,35 @@ func responseFromRecentResult(result platformobs.QueryResult, params recentListP
 		TotalDurationMS: totalDurationMS(events),
 		Truncated:       result.Truncated,
 	}
+	response.applyTailDiagnostics(result)
+	return response
 }
 
 // responseFromQueryResult 对 trace/slow/error 查询结果做组件过滤和摘要汇总。
 func responseFromQueryResult(result platformobs.QueryResult, component string) queryResponse {
 	events := filterEventsByComponent(result.Events, component)
-	return queryResponse{
+	response := queryResponse{
 		Source:          result.Source,
 		Events:          events,
 		SlowestEvents:   slowestEvents(events, summaryEventLimit),
 		Errors:          errorEvents(events, summaryEventLimit),
 		TotalDurationMS: totalDurationMS(events),
 		Truncated:       result.Truncated,
+	}
+	response.applyTailDiagnostics(result)
+	return response
+}
+
+// applyTailDiagnostics 把落盘 tail 读取状态加入响应，避免 UI 把查询失败误判为空数据。
+func (r *queryResponse) applyTailDiagnostics(result platformobs.QueryResult) {
+	r.TailFilesScanned = result.TailFilesScanned
+	r.TailTimedOut = result.TailTimedOut
+	if len(result.TailDecodeErrors) == 0 && !result.TailTimedOut {
+		return
+	}
+	r.Degraded = true
+	if len(result.TailDecodeErrors) > 0 {
+		r.TailError = strings.TrimSpace(result.TailDecodeErrors[0].Error)
 	}
 }
 

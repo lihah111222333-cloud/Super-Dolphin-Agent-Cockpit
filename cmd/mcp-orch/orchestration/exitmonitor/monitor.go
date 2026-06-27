@@ -2,12 +2,14 @@ package exitmonitor
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os/exec"
 	"sync"
 	"time"
 
+	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/orchestration/processctl"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
@@ -79,6 +81,34 @@ func (m *Monitor) Arm(target Target) bool {
 		m.publishExit(target.AgentID, target.LaunchSeq, err)
 	}()
 	return true
+}
+
+// StartMonitoredCommand 启动本地命令并立刻把 Wait 交给 Monitor。
+func StartMonitoredCommand(m *Monitor, logger *slog.Logger, target Target, command []string, cwd string, env []string) (*exec.Cmd, *processctl.Guard, error) {
+	if m == nil {
+		return nil, nil, errors.New("exit monitor is required")
+	}
+	if len(command) == 0 {
+		return nil, nil, errors.New("command is required")
+	}
+	cmd := exec.Command(command[0], command[1:]...)
+	cmd.Dir = cwd
+	cmd.Env = env
+	processctl.Configure(cmd)
+	if err := cmd.Start(); err != nil {
+		return nil, nil, err
+	}
+	guard := processctl.Attach(cmd, logger)
+	target.Cmd = cmd
+	if m.Arm(target) {
+		return cmd, guard, nil
+	}
+	_ = processctl.ForceStop(cmd, guard)
+	_ = cmd.Wait()
+	if guard != nil {
+		guard.Close()
+	}
+	return nil, nil, errors.New("exit monitor is closed")
 }
 
 // Emit 发布没有本地 cmd.Wait 的合成退出事件。

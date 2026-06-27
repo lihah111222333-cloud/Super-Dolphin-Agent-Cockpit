@@ -379,11 +379,14 @@ type AgentExecConfig struct {
 // AutomationExecConfig 是 node_type=automation 节点的 exec 块。
 type AutomationExecConfig struct {
 	// Kind 为自动化执行通道，当前仅 command_card 可运行；空字符串兼容为 command_card，其他值 fail-fast。
-	Kind         string           `json:"kind,omitempty"`
-	CommandRef   string           `json:"command_ref"`    // 查 command_cards 表
-	Args         json.RawMessage  `json:"args,omitempty"` // 命令参数（结构由 command 决定）
-	BudgetTokens int64            `json:"budget_tokens,omitempty"`
-	OnFailure    *OnFailureConfig `json:"on_failure,omitempty"`
+	Kind           string            `json:"kind,omitempty"`
+	CommandRef     string            `json:"command_ref"`    // 查 command_cards 表
+	Args           json.RawMessage   `json:"args,omitempty"` // 命令参数（结构由 command 决定）
+	CWD            string            `json:"cwd,omitempty"`
+	WorkspaceRoots []string          `json:"workspace_roots,omitempty"`
+	Env            map[string]string `json:"env,omitempty"`
+	BudgetTokens   int64             `json:"budget_tokens,omitempty"`
+	OnFailure      *OnFailureConfig  `json:"on_failure,omitempty"`
 }
 
 // HybridExecConfig 是 node_type=hybrid 节点的 exec 块（先 automation 后 agent verifier）。
@@ -431,6 +434,7 @@ type ParsedNodeConfig struct {
 // 空 raw 返回 zero-value config（不报错），让旧 DAG 兼容。
 // 未知 node_type 返回 ErrUnknownNodeType。
 func ParseNodeConfig(nodeType string, raw json.RawMessage) (*ParsedNodeConfig, error) {
+	nodeType = NormalizeNodeType(nodeType)
 	switch nodeType {
 	case "agent":
 		cfg, err := ParseAgentConfig(raw)
@@ -453,6 +457,16 @@ func ParseNodeConfig(nodeType string, raw json.RawMessage) (*ParsedNodeConfig, e
 	default:
 		return nil, fmt.Errorf("%w: %q (allowed: agent | automation | hybrid)", ErrUnknownNodeType, nodeType)
 	}
+}
+
+// NormalizeNodeType 统一 DAG 节点类型空值兼容规则。
+// 空 node_type 是旧模板的 agent 默认值；未知类型保留给 ParseNodeConfig fail-fast。
+func NormalizeNodeType(raw string) string {
+	t := strings.TrimSpace(raw)
+	if t == "" {
+		return "agent"
+	}
+	return t
 }
 
 // ValidateLaunchCWDForNodeConfig 从节点配置提取并校验启动 cwd。
@@ -480,6 +494,38 @@ func launchCWDFromParsedConfig(parsed *ParsedNodeConfig) string {
 	default:
 		return ""
 	}
+}
+
+// ValidatePersistableNodeConfig 在 DAG 模板写入前校验 typed executable config。
+// 它只检查持久化后无法安全解释的配置；已有历史行的 cwd/root 缺失仍由执行前 runner
+// fail-fast 处理，避免旧模板被误当作可信命令边界。
+func ValidatePersistableNodeConfig(nodeType string, raw json.RawMessage) error {
+	parsed, err := ParseNodeConfig(nodeType, raw)
+	if err != nil {
+		return fmt.Errorf("nodeexec: invalid node config: %w", err)
+	}
+	switch {
+	case parsed.Automation != nil:
+		return validatePersistableAutomationExec(parsed.Automation.Exec)
+	case parsed.Hybrid != nil && parsed.Hybrid.Exec.Automation != nil:
+		if err := validatePersistableAutomationExec(*parsed.Hybrid.Exec.Automation); err != nil {
+			return fmt.Errorf("hybrid automation: %w", err)
+		}
+	}
+	return nil
+}
+
+func validatePersistableAutomationExec(exec AutomationExecConfig) error {
+	if exec.Kind != AutomationKindCommandCard {
+		return fmt.Errorf("unsupported automation.kind: %q", exec.Kind)
+	}
+	if strings.TrimSpace(exec.CommandRef) == "" {
+		return errors.New("command_ref required in node.config.exec")
+	}
+	if err := validateAutomationCommandEnv(exec.Env); err != nil {
+		return err
+	}
+	return nil
 }
 
 // ParseAgentConfig 解码 node_type=agent 的完整 config。

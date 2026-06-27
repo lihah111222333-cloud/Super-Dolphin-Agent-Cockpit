@@ -416,15 +416,17 @@ func (s *Scheduler) finalizeFailure(ctx context.Context, job cronstore.Job, run 
 		Error: startErr.Error(), UpdatedAt: now,
 	}, "submitting->failed", job.ID, run.ID, cronstore.StatusFailed, "", startErr.Error(), scheduledAt)
 	return s.store.MarkFailed(ctx, cronstore.MarkFailedParams{
-		ID:          job.ID,
-		ClaimToken:  job.ClaimToken,
-		LastRunAt:   scheduledAt,
-		LastTurnID:  "",
-		LastStatus:  cronstore.StatusFailed,
-		LastErrorAt: now,
-		LastError:   startErr.Error(),
-		NextRetryAt: nextRetry,
-		Now:         now,
+		ID:                   job.ID,
+		ClaimToken:           job.ClaimToken,
+		RunID:                run.ID,
+		ExpectedActiveTurnID: "",
+		LastRunAt:            scheduledAt,
+		LastTurnID:           "",
+		LastStatus:           cronstore.StatusFailed,
+		LastErrorAt:          now,
+		LastError:            startErr.Error(),
+		NextRetryAt:          nextRetry,
+		Now:                  now,
 	})
 }
 
@@ -437,14 +439,16 @@ func (s *Scheduler) finalizeObserveLost(ctx context.Context, job cronstore.Job, 
 		Error: observeErr.Error(), UpdatedAt: now,
 	}, "submitted->observe_lost", job.ID, run.ID, cronstore.StatusObserveLost, result.TurnID, observeErr.Error(), run.ScheduledAt)
 	return s.store.MarkFailed(ctx, cronstore.MarkFailedParams{
-		ID:          job.ID,
-		ClaimToken:  job.ClaimToken,
-		LastRunAt:   now,
-		LastTurnID:  result.TurnID,
-		LastStatus:  cronstore.StatusObserveLost,
-		LastErrorAt: now,
-		LastError:   observeErr.Error(),
-		NextRetryAt: time.Time{}, // observe_lost 不自动重试，避免重复 turn
-		Now:         now,
+		ID:                   job.ID,
+		ClaimToken:           job.ClaimToken,
+		RunID:                run.ID,
+		ExpectedActiveTurnID: result.TurnID,
+		LastRunAt:            now,
+		LastTurnID:           result.TurnID,
+		LastStatus:           cronstore.StatusObserveLost,
+		LastErrorAt:          now,
+		LastError:            observeErr.Error(),
+		NextRetryAt:          time.Time{}, // observe_lost 不自动重试，避免重复 turn
+		Now:                  now,
 	})
 }

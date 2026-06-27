@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
+	"github.com/anthropic-ai/super-agent-v3/internal/util/safego"
 	"github.com/gorilla/websocket"
 )
 
@@ -317,9 +318,7 @@ func (t *transport) readLoopStep(ctx context.Context, handler any) bool {
 
 // transportServer 把 *transport 适配为池使用的 SpawnedServer。
 // 字段刻意收窄到 URL、进程存活和有序关闭，避免池层依赖 transport 内部细节。
-type transportServer struct {
-	t *transport
-}
+type transportServer struct{ t *transport }
 
 func wrapTransport(t *transport) SpawnedServer { return &transportServer{t: t} }
 
@@ -335,21 +334,24 @@ func (s *transportServer) ServerURL() string {
 
 // Close 按池接口关闭底层 transport，保持 graceful shutdown 语义。
 // nil 接收者视为已关闭，便于池释放路径保持幂等。
-func (s *transportServer) Close(_ context.Context) error {
+func (s *transportServer) Close(ctx context.Context) error {
 	if s == nil || s.t == nil {
 		return nil
 	}
-	return s.t.shutdownTransport(true)
+	ctx = nonNilContext(ctx)
+	done := make(chan error, 1)
+	safego.Go(ctx, nil, "codexapp.transportServer.close", func(context.Context) { done <- s.t.shutdownTransport(true) })
+	select {
+	case err := <-done:
+		return err
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 }
 
 // Alive 返回池中 app-server 进程是否仍在运行。
 // 这里只看本地进程状态，连接健康由 session/transport 的恢复路径进一步确认。
-func (s *transportServer) Alive() bool {
-	if s == nil || s.t == nil {
-		return false
-	}
-	return s.t.processRunning()
-}
+func (s *transportServer) Alive() bool { return s != nil && s.t != nil && s.t.processRunning() }
 
 // DiagnoseExit 返回进程 stderr 尾部和已记录的退出错误，供池退避日志使用。
 // 该方法不触发额外清理，只读取当前快照，避免诊断路径改变进程生命周期。

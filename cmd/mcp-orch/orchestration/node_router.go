@@ -142,6 +142,9 @@ func (r *NodeExecutorRouter) RouteByWakeup(ctx context.Context, w *taskdag.Wakeu
 	if err != nil {
 		return nodeexec.NodeOutcome{}, err
 	}
+	if isTerminalNodeStatus(target.Status) {
+		return nodeexec.NodeOutcome{Status: nodeexec.NodeStatusDone}, nil
+	}
 	nodeType := resolveNodeType(target.NodeType)
 	node := nodeexec.Node{
 		DagKey:           dagKey,

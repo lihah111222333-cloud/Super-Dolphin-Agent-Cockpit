@@ -42,6 +42,16 @@ func TestGuardFixCommitsHaveTestsCached(t *testing.T) {
 			},
 		},
 		{
+			name:    "rejects fix with unrelated fixture only",
+			subject: "fix: 修复 parser panic",
+			files: map[string]string{
+				"internal/app/parser.go":               "package app\n\nfunc parse() {}\n",
+				"test/fixtures/other/parser_case.json": "{}\n",
+			},
+			wantErr:   true,
+			wantParts: []string{"fix 提交缺少锁定 bug 的测试", "fix: 修复 parser panic"},
+		},
+		{
 			name:    "allows non fix without test",
 			subject: "chore: refresh docs",
 			files: map[string]string{
@@ -343,6 +353,20 @@ func TestCIWorkflowRunsCommitGuard(t *testing.T) {
 		"./scripts/ci_commit_guard.sh",
 		"needs: commit-guard",
 	)
+}
+
+func TestCIWorkflowDoesNotExcludeProductionPackages(t *testing.T) {
+	workflow := locateFixTestGuardRepoFile(t, ".github/workflows/ci.yml")
+	data, err := os.ReadFile(workflow)
+	if err != nil {
+		t.Fatalf("read ci workflow: %v", err)
+	}
+	content := string(data)
+	for _, forbidden := range []string{"grep -v", "/internal/provider/dreamexec"} {
+		if strings.Contains(content, forbidden) {
+			t.Fatalf("ci workflow contains production package exclusion %q:\n%s", forbidden, content)
+		}
+	}
 }
 
 func TestPrePushScopesPackageTestsByChangedLanguage(t *testing.T) {

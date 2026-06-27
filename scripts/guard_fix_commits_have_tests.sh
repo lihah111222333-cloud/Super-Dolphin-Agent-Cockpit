@@ -32,13 +32,20 @@ first_commit_subject() {
   ' "$1"
 }
 
-is_bug_locking_test_path() {
+is_direct_test_path() {
   local path="$1"
   case "$path" in
     *_test.go|*_test.py|test_*.py) return 0 ;;
     *.test.js|*.test.jsx|*.test.ts|*.test.tsx) return 0 ;;
     *.spec.js|*.spec.jsx|*.spec.ts|*.spec.tsx) return 0 ;;
     tests/*|*/tests/*) return 0 ;;
+  esac
+  return 1
+}
+
+is_fixture_evidence_path() {
+  local path="$1"
+  case "$path" in
     testdata/*|*/testdata/*) return 0 ;;
     fixtures/*|*/fixtures/*|fixture/*|*/fixture/*) return 0 ;;
     golden/*|*/golden/*|*.golden|*.golden.*) return 0 ;;
@@ -47,8 +54,51 @@ is_bug_locking_test_path() {
   return 1
 }
 
+fixture_owner_dir() {
+  local path="$1"
+  case "$path" in
+    */testdata/*) echo "${path%%/testdata/*}"; return 0 ;;
+    testdata/*) echo "."; return 0 ;;
+    */fixtures/*) echo "${path%%/fixtures/*}"; return 0 ;;
+    fixtures/*) echo "."; return 0 ;;
+    */fixture/*) echo "${path%%/fixture/*}"; return 0 ;;
+    fixture/*) echo "."; return 0 ;;
+    */golden/*) echo "${path%%/golden/*}"; return 0 ;;
+    golden/*) echo "."; return 0 ;;
+    */__snapshots__/*) echo "${path%%/__snapshots__/*}"; return 0 ;;
+    __snapshots__/*) echo "."; return 0 ;;
+    */snapshots/*) echo "${path%%/snapshots/*}"; return 0 ;;
+    snapshots/*) echo "."; return 0 ;;
+    *.golden|*.golden.*|*.snap)
+      dirname "$path"
+      return 0
+      ;;
+  esac
+  return 1
+}
+
+path_dirname() {
+  local path="$1"
+  if [[ "$path" == */* ]]; then
+    dirname "$path"
+    return 0
+  fi
+  echo "."
+}
+
+fixture_matches_production_dir() {
+  local owner="$1"
+  local prod_dir="$2"
+  [ -n "$owner" ] || return 1
+  [ "$owner" = "$prod_dir" ] && return 0
+  [[ "$owner" == "$prod_dir"/* ]] && return 0
+  return 1
+}
+
 diff_stream_has_bug_locking_test() {
-  local status path old_path
+  local status path old_path owner prod_dir
+  local prod_dirs=()
+  local fixture_owners=()
   while IFS= read -r -d '' status; do
     path=
     case "$status" in
@@ -64,10 +114,27 @@ diff_stream_has_bug_locking_test() {
         IFS= read -r -d '' path || break
         ;;
     esac
-    if is_bug_locking_test_path "$path"; then
+    if is_direct_test_path "$path"; then
       return 0
     fi
+    if is_fixture_evidence_path "$path"; then
+      owner="$(fixture_owner_dir "$path" || true)"
+      if [ -n "$owner" ]; then
+        fixture_owners+=("$owner")
+      fi
+      continue
+    fi
+    prod_dirs+=("$(path_dirname "$path")")
   done
+  if [ "${#fixture_owners[@]}" -gt 0 ] && [ "${#prod_dirs[@]}" -gt 0 ]; then
+    for owner in "${fixture_owners[@]}"; do
+      for prod_dir in "${prod_dirs[@]}"; do
+        if fixture_matches_production_dir "$owner" "$prod_dir"; then
+          return 0
+        fi
+      done
+    done
+  fi
   return 1
 }
 

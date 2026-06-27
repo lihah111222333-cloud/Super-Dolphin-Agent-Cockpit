@@ -3,6 +3,7 @@ package thread
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -123,42 +124,42 @@ func TestUnarchivePendingLaunchDoesNotRequireBinding(t *testing.T) {
 	}
 }
 
-func TestForkPersistsInheritedPromptSnapshotBeforeReturning(t *testing.T) {
+func TestForkSavesInheritedPromptSnapshotAfterNewThreadRowExists(t *testing.T) {
 	t.Parallel()
 
-	storeErr := errors.New("snapshot store down")
 	originalSession := &stubSession{
 		threadID:   "thread-parent",
 		forkResult: dto.ForkResult{NewThreadID: "thread-fork"},
 	}
+	forkedSession := &stubSession{threadID: "019d5f6b-aaaa-7760-9d6f-54005553f5b3"}
 	sessions := &stubSessionProvider{session: originalSession}
 	bindings := forkParentBindingStore()
-	threads := forkParentThreadStore()
-	threads.savePromptSnapshotError = storeErr
+	threads := &snapshotRequiresThreadRowStore{stubThreadStore: forkParentThreadStore()}
 	starter := &stubSessionStarter{onResume: func(context.Context, dto.ResumeSessionRequest) (contract.Session, error) {
-		t.Fatal("ResumeSession should not be called when fork snapshot persistence fails")
-		return nil, nil
+		sessions.session = forkedSession
+		return forkedSession, nil
 	}}
 	orch := &forkOrchestrationStub{}
 	svc := NewService(silentLogger(), threads, bindings, sessions, starter, nil, orch, nil).(*service)
 
-	_, err := svc.Fork(context.Background(), "thread-parent")
-	if !errors.Is(err, storeErr) {
-		t.Fatalf("Fork() error = %v, want snapshot store error", err)
+	if _, err := svc.Fork(context.Background(), "thread-parent"); err != nil {
+		t.Fatalf("Fork() error = %v, want snapshot saved after durable fork row exists", err)
 	}
 	if len(threads.savePromptSnapshotIDs) != 1 || threads.savePromptSnapshotIDs[0] != "thread-fork" {
 		t.Fatalf("SavePromptSnapshot IDs = %#v, want [thread-fork]", threads.savePromptSnapshotIDs)
 	}
-	if orch.launch.AgentID != "" {
-		t.Fatalf("LaunchAgent = %#v, want no fork launch after snapshot failure", orch.launch)
+	if threads.upsertCount == 0 {
+		t.Fatal("thread upsert count = 0, want fork row persisted before snapshot save")
 	}
-	if len(orch.bindAgentIDs) != 0 {
-		t.Fatalf("BindSessionGeneration calls = %#v, want none", orch.bindAgentIDs)
+}
+
+type snapshotRequiresThreadRowStore struct {
+	*stubThreadStore
+}
+
+func (s *snapshotRequiresThreadRowStore) SavePromptSnapshot(ctx context.Context, threadID string, snapshot threadstore.PromptSnapshot) error {
+	if s.thread == nil || s.thread.ThreadID != threadID {
+		return fmt.Errorf("new thread row %q does not exist before snapshot save", threadID)
 	}
-	if threads.upsertCount != 0 {
-		t.Fatalf("thread upsert count = %d, want 0", threads.upsertCount)
-	}
-	if len(bindings.upserts) != 0 {
-		t.Fatalf("binding upserts = %#v, want none", bindings.upserts)
-	}
+	return s.stubThreadStore.SavePromptSnapshot(ctx, threadID, snapshot)
 }

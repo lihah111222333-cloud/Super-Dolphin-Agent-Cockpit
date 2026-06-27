@@ -69,7 +69,7 @@ func TestDispatchAgent_RaceWindowD_NoRowsIsSilent(t *testing.T) {
 			NodeType: "agent",
 			Title:    "n1",
 			Config:   testRawConfig(t, `{"exec":{"agent_key":"alpha","cwd":"/tmp/node-cwd"},"first_turn":"hi"}`),
-			Status:   "done", // subscriber already pushed terminal
+			Status:   "ready",
 		}},
 		runningStatusErr: pgx.ErrNoRows,
 	}

@@ -165,9 +165,10 @@ type Querier interface {
 	LoadAgentThreadPromptSnapshot(ctx context.Context, arg LoadAgentThreadPromptSnapshotParams) (json.RawMessage, error)
 	LockRecallTopicInCWD(ctx context.Context, arg LockRecallTopicInCWDParams) error
 	MarkCronJobFailed(ctx context.Context, arg MarkCronJobFailedParams) (int64, error)
-	// MarkCronJobFinished releases the claim, records the successful run's
-	// turn id and advances scheduling fields. Conditional on claim_token so
-	// a late worker cannot overwrite terminal state after being preempted.
+	// MarkCronJobFinished releases the claim only when the current job claim,
+	// active turn, and already-finished run row all describe the same terminal
+	// event. This prevents a late terminal event from an old run from releasing a
+	// newer claim.
 	//
 	MarkCronJobFinished(ctx context.Context, arg MarkCronJobFinishedParams) (int64, error)
 	MarkDatasourceV2DocumentReady(ctx context.Context, arg MarkDatasourceV2DocumentReadyParams) (DatasourceV2Document, error)

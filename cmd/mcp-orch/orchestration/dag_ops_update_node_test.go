@@ -117,6 +117,42 @@ func TestApplyOps_UpdateNode_ConfigHappy(t *testing.T) {
 	}
 }
 
+func TestApplyOps_UpdateNodeRejectsInvalidExecutableConfigBeforePersistence(t *testing.T) {
+	t.Parallel()
+	stub := &stubDAGOpsStore{
+		currentVersion: 0,
+		nodes: []taskdag.Node{
+			{DagKey: "dag-a", NodeKey: "auto1", Title: "auto", NodeType: "automation", Status: "pending",
+				DependsOn: json.RawMessage(`[]`), Config: json.RawMessage(`{"exec":{"kind":"command_card","command_ref":"old"}}`)},
+		},
+	}
+	s := makeApplyOpsService(stub)
+	req := contract.ApplyOpsRequest{
+		DagKey:      "dag-a",
+		BaseVersion: 0,
+		Ops: json.RawMessage(`[
+			{"op":"update_node","node_key":"auto1","patch":{"config":{"exec":{"kind":"command_card"}}}}
+		]`),
+	}
+
+	_, err := s.ApplyOps(context.Background(), req)
+	if err == nil {
+		t.Fatal("ApplyOps err = nil, want invalid executable config error")
+	}
+	if !errors.Is(err, ErrApplyOpsInvalid) {
+		t.Fatalf("ApplyOps err = %v, want errors.Is ErrApplyOpsInvalid", err)
+	}
+	if !strings.Contains(err.Error(), "command_ref") {
+		t.Fatalf("ApplyOps err = %v, want command_ref diagnostic", err)
+	}
+	if len(stub.upsertCalls) != 0 {
+		t.Fatalf("upsertCalls = %d, want 0 before invalid config persistence", len(stub.upsertCalls))
+	}
+	if len(stub.bumpCalls) != 0 {
+		t.Fatalf("bumpCalls = %v, want none before invalid config persistence", stub.bumpCalls)
+	}
+}
+
 func TestApplyOps_UpdateNode_HybridVerifierConfigAccepted(t *testing.T) {
 	t.Parallel()
 	stub := &stubDAGOpsStore{

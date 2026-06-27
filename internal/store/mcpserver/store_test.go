@@ -3,10 +3,14 @@ package mcpserver
 import (
 	"context"
 	"database/sql"
+	"database/sql/driver"
+	"errors"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
+	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
 	_ "modernc.org/sqlite"
 )
 
@@ -75,6 +79,107 @@ func TestConfigStoreMigratesLegacyHTTPOnlyTableBeforeWritingStdio(t *testing.T) 
 	assertPostgresServer(t, servers["postgres"], false)
 }
 
+func TestConfigStoreLegacyMigrationRollbackKeepsOriginalTableOnRenameFailure(t *testing.T) {
+	db, err := sql.Open("sqlite", ":memory:")
+	if err != nil {
+		t.Fatalf("open sqlite: %v", err)
+	}
+	defer db.Close()
+	ctx := context.Background()
+	workspaceRoot := filepath.Join(t.TempDir(), "project")
+
+	if _, err := db.ExecContext(ctx, legacyHTTPOnlyMCPServerConfigsTableSQL); err != nil {
+		t.Fatalf("create legacy table: %v", err)
+	}
+	if _, err := db.ExecContext(ctx, `
+		INSERT INTO mcp_server_configs (workspace_root, name, transport, url, headers)
+		VALUES (?, 'my-search', 'http', 'https://legacy.example/mcp', '{}')
+	`, workspaceRoot); err != nil {
+		t.Fatalf("seed legacy table: %v", err)
+	}
+
+	store := &configStore{db: failOnMCPServerExecDB{
+		db:           db,
+		failContains: "ALTER TABLE mcp_server_configs_next RENAME TO mcp_server_configs",
+		err:          errors.New("injected rename failure"),
+	}}
+	_, err = store.InsertServer(ctx, contract.StoreMCPServerConfigParams{
+		WorkspaceRoot: workspaceRoot,
+		Name:          "postgres",
+		Config: contract.MCPServerConfig{
+			Transport: "stdio",
+			Command:   "mcp-server-postgres",
+		},
+	})
+	if err == nil || !strings.Contains(err.Error(), "injected rename failure") {
+		t.Fatalf("InsertServer() error = %v, want injected rename failure", err)
+	}
+	assertMCPServerTableExists(t, db, "mcp_server_configs")
+	assertMCPServerTableMissing(t, db, "mcp_server_configs_next")
+	assertLegacyMCPServerURL(t, db, workspaceRoot, "https://legacy.example/mcp")
+}
+
+func TestConfigStoreRecoversNextTableWhenMainTableWasDropped(t *testing.T) {
+	db, err := sql.Open("sqlite", ":memory:")
+	if err != nil {
+		t.Fatalf("open sqlite: %v", err)
+	}
+	defer db.Close()
+	ctx := context.Background()
+	workspaceRoot := filepath.Join(t.TempDir(), "project")
+
+	if _, err := db.ExecContext(ctx, createMCPServerConfigsNextTableSQL); err != nil {
+		t.Fatalf("create next table: %v", err)
+	}
+	if _, err := db.ExecContext(ctx, `
+		INSERT INTO mcp_server_configs_next (
+			workspace_root, name, transport, url, headers, command, args, env, enabled
+		) VALUES (?, 'my-search', 'http', 'https://legacy.example/mcp', '{}', '', '[]', '{}', 1)
+	`, workspaceRoot); err != nil {
+		t.Fatalf("seed next table: %v", err)
+	}
+
+	store := &configStore{db: db}
+	servers, err := store.ListServers(ctx, workspaceRoot)
+	if err != nil {
+		t.Fatalf("ListServers() error = %v", err)
+	}
+	if servers["my-search"].URL != "https://legacy.example/mcp" {
+		t.Fatalf("recovered server = %#v", servers["my-search"])
+	}
+	assertMCPServerTableMissing(t, db, "mcp_server_configs_next")
+}
+
+func TestConfigStoreFailsFastWhenMainAndNextTablesBothExist(t *testing.T) {
+	db, err := sql.Open("sqlite", ":memory:")
+	if err != nil {
+		t.Fatalf("open sqlite: %v", err)
+	}
+	defer db.Close()
+	ctx := context.Background()
+	workspaceRoot := filepath.Join(t.TempDir(), "project")
+
+	if _, err := db.ExecContext(ctx, createMCPServerConfigsTableSQL); err != nil {
+		t.Fatalf("create main table: %v", err)
+	}
+	if _, err := db.ExecContext(ctx, createMCPServerConfigsNextTableSQL); err != nil {
+		t.Fatalf("create next table: %v", err)
+	}
+	if _, err := db.ExecContext(ctx, `
+		INSERT INTO mcp_server_configs_next (
+			workspace_root, name, transport, url, headers, command, args, env, enabled
+		) VALUES (?, 'my-search', 'http', 'https://legacy.example/mcp', '{}', '', '[]', '{}', 1)
+	`, workspaceRoot); err != nil {
+		t.Fatalf("seed next table: %v", err)
+	}
+
+	store := &configStore{db: db}
+	_, err = store.ListServers(ctx, workspaceRoot)
+	if err == nil || !strings.Contains(err.Error(), "mcp_server_configs_next") {
+		t.Fatalf("ListServers() error = %v, want leftover next-table anomaly", err)
+	}
+}
+
 func TestConfigStoreDeleteRemovesServer(t *testing.T) {
 	store, closeDB := newSQLiteConfigStore(t)
 	defer closeDB()
@@ -104,6 +209,103 @@ func TestConfigStoreDeleteRemovesServer(t *testing.T) {
 	}
 	if _, ok := servers["my-search"]; ok {
 		t.Fatalf("server still listed after delete: %#v", servers)
+	}
+}
+
+type failOnMCPServerExecDB struct {
+	db           *sql.DB
+	failContains string
+	err          error
+}
+
+func (d failOnMCPServerExecDB) ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error) {
+	if strings.Contains(query, d.failContains) {
+		return driver.RowsAffected(0), d.err
+	}
+	return d.db.ExecContext(ctx, query, args...)
+}
+
+func (d failOnMCPServerExecDB) QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error) {
+	return d.db.QueryContext(ctx, query, args...)
+}
+
+func (d failOnMCPServerExecDB) QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row {
+	return d.db.QueryRowContext(ctx, query, args...)
+}
+
+func (d failOnMCPServerExecDB) withMCPServerMigrationTx(ctx context.Context, fn func(platformdb.Queryable) error) error {
+	tx, err := d.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	wrapped := failOnMCPServerExecTx{tx: tx, failContains: d.failContains, err: d.err}
+	if err := fn(wrapped); err != nil {
+		_ = tx.Rollback()
+		return err
+	}
+	return tx.Commit()
+}
+
+type failOnMCPServerExecTx struct {
+	tx           *sql.Tx
+	failContains string
+	err          error
+}
+
+func (t failOnMCPServerExecTx) ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error) {
+	if strings.Contains(query, t.failContains) {
+		return driver.RowsAffected(0), t.err
+	}
+	return t.tx.ExecContext(ctx, query, args...)
+}
+
+func (t failOnMCPServerExecTx) QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error) {
+	return t.tx.QueryContext(ctx, query, args...)
+}
+
+func (t failOnMCPServerExecTx) QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row {
+	return t.tx.QueryRowContext(ctx, query, args...)
+}
+
+func assertMCPServerTableExists(t *testing.T, db *sql.DB, table string) {
+	t.Helper()
+	if !mcpServerTableExists(t, db, table) {
+		t.Fatalf("table %s missing", table)
+	}
+}
+
+func assertMCPServerTableMissing(t *testing.T, db *sql.DB, table string) {
+	t.Helper()
+	if mcpServerTableExists(t, db, table) {
+		t.Fatalf("table %s exists, want missing", table)
+	}
+}
+
+func mcpServerTableExists(t *testing.T, db *sql.DB, table string) bool {
+	t.Helper()
+	var count int
+	if err := db.QueryRow(`
+		SELECT COUNT(*)
+		FROM sqlite_master
+		WHERE type = 'table' AND name = ?
+	`, table).Scan(&count); err != nil {
+		t.Fatalf("check table %s: %v", table, err)
+	}
+	return count > 0
+}
+
+func assertLegacyMCPServerURL(t *testing.T, db *sql.DB, workspaceRoot, want string) {
+	t.Helper()
+	var got string
+	if err := db.QueryRow(`
+		SELECT url
+		FROM mcp_server_configs
+		WHERE workspace_root = ? AND name = 'my-search'
+	`, workspaceRoot).Scan(&got); err != nil {
+		t.Fatalf("read legacy server after failed migration: %v", err)
+	}
+	if got != want {
+		t.Fatalf("legacy server url = %q, want %q", got, want)
 	}
 }
 

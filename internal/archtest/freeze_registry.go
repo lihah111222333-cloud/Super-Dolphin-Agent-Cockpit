@@ -20,7 +20,7 @@ var explicitFreezeRegistry = []explicitFreeze{
 	{
 		Path:       "internal/provider/codexapp",
 		Kind:       ViolationPackageLines,
-		Limit:      10013,
+		Limit:      10012,
 		Reason:     "peer_supervisor panic 日志 helper 致使包行数超限；待后续拆分文件后删除",
 		Owner:      "review-fix-06-hooks-p3",
 		RemoveWhen: "internal/provider/codexapp 包行数回落到 10000 以下",

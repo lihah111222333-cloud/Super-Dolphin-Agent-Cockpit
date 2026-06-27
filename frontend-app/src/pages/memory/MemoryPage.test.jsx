@@ -1,7 +1,7 @@
 import React from 'react';
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { MemoryPage } from './MemoryPage.jsx';
 import { normalizeMemorySnapshot } from '../../adapters/memoryAdapter.js';
 import { fetchMemoryDashboard, upsertMemoryEntry } from '../../services/modules/memoryService.js';
@@ -20,7 +20,7 @@ const backend = vi.hoisted(() => ({
 
 vi.mock('../../services/modules/memoryService.js', () => backend);
 
-function memorySnapshot({ privateEntries = [], teamEntries = [] } = {}) {
+function memorySnapshot({ privateEntries = [], similarGroups = [], teamEntries = [] } = {}) {
   return {
     overview: {
       autoDreamEnabled: false,
@@ -29,7 +29,7 @@ function memorySnapshot({ privateEntries = [], teamEntries = [] } = {}) {
         preferenceCount: privateEntries.length,
         projectCount: teamEntries.length,
         maxPerCategory: 15,
-        similarGroups: [],
+        similarGroups,
       },
     },
     private: { entries: privateEntries },
@@ -58,6 +58,16 @@ function resetMemoryBackendMocks() {
 }
 
 beforeEach(resetMemoryBackendMocks);
+
+afterEach(() => {
+  vi.useRealTimers();
+});
+
+async function flushPromises(count = 6) {
+  for (let index = 0; index < count; index += 1) {
+    await Promise.resolve();
+  }
+}
 
 describe('MemoryPage module export', () => {
   it('exports the memory page component', () => {
@@ -129,5 +139,48 @@ describe('MemoryPage editor', () => {
         content: '规则\n默认中文回复',
       });
     });
+  });
+});
+
+describe('MemoryPage consolidation polling', () => {
+  it('aborts the background consolidation poller when the page unmounts', async () => {
+    fetchMemoryDashboard.mockResolvedValue(normalizeMemorySnapshot(memorySnapshot({
+      similarGroups: [{
+        targetA: 'team',
+        pathA: 'project/a.md',
+        nameA: 'A',
+        targetB: 'team',
+        pathB: 'project/b.md',
+        nameB: 'B',
+        score: 0.91,
+      }],
+    })));
+    backend.startConsolidateMemorySimilarities.mockResolvedValue({ status: 'running', jobId: 'job-1' });
+    backend.getMemoryConsolidationStatus.mockResolvedValue({ status: 'running' });
+
+    const { unmount } = renderMemoryPage();
+    const mergeAll = await screen.findByRole('button', { name: '一键整合全部' });
+
+    vi.useFakeTimers();
+    fireEvent.click(mergeAll);
+    await act(async () => {
+      await flushPromises();
+    });
+    await act(async () => {
+      await flushPromises();
+    });
+
+    expect(backend.startConsolidateMemorySimilarities).toHaveBeenCalledTimes(1);
+    expect(backend.getMemoryConsolidationStatus).toHaveBeenCalledTimes(1);
+
+    unmount();
+    await act(async () => {
+      for (let attempt = 0; attempt < 5; attempt += 1) {
+        vi.advanceTimersByTime(2000);
+        await flushPromises();
+      }
+    });
+
+    expect(backend.getMemoryConsolidationStatus).toHaveBeenCalledTimes(1);
   });
 });

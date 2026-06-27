@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/util"
+	"github.com/anthropic-ai/super-agent-v3/internal/util/clone"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
@@ -29,7 +30,7 @@ func (s *service) Handoff(ctx context.Context, req HandoffRequest) (HandoffResul
 		return HandoffResult{}, errHandoffMissingAgentKey
 	}
 
-	source, err := s.loadThreadForHandoff(ctx, sourceID)
+	source, sourceConfig, err := s.loadThreadForHandoff(ctx, sourceID)
 	if err != nil {
 		return HandoffResult{}, err
 	}
@@ -39,19 +40,7 @@ func (s *service) Handoff(ctx context.Context, req HandoffRequest) (HandoffResul
 		displayName = fmt.Sprintf("handoff -> %s", targetAgentKey)
 	}
 
-	startReq := StartRequest{
-		CWD:           source.Cwd,
-		Model:         source.Model,
-		Provider:      source.Provider,
-		ParentAgentID: source.ParentAgentID,
-		AgentType:     source.AgentType,
-		Name:          displayName,
-		Prompt:        displayName,
-		AgentKey:      targetAgentKey,
-		OwnerThreadID: sourceID,
-	}
-
-	result, err := s.Start(ctx, startReq)
+	result, err := s.Start(ctx, StartRequest{CWD: source.Cwd, Model: source.Model, Provider: source.Provider, ParentAgentID: source.ParentAgentID, AgentType: source.AgentType, Name: displayName, Prompt: displayName, AgentKey: targetAgentKey, OwnerThreadID: sourceID, Config: clone.RuntimeConfigMap(sourceConfig)})
 	if err != nil {
 		pkglogger.Warn("thread/handoff: start failed", "source_thread_id", sourceID, "target_agent_key", targetAgentKey, "error", err)
 		return HandoffResult{}, err
@@ -62,29 +51,33 @@ func (s *service) Handoff(ctx context.Context, req HandoffRequest) (HandoffResul
 }
 
 // loadThreadForHandoff 为交接加载线程。
-func (s *service) loadThreadForHandoff(ctx context.Context, threadID string) (handoffSource, error) {
+func (s *service) loadThreadForHandoff(ctx context.Context, threadID string) (handoffSource, map[string]any, error) {
 	if s == nil || s.threadStore == nil {
-		return handoffSource{}, errors.New("thread/handoff: thread store unavailable")
+		return handoffSource{}, nil, errors.New("thread/handoff: thread store unavailable")
 	}
 	row, err := s.threadStore.GetByThreadID(ctx, threadID)
 	if err != nil {
-		return handoffSource{}, fmt.Errorf("thread/handoff: load source: %w", err)
+		return handoffSource{}, nil, fmt.Errorf("thread/handoff: load source: %w", err)
 	}
 	if row == nil {
-		return handoffSource{}, fmt.Errorf("thread/handoff: source thread %q not found", threadID)
+		return handoffSource{}, nil, fmt.Errorf("thread/handoff: source thread %q not found", threadID)
 	}
 	binding, err := s.resolveBinding(ctx, row.ThreadID)
 	if err != nil {
-		return handoffSource{}, fmt.Errorf("thread/handoff: resolve source provider: %w", err)
+		return handoffSource{}, nil, fmt.Errorf("thread/handoff: resolve source provider: %w", err)
 	}
 	provider := ""
 	if binding != nil {
 		provider = strings.TrimSpace(binding.Provider)
 	}
 	if provider == "" {
-		return handoffSource{}, fmt.Errorf("thread/handoff: provider is required for source thread %q", strings.TrimSpace(row.ThreadID))
+		return handoffSource{}, nil, fmt.Errorf("thread/handoff: provider is required for source thread %q", strings.TrimSpace(row.ThreadID))
 	}
-	return handoffSource{row.ThreadID, row.Cwd, row.Model, row.AgentType, row.ParentAgentID, row.Status, provider}, nil
+	_, config, _, err := resolveLifecycleCodexIdentity("thread/handoff", provider, binding.CodexHome, binding.CodexInstanceKey, binding.CodexModelProvider, row.ConfigOverride)
+	if err != nil {
+		return handoffSource{}, nil, err
+	}
+	return handoffSource{row.ThreadID, row.Cwd, row.Model, row.AgentType, row.ParentAgentID, row.Status, provider}, config, nil
 }
 
 type handoffSource struct{ ThreadID, Cwd, Model, AgentType, ParentAgentID, Status, Provider string }

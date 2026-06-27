@@ -2,8 +2,12 @@ package archtest
 
 import (
 	"fmt"
+	"go/ast"
+	"go/parser"
+	"go/token"
 	"log"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 )
@@ -113,7 +117,135 @@ func CheckWithBaseline(opts CheckOptions, bl Baseline) CheckResult {
 		vs := RatchetCheck(path, cur, frozen)
 		result.Violations = append(result.Violations, vs...)
 	}
+	result.NewFileViolations = newFileMetricViolations(repoRoot, opts, bl)
 	return result
+}
+
+// MeasureBaselineFileMetrics 补齐 baseline 棘轮使用的全部注册指标。
+// 单文件守卫仍走轻量 CheckAll；baseline 路径必须覆盖新文件缺基线时的质量债务。
+func MeasureBaselineFileMetrics(path string) FileMetrics {
+	m := MeasureFileMetrics(path)
+	if m.Lines == 0 {
+		return m
+	}
+	node, ok := parseMetricFile(path)
+	if !ok || ast.IsGenerated(node) {
+		return m
+	}
+	m.NakedGoroutines = CountNakedGoStmts(node)
+	return m
+}
+
+func parseMetricFile(path string) (*ast.File, bool) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, false
+	}
+	fset := token.NewFileSet()
+	node, err := parser.ParseFile(fset, path, data, parser.ParseComments|parser.SkipObjectResolution)
+	if err != nil {
+		return nil, false
+	}
+	return node, true
+}
+
+// newFileMetricViolations 对不在 baseline 中的扫描文件执行所有硬阈值检查。
+// 这里与 RatchetCheck 分开，避免新文件因为没有 frozen 值而绕过零容忍指标。
+func newFileMetricViolations(repoRoot string, opts CheckOptions, bl Baseline) []Violation {
+	files, err := collectGoFilesFiltered(repoRoot, opts.scanRoots(), opts.skipDirs(), opts.BaselineTestsOnly)
+	if err != nil {
+		return []Violation{{
+			Kind:    ViolationFile,
+			Message: fmt.Sprintf("collect new baseline files: %v", err),
+		}}
+	}
+	var violations []Violation
+	for _, absPath := range files {
+		relPath, err := filepath.Rel(repoRoot, absPath)
+		if err != nil {
+			violations = append(violations, Violation{
+				Kind:    ViolationFile,
+				File:    filepath.ToSlash(absPath),
+				Message: fmt.Sprintf("baseline file relative path: %v", err),
+			})
+			continue
+		}
+		relPath = filepath.ToSlash(relPath)
+		if !shouldCheckNewBaselineFile(repoRoot, relPath, bl) {
+			continue
+		}
+		metrics := MeasureBaselineFileMetrics(absPath)
+		violations = append(violations, metricViolationsForNewFile(relPath, metrics)...)
+	}
+	sortViolations(violations)
+	return violations
+}
+
+// shouldCheckNewBaselineFile 只把真正新增的源码视作 NewFileViolations 候选。
+// 非 git 临时目录无法查询历史，直接扫描全部 absent 文件，供单元测试和离线 fixture 覆盖。
+func shouldCheckNewBaselineFile(repoRoot, relPath string, bl Baseline) bool {
+	if _, frozen := bl[relPath]; frozen {
+		return false
+	}
+	if !isGitWorkTree(repoRoot) {
+		return true
+	}
+	return !fileExistsInGitRef(repoRoot, "HEAD", relPath)
+}
+
+func isGitWorkTree(repoRoot string) bool {
+	cmd := exec.Command("git", "-C", repoRoot, "rev-parse", "--is-inside-work-tree")
+	return cmd.Run() == nil
+}
+
+func fileExistsInGitRef(repoRoot, ref, relPath string) bool {
+	cmd := exec.Command("git", "-C", repoRoot, "cat-file", "-e", ref+":"+relPath)
+	return cmd.Run() == nil
+}
+
+func metricViolationsForNewFile(path string, metrics FileMetrics) []Violation {
+	var violations []Violation
+	for _, r := range metricRules() {
+		if !r.Flags.has(flagViolation) {
+			continue
+		}
+		got := *r.Access(&metrics)
+		if !isViolationByRule(r, path, got) {
+			continue
+		}
+		violations = append(violations, Violation{
+			Kind:    ViolationFile,
+			File:    path,
+			Got:     got,
+			Limit:   ruleLimitForMessage(r, path),
+			Message: newFileMetricViolationMessage(path, r.Field, got, ruleLimitForMessage(r, path)),
+		})
+	}
+	if metrics.HasInit {
+		violations = append(violations, Violation{
+			Kind:    ViolationFile,
+			File:    path,
+			Got:     1,
+			Limit:   0,
+			Message: newFileMetricViolationMessage(path, "has_init", 1, 0),
+		})
+	}
+	return violations
+}
+
+func ruleLimitForMessage(r metricRule, path string) int {
+	switch r.Kind {
+	case limitHard:
+		return r.HardLimit(path)
+	case limitZero:
+		return 0
+	default:
+		return 0
+	}
+}
+
+func newFileMetricViolationMessage(path, field string, got, limit int) string {
+	return fmt.Sprintf("新文件 %s: %s got=%d limit=%d", path, field, got, limit)
 }
 
 // IsTestFile 判断文件路径是否为测试文件。
@@ -149,7 +281,7 @@ func freezeBaselineFiltered(opts CheckOptions, testsOnly bool) Baseline {
 			log.Fatalf("baseline file relative path: %v", err)
 		}
 		relPath = filepath.ToSlash(relPath)
-		m := MeasureFileMetrics(absPath)
+		m := MeasureBaselineFileMetrics(absPath)
 		if HasViolation(m) {
 			bl[relPath] = m
 		}
