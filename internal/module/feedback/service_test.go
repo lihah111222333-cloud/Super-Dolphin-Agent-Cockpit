@@ -4,32 +4,24 @@ import (
 	"context"
 	"errors"
 	"testing"
-
-	feedbackstore "github.com/anthropic-ai/super-agent-v3/internal/store/feedback"
 )
 
 type fakeStore struct {
-	inserts      []feedbackstore.Event
+	inserts      []feedbackEvent
 	nextID       int64
 	insertErr    error
 	lastThreadID string
 }
 
-func (f *fakeStore) Insert(_ context.Context, ev feedbackstore.Event) (feedbackstore.Event, error) {
+func (f *fakeStore) Insert(_ context.Context, ev feedbackEvent) (feedbackEvent, error) {
 	f.lastThreadID = ev.ThreadID
 	if f.insertErr != nil {
-		return feedbackstore.Event{}, f.insertErr
+		return feedbackEvent{}, f.insertErr
 	}
 	f.nextID++
 	ev.ID = f.nextID
 	f.inserts = append(f.inserts, ev)
 	return ev, nil
-}
-func (f *fakeStore) ListByThread(context.Context, string, int32) ([]feedbackstore.Event, error) {
-	return nil, nil
-}
-func (f *fakeStore) ListByAgentKey(context.Context, string, int32) ([]feedbackstore.Event, error) {
-	return nil, nil
 }
 
 func TestService_RecordRejectsEmpty(t *testing.T) {

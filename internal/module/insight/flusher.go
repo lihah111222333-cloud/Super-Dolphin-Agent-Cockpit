@@ -8,7 +8,6 @@ import (
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	observation "github.com/anthropic-ai/super-agent-v3/internal/dto/observation"
-	insightstore "github.com/anthropic-ai/super-agent-v3/internal/store/insight"
 	"github.com/anthropic-ai/super-agent-v3/internal/util/ctxutil"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
@@ -22,14 +21,14 @@ const defaultDrainTimeout = 5 * time.Second
 type Flusher struct {
 	logger       *slog.Logger
 	obs          observation.Contract
-	store        insightstore.Store
+	store        insightWriter
 	collector    *collector
 	drainTimeout time.Duration
 	now          func() time.Time
 }
 
 // NewFlusher 创建 Flusher，注入 collector 和依赖项。now 可在测试中覆盖以固定时间，生产代码默认使用 time.Now。
-func NewFlusher(logger *slog.Logger, obs observation.Contract, store insightstore.Store, col *collector) *Flusher {
+func NewFlusher(logger *slog.Logger, obs observation.Contract, store insightWriter, col *collector) *Flusher {
 	if logger == nil {
 		logger = pkglogger.Get()
 	}
@@ -132,10 +131,10 @@ func (f *Flusher) handle(ctx context.Context, sig flushSignal) {
 // buildParams 从 observation 中读取所有维度，组装 UpsertParams。
 // ok=false 表示 observation 中还没有该轮的 terminal 记录，调用方负责决定是否重试（见 handle）。
 // 时间戳缺失时回退到 signal.Timestamp，避免向 DB 写入零值。
-func (f *Flusher) buildParams(sig flushSignal) (insightstore.UpsertParams, bool) {
+func (f *Flusher) buildParams(sig flushSignal) (insightUpsertParams, bool) {
 	term, termOk := f.obs.Terminal(sig.LocalTurnID)
 	if !termOk {
-		return insightstore.UpsertParams{}, false
+		return insightUpsertParams{}, false
 	}
 	tokens, _ := f.obs.Tokens(sig.LocalTurnID)
 	counts, _ := f.obs.Counts(sig.LocalTurnID)
@@ -166,10 +165,10 @@ func (f *Flusher) buildParams(sig flushSignal) (insightstore.UpsertParams, bool)
 	}
 	skillsJSON, err := json.Marshal(skills)
 	if err != nil {
-		return insightstore.UpsertParams{}, false
+		return insightUpsertParams{}, false
 	}
 
-	return insightstore.UpsertParams{
+	return insightUpsertParams{
 		ThreadID:                 sig.ThreadID,
 		AgentID:                  sig.AgentID,
 		SessionID:                "",

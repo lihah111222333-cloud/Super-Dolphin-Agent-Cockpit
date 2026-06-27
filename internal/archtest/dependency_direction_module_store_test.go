@@ -81,30 +81,6 @@ var moduleStoreImportAllowlist = map[string]map[string]string{
 	"internal/module/dashboard/workflow_material.go": {
 		internalPrefix("internal/store/sharedfile"): "D01 legacy module-to-store import",
 	},
-	"internal/module/datasource_v2/chunks.go": {
-		internalPrefix("internal/store/datasourcev2"): "D01 legacy module-to-store import",
-	},
-	"internal/module/datasource_v2/service.go": {
-		internalPrefix("internal/store/datasourcev2"): "D01 legacy module-to-store import",
-	},
-	"internal/module/feedback/service.go": {
-		internalPrefix("internal/store/feedback"): "D01 legacy module-to-store import",
-	},
-	"internal/module/insight/contract.go": {
-		internalPrefix("internal/store/insight"): "D01 legacy module-to-store import",
-	},
-	"internal/module/insight/flusher.go": {
-		internalPrefix("internal/store/insight"): "D01 legacy module-to-store import",
-	},
-	"internal/module/insight/service.go": {
-		internalPrefix("internal/store/insight"): "D01 legacy module-to-store import",
-	},
-	"internal/module/memory/sharedfilecleanup/gc.go": {
-		internalPrefix("internal/store/sharedfile"): "D01 legacy module-to-store import",
-	},
-	"internal/module/personalization/service.go": {
-		internalPrefix("internal/store/uipreference"): "D01 legacy module-to-store import",
-	},
 	"internal/module/prompt/intent/authoring.go": {
 		internalPrefix("internal/store/prompt"): "D01 legacy module-to-store import",
 	},
@@ -218,9 +194,6 @@ var moduleStoreImportAllowlist = map[string]map[string]string{
 	},
 	"internal/module/threadprompt/runtime_intent.go": {
 		internalPrefix("internal/store/prompt"): "D01 legacy module-to-store import",
-	},
-	"internal/module/turn/service.go": {
-		internalPrefix("internal/store/turndedupe"): "D01 legacy module-to-store import",
 	},
 	"internal/module/uistate/builtin_tools.go": {
 		internalPrefix("internal/store/uipreference"): "D01 legacy module-to-store import",

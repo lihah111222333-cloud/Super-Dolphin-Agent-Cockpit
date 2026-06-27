@@ -12,7 +12,6 @@ import (
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
 	turnobservation "github.com/anthropic-ai/super-agent-v3/internal/module/turn/observation"
 	platformobs "github.com/anthropic-ai/super-agent-v3/internal/platform/observability"
-	turndedupe "github.com/anthropic-ai/super-agent-v3/internal/store/turndedupe"
 	"github.com/anthropic-ai/super-agent-v3/internal/util"
 	"github.com/anthropic-ai/super-agent-v3/internal/util/ctxutil"
 	"github.com/anthropic-ai/super-agent-v3/internal/util/idgen"
@@ -22,6 +21,42 @@ import (
 
 // skillHydrationPort 是 turn 服务解析 name-only skill 引用所需的最小依赖。
 type skillHydrationPort = contract.SkillHydrationSource
+
+var errTurnDedupeNotFound = errors.New("turn dedupe: no live registry row")
+
+// turnDedupeStore 是 turn 服务跨进程去重恢复所需的最小持久化端口。
+type turnDedupeStore interface {
+	Upsert(ctx context.Context, params turnDedupeUpsertParams) error
+	BindProviderTurnID(ctx context.Context, params turnDedupeBindProviderTurnIDParams) error
+	MarkTerminal(ctx context.Context, dedupeKey string, now time.Time) error
+	GetLive(ctx context.Context, dedupeKey string) (turnDedupeEntry, error)
+}
+
+// turnDedupeEntry 是 registry live 行的模块内投影，不泄漏 store 层 DTO。
+type turnDedupeEntry struct {
+	DedupeKey      string
+	LocalTurnID    string
+	ProviderTurnID string
+	ThreadID       string
+	CreatedAt      time.Time
+	UpdatedAt      time.Time
+	TerminalAt     time.Time
+}
+
+// turnDedupeUpsertParams 承载 dedupe key 与本地 turn ID 的写入参数。
+type turnDedupeUpsertParams struct {
+	DedupeKey   string
+	LocalTurnID string
+	ThreadID    string
+	Now         time.Time
+}
+
+// turnDedupeBindProviderTurnIDParams 承载 provider turn ID 回写参数。
+type turnDedupeBindProviderTurnIDParams struct {
+	DedupeKey      string
+	ProviderTurnID string
+	Now            time.Time
+}
 
 // peerBinDirEnv 指定 provider manifest 查找内置 MCP peer 二进制的目录。
 const peerBinDirEnv = "GO_AGENT_PEER_BIN_DIR"
@@ -43,7 +78,7 @@ type service struct {
 	interruptSettleTimeout time.Duration
 	// dedupeStore 持久化 dedupe_key 到 local_turn_id 的镜像；未注入时只依赖进程内 tracker。
 	// 注入后 StartTurn 写入 registry，Complete/Stall 路径写 terminal_at，供重启恢复避重。
-	dedupeStore turndedupe.Store
+	dedupeStore turnDedupeStore
 
 	// ctx/cancel 绑定服务生命周期；Shutdown 取消后，watchTurn 等后台 goroutine 不必等满 trackerTTL。
 	ctx       context.Context
@@ -73,7 +108,7 @@ func NewServiceWithPromptAssemblyAndTurnContext(
 	turnContextProvider contract.TurnContextProvider,
 	skillSvc contract.SkillHydrationSource,
 	observation turnobservation.Contract,
-	dedupeStore turndedupe.Store,
+	dedupeStore turnDedupeStore,
 	manifestBuild contract.ManifestBuildFunc,
 	mcpServers contract.MCPServerConfigProvider,
 	tracing *platformobs.Service,
@@ -96,7 +131,7 @@ func newService(
 	turnContextProvider contract.TurnContextProvider,
 	skillLookup skillHydrationPort,
 	observation turnobservation.Contract,
-	dedupeStore turndedupe.Store,
+	dedupeStore turnDedupeStore,
 	manifestBuild contract.ManifestBuildFunc,
 	tracingOpt ...*platformobs.Service,
 ) Service {
@@ -354,7 +389,7 @@ func (s *service) LookupByDedupeKey(ctx context.Context, dedupeKey string) (Turn
 	}
 	entry, err := s.dedupeStore.GetLive(ctx, key)
 	if err != nil {
-		if errors.Is(err, turndedupe.ErrNotFound) {
+		if errors.Is(err, errTurnDedupeNotFound) {
 			return TurnStatus{}, false, nil
 		}
 		return TurnStatus{}, false, err
@@ -386,7 +421,7 @@ func (s *service) recordDedupeUpsert(ctx context.Context, dedupeKey, localID, th
 	if key == "" {
 		return nil
 	}
-	return s.dedupeStore.Upsert(ctx, turndedupe.UpsertParams{
+	return s.dedupeStore.Upsert(ctx, turnDedupeUpsertParams{
 		DedupeKey:   key,
 		LocalTurnID: strings.TrimSpace(localID),
 		ThreadID:    strings.TrimSpace(threadID),
@@ -405,7 +440,7 @@ func (s *service) recordDedupeProviderID(ctx context.Context, dedupeKey, provide
 	if key == "" || pid == "" {
 		return nil
 	}
-	return s.dedupeStore.BindProviderTurnID(ctx, turndedupe.BindProviderTurnIDParams{
+	return s.dedupeStore.BindProviderTurnID(ctx, turnDedupeBindProviderTurnIDParams{
 		DedupeKey:      key,
 		ProviderTurnID: pid,
 		Now:            time.Now(),

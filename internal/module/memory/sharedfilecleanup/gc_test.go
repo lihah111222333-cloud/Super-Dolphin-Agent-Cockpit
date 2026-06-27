@@ -10,14 +10,14 @@ import (
 	"time"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
-	sharedfilestore "github.com/anthropic-ai/super-agent-v3/internal/store/sharedfile"
+	"github.com/anthropic-ai/super-agent-v3/internal/module/memory/sharedfileport"
 )
 
 func TestPreviewProtectsFinalOutputsPinnedAndRecentFiles(t *testing.T) {
 	t.Parallel()
 
 	now := time.Date(2026, 5, 30, 12, 0, 0, 0, time.UTC)
-	reader := &stubSharedFiles{files: []sharedfilestore.SharedFile{
+	reader := &stubSharedFiles{files: []sharedfileport.File{
 		{Path: "reports/final.md", UpdatedAt: now.Add(-90 * 24 * time.Hour)},
 		{Path: "handoff/work-old.md", UpdatedAt: now.Add(-45 * 24 * time.Hour)},
 		{Path: "handoff/work-recent.md", UpdatedAt: now.Add(-5 * 24 * time.Hour)},
@@ -64,7 +64,7 @@ func TestApplyDeletesOnlyOldUnreferencedWorkFiles(t *testing.T) {
 	t.Parallel()
 
 	now := time.Date(2026, 5, 30, 12, 0, 0, 0, time.UTC)
-	store := &stubSharedFiles{files: []sharedfilestore.SharedFile{
+	store := &stubSharedFiles{files: []sharedfileport.File{
 		{Path: "reports/final.md", UpdatedAt: now.Add(-120 * 24 * time.Hour)},
 		{Path: "reports/running.log", UpdatedAt: now.Add(-120 * 24 * time.Hour)},
 		{Path: "handoff/work-old.md", UpdatedAt: now.Add(-120 * 24 * time.Hour)},
@@ -121,7 +121,7 @@ func TestPreviewRejectsMalformedFinalOutputMetadata(t *testing.T) {
 	t.Parallel()
 
 	now := time.Date(2026, 5, 30, 12, 0, 0, 0, time.UTC)
-	reader := &stubSharedFiles{files: []sharedfilestore.SharedFile{
+	reader := &stubSharedFiles{files: []sharedfileport.File{
 		{Path: "handoff/work-old.md", UpdatedAt: now.Add(-45 * 24 * time.Hour)},
 	}}
 	runtime := &stubDAGRuntime{
@@ -182,11 +182,11 @@ func assertCleanupItem(t *testing.T, item Item, candidate, protected bool, reaso
 }
 
 type stubSharedFiles struct {
-	files   []sharedfilestore.SharedFile
+	files   []sharedfileport.File
 	deleted []string
 }
 
-func (s *stubSharedFiles) Get(_ context.Context, path string) (*sharedfilestore.SharedFile, error) {
+func (s *stubSharedFiles) Get(_ context.Context, path string) (*sharedfileport.File, error) {
 	for _, file := range s.files {
 		if file.Path == path {
 			fileCopy := file
@@ -196,8 +196,8 @@ func (s *stubSharedFiles) Get(_ context.Context, path string) (*sharedfilestore.
 	return nil, errors.New("shared file not found")
 }
 
-func (s *stubSharedFiles) List(_ context.Context, filter sharedfilestore.ListFilter) ([]sharedfilestore.SharedFile, error) {
-	out := make([]sharedfilestore.SharedFile, 0, len(s.files))
+func (s *stubSharedFiles) List(_ context.Context, filter sharedfileport.ListFilter) ([]sharedfileport.File, error) {
+	out := make([]sharedfileport.File, 0, len(s.files))
 	for _, file := range s.files {
 		if filter.Prefix != "" && !strings.HasPrefix(file.Path, filter.Prefix) {
 			continue
