@@ -14,7 +14,7 @@ This closure record is maintained on integration branch `codex/reasonix-integrat
 | `docs/li/reasonix-absorption-spikes/event-wire-methods.md` | Present. It identifies `internal/platform/eventsurface` and `ExpandNotifications` as the event-wire source of truth. |
 | `docs/li/reasonix-absorption-spikes/prompt-prefix-shape.md` | Present. It anchors prefix-shape work to the existing prompt assembly facts rather than a parallel prompt model. |
 | `docs/li/reasonix-absorption-spikes/mcp-tool-lifecycle.md` | Present. It limits current absorption to namespace ownership and compatibility tests, not lifecycle filtering. |
-| `docs/plans/迁移/lsp-advanced-guide.md` | Reviewed as a process constraint for later code phases. No edit is needed in this docs-only lane. |
+| `docs/plans/迁移/lsp-advanced-guide.md` | Reviewed as a process constraint for later code phases. No edit is needed for this integration closure record. |
 
 ## Closure Checklist
 
