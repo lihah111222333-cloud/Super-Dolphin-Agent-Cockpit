@@ -6,9 +6,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"os"
-	"os/exec"
+	"path/filepath"
 	"strings"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/util/ctxutil"
@@ -25,17 +24,22 @@ var shellInterpreters = map[string]bool{"bash": true, "cmd": true, "cmd.exe": tr
 
 var codeExecutionCommands = map[string]bool{"bun": true, "bun.exe": true, "deno": true, "deno.exe": true, "dotnet": true, "dotnet.exe": true, "go": true, "go.exe": true, "java": true, "java.exe": true, "node": true, "node.exe": true, "npm": true, "npm.cmd": true, "npx": true, "npx.cmd": true, "perl": true, "perl.exe": true, "php": true, "php.exe": true, "py": true, "py.exe": true, "python": true, "python.exe": true, "python3": true, "python3.exe": true, "ruby": true, "ruby.exe": true}
 
-var readCommands = map[string]bool{"ag": true, "awk": true, "bat": true, "cat": true, "fd": true, "find": true, "grep": true, "head": true, "less": true, "more": true, "rg": true, "sed": true, "tail": true, "tree": true, "wc": true}
+const lspPreferenceHint = "[LSP提示] 优先用 LSP 工具读代码：file inspect xref grep structure edit completion。\n"
 
-var execBaseEnvKeys = []string{
-	"PATH", "HOME", "USER", "LOGNAME", "SHELL", "TMPDIR", "TMP", "TEMP", "LANG", "LC_ALL", "TERM",
+type execCommandHandler func(context.Context, execCommandRequest) (ExecResult, error)
+
+type execCommandRequest struct {
+	command string
+	base    string
+	args    []string
+	root    string
+	cwd     string
 }
 
-var execAllowedEnvPrefixes = []string{"DYN_TOOL_", "STRESS_TEST_", "TEST_E2E_"}
-
-var execAllowedEnvKeys = map[string]bool{"LOG_LEVEL": true}
-
-const lspPreferenceHint = "[LSP提示] 优先用 LSP 工具读代码：file inspect xref grep structure edit completion。\n"
+var execCommandAllowlist = map[string]execCommandHandler{
+	"cat": runInternalCat,
+	"pwd": runInternalPWD,
+}
 
 type execParams struct {
 	Command string            `json:"command"`
@@ -93,59 +97,65 @@ func cloneExecEnv(input map[string]string) map[string]string {
 // ExecCommand 执行受限的只读类外部命令。
 // 默认禁止 shell、代码运行时和高风险系统命令，失败时直接返回错误而不降级执行。
 func (s *service) ExecCommand(ctx context.Context, command string, args []string, cwd string, env map[string]string) (ExecResult, error) {
-	return s.execCommand(ctx, command, args, cwd, env, false)
+	return s.execCommand(ctx, command, args, cwd, env)
 }
 
-func (s *service) execCommand(ctx context.Context, command string, args []string, cwd string, env map[string]string, allowShell bool) (ExecResult, error) {
-	name, base, err := validateExecCommand(command, allowShell)
+func (s *service) execCommand(ctx context.Context, command string, args []string, cwd string, env map[string]string) (ExecResult, error) {
+	if len(env) > 0 {
+		return ExecResult{}, errors.New("env overrides are not supported for skill command execution")
+	}
+	name, base, handler, err := validateExecCommand(command)
 	if err != nil {
 		return ExecResult{}, err
 	}
-	if err := validateExecPayload(base, args, allowShell); err != nil {
+	if err := validateExecPayload(base, args); err != nil {
 		return ExecResult{}, err
 	}
-	dir := resolveExecCWD(cwd, s.projectRoot)
+	root, dir, err := resolveExecWorkspace(cwd, s.projectRoot)
+	if err != nil {
+		return ExecResult{}, err
+	}
 	execCtx, cancel := ctxutil.WithRPCRequestTimeout(ctx)
 	defer cancel()
-	return runExecCommand(execCtx, name, base, args, dir, buildExecEnv(dir, env))
+	return handler(execCtx, execCommandRequest{
+		command: name,
+		base:    base,
+		args:    append([]string(nil), args...),
+		root:    root,
+		cwd:     dir,
+	})
 }
 
-// validateExecCommand 校验命令 basename 是否允许执行。
-// allowShell 仅供内部受控路径使用，普通 RPC 入口必须阻断 shell 解释器和代码运行时。
-func validateExecCommand(command string, allowShell bool) (string, string, error) {
+// validateExecCommand 校验命令必须命中内部 allowlist。
+// command/exec 不再信任外部可执行文件查找，避免 PATH、cwd 或包装器影响执行边界。
+func validateExecCommand(command string) (string, string, execCommandHandler, error) {
 	name := strings.TrimSpace(command)
 	base := normalizeExecToken(name)
 	switch {
 	case base == "." || base == "":
-		return "", "", errors.New("command is required")
+		return "", "", nil, errors.New("command is required")
+	case name != base:
+		return "", "", nil, fmt.Errorf("command must be an allowlisted basename: %s", command)
 	case blockedCommands[base]:
-		return "", "", errors.New("command is blocked for security")
-	case !allowShell && shellInterpreters[base]:
-		return "", "", errors.New("shell interpreters are not allowed")
-	case !allowShell && codeExecutionCommands[base]:
-		return "", "", errors.New("code execution runtimes are not allowed")
-	default:
-		return name, base, nil
+		return "", "", nil, errors.New("command is blocked for security")
+	case shellInterpreters[base]:
+		return "", "", nil, errors.New("shell interpreters are not allowed")
+	case codeExecutionCommands[base]:
+		return "", "", nil, errors.New("code execution runtimes are not allowed")
 	}
+	handler, ok := execCommandAllowlist[base]
+	if !ok {
+		return "", "", nil, fmt.Errorf("command is not allowlisted: %s", base)
+	}
+	return name, base, handler, nil
 }
 
-// validateExecPayload 校验命令参数中是否隐藏危险 token。
-// 非 shell 路径拒绝元字符；shell 路径会 tokenize 后继续检查包裹命令链。
-func validateExecPayload(base string, args []string, allowShell bool) error {
-	if !allowShell {
-		if err := validateExecArgs(args); err != nil {
-			return err
-		}
-		if blocked := detectDangerousTokens(literalExecTokens(base, args)); blocked != "" {
-			return fmt.Errorf("command is blocked for security: %s", blocked)
-		}
-		return nil
+// validateExecPayload 先做跨命令的轻量 token 检查；具体 argv 规则由每个 handler 再收紧。
+func validateExecPayload(base string, args []string) error {
+	if err := validateExecArgs(args); err != nil {
+		return err
 	}
-	shellCmd, ok := shellCommandArg(base, args)
-	if !ok {
-		return errors.New("shell command is required")
-	}
-	if blocked := detectDangerousTokens(tokenizeShellCommand(shellCmd)); blocked != "" {
+	if blocked := detectDangerousTokens(literalExecTokens(base, args)); blocked != "" {
 		return fmt.Errorf("command is blocked for security: %s", blocked)
 	}
 	return nil
@@ -160,112 +170,151 @@ func validateExecArgs(args []string) error {
 	return nil
 }
 
-func runExecCommand(ctx context.Context, name, base string, args []string, cwd string, env []string) (ExecResult, error) {
-	cmd := exec.CommandContext(ctx, name, args...)
-	cmd.Dir = strings.TrimSpace(cwd)
-	cmd.Env = env
-	stdout, stderr := &limitedBuffer{limit: maxSkillFileBytes}, &limitedBuffer{limit: maxSkillFileBytes}
-	cmd.Stdout, cmd.Stderr = io.MultiWriter(stdout), io.MultiWriter(stderr)
-	result := ExecResult{Command: name, CWD: cmd.Dir}
-	err := cmd.Run()
-	result.Stdout, result.Stderr = stdout.String(), stderr.String()
-	if readCommands[base] && !strings.HasPrefix(result.Stdout, lspPreferenceHint) {
+// resolveExecWorkspace 解析 command/exec 的可信根和 cwd。
+// cwd 只能为空、相对 project root，或 realpath 后仍在 project root 内的绝对路径。
+func resolveExecWorkspace(cwd, projectRoot string) (string, string, error) {
+	root, err := trustedExecRoot(projectRoot)
+	if err != nil {
+		return "", "", err
+	}
+	dir := strings.TrimSpace(cwd)
+	if dir == "" {
+		return root, root, nil
+	}
+	if !filepath.IsAbs(dir) {
+		dir = filepath.Join(root, dir)
+	}
+	resolved, err := realpathAwareCleanPath(dir)
+	if err != nil {
+		return "", "", err
+	}
+	if err := ensureExecPathInRoot(root, resolved); err != nil {
+		return "", "", err
+	}
+	info, err := os.Stat(resolved)
+	if err != nil {
+		return "", "", err
+	}
+	if !info.IsDir() {
+		return "", "", fmt.Errorf("cwd is not a directory: %s", cwd)
+	}
+	return root, resolved, nil
+}
+
+func trustedExecRoot(projectRoot string) (string, error) {
+	if strings.TrimSpace(projectRoot) == "" {
+		return "", errors.New("trusted workspace root is required for command execution")
+	}
+	root, err := realpathAwareCleanPath(projectRoot)
+	if err != nil {
+		return "", err
+	}
+	info, err := os.Stat(root)
+	if err != nil {
+		return "", err
+	}
+	if !info.IsDir() {
+		return "", fmt.Errorf("trusted workspace root is not a directory: %s", projectRoot)
+	}
+	return root, nil
+}
+
+func ensureExecPathInRoot(root, target string) error {
+	escapes, err := pathEscapesRoot(root, target)
+	if err != nil {
+		return err
+	}
+	if escapes {
+		return fmt.Errorf("path escapes workspace root: %s", target)
+	}
+	return nil
+}
+
+func runInternalPWD(ctx context.Context, req execCommandRequest) (ExecResult, error) {
+	if err := checkExecContext(ctx); err != nil {
+		return ExecResult{}, err
+	}
+	if len(req.args) != 0 {
+		return ExecResult{}, errors.New("pwd does not accept args")
+	}
+	return ExecResult{Command: req.command, CWD: req.cwd, Stdout: req.cwd + "\n"}, nil
+}
+
+// runInternalCat 读取已验证在 workspace 内的文件内容。
+// 这里不能退回外部 cat 命令，避免 PATH、cwd 或参数解析差异重新扩大读取边界。
+func runInternalCat(ctx context.Context, req execCommandRequest) (ExecResult, error) {
+	if err := checkExecContext(ctx); err != nil {
+		return ExecResult{}, err
+	}
+	if len(req.args) == 0 {
+		return ExecResult{}, errors.New("cat requires at least one file path")
+	}
+	stdout := &limitedBuffer{limit: maxSkillFileBytes}
+	for _, arg := range req.args {
+		path, err := resolveExecReadPath(req.root, req.cwd, arg)
+		if err != nil {
+			return ExecResult{}, err
+		}
+		data, err := readExecFile(path)
+		if err != nil {
+			return ExecResult{}, err
+		}
+		if _, err := stdout.Write(data); err != nil {
+			return ExecResult{}, err
+		}
+	}
+	result := ExecResult{Command: req.command, CWD: req.cwd, Stdout: stdout.String()}
+	if !strings.HasPrefix(result.Stdout, lspPreferenceHint) {
 		result.Stdout = lspPreferenceHint + result.Stdout
 	}
-	if err == nil {
-		return result, nil
-	}
-	var exitErr *exec.ExitError
-	if errors.As(err, &exitErr) {
-		result.ExitCode = exitErr.ExitCode()
-		return result, nil
-	}
-	return ExecResult{}, err
+	return result, nil
 }
 
-func resolveExecCWD(cwd, projectRoot string) string {
-	if dir := strings.TrimSpace(cwd); dir != "" {
-		return dir
+// resolveExecReadPath 将 cat 参数解析成真实文件路径。
+// 解析会跟随符号链接并再次确认没有逃出可信 workspace root，拒绝用相对路径或绝对路径绕边界。
+func resolveExecReadPath(root, cwd, arg string) (string, error) {
+	trimmed := strings.TrimSpace(arg)
+	if trimmed == "" {
+		return "", errors.New("file path is required")
 	}
-	return strings.TrimSpace(projectRoot)
+	if strings.HasPrefix(trimmed, "-") {
+		return "", fmt.Errorf("cat flags are not allowed: %s", arg)
+	}
+	target := trimmed
+	if !filepath.IsAbs(target) {
+		target = filepath.Join(cwd, target)
+	}
+	resolved, err := realpathAwareCleanPath(target)
+	if err != nil {
+		return "", err
+	}
+	if err := ensureExecPathInRoot(root, resolved); err != nil {
+		return "", err
+	}
+	return resolved, nil
 }
 
-func buildExecEnv(cwd string, overlay map[string]string) []string {
-	env := baseExecEnv()
-	if dir := strings.TrimSpace(cwd); dir != "" {
-		env = mergeExecEnv(env, map[string]string{"PWD": dir})
+func readExecFile(path string) ([]byte, error) {
+	info, err := os.Stat(path)
+	if err != nil {
+		return nil, err
 	}
-	env = append(env, allowedPrefixedExecEnv()...)
-	return mergeExecEnv(env, overlay)
+	if !info.Mode().IsRegular() {
+		return nil, fmt.Errorf("path is not a regular file: %s", path)
+	}
+	if info.Size() > maxSkillFileBytes {
+		return nil, fmt.Errorf("file too large: %d bytes", info.Size())
+	}
+	return os.ReadFile(path)
 }
 
-func baseExecEnv() []string {
-	env := make([]string, 0, len(execBaseEnvKeys))
-	for _, key := range execBaseEnvKeys {
-		if value, ok := os.LookupEnv(key); ok {
-			env = append(env, key+"="+value)
-		}
+func checkExecContext(ctx context.Context) error {
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	default:
+		return nil
 	}
-	return env
-}
-
-func allowedPrefixedExecEnv() []string {
-	env := make([]string, 0, 8)
-	for _, entry := range os.Environ() {
-		key, _, ok := strings.Cut(entry, "=")
-		if ok && isAllowedExecEnvKey(key) {
-			env = append(env, entry)
-		}
-	}
-	return env
-}
-
-// mergeExecEnv 合并执行环境变量白名单。
-// 只允许 PWD、固定 key 和受控前缀，避免调用方通过环境变量绕过命令限制。
-func mergeExecEnv(base []string, overlay map[string]string) []string {
-	if len(overlay) == 0 {
-		return base
-	}
-	index := execEnvIndex(base)
-	for key, value := range overlay {
-		name := strings.TrimSpace(key)
-		if name == "" || (name != "PWD" && !isAllowedExecEnvKey(name)) {
-			continue
-		}
-		entry := name + "=" + value
-		upper := strings.ToUpper(name)
-		if pos, ok := index[upper]; ok {
-			base[pos] = entry
-			continue
-		}
-		index[upper] = len(base)
-		base = append(base, entry)
-	}
-	return base
-}
-
-func execEnvIndex(env []string) map[string]int {
-	index := make(map[string]int, len(env))
-	for i, entry := range env {
-		key, _, ok := strings.Cut(entry, "=")
-		if ok {
-			index[strings.ToUpper(strings.TrimSpace(key))] = i
-		}
-	}
-	return index
-}
-
-func isAllowedExecEnvKey(key string) bool {
-	upper := strings.ToUpper(strings.TrimSpace(key))
-	if execAllowedEnvKeys[upper] {
-		return true
-	}
-	for _, prefix := range execAllowedEnvPrefixes {
-		if strings.HasPrefix(upper, prefix) {
-			return true
-		}
-	}
-	return false
 }
 
 func isBlockedCommand(name string) bool { return blockedCommands[name] }
