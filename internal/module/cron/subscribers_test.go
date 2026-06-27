@@ -1,8 +1,10 @@
 package cron
 
 import (
+	"bytes"
 	"context"
 	"log/slog"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -80,6 +82,30 @@ func TestCronProgressSubscribersRegisterCancelAndDeliver(t *testing.T) {
 	mu.Unlock()
 	if got != 1 {
 		t.Fatalf("list calls after cancel = %d, want 1", got)
+	}
+}
+
+func TestCronProgressWorkerWarnsAndCountsStaleTerminal(t *testing.T) {
+	t.Parallel()
+
+	var logs bytes.Buffer
+	logger := slog.New(slog.NewTextHandler(&logs, &slog.HandlerOptions{Level: slog.LevelDebug}))
+	store := &recordingCronStore{
+		listUnresolvedFn: func(context.Context) ([]cronstore.Run, error) {
+			return nil, nil
+		},
+	}
+	scheduler := NewScheduler(slog.Default(), store, &programmableSubmitter{}, SchedulerConfig{ClaimedBy: "test"})
+	worker := newCronProgressWorker(scheduler, logger)
+
+	worker.dispatch(cronProgressRequest{kind: cronCompleteTurn, turnID: "stale-turn", success: true})
+
+	if got := worker.staleTotal.Load(); got != 1 {
+		t.Fatalf("staleTotal = %d, want 1", got)
+	}
+	text := logs.String()
+	if !strings.Contains(text, "level=WARN") || !strings.Contains(text, "stale_total=1") {
+		t.Fatalf("logs = %q, want warn with stale_total", text)
 	}
 }
 
