@@ -57,13 +57,13 @@
 
 架构/契约问题优先读 `docs/decisions/*.md`、`docs/adr/*.md`、`docs/契约/*.md`；LSP 工具链规范必读 `docs/internal-notes/LSP系统提示词.md`；`docs/plans/**`、`docs/迁移/**`、`docs/superpowers/plans/**`、历史报告默认视为历史材料。
 
-避免默认扫描 `.build-cache/`、`bin/`、`cmd/agent-terminal/frontend/node_modules/`、`cmd/agent-terminal/frontend/dist/`、`.worktrees/`、`.workspace/`、`.claude/`、`.agent/code_exec/`、`.agent/workspaces/`、`.agnet/report/`、`.agnet/shared/_internal/`、`.agnet/shared/handoff/`、历史迁移文档和报告目录，除非用户明确要求。
+避免默认扫描 `.build-cache/`、`bin/`、`frontend-app/node_modules/`、`frontend-app/dist/`、`cmd/agent-terminal/web-dist/`、`.worktrees/`、`.workspace/`、`.claude/`、`.agent/code_exec/`、`.agent/workspaces/`、`.agnet/report/`、`.agnet/shared/_internal/`、`.agnet/shared/handoff/`、历史迁移文档和报告目录，除非用户明确要求。
 
 ## 项目现状
 
 - Go module：`github.com/anthropic-ai/super-agent-v3`，Go `1.25.7`。
 - 主入口：
-  - `cmd/agent-terminal`：Wails/Vue 桌面 UI 与 HTTP server。
+  - `cmd/agent-terminal`：Wails 桌面宿主和 HTTP/RPC bridge；开发模式通过 `VITE_DEV_URL` 代理当前 `frontend-app`。
   - `cmd/mcp-orch`：agent lifecycle、DAG、cron、toolbridge orchestration peer。
   - `cmd/mcp-lsp`：gopls/LSP 代码智能 peer。
   - `cmd/mcp-ida`：IDA MCP peer。
@@ -76,8 +76,8 @@
   - `internal/store`：sqlc 生成的数据访问层。
   - `internal/archtest`：架构守卫和 baseline 棘轮。
   - `pkg`：可复用公共库。
-  - `frontend-app`：当前 React/Vite 新 UI 包，由 `run-new-ui-desktop.sh` / `.ps1` 启动。
-  - `cmd/agent-terminal/frontend`：legacy/package-embed 前端资源目录；只在明确目标为旧嵌入包时编辑。
+  - `frontend-app`：当前且唯一的 React/Vite 前端源码包，由 `run-new-ui-desktop.sh` / `.ps1` 启动。
+  - `cmd/agent-terminal/web-dist`：由 `frontend-app` 构建同步出的 Go embed 静态资源目录，不是前端源码入口。
 
 ## 任务完成验证
 
@@ -127,7 +127,7 @@ npm test
 npm run build
 ```
 
-`cmd/agent-terminal` 无 dev proxy 时会读取 `cmd/agent-terminal/frontend/dist`。该目录内容被 gitignore；`make frontend-app-build` 会先构建 `frontend-app/dist`，再用跨平台 Node 同步脚本更新 embedded dist。
+`cmd/agent-terminal` 无 dev proxy 时会读取 `cmd/agent-terminal/web-dist`。该目录内容除 `.gitkeep` 外被 gitignore；`make frontend-app-build` 会先构建 `frontend-app/dist`，再用跨平台 Node 同步脚本更新 embedded dist。
 
 ### SQL / store
 
