@@ -14,8 +14,6 @@ import (
 	"strings"
 	"unicode"
 	"unicode/utf8"
-
-	datasourcev2store "github.com/anthropic-ai/super-agent-v3/internal/store/datasourcev2"
 )
 
 // writeSourceChunks 根据白名单后缀选择文本或 PDF 抽取路径。
@@ -24,7 +22,7 @@ func writeSourceChunks(
 	ctx context.Context,
 	source importSource,
 	documentID int64,
-	store datasourcev2store.Store,
+	store datasourceV2Store,
 ) (summary chunkWriteSummary, err error) {
 	if source.extension == ".pdf" {
 		return writePDFChunks(ctx, source.path, documentID, store)
@@ -38,7 +36,7 @@ func writeTextChunks(
 	ctx context.Context,
 	sourcePath string,
 	documentID int64,
-	store datasourcev2store.Store,
+	store datasourceV2Store,
 ) (summary chunkWriteSummary, err error) {
 	file, err := os.Open(sourcePath)
 	if err != nil {
@@ -67,7 +65,7 @@ func writePDFChunks(
 	ctx context.Context,
 	sourcePath string,
 	documentID int64,
-	store datasourcev2store.Store,
+	store datasourceV2Store,
 ) (chunkWriteSummary, error) {
 	text, err := extractPDFText(sourcePath)
 	if err != nil {
@@ -123,7 +121,7 @@ func readTextRune(reader *bufio.Reader) (rune, bool, error) {
 // asciiOpen 跟踪当前是否处于 ASCII token 中间，避免在 token 内部截断。
 type chunkWriter struct {
 	documentID  int64
-	store       datasourcev2store.Store
+	store       datasourceV2Store
 	hash        hashWriter
 	builder     strings.Builder
 	chunkIndex  int32
@@ -141,7 +139,7 @@ type hashWriter interface {
 }
 
 // newChunkWriter 创建分块写入器，使用 SHA-256 对整篇文件做增量摘要。
-func newChunkWriter(documentID int64, store datasourcev2store.Store) *chunkWriter {
+func newChunkWriter(documentID int64, store datasourceV2Store) *chunkWriter {
 	return &chunkWriter{
 		documentID: documentID,
 		store:      store,
@@ -229,7 +227,7 @@ func (w *chunkWriter) flush(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	if err := w.store.InsertChunk(ctx, datasourcev2store.InsertChunkParams{
+	if err := w.store.InsertChunk(ctx, datasourceV2InsertChunkParams{
 		DocumentID:     w.documentID,
 		ChunkIndex:     w.chunkIndex,
 		Content:        content,

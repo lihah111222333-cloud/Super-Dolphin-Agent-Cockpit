@@ -11,7 +11,7 @@ import (
 	"time"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
-	sharedfilestore "github.com/anthropic-ai/super-agent-v3/internal/store/sharedfile"
+	"github.com/anthropic-ai/super-agent-v3/internal/module/memory/sharedfileport"
 )
 
 // 清理参数默认值与扫描安全上限。
@@ -26,10 +26,10 @@ const (
 // Deps 是 shared file GC 的外部依赖集合。
 // Reader/Deleter 连接 store，DAGRuntime 提供 final_output 保护信息，Now 用于测试固定时间。
 type Deps struct {
-	Reader     sharedfilestore.Reader  // 读取 shared file 列表
-	Deleter    sharedfilestore.Deleter // 执行删除（Preview 时为 nil）
-	DAGRuntime contract.DAGRuntime     // 查询 DAG 运行状态以保护活跃文件
-	Now        func() time.Time        // 注入时间，便于测试
+	Reader     sharedfileport.Reader  // 读取 shared file 列表
+	Deleter    sharedfileport.Deleter // 执行删除（Preview 时为 nil）
+	DAGRuntime contract.DAGRuntime    // 查询 DAG 运行状态以保护活跃文件
+	Now        func() time.Time       // 注入时间，便于测试
 }
 
 // Params 是单次 GC 调用的 JSON 入参。
@@ -122,8 +122,8 @@ func buildPlan(ctx context.Context, deps Deps, params Params) (Result, error) {
 }
 
 // listSharedFiles 列出共享文件并检查是否超过安全扫描上限。
-func listSharedFiles(ctx context.Context, reader sharedfilestore.Reader, limit int32) ([]sharedfilestore.SharedFile, error) {
-	files, err := reader.List(ctx, sharedfilestore.ListFilter{Limit: limit})
+func listSharedFiles(ctx context.Context, reader sharedfileport.Reader, limit int32) ([]sharedfileport.File, error) {
+	files, err := reader.List(ctx, sharedfileport.ListFilter{Limit: limit})
 	if err != nil {
 		return nil, err
 	}
@@ -135,7 +135,7 @@ func listSharedFiles(ctx context.Context, reader sharedfilestore.Reader, limit i
 
 // buildResult 遍历文件列表并调用 classifyFile 分类，汇总候选与保护数量。
 func buildResult(
-	files []sharedfilestore.SharedFile,
+	files []sharedfileport.File,
 	protectedPaths map[string]string,
 	params Params,
 	now func() time.Time,
@@ -189,7 +189,7 @@ func normalizeParams(params Params) (Params, error) {
 // classifyFile 对单个文件进行分类：优先判断 pinned、受保护、内部路径，然后按 TTL 判定是否为清理候选。
 func classifyFile(
 	now time.Time,
-	file sharedfilestore.SharedFile,
+	file sharedfileport.File,
 	workTTLDays int,
 	protectedPaths map[string]string,
 	pinned map[string]struct{},

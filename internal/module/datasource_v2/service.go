@@ -11,7 +11,6 @@ import (
 	"time"
 
 	platformshared "github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
-	datasourcev2store "github.com/anthropic-ai/super-agent-v3/internal/store/datasourcev2"
 )
 
 var (
@@ -165,12 +164,12 @@ type SemanticChunkResult struct {
 }
 
 type service struct {
-	store datasourcev2store.Store
+	store datasourceV2Store
 }
 
 // NewService 创建 datasource_v2 service。
 // store 必须由 fx 注入；如果缺失，调用导入接口会 fail-fast 返回配置错误。
-func NewService(store datasourcev2store.Store) Service {
+func NewService(store datasourceV2Store) Service {
 	return &service{store: store}
 }
 
@@ -225,7 +224,7 @@ func (s *service) ListDocuments(ctx context.Context, req ListDocumentsRequest) (
 	if err := validateDatasourceV2Limit(req.Limit); err != nil {
 		return ListDocumentsResult{}, err
 	}
-	docs, err := s.store.ListDocuments(ctx, datasourcev2store.ListDocumentsParams{
+	docs, err := s.store.ListDocuments(ctx, datasourceV2ListDocumentsParams{
 		Keyword: strings.TrimSpace(req.Keyword),
 		Limit:   req.Limit,
 	})
@@ -283,7 +282,7 @@ func (s *service) SearchRelevantChunks(
 	if err != nil {
 		return SearchRelevantChunksResult{}, err
 	}
-	chunks, err := s.store.SearchChunks(ctx, datasourcev2store.SearchChunksParams{
+	chunks, err := s.store.SearchChunks(ctx, datasourceV2SearchChunksParams{
 		Embedding:      embedding,
 		EmbeddingModel: datasourceV2EmbeddingModel,
 		EmbeddingDim:   datasourceV2EmbeddingDimension,
@@ -341,9 +340,9 @@ func (s *service) requireStore() error {
 
 // importSourceText 用 store 事务包住一次完整导入。
 // imported 只在事务回调全部成功后返回，避免调用方拿到未标记 ready 的文档。
-func (s *service) importSourceText(ctx context.Context, source importSource) (*datasourcev2store.Document, error) {
-	var imported *datasourcev2store.Document
-	err := s.store.WithTx(ctx, func(txStore datasourcev2store.Store) error {
+func (s *service) importSourceText(ctx context.Context, source importSource) (*datasourceV2Document, error) {
+	var imported *datasourceV2Document
+	err := s.store.WithTx(ctx, func(txStore datasourceV2Store) error {
 		ready, err := importSourceTextInTx(ctx, txStore, source)
 		if err != nil {
 			return err
@@ -364,10 +363,10 @@ func (s *service) importSourceText(ctx context.Context, source importSource) (*d
 // 任一步失败都必须向上返回错误，让事务 runner 回滚旧版本不被破坏。
 func importSourceTextInTx(
 	ctx context.Context,
-	txStore datasourcev2store.Store,
+	txStore datasourceV2Store,
 	source importSource,
-) (*datasourcev2store.Document, error) {
-	doc, err := txStore.UpsertImporting(ctx, datasourcev2store.UpsertDocumentParams{
+) (*datasourceV2Document, error) {
+	doc, err := txStore.UpsertImporting(ctx, datasourceV2UpsertDocumentParams{
 		SourcePath: source.path,
 		FileName:   source.fileName,
 		Extension:  source.extension,
@@ -383,7 +382,7 @@ func importSourceTextInTx(
 	if err != nil {
 		return nil, err
 	}
-	return txStore.MarkReady(ctx, datasourcev2store.MarkReadyParams{
+	return txStore.MarkReady(ctx, datasourceV2MarkReadyParams{
 		DocumentID:  doc.ID,
 		ContentHash: summary.contentHash,
 		ChunkCount:  summary.chunkCount,
@@ -508,7 +507,7 @@ type chunkWriteSummary struct {
 }
 
 // importFileTextResult 将 store Document 转换为 ImportFileTextResult。
-func importFileTextResult(doc datasourcev2store.Document) ImportFileTextResult {
+func importFileTextResult(doc datasourceV2Document) ImportFileTextResult {
 	return ImportFileTextResult{
 		DocumentID:  doc.ID,
 		SourcePath:  doc.SourcePath,
@@ -534,33 +533,33 @@ func validateDatasourceV2Limit(limit int32) error {
 }
 
 // validateUpdateDocumentRequest 校验更新请求并构建 store 参数，路径或扩展名不合法时 fail-fast。
-func validateUpdateDocumentRequest(req UpdateDocumentRequest) (datasourcev2store.UpdateDocumentParams, error) {
+func validateUpdateDocumentRequest(req UpdateDocumentRequest) (datasourceV2UpdateDocumentParams, error) {
 	if req.DocumentID <= 0 {
-		return datasourcev2store.UpdateDocumentParams{}, errDatasourceV2DocumentIDRequired
+		return datasourceV2UpdateDocumentParams{}, errDatasourceV2DocumentIDRequired
 	}
 	sourcePath, err := validateImportFileRequest(ImportFileTextRequest{SourcePath: req.SourcePath})
 	if err != nil {
-		return datasourcev2store.UpdateDocumentParams{}, err
+		return datasourceV2UpdateDocumentParams{}, err
 	}
 	fileName := strings.TrimSpace(req.FileName)
 	if fileName == "" {
-		return datasourcev2store.UpdateDocumentParams{}, errDatasourceV2MissingFileName
+		return datasourceV2UpdateDocumentParams{}, errDatasourceV2MissingFileName
 	}
 	sourceExtension := strings.ToLower(filepath.Ext(sourcePath))
 	if !isSupportedDatasourceV2Extension(sourceExtension) {
-		return datasourcev2store.UpdateDocumentParams{}, fmt.Errorf("%w: %s", errUnsupportedFileExtension, sourceExtension)
+		return datasourceV2UpdateDocumentParams{}, fmt.Errorf("%w: %s", errUnsupportedFileExtension, sourceExtension)
 	}
 	extension := strings.ToLower(strings.TrimSpace(req.Extension))
 	if extension == "" {
 		extension = sourceExtension
 	}
 	if !isSupportedDatasourceV2Extension(extension) {
-		return datasourcev2store.UpdateDocumentParams{}, fmt.Errorf("%w: %s", errUnsupportedFileExtension, extension)
+		return datasourceV2UpdateDocumentParams{}, fmt.Errorf("%w: %s", errUnsupportedFileExtension, extension)
 	}
 	if req.SizeBytes < 0 {
-		return datasourcev2store.UpdateDocumentParams{}, errDatasourceV2SizeBytesInvalid
+		return datasourceV2UpdateDocumentParams{}, errDatasourceV2SizeBytesInvalid
 	}
-	return datasourcev2store.UpdateDocumentParams{
+	return datasourceV2UpdateDocumentParams{
 		DocumentID: req.DocumentID,
 		SourcePath: sourcePath,
 		FileName:   fileName,
@@ -570,7 +569,7 @@ func validateUpdateDocumentRequest(req UpdateDocumentRequest) (datasourcev2store
 }
 
 // documentResults 将 store Document 切片批量转换为 DocumentResult。
-func documentResults(docs []datasourcev2store.Document) []DocumentResult {
+func documentResults(docs []datasourceV2Document) []DocumentResult {
 	results := make([]DocumentResult, 0, len(docs))
 	for _, doc := range docs {
 		results = append(results, documentResult(doc))
@@ -579,7 +578,7 @@ func documentResults(docs []datasourcev2store.Document) []DocumentResult {
 }
 
 // documentResult 将 store Document 转换为 DocumentResult。
-func documentResult(doc datasourcev2store.Document) DocumentResult {
+func documentResult(doc datasourceV2Document) DocumentResult {
 	return DocumentResult{
 		DocumentID:   doc.ID,
 		SourcePath:   doc.SourcePath,
@@ -597,7 +596,7 @@ func documentResult(doc datasourcev2store.Document) DocumentResult {
 }
 
 // textChunkResults 将 store TextChunk 切片批量转换为 TextChunkResult。
-func textChunkResults(chunks []datasourcev2store.TextChunk) []TextChunkResult {
+func textChunkResults(chunks []datasourceV2TextChunk) []TextChunkResult {
 	results := make([]TextChunkResult, 0, len(chunks))
 	for _, chunk := range chunks {
 		results = append(results, textChunkResult(chunk))
@@ -606,7 +605,7 @@ func textChunkResults(chunks []datasourcev2store.TextChunk) []TextChunkResult {
 }
 
 // textChunkResult 将 store TextChunk 转换为 TextChunkResult。
-func textChunkResult(chunk datasourcev2store.TextChunk) TextChunkResult {
+func textChunkResult(chunk datasourceV2TextChunk) TextChunkResult {
 	return TextChunkResult{
 		ID:             chunk.ID,
 		DocumentID:     chunk.DocumentID,
@@ -622,7 +621,7 @@ func textChunkResult(chunk datasourcev2store.TextChunk) TextChunkResult {
 }
 
 // semanticChunkResults 将 store SemanticChunk 切片批量转换为 SemanticChunkResult。
-func semanticChunkResults(chunks []datasourcev2store.SemanticChunk) []SemanticChunkResult {
+func semanticChunkResults(chunks []datasourceV2SemanticChunk) []SemanticChunkResult {
 	results := make([]SemanticChunkResult, 0, len(chunks))
 	for _, chunk := range chunks {
 		results = append(results, semanticChunkResult(chunk))
@@ -631,9 +630,9 @@ func semanticChunkResults(chunks []datasourcev2store.SemanticChunk) []SemanticCh
 }
 
 // semanticChunkResult 将 store SemanticChunk 转换为 SemanticChunkResult。
-func semanticChunkResult(chunk datasourcev2store.SemanticChunk) SemanticChunkResult {
+func semanticChunkResult(chunk datasourceV2SemanticChunk) SemanticChunkResult {
 	return SemanticChunkResult{
-		TextChunkResult: textChunkResult(chunk.TextChunk),
+		TextChunkResult: textChunkResult(chunk.datasourceV2TextChunk),
 		SourcePath:      chunk.SourcePath,
 		FileName:        chunk.FileName,
 		Distance:        chunk.Distance,

@@ -8,7 +8,6 @@ import (
 	"strings"
 	"time"
 
-	insightstore "github.com/anthropic-ai/super-agent-v3/internal/store/insight"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
@@ -16,13 +15,13 @@ import (
 // 该类型无额外状态，可安全跨 goroutine 共享。
 type service struct {
 	logger *slog.Logger
-	store  insightstore.Store
+	store  insightReader
 }
 
 var _ Service = (*service)(nil)
 
 // NewService 构建 Service。logger 为 nil 时回退到包默认 logger。
-func NewService(logger *slog.Logger, store insightstore.Store) Service {
+func NewService(logger *slog.Logger, store insightReader) Service {
 	if logger == nil {
 		logger = pkglogger.Get()
 	}
@@ -83,7 +82,7 @@ func (s *service) ListObservedApprovalRequests(ctx context.Context, threadID str
 
 // toSnapshots 批量将 store.Insight 行映射为 RPC 侧 Snapshot DTO。
 // JSON 友好的时间格式化和可空 Success 统一在此处理，确保两个 List 方法结果一致。
-func toSnapshots(rows []insightstore.Insight) []Snapshot {
+func toSnapshots(rows []insightRecord) []Snapshot {
 	out := make([]Snapshot, len(rows))
 	for i, r := range rows {
 		out[i] = toSnapshot(r)
@@ -92,7 +91,7 @@ func toSnapshots(rows []insightstore.Insight) []Snapshot {
 }
 
 // toSnapshot 将单条 store.Insight 行转换为 Snapshot DTO。
-func toSnapshot(r insightstore.Insight) Snapshot {
+func toSnapshot(r insightRecord) Snapshot {
 	var skills []string
 	if len(r.SkillsSelected) > 0 {
 		_ = json.Unmarshal(r.SkillsSelected, &skills)

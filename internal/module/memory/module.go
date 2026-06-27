@@ -16,6 +16,7 @@ import (
 	nestedpkg "github.com/anthropic-ai/super-agent-v3/internal/module/memory/nested"
 	retrievalpkg "github.com/anthropic-ai/super-agent-v3/internal/module/memory/retrieval"
 	shared "github.com/anthropic-ai/super-agent-v3/internal/module/memory/shared"
+	"github.com/anthropic-ai/super-agent-v3/internal/module/memory/sharedfileport"
 	teampkg "github.com/anthropic-ai/super-agent-v3/internal/module/memory/team"
 	platformrpc "github.com/anthropic-ai/super-agent-v3/internal/platform/rpc"
 	sharedfilestore "github.com/anthropic-ai/super-agent-v3/internal/store/sharedfile"
@@ -39,19 +40,30 @@ type promptProviderParams struct {
 	ContextProvider    *MemoryContextProvider                   `optional:"true"`
 }
 
-type memoryHandlerDeps struct {
+type memoryHandlerFxDeps struct {
 	fx.In
 
-	Service             Service                       `optional:"true"`
-	Orchestration       contract.OrchestrationService `optional:"true"`
-	DAGRuntime          contract.DAGRuntime           `optional:"true"`
-	SharedFiles         sharedfilestore.Reader        `optional:"true"`
-	SharedFilesDeleter  sharedfilestore.Deleter       `optional:"true"`
-	SharedFilesUpserter sharedfilestore.Upserter      `optional:"true"`
-	Sections            contract.SectionInvalidator   `optional:"true"`
-	Logger              *slog.Logger                  `optional:"true"`
-	DreamExecutor       contract.DreamExecutor        `optional:"true"`
-	Dispatcher          *event.Dispatcher             `optional:"true"`
+	Service            Service                       `optional:"true"`
+	Orchestration      contract.OrchestrationService `optional:"true"`
+	DAGRuntime         contract.DAGRuntime           `optional:"true"`
+	SharedFiles        sharedfilestore.Reader        `optional:"true"`
+	SharedFilesDeleter sharedfilestore.Deleter       `optional:"true"`
+	Sections           contract.SectionInvalidator   `optional:"true"`
+	Logger             *slog.Logger                  `optional:"true"`
+	DreamExecutor      contract.DreamExecutor        `optional:"true"`
+	Dispatcher         *event.Dispatcher             `optional:"true"`
+}
+
+type memoryHandlerDeps struct {
+	Service            Service
+	Orchestration      contract.OrchestrationService
+	DAGRuntime         contract.DAGRuntime
+	SharedFiles        sharedfileport.Reader
+	SharedFilesDeleter sharedfileport.Deleter
+	Sections           contract.SectionInvalidator
+	Logger             *slog.Logger
+	DreamExecutor      contract.DreamExecutor
+	Dispatcher         *event.Dispatcher
 }
 
 type historySource interface {
@@ -324,6 +336,7 @@ var Module = fx.Module("memory",
 		provideTeamMemoryManagerContract,
 		asTeamSyncLifecycle,
 		provideMemoryService,
+		newMemoryHandlerDeps,
 		NewMemoryHandlers,
 		NewMemoryRuleEngine,
 		NewRulesProvider,
@@ -417,6 +430,88 @@ type provideMemoryServiceParams struct {
 
 func provideMemoryService(p provideMemoryServiceParams) Service {
 	return NewService(p.Cfg, p.Logger, p.Consolidator, p.Hooks)
+}
+
+// newMemoryHandlerDeps 把 Fx 图里的 store 实现收束成 contract 端口。
+// 这样 UI/RPC handler 不再直接持有 store 包接口或 DTO。
+func newMemoryHandlerDeps(p memoryHandlerFxDeps) memoryHandlerDeps {
+	return memoryHandlerDeps{
+		Service:            p.Service,
+		Orchestration:      p.Orchestration,
+		DAGRuntime:         p.DAGRuntime,
+		SharedFiles:        adaptSharedFileReader(p.SharedFiles),
+		SharedFilesDeleter: adaptSharedFileDeleter(p.SharedFilesDeleter),
+		Sections:           p.Sections,
+		Logger:             p.Logger,
+		DreamExecutor:      p.DreamExecutor,
+		Dispatcher:         p.Dispatcher,
+	}
+}
+
+type sharedFileReaderAdapter struct {
+	reader sharedfilestore.Reader
+}
+
+func adaptSharedFileReader(reader sharedfilestore.Reader) sharedfileport.Reader {
+	if reader == nil {
+		return nil
+	}
+	return sharedFileReaderAdapter{reader: reader}
+}
+
+// Get 读取单个 shared file，并把 store DTO 转成模块可消费的 port DTO。
+func (a sharedFileReaderAdapter) Get(ctx context.Context, path string) (*sharedfileport.File, error) {
+	file, err := a.reader.Get(ctx, path)
+	if err != nil {
+		return nil, err
+	}
+	if file == nil {
+		return nil, errors.New("shared file store returned nil file")
+	}
+	converted := toSharedFilePortFile(*file)
+	return &converted, nil
+}
+
+// List 列出 shared file，并在装配边界完成 filter 和结果 DTO 转换。
+func (a sharedFileReaderAdapter) List(ctx context.Context, filter sharedfileport.ListFilter) ([]sharedfileport.File, error) {
+	files, err := a.reader.List(ctx, sharedfilestore.ListFilter{
+		Prefix: filter.Prefix,
+		Limit:  filter.Limit,
+	})
+	if err != nil {
+		return nil, err
+	}
+	out := make([]sharedfileport.File, 0, len(files))
+	for _, file := range files {
+		out = append(out, toSharedFilePortFile(file))
+	}
+	return out, nil
+}
+
+type sharedFileDeleterAdapter struct {
+	deleter sharedfilestore.Deleter
+}
+
+func adaptSharedFileDeleter(deleter sharedfilestore.Deleter) sharedfileport.Deleter {
+	if deleter == nil {
+		return nil
+	}
+	return sharedFileDeleterAdapter{deleter: deleter}
+}
+
+// Delete 删除指定 shared file，保留 store 的行数与错误语义。
+func (a sharedFileDeleterAdapter) Delete(ctx context.Context, path string) (int64, error) {
+	return a.deleter.Delete(ctx, path)
+}
+
+func toSharedFilePortFile(file sharedfilestore.SharedFile) sharedfileport.File {
+	return sharedfileport.File{
+		Path:      file.Path,
+		Content:   file.Content,
+		UpdatedBy: file.UpdatedBy,
+		CreatedAt: file.CreatedAt,
+		UpdatedAt: file.UpdatedAt,
+	}
 }
 
 // provideAgentMemoryReader 把 memory_read 接到统一的 reader。

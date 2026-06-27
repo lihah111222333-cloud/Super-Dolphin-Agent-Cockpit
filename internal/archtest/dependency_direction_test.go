@@ -20,7 +20,7 @@ const modulePath = "github.com/anthropic-ai/super-agent-v3"
 
 const (
 	moduleStoreImportPrefix       = modulePath + "/internal/store/"
-	moduleStoreLegacyImportBudget = 99
+	moduleStoreLegacyImportBudget = 90
 )
 
 var providerAllowedExternal = map[string]bool{

@@ -7,11 +7,9 @@ import (
 	"log/slog"
 	"testing"
 	"time"
-
-	insightstore "github.com/anthropic-ai/super-agent-v3/internal/store/insight"
 )
 
-func newTestService(t *testing.T, store insightstore.Store) Service {
+func newTestService(t *testing.T, store insightReader) Service {
 	t.Helper()
 	return NewService(slog.Default(), store)
 }
@@ -36,12 +34,12 @@ func TestServiceListRecentMapsRows(t *testing.T) {
 	t.Parallel()
 	skills, _ := json.Marshal([]string{"a", "b"})
 	success := false
-	row := insightstore.Insight{
+	row := insightRecord{
 		ID:             42,
 		ThreadID:       "t",
 		LocalTurnID:    "lt",
 		ProviderTurnID: "pt",
-		Status:         insightstore.StatusFailed,
+		Status:         insightStatusFailed,
 		Success:        &success,
 		ToolCalls:      3,
 		StartedAt:      time.Unix(1_700_000_000, 0).UTC(),
@@ -49,11 +47,11 @@ func TestServiceListRecentMapsRows(t *testing.T) {
 		SkillsSelected: skills,
 	}
 	store := &fakeInsightStore{
-		listRecentFn: func(_ context.Context, limit int32) ([]insightstore.Insight, error) {
+		listRecentFn: func(_ context.Context, limit int32) ([]insightRecord, error) {
 			if limit != 5 {
 				t.Fatalf("limit forward failed: %d", limit)
 			}
-			return []insightstore.Insight{row}, nil
+			return []insightRecord{row}, nil
 		},
 	}
 	svc := newTestService(t, store)
@@ -69,7 +67,7 @@ func TestServiceListRecentMapsRows(t *testing.T) {
 
 func assertRecentInsightSnapshot(t *testing.T, s Snapshot) {
 	t.Helper()
-	if s.ID != 42 || s.Status != insightstore.StatusFailed || s.ToolCalls != 3 {
+	if s.ID != 42 || s.Status != insightStatusFailed || s.ToolCalls != 3 {
 		t.Fatalf("basic fields wrong: %+v", s)
 	}
 	if s.Success == nil || *s.Success != false {
@@ -87,9 +85,9 @@ func TestServiceListObservedApprovalRequestsForwards(t *testing.T) {
 	t.Parallel()
 	var gotThread string
 	store := &fakeInsightStore{
-		listApprovalsFn: func(_ context.Context, threadID string, _ int32) ([]insightstore.ApprovalRow, error) {
+		listApprovalsFn: func(_ context.Context, threadID string, _ int32) ([]insightApprovalRow, error) {
 			gotThread = threadID
-			return []insightstore.ApprovalRow{{ID: 1, ThreadID: threadID, ApprovalRequests: 2}}, nil
+			return []insightApprovalRow{{ID: 1, ThreadID: threadID, ApprovalRequests: 2}}, nil
 		},
 	}
 	svc := newTestService(t, store)

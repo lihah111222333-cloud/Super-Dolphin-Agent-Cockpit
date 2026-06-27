@@ -8,7 +8,6 @@ import (
 	"unicode/utf8"
 
 	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
-	"github.com/anthropic-ai/super-agent-v3/internal/store/uipreference"
 )
 
 // Service 定义个性化服务接口，负责按 cwd 读写用户个人资料。
@@ -17,13 +16,25 @@ type Service interface {
 	SaveProfile(ctx context.Context, cwd string, profile Profile) (ProfileResult, error)
 }
 
-// service 是 Service 接口的内部实现，依赖 uipreference.Store 持久化资料。
-type service struct {
-	prefs uipreference.Store
+// preferenceStore 是 personalization 需要的最小偏好持久化端口。
+type preferenceStore interface {
+	GetValue(ctx context.Context, cwd, key string) (json.RawMessage, error)
+	Upsert(ctx context.Context, params preferenceUpsertParams) error
 }
 
-// NewService 创建项目级个性化服务。该服务只读写 uipreference，不持有额外全局状态。
-func NewService(prefs uipreference.Store) Service {
+type preferenceUpsertParams struct {
+	Cwd   string
+	Key   string
+	Value json.RawMessage
+}
+
+// service 是 Service 接口的内部实现，依赖窄持久化端口保存资料。
+type service struct {
+	prefs preferenceStore
+}
+
+// NewService 创建项目级个性化服务。该服务只读写 UI 偏好端口，不持有额外全局状态。
+func NewService(prefs preferenceStore) Service {
 	return &service{prefs: prefs}
 }
 
@@ -74,7 +85,7 @@ func (s *service) SaveProfile(ctx context.Context, cwd string, profile Profile) 
 	if err != nil {
 		return ProfileResult{}, fmt.Errorf("personalization: encode profile: %w", err)
 	}
-	if err := s.prefs.Upsert(ctx, uipreference.UpsertParams{Cwd: cwd, Key: profilePreferenceKey, Value: raw}); err != nil {
+	if err := s.prefs.Upsert(ctx, preferenceUpsertParams{Cwd: cwd, Key: profilePreferenceKey, Value: raw}); err != nil {
 		return ProfileResult{}, fmt.Errorf("personalization: save profile: %w", err)
 	}
 	return ProfileResult{Profile: normalized}, nil

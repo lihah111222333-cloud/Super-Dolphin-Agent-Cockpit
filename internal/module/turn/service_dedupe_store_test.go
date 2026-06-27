@@ -9,17 +9,16 @@ import (
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
-	turndedupe "github.com/anthropic-ai/super-agent-v3/internal/store/turndedupe"
 )
 
-// fakeDedupeStore 是内存版 turndedupe.Store。
+// fakeDedupeStore 是内存版 turnDedupeStore。
 // 服务层测试用它覆盖镜像写入和读取回退分支，不需要连接真实持久化后端。
 type fakeDedupeStore struct {
 	mu       sync.Mutex
-	rows     map[string]turndedupe.Entry
-	upsertFn func(context.Context, turndedupe.UpsertParams) error
-	bindFn   func(context.Context, turndedupe.BindProviderTurnIDParams) error
-	getFn    func(context.Context, string) (turndedupe.Entry, error)
+	rows     map[string]turnDedupeEntry
+	upsertFn func(context.Context, turnDedupeUpsertParams) error
+	bindFn   func(context.Context, turnDedupeBindProviderTurnIDParams) error
+	getFn    func(context.Context, string) (turnDedupeEntry, error)
 	termFn   func(context.Context, string) error
 
 	upsertCalls   int
@@ -28,10 +27,10 @@ type fakeDedupeStore struct {
 }
 
 func newFakeDedupeStore() *fakeDedupeStore {
-	return &fakeDedupeStore{rows: map[string]turndedupe.Entry{}}
+	return &fakeDedupeStore{rows: map[string]turnDedupeEntry{}}
 }
 
-func (f *fakeDedupeStore) Upsert(ctx context.Context, p turndedupe.UpsertParams) error {
+func (f *fakeDedupeStore) Upsert(ctx context.Context, p turnDedupeUpsertParams) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.upsertCalls++
@@ -40,7 +39,7 @@ func (f *fakeDedupeStore) Upsert(ctx context.Context, p turndedupe.UpsertParams)
 	}
 	e, ok := f.rows[p.DedupeKey]
 	if !ok {
-		e = turndedupe.Entry{DedupeKey: p.DedupeKey, CreatedAt: p.Now}
+		e = turnDedupeEntry{DedupeKey: p.DedupeKey, CreatedAt: p.Now}
 	}
 	e.LocalTurnID = p.LocalTurnID
 	if p.ThreadID != "" {
@@ -52,7 +51,7 @@ func (f *fakeDedupeStore) Upsert(ctx context.Context, p turndedupe.UpsertParams)
 	return nil
 }
 
-func (f *fakeDedupeStore) BindProviderTurnID(ctx context.Context, p turndedupe.BindProviderTurnIDParams) error {
+func (f *fakeDedupeStore) BindProviderTurnID(ctx context.Context, p turnDedupeBindProviderTurnIDParams) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.bindCalls++
@@ -84,7 +83,7 @@ func (f *fakeDedupeStore) MarkTerminal(ctx context.Context, key string, now time
 	return nil
 }
 
-func (f *fakeDedupeStore) GetLive(ctx context.Context, key string) (turndedupe.Entry, error) {
+func (f *fakeDedupeStore) GetLive(ctx context.Context, key string) (turnDedupeEntry, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if f.getFn != nil {
@@ -92,7 +91,7 @@ func (f *fakeDedupeStore) GetLive(ctx context.Context, key string) (turndedupe.E
 	}
 	e, ok := f.rows[key]
 	if !ok || !e.TerminalAt.IsZero() {
-		return turndedupe.Entry{}, turndedupe.ErrNotFound
+		return turnDedupeEntry{}, errTurnDedupeNotFound
 	}
 	return e, nil
 }
@@ -101,7 +100,7 @@ func (f *fakeDedupeStore) Sweep(_ context.Context, _ time.Time) error { return n
 
 // serviceWithStore 构造默认 turn service 并注入测试用 dedupe store。
 // 这样可以直接覆盖镜像写入路径，而不需要通过 fx 装配完整依赖图。
-func serviceWithStore(store turndedupe.Store) *service {
+func serviceWithStore(store turnDedupeStore) *service {
 	return newService(silentLogger(), nil, nil, nil, nil, store, nil).(*service)
 }
 
@@ -145,7 +144,7 @@ func TestServiceStartTurnDedupeUpsertErrorAbortsProviderStart(t *testing.T) {
 	t.Parallel()
 	want := errors.New("dedupe upsert failed")
 	store := newFakeDedupeStore()
-	store.upsertFn = func(context.Context, turndedupe.UpsertParams) error {
+	store.upsertFn = func(context.Context, turnDedupeUpsertParams) error {
 		return want
 	}
 	svc := serviceWithStore(store)
@@ -174,7 +173,7 @@ func TestServiceStartTurnDedupeProviderIDErrorSurfaces(t *testing.T) {
 	t.Parallel()
 	want := errors.New("provider id bind failed")
 	store := newFakeDedupeStore()
-	store.bindFn = func(context.Context, turndedupe.BindProviderTurnIDParams) error {
+	store.bindFn = func(context.Context, turnDedupeBindProviderTurnIDParams) error {
 		return want
 	}
 	svc := serviceWithStore(store)
@@ -227,7 +226,7 @@ func TestServiceLookupByDedupeKeyFallsBackToStore(t *testing.T) {
 	svc := serviceWithStore(store)
 	// 模拟上一个进程已写入 store，但当前实例的内存 tracker 从未登记该 key。
 	now := time.Now()
-	store.rows["dk-recover"] = turndedupe.Entry{
+	store.rows["dk-recover"] = turnDedupeEntry{
 		DedupeKey:   "dk-recover",
 		LocalTurnID: "turn-recover",
 		ThreadID:    "thread-x",
@@ -275,8 +274,8 @@ func TestServiceLookupByDedupeKeyStoreMissIsNeverSubmitted(t *testing.T) {
 func TestServiceLookupByDedupeKeyStoreErrorSurfaces(t *testing.T) {
 	t.Parallel()
 	store := newFakeDedupeStore()
-	store.getFn = func(_ context.Context, _ string) (turndedupe.Entry, error) {
-		return turndedupe.Entry{}, errors.New("db offline")
+	store.getFn = func(_ context.Context, _ string) (turnDedupeEntry, error) {
+		return turnDedupeEntry{}, errors.New("db offline")
 	}
 	svc := serviceWithStore(store)
 	_, _, err := svc.LookupByDedupeKey(context.Background(), "dk")

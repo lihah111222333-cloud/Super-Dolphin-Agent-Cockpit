@@ -9,7 +9,6 @@ import (
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
-	"github.com/anthropic-ai/super-agent-v3/internal/store/uipreference"
 )
 
 func TestServiceGetProfileReturnsEmptyWhenPreferenceMissing(t *testing.T) {
@@ -145,7 +144,7 @@ func (s *profilePreferenceStore) GetValue(_ context.Context, cwd, key string) (j
 	return append(json.RawMessage(nil), value...), nil
 }
 
-func (s *profilePreferenceStore) Upsert(_ context.Context, params uipreference.UpsertParams) error {
+func (s *profilePreferenceStore) Upsert(_ context.Context, params preferenceUpsertParams) error {
 	if s.err != nil {
 		return s.err
 	}
@@ -154,8 +153,4 @@ func (s *profilePreferenceStore) Upsert(_ context.Context, params uipreference.U
 	}
 	s.values[params.Cwd+"\x00"+params.Key] = append(json.RawMessage(nil), params.Value...)
 	return nil
-}
-
-func (s *profilePreferenceStore) List(context.Context, string) ([]uipreference.UIPreference, error) {
-	return nil, errors.New("not used")
 }

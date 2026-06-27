@@ -24,7 +24,7 @@ func TestImportTextRPCStoresFileChunks(t *testing.T) {
 		t.Fatalf("write source: %v", err)
 	}
 	store := newRecordingDatasourceV2Store()
-	server := newDatasourceV2TestServer(NewService(store))
+	server := newDatasourceV2TestServer(newDatasourceV2TestService(store))
 	payload, err := json.Marshal(ImportFileTextRequest{SourcePath: source})
 	if err != nil {
 		t.Fatalf("marshal payload: %v", err)
@@ -62,7 +62,7 @@ func TestImportTextRPCSplitsEvery256Tokens(t *testing.T) {
 		t.Fatalf("write source: %v", err)
 	}
 	store := newRecordingDatasourceV2Store()
-	server := newDatasourceV2TestServer(NewService(store))
+	server := newDatasourceV2TestServer(newDatasourceV2TestService(store))
 	payload, err := json.Marshal(ImportFileTextRequest{SourcePath: source})
 	if err != nil {
 		t.Fatalf("marshal payload: %v", err)
@@ -87,7 +87,7 @@ func TestImportTextRPCSplitsEvery256Tokens(t *testing.T) {
 func TestCreateRPCAliasesImportText(t *testing.T) {
 	source := datasourceV2RPCWorkspaceSource(t, "create.txt", []byte("created"))
 	store := newRecordingDatasourceV2Store()
-	server := newDatasourceV2TestServer(NewService(store))
+	server := newDatasourceV2TestServer(newDatasourceV2TestService(store))
 	payload, err := json.Marshal(ImportFileTextRequest{SourcePath: source})
 	if err != nil {
 		t.Fatalf("marshal payload: %v", err)
@@ -110,7 +110,7 @@ func TestCreateRPCAliasesImportText(t *testing.T) {
 func TestCreateRPCStoresExtractedPDFChunks(t *testing.T) {
 	source := datasourceV2RPCWorkspaceSource(t, "manual.pdf", minimalPDFWithText("Hello PDF datasource"))
 	store := newRecordingDatasourceV2Store()
-	server := newDatasourceV2TestServer(NewService(store))
+	server := newDatasourceV2TestServer(newDatasourceV2TestService(store))
 	payload, err := json.Marshal(ImportFileTextRequest{SourcePath: source})
 	if err != nil {
 		t.Fatalf("marshal payload: %v", err)
@@ -135,7 +135,7 @@ func TestCreateRPCStoresExtractedPDFChunks(t *testing.T) {
 
 func TestCreateRPCRejectsUnsupportedExtension(t *testing.T) {
 	source := datasourceV2RPCWorkspaceSource(t, "manual.docx", []byte("not supported"))
-	server := newDatasourceV2TestServer(NewService(newRecordingDatasourceV2Store()))
+	server := newDatasourceV2TestServer(newDatasourceV2TestService(newRecordingDatasourceV2Store()))
 	payload, err := json.Marshal(ImportFileTextRequest{SourcePath: source})
 	if err != nil {
 		t.Fatalf("marshal payload: %v", err)
@@ -150,7 +150,7 @@ func TestListDocumentsRPCUsesStoreFilter(t *testing.T) {
 	t.Parallel()
 
 	store := newReadyDatasourceV2Store()
-	server := newDatasourceV2TestServer(NewService(store))
+	server := newDatasourceV2TestServer(newDatasourceV2TestService(store))
 	listRaw, err := server.Dispatch(context.Background(), "datasourceV2/list", json.RawMessage(`{"keyword":"source","limit":20}`))
 	if err != nil {
 		t.Fatalf("Dispatch datasourceV2/list: %v", err)
@@ -169,7 +169,7 @@ func TestListDocumentsRPCUsesStoreFilter(t *testing.T) {
 
 func TestListDocumentsRPCRejectsOversizedLimit(t *testing.T) {
 	store := newReadyDatasourceV2Store()
-	server := newDatasourceV2TestServer(NewService(store))
+	server := newDatasourceV2TestServer(newDatasourceV2TestService(store))
 	_, err := server.Dispatch(context.Background(), "datasourceV2/list", json.RawMessage(`{"keyword":"source","limit":1001}`))
 	if err == nil || !strings.Contains(err.Error(), "limit") {
 		t.Fatalf("Dispatch datasourceV2/list error = %v, want oversized limit rejection", err)
@@ -183,7 +183,7 @@ func TestGetDocumentRPCReturnsChunks(t *testing.T) {
 	t.Parallel()
 
 	store := newReadyDatasourceV2Store()
-	server := newDatasourceV2TestServer(NewService(store))
+	server := newDatasourceV2TestServer(newDatasourceV2TestService(store))
 	getRaw, err := server.Dispatch(context.Background(), "datasourceV2/get", json.RawMessage(`{"documentId":101}`))
 	if err != nil {
 		t.Fatalf("Dispatch datasourceV2/get: %v", err)
@@ -202,7 +202,7 @@ func TestGetDocumentRPCReturnsChunks(t *testing.T) {
 
 func TestUpdateDocumentRPCPersistsMetadata(t *testing.T) {
 	store := newReadyDatasourceV2Store()
-	server := newDatasourceV2TestServer(NewService(store))
+	server := newDatasourceV2TestServer(newDatasourceV2TestService(store))
 	sourcePath := datasourceV2RPCWorkspaceSource(t, "updated.text", []byte("updated"))
 	payload, err := json.Marshal(UpdateDocumentRequest{
 		DocumentID: 101,
@@ -234,7 +234,7 @@ func TestDeleteDocumentRPCReturnsDocumentID(t *testing.T) {
 	t.Parallel()
 
 	store := newReadyDatasourceV2Store()
-	server := newDatasourceV2TestServer(NewService(store))
+	server := newDatasourceV2TestServer(newDatasourceV2TestService(store))
 	deleteRaw, err := server.Dispatch(context.Background(), "datasourceV2/delete", json.RawMessage(`{"documentId":101}`))
 	if err != nil {
 		t.Fatalf("Dispatch datasourceV2/delete: %v", err)
@@ -249,7 +249,7 @@ func TestDeleteDocumentRPCReturnsDocumentID(t *testing.T) {
 }
 
 func TestImportTextRPCRejectsRelativePath(t *testing.T) {
-	server := newDatasourceV2TestServer(NewService(newRecordingDatasourceV2Store()))
+	server := newDatasourceV2TestServer(newDatasourceV2TestService(newRecordingDatasourceV2Store()))
 	payload, err := json.Marshal(ImportFileTextRequest{SourcePath: "notes.txt"})
 	if err != nil {
 		t.Fatalf("marshal payload: %v", err)
@@ -267,7 +267,7 @@ func TestImportTextRPCRejectsSourceOutsideWorkspace(t *testing.T) {
 	if err := os.WriteFile(source, []byte("outside workspace"), 0o600); err != nil {
 		t.Fatalf("write source: %v", err)
 	}
-	server := newDatasourceV2TestServer(NewService(newRecordingDatasourceV2Store()))
+	server := newDatasourceV2TestServer(newDatasourceV2TestService(newRecordingDatasourceV2Store()))
 	payload, err := json.Marshal(ImportFileTextRequest{SourcePath: source})
 	if err != nil {
 		t.Fatalf("marshal payload: %v", err)
@@ -289,7 +289,7 @@ func TestImportTextRPCRejectsSymlinkEscapingWorkspace(t *testing.T) {
 	if err := os.Symlink(outside, link); err != nil {
 		t.Fatalf("create symlink: %v", err)
 	}
-	server := newDatasourceV2TestServer(NewService(newRecordingDatasourceV2Store()))
+	server := newDatasourceV2TestServer(newDatasourceV2TestService(newRecordingDatasourceV2Store()))
 	payload, err := json.Marshal(ImportFileTextRequest{SourcePath: link})
 	if err != nil {
 		t.Fatalf("marshal payload: %v", err)
@@ -320,7 +320,7 @@ func TestImportLocalFileRPCStoresOutsideWorkspaceSource(t *testing.T) {
 		t.Fatalf("write source: %v", err)
 	}
 	store := newRecordingDatasourceV2Store()
-	server := newDatasourceV2TestServer(NewService(store))
+	server := newDatasourceV2TestServer(newDatasourceV2TestService(store))
 	payload, err := json.Marshal(ImportLocalFileRequest{SourcePath: source})
 	if err != nil {
 		t.Fatalf("marshal payload: %v", err)
@@ -351,7 +351,7 @@ func TestImportTextRPCPreservesWhitespaceOnlyContent(t *testing.T) {
 		t.Fatalf("write source: %v", err)
 	}
 	store := newRecordingDatasourceV2Store()
-	server := newDatasourceV2TestServer(NewService(store))
+	server := newDatasourceV2TestServer(newDatasourceV2TestService(store))
 	payload, err := json.Marshal(ImportFileTextRequest{SourcePath: source})
 	if err != nil {
 		t.Fatalf("marshal payload: %v", err)
@@ -379,6 +379,10 @@ func newDatasourceV2TestServer(svc Service) *platformrpc.Server {
 	server := platformrpc.NewServer(platformrpc.Params{Config: &platformconfig.Config{RPCAddr: "127.0.0.1:0"}})
 	server.Register(NewHandlers(svc).Handlers)
 	return server
+}
+
+func newDatasourceV2TestService(store datasourcev2store.Store) Service {
+	return NewService(newDatasourceV2StorePort(store))
 }
 
 func datasourceV2RPCWorkspaceSource(t *testing.T, name string, body []byte) string {
