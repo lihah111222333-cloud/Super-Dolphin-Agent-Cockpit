@@ -96,10 +96,99 @@ func sqlTemplate(promptKey, agentKey, text string, tags []string) promptstore.Pr
 	}
 }
 
+func runtimePromptCatalogAdapterFixture() (*fakePromptStore, runtimePromptCatalog) {
+	tpl := sqlTemplate("main/local", "main", "body", []string{"scope.global"})
+	tpl.ID = 7
+	tpl.Title = "Main"
+	tpl.ToolName = "codex"
+	tpl.WhenToUse = "when needed"
+	tpl.Variables = json.RawMessage(`{"name":"value"}`)
+	tpl.MatchWhen = json.RawMessage(`{"language":"go"}`)
+	tpl.Priority = 12
+	tpl.Description = "desc"
+	tpl.CreatedBy = "seed"
+	tpl.UpdatedBy = "operator"
+	store := &fakePromptStore{
+		templates: []promptstore.PromptTemplate{tpl},
+		sectionsByTemplateID: map[int64][]promptstore.PromptTemplateSection{
+			7: {
+				{TemplateID: 7, SectionKey: "identity", Body: "identity", EnableWhen: json.RawMessage(`{"provider":"codex"}`), Enabled: true},
+			},
+		},
+	}
+	catalog := (&service{promptCatalog: threadprompt.NewRuntimeCatalog(store, nil)}).runtimePromptCatalog()
+	return store, catalog
+}
+
+func TestRuntimePromptCatalogAdapterCopiesTemplateDTO(t *testing.T) {
+	t.Parallel()
+
+	store, catalog := runtimePromptCatalogAdapterFixture()
+	rows, err := catalog.ListTemplates(context.Background(), runtimePromptListFilter{CWD: "/repo/a", Limit: 200})
+	if err != nil {
+		t.Fatalf("ListTemplates() error = %v", err)
+	}
+	if len(rows) != 1 {
+		t.Fatalf("ListTemplates() len = %d, want 1", len(rows))
+	}
+	got := rows[0]
+	if got.ID != 7 || got.PromptKey != "main/local" || got.AgentKey != "main" || got.Priority != 12 {
+		t.Fatalf("runtime template DTO = %+v, want copied local template", got)
+	}
+	got.Tags[0] = 'X'
+	if string(store.templates[0].Tags) == string(got.Tags) {
+		t.Fatal("runtime template tags share backing bytes with store DTO")
+	}
+}
+
+func TestRuntimePromptCatalogAdapterCopiesSectionDTO(t *testing.T) {
+	t.Parallel()
+
+	store, catalog := runtimePromptCatalogAdapterFixture()
+	sections, err := catalog.ListSectionsByTemplateID(context.Background(), 7)
+	if err != nil {
+		t.Fatalf("ListSectionsByTemplateID() error = %v", err)
+	}
+	if len(sections) != 1 || sections[0].SectionKey != "identity" || string(sections[0].EnableWhen) != `{"provider":"codex"}` {
+		t.Fatalf("runtime sections = %#v, want copied section DTO", sections)
+	}
+	sections[0].EnableWhen[0] = 'X'
+	if string(store.sectionsByTemplateID[7][0].EnableWhen) == string(sections[0].EnableWhen) {
+		t.Fatal("runtime section enable_when shares backing bytes with store DTO")
+	}
+}
+
+func TestRuntimePromptCatalogAdapterCopiesVersionDTO(t *testing.T) {
+	t.Parallel()
+
+	store, catalog := runtimePromptCatalogAdapterFixture()
+	versionID, err := catalog.InsertVersion(context.Background(), runtimePromptTemplateVersion{
+		PromptKey:  "main/local",
+		Title:      "Main",
+		AgentKey:   "main",
+		ToolName:   "codex",
+		PromptText: "snapshot body",
+		Variables:  json.RawMessage(`{"v":1}`),
+		Tags:       json.RawMessage(`["scope.global"]`),
+		Enabled:    true,
+		CreatedBy:  "seed",
+		UpdatedBy:  "operator",
+	})
+	if err != nil {
+		t.Fatalf("InsertVersion() error = %v", err)
+	}
+	if versionID == 0 {
+		t.Fatal("InsertVersion() id = 0, want generated id")
+	}
+	if store.lastInsertVersion.PromptKey != "main/local" || store.lastInsertVersion.PromptText != "snapshot body" {
+		t.Fatalf("InsertVersion() stored version = %+v, want copied local DTO", store.lastInsertVersion)
+	}
+}
+
 func TestConvertStoreSectionsToBlocksSkipsRecallSections(t *testing.T) {
 	t.Parallel()
 
-	blocks := convertStoreSectionsToBlocks([]promptstore.PromptTemplateSection{
+	blocks := convertRuntimeSectionsToBlocks([]runtimePromptTemplateSection{
 		{SectionKey: "identity", Region: "static", Body: "base identity", TriggerType: "always", Enabled: true},
 		{SectionKey: "recall_sqlc", Region: "dynamic", Body: "recall body", TriggerType: " recall ", Enabled: true},
 		{SectionKey: "workflow", Region: "dynamic", Body: "workflow body", Enabled: true},

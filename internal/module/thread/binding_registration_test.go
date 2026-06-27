@@ -3,6 +3,7 @@ package thread
 import (
 	"context"
 	"errors"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -177,6 +178,111 @@ func TestBindingRecoveryReporterSkipsInvalidSessionUUID(t *testing.T) {
 	}
 	if bindings.updateProviderThreadID.ProviderThreadID != "" {
 		t.Fatalf("provider_thread_id update = %q, want none", bindings.updateProviderThreadID.ProviderThreadID)
+	}
+}
+
+func TestThreadBindingStoreAdapterPreservesBindingFields(t *testing.T) {
+	t.Parallel()
+
+	source := &bindingstore.Binding{
+		AgentID:            "agent-adapter",
+		Provider:           "codex",
+		ProviderThreadID:   "provider-thread-adapter",
+		CodexThreadID:      "thread-adapter",
+		RolloutPath:        "/tmp/rollout.jsonl",
+		Cwd:                "/repo",
+		ParentAgentID:      "parent-agent",
+		AgentType:          "worker",
+		AgentMemoryScope:   "project",
+		Archived:           true,
+		CreatedAt:          101,
+		UpdatedAt:          202,
+		SessionUUID:        "019e2c35-42ef-75b3-9f73-31cf7cc4cf2e",
+		CodexHome:          "/Users/dev/.codex",
+		CodexInstanceKey:   "default",
+		CodexModelProvider: "openai",
+	}
+	bindings := &stubBindingStore{binding: source}
+	adapter := newThreadBindingStorePort(bindings)
+
+	got, err := adapter.GetByAgentID(context.Background(), "agent-adapter")
+	if err != nil {
+		t.Fatalf("GetByAgentID() error = %v", err)
+	}
+	assertThreadBindingRecord(t, got, *source)
+
+	err = adapter.Upsert(context.Background(), newBindingUpsertParams(threadBindingRecord{
+		AgentID:            " agent-next ",
+		Provider:           " codex ",
+		ProviderThreadID:   " provider-next ",
+		CodexThreadID:      " thread-next ",
+		RolloutPath:        " /tmp/next.jsonl ",
+		SessionUUID:        " 019e2c35-42ef-75b3-9f73-31cf7cc4cf2f ",
+		Cwd:                " /repo/next ",
+		ParentAgentID:      " parent-next ",
+		AgentType:          " worker ",
+		AgentMemoryScope:   " project ",
+		CreatedAt:          303,
+		UpdatedAt:          404,
+		CodexHome:          " /Users/dev/.codex-next ",
+		CodexInstanceKey:   " next ",
+		CodexModelProvider: " openai-compatible ",
+	}))
+	if err != nil {
+		t.Fatalf("Upsert() error = %v", err)
+	}
+	assertThreadBindingUpsertParams(t, bindings.upsert)
+}
+
+func assertThreadBindingRecord(t *testing.T, got *threadBindingRecord, want bindingstore.Binding) {
+	t.Helper()
+	if got == nil {
+		t.Fatal("binding record = nil")
+	}
+	wantRecord := threadBindingRecord{
+		AgentID:            want.AgentID,
+		Provider:           want.Provider,
+		ProviderThreadID:   want.ProviderThreadID,
+		CodexThreadID:      want.CodexThreadID,
+		RolloutPath:        want.RolloutPath,
+		Cwd:                want.Cwd,
+		ParentAgentID:      want.ParentAgentID,
+		AgentType:          want.AgentType,
+		AgentMemoryScope:   want.AgentMemoryScope,
+		Archived:           want.Archived,
+		CreatedAt:          want.CreatedAt,
+		UpdatedAt:          want.UpdatedAt,
+		SessionUUID:        want.SessionUUID,
+		CodexHome:          want.CodexHome,
+		CodexInstanceKey:   want.CodexInstanceKey,
+		CodexModelProvider: want.CodexModelProvider,
+	}
+	if !reflect.DeepEqual(*got, wantRecord) {
+		t.Fatalf("binding record = %#v, want %#v", *got, wantRecord)
+	}
+}
+
+func assertThreadBindingUpsertParams(t *testing.T, got bindingstore.UpsertParams) {
+	t.Helper()
+	want := bindingstore.UpsertParams{
+		AgentID:            "agent-next",
+		Provider:           "codex",
+		ProviderThreadID:   "provider-next",
+		CodexThreadID:      "thread-next",
+		RolloutPath:        "/tmp/next.jsonl",
+		SessionUUID:        "019e2c35-42ef-75b3-9f73-31cf7cc4cf2f",
+		Cwd:                "/repo/next",
+		ParentAgentID:      "parent-next",
+		AgentType:          "worker",
+		AgentMemoryScope:   "project",
+		CreatedAt:          303,
+		UpdatedAt:          404,
+		CodexHome:          "/Users/dev/.codex-next",
+		CodexInstanceKey:   "next",
+		CodexModelProvider: "openai-compatible",
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("binding upsert params = %#v, want %#v", got, want)
 	}
 }
 

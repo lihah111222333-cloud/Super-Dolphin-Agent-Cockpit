@@ -15,30 +15,16 @@ var moduleStoreImportAllowlist = map[string]map[string]string{
 	"internal/module/skill/service.go": {
 		internalPrefix("internal/store/auditlog"): "D01 legacy module-to-store import",
 	},
-	"internal/module/thread/binding_registration.go": {
-		internalPrefix("internal/store/binding"): "D01 legacy module-to-store import",
-	},
 	"internal/module/thread/command.go": {
 		internalPrefix("internal/store/binding"): "D01 legacy module-to-store import",
 	},
 	"internal/module/thread/contract_adapter.go": {
 		internalPrefix("internal/store/binding"): "D01 legacy module-to-store import",
 	},
-	"internal/module/thread/events.go": {
-		internalPrefix("internal/store/binding"): "D01 legacy module-to-store import",
-	},
 	"internal/module/thread/factory.go": {
-		internalPrefix("internal/store/binding"): "D01 legacy module-to-store import",
-		internalPrefix("internal/store/thread"):  "D01 legacy module-to-store import",
-	},
-	"internal/module/thread/factory_config.go": {
-		internalPrefix("internal/store/binding"): "D01 legacy module-to-store import",
-		internalPrefix("internal/store/thread"):  "D01 legacy module-to-store import",
-	},
-	"internal/module/thread/handoffrender/text.go": {
 		internalPrefix("internal/store/thread"): "D01 legacy module-to-store import",
 	},
-	"internal/module/thread/history.go": {
+	"internal/module/thread/factory_config.go": {
 		internalPrefix("internal/store/binding"): "D01 legacy module-to-store import",
 		internalPrefix("internal/store/thread"):  "D01 legacy module-to-store import",
 	},
@@ -48,12 +34,6 @@ var moduleStoreImportAllowlist = map[string]map[string]string{
 	"internal/module/thread/lifecycle_helpers.go": {
 		internalPrefix("internal/store/binding"): "D01 legacy module-to-store import",
 		internalPrefix("internal/store/thread"):  "D01 legacy module-to-store import",
-	},
-	"internal/module/thread/prompt_snapshot.go": {
-		internalPrefix("internal/store/thread"): "D01 legacy module-to-store import",
-	},
-	"internal/module/thread/router_resolve.go": {
-		internalPrefix("internal/store/prompt"): "D01 legacy module-to-store import",
 	},
 	"internal/module/thread/scratchpad.go": {
 		internalPrefix("internal/store/binding"): "D01 legacy module-to-store import",
@@ -71,9 +51,6 @@ var moduleStoreImportAllowlist = map[string]map[string]string{
 		internalPrefix("internal/store/thread"):     "D01 legacy module-to-store import",
 	},
 	"internal/module/thread/spawn.go": {
-		internalPrefix("internal/store/thread"): "D01 legacy module-to-store import",
-	},
-	"internal/module/thread/start_prompt_context.go": {
 		internalPrefix("internal/store/thread"): "D01 legacy module-to-store import",
 	},
 	"internal/module/thread/start_session_helpers.go": {

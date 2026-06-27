@@ -3,33 +3,38 @@ package handoffrender
 
 import (
 	"strings"
-
-	threadstore "github.com/anthropic-ai/super-agent-v3/internal/store/thread"
 )
 
-// ThreadStatus 从 thread store 行中取出交接展示用状态。
+// ThreadTextRow 是 handoff 文本渲染需要的最小线程展示 DTO。
+type ThreadTextRow struct {
+	Status   string
+	ThreadID string
+	CWD      string
+}
+
+// ThreadStatus 从线程展示 DTO 中取出交接展示用状态。
 // nil 行返回空字符串，让渲染层可以统一跳过缺失字段。
-func ThreadStatus(row *threadstore.Thread) string {
+func ThreadStatus(row *ThreadTextRow) string {
 	if row == nil {
 		return ""
 	}
 	return strings.TrimSpace(row.Status)
 }
 
-// ThreadID 从 thread store 行中取出交接展示用 thread id。
-func ThreadID(row *threadstore.Thread) string {
+// ThreadID 从线程展示 DTO 中取出交接展示用 thread id。
+func ThreadID(row *ThreadTextRow) string {
 	if row == nil {
 		return ""
 	}
 	return strings.TrimSpace(row.ThreadID)
 }
 
-// ThreadCWD 从 thread store 行中取出交接展示用工作目录。
-func ThreadCWD(row *threadstore.Thread) string {
+// ThreadCWD 从线程展示 DTO 中取出交接展示用工作目录。
+func ThreadCWD(row *ThreadTextRow) string {
 	if row == nil {
 		return ""
 	}
-	return strings.TrimSpace(row.Cwd)
+	return strings.TrimSpace(row.CWD)
 }
 
 // NormalizeText 将多行和多空白压成单行文本，供 handoff 摘要稳定渲染。
