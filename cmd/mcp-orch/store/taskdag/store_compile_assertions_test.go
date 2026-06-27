@@ -41,6 +41,7 @@ var (
 	_ NodeSpawningThreadLookup = (*store)(nil)
 	_ DispatchNodeStore        = (*store)(nil)
 	_ WakeupStore              = (*store)(nil)
+	_ WakeupLeaseRenewer       = (*store)(nil)
 	_ WorkerLeaseStore         = (*store)(nil)
 	_ Store                    = (*store)(nil)
 )
