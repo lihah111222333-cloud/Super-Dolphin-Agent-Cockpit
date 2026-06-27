@@ -380,7 +380,9 @@ func TestRPCPushWorkerOverflowKeepsLatestAndEmitsDegradedEvent(t *testing.T) {
 		t.Fatal("NotifyAll did not enter within 1s")
 	}
 
-	for i := 1; i <= 6; i++ {
+	// 发送 pushWorkerPendingLimit+2 条，保证超出队列容量触发退化。
+	const overflowCount = pushWorkerPendingLimit + 2
+	for i := 1; i <= overflowCount; i++ {
 		worker.Enqueue([]eventsurface.Notification{{
 			Method: eventsurface.MethodThreadStarted,
 			Payload: map[string]any{
@@ -407,8 +409,8 @@ func TestRPCPushWorkerOverflowKeepsLatestAndEmitsDegradedEvent(t *testing.T) {
 		t.Fatalf("degraded payload missing dropped count: %#v", degraded)
 	}
 	latest := callPayloadMap(t, calls[2])
-	if latest["sequence"] != 6 {
-		t.Fatalf("latest sequence = %#v, want 6", latest["sequence"])
+	if latest["sequence"] != overflowCount {
+		t.Fatalf("latest sequence = %#v, want %d", latest["sequence"], overflowCount)
 	}
 }
 

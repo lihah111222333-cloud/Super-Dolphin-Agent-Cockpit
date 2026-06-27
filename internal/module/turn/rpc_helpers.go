@@ -176,6 +176,8 @@ func readyTurnWaitContext(ctx context.Context) (context.Context, context.CancelF
 }
 
 // waitForReadyTurnSession 等待会话 ready 后再提交 turn。
+// 当前使用 50ms 固定轮询；若 SessionResolver 未来暴露 ready channel，可直接替换以消除轮询延迟。
+// TODO: SessionResolver 增加 WaitReady(threadID) <-chan struct{} 后替换此处轮询。
 func waitForReadyTurnSession(
 	waitCtx context.Context,
 	resolver contract.SessionResolver,

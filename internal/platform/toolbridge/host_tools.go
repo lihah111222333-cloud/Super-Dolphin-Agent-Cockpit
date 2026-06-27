@@ -47,6 +47,7 @@ type HostToolCWDPolicy interface {
 // 已下线 skill 工具名保留在这里，只用于拒绝旧 Codex 调用和同名 MCP peer。
 // 实现不再存在，命中时必须返回明确失败，不能静默转投其它工具。
 const (
+	// skill_read_section 已从生产路径下线，此常量仅用于向后兼容拒绝响应，不是 skill 发现入口。
 	ToolNameReadSection             = "skill_read_section"
 	ToolNameLegacySkillExpandBody   = "skill_expand_body"
 	ToolNameLegacySkillReadResource = "skill_read_resource"
