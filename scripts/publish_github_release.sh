@@ -4,7 +4,6 @@ set -euo pipefail
 root="$(git rev-parse --show-toplevel)"
 cd "$root"
 
-github_repo="${SUPER_DOLPHIN_UPDATE_GITHUB_REPO:-xiaoxiaotest9527-bit/-}"
 tag="${VERSION:-}"
 stage_dir="${SUPER_DOLPHIN_RELEASE_STAGE_DIR:-}"
 channel="${SUPER_DOLPHIN_UPDATE_CHANNEL:-gray}"
@@ -30,6 +29,7 @@ cleanup() {
 trap cleanup EXIT
 
 usage() {
+  local status="${1:-2}"
   cat >&2 <<'EOF'
 usage: scripts/publish_github_release.sh [--inspect-latest|--print-context|--download-latest-previous-dmg DIR]
        VERSION=v1.0.4 SUPER_DOLPHIN_UPDATE_PUBLIC_KEY=... scripts/publish_github_release.sh [--dry-run] [--verify-existing] [--stage-dir DIR]
@@ -37,11 +37,31 @@ usage: scripts/publish_github_release.sh [--inspect-latest|--print-context|--dow
 publish mode also requires SUPER_DOLPHIN_UPDATE_SIGNING_KEY.
 publish, dry-run, and verify-existing modes require previous package proof env.
 EOF
-  exit 2
+  exit "$status"
+}
+
+require_github_release_repo() {
+  local repo="${SUPER_DOLPHIN_UPDATE_GITHUB_REPO:-}"
+  if [[ -z "${repo//[[:space:]]/}" ]]; then
+    echo "SUPER_DOLPHIN_UPDATE_GITHUB_REPO is required" >&2
+    exit 1
+  fi
+  if [[ "$repo" == "xiaoxiaotest9527-bit/-" ]]; then
+    echo "known placeholder update repo is not allowed" >&2
+    exit 1
+  fi
+  if [[ ! "$repo" =~ ^[^/[:space:]]+/[^/[:space:]]+$ ]]; then
+    echo "SUPER_DOLPHIN_UPDATE_GITHUB_REPO must be owner/repo without whitespace" >&2
+    exit 1
+  fi
+  printf '%s\n' "$repo"
 }
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
+    --help|-h)
+      usage 0
+      ;;
     --dry-run)
       dry_run=1
       shift
@@ -79,6 +99,8 @@ if (( dry_run + verify_existing + inspect_latest + print_context + download_prev
   echo "--dry-run, --verify-existing, --inspect-latest, --print-context, and --download-latest-previous-dmg are mutually exclusive" >&2
   exit 2
 fi
+
+github_repo="$(require_github_release_repo)"
 
 require_env() {
   local name="$1"
