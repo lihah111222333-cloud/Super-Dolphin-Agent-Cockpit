@@ -18,6 +18,11 @@ import (
 
 const modulePath = "github.com/anthropic-ai/super-agent-v3"
 
+const (
+	moduleStoreImportPrefix       = modulePath + "/internal/store/"
+	moduleStoreLegacyImportBudget = 99
+)
+
 var providerAllowedExternal = map[string]bool{
 	"github.com/BurntSushi/toml":   true,
 	"github.com/gorilla/websocket": true,
@@ -264,6 +269,13 @@ func assertModuleDBIsolationRules(t *testing.T, root string) {
 			"github.com/jackc/pgx/v5/pgconn",
 		}
 		assertModuleNoDirectDBImports(t, parseImportFiles(t, root, "internal/module"), forbidden)
+	})
+
+	t.Run("rule17b_module_non_assembly_cannot_import_store", func(t *testing.T) {
+		if !dirExists(root, "internal/module") {
+			t.Skip("directory not yet created")
+		}
+		assertModuleNoStoreImports(t, parseImportFiles(t, root, "internal/module"))
 	})
 }
 
