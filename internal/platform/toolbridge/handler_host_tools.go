@@ -242,6 +242,10 @@ func (h *Handler) callHostTool(ctx context.Context, req ToolCallRequest) (*ToolC
 			"duration_ms", time.Since(started).Milliseconds(),
 		)
 	}()
+	if err := h.validateHostToolInput(req); err != nil {
+		outcome = hostToolErrorOutcome(err)
+		return hostToolErrorResult(req, err), nil
+	}
 	cwd, cwdErr := h.resolveHostToolCWD(ctx, req)
 	if cwdErr != nil {
 		outcome = hostToolErrorOutcome(cwdErr)
@@ -299,6 +303,27 @@ func hostToolErrorOutcome(err error) string {
 	default:
 		return skillmetrics.HostToolOutcomeError
 	}
+}
+
+// validateHostToolInput 使用 host-direct 对外发布的 InputSchema 在调用 handler 前拦截未知字段。
+func (h *Handler) validateHostToolInput(req ToolCallRequest) error {
+	if h == nil || h.hostTools == nil {
+		return nil
+	}
+	schema, ok := hostToolInputSchema(h.hostTools.ListHostTools(), req.Name)
+	if !ok {
+		return nil
+	}
+	if err := validateToolInputSchema(req.Name, schema, req.Arguments); err != nil {
+		return contract.NewAgentMemoryError("invalid_input", err)
+	}
+	return nil
+}
+
+// hostToolInputSchema 查找 host-direct 工具的输入 schema。
+func hostToolInputSchema(tools []dto.MCPTool, name string) (json.RawMessage, bool) {
+	schemas := toolInputSchemaMap(tools)
+	return lookupToolInputSchema(schemas, name)
 }
 
 // hostToolErrorResult 将 host-direct 错误包装成模型可读的结构化 ToolCallResult。

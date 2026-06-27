@@ -3,10 +3,41 @@ package shared
 import (
 	"encoding/json"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	mcp "github.com/anthropic-ai/super-agent-v3/internal/dto/mcp"
 )
+
+func TestDecodeInputRejectsUnknownFields(t *testing.T) {
+	t.Parallel()
+
+	var input struct {
+		DryRun bool `json:"dry_run,omitempty"`
+	}
+	err := DecodeInput(json.RawMessage(`{"dry_run":true,"dryRun":true}`), &input)
+	if err == nil {
+		t.Fatal("DecodeInput() error = nil, want unknown dryRun rejection")
+	}
+	if !strings.Contains(err.Error(), `unknown field "dryRun"`) {
+		t.Fatalf("DecodeInput() error = %v, want unknown field dryRun", err)
+	}
+}
+
+func TestDecodeInputAllowsDeclaredLegacyAlias(t *testing.T) {
+	t.Parallel()
+
+	var input struct {
+		TemplateID      string `json:"template_id,omitempty"`
+		TemplateIDCamel string `json:"templateId,omitempty"`
+	}
+	if err := DecodeInput(json.RawMessage(`{"templateId":"tpl-1"}`), &input); err != nil {
+		t.Fatalf("DecodeInput() error = %v, want declared alias accepted", err)
+	}
+	if input.TemplateIDCamel != "tpl-1" {
+		t.Fatalf("TemplateIDCamel = %q, want tpl-1", input.TemplateIDCamel)
+	}
+}
 
 func TestCloneSelectorClonesScope(t *testing.T) {
 	t.Parallel()
