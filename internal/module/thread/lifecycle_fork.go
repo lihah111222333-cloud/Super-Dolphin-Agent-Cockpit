@@ -2,6 +2,7 @@ package thread
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -21,7 +22,7 @@ func (s *service) Fork(ctx context.Context, threadID string) (ForkResult, error)
 	if err != nil {
 		return ForkResult{}, err
 	}
-	meta, provider, cwd, err := s.resolveForkContext(ctx, threadID, binding.Provider, binding.Cwd)
+	meta, provider, cwd, identity, config, configOverride, err := s.resolveForkContext(ctx, threadID, binding.Provider, binding.Cwd, binding.CodexHome, binding.CodexInstanceKey, binding.CodexModelProvider)
 	if err != nil {
 		return ForkResult{}, err
 	}
@@ -29,97 +30,101 @@ func (s *service) Fork(ctx context.Context, threadID string) (ForkResult, error)
 	if err != nil {
 		return ForkResult{}, err
 	}
-	displayName := continuationName(strings.TrimSpace(meta.Name))
 	newThreadID := strings.TrimSpace(result.NewThreadID)
 	if newThreadID == "" {
 		return ForkResult{}, errors.New("fork thread id is required")
 	}
-	snapshot, err := s.resolveAndSaveForkPromptSnapshot(ctx, threadID, newThreadID, provider)
+	displayName := continuationName(strings.TrimSpace(meta.Name))
+	snapshot, err := s.resolveStablePromptSnapshot(ctx, threadID, provider, contract.PromptAssemblySnapshot{})
 	if err != nil {
 		return ForkResult{}, err
 	}
-	agentID := newThreadID
-	if err := s.launchAgent(
-		ctx,
-		agentID,
-		cwd,
-		displayName,
-		meta.ParentAgentID,
-		meta.AgentType,
-		meta.AgentMemoryScope,
-		provider,
-		meta.Model,
-	); err != nil {
+	state := threadStateFields{PublicThreadID: newThreadID, OwnerThreadID: historyTargetID(binding, threadID), AgentID: newThreadID, ParentAgentID: meta.ParentAgentID, AgentType: meta.AgentType, AgentMemoryScope: meta.AgentMemoryScope, Provider: provider, CWD: cwd, Model: meta.Model, Name: displayName, Prompt: displayName, ConfigOverride: configOverride, CodexHome: identity.Home, CodexInstanceKey: identity.InstanceKey, CodexModelProvider: identity.ModelProvider, CreatedAt: time.Now().Unix()}
+	if err := s.persistThreadState(ctx, newThreadState(threadStateForkKind, state), true); err != nil {
 		return ForkResult{}, err
 	}
-	forkedSession, err := s.resumeForkSession(ctx, ResumeRequest{
-		Provider:       provider,
-		AgentID:        agentID,
-		ThreadID:       newThreadID,
-		CWD:            cwd,
-		Model:          meta.Model,
-		PromptSnapshot: snapshot,
-	})
-	if err != nil {
-		s.stopAgent(ctx, agentID)
+	if !promptSnapshotBlank(snapshot) {
+		if err := s.savePromptSnapshot(ctx, newThreadID, contract.StartAssembly{Snapshot: snapshot}); err != nil {
+			return ForkResult{}, fmt.Errorf("save fork prompt snapshot for %q: %w", strings.TrimSpace(newThreadID), err)
+		}
+	}
+	if err := s.kickoffForkSession(ctx, state, meta, provider, cwd, displayName, newThreadID, snapshot, identity, config); err != nil {
 		return ForkResult{}, err
 	}
-	if err := s.bindSessionGeneration(ctx, agentID); err != nil {
-		s.stopAgent(ctx, agentID)
-		return ForkResult{}, err
-	}
-	providerThreadID := resolvedProviderUUID(forkedSession)
-	if err := s.persistThreadState(ctx, newThreadState(threadStateForkKind, threadStateFields{
-		PublicThreadID:   newThreadID,
-		ProviderThreadID: providerThreadID,
-		OwnerThreadID:    historyTargetID(binding, threadID),
-		AgentID:          agentID,
-		ParentAgentID:    meta.ParentAgentID,
-		AgentType:        meta.AgentType,
-		AgentMemoryScope: meta.AgentMemoryScope,
-		Provider:         provider,
-		CWD:              cwd,
-		Model:            meta.Model,
-		Name:             displayName,
-		Prompt:           displayName,
-		RolloutPath:      forkedSession.RolloutPath(),
-		SessionUUID:      resolvedProviderUUID(forkedSession),
-		CreatedAt:        time.Now().Unix(),
-	}), true); err != nil {
-		s.stopAgent(ctx, agentID)
-		return ForkResult{}, err
-	}
-	return ForkResult{
-		NewThreadID: newThreadID,
-		ForkedFrom:  bindingPublicThreadID(binding, threadID),
-	}, nil
+	return ForkResult{NewThreadID: newThreadID, ForkedFrom: bindingPublicThreadID(binding, threadID), KickoffState: ForkKickoffState("created_only")}, nil
 }
 
-// resolveAndSaveForkPromptSnapshot 读取父线程 snapshot，并在新 session 启动前保存到 fork 线程。
-func (s *service) resolveAndSaveForkPromptSnapshot(ctx context.Context, parentThreadID, newThreadID, provider string) (contract.PromptAssemblySnapshot, error) {
-	snapshot, err := s.resolveStablePromptSnapshot(ctx, parentThreadID, provider, contract.PromptAssemblySnapshot{})
-	if err != nil || promptSnapshotBlank(snapshot) {
-		return snapshot, err
+// kickoffForkSession 启动 fork 的 provider session，并在成功后补齐最终 thread 状态。
+func (s *service) kickoffForkSession(ctx context.Context, state threadStateFields, meta threadMeta, provider, cwd, displayName, newThreadID string, snapshot contract.PromptAssemblySnapshot, identity contract.CodexIdentity, config map[string]any) error {
+	if err := s.launchAgent(ctx, newThreadID, cwd, displayName, meta.ParentAgentID, meta.AgentType, meta.AgentMemoryScope, provider, meta.Model); err != nil {
+		return err
 	}
-	if err := s.savePromptSnapshot(ctx, newThreadID, contract.StartAssembly{Snapshot: snapshot}); err != nil {
-		return contract.PromptAssemblySnapshot{}, fmt.Errorf("save fork prompt snapshot for %q: %w", strings.TrimSpace(newThreadID), err)
+	forkedSession, err := s.resumeForkSession(ctx, ResumeRequest{Provider: provider, AgentID: newThreadID, ThreadID: newThreadID, CWD: cwd, Model: meta.Model, PromptSnapshot: snapshot, Config: clone.RuntimeConfigMap(config), CodexHome: identity.Home, CodexInstanceKey: identity.InstanceKey, CodexModelProvider: identity.ModelProvider})
+	if err != nil {
+		s.stopAgent(ctx, newThreadID)
+		return err
 	}
-	return snapshot, nil
+	if err := s.bindSessionGeneration(ctx, newThreadID); err != nil {
+		s.stopAgent(ctx, newThreadID)
+		return err
+	}
+	fillForkProviderState(&state, forkedSession)
+	finalState := newThreadState(threadStateForkKind, state)
+	bindingOutcome, err := s.maybeRegisterThreadBinding(ctx, finalState, true)
+	if err != nil {
+		s.stopAgent(ctx, newThreadID)
+		return err
+	}
+	if err := s.persistStartedThread(ctx, finalState, bindingOutcome); err != nil {
+		s.stopAgent(ctx, newThreadID)
+		return err
+	}
+	return nil
+}
+
+func fillForkProviderState(state *threadStateFields, session contract.Session) {
+	state.ProviderThreadID = resolvedProviderUUID(session)
+	state.RolloutPath = session.RolloutPath()
+	state.SessionUUID = state.ProviderThreadID
 }
 
 // resolveForkContext 只从 thread meta 和 binding 取 provider/cwd。
 // fork 不猜默认 provider；cwd 冲突时直接返回错误。
-func (s *service) resolveForkContext(ctx context.Context, threadID, bindingProvider, bindingCWD string) (threadMeta, string, string, error) {
+func (s *service) resolveForkContext(ctx context.Context, threadID, bindingProvider, bindingCWD, bindingHome, bindingKey, bindingModelProvider string) (threadMeta, string, string, contract.CodexIdentity, map[string]any, json.RawMessage, error) {
 	meta := s.lookupThreadMeta(ctx, threadID)
 	cwd, err := resolveForkCWD(meta.CWD, bindingCWD)
 	if err != nil {
-		return threadMeta{}, "", "", err
+		return threadMeta{}, "", "", contract.CodexIdentity{}, nil, nil, err
 	}
 	provider := strings.TrimSpace(bindingProvider)
 	if provider == "" {
-		return threadMeta{}, "", "", errors.New("fork provider is required")
+		return threadMeta{}, "", "", contract.CodexIdentity{}, nil, nil, errors.New("fork provider is required")
 	}
-	return meta, provider, cwd, nil
+	identity, config, raw, err := resolveLifecycleCodexIdentity("thread/fork", provider, bindingHome, bindingKey, bindingModelProvider, meta.ConfigOverride)
+	if err != nil {
+		return threadMeta{}, "", "", contract.CodexIdentity{}, nil, nil, err
+	}
+	return meta, provider, cwd, identity, config, raw, nil
+}
+
+// resolveLifecycleCodexIdentity 从 binding 和线程 runtime 中提取 Codex 身份。
+// 任一来源出现 partial identity 都直接失败；完整身份会 canonicalize 后写回 runtime config。
+func resolveLifecycleCodexIdentity(action, provider, home, key, modelProvider string, raw json.RawMessage) (contract.CodexIdentity, map[string]any, json.RawMessage, error) {
+	stored, err := decodeStoredThreadConfig(raw)
+	if err != nil {
+		return contract.CodexIdentity{}, nil, nil, fmt.Errorf("%s: decode source config: %w", strings.TrimSpace(action), err)
+	}
+	runtimeValues := collectResumeCodexIdentityValues(ResumeRequest{}, stored.Runtime)
+	raw, identity, ok, err := canonicalizeResumeStoredThreadConfig(provider, raw, home, key, modelProvider, false, stored.Runtime, runtimeValues.hasAny())
+	if err != nil {
+		return contract.CodexIdentity{}, nil, nil, fmt.Errorf("%s: %w", strings.TrimSpace(action), err)
+	}
+	if ok {
+		if stored, err = decodeStoredThreadConfig(raw); err != nil {
+			return contract.CodexIdentity{}, nil, nil, err
+		}
+	}
+	return identity, clone.RuntimeConfigMap(stored.Runtime), clone.RawMessage(raw), nil
 }
 
 // Recover 重新接上 binding 指向的 provider session。
