@@ -3035,6 +3035,17 @@ function registerBridgeEventHandlersForTest() {
     expect(useClientStore.getState().workflowRevision).toBe(2);
   });
 
+  it('keeps legacy lowercase task node status bridge events on the workflow revision path', () => {
+    registerBridgeEventHandlersForTest();
+
+    bridgeCallback({
+      type: 'task/node/statuschanged',
+      payload: { dag_key: 'flow-a', run_key: 'run-a', node_key: 'step', new_status: 'running' },
+    });
+
+    expect(useClientStore.getState().workflowRevision).toBe(1);
+  });
+
   it('fails fast instead of refreshing workflow data for malformed task node status events', () => {
     registerBridgeEventHandlersForTest();
 
