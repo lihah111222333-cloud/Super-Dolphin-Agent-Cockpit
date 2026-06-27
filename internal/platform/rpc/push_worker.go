@@ -14,8 +14,10 @@ import (
 
 // push worker 队列与退化通知常量。
 const (
-	pushWorkerDrainGrace      = 10 * time.Second
-	pushWorkerPendingLimit    = 4
+	pushWorkerDrainGrace = 10 * time.Second
+	// pushWorkerPendingLimit 从 4 扩至 16，覆盖 UI 操作 burst 场景下短时多事件并发通知，
+	// 避免队列过早触发 degraded 丢弃。
+	pushWorkerPendingLimit    = 16
 	pushWorkerDegradedMethod  = "platform/queue/degraded"
 	pushWorkerDegradedQueueID = "rpc_push"
 )

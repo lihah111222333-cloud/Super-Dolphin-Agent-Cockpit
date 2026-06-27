@@ -2,7 +2,6 @@ package claudecli
 
 import (
 	"bufio"
-	"bytes"
 	"encoding/json"
 	"errors"
 	"io"
@@ -168,7 +167,16 @@ func (w *sessionLogWatcher) handlePollPathError(err error) error {
 	return nil
 }
 
+// pollTargetFile 打开目标文件并扫描增量行。
+// modTime 未变化时快路径返回，避免无效 Open+Scanner 分配。
 func (w *sessionLogWatcher) pollTargetFile(target sessionLogPollTarget) error {
+	// modTime 未变化说明文件内容没有更新，跳过 Open+Scanner 避免无效分配。
+	w.mu.Lock()
+	sameModTime := !target.modTime.IsZero() && target.modTime.Equal(w.modTime) && w.path == target.path && w.offset > 0
+	w.mu.Unlock()
+	if sameModTime {
+		return nil
+	}
 	file, err := w.openPollFile(target)
 	if err != nil {
 		return err
@@ -285,11 +293,10 @@ func (w *sessionLogWatcher) stopped() bool {
 
 // parseLogLineUsage 从 Claude assistant 日志行提取 token usage。
 // cache creation/read token 会计入输入 token，缺少 input/output 基础字段则忽略该行。
+// 使用 json.Unmarshal 而非 json.NewDecoder 避免热循环内每行一次堆分配。
 func parseLogLineUsage(raw []byte) (sessionLogUsage, bool) {
-	decoder := json.NewDecoder(bytes.NewReader(raw))
-	decoder.UseNumber()
 	var line map[string]any
-	if err := decoder.Decode(&line); err != nil {
+	if err := json.Unmarshal(raw, &line); err != nil {
 		return sessionLogUsage{}, false
 	}
 	if !strings.EqualFold(logString(line, "type"), "assistant") {
