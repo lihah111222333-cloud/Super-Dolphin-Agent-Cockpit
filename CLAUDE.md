@@ -188,7 +188,7 @@ make codemap-refresh
 1. 守卫任一失败 = 任务未完成；不得声称完成、提交或合并。
 2. `internal/archtest/baseline.json` 是 per-file ratchet baseline。默认 guard 可自动收缩，不应手工放宽。
 3. `go run scripts/code_size_guard.go --freeze` 只能在守卫规则变化或用户明确同意时使用；不能用来掩盖代码恶化。
-4. fix/hotfix/bugfix/修复 类提交必须在同一提交包含锁定 bug 的测试、fixture、golden 或 snapshot。
+4. fix/hotfix/bugfix/修复/修正 类提交必须在同一提交包含锁定 bug 的测试、fixture、golden 或 snapshot。
 5. `git commit --no-verify` / `git push --no-verify` 仅限紧急事故；使用后必须补跑遗漏验证。
 
 ## Git Hook
