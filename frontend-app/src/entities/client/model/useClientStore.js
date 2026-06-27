@@ -38,6 +38,7 @@ import {
   removeProject as removeProjectRPC,
   unarchiveThread as unarchiveThreadRPC,
 } from '../../../shared/api/backendApi.js';
+import { sessionApi } from '../../../shared/api/sessionApi.js';
 import {
   createComposerSlice,
 } from './composerSlice.js';
@@ -1495,7 +1496,7 @@ function optimisticSendDraftState(state, request) {
 
 async function startNewDraftThread(request, resolveLaunchPreferences) {
   const launchPreferences = await resolveLaunchPreferences(request.cwd);
-  const thread = await startThread({
+  const thread = await sessionApi.start({
     cwd: request.cwd,
     name: sendDraftThreadName(request.text),
     ...launchPreferences,
