@@ -522,10 +522,10 @@ func existingNodesForPlan(nodes []taskdag.Node) []nodeexec.ExistingNode {
 func existingFullForPlan(nodes []taskdag.Node, addSpecs []nodeexec.NodeSpec) []nodeexec.ExistingNodeFull {
 	out := make([]nodeexec.ExistingNodeFull, 0, len(nodes)+len(addSpecs))
 	for _, n := range nodes {
-		out = append(out, nodeexec.ExistingNodeFull{NodeKey: n.NodeKey, DependsOn: decodeDependsOn(n.DependsOn), Status: n.Status})
+		out = append(out, nodeexec.ExistingNodeFull{NodeKey: n.NodeKey, DependsOn: decodeDependsOn(n.DependsOn), Status: n.Status, NodeType: n.NodeType, Config: n.Config})
 	}
 	for _, spec := range addSpecs {
-		out = append(out, nodeexec.ExistingNodeFull{NodeKey: spec.NodeKey, DependsOn: spec.DependsOn, Status: string(nodeexec.NodeStatusPending)})
+		out = append(out, nodeexec.ExistingNodeFull{NodeKey: spec.NodeKey, DependsOn: spec.DependsOn, Status: string(nodeexec.NodeStatusPending), NodeType: spec.NodeType, Config: spec.Config})
 	}
 	return out
 }

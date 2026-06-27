@@ -3,6 +3,7 @@ package orchestration
 import (
 	"context"
 	"errors"
+	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/orchestration/exitmonitor"
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/orchestration/launcherwire"
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/orchestration/processctl"
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
@@ -17,7 +18,6 @@ import (
 	"log/slog"
 	"net"
 	"os"
-	"os/exec"
 	"strings"
 	"sync"
 	"time"
@@ -39,13 +39,13 @@ type LaunchResult struct {
 }
 
 type localLauncher struct {
-	turnStarter TurnStarter
+	turnStarter contract.OrchestrationTurnStarter
 	logger      *slog.Logger
+	exitMonitor *exitmonitor.Monitor
 }
 
-// NewLocalLauncher 创建本地进程 launcher。
-// 本地模式只负责启动命令和提交 turn，不支持 fork 或远端中断。
-func NewLocalLauncher(turnStarter TurnStarter, logger *slog.Logger) AgentLauncher {
+// NewLocalLauncher 创建本地进程 launcher；本地模式不支持 fork 或远端中断。
+func NewLocalLauncher(turnStarter contract.OrchestrationTurnStarter, logger *slog.Logger) AgentLauncher {
 	return &localLauncher{turnStarter: turnStarter, logger: logger}
 }
 
@@ -54,25 +54,25 @@ func (l *localLauncher) Launch(ctx context.Context, agent *agentRuntime, _ Launc
 	if agent == nil {
 		return LaunchResult{}, errors.New("agent is required")
 	}
-	if len(agent.command) == 0 {
-		return LaunchResult{}, errors.New("command is required")
+	nextSeq := agent.launchSeq + 1
+	if agent.launchSeq != 0 && agent.monitoredSeq < agent.launchSeq && agent.lastExitedSeq < agent.launchSeq {
+		nextSeq = agent.launchSeq
 	}
-	cmd := exec.Command(agent.command[0], agent.command[1:]...)
-	cmd.Dir = agent.cwd
-	cmd.Env = append(contract.ScrubDatabaseEnv(os.Environ()), contract.ScrubDatabaseEnv(agent.env)...)
-	processctl.Configure(cmd)
-	if err := cmd.Start(); err != nil {
+	cmd, guard, err := exitmonitor.StartMonitoredCommand(
+		l.exitMonitor, l.logger,
+		exitmonitor.Target{AgentID: agent.id, LaunchSeq: nextSeq},
+		agent.command, agent.cwd,
+		append(contract.ScrubDatabaseEnv(os.Environ()), contract.ScrubDatabaseEnv(agent.env)...),
+	)
+	if err != nil {
 		agent.lastError = err.Error()
 		return LaunchResult{}, err
 	}
-	guard := processctl.Attach(cmd, l.logger)
 	now := resolveEventTime(ctx, agent.updatedAt)
 	resetLaunchState(agent)
-	agent.cmd = cmd
-	agent.processGuard = guard
-	agent.launchSeq++
-	agent.startedAt = now
-	agent.updatedAt = now
+	agent.cmd, agent.processGuard = cmd, guard
+	agent.launchSeq, agent.startedAt, agent.updatedAt = nextSeq, now, now
+	agent.monitoredSeq = nextSeq
 	if l != nil && l.logger != nil {
 		l.logger.Info("orchestration: agent launched", "agent_id", agent.id, "pid", cmd.Process.Pid)
 	}

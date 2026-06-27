@@ -220,6 +220,7 @@ type RecordNodeSpawnResult struct {
 type WakeupStore interface {
 	EnqueueWakeup(ctx context.Context, input EnqueueWakeupInput) (int64, error)
 	ClaimDueWakeups(ctx context.Context, input ClaimDueWakeupsInput) ([]Wakeup, error)
+	RenewWakeupLease(ctx context.Context, input RenewWakeupLeaseInput) (*Wakeup, int64, error)
 	MarkWakeupSent(ctx context.Context, input MarkWakeupSentInput) (int64, error)
 	BindWakeupTurn(ctx context.Context, input BindWakeupTurnInput) (int64, error)
 	RetryWakeup(ctx context.Context, input RetryWakeupInput) (int64, error)
@@ -390,7 +391,8 @@ type DownstreamUpstreamRef struct {
 }
 
 // FailNodeInput 是 FailNodeAndCancelDownstream 的入参。
-// Reason 会写入节点 result 供排障；FailFast 决定是否级联取消仍 pending 的下游节点。
+// Reason 会写入节点 result 供排障；FailFast 保留给调用方区分是否取消无依赖失败的其它分支。
+// 直接或间接依赖失败节点且仍 pending 的下游节点总会终态化，避免 run 卡住。
 type FailNodeInput struct {
 	DagKey   string
 	NodeKey  string
@@ -448,6 +450,15 @@ type ClaimDueWakeupsInput struct {
 	ClaimedBy     string
 	LeaseInterval string
 	Limit         int32
+}
+
+// RenewWakeupLeaseInput 是执行副作用前的 CAS 续约入参，fence 字段来自当前 claim 行。
+type RenewWakeupLeaseInput struct {
+	LeaseInterval  string
+	ID             int64
+	ClaimedAt      time.Time
+	ClaimedBy      string
+	LeaseExpiresAt time.Time
 }
 
 // MarkWakeupSentInput 是 MarkWakeupSent 的入参，fence 字段来自 ClaimDueWakeups 返回行。
