@@ -9,57 +9,6 @@ import (
 )
 
 var moduleStoreImportAllowlist = map[string]map[string]string{
-	"internal/module/dashboard/agent_status.go": {
-		internalPrefix("internal/store/agentstatus"): "D01 legacy module-to-store import",
-	},
-	"internal/module/dashboard/ai_logs.go": {
-		internalPrefix("internal/store/ailog"): "D01 legacy module-to-store import",
-	},
-	"internal/module/dashboard/contract.go": {
-		internalPrefix("internal/store/agentstatus"): "D01 legacy module-to-store import",
-		internalPrefix("internal/store/ailog"):       "D01 legacy module-to-store import",
-		internalPrefix("internal/store/auditlog"):    "D01 legacy module-to-store import",
-		internalPrefix("internal/store/buslog"):      "D01 legacy module-to-store import",
-		internalPrefix("internal/store/sharedfile"):  "D01 legacy module-to-store import",
-	},
-	"internal/module/dashboard/factory.go": {
-		internalPrefix("internal/store/ailog"):     "D01 legacy module-to-store import",
-		internalPrefix("internal/store/auditlog"):  "D01 legacy module-to-store import",
-		internalPrefix("internal/store/buslog"):    "D01 legacy module-to-store import",
-		internalPrefix("internal/store/systemlog"): "D01 legacy module-to-store import",
-	},
-	"internal/module/dashboard/logs.go": {
-		internalPrefix("internal/store/auditlog"): "D01 legacy module-to-store import",
-		internalPrefix("internal/store/buslog"):   "D01 legacy module-to-store import",
-	},
-	"internal/module/dashboard/rpc.go": {
-		internalPrefix("internal/store/agentstatus"): "D01 legacy module-to-store import",
-		internalPrefix("internal/store/ailog"):       "D01 legacy module-to-store import",
-		internalPrefix("internal/store/auditlog"):    "D01 legacy module-to-store import",
-		internalPrefix("internal/store/buslog"):      "D01 legacy module-to-store import",
-		internalPrefix("internal/store/commandcard"): "D01 legacy module-to-store import",
-		internalPrefix("internal/store/prompt"):      "D01 legacy module-to-store import",
-		internalPrefix("internal/store/sharedfile"):  "D01 legacy module-to-store import",
-	},
-	"internal/module/dashboard/service.go": {
-		internalPrefix("internal/store/agentstatus"): "D01 legacy module-to-store import",
-		internalPrefix("internal/store/ailog"):       "D01 legacy module-to-store import",
-		internalPrefix("internal/store/auditlog"):    "D01 legacy module-to-store import",
-		internalPrefix("internal/store/buslog"):      "D01 legacy module-to-store import",
-		internalPrefix("internal/store/commandcard"): "D01 legacy module-to-store import",
-		internalPrefix("internal/store/dbquery"):     "D01 legacy module-to-store import",
-		internalPrefix("internal/store/prompt"):      "D01 legacy module-to-store import",
-		internalPrefix("internal/store/sharedfile"):  "D01 legacy module-to-store import",
-		internalPrefix("internal/store/systemlog"):   "D01 legacy module-to-store import",
-	},
-	"internal/module/dashboard/ui_page.go": {
-		internalPrefix("internal/store/commandcard"): "D01 legacy module-to-store import",
-		internalPrefix("internal/store/prompt"):      "D01 legacy module-to-store import",
-		internalPrefix("internal/store/sharedfile"):  "D01 legacy module-to-store import",
-	},
-	"internal/module/dashboard/workflow_material.go": {
-		internalPrefix("internal/store/sharedfile"): "D01 legacy module-to-store import",
-	},
 	"internal/module/prompt/intent/authoring.go": {
 		internalPrefix("internal/store/prompt"): "D01 legacy module-to-store import",
 	},

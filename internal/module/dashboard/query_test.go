@@ -13,8 +13,6 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
 	platformrpc "github.com/anthropic-ai/super-agent-v3/internal/platform/rpc"
-	auditlogstore "github.com/anthropic-ai/super-agent-v3/internal/store/auditlog"
-	buslogstore "github.com/anthropic-ai/super-agent-v3/internal/store/buslog"
 	dbquerystore "github.com/anthropic-ai/super-agent-v3/internal/store/dbquery"
 	_ "modernc.org/sqlite"
 )
@@ -152,10 +150,10 @@ func TestDashboardAuditAndBusLogHandlersReturnLogs(t *testing.T) {
 	t.Parallel()
 
 	auditStore := &stubAuditLogStore{
-		listResult: []auditlogstore.AuditEvent{{ID: 7, EventType: "tool", Action: "run"}},
+		listResult: []AuditEvent{{ID: 7, EventType: "tool", Action: "run"}},
 	}
 	busStore := &stubBusLogStore{
-		listResult: []buslogstore.BusExceptionLog{{ID: 9, Category: "rpc", Severity: "error"}},
+		listResult: []BusExceptionLog{{ID: 9, Category: "rpc", Severity: "error"}},
 	}
 	server := newDashboardTestServer(t, &service{auditLogs: auditStore, busLogs: busStore})
 
@@ -167,7 +165,7 @@ func assertDashboardAuditLogs(t *testing.T, server *platformrpc.Server, auditSto
 	t.Helper()
 
 	var auditResp struct {
-		Logs []auditlogstore.AuditEvent `json:"logs"`
+		Logs []AuditEvent `json:"logs"`
 	}
 	if err := dispatchDashboardInto(server, "dashboard/auditLogs", `{"eventType":"tool","action":"run","actor":"agent-1","limit":7}`, &auditResp); err != nil {
 		t.Fatalf("dispatch audit logs error = %v", err)
@@ -196,7 +194,7 @@ func assertDashboardBusLogs(t *testing.T, server *platformrpc.Server, busStore *
 	t.Helper()
 
 	var busResp struct {
-		Logs []buslogstore.BusExceptionLog `json:"logs"`
+		Logs []BusExceptionLog `json:"logs"`
 	}
 	if err := dispatchDashboardInto(server, "dashboard/busLogs", `{"category":"rpc","severity":"error","keyword":"timeout","limit":9}`, &busResp); err != nil {
 		t.Fatalf("dispatch bus logs error = %v", err)

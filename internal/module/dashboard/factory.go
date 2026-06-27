@@ -6,10 +6,6 @@ import (
 	"time"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
-	ailogstore "github.com/anthropic-ai/super-agent-v3/internal/store/ailog"
-	auditlogstore "github.com/anthropic-ai/super-agent-v3/internal/store/auditlog"
-	buslogstore "github.com/anthropic-ai/super-agent-v3/internal/store/buslog"
-	systemlogstore "github.com/anthropic-ai/super-agent-v3/internal/store/systemlog"
 	"github.com/anthropic-ai/super-agent-v3/internal/util"
 )
 
@@ -18,7 +14,7 @@ type logFilterField string
 
 // storedLogRow 约束可被统一映射为 LogEntry 的存储层日志行。
 type storedLogRow interface {
-	ailogstore.AILog | systemlogstore.SystemLog
+	AILog | SystemLog
 }
 
 // storedLogFields 是 system/AI 日志行共有字段的中间形态。
@@ -92,9 +88,9 @@ func (p logsParams) ToFilter(source string) LogFilter {
 	}
 }
 
-// ToFilter 将 audit log RPC 参数转换为 store 查询条件。
-func (p auditLogsParams) ToFilter() auditlogstore.ListFilter {
-	return auditlogstore.ListFilter{
+// ToFilter 将 audit log RPC 参数转换为 dashboard 查询条件。
+func (p auditLogsParams) ToFilter() AuditLogFilter {
+	return AuditLogFilter{
 		EventType: strings.TrimSpace(p.EventType),
 		Action:    strings.TrimSpace(p.Action),
 		Actor:     strings.TrimSpace(p.Actor),
@@ -103,9 +99,9 @@ func (p auditLogsParams) ToFilter() auditlogstore.ListFilter {
 	}
 }
 
-// ToFilter 将 bus log RPC 参数转换为 store 查询条件。
-func (p busLogsParams) ToFilter() buslogstore.ListFilter {
-	return buslogstore.ListFilter{
+// ToFilter 将 bus log RPC 参数转换为 dashboard 查询条件。
+func (p busLogsParams) ToFilter() BusLogFilter {
+	return BusLogFilter{
 		Category: strings.TrimSpace(p.Category),
 		Severity: strings.TrimSpace(p.Severity),
 		Keyword:  strings.TrimSpace(p.Keyword),
@@ -166,9 +162,9 @@ func logEntryValue(entry LogEntry, field logFilterField) string {
 	}
 }
 
-// newSystemLogListFilter 将统一 LogFilter 投影为 system log store 的过滤参数。
-func newSystemLogListFilter(filter LogFilter) systemlogstore.ListFilter {
-	return systemlogstore.ListFilter{
+// newSystemLogListFilter 将统一 LogFilter 投影为 system log 查询参数。
+func newSystemLogListFilter(filter LogFilter) SystemLogFilter {
+	return SystemLogFilter{
 		Level:     strings.TrimSpace(filter.Level),
 		Logger:    strings.TrimSpace(filter.Logger),
 		Component: strings.TrimSpace(filter.Component),
@@ -223,7 +219,7 @@ func mapLogEntry[T storedLogRow](row T, source string) LogEntry {
 // 未知类型返回零值，调用方的泛型约束正常情况下不会走到该分支。
 func readStoredLogFields[T storedLogRow](row T) storedLogFields {
 	switch value := any(row).(type) {
-	case systemlogstore.SystemLog:
+	case SystemLog:
 		return storedLogFields{
 			id:         value.ID,
 			timestamp:  value.Ts,
@@ -240,7 +236,7 @@ func readStoredLogFields[T storedLogRow](row T) storedLogFields {
 			durationMS: value.DurationMs,
 			extra:      value.Extra,
 		}
-	case ailogstore.AILog:
+	case AILog:
 		return storedLogFields{
 			id:         value.ID,
 			timestamp:  value.Ts,

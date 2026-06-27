@@ -5,8 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"testing"
-
-	commandcardstore "github.com/anthropic-ai/super-agent-v3/internal/store/commandcard"
 )
 
 func TestDashboardCommandCardsHandlerDoesNotLoadPrompts(t *testing.T) {
@@ -14,7 +12,7 @@ func TestDashboardCommandCardsHandlerDoesNotLoadPrompts(t *testing.T) {
 
 	prompts := &stubPromptReader{err: errors.New("prompts should not be loaded")}
 	cards := &stubCommandCardReader{
-		result: []commandcardstore.CommandCard{{CardKey: "cmd/review", Title: "Review", Enabled: true}},
+		result: []CommandCard{{CardKey: "cmd/review", Title: "Review", Enabled: true}},
 	}
 	server := newDashboardTestServer(t, &service{commandCards: cards, prompts: prompts})
 
@@ -29,7 +27,7 @@ func TestDashboardCommandCardsHandlerDoesNotLoadPrompts(t *testing.T) {
 		t.Fatalf("command card List() calls = %d, want 1", cards.calls)
 	}
 	var decoded struct {
-		Cards []commandcardstore.CommandCard `json:"cards"`
+		Cards []CommandCard `json:"cards"`
 	}
 	if err := json.Unmarshal(result, &decoded); err != nil {
 		t.Fatalf("json.Unmarshal() error = %v", err)
@@ -40,15 +38,15 @@ func TestDashboardCommandCardsHandlerDoesNotLoadPrompts(t *testing.T) {
 }
 
 type stubCommandCardReader struct {
-	result     []commandcardstore.CommandCard
+	result     []CommandCard
 	err        error
 	calls      int
-	lastFilter commandcardstore.ListFilter
+	lastFilter CommandCardFilter
 }
 
-var _ commandcardstore.Reader = (*stubCommandCardReader)(nil)
+var _ CommandCardReader = (*stubCommandCardReader)(nil)
 
-func (s *stubCommandCardReader) List(_ context.Context, filter commandcardstore.ListFilter) ([]commandcardstore.CommandCard, error) {
+func (s *stubCommandCardReader) List(_ context.Context, filter CommandCardFilter) ([]CommandCard, error) {
 	s.calls++
 	s.lastFilter = filter
 	return s.result, s.err
