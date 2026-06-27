@@ -129,29 +129,30 @@ func (p sessionLifecyclePort) StartSession(ctx context.Context, req contract.Ses
 }
 
 // ResumeSession 恢复指定 thread 对应的 provider session，空 threadID 会立即报错。
-func (p sessionLifecyclePort) ResumeSession(ctx context.Context, threadID string) (contract.SessionStartResult, error) {
-	threadID = strings.TrimSpace(threadID)
-	if threadID == "" {
+// RPC 兼容字段会原样传给 Service.Resume，避免 port 迁移丢掉覆盖项。
+func (p sessionLifecyclePort) ResumeSession(ctx context.Context, req contract.SessionResumeRequest) (contract.SessionStartResult, error) {
+	req.ThreadID = strings.TrimSpace(req.ThreadID)
+	if req.ThreadID == "" {
 		return contract.SessionStartResult{}, fmt.Errorf("session lifecycle: thread id is required")
 	}
-	got, err := p.service.Resume(ctx, ResumeRequest{ThreadID: threadID})
+	got, err := p.service.Resume(ctx, resumeRequestFromSession(req))
 	if err != nil {
 		return contract.SessionStartResult{}, err
 	}
 	return sessionStartResultFromResume(got), nil
 }
 
-// ForkSession 基于已有 thread 创建 fork，并只暴露新 threadID 给 session port 调用方。
-func (p sessionLifecyclePort) ForkSession(ctx context.Context, threadID string) (contract.SessionStartResult, error) {
+// ForkSession 基于已有 thread 创建 fork，并保留 RPC 响应需要的 fork 元数据。
+func (p sessionLifecyclePort) ForkSession(ctx context.Context, threadID string) (contract.SessionForkResult, error) {
 	threadID = strings.TrimSpace(threadID)
 	if threadID == "" {
-		return contract.SessionStartResult{}, fmt.Errorf("session lifecycle: fork source thread id is required")
+		return contract.SessionForkResult{}, fmt.Errorf("session lifecycle: fork source thread id is required")
 	}
 	got, err := p.service.Fork(ctx, threadID)
 	if err != nil {
-		return contract.SessionStartResult{}, err
+		return contract.SessionForkResult{}, err
 	}
-	return contract.SessionStartResult{ThreadID: got.NewThreadID}, nil
+	return sessionForkResultFromFork(got), nil
 }
 
 // ArchiveSession 归档指定 thread；空 threadID 视为调用方错误并阻断。
@@ -253,6 +254,16 @@ func startRequestFromSession(req contract.SessionStartRequest) StartRequest {
 	}
 }
 
+func resumeRequestFromSession(req contract.SessionResumeRequest) ResumeRequest {
+	return ResumeRequest{
+		ThreadID: req.ThreadID,
+		Path:     req.Path,
+		CWD:      req.CWD,
+		Model:    req.Model,
+		Provider: req.Provider,
+	}
+}
+
 func sessionStartResultFromStart(got StartResult) contract.SessionStartResult {
 	return contract.SessionStartResult{
 		ThreadID:        got.ThreadID,
@@ -280,6 +291,14 @@ func sessionStartResultFromResume(got ResumeResult) contract.SessionStartResult 
 		Status:    got.Status,
 		Model:     got.Model,
 		CWD:       got.CWD,
+	}
+}
+
+func sessionForkResultFromFork(got ForkResult) contract.SessionForkResult {
+	return contract.SessionForkResult{
+		NewThreadID:  got.NewThreadID,
+		ForkedFrom:   got.ForkedFrom,
+		KickoffState: string(got.KickoffState),
 	}
 }
 

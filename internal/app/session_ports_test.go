@@ -14,12 +14,12 @@ func (fakeSessionLifecyclePort) StartSession(context.Context, contract.SessionSt
 	return contract.SessionStartResult{}, nil
 }
 
-func (fakeSessionLifecyclePort) ResumeSession(context.Context, string) (contract.SessionStartResult, error) {
+func (fakeSessionLifecyclePort) ResumeSession(context.Context, contract.SessionResumeRequest) (contract.SessionStartResult, error) {
 	return contract.SessionStartResult{}, nil
 }
 
-func (fakeSessionLifecyclePort) ForkSession(context.Context, string) (contract.SessionStartResult, error) {
-	return contract.SessionStartResult{}, nil
+func (fakeSessionLifecyclePort) ForkSession(context.Context, string) (contract.SessionForkResult, error) {
+	return contract.SessionForkResult{}, nil
 }
 
 func (fakeSessionLifecyclePort) ArchiveSession(context.Context, string) error {
