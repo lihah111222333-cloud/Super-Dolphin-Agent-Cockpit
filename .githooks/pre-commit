@@ -296,7 +296,7 @@ for p in "${PKG_CANDIDATES[@]}"; do
   if [ ! -d "$pkg_dir" ]; then
     continue
   fi
-  if go list "$p" >/dev/null 2>"$GO_LIST_ERR"; then
+  if run_go_without_git_env go list "$p" >/dev/null 2>"$GO_LIST_ERR"; then
     PKGS+=("$p")
     continue
   fi
