@@ -1,7 +1,6 @@
 package archtest
 
 import (
-	"go/ast"
 	"go/parser"
 	"go/token"
 	"os"
@@ -100,7 +99,7 @@ func nakedGoroutineViolationForFile(root, path string, allowedFiles map[string]s
 	if parseErr != nil {
 		return "", false, nil
 	}
-	count := countNakedGoStmts(node)
+	count := CountNakedGoStmts(node)
 	if count == 0 {
 		return "", false, nil
 	}
@@ -117,48 +116,6 @@ func isAllowedForNakedGoroutine(rel string, allowedFiles map[string]struct{}) bo
 		}
 	}
 	return false
-}
-
-// countNakedGoStmts 计算 AST 中 go func(){...}() 形式的语句数量。
-func countNakedGoStmts(node *ast.File) int {
-	count := 0
-	ast.Inspect(node, func(n ast.Node) bool {
-		goStmt, ok := n.(*ast.GoStmt)
-		if !ok {
-			return true
-		}
-		// go func() { ... }() — 裸 goroutine
-		if funcLit, isFuncLit := goStmt.Call.Fun.(*ast.FuncLit); isFuncLit {
-			if !hasDeferRecover(funcLit.Body) {
-				count++
-			}
-		}
-		return true
-	})
-	return count
-}
-
-// hasDeferRecover 检查代码块的第一条语句是否为 defer func() { ... recover() ... }()
-func hasDeferRecover(body *ast.BlockStmt) bool {
-	if body == nil || len(body.List) == 0 {
-		return false
-	}
-	deferStmt, ok := body.List[0].(*ast.DeferStmt)
-	if !ok {
-		return false
-	}
-	foundRecover := false
-	ast.Inspect(deferStmt, func(n ast.Node) bool {
-		call, ok := n.(*ast.CallExpr)
-		if ok {
-			if ident, ok := call.Fun.(*ast.Ident); ok && ident.Name == "recover" {
-				foundRecover = true
-				return false
-			}
-		}
-		return true
-	})
-	return foundRecover
 }
 
 func itoa(i int) string {

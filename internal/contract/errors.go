@@ -1,6 +1,10 @@
 package contract
 
-import "errors"
+import (
+	"context"
+	"database/sql"
+	"errors"
+)
 
 var (
 	ErrSessionNotFound = errors.New("session not found")
@@ -37,7 +41,7 @@ var (
 
 // IsNotFound 判断错误链是否匹配存储层 not-found 哨兵。
 func IsNotFound(err error) bool {
-	return errors.Is(err, ErrNotFound)
+	return errors.Is(err, ErrNotFound) || errors.Is(err, sql.ErrNoRows)
 }
 
 // ErrThreadRuntimeRequired 表示 toolbridge 调用无法解析 thread runtime。
@@ -51,3 +55,25 @@ var ErrPersistentSubagentRuntimeRequired = errors.New("toolbridge: persistent su
 // ErrPersistentSubagentFlagRequired 表示 runtime config 未显式携带 persistent-subagent 标志。
 // spawn_agent 策略检查用它区分“缺少配置”与“显式关闭”。
 var ErrPersistentSubagentFlagRequired = errors.New("toolbridge: persistent subagent flag is required")
+
+// CacheKeepaliveBinding 是 keepalive 判断 agent 是否仍可 ping 的最小绑定快照。
+type CacheKeepaliveBinding struct {
+	AgentID  string
+	Archived bool
+}
+
+// CacheKeepaliveThreadRef 是启动事件缺少 agentID 时用于回查的最小线程引用。
+type CacheKeepaliveThreadRef struct {
+	ThreadID string
+	AgentID  string
+}
+
+// CacheKeepaliveBindingLookup 隔离 cache keepalive 对 binding store 的只读需求。
+type CacheKeepaliveBindingLookup interface {
+	GetCacheKeepaliveBindingByAgentID(ctx context.Context, agentID string) (*CacheKeepaliveBinding, error)
+}
+
+// CacheKeepaliveThreadLookup 隔离 cache keepalive 对 thread store 的只读需求。
+type CacheKeepaliveThreadLookup interface {
+	GetCacheKeepaliveThreadByID(ctx context.Context, threadID string) (*CacheKeepaliveThreadRef, error)
+}

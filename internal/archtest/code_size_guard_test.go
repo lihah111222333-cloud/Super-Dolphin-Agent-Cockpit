@@ -49,9 +49,29 @@ func TestCodeSizeGuard(t *testing.T) {
 func codeSizeGuardOptions(root string) archtest.CheckOptions {
 	return archtest.CheckOptions{
 		RepoRoot:  root,
-		ScanRoots: []string{"internal", "cmd", "scripts"},
+		ScanRoots: []string{"internal", "cmd", "pkg", "scripts"},
 		SkipDirs:  archtest.DefaultSkipDirs(),
 	}
+}
+
+func TestCodeSizeGuardScansPkgRoot(t *testing.T) {
+	defaultRoots := archtest.DefaultScanRoots()
+	if !containsScanRoot(defaultRoots, "pkg") {
+		t.Fatalf("DefaultScanRoots() = %v, want pkg included", defaultRoots)
+	}
+	opts := codeSizeGuardOptions(repoRoot(t))
+	if !containsScanRoot(opts.ScanRoots, "pkg") {
+		t.Fatalf("codeSizeGuardOptions().ScanRoots = %v, want pkg included", opts.ScanRoots)
+	}
+}
+
+func containsScanRoot(values []string, want string) bool {
+	for _, value := range values {
+		if value == want {
+			return true
+		}
+	}
+	return false
 }
 
 func logFreezeRegistryRepairs(t *testing.T, fixes []archtest.FreezeRegistryAutoFix) {
@@ -139,17 +159,22 @@ func runBaselineRatchetAndShrink(t *testing.T, label, blPath string, opts archte
 	if len(blInfo.Data) == 0 {
 		return
 	}
-	result := archtest.CheckWithBaseline(opts, blInfo.Data)
+	phaseOpts := opts
+	phaseOpts.BaselineTestsOnly = testsOnly
+	result := archtest.CheckWithBaseline(phaseOpts, blInfo.Data)
 	if !result.OK() {
-		lines := make([]string, 0, len(result.Violations))
+		lines := make([]string, 0, len(result.Violations)+len(result.NewFileViolations))
 		for _, v := range result.Violations {
 			lines = append(lines, v.String())
 		}
-		t.Fatalf("%s baseline ratchet regressions (%d):\n%s", label, len(result.Violations), strings.Join(lines, "\n"))
+		for _, v := range result.NewFileViolations {
+			lines = append(lines, v.String())
+		}
+		t.Fatalf("%s baseline ratchet regressions (%d):\n%s", label, len(lines), strings.Join(lines, "\n"))
 	}
-	fileSet := buildFileSetFiltered(t, opts, root, testsOnly)
+	fileSet := buildFileSetFiltered(t, phaseOpts, root, testsOnly)
 	newBL, stats := archtest.ShrinkBaseline(blInfo.Data, fileSet, func(relPath string) archtest.FileMetrics {
-		return archtest.MeasureFileMetrics(filepath.Join(root, filepath.FromSlash(relPath)))
+		return archtest.MeasureBaselineFileMetrics(filepath.Join(root, filepath.FromSlash(relPath)))
 	})
 	if stats.Changed() {
 		if saveErr := archtest.SaveBaseline(blPath, newBL); saveErr != nil {
