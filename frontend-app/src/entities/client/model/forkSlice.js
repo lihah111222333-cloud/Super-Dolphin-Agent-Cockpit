@@ -3,6 +3,7 @@ import {
   extractTimelineSummary,
   FORK_KICKOFF_PROMPT,
 } from './threadFork.js';
+import { markForkKickoffFailedState } from './threadForkState.js';
 
 /*
  * fork slice 从当前对话创建继承会话。
@@ -172,9 +173,10 @@ export function createForkSlice(runtime, deps) {
         }
         catch (kickoffError) {
           const message = kickoffError.message || String(kickoffError);
-          runtime.set({
+          runtime.set((current) => ({
+            ...markForkKickoffFailedState(current, newThreadId, message),
             actionNotice: actionNotice(`已创建继承对话，但开场消息发送失败：${message}`, 'warning'),
-          });
+          }));
           runtime.addWarning('warn', 'thread.fork.kickoff.failed', { threadId: newThreadId, error: message });
         }
         return newThreadId;

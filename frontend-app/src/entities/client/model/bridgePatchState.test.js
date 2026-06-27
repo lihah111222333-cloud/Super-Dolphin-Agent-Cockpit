@@ -136,4 +136,33 @@ describe('bridgePatchState', () => {
     expect(next.threadTimelineReadyByThread).toEqual(baseState.threadTimelineReadyByThread);
     expect(next.activeTurnByThread).toEqual({});
   });
+
+  it('records a warning when a pending approval patch cannot render', () => {
+    const patch = bridgePatchData('ui/thread/patch', {
+      status: 'running',
+      thread: { name: 'Worker' },
+      timelineItems: [{ id: 'approval-missing-id', kind: 'approval', status: 'pending', text: '' }],
+    }, 'thread-1', { normalizeThread });
+    const next = bridgePatchState({
+      ...baseState,
+      warningEntries: [],
+    }, patch, {
+      threadMatchesIdentifier,
+      nowISO: () => '2026-06-15T00:00:00.000Z',
+      nowMillis: () => 456,
+    });
+
+    expect(next.warningEntries).toEqual([
+      expect.objectContaining({
+        level: 'warn',
+        event: 'timeline.approval.render_missing',
+        threadId: 'thread-1',
+        fields: expect.objectContaining({
+          itemId: 'approval-missing-id',
+          requestId: 0,
+          status: 'pending',
+        }),
+      }),
+    ]);
+  });
 });
