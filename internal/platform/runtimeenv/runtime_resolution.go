@@ -142,8 +142,11 @@ func requireSidecarResourceContract(mode RuntimeMode, env map[string]string) err
 func resolveOwnerRuntime(input RuntimeResolveInput, env map[string]string) (ResolvedRuntime, error) {
 	goos := firstNonEmpty(input.GOOS, runtime.GOOS)
 	goarch := firstNonEmpty(input.GOARCH, runtime.GOARCH)
-	resources, hasBundleShape := ownerPackageResources(input, env, goos)
+	resources, hasBundleShape, pathErr := ownerPackageResources(input, env, goos)
 	explicitPackaged := ownerHasExplicitPackagedIntent(env)
+	if explicitPackaged && pathErr != nil {
+		return ResolvedRuntime{}, pathErr
+	}
 	if explicitPackaged {
 		return resolvePackagedOwner(resources, input.UserHome, goos, goarch)
 	}
@@ -165,15 +168,19 @@ func resolveOwnerRuntime(input RuntimeResolveInput, env map[string]string) (Reso
 }
 
 // ownerPackageResources 找出 owner 可用的包资源根，并标记是否呈现打包布局。
-func ownerPackageResources(input RuntimeResolveInput, env map[string]string, goos string) (string, bool) {
+// 若平台不支持 packaged 路径自动推断（如 Linux），pathErr 会向上返回给调用方在显式 packaged 意图时 fail-fast。
+func ownerPackageResources(input RuntimeResolveInput, env map[string]string, goos string) (resources string, hasBundleShape bool, pathErr error) {
 	if root := strings.TrimSpace(env[packageRootEnv]); root != "" {
-		return root, true
+		return root, true, nil
 	}
-	resources := packagedResourcesDirForOS(goos, input.ExecutablePath)
+	resources, pathErr = packagedResourcesDirForOS(goos, input.ExecutablePath)
+	if pathErr != nil {
+		return "", false, pathErr
+	}
 	if goos == "darwin" || resources != "" {
-		return resources, resources != ""
+		return resources, resources != "", nil
 	}
-	return "", false
+	return "", false, nil
 }
 
 // hasBundledSidecarSentinel 用包内 sidecar 可执行文件作为旧包布局的探针。
