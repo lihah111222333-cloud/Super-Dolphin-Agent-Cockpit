@@ -213,7 +213,7 @@ func removedSkillToolResult(name string) *ToolCallResult {
 
 // validateHostToolGuards 校验 host-direct memory 工具共享的启用开关和工具名。
 // 调用方必须先处理 nil receiver / nil 依赖；这里专注返回统一的 memory 错误类型。
-func validateHostToolGuards(enabled, toolsEnabled bool, callName, expectedName, unavailableCode string) error {
+func validateHostToolGuards(enabled, toolsEnabled bool, callName, expectedName string) error {
 	if !enabled {
 		return contract.NewAgentMemoryError("feature_disabled", contract.ErrFeatureDisabled)
 	}

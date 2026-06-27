@@ -60,7 +60,7 @@ func (r *MemoryReadHostToolRegistry) CallHostTool(ctx context.Context, call Host
 	if r == nil || r.reader == nil {
 		return nil, contract.NewAgentMemoryError("reader_unavailable", fmt.Errorf("memory_read reader is not configured"))
 	}
-	if err := validateHostToolGuards(r.opts.Enabled, r.opts.ToolsEnabled, call.Name, ToolNameMemoryRead, "reader_unavailable"); err != nil {
+	if err := validateHostToolGuards(r.opts.Enabled, r.opts.ToolsEnabled, call.Name, ToolNameMemoryRead); err != nil {
 		return nil, err
 	}
 	var input memoryReadToolInput
