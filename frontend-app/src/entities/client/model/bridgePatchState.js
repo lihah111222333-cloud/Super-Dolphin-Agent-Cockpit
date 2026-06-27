@@ -13,6 +13,17 @@ import {
 } from './threadActivityMetrics.js';
 import { firstThreadCopyText } from './threadCopyPayload.js';
 
+const MAX_BRIDGE_PATCH_WARNING_ENTRIES = 300;
+
+function normalizeString(value) {
+  return (value || '').toString().trim();
+}
+
+function positiveApprovalRequestId(item) {
+  const parsed = Number(item?.requestId ?? item?.request_id);
+  return Math.max(0, Number.isFinite(parsed) ? parsed : 0);
+}
+
 function cleanObject(payload) {
   return Object.fromEntries(
     Object.entries(payload).filter(([, value]) => value !== undefined && value !== ''),
@@ -96,6 +107,80 @@ function bridgePatchHasVisibleTimelineItems(patch) {
   return patch.timelineItems
     .map(normalizeTimelineItem)
     .some(isVisibleTimelineItem);
+}
+
+function pendingApprovalCannotRender(item) {
+  return (
+    normalizeString(item?.kind).toLowerCase() === 'approval' &&
+    normalizeString(item?.status).toLowerCase() === 'pending' &&
+    !isVisibleTimelineItem(item)
+  );
+}
+
+function bridgePatchWarningSignature(level, event, threadId, fields = {}) {
+  return [
+    level,
+    event,
+    threadId,
+    normalizeString(fields.itemId),
+    normalizeString(fields.status),
+  ].join('|');
+}
+
+function mergeBridgePatchWarningEntries(existingEntries = [], incomingEntries = []) {
+  if (incomingEntries.length === 0) return existingEntries;
+  let merged = Array.isArray(existingEntries) ? existingEntries : [];
+  for (const entry of incomingEntries) {
+    const existingIndex = merged.findIndex((item) => item.signature === entry.signature);
+    if (existingIndex < 0) {
+      merged = [entry, ...merged].slice(0, MAX_BRIDGE_PATCH_WARNING_ENTRIES);
+      continue;
+    }
+    const existing = merged[existingIndex];
+    const updated = {
+      ...existing,
+      id: entry.id,
+      timestamp: entry.timestamp,
+      fields: entry.fields,
+      occurrenceCount: (Number(existing.occurrenceCount) || 1) + 1,
+    };
+    merged = [
+      updated,
+      ...merged.slice(0, existingIndex),
+      ...merged.slice(existingIndex + 1),
+    ].slice(0, MAX_BRIDGE_PATCH_WARNING_ENTRIES);
+  }
+  return merged;
+}
+
+function bridgePatchApprovalWarningEntries(state, patch, deps = {}) {
+  if (!Array.isArray(patch.timelineItems)) return state.warningEntries;
+  const nowISO = deps.nowISO || (() => new Date().toISOString());
+  const nowMillis = deps.nowMillis || (() => Date.now());
+  const entries = patch.timelineItems
+    .map(normalizeTimelineItem)
+    .filter(pendingApprovalCannotRender)
+    .map((item) => {
+      const fields = {
+        threadId: patch.threadId,
+        itemId: normalizeString(item.id),
+        requestId: positiveApprovalRequestId(item),
+        status: normalizeString(item.status),
+      };
+      const event = 'timeline.approval.render_missing';
+      const signature = bridgePatchWarningSignature('warn', event, patch.threadId, fields);
+      return {
+        id: `${event}-${nowMillis()}`,
+        timestamp: nowISO(),
+        level: 'warn',
+        event,
+        threadId: patch.threadId,
+        fields,
+        occurrenceCount: 1,
+        signature,
+      };
+    });
+  return mergeBridgePatchWarningEntries(state.warningEntries, entries);
 }
 
 function bridgePatchActiveTurn(state, patch) {
@@ -266,6 +351,7 @@ function bridgePatchState(state, patch, deps = {}) {
     activeTurnByThread: bridgePatchActiveTurn(state, patch),
     statuses: bridgePatchStatuses(state, patch),
     activityEntries: bridgePatchActivityEntries(state, patch, deps),
+    warningEntries: bridgePatchApprovalWarningEntries(state, patch, deps),
   };
 }
 

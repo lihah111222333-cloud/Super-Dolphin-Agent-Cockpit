@@ -58,6 +58,25 @@ describe('timelineRuntime', () => {
     expect(isVisibleTimelineItem({ role: 'assistant', kind: 'thinking' })).toBe(true);
   });
 
+  it('keeps backend approval requests visible even when the text is empty', () => {
+    const approval = normalizeTimelineItem({
+      id: 'approval-42',
+      kind: 'approval',
+      status: 'pending',
+      requestId: 42,
+      text: '',
+    });
+
+    expect(approval).toEqual(expect.objectContaining({
+      id: 'approval-42',
+      kind: 'approval',
+      requestId: 42,
+      status: 'pending',
+      text: '',
+    }));
+    expect(isVisibleTimelineItem(approval)).toBe(true);
+  });
+
   it('deduplicates repeated assistant content within one user turn', () => {
     const items = dedupeAssistantTimelineItems([
       { id: 'u1', role: 'user', kind: 'user', text: 'build it', time: '2026-06-15T01:00:00Z' },
