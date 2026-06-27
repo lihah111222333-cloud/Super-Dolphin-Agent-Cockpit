@@ -10,8 +10,6 @@ import (
 	"encoding/json"
 	"errors"
 	"time"
-
-	cronstore "github.com/anthropic-ai/super-agent-v3/internal/store/cron"
 )
 
 // Service 是 cronjob/* JSON-RPC 方法面向宿主的业务门面。
@@ -38,6 +36,29 @@ var (
 	ErrInvalidConfig        = errors.New("cron: config is invalid for provider")
 	ErrNotFound             = errors.New("cron: job not found")
 	ErrJobDisabled          = errors.New("cron: cannot trigger disabled job")
+)
+
+const (
+	providerCodex = "codex"
+
+	statusPending     = "pending"
+	statusSubmitting  = "submitting"
+	statusSubmitted   = "submitted"
+	statusRunning     = "running"
+	statusFinished    = "finished"
+	statusFailed      = "failed"
+	statusObserveLost = "observe_lost"
+)
+
+var (
+	errStoreJobNotFound             = errors.New("cron: job not found")
+	errStoreJobRunNotFound          = errors.New("cron: job run not found")
+	errStoreClaimTokenMismatch      = errors.New("cron: claim token mismatch (lease lost)")
+	errStoreStatusTransitionRefused = errors.New("cron: status transition refused (CAS mismatch)")
+	errStoreEmptyID                 = errors.New("cron: id is required")
+	errStoreEmptyCWD                = errors.New("cron: cwd is required")
+	errStoreEmptyProvider           = errors.New("cron: provider is required")
+	errStoreEmptyScheduleExpr       = errors.New("cron: schedule_expr is required")
 )
 
 // CreateJobRequest 是 CreateJob 的已校验输入。
@@ -79,7 +100,7 @@ type UpdateJobRequest struct {
 	MaxAttempts   int32
 }
 
-// Job 是 cronstore.Job 面向 RPC/JSON 消费方的展示投影。
+// Job 是 cron 模块面向 RPC/JSON 消费方的展示投影。
 // 时间字段已转为 RFC3339 字符串，skills JSONB 也已解码为字符串切片。
 type Job struct {
 	ID              string   `json:"id"`
@@ -111,7 +132,7 @@ type Job struct {
 	UpdatedAt       string   `json:"updated_at,omitempty"`
 }
 
-// Run 是 cronstore.Run 面向 RPC/JSON 消费方的展示投影。
+// Run 是 cron 模块面向 RPC/JSON 消费方的运行记录投影。
 type Run struct {
 	ID             string `json:"id"`
 	JobID          string `json:"job_id"`
@@ -128,18 +149,201 @@ type Run struct {
 	UpdatedAt      string `json:"updated_at,omitempty"`
 }
 
+type jobRecord struct {
+	ID              string
+	Name            string
+	Prompt          string
+	ScheduleType    string
+	ScheduleExpr    string
+	Timezone        string
+	Provider        string
+	Model           string
+	CWD             string
+	Config          json.RawMessage
+	Skills          json.RawMessage
+	NotifyChannel   string
+	Enabled         bool
+	NextRunAt       time.Time
+	LastScheduledAt time.Time
+	LastRunAt       time.Time
+	ClaimedAt       time.Time
+	ClaimedBy       string
+	LeaseExpiresAt  time.Time
+	ClaimToken      string
+	ThreadID        string
+	AgentID         string
+	ActiveTurnID    string
+	LastTurnID      string
+	FailureCount    int32
+	MaxAttempts     int32
+	NextRetryAt     time.Time
+	LastStatus      string
+	LastErrorAt     time.Time
+	LastError       string
+	CreatedAt       time.Time
+	UpdatedAt       time.Time
+}
+
+type runRecord struct {
+	ID             string
+	JobID          string
+	ScheduledAt    time.Time
+	IdempotencyKey string
+	DedupeKey      string
+	ThreadID       string
+	AgentID        string
+	TurnID         string
+	SubmittedAt    time.Time
+	Status         string
+	Error          string
+	CreatedAt      time.Time
+	UpdatedAt      time.Time
+}
+
+type createJobParams struct {
+	ID            string
+	Name          string
+	Prompt        string
+	ScheduleType  string
+	ScheduleExpr  string
+	Timezone      string
+	Provider      string
+	Model         string
+	CWD           string
+	Config        json.RawMessage
+	Skills        json.RawMessage
+	NotifyChannel string
+	Enabled       bool
+	NextRunAt     time.Time
+	MaxAttempts   int32
+	CreatedAt     time.Time
+	UpdatedAt     time.Time
+}
+
+type updateJobScheduleParams struct {
+	ID            string
+	Name          string
+	Prompt        string
+	ScheduleType  string
+	ScheduleExpr  string
+	Timezone      string
+	Provider      string
+	Model         string
+	CWD           string
+	Config        json.RawMessage
+	Skills        json.RawMessage
+	NotifyChannel string
+	Enabled       bool
+	NextRunAt     time.Time
+	MaxAttempts   int32
+	UpdatedAt     time.Time
+}
+
+type claimDueJobsForUpdateParams struct {
+	Now            time.Time
+	ClaimedBy      string
+	LeaseExpiresAt time.Time
+	ClaimToken     string
+	MaxClaim       int32
+}
+
+type leaseParams struct {
+	ID             string
+	ClaimToken     string
+	LeaseExpiresAt time.Time
+	Now            time.Time
+}
+
+type markFinishedParams struct {
+	ID                   string
+	ClaimToken           string
+	RunID                string
+	ExpectedActiveTurnID string
+	LastRunAt            time.Time
+	LastTurnID           string
+	NextRunAt            time.Time
+	Now                  time.Time
+}
+
+type markFailedParams struct {
+	ID                   string
+	ClaimToken           string
+	RunID                string
+	ExpectedActiveTurnID string
+	LastRunAt            time.Time
+	LastTurnID           string
+	LastStatus           string
+	LastErrorAt          time.Time
+	LastError            string
+	NextRetryAt          time.Time
+	Now                  time.Time
+}
+
+type setActiveTurnParams struct {
+	ID           string
+	ClaimToken   string
+	ActiveTurnID string
+	ThreadID     string
+	AgentID      string
+	Now          time.Time
+}
+
+type insertRunParams struct {
+	ID             string
+	JobID          string
+	ScheduledAt    time.Time
+	IdempotencyKey string
+	DedupeKey      string
+	Status         string
+	CreatedAt      time.Time
+	UpdatedAt      time.Time
+}
+
+type casRunStatusParams struct {
+	ID             string
+	ExpectedStatus string
+	NextStatus     string
+	Error          string
+	UpdatedAt      time.Time
+}
+
+type setRunTurnParams struct {
+	ID          string
+	ThreadID    string
+	AgentID     string
+	TurnID      string
+	SubmittedAt time.Time
+	UpdatedAt   time.Time
+}
+
 // Store 是 cron service 使用的持久化最小接口。
 // 保持窄接口可以让测试只 stub CRUD 面，也避免 service 直接依赖 scheduler 专用 store 方法。
-//
-// 这个窄接口只给 CRUD service 用。scheduler 的恢复和续租直接用
-// cronstore.Store，别塞到这里。
 type Store interface {
-	CreateJob(ctx context.Context, params cronstore.CreateJobParams) (cronstore.Job, error)
-	GetJobByID(ctx context.Context, id string) (cronstore.Job, error)
-	ListJobs(ctx context.Context) ([]cronstore.Job, error)
+	CreateJob(ctx context.Context, params createJobParams) (jobRecord, error)
+	GetJobByID(ctx context.Context, id string) (jobRecord, error)
+	ListJobs(ctx context.Context) ([]jobRecord, error)
 	DeleteJob(ctx context.Context, id string) error
-	UpdateJobSchedule(ctx context.Context, params cronstore.UpdateJobScheduleParams) error
+	UpdateJobSchedule(ctx context.Context, params updateJobScheduleParams) error
 	SetJobEnabled(ctx context.Context, id string, enabled bool, now time.Time) error
 	PatchNextRunAt(ctx context.Context, id string, nextRunAt time.Time, now time.Time) error
-	ListRunsByJob(ctx context.Context, jobID string, limit int32) ([]cronstore.Run, error)
+	ListRunsByJob(ctx context.Context, jobID string, limit int32) ([]runRecord, error)
+}
+
+// SchedulerStore 是 scheduler 状态机使用的持久化端口。
+// 它只暴露 claim、run CAS、续租和恢复所需动作，store DTO 在 module.go 里统一转换。
+type SchedulerStore interface {
+	ClaimDueJobsForUpdate(ctx context.Context, params claimDueJobsForUpdateParams) ([]jobRecord, error)
+	RenewLease(ctx context.Context, params leaseParams) error
+	ExtendClaim(ctx context.Context, params leaseParams) error
+	MarkFinished(ctx context.Context, params markFinishedParams) error
+	MarkFailed(ctx context.Context, params markFailedParams) error
+	SetActiveTurn(ctx context.Context, params setActiveTurnParams) error
+
+	InsertRun(ctx context.Context, params insertRunParams) (runRecord, error)
+	CASRunStatus(ctx context.Context, params casRunStatusParams) error
+	SetRunTurn(ctx context.Context, params setRunTurnParams) error
+	GetRunningRunByTurnID(ctx context.Context, turnID string) (runRecord, error)
+	ListUnresolvedRuns(ctx context.Context) ([]runRecord, error)
+	GetJobByID(ctx context.Context, id string) (jobRecord, error)
+	ListJobsClaimedBy(ctx context.Context, claimedBy string) ([]jobRecord, error)
 }

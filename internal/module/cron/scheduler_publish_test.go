@@ -10,7 +10,6 @@ import (
 	"github.com/kelindar/event"
 
 	crondto "github.com/anthropic-ai/super-agent-v3/internal/dto/cron"
-	cronstore "github.com/anthropic-ai/super-agent-v3/internal/store/cron"
 )
 
 type eventCapture struct {
@@ -56,12 +55,12 @@ func TestSchedulerPublishesHappyPathTransitions(t *testing.T) {
 	s.WithDispatcher(dispatcher)
 
 	now := time.Unix(1_700_000_000, 0).UTC()
-	job := cronstore.Job{
+	job := jobRecord{
 		ID: "job-1", Name: "daily", Prompt: "x", ScheduleExpr: "0 9 * * *",
 		Timezone: "UTC", Provider: "codex", CWD: "/repo", ClaimToken: "t", NextRunAt: now,
 	}
-	store.claimFn = func(context.Context, cronstore.ClaimDueJobsForUpdateParams) ([]cronstore.Job, error) {
-		return []cronstore.Job{job}, nil
+	store.claimFn = func(context.Context, claimDueJobsForUpdateParams) ([]jobRecord, error) {
+		return []jobRecord{job}, nil
 	}
 
 	out, cleanup := collectRunStateEvents(t, dispatcher)
@@ -104,9 +103,9 @@ func TestSchedulerPublishesFailedOnStartTurnError(t *testing.T) {
 	s.WithDispatcher(dispatcher)
 
 	now := time.Unix(1_700_000_000, 0).UTC()
-	job := cronstore.Job{ID: "job-1", ScheduleExpr: "0 9 * * *", Timezone: "UTC", Provider: "codex", CWD: "/r", ClaimToken: "t", NextRunAt: now}
-	store.claimFn = func(context.Context, cronstore.ClaimDueJobsForUpdateParams) ([]cronstore.Job, error) {
-		return []cronstore.Job{job}, nil
+	job := jobRecord{ID: "job-1", ScheduleExpr: "0 9 * * *", Timezone: "UTC", Provider: "codex", CWD: "/r", ClaimToken: "t", NextRunAt: now}
+	store.claimFn = func(context.Context, claimDueJobsForUpdateParams) ([]jobRecord, error) {
+		return []jobRecord{job}, nil
 	}
 
 	out, cleanup := collectRunStateEvents(t, dispatcher)
@@ -135,9 +134,9 @@ func TestSchedulerNoPublishWhenDispatcherUnset(t *testing.T) {
 	// no WithDispatcher
 
 	now := time.Unix(1_700_000_000, 0).UTC()
-	job := cronstore.Job{ID: "job-1", ScheduleExpr: "0 9 * * *", Timezone: "UTC", Provider: "codex", CWD: "/r", ClaimToken: "t", NextRunAt: now}
-	store.claimFn = func(context.Context, cronstore.ClaimDueJobsForUpdateParams) ([]cronstore.Job, error) {
-		return []cronstore.Job{job}, nil
+	job := jobRecord{ID: "job-1", ScheduleExpr: "0 9 * * *", Timezone: "UTC", Provider: "codex", CWD: "/r", ClaimToken: "t", NextRunAt: now}
+	store.claimFn = func(context.Context, claimDueJobsForUpdateParams) ([]jobRecord, error) {
+		return []jobRecord{job}, nil
 	}
 	if err := s.RunTick(context.Background()); err != nil {
 		t.Fatalf("RunTick = %v", err)

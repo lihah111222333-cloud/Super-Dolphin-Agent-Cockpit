@@ -11,7 +11,6 @@ import (
 	"github.com/creachadair/jrpc2/handler"
 
 	platformrpc "github.com/anthropic-ai/super-agent-v3/internal/platform/rpc"
-	cronstore "github.com/anthropic-ai/super-agent-v3/internal/store/cron"
 )
 
 // JSON-RPC 参数类型保持前端 wire shape，业务层 DTO 在 service/contract 中转换。
@@ -271,10 +270,10 @@ func mapRPCError(err error) error {
 		errors.Is(err, ErrInvalidConfig),
 		errors.Is(err, ErrProviderNotSupported),
 		errors.Is(err, ErrJobDisabled),
-		errors.Is(err, cronstore.ErrEmptyID),
-		errors.Is(err, cronstore.ErrEmptyCWD),
-		errors.Is(err, cronstore.ErrEmptyProvider),
-		errors.Is(err, cronstore.ErrEmptyScheduleExpr):
+		errors.Is(err, errStoreEmptyID),
+		errors.Is(err, errStoreEmptyCWD),
+		errors.Is(err, errStoreEmptyProvider),
+		errors.Is(err, errStoreEmptyScheduleExpr):
 		return platformrpc.ErrInvalidParams(err.Error())
 	}
 	return err

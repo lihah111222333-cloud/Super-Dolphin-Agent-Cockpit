@@ -14,7 +14,6 @@ import (
 	"github.com/kelindar/event"
 
 	turndto "github.com/anthropic-ai/super-agent-v3/internal/dto/turn"
-	cronstore "github.com/anthropic-ai/super-agent-v3/internal/store/cron"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
@@ -206,9 +205,9 @@ func (w *cronProgressWorker) logProgressError(message, turnID string, err error)
 }
 
 func isCronProgressStaleMismatch(err error) bool {
-	return errors.Is(err, cronstore.ErrClaimTokenMismatch) ||
-		errors.Is(err, cronstore.ErrStatusTransitionRefused) ||
-		errors.Is(err, cronstore.ErrJobRunNotFound)
+	return errors.Is(err, errStoreClaimTokenMismatch) ||
+		errors.Is(err, errStoreStatusTransitionRefused) ||
+		errors.Is(err, errStoreJobRunNotFound)
 }
 
 // subscribeCronProgress 订阅 turn progress 事件并委托给 worker 续租。
