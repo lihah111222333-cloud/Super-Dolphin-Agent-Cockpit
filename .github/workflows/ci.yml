@@ -56,7 +56,7 @@ jobs:
       - name: Build
         run: make build-plain
       - name: Test
-        run: ./scripts/test_with_guard.sh $(go list ./... | grep -v /internal/provider/dreamexec) -count=1 -timeout 180s
+        run: ./scripts/test_with_guard.sh $(go list ./...) -count=1 -timeout 180s
 
   lint:
     needs: commit-guard

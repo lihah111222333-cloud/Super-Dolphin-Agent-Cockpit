@@ -8,8 +8,6 @@ import (
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	agentdto "github.com/anthropic-ai/super-agent-v3/internal/dto/agent"
-	bindingstore "github.com/anthropic-ai/super-agent-v3/internal/store/binding"
-	threadstore "github.com/anthropic-ai/super-agent-v3/internal/store/thread"
 )
 
 type resolverStub struct {
@@ -36,11 +34,10 @@ func (*failingKeepaliveSession) SendKeepalive(context.Context) error {
 }
 
 type bindingStoreStub struct {
-	bindingstore.Store
-	byAgent map[string]*bindingstore.Binding
+	byAgent map[string]*contract.CacheKeepaliveBinding
 }
 
-func (s *bindingStoreStub) GetByAgentID(_ context.Context, agentID string) (*bindingstore.Binding, error) {
+func (s *bindingStoreStub) GetCacheKeepaliveBindingByAgentID(_ context.Context, agentID string) (*contract.CacheKeepaliveBinding, error) {
 	if s == nil || s.byAgent == nil {
 		return nil, nil
 	}
@@ -48,12 +45,11 @@ func (s *bindingStoreStub) GetByAgentID(_ context.Context, agentID string) (*bin
 }
 
 type threadStoreStub struct {
-	threadstore.Store
-	byThread map[string]*threadstore.Thread
+	byThread map[string]*contract.CacheKeepaliveThreadRef
 	lookups  []string
 }
 
-func (s *threadStoreStub) GetByThreadID(_ context.Context, threadID string) (*threadstore.Thread, error) {
+func (s *threadStoreStub) GetCacheKeepaliveThreadByID(_ context.Context, threadID string) (*contract.CacheKeepaliveThreadRef, error) {
 	if s == nil {
 		return nil, nil
 	}
@@ -64,7 +60,7 @@ func (s *threadStoreStub) GetByThreadID(_ context.Context, threadID string) (*th
 	return s.byThread[threadID], nil
 }
 
-func newTestManager(resolver contract.SessionResolver, bindings bindingstore.Store, threads threadstore.Store) *Manager {
+func newTestManager(resolver contract.SessionResolver, bindings contract.CacheKeepaliveBindingLookup, threads contract.CacheKeepaliveThreadLookup) *Manager {
 	pingCtx, pingCancel := context.WithCancel(context.Background())
 	return &Manager{
 		resolver:     resolver,
@@ -119,7 +115,7 @@ func TestResetTimer(t *testing.T) {
 func TestArchivedExcluded(t *testing.T) {
 	t.Parallel()
 	resolver := &resolverStub{session: &keepaliveSession{}}
-	m := newTestManager(resolver, &bindingStoreStub{byAgent: map[string]*bindingstore.Binding{"agent-1": {AgentID: "agent-1", Archived: true}}}, nil)
+	m := newTestManager(resolver, &bindingStoreStub{byAgent: map[string]*contract.CacheKeepaliveBinding{"agent-1": {AgentID: "agent-1", Archived: true}}}, nil)
 	if m.canPing(context.Background(), &agentTimer{agentID: "agent-1", threadID: "thread-1"}) {
 		t.Fatal("canPing() = true, want false for archived binding")
 	}
@@ -131,7 +127,7 @@ func TestArchivedExcluded(t *testing.T) {
 func TestActiveTurnSkipped(t *testing.T) {
 	t.Parallel()
 	resolver := &resolverStub{session: plainSession{}}
-	m := newTestManager(resolver, &bindingStoreStub{byAgent: map[string]*bindingstore.Binding{"agent-1": {AgentID: "agent-1"}}}, nil)
+	m := newTestManager(resolver, &bindingStoreStub{byAgent: map[string]*contract.CacheKeepaliveBinding{"agent-1": {AgentID: "agent-1"}}}, nil)
 	if m.canPing(context.Background(), &agentTimer{agentID: "agent-1", threadID: "thread-1"}) {
 		t.Fatal("canPing() = true, want false when session is not KeepaliveCapable")
 	}
@@ -176,7 +172,7 @@ func requireAgentTimer(t *testing.T, got *agentTimer, label string) *agentTimer 
 
 func TestHandleAgentLaunchedFallback(t *testing.T) {
 	t.Parallel()
-	threads := &threadStoreStub{byThread: map[string]*threadstore.Thread{"thread-1": {ThreadID: "thread-1", AgentID: "agent-2"}}}
+	threads := &threadStoreStub{byThread: map[string]*contract.CacheKeepaliveThreadRef{"thread-1": {ThreadID: "thread-1", AgentID: "agent-2"}}}
 	m := newTestManager(nil, &bindingStoreStub{}, threads)
 	t.Cleanup(m.shutdownForTest)
 	ev := agentdto.AgentLaunched{}

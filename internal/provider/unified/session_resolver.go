@@ -7,7 +7,6 @@ import (
 	"strings"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
-	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
 	"github.com/anthropic-ai/super-agent-v3/internal/util/clone"
 	"github.com/anthropic-ai/super-agent-v3/internal/util/historyjsonl"
 	"github.com/anthropic-ai/super-agent-v3/internal/util/identifier"
@@ -72,12 +71,12 @@ func (r *sessionResolver) tryCreateSession(ctx context.Context, threadID string)
 	errs := make([]error, 0, 2)
 	if session, err := r.resolveThreadSession(ctx, threadID); err == nil {
 		return session, nil
-	} else if !platformdb.IsNotFound(err) {
+	} else if !contract.IsNotFound(err) {
 		errs = append(errs, err)
 	}
 	if session, err := r.resolveProviderThreadSession(ctx, threadID); err == nil {
 		return session, nil
-	} else if !platformdb.IsNotFound(err) && !errors.Is(err, contract.ErrSessionNotFound) {
+	} else if !contract.IsNotFound(err) && !errors.Is(err, contract.ErrSessionNotFound) {
 		errs = append(errs, err)
 	}
 	return nil, errs
@@ -97,14 +96,14 @@ func (r *sessionResolver) resolveLookupError(threadID string, errs []error) erro
 // resolveThreadSession 通过公共 thread 记录找到 agent，并在内存缺失时用绑定执行 auto-resume。
 func (r *sessionResolver) resolveThreadSession(ctx context.Context, threadID string) (contract.Session, error) {
 	if r.threadStore == nil {
-		return nil, platformdb.ErrNotFound
+		return nil, contract.ErrNotFound
 	}
 	ref, err := r.threadStore.GetByThreadID(ctx, threadID)
 	if err != nil {
 		return nil, err
 	}
 	if ref == nil {
-		return nil, platformdb.ErrNotFound
+		return nil, contract.ErrNotFound
 	}
 	if err := rejectAutoResumeLifecycle(ref); err != nil {
 		return nil, err
@@ -122,7 +121,7 @@ func (r *sessionResolver) resolveThreadSession(ctx context.Context, threadID str
 	}
 	binding, err := r.bindingStore.GetByAgentID(ctx, agentID)
 	if err != nil {
-		if !platformdb.IsNotFound(err) {
+		if !contract.IsNotFound(err) {
 			return nil, err
 		}
 		return nil, contract.ErrSessionNotFound
@@ -133,13 +132,13 @@ func (r *sessionResolver) resolveThreadSession(ctx context.Context, threadID str
 // resolveProviderThreadSession 按 provider thread ID 反查绑定，支持重启后从 provider 侧线程恢复。
 func (r *sessionResolver) resolveProviderThreadSession(ctx context.Context, threadID string) (contract.Session, error) {
 	if r.bindingStore == nil {
-		return nil, platformdb.ErrNotFound
+		return nil, contract.ErrNotFound
 	}
 	var errs []error
 	for _, provider := range r.providerNames() {
 		binding, err := r.bindingStore.GetByProviderThread(ctx, provider, threadID)
 		if err != nil {
-			if !platformdb.IsNotFound(err) {
+			if !contract.IsNotFound(err) {
 				errs = append(errs, fmt.Errorf("provider %q: %w", provider, err))
 			}
 			continue
@@ -165,7 +164,7 @@ func (r *sessionResolver) resolveProviderThreadSession(ctx context.Context, thre
 	if len(errs) > 0 {
 		return nil, errors.Join(errs...)
 	}
-	return nil, platformdb.ErrNotFound
+	return nil, contract.ErrNotFound
 }
 
 // autoResumeSession 根据持久化绑定重建运行时 session。
@@ -213,7 +212,7 @@ func (r *sessionResolver) lookupAutoResumeRuntimeConfig(ctx context.Context, bin
 		}
 		ref, err := r.threadStore.GetByThreadID(ctx, candidate)
 		if err != nil {
-			if platformdb.IsNotFound(err) {
+			if contract.IsNotFound(err) {
 				continue
 			}
 			return nil, fmt.Errorf("resolve session: runtime config lookup thread %q: %w", candidate, err)
@@ -240,7 +239,7 @@ func (r *sessionResolver) rejectBindingAutoResumeLifecycle(ctx context.Context, 
 		}
 		ref, err := r.threadStore.GetByThreadID(ctx, candidate)
 		if err != nil {
-			if platformdb.IsNotFound(err) {
+			if contract.IsNotFound(err) {
 				continue
 			}
 			return err

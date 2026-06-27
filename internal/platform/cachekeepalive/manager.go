@@ -9,8 +9,6 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	agentdto "github.com/anthropic-ai/super-agent-v3/internal/dto/agent"
 	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
-	bindingstore "github.com/anthropic-ai/super-agent-v3/internal/store/binding"
-	threadstore "github.com/anthropic-ai/super-agent-v3/internal/store/thread"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
@@ -35,8 +33,8 @@ type agentTimer struct {
 
 type Manager struct {
 	resolver     contract.SessionResolver
-	bindingStore bindingstore.Store
-	threadStore  threadstore.Store
+	bindingStore contract.CacheKeepaliveBindingLookup
+	threadStore  contract.CacheKeepaliveThreadLookup
 	logger       *pkglogger.Logger
 
 	mu     sync.Mutex
@@ -53,8 +51,8 @@ type Manager struct {
 // NewManager 创建 cache keepalive 管理器，并为后续 ping 提前建立可取消的共享上下文。
 func NewManager(
 	resolver contract.SessionResolver,
-	bindingStore bindingstore.Store,
-	threadStore threadstore.Store,
+	bindingStore contract.CacheKeepaliveBindingLookup,
+	threadStore contract.CacheKeepaliveThreadLookup,
 	logger *pkglogger.Logger,
 ) *Manager {
 	if logger == nil {
@@ -109,7 +107,7 @@ func (m *Manager) resolveLaunchAgentID(ctx context.Context, agentID, threadID st
 	if m.threadStore == nil || threadID == "" {
 		return "", false
 	}
-	threadRef, err := m.threadStore.GetByThreadID(ctx, threadID)
+	threadRef, err := m.threadStore.GetCacheKeepaliveThreadByID(ctx, threadID)
 	if err != nil || threadRef == nil {
 		return "", false
 	}
@@ -311,7 +309,7 @@ func (m *Manager) hasLiveBinding(ctx context.Context, t *agentTimer) bool {
 	if m == nil || t == nil || m.bindingStore == nil {
 		return false
 	}
-	bindingRef, err := m.bindingStore.GetByAgentID(ctx, t.agentID)
+	bindingRef, err := m.bindingStore.GetCacheKeepaliveBindingByAgentID(ctx, t.agentID)
 	if err != nil || bindingRef == nil {
 		return false
 	}
@@ -338,7 +336,7 @@ func (m *Manager) hasBinding(ctx context.Context, agentID string) bool {
 	if m == nil || m.bindingStore == nil || strings.TrimSpace(agentID) == "" {
 		return false
 	}
-	bindingRef, err := m.bindingStore.GetByAgentID(ctx, agentID)
+	bindingRef, err := m.bindingStore.GetCacheKeepaliveBindingByAgentID(ctx, agentID)
 	return err == nil && bindingRef != nil
 }
 
