@@ -11,8 +11,9 @@ Path discovery mode, when the user asks where files live or which path to change
 1. `README.md` for the current project layout and entry points.
 2. `docs/doc/codemap/README.md` for the code-map table of contents and reading boundaries.
 3. Open one relevant code-map volume, selected from the table of contents.
-4. Use `rg` against `docs/doc/codemap/ai-index.json` or exact source directories for symbols and paths.
-5. Open exact source files and same-package tests after the path is resolved.
+4. Use `rg` against `docs/doc/codemap/ai-index.json` or exact source directories to narrow candidate symbols and paths.
+5. Read `docs/internal-notes/LSP系统提示词.md`, then use LSP symbol/navigation tools to confirm definitions, references, callers/implementations, and diagnostics before deciding the path to edit or report.
+6. Open exact source files and same-package tests after the LSP-confirmed path is resolved.
 
 Behavior reading mode, when the user asks how something works:
 
@@ -21,7 +22,15 @@ Behavior reading mode, when the user asks how something works:
 3. Use `docs/契约/*.md` for conventions such as fx, rungroup, jrpc2, sqlc, stateless, MCP service, and onion architecture.
 4. Use `docs/doc/codemap/*.md` to navigate large subsystems.
 5. Treat `docs/plans/**`, `docs/迁移/**`, `docs/superpowers/plans/**`, and old reports as historical planning material unless the user explicitly asks for migration history.
-6. Read `docs/internal-notes/LSP系统提示词.md` for mandatory LSP tool chain usage guidelines and workflow before using any LSP tools.
+6. Read `docs/internal-notes/LSP系统提示词.md`, then use LSP tools for symbol navigation, reference/call-hierarchy checks, hover/signature context, and diagnostics on the relevant files before answering behavior, impact, or implementation questions.
+
+## Mandatory LSP Usage
+
+- Any task involving source-code path discovery, behavior analysis, code review, risk adjudication, refactoring, bug fixing, feature implementation, or impact analysis must use the LSP workflow from `docs/internal-notes/LSP系统提示词.md`.
+- `rg`, code-map files, and normal shell reads may be used to find candidates, but they do not replace LSP confirmation. Do not conclude impact, ownership, call paths, or edit targets from text search alone when LSP tools are available.
+- Before changing shared symbols or cross-module code, use LSP references or call hierarchy to check the affected surface. After changing code, use LSP diagnostics on the touched files before running the matching tests or guards.
+- If LSP tools are unavailable, fail to initialize, or cannot inspect the target language, stop before code changes and report the exact blocker. Do not silently fall back to grep-only or file-read-only analysis.
+- Pure documentation edits, Git/status operations, generated-artifact inspection, command execution, and test runs may skip LSP only when they do not require source-code semantics. The final report must state that LSP was skipped and why.
 
 
 ## Context Budget Hygiene
