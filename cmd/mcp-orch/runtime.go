@@ -184,13 +184,14 @@ func newRegistry(p newRegistryParams) tools.Registry {
 }
 
 // newStdioServer 创建 mcp-orch stdio MCP server，stdout 使用已绑定的 MCP 输出通道。
-func newStdioServer(registry tools.Registry) *common.Server {
+// mcpStdout 由 main() 最早阶段写入；nil 表示程序装配顺序异常，必须 fail-fast 阻止用脏 stdout 破坏 JSON-RPC framing。
+func newStdioServer(registry tools.Registry) (*common.Server, error) {
 	stdout := mcpStdout.Load()
 	if stdout == nil {
-		stdout = os.Stdout
+		return nil, fmt.Errorf("mcp-orch: mcpStdout not initialized; program assembly order is broken")
 	}
 	transport := common.NewStdioTransport(os.Stdin, stdout)
-	return common.NewServer("mcp-orch", "dev", transport, registryToolProvider{registry: registry})
+	return common.NewServer("mcp-orch", "dev", transport, registryToolProvider{registry: registry}), nil
 }
 
 // newStdioRunner 将 stdio MCP server 适配为 run group runner。
