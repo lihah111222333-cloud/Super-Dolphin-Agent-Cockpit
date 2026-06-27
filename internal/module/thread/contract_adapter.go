@@ -212,6 +212,48 @@ func (p sessionStatusPort) ReadMessages(ctx context.Context, threadID string, li
 	return p.service.ReadMessages(ctx, threadID, limit, before)
 }
 
+// startSessionRequestFromStart 显式映射 thread/start 输入到 session port DTO。
+// RPC 入口迁移到 SessionPorts 时仍保留原 startParams 解码与校验，只有启动边界从这里收窄。
+func startSessionRequestFromStart(req StartRequest) contract.SessionStartRequest {
+	return contract.SessionStartRequest{
+		Provider:                     req.Provider,
+		AgentID:                      req.AgentID,
+		ParentAgentID:                req.ParentAgentID,
+		AgentType:                    req.AgentType,
+		AgentMemoryScope:             req.AgentMemoryScope,
+		CWD:                          req.CWD,
+		Model:                        req.Model,
+		ModelProvider:                req.ModelProvider,
+		Name:                         req.Name,
+		Prompt:                       req.Prompt,
+		BaseInstructions:             req.BaseInstructions,
+		BaseInstructionBlocks:        cloneSessionBaseInstructionBlocks(req.BaseInstructionBlocks),
+		DeveloperInstructions:        req.DeveloperInstructions,
+		ApprovalPolicy:               req.ApprovalPolicy,
+		Sandbox:                      clone.RawMessage(req.Sandbox),
+		Summary:                      req.Summary,
+		Effort:                       req.Effort,
+		Personality:                  req.Personality,
+		Language:                     req.Language,
+		GitRoot:                      req.GitRoot,
+		IsWorktree:                   req.IsWorktree,
+		ToolSurfaceMode:              req.ToolSurfaceMode,
+		EnabledTools:                 clone.Strings(req.EnabledTools),
+		AdditionalWorkingDirectories: clone.Strings(req.AdditionalWorkingDirectories),
+		MCPSnapshot:                  cloneSessionMCPSnapshot(req.MCPSnapshot),
+		SessionFlags:                 cloneSessionBoolMap(req.SessionFlags),
+		Config:                       clone.RuntimeConfigMap(req.Config),
+		LaunchSkillNames:             clone.Strings(req.LaunchSkillNames),
+		LaunchSkillRefs:              append([]dto.SkillRef(nil), req.LaunchSkillRefs...),
+		ForceLaunchSkills:            req.ForceLaunchSkills,
+		AgentKey:                     req.AgentKey,
+		PromptKey:                    req.PromptKey,
+		OwnerThreadID:                req.OwnerThreadID,
+		LaunchIntentID:               req.LaunchIntentID,
+		DeferSpawn:                   req.DeferSpawn,
+	}
+}
+
 // startRequestFromSession 显式映射 session 启动字段，并深拷贝所有可变 slice/map。
 // 这里是字段漂移守卫覆盖的核心路径，新增 StartRequest 字段必须同步映射或写明豁免。
 func startRequestFromSession(req contract.SessionStartRequest) StartRequest {
@@ -251,6 +293,28 @@ func startRequestFromSession(req contract.SessionStartRequest) StartRequest {
 		OwnerThreadID:                req.OwnerThreadID,
 		LaunchIntentID:               req.LaunchIntentID,
 		DeferSpawn:                   req.DeferSpawn,
+	}
+}
+
+// startResultFromSessionStart 把 session port 结果投影回 thread/start 的既有响应构造输入。
+// 字段保持和 sessionStartResultFromStart 对称，避免 RPC 迁移后响应形状缩水。
+func startResultFromSessionStart(got contract.SessionStartResult) StartResult {
+	return StartResult{
+		ThreadID:        got.ThreadID,
+		AgentID:         got.AgentID,
+		SessionID:       got.SessionID,
+		Status:          got.Status,
+		Model:           got.Model,
+		Provider:        got.Provider,
+		ModelProvider:   got.ModelProvider,
+		CWD:             got.CWD,
+		ApprovalPolicy:  got.ApprovalPolicy,
+		AgentKey:        got.AgentKey,
+		AgentTitle:      got.AgentTitle,
+		PromptKey:       got.PromptKey,
+		PromptVersionID: got.PromptVersionID,
+		PromptKeyStale:  got.PromptKeyStale,
+		PendingLaunch:   got.PendingLaunch,
 	}
 }
 
