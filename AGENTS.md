@@ -93,7 +93,6 @@ This policy governs agent instruction loading from `.agent/skills/**`. It does n
   - `./scripts/test_with_guard.sh <packages> -count=1`
   - `make test`
   - `make build-plain`
-  - `make install-hooks`
   - `make sqlc-verify`
   - `make codemap-check`
 - 每改完一个 Go 文件，先运行单文件守卫再继续。根据当前设备和 shell 选择守卫入口：
@@ -204,13 +203,7 @@ If a command is intentionally skipped because the task is docs-only or the surfa
 
 ## Git Hooks
 
-- On first clone, after moving this repository, or before working in a newly linked worktree, run:
-
-```bash
-make install-hooks
-```
-
-- Confirm `git config --get core.hooksPath` points at this repository's `.githooks` absolute path.
+- Hooks are managed automatically and adapt to all linked worktrees.
 - `pre-commit` checks staged Go impact, rejects staged/worktree mismatch, runs gofmt/go vet/short tests, and runs the guard for Go changes.
 - `commit-msg` rejects fix/hotfix/bugfix/修复 commits without a same-commit bug-locking test.
 - `pre-push` requires a clean worktree/index/untracked state, only allows pushing current `HEAD`, and rechecks fix-test and affected package tests over the pushed range.
