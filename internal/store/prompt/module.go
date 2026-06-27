@@ -25,6 +25,11 @@ func AsReader(store Store) Reader {
 	return store
 }
 
+// NewStoreWithDB 创建带 IMMEDIATE 事务和写重试能力的 Store，供测试和 fx 之外的装配入口使用。
+func NewStoreWithDB(db *sql.DB, q *sqlc.Queries) Store {
+	return newStoreWithDB(db, q)
+}
+
 func newStoreWithDB(db *sql.DB, q *sqlc.Queries) Store {
 	return newStore(q, func(ctx context.Context, fn func(*sqlc.Queries) error) error {
 		return platformdb.BoundedWriteRetry(ctx, promptStoreWriteRetryAttempts, func() error {
