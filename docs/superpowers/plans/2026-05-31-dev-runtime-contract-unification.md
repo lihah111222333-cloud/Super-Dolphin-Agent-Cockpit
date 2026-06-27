@@ -218,11 +218,11 @@ Do not run C before E proves the staged root can be created and verified.
 
 ### 5.1 Orchestration Requirements
 
-The coordinator must manage this plan with `mcp-go-agent-orchestration` lifecycle tools:
+The coordinator may manage this plan with `mcp-go-agent-orchestration` lifecycle tools when persistent DAG state, retry/lease semantics, or structured handoff records are needed. Otherwise, native subagent dispatch plus explicit plan/report state is allowed.
 
-1. Create one DAG with `task_create_dag` before assigning implementation work.
-2. Start each lane with `task_start_node` only when its dependencies are satisfied.
-3. Update each lane with `task_update_node` after every verification command, blocker, or handoff.
+1. If using mcp-orch, create one DAG with `task_create_dag` before assigning implementation work.
+2. Start each lane only when its dependencies are satisfied; use the current DAG start/dispatch tools if mcp-orch is selected.
+3. Update each lane state after every verification command, blocker, or handoff; use `task_update_node` only when mcp-orch is selected.
 4. Do not mark a lane complete from an agent summary alone; inspect changed files and verification output first.
 
 Required DAG shape:

@@ -12,7 +12,7 @@ Files reviewed and implemented:
 - `cmd/agent-terminal/frontend/src/entities/thread/api/**`
 - `cmd/agent-terminal/frontend/src/entities/turn/api/**`
 
-The requested `mcp-go-agent-orchestration` DAG tools were not available in this Codex tool context, so task lifecycle was tracked in this report instead of via `task_start_node` / `task_update_node`.
+The `mcp-go-agent-orchestration` DAG tools were not available in this Codex tool context. Native subagent dispatch is allowed, so task lifecycle was tracked in this report without persistent mcp-orch DAG observability.
 
 ## TDD Evidence
 

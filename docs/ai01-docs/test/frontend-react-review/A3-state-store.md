@@ -52,4 +52,4 @@ passed, no new over-limit files
 
 ## Concerns
 
-- The requested orchestration MCP tools (`task_create_dag`, `task_start_node`, `task_update_node`) were not available in this Codex tool context, so lifecycle status is recorded in this report instead.
+- The orchestration MCP tools were not available in this Codex tool context. Native subagent dispatch is allowed; lifecycle status is recorded in this report without persistent mcp-orch DAG observability.

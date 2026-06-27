@@ -20,4 +20,4 @@
 
 ## MCP 编排说明
 
-AGENTS.md 要求子代理使用 `mcp-go-agent-orchestration` 的 `task_create_dag/task_start_node/task_update_node`。当前父会话没有暴露这些 MCP 工具；worker 如所在会话可见这些工具，必须登记生命周期。如不可见，必须在最终报告中写明 `mcp-orch tools unavailable`。
+AGENTS.md 不再要求子代理强制绑定 `mcp-orch` 生命周期。worker 可直接使用当前平台原生子代理能力；只有任务确实需要持久 DAG、重试、租约或结构化交接记录时，才可选使用 `mcp-go-agent-orchestration`。如果未使用 mcp-orch，在最终报告中说明缺少持久 DAG 观测即可，不要把原生子代理视为绕过策略。

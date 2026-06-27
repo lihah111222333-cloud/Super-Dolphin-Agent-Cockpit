@@ -1,0 +1,122 @@
+{
+  "workflow_key": "20260626-1444-production-risk",
+  "last_updated": "2026-06-26T15:55:00+09:00",
+  "overall_status": "lanes_completed_controller_verified_not_integrated",
+  "controller": {
+    "cwd": "/Users/mima0000/Desktop/wj/super-agent-v3",
+    "base_ref": "023f759b",
+    "mode": "controller_only"
+  },
+  "blocked_items": [],
+  "approvals": [
+    {
+      "task_id": "L01",
+      "status": "approved",
+      "scope": "grep limit behavior test updates only; truncation hint must remain visible",
+      "paths": [
+        "cmd/mcp-lsp/lsp_binary_grep_cap_e2e_test.go",
+        "cmd/mcp-lsp/lsp_binary_residual_test.go",
+        "cmd/mcp-lsp/tools/tool_grep_test.go"
+      ]
+    },
+    {
+      "task_id": "L02",
+      "status": "approved",
+      "scope": "retry hard-cap parameterization only",
+      "paths": [
+        "cmd/mcp-orch/store/taskdag/contract.go",
+        "cmd/mcp-orch/store/taskdag/store_wakeup.go",
+        "cmd/mcp-orch/store/sqlc/task_dag_wakeup_dispatch.sql.go",
+        "cmd/mcp-orch/orchestration/wakeup_dispatcher.go"
+      ]
+    },
+    {
+      "task_id": "L03",
+      "status": "approved",
+      "scope": "shared_files content_location schema/query/generated consistency only",
+      "paths": [
+        "cmd/mcp-orch/sql/queries/shared_file.sql",
+        "cmd/mcp-orch/store/sqlc/models.go",
+        "cmd/mcp-orch/store/sqlc/shared_file.sql.go",
+        "internal/platform/db/sqlite/migrations/001_baseline.sql",
+        "internal/platform/db/sqlite/migrations/108_shared_files_content_location.sql",
+        "internal/platform/db/sqlite/schema_contract_test.go",
+        "sql/queries/shared_file.sql",
+        "internal/store/sqlc/models.go",
+        "internal/store/sqlc/shared_file.sql.go"
+      ]
+    },
+    {
+      "task_id": "L06",
+      "status": "approved",
+      "scope": "unified Fx constructor must return provider-order errors",
+      "paths": [
+        "internal/provider/unified/module.go"
+      ]
+    },
+    {
+      "task_id": "L09",
+      "status": "approved",
+      "scope": "generated sqlc audit log extra roundtrip only",
+      "paths": [
+        "internal/store/sqlc/audit_log.sql.go",
+        "internal/store/sqlc/models.go",
+        "internal/store/sqlc/querier.go"
+      ]
+    },
+    {
+      "task_id": "L11",
+      "status": "approved",
+      "scope": "codexapp pidregistry registration failure cleanup/surfacing only",
+      "paths": [
+        "internal/provider/codexapp/module.go",
+        "internal/provider/codexapp/peer_supervisor.go",
+        "internal/provider/codexapp/peer_supervisor_test.go",
+        "internal/provider/codexapp/*pidregistry*_test.go"
+      ]
+    }
+  ],
+  "next_actions": [
+    "Review integration order and conflict risk before merging any lane",
+    "Re-run lane verification after each merge or replay onto main",
+    "Run repository-level gates only after selected lanes are integrated"
+  ],
+  "lane_status": {
+    "L01":"controller_verified","L02":"controller_verified_sqlc_verify_dirty_concern","L03":"controller_verified_sqlc_verify_dirty_concern","L04":"controller_verified","L05":"controller_verified","L06":"controller_verified",
+    "L07":"controller_verified","L08":"controller_verified","L09":"controller_verified_sqlc_verify_dirty_concern","L10":"controller_verified","L11":"controller_verified","L12":"controller_verified",
+    "L13":"controller_verified","L14":"controller_verified","L15":"controller_verified","L16":"controller_verified","L17":"controller_verified","L18":"controller_verified"
+  },
+  "controller_verified": {
+    "all_lanes_reported": true,
+    "all_lanes_main_controller_verified": true,
+    "staged": false,
+    "committed": false,
+    "pushed": false,
+    "integrated_to_main": false,
+    "known_concerns": [
+      "L02 make sqlc-verify fails while approved generated files remain dirty against HEAD",
+      "L03 make sqlc-verify fails while approved generated files remain dirty against HEAD",
+      "L09 make sqlc-verify fails while approved generated files remain dirty against HEAD"
+    ]
+  },
+  "workers": {
+    "L01":{"agent_id":"019f027c-511d-7262-a1f4-bee2709554f7","nickname":"Feynman"},
+    "L02":{"agent_id":"019f027d-6e93-79a1-9f0c-f799bd5be3c9","nickname":"Noether"},
+    "L03":{"agent_id":"019f027d-6f62-7271-bf48-ab87f15ab078","nickname":"Leibniz"},
+    "L04":{"agent_id":"019f027d-6ff0-79a1-9564-bb7d14146dbe","nickname":"Nietzsche"},
+    "L05":{"agent_id":"019f027d-707d-7560-a908-8fc1b4e7f3a2","nickname":"Hooke"},
+    "L06":{"agent_id":"019f027d-7109-7572-a71f-c8e2eed92201","nickname":"Ohm"},
+    "L07":{"agent_id":"019f027d-71a9-7a72-90b6-25cab82c2bb9","nickname":"Newton"},
+    "L08":{"agent_id":"019f027d-7242-7863-9ca5-3809bf5b958d","nickname":"Carson"},
+    "L09":{"agent_id":"019f027d-72da-7ae2-b03c-88742c6364e8","nickname":"Volta"},
+    "L10":{"agent_id":"019f027e-8074-72f2-b1b2-e5705717760c","nickname":"Gauss"},
+    "L11":{"agent_id":"019f027e-819f-7781-9339-3348031af2c4","nickname":"Nash"},
+    "L12":{"agent_id":"019f027e-82f1-7a43-bdb6-93296f85c4e1","nickname":"Wegener"},
+    "L13":{"agent_id":"019f027e-844a-7d60-80cd-c47d2fcfb04c","nickname":"Meitner"},
+    "L14":{"agent_id":"019f027e-8578-7f22-80d4-dc09518ac6f7","nickname":"Anscombe"},
+    "L15":{"agent_id":"019f027e-8696-7cc3-991f-07b88d4f57d4","nickname":"Hume"},
+    "L16":{"agent_id":"019f027e-87db-7a23-90a5-996c86d2a4ce","nickname":"Hubble"},
+    "L17":{"agent_id":"019f027e-88f6-7803-9c97-e57e765ee815","nickname":"Parfit"},
+    "L18":{"agent_id":"019f027e-8ac7-7fa2-b94b-2d8d5549f372","nickname":"Jason"}
+  }
+}

@@ -14,9 +14,9 @@ aliases: ["@编写计划", "@writing-plans"]
 
 **开始时声明：** “我正在使用 编写计划 技能来创建实现计划。”
 
-**上下文：** 这应在专用 worktree 中运行（由 头脑风暴 技能创建）。
+**上下文：** 这应在专用 worktree 中运行（由 头脑风暴 或 使用git工作区 技能创建）。在 super-agent-v3 中，默认分支名前缀为 `codex/`。
 
-**计划保存到：** `docs/superpowers/plans/YYYY-MM-DD-<feature-name>.md`
+**计划保存到：** `docs/plans/YYYY-MM-DD-<feature-name>.md`
 - 用户偏好的计划位置优先于这个默认位置
 
 ## 范围检查
@@ -50,13 +50,15 @@ aliases: ["@编写计划", "@writing-plans"]
 ```markdown
 # [Feature Name] Implementation Plan
 
-> **For agentic workers:** 强制要求子技能: Use superpowers:子代理驱动开发 (recommended) or superpowers:执行计划 to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** 强制要求子技能: Use superpowers:子代理驱动开发 (recommended) or superpowers:执行计划 to implement this plan task-by-task. In super-agent-v3, subagents may use platform-native dispatch directly; use mcp-orch DAG runs and nodes (`task_create_dag` / `task_start_dag` / `task_dispatch_node` / `task_update_node`) only when persistent orchestration records are needed. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** [One sentence describing what this builds]
 
 **Architecture:** [2-3 sentences about approach]
 
 **Tech Stack:** [Key technologies/libraries]
+
+**Verification Surface:** [Go packages, frontend-app, legacy Vue, SQL/store, codemap, docs/skills]
 
 ---
 ```
@@ -136,7 +138,7 @@ git commit -m "feat: add specific feature"
 
 保存计划后，提供执行选择：
 
-**“计划已完成并保存到 `docs/superpowers/plans/<filename>.md`。有两个执行选项：**
+**“计划已完成并保存到 `docs/plans/<filename>.md`。有两个执行选项：**
 
 **1. 子代理驱动（推荐）** - 我为每个任务派发新的子代理，在任务之间审查，迭代更快
 

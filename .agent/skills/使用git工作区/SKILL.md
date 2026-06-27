@@ -1,219 +1,77 @@
 ---
 name: 使用git工作区
-description: 开始需要与当前工作区隔离的功能工作，或执行实现计划前使用；通过智能目录选择和安全验证创建隔离的 git worktree
+description: 开始需要与当前工作区隔离的功能工作，或执行实现计划前使用；在 super-agent-v3 中创建 codex/ 分支 worktree 并保护 dirty 边界。
 aliases: ["@使用git工作区", "@Git工作树", "@git-worktrees"]
 ---
 
 # 使用 Git Worktree
 
-## 概览
+## 核心原则
 
-Git worktree 会创建共享同一仓库的隔离工作区，使你可以在不切换分支的情况下同时处理多个分支。
+在 super-agent-v3 中，worktree 用来隔离实现，不用来绕过主工作区的脏状态。开始时先说：“我正在使用 使用git工作区 技能来设置隔离工作区。”
 
-**核心原则：** 系统化目录选择 + 安全验证 = 可靠隔离。
-
-**开始时声明：** “我正在使用 使用git工作区 技能来设置隔离工作区。”
-
-## 目录选择流程
-
-按此优先级顺序执行：
-
-### 1. 检查现有目录
+## 第 0 步：只读检查
 
 ```bash
-# Check in priority order
-ls -d .worktrees 2>/dev/null     # Preferred (hidden)
-ls -d worktrees 2>/dev/null      # Alternative
+git status --short
+git rev-parse --show-toplevel
+git branch --show-current
+git worktree list --porcelain
 ```
 
-**如果找到：** 使用该目录。如果两者都存在，`.worktrees` 优先。
+- 保留已有 dirty / untracked 文件边界，不要 revert、format、stage 或移动无关文件。
+- 如果已经在链接 worktree 中，优先复用当前 worktree，除非用户明确要求再建一个。
+- detached HEAD、冲突中、rebase/merge 进行中时，不要自行创建分支；先报告状态。
 
-### 2. 检查 CLAUDE.md
+## 目录与分支
+
+- 本仓库默认使用 `.worktrees/`，它已经在 `.gitignore` 中忽略。
+- 新分支默认前缀 `codex/`，例如 `codex/fix-skill-routing-20260626`。
+- 只有用户明确要求其他目录或分支名时才改变默认。
+
+## 创建流程
 
 ```bash
-grep -i "worktree.*director" CLAUDE.md 2>/dev/null
+base_branch=$(git branch --show-current)
+branch="codex/<short-task-name>"
+path=".worktrees/<short-task-name>"
+git worktree add "$path" -b "$branch" "$base_branch"
 ```
 
-**如果指定了偏好：** 不询问，直接使用。
-
-### 3. 询问用户
-
-如果没有现有目录，也没有 CLAUDE.md 偏好：
-
-```
-没有找到 worktree 目录。你希望我在哪里创建 worktree？
-
-1. .worktrees/（项目本地，隐藏目录）
-2. ~/.config/superpowers/worktrees/<project-name>/（全局位置）
-
-你更倾向哪一个？
-```
-
-## 安全验证
-
-### 对项目本地目录（.worktrees 或 worktrees）
-
-**创建 worktree 前必须验证目录被忽略：**
+进入新 worktree 后：
 
 ```bash
-# Check if directory is ignored (respects local, global, and system gitignore)
-git check-ignore -q .worktrees 2>/dev/null || git check-ignore -q worktrees 2>/dev/null
-```
-
-**如果未被忽略：**
-
-根据 Jesse 的规则 “Fix broken things immediately”：
-1. 向 .gitignore 添加合适行
-2. 提交该变更
-3. 继续创建 worktree
-
-**为什么关键：** 防止意外把 worktree 内容提交到仓库。
-
-### 对全局目录（~/.config/superpowers/worktrees）
-
-不需要 .gitignore 验证：它完全在项目外部。
-
-## 创建步骤
-
-### 1. 检测项目名称
-
-```bash
-project=$(basename "$(git rev-parse --show-toplevel)")
-```
-
-### 2. 创建 Worktree
-
-```bash
-# Determine full path
-case $LOCATION in
-  .worktrees|worktrees)
-    path="$LOCATION/$BRANCH_NAME"
-    ;;
-  ~/.config/superpowers/worktrees/*)
-    path="~/.config/superpowers/worktrees/$project/$BRANCH_NAME"
-    ;;
-esac
-
-# Create worktree with new branch
-git worktree add "$path" -b "$BRANCH_NAME"
 cd "$path"
+git status --short
+make install-hooks
 ```
 
-### 3. 运行项目设置
+如果 `.worktrees/` 意外未被忽略，停止并请用户确认是否允许修改 `.gitignore`。不要自动修改 `.gitignore`，更不要自动提交治理文件。
 
-自动检测并运行合适的设置：
+## 基线验证
 
-```bash
-# Node.js
-if [ -f package.json ]; then npm install; fi
+按任务面选择轻量基线，不要无脑跑全量：
 
-# Rust
-if [ -f Cargo.toml ]; then cargo build; fi
+| 改动面 | 基线 |
+|---|---|
+| Go 包 | `./scripts/test_with_guard.sh <affected packages> -count=1` |
+| guard/archtest | `./scripts/test_with_guard.sh ./internal/archtest -count=1` 或 `make guard` |
+| frontend-app | `cd frontend-app && npm run lint && npm test && npm run build` |
+| SQL/store | `make sqlc-verify` |
+| docs-only/skills-only | `git diff --check` + 对应技能/文档校验 |
 
-# Python
-if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
-if [ -f pyproject.toml ]; then poetry install; fi
-
-# Go
-if [ -f go.mod ]; then go mod download; fi
-```
-
-### 4. 验证干净基线
-
-运行测试，确保 worktree 初始状态干净：
-
-```bash
-# Examples - use project-appropriate command
-npm test
-cargo test
-pytest
-go test ./...
-```
-
-**如果测试失败：** 报告失败，询问是否继续或调查。
-
-**如果测试通过：** 报告已准备好。
-
-### 5. 报告位置
-
-```
-Worktree ready at <full-path>
-Tests passing (<N> tests, 0 failures)
-Ready to implement <feature-name>
-```
-
-## 快速参考
-
-| 情况 | 动作 |
-|-----------|--------|
-| `.worktrees/` 存在 | 使用它（验证被忽略） |
-| `worktrees/` 存在 | 使用它（验证被忽略） |
-| 两者都存在 | 使用 `.worktrees/` |
-| 两者都不存在 | 检查 CLAUDE.md → 询问用户 |
-| 目录未被忽略 | 添加到 .gitignore + 提交 |
-| 基线测试失败 | 报告失败 + 询问 |
-| 没有 package.json/Cargo.toml | 跳过依赖安装 |
-
-## 常见错误
-
-### 跳过忽略验证
-
-- **问题：** worktree 内容被跟踪，污染 git 状态
-- **修复：** 创建项目本地 worktree 前始终使用 `git check-ignore`
-
-### 假设目录位置
-
-- **问题：** 制造不一致，违反项目约定
-- **修复：** 遵循优先级：现有 > CLAUDE.md > 询问
-
-### 带着失败测试继续
-
-- **问题：** 无法区分新 bug 和既有问题
-- **修复：** 报告失败，取得明确许可后再继续
-
-### 硬编码设置命令
-
-- **问题：** 在使用不同工具的项目上失败
-- **修复：** 根据项目文件自动检测（package.json 等）
-
-## 示例工作流
-
-```
-You: 我正在使用 使用git工作区 技能来设置隔离工作区。
-
-[Check .worktrees/ - exists]
-[Verify ignored - git check-ignore confirms .worktrees/ is ignored]
-[Create worktree: git worktree add .worktrees/auth -b feature/auth]
-[Run npm install]
-[Run npm test - 47 passing]
-
-Worktree ready at /Users/jesse/myproject/.worktrees/auth
-Tests passing (47 tests, 0 failures)
-Ready to implement auth feature
-```
+基线失败时报告具体命令和失败摘要，征得用户方向后再继续。
 
 ## 红旗
 
-**绝不要：**
-- 未验证被忽略就创建 worktree（项目本地）
-- 跳过基线测试验证
-- 未询问就带着失败测试继续
-- 在含糊时假设目录位置
-- 跳过 CLAUDE.md 检查
+绝不要：
 
-**始终：**
-- 遵循目录优先级：现有 > CLAUDE.md > 询问
-- 对项目本地目录验证其被忽略
-- 自动检测并运行项目设置
-- 验证干净测试基线
+- 未经用户明确同意就在 main/master 上开始实现。
+- 使用 `git add .`、`git reset --hard`、`git checkout --` 清理问题。
+- 自动修改 `.gitignore`、hooks、baseline 或 policy 文件来“顺手修好”。
+- 把 unrelated dirty 文件带进 worktree 任务提交。
+- 基线失败还继续声称 worktree ready。
 
-## 集成
+## 收口
 
-**被以下技能调用：**
-- **头脑风暴**（阶段 4）：设计获批并进入实现时必需
-- **子代理驱动开发**：执行任何任务前必需
-- **执行计划**：执行任何任务前必需
-- 任何需要隔离工作区的技能
-
-**配合：**
-- **结束开发分支**：工作完成后必需，用于清理
+完成后交给 `结束开发分支` 技能处理验证、提交、PR 或保留 worktree。不要擅自删除 worktree 或分支。

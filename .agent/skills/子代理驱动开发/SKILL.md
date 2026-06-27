@@ -12,6 +12,8 @@ aliases: ["@子代理驱动开发", "@子代理开发", "@subagent-driven-develo
 
 **核心原则：** 每个任务使用新子代理 + 两阶段审查（先规格、后质量）= 高质量、快速迭代
 
+**super-agent-v3 编排选择：** 子代理生命周期不强制绑定 mcp-orch。优先使用当前平台可用的原生子代理能力；只有任务需要持久 DAG、重试、租约、cron/wakeup 或结构化交接记录时，才可选使用 `task_create_dag`、`task_start_dag`、`task_dispatch_node`、`task_update_node`。缺少 mcp-go-agent-orchestration 工具不是阻断条件；继续使用可用的子代理能力，或在不适合派发时改为当前会话执行并说明观测限制。
+
 ## 何时使用
 
 ```dot
@@ -49,27 +51,27 @@ digraph process {
         "Dispatch implementer subagent (./implementer-prompt.md)" [shape=box];
         "Implementer subagent asks questions?" [shape=diamond];
         "Answer questions, provide context" [shape=box];
-        "Implementer subagent implements, tests, commits, self-reviews" [shape=box];
+        "Implementer subagent implements, tests, commits, self-reviews; record status" [shape=box];
         "Dispatch spec reviewer subagent (./spec-reviewer-prompt.md)" [shape=box];
         "Spec reviewer subagent confirms code matches spec?" [shape=diamond];
         "Implementer subagent fixes spec gaps" [shape=box];
         "Dispatch code quality reviewer subagent (./code-quality-reviewer-prompt.md)" [shape=box];
         "Code quality reviewer subagent approves?" [shape=diamond];
         "Implementer subagent fixes quality issues" [shape=box];
-        "Mark task complete in TodoWrite" [shape=box];
+        "Mark task done and update_plan complete" [shape=box];
     }
 
-    "Read plan, extract all tasks with full text, note context, create TodoWrite" [shape=box];
+    "Read plan, extract all tasks with full text, note context, choose dispatch path + update_plan" [shape=box];
     "More tasks remain?" [shape=diamond];
     "Dispatch final code reviewer subagent for entire implementation" [shape=box];
     "Use superpowers:结束开发分支" [shape=box style=filled fillcolor=lightgreen];
 
-    "Read plan, extract all tasks with full text, note context, create TodoWrite" -> "Dispatch implementer subagent (./implementer-prompt.md)";
+    "Read plan, extract all tasks with full text, note context, choose dispatch path + update_plan" -> "Dispatch implementer subagent (./implementer-prompt.md)";
     "Dispatch implementer subagent (./implementer-prompt.md)" -> "Implementer subagent asks questions?";
     "Implementer subagent asks questions?" -> "Answer questions, provide context" [label="yes"];
     "Answer questions, provide context" -> "Dispatch implementer subagent (./implementer-prompt.md)";
-    "Implementer subagent asks questions?" -> "Implementer subagent implements, tests, commits, self-reviews" [label="no"];
-    "Implementer subagent implements, tests, commits, self-reviews" -> "Dispatch spec reviewer subagent (./spec-reviewer-prompt.md)";
+    "Implementer subagent asks questions?" -> "Implementer subagent implements, tests, commits, self-reviews; record status" [label="no"];
+    "Implementer subagent implements, tests, commits, self-reviews; record status" -> "Dispatch spec reviewer subagent (./spec-reviewer-prompt.md)";
     "Dispatch spec reviewer subagent (./spec-reviewer-prompt.md)" -> "Spec reviewer subagent confirms code matches spec?";
     "Spec reviewer subagent confirms code matches spec?" -> "Implementer subagent fixes spec gaps" [label="no"];
     "Implementer subagent fixes spec gaps" -> "Dispatch spec reviewer subagent (./spec-reviewer-prompt.md)" [label="re-review"];
@@ -77,8 +79,8 @@ digraph process {
     "Dispatch code quality reviewer subagent (./code-quality-reviewer-prompt.md)" -> "Code quality reviewer subagent approves?";
     "Code quality reviewer subagent approves?" -> "Implementer subagent fixes quality issues" [label="no"];
     "Implementer subagent fixes quality issues" -> "Dispatch code quality reviewer subagent (./code-quality-reviewer-prompt.md)" [label="re-review"];
-    "Code quality reviewer subagent approves?" -> "Mark task complete in TodoWrite" [label="yes"];
-    "Mark task complete in TodoWrite" -> "More tasks remain?";
+    "Code quality reviewer subagent approves?" -> "Mark task done and update_plan complete" [label="yes"];
+    "Mark task done and update_plan complete" -> "More tasks remain?";
     "More tasks remain?" -> "Dispatch implementer subagent (./implementer-prompt.md)" [label="yes"];
     "More tasks remain?" -> "Dispatch final code reviewer subagent for entire implementation" [label="no"];
     "Dispatch final code reviewer subagent for entire implementation" -> "Use superpowers:结束开发分支";
@@ -131,7 +133,7 @@ You: 我正在使用子代理驱动开发来执行这份计划。
 
 [Read plan file once: docs/superpowers/plans/feature-plan.md]
 [Extract all 5 tasks with full text and context]
-[Create TodoWrite with all tasks]
+[Choose native subagent dispatch or optional mcp-orch; create update_plan with all tasks]
 
 Task 1: Hook installation script
 
@@ -155,7 +157,7 @@ Spec reviewer: ✅ Spec compliant - all requirements met, nothing extra
 [Get git SHAs, dispatch code quality reviewer]
 Code reviewer: Strengths: Good test coverage, clean. Issues: None. Approved.
 
-[Mark Task 1 complete]
+[Record status; if using mcp-orch, task_update_node status=done; mark Task 1 complete]
 
 Task 2: Recovery modes
 
@@ -236,6 +238,8 @@ Done!
 
 **绝不要：**
 - 未经用户明确同意就在 main/master 分支上开始实现
+- 如果本轮已经选择 mcp-orch，却跳过 `task_create_dag` / `task_start_dag` / `task_dispatch_node` / `task_update_node` 状态记录
+- 未使用 mcp-orch 时伪造 DAG/node/run 证据
 - 跳过审查（规格符合性或代码质量）
 - 带着未修复问题继续
 - 并行派发多个实现子代理（会冲突）

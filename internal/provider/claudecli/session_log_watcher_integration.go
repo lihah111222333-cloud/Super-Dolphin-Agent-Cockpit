@@ -242,6 +242,8 @@ func (s *session) logRestartLocked(reason string, next stagedSessionState, resum
 	)
 }
 
+// prepareSessionRestartLocked 启动候选 Claude transport 并准备 session 切换。
+// 新进程必须先写入 PID registry，写入失败会停止候选进程并保留当前 session。
 func (s *session) prepareSessionRestartLocked(ctx context.Context, next stagedSessionState, resumeID, reason string) (preparedSessionRestart, error) {
 	baseInstructions := promptSnapshotBaseInstructions(next.config.PromptSnapshot, s.instructions)
 	fn := s.launchCLI
@@ -260,6 +262,13 @@ func (s *session) prepareSessionRestartLocked(ctx context.Context, next stagedSe
 	if err != nil {
 		return preparedSessionRestart{}, err
 	}
+	if err := registerTransportPID(s.pidRegistry, tr, s.agentID); err != nil {
+		shared.LogIgnoredError(s.logger, "stop failed on restart pid registry registration error", stopTransport(tr, true))
+		if cleanup != nil {
+			cleanup()
+		}
+		return preparedSessionRestart{}, err
+	}
 	prepared := preparedSessionRestart{
 		transport: tr,
 		cleanup:   cleanup,
@@ -267,7 +276,6 @@ func (s *session) prepareSessionRestartLocked(ctx context.Context, next stagedSe
 	}
 	prepared.waitCtx, prepared.generation = s.beginRestartWaitLocked(ctx)
 	prepared.patch = s.statusPatchRawEventLocked("syncing", "Claude 重启中…", restartStatusDetails(reason))
-	registerTransportPID(s.pidRegistry, tr, s.agentID)
 	s.swapRestartTransportLocked(tr, cleanup, next, resumeID)
 	return prepared, nil
 }

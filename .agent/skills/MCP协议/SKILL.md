@@ -1,80 +1,60 @@
 ---
 name: "MCP协议"
 display_name: "MCP协议"
-description: "当你需要在 Go 后端实现或维护 MCP Server、注册工具或资源、排查 stdio 或 HTTP 传输连接问题时使用。"
-trigger_words: ["mcp-server-patterns", "MCP", "Model Context Protocol", "mcp server", "stdio", "HTTP transport", "tool", "resource", "prompt", "协议"]
+description: "当你需要在 super-agent-v3 中实现或维护 cmd/mcp-* sidecar、MCP tools/resources、stdio MCP、legacy HTTP MCP 或 provider MCP 配置时使用。"
+trigger_words: ["mcp-server-patterns", "MCP", "Model Context Protocol", "mcp server", "stdio MCP", "legacy HTTP", "tool", "resource", "prompt", "协议"]
 ---
 
-# MCP 协议与服务模式 (MCP Server Patterns)
+# MCP 协议与服务模式
 
-## Overview
-Model Context Protocol (MCP) 允许 AI 助手调用工具、读取资源和使用来自服务器的提示词。本技能专门用于指导在 `super-agent-v3` 中使用 Go 语言开发和维护 MCP Server。
+## 仓库事实
 
-## When to Use
-- **症状与用例**:
-  - 需要实现新的 MCP Server。
-  - 为现有 Server 注册新的 Tools（工具）或 Resources（资源）。
-  - 处理 stdio 与 Streamable HTTP 的传输层协议问题。
-  - MCP 连接建立失败或传输中断时的排障。
-- **何时不要使用 (When NOT to use)**:
-  - 若需求可以通过纯 CLI 或简单脚本完成，不需要双向上下文交互时，无需强行包装为 MCP Server。
+super-agent-v3 的 MCP 实现以源码和契约为准：
 
-## Core Pattern: 传输解耦 (Transport Decoupling)
-保持 Server 的业务逻辑独立于传输层，方便灵活切换。
+- sidecar 入口：`cmd/mcp-orch`、`cmd/mcp-lsp`、`cmd/mcp-ida`。
+- 通用协议层：`internal/mcpserver/common`，包括 stdio transport、JSON-RPC server、tool provider、legacy HTTP transport。
+- 当前工具执行主路径是 **stdio MCP**；`legacy HTTP` 仅保留给旧调用方或 peer mode 包装，不应作为新功能默认路径。
+- mcp-orch 负责编排、DAG、workspace、prompt、command card、shared file 等工具出口；DAG 工具必须遵守 `task_create_dag` / `task_dag_apply_ops` / `task_update_node` 的状态与版本约束。
+- mcp-lsp 是 generic multi-language LSP peer，不要把它写成单语言服务。
 
-**Before (强耦合 HTTP)**:
-```go
-func HandleMCP(w http.ResponseWriter, r *http.Request) {
-    // 业务逻辑与 HTTP 强绑定
-}
-```
+## 何时使用
 
-**After (业务与传输解耦)**:
-```go
-s := server.NewMCPServer("go-agent-orchestration", "1.0.0")
-s.AddTool(...) // 纯业务逻辑
-// 仅在入口点绑定 HTTP
-handler := server.NewHTTPServer(s)
-```
+- 新增或修改 `cmd/mcp-*` 工具、schema、handler、manifest、bootstrap 或 transport。
+- 排查 stdio MCP framing、stdout 污染、Content-Length、JSON-RPC 错误码、tool payload envelope。
+- 修改 provider 侧 MCP server config、turn manifest、stdio command allowlist、HTTP/stdio 配置合并。
+- 审查 mcp-orch DAG/wakeup/lease 工具是否正确写入状态。
 
-## Quick Reference
-| 概念 | 用途与本项目约定 |
-| :--- | :--- |
-| **Tools (工具)** | 模型可调用的动作。**必须**具有强类型的 JSON Schema 参数校验。 |
-| **Resources (资源)** | 提供大纲、诊断结果等只读数据。通过 `uri` 参数识别。 |
-| **stdio 传输** | 主要用于本地客户端环境连接。 |
-| **HTTP 传输** | **本项目（如 `orchestration_http.go`）的核心配置**，用于远程服务调用。 |
-| **Idempotency** | 工具尽可能设计为幂等，防止多次重试造成破坏。 |
+## 快速参考
 
-## Implementation
-基于 Go 语言的 MCP Server 初始化示例：
+| 场景 | 正确入口 |
+|---|---|
+| 新增 mcp-orch 工具 | `cmd/mcp-orch/tools` + registry/provider 映射 + 同包测试 |
+| 新增 mcp-lsp 工具 | `cmd/mcp-lsp/tools` + `cmd/mcp-lsp/tools.go` 注册 + LSP/handler 测试 |
+| 协议层变更 | `internal/mcpserver/common`，同时验证 stdio 与 legacy HTTP 行为是否保持兼容 |
+| provider MCP 配置 | `internal/provider/shared/config_helpers.go`、`internal/module/turn/*manifest*` |
+| DAG 生命周期 | `cmd/mcp-orch/orchestration`、`cmd/mcp-orch/store/taskdag`、`cmd/mcp-orch/sql/queries/task_dag*` |
 
-```go
-import (
-    "context"
-    "github.com/mark3labs/mcp-go/server"
-    "github.com/mark3labs/mcp-go/mcp"
-)
+## 实现规则
 
-s := server.NewMCPServer("go-agent-orchestration", "1.0.0")
+1. stdout 属于 MCP stdio 帧；普通日志、panic、fmt 调试输出必须走 stderr 或日志文件。
+2. 工具参数必须 schema-first、强校验、fail-fast；不要用 `map[string]any` 静默吞字段。
+3. stdio 和 legacy HTTP 共享语义时，错误 envelope、payload 日志和 scope 不能分叉。
+4. provider 配置只接受 `stdio` 或 `http` transport；未知 transport 必须报错。
+5. 修改 DAG 工具时必须处理版本冲突、running/active run 下的节点结构变更限制，以及 done/failed 状态的下游影响。
 
-tool := mcp.NewTool("example_tool",
-    server.WithDescription("Tool description"),
-    server.WithString("param1", server.Required(), server.Description("param description")),
-)
+## 验证
 
-s.AddTool(tool, func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-    param1 := request.Arguments["param1"].(string)
-    result := doSomething(param1)
-    // 遵循无状态错误收口契约
-    return mcp.NewToolResultText(result), nil
-})
-```
+- Go 文件变更后先跑单文件守卫：`./scripts/test_with_guard.sh <file.go>`。
+- MCP sidecar/tool contract 改动至少跑受影响包：`./scripts/test_with_guard.sh ./cmd/mcp-orch ./internal/mcpserver/common -count=1`，按实际改动替换包列表。
+- provider/turn manifest 改动跑对应 provider/module 包测试。
+- 如果改了 SQL/store，追加 `make sqlc-verify`。
 
-## Common Mistakes
-- **错误**: 把 Raw Stack Traces 直接通过 Error 抛给大模型。
-  **修复**: 将错误信息结构化，返回给模型的应该是有助于诊断的语义化信息，严格遵循本项目的错误处理收口（p1-F）契约。
-- **错误**: 注册修改系统文件或执行系统命令的高危 Tool，但未提供审计确认。
-  **修复**: 必须在 Tool 执行前集成拦截器，例如检查修改行数 (`replace_range < 15`) 或对接“交易守卫系统”进行审批。
-- **错误**: Schema 定义过于宽松，允许 `map[string]any` 接收任意参数。
-  **修复**: 必须使用 `server.WithString` 等明确参数类型，强制 Schema First。
+## 常见错误
+
+| 错误 | 修正 |
+|---|---|
+| 把 HTTP transport 当新工具默认路径 | 新工具默认 stdio MCP；legacy HTTP 只保持兼容 |
+| stdout 打印日志 | 改为 stderr/log，避免破坏 MCP 帧 |
+| tool handler 接受任意 map 后默认空值 | 明确 schema 和字段校验，缺字段立即报错 |
+| 手写“已排程”但只改 metadata | scheduled DAG 必须通过 `task_dag_apply_ops(update_dag)` 写 trigger/cron |
+| 在 running DAG 上 add/update/remove node | 结构变更应 fail-fast；只允许受支持的 future metadata 更新 |

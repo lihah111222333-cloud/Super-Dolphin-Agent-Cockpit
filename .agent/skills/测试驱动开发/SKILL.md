@@ -116,7 +116,14 @@ test('retry works', async () => {
 **强制执行。绝不要跳过。**
 
 ```bash
-npm test path/to/test.test.ts
+# Go 单文件改动
+./scripts/test_with_guard.sh path/to/file.go
+
+# Go 包改动
+./scripts/test_with_guard.sh ./affected/package -count=1
+
+# frontend-app 改动
+cd frontend-app && npm test -- path/to/test.test.ts
 ```
 
 确认：

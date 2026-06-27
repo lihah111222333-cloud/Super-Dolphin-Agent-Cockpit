@@ -99,7 +99,10 @@ func assertNoError(t *testing.T, err error) {
 
 // MUST 使用 t.Cleanup() 清理资源
 func setupTestDB(t *testing.T) *sql.DB {
-    db, _ := sql.Open("sqlite3", ":memory:")
+    db, err := sql.Open("sqlite", ":memory:")
+    if err != nil {
+        t.Fatalf("open test sqlite db: %v", err)
+    }
     t.Cleanup(func() { db.Close() }) // 自动在测试结束时执行
     return db
 }

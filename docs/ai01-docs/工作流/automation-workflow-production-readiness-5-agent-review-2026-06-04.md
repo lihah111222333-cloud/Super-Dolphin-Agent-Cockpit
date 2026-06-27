@@ -27,7 +27,7 @@
 Agent 调度说明：
 
 - 已拉起 5 个只读审查 agent。
-- 当前会话可用的是 `multi_agent_v1` 子代理工具；仓库 AGENTS.md 要求的 `mcp-go-agent-orchestration` 生命周期工具未暴露在本轮工具面，因此本次以 `multi_agent_v1` 完成并在主会话中复核证据。
+- 当前会话可用的是 `multi_agent_v1` 子代理工具，这是允许的原生子代理路径；本次以 `multi_agent_v1` 完成并在主会话中复核证据，未记录持久 mcp-orch DAG 生命周期。
 - 5 个 agent 分工：
   - Agent 1：shell 启动、热重载、devserver readiness。
   - Agent 2：Go/Wails 后端、HTTP/RPC bridge、生命周期。

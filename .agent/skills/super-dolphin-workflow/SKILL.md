@@ -1,6 +1,6 @@
 ---
 name: super-dolphin-workflow
-description: "Use when working in /Users/ai/Desktop/Super-Dolphin on the user's recurring operations: inspecting current work status, implementing approved plans, fixing bugs with minimal verified changes, running CodeTrust-style audits plus repo-native checks, validating frontend-app or Go backend changes, updating/committing local main only when explicitly requested, or creating/updating repo-local skills."
+description: "Use when working in /Users/mima0000/Desktop/wj/super-agent-v3 on the user's recurring operations: inspecting current work status, implementing approved plans, fixing bugs with minimal verified changes, running CodeTrust-style audits plus repo-native checks, validating frontend-app or Go backend changes, updating/committing local main only when explicitly requested, or creating/updating repo-local skills."
 ---
 
 # Super Dolphin Workflow

@@ -165,11 +165,12 @@ func TestUpsertForwardsPayloadAndMapsRow(t *testing.T) {
 		upsertFn: func(_ context.Context, arg sqlc.UpsertSharedFileParams) (sqlc.SharedFile, error) {
 			captured = arg
 			return sqlc.SharedFile{
-				Path:      arg.Path,
-				Content:   arg.Content,
-				UpdatedBy: arg.UpdatedBy,
-				CreatedAt: now.UnixMilli(),
-				UpdatedAt: now.UnixMilli(),
+				Path:            arg.Path,
+				Content:         arg.Content,
+				ContentLocation: arg.ContentLocation,
+				UpdatedBy:       arg.UpdatedBy,
+				CreatedAt:       now.UnixMilli(),
+				UpdatedAt:       now.UnixMilli(),
 			}, nil
 		},
 	}, emitSharedFilesChanged: func(ev uidto.UISharedFilesChanged) { emitted = ev }}
@@ -181,13 +182,44 @@ func TestUpsertForwardsPayloadAndMapsRow(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Upsert() unexpected error: %v", err)
 	}
-	if captured.Path != "reports/demo.md" || captured.Content != "hello" || captured.UpdatedBy != "system" {
+	if captured.Path != "reports/demo.md" || captured.Content != "hello" || captured.ContentLocation != contentLocationInline || captured.UpdatedBy != "system" {
 		t.Fatalf("Upsert() forwarded wrong params: %+v", captured)
 	}
 	if got == nil || got.Path != captured.Path || got.Content != "hello" || got.UpdatedBy != "system" {
 		t.Fatalf("Upsert() row mapped incorrectly: %+v", got)
 	}
 	assertSharedFilesChangedEvent(t, emitted, "reports/demo.md", "write")
+}
+
+func TestUpsertWritesContentLocationToRealSQLite(t *testing.T) {
+	t.Parallel()
+
+	db := openSharedFileSQLite(t)
+	execSharedFileSQL(t, db, `CREATE TABLE shared_files (
+		path TEXT PRIMARY KEY,
+		content TEXT NOT NULL,
+		content_location TEXT NOT NULL DEFAULT 'inline' CHECK (content_location IN ('inline', 'disk')),
+		updated_by TEXT NOT NULL,
+		created_at INTEGER NOT NULL,
+		updated_at INTEGER NOT NULL
+	);`)
+	s := &store{q: sqlc.New(db)}
+
+	_, err := s.Upsert(context.Background(), UpsertParams{
+		Path:      "reports/demo.md",
+		Content:   "hello",
+		UpdatedBy: "system",
+	})
+	if err != nil {
+		t.Fatalf("Upsert() unexpected error: %v", err)
+	}
+	var got string
+	if err := db.QueryRow(`SELECT content_location FROM shared_files WHERE path = ?`, "reports/demo.md").Scan(&got); err != nil {
+		t.Fatalf("query content_location: %v", err)
+	}
+	if got != contentLocationInline {
+		t.Fatalf("content_location = %q, want %q", got, contentLocationInline)
+	}
 }
 
 func TestUpsertWrapsQuerierError(t *testing.T) {

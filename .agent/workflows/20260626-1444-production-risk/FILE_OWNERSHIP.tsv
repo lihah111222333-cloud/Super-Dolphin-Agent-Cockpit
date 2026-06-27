@@ -1,0 +1,67 @@
+path	owner_task	mode	notes
+cmd/mcp-lsp/multilsp/	L01	RW	transport tests and implementation only
+cmd/mcp-lsp/installer/	L01	RW	installer timeout tests and implementation
+cmd/mcp-lsp/manager/	L01	RW	diagnostics unsupported language behavior
+cmd/mcp-lsp/search/	L01	RW	search limiter tests and implementation
+cmd/mcp-orch/orchestration/	L02	RW	DAG terminal retry and turn id behavior
+cmd/mcp-orch/tools/task_tools.go	L02	RW	task_update_node lease fencing
+cmd/mcp-orch/tools/task_tool_definitions.go	L02	RW	task tool schema changes
+cmd/mcp-orch/sql/queries/task_dag_node_runtime.sql	L02	RW	lease fencing query changes
+cmd/mcp-orch/sql/queries/task_dag_wakeup_dispatch.sql	L02	RW	retry policy max attempts query changes
+cmd/mcp-orch/store/taskdag/contract.go	L02	RW	APPROVED expansion for RetryWakeupInput max-attempt parameter only
+cmd/mcp-orch/store/taskdag/store_wakeup.go	L02	RW	APPROVED expansion for RetryWakeup max-attempt parameter only
+cmd/mcp-orch/store/sqlc/task_dag_wakeup_dispatch.sql.go	L02	RW	APPROVED generated sqlc change from task_dag_wakeup_dispatch.sql only
+cmd/mcp-orch/orchestration/wakeup_dispatcher.go	L02	RW	APPROVED expansion for passing retry policy hard-cap into RetryWakeup only
+cmd/mcp-orch/tools/workspace_tools.go	L03	RW	workspace_create_run root validation
+cmd/mcp-orch/workspace/	L03	RW	workspace service and merge validation
+cmd/mcp-orch/store/sharedfile/	L03	RW	sharedfile store and tests
+internal/platform/sharedfilefs/disk.go	L03	RW	disk-only missing content fail-fast
+internal/provider/codexapp/server_pool.go	L04	RW	server pool in-flight spawn handling
+internal/provider/codexapp/recovery.go	L04	RW	replay confirmation behavior
+internal/provider/codexapp/transport.go	L04	RW	session transport report behavior
+internal/provider/codexapp/driver_pool_routing.go	L04	RW	driver routing behavior
+internal/provider/codexapp/support.go	L04	RW	native tool policy validation
+internal/provider/codexapp/*pidregistry*_test.go	L11	RW	L11 owns pidregistry-specific codexapp tests
+internal/provider/codexapp/*_test.go	L04	RW	L04 owns codexapp tests except pidregistry-specific tests
+internal/provider/claudecli/	L05	RW	Claude CLI fail-fast tests and implementation
+internal/provider/unified/	L06	RW	unified provider resolver tests and implementation
+internal/module/cron/	L07	RW	cron terminal/finalize tests and implementation
+internal/module/appupdate/	L07	RW	appupdate download size and timeout behavior
+internal/module/datasource_v2/	L08	RW	datasource v2 import/list/PDF caps
+internal/module/datasource/	L08	RW	datasource import/PDF caps
+internal/module/mcp_server/	L08	RW	MCP server stdio/sqlite/http tools boundaries
+internal/platform/httpegress/	L08	RW	redirect and resolved IP policy
+sql/queries/audit_log.sql	L09	RW	audit extra query
+sql/queries/session_insight.sql	L09	RW	insight query limit behavior
+internal/store/auditlog/	L09	RW	audit extra roundtrip
+internal/store/sqlc/audit_log.sql.go	L09	RW	APPROVED generated sqlc update from sql/queries/audit_log.sql only
+internal/store/dbquery/	L09	RW	normalized SQL execution
+internal/store/insight/	L09	RW	insight list limit
+internal/module/dashboard/	L09	RW	dashboard logs and insights limit
+internal/platform/rpc/	L10	RW	push worker bounded queue
+internal/platform/hooks/	L10	RW	hooks dispatch bounded queue
+internal/platform/mcpcontrol/	L10	RW	config fanout bounded queue
+internal/mcpserver/common/	L10	RW	stdio message caps
+internal/platform/toolbridge/stdio_mcp_client.go	L10	RW	toolbridge stdio cap
+internal/platform/runner/contract.go	L10	RW	runner shutdown ctx
+internal/platform/config/	L11	RW	invalid env fail-fast
+internal/platform/cachekeepalive/	L11	RW	Fx shutdown error propagation
+internal/platform/pidregistry/	L11	RW	persist errors
+internal/provider/codexapp/pool_spawner.go	L11	RW	spawn failure cleanup
+internal/ui/wails/	L12	RW	dev proxy and clipboard tests/implementation
+run-new-ui-desktop.sh	L12	RW	loopback validation
+run-new-ui-desktop.ps1	L12	RW	loopback validation
+scripts/*new_ui_desktop*_test.go	L12	RW	script tests
+frontend-app/src/entities/client/model/runtimeSlice.js	L13	RW	runtime subscription retry
+frontend-app/src/shared/api/wailsBridge.js	L13	RW	subscribeRuntimeEvent contract
+frontend-app/src/entities/client/model/threadLifecycleRuntime.js	L13	RW	interrupt result handling
+frontend-app/src/entities/client/model/*runtime*.test.*	L13	RW	frontend runtime tests
+frontend-app/src/shared/api/*wailsBridge*.test.*	L13	RW	wails bridge tests
+internal/module/thread/	L14	RW	thread archive/fork/prompt tests and implementation
+internal/module/memory/	L15	RW	memory root/prefetch/module tests and implementation
+internal/module/memory/team/	L15	RW	team metadata errors
+internal/module/memory/retrieval/	L15	RW	prefetch errors
+internal/module/skill/	L16	RW	skill hash/mirror/import caps
+pkg/logger/	L17	RW	relay redaction tests and implementation
+cmd/mcp-ida/	L17	RW	payload redaction tests and implementation
+cmd/super-dolphin-updater/	L18	RW	command timeout and rollback tests/implementation
