@@ -248,30 +248,31 @@ app-cover-report:
 .PHONY: ci-l0 ci-l1 ci-l2-claude ci-l3-release install-hooks _hook_check protocol-sync-check rpc-regression-check
 
 # install-hooks: 一次性激活 .githooks/ 下的 pre-commit / commit-msg / pre-push
-# 用绝对路径写入 core.hooksPath，让 linked worktree 也能正确找到 hook
+# 用相对路径写入 core.hooksPath，让每个 linked worktree 都解析到自己的 .githooks
 # 检测到既有不同的 core.hooksPath 会先 warn，不阻断
-INSTALL_HOOKS_DIR := $(abspath .githooks)
+INSTALL_HOOKS_DIR := .githooks
+INSTALL_HOOKS_ABS_DIR := $(abspath $(INSTALL_HOOKS_DIR))
 install-hooks:
 	@CURRENT=$$(git config --get core.hooksPath 2>/dev/null || true); \
 	if [ -n "$$CURRENT" ] && [ "$$CURRENT" != "$(INSTALL_HOOKS_DIR)" ]; then \
 	  echo "⚠️  既有 core.hooksPath = $$CURRENT (将被覆盖为 $(INSTALL_HOOKS_DIR))"; \
 	fi
 	@git config core.hooksPath "$(INSTALL_HOOKS_DIR)"
-	@echo "✅ git hooks installed ($(INSTALL_HOOKS_DIR)/pre-commit + commit-msg + pre-push)"
+	@echo "✅ git hooks installed ($(INSTALL_HOOKS_DIR) -> $(INSTALL_HOOKS_ABS_DIR))"
 	@echo "   绕过仅限紧急（仓库规约 docs/1/会话习惯.md §10.12«禁止 bypass pre-commit hook»）：git commit/push --no-verify"
 
 # _hook_check: build 完成后的 hook 装设 + 路径有效性检查，warn-only 不阻断
-# 检 hooksPath 是否指向本仓库的 .githooks 且该路径真实存在；CI 可用 MAKE_HOOK_CHECK=0 短路提示
+# 检 hooksPath 是否使用 worktree-safe 的 .githooks 且该路径真实存在；CI 可用 MAKE_HOOK_CHECK=0 短路提示
 _hook_check:
 	@if [ "$(MAKE_HOOK_CHECK)" = "0" ]; then exit 0; fi; \
 	git rev-parse --is-inside-work-tree >/dev/null 2>&1 || exit 0; \
 	CURRENT=$$(git config --get core.hooksPath 2>/dev/null || true); \
 	if [ -z "$$CURRENT" ]; then \
 	  echo "⚠️  git hooks 未装。推荐跑：make install-hooks"; \
-	elif [ "$$CURRENT" != "$(INSTALL_HOOKS_DIR)" ] && [ ! -d "$$CURRENT" ]; then \
-	  echo "⚠️  hooksPath 指向不存在的路径 ($$CURRENT) —— 仓库可能被重命名/移动。重装：make install-hooks"; \
+	elif [ "$$CURRENT" = "$(INSTALL_HOOKS_DIR)" ] && [ ! -d "$(INSTALL_HOOKS_DIR)" ]; then \
+	  echo "⚠️  hooksPath 指向不存在的路径 ($(INSTALL_HOOKS_DIR)) —— 请确认在仓库根目录并重装：make install-hooks"; \
 	elif [ "$$CURRENT" != "$(INSTALL_HOOKS_DIR)" ]; then \
-	  echo "⚠️  git hooks 路径过期。推荐跑：make install-hooks"; \
+	  echo "⚠️  hooksPath 不是 worktree-safe 的 $(INSTALL_HOOKS_DIR)（当前：$$CURRENT）。推荐跑：make install-hooks"; \
 	fi
 
 ci-l0:

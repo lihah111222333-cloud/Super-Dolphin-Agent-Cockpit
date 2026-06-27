@@ -11,10 +11,10 @@ clone 仓库后必须跑一次：
 make install-hooks
 ```
 
-底层做的事：`git config core.hooksPath /仓库绝对路径/.githooks`（仅本仓库 local 配置，不影响别仓）。
+底层做的事：`git config core.hooksPath .githooks`（仅本仓库 local 配置，不影响别仓）。
 
-> 用**绝对路径**是为了让 `git worktree add` 创建的 linked worktree 也能正确找到 hook。
-> 仓库被重命名/移动后需重跑 `make install-hooks` 更新路径。
+> 用**相对路径**是为了让 `git worktree add` 创建的 linked worktree 在各自工作区根目录解析 `.githooks`。
+> 如果旧配置仍指向主仓绝对路径，进 linked worktree 后重跑 `make install-hooks`。
 
 之后所有 `git commit` / `git push` 自动经过对应 hook。
 
@@ -116,7 +116,7 @@ FAIL  github.com/.../internal/app    0.5s
 | 现象 | 检查命令 |
 |---|---|
 | commit 一直被拒看不懂错误 | `bash .githooks/pre-commit` 直接跑一遍看完整输出；fix-test 规则可用 `bash .githooks/commit-msg .git/COMMIT_EDITMSG` 复现 |
-| 想确认 hook 装没装 | `git config --get core.hooksPath`（应输出本仓库的绝对路径 `.githooks`） |
+| 想确认 hook 装没装 | `git config --get core.hooksPath`（应输出 `.githooks`） |
 | 怀疑 hook 没执行 | `git commit -v` 看完整流程；或临时 `git commit --no-verify` 比对 |
 | build/test 时看到"git hooks 未装"提示 | 跑一次 `make install-hooks` |
 
