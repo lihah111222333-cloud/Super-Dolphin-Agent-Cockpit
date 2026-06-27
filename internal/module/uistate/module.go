@@ -2,12 +2,14 @@ package uistate
 
 import (
 	"context"
+	"encoding/json"
 	"log/slog"
 	"strings"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/observability"
 	bindingstore "github.com/anthropic-ai/super-agent-v3/internal/store/binding"
+	sharedfilestore "github.com/anthropic-ai/super-agent-v3/internal/store/sharedfile"
 	"github.com/anthropic-ai/super-agent-v3/internal/store/uipreference"
 	"github.com/anthropic-ai/super-agent-v3/internal/util/historyjsonl"
 	"github.com/anthropic-ai/super-agent-v3/internal/util/identifier"
@@ -31,13 +33,15 @@ type serviceParams struct {
 	Logger        *slog.Logger
 	ThreadLister  contract.ThreadLister         `optional:"true"`
 	Agents        contract.OrchestrationService `optional:"true"`
-	Preferences   uipreference.Store
+	Preferences   preferenceStore
 	Bindings      bindingstore.Store                 `optional:"true"`
 	RuntimeConfig contract.ThreadRuntimeConfigReader `optional:"true"`
 	Trace         *observability.Service             `optional:"true"`
 }
 
 var Module = fx.Module("uistate",
+	fx.Provide(newPreferenceStoreAdapter),
+	fx.Provide(newSharedFileReaderAdapter),
 	fx.Provide(func(p serviceParams) (*service, Service, error) {
 		var rcl runtimeConfigLookup
 		if p.RuntimeConfig != nil {
@@ -62,6 +66,74 @@ func registerInitialStateLifecycle(lc fx.Lifecycle, svc *service) {
 			return svc.loadInitialState(ctx)
 		},
 	})
+}
+
+type preferenceStoreAdapter struct {
+	store uipreference.Store
+}
+
+// newPreferenceStoreAdapter 把持久化 store 收窄成 uistate 本地偏好端口。
+// store DTO 到 UI 端口 DTO 的转换集中在装配边界，避免业务文件直接依赖 store 包。
+func newPreferenceStoreAdapter(store uipreference.Store) preferenceStore {
+	if store == nil {
+		return nil
+	}
+	return &preferenceStoreAdapter{store: store}
+}
+
+// GetValue 转发单项偏好读取，并保留底层 store 的 not found 语义。
+func (a *preferenceStoreAdapter) GetValue(ctx context.Context, cwd, key string) (json.RawMessage, error) {
+	return a.store.GetValue(ctx, cwd, key)
+}
+
+// Upsert 将 uistate 本地写入 DTO 转换成 store DTO 后持久化。
+func (a *preferenceStoreAdapter) Upsert(ctx context.Context, params preferenceUpsertParams) error {
+	return a.store.Upsert(ctx, uipreference.UpsertParams{
+		Cwd:   params.Cwd,
+		Key:   params.Key,
+		Value: params.Value,
+	})
+}
+
+// List 将 store 偏好行转换成本地偏好行，避免 store DTO 泄露到业务文件。
+func (a *preferenceStoreAdapter) List(ctx context.Context, cwd string) ([]preferenceEntry, error) {
+	rows, err := a.store.List(ctx, cwd)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]preferenceEntry, len(rows))
+	for i, row := range rows {
+		out[i] = preferenceEntry{
+			Cwd:   row.Cwd,
+			Key:   row.Key,
+			Value: append(json.RawMessage(nil), row.Value...),
+		}
+	}
+	return out, nil
+}
+
+type sharedFileReaderAdapter struct {
+	reader sharedfilestore.Reader
+}
+
+// newSharedFileReaderAdapter 把 shared-file store 收窄成 LSP prompt hint 只读端口。
+func newSharedFileReaderAdapter(reader sharedfilestore.Reader) sharedFileReader {
+	if reader == nil {
+		return nil
+	}
+	return &sharedFileReaderAdapter{reader: reader}
+}
+
+// Get 读取 shared-file 并只暴露 uistate 需要的最小字段。
+func (a *sharedFileReaderAdapter) Get(ctx context.Context, path string) (*sharedFile, error) {
+	file, err := a.reader.Get(ctx, path)
+	if err != nil {
+		return nil, err
+	}
+	if file == nil {
+		return nil, nil
+	}
+	return &sharedFile{Path: file.Path, Content: file.Content}, nil
 }
 
 // bindingAdapter adapts binding.Store to the minimal bindingLookup interface.

@@ -174,16 +174,6 @@ var moduleStoreImportAllowlist = map[string]map[string]string{
 	"internal/module/threadprompt/runtime_intent.go": {
 		internalPrefix("internal/store/prompt"): "D01 legacy module-to-store import",
 	},
-	"internal/module/uistate/builtin_tools.go": {
-		internalPrefix("internal/store/uipreference"): "D01 legacy module-to-store import",
-	},
-	"internal/module/uistate/config_rpc.go": {
-		internalPrefix("internal/store/sharedfile"):   "D01 legacy module-to-store import",
-		internalPrefix("internal/store/uipreference"): "D01 legacy module-to-store import",
-	},
-	"internal/module/uistate/service.go": {
-		internalPrefix("internal/store/uipreference"): "D01 legacy module-to-store import",
-	},
 }
 
 type moduleStoreImportCollection struct {
