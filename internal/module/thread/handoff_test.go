@@ -91,7 +91,7 @@ func TestHandoff_LoadsNarrowSourceFields(t *testing.T) {
 			CodexThreadID:    "thread-src",
 		}},
 	}
-	src, err := s.loadThreadForHandoff(context.Background(), "thread-src")
+	src, _, err := s.loadThreadForHandoff(context.Background(), "thread-src")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -149,5 +149,112 @@ func TestHandoff_UsesSourceBindingProvider(t *testing.T) {
 	}
 	if result.SourceThreadID != "thread-src" || result.AgentKey != "reviewer" || result.NewThreadID == "" {
 		t.Fatalf("Handoff() result = %#v", result)
+	}
+}
+
+func TestHandoff_PreservesSourceCodexIdentity(t *testing.T) {
+	t.Parallel()
+
+	const (
+		instanceKey   = "qwen"
+		modelProvider = "openai-compatible-qwen"
+	)
+	codexHome := t.TempDir()
+	wantCodexHome := canonicalCodexHomeForTest(t, codexHome)
+	rolloutPath := writeExistingProviderHistoryFile(t)
+	sessions := &stubSessionProvider{}
+	starter := &startOnlySessionStarter{
+		onStart: func(_ context.Context, req dto.StartSessionRequest) (contract.Session, error) {
+			if req.Config[contract.CodexHomeKey] != wantCodexHome ||
+				req.Config[contract.CodexInstanceKeyKey] != instanceKey ||
+				req.Config[contract.CodexModelProviderKey] != modelProvider {
+				t.Fatalf("handoff start config identity = %#v, want source identity", req.Config)
+			}
+			session := &stubSession{threadID: "019d5f6b-fb3c-7760-9d6f-54005553f5b3", rolloutPath: rolloutPath}
+			sessions.session = session
+			return session, nil
+		},
+	}
+	source := &threadstore.Thread{
+		ThreadID: "thread-src",
+		AgentID:  "agent-src",
+		Cwd:      wantStartCWD(t),
+		Model:    "gpt-5.5",
+		Prompt:   "Source task",
+		ConfigOverride: mustStoredThreadConfigRaw(t, storedThreadConfig{
+			Runtime: map[string]any{
+				contract.CodexHomeKey:          codexHome,
+				contract.CodexInstanceKeyKey:   instanceKey,
+				contract.CodexModelProviderKey: modelProvider,
+			},
+		}),
+	}
+	bindings := &stubBindingStore{binding: &bindingstore.Binding{
+		AgentID:            "agent-src",
+		Provider:           "codex",
+		ProviderThreadID:   "thread-src",
+		CodexThreadID:      "thread-src",
+		CodexHome:          codexHome,
+		CodexInstanceKey:   instanceKey,
+		CodexModelProvider: modelProvider,
+		Cwd:                wantStartCWD(t),
+	}}
+	threads := &stubThreadStore{thread: source}
+	svc := NewService(silentLogger(), threads, bindings, sessions, starter, nil, &stubThreadOrchestration{}, nil).(*service)
+
+	result, err := svc.Handoff(context.Background(), HandoffRequest{
+		SourceThreadID: "thread-src",
+		TargetAgentKey: "reviewer",
+		InitialMessage: "review this",
+	})
+	if err != nil {
+		t.Fatalf("Handoff() error = %v", err)
+	}
+	if result.NewThreadID == "" || result.AgentKey != "reviewer" {
+		t.Fatalf("Handoff() result = %#v", result)
+	}
+	assertPersistedCodexIdentity(t, bindings.upsert, codexHome, instanceKey, modelProvider)
+	assertStoredRuntimeCodexIdentity(t, threads.upsert.ConfigOverride, codexHome, instanceKey, modelProvider)
+}
+
+func TestHandoff_RejectsPartialSourceCodexIdentity(t *testing.T) {
+	t.Parallel()
+
+	source := &threadstore.Thread{
+		ThreadID: "thread-src",
+		AgentID:  "agent-src",
+		Cwd:      wantStartCWD(t),
+		Model:    "gpt-5.5",
+	}
+	starter := &startOnlySessionStarter{
+		onStart: func(context.Context, dto.StartSessionRequest) (contract.Session, error) {
+			t.Fatal("StartSession should not be called when source codex identity is partial")
+			return nil, nil
+		},
+	}
+	svc := NewService(
+		silentLogger(),
+		&stubThreadStore{thread: source},
+		&stubBindingStore{binding: &bindingstore.Binding{
+			AgentID:          "agent-src",
+			Provider:         "codex",
+			ProviderThreadID: "thread-src",
+			CodexThreadID:    "thread-src",
+			CodexHome:        t.TempDir(),
+			Cwd:              wantStartCWD(t),
+		}},
+		&stubSessionProvider{},
+		starter,
+		nil,
+		&stubThreadOrchestration{},
+		nil,
+	).(*service)
+
+	_, err := svc.Handoff(context.Background(), HandoffRequest{
+		SourceThreadID: "thread-src",
+		TargetAgentKey: "reviewer",
+	})
+	if !errors.Is(err, contract.ErrCodexInstanceKeyRequired) {
+		t.Fatalf("Handoff() error = %v, want %v", err, contract.ErrCodexInstanceKeyRequired)
 	}
 }

@@ -577,7 +577,9 @@ func attachPromptKeyStale(resp *startResponse, stale bool) {
 
 // forkResponse 是 thread/fork 的 wire 响应。
 type forkResponse struct {
-	Thread threadInfo `json:"thread"`
+	Thread            threadInfo `json:"thread"`
+	KickoffState      string     `json:"kickoff_state,omitempty"`
+	KickoffStateCamel string     `json:"kickoffState,omitempty"`
 }
 
 // handoffResponse 是 thread/handoff 的 wire 响应，保留 snake/camel 双字段给不同 UI 版本读取。

@@ -72,9 +72,7 @@ type ServerPool struct {
 	flight  singleflight.Group
 }
 
-type poolEntryKey struct {
-	home, instanceKey, modelProvider, processPolicy, ownerKey string
-}
+type poolEntryKey struct{ home, instanceKey, modelProvider, processPolicy, ownerKey string }
 
 type poolEntry struct {
 	key                    poolEntryKey
@@ -293,6 +291,7 @@ func (p *ServerPool) EvictIdle() int {
 // Close 关闭池中所有 app-server，并阻止后续 Acquire。
 // 多次调用是幂等的；单个条目关闭失败会返回第一个错误。
 func (p *ServerPool) Close(ctx context.Context) error {
+	ctx = nonNilContext(ctx)
 	p.mu.Lock()
 	entries, alreadyClosed := p.snapshotCloseEntriesLocked()
 	p.mu.Unlock()
@@ -301,6 +300,12 @@ func (p *ServerPool) Close(ctx context.Context) error {
 	}
 	var firstErr error
 	for _, entry := range entries {
+		if err := ctx.Err(); err != nil {
+			if firstErr != nil {
+				return firstErr
+			}
+			return err
+		}
 		if entry.server == nil {
 			continue
 		}
@@ -326,11 +331,7 @@ func (p *ServerPool) snapshotCloseEntriesLocked() ([]*poolEntry, bool) {
 
 // Size 返回当前池条目数量。
 // 该值主要用于测试和轻量观测，读取时持锁保证一致快照。
-func (p *ServerPool) Size() int {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	return len(p.entries)
-}
+func (p *ServerPool) Size() int { p.mu.Lock(); defer p.mu.Unlock(); return len(p.entries) }
 
 // normalizePoolIdentity 规范化池 key 所需的 Codex 身份三元组。
 // home、instanceKey、modelProvider 任一缺失都直接报错，避免多个 provider 实例静默合并。
@@ -360,11 +361,7 @@ func closeWithTimeout(server SpawnedServer, timeout time.Duration, logger *slog.
 	ctx, cancel := withTimeout(context.Background(), timeout)
 	defer cancel()
 	if err := server.Close(ctx); err != nil {
-		logger.Debug("codexapp: pool close entry failed",
-			slog.String("codex_home", key.home),
-			slog.String("owner", key.ownerKey),
-			slog.String("error", err.Error()),
-		)
+		logger.Debug("codexapp: pool close entry failed", slog.String("codex_home", key.home), slog.String("owner", key.ownerKey), slog.String("error", err.Error()))
 	}
 }
 
