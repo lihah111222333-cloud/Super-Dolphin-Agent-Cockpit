@@ -85,7 +85,7 @@ func TestParentFxStartup(t *testing.T) {
 		fx.Provide(
 			newNoopSessionCleaner,
 			newNoopTurnStarter,
-			func(lc fx.Lifecycle, turnStarter orchestration.TurnStarter, logger *slog.Logger) orchestration.AgentLauncher {
+			func(lc fx.Lifecycle, turnStarter contract.OrchestrationTurnStarter, logger *slog.Logger) orchestration.AgentLauncher {
 				return orchestration.NewLocalLauncher(turnStarter, logger)
 			},
 			// service 强依赖 RunStore，父级启动测试也必须补齐 stub provider。

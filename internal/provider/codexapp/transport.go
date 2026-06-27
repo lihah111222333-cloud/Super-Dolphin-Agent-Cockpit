@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
+	"github.com/anthropic-ai/super-agent-v3/internal/util/safego"
 	"github.com/gorilla/websocket"
 )
 
@@ -339,7 +340,7 @@ func (s *transportServer) Close(ctx context.Context) error {
 	}
 	ctx = nonNilContext(ctx)
 	done := make(chan error, 1)
-	go func() { done <- s.t.shutdownTransport(true) }()
+	safego.Go(ctx, nil, "codexapp.transportServer.close", func(context.Context) { done <- s.t.shutdownTransport(true) })
 	select {
 	case err := <-done:
 		return err

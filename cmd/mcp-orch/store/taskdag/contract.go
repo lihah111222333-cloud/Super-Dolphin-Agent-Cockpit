@@ -215,12 +215,16 @@ type RecordNodeSpawnResult struct {
 	RunKey           string
 }
 
-// WakeupStore 管理 task_dag_wakeups 表的全生命周期：入队、认领、发送、绑定 turn、
-// 重试、失败和回收过期 dispatching 条目。
+// WakeupLeaseRenewer 只暴露 dispatching wakeup 的租约续约能力。
+type WakeupLeaseRenewer interface {
+	RenewWakeupLease(ctx context.Context, input RenewWakeupLeaseInput) (*Wakeup, int64, error)
+}
+
+// WakeupStore 管理 task_dag_wakeups 表的生命周期：入队、认领、发送、绑定 turn、
+// 重试、失败、查询和回收过期 dispatching 条目。续约能力由 WakeupLeaseRenewer 单独暴露。
 type WakeupStore interface {
 	EnqueueWakeup(ctx context.Context, input EnqueueWakeupInput) (int64, error)
 	ClaimDueWakeups(ctx context.Context, input ClaimDueWakeupsInput) ([]Wakeup, error)
-	RenewWakeupLease(ctx context.Context, input RenewWakeupLeaseInput) (*Wakeup, int64, error)
 	MarkWakeupSent(ctx context.Context, input MarkWakeupSentInput) (int64, error)
 	BindWakeupTurn(ctx context.Context, input BindWakeupTurnInput) (int64, error)
 	RetryWakeup(ctx context.Context, input RetryWakeupInput) (int64, error)

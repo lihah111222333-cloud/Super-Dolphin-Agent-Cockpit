@@ -48,9 +48,13 @@ func (s *store) ClaimDueWakeups(ctx context.Context, input ClaimDueWakeupsInput)
 }
 
 // RenewClaimedWakeupLease 用 ClaimDueWakeups 返回行组装 CAS 续约请求。
-func RenewClaimedWakeupLease(ctx context.Context, store WakeupStore, w *Wakeup, leaseInterval string) (*Wakeup, error) {
+func RenewClaimedWakeupLease(ctx context.Context, store any, w *Wakeup, leaseInterval string) (*Wakeup, error) {
 	if store == nil || w == nil {
 		return nil, fmt.Errorf("renew claimed wakeup: store and wakeup required")
+	}
+	renewer, ok := store.(WakeupLeaseRenewer)
+	if !ok {
+		return nil, fmt.Errorf("renew claimed wakeup: store cannot renew lease")
 	}
 	input := RenewWakeupLeaseInput{ID: w.ID, LeaseInterval: leaseInterval, ClaimedBy: w.ClaimedBy}
 	if w.ClaimedAt != nil {
@@ -59,7 +63,7 @@ func RenewClaimedWakeupLease(ctx context.Context, store WakeupStore, w *Wakeup, 
 	if w.LeaseExpiresAt != nil {
 		input.LeaseExpiresAt = *w.LeaseExpiresAt
 	}
-	renewed, rows, err := store.RenewWakeupLease(ctx, input)
+	renewed, rows, err := renewer.RenewWakeupLease(ctx, input)
 	if err != nil {
 		return nil, err
 	}
