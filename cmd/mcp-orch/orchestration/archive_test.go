@@ -100,7 +100,6 @@ func TestArchiveAgentStopsLocalRuntimeBeforePersistedArchive(t *testing.T) {
 	if err := cmd.Start(); err != nil {
 		t.Fatalf("cmd.Start() error = %v", err)
 	}
-	defer func() { _ = cmd.Process.Kill(); _ = cmd.Wait() }()
 
 	agent := svc.newAgentLocked("agent-1")
 	agent.cmd = cmd
@@ -109,6 +108,7 @@ func TestArchiveAgentStopsLocalRuntimeBeforePersistedArchive(t *testing.T) {
 	svc.agents[agent.id] = agent
 	svc.exitMonitor.Arm(exitmonitor.Target{AgentID: agent.id, LaunchSeq: agent.launchSeq, Cmd: cmd})
 	agent.monitoredSeq = agent.launchSeq
+	t.Cleanup(func() { stopAndDrainServiceTestAgent(t, svc, agent) })
 
 	runCtx, cancelRunner := context.WithCancel(context.Background())
 	defer cancelRunner()

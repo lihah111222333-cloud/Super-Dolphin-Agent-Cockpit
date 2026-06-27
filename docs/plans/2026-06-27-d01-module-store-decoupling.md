@@ -1,10 +1,12 @@
 # D01：module 层 store 直接依赖解耦方案
 
-**状态**：待执行（Phase 0 合并前不得开启迁移 lane）
+**状态**：已收口（Phase 0-5 已合入 main；目标违规面复算为 0）
 **优先级**：P2（技术债，不阻塞当前发布）
 **背景**：代码审查 D01 发现 `internal/module/` 非 assembly 文件仍直接 import `internal/store/*`。当前仓库已有 module 直接 DB import 守卫，但没有真正覆盖 module -> store import，本方案先补门控，再分阶段迁移。
 
 > **复核记录**：2026-06-27 使用 3 个只读子 agent 复核代码与方案。Agent A（archtest / guard / 计数口径）、Agent B（store / contract / DTO 事实）、Agent C（module 批次 / 运行路径 / 验证风险）均给出 FAIL 结论；本文档已吸收三方 finding 后修订。再次 3-agent 复核发现的 guard 净增长漏洞、prompt 符号漏项、模块事实偏差也已补入。
+>
+> **收口记录**：2026-06-27 主工作区已删除目标违规面的全部非 assembly store import，`moduleStoreImportAllowlist` 为空，`moduleStoreLegacyImportBudget` 已移除。最终验证以本文件后续收口命令记录为准。
 
 ---
 
@@ -22,12 +24,13 @@ rg -n --no-heading '"github.com/anthropic-ai/super-agent-v3/internal/store/[^"]+
   | awk -F: '{files[$1]=1; lines++} END {for (f in files) n++; print "files", n; print "import_lines", lines}'
 ```
 
-当前基线：
+当前 main 复算：
 
-- 目标违规面：62 个文件，99 条 `internal/store/*` import 行。
-- 全部非测试 module Go 文件（包含 `module.go`）：69 个文件，117 条 import 行。这个口径只作参考，不用于 Phase budget。
+- 目标违规面：0 个文件，0 条 `internal/store/*` import 行。
+- 全部非测试 module Go 文件（包含 `module.go`）：13 个文件，28 条 import 行。这个口径只作参考，不用于 Phase budget；这些 import 位于 assembly 边界。
+- 原始计划基线：目标违规面 62 个文件、99 条 import 行；全部非测试 module Go 文件 69 个文件、117 条 import 行。
 
-### 违规分布（目标违规面）
+### 原始违规分布（目标违规面）
 
 | 模块 | 文件数 | import 行数 | 主要风险 |
 |---|---:|---:|---|
@@ -45,11 +48,17 @@ rg -n --no-heading '"github.com/anthropic-ai/super-agent-v3/internal/store/[^"]+
 | personalization | 1 | 1 | uipreference store DTO |
 | turn | 1 | 1 | turndedupe store DTO |
 
-### 当前 guard 事实
+### 启动时 guard 事实
 
 - `internal/archtest/dependency_direction_test.go::assertModuleDBIsolationRules` 只禁止 `database/sql` 与 pgx 族直接 import。
 - `moduleDBImportAllowlist` 只服务直接 DB import 规则，不是 module -> store import 豁免表。
 - 当前 `make guard` 只证明 code-size / baseline 守卫，不单独证明 `TestDependencyDirection` 已执行。CI 的 broad Go test 会覆盖，但 Phase 0 必须显式跑 dependency direction 测试。
+
+### 收口后 guard 事实
+
+- `internal/archtest/dependency_direction_test.go::assertModuleDBIsolationRules` 已包含 `rule17b_module_non_assembly_cannot_import_store`。
+- `internal/archtest/dependency_direction_module_store_test.go` 中的 `moduleStoreImportAllowlist` 为空；未保留 skill auditlog 例外。
+- `moduleStoreLegacyImportBudget` 已删除；新增或过期的 file + import path 都会直接失败。
 
 ### 根因
 
@@ -114,7 +123,9 @@ internal/store/<domain>/...           <- 持久化 DTO 与 sqlc 细节，只在 
 
 ---
 
-## 4. 分阶段执行计划
+## 4. 历史分阶段执行计划
+
+本节保留原执行拆分和验收口径，供追溯每个 Phase 的设计约束；当前 main 已按顶部收口记录完成，不再表示仍有待开启的迁移 lane。
 
 > **硬性前置**：Phase 0 必须合并到 main 且 CI 通过后，所有迁移 lane 才能开启。
 
@@ -544,11 +555,19 @@ git diff -- internal/archtest/baseline*.json internal/archtest/freeze_registry.g
 make test
 ```
 
+**收口验证（2026-06-27）**：
+
+- 目标违规面复算：`files 0`、`import_lines 0`。
+- `./scripts/test_with_guard.sh ./internal/archtest -run TestDependencyDirection -count=1`：通过。
+- `make guard`：通过。
+- `make test`：通过；包含前端 build、全仓 Go `-race` 主批次，以及 `internal/provider/claudecli` / `internal/provider/codexapp` deferred E2E 包。
+- 收口时额外修复 `cmd/mcp-orch/orchestration.TestService_LaunchWithLocal` 的测试清理 race：测试不再二次调用 `cmd.Wait()`，改为复用 `stopAndDrainServiceTestAgent` 让 `exitMonitor` 作为唯一 Wait owner 收束。
+
 ---
 
-## 5. 每阶段共同门禁
+## 5. 历史每阶段共同门禁
 
-Phase 1-4 每个迁移批次都必须满足：
+Phase 1-4 每个迁移批次当时必须满足：
 
 1. 重跑第 1 节的 import 计数命令，记录阶段前后 import 行数。
 2. `unknown import = 0`，否则该阶段不能合并。
@@ -589,7 +608,9 @@ Phase 1-4 每个迁移批次都必须满足：
 
 ---
 
-## 8. 工时估算
+## 8. 原始工时估算
+
+以下为执行前估算，收口后仅保留作计划追溯。
 
 | Phase | 估算 | 主要成本 |
 |---|---:|---|
