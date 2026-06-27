@@ -63,6 +63,7 @@ func executeAutomationNode(t *testing.T, exec NodeExecutor, node Node, runCtx Ru
 
 func TestShellCommandRunnerRejectsRenderedShellInjection(t *testing.T) {
 	t.Parallel()
+	root := t.TempDir()
 	runner := NewShellCommandRunner()
 
 	result, err := runner.RunCommandCard(context.Background(), AutomationCommandCard{
@@ -70,7 +71,10 @@ func TestShellCommandRunnerRejectsRenderedShellInjection(t *testing.T) {
 		CommandTemplate: "printf 'hello %s' '{{.name}}'",
 		RiskLevel:       "high",
 		Enabled:         true,
-	}, json.RawMessage(`{"name":"dolphin'; printf 'pwned"}`))
+	}, json.RawMessage(`{"name":"dolphin'; printf 'pwned"}`), AutomationCommandRunOptions{
+		CWD:            root,
+		WorkspaceRoots: []string{root},
+	})
 
 	if err == nil || !strings.Contains(err.Error(), "unsafe shell metacharacter") {
 		t.Fatalf("RunCommandCard() error = %v, want unsafe shell metacharacter rejection", err)
@@ -89,10 +93,13 @@ func TestAutomationExecutor_Happy(t *testing.T) {
 		Enabled:         true,
 	}}
 	exec := NewAutomationExecutor(getter, NewShellCommandRunner())
+	root := t.TempDir()
 	node := makeAutomationNode(t, AutomationNodeConfig{Exec: AutomationExecConfig{
-		Kind:       AutomationKindCommandCard,
-		CommandRef: " build_app ",
-		Args:       json.RawMessage(`{"name":"dolphin"}`),
+		Kind:           AutomationKindCommandCard,
+		CommandRef:     " build_app ",
+		Args:           json.RawMessage(`{"name":"dolphin"}`),
+		CWD:            root,
+		WorkspaceRoots: []string{root},
 	}})
 
 	out := executeAutomationNode(t, exec, node, RunContext{DagKey: "dag-x", NodeKey: "node-auto", RunID: 7})
@@ -257,11 +264,13 @@ func (s *stubAutomationSharedFileWriter) WriteSharedFile(_ context.Context, path
 // captureRunner 记录 RunCommandCard 被调用时的 args，同时返回可定制 result。
 type captureRunner struct {
 	lastArgs json.RawMessage
+	lastOpts []AutomationCommandRunOptions
 	result   AutomationCommandResult
 }
 
-func (c *captureRunner) RunCommandCard(_ context.Context, _ AutomationCommandCard, args json.RawMessage, _ ...AutomationCommandRunOptions) (AutomationCommandResult, error) {
+func (c *captureRunner) RunCommandCard(_ context.Context, _ AutomationCommandCard, args json.RawMessage, opts ...AutomationCommandRunOptions) (AutomationCommandResult, error) {
 	c.lastArgs = append(json.RawMessage(nil), args...)
+	c.lastOpts = append([]AutomationCommandRunOptions(nil), opts...)
 	return c.result, nil
 }
 

@@ -231,6 +231,103 @@ func (q *Queries) MarkTaskDagWakeupSent(ctx context.Context, arg MarkTaskDagWake
 	return result.RowsAffected()
 }
 
+const renewTaskDagWakeupLease = `-- name: RenewTaskDagWakeupLease :many
+UPDATE task_dag_wakeups
+SET lease_expires_at = (CAST(strftime('%s','now') AS INTEGER) * 1000) + ?1,
+    updated_at = (CAST(strftime('%s','now') AS INTEGER) * 1000)
+WHERE id = ?2
+  AND status = 'dispatching'
+  AND claimed_at = ?3
+  AND claimed_by = ?4
+  AND lease_expires_at = ?5
+  AND lease_expires_at >= (CAST(strftime('%s','now') AS INTEGER) * 1000)
+RETURNING id, dag_key, node_key, wakeup_kind, target_agent_id, prompt_payload,
+          idempotency_key, status, attempt_count, next_retry_at, claimed_at,
+          claimed_by, lease_expires_at, sent_at, bound_turn_id, turn_bound_at,
+          last_error, created_at, updated_at, run_id
+`
+
+type RenewTaskDagWakeupLeaseParams struct {
+	LeaseMs        interface{} `db:"lease_ms" json:"lease_ms"`
+	ID             int64       `db:"id" json:"id"`
+	ClaimedAt      *int64      `db:"claimed_at" json:"claimed_at"`
+	ClaimedBy      string      `db:"claimed_by" json:"claimed_by"`
+	LeaseExpiresAt *int64      `db:"lease_expires_at" json:"lease_expires_at"`
+}
+
+type RenewTaskDagWakeupLeaseRow struct {
+	ID             int64           `db:"id" json:"id"`
+	DagKey         string          `db:"dag_key" json:"dag_key"`
+	NodeKey        string          `db:"node_key" json:"node_key"`
+	WakeupKind     string          `db:"wakeup_kind" json:"wakeup_kind"`
+	TargetAgentID  string          `db:"target_agent_id" json:"target_agent_id"`
+	PromptPayload  json.RawMessage `db:"prompt_payload" json:"prompt_payload"`
+	IdempotencyKey string          `db:"idempotency_key" json:"idempotency_key"`
+	Status         string          `db:"status" json:"status"`
+	AttemptCount   int64           `db:"attempt_count" json:"attempt_count"`
+	NextRetryAt    int64           `db:"next_retry_at" json:"next_retry_at"`
+	ClaimedAt      *int64          `db:"claimed_at" json:"claimed_at"`
+	ClaimedBy      string          `db:"claimed_by" json:"claimed_by"`
+	LeaseExpiresAt *int64          `db:"lease_expires_at" json:"lease_expires_at"`
+	SentAt         *int64          `db:"sent_at" json:"sent_at"`
+	BoundTurnID    *string         `db:"bound_turn_id" json:"bound_turn_id"`
+	TurnBoundAt    *int64          `db:"turn_bound_at" json:"turn_bound_at"`
+	LastError      string          `db:"last_error" json:"last_error"`
+	CreatedAt      int64           `db:"created_at" json:"created_at"`
+	UpdatedAt      int64           `db:"updated_at" json:"updated_at"`
+	RunID          *int64          `db:"run_id" json:"run_id"`
+}
+
+func (q *Queries) RenewTaskDagWakeupLease(ctx context.Context, arg RenewTaskDagWakeupLeaseParams) ([]RenewTaskDagWakeupLeaseRow, error) {
+	rows, err := q.db.QueryContext(ctx, renewTaskDagWakeupLease,
+		arg.LeaseMs,
+		arg.ID,
+		arg.ClaimedAt,
+		arg.ClaimedBy,
+		arg.LeaseExpiresAt,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []RenewTaskDagWakeupLeaseRow{}
+	for rows.Next() {
+		var i RenewTaskDagWakeupLeaseRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.DagKey,
+			&i.NodeKey,
+			&i.WakeupKind,
+			&i.TargetAgentID,
+			&i.PromptPayload,
+			&i.IdempotencyKey,
+			&i.Status,
+			&i.AttemptCount,
+			&i.NextRetryAt,
+			&i.ClaimedAt,
+			&i.ClaimedBy,
+			&i.LeaseExpiresAt,
+			&i.SentAt,
+			&i.BoundTurnID,
+			&i.TurnBoundAt,
+			&i.LastError,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.RunID,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const retryTaskDagWakeup = `-- name: RetryTaskDagWakeup :execrows
 UPDATE task_dag_wakeups
 SET status = 'pending',
