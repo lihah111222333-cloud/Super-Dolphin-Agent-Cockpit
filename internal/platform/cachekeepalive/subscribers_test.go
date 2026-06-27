@@ -4,10 +4,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	agentdto "github.com/anthropic-ai/super-agent-v3/internal/dto/agent"
 	shareddto "github.com/anthropic-ai/super-agent-v3/internal/dto/shared"
 	platformbus "github.com/anthropic-ai/super-agent-v3/internal/platform/bus"
-	bindingstore "github.com/anthropic-ai/super-agent-v3/internal/store/binding"
 	"github.com/kelindar/event"
 )
 
@@ -46,7 +46,7 @@ func TestCacheKeepaliveSubscribersRegisterCancelAndDeliver(t *testing.T) {
 
 	dispatcher := platformbus.NewDispatcher()
 	t.Cleanup(func() { _ = dispatcher.Close() })
-	manager := newTestManager(nil, &bindingStoreStub{byAgent: map[string]*bindingstore.Binding{"agent-1": {AgentID: "agent-1"}}}, nil)
+	manager := newTestManager(nil, &bindingStoreStub{byAgent: map[string]*contract.CacheKeepaliveBinding{"agent-1": {AgentID: "agent-1"}}}, nil)
 	t.Cleanup(manager.shutdownForTest)
 	spec := NewCacheKeepaliveSubscribers(manager, nil).Spec
 
@@ -71,7 +71,7 @@ func TestCacheKeepaliveRelayClearsTimerOnAgentStopped(t *testing.T) {
 
 	dispatcher := platformbus.NewDispatcher()
 	t.Cleanup(func() { _ = dispatcher.Close() })
-	manager := newTestManager(nil, &bindingStoreStub{byAgent: map[string]*bindingstore.Binding{"agent-1": {AgentID: "agent-1"}}}, nil)
+	manager := newTestManager(nil, &bindingStoreStub{byAgent: map[string]*contract.CacheKeepaliveBinding{"agent-1": {AgentID: "agent-1"}}}, nil)
 	t.Cleanup(manager.shutdownForTest)
 	spec := NewCacheKeepaliveSubscribers(manager, nil).Spec
 	cancel := spec.Register(dispatcher)

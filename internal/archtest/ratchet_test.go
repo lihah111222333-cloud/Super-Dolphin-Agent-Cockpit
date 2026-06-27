@@ -1,6 +1,9 @@
 package archtest
 
 import (
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -116,6 +119,49 @@ func TestHasViolation_OverFileLimit(t *testing.T) {
 	m := FileMetrics{SizeMetrics: SizeMetrics{Lines: MaxFileLines + 1}}
 	if !HasViolation(m) {
 		t.Fatal("metrics over file limit should have violations")
+	}
+}
+
+func TestCheckWithBaselineFlagsNewProductionFileFullQualityDebt(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	source := filepath.Join(root, "internal", "risk", "new_risk.go")
+	if err := os.MkdirAll(filepath.Dir(source), 0o755); err != nil {
+		t.Fatalf("mkdir fixture: %v", err)
+	}
+	body := `package risk
+
+var mutableCounter int
+
+func init() {}
+
+func launch() {
+	go func() {
+		panic("boom")
+	}()
+}
+`
+	if err := os.WriteFile(source, []byte(body), 0o644); err != nil {
+		t.Fatalf("write fixture: %v", err)
+	}
+
+	result := CheckWithBaseline(CheckOptions{
+		RepoRoot:  root,
+		ScanRoots: []string{"internal"},
+		SkipDirs:  DefaultSkipDirs(),
+	}, Baseline{})
+	if result.OK() {
+		t.Fatal("CheckWithBaseline() OK for new risky production file, want NewFileViolations")
+	}
+	got := make([]string, 0, len(result.NewFileViolations))
+	for _, v := range result.NewFileViolations {
+		got = append(got, v.String())
+	}
+	joined := strings.Join(got, "\n")
+	for _, want := range []string{"global_vars", "has_init", "panic_count", "naked_goroutines"} {
+		if !strings.Contains(joined, want) {
+			t.Fatalf("NewFileViolations missing %q:\n%s", want, joined)
+		}
 	}
 }
 

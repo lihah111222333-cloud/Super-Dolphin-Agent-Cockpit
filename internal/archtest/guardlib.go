@@ -72,6 +72,7 @@ type CheckOptions struct {
 	ScanRoots           []string
 	SkipDirs            map[string]bool
 	EnforceFuncComments bool
+	BaselineTestsOnly   bool
 }
 
 type packageStat struct {
@@ -82,7 +83,7 @@ type packageStat struct {
 
 // DefaultScanRoots 返回代码守卫默认扫描的源码入口。
 func DefaultScanRoots() []string {
-	return []string{"internal", "cmd", "scripts"}
+	return []string{"internal", "cmd", "pkg", "scripts"}
 }
 
 // DefaultSkipDirs 返回扫描时固定跳过的目录。
@@ -252,6 +253,47 @@ func MeasureCyclomaticComplexity(fd *ast.FuncDecl) int {
 		return true
 	})
 	return cc
+}
+
+// CountNakedGoStmts 计算 AST 中 go func(){...}() 形式的裸 goroutine 数量。
+func CountNakedGoStmts(node *ast.File) int {
+	count := 0
+	ast.Inspect(node, func(n ast.Node) bool {
+		goStmt, ok := n.(*ast.GoStmt)
+		if !ok {
+			return true
+		}
+		funcLit, isFuncLit := goStmt.Call.Fun.(*ast.FuncLit)
+		if isFuncLit && !hasLeadingDeferRecover(funcLit.Body) {
+			count++
+		}
+		return true
+	})
+	return count
+}
+
+// hasLeadingDeferRecover 识别 goroutine 函数字面量首条 defer recover 保护。
+func hasLeadingDeferRecover(body *ast.BlockStmt) bool {
+	if body == nil || len(body.List) == 0 {
+		return false
+	}
+	deferStmt, ok := body.List[0].(*ast.DeferStmt)
+	if !ok {
+		return false
+	}
+	foundRecover := false
+	ast.Inspect(deferStmt, func(n ast.Node) bool {
+		call, ok := n.(*ast.CallExpr)
+		if !ok {
+			return true
+		}
+		if ident, ok := call.Fun.(*ast.Ident); ok && ident.Name == "recover" {
+			foundRecover = true
+			return false
+		}
+		return true
+	})
+	return foundRecover
 }
 
 func (o CheckOptions) scanRoots() []string {
