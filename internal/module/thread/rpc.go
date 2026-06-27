@@ -350,7 +350,7 @@ func newForkHandler(svc Service) handler.Func {
 		if err != nil {
 			return nil, err
 		}
-		return forkResponse{Thread: threadInfo{ID: result.NewThreadID, ForkedFrom: result.ForkedFrom}}, nil
+		return forkResponse{Thread: threadInfo{ID: result.NewThreadID, ForkedFrom: result.ForkedFrom}, KickoffState: string(result.KickoffState), KickoffStateCamel: string(result.KickoffState)}, nil
 	})
 }
 

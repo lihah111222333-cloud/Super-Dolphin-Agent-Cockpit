@@ -148,9 +148,12 @@ type ResumeResult struct {
 	CWD       string `json:"cwd,omitempty"`
 }
 
+type ForkKickoffState string
+
 type ForkResult struct {
-	NewThreadID string `json:"new_thread_id"`
-	ForkedFrom  string `json:"forked_from,omitempty"`
+	NewThreadID  string           `json:"new_thread_id"`
+	ForkedFrom   string           `json:"forked_from,omitempty"`
+	KickoffState ForkKickoffState `json:"kickoff_state,omitempty"`
 }
 
 // HandoffRequest 描述从源 thread 切到目标 agent 的交接请求。
