@@ -1,10 +1,14 @@
 package common
 
 import (
+	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -14,12 +18,52 @@ import (
 
 // 工具载荷日志环境变量名。
 const (
-	toolPayloadLogDirEnv = "GO_AGENT_TOOL_PAYLOAD_LOG_DIR"
-	logFallbackDirEnv    = "GO_AGENT_LOG_FALLBACK_DIR"
+	toolPayloadLogDirEnv   = "GO_AGENT_TOOL_PAYLOAD_LOG_DIR"
+	toolPayloadLogDebugEnv = "GO_AGENT_TOOL_PAYLOAD_LOG_DEBUG"
+	logFallbackDirEnv      = "GO_AGENT_LOG_FALLBACK_DIR"
 )
 
 // toolPayloadLogSeq 为同一纳秒内的载荷快照提供单调序号，避免文件名冲突。
 var toolPayloadLogSeq atomic.Uint64
+
+var tokenLikePayloadPattern = regexp.MustCompile(`(?i)(sk-[a-z0-9_-]{8,}|gh[pousr]_[a-z0-9_]{8,}|xox[baprs]-[a-z0-9-]{8,}|[a-z0-9_-]{20,}\.[a-z0-9_-]{10,}\.[a-z0-9_-]{10,})`)
+
+// UnmarshalJSON 严格解码 tools/call 顶层参数，同时兼容历史 session metadata。
+// sessionId/session_id 只作为不可信旧 metadata 被忽略；其他未知字段仍会直接报错。
+func (p *ToolCallParams) UnmarshalJSON(raw []byte) error {
+	var wire struct {
+		Name                    string          `json:"name"`
+		Arguments               json.RawMessage `json:"arguments,omitempty"`
+		MetaAgentID             string          `json:"_agentId,omitempty"`
+		MetaThreadID            string          `json:"_threadId,omitempty"`
+		MetaCallID              string          `json:"_callId,omitempty"`
+		MetaCWD                 string          `json:"_cwd,omitempty"`
+		MetaWorkspaceRoots      []string        `json:"_workspaceRoots,omitempty"`
+		MetaWorkspaceRootsSnake []string        `json:"_workspace_roots,omitempty"`
+		LegacySessionID         json.RawMessage `json:"sessionId,omitempty"`
+		LegacySessionIDSnake    json.RawMessage `json:"session_id,omitempty"`
+	}
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	decoder.DisallowUnknownFields()
+	decoder.UseNumber()
+	if err := decoder.Decode(&wire); err != nil {
+		return err
+	}
+	if err := decoder.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
+		return errors.New("tool call params: trailing JSON payload")
+	}
+	*p = ToolCallParams{
+		Name:                    wire.Name,
+		Arguments:               wire.Arguments,
+		MetaAgentID:             wire.MetaAgentID,
+		MetaThreadID:            wire.MetaThreadID,
+		MetaCallID:              wire.MetaCallID,
+		MetaCWD:                 wire.MetaCWD,
+		MetaWorkspaceRoots:      wire.MetaWorkspaceRoots,
+		MetaWorkspaceRootsSnake: wire.MetaWorkspaceRootsSnake,
+	}
+	return nil
+}
 
 // toolPayloadLogRef 记录工具载荷快照写入结果，供日志属性附加使用。
 type toolPayloadLogRef struct {
@@ -30,43 +74,49 @@ type toolPayloadLogRef struct {
 
 // toolPayloadSnapshot 是写入磁盘的工具调用载荷快照结构。
 type toolPayloadSnapshot struct {
-	Version      int             `json:"version"`
-	CreatedAt    string          `json:"created_at"`
-	Stage        string          `json:"stage"`
-	Transport    string          `json:"transport"`
-	Deprecated   bool            `json:"deprecated,omitempty"`
-	Server       string          `json:"server"`
-	Tool         string          `json:"tool"`
-	ReqID        string          `json:"req_id,omitempty"`
-	AgentID      string          `json:"agent_id,omitempty"`
-	ThreadID     string          `json:"thread_id,omitempty"`
-	CallID       string          `json:"call_id,omitempty"`
-	CWD          string          `json:"cwd,omitempty"`
-	Arguments    json.RawMessage `json:"arguments,omitempty"`
-	Result       json.RawMessage `json:"result,omitempty"`
-	Error        string          `json:"error,omitempty"`
-	RawArgsLen   int             `json:"raw_args_len,omitempty"`
-	RawResultLen int             `json:"raw_result_len,omitempty"`
+	Version         int             `json:"version"`
+	CreatedAt       string          `json:"created_at"`
+	Stage           string          `json:"stage"`
+	Transport       string          `json:"transport"`
+	Deprecated      bool            `json:"deprecated,omitempty"`
+	Server          string          `json:"server"`
+	Tool            string          `json:"tool"`
+	ReqID           string          `json:"req_id,omitempty"`
+	AgentID         string          `json:"agent_id,omitempty"`
+	ThreadID        string          `json:"thread_id,omitempty"`
+	CallID          string          `json:"call_id,omitempty"`
+	CWD             string          `json:"cwd,omitempty"`
+	Status          string          `json:"status,omitempty"`
+	DurationMS      int64           `json:"duration_ms"`
+	PayloadRedacted bool            `json:"payload_redacted"`
+	Arguments       json.RawMessage `json:"arguments,omitempty"`
+	Result          json.RawMessage `json:"result,omitempty"`
+	Error           string          `json:"error,omitempty"`
+	RawArgsLen      int             `json:"raw_args_len,omitempty"`
+	RawResultLen    int             `json:"raw_result_len,omitempty"`
 }
 
 // logToolCallRequestPayload 记录工具调用请求载荷快照并返回引用。
 func logToolCallRequestPayload(transport, server string, reqID json.RawMessage, params ToolCallParams, scope ToolScope) toolPayloadLogRef {
 	rawArgs := cloneRawMessage(params.Arguments)
+	args, redacted := snapshotPayload(rawArgs)
 	return writeToolPayloadSnapshot(toolPayloadSnapshot{
-		Version:    1,
-		CreatedAt:  time.Now().Format(time.RFC3339Nano),
-		Stage:      "request",
-		Transport:  strings.TrimSpace(transport),
-		Deprecated: isDeprecatedToolPayloadTransport(transport),
-		Server:     strings.TrimSpace(server),
-		Tool:       strings.TrimSpace(params.Name),
-		ReqID:      trimJSONID(reqID),
-		AgentID:    scope.AgentID,
-		ThreadID:   scope.ThreadID,
-		CallID:     scope.CallID,
-		CWD:        scope.CWD,
-		Arguments:  rawArgs,
-		RawArgsLen: len(rawArgs),
+		Version:         1,
+		CreatedAt:       time.Now().Format(time.RFC3339Nano),
+		Stage:           "request",
+		Transport:       strings.TrimSpace(transport),
+		Deprecated:      isDeprecatedToolPayloadTransport(transport),
+		Server:          strings.TrimSpace(server),
+		Tool:            strings.TrimSpace(params.Name),
+		ReqID:           trimJSONID(reqID),
+		AgentID:         scope.AgentID,
+		ThreadID:        scope.ThreadID,
+		CallID:          scope.CallID,
+		CWD:             scope.CWD,
+		Status:          "request",
+		PayloadRedacted: redacted,
+		Arguments:       args,
+		RawArgsLen:      len(rawArgs),
 	})
 }
 
@@ -74,26 +124,116 @@ func logToolCallRequestPayload(transport, server string, reqID json.RawMessage, 
 func logToolCallResultPayload(transport, server, tool string, reqID json.RawMessage, scope ToolScope, rawResult []byte, err error) toolPayloadLogRef {
 	var errText string
 	if err != nil {
-		errText = err.Error()
+		errText = redactSensitiveString(err.Error())
 	}
 	raw := cloneRawMessage(rawResult)
+	result, redacted := snapshotPayload(raw)
 	return writeToolPayloadSnapshot(toolPayloadSnapshot{
-		Version:      1,
-		CreatedAt:    time.Now().Format(time.RFC3339Nano),
-		Stage:        "result",
-		Transport:    strings.TrimSpace(transport),
-		Deprecated:   isDeprecatedToolPayloadTransport(transport),
-		Server:       strings.TrimSpace(server),
-		Tool:         strings.TrimSpace(tool),
-		ReqID:        trimJSONID(reqID),
-		AgentID:      scope.AgentID,
-		ThreadID:     scope.ThreadID,
-		CallID:       scope.CallID,
-		CWD:          scope.CWD,
-		Result:       raw,
-		Error:        errText,
-		RawResultLen: len(raw),
+		Version:         1,
+		CreatedAt:       time.Now().Format(time.RFC3339Nano),
+		Stage:           "result",
+		Transport:       strings.TrimSpace(transport),
+		Deprecated:      isDeprecatedToolPayloadTransport(transport),
+		Server:          strings.TrimSpace(server),
+		Tool:            strings.TrimSpace(tool),
+		ReqID:           trimJSONID(reqID),
+		AgentID:         scope.AgentID,
+		ThreadID:        scope.ThreadID,
+		CallID:          scope.CallID,
+		CWD:             scope.CWD,
+		Status:          toolPayloadResultStatus(err),
+		PayloadRedacted: redacted || errText != "",
+		Result:          result,
+		Error:           errText,
+		RawResultLen:    len(raw),
 	})
+}
+
+// snapshotPayload 默认只保留长度等元数据；调试模式下返回经过敏感信息脱敏的 JSON body。
+func snapshotPayload(raw json.RawMessage) (json.RawMessage, bool) {
+	if len(raw) == 0 {
+		return nil, true
+	}
+	if !toolPayloadDebugEnabled() {
+		return nil, true
+	}
+	return redactJSONPayload(raw), true
+}
+
+// toolPayloadDebugEnabled 判断是否允许载荷快照写入经过脱敏的 body。
+func toolPayloadDebugEnabled() bool {
+	value := strings.TrimSpace(os.Getenv(toolPayloadLogDebugEnv))
+	switch strings.ToLower(value) {
+	case "1", "true", "yes", "on":
+		return true
+	default:
+		return false
+	}
+}
+
+// toolPayloadResultStatus 将结果快照状态压缩为稳定枚举，避免客户端解析错误字符串。
+func toolPayloadResultStatus(err error) string {
+	if err != nil {
+		return "error"
+	}
+	return "success"
+}
+
+// redactJSONPayload 对 JSON payload 递归脱敏；非法 JSON 也会以脱敏字符串保留调试线索。
+func redactJSONPayload(raw json.RawMessage) json.RawMessage {
+	var value any
+	if err := json.Unmarshal(raw, &value); err != nil {
+		encoded, _ := json.Marshal(redactSensitiveString(string(raw)))
+		return encoded
+	}
+	encoded, err := json.Marshal(redactJSONValue("", value))
+	if err != nil {
+		return json.RawMessage(`"[REDACTED]"`)
+	}
+	return encoded
+}
+
+// redactJSONValue 递归处理对象、数组和字符串，敏感 key 的值整段替换。
+func redactJSONValue(key string, value any) any {
+	switch typed := value.(type) {
+	case map[string]any:
+		out := make(map[string]any, len(typed))
+		for childKey, childValue := range typed {
+			out[childKey] = redactJSONValue(childKey, childValue)
+		}
+		return out
+	case []any:
+		out := make([]any, len(typed))
+		for i, item := range typed {
+			out[i] = redactJSONValue("", item)
+		}
+		return out
+	case string:
+		if isSensitivePayloadKey(key) {
+			return "[REDACTED]"
+		}
+		return redactSensitiveString(typed)
+	default:
+		if isSensitivePayloadKey(key) && typed != nil {
+			return "[REDACTED]"
+		}
+		return typed
+	}
+}
+
+// redactSensitiveString 替换 token-looking 字符串片段，保留非敏感调试上下文。
+func redactSensitiveString(value string) string {
+	return tokenLikePayloadPattern.ReplaceAllString(value, "[REDACTED]")
+}
+
+// isSensitivePayloadKey 判断 JSON key 是否常用于认证密钥或口令。
+func isSensitivePayloadKey(key string) bool {
+	normalized := strings.ToLower(strings.NewReplacer("_", "", "-", "").Replace(strings.TrimSpace(key)))
+	return strings.Contains(normalized, "token") ||
+		strings.Contains(normalized, "password") ||
+		strings.Contains(normalized, "apikey") ||
+		strings.Contains(normalized, "secret") ||
+		strings.Contains(normalized, "authorization")
 }
 
 // writeToolPayloadSnapshot 将快照 JSON 写入磁盘，返回文件路径和字节数。

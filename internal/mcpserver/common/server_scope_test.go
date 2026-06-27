@@ -39,6 +39,36 @@ func mustJSONRaw(t *testing.T, value any) json.RawMessage {
 	return raw
 }
 
+func TestDecodeToolCallParamsIgnoresDeclaredLegacySessionMetadata(t *testing.T) {
+	raw := mustJSONRaw(t, map[string]any{
+		"name":       "demo_tool",
+		"arguments":  map[string]any{"session_id": "argument-session"},
+		"sessionId":  "legacy-camel",
+		"session_id": "legacy-snake",
+	})
+
+	params, err := DecodeToolCallParams(raw)
+	if err != nil {
+		t.Fatalf("DecodeToolCallParams() error = %v", err)
+	}
+	if params.Name != "demo_tool" {
+		t.Fatalf("Name = %q, want demo_tool", params.Name)
+	}
+	if !bytes.Contains(params.Arguments, []byte(`"session_id":"argument-session"`)) {
+		t.Fatalf("Arguments = %s, want preserved argument session_id", params.Arguments)
+	}
+}
+
+func TestDecodeToolCallParamsRejectsUnknownTopLevelFields(t *testing.T) {
+	_, err := DecodeToolCallParams(json.RawMessage(`{"name":"demo_tool","dryRun":true}`))
+	if err == nil {
+		t.Fatal("DecodeToolCallParams() error = nil, want unknown field rejection")
+	}
+	if !strings.Contains(err.Error(), `unknown field "dryRun"`) {
+		t.Fatalf("DecodeToolCallParams() error = %v, want unknown dryRun field", err)
+	}
+}
+
 func TestToolCallParamsScopeUsesTrustedWorkspaceRootsMetadata(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "repo")
 	extra := filepath.Join(root, "packages", "..", "packages", "api")
