@@ -1,6 +1,6 @@
 import React from 'react';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { describe, expect, it, vi } from 'vitest';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ChatApprovalMessage } from './ChatApprovalMessage.jsx';
 import { approvalHintText, approvalRequestId, isApprovalMessage, isApprovalTerminal } from './chatApprovalModel.js';
 
@@ -55,5 +55,37 @@ describe('chatApprovalModel', () => {
     expect(isApprovalTerminal({ status: 'success' })).toBe(true);
     expect(approvalHintText({ requestId: 0, busy: false, resolved: false, terminal: false })).toBe('审批请求缺少编号');
     expect(approvalHintText({ requestId: 1, busy: true, resolved: false, terminal: false })).toBe('正在提交审批结果');
+  });
+});
+
+describe('ChatApprovalMessage bug-locking', () => {
+  afterEach(() => { vi.useRealTimers(); });
+
+  const baseMessage = { kind: 'approval', requestId: 5, title: 'Test', text: 'Allow?', time: '2026-06-27T00:00:00Z' };
+
+  it('calls onError when onApproval rejects', async () => {
+    const onApproval = vi.fn().mockRejectedValue(new Error('network error'));
+    const onError = vi.fn();
+    render(
+      <ChatApprovalMessage message={baseMessage} actions={{ onApproval, onError }} formatTime={() => '--'} />
+    );
+    fireEvent.click(screen.getByRole('button', { name: '同意审批 5' }));
+    await waitFor(() => expect(onError).toHaveBeenCalledWith('approval.failed', 'network error'));
+    expect(screen.getByRole('button', { name: '同意审批 5' })).not.toBeDisabled();
+  });
+
+  it('calls onError with timeout message after 15s of no response', async () => {
+    vi.useFakeTimers();
+    const onApproval = vi.fn(() => new Promise(() => {})); // never resolves
+    const onError = vi.fn();
+    render(
+      <ChatApprovalMessage message={baseMessage} actions={{ onApproval, onError }} formatTime={() => '--'} />
+    );
+    fireEvent.click(screen.getByRole('button', { name: '同意审批 5' }));
+    await act(async () => { await vi.advanceTimersByTimeAsync(15_000); });
+    // microtask flush so catch/finally in submitApproval completes
+    await act(async () => { await Promise.resolve(); });
+    expect(onError).toHaveBeenCalledWith('approval.failed', '审批提交超时');
+    expect(screen.getByRole('button', { name: '同意审批 5' })).not.toBeDisabled();
   });
 });

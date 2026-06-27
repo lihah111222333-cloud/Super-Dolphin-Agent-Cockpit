@@ -132,7 +132,7 @@ function useCodePreviewController({ projectPath, projects }) {
         loading: false,
         filePath,
         relative: filePath,
-        error: codeActionError(error, '鎵撳紑澶辫触'),
+        error: codeActionError(error, '打开失败'),
       });
     }
   }, [projectPath, projects]);
@@ -386,11 +386,14 @@ function ChatPage({ copy = APP_COPY.zh.chat, store, projectPath, rightPanelOpen 
   const canUseProjectActions = canUseProjectActionsForStore(store);
   const runtimeProject = runtimeProjectPath(store.activeProject, projectPath);
   const codePreview = useCodePreviewController({ projectPath: runtimeProject, projects: store.projects });
+  const [approvalNotice, setApprovalNotice] = useState('');
   const messageActions = useMemo(() => ({
     onFileRef: codePreview.openFileRef,
     onOpenPath: codePreview.openLocalPath,
     onCitation: (payload) => handleTimelineCitationAction(payload, { store, openFileRef: codePreview.openFileRef }),
     onApproval: (message, approved) => store.respondApproval?.(message, approved),
+    // 审批失败时由 ChatApprovalMessage 调用，通知 UI 显示错误
+    onError: (_event, detail) => { setApprovalNotice(detail || '审批操作失败'); },
   }), [codePreview.openFileRef, codePreview.openLocalPath, store]);
   const viewportWidth = useViewportWidth();
   const chatLayoutRef = useRef(null);
@@ -473,6 +476,11 @@ function ChatPage({ copy = APP_COPY.zh.chat, store, projectPath, rightPanelOpen 
       {showIntroFeedback ? (
         <output className="sr-only" data-testid="chat-action-feedback">
           {headerFeedback.message}
+        </output>
+      ) : null}
+      {approvalNotice ? (
+        <output className="sr-only" role="alert" data-testid="approval-action-feedback">
+          {approvalNotice}
         </output>
       ) : null}
       {codePreview.dialogs}
