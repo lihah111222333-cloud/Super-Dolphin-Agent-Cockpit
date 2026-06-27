@@ -31,7 +31,7 @@ func NewThreadHandlers(svc Service, capResolver contract.CapabilityResolver) pla
 // 生产入口由 NewThreadHandlers 传入 thread.Service 的 session adapter，避免 handler 直接散落完整 service 依赖。
 func newThreadHandlers(svc Service, sessionPorts contract.SessionPorts, capResolver contract.CapabilityResolver) platformrpc.HandlerMapResult {
 	return platformrpc.HandlerMapResult{Handlers: handler.Map{
-		contract.ThreadRPCStart:   newStartHandler(svc),
+		contract.ThreadRPCStart:   newStartHandler(sessionPorts),
 		contract.ThreadRPCFork:    newForkHandler(sessionPorts),
 		contract.ThreadRPCStop:    newThreadEffect(svc.Stop),
 		"thread/resume":           newResumeHandler(sessionPorts),
@@ -110,7 +110,7 @@ func newThreadMessagesHandler(sessionPorts contract.SessionPorts) handler.Func {
 	})
 }
 
-func newStartHandler(svc Service) handler.Func {
+func newStartHandler(sessionPorts contract.SessionPorts) handler.Func {
 	return platformrpc.LoggedStrictHandler(contract.ThreadRPCStart, func(ctx context.Context, p startParams) (any, error) {
 		if err := validateStartParams(p); err != nil {
 			return nil, err
@@ -120,11 +120,15 @@ func newStartHandler(svc Service) handler.Func {
 			return nil, err
 		}
 		logStartRPCReceived(p, cfg)
-		result, err := svc.Start(ctx, buildStartRequestFromParams(p, cfg))
+		if sessionPorts == nil {
+			return nil, fmt.Errorf("%s: session ports are required", contract.ThreadRPCStart)
+		}
+		req := buildStartRequestFromParams(p, cfg)
+		result, err := sessionPorts.StartSession(ctx, startSessionRequestFromStart(req))
 		if err != nil {
 			return nil, err
 		}
-		return buildStartResponse(result), nil
+		return buildStartResponse(startResultFromSessionStart(result)), nil
 	})
 }
 

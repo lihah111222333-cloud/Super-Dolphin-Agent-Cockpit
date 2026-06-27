@@ -86,6 +86,42 @@ func TestNewThreadHandlersDispatchListUsesSessionPorts(t *testing.T) {
 	}
 }
 
+func TestNewThreadHandlersDispatchStartUsesSessionPorts(t *testing.T) {
+	t.Parallel()
+
+	versionID := int64(42)
+	stub := &stubThreadService{}
+	sessionPorts := &recordingSessionPorts{
+		startResult: contract.SessionStartResult{
+			ThreadID:        "thread-port",
+			AgentID:         "agent-port",
+			SessionID:       "session-port",
+			Status:          "running",
+			Model:           "gpt-5.5",
+			Provider:        "codex",
+			ModelProvider:   "openai",
+			CWD:             "/tmp/demo",
+			ApprovalPolicy:  "never",
+			AgentKey:        "assistant",
+			AgentTitle:      "Assistant",
+			PromptKey:       "main/dag_designer_zh",
+			PromptVersionID: &versionID,
+			PendingLaunch:   true,
+		},
+	}
+	server := newThreadTestServerWithSessionPorts(stub, sessionPorts)
+	raw, err := server.Dispatch(context.Background(), "thread/start", json.RawMessage(`{"provider":"codex","cwd":"/tmp/demo","name":"Hello","model":"gpt-5.5","modelProvider":"openai","approvalPolicy":"never","sandbox":{"type":"danger-full-access"},"config":{"mcpServers":["lsp"]},"selectedSkills":["planner"],"selectedSkillRefs":[{"name":"planner","key":"project::planner","scope":"project","source":"manual"}],"manualSkillSelection":true,"prompt_key":"main/dag_designer_zh","agent_key":"assistant","toolSurfaceMode":"chat","defer_spawn":true,"launchIntentId":"launch_018f00e0-39fc-72ac-a47a-2a858c75d111"}`))
+	if err != nil {
+		t.Fatalf("Dispatch(thread/start) error = %v", err)
+	}
+	got := decodeThreadHandlerMap(t, "thread/start", raw)
+	requireThreadStartPortResponse(t, got)
+	requireThreadStartPortCall(t, sessionPorts)
+	if startRequestWasCalled(stub.startReq) {
+		t.Fatalf("thread/start called Service.Start directly: %#v", stub.startReq)
+	}
+}
+
 func TestNewThreadHandlersDispatchResumeUsesSessionPorts(t *testing.T) {
 	t.Parallel()
 
@@ -140,6 +176,70 @@ func TestNewThreadHandlersDispatchForkUsesSessionPorts(t *testing.T) {
 	}
 	if stub.forkThreadID != "" {
 		t.Fatalf("thread/fork called Service.Fork directly: %q", stub.forkThreadID)
+	}
+}
+
+func requireThreadStartPortResponse(t *testing.T, got map[string]any) {
+	t.Helper()
+	requireThreadStartWireValue(t, got, "threadId", "thread-port")
+	requireThreadStartWireValue(t, got, "thread_id", "thread-port")
+	requireThreadStartWireValue(t, got, "sessionId", "session-port")
+	requireThreadStartWireValue(t, got, "session_id", "session-port")
+	requireThreadStartWireValue(t, got, "agentId", "agent-port")
+	requireThreadStartWireValue(t, got, "agent_id", "agent-port")
+	requireThreadStartWireValue(t, got, "agent_key", "assistant")
+	requireThreadStartWireValue(t, got, "agentKey", "assistant")
+	requireThreadStartWireValue(t, got, "prompt_key", "main/dag_designer_zh")
+	requireThreadStartWireValue(t, got, "promptKey", "main/dag_designer_zh")
+	requireThreadStartWireValue(t, got, "pending_launch", true)
+	requireThreadStartWireValue(t, got, "pendingLaunch", true)
+}
+
+func requireThreadStartWireValue(t *testing.T, got map[string]any, key string, want any) {
+	t.Helper()
+	if got[key] != want {
+		t.Fatalf("Dispatch(thread/start) %s = %#v, want %#v; payload=%#v", key, got[key], want, got)
+	}
+}
+
+func requireThreadStartPortCall(t *testing.T, ports *recordingSessionPorts) {
+	t.Helper()
+	req := ports.startReq
+	requireThreadStartPortIdentity(t, req)
+	requireThreadStartPortLaunchSkills(t, req)
+	requireThreadStartPortRouting(t, req)
+}
+
+func requireThreadStartPortIdentity(t *testing.T, req contract.SessionStartRequest) {
+	t.Helper()
+	if req.Provider != "codex" || req.CWD != "/tmp/demo" || req.Name != "Hello" || req.Model != "gpt-5.5" {
+		t.Fatalf("SessionPorts.StartSession identity = %#v", req)
+	}
+	if req.ModelProvider != "openai" || req.ApprovalPolicy != "never" || req.ToolSurfaceMode != "chat" {
+		t.Fatalf("SessionPorts.StartSession config identity = %#v", req)
+	}
+	if string(req.Sandbox) != `{"type":"danger-full-access"}` {
+		t.Fatalf("SessionPorts.StartSession sandbox = %s", req.Sandbox)
+	}
+}
+
+func requireThreadStartPortLaunchSkills(t *testing.T, req contract.SessionStartRequest) {
+	t.Helper()
+	if len(req.LaunchSkillNames) != 1 || req.LaunchSkillNames[0] != "planner" || !req.ForceLaunchSkills {
+		t.Fatalf("SessionPorts.StartSession launch skills = %#v force=%v", req.LaunchSkillNames, req.ForceLaunchSkills)
+	}
+	if len(req.LaunchSkillRefs) != 1 || req.LaunchSkillRefs[0].Name != "planner" || req.LaunchSkillRefs[0].Source != dto.SkillSourceManual {
+		t.Fatalf("SessionPorts.StartSession launch refs = %#v", req.LaunchSkillRefs)
+	}
+}
+
+func requireThreadStartPortRouting(t *testing.T, req contract.SessionStartRequest) {
+	t.Helper()
+	if req.AgentKey != "assistant" || req.PromptKey != "main/dag_designer_zh" || !req.DeferSpawn {
+		t.Fatalf("SessionPorts.StartSession routing fields = %#v", req)
+	}
+	if req.LaunchIntentID != "launch_018f00e0-39fc-72ac-a47a-2a858c75d111" {
+		t.Fatalf("SessionPorts.StartSession launch intent = %q", req.LaunchIntentID)
 	}
 }
 
@@ -205,6 +305,8 @@ func newThreadTestServerWithSessionPorts(svc Service, sessionPorts contract.Sess
 }
 
 type recordingSessionPorts struct {
+	startReq           contract.SessionStartRequest
+	startResult        contract.SessionStartResult
 	listCalled         bool
 	listResult         []contract.SessionThreadSummary
 	resumeReq          contract.SessionResumeRequest
@@ -219,8 +321,9 @@ type recordingSessionPorts struct {
 
 var errUnexpectedSessionPortCall = errors.New("unexpected session port call")
 
-func (*recordingSessionPorts) StartSession(context.Context, contract.SessionStartRequest) (contract.SessionStartResult, error) {
-	return contract.SessionStartResult{}, errUnexpectedSessionPortCall
+func (p *recordingSessionPorts) StartSession(_ context.Context, req contract.SessionStartRequest) (contract.SessionStartResult, error) {
+	p.startReq = req
+	return p.startResult, nil
 }
 
 func (p *recordingSessionPorts) ResumeSession(_ context.Context, req contract.SessionResumeRequest) (contract.SessionStartResult, error) {
