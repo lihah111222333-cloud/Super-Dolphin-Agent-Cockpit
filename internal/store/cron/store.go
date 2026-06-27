@@ -70,6 +70,28 @@ func requireClaim(id, token string) (string, string, error) {
 	return id, token, nil
 }
 
+// requireRunID 校验 run 级 fence，避免 job 终态更新脱离具体运行记录。
+func requireRunID(runID string) (string, error) {
+	runID = strings.TrimSpace(runID)
+	if runID == "" {
+		return "", ErrEmptyID
+	}
+	return runID, nil
+}
+
+// expectedActiveTurnIDForStore 校验 terminal turn fence；带 turn 的终态必须与 active_turn_id 精确一致。
+func expectedActiveTurnIDForStore(lastTurnID, expectedActiveTurnID string) (string, error) {
+	lastTurnID = strings.TrimSpace(lastTurnID)
+	expectedActiveTurnID = strings.TrimSpace(expectedActiveTurnID)
+	if lastTurnID != "" && expectedActiveTurnID == "" {
+		return "", errors.New("cron: expected_active_turn_id is required")
+	}
+	if lastTurnID != "" && expectedActiveTurnID != lastTurnID {
+		return "", errors.New("cron: expected_active_turn_id must match last_turn_id")
+	}
+	return expectedActiveTurnID, nil
+}
+
 // ts 将 time.Time 转为毫秒时间戳，零值按 0 写入数据库。
 func ts(t time.Time) int64 {
 	if t.IsZero() {
@@ -363,13 +385,23 @@ func (s *store) MarkFinished(ctx context.Context, p MarkFinishedParams) error {
 	if err != nil {
 		return wrap(err, "mark_finished")
 	}
+	runID, err := requireRunID(p.RunID)
+	if err != nil {
+		return wrap(err, "mark_finished")
+	}
+	expectedActiveTurnID, err := expectedActiveTurnIDForStore(p.LastTurnID, p.ExpectedActiveTurnID)
+	if err != nil {
+		return wrap(err, "mark_finished")
+	}
 	rows, err := s.q.MarkCronJobFinished(ctx, sqlc.MarkCronJobFinishedParams{
-		LastRunAt:  tsPtr(p.LastRunAt),
-		LastTurnID: p.LastTurnID,
-		NextRunAt:  ts(p.NextRunAt),
-		Now:        ts(p.Now),
-		ID:         id,
-		ClaimToken: token,
+		LastRunAt:            tsPtr(p.LastRunAt),
+		LastTurnID:           p.LastTurnID,
+		NextRunAt:            ts(p.NextRunAt),
+		UpdatedAt:            ts(p.Now),
+		ID:                   id,
+		ClaimToken:           token,
+		ExpectedActiveTurnID: expectedActiveTurnID,
+		RunID:                runID,
 	})
 	if err != nil {
 		return wrap(err, "mark_finished")
@@ -386,20 +418,30 @@ func (s *store) MarkFailed(ctx context.Context, p MarkFailedParams) error {
 	if err != nil {
 		return wrap(err, "mark_failed")
 	}
+	runID, err := requireRunID(p.RunID)
+	if err != nil {
+		return wrap(err, "mark_failed")
+	}
+	expectedActiveTurnID, err := expectedActiveTurnIDForStore(p.LastTurnID, p.ExpectedActiveTurnID)
+	if err != nil {
+		return wrap(err, "mark_failed")
+	}
 	status := strings.TrimSpace(p.LastStatus)
 	if status == "" {
 		status = StatusFailed
 	}
 	rows, err := s.q.MarkCronJobFailed(ctx, sqlc.MarkCronJobFailedParams{
-		LastRunAt:   tsPtr(p.LastRunAt),
-		LastTurnID:  p.LastTurnID,
-		LastStatus:  status,
-		LastErrorAt: tsPtr(p.LastErrorAt),
-		LastError:   p.LastError,
-		NextRetryAt: tsPtr(p.NextRetryAt),
-		Now:         ts(p.Now),
-		ID:          id,
-		ClaimToken:  token,
+		LastRunAt:            tsPtr(p.LastRunAt),
+		LastTurnID:           p.LastTurnID,
+		LastStatus:           status,
+		LastErrorAt:          tsPtr(p.LastErrorAt),
+		LastError:            p.LastError,
+		NextRetryAt:          tsPtr(p.NextRetryAt),
+		UpdatedAt:            ts(p.Now),
+		ID:                   id,
+		ClaimToken:           token,
+		ExpectedActiveTurnID: expectedActiveTurnID,
+		RunID:                runID,
 	})
 	if err != nil {
 		return wrap(err, "mark_failed")

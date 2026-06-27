@@ -136,9 +136,10 @@ SET claimed_by       = '',
     updated_at       = sqlc.arg(now)
 WHERE id = sqlc.arg(id) AND claim_token = sqlc.arg(claim_token);
 
--- MarkCronJobFinished releases the claim, records the successful run's
--- turn id and advances scheduling fields. Conditional on claim_token so
--- a late worker cannot overwrite terminal state after being preempted.
+-- MarkCronJobFinished releases the claim only when the current job claim,
+-- active turn, and already-finished run row all describe the same terminal
+-- event. This prevents a late terminal event from an old run from releasing a
+-- newer claim.
 --
 -- name: MarkCronJobFinished :execrows
 UPDATE cron_jobs
@@ -155,8 +156,18 @@ SET claimed_by        = '',
     failure_count     = 0,
     next_run_at       = sqlc.arg(next_run_at),
     next_retry_at     = NULL,
-    updated_at        = sqlc.arg(now)
-WHERE id = sqlc.arg(id) AND claim_token = sqlc.arg(claim_token);
+    updated_at        = sqlc.arg(updated_at)
+WHERE cron_jobs.id = sqlc.arg(id)
+  AND cron_jobs.claim_token = sqlc.arg(claim_token)
+  AND cron_jobs.active_turn_id = sqlc.arg(expected_active_turn_id)
+  AND EXISTS (
+      SELECT 1
+      FROM cron_job_runs
+      WHERE cron_job_runs.id = sqlc.arg(run_id)
+        AND cron_job_runs.job_id = cron_jobs.id
+        AND cron_job_runs.turn_id = sqlc.arg(expected_active_turn_id)
+        AND cron_job_runs.status = 'finished'
+  );
 
 -- name: MarkCronJobFailed :execrows
 UPDATE cron_jobs
@@ -172,8 +183,18 @@ SET claimed_by        = '',
     last_error        = sqlc.arg(last_error),
     failure_count     = failure_count + 1,
     next_retry_at     = sqlc.arg(next_retry_at),
-    updated_at        = sqlc.arg(now)
-WHERE id = sqlc.arg(id) AND claim_token = sqlc.arg(claim_token);
+    updated_at        = sqlc.arg(updated_at)
+WHERE cron_jobs.id = sqlc.arg(id)
+  AND cron_jobs.claim_token = sqlc.arg(claim_token)
+  AND cron_jobs.active_turn_id = sqlc.arg(expected_active_turn_id)
+  AND EXISTS (
+      SELECT 1
+      FROM cron_job_runs
+      WHERE cron_job_runs.id = sqlc.arg(run_id)
+        AND cron_job_runs.job_id = cron_jobs.id
+        AND cron_job_runs.turn_id = sqlc.arg(expected_active_turn_id)
+        AND cron_job_runs.status = sqlc.arg(last_status)
+  );
 
 -- name: SetCronJobActiveTurn :execrows
 UPDATE cron_jobs

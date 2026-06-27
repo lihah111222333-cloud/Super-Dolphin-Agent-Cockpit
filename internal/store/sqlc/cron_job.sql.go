@@ -767,19 +767,31 @@ SET claimed_by        = '',
     failure_count     = failure_count + 1,
     next_retry_at     = ?6,
     updated_at        = ?7
-WHERE id = ?8 AND claim_token = ?9
+WHERE cron_jobs.id = ?8
+  AND cron_jobs.claim_token = ?9
+  AND cron_jobs.active_turn_id = ?10
+  AND EXISTS (
+      SELECT 1
+      FROM cron_job_runs
+      WHERE cron_job_runs.id = ?11
+        AND cron_job_runs.job_id = cron_jobs.id
+        AND cron_job_runs.turn_id = ?10
+        AND cron_job_runs.status = ?3
+  )
 `
 
 type MarkCronJobFailedParams struct {
-	LastRunAt   *int64 `db:"last_run_at" json:"last_run_at"`
-	LastTurnID  string `db:"last_turn_id" json:"last_turn_id"`
-	LastStatus  string `db:"last_status" json:"last_status"`
-	LastErrorAt *int64 `db:"last_error_at" json:"last_error_at"`
-	LastError   string `db:"last_error" json:"last_error"`
-	NextRetryAt *int64 `db:"next_retry_at" json:"next_retry_at"`
-	Now         int64  `db:"now" json:"now"`
-	ID          string `db:"id" json:"id"`
-	ClaimToken  string `db:"claim_token" json:"claim_token"`
+	LastRunAt            *int64 `db:"last_run_at" json:"last_run_at"`
+	LastTurnID           string `db:"last_turn_id" json:"last_turn_id"`
+	LastStatus           string `db:"last_status" json:"last_status"`
+	LastErrorAt          *int64 `db:"last_error_at" json:"last_error_at"`
+	LastError            string `db:"last_error" json:"last_error"`
+	NextRetryAt          *int64 `db:"next_retry_at" json:"next_retry_at"`
+	UpdatedAt            int64  `db:"updated_at" json:"updated_at"`
+	ID                   string `db:"id" json:"id"`
+	ClaimToken           string `db:"claim_token" json:"claim_token"`
+	ExpectedActiveTurnID string `db:"expected_active_turn_id" json:"expected_active_turn_id"`
+	RunID                string `db:"run_id" json:"run_id"`
 }
 
 func (q *Queries) MarkCronJobFailed(ctx context.Context, arg MarkCronJobFailedParams) (int64, error) {
@@ -790,9 +802,11 @@ func (q *Queries) MarkCronJobFailed(ctx context.Context, arg MarkCronJobFailedPa
 		arg.LastErrorAt,
 		arg.LastError,
 		arg.NextRetryAt,
-		arg.Now,
+		arg.UpdatedAt,
 		arg.ID,
 		arg.ClaimToken,
+		arg.ExpectedActiveTurnID,
+		arg.RunID,
 	)
 	if err != nil {
 		return 0, err
@@ -816,29 +830,44 @@ SET claimed_by        = '',
     next_run_at       = ?3,
     next_retry_at     = NULL,
     updated_at        = ?4
-WHERE id = ?5 AND claim_token = ?6
+WHERE cron_jobs.id = ?5
+  AND cron_jobs.claim_token = ?6
+  AND cron_jobs.active_turn_id = ?7
+  AND EXISTS (
+      SELECT 1
+      FROM cron_job_runs
+      WHERE cron_job_runs.id = ?8
+        AND cron_job_runs.job_id = cron_jobs.id
+        AND cron_job_runs.turn_id = ?7
+        AND cron_job_runs.status = 'finished'
+  )
 `
 
 type MarkCronJobFinishedParams struct {
-	LastRunAt  *int64 `db:"last_run_at" json:"last_run_at"`
-	LastTurnID string `db:"last_turn_id" json:"last_turn_id"`
-	NextRunAt  int64  `db:"next_run_at" json:"next_run_at"`
-	Now        int64  `db:"now" json:"now"`
-	ID         string `db:"id" json:"id"`
-	ClaimToken string `db:"claim_token" json:"claim_token"`
+	LastRunAt            *int64 `db:"last_run_at" json:"last_run_at"`
+	LastTurnID           string `db:"last_turn_id" json:"last_turn_id"`
+	NextRunAt            int64  `db:"next_run_at" json:"next_run_at"`
+	UpdatedAt            int64  `db:"updated_at" json:"updated_at"`
+	ID                   string `db:"id" json:"id"`
+	ClaimToken           string `db:"claim_token" json:"claim_token"`
+	ExpectedActiveTurnID string `db:"expected_active_turn_id" json:"expected_active_turn_id"`
+	RunID                string `db:"run_id" json:"run_id"`
 }
 
-// MarkCronJobFinished releases the claim, records the successful run's
-// turn id and advances scheduling fields. Conditional on claim_token so
-// a late worker cannot overwrite terminal state after being preempted.
+// MarkCronJobFinished releases the claim only when the current job claim,
+// active turn, and already-finished run row all describe the same terminal
+// event. This prevents a late terminal event from an old run from releasing a
+// newer claim.
 func (q *Queries) MarkCronJobFinished(ctx context.Context, arg MarkCronJobFinishedParams) (int64, error) {
 	result, err := q.db.ExecContext(ctx, markCronJobFinished,
 		arg.LastRunAt,
 		arg.LastTurnID,
 		arg.NextRunAt,
-		arg.Now,
+		arg.UpdatedAt,
 		arg.ID,
 		arg.ClaimToken,
+		arg.ExpectedActiveTurnID,
+		arg.RunID,
 	)
 	if err != nil {
 		return 0, err
