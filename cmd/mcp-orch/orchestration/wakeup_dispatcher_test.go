@@ -2,6 +2,7 @@ package orchestration
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"strings"
 	"testing"
@@ -160,6 +161,54 @@ func TestWakeupDispatcher_RouterTerminalFailureLifecycleHooks(t *testing.T) {
 	}
 	if got := strings.Join(events, "|"); got != strings.Join(want, "|") {
 		t.Fatalf("events = %v, want %v", events, want)
+	}
+}
+
+func TestWakeupDispatcherSkipsSideEffectForReclaimedTerminalNode(t *testing.T) {
+	now := time.Date(2026, 6, 27, 10, 0, 0, 0, time.UTC)
+	leaseAt := now.Add(30 * time.Second)
+	store := &dispatcherStubStore{
+		claimReply: []taskdag.Wakeup{{
+			ID:             66,
+			DagKey:         "dag-1",
+			NodeKey:        "auto-done",
+			RunID:          int64Ptr(7004),
+			ClaimedBy:      "worker-b",
+			ClaimedAt:      &now,
+			LeaseExpiresAt: &leaseAt,
+			AttemptCount:   2,
+		}},
+		nodesReply: []taskdag.Node{{
+			DagKey:   "dag-1",
+			NodeKey:  "auto-done",
+			NodeType: "automation",
+			Status:   string(nodeexec.NodeStatusDone),
+			Config:   testRawConfig(t, `{"exec":{"command_ref":"already-ran"}}`),
+		}},
+	}
+	getter := terminalWakeupAutomationGetter{}
+	runner := &terminalWakeupAutomationRunner{}
+	d, err := NewWakeupDispatcher(store, &dispatcherStubLauncher{}, nil, WakeupDispatcherConfig{ClaimedBy: "worker-b"})
+	if err != nil {
+		t.Fatalf("NewWakeupDispatcher err = %v", err)
+	}
+	d.WithNodeRouter(NewNodeExecutorRouter(store, nil, nodeexec.NewAutomationExecutor(getter, runner), nil, nil, nil))
+
+	n, err := d.ProcessBatch(context.Background())
+	if err != nil {
+		t.Fatalf("ProcessBatch err = %v", err)
+	}
+	if n != 1 {
+		t.Fatalf("ProcessBatch handled = %d, want 1", n)
+	}
+	if runner.calls != 0 {
+		t.Fatalf("automation side effects = %d, want 0 for terminal reclaimed node", runner.calls)
+	}
+	if len(store.completeCalls) != 0 {
+		t.Fatalf("CompleteNodeAndScheduleDownstream calls = %d, want 0 for terminal reclaimed node", len(store.completeCalls))
+	}
+	if len(store.markSentCalls) != 1 {
+		t.Fatalf("MarkWakeupSent calls = %d, want 1 to close reclaimed terminal wakeup", len(store.markSentCalls))
 	}
 }
 
@@ -355,6 +404,21 @@ func TestWakeupDispatcher_SQLRetryHardCapInvokesLifecycleHooks(t *testing.T) {
 	if got := strings.Join(events, "|"); got != strings.Join(want, "|") {
 		t.Fatalf("events = %v, want %v", events, want)
 	}
+}
+
+type terminalWakeupAutomationGetter struct{}
+
+func (terminalWakeupAutomationGetter) GetCommandCard(context.Context, string) (nodeexec.AutomationCommandCard, error) {
+	return nodeexec.AutomationCommandCard{CardKey: "already-ran", CommandTemplate: "printf duplicate", RiskLevel: "high", Enabled: true}, nil
+}
+
+type terminalWakeupAutomationRunner struct {
+	calls int
+}
+
+func (r *terminalWakeupAutomationRunner) RunCommandCard(context.Context, nodeexec.AutomationCommandCard, json.RawMessage, ...nodeexec.AutomationCommandRunOptions) (nodeexec.AutomationCommandResult, error) {
+	r.calls++
+	return nodeexec.AutomationCommandResult{CardKey: "already-ran", ExitCode: 0, Stdout: "duplicate"}, nil
 }
 
 func TestWakeupDispatcherTickReturnsClaimCountAndPreservesFence(t *testing.T) {

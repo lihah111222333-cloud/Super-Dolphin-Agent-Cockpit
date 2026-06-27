@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"path/filepath"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -57,6 +58,33 @@ func TestServiceQueryReportsJSONLTailSourceWhenOnlyTailHasEvents(t *testing.T) {
 	}
 	if methods(got.Events) != "tail" {
 		t.Fatalf("events = %#v", got.Events)
+	}
+}
+
+func TestServiceQueryTailReadErrorPreservesDegradationDiagnostics(t *testing.T) {
+	cfg := Config{IndexMaxEvents: 2, IndexMaxTraceEvents: 2, IndexMaxThreadEvents: 2, IndexMaxSlowEvents: 2, IndexMaxErrorEvents: 2, MetadataMaxBytes: 4096, StringMaxBytes: 512, QueryTailTimeoutMS: 100, QueryTailMaxConcurrency: 1}
+	tail := QueryTailReaderFunc(func(context.Context, Query) (QueryResult, error) {
+		return QueryResult{
+			Source:           QuerySourceJSONLTail,
+			TailFilesScanned: 3,
+			TailTimedOut:     true,
+		}, errors.New("tail reader unavailable")
+	})
+	svc := NewService(cfg, WithTailReader(tail))
+	if err := svc.Record(context.Background(), TraceEvent{TraceID: "trace", Method: "memory", Status: StatusOK}); err != nil {
+		t.Fatalf("Record: %v", err)
+	}
+
+	got := svc.Query(context.Background(), Query{TraceID: "trace", IncludeTail: true})
+
+	if got.Source != QuerySourceMemory || methods(got.Events) != "memory" {
+		t.Fatalf("query result = %+v, want memory result preserved", got)
+	}
+	if got.TailFilesScanned != 3 || !got.TailTimedOut {
+		t.Fatalf("tail diagnostics = files:%d timeout:%v, want files and timeout preserved", got.TailFilesScanned, got.TailTimedOut)
+	}
+	if len(got.TailDecodeErrors) != 1 || !strings.Contains(got.TailDecodeErrors[0].Error, "tail reader unavailable") {
+		t.Fatalf("tail errors = %+v, want visible tail reader error", got.TailDecodeErrors)
 	}
 }
 

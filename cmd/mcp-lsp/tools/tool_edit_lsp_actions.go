@@ -24,6 +24,10 @@ func (h EditHandler) handleCodeAction(ctx context.Context, req EditRequest) (any
 	if strings.TrimSpace(req.Pos) == "" {
 		return nil, fmt.Errorf("code_action requires pos (file_path:line:column)")
 	}
+	roots, err := trustedWorkspaceEditRoots(ctx)
+	if err != nil {
+		return nil, err
+	}
 	filePath, position, err := resolveFilePositionRequest(ctx, filePositionParams{Pos: req.Pos, LanguageID: req.LanguageID})
 	if err != nil {
 		return nil, fmt.Errorf("resolve code_action position: %w", err)
@@ -40,12 +44,12 @@ func (h EditHandler) handleCodeAction(ctx context.Context, req EditRequest) (any
 	if err != nil {
 		return nil, fmt.Errorf("LSP code_action: %w", err)
 	}
-	return h.applyCodeActions(ctx, actions, normalizeEditVersion(req.Version), manager)
+	return h.applyCodeActions(ctx, roots, actions, normalizeEditVersion(req.Version), manager)
 }
 
 // applyCodeActions 应用唯一可直接落盘的 WorkspaceEdit。
 // 多个 action 或无 edit 时返回 no_change，避免工具替模型做不透明选择。
-func (h EditHandler) applyCodeActions(ctx context.Context, actions []protocol.CodeActionResult, version int, manager lspmanager.Manager) (any, error) {
+func (h EditHandler) applyCodeActions(ctx context.Context, roots []string, actions []protocol.CodeActionResult, version int, manager lspmanager.Manager) (any, error) {
 	if len(actions) == 0 {
 		return emptyListEnvelope{Success: true, Data: []any{}, Meta: resultMeta{Count: 0, Message: "no code actions found"}}, nil
 	}
@@ -57,7 +61,7 @@ func (h EditHandler) applyCodeActions(ctx context.Context, actions []protocol.Co
 		return h.codeActionRequiresApply(actions, "multiple code actions returned; no edit applied", manager), nil
 	}
 	selected := editable[0]
-	affected, totalEdits, warning, err := h.applyWorkspaceEdit(ctx, selected.edit, version)
+	affected, totalEdits, warning, err := h.applyWorkspaceEdit(ctx, roots, selected.edit, version)
 	if err != nil {
 		return nil, fmt.Errorf("apply code action edits: %w", err)
 	}

@@ -139,3 +139,28 @@ export function buildForkThreadState(state, threadId, identity, launchPreference
     },
   };
 }
+
+function isForkKickoffTimelineItem(item) {
+  return Boolean(item?.optimistic && normalizeString(item?.id).startsWith('fork-kickoff-'));
+}
+
+// markForkKickoffFailedState 把已创建但开场消息失败的 fork 标成需要用户处理，避免继续显示为工作中。
+export function markForkKickoffFailedState(state, threadId, errorMessage) {
+  const id = normalizeThreadId(threadId);
+  const timelinesByThread = { ...state.timelinesByThread };
+  const timeline = Array.isArray(timelinesByThread[id]) ? timelinesByThread[id] : [];
+  timelinesByThread[id] = timeline.filter((item) => !isForkKickoffTimelineItem(item));
+  return {
+    threads: state.threads.map((thread) => (
+      normalizeThreadId(thread?.id) === id
+        ? {
+            ...thread,
+            status: '需要操作',
+            forkKickoffStatus: 'failed',
+            forkKickoffError: normalizeString(errorMessage),
+          }
+        : thread
+    )),
+    timelinesByThread,
+  };
+}

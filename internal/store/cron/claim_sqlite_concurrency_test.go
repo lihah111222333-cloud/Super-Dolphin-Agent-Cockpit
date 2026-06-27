@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -146,64 +147,87 @@ func TestClaimReclaimsStaleLeaseButNotFreshLease(t *testing.T) {
 	// First claimer takes the job with a lease that expires at now+10m.
 	firstToken := uuid.NewString()
 	firstLease := now.Add(10 * time.Minute)
-	first, err := store.ClaimDueJobsForUpdate(ctx, ClaimDueJobsForUpdateParams{
+	claimOneCronJob(t, ctx, store, ClaimDueJobsForUpdateParams{
 		Now:            now,
 		ClaimedBy:      "owner-A",
 		LeaseExpiresAt: firstLease,
 		ClaimToken:     firstToken,
 		MaxClaim:       1,
-	})
-	if err != nil {
-		t.Fatalf("first claim error: %v", err)
-	}
-	if len(first) != 1 || first[0].ID != jobID {
-		t.Fatalf("first claim = %+v, want job %s", first, jobID)
-	}
+	}, jobID, "first claim")
 
 	// A second claimer at a time before the lease expires must NOT steal it.
 	beforeExpiry := firstLease.Add(-time.Minute)
-	stolen, err := store.ClaimDueJobsForUpdate(ctx, ClaimDueJobsForUpdateParams{
+	claimNoCronJobs(t, ctx, store, ClaimDueJobsForUpdateParams{
 		Now:            beforeExpiry,
 		ClaimedBy:      "owner-B",
 		LeaseExpiresAt: beforeExpiry.Add(10 * time.Minute),
 		ClaimToken:     uuid.NewString(),
 		MaxClaim:       1,
-	})
-	if err != nil {
-		t.Fatalf("pre-expiry claim error: %v", err)
-	}
-	if len(stolen) != 0 {
-		t.Fatalf("fresh lease was stolen: %+v", stolen)
-	}
+	}, "pre-expiry claim")
 
 	// After the lease expires, the job becomes reclaimable. Note the claim
 	// predicate is due-at <= now, so the job is also due again at this time.
 	afterExpiry := firstLease.Add(time.Minute)
 	reclaimToken := uuid.NewString()
-	reclaimed, err := store.ClaimDueJobsForUpdate(ctx, ClaimDueJobsForUpdateParams{
+	reclaimed := claimOneCronJob(t, ctx, store, ClaimDueJobsForUpdateParams{
 		Now:            afterExpiry,
 		ClaimedBy:      "owner-B",
 		LeaseExpiresAt: afterExpiry.Add(10 * time.Minute),
 		ClaimToken:     reclaimToken,
 		MaxClaim:       1,
-	})
-	if err != nil {
-		t.Fatalf("reclaim error: %v", err)
-	}
-	if len(reclaimed) != 1 || reclaimed[0].ID != jobID {
-		t.Fatalf("stale lease not reclaimed: %+v", reclaimed)
-	}
-	if reclaimed[0].ClaimToken != reclaimToken || reclaimed[0].ClaimedBy != "owner-B" {
-		t.Fatalf("reclaimed row not re-fenced: token=%q by=%q", reclaimed[0].ClaimToken, reclaimed[0].ClaimedBy)
-	}
+	}, jobID, "reclaim")
+	assertCronJobClaimFields(t, reclaimed, reclaimToken, "owner-B")
 
 	// The preempted original owner must not be able to mutate via its stale
 	// token: claim_token fencing rejects it.
 	if err := store.MarkFinished(ctx, MarkFinishedParams{
-		ID: jobID, ClaimToken: firstToken, NextRunAt: afterExpiry.Add(time.Hour), Now: afterExpiry,
+		ID: jobID, ClaimToken: firstToken, RunID: "stale-run", NextRunAt: afterExpiry.Add(time.Hour), Now: afterExpiry,
 	}); err == nil {
 		t.Fatalf("stale-token MarkFinished succeeded; claim fencing broken")
 	}
+}
+
+func TestStaleTerminalCannotReleaseNewClaim(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	store, _ := openMigratedCronStore(t)
+
+	now := time.Unix(1_700_000_000, 0).UTC()
+	jobID := seedDueJobs(ctx, t, store, 1, now)[0]
+	oldToken := "old-claim-token"
+	oldTurnID := "turn-old"
+	oldRun := startRunningCronTurn(t, ctx, store, runningCronTurnFixture{
+		jobID: jobID, runID: "run-old", token: oldToken, turnID: oldTurnID, owner: "owner-old",
+		agentID: "agent-old", now: now, leaseExpiresAt: now.Add(time.Minute),
+	})
+
+	reclaimAt := now.Add(2 * time.Minute)
+	newToken := "new-claim-token"
+	_ = startRunningCronTurn(t, ctx, store, runningCronTurnFixture{
+		jobID: jobID, runID: "run-new", token: newToken, turnID: "turn-new", owner: "owner-new",
+		agentID: "agent-new", now: reclaimAt, leaseExpiresAt: reclaimAt.Add(time.Minute),
+	})
+	if err := store.CASRunStatus(ctx, CASRunStatusParams{
+		ID: oldRun.ID, ExpectedStatus: StatusRunning, NextStatus: StatusFinished, UpdatedAt: reclaimAt,
+	}); err != nil {
+		t.Fatalf("old terminal CAS: %v", err)
+	}
+
+	err := store.MarkFinished(ctx, MarkFinishedParams{
+		ID:                   jobID,
+		ClaimToken:           newToken,
+		RunID:                oldRun.ID,
+		ExpectedActiveTurnID: oldTurnID,
+		LastRunAt:            oldRun.ScheduledAt,
+		LastTurnID:           oldTurnID,
+		NextRunAt:            reclaimAt.Add(time.Hour),
+		Now:                  reclaimAt,
+	})
+	if !errors.Is(err, ErrClaimTokenMismatch) {
+		t.Fatalf("stale terminal MarkFinished error = %v, want ErrClaimTokenMismatch", err)
+	}
+	assertClaimStillActive(t, ctx, store, jobID, newToken, "turn-new", "owner-new")
 }
 
 // runCrossProcessClaimWorker is the body executed when the test binary is
@@ -281,6 +305,83 @@ func mustAtoi64(s string) int64 {
 }
 
 // ----- shared helpers -----
+
+type runningCronTurnFixture struct {
+	jobID          string
+	runID          string
+	token          string
+	turnID         string
+	owner          string
+	agentID        string
+	now            time.Time
+	leaseExpiresAt time.Time
+}
+
+func claimOneCronJob(t *testing.T, ctx context.Context, store Store, p ClaimDueJobsForUpdateParams, wantID, label string) Job {
+	t.Helper()
+	rows, err := store.ClaimDueJobsForUpdate(ctx, p)
+	if err != nil {
+		t.Fatalf("%s error: %v", label, err)
+	}
+	if len(rows) != 1 || rows[0].ID != wantID {
+		t.Fatalf("%s rows = %+v, want job %s", label, rows, wantID)
+	}
+	return rows[0]
+}
+
+func claimNoCronJobs(t *testing.T, ctx context.Context, store Store, p ClaimDueJobsForUpdateParams, label string) {
+	t.Helper()
+	rows, err := store.ClaimDueJobsForUpdate(ctx, p)
+	if err != nil {
+		t.Fatalf("%s error: %v", label, err)
+	}
+	if len(rows) != 0 {
+		t.Fatalf("%s rows = %+v, want none", label, rows)
+	}
+}
+
+func assertCronJobClaimFields(t *testing.T, job Job, wantToken, wantOwner string) {
+	t.Helper()
+	if job.ClaimToken != wantToken || job.ClaimedBy != wantOwner {
+		t.Fatalf("claim fields token=%q by=%q, want token=%q by=%q", job.ClaimToken, job.ClaimedBy, wantToken, wantOwner)
+	}
+}
+
+func startRunningCronTurn(t *testing.T, ctx context.Context, store Store, f runningCronTurnFixture) Run {
+	t.Helper()
+	run, err := store.InsertRun(ctx, InsertRunParams{
+		ID: f.runID, JobID: f.jobID, ScheduledAt: f.now, IdempotencyKey: f.runID + "-idempotency",
+		DedupeKey: f.runID + "-dedupe", Status: StatusPending, CreatedAt: f.now, UpdatedAt: f.now,
+	})
+	if err != nil {
+		t.Fatalf("insert %s: %v", f.runID, err)
+	}
+	claimOneCronJob(t, ctx, store, ClaimDueJobsForUpdateParams{
+		Now: f.now, ClaimedBy: f.owner, LeaseExpiresAt: f.leaseExpiresAt, ClaimToken: f.token, MaxClaim: 1,
+	}, f.jobID, f.owner+" claim")
+	if err := store.SetRunTurn(ctx, SetRunTurnParams{ID: run.ID, TurnID: f.turnID, ThreadID: "thread-1", AgentID: f.agentID, SubmittedAt: f.now, UpdatedAt: f.now}); err != nil {
+		t.Fatalf("set %s turn: %v", f.runID, err)
+	}
+	if err := store.CASRunStatus(ctx, CASRunStatusParams{ID: run.ID, ExpectedStatus: StatusPending, NextStatus: StatusRunning, UpdatedAt: f.now}); err != nil {
+		t.Fatalf("%s running: %v", f.runID, err)
+	}
+	if err := store.SetActiveTurn(ctx, SetActiveTurnParams{ID: f.jobID, ClaimToken: f.token, ActiveTurnID: f.turnID, ThreadID: "thread-1", AgentID: f.agentID, Now: f.now}); err != nil {
+		t.Fatalf("set %s active turn: %v", f.runID, err)
+	}
+	return run
+}
+
+func assertClaimStillActive(t *testing.T, ctx context.Context, store Store, jobID, token, turnID, owner string) {
+	t.Helper()
+	job, err := store.GetJobByID(ctx, jobID)
+	if err != nil {
+		t.Fatalf("get job after stale terminal: %v", err)
+	}
+	if job.ClaimToken != token || job.ActiveTurnID != turnID || job.ClaimedBy != owner {
+		t.Fatalf("active claim token=%q turn=%q by=%q, want token=%q turn=%q by=%q",
+			job.ClaimToken, job.ActiveTurnID, job.ClaimedBy, token, turnID, owner)
+	}
+}
 
 func seedDueJobs(ctx context.Context, t *testing.T, store Store, n int, now time.Time) []string {
 	t.Helper()

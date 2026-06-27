@@ -38,7 +38,7 @@ func newCountingFakeSpawner(calls *atomic.Int32) Spawner {
 }
 
 func (f *fakeServer) ServerURL() string { return f.url }
-func (f *fakeServer) Close(_ context.Context) error {
+func (f *fakeServer) Close(ctx context.Context) error {
 	if f.closeHook != nil {
 		f.closeHook()
 	}

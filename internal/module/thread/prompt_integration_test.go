@@ -394,7 +394,7 @@ func TestForkPreservesPromptAssembly(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Fork() error = %v", err)
 	}
-	if result != (ForkResult{NewThreadID: "thread-fork", ForkedFrom: "thread-parent"}) {
+	if result != (ForkResult{NewThreadID: "thread-fork", ForkedFrom: "thread-parent", KickoffState: ForkKickoffState("created_only")}) {
 		t.Fatalf("Fork() result = %#v", result)
 	}
 	if originalSession.forkRequest.ThreadID != "provider-thread-parent" {

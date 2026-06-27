@@ -69,7 +69,8 @@ func TestGitHubReleasePackagingWrappersProduceCanonicalAssets(t *testing.T) {
 	windows := readScript(t, "package_windows_github_release.ps1")
 
 	for _, want := range []string{
-		"github_release_repo=\"${SUPER_DOLPHIN_UPDATE_GITHUB_REPO:-xiaoxiaotest9527-bit/-}\"",
+		"require_github_release_repo",
+		"github_release_repo=\"$(require_github_release_repo)\"",
 		"package_version=\"${SUPER_DOLPHIN_PACKAGE_VERSION:-$default_package_version}\"",
 		"Super-Dolphin-darwin-arm64.dmg",
 		"Super-Dolphin-darwin-arm64.update.json",
@@ -85,21 +86,26 @@ func TestGitHubReleasePackagingWrappersProduceCanonicalAssets(t *testing.T) {
 	} {
 		assertScriptContains(t, macos, want)
 	}
+	assertScriptDoesNotContain(t, macos, "SUPER_DOLPHIN_UPDATE_GITHUB_REPO:-xiaoxiaotest9527-bit/-")
 	assertScriptOrder(t, macos, "resolve_update_public_key", "go run \"$root/cmd/super-dolphin-release-manifest\"")
 	assertScriptOrder(t, macos, "./scripts/package_macos.sh", "go run ./cmd/super-dolphin-release-manifest")
 
 	for _, want := range []string{
-		"$GitHubReleaseRepo = Get-EnvOrDefault -Name 'SUPER_DOLPHIN_UPDATE_GITHUB_REPO' -Default 'xiaoxiaotest9527-bit/-'",
+		"Resolve-GitHubReleaseRepo",
+		"$GitHubReleaseRepo = Resolve-GitHubReleaseRepo",
 		"$PackageVersion = Get-EnvOrDefault -Name 'SUPER_DOLPHIN_PACKAGE_VERSION'",
 		"Super-Dolphin-windows-arm64.exe",
 		"Super-Dolphin-windows-arm64.update.json",
 		"$env:SUPER_DOLPHIN_UPDATE_GITHUB_REPO = $GitHubReleaseRepo",
+		"SUPER_DOLPHIN_UPDATE_PREVIOUS_PUBLIC_KEY",
+		"Assert-UpdatePublicKeyContinuity",
 		"cmd/super-dolphin-release-manifest",
 		"-public-key",
 		"-artifact-url",
 	} {
 		assertScriptContains(t, windows, want)
 	}
+	assertScriptDoesNotContain(t, windows, "Default 'xiaoxiaotest9527-bit/-'")
 	assertScriptOrder(t, windows, "scripts\\package_windows_local.ps1", "cmd/super-dolphin-release-manifest")
 }
 
@@ -107,7 +113,7 @@ func TestGitHubReleasePublisherGuardsDraftPublish(t *testing.T) {
 	script := readScript(t, "publish_github_release.sh")
 
 	for _, want := range []string{
-		"github_repo=\"${SUPER_DOLPHIN_UPDATE_GITHUB_REPO:-xiaoxiaotest9527-bit/-}\"",
+		"github_repo=\"$(require_github_release_repo)\"",
 		"Super-Dolphin-darwin-arm64.dmg",
 		"Super-Dolphin-darwin-arm64.update.json",
 		"SUPER_DOLPHIN_UPDATE_SIGNING_KEY",
@@ -160,7 +166,7 @@ func TestGitHubReleasePublisherVerifyExistingRequiresPreviousPackageProof(t *tes
 	cmd.Env = appendWSLEnvKeysWithGitWorktree(t, []string{
 		"PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
 		"VERSION=v9.9.9",
-		"SUPER_DOLPHIN_UPDATE_GITHUB_REPO=xiaoxiaotest9527-bit/-",
+		"SUPER_DOLPHIN_UPDATE_GITHUB_REPO=super-dolphin/releases",
 		"SUPER_DOLPHIN_UPDATE_PUBLIC_KEY=dGVzdC1wdWJsaWMta2V5",
 	}, "PATH")
 	output, err := cmd.CombinedOutput()
@@ -230,7 +236,7 @@ func TestGitHubReleasePublisherCanPrintReleaseContext(t *testing.T) {
 	cmd := exec.Command("bash", "publish_github_release.sh", "--print-context")
 	cmd.Env = appendWSLEnvKeysWithGitWorktree(t, []string{
 		"PATH=" + bashArg("", binDir) + ":/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
-		"SUPER_DOLPHIN_UPDATE_GITHUB_REPO=xiaoxiaotest9527-bit/-",
+		"SUPER_DOLPHIN_UPDATE_GITHUB_REPO=super-dolphin/releases",
 		"SUPER_DOLPHIN_UPDATE_PUBLIC_KEY=super-secret-public-key",
 		"SUPER_DOLPHIN_UPDATE_PREVIOUS_ENV_FILE=" + bashArg("", previousEnv),
 		"SUPER_DOLPHIN_UPDATE_SIGNING_KEY=" + bashArg("", signingKey),
@@ -241,7 +247,7 @@ func TestGitHubReleasePublisherCanPrintReleaseContext(t *testing.T) {
 	}
 	for _, want := range []string{
 		"GitHub release context",
-		"latest: v1.0.3 https://github.com/xiaoxiaotest9527-bit/-/releases/tag/v1.0.3",
+		"latest: v1.0.3 https://github.com/super-dolphin/releases/releases/tag/v1.0.3",
 		"candidate tag: unset",
 		"remote asset: Super-Dolphin-darwin-arm64.dmg present",
 		"stage dir: set VERSION or SUPER_DOLPHIN_RELEASE_STAGE_DIR to check local staged assets",
@@ -271,7 +277,7 @@ func TestGitHubReleasePublisherPrintContextShowsCandidateVersionStatus(t *testin
 	cmd.Env = appendWSLEnvKeysWithGitWorktree(t, []string{
 		"PATH=" + bashArg("", binDir) + ":/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
 		"VERSION=v1.0.4",
-		"SUPER_DOLPHIN_UPDATE_GITHUB_REPO=xiaoxiaotest9527-bit/-",
+		"SUPER_DOLPHIN_UPDATE_GITHUB_REPO=super-dolphin/releases",
 	}, "PATH")
 	output, err := cmd.CombinedOutput()
 	if err != nil {
@@ -309,7 +315,7 @@ func TestGitHubReleasePublisherDownloadsLatestPreviousDMG(t *testing.T) {
 	cmd := exec.Command("bash", "publish_github_release.sh", "--download-latest-previous-dmg", bashArg("", outputDir))
 	cmd.Env = appendWSLEnvKeysWithGitWorktree(t, []string{
 		"PATH=" + bashArg("", binDir) + ":/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
-		"SUPER_DOLPHIN_UPDATE_GITHUB_REPO=xiaoxiaotest9527-bit/-",
+		"SUPER_DOLPHIN_UPDATE_GITHUB_REPO=super-dolphin/releases",
 	}, "PATH")
 	output, err := cmd.CombinedOutput()
 	if err != nil {
@@ -363,14 +369,14 @@ func TestGitHubReleasePublisherVerifyExistingExecutesDigestCheck(t *testing.T) {
 	cmd.Env = appendWSLEnvKeysWithGitWorktree(t, []string{
 		"PATH=" + bashArg("", binDir) + ":/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
 		"VERSION=v9.9.9",
-		"SUPER_DOLPHIN_UPDATE_GITHUB_REPO=xiaoxiaotest9527-bit/-",
+		"SUPER_DOLPHIN_UPDATE_GITHUB_REPO=super-dolphin/releases",
 		"SUPER_DOLPHIN_UPDATE_PREVIOUS_ENV_FILE=" + bashArg("", previousEnv),
 	}, "PATH")
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("verify-existing failed: %v\n%s", err, output)
 	}
-	if !strings.Contains(string(output), "existing GitHub release verified: https://github.com/xiaoxiaotest9527-bit/-/releases/tag/v9.9.9") {
+	if !strings.Contains(string(output), "existing GitHub release verified: https://github.com/super-dolphin/releases/releases/tag/v9.9.9") {
 		t.Fatalf("verify-existing output missing success line:\n%s", output)
 	}
 }
@@ -388,13 +394,13 @@ func TestGitHubReleasePublisherInspectLatestAcceptsMacOSAssets(t *testing.T) {
 	cmd := exec.Command("bash", "publish_github_release.sh", "--inspect-latest")
 	cmd.Env = appendWSLEnvKeysWithGitWorktree(t, []string{
 		"PATH=" + bashArg("", binDir) + ":/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
-		"SUPER_DOLPHIN_UPDATE_GITHUB_REPO=xiaoxiaotest9527-bit/-",
+		"SUPER_DOLPHIN_UPDATE_GITHUB_REPO=super-dolphin/releases",
 	}, "PATH")
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("inspect-latest failed: %v\n%s", err, output)
 	}
-	if !strings.Contains(string(output), "GitHub latest release has canonical update assets: https://github.com/xiaoxiaotest9527-bit/-/releases/tag/v1.0.3") {
+	if !strings.Contains(string(output), "GitHub latest release has canonical update assets: https://github.com/super-dolphin/releases/releases/tag/v1.0.3") {
 		t.Fatalf("inspect-latest output missing success line:\n%s", output)
 	}
 }
@@ -406,7 +412,7 @@ func TestGitHubReleasePublisherRequiresVersionBeforeGitHubAccess(t *testing.T) {
 	cmd := exec.Command("bash", "publish_github_release.sh", "--dry-run")
 	cmd.Env = appendWSLEnvKeysWithGitWorktree(t, []string{
 		"PATH=" + bashArg("", binDir) + ":/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
-		"SUPER_DOLPHIN_UPDATE_GITHUB_REPO=xiaoxiaotest9527-bit/-",
+		"SUPER_DOLPHIN_UPDATE_GITHUB_REPO=super-dolphin/releases",
 	}, "PATH")
 	output, err := cmd.CombinedOutput()
 	if err == nil {
@@ -483,18 +489,18 @@ if [[ "${1:-}" == "api" ]]; then
     fi
     shift
   done
-  if [[ "$endpoint" == "repos/xiaoxiaotest9527-bit/-" ]]; then
+  if [[ "$endpoint" == "repos/super-dolphin/releases" ]]; then
     exit 0
   fi
-  if [[ "$endpoint" == "repos/xiaoxiaotest9527-bit/-/releases/latest" && "$query" == ".tag_name" ]]; then
+  if [[ "$endpoint" == "repos/super-dolphin/releases/releases/latest" && "$query" == ".tag_name" ]]; then
     printf '%s\n' ` + bashQuote(latestTag) + `
     exit 0
   fi
-  if [[ "$endpoint" == "repos/xiaoxiaotest9527-bit/-/releases/latest" && "$query" == ".html_url" ]]; then
-    printf 'https://github.com/xiaoxiaotest9527-bit/-/releases/tag/%s\n' ` + bashQuote(latestTag) + `
+  if [[ "$endpoint" == "repos/super-dolphin/releases/releases/latest" && "$query" == ".html_url" ]]; then
+    printf 'https://github.com/super-dolphin/releases/releases/tag/%s\n' ` + bashQuote(latestTag) + `
     exit 0
   fi
-  if [[ "$endpoint" == "repos/xiaoxiaotest9527-bit/-/releases/latest" || "$endpoint" == "repos/xiaoxiaotest9527-bit/-/releases/tags/"* ]]; then
+  if [[ "$endpoint" == "repos/super-dolphin/releases/releases/latest" || "$endpoint" == "repos/super-dolphin/releases/releases/tags/"* ]]; then
 ` + queryChecks.String() + `
     exit 0
   fi

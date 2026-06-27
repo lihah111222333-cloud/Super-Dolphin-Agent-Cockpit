@@ -30,7 +30,7 @@ func main() {
 	}
 	opts := archtest.CheckOptions{
 		RepoRoot:  repoRoot,
-		ScanRoots: []string{"internal", "cmd", "scripts"},
+		ScanRoots: []string{"internal", "cmd", "pkg", "scripts"},
 		SkipDirs:  archtest.DefaultSkipDirs(),
 	}
 	baselinePath := filepath.Join(repoRoot, "internal/archtest/baseline.json")
@@ -190,8 +190,10 @@ func runRatchetPhase(label, blPath string, opts archtest.CheckOptions, root stri
 		fmt.Fprintf(os.Stderr, "❌  加载 %s baseline 失败: %v\n", label, err)
 		os.Exit(1)
 	}
-	checkRatchetResult(label, opts, blInfo.Data)
-	shrinkAndSave(label, blPath, blInfo.Data, opts, root, testsOnly)
+	phaseOpts := opts
+	phaseOpts.BaselineTestsOnly = testsOnly
+	checkRatchetResult(label, phaseOpts, blInfo.Data)
+	shrinkAndSave(label, blPath, blInfo.Data, phaseOpts, root, testsOnly)
 }
 
 // checkRatchetResult 比对当前度量与 baseline，发现恶化立即退出。
@@ -200,8 +202,12 @@ func checkRatchetResult(label string, opts archtest.CheckOptions, bl archtest.Ba
 	if result.OK() {
 		return
 	}
-	fmt.Fprintf(os.Stderr, "\n❌  %s棘轮恶化 (%d):\n\n", label, len(result.Violations))
+	total := len(result.Violations) + len(result.NewFileViolations)
+	fmt.Fprintf(os.Stderr, "\n❌  %s棘轮恶化 (%d):\n\n", label, total)
 	for _, v := range result.Violations {
+		fmt.Fprintln(os.Stderr, "  •", v.String())
+	}
+	for _, v := range result.NewFileViolations {
 		fmt.Fprintln(os.Stderr, "  •", v.String())
 	}
 	fmt.Fprintln(os.Stderr)
@@ -216,7 +222,7 @@ func shrinkAndSave(label, blPath string, bl archtest.Baseline, opts archtest.Che
 		os.Exit(1)
 	}
 	measure := func(rel string) archtest.FileMetrics {
-		return archtest.MeasureFileMetrics(filepath.Join(root, filepath.FromSlash(rel)))
+		return archtest.MeasureBaselineFileMetrics(filepath.Join(root, filepath.FromSlash(rel)))
 	}
 	newBL, stats := archtest.ShrinkBaseline(bl, fileSet, measure)
 	if stats.Changed() {

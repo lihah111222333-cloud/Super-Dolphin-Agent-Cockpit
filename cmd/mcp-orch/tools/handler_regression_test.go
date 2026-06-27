@@ -264,7 +264,7 @@ func TestHandleCreateDAGAcceptsFlatScheduleAndNodeExecution(t *testing.T) {
 		"nodes":[{
 			"node_key":"score",
 			"title":"Score",
-			"node_type":"automation",
+			"node_type":"agent",
 			"retry":1,
 			"timeout_sec":30
 		}]

@@ -2,53 +2,19 @@ package skill
 
 import (
 	"context"
-	"fmt"
 	"os"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"testing"
 	"time"
 )
 
-func TestExecCommandHelperProcess(t *testing.T) {
-	if os.Getenv("TEST_E2E_HELPER_PROCESS") != "1" {
-		return
-	}
-	args := os.Args
-	for len(args) > 0 && args[0] != "--" {
-		args = args[1:]
-	}
-	if len(args) < 2 {
-		os.Exit(2)
-	}
-	switch args[1] {
-	case "cwd":
-		cwd, err := os.Getwd()
-		if err != nil {
-			os.Exit(2)
-		}
-		fmt.Fprint(os.Stdout, cwd)
-	case "env":
-		if len(args) < 3 {
-			os.Exit(2)
-		}
-		value := os.Getenv(args[2])
-		fmt.Fprint(os.Stdout, value)
-		if value == "" {
-			os.Exit(1)
-		}
-	default:
-		os.Exit(2)
-	}
-	os.Exit(0)
-}
-
 func TestExecCommandRejectsShellMetacharacters(t *testing.T) {
 	t.Parallel()
 
-	svc := &service{}
-	if _, err := svc.ExecCommand(context.Background(), "printf", []string{"a|b"}, "", nil); err == nil {
+	project := t.TempDir()
+	svc := &service{projectRoot: project}
+	if _, err := svc.ExecCommand(context.Background(), "cat", []string{"a|b"}, project, nil); err == nil {
 		t.Fatal("ExecCommand expected shell metacharacter validation error")
 	}
 }
@@ -56,7 +22,7 @@ func TestExecCommandRejectsShellMetacharacters(t *testing.T) {
 func TestExecCommandRejectsWrappedDangerousCommand(t *testing.T) {
 	t.Parallel()
 
-	svc := &service{}
+	svc := &service{projectRoot: t.TempDir()}
 	if _, err := svc.ExecCommand(context.Background(), "env", []string{"SAFE=1", "rm", "-rf", "/"}, "", nil); err == nil {
 		t.Fatal("ExecCommand expected wrapped dangerous command validation error")
 	}
@@ -65,7 +31,7 @@ func TestExecCommandRejectsWrappedDangerousCommand(t *testing.T) {
 func TestExecCommandRejectsShellInterpreter(t *testing.T) {
 	t.Parallel()
 
-	svc := &service{}
+	svc := &service{projectRoot: t.TempDir()}
 	if _, err := svc.ExecCommand(context.Background(), "sh", []string{"-lc", "printf ok"}, "", nil); err == nil {
 		t.Fatal("ExecCommand expected shell interpreter validation error")
 	}
@@ -74,9 +40,143 @@ func TestExecCommandRejectsShellInterpreter(t *testing.T) {
 func TestExecCommandRejectsCodeExecutionRuntime(t *testing.T) {
 	t.Parallel()
 
-	svc := &service{}
+	svc := &service{projectRoot: t.TempDir()}
 	if _, err := svc.ExecCommand(context.Background(), "node", []string{"-e", "console.log(1)"}, "", nil); err == nil {
 		t.Fatal("ExecCommand expected code execution runtime validation error")
+	}
+}
+
+func TestExecCommandRejectsCWDOutsideWorkspaceRoots(t *testing.T) {
+	t.Parallel()
+
+	project := t.TempDir()
+	outside := filepath.Join(t.TempDir(), "secret.txt")
+	if err := os.WriteFile(outside, []byte("outside"), 0o644); err != nil {
+		t.Fatalf("write outside file: %v", err)
+	}
+	svc := &service{projectRoot: project}
+
+	if result, err := svc.ExecCommand(context.Background(), "cat", []string{outside}, string(filepath.Separator), nil); err == nil {
+		t.Fatalf("ExecCommand read outside workspace: stdout=%q stderr=%q", result.Stdout, result.Stderr)
+	}
+}
+
+func TestExecCommandRejectsAbsoluteArgOutsideWorkspaceRoots(t *testing.T) {
+	t.Parallel()
+
+	project := t.TempDir()
+	outside := filepath.Join(t.TempDir(), "outside.txt")
+	if err := os.WriteFile(outside, []byte("outside"), 0o644); err != nil {
+		t.Fatalf("write outside file: %v", err)
+	}
+	svc := &service{projectRoot: project}
+
+	if result, err := svc.ExecCommand(context.Background(), "cat", []string{outside}, project, nil); err == nil {
+		t.Fatalf("ExecCommand accepted absolute outside arg: stdout=%q stderr=%q", result.Stdout, result.Stderr)
+	}
+}
+
+func TestExecCommandRejectsDotDotArgEscapingWorkspace(t *testing.T) {
+	t.Parallel()
+
+	parent := t.TempDir()
+	project := filepath.Join(parent, "repo")
+	if err := os.MkdirAll(project, 0o755); err != nil {
+		t.Fatalf("mkdir project: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(parent, "outside.txt"), []byte("outside"), 0o644); err != nil {
+		t.Fatalf("write outside file: %v", err)
+	}
+	svc := &service{projectRoot: project}
+
+	if result, err := svc.ExecCommand(context.Background(), "cat", []string{"../outside.txt"}, project, nil); err == nil {
+		t.Fatalf("ExecCommand accepted dot-dot escape: stdout=%q stderr=%q", result.Stdout, result.Stderr)
+	}
+}
+
+func TestExecCommandRejectsSymlinkEscape(t *testing.T) {
+	t.Parallel()
+
+	project := t.TempDir()
+	outside := filepath.Join(t.TempDir(), "secret.txt")
+	if err := os.WriteFile(outside, []byte("outside"), 0o644); err != nil {
+		t.Fatalf("write outside file: %v", err)
+	}
+	link := filepath.Join(project, "secret-link.txt")
+	if err := os.Symlink(outside, link); err != nil {
+		t.Fatalf("symlink outside file: %v", err)
+	}
+	svc := &service{projectRoot: project}
+
+	if result, err := svc.ExecCommand(context.Background(), "cat", []string{"secret-link.txt"}, project, nil); err == nil {
+		t.Fatalf("ExecCommand followed symlink escape: stdout=%q stderr=%q", result.Stdout, result.Stderr)
+	}
+}
+
+func TestExecCommandRejectsUnknownCommand(t *testing.T) {
+	t.Parallel()
+
+	project := t.TempDir()
+	svc := &service{projectRoot: project}
+	if _, err := svc.ExecCommand(context.Background(), "printf", []string{"ok"}, project, nil); err == nil {
+		t.Fatal("ExecCommand accepted command outside the allowlist")
+	}
+}
+
+func TestExecCommandRejectsEmbeddedReadAndSecondaryExecutionCommands(t *testing.T) {
+	t.Parallel()
+
+	project := t.TempDir()
+	if err := os.WriteFile(filepath.Join(project, "file.txt"), []byte("workspace"), 0o644); err != nil {
+		t.Fatalf("write workspace file: %v", err)
+	}
+	tests := []struct {
+		command string
+		args    []string
+	}{
+		{command: "awk", args: []string{"BEGIN {print 1}"}},
+		{command: "find", args: []string{"."}},
+		{command: "sed", args: []string{"-n", "1p", "file.txt"}},
+		{command: "less", args: []string{"--version"}},
+		{command: "more", args: []string{"--version"}},
+	}
+	svc := &service{projectRoot: project}
+	for _, tt := range tests {
+		t.Run(tt.command, func(t *testing.T) {
+			if result, err := svc.ExecCommand(context.Background(), tt.command, tt.args, project, nil); err == nil {
+				t.Fatalf("ExecCommand accepted %s: stdout=%q stderr=%q", tt.command, result.Stdout, result.Stderr)
+			}
+		})
+	}
+}
+
+func TestExecCommandRejectsMissingTrustedWorkspaceRoots(t *testing.T) {
+	t.Parallel()
+
+	svc := &service{}
+	if result, err := svc.ExecCommand(context.Background(), "cat", []string{"SKILL.md"}, "", nil); err == nil {
+		t.Fatalf("ExecCommand accepted missing workspace root: stdout=%q stderr=%q", result.Stdout, result.Stderr)
+	}
+}
+
+func TestExecCommandCatReadsWorkspaceFile(t *testing.T) {
+	t.Parallel()
+
+	project := t.TempDir()
+	if err := os.WriteFile(filepath.Join(project, "README.md"), []byte("inside"), 0o644); err != nil {
+		t.Fatalf("write workspace file: %v", err)
+	}
+	svc := &service{projectRoot: project}
+
+	result, err := svc.ExecCommand(context.Background(), "cat", []string{"README.md"}, project, nil)
+	if err != nil {
+		t.Fatalf("ExecCommand returned error: %v", err)
+	}
+	if got := strings.TrimPrefix(result.Stdout, lspPreferenceHint); got != "inside" {
+		t.Fatalf("ExecCommand stdout = %q, want file content", result.Stdout)
+	}
+	if !sameCleanPath(result.CWD, project) {
+		t.Fatalf("ExecCommand cwd = %q, want %q", result.CWD, project)
 	}
 }
 
@@ -112,116 +212,25 @@ func TestExecCommandFallsBackToProjectRoot(t *testing.T) {
 
 	root := t.TempDir()
 	svc := &service{projectRoot: root}
-	command, args, env := execTestHelperCommand(t, "cwd")
-	out, err := svc.ExecCommand(context.Background(), command, args, "", env)
+	out, err := svc.ExecCommand(context.Background(), "pwd", nil, "", nil)
 	if err != nil {
 		t.Fatalf("ExecCommand returned error: %v", err)
 	}
-	if out.CWD != root {
+	if !sameCleanPath(out.CWD, root) {
 		t.Fatalf("ExecCommand cwd mismatch: got %q want %q", out.CWD, root)
 	}
-	if got := normalizePWDOutput(strings.TrimSpace(out.Stdout)); !sameCleanPath(got, root) {
+	if got := strings.TrimSpace(out.Stdout); !sameCleanPath(got, root) {
 		t.Fatalf("ExecCommand stdout mismatch: got %q want %q", got, root)
 	}
 }
 
-func normalizePWDOutput(output string) string {
-	if runtime.GOOS == "windows" && strings.HasPrefix(output, "/tmp/") {
-		return filepath.Join(os.TempDir(), filepath.FromSlash(strings.TrimPrefix(output, "/tmp/")))
-	}
-	if runtime.GOOS == "windows" && len(output) >= 3 && output[0] == '/' && output[2] == '/' {
-		return strings.ToUpper(output[1:2]) + `:\` + strings.ReplaceAll(output[3:], "/", `\`)
-	}
-	return output
-}
+func TestExecCommandRejectsEnvOverlay(t *testing.T) {
+	t.Parallel()
 
-func execTestHelperCommand(t *testing.T, mode string, extra ...string) (string, []string, map[string]string) {
-	t.Helper()
-	command, err := os.Executable()
-	if err != nil {
-		t.Fatalf("resolve test helper executable: %v", err)
-	}
-	args := append([]string{"-test.run=TestExecCommandHelperProcess", "--", mode}, extra...)
-	return command, args, map[string]string{"TEST_E2E_HELPER_PROCESS": "1"}
-}
-
-func TestBuildExecEnvDropsSensitiveProviderEnv(t *testing.T) {
-	t.Setenv("OPENAI_API_KEY", "parent-secret")
-	t.Setenv("ANTHROPIC_API_KEY", "parent-secret")
-	t.Setenv("CODEX_HOME", "parent-home")
-	t.Setenv("MCP_TOKEN", "parent-secret")
-	t.Setenv("TEST_E2E_SKILL_ENV", "allowed")
-
-	env := buildExecEnv("", map[string]string{
-		"OPENAI_API_KEY":     "overlay-secret",
-		"TEST_E2E_SKILL_ENV": "overlay",
-	})
-	for _, key := range []string{"OPENAI_API_KEY", "ANTHROPIC_API_KEY", "CODEX_HOME", "MCP_TOKEN"} {
-		if value := execTestEnvValue(env, key); value != "" {
-			t.Fatalf("%s leaked into exec env as %q", key, value)
-		}
-	}
-	if got := execTestEnvValue(env, "TEST_E2E_SKILL_ENV"); got != "overlay" {
-		t.Fatalf("TEST_E2E_SKILL_ENV = %q, want overlay", got)
-	}
-}
-
-func TestExecCommandInjectsWhitelistedEnv(t *testing.T) {
-	t.Setenv("TEST_E2E_SKILL_ENV", "allowed")
-	t.Setenv("UNRELATED_SKILL_ENV", "blocked")
-
-	svc := &service{}
-	command, args, env := execTestHelperCommand(t, "env", "TEST_E2E_SKILL_ENV")
-	allowed, err := svc.ExecCommand(context.Background(), command, args, "", env)
-	if err != nil {
-		t.Fatalf("ExecCommand allowed env returned error: %v", err)
-	}
-	if got := strings.TrimSpace(allowed.Stdout); got != "allowed" {
-		t.Fatalf("allowed env mismatch: got %q", got)
-	}
-	command, args, env = execTestHelperCommand(t, "env", "UNRELATED_SKILL_ENV")
-	blocked, err := svc.ExecCommand(context.Background(), command, args, "", env)
-	if err != nil {
-		t.Fatalf("ExecCommand blocked env returned error: %v", err)
-	}
-	if blocked.ExitCode == 0 || strings.TrimSpace(blocked.Stdout) != "" {
-		t.Fatalf("blocked env leaked: exit=%d stdout=%q", blocked.ExitCode, blocked.Stdout)
-	}
-}
-
-func execTestEnvValue(env []string, key string) string {
-	want := key + "="
-	for _, entry := range env {
-		if strings.HasPrefix(entry, want) {
-			return strings.TrimPrefix(entry, want)
-		}
-	}
-	return ""
-}
-
-func TestExecCommandOverlaysAllowedEnv(t *testing.T) {
-	t.Setenv("TEST_E2E_SKILL_ENV", "base")
-	svc := &service{}
-
-	command, args, env := execTestHelperCommand(t, "env", "TEST_E2E_SKILL_ENV")
-	env["TEST_E2E_SKILL_ENV"] = "override"
-	env["UNRELATED_SKILL_ENV"] = "blocked"
-	allowed, err := svc.ExecCommand(context.Background(), command, args, "", env)
-	if err != nil {
-		t.Fatalf("ExecCommand override env returned error: %v", err)
-	}
-	if got := strings.TrimSpace(allowed.Stdout); got != "override" {
-		t.Fatalf("override env mismatch: got %q", got)
-	}
-
-	command, args, env = execTestHelperCommand(t, "env", "UNRELATED_SKILL_ENV")
-	env["UNRELATED_SKILL_ENV"] = "blocked"
-	blocked, err := svc.ExecCommand(context.Background(), command, args, "", env)
-	if err != nil {
-		t.Fatalf("ExecCommand blocked overlay returned error: %v", err)
-	}
-	if blocked.ExitCode == 0 || strings.TrimSpace(blocked.Stdout) != "" {
-		t.Fatalf("blocked overlay leaked: exit=%d stdout=%q", blocked.ExitCode, blocked.Stdout)
+	project := t.TempDir()
+	svc := &service{projectRoot: project}
+	if _, err := svc.ExecCommand(context.Background(), "pwd", nil, project, map[string]string{"LOG_LEVEL": "debug"}); err == nil {
+		t.Fatal("ExecCommand accepted env overlay")
 	}
 }
 

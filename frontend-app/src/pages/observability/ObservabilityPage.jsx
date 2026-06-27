@@ -127,6 +127,18 @@ function traceResultTotalDurationMs(result) {
   return traceEventValue(result, 'totalDurationMs', 'total_duration_ms') || 0;
 }
 
+function observabilityTailDiagnosticText(result) {
+  if (!result || typeof result !== 'object') return '';
+  const parts = [];
+  if (result.degraded) parts.push('degraded=true');
+  const tailError = textValue(result.tailError || result.tail_error);
+  if (tailError) parts.push(`tail_error=${tailError}`);
+  if (result.tailTimedOut || result.tail_timed_out) parts.push('tail_timed_out=true');
+  const filesScanned = Number(result.tailFilesScanned ?? result.tail_files_scanned);
+  if (Number.isFinite(filesScanned) && filesScanned > 0) parts.push(`tail_files_scanned=${filesScanned}`);
+  return parts.join(' · ');
+}
+
 function useObservabilityFilters() {
   const [filters, setFilters] = useState({
     agentId: '',
@@ -347,12 +359,13 @@ function ObservabilityRecentLogs({ result, onOpenTrace, onCopyTrace, copiedTrace
   if (!result) return null;
   const traceRows = groupObservabilityTraceRows(result.events);
   const eventCount = traceRows.reduce((total, row) => total + row.events.length, 0);
+  const tailDiagnostics = observabilityTailDiagnosticText(result);
   return (
     <div className="settings-card observability-result observability-system-log" data-testid="observability-recent-logs">
       <div className="observability-result-header">
         <div>
           <h2>最新匹配 event 分组</h2>
-          <p>{traceRows.length} 条匹配 event 分组 · {eventCount} 个匹配 event · source={result.source || 'memory'} · truncated={String(Boolean(result.truncated))}</p>
+          <p>{traceRows.length} 条匹配 event 分组 · {eventCount} 个匹配 event · source={result.source || 'memory'} · truncated={String(Boolean(result.truncated))}{tailDiagnostics ? ` · ${tailDiagnostics}` : ''}</p>
         </div>
       </div>
       {traceRows.length === 0 ? (
@@ -570,6 +583,7 @@ function observabilityTraceSummary(row) {
 function ObservabilityInlineTraceResult({ traceID, detailId, state }) {
   if (!state?.expanded) return null;
   const result = state.result;
+  const tailDiagnostics = observabilityTailDiagnosticText(result);
   return (
     <section
       className="observability-log-trace-detail"
@@ -582,7 +596,7 @@ function ObservabilityInlineTraceResult({ traceID, detailId, state }) {
         <div>
           <h3>Trace 结果</h3>
           {result ? (
-            <p>source={result.source || 'memory'} total_duration_ms={traceResultTotalDurationMs(result)} truncated={String(Boolean(result.truncated))}</p>
+            <p>source={result.source || 'memory'} total_duration_ms={traceResultTotalDurationMs(result)} truncated={String(Boolean(result.truncated))}{tailDiagnostics ? ` ${tailDiagnostics}` : ''}</p>
           ) : null}
         </div>
       </div>

@@ -203,7 +203,7 @@ func buildOrchestrationOptions(remoteAddr string) []fx.Option {
 			fx.Provide(fx.Annotate(wakeupreclaim.ProvideWakeupReclaimerRunner, fx.ResultTags(`group:"runners"`))),
 			fx.Provide(fx.Annotate(provideScheduledDAGCronRunner, fx.ResultTags(`group:"runners"`))),
 		),
-		fx.Provide(func(lc fx.Lifecycle, turnStarter orchestration.TurnStarter, logger *slog.Logger) orchestration.AgentLauncher {
+		fx.Provide(func(lc fx.Lifecycle, turnStarter contract.OrchestrationTurnStarter, logger *slog.Logger) orchestration.AgentLauncher {
 			return buildLauncher(lc, turnStarter, logger, remoteAddr)
 		}),
 		fx.Provide(
@@ -272,7 +272,7 @@ func (g automationCommandGetter) GetCommandCard(ctx context.Context, cardKey str
 	return card, nil
 }
 
-func buildLauncher(lc fx.Lifecycle, turnStarter orchestration.TurnStarter, logger *slog.Logger, remoteAddr string) orchestration.AgentLauncher {
+func buildLauncher(lc fx.Lifecycle, turnStarter contract.OrchestrationTurnStarter, logger *slog.Logger, remoteAddr string) orchestration.AgentLauncher {
 	if remoteAddr == "" {
 		return orchestration.NewLocalLauncher(turnStarter, logger)
 	}

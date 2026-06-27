@@ -13,15 +13,41 @@ const MEMORY_CONSOLIDATION_POLL_MS = 2000;
 const MEMORY_CONSOLIDATION_MAX_POLLS = 180;
 
 const MEMORY_CATEGORY_KEYS = Object.freeze(['preference', 'project', 'all']);
+const activeMemoryConsolidationPollers = new Map();
 
 const MEMORY_EDITOR_TYPES = Object.freeze([
   { key: 'feedback', label: '偏好' },
   { key: 'project', label: '项目' },
 ]);
 
-function delay(ms) {
-  return new Promise((resolve) => {
-    globalThis.setTimeout(resolve, ms);
+function memoryPollingAbortError() {
+  const error = new Error('智能整合轮询已取消');
+  error.name = 'AbortError';
+  return error;
+}
+
+function throwIfMemoryPollingAborted(signal) {
+  if (signal?.aborted) throw memoryPollingAbortError();
+}
+
+function delay(ms, signal) {
+  throwIfMemoryPollingAborted(signal);
+  return new Promise((resolve, reject) => {
+    let timerID = null;
+    let abortDelay = () => {};
+    const cleanup = () => {
+      if (timerID !== null) globalThis.clearTimeout(timerID);
+      signal?.removeEventListener?.('abort', abortDelay);
+    };
+    abortDelay = () => {
+      cleanup();
+      reject(memoryPollingAbortError());
+    };
+    timerID = globalThis.setTimeout(() => {
+      cleanup();
+      resolve();
+    }, ms);
+    signal?.addEventListener?.('abort', abortDelay, { once: true });
   });
 }
 
@@ -197,15 +223,17 @@ function clearMemorySimilarGroups(snapshot) {
   return memorySnapshotWithClearedSimilarGroups(validSnapshot, overview, health);
 }
 
-async function waitForMemoryConsolidationJob(cwd, jobID) {
+async function waitForMemoryConsolidationJob(cwd, jobID, { signal } = {}) {
   for (let attempt = 0; attempt < MEMORY_CONSOLIDATION_MAX_POLLS; attempt += 1) {
+    throwIfMemoryPollingAborted(signal);
     const status = await getMemoryConsolidationStatus({ cwd, jobId: jobID });
+    throwIfMemoryPollingAborted(signal);
     if (status?.status === 'succeeded') return status.result || {};
     if (status?.status === 'failed') throw memoryConsolidationJobFailed(status);
     if (status?.status !== 'running') {
       throw new Error('智能整合状态异常，请稍后重试');
     }
-    await delay(MEMORY_CONSOLIDATION_POLL_MS);
+    await delay(MEMORY_CONSOLIDATION_POLL_MS, signal);
   }
   throw new Error('智能整合仍在进行，请稍后查看结果');
 }
@@ -493,18 +521,29 @@ function memoryConsolidationStartPayload(cwd, launchPreferences) {
 function useMemoryConsolidationPolling({ applyConsolidationResult, setConsolidationJob, showNotice, similarity }) {
   useEffect(() => {
     if (!similarity.consolidationJob?.jobId || !similarity.consolidationJob?.cwd) return undefined;
-    let cancelled = false;
+    const pollerKey = `${similarity.consolidationJob.cwd}\u0000${similarity.consolidationJob.jobId}`;
+    if (activeMemoryConsolidationPollers.has(pollerKey)) return undefined;
+    const controller = new AbortController();
+    activeMemoryConsolidationPollers.set(pollerKey, controller);
     (async () => {
       try {
-        const result = await waitForMemoryConsolidationJob(similarity.consolidationJob.cwd, similarity.consolidationJob.jobId);
-        if (!cancelled) await applyConsolidationResult(similarity.consolidationJob.cwd, result);
+        const result = await waitForMemoryConsolidationJob(similarity.consolidationJob.cwd, similarity.consolidationJob.jobId, { signal: controller.signal });
+        if (!controller.signal.aborted) await applyConsolidationResult(similarity.consolidationJob.cwd, result);
       } catch (err) {
-        if (!cancelled) showMemoryConsolidationError(err, showNotice);
+        if (!controller.signal.aborted) showMemoryConsolidationError(err, showNotice);
       } finally {
-        if (!cancelled) setConsolidationJob(null);
+        if (activeMemoryConsolidationPollers.get(pollerKey) === controller) {
+          activeMemoryConsolidationPollers.delete(pollerKey);
+        }
+        if (!controller.signal.aborted) setConsolidationJob(null);
       }
     })();
-    return () => { cancelled = true; };
+    return () => {
+      controller.abort();
+      if (activeMemoryConsolidationPollers.get(pollerKey) === controller) {
+        activeMemoryConsolidationPollers.delete(pollerKey);
+      }
+    };
   }, [applyConsolidationResult, setConsolidationJob, showNotice, similarity.consolidationJob]);
 }
 

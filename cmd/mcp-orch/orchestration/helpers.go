@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"os/exec"
 	"strconv"
 	"strings"
 	"time"
@@ -263,21 +262,20 @@ func (s *service) waitForSubmitSessionReady(ctx context.Context, agentID string)
 
 // startProcessLocked 启动本地 agent 进程，并在启动成功后立即接入退出监控。
 func (s *service) startProcessLocked(ctx context.Context, agent *agentRuntime) error {
-	cmd := exec.Command(agent.command[0], agent.command[1:]...)
-	cmd.Dir = agent.cwd
-	cmd.Env = append(contract.ScrubDatabaseEnv(os.Environ()), contract.ScrubDatabaseEnv(agent.env)...)
-	processctl.Configure(cmd)
-	if err := cmd.Start(); err != nil {
+	nextSeq := agent.launchSeq + 1
+	cmd, guard, err := exitmonitor.StartMonitoredCommand(
+		s.exitMonitor, s.logger,
+		exitmonitor.Target{AgentID: agent.id, LaunchSeq: nextSeq},
+		agent.command, agent.cwd,
+		append(contract.ScrubDatabaseEnv(os.Environ()), contract.ScrubDatabaseEnv(agent.env)...),
+	)
+	if err != nil {
 		return s.commitLaunchFailureLocked(ctx, agent, err)
 	}
-	guard := processctl.Attach(cmd, s.logger)
 	now := resolveEventTime(ctx, agent.updatedAt)
 	resetLaunchState(agent)
-	agent.cmd = cmd
-	agent.processGuard = guard
-	agent.launchSeq++
-	agent.startedAt = now
-	agent.updatedAt = now
+	agent.cmd, agent.processGuard = cmd, guard
+	agent.launchSeq, agent.startedAt, agent.updatedAt = nextSeq, now, now
 	if err := s.commitLaunchSuccessLocked(ctx, agent); err != nil {
 		if stopErr := processctl.ForceStop(cmd, guard); stopErr != nil {
 			s.logger.Warn("orchestration: rollback stop process failed",
@@ -286,20 +284,10 @@ func (s *service) startProcessLocked(ctx context.Context, agent *agentRuntime) e
 		if guard != nil {
 			guard.Close()
 		}
-		agent.cmd = nil
-		agent.processGuard = nil
+		agent.cmd, agent.processGuard = nil, nil
 		return err
 	}
-	// Start 成功后立即把 cmd.Wait 交给 exit monitor。
-	// launchSeq 是退出事件围栏，monitoredSeq 只保留给测试和诊断确认该进程已被接管。
-	if s.exitMonitor != nil {
-		s.exitMonitor.Arm(exitmonitor.Target{
-			AgentID:   agent.id,
-			LaunchSeq: agent.launchSeq,
-			Cmd:       cmd,
-		})
-	}
-	agent.monitoredSeq = agent.launchSeq
+	agent.monitoredSeq = nextSeq
 	s.logger.Info("orchestration: agent launched", "agent_id", agent.id, "pid", cmd.Process.Pid)
 	return nil
 }

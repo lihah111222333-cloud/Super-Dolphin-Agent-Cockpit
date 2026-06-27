@@ -34,6 +34,34 @@ function Get-EnvOrDefault() {
     return $value
 }
 
+function Resolve-GitHubReleaseRepo() {
+    $value = [Environment]::GetEnvironmentVariable('SUPER_DOLPHIN_UPDATE_GITHUB_REPO', 'Process')
+    if ($null -eq $value -or $value.Trim() -eq '') {
+        throw 'SUPER_DOLPHIN_UPDATE_GITHUB_REPO is required'
+    }
+    $repo = $value.Trim()
+    if ($repo -eq 'xiaoxiaotest9527-bit/-') {
+        throw 'known placeholder update repo is not allowed'
+    }
+    if ($repo -notmatch '^[^/\s]+/[^/\s]+$') {
+        throw 'SUPER_DOLPHIN_UPDATE_GITHUB_REPO must be owner/repo without whitespace'
+    }
+    return $repo
+}
+
+function Assert-UpdatePublicKeyContinuity() {
+    param(
+        [Parameter(Mandatory)][string]$PreviousPublicKey,
+        [Parameter(Mandatory)][string]$PublicKey
+    )
+    if ($PreviousPublicKey.Trim() -eq '') {
+        throw 'SUPER_DOLPHIN_UPDATE_PREVIOUS_PUBLIC_KEY is required'
+    }
+    if ($PreviousPublicKey.Trim() -ne $PublicKey.Trim()) {
+        throw 'previous package update public key does not match SUPER_DOLPHIN_UPDATE_PUBLIC_KEY'
+    }
+}
+
 $Root = Resolve-RepoRoot
 Set-Location -LiteralPath $Root
 
@@ -45,7 +73,8 @@ $Version = Require-Env -Name 'VERSION'
 $PackageVersion = Get-EnvOrDefault -Name 'SUPER_DOLPHIN_PACKAGE_VERSION' -Default $Version.TrimStart('v', 'V')
 $SigningKey = Require-Env -Name 'SUPER_DOLPHIN_UPDATE_SIGNING_KEY'
 $PublicKey = Require-Env -Name 'SUPER_DOLPHIN_UPDATE_PUBLIC_KEY'
-$GitHubReleaseRepo = Get-EnvOrDefault -Name 'SUPER_DOLPHIN_UPDATE_GITHUB_REPO' -Default 'xiaoxiaotest9527-bit/-'
+$PreviousPublicKey = Require-Env -Name 'SUPER_DOLPHIN_UPDATE_PREVIOUS_PUBLIC_KEY'
+$GitHubReleaseRepo = Resolve-GitHubReleaseRepo
 $Channel = Get-EnvOrDefault -Name 'SUPER_DOLPHIN_UPDATE_CHANNEL' -Default 'gray'
 $MinimumVersion = Get-EnvOrDefault -Name 'SUPER_DOLPHIN_UPDATE_MINIMUM_VERSION' -Default '0.0.0'
 if ($StageDir.Trim() -eq '') {
@@ -54,12 +83,15 @@ if ($StageDir.Trim() -eq '') {
 
 $env:SUPER_DOLPHIN_WINDOWS_ARCH = 'arm64'
 $env:SUPER_DOLPHIN_WINDOWS_OUTPUT = 'installer'
+$env:SUPER_DOLPHIN_RELEASE_BUILD = '1'
 $env:SUPER_DOLPHIN_UPDATE_ENABLED = '1'
 $env:SUPER_DOLPHIN_UPDATE_GITHUB_REPO = $GitHubReleaseRepo
 $env:SUPER_DOLPHIN_UPDATE_PUBLIC_KEY = $PublicKey
 $env:SUPER_DOLPHIN_UPDATE_CHANNEL = $Channel
 $env:SUPER_DOLPHIN_UPDATE_VERSION = $PackageVersion
 $env:VERSION = $PackageVersion
+
+Assert-UpdatePublicKeyContinuity -PreviousPublicKey $PreviousPublicKey -PublicKey $PublicKey
 
 & go run .\cmd\super-dolphin-release-manifest `
     -check-key `

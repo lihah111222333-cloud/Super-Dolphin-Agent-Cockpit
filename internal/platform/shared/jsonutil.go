@@ -1,22 +1,18 @@
 package shared
 
 import (
-	"bytes"
 	"encoding/json"
 	"strings"
 
 	mcp "github.com/anthropic-ai/super-agent-v3/internal/dto/mcp"
 	"github.com/anthropic-ai/super-agent-v3/internal/util/clone"
+	"github.com/anthropic-ai/super-agent-v3/internal/util/jsoninput"
 	"github.com/anthropic-ai/super-agent-v3/internal/util/pathutil"
 )
 
 // DecodeInput 解码工具输入；空值和 null 按空对象处理，减少调用方重复分支。
 func DecodeInput(input json.RawMessage, dst any) error {
-	trimmed := bytes.TrimSpace(input)
-	if len(trimmed) == 0 || bytes.Equal(trimmed, []byte("null")) {
-		trimmed = []byte("{}")
-	}
-	return json.Unmarshal(trimmed, dst)
+	return jsoninput.DecodeStrictObject(input, dst)
 }
 
 // CloneSelector 深拷贝 Selector 中的可选 Scope，避免调用方共享指针。
@@ -49,8 +45,7 @@ func FilterKeys(payload map[string]any, keys []string) map[string]any {
 	}
 	filtered := make(map[string]any, len(keys))
 	for _, key := range keys {
-		key = strings.TrimSpace(key)
-		if key == "" {
+		if key = strings.TrimSpace(key); key == "" {
 			continue
 		}
 		if value, ok := payload[key]; ok {
@@ -70,6 +65,4 @@ func CloneJSONMap(input map[string]any) map[string]any { return clone.JSONMap(in
 func CloneRuntimeConfigMap(cfg map[string]any) map[string]any { return clone.RuntimeConfigMap(cfg) }
 
 // NormalizeAbsolutePath 规范化绝对路径，保留 pathutil 的平台细节。
-func NormalizeAbsolutePath(path string) (string, error) {
-	return pathutil.NormalizeAbsolutePath(path)
-}
+func NormalizeAbsolutePath(path string) (string, error) { return pathutil.NormalizeAbsolutePath(path) }

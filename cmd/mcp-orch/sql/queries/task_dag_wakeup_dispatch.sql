@@ -35,6 +35,21 @@ RETURNING id, dag_key, node_key, wakeup_kind, target_agent_id, prompt_payload,
           claimed_by, lease_expires_at, sent_at, bound_turn_id, turn_bound_at,
           last_error, created_at, updated_at, run_id;
 
+-- name: RenewTaskDagWakeupLease :many
+UPDATE task_dag_wakeups
+SET lease_expires_at = (CAST(strftime('%s','now') AS INTEGER) * 1000) + sqlc.arg(lease_ms),
+    updated_at = (CAST(strftime('%s','now') AS INTEGER) * 1000)
+WHERE id = sqlc.arg(id)
+  AND status = 'dispatching'
+  AND claimed_at = sqlc.arg(claimed_at)
+  AND claimed_by = sqlc.arg(claimed_by)
+  AND lease_expires_at = sqlc.arg(lease_expires_at)
+  AND lease_expires_at >= (CAST(strftime('%s','now') AS INTEGER) * 1000)
+RETURNING id, dag_key, node_key, wakeup_kind, target_agent_id, prompt_payload,
+          idempotency_key, status, attempt_count, next_retry_at, claimed_at,
+          claimed_by, lease_expires_at, sent_at, bound_turn_id, turn_bound_at,
+          last_error, created_at, updated_at, run_id;
+
 -- name: MarkTaskDagWakeupSent :execrows
 UPDATE task_dag_wakeups
 SET status = 'sent', sent_at = (CAST(strftime('%s','now') AS INTEGER) * 1000), updated_at = (CAST(strftime('%s','now') AS INTEGER) * 1000)
