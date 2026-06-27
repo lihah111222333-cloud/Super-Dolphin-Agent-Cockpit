@@ -8,14 +8,13 @@ import (
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	platformrpc "github.com/anthropic-ai/super-agent-v3/internal/platform/rpc"
-	sharedfilestore "github.com/anthropic-ai/super-agent-v3/internal/store/sharedfile"
 )
 
 func TestListSharedFilesDoesNotRequireDAGRuntime(t *testing.T) {
 	t.Parallel()
 
 	shared := &stubSharedFileReader{
-		result: []sharedfilestore.SharedFile{{Path: "reports/final.md", Content: "final summary"}},
+		result: []SharedFile{{Path: "reports/final.md", Content: "final summary"}},
 	}
 	orchestration := &stubDashboardOrchestration{
 		listDAGsErr: errDashboardStub,
@@ -38,7 +37,7 @@ func TestDashboardSharedFilesHandlerDoesNotRequireDAGRuntime(t *testing.T) {
 	t.Parallel()
 
 	shared := &stubSharedFileReader{
-		result: []sharedfilestore.SharedFile{{Path: "reports/final.md", Content: "final summary"}},
+		result: []SharedFile{{Path: "reports/final.md", Content: "final summary"}},
 	}
 	orchestration := &stubDashboardOrchestration{
 		listDAGsErr: errDashboardStub,
@@ -73,7 +72,7 @@ func TestGetDashboardPageMemorySurfacesMalformedFinalOutputMetadata(t *testing.T
 	t.Parallel()
 
 	shared := &stubSharedFileReader{
-		result: []sharedfilestore.SharedFile{{Path: "reports/daily-brief.pptx", Content: "deck"}},
+		result: []SharedFile{{Path: "reports/daily-brief.pptx", Content: "deck"}},
 	}
 	orchestration := &stubDashboardOrchestration{
 		listDAGsResult: []contract.DAGSummary{{DagKey: "dag-1", Title: "Daily Brief"}},
@@ -191,14 +190,14 @@ func TestDashboardWorkflowMaterialWriteRequiresWritableSharedFileStore(t *testin
 
 type stubSharedFileStore struct {
 	stubSharedFileReader
-	upserted sharedfilestore.UpsertParams
+	upserted SharedFileUpsertParams
 }
 
-var _ sharedfilestore.Upserter = (*stubSharedFileStore)(nil)
+var _ SharedFileWriter = (*stubSharedFileStore)(nil)
 
-func (s *stubSharedFileStore) Upsert(_ context.Context, params sharedfilestore.UpsertParams) (*sharedfilestore.SharedFile, error) {
+func (s *stubSharedFileStore) Upsert(_ context.Context, params SharedFileUpsertParams) (*SharedFile, error) {
 	s.upserted = params
-	return &sharedfilestore.SharedFile{
+	return &SharedFile{
 		Path:      params.Path,
 		Content:   params.Content,
 		UpdatedBy: params.UpdatedBy,

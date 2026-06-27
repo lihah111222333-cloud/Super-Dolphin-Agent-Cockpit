@@ -7,11 +7,6 @@ import (
 	"testing"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
-	ailogstore "github.com/anthropic-ai/super-agent-v3/internal/store/ailog"
-	auditlogstore "github.com/anthropic-ai/super-agent-v3/internal/store/auditlog"
-	buslogstore "github.com/anthropic-ai/super-agent-v3/internal/store/buslog"
-	promptstore "github.com/anthropic-ai/super-agent-v3/internal/store/prompt"
-	sharedfilestore "github.com/anthropic-ai/super-agent-v3/internal/store/sharedfile"
 )
 
 func TestGetDashboardPageReturnsStructuredPage(t *testing.T) {
@@ -112,7 +107,7 @@ func TestGetDashboardPageMemoryIncludesFinalOutputRefs(t *testing.T) {
 	t.Parallel()
 
 	shared := &stubSharedFileReader{
-		result: []sharedfilestore.SharedFile{
+		result: []SharedFile{
 			{Path: "reports/daily-brief.pptx", Content: "deck"},
 			{Path: "scratch/intermediate.json", Content: "{}"},
 		},
@@ -156,7 +151,7 @@ func TestGetDashboardPageMemorySurfacesFinalOutputRefErrors(t *testing.T) {
 	t.Parallel()
 
 	shared := &stubSharedFileReader{
-		result: []sharedfilestore.SharedFile{{Path: "reports/daily-brief.pptx", Content: "deck"}},
+		result: []SharedFile{{Path: "reports/daily-brief.pptx", Content: "deck"}},
 	}
 	orchestration := &stubDashboardOrchestration{
 		listDAGsResult: []contract.DAGSummary{{DagKey: "dag-1", Title: "Daily Brief"}},
@@ -256,14 +251,14 @@ func TestGetDashboardPageSkillsStillReturnsUnexpectedSkillErrors(t *testing.T) {
 }
 
 type stubSharedFileReader struct {
-	result     []sharedfilestore.SharedFile
+	result     []SharedFile
 	err        error
-	lastFilter sharedfilestore.ListFilter
+	lastFilter SharedFileFilter
 }
 
-var _ sharedfilestore.Reader = (*stubSharedFileReader)(nil)
+var _ SharedFileReader = (*stubSharedFileReader)(nil)
 
-func (s *stubSharedFileReader) Get(_ context.Context, path string) (*sharedfilestore.SharedFile, error) {
+func (s *stubSharedFileReader) Get(_ context.Context, path string) (*SharedFile, error) {
 	for _, item := range s.result {
 		if item.Path == path {
 			return &item, nil
@@ -272,7 +267,7 @@ func (s *stubSharedFileReader) Get(_ context.Context, path string) (*sharedfiles
 	return nil, s.err
 }
 
-func (s *stubSharedFileReader) List(_ context.Context, filter sharedfilestore.ListFilter) ([]sharedfilestore.SharedFile, error) {
+func (s *stubSharedFileReader) List(_ context.Context, filter SharedFileFilter) ([]SharedFile, error) {
 	s.lastFilter = filter
 	return s.result, s.err
 }
@@ -295,7 +290,7 @@ func TestGetDashboardPageFiltersPromptsByScopedCWD(t *testing.T) {
 			t.Parallel()
 
 			stub := &stubPromptReader{
-				result: []promptstore.PromptTemplate{
+				result: []PromptTemplate{
 					{PromptKey: "global", Title: "Global", Tags: json.RawMessage(`[]`)},
 					{PromptKey: "match", Title: "Match", Tags: json.RawMessage(`["scope.cwd:/repo-a"]`)},
 					{PromptKey: "other", Title: "Other", Tags: json.RawMessage(`["scope.cwd:/repo-b"]`)},
@@ -329,7 +324,7 @@ func TestDashboardPromptsHandlerScopesByCWDAndReturnsPromptsKey(t *testing.T) {
 	t.Parallel()
 
 	stub := &stubPromptReader{
-		result: []promptstore.PromptTemplate{
+		result: []PromptTemplate{
 			{PromptKey: "global", Title: "Global", Tags: json.RawMessage(`[]`)},
 			{PromptKey: "match", Title: "Match", Tags: json.RawMessage(`["scope.cwd:/repo-a"]`)},
 			{PromptKey: "other", Title: "Other", Tags: json.RawMessage(`["scope.cwd:/repo-b"]`)},
@@ -356,7 +351,7 @@ func TestDashboardPromptsHandlerRequiresCWD(t *testing.T) {
 	t.Parallel()
 
 	stub := &stubPromptReader{
-		result: []promptstore.PromptTemplate{
+		result: []PromptTemplate{
 			{PromptKey: "other-project", Title: "Other", Tags: json.RawMessage(`["scope.cwd:/repo-b"]`)},
 		},
 	}
@@ -375,7 +370,7 @@ func TestDashboardPromptsHandlerHidesSystemManagedPromptRows(t *testing.T) {
 	t.Parallel()
 
 	stub := &stubPromptReader{
-		result: []promptstore.PromptTemplate{
+		result: []PromptTemplate{
 			{PromptKey: "user-expert", Title: "User Expert", Tags: json.RawMessage(`["scope.cwd:/repo-a","intent:expert"]`), CreatedBy: "rpc.prompts", UpdatedBy: "rpc.prompts"},
 			{PromptKey: "rpc-updated-seed", Title: "RPC Updated Seed", Tags: json.RawMessage(`["scope.cwd:/repo-a","intent:expert"]`), CreatedBy: "system.seed", UpdatedBy: "rpc.prompts"},
 			{PromptKey: "user-edited-seed", Title: "User Edited Seed", Tags: json.RawMessage(`["scope.cwd:/repo-a","intent:expert"]`), CreatedBy: "system.seed", UpdatedBy: "system.seed", ManuallyEdited: true},
@@ -400,7 +395,7 @@ func TestGetAILogsByCategoryUsesStore(t *testing.T) {
 	t.Parallel()
 
 	stub := &stubAILogStore{
-		listByCategoryResult: []ailogstore.AILog{{
+		listByCategoryResult: []AILog{{
 			ID:       7,
 			Category: "api_request",
 			Message:  "GET /v1/models",
@@ -424,7 +419,7 @@ func TestGetAILogsByCategoryUsesStore(t *testing.T) {
 	}
 }
 
-func decodeDashboardPromptsResponse(t *testing.T, result json.RawMessage) []promptstore.PromptTemplate {
+func decodeDashboardPromptsResponse(t *testing.T, result json.RawMessage) []PromptTemplate {
 	t.Helper()
 
 	var response map[string]json.RawMessage
@@ -439,14 +434,14 @@ func decodeDashboardPromptsResponse(t *testing.T, result json.RawMessage) []prom
 		t.Fatalf("Dispatch() response unexpectedly retained legacy commands key: %#v", response)
 	}
 
-	var prompts []promptstore.PromptTemplate
+	var prompts []PromptTemplate
 	if err := json.Unmarshal(promptsRaw, &prompts); err != nil {
 		t.Fatalf("json.Unmarshal(prompts) error = %v", err)
 	}
 	return prompts
 }
 
-func assertDashboardPromptKeys(t *testing.T, prompts []promptstore.PromptTemplate, wantKeys []string) {
+func assertDashboardPromptKeys(t *testing.T, prompts []PromptTemplate, wantKeys []string) {
 	t.Helper()
 
 	if len(prompts) != len(wantKeys) {
@@ -463,7 +458,7 @@ func TestGetAILogsByCategoryPassesKeywordToStore(t *testing.T) {
 	t.Parallel()
 
 	stub := &stubAILogStore{
-		listByCategoryResult: []ailogstore.AILog{
+		listByCategoryResult: []AILog{
 			{ID: 7, Category: "api_request", Message: "GET /v1/models"},
 			{ID: 8, Category: "api_request", Message: "unfiltered here, store owns keyword match"},
 		},
@@ -486,7 +481,7 @@ func TestGetAILogStatsUsesStore(t *testing.T) {
 	t.Parallel()
 
 	stub := &stubAILogStore{
-		countByStatusResult: []ailogstore.StatusCount{
+		countByStatusResult: []AILogStatusCount{
 			{Status: "200", Count: 3},
 			{Status: "500", Count: 1},
 		},
@@ -509,7 +504,7 @@ func TestGetRecentAILogsUsesStore(t *testing.T) {
 	t.Parallel()
 
 	stub := &stubAILogStore{
-		listRecentResult: []ailogstore.AILog{{
+		listRecentResult: []AILog{{
 			ID:      9,
 			Message: "recent",
 			Status:  "201",
@@ -536,11 +531,11 @@ func TestGetAuditLogsUsesStore(t *testing.T) {
 	t.Parallel()
 
 	stub := &stubAuditLogStore{
-		listResult: []auditlogstore.AuditEvent{{ID: 7, EventType: "tool", Action: "run"}},
+		listResult: []AuditEvent{{ID: 7, EventType: "tool", Action: "run"}},
 	}
 	svc := &service{auditLogs: stub}
 
-	got, err := svc.GetAuditLogs(context.Background(), auditlogstore.ListFilter{
+	got, err := svc.GetAuditLogs(context.Background(), AuditLogFilter{
 		EventType: " tool ",
 		Action:    " run ",
 		Actor:     " agent-1 ",
@@ -565,11 +560,11 @@ func TestGetBusLogsUsesStore(t *testing.T) {
 	t.Parallel()
 
 	stub := &stubBusLogStore{
-		listResult: []buslogstore.BusExceptionLog{{ID: 9, Category: "rpc", Severity: "error"}},
+		listResult: []BusExceptionLog{{ID: 9, Category: "rpc", Severity: "error"}},
 	}
 	svc := &service{busLogs: stub}
 
-	got, err := svc.GetBusLogs(context.Background(), buslogstore.ListFilter{
+	got, err := svc.GetBusLogs(context.Background(), BusLogFilter{
 		Category: " rpc ",
 		Severity: " error ",
 		Keyword:  " timeout ",
@@ -590,42 +585,52 @@ func TestGetBusLogsUsesStore(t *testing.T) {
 }
 
 type stubPromptReader struct {
-	result     []promptstore.PromptTemplate
+	result     []PromptTemplate
 	err        error
 	calls      int
-	lastFilter promptstore.ListFilter
+	lastFilter PromptTemplateFilter
 }
 
-var _ promptstore.Reader = (*stubPromptReader)(nil)
+var _ PromptTemplateReader = (*stubPromptReader)(nil)
 
-func (s *stubPromptReader) List(_ context.Context, filter promptstore.ListFilter) ([]promptstore.PromptTemplate, error) {
+func (s *stubPromptReader) List(_ context.Context, filter PromptTemplateFilter) ([]PromptTemplate, error) {
 	s.calls++
 	s.lastFilter = filter
 	return s.result, s.err
 }
 
 type stubAILogStore struct {
-	ailogstore.Store
-	listByCategoryResult   []ailogstore.AILog
+	listResult []AILog
+	listErr    error
+	listFilter AILogFilter
+	listCalls  int
+
+	listByCategoryResult   []AILog
 	listByCategoryErr      error
 	listByCategoryCalls    int
 	listByCategoryCategory string
 	listByCategoryKeyword  string
 	listByCategoryLimit    int32
 
-	countByStatusResult []ailogstore.StatusCount
+	countByStatusResult []AILogStatusCount
 	countByStatusErr    error
 	countByStatusCalls  int
 
-	listRecentResult []ailogstore.AILog
+	listRecentResult []AILog
 	listRecentErr    error
 	listRecentCalls  int
 	listRecentLimit  int32
 }
 
-var _ ailogstore.Store = (*stubAILogStore)(nil)
+var _ AILogReader = (*stubAILogStore)(nil)
 
-func (s *stubAILogStore) ListByCategory(_ context.Context, category string, keyword string, limit int32) ([]ailogstore.AILog, error) {
+func (s *stubAILogStore) List(_ context.Context, filter AILogFilter) ([]AILog, error) {
+	s.listCalls++
+	s.listFilter = filter
+	return s.listResult, s.listErr
+}
+
+func (s *stubAILogStore) ListByCategory(_ context.Context, category string, keyword string, limit int32) ([]AILog, error) {
 	s.listByCategoryCalls++
 	s.listByCategoryCategory = category
 	s.listByCategoryKeyword = keyword
@@ -633,43 +638,42 @@ func (s *stubAILogStore) ListByCategory(_ context.Context, category string, keyw
 	return s.listByCategoryResult, s.listByCategoryErr
 }
 
-func (s *stubAILogStore) CountByStatus(context.Context) ([]ailogstore.StatusCount, error) {
+func (s *stubAILogStore) CountByStatus(context.Context) ([]AILogStatusCount, error) {
 	s.countByStatusCalls++
 	return s.countByStatusResult, s.countByStatusErr
 }
 
-func (s *stubAILogStore) ListRecent(_ context.Context, limit int32) ([]ailogstore.AILog, error) {
+func (s *stubAILogStore) ListRecent(_ context.Context, limit int32) ([]AILog, error) {
 	s.listRecentCalls++
 	s.listRecentLimit = limit
 	return s.listRecentResult, s.listRecentErr
 }
 
 type stubAuditLogStore struct {
-	auditlogstore.Store
-	listResult []auditlogstore.AuditEvent
+	listResult []AuditEvent
 	listErr    error
-	listFilter auditlogstore.ListFilter
+	listFilter AuditLogFilter
 	listCalls  int
 }
 
-var _ auditlogstore.Store = (*stubAuditLogStore)(nil)
+var _ AuditLogReader = (*stubAuditLogStore)(nil)
 
-func (s *stubAuditLogStore) List(_ context.Context, filter auditlogstore.ListFilter) ([]auditlogstore.AuditEvent, error) {
+func (s *stubAuditLogStore) List(_ context.Context, filter AuditLogFilter) ([]AuditEvent, error) {
 	s.listCalls++
 	s.listFilter = filter
 	return s.listResult, s.listErr
 }
 
 type stubBusLogStore struct {
-	listResult []buslogstore.BusExceptionLog
+	listResult []BusExceptionLog
 	listErr    error
-	listFilter buslogstore.ListFilter
+	listFilter BusLogFilter
 	listCalls  int
 }
 
-var _ buslogstore.Store = (*stubBusLogStore)(nil)
+var _ BusLogReader = (*stubBusLogStore)(nil)
 
-func (s *stubBusLogStore) List(_ context.Context, filter buslogstore.ListFilter) ([]buslogstore.BusExceptionLog, error) {
+func (s *stubBusLogStore) List(_ context.Context, filter BusLogFilter) ([]BusExceptionLog, error) {
 	s.listCalls++
 	s.listFilter = filter
 	return s.listResult, s.listErr

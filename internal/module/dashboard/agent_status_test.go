@@ -7,14 +7,13 @@ import (
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	platformrpc "github.com/anthropic-ai/super-agent-v3/internal/platform/rpc"
-	agentstatusstore "github.com/anthropic-ai/super-agent-v3/internal/store/agentstatus"
 )
 
 func TestListAgentStatusesUsesStoreAndTrimsStatus(t *testing.T) {
 	t.Parallel()
 
 	store := &stubAgentStatusStore{
-		listResult: []agentstatusstore.AgentStatus{{AgentID: "agent-1", Status: "running"}},
+		listResult: []AgentStatus{{AgentID: "agent-1", Status: "running"}},
 	}
 	svc := NewService(nil, store, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 
@@ -47,7 +46,7 @@ func TestDashboardAgentStatusHandlerSupportsStatusFilter(t *testing.T) {
 	t.Parallel()
 
 	store := &stubAgentStatusStore{
-		listResult: []agentstatusstore.AgentStatus{{AgentID: "agent-1", Status: "running"}},
+		listResult: []AgentStatus{{AgentID: "agent-1", Status: "running"}},
 	}
 	svc := NewService(nil, store, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 	server := platformrpc.NewServer(platformrpc.Params{Config: &contract.Config{RPCAddr: "127.0.0.1:0"}})
@@ -58,7 +57,7 @@ func TestDashboardAgentStatusHandlerSupportsStatusFilter(t *testing.T) {
 		t.Fatalf("Dispatch() error = %v", err)
 	}
 	var response struct {
-		Agents []agentstatusstore.AgentStatus `json:"agents"`
+		Agents []AgentStatus `json:"agents"`
 	}
 	if err := json.Unmarshal(result, &response); err != nil {
 		t.Fatalf("json.Unmarshal() error = %v", err)
@@ -72,18 +71,17 @@ func TestDashboardAgentStatusHandlerSupportsStatusFilter(t *testing.T) {
 }
 
 type stubAgentStatusStore struct {
-	agentstatusstore.Store
-	listResult []agentstatusstore.AgentStatus
+	listResult []AgentStatus
 	listErr    error
 	listStatus string
 	listCalls  int
 }
 
-func (s *stubAgentStatusStore) List(_ context.Context, status string) ([]agentstatusstore.AgentStatus, error) {
+func (s *stubAgentStatusStore) List(_ context.Context, status string) ([]AgentStatus, error) {
 	s.listCalls++
 	s.listStatus = status
 	if s.listErr != nil {
 		return nil, s.listErr
 	}
-	return append([]agentstatusstore.AgentStatus(nil), s.listResult...), nil
+	return append([]AgentStatus(nil), s.listResult...), nil
 }

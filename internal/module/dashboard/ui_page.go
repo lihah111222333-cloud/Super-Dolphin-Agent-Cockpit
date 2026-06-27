@@ -9,9 +9,6 @@ import (
 	"sync"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
-	commandcardstore "github.com/anthropic-ai/super-agent-v3/internal/store/commandcard"
-	promptstore "github.com/anthropic-ai/super-agent-v3/internal/store/prompt"
-	sharedfilestore "github.com/anthropic-ai/super-agent-v3/internal/store/sharedfile"
 	"golang.org/x/sync/errgroup"
 )
 
@@ -28,14 +25,14 @@ const (
 // DashboardPage 是前端 dashboard 分页接口的聚合 wire 结构。
 // 所有切片初始化为空切片，避免 JSON 输出 null 破坏前端兼容。
 type DashboardPage struct {
-	Agents              []AgentOverview                `json:"agents"`
-	DAGs                []DashboardDAG                 `json:"dags"`
-	Skills              []contract.SkillInfo           `json:"skills"`
-	CommandCards        []commandcardstore.CommandCard `json:"commandCards"`
-	Prompts             []promptstore.PromptTemplate   `json:"prompts"`
-	Memory              []sharedfilestore.SharedFile   `json:"memory"`
-	FinalOutputRefs     []FinalOutputRef               `json:"finalOutputRefs"`
-	SharedFileRetention SharedFileRetention            `json:"sharedFileRetention"`
+	Agents              []AgentOverview      `json:"agents"`
+	DAGs                []DashboardDAG       `json:"dags"`
+	Skills              []contract.SkillInfo `json:"skills"`
+	CommandCards        []CommandCard        `json:"commandCards"`
+	Prompts             []PromptTemplate     `json:"prompts"`
+	Memory              []SharedFile         `json:"memory"`
+	FinalOutputRefs     []FinalOutputRef     `json:"finalOutputRefs"`
+	SharedFileRetention SharedFileRetention  `json:"sharedFileRetention"`
 }
 
 // dashboardPageLoader 是 dashboard 页面区块加载函数。
@@ -76,9 +73,9 @@ func newDashboardPage() *DashboardPage {
 		Agents:              []AgentOverview{},
 		DAGs:                []DashboardDAG{},
 		Skills:              []contract.SkillInfo{},
-		CommandCards:        []commandcardstore.CommandCard{},
-		Prompts:             []promptstore.PromptTemplate{},
-		Memory:              []sharedfilestore.SharedFile{},
+		CommandCards:        []CommandCard{},
+		Prompts:             []PromptTemplate{},
+		Memory:              []SharedFile{},
 		FinalOutputRefs:     []FinalOutputRef{},
 		SharedFileRetention: SharedFileRetention{Items: []SharedFileRetentionItem{}},
 	}
@@ -289,17 +286,17 @@ func (s *service) listDashboardSkills(ctx context.Context) ([]contract.SkillInfo
 
 // listDashboardCommandCards 读取命令卡片列表。
 // store 为 nil 时返回空切片，保持 dashboard commands 页可降级展示。
-func (s *service) listDashboardCommandCards(ctx context.Context) ([]commandcardstore.CommandCard, error) {
-	return safeList(s.commandCards != nil, func() ([]commandcardstore.CommandCard, error) {
-		return s.commandCards.List(ctx, commandcardstore.ListFilter{Limit: dashboardPageDefaultLimit})
+func (s *service) listDashboardCommandCards(ctx context.Context) ([]CommandCard, error) {
+	return safeList(s.commandCards != nil, func() ([]CommandCard, error) {
+		return s.commandCards.List(ctx, CommandCardFilter{Limit: dashboardPageDefaultLimit})
 	})
 }
 
 // listDashboardPrompts 读取提示模板，按 cwd 过滤并排除系统管理的模板。
-func (s *service) listDashboardPrompts(ctx context.Context) ([]promptstore.PromptTemplate, error) {
+func (s *service) listDashboardPrompts(ctx context.Context) ([]PromptTemplate, error) {
 	cwd := dashboardPromptScopeCWDFromContext(ctx)
-	return safeList(s.prompts != nil, func() ([]promptstore.PromptTemplate, error) {
-		items, err := s.prompts.List(ctx, promptstore.ListFilter{CWD: cwd, Limit: dashboardPageDefaultLimit})
+	return safeList(s.prompts != nil, func() ([]PromptTemplate, error) {
+		items, err := s.prompts.List(ctx, PromptTemplateFilter{CWD: cwd, Limit: dashboardPageDefaultLimit})
 		if err != nil {
 			return nil, err
 		}
@@ -309,12 +306,12 @@ func (s *service) listDashboardPrompts(ctx context.Context) ([]promptstore.Promp
 
 // filterDashboardPromptsByCWD 按请求 cwd 过滤 prompt 模板。
 // 空 cwd 不展示任何模板，避免把全局模板泄露到未绑定工作区的页面。
-func filterDashboardPromptsByCWD(items []promptstore.PromptTemplate, cwd string) []promptstore.PromptTemplate {
+func filterDashboardPromptsByCWD(items []PromptTemplate, cwd string) []PromptTemplate {
 	requestScope := strings.TrimSpace(cwd)
 	if requestScope == "" {
-		return []promptstore.PromptTemplate{}
+		return []PromptTemplate{}
 	}
-	filtered := make([]promptstore.PromptTemplate, 0, len(items))
+	filtered := make([]PromptTemplate, 0, len(items))
 	for _, item := range items {
 		if dashboardPromptIsSystemManaged(item) {
 			continue
@@ -327,7 +324,7 @@ func filterDashboardPromptsByCWD(items []promptstore.PromptTemplate, cwd string)
 }
 
 // dashboardPromptVisibleForCWD 判断模板是否对指定 cwd 可见；无 scope 标签的模板对所有 cwd 可见。
-func dashboardPromptVisibleForCWD(template promptstore.PromptTemplate, cwd string) bool {
+func dashboardPromptVisibleForCWD(template PromptTemplate, cwd string) bool {
 	storedScope := dashboardPromptScopeFromTags(template.Tags)
 	return storedScope == "" || storedScope == strings.TrimSpace(cwd)
 }
@@ -356,7 +353,7 @@ func dashboardPromptTags(raw json.RawMessage) []string {
 
 // dashboardPromptIsSystemManaged 判断模板是否由系统创建而非用户手工维护。
 // 优先检查 builtin:system 标签，其次检查作者名称是否符合系统命名模式。
-func dashboardPromptIsSystemManaged(template promptstore.PromptTemplate) bool {
+func dashboardPromptIsSystemManaged(template PromptTemplate) bool {
 	for _, tag := range dashboardPromptTags(template.Tags) {
 		if strings.TrimSpace(tag) == "builtin:system" {
 			return true
@@ -387,18 +384,18 @@ func dashboardPromptAuthorLooksSystem(author string) bool {
 
 // listDashboardMemory 读取共享文件列表。
 // store 为 nil 时返回空切片，避免 memory 页因可选能力缺失而失败。
-func (s *service) listDashboardMemory(ctx context.Context) ([]sharedfilestore.SharedFile, error) {
-	return safeList(s.sharedFiles != nil, func() ([]sharedfilestore.SharedFile, error) {
-		return s.sharedFiles.List(ctx, sharedfilestore.ListFilter{Limit: dashboardMemoryLimit})
+func (s *service) listDashboardMemory(ctx context.Context) ([]SharedFile, error) {
+	return safeList(s.sharedFiles != nil, func() ([]SharedFile, error) {
+		return s.sharedFiles.List(ctx, SharedFileFilter{Limit: dashboardMemoryLimit})
 	})
 }
 
 // ListSharedFiles 暴露 dashboard 共享文件只读列表。
 // 返回值保证非 nil 切片，保持 JSON wire 兼容。
-func (s *service) ListSharedFiles(ctx context.Context) ([]sharedfilestore.SharedFile, error) {
+func (s *service) ListSharedFiles(ctx context.Context) ([]SharedFile, error) {
 	items, err := s.listDashboardMemory(ctx)
 	if items == nil {
-		items = []sharedfilestore.SharedFile{}
+		items = []SharedFile{}
 	}
 	return items, err
 }
@@ -505,7 +502,7 @@ func finalOutputRefFromRun(run contract.Run) (FinalOutputRef, bool, error) {
 
 // buildSharedFileRetention 根据 final output 引用标记共享文件保留状态。
 // 仅按路径匹配，路径为空的文件会被跳过，避免生成不可操作的清理候选。
-func buildSharedFileRetention(files []sharedfilestore.SharedFile, refs []FinalOutputRef) SharedFileRetention {
+func buildSharedFileRetention(files []SharedFile, refs []FinalOutputRef) SharedFileRetention {
 	refByPath := make(map[string]FinalOutputRef, len(refs))
 	for _, ref := range refs {
 		path := strings.TrimSpace(ref.Path)
