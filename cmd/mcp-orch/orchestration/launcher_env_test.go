@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/orchestration/exitmonitor"
 	"github.com/kelindar/event"
 )
 
@@ -32,10 +33,11 @@ func TestLocalLauncherScrubsDatabaseEnvFromParentAndAgent(t *testing.T) {
 		},
 	}
 	launcher := NewLocalLauncher(nil, silentLogger()).(*localLauncher)
+	launcher.exitMonitor = exitmonitor.New(silentLogger())
 	if _, err := launcher.Launch(context.Background(), agent, LaunchRequest{}); err != nil {
 		t.Fatalf("Launch() error = %v", err)
 	}
-	t.Cleanup(func() { stopAndWaitTestAgent(agent) })
+	t.Cleanup(func() { stopAndDrainLocalLauncherTestAgent(t, launcher, agent) })
 
 	requireDatabaseEnvAbsent(t, agent.cmd.Env)
 	if got := envValue(agent.cmd.Env, "ORCH_SAFE_PARENT"); got != "keep-parent" {
@@ -100,6 +102,19 @@ func stopAndWaitTestAgent(agent *agentRuntime) {
 	}
 	_ = stopProcess(agent.cmd)
 	_ = agent.cmd.Wait()
+}
+
+func stopAndDrainLocalLauncherTestAgent(t *testing.T, launcher *localLauncher, agent *agentRuntime) {
+	t.Helper()
+	if launcher == nil || launcher.exitMonitor == nil || agent == nil || agent.cmd == nil {
+		return
+	}
+	_ = stopProcess(agent.cmd)
+	drainCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	if err := launcher.exitMonitor.Drain(drainCtx); err != nil {
+		t.Fatalf("drain local launcher exit monitor: %v", err)
+	}
 }
 
 func stopAndDrainServiceTestAgent(t *testing.T, svc *service, agent *agentRuntime) {

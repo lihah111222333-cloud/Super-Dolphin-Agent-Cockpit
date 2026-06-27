@@ -192,8 +192,16 @@ func (d *WakeupDispatcher) handleClaimed(ctx context.Context, w *taskdag.Wakeup)
 	if turncompletionretry.IsWakeup(w) {
 		return d.handleTurnCompletionRetryWakeup(ctx, w)
 	}
-	if shouldRouteThroughNodeExecutor := isDAGWakeup(w); shouldRouteThroughNodeExecutor {
-		// DAG wakeup 的路由入口集中在 handleClaimedViaRouter，便于保持 sent/fail fence 一致。
+	if isDAGWakeup(w) {
+		if w.RunID == nil {
+			return d.handleClaimedViaRouter(ctx, w)
+		}
+		renewed, err := taskdag.RenewClaimedWakeupLease(ctx, d.store, w, d.cfg.LeaseInterval)
+		if err != nil {
+			d.logger.Warn("wakeup dispatcher: renew lease failed", "wakeup_id", w.ID, "error", err)
+			return false
+		}
+		*w = *renewed
 		return d.handleClaimedViaRouter(ctx, w)
 	}
 	return d.handleClaimedViaLegacyLauncher(ctx, w)

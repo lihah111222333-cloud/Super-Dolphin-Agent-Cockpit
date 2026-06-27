@@ -16,6 +16,10 @@ type dispatcherStubStore struct {
 	claimReply []taskdag.Wakeup
 	claimErr   error
 
+	renewCalls []taskdag.RenewWakeupLeaseInput
+	renewRows  int64
+	renewErr   error
+
 	markSentCalls   []taskdag.MarkWakeupSentInput
 	markSentRows    int64
 	markSentRowsSet bool
@@ -154,6 +158,30 @@ func (s *dispatcherStubStore) ClaimDueWakeups(_ context.Context, input taskdag.C
 		return nil, s.claimErr
 	}
 	return s.claimReply, nil
+}
+
+func (s *dispatcherStubStore) RenewWakeupLease(_ context.Context, input taskdag.RenewWakeupLeaseInput) (*taskdag.Wakeup, int64, error) {
+	s.renewCalls = append(s.renewCalls, input)
+	if s.renewErr != nil {
+		return nil, 0, s.renewErr
+	}
+	if s.renewRows < 0 {
+		return nil, 0, nil
+	}
+	for i := range s.claimReply {
+		if s.claimReply[i].ID != input.ID {
+			continue
+		}
+		renewed := s.claimReply[i]
+		renewed.ClaimedAt = &input.ClaimedAt
+		renewed.ClaimedBy = input.ClaimedBy
+		renewed.LeaseExpiresAt = &input.LeaseExpiresAt
+		if s.renewRows == 0 {
+			return &renewed, 1, nil
+		}
+		return &renewed, s.renewRows, nil
+	}
+	return nil, 0, nil
 }
 
 func (s *dispatcherStubStore) MarkWakeupSent(_ context.Context, input taskdag.MarkWakeupSentInput) (int64, error) {

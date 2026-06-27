@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
@@ -91,12 +90,8 @@ func prepareAutomationCommand(ctx context.Context, card AutomationCommandCard, a
 }
 
 func applyAutomationCommandOptions(cmd *exec.Cmd, cwd string, env map[string]string) {
-	if cwd != "" {
-		cmd.Dir = cwd
-	}
-	if len(env) > 0 {
-		cmd.Env = append(os.Environ(), allowedAutomationCommandEnv(env)...)
-	}
+	cmd.Dir = cwd
+	cmd.Env = allowedAutomationCommandEnv(env)
 }
 
 func automationCommandResult(card AutomationCommandCard, prepared preparedAutomationCommand) AutomationCommandResult {
@@ -124,7 +119,7 @@ func validateAutomationCommandPolicy(card AutomationCommandCard) error {
 func normalizeAutomationRunOptions(opts []AutomationCommandRunOptions) (AutomationCommandRunOptions, error) {
 	switch len(opts) {
 	case 0:
-		return AutomationCommandRunOptions{}, nil
+		return AutomationCommandRunOptions{}, errors.New("automation command runner requires run options with cwd and workspace roots")
 	case 1:
 		return opts[0], validateAutomationCommandEnv(opts[0].Env)
 	default:
@@ -136,11 +131,8 @@ func normalizeAutomationRunOptions(opts []AutomationCommandRunOptions) (Automati
 // cwd 和 root 都会做 symlink 归一化，避免通过链接路径绕过执行边界。
 func resolveAutomationCommandCWD(opts AutomationCommandRunOptions) (string, error) {
 	cwd := strings.TrimSpace(opts.CWD)
-	if cwd == "" && len(opts.WorkspaceRoots) == 0 {
-		return "", nil
-	}
 	if cwd == "" {
-		cwd = opts.WorkspaceRoots[0]
+		return "", errors.New("command cwd is required")
 	}
 	canonicalCWD, err := canonicalExistingPath("cwd", cwd)
 	if err != nil {

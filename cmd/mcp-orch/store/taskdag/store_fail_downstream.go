@@ -9,10 +9,10 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/sqlctx"
 )
 
-// 节点失败重试耗尽后，dispatcher 调本方法把节点置 failed；如 caller
-// 决定 fail_fast=true（来自 DAG retry metadata），同事务内对所有
-// 直接或间接依赖该节点且仍处 pending 的下游节点级联标记 failed，避免它们
-// 永远卡在 pending（依赖永远不会变 done）。
+// 节点失败重试耗尽后，dispatcher 调本方法把节点置 failed；所有直接或间接依赖
+// 该节点且仍处 pending 的下游节点都会在同事务内级联标记 failed，避免它们永远
+// 卡在 pending（依赖永远不会变 done）。fail_fast 只影响其它仍可运行分支的策略，
+// 不再决定这些已不可能完成的下游节点是否收敛。
 // 主节点失败写入使用非终态 SQL fence，迟到失败路径不能改写已完成节点；
 // result 里保留失败原因，方便排查一次失败是原发还是级联。
 
@@ -56,13 +56,11 @@ func failNodeAndCancelDownstreamTx(ctx context.Context, txStore *store, input Fa
 		return nil, failErr
 	}
 	result := &FailNodeResult{Node: node, OldStatus: oldStatus}
-	if input.FailFast {
-		canceled, cascadeErr := cancelDownstreamTx(ctx, txStore, input.DagKey, input.NodeKey, input.RunID, input.Reason)
-		if cascadeErr != nil {
-			return nil, cascadeErr
-		}
-		result.CanceledDownstream = canceled
+	canceled, cascadeErr := cancelDownstreamTx(ctx, txStore, input.DagKey, input.NodeKey, input.RunID, input.Reason)
+	if cascadeErr != nil {
+		return nil, cascadeErr
 	}
+	result.CanceledDownstream = canceled
 	finalized, finalizeErr := maybeFinalizeRunTx(ctx, txStore, input.DagKey, input.RunID)
 	if finalizeErr != nil {
 		return nil, finalizeErr

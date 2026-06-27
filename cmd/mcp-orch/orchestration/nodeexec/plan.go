@@ -1,6 +1,7 @@
 package nodeexec
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -49,6 +50,9 @@ func PlanAddNodes(ops Ops, existing []ExistingNode) (map[string][]string, []Node
 	if err := verifyDependsOnIntegrity(accepted, known); err != nil {
 		return nil, nil, err
 	}
+	if err := ValidateNodeSpecsConfig(accepted); err != nil {
+		return nil, nil, err
+	}
 	return adjacency, accepted, nil
 }
 
@@ -59,7 +63,20 @@ func ValidateCreateDAGNodes(nodes []contract.CreateDAGNodeRequest) error {
 	for i, n := range nodes {
 		specs[i] = NodeSpec{NodeKey: n.NodeKey, Title: n.Title, NodeType: n.NodeType, DependsOn: n.DependsOn, Config: n.Config}
 	}
-	return ValidateAddNodeTopology(specs)
+	if err := ValidateAddNodeTopology(specs); err != nil {
+		return err
+	}
+	return ValidateNodeSpecsConfig(specs)
+}
+
+// ValidateNodeSpecsConfig 校验新增节点的 typed config，避免非法 executable config 持久化。
+func ValidateNodeSpecsConfig(specs []NodeSpec) error {
+	for _, spec := range specs {
+		if err := ValidatePersistableNodeConfig(spec.NodeType, spec.Config); err != nil {
+			return fmt.Errorf("%w: add_node %q config invalid: %w", ErrAddNodePlan, spec.NodeKey, err)
+		}
+	}
+	return nil
 }
 
 // ValidateAddNodeTopology 校验新增节点集合自身的拓扑合法性。
@@ -162,6 +179,8 @@ type ExistingNodeFull struct {
 	NodeKey   string
 	DependsOn []string
 	Status    string
+	NodeType  string
+	Config    json.RawMessage
 }
 
 // UpdateNodeChange 是 PlanUpdateNodes 输出的已校验、待持久化的单条变更。
@@ -206,9 +225,27 @@ func PlanUpdateNodes(ops Ops, existing []ExistingNodeFull) (map[string][]string,
 		if err := applyDependsOnPatch(i, change, adjacency, known); err != nil {
 			return nil, nil, err
 		}
+		if err := validateUpdateNodeConfig(change, node); err != nil {
+			return nil, nil, err
+		}
 		changes = append(changes, change)
 	}
 	return adjacency, changes, nil
+}
+
+func validateUpdateNodeConfig(change UpdateNodeChange, node ExistingNodeFull) error {
+	config := node.Config
+	if !emptyPatchConfig(change.Patch.Config) {
+		config = change.Patch.Config
+	}
+	if err := ValidatePersistableNodeConfig(node.NodeType, config); err != nil {
+		return fmt.Errorf("%w: update_node %q config invalid: %w", ErrUpdateNodePlan, change.NodeKey, err)
+	}
+	return nil
+}
+
+func emptyPatchConfig(raw json.RawMessage) bool {
+	return len(raw) == 0 || strings.TrimSpace(string(raw)) == "null"
 }
 
 // seedAdjacencyFull 是 seedAdjacency 的 Full 版：把 ExistingNodeFull 列表

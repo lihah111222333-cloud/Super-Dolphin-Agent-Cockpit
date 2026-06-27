@@ -254,6 +254,36 @@ func TestApplyOps_AddNodeWithDeps_Happy(t *testing.T) {
 	}
 }
 
+func TestApplyOps_AddNodeRejectsInvalidExecutableConfigBeforePersistence(t *testing.T) {
+	t.Parallel()
+	stub := &stubDAGOpsStore{currentVersion: 1}
+	s := makeApplyOpsService(stub)
+	req := contract.ApplyOpsRequest{
+		DagKey:      "dag-a",
+		BaseVersion: 1,
+		Ops: json.RawMessage(`[
+			{"op":"add_node","node":{"node_key":"auto-bad","title":"bad automation","node_type":"automation","config":{"exec":{"kind":"command_card"}}}}
+		]`),
+	}
+
+	_, err := s.ApplyOps(context.Background(), req)
+	if err == nil {
+		t.Fatal("ApplyOps err = nil, want invalid executable config error")
+	}
+	if !errors.Is(err, ErrApplyOpsInvalid) {
+		t.Fatalf("ApplyOps err = %v, want errors.Is ErrApplyOpsInvalid", err)
+	}
+	if !strings.Contains(err.Error(), "command_ref") {
+		t.Fatalf("ApplyOps err = %v, want command_ref diagnostic", err)
+	}
+	if len(stub.upsertCalls) != 0 {
+		t.Fatalf("upsertCalls = %d, want 0 before invalid config persistence", len(stub.upsertCalls))
+	}
+	if len(stub.bumpCalls) != 0 {
+		t.Fatalf("bumpCalls = %v, want none before invalid config persistence", stub.bumpCalls)
+	}
+}
+
 // TestApplyOps_RawOpsPassthrough_PT4 验证 MCP handler 原样透传的 json.RawMessage 能完整进入 add_node 业务。
 // 该用例覆盖 wire payload、ApplyOps 解码和 typed op 执行之间的边界。
 func TestApplyOps_RawOpsPassthrough_PT4(t *testing.T) {
@@ -263,7 +293,7 @@ func TestApplyOps_RawOpsPassthrough_PT4(t *testing.T) {
 	// 模拟 MCP handler 接收的 raw payload（"ops" 是数组，内含 typed payload）。
 	raw := json.RawMessage(`[
 		{"op":"add_node","node":{"node_key":"a","title":"A","node_type":"agent"}},
-		{"op":"add_node","node":{"node_key":"b","title":"B","node_type":"automation","depends_on":["a"]}}
+		{"op":"add_node","node":{"node_key":"b","title":"B","node_type":"automation","depends_on":["a"],"config":{"exec":{"kind":"command_card","command_ref":"build"}}}}
 	]`)
 	req := contract.ApplyOpsRequest{DagKey: "dag-pt4", BaseVersion: 0, Ops: raw}
 	resp, err := s.ApplyOps(context.Background(), req)

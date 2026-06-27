@@ -100,11 +100,33 @@ func (e *AutomationExecutor) Execute(ctx context.Context, node Node, runCtx RunC
 		return *failure, nil
 	}
 
-	result, err := e.runner.RunCommandCard(ctx, card, runArgs)
+	result, err := e.runner.RunCommandCard(ctx, card, runArgs, automationCommandRunOptionsFromConfig(cfg))
 	if err != nil {
 		return failedAutomationOutcome(classifyAutomationError(err), "run command card: "+err.Error()), nil
 	}
 	return finalizeAutomationOutcome(ctx, cfg, node, runCtx, result)
+}
+
+func automationCommandRunOptionsFromConfig(cfg *AutomationNodeConfig) AutomationCommandRunOptions {
+	if cfg == nil {
+		return AutomationCommandRunOptions{}
+	}
+	return AutomationCommandRunOptions{
+		CWD:            cfg.Exec.CWD,
+		WorkspaceRoots: append([]string(nil), cfg.Exec.WorkspaceRoots...),
+		Env:            cloneStringMap(cfg.Exec.Env),
+	}
+}
+
+func cloneStringMap(in map[string]string) map[string]string {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make(map[string]string, len(in))
+	for k, v := range in {
+		out[k] = v
+	}
+	return out
 }
 
 // finalizeAutomationOutcome 将命令执行结果物化为配置声明的输出。
