@@ -163,8 +163,7 @@ func bundledOrPathCodexAvailable(ctx context.Context) (bool, error) {
 		return false, err
 	}
 	if path != "" {
-		prependDirToPATH(filepath.Dir(path))
-		return true, nil
+		return true, prependDirToPATH(filepath.Dir(path))
 	}
 	if bundledCodexRequired() {
 		return false, fmt.Errorf(
@@ -203,8 +202,7 @@ func ensureManagedCodexCLI(ctx context.Context) error {
 		return err
 	}
 	if path != "" {
-		prependDirToPATH(filepath.Dir(path))
-		return nil
+		return prependDirToPATH(filepath.Dir(path))
 	}
 	path, err = installManagedCodexCLI(ctx, root, checksum)
 	if err != nil {
@@ -214,8 +212,7 @@ func ensureManagedCodexCLI(ctx context.Context) error {
 			err,
 		)
 	}
-	prependDirToPATH(filepath.Dir(path))
-	return nil
+	return prependDirToPATH(filepath.Dir(path))
 }
 
 // bundledCodexCLI 在 peer bin 目录中查找并验证随包分发的 Codex CLI。
@@ -584,22 +581,26 @@ func codexExecutableFileNameFor(name string) string {
 	return name
 }
 
-func prependDirToPATH(dir string) {
+// prependDirToPATH 将 dir 前置到 PATH 环境变量；若 dir 已存在则跳过，Setenv 失败则返回 error。
+func prependDirToPATH(dir string) error {
 	dir = strings.TrimSpace(filepath.Clean(dir))
 	if dir == "" {
-		return
+		return nil
 	}
 	parts := filepath.SplitList(os.Getenv("PATH"))
 	for _, part := range parts {
 		if filepath.Clean(part) == dir {
-			return
+			return nil
 		}
 	}
 	newPath := dir
 	if oldPath := os.Getenv("PATH"); strings.TrimSpace(oldPath) != "" {
 		newPath += string(os.PathListSeparator) + oldPath
 	}
-	_ = os.Setenv("PATH", newPath)
+	if err := os.Setenv("PATH", newPath); err != nil {
+		return fmt.Errorf("prepend dir to PATH: %w", err)
+	}
+	return nil
 }
 
 func sanitizeCodexReleaseTag(tag string) string {

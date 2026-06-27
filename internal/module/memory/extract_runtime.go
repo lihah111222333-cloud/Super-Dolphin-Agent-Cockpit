@@ -254,7 +254,15 @@ func (h *MemoryLifecycleHooks) DrainPendingExtraction(ctx context.Context) error
 	h.drainMu.Unlock()
 	done := make(chan struct{})
 	go func() {
-		defer func() { _ = recover() }()
+		defer func() {
+			if r := recover(); r != nil {
+				logger := pkglogger.Get()
+				if h.logger != nil {
+					logger = h.logger
+				}
+				logger.Error("memory: recovered drain panic", "panic", r)
+			}
+		}()
 		h.extractWG.Wait()
 		close(done)
 	}()
