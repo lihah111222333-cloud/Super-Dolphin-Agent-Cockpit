@@ -1,15 +1,18 @@
 # 规格文档审查者提示词模板
 
-派发规格文档审查者子代理时使用此模板。
+派发规格文档审查子代理时使用此模板。可直接使用正文；若本轮选择 mcp-orch，可包装成 DAG node。
 
 **目的：** 验证规格是否完整、一致，并且已准备好进入实现计划阶段。
 
 **派发时机：** 规格文档已写入 docs/superpowers/specs/
 
 ```
-Task tool (general-purpose):
-  description: "Review spec document"
-  prompt: |
+Optional mcp-orch DAG node:
+  node_key: "spec-document-review"
+  title: "Review spec document"
+  node_type: "agent"
+  assigned_to: "spec-reviewer"
+  config.exec.prompt: |
     You are a spec document reviewer. Verify this spec is complete and ready for planning.
 
     **Spec to review:** [SPEC_FILE_PATH]

@@ -13,7 +13,7 @@ trigger_words: ["design", "logo", "CIP", "mockup", "slides", "banner", "icon", "
 | **ui-ux-pro-max** | `references/ui-ux-pro-max/GUIDE.md` | 设计知识库（161 配色、57 字体、99 UX 规则） |
 | **brand** | `references/brand/GUIDE.md` | 品牌声音、视觉标识、风格指南 |
 | **design-system** | `references/design-system/GUIDE.md` | Token 架构、组件规范、CSS 变量 |
-| **ui-styling** | `references/ui-styling/GUIDE.md` | shadcn/ui + Tailwind 界面实现 |
+| **ui-styling** | `references/ui-styling/GUIDE.md` | shadcn/ui + Tailwind 界面实现；super-agent-v3 中仅在用户明确要求或仓库已有依赖时读取 |
 | **slides** | `references/slides/GUIDE.md` | HTML 演示文稿 + Chart.js |
 | **banner-design** | `references/banner-design/GUIDE.md` | 社交媒体/广告 Banner |
 
@@ -23,11 +23,18 @@ trigger_words: ["design", "logo", "CIP", "mockup", "slides", "banner", "icon", "
 
 Unified design skill: brand, tokens, UI, logo, CIP, slides, banners, social photos, icons.
 
+## super-agent-v3 路由约束
+
+- 普通 UI 开发、审查和修复先加载 repo-local `前端` 技能，默认目标是 `frontend-app` React/Vite。
+- 遵循现有 React 组件、Zustand store、Wails bridge 和 `frontend-app/src/styles.css`，不要默认引入新 UI 框架。
+- Tailwind/shadcn 只在用户明确要求，或 `frontend-app/package.json` 已经包含相关依赖时启用；否则把本技能用于设计判断、配色、布局和可用性审查。
+- legacy Vue 只在用户明确指向 `cmd/agent-terminal/frontend` 或 package/embed 路径时使用。
+
 ## When to Use
 
 - Brand identity, voice, assets
 - Design system tokens and specs
-- UI styling with shadcn/ui + Tailwind
+- UI styling; shadcn/ui + Tailwind only when explicitly requested or already present in the target app
 - Logo design and AI generation
 - Corporate identity program (CIP) deliverables
 - Presentations and pitch decks
@@ -40,7 +47,7 @@ Unified design skill: brand, tokens, UI, logo, CIP, slides, banners, social phot
 |------|-----------|---------|
 | Brand identity, voice, assets | Brand | `references/brand/GUIDE.md` |
 | Tokens, specs, CSS vars | `design-system` | External skill |
-| shadcn/ui, Tailwind, code | UI Styling | `references/ui-styling/GUIDE.md` |
+| shadcn/ui, Tailwind, code | UI Styling | `references/ui-styling/GUIDE.md`；super-agent-v3 默认先走 `前端` 技能 |
 | Logo creation, AI generation | Logo (built-in) | `references/logo-design.md` |
 | CIP mockups, deliverables | CIP (built-in) | `references/cip-design.md` |
 | Presentations, pitch decks | Slides (built-in) | `references/slides.md` |
@@ -263,7 +270,7 @@ Load `references/social-photos-design.md` for sizes, templates, best practices.
 
 1. **Brand** (brand skill) → Define colors, typography, voice
 2. **Tokens** (design-system skill) → Create semantic token layers
-3. **Implement** (ui-styling skill) → Configure Tailwind, shadcn/ui
+3. **Implement** → 在 super-agent-v3 中先沿用现有 CSS/组件；只有显式要求或依赖已存在时才用 ui-styling 配置 Tailwind/shadcn
 
 ## References
 

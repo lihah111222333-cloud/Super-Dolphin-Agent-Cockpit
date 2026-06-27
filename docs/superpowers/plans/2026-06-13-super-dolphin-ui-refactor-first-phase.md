@@ -52,7 +52,7 @@ Visual conclusion: the two recovered Codex clipboard screenshots are now the sel
 | Product Design | Product Design `index`, `get-context`, `user-context`, `image-to-code` rules | Brief can be played back against the recovered local screenshot targets |
 | Worktree setup | Super-Dolphin workflow, git worktree workflow | Worktree and integration branch created from the requested commit |
 | Browser/Chrome/Computer Use | Browser, Chrome, Computer Use skills loaded for later UI verification | Use Browser/Chrome for local UI visual checks after implementation; Computer Use only if desktop-host behavior cannot be verified in-browser |
-| Subagents | `multi_agent_v1.spawn_agent` | Used because `task_create_dag`/`task_start_node`/`task_update_node` were not exposed in this session and MCP catalog did not expose `mcp-go-agent-orchestration` |
+| Subagents | `multi_agent_v1.spawn_agent` | Allowed native subagent path; `mcp-go-agent-orchestration` was not exposed, so no persistent mcp-orch DAG ledger was recorded |
 
 ## Subagent Split
 

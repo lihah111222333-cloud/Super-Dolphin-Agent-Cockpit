@@ -3,6 +3,7 @@ package sharedfile
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io/fs"
 	"strings"
 	"time"
@@ -18,6 +19,11 @@ import (
 
 // 本 store 统一维护 shared file 的数据库索引和可选磁盘正文。
 // Config.CWD 为空时只读写数据库，便于单元测试；启用磁盘模式时路径必须先通过 sharedfilepath 校验。
+
+const (
+	contentLocationInline = "inline"
+	contentLocationDisk   = "disk"
+)
 
 type querier interface {
 	GetSharedFile(ctx context.Context, arg sqlc.GetSharedFileParams) (sqlc.SharedFile, error)
@@ -48,7 +54,7 @@ func NewStoreWithConfigAndEmitter(q *sqlc.Queries, cfg sharedfilefs.Config, emit
 }
 
 // Get 读取指定路径的 shared file。
-// 启用磁盘模式时优先返回磁盘正文；磁盘文件缺失时才回退到数据库索引内容。
+// 启用磁盘模式时根据 DB 标记选择正文来源；disk 行缺正文必须报错，避免返回空内容。
 func (s *store) Get(ctx context.Context, path string) (*SharedFile, error) {
 	cleaned, err := sharedfilepath.ValidateReadPath(path)
 	if err != nil {
@@ -68,23 +74,13 @@ func (s *store) Get(ctx context.Context, path string) (*SharedFile, error) {
 		}
 		return &mapped, nil
 	}
-	abs, resolveErr := s.cfg.ResolveReadAbs(cleaned)
-	if resolveErr != nil {
-		return nil, platformdb.WrapStoreError(resolveErr, "get", "shared_file")
-	}
-	data, _, readErr := sharedfilefs.ReadDisk(abs)
-	if readErr == nil {
-		mapped.Path = cleaned
-		mapped.Content = string(data)
-		return &mapped, nil
-	}
-	if !errors.Is(readErr, fs.ErrNotExist) {
-		return nil, platformdb.WrapStoreError(readErr, "get", "shared_file")
-	}
 	if !dbHit {
 		return nil, platformdb.WrapStoreError(dbErr, "get", "shared_file")
 	}
-	return &mapped, nil
+	if row.ContentLocation == contentLocationInline {
+		return &mapped, nil
+	}
+	return s.diskBackedSharedFile(cleaned, mapped, row.ContentLocation)
 }
 
 // Upsert 写入 shared file 并更新数据库索引。
@@ -94,14 +90,15 @@ func (s *store) Upsert(ctx context.Context, params UpsertParams) (*SharedFile, e
 	if err != nil {
 		return nil, platformdb.WrapStoreError(err, "upsert", "shared_file")
 	}
-	dbContent, writeErr := writeDiskAndDecideInline(s.cfg, cleaned, params.Content)
+	dbContent, contentLocation, writeErr := writeDiskAndDecideInline(s.cfg, cleaned, params.Content)
 	if writeErr != nil {
 		return nil, platformdb.WrapStoreError(writeErr, "upsert", "shared_file")
 	}
 	row, err := s.q.UpsertSharedFile(ctx, sqlc.UpsertSharedFileParams{
-		Path:      cleaned,
-		Content:   dbContent,
-		UpdatedBy: params.UpdatedBy,
+		Path:            cleaned,
+		Content:         dbContent,
+		ContentLocation: contentLocation,
+		UpdatedBy:       params.UpdatedBy,
 	})
 	if err != nil {
 		return nil, platformdb.WrapStoreError(err, "upsert", "shared_file")
@@ -157,24 +154,46 @@ func (s *store) List(ctx context.Context, filter ListFilter) ([]SharedFile, erro
 	return files, nil
 }
 
-func writeDiskAndDecideInline(cfg sharedfilefs.Config, cleanedRel, content string) (string, error) {
+func (s *store) diskBackedSharedFile(cleaned string, mapped SharedFile, contentLocation string) (*SharedFile, error) {
+	if contentLocation != contentLocationDisk {
+		err := fmt.Errorf("invalid content_location %q for %q", contentLocation, cleaned)
+		return nil, platformdb.WrapStoreError(err, "get", "shared_file")
+	}
+	abs, resolveErr := s.cfg.ResolveReadAbs(cleaned)
+	if resolveErr != nil {
+		return nil, platformdb.WrapStoreError(resolveErr, "get", "shared_file")
+	}
+	data, _, readErr := sharedfilefs.ReadDisk(abs)
+	if readErr == nil {
+		mapped.Path = cleaned
+		mapped.Content = string(data)
+		return &mapped, nil
+	}
+	if !errors.Is(readErr, fs.ErrNotExist) {
+		return nil, platformdb.WrapStoreError(readErr, "get", "shared_file")
+	}
+	err := fmt.Errorf("disk content %q missing: %w", cleaned, readErr)
+	return nil, platformdb.WrapStoreError(err, "get", "shared_file")
+}
+
+func writeDiskAndDecideInline(cfg sharedfilefs.Config, cleanedRel, content string) (string, string, error) {
 	if !cfg.Enabled() {
-		return content, nil
+		return content, contentLocationInline, nil
 	}
 	abs, resolveErr := cfg.ResolveWriteAbs(cleanedRel)
 	if resolveErr != nil {
-		return "", resolveErr
+		return "", "", resolveErr
 	}
 	// .gitignore 维护是旁路卫生检查，不参与 shared file 写入正确性；
 	// helper 内部用 Sync.Once 保证重复调用成本很低，失败也不能阻断正文落盘。
 	_ = sharedfilegitignore.Ensure(cfg.CWD, nil)
 	if writeErr := sharedfilefs.WriteAtomic(abs, []byte(content)); writeErr != nil {
-		return "", writeErr
+		return "", "", writeErr
 	}
 	if len(content) > cfg.ResolvedThreshold() {
-		return "", nil
+		return "", contentLocationDisk, nil
 	}
-	return content, nil
+	return content, contentLocationInline, nil
 }
 
 func fromSQLCRow(row sqlc.SharedFile) SharedFile {

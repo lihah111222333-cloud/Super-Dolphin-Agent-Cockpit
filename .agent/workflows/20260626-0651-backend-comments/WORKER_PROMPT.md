@@ -13,9 +13,9 @@
 
 开始分析 Go 文件前，先读取 `docs/internal-notes/LSP系统提示词.md`。本任务必须实际使用至少 4 种 LSP 工具，并在最终报告列出工具名和用途。推荐组合：`grep(text_search/ast_search)` 定位候选、`structure(document_symbol)` 看文件大纲、`inspect(hover/definition)` 理解符号、`xref(references/call_hierarchy)` 查影响面、`file(read_file/diagnostics)` 精读和诊断、`edit` 精确修改。
 
-## MCP 生命周期
+## 子代理编排
 
-如果你的会话暴露 `mcp-go-agent-orchestration` 的 `task_create_dag/task_start_node/task_update_node`，请为你的 `{PARTITION}` 创建或更新节点生命周期。如果这些工具不可见，在最终报告里明确写 `mcp-orch tools unavailable`。
+默认使用当前平台可用的原生子代理能力执行 `{PARTITION}`。只有需要持久 DAG、重试、租约或结构化交接记录时，才可选用 `mcp-go-agent-orchestration` 的 `task_create_dag/task_start_dag/task_dispatch_node/task_update_node`。如果未使用 mcp-orch，在最终报告中说明缺少持久 DAG 观测即可；不要把原生子代理派发描述为绕过仓库策略。
 
 ## 写权限
 

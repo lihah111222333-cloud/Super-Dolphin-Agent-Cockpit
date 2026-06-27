@@ -2,15 +2,22 @@ package claudecli
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/pidregistry"
 )
 
-func registerTransportPID(reg *pidregistry.Registry, tr *transport, agentID string) {
+// registerTransportPID 将 Claude CLI 子进程登记到崩溃清理表。
+// 注册文件写入失败意味着新进程无法被后续回收，调用方必须停止 transport 并返回错误。
+func registerTransportPID(reg *pidregistry.Registry, tr *transport, agentID string) error {
 	if reg == nil || tr == nil || tr.cmd == nil || tr.cmd.Process == nil {
-		return
+		return nil
 	}
-	reg.Register(tr.cmd.Process.Pid, "claude-cli", map[string]string{"agent_id": agentID})
+	pid := tr.cmd.Process.Pid
+	if err := reg.RegisterChecked(pid, "claude-cli", map[string]string{"agent_id": agentID}); err != nil {
+		return fmt.Errorf("register claude-cli pid %d: %w", pid, err)
+	}
+	return nil
 }
 
 func unregisterTransportPID(reg *pidregistry.Registry, tr *transport) {

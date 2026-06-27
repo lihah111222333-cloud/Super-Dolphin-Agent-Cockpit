@@ -57,7 +57,7 @@
 | 记忆中心 | `frontend-app/src/pages/memory/MemoryPage.jsx`、`MemoryPage.test.jsx` | `getMemorySnapshot` 加载、tab `aria-selected`、`upsertMemoryEntry` payload |
 | 链路追踪 | `frontend-app/src/pages/observability/ObservabilityPage.jsx`、`ObservabilityPage.test.jsx` | `listObservabilityRecent`、`getObservabilityTrace`、`copyTextToClipboard`；错误/loading aria 状态 |
 
-说明：AGENTS.md 要求的 `mcp-go-agent-orchestration` 生命周期工具未在当前可调用工具集中暴露。本轮使用当前可用的 `multi_agent_v1` 子代理工具，并在主线程统一集成和验证。
+说明：本轮使用当前可用的 `multi_agent_v1` 子代理工具，这是允许的原生子代理路径；主线程统一集成和验证，未记录持久 mcp-orch DAG 生命周期。
 
 ## 页面接口验证
 

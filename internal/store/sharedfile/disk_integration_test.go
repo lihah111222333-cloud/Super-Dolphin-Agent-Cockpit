@@ -47,6 +47,9 @@ func TestUpsert_SmallFile_StoresInlineAndOnDisk(t *testing.T) {
 	if row.Content != "small body" {
 		t.Fatalf("DB content = %q, want small body (inline under threshold)", row.Content)
 	}
+	if row.ContentLocation != contentLocationInline {
+		t.Fatalf("DB content_location = %q, want %q", row.ContentLocation, contentLocationInline)
+	}
 	abs := filepath.Join(cfg.CWD, sharedfilefs.SandboxDir, "handoff/task-1/notes.md")
 	disk, err := os.ReadFile(abs)
 	if err != nil {
@@ -78,6 +81,9 @@ func TestUpsert_LargeFile_DBHasNoBody(t *testing.T) {
 	if row.Content != "" {
 		t.Fatalf("DB content len = %d, want 0 (above threshold)", len(row.Content))
 	}
+	if row.ContentLocation != contentLocationDisk {
+		t.Fatalf("DB content_location = %q, want %q", row.ContentLocation, contentLocationDisk)
+	}
 	abs := filepath.Join(cfg.CWD, sharedfilefs.SandboxDir, "dag/dag-1/output.json")
 	disk, err := os.ReadFile(abs)
 	if err != nil {
@@ -95,7 +101,7 @@ func TestGet_DiskHit_OverridesDBContent(t *testing.T) {
 	// 预置大文件约定下的空 DB 正文，并在磁盘侧写入权威正文；Get 必须以磁盘正文为准。
 	now := time.Date(2026, 4, 30, 12, 0, 0, 0, time.UTC)
 	rows.byPath["dag/dag-1/output.json"] = sqlc.SharedFile{
-		Path: "dag/dag-1/output.json", Content: "", UpdatedBy: "agent",
+		Path: "dag/dag-1/output.json", Content: "", ContentLocation: contentLocationDisk, UpdatedBy: "agent",
 		CreatedAt: now.UnixMilli(), UpdatedAt: now.UnixMilli(),
 	}
 	abs := filepath.Join(cfg.CWD, sharedfilefs.SandboxDir, "dag/dag-1/output.json")
@@ -125,7 +131,7 @@ func TestGet_DiskMiss_FallsBackToDB(t *testing.T) {
 
 	now := time.Date(2026, 4, 30, 12, 0, 0, 0, time.UTC)
 	rows.byPath["handoff/legacy/note.md"] = sqlc.SharedFile{
-		Path: "handoff/legacy/note.md", Content: "from-db-only", UpdatedBy: "system",
+		Path: "handoff/legacy/note.md", Content: "from-db-only", ContentLocation: contentLocationInline, UpdatedBy: "system",
 		CreatedAt: now.UnixMilli(), UpdatedAt: now.UnixMilli(),
 	}
 
@@ -135,6 +141,29 @@ func TestGet_DiskMiss_FallsBackToDB(t *testing.T) {
 	}
 	if got.Content != "from-db-only" {
 		t.Fatalf("Content = %q, want from-db-only", got.Content)
+	}
+}
+
+func TestGet_DiskMissForDiskRow_ReturnsError(t *testing.T) {
+	t.Parallel()
+	s, rows, _ := newDiskBackedStore(t)
+
+	now := time.Date(2026, 4, 30, 12, 0, 0, 0, time.UTC)
+	rows.byPath["handoff/missing/blob.bin"] = sqlc.SharedFile{
+		Path:            "handoff/missing/blob.bin",
+		Content:         "",
+		ContentLocation: contentLocationDisk,
+		UpdatedBy:       "system",
+		CreatedAt:       now.UnixMilli(),
+		UpdatedAt:       now.UnixMilli(),
+	}
+
+	_, err := s.Get(context.Background(), "handoff/missing/blob.bin")
+	if err == nil {
+		t.Fatal("Get err = nil, want missing disk content error")
+	}
+	if !strings.Contains(err.Error(), "disk content") {
+		t.Fatalf("Get err = %v, want disk content context", err)
 	}
 }
 
@@ -248,8 +277,12 @@ func (f *fakeRowQuerier) DeleteSharedFile(_ context.Context, arg sqlc.DeleteShar
 
 func (f *fakeRowQuerier) UpsertSharedFile(_ context.Context, arg sqlc.UpsertSharedFileParams) (sqlc.SharedFile, error) {
 	row := sqlc.SharedFile{
-		Path: arg.Path, Content: arg.Content, UpdatedBy: arg.UpdatedBy,
-		CreatedAt: time.Now().UnixMilli(), UpdatedAt: time.Now().UnixMilli(),
+		Path:            arg.Path,
+		Content:         arg.Content,
+		ContentLocation: arg.ContentLocation,
+		UpdatedBy:       arg.UpdatedBy,
+		CreatedAt:       time.Now().UnixMilli(),
+		UpdatedAt:       time.Now().UnixMilli(),
 	}
 	f.rows.byPath[arg.Path] = row
 	return row, nil

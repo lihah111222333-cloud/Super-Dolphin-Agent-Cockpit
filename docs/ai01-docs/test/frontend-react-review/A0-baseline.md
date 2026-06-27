@@ -29,4 +29,4 @@ npx vitest run \
 ## Notes
 
 - Current checkout under `/home/ai01@f666.com/桌面/project/Super-Dolphin` remains untouched except for its pre-existing dirty/untracked files.
-- The dedicated `mcp-go-agent-orchestration` toolset was not exposed in this session, so DAG state is tracked through these reports and `multi_agent_v1` worker dispatch.
+- The dedicated `mcp-go-agent-orchestration` toolset was not exposed in this session. This is an allowed native subagent path; lifecycle state is tracked through these reports and `multi_agent_v1` worker dispatch without persistent mcp-orch DAG observability.

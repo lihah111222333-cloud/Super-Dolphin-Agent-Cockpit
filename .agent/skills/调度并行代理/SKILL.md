@@ -14,6 +14,8 @@ aliases: ["@调度并行代理", "@并行代理调度", "@parallel-agent-orchest
 
 **核心原则：** 每个独立问题域派发一个代理。让它们并发工作。
 
+**super-agent-v3 编排选择：** 并行代理不强制绑定 mcp-orch。优先使用当前平台可用的原生多代理能力；只有需要持久 DAG、重试、租约、cron/wakeup 或结构化交接记录时，才可选使用 `task_create_dag`、`task_start_dag`、`task_dispatch_node`、`task_update_node`。缺少 mcp-go-agent-orchestration 工具不是阻断条件；继续使用可用的子代理能力，或在不适合派发时改为单代理只读分析并说明观测限制。
+
 ## 何时使用
 
 ```dot
@@ -66,13 +68,24 @@ digraph when_to_use {
 
 ### 3. 并行派发
 
+平台原生多代理可直接派发。若本轮明确选择 mcp-orch 记录持久编排状态，可按下面方式建 DAG：
+
 ```typescript
-// In Claude Code / AI environment
-Task("Fix agent-tool-abort.test.ts failures")
-Task("Fix batch-completion-behavior.test.ts failures")
-Task("Fix tool-approval-race-conditions.test.ts failures")
-// All three run concurrently
+task_create_dag({
+  dag_key: "fix-independent-test-failures",
+  nodes: [
+    { node_key: "agent-tool-abort", assigned_to: "worker", depends_on: [] },
+    { node_key: "batch-completion", assigned_to: "worker", depends_on: [] },
+    { node_key: "tool-approval-race", assigned_to: "worker", depends_on: [] }
+  ]
+})
+task_start_dag("fix-independent-test-failures")
+task_dispatch_node("agent-tool-abort", run_id, assigned_to)
+task_dispatch_node("batch-completion", run_id, assigned_to)
+task_dispatch_node("tool-approval-race", run_id, assigned_to)
 ```
+
+如果使用平台原生多代理，保留每个子代理的范围、返回摘要、文件改动和验证结果；不需要伪造 DAG/node 证据。
 
 ### 4. 审阅并集成
 
@@ -172,6 +185,7 @@ Agent 3 → Fix tool-approval-race-conditions.test.ts
 2. **检查冲突**：代理是否编辑了相同代码？
 3. **运行完整套件**：验证所有修复能一起工作
 4. **抽查**：代理可能犯系统性错误
+5. **写回状态**：用 `update_plan` 和报告记录最终状态；如果本轮已选择 mcp-orch，再用 `task_update_node` 写入对应 node。
 
 ## 真实影响
 

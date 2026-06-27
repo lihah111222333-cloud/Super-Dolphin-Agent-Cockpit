@@ -4,7 +4,7 @@
 适用范围：`cmd/agent-terminal/frontend`
 依赖方案：`docs/ai01-docs/plan/frontend-react-zustand-tailwind-refactor.md`
 
-> **For agentic workers:** 本方案用于审查和测试 React + Zustand + Tailwind 前端重构实施结果。执行时必须使用 `mcp-go-agent-orchestration` 的 DAG 工具记录任务生命周期：`task_create_dag`、`task_start_node`、`task_update_node`。所有 agent 只在被分配的文件和测试域内工作，禁止跨域重构。
+> **For agentic workers:** 本方案用于审查和测试 React + Zustand + Tailwind 前端重构实施结果。可直接使用平台原生子代理；只有需要持久 DAG、重试、租约或结构化交接记录时，才可选使用 `mcp-go-agent-orchestration`。所有 agent 只在被分配的文件和测试域内工作，禁止跨域重构。
 
 ## 摘要
 
@@ -96,15 +96,15 @@ task_create_dag:
     - N9 integration-synthesis
 ```
 
-每个 agent 启动时执行：
+如果本轮选择 mcp-orch，每个 agent 启动时写入对应运行状态；未选择 mcp-orch 时，用报告和计划状态记录：
 
 ```text
-task_start_node:
+task_start_dag / task_dispatch_node:
   node_id: <node-id>
   status: in_progress
 ```
 
-结束时执行：
+结束时写入：
 
 ```text
 task_update_node:

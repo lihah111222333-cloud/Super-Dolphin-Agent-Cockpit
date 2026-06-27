@@ -423,7 +423,11 @@ func (d *driver) awaitStartedSession(ctx context.Context, s *session, tr *transp
 		d.clearStaleProviderThreadID(s.agentID, "claudecli: clear stale binding failed")
 		return err
 	}
-	registerTransportPID(d.pidRegistry, tr, s.agentID)
+	if err := registerTransportPID(d.pidRegistry, tr, s.agentID); err != nil {
+		shared.LogIgnoredError(d.logger, "stop failed on pid registry registration error", s.stop(true))
+		d.clearStaleProviderThreadID(s.agentID, "claudecli: clear stale binding failed")
+		return err
+	}
 	return nil
 }
 

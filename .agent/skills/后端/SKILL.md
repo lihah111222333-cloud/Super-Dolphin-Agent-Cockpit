@@ -1,6 +1,6 @@
 ---
 name: "后端"
-description: "完整的 Go 后端开发指南，涵盖 Effective Go 最佳实践、V3 架构契约（fx, sqlc, jrpc2, rungroup, stateless）。在编写、审查或重构 Go 代码时使用此技能。"
+description: "完整的 Go 后端开发指南，涵盖 Effective Go 最佳实践、super-agent-v3 架构契约（fx, SQLite/sqlc, jrpc2, rungroup, stateless）。在编写、审查或重构 Go 代码时使用此技能。"
 trigger_words: ["Go后端", "golang", "go", "backend", "fx", "sqlc", "jrpc2", "rungroup", "stateless", "mcp", "V3架构"]
 ---
 
@@ -39,7 +39,7 @@ trigger_words: ["Go后端", "golang", "go", "backend", "fx", "sqlc", "jrpc2", "r
 | 规则 | 要求 |
 |------|------|
 | **DI 容器** | 运行时装配 MUST 统一由 `go.uber.org/fx` 完成，禁止使用包级全局变量。 |
-| **持久化** | 数据库操作 MUST 使用 `sqlc` 生成 `Querier` 接口，严禁使用 GORM 或手写增删改查。 |
+| **持久化** | 数据库操作 MUST 使用 `sqlc` 生成 `Querier` 接口，严禁引入 ORM 或手写增删改查。 |
 | **RPC 通信** | RPC 通信 MUST 基于 `github.com/creachadair/jrpc2` 实现 JSON-RPC 2.0，禁止直接使用 Gin 暴露 HTTP 接口。 |
 | **生命周期** | 长跑任务和后台 goroutine MUST 由 `github.com/oklog/run` (RunGroup) 托管，禁止 `go func(){}` 满天飞。 |
 | **状态机** | 复杂实体生命周期 MUST 使用 `qmuntal/stateless` 进行全矩阵映射，禁止零散的 `switch/case` 和二次副作用推导。 |
@@ -68,6 +68,8 @@ trigger_words: ["Go后端", "golang", "go", "backend", "fx", "sqlc", "jrpc2", "r
 ## 项目文档索引
 
 *本技能配套的具体落地规范，请查阅当前工作区内的以下契约文档：*
+
+**仓库边界：** 本仓库没有独立后端子模块；不要使用其他仓库的后端子目录命令或旧守卫入口。store 层默认 SQLite，路径由 `SUPER_DOLPHIN_SQLITE_PATH` / `SUPER_DOLPHIN_HOME` 决定；不要把其他数据库或 ORM 作为默认实现。
 
 | 文档 | 路径 |
 |------|------|

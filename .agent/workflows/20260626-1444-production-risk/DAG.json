@@ -1,0 +1,26 @@
+{
+  "workflow_key": "20260626-1444-production-risk",
+  "status": "running",
+  "controller_cwd": "/Users/mima0000/Desktop/wj/super-agent-v3",
+  "base_ref": "023f759b",
+  "nodes": [
+    {"id":"L01","title":"MCP LSP transport/search/installer/diagnostics","deps":[],"state":"running","agent_id":"019f027c-511d-7262-a1f4-bee2709554f7","branch":"codex/risk-fix-lane-01-mcp-lsp","worktree":".worktrees/risk-fix-lane-01-mcp-lsp"},
+    {"id":"L02","title":"mcp-orch DAG terminal retry and lease fencing","deps":[],"state":"running","agent_id":"019f027d-6e93-79a1-9f0c-f799bd5be3c9","branch":"codex/risk-fix-lane-02-orch-dag","worktree":".worktrees/risk-fix-lane-02-orch-dag"},
+    {"id":"L03","title":"mcp-orch workspace and shared file boundaries","deps":[],"state":"running","agent_id":"019f027d-6f62-7271-bf48-ab87f15ab078","branch":"codex/risk-fix-lane-03-workspace-sharedfile","worktree":".worktrees/risk-fix-lane-03-workspace-sharedfile"},
+    {"id":"L04","title":"Codex app provider pool recovery native policy","deps":[],"state":"running","agent_id":"019f027d-6ff0-79a1-9564-bb7d14146dbe","branch":"codex/risk-fix-lane-04-codexapp-provider","worktree":".worktrees/risk-fix-lane-04-codexapp-provider"},
+    {"id":"L05","title":"Claude CLI provider fail-fast","deps":[],"state":"running","agent_id":"019f027d-707d-7560-a908-8fc1b4e7f3a2","branch":"codex/risk-fix-lane-05-claudecli","worktree":".worktrees/risk-fix-lane-05-claudecli"},
+    {"id":"L06","title":"Unified provider dream/session resolver","deps":[],"state":"running","agent_id":"019f027d-7109-7572-a71f-c8e2eed92201","branch":"codex/risk-fix-lane-06-unified-provider","worktree":".worktrees/risk-fix-lane-06-unified-provider"},
+    {"id":"L07","title":"Cron and appupdate","deps":[],"state":"running","agent_id":"019f027d-71a9-7a72-90b6-25cab82c2bb9","branch":"codex/risk-fix-lane-07-cron-appupdate","worktree":".worktrees/risk-fix-lane-07-cron-appupdate"},
+    {"id":"L08","title":"datasource and MCP server safety boundaries","deps":[],"state":"running","agent_id":"019f027d-7242-7863-9ca5-3809bf5b958d","branch":"codex/risk-fix-lane-08-datasource-mcp-server","worktree":".worktrees/risk-fix-lane-08-datasource-mcp-server"},
+    {"id":"L09","title":"dashboard/store/sql query boundaries","deps":[],"state":"running","agent_id":"019f027d-72da-7ae2-b03c-88742c6364e8","branch":"codex/risk-fix-lane-09-dashboard-store-sql","worktree":".worktrees/risk-fix-lane-09-dashboard-store-sql"},
+    {"id":"L10","title":"platform queues stdio transport runner shutdown","deps":[],"state":"running","agent_id":"019f027e-8074-72f2-b1b2-e5705717760c","branch":"codex/risk-fix-lane-10-platform-queues","worktree":".worktrees/risk-fix-lane-10-platform-queues"},
+    {"id":"L11","title":"platform config cache pidregistry fail-fast","deps":[],"state":"running","agent_id":"019f027e-819f-7781-9339-3348031af2c4","branch":"codex/risk-fix-lane-11-config-cache-pidregistry","worktree":".worktrees/risk-fix-lane-11-config-cache-pidregistry"},
+    {"id":"L12","title":"Wails host bridge proxy clipboard","deps":[],"state":"running","agent_id":"019f027e-82f1-7a43-bdb6-93296f85c4e1","branch":"codex/risk-fix-lane-12-wails-host","worktree":".worktrees/risk-fix-lane-12-wails-host"},
+    {"id":"L13","title":"frontend runtime event and interrupt semantics","deps":[],"state":"running","agent_id":"019f027e-844a-7d60-80cd-c47d2fcfb04c","branch":"codex/risk-fix-lane-13-frontend-runtime","worktree":".worktrees/risk-fix-lane-13-frontend-runtime"},
+    {"id":"L14","title":"thread lifecycle prompt archive","deps":[],"state":"running","agent_id":"019f027e-8578-7f22-80d4-dc09518ac6f7","branch":"codex/risk-fix-lane-14-thread-lifecycle","worktree":".worktrees/risk-fix-lane-14-thread-lifecycle"},
+    {"id":"L15","title":"memory context prefetch team sync","deps":[],"state":"running","agent_id":"019f027e-8696-7cc3-991f-07b88d4f57d4","branch":"codex/risk-fix-lane-15-memory","worktree":".worktrees/risk-fix-lane-15-memory"},
+    {"id":"L16","title":"skill hash mirror resource caps","deps":[],"state":"running","agent_id":"019f027e-87db-7a23-90a5-996c86d2a4ce","branch":"codex/risk-fix-lane-16-skill-caps","worktree":".worktrees/risk-fix-lane-16-skill-caps"},
+    {"id":"L17","title":"logger relay and mcp-ida payload redaction","deps":[],"state":"running","agent_id":"019f027e-88f6-7803-9c97-e57e765ee815","branch":"codex/risk-fix-lane-17-logger-ida-redaction","worktree":".worktrees/risk-fix-lane-17-logger-ida-redaction"},
+    {"id":"L18","title":"updater helper timeout rollback","deps":[],"state":"running","agent_id":"019f027e-8ac7-7fa2-b94b-2d8d5549f372","branch":"codex/risk-fix-lane-18-updater","worktree":".worktrees/risk-fix-lane-18-updater"}
+  ]
+}
