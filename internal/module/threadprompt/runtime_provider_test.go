@@ -12,7 +12,7 @@ import (
 func TestAvailableExpertsProviderRendersBuiltinAndUserExpertsOnly(t *testing.T) {
 	t.Parallel()
 
-	provider := AvailableExpertsProvider{catalog: NewRuntimeCatalog(
+	provider := AvailableExpertsProvider{catalog: newRuntimeCatalogForStore(
 		runtimeProviderUserStore(),
 		runtimeProviderBuiltinRegistry(),
 	)}

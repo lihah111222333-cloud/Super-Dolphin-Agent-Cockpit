@@ -20,7 +20,7 @@ func TestAvailableExpertsProviderKeepsPlanningReviewDebugDistinct(t *testing.T) 
 			{PromptKey: "main/code-task", Title: "通用编程助手", WhenToUse: "通用编程实现、重构、解释代码、补测试", Enabled: true, Tags: mustJSONTags("scope.global", "intent:expert")},
 		},
 	}
-	provider := AvailableExpertsProvider{catalog: NewRuntimeCatalog(store, nil)}
+	provider := AvailableExpertsProvider{catalog: newRuntimeCatalogForStore(store, nil)}
 
 	text, err := provider.Resolve(context.Background(), contract.SectionContext{
 		Start:    &contract.StartInput{Prompt: "帮我做实施计划，review diff，再 debug panic", PromptKey: "main/default"},
