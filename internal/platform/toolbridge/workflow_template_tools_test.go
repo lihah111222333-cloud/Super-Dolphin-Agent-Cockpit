@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/mcp"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/mcpcontrol"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared/workflowtemplates"
 )
 
@@ -32,6 +33,36 @@ func TestWorkflowTemplateHostToolRegistry_ListSchemaAndFilters(t *testing.T) {
 	for _, tpl := range list.Templates {
 		if tpl.Category != "government-enterprise" || !workflowTemplateHasOutputType(tpl.OutputTypes, "docx") {
 			t.Fatalf("filtered template mismatch: %+v", tpl)
+		}
+	}
+}
+
+func TestWorkflowTemplateHostToolRegistry_DefaultCodexToolsHideWriteEntrypoints(t *testing.T) {
+	reg := NewWorkflowTemplateHostToolRegistry()
+	h := &Handler{
+		registry: &stubKindRegistry{peers: map[string][]*mcpcontrol.ToolInstance{
+			dto.ClientKindOrch: {listToolsPeer(nil, nil)},
+			dto.ClientKindLSP:  {listToolsPeer(nil, nil)},
+		}},
+		hostTools: reg,
+	}
+
+	tools, err := h.ListToolsForCodex(context.Background())
+	if err != nil {
+		t.Fatalf("ListToolsForCodex() error = %v", err)
+	}
+	names := map[string]bool{}
+	for _, tool := range tools {
+		names[tool.Name] = true
+	}
+	for _, forbidden := range []string{ToolNameWorkflowTemplateSave, ToolNameWorkflowTemplateRollback} {
+		if names[forbidden] {
+			t.Fatalf("default dynamic tools exposed write entrypoint %q in %#v", forbidden, names)
+		}
+	}
+	for _, want := range []string{ToolNameWorkflowTemplateList, ToolNameWorkflowTemplateGet, ToolNameWorkflowTemplateRenderDAG} {
+		if !names[want] {
+			t.Fatalf("default dynamic tools missing read entrypoint %q in %#v", want, names)
 		}
 	}
 }
@@ -77,9 +108,35 @@ func TestWorkflowTemplateHostToolRegistry_GetAndRenderDAG(t *testing.T) {
 	assertMeetingMinutesDraft(t, rendered.Draft)
 }
 
-func TestWorkflowTemplateHostToolRegistry_SaveAndRollback(t *testing.T) {
+func TestWorkflowTemplateHostToolRegistry_DefaultDirectWriteRequiresApproval(t *testing.T) {
 	reg := NewWorkflowTemplateHostToolRegistry()
-	renderResult, err := reg.CallHostTool(context.Background(), HostToolCall{
+	h := &Handler{
+		registry:  &stubKindRegistry{},
+		hostTools: reg,
+	}
+
+	for _, toolName := range []string{ToolNameWorkflowTemplateSave, ToolNameWorkflowTemplateRollback} {
+		got, err := h.routeToolCall(context.Background(), ToolCallRequest{
+			Name:      toolName,
+			Arguments: json.RawMessage(`{}`),
+			AgentID:   "agent-1",
+			ThreadID:  "thread-1",
+			CallID:    "call-1",
+		})
+		if err != nil {
+			t.Fatalf("%s routeToolCall() error = %v", toolName, err)
+		}
+		envelope := decodeToolResultEnvelope(t, got)
+		if got.Success || envelope["kind"] != "approval_required" {
+			t.Fatalf("%s result = success:%v envelope:%#v, want approval_required failure", toolName, got.Success, envelope)
+		}
+	}
+}
+
+func TestWorkflowTemplateHostToolRegistry_SaveAndRollback(t *testing.T) {
+	readReg := NewWorkflowTemplateHostToolRegistry()
+	writeReg := NewWorkflowTemplateWriteHostToolRegistry(allowWorkflowTemplateWriteAuthority{})
+	renderResult, err := readReg.CallHostTool(context.Background(), HostToolCall{
 		Name: ToolNameWorkflowTemplateRenderDAG,
 		Arguments: json.RawMessage(`{
 			"template_id":"government-enterprise/meeting-minutes",
@@ -123,7 +180,7 @@ func TestWorkflowTemplateHostToolRegistry_SaveAndRollback(t *testing.T) {
 	if err != nil {
 		t.Fatalf("marshal save payload: %v", err)
 	}
-	saveResult, err := reg.CallHostTool(context.Background(), HostToolCall{
+	saveResult, err := writeReg.CallHostTool(context.Background(), HostToolCall{
 		Name:      ToolNameWorkflowTemplateSave,
 		Arguments: saveRaw,
 	})
@@ -135,7 +192,7 @@ func TestWorkflowTemplateHostToolRegistry_SaveAndRollback(t *testing.T) {
 		t.Fatalf("save result template = %+v", saved.Template)
 	}
 
-	rollbackResult, err := reg.CallHostTool(context.Background(), HostToolCall{
+	rollbackResult, err := writeReg.CallHostTool(context.Background(), HostToolCall{
 		Name:      ToolNameWorkflowTemplateRollback,
 		Arguments: json.RawMessage(`{"template_id":"government-enterprise/meeting-minutes","version":1}`),
 	})
@@ -146,6 +203,12 @@ func TestWorkflowTemplateHostToolRegistry_SaveAndRollback(t *testing.T) {
 	if rolledBack.Template.Version != 1 {
 		t.Fatalf("rollback version = %d, want 1", rolledBack.Template.Version)
 	}
+}
+
+type allowWorkflowTemplateWriteAuthority struct{}
+
+func (allowWorkflowTemplateWriteAuthority) AuthorizeWorkflowTemplateWrite(context.Context, HostToolCall) error {
+	return nil
 }
 
 func TestWorkflowTemplateHostToolRegistry_CWDisOptionalThroughHandler(t *testing.T) {
@@ -199,9 +262,14 @@ func assertWorkflowTemplateToolNames(t *testing.T, tools []dto.MCPTool) {
 			t.Fatalf("tool %q missing input schema", tool.Name)
 		}
 	}
-	for _, want := range []string{ToolNameWorkflowTemplateList, ToolNameWorkflowTemplateGet, ToolNameWorkflowTemplateRenderDAG, ToolNameWorkflowTemplateSave, ToolNameWorkflowTemplateRollback} {
+	for _, want := range []string{ToolNameWorkflowTemplateList, ToolNameWorkflowTemplateGet, ToolNameWorkflowTemplateRenderDAG} {
 		if _, ok := names[want]; !ok {
 			t.Fatalf("workflow template tools = %+v, missing %q", tools, want)
+		}
+	}
+	for _, forbidden := range []string{ToolNameWorkflowTemplateSave, ToolNameWorkflowTemplateRollback} {
+		if _, ok := names[forbidden]; ok {
+			t.Fatalf("workflow template tools = %+v, must not expose write tool %q", tools, forbidden)
 		}
 	}
 }

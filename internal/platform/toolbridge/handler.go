@@ -74,6 +74,32 @@ type storedThreadRuntime struct {
 	Runtime map[string]any `json:"runtime,omitempty"`
 }
 
+type toolCallLookupStatus string
+
+const (
+	toolCallLookupFound    toolCallLookupStatus = "found"
+	toolCallLookupNotFound toolCallLookupStatus = "not_found"
+	toolCallLookupFailed   toolCallLookupStatus = "failed"
+)
+
+type toolCallBindingLookupResult struct {
+	status  toolCallLookupStatus
+	binding toolCallBinding
+	err     error
+}
+
+type toolCallThreadIDLookupResult struct {
+	status   toolCallLookupStatus
+	threadID string
+	err      error
+}
+
+type toolCallRuntimeLookupResult struct {
+	status  toolCallLookupStatus
+	runtime map[string]any
+	err     error
+}
+
 // NewHandler 创建 toolbridge 路由器，并为可注入的 stdio client factory 设置默认实现。
 func NewHandler(in handlerIn) *Handler {
 	logger := in.Logger
@@ -203,6 +229,10 @@ func (h *Handler) routePrePeerToolCall(ctx context.Context, req ToolCallRequest)
 	if blocked != "" {
 		return toolCallTextResult(false, blocked), true, nil
 	}
+	if isWorkflowTemplateWriteToolName(req.Name) {
+		result, err := h.routeWorkflowTemplateWriteToolCall(ctx, req)
+		return result, true, err
+	}
 	// Host-direct 分支：当 hostTools 声明该工具名存在时，本进程同步执行，不走 peer
 	// callback。dedup 优先级：hostTools 先查、命中即返回、不再查 peer——与 ListToolsForCodex
 	// 的聚合顺序一致，避免同名工具双面路由产生不一致行为。
@@ -211,6 +241,23 @@ func (h *Handler) routePrePeerToolCall(ctx context.Context, req ToolCallRequest)
 		return result, true, err
 	}
 	return nil, false, nil
+}
+
+// routeWorkflowTemplateWriteToolCall 对模板写工具做 fail-closed 保护，避免同名 peer 绕过 host 审批。
+func (h *Handler) routeWorkflowTemplateWriteToolCall(ctx context.Context, req ToolCallRequest) (*ToolCallResult, error) {
+	if h != nil && h.hostTools != nil && h.hostTools.HasTool(req.Name) {
+		return h.callHostTool(ctx, req)
+	}
+	err := workflowTemplateWriteApprovalRequired(ctx, HostToolCall{
+		Name:      req.Name,
+		Arguments: req.Arguments,
+		CWD:       req.CWD,
+		AgentID:   req.AgentID,
+		ThreadID:  req.ThreadID,
+		TurnID:    req.TurnID,
+		CallID:    req.CallID,
+	})
+	return hostToolErrorResult(req, err), nil
 }
 
 // selectActiveToolPeer 选择唯一活跃 peer；0 个或多个都按错误返回，避免隐式降级。
@@ -290,47 +337,60 @@ func toolCallErrorResult(text string) *ToolCallResult {
 // resolveCurrentToolCallBinding 从 agentID、threadID 和 provider thread 中恢复当前 tool call 绑定。
 // 该绑定用于继承 managed launch 上下文；解析不到时调用方按无绑定路径继续。
 func (h *Handler) resolveCurrentToolCallBinding(ctx context.Context, req ToolCallRequest) (toolCallBinding, bool) {
+	result := h.resolveCurrentToolCallBindingResult(ctx, req)
+	return result.binding, result.status == toolCallLookupFound
+}
+
+// resolveCurrentToolCallBindingResult 区分绑定存在、不存在和读取失败，供策略路径 fail-closed。
+func (h *Handler) resolveCurrentToolCallBindingResult(ctx context.Context, req ToolCallRequest) toolCallBindingLookupResult {
 	if h == nil || h.bindingStore == nil {
-		return toolCallBinding{}, false
+		return toolCallBindingLookupResult{status: toolCallLookupNotFound}
 	}
 	lookup, ok := h.bindingStore.(toolCallBindingLookup)
 	if !ok {
-		return toolCallBinding{}, false
+		return toolCallBindingLookupResult{status: toolCallLookupNotFound}
 	}
 	if agentID := strings.TrimSpace(req.AgentID); agentID != "" {
-		if binding, ok := lookupToolCallBindingByAgent(ctx, lookup, agentID); ok {
-			return binding, true
+		result := lookupToolCallBindingByAgent(ctx, lookup, agentID)
+		if result.status != toolCallLookupNotFound {
+			return result
 		}
 	}
 	threadID := strings.TrimSpace(req.ThreadID)
 	if threadID == "" {
-		return toolCallBinding{}, false
+		return toolCallBindingLookupResult{status: toolCallLookupNotFound}
 	}
-	if binding, ok := lookupToolCallBindingByAgent(ctx, lookup, threadID); ok {
-		return binding, true
+	if result := lookupToolCallBindingByAgent(ctx, lookup, threadID); result.status != toolCallLookupNotFound {
+		return result
 	}
-	if binding, ok := lookupToolCallBindingByProviderThread(ctx, lookup, "codex", threadID); ok {
-		return binding, true
+	if result := lookupToolCallBindingByProviderThread(ctx, lookup, "codex", threadID); result.status != toolCallLookupNotFound {
+		return result
 	}
-	return toolCallBinding{}, false
+	return toolCallBindingLookupResult{status: toolCallLookupNotFound}
 }
 
 // lookupToolCallBindingByAgent 读取 agent 绑定，并要求返回值仍带有有效 agentID。
-func lookupToolCallBindingByAgent(ctx context.Context, lookup toolCallBindingLookup, agentID string) (toolCallBinding, bool) {
+func lookupToolCallBindingByAgent(ctx context.Context, lookup toolCallBindingLookup, agentID string) toolCallBindingLookupResult {
 	binding, err := lookup.GetBindingByAgent(ctx, strings.TrimSpace(agentID))
 	if err != nil {
-		return toolCallBinding{}, false
+		return toolCallBindingLookupResult{status: toolCallLookupFailed, err: err}
 	}
-	return binding, strings.TrimSpace(binding.AgentID) != ""
+	if strings.TrimSpace(binding.AgentID) == "" {
+		return toolCallBindingLookupResult{status: toolCallLookupNotFound}
+	}
+	return toolCallBindingLookupResult{status: toolCallLookupFound, binding: binding}
 }
 
 // lookupToolCallBindingByProviderThread 用 provider thread 兜住旧数据中的绑定关系。
-func lookupToolCallBindingByProviderThread(ctx context.Context, lookup toolCallBindingLookup, provider, threadID string) (toolCallBinding, bool) {
+func lookupToolCallBindingByProviderThread(ctx context.Context, lookup toolCallBindingLookup, provider, threadID string) toolCallBindingLookupResult {
 	binding, err := lookup.GetBindingByProviderThread(ctx, strings.TrimSpace(provider), strings.TrimSpace(threadID))
 	if err != nil {
-		return toolCallBinding{}, false
+		return toolCallBindingLookupResult{status: toolCallLookupFailed, err: err}
 	}
-	return binding, strings.TrimSpace(binding.AgentID) != ""
+	if strings.TrimSpace(binding.AgentID) == "" {
+		return toolCallBindingLookupResult{status: toolCallLookupNotFound}
+	}
+	return toolCallBindingLookupResult{status: toolCallLookupFound, binding: binding}
 }
 
 // spawnAgentPolicyMessage 在工具转发前决定是否阻断原生 spawn_agent。
@@ -355,8 +415,11 @@ func (h *Handler) spawnAgentPolicyMessage(ctx context.Context, req ToolCallReque
 // childAgentDelegationPolicyMessage 拦截子 agent 的原生 spawn_agent 再委派。
 // binding 里有 parent_agent_id 才说明当前调用者已经是子 agent；没有绑定投影时维持后续 runtime policy。
 func (h *Handler) childAgentDelegationPolicyMessage(ctx context.Context, req ToolCallRequest) (string, error) {
-	binding, ok := h.resolveCurrentToolCallBinding(ctx, req)
-	if !ok || strings.TrimSpace(binding.ParentAgentID) == "" {
+	result := h.resolveCurrentToolCallBindingResult(ctx, req)
+	if result.status == toolCallLookupFailed {
+		return "", toolCallPolicyUnavailable("read current binding", result.err)
+	}
+	if result.status != toolCallLookupFound || strings.TrimSpace(result.binding.ParentAgentID) == "" {
 		return "", nil
 	}
 	return subAgentDelegationDepthLimitMessage, nil
@@ -418,26 +481,40 @@ func (h *Handler) toolCallRuntimeConfig(ctx context.Context, req ToolCallRequest
 
 // requireToolCallThreadID 要求工具调用能解析到 threadID，否则策略无法读取 runtime。
 func (h *Handler) requireToolCallThreadID(ctx context.Context, req ToolCallRequest) (string, error) {
-	threadID, ok := h.resolveToolCallThreadID(ctx, req)
-	if !ok {
+	result := h.resolveToolCallThreadIDResult(ctx, req)
+	switch result.status {
+	case toolCallLookupFound:
+		return result.threadID, nil
+	case toolCallLookupFailed:
+		return "", toolCallPolicyUnavailable("resolve thread id", result.err)
+	default:
 		return "", contract.ErrThreadRuntimeRequired
 	}
-	return threadID, nil
 }
 
 // requireToolCallRuntime 要求指定 thread 的 runtime 存在，缺失时阻断策略判断。
 func (h *Handler) requireToolCallRuntime(ctx context.Context, threadID string) (map[string]any, error) {
-	runtime, ok := h.readToolCallRuntime(ctx, threadID)
-	if !ok {
+	result := h.readToolCallRuntimeResult(ctx, threadID)
+	switch result.status {
+	case toolCallLookupFound:
+		return result.runtime, nil
+	case toolCallLookupFailed:
+		return nil, toolCallPolicyUnavailable("read thread runtime", result.err)
+	default:
 		return nil, contract.ErrPersistentSubagentRuntimeRequired
 	}
-	return runtime, nil
 }
 
 // resolveToolCallThreadID 优先使用请求中的 threadID，缺失时再从 agent 绑定反查。
 func (h *Handler) resolveToolCallThreadID(ctx context.Context, req ToolCallRequest) (string, bool) {
+	result := h.resolveToolCallThreadIDResult(ctx, req)
+	return result.threadID, result.status == toolCallLookupFound
+}
+
+// resolveToolCallThreadIDResult 返回 threadID 查找的三态结果，供策略路径区分存储错误。
+func (h *Handler) resolveToolCallThreadIDResult(ctx context.Context, req ToolCallRequest) toolCallThreadIDLookupResult {
 	if threadID, ok := resolveToolCallThreadIDFromRequest(req); ok {
-		return threadID, true
+		return toolCallThreadIDLookupResult{status: toolCallLookupFound, threadID: threadID}
 	}
 	return h.resolveToolCallThreadIDFromAgent(ctx, req)
 }
@@ -452,35 +529,68 @@ func resolveToolCallThreadIDFromRequest(req ToolCallRequest) (string, bool) {
 }
 
 // resolveToolCallThreadIDFromAgent 通过 agentID 反查 threadID，供旧调用或缺省参数路径使用。
-func (h *Handler) resolveToolCallThreadIDFromAgent(ctx context.Context, req ToolCallRequest) (string, bool) {
+func (h *Handler) resolveToolCallThreadIDFromAgent(ctx context.Context, req ToolCallRequest) toolCallThreadIDLookupResult {
 	if h == nil || h.bindingStore == nil {
-		return "", false
+		return toolCallThreadIDLookupResult{status: toolCallLookupNotFound}
 	}
 	agentID := strings.TrimSpace(req.AgentID)
 	if agentID == "" {
-		return "", false
+		return toolCallThreadIDLookupResult{status: toolCallLookupNotFound}
 	}
 	threadID, err := h.bindingStore.GetThreadByAgent(ctx, agentID)
 	if err != nil {
-		return "", false
+		return toolCallThreadIDLookupResult{status: toolCallLookupFailed, err: err}
 	}
 	threadID = strings.TrimSpace(threadID)
 	if threadID == "" {
-		return "", false
+		return toolCallThreadIDLookupResult{status: toolCallLookupNotFound}
 	}
-	return threadID, true
+	return toolCallThreadIDLookupResult{status: toolCallLookupFound, threadID: threadID}
 }
 
 // readToolCallRuntime 读取 thread config override 中的 runtime 段。
 func (h *Handler) readToolCallRuntime(ctx context.Context, threadID string) (map[string]any, bool) {
+	result := h.readToolCallRuntimeResult(ctx, threadID)
+	return result.runtime, result.status == toolCallLookupFound
+}
+
+// readToolCallRuntimeResult 读取 runtime 三态结果；读取或解析失败不能伪装成缺失。
+func (h *Handler) readToolCallRuntimeResult(ctx context.Context, threadID string) toolCallRuntimeLookupResult {
 	if h == nil || h.threadStore == nil {
-		return nil, false
+		return toolCallRuntimeLookupResult{status: toolCallLookupNotFound}
 	}
 	raw, err := h.threadStore.GetConfigOverride(ctx, threadID)
-	if err != nil || len(raw) == 0 {
-		return nil, false
+	if err != nil {
+		if toolCallRuntimeMissingError(err) {
+			return toolCallRuntimeLookupResult{status: toolCallLookupNotFound}
+		}
+		return toolCallRuntimeLookupResult{status: toolCallLookupFailed, err: err}
 	}
-	return decodeStoredThreadRuntime(raw)
+	if len(raw) == 0 {
+		return toolCallRuntimeLookupResult{status: toolCallLookupNotFound}
+	}
+	var stored storedThreadRuntime
+	if err := json.Unmarshal(raw, &stored); err != nil {
+		return toolCallRuntimeLookupResult{status: toolCallLookupFailed, err: err}
+	}
+	if len(stored.Runtime) == 0 {
+		return toolCallRuntimeLookupResult{status: toolCallLookupNotFound}
+	}
+	return toolCallRuntimeLookupResult{status: toolCallLookupFound, runtime: stored.Runtime}
+}
+
+// toolCallPolicyUnavailable 包装策略依赖读取失败，调用方据此阻断而不是按缺失配置继续。
+func toolCallPolicyUnavailable(reason string, err error) error {
+	reason = strings.TrimSpace(reason)
+	if err == nil {
+		return fmt.Errorf("toolbridge: policy unavailable: %s", reason)
+	}
+	return fmt.Errorf("toolbridge: policy unavailable: %s: %w", reason, err)
+}
+
+// toolCallRuntimeMissingError 兼容窄端口适配器的 not-found 表达，并保持缺失 runtime 的既有哨兵语义。
+func toolCallRuntimeMissingError(err error) bool {
+	return contract.IsNotFound(err) || strings.Contains(strings.ToLower(err.Error()), "not found")
 }
 
 // decodeToolArguments 将 tool call arguments 解为对象；空参数或非对象都返回 nil。
