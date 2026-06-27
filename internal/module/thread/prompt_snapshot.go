@@ -11,7 +11,6 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
 
-	threadstore "github.com/anthropic-ai/super-agent-v3/internal/store/thread"
 	"github.com/anthropic-ai/super-agent-v3/internal/util"
 )
 
@@ -100,17 +99,17 @@ func promptBoundaryUncachedTail(boundary *dto.PromptAssemblyBoundary) string {
 	return strings.TrimSpace(boundary.UncachedTail)
 }
 
-func toStoredPromptBoundary(boundary *dto.PromptAssemblyBoundary) *threadstore.PromptBoundary {
+func toStoredPromptBoundary(boundary *dto.PromptAssemblyBoundary) *promptBoundaryRecord {
 	if promptBoundaryBlank(boundary) {
 		return nil
 	}
-	return &threadstore.PromptBoundary{
+	return &promptBoundaryRecord{
 		CachedPrefix: promptBoundaryCachedPrefix(boundary),
 		UncachedTail: promptBoundaryUncachedTail(boundary),
 	}
 }
 
-func fromStoredPromptBoundary(boundary *threadstore.PromptBoundary) *dto.PromptAssemblyBoundary {
+func fromStoredPromptBoundary(boundary *promptBoundaryRecord) *dto.PromptAssemblyBoundary {
 	if boundary == nil {
 		return nil
 	}
@@ -177,28 +176,9 @@ func promptSnapshotHash(
 	return hex.EncodeToString(h.Sum(nil))
 }
 
-// savePromptSnapshot 保存 thread/start 生成的 prompt snapshot。
-// snapshot 为空或 thread_id/store 缺失就报错，否则后续 resume/fork 没法稳定恢复。
-func (s *service) savePromptSnapshot(ctx context.Context, threadID string, assembly contract.StartAssembly) error {
-	threadID = strings.TrimSpace(threadID)
-	if s == nil {
-		return errors.New("thread: service is not configured")
-	}
-	if s.threadStore == nil {
-		return errors.New("thread: thread store is not configured")
-	}
-	if threadID == "" {
-		return errors.New("thread: prompt snapshot thread_id is required")
-	}
-	if promptSnapshotBlank(assembly.Snapshot) {
-		return errors.New("thread: prompt snapshot is empty")
-	}
-	return s.threadStore.SavePromptSnapshot(ctx, threadID, toStoredPromptSnapshot(assembly.Snapshot))
-}
-
-func toStoredPromptSnapshot(snapshot contract.PromptAssemblySnapshot) threadstore.PromptSnapshot {
+func toStoredPromptSnapshot(snapshot contract.PromptAssemblySnapshot) promptSnapshotRecord {
 	snapshot = normalizePromptSnapshotContent(snapshot)
-	return threadstore.PromptSnapshot{
+	return promptSnapshotRecord{
 		DisplayName:           snapshot.DisplayName,
 		BaseInstructions:      snapshot.BaseInstructions,
 		Boundary:              toStoredPromptBoundary(snapshot.Boundary),
@@ -346,26 +326,7 @@ func (s *service) preferredStoredPromptSnapshot(
 	return contract.PromptAssemblySnapshot{}, false, nil
 }
 
-// loadStoredPromptSnapshot 读取已保存的 prompt 快照。
-func (s *service) loadStoredPromptSnapshot(ctx context.Context, threadID string) (contract.PromptAssemblySnapshot, error) {
-	threadID = strings.TrimSpace(threadID)
-	if s == nil {
-		return contract.PromptAssemblySnapshot{}, errors.New("thread: service is not configured")
-	}
-	if s.threadStore == nil {
-		return contract.PromptAssemblySnapshot{}, errors.New("thread: thread store is not configured")
-	}
-	if threadID == "" {
-		return contract.PromptAssemblySnapshot{}, errors.New("thread: prompt snapshot thread_id is required")
-	}
-	snapshot, err := s.threadStore.LoadPromptSnapshot(ctx, threadID)
-	if err != nil || snapshot == nil {
-		return contract.PromptAssemblySnapshot{}, err
-	}
-	return fromStoredPromptSnapshot(snapshot), nil
-}
-
-func fromStoredPromptSnapshot(snapshot *threadstore.PromptSnapshot) contract.PromptAssemblySnapshot {
+func fromStoredPromptSnapshot(snapshot *promptSnapshotRecord) contract.PromptAssemblySnapshot {
 	if snapshot == nil {
 		return contract.PromptAssemblySnapshot{}
 	}

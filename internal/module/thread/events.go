@@ -7,7 +7,6 @@ import (
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	agentdto "github.com/anthropic-ai/super-agent-v3/internal/dto/agent"
-	bindingstore "github.com/anthropic-ai/super-agent-v3/internal/store/binding"
 	"github.com/anthropic-ai/super-agent-v3/internal/util"
 	"github.com/anthropic-ai/super-agent-v3/internal/util/identifier"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
@@ -64,7 +63,7 @@ func (s *service) drainBusWorker(ctx context.Context, name string, stop func(con
 // onAgentLaunched 将 agent 启动事件投递到串行 worker。
 // 回调不直接写 binding，避免 bus 线程承担慢 I/O，也让 shutdown 可等待未完成的写入。
 func (s *service) onAgentLaunched(ev agentdto.AgentLaunched) {
-	if s == nil || s.agentLaunchedWorker == nil || s.bindingStore == nil {
+	if s == nil || s.agentLaunchedWorker == nil || s.threadBindingStorePort() == nil {
 		return
 	}
 	agentID := strings.TrimSpace(ev.AgentID)
@@ -82,7 +81,7 @@ func (s *service) onAgentLaunched(ev agentdto.AgentLaunched) {
 // processAgentLaunched 根据 provider 启动事件补写 binding 中的 session 身份。
 // 事件可能缺 agent_id，因此先用 threadID 反查 binding；只有 UUID 可恢复且历史文件存在时才写 provider_thread_id。
 func (s *service) processAgentLaunched(ev agentdto.AgentLaunched) {
-	if s == nil || s.bindingStore == nil {
+	if s.threadBindingStorePort() == nil {
 		return
 	}
 	threadID := strings.TrimSpace(ev.ThreadID)
@@ -103,11 +102,15 @@ func (s *service) processAgentLaunched(ev agentdto.AgentLaunched) {
 	s.recordAgentLaunchProviderThreadID(ctx, binding, threadID, agentID, sessionID)
 }
 
-func (s *service) recordAgentLaunchSessionUUID(ctx context.Context, binding *bindingstore.Binding, threadID, agentID, sessionID string) {
+func (s *service) recordAgentLaunchSessionUUID(ctx context.Context, binding *threadBindingRecord, threadID, agentID, sessionID string) {
 	if strings.TrimSpace(binding.SessionUUID) == sessionID {
 		return
 	}
-	if err := s.bindingStore.UpdateSessionUUID(ctx, bindingstore.UpdateSessionUUIDParams{
+	store := s.threadBindingStorePort()
+	if store == nil {
+		return
+	}
+	if err := store.UpdateSessionUUID(ctx, threadBindingSessionUUIDUpdate{
 		AgentID:     agentID,
 		SessionUUID: sessionID,
 		UpdatedAt:   time.Now().Unix(),
@@ -121,7 +124,7 @@ func (s *service) recordAgentLaunchSessionUUID(ctx context.Context, binding *bin
 
 // recordAgentLaunchProviderThreadID 从启动事件记录可恢复的 provider thread id。
 // 已存在的真实 UUID 不会被覆盖；无法定位 provider 历史文件时只记日志，避免写入不可恢复身份。
-func (s *service) recordAgentLaunchProviderThreadID(ctx context.Context, binding *bindingstore.Binding, threadID, agentID, sessionID string) {
+func (s *service) recordAgentLaunchProviderThreadID(ctx context.Context, binding *threadBindingRecord, threadID, agentID, sessionID string) {
 	providerThreadID := normalizeProviderThreadID(binding.Provider, sessionID)
 	if providerThreadID == "" {
 		return
@@ -133,7 +136,7 @@ func (s *service) recordAgentLaunchProviderThreadID(ctx context.Context, binding
 	if current != "" && current != agentID && identifier.LooksLikeUUID(current) {
 		return
 	}
-	if !bindingHasProviderHistoryForUUID(binding, providerThreadID) {
+	if !bindingRecordHasProviderHistoryForUUID(binding, providerThreadID) {
 		if s.logger != nil {
 			s.logger.Info("thread: provider_thread_id from agent event is not recoverable",
 				"thread_id", threadID,
@@ -143,7 +146,11 @@ func (s *service) recordAgentLaunchProviderThreadID(ctx context.Context, binding
 		}
 		return
 	}
-	if err := s.bindingStore.UpdateProviderThreadID(ctx, bindingstore.UpdateProviderThreadIDParams{
+	store := s.threadBindingStorePort()
+	if store == nil {
+		return
+	}
+	if err := store.UpdateProviderThreadID(ctx, threadBindingProviderThreadIDUpdate{
 		AgentID:          agentID,
 		ProviderThreadID: providerThreadID,
 		UpdatedAt:        time.Now().Unix(),
@@ -157,7 +164,7 @@ func (s *service) recordAgentLaunchProviderThreadID(ctx context.Context, binding
 
 // syncAgentLaunchCWD 将启动事件里的 CWD 回写到 binding。
 // 只有原 binding 还没有可信 CWD 时才写入；若新旧目录冲突，拒绝事件值以保护后续 prompt 可见性判断。
-func (s *service) syncAgentLaunchCWD(ctx context.Context, binding *bindingstore.Binding, threadID, nextCWD string) {
+func (s *service) syncAgentLaunchCWD(ctx context.Context, binding *threadBindingRecord, threadID, nextCWD string) {
 	agentID, nextCWD, ok := normalizedAgentLaunchCWD(s, binding, nextCWD)
 	if !ok {
 		return
@@ -172,7 +179,11 @@ func (s *service) syncAgentLaunchCWD(ctx context.Context, binding *bindingstore.
 		}
 		return
 	}
-	if err := s.bindingStore.UpdateAgentCwd(ctx, bindingstore.UpdateAgentCwdParams{
+	store := s.threadBindingStorePort()
+	if store == nil {
+		return
+	}
+	if err := store.UpdateAgentCwd(ctx, threadBindingCWDUpdate{
 		AgentID:   agentID,
 		Cwd:       nextCWD,
 		UpdatedAt: time.Now().Unix(),
@@ -193,8 +204,8 @@ func (s *service) syncAgentLaunchCWD(ctx context.Context, binding *bindingstore.
 
 // normalizedAgentLaunchCWD 校验启动事件具备可写 CWD 的最小条件。
 // 返回的目录已按 prompt 比较规则规范化，调用方可直接用于冲突判断和持久化。
-func normalizedAgentLaunchCWD(s *service, binding *bindingstore.Binding, nextCWD string) (string, string, bool) {
-	if s == nil || s.bindingStore == nil || binding == nil {
+func normalizedAgentLaunchCWD(s *service, binding *threadBindingRecord, nextCWD string) (string, string, bool) {
+	if s == nil || s.threadBindingStorePort() == nil || binding == nil {
 		return "", "", false
 	}
 	agentID := strings.TrimSpace(binding.AgentID)
@@ -299,15 +310,20 @@ func (s *service) resetSessionRecoveryCount(agentID string) {
 	s.sessionRecoveryCount.Delete(strings.TrimSpace(agentID))
 }
 
-func (s *service) resolveBindingForEvent(ctx context.Context, agentID, threadID string) (*bindingstore.Binding, error) {
+// resolveBindingForEvent 为 provider lifecycle event 找到权威 binding；agentID 优先，缺失时才按 threadID 解析。
+func (s *service) resolveBindingForEvent(ctx context.Context, agentID, threadID string) (*threadBindingRecord, error) {
+	store := s.threadBindingStorePort()
+	if store == nil {
+		return nil, nil
+	}
 	if agentID != "" {
-		b, err := s.bindingStore.GetByAgentID(ctx, agentID)
+		b, err := store.GetByAgentID(ctx, agentID)
 		if err == nil && b != nil {
 			return b, nil
 		}
 	}
 	if threadID != "" {
-		return s.resolveBinding(ctx, threadID)
+		return s.resolveThreadBindingRecord(ctx, threadID)
 	}
 	return nil, nil
 }

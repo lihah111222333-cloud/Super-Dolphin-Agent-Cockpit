@@ -8,7 +8,6 @@ import (
 	"strings"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
-	promptstore "github.com/anthropic-ai/super-agent-v3/internal/store/prompt"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
@@ -28,13 +27,6 @@ func shouldSkipRoutedPrompt(s *service, req *StartRequest) bool {
 	}
 }
 
-func (s *service) runtimePromptCatalog() promptstore.RuntimePromptCatalog {
-	if s == nil {
-		return nil
-	}
-	return s.promptCatalog
-}
-
 // resolveRoutedPrompt 为 thread/start 选择并注入运行时 prompt 模板。
 // 调用方已提供 BaseInstructions 时不再路由；缺少可信 CWD 会直接报错，避免绕过模板可见性边界。
 func (s *service) resolveRoutedPrompt(ctx context.Context, req *StartRequest) error {
@@ -48,7 +40,7 @@ func (s *service) resolveRoutedPrompt(ctx context.Context, req *StartRequest) er
 
 	// 一次性读取启用候选；规则匹配成本低，200 条上限足够覆盖常见项目模板集合。
 	catalog := s.runtimePromptCatalog()
-	templates, err := catalog.ListTemplates(ctx, promptstore.RuntimeListFilter{CWD: trustedCWD, Limit: 200})
+	templates, err := catalog.ListTemplates(ctx, runtimePromptListFilter{CWD: trustedCWD, Limit: 200})
 	if err != nil {
 		return fmt.Errorf("router: list prompt_templates: %w", err)
 	}
@@ -80,7 +72,7 @@ func (s *service) resolveRoutedPrompt(ctx context.Context, req *StartRequest) er
 func (s *service) applyPickedRoutedTemplate(
 	ctx context.Context,
 	req *StartRequest,
-	picked *promptstore.PromptTemplate,
+	picked *runtimePromptTemplate,
 ) error {
 	versionPromptText, blocks, err := s.routedTemplateInstructions(ctx, req, picked)
 	if err != nil {
@@ -103,7 +95,7 @@ func (s *service) applyPickedRoutedTemplate(
 		req.PromptVersionID = nil
 		return nil
 	}
-	versionID, verr := catalog.InsertVersion(ctx, promptstore.PromptTemplateVersion{
+	versionID, verr := catalog.InsertVersion(ctx, runtimePromptTemplateVersion{
 		PromptKey:       picked.PromptKey,
 		Title:           picked.Title,
 		AgentKey:        picked.AgentKey,
@@ -131,14 +123,14 @@ type promptVersionInsertCapability interface {
 	CanInsertPromptVersion() bool
 }
 
-func promptCatalogCanInsertVersion(catalog promptstore.RuntimePromptCatalog) bool {
+func promptCatalogCanInsertVersion(catalog runtimePromptCatalog) bool {
 	checker, ok := catalog.(promptVersionInsertCapability)
 	return !ok || checker.CanInsertPromptVersion()
 }
 
 // routedTemplateInstructions 读取命中模板的 section 并生成最终注入文本。
 // section 读取失败会阻断启动；enable_when 过滤后为空时返回空内容，让上层保留无注入状态。
-func (s *service) routedTemplateInstructions(ctx context.Context, req *StartRequest, picked *promptstore.PromptTemplate) (string, []contract.BaseInstructionBlock, error) {
+func (s *service) routedTemplateInstructions(ctx context.Context, req *StartRequest, picked *runtimePromptTemplate) (string, []contract.BaseInstructionBlock, error) {
 	catalog := s.runtimePromptCatalog()
 	sections, serr := catalog.ListSectionsByTemplateID(ctx, picked.ID)
 	if serr != nil {
@@ -147,7 +139,7 @@ func (s *service) routedTemplateInstructions(ctx context.Context, req *StartRequ
 	if len(sections) == 0 {
 		return picked.PromptText, nil, nil
 	}
-	blocks := convertStoreSectionsToBlocks(sections)
+	blocks := convertRuntimeSectionsToBlocks(sections)
 	if len(blocks) == 0 {
 		return picked.PromptText, nil, nil
 	}
@@ -172,13 +164,13 @@ const defaultPromptKey = "main/default"
 func (s *service) pickRoutedTemplate(
 	_ context.Context,
 	req *StartRequest,
-	templates []promptstore.PromptTemplate,
-) (*promptstore.PromptTemplate, error) {
+	templates []runtimePromptTemplate,
+) (*runtimePromptTemplate, error) {
 	// PromptKey 是最具体的 UI pin；未命中时只标记 stale，不静默替换为其它模板。
 	if pinned := strings.TrimSpace(req.PromptKey); pinned != "" {
 		picked := findEnabledByPromptKey(templates, pinned)
 		if picked != nil {
-			if promptstore.IsRuntimeAssetTemplate(*picked) {
+			if isRuntimePromptAssetTemplate(*picked) {
 				req.PromptKeyStale = true
 				pkglogger.Warn("router: pinned prompt_key targets runtime asset template",
 					"prompt_key", pinned)
@@ -211,7 +203,7 @@ func (s *service) pickRoutedTemplate(
 	return nil, nil
 }
 
-func findEnabledByPromptKey(templates []promptstore.PromptTemplate, promptKey string) *promptstore.PromptTemplate {
+func findEnabledByPromptKey(templates []runtimePromptTemplate, promptKey string) *runtimePromptTemplate {
 	picked := findByPromptKey(templates, promptKey)
 	if picked == nil || !picked.Enabled {
 		return nil
@@ -219,9 +211,9 @@ func findEnabledByPromptKey(templates []promptstore.PromptTemplate, promptKey st
 	return picked
 }
 
-// convertStoreSectionsToBlocks 将可注入的 prompt_template_sections 转为 assembler 使用的 block。
+// convertRuntimeSectionsToBlocks 将可注入的 prompt_template_sections 转为 assembler 使用的 block。
 // 未知 region 按 Dynamic 处理，使其落入非缓存尾部，避免误占 static cached-prefix。
-func convertStoreSectionsToBlocks(sections []promptstore.PromptTemplateSection) []contract.BaseInstructionBlock {
+func convertRuntimeSectionsToBlocks(sections []runtimePromptTemplateSection) []contract.BaseInstructionBlock {
 	if len(sections) == 0 {
 		return nil
 	}
@@ -251,7 +243,7 @@ func convertStoreSectionsToBlocks(sections []promptstore.PromptTemplateSection) 
 	return out
 }
 
-func firstEnabledByAgentKey(templates []promptstore.PromptTemplate, agentKey string) *promptstore.PromptTemplate {
+func firstEnabledByAgentKey(templates []runtimePromptTemplate, agentKey string) *runtimePromptTemplate {
 	want := strings.TrimSpace(agentKey)
 	if want == "" {
 		return nil
@@ -265,11 +257,11 @@ func firstEnabledByAgentKey(templates []promptstore.PromptTemplate, agentKey str
 	return nil
 }
 
-func promptTemplateLaunchable(template promptstore.PromptTemplate) bool {
-	return template.Enabled && !promptstore.IsRuntimeAssetTemplate(template)
+func promptTemplateLaunchable(template runtimePromptTemplate) bool {
+	return template.Enabled && !isRuntimePromptAssetTemplate(template)
 }
 
-func findByPromptKey(templates []promptstore.PromptTemplate, promptKey string) *promptstore.PromptTemplate {
+func findByPromptKey(templates []runtimePromptTemplate, promptKey string) *runtimePromptTemplate {
 	want := strings.TrimSpace(promptKey)
 	if want == "" {
 		return nil
@@ -291,7 +283,7 @@ func findByPromptKey(templates []promptstore.PromptTemplate, promptKey string) *
 // maybeAutoRouteByMatchWhen 在没有显式 pin 时按 match_when 自动填入 PromptKey。
 // 它先评估带真实条件的 specific 池，再评估 `{}` always-match fallback 池；任何未命中都保持 PromptKey 为空，
 // 让 main/default 兜底继续生效。
-func (s *service) maybeAutoRouteByMatchWhen(req *StartRequest, templates []promptstore.PromptTemplate) {
+func (s *service) maybeAutoRouteByMatchWhen(req *StartRequest, templates []runtimePromptTemplate) {
 	if req == nil {
 		return
 	}
@@ -325,7 +317,7 @@ func (s *service) maybeAutoRouteByMatchWhen(req *StartRequest, templates []promp
 // 首个命中会写入 req.PromptKey 并返回 true；日志包含另一个池的数量，方便排查命中阶段。
 func (s *service) evaluateMatchWhenPool(
 	stage string,
-	pool []promptstore.PromptTemplate,
+	pool []runtimePromptTemplate,
 	peerCount int,
 	buildCtx contract.BuildCtx,
 	userPrompt string,
@@ -355,9 +347,9 @@ func (s *service) evaluateMatchWhenPool(
 // autoRouteCandidates 将启用模板拆成 specific 与 fallback 两个 match_when 池。
 // 非空对象进入 specific，空对象 `{}` 进入 fallback；nil、null、非法 JSON 会被丢弃，因为评估器无法命中它们。
 // 每个池按 Priority 降序稳定排序，调用方先评估 specific，避免 always-match 模板遮蔽结构化规则。
-func autoRouteCandidates(templates []promptstore.PromptTemplate) (specific, fallback []promptstore.PromptTemplate) {
-	specific = make([]promptstore.PromptTemplate, 0, len(templates))
-	fallback = make([]promptstore.PromptTemplate, 0, len(templates))
+func autoRouteCandidates(templates []runtimePromptTemplate) (specific, fallback []runtimePromptTemplate) {
+	specific = make([]runtimePromptTemplate, 0, len(templates))
+	fallback = make([]runtimePromptTemplate, 0, len(templates))
 	for i := range templates {
 		t := &templates[i]
 		if !promptTemplateLaunchable(*t) {
@@ -400,10 +392,37 @@ func hasSpecificMatchWhen(raw []byte) bool {
 }
 
 // sortByPriorityDesc 按 Priority 降序稳定排序，保留 store 返回的同优先级顺序。
-func sortByPriorityDesc(rows []promptstore.PromptTemplate) {
+func sortByPriorityDesc(rows []runtimePromptTemplate) {
 	sort.SliceStable(rows, func(i, j int) bool {
 		return rows[i].Priority > rows[j].Priority
 	})
+}
+
+// isRuntimePromptAssetTemplate 判断模板是否属于运行时资产模板。
+// 资产模板只服务 recall/default-rule 动态段，不能作为 thread/start 可启动 persona。
+func isRuntimePromptAssetTemplate(template runtimePromptTemplate) bool {
+	if strings.TrimSpace(template.AgentKey) == "default_rule" {
+		return true
+	}
+	for _, tag := range runtimePromptTemplateTags(template.Tags) {
+		switch strings.TrimSpace(tag) {
+		case "intent:recall", "intent:default_rule":
+			return true
+		}
+	}
+	return false
+}
+
+func runtimePromptTemplateTags(raw json.RawMessage) []string {
+	var tags []string
+	if err := json.Unmarshal(raw, &tags); err != nil {
+		pkglogger.Warn("router: prompt template tags unmarshal failed",
+			"raw_len", len(raw),
+			"error", err.Error(),
+		)
+		return nil
+	}
+	return tags
 }
 
 // buildMatchWhenCtx 构造路由阶段使用的轻量 BuildCtx。

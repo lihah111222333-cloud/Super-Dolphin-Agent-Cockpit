@@ -7,7 +7,6 @@ import (
 
 	shareddto "github.com/anthropic-ai/super-agent-v3/internal/dto/shared"
 	threaddto "github.com/anthropic-ai/super-agent-v3/internal/dto/thread"
-	bindingstore "github.com/anthropic-ai/super-agent-v3/internal/store/binding"
 	threadstore "github.com/anthropic-ai/super-agent-v3/internal/store/thread"
 	"github.com/anthropic-ai/super-agent-v3/internal/util"
 	"github.com/anthropic-ai/super-agent-v3/internal/util/clone"
@@ -96,8 +95,8 @@ func newThreadUpsertParams(thread threadstore.Thread) threadstore.UpsertParams {
 	}
 }
 
-func newBindingUpsertParams(binding bindingstore.Binding) bindingstore.UpsertParams {
-	return bindingstore.UpsertParams{
+func newBindingUpsertParams(binding threadBindingRecord) threadBindingUpsertParams {
+	return threadBindingUpsertParams{
 		AgentID:            strings.TrimSpace(binding.AgentID),
 		Provider:           strings.TrimSpace(binding.Provider),
 		ProviderThreadID:   strings.TrimSpace(binding.ProviderThreadID),
@@ -114,6 +113,57 @@ func newBindingUpsertParams(binding bindingstore.Binding) bindingstore.UpsertPar
 		CodexInstanceKey:   strings.TrimSpace(binding.CodexInstanceKey),
 		CodexModelProvider: strings.TrimSpace(binding.CodexModelProvider),
 	}
+}
+
+// buildBatchOfflineRuntimeConfig 用本地 DTO 合成批量读取的离线 runtime 配置。
+// 这里不调用 store DTO 版本，避免 history 业务路径重新依赖 store 类型。
+func buildBatchOfflineRuntimeConfig(stored storedThreadConfig, thread *threadConfigRecord, binding *threadBindingRecord) map[string]any {
+	cfg := map[string]any{
+		"approvalPolicy": offlineApprovalPolicy,
+		"toolRouting": map[string]any{
+			"mode":                offlineToolMode,
+			"routerModel":         "",
+			"routerProvider":      offlineToolProvider,
+			"routerBaseURL":       "",
+			"routerHasAPIKey":     false,
+			"confidenceThreshold": 0.65,
+			"timeoutSec":          8,
+		},
+	}
+	cfg = mergeRuntimeConfig(cfg, clone.RuntimeConfigMap(stored.Runtime))
+	if thread != nil && strings.TrimSpace(thread.Cwd) != "" {
+		cfg["cwd"] = strings.TrimSpace(thread.Cwd)
+	} else if binding != nil && strings.TrimSpace(binding.Cwd) != "" {
+		cfg["cwd"] = strings.TrimSpace(binding.Cwd)
+	}
+	if value := strings.TrimSpace(stored.Approvals); value != "" {
+		cfg["approvalPolicy"] = value
+	}
+	if value := strings.TrimSpace(stored.Personality); value != "" {
+		cfg["personality"] = value
+	}
+	if value := strings.TrimSpace(stored.PromptKey); value != "" {
+		cfg["promptKey"] = value
+		cfg["prompt_key"] = value
+	}
+	if model := util.FirstNonEmpty(stored.Model, batchThreadModel(thread)); model != "" {
+		cfg["model"] = model
+	}
+	return cfg
+}
+
+func batchThreadModel(thread *threadConfigRecord) string {
+	if thread == nil {
+		return ""
+	}
+	return strings.TrimSpace(thread.Model)
+}
+
+func batchThreadConfigRaw(thread *threadConfigRecord) json.RawMessage {
+	if thread == nil {
+		return nil
+	}
+	return thread.ConfigOverride
 }
 
 func newStartResult(
