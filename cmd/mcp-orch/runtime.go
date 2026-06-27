@@ -341,8 +341,11 @@ func bindRuntime(lc fx.Lifecycle, params runtimeParams) {
 				cancel()
 			}
 			select {
-			case <-done:
-				return nil
+			case err := <-done:
+				if errors.Is(err, context.Canceled) {
+					return nil
+				}
+				return err
 			case <-ctx.Done():
 				return ctx.Err()
 			}

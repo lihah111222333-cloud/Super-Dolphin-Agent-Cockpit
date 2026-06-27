@@ -42,6 +42,7 @@ type codexToolEntry struct {
 	realName      string
 	executionKind string
 	family        string
+	inputSchema   json.RawMessage
 	client        mcpClient
 }
 
@@ -241,6 +242,7 @@ func addSurfaceTool(surface *codexToolSurface, out *[]contract.DynamicToolSchema
 	if existing, ok := surface.aliases[name]; ok && existing != name {
 		return fmt.Errorf("toolbridge: codex surface alias %q maps to both %q and %q", name, existing, name)
 	}
+	entry.inputSchema = cloneToolInputSchema(tool.InputSchema)
 	surface.tools[name] = entry
 	surface.aliases[name] = name
 	*out = append(*out, contract.DynamicToolSchema{
@@ -426,6 +428,9 @@ func (h *Handler) callCodexSurfaceTool(ctx context.Context, surface *codexToolSu
 			h.publishProxyToolCallEnd(eventReq, started, result, err)
 		}
 	}()
+	if err := validateToolInputSchema(entry.name, entry.inputSchema, req.Arguments); err != nil {
+		return nil, err
+	}
 	req.Name = entry.realName
 	req = h.injectManagedLaunchContext(ctx, req)
 	if entry.executionKind == "host" {
@@ -478,6 +483,7 @@ func (h *Handler) listPeerTools(ctx context.Context, clientKind string) ([]mcpdt
 	if err := peers[0].Peer.Callback(ctx, "tools/list", nil, &result); err != nil {
 		return nil, err
 	}
+	h.storePeerToolInputSchemas(clientKind, result.Tools)
 	return result.Tools, nil
 }
 
