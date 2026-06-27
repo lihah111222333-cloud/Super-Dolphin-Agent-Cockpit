@@ -17,11 +17,15 @@ function ChatApprovalMessage({ message, actions, formatTime }) {
   const title = (message.title || message.command || '审批请求').toString().trim();
   const hint = approvalHintText({ requestId, busy, resolved, terminal });
 
+  // submitApproval 带 15s 超时保护，防止后端无响应时按钮永久 disabled
   const submitApproval = async (approved) => {
     if (disabled) return;
     setBusy(true);
+    const timeout = new Promise((_, reject) =>
+      setTimeout(() => reject(new Error('审批提交超时')), 15_000)
+    );
     try {
-      const ok = await actions.onApproval(message, approved);
+      const ok = await Promise.race([actions.onApproval(message, approved), timeout]);
       if (ok) setResolved(true);
     }
     catch (error) {
