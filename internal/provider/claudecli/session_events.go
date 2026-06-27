@@ -327,7 +327,7 @@ func decodeClaudeLine(line []byte, base rawBase) ([]dto.RawProviderEvent, error)
 		pkglogger.Get().Info("claudecli: rate_limit_event received", "agent_id", base.AgentID, "session_id", raw.SessionID)
 		return nil, nil
 	default:
-		pkglogger.Get().Warn("claudecli: unknown stream event type dropped", "raw_type", t, "line", string(line))
+		pkglogger.Get().Warn("claudecli: unknown stream event type dropped", "raw_type", t)
 		return nil, nil
 	}
 }

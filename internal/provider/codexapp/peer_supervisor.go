@@ -295,16 +295,26 @@ func (s *PeerSupervisor) superviseOne(ctx context.Context, name string, initial 
 	s.superviseOneWithCancel(ctx, name, initial, wg, func(error) {})
 }
 
+// waitPeerAsync 在独立 goroutine 里调用 h.Wait()，panic 时将错误写入 ch 并记录日志，保证 ch 必然收到值。
+func (s *PeerSupervisor) waitPeerAsync(name string, h peerHandle, ch chan<- error) {
+	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				s.logger.Error("peer_supervisor: panic in Wait goroutine", "peer", name, "panic", r)
+				ch <- fmt.Errorf("panic in peer Wait: %v", r)
+			}
+		}()
+		ch <- h.Wait()
+	}()
+}
+
 // superviseOneWithCancel 在重启注册失败时取消 supervisor，让 Run 统一关闭已托管 peer 并返回错误。
 func (s *PeerSupervisor) superviseOneWithCancel(ctx context.Context, name string, initial peerHandle, wg *sync.WaitGroup, cancel context.CancelCauseFunc) {
 	defer wg.Done()
 	current := initial
 	for {
 		waitCh := make(chan error, 1)
-		go func(h peerHandle) {
-			defer func() { _ = recover() }()
-			waitCh <- h.Wait()
-		}(current)
+		s.waitPeerAsync(name, current, waitCh)
 
 		select {
 		case <-ctx.Done():
@@ -444,7 +454,12 @@ func (s *PeerSupervisor) closePeerPipe(h peerHandle) {
 func (s *PeerSupervisor) drainOrEscalate(peers []peerHandle, wg *sync.WaitGroup) error {
 	done := make(chan struct{})
 	go func() {
-		defer func() { _ = recover() }()
+		defer func() {
+			if r := recover(); r != nil {
+				s.logger.Error("peer_supervisor: panic in drainOrEscalate goroutine", "panic", r)
+				close(done)
+			}
+		}()
 		wg.Wait()
 		close(done)
 	}()
