@@ -319,14 +319,7 @@ func (d *driver) StartSession(ctx context.Context, req dto.StartSessionRequest) 
 	if developerInstructions != "" {
 		s.setRuntimeConfigValue("developerInstructions", developerInstructions)
 	}
-	pkglogger.Debug("codexapp: start prompt prefix shape",
-		"agent_id", req.AgentID,
-		"prefix_hash", req.StartAssembly.PrefixShape.Hash,
-		"static_sections", req.StartAssembly.PrefixShape.StaticSectionNames,
-		"dynamic_sections", req.StartAssembly.PrefixShape.DynamicSectionNames,
-		"cached_prefix_bytes", req.StartAssembly.PrefixShape.CachedPrefixBytes,
-		"uncached_tail_bytes", req.StartAssembly.PrefixShape.UncachedTailBytes,
-	)
+	logStartPrefixShape(req)
 	startPolicy := codexNativeToolPolicyFromConfig(req.Config)
 	approvalPolicy := supportutil.ResolveApprovalPolicy(req.Config)
 	if startPolicy.RequiresReadOnlySandbox() {
@@ -334,6 +327,23 @@ func (d *driver) StartSession(ctx context.Context, req dto.StartSessionRequest) 
 	}
 	s.setApprovalPolicy(approvalPolicy)
 	return d.startDynamicSession(ctx, s, req)
+}
+
+// logStartPrefixShape 记录 start prompt 的安全形状摘要。
+// 这里禁止读取 BaseInstructions、DeveloperInstructions 或 section 正文，只允许输出 PrefixShape 元数据。
+func logStartPrefixShape(req dto.StartSessionRequest) {
+	shape := req.StartAssembly.PrefixShape
+	pkglogger.Debug("codexapp: start prompt prefix shape",
+		"agent_id", req.AgentID,
+		"prefix_hash", shape.Hash,
+		"static_sections", shape.StaticSectionNames,
+		"dynamic_sections", shape.DynamicSectionNames,
+		"suppressed_tool_names", shape.SuppressedToolNames,
+		"cached_prefix_bytes", shape.CachedPrefixBytes,
+		"uncached_tail_bytes", shape.UncachedTailBytes,
+		"developer_bytes", shape.DeveloperBytes,
+		"churn_reason", shape.ChurnReason,
+	)
 }
 
 // ResumeSession 按已持久化的 Codex identity 恢复远端线程。
