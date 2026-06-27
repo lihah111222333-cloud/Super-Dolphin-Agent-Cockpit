@@ -389,8 +389,9 @@ func applyProjectKeepSelectedPolicy(records []canonicalSkillRecord, selections [
 		return nil, err
 	}
 	sourceIDsByName := canonicalSourceIDsByName(records)
+	contentHashByID := canonicalContentHashBySourceID(records)
 	return filterCanonicalRecords(records, func(record canonicalSkillRecord) bool {
-		return keepCanonicalRecordForProjectSelection(record, selectionByName, sourceIDsByName)
+		return keepCanonicalRecordForProjectSelection(record, selectionByName, sourceIDsByName, contentHashByID)
 	}), nil
 }
 
@@ -409,7 +410,9 @@ func projectSelectionByName(selections []projectSkillKeepSelected) (map[string]p
 }
 
 // keepCanonicalRecordForProjectSelection 判断单条记录是否被项目 keep-selected 策略保留。
-func keepCanonicalRecordForProjectSelection(record canonicalSkillRecord, selectionByName map[string]projectSkillKeepSelected, sourceIDsByName map[string]map[string]struct{}) bool {
+// 若 SelectedContentHash 非空且与选定来源的当前 hash 不一致，说明 skill 内容已变更，
+// 保留所有同名记录让冲突逻辑重新暴露给用户，而非静默通过旧选择。
+func keepCanonicalRecordForProjectSelection(record canonicalSkillRecord, selectionByName map[string]projectSkillKeepSelected, sourceIDsByName map[string]map[string]struct{}, contentHashByID map[string]string) bool {
 	selection, ok := selectionByName[strings.ToLower(record.Name)]
 	if !ok {
 		return true
@@ -421,6 +424,11 @@ func keepCanonicalRecordForProjectSelection(record canonicalSkillRecord, selecti
 	}
 	if selectedSourceID == "" {
 		return !stringSliceContains(selection.ExcludedSourceIDs, sourceID)
+	}
+	// hash 不一致时将该名称下所有记录保留，让 canonicalSameNameConflicts 重新检测冲突。
+	selectedContentHash := strings.TrimSpace(selection.SelectedContentHash)
+	if selectedContentHash != "" && contentHashByID[selectedSourceID] != selectedContentHash {
+		return true
 	}
 	return sourceID == selectedSourceID
 }
@@ -439,6 +447,15 @@ func canonicalSourceIDsByName(records []canonicalSkillRecord) map[string]map[str
 		sourceIDsByName[nameKey][canonicalSourceID(record)] = struct{}{}
 	}
 	return sourceIDsByName
+}
+
+// canonicalContentHashBySourceID 建立来源 ID 到 content hash 的映射，供 project selection hash 校验使用。
+func canonicalContentHashBySourceID(records []canonicalSkillRecord) map[string]string {
+	m := make(map[string]string, len(records))
+	for _, record := range records {
+		m[canonicalSourceID(record)] = record.ContentHash
+	}
+	return m
 }
 
 // canonicalSourceIDExistsForName 判断策略中的来源 ID 是否仍存在于当前扫描结果。
