@@ -29,6 +29,11 @@ var Module = fx.Module("thread",
 			fx.As(new(contract.PendingLaunchSpawner)),
 		),
 		fx.Annotate(NewThreadHandlers, fx.ParamTags("", `optional:"true"`)),
+		provideThreadServiceStorePort,
+		provideBindingServiceStorePort,
+		provideSharedFileServiceStorePort,
+		providePromptServiceStorePort,
+		providePromptServiceCatalogPort,
 		provideThreadConcreteOutputs,
 		provideRuntimePromptCatalog,
 		NewThreadSubscribers,
@@ -70,6 +75,51 @@ type threadStoreRecord = threadstore.Thread
 type threadStoreStatusUpdate = threadstore.UpdateStatusParams
 type bindingStoreRecord = bindingstore.Binding
 type bindingStoreArchiveUpdate = bindingstore.SetArchivedParams
+
+type threadServiceStorePortParams struct {
+	fx.In
+	Store threadstore.Store `optional:"true"`
+}
+
+func provideThreadServiceStorePort(params threadServiceStorePortParams) threadServiceStorePort {
+	return params.Store
+}
+
+type bindingServiceStorePortParams struct {
+	fx.In
+	Store bindingstore.Store `optional:"true"`
+}
+
+func provideBindingServiceStorePort(params bindingServiceStorePortParams) bindingServiceStorePort {
+	return params.Store
+}
+
+type sharedFileServiceStorePortParams struct {
+	fx.In
+	Store sharedfilestore.Store `optional:"true"`
+}
+
+func provideSharedFileServiceStorePort(params sharedFileServiceStorePortParams) sharedFileServiceStorePort {
+	return params.Store
+}
+
+type promptServiceStorePortParams struct {
+	fx.In
+	Store promptstore.Store `optional:"true"`
+}
+
+func providePromptServiceStorePort(params promptServiceStorePortParams) promptServiceStorePort {
+	return params.Store
+}
+
+type promptServiceCatalogPortParams struct {
+	fx.In
+	Catalog promptstore.RuntimePromptCatalog `optional:"true"`
+}
+
+func providePromptServiceCatalogPort(params promptServiceCatalogPortParams) promptServiceCatalogPort {
+	return params.Catalog
+}
 
 type threadPromptProviderParams struct {
 	fx.In
