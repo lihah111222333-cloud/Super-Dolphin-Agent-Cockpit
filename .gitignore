@@ -20,10 +20,9 @@
 /bin/
 /build/
 /dist/
-cmd/agent-terminal/frontend/node_modules/
 **/node_modules/
-cmd/agent-terminal/frontend/dist/*
-!cmd/agent-terminal/frontend/dist/.gitkeep
+cmd/agent-terminal/web-dist/*
+!cmd/agent-terminal/web-dist/.gitkeep
 
 # Keep App Bundle packaging resources (Info.plist, icons) tracked
 !bin/agent-terminal.app/
@@ -93,11 +92,8 @@ __pycache__/
 # Added by Agent
 /.workspace/
 /.build-cache/
-/cmd/agent-terminal/frontend/.build-cache/
-/cmd/agent-terminal/frontend/.vite-cache/
 /.agnet/report/
 docs/doc/ai-index.json
-cmd/agent-terminal/frontend/node_modules
 # auto-managed by mcp-orch (Phase 3.8 sharedfile _internal)
 .agnet/shared/_internal/
 # 本地真跑产生的 task handoff 实例（每个开发者不同）

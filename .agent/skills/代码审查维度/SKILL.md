@@ -25,7 +25,7 @@ aliases: ["@代码审查维度", "@review-dimensions"]
 | D06 Orchestration/DAG/Cron/Wakeup | mcp-orch 是可选编排面，不得把子代理生命周期强制绑定到 DAG；审查真实 mcp-orch 改动时再覆盖 `task_create_dag`、`task_start_dag`、`task_dispatch_node`、`task_update_node` 和 `task_dag_apply_ops` |
 | D07 Store/sqlc | SQLite/sqlc 查询、migration、事务、幂等、baseline 数据 |
 | D08 Skill/Memory/Prompt/Thread | canonical skill root、provider mirror、prompt snapshot、memory/dream/auto-dream、thread resume/fork |
-| D09 Frontend | 默认 `frontend-app` React/Vite；legacy Vue 仅显式目标；Wails bridge 和状态边界 |
+| D09 Frontend | 默认 `frontend-app` React/Vite；检查 Wails bridge、状态边界和 `cmd/agent-terminal/web-dist` 嵌入产物链路 |
 | D10 Security | secrets、命令注入、路径穿越、权限、tool 审批、日志泄露 |
 | D11 Observability | 结构化日志、错误码、状态可解释、诊断不吞证据 |
 | D12 Testing | 单文件 guard、受影响包测试、前端 lint/test/build、SQL/codemap 验证；skill 文档改动跑 `python3 scripts/validate_super_agent_skills.py` 和 `git diff --check` |

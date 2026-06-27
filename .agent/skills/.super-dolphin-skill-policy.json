@@ -137,7 +137,7 @@
     {
       "name": "结束开发分支",
       "selected_source_id": "project/结束开发分支",
-      "selected_content_hash": "0c86c3c27ca72b9a22be80221baad40e76fccdea61d6869c4fa80acc3c6b3c5c",
+      "selected_content_hash": "158d857779f5bb71875bcefc95273d21869f4cff6a313e9fc1d352ef461fc90d",
       "excluded_source_ids": [
         "personal/hub/结束开发分支"
       ],
@@ -151,7 +151,7 @@
         {
           "canonical_id": "project/结束开发分支",
           "scope": "project",
-          "content_hash": "0c86c3c27ca72b9a22be80221baad40e76fccdea61d6869c4fa80acc3c6b3c5c"
+          "content_hash": "158d857779f5bb71875bcefc95273d21869f4cff6a313e9fc1d352ef461fc90d"
         }
       ]
     },
@@ -179,7 +179,7 @@
     {
       "name": "编写计划",
       "selected_source_id": "project/编写计划",
-      "selected_content_hash": "dd7a085639d4bdcd1e4f7ac016ddc74d4fdc219790cacb5ff9f7ec720fc42b67",
+      "selected_content_hash": "b6cd41837799fc283e805b087d753c15853fd2323b6f626724a136cf0827c12d",
       "excluded_source_ids": [
         "personal/hub/编写计划"
       ],
@@ -193,7 +193,7 @@
         {
           "canonical_id": "project/编写计划",
           "scope": "project",
-          "content_hash": "dd7a085639d4bdcd1e4f7ac016ddc74d4fdc219790cacb5ff9f7ec720fc42b67"
+          "content_hash": "b6cd41837799fc283e805b087d753c15853fd2323b6f626724a136cf0827c12d"
         }
       ]
     },

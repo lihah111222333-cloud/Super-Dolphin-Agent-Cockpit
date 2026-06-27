@@ -1668,12 +1668,12 @@ if [[ "${SUPER_DOLPHIN_SKIP_FRONTEND_BUILD:-}" != "1" ]]; then
     )
     phase_cache_save
   fi
-  rsync -a --delete "$root/frontend-app/dist"/ "$root/cmd/agent-terminal/frontend/dist"/
+  rsync -a --delete --exclude .gitkeep "$root/frontend-app/dist"/ "$root/cmd/agent-terminal/web-dist"/
 elif [[ ! -f "$root/frontend-app/dist/index.html" ]]; then
   echo "frontend dist missing; unset SUPER_DOLPHIN_SKIP_FRONTEND_BUILD or run npm run build first" >&2
   exit 1
 else
-  rsync -a --delete "$root/frontend-app/dist"/ "$root/cmd/agent-terminal/frontend/dist"/
+  rsync -a --delete --exclude .gitkeep "$root/frontend-app/dist"/ "$root/cmd/agent-terminal/web-dist"/
 fi
 phase_end
 
