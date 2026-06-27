@@ -189,8 +189,8 @@ func reservedHostOnlyToolNameCandidates(family, name string) []string {
 	if family = strings.TrimSpace(family); family != "" {
 		candidates = append(candidates, canonicalCodexToolName(family, name))
 	}
-	if wrappedFamily, inner := mcpWrappedToolName(name); wrappedFamily != "" {
-		candidates = append(candidates, strings.TrimSpace(inner), canonicalCodexToolName(wrappedFamily, inner))
+	if namespace, ok := SplitMCPToolName(name); ok {
+		candidates = append(candidates, namespace.Tool, canonicalCodexToolName(namespace.Server, namespace.Tool))
 	}
 	candidates = append(candidates, canonicalToolName(name))
 	return candidates

@@ -2,8 +2,12 @@ package prompt
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
+	"hash"
 	"os"
+	"sort"
 	"strings"
 	"time"
 
@@ -21,6 +25,77 @@ const (
 	simpleStartIdentityLine   = "You are Claude Code, Anthropic's official CLI for Claude."
 	envPromptStartCurrentDate = "PROMPT_START_CURRENT_DATE"
 )
+
+// BuildPrefixShape 从现有 start assembly 事实生成可观测形状。
+// 返回值只包含 section 名称、字节数和 hash，不能把 prompt 正文写进日志或 wire 诊断。
+func BuildPrefixShape(
+	base string,
+	developer string,
+	boundary *contract.PromptAssemblyBoundary,
+	sections []ResolvedPromptSection,
+	suppressedTools []string,
+	reason string,
+) contract.PrefixShape {
+	staticNames := make([]string, 0, len(sections))
+	dynamicNames := make([]string, 0, len(sections))
+	h := sha256.New()
+	writeShapePart(h, "base", base)
+	writeShapePart(h, "developer", developer)
+	if boundary != nil {
+		writeShapePart(h, "cached", boundary.CachedPrefix)
+		writeShapePart(h, "uncached", boundary.UncachedTail)
+	}
+	for _, section := range sections {
+		name := strings.TrimSpace(section.Name)
+		if name == "" {
+			continue
+		}
+		writeShapePart(h, name, section.Content)
+		if section.Region == PromptRegionStatic && !section.Volatile {
+			staticNames = append(staticNames, name)
+		} else {
+			dynamicNames = append(dynamicNames, name)
+		}
+	}
+	sort.Strings(staticNames)
+	sort.Strings(dynamicNames)
+	tools := append([]string(nil), suppressedTools...)
+	sort.Strings(tools)
+	for _, tool := range tools {
+		writeShapePart(h, "suppressed_tool", tool)
+	}
+	return contract.PrefixShape{
+		Hash:                hex.EncodeToString(h.Sum(nil)),
+		StaticSectionNames:  staticNames,
+		DynamicSectionNames: dynamicNames,
+		SuppressedToolNames: tools,
+		CachedPrefixBytes:   len(promptBoundaryCachedPrefix(boundary)),
+		UncachedTailBytes:   len(promptBoundaryUncachedTail(boundary)),
+		DeveloperBytes:      len(developer),
+		ChurnReason:         strings.TrimSpace(reason),
+	}
+}
+
+func writeShapePart(h hash.Hash, name, content string) {
+	h.Write([]byte(strings.TrimSpace(name)))
+	h.Write([]byte{0})
+	h.Write([]byte(content))
+	h.Write([]byte{0})
+}
+
+func promptBoundaryCachedPrefix(boundary *contract.PromptAssemblyBoundary) string {
+	if boundary == nil {
+		return ""
+	}
+	return boundary.CachedPrefix
+}
+
+func promptBoundaryUncachedTail(boundary *contract.PromptAssemblyBoundary) string {
+	if boundary == nil {
+		return ""
+	}
+	return boundary.UncachedTail
+}
 
 // AssembleStart 组出 thread/start 要交给 provider 的初始提示。
 // 这里会带上 memory 规则、系统上下文和 snapshot，provider 侧不要再重拼一份。
@@ -68,6 +143,7 @@ func (s *service) AssembleStart(ctx context.Context, in StartInput) (StartAssemb
 		ResolvedSections:      resolved,
 		Snapshot:              s.newSnapshot(displayName, base, dev, in.Provider, boundary, resolved),
 		SuppressedTools:       append([]string(nil), suppressedTools...),
+		PrefixShape:           BuildPrefixShape(base, dev, boundary, resolved, suppressedTools, ""),
 		UserContext:           map[string]string(cloneUserContextPayload(userMeta)),
 		UserContextText:       contract.FormatUserContextText(userMeta),
 		SystemContext:         systemCtx,
@@ -106,6 +182,7 @@ func (s *service) simpleStartAssembly(ctx context.Context, in StartInput) StartA
 		DeveloperInstructions: dev,
 		Snapshot:              s.newSnapshot(displayName, base, dev, in.Provider, nil, nil),
 		SuppressedTools:       append([]string(nil), suppressedTools...),
+		PrefixShape:           BuildPrefixShape(base, dev, nil, nil, suppressedTools, ""),
 	}
 }
 

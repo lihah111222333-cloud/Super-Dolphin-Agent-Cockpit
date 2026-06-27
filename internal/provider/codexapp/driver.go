@@ -319,6 +319,14 @@ func (d *driver) StartSession(ctx context.Context, req dto.StartSessionRequest) 
 	if developerInstructions != "" {
 		s.setRuntimeConfigValue("developerInstructions", developerInstructions)
 	}
+	pkglogger.Debug("codexapp: start prompt prefix shape",
+		"agent_id", req.AgentID,
+		"prefix_hash", req.StartAssembly.PrefixShape.Hash,
+		"static_sections", req.StartAssembly.PrefixShape.StaticSectionNames,
+		"dynamic_sections", req.StartAssembly.PrefixShape.DynamicSectionNames,
+		"cached_prefix_bytes", req.StartAssembly.PrefixShape.CachedPrefixBytes,
+		"uncached_tail_bytes", req.StartAssembly.PrefixShape.UncachedTailBytes,
+	)
 	startPolicy := codexNativeToolPolicyFromConfig(req.Config)
 	approvalPolicy := supportutil.ResolveApprovalPolicy(req.Config)
 	if startPolicy.RequiresReadOnlySandbox() {

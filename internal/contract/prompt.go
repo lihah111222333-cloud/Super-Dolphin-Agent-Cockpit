@@ -127,6 +127,9 @@ type SystemContext = dto.SystemContext
 
 type PromptAssemblyBoundary = dto.PromptAssemblyBoundary
 
+// PrefixShape 复用 provider DTO 的 start prompt 形状摘要，跨模块只传元数据不传正文。
+type PrefixShape = dto.PrefixShape
+
 // InvalidateReason 标识 prompt 缓存失效的触发来源。
 type InvalidateReason string
 
