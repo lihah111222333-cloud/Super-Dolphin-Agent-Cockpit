@@ -36,30 +36,7 @@ GOFMT_FILES=()
 PKG_CANDIDATES=()
 MISSING_FILES=()
 DIRTY_FILES=()
-HAS_LEGACY_FRONTEND_CHANGES=0
 HAS_FRONTEND_APP_CHANGES=0
-
-is_legacy_frontend_code_path() {
-  case "$1" in
-    cmd/agent-terminal/frontend/node_modules/*|\
-    cmd/agent-terminal/frontend/.vite-cache/*|\
-    cmd/agent-terminal/frontend/.build-cache/*|\
-    cmd/agent-terminal/frontend/dist/*|\
-    cmd/agent-terminal/frontend/playwright-report/*|\
-    cmd/agent-terminal/frontend/test-results/*|\
-    cmd/agent-terminal/frontend/review/*|\
-    cmd/agent-terminal/frontend/full_test_output.txt|\
-    cmd/agent-terminal/frontend/.DS_Store)
-      return 1
-      ;;
-    cmd/agent-terminal/frontend/*)
-      return 0
-      ;;
-    *)
-      return 1
-      ;;
-  esac
-}
 
 is_frontend_app_code_path() {
   case "$1" in
@@ -93,9 +70,6 @@ is_frontend_app_code_path() {
 }
 
 add_frontend_path() {
-  if is_legacy_frontend_code_path "$1"; then
-    HAS_LEGACY_FRONTEND_CHANGES=1
-  fi
   if is_frontend_app_code_path "$1"; then
     HAS_FRONTEND_APP_CHANGES=1
   fi
@@ -332,29 +306,6 @@ if [ ${#PKGS[@]} -gt 0 ]; then
     echo "  ⚠️  紧急 bypass（违反仓库规约 docs/1/会话习惯.md §10.12«禁止 bypass pre-commit hook»、需事后补检查）：git commit --no-verify" >&2
     exit 1
   fi
-fi
-
-# ── Legacy Frontend Tests
-if [ "$HAS_LEGACY_FRONTEND_CHANGES" -eq 1 ]; then
-  echo "[pre-commit] legacy frontend codebase guard..."
-  (
-    cd cmd/agent-terminal/frontend
-    if ! node scripts/size-guard.cjs; then
-      echo "❌ 前端代码守卫未通过" >&2
-      echo "  ⚠️  紧急 bypass（违反仓库规约 docs/1/会话习惯.md §10.12«禁止 bypass pre-commit hook»、需事后补检查）：git commit --no-verify" >&2
-      exit 1
-    fi
-  )
-
-  echo "[pre-commit] legacy frontend package tests..."
-  (
-    cd cmd/agent-terminal/frontend
-    if ! npx vitest run; then
-      echo "❌ 前端包测试失败" >&2
-      echo "  ⚠️  紧急 bypass（违反仓库规约 docs/1/会话习惯.md §10.12«禁止 bypass pre-commit hook»、需事后补检查）：git commit --no-verify" >&2
-      exit 1
-    fi
-  )
 fi
 
 # ── Current React Frontend Tests

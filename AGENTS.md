@@ -90,6 +90,7 @@
 - 当平台原生子代理或多代理能力是可用或被请求的执行路径时，直接使用该能力。
 - 只有当任务明确需要持久 DAG 状态、重试和租约语义、cron/wakeup 行为或结构化跨代理交接记录时，才使用 `mcp-orch`。
 - 如果 `mcp-orch` 工具不可用，应根据情况继续使用原生子代理或单会话执行，并报告可观测性降低，而不是仅因缺少编排工具而阻塞。
+- Validator markers: sub-agents are not required to bind their lifecycle to `mcp-orch`; native sub-agent or multi-agent capability may be used directly; Use `mcp-orch` only when persistent orchestration records are needed.
 
 
 ## 当前仓库结构
@@ -110,7 +111,7 @@
   - `internal/archtest`：架构守卫、代码大小守卫和棘轮基线。
   - `pkg`：可复用公共库。
   - `frontend-app`：当前 React/Vite 新 UI 包，由 `run-new-ui-desktop.sh` 使用。
-  - `cmd/agent-terminal/frontend`：旧 Vue/Vite 嵌入式前端包；只有当任务明确指向 legacy/package-embed 路径时才编辑。
+  - `cmd/agent-terminal/web-dist`：由 `frontend-app` 构建同步出的 Go embed 静态资源目录，不是前端源码入口。
 
 ## 命令策略
 
@@ -132,7 +133,7 @@
     `pwsh -NoProfile -ExecutionPolicy Bypass -File .\scripts\test_with_guard.ps1 <file.go>`
   只传入 Go 文件路径时，该守卫保持安静：exit 0 表示无违规且不输出内容；exit 1 表示有违规，stderr 只输出具体违规项。不要在 Windows PowerShell 中直接运行 `.sh`；必须使用 `.ps1` 入口。
 - 当前新 UI 前端命令在 `frontend-app` 中运行。
-- 旧 Vue 前端命令只在任务明确指向 legacy/package-embed 路径时，才在 `cmd/agent-terminal/frontend` 中运行。
+- 不再维护旧 Vue/package-embed 前端；前端源码只在 `frontend-app` 中修改。
 
 ## 完成验证
 

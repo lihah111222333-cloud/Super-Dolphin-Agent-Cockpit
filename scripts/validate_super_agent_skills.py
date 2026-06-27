@@ -62,15 +62,10 @@ REQUIRED = {
         "stdio MCP",
         "legacy HTTP",
     ],
-    ".agent/skills/vue3/SKILL.md": [
-        "frontend-app",
-        "legacy/package-embed",
-        "明确",
-    ],
     ".agent/skills/前端/SKILL.md": [
         "frontend-app",
-        "cmd/agent-terminal/frontend",
-        "legacy",
+        "cmd/agent-terminal/web-dist",
+        "React/Vite",
     ],
     ".agent/skills/UI设计/SKILL.md": [
         "frontend-app",
