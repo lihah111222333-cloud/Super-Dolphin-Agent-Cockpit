@@ -3,6 +3,8 @@ package shared
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
+	"io"
 	"strings"
 
 	mcp "github.com/anthropic-ai/super-agent-v3/internal/dto/mcp"
@@ -16,7 +18,16 @@ func DecodeInput(input json.RawMessage, dst any) error {
 	if len(trimmed) == 0 || bytes.Equal(trimmed, []byte("null")) {
 		trimmed = []byte("{}")
 	}
-	return json.Unmarshal(trimmed, dst)
+	decoder := json.NewDecoder(bytes.NewReader(trimmed))
+	decoder.DisallowUnknownFields()
+	decoder.UseNumber()
+	if err := decoder.Decode(dst); err != nil {
+		return err
+	}
+	if err := decoder.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
+		return errors.New("decode input: trailing JSON payload")
+	}
+	return nil
 }
 
 // CloneSelector 深拷贝 Selector 中的可选 Scope，避免调用方共享指针。

@@ -51,6 +51,8 @@ type Handler struct {
 	skillTools         contract.SkillToolProvider
 	surfaceMu          sync.Mutex
 	surfaces           map[string]*codexToolSurface
+	peerSchemaMu       sync.Mutex
+	peerInputSchemas   map[string]map[string]json.RawMessage
 	proxyAuthToken     string
 	stdioClientFactory func(context.Context, providerdto.MCPBinary) (mcpClient, error)
 }
@@ -242,6 +244,9 @@ func (h *Handler) callPeerTool(ctx context.Context, peer mcpcontrol.Peer, req To
 	req = h.injectManagedLaunchContext(ctx, req)
 	h.warnManagedLaunchConfigTrace(ctx, req)
 	cwd := h.resolveAndWarnCurrentToolCallCWD(ctx, req)
+	if err := h.validatePeerToolCallInput(req); err != nil {
+		return nil, err
+	}
 	var resp peerToolCallResponse
 	err := peer.Callback(callCtx, ProxyMethodToolsCall, map[string]any{
 		"name":                    req.Name,
