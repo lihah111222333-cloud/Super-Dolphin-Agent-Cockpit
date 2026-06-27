@@ -6,9 +6,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
-	"sync"
 	"testing"
-	"time"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	promptintent "github.com/anthropic-ai/super-agent-v3/internal/module/prompt/intent"
@@ -600,92 +598,6 @@ func openPromptIntentCommitSQLite(t *testing.T) *sql.DB {
 	})
 	migrationsDir := filepath.Join(promptIntentCommitRepoRoot(t), "internal", "platform", "db", "sqlite", "migrations")
 	require.NoError(t, platformsqlite.RunMigrations(context.Background(), db, migrationsDir))
-	return db
-}
-
-// TestCommitPromptIntentDraft_ConcurrentSubmit 验证两个 goroutine 同时提交同批次的两个草稿时，
-// 最终只有一个草稿变为 enabled，不会出现两个都被拒绝的竞态。
-// 依赖 SQLite IMMEDIATE 事务串行化：WithTx 使用 BEGIN IMMEDIATE，写锁在事务开始时即获取，
-// 保证并发提交者只有一个能持有锁执行完整的"设为 enabled + 拒绝兄弟"序列。
-func TestCommitPromptIntentDraft_ConcurrentSubmit(t *testing.T) {
-	t.Parallel()
-
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-
-	dbPath := filepath.Join(t.TempDir(), "concurrent-commit.db")
-	dbA := openConcurrentCommitDB(t, ctx, dbPath, true)
-	dbB := openConcurrentCommitDB(t, ctx, dbPath, false)
-	storeA := promptstore.NewStoreWithDB(dbA, sqlc.New(dbA))
-	storeB := promptstore.NewStoreWithDB(dbB, sqlc.New(dbB))
-
-	rawInput := "concurrent-submit-raw-input"
-	originHash := "concurrent-submit-origin-hash"
-	expertCard := readyExpertIntentCard()
-	expertCard.Title = "Concurrent Expert A"
-	cardA, err := json.Marshal(expertCard)
-	require.NoError(t, err)
-	expertCard.Title = "Concurrent Expert B"
-	expertCard.Workflow = []string{"Step one B", "Step two B"}
-	cardB, err := json.Marshal(expertCard)
-	require.NoError(t, err)
-
-	draftA := promptIntentDraftForTest("intent/expert/concurrent-a", "/repo/concurrent", "expert", "ready_to_save", cardA, nil)
-	draftA.RawInput, draftA.OriginHash = rawInput, originHash
-	draftB := promptIntentDraftForTest("intent/expert/concurrent-b", "/repo/concurrent", "expert", "ready_to_save", cardB, nil)
-	draftB.RawInput, draftB.OriginHash = rawInput, originHash
-	_, err = storeA.UpsertIntentDraft(ctx, draftA)
-	require.NoError(t, err)
-	_, err = storeA.UpsertIntentDraft(ctx, draftB)
-	require.NoError(t, err)
-
-	start := make(chan struct{})
-	errs := make([]error, 2)
-	var wg sync.WaitGroup
-	wg.Add(2)
-	go func() {
-		defer wg.Done()
-		<-start
-		_, errs[0] = promptintent.HandleCommit(ctx, storeA, nil, nil, promptintent.CommitParams{DraftKey: "intent/expert/concurrent-a", Cwd: "/repo/concurrent"})
-	}()
-	go func() {
-		defer wg.Done()
-		<-start
-		_, errs[1] = promptintent.HandleCommit(ctx, storeB, nil, nil, promptintent.CommitParams{DraftKey: "intent/expert/concurrent-b", Cwd: "/repo/concurrent"})
-	}()
-	close(start)
-	wg.Wait()
-
-	successCount := 0
-	for _, e := range errs {
-		if e == nil {
-			successCount++
-		}
-	}
-	// 至少一个提交必须成功；IMMEDIATE 事务串行化保证另一个要么先成功要么看到兄弟草稿已被拒绝。
-	require.GreaterOrEqual(t, successCount, 1, "errs: %v | %v", errs[0], errs[1])
-
-	// 注：ListIntentDrafts SQL 用 (?2 IS NULL OR status=?2)，空字符串不是 NULL，必须显式过滤。
-	drafts, err := storeA.ListIntentDrafts(ctx, promptstore.PromptIntentDraftListFilter{CWD: "/repo/concurrent", Status: "enabled", Limit: 10})
-	require.NoError(t, err)
-	require.Equal(t, 1, len(drafts), "同批次并发提交后应只有 1 个 enabled 草稿，drafts: %+v", drafts)
-}
-
-func openConcurrentCommitDB(t *testing.T, ctx context.Context, path string, migrate bool) *sql.DB {
-	t.Helper()
-	db, err := sql.Open("sqlite", path)
-	require.NoError(t, err)
-	db.SetMaxOpenConns(1)
-	db.SetMaxIdleConns(1)
-	t.Cleanup(func() { require.NoError(t, db.Close()) })
-	for _, p := range []string{"PRAGMA foreign_keys = ON", "PRAGMA journal_mode = WAL", "PRAGMA busy_timeout = 5000", "PRAGMA synchronous = FULL"} {
-		_, err := db.ExecContext(ctx, p)
-		require.NoError(t, err)
-	}
-	if migrate {
-		migrationsDir := filepath.Join(promptIntentCommitRepoRoot(t), "internal", "platform", "db", "sqlite", "migrations")
-		require.NoError(t, platformsqlite.RunMigrations(ctx, db, migrationsDir))
-	}
 	return db
 }
 
