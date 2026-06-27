@@ -39,6 +39,7 @@ type driver struct {
 	reporter        contract.RuntimeReporter
 	pidRegistry     *pidregistry.Registry
 	proxyAddrFn     func() string
+	proxyTokenFn    func() string
 	mirror          contract.SkillMirrorReconciler
 	recovery        contract.SessionRecoveryReporter
 	tracer          *observability.Service
@@ -102,13 +103,24 @@ func (d *driver) proxyHTTPAddr() string {
 	return strings.TrimSpace(d.proxyAddrFn())
 }
 
+// proxyHTTPToken 返回当前 toolbridge proxy bearer token；未装配时保持空字符串。
+func (d *driver) proxyHTTPToken() string {
+	if d == nil || d.proxyTokenFn == nil {
+		return ""
+	}
+	return strings.TrimSpace(d.proxyTokenFn())
+}
+
 // newDriver 创建 Claude CLI driver，并注入可替换的启动、认证和观测依赖。
-func newDriver(logger *slog.Logger, eventDispatcher *unified.EventDispatcher, reporter contract.RuntimeReporter, reg *pidregistry.Registry, proxyAddrFn func() string, mirror contract.SkillMirrorReconciler, recovery contract.SessionRecoveryReporter, tracers ...*observability.Service) contract.Driver {
+func newDriver(logger *slog.Logger, eventDispatcher *unified.EventDispatcher, reporter contract.RuntimeReporter, reg *pidregistry.Registry, proxyAddrFn func() string, proxyTokenFn func() string, mirror contract.SkillMirrorReconciler, recovery contract.SessionRecoveryReporter, tracers ...*observability.Service) contract.Driver {
 	if logger == nil {
 		logger = pkglogger.Get()
 	}
 	if proxyAddrFn == nil {
 		proxyAddrFn = func() string { return "" }
+	}
+	if proxyTokenFn == nil {
+		proxyTokenFn = func() string { return "" }
 	}
 	return &driver{
 		logger:          logger,
@@ -117,6 +129,7 @@ func newDriver(logger *slog.Logger, eventDispatcher *unified.EventDispatcher, re
 		reporter:        reporter,
 		pidRegistry:     reg,
 		proxyAddrFn:     proxyAddrFn,
+		proxyTokenFn:    proxyTokenFn,
 		mirror:          mirror,
 		recovery:        recovery,
 		tracer:          firstClaudeTracer(tracers),
@@ -149,13 +162,14 @@ func (d *driver) StartSession(ctx context.Context, req dto.StartSessionRequest) 
 		CWD:      strings.TrimSpace(req.CWD),
 		AdditionalWorkingDirectories: providershared.ConfigStringSlice(req.Config,
 			"additionalWorkingDirectories", "additional_working_directories"),
-		ThreadCaps:    copyCapabilities(claudeCapabilities),
-		BinaryDir:     providershared.ResolveBinaryDir(req.CWD, req.Config),
-		Env:           providershared.StringMap(req.Config["env"]),
-		AutoApprove:   providershared.ConfigStringSlice(req.Config, "auto_approve", "autoApprove"),
-		ExtraBinaries: extraBinaries,
-		ProxyHTTPAddr: d.proxyHTTPAddr(),
-		TransportMode: dto.ManifestTransportStdioOnly,
+		ThreadCaps:     copyCapabilities(claudeCapabilities),
+		BinaryDir:      providershared.ResolveBinaryDir(req.CWD, req.Config),
+		Env:            providershared.StringMap(req.Config["env"]),
+		AutoApprove:    providershared.ConfigStringSlice(req.Config, "auto_approve", "autoApprove"),
+		ExtraBinaries:  extraBinaries,
+		ProxyHTTPAddr:  d.proxyHTTPAddr(),
+		ProxyHTTPToken: d.proxyHTTPToken(),
+		TransportMode:  dto.ManifestTransportStdioOnly,
 	})
 	historyDir := providershared.ConfigString(req.Config, "history_dir", "claude_home", "claudeHome")
 	return d.start(ctx, startSpec{
@@ -188,13 +202,14 @@ func (d *driver) ResumeSession(ctx context.Context, req dto.ResumeSessionRequest
 		CWD:      strings.TrimSpace(req.CWD),
 		AdditionalWorkingDirectories: providershared.ConfigStringSlice(rawConfig,
 			"additionalWorkingDirectories", "additional_working_directories"),
-		ThreadCaps:    copyCapabilities(claudeCapabilities),
-		BinaryDir:     providershared.ResolveBinaryDir(req.CWD, rawConfig),
-		Env:           providershared.StringMap(rawConfig["env"]),
-		AutoApprove:   providershared.ConfigStringSlice(rawConfig, "auto_approve", "autoApprove"),
-		ExtraBinaries: extraBinaries,
-		ProxyHTTPAddr: d.proxyHTTPAddr(),
-		TransportMode: dto.ManifestTransportStdioOnly,
+		ThreadCaps:     copyCapabilities(claudeCapabilities),
+		BinaryDir:      providershared.ResolveBinaryDir(req.CWD, rawConfig),
+		Env:            providershared.StringMap(rawConfig["env"]),
+		AutoApprove:    providershared.ConfigStringSlice(rawConfig, "auto_approve", "autoApprove"),
+		ExtraBinaries:  extraBinaries,
+		ProxyHTTPAddr:  d.proxyHTTPAddr(),
+		ProxyHTTPToken: d.proxyHTTPToken(),
+		TransportMode:  dto.ManifestTransportStdioOnly,
 	})
 	return d.start(ctx, startSpec{
 		agentID:      req.AgentID,

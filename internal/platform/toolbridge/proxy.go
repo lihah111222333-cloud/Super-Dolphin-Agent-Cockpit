@@ -83,14 +83,15 @@ func newProxyAuthToken() string {
 	return platformshared.NewID("toolbridge_proxy")
 }
 
-// authorizeProxyRequest 校验 proxy Authorization header；空 token 仅用于旧测试路径。
+// authorizeProxyRequest 校验 proxy Authorization header。
+// token 为空时拒绝访问（fail-fast）；只有测试 helper 可在构造时显式绑定已知 token 绕过此校验。
 func (h *Handler) authorizeProxyRequest(r *http.Request) bool {
 	if h == nil {
 		return false
 	}
 	token := strings.TrimSpace(h.proxyAuthToken)
 	if token == "" {
-		return true
+		return false
 	}
 	want := "Bearer " + token
 	got := strings.TrimSpace(r.Header.Get(proxyAuthorizationHeader))
