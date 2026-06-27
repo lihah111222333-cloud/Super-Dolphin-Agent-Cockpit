@@ -7,7 +7,6 @@ import (
 	"strings"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
-	"github.com/anthropic-ai/super-agent-v3/internal/store/uipreference"
 )
 
 // builtin tools 偏好键保存用户禁用项和上次见过的 registry 快照。
@@ -53,7 +52,7 @@ type builtinToolsWriteParams struct {
 }
 
 // readBuiltinTools 汇总 registry、用户禁用偏好和 skill 替代关系，生成 UI 可展示的工具状态。
-func readBuiltinTools(ctx context.Context, prefs uipreference.Store, store contract.SkillLister, registry []contract.NativeToolDescriptor, index map[string]contract.NativeToolDescriptor, cwd string) (*builtinToolsReadResult, error) {
+func readBuiltinTools(ctx context.Context, prefs preferenceStore, store contract.SkillLister, registry []contract.NativeToolDescriptor, index map[string]contract.NativeToolDescriptor, cwd string) (*builtinToolsReadResult, error) {
 	var replaced map[string]string
 	if store != nil {
 		entries, err := store.ListSkills(contract.WithSkillCWD(ctx, cwd))
@@ -147,7 +146,7 @@ func aggregateReplacementSources(entries []contract.SkillInfo) map[string]string
 }
 
 // writeBuiltinTool 更新单个 native tool 的启用状态，并持久化当前 registry 快照。
-func writeBuiltinTool(ctx context.Context, prefs uipreference.Store, store contract.SkillLister, registry []contract.NativeToolDescriptor, index map[string]contract.NativeToolDescriptor, p builtinToolsWriteParams) (*builtinToolsReadResult, error) {
+func writeBuiltinTool(ctx context.Context, prefs preferenceStore, store contract.SkillLister, registry []contract.NativeToolDescriptor, index map[string]contract.NativeToolDescriptor, p builtinToolsWriteParams) (*builtinToolsReadResult, error) {
 	if prefs == nil {
 		return nil, errConfigPreferenceStoreRequired
 	}
@@ -174,7 +173,7 @@ func writeBuiltinTool(ctx context.Context, prefs uipreference.Store, store contr
 }
 
 // ResolveFilteredBuiltinTools 返回当前作用域应过滤的工具 ID；偏好读取失败时回退到 registry 默认值。
-func ResolveFilteredBuiltinTools(ctx context.Context, prefs uipreference.Store, cwd string, registry []contract.NativeToolDescriptor, index map[string]contract.NativeToolDescriptor) []string {
+func ResolveFilteredBuiltinTools(ctx context.Context, prefs preferenceValueReader, cwd string, registry []contract.NativeToolDescriptor, index map[string]contract.NativeToolDescriptor) []string {
 	disabled, err := effectiveDisabledBuiltinToolSet(ctx, prefs, cwd, registry, index)
 	if err != nil {
 		disabled = defaultDisabledBuiltinToolSet(registry)
@@ -190,17 +189,17 @@ func ResolveFilteredBuiltinTools(ctx context.Context, prefs uipreference.Store, 
 }
 
 // ResolveDisabledBuiltinTools 保留旧 API 名称，语义等同 ResolveFilteredBuiltinTools。
-func ResolveDisabledBuiltinTools(ctx context.Context, prefs uipreference.Store, cwd string, registry []contract.NativeToolDescriptor, index map[string]contract.NativeToolDescriptor) []string {
+func ResolveDisabledBuiltinTools(ctx context.Context, prefs preferenceValueReader, cwd string, registry []contract.NativeToolDescriptor, index map[string]contract.NativeToolDescriptor) []string {
 	return ResolveFilteredBuiltinTools(ctx, prefs, cwd, registry, index)
 }
 
 // ResolveSoftFilteredBuiltinTools 返回指定 provider 下 soft filter 的禁用工具。
-func ResolveSoftFilteredBuiltinTools(ctx context.Context, prefs uipreference.Store, cwd string, registry []contract.NativeToolDescriptor, index map[string]contract.NativeToolDescriptor, provider string) []string {
+func ResolveSoftFilteredBuiltinTools(ctx context.Context, prefs preferenceValueReader, cwd string, registry []contract.NativeToolDescriptor, index map[string]contract.NativeToolDescriptor, provider string) []string {
 	return filterBuiltinToolsByModeAndProvider(ResolveFilteredBuiltinTools(ctx, prefs, cwd, registry, index), index, contract.NativeToolFilterModeSoft, provider)
 }
 
 // ResolveHardEnabledBuiltinTools 返回指定 provider 下 hard filter 但当前仍启用的工具。
-func ResolveHardEnabledBuiltinTools(ctx context.Context, prefs uipreference.Store, cwd string, registry []contract.NativeToolDescriptor, index map[string]contract.NativeToolDescriptor, provider string) []string {
+func ResolveHardEnabledBuiltinTools(ctx context.Context, prefs preferenceValueReader, cwd string, registry []contract.NativeToolDescriptor, index map[string]contract.NativeToolDescriptor, provider string) []string {
 	disabled := make(map[string]struct{})
 	for _, id := range ResolveFilteredBuiltinTools(ctx, prefs, cwd, registry, index) {
 		disabled[id] = struct{}{}
@@ -223,11 +222,6 @@ func ResolveHardEnabledBuiltinTools(ctx context.Context, prefs uipreference.Stor
 	return out
 }
 
-// filterBuiltinToolsByMode 按 filter mode 过滤工具 ID，不限制 provider。
-func filterBuiltinToolsByMode(ids []string, index map[string]contract.NativeToolDescriptor, mode contract.NativeToolFilterMode) []string {
-	return filterBuiltinToolsByModeAndProvider(ids, index, mode, "")
-}
-
 // filterBuiltinToolsByModeAndProvider 按 filter mode 和可选 provider 过滤工具 ID。
 func filterBuiltinToolsByModeAndProvider(ids []string, index map[string]contract.NativeToolDescriptor, mode contract.NativeToolFilterMode, provider string) []string {
 	out := make([]string, 0, len(ids))
@@ -248,7 +242,7 @@ func filterBuiltinToolsByModeAndProvider(ids []string, index map[string]contract
 
 // effectiveDisabledBuiltinToolSet 计算当前应禁用的工具集合。
 // 用户显式保存的空数组表示全部启用；未保存过偏好时使用 registry 默认禁用项。
-func effectiveDisabledBuiltinToolSet(ctx context.Context, prefs uipreference.Store, cwd string, registry []contract.NativeToolDescriptor, index map[string]contract.NativeToolDescriptor) (map[string]struct{}, error) {
+func effectiveDisabledBuiltinToolSet(ctx context.Context, prefs preferenceValueReader, cwd string, registry []contract.NativeToolDescriptor, index map[string]contract.NativeToolDescriptor) (map[string]struct{}, error) {
 	stored, present, err := loadStoredDisabledBuiltinToolSet(ctx, prefs, cwd, index)
 	if err != nil {
 		return nil, err
@@ -278,7 +272,7 @@ func defaultDisabledBuiltinToolSet(registry []contract.NativeToolDescriptor) map
 }
 
 // loadStoredDisabledBuiltinToolSet 读取用户禁用列表；present 区分“显式空列表”和“从未配置”。
-func loadStoredDisabledBuiltinToolSet(ctx context.Context, prefs uipreference.Store, cwd string, index map[string]contract.NativeToolDescriptor) (map[string]struct{}, bool, error) {
+func loadStoredDisabledBuiltinToolSet(ctx context.Context, prefs preferenceValueReader, cwd string, index map[string]contract.NativeToolDescriptor) (map[string]struct{}, bool, error) {
 	if prefs == nil {
 		return nil, false, nil
 	}
@@ -311,7 +305,7 @@ func loadStoredDisabledBuiltinToolSet(ctx context.Context, prefs uipreference.St
 }
 
 // storeDisabledBuiltinToolSet 以稳定排序写回用户禁用列表。
-func storeDisabledBuiltinToolSet(ctx context.Context, prefs uipreference.Store, cwd string, set map[string]struct{}) error {
+func storeDisabledBuiltinToolSet(ctx context.Context, prefs preferenceStore, cwd string, set map[string]struct{}) error {
 	ids := make([]string, 0, len(set))
 	for id := range set {
 		ids = append(ids, id)
@@ -321,7 +315,7 @@ func storeDisabledBuiltinToolSet(ctx context.Context, prefs uipreference.Store, 
 }
 
 // loadStoredBuiltinToolKnownSet 读取上次写入时已知的工具 ID，用于识别新增默认禁用项。
-func loadStoredBuiltinToolKnownSet(ctx context.Context, prefs uipreference.Store, cwd string, index map[string]contract.NativeToolDescriptor) (map[string]struct{}, bool, error) {
+func loadStoredBuiltinToolKnownSet(ctx context.Context, prefs preferenceValueReader, cwd string, index map[string]contract.NativeToolDescriptor) (map[string]struct{}, bool, error) {
 	if prefs == nil {
 		return nil, false, nil
 	}
@@ -374,7 +368,7 @@ func mergeNewDefaultDisabledTools(stored map[string]struct{}, known map[string]s
 }
 
 // storeKnownBuiltinToolSet 持久化当前 registry 工具 ID，供下一次合并新增默认禁用项。
-func storeKnownBuiltinToolSet(ctx context.Context, prefs uipreference.Store, cwd string, registry []contract.NativeToolDescriptor) error {
+func storeKnownBuiltinToolSet(ctx context.Context, prefs preferenceStore, cwd string, registry []contract.NativeToolDescriptor) error {
 	ids := make([]string, 0, len(registry))
 	for _, item := range registry {
 		if strings.TrimSpace(item.ID) != "" {

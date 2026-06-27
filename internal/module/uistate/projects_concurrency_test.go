@@ -11,7 +11,6 @@ import (
 	"time"
 
 	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
-	"github.com/anthropic-ai/super-agent-v3/internal/store/uipreference"
 )
 
 func TestAddProjectConcurrentPreservesAllAdds(t *testing.T) {
@@ -67,7 +66,7 @@ func (s *slowProjectPreferenceStore) GetValue(_ context.Context, cwd, key string
 	return append(json.RawMessage(nil), raw...), nil
 }
 
-func (s *slowProjectPreferenceStore) Upsert(_ context.Context, params uipreference.UpsertParams) error {
+func (s *slowProjectPreferenceStore) Upsert(_ context.Context, params preferenceUpsertParams) error {
 	time.Sleep(s.delay)
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -75,17 +74,17 @@ func (s *slowProjectPreferenceStore) Upsert(_ context.Context, params uipreferen
 	return nil
 }
 
-func (s *slowProjectPreferenceStore) List(_ context.Context, cwd string) ([]uipreference.UIPreference, error) {
+func (s *slowProjectPreferenceStore) List(_ context.Context, cwd string) ([]preferenceEntry, error) {
 	time.Sleep(s.delay)
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	rows := make([]uipreference.UIPreference, 0, len(s.values))
+	rows := make([]preferenceEntry, 0, len(s.values))
 	for rawKey, value := range s.values {
 		rowCwd, rowKey := splitProjectPrefKey(rawKey)
 		if rowCwd != cwd {
 			continue
 		}
-		rows = append(rows, uipreference.UIPreference{
+		rows = append(rows, preferenceEntry{
 			Cwd:   rowCwd,
 			Key:   rowKey,
 			Value: append(json.RawMessage(nil), value...),

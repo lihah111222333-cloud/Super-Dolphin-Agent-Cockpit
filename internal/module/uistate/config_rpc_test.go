@@ -13,8 +13,6 @@ import (
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
 	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
 	platformrpc "github.com/anthropic-ai/super-agent-v3/internal/platform/rpc"
-	sharedfilestore "github.com/anthropic-ai/super-agent-v3/internal/store/sharedfile"
-	"github.com/anthropic-ai/super-agent-v3/internal/store/uipreference"
 )
 
 func TestConfigHandlersReadAndWriteLSPPromptHint(t *testing.T) {
@@ -54,7 +52,7 @@ func newConfigPromptHintFixture(t *testing.T) (*platformrpc.Server, *uiPreferenc
 		preferenceStubKey("/repo", lspPromptHintOverrideKey):                             mustJSONRaw(t, "custom prompt"),
 		preferenceStubKey(projectRoot, normalizePreferenceKey(preferenceActiveThreadID)): mustJSONRaw(t, "thread-7"),
 	}}
-	sharedFiles := &sharedFileStoreStub{files: map[string]sharedfilestore.SharedFile{
+	sharedFiles := &sharedFileStoreStub{files: map[string]sharedFile{
 		lspPromptHintDefaultPath: {Path: lspPromptHintDefaultPath, Content: "default prompt"},
 	}}
 	threads := &configThreadServiceStub{getConfigResult: dto.ThreadConfig{
@@ -308,8 +306,8 @@ func TestConfigPromptHintWriteRequiresPreferenceStore(t *testing.T) {
 
 func newConfigTestServer(
 	cfg *contract.Config,
-	prefs uipreference.Store,
-	sharedFiles sharedfilestore.Reader,
+	prefs preferenceStore,
+	sharedFiles sharedFileReader,
 	threads contract.ThreadConfigReader,
 ) *platformrpc.Server {
 	server := platformrpc.NewServer(platformrpc.Params{Config: cfg})
@@ -343,7 +341,7 @@ func (s *uiPreferenceStoreStub) GetValue(_ context.Context, cwd, key string) (js
 	return append(json.RawMessage(nil), raw...), nil
 }
 
-func (s *uiPreferenceStoreStub) Upsert(_ context.Context, params uipreference.UpsertParams) error {
+func (s *uiPreferenceStoreStub) Upsert(_ context.Context, params preferenceUpsertParams) error {
 	if s.values == nil {
 		s.values = map[string]json.RawMessage{}
 	}
@@ -351,22 +349,22 @@ func (s *uiPreferenceStoreStub) Upsert(_ context.Context, params uipreference.Up
 	return nil
 }
 
-func (s *uiPreferenceStoreStub) List(_ context.Context, cwd string) ([]uipreference.UIPreference, error) {
-	rows := []uipreference.UIPreference{}
+func (s *uiPreferenceStoreStub) List(_ context.Context, cwd string) ([]preferenceEntry, error) {
+	rows := []preferenceEntry{}
 	for rawKey, value := range s.values {
 		rowCwd, rowKey := splitPreferenceStubKey(rawKey)
 		if rowCwd == cwd {
-			rows = append(rows, uipreference.UIPreference{Cwd: rowCwd, Key: rowKey, Value: append(json.RawMessage(nil), value...)})
+			rows = append(rows, preferenceEntry{Cwd: rowCwd, Key: rowKey, Value: append(json.RawMessage(nil), value...)})
 		}
 	}
 	return rows, nil
 }
 
 type sharedFileStoreStub struct {
-	files map[string]sharedfilestore.SharedFile
+	files map[string]sharedFile
 }
 
-func (s *sharedFileStoreStub) Get(_ context.Context, path string) (*sharedfilestore.SharedFile, error) {
+func (s *sharedFileStoreStub) Get(_ context.Context, path string) (*sharedFile, error) {
 	if s.files == nil {
 		return nil, platformdb.ErrNotFound
 	}
@@ -375,16 +373,6 @@ func (s *sharedFileStoreStub) Get(_ context.Context, path string) (*sharedfilest
 		return nil, platformdb.ErrNotFound
 	}
 	return &file, nil
-}
-
-func (s *sharedFileStoreStub) List(_ context.Context, filter sharedfilestore.ListFilter) ([]sharedfilestore.SharedFile, error) {
-	rows := make([]sharedfilestore.SharedFile, 0, len(s.files))
-	for path, file := range s.files {
-		if filter.Prefix == "" || len(path) >= len(filter.Prefix) && path[:len(filter.Prefix)] == filter.Prefix {
-			rows = append(rows, file)
-		}
-	}
-	return rows, nil
 }
 
 func preferenceStubKey(cwd, key string) string {
