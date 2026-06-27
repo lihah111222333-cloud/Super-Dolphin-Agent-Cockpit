@@ -83,7 +83,8 @@ func newStdioMCPClient(ctx context.Context, binary providerdto.MCPBinary) (*stdi
 		stdin:     stdin,
 		closed:    make(chan struct{}),
 	}
-	if _, err := client.request(ctx, "initialize", map[string]any{"protocolVersion": "2024-11-05", "capabilities": map[string]any{}, "clientInfo": map[string]any{"name": "super-agent-codex", "version": "dev"}}); err != nil {
+	// 握手版本与 HTTP proxy client 保持一致，统一使用 ProxyProtocolVersion，避免 stdio/HTTP 双通道版本漂移。
+	if _, err := client.request(ctx, "initialize", map[string]any{"protocolVersion": ProxyProtocolVersion, "capabilities": map[string]any{}, "clientInfo": map[string]any{"name": "super-agent-codex", "version": "dev"}}); err != nil {
 		_ = client.Close()
 		return nil, err
 	}
