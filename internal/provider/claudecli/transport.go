@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
+	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
 // processSig 是 transport 内部使用的跨平台进程信号抽象。
@@ -88,6 +89,7 @@ func newTransport(binary string, args []string, cwd string, env []string) (*tran
 	go func() {
 		defer func() {
 			if rec := recover(); rec != nil {
+				pkglogger.Get().Error("claudecli: transport wait panic", "recovered", rec)
 				select {
 				case <-tr.done:
 				default:

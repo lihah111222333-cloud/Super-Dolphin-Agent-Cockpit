@@ -3,7 +3,9 @@ package toolbridge
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net"
+	"runtime/debug"
 	"sync"
 
 	platformrunner "github.com/anthropic-ai/super-agent-v3/internal/platform/runner"
@@ -89,7 +91,8 @@ func startProxyServe(h *Handler, ln net.Listener) <-chan error {
 	go func() {
 		defer func() {
 			if recovered := recover(); recovered != nil {
-				serveErr <- errors.New("toolbridge: proxy serve panic")
+				pkglogger.Get().Error("toolbridge: proxy serve panic", "recovered", recovered, "stack", string(debug.Stack()))
+				serveErr <- fmt.Errorf("toolbridge: proxy serve panic: %v", recovered)
 			}
 		}()
 		serveErr <- h.ServeProxy(ln)

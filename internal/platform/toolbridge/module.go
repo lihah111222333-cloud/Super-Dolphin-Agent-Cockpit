@@ -32,7 +32,8 @@ var Module = fx.Module("toolbridge",
 		provideDiffEmitter,
 		newDiffFallbackTracker,
 		NewToolbridgeDiffFallbackSubscribers,
-		provideProxyAddrFn,
+		fx.Annotate(provideProxyAddrFn, fx.ResultTags(`name:"proxy_addr_fn"`)),
+		fx.Annotate(provideProxyTokenFn, fx.ResultTags(`name:"proxy_token_fn"`)),
 		// proxy HTTP serve loop 由 run.Group 接管；fx lifecycle 只负责 listener
 		// 创建和地址发布，避免启动/关闭路径分散在多个 goroutine owner 中。
 		NewProxyRunner,
@@ -145,6 +146,17 @@ func provideProxyAddrFn() func() string {
 	return func() string {
 		addr, _ := proxyAddr.Load().(string)
 		return strings.TrimSpace(addr)
+	}
+}
+
+// provideProxyTokenFn 返回可被 provider manifest builder 调用的 proxy token 读取函数。
+// token 在 Handler 构造时生成，生命周期与 Handler 相同。
+func provideProxyTokenFn(h *Handler) func() string {
+	return func() string {
+		if h == nil {
+			return ""
+		}
+		return strings.TrimSpace(h.proxyAuthToken)
 	}
 }
 
