@@ -175,6 +175,31 @@ func TestSQLiteTaskDAGFailCascadeFinalizesRun(t *testing.T) {
 	}
 }
 
+func TestSQLiteTaskDAGFailFastFalseTerminalizesBlockedChainAndDiamond(t *testing.T) {
+	ctx := context.Background()
+	db := openTaskDAGSQLiteDB(t)
+	store := NewStore(db).(*store)
+	seedSQLiteBlockedDiamondTemplate(t, ctx, store, "dag-blocked")
+	run := createSQLiteTaskDAGRun(t, ctx, store, "run-blocked", "dag-blocked")
+	cloneAndPromoteSQLiteRun(t, ctx, store, "dag-blocked", run.ID)
+
+	result, err := store.FailNodeAndCancelDownstream(ctx, FailNodeInput{DagKey: "dag-blocked", NodeKey: "A", RunID: run.ID, Reason: "ancestor failed"})
+	if err != nil {
+		t.Fatalf("FailNodeAndCancelDownstream() error = %v", err)
+	}
+	if result.Node == nil || result.Node.Status != "failed" {
+		t.Fatalf("failed node = %#v, want A failed", result.Node)
+	}
+	if result.FinalizedRun == nil || result.FinalizedRun.Status != "failed" {
+		t.Fatalf("FinalizedRun = %#v, want failed after all blocked downstream terminalized", result.FinalizedRun)
+	}
+	for _, nodeKey := range []string{"A", "B", "C", "D", "E"} {
+		if got := sqliteRunNodeStatus(t, ctx, store, "dag-blocked", run.ID, nodeKey); got != "failed" {
+			t.Fatalf("%s status = %q, want failed", nodeKey, got)
+		}
+	}
+}
+
 func TestSQLiteTaskDAGRecordNodeSpawnAndLookupAreRunFenced(t *testing.T) {
 	ctx := context.Background()
 	db := openTaskDAGSQLiteDB(t)
@@ -339,6 +364,25 @@ func seedSQLiteCascadeTemplate(t *testing.T, ctx context.Context, store *store, 
 	seedSQLiteFlowTemplate(t, ctx, store, dagKey)
 	if _, err := store.UpsertNode(ctx, Node{DagKey: dagKey, NodeKey: "leaf", Title: "leaf", NodeType: "agent", DependsOn: []byte(`["child"]`), Config: []byte(`{"node":"leaf"}`)}); err != nil {
 		t.Fatalf("UpsertNode(leaf) error = %v", err)
+	}
+}
+
+func seedSQLiteBlockedDiamondTemplate(t *testing.T, ctx context.Context, store *store, dagKey string) {
+	t.Helper()
+	if _, err := store.UpsertDAG(ctx, DAG{DagKey: dagKey, Title: "blocked", Status: "draft", CreatedBy: "tester", Metadata: []byte(`{}`)}); err != nil {
+		t.Fatalf("UpsertDAG(%s) error = %v", dagKey, err)
+	}
+	nodes := []Node{
+		{DagKey: dagKey, NodeKey: "A", Title: "A", NodeType: "agent", DependsOn: []byte(`[]`), Config: []byte(`{"node":"A"}`)},
+		{DagKey: dagKey, NodeKey: "B", Title: "B", NodeType: "agent", DependsOn: []byte(`["A"]`), Config: []byte(`{"node":"B"}`)},
+		{DagKey: dagKey, NodeKey: "C", Title: "C", NodeType: "agent", DependsOn: []byte(`["B"]`), Config: []byte(`{"node":"C"}`)},
+		{DagKey: dagKey, NodeKey: "D", Title: "D", NodeType: "agent", DependsOn: []byte(`["A"]`), Config: []byte(`{"node":"D"}`)},
+		{DagKey: dagKey, NodeKey: "E", Title: "E", NodeType: "agent", DependsOn: []byte(`["B","D"]`), Config: []byte(`{"node":"E"}`)},
+	}
+	for _, node := range nodes {
+		if _, err := store.UpsertNode(ctx, node); err != nil {
+			t.Fatalf("UpsertNode(%s) error = %v", node.NodeKey, err)
+		}
 	}
 }
 

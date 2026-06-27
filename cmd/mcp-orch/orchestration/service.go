@@ -32,93 +32,36 @@ import (
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
-// Service 是编排服务的导出类型别名，用于 fx 依赖注入。
 type Service = contract.OrchestrationService
-
-// SessionCleaner 是 session 清理器的导出类型别名。
-type SessionCleaner = contract.OrchestrationSessionCleaner
-
-// TurnStarter 是 turn 启动器的导出类型别名。
-type TurnStarter = contract.OrchestrationTurnStarter
-
-// TurnSubmission 是提交 turn 的跨模块 DTO 别名。
 type TurnSubmission = contract.TurnSubmission
-
-// RuntimeReport 是 runtime 上报端口/provider 的跨模块 DTO 别名。
 type RuntimeReport = contract.RuntimeReport
-
-// LaunchRequest 是启动 agent 的跨模块 DTO 别名。
 type LaunchRequest = contract.LaunchRequest
-
-// AgentSnapshot 是对外展示 agent 运行态的跨模块 DTO 别名。
 type AgentSnapshot = contract.AgentSnapshot
-
-// AgentStateResult 是查询 agent 状态的跨模块 DTO 别名。
 type AgentStateResult = contract.AgentStateResult
-
-// AgentReportMetadata 是 agent report 附加元数据的跨模块 DTO 别名。
 type AgentReportMetadata = contract.AgentReportMetadata
-
-// AgentReportResult 是查询 agent report 的跨模块 DTO 别名。
 type AgentReportResult = contract.AgentReportResult
-
-// RememberReportRequest 是登记 report requester 的跨模块 DTO 别名。
 type RememberReportRequest = contract.RememberReportRequest
-
-// RememberReportRequestResult 是登记 report requester 的返回 DTO 别名。
 type RememberReportRequestResult = contract.RememberReportRequestResult
-
-// ReportEvent 是 provider/hook report 事件的跨模块 DTO 别名。
 type ReportEvent = contract.ReportEvent
-
-// ReportEventResult 是 report 事件处理结果的跨模块 DTO 别名。
 type ReportEventResult = contract.ReportEventResult
-
-// CreateDAGRequest 是创建 DAG 的跨模块 DTO 别名。
 type CreateDAGRequest = contract.CreateDAGRequest
-
-// CreateDAGNodeRequest 是创建 DAG 节点的跨模块 DTO 别名。
 type CreateDAGNodeRequest = contract.CreateDAGNodeRequest
-
-// ListDAGsFilter 是 DAG 列表查询过滤条件的跨模块 DTO 别名。
 type ListDAGsFilter = contract.ListDAGsFilter
-
-// UpdateNodeStatusRequest 是更新 DAG 节点状态的跨模块 DTO 别名。
 type UpdateNodeStatusRequest = contract.UpdateNodeStatusRequest
-
-// DAGSummary 是 DAG 列表摘要的跨模块 DTO 别名。
 type DAGSummary = contract.DAGSummary
-
-// DAGNode 是 DAG 节点详情的跨模块 DTO 别名。
 type DAGNode = contract.DAGNode
-
-// DAGDetail 是 DAG 详情的跨模块 DTO 别名。
 type DAGDetail = contract.DAGDetail
 
-// ListRunsRequest 是 DAG run 列表查询请求的跨模块 DTO 别名。
-type ListRunsRequest = contract.ListRunsRequest
+var errAgentNotFound = contract.ErrAgentNotFound
+var errIllegalStateTransition = errors.New("illegal state transition")
+var errTurnNotActive = errors.New("turn is not active")
 
-// ListRunsResponse 是 DAG run 列表查询响应的跨模块 DTO 别名。
-type ListRunsResponse = contract.ListRunsResponse
-
-// Run 是 DAG runtime run 的跨模块 DTO 别名。
-type Run = contract.Run
-
-// service 内部错误哨兵。
-var (
-	errAgentNotFound          = contract.ErrAgentNotFound
-	errIllegalStateTransition = errors.New("illegal state transition")
-	errTurnNotActive          = errors.New("turn is not active")
-)
-
-// service 是 orchestration 包的核心实现结构体，持有 agent 状态机、turn 队列、
-// DAG store 和异步后台任务上下文。所有并发访问通过 mu 保护。
 type service struct {
 	logger                   *slog.Logger
 	eventBus                 *event.Dispatcher
 	launcher                 AgentLauncher
-	sessionCleaner           SessionCleaner
-	turnStarter              TurnStarter
+	sessionCleaner           contract.OrchestrationSessionCleaner
+	turnStarter              contract.OrchestrationTurnStarter
 	dagStore                 taskdag.OrchestrationStore
 	runStore                 taskdag.RunStore
 	scheduledStartStore      taskdag.ScheduledStartStore
@@ -146,8 +89,8 @@ type serviceParams struct {
 	Logger         *slog.Logger
 	EventBus       *event.Dispatcher
 	Launcher       AgentLauncher
-	SessionCleaner SessionCleaner
-	TurnStarter    TurnStarter
+	SessionCleaner contract.OrchestrationSessionCleaner
+	TurnStarter    contract.OrchestrationTurnStarter
 	DAGStore       taskdag.OrchestrationStore `optional:"true"`
 	RunStore       taskdag.RunStore
 	ScheduledStart taskdag.ScheduledStartStore
@@ -200,8 +143,8 @@ func NewService(
 	logger *slog.Logger,
 	eventBus *event.Dispatcher,
 	launcher AgentLauncher,
-	sessionCleaner SessionCleaner,
-	turnStarter TurnStarter,
+	sessionCleaner contract.OrchestrationSessionCleaner,
+	turnStarter contract.OrchestrationTurnStarter,
 	dagStore taskdag.OrchestrationStore,
 ) *service {
 	if logger == nil {
@@ -231,6 +174,9 @@ func NewService(
 		asyncCancel:            asyncCancel,
 	}
 	bindRemoteLauncherEventSink(launcher, svc)
+	if local, ok := launcher.(*localLauncher); ok {
+		local.exitMonitor = svc.exitMonitor
+	}
 	return svc
 }
 
