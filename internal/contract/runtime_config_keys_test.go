@@ -33,6 +33,12 @@ func TestRuntimeConfigFieldsKeepCanonicalKeyAndAliases(t *testing.T) {
 		{name: "auto approve", field: contract.RuntimeConfigAutoApprove, want: []string{"autoApprove", "auto_approve"}},
 		{name: "binary dir", field: contract.RuntimeConfigBinaryDir, want: []string{"binary_dir", "binaryDir"}},
 		{name: "codex disabled native tools", field: contract.RuntimeConfigCodexDisabledNativeTools, want: []string{"codexDisabledNativeTools"}},
+		{name: "model", field: contract.RuntimeConfigModel, want: []string{"model"}},
+		{name: "language", field: contract.RuntimeConfigLanguage, want: []string{"language"}},
+		{name: "summary", field: contract.RuntimeConfigSummary, want: []string{"summary"}},
+		{name: "mcp servers", field: contract.RuntimeConfigMCPServers, want: []string{"mcpServers", "mcp_servers"}},
+		{name: "mcp instructions", field: contract.RuntimeConfigMCPInstructions, want: []string{"mcpInstructions", "mcp_instructions"}},
+		{name: "mcp instructions delta enabled", field: contract.RuntimeConfigMCPInstructionsDeltaEnabled, want: []string{"mcpInstructionsDeltaEnabled", "mcp_instructions_delta_enabled"}},
 	}
 
 	for _, tt := range tests {

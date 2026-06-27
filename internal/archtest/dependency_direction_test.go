@@ -563,7 +563,12 @@ func importPrefixViolations(file parsedFile, prefixes []string) []string {
 	var violations []string
 	for _, imp := range file.Imports {
 		for _, prefix := range prefixes {
-			if imp == prefix || strings.HasPrefix(imp, prefix+"/") {
+			// 去掉 prefix 自身的尾部斜杠，避免匹配时拼出双斜杠而漏检。
+			// 例如 internalPrefix("internal/mcpserver/") 传入时会带尾部 "/"，
+			// 若不先 TrimRight 则 prefix+"/" 变成 "mcpserver//"，无法匹配
+			// "mcpserver/common/bootstrap" 这类合法路径。
+			trimmed := strings.TrimRight(prefix, "/")
+			if imp == trimmed || strings.HasPrefix(imp, trimmed+"/") {
 				violations = append(violations, fmt.Sprintf("%s imports %s", file.RelPath, imp))
 				break
 			}
