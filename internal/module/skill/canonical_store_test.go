@@ -109,6 +109,32 @@ func TestCanonicalStoreRejectsUnsafeLegacyDisplayName(t *testing.T) {
 	}
 }
 
+func TestCanonicalStoreRejectsSymlinkedSkillMainFile(t *testing.T) {
+	t.Parallel()
+
+	project := t.TempDir()
+	home := t.TempDir()
+	outside := filepath.Join(t.TempDir(), skillMainFile)
+	if err := os.WriteFile(outside, []byte("---\nname: demo\n---\noutside"), 0o644); err != nil {
+		t.Fatalf("write outside skill file: %v", err)
+	}
+	demoDir := filepath.Join(project, ".agent", "skills", "demo")
+	if err := os.MkdirAll(demoDir, 0o755); err != nil {
+		t.Fatalf("mkdir demo skill: %v", err)
+	}
+	if err := os.Symlink(outside, filepath.Join(demoDir, skillMainFile)); err != nil {
+		t.Fatalf("symlink SKILL.md: %v", err)
+	}
+
+	_, _, err := newTestCanonicalStore(project, home).EffectiveSet(context.Background(), project)
+	if err == nil {
+		t.Fatal("EffectiveSet error = nil, want symlinked SKILL.md rejection")
+	}
+	if !strings.Contains(err.Error(), "symlink") {
+		t.Fatalf("EffectiveSet error = %v, want symlink rejection", err)
+	}
+}
+
 func TestEffectiveSetSameNameIsCaseInsensitiveConflict(t *testing.T) {
 	project := t.TempDir()
 	home := t.TempDir()
