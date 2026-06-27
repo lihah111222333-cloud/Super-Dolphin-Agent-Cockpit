@@ -35,6 +35,10 @@ function adaptObservabilityResult(response) {
   return {
     source: textValue(response.source),
     truncated: Boolean(response.truncated),
+    degraded: Boolean(response.degraded),
+    tailError: textValue(response.tailError ?? response.tail_error),
+    tailTimedOut: Boolean(response.tailTimedOut ?? response.tail_timed_out),
+    tailFilesScanned: Number(response.tailFilesScanned ?? response.tail_files_scanned) || 0,
     totalDurationMs: Number(response.totalDurationMs ?? response.total_duration_ms) || 0,
     events: Array.isArray(response.events) ? response.events.map(adaptObservabilityEvent) : [],
   };
