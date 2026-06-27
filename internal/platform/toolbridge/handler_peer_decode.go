@@ -209,7 +209,7 @@ func addMCPToolsToSurface(surface *codexToolSurface, out *[]contract.DynamicTool
 		}
 		canonical := canonicalCodexToolName(family, tool.Name)
 		if shouldNamespaceExternalMCPTool(surface, family, canonical) {
-			canonical = wrappedMCPToolName(family, tool.Name)
+			canonical = WrapMCPToolName(family, tool.Name)
 		}
 		entry := codexToolEntry{name: canonical, realName: tool.Name, executionKind: "stdio", family: strings.TrimSpace(family), client: client}
 		if err := addSurfaceTool(surface, out, tool, entry); err != nil {
@@ -218,7 +218,7 @@ func addMCPToolsToSurface(surface *codexToolSurface, out *[]contract.DynamicTool
 		if err := addMCPToolAlias(surface, family, tool.Name, canonical); err != nil {
 			return err
 		}
-		if err := addSurfaceAlias(surface, wrappedMCPToolName(family, tool.Name), canonical); err != nil {
+		if err := addSurfaceAlias(surface, WrapMCPToolName(family, tool.Name), canonical); err != nil {
 			return err
 		}
 		for _, alias := range legacyCodexToolAliases(family, canonical) {
