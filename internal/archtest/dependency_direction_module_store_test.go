@@ -60,35 +60,6 @@ var moduleStoreImportAllowlist = map[string]map[string]string{
 	"internal/module/dashboard/workflow_material.go": {
 		internalPrefix("internal/store/sharedfile"): "D01 legacy module-to-store import",
 	},
-	"internal/module/prompt/intent/authoring.go": {
-		internalPrefix("internal/store/prompt"): "D01 legacy module-to-store import",
-	},
-	"internal/module/prompt/intent/commit.go": {
-		internalPrefix("internal/store/prompt"): "D01 legacy module-to-store import",
-	},
-	"internal/module/prompt/intent/dedup.go": {
-		internalPrefix("internal/store/prompt"): "D01 legacy module-to-store import",
-	},
-	"internal/module/prompt/invalidation.go": {
-		internalPrefix("internal/store/prompt"): "D01 legacy module-to-store import",
-	},
-	"internal/module/prompt/match_when_support.go": {
-		internalPrefix("internal/store/prompt"): "D01 legacy module-to-store import",
-	},
-	"internal/module/prompt/section_write.go": {
-		internalPrefix("internal/store/prompt"): "D01 legacy module-to-store import",
-	},
-	"internal/module/prompt/service.go": {
-		internalPrefix("internal/store/prompt"):       "D01 legacy module-to-store import",
-		internalPrefix("internal/store/sharedfile"):   "D01 legacy module-to-store import",
-		internalPrefix("internal/store/uipreference"): "D01 legacy module-to-store import",
-	},
-	"internal/module/prompt/service_surface.go": {
-		internalPrefix("internal/store/prompt"): "D01 legacy module-to-store import",
-	},
-	"internal/module/prompt/template_sections.go": {
-		internalPrefix("internal/store/prompt"): "D01 legacy module-to-store import",
-	},
 	"internal/module/skill/personal_audit.go": {
 		internalPrefix("internal/store/auditlog"): "D01 legacy module-to-store import",
 	},

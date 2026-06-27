@@ -3,20 +3,18 @@ package prompt
 import (
 	"context"
 	"strings"
-
-	promptstore "github.com/anthropic-ai/super-agent-v3/internal/store/prompt"
 )
 
 // writePromptSectionInTx 在单个事务中校验父 prompt scope、写入 section，并维护 recall topic 索引。
 // recall 写入会先做同 cwd 去重锁，防止并发请求生成重复 topic。
 func writePromptSectionInTx(
 	ctx context.Context,
-	store promptstore.Store,
+	store promptStore,
 	requestScope, promptKey string,
 	req PromptSectionWriteRequest,
-) (*promptstore.PromptTemplateSection, error) {
-	var saved *promptstore.PromptTemplateSection
-	err := store.WithTx(ctx, func(txStore promptstore.Store) error {
+) (*promptTemplateSection, error) {
+	var saved *promptTemplateSection
+	err := store.WithTx(ctx, func(txStore promptStore) error {
 		template, gerr := txStore.Get(ctx, promptKey)
 		if gerr != nil {
 			return gerr
@@ -31,7 +29,7 @@ func writePromptSectionInTx(
 				return err
 			}
 		}
-		section, uerr := txStore.UpsertSection(ctx, promptstore.PromptTemplateSection{
+		section, uerr := txStore.UpsertSection(ctx, promptTemplateSection{
 			TemplateID:  template.ID,
 			SectionKey:  req.SectionKey,
 			Region:      req.Region,

@@ -88,12 +88,12 @@ func TestCommitPromptIntentDraft_ConcurrentSubmit(t *testing.T) {
 	go func() {
 		defer wg.Done()
 		<-start
-		_, errs[0] = promptintent.HandleCommit(ctx, storeA, nil, nil, promptintent.CommitParams{DraftKey: "intent/expert/concurrent-a", Cwd: "/repo/concurrent"})
+		_, errs[0] = promptintent.HandleCommit(ctx, promptIntentStoreForTest(storeA), nil, nil, promptintent.CommitParams{DraftKey: "intent/expert/concurrent-a", Cwd: "/repo/concurrent"})
 	}()
 	go func() {
 		defer wg.Done()
 		<-start
-		_, errs[1] = promptintent.HandleCommit(ctx, storeB, nil, nil, promptintent.CommitParams{DraftKey: "intent/expert/concurrent-b", Cwd: "/repo/concurrent"})
+		_, errs[1] = promptintent.HandleCommit(ctx, promptIntentStoreForTest(storeB), nil, nil, promptintent.CommitParams{DraftKey: "intent/expert/concurrent-b", Cwd: "/repo/concurrent"})
 	}()
 	close(start)
 	wg.Wait()

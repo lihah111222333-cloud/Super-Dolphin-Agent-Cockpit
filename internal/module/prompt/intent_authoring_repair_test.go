@@ -44,7 +44,7 @@ func TestPromptIntentDraftAutoRepairsSourceFactCoverageBeforeSavingDraft(t *test
 		}`,
 	}}
 
-	got, err := promptintent.HandleDraft(context.Background(), store, dream, nil, promptintent.DraftParams{
+	got, err := promptintent.HandleDraft(context.Background(), promptIntentStoreForTest(store), dream, nil, promptintent.DraftParams{
 		Kind:     "recall",
 		RawInput: "价格表：套餐, 月费, 年费, 适用范围。基础版 99 元/月；专业版 199 元/月；企业版按年报价。用户查询套餐价格、币种、适用范围时查这份资料。",
 		Cwd:      "/repo/a",
@@ -101,7 +101,7 @@ func TestPromptIntentDraftSuppressesSameKindAlternativeAndNaturalizesPairProgram
 		"suggested_alternative":{"kind":"expert","reason":"更适合做专家能力"}
 	}`}
 
-	got, err := promptintent.HandleDraft(context.Background(), store, dream, nil, promptintent.DraftParams{
+	got, err := promptintent.HandleDraft(context.Background(), promptIntentStoreForTest(store), dream, nil, promptintent.DraftParams{
 		Kind:     "expert",
 		RawInput: "You are a powerful agentic AI coding assistant. You operate exclusively in Trae AI. You are pair programming with a USER. Use search and reading tools, make code changes, check dependencies, debug root causes, follow security best practices, and use a todo list for complex tasks.",
 		Cwd:      "/repo/a",
@@ -149,7 +149,7 @@ func TestPromptIntentDraftCollapsesMixedKindDraftsToSingleRecommendedType(t *tes
 		}]
 	}`}
 
-	got, err := promptintent.HandleDraft(context.Background(), store, dream, nil, promptintent.DraftParams{
+	got, err := promptintent.HandleDraft(context.Background(), promptIntentStoreForTest(store), dream, nil, promptintent.DraftParams{
 		Kind:     "default_rule",
 		RawInput: "You are Claude Code. Use Bash and Edit tools. Follow provider instructions.",
 		Cwd:      "/repo/a",
