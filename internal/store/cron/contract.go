@@ -201,25 +201,29 @@ type LeaseParams struct {
 
 // MarkFinishedParams 描述任务成功完成后的持久化更新，写入最近 turn 和下一次运行时间。
 type MarkFinishedParams struct {
-	ID         string
-	ClaimToken string
-	LastRunAt  time.Time
-	LastTurnID string
-	NextRunAt  time.Time
-	Now        time.Time
+	ID                   string
+	ClaimToken           string
+	RunID                string
+	ExpectedActiveTurnID string
+	LastRunAt            time.Time
+	LastTurnID           string
+	NextRunAt            time.Time
+	Now                  time.Time
 }
 
 // MarkFailedParams 描述任务失败后的持久化更新，LastStatus 保留上层判定的失败类别并递增失败次数。
 type MarkFailedParams struct {
-	ID          string
-	ClaimToken  string
-	LastRunAt   time.Time
-	LastTurnID  string
-	LastStatus  string
-	LastErrorAt time.Time
-	LastError   string
-	NextRetryAt time.Time
-	Now         time.Time
+	ID                   string
+	ClaimToken           string
+	RunID                string
+	ExpectedActiveTurnID string
+	LastRunAt            time.Time
+	LastTurnID           string
+	LastStatus           string
+	LastErrorAt          time.Time
+	LastError            string
+	NextRetryAt          time.Time
+	Now                  time.Time
 }
 
 // SetActiveTurnParams 绑定任务当前活跃 turn，空 ThreadID 或 AgentID 会保留已有身份信息。

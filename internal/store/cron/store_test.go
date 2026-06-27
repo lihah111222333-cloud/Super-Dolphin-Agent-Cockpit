@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"reflect"
 	"runtime"
 	"testing"
 	"time"
@@ -13,10 +14,7 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/store/sqlc"
 )
 
-// cronQuerierStub is a minimal recording fake of every query method on the
-// store's internal querier. Each *Fn field defaults to a harmless
-// identity/no-op when nil so individual tests only need to wire the
-// handful of calls they exercise.
+// cronQuerierStub is a minimal recording fake of the store's internal querier.
 type cronQuerierStub struct {
 	createFn            func(context.Context, sqlc.CreateCronJobParams) (sqlc.CronJob, error)
 	getByIDFn           func(context.Context, string) (sqlc.CronJob, error)
@@ -287,14 +285,12 @@ func TestClaimDueJobsForUpdateForwardsParamsAndMapsRows(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ClaimDueJobsForUpdate error = %v", err)
 	}
-	if len(jobs) != 1 || jobs[0].ID != "job-1" || jobs[0].Provider != "codex" {
+	if len(jobs) != 1 {
 		t.Fatalf("ClaimDueJobsForUpdate rows = %+v", jobs)
 	}
-	if got.ClaimToken != "tok-uuid" || got.ClaimedBy != "scheduler-A" || got.MaxClaim != 8 {
-		t.Fatalf("ClaimDueJobsForUpdate params = %+v", got)
-	}
-	if got.Now == nil || time.UnixMilli(*got.Now).UTC() != now || got.LeaseExpiresAt == nil || time.UnixMilli(*got.LeaseExpiresAt).UTC() != leaseExpiry {
-		t.Fatalf("ClaimDueJobsForUpdate timestamps = %+v", got)
+	gotSummary := []any{jobs[0].ID, jobs[0].Provider, got.ClaimToken, got.ClaimedBy, got.MaxClaim, time.UnixMilli(*got.Now).UTC(), time.UnixMilli(*got.LeaseExpiresAt).UTC()}
+	if wantSummary := []any{"job-1", "codex", "tok-uuid", "scheduler-A", int64(8), now, leaseExpiry}; !reflect.DeepEqual(gotSummary, wantSummary) {
+		t.Fatalf("ClaimDueJobsForUpdate summary = %+v, want %+v", gotSummary, wantSummary)
 	}
 }
 
@@ -408,7 +404,7 @@ func TestMarkFinishedReturnsTokenMismatchOnZeroRows(t *testing.T) {
 			return 0, nil
 		},
 	}}
-	err := s.MarkFinished(context.Background(), MarkFinishedParams{ID: "j", ClaimToken: "tok"})
+	err := s.MarkFinished(context.Background(), MarkFinishedParams{ID: "j", ClaimToken: "tok", RunID: "run-1"})
 	if !errors.Is(err, ErrClaimTokenMismatch) {
 		t.Fatalf("err = %v, want ErrClaimTokenMismatch", err)
 	}
@@ -423,7 +419,7 @@ func TestMarkFailedDefaultsStatus(t *testing.T) {
 			return 1, nil
 		},
 	}}
-	err := s.MarkFailed(context.Background(), MarkFailedParams{ID: "j", ClaimToken: "tok"})
+	err := s.MarkFailed(context.Background(), MarkFailedParams{ID: "j", ClaimToken: "tok", RunID: "run-1"})
 	if err != nil {
 		t.Fatalf("MarkFailed error = %v", err)
 	}
@@ -544,24 +540,18 @@ func TestClaimQueryUsesSQLiteAtomicClaimSemantics(t *testing.T) {
 	t.Parallel()
 	sql := readCronQuerySQL(t, "cron_job.sql")
 	for _, want := range []string{
-		// SQLite has no FOR UPDATE SKIP LOCKED. Atomic claim is a single
-		// UPDATE whose inner SELECT re-checks the unclaimed/expired-lease
-		// predicate, so concurrent writers cannot double-claim the same row.
 		"WHERE id IN (",
 		"claim_token = '' OR COALESCE(lease_expires_at, 0) <= sqlc.arg(now)",
 		"COALESCE(next_retry_at, next_run_at) <= sqlc.arg(now)",
 		"LIMIT sqlc.arg(max_claim)",
-		// claim_token fencing on every claim-mutating statement.
-		"claim_token      = sqlc.arg(claim_token)",
-		// preserve-on-empty CASE for identity-like thread / agent fields
-		"COALESCE(NULLIF(sqlc.arg(thread_id), ''), thread_id)",
+		"claim_token      = sqlc.arg(claim_token)", "active_turn_id = sqlc.arg(expected_active_turn_id)",
+		"cron_job_runs.id = sqlc.arg(run_id)", "cron_job_runs.job_id = cron_jobs.id",
+		"cron_job_runs.turn_id = sqlc.arg(expected_active_turn_id)", "COALESCE(NULLIF(sqlc.arg(thread_id), ''), thread_id)",
 	} {
 		if !contains(sql, want) {
 			t.Fatalf("cron_job.sql missing required fragment %q", want)
 		}
 	}
-	// The PG-only lock hint must not reappear as live SQL. Allow it only
-	// inside a comment line documenting why it was removed.
 	if idx := indexOf(sql, "FOR UPDATE SKIP LOCKED"); idx >= 0 {
 		if !onCommentLine(sql, idx) {
 			t.Fatalf("cron_job.sql still contains live FOR UPDATE SKIP LOCKED; SQLite does not support it")

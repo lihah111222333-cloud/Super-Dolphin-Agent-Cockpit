@@ -2,6 +2,7 @@ package cron
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"strings"
 	"sync"
@@ -13,6 +14,7 @@ import (
 	"github.com/kelindar/event"
 
 	turndto "github.com/anthropic-ai/super-agent-v3/internal/dto/turn"
+	cronstore "github.com/anthropic-ai/super-agent-v3/internal/store/cron"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
@@ -54,6 +56,7 @@ type cronProgressWorker struct {
 
 	enqueuedTotal  atomic.Int64
 	processedTotal atomic.Int64
+	staleTotal     atomic.Int64
 }
 
 // newCronProgressWorker 创建未启动的进度 worker，scheduler 和 logger 均为必填项。
@@ -175,20 +178,37 @@ func (w *cronProgressWorker) dispatch(req cronProgressRequest) {
 	case cronExtendClaim:
 		// 进度事件只续租，不改 run 状态。
 		if err := w.scheduler.ExtendClaimForTurnProgress(ctx, req.turnID); err != nil {
-			w.logger.Debug("cron: extend claim for turn progress failed",
-				slog.String("turn_id", req.turnID),
-				slog.String("error", err.Error()),
-			)
+			w.logProgressError("cron: extend claim for turn progress failed", req.turnID, err)
 		}
 	case cronCompleteTurn:
 		// 终态事件才把 running run 结束；找不到 run 时让 CompleteTurn 暴露问题。
 		if err := w.scheduler.CompleteTurn(ctx, req.turnID, req.success, req.terminalErr); err != nil {
-			w.logger.Debug("cron: complete turn from terminal event failed",
-				slog.String("turn_id", req.turnID),
-				slog.String("error", err.Error()),
-			)
+			w.logProgressError("cron: complete turn from terminal event failed", req.turnID, err)
 		}
 	}
+}
+
+// logProgressError 将 stale/mismatch 事件升级为 warn，并记录累计数，避免迟到终态只停留在 debug。
+func (w *cronProgressWorker) logProgressError(message, turnID string, err error) {
+	if isCronProgressStaleMismatch(err) {
+		total := w.staleTotal.Add(1)
+		w.logger.Warn(message,
+			slog.String("turn_id", turnID),
+			slog.Int64("stale_total", total),
+			slog.String("error", err.Error()),
+		)
+		return
+	}
+	w.logger.Debug(message,
+		slog.String("turn_id", turnID),
+		slog.String("error", err.Error()),
+	)
+}
+
+func isCronProgressStaleMismatch(err error) bool {
+	return errors.Is(err, cronstore.ErrClaimTokenMismatch) ||
+		errors.Is(err, cronstore.ErrStatusTransitionRefused) ||
+		errors.Is(err, cronstore.ErrJobRunNotFound)
 }
 
 // subscribeCronProgress 订阅 turn progress 事件并委托给 worker 续租。
