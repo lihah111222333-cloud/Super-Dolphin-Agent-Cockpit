@@ -8,7 +8,6 @@ import (
 	uidto "github.com/anthropic-ai/super-agent-v3/internal/dto/ui"
 	promptintent "github.com/anthropic-ai/super-agent-v3/internal/module/prompt/intent"
 	platformrpc "github.com/anthropic-ai/super-agent-v3/internal/platform/rpc"
-	promptstore "github.com/anthropic-ai/super-agent-v3/internal/store/prompt"
 	"github.com/creachadair/jrpc2/handler"
 )
 
@@ -211,7 +210,7 @@ func promptSectionDeleteRPCHandler(promptSvc PromptService, emit func(uidto.UIPr
 // promptIntentDraftRPCHandler 包装 prompt-intents/draft。
 // 创建成功后发布 draft 事件；失败时保留原错误返回给 StrictHandler。
 func promptIntentDraftRPCHandler(
-	store promptstore.Store,
+	store promptintent.Store,
 	dream contract.DreamExecutor,
 	builtin contract.BuiltinPromptRegistry,
 	emit func(uidto.UIPromptsChanged),
@@ -226,7 +225,7 @@ func promptIntentDraftRPCHandler(
 // promptIntentCommitRPCHandler 包装 prompt-intents/commit。
 // commit 成功会触发 section cache 失效，并通过 UI 事件刷新正式 prompt 与草稿状态。
 func promptIntentCommitRPCHandler(
-	store promptstore.Store,
+	store promptintent.Store,
 	sectionInvalidator contract.SectionInvalidator,
 	builtin contract.BuiltinPromptRegistry,
 	emit func(uidto.UIPromptsChanged),
@@ -239,7 +238,7 @@ func promptIntentCommitRPCHandler(
 }
 
 // promptIntentDiscardRPCHandler 包装 prompt-intents/discard，并在成功后刷新草稿状态。
-func promptIntentDiscardRPCHandler(store promptstore.Store, emit func(uidto.UIPromptsChanged)) handler.Func {
+func promptIntentDiscardRPCHandler(store promptintent.Store, emit func(uidto.UIPromptsChanged)) handler.Func {
 	return platformrpc.StrictHandler(func(ctx context.Context, p promptintent.DiscardParams) (any, error) {
 		result, err := promptintent.HandleDiscard(ctx, store, p)
 		publishUIPromptIntentChanged(emit, p.Cwd, result, "discard", err)

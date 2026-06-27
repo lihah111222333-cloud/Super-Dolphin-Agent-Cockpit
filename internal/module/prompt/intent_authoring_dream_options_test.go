@@ -49,7 +49,7 @@ func TestPromptIntentDraftPassesRequestedDreamOptions(t *testing.T) {
 		"miss_examples":["推荐一杯咖啡"]
 	}`}
 
-	_, err := promptintent.HandleDraft(context.Background(), store, dream, nil, promptintent.DraftParams{
+	_, err := promptintent.HandleDraft(context.Background(), promptIntentStoreForTest(store), dream, nil, promptintent.DraftParams{
 		Kind:          "expert",
 		RawInput:      "在我想喝酒的时候阻止我",
 		Cwd:           "/repo/a",

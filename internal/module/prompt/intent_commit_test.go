@@ -27,7 +27,7 @@ func TestPromptIntentCommitExpertWritesTemplateAndSections(t *testing.T) {
 	store.drafts["intent/expert/1"] = promptIntentDraftForTest("intent/expert/1", "/repo/a", "expert", "ready_to_save", cardJSON, nil)
 	rec := &recordingSectionInvalidator{}
 
-	got, err := promptintent.HandleCommit(context.Background(), store, rec, nil, promptintent.CommitParams{
+	got, err := promptintent.HandleCommit(context.Background(), promptIntentStoreForTest(store), rec, nil, promptintent.CommitParams{
 		DraftKey: "intent/expert/1",
 		Cwd:      "/repo/a",
 	})
@@ -61,7 +61,7 @@ func TestPromptIntentCommitExternalPromptWritesDBUserAssetNotBuiltin(t *testing.
 	store.drafts["intent/expert/1"] = promptIntentDraftForTest("intent/expert/1", "/repo/a", "expert", "ready_to_save", cardJSON, nil)
 	builtin := fakeBuiltinRegistryWithKeys("main/expert/sqlc-reviewer")
 
-	got, err := promptintent.HandleCommit(context.Background(), store, nil, builtin, promptintent.CommitParams{
+	got, err := promptintent.HandleCommit(context.Background(), promptIntentStoreForTest(store), nil, builtin, promptintent.CommitParams{
 		DraftKey:    "intent/expert/1",
 		Cwd:         "/repo/a",
 		ConfirmRisk: true,
@@ -87,7 +87,7 @@ func TestPromptIntentCommitRecallWritesScopedRecallSection(t *testing.T) {
 	store.drafts["intent/recall/1"] = promptIntentDraftForTest("intent/recall/1", "/repo/a", "recall", "ready_to_save", cardJSON, nil)
 	rec := &recordingSectionInvalidator{}
 
-	got, err := promptintent.HandleCommit(context.Background(), store, rec, nil, promptintent.CommitParams{
+	got, err := promptintent.HandleCommit(context.Background(), promptIntentStoreForTest(store), rec, nil, promptintent.CommitParams{
 		DraftKey: "intent/recall/1",
 		Cwd:      "/repo/a",
 	})
@@ -131,7 +131,7 @@ func TestPromptIntentCommitRecallSQLiteSavesOldDraftWithoutEnableWhen(t *testing
 	})
 	require.NoError(t, err)
 
-	_, err = promptintent.HandleCommit(context.Background(), store, nil, nil, promptintent.CommitParams{
+	_, err = promptintent.HandleCommit(context.Background(), promptIntentStoreForTest(store), nil, nil, promptintent.CommitParams{
 		DraftKey: "intent/recall/sqlite",
 		Cwd:      "/repo/a",
 	})
@@ -156,7 +156,7 @@ func TestPromptIntentCommitRecallNormalizesUnderscoreTopicBeforeLock(t *testing.
 	require.NoError(t, err)
 	store.drafts["intent/recall/1"] = promptIntentDraftForTest("intent/recall/1", "/repo/a", "recall", "ready_to_save", cardJSON, nil)
 
-	got, err := promptintent.HandleCommit(context.Background(), store, nil, nil, promptintent.CommitParams{
+	got, err := promptintent.HandleCommit(context.Background(), promptIntentStoreForTest(store), nil, nil, promptintent.CommitParams{
 		DraftKey: "intent/recall/1",
 		Cwd:      "/repo/a",
 	})
@@ -215,7 +215,7 @@ func TestPromptIntentCommitRejectsSiblingReadyDrafts(t *testing.T) {
 		store.drafts[draft.DraftKey] = draft
 	}
 
-	_, err = promptintent.HandleCommit(context.Background(), store, nil, nil, promptintent.CommitParams{
+	_, err = promptintent.HandleCommit(context.Background(), promptIntentStoreForTest(store), nil, nil, promptintent.CommitParams{
 		DraftKey: "intent/default_rule/selected",
 		Cwd:      "/repo/a",
 	})
@@ -251,7 +251,7 @@ func TestPromptIntentCommitRecallAllowsProjectOverrideOfGlobalTopic(t *testing.T
 	require.NoError(t, err)
 	store.drafts["intent/recall/1"] = promptIntentDraftForTest("intent/recall/1", "/repo/a", "recall", "ready_to_save", cardJSON, nil)
 
-	got, err := promptintent.HandleCommit(context.Background(), store, nil, nil, promptintent.CommitParams{
+	got, err := promptintent.HandleCommit(context.Background(), promptIntentStoreForTest(store), nil, nil, promptintent.CommitParams{
 		DraftKey: "intent/recall/1",
 		Cwd:      "/repo/a",
 	})
@@ -292,7 +292,7 @@ func TestPromptIntentCommitGlobalRecallAllowsProjectTopicOverride(t *testing.T) 
 	draft.Scope = "global"
 	store.drafts["intent/recall/1"] = draft
 
-	got, err := promptintent.HandleCommit(context.Background(), store, nil, nil, promptintent.CommitParams{
+	got, err := promptintent.HandleCommit(context.Background(), promptIntentStoreForTest(store), nil, nil, promptintent.CommitParams{
 		DraftKey:      "intent/recall/1",
 		Cwd:           "/repo/a",
 		EnableGlobal:  true,
@@ -318,7 +318,7 @@ func TestPromptIntentCommitDefaultRuleWritesProjectRuleSection(t *testing.T) {
 	store.drafts["intent/default_rule/1"] = promptIntentDraftForTest("intent/default_rule/1", "/repo/a", "default_rule", "ready_to_save", cardJSON, nil)
 	rec := &recordingSectionInvalidator{}
 
-	got, err := promptintent.HandleCommit(context.Background(), store, rec, nil, promptintent.CommitParams{
+	got, err := promptintent.HandleCommit(context.Background(), promptIntentStoreForTest(store), rec, nil, promptintent.CommitParams{
 		DraftKey: "intent/default_rule/1",
 		Cwd:      "/repo/a",
 	})
@@ -346,7 +346,7 @@ func TestPromptIntentCommitUsesDraftGlobalScopeAndRequiresConfirm(t *testing.T) 
 	draft.Scope = "global"
 	store.drafts["intent/expert/1"] = draft
 
-	_, err = promptintent.HandleCommit(context.Background(), store, nil, nil, promptintent.CommitParams{
+	_, err = promptintent.HandleCommit(context.Background(), promptIntentStoreForTest(store), nil, nil, promptintent.CommitParams{
 		DraftKey: "intent/expert/1",
 		Cwd:      "/repo/a",
 	})
@@ -354,7 +354,7 @@ func TestPromptIntentCommitUsesDraftGlobalScopeAndRequiresConfirm(t *testing.T) 
 	require.Contains(t, err.Error(), "requires global confirmation")
 	require.Empty(t, store.templates)
 
-	got, err := promptintent.HandleCommit(context.Background(), store, nil, nil, promptintent.CommitParams{
+	got, err := promptintent.HandleCommit(context.Background(), promptIntentStoreForTest(store), nil, nil, promptintent.CommitParams{
 		DraftKey:      "intent/expert/1",
 		Cwd:           "/repo/a",
 		ConfirmGlobal: true,
@@ -376,7 +376,7 @@ func TestPromptIntentCommitRejectsGlobalFlagForProjectDraft(t *testing.T) {
 	require.NoError(t, err)
 	store.drafts["intent/expert/1"] = promptIntentDraftForTest("intent/expert/1", "/repo/a", "expert", "ready_to_save", cardJSON, nil)
 
-	_, err = promptintent.HandleCommit(context.Background(), store, nil, nil, promptintent.CommitParams{
+	_, err = promptintent.HandleCommit(context.Background(), promptIntentStoreForTest(store), nil, nil, promptintent.CommitParams{
 		DraftKey:      "intent/expert/1",
 		Cwd:           "/repo/a",
 		EnableGlobal:  true,
@@ -398,7 +398,7 @@ func TestPromptIntentCommitRejectsReadyDraftThatFailsQualityGate(t *testing.T) {
 	require.NoError(t, err)
 	store.drafts["intent/expert/1"] = promptIntentDraftForTest("intent/expert/1", "/repo/a", "expert", "ready_to_save", cardJSON, nil)
 
-	_, err = promptintent.HandleCommit(context.Background(), store, nil, nil, promptintent.CommitParams{
+	_, err = promptintent.HandleCommit(context.Background(), promptIntentStoreForTest(store), nil, nil, promptintent.CommitParams{
 		DraftKey: "intent/expert/1",
 		Cwd:      "/repo/a",
 	})
@@ -418,7 +418,7 @@ func TestPromptIntentCommitRejectsReadyDraftThatFailsSafetyGate(t *testing.T) {
 	require.NoError(t, err)
 	store.drafts["intent/default_rule/1"] = promptIntentDraftForTest("intent/default_rule/1", "/repo/a", "default_rule", "ready_to_save", cardJSON, nil)
 
-	_, err = promptintent.HandleCommit(context.Background(), store, nil, nil, promptintent.CommitParams{
+	_, err = promptintent.HandleCommit(context.Background(), promptIntentStoreForTest(store), nil, nil, promptintent.CommitParams{
 		DraftKey: "intent/default_rule/1",
 		Cwd:      "/repo/a",
 	})
@@ -438,7 +438,7 @@ func TestPromptIntentCommitDefaultRuleOnlyGlobalFromGlobalDraft(t *testing.T) {
 	draft.Scope = "global"
 	store.drafts["intent/default_rule/1"] = draft
 
-	got, err := promptintent.HandleCommit(context.Background(), store, nil, nil, promptintent.CommitParams{
+	got, err := promptintent.HandleCommit(context.Background(), promptIntentStoreForTest(store), nil, nil, promptintent.CommitParams{
 		DraftKey:      "intent/default_rule/1",
 		Cwd:           "/repo/a",
 		ConfirmGlobal: true,
@@ -464,7 +464,7 @@ func TestPromptIntentCommitReviewIssueRequiresConfirmRisk(t *testing.T) {
 		{Code: "external_system_prompt_source", Severity: "review", Message: "review required"},
 	})
 
-	_, err = promptintent.HandleCommit(context.Background(), store, nil, nil, promptintent.CommitParams{
+	_, err = promptintent.HandleCommit(context.Background(), promptIntentStoreForTest(store), nil, nil, promptintent.CommitParams{
 		DraftKey: "intent/recall/1",
 		Cwd:      "/repo/a",
 	})
@@ -484,7 +484,7 @@ func TestPromptIntentCommitReviewIssueWithConfirmRisk(t *testing.T) {
 		{Code: "external_system_prompt_source", Severity: "review", Message: "review required"},
 	})
 
-	_, err = promptintent.HandleCommit(context.Background(), store, nil, nil, promptintent.CommitParams{
+	_, err = promptintent.HandleCommit(context.Background(), promptIntentStoreForTest(store), nil, nil, promptintent.CommitParams{
 		DraftKey:    "intent/recall/1",
 		Cwd:         "/repo/a",
 		ConfirmRisk: true,
@@ -502,7 +502,7 @@ func TestPromptIntentCommitBlockedDraftFails(t *testing.T) {
 	require.NoError(t, err)
 	store.drafts["intent/expert/1"] = promptIntentDraftForTest("intent/expert/1", "/repo/a", "expert", "draft", cardJSON, nil)
 
-	_, err = promptintent.HandleCommit(context.Background(), store, nil, nil, promptintent.CommitParams{
+	_, err = promptintent.HandleCommit(context.Background(), promptIntentStoreForTest(store), nil, nil, promptintent.CommitParams{
 		DraftKey: "intent/expert/1",
 		Cwd:      "/repo/a",
 	})
@@ -520,7 +520,7 @@ func TestPromptIntentDiscardReadyDraft(t *testing.T) {
 	require.NoError(t, err)
 	store.drafts["intent/expert/1"] = promptIntentDraftForTest("intent/expert/1", "/repo/a", "expert", "ready_to_save", cardJSON, nil)
 
-	got, err := promptintent.HandleDiscard(context.Background(), store, promptintent.DiscardParams{
+	got, err := promptintent.HandleDiscard(context.Background(), promptIntentStoreForTest(store), promptintent.DiscardParams{
 		DraftKey: "intent/expert/1",
 		Cwd:      "/repo/a",
 	})
@@ -548,7 +548,7 @@ func TestPromptIntentCommitDoesNotOverwriteExistingPromptTemplate(t *testing.T) 
 	require.NoError(t, err)
 	store.drafts["intent/expert/1"] = promptIntentDraftForTest("intent/expert/1", "/repo/a", "expert", "ready_to_save", cardJSON, nil)
 
-	got, err := promptintent.HandleCommit(context.Background(), store, nil, nil, promptintent.CommitParams{
+	got, err := promptintent.HandleCommit(context.Background(), promptIntentStoreForTest(store), nil, nil, promptintent.CommitParams{
 		DraftKey: "intent/expert/1",
 		Cwd:      "/repo/a",
 	})

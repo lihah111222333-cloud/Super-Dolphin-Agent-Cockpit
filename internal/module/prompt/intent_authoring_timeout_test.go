@@ -18,7 +18,7 @@ func TestPromptIntentDraftRetriesInvalidModelShapeWithinDreamTimeout(t *testing.
 	require.NoError(t, err)
 	store := newInMemoryPromptStore()
 	dream := &fakePromptIntentDream{outputs: []string{`not-json`, string(cardJSON)}}
-	got, err := promptintent.HandleDraft(context.Background(), store, dream, nil, promptintent.DraftParams{
+	got, err := promptintent.HandleDraft(context.Background(), promptIntentStoreForTest(store), dream, nil, promptintent.DraftParams{
 		Kind:     "expert",
 		RawInput: "Create an expert for sqlc review with generated-code drift checks.",
 		Cwd:      "/repo/a",
@@ -70,7 +70,7 @@ func TestPromptIntentDraftRepairUsesDreamTimeoutBudget(t *testing.T) {
 			"miss_examples":["推荐一杯咖啡"]
 		}`,
 	}}
-	_, err := promptintent.HandleDraft(context.Background(), store, dream, nil, promptintent.DraftParams{
+	_, err := promptintent.HandleDraft(context.Background(), promptIntentStoreForTest(store), dream, nil, promptintent.DraftParams{
 		Kind:     "expert",
 		RawInput: "在我想喝酒的时候阻止我",
 		Cwd:      "/repo/a",

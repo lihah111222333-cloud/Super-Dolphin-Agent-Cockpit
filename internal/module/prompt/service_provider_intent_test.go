@@ -405,7 +405,7 @@ func TestPromptItemFromTemplateIncludesWhenToUse(t *testing.T) {
 	template := scopedPromptTemplate("main/scoped", "/repo/a")
 	template.WhenToUse = "Use when routing to scoped prompt edits."
 
-	got := promptItemFromTemplate(template)
+	got := promptItemFromTemplate(promptTemplateFromStore(template))
 
 	require.Equal(t, "Use when routing to scoped prompt edits.", got.WhenToUse)
 }
@@ -416,7 +416,7 @@ func TestPromptItemFromTemplateIncludesScopeAndHidesInternalScopeTags(t *testing
 	template := scopedPromptTemplate("main/global", "")
 	template.Tags = json.RawMessage(`["scope.global","intent:expert","review"]`)
 
-	got := promptItemFromTemplate(template)
+	got := promptItemFromTemplate(promptTemplateFromStore(template))
 
 	require.Equal(t, "global", got.Scope)
 	require.JSONEq(t, `["intent:expert","review"]`, string(got.Tags))
@@ -567,7 +567,7 @@ func TestPromptSectionWriteAllowsDuplicateRecallTopicWhenUpdatingSameSection(t *
 func TestPromptSectionItemFromStoreIncludesTriggerTypeAndRecallTopic(t *testing.T) {
 	t.Parallel()
 
-	got := promptSectionItemFromStore(promptstore.PromptTemplateSection{
+	got := promptSectionItemFromStore(promptTemplateSectionFromStore(promptstore.PromptTemplateSection{
 		ID:          11,
 		TemplateID:  7,
 		SectionKey:  "project_memory",
@@ -576,7 +576,7 @@ func TestPromptSectionItemFromStoreIncludesTriggerTypeAndRecallTopic(t *testing.
 		Enabled:     true,
 		TriggerType: "recall",
 		RecallTopic: "project-memory",
-	}, "main/scoped")
+	}), "main/scoped")
 
 	require.Equal(t, "recall", got.TriggerType)
 	require.Equal(t, "project-memory", got.RecallTopic)

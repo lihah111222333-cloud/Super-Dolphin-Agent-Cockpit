@@ -49,6 +49,14 @@ func (s *stubPromptHintSharedFiles) Get(_ context.Context, path string) (*shared
 	return &file, nil
 }
 
+func (s *stubPromptHintSharedFiles) GetContent(ctx context.Context, path string) (string, error) {
+	file, err := s.Get(ctx, path)
+	if err != nil || file == nil {
+		return "", err
+	}
+	return file.Content, nil
+}
+
 func (s *stubPromptHintSharedFiles) List(context.Context, sharedfilestore.ListFilter) ([]sharedfilestore.SharedFile, error) {
 	return nil, nil
 }

@@ -60,7 +60,7 @@ func TestPromptIntentDraftExpertReadyToSave(t *testing.T) {
 		"miss_examples":["Polish a CSS button"]
 	}`}
 
-	got, err := promptintent.HandleDraft(context.Background(), store, dream, nil, promptintent.DraftParams{
+	got, err := promptintent.HandleDraft(context.Background(), promptIntentStoreForTest(store), dream, nil, promptintent.DraftParams{
 		Kind:     "expert",
 		RawInput: "Create an expert for sqlc review with generated-code drift checks.",
 		Cwd:      "/repo/a",
@@ -105,7 +105,7 @@ func TestPromptIntentDraftPromptRequiresTypedQualitySchema(t *testing.T) {
 		"miss_examples":["继续修这个函数的 bug"]
 	}`}
 
-	got, err := promptintent.HandleDraft(context.Background(), store, dream, nil, promptintent.DraftParams{
+	got, err := promptintent.HandleDraft(context.Background(), promptIntentStoreForTest(store), dream, nil, promptintent.DraftParams{
 		Kind:     "expert",
 		RawInput: "我希望你帮我整理每日对话，并提取有用的知识保存下来",
 		Cwd:      "/repo/a",
@@ -160,7 +160,7 @@ func TestPromptIntentDraftBlocksSaveIntentWithoutSaveBoundary(t *testing.T) {
 		"miss_examples":["继续帮我修改这个函数的 bug"]
 	}`}
 
-	got, err := promptintent.HandleDraft(context.Background(), store, dream, nil, promptintent.DraftParams{
+	got, err := promptintent.HandleDraft(context.Background(), promptIntentStoreForTest(store), dream, nil, promptintent.DraftParams{
 		Kind:     "expert",
 		RawInput: "我希望你帮我整理每日对话，并提取有用的知识保存下来",
 		Cwd:      "/repo/a",
@@ -192,7 +192,7 @@ func TestPromptIntentDraftBlocksExpertWithoutConcreteUsageAndOutput(t *testing.T
 		"miss_examples":["查询价格表"]
 	}`}
 
-	got, err := promptintent.HandleDraft(context.Background(), store, dream, nil, promptintent.DraftParams{
+	got, err := promptintent.HandleDraft(context.Background(), promptIntentStoreForTest(store), dream, nil, promptintent.DraftParams{
 		Kind:     "expert",
 		RawInput: "我希望你帮我整理每日对话，并提取有用的信息。",
 		Cwd:      "/repo/a",
@@ -224,7 +224,7 @@ func TestPromptIntentDraftBlocksRecallWithoutBody(t *testing.T) {
 		"miss_examples":["写日报"]
 	}`}
 
-	got, err := promptintent.HandleDraft(context.Background(), store, dream, nil, promptintent.DraftParams{
+	got, err := promptintent.HandleDraft(context.Background(), promptIntentStoreForTest(store), dream, nil, promptintent.DraftParams{
 		Kind:     "recall",
 		RawInput: "把这份价格表给 AI 查询：基础版 99 元，专业版 199 元。",
 		Cwd:      "/repo/a",
@@ -253,7 +253,7 @@ func TestPromptIntentDraftBlocksDefaultRuleWithoutRuleBody(t *testing.T) {
 		"miss_examples":["整理会议纪要"]
 	}`}
 
-	got, err := promptintent.HandleDraft(context.Background(), store, dream, nil, promptintent.DraftParams{
+	got, err := promptintent.HandleDraft(context.Background(), promptIntentStoreForTest(store), dream, nil, promptintent.DraftParams{
 		Kind:     "default_rule",
 		RawInput: "以后修改数据库前，先说明影响范围。",
 		Cwd:      "/repo/a",
@@ -273,7 +273,7 @@ func TestPromptIntentDraftBlocksDefaultRuleWithoutRuleBody(t *testing.T) {
 func TestPromptIntentDraftRequiresDreamExecutor(t *testing.T) {
 	t.Parallel()
 
-	_, err := promptintent.HandleDraft(context.Background(), newInMemoryPromptStore(), nil, nil, promptintent.DraftParams{
+	_, err := promptintent.HandleDraft(context.Background(), promptIntentStoreForTest(newInMemoryPromptStore()), nil, nil, promptintent.DraftParams{
 		Kind:     "expert",
 		RawInput: "Create a focused expert.",
 		Cwd:      "/repo/a",
@@ -296,7 +296,7 @@ func TestPromptIntentDraftRequiresHitAndMissExamples(t *testing.T) {
 		"miss_examples":["Frontend CSS changes"]
 	}`}
 
-	got, err := promptintent.HandleDraft(context.Background(), store, dream, nil, promptintent.DraftParams{
+	got, err := promptintent.HandleDraft(context.Background(), promptIntentStoreForTest(store), dream, nil, promptintent.DraftParams{
 		Kind:     "expert",
 		RawInput: "Create an expert for sqlc review with generated-code drift checks.",
 		Cwd:      "/repo/a",
@@ -327,7 +327,7 @@ func TestPromptIntentDraftExternalSystemPromptRecallCanBeReadyWithReviewIssue(t 
 		"miss_examples":["Enable a project default behavior"]
 	}`}
 
-	got, err := promptintent.HandleDraft(context.Background(), store, dream, nil, promptintent.DraftParams{
+	got, err := promptintent.HandleDraft(context.Background(), promptIntentStoreForTest(store), dream, nil, promptintent.DraftParams{
 		Kind:     "recall",
 		RawInput: "You are Claude and should remember these provider prompt notes.",
 		Cwd:      "/repo/a",
@@ -372,7 +372,7 @@ func TestPromptIntentDraftBlocksBuiltinDuplicate(t *testing.T) {
 		"miss_examples":["Store a project-specific SQLC workflow"]
 	}`}
 
-	got, err := promptintent.HandleDraft(context.Background(), store, dream, nil, promptintent.DraftParams{
+	got, err := promptintent.HandleDraft(context.Background(), promptIntentStoreForTest(store), dream, nil, promptintent.DraftParams{
 		Kind:     "expert",
 		RawInput: "Use repository instructions and run focused verification before reporting completion.",
 		Cwd:      "/repo/a",
@@ -406,7 +406,7 @@ func TestPromptIntentDraftReviewsProjectDuplicate(t *testing.T) {
 	require.NoError(t, err)
 	dream := &fakePromptIntentDream{output: string(cardJSON)}
 
-	got, err := promptintent.HandleDraft(context.Background(), store, dream, nil, promptintent.DraftParams{
+	got, err := promptintent.HandleDraft(context.Background(), promptIntentStoreForTest(store), dream, nil, promptintent.DraftParams{
 		Kind:     "expert",
 		RawInput: "Create an expert for sqlc review with generated-code drift checks.",
 		Cwd:      "/repo/a",
@@ -448,7 +448,7 @@ func TestPromptIntentDraftBlocksDuplicateRecallTopic(t *testing.T) {
 	require.NoError(t, err)
 	dream := &fakePromptIntentDream{output: string(cardJSON)}
 
-	got, err := promptintent.HandleDraft(context.Background(), store, dream, nil, promptintent.DraftParams{
+	got, err := promptintent.HandleDraft(context.Background(), promptIntentStoreForTest(store), dream, nil, promptintent.DraftParams{
 		Kind:     "recall",
 		RawInput: "Remember this sqlc workflow as project knowledge.",
 		Cwd:      "/repo/a",
@@ -492,7 +492,7 @@ func TestPromptIntentDraftAllowsProjectRecallOverrideOfGlobalTopic(t *testing.T)
 	require.NoError(t, err)
 	dream := &fakePromptIntentDream{output: string(cardJSON)}
 
-	got, err := promptintent.HandleDraft(context.Background(), store, dream, nil, promptintent.DraftParams{
+	got, err := promptintent.HandleDraft(context.Background(), promptIntentStoreForTest(store), dream, nil, promptintent.DraftParams{
 		Kind:     "recall",
 		RawInput: "Remember this project-specific sqlc workflow.",
 		Cwd:      "/repo/a",
@@ -538,7 +538,7 @@ func TestPromptIntentDraftAllowsGlobalRecallFallbackWhenProjectTopicExists(t *te
 	require.NoError(t, err)
 	dream := &fakePromptIntentDream{output: string(cardJSON)}
 
-	got, err := promptintent.HandleDraft(context.Background(), store, dream, nil, promptintent.DraftParams{
+	got, err := promptintent.HandleDraft(context.Background(), promptIntentStoreForTest(store), dream, nil, promptintent.DraftParams{
 		Kind:         "recall",
 		RawInput:     "Remember this global sqlc workflow.",
 		Cwd:          "/repo/a",
@@ -567,7 +567,7 @@ func TestPromptIntentDryRunRecallExplainsPromptRecall(t *testing.T) {
 	require.NoError(t, err)
 	store.drafts["intent/recall/1"] = promptIntentDraftForTest("intent/recall/1", "/repo/a", "recall", "ready_to_save", cardJSON, nil)
 
-	got, err := promptintent.HandleDryRun(context.Background(), store, nil, nil, promptintent.DryRunParams{
+	got, err := promptintent.HandleDryRun(context.Background(), promptIntentStoreForTest(store), nil, nil, promptintent.DryRunParams{
 		DraftKey: "intent/recall/1",
 		Cwd:      "/repo/a",
 		Question: "Where do I find sqlc workflow guidance?",
@@ -590,7 +590,7 @@ func TestPromptIntentDryRunRecallExplainsPromptRecall(t *testing.T) {
 func TestPromptIntentDryRunRequiresQuestion(t *testing.T) {
 	t.Parallel()
 
-	_, err := promptintent.HandleDryRun(context.Background(), newInMemoryPromptStore(), nil, nil, promptintent.DryRunParams{
+	_, err := promptintent.HandleDryRun(context.Background(), promptIntentStoreForTest(newInMemoryPromptStore()), nil, nil, promptintent.DryRunParams{
 		Card: json.RawMessage(`{"kind":"expert","title":"SQLC Reviewer"}`),
 	})
 	require.Error(t, err)

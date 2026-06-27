@@ -6,7 +6,6 @@ import (
 	"unicode"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
-	promptstore "github.com/anthropic-ai/super-agent-v3/internal/store/prompt"
 )
 
 // promptIntentDuplicateListLimit 限制重复检测一次最多读取的模板数量，避免创建期扫描无界放大。
@@ -15,7 +14,7 @@ const promptIntentDuplicateListLimit = 1000
 // promptIntentDuplicateIssues 检查候选草稿与已有 prompt 模板（含 builtin）是否重复，返回重复问题列表。
 func promptIntentDuplicateIssues(
 	ctx context.Context,
-	store promptstore.Store,
+	store Store,
 	builtin contract.BuiltinPromptRegistry,
 	cwd string,
 	kind Kind,
@@ -23,7 +22,7 @@ func promptIntentDuplicateIssues(
 	card Card,
 	targetGlobal bool,
 ) ([]Issue, error) {
-	templates, err := store.List(ctx, promptstore.ListFilter{CWD: cwd, Limit: promptIntentDuplicateListLimit})
+	templates, err := store.List(ctx, ListFilter{CWD: cwd, Limit: promptIntentDuplicateListLimit})
 	if err != nil {
 		return nil, err
 	}
@@ -50,7 +49,7 @@ func promptIntentDuplicateIssuesFromBuiltin(
 	candidateTitleSlug := stableSlug(card.Title)
 	var issues []Issue
 	for _, template := range builtin.ListTemplates() {
-		mapped := promptstore.PromptTemplate{
+		mapped := PromptTemplate{
 			ID:          template.ID,
 			PromptKey:   template.PromptKey,
 			Title:       template.Title,
@@ -73,12 +72,12 @@ func promptIntentDuplicateIssuesFromBuiltin(
 	return issues
 }
 
-// promptIntentBuiltinSections 将 builtin section 转换为 promptstore 类型，供重复检测使用。
-func promptIntentBuiltinSections(templateID int64, builtin contract.BuiltinPromptRegistry) []promptstore.PromptTemplateSection {
+// promptIntentBuiltinSections 将 builtin section 转换为 intent section 类型，供重复检测使用。
+func promptIntentBuiltinSections(templateID int64, builtin contract.BuiltinPromptRegistry) []PromptTemplateSection {
 	sections := builtin.SectionsByTemplateID(templateID)
-	out := make([]promptstore.PromptTemplateSection, 0, len(sections))
+	out := make([]PromptTemplateSection, 0, len(sections))
 	for _, section := range sections {
-		out = append(out, promptstore.PromptTemplateSection{
+		out = append(out, PromptTemplateSection{
 			ID:          section.ID,
 			TemplateID:  section.TemplateID,
 			SectionKey:  section.SectionKey,
@@ -94,9 +93,9 @@ func promptIntentBuiltinSections(templateID int64, builtin contract.BuiltinPromp
 // promptIntentSectionsByTemplateID 批量查询模板 section，返回按 template_id 索引的 map。
 func promptIntentSectionsByTemplateID(
 	ctx context.Context,
-	store promptstore.Store,
-	templates []promptstore.PromptTemplate,
-) (map[int64][]promptstore.PromptTemplateSection, error) {
+	store Store,
+	templates []PromptTemplate,
+) (map[int64][]PromptTemplateSection, error) {
 	ids := make([]int64, 0, len(templates))
 	for _, template := range templates {
 		if template.ID != 0 {
@@ -104,13 +103,13 @@ func promptIntentSectionsByTemplateID(
 		}
 	}
 	if len(ids) == 0 {
-		return map[int64][]promptstore.PromptTemplateSection{}, nil
+		return map[int64][]PromptTemplateSection{}, nil
 	}
 	sections, err := store.ListSectionsByTemplateIDs(ctx, ids)
 	if err != nil {
 		return nil, err
 	}
-	out := map[int64][]promptstore.PromptTemplateSection{}
+	out := map[int64][]PromptTemplateSection{}
 	for _, section := range sections {
 		out[section.TemplateID] = append(out[section.TemplateID], section)
 	}
@@ -124,8 +123,8 @@ func promptIntentDuplicateIssuesFromTemplates(
 	kind Kind,
 	rawInput string,
 	card Card,
-	templates []promptstore.PromptTemplate,
-	sectionsByID map[int64][]promptstore.PromptTemplateSection,
+	templates []PromptTemplate,
+	sectionsByID map[int64][]PromptTemplateSection,
 	targetGlobal bool,
 ) []Issue {
 	candidateText := promptIntentCandidateText(rawInput, card)
@@ -168,8 +167,8 @@ func promptIntentBuiltinDuplicateIssue(kind Kind, rawInput string) Issue {
 // 标题 slug 完全相同会直接命中；否则比较正文和 section 聚合文本的相似度。
 func promptIntentTemplateDuplicates(
 	candidateTitleSlug, candidateText string,
-	template promptstore.PromptTemplate,
-	sections []promptstore.PromptTemplateSection,
+	template PromptTemplate,
+	sections []PromptTemplateSection,
 ) bool {
 	if candidateTitleSlug != "" && candidateTitleSlug != "prompt" && candidateTitleSlug == stableSlug(template.Title) {
 		return true
@@ -196,7 +195,7 @@ func promptIntentCandidateText(rawInput string, card Card) string {
 
 // promptIntentTemplateComparableText 拼接模板及其启用 section 的可比较文本。
 // recall_topic 也参与比较，避免同名资料主题重复保存。
-func promptIntentTemplateComparableText(template promptstore.PromptTemplate, sections []promptstore.PromptTemplateSection) string {
+func promptIntentTemplateComparableText(template PromptTemplate, sections []PromptTemplateSection) string {
 	parts := []string{template.Title, template.Description, template.WhenToUse, template.PromptText}
 	for _, section := range sections {
 		if section.Enabled {
@@ -277,12 +276,12 @@ func promptIntentComparableText(value string) string {
 }
 
 // promptIntentTemplateVisibleForCWD 判断模板的 scope tag 是否与当前 cwd 匹配（无 scope tag 时全局可见）。
-func promptIntentTemplateVisibleForCWD(template promptstore.PromptTemplate, cwd string) bool {
+func promptIntentTemplateVisibleForCWD(template PromptTemplate, cwd string) bool {
 	requestScope := strings.TrimSpace(cwd)
 	if requestScope == "" {
 		return true
 	}
-	for _, tag := range promptstore.TemplateTags(template.Tags) {
+	for _, tag := range promptTags(template.Tags) {
 		if value, ok := strings.CutPrefix(strings.TrimSpace(tag), promptScopeTagPrefix); ok {
 			return strings.TrimSpace(value) == requestScope
 		}
@@ -291,12 +290,12 @@ func promptIntentTemplateVisibleForCWD(template promptstore.PromptTemplate, cwd 
 }
 
 // promptIntentTemplateHasCurrentProjectScope 判断模板是否具有当前 cwd 的项目 scope tag。
-func promptIntentTemplateHasCurrentProjectScope(template promptstore.PromptTemplate, cwd string) bool {
+func promptIntentTemplateHasCurrentProjectScope(template PromptTemplate, cwd string) bool {
 	want := promptScopeTagPrefix + strings.TrimSpace(cwd)
 	if want == promptScopeTagPrefix {
 		return false
 	}
-	for _, tag := range promptstore.TemplateTags(template.Tags) {
+	for _, tag := range promptTags(template.Tags) {
 		if strings.TrimSpace(tag) == want {
 			return true
 		}
@@ -306,7 +305,7 @@ func promptIntentTemplateHasCurrentProjectScope(template promptstore.PromptTempl
 
 // promptIntentRecallDuplicateConflicts 判断 recall topic 重复是否会与目标 scope 冲突。
 // global 与项目级独占模板互不阻断，避免不同可见范围的资料误报重复。
-func promptIntentRecallDuplicateConflicts(targetGlobal bool, template promptstore.PromptTemplate, cwd string) bool {
+func promptIntentRecallDuplicateConflicts(targetGlobal bool, template PromptTemplate, cwd string) bool {
 	if targetGlobal && promptIntentTemplateHasCurrentProjectOnlyScope(template, cwd) {
 		return false
 	}
@@ -317,23 +316,23 @@ func promptIntentRecallDuplicateConflicts(targetGlobal bool, template promptstor
 }
 
 // promptIntentTemplateHasCurrentProjectOnlyScope 判断模板是否只属于当前项目 scope。
-func promptIntentTemplateHasCurrentProjectOnlyScope(template promptstore.PromptTemplate, cwd string) bool {
+func promptIntentTemplateHasCurrentProjectOnlyScope(template PromptTemplate, cwd string) bool {
 	hasCurrentProject, hasGlobal := promptIntentTemplateScopeFlags(template, cwd)
 	return hasCurrentProject && !hasGlobal
 }
 
 // promptIntentTemplateHasGlobalOnlyScope 判断模板是否只属于 global scope。
-func promptIntentTemplateHasGlobalOnlyScope(template promptstore.PromptTemplate, cwd string) bool {
+func promptIntentTemplateHasGlobalOnlyScope(template PromptTemplate, cwd string) bool {
 	hasCurrentProject, hasGlobal := promptIntentTemplateScopeFlags(template, cwd)
 	return hasGlobal && !hasCurrentProject
 }
 
 // promptIntentTemplateScopeFlags 返回模板是否同时具备当前项目和 global scope。
-func promptIntentTemplateScopeFlags(template promptstore.PromptTemplate, cwd string) (bool, bool) {
+func promptIntentTemplateScopeFlags(template PromptTemplate, cwd string) (bool, bool) {
 	want := promptScopeTagPrefix + strings.TrimSpace(cwd)
 	hasCurrentProject := false
 	hasGlobal := false
-	for _, tag := range promptstore.TemplateTags(template.Tags) {
+	for _, tag := range promptTags(template.Tags) {
 		switch strings.TrimSpace(tag) {
 		case want:
 			hasCurrentProject = want != promptScopeTagPrefix
@@ -345,7 +344,7 @@ func promptIntentTemplateScopeFlags(template promptstore.PromptTemplate, cwd str
 }
 
 // promptIntentTemplateLooksBuiltin 判断模板是否来自系统或批量导入路径，用于内置重复识别。
-func promptIntentTemplateLooksBuiltin(template promptstore.PromptTemplate) bool {
+func promptIntentTemplateLooksBuiltin(template PromptTemplate) bool {
 	return promptIntentAuthorLooksSystem(template.CreatedBy) || promptIntentAuthorLooksSystem(template.UpdatedBy)
 }
 
@@ -356,7 +355,7 @@ func promptIntentAuthorLooksSystem(author string) bool {
 }
 
 // promptIntentRecallTopicExists 判断 section 列表中是否已有启用的同名 recall topic。
-func promptIntentRecallTopicExists(topic string, sections []promptstore.PromptTemplateSection) bool {
+func promptIntentRecallTopicExists(topic string, sections []PromptTemplateSection) bool {
 	topic = strings.TrimSpace(topic)
 	if topic == "" {
 		return false

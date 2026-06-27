@@ -1,9 +1,11 @@
 package intent
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"strings"
+	"time"
 )
 
 // Kind 是提示词意图的类型枚举，决定草稿卡片的校验规则和提交路径。
@@ -60,6 +62,123 @@ type E2EHealthParams struct{}
 type E2EHealthResult struct {
 	Provider        string `json:"provider"`
 	FixturePathHash string `json:"fixture_path_hash,omitempty"`
+}
+
+// Store 是 prompt intent 读写草稿、模板和 section 的窄持久化边界。
+// 父 prompt 包在 module.go 中把真实 store 适配为该接口，intent 子包不直接感知 store DTO。
+type Store interface {
+	List(ctx context.Context, filter ListFilter) ([]PromptTemplate, error)
+	WithTx(ctx context.Context, fn func(txStore Store) error) error
+	Get(ctx context.Context, promptKey string) (*PromptTemplate, error)
+	InsertVersion(ctx context.Context, version PromptTemplateVersion) (int64, error)
+	CreatePromptTemplate(ctx context.Context, template PromptTemplate) (*PromptTemplate, error)
+	ListSectionsByTemplateID(ctx context.Context, templateID int64) ([]PromptTemplateSection, error)
+	ListSectionsByTemplateIDs(ctx context.Context, templateIDs []int64) ([]PromptTemplateSection, error)
+	ListDefaultRuleSections(ctx context.Context, cwd string) ([]PromptTemplateSection, error)
+	UpsertSection(ctx context.Context, section PromptTemplateSection) (*PromptTemplateSection, error)
+	UpsertRecallTopicTargetInCWD(ctx context.Context, cwd, topic string, templateID int64, sectionKey string) error
+	UpsertIntentDraft(ctx context.Context, draft PromptIntentDraft) (*PromptIntentDraft, error)
+	GetIntentDraft(ctx context.Context, cwd, draftKey string) (*PromptIntentDraft, error)
+	ListIntentDrafts(ctx context.Context, filter PromptIntentDraftListFilter) ([]PromptIntentDraft, error)
+	UpdateIntentDraftStatus(ctx context.Context, cwd, draftKey, status string) (*PromptIntentDraft, error)
+	LockRecallTopicInCWD(ctx context.Context, cwd, topic string) error
+}
+
+// ListFilter 限定 intent 创建/提交路径读取的 prompt 模板范围。
+type ListFilter struct {
+	AgentKey string
+	Keyword  string
+	CWD      string
+	Limit    int32
+}
+
+// PromptTemplate 是 intent 子包内部使用的模板 DTO，由父包 adapter 转换自持久化层。
+type PromptTemplate struct {
+	ID             int64           `json:"id"`
+	PromptKey      string          `json:"prompt_key"`
+	Title          string          `json:"title"`
+	AgentKey       string          `json:"agent_key"`
+	ToolName       string          `json:"tool_name"`
+	PromptText     string          `json:"prompt_text"`
+	WhenToUse      string          `json:"when_to_use"`
+	Variables      json.RawMessage `json:"variables"`
+	Tags           json.RawMessage `json:"tags"`
+	Enabled        bool            `json:"enabled"`
+	ManuallyEdited bool            `json:"manually_edited"`
+	MatchWhen      json.RawMessage `json:"match_when,omitempty"`
+	Priority       int             `json:"priority"`
+	CreatedBy      string          `json:"created_by"`
+	UpdatedBy      string          `json:"updated_by"`
+	CreatedAt      time.Time       `json:"created_at"`
+	UpdatedAt      time.Time       `json:"updated_at"`
+	Description    string          `json:"description"`
+}
+
+// PromptTemplateSection 是 intent 子包内部使用的 section DTO。
+type PromptTemplateSection struct {
+	ID                  int64           `json:"id"`
+	TemplateID          int64           `json:"template_id"`
+	SectionKey          string          `json:"section_key"`
+	Region              string          `json:"region"`
+	Ordinal             int             `json:"ordinal"`
+	Body                string          `json:"body"`
+	EnableWhen          json.RawMessage `json:"enable_when,omitempty"`
+	Enabled             bool            `json:"enabled"`
+	TriggerType         string          `json:"trigger_type"`
+	RecallTopic         string          `json:"recall_topic"`
+	TemplatePromptKey   string          `json:"template_prompt_key,omitempty"`
+	TemplateTitle       string          `json:"template_title,omitempty"`
+	TemplateDescription string          `json:"template_description,omitempty"`
+	TemplateWhenToUse   string          `json:"template_when_to_use,omitempty"`
+	TemplateTags        json.RawMessage
+	CreatedAt           time.Time `json:"created_at"`
+	UpdatedAt           time.Time `json:"updated_at"`
+}
+
+// PromptTemplateVersion 是 intent 更新路径写入版本历史的 DTO。
+type PromptTemplateVersion struct {
+	ID              int64
+	PromptKey       string
+	Title           string
+	AgentKey        string
+	ToolName        string
+	PromptText      string
+	Variables       json.RawMessage
+	Tags            json.RawMessage
+	Description     string
+	Enabled         bool
+	CreatedBy       string
+	UpdatedBy       string
+	SourceUpdatedAt *time.Time
+	CreatedAt       time.Time
+	ArchivedAt      time.Time
+}
+
+// PromptIntentDraft 是 intent 草稿 DTO，GeneratedCard 和 Issues 保留原始 JSON 供前端复查。
+type PromptIntentDraft struct {
+	ID            int64
+	DraftKey      string
+	CWD           string
+	Kind          string
+	RawInput      string
+	SourceType    string
+	SourceURL     string
+	OriginHash    string
+	LicenseHint   string
+	GeneratedCard json.RawMessage
+	Confidence    float64
+	Status        string
+	Scope         string
+	Issues        json.RawMessage
+	CreatedAt     time.Time
+	UpdatedAt     time.Time
+}
+
+// PromptIntentDraftListFilter 限定 intent draft 查询范围。
+type PromptIntentDraftListFilter struct {
+	CWD    string
+	Status string
+	Limit  int32
 }
 
 // Card 是提示词意图草稿卡片，保存 LLM 生成的结构化内容；不同 kind 使用不同字段子集。

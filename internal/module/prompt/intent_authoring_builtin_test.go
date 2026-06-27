@@ -43,7 +43,7 @@ func TestPromptIntentDraftDetectsBuiltinRegistryDuplicate(t *testing.T) {
 		"miss_examples":["记录晚饭吃什么"]
 	}`}
 
-	got, err := promptintent.HandleDraft(context.Background(), store, dream, builtin, promptintent.DraftParams{
+	got, err := promptintent.HandleDraft(context.Background(), promptIntentStoreForTest(store), dream, builtin, promptintent.DraftParams{
 		Kind:     "expert",
 		RawInput: "Create an expert for repository-aware coding tasks and focused verification.",
 		Cwd:      "/repo/a",
