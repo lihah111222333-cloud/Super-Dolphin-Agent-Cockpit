@@ -19,7 +19,7 @@
 <h2>一、总体架构</h2>
 <table>
 <tr><th>层级</th><th>主要目录 / 组件</th><th>职责</th><th>上游 / 下游关系</th></tr>
-<tr><td class="layer">UI 与入口层</td><td>frontend-app<br/>cmd/agent-terminal<br/>cmd/agent-terminal/frontend</td><td>React/Vite 新 UI、Wails 桌面宿主、HTTP/RPC Bridge、Legacy Vue 嵌入前端</td><td>用户 → frontend-app → cmd/agent-terminal</td></tr>
+<tr><td class="layer">UI 与入口层</td><td>frontend-app<br/>cmd/agent-terminal<br/>cmd/agent-terminal/web-dist</td><td>React/Vite 新 UI、Wails 桌面宿主、HTTP/RPC Bridge、Go embed 静态资源同步目录</td><td>用户 → frontend-app → web-dist → cmd/agent-terminal</td></tr>
 <tr><td class="layer">应用组装层</td><td>internal/app<br/>internal/contract</td><td>Fx 根装配；定义跨模块窄接口、DTO、错误边界</td><td>cmd/agent-terminal → internal/app → modules/platform/store/provider</td></tr>
 <tr><td class="layer">业务模块层</td><td>internal/module/dashboard<br/>internal/module/thread<br/>internal/module/turn<br/>internal/module/prompt<br/>internal/module/memory<br/>internal/module/skill<br/>internal/module/cron<br/>internal/module/uistate</td><td>dashboard 聚合、线程生命周期、回合编排、提示词组装、记忆、技能、定时任务、UI 投影</td><td>RPC/UI/Orchestration → internal/module/* → contract/store/provider</td></tr>
 <tr><td class="layer">基础设施层</td><td>internal/platform/config<br/>db<br/>bus<br/>rpc<br/>hooks<br/>mcpcontrol<br/>toolbridge<br/>runner</td><td>配置、SQLite、事件总线、jrpc2、Hooks、MCP 控制面、Host-direct tools、生命周期管理</td><td>业务模块与 provider 共享的基础设施</td></tr>
