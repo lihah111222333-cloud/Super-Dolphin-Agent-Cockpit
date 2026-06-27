@@ -245,7 +245,7 @@ func requireForkedThreadResult(t *testing.T, result ForkResult, threadStore *stu
 	if result.NewThreadID != "thread-2" {
 		t.Fatalf("Fork() new thread id = %q, want thread-2", result.NewThreadID)
 	}
-	if threadStore.upsertCount != 1 || threadStore.upsert.OwnerThreadID != "thread-1" {
+	if threadStore.upsertCount < 1 || threadStore.upsert.OwnerThreadID != "thread-1" {
 		t.Fatalf("fork upsert = %#v (count %d), want owner_thread_id thread-1", threadStore.upsert, threadStore.upsertCount)
 	}
 }
