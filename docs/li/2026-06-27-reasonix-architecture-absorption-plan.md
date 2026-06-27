@@ -178,14 +178,14 @@ Write `docs/li/reasonix-absorption-spikes/event-wire-methods.md`:
 
 ## Source Of Truth
 
-- Backend constants live in `internal/platform/eventsurface/bind.go`.
-- Compatibility expansion lives in `internal/platform/eventsurface/legacy.go`.
+- Backend typed constants live in `internal/platform/eventsurface/bind.go`; legacy compatibility methods such as `ui/thread/changed` and `ui/sidebar/changed` live in `internal/platform/eventsurface/legacy.go`.
+- Compatibility expansion lives in `internal/platform/eventsurface/legacy.go`, including `workspace/run/` source-event handling.
 - RPC push uses `eventsurface.ExpandNotifications`.
 - Wails bridge uses `eventsurface.ExpandNotifications`.
 
 ## Required Method Set
 
-The implementation must include every `Method*` constant from `internal/platform/eventsurface/bind.go`, including turn, item, approval, thread, UI, agent, task, and cron methods.
+The implementation must inventory every `Method*` constant from the whole `internal/platform/eventsurface` package, including bind constants and legacy compatibility methods. The raw provider allowlist is separate from compatibility/source-event prefixes; do not silently expand raw provider visibility while stabilizing frontend parsing.
 
 ## Decision
 
@@ -387,6 +387,8 @@ The cross-type field drift guard belongs in `internal/module/thread/session_port
 Run:
 
 ```bash
+./scripts/test_with_guard.sh internal/contract/session_ports.go
+./scripts/test_with_guard.sh internal/contract/session_ports_test.go
 ./scripts/test_with_guard.sh ./internal/contract -count=1
 ```
 
@@ -855,6 +857,10 @@ Run:
 ```bash
 ./scripts/test_with_guard.sh internal/module/thread/session_lifecycle_port.go
 ./scripts/test_with_guard.sh internal/module/thread/session_status_port.go
+./scripts/test_with_guard.sh internal/module/thread/session_ports_test.go
+./scripts/test_with_guard.sh internal/app/session_ports.go
+./scripts/test_with_guard.sh internal/app/session_ports_test.go
+./scripts/test_with_guard.sh internal/app/modules.go
 ./scripts/test_with_guard.sh ./internal/app ./internal/module/thread -count=1
 ```
 
@@ -931,11 +937,14 @@ export const EVENT_RAW_WIRE_PREFIXES = Object.freeze([
   'account/',
   'app/list/',
   'fuzzyFileSearch/',
-  'workspace/run/',
 ]);
 
 export const EVENT_RAW_WIRE_SUFFIXES = Object.freeze([
   '/requestApproval',
+]);
+
+export const EVENT_COMPAT_WIRE_PREFIXES = Object.freeze([
+  'workspace/run/',
 ]);
 
 // Compatibility alias for any existing caller that imports the old name.
@@ -992,6 +1001,12 @@ func AllTypedWireMethods() []string {
 	}
 }
 
+func CompatWirePrefixes() []string {
+	return []string{
+		"workspace/run/",
+	}
+}
+
 func RawWireAllowlistSpec() RawWireAllowlist {
 	return RawWireAllowlist{
 		Methods: []string{
@@ -1011,9 +1026,6 @@ func RawWireAllowlistSpec() RawWireAllowlist {
 			"account/",
 			"app/list/",
 			"fuzzyFileSearch/",
-			// eventsurface.ExpandNotifications already treats workspace run
-			// methods as source events that trigger sidebar refresh.
-			"workspace/run/",
 		},
 		Suffixes: []string{
 			"/requestApproval",
@@ -1045,13 +1057,23 @@ func RawWireAllowed(spec RawWireAllowlist, method string) bool {
 }
 ```
 
-Add `strings` to `internal/platform/eventsurface/methods.go`.
+Add `strings` to `internal/platform/eventsurface/methods.go`. `CompatWirePrefixes` exists for frontend/source-event parsing only; it must not be folded into `RawWireAllowlistSpec` without an explicit behavior-change test.
 
 - [ ] **Step 3: Make RPC raw push use the shared allowlist**
 
-In `internal/platform/rpc/push.go`, keep typed suppression in `rpc`, then delegate open raw method decisions to `eventsurface`:
+In `internal/platform/rpc/push.go`, derive typed suppression from the shared typed method list, then delegate open raw method decisions to `eventsurface`:
 
 ```go
+var typedPushMethods = newTypedPushMethods()
+
+func newTypedPushMethods() map[string]struct{} {
+	out := make(map[string]struct{}, len(eventsurface.AllTypedWireMethods()))
+	for _, method := range eventsurface.AllTypedWireMethods() {
+		out[strings.ToLower(method)] = struct{}{}
+	}
+	return out
+}
+
 func shouldPushRawProviderMethod(method string) bool {
 	method = strings.TrimSpace(approvalMethodCatalog.normalize(method))
 	if method == "" {
@@ -1064,7 +1086,7 @@ func shouldPushRawProviderMethod(method string) bool {
 }
 ```
 
-Update `internal/platform/rpc/push_test.go` so the existing raw push cases still pass through the shared allowlist instead of a private copy in `rpc`.
+Update `internal/platform/rpc/push_test.go` so the existing raw push cases still pass through the shared allowlist instead of a private copy in `rpc`. Add a regression assertion that `workspace/run/created` is not accepted by `shouldPushRawProviderMethod`; `workspace/run/` remains an eventsurface compatibility/source-event prefix, not a raw provider prefix.
 
 - [ ] **Step 4: Add bidirectional parity tests against frontend lists**
 
@@ -1103,6 +1125,7 @@ func TestRawWireAllowlistMatchesFrontendList(t *testing.T) {
 	assertStringSetEqual(t, "raw wire methods", spec.Methods, frontendFrozenStringArray(t, raw, "EVENT_RAW_WIRE_METHODS"))
 	assertStringSetEqual(t, "raw wire prefixes", spec.Prefixes, frontendFrozenStringArray(t, raw, "EVENT_RAW_WIRE_PREFIXES"))
 	assertStringSetEqual(t, "raw wire suffixes", spec.Suffixes, frontendFrozenStringArray(t, raw, "EVENT_RAW_WIRE_SUFFIXES"))
+	assertStringSetEqual(t, "compat wire prefixes", CompatWirePrefixes(), frontendFrozenStringArray(t, raw, "EVENT_COMPAT_WIRE_PREFIXES"))
 }
 
 func TestWireAllowlistCoversLegacyAndRawOpenMethods(t *testing.T) {
@@ -1121,7 +1144,6 @@ func TestWireAllowlistCoversLegacyAndRawOpenMethods(t *testing.T) {
 		"item/plan/delta",
 		"turn/plan/delta",
 		"account/rateLimits/updated",
-		"workspace/run/created",
 		"approval/request",
 		"thread/name/updated",
 		"item/custom/requestApproval",
@@ -1132,6 +1154,16 @@ func TestWireAllowlistCoversLegacyAndRawOpenMethods(t *testing.T) {
 	}
 	if RawWireAllowed(spec, "unknown/domain/event") {
 		t.Fatalf("raw wire allowlist accepted unknown method")
+	}
+	if RawWireAllowed(spec, "workspace/run/created") {
+		t.Fatalf("raw wire allowlist must not accept workspace run source events")
+	}
+	workspaceExpanded := map[string]bool{}
+	for _, notification := range ExpandNotifications("workspace/run/created", map[string]any{"threadId": "thread-1"}) {
+		workspaceExpanded[notification.Method] = true
+	}
+	if !workspaceExpanded[MethodUISidebarChanged] {
+		t.Fatalf("workspace run source events must still trigger sidebar refresh")
 	}
 }
 
@@ -1197,6 +1229,7 @@ func repoRootForEventSurfaceTest(t *testing.T) string {
 
 ```js
 import {
+  EVENT_COMPAT_WIRE_PREFIXES,
   EVENT_RAW_WIRE_METHODS,
   EVENT_RAW_WIRE_PREFIXES,
   EVENT_RAW_WIRE_SUFFIXES,
@@ -1210,6 +1243,7 @@ export function isKnownEventWireMethod(method) {
   if (!method || typeof method !== 'string') return false;
   if (typedWireMethodSet.has(method) || rawWireMethodSet.has(method)) return true;
   return EVENT_RAW_WIRE_PREFIXES.some((prefix) => method.startsWith(prefix)) ||
+    EVENT_COMPAT_WIRE_PREFIXES.some((prefix) => method.startsWith(prefix)) ||
     EVENT_RAW_WIRE_SUFFIXES.some((suffix) => method.endsWith(suffix));
 }
 
@@ -1229,6 +1263,10 @@ export function asEventWireNotification(method, payload) {
 Run:
 
 ```bash
+./scripts/test_with_guard.sh internal/platform/eventsurface/methods.go
+./scripts/test_with_guard.sh internal/platform/eventsurface/methods_test.go
+./scripts/test_with_guard.sh internal/platform/rpc/push.go
+./scripts/test_with_guard.sh internal/platform/rpc/push_test.go
 ./scripts/test_with_guard.sh ./internal/platform/eventsurface ./internal/platform/rpc ./internal/ui/wails -count=1
 cd frontend-app && npm test -- eventWire.test.js
 ```
@@ -1383,7 +1421,13 @@ Do not add `PrefixShape` to `dto.TurnRequest`.
 Run:
 
 ```bash
+./scripts/test_with_guard.sh internal/dto/provider/session.go
+./scripts/test_with_guard.sh internal/contract/prompt.go
 ./scripts/test_with_guard.sh internal/module/prompt/prefix_shape.go
+./scripts/test_with_guard.sh internal/module/prompt/prefix_shape_test.go
+./scripts/test_with_guard.sh internal/module/prompt/assembler.go
+./scripts/test_with_guard.sh internal/provider/codexapp/driver.go
+./scripts/test_with_guard.sh internal/provider/codexapp/driver_session_test.go
 ./scripts/test_with_guard.sh ./internal/module/prompt ./internal/module/thread ./internal/provider/codexapp ./internal/provider/claudecli -count=1
 ```
 
@@ -1446,6 +1490,9 @@ Run:
 
 ```bash
 ./scripts/test_with_guard.sh internal/platform/toolbridge/mcp_namespace.go
+./scripts/test_with_guard.sh internal/platform/toolbridge/mcp_namespace_test.go
+./scripts/test_with_guard.sh internal/platform/toolbridge/handler_peer_decode_helpers.go
+./scripts/test_with_guard.sh internal/platform/toolbridge/handler_host_tools.go
 ./scripts/test_with_guard.sh ./internal/platform/toolbridge -count=1
 ```
 
@@ -1491,6 +1538,7 @@ This intentionally does not scan `internal/app`, because `internal/app/app.go` i
 Run:
 
 ```bash
+./scripts/test_with_guard.sh internal/archtest/desktop_dependency_test.go
 ./scripts/test_with_guard.sh ./internal/archtest -count=1
 make guard
 ```
@@ -1534,7 +1582,29 @@ export const sessionApi = Object.freeze({
 
 ```js
 import fs from 'node:fs';
+import { beforeEach, expect, test, vi } from 'vitest';
 import { sessionApi } from './sessionApi.js';
+import {
+  callBackend,
+  getThreadMessages,
+  interruptTurn,
+  startThread,
+  startTurn,
+} from './backendApi.js';
+
+vi.mock('./backendApi.js', () => ({
+  callBackend: vi.fn(() => {
+    throw new Error('sessionApi must not call raw callBackend');
+  }),
+  getThreadMessages: vi.fn(),
+  interruptTurn: vi.fn(),
+  startThread: vi.fn(),
+  startTurn: vi.fn(),
+}));
+
+beforeEach(() => {
+  vi.clearAllMocks();
+});
 
 test('sessionApi exposes stable session method names', () => {
   expect(Object.keys(sessionApi).sort()).toEqual(['interrupt', 'messages', 'start', 'startTurn']);
@@ -1544,6 +1614,25 @@ test('sessionApi does not import raw bridge API', () => {
   const source = fs.readFileSync(new URL('./sessionApi.js', import.meta.url), 'utf8');
   expect(source).not.toContain('wailsBridge');
   expect(source).not.toContain('callAPI');
+  expect(source).not.toContain('callBackend');
+});
+
+test('sessionApi delegates only to guarded backendApi exports', async () => {
+  startThread.mockResolvedValue({ id: 'thread-1' });
+  startTurn.mockResolvedValue({ ok: true });
+  interruptTurn.mockResolvedValue({ interrupted: true });
+  getThreadMessages.mockResolvedValue({ messages: [] });
+
+  await expect(sessionApi.start({ cwd: '/repo', name: 'draft' })).resolves.toEqual({ id: 'thread-1' });
+  await expect(sessionApi.startTurn({ threadId: 'thread-1', text: 'hello' })).resolves.toEqual({ ok: true });
+  await expect(sessionApi.interrupt('thread-1', '/repo', 'ui_stop')).resolves.toEqual({ interrupted: true });
+  await expect(sessionApi.messages('thread-1', 25, 'cursor-1')).resolves.toEqual({ messages: [] });
+
+  expect(startThread).toHaveBeenCalledWith({ cwd: '/repo', name: 'draft' });
+  expect(startTurn).toHaveBeenCalledWith({ threadId: 'thread-1', text: 'hello' });
+  expect(interruptTurn).toHaveBeenCalledWith({ threadId: 'thread-1', cwd: '/repo', source: 'ui_stop' });
+  expect(getThreadMessages).toHaveBeenCalledWith({ threadId: 'thread-1', limit: 25, before: 'cursor-1' });
+  expect(callBackend).not.toHaveBeenCalled();
 });
 ```
 
@@ -1577,6 +1666,8 @@ Expected: tests and lint pass.
 
 After all phases, run:
 
+Before this final package-level pass, every phase-owned Go file listed in the task sections above must already have passed its single-file guard. The package-level commands below are not a substitute for the per-file guard rule.
+
 ```bash
 ./scripts/test_with_guard.sh ./internal/contract ./internal/app ./internal/module/thread ./internal/module/prompt ./internal/platform/eventsurface ./internal/platform/rpc ./internal/platform/toolbridge ./internal/provider/codexapp ./internal/provider/claudecli ./internal/ui/wails ./internal/archtest -count=1
 make guard
@@ -1590,6 +1681,7 @@ Expected:
 - All Go package tests pass.
 - `make guard` exits `0`.
 - `make build-plain` exits `0`.
+- If `make build-plain` updates ignored embedded frontend output, report it as generated output and do not stage legacy Vue source or ignored `cmd/agent-terminal/frontend/dist`.
 - Frontend lint, tests, and build pass.
 - `git status --short` shows only phase-owned files plus any explicitly approved pre-existing dirty files.
 

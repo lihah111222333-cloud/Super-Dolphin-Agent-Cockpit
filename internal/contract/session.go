@@ -2,6 +2,7 @@ package contract
 
 import (
 	"context"
+	"encoding/json"
 
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
 )
@@ -30,6 +31,93 @@ type SessionResolver interface {
 type SessionRecoveryReporter interface {
 	ClearStaleProviderThreadID(ctx context.Context, agentID string) error
 	RecordProviderSessionUUID(ctx context.Context, agentID, sessionUUID string) error
+}
+
+// SessionStartRequest 是内部 session port 的稳定启动 DTO。
+// 它覆盖 thread.StartRequest 中 adapter 必须透传的启动字段；PromptAssemblyRef、PromptVersionID、
+// AgentTitle 和 PromptKeyStale 仍由 thread service 内部填充，不从该 port 入口传入。
+type SessionStartRequest struct {
+	Provider, AgentID, ParentAgentID, AgentType, AgentMemoryScope string
+	CWD, Model, ModelProvider, Name                               string
+	Prompt, BaseInstructions                                      string
+	BaseInstructionBlocks                                         []BaseInstructionBlock
+	DeveloperInstructions                                         string
+	ApprovalPolicy                                                string
+	Sandbox                                                       json.RawMessage
+	Summary                                                       string
+	Effort                                                        string
+	Personality                                                   string
+	Language                                                      string
+	GitRoot                                                       string
+	IsWorktree                                                    bool
+	ToolSurfaceMode                                               string
+	EnabledTools                                                  []string
+	AdditionalWorkingDirectories                                  []string
+	MCPSnapshot                                                   MCPSnapshot
+	SessionFlags                                                  map[string]bool
+	Config                                                        map[string]any
+	LaunchSkillNames                                              []string
+	LaunchSkillRefs                                               []dto.SkillRef
+	ForceLaunchSkills                                             bool
+	AgentKey                                                      string
+	PromptKey                                                     string
+	OwnerThreadID, LaunchIntentID                                 string
+	DeferSpawn                                                    bool
+}
+
+// SessionStartResult 是内部 session port 的稳定启动结果。
+type SessionStartResult struct {
+	ThreadID        string `json:"thread_id"`
+	AgentID         string `json:"agent_id,omitempty"`
+	SessionID       string `json:"session_id,omitempty"`
+	Status          string `json:"status,omitempty"`
+	Model           string `json:"model,omitempty"`
+	Provider        string `json:"provider,omitempty"`
+	ModelProvider   string `json:"modelProvider,omitempty"`
+	CWD             string `json:"cwd,omitempty"`
+	ApprovalPolicy  string `json:"approvalPolicy,omitempty"`
+	AgentKey        string `json:"agent_key,omitempty"`
+	AgentTitle      string `json:"agent_title,omitempty"`
+	PromptKey       string `json:"prompt_key,omitempty"`
+	PromptVersionID *int64 `json:"prompt_version_id,omitempty"`
+	PromptKeyStale  bool   `json:"prompt_key_stale,omitempty"`
+	PendingLaunch   bool   `json:"pending_launch,omitempty"`
+}
+
+// SessionThreadSummary 是 session status 端口暴露给 UI/RPC 的线程摘要。
+type SessionThreadSummary struct {
+	ID               string `json:"id"`
+	Name             string `json:"name,omitempty"`
+	AgentID          string `json:"agent_id,omitempty"`
+	Status           string `json:"status,omitempty"`
+	CreatedAt        int64  `json:"created_at,omitempty"`
+	UpdatedAt        int64  `json:"updated_at,omitempty"`
+	Provider         string `json:"provider,omitempty"`
+	ProviderThreadID string `json:"providerThreadId,omitempty"`
+	SessionID        string `json:"sessionId,omitempty"`
+	CWD              string `json:"cwd,omitempty"`
+	Model            string `json:"model,omitempty"`
+	Port             int    `json:"port,omitempty"`
+}
+
+// SessionLifecyclePort 收窄 session 创建、恢复、fork 和归档入口。
+type SessionLifecyclePort interface {
+	StartSession(ctx context.Context, req SessionStartRequest) (SessionStartResult, error)
+	ResumeSession(ctx context.Context, threadID string) (SessionStartResult, error)
+	ForkSession(ctx context.Context, threadID string) (SessionStartResult, error)
+	ArchiveSession(ctx context.Context, threadID string) error
+}
+
+// SessionStatusPort 暴露 session 列表和消息读取入口。
+type SessionStatusPort interface {
+	ListSessions(ctx context.Context) ([]SessionThreadSummary, error)
+	ReadMessages(ctx context.Context, threadID string, limit int, before string) (dto.ThreadMessagesResult, error)
+}
+
+// SessionPorts 聚合第一阶段 session lifecycle/read 端口。
+type SessionPorts interface {
+	SessionLifecyclePort
+	SessionStatusPort
 }
 
 // SessionThreadRef / SessionBinding 是 provider/unified session resolver 使用的窄投影。
