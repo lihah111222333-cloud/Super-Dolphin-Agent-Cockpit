@@ -1,3 +1,4 @@
+[CmdletBinding(SupportsShouldProcess)]
 param(
     [ValidateSet('all', 'installer', 'zip')]
     [string]$Artifact = $(if ($env:SUPER_DOLPHIN_WINDOWS_OUTPUT) { $env:SUPER_DOLPHIN_WINDOWS_OUTPUT } else { 'all' }),
@@ -195,6 +196,18 @@ function Get-SHA256File() {
     return (Get-FileHash -Algorithm SHA256 -LiteralPath $Path).Hash.ToLowerInvariant()
 }
 
+function Get-NodeVersionInput() {
+    $version = (& node --version).Trim()
+    if ($LASTEXITCODE -ne 0 -or $version -eq '') { throw 'node --version failed while calculating frontend cache key' }
+    return $version
+}
+
+function Get-NPMVersionInput() {
+    $version = (& npm --version).Trim()
+    if ($LASTEXITCODE -ne 0 -or $version -eq '') { throw 'npm --version failed while calculating frontend cache key' }
+    return $version
+}
+
 function Get-BuildPhaseInputPath() {
     param([Parameter(Mandatory)][string]$Path)
     $resolvedRoot = (Resolve-Path -LiteralPath $Root).Path.TrimEnd('\', '/')
@@ -247,6 +260,7 @@ function Test-BuildPhaseCache() {
         [string[]]$Inputs = @()
     )
     if ($env:SUPER_DOLPHIN_SKIP_BUILD_CACHE -eq '1') { return $false }
+    if ($env:SUPER_DOLPHIN_RELEASE_BUILD -eq '1') { return $false }
     $hash = Get-BuildPhaseHash -Paths $Paths -Inputs $Inputs
     $marker = Join-Path (Join-Path $BuildCacheDir $Name) "$hash.ok"
     if (Test-Path -LiteralPath $marker -PathType Leaf) {
@@ -260,6 +274,7 @@ function Test-BuildPhaseCache() {
 
 function Save-BuildPhaseCache() {
     if ($env:SUPER_DOLPHIN_SKIP_BUILD_CACHE -eq '1') { return }
+    if ($env:SUPER_DOLPHIN_RELEASE_BUILD -eq '1') { return }
     if ($script:CurrentBuildPhaseName.Trim() -eq '' -or $script:CurrentBuildPhaseHash.Trim() -eq '') { return }
     $phaseDir = Join-Path $BuildCacheDir $script:CurrentBuildPhaseName
     New-Item -ItemType Directory -Force -Path $phaseDir | Out-Null
@@ -411,12 +426,10 @@ function Resolve-PackagedRelayEnv() {
 }
 
 function Resolve-PackagedVideoEnv() {
-    $script:PackagedVideoAPIKey = Get-EnvValue $VideoAPIKeyEnv
-    if ($script:PackagedVideoAPIKey.Trim() -eq '') {
-        $script:PackagedVideoAPIKey = ''
-        return
+    if ((Get-EnvValue $VideoAPIKeyEnv).Trim() -ne '') {
+        throw "$VideoAPIKeyEnv must not be set for Windows packaging"
     }
-    Validate-EnvFileValue -Label $VideoAPIKeyEnv -Value $script:PackagedVideoAPIKey
+    $script:PackagedVideoAPIKey = ''
 }
 
 function Write-PackagedRelayEnv() {
@@ -426,11 +439,53 @@ function Write-PackagedRelayEnv() {
     $contentLines.Add("$CodexRelayBaseUrlEnv=$PackagedRelayBaseUrl")
     $contentLines.Add("$CodexRelayBootstrapTokenEnv=$PackagedRelayBootstrapToken")
     $contentLines.Add("$CodexRelayBootstrapProofEnv=$PackagedRelayBootstrapProof")
-    if ($PackagedVideoAPIKey.Trim() -ne '') {
-        $contentLines.Add("$VideoAPIKeyEnv=$PackagedVideoAPIKey")
-    }
     $content = $contentLines -join "`n"
     Write-Utf8NoBom -Path $envPath -Content ($content + "`n")
+}
+
+function Assert-PackagedEnvHasNoSensitiveKeys() {
+    param([Parameter(Mandatory)][string]$BundleRoot)
+    $envPath = Join-Path $BundleRoot '.env'
+    if (-not (Test-Path -LiteralPath $envPath -PathType Leaf)) { return }
+    $blockedKeys = @($VideoAPIKeyEnv, $CodexRelayPrivilegedApiKeyEnv)
+    foreach ($line in Get-Content -LiteralPath $envPath) {
+        $trimmed = $line.Trim()
+        if ($trimmed -eq '' -or $trimmed.StartsWith('#') -or -not $trimmed.Contains('=')) { continue }
+        $key = $trimmed.Substring(0, $trimmed.IndexOf('=')).Trim()
+        if ($key -in $blockedKeys) {
+            throw "packaged .env must not contain sensitive key $key"
+        }
+    }
+}
+
+function Invoke-WindowsPackageWhatIf() {
+    Resolve-PackagedVideoEnv
+    $requiredFiles = @(
+        (Join-Path $Root 'go.mod'),
+        (Join-Path $Root 'frontend-app/package.json'),
+        (Join-Path $Root 'frontend-app/package-lock.json'),
+        (Join-Path $Root 'frontend-app/vite.config.js'),
+        (Join-Path $Root 'frontend-app/index.html'),
+        (Join-Path $Root 'scripts/verify_packaged_app_windows.ps1')
+    )
+    foreach ($path in $requiredFiles) {
+        if (-not (Test-Path -LiteralPath $path -PathType Leaf)) {
+            throw "WhatIf validation missing required file: $path"
+        }
+    }
+    $requiredDirs = @(
+        (Join-Path $Root 'frontend-app/src'),
+        (Join-Path $Root 'frontend-app/public'),
+        (Join-Path $Root 'internal/platform/db/sqlite/migrations')
+    )
+    foreach ($path in $requiredDirs) {
+        if (-not (Test-Path -LiteralPath $path -PathType Container)) {
+            throw "WhatIf validation missing required directory: $path"
+        }
+    }
+    [void](Get-NodeVersionInput)
+    [void](Get-NPMVersionInput)
+    Write-Host "Windows package WhatIf validation complete"
 }
 
 function Assert-UpdatePublicKey() {
@@ -859,7 +914,19 @@ function Write-RuntimeManifest() {
 
 function Build-CurrentFrontendApp() {
     if ($env:SUPER_DOLPHIN_SKIP_FRONTEND_BUILD -ne '1') {
-        if (-not (Test-BuildPhaseCache -Name 'frontend' -Paths @((Join-Path $Root 'frontend-app/src'), (Join-Path $Root 'frontend-app/package-lock.json')))) {
+        $frontendCachePaths = @(
+            (Join-Path $Root 'frontend-app/package.json'),
+            (Join-Path $Root 'frontend-app/package-lock.json'),
+            (Join-Path $Root 'frontend-app/vite.config.js'),
+            (Join-Path $Root 'frontend-app/index.html'),
+            (Join-Path $Root 'frontend-app/public'),
+            (Join-Path $Root 'frontend-app/src')
+        )
+        $frontendCacheInputs = @(
+            "NODE_VERSION=$(Get-NodeVersionInput)",
+            "NPM_VERSION=$(Get-NPMVersionInput)"
+        )
+        if (-not (Test-BuildPhaseCache -Name 'frontend' -Paths $frontendCachePaths -Inputs $frontendCacheInputs)) {
             Push-Location -LiteralPath (Join-Path $Root 'frontend-app')
             try {
                 & npm ci
@@ -1015,6 +1082,11 @@ Name: "desktopicon"; Description: "Create a desktop shortcut"; Flags: unchecked
 }
 
 function Package-WindowsMain() {
+    if ($WhatIfPreference) {
+        Invoke-WindowsPackageWhatIf
+        return
+    }
+
     if ($GoOS -ne 'windows') {
         throw "package_windows.ps1 must run on Windows; current GOOS=$GoOS"
     }
@@ -1072,6 +1144,7 @@ function Package-WindowsMain() {
     Copy-ModelRegistry -BundleRoot $Stage
     Write-PackagedRelayEnv -BundleRoot $Stage
     Write-PackagedUpdateEnv -BundleRoot $Stage
+    Assert-PackagedEnvHasNoSensitiveKeys -BundleRoot $Stage
     Write-RuntimeManifest -BundleRoot $Stage
     Write-RunScripts -BundleRoot $Stage
     Assert-PackageNativeArchitecture -PackageRoot $Stage

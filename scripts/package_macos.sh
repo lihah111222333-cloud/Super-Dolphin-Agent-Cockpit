@@ -90,14 +90,26 @@ phase_end() {
 _build_cache_dir="${root}/.build-cache/phases"
 
 _phase_hash() {
-  local paths=("$@")
-  find "${paths[@]}" -type f 2>/dev/null \
-    | sort | xargs shasum -a 256 2>/dev/null \
-    | shasum -a 256 | awk '{print $1}'
+  local item
+  for item in "$@"; do
+    if [[ "$item" == input:* ]]; then
+      printf 'input\t%s\n' "${item#input:}"
+    elif [[ -f "$item" ]]; then
+      printf 'file\t%s\t%s\n' "$item" "$(shasum -a 256 "$item" | awk '{print $1}')"
+    elif [[ -d "$item" ]]; then
+      find "$item" -type f -print0 | sort -z | while IFS= read -r -d '' file; do
+        printf 'file\t%s\t%s\n' "$file" "$(shasum -a 256 "$file" | awk '{print $1}')"
+      done
+    else
+      echo "missing build phase input: $item" >&2
+      return 1
+    fi
+  done | shasum -a 256 | awk '{print $1}'
 }
 
 phase_cache_check() {
   [[ "${SUPER_DOLPHIN_SKIP_BUILD_CACHE:-0}" == "1" ]] && return 1
+  [[ "${SUPER_DOLPHIN_RELEASE_BUILD:-0}" == "1" ]] && return 1
   local name="$1"; shift
   local hash; hash="$(_phase_hash "$@")"
   local marker="$_build_cache_dir/$name/$hash.ok"
@@ -113,6 +125,7 @@ phase_cache_check() {
 
 phase_cache_save() {
   [[ "${SUPER_DOLPHIN_SKIP_BUILD_CACHE:-0}" == "1" ]] && return 0
+  [[ "${SUPER_DOLPHIN_RELEASE_BUILD:-0}" == "1" ]] && return 0
   local name="${_current_phase_name:-}"
   local hash="${_current_phase_hash:-}"
   [[ -z "$name" || -z "$hash" ]] && return 0
@@ -120,6 +133,20 @@ phase_cache_save() {
   # 清理同一 phase 的旧缓存标记（只保留最新）
   rm -f "$_build_cache_dir/$name/"*.ok
   touch "$_build_cache_dir/$name/$hash.ok"
+}
+
+frontend_node_version_input() {
+  local version
+  version="$(node --version)"
+  [[ -n "${version//[[:space:]]/}" ]] || { echo "node --version returned empty output" >&2; exit 1; }
+  printf '%s\n' "$version"
+}
+
+frontend_npm_version_input() {
+  local version
+  version="$(npm --version)"
+  [[ -n "${version//[[:space:]]/}" ]] || { echo "npm --version returned empty output" >&2; exit 1; }
+  printf '%s\n' "$version"
 }
 
 run_packaged_smoke_check() {
@@ -1621,7 +1648,19 @@ mkdir -p "$macos" "$resources/bin"
 
 phase_start "frontend build"
 if [[ "${SUPER_DOLPHIN_SKIP_FRONTEND_BUILD:-}" != "1" ]]; then
-  if ! phase_cache_check "frontend" "$root/frontend-app/src" "$root/frontend-app/package-lock.json"; then
+  frontend_cache_inputs=(
+    "input:NODE_VERSION=$(frontend_node_version_input)"
+    "input:NPM_VERSION=$(frontend_npm_version_input)"
+  )
+  frontend_cache_paths=(
+    "$root/frontend-app/package.json"
+    "$root/frontend-app/package-lock.json"
+    "$root/frontend-app/vite.config.js"
+    "$root/frontend-app/index.html"
+    "$root/frontend-app/public"
+    "$root/frontend-app/src"
+  )
+  if ! phase_cache_check "frontend" "${frontend_cache_inputs[@]}" "${frontend_cache_paths[@]}"; then
     (
       cd "$root/frontend-app"
       npm ci
