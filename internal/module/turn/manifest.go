@@ -1,12 +1,12 @@
 package turn
 
 import (
+	"os"
 	"sort"
 	"strings"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
-	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/common/bootstrap"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/discovery"
 )
 
@@ -127,9 +127,20 @@ func cloneMCPServerHeaders(headers map[string]string) map[string]string {
 	return out
 }
 
+// sessionTokenFromEnv 按新旧环境变量顺序读取控制平面 session token。
+// 与 bootstrap.SessionTokenFromEnv 语义相同，但避免 module/turn 对 mcpserver 的越层依赖。
+func sessionTokenFromEnv() string {
+	for _, key := range []string{"GO_AGENT_CTL_SESSION_TOKEN", "GO_AGENT_MCP_SESSION_TOKEN"} {
+		if v := strings.TrimSpace(os.Getenv(key)); v != "" {
+			return v
+		}
+	}
+	return ""
+}
+
 // discoverPeers 探测已启动的 LSP/Orch peer HTTP 端点，并附带同一 session token。
 func discoverPeers() (map[dto.ToolFamily]string, map[dto.ToolFamily]string) {
-	token := bootstrap.SessionTokenFromEnv()
+	token := sessionTokenFromEnv()
 	addrs := make(map[dto.ToolFamily]string)
 	tokens := make(map[dto.ToolFamily]string)
 	for _, fam := range []dto.ToolFamily{dto.FamilyLSP, dto.FamilyOrch} {
