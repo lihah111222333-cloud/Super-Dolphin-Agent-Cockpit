@@ -79,6 +79,7 @@ type Querier interface {
 	// scheduler's caller checks local_turn_id == "" to distinguish miss
 	// from hit.
 	GetLiveTurnDedupe(ctx context.Context, arg GetLiveTurnDedupeParams) (TurnDedupeRegistry, error)
+	GetMCPToolLifecycleState(ctx context.Context, arg GetMCPToolLifecycleStateParams) (McpToolLifecycleState, error)
 	GetPromptIntentDraft(ctx context.Context, arg GetPromptIntentDraftParams) (GetPromptIntentDraftRow, error)
 	GetPromptTemplate(ctx context.Context, arg GetPromptTemplateParams) (GetPromptTemplateRow, error)
 	// Used by CompleteTurn to locate the active run for a completed turn without
@@ -99,6 +100,7 @@ type Querier interface {
 	// cron_job_runs -----------------------------------------------------
 	InsertCronJobRun(ctx context.Context, arg InsertCronJobRunParams) (CronJobRun, error)
 	InsertDatasourceV2Chunk(ctx context.Context, arg InsertDatasourceV2ChunkParams) error
+	InsertMCPToolLifecycleStateIfAbsent(ctx context.Context, arg InsertMCPToolLifecycleStateIfAbsentParams) (int64, error)
 	InsertPromptVersion(ctx context.Context, arg InsertPromptVersionParams) (int64, error)
 	InsertSystemLog(ctx context.Context, arg InsertSystemLogParams) error
 	ListAILogSystemLogs(ctx context.Context, arg ListAILogSystemLogsParams) ([]ListAILogSystemLogsRow, error)
@@ -126,6 +128,7 @@ type Querier interface {
 	ListEnabledPromptRoutingTests(ctx context.Context) ([]PromptRoutingTest, error)
 	ListHookPendingReviewsByAgent(ctx context.Context, arg ListHookPendingReviewsByAgentParams) ([]ListHookPendingReviewsByAgentRow, error)
 	ListInteractions(ctx context.Context, arg ListInteractionsParams) ([]AgentInteraction, error)
+	ListMCPToolLifecycleStatesByServer(ctx context.Context, arg ListMCPToolLifecycleStatesByServerParams) ([]McpToolLifecycleState, error)
 	// ListObservedApprovalRequests returns the per-thread approval_requests
 	// window but only for turns where approval_requests_observed = TRUE.
 	// Claude path rows (observed=FALSE, value=0) are excluded so callers
@@ -228,6 +231,7 @@ type Querier interface {
 	UpsertAgentThread(ctx context.Context, arg UpsertAgentThreadParams) error
 	UpsertCommandCard(ctx context.Context, arg UpsertCommandCardParams) (UpsertCommandCardRow, error)
 	UpsertDatasourceV2DocumentImporting(ctx context.Context, arg UpsertDatasourceV2DocumentImportingParams) (DatasourceV2Document, error)
+	UpsertMCPToolLifecycleState(ctx context.Context, arg UpsertMCPToolLifecycleStateParams) (McpToolLifecycleState, error)
 	UpsertPromptIntentDraft(ctx context.Context, arg UpsertPromptIntentDraftParams) (UpsertPromptIntentDraftRow, error)
 	UpsertPromptRecallTopicTargetInCWD(ctx context.Context, arg UpsertPromptRecallTopicTargetInCWDParams) error
 	UpsertPromptTemplate(ctx context.Context, arg UpsertPromptTemplateParams) (UpsertPromptTemplateRow, error)
