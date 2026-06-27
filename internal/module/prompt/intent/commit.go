@@ -122,6 +122,10 @@ func HandleDiscard(ctx context.Context, promptStore promptstore.Store, p Discard
 
 // commitPromptIntentDraft 执行草稿提交的核心逻辑：规范化卡片、按 kind 分派写库、
 // 更新草稿状态为 enabled、拒绝同批次其他草稿。
+// 并发安全性说明：store 是调用方 WithTx 传入的 txStore，所有读写（含
+// rejectSiblingPromptIntentDrafts 内的 ListIntentDrafts 和 UpdateIntentDraftStatus）
+// 均在同一 SQLite IMMEDIATE 事务内执行。IMMEDIATE 事务在 BEGIN 时即获取写锁，
+// 保证同批次两个并发提交只有一个能进入事务主体，另一个在重试后会看到兄弟草稿已被拒绝。
 func commitPromptIntentDraft(ctx context.Context, store promptstore.Store, builtin contract.BuiltinPromptRegistry, cwd string, draft *promptstore.PromptIntentDraft, global bool) (CommitResult, error) {
 	kind, err := normalizeKind(draft.Kind)
 	if err != nil {
