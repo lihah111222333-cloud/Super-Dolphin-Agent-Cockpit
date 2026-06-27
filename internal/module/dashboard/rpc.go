@@ -11,13 +11,6 @@ import (
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	platformrpc "github.com/anthropic-ai/super-agent-v3/internal/platform/rpc"
-	agentstatusstore "github.com/anthropic-ai/super-agent-v3/internal/store/agentstatus"
-	ailogstore "github.com/anthropic-ai/super-agent-v3/internal/store/ailog"
-	auditlogstore "github.com/anthropic-ai/super-agent-v3/internal/store/auditlog"
-	buslogstore "github.com/anthropic-ai/super-agent-v3/internal/store/buslog"
-	commandcardstore "github.com/anthropic-ai/super-agent-v3/internal/store/commandcard"
-	promptstore "github.com/anthropic-ai/super-agent-v3/internal/store/prompt"
-	sharedfilestore "github.com/anthropic-ai/super-agent-v3/internal/store/sharedfile"
 	"github.com/anthropic-ai/super-agent-v3/internal/util"
 )
 
@@ -220,24 +213,24 @@ type workflowMaterialWriteParams struct {
 
 // agentsResponse 是 dashboard/agentStatus 的响应结构。
 type agentsResponse struct {
-	Agents []agentstatusstore.AgentStatus `json:"agents"`
+	Agents []AgentStatus `json:"agents"`
 }
 
 // cardsResponse 是 dashboard/commandCards 的响应结构。
 type cardsResponse struct {
-	Cards []commandcardstore.CommandCard `json:"cards"`
+	Cards []CommandCard `json:"cards"`
 }
 
 // promptsResponse 是 dashboard/prompts 的响应结构。
 type promptsResponse struct {
-	Prompts []promptstore.PromptTemplate `json:"prompts"`
+	Prompts []PromptTemplate `json:"prompts"`
 }
 
 // filesResponse 是 dashboard/sharedFiles 的响应结构，附带 final output 保留分析。
 type filesResponse struct {
-	Files               []sharedfilestore.SharedFile `json:"files"`
-	FinalOutputRefs     []FinalOutputRef             `json:"finalOutputRefs"`
-	SharedFileRetention SharedFileRetention          `json:"sharedFileRetention"`
+	Files               []SharedFile        `json:"files"`
+	FinalOutputRefs     []FinalOutputRef    `json:"finalOutputRefs"`
+	SharedFileRetention SharedFileRetention `json:"sharedFileRetention"`
 }
 
 // workflowMaterialWriteResponse 是 workflow material 写入后的响应。
@@ -262,17 +255,17 @@ type logsResponse struct {
 
 // aiLogsResponse 是 AI 日志列表接口的响应结构。
 type aiLogsResponse struct {
-	Logs []ailogstore.AILog `json:"logs"`
+	Logs []AILog `json:"logs"`
 }
 
 // auditLogsResponse 是审计日志列表接口的响应结构。
 type auditLogsResponse struct {
-	Logs []auditlogstore.AuditEvent `json:"logs"`
+	Logs []AuditEvent `json:"logs"`
 }
 
 // busLogsResponse 是 bus 异常日志列表接口的响应结构。
 type busLogsResponse struct {
-	Logs []buslogstore.BusExceptionLog `json:"logs"`
+	Logs []BusExceptionLog `json:"logs"`
 }
 
 // dagsResponse 是 dashboard/dags 的响应结构。
@@ -323,7 +316,7 @@ type dagApplyOpsResponse struct {
 
 // aiLogStatsResponse 是 dashboard/aiLogs/stats 的响应结构。
 type aiLogStatsResponse struct {
-	Stats []ailogstore.StatusCount `json:"stats"`
+	Stats []AILogStatusCount `json:"stats"`
 }
 
 // NewDashboardHandlers 注册 dashboard JSON-RPC handler 集合。
