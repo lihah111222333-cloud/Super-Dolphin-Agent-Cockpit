@@ -155,6 +155,9 @@ func (h *HTTPServer) handleMCP(w http.ResponseWriter, r *http.Request) {
 func (h *HTTPServer) authorized(r *http.Request) bool {
 	token := strings.TrimSpace(h.bearerToken)
 	if token == "" {
+		// legacy 兼容路径：未配置 bearerToken 时允许请求通过。
+		// 第一道防线由 http_runner.go 的外层 bearerToken 检查承担；此处仅处理
+		// 直接构造 HTTPServer（不经 http_runner.go）的旧测试路径。
 		return true
 	}
 	header := strings.TrimSpace(r.Header.Get("Authorization"))

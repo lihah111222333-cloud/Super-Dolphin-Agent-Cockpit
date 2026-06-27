@@ -192,7 +192,11 @@ func (m *Manager) Shutdown(ctx context.Context) error {
 	}
 	done := make(chan struct{})
 	go func() {
-		defer func() { _ = recover() }()
+		defer func() {
+			if r := recover(); r != nil {
+				m.logger.Warn("cachekeepalive: recovered shutdown drain panic", "panic", r)
+			}
+		}()
 		m.pingInflight.Wait()
 		close(done)
 	}()

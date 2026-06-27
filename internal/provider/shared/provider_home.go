@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
+	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
 const (
@@ -62,12 +63,16 @@ func EnsureAppManagedProviderHome(provider string) (string, error) {
 	if err := os.MkdirAll(home, 0o700); err != nil {
 		return "", fmt.Errorf("create app-managed provider home: %w", err)
 	}
-	_ = os.Chmod(home, 0o700)
+	if err := os.Chmod(home, 0o700); err != nil {
+		pkglogger.Warn("provider_home: chmod home failed", "path", home, "error", err)
+	}
 	skillsRoot := filepath.Join(home, "skills")
 	if err := os.MkdirAll(skillsRoot, 0o700); err != nil {
 		return "", fmt.Errorf("create app-managed provider skills root: %w", err)
 	}
-	_ = os.Chmod(skillsRoot, 0o700)
+	if err := os.Chmod(skillsRoot, 0o700); err != nil {
+		pkglogger.Warn("provider_home: chmod skills root failed", "path", skillsRoot, "error", err)
+	}
 	real, err := filepath.EvalSymlinks(home)
 	if err != nil {
 		return "", fmt.Errorf("resolve app-managed provider home realpath: %w", err)
@@ -89,13 +94,17 @@ func EnsureProviderHome(provider, homeRoot string) (string, error) {
 	if err := os.MkdirAll(home, 0o700); err != nil {
 		return "", fmt.Errorf("create provider home: %w", err)
 	}
-	_ = os.Chmod(home, 0o700)
+	if err := os.Chmod(home, 0o700); err != nil {
+		pkglogger.Warn("provider_home: chmod home failed", "path", home, "error", err)
+	}
 	if strings.TrimSpace(homeRoot) != "" {
 		skillsRoot := filepath.Join(home, "skills")
 		if err := os.MkdirAll(skillsRoot, 0o700); err != nil {
 			return "", fmt.Errorf("create explicit provider skills root: %w", err)
 		}
-		_ = os.Chmod(skillsRoot, 0o700)
+		if err := os.Chmod(skillsRoot, 0o700); err != nil {
+			pkglogger.Warn("provider_home: chmod skills root failed", "path", skillsRoot, "error", err)
+		}
 	}
 	real, err := filepath.EvalSymlinks(home)
 	if err != nil {
