@@ -57,6 +57,12 @@ jobs:
         run: make build-plain
       - name: Test
         run: ./scripts/test_with_guard.sh $(go list ./... | grep -v /internal/provider/dreamexec) -count=1 -timeout 180s
+      - name: Sqlc verify
+        run: make sqlc-verify
+      - name: Codemap check
+        run: make codemap-check
+      - name: Validate skills
+        run: python3 scripts/validate_super_agent_skills.py
 
   lint:
     needs: commit-guard
