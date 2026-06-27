@@ -8,6 +8,7 @@ import (
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
+	"github.com/anthropic-ai/super-agent-v3/internal/util/clone"
 )
 
 type serviceThreadListerAdapter struct {
@@ -105,6 +106,237 @@ func (a *serviceConfigReaderAdapter) ReadThreadStateRuntimeConfig(ctx context.Co
 		return reader.ReadThreadStateRuntimeConfig(ctx, threadID)
 	}
 	return nil, nil
+}
+
+type sessionLifecyclePort struct {
+	service Service
+}
+
+// NewSessionLifecyclePort 将 thread.Service 收窄为 session lifecycle 端口。
+// 该 adapter 只做字段映射和可变输入复制，真实启动、恢复和 fork 仍由 thread service 负责。
+func NewSessionLifecyclePort(service Service) contract.SessionLifecyclePort {
+	return sessionLifecyclePort{service: service}
+}
+
+// StartSession 将 contract 启动 DTO 转为 thread.StartRequest，并把 thread 结果投影回 session port。
+func (p sessionLifecyclePort) StartSession(ctx context.Context, req contract.SessionStartRequest) (contract.SessionStartResult, error) {
+	got, err := p.service.Start(ctx, startRequestFromSession(req))
+	if err != nil {
+		return contract.SessionStartResult{}, err
+	}
+	return sessionStartResultFromStart(got), nil
+}
+
+// ResumeSession 恢复指定 thread 对应的 provider session，空 threadID 会立即报错。
+func (p sessionLifecyclePort) ResumeSession(ctx context.Context, threadID string) (contract.SessionStartResult, error) {
+	threadID = strings.TrimSpace(threadID)
+	if threadID == "" {
+		return contract.SessionStartResult{}, fmt.Errorf("session lifecycle: thread id is required")
+	}
+	got, err := p.service.Resume(ctx, ResumeRequest{ThreadID: threadID})
+	if err != nil {
+		return contract.SessionStartResult{}, err
+	}
+	return sessionStartResultFromResume(got), nil
+}
+
+// ForkSession 基于已有 thread 创建 fork，并只暴露新 threadID 给 session port 调用方。
+func (p sessionLifecyclePort) ForkSession(ctx context.Context, threadID string) (contract.SessionStartResult, error) {
+	threadID = strings.TrimSpace(threadID)
+	if threadID == "" {
+		return contract.SessionStartResult{}, fmt.Errorf("session lifecycle: fork source thread id is required")
+	}
+	got, err := p.service.Fork(ctx, threadID)
+	if err != nil {
+		return contract.SessionStartResult{}, err
+	}
+	return contract.SessionStartResult{ThreadID: got.NewThreadID}, nil
+}
+
+// ArchiveSession 归档指定 thread；空 threadID 视为调用方错误并阻断。
+func (p sessionLifecyclePort) ArchiveSession(ctx context.Context, threadID string) error {
+	threadID = strings.TrimSpace(threadID)
+	if threadID == "" {
+		return fmt.Errorf("session lifecycle: archive thread id is required")
+	}
+	return p.service.Archive(ctx, threadID)
+}
+
+type sessionStatusPort struct {
+	service Service
+}
+
+// NewSessionStatusPort 将 thread.Service 收窄为 session read/status 端口。
+// adapter 只投影列表和消息读取结果，不改变 thread 模块的状态来源。
+func NewSessionStatusPort(service Service) contract.SessionStatusPort {
+	return sessionStatusPort{service: service}
+}
+
+// ListSessions 读取 thread 列表并投影为 session port 的稳定摘要字段。
+func (p sessionStatusPort) ListSessions(ctx context.Context) ([]contract.SessionThreadSummary, error) {
+	refs, err := p.service.List(ctx)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]contract.SessionThreadSummary, 0, len(refs))
+	for _, ref := range refs {
+		out = append(out, sessionThreadRefFromThread(ref))
+	}
+	return out, nil
+}
+
+// ReadMessages 透传 thread 消息分页读取，保持现有消息 DTO 与分页语义不变。
+func (p sessionStatusPort) ReadMessages(ctx context.Context, threadID string, limit int, before string) (dto.ThreadMessagesResult, error) {
+	return p.service.ReadMessages(ctx, threadID, limit, before)
+}
+
+// startRequestFromSession 显式映射 session 启动字段，并深拷贝所有可变 slice/map。
+// 这里是字段漂移守卫覆盖的核心路径，新增 StartRequest 字段必须同步映射或写明豁免。
+func startRequestFromSession(req contract.SessionStartRequest) StartRequest {
+	return StartRequest{
+		Provider:                     req.Provider,
+		AgentID:                      req.AgentID,
+		ParentAgentID:                req.ParentAgentID,
+		AgentType:                    req.AgentType,
+		AgentMemoryScope:             req.AgentMemoryScope,
+		CWD:                          req.CWD,
+		Model:                        req.Model,
+		ModelProvider:                req.ModelProvider,
+		Name:                         req.Name,
+		Prompt:                       req.Prompt,
+		BaseInstructions:             req.BaseInstructions,
+		BaseInstructionBlocks:        cloneSessionBaseInstructionBlocks(req.BaseInstructionBlocks),
+		DeveloperInstructions:        req.DeveloperInstructions,
+		ApprovalPolicy:               req.ApprovalPolicy,
+		Sandbox:                      clone.RawMessage(req.Sandbox),
+		Summary:                      req.Summary,
+		Effort:                       req.Effort,
+		Personality:                  req.Personality,
+		Language:                     req.Language,
+		GitRoot:                      req.GitRoot,
+		IsWorktree:                   req.IsWorktree,
+		ToolSurfaceMode:              req.ToolSurfaceMode,
+		EnabledTools:                 clone.Strings(req.EnabledTools),
+		AdditionalWorkingDirectories: clone.Strings(req.AdditionalWorkingDirectories),
+		MCPSnapshot:                  cloneSessionMCPSnapshot(req.MCPSnapshot),
+		SessionFlags:                 cloneSessionBoolMap(req.SessionFlags),
+		Config:                       clone.RuntimeConfigMap(req.Config),
+		LaunchSkillNames:             clone.Strings(req.LaunchSkillNames),
+		LaunchSkillRefs:              append([]dto.SkillRef(nil), req.LaunchSkillRefs...),
+		ForceLaunchSkills:            req.ForceLaunchSkills,
+		AgentKey:                     req.AgentKey,
+		PromptKey:                    req.PromptKey,
+		OwnerThreadID:                req.OwnerThreadID,
+		LaunchIntentID:               req.LaunchIntentID,
+		DeferSpawn:                   req.DeferSpawn,
+	}
+}
+
+func sessionStartResultFromStart(got StartResult) contract.SessionStartResult {
+	return contract.SessionStartResult{
+		ThreadID:        got.ThreadID,
+		AgentID:         got.AgentID,
+		SessionID:       got.SessionID,
+		Status:          got.Status,
+		Model:           got.Model,
+		Provider:        got.Provider,
+		ModelProvider:   got.ModelProvider,
+		CWD:             got.CWD,
+		ApprovalPolicy:  got.ApprovalPolicy,
+		AgentKey:        got.AgentKey,
+		AgentTitle:      got.AgentTitle,
+		PromptKey:       got.PromptKey,
+		PromptVersionID: got.PromptVersionID,
+		PromptKeyStale:  got.PromptKeyStale,
+		PendingLaunch:   got.PendingLaunch,
+	}
+}
+
+func sessionStartResultFromResume(got ResumeResult) contract.SessionStartResult {
+	return contract.SessionStartResult{
+		ThreadID:  got.ThreadID,
+		SessionID: got.SessionID,
+		Status:    got.Status,
+		Model:     got.Model,
+		CWD:       got.CWD,
+	}
+}
+
+func sessionThreadRefFromThread(ref Ref) contract.SessionThreadSummary {
+	return contract.SessionThreadSummary{
+		ID:               ref.ID,
+		Name:             ref.Name,
+		AgentID:          ref.AgentID,
+		Status:           ref.Status,
+		CreatedAt:        ref.CreatedAt,
+		UpdatedAt:        ref.UpdatedAt,
+		Provider:         ref.Provider,
+		ProviderThreadID: ref.ProviderThreadID,
+		SessionID:        ref.SessionID,
+		CWD:              ref.CWD,
+		Model:            ref.Model,
+		Port:             ref.Port,
+	}
+}
+
+func cloneSessionBaseInstructionBlocks(in []contract.BaseInstructionBlock) []contract.BaseInstructionBlock {
+	if len(in) == 0 {
+		return nil
+	}
+	out := append([]contract.BaseInstructionBlock(nil), in...)
+	for index := range out {
+		out[index].EnableWhen = append([]byte(nil), out[index].EnableWhen...)
+	}
+	return out
+}
+
+func cloneSessionMCPSnapshot(in contract.MCPSnapshot) contract.MCPSnapshot {
+	return contract.MCPSnapshot{
+		Servers:                  clone.Strings(in.Servers),
+		Tools:                    clone.Strings(in.Tools),
+		Instructions:             clone.StringMap(in.Instructions),
+		ServerConfigs:            cloneSessionMCPServerConfigs(in.ServerConfigs),
+		InstructionsDeltaEnabled: in.InstructionsDeltaEnabled,
+		InstructionAttachments:   append([]contract.MCPAttachmentRef(nil), in.InstructionAttachments...),
+	}
+}
+
+func cloneSessionMCPServerConfigs(in map[string]contract.MCPServerConfig) map[string]contract.MCPServerConfig {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make(map[string]contract.MCPServerConfig, len(in))
+	for name, cfg := range in {
+		out[name] = contract.MCPServerConfig{
+			Transport: cfg.Transport,
+			URL:       cfg.URL,
+			Headers:   clone.StringMap(cfg.Headers),
+			Command:   cfg.Command,
+			Args:      clone.Strings(cfg.Args),
+			Env:       clone.StringMap(cfg.Env),
+			Enabled:   cloneSessionBoolPtr(cfg.Enabled),
+		}
+	}
+	return out
+}
+
+func cloneSessionBoolPtr(in *bool) *bool {
+	if in == nil {
+		return nil
+	}
+	out := *in
+	return &out
+}
+
+func cloneSessionBoolMap(in map[string]bool) map[string]bool {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make(map[string]bool, len(in))
+	for key, value := range in {
+		out[key] = value
+	}
+	return out
 }
 
 // CronStarterAdapter 将完整 thread.Service 收窄为 cron 模块需要的启动接口。
