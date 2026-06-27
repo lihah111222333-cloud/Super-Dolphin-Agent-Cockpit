@@ -152,7 +152,7 @@ func (r *stubResponder) RespondWithID(id json.RawMessage, result any, callErr er
 
 func newHandlerForTest(peers ...*mcpcontrol.ToolInstance) (*Handler, *stubRegistry) {
 	registry := &stubRegistry{peers: peers}
-	return &Handler{registry: registry}, registry
+	return &Handler{registry: registry, proxyAuthToken: newProxyAuthToken()}, registry
 }
 
 func newToolCallPeer(t *testing.T, wantName string, wantArgs json.RawMessage, replyText string, callErr error) *mcpcontrol.ToolInstance {
@@ -224,6 +224,9 @@ func mustRawJSON(t *testing.T, v any) json.RawMessage {
 func callProxyRequest(t *testing.T, h *Handler, path, body string) proxyJSONRPCResponse {
 	t.Helper()
 	req := httptest.NewRequest(http.MethodPost, path, strings.NewReader(body))
+	if h.proxyAuthToken != "" {
+		req.Header.Set("Authorization", "Bearer "+h.proxyAuthToken)
+	}
 	resp := httptest.NewRecorder()
 	h.handleProxyRequest(resp, req)
 	if resp.Code != http.StatusOK {

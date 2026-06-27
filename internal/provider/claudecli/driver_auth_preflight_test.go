@@ -16,7 +16,7 @@ func TestDriverStartSessionFailsFastWhenClaudeAuthMissing(t *testing.T) {
 		return nil, nil, nil
 	})
 
-	d := newDriver(nil, nil, nil, nil, nil, &recordingMirrorReconciler{}, nil).(*driver)
+	d := newDriver(nil, nil, nil, nil, nil, nil, &recordingMirrorReconciler{}, nil).(*driver)
 	d.launchCLI = launchFn
 	d.authStatus = func(context.Context, string, string, cliLaunchConfig) (claudeAuthStatus, string, error) {
 		return claudeAuthStatus{LoggedIn: false, AuthMethod: "none", APIProvider: "firstParty"}, `{"loggedIn":false}`, nil
@@ -45,7 +45,7 @@ func TestDriverStartSessionPassesClaudeHomeToAuthPreflight(t *testing.T) {
 	})
 
 	claudeHome := t.TempDir()
-	d := newDriver(nil, nil, nil, nil, nil, &recordingMirrorReconciler{}, nil).(*driver)
+	d := newDriver(nil, nil, nil, nil, nil, nil, &recordingMirrorReconciler{}, nil).(*driver)
 	d.launchCLI = launchFn
 	d.authStatus = func(_ context.Context, _ string, _ string, cfg cliLaunchConfig) (claudeAuthStatus, string, error) {
 		preflightHome = cfg.ClaudeHome
@@ -75,7 +75,7 @@ func TestDriverStartSessionFailsFastWhenClaudeAuthStatusFails(t *testing.T) {
 		return next.tr, nil, nil
 	})
 
-	d := newDriver(nil, nil, nil, nil, nil, &recordingMirrorReconciler{}, nil).(*driver)
+	d := newDriver(nil, nil, nil, nil, nil, nil, &recordingMirrorReconciler{}, nil).(*driver)
 	d.launchCLI = launchFn
 	d.authStatus = func(context.Context, string, string, cliLaunchConfig) (claudeAuthStatus, string, error) {
 		return claudeAuthStatus{}, "unsupported auth status command", errors.New("exit status 1")
@@ -104,7 +104,7 @@ func TestDriverStartSessionFailsFastWhenClaudeAuthStatusIsInconclusive(t *testin
 		return next.tr, nil, nil
 	})
 
-	d := newDriver(nil, nil, nil, nil, nil, &recordingMirrorReconciler{}, nil).(*driver)
+	d := newDriver(nil, nil, nil, nil, nil, nil, &recordingMirrorReconciler{}, nil).(*driver)
 	d.launchCLI = launchFn
 	d.authStatus = func(context.Context, string, string, cliLaunchConfig) (claudeAuthStatus, string, error) {
 		return claudeAuthStatus{}, `{}`, nil

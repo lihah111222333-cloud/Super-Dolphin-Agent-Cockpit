@@ -15,14 +15,15 @@ import (
 type driverFactoryParams struct {
 	fx.In
 
-	Logger      *slog.Logger
-	Dispatcher  *unified.EventDispatcher
-	Reporter    contract.RuntimeReporter
-	Reg         *pidregistry.Registry
-	ProxyAddrFn func() string
-	Mirror      contract.SkillMirrorReconciler
-	Recovery    contract.SessionRecoveryReporter `optional:"true"`
-	Tracer      *observability.Service           `optional:"true"`
+	Logger       *slog.Logger
+	Dispatcher   *unified.EventDispatcher
+	Reporter     contract.RuntimeReporter
+	Reg          *pidregistry.Registry
+	ProxyAddrFn  func() string `name:"proxy_addr_fn"`
+	ProxyTokenFn func() string `name:"proxy_token_fn"`
+	Mirror       contract.SkillMirrorReconciler
+	Recovery     contract.SessionRecoveryReporter `optional:"true"`
+	Tracer       *observability.Service           `optional:"true"`
 }
 
 // NewDriverFactory 构造 Claude provider 的 DriverFactory。
@@ -31,7 +32,7 @@ func NewDriverFactory(p driverFactoryParams) contract.DriverFactory {
 	return contract.DriverFactory{
 		Name: "claude",
 		Create: func() contract.Driver {
-			return newDriver(p.Logger, p.Dispatcher, p.Reporter, p.Reg, p.ProxyAddrFn, p.Mirror, p.Recovery, p.Tracer)
+			return newDriver(p.Logger, p.Dispatcher, p.Reporter, p.Reg, p.ProxyAddrFn, p.ProxyTokenFn, p.Mirror, p.Recovery, p.Tracer)
 		},
 		NativeTools: []contract.NativeToolDescriptor{
 			{ID: "Read", Label: "直接读项目文件", Description: "绕过项目文件工具直接读取工作区文件。", DefaultDisabled: true, Provider: "claude", FilterMode: contract.NativeToolFilterModeHard},
