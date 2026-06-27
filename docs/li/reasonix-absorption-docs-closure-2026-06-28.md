@@ -4,6 +4,8 @@
 
 This closure record is maintained on integration branch `codex/reasonix-integration-20260628-current`. It preserves the original docs-closure review outcome, while recording the current integrated state: Phase 0/1 documentation preflight and the MCP lifecycle decision document are present, but this document does not claim every Phase 2+ production implementation and verification gate is complete.
 
+Remaining execution state is tracked in `docs/li/reasonix-remaining-execution-closure-2026-06-28.md`. That record separates the session, prompt, event, mcp, and final verification lanes so later reviewers can close each implementation surface with its own evidence.
+
 ## Checked Materials
 
 | File | Closure finding |
