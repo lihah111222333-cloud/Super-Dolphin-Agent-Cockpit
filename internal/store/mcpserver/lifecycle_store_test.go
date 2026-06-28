@@ -55,6 +55,52 @@ func TestLifecycleStoreUpsertReadAndList(t *testing.T) {
 	assertLifecycleToolOrder(t, records, "inspect", "query")
 }
 
+func TestLifecycleStoreUpsertUpdatesExistingKey(t *testing.T) {
+	store, closeDB := newSQLiteLifecycleStore(t)
+	defer closeDB()
+	ctx := context.Background()
+	key := contract.MCPToolLifecycleKey{
+		WorkspaceRoot: "/tmp/project",
+		ServerName:    "sqlite",
+		ToolName:      "query",
+	}
+	if _, err := store.UpsertMCPToolLifecycleState(ctx, contract.MCPToolLifecycleUpsertParams{
+		Key:       key,
+		State:     contract.MCPToolLifecycleStateActive,
+		Reason:    "initial discovery",
+		Source:    contract.MCPToolLifecycleSourceDiscovery,
+		UpdatedBy: "discovery",
+	}); err != nil {
+		t.Fatalf("UpsertMCPToolLifecycleState(initial) error = %v", err)
+	}
+
+	record, err := store.UpsertMCPToolLifecycleState(ctx, contract.MCPToolLifecycleUpsertParams{
+		Key:       key,
+		State:     contract.MCPToolLifecycleStateRemoved,
+		Reason:    "operator removed",
+		Source:    contract.MCPToolLifecycleSourceUser,
+		UpdatedBy: "operator",
+	})
+	if err != nil {
+		t.Fatalf("UpsertMCPToolLifecycleState(update) error = %v", err)
+	}
+	assertLifecycleStateSource(t, record, contract.MCPToolLifecycleStateRemoved, contract.MCPToolLifecycleSourceUser)
+	if record.Reason != "operator removed" || record.UpdatedBy != "operator" {
+		t.Fatalf("updated record = %+v, want explicit update fields", record)
+	}
+
+	records, err := store.ListMCPToolLifecycleStates(ctx, contract.MCPToolLifecycleListParams{
+		WorkspaceRoot: "/tmp/project",
+		ServerName:    "sqlite",
+	})
+	if err != nil {
+		t.Fatalf("ListMCPToolLifecycleStates() error = %v", err)
+	}
+	if len(records) != 1 || records[0].State != contract.MCPToolLifecycleStateRemoved {
+		t.Fatalf("records = %+v, want one updated removed row", records)
+	}
+}
+
 func assertLifecycleStateSource(
 	t *testing.T,
 	record contract.MCPToolLifecycleRecord,
@@ -166,6 +212,75 @@ func TestLifecycleStoreRejectsInvalidParams(t *testing.T) {
 	}
 }
 
+func TestLifecycleStoreRejectsInvalidReadAndDiscoveryParams(t *testing.T) {
+	store, closeDB := newSQLiteLifecycleStore(t)
+	defer closeDB()
+	ctx := context.Background()
+
+	tests := []struct {
+		name    string
+		run     func() error
+		wantErr string
+	}{
+		{
+			name: "get empty workspace",
+			run: func() error {
+				_, err := store.GetMCPToolLifecycleState(ctx, contract.MCPToolLifecycleKey{
+					WorkspaceRoot: " ",
+					ServerName:    "sqlite",
+					ToolName:      "query",
+				})
+				return err
+			},
+			wantErr: "workspaceRoot is required",
+		},
+		{
+			name: "ensure empty tool",
+			run: func() error {
+				_, _, err := store.EnsureDiscoveredMCPToolLifecycleState(ctx, contract.MCPToolLifecycleDiscoveryParams{
+					Key: contract.MCPToolLifecycleKey{
+						WorkspaceRoot: "/tmp/project",
+						ServerName:    "sqlite",
+						ToolName:      "\t",
+					},
+				})
+				return err
+			},
+			wantErr: "tool name is required",
+		},
+		{
+			name: "list empty workspace",
+			run: func() error {
+				_, err := store.ListMCPToolLifecycleStates(ctx, contract.MCPToolLifecycleListParams{
+					WorkspaceRoot: "",
+					ServerName:    "sqlite",
+				})
+				return err
+			},
+			wantErr: "workspaceRoot is required",
+		},
+		{
+			name: "list empty server",
+			run: func() error {
+				_, err := store.ListMCPToolLifecycleStates(ctx, contract.MCPToolLifecycleListParams{
+					WorkspaceRoot: "/tmp/project",
+					ServerName:    " ",
+				})
+				return err
+			},
+			wantErr: "server name is required",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := tt.run()
+			if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
+				t.Fatalf("operation error = %v, want %q", err, tt.wantErr)
+			}
+		})
+	}
+}
+
 func TestLifecycleStoreEnsureDiscoveredDoesNotOverwriteUserState(t *testing.T) {
 	store, closeDB := newSQLiteLifecycleStore(t)
 	defer closeDB()
@@ -215,6 +330,37 @@ func TestLifecycleStoreEnsureDiscoveredDoesNotOverwriteUserState(t *testing.T) {
 	}
 }
 
+func TestLifecycleStoreEnsureDiscoveredDoesNotOverwriteRemovedState(t *testing.T) {
+	store, closeDB := newSQLiteLifecycleStore(t)
+	defer closeDB()
+	ctx := context.Background()
+	key := contract.MCPToolLifecycleKey{
+		WorkspaceRoot: "/tmp/project",
+		ServerName:    "sqlite",
+		ToolName:      "drop_table",
+	}
+	if _, err := store.UpsertMCPToolLifecycleState(ctx, contract.MCPToolLifecycleUpsertParams{
+		Key:    key,
+		State:  contract.MCPToolLifecycleStateRemoved,
+		Reason: "operator removed",
+		Source: contract.MCPToolLifecycleSourceUser,
+	}); err != nil {
+		t.Fatalf("UpsertMCPToolLifecycleState() error = %v", err)
+	}
+
+	record, inserted, err := store.EnsureDiscoveredMCPToolLifecycleState(ctx, contract.MCPToolLifecycleDiscoveryParams{
+		Key:       key,
+		Reason:    "discovered again",
+		UpdatedBy: "discovery",
+	})
+	if err != nil {
+		t.Fatalf("EnsureDiscoveredMCPToolLifecycleState() error = %v", err)
+	}
+	if inserted || record.State != contract.MCPToolLifecycleStateRemoved || record.Reason != "operator removed" {
+		t.Fatalf("removed record = %+v inserted=%v, want unchanged removed", record, inserted)
+	}
+}
+
 func TestLifecycleStoreFailsFastOnUnknownStoredState(t *testing.T) {
 	s := &lifecycleStore{q: lifecycleQuerierStub{
 		getFn: func(context.Context, sqlc.GetMCPToolLifecycleStateParams) (sqlc.McpToolLifecycleState, error) {
@@ -236,6 +382,30 @@ func TestLifecycleStoreFailsFastOnUnknownStoredState(t *testing.T) {
 	})
 	if err == nil || !strings.Contains(err.Error(), "invalid state") {
 		t.Fatalf("GetMCPToolLifecycleState() error = %v, want invalid state", err)
+	}
+}
+
+func TestLifecycleStoreFailsFastOnUnknownStoredSource(t *testing.T) {
+	s := &lifecycleStore{q: lifecycleQuerierStub{
+		getFn: func(context.Context, sqlc.GetMCPToolLifecycleStateParams) (sqlc.McpToolLifecycleState, error) {
+			return sqlc.McpToolLifecycleState{
+				WorkspaceRoot:  "/tmp/project",
+				ServerName:     "sqlite",
+				ToolName:       "query",
+				LifecycleState: "active",
+				Source:         "fallback",
+				CreatedAt:      1,
+				UpdatedAt:      1,
+			}, nil
+		},
+	}}
+	_, err := s.GetMCPToolLifecycleState(context.Background(), contract.MCPToolLifecycleKey{
+		WorkspaceRoot: "/tmp/project",
+		ServerName:    "sqlite",
+		ToolName:      "query",
+	})
+	if err == nil || !strings.Contains(err.Error(), "invalid source") {
+		t.Fatalf("GetMCPToolLifecycleState() error = %v, want invalid source", err)
 	}
 }
 
