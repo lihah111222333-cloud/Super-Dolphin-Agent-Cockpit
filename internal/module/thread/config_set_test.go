@@ -32,13 +32,14 @@ func TestSetConfigConfiguresModelAndEffort(t *testing.T) {
 		},
 	}
 	sessions := &stubSessionProvider{session: session}
+	threads := newConfigPersistenceThreadStore()
 	bindings := &stubBindingStore{binding: &bindingstore.Binding{
 		AgentID:          "agent-1",
 		Provider:         "codex",
 		ProviderThreadID: "thread-1",
 		CodexThreadID:    "thread-1",
 	}}
-	svc := NewService(silentLogger(), nil, bindings, sessions, nil, nil, nil, nil)
+	svc := NewService(silentLogger(), threads, bindings, sessions, nil, nil, nil, nil)
 
 	cfg, err := svc.SetConfig(context.Background(), "thread-1", dto.ThreadConfigPatch{
 		Model:  &model,
@@ -79,9 +80,10 @@ func TestSetConfigInvalidatesPromptAssemblyForSetupFlip(t *testing.T) {
 			},
 		},
 	}
+	threads := newConfigPersistenceThreadStore()
 	svc := NewServiceWithPromptAssembly(
 		silentLogger(),
-		nil,
+		threads,
 		&stubBindingStore{binding: &bindingstore.Binding{AgentID: "agent-1", Provider: "codex", ProviderThreadID: "thread-1", CodexThreadID: "thread-1"}},
 		&stubSessionProvider{session: session},
 		nil,
@@ -114,9 +116,10 @@ func TestSetModelInvalidatesPromptAssemblyForSetupFlip(t *testing.T) {
 			Effective: dto.ThreadConfigValues{Model: "gpt-5.5"},
 		},
 	}
+	threads := newConfigPersistenceThreadStore()
 	svc := NewServiceWithPromptAssembly(
 		silentLogger(),
-		nil,
+		threads,
 		&stubBindingStore{binding: &bindingstore.Binding{AgentID: "agent-1", Provider: "codex", ProviderThreadID: "thread-1", CodexThreadID: "thread-1"}},
 		&stubSessionProvider{session: session},
 		nil,

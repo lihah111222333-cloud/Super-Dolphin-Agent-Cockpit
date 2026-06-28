@@ -43,7 +43,7 @@ type logSinkParams struct {
 	Trace      TraceRecorder `optional:"true"`
 }
 
-func provideLogSink(p logSinkParams) *LogSink {
+func provideLogSink(p logSinkParams) (*LogSink, error) {
 	return NewLogSink(LogSinkDeps{
 		Dispatcher: p.Dispatcher,
 		Logger:     p.Logger,

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"os"
 	"strings"
@@ -64,14 +65,25 @@ type runtimeParams struct {
 	Shutdowner fx.Shutdowner
 }
 
+type openLogFileFunc func(string, int, os.FileMode) (*os.File, error)
+
 // newLogger 初始化日志写入器，优先写入 /tmp/mcp-orch-<pid>.log，失败时回退到 stderr。
 func newLogger(cfg *platformconfig.Config) *slog.Logger {
+	return newLoggerWithOpenFile(cfg, os.OpenFile, os.Stderr)
+}
+
+// newLoggerWithOpenFile 初始化 mcp-orch logger，并把文件打开动作注入出来供测试覆盖失败分支。
+func newLoggerWithOpenFile(cfg *platformconfig.Config, openLogFile openLogFileFunc, stderr io.Writer) *slog.Logger {
+	if stderr == nil {
+		stderr = os.Stderr
+	}
 	// MCP stdio 的 stdout 留给 JSON-RPC，日志回退也只能写 stderr 或文件。
 	logPath := fmt.Sprintf("/tmp/mcp-orch-%d.log", os.Getpid())
-	if f, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644); err == nil {
+	if f, err := openLogFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644); err == nil {
 		pkglogger.InitWithConsoleWriter(f)
 	} else {
-		pkglogger.InitWithConsoleWriter(os.Stderr)
+		slog.New(slog.NewTextHandler(stderr, nil)).Warn("mcp-orch logger fallback to stderr", "path", logPath, "error", err)
+		pkglogger.InitWithConsoleWriter(stderr)
 	}
 	return pkglogger.Get()
 }

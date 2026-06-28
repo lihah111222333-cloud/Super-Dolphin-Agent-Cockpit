@@ -22,8 +22,8 @@ var logSecretPatterns = []struct {
 		replacement: `${1}` + redactedValue,
 	},
 	{
-		pattern:     regexp.MustCompile(`(?i)(?:[A-Za-z]:\\|/)[^\r\n,;&"']*?\.db(?:-(?:wal|shm))?`),
-		replacement: redactedValue,
+		pattern:     regexp.MustCompile(`(?i)(?:[A-Za-z]:\\|/)[^\r\n,;&"']*?\.db(?:-(?:wal|shm))?([[:space:],;&"')}]|$)`),
+		replacement: redactedValue + `${1}`,
 	},
 	{
 		pattern:     regexp.MustCompile(`(?i)((?:DATABASE_URL|POSTGRES_CONNECTION_STRING|SUPER_DOLPHIN_SQLITE_PATH|SUPER_DOLPHIN_INTERNAL_SQLITE_PATH)\s*[:=]\s*)[^\s,;&]+`),

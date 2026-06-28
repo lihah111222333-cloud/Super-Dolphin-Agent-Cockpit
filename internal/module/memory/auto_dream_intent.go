@@ -27,10 +27,11 @@ func ReadAutoDreamIntent(rootDir string) (*bool, error) {
 		return nil, nil
 	}
 	data, err := os.ReadFile(path)
-	if err != nil {
-		if errors.Is(err, fs.ErrNotExist) {
-			return nil, err
-		}
+	switch {
+	case err == nil:
+	case errors.Is(err, fs.ErrNotExist):
+		return nil, nil
+	default:
 		return nil, err
 	}
 	var payload autoDreamIntentFile
@@ -39,6 +40,23 @@ func ReadAutoDreamIntent(rootDir string) (*bool, error) {
 	}
 	v := payload.Enabled
 	return &v, nil
+}
+
+// autoDreamIntentErrorSummary 把本地 intent 读取错误压缩成 UI/配置可公开展示的诊断。
+// 摘要不包含磁盘路径，避免把用户本机目录泄漏到快照或配置日志外的边界。
+func autoDreamIntentErrorSummary(err error) string {
+	if err == nil {
+		return ""
+	}
+	var syntaxErr *json.SyntaxError
+	var typeErr *json.UnmarshalTypeError
+	if errors.As(err, &syntaxErr) || errors.As(err, &typeErr) {
+		return "auto-dream intent file is invalid JSON"
+	}
+	if errors.Is(err, fs.ErrPermission) {
+		return "auto-dream intent file cannot be read"
+	}
+	return "auto-dream intent read failed"
 }
 
 // WriteAutoDreamIntent 原子写入用户的 auto-dream 开关。

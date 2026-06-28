@@ -93,8 +93,11 @@ func (o *appOwnerContext) RegisterRuntimePreDrain(fn func(context.Context) error
 		return
 	}
 	o.mu.Lock()
+	defer o.mu.Unlock()
+	if o.runtimePreDrain != nil {
+		panic("app: runtime pre-drain already registered")
+	}
 	o.runtimePreDrain = fn
-	o.mu.Unlock()
 }
 
 // DrainRuntime 执行一次 runtime pre-drain。

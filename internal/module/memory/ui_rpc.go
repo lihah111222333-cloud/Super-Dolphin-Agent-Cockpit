@@ -33,16 +33,17 @@ type UIMemorySnapshot struct {
 
 // UIMemoryOverview 暴露记忆功能开关和根目录状态；路径字段只用于本机 UI 展示，不参与写盘决策。
 type UIMemoryOverview struct {
-	Enabled             bool            `json:"enabled"`
-	ToolsEnabled        bool            `json:"toolsEnabled"`
-	AutoDreamEnabled    bool            `json:"autoDreamEnabled"`
-	AutoDreamIntent     *bool           `json:"autoDreamIntent,omitempty"`
-	RootDir             string          `json:"rootDir,omitempty"`
-	ProjectRoot         string          `json:"projectRoot,omitempty"`
-	PrivateRoot         string          `json:"privateRoot,omitempty"`
-	AutoMemPathOverride string          `json:"autoMemPathOverride,omitempty"`
-	TeamFeatureEnabled  bool            `json:"teamFeatureEnabled"`
-	Health              *UIMemoryHealth `json:"health,omitempty"`
+	Enabled              bool            `json:"enabled"`
+	ToolsEnabled         bool            `json:"toolsEnabled"`
+	AutoDreamEnabled     bool            `json:"autoDreamEnabled"`
+	AutoDreamIntent      *bool           `json:"autoDreamIntent,omitempty"`
+	AutoDreamIntentError string          `json:"autoDreamIntentError,omitempty"`
+	RootDir              string          `json:"rootDir,omitempty"`
+	ProjectRoot          string          `json:"projectRoot,omitempty"`
+	PrivateRoot          string          `json:"privateRoot,omitempty"`
+	AutoMemPathOverride  string          `json:"autoMemPathOverride,omitempty"`
+	TeamFeatureEnabled   bool            `json:"teamFeatureEnabled"`
+	Health               *UIMemoryHealth `json:"health,omitempty"`
 }
 
 // UIMemoryScopeSection 表示一个记忆作用域的 UI 列表，Notice 承载脱敏后的扫描/解析失败原因。
@@ -101,7 +102,11 @@ func buildUIMemorySnapshot(ctx context.Context, svc Service, logger *slog.Logger
 		buildCtx.GitRoot = strings.TrimSpace(gitRoot)
 	}
 	gate := ResolveMemoryGate(buildCtx, &cfg)
-	intent, _ := ReadAutoDreamIntent(cfg.RootDir)
+	intent, intentErr := ReadAutoDreamIntent(cfg.RootDir)
+	intentError := autoDreamIntentErrorSummary(intentErr)
+	if intentErr != nil {
+		intent = nil
+	}
 
 	privateRoot, privateErr := resolvedStoreRoot(cfg.RootDir, projectRoot, cfg.AutoMemPathOverride)
 	privateSection := loadUIMemoryScope(logger, "Private durable memory", privateRoot, privateErr, true)
@@ -121,16 +126,17 @@ func buildUIMemorySnapshot(ctx context.Context, svc Service, logger *slog.Logger
 
 	return UIMemorySnapshot{
 		Overview: UIMemoryOverview{
-			Enabled:             cfg.Enabled,
-			ToolsEnabled:        cfg.EnableTools,
-			AutoDreamEnabled:    cfg.Enabled && cfg.ExtractOnStop && gate.AutoEnabled,
-			AutoDreamIntent:     intent,
-			RootDir:             strings.TrimSpace(cfg.RootDir),
-			ProjectRoot:         projectRoot,
-			PrivateRoot:         strings.TrimSpace(privateRoot),
-			AutoMemPathOverride: strings.TrimSpace(cfg.AutoMemPathOverride),
-			TeamFeatureEnabled:  cfg.Features.TeamMemory,
-			Health:              health,
+			Enabled:              cfg.Enabled,
+			ToolsEnabled:         cfg.EnableTools,
+			AutoDreamEnabled:     cfg.Enabled && cfg.ExtractOnStop && gate.AutoEnabled,
+			AutoDreamIntent:      intent,
+			AutoDreamIntentError: intentError,
+			RootDir:              strings.TrimSpace(cfg.RootDir),
+			ProjectRoot:          projectRoot,
+			PrivateRoot:          strings.TrimSpace(privateRoot),
+			AutoMemPathOverride:  strings.TrimSpace(cfg.AutoMemPathOverride),
+			TeamFeatureEnabled:   cfg.Features.TeamMemory,
+			Health:               health,
 		},
 		Private: privateSection,
 		Team:    teamSection,

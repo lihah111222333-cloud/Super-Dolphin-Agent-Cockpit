@@ -55,6 +55,22 @@ func TestAddServersPersistsProjectMCPServerConfig(t *testing.T) {
 	}
 }
 
+func TestNewServiceWritePathReturnsStoreNotConfigured(t *testing.T) {
+	svc := NewService()
+
+	_, err := svc.AddServers(context.Background(), AddServersRequest{
+		MCPServers: map[string]ServerConfig{
+			"my-search": {
+				Transport: "http",
+				URL:       "https://example.com/mcp",
+			},
+		},
+	})
+	if !errors.Is(err, errMCPServerStoreNotConfigured) {
+		t.Fatalf("AddServers() error = %v, want errMCPServerStoreNotConfigured", err)
+	}
+}
+
 func TestAddServersKeepsExistingTableRows(t *testing.T) {
 	store := newMemoryMCPServerStore()
 	svc := NewServiceWithStore(store)

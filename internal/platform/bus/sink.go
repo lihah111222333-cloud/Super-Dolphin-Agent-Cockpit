@@ -4,7 +4,7 @@ package bus
 
 import (
 	"context"
-	"log/slog"
+	"errors"
 	"reflect"
 	"runtime"
 	"strings"
@@ -75,20 +75,22 @@ type LogSinkDeps struct {
 	Trace      TraceRecorder
 }
 
-// NewLogSink 创建 LogSink 并订阅所有已知事件类型；dispatcher 或 logger 为 nil 时禁用事件日志。
-func NewLogSink(p LogSinkDeps) *LogSink {
-	sink := &LogSink{subs: NewSubscription(), trace: p.Trace, traceCounts: map[string]int64{}}
-	if p.Dispatcher == nil || p.Logger == nil {
-		slog.Warn("bus: NewLogSink called with nil dispatcher or logger, event logging disabled")
-		return sink
+// NewLogSink 创建 LogSink 并订阅所有已知事件类型；dispatcher 和 logger 缺失时立即报错。
+func NewLogSink(p LogSinkDeps) (*LogSink, error) {
+	if p.Dispatcher == nil {
+		return nil, errors.New("bus: nil dispatcher")
 	}
+	if p.Logger == nil {
+		return nil, errors.New("bus: nil logger")
+	}
+	sink := &LogSink{subs: NewSubscription(), trace: p.Trace, traceCounts: map[string]int64{}}
 	sink.bindAgent(p.Dispatcher, p.Logger)
 	sink.bindThread(p.Dispatcher, p.Logger)
 	sink.bindTurn(p.Dispatcher, p.Logger)
 	sink.bindTool(p.Dispatcher, p.Logger)
 	sink.bindTask(p.Dispatcher, p.Logger)
 	sink.bindUI(p.Dispatcher, p.Logger)
-	return sink
+	return sink, nil
 }
 
 // Close 注销所有事件订阅，释放资源；幂等，重复调用安全。

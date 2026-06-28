@@ -2,6 +2,7 @@ package toolbridge
 
 import (
 	"context"
+	"errors"
 	"net"
 	"strings"
 	"sync/atomic"
@@ -112,10 +113,10 @@ func memoryWriteHostToolOptions(writer contract.AgentMemoryWriter) MemoryWriteHo
 }
 
 // provideDiffEmitter 将 difftracker 结果发布为 ToolDiffUpdated 总线事件。
-// dispatcher 未装配时返回 nil，调用方会跳过 diff 发布；已发布事件会复制文件列表，避免后续修改污染总线消息。
-func provideDiffEmitter(dispatcher *event.Dispatcher) difftracker.DiffEmitter {
+// dispatcher 是生产必需依赖，缺失时让 Fx 图失败，避免 diff 事件静默丢失。
+func provideDiffEmitter(dispatcher *event.Dispatcher) (difftracker.DiffEmitter, error) {
 	if dispatcher == nil {
-		return nil
+		return nil, errors.New("toolbridge: nil dispatcher for diff emitter")
 	}
 	return func(ctx context.Context, diff difftracker.DiffResult) error {
 		event.Publish(dispatcher, tooldto.ToolDiffUpdated{
@@ -129,7 +130,7 @@ func provideDiffEmitter(dispatcher *event.Dispatcher) difftracker.DiffEmitter {
 			Revision:  diff.Revision,
 		})
 		return nil
-	}
+	}, nil
 }
 
 // resolverFunc 将普通函数适配为 difftracker.WorkDirResolver。
@@ -162,9 +163,15 @@ func provideProxyTokenFn(h *Handler) func() string {
 
 // registerProxyLifecycle 完成 proxy 的同步装配：监听端口、发布地址并交给 ProxyRunner。
 // Serve 与 listener close 由 ProxyRunner.Run 负责，这里 OnStop 只清空已发布地址。
-func registerProxyLifecycle(lifecycle fx.Lifecycle, h *Handler, runner *ProxyRunner) {
-	if lifecycle == nil || h == nil || runner == nil {
-		return
+func registerProxyLifecycle(lifecycle fx.Lifecycle, h *Handler, runner *ProxyRunner) error {
+	if lifecycle == nil {
+		return errors.New("toolbridge: nil lifecycle")
+	}
+	if h == nil {
+		return errors.New("toolbridge: nil handler")
+	}
+	if runner == nil {
+		return errors.New("toolbridge: nil proxy runner")
 	}
 	lifecycle.Append(fx.Hook{
 		OnStart: func(context.Context) error {
@@ -187,4 +194,5 @@ func registerProxyLifecycle(lifecycle fx.Lifecycle, h *Handler, runner *ProxyRun
 			return nil
 		},
 	})
+	return nil
 }

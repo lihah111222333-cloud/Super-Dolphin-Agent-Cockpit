@@ -42,6 +42,25 @@ func TestEmptyToolProviderCallToolFailsClosed(t *testing.T) {
 	}
 }
 
+// TestNewStdioServerFailsFastWhenMcpStdoutNil 锁定 mcpStdout 未初始化时必须返回 error，
+// 不得 fallback 到 os.Stdout，否则会把普通 stdout 当作 MCP JSON-RPC 通道继续使用。
+func TestNewStdioServerFailsFastWhenMcpStdoutNil(t *testing.T) {
+	prev := mcpStdout.Swap(nil)
+	t.Cleanup(func() {
+		if prev != nil {
+			mcpStdout.Store(prev)
+		}
+	})
+
+	_, err := newStdioServer()
+	if err == nil {
+		t.Fatal("newStdioServer() error = nil, want error when mcpStdout is nil")
+	}
+	if !strings.Contains(err.Error(), "mcpStdout") {
+		t.Fatalf("newStdioServer() error = %q, want mention of mcpStdout", err.Error())
+	}
+}
+
 func TestBootstrapRunnerRequiresRPCAddr(t *testing.T) {
 	ready := make(chan struct{})
 	close(ready)
@@ -61,13 +80,23 @@ func TestBootstrapRunnerRequiresRPCAddr(t *testing.T) {
 
 func TestRunFailsWhenRPCAddrMissing(t *testing.T) {
 	originalStdin := os.Stdin
+	prevStdout := mcpStdout.Load()
 	t.Cleanup(func() {
 		os.Stdin = originalStdin
+		mcpStdout.Store(prevStdout)
 	})
 	t.Setenv("GO_AGENT_CTL_RPC_ADDR", "")
 	t.Setenv("RPC_ADDR", "")
 	t.Setenv("GO_AGENT_CTL_BOOTSTRAP_JSON", "")
 	t.Setenv("GO_AGENT_MCP_BOOT_CONTEXT", "")
+
+	protocolRead, protocolWrite, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("protocol pipe: %v", err)
+	}
+	defer protocolRead.Close()
+	defer protocolWrite.Close()
+	mcpStdout.Store(protocolWrite)
 
 	stdinRead, stdinWrite, err := os.Pipe()
 	if err != nil {
@@ -76,6 +105,10 @@ func TestRunFailsWhenRPCAddrMissing(t *testing.T) {
 	defer stdinRead.Close()
 	defer stdinWrite.Close()
 	os.Stdin = stdinRead
+	go func() {
+		time.Sleep(50 * time.Millisecond)
+		_ = stdinWrite.Close()
+	}()
 
 	err = run()
 	if err == nil {

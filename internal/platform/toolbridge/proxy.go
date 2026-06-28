@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"strings"
@@ -116,12 +117,11 @@ func (h *Handler) handleProxyRequest(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusMethodNotAllowed)
 		return
 	}
-	r.Body = http.MaxBytesReader(w, r.Body, proxyMaxBodyBytes)
 	defer r.Body.Close()
 
 	req, err := decodeProxyJSONRPCRequest(r)
 	if err != nil {
-		writeJSONRPCError(w, nil, proxyDecodeErrorCode(err), err.Error())
+		writeJSONRPCError(w, req.ID, proxyDecodeErrorCode(err), err.Error())
 		return
 	}
 	if strings.TrimSpace(req.JSONRPC) != "2.0" {
@@ -144,7 +144,7 @@ func (h *Handler) handleProxyRequest(w http.ResponseWriter, r *http.Request) {
 			},
 		})
 	case ProxyNotificationMethod:
-		w.WriteHeader(http.StatusAccepted)
+		writeJSONRPCNotificationAck(w)
 	case ProxyMethodToolsList:
 		h.handleProxyToolsList(w, r.Context(), req.ID, family)
 	case ProxyMethodToolsCall:
@@ -158,12 +158,56 @@ func (h *Handler) handleProxyRequest(w http.ResponseWriter, r *http.Request) {
 // decodeProxyJSONRPCRequest 读取单个 JSON-RPC 请求，保留数字 id 的原始精度。
 func decodeProxyJSONRPCRequest(r *http.Request) (proxyJSONRPCRequest, error) {
 	var req proxyJSONRPCRequest
-	decoder := json.NewDecoder(r.Body)
+	raw, err := io.ReadAll(io.LimitReader(r.Body, proxyMaxBodyBytes+1))
+	if err != nil {
+		return proxyJSONRPCRequest{}, err
+	}
+	if len(raw) > proxyMaxBodyBytes {
+		req.ID = decodeProxyJSONRPCID(raw[:proxyMaxBodyBytes])
+		return req, &http.MaxBytesError{Limit: proxyMaxBodyBytes}
+	}
+	decoder := json.NewDecoder(bytes.NewReader(raw))
 	decoder.UseNumber()
 	if err := decoder.Decode(&req); err != nil {
 		return proxyJSONRPCRequest{}, err
 	}
 	return req, nil
+}
+
+// decodeProxyJSONRPCID 从受限请求前缀中尽力提取 id，保证超限 request 仍返回对应错误体。
+func decodeProxyJSONRPCID(raw []byte) any {
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	decoder.UseNumber()
+	tok, err := decoder.Token()
+	if err != nil {
+		return nil
+	}
+	delim, ok := tok.(json.Delim)
+	if !ok || delim != '{' {
+		return nil
+	}
+	for decoder.More() {
+		keyTok, err := decoder.Token()
+		if err != nil {
+			return nil
+		}
+		key, ok := keyTok.(string)
+		if !ok {
+			return nil
+		}
+		if key == "id" {
+			var id any
+			if err := decoder.Decode(&id); err != nil {
+				return nil
+			}
+			return id
+		}
+		var discard json.RawMessage
+		if err := decoder.Decode(&discard); err != nil {
+			return nil
+		}
+	}
+	return nil
 }
 
 // proxyDecodeErrorCode 将 HTTP body 解码错误映射为 JSON-RPC error code。
@@ -429,19 +473,28 @@ func callIDFromJSONRPCID(id any) string {
 // writeJSONRPCResult 写入 JSON-RPC success 响应；notification 不带 body。
 func writeJSONRPCResult(w http.ResponseWriter, id any, result any) {
 	if id == nil {
-		w.WriteHeader(http.StatusOK)
+		writeJSONRPCNotificationAck(w)
 		return
 	}
 	writeProxyJSON(w, proxyJSONRPCResponse{JSONRPC: "2.0", ID: id, Result: result})
 }
 
-// writeJSONRPCError 写入 JSON-RPC error 响应。
+// writeJSONRPCError 写入 JSON-RPC error 响应；notification 错误只确认接收，不输出 id:null。
 func writeJSONRPCError(w http.ResponseWriter, id any, code int, message string) {
+	if id == nil {
+		writeJSONRPCNotificationAck(w)
+		return
+	}
 	writeProxyJSON(w, proxyJSONRPCResponse{
 		JSONRPC: "2.0",
 		ID:      id,
 		Error:   &proxyJSONRPCError{Code: code, Message: strings.TrimSpace(message)},
 	})
+}
+
+// writeJSONRPCNotificationAck 对 JSON-RPC notification 返回 HTTP 层确认，保持响应体为空。
+func writeJSONRPCNotificationAck(w http.ResponseWriter) {
+	w.WriteHeader(http.StatusAccepted)
 }
 
 // writeProxyJSON 统一写入 proxy JSON 响应。
