@@ -21,7 +21,7 @@
 - `lsp-advanced`
 - `sqlc-workflow`
 - `prompt-template-editing`
-- `frontend-react`
+- `frontend-vue3`
 - `migration-rules`
 - `guard-rules`
 
@@ -30,7 +30,7 @@
 - `LSP_Basics`
 - `my topic`
 - `prompt.template`
-- `frontend/react`
+- `frontend/vue3`
 - `-migration-rules`
 - `guard-rules-`
 - `guard--rules`

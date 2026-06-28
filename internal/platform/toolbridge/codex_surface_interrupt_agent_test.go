@@ -16,10 +16,7 @@ func TestCodexSurfaceExposesInterruptAgentShortName(t *testing.T) {
 		Description: "interrupt agent",
 		InputSchema: json.RawMessage(`{"type":"object"}`),
 	}}}
-	h := &Handler{
-		toolLifecycleReader: fakeActiveLifecycleReader("/repo", map[string][]string{"orch": {"orchestration_interrupt_agent"}}),
-		stdioClientFactory:  fakeClientFactory(map[string]mcpClient{"orch": orch}),
-	}
+	h := &Handler{stdioClientFactory: fakeClientFactory(map[string]mcpClient{"orch": orch})}
 
 	tools, err := h.PrepareCodexToolSurface(context.Background(), contract.CodexToolSurfaceScope{
 		AgentID:          "agent-1",

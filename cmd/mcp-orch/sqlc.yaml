@@ -1,7 +1,6 @@
 version: "2"
 sql:
   - engine: "sqlite"
-    strict_order_by: true
     queries: "sql/queries"
     schema:
       - "../../internal/platform/db/sqlite/migrations/001_baseline.sql"

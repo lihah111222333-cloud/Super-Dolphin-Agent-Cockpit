@@ -25,7 +25,7 @@ var mainGeneralZhSectionKeys = []string{
 	"recall_lsp_advanced",
 	"recall_sqlc_workflow",
 	"recall_prompt_template_editing",
-	"recall_frontend_react",
+	"recall_frontend_vue3",
 	"recall_migration_rules",
 	"recall_guard_rules",
 }
@@ -45,7 +45,7 @@ var mainGeneralZhSectionShapes = []sectionShape{
 	{key: "recall_lsp_advanced", region: "dynamic", ordinal: 0, triggerType: "recall", recallTopic: "lsp-advanced"},
 	{key: "recall_sqlc_workflow", region: "dynamic", ordinal: 0, triggerType: "recall", recallTopic: "sqlc-workflow"},
 	{key: "recall_prompt_template_editing", region: "dynamic", ordinal: 0, triggerType: "recall", recallTopic: "prompt-template-editing"},
-	{key: "recall_frontend_react", region: "dynamic", ordinal: 0, triggerType: "recall", recallTopic: "frontend-react"},
+	{key: "recall_frontend_vue3", region: "dynamic", ordinal: 0, triggerType: "recall", recallTopic: "frontend-vue3"},
 	{key: "recall_migration_rules", region: "dynamic", ordinal: 0, triggerType: "recall", recallTopic: "migration-rules"},
 	{key: "recall_guard_rules", region: "dynamic", ordinal: 0, triggerType: "recall", recallTopic: "guard-rules"},
 }

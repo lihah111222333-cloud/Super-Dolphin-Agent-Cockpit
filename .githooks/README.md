@@ -26,7 +26,7 @@ make install-hooks
 | `commit-msg` | `git commit` | 要求提交标题包含中文；提交正文如果存在也必须包含中文；提交主题属于 `fix` / `hotfix` / `bugfix` / `修复` 时，要求同一提交修改锁定 bug 的测试、fixture、golden 或 snapshot | <1 秒 |
 | `pre-push` | `git push` | 要求 worktree/index/untracked 干净，只允许推送当前 `HEAD`；检查本次 push 范围内每个 commit 标题和非空正文都包含中文，fix commits 都带锁定 bug 的测试；按 push 范围只跑变更语言/包对应测试 | 视变更包而定 |
 
-`pre-commit` 只跑 staged `.go` 影响到的包；当前前端变更只跑 `frontend-app` 的 lint/test/build。`commit-msg` 要求标题包含中文，正文如果存在也必须包含中文，并用提交主题识别 fix 类提交。`pre-push` 从本次 push range 计算变更路径：先校验范围内 commit 标题 / 非空正文的中文要求和 fix-test 规则；有 Go 代码才跑对应 Go 包测试，有前端代码才跑当前前端包测试，只有文档/其它非代码变更则不跑包测试。三者都**不**做格式自动修复，只拦下不通过的提交/推送。为保证检查对象就是将被提交的内容，`pre-commit` 会拒绝 staged Go 影响包内仍有未暂存/未跟踪 `.go` 改动，也会拒绝 `git add` 后又删除的 AD 状态。
+`pre-commit` 只跑 staged `.go` 影响到的包；前端变更只跑 `cmd/agent-terminal/frontend` 这个前端包的 guard/vitest。`commit-msg` 要求标题包含中文，正文如果存在也必须包含中文，并用提交主题识别 fix 类提交。`pre-push` 从本次 push range 计算变更路径：先校验范围内 commit 标题 / 非空正文的中文要求和 fix-test 规则；有 Go 代码才跑对应 Go 包测试，有前端代码才跑前端包测试，只有文档/其它非代码变更则不跑包测试。三者都**不**做格式自动修复，只拦下不通过的提交/推送。为保证检查对象就是将被提交的内容，`pre-commit` 会拒绝 staged Go 影响包内仍有未暂存/未跟踪 `.go` 改动，也会拒绝 `git add` 后又删除的 AD 状态。
 
 CI 也会在 `.github/workflows/ci.yml` 的 `commit-guard` job 中运行 `scripts/ci_commit_guard.sh`：它按 GitHub `pull_request` / `push` 事件解析提交范围，先复用 `scripts/guard_commit_titles.sh --range` 要求范围内每个 commit 的标题包含中文，且非空正文也包含中文，再复用 `scripts/guard_fix_commits_have_tests.sh --range` 拦截未安装 hook 或绕过 hook 后进入 PR / main 的 fix 类提交。正文为空允许；正文一旦存在，纯英文正文会失败。
 
@@ -132,7 +132,7 @@ git config --get core.hooksPath
 
 ### 为什么第一次很慢？
 
-冷启时 Go 需要重建测试缓存，`pre-push` 的 Go 包级测试耗时取决于本次 push 涉及的包数量。`pre-commit` 只检查 staged `.go` 涉及的包，暖启通常 0.5–3 秒。前端只在 `frontend-app` 代码变更时跑当前前端的 lint/test/build。
+冷启时 Go 需要重建测试缓存，`pre-push` 的 Go 包级测试耗时取决于本次 push 涉及的包数量。`pre-commit` 只检查 staged `.go` 涉及的包，暖启通常 0.5–3 秒。前端只在 `cmd/agent-terminal/frontend` 代码变更时跑该前端包的 guard/vitest。
 
 ### 清了 GOCACHE 会怎样？
 

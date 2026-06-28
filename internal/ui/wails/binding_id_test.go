@@ -17,11 +17,11 @@ import (
 // the Wails runtime computes from the fully-qualified Go method names.
 //
 // If this test fails after a package rename or method signature change,
-// update METHOD_IDS in frontend-app/src/shared/api/wailsBridge.js
+// update METHOD_IDS in cmd/agent-terminal/frontend/vue-app/services/api.js
 // and all e2e test files that reference method IDs.
 func TestFrontendMethodIDsMatchBackendFQN(t *testing.T) {
 	// These must stay in sync with the frontend METHOD_IDS constant.
-	// See: frontend-app/src/shared/api/wailsBridge.js
+	// See: cmd/agent-terminal/frontend/vue-app/services/api.js
 	expect := map[string]uint32{
 		"CallAPI":            2963398832,
 		"GetBuildInfo":       2341363104,

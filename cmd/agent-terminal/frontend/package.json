@@ -1,0 +1,45 @@
+{
+    "name": "agent-terminal-frontend",
+    "version": "0.1.0",
+    "private": true,
+    "description": "Agent Terminal Vue 前端 (适配 Wails)",
+    "type": "module",
+    "scripts": {
+        "dev": "vite",
+        "prebuild": "node scripts/size-guard.cjs",
+        "build": "vite build",
+        "build:debug": "vite build --mode development --minify false",
+        "preview": "vite preview",
+        "test:e2e": "playwright test",
+        "test:e2e:headed": "playwright test --headed",
+        "test:e2e:ui": "playwright test --ui",
+        "test:e2e:install": "playwright install chromium",
+        "test:e2e:real": "node scripts/run-real-e2e.cjs",
+        "test:e2e:real:headed": "node scripts/run-real-e2e.cjs --headed",
+        "pretest": "node scripts/size-guard.cjs",
+        "test": "vitest run",
+        "test:watch": "vitest",
+        "guard": "node scripts/size-guard.cjs",
+        "guard:update": "node scripts/size-guard.cjs --update"
+    },
+    "dependencies": {
+        "@chenglou/pretext": "0.0.7",
+        "@modelcontextprotocol/sdk": "^1.29.0",
+        "@vscode/markdown-it-katex": "^1.1.2",
+        "cron-parser": "^4.9.0",
+        "echarts": "^6.0.0",
+        "highlight.js": "^11.11.1",
+        "katex": "^0.16.38",
+        "markdown-it": "^14.1.1",
+        "mermaid": "^11.15.0",
+        "playwright": "^1.x"
+    },
+    "devDependencies": {
+        "@playwright/test": "^1.58.2",
+        "@types/markdown-it": "^14.1.2",
+        "@vue/compiler-dom": "^3.5.13",
+        "jsdom": "^25.0.1",
+        "vite": "^6.4.2",
+        "vitest": "^3.0.0"
+    }
+}

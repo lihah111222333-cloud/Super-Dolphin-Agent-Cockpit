@@ -490,6 +490,74 @@ func TestNewThreadHandlersDispatchClear(t *testing.T) {
 	}
 }
 
+func TestNewThreadHandlersDispatchReadReturnsHistoryPayload(t *testing.T) {
+	t.Parallel()
+
+	server := newThreadTestServer(&stubThreadService{})
+	raw, err := server.Dispatch(context.Background(), "thread/read", json.RawMessage(`{"threadId":"thread-1"}`))
+	if err != nil {
+		t.Fatalf("Dispatch(thread/read) error = %v", err)
+	}
+	var got ReadHistoryResult
+	if err := json.Unmarshal(raw, &got); err != nil {
+		t.Fatalf("Unmarshal(thread/read) error = %v", err)
+	}
+	want := ReadHistoryResult{History: []ReadHistoryThread{{ThreadID: "thread-1"}}}
+	if got.History == nil || len(got.History) != 1 || got.History[0] != want.History[0] {
+		t.Fatalf("Dispatch(thread/read) = %#v, want %#v", got, want)
+	}
+}
+
+func TestNewThreadHandlersDispatchMessagesReturnsEnvelope(t *testing.T) {
+	t.Parallel()
+
+	stub := &stubThreadService{
+		readMessagesResult: dto.ThreadMessagesResult{
+			Messages:   []dto.Message{{ID: 2, AgentID: "thread-1", Role: "assistant", EventType: "agent_message", Content: "world"}},
+			Total:      7,
+			HasMore:    true,
+			NextBefore: "opaque-cursor",
+		},
+	}
+	server := newThreadTestServer(stub)
+	raw, err := server.Dispatch(context.Background(), "thread/messages", json.RawMessage(`{"threadId":"thread-1","limit":2,"before":3}`))
+	if err != nil {
+		t.Fatalf("Dispatch(thread/messages) error = %v", err)
+	}
+	var got dto.ThreadMessagesResult
+	if err := json.Unmarshal(raw, &got); err != nil {
+		t.Fatalf("Unmarshal(thread/messages) error = %v", err)
+	}
+	requireThreadMessagesEnvelope(t, got)
+	requireThreadMessagesDispatchCall(t, stub, "thread-1", 2, "3")
+}
+
+func requireThreadMessagesEnvelope(t *testing.T, got dto.ThreadMessagesResult) {
+	t.Helper()
+	if got.Total != 7 {
+		t.Fatalf("total = %d, want 7", got.Total)
+	}
+	if !got.HasMore || got.NextBefore != "opaque-cursor" {
+		t.Fatalf("page metadata = hasMore:%v nextBefore:%q", got.HasMore, got.NextBefore)
+	}
+	if len(got.Messages) != 1 || got.Messages[0].ID != 2 {
+		t.Fatalf("messages = %#v, want id 2", got.Messages)
+	}
+}
+
+func requireThreadMessagesDispatchCall(t *testing.T, stub *stubThreadService, threadID string, limit int, before string) {
+	t.Helper()
+	if stub.readMessagesThread != threadID {
+		t.Fatalf("ReadMessages thread = %q, want %q", stub.readMessagesThread, threadID)
+	}
+	if stub.readMessagesLimit != limit {
+		t.Fatalf("ReadMessages limit = %d, want %d", stub.readMessagesLimit, limit)
+	}
+	if stub.readMessagesBefore != before {
+		t.Fatalf("ReadMessages before = %q, want %q", stub.readMessagesBefore, before)
+	}
+}
+
 func newThreadTestServer(svc Service) *rpcpkg.Server {
 	server := rpcpkg.NewServer(rpcpkg.Params{Config: &contract.Config{RPCAddr: "127.0.0.1:0"}})
 	server.Register(NewThreadHandlers(svc, nil).Handlers)

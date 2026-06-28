@@ -11,7 +11,7 @@ aliases: ["@UI设计", "@ui-design", "@ui-ux-design"]
 ## 路由规则
 
 1. 普通 UI 开发、修复和审查先加载 `前端` 技能。
-2. 默认目标是 `frontend-app` React/Vite；`cmd/agent-terminal/web-dist` 只是构建同步后的嵌入产物，不作为 UI 源码编辑。
+2. 默认目标是 `frontend-app` React/Vite；legacy Vue 只在用户明确点名 package/embed 或 `cmd/agent-terminal/frontend` 时使用。
 3. 不默认引入 Tailwind、shadcn 或新 UI 框架；只有用户明确要求或仓库已有依赖时才读取 `ui-ux-design/references/ui-styling/GUIDE.md`。
 4. 可使用 `ui-ux-design` 的配色、排版、布局和可用性判断，但实现必须贴合当前仓库组件和 CSS。
 

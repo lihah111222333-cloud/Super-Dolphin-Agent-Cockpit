@@ -374,6 +374,10 @@ func TestPrePushScopesPackageTestsByChangedLanguage(t *testing.T) {
 		assertPrePushGoOnlyScope(t)
 	})
 
+	t.Run("legacy frontend only runs legacy frontend package tests", func(t *testing.T) {
+		assertPrePushLegacyFrontendOnlyScope(t)
+	})
+
 	t.Run("frontend app only runs frontend app package tests", func(t *testing.T) {
 		assertPrePushFrontendAppOnlyScope(t)
 	})

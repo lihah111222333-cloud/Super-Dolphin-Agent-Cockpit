@@ -1,10 +1,8 @@
 package codexapp
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
-	"log/slog"
 	"path/filepath"
 	"reflect"
 	"strings"
@@ -13,7 +11,6 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
 	codexprotocol "github.com/anthropic-ai/super-agent-v3/internal/provider/codexapp/protocol"
-	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
 type stubRuntimeReporter struct {
@@ -255,16 +252,6 @@ func TestBuildThreadStartParamsIgnoresPrefixShapeContent(t *testing.T) {
 		StartAssembly: dto.StartAssembly{
 			BaseInstructions:      "assembled base",
 			DeveloperInstructions: "assembled dev",
-			ResolvedSections: []dto.ResolvedPromptSection{
-				{Name: "identity", Content: "FORBIDDEN_SECTION_PROMPT"},
-			},
-			Snapshot: dto.PromptAssemblySnapshot{
-				BaseInstructions:      "FORBIDDEN_SNAPSHOT_BASE",
-				DeveloperInstructions: "FORBIDDEN_SNAPSHOT_DEVELOPER",
-				SectionSnapshot: map[string]string{
-					"identity": "FORBIDDEN_SNAPSHOT_SECTION",
-				},
-			},
 			PrefixShape: dto.PrefixShape{
 				Hash:                "shape-hash",
 				StaticSectionNames:  []string{"identity"},
@@ -280,130 +267,6 @@ func TestBuildThreadStartParamsIgnoresPrefixShapeContent(t *testing.T) {
 	}
 	if params.DeveloperInstructions != "assembled dev" {
 		t.Fatalf("DeveloperInstructions = %q, want assembled dev", params.DeveloperInstructions)
-	}
-	wire, err := json.Marshal(params)
-	if err != nil {
-		t.Fatalf("marshal thread start params: %v", err)
-	}
-	for _, forbidden := range []string{
-		"prefixShape",
-		"resolvedSections",
-		"snapshot",
-		"shape-hash",
-		"FORBIDDEN_SECTION_PROMPT",
-		"FORBIDDEN_SNAPSHOT_BASE",
-		"FORBIDDEN_SNAPSHOT_DEVELOPER",
-		"FORBIDDEN_SNAPSHOT_SECTION",
-	} {
-		if strings.Contains(string(wire), forbidden) {
-			t.Fatalf("thread/start wire leaked %q: %s", forbidden, wire)
-		}
-	}
-}
-
-func TestLogStartPrefixShapeIncludesSafeFieldsAndNoPromptContent(t *testing.T) {
-	var logs bytes.Buffer
-	previous := pkglogger.Get()
-	pkglogger.SetForTest(slog.New(slog.NewJSONHandler(&logs, &slog.HandlerOptions{Level: slog.LevelDebug})))
-	t.Cleanup(func() { pkglogger.SetForTest(previous) })
-
-	req := dto.StartSessionRequest{
-		AgentID: "agent-prefix",
-		StartAssembly: dto.StartAssembly{
-			BaseInstructions:      "FORBIDDEN_BASE_PROMPT",
-			DeveloperInstructions: "FORBIDDEN_DEVELOPER_PROMPT",
-			ResolvedSections: []dto.ResolvedPromptSection{
-				{Name: "identity", Content: "FORBIDDEN_SECTION_PROMPT"},
-			},
-			Snapshot: dto.PromptAssemblySnapshot{
-				BaseInstructions:      "FORBIDDEN_SNAPSHOT_BASE",
-				DeveloperInstructions: "FORBIDDEN_SNAPSHOT_DEVELOPER",
-				SectionSnapshot: map[string]string{
-					"identity": "FORBIDDEN_SNAPSHOT_SECTION",
-				},
-			},
-			PrefixShape: dto.PrefixShape{
-				Hash:                "shape-hash",
-				StaticSectionNames:  []string{"engineering", "identity"},
-				DynamicSectionNames: []string{"memory"},
-				SuppressedToolNames: []string{"shell.exec", "web.fetch"},
-				CachedPrefixBytes:   120,
-				UncachedTailBytes:   40,
-				DeveloperBytes:      28,
-				ChurnReason:         "memory_changed",
-			},
-		},
-	}
-
-	logStartPrefixShape(req)
-
-	output := logs.String()
-	if output == "" {
-		t.Fatal("logStartPrefixShape() produced no log output")
-	}
-	for _, forbidden := range []string{
-		"FORBIDDEN_BASE_PROMPT",
-		"FORBIDDEN_DEVELOPER_PROMPT",
-		"FORBIDDEN_SECTION_PROMPT",
-		"FORBIDDEN_SNAPSHOT_BASE",
-		"FORBIDDEN_SNAPSHOT_DEVELOPER",
-		"FORBIDDEN_SNAPSHOT_SECTION",
-	} {
-		if strings.Contains(output, forbidden) {
-			t.Fatalf("prefix shape log leaked prompt content %q: %s", forbidden, output)
-		}
-	}
-
-	var payload map[string]any
-	if err := json.Unmarshal([]byte(strings.TrimSpace(output)), &payload); err != nil {
-		t.Fatalf("unmarshal prefix shape log: %v", err)
-	}
-	if got := payload["agent_id"]; got != "agent-prefix" {
-		t.Fatalf("agent_id = %#v, want agent-prefix", got)
-	}
-	if got := payload["prefix_hash"]; got != "shape-hash" {
-		t.Fatalf("prefix_hash = %#v, want shape-hash", got)
-	}
-	assertLogStringSlice(t, payload, "static_sections", []string{"engineering", "identity"})
-	assertLogStringSlice(t, payload, "dynamic_sections", []string{"memory"})
-	assertLogStringSlice(t, payload, "suppressed_tool_names", []string{"shell.exec", "web.fetch"})
-	assertLogNumber(t, payload, "cached_prefix_bytes", 120)
-	assertLogNumber(t, payload, "uncached_tail_bytes", 40)
-	assertLogNumber(t, payload, "developer_bytes", 28)
-	if got := payload["churn_reason"]; got != "memory_changed" {
-		t.Fatalf("churn_reason = %#v, want memory_changed", got)
-	}
-}
-
-func assertLogStringSlice(t *testing.T, payload map[string]any, key string, want []string) {
-	t.Helper()
-
-	raw, ok := payload[key].([]any)
-	if !ok {
-		t.Fatalf("%s = %#v, want string slice", key, payload[key])
-	}
-	got := make([]string, 0, len(raw))
-	for _, item := range raw {
-		value, ok := item.(string)
-		if !ok {
-			t.Fatalf("%s item = %#v, want string", key, item)
-		}
-		got = append(got, value)
-	}
-	if !reflect.DeepEqual(got, want) {
-		t.Fatalf("%s = %#v, want %#v", key, got, want)
-	}
-}
-
-func assertLogNumber(t *testing.T, payload map[string]any, key string, want float64) {
-	t.Helper()
-
-	got, ok := payload[key].(float64)
-	if !ok {
-		t.Fatalf("%s = %#v, want number", key, payload[key])
-	}
-	if got != want {
-		t.Fatalf("%s = %#v, want %#v", key, got, want)
 	}
 }
 

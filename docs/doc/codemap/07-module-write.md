@@ -2,7 +2,7 @@
 
 > 范围：`internal/module/thread/`、`internal/module/turn/`、`internal/module/uistate/`（含 `timeline/`）。  
 > 关联入口：[07-module.md](07-module.md) / [07-module-read.md](07-module-read.md)。
-> UI 路径校正（2026-06-28）：当前 UI 源码只在 `frontend-app/`；桌面宿主嵌入产物同步到 `cmd/agent-terminal/web-dist`。当前 React UI 入口见 [01-terminal-ui-react.md](01-terminal-ui-react.md)。
+> UI 路径校正（2026-06-02）：当前新 UI 在 `frontend-app/`，legacy Vue 锚点仍保留为旧/package-embed 参考。当前 React UI 入口见 [01-terminal-ui-react.md](01-terminal-ui-react.md)。
 
 ---
 
@@ -584,14 +584,14 @@ sequenceDiagram
 1. 当前 React 新 UI 的 blank-thread 分支在 `frontend-app/src/entities/client/model/useClientStore.js`：
    - `sendDraft()` 先调用 `frontend-app/src/shared/api/backendApi.js` 的 `startThread()`。
    - 拿到 `threadId` 后再调用 `startTurn()`，保持 `thread/start -> turn/start` 两段式。
-2. 当前 React blank-thread 分支由 `frontend-app/src/entities/client/model/composerSlice.js` 的 `sendDraft()` 驱动：
-   - 没有当前 thread 时先调用 `startNewDraftThread()`。
-   - `startNewDraftThread()` 在 `frontend-app/src/entities/client/model/useClientStore.js` 中调用 `sessionApi.start()`，等价进入 `thread/start`，并设置 `deferSpawn: true`。
-   - 拿到 `threadId` 后，`sendDraft()` 再调用 `startTurnWithStoppedThreadRecovery()`，最终进入 `turn/start`。
-3. `thread/start` RPC 仍保留历史 wire 字段兼容，但当前 React 新 UI 不再传入 launch-time skill selection；V1 生产 skill 发现不再经 prompt catalog 注入：`internal/module/thread/rpc.go:94-148`
-4. `buildStartAssemblyInput()` / `startSession()` 负责 start prompt assembly 与 provider session 启动：`internal/module/thread/start_session_helpers.go:37-72`、`internal/module/thread/start_session.go:142-166`
-5. React `turn/start` payload 固定带 cwd、threadId、input，并设置 `manualSkillSelection=false`。
-6. `turn/start` handler 组 `PrepareInput`，再由 `PrepareTurn()` 产出真正的 `dto.TurnRequest`，其中 `prepareTurnAssembly(...)` 的对接点正是 `service.go:176`：`internal/module/turn/rpc_helpers.go:159-182`、`internal/module/turn/service.go:135-186`
+2. Legacy Vue blank-thread 分支先整理 start options，再起线程：
+   - `resolveStartOptions()`：`cmd/agent-terminal/frontend/vue-app/composables/useThreadActions.js:126-140`
+   - blank-thread 首发分叉点在 `performSend()`：`cmd/agent-terminal/frontend/vue-app/composables/useThreadActions.js:160-174`；其中 `162-164` 先 `startThread(...)`，`173-174` 紧接着把 turn 载荷送进 `threadStore.sendMessage(...)`
+3. Legacy Vue `startThread()` 只接收 cwd 与 `startOptions`：`cmd/agent-terminal/frontend/vue-app/stores/thread-actions-helpers.js:288-318`
+4. `thread/start` RPC 仍保留 legacy wire 字段兼容，但当前 React 新 UI 与 legacy Vue 聊天页都不再传入 launch-time skill selection；V1 生产 skill 发现不再经 prompt catalog 注入：`internal/module/thread/rpc.go:94-148`
+5. `buildStartAssemblyInput()` / `startSession()` 负责 start prompt assembly 与 provider session 启动：`internal/module/thread/start_session_helpers.go:37-72`、`internal/module/thread/start_session.go:142-166`
+6. Legacy Vue 随后同一次 `performSend()` 再调 `sendMessage()`；真正组 `turn/start` payload 并调用后端的是 `thread-actions-helpers.js:423-442`（函数整体在 `:380-463`），该 legacy 聊天页 send options 固定带 cwd 且 `manualSkillSelection=false`
+7. `turn/start` handler 组 `PrepareInput`，再由 `PrepareTurn()` 产出真正的 `dto.TurnRequest`，其中 `prepareTurnAssembly(...)` 的对接点正是 `service.go:176`：`internal/module/turn/rpc_helpers.go:159-182`、`internal/module/turn/service.go:135-186`
 
 ### 5.1 这条链里有两套“技能”语义
 

@@ -3,7 +3,6 @@ import { Menu, Settings } from 'lucide-react';
 import { useClientStore } from '../../entities/client/model/useClientStore.js';
 import { PageHeader } from '../shared/pageComponents.jsx';
 import { BuiltinToolsCard } from './components/BuiltinToolsCard.jsx';
-import { MCPToolLifecycleCard } from './components/MCPToolLifecycleCard.jsx';
 import { ModelProvidersCard } from './components/ModelProvidersCard.jsx';
 import { ProviderPropertiesCard, ProviderSettingsPanel } from './components/ProviderSettingsPanels.jsx';
 import { PromptSettingsCard } from './components/PromptSettingsCard.jsx';
@@ -1071,7 +1070,6 @@ function SettingsPageView({ builtins, copy = APP_COPY.zh.settings, cwd, prompt, 
         <ModelProvidersCard copy={copy} cwd={cwd} />
         <PromptSettingsCard copy={copy} prompt={prompt} />
         <BuiltinToolsCard builtins={builtins} copy={copy} />
-        <MCPToolLifecycleCard copy={copy} cwd={cwd} />
         <VideoSettingsCard copy={copy} getApiKey={getVideoApiKey} setApiKey={setVideoApiKey} />
         <UILogCard copy={copy} loadLogs={loadSettingsDashboardLogs} store={store} />
       </div>

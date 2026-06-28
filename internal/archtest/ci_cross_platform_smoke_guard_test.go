@@ -31,7 +31,7 @@ func TestCICrossPlatformSmokeGuardsDesktopAndSidecars(t *testing.T) {
 	requiredScriptTokens := []string{
 		"Copy-FrontendAppDistToEmbed",
 		"frontend-app/dist",
-		"cmd/agent-terminal/web-dist",
+		"cmd/agent-terminal/frontend/dist",
 		"Invoke-GoBuild -Output $mcpOrch -Package './cmd/mcp-orch'",
 		"Invoke-GoBuild -Output $mcpLSP -Package './cmd/mcp-lsp'",
 		"Invoke-GoBuild -Output $agentTerminal -Package './cmd/agent-terminal'",

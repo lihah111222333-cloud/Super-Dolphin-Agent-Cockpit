@@ -664,7 +664,7 @@ function Ensure-PeerBinaries {
 }
 
 function Ensure-EmbeddedFrontendDist {
-    $embeddedIndex = Join-Path $ProjectDir 'cmd\agent-terminal\web-dist\index.html'
+    $embeddedIndex = Join-Path $ProjectDir 'cmd\agent-terminal\frontend\dist\index.html'
     $frontendSourcePaths = @(
         'frontend-app\index.html',
         'frontend-app\package.json',

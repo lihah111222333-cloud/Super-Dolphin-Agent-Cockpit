@@ -26,9 +26,6 @@ const backend = vi.hoisted(() => ({
   writeLspPromptHint: vi.fn(),
   readBuiltinTools: vi.fn(),
   writeBuiltinTool: vi.fn(),
-  listMCPToolLifecycleStates: vi.fn(),
-  listMCPServers: vi.fn(),
-  upsertMCPToolLifecycleState: vi.fn(),
   listDashboardLogs: vi.fn(),
   readSharedFile: vi.fn(),
   copyTextToClipboard: vi.fn(),
@@ -131,9 +128,6 @@ function mockSettingsConfigApi() {
     usingDefault: false,
   });
   backend.writeBuiltinTool.mockResolvedValue({ tools: enabledBuiltInTools });
-  backend.listMCPToolLifecycleStates.mockResolvedValue({ records: [] });
-  backend.listMCPServers.mockResolvedValue({ mcpServers: {} });
-  backend.upsertMCPToolLifecycleState.mockImplementation((payload) => Promise.resolve({ ...payload }));
   backend.listDashboardLogs.mockResolvedValue({ logs: [] });
   backend.copyTextToClipboard.mockResolvedValue(true);
 }

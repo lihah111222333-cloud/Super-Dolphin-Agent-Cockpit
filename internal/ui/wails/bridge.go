@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"log/slog"
+	"strings"
 	"sync"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/eventsurface"
@@ -71,7 +72,7 @@ func (b *EventBridge) Stop() {
 	}
 }
 
-// publish 展开后端事件通知并发送给 Wails bridge-event 通道。
+// publish 展开后端事件通知并发送给新旧前端事件通道。
 func (b *EventBridge) publish(method string, payload any) {
 	if b == nil || b.lifecycle == nil {
 		return
@@ -83,7 +84,24 @@ func (b *EventBridge) publish(method string, payload any) {
 			"type":    notification.Method,
 			"payload": normalized,
 		})
+		b.emitCompatAgentEvent(notification.Method, normalized)
 	}
+}
+
+// emitCompatAgentEvent 兼容旧前端监听的 agent-event 事件格式。
+func (b *EventBridge) emitCompatAgentEvent(method string, payload map[string]any) {
+	if b == nil || b.lifecycle == nil {
+		return
+	}
+	threadID := firstNonEmptyPayloadString(payload, "threadId", "thread_id", "agent_id", "agentId")
+	if threadID == "" {
+		return
+	}
+	b.lifecycle.EmitEvent(agentEventName, map[string]any{
+		"agent_id": threadID,
+		"type":     strings.TrimSpace(method),
+		"payload":  payload,
+	})
 }
 
 // payloadToMap 将任意事件载荷规范化为 map，无法序列化时返回 error 字段。
@@ -105,4 +123,15 @@ func payloadToMap(payload any) map[string]any {
 		return map[string]any{"error": err.Error()}
 	}
 	return result
+}
+
+// firstNonEmptyPayloadString 按优先级读取第一个非空字符串字段。
+func firstNonEmptyPayloadString(payload map[string]any, keys ...string) string {
+	for _, key := range keys {
+		value, _ := payload[key].(string)
+		if value = strings.TrimSpace(value); value != "" {
+			return value
+		}
+	}
+	return ""
 }

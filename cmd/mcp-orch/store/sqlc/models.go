@@ -282,18 +282,6 @@ type HookPendingReview struct {
 	ResolvedBy      string `db:"resolved_by" json:"resolved_by"`
 }
 
-type McpToolLifecycleState struct {
-	WorkspaceRoot  string `db:"workspace_root" json:"workspace_root"`
-	ServerName     string `db:"server_name" json:"server_name"`
-	ToolName       string `db:"tool_name" json:"tool_name"`
-	LifecycleState string `db:"lifecycle_state" json:"lifecycle_state"`
-	Reason         string `db:"reason" json:"reason"`
-	Source         string `db:"source" json:"source"`
-	UpdatedBy      string `db:"updated_by" json:"updated_by"`
-	CreatedAt      int64  `db:"created_at" json:"created_at"`
-	UpdatedAt      int64  `db:"updated_at" json:"updated_at"`
-}
-
 type Prompt struct {
 	ID         int64  `db:"id" json:"id"`
 	AgentKey   string `db:"agent_key" json:"agent_key"`

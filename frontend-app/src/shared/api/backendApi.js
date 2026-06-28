@@ -4,6 +4,7 @@ import {
   callAPI as callWailsAPI,
   getBuildInfo as getWailsBuildInfo,
   onBridgeEvent as subscribeBridgeEvent,
+  onAgentEvent as subscribeAgentEvent,
   onFilesDropped as subscribeFilesDropped,
   onRuntimeReconnect as subscribeRuntimeReconnect,
   readDroppedTextFiles as readDroppedTextFilesViaBridge,
@@ -149,9 +150,6 @@ export const RPC_METHODS = Object.freeze({
   MCP_SERVER_SQLITE_STOP: 'mcpServer/sqlite/stop',
   MCP_SERVER_PLAYWRIGHT_START: 'mcpServer/playwright/start',
   MCP_SERVER_PLAYWRIGHT_STOP: 'mcpServer/playwright/stop',
-  MCP_TOOL_LIFECYCLE_LIST: 'mcpServer/toolLifecycle/list',
-  MCP_TOOL_LIFECYCLE_GET: 'mcpServer/toolLifecycle/get',
-  MCP_TOOL_LIFECYCLE_UPSERT: 'mcpServer/toolLifecycle/upsert',
 
   THREAD_START: 'thread/start',
   THREAD_MESSAGES: 'thread/messages',
@@ -173,7 +171,6 @@ export const RPC_METHODS = Object.freeze({
 
 const objectPrototype = Object.prototype;
 const TOOL_SURFACE_MODES = new Set(['chat', 'auto', 'agent']);
-const MCP_TOOL_LIFECYCLE_STATES = new Set(['active', 'suspended', 'removed']);
 /**
  * Fields accepted by the React thread/start facade before canonicalization.
  * Keep this list intentionally narrower than arbitrary objects so Go-side
@@ -852,53 +849,6 @@ function builtinToolWritePayload(params) {
   return { cwd: payload.cwd, id: payload.id, enabled: payload.enabled };
 }
 
-function mcpToolLifecycleListPayload(params) {
-  const method = RPC_METHODS.MCP_TOOL_LIFECYCLE_LIST;
-  const payload = assertPlainObject(method, params);
-  const workspaceRoot = normalizeString(payload.workspaceRoot || payload.workspace_root);
-  const serverName = normalizeString(payload.serverName || payload.server_name);
-  if (!workspaceRoot) throw new Error(`${method}: workspaceRoot is required`);
-  if (!serverName) throw new Error(`${method}: serverName is required`);
-  return cleanObject({
-    workspaceRoot,
-    serverName,
-  });
-}
-
-function mcpToolLifecycleGetPayload(params) {
-  const method = RPC_METHODS.MCP_TOOL_LIFECYCLE_GET;
-  const payload = assertPlainObject(method, params);
-  const workspaceRoot = normalizeString(payload.workspaceRoot || payload.workspace_root);
-  const serverName = normalizeString(payload.serverName || payload.server_name);
-  const toolName = normalizeString(payload.toolName || payload.tool_name);
-  if (!workspaceRoot) throw new Error(`${method}: workspaceRoot is required`);
-  if (!serverName) throw new Error(`${method}: serverName is required`);
-  if (!toolName) throw new Error(`${method}: toolName is required`);
-  return { workspaceRoot, serverName, toolName };
-}
-
-function mcpToolLifecycleUpsertPayload(params) {
-  const method = RPC_METHODS.MCP_TOOL_LIFECYCLE_UPSERT;
-  const payload = assertPlainObject(method, params);
-  const workspaceRoot = normalizeString(payload.workspaceRoot || payload.workspace_root);
-  const serverName = normalizeString(payload.serverName || payload.server_name);
-  const toolName = normalizeString(payload.toolName || payload.tool_name);
-  const state = normalizeString(payload.state || payload.lifecycleState || payload.lifecycle_state);
-  if (!workspaceRoot) throw new Error(`${method}: workspaceRoot is required`);
-  if (!serverName) throw new Error(`${method}: serverName is required`);
-  if (!toolName) throw new Error(`${method}: toolName is required`);
-  if (!MCP_TOOL_LIFECYCLE_STATES.has(state)) {
-    throw new Error(`${method}: state must be active, suspended, or removed`);
-  }
-  return cleanObject({
-    workspaceRoot,
-    serverName,
-    toolName,
-    state,
-    reason: normalizeString(payload.reason),
-  });
-}
-
 function dashboardLogsPayload(params = {}) {
   const payload = assertPlainObject(RPC_METHODS.DASHBOARD_LOGS, params);
   return cleanObject({
@@ -923,6 +873,7 @@ function hasOwn(value, key) {
 /** @type {ReadonlyArray<readonly [string, (...args: any[]) => any]>} */
 const NATIVE_DEP_FALLBACKS = Object.freeze([
   ['getBuildInfo', getWailsBuildInfo],
+  ['onAgentEvent', subscribeAgentEvent],
   ['onBridgeEvent', subscribeBridgeEvent],
   ['onFilesDropped', subscribeFilesDropped],
   ['onRuntimeReconnect', subscribeRuntimeReconnect],
@@ -1505,18 +1456,6 @@ function createMCPServerApi(callBackend) {
       RPC_METHODS.MCP_SERVER_PLAYWRIGHT_STOP,
       emptyStrictPayload(RPC_METHODS.MCP_SERVER_PLAYWRIGHT_STOP, params),
     ),
-    listMCPToolLifecycleStates: (params) => callBackend(
-      RPC_METHODS.MCP_TOOL_LIFECYCLE_LIST,
-      mcpToolLifecycleListPayload(params),
-    ),
-    getMCPToolLifecycleState: (params) => callBackend(
-      RPC_METHODS.MCP_TOOL_LIFECYCLE_GET,
-      mcpToolLifecycleGetPayload(params),
-    ),
-    upsertMCPToolLifecycleState: (params) => callBackend(
-      RPC_METHODS.MCP_TOOL_LIFECYCLE_UPSERT,
-      mcpToolLifecycleUpsertPayload(params),
-    ),
   };
 }
 
@@ -1627,6 +1566,7 @@ function compactThreadPayload(params) {
 function createNativeApi(native) {
   return {
     getBuildInfo: native.getBuildInfo,
+    onAgentEvent: native.onAgentEvent,
     onBridgeEvent: native.onBridgeEvent,
     onFilesDropped: native.onFilesDropped,
     onRuntimeReconnect: native.onRuntimeReconnect,
@@ -1774,9 +1714,6 @@ export const getDatasourceDocument = backendApi.getDatasourceDocument;
 export const updateDatasourceDocument = backendApi.updateDatasourceDocument;
 export const deleteDatasourceDocument = backendApi.deleteDatasourceDocument;
 export const listMCPServers = backendApi.listMCPServers;
-export const listMCPToolLifecycleStates = backendApi.listMCPToolLifecycleStates;
-export const getMCPToolLifecycleState = backendApi.getMCPToolLifecycleState;
-export const upsertMCPToolLifecycleState = backendApi.upsertMCPToolLifecycleState;
 export const startSQLiteMCPServer = backendApi.startSQLiteMCPServer;
 export const stopSQLiteMCPServer = backendApi.stopSQLiteMCPServer;
 export const startPlaywrightMCPServer = backendApi.startPlaywrightMCPServer;
@@ -1797,6 +1734,7 @@ export const compactThread = backendApi.compactThread;
 export const recoverThread = backendApi.recoverThread;
 export const renameThread = backendApi.renameThread;
 export const getBuildInfo = backendApi.getBuildInfo;
+export const onAgentEvent = backendApi.onAgentEvent;
 export const onBridgeEvent = backendApi.onBridgeEvent;
 export const onFilesDropped = backendApi.onFilesDropped;
 export const onRuntimeReconnect = backendApi.onRuntimeReconnect;

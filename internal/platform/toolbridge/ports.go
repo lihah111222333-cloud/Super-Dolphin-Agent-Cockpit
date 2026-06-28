@@ -3,8 +3,6 @@ package toolbridge
 import (
 	"context"
 	"encoding/json"
-
-	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 )
 
 // 本文件定义 toolbridge 消费 store/app 能力时使用的窄接口。
@@ -64,10 +62,3 @@ type UIPreferenceReader interface {
 
 // uiPreferenceReader 是 Handler 内部使用的 UI 偏好端口别名。
 type uiPreferenceReader = UIPreferenceReader
-
-// MCPToolLifecycleReader 是 ListToolsForCodex 读取 managed MCP peer 工具状态的窄端口。
-// toolbridge 只消费 contract 中的只读接口，不反向依赖 owner module 或 store 实现。
-type MCPToolLifecycleReader = contract.MCPToolLifecycleReader
-
-// mcpToolLifecycleReader 是 Handler 内部字段使用的别名，避免实现散落 contract 类型名。
-type mcpToolLifecycleReader = MCPToolLifecycleReader

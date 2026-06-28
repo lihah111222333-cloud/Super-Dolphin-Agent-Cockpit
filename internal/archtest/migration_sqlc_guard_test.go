@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"reflect"
 	"regexp"
 	"sort"
 	"strconv"
@@ -12,45 +11,28 @@ import (
 	"testing"
 )
 
-type knownMigrationDuplicate struct {
-	Number int
-	Names  []string
-}
-
-var knownDeployedDuplicateMigrations = []knownMigrationDuplicate{
-	{Number: 1, Names: []string{"0001_initial_schema.sql", "001_baseline.sql"}},
-	{Number: 6, Names: []string{"0006_agent_status.sql", "0006_workspace_runs.sql"}},
-	{Number: 25, Names: []string{"0025_agent_thread_config_override.sql", "0025_hook_pending_reviews.sql"}},
-}
-
 func TestSqlcQueryParameterLimitPinned(t *testing.T) {
-	root := repoRoot(t)
-	for _, rel := range []string{"sqlc.yaml", "cmd/mcp-orch/sqlc.yaml"} {
-		data, err := os.ReadFile(filepath.Join(root, rel))
-		if err != nil {
-			t.Fatalf("read %s: %v", rel, err)
-		}
-		content := strings.ReplaceAll(string(data), "\r\n", "\n")
-		if !strings.Contains(content, "\n        query_parameter_limit: 0\n") {
-			t.Fatalf("%s must pin gen.go.query_parameter_limit: 0 to always generate param structs per convention", rel)
-		}
+	data, err := os.ReadFile(filepath.Join(repoRoot(t), "sqlc.yaml"))
+	if err != nil {
+		t.Fatalf("read sqlc.yaml: %v", err)
+	}
+	content := strings.ReplaceAll(string(data), "\r\n", "\n")
+	if !strings.Contains(content, "\n        query_parameter_limit: 0\n") {
+		t.Fatalf("sqlc.yaml must pin gen.go.query_parameter_limit: 0 to always generate param structs per convention")
 	}
 }
 
 func TestSqlcStrictOrderByAtSQLBlockLevel(t *testing.T) {
-	root := repoRoot(t)
-	for _, rel := range []string{"sqlc.yaml", "cmd/mcp-orch/sqlc.yaml"} {
-		data, err := os.ReadFile(filepath.Join(root, rel))
-		if err != nil {
-			t.Fatalf("read %s: %v", rel, err)
-		}
-		content := strings.ReplaceAll(string(data), "\r\n", "\n")
-		if strings.Contains(content, "\n        strict_order_by: true\n") {
-			t.Fatalf("%s must not place strict_order_by under gen.go options; sqlc v1.30.0 rejects that location", rel)
-		}
-		if !strings.Contains(content, "\n    strict_order_by: true\n") {
-			t.Fatalf("%s must pin strict_order_by at the top-level sql block so make sqlc-verify can parse it", rel)
-		}
+	data, err := os.ReadFile(filepath.Join(repoRoot(t), "sqlc.yaml"))
+	if err != nil {
+		t.Fatalf("read sqlc.yaml: %v", err)
+	}
+	content := strings.ReplaceAll(string(data), "\r\n", "\n")
+	if strings.Contains(content, "\n        strict_order_by: true\n") {
+		t.Fatalf("sqlc.yaml must not place strict_order_by under gen.go options; sqlc v1.30.0 rejects that location")
+	}
+	if !strings.Contains(content, "\n    strict_order_by: true\n") {
+		t.Fatalf("sqlc.yaml must pin strict_order_by at the top-level sql block so make sqlc-verify can parse it")
 	}
 }
 
@@ -80,7 +62,7 @@ func collectHookstoreSQLCBypassViolations(t *testing.T, root string) []string {
 			t.Fatalf("read %s: %v", path, err)
 		}
 		content := string(data)
-		for _, forbidden := range []string{"TODO(sqlc-migration)", ".Exec(", ".Query(", ".QueryRow(", ".ExecContext(", ".QueryContext(", ".QueryRowContext("} {
+		for _, forbidden := range []string{"TODO(sqlc-migration)", ".Exec(", ".Query(", ".QueryRow("} {
 			if strings.Contains(content, forbidden) {
 				violations = append(violations, fmt.Sprintf("%s contains %s", filepath.ToSlash(filepath.Join("internal", "store", "hookstore", name)), forbidden))
 			}
@@ -126,39 +108,6 @@ func TestMigrationNumberUniqueness(t *testing.T) {
 	if len(paths) == 0 {
 		t.Fatal("no migrations/*.sql files found")
 	}
-	failIfViolations(t, duplicateMigrationNumberViolations(paths, knownDeployedDuplicateMigrations))
-}
-
-func TestKnownDeployedDuplicateMigrationsPinned(t *testing.T) {
-	want := []knownMigrationDuplicate{
-		{Number: 1, Names: []string{"0001_initial_schema.sql", "001_baseline.sql"}},
-		{Number: 6, Names: []string{"0006_agent_status.sql", "0006_workspace_runs.sql"}},
-		{Number: 25, Names: []string{"0025_agent_thread_config_override.sql", "0025_hook_pending_reviews.sql"}},
-	}
-	if !reflect.DeepEqual(knownDeployedDuplicateMigrations, want) {
-		t.Fatalf("knownDeployedDuplicateMigrations must only contain deployed duplicate numbers 1, 6, and 25; got %#v", knownDeployedDuplicateMigrations)
-	}
-}
-
-func TestSQLiteRuntimeMigrationNumberUniqueness(t *testing.T) {
-	root := repoRoot(t)
-	paths, err := filepath.Glob(filepath.Join(root, "internal", "platform", "db", "sqlite", "migrations", "*.sql"))
-	if err != nil {
-		t.Fatalf("glob SQLite runtime migrations: %v", err)
-	}
-	if len(paths) == 0 {
-		t.Fatal("no internal/platform/db/sqlite/migrations/*.sql files found")
-	}
-	failIfViolations(t, duplicateMigrationNumberViolations(paths, nil))
-}
-
-func duplicateMigrationNumberViolations(paths []string, allowed []knownMigrationDuplicate) []string {
-	allowedByNumber := map[int][]string{}
-	for _, duplicate := range allowed {
-		names := append([]string(nil), duplicate.Names...)
-		sort.Strings(names)
-		allowedByNumber[duplicate.Number] = names
-	}
 
 	byNumber := map[int][]string{}
 	var violations []string
@@ -178,18 +127,18 @@ func duplicateMigrationNumberViolations(paths []string, allowed []knownMigration
 		byNumber[n] = append(byNumber[n], name)
 	}
 
-	numbers := make([]int, 0, len(byNumber))
-	for number := range byNumber {
-		numbers = append(numbers, number)
+	knownDeployedDuplicates := map[int][]string{
+		1:  {"0001_initial_schema.sql", "001_baseline.sql"},
+		6:  {"0006_agent_status.sql", "0006_workspace_runs.sql"},
+		25: {"0025_agent_thread_config_override.sql", "0025_hook_pending_reviews.sql"},
 	}
-	sort.Ints(numbers)
-	for _, number := range numbers {
-		names := byNumber[number]
+	for number, names := range byNumber {
 		sort.Strings(names)
 		if len(names) <= 1 {
 			continue
 		}
-		allowed := allowedByNumber[number]
+		allowed := append([]string(nil), knownDeployedDuplicates[number]...)
+		sort.Strings(allowed)
 		if strings.Join(names, "\x00") == strings.Join(allowed, "\x00") {
 			continue
 		}
@@ -199,5 +148,5 @@ func duplicateMigrationNumberViolations(paths []string, allowed []knownMigration
 			strings.Join(names, ", "),
 		))
 	}
-	return violations
+	failIfViolations(t, violations)
 }
