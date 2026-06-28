@@ -403,7 +403,8 @@ func isValidGitRootMarker(path string) (bool, error) {
 }
 
 // EnsureNoSkillMirrorConflicts 在 provider 启动前检查 mirror 是否能用。
-// 普通内容漂移交给 UI；根目录不安全或发布失败要阻断启动。
+// personal/user-global 内容漂移交给 UI；project/app-managed 活跃 mirror 漂移、
+// 根目录不安全或发布失败会阻断启动，避免 provider 读取过期技能镜像。
 func EnsureNoSkillMirrorConflicts(report contract.SkillMirrorReport) error {
 	blocking := blockingSkillMirrorConflicts(report.Conflicts)
 	if len(blocking) == 0 {
