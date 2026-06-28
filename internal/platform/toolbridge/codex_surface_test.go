@@ -242,6 +242,45 @@ func TestPrepareCodexToolSurfaceListsMCPBinariesInParallel(t *testing.T) {
 	assertDynamicToolNames(t, tools, []string{"grep", "launch_agent"})
 }
 
+func TestPrepareCodexToolSurfaceDoesNotExposeLifecycleFieldsForFirstPartyTools(t *testing.T) {
+	lsp := &fakeMCPClient{tools: []mcpdto.MCPTool{{
+		Name:        "lsp_grep",
+		Description: "grep source",
+		InputSchema: json.RawMessage(`{"type":"object","properties":{"query":{"type":"string"}}}`),
+	}}}
+	orch := &fakeMCPClient{tools: []mcpdto.MCPTool{{
+		Name:        "orchestration_launch_agent",
+		Description: "launch worker",
+		InputSchema: json.RawMessage(`{"type":"object"}`),
+	}}}
+	h := &Handler{stdioClientFactory: fakeClientFactory(map[string]mcpClient{"lsp": lsp, "orch": orch})}
+
+	tools, err := h.PrepareCodexToolSurface(context.Background(), contract.CodexToolSurfaceScope{
+		AgentID:          "agent-1",
+		ProviderThreadID: "provider-thread-1",
+		CWD:              "/repo",
+		Manifest: providerdto.MCPManifest{Binaries: []providerdto.MCPBinary{
+			{Name: "lsp", Command: []string{"mcp-lsp"}},
+			{Name: "orch", Command: []string{"mcp-orch"}},
+		}},
+	})
+	if err != nil {
+		t.Fatalf("PrepareCodexToolSurface() error = %v", err)
+	}
+	assertDynamicToolNames(t, tools, []string{"grep", "launch_agent"})
+	for _, tool := range tools {
+		raw, err := json.Marshal(tool)
+		if err != nil {
+			t.Fatalf("marshal dynamic tool %q: %v", tool.Name, err)
+		}
+		var fields map[string]json.RawMessage
+		if err := json.Unmarshal(raw, &fields); err != nil {
+			t.Fatalf("unmarshal dynamic tool %q: %v", tool.Name, err)
+		}
+		assertNoLifecycleDynamicToolFields(t, "first-party Codex dynamic tool "+tool.Name, fields)
+	}
+}
+
 func TestCodexToolSurfacePublishesLifecycleEvents(t *testing.T) {
 	dispatcher := event.NewDispatcher()
 	t.Cleanup(func() { _ = dispatcher.Close() })

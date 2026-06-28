@@ -138,6 +138,30 @@ func TestStdioMCPClientRejectsOversizePeerResponse(t *testing.T) {
 	}
 }
 
+func TestStdioMCPClientListToolsDropsLifecycleMetadata(t *testing.T) {
+	transport := &fakeStdioTransport{reads: []json.RawMessage{
+		json.RawMessage(`{"jsonrpc":"2.0","id":1,"result":{"tools":[{"name":"lsp_grep","description":"grep source","inputSchema":{"type":"object"},"lifecycleState":"active","state":"active","reason":"discovered elsewhere","source":"discovery","updatedBy":"test"}]}}`),
+	}}
+	client := &stdioMCPClient{transport: transport}
+
+	tools, err := client.ListTools(context.Background())
+	if err != nil {
+		t.Fatalf("ListTools() error = %v", err)
+	}
+	if len(tools) != 1 || tools[0].Name != "lsp_grep" {
+		t.Fatalf("ListTools() = %#v, want lsp_grep", tools)
+	}
+	raw, err := json.Marshal(tools[0])
+	if err != nil {
+		t.Fatalf("marshal decoded tool: %v", err)
+	}
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &fields); err != nil {
+		t.Fatalf("unmarshal decoded tool: %v", err)
+	}
+	assertNoLifecycleDynamicToolFields(t, "stdio MCP tools/list decoded tool", fields)
+}
+
 func TestStdioMCPClientCloseTerminatesChildProcesses(t *testing.T) {
 	if os.Getenv("TOOLBRIDGE_STDIO_CHILD_HELPER") == "1" {
 		runStdioChildTestHelper()
@@ -255,7 +279,7 @@ func runStdioMCPTestHelper() {
 		fmt.Fprintf(os.Stderr, "start child: %v\n", err)
 		os.Exit(2)
 	}
-	if err := os.WriteFile(marker, []byte(fmt.Sprintf("%d", child.Process.Pid)), 0o644); err != nil {
+	if err := os.WriteFile(marker, fmt.Appendf(nil, "%d", child.Process.Pid), 0o644); err != nil {
 		fmt.Fprintf(os.Stderr, "write marker: %v\n", err)
 		os.Exit(2)
 	}
@@ -414,8 +438,8 @@ func requireEnvValueInSlice(t *testing.T, env []string, key, want string) {
 func envValueInSlice(env []string, key string) (string, bool) {
 	prefix := key + "="
 	for _, item := range env {
-		if strings.HasPrefix(item, prefix) {
-			return strings.TrimPrefix(item, prefix), true
+		if value, ok := strings.CutPrefix(item, prefix); ok {
+			return value, true
 		}
 	}
 	return "", false

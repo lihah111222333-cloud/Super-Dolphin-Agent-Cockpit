@@ -376,6 +376,31 @@ func TestBuildManifest_DropsAdditionalWorkspaceRootsWithoutTrustedCWD(t *testing
 	}
 }
 
+func TestBuildManifest_DoesNotExposeToolLifecycleFields(t *testing.T) {
+	got := manifestbuilder.BuildManifest(dto.ManifestContext{
+		AgentID:       "agent-1",
+		ProxyHTTPAddr: "127.0.0.1:39001",
+		ExtraBinaries: []dto.MCPBinary{{
+			Name: "remote-search",
+			Type: "http",
+			URL:  "https://example.com/mcp",
+		}},
+	})
+	raw, err := json.Marshal(got)
+	if err != nil {
+		t.Fatalf("marshal manifest: %v", err)
+	}
+	var payload struct {
+		Binaries []map[string]json.RawMessage `json:"binaries"`
+	}
+	if err := json.Unmarshal(raw, &payload); err != nil {
+		t.Fatalf("unmarshal manifest: %v", err)
+	}
+	for _, binary := range payload.Binaries {
+		assertNoLifecycleManifestFields(t, "provider manifest binary", binary)
+	}
+}
+
 func requireManifestBinary(t *testing.T, manifest dto.MCPManifest, name string) dto.MCPBinary {
 	t.Helper()
 	for _, binary := range manifest.Binaries {
@@ -385,4 +410,16 @@ func requireManifestBinary(t *testing.T, manifest dto.MCPManifest, name string) 
 	}
 	t.Fatalf("manifest missing binary %q: %#v", name, manifest.Binaries)
 	return dto.MCPBinary{}
+}
+
+func assertNoLifecycleManifestFields(t *testing.T, scope string, fields map[string]json.RawMessage) {
+	t.Helper()
+	for _, forbidden := range []string{
+		"lifecycle", "lifecycleState", "state", "reason", "source", "updatedBy",
+		"createdAt", "updatedAt", "workspaceRoot", "serverName", "toolName",
+	} {
+		if _, ok := fields[forbidden]; ok {
+			t.Fatalf("%s unexpectedly exposes lifecycle field %q in %#v", scope, forbidden, fields)
+		}
+	}
 }

@@ -135,6 +135,52 @@ func TestHTTPMCPClientCallToolConvertsJSONRPCErrorToToolResult(t *testing.T) {
 	}
 }
 
+func TestHTTPMCPClientListToolsDropsLifecycleMetadata(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req struct {
+			ID     json.RawMessage `json:"id,omitempty"`
+			Method string          `json:"method"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		if req.Method != "tools/list" {
+			http.Error(w, "unexpected method", http.StatusBadRequest)
+			return
+		}
+		writeHTTPMCPToolsTestResponse(w, req.ID, map[string]any{"tools": []map[string]any{{
+			"name":           "remote_search",
+			"description":    "search remote documents",
+			"inputSchema":    map[string]any{"type": "object"},
+			"lifecycleState": "active",
+			"state":          "active",
+			"reason":         "discovered elsewhere",
+			"source":         "discovery",
+			"updatedBy":      "test",
+		}}})
+	}))
+	defer server.Close()
+	client := &httpMCPClient{client: server.Client(), endpoint: server.URL}
+
+	tools, err := client.ListTools(context.Background())
+	if err != nil {
+		t.Fatalf("ListTools() error = %v", err)
+	}
+	if len(tools) != 1 || tools[0].Name != "remote_search" {
+		t.Fatalf("ListTools() = %#v, want remote_search", tools)
+	}
+	raw, err := json.Marshal(tools[0])
+	if err != nil {
+		t.Fatalf("marshal decoded tool: %v", err)
+	}
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &fields); err != nil {
+		t.Fatalf("unmarshal decoded tool: %v", err)
+	}
+	assertNoLifecycleDynamicToolFields(t, "HTTP MCP tools/list decoded tool", fields)
+}
+
 type httpMCPToolsTestSeen struct {
 	methods         []string
 	toolsCallParams map[string]any
