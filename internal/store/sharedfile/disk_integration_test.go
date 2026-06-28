@@ -133,6 +133,75 @@ func TestSharedFileUpsertDoesNotOverwriteOnDBFailure(t *testing.T) {
 	}
 }
 
+func TestSharedFileUpsertRollsBackDBOnPublishFailure(t *testing.T) {
+	t.Parallel()
+	s, rows, cfg := newDiskBackedStore(t)
+
+	path := "handoff/task-1/blob.txt"
+	oldBody := strings.Repeat("o", 2048)
+	if _, err := s.Upsert(context.Background(), UpsertParams{
+		Path:      path,
+		Content:   oldBody,
+		UpdatedBy: "seed",
+	}); err != nil {
+		t.Fatalf("seed Upsert error = %v", err)
+	}
+	abs := filepath.Join(cfg.CWD, sharedfilefs.SandboxDir, path)
+	dir := filepath.Dir(abs)
+	makeDirReadOnlyDuringAgentUpsert(t, rows, path, dir, abs)
+
+	_, err := s.Upsert(context.Background(), UpsertParams{
+		Path:      path,
+		Content:   strings.Repeat("n", 2048),
+		UpdatedBy: "agent",
+	})
+	if err == nil {
+		t.Fatal("Upsert err = nil, want publish failure")
+	}
+	restoreWritableDir(t, dir)
+	assertSharedFilePreservedAfterPublishFailure(t, rows, path, abs, oldBody)
+}
+
+func makeDirReadOnlyDuringAgentUpsert(t *testing.T, rows *fakeRowStore, path, dir, abs string) {
+	t.Helper()
+	rows.onUpsert = func(arg sqlc.UpsertSharedFileParams) {
+		if arg.Path == path && arg.UpdatedBy == "agent" {
+			if err := os.Chmod(dir, 0o500); err != nil {
+				t.Fatalf("chmod dir read-only: %v", err)
+			}
+		}
+	}
+	t.Cleanup(func() {
+		_ = os.Chmod(dir, 0o755)
+		matches, _ := filepath.Glob(abs + ".*.tmp")
+		for _, match := range matches {
+			_ = os.Remove(match)
+		}
+	})
+}
+
+func restoreWritableDir(t *testing.T, dir string) {
+	t.Helper()
+	if chmodErr := os.Chmod(dir, 0o755); chmodErr != nil {
+		t.Fatalf("restore dir permissions: %v", chmodErr)
+	}
+}
+
+func assertSharedFilePreservedAfterPublishFailure(t *testing.T, rows *fakeRowStore, path, abs, oldBody string) {
+	t.Helper()
+	row := rows.byPath[path]
+	if row.UpdatedBy != "seed" || row.ContentLocation != contentLocationDisk {
+		t.Fatalf("DB row after publish failure = %+v, want rolled back seed disk row", row)
+	}
+	disk, readErr := os.ReadFile(abs)
+	if readErr != nil {
+		t.Fatalf("ReadFile after failed publish err = %v", readErr)
+	}
+	if string(disk) != oldBody {
+		t.Fatalf("disk content after failed publish changed; len=%d want %d", len(disk), len(oldBody))
+	}
+}
+
 func TestGet_DiskHit_OverridesDBContent(t *testing.T) {
 	t.Parallel()
 	s, rows, cfg := newDiskBackedStore(t)
@@ -275,6 +344,7 @@ func TestList_DoesNotScanDisk(t *testing.T) {
 type fakeRowStore struct {
 	byPath    map[string]sqlc.SharedFile
 	upsertErr error
+	onUpsert  func(sqlc.UpsertSharedFileParams)
 }
 
 func newFakeRowStore() *fakeRowStore {
@@ -328,5 +398,8 @@ func (f *fakeRowQuerier) UpsertSharedFile(_ context.Context, arg sqlc.UpsertShar
 		UpdatedAt:       time.Now().UnixMilli(),
 	}
 	f.rows.byPath[arg.Path] = row
+	if f.rows.onUpsert != nil {
+		f.rows.onUpsert(arg)
+	}
 	return row, nil
 }
