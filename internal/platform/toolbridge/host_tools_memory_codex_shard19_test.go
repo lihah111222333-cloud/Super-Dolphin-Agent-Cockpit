@@ -67,6 +67,9 @@ func TestListToolsForCodex_FiltersRemovedSkillToolsFromHostAndPeer(t *testing.T)
 	}}
 	host := &stubHostToolRegistry{tools: []dto.MCPTool{{Name: ToolNameLegacySkillExpandBody, Description: "host removed"}, {Name: ToolNameMemoryRead, Description: "host memory"}}}
 	h := &Handler{registry: registry, hostTools: host}
+	attachActiveLifecycleForTools(h, map[string][]string{
+		dto.ClientKindOrch: {"orchestration_launch_agent"},
+	})
 
 	tools, err := h.ListToolsForCodex(context.Background())
 	if err != nil {
@@ -138,6 +141,9 @@ func TestListToolsForCodex_FiltersPeerMemoryReadWhenReaderUnavailable(t *testing
 		dto.ClientKindLSP:  {listToolsPeer(nil, nil)},
 	}}
 	h := &Handler{registry: registry}
+	attachActiveLifecycleForTools(h, map[string][]string{
+		dto.ClientKindOrch: {"orchestration_launch_agent"},
+	})
 	tools, err := h.ListToolsForCodex(context.Background())
 	if err != nil {
 		t.Fatalf("ListToolsForCodex() error = %v", err)
@@ -158,6 +164,9 @@ func TestListToolsForCodex_FiltersPeerMemoryReadWhenMemoryReadToolsDisabled(t *t
 		dto.ClientKindLSP:  {listToolsPeer(nil, nil)},
 	}}
 	h := &Handler{registry: registry, hostTools: host}
+	attachActiveLifecycleForTools(h, map[string][]string{
+		dto.ClientKindOrch: {"orchestration_launch_agent"},
+	})
 	tools, err := h.ListToolsForCodex(context.Background())
 	if err != nil {
 		t.Fatalf("ListToolsForCodex() error = %v", err)
