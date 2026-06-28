@@ -337,10 +337,7 @@ func (b *commandOutputBuffer) String() string {
 	if !b.truncated {
 		return out
 	}
-	dropped := b.total - b.buf.Len()
-	if dropped < 0 {
-		dropped = 0
-	}
+	dropped := max(b.total-b.buf.Len(), 0)
 	return out + fmt.Sprintf(
 		"\n[super-dolphin: %s truncated after %d bytes; dropped %d bytes]\n",
 		b.label,
