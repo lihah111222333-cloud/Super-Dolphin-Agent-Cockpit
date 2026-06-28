@@ -18,11 +18,6 @@ import (
 // docs/契约/statemachine-event-convention.md: "订阅函数返回 context.CancelFunc，调用方必须保存并在生命周期结束时取消"
 func TestIgnoredReturnGuard(t *testing.T) {
 	root := repoRoot(t)
-	// We only care about production code in internal/
-	if !dirExists(root, "internal") {
-		t.Skip("directory internal not yet created")
-	}
-
 	failIfViolations(t, collectIgnoredReturnViolations(t, root, walkGoFiles(t, root, "internal")))
 }
 
@@ -72,7 +67,8 @@ func ignoredReturnFileViolations(t *testing.T, fset *token.FileSet, absPath, rel
 	t.Helper()
 	fileNode, err := parser.ParseFile(fset, absPath, nil, 0)
 	if err != nil {
-		t.Fatalf("failed to parse %s: %v", absPath, err)
+		t.Errorf("failed to parse %s: %v", absPath, err)
+		return nil
 	}
 	var violations []string
 	ast.Inspect(fileNode, func(n ast.Node) bool {

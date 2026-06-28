@@ -93,6 +93,40 @@ func collectStructJSONTags(st reflect.Type, out map[string]bool) {
 	}
 }
 
+// TestRegistryCoversAllBoolFields 用反射扫描 FileMetrics 的全部 bool 字段，
+// 验证每个 bool 字段都在显式豁免清单中（bool 字段不走 int 注册表，由各消费点单独处理）。
+// 作用：新增 bool 字段后若未加豁免，测试立即失败，防止遗漏。
+func TestRegistryCoversAllBoolFields(t *testing.T) {
+	// 显式豁免：bool 字段不在 int 注册表，需在此列出并注明处理方。
+	exempt := map[string]string{
+		"HasInit": "由 RatchetCheck/HasViolation/TightenMetrics 单独处理，见 ratchet.go",
+	}
+
+	probeVal := reflect.ValueOf(FileMetrics{})
+	var unregistered []string
+	for i := 0; i < probeVal.NumField(); i++ {
+		sub := probeVal.Field(i)
+		if sub.Kind() != reflect.Struct {
+			continue
+		}
+		subType := sub.Type()
+		for j := 0; j < subType.NumField(); j++ {
+			f := subType.Field(j)
+			if f.Type.Kind() != reflect.Bool {
+				continue
+			}
+			if _, ok := exempt[f.Name]; !ok {
+				unregistered = append(unregistered, f.Name)
+			}
+		}
+	}
+	if len(unregistered) > 0 {
+		sort.Strings(unregistered)
+		t.Fatalf("baseline.go 中有 bool 字段未在本测试豁免清单中声明: %v\n"+
+			"修复方法: 在本测试的 exempt map 中添加字段名并注明处理方", unregistered)
+	}
+}
+
 // TestRegistryRuleFlags 验证注册表规则的 Flags 设置合理性。
 func TestRegistryRuleFlags(t *testing.T) {
 	for _, r := range metricRules() {

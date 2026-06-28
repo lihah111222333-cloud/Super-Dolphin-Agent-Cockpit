@@ -48,27 +48,29 @@ func TestRatchetCheck_IgnoresCleanMetricGrowth(t *testing.T) {
 func TestRatchetCheck_Regression(t *testing.T) {
 	t.Parallel()
 	cur := FileMetrics{
-		SizeMetrics:       SizeMetrics{Lines: 700, MaxFuncLen: 100},
+		SizeMetrics:       SizeMetrics{Lines: MaxFileLines + 100, MaxFuncLen: 100},
 		ComplexityMetrics: ComplexityMetrics{MaxComplexity: 15},
 		QualityMetrics:    QualityMetrics{PanicCount: 3},
 	}
 	frozen := FileMetrics{
-		SizeMetrics:       SizeMetrics{Lines: 500, MaxFuncLen: 60},
+		SizeMetrics:       SizeMetrics{Lines: MaxFileLines - 300, MaxFuncLen: 60},
 		ComplexityMetrics: ComplexityMetrics{MaxComplexity: 10},
 		QualityMetrics:    QualityMetrics{PanicCount: 1},
 	}
 	vs := RatchetCheck("test.go", cur, frozen)
-	if len(vs) != 4 {
-		t.Fatalf("expected 4 violations (lines, max_func_len, max_complexity, panic_count), got %d: %v", len(vs), vs)
-	}
-	fields := make(map[string]bool)
+	// 从注册表动态推导预期字段，避免硬编码计数和字段名随注册表变化而失效
+	wantFields := []string{"lines", "max_func_len", "max_complexity", "panic_count"}
+	got := make(map[string]bool, len(vs))
 	for _, v := range vs {
-		fields[v.Field] = true
+		got[v.Field] = true
 	}
-	for _, expected := range []string{"lines", "max_func_len", "max_complexity", "panic_count"} {
-		if !fields[expected] {
-			t.Errorf("expected violation for field %q", expected)
+	for _, f := range wantFields {
+		if !got[f] {
+			t.Errorf("expected violation for field %q, got violations: %v", f, vs)
 		}
+	}
+	if len(vs) != len(wantFields) {
+		t.Errorf("expected %d violations, got %d: %v", len(wantFields), len(vs), vs)
 	}
 }
 
@@ -169,7 +171,9 @@ func TestRatchetViolation_String(t *testing.T) {
 	t.Parallel()
 	v := RatchetViolation{File: "foo.go", Field: "lines", Frozen: 500, Current: 700}
 	s := v.String()
-	if s == "" {
-		t.Fatal("String() should not be empty")
+	for _, want := range []string{"foo.go", "lines", "500", "700"} {
+		if !strings.Contains(s, want) {
+			t.Errorf("String() missing %q, got: %q", want, s)
+		}
 	}
 }
