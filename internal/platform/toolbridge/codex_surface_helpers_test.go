@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"reflect"
+	"slices"
 	"testing"
 	"time"
 
@@ -78,12 +79,7 @@ func (c *fakeMCPClient) Close() error {
 }
 
 func (c *fakeMCPClient) calledWith(name string) bool {
-	for _, call := range c.calls {
-		if call == name {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(c.calls, name)
 }
 
 func fakeClientFactory(clients map[string]mcpClient) func(context.Context, providerdto.MCPBinary) (mcpClient, error) {
@@ -129,6 +125,18 @@ func assertDynamicToolNames(t *testing.T, tools []contract.DynamicToolSchema, wa
 	for _, legacy := range []string{"lsp_grep", "lsp_format_preview", "orchestration_launch_agent"} {
 		if got[legacy] {
 			t.Fatalf("dynamic tools advertised legacy alias %q; got %#v", legacy, got)
+		}
+	}
+}
+
+func assertNoLifecycleDynamicToolFields(t *testing.T, scope string, tool map[string]json.RawMessage) {
+	t.Helper()
+	for _, forbidden := range []string{
+		"lifecycle", "lifecycleState", "state", "reason", "source", "updatedBy",
+		"createdAt", "updatedAt", "workspaceRoot", "serverName", "toolName",
+	} {
+		if _, ok := tool[forbidden]; ok {
+			t.Fatalf("%s unexpectedly exposes lifecycle field %q in %#v", scope, forbidden, tool)
 		}
 	}
 }
