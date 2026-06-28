@@ -190,6 +190,11 @@ func (d *driver) StartSession(ctx context.Context, req dto.StartSessionRequest) 
 
 // ResumeSession 基于已持久化的 prompt snapshot 和 provider thread 恢复 Claude CLI 会话。
 func (d *driver) ResumeSession(ctx context.Context, req dto.ResumeSessionRequest) (contract.Session, error) {
+	providerThreadID, err := requireProviderResumeThreadID("claudecli", req.ProviderThreadID)
+	if err != nil {
+		return nil, err
+	}
+	req.ProviderThreadID = providerThreadID
 	snapshot := req.PromptSnapshot
 	rawConfig := resumeSessionRuntimeConfig(req)
 	if err := validateClaudeSecurityConfig(rawConfig); err != nil {
@@ -219,7 +224,7 @@ func (d *driver) ResumeSession(ctx context.Context, req dto.ResumeSessionRequest
 	})
 	return d.start(ctx, startSpec{
 		agentID:      req.AgentID,
-		threadID:     shared.FirstNonEmpty(req.ProviderThreadID, req.ThreadID),
+		threadID:     providerThreadID,
 		publicThread: req.ThreadID,
 		cwd:          req.CWD,
 		model:        req.Model,
@@ -235,6 +240,14 @@ func (d *driver) ResumeSession(ctx context.Context, req dto.ResumeSessionRequest
 		configOverride: req.ConfigOverride,
 		rawConfig:      rawConfig,
 	})
+}
+
+func requireProviderResumeThreadID(component, providerThreadID string) (string, error) {
+	providerThreadID = strings.TrimSpace(providerThreadID)
+	if providerThreadID == "" {
+		return "", fmt.Errorf("%s: provider thread id is required", component)
+	}
+	return providerThreadID, nil
 }
 
 // resumeSessionRuntimeConfig 合并恢复请求 runtime 配置，并确保 cwd 能被后续启动链路读取。

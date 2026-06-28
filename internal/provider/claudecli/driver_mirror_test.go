@@ -383,10 +383,11 @@ func TestResumeSessionKeepsExplicitClaudeHomeBeforeLaunchAndMirror(t *testing.T)
 	})
 
 	got, err := d.ResumeSession(context.Background(), dto.ResumeSessionRequest{
-		AgentID:    "agent-claude-resume",
-		ThreadID:   "thread-claude-resume",
-		CWD:        workDir,
-		ClaudeHome: explicitHome,
+		AgentID:          "agent-claude-resume",
+		ThreadID:         "thread-claude-resume",
+		ProviderThreadID: "11111111-2222-3333-4444-555555555555",
+		CWD:              workDir,
+		ClaudeHome:       explicitHome,
 		PromptSnapshot: dto.PromptAssemblySnapshot{
 			DisplayName:      "resume",
 			BaseInstructions: "base",
