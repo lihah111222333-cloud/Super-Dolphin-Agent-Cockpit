@@ -132,7 +132,7 @@ func cloneStringMap(in map[string]string) map[string]string {
 // finalizeAutomationOutcome 将命令执行结果物化为配置声明的输出。
 // sharedfile 写入失败必须让节点失败，避免 node.result 指向不存在或未落盘的产物。
 func finalizeAutomationOutcome(ctx context.Context, cfg *AutomationNodeConfig, node Node, runCtx RunContext, result AutomationCommandResult) (NodeOutcome, error) {
-	payload, err := json.Marshal(result)
+	payload, err := automationCommandResultPayload(result)
 	if err != nil {
 		return failedAutomationOutcome(FailureClassValidation, "marshal automation result: "+err.Error()), nil
 	}
@@ -153,6 +153,92 @@ func finalizeAutomationOutcome(ctx context.Context, cfg *AutomationNodeConfig, n
 		return *failure, nil
 	}
 	return outcome, nil
+}
+
+// automationCommandResultPayload 生成可持久化的 command 结果。
+// Args 只用于 runner 入参，不能落入 node.result；其他字段再统一递归脱敏后才允许公开。
+func automationCommandResultPayload(result AutomationCommandResult) (json.RawMessage, error) {
+	payload, err := json.Marshal(struct {
+		CardKey  string `json:"card_key"`
+		ExitCode int    `json:"exit_code"`
+		Stdout   string `json:"stdout,omitempty"`
+		Stderr   string `json:"stderr,omitempty"`
+		Command  string `json:"command,omitempty"`
+	}{
+		CardKey:  result.CardKey,
+		ExitCode: result.ExitCode,
+		Stdout:   result.Stdout,
+		Stderr:   result.Stderr,
+		Command:  result.Command,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return ScrubAutomationResultPayload(payload), nil
+}
+
+// ScrubAutomationResultPayload 清理对外或落库的 automation result JSON。
+// 它删除 args/__inputs，并递归遮蔽 token、authorization、cookie、secret、password、api_key 等敏感键。
+func ScrubAutomationResultPayload(raw json.RawMessage) json.RawMessage {
+	if len(raw) == 0 {
+		return nil
+	}
+	var value any
+	if err := json.Unmarshal(raw, &value); err != nil {
+		return json.RawMessage(`{"redacted":true,"reason":"invalid_result_json"}`)
+	}
+	cleaned, err := json.Marshal(scrubAutomationResultValue(value))
+	if err != nil {
+		return json.RawMessage(`{"redacted":true,"reason":"marshal_scrubbed_result"}`)
+	}
+	return cleaned
+}
+
+func scrubAutomationResultValue(value any) any {
+	switch typed := value.(type) {
+	case map[string]any:
+		return scrubAutomationResultObject(typed)
+	case []any:
+		out := make([]any, 0, len(typed))
+		for _, item := range typed {
+			out = append(out, scrubAutomationResultValue(item))
+		}
+		return out
+	case string:
+		return redactSensitiveText(typed)
+	default:
+		return value
+	}
+}
+
+func scrubAutomationResultObject(in map[string]any) map[string]any {
+	out := make(map[string]any, len(in))
+	for key, value := range in {
+		if shouldDropAutomationResultKey(key) {
+			continue
+		}
+		if isSensitiveAutomationResultKey(key) {
+			out[key] = "[REDACTED]"
+			continue
+		}
+		out[key] = scrubAutomationResultValue(value)
+	}
+	return out
+}
+
+func shouldDropAutomationResultKey(key string) bool {
+	trimmed := strings.ToLower(strings.TrimSpace(key))
+	return trimmed == "args" || trimmed == "__inputs"
+}
+
+func isSensitiveAutomationResultKey(key string) bool {
+	normalized := strings.NewReplacer("_", "", "-", "").Replace(strings.ToLower(strings.TrimSpace(key)))
+	for _, marker := range []string{"token", "authorization", "cookie", "secret", "password", "apikey"} {
+		if strings.Contains(normalized, marker) {
+			return true
+		}
+	}
+	return false
 }
 
 // NodeResultSizeCapBytes 是 outputs.to_node_result 写入 task_dag_nodes.result 前的硬上限。
@@ -346,7 +432,7 @@ func classifyAutomationError(err error) FailureClass {
 var (
 	automationValidationKeywords = []string{
 		"parse", "decode", "unmarshal", "marshal", "json", "template", "required", "missing key",
-		"unsafe shell metacharacter",
+		"unsafe shell metacharacter", "shell argv", "shell expansion",
 	}
 	automationNotFoundKeywords  = []string{"not found", "no such command", "unknown command"}
 	automationTransientKeywords = []string{
@@ -371,6 +457,9 @@ func containsAny(msg string, keywords []string) bool {
 func renderCommandTemplate(commandTemplate string, args json.RawMessage) (string, json.RawMessage, error) {
 	if strings.TrimSpace(commandTemplate) == "" {
 		return "", nil, errors.New("command_template is required")
+	}
+	if err := validateCommandTemplateActionsQuoted(commandTemplate); err != nil {
+		return "", nil, err
 	}
 	data := map[string]any{}
 	if len(args) == 0 || string(args) == "null" {
@@ -399,14 +488,111 @@ func renderCommandTemplate(commandTemplate string, args json.RawMessage) (string
 }
 
 var unsafeRenderedShellTokens = []string{
-	"\x00", "\r", "\n", "$(", "`", "&&", "||", ";", "|", "&", ">", "<",
+	"\x00", "\r", "\n", "$(", "$", "`", "&&", "||", ";", "|", "&", ">", "<", "*", "?", "[", "]",
 }
 
 func validateRenderedCommandShellSafety(command string) error {
 	for _, token := range unsafeRenderedShellTokens {
 		if strings.Contains(command, token) {
-			return fmt.Errorf("unsafe shell metacharacter %q in rendered command", token)
+			return fmt.Errorf("unsafe shell metacharacter %q in rendered command; automation command cards run via argv and do not support shell expansion", token)
 		}
+	}
+	return nil
+}
+
+// validateCommandTemplateActionsQuoted 要求模板动作放在引号内。
+// 未引号包裹的动态值可能被空白拆成多个 argv，因此在渲染前阻断。
+func validateCommandTemplateActionsQuoted(commandTemplate string) error {
+	state := commandTemplateQuoteState{}
+	for i := 0; i < len(commandTemplate); i++ {
+		if state.accept(commandTemplate[i]) {
+			continue
+		}
+		if startsTemplateAction(commandTemplate, i) && !state.inQuote() {
+			return errors.New("shell argv command template actions must be quoted to prevent whitespace splitting")
+		}
+	}
+	return nil
+}
+
+type commandTemplateQuoteState struct {
+	inSingle, inDouble, escaped bool
+}
+
+// accept 消费一个模板字符并维护引号状态。
+// 返回 true 表示该字符已经作为引号/转义控制字符处理，调用方不再当作模板动作检查。
+func (s *commandTemplateQuoteState) accept(ch byte) bool {
+	if s.escaped {
+		s.escaped = false
+		return true
+	}
+	switch {
+	case ch == '\\' && !s.inSingle:
+		s.escaped = true
+	case ch == '\'' && !s.inDouble:
+		s.inSingle = !s.inSingle
+	case ch == '"' && !s.inSingle:
+		s.inDouble = !s.inDouble
+	default:
+		return false
+	}
+	return true
+}
+
+func (s commandTemplateQuoteState) inQuote() bool {
+	return s.inSingle || s.inDouble
+}
+
+func startsTemplateAction(commandTemplate string, idx int) bool {
+	return commandTemplate[idx] == '{' && idx+1 < len(commandTemplate) && commandTemplate[idx+1] == '{'
+}
+
+// ValidateAutomationCommandDispatchConfig 校验 automation command 节点进入执行或模板写入前的硬边界。
+// 入口层必须显式给 cwd/workspace_roots，且不能声明 shell mode；历史空配置仍由旧解析路径兼容读取。
+func ValidateAutomationCommandDispatchConfig(raw json.RawMessage) error {
+	if err := rejectAutomationShellModeFields(raw); err != nil {
+		return err
+	}
+	cfg, err := ParseAutomationConfig(raw)
+	if err != nil {
+		return err
+	}
+	if strings.TrimSpace(cfg.Exec.CommandRef) == "" {
+		return errors.New("automation command exec.command_ref is required")
+	}
+	if strings.TrimSpace(cfg.Exec.CWD) == "" {
+		return errors.New("automation command exec.cwd is required")
+	}
+	if len(cfg.Exec.WorkspaceRoots) == 0 {
+		return errors.New("automation command exec.workspace_roots is required")
+	}
+	if err := validateAutomationCommandEnv(cfg.Exec.Env); err != nil {
+		return err
+	}
+	return nil
+}
+
+// rejectAutomationShellModeFields 读取原始 config，拦截 typed 解码会忽略的 shell-mode 兼容字段。
+// 这些字段一旦被接受会让调用方误以为命令仍经 shell 执行，所以入口层必须直接报错。
+func rejectAutomationShellModeFields(raw json.RawMessage) error {
+	if len(raw) == 0 || string(raw) == "null" {
+		return nil
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(raw, &payload); err != nil {
+		return err
+	}
+	exec, _ := payload["exec"].(map[string]any)
+	if exec == nil {
+		return nil
+	}
+	for _, key := range []string{"shell", "shell_mode"} {
+		if _, ok := exec[key]; ok {
+			return fmt.Errorf("automation command exec.%s is not supported; command cards run via argv", key)
+		}
+	}
+	if mode, ok := exec["mode"].(string); ok && strings.EqualFold(strings.TrimSpace(mode), "shell") {
+		return errors.New("automation command exec.mode=shell is not supported; command cards run via argv")
 	}
 	return nil
 }
