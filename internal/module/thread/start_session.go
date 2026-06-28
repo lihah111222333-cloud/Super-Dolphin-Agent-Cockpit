@@ -80,7 +80,7 @@ func (s *service) reserveNextChildAgentIDLocked(ctx context.Context, parentID st
 			base = count
 		}
 	}
-	for i := 0; i < maxAgentIDReservationRetries; i++ {
+	for i := range maxAgentIDReservationRetries {
 		candidate := idgen.NewChildAgentID(parentID, int(base)+1+i)
 		release, err := s.reserveAgentIDIfAvailableLocked(ctx, candidate)
 		if err != nil {
@@ -96,7 +96,7 @@ func (s *service) reserveNextChildAgentIDLocked(ctx context.Context, parentID st
 // reserveGeneratedRootAgentIDLocked 在持有 agentIDMu 时为根线程生成未占用 id。
 // 返回的 release 必须由调用方在启动失败或状态持久化完成后释放，避免进程内预留泄漏。
 func (s *service) reserveGeneratedRootAgentIDLocked(ctx context.Context) (string, func(), error) {
-	for i := 0; i < maxAgentIDReservationRetries; i++ {
+	for range maxAgentIDReservationRetries {
 		candidate := idgen.NewAgentID()
 		release, err := s.reserveAgentIDIfAvailableLocked(ctx, candidate)
 		if err != nil {
