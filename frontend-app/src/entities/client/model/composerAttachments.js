@@ -33,6 +33,12 @@ export function basename(path) {
   return value.split(/[\\/]/).filter(Boolean).pop() || value;
 }
 
+export function attachmentDisplayName(value) {
+  const attachment = normalizeAttachment(value);
+  if (!attachment) return '附件';
+  return normalizeString(attachment.name) || basename(attachment.path) || '附件';
+}
+
 export function isImagePath(path) {
   return IMAGE_ATTACHMENT_RE.test(normalizeString(path));
 }
@@ -129,6 +135,10 @@ export function fileLooksImage(file) {
   return normalizeString(file?.type).toLowerCase().startsWith('image/') || isImagePath(file?.name);
 }
 
+/**
+ * 保存浏览器内存里的图片附件，返回的本地路径只用于发送边界。
+ * @param {{ saveClipboardImage?: (base64: string) => Promise<string> | string, nowMillis?: () => number }} [options]
+ */
 export function createImageFileAttachment({ saveClipboardImage, nowMillis = () => Date.now() } = {}) {
   if (typeof saveClipboardImage !== 'function') throw new Error('saveClipboardImage is required');
   return async function imageFileAttachment(file, index, fallbackPrefix) {
