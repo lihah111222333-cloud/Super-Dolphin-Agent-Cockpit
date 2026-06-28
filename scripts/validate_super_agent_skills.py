@@ -105,6 +105,9 @@ REQUIRED = {
         "pre-push",
         "validate_super_agent_skills.py",
         "canonical `.agent/skills`",
+        "D18 旧兼容路径",
+        "没有活跃调用方",
+        "兼容路径不得替代主路径",
     ],
     ".agent/skills/后端/project_structure.md": [
         "internal/platform/db",
