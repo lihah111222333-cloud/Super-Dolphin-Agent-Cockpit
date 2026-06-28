@@ -50,6 +50,16 @@ func TestStartRequestFromSessionPreservesAllWireCriticalFields(t *testing.T) {
 	assertStartRequestMappingDoesNotAlias(t, req, got)
 }
 
+func TestStartSessionRequestFromStartPreservesAllWireCriticalFields(t *testing.T) {
+	req := sessionStartRequestFixture()
+	start := expectedStartRequestFromFixture(req)
+	got := startSessionRequestFromStart(start)
+
+	if !reflect.DeepEqual(got, req) {
+		t.Fatalf("startSessionRequestFromStart mismatch\nwant: %#v\n got: %#v", req, got)
+	}
+}
+
 func TestNewSessionPortsImplementsContract(t *testing.T) {
 	var _ contract.SessionPorts = NewSessionPorts(&stubThreadService{})
 }
