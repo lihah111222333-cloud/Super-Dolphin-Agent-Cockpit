@@ -111,31 +111,32 @@ func TestStartSessionReconcilesProjectMirrorsFromGitRootBeforeLaunch(t *testing.
 	assertClaudeMirrorTargets(t, mirror.targets, repoRoot, userHome)
 }
 
-func TestStartSessionMirrorContentConflictAllowsClaudeLaunch(t *testing.T) {
+func TestStartSessionMirrorContentConflictBlocksClaudeLaunch(t *testing.T) {
 	superHome := filepath.Join(t.TempDir(), "sd-home")
 	t.Setenv(providershared.SuperDolphinHomeEnv, superHome)
 	launched := false
-	next := newBufferedTransport(t, "claude-session-mirror-conflict")
 	d := newTestDriverWithLaunch(t, &recordingMirrorReconciler{report: contract.SkillMirrorReport{Conflicts: []contract.SkillMirrorReportItem{{
 		TargetID:     "claude:project:conflict",
 		Scope:        "project",
 		ConflictKind: "drift",
 	}}}}, func(string, string, string, string, cliLaunchConfig, dto.MCPManifest, string) (*transport, func(), error) {
 		launched = true
-		return next.tr, func() { next.finish() }, nil
+		t.Fatal("launchCLI was called with active project mirror drift")
+		return nil, nil, nil
 	})
 
 	got, err := d.StartSession(context.Background(), dto.StartSessionRequest{
 		AgentID: "agent-claude-conflict",
 		CWD:     t.TempDir(),
 	})
-	if err != nil {
-		t.Fatalf("StartSession() error = %v", err)
+	if err == nil || !strings.Contains(err.Error(), "drift") {
+		t.Fatalf("StartSession() error = %v, want active mirror drift startup error", err)
 	}
-	next.finish()
-	defer got.Close(context.Background())
-	if !launched {
-		t.Fatalf("launchCLI was not called")
+	if got != nil {
+		_ = got.Close(context.Background())
+	}
+	if launched {
+		t.Fatalf("launchCLI was called")
 	}
 }
 
@@ -164,6 +165,35 @@ func TestStartSessionMirrorSafetyConflictBlocksClaudeLaunch(t *testing.T) {
 	}
 	if launched {
 		t.Fatalf("launchCLI was called")
+	}
+}
+
+func TestDisallowedToolsRejectsMalformedConfig(t *testing.T) {
+	superHome := filepath.Join(t.TempDir(), "sd-home")
+	t.Setenv(providershared.SuperDolphinHomeEnv, superHome)
+	launched := false
+	next := newBufferedTransport(t, "claude-session-malformed-security-config")
+	d := newTestDriverWithLaunch(t, &recordingMirrorReconciler{}, func(string, string, string, string, cliLaunchConfig, dto.MCPManifest, string) (*transport, func(), error) {
+		launched = true
+		return next.tr, func() { next.finish() }, nil
+	})
+
+	got, err := d.StartSession(context.Background(), dto.StartSessionRequest{
+		AgentID: "agent-claude-malformed-security-config",
+		CWD:     t.TempDir(),
+		Config: map[string]any{
+			"disallowed_tools": map[string]any{"tool": "Read"},
+		},
+	})
+	if got != nil {
+		next.finish()
+		_ = got.Close(context.Background())
+	}
+	if err == nil || !strings.Contains(err.Error(), "disallowed_tools") {
+		t.Fatalf("StartSession() error = %v, want malformed disallowed_tools rejection", err)
+	}
+	if launched {
+		t.Fatalf("launchCLI was called with malformed disallowed_tools")
 	}
 }
 

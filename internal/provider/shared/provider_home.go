@@ -417,7 +417,9 @@ func EnsureNoSkillMirrorConflicts(report contract.SkillMirrorReport) error {
 	if detail == "" {
 		return fmt.Errorf("skill mirror conflicts: %d unresolved", len(blocking))
 	}
-	return fmt.Errorf("skill mirror conflicts: %d unresolved (%s)", len(blocking), detail)
+	scope := strings.TrimSpace(first.Scope)
+	target := strings.TrimSpace(first.TargetID)
+	return fmt.Errorf("skill mirror conflicts: %d unresolved (kind=%s scope=%s target=%s)", len(blocking), detail, scope, target)
 }
 
 func blockingSkillMirrorConflicts(conflicts []contract.SkillMirrorReportItem) []contract.SkillMirrorReportItem {
@@ -434,18 +436,18 @@ func blockingSkillMirrorConflicts(conflicts []contract.SkillMirrorReportItem) []
 }
 
 func isBlockingSkillMirrorConflict(item contract.SkillMirrorReportItem) bool {
-	// 普通内容冲突交给技能 UI 让用户处理；只有镜像根目录不安全或不可用时才阻断 provider 启动。
 	switch strings.ToLower(strings.TrimSpace(item.ConflictKind)) {
 	case "same_name",
-		"same_name_scope_conflict",
-		"drift",
+		"same_name_scope_conflict":
+		return false
+	case "drift",
 		"mirror_drift",
 		"multi_mirror_drift",
 		"canonical_deleted_with_drift",
 		"unmanaged",
 		"unmanaged_same_name",
 		"unmanaged_provider_skill":
-		return false
+		return isActiveProviderMirrorTarget(item)
 	case "publish_error",
 		"publish_targets_unconfigured",
 		"mirror_root_symlink":
@@ -453,6 +455,14 @@ func isBlockingSkillMirrorConflict(item contract.SkillMirrorReportItem) bool {
 	default:
 		return true
 	}
+}
+
+func isActiveProviderMirrorTarget(item contract.SkillMirrorReportItem) bool {
+	scope := strings.ToLower(strings.TrimSpace(item.Scope))
+	targetID := strings.ToLower(strings.TrimSpace(item.TargetID))
+	return scope == "project" ||
+		strings.Contains(targetID, ":project:") ||
+		strings.Contains(targetID, ":app-managed:")
 }
 
 func absCleanPath(path string) (string, error) {

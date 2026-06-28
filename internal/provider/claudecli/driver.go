@@ -151,6 +151,9 @@ func (d *driver) Name() string { return "claude" }
 
 // StartSession 启动新的 Claude CLI 会话，并为其构建 stdio-only MCP manifest。
 func (d *driver) StartSession(ctx context.Context, req dto.StartSessionRequest) (contract.Session, error) {
+	if err := validateClaudeSecurityConfig(req.Config); err != nil {
+		return nil, fmt.Errorf("claudecli: security config: %w", err)
+	}
 	launchConfig := configFromMap(req.Config)
 	extraBinaries, err := providershared.ConfigMCPBinaries(req.Config, "mcpConfig", "mcp_config")
 	if err != nil {
@@ -189,6 +192,9 @@ func (d *driver) StartSession(ctx context.Context, req dto.StartSessionRequest) 
 func (d *driver) ResumeSession(ctx context.Context, req dto.ResumeSessionRequest) (contract.Session, error) {
 	snapshot := req.PromptSnapshot
 	rawConfig := resumeSessionRuntimeConfig(req)
+	if err := validateClaudeSecurityConfig(rawConfig); err != nil {
+		return nil, fmt.Errorf("claudecli: security config: %w", err)
+	}
 	launchConfig := configFromMap(rawConfig)
 	launchConfig.Effort = strings.TrimSpace(req.Effort)
 	launchConfig.PromptSnapshot = snapshot
@@ -349,13 +355,6 @@ func (d *driver) prepareProviderHomeAndMirrors(ctx context.Context, spec startSp
 	return spec, nil
 }
 
-// warnSkillMirrorIssue 记录 skill mirror 非阻断问题；当前启动主链路只保留给兼容调用。
-func (d *driver) warnSkillMirrorIssue(message string, err error) {
-	if d != nil && d.logger != nil && err != nil {
-		d.logger.Warn(message, "error", err)
-	}
-}
-
 // validateStartCWD 校验 Claude CLI 必须在存在的目录内启动。
 func validateStartCWD(cwd string) error {
 	cwd = strings.TrimSpace(cwd)
@@ -388,7 +387,7 @@ func resolveRequestedStartConfig(spec startSpec) (string, cliLaunchConfig) {
 // newStartedSession 创建 session 对象并启动读循环。
 // 新会话会先标记 thread ready，以允许第一条用户消息触发 Claude CLI 返回真实 session_id。
 func (d *driver) newStartedSession(spec startSpec, started preparedStartSession) *session {
-	initialThreadID := fallbackThreadID(spec.agentID, spec.threadID)
+	initialThreadID := fallbackThreadID(spec.threadID)
 	publicThreadID := shared.FirstNonEmpty(spec.publicThread, spec.agentID, initialThreadID)
 	baseInstructions := promptBaseInstructions(spec.startAssembly.BaseInstructions, started.launchConfig.PromptSnapshot)
 	s := &session{
