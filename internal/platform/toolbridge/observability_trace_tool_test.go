@@ -85,6 +85,10 @@ func TestObservabilityTraceHostOnlyToolFiltersPeerList(t *testing.T) {
 		mcp.ClientKindLSP:  {listToolsPeer([]mcp.MCPTool{{Name: "grep", Description: "grep"}}, nil)},
 	}}
 	h := &Handler{registry: registry}
+	attachActiveLifecycleForTools(h, map[string][]string{
+		mcp.ClientKindOrch: {"orchestration_launch_agent"},
+		mcp.ClientKindLSP:  {"grep"},
+	})
 
 	tools, err := h.ListToolsForCodex(context.Background())
 	if err != nil {
@@ -106,6 +110,9 @@ func TestObservabilityTraceHostOnlyToolFiltersPeerListReservedAliases(t *testing
 		}, nil)},
 	}}
 	h := &Handler{registry: registry}
+	attachActiveLifecycleForTools(h, map[string][]string{
+		mcp.ClientKindLSP: {"grep"},
+	})
 
 	tools, err := h.ListToolsForCodex(context.Background())
 	if err != nil {
