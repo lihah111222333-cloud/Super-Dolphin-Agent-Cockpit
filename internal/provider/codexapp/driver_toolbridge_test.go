@@ -227,6 +227,7 @@ func TestThreadResume_DynamicToolsWireCompatibilityIsExplicit(t *testing.T) {
 	if err := json.Unmarshal(raw, &params); err != nil {
 		t.Fatalf("json.Unmarshal(thread resume params) error = %v", err)
 	}
+	assertNoLifecycleWireFields(t, "thread/resume params", raw)
 	if _, ok := params["dynamicTools"]; ok {
 		t.Fatalf("thread/resume params must not carry dynamicTools unless app-server wire support is explicit: %#v", params)
 	}
@@ -469,6 +470,7 @@ func assertDynamicToolsStartSession(t *testing.T, recorder *toolBridgeRPCRecorde
 	if len(params) == 0 {
 		t.Fatal("thread/start params not recorded")
 	}
+	assertNoLifecycleWireFields(t, "thread/start params", mustJSON(params))
 	tools, ok := params["dynamicTools"].([]any)
 	if !ok {
 		t.Fatalf("dynamicTools = %#v, want array", params["dynamicTools"])
@@ -476,6 +478,11 @@ func assertDynamicToolsStartSession(t *testing.T, recorder *toolBridgeRPCRecorde
 	if len(tools) != 1 {
 		t.Fatalf("dynamicTools = %#v, want one tool", params["dynamicTools"])
 	}
+	tool, ok := tools[0].(map[string]any)
+	if !ok {
+		t.Fatalf("dynamicTools[0] = %#v, want object", tools[0])
+	}
+	assertNoLifecycleWireFields(t, "thread/start dynamicTools[0]", mustJSON(tool))
 	if s.ThreadID() != "provider-thread-1" {
 		t.Fatalf("ThreadID() = %q, want provider-thread-1", s.ThreadID())
 	}

@@ -28,6 +28,7 @@ var proxyAddr atomic.Value
 var Module = fx.Module("toolbridge",
 	fx.Provide(
 		NewHandler,
+		provideMCPToolLifecycleReader,
 		provideHostToolRegistry,
 		provideDiffEmitter,
 		newDiffFallbackTracker,
@@ -55,10 +56,12 @@ type handlerIn struct {
 	BindingStore agentThreadLookup         `optional:"true"`
 	ThreadStore  threadConfigOverrideStore `optional:"true"`
 	Preferences  uiPreferenceReader        `optional:"true"`
-	Config       *platformconfig.Config    `optional:"true"`
-	Logger       *pkglogger.Logger         `optional:"true"`
-	Tracer       *observability.Service    `optional:"true"`
-	Dispatcher   *event.Dispatcher         `optional:"true"`
+	// ToolLifecycleReader 只用于 managed MCP peer 的 tools/list 发布过滤。
+	ToolLifecycleReader mcpToolLifecycleReader `optional:"true"`
+	Config              *platformconfig.Config `optional:"true"`
+	Logger              *pkglogger.Logger      `optional:"true"`
+	Tracer              *observability.Service `optional:"true"`
+	Dispatcher          *event.Dispatcher      `optional:"true"`
 	// HostTools 是 Fx 可选字段：agent-terminal 生产图由 provideHostToolRegistry 填充；
 	// 测试或无 provider 图可以留空，Handler 会走 peer 路径。
 	HostTools  HostToolRegistry           `optional:"true"`
@@ -72,6 +75,45 @@ type hostToolRegistryIn struct {
 	Reader contract.AgentMemoryReader `optional:"true"`
 	Writer contract.AgentMemoryWriter `optional:"true"`
 	Tracer *observability.Service     `optional:"true"`
+}
+
+// mcpToolLifecycleReaderIn 只接收 contract 层已有 store 聚合接口，再裁剪为只读端口。
+// Store 缺失时仍返回可注入适配器；真正读取会 fail-fast，避免生产图静默发布未校验工具面。
+type mcpToolLifecycleReaderIn struct {
+	fx.In
+
+	Store contract.MCPToolLifecycleStore `optional:"true"`
+}
+
+type mcpToolLifecycleReaderAdapter struct {
+	inner contract.MCPToolLifecycleReader
+}
+
+// GetMCPToolLifecycleState 透传单工具 lifecycle 读取，缺少底层 store 时立即报错。
+func (a mcpToolLifecycleReaderAdapter) GetMCPToolLifecycleState(
+	ctx context.Context,
+	key contract.MCPToolLifecycleKey,
+) (contract.MCPToolLifecycleRecord, error) {
+	if a.inner == nil {
+		return contract.MCPToolLifecycleRecord{}, errMCPToolLifecycleReaderMissing
+	}
+	return a.inner.GetMCPToolLifecycleState(ctx, key)
+}
+
+// ListMCPToolLifecycleStates 透传 server 下 lifecycle 列表，供 ListToolsForCodex 做 fail-closed 过滤。
+func (a mcpToolLifecycleReaderAdapter) ListMCPToolLifecycleStates(
+	ctx context.Context,
+	params contract.MCPToolLifecycleListParams,
+) ([]contract.MCPToolLifecycleRecord, error) {
+	if a.inner == nil {
+		return nil, errMCPToolLifecycleReaderMissing
+	}
+	return a.inner.ListMCPToolLifecycleStates(ctx, params)
+}
+
+// provideMCPToolLifecycleReader 把已有 lifecycle store 裁剪成 toolbridge 只读端口。
+func provideMCPToolLifecycleReader(in mcpToolLifecycleReaderIn) mcpToolLifecycleReader {
+	return mcpToolLifecycleReaderAdapter{inner: in.Store}
 }
 
 // provideHostToolRegistry 组装 Codex 可见的 host-direct 工具 registry。
@@ -93,6 +135,20 @@ func ProvideHostToolRegistryForTesting(in hostToolRegistryIn) HostToolRegistry {
 // NewHandlerForTesting 创建测试用 Handler，只注入 registry、hostTools 和默认 logger。
 func NewHandlerForTesting(registry activePeerRegistry, hostTools HostToolRegistry) *Handler {
 	return &Handler{registry: registry, hostTools: hostTools, logger: pkglogger.Get()}
+}
+
+// NewHandlerForTestingWithLifecycle 创建带 MCP lifecycle 读端口的测试 Handler。
+// 该入口只服务跨包测试，确保 managed peer 工具仍走与生产一致的 fail-closed 过滤。
+func NewHandlerForTestingWithLifecycle(
+	registry activePeerRegistry,
+	hostTools HostToolRegistry,
+	reader contract.MCPToolLifecycleReader,
+	projectRoot string,
+) *Handler {
+	h := NewHandlerForTesting(registry, hostTools)
+	h.toolLifecycleReader = reader
+	h.cfg = &platformconfig.Config{ProjectRoot: strings.TrimSpace(projectRoot)}
+	return h
 }
 
 // memoryReadHostToolOptions 从 reader 能力位生成 memory_read host tool 开关。

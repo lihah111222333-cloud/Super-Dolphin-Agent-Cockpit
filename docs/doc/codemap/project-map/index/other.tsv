@@ -1,0 +1,874 @@
+path	module	domain	type	size_bytes	purpose	search_keys
+.codex/.gitignore	.codex	other	file	6	未细分职责：请结合路径、文件名和相邻代码判断	codex,未细分职责：请结合路径,文件名和相邻代码判断
+.codex/config.toml	.codex	other	toml	117	未细分职责：请结合路径、文件名和相邻代码判断	codex,config,未细分职责：请结合路径,文件名和相邻代码判断
+.codex/hooks.json	.codex	other	json	696	未细分职责：请结合路径、文件名和相邻代码判断	codex,hooks,未细分职责：请结合路径,文件名和相邻代码判断
+.DS_Store	(root)	other	file	30724	仓库根级配置、入口或说明文件	仓库根级配置,入口或说明文件
+.env	(root)	other	file	329	仓库根级配置、入口或说明文件	仓库根级配置,入口或说明文件
+.env.example	(root)	other	example	1787	仓库根级配置、入口或说明文件	env,仓库根级配置,入口或说明文件
+.env.packaging.example	(root)	other	example	1526	仓库根级配置、入口或说明文件	env,packaging,仓库根级配置,入口或说明文件
+.gitattributes	(root)	other	file	864	仓库根级配置、入口或说明文件	仓库根级配置,入口或说明文件
+.githooks/commit-msg	.githooks	other	file	454	仓库 git hooks	仓库,git,hooks
+.githooks/pre-commit	.githooks	other	file	10340	仓库 git hooks	仓库,git,hooks
+.githooks/pre-push	.githooks	other	file	9230	仓库 git hooks	仓库,git,hooks
+.githooks/README.md	.githooks	other	doc	9386	仓库 git hooks	githooks,README,仓库,git,hooks
+.github/workflows/ci.yml	.github	other	yaml	4144	GitHub 配置	github,workflows,ci,GitHub,配置
+.github/workflows/sqlite-release-gates.yml	.github	other	yaml	2293	GitHub 配置	github,workflows,sqlite,release,gates,GitHub,配置
+.gitignore	(root)	other	file	1754	仓库根级配置、入口或说明文件	仓库根级配置,入口或说明文件
+.golangci.yml	(root)	other	yaml	878	仓库根级配置、入口或说明文件	golangci,仓库根级配置,入口或说明文件
+.mcp.json	(root)	other	json	532	仓库根级配置、入口或说明文件	mcp,仓库根级配置,入口或说明文件
+.mypy_cache/.DS_Store	.mypy_cache	other	file	6148	未细分职责：请结合路径、文件名和相邻代码判断	mypy,cache,未细分职责：请结合路径,文件名和相邻代码判断
+.mypy_cache/.gitignore	.mypy_cache	other	file	34	未细分职责：请结合路径、文件名和相邻代码判断	mypy,cache,未细分职责：请结合路径,文件名和相邻代码判断
+.mypy_cache/3.14/__future__.data.json	.mypy_cache	other	json	9066	未细分职责：请结合路径、文件名和相邻代码判断	mypy,cache,3,14,future,data,未细分职责：请结合路径,文件名和相邻代码判断
+.mypy_cache/3.14/__future__.meta.json	.mypy_cache	other	json	790	未细分职责：请结合路径、文件名和相邻代码判断	mypy,cache,3,14,future,meta,未细分职责：请结合路径,文件名和相邻代码判断
+.mypy_cache/3.14/_ast.data.json	.mypy_cache	other	json	13221	未细分职责：请结合路径、文件名和相邻代码判断	mypy,cache,3,14,ast,data,未细分职责：请结合路径,文件名和相邻代码判断
+.mypy_cache/3.14/_ast.meta.json	.mypy_cache	other	json	880	未细分职责：请结合路径、文件名和相邻代码判断	mypy,cache,3,14,ast,meta,未细分职责：请结合路径,文件名和相邻代码判断
+.mypy_cache/3.14/_blake2.data.json	.mypy_cache	other	json	21139	未细分职责：请结合路径、文件名和相邻代码判断	mypy,cache,3,14,blake2,data,未细分职责：请结合路径,文件名和相邻代码判断
+.mypy_cache/3.14/_blake2.meta.json	.mypy_cache	other	json	964	未细分职责：请结合路径、文件名和相邻代码判断	mypy,cache,3,14,blake2,meta,未细分职责：请结合路径,文件名和相邻代码判断
+.mypy_cache/3.14/_bz2.data.json	.mypy_cache	other	json	11346	未细分职责：请结合路径、文件名和相邻代码判断	mypy,cache,3,14,bz2,data,未细分职责：请结合路径,文件名和相邻代码判断
+.mypy_cache/3.14/_bz2.meta.json	.mypy_cache	other	json	890	未细分职责：请结合路径、文件名和相邻代码判断	mypy,cache,3,14,bz2,meta,未细分职责：请结合路径,文件名和相邻代码判断
+.mypy_cache/3.14/_codecs.data.json	.mypy_cache	other	json	61010	未细分职责：请结合路径、文件名和相邻代码判断	mypy,cache,3,14,codecs,data,未细分职责：请结合路径,文件名和相邻代码判断
+.mypy_cache/3.14/_codecs.meta.json	.mypy_cache	other	json	1075	未细分职责：请结合路径、文件名和相邻代码判断	mypy,cache,3,14,codecs,meta,未细分职责：请结合路径,文件名和相邻代码判断
+.mypy_cache/3.14/_collections_abc.data.json	.mypy_cache	other	json	38441	未细分职责：请结合路径、文件名和相邻代码判断	mypy,cache,3,14,collections,abc,data,未细分职责：请结合路径,文件名和相邻代码判断
+.mypy_cache/3.14/_collections_abc.meta.json	.mypy_cache	other	json	903	未细分职责：请结合路径、文件名和相邻代码判断	mypy,cache,3,14,collections,abc,meta,未细分职责：请结合路径,文件名和相邻代码判断
+.mypy_cache/3.14/_contextvars.data.json	.mypy_cache	other	json	78887	未细分职责：请结合路径、文件名和相邻代码判断	mypy,cache,3,14,contextvars,data,未细分职责：请结合路径,文件名和相邻代码判断
+.mypy_cache/3.14/_contextvars.meta.json	.mypy_cache	other	json	1028	未细分职责：请结合路径、文件名和相邻代码判断	mypy,cache,3,14,contextvars,meta,未细分职责：请结合路径,文件名和相邻代码判断
+.mypy_cache/3.14/_decimal.data.json	.mypy_cache	other	json	13857	未细分职责：请结合路径、文件名和相邻代码判断	mypy,cache,3,14,decimal,data,未细分职责：请结合路径,文件名和相邻代码判断
+.mypy_cache/3.14/_decimal.meta.json	.mypy_cache	other	json	959	未细分职责：请结合路径、文件名和相邻代码判断	mypy,cache,3,14,decimal,meta,未细分职责：请结合路径,文件名和相邻代码判断
+.mypy_cache/3.14/_frozen_importlib_external.data.json	.mypy_cache	other	json	66532	未细分职责：请结合路径、文件名和相邻代码判断	mypy,cache,3,14,frozen,importlib,external,data,未细分职责：请结合路径,文件名和相邻代码判断
+.mypy_cache/3.14/_frozen_importlib_external.meta.json	.mypy_cache	other	json	1813	未细分职责：请结合路径、文件名和相邻代码判断	mypy,cache,3,14,frozen,importlib,external,meta,未细分职责：请结合路径,文件名和相邻代码判断
+.mypy_cache/3.14/_frozen_importlib.data.json	.mypy_cache	other	json	38290	未细分职责：请结合路径、文件名和相邻代码判断	mypy,cache,3,14,frozen,importlib,data,未细分职责：请结合路径,文件名和相邻代码判断
+.mypy_cache/3.14/_frozen_importlib.meta.json	.mypy_cache	other	json	1366	未细分职责：请结合路径、文件名和相邻代码判断	mypy,cache,3,14,frozen,importlib,meta,未细分职责：请结合路径,文件名和相邻代码判断
+.mypy_cache/3.14/_hashlib.data.json	.mypy_cache	other	json	53093	未细分职责：请结合路径、文件名和相邻代码判断	mypy,cache,3,14,hashlib,data,未细分职责：请结合路径,文件名和相邻代码判断
+.mypy_cache/3.14/_hashlib.meta.json	.mypy_cache	other	json	1019	未细分职责：请结合路径、文件名和相邻代码判断	mypy,cache,3,14,hashlib,meta,未细分职责：请结合路径,文件名和相邻代码判断
+.mypy_cache/3.14/_io.data.json	.mypy_cache	other	json	129109	未细分职责：请结合路径、文件名和相邻代码判断	mypy,cache,3,14,io,data,未细分职责：请结合路径,文件名和相邻代码判断
+.mypy_cache/3.14/_io.meta.json	.mypy_cache	other	json	1240	未细分职责：请结合路径、文件名和相邻代码判断	mypy,cache,3,14,io,meta,未细分职责：请结合路径,文件名和相邻代码判断
+.mypy_cache/3.14/_sitebuiltins.data.json	.mypy_cache	other	json	8956	未细分职责：请结合路径、文件名和相邻代码判断	mypy,cache,3,14,sitebuiltins,data,未细分职责：请结合路径,文件名和相邻代码判断
+.mypy_cache/3.14/_sitebuiltins.meta.json	.mypy_cache	other	json	847	未细分职责：请结合路径、文件名和相邻代码判断	mypy,cache,3,14,sitebuiltins,meta,未细分职责：请结合路径,文件名和相邻代码判断
+.mypy_cache/3.14/_socket.data.json	.mypy_cache	other	json	106679	未细分职责：请结合路径、文件名和相邻代码判断	mypy,cache,3,14,socket,data,未细分职责：请结合路径,文件名和相邻代码判断
+.mypy_cache/3.14/_socket.meta.json	.mypy_cache	other	json	1142	未细分职责：请结合路径、文件名和相邻代码判断	mypy,cache,3,14,socket,meta,未细分职责：请结合路径,文件名和相邻代码判断
+.mypy_cache/3.14/_ssl.data.json	.mypy_cache	other	json	100862	未细分职责：请结合路径、文件名和相邻代码判断	mypy,cache,3,14,ssl,data,未细分职责：请结合路径,文件名和相邻代码判断
+.mypy_cache/3.14/_ssl.meta.json	.mypy_cache	other	json	1068	未细分职责：请结合路径、文件名和相邻代码判断	mypy,cache,3,14,ssl,meta,未细分职责：请结合路径,文件名和相邻代码判断
+.mypy_cache/3.14/_thread.data.json	.mypy_cache	other	json	67987	未细分职责：请结合路径、文件名和相邻代码判断	mypy,cache,3,14,thread,data,未细分职责：请结合路径,文件名和相邻代码判断
+.mypy_cache/3.14/_thread.meta.json	.mypy_cache	other	json	1188	未细分职责：请结合路径、文件名和相邻代码判断	mypy,cache,3,14,thread,meta,未细分职责：请结合路径,文件名和相邻代码判断
+.mypy_cache/3.14/_typeshed/__init__.data.json	.mypy_cache	other	json	150067	未细分职责：请结合路径、文件名和相邻代码判断	mypy,cache,3,14,typeshed,init,data,未细分职责：请结合路径,文件名和相邻代码判断
+.mypy_cache/3.14/_typeshed/__init__.meta.json	.mypy_cache	other	json	1275	未细分职责：请结合路径、文件名和相邻代码判断	mypy,cache,3,14,typeshed,init,meta,未细分职责：请结合路径,文件名和相邻代码判断
+.mypy_cache/3.14/_typeshed/importlib.data.json	.mypy_cache	other	json	7947	未细分职责：请结合路径、文件名和相邻代码判断	mypy,cache,3,14,typeshed,importlib,data,未细分职责：请结合路径,文件名和相邻代码判断
+.mypy_cache/3.14/_typeshed/importlib.meta.json	.mypy_cache	other	json	997	未细分职责：请结合路径、文件名和相邻代码判断	mypy,cache,3,14,typeshed,importlib,meta,未细分职责：请结合路径,文件名和相邻代码判断
+.mypy_cache/3.14/_warnings.data.json	.mypy_cache	other	json	20678	未细分职责：请结合路径、文件名和相邻代码判断	mypy,cache,3,14,warnings,data,未细分职责：请结合路径,文件名和相邻代码判断
+.mypy_cache/3.14/_warnings.meta.json	.mypy_cache	other	json	835	未细分职责：请结合路径、文件名和相邻代码判断	mypy,cache,3,14,warnings,meta,未细分职责：请结合路径,文件名和相邻代码判断
+.mypy_cache/3.14/_zstd.data.json	.mypy_cache	other	json	52844	未细分职责：请结合路径、文件名和相邻代码判断	mypy,cache,3,14,zstd,data,未细分职责：请结合路径,文件名和相邻代码判断
+.mypy_cache/3.14/_zstd.meta.json	.mypy_cache	other	json	1026	未细分职责：请结合路径、文件名和相邻代码判断	mypy,cache,3,14,zstd,meta,未细分职责：请结合路径,文件名和相邻代码判断
+.mypy_cache/3.14/@plugins_snapshot.json	.mypy_cache	other	json	2	未细分职责：请结合路径、文件名和相邻代码判断	mypy,cache,3,14,@plugins,snapshot,未细分职责：请结合路径,文件名和相邻代码判断
+.mypy_cache/3.14/abc.data.json	.mypy_cache	other	json	30437	未细分职责：请结合路径、文件名和相邻代码判断	mypy,cache,3,14,abc,data,未细分职责：请结合路径,文件名和相邻代码判断
+.mypy_cache/3.14/abc.meta.json	.mypy_cache	other	json	959	未细分职责：请结合路径、文件名和相邻代码判断	mypy,cache,3,14,abc,meta,未细分职责：请结合路径,文件名和相邻代码判断
+.mypy_cache/3.14/annotationlib.data.json	.mypy_cache	other	json	62638	未细分职责：请结合路径、文件名和相邻代码判断	mypy,cache,3,14,annotationlib,data,未细分职责：请结合路径,文件名和相邻代码判断
+.mypy_cache/3.14/annotationlib.meta.json	.mypy_cache	other	json	1077	未细分职责：请结合路径、文件名和相邻代码判断	mypy,cache,3,14,annotationlib,meta,未细分职责：请结合路径,文件名和相邻代码判断
+.mypy_cache/3.14/argparse.data.json	.mypy_cache	other	json	235990	未细分职责：请结合路径、文件名和相邻代码判断	mypy,cache,3,14,argparse,data,未细分职责：请结合路径,文件名和相邻代码判断
+.mypy_cache/3.14/argparse.meta.json	.mypy_cache	other	json	1132	未细分职责：请结合路径、文件名和相邻代码判断	mypy,cache,3,14,argparse,meta,未细分职责：请结合路径,文件名和相邻代码判断
+.mypy_cache/3.14/ast.data.json	.mypy_cache	other	json	720206	未细分职责：请结合路径、文件名和相邻代码判断	mypy,cache,3,14,ast,data,未细分职责：请结合路径,文件名和相邻代码判断
+.mypy_cache/3.14/ast.meta.json	.mypy_cache	other	json	1183	未细分职责：请结合路径、文件名和相邻代码判断	mypy,cache,3,14,ast,meta,未细分职责：请结合路径,文件名和相邻代码判断
+.mypy_cache/3.14/builtins.data.json	.mypy_cache	other	json	1997975	未细分职责：请结合路径、文件名和相邻代码判断	mypy,cache,3,14,builtins,data,未细分职责：请结合路径,文件名和相邻代码判断
+.mypy_cache/3.14/builtins.meta.json	.mypy_cache	other	json	1542	未细分职责：请结合路径、文件名和相邻代码判断	mypy,cache,3,14,builtins,meta,未细分职责：请结合路径,文件名和相邻代码判断
+.mypy_cache/3.14/bz2.data.json	.mypy_cache	other	json	47121	未细分职责：请结合路径、文件名和相邻代码判断	mypy,cache,3,14,bz2,data,未细分职责：请结合路径,文件名和相邻代码判断
+.mypy_cache/3.14/bz2.meta.json	.mypy_cache	other	json	1249	未细分职责：请结合路径、文件名和相邻代码判断	mypy,cache,3,14,bz2,meta,未细分职责：请结合路径,文件名和相邻代码判断
+.mypy_cache/3.14/codecs.data.json	.mypy_cache	other	json	147817	未细分职责：请结合路径、文件名和相邻代码判断	mypy,cache,3,14,codecs,data,未细分职责：请结合路径,文件名和相邻代码判断
+.mypy_cache/3.14/codecs.meta.json	.mypy_cache	other	json	1073	未细分职责：请结合路径、文件名和相邻代码判断	mypy,cache,3,14,codecs,meta,未细分职责：请结合路径,文件名和相邻代码判断
+.mypy_cache/3.14/collections/__init__.data.json	.mypy_cache	other	json	858752	未细分职责：请结合路径、文件名和相邻代码判断	mypy,cache,3,14,collections,init,data,未细分职责：请结合路径,文件名和相邻代码判断
+.mypy_cache/3.14/collections/__init__.meta.json	.mypy_cache	other	json	1101	未细分职责：请结合路径、文件名和相邻代码判断	mypy,cache,3,14,collections,init,meta,未细分职责：请结合路径,文件名和相邻代码判断
+.mypy_cache/3.14/collections/abc.data.json	.mypy_cache	other	json	4187	未细分职责：请结合路径、文件名和相邻代码判断	mypy,cache,3,14,collections,abc,data,未细分职责：请结合路径,文件名和相邻代码判断
+.mypy_cache/3.14/collections/abc.meta.json	.mypy_cache	other	json	687	未细分职责：请结合路径、文件名和相邻代码判断	mypy,cache,3,14,collections,abc,meta,未细分职责：请结合路径,文件名和相邻代码判断
+.mypy_cache/3.14/compression/__init__.data.json	.mypy_cache	other	json	1913	未细分职责：请结合路径、文件名和相邻代码判断	mypy,cache,3,14,compression,init,data,未细分职责：请结合路径,文件名和相邻代码判断
+.mypy_cache/3.14/compression/__init__.meta.json	.mypy_cache	other	json	621	未细分职责：请结合路径、文件名和相邻代码判断	mypy,cache,3,14,compression,init,meta,未细分职责：请结合路径,文件名和相邻代码判断
+.mypy_cache/3.14/compression/_common/__init__.data.json	.mypy_cache	other	json	1985	未细分职责：请结合路径、文件名和相邻代码判断	mypy,cache,3,14,compression,common,init,data,未细分职责：请结合路径,文件名和相邻代码判断
+.mypy_cache/3.14/compression/_common/__init__.meta.json	.mypy_cache	other	json	637	未细分职责：请结合路径、文件名和相邻代码判断	mypy,cache,3,14,compression,common,init,meta,未细分职责：请结合路径,文件名和相邻代码判断
+.mypy_cache/3.14/compression/_common/_streams.data.json	.mypy_cache	other	json	17598	未细分职责：请结合路径、文件名和相邻代码判断	mypy,cache,3,14,compression,common,streams,data,未细分职责：请结合路径,文件名和相邻代码判断
+.mypy_cache/3.14/compression/_common/_streams.meta.json	.mypy_cache	other	json	1045	未细分职责：请结合路径、文件名和相邻代码判断	mypy,cache,3,14,compression,common,streams,meta,未细分职责：请结合路径,文件名和相邻代码判断
+.mypy_cache/3.14/compression/zstd/__init__.data.json	.mypy_cache	other	json	30674	未细分职责：请结合路径、文件名和相邻代码判断	mypy,cache,3,14,compression,zstd,init,data,未细分职责：请结合路径,文件名和相邻代码判断
+.mypy_cache/3.14/compression/zstd/__init__.meta.json	.mypy_cache	other	json	1054	未细分职责：请结合路径、文件名和相邻代码判断	mypy,cache,3,14,compression,zstd,init,meta,未细分职责：请结合路径,文件名和相邻代码判断
+.mypy_cache/3.14/compression/zstd/_zstdfile.data.json	.mypy_cache	other	json	49163	未细分职责：请结合路径、文件名和相邻代码判断	mypy,cache,3,14,compression,zstd,zstdfile,data,未细分职责：请结合路径,文件名和相邻代码判断
+.mypy_cache/3.14/compression/zstd/_zstdfile.meta.json	.mypy_cache	other	json	1322	未细分职责：请结合路径、文件名和相邻代码判断	mypy,cache,3,14,compression,zstd,zstdfile,meta,未细分职责：请结合路径,文件名和相邻代码判断
+.mypy_cache/3.14/contextlib.data.json	.mypy_cache	other	json	157559	未细分职责：请结合路径、文件名和相邻代码判断	mypy,cache,3,14,contextlib,data,未细分职责：请结合路径,文件名和相邻代码判断
+.mypy_cache/3.14/contextlib.meta.json	.mypy_cache	other	json	1075	未细分职责：请结合路径、文件名和相邻代码判断	mypy,cache,3,14,contextlib,meta,未细分职责：请结合路径,文件名和相邻代码判断
+.mypy_cache/3.14/contextvars.data.json	.mypy_cache	other	json	2651	未细分职责：请结合路径、文件名和相邻代码判断	mypy,cache,3,14,contextvars,data,未细分职责：请结合路径,文件名和相邻代码判断
+.mypy_cache/3.14/contextvars.meta.json	.mypy_cache	other	json	787	未细分职责：请结合路径、文件名和相邻代码判断	mypy,cache,3,14,contextvars,meta,未细分职责：请结合路径,文件名和相邻代码判断
+.mypy_cache/3.14/dataclasses.data.json	.mypy_cache	other	json	92466	未细分职责：请结合路径、文件名和相邻代码判断	mypy,cache,3,14,dataclasses,data,未细分职责：请结合路径,文件名和相邻代码判断
+.mypy_cache/3.14/dataclasses.meta.json	.mypy_cache	other	json	1081	未细分职责：请结合路径、文件名和相邻代码判断	mypy,cache,3,14,dataclasses,meta,未细分职责：请结合路径,文件名和相邻代码判断
+.mypy_cache/3.14/datetime.data.json	.mypy_cache	other	json	183850	未细分职责：请结合路径、文件名和相邻代码判断	mypy,cache,3,14,datetime,data,未细分职责：请结合路径,文件名和相邻代码判断
+.mypy_cache/3.14/datetime.meta.json	.mypy_cache	other	json	1069	未细分职责：请结合路径、文件名和相邻代码判断	mypy,cache,3,14,datetime,meta,未细分职责：请结合路径,文件名和相邻代码判断
+.mypy_cache/3.14/decimal.data.json	.mypy_cache	other	json	206244	未细分职责：请结合路径、文件名和相邻代码判断	mypy,cache,3,14,decimal,data,未细分职责：请结合路径,文件名和相邻代码判断
+.mypy_cache/3.14/decimal.meta.json	.mypy_cache	other	json	1139	未细分职责：请结合路径、文件名和相邻代码判断	mypy,cache,3,14,decimal,meta,未细分职责：请结合路径,文件名和相邻代码判断
+.mypy_cache/3.14/dis.data.json	.mypy_cache	other	json	146217	未细分职责：请结合路径、文件名和相邻代码判断	mypy,cache,3,14,dis,data,未细分职责：请结合路径,文件名和相邻代码判断
+.mypy_cache/3.14/dis.meta.json	.mypy_cache	other	json	1067	未细分职责：请结合路径、文件名和相邻代码判断	mypy,cache,3,14,dis,meta,未细分职责：请结合路径,文件名和相邻代码判断
+.mypy_cache/3.14/email/__init__.data.json	.mypy_cache	other	json	82031	未细分职责：请结合路径、文件名和相邻代码判断	mypy,cache,3,14,email,init,data,未细分职责：请结合路径,文件名和相邻代码判断
+.mypy_cache/3.14/email/__init__.meta.json	.mypy_cache	other	json	1102	未细分职责：请结合路径、文件名和相邻代码判断	mypy,cache,3,14,email,init,meta,未细分职责：请结合路径,文件名和相邻代码判断
+.mypy_cache/3.14/email/_policybase.data.json	.mypy_cache	other	json	55054	未细分职责：请结合路径、文件名和相邻代码判断	mypy,cache,3,14,email,policybase,data,未细分职责：请结合路径,文件名和相邻代码判断
+.mypy_cache/3.14/email/_policybase.meta.json	.mypy_cache	other	json	990	未细分职责：请结合路径、文件名和相邻代码判断	mypy,cache,3,14,email,policybase,meta,未细分职责：请结合路径,文件名和相邻代码判断
+.mypy_cache/3.14/email/charset.data.json	.mypy_cache	other	json	22385	未细分职责：请结合路径、文件名和相邻代码判断	mypy,cache,3,14,email,charset,data,未细分职责：请结合路径,文件名和相邻代码判断
+.mypy_cache/3.14/email/charset.meta.json	.mypy_cache	other	json	857	未细分职责：请结合路径、文件名和相邻代码判断	mypy,cache,3,14,email,charset,meta,未细分职责：请结合路径,文件名和相邻代码判断
+.mypy_cache/3.14/email/contentmanager.data.json	.mypy_cache	other	json	8165	未细分职责：请结合路径、文件名和相邻代码判断	mypy,cache,3,14,email,contentmanager,data,未细分职责：请结合路径,文件名和相邻代码判断
+.mypy_cache/3.14/email/contentmanager.meta.json	.mypy_cache	other	json	816	未细分职责：请结合路径、文件名和相邻代码判断	mypy,cache,3,14,email,contentmanager,meta,未细分职责：请结合路径,文件名和相邻代码判断
+.mypy_cache/3.14/email/errors.data.json	.mypy_cache	other	json	26913	未细分职责：请结合路径、文件名和相邻代码判断	mypy,cache,3,14,email,errors,data,未细分职责：请结合路径,文件名和相邻代码判断
+.mypy_cache/3.14/email/errors.meta.json	.mypy_cache	other	json	898	未细分职责：请结合路径、文件名和相邻代码判断	mypy,cache,3,14,email,errors,meta,未细分职责：请结合路径,文件名和相邻代码判断
+.mypy_cache/3.14/email/header.data.json	.mypy_cache	other	json	10862	未细分职责：请结合路径、文件名和相邻代码判断	mypy,cache,3,14,email,header,data,未细分职责：请结合路径,文件名和相邻代码判断
+.mypy_cache/3.14/email/header.meta.json	.mypy_cache	other	json	855	未细分职责：请结合路径、文件名和相邻代码判断	mypy,cache,3,14,email,header,meta,未细分职责：请结合路径,文件名和相邻代码判断
+.mypy_cache/3.14/email/message.data.json	.mypy_cache	other	json	208721	未细分职责：请结合路径、文件名和相邻代码判断	mypy,cache,3,14,email,message,data,未细分职责：请结合路径,文件名和相邻代码判断
+.mypy_cache/3.14/email/message.meta.json	.mypy_cache	other	json	1356	未细分职责：请结合路径、文件名和相邻代码判断	mypy,cache,3,14,email,message,meta,未细分职责：请结合路径,文件名和相邻代码判断
+.mypy_cache/3.14/email/policy.data.json	.mypy_cache	other	json	34915	未细分职责：请结合路径、文件名和相邻代码判断	mypy,cache,3,14,email,policy,data,未细分职责：请结合路径,文件名和相邻代码判断
+.mypy_cache/3.14/email/policy.meta.json	.mypy_cache	other	json	1059	未细分职责：请结合路径、文件名和相邻代码判断	mypy,cache,3,14,email,policy,meta,未细分职责：请结合路径,文件名和相邻代码判断
+.mypy_cache/3.14/enum.data.json	.mypy_cache	other	json	145216	未细分职责：请结合路径、文件名和相邻代码判断	mypy,cache,3,14,enum,data,未细分职责：请结合路径,文件名和相邻代码判断
+.mypy_cache/3.14/enum.meta.json	.mypy_cache	other	json	1013	未细分职责：请结合路径、文件名和相邻代码判断	mypy,cache,3,14,enum,meta,未细分职责：请结合路径,文件名和相邻代码判断
+.mypy_cache/3.14/export_docs_json.data.json	.mypy_cache	other	json	32069	未细分职责：请结合路径、文件名和相邻代码判断	mypy,cache,3,14,export,docs,json,data,未细分职责：请结合路径,文件名和相邻代码判断
+.mypy_cache/3.14/export_docs_json.meta.json	.mypy_cache	other	json	1254	未细分职责：请结合路径、文件名和相邻代码判断	mypy,cache,3,14,export,docs,json,meta,未细分职责：请结合路径,文件名和相邻代码判断
+.mypy_cache/3.14/fractions.data.json	.mypy_cache	other	json	134006	未细分职责：请结合路径、文件名和相邻代码判断	mypy,cache,3,14,fractions,data,未细分职责：请结合路径,文件名和相邻代码判断
+.mypy_cache/3.14/fractions.meta.json	.mypy_cache	other	json	1137	未细分职责：请结合路径、文件名和相邻代码判断	mypy,cache,3,14,fractions,meta,未细分职责：请结合路径,文件名和相邻代码判断
+.mypy_cache/3.14/generate_p15.data.json	.mypy_cache	other	json	8452	未细分职责：请结合路径、文件名和相邻代码判断	mypy,cache,3,14,generate,p15,data,未细分职责：请结合路径,文件名和相邻代码判断
+.mypy_cache/3.14/generate_p15.meta.json	.mypy_cache	other	json	1271	未细分职责：请结合路径、文件名和相邻代码判断	mypy,cache,3,14,generate,p15,meta,未细分职责：请结合路径,文件名和相邻代码判断
+.mypy_cache/3.14/genericpath.data.json	.mypy_cache	other	json	38067	未细分职责：请结合路径、文件名和相邻代码判断	mypy,cache,3,14,genericpath,data,未细分职责：请结合路径,文件名和相邻代码判断
+.mypy_cache/3.14/genericpath.meta.json	.mypy_cache	other	json	1023	未细分职责：请结合路径、文件名和相邻代码判断	mypy,cache,3,14,genericpath,meta,未细分职责：请结合路径,文件名和相邻代码判断
+.mypy_cache/3.14/gzip.data.json	.mypy_cache	other	json	61210	未细分职责：请结合路径、文件名和相邻代码判断	mypy,cache,3,14,gzip,data,未细分职责：请结合路径,文件名和相邻代码判断
+.mypy_cache/3.14/gzip.meta.json	.mypy_cache	other	json	1186	未细分职责：请结合路径、文件名和相邻代码判断	mypy,cache,3,14,gzip,meta,未细分职责：请结合路径,文件名和相邻代码判断
+.mypy_cache/3.14/hashlib.data.json	.mypy_cache	other	json	11874	未细分职责：请结合路径、文件名和相邻代码判断	mypy,cache,3,14,hashlib,data,未细分职责：请结合路径,文件名和相邻代码判断
+.mypy_cache/3.14/hashlib.meta.json	.mypy_cache	other	json	1013	未细分职责：请结合路径、文件名和相邻代码判断	mypy,cache,3,14,hashlib,meta,未细分职责：请结合路径,文件名和相邻代码判断
+.mypy_cache/3.14/http/__init__.data.json	.mypy_cache	other	json	47726	未细分职责：请结合路径、文件名和相邻代码判断	mypy,cache,3,14,http,init,data,未细分职责：请结合路径,文件名和相邻代码判断
+.mypy_cache/3.14/http/__init__.meta.json	.mypy_cache	other	json	889	未细分职责：请结合路径、文件名和相邻代码判断	mypy,cache,3,14,http,init,meta,未细分职责：请结合路径,文件名和相邻代码判断
+.mypy_cache/3.14/http/client.data.json	.mypy_cache	other	json	107906	未细分职责：请结合路径、文件名和相邻代码判断	mypy,cache,3,14,http,client,data,未细分职责：请结合路径,文件名和相邻代码判断
+.mypy_cache/3.14/http/client.meta.json	.mypy_cache	other	json	1557	未细分职责：请结合路径、文件名和相邻代码判断	mypy,cache,3,14,http,client,meta,未细分职责：请结合路径,文件名和相邻代码判断
+.mypy_cache/3.14/http/cookiejar.data.json	.mypy_cache	other	json	68389	未细分职责：请结合路径、文件名和相邻代码判断	mypy,cache,3,14,http,cookiejar,data,未细分职责：请结合路径,文件名和相邻代码判断
+.mypy_cache/3.14/http/cookiejar.meta.json	.mypy_cache	other	json	1142	未细分职责：请结合路径、文件名和相邻代码判断	mypy,cache,3,14,http,cookiejar,meta,未细分职责：请结合路径,文件名和相邻代码判断
+.mypy_cache/3.14/http/server.data.json	.mypy_cache	other	json	54737	未细分职责：请结合路径、文件名和相邻代码判断	mypy,cache,3,14,http,server,data,未细分职责：请结合路径,文件名和相邻代码判断
+.mypy_cache/3.14/http/server.meta.json	.mypy_cache	other	json	1652	未细分职责：请结合路径、文件名和相邻代码判断	mypy,cache,3,14,http,server,meta,未细分职责：请结合路径,文件名和相邻代码判断
+.mypy_cache/3.14/ida_pro_mcp/__init__.data.json	.mypy_cache	other	json	1864	未细分职责：请结合路径、文件名和相邻代码判断	mypy,cache,3,14,ida,pro,mcp,init,data,未细分职责：请结合路径,文件名和相邻代码判断
+.mypy_cache/3.14/ida_pro_mcp/__init__.meta.json	.mypy_cache	other	json	571	未细分职责：请结合路径、文件名和相邻代码判断	mypy,cache,3,14,ida,pro,mcp,init,meta,未细分职责：请结合路径,文件名和相邻代码判断
+.mypy_cache/3.14/ida_pro_mcp/ida_mcp/__init__.data.json	.mypy_cache	other	json	6279	未细分职责：请结合路径、文件名和相邻代码判断	mypy,cache,3,14,ida,pro,mcp,init,data,未细分职责：请结合路径,文件名和相邻代码判断
+.mypy_cache/3.14/ida_pro_mcp/ida_mcp/__init__.meta.json	.mypy_cache	other	json	820	未细分职责：请结合路径、文件名和相邻代码判断	mypy,cache,3,14,ida,pro,mcp,init,meta,未细分职责：请结合路径,文件名和相邻代码判断
+.mypy_cache/3.14/ida_pro_mcp/ida_mcp/http.data.json	.mypy_cache	other	json	22168	未细分职责：请结合路径、文件名和相邻代码判断	mypy,cache,3,14,ida,pro,mcp,http,data,未细分职责：请结合路径,文件名和相邻代码判断
+.mypy_cache/3.14/ida_pro_mcp/ida_mcp/http.meta.json	.mypy_cache	other	json	1803	未细分职责：请结合路径、文件名和相邻代码判断	mypy,cache,3,14,ida,pro,mcp,http,meta,未细分职责：请结合路径,文件名和相邻代码判断
+.mypy_cache/3.14/ida_pro_mcp/ida_mcp/rpc.data.json	.mypy_cache	other	json	6651	未细分职责：请结合路径、文件名和相邻代码判断	mypy,cache,3,14,ida,pro,mcp,rpc,data,未细分职责：请结合路径,文件名和相邻代码判断
+.mypy_cache/3.14/ida_pro_mcp/ida_mcp/rpc.meta.json	.mypy_cache	other	json	912	未细分职责：请结合路径、文件名和相邻代码判断	mypy,cache,3,14,ida,pro,mcp,rpc,meta,未细分职责：请结合路径,文件名和相邻代码判断
+.mypy_cache/3.14/ida_pro_mcp/ida_mcp/tool_compat.data.json	.mypy_cache	other	json	8035	未细分职责：请结合路径、文件名和相邻代码判断	mypy,cache,3,14,ida,pro,mcp,tool,compat,data,未细分职责：请结合路径,文件名和相邻代码判断
+.mypy_cache/3.14/ida_pro_mcp/ida_mcp/tool_compat.meta.json	.mypy_cache	other	json	829	未细分职责：请结合路径、文件名和相邻代码判断	mypy,cache,3,14,ida,pro,mcp,tool,compat,meta,未细分职责：请结合路径,文件名和相邻代码判断
+.mypy_cache/3.14/ida_pro_mcp/ida_mcp/zeromcp/__init__.data.json	.mypy_cache	other	json	2985	未细分职责：请结合路径、文件名和相邻代码判断	mypy,cache,3,14,ida,pro,mcp,zeromcp,init,data,未细分职责：请结合路径,文件名和相邻代码判断
+.mypy_cache/3.14/ida_pro_mcp/ida_mcp/zeromcp/__init__.meta.json	.mypy_cache	other	json	797	未细分职责：请结合路径、文件名和相邻代码判断	mypy,cache,3,14,ida,pro,mcp,zeromcp,init,meta,未细分职责：请结合路径,文件名和相邻代码判断
+.mypy_cache/3.14/ida_pro_mcp/ida_mcp/zeromcp/jsonrpc.data.json	.mypy_cache	other	json	15340	未细分职责：请结合路径、文件名和相邻代码判断	mypy,cache,3,14,ida,pro,mcp,zeromcp,jsonrpc,data,未细分职责：请结合路径,文件名和相邻代码判断
+.mypy_cache/3.14/ida_pro_mcp/ida_mcp/zeromcp/jsonrpc.meta.json	.mypy_cache	other	json	1012	未细分职责：请结合路径、文件名和相邻代码判断	mypy,cache,3,14,ida,pro,mcp,zeromcp,jsonrpc,meta,未细分职责：请结合路径,文件名和相邻代码判断
+.mypy_cache/3.14/ida_pro_mcp/ida_mcp/zeromcp/mcp.data.json	.mypy_cache	other	json	32988	未细分职责：请结合路径、文件名和相邻代码判断	mypy,cache,3,14,ida,pro,mcp,zeromcp,data,未细分职责：请结合路径,文件名和相邻代码判断
+.mypy_cache/3.14/ida_pro_mcp/ida_mcp/zeromcp/mcp.meta.json	.mypy_cache	other	json	1360	未细分职责：请结合路径、文件名和相邻代码判断	mypy,cache,3,14,ida,pro,mcp,zeromcp,meta,未细分职责：请结合路径,文件名和相邻代码判断
+.mypy_cache/3.14/importlib/__init__.data.json	.mypy_cache	other	json	5038	未细分职责：请结合路径、文件名和相邻代码判断	mypy,cache,3,14,importlib,init,data,未细分职责：请结合路径,文件名和相邻代码判断
+.mypy_cache/3.14/importlib/__init__.meta.json	.mypy_cache	other	json	1099	未细分职责：请结合路径、文件名和相邻代码判断	mypy,cache,3,14,importlib,init,meta,未细分职责：请结合路径,文件名和相邻代码判断
+.mypy_cache/3.14/importlib/_abc.data.json	.mypy_cache	other	json	5288	未细分职责：请结合路径、文件名和相邻代码判断	mypy,cache,3,14,importlib,abc,data,未细分职责：请结合路径,文件名和相邻代码判断
+.mypy_cache/3.14/importlib/_abc.meta.json	.mypy_cache	other	json	1104	未细分职责：请结合路径、文件名和相邻代码判断	mypy,cache,3,14,importlib,abc,meta,未细分职责：请结合路径,文件名和相邻代码判断
+.mypy_cache/3.14/importlib/_bootstrap_external.data.json	.mypy_cache	other	json	4667	未细分职责：请结合路径、文件名和相邻代码判断	mypy,cache,3,14,importlib,bootstrap,external,data,未细分职责：请结合路径,文件名和相邻代码判断
+.mypy_cache/3.14/importlib/_bootstrap_external.meta.json	.mypy_cache	other	json	726	未细分职责：请结合路径、文件名和相邻代码判断	mypy,cache,3,14,importlib,bootstrap,external,meta,未细分职责：请结合路径,文件名和相邻代码判断
+.mypy_cache/3.14/importlib/_bootstrap.data.json	.mypy_cache	other	json	2458	未细分职责：请结合路径、文件名和相邻代码判断	mypy,cache,3,14,importlib,bootstrap,data,未细分职责：请结合路径,文件名和相邻代码判断
+.mypy_cache/3.14/importlib/_bootstrap.meta.json	.mypy_cache	other	json	699	未细分职责：请结合路径、文件名和相邻代码判断	mypy,cache,3,14,importlib,bootstrap,meta,未细分职责：请结合路径,文件名和相邻代码判断
+.mypy_cache/3.14/importlib/abc.data.json	.mypy_cache	other	json	30678	未细分职责：请结合路径、文件名和相邻代码判断	mypy,cache,3,14,importlib,abc,data,未细分职责：请结合路径,文件名和相邻代码判断
+.mypy_cache/3.14/importlib/abc.meta.json	.mypy_cache	other	json	1670	未细分职责：请结合路径、文件名和相邻代码判断	mypy,cache,3,14,importlib,abc,meta,未细分职责：请结合路径,文件名和相邻代码判断
+.mypy_cache/3.14/importlib/machinery.data.json	.mypy_cache	other	json	4900	未细分职责：请结合路径、文件名和相邻代码判断	mypy,cache,3,14,importlib,machinery,data,未细分职责：请结合路径,文件名和相邻代码判断
+.mypy_cache/3.14/importlib/machinery.meta.json	.mypy_cache	other	json	1005	未细分职责：请结合路径、文件名和相邻代码判断	mypy,cache,3,14,importlib,machinery,meta,未细分职责：请结合路径,文件名和相邻代码判断
+.mypy_cache/3.14/importlib/metadata/__init__.data.json	.mypy_cache	other	json	81758	未细分职责：请结合路径、文件名和相邻代码判断	mypy,cache,3,14,importlib,metadata,init,data,未细分职责：请结合路径,文件名和相邻代码判断
+.mypy_cache/3.14/importlib/metadata/__init__.meta.json	.mypy_cache	other	json	1482	未细分职责：请结合路径、文件名和相邻代码判断	mypy,cache,3,14,importlib,metadata,init,meta,未细分职责：请结合路径,文件名和相邻代码判断
+.mypy_cache/3.14/importlib/metadata/_meta.data.json	.mypy_cache	other	json	30112	未细分职责：请结合路径、文件名和相邻代码判断	mypy,cache,3,14,importlib,metadata,meta,data,未细分职责：请结合路径,文件名和相邻代码判断
+.mypy_cache/3.14/importlib/metadata/_meta.meta.json	.mypy_cache	other	json	1048	未细分职责：请结合路径、文件名和相邻代码判断	mypy,cache,3,14,importlib,metadata,meta,未细分职责：请结合路径,文件名和相邻代码判断
+.mypy_cache/3.14/importlib/readers.data.json	.mypy_cache	other	json	23545	未细分职责：请结合路径、文件名和相邻代码判断	mypy,cache,3,14,importlib,readers,data,未细分职责：请结合路径,文件名和相邻代码判断
+.mypy_cache/3.14/importlib/readers.meta.json	.mypy_cache	other	json	1687	未细分职责：请结合路径、文件名和相邻代码判断	mypy,cache,3,14,importlib,readers,meta,未细分职责：请结合路径,文件名和相邻代码判断
+.mypy_cache/3.14/importlib/resources/__init__.data.json	.mypy_cache	other	json	5424	未细分职责：请结合路径、文件名和相邻代码判断	mypy,cache,3,14,importlib,resources,init,data,未细分职责：请结合路径,文件名和相邻代码判断
+.mypy_cache/3.14/importlib/resources/__init__.meta.json	.mypy_cache	other	json	1455	未细分职责：请结合路径、文件名和相邻代码判断	mypy,cache,3,14,importlib,resources,init,meta,未细分职责：请结合路径,文件名和相邻代码判断
+.mypy_cache/3.14/importlib/resources/_common.data.json	.mypy_cache	other	json	13501	未细分职责：请结合路径、文件名和相邻代码判断	mypy,cache,3,14,importlib,resources,common,data,未细分职责：请结合路径,文件名和相邻代码判断
+.mypy_cache/3.14/importlib/resources/_common.meta.json	.mypy_cache	other	json	1310	未细分职责：请结合路径、文件名和相邻代码判断	mypy,cache,3,14,importlib,resources,common,meta,未细分职责：请结合路径,文件名和相邻代码判断
+.mypy_cache/3.14/importlib/resources/_functional.data.json	.mypy_cache	other	json	22054	未细分职责：请结合路径、文件名和相邻代码判断	mypy,cache,3,14,importlib,resources,functional,data,未细分职责：请结合路径,文件名和相邻代码判断
+.mypy_cache/3.14/importlib/resources/_functional.meta.json	.mypy_cache	other	json	1481	未细分职责：请结合路径、文件名和相邻代码判断	mypy,cache,3,14,importlib,resources,functional,meta,未细分职责：请结合路径,文件名和相邻代码判断
+.mypy_cache/3.14/importlib/resources/abc.data.json	.mypy_cache	other	json	33006	未细分职责：请结合路径、文件名和相邻代码判断	mypy,cache,3,14,importlib,resources,abc,data,未细分职责：请结合路径,文件名和相邻代码判断
+.mypy_cache/3.14/importlib/resources/abc.meta.json	.mypy_cache	other	json	1033	未细分职责：请结合路径、文件名和相邻代码判断	mypy,cache,3,14,importlib,resources,abc,meta,未细分职责：请结合路径,文件名和相邻代码判断
+.mypy_cache/3.14/inspect.data.json	.mypy_cache	other	json	515613	未细分职责：请结合路径、文件名和相邻代码判断	mypy,cache,3,14,inspect,data,未细分职责：请结合路径,文件名和相邻代码判断
+.mypy_cache/3.14/inspect.meta.json	.mypy_cache	other	json	1254	未细分职责：请结合路径、文件名和相邻代码判断	mypy,cache,3,14,inspect,meta,未细分职责：请结合路径,文件名和相邻代码判断
+.mypy_cache/3.14/io.data.json	.mypy_cache	other	json	15069	未细分职责：请结合路径、文件名和相邻代码判断	mypy,cache,3,14,io,data,未细分职责：请结合路径,文件名和相邻代码判断
+.mypy_cache/3.14/io.meta.json	.mypy_cache	other	json	931	未细分职责：请结合路径、文件名和相邻代码判断	mypy,cache,3,14,io,meta,未细分职责：请结合路径,文件名和相邻代码判断
+.mypy_cache/3.14/json/__init__.data.json	.mypy_cache	other	json	17309	未细分职责：请结合路径、文件名和相邻代码判断	mypy,cache,3,14,json,init,data,未细分职责：请结合路径,文件名和相邻代码判断
+.mypy_cache/3.14/json/__init__.meta.json	.mypy_cache	other	json	968	未细分职责：请结合路径、文件名和相邻代码判断	mypy,cache,3,14,json,init,meta,未细分职责：请结合路径,文件名和相邻代码判断
+.mypy_cache/3.14/json/decoder.data.json	.mypy_cache	other	json	16546	未细分职责：请结合路径、文件名和相邻代码判断	mypy,cache,3,14,json,decoder,data,未细分职责：请结合路径,文件名和相邻代码判断
+.mypy_cache/3.14/json/decoder.meta.json	.mypy_cache	other	json	792	未细分职责：请结合路径、文件名和相邻代码判断	mypy,cache,3,14,json,decoder,meta,未细分职责：请结合路径,文件名和相邻代码判断
+.mypy_cache/3.14/json/encoder.data.json	.mypy_cache	other	json	13927	未细分职责：请结合路径、文件名和相邻代码判断	mypy,cache,3,14,json,encoder,data,未细分职责：请结合路径,文件名和相邻代码判断
+.mypy_cache/3.14/json/encoder.meta.json	.mypy_cache	other	json	844	未细分职责：请结合路径、文件名和相邻代码判断	mypy,cache,3,14,json,encoder,meta,未细分职责：请结合路径,文件名和相邻代码判断
+.mypy_cache/3.14/lsp_router_eval.data.json	.mypy_cache	other	json	25328	未细分职责：请结合路径、文件名和相邻代码判断	mypy,cache,3,14,lsp,router,eval,data,未细分职责：请结合路径,文件名和相邻代码判断
+.mypy_cache/3.14/lsp_router_eval.meta.json	.mypy_cache	other	json	2147	未细分职责：请结合路径、文件名和相邻代码判断	mypy,cache,3,14,lsp,router,eval,meta,未细分职责：请结合路径,文件名和相邻代码判断
+.mypy_cache/3.14/numbers.data.json	.mypy_cache	other	json	110379	未细分职责：请结合路径、文件名和相邻代码判断	mypy,cache,3,14,numbers,data,未细分职责：请结合路径,文件名和相邻代码判断
+.mypy_cache/3.14/numbers.meta.json	.mypy_cache	other	json	718	未细分职责：请结合路径、文件名和相邻代码判断	mypy,cache,3,14,numbers,meta,未细分职责：请结合路径,文件名和相邻代码判断
+.mypy_cache/3.14/opcode.data.json	.mypy_cache	other	json	8140	未细分职责：请结合路径、文件名和相邻代码判断	mypy,cache,3,14,opcode,data,未细分职责：请结合路径,文件名和相邻代码判断
+.mypy_cache/3.14/opcode.meta.json	.mypy_cache	other	json	829	未细分职责：请结合路径、文件名和相邻代码判断	mypy,cache,3,14,opcode,meta,未细分职责：请结合路径,文件名和相邻代码判断
+.mypy_cache/3.14/os/__init__.data.json	.mypy_cache	other	json	421441	未细分职责：请结合路径、文件名和相邻代码判断	mypy,cache,3,14,os,init,data,未细分职责：请结合路径,文件名和相邻代码判断
+.mypy_cache/3.14/os/__init__.meta.json	.mypy_cache	other	json	1309	未细分职责：请结合路径、文件名和相邻代码判断	mypy,cache,3,14,os,init,meta,未细分职责：请结合路径,文件名和相邻代码判断
+.mypy_cache/3.14/os/path.data.json	.mypy_cache	other	json	5638	未细分职责：请结合路径、文件名和相邻代码判断	mypy,cache,3,14,os,path,data,未细分职责：请结合路径,文件名和相邻代码判断
+.mypy_cache/3.14/os/path.meta.json	.mypy_cache	other	json	830	未细分职责：请结合路径、文件名和相邻代码判断	mypy,cache,3,14,os,path,meta,未细分职责：请结合路径,文件名和相邻代码判断
+.mypy_cache/3.14/p12_progress.data.json	.mypy_cache	other	json	8778	未细分职责：请结合路径、文件名和相邻代码判断	mypy,cache,3,14,p12,progress,data,未细分职责：请结合路径,文件名和相邻代码判断
+.mypy_cache/3.14/p12_progress.meta.json	.mypy_cache	other	json	1200	未细分职责：请结合路径、文件名和相邻代码判断	mypy,cache,3,14,p12,progress,meta,未细分职责：请结合路径,文件名和相邻代码判断
+.mypy_cache/3.14/pathlib/__init__.data.json	.mypy_cache	other	json	156197	未细分职责：请结合路径、文件名和相邻代码判断	mypy,cache,3,14,pathlib,init,data,未细分职责：请结合路径,文件名和相邻代码判断
+.mypy_cache/3.14/pathlib/__init__.meta.json	.mypy_cache	other	json	1313	未细分职责：请结合路径、文件名和相邻代码判断	mypy,cache,3,14,pathlib,init,meta,未细分职责：请结合路径,文件名和相邻代码判断
+.mypy_cache/3.14/pathlib/types.data.json	.mypy_cache	other	json	5547	未细分职责：请结合路径、文件名和相邻代码判断	mypy,cache,3,14,pathlib,types,data,未细分职责：请结合路径,文件名和相邻代码判断
+.mypy_cache/3.14/pathlib/types.meta.json	.mypy_cache	other	json	728	未细分职责：请结合路径、文件名和相邻代码判断	mypy,cache,3,14,pathlib,types,meta,未细分职责：请结合路径,文件名和相邻代码判断
+.mypy_cache/3.14/posixpath.data.json	.mypy_cache	other	json	147119	未细分职责：请结合路径、文件名和相邻代码判断	mypy,cache,3,14,posixpath,data,未细分职责：请结合路径,文件名和相邻代码判断
+.mypy_cache/3.14/posixpath.meta.json	.mypy_cache	other	json	1082	未细分职责：请结合路径、文件名和相邻代码判断	mypy,cache,3,14,posixpath,meta,未细分职责：请结合路径,文件名和相邻代码判断
+.mypy_cache/3.14/re.data.json	.mypy_cache	other	json	265112	未细分职责：请结合路径、文件名和相邻代码判断	mypy,cache,3,14,re,data,未细分职责：请结合路径,文件名和相邻代码判断
+.mypy_cache/3.14/re.meta.json	.mypy_cache	other	json	1189	未细分职责：请结合路径、文件名和相邻代码判断	mypy,cache,3,14,re,meta,未细分职责：请结合路径,文件名和相邻代码判断
+.mypy_cache/3.14/resource.data.json	.mypy_cache	other	json	44400	未细分职责：请结合路径、文件名和相邻代码判断	mypy,cache,3,14,resource,data,未细分职责：请结合路径,文件名和相邻代码判断
+.mypy_cache/3.14/resource.meta.json	.mypy_cache	other	json	832	未细分职责：请结合路径、文件名和相邻代码判断	mypy,cache,3,14,resource,meta,未细分职责：请结合路径,文件名和相邻代码判断
+.mypy_cache/3.14/shutil.data.json	.mypy_cache	other	json	121606	未细分职责：请结合路径、文件名和相邻代码判断	mypy,cache,3,14,shutil,data,未细分职责：请结合路径,文件名和相邻代码判断
+.mypy_cache/3.14/shutil.meta.json	.mypy_cache	other	json	1185	未细分职责：请结合路径、文件名和相邻代码判断	mypy,cache,3,14,shutil,meta,未细分职责：请结合路径,文件名和相邻代码判断
+.mypy_cache/3.14/signal.data.json	.mypy_cache	other	json	50032	未细分职责：请结合路径、文件名和相邻代码判断	mypy,cache,3,14,signal,data,未细分职责：请结合路径,文件名和相邻代码判断
+.mypy_cache/3.14/signal.meta.json	.mypy_cache	other	json	1069	未细分职责：请结合路径、文件名和相邻代码判断	mypy,cache,3,14,signal,meta,未细分职责：请结合路径,文件名和相邻代码判断
+.mypy_cache/3.14/socket.data.json	.mypy_cache	other	json	116649	未细分职责：请结合路径、文件名和相邻代码判断	mypy,cache,3,14,socket,data,未细分职责：请结合路径,文件名和相邻代码判断
+.mypy_cache/3.14/socket.meta.json	.mypy_cache	other	json	1246	未细分职责：请结合路径、文件名和相邻代码判断	mypy,cache,3,14,socket,meta,未细分职责：请结合路径,文件名和相邻代码判断
+.mypy_cache/3.14/socketserver.data.json	.mypy_cache	other	json	71309	未细分职责：请结合路径、文件名和相邻代码判断	mypy,cache,3,14,socketserver,data,未细分职责：请结合路径,文件名和相邻代码判断
+.mypy_cache/3.14/socketserver.meta.json	.mypy_cache	other	json	1314	未细分职责：请结合路径、文件名和相邻代码判断	mypy,cache,3,14,socketserver,meta,未细分职责：请结合路径,文件名和相邻代码判断
+.mypy_cache/3.14/sre_compile.data.json	.mypy_cache	other	json	15071	未细分职责：请结合路径、文件名和相邻代码判断	mypy,cache,3,14,sre,compile,data,未细分职责：请结合路径,文件名和相邻代码判断
+.mypy_cache/3.14/sre_compile.meta.json	.mypy_cache	other	json	844	未细分职责：请结合路径、文件名和相邻代码判断	mypy,cache,3,14,sre,compile,meta,未细分职责：请结合路径,文件名和相邻代码判断
+.mypy_cache/3.14/sre_constants.data.json	.mypy_cache	other	json	32176	未细分职责：请结合路径、文件名和相邻代码判断	mypy,cache,3,14,sre,constants,data,未细分职责：请结合路径,文件名和相邻代码判断
+.mypy_cache/3.14/sre_constants.meta.json	.mypy_cache	other	json	962	未细分职责：请结合路径、文件名和相邻代码判断	mypy,cache,3,14,sre,constants,meta,未细分职责：请结合路径,文件名和相邻代码判断
+.mypy_cache/3.14/sre_parse.data.json	.mypy_cache	other	json	56037	未细分职责：请结合路径、文件名和相邻代码判断	mypy,cache,3,14,sre,parse,data,未细分职责：请结合路径,文件名和相邻代码判断
+.mypy_cache/3.14/sre_parse.meta.json	.mypy_cache	other	json	1138	未细分职责：请结合路径、文件名和相邻代码判断	mypy,cache,3,14,sre,parse,meta,未细分职责：请结合路径,文件名和相邻代码判断
+.mypy_cache/3.14/ssl.data.json	.mypy_cache	other	json	259317	未细分职责：请结合路径、文件名和相邻代码判断	mypy,cache,3,14,ssl,data,未细分职责：请结合路径,文件名和相邻代码判断
+.mypy_cache/3.14/ssl.meta.json	.mypy_cache	other	json	1418	未细分职责：请结合路径、文件名和相邻代码判断	mypy,cache,3,14,ssl,meta,未细分职责：请结合路径,文件名和相邻代码判断
+.mypy_cache/3.14/statistics.data.json	.mypy_cache	other	json	83085	未细分职责：请结合路径、文件名和相邻代码判断	mypy,cache,3,14,statistics,data,未细分职责：请结合路径,文件名和相邻代码判断
+.mypy_cache/3.14/statistics.meta.json	.mypy_cache	other	json	1198	未细分职责：请结合路径、文件名和相邻代码判断	mypy,cache,3,14,statistics,meta,未细分职责：请结合路径,文件名和相邻代码判断
+.mypy_cache/3.14/subprocess.data.json	.mypy_cache	other	json	250950	未细分职责：请结合路径、文件名和相邻代码判断	mypy,cache,3,14,subprocess,data,未细分职责：请结合路径,文件名和相邻代码判断
+.mypy_cache/3.14/subprocess.meta.json	.mypy_cache	other	json	1144	未细分职责：请结合路径、文件名和相邻代码判断	mypy,cache,3,14,subprocess,meta,未细分职责：请结合路径,文件名和相邻代码判断
+.mypy_cache/3.14/sys/__init__.data.json	.mypy_cache	other	json	182478	未细分职责：请结合路径、文件名和相邻代码判断	mypy,cache,3,14,sys,init,data,未细分职责：请结合路径,文件名和相邻代码判断
+.mypy_cache/3.14/sys/__init__.meta.json	.mypy_cache	other	json	1267	未细分职责：请结合路径、文件名和相邻代码判断	mypy,cache,3,14,sys,init,meta,未细分职责：请结合路径,文件名和相邻代码判断
+.mypy_cache/3.14/sys/_monitoring.data.json	.mypy_cache	other	json	20109	未细分职责：请结合路径、文件名和相邻代码判断	mypy,cache,3,14,sys,monitoring,data,未细分职责：请结合路径,文件名和相邻代码判断
+.mypy_cache/3.14/sys/_monitoring.meta.json	.mypy_cache	other	json	1096	未细分职责：请结合路径、文件名和相邻代码判断	mypy,cache,3,14,sys,monitoring,meta,未细分职责：请结合路径,文件名和相邻代码判断
+.mypy_cache/3.14/tarfile.data.json	.mypy_cache	other	json	374864	未细分职责：请结合路径、文件名和相邻代码判断	mypy,cache,3,14,tarfile,data,未细分职责：请结合路径,文件名和相邻代码判断
+.mypy_cache/3.14/tarfile.meta.json	.mypy_cache	other	json	1615	未细分职责：请结合路径、文件名和相邻代码判断	mypy,cache,3,14,tarfile,meta,未细分职责：请结合路径,文件名和相邻代码判断
+.mypy_cache/3.14/tempfile.data.json	.mypy_cache	other	json	240293	未细分职责：请结合路径、文件名和相邻代码判断	mypy,cache,3,14,tempfile,data,未细分职责：请结合路径,文件名和相邻代码判断
+.mypy_cache/3.14/tempfile.meta.json	.mypy_cache	other	json	1243	未细分职责：请结合路径、文件名和相邻代码判断	mypy,cache,3,14,tempfile,meta,未细分职责：请结合路径,文件名和相邻代码判断
+.mypy_cache/3.14/threading.data.json	.mypy_cache	other	json	76351	未细分职责：请结合路径、文件名和相邻代码判断	mypy,cache,3,14,threading,data,未细分职责：请结合路径,文件名和相邻代码判断
+.mypy_cache/3.14/threading.meta.json	.mypy_cache	other	json	1261	未细分职责：请结合路径、文件名和相邻代码判断	mypy,cache,3,14,threading,meta,未细分职责：请结合路径,文件名和相邻代码判断
+.mypy_cache/3.14/time.data.json	.mypy_cache	other	json	47856	未细分职责：请结合路径、文件名和相邻代码判断	mypy,cache,3,14,time,data,未细分职责：请结合路径,文件名和相邻代码判断
+.mypy_cache/3.14/time.meta.json	.mypy_cache	other	json	891	未细分职责：请结合路径、文件名和相邻代码判断	mypy,cache,3,14,time,meta,未细分职责：请结合路径,文件名和相邻代码判断
+.mypy_cache/3.14/traceback.data.json	.mypy_cache	other	json	84425	未细分职责：请结合路径、文件名和相邻代码判断	mypy,cache,3,14,traceback,data,未细分职责：请结合路径,文件名和相邻代码判断
+.mypy_cache/3.14/traceback.meta.json	.mypy_cache	other	json	1081	未细分职责：请结合路径、文件名和相邻代码判断	mypy,cache,3,14,traceback,meta,未细分职责：请结合路径,文件名和相邻代码判断
+.mypy_cache/3.14/types.data.json	.mypy_cache	other	json	402610	未细分职责：请结合路径、文件名和相邻代码判断	mypy,cache,3,14,types,data,未细分职责：请结合路径,文件名和相邻代码判断
+.mypy_cache/3.14/types.meta.json	.mypy_cache	other	json	1346	未细分职责：请结合路径、文件名和相邻代码判断	mypy,cache,3,14,types,meta,未细分职责：请结合路径,文件名和相邻代码判断
+.mypy_cache/3.14/typing_extensions.data.json	.mypy_cache	other	json	69870	未细分职责：请结合路径、文件名和相邻代码判断	mypy,cache,3,14,typing,extensions,data,未细分职责：请结合路径,文件名和相邻代码判断
+.mypy_cache/3.14/typing_extensions.meta.json	.mypy_cache	other	json	1387	未细分职责：请结合路径、文件名和相邻代码判断	mypy,cache,3,14,typing,extensions,meta,未细分职责：请结合路径,文件名和相邻代码判断
+.mypy_cache/3.14/typing.data.json	.mypy_cache	other	json	645766	未细分职责：请结合路径、文件名和相邻代码判断	mypy,cache,3,14,typing,data,未细分职责：请结合路径,文件名和相邻代码判断
+.mypy_cache/3.14/typing.meta.json	.mypy_cache	other	json	1261	未细分职责：请结合路径、文件名和相邻代码判断	mypy,cache,3,14,typing,meta,未细分职责：请结合路径,文件名和相邻代码判断
+.mypy_cache/3.14/urllib/__init__.data.json	.mypy_cache	other	json	1868	未细分职责：请结合路径、文件名和相邻代码判断	mypy,cache,3,14,urllib,init,data,未细分职责：请结合路径,文件名和相邻代码判断
+.mypy_cache/3.14/urllib/__init__.meta.json	.mypy_cache	other	json	611	未细分职责：请结合路径、文件名和相邻代码判断	mypy,cache,3,14,urllib,init,meta,未细分职责：请结合路径,文件名和相邻代码判断
+.mypy_cache/3.14/urllib/error.data.json	.mypy_cache	other	json	16592	未细分职责：请结合路径、文件名和相邻代码判断	mypy,cache,3,14,urllib,error,data,未细分职责：请结合路径,文件名和相邻代码判断
+.mypy_cache/3.14/urllib/error.meta.json	.mypy_cache	other	json	854	未细分职责：请结合路径、文件名和相邻代码判断	mypy,cache,3,14,urllib,error,meta,未细分职责：请结合路径,文件名和相邻代码判断
+.mypy_cache/3.14/urllib/parse.data.json	.mypy_cache	other	json	256047	未细分职责：请结合路径、文件名和相邻代码判断	mypy,cache,3,14,urllib,parse,data,未细分职责：请结合路径,文件名和相邻代码判断
+.mypy_cache/3.14/urllib/parse.meta.json	.mypy_cache	other	json	1028	未细分职责：请结合路径、文件名和相邻代码判断	mypy,cache,3,14,urllib,parse,meta,未细分职责：请结合路径,文件名和相邻代码判断
+.mypy_cache/3.14/urllib/request.data.json	.mypy_cache	other	json	146334	未细分职责：请结合路径、文件名和相邻代码判断	mypy,cache,3,14,urllib,request,data,未细分职责：请结合路径,文件名和相邻代码判断
+.mypy_cache/3.14/urllib/request.meta.json	.mypy_cache	other	json	1524	未细分职责：请结合路径、文件名和相邻代码判断	mypy,cache,3,14,urllib,request,meta,未细分职责：请结合路径,文件名和相邻代码判断
+.mypy_cache/3.14/urllib/response.data.json	.mypy_cache	other	json	20217	未细分职责：请结合路径、文件名和相邻代码判断	mypy,cache,3,14,urllib,response,data,未细分职责：请结合路径,文件名和相邻代码判断
+.mypy_cache/3.14/urllib/response.meta.json	.mypy_cache	other	json	1034	未细分职责：请结合路径、文件名和相邻代码判断	mypy,cache,3,14,urllib,response,meta,未细分职责：请结合路径,文件名和相邻代码判断
+.mypy_cache/3.14/validate_codemap.data.json	.mypy_cache	other	json	10739	未细分职责：请结合路径、文件名和相邻代码判断	mypy,cache,3,14,validate,codemap,data,未细分职责：请结合路径,文件名和相邻代码判断
+.mypy_cache/3.14/validate_codemap.meta.json	.mypy_cache	other	json	1211	未细分职责：请结合路径、文件名和相邻代码判断	mypy,cache,3,14,validate,codemap,meta,未细分职责：请结合路径,文件名和相邻代码判断
+.mypy_cache/3.14/warnings.data.json	.mypy_cache	other	json	36281	未细分职责：请结合路径、文件名和相邻代码判断	mypy,cache,3,14,warnings,data,未细分职责：请结合路径,文件名和相邻代码判断
+.mypy_cache/3.14/warnings.meta.json	.mypy_cache	other	json	1132	未细分职责：请结合路径、文件名和相邻代码判断	mypy,cache,3,14,warnings,meta,未细分职责：请结合路径,文件名和相邻代码判断
+.mypy_cache/3.14/zipfile/__init__.data.json	.mypy_cache	other	json	90785	未细分职责：请结合路径、文件名和相邻代码判断	mypy,cache,3,14,zipfile,init,data,未细分职责：请结合路径,文件名和相邻代码判断
+.mypy_cache/3.14/zipfile/__init__.meta.json	.mypy_cache	other	json	1196	未细分职责：请结合路径、文件名和相邻代码判断	mypy,cache,3,14,zipfile,init,meta,未细分职责：请结合路径,文件名和相邻代码判断
+.mypy_cache/3.14/zipfile/_path/__init__.data.json	.mypy_cache	other	json	50626	未细分职责：请结合路径、文件名和相邻代码判断	mypy,cache,3,14,zipfile,path,init,data,未细分职责：请结合路径,文件名和相邻代码判断
+.mypy_cache/3.14/zipfile/_path/__init__.meta.json	.mypy_cache	other	json	1198	未细分职责：请结合路径、文件名和相邻代码判断	mypy,cache,3,14,zipfile,path,init,meta,未细分职责：请结合路径,文件名和相邻代码判断
+.mypy_cache/3.14/zipimport.data.json	.mypy_cache	other	json	15108	未细分职责：请结合路径、文件名和相邻代码判断	mypy,cache,3,14,zipimport,data,未细分职责：请结合路径,文件名和相邻代码判断
+.mypy_cache/3.14/zipimport.meta.json	.mypy_cache	other	json	1297	未细分职责：请结合路径、文件名和相邻代码判断	mypy,cache,3,14,zipimport,meta,未细分职责：请结合路径,文件名和相邻代码判断
+.mypy_cache/3.14/zlib.data.json	.mypy_cache	other	json	30680	未细分职责：请结合路径、文件名和相邻代码判断	mypy,cache,3,14,zlib,data,未细分职责：请结合路径,文件名和相邻代码判断
+.mypy_cache/3.14/zlib.meta.json	.mypy_cache	other	json	947	未细分职责：请结合路径、文件名和相邻代码判断	mypy,cache,3,14,zlib,meta,未细分职责：请结合路径,文件名和相邻代码判断
+.mypy_cache/CACHEDIR.TAG	.mypy_cache	other	TAG	190	未细分职责：请结合路径、文件名和相邻代码判断	mypy,cache,CACHEDIR,未细分职责：请结合路径,文件名和相邻代码判断
+agent-terminal	(root)	other	file	37672402	仓库根级配置、入口或说明文件	agent,terminal,仓库根级配置,入口或说明文件
+ai04-docs/修改记录2026-06-15 _22-34_mcpServer_postgres_start支持stdio持久化.md	ai04-docs	other	doc	5784	未细分职责：请结合路径、文件名和相邻代码判断	ai04,docs,修改记录2026,06,15 ,22,34,mcpServer,postgres,start支持stdio持久化,未细分职责：请结合路径,文件名和相邻代码判断
+ai04-docs/修改记录2026-06-18 _09-16_mcpServer_sqlite_playwright_开关与工具命名空间.md	ai04-docs	other	doc	13541	未细分职责：请结合路径、文件名和相邻代码判断	ai04,docs,修改记录2026,06,18 ,09,16,mcpServer,sqlite,playwright,开关与工具命名空间,未细分职责：请结合路径,文件名和相邻代码判断
+archtest.test	(root)	other	test	38409090	仓库根级配置、入口或说明文件	archtest,仓库根级配置,入口或说明文件
+cmd/.DS_Store	cmd	other	file	10244	未细分职责：请结合路径、文件名和相邻代码判断	cmd,未细分职责：请结合路径,文件名和相邻代码判断
+cmd/super-dolphin-release-manifest/main_test.go	cmd	other	go-test	6944	未细分职责：请结合路径、文件名和相邻代码判断	cmd,super,dolphin,release,manifest,main,test,未细分职责：请结合路径,文件名和相邻代码判断
+cmd/super-dolphin-release-manifest/main.go	cmd	other	go-source	9997	未细分职责：请结合路径、文件名和相邻代码判断	cmd,super,dolphin,release,manifest,main,未细分职责：请结合路径,文件名和相邻代码判断
+cmd/super-dolphin-updater/detach_darwin.go	cmd	other	go-source	248	未细分职责：请结合路径、文件名和相邻代码判断	cmd,super,dolphin,updater,detach,darwin,未细分职责：请结合路径,文件名和相邻代码判断
+cmd/super-dolphin-updater/detach_default.go	cmd	other	go-source	167	未细分职责：请结合路径、文件名和相邻代码判断	cmd,super,dolphin,updater,detach,default,未细分职责：请结合路径,文件名和相邻代码判断
+cmd/super-dolphin-updater/install_test.go	cmd	other	go-test	13919	未细分职责：请结合路径、文件名和相邻代码判断	cmd,super,dolphin,updater,install,test,未细分职责：请结合路径,文件名和相邻代码判断
+cmd/super-dolphin-updater/install.go	cmd	other	go-source	20102	未细分职责：请结合路径、文件名和相邻代码判断	cmd,super,dolphin,updater,install,未细分职责：请结合路径,文件名和相邻代码判断
+cmd/super-dolphin-updater/main.go	cmd	other	go-source	8223	未细分职责：请结合路径、文件名和相邻代码判断	cmd,super,dolphin,updater,main,未细分职责：请结合路径,文件名和相邻代码判断
+codex-app 2.zip	(root)	other	zip	2012844	仓库根级配置、入口或说明文件	codex,app 2,仓库根级配置,入口或说明文件
+codex-app 2/.DS_Store	codex-app 2	other	file	20484	未细分职责：请结合路径、文件名和相邻代码判断	codex,app 2,未细分职责：请结合路径,文件名和相邻代码判断
+codex-app 2/.obsidian/app.json	codex-app 2	other	json	2	未细分职责：请结合路径、文件名和相邻代码判断	codex,app 2,obsidian,app,未细分职责：请结合路径,文件名和相邻代码判断
+codex-app 2/.obsidian/appearance.json	codex-app 2	other	json	2	未细分职责：请结合路径、文件名和相邻代码判断	codex,app 2,obsidian,appearance,未细分职责：请结合路径,文件名和相邻代码判断
+codex-app 2/.obsidian/core-plugins.json	codex-app 2	other	json	696	未细分职责：请结合路径、文件名和相邻代码判断	codex,app 2,obsidian,core,plugins,未细分职责：请结合路径,文件名和相邻代码判断
+codex-app 2/.obsidian/workspace.json	codex-app 2	other	json	6275	未细分职责：请结合路径、文件名和相邻代码判断	codex,app 2,obsidian,workspace,未细分职责：请结合路径,文件名和相邻代码判断
+codex-app 2/agent-cloud/.DS_Store	codex-app 2	other	file	12292	未细分职责：请结合路径、文件名和相邻代码判断	codex,app 2,agent,cloud,未细分职责：请结合路径,文件名和相邻代码判断
+codex-app 2/agent-cloud/AGENTS.md	codex-app 2	other	doc	10199	未细分职责：请结合路径、文件名和相邻代码判断	codex,app 2,agent,cloud,AGENTS,未细分职责：请结合路径,文件名和相邻代码判断
+codex-app 2/agent-cloud/db/migrations/00001_p0_core_identity_device_model.sql	codex-app 2	other	sql	6605	未细分职责：请结合路径、文件名和相邻代码判断	codex,app 2,agent,cloud,db,migrations,00001,p0,core,identity,device,model,未细分职责：请结合路径,文件名和相邻代码判断
+codex-app 2/agent-cloud/db/migrations/00010_p1_marketplace_connector_webhook.sql	codex-app 2	other	sql	8924	未细分职责：请结合路径、文件名和相邻代码判断	codex,app 2,agent,cloud,db,migrations,00010,p1,marketplace,connector,webhook,未细分职责：请结合路径,文件名和相邻代码判断
+codex-app 2/agent-cloud/db/migrations/00020_p2_collaboration_asset_audit.sql	codex-app 2	other	sql	8134	未细分职责：请结合路径、文件名和相邻代码判断	codex,app 2,agent,cloud,db,migrations,00020,p2,collaboration,asset,audit,未细分职责：请结合路径,文件名和相邻代码判断
+codex-app 2/agent-cloud/db/migrations/00030_p3_assistant_billing_feedback.sql	codex-app 2	other	sql	6477	未细分职责：请结合路径、文件名和相邻代码判断	codex,app 2,agent,cloud,db,migrations,00030,p3,assistant,billing,feedback,未细分职责：请结合路径,文件名和相邻代码判断
+codex-app 2/agent-cloud/db/README.md	codex-app 2	other	doc	1515	未细分职责：请结合路径、文件名和相邻代码判断	codex,app 2,agent,cloud,db,README,未细分职责：请结合路径,文件名和相邻代码判断
+codex-app 2/agent-cloud/db/seed/README.md	codex-app 2	other	doc	875	未细分职责：请结合路径、文件名和相邻代码判断	codex,app 2,agent,cloud,db,seed,README,未细分职责：请结合路径,文件名和相邻代码判断
+codex-app 2/agent-cloud/docs/00-start/ai-project-context.md	codex-app 2	other	doc	3647	未细分职责：请结合路径、文件名和相邻代码判断	codex,app 2,agent,cloud,docs,00,start,ai,project,context,未细分职责：请结合路径,文件名和相邻代码判断
+codex-app 2/agent-cloud/docs/00-start/current-status.md	codex-app 2	other	doc	5117	未细分职责：请结合路径、文件名和相邻代码判断	codex,app 2,agent,cloud,docs,00,start,current,status,未细分职责：请结合路径,文件名和相邻代码判断
+codex-app 2/agent-cloud/docs/00-start/doc-governance.md	codex-app 2	other	doc	3788	未细分职责：请结合路径、文件名和相邻代码判断	codex,app 2,agent,cloud,docs,00,start,doc,governance,未细分职责：请结合路径,文件名和相邻代码判断
+codex-app 2/agent-cloud/docs/00-start/feishu-drive-mapping.md	codex-app 2	other	doc	3470	未细分职责：请结合路径、文件名和相邻代码判断	codex,app 2,agent,cloud,docs,00,start,feishu,drive,mapping,未细分职责：请结合路径,文件名和相邻代码判断
+codex-app 2/agent-cloud/docs/00-start/reading-guide.md	codex-app 2	other	doc	3376	未细分职责：请结合路径、文件名和相邻代码判断	codex,app 2,agent,cloud,docs,00,start,reading,guide,未细分职责：请结合路径,文件名和相邻代码判断
+codex-app 2/agent-cloud/docs/10-foundation/architecture/agent-cloud-architecture-diagrams.drawio	codex-app 2	other	drawio	15379	未细分职责：请结合路径、文件名和相邻代码判断	codex,app 2,agent,cloud,docs,10,foundation,architecture,diagrams,未细分职责：请结合路径,文件名和相邻代码判断
+codex-app 2/agent-cloud/docs/10-foundation/architecture/agent-cloud-business-architecture.png	codex-app 2	other	png	229707	未细分职责：请结合路径、文件名和相邻代码判断	codex,app 2,agent,cloud,docs,10,foundation,architecture,business,未细分职责：请结合路径,文件名和相邻代码判断
+codex-app 2/agent-cloud/docs/10-foundation/architecture/agent-cloud-technical-architecture.png	codex-app 2	other	png	249678	未细分职责：请结合路径、文件名和相邻代码判断	codex,app 2,agent,cloud,docs,10,foundation,architecture,technical,未细分职责：请结合路径,文件名和相邻代码判断
+codex-app 2/agent-cloud/docs/10-foundation/architecture/assistant-dispatch-design.md	codex-app 2	other	doc	1445	未细分职责：请结合路径、文件名和相邻代码判断	codex,app 2,agent,cloud,docs,10,foundation,architecture,assistant,dispatch,design,未细分职责：请结合路径,文件名和相邻代码判断
+codex-app 2/agent-cloud/docs/10-foundation/architecture/billing-payment-design.md	codex-app 2	other	doc	1358	未细分职责：请结合路径、文件名和相邻代码判断	codex,app 2,agent,cloud,docs,10,foundation,architecture,billing,payment,design,未细分职责：请结合路径,文件名和相邻代码判断
+codex-app 2/agent-cloud/docs/10-foundation/architecture/database-design.md	codex-app 2	other	doc	46304	未细分职责：请结合路径、文件名和相邻代码判断	codex,app 2,agent,cloud,docs,10,foundation,architecture,database,design,未细分职责：请结合路径,文件名和相邻代码判断
+codex-app 2/agent-cloud/docs/10-foundation/architecture/object-storage-design.md	codex-app 2	other	doc	1779	未细分职责：请结合路径、文件名和相邻代码判断	codex,app 2,agent,cloud,docs,10,foundation,architecture,object,storage,design,未细分职责：请结合路径,文件名和相邻代码判断
+codex-app 2/agent-cloud/docs/10-foundation/architecture/provider-integration-design.md	codex-app 2	other	doc	1620	未细分职责：请结合路径、文件名和相邻代码判断	codex,app 2,agent,cloud,docs,10,foundation,architecture,provider,integration,design,未细分职责：请结合路径,文件名和相邻代码判断
+codex-app 2/agent-cloud/docs/10-foundation/architecture/technical-architecture.md	codex-app 2	other	doc	12665	未细分职责：请结合路径、文件名和相邻代码判断	codex,app 2,agent,cloud,docs,10,foundation,architecture,technical,未细分职责：请结合路径,文件名和相邻代码判断
+codex-app 2/agent-cloud/docs/10-foundation/architecture/technology-stack.md	codex-app 2	other	doc	4203	未细分职责：请结合路径、文件名和相邻代码判断	codex,app 2,agent,cloud,docs,10,foundation,architecture,technology,stack,未细分职责：请结合路径,文件名和相邻代码判断
+codex-app 2/agent-cloud/docs/10-foundation/architecture/webhook-queue-design.md	codex-app 2	other	doc	1838	未细分职责：请结合路径、文件名和相邻代码判断	codex,app 2,agent,cloud,docs,10,foundation,architecture,webhook,queue,design,未细分职责：请结合路径,文件名和相邻代码判断
+codex-app 2/agent-cloud/docs/10-foundation/product/agent-cloud-product-spec.md	codex-app 2	other	doc	8081	未细分职责：请结合路径、文件名和相邻代码判断	codex,app 2,agent,cloud,docs,10,foundation,product,spec,未细分职责：请结合路径,文件名和相邻代码判断
+codex-app 2/agent-cloud/docs/20-delivery/execution/engineering-bootstrap-spec.md	codex-app 2	other	doc	3294	未细分职责：请结合路径、文件名和相邻代码判断	codex,app 2,agent,cloud,docs,20,delivery,execution,engineering,bootstrap,spec,未细分职责：请结合路径,文件名和相邻代码判断
+codex-app 2/agent-cloud/docs/20-delivery/execution/execution-spec.md	codex-app 2	other	doc	7711	未细分职责：请结合路径、文件名和相邻代码判断	codex,app 2,agent,cloud,docs,20,delivery,execution,spec,未细分职责：请结合路径,文件名和相邻代码判断
+codex-app 2/agent-cloud/docs/20-delivery/execution/local-dev-runbook.md	codex-app 2	other	doc	3750	未细分职责：请结合路径、文件名和相邻代码判断	codex,app 2,agent,cloud,docs,20,delivery,execution,local,dev,runbook,未细分职责：请结合路径,文件名和相邻代码判断
+codex-app 2/agent-cloud/docs/20-delivery/execution/seed-data-spec.md	codex-app 2	other	doc	3729	未细分职责：请结合路径、文件名和相邻代码判断	codex,app 2,agent,cloud,docs,20,delivery,execution,seed,data,spec,未细分职责：请结合路径,文件名和相邻代码判断
+codex-app 2/agent-cloud/docs/20-delivery/execution/team-development-standards.md	codex-app 2	other	doc	3398	未细分职责：请结合路径、文件名和相邻代码判断	codex,app 2,agent,cloud,docs,20,delivery,execution,team,development,standards,未细分职责：请结合路径,文件名和相邻代码判断
+codex-app 2/agent-cloud/docs/20-delivery/iterations/01-agent-cloud-api-service/feature-plan.md	codex-app 2	other	doc	22687	未细分职责：请结合路径、文件名和相邻代码判断	codex,app 2,agent,cloud,docs,20,delivery,iterations,01,api,service,feature,plan,未细分职责：请结合路径,文件名和相邻代码判断
+codex-app 2/agent-cloud/docs/20-delivery/iterations/01-agent-cloud-api-service/master-plan.md	codex-app 2	other	doc	11794	未细分职责：请结合路径、文件名和相邻代码判断	codex,app 2,agent,cloud,docs,20,delivery,iterations,01,api,service,master,plan,未细分职责：请结合路径,文件名和相邻代码判断
+codex-app 2/agent-cloud/docs/20-delivery/iterations/01-agent-cloud-api-service/p0-core-identity-device-model/acceptance-checklist.md	codex-app 2	other	doc	3824	未细分职责：请结合路径、文件名和相邻代码判断	codex,app 2,agent,cloud,docs,20,delivery,iterations,01,api,service,p0,core,identity,device,model
+codex-app 2/agent-cloud/docs/20-delivery/iterations/01-agent-cloud-api-service/p0-core-identity-device-model/api-contract.md	codex-app 2	other	doc	5387	未细分职责：请结合路径、文件名和相邻代码判断	codex,app 2,agent,cloud,docs,20,delivery,iterations,01,api,service,p0,core,identity,device,model
+codex-app 2/agent-cloud/docs/20-delivery/iterations/01-agent-cloud-api-service/p0-core-identity-device-model/goal.md	codex-app 2	other	doc	3625	未细分职责：请结合路径、文件名和相邻代码判断	codex,app 2,agent,cloud,docs,20,delivery,iterations,01,api,service,p0,core,identity,device,model
+codex-app 2/agent-cloud/docs/20-delivery/iterations/01-agent-cloud-api-service/p0-core-identity-device-model/task-plan.md	codex-app 2	other	doc	3638	未细分职责：请结合路径、文件名和相邻代码判断	codex,app 2,agent,cloud,docs,20,delivery,iterations,01,api,service,p0,core,identity,device,model
+codex-app 2/agent-cloud/docs/20-delivery/iterations/01-agent-cloud-api-service/p1-marketplace-connector-webhook/goal.md	codex-app 2	other	doc	1983	未细分职责：请结合路径、文件名和相邻代码判断	codex,app 2,agent,cloud,docs,20,delivery,iterations,01,api,service,p1,marketplace,connector,webhook,goal
+codex-app 2/agent-cloud/docs/20-delivery/iterations/01-agent-cloud-api-service/p2-collaboration-asset-audit/goal.md	codex-app 2	other	doc	2062	未细分职责：请结合路径、文件名和相邻代码判断	codex,app 2,agent,cloud,docs,20,delivery,iterations,01,api,service,p2,collaboration,asset,audit,goal
+codex-app 2/agent-cloud/docs/20-delivery/iterations/01-agent-cloud-api-service/p3-platform-billing-feedback/goal.md	codex-app 2	other	doc	2076	未细分职责：请结合路径、文件名和相邻代码判断	codex,app 2,agent,cloud,docs,20,delivery,iterations,01,api,service,p3,platform,billing,feedback,goal
+codex-app 2/agent-cloud/docs/30-release/cloud-api-spec.md	codex-app 2	other	doc	24277	未细分职责：请结合路径、文件名和相邻代码判断	codex,app 2,agent,cloud,docs,30,release,api,spec,未细分职责：请结合路径,文件名和相邻代码判断
+codex-app 2/agent-cloud/docs/30-release/release-readiness-checklist.md	codex-app 2	other	doc	3525	未细分职责：请结合路径、文件名和相邻代码判断	codex,app 2,agent,cloud,docs,30,release,readiness,checklist,未细分职责：请结合路径,文件名和相邻代码判断
+codex-app 2/agent-cloud/docs/README.md	codex-app 2	other	doc	8069	未细分职责：请结合路径、文件名和相邻代码判断	codex,app 2,agent,cloud,docs,README,未细分职责：请结合路径,文件名和相邻代码判断
+codex-app 2/agent-host/.DS_Store	codex-app 2	other	file	10244	未细分职责：请结合路径、文件名和相邻代码判断	codex,app 2,agent,host,未细分职责：请结合路径,文件名和相邻代码判断
+codex-app 2/agent-host/docs/00-start/ai-project-context.md	codex-app 2	other	doc	3522	未细分职责：请结合路径、文件名和相邻代码判断	codex,app 2,agent,host,docs,00,start,ai,project,context,未细分职责：请结合路径,文件名和相邻代码判断
+codex-app 2/agent-host/docs/00-start/current-status.md	codex-app 2	other	doc	4509	未细分职责：请结合路径、文件名和相邻代码判断	codex,app 2,agent,host,docs,00,start,current,status,未细分职责：请结合路径,文件名和相邻代码判断
+codex-app 2/agent-host/docs/00-start/doc-governance.md	codex-app 2	other	doc	2807	未细分职责：请结合路径、文件名和相邻代码判断	codex,app 2,agent,host,docs,00,start,doc,governance,未细分职责：请结合路径,文件名和相邻代码判断
+codex-app 2/agent-host/docs/00-start/feishu-drive-mapping.md	codex-app 2	other	doc	3492	未细分职责：请结合路径、文件名和相邻代码判断	codex,app 2,agent,host,docs,00,start,feishu,drive,mapping,未细分职责：请结合路径,文件名和相邻代码判断
+codex-app 2/agent-host/docs/00-start/reading-guide.md	codex-app 2	other	doc	3167	未细分职责：请结合路径、文件名和相邻代码判断	codex,app 2,agent,host,docs,00,start,reading,guide,未细分职责：请结合路径,文件名和相邻代码判断
+codex-app 2/agent-host/docs/10-foundation/architecture/agent-host-technical-architecture.md	codex-app 2	other	doc	2269	未细分职责：请结合路径、文件名和相邻代码判断	codex,app 2,agent,host,docs,10,foundation,architecture,technical,未细分职责：请结合路径,文件名和相邻代码判断
+codex-app 2/agent-host/docs/10-foundation/architecture/agent-runtime-adapter-technical-architecture.md	codex-app 2	other	doc	27607	未细分职责：请结合路径、文件名和相邻代码判断	codex,app 2,agent,host,docs,10,foundation,architecture,runtime,adapter,technical,未细分职责：请结合路径,文件名和相邻代码判断
+codex-app 2/agent-host/docs/10-foundation/architecture/agent-runtime-technical-architecture.md	codex-app 2	other	doc	26446	未细分职责：请结合路径、文件名和相邻代码判断	codex,app 2,agent,host,docs,10,foundation,architecture,runtime,technical,未细分职责：请结合路径,文件名和相邻代码判断
+codex-app 2/agent-host/docs/10-foundation/architecture/database-design.md	codex-app 2	other	doc	24159	未细分职责：请结合路径、文件名和相邻代码判断	codex,app 2,agent,host,docs,10,foundation,architecture,database,design,未细分职责：请结合路径,文件名和相邻代码判断
+codex-app 2/agent-host/docs/10-foundation/architecture/technology-stack.md	codex-app 2	other	doc	3049	未细分职责：请结合路径、文件名和相邻代码判断	codex,app 2,agent,host,docs,10,foundation,architecture,technology,stack,未细分职责：请结合路径,文件名和相邻代码判断
+codex-app 2/agent-host/docs/10-foundation/product/agent-host-product-spec.md	codex-app 2	other	doc	62866	未细分职责：请结合路径、文件名和相邻代码判断	codex,app 2,agent,host,docs,10,foundation,product,spec,未细分职责：请结合路径,文件名和相邻代码判断
+codex-app 2/agent-host/docs/10-foundation/product/agent-runtime-adapter-product-spec.md	codex-app 2	other	doc	24745	未细分职责：请结合路径、文件名和相邻代码判断	codex,app 2,agent,host,docs,10,foundation,product,runtime,adapter,spec,未细分职责：请结合路径,文件名和相邻代码判断
+codex-app 2/agent-host/docs/10-foundation/product/agent-runtime-product-spec.md	codex-app 2	other	doc	28522	未细分职责：请结合路径、文件名和相邻代码判断	codex,app 2,agent,host,docs,10,foundation,product,runtime,spec,未细分职责：请结合路径,文件名和相邻代码判断
+codex-app 2/agent-host/docs/20-delivery/execution/execution-spec.md	codex-app 2	other	doc	23553	未细分职责：请结合路径、文件名和相邻代码判断	codex,app 2,agent,host,docs,20,delivery,execution,spec,未细分职责：请结合路径,文件名和相邻代码判断
+codex-app 2/agent-host/docs/20-delivery/execution/team-development-standards.md	codex-app 2	other	doc	3733	未细分职责：请结合路径、文件名和相邻代码判断	codex,app 2,agent,host,docs,20,delivery,execution,team,development,standards,未细分职责：请结合路径,文件名和相邻代码判断
+codex-app 2/agent-host/docs/20-delivery/feature-plan.md	codex-app 2	other	doc	14965	未细分职责：请结合路径、文件名和相邻代码判断	codex,app 2,agent,host,docs,20,delivery,feature,plan,未细分职责：请结合路径,文件名和相邻代码判断
+codex-app 2/agent-host/docs/20-delivery/iterations/01-agent-host-core/master-plan.md	codex-app 2	other	doc	11766	未细分职责：请结合路径、文件名和相邻代码判断	codex,app 2,agent,host,docs,20,delivery,iterations,01,core,master,plan,未细分职责：请结合路径,文件名和相邻代码判断
+codex-app 2/agent-host/docs/20-delivery/iterations/01-agent-host-core/p0-host-api-foundation/goal.md	codex-app 2	other	doc	2589	未细分职责：请结合路径、文件名和相邻代码判断	codex,app 2,agent,host,docs,20,delivery,iterations,01,core,p0,api,foundation,goal,未细分职责：请结合路径,文件名和相邻代码判断
+codex-app 2/agent-host/docs/20-delivery/iterations/01-agent-host-core/p1-runtime-adapter-minimal-loop/goal.md	codex-app 2	other	doc	2668	未细分职责：请结合路径、文件名和相邻代码判断	codex,app 2,agent,host,docs,20,delivery,iterations,01,core,p1,runtime,adapter,minimal,loop,goal
+codex-app 2/agent-host/docs/20-delivery/iterations/01-agent-host-core/p2-host-api-dynamic-task-experience/goal.md	codex-app 2	other	doc	2389	未细分职责：请结合路径、文件名和相邻代码判断	codex,app 2,agent,host,docs,20,delivery,iterations,01,core,p2,api,dynamic,task,experience,goal
+codex-app 2/agent-host/docs/20-delivery/iterations/01-agent-host-core/p3-host-api-sync-complex-proxy/goal.md	codex-app 2	other	doc	2164	未细分职责：请结合路径、文件名和相邻代码判断	codex,app 2,agent,host,docs,20,delivery,iterations,01,core,p3,api,sync,complex,proxy,goal
+codex-app 2/agent-host/docs/20-delivery/iterations/01-agent-host-core/p4-release-hardening/goal.md	codex-app 2	other	doc	1856	未细分职责：请结合路径、文件名和相邻代码判断	codex,app 2,agent,host,docs,20,delivery,iterations,01,core,p4,release,hardening,goal,未细分职责：请结合路径,文件名和相邻代码判断
+codex-app 2/agent-host/docs/20-delivery/iterations/02-host-api-core/h0-service-auth-cache-baseline/goal.md	codex-app 2	other	doc	1980	未细分职责：请结合路径、文件名和相邻代码判断	codex,app 2,agent,host,docs,20,delivery,iterations,02,api,core,h0,service,auth,cache,baseline
+codex-app 2/agent-host/docs/20-delivery/iterations/02-host-api-core/h1-runtime-api-sse-bridge/goal.md	codex-app 2	other	doc	1906	未细分职责：请结合路径、文件名和相邻代码判断	codex,app 2,agent,host,docs,20,delivery,iterations,02,api,core,h1,runtime,sse,bridge,goal
+codex-app 2/agent-host/docs/20-delivery/iterations/02-host-api-core/h2-dynamic-data-task-projection/goal.md	codex-app 2	other	doc	1813	未细分职责：请结合路径、文件名和相邻代码判断	codex,app 2,agent,host,docs,20,delivery,iterations,02,api,core,h2,dynamic,data,task,projection
+codex-app 2/agent-host/docs/20-delivery/iterations/02-host-api-core/h3-sync-complex-proxy/goal.md	codex-app 2	other	doc	1644	未细分职责：请结合路径、文件名和相邻代码判断	codex,app 2,agent,host,docs,20,delivery,iterations,02,api,core,h3,sync,complex,proxy,goal
+codex-app 2/agent-host/docs/20-delivery/iterations/02-host-api-core/h4-api-release-hardening/goal.md	codex-app 2	other	doc	1593	未细分职责：请结合路径、文件名和相邻代码判断	codex,app 2,agent,host,docs,20,delivery,iterations,02,api,core,h4,release,hardening,goal,未细分职责：请结合路径
+codex-app 2/agent-host/docs/20-delivery/iterations/02-host-api-core/master-plan.md	codex-app 2	other	doc	4469	未细分职责：请结合路径、文件名和相邻代码判断	codex,app 2,agent,host,docs,20,delivery,iterations,02,api,core,master,plan,未细分职责：请结合路径,文件名和相邻代码判断
+codex-app 2/agent-host/docs/20-delivery/iterations/03-runtime-adapter-core/master-plan.md	codex-app 2	other	doc	4515	未细分职责：请结合路径、文件名和相邻代码判断	codex,app 2,agent,host,docs,20,delivery,iterations,03,runtime,adapter,core,master,plan,未细分职责：请结合路径,文件名和相邻代码判断
+codex-app 2/agent-host/docs/20-delivery/iterations/03-runtime-adapter-core/r0-runtime-contract-baseline/goal.md	codex-app 2	other	doc	1917	未细分职责：请结合路径、文件名和相邻代码判断	codex,app 2,agent,host,docs,20,delivery,iterations,03,runtime,adapter,core,r0,contract,baseline,goal
+codex-app 2/agent-host/docs/20-delivery/iterations/03-runtime-adapter-core/r1-codex-adapter-connectivity/goal.md	codex-app 2	other	doc	2005	未细分职责：请结合路径、文件名和相邻代码判断	codex,app 2,agent,host,docs,20,delivery,iterations,03,runtime,adapter,core,r1,connectivity,goal,未细分职责：请结合路径
+codex-app 2/agent-host/docs/20-delivery/iterations/03-runtime-adapter-core/r2-event-pending-mapping/goal.md	codex-app 2	other	doc	1930	未细分职责：请结合路径、文件名和相邻代码判断	codex,app 2,agent,host,docs,20,delivery,iterations,03,runtime,adapter,core,r2,event,pending,mapping
+codex-app 2/agent-host/docs/20-delivery/iterations/03-runtime-adapter-core/r3-capability-error-diagnostics/goal.md	codex-app 2	other	doc	1879	未细分职责：请结合路径、文件名和相邻代码判断	codex,app 2,agent,host,docs,20,delivery,iterations,03,runtime,adapter,core,r3,capability,error,diagnostics
+codex-app 2/agent-host/docs/20-delivery/iterations/03-runtime-adapter-core/r4-runtime-release-hardening/goal.md	codex-app 2	other	doc	1836	未细分职责：请结合路径、文件名和相邻代码判断	codex,app 2,agent,host,docs,20,delivery,iterations,03,runtime,adapter,core,r4,release,hardening,goal
+codex-app 2/agent-host/docs/30-release/host-api-spec.md	codex-app 2	other	doc	25492	未细分职责：请结合路径、文件名和相邻代码判断	codex,app 2,agent,host,docs,30,release,api,spec,未细分职责：请结合路径,文件名和相邻代码判断
+codex-app 2/agent-host/docs/README.md	codex-app 2	other	doc	4602	未细分职责：请结合路径、文件名和相邻代码判断	codex,app 2,agent,host,docs,README,未细分职责：请结合路径,文件名和相邻代码判断
+codex-app 2/agent-host/scripts/sqlite/create-database.sql	codex-app 2	other	sql	13986	未细分职责：请结合路径、文件名和相邻代码判断	codex,app 2,agent,host,scripts,sqlite,create,database,未细分职责：请结合路径,文件名和相邻代码判断
+codex-app 2/all/docs/01-overview/三项目整体评审总览.md	codex-app 2	other	doc	4003	未细分职责：请结合路径、文件名和相邻代码判断	codex,app 2,all,docs,01,overview,三项目整体评审总览,未细分职责：请结合路径,文件名和相邻代码判断
+codex-app 2/all/docs/01-overview/三项目职责边界说明.md	codex-app 2	other	doc	2246	未细分职责：请结合路径、文件名和相邻代码判断	codex,app 2,all,docs,01,overview,三项目职责边界说明,未细分职责：请结合路径,文件名和相邻代码判断
+codex-app 2/all/docs/01-overview/端到端架构总览图.md	codex-app 2	other	doc	1838	未细分职责：请结合路径、文件名和相邻代码判断	codex,app 2,all,docs,01,overview,端到端架构总览图,未细分职责：请结合路径,文件名和相邻代码判断
+codex-app 2/all/docs/01-overview/评审目标与决策清单.md	codex-app 2	other	doc	2348	未细分职责：请结合路径、文件名和相邻代码判断	codex,app 2,all,docs,01,overview,评审目标与决策清单,未细分职责：请结合路径,文件名和相邻代码判断
+codex-app 2/all/docs/02-product/AgentCloud 产品介绍.md	codex-app 2	other	doc	2551	未细分职责：请结合路径、文件名和相邻代码判断	codex,app 2,all,docs,02,product,AgentCloud 产品介绍,未细分职责：请结合路径,文件名和相邻代码判断
+codex-app 2/all/docs/02-product/AgentHost 产品介绍.md	codex-app 2	other	doc	2483	未细分职责：请结合路径、文件名和相邻代码判断	codex,app 2,all,docs,02,product,AgentHost 产品介绍,未细分职责：请结合路径,文件名和相邻代码判断
+codex-app 2/all/docs/02-product/codexapp-go 产品介绍.md	codex-app 2	other	doc	2242	未细分职责：请结合路径、文件名和相邻代码判断	codex,app 2,all,docs,02,product,codexapp,go 产品介绍,未细分职责：请结合路径,文件名和相邻代码判断
+codex-app 2/all/docs/02-product/用户场景串联说明.md	codex-app 2	other	doc	2325	未细分职责：请结合路径、文件名和相邻代码判断	codex,app 2,all,docs,02,product,用户场景串联说明,未细分职责：请结合路径,文件名和相邻代码判断
+codex-app 2/all/docs/03-technical/AgentCloud 技术架构评审.md	codex-app 2	other	doc	2427	未细分职责：请结合路径、文件名和相邻代码判断	codex,app 2,all,docs,03,technical,AgentCloud 技术架构评审,未细分职责：请结合路径,文件名和相邻代码判断
+codex-app 2/all/docs/03-technical/AgentHost 技术架构评审.md	codex-app 2	other	doc	2108	未细分职责：请结合路径、文件名和相邻代码判断	codex,app 2,all,docs,03,technical,AgentHost 技术架构评审,未细分职责：请结合路径,文件名和相邻代码判断
+codex-app 2/all/docs/03-technical/codexapp-go 技术架构评审.md	codex-app 2	other	doc	2369	未细分职责：请结合路径、文件名和相邻代码判断	codex,app 2,all,docs,03,technical,codexapp,go 技术架构评审,未细分职责：请结合路径,文件名和相邻代码判断
+codex-app 2/all/docs/03-technical/安全边界评审.md	codex-app 2	other	doc	2022	未细分职责：请结合路径、文件名和相邻代码判断	codex,app 2,all,docs,03,technical,安全边界评审,未细分职责：请结合路径,文件名和相邻代码判断
+codex-app 2/all/docs/03-technical/接口边界评审.md	codex-app 2	other	doc	1819	未细分职责：请结合路径、文件名和相邻代码判断	codex,app 2,all,docs,03,technical,接口边界评审,未细分职责：请结合路径,文件名和相邻代码判断
+codex-app 2/all/docs/03-technical/数据流与事件流评审.md	codex-app 2	other	doc	2154	未细分职责：请结合路径、文件名和相邻代码判断	codex,app 2,all,docs,03,technical,数据流与事件流评审,未细分职责：请结合路径,文件名和相邻代码判断
+codex-app 2/all/docs/04-collaboration/三项目调用关系图.md	codex-app 2	other	doc	1102	未细分职责：请结合路径、文件名和相邻代码判断	codex,app 2,all,docs,04,collaboration,三项目调用关系图,未细分职责：请结合路径,文件名和相邻代码判断
+codex-app 2/all/docs/04-collaboration/禁止越界清单.md	codex-app 2	other	doc	1462	未细分职责：请结合路径、文件名和相邻代码判断	codex,app 2,all,docs,04,collaboration,禁止越界清单,未细分职责：请结合路径,文件名和相邻代码判断
+codex-app 2/all/docs/04-collaboration/端到端任务流程.md	codex-app 2	other	doc	1765	未细分职责：请结合路径、文件名和相邻代码判断	codex,app 2,all,docs,04,collaboration,端到端任务流程,未细分职责：请结合路径,文件名和相邻代码判断
+codex-app 2/all/docs/04-collaboration/能力归属矩阵.md	codex-app 2	other	doc	1601	未细分职责：请结合路径、文件名和相邻代码判断	codex,app 2,all,docs,04,collaboration,能力归属矩阵,未细分职责：请结合路径,文件名和相邻代码判断
+codex-app 2/all/docs/05-plan/AgentCloud P0-P3 实施计划.md	codex-app 2	other	doc	2005	未细分职责：请结合路径、文件名和相邻代码判断	codex,app 2,all,docs,05,plan,AgentCloud P0,P3 实施计划,未细分职责：请结合路径,文件名和相邻代码判断
+codex-app 2/all/docs/05-plan/AgentHost 阶段计划.md	codex-app 2	other	doc	2058	未细分职责：请结合路径、文件名和相邻代码判断	codex,app 2,all,docs,05,plan,AgentHost 阶段计划,未细分职责：请结合路径,文件名和相邻代码判断
+codex-app 2/all/docs/05-plan/codexapp-go M0-M6 实施计划.md	codex-app 2	other	doc	2266	未细分职责：请结合路径、文件名和相邻代码判断	codex,app 2,all,docs,05,plan,codexapp,go M0,M6 实施计划,未细分职责：请结合路径,文件名和相邻代码判断
+codex-app 2/all/docs/05-plan/三项目集成路线图.md	codex-app 2	other	doc	1541	未细分职责：请结合路径、文件名和相邻代码判断	codex,app 2,all,docs,05,plan,三项目集成路线图,未细分职责：请结合路径,文件名和相邻代码判断
+codex-app 2/all/docs/06-risks/待决策问题清单.md	codex-app 2	other	doc	1928	未细分职责：请结合路径、文件名和相邻代码判断	codex,app 2,all,docs,06,risks,待决策问题清单,未细分职责：请结合路径,文件名和相邻代码判断
+codex-app 2/all/docs/06-risks/风险清单.md	codex-app 2	other	doc	2029	未细分职责：请结合路径、文件名和相邻代码判断	codex,app 2,all,docs,06,risks,风险清单,未细分职责：请结合路径,文件名和相邻代码判断
+codex-app 2/all/docs/img/end-to-end-task-flow.png	codex-app 2	other	png	134418	未细分职责：请结合路径、文件名和相邻代码判断	codex,app 2,all,docs,img,end,to,task,flow,未细分职责：请结合路径,文件名和相邻代码判断
+codex-app 2/all/docs/img/integration-roadmap.png	codex-app 2	other	png	140874	未细分职责：请结合路径、文件名和相邻代码判断	codex,app 2,all,docs,img,integration,roadmap,未细分职责：请结合路径,文件名和相邻代码判断
+codex-app 2/all/docs/img/team-review-diagrams.drawio	codex-app 2	other	drawio	22655	未细分职责：请结合路径、文件名和相邻代码判断	codex,app 2,all,docs,img,team,review,diagrams,未细分职责：请结合路径,文件名和相邻代码判断
+codex-app 2/all/docs/img/three-project-call-relationship.png	codex-app 2	other	png	101609	未细分职责：请结合路径、文件名和相邻代码判断	codex,app 2,all,docs,img,three,project,call,relationship,未细分职责：请结合路径,文件名和相邻代码判断
+codex-app 2/all/docs/img/three-project-end-to-end-architecture.png	codex-app 2	other	png	155471	未细分职责：请结合路径、文件名和相邻代码判断	codex,app 2,all,docs,img,three,project,end,to,architecture,未细分职责：请结合路径,文件名和相邻代码判断
+codex-app 2/all/docs/README.md	codex-app 2	other	doc	9040	未细分职责：请结合路径、文件名和相邻代码判断	codex,app 2,all,docs,README,未细分职责：请结合路径,文件名和相邻代码判断
+codex-app 2/codexapp-go/AGENT.md	codex-app 2	other	doc	2486	未细分职责：请结合路径、文件名和相邻代码判断	codex,app 2,codexapp,go,AGENT,未细分职责：请结合路径,文件名和相邻代码判断
+codex-app 2/codexapp-go/docs/00-start/ai-project-context.md	codex-app 2	other	doc	2006	未细分职责：请结合路径、文件名和相邻代码判断	codex,app 2,codexapp,go,docs,00,start,ai,project,context,未细分职责：请结合路径,文件名和相邻代码判断
+codex-app 2/codexapp-go/docs/00-start/current-status.md	codex-app 2	other	doc	2146	未细分职责：请结合路径、文件名和相邻代码判断	codex,app 2,codexapp,go,docs,00,start,current,status,未细分职责：请结合路径,文件名和相邻代码判断
+codex-app 2/codexapp-go/docs/00-start/doc-governance.md	codex-app 2	other	doc	2553	未细分职责：请结合路径、文件名和相邻代码判断	codex,app 2,codexapp,go,docs,00,start,doc,governance,未细分职责：请结合路径,文件名和相邻代码判断
+codex-app 2/codexapp-go/docs/00-start/feishu-drive-mapping.md	codex-app 2	other	doc	10345	未细分职责：请结合路径、文件名和相邻代码判断	codex,app 2,codexapp,go,docs,00,start,feishu,drive,mapping,未细分职责：请结合路径,文件名和相邻代码判断
+codex-app 2/codexapp-go/docs/00-start/reading-guide.md	codex-app 2	other	doc	1511	未细分职责：请结合路径、文件名和相邻代码判断	codex,app 2,codexapp,go,docs,00,start,reading,guide,未细分职责：请结合路径,文件名和相邻代码判断
+codex-app 2/codexapp-go/docs/10-foundation/architecture/technical-architecture.md	codex-app 2	other	doc	33854	未细分职责：请结合路径、文件名和相邻代码判断	codex,app 2,codexapp,go,docs,10,foundation,architecture,technical,未细分职责：请结合路径,文件名和相邻代码判断
+codex-app 2/codexapp-go/docs/10-foundation/product/codexapp-go-product-spec.md	codex-app 2	other	doc	27607	未细分职责：请结合路径、文件名和相邻代码判断	codex,app 2,codexapp,go,docs,10,foundation,product,spec,未细分职责：请结合路径,文件名和相邻代码判断
+codex-app 2/codexapp-go/docs/10-foundation/product/codexapp-product-spec.md	codex-app 2	other	doc	22217	未细分职责：请结合路径、文件名和相邻代码判断	codex,app 2,codexapp,go,docs,10,foundation,product,spec,未细分职责：请结合路径,文件名和相邻代码判断
+codex-app 2/codexapp-go/docs/10-foundation/protocol/app-server/json-rpc-manual.md	codex-app 2	other	doc	31379	未细分职责：请结合路径、文件名和相邻代码判断	codex,app 2,codexapp,go,docs,10,foundation,protocol,app,server,json,rpc,manual,未细分职责：请结合路径,文件名和相邻代码判断
+codex-app 2/codexapp-go/docs/10-foundation/protocol/app-server/official-doc-snapshot.md	codex-app 2	other	doc	83596	未细分职责：请结合路径、文件名和相邻代码判断	codex,app 2,codexapp,go,docs,10,foundation,protocol,app,server,official,doc,snapshot,未细分职责：请结合路径,文件名和相邻代码判断
+codex-app 2/codexapp-go/docs/20-delivery/execution/execution-spec.md	codex-app 2	other	doc	20457	未细分职责：请结合路径、文件名和相邻代码判断	codex,app 2,codexapp,go,docs,20,delivery,execution,spec,未细分职责：请结合路径,文件名和相邻代码判断
+codex-app 2/codexapp-go/docs/20-delivery/execution/team-development-standards.md	codex-app 2	other	doc	3405	未细分职责：请结合路径、文件名和相邻代码判断	codex,app 2,codexapp,go,docs,20,delivery,execution,team,development,standards,未细分职责：请结合路径,文件名和相邻代码判断
+codex-app 2/codexapp-go/docs/20-delivery/iterations/01-codexapp-go-m0-m6/diagrams/codexapp-go-architecture.drawio	codex-app 2	other	drawio	21084	未细分职责：请结合路径、文件名和相邻代码判断	codex,app 2,codexapp,go,docs,20,delivery,iterations,01,m0,m6,diagrams,architecture,未细分职责：请结合路径,文件名和相邻代码判断
+codex-app 2/codexapp-go/docs/20-delivery/iterations/01-codexapp-go-m0-m6/diagrams/codexapp-go-business-architecture.png	codex-app 2	other	png	212904	未细分职责：请结合路径、文件名和相邻代码判断	codex,app 2,codexapp,go,docs,20,delivery,iterations,01,m0,m6,diagrams,business,architecture,未细分职责：请结合路径,文件名和相邻代码判断
+codex-app 2/codexapp-go/docs/20-delivery/iterations/01-codexapp-go-m0-m6/diagrams/codexapp-go-business-roadmap.png	codex-app 2	other	png	201535	未细分职责：请结合路径、文件名和相邻代码判断	codex,app 2,codexapp,go,docs,20,delivery,iterations,01,m0,m6,diagrams,business,roadmap,未细分职责：请结合路径,文件名和相邻代码判断
+codex-app 2/codexapp-go/docs/20-delivery/iterations/01-codexapp-go-m0-m6/diagrams/codexapp-go-technical-architecture.png	codex-app 2	other	png	194123	未细分职责：请结合路径、文件名和相邻代码判断	codex,app 2,codexapp,go,docs,20,delivery,iterations,01,m0,m6,diagrams,technical,architecture,未细分职责：请结合路径,文件名和相邻代码判断
+codex-app 2/codexapp-go/docs/20-delivery/iterations/01-codexapp-go-m0-m6/m0-protocol-baseline/goal.md	codex-app 2	other	doc	3301	未细分职责：请结合路径、文件名和相邻代码判断	codex,app 2,codexapp,go,docs,20,delivery,iterations,01,m0,m6,protocol,baseline,goal,未细分职责：请结合路径,文件名和相邻代码判断
+codex-app 2/codexapp-go/docs/20-delivery/iterations/01-codexapp-go-m0-m6/m1-minimal-runtime/goal.md	codex-app 2	other	doc	2912	未细分职责：请结合路径、文件名和相邻代码判断	codex,app 2,codexapp,go,docs,20,delivery,iterations,01,m0,m6,m1,minimal,runtime,goal,未细分职责：请结合路径
+codex-app 2/codexapp-go/docs/20-delivery/iterations/01-codexapp-go-m0-m6/m2-core-typed-api/goal.md	codex-app 2	other	doc	2729	未细分职责：请结合路径、文件名和相邻代码判断	codex,app 2,codexapp,go,docs,20,delivery,iterations,01,m0,m6,m2,core,typed,api,goal
+codex-app 2/codexapp-go/docs/20-delivery/iterations/01-codexapp-go-m0-m6/m3-events-server-requests/goal.md	codex-app 2	other	doc	3197	未细分职责：请结合路径、文件名和相邻代码判断	codex,app 2,codexapp,go,docs,20,delivery,iterations,01,m0,m6,m3,events,server,requests,goal
+codex-app 2/codexapp-go/docs/20-delivery/iterations/01-codexapp-go-m0-m6/m4-extended-protocol-coverage/goal.md	codex-app 2	other	doc	2741	未细分职责：请结合路径、文件名和相邻代码判断	codex,app 2,codexapp,go,docs,20,delivery,iterations,01,m0,m6,m4,extended,protocol,coverage,goal
+codex-app 2/codexapp-go/docs/20-delivery/iterations/01-codexapp-go-m0-m6/m5-contract-tests/goal.md	codex-app 2	other	doc	2644	未细分职责：请结合路径、文件名和相邻代码判断	codex,app 2,codexapp,go,docs,20,delivery,iterations,01,m0,m6,m5,contract,tests,goal,未细分职责：请结合路径
+codex-app 2/codexapp-go/docs/20-delivery/iterations/01-codexapp-go-m0-m6/m6-release-documentation/goal.md	codex-app 2	other	doc	2656	未细分职责：请结合路径、文件名和相邻代码判断	codex,app 2,codexapp,go,docs,20,delivery,iterations,01,m0,m6,release,documentation,goal,未细分职责：请结合路径,文件名和相邻代码判断
+codex-app 2/codexapp-go/docs/20-delivery/iterations/01-codexapp-go-m0-m6/master-plan.md	codex-app 2	other	doc	17835	未细分职责：请结合路径、文件名和相邻代码判断	codex,app 2,codexapp,go,docs,20,delivery,iterations,01,m0,m6,master,plan,未细分职责：请结合路径,文件名和相邻代码判断
+codex-app 2/codexapp-go/docs/README.md	codex-app 2	other	doc	3195	未细分职责：请结合路径、文件名和相邻代码判断	codex,app 2,codexapp,go,docs,README,未细分职责：请结合路径,文件名和相邻代码判断
+filebeat/filebeat.yml	filebeat	other	yaml	1122	未细分职责：请结合路径、文件名和相邻代码判断	filebeat,未细分职责：请结合路径,文件名和相邻代码判断
+GEMINI.md	(root)	other	doc	11864	仓库根级配置、入口或说明文件	GEMINI,仓库根级配置,入口或说明文件
+go.mod	(root)	other	mod	3844	仓库根级配置、入口或说明文件	go,仓库根级配置,入口或说明文件
+internal/.DS_Store	internal	other	file	10244	未细分职责：请结合路径、文件名和相邻代码判断	internal,未细分职责：请结合路径,文件名和相邻代码判断
+internal/app/app_test.go	internal	other	go-test	3683	root Fx/app 装配、runner 与 toolbridge adapters	internal,app,test,root,Fx,装配,runner,与,toolbridge,adapters
+internal/app/app.go	internal	other	go-source	12704	root Fx/app 装配、runner 与 toolbridge adapters	internal,app,root,Fx,装配,runner,与,toolbridge,adapters
+internal/app/desktop_preflight_test.go	internal	other	go-test	15173	root Fx/app 装配、runner 与 toolbridge adapters	internal,app,desktop,preflight,test,root,Fx,装配,runner,与,toolbridge,adapters
+internal/app/frontend_embed_contract_test.go	internal	other	go-test	2482	root Fx/app 装配、runner 与 toolbridge adapters	internal,app,frontend,embed,contract,test,root,Fx,装配,runner,与,toolbridge,adapters
+internal/app/modules_e2efixture_test.go	internal	other	go-test	3845	root Fx/app 装配、runner 与 toolbridge adapters	internal,app,modules,e2efixture,test,root,Fx,装配,runner,与,toolbridge,adapters
+internal/app/modules_graph_test.go	internal	other	go-test	2776	root Fx/app 装配、runner 与 toolbridge adapters	internal,app,modules,graph,test,root,Fx,装配,runner,与,toolbridge,adapters
+internal/app/modules.go	internal	other	go-source	9140	root Fx/app 装配、runner 与 toolbridge adapters	internal,app,modules,root,Fx,装配,runner,与,toolbridge,adapters
+internal/app/new_ui_hot_reload_scripts_test.go	internal	other	go-test	4599	root Fx/app 装配、runner 与 toolbridge adapters	internal,app,new,ui,hot,reload,scripts,test,root,Fx,装配,runner,与,toolbridge,adapters
+internal/app/new_ui_ps1_embed_dist_test.go	internal	other	go-test	2079	root Fx/app 装配、runner 与 toolbridge adapters	internal,app,new,ui,ps1,embed,dist,test,root,Fx,装配,runner,与,toolbridge,adapters
+internal/app/new_ui_scripts_helpers_test.go	internal	other	go-test	2412	root Fx/app 装配、runner 与 toolbridge adapters	internal,app,new,ui,scripts,helpers,test,root,Fx,装配,runner,与,toolbridge,adapters
+internal/app/new_ui_scripts_test.go	internal	other	go-test	24999	root Fx/app 装配、runner 与 toolbridge adapters	internal,app,new,ui,scripts,test,root,Fx,装配,runner,与,toolbridge,adapters
+internal/app/new_ui_sqlite_scripts_test.go	internal	other	go-test	4678	root Fx/app 装配、runner 与 toolbridge adapters	internal,app,new,ui,sqlite,scripts,test,root,Fx,装配,runner,与,toolbridge,adapters
+internal/app/observability_trace_adapters.go	internal	other	go-source	2984	root Fx/app 装配、runner 与 toolbridge adapters	internal,app,observability,trace,adapters,root,Fx,装配,runner,与,toolbridge
+internal/app/orchestration_dag_runtime_adapter_test.go	internal	other	go-test	16005	root Fx/app 装配、runner 与 toolbridge adapters	internal,app,orchestration,dag,runtime,adapter,test,root,Fx,装配,runner,与,toolbridge,adapters
+internal/app/orchestration_dag_runtime_adapter.go	internal	other	go-source	12622	root Fx/app 装配、runner 与 toolbridge adapters	internal,app,orchestration,dag,runtime,adapter,root,Fx,装配,runner,与,toolbridge,adapters
+internal/app/provider_hooks_contract_test.go	internal	other	go-test	1071	root Fx/app 装配、runner 与 toolbridge adapters	internal,app,provider,hooks,contract,test,root,Fx,装配,runner,与,toolbridge,adapters
+internal/app/runner_test.go	internal	other	go-test	4279	root Fx/app 装配、runner 与 toolbridge adapters	internal,app,runner,test,root,Fx,装配,与,toolbridge,adapters
+internal/app/runner.go	internal	other	go-source	7525	root Fx/app 装配、runner 与 toolbridge adapters	internal,app,runner,root,Fx,装配,与,toolbridge,adapters
+internal/app/runtime_reporter_adapter.go	internal	other	go-source	1556	root Fx/app 装配、runner 与 toolbridge adapters	internal,app,runtime,reporter,adapter,root,Fx,装配,runner,与,toolbridge,adapters
+internal/app/session_ports_test.go	internal	other	go-test	1298	root Fx/app 装配、runner 与 toolbridge adapters	internal,app,session,ports,test,root,Fx,装配,runner,与,toolbridge,adapters
+internal/app/session_ports.go	internal	other	go-source	525	root Fx/app 装配、runner 与 toolbridge adapters	internal,app,session,ports,root,Fx,装配,runner,与,toolbridge,adapters
+internal/app/sharedfile_adapter.go	internal	other	go-source	896	root Fx/app 装配、runner 与 toolbridge adapters	internal,app,sharedfile,adapter,root,Fx,装配,runner,与,toolbridge,adapters
+internal/app/thread_orchestration_adapter_test.go	internal	other	go-test	1111	root Fx/app 装配、runner 与 toolbridge adapters	internal,app,thread,orchestration,adapter,test,root,Fx,装配,runner,与,toolbridge,adapters
+internal/app/thread_orchestration_adapter.go	internal	other	go-source	3264	root Fx/app 装配、runner 与 toolbridge adapters	internal,app,thread,orchestration,adapter,root,Fx,装配,runner,与,toolbridge,adapters
+internal/app/toolbridge_adapters_test.go	internal	other	go-test	522	root Fx/app 装配、runner 与 toolbridge adapters	internal,app,toolbridge,adapters,test,root,Fx,装配,runner,与
+internal/app/toolbridge_adapters.go	internal	other	go-source	8641	root Fx/app 装配、runner 与 toolbridge adapters	internal,app,toolbridge,adapters,root,Fx,装配,runner,与
+internal/archtest/agent_field_writes_guard_test.go	internal	other	go-test	2515	架构守卫、baseline ratchet 与冻结规则	internal,archtest,agent,field,writes,guard,test,架构守卫,baseline,ratchet,与冻结规则
+internal/archtest/archguard_ignore_test.go	internal	other	go-test	1641	架构守卫、baseline ratchet 与冻结规则	internal,archtest,archguard,ignore,test,架构守卫,baseline,ratchet,与冻结规则
+internal/archtest/archguard_ignore.go	internal	other	go-source	1777	架构守卫、baseline ratchet 与冻结规则	internal,archtest,archguard,ignore,架构守卫,baseline,ratchet,与冻结规则
+internal/archtest/baseline_shrink_test.go	internal	other	go-test	4503	架构守卫、baseline ratchet 与冻结规则	internal,archtest,baseline,shrink,test,架构守卫,ratchet,与冻结规则
+internal/archtest/baseline_shrink.go	internal	other	go-source	2465	架构守卫、baseline ratchet 与冻结规则	internal,archtest,baseline,shrink,架构守卫,ratchet,与冻结规则
+internal/archtest/baseline_test.go	internal	other	go-test	3209	架构守卫、baseline ratchet 与冻结规则	internal,archtest,baseline,test,架构守卫,ratchet,与冻结规则
+internal/archtest/baseline_test.json	internal	other	json	2680	架构守卫、baseline ratchet 与冻结规则	internal,archtest,baseline,test,架构守卫,ratchet,与冻结规则
+internal/archtest/baseline.go	internal	other	go-source	4120	架构守卫、baseline ratchet 与冻结规则	internal,archtest,baseline,架构守卫,ratchet,与冻结规则
+internal/archtest/baseline.json	internal	other	json	8353	架构守卫、baseline ratchet 与冻结规则	internal,archtest,baseline,架构守卫,ratchet,与冻结规则
+internal/archtest/bootstrap_callback_drain_guard_test.go	internal	other	go-test	1972	架构守卫、baseline ratchet 与冻结规则	internal,archtest,bootstrap,callback,drain,guard,test,架构守卫,baseline,ratchet,与冻结规则
+internal/archtest/bootstrap_fail_closed_guard_test.go	internal	other	go-test	2264	架构守卫、baseline ratchet 与冻结规则	internal,archtest,bootstrap,fail,closed,guard,test,架构守卫,baseline,ratchet,与冻结规则
+internal/archtest/bootstrap_subscribe_desired_state_guard_test.go	internal	other	go-test	1052	架构守卫、baseline ratchet 与冻结规则	internal,archtest,bootstrap,subscribe,desired,state,guard,test,架构守卫,baseline,ratchet,与冻结规则
+internal/archtest/bus_callback_guard_test.go	internal	other	go-test	10818	架构守卫、baseline ratchet 与冻结规则	internal,archtest,bus,callback,guard,test,架构守卫,baseline,ratchet,与冻结规则
+internal/archtest/ci_cross_platform_smoke_guard_test.go	internal	other	go-test	2229	架构守卫、baseline ratchet 与冻结规则	internal,archtest,ci,cross,platform,smoke,guard,test,架构守卫,baseline,ratchet,与冻结规则
+internal/archtest/code_size_guard_test.go	internal	other	go-test	7053	架构守卫、baseline ratchet 与冻结规则	internal,archtest,code,size,guard,test,架构守卫,baseline,ratchet,与冻结规则
+internal/archtest/cross_domain_guard_test.go	internal	other	go-test	4373	架构守卫、baseline ratchet 与冻结规则	internal,archtest,cross,domain,guard,test,架构守卫,baseline,ratchet,与冻结规则
+internal/archtest/dag_designer_prompt_asset_contract_test.go	internal	other	go-test	3589	架构守卫、baseline ratchet 与冻结规则	internal,archtest,dag,designer,prompt,asset,contract,test,架构守卫,baseline,ratchet,与冻结规则
+internal/archtest/dag_designer_prompt_refresh_test.go	internal	other	go-test	1891	架构守卫、baseline ratchet 与冻结规则	internal,archtest,dag,designer,prompt,refresh,test,架构守卫,baseline,ratchet,与冻结规则
+internal/archtest/dag_designer_prompt_runtime_metadata_test.go	internal	other	go-test	11791	架构守卫、baseline ratchet 与冻结规则	internal,archtest,dag,designer,prompt,runtime,metadata,test,架构守卫,baseline,ratchet,与冻结规则
+internal/archtest/dag_designer_prompt_seed_en_test.go	internal	other	go-test	4474	架构守卫、baseline ratchet 与冻结规则	internal,archtest,dag,designer,prompt,seed,en,test,架构守卫,baseline,ratchet,与冻结规则
+internal/archtest/dag_designer_prompt_seed_test.go	internal	other	go-test	4482	架构守卫、baseline ratchet 与冻结规则	internal,archtest,dag,designer,prompt,seed,test,架构守卫,baseline,ratchet,与冻结规则
+internal/archtest/dag_skill_seeds_test.go	internal	other	go-test	3343	架构守卫、baseline ratchet 与冻结规则	internal,archtest,dag,skill,seeds,test,架构守卫,baseline,ratchet,与冻结规则
+internal/archtest/dead_key_guard_test.go	internal	other	go-test	680	架构守卫、baseline ratchet 与冻结规则	internal,archtest,dead,key,guard,test,架构守卫,baseline,ratchet,与冻结规则
+internal/archtest/deep_map_probe_guard_test.go	internal	other	go-test	2904	架构守卫、baseline ratchet 与冻结规则	internal,archtest,deep,map,probe,guard,test,架构守卫,baseline,ratchet,与冻结规则
+internal/archtest/dependency_direction_mcp_orch_test.go	internal	other	go-test	4812	架构守卫、baseline ratchet 与冻结规则	internal,archtest,dependency,direction,mcp,orch,test,架构守卫,baseline,ratchet,与冻结规则
+internal/archtest/dependency_direction_module_store_test.go	internal	other	go-test	5286	架构守卫、baseline ratchet 与冻结规则	internal,archtest,dependency,direction,module,store,test,架构守卫,baseline,ratchet,与冻结规则
+internal/archtest/dependency_direction_test.go	internal	other	go-test	20773	架构守卫、baseline ratchet 与冻结规则	internal,archtest,dependency,direction,test,架构守卫,baseline,ratchet,与冻结规则
+internal/archtest/dependency_direction_wave3_test.go	internal	other	go-test	2484	架构守卫、baseline ratchet 与冻结规则	internal,archtest,dependency,direction,wave3,test,架构守卫,baseline,ratchet,与冻结规则
+internal/archtest/desktop_dependency_test.go	internal	other	go-test	3051	架构守卫、baseline ratchet 与冻结规则	internal,archtest,desktop,dependency,test,架构守卫,baseline,ratchet,与冻结规则
+internal/archtest/deterministic_time_guard_test.go	internal	other	go-test	5453	架构守卫、baseline ratchet 与冻结规则	internal,archtest,deterministic,time,guard,test,架构守卫,baseline,ratchet,与冻结规则
+internal/archtest/dispatcher_wiring_guard_test.go	internal	other	go-test	8356	架构守卫、baseline ratchet 与冻结规则	internal,archtest,dispatcher,wiring,guard,test,架构守卫,baseline,ratchet,与冻结规则
+internal/archtest/duplicate_switch_guard_test.go	internal	other	go-test	3333	架构守卫、baseline ratchet 与冻结规则	internal,archtest,duplicate,switch,guard,test,架构守卫,baseline,ratchet,与冻结规则
+internal/archtest/effective_lines.go	internal	other	go-source	1020	架构守卫、baseline ratchet 与冻结规则	internal,archtest,effective,lines,架构守卫,baseline,ratchet,与冻结规则
+internal/archtest/error_prone_pattern_guard.go	internal	other	go-source	16783	架构守卫、baseline ratchet 与冻结规则	internal,archtest,error,prone,pattern,guard,架构守卫,baseline,ratchet,与冻结规则
+internal/archtest/error_string_match_guard_test.go	internal	other	go-test	3141	架构守卫、baseline ratchet 与冻结规则	internal,archtest,error,string,match,guard,test,架构守卫,baseline,ratchet,与冻结规则
+internal/archtest/eventbus_payload_guard_test.go	internal	other	go-test	2431	架构守卫、baseline ratchet 与冻结规则	internal,archtest,eventbus,payload,guard,test,架构守卫,baseline,ratchet,与冻结规则
+internal/archtest/freeze_registry_autofix_test.go	internal	other	go-test	3154	架构守卫、baseline ratchet 与冻结规则	internal,archtest,freeze,registry,autofix,test,架构守卫,baseline,ratchet,与冻结规则
+internal/archtest/freeze_registry_autofix.go	internal	other	go-source	6238	架构守卫、baseline ratchet 与冻结规则	internal,archtest,freeze,registry,autofix,架构守卫,baseline,ratchet,与冻结规则
+internal/archtest/freeze_registry.go	internal	other	go-source	5395	架构守卫、baseline ratchet 与冻结规则	internal,archtest,freeze,registry,架构守卫,baseline,ratchet,与冻结规则
+internal/archtest/frontend_app_shell_surface_guard_test.go	internal	other	go-test	1361	架构守卫、baseline ratchet 与冻结规则	internal,archtest,frontend,app,shell,surface,guard,test,架构守卫,baseline,ratchet,与冻结规则
+internal/archtest/frontend_source_contract_test.go	internal	other	go-test	1492	架构守卫、baseline ratchet 与冻结规则	internal,archtest,frontend,source,contract,test,架构守卫,baseline,ratchet,与冻结规则
+internal/archtest/function_comment_guard_test.go	internal	other	go-test	4811	架构守卫、baseline ratchet 与冻结规则	internal,archtest,function,comment,guard,test,架构守卫,baseline,ratchet,与冻结规则
+internal/archtest/fx_graph_test.go	internal	other	go-test	267	架构守卫、baseline ratchet 与冻结规则	internal,archtest,fx,graph,test,架构守卫,baseline,ratchet,与冻结规则
+internal/archtest/fx_invoke_guard_test.go	internal	other	go-test	2681	架构守卫、baseline ratchet 与冻结规则	internal,archtest,fx,invoke,guard,test,架构守卫,baseline,ratchet,与冻结规则
+internal/archtest/fx_lifecycle_guard_test.go	internal	other	go-test	2505	架构守卫、baseline ratchet 与冻结规则	internal,archtest,fx,lifecycle,guard,test,架构守卫,baseline,ratchet,与冻结规则
+internal/archtest/guardlib.go	internal	other	go-source	17784	架构守卫、baseline ratchet 与冻结规则	internal,archtest,guardlib,架构守卫,baseline,ratchet,与冻结规则
+internal/archtest/id_parse_guard_test.go	internal	other	go-test	2341	架构守卫、baseline ratchet 与冻结规则	internal,archtest,id,parse,guard,test,架构守卫,baseline,ratchet,与冻结规则
+internal/archtest/identifier_guard_test.go	internal	other	go-test	1539	架构守卫、baseline ratchet 与冻结规则	internal,archtest,identifier,guard,test,架构守卫,baseline,ratchet,与冻结规则
+internal/archtest/ignored_return_guard_test.go	internal	other	go-test	3893	架构守卫、baseline ratchet 与冻结规则	internal,archtest,ignored,return,guard,test,架构守卫,baseline,ratchet,与冻结规则
+internal/archtest/interface_isolation_guard_test.go	internal	other	go-test	8117	架构守卫、baseline ratchet 与冻结规则	internal,archtest,interface,isolation,guard,test,架构守卫,baseline,ratchet,与冻结规则
+internal/archtest/jrpc2_error_guard_test.go	internal	other	go-test	1009	架构守卫、baseline ratchet 与冻结规则	internal,archtest,jrpc2,error,guard,test,架构守卫,baseline,ratchet,与冻结规则
+internal/archtest/lifecycle_onstart_guard_test.go	internal	other	go-test	7801	架构守卫、baseline ratchet 与冻结规则	internal,archtest,lifecycle,onstart,guard,test,架构守卫,baseline,ratchet,与冻结规则
+internal/archtest/mcp_family_isolation_test.go	internal	other	go-test	1105	架构守卫、baseline ratchet 与冻结规则	internal,archtest,mcp,family,isolation,test,架构守卫,baseline,ratchet,与冻结规则
+internal/archtest/memory_disk_store_lock_guard_test.go	internal	other	go-test	7321	架构守卫、baseline ratchet 与冻结规则	internal,archtest,memory,disk,store,lock,guard,test,架构守卫,baseline,ratchet,与冻结规则
+internal/archtest/memory_lifecycle_hooks_construct_guard_test.go	internal	other	go-test	4174	架构守卫、baseline ratchet 与冻结规则	internal,archtest,memory,lifecycle,hooks,construct,guard,test,架构守卫,baseline,ratchet,与冻结规则
+internal/archtest/metric_registry_test.go	internal	other	go-test	3745	架构守卫、baseline ratchet 与冻结规则	internal,archtest,metric,registry,test,架构守卫,baseline,ratchet,与冻结规则
+internal/archtest/metric_registry.go	internal	other	go-source	6713	架构守卫、baseline ratchet 与冻结规则	internal,archtest,metric,registry,架构守卫,baseline,ratchet,与冻结规则
+internal/archtest/metrics_test.go	internal	other	go-test	3700	架构守卫、baseline ratchet 与冻结规则	internal,archtest,metrics,test,架构守卫,baseline,ratchet,与冻结规则
+internal/archtest/metrics.go	internal	other	go-source	10673	架构守卫、baseline ratchet 与冻结规则	internal,archtest,metrics,架构守卫,baseline,ratchet,与冻结规则
+internal/archtest/migration_sqlc_guard_test.go	internal	other	go-test	4898	架构守卫、baseline ratchet 与冻结规则	internal,archtest,migration,sqlc,guard,test,架构守卫,baseline,ratchet,与冻结规则
+internal/archtest/multilsp_cache_no_loop_guard_test.go	internal	other	go-test	1308	架构守卫、baseline ratchet 与冻结规则	internal,archtest,multilsp,cache,no,loop,guard,test,架构守卫,baseline,ratchet,与冻结规则
+internal/archtest/multilsp_recycler_runner_guard_test.go	internal	other	go-test	1619	架构守卫、baseline ratchet 与冻结规则	internal,archtest,multilsp,recycler,runner,guard,test,架构守卫,baseline,ratchet,与冻结规则
+internal/archtest/multilsp_transport_compat_guard_test.go	internal	other	go-test	2356	架构守卫、baseline ratchet 与冻结规则	internal,archtest,multilsp,transport,compat,guard,test,架构守卫,baseline,ratchet,与冻结规则
+internal/archtest/multilsp_transport_responder_guard_test.go	internal	other	go-test	2244	架构守卫、baseline ratchet 与冻结规则	internal,archtest,multilsp,transport,responder,guard,test,架构守卫,baseline,ratchet,与冻结规则
+internal/archtest/naked_goroutine_guard_test.go	internal	other	go-test	3688	架构守卫、baseline ratchet 与冻结规则	internal,archtest,naked,goroutine,guard,test,架构守卫,baseline,ratchet,与冻结规则
+internal/archtest/observability_log_event_guard_test.go	internal	other	go-test	1729	架构守卫、baseline ratchet 与冻结规则	internal,archtest,observability,log,event,guard,test,架构守卫,baseline,ratchet,与冻结规则
+internal/archtest/observability_metric_emit_guard_test.go	internal	other	go-test	2242	架构守卫、baseline ratchet 与冻结规则	internal,archtest,observability,metric,emit,guard,test,架构守卫,baseline,ratchet,与冻结规则
+internal/archtest/onion_architecture_guard_test.go	internal	other	go-test	3775	架构守卫、baseline ratchet 与冻结规则	internal,archtest,onion,architecture,guard,test,架构守卫,baseline,ratchet,与冻结规则
+internal/archtest/orchestration_agent_identity_reverse_lookup_guard_test.go	internal	other	go-test	2592	架构守卫、baseline ratchet 与冻结规则	internal,archtest,orchestration,agent,identity,reverse,lookup,guard,test,架构守卫,baseline,ratchet,与冻结规则
+internal/archtest/orchestration_launcher_protocol_guard_test.go	internal	other	go-test	3026	架构守卫、baseline ratchet 与冻结规则	internal,archtest,orchestration,launcher,protocol,guard,test,架构守卫,baseline,ratchet,与冻结规则
+internal/archtest/orchestration_no_hookconsumer_export_guard_test.go	internal	other	go-test	1593	架构守卫、baseline ratchet 与冻结规则	internal,archtest,orchestration,no,hookconsumer,export,guard,test,架构守卫,baseline,ratchet,与冻结规则
+internal/archtest/orchestration_no_module_export_guard_test.go	internal	other	go-test	1816	架构守卫、baseline ratchet 与冻结规则	internal,archtest,orchestration,no,module,export,guard,test,架构守卫,baseline,ratchet,与冻结规则
+internal/archtest/orchestration_no_rpc_shell_export_guard_test.go	internal	other	go-test	1430	架构守卫、baseline ratchet 与冻结规则	internal,archtest,orchestration,no,rpc,shell,export,guard,test,架构守卫,baseline,ratchet,与冻结规则
+internal/archtest/orchestration_report_protocol_guard_test.go	internal	other	go-test	2078	架构守卫、baseline ratchet 与冻结规则	internal,archtest,orchestration,report,protocol,guard,test,架构守卫,baseline,ratchet,与冻结规则
+internal/archtest/orchestration_rpc_golden_test.go	internal	other	go-test	3003	架构守卫、baseline ratchet 与冻结规则	internal,archtest,orchestration,rpc,golden,test,架构守卫,baseline,ratchet,与冻结规则
+internal/archtest/orchestration_session_cleaner_guard_test.go	internal	other	go-test	2348	架构守卫、baseline ratchet 与冻结规则	internal,archtest,orchestration,session,cleaner,guard,test,架构守卫,baseline,ratchet,与冻结规则
+internal/archtest/orchestration_session_ready_guard_test.go	internal	other	go-test	2201	架构守卫、baseline ratchet 与冻结规则	internal,archtest,orchestration,session,ready,guard,test,架构守卫,baseline,ratchet,与冻结规则
+internal/archtest/pattern_guard_helpers_test.go	internal	other	go-test	1170	架构守卫、baseline ratchet 与冻结规则	internal,archtest,pattern,guard,helpers,test,架构守卫,baseline,ratchet,与冻结规则
+internal/archtest/prompt_builtin_config_test.go	internal	other	go-test	17546	架构守卫、baseline ratchet 与冻结规则	internal,archtest,prompt,builtin,config,test,架构守卫,baseline,ratchet,与冻结规则
+internal/archtest/prompt_external_reference_guard_helpers_test.go	internal	other	go-test	19855	架构守卫、baseline ratchet 与冻结规则	internal,archtest,prompt,external,reference,guard,helpers,test,架构守卫,baseline,ratchet,与冻结规则
+internal/archtest/prompt_external_reference_guard_test.go	internal	other	go-test	12859	架构守卫、baseline ratchet 与冻结规则	internal,archtest,prompt,external,reference,guard,test,架构守卫,baseline,ratchet,与冻结规则
+internal/archtest/prompt_recall_seed_test.go	internal	other	go-test	4788	架构守卫、baseline ratchet 与冻结规则	internal,archtest,prompt,recall,seed,test,架构守卫,baseline,ratchet,与冻结规则
+internal/archtest/prompt_template_skill_cards_runtime_metadata_test.go	internal	other	go-test	3689	架构守卫、baseline ratchet 与冻结规则	internal,archtest,prompt,template,skill,cards,runtime,metadata,test,架构守卫,baseline,ratchet,与冻结规则
+internal/archtest/ratchet_test.go	internal	other	go-test	5272	架构守卫、baseline ratchet 与冻结规则	internal,archtest,ratchet,test,架构守卫,baseline,与冻结规则
+internal/archtest/ratchet.go	internal	other	go-source	9913	架构守卫、baseline ratchet 与冻结规则	internal,archtest,ratchet,架构守卫,baseline,与冻结规则
+internal/archtest/root_bridge_allowlist_test.go	internal	other	go-test	651	架构守卫、baseline ratchet 与冻结规则	internal,archtest,root,bridge,allowlist,test,架构守卫,baseline,ratchet,与冻结规则
+internal/archtest/root_bridge_allowlist.go	internal	other	go-source	8084	架构守卫、baseline ratchet 与冻结规则	internal,archtest,root,bridge,allowlist,架构守卫,baseline,ratchet,与冻结规则
+internal/archtest/runner_actor_guard_test.go	internal	other	go-test	6265	架构守卫、baseline ratchet 与冻结规则	internal,archtest,runner,actor,guard,test,架构守卫,baseline,ratchet,与冻结规则
+internal/archtest/safego_guard_test.go	internal	other	go-test	3707	架构守卫、baseline ratchet 与冻结规则	internal,archtest,safego,guard,test,架构守卫,baseline,ratchet,与冻结规则
+internal/archtest/scattered_decimal_guard_test.go	internal	other	go-test	3497	架构守卫、baseline ratchet 与冻结规则	internal,archtest,scattered,decimal,guard,test,架构守卫,baseline,ratchet,与冻结规则
+internal/archtest/session_private_allowlist_test.go	internal	other	go-test	10160	架构守卫、baseline ratchet 与冻结规则	internal,archtest,session,private,allowlist,test,架构守卫,baseline,ratchet,与冻结规则
+internal/archtest/session_private_allowlist.go	internal	other	go-source	4494	架构守卫、baseline ratchet 与冻结规则	internal,archtest,session,private,allowlist,架构守卫,baseline,ratchet,与冻结规则
+internal/archtest/shared_budget_test.go	internal	other	go-test	2712	架构守卫、baseline ratchet 与冻结规则	internal,archtest,shared,budget,test,架构守卫,baseline,ratchet,与冻结规则
+internal/archtest/sharedfilegitignore_no_pkg_error_var_test.go	internal	other	go-test	5069	架构守卫、baseline ratchet 与冻结规则	internal,archtest,sharedfilegitignore,no,pkg,error,var,test,架构守卫,baseline,ratchet,与冻结规则
+internal/archtest/silent_fallback_guard_test.go	internal	other	go-test	5072	架构守卫、baseline ratchet 与冻结规则	internal,archtest,silent,fallback,guard,test,架构守卫,baseline,ratchet,与冻结规则
+internal/archtest/silent_fallback_guard.go	internal	other	go-source	11343	架构守卫、baseline ratchet 与冻结规则	internal,archtest,silent,fallback,guard,架构守卫,baseline,ratchet,与冻结规则
+internal/archtest/skill_fbsd_boundary_guard_test.go	internal	other	go-test	5476	架构守卫、baseline ratchet 与冻结规则	internal,archtest,skill,fbsd,boundary,guard,test,架构守卫,baseline,ratchet,与冻结规则
+internal/archtest/sqlc_boundary_test.go	internal	other	go-test	697	架构守卫、baseline ratchet 与冻结规则	internal,archtest,sqlc,boundary,test,架构守卫,baseline,ratchet,与冻结规则
+internal/archtest/sqlc_bypass_guard_test.go	internal	other	go-test	5558	架构守卫、baseline ratchet 与冻结规则	internal,archtest,sqlc,bypass,guard,test,架构守卫,baseline,ratchet,与冻结规则
+internal/archtest/sqlc_convention_guard_test.go	internal	other	go-test	1034	架构守卫、baseline ratchet 与冻结规则	internal,archtest,sqlc,convention,guard,test,架构守卫,baseline,ratchet,与冻结规则
+internal/archtest/stateless_guard_test.go	internal	other	go-test	2876	架构守卫、baseline ratchet 与冻结规则	internal,archtest,stateless,guard,test,架构守卫,baseline,ratchet,与冻结规则
+internal/archtest/structured_log_guard_test.go	internal	other	go-test	4310	架构守卫、baseline ratchet 与冻结规则	internal,archtest,structured,log,guard,test,架构守卫,baseline,ratchet,与冻结规则
+internal/archtest/testdata/doc.go	internal	other	go-source	17	架构守卫、baseline ratchet 与冻结规则	internal,archtest,testdata,doc,架构守卫,baseline,ratchet,与冻结规则
+internal/archtest/testdata/golden/integration/agent_list_dispatch.golden.json	internal	other	json	1456	架构守卫、baseline ratchet 与冻结规则	internal,archtest,testdata,golden,integration,agent,list,dispatch,架构守卫,baseline,ratchet,与冻结规则
+internal/archtest/testdata/metrics_sample.gotxt	internal	other	gotxt	1189	架构守卫、baseline ratchet 与冻结规则	internal,archtest,testdata,metrics,sample,架构守卫,baseline,ratchet,与冻结规则
+internal/archtest/thread_turn_side_channel_guard_test.go	internal	other	go-test	2664	架构守卫、baseline ratchet 与冻结规则	internal,archtest,thread,turn,side,channel,guard,test,架构守卫,baseline,ratchet,与冻结规则
+internal/archtest/timeout_locality_test.go	internal	other	go-test	2076	架构守卫、baseline ratchet 与冻结规则	internal,archtest,timeout,locality,test,架构守卫,baseline,ratchet,与冻结规则
+internal/archtest/toolbridge_protocol_guard_test.go	internal	other	go-test	3561	架构守卫、baseline ratchet 与冻结规则	internal,archtest,toolbridge,protocol,guard,test,架构守卫,baseline,ratchet,与冻结规则
+internal/archtest/toolbridge_store_port_guard_test.go	internal	other	go-test	2223	架构守卫、baseline ratchet 与冻结规则	internal,archtest,toolbridge,store,port,guard,test,架构守卫,baseline,ratchet,与冻结规则
+internal/archtest/trajectory_readonly_test.go	internal	other	go-test	1165	架构守卫、baseline ratchet 与冻结规则	internal,archtest,trajectory,readonly,test,架构守卫,baseline,ratchet,与冻结规则
+internal/archtest/ui_wails_guard_test.go	internal	other	go-test	2338	架构守卫、baseline ratchet 与冻结规则	internal,archtest,ui,wails,guard,test,架构守卫,baseline,ratchet,与冻结规则
+internal/archtest/video_skill_contract_test.go	internal	other	go-test	839	架构守卫、baseline ratchet 与冻结规则	internal,archtest,video,skill,contract,test,架构守卫,baseline,ratchet,与冻结规则
+internal/contract/agent_state_test.go	internal	other	go-test	916	跨模块稳定接口、事件和 DTO 边界	internal,contract,agent,state,test,跨模块稳定接口,事件和,DTO,边界
+internal/contract/agent_state.go	internal	other	go-source	14341	跨模块稳定接口、事件和 DTO 边界	internal,contract,agent,state,跨模块稳定接口,事件和,DTO,边界
+internal/contract/agent_workflow_test.go	internal	other	go-test	5083	跨模块稳定接口、事件和 DTO 边界	internal,contract,agent,workflow,test,跨模块稳定接口,事件和,DTO,边界
+internal/contract/approval.go	internal	other	go-source	2002	跨模块稳定接口、事件和 DTO 边界	internal,contract,approval,跨模块稳定接口,事件和,DTO,边界
+internal/contract/bootstrap_hook.go	internal	other	go-source	428	跨模块稳定接口、事件和 DTO 边界	internal,contract,bootstrap,hook,跨模块稳定接口,事件和,DTO,边界
+internal/contract/bus.go	internal	other	go-source	2153	跨模块稳定接口、事件和 DTO 边界	internal,contract,bus,跨模块稳定接口,事件和,DTO,边界
+internal/contract/change_request_test.go	internal	other	go-test	1381	跨模块稳定接口、事件和 DTO 边界	internal,contract,change,request,test,跨模块稳定接口,事件和,DTO,边界
+internal/contract/codex_identity_test.go	internal	other	go-test	352	跨模块稳定接口、事件和 DTO 边界	internal,contract,codex,identity,test,跨模块稳定接口,事件和,DTO,边界
+internal/contract/codex_identity.go	internal	other	go-source	6561	跨模块稳定接口、事件和 DTO 边界	internal,contract,codex,identity,跨模块稳定接口,事件和,DTO,边界
+internal/contract/config.go	internal	other	go-source	5079	跨模块稳定接口、事件和 DTO 边界	internal,contract,config,跨模块稳定接口,事件和,DTO,边界
+internal/contract/contracttest/section_invalidator.go	internal	other	go-source	1565	跨模块稳定接口、事件和 DTO 边界	internal,contract,contracttest,section,invalidator,跨模块稳定接口,事件和,DTO,边界
+internal/contract/cron.go	internal	other	go-source	2164	跨模块稳定接口、事件和 DTO 边界	internal,contract,cron,跨模块稳定接口,事件和,DTO,边界
+internal/contract/dag_events_test.go	internal	other	go-test	3611	跨模块稳定接口、事件和 DTO 边界	internal,contract,dag,events,test,跨模块稳定接口,事件和,DTO,边界
+internal/contract/dag_final_output_test.go	internal	other	go-test	2532	跨模块稳定接口、事件和 DTO 边界	internal,contract,dag,final,output,test,跨模块稳定接口,事件和,DTO,边界
+internal/contract/dag_start_response_test.go	internal	other	go-test	1228	跨模块稳定接口、事件和 DTO 边界	internal,contract,dag,start,response,test,跨模块稳定接口,事件和,DTO,边界
+internal/contract/dream.go	internal	other	go-source	641	跨模块稳定接口、事件和 DTO 边界	internal,contract,dream,跨模块稳定接口,事件和,DTO,边界
+internal/contract/errors.go	internal	other	go-source	3220	跨模块稳定接口、事件和 DTO 边界	internal,contract,errors,跨模块稳定接口,事件和,DTO,边界
+internal/contract/frc.go	internal	other	go-source	2223	跨模块稳定接口、事件和 DTO 边界	internal,contract,frc,跨模块稳定接口,事件和,DTO,边界
+internal/contract/hooks.go	internal	other	go-source	2500	跨模块稳定接口、事件和 DTO 边界	internal,contract,hooks,跨模块稳定接口,事件和,DTO,边界
+internal/contract/insight.go	internal	other	go-source	3160	跨模块稳定接口、事件和 DTO 边界	internal,contract,insight,跨模块稳定接口,事件和,DTO,边界
+internal/contract/manifest_test.go	internal	other	go-test	3971	跨模块稳定接口、事件和 DTO 边界	internal,contract,manifest,test,跨模块稳定接口,事件和,DTO,边界
+internal/contract/manifest.go	internal	other	go-source	12587	跨模块稳定接口、事件和 DTO 边界	internal,contract,manifest,跨模块稳定接口,事件和,DTO,边界
+internal/contract/mcp_control.go	internal	other	go-source	8530	跨模块稳定接口、事件和 DTO 边界	internal,contract,mcp,control,跨模块稳定接口,事件和,DTO,边界
+internal/contract/memory.go	internal	other	go-source	7570	跨模块稳定接口、事件和 DTO 边界	internal,contract,memory,跨模块稳定接口,事件和,DTO,边界
+internal/contract/message_notifier.go	internal	other	go-source	1872	跨模块稳定接口、事件和 DTO 边界	internal,contract,message,notifier,跨模块稳定接口,事件和,DTO,边界
+internal/contract/orchestration_workbench_test.go	internal	other	go-test	1783	跨模块稳定接口、事件和 DTO 边界	internal,contract,orchestration,workbench,test,跨模块稳定接口,事件和,DTO,边界
+internal/contract/orchestration.go	internal	other	go-source	29176	跨模块稳定接口、事件和 DTO 边界	internal,contract,orchestration,跨模块稳定接口,事件和,DTO,边界
+internal/contract/pending_launch_spawner.go	internal	other	go-source	1028	跨模块稳定接口、事件和 DTO 边界	internal,contract,pending,launch,spawner,跨模块稳定接口,事件和,DTO,边界
+internal/contract/prompt_attachment.go	internal	other	go-source	3872	跨模块稳定接口、事件和 DTO 边界	internal,contract,prompt,attachment,跨模块稳定接口,事件和,DTO,边界
+internal/contract/prompt.go	internal	other	go-source	27328	跨模块稳定接口、事件和 DTO 边界	internal,contract,prompt,跨模块稳定接口,事件和,DTO,边界
+internal/contract/provider.go	internal	other	go-source	15630	跨模块稳定接口、事件和 DTO 边界	internal,contract,provider,跨模块稳定接口,事件和,DTO,边界
+internal/contract/README.md	internal	other	doc	1319	跨模块稳定接口、事件和 DTO 边界	internal,contract,README,跨模块稳定接口,事件和,DTO,边界
+internal/contract/rpc_dispatch.go	internal	other	go-source	327	跨模块稳定接口、事件和 DTO 边界	internal,contract,rpc,dispatch,跨模块稳定接口,事件和,DTO,边界
+internal/contract/rpc_handler.go	internal	other	go-source	1765	跨模块稳定接口、事件和 DTO 边界	internal,contract,rpc,handler,跨模块稳定接口,事件和,DTO,边界
+internal/contract/runner.go	internal	other	go-source	1953	跨模块稳定接口、事件和 DTO 边界	internal,contract,runner,跨模块稳定接口,事件和,DTO,边界
+internal/contract/runtime_config_keys_test.go	internal	other	go-test	3621	跨模块稳定接口、事件和 DTO 边界	internal,contract,runtime,config,keys,test,跨模块稳定接口,事件和,DTO,边界
+internal/contract/runtime_reporter.go	internal	other	go-source	4518	跨模块稳定接口、事件和 DTO 边界	internal,contract,runtime,reporter,跨模块稳定接口,事件和,DTO,边界
+internal/contract/session_ports_test.go	internal	other	go-test	426	跨模块稳定接口、事件和 DTO 边界	internal,contract,session,ports,test,跨模块稳定接口,事件和,DTO,边界
+internal/contract/session.go	internal	other	go-source	9114	跨模块稳定接口、事件和 DTO 边界	internal,contract,session,跨模块稳定接口,事件和,DTO,边界
+internal/contract/skill.go	internal	other	go-source	7241	跨模块稳定接口、事件和 DTO 边界	internal,contract,skill,跨模块稳定接口,事件和,DTO,边界
+internal/contract/thread.go	internal	other	go-source	2479	跨模块稳定接口、事件和 DTO 边界	internal,contract,thread,跨模块稳定接口,事件和,DTO,边界
+internal/contract/toolbridge.go	internal	other	go-source	4681	跨模块稳定接口、事件和 DTO 边界	internal,contract,toolbridge,跨模块稳定接口,事件和,DTO,边界
+internal/contract/ui_project_state.go	internal	other	go-source	623	跨模块稳定接口、事件和 DTO 边界	internal,contract,ui,project,state,跨模块稳定接口,事件和,DTO,边界
+internal/devtools/capcontract/manifest_test.go	internal	other	go-test	3134	开发工具与生成器辅助包	internal,devtools,capcontract,manifest,test,开发工具与生成器辅助包
+internal/devtools/capcontract/manifest.go	internal	other	go-source	8298	开发工具与生成器辅助包	internal,devtools,capcontract,manifest,开发工具与生成器辅助包
+internal/devtools/capcontract/scanner_test.go	internal	other	go-test	5159	开发工具与生成器辅助包	internal,devtools,capcontract,scanner,test,开发工具与生成器辅助包
+internal/devtools/capcontract/scanner.go	internal	other	go-source	16715	开发工具与生成器辅助包	internal,devtools,capcontract,scanner,开发工具与生成器辅助包
+internal/devtools/codemapindex/anchor_test.go	internal	other	go-test	2774	开发工具与生成器辅助包	internal,devtools,codemapindex,anchor,test,开发工具与生成器辅助包
+internal/devtools/codemapindex/anchor.go	internal	other	go-source	261	开发工具与生成器辅助包	internal,devtools,codemapindex,anchor,开发工具与生成器辅助包
+internal/devtools/codemapindex/readme_sync.go	internal	other	go-source	3732	开发工具与生成器辅助包	internal,devtools,codemapindex,readme,sync,开发工具与生成器辅助包
+internal/devtools/codemapindex/source_scan.go	internal	other	go-source	3504	开发工具与生成器辅助包	internal,devtools,codemapindex,source,scan,开发工具与生成器辅助包
+internal/devtools/sqlitepackagesmoke/main.go	internal	other	go-source	8493	开发工具与生成器辅助包	internal,devtools,sqlitepackagesmoke,main,开发工具与生成器辅助包
+internal/devtools/sqlitereleasegate/gates_test.go	internal	other	go-test	6130	开发工具与生成器辅助包	internal,devtools,sqlitereleasegate,gates,test,开发工具与生成器辅助包
+internal/devtools/sqlitereleasegate/gates.go	internal	other	go-source	15455	开发工具与生成器辅助包	internal,devtools,sqlitereleasegate,gates,开发工具与生成器辅助包
+internal/devtools/sqlitereleasegate/runner.go	internal	other	go-source	6383	开发工具与生成器辅助包	internal,devtools,sqlitereleasegate,runner,开发工具与生成器辅助包
+internal/dto/agent/diagnostic.go	internal	other	go-source	1218	provider/shared DTO 与事件协议	internal,dto,agent,diagnostic,provider,shared,DTO,与事件协议
+internal/dto/agent/event.go	internal	other	go-source	1875	provider/shared DTO 与事件协议	internal,dto,agent,event,provider,shared,DTO,与事件协议
+internal/dto/agent/runtime.go	internal	other	go-source	720	provider/shared DTO 与事件协议	internal,dto,agent,runtime,provider,shared,DTO,与事件协议
+internal/dto/agent/state.go	internal	other	go-source	7405	provider/shared DTO 与事件协议	internal,dto,agent,state,provider,shared,DTO,与事件协议
+internal/dto/cron/event.go	internal	other	go-source	922	provider/shared DTO 与事件协议	internal,dto,cron,event,provider,shared,DTO,与事件协议
+internal/dto/mcp/approval_response.go	internal	other	go-source	663	provider/shared DTO 与事件协议	internal,dto,mcp,approval,response,provider,shared,DTO,与事件协议
+internal/dto/mcp/constants.go	internal	other	go-source	2945	provider/shared DTO 与事件协议	internal,dto,mcp,constants,provider,shared,DTO,与事件协议
+internal/dto/mcp/errors.go	internal	other	go-source	1044	provider/shared DTO 与事件协议	internal,dto,mcp,errors,provider,shared,DTO,与事件协议
+internal/dto/mcp/hook.go	internal	other	go-source	5101	provider/shared DTO 与事件协议	internal,dto,mcp,hook,provider,shared,DTO,与事件协议
+internal/dto/mcp/protocol.go	internal	other	go-source	10001	provider/shared DTO 与事件协议	internal,dto,mcp,protocol,provider,shared,DTO,与事件协议
+internal/dto/mcp/tool.go	internal	other	go-source	627	provider/shared DTO 与事件协议	internal,dto,mcp,tool,provider,shared,DTO,与事件协议
+internal/dto/observation/types.go	internal	other	go-source	3660	provider/shared DTO 与事件协议	internal,dto,observation,types,provider,shared,DTO,与事件协议
+internal/dto/provider/attachment.go	internal	other	go-source	1059	provider/shared DTO 与事件协议	internal,dto,provider,attachment,shared,DTO,与事件协议
+internal/dto/provider/capability.go	internal	other	go-source	1232	provider/shared DTO 与事件协议	internal,dto,provider,capability,shared,DTO,与事件协议
+internal/dto/provider/event.go	internal	other	go-source	671	provider/shared DTO 与事件协议	internal,dto,provider,event,shared,DTO,与事件协议
+internal/dto/provider/manifest.go	internal	other	go-source	2411	provider/shared DTO 与事件协议	internal,dto,provider,manifest,shared,DTO,与事件协议
+internal/dto/provider/message_test.go	internal	other	go-test	921	provider/shared DTO 与事件协议	internal,dto,provider,message,test,shared,DTO,与事件协议
+internal/dto/provider/message.go	internal	other	go-source	1152	provider/shared DTO 与事件协议	internal,dto,provider,message,shared,DTO,与事件协议
+internal/dto/provider/session.go	internal	other	go-source	7216	provider/shared DTO 与事件协议	internal,dto,provider,session,shared,DTO,与事件协议
+internal/dto/provider/thread_config.go	internal	other	go-source	1727	provider/shared DTO 与事件协议	internal,dto,provider,thread,config,shared,DTO,与事件协议
+internal/dto/provider/thread.go	internal	other	go-source	256	provider/shared DTO 与事件协议	internal,dto,provider,thread,shared,DTO,与事件协议
+internal/dto/provider/turn_test.go	internal	other	go-test	6783	provider/shared DTO 与事件协议	internal,dto,provider,turn,test,shared,DTO,与事件协议
+internal/dto/provider/turn.go	internal	other	go-source	6423	provider/shared DTO 与事件协议	internal,dto,provider,turn,shared,DTO,与事件协议
+internal/dto/shared/errors.go	internal	other	go-source	439	provider/shared DTO 与事件协议	internal,dto,shared,errors,provider,DTO,与事件协议
+internal/dto/shared/event.go	internal	other	go-source	4855	provider/shared DTO 与事件协议	internal,dto,shared,event,provider,DTO,与事件协议
+internal/dto/shared/input.go	internal	other	go-source	553	provider/shared DTO 与事件协议	internal,dto,shared,input,provider,DTO,与事件协议
+internal/dto/task/event.go	internal	other	go-source	2084	provider/shared DTO 与事件协议	internal,dto,task,event,provider,shared,DTO,与事件协议
+internal/dto/thread/event.go	internal	other	go-source	4361	provider/shared DTO 与事件协议	internal,dto,thread,event,provider,shared,DTO,与事件协议
+internal/dto/tool/event.go	internal	other	go-source	2814	provider/shared DTO 与事件协议	internal,dto,tool,event,provider,shared,DTO,与事件协议
+internal/dto/turn/event.go	internal	other	go-source	2899	provider/shared DTO 与事件协议	internal,dto,turn,event,provider,shared,DTO,与事件协议
+internal/dto/turn/model.go	internal	other	go-source	870	provider/shared DTO 与事件协议	internal,dto,turn,model,provider,shared,DTO,与事件协议
+internal/dto/turn/progress.go	internal	other	go-source	2524	provider/shared DTO 与事件协议	internal,dto,turn,progress,provider,shared,DTO,与事件协议
+internal/dto/ui/event.go	internal	other	go-source	7759	provider/shared DTO 与事件协议	internal,dto,ui,event,provider,shared,DTO,与事件协议
+internal/dto/ui/patch_types.go	internal	other	go-source	1405	provider/shared DTO 与事件协议	internal,dto,ui,patch,types,provider,shared,DTO,与事件协议
+internal/guards/code_size_guard_test.go	internal	other	go-test	1945	未细分职责：请结合路径、文件名和相邻代码判断	internal,guards,code,size,guard,test,未细分职责：请结合路径,文件名和相邻代码判断
+internal/guards/guard_manifest.json	internal	other	json	345	未细分职责：请结合路径、文件名和相邻代码判断	internal,guards,guard,manifest,未细分职责：请结合路径,文件名和相邻代码判断
+internal/guards/refactor_baseline.json	internal	other	json	2096	未细分职责：请结合路径、文件名和相邻代码判断	internal,guards,refactor,baseline,未细分职责：请结合路径,文件名和相邻代码判断
+internal/testutil/golden/golden.go	internal	other	go-source	4206	未细分职责：请结合路径、文件名和相邻代码判断	internal,testutil,golden,未细分职责：请结合路径,文件名和相邻代码判断
+internal/testutil/golden/orchestration_stub.go	internal	other	go-source	12353	未细分职责：请结合路径、文件名和相邻代码判断	internal,testutil,golden,orchestration,stub,未细分职责：请结合路径,文件名和相邻代码判断
+internal/ui/wails/assets_test.go	internal	other	go-test	604	Wails binding 与 UI RPC 桥接	internal,ui,wails,assets,test,Wails,binding,与,UI,RPC,桥接
+internal/ui/wails/assets.go	internal	other	go-source	2674	Wails binding 与 UI RPC 桥接	internal,ui,wails,assets,Wails,binding,与,UI,RPC,桥接
+internal/ui/wails/binding_id_test.go	internal	other	go-test	12972	Wails binding 与 UI RPC 桥接	internal,ui,wails,binding,id,test,Wails,与,UI,RPC,桥接
+internal/ui/wails/binding_native_test.go	internal	other	go-test	2882	Wails binding 与 UI RPC 桥接	internal,ui,wails,binding,native,test,Wails,与,UI,RPC,桥接
+internal/ui/wails/binding_native.go	internal	other	go-source	10544	Wails binding 与 UI RPC 桥接	internal,ui,wails,binding,native,Wails,与,UI,RPC,桥接
+internal/ui/wails/binding_test.go	internal	other	go-test	4618	Wails binding 与 UI RPC 桥接	internal,ui,wails,binding,test,Wails,与,UI,RPC,桥接
+internal/ui/wails/binding.go	internal	other	go-source	18730	Wails binding 与 UI RPC 桥接	internal,ui,wails,binding,Wails,与,UI,RPC,桥接
+internal/ui/wails/bridge_test.go	internal	other	go-test	1622	Wails binding 与 UI RPC 桥接	internal,ui,wails,bridge,test,Wails,binding,与,UI,RPC,桥接
+internal/ui/wails/bridge.go	internal	other	go-source	2817	Wails binding 与 UI RPC 桥接	internal,ui,wails,bridge,Wails,binding,与,UI,RPC,桥接
+internal/ui/wails/clipboard_assets_test.go	internal	other	go-test	5908	Wails binding 与 UI RPC 桥接	internal,ui,wails,clipboard,assets,test,Wails,binding,与,UI,RPC,桥接
+internal/ui/wails/clipboard_assets.go	internal	other	go-source	4949	Wails binding 与 UI RPC 桥接	internal,ui,wails,clipboard,assets,Wails,binding,与,UI,RPC,桥接
+internal/ui/wails/clipboard_cleanup_test.go	internal	other	go-test	3311	Wails binding 与 UI RPC 桥接	internal,ui,wails,clipboard,cleanup,test,Wails,binding,与,UI,RPC,桥接
+internal/ui/wails/clipboard_cleanup.go	internal	other	go-source	2936	Wails binding 与 UI RPC 桥接	internal,ui,wails,clipboard,cleanup,Wails,binding,与,UI,RPC,桥接
+internal/ui/wails/code_preview_test.go	internal	other	go-test	6987	Wails binding 与 UI RPC 桥接	internal,ui,wails,code,preview,test,Wails,binding,与,UI,RPC,桥接
+internal/ui/wails/code_preview.go	internal	other	go-source	17550	Wails binding 与 UI RPC 桥接	internal,ui,wails,code,preview,Wails,binding,与,UI,RPC,桥接
+internal/ui/wails/code_scope_test.go	internal	other	go-test	1828	Wails binding 与 UI RPC 桥接	internal,ui,wails,code,scope,test,Wails,binding,与,UI,RPC,桥接
+internal/ui/wails/code_scope_windows_test.go	internal	other	go-test	502	Wails binding 与 UI RPC 桥接	internal,ui,wails,code,scope,windows,test,Wails,binding,与,UI,RPC,桥接
+internal/ui/wails/code_scope.go	internal	other	go-source	11249	Wails binding 与 UI RPC 桥接	internal,ui,wails,code,scope,Wails,binding,与,UI,RPC,桥接
+internal/ui/wails/dropped_text.go	internal	other	go-source	17027	Wails binding 与 UI RPC 桥接	internal,ui,wails,dropped,text,Wails,binding,与,UI,RPC,桥接
+internal/ui/wails/frontend/index.html	internal	other	html	1274	Wails binding 与 UI RPC 桥接	internal,ui,wails,frontend,index,Wails,binding,与,UI,RPC,桥接
+internal/ui/wails/http_logging.go	internal	other	go-source	6529	Wails binding 与 UI RPC 桥接	internal,ui,wails,http,logging,Wails,binding,与,UI,RPC,桥接
+internal/ui/wails/http_server_test.go	internal	other	go-test	6612	Wails binding 与 UI RPC 桥接	internal,ui,wails,http,server,test,Wails,binding,与,UI,RPC,桥接
+internal/ui/wails/http_server.go	internal	other	go-source	8136	Wails binding 与 UI RPC 桥接	internal,ui,wails,http,server,Wails,binding,与,UI,RPC,桥接
+internal/ui/wails/lifecycle_test.go	internal	other	go-test	5391	Wails binding 与 UI RPC 桥接	internal,ui,wails,lifecycle,test,Wails,binding,与,UI,RPC,桥接
+internal/ui/wails/lifecycle.go	internal	other	go-source	8395	Wails binding 与 UI RPC 桥接	internal,ui,wails,lifecycle,Wails,binding,与,UI,RPC,桥接
+internal/ui/wails/module.go	internal	other	go-source	6046	Wails binding 与 UI RPC 桥接	internal,ui,wails,module,Wails,binding,与,UI,RPC,桥接
+internal/ui/wails/path_open.go	internal	other	go-source	3573	Wails binding 与 UI RPC 桥接	internal,ui,wails,path,open,Wails,binding,与,UI,RPC,桥接
+internal/ui/wails/rpc_frontend_log_level_test.go	internal	other	go-test	2291	Wails binding 与 UI RPC 桥接	internal,ui,wails,rpc,frontend,log,level,test,Wails,binding,与,UI,RPC,桥接
+internal/ui/wails/rpc_path_open_test.go	internal	other	go-test	3416	Wails binding 与 UI RPC 桥接	internal,ui,wails,rpc,path,open,test,Wails,binding,与,UI,RPC,桥接
+internal/ui/wails/rpc_save_text_file_test.go	internal	other	go-test	3902	Wails binding 与 UI RPC 桥接	internal,ui,wails,rpc,save,text,file,test,Wails,binding,与,UI,RPC,桥接
+internal/ui/wails/rpc_shared_file_open_test.go	internal	other	go-test	3700	Wails binding 与 UI RPC 桥接	internal,ui,wails,rpc,shared,file,open,test,Wails,binding,与,UI,RPC,桥接
+internal/ui/wails/rpc_test.go	internal	other	go-test	19853	Wails binding 与 UI RPC 桥接	internal,ui,wails,rpc,test,Wails,binding,与,UI,RPC,桥接
+internal/ui/wails/rpc.go	internal	other	go-source	16555	Wails binding 与 UI RPC 桥接	internal,ui,wails,rpc,Wails,binding,与,UI,RPC,桥接
+internal/ui/wails/runner.go	internal	other	go-source	1557	Wails binding 与 UI RPC 桥接	internal,ui,wails,runner,Wails,binding,与,UI,RPC,桥接
+internal/ui/wails/scope_catalog.go	internal	other	go-source	4007	Wails binding 与 UI RPC 桥接	internal,ui,wails,scope,catalog,Wails,binding,与,UI,RPC,桥接
+internal/ui/wails/sharedfile_open.go	internal	other	go-source	4868	Wails binding 与 UI RPC 桥接	internal,ui,wails,sharedfile,open,Wails,binding,与,UI,RPC,桥接
+internal/ui/wails/window_state.go	internal	other	go-source	4310	Wails binding 与 UI RPC 桥接	internal,ui,wails,window,state,Wails,binding,与,UI,RPC,桥接
+internal/ui/wails/window_test.go	internal	other	go-test	2982	Wails binding 与 UI RPC 桥接	internal,ui,wails,window,test,Wails,binding,与,UI,RPC,桥接
+internal/ui/wails/window.go	internal	other	go-source	5039	Wails binding 与 UI RPC 桥接	internal,ui,wails,window,Wails,binding,与,UI,RPC,桥接
+internal/util/clone/clone.go	internal	other	go-source	2811	未细分职责：请结合路径、文件名和相邻代码判断	internal,util,clone,未细分职责：请结合路径,文件名和相邻代码判断
+internal/util/configutil/configutil.go	internal	other	go-source	4643	未细分职责：请结合路径、文件名和相邻代码判断	internal,util,configutil,未细分职责：请结合路径,文件名和相邻代码判断
+internal/util/ctxutil/ctxutil.go	internal	other	go-source	3150	未细分职责：请结合路径、文件名和相邻代码判断	internal,util,ctxutil,未细分职责：请结合路径,文件名和相邻代码判断
+internal/util/historyjsonl/history_test.go	internal	other	go-test	8910	未细分职责：请结合路径、文件名和相邻代码判断	internal,util,historyjsonl,history,test,未细分职责：请结合路径,文件名和相邻代码判断
+internal/util/historyjsonl/history.go	internal	other	go-source	11994	未细分职责：请结合路径、文件名和相邻代码判断	internal,util,historyjsonl,history,未细分职责：请结合路径,文件名和相邻代码判断
+internal/util/historyjsonl/page.go	internal	other	go-source	9138	未细分职责：请结合路径、文件名和相邻代码判断	internal,util,historyjsonl,page,未细分职责：请结合路径,文件名和相邻代码判断
+internal/util/idempotency/registry_test.go	internal	other	go-test	3061	未细分职责：请结合路径、文件名和相邻代码判断	internal,util,idempotency,registry,test,未细分职责：请结合路径,文件名和相邻代码判断
+internal/util/idempotency/registry.go	internal	other	go-source	6407	未细分职责：请结合路径、文件名和相邻代码判断	internal,util,idempotency,registry,未细分职责：请结合路径,文件名和相邻代码判断
+internal/util/identifier/uuid_test.go	internal	other	go-test	2051	未细分职责：请结合路径、文件名和相邻代码判断	internal,util,identifier,uuid,test,未细分职责：请结合路径,文件名和相邻代码判断
+internal/util/identifier/uuid.go	internal	other	go-source	1354	未细分职责：请结合路径、文件名和相邻代码判断	internal,util,identifier,uuid,未细分职责：请结合路径,文件名和相邻代码判断
+internal/util/idgen/idgen.go	internal	other	go-source	1288	未细分职责：请结合路径、文件名和相邻代码判断	internal,util,idgen,未细分职责：请结合路径,文件名和相邻代码判断
+internal/util/jsoninput/jsoninput.go	internal	other	go-source	770	未细分职责：请结合路径、文件名和相邻代码判断	internal,util,jsoninput,未细分职责：请结合路径,文件名和相邻代码判断
+internal/util/pathutil/pathutil_test.go	internal	other	go-test	1693	未细分职责：请结合路径、文件名和相邻代码判断	internal,util,pathutil,test,未细分职责：请结合路径,文件名和相邻代码判断
+internal/util/pathutil/pathutil.go	internal	other	go-source	10852	未细分职责：请结合路径、文件名和相邻代码判断	internal,util,pathutil,未细分职责：请结合路径,文件名和相邻代码判断
+internal/util/repofingerprint/fingerprint_test.go	internal	other	go-test	1245	未细分职责：请结合路径、文件名和相邻代码判断	internal,util,repofingerprint,fingerprint,test,未细分职责：请结合路径,文件名和相邻代码判断
+internal/util/repofingerprint/fingerprint.go	internal	other	go-source	1126	未细分职责：请结合路径、文件名和相邻代码判断	internal,util,repofingerprint,fingerprint,未细分职责：请结合路径,文件名和相邻代码判断
+internal/util/safego/safego.go	internal	other	go-source	1159	未细分职责：请结合路径、文件名和相邻代码判断	internal,util,safego,未细分职责：请结合路径,文件名和相邻代码判断
+internal/util/toolresults/path_test.go	internal	other	go-test	706	未细分职责：请结合路径、文件名和相邻代码判断	internal,util,toolresults,path,test,未细分职责：请结合路径,文件名和相邻代码判断
+internal/util/toolresults/path.go	internal	other	go-source	716	未细分职责：请结合路径、文件名和相邻代码判断	internal,util,toolresults,path,未细分职责：请结合路径,文件名和相邻代码判断
+internal/util/util.go	internal	other	go-source	1698	未细分职责：请结合路径、文件名和相邻代码判断	internal,util,未细分职责：请结合路径,文件名和相邻代码判断
+LICENSE	(root)	other	file	1211	仓库根级配置、入口或说明文件	LICENSE,仓库根级配置,入口或说明文件
+Makefile	(root)	other	file	14238	仓库根级配置、入口或说明文件	Makefile,仓库根级配置,入口或说明文件
+mcp-lsp	(root)	other	file	19127650	仓库根级配置、入口或说明文件	mcp,lsp,仓库根级配置,入口或说明文件
+mcp-orch	(root)	other	file	30403106	仓库根级配置、入口或说明文件	mcp,orch,仓库根级配置,入口或说明文件
+pkg/.DS_Store	pkg	other	file	6148	可复用公共库	pkg,可复用公共库
+pkg/dagmetrics/dagmetrics_test.go	pkg	other	go-test	992	DAG 指标公共库	pkg,dagmetrics,test,DAG,指标公共库
+pkg/dagmetrics/dagmetrics.go	pkg	other	go-source	4427	DAG 指标公共库	pkg,dagmetrics,DAG,指标公共库
+pkg/dreammetrics/dreammetrics_test.go	pkg	other	go-test	3112	dream pipeline 指标公共库	pkg,dreammetrics,test,dream,pipeline,指标公共库
+pkg/dreammetrics/dreammetrics.go	pkg	other	go-source	4446	dream pipeline 指标公共库	pkg,dreammetrics,dream,pipeline,指标公共库
+pkg/logger/agent_logger.go	pkg	other	go-source	2622	统一日志、采样、relay、watchdog 与 trace context	pkg,logger,agent,统一日志,采样,relay,watchdog,与,trace,context
+pkg/logger/error_enricher.go	pkg	other	go-source	2370	统一日志、采样、relay、watchdog 与 trace context	pkg,logger,error,enricher,统一日志,采样,relay,watchdog,与,trace,context
+pkg/logger/fields.go	pkg	other	go-source	11134	统一日志、采样、relay、watchdog 与 trace context	pkg,logger,fields,统一日志,采样,relay,watchdog,与,trace,context
+pkg/logger/logger.go	pkg	other	go-source	10272	统一日志、采样、relay、watchdog 与 trace context	pkg,logger,统一日志,采样,relay,watchdog,与,trace,context
+pkg/logger/metadata.go	pkg	other	go-source	3296	统一日志、采样、relay、watchdog 与 trace context	pkg,logger,metadata,统一日志,采样,relay,watchdog,与,trace,context
+pkg/logger/redact.go	pkg	other	go-source	2764	统一日志、采样、relay、watchdog 与 trace context	pkg,logger,redact,统一日志,采样,relay,watchdog,与,trace,context
+pkg/logger/relay_test.go	pkg	other	go-test	2106	统一日志、采样、relay、watchdog 与 trace context	pkg,logger,relay,test,统一日志,采样,watchdog,与,trace,context
+pkg/logger/relay_throttle.go	pkg	other	go-source	417	统一日志、采样、relay、watchdog 与 trace context	pkg,logger,relay,throttle,统一日志,采样,watchdog,与,trace,context
+pkg/logger/relay.go	pkg	other	go-source	6315	统一日志、采样、relay、watchdog 与 trace context	pkg,logger,relay,统一日志,采样,watchdog,与,trace,context
+pkg/logger/safego.go	pkg	other	go-source	521	统一日志、采样、relay、watchdog 与 trace context	pkg,logger,safego,统一日志,采样,relay,watchdog,与,trace,context
+pkg/logger/sampler_test.go	pkg	other	go-test	404	统一日志、采样、relay、watchdog 与 trace context	pkg,logger,sampler,test,统一日志,采样,relay,watchdog,与,trace,context
+pkg/logger/sampler.go	pkg	other	go-source	1124	统一日志、采样、relay、watchdog 与 trace context	pkg,logger,sampler,统一日志,采样,relay,watchdog,与,trace,context
+pkg/logger/stderr_collector.go	pkg	other	go-source	1026	统一日志、采样、relay、watchdog 与 trace context	pkg,logger,stderr,collector,统一日志,采样,relay,watchdog,与,trace,context
+pkg/logger/trace_context_test.go	pkg	other	go-test	6113	统一日志、采样、relay、watchdog 与 trace context	pkg,logger,trace,context,test,统一日志,采样,relay,watchdog,与
+pkg/logger/trace_context.go	pkg	other	go-source	751	统一日志、采样、relay、watchdog 与 trace context	pkg,logger,trace,context,统一日志,采样,relay,watchdog,与
+pkg/logger/truncate.go	pkg	other	go-source	581	统一日志、采样、relay、watchdog 与 trace context	pkg,logger,truncate,统一日志,采样,relay,watchdog,与,trace,context
+pkg/logger/watchdog.go	pkg	other	go-source	1664	统一日志、采样、relay、watchdog 与 trace context	pkg,logger,watchdog,统一日志,采样,relay,与,trace,context
+pkg/skillmetrics/skillmetrics_test.go	pkg	other	go-test	1876	skill 指标公共库	pkg,skillmetrics,test,skill,指标公共库
+pkg/skillmetrics/skillmetrics.go	pkg	other	go-source	4655	skill 指标公共库	pkg,skillmetrics,skill,指标公共库
+README.md	(root)	other	doc	8069	仓库根级配置、入口或说明文件	README,仓库根级配置,入口或说明文件
+run-new-ui-desktop.ps1	(root)	other	script	32617	仓库根级配置、入口或说明文件	run,new,ui,desktop,仓库根级配置,入口或说明文件
+run-new-ui-desktop.sh	(root)	other	script	25749	仓库根级配置、入口或说明文件	run,new,ui,desktop,仓库根级配置,入口或说明文件
+scripts/.DS_Store	scripts	other	file	6148	工程自动化、测试守卫、代码地图与开发脚本	scripts,工程自动化,测试守卫,代码地图与开发脚本
+scripts/activate_guard_env.sh	scripts	other	script	1148	工程自动化、测试守卫、代码地图与开发脚本	scripts,activate,guard,env,工程自动化,测试守卫,代码地图与开发脚本
+scripts/bash_test_helpers_test.go	scripts	other	go-test	8708	工程自动化、测试守卫、代码地图与开发脚本	scripts,bash,test,helpers,工程自动化,测试守卫,代码地图与开发脚本
+scripts/capcontract.go	scripts	other	go-source	579	工程自动化、测试守卫、代码地图与开发脚本	scripts,capcontract,工程自动化,测试守卫,代码地图与开发脚本
+scripts/capcontract/main_test.go	scripts	other	go-test	2455	工程自动化、测试守卫、代码地图与开发脚本	scripts,capcontract,main,test,工程自动化,测试守卫,代码地图与开发脚本
+scripts/capcontract/main.go	scripts	other	go-source	4826	工程自动化、测试守卫、代码地图与开发脚本	scripts,capcontract,main,工程自动化,测试守卫,代码地图与开发脚本
+scripts/check_p1_turn_wrappers_guard_test.go	scripts	other	go-test	9307	工程自动化、测试守卫、代码地图与开发脚本	scripts,check,p1,turn,wrappers,guard,test,工程自动化,测试守卫,代码地图与开发脚本
+scripts/check_p1_turn_wrappers.go	scripts	other	go-source	5150	工程自动化、测试守卫、代码地图与开发脚本	scripts,check,p1,turn,wrappers,工程自动化,测试守卫,代码地图与开发脚本
+scripts/check-dag-doc-sync.sh	scripts	other	script	4698	工程自动化、测试守卫、代码地图与开发脚本	scripts,check,dag,doc,sync,工程自动化,测试守卫,代码地图与开发脚本
+scripts/ci_commit_guard.sh	scripts	other	script	2432	工程自动化、测试守卫、代码地图与开发脚本	scripts,ci,commit,guard,工程自动化,测试守卫,代码地图与开发脚本
+scripts/ci_cross_platform_smoke.ps1	scripts	other	script	4405	工程自动化、测试守卫、代码地图与开发脚本	scripts,ci,cross,platform,smoke,工程自动化,测试守卫,代码地图与开发脚本
+scripts/code_size_guard_cli_test.go	scripts	other	go-test	5845	工程自动化、测试守卫、代码地图与开发脚本	scripts,code,size,guard,cli,test,工程自动化,测试守卫,代码地图与开发脚本
+scripts/code_size_guard_test.go	scripts	other	go-test	2791	工程自动化、测试守卫、代码地图与开发脚本	scripts,code,size,guard,test,工程自动化,测试守卫,代码地图与开发脚本
+scripts/code_size_guard.go	scripts	other	go-source	10050	工程自动化、测试守卫、代码地图与开发脚本	scripts,code,size,guard,工程自动化,测试守卫,代码地图与开发脚本
+scripts/codemap_index_test.go	scripts	other	go-test	709	工程自动化、测试守卫、代码地图与开发脚本	scripts,codemap,index,test,工程自动化,测试守卫,代码地图与开发脚本
+scripts/codemap_index.go	scripts	other	go-source	16449	工程自动化、测试守卫、代码地图与开发脚本	scripts,codemap,index,工程自动化,测试守卫,代码地图与开发脚本
+scripts/codex_stop_gate.sh	scripts	other	script	8934	工程自动化、测试守卫、代码地图与开发脚本	scripts,codex,stop,gate,工程自动化,测试守卫,代码地图与开发脚本
+scripts/dag_m3_dogfood_test.py	scripts	other	py	18679	工程自动化、测试守卫、代码地图与开发脚本	scripts,dag,m3,dogfood,test,工程自动化,测试守卫,代码地图与开发脚本
+scripts/dag_m3_dogfood.py	scripts	other	py	29352	工程自动化、测试守卫、代码地图与开发脚本	scripts,dag,m3,dogfood,工程自动化,测试守卫,代码地图与开发脚本
+scripts/elk-local.ps1	scripts	other	script	1977	工程自动化、测试守卫、代码地图与开发脚本	scripts,elk,local,工程自动化,测试守卫,代码地图与开发脚本
+scripts/extract_jsonrpc_methods_guard_test.go	scripts	other	go-test	556	工程自动化、测试守卫、代码地图与开发脚本	scripts,extract,jsonrpc,methods,guard,test,工程自动化,测试守卫,代码地图与开发脚本
+scripts/extract_jsonrpc_methods_main_guardrail_test.go	scripts	other	go-test	8887	工程自动化、测试守卫、代码地图与开发脚本	scripts,extract,jsonrpc,methods,main,guardrail,test,工程自动化,测试守卫,代码地图与开发脚本
+scripts/extract_jsonrpc_methods.go	scripts	other	go-source	6615	工程自动化、测试守卫、代码地图与开发脚本	scripts,extract,jsonrpc,methods,工程自动化,测试守卫,代码地图与开发脚本
+scripts/fixtures/prompt_intent_dream_fixture.json	scripts	other	json	3001	工程自动化、测试守卫、代码地图与开发脚本	scripts,fixtures,prompt,intent,dream,fixture,工程自动化,测试守卫,代码地图与开发脚本
+scripts/forbid_raw_go_test.sh	scripts	other	script	2325	工程自动化、测试守卫、代码地图与开发脚本	scripts,forbid,raw,go,test,工程自动化,测试守卫,代码地图与开发脚本
+scripts/frontend_build_guard_test.go	scripts	other	go-test	1285	工程自动化、测试守卫、代码地图与开发脚本	scripts,frontend,build,guard,test,工程自动化,测试守卫,代码地图与开发脚本
+scripts/generate_ai_project_map.js	scripts	other	js-source	21803	工程自动化、测试守卫、代码地图与开发脚本	scripts,generate,ai,project,map,工程自动化,测试守卫,代码地图与开发脚本
+scripts/github_release_updater_guard_test.go	scripts	other	go-test	22888	工程自动化、测试守卫、代码地图与开发脚本	scripts,github,release,updater,guard,test,工程自动化,测试守卫,代码地图与开发脚本
+scripts/go	scripts	other	file	1043	工程自动化、测试守卫、代码地图与开发脚本	scripts,go,工程自动化,测试守卫,代码地图与开发脚本
+scripts/go_guard_shell.sh	scripts	other	script	603	工程自动化、测试守卫、代码地图与开发脚本	scripts,go,guard,shell,工程自动化,测试守卫,代码地图与开发脚本
+scripts/go_package_roots_guard_test.go	scripts	other	go-test	1245	工程自动化、测试守卫、代码地图与开发脚本	scripts,go,package,roots,guard,test,工程自动化,测试守卫,代码地图与开发脚本
+scripts/go_with_guard.sh	scripts	other	script	969	工程自动化、测试守卫、代码地图与开发脚本	scripts,go,with,guard,工程自动化,测试守卫,代码地图与开发脚本
+scripts/guard_commit_titles.sh	scripts	other	script	3093	工程自动化、测试守卫、代码地图与开发脚本	scripts,guard,commit,titles,工程自动化,测试守卫,代码地图与开发脚本
+scripts/guard_env_test.sh	scripts	other	script	5510	工程自动化、测试守卫、代码地图与开发脚本	scripts,guard,env,test,工程自动化,测试守卫,代码地图与开发脚本
+scripts/guard_fix_commits_have_tests_guard_test.go	scripts	other	go-test	16687	工程自动化、测试守卫、代码地图与开发脚本	scripts,guard,fix,commits,have,tests,test,工程自动化,测试守卫,代码地图与开发脚本
+scripts/guard_fix_commits_have_tests_helpers_test.go	scripts	other	go-test	11450	工程自动化、测试守卫、代码地图与开发脚本	scripts,guard,fix,commits,have,tests,helpers,test,工程自动化,测试守卫,代码地图与开发脚本
+scripts/guard_fix_commits_have_tests.sh	scripts	other	script	6440	工程自动化、测试守卫、代码地图与开发脚本	scripts,guard,fix,commits,have,tests,工程自动化,测试守卫,代码地图与开发脚本
+scripts/install_hooks_guard_test.go	scripts	other	go-test	2562	工程自动化、测试守卫、代码地图与开发脚本	scripts,install,hooks,guard,test,工程自动化,测试守卫,代码地图与开发脚本
+scripts/install-hooks.sh	scripts	other	script	797	工程自动化、测试守卫、代码地图与开发脚本	scripts,install,hooks,工程自动化,测试守卫,代码地图与开发脚本
+scripts/install-postgres.ps1	scripts	other	script	432	工程自动化、测试守卫、代码地图与开发脚本	scripts,install,postgres,工程自动化,测试守卫,代码地图与开发脚本
+scripts/lsp_router_eval.py	scripts	other	py	36697	工程自动化、测试守卫、代码地图与开发脚本	scripts,lsp,router,eval,工程自动化,测试守卫,代码地图与开发脚本
+scripts/new_ui_desktop_dev_env_guard_test.go	scripts	other	go-test	3514	工程自动化、测试守卫、代码地图与开发脚本	scripts,new,ui,desktop,dev,env,guard,test,工程自动化,测试守卫,代码地图与开发脚本
+scripts/new_ui_desktop_dev_loopback_guard_test.go	scripts	other	go-test	1331	工程自动化、测试守卫、代码地图与开发脚本	scripts,new,ui,desktop,dev,loopback,guard,test,工程自动化,测试守卫,代码地图与开发脚本
+scripts/new_ui_desktop_dev_token_guard_test.go	scripts	other	go-test	1958	工程自动化、测试守卫、代码地图与开发脚本	scripts,new,ui,desktop,dev,token,guard,test,工程自动化,测试守卫,代码地图与开发脚本
+scripts/package_guard_helpers_test.go	scripts	other	go-test	22034	工程自动化、测试守卫、代码地图与开发脚本	scripts,package,guard,helpers,test,工程自动化,测试守卫,代码地图与开发脚本
+scripts/package_linux_guard_test.go	scripts	other	go-test	17801	工程自动化、测试守卫、代码地图与开发脚本	scripts,package,linux,guard,test,工程自动化,测试守卫,代码地图与开发脚本
+scripts/package_linux_local.sh	scripts	other	script	2478	工程自动化、测试守卫、代码地图与开发脚本	scripts,package,linux,local,工程自动化,测试守卫,代码地图与开发脚本
+scripts/package_linux.sh	scripts	other	script	24646	工程自动化、测试守卫、代码地图与开发脚本	scripts,package,linux,工程自动化,测试守卫,代码地图与开发脚本
+scripts/package_macos_compat_guard_test.go	scripts	other	go-test	2010	工程自动化、测试守卫、代码地图与开发脚本	scripts,package,macos,compat,guard,test,工程自动化,测试守卫,代码地图与开发脚本
+scripts/package_macos_ffmpeg_guard_test.go	scripts	other	go-test	2723	工程自动化、测试守卫、代码地图与开发脚本	scripts,package,macos,ffmpeg,guard,test,工程自动化,测试守卫,代码地图与开发脚本
+scripts/package_macos_git_hardlink_guard_test.go	scripts	other	go-test	1339	工程自动化、测试守卫、代码地图与开发脚本	scripts,package,macos,git,hardlink,guard,test,工程自动化,测试守卫,代码地图与开发脚本
+scripts/package_macos_github_release.sh	scripts	other	script	5659	工程自动化、测试守卫、代码地图与开发脚本	scripts,package,macos,github,release,工程自动化,测试守卫,代码地图与开发脚本
+scripts/package_macos_guard_test.go	scripts	other	go-test	33447	工程自动化、测试守卫、代码地图与开发脚本	scripts,package,macos,guard,test,工程自动化,测试守卫,代码地图与开发脚本
+scripts/package_macos_local.sh	scripts	other	script	7387	工程自动化、测试守卫、代码地图与开发脚本	scripts,package,macos,local,工程自动化,测试守卫,代码地图与开发脚本
+scripts/package_macos_lsp_prebuild_guard_test.go	scripts	other	go-test	918	工程自动化、测试守卫、代码地图与开发脚本	scripts,package,macos,lsp,prebuild,guard,test,工程自动化,测试守卫,代码地图与开发脚本
+scripts/package_macos_release_guard_test.go	scripts	other	go-test	10562	工程自动化、测试守卫、代码地图与开发脚本	scripts,package,macos,release,guard,test,工程自动化,测试守卫,代码地图与开发脚本
+scripts/package_macos_video_guard_test.go	scripts	other	go-test	2164	工程自动化、测试守卫、代码地图与开发脚本	scripts,package,macos,video,guard,test,工程自动化,测试守卫,代码地图与开发脚本
+scripts/package_macos.sh	scripts	other	script	55791	工程自动化、测试守卫、代码地图与开发脚本	scripts,package,macos,工程自动化,测试守卫,代码地图与开发脚本
+scripts/package_sqlite_migrations_guard_test.go	scripts	other	go-test	4609	工程自动化、测试守卫、代码地图与开发脚本	scripts,package,sqlite,migrations,guard,test,工程自动化,测试守卫,代码地图与开发脚本
+scripts/package_windows_github_release.ps1	scripts	other	script	5441	工程自动化、测试守卫、代码地图与开发脚本	scripts,package,windows,github,release,工程自动化,测试守卫,代码地图与开发脚本
+scripts/package_windows_guard_test.go	scripts	other	go-test	31363	工程自动化、测试守卫、代码地图与开发脚本	scripts,package,windows,guard,test,工程自动化,测试守卫,代码地图与开发脚本
+scripts/package_windows_local.ps1	scripts	other	script	10963	工程自动化、测试守卫、代码地图与开发脚本	scripts,package,windows,local,工程自动化,测试守卫,代码地图与开发脚本
+scripts/package_windows.ps1	scripts	other	script	51947	工程自动化、测试守卫、代码地图与开发脚本	scripts,package,windows,工程自动化,测试守卫,代码地图与开发脚本
+scripts/prepare_lsp_bundle_guard_test.go	scripts	other	go-test	16269	工程自动化、测试守卫、代码地图与开发脚本	scripts,prepare,lsp,bundle,guard,test,工程自动化,测试守卫,代码地图与开发脚本
+scripts/prepare_lsp_bundle_linux.sh	scripts	other	script	10931	工程自动化、测试守卫、代码地图与开发脚本	scripts,prepare,lsp,bundle,linux,工程自动化,测试守卫,代码地图与开发脚本
+scripts/prepare_lsp_bundle_macos.sh	scripts	other	script	10399	工程自动化、测试守卫、代码地图与开发脚本	scripts,prepare,lsp,bundle,macos,工程自动化,测试守卫,代码地图与开发脚本
+scripts/prepare_lsp_bundle_windows.ps1	scripts	other	script	22708	工程自动化、测试守卫、代码地图与开发脚本	scripts,prepare,lsp,bundle,windows,工程自动化,测试守卫,代码地图与开发脚本
+scripts/prompt_intent_e2e_test.py	scripts	other	py	8881	工程自动化、测试守卫、代码地图与开发脚本	scripts,prompt,intent,e2e,test,工程自动化,测试守卫,代码地图与开发脚本
+scripts/prompt_intent_e2e.py	scripts	other	py	24095	工程自动化、测试守卫、代码地图与开发脚本	scripts,prompt,intent,e2e,工程自动化,测试守卫,代码地图与开发脚本
+scripts/publish_github_release.sh	scripts	other	script	19011	工程自动化、测试守卫、代码地图与开发脚本	scripts,publish,github,release,工程自动化,测试守卫,代码地图与开发脚本
+scripts/real_go_resolver.sh	scripts	other	script	3493	工程自动化、测试守卫、代码地图与开发脚本	scripts,real,go,resolver,工程自动化,测试守卫,代码地图与开发脚本
+scripts/refactor/rename_codexsdk_to_agentsdk_error_path_guard_test.go	scripts	other	go-test	7326	工程自动化、测试守卫、代码地图与开发脚本	scripts,refactor,rename,codexsdk,to,agentsdk,error,path,guard,test,工程自动化,测试守卫,代码地图与开发脚本
+scripts/refactor/rename_codexsdk_to_agentsdk_guard_strength_test.go	scripts	other	go-test	4504	工程自动化、测试守卫、代码地图与开发脚本	scripts,refactor,rename,codexsdk,to,agentsdk,guard,strength,test,工程自动化,测试守卫,代码地图与开发脚本
+scripts/refactor/rename_codexsdk_to_agentsdk_guard_test.go	scripts	other	go-test	7719	工程自动化、测试守卫、代码地图与开发脚本	scripts,refactor,rename,codexsdk,to,agentsdk,guard,test,工程自动化,测试守卫,代码地图与开发脚本
+scripts/refactor/rename_codexsdk_to_agentsdk_guardrail_extra_test.go	scripts	other	go-test	13203	工程自动化、测试守卫、代码地图与开发脚本	scripts,refactor,rename,codexsdk,to,agentsdk,guardrail,extra,test,工程自动化,测试守卫,代码地图与开发脚本
+scripts/refactor/rename_codexsdk_to_agentsdk_main_guardrail_test.go	scripts	other	go-test	7647	工程自动化、测试守卫、代码地图与开发脚本	scripts,refactor,rename,codexsdk,to,agentsdk,main,guardrail,test,工程自动化,测试守卫,代码地图与开发脚本
+scripts/refactor/rename_codexsdk_to_agentsdk_side_effect_guard_test.go	scripts	other	go-test	9504	工程自动化、测试守卫、代码地图与开发脚本	scripts,refactor,rename,codexsdk,to,agentsdk,side,effect,guard,test,工程自动化,测试守卫,代码地图与开发脚本
+scripts/refactor/rename_codexsdk_to_agentsdk.go	scripts	other	go-source	8204	工程自动化、测试守卫、代码地图与开发脚本	scripts,refactor,rename,codexsdk,to,agentsdk,工程自动化,测试守卫,代码地图与开发脚本
+scripts/release_packaging_integrity_guard_test.go	scripts	other	go-test	4758	工程自动化、测试守卫、代码地图与开发脚本	scripts,release,packaging,integrity,guard,test,工程自动化,测试守卫,代码地图与开发脚本
+scripts/sqlite_release_gate_package_smoke_runtime_test.go	scripts	other	go-test	12464	工程自动化、测试守卫、代码地图与开发脚本	scripts,sqlite,release,gate,package,smoke,runtime,test,工程自动化,测试守卫,代码地图与开发脚本
+scripts/sqlite_release_gates_guard_test.go	scripts	other	go-test	5895	工程自动化、测试守卫、代码地图与开发脚本	scripts,sqlite,release,gates,guard,test,工程自动化,测试守卫,代码地图与开发脚本
+scripts/sqlite_release_gates/main_test.go	scripts	other	go-test	1160	工程自动化、测试守卫、代码地图与开发脚本	scripts,sqlite,release,gates,main,test,工程自动化,测试守卫,代码地图与开发脚本
+scripts/sqlite_release_gates/main.go	scripts	other	go-source	2592	工程自动化、测试守卫、代码地图与开发脚本	scripts,sqlite,release,gates,main,工程自动化,测试守卫,代码地图与开发脚本
+scripts/test_new_ui_desktop_hot.sh	scripts	other	script	1251	工程自动化、测试守卫、代码地图与开发脚本	scripts,test,new,ui,desktop,hot,工程自动化,测试守卫,代码地图与开发脚本
+scripts/test_with_guard.ps1	scripts	other	script	11827	工程自动化、测试守卫、代码地图与开发脚本	scripts,test,with,guard,工程自动化,测试守卫,代码地图与开发脚本
+scripts/test_with_guard.sh	scripts	other	script	2455	工程自动化、测试守卫、代码地图与开发脚本	scripts,test,with,guard,工程自动化,测试守卫,代码地图与开发脚本
+scripts/tests/test_codex_stop_gate_plan.sh	scripts	other	script	4208	工程自动化、测试守卫、代码地图与开发脚本	scripts,tests,test,codex,stop,gate,plan,工程自动化,测试守卫,代码地图与开发脚本
+scripts/uat-p21.sh	scripts	other	script	9414	工程自动化、测试守卫、代码地图与开发脚本	scripts,uat,p21,工程自动化,测试守卫,代码地图与开发脚本
+scripts/ui-coverage.sh	scripts	other	script	8745	工程自动化、测试守卫、代码地图与开发脚本	scripts,ui,coverage,工程自动化,测试守卫,代码地图与开发脚本
+scripts/update_apiserver_guard_snapshots.js	scripts	other	js-source	1920	工程自动化、测试守卫、代码地图与开发脚本	scripts,update,apiserver,guard,snapshots,工程自动化,测试守卫,代码地图与开发脚本
+scripts/validate_super_agent_skills.py	scripts	other	py	16161	工程自动化、测试守卫、代码地图与开发脚本	scripts,validate,super,agent,skills,工程自动化,测试守卫,代码地图与开发脚本
+scripts/verify_packaged_app_linux.sh	scripts	other	script	14873	工程自动化、测试守卫、代码地图与开发脚本	scripts,verify,packaged,app,linux,工程自动化,测试守卫,代码地图与开发脚本
+scripts/verify_packaged_app_macos.sh	scripts	other	script	23718	工程自动化、测试守卫、代码地图与开发脚本	scripts,verify,packaged,app,macos,工程自动化,测试守卫,代码地图与开发脚本
+scripts/verify_packaged_app_windows.ps1	scripts	other	script	22347	工程自动化、测试守卫、代码地图与开发脚本	scripts,verify,packaged,app,windows,工程自动化,测试守卫,代码地图与开发脚本
+scripts/windows_test_helpers_test.go	scripts	other	go-test	317	工程自动化、测试守卫、代码地图与开发脚本	scripts,windows,test,helpers,工程自动化,测试守卫,代码地图与开发脚本
+sqlc.yaml	(root)	other	yaml	5434	仓库根级配置、入口或说明文件	sqlc,仓库根级配置,入口或说明文件
+start_26_6_12.ps1	(root)	other	script	316	仓库根级配置、入口或说明文件	start,26,6,12,仓库根级配置,入口或说明文件
+super-agent-debug	(root)	other	file	52123602	仓库根级配置、入口或说明文件	super,agent,debug,仓库根级配置,入口或说明文件
+test/fixtures/p21/cron/README.md	test	other	doc	789	未细分职责：请结合路径、文件名和相邻代码判断	test,fixtures,p21,cron,README,未细分职责：请结合路径,文件名和相邻代码判断
+test/fixtures/p21/prompt-injection/samples.txt	test	other	txt	798	未细分职责：请结合路径、文件名和相邻代码判断	test,fixtures,p21,prompt,injection,samples,未细分职责：请结合路径,文件名和相邻代码判断
+test/fixtures/p21/README.md	test	other	doc	1752	未细分职责：请结合路径、文件名和相邻代码判断	test,fixtures,p21,README,未细分职责：请结合路径,文件名和相邻代码判断
+test/fixtures/p21/repos/.gitkeep	test	other	file	98	未细分职责：请结合路径、文件名和相邻代码判断	test,fixtures,p21,repos,未细分职责：请结合路径,文件名和相邻代码判断
+test/fixtures/p21/repos/bootstrap.sh	test	other	script	709	未细分职责：请结合路径、文件名和相邻代码判断	test,fixtures,p21,repos,bootstrap,未细分职责：请结合路径,文件名和相邻代码判断
+test/fixtures/p21/secrets/check_redaction.go	test	other	go-source	2616	未细分职责：请结合路径、文件名和相邻代码判断	test,fixtures,p21,secrets,check,redaction,未细分职责：请结合路径,文件名和相邻代码判断
+test/fixtures/p21/secrets/sample.txt	test	other	txt	1516	未细分职责：请结合路径、文件名和相邻代码判断	test,fixtures,p21,secrets,sample,未细分职责：请结合路径,文件名和相邻代码判断
+test/fixtures/p21/webhooks/README.md	test	other	doc	1128	未细分职责：请结合路径、文件名和相邻代码判断	test,fixtures,p21,webhooks,README,未细分职责：请结合路径,文件名和相邻代码判断
+test/fixtures/p21/webhooks/replay.py	test	other	py	744	未细分职责：请结合路径、文件名和相邻代码判断	test,fixtures,p21,webhooks,replay,未细分职责：请结合路径,文件名和相邻代码判断
+tests/scripts/guard_env_test.sh	tests	other	script	138	未细分职责：请结合路径、文件名和相邻代码判断	tests,scripts,guard,env,test,未细分职责：请结合路径,文件名和相邻代码判断
+third_party/kelindar-event/default_test.go	third_party	other	go-test	3616	未细分职责：请结合路径、文件名和相邻代码判断	third,party,kelindar,event,default,test,未细分职责：请结合路径,文件名和相邻代码判断
+third_party/kelindar-event/default.go	third_party	other	go-source	1090	未细分职责：请结合路径、文件名和相邻代码判断	third,party,kelindar,event,default,未细分职责：请结合路径,文件名和相邻代码判断
+third_party/kelindar-event/event_test.go	third_party	other	go-test	8300	未细分职责：请结合路径、文件名和相邻代码判断	third,party,kelindar,event,test,未细分职责：请结合路径,文件名和相邻代码判断
+third_party/kelindar-event/event.go	third_party	other	go-source	8118	未细分职责：请结合路径、文件名和相邻代码判断	third,party,kelindar,event,未细分职责：请结合路径,文件名和相邻代码判断
+third_party/kelindar-event/example/main.go	third_party	other	go-source	1135	未细分职责：请结合路径、文件名和相邻代码判断	third,party,kelindar,event,example,main,未细分职责：请结合路径,文件名和相邻代码判断
+third_party/kelindar-event/go.mod	third_party	other	mod	233	未细分职责：请结合路径、文件名和相邻代码判断	third,party,kelindar,event,go,未细分职责：请结合路径,文件名和相邻代码判断
+third_party/kelindar-event/go.sum	third_party	other	sum	881	未细分职责：请结合路径、文件名和相邻代码判断	third,party,kelindar,event,go,未细分职责：请结合路径,文件名和相邻代码判断
+third_party/kelindar-event/LICENSE	third_party	other	file	1073	未细分职责：请结合路径、文件名和相邻代码判断	third,party,kelindar,event,LICENSE,未细分职责：请结合路径,文件名和相邻代码判断
+third_party/kelindar-event/README.md	third_party	other	doc	4735	未细分职责：请结合路径、文件名和相邻代码判断	third,party,kelindar,event,README,未细分职责：请结合路径,文件名和相邻代码判断
+项目架构图.xls	(root)	other	xls	5044	仓库根级配置、入口或说明文件	项目架构图,仓库根级配置,入口或说明文件

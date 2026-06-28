@@ -6,6 +6,7 @@ import (
 
 	"github.com/creachadair/jrpc2/handler"
 
+	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	platformrpc "github.com/anthropic-ai/super-agent-v3/internal/platform/rpc"
 )
 
@@ -21,7 +22,35 @@ func NewHandlers(svc Service) platformrpc.HandlerMapResult {
 		"mcpServer/playwright/start": platformrpc.StrictHandler(startPlaywrightServerHandler(svc)),
 		"mcpServer/playwright/stop":  platformrpc.StrictHandler(stopPlaywrightServerHandler(svc)),
 		"mcpServer/delete":           platformrpc.StrictHandler(deleteServerHandler(svc)),
+		"mcpServer/toolLifecycle/list": platformrpc.StrictHandler(
+			listMCPToolLifecycleStatesHandler(svc),
+		),
+		"mcpServer/toolLifecycle/get": platformrpc.StrictHandler(
+			getMCPToolLifecycleStateHandler(svc),
+		),
+		"mcpServer/toolLifecycle/upsert": platformrpc.StrictHandler(
+			upsertMCPToolLifecycleStateHandler(svc),
+		),
 	}}
+}
+
+type mcpToolLifecycleListRequest struct {
+	WorkspaceRoot string `json:"workspaceRoot"`
+	ServerName    string `json:"serverName"`
+}
+
+type mcpToolLifecycleGetRequest struct {
+	WorkspaceRoot string `json:"workspaceRoot"`
+	ServerName    string `json:"serverName"`
+	ToolName      string `json:"toolName"`
+}
+
+type mcpToolLifecycleUpsertRequest struct {
+	WorkspaceRoot string                         `json:"workspaceRoot"`
+	ServerName    string                         `json:"serverName"`
+	ToolName      string                         `json:"toolName"`
+	State         contract.MCPToolLifecycleState `json:"state"`
+	Reason        string                         `json:"reason,omitempty"`
 }
 
 func addServersHandler(svc Service) func(context.Context, AddServersRequest) (AddServersResult, error) {
@@ -60,6 +89,68 @@ func listServerToolsHandler(svc Service) func(context.Context, ListServerToolsRe
 			return ListServerToolsResult{}, mcpServerRPCError(err)
 		}
 		return result, nil
+	}
+}
+
+func listMCPToolLifecycleStatesHandler(
+	svc Service,
+) func(context.Context, mcpToolLifecycleListRequest) ([]contract.MCPToolLifecycleRecord, error) {
+	return func(ctx context.Context, req mcpToolLifecycleListRequest) ([]contract.MCPToolLifecycleRecord, error) {
+		if svc == nil {
+			return nil, platformrpc.ErrInvalidState("mcp server service is not configured")
+		}
+		records, err := svc.ListMCPToolLifecycleStates(ctx, contract.MCPToolLifecycleListParams{
+			WorkspaceRoot: req.WorkspaceRoot,
+			ServerName:    req.ServerName,
+		})
+		if err != nil {
+			return nil, mcpServerRPCError(err)
+		}
+		return records, nil
+	}
+}
+
+func getMCPToolLifecycleStateHandler(
+	svc Service,
+) func(context.Context, mcpToolLifecycleGetRequest) (contract.MCPToolLifecycleRecord, error) {
+	return func(ctx context.Context, req mcpToolLifecycleGetRequest) (contract.MCPToolLifecycleRecord, error) {
+		if svc == nil {
+			return contract.MCPToolLifecycleRecord{}, platformrpc.ErrInvalidState("mcp server service is not configured")
+		}
+		record, err := svc.GetMCPToolLifecycleState(ctx, contract.MCPToolLifecycleKey{
+			WorkspaceRoot: req.WorkspaceRoot,
+			ServerName:    req.ServerName,
+			ToolName:      req.ToolName,
+		})
+		if err != nil {
+			return contract.MCPToolLifecycleRecord{}, mcpServerRPCError(err)
+		}
+		return record, nil
+	}
+}
+
+func upsertMCPToolLifecycleStateHandler(
+	svc Service,
+) func(context.Context, mcpToolLifecycleUpsertRequest) (contract.MCPToolLifecycleRecord, error) {
+	return func(ctx context.Context, req mcpToolLifecycleUpsertRequest) (contract.MCPToolLifecycleRecord, error) {
+		if svc == nil {
+			return contract.MCPToolLifecycleRecord{}, platformrpc.ErrInvalidState("mcp server service is not configured")
+		}
+		record, err := svc.UpsertMCPToolLifecycleState(ctx, contract.MCPToolLifecycleUpsertParams{
+			Key: contract.MCPToolLifecycleKey{
+				WorkspaceRoot: req.WorkspaceRoot,
+				ServerName:    req.ServerName,
+				ToolName:      req.ToolName,
+			},
+			State:     req.State,
+			Reason:    req.Reason,
+			Source:    contract.MCPToolLifecycleSourceUser,
+			UpdatedBy: "user",
+		})
+		if err != nil {
+			return contract.MCPToolLifecycleRecord{}, mcpServerRPCError(err)
+		}
+		return record, nil
 	}
 }
 
@@ -145,7 +236,9 @@ func deleteServerHandler(svc Service) func(context.Context, DeleteServerRequest)
 func mcpServerRPCError(err error) error {
 	switch {
 	case errors.Is(err, errMissingMCPServers),
+		errors.Is(err, errMissingWorkspaceRoot),
 		errors.Is(err, errMissingServerName),
+		errors.Is(err, errMissingToolName),
 		errors.Is(err, errDuplicateServerName),
 		errors.Is(err, errMissingServerTransport),
 		errors.Is(err, errUnsupportedTransport),
@@ -158,9 +251,13 @@ func mcpServerRPCError(err error) error {
 		errors.Is(err, errMissingServerEnvValue),
 		errors.Is(err, errMissingHeaderName),
 		errors.Is(err, errMissingHeaderValue),
+		errors.Is(err, errInvalidMCPToolLifecycleState),
+		errors.Is(err, errInvalidMCPToolLifecycleSource),
 		errors.Is(err, errInvalidConfigDocument):
 		return platformrpc.ErrInvalidParams(err.Error())
 	case errors.Is(err, errMCPServerStoreNotConfigured):
+		return platformrpc.ErrInvalidState(err.Error())
+	case errors.Is(err, errMCPToolLifecycleStoreMissing):
 		return platformrpc.ErrInvalidState(err.Error())
 	case errors.Is(err, errMCPServerToolsRequestFailed),
 		errors.Is(err, errInvalidToolsResponse),

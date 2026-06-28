@@ -11,7 +11,7 @@ import (
 	"time"
 )
 
-const sqliteSmokeSchemaFloor = 107
+const sqliteSmokeSchemaFloor = 109
 
 type sqliteFixtureConfig struct {
 	Threads         int

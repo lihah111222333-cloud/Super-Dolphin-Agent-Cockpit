@@ -14,7 +14,7 @@ func TestPromptRecallSeedMigration_CoversCatalogAndExpertGuidance(t *testing.T) 
 		"lsp-advanced",
 		"sqlc-workflow",
 		"prompt-template-editing",
-		"frontend-vue3",
+		"frontend-react",
 		"migration-rules",
 		"guard-rules",
 	} {
