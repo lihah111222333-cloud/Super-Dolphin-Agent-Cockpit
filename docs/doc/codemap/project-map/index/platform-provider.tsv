@@ -320,8 +320,8 @@ internal/platform/eventsurface/bind_test.go	internal	platform-provider	go-test	1
 internal/platform/eventsurface/bind.go	internal	platform-provider	go-source	17812	基础设施层	internal,platform,eventsurface,bind,基础设施层
 internal/platform/eventsurface/legacy_test.go	internal	platform-provider	go-test	2363	基础设施层	internal,platform,eventsurface,legacy,test,基础设施层
 internal/platform/eventsurface/legacy.go	internal	platform-provider	go-source	3941	基础设施层	internal,platform,eventsurface,legacy,基础设施层
-internal/platform/eventsurface/methods_test.go	internal	platform-provider	go-test	4334	基础设施层	internal,platform,eventsurface,methods,test,基础设施层
-internal/platform/eventsurface/methods.go	internal	platform-provider	go-source	2565	基础设施层	internal,platform,eventsurface,methods,基础设施层
+internal/platform/eventsurface/methods_test.go	internal	platform-provider	go-test	4709	基础设施层	internal,platform,eventsurface,methods,test,基础设施层
+internal/platform/eventsurface/methods.go	internal	platform-provider	go-source	2558	基础设施层	internal,platform,eventsurface,methods,基础设施层
 internal/platform/eventsurface/remote_decode.go	internal	platform-provider	go-source	2220	基础设施层	internal,platform,eventsurface,remote,decode,基础设施层
 internal/platform/hooks/dispatch_worker_test.go	internal	platform-provider	go-test	9735	hook 配置、执行与三阶段拦截	internal,platform,hooks,dispatch,worker,test,hook,配置,执行与三阶段拦截
 internal/platform/hooks/dispatch_worker.go	internal	platform-provider	go-source	6644	hook 配置、执行与三阶段拦截	internal,platform,hooks,dispatch,worker,hook,配置,执行与三阶段拦截
@@ -473,7 +473,7 @@ internal/platform/rpc/module_test.go	internal	platform-provider	go-test	322	JSON
 internal/platform/rpc/module.go	internal	platform-provider	go-source	7841	JSON-RPC transport、dispatch、push 与审批框架	internal,platform,rpc,module,JSON-RPC,transport,dispatch,push,与审批框架
 internal/platform/rpc/push_embed_test.go	internal	platform-provider	go-test	13405	JSON-RPC transport、dispatch、push 与审批框架	internal,platform,rpc,push,embed,test,JSON-RPC,transport,dispatch,与审批框架
 internal/platform/rpc/push_embed.go	internal	platform-provider	go-source	9307	JSON-RPC transport、dispatch、push 与审批框架	internal,platform,rpc,push,embed,JSON-RPC,transport,dispatch,与审批框架
-internal/platform/rpc/push_test.go	internal	platform-provider	go-test	7269	JSON-RPC transport、dispatch、push 与审批框架	internal,platform,rpc,push,test,JSON-RPC,transport,dispatch,与审批框架
+internal/platform/rpc/push_test.go	internal	platform-provider	go-test	7942	JSON-RPC transport、dispatch、push 与审批框架	internal,platform,rpc,push,test,JSON-RPC,transport,dispatch,与审批框架
 internal/platform/rpc/push_worker_test.go	internal	platform-provider	go-test	14532	JSON-RPC transport、dispatch、push 与审批框架	internal,platform,rpc,push,worker,test,JSON-RPC,transport,dispatch,与审批框架
 internal/platform/rpc/push_worker.go	internal	platform-provider	go-source	7298	JSON-RPC transport、dispatch、push 与审批框架	internal,platform,rpc,push,worker,JSON-RPC,transport,dispatch,与审批框架
 internal/platform/rpc/push.go	internal	platform-provider	go-source	10924	JSON-RPC transport、dispatch、push 与审批框架	internal,platform,rpc,push,JSON-RPC,transport,dispatch,与审批框架

@@ -4,7 +4,6 @@ import {
   callAPI as callWailsAPI,
   getBuildInfo as getWailsBuildInfo,
   onBridgeEvent as subscribeBridgeEvent,
-  onAgentEvent as subscribeAgentEvent,
   onFilesDropped as subscribeFilesDropped,
   onRuntimeReconnect as subscribeRuntimeReconnect,
   readDroppedTextFiles as readDroppedTextFilesViaBridge,
@@ -873,7 +872,6 @@ function hasOwn(value, key) {
 /** @type {ReadonlyArray<readonly [string, (...args: any[]) => any]>} */
 const NATIVE_DEP_FALLBACKS = Object.freeze([
   ['getBuildInfo', getWailsBuildInfo],
-  ['onAgentEvent', subscribeAgentEvent],
   ['onBridgeEvent', subscribeBridgeEvent],
   ['onFilesDropped', subscribeFilesDropped],
   ['onRuntimeReconnect', subscribeRuntimeReconnect],
@@ -1566,7 +1564,6 @@ function compactThreadPayload(params) {
 function createNativeApi(native) {
   return {
     getBuildInfo: native.getBuildInfo,
-    onAgentEvent: native.onAgentEvent,
     onBridgeEvent: native.onBridgeEvent,
     onFilesDropped: native.onFilesDropped,
     onRuntimeReconnect: native.onRuntimeReconnect,
@@ -1734,7 +1731,6 @@ export const compactThread = backendApi.compactThread;
 export const recoverThread = backendApi.recoverThread;
 export const renameThread = backendApi.renameThread;
 export const getBuildInfo = backendApi.getBuildInfo;
-export const onAgentEvent = backendApi.onAgentEvent;
 export const onBridgeEvent = backendApi.onBridgeEvent;
 export const onFilesDropped = backendApi.onFilesDropped;
 export const onRuntimeReconnect = backendApi.onRuntimeReconnect;

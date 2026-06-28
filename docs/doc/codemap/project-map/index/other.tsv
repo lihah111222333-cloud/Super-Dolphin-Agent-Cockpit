@@ -429,7 +429,7 @@ codex-app 2/codexapp-go/docs/20-delivery/iterations/01-codexapp-go-m0-m6/m6-rele
 codex-app 2/codexapp-go/docs/20-delivery/iterations/01-codexapp-go-m0-m6/master-plan.md	codex-app 2	other	doc	17835	未细分职责：请结合路径、文件名和相邻代码判断	codex,app 2,codexapp,go,docs,20,delivery,iterations,01,m0,m6,master,plan,未细分职责：请结合路径,文件名和相邻代码判断
 codex-app 2/codexapp-go/docs/README.md	codex-app 2	other	doc	3195	未细分职责：请结合路径、文件名和相邻代码判断	codex,app 2,codexapp,go,docs,README,未细分职责：请结合路径,文件名和相邻代码判断
 filebeat/filebeat.yml	filebeat	other	yaml	1122	未细分职责：请结合路径、文件名和相邻代码判断	filebeat,未细分职责：请结合路径,文件名和相邻代码判断
-frontend/src/pages/skills/SkillsPage.test.jsx	frontend	other	jsx	5283	未细分职责：请结合路径、文件名和相邻代码判断	frontend,src,pages,skills,SkillsPage,test,未细分职责：请结合路径,文件名和相邻代码判断
+GEMINI.md	(root)	other	doc	11864	仓库根级配置、入口或说明文件	GEMINI,仓库根级配置,入口或说明文件
 go.mod	(root)	other	mod	3844	仓库根级配置、入口或说明文件	go,仓库根级配置,入口或说明文件
 internal/.DS_Store	internal	other	file	10244	未细分职责：请结合路径、文件名和相邻代码判断	internal,未细分职责：请结合路径,文件名和相邻代码判断
 internal/app/app_test.go	internal	other	go-test	3683	root Fx/app 装配、runner 与 toolbridge adapters	internal,app,test,root,Fx,装配,runner,与,toolbridge,adapters
@@ -451,7 +451,7 @@ internal/app/provider_hooks_contract_test.go	internal	other	go-test	1071	root Fx
 internal/app/runner_test.go	internal	other	go-test	4279	root Fx/app 装配、runner 与 toolbridge adapters	internal,app,runner,test,root,Fx,装配,与,toolbridge,adapters
 internal/app/runner.go	internal	other	go-source	7525	root Fx/app 装配、runner 与 toolbridge adapters	internal,app,runner,root,Fx,装配,与,toolbridge,adapters
 internal/app/runtime_reporter_adapter.go	internal	other	go-source	1556	root Fx/app 装配、runner 与 toolbridge adapters	internal,app,runtime,reporter,adapter,root,Fx,装配,runner,与,toolbridge,adapters
-internal/app/session_ports_test.go	internal	other	go-test	1277	root Fx/app 装配、runner 与 toolbridge adapters	internal,app,session,ports,test,root,Fx,装配,runner,与,toolbridge,adapters
+internal/app/session_ports_test.go	internal	other	go-test	1298	root Fx/app 装配、runner 与 toolbridge adapters	internal,app,session,ports,test,root,Fx,装配,runner,与,toolbridge,adapters
 internal/app/session_ports.go	internal	other	go-source	525	root Fx/app 装配、runner 与 toolbridge adapters	internal,app,session,ports,root,Fx,装配,runner,与,toolbridge,adapters
 internal/app/sharedfile_adapter.go	internal	other	go-source	896	root Fx/app 装配、runner 与 toolbridge adapters	internal,app,sharedfile,adapter,root,Fx,装配,runner,与,toolbridge,adapters
 internal/app/thread_orchestration_adapter_test.go	internal	other	go-test	1111	root Fx/app 装配、runner 与 toolbridge adapters	internal,app,thread,orchestration,adapter,test,root,Fx,装配,runner,与,toolbridge,adapters
@@ -498,6 +498,7 @@ internal/archtest/freeze_registry_autofix_test.go	internal	other	go-test	3154	�
 internal/archtest/freeze_registry_autofix.go	internal	other	go-source	6238	架构守卫、baseline ratchet 与冻结规则	internal,archtest,freeze,registry,autofix,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/freeze_registry.go	internal	other	go-source	5395	架构守卫、baseline ratchet 与冻结规则	internal,archtest,freeze,registry,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/frontend_app_shell_surface_guard_test.go	internal	other	go-test	1361	架构守卫、baseline ratchet 与冻结规则	internal,archtest,frontend,app,shell,surface,guard,test,架构守卫,baseline,ratchet,与冻结规则
+internal/archtest/frontend_source_contract_test.go	internal	other	go-test	1492	架构守卫、baseline ratchet 与冻结规则	internal,archtest,frontend,source,contract,test,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/function_comment_guard_test.go	internal	other	go-test	4811	架构守卫、baseline ratchet 与冻结规则	internal,archtest,function,comment,guard,test,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/fx_graph_test.go	internal	other	go-test	267	架构守卫、baseline ratchet 与冻结规则	internal,archtest,fx,graph,test,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/fx_invoke_guard_test.go	internal	other	go-test	2681	架构守卫、baseline ratchet 与冻结规则	internal,archtest,fx,invoke,guard,test,架构守卫,baseline,ratchet,与冻结规则
@@ -607,7 +608,7 @@ internal/contract/runner.go	internal	other	go-source	1953	跨模块稳定接口�
 internal/contract/runtime_config_keys_test.go	internal	other	go-test	3621	跨模块稳定接口、事件和 DTO 边界	internal,contract,runtime,config,keys,test,跨模块稳定接口,事件和,DTO,边界
 internal/contract/runtime_reporter.go	internal	other	go-source	4518	跨模块稳定接口、事件和 DTO 边界	internal,contract,runtime,reporter,跨模块稳定接口,事件和,DTO,边界
 internal/contract/session_ports_test.go	internal	other	go-test	426	跨模块稳定接口、事件和 DTO 边界	internal,contract,session,ports,test,跨模块稳定接口,事件和,DTO,边界
-internal/contract/session.go	internal	other	go-source	8540	跨模块稳定接口、事件和 DTO 边界	internal,contract,session,跨模块稳定接口,事件和,DTO,边界
+internal/contract/session.go	internal	other	go-source	9114	跨模块稳定接口、事件和 DTO 边界	internal,contract,session,跨模块稳定接口,事件和,DTO,边界
 internal/contract/skill.go	internal	other	go-source	7241	跨模块稳定接口、事件和 DTO 边界	internal,contract,skill,跨模块稳定接口,事件和,DTO,边界
 internal/contract/thread.go	internal	other	go-source	2479	跨模块稳定接口、事件和 DTO 边界	internal,contract,thread,跨模块稳定接口,事件和,DTO,边界
 internal/contract/toolbridge.go	internal	other	go-source	4681	跨模块稳定接口、事件和 DTO 边界	internal,contract,toolbridge,跨模块稳定接口,事件和,DTO,边界
@@ -642,7 +643,7 @@ internal/dto/provider/event.go	internal	other	go-source	671	provider/shared DTO 
 internal/dto/provider/manifest.go	internal	other	go-source	2411	provider/shared DTO 与事件协议	internal,dto,provider,manifest,shared,DTO,与事件协议
 internal/dto/provider/message_test.go	internal	other	go-test	921	provider/shared DTO 与事件协议	internal,dto,provider,message,test,shared,DTO,与事件协议
 internal/dto/provider/message.go	internal	other	go-source	1152	provider/shared DTO 与事件协议	internal,dto,provider,message,shared,DTO,与事件协议
-internal/dto/provider/session.go	internal	other	go-source	7217	provider/shared DTO 与事件协议	internal,dto,provider,session,shared,DTO,与事件协议
+internal/dto/provider/session.go	internal	other	go-source	7216	provider/shared DTO 与事件协议	internal,dto,provider,session,shared,DTO,与事件协议
 internal/dto/provider/thread_config.go	internal	other	go-source	1727	provider/shared DTO 与事件协议	internal,dto,provider,thread,config,shared,DTO,与事件协议
 internal/dto/provider/thread.go	internal	other	go-source	256	provider/shared DTO 与事件协议	internal,dto,provider,thread,shared,DTO,与事件协议
 internal/dto/provider/turn_test.go	internal	other	go-test	6783	provider/shared DTO 与事件协议	internal,dto,provider,turn,test,shared,DTO,与事件协议
@@ -670,8 +671,8 @@ internal/ui/wails/binding_native_test.go	internal	other	go-test	2882	Wails bindi
 internal/ui/wails/binding_native.go	internal	other	go-source	10544	Wails binding 与 UI RPC 桥接	internal,ui,wails,binding,native,Wails,与,UI,RPC,桥接
 internal/ui/wails/binding_test.go	internal	other	go-test	4618	Wails binding 与 UI RPC 桥接	internal,ui,wails,binding,test,Wails,与,UI,RPC,桥接
 internal/ui/wails/binding.go	internal	other	go-source	18730	Wails binding 与 UI RPC 桥接	internal,ui,wails,binding,Wails,与,UI,RPC,桥接
-internal/ui/wails/bridge_test.go	internal	other	go-test	2638	Wails binding 与 UI RPC 桥接	internal,ui,wails,bridge,test,Wails,binding,与,UI,RPC,桥接
-internal/ui/wails/bridge.go	internal	other	go-source	3691	Wails binding 与 UI RPC 桥接	internal,ui,wails,bridge,Wails,binding,与,UI,RPC,桥接
+internal/ui/wails/bridge_test.go	internal	other	go-test	1622	Wails binding 与 UI RPC 桥接	internal,ui,wails,bridge,test,Wails,binding,与,UI,RPC,桥接
+internal/ui/wails/bridge.go	internal	other	go-source	2817	Wails binding 与 UI RPC 桥接	internal,ui,wails,bridge,Wails,binding,与,UI,RPC,桥接
 internal/ui/wails/clipboard_assets_test.go	internal	other	go-test	5908	Wails binding 与 UI RPC 桥接	internal,ui,wails,clipboard,assets,test,Wails,binding,与,UI,RPC,桥接
 internal/ui/wails/clipboard_assets.go	internal	other	go-source	4949	Wails binding 与 UI RPC 桥接	internal,ui,wails,clipboard,assets,Wails,binding,与,UI,RPC,桥接
 internal/ui/wails/clipboard_cleanup_test.go	internal	other	go-test	3311	Wails binding 与 UI RPC 桥接	internal,ui,wails,clipboard,cleanup,test,Wails,binding,与,UI,RPC,桥接
@@ -687,7 +688,7 @@ internal/ui/wails/http_logging.go	internal	other	go-source	6529	Wails binding �
 internal/ui/wails/http_server_test.go	internal	other	go-test	6612	Wails binding 与 UI RPC 桥接	internal,ui,wails,http,server,test,Wails,binding,与,UI,RPC,桥接
 internal/ui/wails/http_server.go	internal	other	go-source	8136	Wails binding 与 UI RPC 桥接	internal,ui,wails,http,server,Wails,binding,与,UI,RPC,桥接
 internal/ui/wails/lifecycle_test.go	internal	other	go-test	5391	Wails binding 与 UI RPC 桥接	internal,ui,wails,lifecycle,test,Wails,binding,与,UI,RPC,桥接
-internal/ui/wails/lifecycle.go	internal	other	go-source	8428	Wails binding 与 UI RPC 桥接	internal,ui,wails,lifecycle,Wails,binding,与,UI,RPC,桥接
+internal/ui/wails/lifecycle.go	internal	other	go-source	8395	Wails binding 与 UI RPC 桥接	internal,ui,wails,lifecycle,Wails,binding,与,UI,RPC,桥接
 internal/ui/wails/module.go	internal	other	go-source	6046	Wails binding 与 UI RPC 桥接	internal,ui,wails,module,Wails,binding,与,UI,RPC,桥接
 internal/ui/wails/path_open.go	internal	other	go-source	3573	Wails binding 与 UI RPC 桥接	internal,ui,wails,path,open,Wails,binding,与,UI,RPC,桥接
 internal/ui/wails/rpc_frontend_log_level_test.go	internal	other	go-test	2291	Wails binding 与 UI RPC 桥接	internal,ui,wails,rpc,frontend,log,level,test,Wails,binding,与,UI,RPC,桥接
@@ -751,7 +752,7 @@ pkg/logger/watchdog.go	pkg	other	go-source	1664	统一日志、采样、relay、
 pkg/skillmetrics/skillmetrics_test.go	pkg	other	go-test	1876	skill 指标公共库	pkg,skillmetrics,test,skill,指标公共库
 pkg/skillmetrics/skillmetrics.go	pkg	other	go-source	4655	skill 指标公共库	pkg,skillmetrics,skill,指标公共库
 README.md	(root)	other	doc	8069	仓库根级配置、入口或说明文件	README,仓库根级配置,入口或说明文件
-run-new-ui-desktop.ps1	(root)	other	script	32615	仓库根级配置、入口或说明文件	run,new,ui,desktop,仓库根级配置,入口或说明文件
+run-new-ui-desktop.ps1	(root)	other	script	32617	仓库根级配置、入口或说明文件	run,new,ui,desktop,仓库根级配置,入口或说明文件
 run-new-ui-desktop.sh	(root)	other	script	25749	仓库根级配置、入口或说明文件	run,new,ui,desktop,仓库根级配置,入口或说明文件
 scripts/.DS_Store	scripts	other	file	6148	工程自动化、测试守卫、代码地图与开发脚本	scripts,工程自动化,测试守卫,代码地图与开发脚本
 scripts/activate_guard_env.sh	scripts	other	script	1148	工程自动化、测试守卫、代码地图与开发脚本	scripts,activate,guard,env,工程自动化,测试守卫,代码地图与开发脚本
@@ -763,7 +764,7 @@ scripts/check_p1_turn_wrappers_guard_test.go	scripts	other	go-test	9307	工程�
 scripts/check_p1_turn_wrappers.go	scripts	other	go-source	5150	工程自动化、测试守卫、代码地图与开发脚本	scripts,check,p1,turn,wrappers,工程自动化,测试守卫,代码地图与开发脚本
 scripts/check-dag-doc-sync.sh	scripts	other	script	4698	工程自动化、测试守卫、代码地图与开发脚本	scripts,check,dag,doc,sync,工程自动化,测试守卫,代码地图与开发脚本
 scripts/ci_commit_guard.sh	scripts	other	script	2432	工程自动化、测试守卫、代码地图与开发脚本	scripts,ci,commit,guard,工程自动化,测试守卫,代码地图与开发脚本
-scripts/ci_cross_platform_smoke.ps1	scripts	other	script	4388	工程自动化、测试守卫、代码地图与开发脚本	scripts,ci,cross,platform,smoke,工程自动化,测试守卫,代码地图与开发脚本
+scripts/ci_cross_platform_smoke.ps1	scripts	other	script	4405	工程自动化、测试守卫、代码地图与开发脚本	scripts,ci,cross,platform,smoke,工程自动化,测试守卫,代码地图与开发脚本
 scripts/code_size_guard_cli_test.go	scripts	other	go-test	5845	工程自动化、测试守卫、代码地图与开发脚本	scripts,code,size,guard,cli,test,工程自动化,测试守卫,代码地图与开发脚本
 scripts/code_size_guard_test.go	scripts	other	go-test	2791	工程自动化、测试守卫、代码地图与开发脚本	scripts,code,size,guard,test,工程自动化,测试守卫,代码地图与开发脚本
 scripts/code_size_guard.go	scripts	other	go-source	10050	工程自动化、测试守卫、代码地图与开发脚本	scripts,code,size,guard,工程自动化,测试守卫,代码地图与开发脚本
@@ -815,7 +816,7 @@ scripts/package_sqlite_migrations_guard_test.go	scripts	other	go-test	4609	工�
 scripts/package_windows_github_release.ps1	scripts	other	script	5441	工程自动化、测试守卫、代码地图与开发脚本	scripts,package,windows,github,release,工程自动化,测试守卫,代码地图与开发脚本
 scripts/package_windows_guard_test.go	scripts	other	go-test	31363	工程自动化、测试守卫、代码地图与开发脚本	scripts,package,windows,guard,test,工程自动化,测试守卫,代码地图与开发脚本
 scripts/package_windows_local.ps1	scripts	other	script	10963	工程自动化、测试守卫、代码地图与开发脚本	scripts,package,windows,local,工程自动化,测试守卫,代码地图与开发脚本
-scripts/package_windows.ps1	scripts	other	script	51921	工程自动化、测试守卫、代码地图与开发脚本	scripts,package,windows,工程自动化,测试守卫,代码地图与开发脚本
+scripts/package_windows.ps1	scripts	other	script	51947	工程自动化、测试守卫、代码地图与开发脚本	scripts,package,windows,工程自动化,测试守卫,代码地图与开发脚本
 scripts/prepare_lsp_bundle_guard_test.go	scripts	other	go-test	16269	工程自动化、测试守卫、代码地图与开发脚本	scripts,prepare,lsp,bundle,guard,test,工程自动化,测试守卫,代码地图与开发脚本
 scripts/prepare_lsp_bundle_linux.sh	scripts	other	script	10931	工程自动化、测试守卫、代码地图与开发脚本	scripts,prepare,lsp,bundle,linux,工程自动化,测试守卫,代码地图与开发脚本
 scripts/prepare_lsp_bundle_macos.sh	scripts	other	script	10399	工程自动化、测试守卫、代码地图与开发脚本	scripts,prepare,lsp,bundle,macos,工程自动化,测试守卫,代码地图与开发脚本
@@ -870,4 +871,4 @@ third_party/kelindar-event/go.mod	third_party	other	mod	233	未细分职责：�
 third_party/kelindar-event/go.sum	third_party	other	sum	881	未细分职责：请结合路径、文件名和相邻代码判断	third,party,kelindar,event,go,未细分职责：请结合路径,文件名和相邻代码判断
 third_party/kelindar-event/LICENSE	third_party	other	file	1073	未细分职责：请结合路径、文件名和相邻代码判断	third,party,kelindar,event,LICENSE,未细分职责：请结合路径,文件名和相邻代码判断
 third_party/kelindar-event/README.md	third_party	other	doc	4735	未细分职责：请结合路径、文件名和相邻代码判断	third,party,kelindar,event,README,未细分职责：请结合路径,文件名和相邻代码判断
-项目架构图.xls	(root)	other	xls	5021	仓库根级配置、入口或说明文件	项目架构图,仓库根级配置,入口或说明文件
+项目架构图.xls	(root)	other	xls	5044	仓库根级配置、入口或说明文件	项目架构图,仓库根级配置,入口或说明文件

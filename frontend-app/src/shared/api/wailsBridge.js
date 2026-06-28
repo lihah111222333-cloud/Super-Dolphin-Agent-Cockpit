@@ -1180,15 +1180,6 @@ export async function getBuildInfo() {
   return raw && typeof raw === 'object' ? raw : {};
 }
 
-export function onAgentEvent(callback) {
-  return subscribeRuntimeEvent('agent-event', callback, {
-    callbackFailedLog: 'agent.callback.failed',
-    subscribeUnavailableLog: 'agent.subscribe.unavailable',
-    subscribeReadyLog: 'agent.subscribe.ready',
-    unsubscribeDoneLog: 'agent.unsubscribe.done',
-  });
-}
-
 export function onBridgeEvent(callback, options = {}) {
   return subscribeRuntimeEvent('bridge-event', callback, {
     callbackFailedLog: 'bridge.callback.failed',
