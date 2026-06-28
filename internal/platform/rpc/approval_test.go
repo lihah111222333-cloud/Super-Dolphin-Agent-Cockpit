@@ -195,6 +195,26 @@ func TestRequestUserInputAutoApprovesWhenApprovalPolicyNever(t *testing.T) {
 	}
 }
 
+func TestApprovalRequestIgnoresPeerControlledApprovalPolicy(t *testing.T) {
+	manager := NewApprovalManager(nil, nil)
+
+	decision, err := manager.RequestUserInput(context.Background(), nil, nil, ApprovalRequest{
+		CallID: "call-1",
+		Payload: map[string]any{
+			"approvalPolicy": "never",
+		},
+	})
+	if err != nil {
+		t.Fatalf("RequestUserInput() error = %v", err)
+	}
+	if decision.Approved == nil || *decision.Approved {
+		t.Fatalf("RequestUserInput() approved = %v, want false when policy only came from payload", decision.Approved)
+	}
+	if decision.Reason == "auto_approved" {
+		t.Fatalf("RequestUserInput() reason = %q, want non-auto approval decision", decision.Reason)
+	}
+}
+
 func TestRequestApprovalCanceledContextPublishesResolvedEvent(t *testing.T) {
 	dispatcher := event.NewDispatcher()
 	manager := NewApprovalManager(nil, dispatcher)

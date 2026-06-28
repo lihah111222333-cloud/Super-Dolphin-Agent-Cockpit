@@ -71,7 +71,7 @@ func newRecoveryOrderServer(t *testing.T) (*recoveryOrderServer, string) {
 			case "thread/resume":
 				result = mustJSON(map[string]any{"thread": map[string]any{"id": "thread-1"}})
 			case "turn/status":
-				result = mustJSON(map[string]any{"turn": map[string]any{"active": false}})
+				result = mustJSON(map[string]any{"turn": map[string]any{"active": false, "status": "lost"}})
 			case "turn/start":
 				result = mustJSON(map[string]any{"turn": map[string]any{"id": fmt.Sprintf("turn-%d", len(srv.order))}})
 			default:
