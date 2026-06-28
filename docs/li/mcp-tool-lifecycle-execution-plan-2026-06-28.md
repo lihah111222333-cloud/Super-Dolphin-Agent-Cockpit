@@ -2,64 +2,69 @@
 
 ## 状态
 
-NEEDS_APPROVAL。
+已执行完成并合入当前 `main`。本文件原先记录的是 schema/store 第一切片
+之后的 ADR 0003 backend/toolbridge gate；当前 `main` 已完成
+owner API、discovery/backfill、toolbridge list filtering、direct-call denial、
+compatibility tests 和最终验证。
 
-本 lane 已停止生产实现并撤回未获批准的 partial schema/sqlc 改动。原因是 ADR 0003 的 schema/store 第一切片在当前仓库事实下必须触及原允许范围之外的运行时 SQLite migration、根 sqlc 配置和 sqlc 生成物；继续实现前需要主控批准扩大写入范围。
+本次闭合范围不包含 UI lifecycle 控件或展示。UI 如果后续需要做，应作为单独
+产品交互任务处理，不能反向改写本文件的 backend/toolbridge 完成状态。
 
-## 仓库事实
+## 已完成范围
 
-- README 明确产品 DB migration 会在启动时由 `internal/platform/db/module.go` 自动执行，产品主库是 SQLite。
-- `internal/platform/db/module.go` 的 `sqliteMigrationsDir()` 返回 `internal/platform/db/sqlite/migrations`，因此顶层 `migrations/*` 不是当前产品 SQLite runtime migration 真源。
-- `docs/契约/sqlc-convention.md` 明确根 `sqlc.yaml` 的 schema 必须指向 `internal/platform/db/sqlite/migrations/*.sql`，根查询目录为 `sql/queries/`，生成物为 `internal/store/sqlc`。
-- `make sqlc-generate` 会重写 `internal/store/sqlc/models.go`、`internal/store/sqlc/querier.go`，并为新增 query 生成新的 `*.sql.go` 文件；这些生成物不能手写。
+- Schema/store gate：新增产品 SQLite migration、root `sqlc.yaml` 输入、
+  `sql/queries/mcp_tool_lifecycle.sql`、sqlc 生成物、
+  `internal/contract/mcp_control.go` lifecycle DTO/接口，以及
+  `internal/store/mcpserver` store wrapper 和测试。
+- Owner API/backfill gate：`internal/module/mcp_server/lifecycle.go` 提供
+  explicit upsert/get/list、discovery ensure 和 batch backfill；backfill 不覆盖
+  已有 `suspended` 或 `removed` 行。
+- Toolbridge list gate：`internal/platform/toolbridge/handler_host_tools.go`
+  通过 lifecycle reader 过滤 managed peer MCP tools；reader 缺失、project root
+  缺失、managed tool 缺行或未知状态均 fail-closed，不发布半可用工具面。
+- Direct-call gate：`internal/platform/toolbridge/handler_peer_decode.go` 和
+  `handler_peer_decode_helpers.go` 在 managed MCP tool 执行前读取 lifecycle
+  状态，`suspended` 与 `removed` 会拒绝 Codex surface direct call。
+- Compatibility gate：旧 MCP 配置/工具 wire 不暴露 lifecycle 字段；HTTP、stdio、
+  Codex app、provider e2e 与 unified manifest 的兼容性测试已覆盖。
+- Test helper gate：`internal/platform/toolbridge/module.go` 提供
+  `NewHandlerForTestingWithLifecycle`，使 E2E 测试能够显式注入 lifecycle reader。
 
-## 为什么需要扩大写入范围
+## 代码证据
 
-ADR 0003 要求 schema gate 同时具备 migration、sqlc query、store wrapper、store tests，并且改 SQL/migration/sqlc 后运行 `make sqlc-verify`。在当前仓库结构下：
+- `internal/module/mcp_server/lifecycle.go`
+- `internal/module/mcp_server/lifecycle_service_test.go`
+- `internal/module/mcp_server/rpc_test.go`
+- `internal/store/mcpserver/lifecycle_store.go`
+- `internal/store/mcpserver/lifecycle_store_test.go`
+- `internal/platform/toolbridge/handler_host_tools.go`
+- `internal/platform/toolbridge/host_tools_lifecycle_test.go`
+- `internal/platform/toolbridge/handler_peer_decode.go`
+- `internal/platform/toolbridge/handler_peer_decode_helpers.go`
+- `internal/platform/toolbridge/codex_surface_lifecycle_test.go`
+- `internal/provider/e2e/lifecycle_wire_test.go`
+- `internal/provider/codexapp/lifecycle_wire_test.go`
+- `internal/provider/unified/manifest_test.go`
+- `internal/contract/mcp_control_test.go`
+- `internal/platform/toolbridge/http_mcp_client_test.go`
+- `internal/platform/toolbridge/stdio_mcp_client_test.go`
 
-- 新表必须新增到 `internal/platform/db/sqlite/migrations/NNN_*.sql`，否则运行时不会迁移出 `mcp_tool_lifecycle_states`。
-- 根 `sqlc.yaml` 必须把新增 SQLite migration 加入 schema 输入，否则 `sql/queries/mcp_tool_lifecycle.sql` 无法生成类型安全查询。
-- `internal/store/sqlc/{models.go,querier.go,mcp_tool_lifecycle.sql.go}` 是 `make sqlc-generate` 的必要输出，不能手写也不能省略后再声称 `make sqlc-verify` 通过。
+## 验证记录
 
-## 请求批准的额外写入范围
+主分支合并后已通过：
 
-- `internal/platform/db/sqlite/migrations/*`
-- `sqlc.yaml`
-- `internal/store/sqlc/*` 仅限 sqlc 生成输出
-
-原允许范围仍保持：
-
-- `sql/queries/*mcp*`
-- `internal/store/mcpserver/**`
-- `internal/module/mcp_server/**`
-- `internal/contract/**` 仅限 lifecycle reader/writer DTO/接口
-- ADR/spike 文档状态更新
-
-## 继续后的最小实施切片
-
-1. 新增 SQLite migration `mcp_tool_lifecycle_states`，约束空 key、`active/suspended/removed` state、`discovery/user/migration/system` source。
-2. 新增 `sql/queries/mcp_tool_lifecycle.sql` 并运行 `make sqlc-generate`，提交生成物。
-3. 在 `internal/contract` 新增 lifecycle reader/writer DTO/接口，不修改 `internal/dto/mcp.MCPTool`。
-4. 在 `internal/store/mcpserver` 新增 lifecycle store wrapper 和单元测试，所有空 workspace/server/tool key、非法 state/source、未知行都 fail-fast。
-5. 在 `internal/module/mcp_server` 新增 owner API：显式写状态、列状态、对 discovery 结果 backfill active 行；backfill 不覆盖已有 `suspended/removed`。
-6. 不修改 `internal/platform/toolbridge` 的 production list/call filtering，不把 lifecycle 状态投影到 Codex dynamicTools。
-
-## 后续验证
-
-批准扩大范围后，完成实现必须运行：
-
+- LSP diagnostics：覆盖本轮变更 Go 文件，无诊断。
+- `./scripts/test_with_guard.sh ./internal/module/mcp_server ./internal/store/mcpserver ./internal/platform/toolbridge ./internal/provider/e2e -count=1`
+- `./scripts/test_with_guard.sh ./internal/provider/unified ./internal/provider/codexapp -count=1`
 - `make sqlc-verify`
-- LSP diagnostics 覆盖改过的 Go 文件
-- `./scripts/test_with_guard.sh <每个改过的 Go 文件>`
-- `./scripts/test_with_guard.sh ./internal/module/mcp_server ./internal/store/mcpserver -count=1`
-- `git diff --check`
-- `git status --short --branch`
+- `git diff --check && git diff --cached --check`
 
-## 未完成 ADR gates
+## ADR Gates 当前状态
 
-- Schema gate：未完成，等待批准 runtime SQLite migration、sqlc.yaml 和 sqlc 生成物写入范围。
-- Backfill gate：未完成，等待 owner API 和测试。
-- Compatibility gate：未完成，待 API 落地后验证旧配置 API 不变。
-- Toolbridge gate：未开始，按 ADR 禁止在第一切片接入。
-- Direct-call gate：未开始，需在 Toolbridge gate 之后统一处理。
-- Verification gate：未完成，当前仅完成阻塞确认和 docs-only plan。
+- Schema gate：完成。
+- Backfill gate：完成。
+- Compatibility gate：完成。
+- Toolbridge gate：完成。
+- Direct-call gate：完成。
+- Verification gate：完成。
+- UI gate：非本轮范围，当前没有实现 lifecycle 控件或展示。
