@@ -39,17 +39,18 @@ func BuildPrefixShape(
 	staticNames := make([]string, 0, len(sections))
 	dynamicNames := make([]string, 0, len(sections))
 	h := sha256.New()
-	writeShapePart(h, "base_bytes", fmt.Sprintf("%d", len(strings.TrimSpace(base))))
-	writeShapePart(h, "developer_bytes", fmt.Sprintf("%d", len(strings.TrimSpace(developer))))
-	writeShapePart(h, "cached_prefix_bytes", fmt.Sprintf("%d", len(promptBoundaryCachedPrefix(boundary))))
-	writeShapePart(h, "uncached_tail_bytes", fmt.Sprintf("%d", len(promptBoundaryUncachedTail(boundary))))
-	writeShapePart(h, "reason", strings.TrimSpace(reason))
+	writeShapePart(h, "base", base)
+	writeShapePart(h, "developer", developer)
+	if boundary != nil {
+		writeShapePart(h, "cached", boundary.CachedPrefix)
+		writeShapePart(h, "uncached", boundary.UncachedTail)
+	}
 	for _, section := range sections {
 		name := strings.TrimSpace(section.Name)
 		if name == "" {
 			continue
 		}
-		writeShapePart(h, "section", fmt.Sprintf("%s:%d:%t", name, section.Region, section.Volatile))
+		writeShapePart(h, name, section.Content)
 		if section.Region == PromptRegionStatic && !section.Volatile {
 			staticNames = append(staticNames, name)
 		} else {
@@ -367,6 +368,33 @@ func (s *service) regionSections(region PromptRegion) []PromptSection {
 	return sections
 }
 
+// fallbackStartAssembly 在 section 解析失败时用原始 BaseInstructions 构建降级 assembly。
+// fallbackStartAssembly 在组装失败后保留原始 BaseInstructions 并补齐结构化上下文。
+// 该路径仍写 snapshot，保证后续 resume/fork/recover 能拿到一致的降级结果。
+func (s *service) fallbackStartAssembly(ctx context.Context, in StartInput) StartAssembly {
+	displayName := strings.TrimSpace(in.Name)
+	base := strings.TrimSpace(in.BaseInstructions)
+	buildCtx := buildStartCtx(in)
+	suppressedTools := s.aggregateSuppressedTools(ctx, strings.TrimSpace(in.CWD), strings.TrimSpace(in.Provider))
+	buildCtx.SuppressedTools = suppressedTools
+	userMeta := s.buildStartUserMeta(buildCtx, nil)
+	systemCtx := s.buildSystemContext(ctx, buildCtx)
+	if hint := s.resolvePromptHint(ctx, buildCtx.CWD); hint != "" {
+		base = joinBlocks(base, hint)
+	}
+	dev := strings.TrimSpace(in.DeveloperInstructions)
+	return StartAssembly{
+		DisplayName:           displayName,
+		BaseInstructions:      base,
+		DeveloperInstructions: dev,
+		Snapshot:              s.newSnapshot(displayName, base, dev, in.Provider, nil, nil),
+		SuppressedTools:       append([]string(nil), suppressedTools...),
+		UserContext:           map[string]string(cloneUserContextPayload(userMeta)),
+		UserContextText:       contract.FormatUserContextText(userMeta),
+		SystemContext:         systemCtx,
+	}
+}
+
 // buildStartUserMeta 构建每次 start 都可能变化的结构化 user meta。
 // currentDate 与 runtimeExtras 不进入 BaseInstructions，避免日期等动态内容破坏 provider 缓存前缀。
 func (s *service) buildStartUserMeta(_ BuildCtx, resolved []ResolvedPromptSection) userContextPayload {
@@ -436,6 +464,11 @@ func (s *service) notifyInvalidationProviders(reason InvalidateReason) {
 	if aware, ok := s.claudeMdProvider.(InvalidationAwareProvider); ok {
 		aware.OnPromptInvalidate(reason)
 	}
+}
+
+// buildStartSectionContext 从 StartInput 构建 section 上下文。
+func buildStartSectionContext(in StartInput) SectionContext {
+	return SectionContext{BuildCtx: buildStartCtx(in), Start: &in}
 }
 
 // buildTurnSectionContext 从 TurnInput 构建 section 上下文。

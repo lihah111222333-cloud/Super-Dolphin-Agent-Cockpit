@@ -8,12 +8,10 @@ import {
   downloadAppUpdate,
   emitFrontendTraceEvent,
   getDatasourceDocument,
-  getMCPToolLifecycleState,
   importDatasourceLocalFile,
   installAppUpdate,
   installLatestAppUpdate,
   listDatasourceDocuments,
-  listMCPToolLifecycleStates,
   listMCPServers,
   getVideoApiKey,
   RPC_METHODS,
@@ -24,7 +22,6 @@ import {
   startSQLiteMCPServer,
   stopPlaywrightMCPServer,
   stopSQLiteMCPServer,
-  upsertMCPToolLifecycleState,
   updateDatasourceDocument,
   writeWorkflowMaterial,
 } from './backendApi.js';
@@ -184,57 +181,6 @@ function expectInvalidInputDoesNotCall(callAPI, action, message) {
     expect(typeof stopSQLiteMCPServer).toBe('function');
     expect(typeof startPlaywrightMCPServer).toBe('function');
     expect(typeof stopPlaywrightMCPServer).toBe('function');
-  });
-
-  it('wraps MCP tool lifecycle list, get and upsert RPC methods with strict payloads', async () => {
-    const listResponse = [{ serverName: 'lsp', toolName: 'grep', state: 'active' }];
-    const getResponse = { serverName: 'lsp', toolName: 'grep', state: 'active' };
-    const upsertResponse = { serverName: 'lsp', toolName: 'grep', state: 'suspended', reason: 'pause noisy tool' };
-    const callAPI = vi.fn()
-      .mockResolvedValueOnce(listResponse)
-      .mockResolvedValueOnce(getResponse)
-      .mockResolvedValueOnce(upsertResponse);
-    const api = createBackendApi({ callAPI });
-
-    await expect(api.listMCPToolLifecycleStates({ workspaceRoot: ' /repo/app ', serverName: ' lsp ' })).resolves.toEqual(listResponse);
-    await expect(api.getMCPToolLifecycleState({
-      workspaceRoot: ' /repo/app ',
-      serverName: ' lsp ',
-      toolName: ' grep ',
-    })).resolves.toEqual(getResponse);
-    await expect(api.upsertMCPToolLifecycleState({
-      workspaceRoot: ' /repo/app ',
-      serverName: ' lsp ',
-      toolName: ' grep ',
-      state: 'suspended',
-      reason: ' pause noisy tool ',
-    })).resolves.toEqual(upsertResponse);
-
-    expect(callAPI).toHaveBeenNthCalledWith(1, RPC_METHODS.MCP_TOOL_LIFECYCLE_LIST, {
-      workspaceRoot: '/repo/app',
-      serverName: 'lsp',
-    });
-    expect(callAPI).toHaveBeenNthCalledWith(2, RPC_METHODS.MCP_TOOL_LIFECYCLE_GET, {
-      workspaceRoot: '/repo/app',
-      serverName: 'lsp',
-      toolName: 'grep',
-    });
-    expect(callAPI).toHaveBeenNthCalledWith(3, RPC_METHODS.MCP_TOOL_LIFECYCLE_UPSERT, {
-      workspaceRoot: '/repo/app',
-      serverName: 'lsp',
-      toolName: 'grep',
-      state: 'suspended',
-      reason: 'pause noisy tool',
-    });
-    expect(typeof listMCPToolLifecycleStates).toBe('function');
-    expect(typeof getMCPToolLifecycleState).toBe('function');
-    expect(typeof upsertMCPToolLifecycleState).toBe('function');
-    expectInvalidInputDoesNotCall(callAPI, () => api.listMCPToolLifecycleStates({ workspaceRoot: '' }), 'workspaceRoot is required');
-    expectInvalidInputDoesNotCall(callAPI, () => api.listMCPToolLifecycleStates({ workspaceRoot: '/repo/app', serverName: '' }), 'serverName is required');
-    expectInvalidInputDoesNotCall(callAPI, () => api.getMCPToolLifecycleState({ workspaceRoot: '/repo/app', serverName: 'lsp', toolName: '' }), 'toolName is required');
-    expectInvalidInputDoesNotCall(callAPI, () => api.upsertMCPToolLifecycleState({ workspaceRoot: '/repo/app', serverName: '', toolName: 'grep', state: 'active' }), 'serverName is required');
-    expectInvalidInputDoesNotCall(callAPI, () => api.upsertMCPToolLifecycleState({ workspaceRoot: '/repo/app', serverName: 'lsp', toolName: '', state: 'active' }), 'toolName is required');
-    expectInvalidInputDoesNotCall(callAPI, () => api.upsertMCPToolLifecycleState({ workspaceRoot: '/repo/app', serverName: 'lsp', toolName: 'grep', state: 'paused' }), 'state must be active, suspended, or removed');
   });
 
   it('wraps workflow template RPC methods with canonical payloads', async () => {

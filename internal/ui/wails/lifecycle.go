@@ -14,6 +14,7 @@ import (
 const (
 	// Wails 生命周期事件名。
 	bridgeEventName = "bridge-event"
+	agentEventName  = "agent-event"
 	quitOverlayName = "app-will-quit"
 	quitErrorName   = "app-quit-error"
 	quitGraceDelay  = 320 * time.Millisecond

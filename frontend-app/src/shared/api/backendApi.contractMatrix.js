@@ -164,9 +164,6 @@ export const RPC_CONTRACT_REGISTRY = Object.freeze({
   MCP_SERVER_SQLITE_STOP: contract('MCP_SERVER_SQLITE_STOP', 'stopSQLiteMCPServer', 'P0', 'mcpServer', [TESTS.API, TESTS.SKILLS], ['sqlite MCP server mutation', 'params:{}-only']),
   MCP_SERVER_PLAYWRIGHT_START: contract('MCP_SERVER_PLAYWRIGHT_START', 'startPlaywrightMCPServer', 'P0', 'mcpServer', [TESTS.API, TESTS.SKILLS], ['playwright MCP server mutation', 'params:{}-only']),
   MCP_SERVER_PLAYWRIGHT_STOP: contract('MCP_SERVER_PLAYWRIGHT_STOP', 'stopPlaywrightMCPServer', 'P0', 'mcpServer', [TESTS.API, TESTS.SKILLS], ['playwright MCP server mutation', 'params:{}-only']),
-  MCP_TOOL_LIFECYCLE_LIST: contract('MCP_TOOL_LIFECYCLE_LIST', 'listMCPToolLifecycleStates', 'P1', 'mcpServer', [TESTS.API, TESTS.SETTINGS], ['MCP tool lifecycle read']),
-  MCP_TOOL_LIFECYCLE_GET: contract('MCP_TOOL_LIFECYCLE_GET', 'getMCPToolLifecycleState', 'P1', 'mcpServer', [TESTS.API, TESTS.SETTINGS], ['MCP tool lifecycle read']),
-  MCP_TOOL_LIFECYCLE_UPSERT: contract('MCP_TOOL_LIFECYCLE_UPSERT', 'upsertMCPToolLifecycleState', 'P0', 'mcpServer', [TESTS.API, TESTS.SETTINGS], ['MCP tool lifecycle mutation']),
 
   THREAD_START: contract('THREAD_START', 'startThread', 'P0', 'thread', [TESTS.API, TESTS.APP], ['runtime lifecycle start', 'custom-decoder']),
   THREAD_MESSAGES: contract('THREAD_MESSAGES', 'getThreadMessages', 'P1', 'thread', [TESTS.API, TESTS.APP], ['thread read']),

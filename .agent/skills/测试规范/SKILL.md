@@ -21,6 +21,7 @@ aliases: ["@测试规范", "@testing"]
 | Go 包 | `./scripts/test_with_guard.sh <affected packages> -count=1` |
 | guard/archtest | `./scripts/test_with_guard.sh ./internal/archtest -count=1` 或 `make guard` |
 | frontend-app | `cd frontend-app && npm run lint && npm test && npm run build` |
+| legacy Vue | `cd cmd/agent-terminal/frontend && node scripts/size-guard.cjs && npx vitest run && npm run build` |
 | SQL/store | `make sqlc-verify` |
 | codemap | `make codemap-check` |
 | docs/skills-only | `python3 scripts/validate_super_agent_skills.py` + `git diff --check`；涉及 provider mirror 时还要检查 canonical 与 mirror 一致 |

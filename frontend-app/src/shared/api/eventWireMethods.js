@@ -65,16 +65,5 @@ export const EVENT_COMPAT_WIRE_PREFIXES = Object.freeze([
   'workspace/run/',
 ]);
 
-export const EVENT_BRIDGE_CONTROL_WIRE_METHODS = Object.freeze([
-  'rpc.failed',
-  'api.rpc.failed',
-  'task/node/statuschanged',
-]);
-
-export const EVENT_BRIDGE_CONTROL_WIRE_SUFFIXES = Object.freeze([
-  '/failed',
-  '.failed',
-]);
-
 // Compatibility alias for any existing caller that imports the old name.
 export const EVENT_WIRE_METHODS = EVENT_TYPED_WIRE_METHODS;

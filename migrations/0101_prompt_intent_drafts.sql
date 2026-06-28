@@ -45,7 +45,7 @@ WITH seed_recall_whitelist(prompt_key, section_key, recall_topic) AS (
         ('main/general-zh', 'recall_lsp_advanced', 'lsp-advanced'),
         ('main/general-zh', 'recall_sqlc_workflow', 'sqlc-workflow'),
         ('main/general-zh', 'recall_prompt_template_editing', 'prompt-template-editing'),
-        ('main/general-zh', 'recall_frontend_react', 'frontend-react'),
+        ('main/general-zh', 'recall_frontend_vue3', 'frontend-vue3'),
         ('main/general-zh', 'recall_migration_rules', 'migration-rules'),
         ('main/general-zh', 'recall_guard_rules', 'guard-rules')
 ),

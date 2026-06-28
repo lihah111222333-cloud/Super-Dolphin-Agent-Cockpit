@@ -15,14 +15,14 @@ import {
   rollbackWorkflowTemplate as rollbackWorkflowTemplateBackend,
   saveWorkflowTemplate as saveWorkflowTemplateBackend,
   startDag as startDagBackend,
+  startThread as startThreadBackend,
+  startTurn as startTurnBackend,
   terminateDagRun as terminateDagRunBackend,
   writeWorkflowMaterial as writeWorkflowMaterialBackend,
 } from '../../../shared/api/backendApi.js';
-import { sessionApi } from '../../../shared/api/sessionApi.js';
 
 /*
- * workflow page service 只把页面动作转给受保护 API/facade。
- * session-facing 动作经 sessionApi，其他工作流动作仍经 backendApi。
+ * workflow page service 只是把页面动作转给 backendApi。
  * 数据整理、缓存刷新和错误文案都留在 WorkflowPage。
  */
 
@@ -91,11 +91,11 @@ export function startDag(payload) {
 }
 
 export function startThread(payload) {
-  return sessionApi.start(payload);
+  return startThreadBackend(payload);
 }
 
 export function startTurn(payload) {
-  return sessionApi.startTurn(payload);
+  return startTurnBackend(payload);
 }
 
 export function terminateDagRun(payload) {

@@ -32,18 +32,17 @@ var persistentSubagentDefaultFallbackTotal atomic.Uint64
 // Handler 负责把模型侧 tool call 路由到 host-direct、Codex surface 或外部 MCP peer。
 // 结构体持有的 store、registry 与 hostTools 都是可选边界，调用路径必须显式处理缺失依赖。
 type Handler struct {
-	registry            activePeerRegistry
-	emitter             difftracker.DiffEmitter
-	resolver            difftracker.WorkDirResolver
-	diffFallback        *diffFallbackTracker
-	bindingStore        agentThreadLookup
-	threadStore         threadConfigOverrideStore
-	preferences         uiPreferenceReader
-	toolLifecycleReader mcpToolLifecycleReader
-	cfg                 *platformconfig.Config
-	logger              *pkglogger.Logger
-	tracer              *observability.Service
-	dispatcher          *event.Dispatcher
+	registry     activePeerRegistry
+	emitter      difftracker.DiffEmitter
+	resolver     difftracker.WorkDirResolver
+	diffFallback *diffFallbackTracker
+	bindingStore agentThreadLookup
+	threadStore  threadConfigOverrideStore
+	preferences  uiPreferenceReader
+	cfg          *platformconfig.Config
+	logger       *pkglogger.Logger
+	tracer       *observability.Service
+	dispatcher   *event.Dispatcher
 	// hostTools 是可选依赖：agent-terminal 生产图只装配 memory_read / memory_write
 	// host-direct 工具。字段保持 nil-safe：测试或未来无 HostToolRegistry 的
 	// toolbridge 图会退回 peer 路径；当前 mcp-orch / mcp-lsp standalone 不加载
@@ -108,22 +107,21 @@ func NewHandler(in handlerIn) *Handler {
 		logger = pkglogger.Get()
 	}
 	handler := &Handler{
-		registry:            in.Registry,
-		emitter:             in.Emitter,
-		resolver:            in.Resolver,
-		diffFallback:        in.DiffFallback,
-		bindingStore:        in.BindingStore,
-		threadStore:         in.ThreadStore,
-		preferences:         in.Preferences,
-		toolLifecycleReader: in.ToolLifecycleReader,
-		cfg:                 in.Config,
-		logger:              logger,
-		tracer:              in.Tracer,
-		dispatcher:          in.Dispatcher,
-		hostTools:           in.HostTools,
-		skillTools:          in.SkillTools,
-		surfaces:            make(map[string]*codexToolSurface),
-		proxyAuthToken:      newProxyAuthToken(),
+		registry:       in.Registry,
+		emitter:        in.Emitter,
+		resolver:       in.Resolver,
+		diffFallback:   in.DiffFallback,
+		bindingStore:   in.BindingStore,
+		threadStore:    in.ThreadStore,
+		preferences:    in.Preferences,
+		cfg:            in.Config,
+		logger:         logger,
+		tracer:         in.Tracer,
+		dispatcher:     in.Dispatcher,
+		hostTools:      in.HostTools,
+		skillTools:     in.SkillTools,
+		surfaces:       make(map[string]*codexToolSurface),
+		proxyAuthToken: newProxyAuthToken(),
 	}
 	handler.stdioClientFactory = handler.defaultStdioClientFactory
 	return handler
@@ -548,6 +546,12 @@ func (h *Handler) resolveToolCallThreadIDFromAgent(ctx context.Context, req Tool
 		return toolCallThreadIDLookupResult{status: toolCallLookupNotFound}
 	}
 	return toolCallThreadIDLookupResult{status: toolCallLookupFound, threadID: threadID}
+}
+
+// readToolCallRuntime 读取 thread config override 中的 runtime 段。
+func (h *Handler) readToolCallRuntime(ctx context.Context, threadID string) (map[string]any, bool) {
+	result := h.readToolCallRuntimeResult(ctx, threadID)
+	return result.runtime, result.status == toolCallLookupFound
 }
 
 // readToolCallRuntimeResult 读取 runtime 三态结果；读取或解析失败不能伪装成缺失。

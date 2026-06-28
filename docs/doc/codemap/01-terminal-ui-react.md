@@ -13,7 +13,7 @@
 - 页面入口：`frontend-app/src/main.jsx`
 - 应用主壳：`frontend-app/src/App.jsx`
 - 样式入口：`frontend-app/src/styles.css`
-- 嵌入产物目录：`cmd/agent-terminal/web-dist/`，由 `frontend-app/scripts/sync-frontend-dist.mjs` 从 `frontend-app/dist` 同步。
+- 旧 Vue 目录：`cmd/agent-terminal/frontend/vue-app/`，只作为 legacy/package-embed 路径处理。
 
 ## 2. 文件地图
 
@@ -42,7 +42,7 @@ npm test
 npm run build
 ```
 
-旧 Vue/package-embed 前端已删除；当前前端验证只跑 `frontend-app` 的 lint/test/build。
+`cmd/agent-terminal/frontend` 的 `node scripts/size-guard.cjs` / `npx vitest run` / `npm run build` 只用于 legacy Vue/package-embed 前端改动。
 
 ## 4. Chat / Thread 当前链路
 
@@ -75,5 +75,5 @@ sequenceDiagram
 
 - 问“当前页面在哪里改”：先看 `frontend-app/src/App.jsx`、`useClientStore.js`、`backendApi.js`。
 - 问“Wails 桌面宿主怎么加载页面”：看 `run-new-ui-desktop.sh` 与 `internal/ui/wails/assets.go`。
-- 问“没有 VITE_DEV_URL 时嵌入什么”：看 `cmd/agent-terminal/frontend.go`、`cmd/agent-terminal/web-dist` 和 `frontend-app/scripts/sync-frontend-dist.mjs`。
-- 不要因为桌面进程仍是 `cmd/agent-terminal`，就把当前 React 页面误判到 Go host 目录。
+- 问“没有 VITE_DEV_URL 时嵌入什么”：看 `cmd/agent-terminal/frontend.go` 和 legacy `cmd/agent-terminal/frontend/dist`。
+- 不要因为桌面进程仍是 `cmd/agent-terminal`，就把当前 React 页面误判到 `cmd/agent-terminal/frontend/vue-app`。

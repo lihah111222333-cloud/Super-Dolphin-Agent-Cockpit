@@ -64,13 +64,13 @@ flowchart LR
 1. 先读 [07-module-read.md](07-module-read.md) §2，确认 dashboard 真相源与查询分发。
 2. 再读 [07-module-read.md](07-module-read.md) §4，确认 skill 目录、`skill/list`、provider-native mirror、legacy RPC 共存面。
 3. 需要线程/回合执行链时，转到 [07-module-write.md](07-module-write.md) §2 → §3 → §4。
-4. 遇到 blank-thread 首发、聊天页技能边界、前后端接缝问题，最后再读 [07-module-write.md](07-module-write.md) §5，并回看 [01-terminal-ui-react.md](01-terminal-ui-react.md)。
+4. 遇到 blank-thread 首发、聊天页技能边界、前后端接缝问题，最后再读 [07-module-write.md](07-module-write.md) §5，并回看 [01-terminal-ui-vue.md](01-terminal-ui-vue.md) §5.1。
 
 ## 8. 跨卷跳转锚点
 
 - 看 dashboard cwd 去 [07-module-read.md](07-module-read.md) §2.4。
 - 看 `skill/list` / provider-native mirror 去 [07-module-read.md](07-module-read.md) §4.3、§4.4、§4.5。
-- 看 blank-thread `thread/start -> turn/start` 去 [07-module-write.md](07-module-write.md) §5，再回 [01-terminal-ui-react.md](01-terminal-ui-react.md)。
+- 看 blank-thread `startThread -> sendMessage` 去 [07-module-write.md](07-module-write.md) §5，再回 [01-terminal-ui-vue.md](01-terminal-ui-vue.md) §5.1。
 - 看 prompt snapshot / memory 注入为什么不在 07 展开，去 [11-memory.md](11-memory.md) §5.5 B；prompt/thread 入口位见 [11-prompt-thread.md](11-prompt-thread.md)。
 
 ## 9. 最近一次重大变更摘要
