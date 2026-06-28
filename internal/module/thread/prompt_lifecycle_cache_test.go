@@ -74,6 +74,7 @@ func assertMemoryPromptBuild(t *testing.T, gotCalls int, instructions string, wa
 
 func newResumeInvalidationService(t *testing.T, worktreeCWD string, promptAssembly promptpkg.Service) *service {
 	t.Helper()
+	const providerThreadID = "019d5f6b-fb3c-7760-9d6f-54005553f705"
 	threads := &stubThreadStore{thread: &threadstore.Thread{
 		ThreadID:       "thread-resume",
 		AgentID:        "agent-resume",
@@ -88,6 +89,8 @@ func newResumeInvalidationService(t *testing.T, worktreeCWD string, promptAssemb
 		AgentID:       "agent-resume",
 		Provider:      "codex",
 		CodexThreadID: "thread-resume",
+		RolloutPath:   writeExistingProviderHistoryFile(t),
+		SessionUUID:   providerThreadID,
 		Cwd:           worktreeCWD,
 	}}
 	sessions := &stubSessionProvider{}

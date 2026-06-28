@@ -402,6 +402,9 @@ func (s *service) resumeResolvedSession(ctx context.Context, resolvedReq ResumeR
 	if s.starter == nil {
 		return nil, errors.New("session starter is not configured")
 	}
+	if err := validateHydratedResumeRequest(resolvedReq); err != nil {
+		return nil, err
+	}
 	cwd := strings.TrimSpace(resolvedReq.CWD)
 	if cwd == "" || cwd == "." {
 		return nil, errors.New("thread resume cwd is required")
