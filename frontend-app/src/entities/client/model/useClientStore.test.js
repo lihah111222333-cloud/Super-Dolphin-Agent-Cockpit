@@ -1,3 +1,6 @@
+import fs from 'node:fs';
+import path from 'node:path';
+import { cwd } from 'node:process';
 import { beforeEach, expect, it, vi } from 'vitest';
 
 let bridgeCallback;
@@ -83,6 +86,19 @@ vi.mock('../../../shared/api/backendApi.js', () => ({
 }));
 
 import { resetClientStoreForTests, useClientStore } from './useClientStore.js';
+
+it('routes client store session-facing calls through sessionApi facade or injected deps', () => {
+  const source = fs.readFileSync(path.join(cwd(), 'src/entities/client/model/useClientStore.js'), 'utf8');
+  const backendImportBlock = source.match(/import\s*{([\s\S]*?)}\s*from '..\/..\/..\/shared\/api\/backendApi\.js';/)?.[1] || '';
+
+  expect(source).toContain("import { sessionApi } from '../../../shared/api/sessionApi.js';");
+  expect(backendImportBlock).not.toMatch(/\b(getThreadMessages|interruptTurn|startThread|startTurn)\b/);
+  expect(source).toMatch(/startThread: \(payload\) => sessionApi\.start\(payload\)/);
+  expect(source).toMatch(/startTurn: \(payload\) => sessionApi\.startTurn\(payload\)/);
+  expect(source).toMatch(/getThreadMessages: \(payload\) => sessionApi\.getThreadMessages\(payload\)/);
+  expect(source).toContain("runtime.activeThreadRPC('thread.interrupt', sessionApi.interruptTurn)");
+  expect(source).toContain('await sessionApi.startTurn({');
+});
 
 function registerBridgeEventHandlersForTest() {
   return useClientStore.getState().initializeEvents();
@@ -3033,6 +3049,17 @@ function registerBridgeEventHandlersForTest() {
       payload: { job_id: 'job-1', run_id: 'run-1', status: 'running' },
     });
     expect(useClientStore.getState().workflowRevision).toBe(2);
+  });
+
+  it('keeps legacy lowercase task node status bridge events on the workflow revision path', () => {
+    registerBridgeEventHandlersForTest();
+
+    bridgeCallback({
+      type: 'task/node/statuschanged',
+      payload: { dag_key: 'flow-a', run_key: 'run-a', node_key: 'step', new_status: 'running' },
+    });
+
+    expect(useClientStore.getState().workflowRevision).toBe(1);
   });
 
   it('fails fast instead of refreshing workflow data for malformed task node status events', () => {

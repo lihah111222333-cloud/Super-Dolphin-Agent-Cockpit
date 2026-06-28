@@ -556,7 +556,7 @@ list_backend_watch_files() {
       continue
     fi
     find "$path" \
-      \( -path '*/.git' -o -path '*/.tmp' -o -path '*/.build-cache' -o -path '*/bin' -o -path '*/dist' -o -path '*/node_modules' -o -path '*/frontend-app/dist' -o -path '*/cmd/agent-terminal/frontend/dist' \) -prune -o \
+      \( -path '*/.git' -o -path '*/.tmp' -o -path '*/.build-cache' -o -path '*/bin' -o -path '*/dist' -o -path '*/node_modules' -o -path '*/frontend-app/dist' -o -path '*/cmd/agent-terminal/web-dist' \) -prune -o \
       -type f \( -name '*.go' -o -name '*.sql' -o -name '*.yaml' -o -name '*.yml' -o -name '*.json' -o -name 'go.mod' -o -name 'go.sum' \) -print
   done
 }

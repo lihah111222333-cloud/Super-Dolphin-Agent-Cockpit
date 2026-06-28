@@ -16,37 +16,44 @@ import (
 )
 
 var (
-	errMissingMCPServers           = errors.New("mcp_server: mcpServers is required")
-	errMissingServerName           = errors.New("mcp_server: server name is required")
-	errDuplicateServerName         = errors.New("mcp_server: duplicate server name")
-	errMissingServerTransport      = errors.New("mcp_server: transport is required")
-	errUnsupportedTransport        = errors.New("mcp_server: unsupported transport")
-	errMissingServerURL            = errors.New("mcp_server: url is required")
-	errInvalidServerURL            = errors.New("mcp_server: invalid url")
-	errMissingServerCommand        = errors.New("mcp_server: command is required")
-	errUnsupportedStdioCommand     = errors.New("mcp_server: unsupported stdio command")
-	errMissingServerArg            = errors.New("mcp_server: arg is required")
-	errMissingServerEnvName        = errors.New("mcp_server: env name is required")
-	errMissingServerEnvValue       = errors.New("mcp_server: env value is required")
-	errMissingHeaderName           = errors.New("mcp_server: header name is required")
-	errMissingHeaderValue          = errors.New("mcp_server: header value is required")
-	errInvalidConfigDocument       = errors.New("mcp_server: invalid config document")
-	errServerAlreadyExists         = errors.New("mcp_server: server already exists")
-	errServerNotFound              = errors.New("mcp_server: server not found")
-	errMissingWorkspaceRoot        = errors.New("mcp_server: workspaceRoot is required")
-	errMCPServerStoreNotConfigured = errors.New("mcp_server: config store is not configured")
-	errMCPServerToolsRequestFailed = errors.New("mcp_server: tools request failed")
-	errInvalidToolsResponse        = errors.New("mcp_server: invalid tools response")
-	errPostgresInstallerMissing    = errors.New("mcp_server: postgres installer is not configured")
+	errMissingMCPServers             = errors.New("mcp_server: mcpServers is required")
+	errMissingServerName             = errors.New("mcp_server: server name is required")
+	errDuplicateServerName           = errors.New("mcp_server: duplicate server name")
+	errMissingServerTransport        = errors.New("mcp_server: transport is required")
+	errUnsupportedTransport          = errors.New("mcp_server: unsupported transport")
+	errMissingServerURL              = errors.New("mcp_server: url is required")
+	errInvalidServerURL              = errors.New("mcp_server: invalid url")
+	errMissingServerCommand          = errors.New("mcp_server: command is required")
+	errUnsupportedStdioCommand       = errors.New("mcp_server: unsupported stdio command")
+	errMissingServerArg              = errors.New("mcp_server: arg is required")
+	errMissingServerEnvName          = errors.New("mcp_server: env name is required")
+	errMissingServerEnvValue         = errors.New("mcp_server: env value is required")
+	errMissingHeaderName             = errors.New("mcp_server: header name is required")
+	errMissingHeaderValue            = errors.New("mcp_server: header value is required")
+	errInvalidConfigDocument         = errors.New("mcp_server: invalid config document")
+	errServerAlreadyExists           = errors.New("mcp_server: server already exists")
+	errServerNotFound                = errors.New("mcp_server: server not found")
+	errMissingWorkspaceRoot          = errors.New("mcp_server: workspaceRoot is required")
+	errMissingToolName               = errors.New("mcp_server: tool name is required")
+	errMCPServerStoreNotConfigured   = errors.New("mcp_server: config store is not configured")
+	errMCPToolLifecycleStoreMissing  = errors.New("mcp_server: tool lifecycle store is not configured")
+	errInvalidMCPToolLifecycleState  = errors.New("mcp_server: invalid lifecycle state")
+	errInvalidMCPToolLifecycleSource = errors.New("mcp_server: invalid lifecycle source")
+	errMCPServerToolsRequestFailed   = errors.New("mcp_server: tools request failed")
+	errInvalidToolsResponse          = errors.New("mcp_server: invalid tools response")
+	errPostgresInstallerMissing      = errors.New("mcp_server: postgres installer is not configured")
 )
 
 // Service 定义 MCP server 配置管理的跨模块入口。
 // 该接口只读写配置和执行 HTTP tools/list 探测，不直接启动 stdio/http MCP 进程。
 type Service interface {
+	contract.MCPToolLifecycleReader
+	contract.MCPToolLifecycleWriter
 	AddServers(context.Context, AddServersRequest) (AddServersResult, error)
 	ListServers(context.Context) (ListServersResult, error)
 	ListServersForCWD(context.Context, string) (ListServersResult, error)
 	ListServerTools(context.Context, ListServerToolsRequest) (ListServerToolsResult, error)
+	BackfillDiscoveredMCPToolLifecycleStates(context.Context, BackfillMCPToolLifecycleRequest) (BackfillMCPToolLifecycleResult, error)
 	StartPostgresServer(context.Context, StartPostgresServerRequest) (StartPostgresServerResult, error)
 	StartSQLiteServer(context.Context, StartSQLiteServerRequest) (StartSQLiteServerResult, error)
 	StopSQLiteServer(context.Context, StopSQLiteServerRequest) (StopSQLiteServerResult, error)
@@ -101,10 +108,11 @@ type DeleteServerResult struct {
 // service 是 MCP server 配置管理的实现。
 // store 负责持久化，httpClient 只用于 HTTP transport 的 tools/list 探测，installer 只服务默认 postgres 写入。
 type service struct {
-	store             MCPServerConfigStore
-	httpClient        mcpHTTPDoer
-	postgresInstaller postgresInstaller
-	sqlitePath        string
+	store              MCPServerConfigStore
+	toolLifecycleStore contract.MCPToolLifecycleStore
+	httpClient         mcpHTTPDoer
+	postgresInstaller  postgresInstaller
+	sqlitePath         string
 }
 
 // NewService 创建未绑定持久化 store 的 MCP server 服务。
@@ -116,16 +124,32 @@ func NewService() Service {
 // NewServiceWithStore 创建带配置 store 的 MCP server 服务。
 // 默认 postgres installer 会被注入，SQLite 路径仍从请求或环境变量解析。
 func NewServiceWithStore(store MCPServerConfigStore) Service {
-	return newServiceWithStoreInstallerAndSQLitePath(store, newNPMPostgresInstaller(), "")
+	return NewServiceWithStores(store, nil)
+}
+
+// NewServiceWithStores 创建带配置 store 与 tool lifecycle store 的 MCP server owner 服务。
+// lifecycle store 未注入时，显式 lifecycle API 会 fail-fast，旧配置读写和 tools/list 保持兼容。
+func NewServiceWithStores(store MCPServerConfigStore, lifecycleStore contract.MCPToolLifecycleStore) Service {
+	return newServiceWithStoresInstallerAndSQLitePath(store, lifecycleStore, newNPMPostgresInstaller(), "")
 }
 
 // NewServiceWithStoreAndConfig 创建带运行时配置的 MCP server 服务，用于解析默认 SQLite MCP server 路径。
 func NewServiceWithStoreAndConfig(store MCPServerConfigStore, cfg *platformconfig.Config) Service {
+	return NewServiceWithStoresAndConfig(store, nil, cfg)
+}
+
+// NewServiceWithStoresAndConfig 创建生产装配使用的 MCP server owner 服务。
+// 配置 store 校验 server 边界，lifecycle store 负责状态持久化，两者缺任一项都会在对应 API 上报错。
+func NewServiceWithStoresAndConfig(
+	store MCPServerConfigStore,
+	lifecycleStore contract.MCPToolLifecycleStore,
+	cfg *platformconfig.Config,
+) Service {
 	sqlitePath := ""
 	if cfg != nil {
 		sqlitePath = cfg.SQLitePath
 	}
-	return newServiceWithStoreInstallerAndSQLitePath(store, newNPMPostgresInstaller(), sqlitePath)
+	return newServiceWithStoresInstallerAndSQLitePath(store, lifecycleStore, newNPMPostgresInstaller(), sqlitePath)
 }
 
 // newServiceWithStoreAndInstaller 创建带测试 installer 的服务实例。
@@ -137,7 +161,23 @@ func newServiceWithStoreAndInstaller(store MCPServerConfigStore, installer postg
 // newServiceWithStoreInstallerAndSQLitePath 汇总所有可注入依赖。
 // sqlitePath 会在构造时 trim，后续 StartSQLiteServer 按请求、构造路径和环境变量顺序解析。
 func newServiceWithStoreInstallerAndSQLitePath(store MCPServerConfigStore, installer postgresInstaller, sqlitePath string) *service {
-	return &service{store: store, httpClient: defaultMCPHTTPClient, postgresInstaller: installer, sqlitePath: strings.TrimSpace(sqlitePath)}
+	return newServiceWithStoresInstallerAndSQLitePath(store, nil, installer, sqlitePath)
+}
+
+// newServiceWithStoresInstallerAndSQLitePath 汇总所有可注入依赖，供生产 Fx 和测试夹具共用。
+func newServiceWithStoresInstallerAndSQLitePath(
+	store MCPServerConfigStore,
+	lifecycleStore contract.MCPToolLifecycleStore,
+	installer postgresInstaller,
+	sqlitePath string,
+) *service {
+	return &service{
+		store:              store,
+		toolLifecycleStore: lifecycleStore,
+		httpClient:         defaultMCPHTTPClient,
+		postgresInstaller:  installer,
+		sqlitePath:         strings.TrimSpace(sqlitePath),
+	}
 }
 
 // AddServers 校验并写入当前 workspace 的 MCP server 配置。
@@ -252,14 +292,43 @@ func (s *service) ListServerTools(ctx context.Context, req ListServerToolsReques
 	if err != nil {
 		return ListServerToolsResult{}, err
 	}
-	if tools == nil {
-		tools = []mcpdto.MCPTool{}
+	tools = nonNilMCPTools(tools)
+	if err := s.backfillToolsListLifecycle(ctx, workspaceRoot, name, tools); err != nil {
+		return ListServerToolsResult{}, err
 	}
 	return ListServerToolsResult{
 		ConfigPath: mcpServerConfigPath(workspaceRoot),
 		ServerName: name,
 		Tools:      tools,
 	}, nil
+}
+
+func nonNilMCPTools(tools []mcpdto.MCPTool) []mcpdto.MCPTool {
+	if tools == nil {
+		return []mcpdto.MCPTool{}
+	}
+	return tools
+}
+
+func (s *service) backfillToolsListLifecycle(
+	ctx context.Context,
+	workspaceRoot string,
+	serverName string,
+	tools []mcpdto.MCPTool,
+) error {
+	if s == nil || s.toolLifecycleStore == nil {
+		return nil
+	}
+	_, err := backfillMCPToolLifecycleStates(
+		ctx,
+		s.toolLifecycleStore,
+		workspaceRoot,
+		serverName,
+		tools,
+		"tools/list discovery",
+		"mcp_server",
+	)
+	return err
 }
 
 // DeleteServer 从当前工作区配置中删除指定 MCP server，名称不存在时直接返回错误避免静默成功。
@@ -295,29 +364,6 @@ func (s *service) DeleteServer(ctx context.Context, req DeleteServerRequest) (De
 		ServerName: name,
 		Deleted:    true,
 	}, nil
-}
-
-type mcpServerConfigProvider struct {
-	svc Service
-}
-
-// AsMCPServerConfigProvider 将 Service 适配为 provider 层可消费的 MCPServerConfigProvider。
-// 适配器只暴露 enabled 配置，避免 provider 拉起已关闭的 server。
-func AsMCPServerConfigProvider(svc Service) contract.MCPServerConfigProvider {
-	return mcpServerConfigProvider{svc: svc}
-}
-
-// ListMCPServerConfigs 返回指定 cwd 下 provider 可启动的 MCP server 配置。
-// service 缺失是装配错误，会直接返回 error，避免 provider 静默无 MCP 工具。
-func (p mcpServerConfigProvider) ListMCPServerConfigs(ctx context.Context, cwd string) (map[string]contract.MCPServerConfig, error) {
-	if p.svc == nil {
-		return nil, errors.New("mcp server service is not configured")
-	}
-	result, err := p.svc.ListServersForCWD(ctx, cwd)
-	if err != nil {
-		return nil, err
-	}
-	return enabledMCPServersToContract(result.MCPServers), nil
 }
 
 // rejectExistingMCPServers 检查新增 server 是否和已有配置重名。
@@ -381,6 +427,15 @@ func (s *service) requireStore() (MCPServerConfigStore, error) {
 		return nil, errMCPServerStoreNotConfigured
 	}
 	return s.store, nil
+}
+
+// requireToolLifecycleStore 确认 lifecycle store 已注入。
+// 显式 owner API 不能在缺少持久化依赖时把缺行静默解释成 active。
+func (s *service) requireToolLifecycleStore() (contract.MCPToolLifecycleStore, error) {
+	if s == nil || s.toolLifecycleStore == nil {
+		return nil, errMCPToolLifecycleStoreMissing
+	}
+	return s.toolLifecycleStore, nil
 }
 
 // resolveWorkspaceServers 读取当前工作区及兼容路径下的 MCP server 配置。

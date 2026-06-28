@@ -6,7 +6,7 @@
 
 - **本卷范围**：`cmd/agent-terminal/*.go`、`internal/ui/wails/*.go`，以及最少量 caller：`internal/app/app.go`、`internal/app/runner.go`。
 - **本卷目标**：把 Go 桌面端 / Wails 运行时 / 内置 RPC / 多窗口与代码预览链路整理成可直接派单的后端地图。
-- **明确不展开**：当前 `frontend-app/src/**` 的页面、store、快捷键注入由 React 新 UI 分卷负责；legacy `cmd/agent-terminal/frontend/vue-app/**` 由 Vue 分卷负责。
+- **明确不展开**：当前 `frontend-app/src/**` 的页面、store、快捷键注入由 React 新 UI 分卷负责。
 - **关键边界**：Go/Wails 层只负责窗口壳、事件面、原生能力与 RPC 入口；前端快捷键属于页面层，不在 Go 侧注册系统级 shortcut。
 - **维护提示**：本卷只维护 Go/Wails transport 与桌面原生能力；`app.Module` 模块清单、`internal/contract` 与 module-local narrow port 真值看 [04-app-contract.md](04-app-contract.md)。
 
@@ -73,7 +73,7 @@ sequenceDiagram
 #### 文件地图
 - `cmd/agent-terminal/main.go:11`：桌面可执行入口，只做 `app.RunDesktop(frontendDistFS())`。
 - `run-new-ui-desktop.sh:6,353-358`：当前新 UI 开发入口；先启动 `frontend-app` Vite，再以 `VITE_DEV_URL` 运行 `cmd/agent-terminal`。
-- `cmd/agent-terminal/frontend.go:15`：legacy/package-embed 路径；从 `cmd/agent-terminal/frontend/dist` embed 子目录导出 `fs.FS`。
+- `cmd/agent-terminal/frontend.go:15`：package embed 路径；从 `cmd/agent-terminal/web-dist` embed 子目录导出 `fs.FS`。
 - `internal/app/app.go:105`：桌面模式总入口；向 Fx 注入 `FrontendFS` 并 `Populate(&wailsApp, &lifecycle)`。
 - `internal/ui/wails/assets.go:34`：资源服务选择器；`VITE_DEV_URL` dev proxy / 注入 FS / placeholder 三路回退。当前新 UI dev 通过 dev proxy 指向 `frontend-app`。
 
@@ -84,7 +84,7 @@ sequenceDiagram
 #### 关键流程
 1. 当前新 UI dev 由 `run-new-ui-desktop.sh` 启动：`frontend-app` 提供 Vite 页面，`cmd/agent-terminal` 仍提供 Wails/HTTP/RPC 宿主。
 2. `cmd/agent-terminal/main.go:11` 进入 `app.RunDesktop(frontendDistFS())`；入口本身不持有业务状态。
-3. legacy/package-embed 路径由 `cmd/agent-terminal/frontend.go:15` 用 `fs.Sub(frontendDist, "frontend/dist")` 把 embed 根裁成前端产物目录。
+3. package embed 路径由 `cmd/agent-terminal/frontend.go:15` 用 `fs.Sub(frontendDist, "web-dist")` 把 embed 根裁成前端产物目录。
 4. `internal/app/app.go:105` 通过 `fx.Supply(uiwails.FrontendFS{FS: frontendFS})` 把资源文件系统注入 `uiwails.Module`，并在启动后直接调用 `wailsApp.Run()`。
 5. `internal/ui/wails/assets.go:34` 按顺序选择：`VITE_DEV_URL` 反代 → 注入的 dist FS → `frontend/index.html` placeholder。
 6. `AssetHandlerFrom` 的生产 consumer 有两处：`internal/ui/wails/module.go:116`（桌面 Wails 壳）和 `internal/ui/wails/http_server.go:36`（浏览器调试 HTTP 服务）。

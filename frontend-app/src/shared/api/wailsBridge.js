@@ -1,5 +1,7 @@
 // Wails Bridge Adapter for React Frontend
 
+import { asEventWireNotification } from './eventWire.js';
+
 const METHOD_IDS = Object.freeze({
   CALL_API: 2963398832,
   GET_BUILD_INFO: 2341363104,
@@ -307,18 +309,21 @@ function subscribeRuntimeEvent(eventName, callback, options = {}) {
 
   const wrapped = (evt) => {
     const normalized = normalizeRuntimeEventEnvelope(evt);
+    const callbackEvent = typeof options.normalizeEvent === 'function'
+      ? options.normalizeEvent(normalized)
+      : normalized;
     if (typeof options.beforeCallback === 'function') {
-      options.beforeCallback(normalized);
+      options.beforeCallback(callbackEvent);
     }
     try {
-      callback(normalized);
+      callback(callbackEvent);
     }
     catch (error) {
       writeBridgeLog('error', options.callbackFailedLog || 'runtime.callback.failed', { error });
       if (typeof options.onCallbackError === 'function') {
-        options.onCallbackError(error, normalized);
+        options.onCallbackError(error, callbackEvent);
       }
-      if (shouldEscalateCallbackError(error, normalized)) {
+      if (shouldEscalateCallbackError(error, callbackEvent)) {
         throw error;
       }
     }
@@ -1175,15 +1180,6 @@ export async function getBuildInfo() {
   return raw && typeof raw === 'object' ? raw : {};
 }
 
-export function onAgentEvent(callback) {
-  return subscribeRuntimeEvent('agent-event', callback, {
-    callbackFailedLog: 'agent.callback.failed',
-    subscribeUnavailableLog: 'agent.subscribe.unavailable',
-    subscribeReadyLog: 'agent.subscribe.ready',
-    unsubscribeDoneLog: 'agent.unsubscribe.done',
-  });
-}
-
 export function onBridgeEvent(callback, options = {}) {
   return subscribeRuntimeEvent('bridge-event', callback, {
     callbackFailedLog: 'bridge.callback.failed',
@@ -1191,6 +1187,7 @@ export function onBridgeEvent(callback, options = {}) {
     subscribeReadyLog: 'bridge.subscribe.ready',
     unsubscribeDoneLog: 'bridge.unsubscribe.done',
     ...options,
+    normalizeEvent: asEventWireNotification,
   });
 }
 

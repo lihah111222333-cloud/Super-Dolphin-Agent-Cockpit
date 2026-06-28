@@ -16,36 +16,6 @@ import (
 
 var errMCPSurfaceClientNotConfigured = errors.New("MCP client is not configured")
 
-// MCPToolNamespace 描述 mcp__server__tool 形式工具名拆出的 server 和 tool。
-type MCPToolNamespace struct {
-	Server string
-	Tool   string
-}
-
-// WrapMCPToolName 生成 Codex 动态工具面使用的 MCP 命名空间工具名。
-func WrapMCPToolName(server, tool string) string {
-	server = strings.TrimSpace(server)
-	tool = strings.TrimSpace(tool)
-	if server == "" || tool == "" {
-		return tool
-	}
-	return "mcp__" + server + "__" + tool
-}
-
-// SplitMCPToolName 解析 mcp__server__tool 工具名；非法或非命名空间名返回 false。
-func SplitMCPToolName(name string) (MCPToolNamespace, bool) {
-	trimmed := strings.TrimSpace(name)
-	if !strings.HasPrefix(trimmed, "mcp__") {
-		return MCPToolNamespace{}, false
-	}
-	rest := strings.TrimPrefix(trimmed, "mcp__")
-	parts := strings.SplitN(rest, "__", 2)
-	if len(parts) != 2 || strings.TrimSpace(parts[0]) == "" || strings.TrimSpace(parts[1]) == "" {
-		return MCPToolNamespace{}, false
-	}
-	return MCPToolNamespace{Server: strings.TrimSpace(parts[0]), Tool: strings.TrimSpace(parts[1])}, true
-}
-
 var toolCWDTraceCanonicalTools = map[string]struct{}{
 	"file":                       {},
 	"grep":                       {},
@@ -66,6 +36,100 @@ func (h *Handler) resolveCurrentToolCallCWD(ctx context.Context, req ToolCallReq
 		return normalizeToolCallCWD(binding.CWD)
 	}
 	return ""
+}
+
+// ensureCodexSurfaceMCPToolActive 在 managed MCP 工具真正执行前读取 lifecycle 状态。
+// host-direct 和 skill surface 不属于 MCP lifecycle 管理范围，必须跳过，避免同名行误伤本进程工具。
+func (h *Handler) ensureCodexSurfaceMCPToolActive(ctx context.Context, entry codexToolEntry) error {
+	key, managedMCP, err := codexSurfaceMCPLifecycleKey(entry)
+	if !managedMCP || err != nil {
+		return err
+	}
+	reader := h.codexSurfaceMCPToolLifecycleReader()
+	if reader == nil {
+		return codexSurfaceMCPToolLifecycleReaderMissingError(key)
+	}
+	record, err := reader.GetMCPToolLifecycleState(ctx, key)
+	if err != nil {
+		return codexSurfaceMCPToolLifecycleReadError(key, err)
+	}
+	return validateCodexSurfaceMCPToolLifecycleState(key, record.State)
+}
+
+func codexSurfaceMCPLifecycleKey(entry codexToolEntry) (contract.MCPToolLifecycleKey, bool, error) {
+	if strings.TrimSpace(entry.executionKind) != "stdio" {
+		return contract.MCPToolLifecycleKey{}, false, nil
+	}
+	key := entry.lifecycleKey
+	if codexSurfaceMCPToolLifecycleKeyComplete(key) {
+		return key, true, nil
+	}
+	return contract.MCPToolLifecycleKey{}, true,
+		fmt.Errorf("toolbridge: MCP tool lifecycle key is incomplete for codex surface tool %q", entry.name)
+}
+
+func codexSurfaceMCPToolLifecycleKeyComplete(key contract.MCPToolLifecycleKey) bool {
+	return strings.TrimSpace(key.WorkspaceRoot) != "" &&
+		strings.TrimSpace(key.ServerName) != "" &&
+		strings.TrimSpace(key.ToolName) != ""
+}
+
+func (h *Handler) codexSurfaceMCPToolLifecycleReader() contract.MCPToolLifecycleReader {
+	if h == nil {
+		return nil
+	}
+	return h.toolLifecycleReader
+}
+
+func codexSurfaceMCPToolLifecycleReaderMissingError(key contract.MCPToolLifecycleKey) error {
+	return fmt.Errorf(
+		"toolbridge: MCP tool lifecycle reader is not configured for %q/%q in workspace %q",
+		key.ServerName,
+		key.ToolName,
+		key.WorkspaceRoot,
+	)
+}
+
+func codexSurfaceMCPToolLifecycleReadError(key contract.MCPToolLifecycleKey, err error) error {
+	if contract.IsNotFound(err) {
+		return fmt.Errorf(
+			"toolbridge: MCP tool %q/%q lifecycle state is missing for workspace %q",
+			key.ServerName,
+			key.ToolName,
+			key.WorkspaceRoot,
+		)
+	}
+	return fmt.Errorf(
+		"toolbridge: read MCP tool %q/%q lifecycle state for workspace %q: %w",
+		key.ServerName,
+		key.ToolName,
+		key.WorkspaceRoot,
+		err,
+	)
+}
+
+func validateCodexSurfaceMCPToolLifecycleState(
+	key contract.MCPToolLifecycleKey,
+	state contract.MCPToolLifecycleState,
+) error {
+	switch state {
+	case contract.MCPToolLifecycleStateActive:
+		return nil
+	case contract.MCPToolLifecycleStateSuspended, contract.MCPToolLifecycleStateRemoved:
+		return fmt.Errorf(
+			"toolbridge: MCP tool %q/%q lifecycle state %q denies codex surface call",
+			key.ServerName,
+			key.ToolName,
+			state,
+		)
+	default:
+		return fmt.Errorf(
+			"toolbridge: MCP tool %q/%q lifecycle state %q is unknown; refusing codex surface call",
+			key.ServerName,
+			key.ToolName,
+			state,
+		)
+	}
 }
 
 func normalizeToolCallCWD(cwd string) string {
@@ -192,10 +256,6 @@ func isExternalMCPFamily(family string) bool {
 	default:
 		return true
 	}
-}
-
-func wrappedMCPToolName(family, name string) string {
-	return WrapMCPToolName(family, name)
 }
 
 // addMCPToolAlias 给工具补短别名；第三方 server 的短别名冲突时跳过。

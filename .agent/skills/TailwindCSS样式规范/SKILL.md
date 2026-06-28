@@ -13,7 +13,7 @@ super-agent-v3 的当前新 UI 是 `frontend-app` React/Vite，默认使用现�
 - 只有用户明确要求 TailwindCSS，或 `frontend-app/package.json` / 目标 package 已经包含 Tailwind 依赖时，才应用 Tailwind 规范。
 - 不要为了普通 UI 美化引入 Tailwind、shadcn 或新的构建配置。
 - 如果确需引入，先说明影响范围，并同步更新 lint/test/build 验证面。
-- legacy Vue 路径只在用户明确点名 `cmd/agent-terminal/frontend` 或 package/embed 时处理。
+- `cmd/agent-terminal/web-dist` 是构建产物目录，不在其中手写样式或组件。
 
 ## 默认替代
 

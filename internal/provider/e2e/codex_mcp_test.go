@@ -67,6 +67,7 @@ func TestCodexStartSession_InjectsDynamicTools_E2E(t *testing.T) {
 	params := recorder.threadStartParamsSnapshot()
 	assertDynamicToolNames(t, params, []string{"tool.echo"})
 	assertNoLegacyMCPKeys(t, params)
+	assertNoLifecycleE2EJSONFields(t, "codex thread/start params", mustMarshalE2E(t, params))
 	if params["cwd"] != workDir {
 		t.Fatalf("cwd = %#v, want %q", params["cwd"], workDir)
 	}
@@ -123,16 +124,20 @@ func TestCodexStartSession_InjectsHostMemoryReadAndFiltersPeerMemoryRead_E2E(t *
 func newCodexMemoryReadToolBridgeHandler(t *testing.T) *toolbridge.Handler {
 	t.Helper()
 	var handler *toolbridge.Handler
+	projectRoot := t.TempDir()
 	app := fx.New(
 		fx.NopLogger,
 		fx.Supply(newCodexToolBridgeRegistry()),
 		fx.Provide(func(reg codexToolBridgeRegistry) *toolbridge.Handler {
-			return toolbridge.NewHandlerForTesting(reg, toolbridge.NewCompositeHostToolRegistry(
+			return toolbridge.NewHandlerForTestingWithLifecycle(reg, toolbridge.NewCompositeHostToolRegistry(
 				toolbridge.NewMemoryReadHostToolRegistry(
 					&codexMemoryReaderStub{enabled: true, toolsEnabled: true},
 					toolbridge.MemoryReadHostToolOptions{Enabled: true, ToolsEnabled: true},
 				),
-			))
+			), codexActiveLifecycleReader(projectRoot, map[string][]string{
+				mcpdto.ClientKindOrch: {"orchestration_launch_agent"},
+				mcpdto.ClientKindLSP:  {"lsp_hover"},
+			}), projectRoot)
 		}),
 		fx.Populate(&handler),
 	)
@@ -167,49 +172,53 @@ func newCodexToolBridgeRegistry() codexToolBridgeRegistry {
 	}}
 }
 
-func codexToolInstance(clientKind string, peer *codexToolBridgePeer) *mcpcontrol.ToolInstance {
-	return &mcpcontrol.ToolInstance{ClientKind: clientKind, Status: mcpdto.StatusActive, Peer: peer}
+type codexLifecycleReaderStub struct {
+	records map[contract.MCPToolLifecycleKey]contract.MCPToolLifecycleRecord
 }
 
-type codexMemoryReaderStub struct {
-	enabled      bool
-	toolsEnabled bool
-}
-
-func (s *codexMemoryReaderStub) ReadAgentMemory(_ context.Context, req contract.MemoryReadRequest) (contract.MemoryReadResult, error) {
-	return contract.MemoryReadResult{Entry: &contract.MemoryEntry{Name: req.Name, Type: req.Type, Content: "memory content"}, SourcePath: "feedback/read.md", IndexHit: true}, nil
-}
-
-func (s *codexMemoryReaderStub) MemoryReadEnabled() bool {
-	return s == nil || s.enabled
-}
-
-func (s *codexMemoryReaderStub) MemoryReadToolsEnabled() bool {
-	return s == nil || s.toolsEnabled
-}
-
-func codexListToolsPeer(tools []mcpdto.MCPTool) *codexToolBridgePeer {
-	return &codexToolBridgePeer{tools: tools}
-}
-
-type codexToolBridgePeer struct {
-	tools []mcpdto.MCPTool
-}
-
-func (p *codexToolBridgePeer) Notify(context.Context, string, any) error { return nil }
-
-func (p *codexToolBridgePeer) Callback(_ context.Context, method string, _ any, result any) error {
-	if method != "tools/list" {
-		return nil
+func codexActiveLifecycleReader(projectRoot string, tools map[string][]string) *codexLifecycleReaderStub {
+	records := make(map[contract.MCPToolLifecycleKey]contract.MCPToolLifecycleRecord)
+	for serverName, toolNames := range tools {
+		for _, toolName := range toolNames {
+			key := contract.MCPToolLifecycleKey{
+				WorkspaceRoot: projectRoot,
+				ServerName:    serverName,
+				ToolName:      toolName,
+			}
+			records[key] = contract.MCPToolLifecycleRecord{
+				WorkspaceRoot: projectRoot,
+				ServerName:    serverName,
+				ToolName:      toolName,
+				State:         contract.MCPToolLifecycleStateActive,
+			}
+		}
 	}
-	raw, err := json.Marshal(map[string]any{"tools": p.tools})
-	if err != nil {
-		return err
-	}
-	return json.Unmarshal(raw, result)
+	return &codexLifecycleReaderStub{records: records}
 }
 
-func (p *codexToolBridgePeer) Close() error { return nil }
+func (r *codexLifecycleReaderStub) GetMCPToolLifecycleState(
+	_ context.Context,
+	key contract.MCPToolLifecycleKey,
+) (contract.MCPToolLifecycleRecord, error) {
+	record, ok := r.records[key]
+	if !ok {
+		return contract.MCPToolLifecycleRecord{}, contract.ErrNotFound
+	}
+	return record, nil
+}
+
+func (r *codexLifecycleReaderStub) ListMCPToolLifecycleStates(
+	_ context.Context,
+	params contract.MCPToolLifecycleListParams,
+) ([]contract.MCPToolLifecycleRecord, error) {
+	out := make([]contract.MCPToolLifecycleRecord, 0)
+	for _, record := range r.records {
+		if record.WorkspaceRoot == params.WorkspaceRoot && record.ServerName == params.ServerName {
+			out = append(out, record)
+		}
+	}
+	return out, nil
+}
 
 func TestCodexStartSession_PreservesUserConfigFields_E2E(t *testing.T) {
 	recorder := &codexRPCRecorder{}
@@ -556,6 +565,7 @@ func assertDynamicToolNames(t *testing.T, params map[string]any, want []string) 
 		if !ok {
 			t.Fatalf("dynamicTools item = %#v, want object", rawTool)
 		}
+		assertNoLifecycleE2EJSONFields(t, "codex dynamicTools item", mustMarshalE2E(t, tool))
 		name, _ := tool["name"].(string)
 		got = append(got, name)
 	}

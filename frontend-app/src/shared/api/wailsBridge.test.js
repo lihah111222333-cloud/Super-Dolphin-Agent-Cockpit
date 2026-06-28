@@ -681,7 +681,7 @@ describe('wails bridge event callbacks', () => {
     expect(() => eventCallback({
       name: 'bridge-event',
       data: {
-        method: 'task/node/statuschanged',
+        method: 'task/node/statusChanged',
         payload: { dag_key: 'flow-a', node_key: 'step', new_status: 'running' },
       },
     })).toThrow('dag status event run identity is required');
@@ -693,6 +693,97 @@ describe('wails bridge event callbacks', () => {
         }),
       }),
     );
+  });
+
+  it('standardizes known bridge event methods before invoking subscribers', async () => {
+    let eventCallback = null;
+    const on = vi.fn((_eventName, callback) => {
+      eventCallback = callback;
+      return () => {};
+    });
+    vi.doMock(runtimeModule, () => ({
+      Call: { ByID: vi.fn() },
+      Events: { On: on },
+    }));
+    const { onBridgeEvent } = await import('./wailsBridge.js');
+    const callback = vi.fn();
+
+    onBridgeEvent(callback);
+
+    await waitFor(() => expect(on).toHaveBeenCalledWith('bridge-event', expect.any(Function)));
+    eventCallback({
+      name: 'bridge-event',
+      data: {
+        type: 'workspace/run/created',
+        payload: { runKey: 'run-1' },
+      },
+    });
+
+    expect(callback).toHaveBeenCalledWith({
+      method: 'workspace/run/created',
+      payload: { runKey: 'run-1' },
+    });
+
+    eventCallback({
+      name: 'bridge-event',
+      data: {
+        type: 'rpc.failed',
+        payload: { method: 'turn/start', threadId: 'thread-1' },
+      },
+    });
+    eventCallback({
+      name: 'bridge-event',
+      data: {
+        type: 'api.rpc.failed',
+        payload: { method: 'thread/config/get', error: 'backend unavailable' },
+      },
+    });
+    eventCallback({
+      name: 'bridge-event',
+      data: {
+        type: 'TASK/NODE/STATUSCHANGED',
+        payload: { dag_key: 'flow-a', run_key: 'run-a', node_key: 'step', new_status: 'running' },
+      },
+    });
+
+    expect(callback).toHaveBeenCalledWith({
+      method: 'rpc.failed',
+      payload: { method: 'turn/start', threadId: 'thread-1' },
+    });
+    expect(callback).toHaveBeenCalledWith({
+      method: 'api.rpc.failed',
+      payload: { method: 'thread/config/get', error: 'backend unavailable' },
+    });
+    expect(callback).toHaveBeenCalledWith({
+      method: 'TASK/NODE/STATUSCHANGED',
+      payload: { dag_key: 'flow-a', run_key: 'run-a', node_key: 'step', new_status: 'running' },
+    });
+  });
+
+  it('fails fast on unknown bridge event methods before subscriber callbacks', async () => {
+    let eventCallback = null;
+    const on = vi.fn((_eventName, callback) => {
+      eventCallback = callback;
+      return () => {};
+    });
+    vi.doMock(runtimeModule, () => ({
+      Call: { ByID: vi.fn() },
+      Events: { On: on },
+    }));
+    const { onBridgeEvent } = await import('./wailsBridge.js');
+    const callback = vi.fn();
+
+    onBridgeEvent(callback);
+
+    await waitFor(() => expect(on).toHaveBeenCalledWith('bridge-event', expect.any(Function)));
+    expect(() => eventCallback({
+      name: 'bridge-event',
+      data: {
+        type: 'unknown/domain/event',
+        payload: {},
+      },
+    })).toThrow('unknown event wire method: unknown/domain/event');
+    expect(callback).not.toHaveBeenCalled();
   });
 });
 
@@ -1208,7 +1299,7 @@ describe('development Wails runtime shim events', () => {
     const runtime = await importFreshDevRuntimeShim();
     const received = [];
 
-    runtime.Events.On('agent-event', (event) => received.push(event));
+    runtime.Events.On('bridge-event', (event) => received.push(event));
     expect(sockets).toHaveLength(1);
     sockets[0].open();
     sockets[0].emit('thread/messages', { threadId: 'thread-1', text: 'before reconnect' });

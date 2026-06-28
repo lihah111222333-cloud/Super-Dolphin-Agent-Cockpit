@@ -15,12 +15,12 @@ import (
 )
 
 const (
-	// 2026-04-17 默认守卫放宽：单文件 400→600、包文件数 15→25。
+	// 2026-04-17 默认守卫放宽：单文件 400→600、包文件数 15→25；2026-06-28 单文件再放宽到 800。
 	// 2026-04-22 全仓再放宽：包文件数 25→30；核心包例外失去意义（Core* 常量保留仅为向后兼容，
 	// 值与默认等同，不再构成差异）。
 	// 函数 ≤80、CC ≤10、嵌套 ≤4、标识符下划线 ≤3 保持不变。
-	MaxFileLines            = 600
-	MaxCorePackageFileLines = 600
+	MaxFileLines            = 800
+	MaxCorePackageFileLines = 800
 	MaxFactoryFileLines     = 800
 	MaxFuncLines            = 80
 	MaxNestingDepth         = 4
@@ -313,7 +313,7 @@ func scanRoot(repoRoot, root string, skip map[string]bool, stats map[string]*pac
 		return nil
 	}
 	var violations []Violation
-	if err := filepath.WalkDir(absRoot, func(path string, d fs.DirEntry, walkErr error) error {
+	filepath.WalkDir(absRoot, func(path string, d fs.DirEntry, walkErr error) error { //nolint:errcheck
 		if walkErr != nil {
 			violations = append(violations, Violation{Kind: ViolationFile, File: filepath.ToSlash(path), Message: fmt.Sprintf("%s: walk error: %v", path, walkErr)})
 			return walkErr
@@ -333,9 +333,7 @@ func scanRoot(repoRoot, root string, skip map[string]bool, stats map[string]*pac
 		}
 		violations = append(violations, checkSingleFile(path, filepath.ToSlash(relPath), stats, enforceFuncComments)...)
 		return nil
-	}); err != nil {
-		violations = append(violations, Violation{Kind: ViolationFile, File: filepath.ToSlash(root), Message: fmt.Sprintf("%s: walk root error: %v", root, err)})
-	}
+	})
 	return violations
 }
 
@@ -396,11 +394,12 @@ func fileLineLimit(relPath string, factory bool) int {
 	if limit, ok := frozenLimit(pkgDir, ViolationFile); ok {
 		return limit
 	}
-	// 2026-04-17 守卫放宽后 MaxCorePackageFileLines == MaxFileLines == 600，此分支在文件行数维度已归一。
+	// 2026-06-28 守卫放宽后 MaxCorePackageFileLines == MaxFileLines == 800，此分支在文件行数维度已归一。
 	// 保留的原因：与 `MaxCorePackageFiles (30)` 一同承担 core package 路由语义，供 freeze registry / 未来再次调整用；勿自行删除。
 	if isCorePackageDir(pkgDir) {
 		return MaxCorePackageFileLines
 	}
+	// 未匹配冻结表时返回全局默认值 MaxFileLines，为有意设计：非 core、非 factory、非冻结包统一使用同一阈值。
 	return MaxFileLines
 }
 

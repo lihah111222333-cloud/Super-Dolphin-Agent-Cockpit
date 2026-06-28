@@ -10,6 +10,8 @@
 
 **Verification Surface:** `internal/contract`, `internal/app`, `internal/module/thread`, `internal/module/prompt`, `internal/platform/eventsurface`, `internal/platform/rpc`, `internal/platform/toolbridge`, `internal/provider/codexapp`, `internal/provider/claudecli`, `internal/ui/wails`, `internal/archtest`, `frontend-app`.
 
+**Execution Status 2026-06-28:** This file is the implementation plan, not the completion ledger. Current remaining-state tracking lives in `docs/li/reasonix-remaining-execution-closure-2026-06-28.md`. Phase 0/1 documentation preflight is closed; Phase 2 and later remain mixed until their lane-owned validation and controller F's final verification are recorded. ADR 0003 records MCP lifecycle ownership and gates only; it is not evidence that per-tool lifecycle filtering is active.
+
 ---
 
 ## 1. Cross-Agent Adjudication Result

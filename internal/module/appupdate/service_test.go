@@ -323,16 +323,12 @@ func TestInstallPassesAllowUnsignedToHelper(t *testing.T) {
 	if !result.Started {
 		t.Fatalf("Install() Started = false, want true")
 	}
-	waitForFile(t, argsPath)
-	args, err := os.ReadFile(argsPath)
-	if err != nil {
-		t.Fatalf("ReadFile(argsPath) error = %v", err)
+	args := waitForFileContents(t, argsPath, "-allow-unsigned", "-wait-pid "+strconv.Itoa(os.Getpid()))
+	if !strings.Contains(args, "-allow-unsigned") {
+		t.Fatalf("helper args = %q, want -allow-unsigned", args)
 	}
-	if !strings.Contains(string(args), "-allow-unsigned") {
-		t.Fatalf("helper args = %q, want -allow-unsigned", string(args))
-	}
-	if !strings.Contains(string(args), "-wait-pid "+strconv.Itoa(os.Getpid())) {
-		t.Fatalf("helper args = %q, want current process wait pid", string(args))
+	if !strings.Contains(args, "-wait-pid "+strconv.Itoa(os.Getpid())) {
+		t.Fatalf("helper args = %q, want current process wait pid", args)
 	}
 }
 
@@ -394,13 +390,9 @@ func TestInstallStartsWindowsInstallerWithSilentFlag(t *testing.T) {
 	if !result.Started {
 		t.Fatalf("Install() Started = false, want true")
 	}
-	waitForFile(t, argsPath)
-	args, err := os.ReadFile(argsPath)
-	if err != nil {
-		t.Fatalf("ReadFile(argsPath) error = %v", err)
-	}
-	if strings.TrimSpace(string(args)) != "/S" {
-		t.Fatalf("installer args = %q, want /S", string(args))
+	args := waitForFileContents(t, argsPath, "/S")
+	if strings.TrimSpace(args) != "/S" {
+		t.Fatalf("installer args = %q, want /S", args)
 	}
 	if result.Helper != installer {
 		t.Fatalf("Install() Helper = %q, want installer path", result.Helper)
@@ -577,6 +569,31 @@ func waitForFile(t *testing.T, path string) {
 		time.Sleep(10 * time.Millisecond)
 	}
 	t.Fatalf("timed out waiting for %s", path)
+}
+
+func waitForFileContents(t *testing.T, path string, wants ...string) string {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	var last string
+	for time.Now().Before(deadline) {
+		body, err := os.ReadFile(path)
+		if err == nil {
+			last = string(body)
+			missing := false
+			for _, want := range wants {
+				if !strings.Contains(last, want) {
+					missing = true
+					break
+				}
+			}
+			if !missing {
+				return last
+			}
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatalf("timed out waiting for %s to contain %q; last contents %q", path, wants, last)
+	return ""
 }
 
 func waitForSignal(t *testing.T, signal <-chan struct{}, name string) {
