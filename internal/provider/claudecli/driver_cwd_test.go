@@ -49,3 +49,30 @@ func TestDriverStartSessionRejectsMissingCWDBeforeWorkspaceSideEffects(t *testin
 		t.Fatalf("missing cwd stat error = %v, want os.ErrNotExist", statErr)
 	}
 }
+
+func TestDriverResumeSessionRejectsMissingProviderThreadIDBeforeLaunch(t *testing.T) {
+	launchCalled := false
+	launchFn := overrideLaunchCLI(t, func(string, string, string, string, cliLaunchConfig, dto.MCPManifest, string) (*transport, func(), error) {
+		launchCalled = true
+		return nil, nil, errors.New("launch should not be reached")
+	})
+	d := &driver{
+		mirror:     &recordingMirrorReconciler{},
+		launchCLI:  launchFn,
+		authStatus: loggedInClaudeAuthStatus,
+	}
+
+	_, err := d.ResumeSession(context.Background(), dto.ResumeSessionRequest{
+		Provider: "claude",
+		AgentID:  "agent-1",
+		ThreadID: "thread-public",
+		CWD:      t.TempDir(),
+	})
+
+	if err == nil || !strings.Contains(err.Error(), "provider thread id is required") {
+		t.Fatalf("ResumeSession() error = %v, want provider thread id required", err)
+	}
+	if launchCalled {
+		t.Fatal("launchCLI called before provider thread id validation")
+	}
+}

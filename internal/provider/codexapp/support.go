@@ -428,7 +428,7 @@ func (d *driver) finishStartedSession(s *session, req dto.StartSessionRequest, r
 }
 
 func primeResumeToolScope(s *session, req dto.ResumeSessionRequest) {
-	if resumeID := util.FirstNonEmpty(req.ProviderThreadID, req.ThreadID); resumeID != "" {
+	if resumeID := strings.TrimSpace(req.ProviderThreadID); resumeID != "" {
 		s.setThreadID(resumeID)
 	}
 	if cwd := strings.TrimSpace(req.CWD); cwd != "" {

@@ -54,7 +54,7 @@ func (s *service) kickoffForkSession(ctx context.Context, state threadStateField
 	if err := s.launchAgent(ctx, newThreadID, cwd, displayName, meta.ParentAgentID, meta.AgentType, meta.AgentMemoryScope, provider, meta.Model); err != nil {
 		return err
 	}
-	forkedSession, err := s.resumeForkSession(ctx, ResumeRequest{Provider: provider, AgentID: newThreadID, ThreadID: newThreadID, CWD: cwd, Model: meta.Model, PromptSnapshot: snapshot, Config: clone.RuntimeConfigMap(config), CodexHome: identity.Home, CodexInstanceKey: identity.InstanceKey, CodexModelProvider: identity.ModelProvider})
+	forkedSession, err := s.resumeForkSession(ctx, ResumeRequest{Provider: provider, AgentID: newThreadID, ThreadID: newThreadID, ProviderThreadID: newThreadID, CWD: cwd, Model: meta.Model, PromptSnapshot: snapshot, Config: clone.RuntimeConfigMap(config), CodexHome: identity.Home, CodexInstanceKey: identity.InstanceKey, CodexModelProvider: identity.ModelProvider})
 	if err != nil {
 		s.stopAgent(ctx, newThreadID)
 		return err

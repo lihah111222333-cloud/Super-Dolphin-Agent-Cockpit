@@ -185,6 +185,20 @@ func validateHydratedResumeRequest(req ResumeRequest) error {
 	if req.AgentID == "" {
 		return errors.New("agent id is required")
 	}
+	if err := validateResumeProviderThreadID(req.Provider, req.ProviderThreadID); err != nil {
+		return err
+	}
+	return nil
+}
+
+func validateResumeProviderThreadID(provider, providerThreadID string) error {
+	providerThreadID = strings.TrimSpace(providerThreadID)
+	if providerThreadID == "" {
+		return errors.New("provider thread id is required")
+	}
+	if err := validateProviderThreadID(provider, providerThreadID); err != nil {
+		return err
+	}
 	return nil
 }
 

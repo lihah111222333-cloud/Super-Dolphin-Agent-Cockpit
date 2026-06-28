@@ -91,20 +91,20 @@ func TestServiceResumeDoesNotUseAgentIDAsClaudeProviderThreadID(t *testing.T) {
 		Cwd:           "/repo",
 	}}
 	sessions := &stubSessionProvider{}
-	var resumeReq dto.ResumeSessionRequest
+	resumeCalled := false
 	starter := &stubSessionStarter{onResume: func(_ context.Context, req dto.ResumeSessionRequest) (contract.Session, error) {
-		resumeReq = req
-		session := &stubSession{}
-		sessions.session = session
-		return session, nil
+		resumeCalled = true
+		t.Fatalf("ResumeSession called without recoverable ProviderThreadID: %#v", req)
+		return nil, nil
 	}}
 
 	svc := NewService(silentLogger(), threads, bindings, sessions, starter, nil, &stubThreadOrchestration{}, nil).(*service)
-	if _, err := svc.Resume(context.Background(), ResumeRequest{ThreadID: "thread-public"}); err != nil {
-		t.Fatalf("Resume() error = %v", err)
+	_, err := svc.Resume(context.Background(), ResumeRequest{ThreadID: "thread-public"})
+	if err == nil || !strings.Contains(err.Error(), "provider thread id is required") {
+		t.Fatalf("Resume() error = %v, want provider thread id required", err)
 	}
-	if resumeReq.ProviderThreadID != "" {
-		t.Fatalf("ResumeSessionRequest.ProviderThreadID = %q, want empty", resumeReq.ProviderThreadID)
+	if resumeCalled {
+		t.Fatal("ResumeSession should not be called without recoverable ProviderThreadID")
 	}
 	if bindings.upsert.ProviderThreadID == "agent-1" {
 		t.Fatalf("binding upsert provider_thread_id = agent id %q", bindings.upsert.ProviderThreadID)
