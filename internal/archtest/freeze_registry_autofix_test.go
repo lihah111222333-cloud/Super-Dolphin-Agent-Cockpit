@@ -10,12 +10,12 @@ func TestPlanFreezeRegistryAutoFixes(t *testing.T) {
 	repoRoot := t.TempDir()
 	mkdirFreezeRegistryTestDirs(t, repoRoot, "internal/module/memory", "internal/module/thread")
 
-	// 2026-04-17 默认守卫放宽到 MaxFileLines=600 后，fixture 也需配套抬升，
+	// 2026-06-28 默认守卫放宽到 MaxFileLines=800 后，fixture 也需配套抬升，
 	// 确保 shrink 分支设计意图（Limit > default 且 default < observed < Limit）仍能被触发。
-	const shrinkFreezeLimit = MaxFileLines + 200 // 800
-	const shrinkObserved = MaxFileLines + 100    // 700
-	const deleteFreezeLimit = MaxFileLines + 50  // 650
-	const deleteObserved = MaxFileLines - 200    // 400 <= 600 触发 delete
+	const shrinkFreezeLimit = MaxFileLines + 200
+	const shrinkObserved = MaxFileLines + 100
+	const deleteFreezeLimit = MaxFileLines + 50
+	const deleteObserved = MaxFileLines - 200
 	registry := []explicitFreeze{
 		{
 			Path:       "internal/module/memory",
@@ -41,8 +41,39 @@ func TestPlanFreezeRegistryAutoFixes(t *testing.T) {
 	}
 
 	fixes, next := planFreezeRegistryAutoFixesForEntries(repoRoot, []string{"internal"}, stats, registry)
-	assertFreezeRegistryFixes(t, fixes, shrinkFreezeLimit, shrinkObserved)
+	assertFreezeRegistryFixes(t, fixes, shrinkFreezeLimit, shrinkObserved, deleteFreezeLimit, deleteObserved)
 	assertNextFreezeRegistryEntries(t, next, shrinkObserved)
+}
+
+// TestPlanFreezeRegistryAutoFixes_Boundary 覆盖 shrinkObserved 恰好等于 MaxFileLines（边界）
+// 以及 shrinkObserved == MaxFileLines-1（刚好触发 delete）两个临界路径。
+func TestPlanFreezeRegistryAutoFixes_Boundary(t *testing.T) {
+	repoRoot := t.TempDir()
+	mkdirFreezeRegistryTestDirs(t, repoRoot, "internal/module/alpha", "internal/module/beta")
+
+	const limit = MaxFileLines + 50
+	// atDefault: observed == MaxFileLines，shrink 到默认值边界
+	// belowDefault: observed == MaxFileLines-1，低于默认值，触发 delete
+	registry := []explicitFreeze{
+		{Path: "internal/module/alpha", Kind: ViolationFile, Limit: limit, Reason: "r", Owner: "o", RemoveWhen: "w"},
+		{Path: "internal/module/beta", Kind: ViolationFile, Limit: limit, Reason: "r", Owner: "o", RemoveWhen: "w"},
+	}
+	stats := map[string]*packageStat{
+		"internal/module/alpha": {MaxFileLines: MaxFileLines},
+		"internal/module/beta":  {MaxFileLines: MaxFileLines - 1},
+	}
+
+	fixes, _ := planFreezeRegistryAutoFixesForEntries(repoRoot, []string{"internal"}, stats, registry)
+	if len(fixes) != 2 {
+		t.Fatalf("boundary: fixes = %d, want 2", len(fixes))
+	}
+	// observed==MaxFileLines 时 freeze 条目已不必要，期望 delete。
+	if fixes[0].Action != "delete" {
+		t.Errorf("alpha (observed==MaxFileLines): action = %q, want delete", fixes[0].Action)
+	}
+	if fixes[1].Action != "delete" {
+		t.Errorf("beta (observed==MaxFileLines-1): action = %q, want delete", fixes[1].Action)
+	}
 }
 
 func mkdirFreezeRegistryTestDirs(t *testing.T, repoRoot string, dirs ...string) {
@@ -54,14 +85,14 @@ func mkdirFreezeRegistryTestDirs(t *testing.T, repoRoot string, dirs ...string) 
 	}
 }
 
-func assertFreezeRegistryFixes(t *testing.T, fixes []FreezeRegistryAutoFix, shrinkFreezeLimit, shrinkObserved int) {
+func assertFreezeRegistryFixes(t *testing.T, fixes []FreezeRegistryAutoFix, shrinkFreezeLimit, shrinkObserved, deleteFreezeLimit, deleteObserved int) {
 	t.Helper()
 	if len(fixes) != 2 {
 		t.Fatalf("planFreezeRegistryAutoFixes() fixes = %d, want 2", len(fixes))
 	}
 	wantFirst := FreezeRegistryAutoFix{Path: "internal/module/memory", Kind: "file", Action: "shrink", OldLimit: shrinkFreezeLimit, NewLimit: shrinkObserved, Observed: shrinkObserved, DefaultLimit: MaxFileLines}
 	assertFreezeRegistryFix(t, "first", fixes[0], wantFirst)
-	wantSecond := FreezeRegistryAutoFix{Path: "internal/module/thread", Kind: "file", Action: "delete", OldLimit: MaxFileLines + 50, Observed: MaxFileLines - 200, DefaultLimit: MaxFileLines}
+	wantSecond := FreezeRegistryAutoFix{Path: "internal/module/thread", Kind: "file", Action: "delete", OldLimit: deleteFreezeLimit, Observed: deleteObserved, DefaultLimit: MaxFileLines}
 	assertFreezeRegistryFix(t, "second", fixes[1], wantSecond)
 }
 
