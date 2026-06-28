@@ -4776,6 +4776,7 @@ function registerBridgeEventHandlersForTest() {
       payload: {
         eventName: 'bridge-event',
         error: 'Unexpected end of JSON input',
+        rawLen: 10,
         rawPreview: '{"method":',
       },
     });
@@ -4785,10 +4786,13 @@ function registerBridgeEventHandlersForTest() {
         level: 'error',
         event: 'bridge.event.parse_failed',
         fields: expect.objectContaining({
+          eventName: 'bridge-event',
           error: 'Unexpected end of JSON input',
+          rawLen: 10,
         }),
       }),
     ]);
+    expect(useClientStore.getState().warningEntries[0].fields).not.toHaveProperty('rawPreview');
   });
 
   it('routes bridge events without a method into visible warnings', () => {
@@ -4805,8 +4809,12 @@ function registerBridgeEventHandlersForTest() {
       expect.objectContaining({
         level: 'error',
         event: 'bridge.event.method_missing',
+        fields: expect.objectContaining({
+          payloadKeys: ['source', 'rawPreview'],
+        }),
       }),
     ]);
+    expect(useClientStore.getState().warningEntries[0].fields).not.toHaveProperty('payload');
   });
 
   it('normalizes legacy token usage pushes like the Vue frontend', () => {

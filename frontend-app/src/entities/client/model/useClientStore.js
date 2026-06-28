@@ -2491,8 +2491,8 @@ function attachBridgeEventRuntime(runtime) {
       const payload = evt?.payload || evt?.params || evt?.data || {};
       if (!method) {
         addWarning('error', 'bridge.event.method_missing', {
-          payload,
           eventKeys: evt && typeof evt === 'object' ? Object.keys(evt) : [],
+          payloadKeys: payload && typeof payload === 'object' && !Array.isArray(payload) ? Object.keys(payload) : [],
         });
         return;
       }
@@ -2559,17 +2559,27 @@ function attachBridgeEventRuntime(runtime) {
       }
       return;
     }
-    if (
-      eventName === 'bridge.event.parse_failed' ||
-      eventName === 'rpc.failed' ||
-      eventName.endsWith('/failed') ||
-      eventName.endsWith('.failed')
-    ) {
+    if (eventName === 'bridge.event.parse_failed') {
+      addWarning('error', method, bridgeParseFailureWarningFields(payload));
+      return;
+    }
+    if (eventName === 'rpc.failed' || eventName.endsWith('/failed') || eventName.endsWith('.failed')) {
       addWarning('error', method, payload);
     }
   };
 
   Object.assign(runtime, { handleBridgeEvent });
+}
+
+function bridgeParseFailureWarningFields(payload = {}) {
+  const out = {};
+  const eventName = normalizeString(payload.eventName || payload.event_name);
+  if (eventName) out.eventName = eventName;
+  const error = normalizeString(payload.error || payload.message);
+  if (error) out.error = error;
+  const rawLen = Number(payload.rawLen ?? payload.raw_len);
+  if (Number.isFinite(rawLen) && rawLen >= 0) out.rawLen = rawLen;
+  return out;
 }
 
 function createNavigationActions(runtime) {
