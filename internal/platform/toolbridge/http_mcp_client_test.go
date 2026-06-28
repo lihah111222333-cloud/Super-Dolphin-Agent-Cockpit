@@ -16,7 +16,11 @@ func TestPrepareCodexToolSurfaceUsesHTTPMCPServerTools(t *testing.T) {
 	toolsServer, seen := newHTTPMCPToolsTestServer(t)
 	defer toolsServer.Close()
 	workDir := t.TempDir()
-	h := &Handler{}
+	h := &Handler{
+		toolLifecycle: fakeActiveLifecycleReader(workDir, map[string][]string{
+			"my-search": {"remote_search"},
+		}),
+	}
 
 	tools, err := h.PrepareCodexToolSurface(context.Background(), contract.CodexToolSurfaceScope{
 		AgentID:          "agent-http",

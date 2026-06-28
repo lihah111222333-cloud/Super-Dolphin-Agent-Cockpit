@@ -61,8 +61,19 @@ type handlerIn struct {
 	Dispatcher   *event.Dispatcher         `optional:"true"`
 	// HostTools 是 Fx 可选字段：agent-terminal 生产图由 provideHostToolRegistry 填充；
 	// 测试或无 provider 图可以留空，Handler 会走 peer 路径。
-	HostTools  HostToolRegistry           `optional:"true"`
-	SkillTools contract.SkillToolProvider `optional:"true"`
+	HostTools          HostToolRegistry                `optional:"true"`
+	SkillTools         contract.SkillToolProvider      `optional:"true"`
+	ToolLifecycle      contract.MCPToolLifecycleReader `optional:"true"`
+	ToolLifecycleStore contract.MCPToolLifecycleStore  `optional:"true"`
+}
+
+// mcpToolLifecycleReaderFromHandlerIn 只把 MCP lifecycle 的读能力交给 toolbridge。
+// 生产图当前提供的是聚合 store；这里收窄成 reader，避免执行面接触写入口。
+func mcpToolLifecycleReaderFromHandlerIn(in handlerIn) contract.MCPToolLifecycleReader {
+	if in.ToolLifecycle != nil {
+		return in.ToolLifecycle
+	}
+	return in.ToolLifecycleStore
 }
 
 // hostToolRegistryIn 聚合 host-direct 工具 registry 所需的可选依赖。

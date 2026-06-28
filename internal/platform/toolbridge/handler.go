@@ -49,6 +49,7 @@ type Handler struct {
 	// toolbridge.Module。
 	hostTools          HostToolRegistry
 	skillTools         contract.SkillToolProvider
+	toolLifecycle      contract.MCPToolLifecycleReader
 	surfaceMu          sync.Mutex
 	surfaces           map[string]*codexToolSurface
 	peerSchemaMu       sync.Mutex
@@ -120,6 +121,7 @@ func NewHandler(in handlerIn) *Handler {
 		dispatcher:     in.Dispatcher,
 		hostTools:      in.HostTools,
 		skillTools:     in.SkillTools,
+		toolLifecycle:  mcpToolLifecycleReaderFromHandlerIn(in),
 		surfaces:       make(map[string]*codexToolSurface),
 		proxyAuthToken: newProxyAuthToken(),
 	}
