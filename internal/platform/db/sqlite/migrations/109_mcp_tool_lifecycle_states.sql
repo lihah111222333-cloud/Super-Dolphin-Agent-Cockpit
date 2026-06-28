@@ -1,4 +1,4 @@
-CREATE TABLE mcp_tool_lifecycle_states (
+CREATE TABLE IF NOT EXISTS mcp_tool_lifecycle_states (
     workspace_root TEXT NOT NULL,
     server_name TEXT NOT NULL,
     tool_name TEXT NOT NULL,
