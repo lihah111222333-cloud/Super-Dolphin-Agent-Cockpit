@@ -51,6 +51,31 @@ func TestDecodeToolParamsAddsAIFriendlyHint(t *testing.T) {
 	}
 }
 
+func TestDirectToolInputRejectsUnknownFields(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "sample.txt"), []byte("needle\n"), 0o600); err != nil {
+		t.Fatalf("write fixture: %v", err)
+	}
+	handler := NewGrepHandler(Config{WorkspaceRoot: root})
+	input, err := json.Marshal(map[string]any{
+		"action":                 "text_search",
+		"query":                  "needle",
+		"path":                   root,
+		"schema_forbidden_field": true,
+	})
+	if err != nil {
+		t.Fatalf("marshal grep input: %v", err)
+	}
+
+	_, err = handler(testToolContext(root), input)
+	if err == nil {
+		t.Fatal("direct handler accepted unknown field, want schema rejection")
+	}
+	if !strings.Contains(err.Error(), `unknown field "schema_forbidden_field"`) {
+		t.Fatalf("direct handler error = %v, want unknown field rejection", err)
+	}
+}
+
 func TestCursorErrorIncludesOneBasedHint(t *testing.T) {
 	envelope := newToolErrorEnvelope("lsp_edit", "go", errors.New("line must be >= 1"))
 	if envelope.Success {
