@@ -94,6 +94,45 @@ func TestUpsert_LargeFile_DBHasNoBody(t *testing.T) {
 	}
 }
 
+func TestSharedFileUpsertDoesNotOverwriteOnDBFailure(t *testing.T) {
+	t.Parallel()
+	s, rows, cfg := newDiskBackedStore(t)
+
+	path := "handoff/task-1/notes.md"
+	if _, err := s.Upsert(context.Background(), UpsertParams{
+		Path:      path,
+		Content:   "old body",
+		UpdatedBy: "agent",
+	}); err != nil {
+		t.Fatalf("seed Upsert error = %v", err)
+	}
+	abs := filepath.Join(cfg.CWD, sharedfilefs.SandboxDir, path)
+	rows.upsertErr = errors.New("db write failed")
+
+	_, err := s.Upsert(context.Background(), UpsertParams{
+		Path:      path,
+		Content:   "new body",
+		UpdatedBy: "agent",
+	})
+	if err == nil {
+		t.Fatal("Upsert err = nil, want DB failure")
+	}
+	disk, readErr := os.ReadFile(abs)
+	if readErr != nil {
+		t.Fatalf("ReadFile after failed Upsert err = %v", readErr)
+	}
+	if string(disk) != "old body" {
+		t.Fatalf("disk content after failed Upsert = %q, want old body", string(disk))
+	}
+	matches, globErr := filepath.Glob(abs + ".*.tmp")
+	if globErr != nil {
+		t.Fatalf("glob temp files: %v", globErr)
+	}
+	if len(matches) != 0 {
+		t.Fatalf("orphan temp files after failed Upsert = %v", matches)
+	}
+}
+
 func TestGet_DiskHit_OverridesDBContent(t *testing.T) {
 	t.Parallel()
 	s, rows, cfg := newDiskBackedStore(t)
@@ -234,7 +273,8 @@ func TestList_DoesNotScanDisk(t *testing.T) {
 // --- in-memory DB stub ---------------------------------------------------
 
 type fakeRowStore struct {
-	byPath map[string]sqlc.SharedFile
+	byPath    map[string]sqlc.SharedFile
+	upsertErr error
 }
 
 func newFakeRowStore() *fakeRowStore {
@@ -276,6 +316,9 @@ func (f *fakeRowQuerier) DeleteSharedFile(_ context.Context, arg sqlc.DeleteShar
 }
 
 func (f *fakeRowQuerier) UpsertSharedFile(_ context.Context, arg sqlc.UpsertSharedFileParams) (sqlc.SharedFile, error) {
+	if f.rows.upsertErr != nil {
+		return sqlc.SharedFile{}, f.rows.upsertErr
+	}
 	row := sqlc.SharedFile{
 		Path:            arg.Path,
 		Content:         arg.Content,

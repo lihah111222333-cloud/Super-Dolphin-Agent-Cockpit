@@ -192,7 +192,7 @@ func (e *dreamExecutor) runFailover(ctx context.Context, prompt string, options 
 			return result, nil
 		}
 		if requestedProvider {
-			e.logger.Warn("requested dream executor failed", "provider", name, "error", err)
+			e.logger.Warn("requested dream executor failed", "provider", name, "error", dreamLogError(err))
 			dreammetrics.IncProviderFailed()
 			return "", fmt.Errorf("dream executor provider %q failed: %w", name, err)
 		}
@@ -202,7 +202,7 @@ func (e *dreamExecutor) runFailover(ctx context.Context, prompt string, options 
 			lastNotConfigured = err
 			continue
 		}
-		e.logger.Warn("dream executor failed", "provider", name, "error", err)
+		e.logger.Warn("dream executor failed", "provider", name, "error", dreamLogError(err))
 		dreammetrics.IncProviderFailed()
 		return "", err
 	}
@@ -233,6 +233,39 @@ func executeProviderDream(ctx context.Context, executor contract.DreamExecutor, 
 		return withOptions.ExecuteDreamWithOptions(ctx, prompt, options)
 	}
 	return executor.ExecuteDream(ctx, prompt)
+}
+
+// dreamLogError 返回给结构化日志使用的脱敏错误文本。
+// provider 原始错误仍按 error chain 返回给调用方，日志层只隐藏路径和常见 secret 片段。
+func dreamLogError(err error) string {
+	if err == nil {
+		return ""
+	}
+	fields := strings.Fields(err.Error())
+	if len(fields) > 24 {
+		fields = fields[:24]
+	}
+	for i, field := range fields {
+		fields[i] = redactDreamLogField(field)
+	}
+	return strings.Join(fields, " ")
+}
+
+func redactDreamLogField(field string) string {
+	lower := strings.ToLower(field)
+	switch {
+	case strings.Contains(lower, "token="),
+		strings.Contains(lower, "api_key"),
+		strings.Contains(lower, "apikey"),
+		strings.Contains(lower, "secret"),
+		strings.Contains(lower, "password"),
+		strings.Contains(lower, "sk-"):
+		return "[redacted-secret]"
+	case strings.Contains(field, "/") || strings.Contains(field, "\\"):
+		return "[redacted-path]"
+	default:
+		return field
+	}
 }
 
 // normalizeDreamProviderName 标准化 provider 名称，环境变量和注册名共用同一规则。

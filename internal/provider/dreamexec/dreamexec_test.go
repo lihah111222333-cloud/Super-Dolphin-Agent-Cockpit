@@ -71,6 +71,26 @@ func TestRealCommander_NonZeroExitCarriesStderr(t *testing.T) {
 	}
 }
 
+func TestDreamExecDoesNotReturnRawStderr(t *testing.T) {
+	skipIfWindows(t)
+	c := NewRealCommander()
+	rawStderr := "token=sk-live-secret path=/Users/alice/private/memory.md"
+	_, err := c.Run(context.Background(), "sh", []string{"-c", "echo '" + rawStderr + "' >&2; exit 7"}, "", 1024)
+	if err == nil {
+		t.Fatal("expected non-zero exit error, got nil")
+	}
+	for _, forbidden := range []string{"sk-live-secret", "/Users/alice/private/memory.md"} {
+		if strings.Contains(err.Error(), forbidden) {
+			t.Fatalf("error leaked raw stderr %q: %v", forbidden, err)
+		}
+	}
+	for _, want := range []string{"stderr_len=", "stderr_sha256=", "stderr_summary="} {
+		if !strings.Contains(err.Error(), want) {
+			t.Fatalf("error missing %q metadata: %v", want, err)
+		}
+	}
+}
+
 func TestRealCommander_NonZeroExitWithModelUnavailableEnvelope(t *testing.T) {
 	skipIfWindows(t)
 	c := NewRealCommander()
@@ -236,6 +256,28 @@ func TestRun_JSONParseFailureRetries(t *testing.T) {
 	}
 	if c.calls != 2 {
 		t.Fatalf("expected 2 commander calls (1 fail + 1 retry), got %d", c.calls)
+	}
+}
+
+func TestRunDoesNotReportUsageOnParseFailure(t *testing.T) {
+	c := &fakeCommander{outputs: []string{
+		`{"type":"result","usage":{"input_tokens":12,"output_tokens":3},"result":"not json"}`,
+	}}
+	called := false
+	_, err := Run(context.Background(), c, RunOptions{
+		Binary:         "claude",
+		Prompt:         "p",
+		MaxStdoutBytes: 1024,
+		MaxRetries:     0,
+		OnUsage: func(TokenUsage) {
+			called = true
+		},
+	})
+	if err == nil {
+		t.Fatal("Run err = nil, want parse failure")
+	}
+	if called {
+		t.Fatal("OnUsage called for failed parse attempt")
 	}
 }
 
