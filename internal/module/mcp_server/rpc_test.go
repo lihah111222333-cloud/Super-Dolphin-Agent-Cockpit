@@ -85,6 +85,37 @@ func TestListRPCReturnsMCPServerConfig(t *testing.T) {
 	}
 }
 
+func TestListRPCDoesNotExposeToolLifecycleFields(t *testing.T) {
+	project := t.TempDir()
+	t.Chdir(project)
+	store := newMemoryMCPServerStore()
+	store.seed(project, "my-search", ServerConfig{
+		Transport: "http",
+		URL:       "https://your-domain.com/mcp",
+	})
+	server := newMCPServerTestServer(store)
+
+	raw, err := server.Dispatch(context.Background(), "mcpServer/list", json.RawMessage(`{}`))
+	if err != nil {
+		t.Fatalf("Dispatch mcpServer/list: %v", err)
+	}
+	var payload map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &payload); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+	assertNoLifecycleJSONFields(t, "mcpServer/list result", payload)
+
+	var servers map[string]json.RawMessage
+	if err := json.Unmarshal(payload["mcpServers"], &servers); err != nil {
+		t.Fatalf("unmarshal mcpServers: %v", err)
+	}
+	var configFields map[string]json.RawMessage
+	if err := json.Unmarshal(servers["my-search"], &configFields); err != nil {
+		t.Fatalf("unmarshal server config: %v", err)
+	}
+	assertNoLifecycleJSONFields(t, "mcpServer/list server config", configFields)
+}
+
 func TestToolsRPCReturnsMCPServerTools(t *testing.T) {
 	project := t.TempDir()
 	t.Chdir(project)
@@ -110,6 +141,40 @@ func TestToolsRPCReturnsMCPServerTools(t *testing.T) {
 	if got.ServerName != "my-search" || len(got.Tools) != 1 || got.Tools[0].Name != "remote_search" {
 		t.Fatalf("ListServerToolsResult = %#v, want remote_search", got)
 	}
+}
+
+func TestToolsRPCDoesNotExposeToolLifecycleFields(t *testing.T) {
+	project := t.TempDir()
+	t.Chdir(project)
+	store := newMemoryMCPServerStore()
+	store.seed(project, "my-search", ServerConfig{
+		Transport: "http",
+		URL:       "https://example.com/mcp",
+	})
+	server := newMCPServerTestServerWithHTTPClient(store, &scriptedMCPHTTPDoer{t: t})
+	payload, err := json.Marshal(ListServerToolsRequest{ServerName: "my-search"})
+	if err != nil {
+		t.Fatalf("marshal payload: %v", err)
+	}
+
+	raw, err := server.Dispatch(context.Background(), "mcpServer/tools", payload)
+	if err != nil {
+		t.Fatalf("Dispatch mcpServer/tools: %v", err)
+	}
+	var result map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &result); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+	assertNoLifecycleJSONFields(t, "mcpServer/tools result", result)
+
+	var tools []map[string]json.RawMessage
+	if err := json.Unmarshal(result["tools"], &tools); err != nil {
+		t.Fatalf("unmarshal tools: %v", err)
+	}
+	if len(tools) != 1 {
+		t.Fatalf("tools = %#v, want one tool", tools)
+	}
+	assertNoLifecycleJSONFields(t, "mcpServer/tools tool", tools[0])
 }
 
 func TestStartPostgresRPCCreatesDefaultStdioConfig(t *testing.T) {
@@ -276,4 +341,16 @@ func newMCPServerTestServerWithHTTPClient(store MCPServerConfigStore, client mcp
 	server := platformrpc.NewServer(platformrpc.Params{Config: &platformconfig.Config{RPCAddr: "127.0.0.1:0"}})
 	server.Register(NewHandlers(svc).Handlers)
 	return server
+}
+
+func assertNoLifecycleJSONFields(t *testing.T, scope string, fields map[string]json.RawMessage) {
+	t.Helper()
+	for _, forbidden := range []string{
+		"lifecycle", "lifecycleState", "state", "reason", "source", "updatedBy",
+		"createdAt", "updatedAt",
+	} {
+		if _, ok := fields[forbidden]; ok {
+			t.Fatalf("%s unexpectedly exposes lifecycle field %q in %#v", scope, forbidden, fields)
+		}
+	}
 }
