@@ -721,9 +721,10 @@ describe('wails bridge event callbacks', () => {
       method: 'bridge.event.parse_failed',
       payload: expect.objectContaining({
         eventName: 'bridge-event',
-        rawPreview: '{"method":',
+        rawLen: 10,
       }),
     }));
+    expect(callback.mock.calls[0][0].payload).not.toHaveProperty('rawPreview');
     expect(logs.find((entry) => entry.event === 'bridge.event.parse_failed')).toEqual(
       expect.objectContaining({ level: 'error' }),
     );

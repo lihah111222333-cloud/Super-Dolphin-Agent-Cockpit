@@ -230,7 +230,6 @@ function bridgeEventParseFailureEnvelope(rawText, error, eventName) {
     eventName: eventName || 'runtime-event',
     error: error?.message || String(error),
     rawLen: rawValue.length,
-    rawPreview: rawValue.slice(0, 200),
   };
   writeBridgeLog('error', 'bridge.event.parse_failed', payload);
   return {
