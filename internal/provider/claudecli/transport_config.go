@@ -1,6 +1,7 @@
 package claudecli
 
 import (
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -35,6 +36,7 @@ func sanitizeResumeID(id string) string {
 const (
 	defaultClaudeCLIBin = "claude"
 	managedMCPPrefix    = "mcp-"
+	systemPromptDumpEnv = "SUPER_DOLPHIN_CLAUDE_SYSTEM_PROMPT_DUMP"
 )
 
 type cliLaunchConfig struct {
@@ -134,48 +136,54 @@ func logManifestLaunch(binary, cwd, model, mcpPath string, manifest dto.MCPManif
 }
 
 // logSystemPromptArgs 记录即将交给 Claude CLI 的每段 --system-prompt。
-// 完整内容写入临时目录，日志只带首尾预览和 dump 路径，方便确认路由注入是否真正进入 CLI。
+// 默认只记录长度和 hash；只有显式打开 debug dump 时才把完整内容写入私有临时目录。
 func logSystemPromptArgs(args []string) {
 	blocks := make([]map[string]any, 0, 4)
 	idx := 0
+	dumpEnabled := systemPromptDumpEnabled()
 	for i := 0; i < len(args)-1; i++ {
 		if args[i] != "--system-prompt" {
 			continue
 		}
 		value := args[i+1]
-		runes := []rune(value)
-		const previewMax = 160
-		head := value
-		if len(runes) > previewMax {
-			head = string(runes[:previewMax]) + "…"
+		sum := sha256.Sum256([]byte(value))
+		block := map[string]any{
+			"index":  idx,
+			"len":    len(value),
+			"sha256": fmt.Sprintf("%x", sum[:]),
 		}
-		tail := value
-		if len(runes) > previewMax {
-			tail = "…" + string(runes[len(runes)-previewMax:])
+		if dumpEnabled {
+			block["dump_path"] = writeSystemPromptDump(idx, value)
 		}
-		dumpPath := writeSystemPromptDump(idx, value)
-		blocks = append(blocks, map[string]any{
-			"index":     idx,
-			"len":       len(value),
-			"head":      head,
-			"tail":      tail,
-			"dump_path": dumpPath,
-		})
+		blocks = append(blocks, block)
 		idx++
 	}
 	pkglogger.Info("claudecli: --system-prompt blocks handed to CLI",
 		"count", len(blocks), "blocks", blocks)
 }
 
+func systemPromptDumpEnabled() bool {
+	switch strings.ToLower(strings.TrimSpace(os.Getenv(systemPromptDumpEnv))) {
+	case "1", "true", "yes", "debug":
+		return true
+	default:
+		return false
+	}
+}
+
 func writeSystemPromptDump(index int, content string) string {
 	dir := filepath.Join(os.TempDir(), "super-agent-systemprompt")
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+	if err := os.MkdirAll(dir, 0o700); err != nil {
 		pkglogger.Warn("claudecli: systemprompt dump mkdir failed", "err", err)
+		return ""
+	}
+	if err := os.Chmod(dir, 0o700); err != nil {
+		pkglogger.Warn("claudecli: systemprompt dump chmod failed", "err", err, "path", dir)
 		return ""
 	}
 	name := fmt.Sprintf("%s-block%d.txt", time.Now().UTC().Format("20060102T150405.000000000"), index)
 	path := filepath.Join(dir, name)
-	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
 		pkglogger.Warn("claudecli: systemprompt dump write failed", "err", err, "path", path)
 		return ""
 	}

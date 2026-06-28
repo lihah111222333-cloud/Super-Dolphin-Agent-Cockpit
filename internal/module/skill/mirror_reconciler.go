@@ -101,9 +101,6 @@ func DetectSkillMirrorConflicts(records []canonicalSkillRecord, targets []SkillM
 	var conflicts []SkillMirrorConflict
 	driftCount := map[string]int{}
 	recordsByScopeName := canonicalRecordsByMirrorKey(records)
-	for i := range targets {
-		targets[i].Root = mirrorpath.ResolveValidRootSymlink(targets[i].Root)
-	}
 	for _, target := range targets {
 		targetConflicts, err := detectSkillMirrorTargetConflicts(records, recordsByScopeName, target)
 		if err != nil {

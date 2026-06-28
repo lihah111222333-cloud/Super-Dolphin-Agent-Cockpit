@@ -81,7 +81,7 @@ func TestSkillMirrorPublisherWritesCanonicalNameAndDisplayName(t *testing.T) {
 	assertFileContent(t, filepath.Join(root, "docker-容器化部署", skillMainFile), "---\nname: docker-容器化部署\ndisplay_name: \"Docker 容器化部署\"\n---\n# legacy display\n")
 }
 
-func TestSkillMirrorPublisherAcceptsValidMirrorRootSymlink(t *testing.T) {
+func TestMirrorRootSymlinkIsRejected(t *testing.T) {
 	project := t.TempDir()
 	writeSkillWithSupportFiles(t, filepath.Join(project, ".agent", "skills", "build"), "build")
 	records, err := newCanonicalStore("").scan(project)
@@ -104,12 +104,14 @@ func TestSkillMirrorPublisherAcceptsValidMirrorRootSymlink(t *testing.T) {
 	report, err := PublishSkillMirrors(context.Background(), records, []SkillMirrorTarget{
 		{TargetID: "claude:project:repo", Provider: SkillProviderClaude, Scope: skillScopeProject, Root: linkedRoot, CanonicalRootID: "repo"},
 	})
-	if err != nil {
-		t.Fatalf("PublishSkillMirrors valid symlink root: %v", err)
+	if err == nil || !strings.Contains(err.Error(), "symlink") {
+		t.Fatalf("PublishSkillMirrors symlink root error = %v, want rejection before resolving mirror root", err)
 	}
 
-	assertMirrorFile(t, filepath.Join(realRoot, "build", skillMainFile), false)
-	assertPublishedReportItem(t, report.Published, "claude:project:repo", SkillProviderClaude, skillScopeProject, "build", "project/build")
+	if len(report.Published) != 0 {
+		t.Fatalf("Published = %+v, want no writes through symlink mirror root", report.Published)
+	}
+	assertMissing(t, filepath.Join(realRoot, "build", skillMainFile))
 }
 
 func TestSkillMirrorPublisherDoesNotPublishManualOnlySkills(t *testing.T) {
