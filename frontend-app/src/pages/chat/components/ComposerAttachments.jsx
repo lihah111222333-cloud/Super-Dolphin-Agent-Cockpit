@@ -1,5 +1,6 @@
 import React from 'react';
 import { File, X } from 'lucide-react';
+import { attachmentDisplayName } from '../../../entities/client/model/composerAttachments.js';
 import { composerAttachmentKey } from './composerAttachmentKey.js';
 import { resolveAttachmentImageSrc } from './timelineMessageModel.js';
 
@@ -12,7 +13,7 @@ function ComposerAttachments({ attachments, onPreview, onRemove }) {
     <div className="attachments">
       {attachments.map((item) => {
         const imageSrc = resolveAttachmentImageSrc(item);
-        const label = item.name || item.path;
+        const label = attachmentDisplayName(item);
         return (
           <span key={composerAttachmentKey(item)} className={`attachment-pill${imageSrc ? ' attachment-pill--image' : ''}`}>
             <button type="button" className="attachment-preview" aria-label={`${PREVIEW_ATTACHMENT_LABEL} ${label}`} onClick={() => onPreview(item)}>
