@@ -101,7 +101,7 @@ func (f *fakeDedupeStore) Sweep(_ context.Context, _ time.Time) error { return n
 // serviceWithStore 构造默认 turn service 并注入测试用 dedupe store。
 // 这样可以直接覆盖镜像写入路径，而不需要通过 fx 装配完整依赖图。
 func serviceWithStore(store turnDedupeStore) *service {
-	return newService(silentLogger(), nil, nil, nil, nil, store, nil).(*service)
+	return newService(silentLogger(), &stubPromptAssemblyService{}, nil, nil, nil, store, nil).(*service)
 }
 
 func TestServiceStartTurnMirrorsToStore(t *testing.T) {
@@ -248,7 +248,7 @@ func TestServiceLookupByDedupeKeyFallsBackToStore(t *testing.T) {
 func TestServiceLookupByDedupeKeyNoStoreStaysTrackerOnly(t *testing.T) {
 	t.Parallel()
 	// 未注入 store 时必须保持纯 tracker 行为：未命中返回 ok=false 且不报错。
-	svc := newService(silentLogger(), nil, nil, nil, nil, nil, nil).(*service)
+	svc := newService(silentLogger(), &stubPromptAssemblyService{}, nil, nil, nil, nil, nil).(*service)
 	if _, ok, err := svc.LookupByDedupeKey(context.Background(), "dk-none"); ok || err != nil {
 		t.Fatalf("want (false, nil), got ok=%v err=%v", ok, err)
 	}

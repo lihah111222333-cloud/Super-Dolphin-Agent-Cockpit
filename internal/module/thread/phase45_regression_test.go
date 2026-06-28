@@ -141,13 +141,14 @@ func TestPhase45ResumeForwardsPromptSnapshot(t *testing.T) {
 		Hash:                  "snapshot-hash",
 	}
 	threads := &stubThreadStore{thread: &threadstore.Thread{
-		ThreadID:  "thread-1",
-		AgentID:   "agent-1",
-		Prompt:    "resume name",
-		Model:     "gpt-5.5",
-		Cwd:       "/repo",
-		CreatedAt: 123,
-		Status:    statusCreated,
+		ThreadID:       "thread-1",
+		AgentID:        "agent-1",
+		Prompt:         "resume name",
+		Model:          "gpt-5.5",
+		Cwd:            "/repo",
+		CreatedAt:      123,
+		Status:         statusCreated,
+		ConfigOverride: legacyPromptSnapshotMigrationConfig(t),
 	}}
 	const providerThreadID = "11111111-2222-3333-4444-555555555561"
 	rolloutPath := writeExistingProviderHistoryFile(t)
@@ -202,6 +203,7 @@ func TestPhaseGResumeRebuildsPromptSnapshotFromStoredAgentIdentity(t *testing.T)
 		Cwd:              "/repo",
 		CreatedAt:        123,
 		Status:           statusCreated,
+		ConfigOverride:   legacyPromptSnapshotMigrationConfig(t),
 	}}
 	const providerThreadID = "11111111-2222-3333-4444-555555555562"
 	rolloutPath := writeExistingProviderHistoryFile(t)

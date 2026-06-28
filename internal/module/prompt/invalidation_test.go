@@ -28,9 +28,7 @@ func (p *invalidationProbe) OnPromptInvalidate(reason InvalidateReason) {
 func TestInvalidateSectionsNotifiesTargetedProviders(t *testing.T) {
 	svc := NewService(&Config{}, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	probe := &invalidationProbe{}
-	if err := svc.RegisterDynamicProvider(probe); err != nil {
-		t.Fatalf("RegisterDynamicProvider() error = %v", err)
-	}
+	registerDynamicProviderForTest(t, svc, probe)
 
 	invalidator, ok := svc.(SectionInvalidator)
 	if !ok {

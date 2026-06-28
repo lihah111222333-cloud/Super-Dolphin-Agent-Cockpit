@@ -162,9 +162,10 @@ func TestResumeUsesStoredRuntimeCodexIdentityWhenBindingIdentityIsEmpty(t *testi
 		Status:   statusCreated,
 		ConfigOverride: mustStoredThreadConfigRaw(t, storedThreadConfig{
 			Runtime: map[string]any{
-				"codexHome":          codexHome,
-				"codexInstanceKey":   "default",
-				"codexModelProvider": "openai",
+				"codexHome":                     codexHome,
+				"codexInstanceKey":              "default",
+				"codexModelProvider":            "openai",
+				"legacyPromptSnapshotMigration": true,
 			},
 		}),
 	}}

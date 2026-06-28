@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
@@ -13,6 +14,8 @@ import (
 
 	"github.com/anthropic-ai/super-agent-v3/internal/util"
 )
+
+const legacyPromptSnapshotMigrationRuntimeKey = "legacyPromptSnapshotMigration"
 
 // ensureStartAssemblySnapshot 把 start 提示整理成可保存的 snapshot。
 // start、fallback、resume rebuild 都走这里，避免 provider 和 thread store 各拿一份。
@@ -49,6 +52,8 @@ func ensureStartAssemblySnapshot(assembly contract.StartAssembly, provider strin
 		snapshot.DeveloperInstructions,
 		snapshot.Provider,
 		snapshot.Boundary,
+		snapshot.SectionSnapshot,
+		snapshot.Generation,
 	)
 	assembly.Boundary = clonePromptBoundary(snapshot.Boundary)
 	assembly.Snapshot = snapshot
@@ -160,20 +165,56 @@ func clonePromptSectionMap(src map[string]string) map[string]string {
 func promptSnapshotHash(
 	displayName, base, dev, provider string,
 	boundary *dto.PromptAssemblyBoundary,
+	sections map[string]string,
+	generation uint64,
 ) string {
 	h := sha256.New()
-	for _, part := range []string{
+	for _, part := range promptSnapshotHashParts(
+		displayName,
+		base,
+		dev,
+		provider,
+		boundary,
+		sections,
+		generation,
+	) {
+		_, _ = h.Write([]byte(strings.TrimSpace(part)))
+		_, _ = h.Write([]byte{0})
+	}
+	return hex.EncodeToString(h.Sum(nil))
+}
+
+// promptSnapshotHashParts 按稳定顺序展开 snapshot hash 字段。
+// section 内容和非零 generation 必须进入 hash，避免恢复时接受被篡改的动态段落。
+func promptSnapshotHashParts(
+	displayName, base, dev, provider string,
+	boundary *dto.PromptAssemblyBoundary,
+	sections map[string]string,
+	generation uint64,
+) []string {
+	parts := []string{
 		displayName,
 		base,
 		dev,
 		provider,
 		promptBoundaryCachedPrefix(boundary),
 		promptBoundaryUncachedTail(boundary),
-	} {
-		_, _ = h.Write([]byte(strings.TrimSpace(part)))
-		_, _ = h.Write([]byte{0})
 	}
-	return hex.EncodeToString(h.Sum(nil))
+	if generation != 0 {
+		parts = append(parts, fmt.Sprintf("generation:%d", generation))
+	}
+	if len(sections) == 0 {
+		return parts
+	}
+	names := make([]string, 0, len(sections))
+	for name := range sections {
+		names = append(names, strings.TrimSpace(name))
+	}
+	sort.Strings(names)
+	for _, name := range names {
+		parts = append(parts, "section:"+name, sections[name])
+	}
+	return parts
 }
 
 func toStoredPromptSnapshot(snapshot contract.PromptAssemblySnapshot) promptSnapshotRecord {
@@ -210,7 +251,25 @@ func (s *service) resolveStablePromptSnapshot(
 		s.logger.Debug("thread: recomputing prompt snapshot due to hash/version mismatch",
 			"thread_id", threadID, "stored_version", stored.Version)
 	}
-	return normalizeCallerPromptSnapshot(fallback, provider), nil
+	if !promptSnapshotBlank(stored) {
+		return contract.PromptAssemblySnapshot{}, invalidPromptSnapshotError(threadID)
+	}
+	fallback = normalizeCallerPromptSnapshot(fallback, provider)
+	if !promptSnapshotBlank(fallback) {
+		return fallback, nil
+	}
+	meta := s.lookupThreadMeta(ctx, threadID)
+	legacyAllowed, err := legacyPromptSnapshotMigrationAllowed(resumeState{
+		PublicThreadID:    strings.TrimSpace(threadID),
+		ConfigOverrideRaw: meta.ConfigOverride,
+	})
+	if err != nil {
+		return contract.PromptAssemblySnapshot{}, err
+	}
+	if legacyAllowed {
+		return ensureStartAssemblySnapshot(contract.StartAssembly{DisplayName: meta.Name}, provider).Snapshot, nil
+	}
+	return contract.PromptAssemblySnapshot{}, missingPromptSnapshotError(threadID)
 }
 
 // resolveResumePromptSnapshot 决定 resume 用哪份 prompt snapshot。
@@ -221,10 +280,22 @@ func (s *service) resolveResumePromptSnapshot(
 	state resumeState,
 ) (contract.PromptAssemblySnapshot, error) {
 	provider := strings.TrimSpace(util.FirstNonEmpty(req.Provider, state.Provider))
-	if stored, ok, err := s.preferredStoredPromptSnapshot(ctx, state.PublicThreadID, provider); err != nil {
-		return contract.PromptAssemblySnapshot{}, err
-	} else if ok {
+	stored, err := s.loadStoredPromptSnapshot(ctx, state.PublicThreadID)
+	if err != nil {
+		return contract.PromptAssemblySnapshot{}, fmt.Errorf("load stored prompt snapshot for %q: %w", state.PublicThreadID, err)
+	}
+	if storedPromptSnapshotValid(stored, provider) {
 		return stored, nil
+	}
+	if !promptSnapshotBlank(stored) {
+		return contract.PromptAssemblySnapshot{}, invalidPromptSnapshotError(state.PublicThreadID)
+	}
+	legacyAllowed, err := legacyPromptSnapshotMigrationAllowed(state)
+	if err != nil {
+		return contract.PromptAssemblySnapshot{}, err
+	}
+	if !legacyAllowed {
+		return contract.PromptAssemblySnapshot{}, missingPromptSnapshotError(state.PublicThreadID)
 	}
 	caller := normalizeCallerPromptSnapshot(req.PromptSnapshot, provider)
 	if !promptSnapshotBlank(caller) {
@@ -235,6 +306,35 @@ func (s *service) resolveResumePromptSnapshot(
 		return contract.PromptAssemblySnapshot{}, err
 	}
 	return rebuilt, nil
+}
+
+// legacyPromptSnapshotMigrationAllowed 只接受显式布尔开关放行旧线程的无 snapshot 迁移。
+func legacyPromptSnapshotMigrationAllowed(state resumeState) (bool, error) {
+	runtimeConfig := state.ConfigOverride.Runtime
+	if len(runtimeConfig) == 0 && len(state.ConfigOverrideRaw) > 0 {
+		stored, err := decodeStoredThreadConfig(state.ConfigOverrideRaw)
+		if err != nil {
+			return false, fmt.Errorf("decode legacy prompt snapshot migration gate: %w", err)
+		}
+		runtimeConfig = stored.Runtime
+	}
+	raw, ok := runtimeConfig[legacyPromptSnapshotMigrationRuntimeKey]
+	if !ok {
+		return false, nil
+	}
+	allowed, ok := raw.(bool)
+	if !ok {
+		return false, fmt.Errorf("legacy prompt snapshot migration gate %q must be a boolean", legacyPromptSnapshotMigrationRuntimeKey)
+	}
+	return allowed, nil
+}
+
+func invalidPromptSnapshotError(threadID string) error {
+	return fmt.Errorf("thread %q prompt snapshot is invalid", strings.TrimSpace(threadID))
+}
+
+func missingPromptSnapshotError(threadID string) error {
+	return fmt.Errorf("thread %q prompt snapshot is missing; legacy prompt snapshot migration gate is required", strings.TrimSpace(threadID))
 }
 
 // rebuildResumePromptSnapshot 只给缺 snapshot 的旧线程补一次。
@@ -308,24 +408,6 @@ func resumePromptSnapshotRequired(state resumeState) (bool, error) {
 	return true, nil
 }
 
-func (s *service) preferredStoredPromptSnapshot(
-	ctx context.Context,
-	threadID, provider string,
-) (contract.PromptAssemblySnapshot, bool, error) {
-	stored, err := s.loadStoredPromptSnapshot(ctx, threadID)
-	if err != nil {
-		return contract.PromptAssemblySnapshot{}, false, fmt.Errorf("load stored prompt snapshot for %q: %w", threadID, err)
-	}
-	if storedPromptSnapshotValid(stored, provider) {
-		return stored, true, nil
-	}
-	if !promptSnapshotBlank(stored) && s.logger != nil {
-		s.logger.Debug("thread: recomputing prompt snapshot on resume due to hash/version mismatch",
-			"thread_id", threadID, "stored_version", stored.Version)
-	}
-	return contract.PromptAssemblySnapshot{}, false, nil
-}
-
 func fromStoredPromptSnapshot(snapshot *promptSnapshotRecord) contract.PromptAssemblySnapshot {
 	if snapshot == nil {
 		return contract.PromptAssemblySnapshot{}
@@ -358,6 +440,8 @@ func storedPromptSnapshotValid(snapshot contract.PromptAssemblySnapshot, provide
 		snapshot.DeveloperInstructions,
 		snapshot.Provider,
 		snapshot.Boundary,
+		snapshot.SectionSnapshot,
+		snapshot.Generation,
 	)
 }
 
@@ -379,6 +463,8 @@ func normalizeCallerPromptSnapshot(snapshot contract.PromptAssemblySnapshot, pro
 			snapshot.DeveloperInstructions,
 			snapshot.Provider,
 			snapshot.Boundary,
+			snapshot.SectionSnapshot,
+			snapshot.Generation,
 		)
 	}
 	return snapshot

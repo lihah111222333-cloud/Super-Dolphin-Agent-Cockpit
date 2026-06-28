@@ -26,13 +26,14 @@ func TestServiceResumePrefersSessionUUIDOverStaleProviderThreadID(t *testing.T) 
 	t.Parallel()
 
 	threads := &stubThreadStore{thread: &threadstore.Thread{
-		ThreadID:  "thread-public",
-		AgentID:   "agent-1",
-		Prompt:    "resume",
-		Model:     "claude-3",
-		Cwd:       "/repo",
-		CreatedAt: 123,
-		Status:    statusCreated,
+		ThreadID:       "thread-public",
+		AgentID:        "agent-1",
+		Prompt:         "resume",
+		Model:          "claude-3",
+		Cwd:            "/repo",
+		CreatedAt:      123,
+		Status:         statusCreated,
+		ConfigOverride: legacyPromptSnapshotMigrationConfig(t),
 	}}
 	// SessionUUID must look like a real UUID so the resume logic prefers it
 	// over the stale ProviderThreadID placeholder when the CLI file exists.
@@ -74,13 +75,14 @@ func TestServiceResumeDoesNotUseAgentIDAsClaudeProviderThreadID(t *testing.T) {
 	t.Parallel()
 
 	threads := &stubThreadStore{thread: &threadstore.Thread{
-		ThreadID:  "thread-public",
-		AgentID:   "agent-1",
-		Prompt:    "resume",
-		Model:     "claude-3",
-		Cwd:       "/repo",
-		CreatedAt: 123,
-		Status:    statusCreated,
+		ThreadID:       "thread-public",
+		AgentID:        "agent-1",
+		Prompt:         "resume",
+		Model:          "claude-3",
+		Cwd:            "/repo",
+		CreatedAt:      123,
+		Status:         statusCreated,
+		ConfigOverride: legacyPromptSnapshotMigrationConfig(t),
 	}}
 	bindings := &stubBindingStore{binding: &bindingstore.Binding{
 		AgentID:       "agent-1",
@@ -127,7 +129,7 @@ func TestServiceRecoverUsesSessionUUIDForProviderResumeWhenPublicThreadIsAgentID
 		DeveloperInstructions: "stored dev",
 		Provider:              "codex",
 		Version:               contract.PromptAssemblySnapshotVersion,
-		Hash:                  promptSnapshotHash("Recovered Thread", "stored base", "stored dev", "codex", nil),
+		Hash:                  promptSnapshotHash("Recovered Thread", "stored base", "stored dev", "codex", nil, nil, 0),
 	}}
 	bindings := &stubBindingStore{binding: &bindingstore.Binding{
 		AgentID:          "agent-1",

@@ -2,6 +2,7 @@ package turn
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"time"
 
@@ -14,7 +15,7 @@ import (
 // prepareTurnAssembly 准备turnassembly。
 func (s *service) prepareTurnAssembly(ctx context.Context, threadID string, input PrepareInput, userText string, req dto.TurnRequest) (assembly dto.TurnAssembly, err error) {
 	if s == nil || s.promptAssembly == nil {
-		return dto.TurnAssembly{}, nil
+		return dto.TurnAssembly{}, errors.New("turn prompt assembly service is required")
 	}
 	span := s.beginTurnTraceSpan(ctx, "turn.assembly", threadID, input.AgentID, req.LocalID, platformobs.NewCodeAnchor("internal/module/turn/prompt_assembly.go", "turn.(*service).prepareTurnAssembly", 13), nil)
 	ctx = span.ctx

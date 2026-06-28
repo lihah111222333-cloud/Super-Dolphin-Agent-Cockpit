@@ -50,7 +50,7 @@ func TestPrepareTurnCleansStaleToolResultsWhenFRCEnabled(t *testing.T) {
 		t.Fatalf("persisted paths = (%q, %q), want stored files", first.PersistedPath, second.PersistedPath)
 	}
 
-	svc := NewService(silentLogger())
+	svc := NewServiceWithPromptAssembly(silentLogger(), &stubPromptAssemblyService{})
 	session := &stubSession{
 		threadID: threadID,
 		runtimeConfig: map[string]any{

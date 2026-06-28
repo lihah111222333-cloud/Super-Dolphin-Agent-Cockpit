@@ -427,6 +427,8 @@ func (s *service) newSnapshot(
 	sections []ResolvedPromptSection,
 ) PromptAssemblySnapshot {
 	provider = strings.TrimSpace(provider)
+	sectionSnapshot := resolvedSectionSnapshot(sections)
+	generation := s.cache.Generation()
 	return PromptAssemblySnapshot{
 		DisplayName:           displayName,
 		BaseInstructions:      base,
@@ -434,10 +436,34 @@ func (s *service) newSnapshot(
 		DeveloperInstructions: dev,
 		Provider:              provider,
 		Version:               SnapshotVersion,
-		Hash:                  snapshotHash(snapshotHashParts(displayName, base, dev, provider, boundary)...),
-		SectionSnapshot:       resolvedSectionSnapshot(sections),
-		Generation:            s.cache.Generation(),
+		Hash:                  snapshotHash(snapshotHashPartsWithSections(displayName, base, dev, provider, boundary, sectionSnapshot, generation)...),
+		SectionSnapshot:       sectionSnapshot,
+		Generation:            generation,
 	}
+}
+
+func snapshotHashPartsWithSections(
+	displayName, base, dev, provider string,
+	boundary *dto.PromptAssemblyBoundary,
+	sections map[string]string,
+	generation uint64,
+) []string {
+	parts := snapshotHashParts(displayName, base, dev, provider, boundary)
+	if generation != 0 {
+		parts = append(parts, fmt.Sprintf("generation:%d", generation))
+	}
+	if len(sections) == 0 {
+		return parts
+	}
+	names := make([]string, 0, len(sections))
+	for name := range sections {
+		names = append(names, strings.TrimSpace(name))
+	}
+	sort.Strings(names)
+	for _, name := range names {
+		parts = append(parts, "section:"+name, sections[name])
+	}
+	return parts
 }
 
 // logBuildFallback 在 prompt 组装降级时记录 warn 日志。

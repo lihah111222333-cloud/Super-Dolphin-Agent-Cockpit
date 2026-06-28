@@ -34,7 +34,7 @@ func TestOrchestrationTurnStarterStartsQueuedTurn(t *testing.T) {
 		},
 	}
 	starter := NewOrchestrationTurnStarter(
-		NewService(silentLogger()),
+		NewServiceWithPromptAssembly(silentLogger(), &stubPromptAssemblyService{}),
 		stubSessionProvider{session: session},
 		stubTurnRuntimeReader{cfg: map[string]any{"cwd": "/thread/worktree"}},
 	)
@@ -187,7 +187,7 @@ func TestOrchestrationTurnStarterFailsFastOnRuntimeConfigError(t *testing.T) {
 		},
 	}
 	starter := NewOrchestrationTurnStarter(
-		NewService(silentLogger()),
+		NewServiceWithPromptAssembly(silentLogger(), &stubPromptAssemblyService{}),
 		stubSessionProvider{session: session},
 		stubTurnRuntimeReader{err: runtimeErr},
 	)
@@ -211,7 +211,7 @@ func TestOrchestrationTurnStarterRejectsSessionOnlyCWD(t *testing.T) {
 		},
 	}
 	starter := NewOrchestrationTurnStarter(
-		NewService(silentLogger()),
+		NewServiceWithPromptAssembly(silentLogger(), &stubPromptAssemblyService{}),
 		stubSessionProvider{session: session},
 		stubTurnRuntimeReader{cfg: map[string]any{"provider": "codex-thread"}},
 	)
@@ -240,7 +240,7 @@ func TestOrchestrationTurnStarterReportsSessionNotReady(t *testing.T) {
 	t.Parallel()
 
 	starter := NewOrchestrationTurnStarter(
-		NewService(silentLogger()),
+		NewServiceWithPromptAssembly(silentLogger(), &stubPromptAssemblyService{}),
 		stubSessionProvider{err: contract.ErrSessionNotFound},
 		nil,
 	)
@@ -261,7 +261,7 @@ func TestOrchestrationTurnStarterPreservesNonSessionLookupErrors(t *testing.T) {
 
 	want := errors.New("transport down")
 	starter := NewOrchestrationTurnStarter(
-		NewService(silentLogger()),
+		NewServiceWithPromptAssembly(silentLogger(), &stubPromptAssemblyService{}),
 		stubSessionProvider{err: want},
 		nil,
 	)
@@ -279,7 +279,7 @@ func TestOrchestrationTurnStarterWaitForSessionReadyEventuallySucceeds(t *testin
 
 	calls := 0
 	starter := NewOrchestrationTurnStarter(
-		NewService(silentLogger()),
+		NewServiceWithPromptAssembly(silentLogger(), &stubPromptAssemblyService{}),
 		stubSessionProvider{get: func(string) (contract.Session, error) {
 			calls++
 			if calls < 3 {
@@ -307,7 +307,7 @@ func TestOrchestrationTurnStarterWaitForSessionReadyTimeout(t *testing.T) {
 	t.Parallel()
 
 	starter := NewOrchestrationTurnStarter(
-		NewService(silentLogger()),
+		NewServiceWithPromptAssembly(silentLogger(), &stubPromptAssemblyService{}),
 		stubSessionProvider{err: contract.ErrSessionNotFound},
 		nil,
 	)

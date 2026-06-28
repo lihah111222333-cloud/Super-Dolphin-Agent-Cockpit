@@ -420,6 +420,10 @@ func (s *service) RegisterDynamicProvider(provider DynamicSectionProvider) error
 	}
 
 	s.dynamicMu.Lock()
+	if existing := s.dynamic[name]; existing != nil {
+		s.dynamicMu.Unlock()
+		return fmt.Errorf("duplicate dynamic section provider for %q", name)
+	}
 	s.dynamic[name] = provider
 	s.dynamicMu.Unlock()
 	s.cache.InvalidateSections(name)
