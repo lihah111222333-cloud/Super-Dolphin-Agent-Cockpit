@@ -2,6 +2,7 @@ package sharedfile
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"io/fs"
 	"os"
@@ -107,4 +108,153 @@ func TestSharedFilePersistsContentLocation(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestSharedFileUpsertDoesNotOverwriteDiskOnDBFailure(t *testing.T) {
+	t.Parallel()
+
+	db := newFakeImportDB(t)
+	store := newStoreWithConfig(sqlc.New(db), sharedfilefs.Config{
+		CWD:                  t.TempDir(),
+		InlineThresholdBytes: 1,
+	})
+	const path = "reports/run-1/db-failure.md"
+	if _, err := store.Upsert(context.Background(), UpsertParams{
+		Path:      path,
+		Content:   "old",
+		UpdatedBy: "seed",
+	}); err != nil {
+		t.Fatalf("seed Upsert() error = %v", err)
+	}
+	abs := filepath.Join(store.cfg.SandboxRoot(), path)
+	if err := db.Close(); err != nil {
+		t.Fatalf("close db before failing Upsert: %v", err)
+	}
+
+	_, err := store.Upsert(context.Background(), UpsertParams{
+		Path:      path,
+		Content:   "new",
+		UpdatedBy: "agent",
+	})
+	if err == nil {
+		t.Fatal("Upsert() error = nil, want DB failure")
+	}
+	got, readErr := os.ReadFile(abs)
+	if readErr != nil {
+		t.Fatalf("read disk body after failed DB upsert: %v", readErr)
+	}
+	if string(got) != "old" {
+		t.Fatalf("disk body after failed DB upsert = %q, want old", string(got))
+	}
+}
+
+func TestSharedFileUpsertRollsBackDBOnPublishFailure(t *testing.T) {
+	db := newFakeImportDB(t)
+	cfg := sharedfilefs.Config{CWD: t.TempDir(), InlineThresholdBytes: 1}
+	seedStore := newStoreWithConfig(sqlc.New(db), cfg)
+	const path = "reports/run-1/publish-failure.md"
+	if _, err := seedStore.Upsert(context.Background(), UpsertParams{
+		Path:      path,
+		Content:   "old",
+		UpdatedBy: "seed",
+	}); err != nil {
+		t.Fatalf("seed Upsert() error = %v", err)
+	}
+	abs := filepath.Join(seedStore.cfg.SandboxRoot(), path)
+	dir := filepath.Dir(abs)
+	hooked := makeReadOnlyAfterAgentUpsert(t, db, path, dir)
+	store := newStoreWithConfig(sqlc.New(hooked), cfg)
+	t.Cleanup(func() { _ = os.Chmod(dir, 0o755) })
+
+	_, err := store.Upsert(context.Background(), UpsertParams{
+		Path:      path,
+		Content:   "new",
+		UpdatedBy: "agent",
+	})
+	if err == nil {
+		t.Fatal("Upsert() error = nil, want publish failure")
+	}
+	if restoreErr := os.Chmod(dir, 0o755); restoreErr != nil {
+		t.Fatalf("restore dir permissions: %v", restoreErr)
+	}
+	assertSharedFileMetadata(t, db, path, "", "seed")
+	got, readErr := os.ReadFile(abs)
+	if readErr != nil {
+		t.Fatalf("read disk body after failed publish: %v", readErr)
+	}
+	if string(got) != "old" {
+		t.Fatalf("disk body after failed publish = %q, want old", string(got))
+	}
+}
+
+func TestSharedFileDeleteDiskFailureKeepsDBIndex(t *testing.T) {
+	db := newFakeImportDB(t)
+	store := newStoreWithConfig(sqlc.New(db), sharedfilefs.Config{
+		CWD:                  t.TempDir(),
+		InlineThresholdBytes: 1,
+	})
+	const path = "reports/run-1/delete-failure.md"
+	if _, err := store.Upsert(context.Background(), UpsertParams{
+		Path:      path,
+		Content:   "body",
+		UpdatedBy: "seed",
+	}); err != nil {
+		t.Fatalf("seed Upsert() error = %v", err)
+	}
+	abs := filepath.Join(store.cfg.SandboxRoot(), path)
+	dir := filepath.Dir(abs)
+	if err := os.Chmod(dir, 0o500); err != nil {
+		t.Fatalf("chmod dir read-only: %v", err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(dir, 0o755) })
+
+	_, err := store.Delete(context.Background(), path)
+	if err == nil {
+		t.Fatal("Delete() error = nil, want disk failure")
+	}
+	if restoreErr := os.Chmod(dir, 0o755); restoreErr != nil {
+		t.Fatalf("restore dir permissions: %v", restoreErr)
+	}
+	assertSharedFileMetadata(t, db, path, "", "seed")
+	got, readErr := os.ReadFile(abs)
+	if readErr != nil {
+		t.Fatalf("read disk body after failed delete: %v", readErr)
+	}
+	if string(got) != "body" {
+		t.Fatalf("disk body after failed delete = %q, want body", string(got))
+	}
+}
+
+func makeReadOnlyAfterAgentUpsert(t *testing.T, db *fakeImportDB, path, dir string) *queryRowHookDB {
+	t.Helper()
+	return &queryRowHookDB{
+		DB: db.DB,
+		afterQueryRow: func(query string, args ...any) {
+			if isAgentUpsertQuery(query, args, path) {
+				if err := os.Chmod(dir, 0o500); err != nil {
+					t.Fatalf("chmod dir read-only: %v", err)
+				}
+			}
+		},
+	}
+}
+
+func isAgentUpsertQuery(query string, args []any, path string) bool {
+	return strings.Contains(query, "INSERT INTO shared_files") &&
+		len(args) >= 4 &&
+		args[0] == path &&
+		args[3] == "agent"
+}
+
+type queryRowHookDB struct {
+	*sql.DB
+	afterQueryRow func(query string, args ...any)
+}
+
+func (db *queryRowHookDB) QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row {
+	row := db.DB.QueryRowContext(ctx, query, args...)
+	if db.afterQueryRow != nil {
+		db.afterQueryRow(query, args...)
+	}
+	return row
 }

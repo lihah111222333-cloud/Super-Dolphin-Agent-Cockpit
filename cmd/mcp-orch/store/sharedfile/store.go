@@ -2,6 +2,7 @@ package sharedfile
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -23,8 +24,9 @@ const (
 )
 
 type store struct {
-	q   *sqlc.Queries
-	cfg sharedfilefs.Config
+	q         *sqlc.Queries
+	cfg       sharedfilefs.Config
+	pathLocks sharedfilefs.PathLocks
 }
 
 // NewStore 创建 DB-only sharedfile 存储，供未注入磁盘配置的旧路径使用。
@@ -40,31 +42,70 @@ func newStoreWithConfig(q *sqlc.Queries, cfg sharedfilefs.Config) *store {
 	return &store{q: q, cfg: cfg}
 }
 
-// Upsert 写入 sharedfile；磁盘启用时正文先落磁盘，DB 只保留索引和可内联的小正文。
+// Upsert 写入 sharedfile；磁盘启用时先 staging，DB 成功后才发布正文。
 func (s *store) Upsert(ctx context.Context, params UpsertParams) (*SharedFile, error) {
 	cleaned, err := sharedfilepath.ValidateWritePath(params.Path)
 	if err != nil {
 		return nil, wrapSharedFileError(err, "upsert")
 	}
-	dbContent, contentLocation, writeErr := writeDiskAndDecideInline(s.cfg, cleaned, params.Content)
-	if writeErr != nil {
-		return nil, wrapSharedFileError(writeErr, "upsert")
+	if !s.cfg.Enabled() {
+		return s.upsertInline(ctx, cleaned, params)
 	}
+	return s.upsertDiskBacked(ctx, cleaned, params)
+}
+
+func (s *store) upsertInline(ctx context.Context, cleaned string, params UpsertParams) (*SharedFile, error) {
 	row, err := s.q.UpsertSharedFile(ctx, sqlc.UpsertSharedFileParams{
 		Path:            cleaned,
-		Content:         dbContent,
-		ContentLocation: contentLocation,
+		Content:         params.Content,
+		ContentLocation: contentLocationInline,
 		UpdatedBy:       params.UpdatedBy,
 	})
 	if err != nil {
 		return nil, wrapSharedFileError(err, "upsert")
 	}
-	mapped := mapSharedFile(row)
-	// Upsert 的返回值需要携带调用方刚写入的正文；大文件只落磁盘时，用内存副本补回响应内容。
-	if mapped.Content == "" && len(params.Content) > 0 {
-		mapped.Content = params.Content
+	return mapUpsertResult(row, params.Content), nil
+}
+
+// upsertDiskBacked 串行化同一路径的 staging、DB upsert、publish 和回滚。
+// DB upsert 失败只删除本次 temp，不覆盖旧正式正文；publish 失败会恢复 DB 快照。
+func (s *store) upsertDiskBacked(ctx context.Context, cleaned string, params UpsertParams) (*SharedFile, error) {
+	abs, resolveErr := s.cfg.ResolveWriteAbs(cleaned)
+	if resolveErr != nil {
+		return nil, wrapSharedFileError(resolveErr, "upsert")
 	}
-	return &mapped, nil
+	_ = sharedfilegitignore.Ensure(s.cfg.CWD, nil)
+	var mapped *SharedFile
+	err := s.pathLocks.WithPathLock(abs, func() error {
+		previous, hadPrevious, previousErr := s.currentSharedFileIndex(ctx, cleaned)
+		if previousErr != nil {
+			return previousErr
+		}
+		staged, stageErr := sharedfilefs.StageWrite(abs, []byte(params.Content))
+		if stageErr != nil {
+			return stageErr
+		}
+		row, upsertErr := s.q.UpsertSharedFile(ctx, sqlc.UpsertSharedFileParams{
+			Path:            cleaned,
+			Content:         dbContentFor(params.Content, s.cfg),
+			ContentLocation: contentLocationFor(params.Content, s.cfg),
+			UpdatedBy:       params.UpdatedBy,
+		})
+		if upsertErr != nil {
+			return cleanupStagedWriteAfterError(staged, upsertErr)
+		}
+		if publishErr := staged.Publish(); publishErr != nil {
+			rollbackErr := s.rollbackSharedFileIndex(ctx, cleaned, previous, hadPrevious)
+			cleanupErr := staged.Cleanup()
+			return combineStagedWriteError(publishErr, rollbackErr, cleanupErr)
+		}
+		mapped = mapUpsertResult(row, params.Content)
+		return nil
+	})
+	if err != nil {
+		return nil, wrapSharedFileError(err, "upsert")
+	}
+	return mapped, nil
 }
 
 // Get 读取 sharedfile；inline 记录以 DB content 为准，disk 记录必须读到磁盘正文。
@@ -138,47 +179,108 @@ func (s *store) List(ctx context.Context, filter ListFilter) ([]SharedFile, erro
 	return result, nil
 }
 
-// Delete 删除 sharedfile DB 索引，并在磁盘模式下同步删除正文文件。
+// Delete 删除 sharedfile；磁盘模式先 stage 正文，DB 删除成功后才最终删除 tombstone。
 func (s *store) Delete(ctx context.Context, path string) (int64, error) {
 	cleaned, err := sharedfilepath.ValidateReadPath(path)
 	if err != nil {
 		return 0, wrapSharedFileError(err, "delete")
 	}
-	count, err := s.q.DeleteSharedFile(ctx, sqlc.DeleteSharedFileParams{Path: cleaned})
+	if !s.cfg.Enabled() {
+		return s.deleteInline(ctx, cleaned)
+	}
+	return s.deleteDiskBacked(ctx, cleaned)
+}
+
+func (s *store) deleteInline(ctx context.Context, cleaned string) (int64, error) {
+	count, err := s.deleteSharedFileIndex(ctx, cleaned)
 	if err != nil {
 		return 0, wrapSharedFileError(err, "delete")
-	}
-	if s.cfg.Enabled() {
-		abs, resolveErr := s.cfg.ResolveDeleteAbs(cleaned)
-		if resolveErr != nil {
-			return count, wrapSharedFileError(resolveErr, "delete")
-		}
-		if removeErr := sharedfilefs.RemoveDisk(abs); removeErr != nil {
-			return count, wrapSharedFileError(removeErr, "delete")
-		}
 	}
 	return count, nil
 }
 
-// writeDiskAndDecideInline 在磁盘模式下先写正文，再决定 DB content 和 content_location。
-// 超过阈值时 DB content 留空且标记 disk；未启用磁盘配置时保持 inline 行为。
-func writeDiskAndDecideInline(cfg sharedfilefs.Config, cleanedRel, content string) (string, string, error) {
-	if !cfg.Enabled() {
-		return content, contentLocationInline, nil
-	}
-	abs, resolveErr := cfg.ResolveWriteAbs(cleanedRel)
+// deleteDiskBacked 保证磁盘删除失败时 DB 索引仍保留，DB 删除失败时正文回到原路径。
+func (s *store) deleteDiskBacked(ctx context.Context, cleaned string) (int64, error) {
+	abs, resolveErr := s.cfg.ResolveDeleteAbs(cleaned)
 	if resolveErr != nil {
-		return "", "", resolveErr
+		return 0, wrapSharedFileError(resolveErr, "delete")
 	}
-	// .gitignore 维护不参与正文正确性：失败不阻断写入，helper 内部用 Sync.Once 降低重复成本。
-	_ = sharedfilegitignore.Ensure(cfg.CWD, nil)
-	if writeErr := sharedfilefs.WriteAtomic(abs, []byte(content)); writeErr != nil {
-		return "", "", writeErr
+	var count int64
+	err := s.pathLocks.WithPathLock(abs, func() error {
+		previous, hadPrevious, previousErr := s.currentSharedFileIndex(ctx, cleaned)
+		if previousErr != nil {
+			return previousErr
+		}
+		staged, stageErr := sharedfilefs.StageDelete(abs)
+		if stageErr != nil {
+			return stageErr
+		}
+		deleted, deleteErr := s.deleteSharedFileIndex(ctx, cleaned)
+		count = deleted
+		if deleteErr != nil {
+			return rollbackStagedDeleteAfterError(staged, deleteErr)
+		}
+		if commitErr := staged.Commit(); commitErr != nil {
+			restoreErr := staged.Rollback()
+			var rollbackErr error
+			if hadPrevious {
+				rollbackErr = s.rollbackSharedFileIndex(ctx, cleaned, previous, true)
+			}
+			return combineStagedDeleteError(commitErr, restoreErr, rollbackErr)
+		}
+		return nil
+	})
+	if err != nil {
+		return count, wrapSharedFileError(err, "delete")
 	}
+	return count, nil
+}
+
+func (s *store) currentSharedFileIndex(ctx context.Context, cleaned string) (sqlc.SharedFile, bool, error) {
+	row, err := s.q.GetSharedFile(ctx, sqlc.GetSharedFileParams{Path: cleaned})
+	if err == nil {
+		return row, true, nil
+	}
+	if errors.Is(err, platformdb.ErrNotFound) || errors.Is(err, sql.ErrNoRows) {
+		return sqlc.SharedFile{}, false, nil
+	}
+	return sqlc.SharedFile{}, false, err
+}
+
+func (s *store) rollbackSharedFileIndex(ctx context.Context, cleaned string, previous sqlc.SharedFile, hadPrevious bool) error {
+	if !hadPrevious {
+		_, err := s.deleteSharedFileIndex(ctx, cleaned)
+		return err
+	}
+	path := previous.Path
+	if path == "" {
+		path = cleaned
+	}
+	_, err := s.q.UpsertSharedFile(ctx, sqlc.UpsertSharedFileParams{
+		Path:            path,
+		Content:         previous.Content,
+		ContentLocation: previous.ContentLocation,
+		UpdatedBy:       previous.UpdatedBy,
+	})
+	return err
+}
+
+func (s *store) deleteSharedFileIndex(ctx context.Context, cleaned string) (int64, error) {
+	return s.q.DeleteSharedFile(ctx, sqlc.DeleteSharedFileParams{Path: cleaned})
+}
+
+func dbContentFor(content string, cfg sharedfilefs.Config) string {
 	if len(content) > cfg.ResolvedThreshold() {
-		return "", contentLocationDisk, nil
+		return ""
 	}
-	return content, contentLocationInline, nil
+	return content
+}
+
+func contentLocationFor(content string, cfg sharedfilefs.Config) string {
+	if len(content) > cfg.ResolvedThreshold() {
+		return contentLocationDisk
+	}
+	return contentLocationInline
 }
 
 // mapSharedFile 将 sqlc 行映射为 sharedfile DTO。
@@ -190,6 +292,50 @@ func mapSharedFile(row sqlc.SharedFile) SharedFile {
 		CreatedAt: sqlc.TimeValue(row.CreatedAt),
 		UpdatedAt: sqlc.TimeValue(row.UpdatedAt),
 	}
+}
+
+func mapUpsertResult(row sqlc.SharedFile, content string) *SharedFile {
+	mapped := mapSharedFile(row)
+	if mapped.Content == "" && len(content) > 0 {
+		mapped.Content = content
+	}
+	return &mapped
+}
+
+func cleanupStagedWriteAfterError(staged *sharedfilefs.StagedWrite, cause error) error {
+	if cleanupErr := staged.Cleanup(); cleanupErr != nil {
+		return fmt.Errorf("%w; cleanup staged write failed: %v", cause, cleanupErr)
+	}
+	return cause
+}
+
+func rollbackStagedDeleteAfterError(staged *sharedfilefs.StagedDelete, cause error) error {
+	if rollbackErr := staged.Rollback(); rollbackErr != nil {
+		return fmt.Errorf("%w; rollback staged delete failed: %v", cause, rollbackErr)
+	}
+	return cause
+}
+
+func combineStagedWriteError(publishErr, rollbackErr, cleanupErr error) error {
+	err := publishErr
+	if rollbackErr != nil {
+		err = fmt.Errorf("%w; rollback shared file index failed: %v", err, rollbackErr)
+	}
+	if cleanupErr != nil {
+		err = fmt.Errorf("%w; cleanup staged write failed: %v", err, cleanupErr)
+	}
+	return err
+}
+
+func combineStagedDeleteError(commitErr, restoreErr, rollbackErr error) error {
+	err := commitErr
+	if restoreErr != nil {
+		err = fmt.Errorf("%w; rollback staged delete failed: %v", err, restoreErr)
+	}
+	if rollbackErr != nil {
+		err = fmt.Errorf("%w; rollback shared file index failed: %v", err, rollbackErr)
+	}
+	return err
 }
 
 // wrapSharedFileError 统一 sharedfile store 错误域。

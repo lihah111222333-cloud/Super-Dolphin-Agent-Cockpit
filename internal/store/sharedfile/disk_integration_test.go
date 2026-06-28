@@ -6,12 +6,14 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
 	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
 	sharedfilefs "github.com/anthropic-ai/super-agent-v3/internal/platform/sharedfilefs"
 	"github.com/anthropic-ai/super-agent-v3/internal/store/sqlc"
+	"golang.org/x/sync/errgroup"
 )
 
 // 本文件验证 sharedfile 的磁盘正文与 DB 索引分离边界。
@@ -160,6 +162,66 @@ func TestSharedFileUpsertRollsBackDBOnPublishFailure(t *testing.T) {
 	}
 	restoreWritableDir(t, dir)
 	assertSharedFilePreservedAfterPublishFailure(t, rows, path, abs, oldBody)
+}
+
+func TestSharedFileUpsertConcurrentSamePathDoesNotDeletePeerStaging(t *testing.T) {
+	s, rows, cfg := newDiskBackedStore(t)
+
+	path := "handoff/task-1/concurrent.txt"
+	firstContent := strings.Repeat("1", 2048)
+	secondContent := strings.Repeat("2", 2048)
+	firstInDB := make(chan struct{})
+	releaseFirst := make(chan struct{})
+	rows.onUpsert = func(arg sqlc.UpsertSharedFileParams) {
+		if arg.Path != path || arg.UpdatedBy != "writer-1" {
+			return
+		}
+		close(firstInDB)
+		<-releaseFirst
+	}
+
+	var group errgroup.Group
+	group.Go(func() error {
+		_, err := s.Upsert(context.Background(), UpsertParams{Path: path, Content: firstContent, UpdatedBy: "writer-1"})
+		return err
+	})
+	<-firstInDB
+
+	group.Go(func() error {
+		_, err := s.Upsert(context.Background(), UpsertParams{Path: path, Content: secondContent, UpdatedBy: "writer-2"})
+		return err
+	})
+	// Give the second writer a chance to reach the old cleanupStagedTemps path.
+	// With per-path locking it will wait here until writer-1 is released.
+	waitForWriter(t, rows, path, "writer-2", 100*time.Millisecond)
+	close(releaseFirst)
+
+	if err := group.Wait(); err != nil {
+		t.Fatalf("concurrent Upsert error = %v", err)
+	}
+	row := rows.row(path)
+	if row.UpdatedBy != "writer-2" {
+		t.Fatalf("final DB updated_by = %q, want writer-2; row=%+v", row.UpdatedBy, row)
+	}
+	abs := filepath.Join(cfg.CWD, sharedfilefs.SandboxDir, path)
+	disk, err := os.ReadFile(abs)
+	if err != nil {
+		t.Fatalf("read final disk content: %v", err)
+	}
+	if string(disk) != secondContent {
+		t.Fatalf("final disk content len=%d prefix=%q, want writer-2 content", len(disk), string(disk[:1]))
+	}
+}
+
+func waitForWriter(t *testing.T, rows *fakeRowStore, path, updatedBy string, timeout time.Duration) {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		if rows.row(path).UpdatedBy == updatedBy {
+			return
+		}
+		time.Sleep(time.Millisecond)
+	}
 }
 
 func makeDirReadOnlyDuringAgentUpsert(t *testing.T, rows *fakeRowStore, path, dir, abs string) {
@@ -314,6 +376,41 @@ func TestDelete_RemovesBothLayers(t *testing.T) {
 	}
 }
 
+func TestDeleteDiskFailureKeepsDBIndex(t *testing.T) {
+	s, rows, cfg := newDiskBackedStore(t)
+
+	path := "handoff/task-1/delete.md"
+	if _, err := s.Upsert(context.Background(), UpsertParams{
+		Path: path, Content: "body", UpdatedBy: "agent",
+	}); err != nil {
+		t.Fatalf("seed Upsert err = %v", err)
+	}
+	abs := filepath.Join(cfg.CWD, sharedfilefs.SandboxDir, path)
+	dir := filepath.Dir(abs)
+	if err := os.Chmod(dir, 0o500); err != nil {
+		t.Fatalf("chmod dir read-only: %v", err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(dir, 0o755) })
+
+	_, err := s.Delete(context.Background(), path)
+	if err == nil {
+		t.Fatal("Delete err = nil, want disk failure")
+	}
+	if restoreErr := os.Chmod(dir, 0o755); restoreErr != nil {
+		t.Fatalf("restore dir permissions: %v", restoreErr)
+	}
+	if _, ok := rows.rowOK(path); !ok {
+		t.Fatal("DB row missing after failed disk delete")
+	}
+	disk, readErr := os.ReadFile(abs)
+	if readErr != nil {
+		t.Fatalf("disk body missing after failed delete: %v", readErr)
+	}
+	if string(disk) != "body" {
+		t.Fatalf("disk body after failed delete = %q, want body", string(disk))
+	}
+}
+
 func TestList_DoesNotScanDisk(t *testing.T) {
 	t.Parallel()
 	s, rows, cfg := newDiskBackedStore(t)
@@ -342,6 +439,7 @@ func TestList_DoesNotScanDisk(t *testing.T) {
 // --- in-memory DB stub ---------------------------------------------------
 
 type fakeRowStore struct {
+	mu        sync.Mutex
 	byPath    map[string]sqlc.SharedFile
 	upsertErr error
 	onUpsert  func(sqlc.UpsertSharedFileParams)
@@ -355,12 +453,27 @@ func (f *fakeRowStore) querier() *fakeRowQuerier {
 	return &fakeRowQuerier{rows: f}
 }
 
+func (f *fakeRowStore) row(path string) sqlc.SharedFile {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.byPath[path]
+}
+
+func (f *fakeRowStore) rowOK(path string) (sqlc.SharedFile, bool) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	row, ok := f.byPath[path]
+	return row, ok
+}
+
 type fakeRowQuerier struct {
 	rows *fakeRowStore
 }
 
 func (f *fakeRowQuerier) GetSharedFile(_ context.Context, arg sqlc.GetSharedFileParams) (sqlc.SharedFile, error) {
 	path := arg.Path
+	f.rows.mu.Lock()
+	defer f.rows.mu.Unlock()
 	row, ok := f.rows.byPath[path]
 	if !ok {
 		return sqlc.SharedFile{}, platformdb.ErrNotFound
@@ -369,6 +482,8 @@ func (f *fakeRowQuerier) GetSharedFile(_ context.Context, arg sqlc.GetSharedFile
 }
 
 func (f *fakeRowQuerier) ListSharedFiles(_ context.Context, _ sqlc.ListSharedFilesParams) ([]sqlc.SharedFile, error) {
+	f.rows.mu.Lock()
+	defer f.rows.mu.Unlock()
 	out := make([]sqlc.SharedFile, 0, len(f.rows.byPath))
 	for _, r := range f.rows.byPath {
 		out = append(out, r)
@@ -378,6 +493,8 @@ func (f *fakeRowQuerier) ListSharedFiles(_ context.Context, _ sqlc.ListSharedFil
 
 func (f *fakeRowQuerier) DeleteSharedFile(_ context.Context, arg sqlc.DeleteSharedFileParams) (int64, error) {
 	path := arg.Path
+	f.rows.mu.Lock()
+	defer f.rows.mu.Unlock()
 	if _, ok := f.rows.byPath[path]; !ok {
 		return 0, nil
 	}
@@ -386,7 +503,9 @@ func (f *fakeRowQuerier) DeleteSharedFile(_ context.Context, arg sqlc.DeleteShar
 }
 
 func (f *fakeRowQuerier) UpsertSharedFile(_ context.Context, arg sqlc.UpsertSharedFileParams) (sqlc.SharedFile, error) {
+	f.rows.mu.Lock()
 	if f.rows.upsertErr != nil {
+		f.rows.mu.Unlock()
 		return sqlc.SharedFile{}, f.rows.upsertErr
 	}
 	row := sqlc.SharedFile{
@@ -398,8 +517,10 @@ func (f *fakeRowQuerier) UpsertSharedFile(_ context.Context, arg sqlc.UpsertShar
 		UpdatedAt:       time.Now().UnixMilli(),
 	}
 	f.rows.byPath[arg.Path] = row
-	if f.rows.onUpsert != nil {
-		f.rows.onUpsert(arg)
+	onUpsert := f.rows.onUpsert
+	f.rows.mu.Unlock()
+	if onUpsert != nil {
+		onUpsert(arg)
 	}
 	return row, nil
 }
