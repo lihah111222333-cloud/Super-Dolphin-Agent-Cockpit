@@ -63,10 +63,19 @@ func TestShellCommandRunnerRejectsDisallowedEnv(t *testing.T) {
 }
 
 func TestRedactSensitiveText(t *testing.T) {
-	redacted := redactSensitiveText("token=super-secret api_key=sk-test password=hunter2")
-	for _, secret := range []string{"super-secret", "sk-test", "hunter2"} {
+	redacted := redactSensitiveText(strings.Join([]string{
+		"token=super-secret api_key=sk-test password=hunter2",
+		"Authorization: Bearer auth-secret",
+		"Cookie: a=b; session=cookie-secret; theme=dark",
+	}, "\n"))
+	for _, secret := range []string{"super-secret", "sk-test", "hunter2", "Bearer", "auth-secret", "a=b", "session=", "cookie-secret", "theme=dark"} {
 		if strings.Contains(redacted, secret) {
 			t.Fatalf("redacted output still contains %q: %s", secret, redacted)
+		}
+	}
+	for _, want := range []string{"token=[REDACTED]", "api_key=[REDACTED]", "password=[REDACTED]", "Authorization: [REDACTED]", "Cookie: [REDACTED]"} {
+		if !strings.Contains(redacted, want) {
+			t.Fatalf("redacted output = %q, want %q", redacted, want)
 		}
 	}
 }
