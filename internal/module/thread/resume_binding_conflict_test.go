@@ -36,13 +36,14 @@ func TestResumeBindingConflictSuppressesThreadStartedEvent(t *testing.T) {
 	// to agent B. This triggers ensureProviderThreadAvailable → error.
 
 	threads := &stubThreadStore{thread: &threadstore.Thread{
-		ThreadID:  "thread-A",
-		AgentID:   "agent-A",
-		Prompt:    "DAG改造执行",
-		Model:     "gpt-5.5",
-		Cwd:       "/repo",
-		CreatedAt: 123,
-		Status:    statusCreated,
+		ThreadID:       "thread-A",
+		AgentID:        "agent-A",
+		Prompt:         "DAG改造执行",
+		Model:          "gpt-5.5",
+		Cwd:            "/repo",
+		CreatedAt:      123,
+		Status:         statusCreated,
+		ConfigOverride: legacyPromptSnapshotMigrationConfig(t),
 	}}
 
 	// The conflicting binding store: agent-A's binding claims
@@ -117,13 +118,14 @@ func TestResumeNonConflictPersistFailureFailsFast(t *testing.T) {
 	rolloutPath := writeExistingProviderHistoryFile(t)
 	threads := &stubThreadStore{
 		thread: &threadstore.Thread{
-			ThreadID:  "thread-1",
-			AgentID:   "agent-1",
-			Prompt:    "test",
-			Model:     "gpt-5.5",
-			Cwd:       "/repo",
-			CreatedAt: 123,
-			Status:    statusCreated,
+			ThreadID:       "thread-1",
+			AgentID:        "agent-1",
+			Prompt:         "test",
+			Model:          "gpt-5.5",
+			Cwd:            "/repo",
+			CreatedAt:      123,
+			Status:         statusCreated,
+			ConfigOverride: legacyPromptSnapshotMigrationConfig(t),
 		},
 		upsertErr: errTransientDB, // simulate transient DB failure
 	}
@@ -170,13 +172,14 @@ func TestResumeEvictsStaleBindingWhenBlockingAgentIsDead(t *testing.T) {
 	const conflictUUID = "11111111-2222-3333-4444-555555555573"
 	rolloutPath := writeExistingProviderHistoryFile(t)
 	threads := &stubThreadStore{thread: &threadstore.Thread{
-		ThreadID:  "thread-A",
-		AgentID:   "agent-A",
-		Prompt:    "eviction-test",
-		Model:     "gpt-5.5",
-		Cwd:       "/repo",
-		CreatedAt: 123,
-		Status:    statusCreated,
+		ThreadID:       "thread-A",
+		AgentID:        "agent-A",
+		Prompt:         "eviction-test",
+		Model:          "gpt-5.5",
+		Cwd:            "/repo",
+		CreatedAt:      123,
+		Status:         statusCreated,
+		ConfigOverride: legacyPromptSnapshotMigrationConfig(t),
 	}}
 
 	bindings := &conflictBindingStore{

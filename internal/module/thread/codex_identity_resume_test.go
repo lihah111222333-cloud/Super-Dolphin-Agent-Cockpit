@@ -401,6 +401,10 @@ func resumeCodexIdentityStores(
 	binding bindingstore.Binding,
 ) (*stubThreadStore, *stubBindingStore) {
 	t.Helper()
+	if runtimeConfig == nil {
+		runtimeConfig = map[string]any{}
+	}
+	runtimeConfig["legacyPromptSnapshotMigration"] = true
 	providerThreadID := "019d5f6b-fb3c-7760-9d6f-54005553f70f"
 	cwd := t.TempDir()
 	threads := &stubThreadStore{thread: &threadstore.Thread{

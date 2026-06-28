@@ -13,39 +13,58 @@ func TestRegisterDynamicProviderMakesSlotRenderable(t *testing.T) {
 		t.Fatalf("len(Sections()) = %d, want %d", len(svc.Sections()), want)
 	}
 	provider := DynamicTextProvider{
-		Name: DynamicSectionLanguage,
+		Name: DynamicSectionProjectDefaultRules,
 		ResolveFunc: func(context.Context, SectionContext) (*string, error) {
 			text := "Always respond in Chinese."
 			return &text, nil
 		},
 	}
-	if err := svc.RegisterDynamicProvider(provider); err != nil {
-		t.Fatalf("RegisterDynamicProvider() error = %v", err)
-	}
+	registerDynamicProviderForTest(t, svc, provider)
 
 	assembly, err := svc.AssembleTurn(context.Background(), TurnInput{Language: "Chinese"})
 	if err != nil {
 		t.Fatalf("AssembleTurn() error = %v", err)
 	}
-	language, ok := resolvedSectionContent(assembly.ResolvedSections, DynamicSectionLanguage)
+	language, ok := resolvedSectionContent(assembly.ResolvedSections, DynamicSectionProjectDefaultRules)
 	if !ok || !strings.Contains(language, "Always respond in Chinese.") {
 		t.Fatalf("ResolvedSections = %#v, want registered dynamic text", assembly.ResolvedSections)
+	}
+}
+
+func TestDynamicSectionDuplicateProviderFails(t *testing.T) {
+	svc := NewService(&Config{}, nil)
+	first := DynamicTextProvider{
+		Name: DynamicSectionProjectDefaultRules,
+		ResolveFunc: func(context.Context, SectionContext) (*string, error) {
+			text := "Always respond in Chinese."
+			return &text, nil
+		},
+	}
+	registerDynamicProviderForTest(t, svc, first)
+	second := DynamicTextProvider{
+		Name: DynamicSectionProjectDefaultRules,
+		ResolveFunc: func(context.Context, SectionContext) (*string, error) {
+			text := "Always respond in Japanese."
+			return &text, nil
+		},
+	}
+	err := svc.RegisterDynamicProvider(second)
+	if err == nil || !strings.Contains(err.Error(), DynamicSectionProjectDefaultRules) {
+		t.Fatalf("RegisterDynamicProvider(second) error = %v, want duplicate %q error", err, DynamicSectionProjectDefaultRules)
 	}
 }
 
 func TestUnregisterDynamicProviderRemovesRenderedContent(t *testing.T) {
 	svc := NewService(&Config{}, nil)
 	provider := DynamicTextProvider{
-		Name: DynamicSectionSessionGuidance,
+		Name: DynamicSectionProjectDefaultRules,
 		ResolveFunc: func(context.Context, SectionContext) (*string, error) {
 			text := "Use the current skill card."
 			return &text, nil
 		},
 	}
-	if err := svc.RegisterDynamicProvider(provider); err != nil {
-		t.Fatalf("RegisterDynamicProvider() error = %v", err)
-	}
-	if !svc.UnregisterDynamicProvider(DynamicSectionSessionGuidance) {
+	registerDynamicProviderForTest(t, svc, provider)
+	if !svc.UnregisterDynamicProvider(DynamicSectionProjectDefaultRules) {
 		t.Fatal("UnregisterDynamicProvider() = false, want true")
 	}
 
@@ -55,6 +74,14 @@ func TestUnregisterDynamicProviderRemovesRenderedContent(t *testing.T) {
 	}
 	if strings.Contains(assembly.UserContextText, "Use the current skill card.") {
 		t.Fatalf("UserContextText = %q, want provider content removed", assembly.UserContextText)
+	}
+}
+
+func registerDynamicProviderForTest(t *testing.T, registry PromptRegistry, provider DynamicSectionProvider) {
+	t.Helper()
+	registry.UnregisterDynamicProvider(provider.SectionName())
+	if err := registry.RegisterDynamicProvider(provider); err != nil {
+		t.Fatalf("RegisterDynamicProvider(%q) error = %v", provider.SectionName(), err)
 	}
 }
 

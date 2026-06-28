@@ -10,6 +10,7 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
 	threaddto "github.com/anthropic-ai/super-agent-v3/internal/dto/thread"
+	bindingstore "github.com/anthropic-ai/super-agent-v3/internal/store/binding"
 	threadstore "github.com/anthropic-ai/super-agent-v3/internal/store/thread"
 )
 
@@ -162,4 +163,286 @@ func (s *snapshotRequiresThreadRowStore) SavePromptSnapshot(ctx context.Context,
 		return fmt.Errorf("new thread row %q does not exist before snapshot save", threadID)
 	}
 	return s.stubThreadStore.SavePromptSnapshot(ctx, threadID, snapshot)
+}
+
+func TestPostSnapshotResumeRejectsMissingPromptSnapshot(t *testing.T) {
+	t.Parallel()
+
+	threads := &stubThreadStore{thread: &threadstore.Thread{
+		ThreadID:  "thread-resume",
+		AgentID:   "agent-resume",
+		Prompt:    "resume name",
+		Model:     "gpt-5.5",
+		Cwd:       "/repo",
+		CreatedAt: 123,
+		Status:    statusCreated,
+	}}
+	const providerThreadID = "11111111-2222-3333-4444-555555555581"
+	bindings := &stubBindingStore{binding: &bindingstore.Binding{
+		AgentID:          "agent-resume",
+		Provider:         "codex",
+		ProviderThreadID: providerThreadID,
+		CodexThreadID:    "thread-resume",
+		RolloutPath:      writeExistingProviderHistoryFile(t),
+		Cwd:              "/repo",
+	}}
+	sessions := &stubSessionProvider{}
+	resumeCalled := false
+	starter := &stubSessionStarter{onResume: func(context.Context, dto.ResumeSessionRequest) (contract.Session, error) {
+		resumeCalled = true
+		sessions.session = &stubSession{threadID: providerThreadID}
+		return sessions.session, nil
+	}}
+	orch := &forkOrchestrationStub{}
+	svc := NewServiceWithPromptAssembly(
+		silentLogger(),
+		threads,
+		bindings,
+		sessions,
+		starter,
+		nil,
+		orch,
+		nil,
+		&resumeMetadataPromptAssembly{},
+		nil,
+		nil,
+	).(*service)
+
+	_, err := svc.Resume(context.Background(), ResumeRequest{ThreadID: "thread-resume"})
+	if err == nil || !strings.Contains(err.Error(), "prompt snapshot") {
+		t.Fatalf("Resume() error = %v, want missing prompt snapshot error", err)
+	}
+	if resumeCalled {
+		t.Fatal("ResumeSession was called despite missing stored prompt snapshot")
+	}
+	if orch.launch.AgentID != "" {
+		t.Fatalf("orchestration launch = %#v, want none before snapshot preflight passes", orch.launch)
+	}
+}
+
+func TestPostSnapshotForkRejectsInvalidPromptSnapshot(t *testing.T) {
+	t.Parallel()
+
+	originalSession := &stubSession{
+		threadID:   "thread-parent",
+		forkResult: dto.ForkResult{NewThreadID: "thread-fork"},
+	}
+	sessions := &stubSessionProvider{session: originalSession}
+	bindings := forkParentBindingStore()
+	snapshot := validThreadPromptSnapshotForTest("Forked Thread")
+	snapshot.SectionSnapshot["identity"] = "tampered after hash"
+	threads := forkParentThreadStore()
+	threads.promptSnapshot = &snapshot
+	starter := &stubSessionStarter{onResume: func(context.Context, dto.ResumeSessionRequest) (contract.Session, error) {
+		t.Fatal("ResumeSession should not be called with an invalid stored prompt snapshot")
+		return nil, nil
+	}}
+	orch := &forkOrchestrationStub{}
+	svc := NewService(silentLogger(), threads, bindings, sessions, starter, nil, orch, nil).(*service)
+
+	_, err := svc.Fork(context.Background(), "thread-parent")
+	if err == nil || !strings.Contains(err.Error(), "prompt snapshot") {
+		t.Fatalf("Fork() error = %v, want invalid prompt snapshot error", err)
+	}
+	if originalSession.forkRequest.ThreadID != "" {
+		t.Fatalf("ForkThread request = %#v, want no provider fork before snapshot preflight", originalSession.forkRequest)
+	}
+	if orch.launch.AgentID != "" {
+		t.Fatalf("orchestration launch = %#v, want none before snapshot preflight passes", orch.launch)
+	}
+}
+
+func TestLegacyThreadUsesExplicitSnapshotMigrationGate(t *testing.T) {
+	t.Parallel()
+
+	run := func(t *testing.T, config []byte, wantErr bool) {
+		t.Helper()
+		threads := &stubThreadStore{thread: &threadstore.Thread{
+			ThreadID:         "thread-legacy",
+			AgentID:          "agent-legacy",
+			ParentAgentID:    "agent-root",
+			AgentType:        "worker",
+			AgentMemoryScope: "local",
+			Prompt:           "legacy name",
+			Model:            "gpt-5.5",
+			Cwd:              "/repo",
+			ConfigOverride:   config,
+			CreatedAt:        123,
+			Status:           statusCreated,
+		}}
+		const providerThreadID = "11111111-2222-3333-4444-555555555582"
+		bindings := &stubBindingStore{binding: &bindingstore.Binding{
+			AgentID:          "agent-legacy",
+			ParentAgentID:    "agent-root",
+			AgentType:        "worker",
+			AgentMemoryScope: "local",
+			Provider:         "codex",
+			ProviderThreadID: providerThreadID,
+			CodexThreadID:    "thread-legacy",
+			RolloutPath:      writeExistingProviderHistoryFile(t),
+			Cwd:              "/repo",
+		}}
+		sessions := &stubSessionProvider{}
+		resumeCalled := false
+		starter := &stubSessionStarter{onResume: func(context.Context, dto.ResumeSessionRequest) (contract.Session, error) {
+			resumeCalled = true
+			sessions.session = &stubSession{threadID: providerThreadID}
+			return sessions.session, nil
+		}}
+		svc := NewServiceWithPromptAssembly(
+			silentLogger(),
+			threads,
+			bindings,
+			sessions,
+			starter,
+			nil,
+			&forkOrchestrationStub{},
+			nil,
+			&resumeMetadataPromptAssembly{},
+			nil,
+			nil,
+		).(*service)
+
+		_, err := svc.Resume(context.Background(), ResumeRequest{ThreadID: "thread-legacy"})
+		if wantErr {
+			if err == nil || !strings.Contains(err.Error(), "legacy") {
+				t.Fatalf("Resume() error = %v, want legacy migration gate error", err)
+			}
+			if resumeCalled {
+				t.Fatal("ResumeSession was called without explicit legacy migration gate")
+			}
+			return
+		}
+		if err != nil {
+			t.Fatalf("Resume() error = %v, want nil with explicit legacy migration gate", err)
+		}
+		if !resumeCalled {
+			t.Fatal("ResumeSession was not called with explicit legacy migration gate")
+		}
+	}
+
+	t.Run("without_gate_rejects", func(t *testing.T) {
+		run(t, nil, true)
+	})
+	t.Run("with_gate_allows_migration", func(t *testing.T) {
+		config := legacyPromptSnapshotMigrationConfig(t)
+		run(t, config, false)
+	})
+}
+
+func TestStartDoesNotPublishStartedBeforeSnapshotSaved(t *testing.T) {
+	t.Parallel()
+
+	cause := errors.New("snapshot write failed")
+	threads := &stubThreadStore{savePromptSnapshotError: cause}
+	sessions := &stubSessionProvider{}
+	starter := &startOnlySessionStarter{
+		onStart: func(context.Context, dto.StartSessionRequest) (contract.Session, error) {
+			session := &stubSession{threadID: "019d5f6b-fb3c-7760-9d6f-54005553f607"}
+			sessions.session = session
+			return session, nil
+		},
+	}
+	svc := NewService(silentLogger(), threads, nil, sessions, starter, nil, &forkOrchestrationStub{}, nil).(*service)
+	startedCount := 0
+	svc.emitStarted = func(threaddto.Started) {
+		startedCount++
+	}
+
+	_, err := svc.Start(context.Background(), StartRequest{
+		AgentID:  "agent-start",
+		Provider: "codex",
+		CWD:      wantStartCWD(t),
+		Prompt:   "start",
+	})
+	if !errors.Is(err, cause) {
+		t.Fatalf("Start() error = %v, want %v", err, cause)
+	}
+	if startedCount != 0 {
+		t.Fatalf("thread.Started emitted %d times; want 0 before prompt snapshot is saved", startedCount)
+	}
+}
+
+func TestForkDoesNotPublishStartedBeforeSnapshotSaved(t *testing.T) {
+	t.Parallel()
+
+	cause := errors.New("fork snapshot write failed")
+	originalSession := &stubSession{
+		threadID:   "thread-parent",
+		forkResult: dto.ForkResult{NewThreadID: "thread-fork"},
+	}
+	forkedSession := &stubSession{threadID: "019d5f6b-aaaa-7760-9d6f-54005553f5b3"}
+	sessions := &stubSessionProvider{session: originalSession}
+	bindings := forkParentBindingStore()
+	threads := forkParentThreadStore()
+	threads.savePromptSnapshotError = cause
+	starter := &stubSessionStarter{onResume: func(context.Context, dto.ResumeSessionRequest) (contract.Session, error) {
+		sessions.session = forkedSession
+		return forkedSession, nil
+	}}
+	svc := NewService(silentLogger(), threads, bindings, sessions, starter, nil, &forkOrchestrationStub{}, nil).(*service)
+	startedCount := 0
+	svc.emitStarted = func(threaddto.Started) {
+		startedCount++
+	}
+
+	_, err := svc.Fork(context.Background(), "thread-parent")
+	if !errors.Is(err, cause) {
+		t.Fatalf("Fork() error = %v, want %v", err, cause)
+	}
+	if startedCount != 0 {
+		t.Fatalf("thread.Started emitted %d times; want 0 before fork prompt snapshot is saved", startedCount)
+	}
+}
+
+func TestPromptSnapshotHashCoversSectionSnapshot(t *testing.T) {
+	t.Parallel()
+
+	assembly := ensureStartAssemblySnapshot(contract.StartAssembly{
+		DisplayName:           "snapshot name",
+		BaseInstructions:      "snapshot base",
+		DeveloperInstructions: "snapshot dev",
+		ResolvedSections: []contract.ResolvedPromptSection{
+			{Name: "identity", Content: "You are Codex."},
+			{Name: "language", Content: "Use Chinese."},
+		},
+		Snapshot: contract.PromptAssemblySnapshot{Generation: 9},
+	}, "codex")
+	snapshot := assembly.Snapshot
+	if !storedPromptSnapshotValid(snapshot, "codex") {
+		t.Fatalf("storedPromptSnapshotValid() = false for freshly generated snapshot: %#v", snapshot)
+	}
+
+	tampered := snapshot
+	tampered.SectionSnapshot = clonePromptSectionMap(snapshot.SectionSnapshot)
+	tampered.SectionSnapshot["language"] = "Use French."
+	if storedPromptSnapshotValid(tampered, "codex") {
+		t.Fatal("storedPromptSnapshotValid() = true after section snapshot tamper, want false")
+	}
+}
+
+func validThreadPromptSnapshotForTest(displayName string) threadstore.PromptSnapshot {
+	assembly := ensureStartAssemblySnapshot(contract.StartAssembly{
+		DisplayName:           displayName,
+		BaseInstructions:      "stored base",
+		DeveloperInstructions: "stored dev",
+		ResolvedSections: []contract.ResolvedPromptSection{
+			{Name: "identity", Content: "stable identity"},
+		},
+		Snapshot: contract.PromptAssemblySnapshot{Generation: 7},
+	}, "codex")
+	return promptSnapshotRecordToStore(toStoredPromptSnapshot(assembly.Snapshot))
+}
+
+func legacyPromptSnapshotMigrationConfig(t *testing.T) []byte {
+	t.Helper()
+	config, err := encodeStoredThreadConfig(storedThreadConfig{
+		Runtime: map[string]any{
+			"legacyPromptSnapshotMigration": true,
+		},
+	})
+	if err != nil {
+		t.Fatalf("encodeStoredThreadConfig() error = %v", err)
+	}
+	return config
 }

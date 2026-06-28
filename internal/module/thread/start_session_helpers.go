@@ -151,7 +151,7 @@ func (s *service) hydrateResumeSessionRequest(ctx context.Context, req ResumeReq
 	req.ClaudeHome = util.FirstNonEmpty(req.ClaudeHome, state.ClaudeHome, resumeRuntimeConfigString(state.ConfigOverride.Runtime, "claudeHome", "claude_home", "history_dir"))
 	req = hydrateResumeCodexIdentity(req, state)
 	req.CodexDisabledNativeTools = resolveResumeCodexDisabledNativeTools(req.CodexDisabledNativeTools, state.ConfigOverride.Runtime)
-	req.Config = mergeRuntimeConfig(clone.RuntimeConfigMap(state.ConfigOverride.Runtime), req.Config)
+	req.Config = mergeRuntimeConfig(providerRuntimeConfig(state.ConfigOverride.Runtime), req.Config)
 	req, err = s.canonicalizeHydratedResumeCodexIdentity(req, opts.canonicalizeCodexIdentity)
 	if err != nil {
 		return ResumeRequest{}, err
@@ -269,6 +269,13 @@ func mergeResumeBindingState(state *resumeState, binding *threadBindingStoreReco
 	state.CodexInstanceKey = strings.TrimSpace(binding.CodexInstanceKey)
 	state.CodexModelProvider = strings.TrimSpace(binding.CodexModelProvider)
 	state.CWD = util.FirstNonEmpty(state.CWD, binding.Cwd)
+}
+
+// providerRuntimeConfig 复制 thread runtime 配置并剥离只给本地迁移流程使用的标记。
+func providerRuntimeConfig(runtime map[string]any) map[string]any {
+	out := clone.RuntimeConfigMap(runtime)
+	delete(out, legacyPromptSnapshotMigrationRuntimeKey)
+	return out
 }
 
 func dispatchPromptAssembly(ctx context.Context, req StartRequest, input contract.StartInput) (contract.StartAssembly, error) {

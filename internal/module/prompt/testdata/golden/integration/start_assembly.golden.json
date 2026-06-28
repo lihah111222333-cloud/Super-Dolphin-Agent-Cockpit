@@ -91,7 +91,7 @@
     },
     "developerInstructions": "developer tail",
     "displayName": "Feature Thread",
-    "hash": "854eafde5a6d872c3631363199c43cdc6e0199c6dc1a3ff7b737decc6a2af251",
+    "hash": "670ce587eb32bad730d9413e3d90516f3a13a20cfde8d54ec519fdeaddaa4ce5",
     "provider": "codex",
     "sectionSnapshot": {
       "actions": "Executing actions with care:\n- Local, reversible actions like editing files or running tests usually do not need confirmation.\n- Ask before destructive, hard-to-reverse, shared-state, or third-party upload actions.\n- Destructive examples include deleting files or branches, dropping tables, killing processes, rm -rf, and overwriting uncommitted work.\n- Hard-to-reverse examples include force-push, git reset --hard, rewriting published commits, dependency downgrades, CI or CD changes, and bypassing safeguards with flags like '--no-verify'.\n- Shared-state examples include pushing code, creating, closing, or commenting on PRs or issues, sending messages, publishing to external services, and changing shared infrastructure or permissions.\n- Uploads to third-party services may be cached or indexed, so treat them as potentially public.\n- If the user has explicitly requested more autonomy or durable instructions pre-authorize an action, you may proceed within that scope while still accounting for risk.\n- Do not use destructive actions as shortcuts around safety checks or unexpected state; investigate unfamiliar files, branches, configuration, locks, or conflicts before deleting or overwriting.\n- Approval applies only to the confirmed action and scope, not to future risky actions by default.",

@@ -70,15 +70,13 @@ func TestExplicitNamePreserved_AssembleStart(t *testing.T) {
 
 func TestAssembleStartIncludesBuiltinsAndDynamicSections(t *testing.T) {
 	svc := NewService(&Config{}, nil)
-	if err := svc.RegisterDynamicProvider(DynamicTextProvider{
+	registerDynamicProviderForTest(t, svc, DynamicTextProvider{
 		Name: DynamicSectionEnvInfoSimple,
 		ResolveFunc: func(context.Context, SectionContext) (*string, error) {
 			text := "CWD: /repo"
 			return &text, nil
 		},
-	}); err != nil {
-		t.Fatalf("RegisterDynamicProvider() error = %v", err)
-	}
+	})
 
 	assembly, err := svc.AssembleStart(context.Background(), StartInput{
 		Name:                  " legacy display ",
@@ -106,14 +104,12 @@ func TestAssembleStartIncludesBuiltinsAndDynamicSections(t *testing.T) {
 func TestAssembleStartIncludesDatasourceDynamicSection(t *testing.T) {
 	svc := NewService(&Config{}, nil)
 	datasourceText := "# Data sources\n- alpha.pdf\n- zeta.txt"
-	if err := svc.RegisterDynamicProvider(DynamicTextProvider{
+	registerDynamicProviderForTest(t, svc, DynamicTextProvider{
 		Name: DynamicSectionDatasource,
 		ResolveFunc: func(context.Context, SectionContext) (*string, error) {
 			return &datasourceText, nil
 		},
-	}); err != nil {
-		t.Fatalf("RegisterDynamicProvider() error = %v", err)
-	}
+	})
 
 	assembly, err := svc.AssembleStart(context.Background(), StartInput{CWD: "/repo"})
 	if err != nil {
@@ -369,16 +365,14 @@ func TestSimpleAssembleStartUsesSessionFlag(t *testing.T) {
 func TestUncachedDynamicSectionRecomputesEveryTurn(t *testing.T) {
 	svc := NewService(&Config{}, nil)
 	counter := 0
-	if err := svc.RegisterDynamicProvider(DynamicTextProvider{
+	registerDynamicProviderForTest(t, svc, DynamicTextProvider{
 		Name: DynamicSectionMCPInstructions,
 		ResolveFunc: func(context.Context, SectionContext) (*string, error) {
 			counter++
 			text := "mcp call #" + string(rune('0'+counter))
 			return &text, nil
 		},
-	}); err != nil {
-		t.Fatalf("RegisterDynamicProvider() error = %v", err)
-	}
+	})
 
 	first, err := svc.AssembleTurn(context.Background(), TurnInput{})
 	if err != nil {
@@ -398,16 +392,14 @@ func TestUncachedDynamicSectionRecomputesEveryTurn(t *testing.T) {
 func TestUncachedDynamicSectionRetainsStableLastValue(t *testing.T) {
 	svc := NewService(&Config{}, nil)
 	calls := 0
-	if err := svc.RegisterDynamicProvider(DynamicTextProvider{
+	registerDynamicProviderForTest(t, svc, DynamicTextProvider{
 		Name: DynamicSectionMCPInstructions,
 		ResolveFunc: func(context.Context, SectionContext) (*string, error) {
 			calls++
 			text := "stable mcp instructions"
 			return &text, nil
 		},
-	}); err != nil {
-		t.Fatalf("RegisterDynamicProvider() error = %v", err)
-	}
+	})
 
 	first, err := svc.AssembleStart(context.Background(), StartInput{})
 	if err != nil {
@@ -434,16 +426,14 @@ func TestUncachedDynamicSectionRetainsStableLastValue(t *testing.T) {
 func TestStartOnlyDynamicSectionCachesStartWithoutLeakingToTurn(t *testing.T) {
 	svc := NewService(&Config{}, nil)
 	calls := 0
-	if err := svc.RegisterDynamicProvider(DynamicTextProvider{
+	registerDynamicProviderForTest(t, svc, DynamicTextProvider{
 		Name: DynamicSectionMemory,
 		ResolveFunc: func(context.Context, SectionContext) (*string, error) {
 			calls++
 			text := fmt.Sprintf("memory build #%d", calls)
 			return &text, nil
 		},
-	}); err != nil {
-		t.Fatalf("RegisterDynamicProvider() error = %v", err)
-	}
+	})
 
 	firstTurn, err := svc.AssembleTurn(context.Background(), TurnInput{})
 	if err != nil {
@@ -480,16 +470,14 @@ func TestStartOnlyDynamicSectionCachesStartWithoutLeakingToTurn(t *testing.T) {
 func TestInputScopedSectionCachesOnlyDependencyFields(t *testing.T) {
 	svc := NewService(&Config{}, nil)
 	calls := 0
-	if err := svc.RegisterDynamicProvider(DynamicTextProvider{
+	registerDynamicProviderForTest(t, svc, DynamicTextProvider{
 		Name: DynamicSectionLanguage,
 		ResolveFunc: func(context.Context, SectionContext) (*string, error) {
 			calls++
 			text := fmt.Sprintf("language call #%d", calls)
 			return &text, nil
 		},
-	}); err != nil {
-		t.Fatalf("RegisterDynamicProvider() error = %v", err)
-	}
+	})
 
 	first, err := svc.AssembleTurn(context.Background(), TurnInput{Language: "zh-CN", UserText: "first"})
 	if err != nil {
@@ -515,16 +503,14 @@ func TestInputScopedSectionCachesOnlyDependencyFields(t *testing.T) {
 func TestCacheByNameSectionIgnoresInputNoise(t *testing.T) {
 	svc := NewService(&Config{}, nil)
 	calls := 0
-	if err := svc.RegisterDynamicProvider(DynamicTextProvider{
+	registerDynamicProviderForTest(t, svc, DynamicTextProvider{
 		Name: DynamicSectionOutputStyle,
 		ResolveFunc: func(context.Context, SectionContext) (*string, error) {
 			calls++
 			text := fmt.Sprintf("output style call #%d", calls)
 			return &text, nil
 		},
-	}); err != nil {
-		t.Fatalf("RegisterDynamicProvider() error = %v", err)
-	}
+	})
 
 	first, err := svc.AssembleTurn(context.Background(), TurnInput{Language: "zh-CN", UserText: "first"})
 	if err != nil {
@@ -560,7 +546,7 @@ func TestResolveSectionsRunsIndependentSectionsInParallel(t *testing.T) {
 	ready := make(chan string, 2)
 	release := make(chan struct{})
 	for _, name := range []string{DynamicSectionOutputStyle, DynamicSectionScratchpad} {
-		if err := svc.RegisterDynamicProvider(DynamicTextProvider{
+		registerDynamicProviderForTest(t, svc, DynamicTextProvider{
 			Name: name,
 			ResolveFunc: func(ctx context.Context, _ SectionContext) (*string, error) {
 				ready <- name
@@ -572,9 +558,7 @@ func TestResolveSectionsRunsIndependentSectionsInParallel(t *testing.T) {
 					return nil, ctx.Err()
 				}
 			},
-		}); err != nil {
-			t.Fatalf("RegisterDynamicProvider(%q) error = %v", name, err)
-		}
+		})
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)

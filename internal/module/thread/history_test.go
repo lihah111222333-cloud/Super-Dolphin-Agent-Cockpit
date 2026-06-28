@@ -195,12 +195,13 @@ func newForkedThreadHistoryFixture(t *testing.T) forkedThreadHistoryFixture {
 	forkedSession := &historyTestSession{threadID: "thread-2"}
 	threadStore := &stubThreadStore{
 		thread: &threadstore.Thread{
-			ThreadID:  "thread-1",
-			AgentID:   "agent-1",
-			Prompt:    "demo",
-			Model:     "gpt-5",
-			Cwd:       "/tmp/demo",
-			CreatedAt: 123,
+			ThreadID:       "thread-1",
+			AgentID:        "agent-1",
+			Prompt:         "demo",
+			Model:          "gpt-5",
+			Cwd:            "/tmp/demo",
+			CreatedAt:      123,
+			ConfigOverride: legacyPromptSnapshotMigrationConfig(t),
 		},
 	}
 	bindings := newHistoryTestBindingStore(&bindingstore.Binding{

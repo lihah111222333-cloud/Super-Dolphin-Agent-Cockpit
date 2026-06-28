@@ -200,13 +200,14 @@ func TestResumeRestoresFromSnapshot(t *testing.T) {
 		Generation:            7,
 	}
 	threads := &stubThreadStore{thread: &threadstore.Thread{
-		ThreadID:  "thread-assembly",
-		AgentID:   "agent-assembly",
-		Prompt:    snapshot.DisplayName,
-		Model:     "gpt-5.5",
-		Cwd:       "/repo",
-		CreatedAt: 123,
-		Status:    statusCreated,
+		ThreadID:       "thread-assembly",
+		AgentID:        "agent-assembly",
+		Prompt:         snapshot.DisplayName,
+		Model:          "gpt-5.5",
+		Cwd:            "/repo",
+		CreatedAt:      123,
+		Status:         statusCreated,
+		ConfigOverride: legacyPromptSnapshotMigrationConfig(t),
 	}}
 	const providerThreadID = "019d5f6b-fb3c-7760-9d6f-54005553f608"
 	rolloutPath := writeExistingProviderHistoryFile(t)
@@ -261,13 +262,14 @@ func TestResumeDoesNotInvalidatePromptAssemblyWithoutWorktreeRestore(t *testing.
 
 	promptAssembly := &stubPromptAssemblyService{}
 	threads := &stubThreadStore{thread: &threadstore.Thread{
-		ThreadID:  "thread-resume",
-		AgentID:   "agent-resume",
-		Prompt:    "resume name",
-		Model:     "gpt-5.5",
-		Cwd:       "/repo",
-		CreatedAt: 123,
-		Status:    statusCreated,
+		ThreadID:       "thread-resume",
+		AgentID:        "agent-resume",
+		Prompt:         "resume name",
+		Model:          "gpt-5.5",
+		Cwd:            "/repo",
+		CreatedAt:      123,
+		Status:         statusCreated,
+		ConfigOverride: legacyPromptSnapshotMigrationConfig(t),
 	}}
 	bindings := &stubBindingStore{binding: &bindingstore.Binding{
 		AgentID:       "agent-resume",
@@ -298,13 +300,14 @@ func TestResumeInvalidatesPromptAssemblyForWorktreeRestore(t *testing.T) {
 	_, worktreeCWD := newPromptGitFixture(t)
 	promptAssembly := &stubPromptAssemblyService{}
 	threads := &stubThreadStore{thread: &threadstore.Thread{
-		ThreadID:  "thread-resume",
-		AgentID:   "agent-resume",
-		Prompt:    "resume name",
-		Model:     "gpt-5.5",
-		Cwd:       worktreeCWD,
-		CreatedAt: 123,
-		Status:    statusCreated,
+		ThreadID:       "thread-resume",
+		AgentID:        "agent-resume",
+		Prompt:         "resume name",
+		Model:          "gpt-5.5",
+		Cwd:            worktreeCWD,
+		CreatedAt:      123,
+		Status:         statusCreated,
+		ConfigOverride: legacyPromptSnapshotMigrationConfig(t),
 	}}
 	bindings := &stubBindingStore{binding: &bindingstore.Binding{
 		AgentID:       "agent-resume",
@@ -368,12 +371,13 @@ func TestForkPreservesPromptAssembly(t *testing.T) {
 		Cwd:              "/repo",
 	}}
 	threads := &stubThreadStore{thread: &threadstore.Thread{
-		ThreadID:  "thread-parent",
-		AgentID:   "agent-parent",
-		Prompt:    "assembled name",
-		Model:     "gpt-5.5",
-		Cwd:       "/repo",
-		CreatedAt: 123,
+		ThreadID:       "thread-parent",
+		AgentID:        "agent-parent",
+		Prompt:         "assembled name",
+		Model:          "gpt-5.5",
+		Cwd:            "/repo",
+		CreatedAt:      123,
+		ConfigOverride: legacyPromptSnapshotMigrationConfig(t),
 	}}
 	starter := &stubSessionStarter{
 		onResume: func(_ context.Context, req dto.ResumeSessionRequest) (contract.Session, error) {
@@ -450,6 +454,7 @@ func TestTurnAssemblyUserContextText(t *testing.T) {
 	t.Parallel()
 
 	assembly := promptpkg.NewService(nil, silentLogger())
+	assembly.UnregisterDynamicProvider(promptpkg.DynamicSectionSessionGuidance)
 	if err := assembly.RegisterDynamicProvider(promptpkg.DynamicTextProvider{
 		Name: promptpkg.DynamicSectionSessionGuidance,
 		ResolveFunc: func(_ context.Context, in promptpkg.SectionContext) (*string, error) {
