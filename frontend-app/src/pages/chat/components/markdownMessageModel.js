@@ -1,5 +1,4 @@
 const IMAGE_PATH_RE = /\.(?:png|jpe?g|webp|gif|svg|bmp)(?:[?#].*)?$/i;
-const LOCAL_IMAGE_PATH_RE = /\.(?:png|jpe?g|webp|gif|bmp)(?:[?#].*)?$/i;
 
 function basenameFromPath(path) {
   const value = (path || '').toString().trim().split(/[?#]/, 1)[0];
@@ -41,32 +40,33 @@ function isGeneratedImagePath(value) {
   return /(?:^|[/\\])\.codex[/\\]generated_images[/\\]/i.test(path);
 }
 
-function isAbsoluteLocalPath(value) {
-  return /^[A-Za-z]:[\\/]/.test(value) || /^\//.test(value);
-}
-
-function localImagePreviewSource(rawValue) {
-  const path = stripPathSuffix((rawValue || '').toString().trim());
-  if (!path || !LOCAL_IMAGE_PATH_RE.test(path) || !isAbsoluteLocalPath(path)) return '';
-  return `/local-image?path=${encodeURIComponent(path)}`;
+function backendLocalImagePreviewSource(rawValue) {
+  const value = (rawValue || '').toString().trim();
+  if (!value.startsWith('/local-image?')) return '';
+  try {
+    const url = new URL(value, 'http://localhost');
+    const id = (url.searchParams.get('id') || url.searchParams.get('token') || '').trim();
+    if (url.pathname !== '/local-image' || !id || url.searchParams.has('path')) return '';
+    return value;
+  } catch {
+    return '';
+  }
 }
 
 function imagePreviewSource(rawValue) {
   const value = (rawValue || '').toString().trim();
-  if (
-    value.startsWith('/clipboard/') ||
-    value.startsWith('/generated-image?') ||
-    value.startsWith('/local-image?')
-  ) {
+  if (value.startsWith('/clipboard/') || value.startsWith('/generated-image?')) {
     return value;
   }
+  const localPreview = backendLocalImagePreviewSource(value);
+  if (localPreview) return localPreview;
   if (!value || !IMAGE_PATH_RE.test(value)) return '';
   if (/^data:image\//i.test(value) || /^https?:\/\//i.test(value)) return value;
   const localPath = /^file:\/\//i.test(value) ? fileURLToPath(value) : value;
   if (isGeneratedImagePath(localPath)) {
     return `/generated-image?path=${encodeURIComponent(localPath)}`;
   }
-  return localImagePreviewSource(localPath);
+  return '';
 }
 
 function normalizeMessageText(text) {

@@ -17,7 +17,7 @@ function parsedMarkdownUrl(value) {
 }
 
 function markdownImageUrl(value, protocol) {
-  const allowed = new Set(['http:', 'https:', 'data:', 'file:']);
+  const allowed = new Set(['http:', 'https:', 'data:']);
   return allowed.has(protocol) ? value : '';
 }
 

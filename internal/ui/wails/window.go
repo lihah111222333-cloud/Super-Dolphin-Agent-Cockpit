@@ -38,7 +38,7 @@ func newWindowOptions(title string, debug bool, name, uiBootstrap, cwd string) a
 		options.Name = name
 	}
 	// 后端把 bootstrap 值放进窗口 URL，前端从查询串读取 ao_ui_bootstrap/ao_window_cwd。
-	options.URL = windowURL(uiBootstrap, cwd)
+	options.URL = windowURLForMode(debug, uiBootstrap, cwd)
 	return options
 }
 
@@ -105,10 +105,29 @@ func buildFilesDroppedPayload(files []string, details *application.DropTargetDet
 	payload := map[string]any{
 		"files": append([]string(nil), files...),
 	}
+	if previews := droppedImagePreviews(files); len(previews) > 0 {
+		payload["imagePreviews"] = previews
+	}
 	if detailPayload := fileDropDetails(details); detailPayload != nil {
 		payload["details"] = detailPayload
 	}
 	return payload, true
+}
+
+// droppedImagePreviews 为拖入的本地图片登记短期预览 token。
+func droppedImagePreviews(files []string) map[string]string {
+	previews := make(map[string]string)
+	for _, raw := range files {
+		path := strings.TrimSpace(raw)
+		if path == "" {
+			continue
+		}
+		previewURL, err := registerLocalImageAsset(path, "dropped-file")
+		if err == nil {
+			previews[path] = previewURL
+		}
+	}
+	return previews
 }
 
 // fileDropDetails 提取 Wails 提供的拖拽目标元素信息。
@@ -125,11 +144,25 @@ func fileDropDetails(details *application.DropTargetDetails) map[string]any {
 	}
 }
 
-// windowURL 生成窗口入口 URL，并附加启动快照和工作目录参数。
+// windowURL 以生产模式生成窗口入口 URL，并附加启动快照和工作目录参数。
 func windowURL(uiBootstrap, cwd string) string {
-	base := strings.TrimSpace(os.Getenv("FRONTEND_DEVSERVER_URL"))
+	return windowURLForMode(false, uiBootstrap, cwd)
+}
+
+// windowURLForMode 生成窗口入口 URL，并在开发模式下允许 loopback dev server。
+func windowURLForMode(debug bool, uiBootstrap, cwd string) string {
+	base := strings.TrimSpace(os.Getenv(frontendDevServerURLEnv))
 	if base == "" {
 		base = "/"
+	} else {
+		target, err := parseFrontendDevServerURL(base, frontendDevServerURLEnv)
+		if err != nil {
+			panic("invalid " + frontendDevServerURLEnv + ": " + err.Error())
+		}
+		if !debug {
+			panic("invalid " + frontendDevServerURLEnv + ": production mode rejects dev URL")
+		}
+		base = target.String()
 	}
 	values := url.Values{}
 	if value := strings.TrimSpace(uiBootstrap); value != "" {

@@ -88,7 +88,7 @@ describe('ComposerAttachments', () => {
     expect(imagePreview.querySelector('img')).toHaveAttribute('src', '/clipboard/codex-clipboard-f05.png');
   });
 
-  it('renders normal local screenshot attachments without a broken file URL', () => {
+  it('renders normal local screenshot attachments as file pills', () => {
     const screenshotPath = windowsScreenshotPath();
 
     render(
@@ -105,7 +105,8 @@ describe('ComposerAttachments', () => {
     );
 
     const imagePreview = screen.getByLabelText(/\u9884\u89c8\u9644\u4ef6 \u5c4f\u5e55\u622a\u56fe 2026-06-13 170324\.png/);
-    expect(imagePreview.querySelector('img')).toHaveAttribute('src', `/local-image?path=${encodeURIComponent(screenshotPath)}`);
+    expect(imagePreview.querySelector('img')).toBeNull();
+    expect(imagePreview).toHaveTextContent(screenshotName);
   });
 
   it('normalizes attachment identity from path, preview URL, or URL', () => {

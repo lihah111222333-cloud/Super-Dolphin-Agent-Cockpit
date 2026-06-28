@@ -1,12 +1,18 @@
 package wails
 
 import (
+	"crypto/rand"
+	"encoding/base64"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
+	"time"
 )
 
 // clipboardPathPrefix 是 WebView 加载临时剪贴板图片的 URL 前缀。
@@ -15,15 +21,39 @@ const clipboardPathPrefix = "/clipboard/"
 // localImagePathPrefix 是 WebView 加载本地图片预览的 URL 前缀。
 const localImagePathPrefix = "/local-image"
 
+// localImageAssetTTL 限制本地图片预览 token 的存活时间。
+const localImageAssetTTL = 15 * time.Minute
+
+// archguard:ignore global_vars -- 本地图片预览 token 是 Wails HTTP capability 状态，需跨窗口与 HTTP handler 共享。
+var defaultLocalImageAssets = newLocalImageAssetRegistry(time.Now)
+
+type localImageAssetRecord struct {
+	Path        string
+	ContentType string
+	ExpiresAt   time.Time
+	Source      string
+}
+
+type localImageAssetRegistry struct {
+	mu     sync.Mutex
+	now    func() time.Time
+	assets map[string]localImageAssetRecord
+}
+
 // withClipboardAssets 包装前端资源 handler，额外提供剪贴板和本地图片预览路由。
 func withClipboardAssets(inner http.Handler) http.Handler {
+	return withClipboardAssetsRegistry(inner, defaultLocalImageAssets)
+}
+
+// withClipboardAssetsRegistry 使用给定 registry 包装前端资源 handler，便于测试隔离 token 状态。
+func withClipboardAssetsRegistry(inner http.Handler, registry *localImageAssetRegistry) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if strings.HasPrefix(r.URL.Path, clipboardPathPrefix) {
 			serveClipboardAsset(w, r)
 			return
 		}
 		if r.URL.Path == localImagePathPrefix {
-			serveLocalImageAsset(w, r)
+			serveLocalImageAsset(w, r, registry)
 			return
 		}
 		inner.ServeHTTP(w, r)
@@ -48,28 +78,114 @@ func serveClipboardAsset(w http.ResponseWriter, r *http.Request) {
 	http.ServeFile(w, r, full)
 }
 
-// serveLocalImageAsset 为桌面 WebView 提供本地图片预览，避免前端直接加载 file://。
-// 只允许绝对路径和真实图片内容，失败时返回 404，避免把本地任意文件暴露成资源。
-func serveLocalImageAsset(w http.ResponseWriter, r *http.Request) {
-	full := strings.TrimSpace(r.URL.Query().Get("path"))
-	contentType, ok := localImageContentType(full)
-	if !ok || !isValidLocalImagePath(full) {
+// serveLocalImageAsset 为桌面 WebView 提供本地图片预览，只接受后端登记过的短期 token。
+func serveLocalImageAsset(w http.ResponseWriter, r *http.Request, registry *localImageAssetRegistry) {
+	record, ok := registry.lookup(strings.TrimSpace(r.URL.Query().Get("id")))
+	if !ok {
 		http.NotFound(w, r)
 		return
 	}
+	full := record.Path
 	info, err := os.Stat(full)
 	if err != nil || info.IsDir() {
 		http.NotFound(w, r)
 		return
 	}
-	if !localImageFileHasSupportedContent(full, contentType) {
+	if !localImageFileHasSupportedContent(full, record.ContentType) {
 		http.NotFound(w, r)
 		return
 	}
-	w.Header().Set("Content-Type", contentType)
+	w.Header().Set("Content-Type", record.ContentType)
 	w.Header().Set("Cache-Control", "private, max-age=86400")
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	http.ServeFile(w, r, full)
+}
+
+// newLocalImageAssetRegistry 创建本地图片 token 注册表。
+func newLocalImageAssetRegistry(now func() time.Time) *localImageAssetRegistry {
+	if now == nil {
+		now = time.Now
+	}
+	return &localImageAssetRegistry{
+		now:    now,
+		assets: make(map[string]localImageAssetRecord),
+	}
+}
+
+// registerLocalImageAsset 登记本地图片路径并返回 WebView 可用的后端预览 URL。
+func registerLocalImageAsset(path string, source string) (string, error) {
+	return defaultLocalImageAssets.register(path, source)
+}
+
+// register 校验图片路径并登记短期 token，失败时不泄露文件内容。
+func (r *localImageAssetRegistry) register(path string, source string) (string, error) {
+	full := strings.TrimSpace(path)
+	contentType, ok := localImageContentType(full)
+	if !ok || !isValidLocalImagePath(full) {
+		return "", fmt.Errorf("local image asset: invalid image path %q", path)
+	}
+	info, err := os.Stat(full)
+	if err != nil {
+		return "", fmt.Errorf("local image asset: stat %q: %w", path, err)
+	}
+	if info.IsDir() {
+		return "", fmt.Errorf("local image asset: %q is a directory", path)
+	}
+	if !localImageFileHasSupportedContent(full, contentType) {
+		return "", fmt.Errorf("local image asset: unsupported image content %q", path)
+	}
+	id, err := newLocalImageAssetID()
+	if err != nil {
+		return "", err
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	now := r.now()
+	r.pruneLocked(now)
+	r.assets[id] = localImageAssetRecord{
+		Path:        full,
+		ContentType: contentType,
+		ExpiresAt:   now.Add(localImageAssetTTL),
+		Source:      strings.TrimSpace(source),
+	}
+	values := url.Values{}
+	values.Set("id", id)
+	return localImagePathPrefix + "?" + values.Encode(), nil
+}
+
+// lookup 读取 token 对应图片记录，过期或缺失时拒绝访问。
+func (r *localImageAssetRegistry) lookup(id string) (localImageAssetRecord, bool) {
+	if r == nil || strings.TrimSpace(id) == "" {
+		return localImageAssetRecord{}, false
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	now := r.now()
+	r.pruneLocked(now)
+	record, ok := r.assets[id]
+	if !ok || now.After(record.ExpiresAt) {
+		delete(r.assets, id)
+		return localImageAssetRecord{}, false
+	}
+	return record, true
+}
+
+// pruneLocked 在持锁状态下清理过期的本地图片 token。
+func (r *localImageAssetRegistry) pruneLocked(now time.Time) {
+	for id, record := range r.assets {
+		if now.After(record.ExpiresAt) {
+			delete(r.assets, id)
+		}
+	}
+}
+
+// newLocalImageAssetID 生成不可预测的本地图片 token。
+func newLocalImageAssetID() (string, error) {
+	var raw [18]byte
+	if _, err := rand.Read(raw[:]); err != nil {
+		return "", fmt.Errorf("local image asset: create token: %w", err)
+	}
+	return "img_" + base64.RawURLEncoding.EncodeToString(raw[:]), nil
 }
 
 // isValidClipboardAssetName 判断 URL 中的剪贴板资源名是否符合临时 PNG 命名规则。
