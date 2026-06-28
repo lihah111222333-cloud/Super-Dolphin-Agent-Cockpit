@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { basename } from '../../../entities/client/model/composerAttachments.js';
 import { textValue } from '../../shared/pageShared.js';
 import { composerAttachmentKey } from '../components/composerAttachmentKey.js';
 import { onFilesDropped } from '../services/chatCodeService.js';
@@ -153,7 +154,30 @@ export function nativeDropFiles(event, options) {
   const candidates = [event, event.data, event.payload, event.data?.payload];
   const payload = candidates.find((item) => item && typeof item === 'object' && Array.isArray(item.files));
   if (!nativeDropTargetAcceptsFiles(payload?.details, options)) return [];
-  return payload?.files || [];
+  return nativeDropAttachments(payload);
+}
+
+function nativeDropPreviewUrl(value) {
+  const raw = textValue(value);
+  if (!raw.startsWith('/local-image?')) return '';
+  const params = new URLSearchParams(raw.slice('/local-image?'.length));
+  return params.get('id') && !params.has('path') ? raw : '';
+}
+
+function nativeDropAttachments(payload) {
+  const previews = payload?.imagePreviews && typeof payload.imagePreviews === 'object'
+    ? payload.imagePreviews
+    : {};
+  return payload.files.map((path) => {
+    const previewUrl = nativeDropPreviewUrl(previews[path]);
+    if (!previewUrl) return path;
+    return {
+      path,
+      name: basename(path),
+      kind: 'image',
+      previewUrl,
+    };
+  });
 }
 
 function nativeDropClassTokens(value) {
