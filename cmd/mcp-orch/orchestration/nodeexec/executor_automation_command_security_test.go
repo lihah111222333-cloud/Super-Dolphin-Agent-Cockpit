@@ -51,6 +51,72 @@ func TestShellCommandRunnerDoesNotInheritSensitiveParentEnv(t *testing.T) {
 	}
 }
 
+func TestShellCommandRunnerRedactsSensitiveHeadersFromResultSurfaces(t *testing.T) {
+	runner := NewShellCommandRunner()
+	root := t.TempDir()
+	testBinary, err := os.Executable()
+	if err != nil {
+		t.Fatalf("os.Executable() error = %v", err)
+	}
+	commandTemplate := "'" + testBinary + "' -test.run=TestAutomationCommandRedactionHelper -- " +
+		"--automation-redaction-helper Authorization: Bearer COMMANDSECRET"
+
+	result, err := runner.RunCommandCard(context.Background(), AutomationCommandCard{
+		CardKey:         "redaction-surfaces",
+		CommandTemplate: commandTemplate,
+		RiskLevel:       "high",
+		Enabled:         true,
+	}, json.RawMessage(`{}`), AutomationCommandRunOptions{
+		CWD:            root,
+		WorkspaceRoots: []string{root},
+		Env:            map[string]string{"PATH": os.Getenv("PATH")},
+	})
+	if err != nil {
+		t.Fatalf("RunCommandCard() error = %v, want nil; stdout=%q stderr=%q command=%q", err, result.Stdout, result.Stderr, result.Command)
+	}
+
+	surfaces := map[string]string{
+		"stdout":  result.Stdout,
+		"stderr":  result.Stderr,
+		"command": result.Command,
+	}
+	for surface, value := range surfaces {
+		for _, secret := range []string{"Bearer", "STDOUTSECRET", "STDERRSECRET", "COMMANDSECRET", "a=b", "session=", "COOKIESECRET", "theme=dark"} {
+			if strings.Contains(value, secret) {
+				t.Fatalf("%s leaked %q after redaction: %q", surface, secret, value)
+			}
+		}
+	}
+	for surface, value := range surfaces {
+		if !strings.Contains(value, "[REDACTED]") {
+			t.Fatalf("%s = %q, want redaction marker", surface, value)
+		}
+	}
+}
+
+func TestAutomationCommandRedactionHelper(t *testing.T) {
+	if !hasAutomationCommandTestArg(t, "--automation-redaction-helper") {
+		return
+	}
+	if _, err := os.Stdout.WriteString("Authorization: Bearer STDOUTSECRET\nCookie: a=b; session=COOKIESECRET; theme=dark\n"); err != nil {
+		os.Exit(2)
+	}
+	if _, err := os.Stderr.WriteString("Cookie: a=b; session=COOKIESECRET; theme=dark\nAuthorization: Bearer STDERRSECRET\n"); err != nil {
+		os.Exit(2)
+	}
+	os.Exit(0)
+}
+
+func hasAutomationCommandTestArg(t *testing.T, target string) bool {
+	t.Helper()
+	for _, arg := range os.Args {
+		if arg == target {
+			return true
+		}
+	}
+	return false
+}
+
 func TestAutomationExecutorPassesTrustedCommandRunOptions(t *testing.T) {
 	t.Parallel()
 	getter := &stubAutomationGetter{card: AutomationCommandCard{CardKey: "k", CommandTemplate: "x", RiskLevel: "high", Enabled: true}}

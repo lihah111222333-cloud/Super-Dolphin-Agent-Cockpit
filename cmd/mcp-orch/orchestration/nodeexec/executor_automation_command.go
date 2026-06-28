@@ -17,7 +17,10 @@ const (
 	automationCommandStderrLimitBytes = 256 * 1024
 )
 
-var sensitiveCommandTextPattern = regexp.MustCompile(`(?i)\b(token|api[_-]?key|password|secret|authorization|cookie)\b\s*[:=]\s*\S+`)
+var (
+	sensitiveHeaderTextPattern  = regexp.MustCompile(`(?im)(^|[^\pL\pN_])((?:token|api[_-]?key|password|secret|authorization|cookie)\s*:\s*)[^\r\n]*`)
+	sensitiveCommandTextPattern = regexp.MustCompile(`(?i)\b(token|api[_-]?key|password|secret|authorization|cookie)\b(\s*=\s*)(?:"[^"\r\n]*"|'[^'\r\n]*'|[^\s\r\n]+)`)
+)
 
 // ShellCommandRunner 执行 automation command 卡片。
 // 调用前会校验风险级别、工作区边界和命令文本，失败时不启动进程。
@@ -280,8 +283,11 @@ func allowedAutomationCommandEnv(env map[string]string) []string {
 	return out
 }
 
+// redactSensitiveText 对命令、stdout、stderr 中的敏感键做统一脱敏。
+// Header 形态的值可能包含空格和多个字段，必须整行截断，避免 Bearer/Cookie 残留。
 func redactSensitiveText(text string) string {
-	return sensitiveCommandTextPattern.ReplaceAllString(text, "$1=[REDACTED]")
+	redacted := sensitiveHeaderTextPattern.ReplaceAllString(text, "${1}${2}[REDACTED]")
+	return sensitiveCommandTextPattern.ReplaceAllString(redacted, "${1}${2}[REDACTED]")
 }
 
 func stripAutomationControlFieldsBeforePromptReuse(raw string) string {
