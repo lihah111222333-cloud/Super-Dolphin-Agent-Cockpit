@@ -7,6 +7,8 @@ import {
   getVideoApiKey as getVideoApiKeyBackend,
   installLatestAppUpdate as installLatestAppUpdateBackend,
   listDashboardLogs as listDashboardLogsBackend,
+  listMCPToolLifecycleStates as listMCPToolLifecycleStatesBackend,
+  listMCPServers as listMCPServersBackend,
   listModelProviders as listModelProvidersBackend,
   readBuiltinTools as readBuiltinToolsBackend,
   readConfig as readConfigBackend,
@@ -14,6 +16,7 @@ import {
   saveModelProviders as saveModelProvidersBackend,
   setPreference as setPreferenceBackend,
   setVideoApiKey as setVideoApiKeyBackend,
+  upsertMCPToolLifecycleState as upsertMCPToolLifecycleStateBackend,
   writeBuiltinTool as writeBuiltinToolBackend,
   writeLspPromptHint as writeLspPromptHintRpc,
 } from '../../../shared/api/backendApi.js';
@@ -50,6 +53,14 @@ export function listDashboardLogs(payload) {
   return listDashboardLogsBackend(payload);
 }
 
+export function listMCPToolLifecycleStates(payload) {
+  return listMCPToolLifecycleStatesBackend(payload);
+}
+
+export function listMCPServers(payload) {
+  return listMCPServersBackend(payload);
+}
+
 export function listModelProviders(payload) {
   return listModelProvidersBackend(payload);
 }
@@ -76,6 +87,10 @@ export function setPreference(payload) {
 
 export function setVideoApiKey(payload) {
   return setVideoApiKeyBackend(payload);
+}
+
+export function upsertMCPToolLifecycleState(payload) {
+  return upsertMCPToolLifecycleStateBackend(payload);
 }
 
 export function writeBuiltinTool(payload) {

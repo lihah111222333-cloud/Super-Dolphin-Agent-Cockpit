@@ -1,0 +1,96 @@
+.settings-mcp-lifecycle-card {
+  gap: 8px;
+}
+
+.settings-mcp-lifecycle-list {
+  display: grid;
+  gap: 6px;
+  margin-top: 4px;
+}
+
+.settings-mcp-lifecycle-row {
+  display: grid;
+  grid-template-columns: minmax(112px, 0.85fr) minmax(152px, 1fr) minmax(128px, 0.7fr) minmax(168px, 1.1fr) auto;
+  align-items: center;
+  gap: 8px;
+  min-height: 42px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  padding: 7px 10px;
+}
+
+.settings-mcp-lifecycle-head {
+  min-height: 30px;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
+.settings-mcp-lifecycle-server,
+.settings-mcp-lifecycle-tool {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-pri);
+  font-size: 12px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.settings-mcp-lifecycle-tool {
+  color: var(--text-sec);
+  font-weight: 500;
+}
+
+.settings-mcp-lifecycle-state,
+.settings-mcp-lifecycle-reason {
+  width: 100%;
+  min-height: 32px;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  background: var(--surface);
+  color: var(--text-pri);
+  font-size: 12px;
+  padding: 0 9px;
+}
+
+.settings-mcp-lifecycle-state {
+  font-weight: 700;
+}
+
+.settings-mcp-lifecycle-state.is-active {
+  color: var(--success);
+}
+
+.settings-mcp-lifecycle-state.is-suspended {
+  color: var(--warning);
+}
+
+.settings-mcp-lifecycle-state.is-removed {
+  color: var(--error);
+}
+
+.settings-mcp-lifecycle-state:disabled,
+.settings-mcp-lifecycle-reason:disabled {
+  cursor: default;
+  opacity: 0.58;
+}
+
+@media (max-width: 860px) {
+  .settings-mcp-lifecycle-row {
+    grid-template-columns: minmax(0, 1fr);
+    align-items: stretch;
+  }
+
+  .settings-mcp-lifecycle-head {
+    display: none;
+  }
+
+  .settings-mcp-lifecycle-server,
+  .settings-mcp-lifecycle-tool {
+    white-space: normal;
+  }
+}

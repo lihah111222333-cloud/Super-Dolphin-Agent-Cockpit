@@ -15,12 +15,15 @@ const backend = vi.hoisted(() => ({
   installAppUpdate: vi.fn(),
   installLatestAppUpdate: vi.fn(),
   listDashboardLogs: vi.fn(),
+  listMCPToolLifecycleStates: vi.fn(),
+  listMCPServers: vi.fn(),
   listModelProviders: vi.fn(),
   readBuiltinTools: vi.fn(),
   readConfig: vi.fn(),
   readLspPromptHint: vi.fn(),
   setPreference: vi.fn(),
   setVideoApiKey: vi.fn(),
+  upsertMCPToolLifecycleState: vi.fn(),
   saveModelProviders: vi.fn(),
   writeBuiltinTool: vi.fn(),
   writeLspPromptHint: vi.fn(),
@@ -132,6 +135,9 @@ beforeEach(() => {
   backend.writeBuiltinTool.mockImplementation(({ id, enabled }) => Promise.resolve({
     tools: [{ id, label: '读文件', description: '读取文件', enabled, provider: 'claude', filterMode: 'hard', enforcement: enabled ? '' : 'native-hard' }],
   }));
+  backend.listMCPToolLifecycleStates.mockResolvedValue({ records: [] });
+  backend.listMCPServers.mockResolvedValue({ mcpServers: {} });
+  backend.upsertMCPToolLifecycleState.mockImplementation((payload) => Promise.resolve({ ...payload }));
   backend.listDashboardLogs.mockResolvedValue({ logs: [] });
 });
 
@@ -702,6 +708,75 @@ describe('SettingsPage builtin tools migration', () => {
 
     await waitFor(() => {
       expect(backend.writeBuiltinTool).toHaveBeenCalledWith({ cwd: '/repo/app', id: 'Read', enabled: true });
+    });
+  });
+});
+
+describe('SettingsPage MCP tool lifecycle controls', () => {
+  it('renders MCP tool lifecycle states from the current project', async () => {
+    backend.listMCPServers.mockResolvedValueOnce({ mcpServers: { lsp: { enabled: true }, sqlite: { enabled: true } } });
+    backend.listMCPToolLifecycleStates
+      .mockResolvedValueOnce([{ serverName: 'lsp', toolName: 'grep', state: 'active', reason: '' }])
+      .mockResolvedValueOnce([{ serverName: 'sqlite', toolName: 'query', lifecycleState: 'suspended', reason: 'no direct db reads' }]);
+
+    renderSettingsPage();
+
+    const card = await screen.findByTestId('settings-mcp-lifecycle-card');
+    await waitFor(() => {
+      expect(backend.listMCPToolLifecycleStates).toHaveBeenCalledWith({ workspaceRoot: '/repo/app', serverName: 'lsp' });
+      expect(backend.listMCPToolLifecycleStates).toHaveBeenCalledWith({ workspaceRoot: '/repo/app', serverName: 'sqlite' });
+      expect(screen.getByTestId('settings-mcp-lifecycle-summary')).toHaveTextContent('2 个工具');
+    });
+    expect(card).toHaveTextContent('lsp');
+    expect(card).toHaveTextContent('grep');
+    expect(card).toHaveTextContent('sqlite');
+    expect(card).toHaveTextContent('query');
+    expect(screen.getByTestId('settings-mcp-lifecycle-state-lsp-grep')).toHaveValue('active');
+    expect(screen.getByTestId('settings-mcp-lifecycle-state-sqlite-query')).toHaveValue('suspended');
+  });
+
+  it('switches an MCP tool lifecycle state through the backend facade', async () => {
+    backend.listMCPServers.mockResolvedValueOnce({ mcpServers: { lsp: { enabled: true } } });
+    backend.listMCPToolLifecycleStates.mockResolvedValueOnce([{ serverName: 'lsp', toolName: 'grep', state: 'active', reason: '' }]);
+    backend.upsertMCPToolLifecycleState.mockResolvedValueOnce({
+      serverName: 'lsp',
+      toolName: 'grep',
+      state: 'suspended',
+      reason: '',
+    });
+
+    renderSettingsPage();
+
+    const stateSelect = await screen.findByTestId('settings-mcp-lifecycle-state-lsp-grep');
+    fireEvent.change(stateSelect, { target: { value: 'suspended' } });
+
+    await waitFor(() => {
+      expect(backend.upsertMCPToolLifecycleState).toHaveBeenCalledWith({
+        workspaceRoot: '/repo/app',
+        serverName: 'lsp',
+        toolName: 'grep',
+        state: 'suspended',
+        reason: '',
+      });
+      expect(screen.getByTestId('settings-mcp-lifecycle-notice')).toHaveTextContent('已保存 lsp/grep 为 suspended');
+    });
+    expect(stateSelect).toHaveValue('suspended');
+  });
+
+  it('shows MCP tool lifecycle save errors and rolls back visible state', async () => {
+    backend.listMCPServers.mockResolvedValueOnce({ mcpServers: { lsp: { enabled: true } } });
+    backend.listMCPToolLifecycleStates.mockResolvedValueOnce([{ serverName: 'lsp', toolName: 'grep', state: 'active', reason: '' }]);
+    backend.upsertMCPToolLifecycleState.mockRejectedValueOnce(new Error('store unavailable'));
+
+    renderSettingsPage();
+
+    const stateSelect = await screen.findByTestId('settings-mcp-lifecycle-state-lsp-grep');
+    fireEvent.change(stateSelect, { target: { value: 'removed' } });
+
+    await waitFor(() => {
+      expect(screen.getByTestId('settings-mcp-lifecycle-notice')).toHaveTextContent('保存 MCP 工具生命周期失败：store unavailable');
+      expect(screen.getByTestId('settings-mcp-lifecycle-notice')).toHaveAttribute('role', 'alert');
+      expect(stateSelect).toHaveValue('active');
     });
   });
 });

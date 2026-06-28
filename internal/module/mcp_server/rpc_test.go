@@ -4,8 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"path/filepath"
+	"strings"
 	"testing"
 
+	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
 	platformrpc "github.com/anthropic-ai/super-agent-v3/internal/platform/rpc"
 )
@@ -177,6 +179,111 @@ func TestToolsRPCDoesNotExposeToolLifecycleFields(t *testing.T) {
 	assertNoLifecycleJSONFields(t, "mcpServer/tools tool", tools[0])
 }
 
+func TestLifecycleRPCUpsertGetAndList(t *testing.T) {
+	project := t.TempDir()
+	t.Chdir(project)
+	configStore := newMemoryMCPServerStore()
+	lifecycleStore := newMemoryMCPToolLifecycleStore()
+	configStore.seed(project, "my-search", ServerConfig{
+		Transport: "http",
+		URL:       "https://example.com/mcp",
+	})
+	server := newMCPServerLifecycleTestServer(configStore, lifecycleStore)
+
+	upserted := dispatchLifecycleRecord(t, server, "mcpServer/toolLifecycle/upsert", map[string]any{
+		"workspaceRoot": project,
+		"serverName":    "my-search",
+		"toolName":      "remote_search",
+		"state":         "suspended",
+		"reason":        " operator pause ",
+	})
+	assertUserLifecycleRecord(t, upserted, "remote_search", contract.MCPToolLifecycleStateSuspended, "operator pause")
+
+	dispatchLifecycleRecord(t, server, "mcpServer/toolLifecycle/upsert", map[string]any{
+		"workspaceRoot": project,
+		"serverName":    "my-search",
+		"toolName":      "remote_inspect",
+		"state":         "active",
+	})
+
+	got := dispatchLifecycleRecord(t, server, "mcpServer/toolLifecycle/get", map[string]any{
+		"workspaceRoot": project,
+		"serverName":    "my-search",
+		"toolName":      "remote_search",
+	})
+	assertUserLifecycleRecord(t, got, "remote_search", contract.MCPToolLifecycleStateSuspended, "operator pause")
+
+	listed := dispatchLifecycleRecords(t, server, "mcpServer/toolLifecycle/list", map[string]any{
+		"workspaceRoot": project,
+		"serverName":    "my-search",
+	})
+	assertLifecycleToolNames(t, listed, []string{"remote_inspect", "remote_search"})
+}
+
+func TestLifecycleRPCRejectsInvalidPayloads(t *testing.T) {
+	project := t.TempDir()
+	t.Chdir(project)
+	configStore := newMemoryMCPServerStore()
+	configStore.seed(project, "my-search", ServerConfig{
+		Transport: "http",
+		URL:       "https://example.com/mcp",
+	})
+	server := newMCPServerLifecycleTestServer(configStore, newMemoryMCPToolLifecycleStore())
+	tests := []struct {
+		name    string
+		method  string
+		payload map[string]any
+		wantErr string
+	}{
+		{
+			name:   "list missing workspace",
+			method: "mcpServer/toolLifecycle/list",
+			payload: map[string]any{
+				"serverName": "my-search",
+			},
+			wantErr: "workspaceRoot is required",
+		},
+		{
+			name:   "get missing tool",
+			method: "mcpServer/toolLifecycle/get",
+			payload: map[string]any{
+				"workspaceRoot": project,
+				"serverName":    "my-search",
+			},
+			wantErr: "tool name is required",
+		},
+		{
+			name:   "upsert invalid state",
+			method: "mcpServer/toolLifecycle/upsert",
+			payload: map[string]any{
+				"workspaceRoot": project,
+				"serverName":    "my-search",
+				"toolName":      "remote_search",
+				"state":         "paused",
+			},
+			wantErr: "invalid lifecycle state",
+		},
+		{
+			name:   "upsert missing server",
+			method: "mcpServer/toolLifecycle/upsert",
+			payload: map[string]any{
+				"workspaceRoot": project,
+				"toolName":      "remote_search",
+				"state":         "active",
+			},
+			wantErr: "server name is required",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := server.Dispatch(context.Background(), tt.method, mustMarshalLifecyclePayload(t, tt.payload))
+			if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
+				t.Fatalf("Dispatch(%s) error = %v, want %q", tt.method, err, tt.wantErr)
+			}
+		})
+	}
+}
+
 func TestStartPostgresRPCCreatesDefaultStdioConfig(t *testing.T) {
 	project := t.TempDir()
 	t.Chdir(project)
@@ -341,6 +448,95 @@ func newMCPServerTestServerWithHTTPClient(store MCPServerConfigStore, client mcp
 	server := platformrpc.NewServer(platformrpc.Params{Config: &platformconfig.Config{RPCAddr: "127.0.0.1:0"}})
 	server.Register(NewHandlers(svc).Handlers)
 	return server
+}
+
+func newMCPServerLifecycleTestServer(
+	configStore MCPServerConfigStore,
+	lifecycleStore contract.MCPToolLifecycleStore,
+) *platformrpc.Server {
+	svc := newServiceWithStoresInstallerAndSQLitePath(
+		configStore,
+		lifecycleStore,
+		&recordingPostgresInstaller{},
+		"",
+	)
+	server := platformrpc.NewServer(platformrpc.Params{Config: &platformconfig.Config{RPCAddr: "127.0.0.1:0"}})
+	server.Register(NewHandlers(svc).Handlers)
+	return server
+}
+
+func dispatchLifecycleRecord(
+	t *testing.T,
+	server *platformrpc.Server,
+	method string,
+	payload map[string]any,
+) contract.MCPToolLifecycleRecord {
+	t.Helper()
+	raw, err := server.Dispatch(context.Background(), method, mustMarshalLifecyclePayload(t, payload))
+	if err != nil {
+		t.Fatalf("Dispatch %s: %v", method, err)
+	}
+	var record contract.MCPToolLifecycleRecord
+	if err := json.Unmarshal(raw, &record); err != nil {
+		t.Fatalf("unmarshal %s response: %v", method, err)
+	}
+	return record
+}
+
+func dispatchLifecycleRecords(
+	t *testing.T,
+	server *platformrpc.Server,
+	method string,
+	payload map[string]any,
+) []contract.MCPToolLifecycleRecord {
+	t.Helper()
+	raw, err := server.Dispatch(context.Background(), method, mustMarshalLifecyclePayload(t, payload))
+	if err != nil {
+		t.Fatalf("Dispatch %s: %v", method, err)
+	}
+	var records []contract.MCPToolLifecycleRecord
+	if err := json.Unmarshal(raw, &records); err != nil {
+		t.Fatalf("unmarshal %s response: %v", method, err)
+	}
+	return records
+}
+
+func assertUserLifecycleRecord(
+	t *testing.T,
+	record contract.MCPToolLifecycleRecord,
+	toolName string,
+	state contract.MCPToolLifecycleState,
+	reason string,
+) {
+	t.Helper()
+	if record.ToolName != toolName || record.State != state || record.Source != contract.MCPToolLifecycleSourceUser {
+		t.Fatalf("lifecycle record = %+v, want %s %s from user", record, toolName, state)
+	}
+	if record.Reason != reason || record.UpdatedBy != "user" {
+		t.Fatalf("lifecycle record = %+v, want reason=%q updatedBy=user", record, reason)
+	}
+}
+
+func assertLifecycleToolNames(t *testing.T, records []contract.MCPToolLifecycleRecord, want []string) {
+	t.Helper()
+	gotTools := lifecycleToolNames(records)
+	if len(gotTools) != len(want) {
+		t.Fatalf("listed lifecycle tools = %v, want %v", gotTools, want)
+	}
+	for i := range want {
+		if gotTools[i] != want[i] {
+			t.Fatalf("listed lifecycle tools = %v, want %v", gotTools, want)
+		}
+	}
+}
+
+func mustMarshalLifecyclePayload(t *testing.T, payload map[string]any) json.RawMessage {
+	t.Helper()
+	raw, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatalf("marshal lifecycle payload: %v", err)
+	}
+	return raw
 }
 
 func assertNoLifecycleJSONFields(t *testing.T, scope string, fields map[string]json.RawMessage) {
