@@ -281,7 +281,7 @@ internal/module/prompt/agent_assembler.go	internal	modules	go-source	3858	prompt
 internal/module/prompt/assembler_shard11_helpers_test.go	internal	modules	go-test	8220	prompt 模板、启用条件、system prompt 组装	internal,module,prompt,assembler,shard11,helpers,test,模板,启用条件,system,组装
 internal/module/prompt/assembler_support.go	internal	modules	go-source	7473	prompt 模板、启用条件、system prompt 组装	internal,module,prompt,assembler,support,模板,启用条件,system,组装
 internal/module/prompt/assembler_test.go	internal	modules	go-test	21328	prompt 模板、启用条件、system prompt 组装	internal,module,prompt,assembler,test,模板,启用条件,system,组装
-internal/module/prompt/assembler.go	internal	modules	go-source	19892	prompt 模板、启用条件、system prompt 组装	internal,module,prompt,assembler,模板,启用条件,system,组装
+internal/module/prompt/assembler.go	internal	modules	go-source	18584	prompt 模板、启用条件、system prompt 组装	internal,module,prompt,assembler,模板,启用条件,system,组装
 internal/module/prompt/boundary_invariants_test.go	internal	modules	go-test	4442	prompt 模板、启用条件、system prompt 组装	internal,module,prompt,boundary,invariants,test,模板,启用条件,system,组装
 internal/module/prompt/brief_provider.go	internal	modules	go-source	4587	prompt 模板、启用条件、system prompt 组装	internal,module,prompt,brief,provider,模板,启用条件,system,组装
 internal/module/prompt/buildctx_test.go	internal	modules	go-test	5055	prompt 模板、启用条件、system prompt 组装	internal,module,prompt,buildctx,test,模板,启用条件,system,组装
@@ -339,7 +339,7 @@ internal/module/prompt/output_style_provider.go	internal	modules	go-source	2594	
 internal/module/prompt/phase2_3a_invalidate_assemble_race_test.go	internal	modules	go-test	10900	prompt 模板、启用条件、system prompt 组装	internal,module,prompt,phase2,3a,invalidate,assemble,race,test,模板,启用条件,system,组装
 internal/module/prompt/phasef_providers_test.go	internal	modules	go-test	15821	prompt 模板、启用条件、system prompt 组装	internal,module,prompt,phasef,providers,test,模板,启用条件,system,组装
 internal/module/prompt/phaseg_stub_sections_test.go	internal	modules	go-test	4035	prompt 模板、启用条件、system prompt 组装	internal,module,prompt,phaseg,stub,sections,test,模板,启用条件,system,组装
-internal/module/prompt/prefix_shape_test.go	internal	modules	go-test	2759	prompt 模板、启用条件、system prompt 组装	internal,module,prompt,prefix,shape,test,模板,启用条件,system,组装
+internal/module/prompt/prefix_shape_test.go	internal	modules	go-test	3459	prompt 模板、启用条件、system prompt 组装	internal,module,prompt,prefix,shape,test,模板,启用条件,system,组装
 internal/module/prompt/prompt_hint_test.go	internal	modules	go-test	4082	prompt 模板、启用条件、system prompt 组装	internal,module,prompt,hint,test,模板,启用条件,system,组装
 internal/module/prompt/prompt_hint.go	internal	modules	go-source	2587	prompt 模板、启用条件、system prompt 组装	internal,module,prompt,hint,模板,启用条件,system,组装
 internal/module/prompt/registry_test.go	internal	modules	go-test	1101	prompt 模板、启用条件、system prompt 组装	internal,module,prompt,registry,test,模板,启用条件,system,组装
@@ -486,7 +486,7 @@ internal/module/thread/compact_event_test.go	internal	modules	go-test	3012	threa
 internal/module/thread/config_offline_shard03_test.go	internal	modules	go-test	10729	thread start/resume/fork/stop 生命周期与绑定真相源	internal,module,thread,config,offline,shard03,test,start,resume,fork,stop,生命周期与绑定真相源
 internal/module/thread/config_offline_test.go	internal	modules	go-test	14497	thread start/resume/fork/stop 生命周期与绑定真相源	internal,module,thread,config,offline,test,start,resume,fork,stop,生命周期与绑定真相源
 internal/module/thread/config_set_test.go	internal	modules	go-test	17063	thread start/resume/fork/stop 生命周期与绑定真相源	internal,module,thread,config,set,test,start,resume,fork,stop,生命周期与绑定真相源
-internal/module/thread/contract_adapter.go	internal	modules	go-source	16859	thread start/resume/fork/stop 生命周期与绑定真相源	internal,module,thread,contract,adapter,start,resume,fork,stop,生命周期与绑定真相源
+internal/module/thread/contract_adapter.go	internal	modules	go-source	17393	thread start/resume/fork/stop 生命周期与绑定真相源	internal,module,thread,contract,adapter,start,resume,fork,stop,生命周期与绑定真相源
 internal/module/thread/contract.go	internal	modules	go-source	9832	thread start/resume/fork/stop 生命周期与绑定真相源	internal,module,thread,contract,start,resume,fork,stop,生命周期与绑定真相源
 internal/module/thread/event_publish.go	internal	modules	go-source	5249	thread start/resume/fork/stop 生命周期与绑定真相源	internal,module,thread,event,publish,start,resume,fork,stop,生命周期与绑定真相源
 internal/module/thread/events_test.go	internal	modules	go-test	13323	thread start/resume/fork/stop 生命周期与绑定真相源	internal,module,thread,events,test,start,resume,fork,stop,生命周期与绑定真相源
@@ -540,7 +540,7 @@ internal/module/thread/rpc_config_test.go	internal	modules	go-test	1788	thread s
 internal/module/thread/rpc_fork_kickoff_l07_test.go	internal	modules	go-test	934	thread start/resume/fork/stop 生命周期与绑定真相源	internal,module,thread,rpc,fork,kickoff,l07,test,start,resume,stop,生命周期与绑定真相源
 internal/module/thread/rpc_types_test.go	internal	modules	go-test	18713	thread start/resume/fork/stop 生命周期与绑定真相源	internal,module,thread,rpc,types,test,start,resume,fork,stop,生命周期与绑定真相源
 internal/module/thread/rpc_types.go	internal	modules	go-source	22109	thread start/resume/fork/stop 生命周期与绑定真相源	internal,module,thread,rpc,types,start,resume,fork,stop,生命周期与绑定真相源
-internal/module/thread/rpc.go	internal	modules	go-source	20455	thread start/resume/fork/stop 生命周期与绑定真相源	internal,module,thread,rpc,start,resume,fork,stop,生命周期与绑定真相源
+internal/module/thread/rpc.go	internal	modules	go-source	21163	thread start/resume/fork/stop 生命周期与绑定真相源	internal,module,thread,rpc,start,resume,fork,stop,生命周期与绑定真相源
 internal/module/thread/runtime_chain_test.go	internal	modules	go-test	7407	thread start/resume/fork/stop 生命周期与绑定真相源	internal,module,thread,runtime,chain,test,start,resume,fork,stop,生命周期与绑定真相源
 internal/module/thread/runtime_prompt_catalog_test.go	internal	modules	go-test	3395	thread start/resume/fork/stop 生命周期与绑定真相源	internal,module,thread,runtime,prompt,catalog,test,start,resume,fork,stop,生命周期与绑定真相源
 internal/module/thread/scratchpad.go	internal	modules	go-source	4422	thread start/resume/fork/stop 生命周期与绑定真相源	internal,module,thread,scratchpad,start,resume,fork,stop,生命周期与绑定真相源
@@ -548,8 +548,8 @@ internal/module/thread/service_constructor.go	internal	modules	go-source	5458	th
 internal/module/thread/service_handlers_test.go	internal	modules	go-test	22054	thread start/resume/fork/stop 生命周期与绑定真相源	internal,module,thread,service,handlers,test,start,resume,fork,stop,生命周期与绑定真相源
 internal/module/thread/service_test.go	internal	modules	go-test	7369	thread start/resume/fork/stop 生命周期与绑定真相源	internal,module,thread,service,test,start,resume,fork,stop,生命周期与绑定真相源
 internal/module/thread/service.go	internal	modules	go-source	19431	thread start/resume/fork/stop 生命周期与绑定真相源	internal,module,thread,service,start,resume,fork,stop,生命周期与绑定真相源
-internal/module/thread/session_ports_rpc_test.go	internal	modules	go-test	4697	thread start/resume/fork/stop 生命周期与绑定真相源	internal,module,thread,session,ports,rpc,test,start,resume,fork,stop,生命周期与绑定真相源
-internal/module/thread/session_ports_test.go	internal	modules	go-test	10195	thread start/resume/fork/stop 生命周期与绑定真相源	internal,module,thread,session,ports,test,start,resume,fork,stop,生命周期与绑定真相源
+internal/module/thread/session_ports_rpc_test.go	internal	modules	go-test	9278	thread start/resume/fork/stop 生命周期与绑定真相源	internal,module,thread,session,ports,rpc,test,start,resume,fork,stop,生命周期与绑定真相源
+internal/module/thread/session_ports_test.go	internal	modules	go-test	11954	thread start/resume/fork/stop 生命周期与绑定真相源	internal,module,thread,session,ports,test,start,resume,fork,stop,生命周期与绑定真相源
 internal/module/thread/session_recovery_worker_test.go	internal	modules	go-test	8814	thread start/resume/fork/stop 生命周期与绑定真相源	internal,module,thread,session,recovery,worker,test,start,resume,fork,stop,生命周期与绑定真相源
 internal/module/thread/session_recovery_worker.go	internal	modules	go-source	6103	thread start/resume/fork/stop 生命周期与绑定真相源	internal,module,thread,session,recovery,worker,start,resume,fork,stop,生命周期与绑定真相源
 internal/module/thread/spawn_test.go	internal	modules	go-test	22739	thread start/resume/fork/stop 生命周期与绑定真相源	internal,module,thread,spawn,test,start,resume,fork,stop,生命周期与绑定真相源

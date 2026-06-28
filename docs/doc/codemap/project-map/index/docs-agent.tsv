@@ -945,8 +945,8 @@ path	module	domain	type	size_bytes	purpose	search_keys
 .agents/skills/请求代码审查/code-reviewer.md	.agents	docs-agent	doc	3462	Codex/agent mirror 入口	agents,skills,请求代码审查,code,reviewer,Codex,agent,mirror,入口
 .agents/skills/请求代码审查/SKILL.md	.agents	docs-agent	doc	3515	Codex/agent mirror 入口	agents,skills,请求代码审查,SKILL,Codex,agent,mirror,入口
 .agents/skills/调度并行代理/SKILL.md	.agents	docs-agent	doc	7503	Codex/agent mirror 入口	agents,skills,调度并行代理,SKILL,Codex,agent,mirror,入口
-AGENTS.md	(root)	docs-agent	doc	10729	仓库根级配置、入口或说明文件	AGENTS,仓库根级配置,入口或说明文件
-CLAUDE.md	(root)	docs-agent	doc	10458	仓库根级配置、入口或说明文件	CLAUDE,仓库根级配置,入口或说明文件
+AGENTS.md	(root)	docs-agent	doc	11864	仓库根级配置、入口或说明文件	AGENTS,仓库根级配置,入口或说明文件
+CLAUDE.md	(root)	docs-agent	doc	12064	仓库根级配置、入口或说明文件	CLAUDE,仓库根级配置,入口或说明文件
 docs/.DS_Store	docs	docs-agent	file	24580	项目文档体系	docs,项目文档体系
 docs/adr/0001-workflow-runtime-kernel.md	docs	docs-agent	doc	2538	架构决策记录	docs,adr,0001,workflow,runtime,kernel,架构决策记录
 docs/adr/0002-session-ports-and-prefix-stability.md	docs	docs-agent	doc	1701	架构决策记录	docs,adr,0002,session,ports,and,prefix,stability,架构决策记录
@@ -1279,11 +1279,13 @@ docs/doc/codemap/README.md	docs	docs-agent	doc	3030	手写代码地图卷与自�
 docs/internal-notes/lsp提示词英文版.md	docs	docs-agent	doc	2432	内部提示词与工程方法记录	docs,internal,notes,lsp提示词英文版,内部提示词与工程方法记录
 docs/internal-notes/LSP系统提示词.md	docs	docs-agent	doc	2372	内部提示词与工程方法记录	docs,internal,notes,LSP系统提示词,内部提示词与工程方法记录
 docs/li/.DS_Store	docs	docs-agent	file	6148	项目文档体系	docs,li,项目文档体系
-docs/li/2026-06-27-reasonix-architecture-absorption-plan.md	docs	docs-agent	doc	65302	项目文档体系	docs,li,2026,06,27,reasonix,architecture,absorption,plan,项目文档体系
-docs/li/reasonix-absorption-docs-closure-2026-06-28.md	docs	docs-agent	doc	3386	项目文档体系	docs,li,reasonix,absorption,closure,2026,06,28,项目文档体系
+docs/li/2026-06-27-reasonix-architecture-absorption-plan.md	docs	docs-agent	doc	65788	项目文档体系	docs,li,2026,06,27,reasonix,architecture,absorption,plan,项目文档体系
+docs/li/mcp-tool-lifecycle-execution-plan-2026-06-28.md	docs	docs-agent	doc	3923	项目文档体系	docs,li,mcp,tool,lifecycle,execution,plan,2026,06,28,项目文档体系
+docs/li/reasonix-absorption-docs-closure-2026-06-28.md	docs	docs-agent	doc	3653	项目文档体系	docs,li,reasonix,absorption,closure,2026,06,28,项目文档体系
 docs/li/reasonix-absorption-spikes/event-wire-methods.md	docs	docs-agent	doc	1078	项目文档体系	docs,li,reasonix,absorption,spikes,event,wire,methods,项目文档体系
 docs/li/reasonix-absorption-spikes/mcp-tool-lifecycle.md	docs	docs-agent	doc	784	项目文档体系	docs,li,reasonix,absorption,spikes,mcp,tool,lifecycle,项目文档体系
 docs/li/reasonix-absorption-spikes/prompt-prefix-shape.md	docs	docs-agent	doc	628	项目文档体系	docs,li,reasonix,absorption,spikes,prompt,prefix,shape,项目文档体系
+docs/li/reasonix-remaining-execution-closure-2026-06-28.md	docs	docs-agent	doc	12076	项目文档体系	docs,li,reasonix,remaining,execution,closure,2026,06,28,项目文档体系
 docs/plans/.DS_Store	docs	docs-agent	file	14340	历史计划与迁移执行文档	docs,plans,历史计划与迁移执行文档
 docs/plans/2026-03-19-framework-selection.md	docs	docs-agent	doc	11224	历史计划与迁移执行文档	docs,plans,2026,03,19,framework,selection,历史计划与迁移执行文档
 docs/plans/2026-03-19-jrpc2-framework.md	docs	docs-agent	doc	14181	历史计划与迁移执行文档	docs,plans,2026,03,19,jrpc2,framework,历史计划与迁移执行文档
@@ -1738,7 +1740,7 @@ docs/调研/context-window/raw-cursor-windsurf.md	docs	docs-agent	doc	9894	项�
 docs/调研/context-window/raw-gemini-cli.md	docs	docs-agent	doc	11656	项目文档体系	docs,调研,context,window,raw,gemini,cli,项目文档体系
 docs/调研/context-window/raw-openai-codex.md	docs	docs-agent	doc	10391	项目文档体系	docs,调研,context,window,raw,openai,codex,项目文档体系
 docs/调研/context-window/raw-opensource-agents.md	docs	docs-agent	doc	17535	项目文档体系	docs,调研,context,window,raw,opensource,agents,项目文档体系
-docs/调研/context-window/上下文窗口去硬编码调研.md	docs	docs-agent	doc	21665	项目文档体系	docs,调研,context,window,上下文窗口去硬编码调研,项目文档体系
+docs/调研/context-window/上下文窗口去硬编码调研.md	docs	docs-agent	doc	21821	项目文档体系	docs,调研,context,window,上下文窗口去硬编码调研,项目文档体系
 docs/迁移/.DS_Store	docs	docs-agent	file	10244	项目文档体系	docs,迁移,项目文档体系
 docs/迁移/契约/stateless-convention.md	docs	docs-agent	doc	4071	项目文档体系	docs,迁移,契约,stateless,convention,项目文档体系
 docs/面试试题.md	docs	docs-agent	doc	7567	项目文档体系	docs,面试试题,项目文档体系

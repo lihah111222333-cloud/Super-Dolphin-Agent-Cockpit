@@ -90,6 +90,7 @@
 - 当平台原生子代理或多代理能力是可用或被请求的执行路径时，直接使用该能力。
 - 只有当任务明确需要持久 DAG 状态、重试和租约语义、cron/wakeup 行为或结构化跨代理交接记录时，才使用 `mcp-orch`。
 - 如果 `mcp-orch` 工具不可用，应根据情况继续使用原生子代理或单会话执行，并报告可观测性降低，而不是仅因缺少编排工具而阻塞。
+- Validator markers: 子代理不强制绑定 `mcp-go-agent-orchestration`；原生子代理/多代理能力可直接使用；可选使用 `task_create_dag` 仅限需要持久编排记录的任务。
 - Validator markers: sub-agents are not required to bind their lifecycle to `mcp-orch`; native sub-agent or multi-agent capability may be used directly; Use `mcp-orch` only when persistent orchestration records are needed.
 
 

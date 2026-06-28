@@ -1299,7 +1299,7 @@ describe('development Wails runtime shim events', () => {
     const runtime = await importFreshDevRuntimeShim();
     const received = [];
 
-    runtime.Events.On('agent-event', (event) => received.push(event));
+    runtime.Events.On('bridge-event', (event) => received.push(event));
     expect(sockets).toHaveLength(1);
     sockets[0].open();
     sockets[0].emit('thread/messages', { threadId: 'thread-1', text: 'before reconnect' });

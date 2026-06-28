@@ -2,7 +2,7 @@
 
 > 生成时间：2026-06-27
 >
-> 已索引文件：**5289**
+> 已索引文件：**5292**
 >
 > 漂移状态：**OK**（详见 `docs/doc/codemap/project-map/AI_PROJECT_DRIFT.md`）
 
@@ -26,8 +26,8 @@ Super-Dolphin / super-agent-v3 是一个本地多 Agent 桌面应用与 MCP peer
 | `docs/doc/codemap/project-map/index/modules.tsv` | 703 | 业务模块层：dashboard、memory、prompt、skill、thread、turn、uistate 等 |
 | `docs/doc/codemap/project-map/index/platform-provider.tsv` | 896 | 基础设施与 provider 集成：RPC、hooks、toolbridge、Claude/Codex/统一 provider |
 | `docs/doc/codemap/project-map/index/store-sql.tsv` | 301 | 持久化层：store、sqlc、SQL queries、migrations |
-| `docs/doc/codemap/project-map/index/docs-agent.tsv` | 1743 | 代码地图、ADR/决策、计划、agent skills/workflows 与项目知识 |
-| `docs/doc/codemap/project-map/index/other.tsv` | 872 | 公共库、脚本、测试、配置与其他根级资源 |
+| `docs/doc/codemap/project-map/index/docs-agent.tsv` | 1745 | 代码地图、ADR/决策、计划、agent skills/workflows 与项目知识 |
+| `docs/doc/codemap/project-map/index/other.tsv` | 873 | 公共库、脚本、测试、配置与其他根级资源 |
 
 每个 TSV 字段为：`path`、`module`、`domain`、`type`、`size_bytes`、`purpose`、`search_keys`。
 
@@ -35,8 +35,8 @@ Super-Dolphin / super-agent-v3 是一个本地多 Agent 桌面应用与 MCP peer
 
 | 模块 | 文件数 | 职责 |
 |---|---:|---|
-| `internal` | 1845 | 应用内部模块、平台、provider、store 与守卫 |
-| `docs` | 795 | 代码地图、ADR、计划、迁移和内部说明 |
+| `internal` | 1846 | 应用内部模块、平台、provider、store 与守卫 |
+| `docs` | 797 | 代码地图、ADR、计划、迁移和内部说明 |
 | `cmd` | 714 | 可执行入口与 MCP peer |
 | `.agent` | 494 | 项目级 agent 技能与工作流 canonical |
 | `.agents` | 452 | agent/Codex mirror 入口 |
@@ -46,7 +46,7 @@ Super-Dolphin / super-agent-v3 是一个本地多 Agent 桌面应用与 MCP peer
 | `migrations` | 111 | 数据库 migration |
 | `scripts` | 95 | 工程自动化脚本 |
 | `sql` | 29 | SQL query 源文件 |
-| `(root)` | 25 | 仓库根级配置和说明 |
+| `(root)` | 26 | 仓库根级配置和说明 |
 | `pkg` | 24 | 可复用公共库 |
 | `test` | 9 | 测试夹具和辅助资源 |
 | `third_party` | 9 | 其他项目资源 |
@@ -55,7 +55,6 @@ Super-Dolphin / super-agent-v3 是一个本地多 Agent 桌面应用与 MCP peer
 | `.github` | 2 | GitHub 配置 |
 | `ai04-docs` | 2 | 其他项目资源 |
 | `filebeat` | 1 | 其他项目资源 |
-| `frontend` | 1 | 其他项目资源 |
 | `tests` | 1 | 跨包测试资源 |
 
 ## 4. 快速定位路由
