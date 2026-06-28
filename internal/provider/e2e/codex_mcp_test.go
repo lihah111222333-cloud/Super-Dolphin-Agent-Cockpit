@@ -124,16 +124,20 @@ func TestCodexStartSession_InjectsHostMemoryReadAndFiltersPeerMemoryRead_E2E(t *
 func newCodexMemoryReadToolBridgeHandler(t *testing.T) *toolbridge.Handler {
 	t.Helper()
 	var handler *toolbridge.Handler
+	projectRoot := t.TempDir()
 	app := fx.New(
 		fx.NopLogger,
 		fx.Supply(newCodexToolBridgeRegistry()),
 		fx.Provide(func(reg codexToolBridgeRegistry) *toolbridge.Handler {
-			return toolbridge.NewHandlerForTesting(reg, toolbridge.NewCompositeHostToolRegistry(
+			return toolbridge.NewHandlerForTestingWithLifecycle(reg, toolbridge.NewCompositeHostToolRegistry(
 				toolbridge.NewMemoryReadHostToolRegistry(
 					&codexMemoryReaderStub{enabled: true, toolsEnabled: true},
 					toolbridge.MemoryReadHostToolOptions{Enabled: true, ToolsEnabled: true},
 				),
-			))
+			), codexActiveLifecycleReader(projectRoot, map[string][]string{
+				mcpdto.ClientKindOrch: {"orchestration_launch_agent"},
+				mcpdto.ClientKindLSP:  {"lsp_hover"},
+			}), projectRoot)
 		}),
 		fx.Populate(&handler),
 	)
@@ -166,6 +170,54 @@ func newCodexToolBridgeRegistry() codexToolBridgeRegistry {
 			})),
 		},
 	}}
+}
+
+type codexLifecycleReaderStub struct {
+	records map[contract.MCPToolLifecycleKey]contract.MCPToolLifecycleRecord
+}
+
+func codexActiveLifecycleReader(projectRoot string, tools map[string][]string) *codexLifecycleReaderStub {
+	records := make(map[contract.MCPToolLifecycleKey]contract.MCPToolLifecycleRecord)
+	for serverName, toolNames := range tools {
+		for _, toolName := range toolNames {
+			key := contract.MCPToolLifecycleKey{
+				WorkspaceRoot: projectRoot,
+				ServerName:    serverName,
+				ToolName:      toolName,
+			}
+			records[key] = contract.MCPToolLifecycleRecord{
+				WorkspaceRoot: projectRoot,
+				ServerName:    serverName,
+				ToolName:      toolName,
+				State:         contract.MCPToolLifecycleStateActive,
+			}
+		}
+	}
+	return &codexLifecycleReaderStub{records: records}
+}
+
+func (r *codexLifecycleReaderStub) GetMCPToolLifecycleState(
+	_ context.Context,
+	key contract.MCPToolLifecycleKey,
+) (contract.MCPToolLifecycleRecord, error) {
+	record, ok := r.records[key]
+	if !ok {
+		return contract.MCPToolLifecycleRecord{}, contract.ErrNotFound
+	}
+	return record, nil
+}
+
+func (r *codexLifecycleReaderStub) ListMCPToolLifecycleStates(
+	_ context.Context,
+	params contract.MCPToolLifecycleListParams,
+) ([]contract.MCPToolLifecycleRecord, error) {
+	out := make([]contract.MCPToolLifecycleRecord, 0)
+	for _, record := range r.records {
+		if record.WorkspaceRoot == params.WorkspaceRoot && record.ServerName == params.ServerName {
+			out = append(out, record)
+		}
+	}
+	return out, nil
 }
 
 func TestCodexStartSession_PreservesUserConfigFields_E2E(t *testing.T) {

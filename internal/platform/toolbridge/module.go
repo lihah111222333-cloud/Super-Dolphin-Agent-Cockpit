@@ -137,6 +137,20 @@ func NewHandlerForTesting(registry activePeerRegistry, hostTools HostToolRegistr
 	return &Handler{registry: registry, hostTools: hostTools, logger: pkglogger.Get()}
 }
 
+// NewHandlerForTestingWithLifecycle 创建带 MCP lifecycle 读端口的测试 Handler。
+// 该入口只服务跨包测试，确保 managed peer 工具仍走与生产一致的 fail-closed 过滤。
+func NewHandlerForTestingWithLifecycle(
+	registry activePeerRegistry,
+	hostTools HostToolRegistry,
+	reader contract.MCPToolLifecycleReader,
+	projectRoot string,
+) *Handler {
+	h := NewHandlerForTesting(registry, hostTools)
+	h.toolLifecycleReader = reader
+	h.cfg = &platformconfig.Config{ProjectRoot: strings.TrimSpace(projectRoot)}
+	return h
+}
+
 // memoryReadHostToolOptions 从 reader 能力位生成 memory_read host tool 开关。
 func memoryReadHostToolOptions(reader contract.AgentMemoryReader) MemoryReadHostToolOptions {
 	if reader == nil {
