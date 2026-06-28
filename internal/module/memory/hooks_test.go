@@ -1,8 +1,10 @@
 package memory
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -177,6 +179,35 @@ func TestMemoryHookWorkerBackpressureAndStopReportsTimeout(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "backlog") {
 		t.Fatalf("Stop() error = %v, want backlog detail", err)
+	}
+}
+
+func TestMemoryHookWorkerBackpressureLogsDrop(t *testing.T) {
+	var logs bytes.Buffer
+	logger := slog.New(slog.NewTextHandler(&logs, &slog.HandlerOptions{Level: slog.LevelWarn}))
+	worker := newMemoryHookWorker(nil, logger)
+
+	for range memoryHookMaxQueue + 1 {
+		worker.Enqueue(memoryHookRequest{kind: memoryHookTurnCompleted})
+	}
+
+	if !worker.Degraded() {
+		t.Fatal("Degraded() = false, want true after queue backpressure")
+	}
+	if got := worker.droppedTotal.Load(); got != 1 {
+		t.Fatalf("droppedTotal = %d, want 1", got)
+	}
+	logText := logs.String()
+	for _, want := range []string{
+		"memory hook worker queue full",
+		"backlog=32",
+		"capacity=32",
+		"dropped_total=1",
+		"enqueued_total=33",
+	} {
+		if !strings.Contains(logText, want) {
+			t.Fatalf("backpressure log missing %q:\n%s", want, logText)
+		}
 	}
 }
 

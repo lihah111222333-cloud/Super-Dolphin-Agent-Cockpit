@@ -138,19 +138,46 @@ func (w *memoryHookWorker) Enqueue(req memoryHookRequest) {
 	default:
 	}
 	w.mu.Lock()
-	if len(w.queue) >= memoryHookMaxQueue {
-		w.queue = append(w.queue[1:], req)
-		w.droppedTotal.Add(1)
-		w.degraded.Store(true)
-	} else {
-		w.queue = append(w.queue, req)
-	}
+	dropTotal, backlog := w.enqueueLocked(req)
 	w.mu.Unlock()
-	w.enqueuedTotal.Add(1)
+	enqueuedTotal := w.enqueuedTotal.Add(1)
+	if shouldLogMemoryHookDrop(dropTotal) {
+		w.logQueueBackpressure(dropTotal, backlog, enqueuedTotal)
+	}
 	select {
 	case w.wake <- struct{}{}:
 	default:
 	}
+}
+
+// enqueueLocked 在持有 w.mu 时追加任务，队列满时压缩最旧事件并返回 drop 诊断。
+func (w *memoryHookWorker) enqueueLocked(req memoryHookRequest) (int64, int) {
+	if len(w.queue) < memoryHookMaxQueue {
+		w.queue = append(w.queue, req)
+		return 0, len(w.queue)
+	}
+	w.queue = append(w.queue[1:], req)
+	w.degraded.Store(true)
+	return w.droppedTotal.Add(1), len(w.queue)
+}
+
+func shouldLogMemoryHookDrop(dropTotal int64) bool {
+	return dropTotal == 1 || dropTotal%memoryHookMaxQueue == 0
+}
+
+// logQueueBackpressure 暴露 memory hook 队列压缩，避免后台记忆写入退化变成静默丢事件。
+func (w *memoryHookWorker) logQueueBackpressure(dropTotal int64, backlog int, enqueuedTotal int64) {
+	logger := w.logger
+	if logger == nil {
+		logger = pkglogger.Get()
+	}
+	logger.Warn("memory hook worker queue full; dropping oldest event",
+		"backlog", backlog,
+		"capacity", memoryHookMaxQueue,
+		"dropped_total", dropTotal,
+		"enqueued_total", enqueuedTotal,
+		"processed_total", w.processedTotal.Load(),
+	)
 }
 
 // Backlog 返回当前尚未处理的记忆 hook 数量，用于退出和诊断时暴露积压状态。

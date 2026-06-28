@@ -13,7 +13,10 @@ import (
 func TestNewWindowOptionsMatchesDesktopDefaults(t *testing.T) {
 	t.Parallel()
 
-	options := newWindowOptions("Super Dolphin", true, "main", "", "")
+	options, err := newWindowOptions("Super Dolphin", true, "main", "", "")
+	if err != nil {
+		t.Fatalf("newWindowOptions() error = %v", err)
+	}
 	if options.Title != "Super Dolphin" {
 		t.Fatalf("window title = %q, want Super Dolphin", options.Title)
 	}
@@ -31,39 +34,34 @@ func TestNewWindowOptionsMatchesDesktopDefaults(t *testing.T) {
 func TestWindowURLRejectsNonLoopbackFrontendDevServerURL(t *testing.T) {
 	t.Setenv("FRONTEND_DEVSERVER_URL", "https://example.com")
 
-	defer func() {
-		recovered := recover()
-		if recovered == nil {
-			t.Fatal("expected unsafe FRONTEND_DEVSERVER_URL to fail fast")
-		}
-		if !strings.Contains(recoveredMessage(recovered), "FRONTEND_DEVSERVER_URL") {
-			t.Fatalf("panic = %v, want FRONTEND_DEVSERVER_URL validation failure", recovered)
-		}
-	}()
-
-	_ = windowURL("", "")
+	_, err := windowURL("", "")
+	if err == nil {
+		t.Fatal("windowURL() error = nil, want unsafe FRONTEND_DEVSERVER_URL failure")
+	}
+	if !strings.Contains(err.Error(), "FRONTEND_DEVSERVER_URL") {
+		t.Fatalf("windowURL() error = %v, want FRONTEND_DEVSERVER_URL validation failure", err)
+	}
 }
 
 func TestWindowURLRejectsFrontendDevServerURLInProductionMode(t *testing.T) {
 	t.Setenv("FRONTEND_DEVSERVER_URL", "http://127.0.0.1:5175")
 
-	defer func() {
-		recovered := recover()
-		if recovered == nil {
-			t.Fatal("expected production window URL to reject dev server env")
-		}
-		if !strings.Contains(recoveredMessage(recovered), "production mode") {
-			t.Fatalf("panic = %v, want production mode validation failure", recovered)
-		}
-	}()
-
-	_ = windowURL("", "")
+	_, err := windowURL("", "")
+	if err == nil {
+		t.Fatal("windowURL() error = nil, want production mode dev server rejection")
+	}
+	if !strings.Contains(err.Error(), "production mode") {
+		t.Fatalf("windowURL() error = %v, want production mode validation failure", err)
+	}
 }
 
 func TestWindowURLAllowsLoopbackFrontendDevServerURLInDebugMode(t *testing.T) {
 	t.Setenv("FRONTEND_DEVSERVER_URL", "http://127.0.0.1:5175")
 
-	got := windowURLForMode(true, "boot", "/tmp/project")
+	got, err := windowURLForMode(true, "boot", "/tmp/project")
+	if err != nil {
+		t.Fatalf("windowURLForMode() error = %v", err)
+	}
 	parsed, err := url.Parse(got)
 	if err != nil {
 		t.Fatalf("parse window URL: %v", err)
