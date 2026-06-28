@@ -255,6 +255,16 @@ func TestBuildThreadStartParamsIgnoresPrefixShapeContent(t *testing.T) {
 		StartAssembly: dto.StartAssembly{
 			BaseInstructions:      "assembled base",
 			DeveloperInstructions: "assembled dev",
+			ResolvedSections: []dto.ResolvedPromptSection{
+				{Name: "identity", Content: "FORBIDDEN_SECTION_PROMPT"},
+			},
+			Snapshot: dto.PromptAssemblySnapshot{
+				BaseInstructions:      "FORBIDDEN_SNAPSHOT_BASE",
+				DeveloperInstructions: "FORBIDDEN_SNAPSHOT_DEVELOPER",
+				SectionSnapshot: map[string]string{
+					"identity": "FORBIDDEN_SNAPSHOT_SECTION",
+				},
+			},
 			PrefixShape: dto.PrefixShape{
 				Hash:                "shape-hash",
 				StaticSectionNames:  []string{"identity"},
@@ -270,6 +280,24 @@ func TestBuildThreadStartParamsIgnoresPrefixShapeContent(t *testing.T) {
 	}
 	if params.DeveloperInstructions != "assembled dev" {
 		t.Fatalf("DeveloperInstructions = %q, want assembled dev", params.DeveloperInstructions)
+	}
+	wire, err := json.Marshal(params)
+	if err != nil {
+		t.Fatalf("marshal thread start params: %v", err)
+	}
+	for _, forbidden := range []string{
+		"prefixShape",
+		"resolvedSections",
+		"snapshot",
+		"shape-hash",
+		"FORBIDDEN_SECTION_PROMPT",
+		"FORBIDDEN_SNAPSHOT_BASE",
+		"FORBIDDEN_SNAPSHOT_DEVELOPER",
+		"FORBIDDEN_SNAPSHOT_SECTION",
+	} {
+		if strings.Contains(string(wire), forbidden) {
+			t.Fatalf("thread/start wire leaked %q: %s", forbidden, wire)
+		}
 	}
 }
 
