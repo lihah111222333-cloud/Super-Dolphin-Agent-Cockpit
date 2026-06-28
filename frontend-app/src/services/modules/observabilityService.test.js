@@ -51,4 +51,22 @@ describe('observabilityService', () => {
       tailFilesScanned: 2,
     });
   });
+
+  it('preserves observability parse degradation from recent list responses', async () => {
+    listObservabilityRecentBackend.mockResolvedValue({
+      source: 'memory',
+      events: { bad: true },
+    });
+
+    await expect(listObservabilityRecent({ includeTail: true })).resolves.toMatchObject({
+      degraded: true,
+      parseError: expect.stringContaining('events must be an array'),
+      events: [
+        expect.objectContaining({
+          method: 'observability.events.invalid',
+          status: 'error',
+        }),
+      ],
+    });
+  });
 });

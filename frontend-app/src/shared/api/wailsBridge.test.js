@@ -694,6 +694,40 @@ describe('wails bridge event callbacks', () => {
       }),
     );
   });
+
+  it('emits an explicit parse failure event for malformed bridge event JSON', async () => {
+    let eventCallback = null;
+    const on = vi.fn((_eventName, callback) => {
+      eventCallback = callback;
+      return () => {};
+    });
+    vi.doMock(runtimeModule, () => ({
+      Call: { ByID: vi.fn() },
+      Events: { On: on },
+    }));
+    const { onBridgeEvent, registerBridgeLogStore } = await import('./wailsBridge.js');
+    const logs = captureBridgeLogs(registerBridgeLogStore);
+    const callback = vi.fn();
+
+    onBridgeEvent(callback);
+
+    await waitFor(() => expect(on).toHaveBeenCalledWith('bridge-event', expect.any(Function)));
+    eventCallback({
+      name: 'bridge-event',
+      data: '{"method":',
+    });
+
+    expect(callback).toHaveBeenCalledWith(expect.objectContaining({
+      method: 'bridge.event.parse_failed',
+      payload: expect.objectContaining({
+        eventName: 'bridge-event',
+        rawPreview: '{"method":',
+      }),
+    }));
+    expect(logs.find((entry) => entry.event === 'bridge.event.parse_failed')).toEqual(
+      expect.objectContaining({ level: 'error' }),
+    );
+  });
 });
 
 describe('wails bridge frontend trace emitter', () => {

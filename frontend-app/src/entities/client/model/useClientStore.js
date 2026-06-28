@@ -1756,6 +1756,7 @@ const baseState = {
   logLevel: resolveInitialLevel(),
   logEntries: [],
   actionNotice: null,
+  approvalSubmitByRequestId: {},
   smoothStreaming: false,
 };
 
@@ -2484,11 +2485,17 @@ function attachBridgeEventRuntime(runtime) {
     bridgeThreadIdForPayload,
   } = runtime;
 
-  const handleBridgeEvent = (evt) => {
-    const method = normalizeString(evt?.method || evt?.type);
-    const eventName = method.toLowerCase();
-    const payload = evt?.payload || evt?.params || evt?.data || {};
-    if (!method) return;
+    const handleBridgeEvent = (evt) => {
+      const method = normalizeString(evt?.method || evt?.type);
+      const eventName = method.toLowerCase();
+      const payload = evt?.payload || evt?.params || evt?.data || {};
+      if (!method) {
+        addWarning('error', 'bridge.event.method_missing', {
+          payload,
+          eventKeys: evt && typeof evt === 'object' ? Object.keys(evt) : [],
+        });
+        return;
+      }
 
     const revisionKey = bridgeRevisionKey(eventName, payload);
     if (revisionKey) {
@@ -2552,7 +2559,12 @@ function attachBridgeEventRuntime(runtime) {
       }
       return;
     }
-    if (eventName === 'rpc.failed' || eventName.endsWith('/failed') || eventName.endsWith('.failed')) {
+    if (
+      eventName === 'bridge.event.parse_failed' ||
+      eventName === 'rpc.failed' ||
+      eventName.endsWith('/failed') ||
+      eventName.endsWith('.failed')
+    ) {
       addWarning('error', method, payload);
     }
   };
@@ -3000,6 +3012,22 @@ function createActiveThreadActions(runtime) {
         });
         return false;
       }
+      const existingSubmit = runtime.get().approvalSubmitByRequestId?.[requestId];
+      if (existingSubmit?.inFlight) {
+        runtime.notifyAction('审批结果正在提交，请等待当前请求完成', 'warning', { requestId });
+        runtime.addWarning('warn', 'timeline.approval.respond_duplicate', { requestId, approved: decision });
+        return false;
+      }
+      runtime.set((state) => ({
+        approvalSubmitByRequestId: {
+          ...state.approvalSubmitByRequestId,
+          [requestId]: {
+            approved: decision,
+            inFlight: true,
+            startedAt: Date.now(),
+          },
+        },
+      }));
       try {
         const result = await respondApprovalRPC({ requestId, approved: decision });
         if (result?.ok === false) {
@@ -3015,6 +3043,15 @@ function createActiveThreadActions(runtime) {
         runtime.notifyAction(`审批提交失败：${message}`, 'error', { requestId });
         runtime.addWarning('error', 'timeline.approval.respond.failed', { requestId, approved: decision, error: message });
         return false;
+      }
+      finally {
+        runtime.set((state) => {
+          const current = state.approvalSubmitByRequestId || {};
+          if (!current[requestId]) return {};
+          const next = { ...current };
+          delete next[requestId];
+          return { approvalSubmitByRequestId: next };
+        });
       }
     },
 
