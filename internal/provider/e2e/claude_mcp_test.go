@@ -70,6 +70,7 @@ func claudeMCPManifestFixture() dto.MCPManifest {
 
 func assertClaudeMCPManifest(t *testing.T, raw []byte, doc claudeManifestFile) {
 	t.Helper()
+	assertNoLifecycleE2EJSONFields(t, "claude MCP manifest", raw)
 	if strings.Contains(string(raw), "env_vars") {
 		t.Fatalf("manifest = %s, got env_vars key", raw)
 	}

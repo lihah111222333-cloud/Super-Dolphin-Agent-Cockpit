@@ -229,6 +229,20 @@ func TestListServerToolsKeepsCompatibilityWhenLifecycleStoreMissing(t *testing.T
 	assertMCPToolNames(t, got.Tools, []string{"remote_search"})
 }
 
+func TestBackfillDiscoveredMCPToolLifecycleStatesFailsFastWhenLifecycleStoreMissing(t *testing.T) {
+	project := t.TempDir()
+	svc := NewServiceWithStore(seedMemoryConfigStore(project, "my-search"))
+
+	_, err := svc.BackfillDiscoveredMCPToolLifecycleStates(context.Background(), BackfillMCPToolLifecycleRequest{
+		WorkspaceRoot: project,
+		ServerName:    "my-search",
+		Tools:         []mcpdto.MCPTool{{Name: "remote_search"}},
+	})
+	if !errors.Is(err, errMCPToolLifecycleStoreMissing) {
+		t.Fatalf("BackfillDiscoveredMCPToolLifecycleStates() error = %v, want missing lifecycle store", err)
+	}
+}
+
 func TestBackfillDiscoveredMCPToolLifecycleStatesValidatesServerAndToolNames(t *testing.T) {
 	project := t.TempDir()
 	svc := NewServiceWithStores(seedMemoryConfigStore(project, "my-search"), newMemoryMCPToolLifecycleStore())
