@@ -2,6 +2,7 @@ package sharedfile
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -92,6 +93,10 @@ func (s *store) Upsert(ctx context.Context, params UpsertParams) (*SharedFile, e
 	if err != nil {
 		return nil, platformdb.WrapStoreError(err, "upsert", "shared_file")
 	}
+	previous, hadPrevious, previousErr := s.currentSharedFileIndex(ctx, cleaned)
+	if previousErr != nil {
+		return nil, platformdb.WrapStoreError(previousErr, "upsert", "shared_file")
+	}
 	dbContent, contentLocation, staged, writeErr := s.stageDiskAndDecideInline(cleaned, params.Content)
 	if writeErr != nil {
 		return nil, platformdb.WrapStoreError(writeErr, "upsert", "shared_file")
@@ -108,10 +113,8 @@ func (s *store) Upsert(ctx context.Context, params UpsertParams) (*SharedFile, e
 	if err != nil {
 		return nil, platformdb.WrapStoreError(err, "upsert", "shared_file")
 	}
-	if staged != nil {
-		if publishErr := staged.publish(); publishErr != nil {
-			return nil, platformdb.WrapStoreError(publishErr, "upsert", "shared_file")
-		}
+	if publishErr := s.publishStagedDiskWrite(ctx, cleaned, staged, previous, hadPrevious); publishErr != nil {
+		return nil, platformdb.WrapStoreError(publishErr, "upsert", "shared_file")
 	}
 	mapped := fromSQLCRow(row)
 	if mapped.Content == "" && len(params.Content) > 0 {
@@ -119,6 +122,55 @@ func (s *store) Upsert(ctx context.Context, params UpsertParams) (*SharedFile, e
 	}
 	s.publishSharedFilesChanged("write", mapped.Path)
 	return &mapped, nil
+}
+
+// publishStagedDiskWrite 在 DB upsert 成功后发布磁盘正文。
+// publish 失败会先回滚 DB 索引再返回错误，避免调用方看到半提交的 shared file。
+func (s *store) publishStagedDiskWrite(ctx context.Context, cleaned string, staged *stagedDiskWrite, previous sqlc.SharedFile, hadPrevious bool) error {
+	if staged == nil {
+		return nil
+	}
+	publishErr := staged.publish()
+	if publishErr == nil {
+		return nil
+	}
+	if rollbackErr := s.rollbackSharedFileIndex(ctx, cleaned, previous, hadPrevious); rollbackErr != nil {
+		return fmt.Errorf("%w; rollback shared file index failed: %v", publishErr, rollbackErr)
+	}
+	return publishErr
+}
+
+// currentSharedFileIndex 读取写入前的 DB 索引快照。
+// 只有 publish 失败需要用它回滚，缺行不是错误，其他 DB 错误必须阻断写入。
+func (s *store) currentSharedFileIndex(ctx context.Context, cleaned string) (sqlc.SharedFile, bool, error) {
+	row, err := s.q.GetSharedFile(ctx, sqlc.GetSharedFileParams{Path: cleaned})
+	if err == nil {
+		return row, true, nil
+	}
+	if errors.Is(err, platformdb.ErrNotFound) || errors.Is(err, sql.ErrNoRows) {
+		return sqlc.SharedFile{}, false, nil
+	}
+	return sqlc.SharedFile{}, false, err
+}
+
+// rollbackSharedFileIndex 撤销 publish 失败前已经提交的 DB 索引。
+// 这一步让调用方收到错误时不会留下“DB 指向新版本、磁盘仍是旧版本”的半提交状态。
+func (s *store) rollbackSharedFileIndex(ctx context.Context, cleaned string, previous sqlc.SharedFile, hadPrevious bool) error {
+	if !hadPrevious {
+		_, err := s.q.DeleteSharedFile(ctx, sqlc.DeleteSharedFileParams{Path: cleaned})
+		return err
+	}
+	path := strings.TrimSpace(previous.Path)
+	if path == "" {
+		path = cleaned
+	}
+	_, err := s.q.UpsertSharedFile(ctx, sqlc.UpsertSharedFileParams{
+		Path:            path,
+		Content:         previous.Content,
+		ContentLocation: previous.ContentLocation,
+		UpdatedBy:       previous.UpdatedBy,
+	})
+	return err
 }
 
 // Delete 删除指定路径的 shared file。
