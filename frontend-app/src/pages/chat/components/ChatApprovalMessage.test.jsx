@@ -74,7 +74,7 @@ describe('ChatApprovalMessage bug-locking', () => {
     expect(screen.getByRole('button', { name: '同意审批 5' })).not.toBeDisabled();
   });
 
-  it('calls onError with timeout message after 15s of no response', async () => {
+  it('keeps the same approval request disabled after timeout until the original submit settles', async () => {
     vi.useFakeTimers();
     const onApproval = vi.fn(() => new Promise(() => {})); // never resolves
     const onError = vi.fn();
@@ -86,6 +86,9 @@ describe('ChatApprovalMessage bug-locking', () => {
     // microtask flush so catch/finally in submitApproval completes
     await act(async () => { await Promise.resolve(); });
     expect(onError).toHaveBeenCalledWith('approval.failed', '审批提交超时');
-    expect(screen.getByRole('button', { name: '同意审批 5' })).not.toBeDisabled();
+    expect(screen.getByRole('button', { name: '同意审批 5' })).toBeDisabled();
+
+    fireEvent.click(screen.getByRole('button', { name: '同意审批 5' }));
+    expect(onApproval).toHaveBeenCalledTimes(1);
   });
 });

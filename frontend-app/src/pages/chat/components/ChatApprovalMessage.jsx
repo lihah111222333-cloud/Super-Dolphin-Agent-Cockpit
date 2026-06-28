@@ -9,30 +9,32 @@ const REJECT_LABEL = '\u62d2\u7edd';
 const REJECT_ARIA_PREFIX = '\u62d2\u7edd\u5ba1\u6279';
 
 function ChatApprovalMessage({ message, actions, formatTime }) {
-  const [busy, setBusy] = useState(false);
+  const [submittingRequestId, setSubmittingRequestId] = useState(0);
   const [resolved, setResolved] = useState(false);
   const requestId = approvalRequestId(message);
+  const busy = submittingRequestId === requestId;
   const terminal = isApprovalTerminal(message);
   const disabled = requestId <= 0 || busy || resolved || terminal || typeof actions?.onApproval !== 'function';
   const title = (message.title || message.command || '审批请求').toString().trim();
   const hint = approvalHintText({ requestId, busy, resolved, terminal });
 
-  // submitApproval 带 15s 超时保护，防止后端无响应时按钮永久 disabled
+  // submitApproval 按 requestId 锁定，超时只告警，不能释放仍在飞行的原始请求。
   const submitApproval = async (approved) => {
     if (disabled) return;
-    setBusy(true);
-    const timeout = new Promise((_, reject) =>
-      setTimeout(() => reject(new Error('审批提交超时')), 15_000)
-    );
+    setSubmittingRequestId(requestId);
+    const timeoutId = window.setTimeout(() => {
+      actions.onError?.('approval.failed', '审批提交超时');
+    }, 15_000);
     try {
-      const ok = await Promise.race([actions.onApproval(message, approved), timeout]);
+      const ok = await actions.onApproval(message, approved);
       if (ok) setResolved(true);
     }
     catch (error) {
       actions.onError?.('approval.failed', error.message || String(error));
     }
     finally {
-      setBusy(false);
+      window.clearTimeout(timeoutId);
+      setSubmittingRequestId(0);
     }
   };
 

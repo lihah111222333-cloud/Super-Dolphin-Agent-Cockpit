@@ -253,6 +253,31 @@ describe('ObservabilityPage module', () => {
     expect(within(table).getByRole('button', { name: '复制 Trace ID -' })).toBeDisabled();
   });
 
+  it('keeps degraded parse diagnostics visible and does not default missing status to ok', async () => {
+    listObservabilityRecent.mockResolvedValueOnce({
+      source: 'memory',
+      degraded: true,
+      parseError: 'events[0].status is missing',
+      truncated: false,
+      events: [
+        {
+          ts: '2026-06-03T06:15:50.000Z',
+          traceId: 'trace-missing-status',
+          method: 'provider.session.ready',
+        },
+      ],
+    });
+
+    renderObservabilityPage();
+    fireEvent.click(screen.getByRole('button', { name: '查询最新日志' }));
+    const table = await screen.findByTestId('observability-recent-logs');
+    const entry = table.querySelector('.observability-log-table-entry');
+
+    expect(table).toHaveTextContent('parse_error=events[0].status is missing');
+    expect(entry).toHaveTextContent('unknown');
+    expect(entry).not.toHaveTextContent('ok');
+  });
+
   it('expands a trace with the backend payload', async () => {
     const table = await queryRecentLogs();
 

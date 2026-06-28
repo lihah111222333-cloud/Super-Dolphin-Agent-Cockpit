@@ -131,6 +131,8 @@ function observabilityTailDiagnosticText(result) {
   if (!result || typeof result !== 'object') return '';
   const parts = [];
   if (result.degraded) parts.push('degraded=true');
+  const parseError = textValue(result.parseError || result.parse_error);
+  if (parseError) parts.push(`parse_error=${parseError}`);
   const tailError = textValue(result.tailError || result.tail_error);
   if (tailError) parts.push(`tail_error=${tailError}`);
   if (result.tailTimedOut || result.tail_timed_out) parts.push('tail_timed_out=true');
@@ -479,6 +481,7 @@ function worstObservabilityStatus(events) {
   if (statuses.has('slow')) return 'slow';
   if (statuses.has('sampled')) return 'sampled';
   if (statuses.has('dropped_summary')) return 'dropped_summary';
+  if (statuses.has('unknown') || statuses.has('')) return 'unknown';
   return 'ok';
 }
 
@@ -511,7 +514,7 @@ function ObservabilityLogTableRow({ row, onOpenTrace, onCopyTrace, copied, trace
           <time dateTime={row.timestamp}>{formatObservabilityTimestamp(row.timestamp)}</time>
         </div>
         <div role="cell">
-          <span className={`observability-status-pill is-${observabilityStatusClass(row.status)}`}>{row.status || 'ok'}</span>
+          <span className={`observability-status-pill is-${observabilityStatusClass(row.status)}`}>{observabilityStatusText(row.status)}</span>
         </div>
         <div role="cell">
           <div className="observability-log-summary">
@@ -740,7 +743,7 @@ function TraceEventRow({ event, index }) {
           {context.length ? <p>{context.join(' · ')}</p> : null}
         </div>
         <div className="observability-event-metrics" aria-label={`trace event ${index + 1} status`}>
-          <span className={`observability-status-pill is-${observabilityStatusClass(event.status)}`}>{event.status || 'ok'}</span>
+          <span className={`observability-status-pill is-${observabilityStatusClass(event.status)}`}>{observabilityStatusText(event.status)}</span>
           {timestampText ? <time dateTime={textValue(event.ts)}>{timestampText}</time> : null}
           <span>{durationText}</span>
         </div>
@@ -796,7 +799,11 @@ function stableTraceEventMetadata(metadata) {
 }
 
 function observabilityStatusClass(status) {
-  return (textValue(status) || 'ok').toLowerCase().replace(/[^a-z0-9-]+/g, '-');
+  return observabilityStatusText(status).toLowerCase().replace(/[^a-z0-9-]+/g, '-');
+}
+
+function observabilityStatusText(status) {
+  return textValue(status) || 'unknown';
 }
 
 function formatCodeAnchor(anchor) {
