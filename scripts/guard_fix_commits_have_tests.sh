@@ -86,6 +86,18 @@ path_dirname() {
   echo "."
 }
 
+direct_test_owner_dir() {
+  local path="$1"
+  case "$path" in
+    */tests/*) echo "${path%%/tests/*}"; return 0 ;;
+    tests/*) echo "."; return 0 ;;
+    *)
+      path_dirname "$path"
+      return 0
+      ;;
+  esac
+}
+
 fixture_matches_production_dir() {
   local owner="$1"
   local prod_dir="$2"
@@ -95,10 +107,30 @@ fixture_matches_production_dir() {
   return 1
 }
 
+evidence_matches_production_dir() {
+  fixture_matches_production_dir "$1" "$2"
+}
+
+explicit_bug_id_from_subject() {
+  local subject="$1"
+  printf '%s\n' "$subject" | grep -Eoi '([A-Z][A-Z0-9]+-[0-9]+|R[0-9]+|P[0-9]+)' | head -n 1 | tr '[:lower:]' '[:upper:]' || true
+}
+
+path_mentions_bug_id() {
+  local path="$1"
+  local bug_id="$2"
+  [ -n "$bug_id" ] || return 1
+  [[ "$(printf '%s' "$path" | tr '[:lower:]' '[:upper:]')" == *"$bug_id"* ]]
+}
+
 diff_stream_has_bug_locking_test() {
-  local status path old_path owner prod_dir
+  local subject="${1:-}"
+  local status path old_path owner prod_dir bug_id
   local prod_dirs=()
+  local direct_test_owners=()
+  local direct_test_paths=()
   local fixture_owners=()
+  bug_id="$(explicit_bug_id_from_subject "$subject")"
   while IFS= read -r -d '' status; do
     path=
     case "$status" in
@@ -115,7 +147,9 @@ diff_stream_has_bug_locking_test() {
         ;;
     esac
     if is_direct_test_path "$path"; then
-      return 0
+      direct_test_owners+=("$(direct_test_owner_dir "$path")")
+      direct_test_paths+=("$path")
+      continue
     fi
     if is_fixture_evidence_path "$path"; then
       owner="$(fixture_owner_dir "$path" || true)"
@@ -126,10 +160,26 @@ diff_stream_has_bug_locking_test() {
     fi
     prod_dirs+=("$(path_dirname "$path")")
   done
+  if [ "${#direct_test_paths[@]}" -gt 0 ] && [ -n "$bug_id" ]; then
+    for path in "${direct_test_paths[@]}"; do
+      if path_mentions_bug_id "$path" "$bug_id"; then
+        return 0
+      fi
+    done
+  fi
+  if [ "${#direct_test_owners[@]}" -gt 0 ] && [ "${#prod_dirs[@]}" -gt 0 ]; then
+    for owner in "${direct_test_owners[@]}"; do
+      for prod_dir in "${prod_dirs[@]}"; do
+        if evidence_matches_production_dir "$owner" "$prod_dir"; then
+          return 0
+        fi
+      done
+    done
+  fi
   if [ "${#fixture_owners[@]}" -gt 0 ] && [ "${#prod_dirs[@]}" -gt 0 ]; then
     for owner in "${fixture_owners[@]}"; do
       for prod_dir in "${prod_dirs[@]}"; do
-        if fixture_matches_production_dir "$owner" "$prod_dir"; then
+        if evidence_matches_production_dir "$owner" "$prod_dir"; then
           return 0
         fi
       done
@@ -139,12 +189,14 @@ diff_stream_has_bug_locking_test() {
 }
 
 cached_diff_has_bug_locking_test() {
-  diff_stream_has_bug_locking_test < <(git diff --cached --name-status -z --diff-filter=ACMRD --)
+  local subject="${1:-}"
+  diff_stream_has_bug_locking_test "$subject" < <(git diff --cached --name-status -z --diff-filter=ACMRD --)
 }
 
 commit_diff_has_bug_locking_test() {
   local commit="$1"
-  diff_stream_has_bug_locking_test < <(git diff-tree --no-commit-id --name-status -r -z --root --diff-filter=ACMRD "$commit")
+  local subject="${2:-}"
+  diff_stream_has_bug_locking_test "$subject" < <(git diff-tree --no-commit-id --name-status -r -z --root --diff-filter=ACMRD "$commit")
 }
 
 fail_missing_cached_test() {
@@ -188,7 +240,7 @@ check_cached_commit_message() {
     return 0
   fi
 
-  if cached_diff_has_bug_locking_test; then
+  if cached_diff_has_bug_locking_test "$subject"; then
     echo "✅ fix-test guard OK"
     return 0
   fi
@@ -208,7 +260,7 @@ check_range() {
     if ! is_fix_subject "$subject"; then
       continue
     fi
-    if commit_diff_has_bug_locking_test "$commit"; then
+    if commit_diff_has_bug_locking_test "$commit" "$subject"; then
       continue
     fi
     fail_missing_commit_test "$commit" "$subject"

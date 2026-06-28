@@ -8,6 +8,9 @@ on:
 permissions:
   contents: read
 
+env:
+  SUPER_DOLPHIN_GUARD_FAIL_ON_DRIFT: "1"
+
 jobs:
   commit-guard:
     runs-on: ubuntu-latest

@@ -2,10 +2,33 @@ package archtest
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
 )
+
+func TestGuardHookModeFailsOnBaselineOrFreezeDrift(t *testing.T) {
+	root := findRepoRootForGuardModeTest(t)
+	assertGuardModeFileContains(t, root, "scripts/code_size_guard.go",
+		"SUPER_DOLPHIN_GUARD_FAIL_ON_DRIFT",
+		"failIfGuardGeneratedFilesDrifted",
+		"internal/archtest/baseline.json",
+		"internal/archtest/baseline_test.json",
+		"internal/archtest/freeze_registry.go",
+	)
+	assertGuardModeFileContains(t, root, ".githooks/pre-commit",
+		"SUPER_DOLPHIN_GUARD_FAIL_ON_DRIFT=1",
+		"./scripts/test_with_guard.sh --guard-only",
+	)
+	assertGuardModeFileContains(t, root, ".githooks/pre-push",
+		"SUPER_DOLPHIN_GUARD_FAIL_ON_DRIFT=1",
+		"./scripts/test_with_guard.sh",
+	)
+	assertGuardModeFileContains(t, root, ".github/workflows/ci.yml",
+		"SUPER_DOLPHIN_GUARD_FAIL_ON_DRIFT: \"1\"",
+	)
+}
 
 func TestRatchetCheck_NoChange(t *testing.T) {
 	t.Parallel()
@@ -167,6 +190,53 @@ func launch() {
 	}
 }
 
+func TestExistingNonBaselineFileGetsZeroToleranceMetrics(t *testing.T) {
+	root := t.TempDir()
+	source := filepath.Join(root, "internal", "risk", "existing_risk.go")
+	if err := os.MkdirAll(filepath.Dir(source), 0o755); err != nil {
+		t.Fatalf("mkdir fixture: %v", err)
+	}
+	body := `package risk
+
+var mutableCounter int
+
+func init() {}
+
+func launch() {
+	go func() {
+		panic("boom")
+	}()
+}
+`
+	if err := os.WriteFile(source, []byte(body), 0o644); err != nil {
+		t.Fatalf("write fixture: %v", err)
+	}
+	runArchtestGit(t, root, "init", "-q")
+	runArchtestGit(t, root, "config", "user.email", "guard@example.test")
+	runArchtestGit(t, root, "config", "user.name", "Guard Test")
+	runArchtestGit(t, root, "add", ".")
+	runArchtestGit(t, root, "commit", "-m", "chore: add existing risk fixture")
+
+	result := CheckWithBaseline(CheckOptions{
+		RepoRoot:  root,
+		ScanRoots: []string{"internal"},
+		SkipDirs:  DefaultSkipDirs(),
+	}, Baseline{})
+	if result.OK() {
+		t.Fatal("CheckWithBaseline() OK for HEAD-existing risky file absent from baseline, want NewFileViolations")
+	}
+	got := make([]string, 0, len(result.NewFileViolations))
+	for _, v := range result.NewFileViolations {
+		got = append(got, v.String())
+	}
+	joined := strings.Join(got, "\n")
+	for _, want := range []string{"global_vars", "has_init", "panic_count", "naked_goroutines"} {
+		if !strings.Contains(joined, want) {
+			t.Fatalf("NewFileViolations missing %q:\n%s", want, joined)
+		}
+	}
+}
+
 func TestRatchetViolation_String(t *testing.T) {
 	t.Parallel()
 	v := RatchetViolation{File: "foo.go", Field: "lines", Frozen: 500, Current: 700}
@@ -175,5 +245,47 @@ func TestRatchetViolation_String(t *testing.T) {
 		if !strings.Contains(s, want) {
 			t.Errorf("String() missing %q, got: %q", want, s)
 		}
+	}
+}
+
+func findRepoRootForGuardModeTest(t *testing.T) string {
+	t.Helper()
+	wd, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("Getwd() error = %v", err)
+	}
+	for {
+		if _, err := os.Stat(filepath.Join(wd, "go.mod")); err == nil {
+			return wd
+		}
+		next := filepath.Dir(wd)
+		if next == wd {
+			t.Fatalf("go.mod not found from %s", wd)
+		}
+		wd = next
+	}
+}
+
+func assertGuardModeFileContains(t *testing.T, root, relPath string, wants ...string) {
+	t.Helper()
+	data, err := os.ReadFile(filepath.Join(root, relPath))
+	if err != nil {
+		t.Fatalf("read %s: %v", relPath, err)
+	}
+	content := string(data)
+	for _, want := range wants {
+		if !strings.Contains(content, want) {
+			t.Fatalf("%s missing %q", relPath, want)
+		}
+	}
+}
+
+func runArchtestGit(t *testing.T, root string, args ...string) {
+	t.Helper()
+	cmd := exec.Command("git", args...)
+	cmd.Dir = root
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("git %s failed: %v\n%s", strings.Join(args, " "), err, string(out))
 	}
 }
