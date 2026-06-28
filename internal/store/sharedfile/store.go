@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -90,9 +92,12 @@ func (s *store) Upsert(ctx context.Context, params UpsertParams) (*SharedFile, e
 	if err != nil {
 		return nil, platformdb.WrapStoreError(err, "upsert", "shared_file")
 	}
-	dbContent, contentLocation, writeErr := writeDiskAndDecideInline(s.cfg, cleaned, params.Content)
+	dbContent, contentLocation, staged, writeErr := s.stageDiskAndDecideInline(cleaned, params.Content)
 	if writeErr != nil {
 		return nil, platformdb.WrapStoreError(writeErr, "upsert", "shared_file")
+	}
+	if staged != nil {
+		defer staged.cleanup()
 	}
 	row, err := s.q.UpsertSharedFile(ctx, sqlc.UpsertSharedFileParams{
 		Path:            cleaned,
@@ -102,6 +107,11 @@ func (s *store) Upsert(ctx context.Context, params UpsertParams) (*SharedFile, e
 	})
 	if err != nil {
 		return nil, platformdb.WrapStoreError(err, "upsert", "shared_file")
+	}
+	if staged != nil {
+		if publishErr := staged.publish(); publishErr != nil {
+			return nil, platformdb.WrapStoreError(publishErr, "upsert", "shared_file")
+		}
 	}
 	mapped := fromSQLCRow(row)
 	if mapped.Content == "" && len(params.Content) > 0 {
@@ -176,24 +186,112 @@ func (s *store) diskBackedSharedFile(cleaned string, mapped SharedFile, contentL
 	return nil, platformdb.WrapStoreError(err, "get", "shared_file")
 }
 
-func writeDiskAndDecideInline(cfg sharedfilefs.Config, cleanedRel, content string) (string, string, error) {
-	if !cfg.Enabled() {
-		return content, contentLocationInline, nil
+type stagedDiskWrite struct {
+	finalAbs string
+	tempAbs  string
+}
+
+// stageDiskAndDecideInline 先把正文写入同目录临时文件，并返回 DB 应保存的正文和位置标记。
+// 调用方必须在 DB upsert 成功后 publish；失败路径只 cleanup，不能覆盖已有正式文件。
+func (s *store) stageDiskAndDecideInline(cleanedRel, content string) (string, string, *stagedDiskWrite, error) {
+	if !s.cfg.Enabled() {
+		return content, contentLocationInline, nil, nil
 	}
-	abs, resolveErr := cfg.ResolveWriteAbs(cleanedRel)
+	abs, resolveErr := s.cfg.ResolveWriteAbs(cleanedRel)
 	if resolveErr != nil {
-		return "", "", resolveErr
+		return "", "", nil, resolveErr
 	}
 	// .gitignore 维护是旁路卫生检查，不参与 shared file 写入正确性；
 	// helper 内部用 Sync.Once 保证重复调用成本很低，失败也不能阻断正文落盘。
-	_ = sharedfilegitignore.Ensure(cfg.CWD, nil)
-	if writeErr := sharedfilefs.WriteAtomic(abs, []byte(content)); writeErr != nil {
-		return "", "", writeErr
+	_ = sharedfilegitignore.Ensure(s.cfg.CWD, nil)
+	if removed, cleanupErr := cleanupStagedTemps(abs); cleanupErr != nil {
+		return "", "", nil, cleanupErr
+	} else if removed > 0 {
+		s.publishSharedFilesChanged("write-conflict", cleanedRel)
 	}
-	if len(content) > cfg.ResolvedThreshold() {
-		return "", contentLocationDisk, nil
+	tempAbs, writeErr := writeStagedDiskContent(abs, []byte(content))
+	if writeErr != nil {
+		return "", "", nil, writeErr
 	}
-	return content, contentLocationInline, nil
+	staged := &stagedDiskWrite{finalAbs: abs, tempAbs: tempAbs}
+	if len(content) > s.cfg.ResolvedThreshold() {
+		return "", contentLocationDisk, staged, nil
+	}
+	return content, contentLocationInline, staged, nil
+}
+
+// writeStagedDiskContent 写入并 fsync staging temp，但不 rename 到最终路径。
+// temp 文件与最终文件同目录，保证后续 publish 仍是同文件系统内的原子 rename。
+func writeStagedDiskContent(absPath string, data []byte) (string, error) {
+	dir := filepath.Dir(absPath)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return "", fmt.Errorf("sharedfilefs: mkdir %s: %w", dir, err)
+	}
+	tmp, err := os.CreateTemp(dir, filepath.Base(absPath)+".*.tmp")
+	if err != nil {
+		return "", fmt.Errorf("sharedfilefs: open staged tmp: %w", err)
+	}
+	tmpPath := tmp.Name()
+	closed := false
+	defer func() {
+		if !closed {
+			_ = tmp.Close()
+		}
+	}()
+	if _, writeErr := tmp.Write(data); writeErr != nil {
+		_ = os.Remove(tmpPath)
+		return "", fmt.Errorf("sharedfilefs: write staged tmp: %w", writeErr)
+	}
+	if syncErr := tmp.Sync(); syncErr != nil {
+		_ = os.Remove(tmpPath)
+		return "", fmt.Errorf("sharedfilefs: fsync staged tmp: %w", syncErr)
+	}
+	if closeErr := tmp.Close(); closeErr != nil {
+		closed = true
+		_ = os.Remove(tmpPath)
+		return "", fmt.Errorf("sharedfilefs: close staged tmp: %w", closeErr)
+	}
+	closed = true
+	return tmpPath, nil
+}
+
+func cleanupStagedTemps(absPath string) (int, error) {
+	matches, err := filepath.Glob(absPath + ".*.tmp")
+	if err != nil {
+		return 0, fmt.Errorf("sharedfilefs: glob staged tmp: %w", err)
+	}
+	removed := 0
+	for _, match := range matches {
+		if err := os.Remove(match); err != nil && !errors.Is(err, fs.ErrNotExist) {
+			return removed, fmt.Errorf("sharedfilefs: remove staged tmp %s: %w", match, err)
+		}
+		removed++
+	}
+	return removed, nil
+}
+
+// publish 在 DB 索引写入成功后才把 staged 正文原子发布到最终路径。
+// 若 DB 失败，调用方只需 cleanup，旧正文不会被覆盖。
+func (w *stagedDiskWrite) publish() error {
+	if w == nil || w.tempAbs == "" {
+		return nil
+	}
+	if err := os.Rename(w.tempAbs, w.finalAbs); err != nil {
+		return fmt.Errorf("sharedfilefs: publish staged %s → %s: %w", w.tempAbs, w.finalAbs, err)
+	}
+	w.tempAbs = ""
+	if dirHandle, openErr := os.Open(filepath.Dir(w.finalAbs)); openErr == nil {
+		_ = dirHandle.Sync()
+		_ = dirHandle.Close()
+	}
+	return nil
+}
+
+func (w *stagedDiskWrite) cleanup() {
+	if w != nil && w.tempAbs != "" {
+		_ = os.Remove(w.tempAbs)
+		w.tempAbs = ""
+	}
 }
 
 func fromSQLCRow(row sqlc.SharedFile) SharedFile {

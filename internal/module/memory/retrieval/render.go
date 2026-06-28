@@ -32,27 +32,43 @@ const (
 		"confirmation in the main conversation first."
 )
 
-// escapeRelevantMemoryContent 防 fence 逃逸：在内容中出现的同名 fence 标签
-// 里插入零宽空格（U+200B），让模型看到的形态明显是被打断的标签，不会被当成
-// 关闭 fence。零宽空格不在 fence 关键字里，已 escape 过的内容不会被二次破坏。
-func escapeRelevantMemoryContent(content string) string {
+// EscapeUntrustedFenceContent 防 fence 逃逸：在内容中出现的同名 fence 标签里插入零宽空格。
+// 这样模型看到的形态明显是被打断的标签，不会被当成关闭 fence。
+func EscapeUntrustedFenceContent(content, tag string) string {
 	const zwsp = "\u200b"
-	openTag := "<" + relevantMemoryFenceTag
-	closeTag := "</" + relevantMemoryFenceTag
-	content = strings.ReplaceAll(content, closeTag, "</"+zwsp+relevantMemoryFenceTag)
-	content = strings.ReplaceAll(content, openTag, "<"+zwsp+relevantMemoryFenceTag)
+	tag = strings.TrimSpace(tag)
+	if tag == "" {
+		return content
+	}
+	openTag := "<" + tag
+	closeTag := "</" + tag
+	content = strings.ReplaceAll(content, closeTag, "</"+zwsp+tag)
+	content = strings.ReplaceAll(content, openTag, "<"+zwsp+tag)
 	return content
+}
+
+// WrapUntrustedFence 将任意历史内容包进带说明的不可信 fence。
+// extraction、entrypoint 和 retrieval 共用这条路径，避免不同 prompt 面的转义规则漂移。
+func WrapUntrustedFence(body, tag, preamble string) string {
+	body = strings.TrimSpace(body)
+	tag = strings.TrimSpace(tag)
+	preamble = strings.TrimSpace(preamble)
+	if body == "" || tag == "" {
+		return body
+	}
+	prefix := ""
+	if preamble != "" {
+		prefix = preamble + "\n"
+	}
+	return prefix + "<" + tag + ">\n" +
+		EscapeUntrustedFenceContent(body, tag) +
+		"\n</" + tag + ">"
 }
 
 // wrapRelevantMemoryFence 将已截断的记忆正文包进不可信 fence。
 // fence 额外文本不计入正文截断预算，避免安全前缀挤占检索内容。
 func wrapRelevantMemoryFence(body string) string {
-	if body == "" {
-		return body
-	}
-	return relevantMemoryPreamble + "\n<" + relevantMemoryFenceTag + ">\n" +
-		escapeRelevantMemoryContent(body) +
-		"\n</" + relevantMemoryFenceTag + ">"
+	return WrapUntrustedFence(body, relevantMemoryFenceTag, relevantMemoryPreamble)
 }
 
 // TranscriptSnippet 表示可回填到 prompt 的历史 transcript 片段。
