@@ -34,7 +34,6 @@ var allPersistentTables = []string{
 	"datasource_v2_documents",
 	"datasource_v2_text_chunks",
 	"hook_pending_reviews",
-	"mcp_tool_lifecycle_states",
 	"prompt_intent_drafts",
 	"prompt_recall_topics",
 	"prompt_routing_tests",

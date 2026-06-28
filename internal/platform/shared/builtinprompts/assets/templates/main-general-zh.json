@@ -121,12 +121,12 @@
       "body_file": "sections/main-general-zh/93-recall-prompt-template-editing.md"
     },
     {
-      "section_key": "recall_frontend_react",
+      "section_key": "recall_frontend_vue3",
       "region": "dynamic",
       "ordinal": 0,
       "trigger_type": "recall",
-      "recall_topic": "frontend-react",
-      "body_file": "sections/main-general-zh/94-recall-frontend-react.md"
+      "recall_topic": "frontend-vue3",
+      "body_file": "sections/main-general-zh/94-recall-frontend-vue3.md"
     },
     {
       "section_key": "recall_migration_rules",

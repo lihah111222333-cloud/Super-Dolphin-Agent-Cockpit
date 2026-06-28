@@ -25,7 +25,7 @@ aliases: ["@代码审查维度", "@review-dimensions"]
 | D06 Orchestration/DAG/Cron/Wakeup | mcp-orch 是可选编排面，不得把子代理生命周期强制绑定到 DAG；审查真实 mcp-orch 改动时再覆盖 `task_create_dag`、`task_start_dag`、`task_dispatch_node`、`task_update_node` 和 `task_dag_apply_ops` |
 | D07 Store/sqlc | SQLite/sqlc 查询、migration、事务、幂等、baseline 数据 |
 | D08 Skill/Memory/Prompt/Thread | canonical skill root、provider mirror、prompt snapshot、memory/dream/auto-dream、thread resume/fork |
-| D09 Frontend | 默认 `frontend-app` React/Vite；检查 Wails bridge、状态边界和 `cmd/agent-terminal/web-dist` 嵌入产物链路 |
+| D09 Frontend | 默认 `frontend-app` React/Vite；legacy Vue 仅显式目标；Wails bridge 和状态边界 |
 | D10 Security | secrets、命令注入、路径穿越、权限、tool 审批、日志泄露 |
 | D11 Observability | 结构化日志、错误码、状态可解释、诊断不吞证据 |
 | D12 Testing | 单文件 guard、受影响包测试、前端 lint/test/build、SQL/codemap 验证；skill 文档改动跑 `python3 scripts/validate_super_agent_skills.py` 和 `git diff --check` |
@@ -34,7 +34,6 @@ aliases: ["@代码审查维度", "@review-dimensions"]
 | D15 UX/Product | 真实用户路径、状态反馈、失败提示、避免隐藏阻塞 |
 | D16 Git/Workflow | owned files、atomic commit、no `git add .`、dirty 边界和 worktree 清理 |
 | D17 字段守卫 | 生产字段新增后，消费侧未登记必须有测试失败；检查枚举、注册表、豁免、fail-first、CI/pre-push 和禁止兜底 |
-| D18 旧兼容路径 | legacy alias、deprecated env/key、旧 endpoint/transport、旧目录/镜像/迁移读路径；无活跃调用方或契约证据就删除，保留必须有 owner、退出条件、覆盖测试 |
 
 ## 字段守卫精简要求
 
@@ -46,15 +45,6 @@ aliases: ["@代码审查维度", "@review-dimensions"]
 4. 单向 mapper 标明方向；双向 mapper 做 roundtrip；map、slice、pointer 字段按需验证深拷贝。
 5. 新增守卫必须有 fail-first 证据：测试名、临时破坏后的失败摘要、恢复后的通过命令。
 6. 守卫必须进入 CI、pre-push 或仓库强制门禁；仅本地可运行不算通过，靠降低 baseline、删除 snapshot、注释测试通过的修改按 P1 处理。
-
-## 旧兼容路径精简要求
-
-出现 legacy alias、deprecated env/key、旧 endpoint/transport、旧目录/镜像、迁移读写或旧格式解析时，审查必须确认：
-
-1. 先用 `rg`、LSP 引用/调用层级、测试和契约文档找真实调用方；没有活跃调用方、外部契约或迁移窗口的兼容路径应删除，而不是继续保留。
-2. 仍需保留时必须写明 owner、退出条件或日期、覆盖测试和可观测告警；兼容路径不得替代主路径，也不得静默吞错、补默认值或绕过 fail-fast。
-3. 兼容解析只能留在边界层，进入 `contract`、`store` 或业务模块前必须归一到 canonical 字段、路径或方法；不得让 legacy 名称继续扩散。
-4. 删除兼容路径时同步清理 allowlist、baseline、旧测试夹具、旧命令、mirror 和文档引用；删除后仍命中 `legacy` 或旧路径时，必须给出保留理由和证据。
 
 ## Skill 文档审查补充
 

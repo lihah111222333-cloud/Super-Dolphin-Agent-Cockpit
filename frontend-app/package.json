@@ -9,7 +9,7 @@
     "smoke:desktop": "npm run smoke:desktop:rpc",
     "smoke:desktop:rpc": "node scripts/desktop-smoke.mjs",
     "smoke:desktop:ux": "node scripts/desktop-ux-smoke.mjs",
-    "build": "vite build && node scripts/sync-frontend-dist.mjs",
+    "build": "vite build",
     "typecheck:contracts": "tsc -p tsconfig.contracts.json --noEmit",
     "audit:rpc-contracts": "node scripts/rpc-contract-audit.mjs",
     "lint": "eslint .",

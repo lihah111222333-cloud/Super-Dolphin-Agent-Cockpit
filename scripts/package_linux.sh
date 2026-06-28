@@ -723,9 +723,9 @@ build_current_frontend_app() {
     echo "frontend dist missing after build: $root/frontend-app/dist/index.html" >&2
     exit 1
   fi
-  rsync -a --delete --exclude .gitkeep "$root/frontend-app/dist"/ "$root/cmd/agent-terminal/web-dist"/
-  if [[ ! -f "$root/cmd/agent-terminal/web-dist/index.html" ]]; then
-    echo "embedded frontend dist missing after sync: $root/cmd/agent-terminal/web-dist/index.html" >&2
+  rsync -a --delete "$root/frontend-app/dist"/ "$root/cmd/agent-terminal/frontend/dist"/
+  if [[ ! -f "$root/cmd/agent-terminal/frontend/dist/index.html" ]]; then
+    echo "embedded frontend dist missing after sync: $root/cmd/agent-terminal/frontend/dist/index.html" >&2
     exit 1
   fi
 }

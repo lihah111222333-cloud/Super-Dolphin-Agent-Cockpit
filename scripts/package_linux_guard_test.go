@@ -164,12 +164,12 @@ func TestPackageLinuxScriptEmbedsNewFrontendApp(t *testing.T) {
 
 	assertScriptContains(t, script, "build_current_frontend_app")
 	assertScriptContains(t, script, "cd \"$root/frontend-app\"")
-	assertScriptContains(t, script, "rsync -a --delete --exclude .gitkeep \"$root/frontend-app/dist\"/ \"$root/cmd/agent-terminal/web-dist\"/")
+	assertScriptContains(t, script, "rsync -a --delete \"$root/frontend-app/dist\"/ \"$root/cmd/agent-terminal/frontend/dist\"/")
 	assertScriptContains(t, script, "go build -o bin/agent-terminal ./cmd/agent-terminal")
 	assertScriptDoesNotContain(t, script, "cd \"$root/cmd/agent-terminal/frontend\"")
 	assertScriptDoesNotContain(t, script, "make build-agent-terminal-plain")
-	assertScriptOrder(t, script, "npm run build", "rsync -a --delete --exclude .gitkeep \"$root/frontend-app/dist\"/ \"$root/cmd/agent-terminal/web-dist\"/")
-	assertScriptOrder(t, script, "rsync -a --delete --exclude .gitkeep \"$root/frontend-app/dist\"/ \"$root/cmd/agent-terminal/web-dist\"/", "go build -o bin/agent-terminal ./cmd/agent-terminal")
+	assertScriptOrder(t, script, "npm run build", "rsync -a --delete \"$root/frontend-app/dist\"/ \"$root/cmd/agent-terminal/frontend/dist\"/")
+	assertScriptOrder(t, script, "rsync -a --delete \"$root/frontend-app/dist\"/ \"$root/cmd/agent-terminal/frontend/dist\"/", "go build -o bin/agent-terminal ./cmd/agent-terminal")
 }
 
 func TestPackageLinuxScriptRequiresFrontendAppDistWhenSkippingBuild(t *testing.T) {
@@ -178,7 +178,7 @@ func TestPackageLinuxScriptRequiresFrontendAppDistWhenSkippingBuild(t *testing.T
 	assertScriptContains(t, script, "SUPER_DOLPHIN_SKIP_FRONTEND_BUILD")
 	assertScriptContains(t, script, "frontend dist missing; unset SUPER_DOLPHIN_SKIP_FRONTEND_BUILD or run npm run build first")
 	assertScriptContains(t, script, "[[ ! -f \"$root/frontend-app/dist/index.html\" ]]")
-	assertScriptOrder(t, script, "[[ ! -f \"$root/frontend-app/dist/index.html\" ]]", "rsync -a --delete --exclude .gitkeep \"$root/frontend-app/dist\"/ \"$root/cmd/agent-terminal/web-dist\"/")
+	assertScriptOrder(t, script, "[[ ! -f \"$root/frontend-app/dist/index.html\" ]]", "rsync -a --delete \"$root/frontend-app/dist\"/ \"$root/cmd/agent-terminal/frontend/dist\"/")
 }
 
 func TestPackageLinuxScriptWritesRuntimeManifestContract(t *testing.T) {

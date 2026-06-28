@@ -124,7 +124,6 @@ func assertTurnMCPToolScope(t *testing.T, got contract.CodexToolSurfaceScope, wo
 
 func assertTurnStartQueryTool(t *testing.T, params map[string]any) {
 	t.Helper()
-	assertNoLifecycleWireFields(t, "turn/start params", mustJSON(params))
 	tools, ok := params["dynamicTools"].([]any)
 	if !ok || len(tools) != 1 {
 		t.Fatalf("turn/start dynamicTools = %#v, want one query tool; params=%#v", params["dynamicTools"], params)
@@ -133,7 +132,6 @@ func assertTurnStartQueryTool(t *testing.T, params map[string]any) {
 	if !ok || tool["name"] != "query" {
 		t.Fatalf("turn/start dynamicTools[0] = %#v, want query tool", tools[0])
 	}
-	assertNoLifecycleWireFields(t, "turn/start dynamicTools[0]", mustJSON(tool))
 }
 
 func TestStartTurnPreservesExplicitGPT5Model(t *testing.T) {

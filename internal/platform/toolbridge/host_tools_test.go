@@ -530,9 +530,6 @@ func TestListToolsForCodex_DedupKeepsHostBeforePeer(t *testing.T) {
 		dto.ClientKindLSP:  {listToolsPeer([]dto.MCPTool{{Name: "lsp_hover", Description: "lsp"}}, nil)},
 	}}
 	h := &Handler{registry: registry, hostTools: host}
-	attachActiveLifecycleForTools(h, map[string][]string{
-		dto.ClientKindLSP: {"lsp_hover"},
-	})
 
 	got, err := h.ListToolsForCodex(context.Background())
 	if err != nil {
@@ -551,10 +548,6 @@ func TestListToolsForCodexPreservesToolDetails(t *testing.T) {
 		dto.ClientKindLSP:  {listToolsPeer([]dto.MCPTool{{Name: "grep", Description: "grep source", InputSchema: inputSchema, OutputSchema: outputSchema}}, nil)},
 	}}
 	h := &Handler{registry: registry}
-	attachActiveLifecycleForTools(h, map[string][]string{
-		dto.ClientKindOrch: {"orchestration_launch_agent"},
-		dto.ClientKindLSP:  {"grep"},
-	})
 
 	got, err := h.ListToolsForCodex(context.Background())
 	if err != nil {
@@ -575,9 +568,6 @@ func TestListToolsForCodex_LogsShadowedPeerTool(t *testing.T) {
 		hostTools: host,
 		logger:    slog.New(slog.NewTextHandler(&logs, &slog.HandlerOptions{Level: slog.LevelDebug})),
 	}
-	attachActiveLifecycleForTools(h, map[string][]string{
-		dto.ClientKindLSP: {"lsp_hover"},
-	})
 
 	got, err := h.ListToolsForCodex(context.Background())
 	if err != nil {
@@ -602,10 +592,6 @@ func TestListToolsForCodex_PeerWaitIsConcurrent(t *testing.T) {
 		dto.ClientKindLSP:  {blockingListToolsPeer(dto.ClientKindLSP, []dto.MCPTool{{Name: "lsp_hover"}}, started, release)},
 	}}
 	h := &Handler{registry: registry}
-	attachActiveLifecycleForTools(h, map[string][]string{
-		dto.ClientKindOrch: {"spawn_agent"},
-		dto.ClientKindLSP:  {"lsp_hover"},
-	})
 	type result struct {
 		toolCount int
 		err       error

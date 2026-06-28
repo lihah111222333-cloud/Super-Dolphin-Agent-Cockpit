@@ -42,7 +42,6 @@ type codexToolEntry struct {
 	realName      string
 	executionKind string
 	family        string
-	lifecycleKey  contract.MCPToolLifecycleKey
 	inputSchema   json.RawMessage
 	client        mcpClient
 }
@@ -53,7 +52,7 @@ func (h *Handler) PrepareCodexToolSurface(ctx context.Context, scope contract.Co
 	if err := validateCodexToolSurfaceScope(scope); err != nil {
 		return nil, err
 	}
-	surface := &codexToolSurface{cwd: normalizeToolCallCWD(scope.CWD), tools: map[string]codexToolEntry{}, aliases: map[string]string{}}
+	surface := &codexToolSurface{tools: map[string]codexToolEntry{}, aliases: map[string]string{}}
 	out := make([]contract.DynamicToolSchema, 0)
 	if err := h.addHostSurfaceTools(surface, &out); err != nil {
 		return nil, err
@@ -65,6 +64,7 @@ func (h *Handler) PrepareCodexToolSurface(ctx context.Context, scope contract.Co
 		_ = surface.Close()
 		return nil, err
 	}
+	surface.cwd = normalizeToolCallCWD(scope.CWD)
 	surface.keys = codexSurfaceKeys(scope)
 	if err := h.storeCodexToolSurface(surface); err != nil {
 		h.removeCodexToolSurface(surface)
@@ -159,6 +159,7 @@ func prepareMCPSurfaceBinaries(
 	}
 
 	for i, binary := range binaries {
+		i, binary := i, binary
 		wg.Add(1)
 		safego.Go(ctx, nil, "toolbridge.prepareMCPSurfaceBinary", func(workerCtx context.Context) {
 			defer wg.Done()
@@ -208,14 +209,22 @@ func addMCPToolsToSurface(surface *codexToolSurface, out *[]contract.DynamicTool
 		}
 		canonical := canonicalCodexToolName(family, tool.Name)
 		if shouldNamespaceExternalMCPTool(surface, family, canonical) {
-			canonical = WrapMCPToolName(family, tool.Name)
+			canonical = wrappedMCPToolName(family, tool.Name)
 		}
-		entry := codexSurfaceMCPToolEntry(surface, family, canonical, tool.Name, client)
+		entry := codexToolEntry{name: canonical, realName: tool.Name, executionKind: "stdio", family: strings.TrimSpace(family), client: client}
 		if err := addSurfaceTool(surface, out, tool, entry); err != nil {
 			return err
 		}
-		if err := addCodexSurfaceMCPAliases(surface, family, tool.Name, canonical); err != nil {
+		if err := addMCPToolAlias(surface, family, tool.Name, canonical); err != nil {
 			return err
+		}
+		if err := addSurfaceAlias(surface, wrappedMCPToolName(family, tool.Name), canonical); err != nil {
+			return err
+		}
+		for _, alias := range legacyCodexToolAliases(family, canonical) {
+			if err := addSurfaceAlias(surface, alias, canonical); err != nil {
+				return err
+			}
 		}
 	}
 	return nil
@@ -420,9 +429,6 @@ func (h *Handler) callCodexSurfaceTool(ctx context.Context, surface *codexToolSu
 		}
 	}()
 	if err := validateToolInputSchema(entry.name, entry.inputSchema, req.Arguments); err != nil {
-		return nil, err
-	}
-	if err := h.ensureCodexSurfaceMCPToolActive(ctx, entry); err != nil {
 		return nil, err
 	}
 	req.Name = entry.realName

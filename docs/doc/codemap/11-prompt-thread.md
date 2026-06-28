@@ -2,7 +2,7 @@
 
 > 拆卷说明：本卷只覆盖 `internal/module/prompt/`、`internal/module/thread/`、provider bridge、以及 blank-thread 首发链；memory 深水区另见 [`11-memory.md`](11-memory.md)。
 > 当前口径：以 2026-04-20 HEAD 为准；用于收口 prompt / thread / provider `start / resume / fork`、prompt store、snapshot、以及前端 blank-thread 首发真值。
-> UI 路径校正（2026-06-28）：当前且唯一的前端源码在 `frontend-app/`，见 [`01-terminal-ui-react.md`](01-terminal-ui-react.md)。旧 Vue/package-embed 前端已删除。
+> UI 路径校正（2026-06-02）：当前新 UI 的聊天页面在 `frontend-app/`，见 [`01-terminal-ui-react.md`](01-terminal-ui-react.md)。本卷中的 `cmd/agent-terminal/frontend/vue-app/` 锚点保留为 legacy Vue/package-embed 参考。
 > 必读搭配：`docs/会话习惯.md` §10.21 / §10.25；shared patches：`tmp/codemap-missing-coverage.md`、`tmp/codemap-mermaid-patches.md`、`tmp/codemap-test-freeze.md`、`tmp/codemap-howto-patches.md`。
 
 ## 1. 这卷回答什么
@@ -81,6 +81,16 @@
 | `frontend-app/src/entities/client/model/useClientStore.js` | Zustand 客户端状态与 thread/turn action | `sendDraft()` 负责 blank-thread `thread/start -> turn/start` 两段式 |
 | `frontend-app/src/shared/api/backendApi.js` | RPC facade 与 payload 校验 | `startThread()`、`startTurn()`、cwd / threadId fail-fast |
 | `frontend-app/src/shared/api/wailsBridge.js` | Wails runtime bridge | `callAPI()`、runtime event、前端日志回传 |
+
+Legacy Vue 参考：
+
+| 路径 | 角色 | 本卷重点 |
+|---|---|---|
+| `cmd/agent-terminal/frontend/vue-app/composables/useThreadActions.js` | 首发 send orchestration | `resolveStartOptions()` + `performSend()` |
+| `cmd/agent-terminal/frontend/vue-app/stores/thread-actions-helpers.js` | `thread/start` / `turn/start` 客户端 | `startThread()`、`sendMessage()` |
+| `cmd/agent-terminal/frontend/vue-app/components/ComposerBar.js` | composer UI | 输入、附件、发送、停止、压缩与线程配置；不再展示聊天内技能建议 |
+| `cmd/agent-terminal/frontend/vue-app/pages/UnifiedChatPage.template.js` | chat/workspace 模板 | composer、timeline、diff、task handoff 装配 |
+| `cmd/agent-terminal/frontend/vue-app/services/skills-api.js` | local skill write/import + resolution RPC | cwd-aware skill 管理、mirror conflict actions |
 
 ### 3.5 三个容易误读的“缺席真值”
 
@@ -1110,60 +1120,64 @@ memory 模块把 prompt handoff 分成两条：
 
 ### 9.1 前端 blank-thread 首发挂点
 
-`frontend-app/src/entities/client/model/composerSlice.js:createComposerSendActions().sendDraft()`：
+`cmd/agent-terminal/frontend/vue-app/composables/useThreadActions.js:126-174`：
 
-- 没有选中 thread 时，`sendDraft()` 先调用 `startNewDraftThread()`，再启动 turn。
-- `startNewDraftThread()` 会创建 thread 并设置 `deferSpawn: true`，避免创线阶段提前启动 provider turn。
+- 没有选中 thread 时，`performSend()` 先调 `resolveStartOptions(text, focusMode)`，再 `threadStore.startThread()`。
+- 非空 composer 文本会作为 `thread/start` 的 `prompt` 传给后端 router；空 composer 会设置 `deferSpawn: true`。
 
-`frontend-app/src/pages/chat/ChatPage.jsx`：
+`cmd/agent-terminal/frontend/vue-app/pages/UnifiedChatPage.js:175-190`：
 
-- `ChatComposer` 的发送动作接到 store 的 `sendDraft()`；聊天页不再挂 blank-thread 技能选择器。
+- `useThreadActions` 由 `createPageThreadActions()` 装配，聊天页不再挂 blank-thread 技能选择器。
 
-### 9.2 `startNewDraftThread()`：先建 thread，并延后 provider turn
+### 9.2 `resolveStartOptions()`：先把首轮输入整理成 startOptions
 
-`frontend-app/src/entities/client/model/useClientStore.js:startNewDraftThread()`：
+`cmd/agent-terminal/frontend/vue-app/composables/useThreadActions.js:126-140`：
 
-- 调 `sessionApi.start()`，最终进入 `thread/start`。
-- payload 带 cwd、name、provider 偏好和 `deferSpawn: true`。
-- 返回 `threadId` 后才允许后续 `turn/start` 使用该 thread。
+- 写入 `focusMode`
+- 文本非空时写入 `prompt`
+- 文本为空时写入 `deferSpawn: true`
 
 它的产物是：
 
-- `threadId`
-- `launchPreferences`
+- `startOptions`
 
-### 9.3 `sendDraft()`：blank-thread 走两段式
+### 9.3 `performSend()`：blank-thread 走两段式
 
-`frontend-app/src/entities/client/model/composerSlice.js` 明确写死了顺序：
+`cmd/agent-terminal/frontend/vue-app/composables/useThreadActions.js:120-173` 明确写死了顺序：
 
 1. 如果 `selectedThreadId` 为空：
-   - `started = await startNewDraftThread(activeRequest, resolveLaunchPreferences)`
-   - `threadId = started.threadId`
-   - `runtime.set(promotedDraftThreadState(...))`
+   - `startOptions = await resolveStartOptions(text, focusMode)`
+   - `threadId = await threadStore.startThread(projectStore.state.active, startOptions)`
+   - 把 `selectedThreadId.value = threadId`
 2. 然后无论新旧线程，最终都执行：
-   - `await startTurnWithStoppedThreadRecovery({ cwd, threadId, input, manualSkillSelection: false })`
+   - `await threadStore.sendMessage(threadId, text, attachments, {...})`
 
-这就是当前 `thread/start -> turn/start` 两段式顺序真值。
+这就是用户要求的 `resolveStartOptions -> startThread -> sendMessage` 顺序真值。
 
 ### 9.4 `startThread()`：前端创线 RPC 只做 `thread/start`
 
-`frontend-app/src/shared/api/sessionApi.js` 与 `frontend-app/src/shared/api/backendApi.js`：
+`cmd/agent-terminal/frontend/vue-app/stores/thread-actions-helpers.js:288-318`：
 
-- `sessionApi.start()` 代理到 `startThread()`。
-- `backendApi` 将 React payload 规范成 `thread/start` wire shape。
-- cwd、provider、threadId 等关键字段走 fail-fast 校验。
+- 先读 `ui/preferences/get` 拿当前 `settings.provider.active`
+- 组装 payload `{ cwd, modelProvider }`
+- 如果有 selected skills / manual skill selection，则一并塞进 payload
+- `callAPI('thread/start', payload)`
+- 拿到 `thread.id`
+- `syncRuntimeState()`
+- 保存 active thread
 
 所以 blank-thread 首发的第一跳只负责“建线程 + 建 session + 建 start prompt frame”。
 
 ### 9.5 `sendMessage()`：第二跳才真正进 `turn/start`
 
-`frontend-app/src/entities/client/model/composerSlice.js`：
+`cmd/agent-terminal/frontend/vue-app/stores/thread-actions-helpers.js:380-463`：
 
 1. 先把 text / attachments 组装成 `input[]`
 2. 组装 `requestPayload = { threadId, input }`
 3. 可选加入：
    - `cwd`
-   - `manualSkillSelection: false`
+   - `selectedSkills`
+   - `manualSkillSelection`
 4. `callAPI('turn/start', requestPayload)`
 5. 再做 optimistic UI timeline 插入
 

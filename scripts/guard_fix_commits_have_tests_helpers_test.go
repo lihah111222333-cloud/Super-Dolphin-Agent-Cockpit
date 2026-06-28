@@ -45,7 +45,7 @@ func assertPrePushGoOnlyScope(t *testing.T) {
 	head := commitPrePushGoOnlyChange(t, fixture.root)
 	out := fixture.run(t, head)
 	assertOutputContainsAll(t, out, "[pre-push] go package tests: ./internal/app", "fake go package test ./internal/app -count=1", "pre-push OK")
-	assertOutputOmitsAll(t, out, "frontend-app tests")
+	assertOutputOmitsAll(t, out, "legacy frontend package tests", "frontend-app tests")
 	log := fixture.log(t)
 	assertOutputContainsAll(t, log, "go-test ./internal/app -count=1")
 	assertOutputOmitsAll(t, log, "node ", "npx ", "npm ")
@@ -60,13 +60,34 @@ func commitPrePushGoOnlyChange(t *testing.T, root string) string {
 	return strings.TrimSpace(runFixTestGuardGitOutput(t, root, "rev-parse", "HEAD"))
 }
 
+func assertPrePushLegacyFrontendOnlyScope(t *testing.T) {
+	t.Helper()
+	fixture := newPrePushScopeFixture(t)
+	head := commitPrePushLegacyFrontendOnlyChange(t, fixture.root)
+	out := fixture.run(t, head)
+	assertOutputContainsAll(t, out, "[pre-push] legacy frontend codebase guard", "[pre-push] legacy frontend package tests", "pre-push OK")
+	assertOutputOmitsAll(t, out, "go package tests", "frontend-app tests")
+	log := fixture.log(t)
+	assertOutputContainsAll(t, log, "node scripts/size-guard.cjs", "npx vitest run")
+	assertOutputOmitsAll(t, log, "go-test ", "npm ")
+}
+
+func commitPrePushLegacyFrontendOnlyChange(t *testing.T, root string) string {
+	t.Helper()
+	writeFixTestGuardFile(t, root, "cmd/agent-terminal/frontend/scripts/size-guard.cjs", "console.log('ok')\n")
+	writeFixTestGuardFile(t, root, "cmd/agent-terminal/frontend/vue-app/app.js", "export const app = true\n")
+	runFixTestGuardGit(t, root, "add", "cmd/agent-terminal/frontend")
+	runFixTestGuardGit(t, root, "commit", "-m", "chore: 更新 frontend package")
+	return strings.TrimSpace(runFixTestGuardGitOutput(t, root, "rev-parse", "HEAD"))
+}
+
 func assertPrePushFrontendAppOnlyScope(t *testing.T) {
 	t.Helper()
 	fixture := newPrePushScopeFixture(t)
 	head := commitPrePushFrontendAppOnlyChange(t, fixture.root)
 	out := fixture.run(t, head)
 	assertOutputContainsAll(t, out, "[pre-push] frontend-app lint", "[pre-push] frontend-app tests", "[pre-push] frontend-app build", "pre-push OK")
-	assertOutputOmitsAll(t, out, "go package tests")
+	assertOutputOmitsAll(t, out, "go package tests", "legacy frontend package tests")
 	log := fixture.log(t)
 	assertOutputContainsAll(t, log, "npm run lint", "npm test", "npm run build")
 	assertOutputOmitsAll(t, log, "go-test ", "node ", "npx ")
@@ -86,7 +107,7 @@ func assertPrePushDocsOnlyScope(t *testing.T) {
 	fixture := newPrePushScopeFixture(t)
 	head := commitPrePushDocsOnlyChange(t, fixture.root)
 	out := fixture.run(t, head)
-	assertOutputOmitsAll(t, out, "go package tests", "frontend-app tests")
+	assertOutputOmitsAll(t, out, "go package tests", "legacy frontend package tests", "frontend-app tests")
 	assertOutputContainsAll(t, out, "pre-push OK")
 	if log := fixture.log(t); log != "" {
 		t.Fatalf("package command log should be empty for docs-only push\n%s", log)

@@ -1,9 +1,12 @@
 package app
 
 import (
+	"io"
 	"io/fs"
+	"log/slog"
 	"testing"
 
+	"github.com/kelindar/event"
 	"go.uber.org/fx"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
@@ -59,14 +62,18 @@ func appGraphValidationOptions() []fx.Option {
 	// RunDesktop 正常会注入前端文件系统；这里用空 fs 满足 uiwails.Module 依赖，避免启动 Wails。
 	frontend := fx.Supply(uiwails.FrontendFS{FS: emptyFS{}})
 
-	var mcpProvider contract.MCPServerConfigProvider
-	var threadReader contract.ThreadStateConfigReader
+	// dispatcher 正常由 platform/bus 提供；dry-run 中注入占位值即可满足非 optional 依赖。
+	_ = event.NewDispatcher() // build/test sanity
+
+	// 静默 logger 避免 dry-run 往 stderr 输出噪声。
+	_ = slog.New(slog.NewTextHandler(io.Discard, nil))
+	var stateReader contract.ThreadStateConfigReader
 
 	return []fx.Option{
 		Module,
 		uiwails.Module,
 		frontend,
-		fx.Populate(&mcpProvider, &threadReader),
+		fx.Populate(&stateReader),
 		fx.Invoke(BindRuntime),
 	}
 }

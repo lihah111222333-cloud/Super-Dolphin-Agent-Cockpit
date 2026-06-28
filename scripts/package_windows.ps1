@@ -379,25 +379,15 @@ function Invoke-WindowsGoBuild() {
 function Copy-DirectoryClean() {
     param(
         [Parameter(Mandatory)][string]$Source,
-        [Parameter(Mandatory)][string]$Destination,
-        [string[]]$PreserveNames = @()
+        [Parameter(Mandatory)][string]$Destination
     )
     if (-not (Test-Path -LiteralPath $Source -PathType Container)) {
         throw "missing directory: $Source"
     }
-    $preserve = @{}
-    foreach ($name in $PreserveNames) {
-        $preserve[$name] = $true
-    }
     if (Test-Path -LiteralPath $Destination) {
-        Get-ChildItem -LiteralPath $Destination -Force | ForEach-Object {
-            if (-not $preserve.ContainsKey($_.Name)) {
-                Remove-Item -LiteralPath $_.FullName -Recurse -Force
-            }
-        }
-    } else {
-        New-Item -ItemType Directory -Force -Path $Destination | Out-Null
+        Remove-Item -LiteralPath $Destination -Recurse -Force
     }
+    New-Item -ItemType Directory -Force -Path $Destination | Out-Null
     Get-ChildItem -LiteralPath $Source -Force | Copy-Item -Destination $Destination -Recurse -Force
 }
 
@@ -954,7 +944,7 @@ function Build-CurrentFrontendApp() {
     if (-not (Test-Path -LiteralPath (Join-Path $Root 'frontend-app/dist/index.html') -PathType Leaf)) {
         throw "frontend dist missing after build: $(Join-Path $Root 'frontend-app/dist/index.html')"
     }
-    Copy-DirectoryClean -Source (Join-Path $Root 'frontend-app/dist') -Destination (Join-Path $Root 'cmd/agent-terminal/web-dist') -PreserveNames @('.gitkeep')
+    Copy-DirectoryClean -Source (Join-Path $Root 'frontend-app/dist') -Destination (Join-Path $Root 'cmd/agent-terminal/frontend/dist')
 }
 
 function Write-RunScripts() {

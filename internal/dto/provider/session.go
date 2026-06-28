@@ -63,7 +63,7 @@ type StartAssembly struct {
 	ResolvedSections      []ResolvedPromptSection `json:"resolvedSections,omitempty"`
 	Snapshot              PromptAssemblySnapshot  `json:"snapshot"`
 	SuppressedTools       []string                `json:"suppressedTools,omitempty"`
-	PrefixShape           PrefixShape             `json:"prefixShape,omitzero"`
+	PrefixShape           PrefixShape             `json:"prefixShape,omitempty"`
 
 	// UserContext 是 start 阶段用户上下文的结构化 map。
 	// provider bridge 可将它路由到非缓存用户上下文消息；兼容期内 BaseInstructions 仍可能携带同类内容。
