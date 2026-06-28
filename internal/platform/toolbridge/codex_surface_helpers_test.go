@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"reflect"
+	"slices"
 	"testing"
 	"time"
 
@@ -43,6 +44,17 @@ type fakeSkillToolProvider struct {
 	calls   []contract.SkillToolCall
 }
 
+type fakeMCPToolLifecycleReader struct {
+	records map[contract.MCPToolLifecycleKey]contract.MCPToolLifecycleRecord
+	err     error
+	calls   []contract.MCPToolLifecycleKey
+}
+
+type fakeHostToolRegistry struct {
+	tools []mcpdto.MCPTool
+	calls []HostToolCall
+}
+
 func (p *fakeSkillToolProvider) ListSkillToolsForSurface(_ context.Context, _ string) ([]contract.SkillToolSurfaceTool, error) {
 	return append([]contract.SkillToolSurfaceTool(nil), p.tools...), nil
 }
@@ -50,6 +62,50 @@ func (p *fakeSkillToolProvider) ListSkillToolsForSurface(_ context.Context, _ st
 func (p *fakeSkillToolProvider) CallSkillTool(_ context.Context, call contract.SkillToolCall) (string, error) {
 	p.calls = append(p.calls, call)
 	return p.content, nil
+}
+
+func (r *fakeMCPToolLifecycleReader) GetMCPToolLifecycleState(
+	_ context.Context,
+	key contract.MCPToolLifecycleKey,
+) (contract.MCPToolLifecycleRecord, error) {
+	r.calls = append(r.calls, key)
+	if r.err != nil {
+		return contract.MCPToolLifecycleRecord{}, r.err
+	}
+	record, ok := r.records[key]
+	if !ok {
+		return contract.MCPToolLifecycleRecord{}, contract.ErrNotFound
+	}
+	return record, nil
+}
+
+func (r *fakeMCPToolLifecycleReader) ListMCPToolLifecycleStates(
+	context.Context,
+	contract.MCPToolLifecycleListParams,
+) ([]contract.MCPToolLifecycleRecord, error) {
+	return nil, nil
+}
+
+func (r *fakeHostToolRegistry) ListHostTools() []mcpdto.MCPTool {
+	return append([]mcpdto.MCPTool(nil), r.tools...)
+}
+
+func (r *fakeHostToolRegistry) HasTool(name string) bool {
+	for _, tool := range r.tools {
+		if tool.Name == name {
+			return true
+		}
+	}
+	return false
+}
+
+func (r *fakeHostToolRegistry) RequiresCWD(string) bool {
+	return false
+}
+
+func (r *fakeHostToolRegistry) CallHostTool(_ context.Context, call HostToolCall) (any, error) {
+	r.calls = append(r.calls, call)
+	return map[string]any{"ok": true}, nil
 }
 
 func (c *fakeMCPClient) ListTools(ctx context.Context) ([]mcpdto.MCPTool, error) {
@@ -78,18 +134,47 @@ func (c *fakeMCPClient) Close() error {
 }
 
 func (c *fakeMCPClient) calledWith(name string) bool {
-	for _, call := range c.calls {
-		if call == name {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(c.calls, name)
 }
 
 func fakeClientFactory(clients map[string]mcpClient) func(context.Context, providerdto.MCPBinary) (mcpClient, error) {
 	return func(_ context.Context, binary providerdto.MCPBinary) (mcpClient, error) {
 		return clients[binary.Name], nil
 	}
+}
+
+func fakeActiveLifecycleReader(workspaceRoot string, tools map[string][]string) *fakeMCPToolLifecycleReader {
+	states := make(map[string]map[string]contract.MCPToolLifecycleState, len(tools))
+	for serverName, toolNames := range tools {
+		states[serverName] = make(map[string]contract.MCPToolLifecycleState, len(toolNames))
+		for _, toolName := range toolNames {
+			states[serverName][toolName] = contract.MCPToolLifecycleStateActive
+		}
+	}
+	return fakeMCPToolLifecycleReaderWithRecords(workspaceRoot, states)
+}
+
+func fakeMCPToolLifecycleReaderWithRecords(
+	workspaceRoot string,
+	tools map[string]map[string]contract.MCPToolLifecycleState,
+) *fakeMCPToolLifecycleReader {
+	records := make(map[contract.MCPToolLifecycleKey]contract.MCPToolLifecycleRecord)
+	for serverName, toolStates := range tools {
+		for toolName, state := range toolStates {
+			key := contract.MCPToolLifecycleKey{
+				WorkspaceRoot: workspaceRoot,
+				ServerName:    serverName,
+				ToolName:      toolName,
+			}
+			records[key] = contract.MCPToolLifecycleRecord{
+				WorkspaceRoot: workspaceRoot,
+				ServerName:    serverName,
+				ToolName:      toolName,
+				State:         state,
+			}
+		}
+	}
+	return &fakeMCPToolLifecycleReader{records: records}
 }
 
 func jsonEscape(value string) string {

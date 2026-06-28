@@ -14,7 +14,10 @@ import (
 func TestPrepareCodexToolSurfaceNamespacesExternalDuplicateToolName(t *testing.T) {
 	postgres := &fakeMCPClient{tools: []mcpdto.MCPTool{{Name: "query", Description: "postgres query", InputSchema: json.RawMessage(`{"type":"object"}`)}}}
 	sqlite := &fakeMCPClient{tools: []mcpdto.MCPTool{{Name: "query", Description: "sqlite query", InputSchema: json.RawMessage(`{"type":"object"}`)}}}
-	h := &Handler{stdioClientFactory: fakeClientFactory(map[string]mcpClient{"postgres": postgres, "sqlite": sqlite})}
+	h := &Handler{
+		toolLifecycleReader: fakeActiveLifecycleReader("/repo", map[string][]string{"postgres": {"query"}, "sqlite": {"query"}}),
+		stdioClientFactory:  fakeClientFactory(map[string]mcpClient{"postgres": postgres, "sqlite": sqlite}),
+	}
 
 	tools, err := h.PrepareCodexToolSurface(context.Background(), contract.CodexToolSurfaceScope{
 		AgentID:          "agent-1",

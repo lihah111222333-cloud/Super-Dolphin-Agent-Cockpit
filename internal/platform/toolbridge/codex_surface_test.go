@@ -23,7 +23,10 @@ func TestPrepareCodexToolSurfaceAdvertisesShortNamesAndRoutesCalls(t *testing.T)
 	}}
 	orch := &fakeMCPClient{tools: []mcpdto.MCPTool{{Name: "orchestration_launch_agent", Description: "launch", InputSchema: json.RawMessage(`{"type":"object"}`)}}}
 
-	h := &Handler{stdioClientFactory: fakeClientFactory(map[string]mcpClient{"lsp": lsp, "orch": orch})}
+	h := &Handler{
+		toolLifecycleReader: fakeActiveLifecycleReader("/repo", map[string][]string{"lsp": {"lsp_grep", "lsp_format_preview"}}),
+		stdioClientFactory:  fakeClientFactory(map[string]mcpClient{"lsp": lsp, "orch": orch}),
+	}
 
 	tools, err := h.PrepareCodexToolSurface(context.Background(), contract.CodexToolSurfaceScope{
 		AgentID:          "agent-1",
@@ -115,7 +118,8 @@ func TestCodexToolSurfaceLaunchInjectsManagedContextWithoutCWD(t *testing.T) {
 		t.Run(realName, func(t *testing.T) {
 			orch := &fakeMCPClient{tools: []mcpdto.MCPTool{{Name: realName, Description: "launch", InputSchema: json.RawMessage(`{"type":"object"}`)}}}
 			h := &Handler{
-				stdioClientFactory: fakeClientFactory(map[string]mcpClient{"orch": orch}),
+				toolLifecycleReader: fakeActiveLifecycleReader("/repo/project", map[string][]string{"orch": {realName}}),
+				stdioClientFactory:  fakeClientFactory(map[string]mcpClient{"orch": orch}),
 				bindingStore: &toolCallBindingStoreStub{bindingsByAgent: map[string]toolCallBinding{
 					"agent-parent": {
 						AgentID:  "agent-parent",
@@ -172,7 +176,10 @@ func assertCodexSurfaceLaunchInjectedArgs(t *testing.T, arguments []json.RawMess
 
 func TestCodexToolSurfaceAcceptsLegacyAliasWithoutAdvertisingIt(t *testing.T) {
 	lsp := &fakeMCPClient{tools: []mcpdto.MCPTool{{Name: "grep", InputSchema: json.RawMessage(`{"type":"object"}`)}}}
-	h := &Handler{stdioClientFactory: fakeClientFactory(map[string]mcpClient{"lsp": lsp})}
+	h := &Handler{
+		toolLifecycleReader: fakeActiveLifecycleReader("/repo", map[string][]string{"lsp": {"grep"}}),
+		stdioClientFactory:  fakeClientFactory(map[string]mcpClient{"lsp": lsp}),
+	}
 	tools, err := h.PrepareCodexToolSurface(context.Background(), contract.CodexToolSurfaceScope{
 		AgentID:          "agent-1",
 		ProviderThreadID: "provider-thread-1",
@@ -208,7 +215,10 @@ func TestPrepareCodexToolSurfaceListsMCPBinariesInParallel(t *testing.T) {
 		listStartedName: "orch",
 		listRelease:     release,
 	}
-	h := &Handler{stdioClientFactory: fakeClientFactory(map[string]mcpClient{"lsp": lsp, "orch": orch})}
+	h := &Handler{
+		toolLifecycleReader: fakeActiveLifecycleReader("/repo", map[string][]string{"lsp": {"grep"}, "orch": {"orchestration_launch_agent"}}),
+		stdioClientFactory:  fakeClientFactory(map[string]mcpClient{"lsp": lsp, "orch": orch}),
+	}
 
 	var tools []contract.DynamicToolSchema
 	done := make(chan error, 1)
@@ -244,8 +254,9 @@ func TestCodexToolSurfacePublishesLifecycleEvents(t *testing.T) {
 
 	lsp := &fakeMCPClient{tools: []mcpdto.MCPTool{{Name: "lsp_grep", InputSchema: json.RawMessage(`{"type":"object"}`)}}}
 	h := &Handler{
-		dispatcher:         dispatcher,
-		stdioClientFactory: fakeClientFactory(map[string]mcpClient{"lsp": lsp}),
+		dispatcher:          dispatcher,
+		toolLifecycleReader: fakeActiveLifecycleReader("/repo", map[string][]string{"lsp": {"lsp_grep"}}),
+		stdioClientFactory:  fakeClientFactory(map[string]mcpClient{"lsp": lsp}),
 	}
 	_, err := h.PrepareCodexToolSurface(context.Background(), contract.CodexToolSurfaceScope{
 		AgentID:          "agent-1",
@@ -287,8 +298,9 @@ func TestCodexToolSurfaceSkipsLifecycleWhenCallerAlreadyPublishes(t *testing.T) 
 
 	lsp := &fakeMCPClient{tools: []mcpdto.MCPTool{{Name: "lsp_grep", InputSchema: json.RawMessage(`{"type":"object"}`)}}}
 	h := &Handler{
-		dispatcher:         dispatcher,
-		stdioClientFactory: fakeClientFactory(map[string]mcpClient{"lsp": lsp}),
+		dispatcher:          dispatcher,
+		toolLifecycleReader: fakeActiveLifecycleReader("/repo", map[string][]string{"lsp": {"lsp_grep"}}),
+		stdioClientFactory:  fakeClientFactory(map[string]mcpClient{"lsp": lsp}),
 	}
 	_, err := h.PrepareCodexToolSurface(context.Background(), contract.CodexToolSurfaceScope{
 		AgentID:          "agent-1",
@@ -319,11 +331,14 @@ func TestPrepareCodexToolSurfaceReplacesOverlappingSurface(t *testing.T) {
 	oldClient := &fakeMCPClient{tools: []mcpdto.MCPTool{{Name: "grep", InputSchema: json.RawMessage(`{"type":"object"}`)}}}
 	newClient := &fakeMCPClient{tools: []mcpdto.MCPTool{{Name: "grep", InputSchema: json.RawMessage(`{"type":"object"}`)}}}
 	clients := []mcpClient{oldClient, newClient}
-	h := &Handler{stdioClientFactory: func(context.Context, providerdto.MCPBinary) (mcpClient, error) {
-		client := clients[0]
-		clients = clients[1:]
-		return client, nil
-	}}
+	h := &Handler{
+		toolLifecycleReader: fakeActiveLifecycleReader("/repo", map[string][]string{"lsp": {"grep"}}),
+		stdioClientFactory: func(context.Context, providerdto.MCPBinary) (mcpClient, error) {
+			client := clients[0]
+			clients = clients[1:]
+			return client, nil
+		},
+	}
 
 	_, err := h.PrepareCodexToolSurface(context.Background(), contract.CodexToolSurfaceScope{
 		AgentID:          "agent-1",
@@ -413,11 +428,14 @@ func TestReleaseCodexToolSurfaceByStaleProviderDoesNotRemoveReplacement(t *testi
 	oldClient := &fakeMCPClient{tools: []mcpdto.MCPTool{{Name: "grep", InputSchema: json.RawMessage(`{"type":"object"}`)}}}
 	newClient := &fakeMCPClient{tools: []mcpdto.MCPTool{{Name: "grep", InputSchema: json.RawMessage(`{"type":"object"}`)}}}
 	clients := []mcpClient{oldClient, newClient}
-	h := &Handler{stdioClientFactory: func(context.Context, providerdto.MCPBinary) (mcpClient, error) {
-		client := clients[0]
-		clients = clients[1:]
-		return client, nil
-	}}
+	h := &Handler{
+		toolLifecycleReader: fakeActiveLifecycleReader("/repo", map[string][]string{"lsp": {"grep"}}),
+		stdioClientFactory: func(context.Context, providerdto.MCPBinary) (mcpClient, error) {
+			client := clients[0]
+			clients = clients[1:]
+			return client, nil
+		},
+	}
 
 	_, err := h.PrepareCodexToolSurface(context.Background(), contract.CodexToolSurfaceScope{
 		AgentID:          "agent-1",
@@ -457,11 +475,14 @@ func TestReleaseCodexToolSurfaceByStaleSurfaceIDDoesNotRemoveReplacement(t *test
 	oldClient := &fakeMCPClient{tools: []mcpdto.MCPTool{{Name: "grep", InputSchema: json.RawMessage(`{"type":"object"}`)}}}
 	newClient := &fakeMCPClient{tools: []mcpdto.MCPTool{{Name: "grep", InputSchema: json.RawMessage(`{"type":"object"}`)}}}
 	clients := []mcpClient{oldClient, newClient}
-	h := &Handler{stdioClientFactory: func(context.Context, providerdto.MCPBinary) (mcpClient, error) {
-		client := clients[0]
-		clients = clients[1:]
-		return client, nil
-	}}
+	h := &Handler{
+		toolLifecycleReader: fakeActiveLifecycleReader("/repo", map[string][]string{"lsp": {"grep"}}),
+		stdioClientFactory: func(context.Context, providerdto.MCPBinary) (mcpClient, error) {
+			client := clients[0]
+			clients = clients[1:]
+			return client, nil
+		},
+	}
 
 	_, err := h.PrepareCodexToolSurface(context.Background(), contract.CodexToolSurfaceScope{
 		SurfaceID: "surface-old",
