@@ -4,7 +4,6 @@ package bus
 
 import (
 	"context"
-	"log/slog"
 
 	"github.com/kelindar/event"
 )
@@ -17,18 +16,6 @@ type Router struct {
 // NewRouter 创建 Router；dispatcher 参数暂未使用，但保留旧构造签名以兼容调用方。
 func NewRouter(_ *event.Dispatcher) *Router {
 	return &Router{subs: NewSubscription()}
-}
-
-// Route 向 dispatcher 注册泛型事件处理函数，dispatcher 或 handler 为 nil 时跳过并记录警告。
-func Route[T event.Event](dispatcher *event.Dispatcher, handler func(T)) context.CancelFunc {
-	if dispatcher == nil || handler == nil {
-		slog.Warn("bus: Route called with nil dispatcher or handler, subscription skipped",
-			slog.Bool("dispatcher_nil", dispatcher == nil),
-			slog.Bool("handler_nil", handler == nil),
-		)
-		return func() {}
-	}
-	return event.Subscribe(dispatcher, handler)
 }
 
 // Handle 将 cancel 函数注册到 Router，由 Close 统一调用。

@@ -6,7 +6,9 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"io"
 	"log/slog"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -16,6 +18,7 @@ import (
 	mcp "github.com/anthropic-ai/super-agent-v3/internal/dto/mcp"
 	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/common/bootstrap"
 	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
+	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 	_ "modernc.org/sqlite"
 )
 
@@ -131,6 +134,72 @@ func runtimeSQLiteMigrationsDir(t *testing.T) string {
 		t.Fatalf("resolve sqlite migrations dir: %v", err)
 	}
 	return dir
+}
+
+func TestNewLoggerFallbackWarnsToStderr(t *testing.T) {
+	var stderr bytes.Buffer
+	openErr := errors.New("open denied")
+
+	newLoggerWithOpenFile(nil, func(string, int, os.FileMode) (*os.File, error) {
+		return nil, openErr
+	}, &stderr)
+	t.Cleanup(func() { pkglogger.InitWithConsoleWriter(io.Discard) })
+
+	if got := stderr.String(); !strings.Contains(got, "mcp-orch logger fallback to stderr") {
+		t.Fatalf("stderr = %q, want fallback warning", got)
+	}
+}
+
+func TestNewLoggerFallbackDoesNotWriteStdout(t *testing.T) {
+	stdoutR, stdoutW, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("os.Pipe() error = %v", err)
+	}
+	originalStdout := os.Stdout
+	os.Stdout = stdoutW
+	t.Cleanup(func() {
+		os.Stdout = originalStdout
+		_ = stdoutR.Close()
+	})
+
+	var stderr bytes.Buffer
+	newLoggerWithOpenFile(nil, func(string, int, os.FileMode) (*os.File, error) {
+		return nil, errors.New("open denied")
+	}, &stderr)
+	t.Cleanup(func() { pkglogger.InitWithConsoleWriter(io.Discard) })
+
+	os.Stdout = originalStdout
+	if err := stdoutW.Close(); err != nil {
+		t.Fatalf("close captured stdout writer: %v", err)
+	}
+	stdoutBytes, err := io.ReadAll(stdoutR)
+	if err != nil {
+		t.Fatalf("read captured stdout: %v", err)
+	}
+	if len(stdoutBytes) != 0 {
+		t.Fatalf("stdout = %q, want empty", string(stdoutBytes))
+	}
+	if got := stderr.String(); !strings.Contains(got, "mcp-orch logger fallback to stderr") {
+		t.Fatalf("stderr = %q, want fallback warning", got)
+	}
+}
+
+func TestNewLoggerOpenSuccessSkipsFallbackWarning(t *testing.T) {
+	logFile, err := os.OpenFile(filepath.Join(t.TempDir(), "mcp-orch.log"), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+	if err != nil {
+		t.Fatalf("open temp log file: %v", err)
+	}
+	t.Cleanup(func() { _ = logFile.Close() })
+
+	var stderr bytes.Buffer
+	newLoggerWithOpenFile(nil, func(string, int, os.FileMode) (*os.File, error) {
+		return logFile, nil
+	}, &stderr)
+	t.Cleanup(func() { pkglogger.InitWithConsoleWriter(io.Discard) })
+
+	if got := stderr.String(); strings.Contains(got, "mcp-orch logger fallback to stderr") {
+		t.Fatalf("stderr = %q, want no fallback warning", got)
+	}
 }
 
 func TestBootstrapRunnerSkipsStartWhenRPCAddrMissing(t *testing.T) {

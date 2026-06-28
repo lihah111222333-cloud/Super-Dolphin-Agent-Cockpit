@@ -50,6 +50,23 @@ func (r runtimeBlockRunner) Run(ctx context.Context) error {
 	return ctx.Err()
 }
 
+func TestRegisterRuntimePreDrainPanicsOnDuplicate(t *testing.T) {
+	owner := newAppOwnerContext(context.Background())
+	drain := func(context.Context) error { return nil }
+	owner.RegisterRuntimePreDrain(drain)
+
+	defer func() {
+		recovered := recover()
+		if recovered == nil {
+			t.Fatal("second RegisterRuntimePreDrain() did not panic")
+		}
+		if recovered != "app: runtime pre-drain already registered" {
+			t.Fatalf("panic = %v, want app: runtime pre-drain already registered", recovered)
+		}
+	}()
+	owner.RegisterRuntimePreDrain(drain)
+}
+
 func TestBindRuntimeWaitsRunGroupBeforeDrain(t *testing.T) {
 	lifecycle := &runtimeTestLifecycle{}
 	drainer := runtimeDrainStub{

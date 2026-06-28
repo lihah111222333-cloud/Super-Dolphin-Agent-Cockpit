@@ -84,10 +84,12 @@ type Config struct {
 	AutoMemPathOverride        string
 	SkipIndex                  bool
 	ExtractOnStop              bool
-	ExtraGuidelines            []string
-	Features                   MemoryFeatureFlags
-	Kairos                     KairosConfig
-	NestedMemory               NestedMemoryConfig
+	// AutoDreamIntentError 记录读取本地 intent 文件失败时的脱敏摘要；空值表示没有诊断。
+	AutoDreamIntentError string
+	ExtraGuidelines      []string
+	Features             MemoryFeatureFlags
+	Kairos               KairosConfig
+	NestedMemory         NestedMemoryConfig
 	// Harness 记录启动时识别出的底层 CLI harness。
 	// 该值冻结在 Config 中，避免运行中 os.Setenv 改变 overlay suppression 判断。
 	//
@@ -105,7 +107,7 @@ const (
 )
 
 // NewConfig 从平台配置和环境变量构建 memory 配置快照。
-// auto-dream 手动开关会从 memory root 旁的 intent 文件恢复；读取失败时保留环境变量结果。
+// auto-dream 手动开关会从 memory root 旁的 intent 文件恢复；读取失败时保留环境变量结果并记录诊断。
 func NewConfig(platformCfg *contract.Config) *Config {
 	kairosEnabled := parseBoolEnv(envFeatureKairos, false)
 	envOverride := firstNonEmptyEnv(envMemoryPathOverride, envClaudeMemoryPathOverride)
@@ -131,7 +133,9 @@ func NewConfig(platformCfg *contract.Config) *Config {
 	if root := firstNonEmptyEnv(envMemoryRoot, envClaudeRemoteMemoryDir); root != "" {
 		cfg.RootDir = root
 	}
-	if intent, err := ReadAutoDreamIntent(cfg.RootDir); err == nil && intent != nil {
+	if intent, err := ReadAutoDreamIntent(cfg.RootDir); err != nil {
+		cfg.AutoDreamIntentError = autoDreamIntentErrorSummary(err)
+	} else if intent != nil {
 		cfg.ExtractOnStop = *intent
 	}
 	return cfg

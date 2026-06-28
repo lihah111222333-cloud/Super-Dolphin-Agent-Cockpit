@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"os"
+	"strings"
 	"testing"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
@@ -69,6 +70,74 @@ func TestDeletePinPendingLaunchHardDelete(t *testing.T) {
 	}
 }
 
+func TestDeleteFailsWhenBindingStoreMissing(t *testing.T) {
+	t.Parallel()
+
+	store := &pinDeleteThreadStore{stubThreadStore: &stubThreadStore{thread: &threadstore.Thread{
+		ThreadID: "thread-active",
+		Status:   statusCreated,
+	}}}
+	svc := &service{threadStore: store}
+
+	err := svc.Delete(context.Background(), "thread-active")
+
+	if err == nil || !strings.Contains(err.Error(), "binding store is not configured") {
+		t.Fatalf("Delete() error = %v, want binding store not configured", err)
+	}
+	if len(store.deletedIDs) != 0 {
+		t.Fatalf("deletedIDs = %v, want none", store.deletedIDs)
+	}
+}
+
+func TestDeletePendingLaunchStillHandlesMissingBindingRecord(t *testing.T) {
+	t.Parallel()
+
+	store := &pinDeleteThreadStore{
+		stubThreadStore: &stubThreadStore{thread: &threadstore.Thread{
+			ThreadID:      "thread-pending-missing-binding",
+			Status:        statusCreated,
+			PendingLaunch: true,
+		}},
+	}
+	svc := &service{
+		threadStore:  store,
+		bindingStore: &stubThreadBindingStore{},
+	}
+
+	err := svc.Delete(context.Background(), "thread-pending-missing-binding")
+
+	assertDeleteOK(t, err)
+	assertDeletedIDs(t, store, "thread-pending-missing-binding")
+}
+
+func TestSetArchivedFailsWhenBindingStoreMissing(t *testing.T) {
+	t.Parallel()
+
+	t.Run("binding store missing", func(t *testing.T) {
+		t.Parallel()
+
+		svc := &service{threadStore: &stubThreadStore{thread: &threadstore.Thread{ThreadID: "thread-1"}}}
+
+		err := svc.setBindingArchived(context.Background(), "thread-1", true)
+
+		if err == nil || !strings.Contains(err.Error(), "binding store is not configured") {
+			t.Fatalf("setBindingArchived() error = %v, want binding store not configured", err)
+		}
+	})
+
+	t.Run("thread store missing", func(t *testing.T) {
+		t.Parallel()
+
+		svc := &service{bindingStore: &stubThreadBindingStore{binding: &bindingstore.Binding{AgentID: "thread-1"}}}
+
+		err := svc.setBindingArchived(context.Background(), "thread-1", true)
+
+		if err == nil || !strings.Contains(err.Error(), "thread store is not configured") {
+			t.Fatalf("setBindingArchived() error = %v, want thread store not configured", err)
+		}
+	})
+}
+
 func TestDeletePinActiveThreadSoftDelete(t *testing.T) {
 	t.Parallel()
 
@@ -101,8 +170,12 @@ func TestDeletePinMissingThreadFallsThrough(t *testing.T) {
 
 	err := svc.Delete(context.Background(), "thread-missing")
 
-	assertDeleteOK(t, err)
-	assertDeletedIDs(t, store, "thread-missing")
+	if err == nil || !strings.Contains(err.Error(), "binding store is not configured") {
+		t.Fatalf("Delete() error = %v, want binding store not configured", err)
+	}
+	if len(store.deletedIDs) != 0 {
+		t.Fatalf("deletedIDs = %v, want none", store.deletedIDs)
+	}
 }
 
 func TestDeletePinPreservesUnmanagedScratchpad(t *testing.T) {
@@ -115,8 +188,15 @@ func TestDeletePinPreservesUnmanagedScratchpad(t *testing.T) {
 	svc := &service{
 		threadStore: &pinDeleteThreadStore{stubThreadStore: &stubThreadStore{thread: &threadstore.Thread{
 			ThreadID:       "thread-external",
+			AgentID:        "agent-external",
 			ConfigOverride: raw,
 		}}},
+		bindingStore: &stubThreadBindingStore{binding: &bindingstore.Binding{
+			AgentID:          "agent-external",
+			Provider:         "codex",
+			ProviderThreadID: "provider-thread-external",
+			CodexThreadID:    "thread-external",
+		}},
 		emitStopped: func(threaddto.Stopped) {
 			if _, err := os.Stat(external); err != nil {
 				t.Fatalf("external scratchpad removed: %v", err)

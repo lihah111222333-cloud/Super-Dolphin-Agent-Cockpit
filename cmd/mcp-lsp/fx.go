@@ -117,15 +117,15 @@ func run() error {
 }
 
 // newServer 创建 stdio 传输层的 MCP server，使用受保护的 stdout 作为写端。
-func newServer(handlers ToolHandlers) *common.Server {
+func newServer(handlers ToolHandlers) (*common.Server, error) {
 	stdout := mcpStdout.Load()
 	if stdout == nil {
-		stdout = os.Stdout
+		return nil, errors.New("mcp-lsp: mcpStdout not initialized; program assembly order is broken")
 	}
 	transport := common.NewStdioTransport(os.Stdin, stdout)
 	return common.NewServer(binaryName, binaryVersion, transport, registryToolProvider{
 		defs: toolDefinitions(handlers),
-	})
+	}), nil
 }
 
 // newBootstrapRunner 构建 bootstrapRunner，等待 stdio server ready 信号后连接控制面。

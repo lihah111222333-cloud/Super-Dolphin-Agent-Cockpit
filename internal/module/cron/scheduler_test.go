@@ -2,6 +2,7 @@ package cron
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"log/slog"
 	"strings"
@@ -320,6 +321,44 @@ func TestSchedulerStartTurnFailureMarksFailed(t *testing.T) {
 	}
 	if failed.LastError != "provider down" {
 		t.Fatalf("LastError = %q, want 'provider down'", failed.LastError)
+	}
+}
+
+func TestSchedulerCorruptSkillsDecodeMarksFailedWithoutStartTurn(t *testing.T) {
+	t.Parallel()
+	store := &recordingCronStore{}
+	sub := &programmableSubmitter{}
+	s := newTestScheduler(t, store, sub)
+
+	var failed markFailedParams
+	store.markFailedFn = func(_ context.Context, p markFailedParams) error {
+		failed = p
+		return nil
+	}
+	job := jobRecord{
+		ID:           "job-1",
+		ScheduleExpr: "0 9 * * *",
+		Timezone:     "UTC",
+		ClaimToken:   "tok",
+		NextRunAt:    s.now(),
+		Skills:       json.RawMessage("{bad}"),
+		MaxAttempts:  1,
+	}
+	store.claimFn = func(context.Context, claimDueJobsForUpdateParams) ([]jobRecord, error) {
+		return []jobRecord{job}, nil
+	}
+
+	if err := s.RunTick(context.Background()); err != nil {
+		t.Fatalf("RunTick error = %v", err)
+	}
+	if len(sub.starts) != 0 {
+		t.Fatalf("StartTurn should not run after corrupt skills decode; starts=%d", len(sub.starts))
+	}
+	if failed.ID != "job-1" || failed.LastStatus != statusFailed {
+		t.Fatalf("markFailed params = %+v", failed)
+	}
+	if !strings.Contains(failed.LastError, "cron: decode skills snapshot") {
+		t.Fatalf("LastError = %q, want corrupt skills decode error", failed.LastError)
 	}
 }
 

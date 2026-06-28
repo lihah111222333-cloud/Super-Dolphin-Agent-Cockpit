@@ -268,6 +268,19 @@ func TestPersistThreadConfigFailsFastOnMalformedConfigOverride(t *testing.T) {
 	}
 }
 
+func TestPersistThreadConfigFailsWhenThreadStoreMissing(t *testing.T) {
+	t.Parallel()
+
+	model := "gpt-5"
+	svc := &service{}
+
+	err := svc.persistThreadConfig(context.Background(), "thread-1", dto.ThreadConfigPatch{Model: &model}, dto.ThreadConfig{})
+
+	if err == nil || !strings.Contains(err.Error(), "thread store is not configured") {
+		t.Fatalf("persistThreadConfig() error = %v, want thread store not configured", err)
+	}
+}
+
 func TestConfigReadsFailFastWithoutSessionProvider(t *testing.T) {
 	t.Parallel()
 

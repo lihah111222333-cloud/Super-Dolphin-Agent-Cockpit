@@ -18,7 +18,7 @@ func TestLogSinkRecordsLifecycleTraceIdentifiers(t *testing.T) {
 	dispatcher := NewDispatcher()
 	t.Cleanup(func() { _ = dispatcher.Close() })
 	trace := observability.NewService(observability.Config{IndexMaxEvents: 20, IndexMaxTraceEvents: 20, IndexMaxThreadEvents: 20})
-	sink := NewLogSink(LogSinkDeps{Dispatcher: dispatcher, Logger: slog.New(slog.DiscardHandler), Trace: testBusTraceRecorder{trace}})
+	sink := mustNewLogSink(t, LogSinkDeps{Dispatcher: dispatcher, Logger: slog.New(slog.DiscardHandler), Trace: testBusTraceRecorder{trace}})
 	t.Cleanup(sink.Close)
 
 	event.Publish(dispatcher, turndto.TurnStarted{TurnHeader: sharedto.TurnHeader{AgentHeader: sharedto.AgentHeader{ThreadHeader: sharedto.ThreadHeader{ThreadID: "thread-1"}, AgentID: "agent-1"}, TurnIDHeader: sharedto.TurnIDHeader{TurnID: "turn-1"}}})
@@ -39,7 +39,7 @@ func TestLogSinkCorrelatesLifecycleTraceByThread(t *testing.T) {
 	dispatcher := NewDispatcher()
 	t.Cleanup(func() { _ = dispatcher.Close() })
 	trace := observability.NewService(observability.Config{IndexMaxEvents: 20, IndexMaxTraceEvents: 20, IndexMaxThreadEvents: 20})
-	sink := NewLogSink(LogSinkDeps{Dispatcher: dispatcher, Logger: slog.New(slog.DiscardHandler), Trace: testBusTraceRecorder{trace}})
+	sink := mustNewLogSink(t, LogSinkDeps{Dispatcher: dispatcher, Logger: slog.New(slog.DiscardHandler), Trace: testBusTraceRecorder{trace}})
 	t.Cleanup(sink.Close)
 
 	if err := trace.Record(context.Background(), observability.TraceEvent{TraceID: "trace-thread-1", SpanID: "thread-span-1", Kind: "thread.start", Method: "thread.start", ThreadID: "thread-1", Status: observability.StatusOK}); err != nil {
@@ -66,7 +66,7 @@ func TestLogSinkSummarizesHighFrequencyLifecycleTrace(t *testing.T) {
 	dispatcher := NewDispatcher()
 	t.Cleanup(func() { _ = dispatcher.Close() })
 	trace := observability.NewService(observability.Config{IndexMaxEvents: 20, IndexMaxTraceEvents: 20, IndexMaxThreadEvents: 20})
-	sink := NewLogSink(LogSinkDeps{Dispatcher: dispatcher, Logger: slog.New(slog.DiscardHandler), Trace: testBusTraceRecorder{trace}})
+	sink := mustNewLogSink(t, LogSinkDeps{Dispatcher: dispatcher, Logger: slog.New(slog.DiscardHandler), Trace: testBusTraceRecorder{trace}})
 	t.Cleanup(sink.Close)
 
 	for range 105 {

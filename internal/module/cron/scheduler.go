@@ -272,7 +272,11 @@ func (s *Scheduler) driveJob(ctx context.Context, job jobRecord) error {
 	if err := s.markRunSubmitting(ctx, job.ID, run.ID, scheduledAt); err != nil {
 		return err
 	}
-	startResult, err := s.submitter.StartTurn(ctx, buildStartTurnRequest(job, run.ID, dedupe, scheduledAt))
+	req, err := buildStartTurnRequest(job, run.ID, dedupe, scheduledAt)
+	if err != nil {
+		return s.finalizeFailure(ctx, job, run, scheduledAt, err)
+	}
+	startResult, err := s.submitter.StartTurn(ctx, req)
 	if err != nil {
 		return s.finalizeFailure(ctx, job, run, scheduledAt, err)
 	}
@@ -330,7 +334,11 @@ func (s *Scheduler) markRunSubmitting(ctx context.Context, jobID, runID string, 
 }
 
 // buildStartTurnRequest 从 job 行和本次 run 信息构造 StartTurnRequest。
-func buildStartTurnRequest(job jobRecord, runID, dedupe string, scheduledAt time.Time) StartTurnRequest {
+func buildStartTurnRequest(job jobRecord, runID, dedupe string, scheduledAt time.Time) (StartTurnRequest, error) {
+	skills, err := decodeSkillList(job.Skills)
+	if err != nil {
+		return StartTurnRequest{}, err
+	}
 	return StartTurnRequest{
 		JobID:        job.ID,
 		RunID:        runID,
@@ -341,12 +349,12 @@ func buildStartTurnRequest(job jobRecord, runID, dedupe string, scheduledAt time
 		Model:        job.Model,
 		CWD:          job.CWD,
 		Config:       job.Config,
-		Skills:       decodeSkillList(job.Skills),
+		Skills:       skills,
 		Prompt:       job.Prompt,
 		ScheduledAt:  scheduledAt,
 		MaxAttempts:  job.MaxAttempts,
 		FailureCount: job.FailureCount,
-	}
+	}, nil
 }
 
 // persistSubmittedTurn 保存已提交 turn 和 cron run 的绑定关系。

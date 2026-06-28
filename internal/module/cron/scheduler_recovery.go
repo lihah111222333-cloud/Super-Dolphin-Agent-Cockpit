@@ -312,14 +312,14 @@ func (s *Scheduler) ExtendClaimForTurnProgress(ctx context.Context, turnID strin
 }
 
 // decodeSkillList 从 run 快照中的 JSONB 字节解码技能名称列表。
-// 它只服务恢复提交请求的字段投影；解析失败返回 nil，后续 StartTurn/Observe 边界仍决定是否失败。
-func decodeSkillList(raw json.RawMessage) []string {
+// 解析失败必须阻断本次提交，避免把损坏快照当作空 skills 继续执行。
+func decodeSkillList(raw json.RawMessage) ([]string, error) {
 	if len(raw) == 0 {
-		return nil
+		return nil, nil
 	}
 	var out []string
 	if err := json.Unmarshal(raw, &out); err != nil {
-		return nil
+		return nil, fmt.Errorf("cron: decode skills snapshot: %w", err)
 	}
-	return out
+	return out, nil
 }

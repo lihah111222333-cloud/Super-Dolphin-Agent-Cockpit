@@ -171,13 +171,13 @@ func (emptyToolProvider) CallTool(_ context.Context, name string, _ json.RawMess
 }
 
 // newStdioServer 创建 stdio 传输层的 MCP server，使用受保护的 stdout 作为写端。
-func newStdioServer() *common.Server {
+func newStdioServer() (*common.Server, error) {
 	stdout := mcpStdout.Load()
 	if stdout == nil {
-		stdout = os.Stdout
+		return nil, errors.New("mcp-ida: mcpStdout not initialized; program assembly order is broken")
 	}
 	transport := common.NewStdioTransport(os.Stdin, stdout)
-	return common.NewServer("mcp-ida", "dev", transport, emptyToolProvider{})
+	return common.NewServer("mcp-ida", "dev", transport, emptyToolProvider{}), nil
 }
 
 // newStdioRunner 将 stdio *common.Server 适配为 Runner 加入运行组。

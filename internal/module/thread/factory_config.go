@@ -306,8 +306,8 @@ func (s *service) persistThreadConfig(
 	patch dto.ThreadConfigPatch,
 	_ dto.ThreadConfig,
 ) error {
-	if s.threadStore == nil {
-		return nil
+	if s == nil || s.threadStore == nil {
+		return errors.New("thread: thread store is not configured")
 	}
 	thread, err := s.getThread(ctx, threadID)
 	if err != nil {

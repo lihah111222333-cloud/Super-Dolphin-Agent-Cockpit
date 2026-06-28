@@ -210,7 +210,10 @@ func (s *service) resolveDeleteBinding(
 	threadID string,
 ) (*bindingStoreRecord, bool, error) {
 	if s.bindingStore == nil {
-		return nil, false, nil
+		if handled, pendingErr := s.deletePendingLaunchThread(ctx, threadID, nil); handled || pendingErr != nil {
+			return nil, handled, pendingErr
+		}
+		return nil, false, errors.New("thread: binding store is not configured")
 	}
 	binding, err := s.resolveBinding(ctx, threadID)
 	if err == nil {
@@ -560,8 +563,11 @@ func (s *service) removeStoppedSession(agentID string, generation uint64) {
 }
 
 func (s *service) setBindingArchived(ctx context.Context, threadID string, archived bool) error {
+	if s == nil || s.threadStore == nil {
+		return errors.New("thread store is not configured")
+	}
 	if s.bindingStore == nil {
-		return nil
+		return errors.New("binding store is not configured")
 	}
 	binding, err := s.resolveBinding(ctx, threadID)
 	if err != nil {

@@ -50,7 +50,7 @@ func TestLogSinkHighFrequencyEventsUseDebugLevel(t *testing.T) {
 
 	var buf lockedBuffer
 	logger := slog.New(slog.NewJSONHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug}))
-	sink := NewLogSink(LogSinkDeps{Dispatcher: dispatcher, Logger: logger})
+	sink := mustNewLogSink(t, LogSinkDeps{Dispatcher: dispatcher, Logger: logger})
 	t.Cleanup(sink.Close)
 
 	event.Publish(dispatcher, agentdto.StateChanged{})
@@ -79,6 +79,54 @@ func TestLogSinkHighFrequencyEventsUseDebugLevel(t *testing.T) {
 	if got := levelForEvent(t, entries, "UITokensUpdated"); got != "DEBUG" {
 		t.Fatalf("UITokensUpdated level = %q, want %q", got, "DEBUG")
 	}
+}
+
+func TestNewLogSinkRejectsNilDependencies(t *testing.T) {
+	t.Parallel()
+
+	dispatcher := NewDispatcher()
+	t.Cleanup(func() {
+		_ = dispatcher.Close()
+	})
+	logger := slog.New(slog.DiscardHandler)
+
+	tests := []struct {
+		name string
+		deps LogSinkDeps
+		want string
+	}{
+		{
+			name: "nil dispatcher",
+			deps: LogSinkDeps{Logger: logger},
+			want: "nil dispatcher",
+		},
+		{
+			name: "nil logger",
+			deps: LogSinkDeps{Dispatcher: dispatcher},
+			want: "nil logger",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			sink, err := NewLogSink(tt.deps)
+			if err == nil || !strings.Contains(err.Error(), tt.want) {
+				t.Fatalf("NewLogSink() error = %v, want substring %q", err, tt.want)
+			}
+			if sink != nil {
+				t.Fatalf("NewLogSink() sink = %#v, want nil on invalid deps", sink)
+			}
+		})
+	}
+}
+
+func mustNewLogSink(t *testing.T, deps LogSinkDeps) *LogSink {
+	t.Helper()
+	sink, err := NewLogSink(deps)
+	if err != nil {
+		t.Fatalf("NewLogSink() error = %v", err)
+	}
+	return sink
 }
 
 func waitForBusLogEntries(t *testing.T, buf *lockedBuffer, want int) []sinkLogEntry {
