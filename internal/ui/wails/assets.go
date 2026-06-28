@@ -29,11 +29,20 @@ type FrontendFS struct {
 //go:embed frontend
 var placeholderAssets embed.FS
 
-// AssetHandlerFrom 构造 Wails 前端资源处理器。
-// VITE_DEV_URL 存在时会转发到 Vite dev server；否则使用注入资源或内置占位资源。
+// AssetHandlerFrom 构造生产模式 Wails 前端资源处理器。
+// 生产模式拒绝 VITE_DEV_URL，避免发布环境被环境变量切到 dev proxy。
 func AssetHandlerFrom(injected FrontendFS) http.Handler {
+	return AssetHandlerFromForMode(injected, false)
+}
+
+// AssetHandlerFromForMode 构造 Wails 前端资源处理器。
+// 只有调试模式允许 VITE_DEV_URL，并且目标必须是 loopback dev server。
+func AssetHandlerFromForMode(injected FrontendFS, debug bool) http.Handler {
 	if devURL := strings.TrimSpace(os.Getenv(viteDevURLEnv)); devURL != "" {
 		target, err := parseFrontendDevServerURL(devURL, viteDevURLEnv)
+		if err == nil && !debug {
+			err = fmt.Errorf("production mode rejects dev URL")
+		}
 		if err != nil {
 			panic("invalid " + viteDevURLEnv + ": " + err.Error())
 		}
