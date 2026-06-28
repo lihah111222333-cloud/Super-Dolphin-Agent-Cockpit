@@ -67,6 +67,7 @@ func TestCodexStartSession_InjectsDynamicTools_E2E(t *testing.T) {
 	params := recorder.threadStartParamsSnapshot()
 	assertDynamicToolNames(t, params, []string{"tool.echo"})
 	assertNoLegacyMCPKeys(t, params)
+	assertNoLifecycleE2EJSONFields(t, "codex thread/start params", mustMarshalE2E(t, params))
 	if params["cwd"] != workDir {
 		t.Fatalf("cwd = %#v, want %q", params["cwd"], workDir)
 	}
@@ -166,50 +167,6 @@ func newCodexToolBridgeRegistry() codexToolBridgeRegistry {
 		},
 	}}
 }
-
-func codexToolInstance(clientKind string, peer *codexToolBridgePeer) *mcpcontrol.ToolInstance {
-	return &mcpcontrol.ToolInstance{ClientKind: clientKind, Status: mcpdto.StatusActive, Peer: peer}
-}
-
-type codexMemoryReaderStub struct {
-	enabled      bool
-	toolsEnabled bool
-}
-
-func (s *codexMemoryReaderStub) ReadAgentMemory(_ context.Context, req contract.MemoryReadRequest) (contract.MemoryReadResult, error) {
-	return contract.MemoryReadResult{Entry: &contract.MemoryEntry{Name: req.Name, Type: req.Type, Content: "memory content"}, SourcePath: "feedback/read.md", IndexHit: true}, nil
-}
-
-func (s *codexMemoryReaderStub) MemoryReadEnabled() bool {
-	return s == nil || s.enabled
-}
-
-func (s *codexMemoryReaderStub) MemoryReadToolsEnabled() bool {
-	return s == nil || s.toolsEnabled
-}
-
-func codexListToolsPeer(tools []mcpdto.MCPTool) *codexToolBridgePeer {
-	return &codexToolBridgePeer{tools: tools}
-}
-
-type codexToolBridgePeer struct {
-	tools []mcpdto.MCPTool
-}
-
-func (p *codexToolBridgePeer) Notify(context.Context, string, any) error { return nil }
-
-func (p *codexToolBridgePeer) Callback(_ context.Context, method string, _ any, result any) error {
-	if method != "tools/list" {
-		return nil
-	}
-	raw, err := json.Marshal(map[string]any{"tools": p.tools})
-	if err != nil {
-		return err
-	}
-	return json.Unmarshal(raw, result)
-}
-
-func (p *codexToolBridgePeer) Close() error { return nil }
 
 func TestCodexStartSession_PreservesUserConfigFields_E2E(t *testing.T) {
 	recorder := &codexRPCRecorder{}
@@ -556,6 +513,7 @@ func assertDynamicToolNames(t *testing.T, params map[string]any, want []string) 
 		if !ok {
 			t.Fatalf("dynamicTools item = %#v, want object", rawTool)
 		}
+		assertNoLifecycleE2EJSONFields(t, "codex dynamicTools item", mustMarshalE2E(t, tool))
 		name, _ := tool["name"].(string)
 		got = append(got, name)
 	}

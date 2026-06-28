@@ -218,6 +218,18 @@ func assertDynamicToolNames(t *testing.T, tools []contract.DynamicToolSchema, wa
 	}
 }
 
+func assertNoLifecycleDynamicToolFields(t *testing.T, scope string, tool map[string]json.RawMessage) {
+	t.Helper()
+	for _, forbidden := range []string{
+		"lifecycle", "lifecycleState", "state", "reason", "source", "updatedBy",
+		"createdAt", "updatedAt", "workspaceRoot", "serverName", "toolName",
+	} {
+		if _, ok := tool[forbidden]; ok {
+			t.Fatalf("%s unexpectedly exposes lifecycle field %q in %#v", scope, forbidden, tool)
+		}
+	}
+}
+
 func assertDynamicToolSchema(t *testing.T, tools []contract.DynamicToolSchema, name, description string, inputSchema, outputSchema json.RawMessage) {
 	t.Helper()
 	for _, tool := range tools {
