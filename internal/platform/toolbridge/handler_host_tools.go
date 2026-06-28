@@ -17,6 +17,13 @@ import (
 
 // Peer-list/decode helpers live in handler_peer_decode.go.
 
+var (
+	errMCPToolLifecycleReaderMissing      = errors.New("toolbridge: MCP tool lifecycle reader is not configured")
+	errMCPToolLifecycleProjectRootMissing = errors.New("toolbridge: MCP tool lifecycle project root is not configured")
+	errMCPToolLifecycleRowMissing         = errors.New("toolbridge: MCP tool lifecycle row is missing")
+	errMCPToolLifecycleStateUnknown       = errors.New("toolbridge: unknown MCP tool lifecycle state")
+)
+
 // peerToolsListOutcome 保存单类 peer 的 tools/list 结果，保留 clientKind 方便聚合错误。
 type peerToolsListOutcome struct {
 	clientKind string
@@ -100,12 +107,160 @@ func (h *Handler) ListToolsForCodex(ctx context.Context) ([]contract.DynamicTool
 		return nil, fmt.Errorf("toolbridge dynamic tools peer discovery failed: %w", err)
 	}
 	for _, outcome := range outcomes {
-		merged = h.appendDynamicToolsWithShadowWarning(merged, seenToolSources, outcome.clientKind, outcome.tools)
+		candidates := h.lifecycleCandidatePeerToolsForCodex(seenToolSources, outcome.clientKind, outcome.tools)
+		tools, err := h.filterManagedPeerToolsByLifecycle(ctx, outcome.clientKind, candidates)
+		if err != nil {
+			return nil, fmt.Errorf("toolbridge dynamic tools lifecycle filter failed: %w", err)
+		}
+		merged = h.appendDynamicToolsWithShadowWarning(merged, seenToolSources, outcome.clientKind, tools)
 	}
 	if len(merged) == 0 {
 		return nil, ErrNoPeerAvailable
 	}
 	return toCodexDynamicTools(merged), nil
+}
+
+// lifecycleCandidatePeerToolsForCodex 先应用旧的 host/peer shadow 和 host-only 保留规则。
+// 被这些规则挡住的 peer 工具不会发布，也不需要 lifecycle 行；剩余候选必须再做 fail-closed 校验。
+func (h *Handler) lifecycleCandidatePeerToolsForCodex(
+	seen map[string]string,
+	source string,
+	tools []dto.MCPTool,
+) []dto.MCPTool {
+	candidates := make([]dto.MCPTool, 0, len(tools))
+	for _, tool := range tools {
+		name := strings.TrimSpace(tool.Name)
+		if name == "" {
+			continue
+		}
+		if isRemovedSkillToolName(name) {
+			h.warn("toolbridge removed skill tool blocked from dynamic list", "tool", name, "source", source)
+			continue
+		}
+		if previousSource, ok := seen[name]; ok {
+			h.warn("toolbridge dynamic tool shadowed by earlier source",
+				"tool", name,
+				"source", source,
+				"shadowed_by", previousSource,
+			)
+			continue
+		}
+		if _, reserved := reservedHostOnlySurfaceToolCanonicalName(source, name); reserved && source != "host" {
+			h.warn("toolbridge peer tool blocked by host-only reservation", "tool", name, "source", source)
+			continue
+		}
+		candidates = append(candidates, tool)
+	}
+	return candidates
+}
+
+// filterManagedPeerToolsByLifecycle 只过滤 managed MCP peer 工具；host-direct 工具已在调用方先合并，不受 lifecycle 行影响。
+// lifecycle 读取失败、缺行或未知状态会 fail-closed，避免向 Codex 发布半可用动态工具面。
+func (h *Handler) filterManagedPeerToolsByLifecycle(
+	ctx context.Context,
+	serverName string,
+	tools []dto.MCPTool,
+) ([]dto.MCPTool, error) {
+	if len(tools) == 0 {
+		return nil, nil
+	}
+	params, err := h.lifecycleListParamsForManagedPeer(serverName)
+	if err != nil {
+		return nil, err
+	}
+	records, err := h.toolLifecycleReader.ListMCPToolLifecycleStates(ctx, params)
+	if err != nil {
+		return nil, fmt.Errorf("list lifecycle states for %s: %w", params.ServerName, err)
+	}
+	states, err := lifecycleStateByToolName(records, params.ServerName)
+	if err != nil {
+		return nil, err
+	}
+	filtered := make([]dto.MCPTool, 0, len(tools))
+	for _, tool := range tools {
+		active, err := h.lifecycleAllowsManagedTool(params.ServerName, tool, states)
+		if err != nil {
+			return nil, err
+		}
+		if active {
+			filtered = append(filtered, tool)
+		}
+	}
+	return filtered, nil
+}
+
+func (h *Handler) lifecycleListParamsForManagedPeer(serverName string) (contract.MCPToolLifecycleListParams, error) {
+	serverName = strings.TrimSpace(serverName)
+	if serverName == "" {
+		return contract.MCPToolLifecycleListParams{}, fmt.Errorf("%w: empty server name", errMCPToolLifecycleRowMissing)
+	}
+	if h == nil || h.toolLifecycleReader == nil {
+		return contract.MCPToolLifecycleListParams{}, errMCPToolLifecycleReaderMissing
+	}
+	workspaceRoot := strings.TrimSpace(h.cfgProjectRoot())
+	if workspaceRoot == "" {
+		return contract.MCPToolLifecycleListParams{}, errMCPToolLifecycleProjectRootMissing
+	}
+	return contract.MCPToolLifecycleListParams{
+		WorkspaceRoot: workspaceRoot,
+		ServerName:    serverName,
+	}, nil
+}
+
+func lifecycleStateByToolName(
+	records []contract.MCPToolLifecycleRecord,
+	serverName string,
+) (map[string]contract.MCPToolLifecycleState, error) {
+	states := make(map[string]contract.MCPToolLifecycleState, len(records))
+	for _, record := range records {
+		toolName := strings.TrimSpace(record.ToolName)
+		if toolName == "" {
+			return nil, fmt.Errorf("%w: server=%s empty tool name", errMCPToolLifecycleRowMissing, serverName)
+		}
+		states[toolName] = record.State
+	}
+	return states, nil
+}
+
+// lifecycleAllowsManagedTool 判定单个 managed peer 工具是否可发布；缺行或未知状态直接返回错误。
+func (h *Handler) lifecycleAllowsManagedTool(
+	serverName string,
+	tool dto.MCPTool,
+	states map[string]contract.MCPToolLifecycleState,
+) (bool, error) {
+	name := strings.TrimSpace(tool.Name)
+	if name == "" {
+		return false, nil
+	}
+	state, ok := states[name]
+	if !ok {
+		return false, fmt.Errorf("%w: server=%s tool=%s", errMCPToolLifecycleRowMissing, serverName, name)
+	}
+	switch state {
+	case contract.MCPToolLifecycleStateActive:
+		return true, nil
+	case contract.MCPToolLifecycleStateSuspended, contract.MCPToolLifecycleStateRemoved:
+		h.warn("toolbridge managed MCP tool blocked by lifecycle state",
+			"server", serverName,
+			"tool", name,
+			"state", string(state),
+		)
+		return false, nil
+	default:
+		return false, fmt.Errorf("%w: server=%s tool=%s state=%s",
+			errMCPToolLifecycleStateUnknown,
+			serverName,
+			name,
+			state,
+		)
+	}
+}
+
+func (h *Handler) cfgProjectRoot() string {
+	if h == nil || h.cfg == nil {
+		return ""
+	}
+	return h.cfg.ProjectRoot
 }
 
 // appendDynamicToolsWithShadowWarning 是测试可替换的动态工具合并入口。
