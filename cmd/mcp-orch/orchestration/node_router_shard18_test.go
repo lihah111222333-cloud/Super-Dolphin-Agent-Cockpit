@@ -2,7 +2,9 @@ package orchestration
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -13,6 +15,16 @@ import (
 
 // ----- RunContext 端口预填测试夹具 -----
 // 这些测试验证 router 在进入 executor 前填好上游结果、shared file 读写端口和生命周期 hook。
+
+func automationRouterConfig(t *testing.T, root, tail string) json.RawMessage {
+	t.Helper()
+	return testRawConfig(t, fmt.Sprintf(
+		`{"exec":{"command_ref":"build","cwd":%q,"workspace_roots":[%q]}%s}`,
+		root,
+		root,
+		tail,
+	))
+}
 
 // stubRouterPrevReader 是 SharedFileReader 的最小测试实现；记录调用次数以确认输入端口被使用。
 type stubRouterPrevReader struct {
@@ -266,13 +278,14 @@ func TestNodeExecutorRouter_SharedFileWriter_Injected(t *testing.T) {
 		stubAutomationCmdGetter{},
 		stubAutomationCmdRunner{stdout: "build ok"},
 	)
+	root := t.TempDir()
 	writer := &stubRouterPrevWriter{}
 	store := &stubRouterAutoStore{
 		stubRouterStore: stubRouterStore{
 			nodes: []taskdag.Node{{
 				DagKey: "dag-1", NodeKey: "auto1", RunID: routerTestRunID(7), NodeType: "automation",
 				Status: string(nodeexec.NodeStatusReady),
-				Config: testRawConfig(t, `{"exec":{"command_ref":"build"},"outputs":{"to_sharedfile":{"path":"reports/out.log","lock_mode":"exclusive"}}}`),
+				Config: automationRouterConfig(t, root, `,"outputs":{"to_sharedfile":{"path":"reports/out.log","lock_mode":"exclusive"}}`),
 			}},
 		},
 	}
@@ -306,13 +319,14 @@ func TestNodeExecutorRouter_AutomationSharedfileOnlyEnvelopeFeedsDownstreamAgent
 	writer := &stubRouterPrevWriter{}
 	launcher := &recordingAgentLauncher{threadID: "thr-downstream"}
 	agentExec := newTestAgentExecutor(launcher, nil)
+	root := t.TempDir()
 	store := &stubRouterAutoStore{
 		stubRouterStore: stubRouterStore{
 			nodes: []taskdag.Node{
 				{
 					DagKey: "dag-1", NodeKey: "auto1", RunID: routerTestRunID(7), NodeType: "automation",
 					Status: string(nodeexec.NodeStatusReady),
-					Config: testRawConfig(t, `{"exec":{"command_ref":"build"},"outputs":{"to_sharedfile":{"path":"reports/out.log","lock_mode":"exclusive"}}}`),
+					Config: automationRouterConfig(t, root, `,"outputs":{"to_sharedfile":{"path":"reports/out.log","lock_mode":"exclusive"}}`),
 				},
 				{
 					DagKey: "dag-1", NodeKey: "agent1", RunID: routerTestRunID(7), NodeType: "agent",
@@ -359,6 +373,53 @@ func TestNodeExecutorRouter_AutomationSharedfileOnlyEnvelopeFeedsDownstreamAgent
 	}
 }
 
+func TestAutomationOutcomeNeverPersistsRawInputs(t *testing.T) {
+	t.Parallel()
+	const secret = "RAW_SHARED_FILE_SECRET_456"
+	autoExec := nodeexec.NewAutomationExecutor(
+		stubAutomationCmdGetter{},
+		echoAutomationArgsRunner{},
+	)
+	reader := &stubRouterPrevReader{contents: map[string]string{
+		"handoff/secret.md": secret,
+	}}
+	root := t.TempDir()
+	store := &stubRouterAutoStore{
+		stubRouterStore: stubRouterStore{
+			nodes: []taskdag.Node{{
+				DagKey: "dag-1", NodeKey: "auto1", RunID: routerTestRunID(7), NodeType: "automation",
+				Status: string(nodeexec.NodeStatusReady),
+				Config: automationRouterConfig(t, root, `,"inputs":{"from_sharedfiles":["handoff/secret.md"]},"outputs":{"to_node_result":true}`),
+			}},
+		},
+	}
+	router := NewNodeExecutorRouter(store, nil, autoExec, reader, nil, nil)
+
+	outcome, err := router.RouteByWakeup(context.Background(), &taskdag.Wakeup{
+		DagKey: "dag-1", NodeKey: "auto1", RunID: routerTestRunID(7),
+	})
+	if err != nil {
+		t.Fatalf("RouteByWakeup err = %v", err)
+	}
+	if outcome.Status != nodeexec.NodeStatusDone {
+		t.Fatalf("outcome.Status = %v, want done; summary=%q", outcome.Status, outcome.ErrorSummary)
+	}
+	for label, raw := range map[string]json.RawMessage{
+		"NodeOutcome.Result":  outcome.Result,
+		"CompleteNode.Result": store.completeCalls[0].Result,
+		"dagNodeDTO.Result": dagNodeDTO(taskdag.Node{
+			DagKey: "dag-1", NodeKey: "auto1", Result: store.completeCalls[0].Result,
+		}).Result,
+	} {
+		if strings.Contains(string(raw), secret) {
+			t.Fatalf("%s leaked raw sharedfile input token: %s", label, raw)
+		}
+		if strings.Contains(string(raw), "__inputs") || strings.Contains(string(raw), "from_sharedfiles") {
+			t.Fatalf("%s exposed raw input topology, want scrubbed metadata-only result: %s", label, raw)
+		}
+	}
+}
+
 func TestNodeExecutorRouter_AutomationLifecycleHooks(t *testing.T) {
 	events := []string{}
 	autoExec := nodeexec.NewAutomationExecutor(
@@ -366,12 +427,13 @@ func TestNodeExecutorRouter_AutomationLifecycleHooks(t *testing.T) {
 		stubAutomationCmdRunner{stdout: "build ok"},
 		nodeexec.WithAutomationHooks(recordingLifecycleHooks(&events)),
 	)
+	root := t.TempDir()
 	store := &stubRouterAutoStore{
 		stubRouterStore: stubRouterStore{
 			nodes: []taskdag.Node{{
 				DagKey: "dag-1", NodeKey: "auto1", RunID: routerTestRunID(7), NodeType: "automation",
 				Status: string(nodeexec.NodeStatusReady),
-				Config: testRawConfig(t, `{"exec":{"command_ref":"build"},"outputs":{"to_node_result":true}}`),
+				Config: automationRouterConfig(t, root, `,"outputs":{"to_node_result":true}`),
 			}},
 		},
 	}
@@ -471,6 +533,17 @@ type stubRouterAutoStore struct {
 	completeCalls []taskdag.CompleteNodeInput
 }
 
+type echoAutomationArgsRunner struct{}
+
+func (echoAutomationArgsRunner) RunCommandCard(_ context.Context, card nodeexec.AutomationCommandCard, args json.RawMessage, _ ...nodeexec.AutomationCommandRunOptions) (nodeexec.AutomationCommandResult, error) {
+	return nodeexec.AutomationCommandResult{
+		CardKey:  card.CardKey,
+		Stdout:   "ok",
+		ExitCode: 0,
+		Args:     append(json.RawMessage(nil), args...),
+	}, nil
+}
+
 func (s *stubRouterAutoStore) CompleteNodeAndScheduleDownstream(_ context.Context, input taskdag.CompleteNodeInput) (*taskdag.CompleteNodeWithDownstreamResult, error) {
 	if s.completeErr != nil {
 		return nil, s.completeErr
@@ -485,12 +558,13 @@ func TestNodeExecutorRouter_AutomationCompleteErrorIsFrameworkError(t *testing.T
 		stubAutomationCmdGetter{},
 		stubAutomationCmdRunner{stdout: "build ok"},
 	)
+	root := t.TempDir()
 	store := &stubRouterAutoStore{
 		stubRouterStore: stubRouterStore{
 			nodes: []taskdag.Node{{
 				DagKey: "dag-1", NodeKey: "auto1", RunID: routerTestRunID(7), NodeType: "automation",
 				Status: string(nodeexec.NodeStatusReady),
-				Config: testRawConfig(t, `{"exec":{"command_ref":"build"},"outputs":{"to_node_result":true}}`),
+				Config: automationRouterConfig(t, root, `,"outputs":{"to_node_result":true}`),
 			}},
 		},
 		completeErr: errors.New("store complete failed"),

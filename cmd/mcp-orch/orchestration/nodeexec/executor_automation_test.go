@@ -274,6 +274,17 @@ func (c *captureRunner) RunCommandCard(_ context.Context, _ AutomationCommandCar
 	return c.result, nil
 }
 
+type echoArgsAutomationRunner struct{}
+
+func (echoArgsAutomationRunner) RunCommandCard(_ context.Context, card AutomationCommandCard, args json.RawMessage, _ ...AutomationCommandRunOptions) (AutomationCommandResult, error) {
+	return AutomationCommandResult{
+		CardKey:  card.CardKey,
+		ExitCode: 0,
+		Stdout:   "ok",
+		Args:     append(json.RawMessage(nil), args...),
+	}, nil
+}
+
 func TestAutomationExecutor_Inputs_InjectsFromNodes(t *testing.T) {
 	t.Parallel()
 	getter := &stubAutomationGetter{card: AutomationCommandCard{CardKey: "build_app", CommandTemplate: "noop", Enabled: true}}
@@ -321,6 +332,41 @@ func TestAutomationExecutor_Inputs_InjectsFromNodes(t *testing.T) {
 	}
 	if out.Result == nil {
 		t.Fatalf("Result nil but ToNodeResult default path expected to write payload")
+	}
+}
+
+func TestAutomationCommandResultRedactsSharedFileInputs(t *testing.T) {
+	t.Parallel()
+	const secret = "SHAREDFILE_RAW_TOKEN_123"
+	getter := &stubAutomationGetter{card: AutomationCommandCard{
+		CardKey:         "k",
+		CommandTemplate: "noop",
+		Enabled:         true,
+	}}
+	exec := NewAutomationExecutor(getter, echoArgsAutomationRunner{})
+	node := makeAutomationNode(t, AutomationNodeConfig{
+		Exec:    AutomationExecConfig{CommandRef: "k"},
+		Inputs:  InputsConfig{FromSharedfiles: []string{"handoff/plan.md"}},
+		Outputs: OutputsConfig{ToNodeResult: true},
+	})
+
+	out := executeAutomationNode(t, exec, node, RunContext{
+		DagKey:  "dag-x",
+		NodeKey: "node-auto",
+		RunID:   7,
+		SharedFileReader: &stubAutomationSharedFileReader{content: map[string]string{
+			"handoff/plan.md": secret,
+		}},
+	})
+
+	if out.Status != NodeStatusDone {
+		t.Fatalf("Status = %q, want done; summary=%q", out.Status, out.ErrorSummary)
+	}
+	if strings.Contains(string(out.Result), secret) {
+		t.Fatalf("Result leaked raw sharedfile input token under args/__inputs: %s", out.Result)
+	}
+	if strings.Contains(string(out.Result), "__inputs") || strings.Contains(string(out.Result), "from_sharedfiles") {
+		t.Fatalf("Result exposed injected input topology, want scrubbed metadata-only result: %s", out.Result)
 	}
 }
 

@@ -129,7 +129,7 @@ func TestWakeupDispatcher_RouterTerminalFailureLifecycleHooks(t *testing.T) {
 			NodeKey:  "auto1",
 			NodeType: "automation",
 			Status:   string(nodeexec.NodeStatusReady),
-			Config:   testRawConfig(t, `{"exec":{"command_ref":"missing-runner"}}`),
+			Config:   testRawConfig(t, `{"exec":{"command_ref":"missing-runner","cwd":"/tmp","workspace_roots":["/tmp"]}}`),
 		}},
 	}
 	d, err := NewWakeupDispatcher(store, &dispatcherStubLauncher{}, nil, WakeupDispatcherConfig{ClaimedBy: "worker-a"})
@@ -490,7 +490,8 @@ func TestWakeupDispatcherTickHandlesNilContextSafely(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewWakeupDispatcher err = %v", err)
 	}
-	if _, err := d.Tick(nil); err != nil { //nolint:staticcheck // intentionally testing nil-ctx fallback
+	var nilCtx context.Context
+	if _, err := d.Tick(nilCtx); err != nil {
 		t.Fatalf("Tick(nil) err = %v, want graceful fallback", err)
 	}
 }

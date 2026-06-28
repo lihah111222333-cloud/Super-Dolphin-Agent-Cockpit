@@ -83,6 +83,9 @@ func validatedApplyOpsPayload(raw json.RawMessage) (json.RawMessage, error) {
 	if err := rejectReservedApplyOpsCapabilities(raw); err != nil {
 		return nil, err
 	}
+	if err := validateAutomationCommandApplyOps(raw); err != nil {
+		return nil, err
+	}
 	return raw, nil
 }
 
@@ -103,6 +106,61 @@ func rejectReservedApplyOpsCapabilities(raw json.RawMessage) error {
 		}
 	}
 	return nil
+}
+
+// validateAutomationCommandApplyOps 拦截会写入不可执行 automation command 的 ops。
+// add_node 有明确 node_type；update_node 只能在 patch.config 明显是 automation command 时校验整片配置。
+func validateAutomationCommandApplyOps(raw json.RawMessage) error {
+	var ops nodeexec.Ops
+	if err := json.Unmarshal(raw, &ops); err != nil {
+		return err
+	}
+	for i, op := range ops {
+		switch typed := op.(type) {
+		case nodeexec.OpAddNode:
+			if strings.TrimSpace(typed.Node.NodeType) == "automation" {
+				if err := nodeexec.ValidateAutomationCommandDispatchConfig(typed.Node.Config); err != nil {
+					return fmt.Errorf("ops[%d].node.config invalid for automation command: %w", i, err)
+				}
+			}
+		case nodeexec.OpUpdateNode:
+			if looksLikeAutomationCommandConfig(typed.Patch.Config) {
+				if err := nodeexec.ValidateAutomationCommandDispatchConfig(typed.Patch.Config); err != nil {
+					return fmt.Errorf("ops[%d].patch.config invalid for automation command: %w", i, err)
+				}
+			}
+		}
+	}
+	return nil
+}
+
+// looksLikeAutomationCommandConfig 只识别明显的 automation command 整片配置。
+// update_node 没有 node_type 上下文，不能把普通 agent config 误判成 automation。
+func looksLikeAutomationCommandConfig(raw json.RawMessage) bool {
+	if !hasExplicitRawJSON(raw) {
+		return false
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(raw, &payload); err != nil {
+		return false
+	}
+	exec, _ := payload["exec"].(map[string]any)
+	if exec == nil {
+		return false
+	}
+	if _, ok := exec["command_ref"]; ok {
+		return true
+	}
+	if kind, ok := exec["kind"].(string); ok && strings.TrimSpace(kind) == "command_card" {
+		return true
+	}
+	for _, key := range []string{"shell", "shell_mode"} {
+		if _, ok := exec[key]; ok {
+			return true
+		}
+	}
+	mode, _ := exec["mode"].(string)
+	return strings.EqualFold(strings.TrimSpace(mode), "shell")
 }
 
 // flatApplyOpFromInput 把单个扁平 action 转成 nodeexec 可识别的 op 对象。
