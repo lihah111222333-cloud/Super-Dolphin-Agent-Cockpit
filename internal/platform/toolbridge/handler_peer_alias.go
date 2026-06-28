@@ -1,10 +1,6 @@
 package toolbridge
 
-import (
-	"strings"
-
-	"github.com/anthropic-ai/super-agent-v3/internal/contract"
-)
+import "strings"
 
 // legacyLSPName 返回 LSP 工具短名对应的旧版 lsp_* 名称，供兼容 surface 暴露。
 func legacyLSPName(canonical string) string {
@@ -38,50 +34,4 @@ func legacyOrchName(canonical string) string {
 	default:
 		return ""
 	}
-}
-
-// codexSurfaceMCPToolEntry 保存 Codex 暴露名到真实 MCP 工具和 lifecycle key 的映射。
-// lifecycle key 固定为 tools/list 原始 server/tool，别名直呼不能改变执行前检查对象。
-func codexSurfaceMCPToolEntry(
-	surface *codexToolSurface,
-	family string,
-	canonical string,
-	toolName string,
-	client mcpClient,
-) codexToolEntry {
-	serverName := strings.TrimSpace(family)
-	realName := strings.TrimSpace(toolName)
-	return codexToolEntry{
-		name:          canonical,
-		realName:      toolName,
-		executionKind: "stdio",
-		family:        serverName,
-		lifecycleKey: contract.MCPToolLifecycleKey{
-			WorkspaceRoot: surface.cwd,
-			ServerName:    serverName,
-			ToolName:      realName,
-		},
-		client: client,
-	}
-}
-
-// addCodexSurfaceMCPAliases 把短名、legacy 名和 mcp__server__tool 命名空间名都绑定到同一 canonical entry。
-func addCodexSurfaceMCPAliases(surface *codexToolSurface, family, toolName, canonical string) error {
-	if err := addMCPToolAlias(surface, family, toolName, canonical); err != nil {
-		return err
-	}
-	for _, alias := range []string{
-		WrapMCPToolName(family, toolName),
-		WrapMCPToolName(family, canonicalCodexToolName(family, toolName)),
-	} {
-		if err := addSurfaceAlias(surface, alias, canonical); err != nil {
-			return err
-		}
-	}
-	for _, alias := range legacyCodexToolAliases(family, canonical) {
-		if err := addSurfaceAlias(surface, alias, canonical); err != nil {
-			return err
-		}
-	}
-	return nil
 }

@@ -39,7 +39,7 @@ func (f metricRuleFlag) has(flag metricRuleFlag) bool { return f&flag != 0 }
 type limitKind int
 
 const (
-	// limitHard 有硬上限（如 MaxFileLines=800）,超过阈值才算违规。
+	// limitHard 有硬上限（如 MaxFileLines=600）,超过阈值才算违规。
 	limitHard limitKind = iota
 	// limitZero 零容忍（如 panic_count）,任何非零值都是违规。
 	limitZero

@@ -1,7 +1,6 @@
 package thread
 
 import (
-	"context"
 	"encoding/json"
 	"reflect"
 	"strings"
@@ -12,8 +11,8 @@ import (
 )
 
 func TestSessionStartRequestCoversThreadStartRequestFields(t *testing.T) {
-	startType := reflect.TypeFor[StartRequest]()
-	sessionType := reflect.TypeFor[contract.SessionStartRequest]()
+	startType := reflect.TypeOf(StartRequest{})
+	sessionType := reflect.TypeOf(contract.SessionStartRequest{})
 	exemptions := map[string]string{
 		"PromptAssemblyRef": "injected by thread service before prompt assembly",
 		"PromptVersionID":   "materialized by thread service after prompt routing",
@@ -48,112 +47,6 @@ func TestStartRequestFromSessionPreservesAllWireCriticalFields(t *testing.T) {
 		t.Fatalf("startRequestFromSession mismatch\nwant: %#v\n got: %#v", want, got)
 	}
 	assertStartRequestMappingDoesNotAlias(t, req, got)
-}
-
-func TestStartSessionRequestFromStartPreservesAllWireCriticalFields(t *testing.T) {
-	req := sessionStartRequestFixture()
-	start := expectedStartRequestFromFixture(req)
-	got := startSessionRequestFromStart(start)
-
-	if !reflect.DeepEqual(got, req) {
-		t.Fatalf("startSessionRequestFromStart mismatch\nwant: %#v\n got: %#v", req, got)
-	}
-}
-
-func TestNewSessionPortsImplementsContract(t *testing.T) {
-	var _ contract.SessionPorts = NewSessionPorts(&stubThreadService{})
-}
-
-func TestSessionLifecyclePortStartSessionUsesAdapterMapping(t *testing.T) {
-	req := sessionStartRequestFixture()
-	stub := &stubThreadService{
-		startResult: StartResult{
-			ThreadID:      "thread-1",
-			AgentID:       "agent-1",
-			SessionID:     "session-1",
-			Status:        "running",
-			Model:         "gpt-5",
-			Provider:      "codex",
-			ModelProvider: "openai",
-			CWD:           "/repo",
-		},
-	}
-	port := NewSessionLifecyclePort(stub)
-	got, err := port.StartSession(context.Background(), req)
-	if err != nil {
-		t.Fatalf("StartSession() error = %v", err)
-	}
-	if want := expectedStartRequestFromFixture(req); !reflect.DeepEqual(stub.startReq, want) {
-		t.Fatalf("StartSession mapped request mismatch\nwant: %#v\n got: %#v", want, stub.startReq)
-	}
-	if got.ThreadID != "thread-1" || got.AgentID != "agent-1" || got.SessionID != "session-1" {
-		t.Fatalf("StartSession result = %#v, want projected start result", got)
-	}
-}
-
-func TestSessionLifecyclePortResumeSessionPreservesOverrides(t *testing.T) {
-	stub := &stubThreadService{
-		resumeResult: ResumeResult{
-			ThreadID:  "thread-9",
-			SessionID: "session-9",
-			Status:    "resumed",
-			Model:     "gpt-5",
-			CWD:       "/repo",
-		},
-	}
-	port := NewSessionLifecyclePort(stub)
-	got, err := port.ResumeSession(context.Background(), contract.SessionResumeRequest{
-		ThreadID: " thread-9 ",
-		Path:     "/legacy/path",
-		CWD:      "/repo",
-		Model:    "gpt-5",
-		Provider: "codex",
-	})
-	if err != nil {
-		t.Fatalf("ResumeSession() error = %v", err)
-	}
-	if stub.resumeReq.ThreadID != "thread-9" ||
-		stub.resumeReq.Path != "/legacy/path" ||
-		stub.resumeReq.CWD != "/repo" ||
-		stub.resumeReq.Model != "gpt-5" ||
-		stub.resumeReq.Provider != "codex" {
-		t.Fatalf("ResumeSession mapped request = %#v", stub.resumeReq)
-	}
-	if got.ThreadID != "thread-9" || got.SessionID != "session-9" || got.Status != "resumed" {
-		t.Fatalf("ResumeSession result = %#v, want projected resume result", got)
-	}
-}
-
-func TestSessionLifecyclePortForkSessionPreservesResultMetadata(t *testing.T) {
-	stub := &stubThreadService{
-		forkResult: ForkResult{
-			NewThreadID:  "thread-fork",
-			ForkedFrom:   "thread-parent",
-			KickoffState: ForkKickoffState("created_only"),
-		},
-	}
-	port := NewSessionLifecyclePort(stub)
-	got, err := port.ForkSession(context.Background(), " thread-parent ")
-	if err != nil {
-		t.Fatalf("ForkSession() error = %v", err)
-	}
-	if stub.forkThreadID != "thread-parent" {
-		t.Fatalf("ForkSession thread id = %q, want thread-parent", stub.forkThreadID)
-	}
-	if got != (contract.SessionForkResult{NewThreadID: "thread-fork", ForkedFrom: "thread-parent", KickoffState: "created_only"}) {
-		t.Fatalf("ForkSession result = %#v", got)
-	}
-}
-
-func TestSessionStatusPortReadMessagesRejectsEmptyThreadID(t *testing.T) {
-	stub := &stubThreadService{}
-	port := NewSessionStatusPort(stub)
-	if _, err := port.ReadMessages(context.Background(), " \t", 20, ""); err == nil || !strings.Contains(err.Error(), "thread id is required") {
-		t.Fatalf("ReadMessages(empty) error = %v, want thread id required", err)
-	}
-	if stub.readMessagesThread != "" || stub.readMessagesLimit != 0 || stub.readMessagesBefore != "" {
-		t.Fatalf("ReadMessages(empty) reached service: %#v", stub)
-	}
 }
 
 func sessionStartRequestFixture() contract.SessionStartRequest {

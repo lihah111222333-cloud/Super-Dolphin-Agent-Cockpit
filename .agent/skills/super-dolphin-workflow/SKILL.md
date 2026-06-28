@@ -68,7 +68,7 @@ For "怎么实现的" questions:
 
 ## Frequent Paths
 
-Current React UI lives in `frontend-app`. `cmd/agent-terminal/web-dist` is only the generated Go embed asset directory synced from `frontend-app/dist`.
+Current React UI lives in `frontend-app`. Do not edit `cmd/agent-terminal/frontend` unless the user explicitly targets the legacy embedded Vue path.
 
 Common frontend paths:
 

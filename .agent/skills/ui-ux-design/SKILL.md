@@ -28,7 +28,7 @@ Unified design skill: brand, tokens, UI, logo, CIP, slides, banners, social phot
 - 普通 UI 开发、审查和修复先加载 repo-local `前端` 技能，默认目标是 `frontend-app` React/Vite。
 - 遵循现有 React 组件、Zustand store、Wails bridge 和 `frontend-app/src/styles.css`，不要默认引入新 UI 框架。
 - Tailwind/shadcn 只在用户明确要求，或 `frontend-app/package.json` 已经包含相关依赖时启用；否则把本技能用于设计判断、配色、布局和可用性审查。
-- `cmd/agent-terminal/web-dist` 是构建产物目录，不在其中手写 UI；需要嵌入验证时跑 `frontend-app` build 和相关打包守卫。
+- legacy Vue 只在用户明确指向 `cmd/agent-terminal/frontend` 或 package/embed 路径时使用。
 
 ## When to Use
 

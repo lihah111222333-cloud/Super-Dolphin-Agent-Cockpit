@@ -1,10 +1,10 @@
 # super-agent-v3 代码地图
 
-> 由自动索引脚本维护，当前覆盖 18 卷核心模块。
+> 由自动索引脚本维护，当前覆盖 19 卷核心模块。
 
 ## 阅读边界提示
 
-- **01 / frontend**：当前且唯一的前端源码在 `frontend-app/`；`cmd/agent-terminal/web-dist/` 仅是 Go embed 构建产物同步目录。前端页面修改优先看 `frontend-app` 与 `01-terminal-ui-react.md`。
+- **01 / frontend**：当前新 UI 代码在 `frontend-app/`；`cmd/agent-terminal/frontend/` 是 legacy/package-embed Vue 前端。除非任务明确要求旧 Vue 或打包嵌入路径，前端页面修改优先看 `frontend-app` 与 `01-terminal-ui-react.md`。
 - **02**：先看 sidecar / registry / bootstrap / tools 暴露；不展开 `internal/module/{memory,prompt,thread}` 的内部组装链。
 - **03**：`cmd/mcp-lsp` 是 generic multi-language LSP peer；阅读时按通用多语言 LSP peer 入口处理，不把它收窄成单一语言服务。
 - **07**：先看 `internal/module` 的职责切面、消费面与入口边界；07 已拆成读侧/写侧两份子卷。
@@ -20,6 +20,7 @@
 |---|---|---|
 | 01 | [01-terminal-ui-go.md](01-terminal-ui-go.md) | super-agent-v3 代码地图：终端入口与 UI 层（Go / Wails） |
 | 01 | [01-terminal-ui-react.md](01-terminal-ui-react.md) | super-agent-v3 代码地图：终端入口与 UI 层（当前 React/Vite 新 UI） |
+| 01 | [01-terminal-ui-vue.md](01-terminal-ui-vue.md) | super-agent-v3 代码地图：终端入口与 UI 层（legacy Vue 前端） |
 | 01 | [01-terminal-ui.md](01-terminal-ui.md) | super-agent-v3 代码地图：终端入口与 UI 层 |
 | 02 | [02-mcp-orch.md](02-mcp-orch.md) | mcp-orch 代码地图 |
 | 03 | [03-mcp-lsp-ida.md](03-mcp-lsp-ida.md) | super-agent-v3 代码地图（03） |
@@ -39,4 +40,4 @@
 
 ## 生成时间
 
-2026-06-28
+2026-06-27

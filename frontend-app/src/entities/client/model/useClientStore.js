@@ -8,9 +8,11 @@ import {
   getProjects,
   getSidebarState,
   getThreadConfig,
+  getThreadMessages,
   getThreadState,
   getWindowBootstrap,
   getPreference,
+  interruptTurn,
   listSharedFiles,
   onBridgeEvent,
   onRuntimeReconnect,
@@ -31,6 +33,8 @@ import {
   setActiveProject as setActiveProjectRPC,
   setPreference,
   setThreadConfig,
+  startThread,
+  startTurn,
   removeProject as removeProjectRPC,
   unarchiveThread as unarchiveThreadRPC,
 } from '../../../shared/api/backendApi.js';
@@ -1435,8 +1439,8 @@ const forkActionDeps = {
   normalizeString,
   normalizeThreadIdentity,
   resolveLaunchPreferences,
-  startThread: (payload) => sessionApi.start(payload),
-  startTurn: (payload) => sessionApi.startTurn(payload),
+  startThread: (payload) => startThread(payload),
+  startTurn: (payload) => startTurn(payload),
 };
 
 const runtimeActionDeps = {
@@ -1591,11 +1595,11 @@ function isCodexIdentityAutoResumeError(error) {
 
 async function startTurnWithStoppedThreadRecovery(params) {
   try {
-    return await sessionApi.startTurn(params);
+    return await startTurn(params);
   } catch (error) {
     if (!isStoppedThreadTurnStartError(error)) throw error;
     await recoverThread({ cwd: params.cwd, threadId: params.threadId });
-    return sessionApi.startTurn(params);
+    return startTurn(params);
   }
 }
 
@@ -1797,7 +1801,7 @@ function createClientStoreRuntime(set, get) {
   attachThreadMessagesRuntime(runtime, {
     backendThreadIdForState,
     emitFrontendTraceEvent,
-    getThreadMessages: (payload) => sessionApi.getThreadMessages(payload),
+    getThreadMessages,
   });
   attachNotificationRuntime(runtime);
   attachBridgeIdentityRuntime(runtime);
@@ -2940,7 +2944,7 @@ function createDashboardCommandActions(runtime) {
           }));
         }
 
-        await sessionApi.startTurn({
+        await startTurn({
           cwd: request.cwd,
           threadId,
           input: request.input,
@@ -2968,7 +2972,7 @@ function createDashboardCommandActions(runtime) {
 
 function createActiveThreadActions(runtime) {
   return {
-    interruptActiveThread: () => runtime.activeThreadRPC('thread.interrupt', sessionApi.interruptTurn),
+    interruptActiveThread: () => runtime.activeThreadRPC('thread.interrupt', interruptTurn),
     forceCompleteActiveThread: () => runtime.activeThreadRPC('thread.force_complete', forceCompleteTurn),
     compactActiveThread: () => runtime.activeThreadRPC('thread.compact', compactThread),
     recoverActiveThread: () => runtime.activeThreadRPC('thread.recover', recoverThread),

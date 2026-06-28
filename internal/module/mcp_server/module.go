@@ -8,7 +8,7 @@ import "go.uber.org/fx"
 // Module 将 MCP server 服务、配置 provider 和 RPC handler 注入 Fx 树。
 var Module = fx.Module("mcp_server",
 	fx.Provide(
-		NewServiceWithStoresAndConfig,
+		NewServiceWithStoreAndConfig,
 		AsMCPServerConfigProvider,
 		NewHandlers,
 	),

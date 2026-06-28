@@ -3,7 +3,6 @@ package contract
 import (
 	"context"
 	"encoding/json"
-	"time"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/dto/mcp"
 )
@@ -139,93 +138,6 @@ type MCPServerConfigStore interface {
 	ListServers(context.Context, string) (map[string]MCPServerConfig, error)
 	DeleteServer(context.Context, string, string) (bool, error)
 	SetServerEnabled(context.Context, string, string, bool) (bool, error)
-}
-
-const (
-	// MCPToolLifecycleStateActive 表示工具可展示、可调用。
-	MCPToolLifecycleStateActive MCPToolLifecycleState = "active"
-	// MCPToolLifecycleStateSuspended 表示工具被临时暂停，后续执行面必须拒绝直接调用。
-	MCPToolLifecycleStateSuspended MCPToolLifecycleState = "suspended"
-	// MCPToolLifecycleStateRemoved 表示用户移除的 tombstone，恢复必须显式写回 active。
-	MCPToolLifecycleStateRemoved MCPToolLifecycleState = "removed"
-
-	// MCPToolLifecycleSourceDiscovery 表示 lifecycle 行来自工具发现或 backfill。
-	MCPToolLifecycleSourceDiscovery MCPToolLifecycleSource = "discovery"
-	// MCPToolLifecycleSourceUser 表示 lifecycle 行来自用户显式操作。
-	MCPToolLifecycleSourceUser MCPToolLifecycleSource = "user"
-	// MCPToolLifecycleSourceMigration 表示 lifecycle 行来自历史数据迁移。
-	MCPToolLifecycleSourceMigration MCPToolLifecycleSource = "migration"
-	// MCPToolLifecycleSourceSystem 表示 lifecycle 行来自系统内部策略。
-	MCPToolLifecycleSourceSystem MCPToolLifecycleSource = "system"
-)
-
-// MCPToolLifecycleState 是 MCP tool 的产品生命周期状态。
-// 缺失记录不是合法状态；后续执行面必须在 backfill 后显式读取记录。
-type MCPToolLifecycleState string
-
-// MCPToolLifecycleSource 标记 lifecycle 行的写入来源，便于后续审计和冲突判断。
-type MCPToolLifecycleSource string
-
-// MCPToolLifecycleKey 使用原始 workspace/server/tool 三元组定位一条 lifecycle 行。
-// ToolName 必须是 MCP tools/list 返回的原始名称，不是 toolbridge 派生别名。
-type MCPToolLifecycleKey struct {
-	WorkspaceRoot string `json:"workspaceRoot"`
-	ServerName    string `json:"serverName"`
-	ToolName      string `json:"toolName"`
-}
-
-// MCPToolLifecycleRecord 是跨模块读取 lifecycle 状态时使用的稳定 DTO。
-type MCPToolLifecycleRecord struct {
-	WorkspaceRoot string                 `json:"workspaceRoot"`
-	ServerName    string                 `json:"serverName"`
-	ToolName      string                 `json:"toolName"`
-	State         MCPToolLifecycleState  `json:"state"`
-	Reason        string                 `json:"reason"`
-	Source        MCPToolLifecycleSource `json:"source"`
-	UpdatedBy     string                 `json:"updatedBy"`
-	CreatedAt     time.Time              `json:"createdAt"`
-	UpdatedAt     time.Time              `json:"updatedAt"`
-}
-
-// MCPToolLifecycleUpsertParams 表示一次显式 lifecycle 写入。
-type MCPToolLifecycleUpsertParams struct {
-	Key       MCPToolLifecycleKey
-	State     MCPToolLifecycleState
-	Reason    string
-	Source    MCPToolLifecycleSource
-	UpdatedBy string
-}
-
-// MCPToolLifecycleDiscoveryParams 用于 discovery/backfill 只补缺失 active 行。
-// 已存在的 suspended/removed 不能被发现流程覆盖。
-type MCPToolLifecycleDiscoveryParams struct {
-	Key       MCPToolLifecycleKey
-	Reason    string
-	UpdatedBy string
-}
-
-// MCPToolLifecycleListParams 限定按 workspace/server 列出 lifecycle 状态。
-type MCPToolLifecycleListParams struct {
-	WorkspaceRoot string
-	ServerName    string
-}
-
-// MCPToolLifecycleReader 暴露 toolbridge 等只读消费者后续需要的 lifecycle 查询能力。
-type MCPToolLifecycleReader interface {
-	GetMCPToolLifecycleState(context.Context, MCPToolLifecycleKey) (MCPToolLifecycleRecord, error)
-	ListMCPToolLifecycleStates(context.Context, MCPToolLifecycleListParams) ([]MCPToolLifecycleRecord, error)
-}
-
-// MCPToolLifecycleWriter 暴露 owner 模块写入和 backfill lifecycle 状态的最小能力。
-type MCPToolLifecycleWriter interface {
-	UpsertMCPToolLifecycleState(context.Context, MCPToolLifecycleUpsertParams) (MCPToolLifecycleRecord, error)
-	EnsureDiscoveredMCPToolLifecycleState(context.Context, MCPToolLifecycleDiscoveryParams) (MCPToolLifecycleRecord, bool, error)
-}
-
-// MCPToolLifecycleStore 聚合 lifecycle 读写能力，由 mcp_server owner 模块消费。
-type MCPToolLifecycleStore interface {
-	MCPToolLifecycleReader
-	MCPToolLifecycleWriter
 }
 
 // ToolInstance 是已连接 MCP peer 的 registry 快照。

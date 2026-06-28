@@ -96,13 +96,13 @@ seed(section_key, recall_topic, body) AS (
 - `trigger_type='recall'` 的 section 只作为 prompt_recall 知识包，不应进入系统提示词正文；注入路径必须过滤 recall section。
 - `enable_when` 是 section 级 gate；template 级 `match_when` 只负责自动路由，两者不要混用。
 - 修改默认 prompt 或 section 后，重启 super-agent-debug 或触发 prompt assembly invalidation，避免观察到旧缓存。$body$),
-    ('recall_frontend_react', 'frontend-react', $body$React 前端约定：优先沿用 `frontend-app` 现有组件、Zustand store、shared API bridge 和 CSS 组织方式，避免把页面逻辑塞回超大组件。
+    ('recall_frontend_vue3', 'frontend-vue3', $body$Vue 前端约定：优先沿用现有 composable、store、page 组织方式，避免把页面逻辑塞回超大 setup。
 
 检查项：
-- 改 UI 行为时同步更新 `frontend-app` 对应 test，尤其是 payload 字段、按钮状态和持久化 preference。
-- 运行 `npm run lint`、`npm test` 和 `npm run build`；构建会把产物同步到 `cmd/agent-terminal/web-dist`。
-- 不要在 `cmd/agent-terminal/web-dist` 手写 UI；它只保存嵌入 bundle。
-- 不要只靠截图判断状态；能用 Vitest 锁住的交互优先写测试。$body$),
+- 改 UI 行为时同步更新对应 behavior test，尤其是 payload 字段、按钮状态和持久化 preference。
+- 运行 `node scripts/size-guard.cjs`；函数超过 250 行、文件超过 800 行、嵌套过深都会被拦。
+- `npm run build` 的 chunk size warning 不等于失败，但测试和 size guard 失败都必须修。
+- 不要只靠截图判断状态；能用 vitest 锁住的交互优先写测试。$body$),
     ('recall_migration_rules', 'migration-rules', $body$Migration 规则：编号保持单调，不重编已出现的缺号；每个 migration 必须可重复运行或明确依赖前序状态。
 
 写法：
@@ -129,7 +129,7 @@ ON CONFLICT (recall_topic) WHERE trigger_type = 'recall' AND recall_topic <> '' 
 WITH seed(prompt_key, when_to_use) AS (
     VALUES
     ('coder/prompt', '代码任务、bug 修复、重构、测试编写、跨文件实现'),
-    ('frontend', 'React 前端、交互状态、CSS 布局、前端测试与构建'),
+    ('frontend', 'Vue 前端、交互状态、CSS 布局、前端测试与构建'),
     ('main/code-review', '代码审查、diff 风险评估、回归与安全问题检查'),
     ('main/code-debug', '错误排查、panic/exception/traceback 分析、最小复现定位'),
     ('main/code-task', '通用编程实现、重构、解释代码、补测试'),

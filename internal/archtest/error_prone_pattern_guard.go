@@ -23,6 +23,8 @@ func errorPronePatternViolations(repoRoot string) []Violation {
 		return nil
 	}
 	g := &errorPronePatternGuard{repoRoot: repoRoot}
+	g.guardHighPrecisionTimestampParsing()
+	g.guardStreamingStateMachinePattern()
 	g.guardLongLivedSubscriptionPattern()
 	g.guardClaimBeforeExternalSideEffectPattern()
 	g.guardAsyncStateTransitionFencePattern()
@@ -35,6 +37,7 @@ func errorPronePatternViolations(repoRoot string) []Violation {
 	g.guardSessionIdentityPreservationPattern()
 	g.guardLanguageAnchorPattern()
 	g.guardEmptyCWDPropagationPattern()
+	g.guardTerminalSignalCompletenessPattern()
 	g.guardDSLTypeCoercionPattern()
 	g.guardRetiredPromptClassifierPattern()
 	return g.violations
@@ -46,6 +49,53 @@ func isSuperAgentV3Repo(repoRoot string) bool {
 		return false
 	}
 	return strings.Contains(string(data), "module github.com/anthropic-ai/super-agent-v3")
+}
+
+func (g *errorPronePatternGuard) guardHighPrecisionTimestampParsing() {
+	const rel = "cmd/agent-terminal/frontend/vue-app/stores/thread-time-utils.js"
+	body, ok := g.functionBody(rel, "parseThreadCreatedAtFromID")
+	if !ok {
+		return
+	}
+	g.requireFunctionContains(rel, "parseThreadCreatedAtFromID", body,
+		"high-precision timestamp ids must be truncated to millisecond precision before numeric parsing",
+		"chunk.length < 10 || chunk.length > 19",
+		"chunk.slice(0, 13)",
+	)
+	g.requireFunctionNotContains(rel, "parseThreadCreatedAtFromID", body,
+		"high-precision timestamp ids must not be parsed as full-width JavaScript numbers",
+		"parseEpochMillis(chunk)",
+		"Number(chunk)",
+	)
+}
+
+func (g *errorPronePatternGuard) guardStreamingStateMachinePattern() {
+	const syncRel = "cmd/agent-terminal/frontend/vue-app/stores/thread-sync-helpers.js"
+	g.requireContains(syncRel, "append-only streaming state machines must mark terminal placeholder state",
+		"turnCompletedSignal && activeThreadTarget",
+		"streamingFinalized: true",
+	)
+	g.requireContains(syncRel, "temporary streaming item ids must include the owning scope, not just wall-clock fallback",
+		"evt?.payload?.turnId || evt?.payload?.turn_id",
+		"${activeThreadTarget}-${turnId}-streaming",
+		"${activeThreadTarget}-stream-${Date.now()}-streaming",
+	)
+	g.requireContains(syncRel, "streaming deltas must hydrate atomically instead of replacing local append buffers with partial snapshots",
+		"syncThreadHistoryAtomic(ctx, activeThreadTarget)",
+		"state.sync.streaming_throttle.failed",
+		"state.sync.streaming_trailing.failed",
+	)
+
+	const markdownRel = "cmd/agent-terminal/frontend/vue-app/utils/assistant-markdown-streaming.js"
+	g.requireContains(markdownRel, "append-only streaming state machines must report shrink/vanish regressions",
+		"chat.streaming.text_vanished",
+		"chat.streaming.text_shrunk",
+	)
+	g.requireContains(markdownRel, "terminal streaming items must clear pending/displayed state",
+		"item?.done !== false || !itemId",
+		"state.displayedByItemId.delete(itemId)",
+		"state.pendingByItemId.delete(itemId)",
+	)
 }
 
 func (g *errorPronePatternGuard) guardLongLivedSubscriptionPattern() {
@@ -237,6 +287,21 @@ func (g *errorPronePatternGuard) guardEmptyCWDPropagationPattern() {
 	const poolRel = "internal/provider/codexapp/driver_pool_routing.go"
 	g.requireContains(poolRel, "pool server spawn must pass thread cwd to spawner context",
 		"withPoolSpawnWorkDir",
+	)
+}
+
+// guardTerminalSignalCompletenessPattern 锁定前端流式占位的收尾信号集合。
+// 所有终态信号都必须触发收尾，不能只依赖 turn/completed，否则中断或失败路径会把占位文本留到下一轮。
+//
+// 信号集合必须包含 turn/completed、turn/interrupted、agent/stopped、thread/stopped 和 agent/failed。
+func (g *errorPronePatternGuard) guardTerminalSignalCompletenessPattern() {
+	const rel = "cmd/agent-terminal/frontend/vue-app/stores/thread-sync-helpers.js"
+	g.requireContains(rel, "streaming finalization must cover all terminal signals, not just turn/completed",
+		"turnTerminalSignal",
+		"turn/interrupted",
+		"agent/stopped",
+		"thread/stopped",
+		"agent/failed",
 	)
 }
 

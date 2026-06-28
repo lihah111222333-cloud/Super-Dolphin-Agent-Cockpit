@@ -30,7 +30,7 @@ func NewDB(cfg *config.Config) (*sql.DB, error) {
 }
 
 // MinRequiredSchemaVersion 是当前二进制正常运行所需的 schema_migrations.version 下限。
-const MinRequiredSchemaVersion = 109
+const MinRequiredSchemaVersion = 107
 
 var requiredBaselineTables = []string{
 	// agent_codex_binding: 历史遗留表，数据合并至 agent_provider_binding.codex_thread_id，无活跃 sqlc query
@@ -55,7 +55,6 @@ var requiredBaselineTables = []string{
 	"agent_feedback_events",
 	"session_insights",
 	"hook_pending_reviews",
-	"mcp_tool_lifecycle_states",
 	"agent_interactions",
 	"topology_approvals",
 	"ui_preferences",

@@ -29,8 +29,8 @@ func TestBuildPrefixShapeUsesAssemblyFactsWithoutPromptContent(t *testing.T) {
 		" compact ",
 	)
 
-	if got.Hash == "" {
-		t.Fatal("Hash is empty")
+	if got.Hash != "b193d14dfd7808ef100d7e1865771850347466e5c7f88593761f066bab04b867" {
+		t.Fatalf("Hash = %q", got.Hash)
 	}
 	assertPrefixShapeNames(t, got)
 	assertPrefixShapeSizes(t, got, boundary)
@@ -63,37 +63,13 @@ func assertPrefixShapeSizes(t *testing.T, got contract.PrefixShape, boundary *co
 	}
 }
 
-func TestBuildPrefixShapeHashIgnoresPromptBodies(t *testing.T) {
-	t.Parallel()
-
-	first := BuildPrefixShape(
-		"alpha",
-		"dev-1",
-		&contract.PromptAssemblyBoundary{CachedPrefix: "cached prefix A", UncachedTail: "uncached tail A"},
-		[]ResolvedPromptSection{{Name: "identity", Region: PromptRegionStatic, Content: "secret body A"}},
-		[]string{"grep"},
-		"",
-	)
-	second := BuildPrefixShape(
-		"bravo",
-		"dev-2",
-		&contract.PromptAssemblyBoundary{CachedPrefix: "cached prefix B", UncachedTail: "uncached tail B"},
-		[]ResolvedPromptSection{{Name: "identity", Region: PromptRegionStatic, Content: "secret body B"}},
-		[]string{"grep"},
-		"",
-	)
-	if first.Hash != second.Hash {
-		t.Fatalf("Hash changed after prompt body-only edits: first=%q second=%q", first.Hash, second.Hash)
-	}
-}
-
 func TestBuildPrefixShapeChangesHashWhenShapeFactsChange(t *testing.T) {
 	t.Parallel()
 
 	first := BuildPrefixShape("base", "dev", nil, nil, []string{"grep"}, "")
-	second := BuildPrefixShape("base", "dev", nil, nil, []string{"shell"}, "")
+	second := BuildPrefixShape("base changed", "dev", nil, nil, []string{"grep"}, "")
 	if first.Hash == second.Hash {
-		t.Fatalf("Hash did not change when shape facts changed: %q", first.Hash)
+		t.Fatalf("Hash did not change when base instructions changed: %q", first.Hash)
 	}
 	if first.CachedPrefixBytes != 0 || first.UncachedTailBytes != 0 {
 		t.Fatalf("nil boundary byte counts = %d/%d", first.CachedPrefixBytes, first.UncachedTailBytes)
