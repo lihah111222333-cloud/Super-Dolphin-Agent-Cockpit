@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	shared "github.com/anthropic-ai/super-agent-v3/internal/dto/shared"
@@ -151,6 +152,31 @@ func TestMemoryLifecycleHooksOnTurnEndUsesAutoMemPathOverride(t *testing.T) {
 	indexPath := filepath.Join(storeRoot, memoryIndexFileName)
 	if _, err := os.Stat(indexPath); err != nil {
 		t.Fatalf("Stat(%q) error = %v", indexPath, err)
+	}
+}
+
+func TestMemoryHookWorkerBackpressureAndStopReportsTimeout(t *testing.T) {
+	worker := newMemoryHookWorker(nil, nil)
+	const burst = 64
+	for range burst {
+		worker.Enqueue(memoryHookRequest{kind: memoryHookTurnCompleted})
+	}
+
+	worker.mu.Lock()
+	backlog := len(worker.queue)
+	worker.mu.Unlock()
+	if backlog >= burst {
+		t.Fatalf("memory hook queue length = %d after burst %d, want bounded backpressure", backlog, burst)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Nanosecond)
+	defer cancel()
+	err := worker.Stop(ctx)
+	if err == nil {
+		t.Fatal("Stop() error = nil, want timeout with backlog detail")
+	}
+	if !strings.Contains(err.Error(), "backlog") {
+		t.Fatalf("Stop() error = %v, want backlog detail", err)
 	}
 }
 

@@ -7,7 +7,6 @@ import (
 	"go/token"
 	"log"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 )
@@ -181,26 +180,14 @@ func newFileMetricViolations(repoRoot string, opts CheckOptions, bl Baseline) []
 	return violations
 }
 
-// shouldCheckNewBaselineFile 只把真正新增的源码视作 NewFileViolations 候选。
-// 非 git 临时目录无法查询历史，直接扫描全部 absent 文件，供单元测试和离线 fixture 覆盖。
+// shouldCheckNewBaselineFile 将所有扫描范围内的 baseline 缺项纳入零容忍检查。
+// baseline 只冻结既有债务；HEAD 已存在但缺 baseline 的文件同样不能绕过 panic/init/global/go 等硬规则。
 func shouldCheckNewBaselineFile(repoRoot, relPath string, bl Baseline) bool {
 	if _, frozen := bl[relPath]; frozen {
 		return false
 	}
-	if !isGitWorkTree(repoRoot) {
-		return true
-	}
-	return !fileExistsInGitRef(repoRoot, "HEAD", relPath)
-}
-
-func isGitWorkTree(repoRoot string) bool {
-	cmd := exec.Command("git", "-C", repoRoot, "rev-parse", "--is-inside-work-tree")
-	return cmd.Run() == nil
-}
-
-func fileExistsInGitRef(repoRoot, ref, relPath string) bool {
-	cmd := exec.Command("git", "-C", repoRoot, "cat-file", "-e", ref+":"+relPath)
-	return cmd.Run() == nil
+	_ = repoRoot
+	return true
 }
 
 func metricViolationsForNewFile(path string, metrics FileMetrics) []Violation {
@@ -287,15 +274,6 @@ func freezeBaselineFiltered(opts CheckOptions, testsOnly bool) Baseline {
 		}
 	}
 	return bl
-}
-
-// collectGoFiles 收集扫描根下的所有 Go 文件绝对路径（含测试文件）。
-func collectGoFiles(repoRoot string, scanRoots []string, skipDirs map[string]bool) []string {
-	files, err := collectGoFilesFiltered(repoRoot, scanRoots, skipDirs, false)
-	if err != nil {
-		log.Fatalf("collect go files: %v", err)
-	}
-	return files
 }
 
 // collectGoFilesFiltered 收集go文件filtered。
