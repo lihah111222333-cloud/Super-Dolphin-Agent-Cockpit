@@ -34,7 +34,7 @@ func TestAddServersRejectsUnsafeHTTPHeaders(t *testing.T) {
 func TestListServerToolsRequestsHTTPMCPServer(t *testing.T) {
 	store := newMemoryMCPServerStore()
 	client := &scriptedMCPHTTPDoer{t: t, wantAuth: "Bearer YOUR_API_KEY"}
-	svc := NewServiceWithStore(store).(*service)
+	svc := NewServiceWithStores(store, newMemoryMCPToolLifecycleStore()).(*service)
 	svc.httpClient = client
 	project := t.TempDir()
 	t.Chdir(project)
@@ -117,6 +117,7 @@ func (d *recordingFailHTTPDoer) Do(*http.Request) (*http.Response, error) {
 type scriptedMCPHTTPDoer struct {
 	t              *testing.T
 	wantAuth       string
+	toolNames      []string
 	toolsListError bool
 	methods        []string
 }
@@ -185,16 +186,28 @@ func (d *scriptedMCPHTTPDoer) responseForMCPMethod(
 			}, true), nil
 		}
 		return scriptedMCPHTTPResponse(call.ID, map[string]any{
-			"tools": []map[string]any{{
-				"name":        "remote_search",
-				"description": "search remote docs",
-				"inputSchema": map[string]any{"type": "object"},
-			}},
+			"tools": d.scriptedTools(),
 		}, false), nil
 	default:
 		d.t.Fatalf("unexpected JSON-RPC method %q", call.Method)
 		return nil, errors.New("unexpected method")
 	}
+}
+
+func (d *scriptedMCPHTTPDoer) scriptedTools() []map[string]any {
+	names := d.toolNames
+	if len(names) == 0 {
+		names = []string{"remote_search"}
+	}
+	tools := make([]map[string]any, 0, len(names))
+	for _, name := range names {
+		tools = append(tools, map[string]any{
+			"name":        name,
+			"description": "search remote docs",
+			"inputSchema": map[string]any{"type": "object"},
+		})
+	}
+	return tools
 }
 
 type redirectToLoopbackMCPHTTPDoer struct {

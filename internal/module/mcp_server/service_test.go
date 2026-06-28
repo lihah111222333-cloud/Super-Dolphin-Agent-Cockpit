@@ -196,7 +196,7 @@ func TestListServerToolsReturnsNotFoundForMissingServer(t *testing.T) {
 
 func TestListServerToolsReturnsRPCErrorFromHTTPMCPServer(t *testing.T) {
 	store := newMemoryMCPServerStore()
-	svc := NewServiceWithStore(store).(*service)
+	svc := NewServiceWithStores(store, newMemoryMCPToolLifecycleStore()).(*service)
 	svc.httpClient = &scriptedMCPHTTPDoer{t: t, toolsListError: true}
 	project := t.TempDir()
 	t.Chdir(project)

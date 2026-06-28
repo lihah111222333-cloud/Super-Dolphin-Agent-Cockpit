@@ -266,7 +266,12 @@ func newMCPServerTestServerWithSQLitePath(store MCPServerConfigStore, sqlitePath
 }
 
 func newMCPServerTestServerWithHTTPClient(store MCPServerConfigStore, client mcpHTTPDoer) *platformrpc.Server {
-	svc := newServiceWithStoreInstallerAndSQLitePath(store, &recordingPostgresInstaller{}, "")
+	svc := newServiceWithStoresInstallerAndSQLitePath(
+		store,
+		newMemoryMCPToolLifecycleStore(),
+		&recordingPostgresInstaller{},
+		"",
+	)
 	svc.httpClient = client
 	server := platformrpc.NewServer(platformrpc.Params{Config: &platformconfig.Config{RPCAddr: "127.0.0.1:0"}})
 	server.Register(NewHandlers(svc).Handlers)

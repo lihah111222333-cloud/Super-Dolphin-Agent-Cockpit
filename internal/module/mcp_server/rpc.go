@@ -146,6 +146,7 @@ func mcpServerRPCError(err error) error {
 	switch {
 	case errors.Is(err, errMissingMCPServers),
 		errors.Is(err, errMissingServerName),
+		errors.Is(err, errMissingToolName),
 		errors.Is(err, errDuplicateServerName),
 		errors.Is(err, errMissingServerTransport),
 		errors.Is(err, errUnsupportedTransport),
@@ -158,9 +159,13 @@ func mcpServerRPCError(err error) error {
 		errors.Is(err, errMissingServerEnvValue),
 		errors.Is(err, errMissingHeaderName),
 		errors.Is(err, errMissingHeaderValue),
+		errors.Is(err, errInvalidMCPToolLifecycleState),
+		errors.Is(err, errInvalidMCPToolLifecycleSource),
 		errors.Is(err, errInvalidConfigDocument):
 		return platformrpc.ErrInvalidParams(err.Error())
 	case errors.Is(err, errMCPServerStoreNotConfigured):
+		return platformrpc.ErrInvalidState(err.Error())
+	case errors.Is(err, errMCPToolLifecycleStoreMissing):
 		return platformrpc.ErrInvalidState(err.Error())
 	case errors.Is(err, errMCPServerToolsRequestFailed),
 		errors.Is(err, errInvalidToolsResponse),
