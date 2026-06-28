@@ -111,7 +111,7 @@ func hasFileURIScheme(path string) bool {
 	return ok && strings.EqualFold(scheme, "file")
 }
 
-// resolveWorkspacePathInRoots 在允许的工作区根或应用托管目录中解析路径。
+// resolveWorkspacePathInRoots 在允许的工作区根中解析 direct 写入目标。
 // EvalSymlinks 后仍要重新做根目录校验，避免符号链接逃逸。
 func resolveWorkspacePathInRoots(root string, roots []string, uri string) (string, error) {
 	filePath, err := normalizeFilePathTarget(uri)
@@ -137,11 +137,10 @@ func resolveWorkspacePathInRoots(root string, roots []string, uri string) (strin
 	if err != nil {
 		return "", err
 	}
-	allowedRoots = append(allowedRoots, appRoots...)
-	if !pathWithinAnyRoot(appRoots, resolved) {
-		return "", fmt.Errorf("path %q is outside workspace roots [%s]", resolved, strings.Join(allowedRoots, ", "))
+	if pathWithinAnyRoot(appRoots, resolved) {
+		return "", fmt.Errorf("path %q is inside app-managed data roots and requires app-managed write capability", resolved)
 	}
-	return resolved, nil
+	return "", fmt.Errorf("path %q is outside workspace roots [%s]", resolved, strings.Join(allowedRoots, ", "))
 }
 
 // trustedWorkspaceEditRoots 读取并规范化 WorkspaceEdit 可写入的可信根目录。
