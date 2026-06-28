@@ -116,3 +116,60 @@ func TestRecoveryDoesNotReplayWhenProviderTurnStillActive(t *testing.T) {
 	}
 	recorder.assertNoReplayWhileActive(t)
 }
+
+type completedTurnRecoveryRecorder struct {
+	activeTurnRecoveryRecorder
+}
+
+// handle 模拟 provider 明确报告原 turn 已 completed；恢复流程必须阻断重放。
+func (r *completedTurnRecoveryRecorder) handle(msg jsonRPCMessage) (json.RawMessage, bool) {
+	if len(msg.ID) == 0 {
+		return nil, false
+	}
+	switch msg.Method {
+	case "initialize":
+		r.incrementInitialize()
+		return mustJSON(map[string]any{"ok": true}), true
+	case "thread/resume":
+		r.incrementThreadResume()
+		return mustJSON(map[string]any{"thread": map[string]any{"id": "thread-1"}}), true
+	case "turn/status":
+		r.incrementTurnStatus()
+		return mustJSON(map[string]any{
+			"turn": map[string]any{
+				"id":     "turn-1",
+				"active": false,
+				"status": "completed",
+			},
+		}), true
+	case "turn/start":
+		return r.nextTurnStartResponse(), true
+	default:
+		return mustJSON(map[string]any{"ok": true}), true
+	}
+}
+
+func TestRecoveryDoesNotReplayCompletedTurn(t *testing.T) {
+	recorder := &completedTurnRecoveryRecorder{}
+	server := newCodexTestRPCServer(t, recorder.handle)
+	defer server.Close()
+
+	s := newRecoveryTestSession(t, server)
+	defer closeCodexTestSession(t, s)
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	handle := startRecoveryTestTurn(t, ctx, s)
+	prepareRecoveryReplayState(s)
+	if err := s.attemptRecovery("test recovery"); err != nil {
+		t.Fatalf("attemptRecovery() error = %v", err)
+	}
+
+	if got := handle.ProviderID(); got != "turn-1" {
+		t.Fatalf("ProviderID() after completed confirmation = %q, want original turn-1", got)
+	}
+	if got := s.activeTurnID; got != "turn-1" {
+		t.Fatalf("activeTurnID = %q, want original turn-1", got)
+	}
+	recorder.assertNoReplayWhileActive(t)
+}
