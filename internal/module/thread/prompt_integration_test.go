@@ -260,6 +260,7 @@ func TestResumeRestoresFromSnapshot(t *testing.T) {
 func TestResumeDoesNotInvalidatePromptAssemblyWithoutWorktreeRestore(t *testing.T) {
 	t.Parallel()
 
+	const providerThreadID = "019d5f6b-fb3c-7760-9d6f-54005553f706"
 	promptAssembly := &stubPromptAssemblyService{}
 	threads := &stubThreadStore{thread: &threadstore.Thread{
 		ThreadID:       "thread-resume",
@@ -275,6 +276,8 @@ func TestResumeDoesNotInvalidatePromptAssemblyWithoutWorktreeRestore(t *testing.
 		AgentID:       "agent-resume",
 		Provider:      "codex",
 		CodexThreadID: "thread-resume",
+		RolloutPath:   writeExistingProviderHistoryFile(t),
+		SessionUUID:   providerThreadID,
 		Cwd:           "/repo",
 	}}
 	sessions := &stubSessionProvider{}
@@ -297,6 +300,7 @@ func TestResumeDoesNotInvalidatePromptAssemblyWithoutWorktreeRestore(t *testing.
 func TestResumeInvalidatesPromptAssemblyForWorktreeRestore(t *testing.T) {
 	t.Parallel()
 
+	const providerThreadID = "019d5f6b-fb3c-7760-9d6f-54005553f704"
 	_, worktreeCWD := newPromptGitFixture(t)
 	promptAssembly := &stubPromptAssemblyService{}
 	threads := &stubThreadStore{thread: &threadstore.Thread{
@@ -313,6 +317,8 @@ func TestResumeInvalidatesPromptAssemblyForWorktreeRestore(t *testing.T) {
 		AgentID:       "agent-resume",
 		Provider:      "codex",
 		CodexThreadID: "thread-resume",
+		RolloutPath:   writeExistingProviderHistoryFile(t),
+		SessionUUID:   providerThreadID,
 		Cwd:           worktreeCWD,
 	}}
 	sessions := &stubSessionProvider{}
