@@ -2,53 +2,102 @@
 
 ## Scope
 
-This document closes Worker A's documentation lane for `codex/reasonix-remain-plan-20260628` on baseline `main@2cd1eb15`.
+This document reconciles `docs/li/2026-06-27-reasonix-architecture-absorption-plan.md`
+against the current `main` branch after the Reasonix first-wave and second-wave
+merge commits:
 
-It reconciles `docs/li/2026-06-27-reasonix-architecture-absorption-plan.md` against the current tree. It is a tracking record, not the final acceptance run. Worker A only updates the allowed documentation files and does not change Go or frontend implementation files.
+- `e57ee26d` `merge: 集成 Reasonix 第一波`
+- `b42b1e9e` `merge: 集成 Reasonix 第二波 prompt`
+- `9601e12e` `merge: 集成 Reasonix 第二波 toolbridge`
+
+The plan document remains an implementation plan. Its unchecked task boxes are
+historical instructions and must not be used as the live completion ledger. This
+file is the current closure ledger.
 
 ## Reading Rules
 
-- The plan document remains an implementation plan. Its unchecked task boxes must not be interpreted as current completion state.
-- Phase 0 and Phase 1 documentation preflight are closed by current evidence.
-- Phase 2 and later have mixed evidence and still require lane-owned validation before closure.
-- `docs/adr/0003-mcp-tool-lifecycle-state.md` closes the MCP lifecycle decision document only. It does not make per-tool lifecycle filtering active.
-- Main controller F owns the final verification lane. Worker A records what F must verify but does not run that final lane.
+- Reasonix architecture absorption Phase 0-7 is closed on current `main`.
+- Final controller verification is closed for the Reasonix absorption plan's
+  stated verification surface.
+- Planned filename deviations are accepted when the same contract is implemented
+  and covered by tests.
+- Phase 5 was originally closed for namespace ownership and compatibility. The
+  separate ADR 0003 MCP lifecycle backend/toolbridge follow-up has now also
+  been completed on current `main`.
+- ADR 0003 is closed through schema/store, owner-module API, discovery/backfill,
+  toolbridge list filtering, direct-call denial, compatibility tests, and merge
+  verification. UI lifecycle controls remain out of scope.
 
 ## Phase Status
 
-| Phase | Current status | Evidence files | Remaining blocker or open gate | Required next validation |
-| --- | --- | --- | --- | --- |
-| Phase 0: ADR and execution gate | Complete for documentation preflight. | `docs/adr/0002-session-ports-and-prefix-stability.md`; `docs/li/reasonix-absorption-docs-closure-2026-06-28.md` | ADR status is still `Proposed`, so it is a gate record rather than a release approval. | Keep the ADR in the final evidence set and confirm no plan checkbox was reinterpreted as execution status. |
-| Phase 1: read-only spikes | Complete for documentation preflight. | `docs/li/reasonix-absorption-spikes/event-wire-methods.md`; `docs/li/reasonix-absorption-spikes/prompt-prefix-shape.md`; `docs/li/reasonix-absorption-spikes/mcp-tool-lifecycle.md`; `docs/adr/0003-mcp-tool-lifecycle-state.md` | MCP lifecycle is still limited to decision and namespace scope until ADR 0003 gates are implemented. | Recheck the four docs before closing later implementation phases. |
-| Phase 2: typed session lifecycle/read ports | Partial. The current tree has session port types, thread adapters, app aggregation, and tests, but this document does not accept the lane without its validation transcript. | `internal/contract/session.go`; `internal/contract/session_ports_test.go`; `internal/module/thread/contract_adapter.go`; `internal/module/thread/session_ports_test.go`; `internal/module/thread/session_ports_rpc_test.go`; `internal/module/thread/rpc.go`; `internal/app/session_ports.go`; `internal/app/session_ports_test.go`; `internal/app/modules.go` | Planned filenames changed during implementation: contract types live in `internal/contract/session.go`, and thread lifecycle/status adapters live in `internal/module/thread/contract_adapter.go`. This is acceptable only if the session lane records that mapping and all guards pass. | Session lane must run the per-file guards for changed Go files and `./scripts/test_with_guard.sh ./internal/app ./internal/module/thread -count=1`. |
-| Phase 3: event wire contract | Partial. Backend/frontend method surfaces and parser evidence exist, but final parity is pending lane proof. | `internal/platform/eventsurface/methods.go`; `internal/platform/eventsurface/methods_test.go`; `internal/platform/rpc/push.go`; `internal/platform/rpc/push_test.go`; `frontend-app/src/shared/api/eventWireMethods.js`; `frontend-app/src/shared/api/eventWire.js`; `frontend-app/src/shared/api/eventWire.test.js`; `frontend-app/src/shared/api/wailsBridge.js` | Event lane must prove typed methods, raw allowlist, compatibility prefixes, Wails bridge behavior, and RPC push behavior still agree. | Event lane must run the per-file Go guards, `./scripts/test_with_guard.sh ./internal/platform/eventsurface ./internal/platform/rpc ./internal/ui/wails -count=1`, and `cd frontend-app && npm test -- eventWire.test.js`. |
-| Phase 4: prompt prefix shape telemetry | Partial. DTO, contract alias, prompt builder, provider logging, and tests are visible, but final package compatibility is pending lane proof. | `internal/dto/provider/session.go`; `internal/contract/prompt.go`; `internal/module/prompt/assembler.go`; `internal/module/prompt/prefix_shape_test.go`; `internal/provider/codexapp/driver.go`; `internal/provider/codexapp/driver_session_test.go` | Prompt lane must prove no prompt content leaks into provider logs and `dto.TurnRequest` was not expanded with prefix shape. | Prompt lane must run the per-file guards and `./scripts/test_with_guard.sh ./internal/module/prompt ./internal/module/thread ./internal/provider/codexapp ./internal/provider/claudecli -count=1`. |
-| Phase 5: MCP namespace helper and lifecycle boundary | Partial for namespace helper; lifecycle filtering remains blocked. | `internal/platform/toolbridge/mcp_namespace.go`; `internal/platform/toolbridge/mcp_namespace_test.go`; `internal/platform/toolbridge/handler_peer_decode.go`; `internal/platform/toolbridge/handler_peer_decode_helpers.go`; `internal/platform/toolbridge/handler_host_tools.go`; `docs/adr/0003-mcp-tool-lifecycle-state.md` | ADR 0003 requires schema, backfill, compatibility, toolbridge reader, direct-call, and verification gates before per-tool state can affect list/call paths. Current evidence only supports namespace helper absorption. | MCP lane must run toolbridge per-file guards and `./scripts/test_with_guard.sh ./internal/platform/toolbridge -count=1`. Any lifecycle state implementation needs a separate approved lane. |
-| Phase 6: desktop dependency guard | Partial. Guard evidence exists, but this closure does not accept the broader guard surface. | `internal/archtest/desktop_dependency_test.go`; `internal/archtest` helper files used by that test | The named execution lanes do not include a separate desktop-guard owner. If code changes are needed here, controller approval must assign an owner before editing. | Final verification must include `./scripts/test_with_guard.sh internal/archtest/desktop_dependency_test.go`, `./scripts/test_with_guard.sh ./internal/archtest -count=1`, and `make guard`. |
-| Phase 7: frontend session API facade | Partial and assigned to session-facing surface validation. | `frontend-app/src/shared/api/sessionApi.js`; `frontend-app/src/shared/api/sessionApi.test.js`; `frontend-app/src/entities/client/model/useClientStore.js` | Session lane must prove the facade delegates to guarded `backendApi.js` exports and does not call raw bridge APIs. | Session/frontend validation must include `cd frontend-app && npm test -- sessionApi.test.js eventWire.test.js && npm run lint`; final verification later expands to the full frontend suite and build. |
-| Final verification section | Open. This lane is owned by controller F, not Worker A. | `docs/li/2026-06-27-reasonix-architecture-absorption-plan.md` section 8 | F must not rely on this closure as a substitute for package tests, frontend tests, build, or git status proof. | F must run the full command set in the plan's final verification section after lane proofs are present. |
+| Phase | Current status | Evidence files | Closure note |
+| --- | --- | --- | --- |
+| Phase 0: ADR and execution gate | Complete. | `docs/adr/0002-session-ports-and-prefix-stability.md`; `docs/li/reasonix-absorption-docs-closure-2026-06-28.md` | ADR 0002 remains `Proposed`, but it records the accepted boundary and rollback gate for this absorption work. |
+| Phase 1: read-only spikes | Complete. | `docs/li/reasonix-absorption-spikes/event-wire-methods.md`; `docs/li/reasonix-absorption-spikes/prompt-prefix-shape.md`; `docs/li/reasonix-absorption-spikes/mcp-tool-lifecycle.md`; `docs/adr/0003-mcp-tool-lifecycle-state.md` | Spike docs identify the source of truth for event wire, prompt prefix shape, and MCP lifecycle ownership. |
+| Phase 2: typed session lifecycle/read ports | Complete. | `internal/contract/session.go`; `internal/contract/session_ports_test.go`; `internal/module/thread/contract_adapter.go`; `internal/module/thread/session_ports_test.go`; `internal/module/thread/session_ports_rpc_test.go`; `internal/module/thread/rpc.go`; `internal/app/session_ports.go`; `internal/app/session_ports_test.go`; `internal/app/modules.go` | Planned filenames changed: contract types live in `internal/contract/session.go`; lifecycle/status adapters live in `internal/module/thread/contract_adapter.go`. LSP references show `SessionPorts` is consumed by thread start/list/messages/fork/resume RPC handlers. |
+| Phase 3: event wire contract | Complete. | `internal/platform/eventsurface/methods.go`; `internal/platform/eventsurface/methods_test.go`; `internal/platform/rpc/push.go`; `internal/platform/rpc/push_test.go`; `frontend-app/src/shared/api/eventWireMethods.js`; `frontend-app/src/shared/api/eventWire.js`; `frontend-app/src/shared/api/eventWire.test.js`; `frontend-app/src/shared/api/wailsBridge.js` | Backend typed method list, raw allowlist, compatibility prefixes, frontend parser, RPC push, and Wails bridge are covered by parity tests. |
+| Phase 4: prompt prefix shape telemetry | Complete. | `internal/dto/provider/session.go`; `internal/contract/prompt.go`; `internal/module/prompt/assembler.go`; `internal/module/prompt/prefix_shape_test.go`; `internal/provider/codexapp/driver.go`; `internal/provider/codexapp/driver_session_test.go` | `PrefixShape` is on start assembly, not turn request; provider logging uses only shape metadata and tests guard prompt body leakage. |
+| Phase 5: MCP namespace helper and lifecycle boundary | Complete. | `internal/platform/toolbridge/mcp_namespace.go`; `internal/platform/toolbridge/mcp_namespace_test.go`; `internal/platform/toolbridge/handler_peer_decode.go`; `internal/platform/toolbridge/handler_peer_decode_helpers.go`; `internal/platform/toolbridge/handler_host_tools.go`; `docs/adr/0003-mcp-tool-lifecycle-state.md` | Namespace helper is centralized. The original Reasonix phase closed on namespace ownership; the later ADR 0003 backend/toolbridge follow-up has also closed through owner API, backfill, list filtering, direct-call denial, and compatibility tests. |
+| Phase 6: desktop dependency guard | Complete. | `internal/archtest/desktop_dependency_test.go`; `internal/archtest` helper files used by that test | Guard excludes allowed desktop assembly surfaces and catches Wails/UI dependency leakage into core runtime and MCP sidecars. |
+| Phase 7: frontend session API facade | Complete. | `frontend-app/src/shared/api/sessionApi.js`; `frontend-app/src/shared/api/sessionApi.test.js`; `frontend-app/src/entities/client/model/useClientStore.js`; `frontend-app/src/pages/workflows/services/workflowPageService.js` | Facade delegates to guarded `backendApi.js` exports and tests reject raw bridge usage. Implementation added compatibility aliases used by existing callers. |
+| Final verification section | Complete. | Section 8 of the plan; main merge verification record | Controller F ran final verification on current `main`: `make sqlc-verify`; package guard for the plan verification surface; `make guard`; `make build-plain`; `cd frontend-app && npm run lint && npm test && npm run build`; `git status --short --branch`. |
 
-## Execution Lane Boundaries
+## ADR 0003 MCP Lifecycle Follow-Up State
 
-| Lane | Owns | Must deliver | Must verify | NEEDS_APPROVAL triggers |
-| --- | --- | --- | --- | --- |
-| session | Phase 2 and the session-facing part of Phase 7. | Stable `contract.SessionStartRequest`, lifecycle/read interfaces, thread adapters, first real RPC consumer, app graph aggregation, frontend `sessionApi` facade over guarded backend API. | Go per-file guards for session/app files, `./scripts/test_with_guard.sh ./internal/app ./internal/module/thread -count=1`, `cd frontend-app && npm test -- sessionApi.test.js eventWire.test.js && npm run lint`. | Any expansion beyond lifecycle/read ports, new wire payload shape, raw frontend bridge calls, session persistence changes, or edits outside the evidence files above. |
-| prompt | Phase 4. | Provider DTO prefix shape, contract alias, prompt assembly builder, safe Codex start logging, tests proving no prompt body leakage. | Go per-file guards for prompt/provider files and `./scripts/test_with_guard.sh ./internal/module/prompt ./internal/module/thread ./internal/provider/codexapp ./internal/provider/claudecli -count=1`. | Adding prompt body logging, adding prefix shape to turn requests, changing provider wire payloads beyond start-session metadata, or touching unrelated prompt routing behavior. |
-| event | Phase 3. | Shared backend/frontend method list, raw allowlist split from compatibility prefixes, frontend parser, RPC push integration, Wails bridge compatibility. | Go per-file guards, `./scripts/test_with_guard.sh ./internal/platform/eventsurface ./internal/platform/rpc ./internal/ui/wails -count=1`, and `cd frontend-app && npm test -- eventWire.test.js`. | Expanding raw provider visibility, changing `ExpandNotifications` behavior without regression tests, moving event parsing outside `frontend-app/src/shared/api`, or bypassing the shared method list. |
-| mcp | Phase 5 namespace helper and ADR 0003 follow-up only when approved. | `WrapMCPToolName` / `SplitMCPToolName`, replacement of local wrapped-name helpers, alias/canonical compatibility tests. Later lifecycle state work must add schema, store, owner API, backfill, toolbridge reader, and direct-call tests in a separate approved lane. | Toolbridge per-file guards and `./scripts/test_with_guard.sh ./internal/platform/toolbridge -count=1`. Later lifecycle work must add `make sqlc-verify` and package coverage for `./internal/module/mcp_server`, `./internal/store/mcpserver`, and `./internal/platform/toolbridge`. | Any production list/call filtering by `active`, `suspended`, or `removed`; SQL migrations; UI lifecycle controls; direct-call denial behavior; or changes to `cmd/mcp-orch` runtime boundaries. |
-| final verification | Section 8 of the plan. Owned by controller F. | A single final evidence record after session, prompt, event, and mcp lane proofs are available. | `./scripts/test_with_guard.sh ./internal/contract ./internal/app ./internal/module/thread ./internal/module/prompt ./internal/platform/eventsurface ./internal/platform/rpc ./internal/platform/toolbridge ./internal/provider/codexapp ./internal/provider/claudecli ./internal/ui/wails ./internal/archtest -count=1`; `make guard`; `make build-plain`; `cd frontend-app && npm run lint && npm test && npm run build`; `git status --short`. | Test failure requiring code edits, generated output that would need staging, dirty files outside approved scope, or any attempt to accept Phase 2+ without the lane proofs above. |
+ADR 0003 is not the same as the original Reasonix Phase 5 namespace absorption.
+The original Reasonix phase closed on namespace ownership first; current `main`
+has since completed the backend/toolbridge lifecycle follow-up:
+
+- `internal/platform/db/sqlite/migrations/109_mcp_tool_lifecycle_states.sql`
+- `sql/queries/mcp_tool_lifecycle.sql`
+- root `sqlc.yaml` schema/query wiring
+- generated `internal/store/sqlc/*` lifecycle query/model code
+- `internal/contract/mcp_control.go` lifecycle DTO and store interfaces
+- `internal/store/mcpserver/lifecycle_store.go`
+- `internal/store/mcpserver/lifecycle_store_test.go`
+- `internal/module/mcp_server/lifecycle.go`
+- `internal/module/mcp_server/lifecycle_service_test.go`
+- `internal/module/mcp_server/rpc_test.go`
+- `internal/platform/toolbridge/handler_host_tools.go`
+- `internal/platform/toolbridge/host_tools_lifecycle_test.go`
+- `internal/platform/toolbridge/handler_peer_decode.go`
+- `internal/platform/toolbridge/handler_peer_decode_helpers.go`
+- `internal/platform/toolbridge/codex_surface_lifecycle_test.go`
+- `internal/provider/e2e/lifecycle_wire_test.go`
+- `internal/provider/codexapp/lifecycle_wire_test.go`
+- `internal/provider/unified/manifest_test.go`
+- `internal/contract/mcp_control_test.go`
+- `internal/platform/toolbridge/http_mcp_client_test.go`
+- `internal/platform/toolbridge/stdio_mcp_client_test.go`
+
+LSP references confirm `contract.MCPToolLifecycleStore` is implemented by
+`internal/store/mcpserver`, consumed by `internal/module/mcp_server`, and
+adapted as the read-only lifecycle port for `internal/platform/toolbridge`.
+LSP references also confirm `filterManagedPeerToolsByLifecycle` is reached from
+the Codex list path and `ensureCodexSurfaceMCPToolActive` is reached from the
+Codex surface tool call path.
 
 ## Current Evidence Notes
 
-- `rg --files` shows ADR 0002, ADR 0003, all three spike docs, event wire files, session facade files, prompt prefix tests, MCP namespace helper files, and desktop dependency guard files in the current tree.
-- LSP symbol lookup finds `contract.SessionPorts` in `internal/contract/session.go`, `thread.NewSessionPorts` in `internal/module/thread/contract_adapter.go`, and `app.newSessionPorts` in `internal/app/session_ports.go`.
-- LSP references show `SessionPorts` is consumed by `internal/module/thread/rpc.go`, including the messages read path, but the lane still needs its requested validation output before closure.
-- LSP search across `internal/platform/toolbridge`, `internal/module/mcp_server`, `internal/store/mcpserver`, `sql`, and `migrations` did not find a per-tool lifecycle state implementation. The only `removed` hits were legacy skill-tool removal handling, not ADR 0003 MCP lifecycle state.
+- `rg --files` shows ADR 0002, ADR 0003, all three spike docs, event wire
+  files, session facade files, prompt prefix tests, MCP namespace helper files,
+  MCP lifecycle schema/store files, and desktop dependency guard files in the
+  current tree.
+- LSP symbol lookup finds `contract.SessionPorts` in
+  `internal/contract/session.go`, `thread.NewSessionPorts` in
+  `internal/module/thread/contract_adapter.go`, and `app.newSessionPorts` in
+  `internal/app/session_ports.go`.
+- LSP references show `SessionPorts` is consumed by
+  `internal/module/thread/rpc.go`, including start, list, messages, fork, and
+  resume handlers.
+- LSP diagnostics for the key Reasonix absorption files returned no diagnostics
+  during final document review.
 
-## Follow-On Closure Conditions
+## Follow-On Conditions
 
-- Close session only after the session lane records the exact guard output and confirms the planned filename deviations.
-- Close event only after backend/frontend method parity and raw/compat behavior are verified in one lane record.
-- Close prompt only after provider log safety and package compatibility are verified.
-- Close mcp lifecycle filtering only after ADR 0003 gates are implemented and verified in a separate approved lane.
-- Close final verification only after controller F runs the full plan section 8 command set on the integrated tree.
+- Do not reopen the Reasonix architecture absorption plan unless a new review
+  finds a concrete regression in the merged code.
+- Do not reopen ADR 0003 backend/toolbridge lifecycle work unless a new review
+  finds a concrete regression in the merged code.
+- Treat UI lifecycle controls or display as future product work, not as a
+  missing backend/toolbridge gate.
