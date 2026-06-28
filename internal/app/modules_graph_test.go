@@ -35,6 +35,16 @@ func TestAppModuleGraphProvidesTurnThreadStateConfigReader(t *testing.T) {
 	}
 }
 
+func TestAppModuleGraphProvidesMCPServerConfigProvider(t *testing.T) {
+	t.Parallel()
+
+	var provider contract.MCPServerConfigProvider
+	opts := append(appGraphValidationOptions(), fx.Populate(&provider))
+	if err := fx.ValidateApp(opts...); err != nil {
+		t.Fatalf("fx.ValidateApp missing MCP server config provider: %v", err)
+	}
+}
+
 func TestAppModuleGraphProvidesDatasourceV2Service(t *testing.T) {
 	t.Parallel()
 
