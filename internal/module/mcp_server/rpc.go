@@ -6,21 +6,25 @@ import (
 
 	"github.com/creachadair/jrpc2/handler"
 
+	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	platformrpc "github.com/anthropic-ai/super-agent-v3/internal/platform/rpc"
 )
 
 // NewHandlers 注册 MCP server 管理相关的 RPC 处理器。
 func NewHandlers(svc Service) platformrpc.HandlerMapResult {
 	return platformrpc.HandlerMapResult{Handlers: handler.Map{
-		"mcpServer/add":              platformrpc.StrictHandler(addServersHandler(svc)),
-		"mcpServer/list":             platformrpc.StrictHandler(listServersHandler(svc)),
-		"mcpServer/tools":            platformrpc.StrictHandler(listServerToolsHandler(svc)),
-		"mcpServer/postgres/start":   platformrpc.StrictHandler(startPostgresServerHandler(svc)),
-		"mcpServer/sqlite/start":     platformrpc.StrictHandler(startSQLiteServerHandler(svc)),
-		"mcpServer/sqlite/stop":      platformrpc.StrictHandler(stopSQLiteServerHandler(svc)),
-		"mcpServer/playwright/start": platformrpc.StrictHandler(startPlaywrightServerHandler(svc)),
-		"mcpServer/playwright/stop":  platformrpc.StrictHandler(stopPlaywrightServerHandler(svc)),
-		"mcpServer/delete":           platformrpc.StrictHandler(deleteServerHandler(svc)),
+		"mcpServer/add":                  platformrpc.StrictHandler(addServersHandler(svc)),
+		"mcpServer/list":                 platformrpc.StrictHandler(listServersHandler(svc)),
+		"mcpServer/tools":                platformrpc.StrictHandler(listServerToolsHandler(svc)),
+		"mcpServer/postgres/start":       platformrpc.StrictHandler(startPostgresServerHandler(svc)),
+		"mcpServer/sqlite/start":         platformrpc.StrictHandler(startSQLiteServerHandler(svc)),
+		"mcpServer/sqlite/stop":          platformrpc.StrictHandler(stopSQLiteServerHandler(svc)),
+		"mcpServer/playwright/start":     platformrpc.StrictHandler(startPlaywrightServerHandler(svc)),
+		"mcpServer/playwright/stop":      platformrpc.StrictHandler(stopPlaywrightServerHandler(svc)),
+		"mcpServer/delete":               platformrpc.StrictHandler(deleteServerHandler(svc)),
+		"mcpServer/toolLifecycle/set":    platformrpc.StrictHandler(setMCPToolLifecycleHandler(svc)),
+		"mcpServer/toolLifecycle/list":   platformrpc.StrictHandler(listMCPToolLifecycleHandler(svc)),
+		"mcpServer/toolLifecycle/export": platformrpc.StrictHandler(exportMCPToolLifecycleHandler(svc)),
 	}}
 }
 
@@ -141,6 +145,57 @@ func deleteServerHandler(svc Service) func(context.Context, DeleteServerRequest)
 	}
 }
 
+// setMCPToolLifecycleHandler 暴露单个 MCP tool lifecycle 的人工写入口。
+// handler 只做 RPC 适配和错误映射，状态校验与持久化仍由 service owner 负责。
+func setMCPToolLifecycleHandler(
+	svc Service,
+) func(context.Context, SetMCPToolLifecycleRequest) (contract.MCPToolLifecycleDecision, error) {
+	return func(ctx context.Context, req SetMCPToolLifecycleRequest) (contract.MCPToolLifecycleDecision, error) {
+		if svc == nil {
+			return contract.MCPToolLifecycleDecision{}, platformrpc.ErrInvalidState("mcp server service is not configured")
+		}
+		result, err := svc.SetMCPToolLifecycle(ctx, req)
+		if err != nil {
+			return contract.MCPToolLifecycleDecision{}, mcpServerRPCError(err)
+		}
+		return result, nil
+	}
+}
+
+// listMCPToolLifecycleHandler 暴露指定 server 的 MCP tool lifecycle 读入口。
+// 调用方必须显式传 serverName，避免把空配置解释成默认放行。
+func listMCPToolLifecycleHandler(
+	svc Service,
+) func(context.Context, ListMCPToolLifecycleRequest) ([]contract.MCPToolLifecycleDecision, error) {
+	return func(ctx context.Context, req ListMCPToolLifecycleRequest) ([]contract.MCPToolLifecycleDecision, error) {
+		if svc == nil {
+			return nil, platformrpc.ErrInvalidState("mcp server service is not configured")
+		}
+		result, err := svc.ListMCPToolLifecycle(ctx, req)
+		if err != nil {
+			return nil, mcpServerRPCError(err)
+		}
+		return result, nil
+	}
+}
+
+// exportMCPToolLifecycleHandler 暴露 workspace 级 lifecycle 导出入口。
+// 它用于回滚或迁移前保留用户手动关闭、暂停和移除工具的决策。
+func exportMCPToolLifecycleHandler(
+	svc Service,
+) func(context.Context, ExportMCPToolLifecycleRequest) ([]contract.MCPToolLifecycleDecision, error) {
+	return func(ctx context.Context, req ExportMCPToolLifecycleRequest) ([]contract.MCPToolLifecycleDecision, error) {
+		if svc == nil {
+			return nil, platformrpc.ErrInvalidState("mcp server service is not configured")
+		}
+		result, err := svc.ExportMCPToolLifecycle(ctx, req)
+		if err != nil {
+			return nil, mcpServerRPCError(err)
+		}
+		return result, nil
+	}
+}
+
 // mcpServerRPCError 将模块内部错误转换为对应的 RPC 错误类型，确保参数错误和远端状态错误分类清晰。
 func mcpServerRPCError(err error) error {
 	switch {
@@ -158,7 +213,9 @@ func mcpServerRPCError(err error) error {
 		errors.Is(err, errMissingServerEnvValue),
 		errors.Is(err, errMissingHeaderName),
 		errors.Is(err, errMissingHeaderValue),
-		errors.Is(err, errInvalidConfigDocument):
+		errors.Is(err, errInvalidConfigDocument),
+		errors.Is(err, errMissingToolName),
+		errors.Is(err, errInvalidToolLifecycleState):
 		return platformrpc.ErrInvalidParams(err.Error())
 	case errors.Is(err, errMCPServerStoreNotConfigured):
 		return platformrpc.ErrInvalidState(err.Error())
@@ -166,7 +223,8 @@ func mcpServerRPCError(err error) error {
 		errors.Is(err, errInvalidToolsResponse),
 		errors.Is(err, errPostgresInstallerMissing):
 		return platformrpc.ErrInvalidState(err.Error())
-	case errors.Is(err, errServerNotFound):
+	case errors.Is(err, errServerNotFound),
+		errors.Is(err, errToolLifecycleNotFound):
 		return platformrpc.ErrNotFound(err.Error())
 	case errors.Is(err, errServerAlreadyExists):
 		return platformrpc.ErrConflict(err.Error())

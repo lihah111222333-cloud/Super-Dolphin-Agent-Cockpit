@@ -150,6 +150,9 @@ export const RPC_METHODS = Object.freeze({
   MCP_SERVER_SQLITE_STOP: 'mcpServer/sqlite/stop',
   MCP_SERVER_PLAYWRIGHT_START: 'mcpServer/playwright/start',
   MCP_SERVER_PLAYWRIGHT_STOP: 'mcpServer/playwright/stop',
+  MCP_TOOL_LIFECYCLE_SET: 'mcpServer/toolLifecycle/set',
+  MCP_TOOL_LIFECYCLE_LIST: 'mcpServer/toolLifecycle/list',
+  MCP_TOOL_LIFECYCLE_EXPORT: 'mcpServer/toolLifecycle/export',
 
   THREAD_START: 'thread/start',
   THREAD_MESSAGES: 'thread/messages',
@@ -171,6 +174,31 @@ export const RPC_METHODS = Object.freeze({
 
 const objectPrototype = Object.prototype;
 const TOOL_SURFACE_MODES = new Set(['chat', 'auto', 'agent']);
+const MCP_TOOL_LIFECYCLE_STATES = new Set(['enabled', 'disabled', 'suspended', 'removed']);
+const MCP_TOOL_LIFECYCLE_SET_ALLOWED_KEYS = new Set([
+  'workspaceRoot',
+  'workspace_root',
+  'serverName',
+  'server_name',
+  'manifestName',
+  'manifest_name',
+  'toolName',
+  'tool_name',
+  'state',
+  'reason',
+  'replacementTool',
+  'replacement_tool',
+]);
+const MCP_TOOL_LIFECYCLE_LIST_ALLOWED_KEYS = new Set([
+  'workspaceRoot',
+  'workspace_root',
+  'serverName',
+  'server_name',
+]);
+const MCP_TOOL_LIFECYCLE_EXPORT_ALLOWED_KEYS = new Set([
+  'workspaceRoot',
+  'workspace_root',
+]);
 /**
  * Fields accepted by the React thread/start facade before canonicalization.
  * Keep this list intentionally narrower than arbitrary objects so Go-side
@@ -212,6 +240,15 @@ function assertPlainObject(method, params) {
   const value = params == null ? {} : params;
   if (typeof value !== 'object' || Array.isArray(value)) {
     throw new TypeError(`${method} params must be an object`);
+  }
+  return value;
+}
+
+function assertStrictPlainObject(method, params) {
+  const value = assertPlainObject(method, params);
+  const prototype = Object.getPrototypeOf(value);
+  if (prototype !== objectPrototype && prototype !== null) {
+    throw new TypeError(`${method} params must be a plain object`);
   }
   return value;
 }
@@ -1434,6 +1471,58 @@ function emptyStrictPayload(method, params = {}) {
   return {};
 }
 
+function mcpToolLifecyclePayload(method, params, allowedKeys) {
+  const payload = assertStrictPlainObject(method, params);
+  assertAllowedPayloadFields(method, payload, allowedKeys);
+  return payload;
+}
+
+function mcpToolLifecycleString(payload, camelKey, snakeKey = camelKey) {
+  return normalizeString(payload[camelKey] || payload[snakeKey]);
+}
+
+function mcpToolLifecycleSetPayload(params) {
+  const method = RPC_METHODS.MCP_TOOL_LIFECYCLE_SET;
+  const payload = mcpToolLifecyclePayload(method, params, MCP_TOOL_LIFECYCLE_SET_ALLOWED_KEYS);
+  const serverName = mcpToolLifecycleString(payload, 'serverName', 'server_name');
+  const toolName = mcpToolLifecycleString(payload, 'toolName', 'tool_name');
+  const state = normalizeString(payload.state);
+  if (!serverName) throw new Error(`${method}: serverName is required`);
+  if (!toolName) throw new Error(`${method}: toolName is required`);
+  if (!state) throw new Error(`${method}: state is required`);
+  if (!MCP_TOOL_LIFECYCLE_STATES.has(state)) {
+    throw new Error(`${method}: state must be enabled, disabled, suspended, or removed`);
+  }
+  return cleanObject({
+    workspaceRoot: mcpToolLifecycleString(payload, 'workspaceRoot', 'workspace_root'),
+    serverName,
+    manifestName: mcpToolLifecycleString(payload, 'manifestName', 'manifest_name'),
+    toolName,
+    state,
+    reason: normalizeString(payload.reason),
+    replacementTool: mcpToolLifecycleString(payload, 'replacementTool', 'replacement_tool'),
+  });
+}
+
+function mcpToolLifecycleListPayload(params) {
+  const method = RPC_METHODS.MCP_TOOL_LIFECYCLE_LIST;
+  const payload = mcpToolLifecyclePayload(method, params, MCP_TOOL_LIFECYCLE_LIST_ALLOWED_KEYS);
+  const serverName = mcpToolLifecycleString(payload, 'serverName', 'server_name');
+  if (!serverName) throw new Error(`${method}: serverName is required`);
+  return cleanObject({
+    workspaceRoot: mcpToolLifecycleString(payload, 'workspaceRoot', 'workspace_root'),
+    serverName,
+  });
+}
+
+function mcpToolLifecycleExportPayload(params = {}) {
+  const method = RPC_METHODS.MCP_TOOL_LIFECYCLE_EXPORT;
+  const payload = mcpToolLifecyclePayload(method, params, MCP_TOOL_LIFECYCLE_EXPORT_ALLOWED_KEYS);
+  return cleanObject({
+    workspaceRoot: mcpToolLifecycleString(payload, 'workspaceRoot', 'workspace_root'),
+  });
+}
+
 function createMCPServerApi(callBackend) {
   return {
     listMCPServers: (params = {}) => callBackend(
@@ -1455,6 +1544,18 @@ function createMCPServerApi(callBackend) {
     stopPlaywrightMCPServer: (params = {}) => callBackend(
       RPC_METHODS.MCP_SERVER_PLAYWRIGHT_STOP,
       emptyStrictPayload(RPC_METHODS.MCP_SERVER_PLAYWRIGHT_STOP, params),
+    ),
+    setMCPToolLifecycle: (params) => callBackend(
+      RPC_METHODS.MCP_TOOL_LIFECYCLE_SET,
+      mcpToolLifecycleSetPayload(params),
+    ),
+    listMCPToolLifecycle: (params) => callBackend(
+      RPC_METHODS.MCP_TOOL_LIFECYCLE_LIST,
+      mcpToolLifecycleListPayload(params),
+    ),
+    exportMCPToolLifecycle: (params = {}) => callBackend(
+      RPC_METHODS.MCP_TOOL_LIFECYCLE_EXPORT,
+      mcpToolLifecycleExportPayload(params),
     ),
   };
 }
@@ -1718,6 +1819,9 @@ export const startSQLiteMCPServer = backendApi.startSQLiteMCPServer;
 export const stopSQLiteMCPServer = backendApi.stopSQLiteMCPServer;
 export const startPlaywrightMCPServer = backendApi.startPlaywrightMCPServer;
 export const stopPlaywrightMCPServer = backendApi.stopPlaywrightMCPServer;
+export const setMCPToolLifecycle = backendApi.setMCPToolLifecycle;
+export const listMCPToolLifecycle = backendApi.listMCPToolLifecycle;
+export const exportMCPToolLifecycle = backendApi.exportMCPToolLifecycle;
 export const getThreadMessages = backendApi.getThreadMessages;
 export const resolveThreadIdentity = backendApi.resolveThreadIdentity;
 export const archiveThread = backendApi.archiveThread;
