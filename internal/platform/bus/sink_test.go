@@ -81,6 +81,30 @@ func TestLogSinkHighFrequencyEventsUseDebugLevel(t *testing.T) {
 	}
 }
 
+func TestLogSinkLogsSafeEventPreview(t *testing.T) {
+	dispatcher := NewDispatcher()
+	t.Cleanup(func() { _ = dispatcher.Close() })
+
+	var buf lockedBuffer
+	logger := slog.New(slog.NewJSONHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug}))
+	sink := mustNewLogSink(t, LogSinkDeps{Dispatcher: dispatcher, Logger: logger})
+	t.Cleanup(sink.Close)
+
+	event.Publish(dispatcher, tooldto.ToolCallBegin{ArgumentsPreview: `{"token":"sk-abcdefghijklmnopqrstuvwxyz"}`})
+
+	_ = waitForBusLogEntries(t, &buf, 1)
+	raw := buf.String()
+	if strings.Contains(raw, "sk-") {
+		t.Fatalf("bus log leaked raw secret: %s", raw)
+	}
+	if !strings.Contains(raw, "event_preview") || !strings.Contains(raw, "[REDACTED]") {
+		t.Fatalf("bus log = %s, want redacted event_preview", raw)
+	}
+	if strings.Contains(raw, `"event":`) {
+		t.Fatalf("bus log persisted raw event object: %s", raw)
+	}
+}
+
 func TestNewLogSinkRejectsNilDependencies(t *testing.T) {
 	t.Parallel()
 

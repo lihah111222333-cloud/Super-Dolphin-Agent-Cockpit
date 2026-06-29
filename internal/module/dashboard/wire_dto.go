@@ -59,6 +59,35 @@ type AILogStatusCount struct {
 	Count  int64
 }
 
+// LogDetailRequest 是 dashboard/logDetail 的内部请求。
+type LogDetailRequest struct {
+	Source string
+	ID     int64
+}
+
+// LogDetail 是日志详情页暴露的安全投影，raw/extra 已脱敏并带截断诊断。
+type LogDetail struct {
+	Source         string          `json:"source"`
+	ID             int64           `json:"id"`
+	Timestamp      time.Time       `json:"timestamp"`
+	Level          string          `json:"level,omitempty"`
+	Logger         string          `json:"logger,omitempty"`
+	Message        string          `json:"message,omitempty"`
+	Raw            string          `json:"raw,omitempty"`
+	RawTruncated   bool            `json:"raw_truncated,omitempty"`
+	RawBytes       int64           `json:"raw_bytes,omitempty"`
+	Component      string          `json:"component,omitempty"`
+	AgentID        string          `json:"agent_id,omitempty"`
+	ThreadID       string          `json:"thread_id,omitempty"`
+	TraceID        string          `json:"trace_id,omitempty"`
+	EventType      string          `json:"event_type,omitempty"`
+	ToolName       string          `json:"tool_name,omitempty"`
+	DurationMs     *int32          `json:"duration_ms,omitempty"`
+	Extra          json.RawMessage `json:"extra,omitempty"`
+	ExtraTruncated bool            `json:"extra_truncated,omitempty"`
+	ExtraBytes     int64           `json:"extra_bytes,omitempty"`
+}
+
 // AuditLogFilter 是 dashboard/auditLogs 的查询条件。
 type AuditLogFilter struct {
 	EventType string

@@ -23,6 +23,8 @@ type ToolResultMeta struct {
 type ToolResultRecord struct {
 	Preview       string
 	PersistedPath string
+	PersistFailed bool
+	PersistError  string
 	Truncated     bool
 	OriginalSize  int
 }
@@ -47,23 +49,29 @@ func CaptureToolResult(meta ToolResultMeta, raw string) ToolResultRecord {
 		OriginalSize: originalSize,
 	}
 	if originalSize > toolResultPersistThresholdChars || budgetTruncated {
-		record.PersistedPath = persistToolResult(meta, raw)
+		path, err := persistToolResult(meta, raw)
+		if err != nil {
+			record.PersistFailed = true
+			record.PersistError = err.Error()
+		} else {
+			record.PersistedPath = path
+		}
 	}
 	registerToolResultLifecycle(meta, record)
 	return record
 }
 
-// persistToolResult 把完整工具结果写入私有缓存文件；写入失败只影响完整回看，不阻断 turn。
-func persistToolResult(meta ToolResultMeta, raw string) string {
+// persistToolResult 把完整工具结果写入私有缓存文件，并把失败原因返回给上层诊断。
+func persistToolResult(meta ToolResultMeta, raw string) (string, error) {
 	dir, err := toolResultStorageDir()
 	if err != nil {
-		return ""
+		return "", err
 	}
 	path := filepath.Join(dir, toolResultFileName(meta))
 	if err := os.WriteFile(path, []byte(raw), 0o600); err != nil {
-		return ""
+		return "", err
 	}
-	return path
+	return path, nil
 }
 
 // toolResultStorageDir 确保工具结果缓存目录存在，并在找不到缓存根时返回错误。

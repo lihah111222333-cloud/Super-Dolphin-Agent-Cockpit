@@ -20,6 +20,8 @@ import (
 // cronProgressDrainGrace 限制 cronProgressWorker 停止等待时间，避免卡住进程退出。
 const cronProgressDrainGrace = 10 * time.Second
 
+const cronProgressQueueLimit = 256
+
 // cronProgressEventKind 区分进度事件（续租）和终态事件（完成 turn）两种类型。
 type cronProgressEventKind int
 
@@ -40,8 +42,9 @@ type cronProgressRequest struct {
 // bus 回调只入队，真正写库放到单 worker 里做。这样慢 DB 不会拖住事件分发，
 // 也能保持本进程内顺序。
 type cronProgressWorker struct {
-	scheduler *Scheduler
-	logger    *slog.Logger
+	scheduler  *Scheduler
+	logger     *slog.Logger
+	queueLimit int
 
 	mu    sync.Mutex
 	queue []cronProgressRequest
@@ -56,6 +59,26 @@ type cronProgressWorker struct {
 	enqueuedTotal  atomic.Int64
 	processedTotal atomic.Int64
 	staleTotal     atomic.Int64
+	droppedTotal   atomic.Int64
+	coalescedTotal atomic.Int64
+	lastErrorAt    atomic.Int64
+	lastErrorMu    sync.Mutex
+	lastError      string
+	lastErrorTurn  string
+}
+
+// CronProgressHealthSnapshot 是 cron progress worker 的轻量健康快照。
+type CronProgressHealthSnapshot struct {
+	Backlog       int
+	Dropped       int64
+	Coalesced     int64
+	Enqueued      int64
+	Processed     int64
+	Stale         int64
+	HasTerminal   bool
+	LastError     string
+	LastErrorTurn string
+	LastErrorUnix int64
 }
 
 // newCronProgressWorker 创建未启动的进度 worker，scheduler 和 logger 均为必填项。
@@ -64,11 +87,12 @@ func newCronProgressWorker(scheduler *Scheduler, logger *slog.Logger) *cronProgr
 		logger = pkglogger.Get()
 	}
 	return &cronProgressWorker{
-		scheduler: scheduler,
-		logger:    logger,
-		wake:      make(chan struct{}, 1),
-		stopCh:    make(chan struct{}),
-		doneCh:    make(chan struct{}),
+		scheduler:  scheduler,
+		logger:     logger,
+		queueLimit: cronProgressQueueLimit,
+		wake:       make(chan struct{}, 1),
+		stopCh:     make(chan struct{}),
+		doneCh:     make(chan struct{}),
 	}
 }
 
@@ -129,12 +153,89 @@ func (w *cronProgressWorker) enqueue(req cronProgressRequest) {
 	default:
 	}
 	w.mu.Lock()
-	w.queue = append(w.queue, req)
+	if w.enqueueLocked(req) {
+		w.enqueuedTotal.Add(1)
+	}
 	w.mu.Unlock()
-	w.enqueuedTotal.Add(1)
 	select {
 	case w.wake <- struct{}{}:
 	default:
+	}
+}
+
+// enqueueLocked 在持锁状态下执行有界入队、progress coalesce 和 terminal 保留策略。
+func (w *cronProgressWorker) enqueueLocked(req cronProgressRequest) bool {
+	limit := w.queueLimit
+	if limit <= 0 {
+		limit = cronProgressQueueLimit
+	}
+	if req.kind == cronExtendClaim && w.coalesceProgressLocked(req) {
+		w.coalescedTotal.Add(1)
+		return false
+	}
+	if len(w.queue) < limit {
+		w.queue = append(w.queue, req)
+		return true
+	}
+	if req.kind == cronCompleteTurn && w.dropOldestProgressLocked() {
+		w.queue = append(w.queue, req)
+		return true
+	}
+	w.droppedTotal.Add(1)
+	return false
+}
+
+func (w *cronProgressWorker) coalesceProgressLocked(req cronProgressRequest) bool {
+	for i := range w.queue {
+		if w.queue[i].kind == cronExtendClaim && w.queue[i].turnID == req.turnID {
+			w.queue[i] = req
+			return true
+		}
+	}
+	return false
+}
+
+func (w *cronProgressWorker) dropOldestProgressLocked() bool {
+	for i, queued := range w.queue {
+		if queued.kind != cronExtendClaim {
+			continue
+		}
+		w.queue = append(w.queue[:i], w.queue[i+1:]...)
+		w.droppedTotal.Add(1)
+		return true
+	}
+	return false
+}
+
+// HealthSnapshot 返回队列和最近错误状态，供 dashboard/health 暴露 cron 背压。
+func (w *cronProgressWorker) HealthSnapshot() CronProgressHealthSnapshot {
+	if w == nil {
+		return CronProgressHealthSnapshot{}
+	}
+	w.mu.Lock()
+	backlog := len(w.queue)
+	hasTerminal := false
+	for _, req := range w.queue {
+		if req.kind == cronCompleteTurn {
+			hasTerminal = true
+			break
+		}
+	}
+	w.mu.Unlock()
+	w.lastErrorMu.Lock()
+	lastError, lastErrorTurn := w.lastError, w.lastErrorTurn
+	w.lastErrorMu.Unlock()
+	return CronProgressHealthSnapshot{
+		Backlog:       backlog,
+		Dropped:       w.droppedTotal.Load(),
+		Coalesced:     w.coalescedTotal.Load(),
+		Enqueued:      w.enqueuedTotal.Load(),
+		Processed:     w.processedTotal.Load(),
+		Stale:         w.staleTotal.Load(),
+		HasTerminal:   hasTerminal,
+		LastError:     lastError,
+		LastErrorTurn: lastErrorTurn,
+		LastErrorUnix: w.lastErrorAt.Load(),
 	}
 }
 
@@ -189,6 +290,7 @@ func (w *cronProgressWorker) dispatch(req cronProgressRequest) {
 
 // logProgressError 将 stale/mismatch 事件升级为 warn，并记录累计数，避免迟到终态只停留在 debug。
 func (w *cronProgressWorker) logProgressError(message, turnID string, err error) {
+	w.recordLastError(turnID, err)
 	if isCronProgressStaleMismatch(err) {
 		total := w.staleTotal.Add(1)
 		w.logger.Warn(message,
@@ -202,6 +304,17 @@ func (w *cronProgressWorker) logProgressError(message, turnID string, err error)
 		slog.String("turn_id", turnID),
 		slog.String("error", err.Error()),
 	)
+}
+
+func (w *cronProgressWorker) recordLastError(turnID string, err error) {
+	if w == nil || err == nil {
+		return
+	}
+	w.lastErrorMu.Lock()
+	w.lastError = err.Error()
+	w.lastErrorTurn = turnID
+	w.lastErrorMu.Unlock()
+	w.lastErrorAt.Store(time.Now().Unix())
 }
 
 func isCronProgressStaleMismatch(err error) bool {
