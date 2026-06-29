@@ -15,11 +15,10 @@ import {
   rollbackWorkflowTemplate as rollbackWorkflowTemplateBackend,
   saveWorkflowTemplate as saveWorkflowTemplateBackend,
   startDag as startDagBackend,
-  startThread as startThreadBackend,
-  startTurn as startTurnBackend,
   terminateDagRun as terminateDagRunBackend,
   writeWorkflowMaterial as writeWorkflowMaterialBackend,
 } from '../../../shared/api/backendApi.js';
+import { sessionApi } from '../../../shared/api/sessionApi.js';
 
 /*
  * workflow page service 只是把页面动作转给 backendApi。
@@ -91,11 +90,11 @@ export function startDag(payload) {
 }
 
 export function startThread(payload) {
-  return startThreadBackend(payload);
+  return sessionApi.start(payload);
 }
 
 export function startTurn(payload) {
-  return startTurnBackend(payload);
+  return sessionApi.startTurn(payload);
 }
 
 export function terminateDagRun(payload) {

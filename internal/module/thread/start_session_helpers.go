@@ -321,9 +321,23 @@ func toProviderStartAssembly(assembly contract.StartAssembly) dto.StartAssembly 
 		ResolvedSections:      toProviderResolvedSections(assembly.ResolvedSections),
 		Snapshot:              toProviderPromptSnapshot(assembly.Snapshot),
 		SuppressedTools:       append([]string(nil), assembly.SuppressedTools...),
+		PrefixShape:           toProviderPrefixShape(assembly.PrefixShape),
 		UserContext:           clone.StringMap(assembly.UserContext),
 		UserContextText:       strings.TrimSpace(assembly.UserContextText),
 		SystemContext:         dto.SystemContext(clone.StringMap(assembly.SystemContext)),
+	}
+}
+
+func toProviderPrefixShape(shape contract.PrefixShape) dto.PrefixShape {
+	return dto.PrefixShape{
+		Hash:                strings.TrimSpace(shape.Hash),
+		StaticSectionNames:  append([]string(nil), shape.StaticSectionNames...),
+		DynamicSectionNames: append([]string(nil), shape.DynamicSectionNames...),
+		SuppressedToolNames: append([]string(nil), shape.SuppressedToolNames...),
+		CachedPrefixBytes:   shape.CachedPrefixBytes,
+		UncachedTailBytes:   shape.UncachedTailBytes,
+		DeveloperBytes:      shape.DeveloperBytes,
+		ChurnReason:         strings.TrimSpace(shape.ChurnReason),
 	}
 }
 
