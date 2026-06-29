@@ -12,6 +12,7 @@
     "build": "vite build && node scripts/sync-frontend-dist.mjs",
     "typecheck:contracts": "tsc -p tsconfig.contracts.json --noEmit",
     "audit:rpc-contracts": "node scripts/rpc-contract-audit.mjs",
+    "guard:critical-skip": "node scripts/no-critical-skip.mjs",
     "lint": "eslint .",
     "preview": "vite preview --host 127.0.0.1 --port 4175",
     "test": "vitest run --no-file-parallelism --maxWorkers=1"

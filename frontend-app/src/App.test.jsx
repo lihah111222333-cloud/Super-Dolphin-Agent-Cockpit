@@ -1905,7 +1905,7 @@ async function toggleInlineTraceFromRecentLogs(table) {
     expect(await screen.findByText('连接后端失败：runtime shim: failed to connect ws://127.0.0.1:5175/wails/ws')).toBeInTheDocument();
   });
 
-  it.skip('disables provider switching when no project cwd is available', () => {
+  it('does not expose provider switching when no project cwd is available', async () => {
     resetClientStoreForTests({
       bootstrapStatus: 'ready',
       cwd: '',
@@ -1915,14 +1915,10 @@ async function toggleInlineTraceFromRecentLogs(table) {
 
     render(<App skipBootstrap />);
 
-    const providerToggle = screen.getByRole('button', { name: '请先连接后端并选择项目' });
-    expect(providerToggle).toBeDisabled();
-
-    fireEvent.click(providerToggle);
-
-    expect(backend.setPreference).not.toHaveBeenCalledWith(expect.objectContaining({
-      key: 'settings.provider.active',
-    }));
+    await screen.findByTestId('composer-input');
+    expect(screen.queryByLabelText('切换 Claude / Codex provider')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '请先连接后端并选择项目' })).not.toBeInTheDocument();
+    expect(backend.setPreference).not.toHaveBeenCalledWith(expect.objectContaining({ key: 'settings.provider.active' }));
   });
 
   it('disables composer send by button and Enter when no project cwd is available', () => {
@@ -4798,27 +4794,16 @@ async function toggleInlineTraceFromRecentLogs(table) {
     expect(screen.queryByText('Codex')).not.toBeInTheDocument();
   });
 
-  it.skip('keeps provider switching available before a backend chat exists', async () => {
+  it('keeps Codex model selection available before a backend chat exists', async () => {
     backend.getSidebarState.mockResolvedValue({ activeThreadId: '', threads: [] });
     backend.getThreadState.mockResolvedValue({ timelinesByThread: {} });
 
     render(<App />);
     await screen.findByText('我们应该在 燧元 中构建什么？');
 
-    const providerToggle = screen.getByLabelText('切换 Claude / Codex provider');
-    expect(providerToggle).not.toBeDisabled();
-
-    fireEvent.click(providerToggle);
-
-    await waitFor(() => {
-      expect(backend.setPreference).toHaveBeenCalledWith({
-        cwd: '/repo/app',
-        key: 'settings.provider.active',
-        value: 'claude',
-      });
-      expect(screen.getByLabelText('切换 Claude / Codex provider')).toHaveTextContent('Claude');
-      expect(screen.getByTestId('chat-action-feedback')).toHaveTextContent('已切换为 Claude');
-    });
+    expect(screen.queryByLabelText('切换 Claude / Codex provider')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '选择模型' })).toBeEnabled();
+    expect(backend.setPreference).not.toHaveBeenCalledWith(expect.objectContaining({ key: 'settings.provider.active' }));
   });
 
   it('uses the opened thread provider model selector without showing the global provider toggle', async () => {
@@ -4851,38 +4836,22 @@ async function toggleInlineTraceFromRecentLogs(table) {
     expect(screen.queryByLabelText('切换 Claude / Codex provider')).not.toBeInTheDocument();
   });
 
-  it.skip('uses sidebar runtime metadata for provider-less thread cards', async () => {
-    backend.getPreference.mockImplementation(({ key }) => Promise.resolve({
-      'settings.provider.active': 'claude',
-      'settings.provider.claude.model': 'sonnet',
-      'settings.provider.claude.effort': 'high',
-    }[key] ?? null));
-    backend.getSidebarState.mockResolvedValue({
+  it('renders hydrated provider metadata for provider-less thread cards', async () => {
+    resetClientStoreForTests({
+      bootstrapStatus: 'ready',
+      cwd: '/repo/app',
+      activeProject: '/repo/app',
       activeThreadId: 'thread-unknown',
-      threads: [{ id: 'thread-unknown', name: 'Provider missing', status: 'error' }],
-      agentRuntimeById: {
-        'thread-unknown': { provider: 'claude' },
-      },
-    });
-    backend.getThreadState.mockResolvedValue({
-      activeThreadId: 'thread-unknown',
+      threads: [{ id: 'thread-unknown', name: 'Provider missing', status: 'error', provider: 'codex' }],
       timelinesByThread: { 'thread-unknown': [] },
-    });
-    backend.getThreadConfig.mockResolvedValue({
-      threadId: 'thread-unknown',
-      provider: 'claude',
-      supportsThreadOverride: true,
-      override: {},
-      effective: { model: 'sonnet', effort: 'high' },
+      threadTimelineReadyByThread: { 'thread-unknown': true },
     });
 
-    render(<App />);
+    render(<App skipBootstrap />);
 
-    await screen.findByText('Provider missing');
-    expect(screen.getByText('claude')).toBeInTheDocument();
+    const card = await findThreadCardByName('Provider missing');
+    expect(card).toHaveTextContent('codex');
     expect(screen.queryByText('unknown')).not.toBeInTheDocument();
-    expect(screen.queryByText('Codex')).not.toBeInTheDocument();
-    expect(screen.queryByText('codex')).not.toBeInTheDocument();
   });
 
   it('aligns the project selector dropdown with old project actions', async () => {
