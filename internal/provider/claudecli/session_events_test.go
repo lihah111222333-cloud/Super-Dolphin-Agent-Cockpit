@@ -1,7 +1,9 @@
 package claudecli
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
 	"strings"
@@ -15,9 +17,10 @@ import (
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
 	turndto "github.com/anthropic-ai/super-agent-v3/internal/dto/turn"
 	"github.com/anthropic-ai/super-agent-v3/internal/provider/unified"
+	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
-func TestForceStopIncludesStderrInFailedEvent(t *testing.T) {
+func TestForceStopRawFailedEventUsesSafeMetadata(t *testing.T) {
 	t.Parallel()
 
 	bus := event.NewDispatcher()
@@ -53,9 +56,15 @@ func TestForceStopIncludesStderrInFailedEvent(t *testing.T) {
 	select {
 	case ev := <-got:
 		data, _ := ev.Event.Data.(map[string]any)
-		stderr, _ := data["stderr"].(string)
-		if stderr != "Error: authentication failed\n" {
-			t.Fatalf("agent:failed stderr = %q, want stderr content from transport", stderr)
+		encoded, _ := json.Marshal(data)
+		text := string(encoded)
+		if strings.Contains(text, "authentication failed") || strings.Contains(text, "stderr") {
+			t.Fatalf("agent:failed raw event leaked stderr: %s", text)
+		}
+		for _, want := range []string{"payload_sha256", "payload_size_bytes", "thread_id", "agent_id"} {
+			if !strings.Contains(text, want) {
+				t.Fatalf("agent:failed safe metadata = %s, want %q", text, want)
+			}
 		}
 	case <-time.After(time.Second):
 		t.Fatal("agent:failed event was not published")
@@ -76,6 +85,38 @@ func TestBaseDataUsesPublicThreadIDAndSeparateSessionID(t *testing.T) {
 	}
 	if got["session_id"] != "session-123" {
 		t.Fatalf("session_id = %v, want session-123", got["session_id"])
+	}
+}
+
+func TestDecodeClaudeLineLogsOnlySafePayloadMetadata(t *testing.T) {
+	var buf bytes.Buffer
+	old := pkglogger.Get()
+	pkglogger.InitWithConsoleWriter(&buf)
+	t.Cleanup(func() { pkglogger.SetForTest(old) })
+
+	_, err := decodeClaudeLine([]byte(`{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"call-1","content":"token=sk-live-secret"}]}}`), rawBase{AgentID: "agent-1"})
+	if err != nil {
+		t.Fatalf("decodeClaudeLine(user) error = %v", err)
+	}
+	_ = decodeResultEvent(streamEvent{
+		Type:           "result",
+		IsError:        true,
+		TerminalReason: "provider_error",
+		Error:          json.RawMessage(`{"message":"sk-live-secret"}`),
+		Message:        json.RawMessage(`"token=sk-live-secret"`),
+		Errors:         []string{"api_key=sk-live-secret"},
+	}, rawBase{AgentID: "agent-1"})
+
+	output := buf.String()
+	for _, forbidden := range []string{"sk-live-secret", "api_key", "token="} {
+		if strings.Contains(output, forbidden) {
+			t.Fatalf("claude log leaked %q: %q", forbidden, output)
+		}
+	}
+	for _, want := range []string{"payload_sha256", "payload_size_bytes"} {
+		if !strings.Contains(output, want) {
+			t.Fatalf("claude log = %q, want %q metadata", output, want)
+		}
 	}
 }
 

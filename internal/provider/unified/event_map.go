@@ -126,7 +126,7 @@ func (d *EventDispatcher) Dispatch(raw dto.RawProviderEvent) {
 	d.mu.RUnlock()
 
 	if d.bus != nil {
-		event.Publish(d.bus, dto.BusRawProviderEvent{Event: raw})
+		event.Publish(d.bus, dto.BusRawProviderEvent{Event: raw.SanitizedCopy()})
 	}
 
 	for _, translator := range translators {
@@ -146,6 +146,12 @@ func (d *EventDispatcher) Dispatch(raw dto.RawProviderEvent) {
 func publishTypedEvent(bus *event.Dispatcher, ev any) bool {
 	if bus == nil {
 		return true
+	}
+	switch typed := ev.(type) {
+	case dto.RawProviderEvent:
+		ev = typed.SanitizedCopy()
+	case dto.BusRawProviderEvent:
+		ev = dto.BusRawProviderEvent{Event: typed.Event.SanitizedCopy()}
 	}
 	publisher, ok := typedEventPublishers[reflect.TypeOf(ev)]
 	if !ok {
@@ -191,7 +197,7 @@ func translateCommonRawEvent(raw dto.RawProviderEvent, publish func(ev any)) {
 			RawType:            rawType,
 			Message:            shared.FirstNonEmpty(stringValue(payload, "message", "warning", "reason"), stringValue(nestedMap(payload, "error"), "message")),
 			Code:               stringValue(payload, "code"),
-			Payload:            rawEventPayload(raw.Data),
+			Payload:            raw.SafePayload(),
 		})
 	case isErrorRawType(rawType):
 		publish(agentdto.AgentError{
@@ -200,20 +206,20 @@ func translateCommonRawEvent(raw dto.RawProviderEvent, publish func(ev any)) {
 			Message:            shared.FirstNonEmpty(stringValue(payload, "message", "error", "reason"), stringValue(nestedMap(payload, "error"), "message")),
 			Code:               stringValue(payload, "code"),
 			Recoverable:        boolValue(payload, "recoverable", "willRetry", "will_retry"),
-			Payload:            rawEventPayload(raw.Data),
+			Payload:            raw.SafePayload(),
 		})
 	case isPlanDeltaRawType(rawType):
 		publish(turndto.PlanDelta{
 			TurnHeader: commonTurnHeader(payload),
 			RawType:    rawType,
 			Delta:      shared.FirstNonEmpty(stringValue(payload, "delta", "content", "text"), marshalPreview(payload["delta"], payload["plan"], payload["steps"], payload["items"], payload)),
-			Payload:    rawEventPayload(raw.Data),
+			Payload:    raw.SafePayload(),
 		})
 	case isPlanUpdatedRawType(rawType):
 		publish(turndto.PlanUpdated{
 			TurnHeader: commonTurnHeader(payload),
 			RawType:    rawType,
-			Payload:    rawEventPayload(raw.Data),
+			Payload:    raw.SafePayload(),
 		})
 	case isItemStartedRawType(rawType):
 		publish(turndto.ItemStarted{
@@ -224,7 +230,7 @@ func translateCommonRawEvent(raw dto.RawProviderEvent, publish func(ev any)) {
 			File:       shared.FirstNonEmpty(stringValue(payload, "file", "path"), stringValue(nestedMap(payload, "item"), "file", "path")),
 			ToolName:   shared.FirstNonEmpty(stringValue(payload, "toolName", "tool_name", "tool"), stringValue(nestedMap(payload, "item"), "toolName", "tool_name", "tool")),
 			CallID:     shared.FirstNonEmpty(stringValue(payload, "callId", "call_id"), stringValue(nestedMap(payload, "item"), "callId", "call_id")),
-			Payload:    rawEventPayload(raw.Data),
+			Payload:    raw.SafePayload(),
 		})
 	case isItemCompletedRawType(rawType):
 		publish(turndto.ItemCompleted{
@@ -238,7 +244,7 @@ func translateCommonRawEvent(raw dto.RawProviderEvent, publish func(ev any)) {
 			ExitCode:   firstIntValue(payload, "exitCode", "exit_code"),
 			Success:    !hasErrorPayload(payload),
 			Error:      shared.FirstNonEmpty(stringValue(payload, "error", "message", "reason"), stringValue(nestedMap(payload, "error"), "message")),
-			Payload:    rawEventPayload(raw.Data),
+			Payload:    raw.SafePayload(),
 		})
 	}
 }

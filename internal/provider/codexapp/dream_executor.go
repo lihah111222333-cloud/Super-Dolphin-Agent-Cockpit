@@ -67,7 +67,9 @@ func (e dreamExecutor) ExecuteDreamWithOptions(ctx context.Context, prompt strin
 	if err := ctx.Err(); err != nil {
 		return "", err
 	}
+	options.RuntimePolicy = options.RuntimePolicy.WithStrictDefaults()
 	args := []string{"exec", "--json", "--skip-git-repo-check"}
+	args = appendDreamRuntimePolicyArgs(args, options.RuntimePolicy)
 	if modelProvider := strings.TrimSpace(options.ModelProvider); modelProvider != "" {
 		args = append(args, "-c", "model_provider="+strconv.Quote(modelProvider))
 	}
@@ -84,6 +86,7 @@ func (e dreamExecutor) ExecuteDreamWithOptions(ctx context.Context, prompt strin
 		Prompt:         prompt,
 		MaxStdoutBytes: dreamMaxStdoutBytes,
 		MaxRetries:     dreamMaxRetries,
+		RuntimePolicy:  options.RuntimePolicy,
 		OnUsage: func(usage dreamexec.TokenUsage) {
 			dreammetrics.AddTokens(usage.InputTokens, usage.OutputTokens, usage.CacheReadTokens)
 		},
@@ -98,4 +101,17 @@ func (e dreamExecutor) ExecuteDreamWithOptions(ctx context.Context, prompt strin
 		return "", err
 	}
 	return raw, nil
+}
+
+func appendDreamRuntimePolicyArgs(args []string, policy contract.DreamRuntimePolicy) []string {
+	if policy.ReadOnlySandbox {
+		args = append(args, "--sandbox", "read-only")
+	}
+	if policy.ToolsDisabled {
+		args = append(args, "--ephemeral", "--ignore-user-config", "--ignore-rules")
+	}
+	if policy.MinEnv {
+		args = append(args, "-c", `shell_environment_policy.inherit="none"`)
+	}
+	return args
 }
