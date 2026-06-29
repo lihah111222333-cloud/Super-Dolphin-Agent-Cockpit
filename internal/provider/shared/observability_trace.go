@@ -72,6 +72,19 @@ func ErrorSummary(status observability.Status) string {
 	return ""
 }
 
+// ErrorSummaryForError 优先返回脱敏后的真实错误摘要，缺失错误时保留旧的状态摘要。
+func ErrorSummaryForError(status observability.Status, err error) string {
+	if preview := observability.SafeErrorPreview(err); preview != "" {
+		return preview
+	}
+	return ErrorSummary(status)
+}
+
+// ErrorMetadata 返回 provider trace 的统一错误字段。
+func ErrorMetadata(err error) map[string]any {
+	return observability.SafeErrorMetadata(err, "provider_error")
+}
+
 // TraceStatus 将 error 映射为 provider trace 状态。
 // nil 表示 OK，非 nil 统一视为错误，细分状态由调用方显式设置。
 func TraceStatus(err error) observability.Status {

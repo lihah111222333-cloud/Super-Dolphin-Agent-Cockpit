@@ -2,6 +2,7 @@ package tools
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"sort"
@@ -85,10 +86,19 @@ func (h EditHandler) applyWorkspaceEdit(ctx context.Context, roots []string, edi
 	var written []writtenFile
 	var warnings []string
 
-	rollback := func() {
-		for _, wf := range written {
-			_ = os.WriteFile(wf.path, wf.original, wf.mode)
+	rollback := func() error {
+		var rollbackErr error
+		for i := len(written) - 1; i >= 0; i-- {
+			wf := written[i]
+			if err := os.WriteFile(wf.path, wf.original, wf.mode); err != nil {
+				rollbackErr = errors.Join(rollbackErr, err)
+				continue
+			}
+			if err := h.syncRollbackFile(ctx, wf.path, string(wf.original), version); err != nil {
+				rollbackErr = errors.Join(rollbackErr, err)
+			}
 		}
+		return rollbackErr
 	}
 
 	affected := make([]renameFileChange, 0, len(changes))
@@ -96,8 +106,7 @@ func (h EditHandler) applyWorkspaceEdit(ctx context.Context, roots []string, edi
 	for uri, edits := range changes {
 		result, err := h.applyFileEdits(ctx, uri, edits, version)
 		if err != nil {
-			rollback()
-			return nil, 0, "", err
+			return nil, 0, "", withRollbackError(err, rollback())
 		}
 		if result == nil {
 			continue
@@ -112,6 +121,15 @@ func (h EditHandler) applyWorkspaceEdit(ctx context.Context, roots []string, edi
 
 	warning := strings.Join(warnings, "; ")
 	return affected, totalEdits, warning, nil
+}
+
+// syncRollbackFile 重新解析目标文件的 manager，并把磁盘回滚状态同步回 LSP buffer。
+func (h EditHandler) syncRollbackFile(ctx context.Context, path string, content string, version int) error {
+	manager, err := managerForFile(ctx, h.registry, path, "")
+	if err != nil {
+		return err
+	}
+	return h.syncRollbackDocument(ctx, manager, path, content, version)
 }
 
 // fileEditResult 保存单文件写入后的回滚材料和同步警告。

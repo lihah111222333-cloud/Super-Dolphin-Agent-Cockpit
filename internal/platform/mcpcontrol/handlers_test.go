@@ -1,9 +1,11 @@
 package mcpcontrol
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"strings"
 	"testing"
 
@@ -143,6 +145,34 @@ func TestRegistryContextProvider_ReturnsAgentNotFoundWhenSourceMissing(t *testin
 	})
 	if err == nil || !strings.Contains(err.Error(), "agent not found") {
 		t.Fatalf("GetContext() error = %v, want agent not found", err)
+	}
+}
+
+func TestDefaultLogSinkRedactsPeerFields(t *testing.T) {
+	var buf bytes.Buffer
+	sink := defaultLogSink{logger: slog.New(slog.NewJSONHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug}))}
+
+	err := sink.HandleLog(context.Background(), &ToolInstance{
+		Lease:      dto.LeaseKey{InstanceID: "peer-1", Generation: 2},
+		BinaryName: "mcp-lsp",
+		ClientKind: "lsp",
+	}, dto.LogNotify{
+		Level:   "INFO",
+		Message: "peer emitted diagnostic",
+		Fields: map[string]any{
+			"token":  "sk-abcdefghijklmnopqrstuvwxyz",
+			"detail": "plain diagnostic",
+		},
+	})
+	if err != nil {
+		t.Fatalf("HandleLog() error = %v", err)
+	}
+	raw := buf.String()
+	if strings.Contains(raw, "sk-") {
+		t.Fatalf("mcp control log leaked secret: %s", raw)
+	}
+	if !strings.Contains(raw, `"token":"[REDACTED]"`) || !strings.Contains(raw, "plain diagnostic") {
+		t.Fatalf("mcp control log = %s, want redacted token and safe detail", raw)
 	}
 }
 

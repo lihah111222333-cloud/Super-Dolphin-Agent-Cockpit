@@ -28,7 +28,11 @@ func (c *Client) wrapSession(provider string, session contract.Session) contract
 // providerSessionEvent 组装 provider session 级别的 TraceEvent，错误状态由共享规则统一归类。
 func providerSessionEvent(method, provider, agentID, threadID string, elapsed time.Duration, err error) observability.TraceEvent {
 	status := providershared.TraceStatus(err)
-	return observability.TraceEvent{Method: method, AgentID: agentID, ThreadID: threadID, DurationMS: elapsed.Milliseconds(), Status: status, Error: providershared.ErrorSummary(status), Metadata: map[string]any{"provider": provider}}
+	metadata := map[string]any{"provider": provider}
+	for key, value := range providershared.ErrorMetadata(err) {
+		metadata[key] = value
+	}
+	return observability.TraceEvent{Method: method, AgentID: agentID, ThreadID: threadID, DurationMS: elapsed.Milliseconds(), Status: status, Error: providershared.ErrorSummaryForError(status, err), Metadata: metadata}
 }
 
 // tracedSession 装饰 contract.Session，只在 StartTurn 等边界补充观测信息。
@@ -63,7 +67,11 @@ func providerTurnEvent(provider string, req dto.TurnRequest, handle contract.Tur
 	if handle != nil {
 		providerTurnID = handle.ProviderID()
 	}
-	return observability.TraceEvent{Method: "provider.turn.run", ThreadID: req.ThreadID, TurnID: firstTraceString(req.LocalID, providerTurnID), DurationMS: elapsed.Milliseconds(), Status: status, Error: providershared.ErrorSummary(status), Metadata: map[string]any{"provider": provider, "provider_turn_id_set": providerTurnID != "", "input_count": int64(len(req.Inputs))}}
+	metadata := map[string]any{"provider": provider, "provider_turn_id_set": providerTurnID != "", "input_count": int64(len(req.Inputs))}
+	for key, value := range providershared.ErrorMetadata(err) {
+		metadata[key] = value
+	}
+	return observability.TraceEvent{Method: "provider.turn.run", ThreadID: req.ThreadID, TurnID: firstTraceString(req.LocalID, providerTurnID), DurationMS: elapsed.Milliseconds(), Status: status, Error: providershared.ErrorSummaryForError(status, err), Metadata: metadata}
 }
 
 // firstTraceString 返回第一个非空 trace 字段，用于避免观测事件里写入空 ID。

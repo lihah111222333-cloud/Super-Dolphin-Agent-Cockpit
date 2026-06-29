@@ -178,6 +178,15 @@ func toolTraceEndEvent(req ToolCallRequest, result any, callErr error, elapsed t
 	if !success {
 		status = observability.StatusError
 	}
+	metadata := map[string]any{
+		"success":              success,
+		"result_bytes":         int64(toolTraceJSONSize(result)),
+		"truncated":            false,
+		"affected_files_count": int64(affectedFiles),
+	}
+	for key, value := range toolTraceErrorMetadata(result, callErr) {
+		metadata[key] = value
+	}
 	return observability.TraceEvent{
 		Method:      "tool.call.end",
 		ThreadID:    req.ThreadID,
@@ -190,13 +199,53 @@ func toolTraceEndEvent(req ToolCallRequest, result any, callErr error, elapsed t
 		DurationMS:  elapsed.Milliseconds(),
 		Status:      status,
 		Error:       toolTraceErrorSummary(status),
-		Metadata: map[string]any{
-			"success":              success,
-			"result_bytes":         int64(toolTraceJSONSize(result)),
-			"truncated":            false,
-			"affected_files_count": int64(affectedFiles),
-		},
+		Metadata:    metadata,
 	}
+}
+
+// toolTraceErrorMetadata 合并外层调用错误和被包装进 ToolCallResult 的失败摘要。
+// peer callback 错误会以失败结果返回，不能因为 callErr 为空就丢失可诊断预览。
+func toolTraceErrorMetadata(result any, callErr error) map[string]any {
+	metadata := observability.SafeErrorMetadata(callErr, "tool_call_failed")
+	if len(metadata) > 0 {
+		return metadata
+	}
+	preview := toolTraceFailurePreview(result)
+	if preview == "" {
+		return nil
+	}
+	return map[string]any{
+		observability.ErrorPreviewField: preview,
+		observability.ErrorCodeField:    "tool_call_failed",
+	}
+}
+
+// toolTraceFailurePreview 从失败工具结果中提取短预览，并统一走 observability 脱敏逻辑。
+func toolTraceFailurePreview(result any) string {
+	r := toolTraceResult(result)
+	if r == nil || r.Success {
+		return ""
+	}
+	for _, item := range r.ContentItems {
+		if strings.TrimSpace(item.Text) == "" {
+			continue
+		}
+		return observability.SafePreview(item.Text, 512).Preview
+	}
+	if len(r.StructuredContent) > 0 {
+		return observability.SafePreview(r.StructuredContent, 512).Preview
+	}
+	return ""
+}
+
+func toolTraceResult(result any) *ToolCallResult {
+	if r, ok := result.(*ToolCallResult); ok {
+		return r
+	}
+	if r, ok := result.(ToolCallResult); ok {
+		return &r
+	}
+	return nil
 }
 
 // toolTraceErrorSummary 返回 trace status 对应的简短错误摘要。
@@ -209,10 +258,7 @@ func toolTraceErrorSummary(status observability.Status) string {
 
 // toolTraceResultSuccess 从 ToolCallResult 判断工具调用是否成功。
 func toolTraceResultSuccess(result any) bool {
-	if r, ok := result.(*ToolCallResult); ok && r != nil {
-		return r.Success
-	}
-	if r, ok := result.(ToolCallResult); ok {
+	if r := toolTraceResult(result); r != nil {
 		return r.Success
 	}
 	return true

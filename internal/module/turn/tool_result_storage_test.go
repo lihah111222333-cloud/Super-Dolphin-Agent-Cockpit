@@ -3,6 +3,7 @@ package turn
 import (
 	"encoding/json"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -39,6 +40,36 @@ func TestCaptureToolResultPersistsLargePayload(t *testing.T) {
 	}
 	if string(stored) != raw {
 		t.Fatalf("stored payload mismatch: got %d bytes, want %d", len(stored), len(raw))
+	}
+}
+
+func TestCaptureToolResultReportsPersistFailure(t *testing.T) {
+	homeFile := filepath.Join(t.TempDir(), "home-file")
+	if err := os.WriteFile(homeFile, []byte("not a directory"), 0o600); err != nil {
+		t.Fatalf("WriteFile(%q): %v", homeFile, err)
+	}
+	t.Setenv("HOME", homeFile)
+	ResetToolResultScope("thread-persist-fail", "turn-persist-fail")
+
+	raw := strings.Repeat("x", toolResultPersistThresholdChars+32)
+	record := CaptureToolResult(ToolResultMeta{
+		ThreadID:  "thread-persist-fail",
+		TurnID:    "turn-persist-fail",
+		CallID:    "call-persist-fail",
+		ToolName:  "shell",
+		Timestamp: time.Date(2026, 4, 14, 12, 0, 0, 0, time.UTC),
+	}, raw)
+	if !record.Truncated {
+		t.Fatal("Truncated = false, want true for large result preview")
+	}
+	if !record.PersistFailed {
+		t.Fatalf("PersistFailed = false, want true; record=%+v", record)
+	}
+	if strings.TrimSpace(record.PersistError) == "" {
+		t.Fatalf("PersistError = empty, want visible storage failure; record=%+v", record)
+	}
+	if record.PersistedPath != "" {
+		t.Fatalf("PersistedPath = %q, want empty on failed persist", record.PersistedPath)
 	}
 }
 

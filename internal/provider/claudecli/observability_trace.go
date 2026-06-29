@@ -7,6 +7,7 @@ import (
 
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/observability"
+	providershared "github.com/anthropic-ai/super-agent-v3/internal/provider/shared"
 )
 
 var claudeTraceSpanSeq atomic.Uint64
@@ -66,7 +67,11 @@ func claudeSessionEvent(method string, spec startSpec, elapsed time.Duration, er
 	if err != nil {
 		status = observability.StatusError
 	}
-	return observability.TraceEvent{Method: method, AgentID: spec.agentID, ThreadID: spec.publicThread, DurationMS: elapsed.Milliseconds(), Status: status, Error: claudeTraceErrorSummary(status), Metadata: map[string]any{"provider": "claude"}}
+	metadata := map[string]any{"provider": "claude"}
+	for key, value := range providershared.ErrorMetadata(err) {
+		metadata[key] = value
+	}
+	return observability.TraceEvent{Method: method, AgentID: spec.agentID, ThreadID: spec.publicThread, DurationMS: elapsed.Milliseconds(), Status: status, Error: claudeTraceErrorSummary(status, err), Metadata: metadata}
 }
 
 func claudeTurnRunEvent(req dto.TurnRequest, providerTurnID string, elapsed time.Duration, err error) observability.TraceEvent {
@@ -74,7 +79,11 @@ func claudeTurnRunEvent(req dto.TurnRequest, providerTurnID string, elapsed time
 	if err != nil {
 		status = observability.StatusError
 	}
-	return observability.TraceEvent{Method: "provider.turn.run", ThreadID: req.ThreadID, TurnID: firstNonEmpty(req.LocalID, providerTurnID), DurationMS: elapsed.Milliseconds(), Status: status, Error: claudeTraceErrorSummary(status), Code: observability.CodeAnchor{File: "internal/provider/claudecli/session.go", Function: "claudecli.(*session).StartTurn", Line: 189}, Metadata: map[string]any{"provider": "claude", "provider_turn_id_set": providerTurnID != "", "input_count": int64(len(req.Inputs))}}
+	metadata := map[string]any{"provider": "claude", "provider_turn_id_set": providerTurnID != "", "input_count": int64(len(req.Inputs))}
+	for key, value := range providershared.ErrorMetadata(err) {
+		metadata[key] = value
+	}
+	return observability.TraceEvent{Method: "provider.turn.run", ThreadID: req.ThreadID, TurnID: firstNonEmpty(req.LocalID, providerTurnID), DurationMS: elapsed.Milliseconds(), Status: status, Error: claudeTraceErrorSummary(status, err), Code: observability.CodeAnchor{File: "internal/provider/claudecli/session.go", Function: "claudecli.(*session).StartTurn", Line: 189}, Metadata: metadata}
 }
 
 func firstNonEmpty(values ...string) string {
@@ -86,11 +95,8 @@ func firstNonEmpty(values ...string) string {
 	return ""
 }
 
-func claudeTraceErrorSummary(status observability.Status) string {
-	if status == observability.StatusError {
-		return "provider operation failed"
-	}
-	return ""
+func claudeTraceErrorSummary(status observability.Status, err error) string {
+	return providershared.ErrorSummaryForError(status, err)
 }
 
 func claudeTraceStackConfig() observability.Config {

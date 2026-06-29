@@ -1,8 +1,11 @@
 package uistate
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
+	"log/slog"
 	"strings"
 	"testing"
 	"time"
@@ -65,6 +68,36 @@ func TestUIStateTimelineAndProjectionTraceUseIdentifiersOnly(t *testing.T) {
 			t.Fatalf("trace leaked payload %q: %s", secret, encoded)
 		}
 	}
+}
+
+func TestUIStateTraceRecordFailureIsLogged(t *testing.T) {
+	var logs bytes.Buffer
+	trace := observability.NewService(
+		observability.Config{IndexMaxEvents: 20, IndexMaxTraceEvents: 20, IndexMaxThreadEvents: 20},
+		observability.WithSink(failingUITraceSink{}),
+		observability.WithSampler(observability.NewSampler(observability.SamplerConfig{HighFrequencyKeepEvery: 1})),
+	)
+	svc, _, err := NewService(slog.New(slog.NewJSONHandler(&logs, &slog.HandlerOptions{Level: slog.LevelDebug})), nil, nil, nil, nil, nil, WithObservability(trace))
+	if err != nil {
+		t.Fatalf("NewService() error = %v", err)
+	}
+	svc.emitThreadPatch = func(uidto.UIThreadPatch) {}
+
+	svc.emitThreadPatchEvent(uidto.UIThreadPatch{ThreadID: "thread-1", Source: "test"})
+
+	raw := logs.String()
+	if !strings.Contains(raw, "uistate trace record failed") || !strings.Contains(raw, "uistate.patch.emit") || !strings.Contains(raw, "thread-1") {
+		t.Fatalf("logs = %s, want visible uistate trace failure", raw)
+	}
+	if strings.Contains(raw, "sk-") {
+		t.Fatalf("logs leaked raw secret: %s", raw)
+	}
+}
+
+type failingUITraceSink struct{}
+
+func (failingUITraceSink) Append(context.Context, observability.TraceEvent) error {
+	return errors.New("trace sink failed token=sk-abcdefghijklmnopqrstuvwxyz")
 }
 
 func newUITraceService() *observability.Service {
