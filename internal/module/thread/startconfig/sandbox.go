@@ -38,6 +38,8 @@ func IsDangerFullAccessSandbox(raw json.RawMessage) (bool, error) {
 	return isDangerFullAccessValue(value), nil
 }
 
+// sandboxType 解析并校验 thread/start 传入的 sandbox 类型。
+// 字符串和对象写法共用同一枚举校验，未知值必须 fail-fast。
 func sandboxType(raw json.RawMessage) (string, error) {
 	if raw[0] != '{' {
 		var value string

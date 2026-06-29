@@ -97,6 +97,8 @@ func validateApprovalPolicyKeys(cfg map[string]any, keys ...string) error {
 	return nil
 }
 
+// validateSandboxConfigKey 校验 Claude 配置中的 sandbox 字段。
+// 支持字符串、RawMessage 和对象输入，但任何未知类型或未知 sandbox 都会阻断启动。
 func validateSandboxConfigKey(cfg map[string]any, key string) error {
 	raw, ok := cfg[key]
 	if !ok {
@@ -120,6 +122,8 @@ func validateSandboxConfigKey(cfg map[string]any, key string) error {
 	}
 }
 
+// validateClaudeSandboxRaw 校验原始 sandbox JSON。
+// 这里只接受字符串或带 type 的对象，防止未知 alias 被映射到提权模式。
 func validateClaudeSandboxRaw(raw []byte) error {
 	raw = []byte(strings.TrimSpace(string(raw)))
 	if len(raw) == 0 {

@@ -54,6 +54,8 @@ func (c *Client) ResumeSession(
 	})
 }
 
+// open 统一 provider 新建和恢复会话的 driver 解析、日志和 pending 登记。
+// pending=true 时会话必须等上层持久化成功后才对外可见。
 func (c *Client) open(
 	ctx context.Context,
 	action string,
