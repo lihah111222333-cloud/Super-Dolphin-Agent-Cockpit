@@ -23,7 +23,7 @@ func TestPrepareCodexToolSurfaceUsesHTTPMCPServerTools(t *testing.T) {
 		ProviderThreadID: "provider-thread-http",
 		CWD:              workDir,
 		Manifest: providerdto.MCPManifest{Binaries: []providerdto.MCPBinary{{
-			Name:    "my-search",
+			Name:    string(providerdto.FamilyOrch),
 			Type:    "http",
 			URL:     toolsServer.URL,
 			Headers: map[string]string{"Authorization": "Bearer token"},
@@ -67,7 +67,7 @@ func TestPrepareCodexToolSurfaceReadsHTTPMCPEventStreamTools(t *testing.T) {
 		ProviderThreadID: "provider-thread-http",
 		CWD:              t.TempDir(),
 		Manifest: providerdto.MCPManifest{Binaries: []providerdto.MCPBinary{{
-			Name: "my-search",
+			Name: string(providerdto.FamilyOrch),
 			Type: "http",
 			URL:  toolsServer.URL,
 		}}},
@@ -90,7 +90,7 @@ func TestPrepareCodexToolSurfaceNamesHTTPMCPInitializeFailure(t *testing.T) {
 		ProviderThreadID: "provider-thread-http",
 		CWD:              t.TempDir(),
 		Manifest: providerdto.MCPManifest{Binaries: []providerdto.MCPBinary{{
-			Name: "m",
+			Name: string(providerdto.FamilyOrch),
 			Type: "http",
 			URL:  toolsServer.URL,
 		}}},
@@ -98,7 +98,7 @@ func TestPrepareCodexToolSurfaceNamesHTTPMCPInitializeFailure(t *testing.T) {
 	if err == nil {
 		t.Fatal("PrepareCodexToolSurface() error = nil, want named HTTP MCP initialize failure")
 	}
-	if got := err.Error(); !strings.Contains(got, `MCP server "m"`) || !strings.Contains(got, "HTTP MCP initialize returned HTTP 404") {
+	if got := err.Error(); !strings.Contains(got, `MCP server "orch"`) || !strings.Contains(got, "HTTP MCP initialize returned HTTP 404") {
 		t.Fatalf("PrepareCodexToolSurface() error = %q, want server name and initialize 404", got)
 	}
 }
@@ -128,6 +128,63 @@ func TestHTTPMCPClientCallToolConvertsJSONRPCErrorToToolResult(t *testing.T) {
 	}
 	if len(got.ContentItems) != 1 || got.ContentItems[0].Text != "toolbridge: HTTP MCP tools/call JSON-RPC error -32602: "+message {
 		t.Fatalf("CallTool() content = %#v, want JSON-RPC error text", got.ContentItems)
+	}
+}
+
+func TestBuildHTTPMCPClientRejectsPrivateURL(t *testing.T) {
+	_, err := buildHTTPMCPClient(providerdto.MCPBinary{
+		Name:            "loopback",
+		TrustedServerID: "loopback",
+		Type:            "http",
+		URL:             "http://127.0.0.1:9090/mcp",
+	})
+	if err == nil {
+		t.Fatal("buildHTTPMCPClient() error = nil, want private network rejection")
+	}
+	if !strings.Contains(err.Error(), "private network") {
+		t.Fatalf("buildHTTPMCPClient() error = %v, want private network rejection", err)
+	}
+}
+
+func TestHTTPMCPClientListToolsRejectsMalformedResult(t *testing.T) {
+	cases := []struct {
+		name    string
+		result  map[string]any
+		wantErr string
+	}{
+		{name: "missing tools", result: map[string]any{}, wantErr: "tools array is required"},
+		{name: "tools not array", result: map[string]any{"tools": nil}, wantErr: "tools array is required"},
+		{name: "empty name", result: map[string]any{"tools": []map[string]any{{"name": " ", "inputSchema": map[string]any{"type": "object"}}}}, wantErr: "tool name is required"},
+		{name: "schema not object", result: map[string]any{"tools": []map[string]any{{"name": "grep", "inputSchema": "bad"}}}, wantErr: "inputSchema must be a JSON object"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				var req struct {
+					ID     json.RawMessage `json:"id,omitempty"`
+					Method string          `json:"method"`
+				}
+				if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+					http.Error(w, err.Error(), http.StatusBadRequest)
+					return
+				}
+				if req.Method != "tools/list" {
+					http.Error(w, "unexpected method", http.StatusBadRequest)
+					return
+				}
+				writeHTTPMCPToolsTestResponse(w, req.ID, tc.result)
+			}))
+			defer server.Close()
+			client := &httpMCPClient{client: server.Client(), endpoint: server.URL}
+
+			_, err := client.ListTools(context.Background())
+			if err == nil {
+				t.Fatalf("ListTools() error = nil, want %s", tc.wantErr)
+			}
+			if !strings.Contains(err.Error(), tc.wantErr) {
+				t.Fatalf("ListTools() error = %v, want %s", err, tc.wantErr)
+			}
+		})
 	}
 }
 

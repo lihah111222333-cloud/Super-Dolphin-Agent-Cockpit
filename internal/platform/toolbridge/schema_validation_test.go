@@ -78,7 +78,7 @@ func TestPeerProxyInputSchemaRejectsUnknownFieldsBeforeForwarding(t *testing.T) 
 			*out = peerToolsListResult{Tools: []mcpdto.MCPTool{{
 				Name:        "grep",
 				InputSchema: strictObjectSchema(t, "query"),
-			}}}
+			}}, toolsPresent: true}
 			return nil
 		case ProxyMethodToolsCall:
 			t.Fatal("tools/call reached peer despite schema-forbidden field")

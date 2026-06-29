@@ -300,6 +300,9 @@ func decodeConfigMap(raw json.RawMessage) (map[string]any, error) {
 	if err := json.Unmarshal(raw, &cfg); err != nil {
 		return nil, fmt.Errorf("thread/start config must be an object: %w", err)
 	}
+	if err := contract.DefaultRuntimeMCPPolicy().RejectThreadStartConfig(cfg); err != nil {
+		return nil, err
+	}
 	return cfg, nil
 }
 

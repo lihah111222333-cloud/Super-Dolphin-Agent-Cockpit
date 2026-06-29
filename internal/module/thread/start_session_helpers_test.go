@@ -153,6 +153,9 @@ func TestBuildStartSessionConfigCarriesConfiguredMCPServers(t *testing.T) {
 	if server["transport"] != "http" || server["url"] != "https://your-domain.com/mcp" {
 		t.Fatalf("mcpConfig server = %#v, want HTTP URL", server)
 	}
+	if server["trustedServerId"] != "my-search" {
+		t.Fatalf("mcpConfig server trustedServerId = %#v, want my-search; server=%#v", server["trustedServerId"], server)
+	}
 	headers, ok := server["headers"].(map[string]any)
 	if !ok || headers["Authorization"] != "Bearer YOUR_API_KEY" {
 		t.Fatalf("mcpConfig server headers = %#v, want Authorization", server["headers"])
