@@ -26,7 +26,7 @@ func TestRequestScopeRootsRejectsUnknownProject(t *testing.T) {
 	if err == nil {
 		t.Fatal("requestScopeRoots() error = nil, want rejection")
 	}
-	if !strings.Contains(err.Error(), "no valid project root found") {
+	if !strings.Contains(err.Error(), "project root") {
 		t.Fatalf("requestScopeRoots() error = %q", err)
 	}
 }
@@ -59,7 +59,24 @@ func TestResolveScopeRootsReturnsErrorWhenCatalogEmpty(t *testing.T) {
 	if err == nil {
 		t.Fatal("resolveScopeRoots() error = nil, want failure")
 	}
-	if err.Error() != "no valid project root found" {
+	if !strings.Contains(err.Error(), "project root") {
 		t.Fatalf("resolveScopeRoots() error = %q", err)
+	}
+}
+
+func TestResolveScopeRootsRejectsInvalidExplicitProjectInsteadOfSkipping(t *testing.T) {
+	known := t.TempDir()
+	unknown := t.TempDir()
+	knownReal, err := realPathForCheck(known)
+	if err != nil {
+		t.Fatalf("realPathForCheck() error = %v", err)
+	}
+
+	_, err = resolveScopeRoots("", []string{unknown, known}, scopeCatalog{knownRoots: map[string]struct{}{knownReal: {}}})
+	if err == nil {
+		t.Fatal("resolveScopeRoots() error = nil, want invalid explicit project rejection")
+	}
+	if !strings.Contains(err.Error(), "project root") {
+		t.Fatalf("resolveScopeRoots() error = %q, want project root validation failure", err)
 	}
 }

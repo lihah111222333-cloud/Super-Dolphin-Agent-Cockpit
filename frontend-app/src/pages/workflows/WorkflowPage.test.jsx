@@ -16,6 +16,7 @@ const backend = vi.hoisted(() => ({
   getWorkflowTemplate: vi.fn(),
   listWorkflowTemplates: vi.fn(),
   openSharedFile: vi.fn(),
+  previewSharedFile: vi.fn(),
   readSharedFile: vi.fn(),
   renderWorkflowTemplateDraft: vi.fn(),
   rollbackWorkflowTemplate: vi.fn(),
@@ -581,7 +582,7 @@ describe('WorkflowPage module', () => {
     expect(rows[1]).toHaveTextContent('2026-06-02 20:12:43');
   });
 
-  it('shows a stable open action for mp4 final output without reading it as text', async () => {
+  it('renders mp4 final output through a backend-tokenized preview URL without file URLs', async () => {
     const dag = {
       dag_key: 'douyin-video',
       title: 'Douyin Video',
@@ -626,15 +627,21 @@ describe('WorkflowPage module', () => {
       },
       nodes: [],
     });
-    backend.openSharedFile.mockResolvedValue({ opened: true });
+    backend.openSharedFile.mockImplementation((params = {}) => Promise.resolve(params.preview ? {
+      url: 'http://127.0.0.1:4511/shared-file-preview?id=sf_video_123',
+      path: finalPath,
+      contentType: 'video/mp4',
+      sizeBytes: 24,
+    } : { opened: true }));
 
-    renderWorkflowPage();
+    const { container } = renderWorkflowPage();
 
     expect(await screen.findByText(finalPath)).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: '页内播放' }));
-    const previewVideo = document.querySelector('.workflow-media-preview video');
-    expect(previewVideo).toBeInTheDocument();
-    expect(previewVideo.querySelector('track[kind="captions"]')).toHaveAttribute('label', '无字幕');
+    await waitFor(() => expect(backend.openSharedFile).toHaveBeenCalledWith({ path: finalPath, preview: true }));
+    const video = container.querySelector('video.workflow-final-media');
+    expect(video).not.toBeNull();
+    expect(video.getAttribute('src')).toBe('http://127.0.0.1:4511/shared-file-preview?id=sf_video_123');
+    expect(video.getAttribute('src')).not.toContain('file://');
 
     fireEvent.click(screen.getByRole('button', { name: '系统打开' }));
 

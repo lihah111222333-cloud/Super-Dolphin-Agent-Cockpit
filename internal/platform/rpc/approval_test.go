@@ -305,6 +305,26 @@ func TestRequestApprovalReplayWaitsForExistingPending(t *testing.T) {
 	}
 }
 
+func TestApprovalRespondIsIdempotentForCompletedRequest(t *testing.T) {
+	manager := NewApprovalManager(nil, nil)
+	requestID := int64(9)
+	pending, owner := manager.registerPending(ApprovalRequest{CallID: "call-1", RequestID: &requestID}, nil)
+	if !owner || pending == nil {
+		t.Fatal("registerPending() did not create initial pending")
+	}
+
+	decision := contract.ApprovalDecision{
+		Approved: boolPtr(true),
+		Reason:   "approved",
+	}
+	if err := manager.Respond("call-1", &requestID, decision); err != nil {
+		t.Fatalf("first Respond() error = %v", err)
+	}
+	if err := manager.Respond("call-1", &requestID, decision); err != nil {
+		t.Fatalf("retry Respond() error = %v, want idempotent success", err)
+	}
+}
+
 func awaitResolvedEvent(t *testing.T, resolved <-chan tooldto.ToolApprovalResolved) tooldto.ToolApprovalResolved {
 	t.Helper()
 

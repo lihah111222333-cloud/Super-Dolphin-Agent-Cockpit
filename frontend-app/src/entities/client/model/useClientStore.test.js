@@ -5141,6 +5141,50 @@ function registerBridgeEventHandlersForTest() {
     }));
   });
 
+  it('applies restarted thread patch sequences when generation advances', () => {
+    resetClientStoreForTests({
+      cwd: '/repo/app',
+      activeProject: '/repo/app',
+      activeThreadId: 'thread-1',
+      timelinesByThread: { 'thread-1': [] },
+    });
+    registerBridgeEventHandlersForTest();
+
+    bridgeCallback({
+      type: 'ui/thread/patch',
+      payload: {
+        threadId: 'thread-1',
+        generation: 1,
+        sequence: '1',
+        timelineItems: [{ id: 'assistant-1', kind: 'assistant', text: 'first generation' }],
+      },
+    });
+    bridgeCallback({
+      type: 'ui/thread/patch',
+      payload: {
+        threadId: 'thread-1',
+        generation: 1,
+        sequence: '2',
+        timelineItems: [{ id: 'assistant-2', kind: 'assistant', text: 'second patch' }],
+      },
+    });
+    bridgeCallback({
+      type: 'ui/thread/patch',
+      payload: {
+        threadId: 'thread-1',
+        generation: 2,
+        sequence: '1',
+        timelineItems: [{ id: 'assistant-restarted', kind: 'assistant', text: 'restarted generation' }],
+      },
+    });
+
+    expect(useClientStore.getState().timelinesByThread['thread-1']).toEqual([
+      expect.objectContaining({ id: 'assistant-1', text: 'first generation' }),
+      expect.objectContaining({ id: 'assistant-2', text: 'second patch' }),
+      expect.objectContaining({ id: 'assistant-restarted', text: 'restarted generation' }),
+    ]);
+  });
+
   it('coalesces repeated RPC warning entries while preserving occurrence count', () => {
     useClientStore.getState().addLog('error', 'api.rpc.failed', {
       method: 'thread/config/get',

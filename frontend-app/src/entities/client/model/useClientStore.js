@@ -1775,6 +1775,7 @@ function createClientStoreRuntime(set, get) {
     get,
     bridgeUnsubscribe: null,
     sequencesByThread: new Map(),
+    patchGenerationsByThread: new Map(),
     composerDrafts: new Map(),
     sidebarSnapshotsByCwd: new Map(),
     sidebarRefreshesByCwd: new Map(),
@@ -1888,7 +1889,7 @@ function attachLogRuntime(runtime) {
 
 function attachScopeRuntime(runtime) {
   const { set, get, addWarning } = runtime;
-  const { sequencesByThread, sidebarSnapshotsByCwd, threadMessageGenerations, threadSyncGenerations } = runtime;
+  const { sequencesByThread, patchGenerationsByThread, sidebarSnapshotsByCwd, threadMessageGenerations, threadSyncGenerations } = runtime;
 
   const requireCwd = (reason) => {
     const activeProject = normalizePath(get().activeProject);
@@ -1920,6 +1921,7 @@ function attachScopeRuntime(runtime) {
     const cwd = normalizePath(cwdValue);
     const preserveActiveThreadId = options.preserveActiveThreadId === true;
     sequencesByThread.clear();
+    patchGenerationsByThread.clear();
     threadMessageGenerations.clear();
     threadSyncGenerations.clear();
     set((state) => {
@@ -2414,19 +2416,31 @@ function attachBridgePatchRuntime(runtime) {
    * 先确认 thread/cwd 属于当前页面，再按 sequence 跳过旧事件。
    */
   const { set, bridgeThreadIdForPayload } = runtime;
-  const { sequencesByThread } = runtime;
+  const { sequencesByThread, patchGenerationsByThread } = runtime;
 
   const applyBridgePatch = (method, payload) => {
     const threadId = bridgeThreadIdForPayload(payload);
     if (!threadId) return;
 
+    const generation = normalizeString(payload.generation || payload.epoch);
+    if (generation) {
+      const previousGeneration = patchGenerationsByThread.get(threadId) || '';
+      if (previousGeneration && compareSequence(generation, previousGeneration) < 0) {
+        return;
+      }
+      if (!previousGeneration || compareSequence(generation, previousGeneration) > 0) {
+        patchGenerationsByThread.set(threadId, generation);
+      }
+    }
+
     const sequence = normalizeString(payload.sequence);
-    const previousSequence = sequencesByThread.get(threadId) || '';
+    const sequenceKey = generation ? `${threadId}::${generation}` : threadId;
+    const previousSequence = sequencesByThread.get(sequenceKey) || '';
     if (sequence) {
       if (previousSequence && compareSequence(sequence, previousSequence) <= 0) {
         return;
       }
-      sequencesByThread.set(threadId, sequence);
+      sequencesByThread.set(sequenceKey, sequence);
     }
 
       const patchStart = Date.now();
