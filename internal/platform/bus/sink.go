@@ -4,8 +4,13 @@ package bus
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"reflect"
+	"regexp"
 	"runtime"
 	"strings"
 	"sync"
@@ -17,7 +22,6 @@ import (
 	tooldto "github.com/anthropic-ai/super-agent-v3/internal/dto/tool"
 	turndto "github.com/anthropic-ai/super-agent-v3/internal/dto/turn"
 	uidto "github.com/anthropic-ai/super-agent-v3/internal/dto/ui"
-	"github.com/anthropic-ai/super-agent-v3/internal/platform/observability"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 	"github.com/kelindar/event"
 )
@@ -181,7 +185,7 @@ func logDebugEvent[T event.Event](dispatcher *event.Dispatcher, logger *pkglogge
 
 // busEventLogArgs 只记录事件类型和脱敏预览，禁止把完整 event struct 写入日志。
 func busEventLogArgs(ev any) []any {
-	preview := observability.SafePreview(ev, 512)
+	preview := busSafePreview(ev, 512)
 	args := []any{
 		pkglogger.String("event_type", eventTypeName(ev)),
 		pkglogger.String("event_preview", preview.Preview),
@@ -192,6 +196,71 @@ func busEventLogArgs(ev any) []any {
 		args = append(args, pkglogger.String("event_sha256", preview.SHA256))
 	}
 	return args
+}
+
+var busPreviewSecretPatterns = []*regexp.Regexp{
+	regexp.MustCompile(`(?i)(authorization\\?"?\s*[:=]\s*bearer\s+)[^\\\s,;&"]+`),
+	regexp.MustCompile(`(?i)((?:api[_-]?key|secret[_-]?key|access[_-]?token|token|password)\\?"?\s*[:=]\s*\\?"?)[^\\\s,;&"]+`),
+	regexp.MustCompile(`sk-[A-Za-z0-9_-]{8,}`),
+}
+
+type busSafePreviewResult struct {
+	Preview   string
+	Truncated bool
+	Bytes     int64
+	SHA256    string
+}
+
+// busSafePreview 为 bus 日志生成短预览，避免 bus 生产包依赖完整 observability 服务。
+// 内容脱敏仍由 pkg/logger 的 handler 统一执行；超限时只保留大小和哈希。
+func busSafePreview(value any, maxBytes int) busSafePreviewResult {
+	raw := busSafePreviewBytes(value)
+	result := busSafePreviewResult{Bytes: int64(len(raw))}
+	if maxBytes <= 0 || len(raw) > maxBytes {
+		result.Truncated = true
+		sum := sha256.Sum256(raw)
+		result.SHA256 = hex.EncodeToString(sum[:])
+		return result
+	}
+	result.Preview = busRedactPreviewString(string(raw))
+	return result
+}
+
+// busRedactPreviewString 清理短预览里的常见密钥形态。
+// 它覆盖 JSON 转义后的 token 字段和裸 sk-*，避免 bus 为了预览引入 observability 依赖。
+func busRedactPreviewString(value string) string {
+	for _, pattern := range busPreviewSecretPatterns {
+		value = pattern.ReplaceAllString(value, "${1}[REDACTED]")
+	}
+	return value
+}
+
+// busSafePreviewBytes 将事件或错误转换为预览字节。
+// JSON 编码失败时使用 fmt.Sprint，后续仍会走统一长度限制和日志脱敏。
+func busSafePreviewBytes(value any) []byte {
+	switch typed := value.(type) {
+	case nil:
+		return nil
+	case []byte:
+		return append([]byte(nil), typed...)
+	case string:
+		return []byte(typed)
+	case json.RawMessage:
+		return append([]byte(nil), typed...)
+	default:
+		raw, err := json.Marshal(typed)
+		if err != nil {
+			return []byte(fmt.Sprint(typed))
+		}
+		return raw
+	}
+}
+
+func busSafeErrorPreview(err error) string {
+	if err == nil {
+		return ""
+	}
+	return busSafePreview(err.Error(), 512).Preview
 }
 
 func eventTypeName(ev any) string {
@@ -269,8 +338,8 @@ func (s *LogSink) warnTraceRecordFailure(ev any, record TraceRecord, err error) 
 		pkglogger.String("event_type", eventTypeName(ev)),
 		pkglogger.String("method", record.Method),
 		pkglogger.String("thread_id", record.ThreadID),
-		pkglogger.String(observability.ErrorPreviewField, observability.SafeErrorPreview(err)),
-		pkglogger.String(observability.ErrorCodeField, "trace_record_failed"),
+		pkglogger.String("error_preview", busSafeErrorPreview(err)),
+		pkglogger.String("error_code", "trace_record_failed"),
 	)
 }
 

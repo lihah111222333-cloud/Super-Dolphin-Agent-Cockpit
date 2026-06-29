@@ -10,6 +10,8 @@ import (
 	"strings"
 	"text/template"
 	"time"
+
+	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
 )
 
 // AutomationExecutor 执行 node_type=automation 节点。
@@ -151,7 +153,7 @@ func automationCommandContext(ctx context.Context, cfg *AutomationNodeConfig, ru
 	if timeout <= 0 {
 		return ctx, func() {}, nil
 	}
-	commandCtx, cancel := context.WithTimeout(ctx, timeout)
+	commandCtx, cancel := platformconfig.WithTimeout(ctx, timeout)
 	return commandCtx, cancel, nil
 }
 
