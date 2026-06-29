@@ -135,6 +135,19 @@ type DatasourceV2Document struct {
 	UpdatedAt    int64   `db:"updated_at" json:"updated_at"`
 }
 
+type McpToolLifecycle struct {
+	WorkspaceRoot   string `db:"workspace_root" json:"workspace_root"`
+	ServerName      string `db:"server_name" json:"server_name"`
+	ManifestName    string `db:"manifest_name" json:"manifest_name"`
+	ToolName        string `db:"tool_name" json:"tool_name"`
+	State           string `db:"state" json:"state"`
+	Reason          string `db:"reason" json:"reason"`
+	ReplacementTool string `db:"replacement_tool" json:"replacement_tool"`
+	LastSeenAt      int64  `db:"last_seen_at" json:"last_seen_at"`
+	CreatedAt       int64  `db:"created_at" json:"created_at"`
+	UpdatedAt       int64  `db:"updated_at" json:"updated_at"`
+}
+
 type PromptRoutingTest struct {
 	ID                int64  `db:"id" json:"id"`
 	Input             string `db:"input" json:"input"`

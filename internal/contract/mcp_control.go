@@ -132,12 +132,102 @@ type StoreMCPServerConfigParams struct {
 	Config        MCPServerConfig
 }
 
+// MCPToolLifecycleState 表示 MCP tool 在当前 workspace/server 下的治理状态。
+type MCPToolLifecycleState string
+
+const (
+	// MCPToolLifecycleEnabled 表示工具可被正常暴露和调用。
+	MCPToolLifecycleEnabled MCPToolLifecycleState = "enabled"
+	// MCPToolLifecycleDisabled 表示工具被人工关闭，后续可恢复。
+	MCPToolLifecycleDisabled MCPToolLifecycleState = "disabled"
+	// MCPToolLifecycleSuspended 表示工具被临时挂起，通常需要人工确认后恢复。
+	MCPToolLifecycleSuspended MCPToolLifecycleState = "suspended"
+	// MCPToolLifecycleRemoved 表示工具已从治理面移除，调用方必须拒绝使用。
+	MCPToolLifecycleRemoved MCPToolLifecycleState = "removed"
+)
+
+const (
+	// MCPToolLifecycleDenyCodeDisabled 标记工具因 disabled 状态被拒绝。
+	MCPToolLifecycleDenyCodeDisabled = "mcp_tool_disabled"
+	// MCPToolLifecycleDenyCodeSuspended 标记工具因 suspended 状态被拒绝。
+	MCPToolLifecycleDenyCodeSuspended = "mcp_tool_suspended"
+	// MCPToolLifecycleDenyCodeRemoved 标记工具因 removed 状态被拒绝。
+	MCPToolLifecycleDenyCodeRemoved = "mcp_tool_removed"
+	// MCPToolLifecycleDenyCodeServerDisabled 标记工具因所属 server 关闭被拒绝。
+	MCPToolLifecycleDenyCodeServerDisabled = "mcp_server_disabled"
+)
+
+// MCPToolLifecycleDecision 返回调用 MCP tool 前需要读取的状态决策。
+// 缺失记录应由实现返回错误，不能被调用方解释为默认放行。
+type MCPToolLifecycleDecision struct {
+	WorkspaceRoot   string                `json:"workspaceRoot"`
+	ServerName      string                `json:"serverName"`
+	ManifestName    string                `json:"manifestName,omitempty"`
+	ToolName        string                `json:"toolName"`
+	State           MCPToolLifecycleState `json:"state"`
+	Reason          string                `json:"reason,omitempty"`
+	ReplacementTool string                `json:"replacementTool,omitempty"`
+	ServerDisabled  bool                  `json:"serverDisabled,omitempty"`
+	DenyCode        string                `json:"denyCode,omitempty"`
+	LastSeenAt      int64                 `json:"lastSeenAt"`
+	CreatedAt       int64                 `json:"createdAt"`
+	UpdatedAt       int64                 `json:"updatedAt"`
+}
+
+// MCPToolLifecycleObservedTool 是 tools/list 回填时记录的单个 MCP tool。
+type MCPToolLifecycleObservedTool struct {
+	ManifestName string `json:"manifestName,omitempty"`
+	Name         string `json:"name"`
+}
+
+// StoreMCPToolLifecycleParams 是 store 写入 MCP tool lifecycle 的最小输入。
+// State 必须显式传入，store 不负责把未知状态静默降级。
+type StoreMCPToolLifecycleParams struct {
+	WorkspaceRoot   string
+	ServerName      string
+	ManifestName    string
+	ToolName        string
+	State           MCPToolLifecycleState
+	Reason          string
+	ReplacementTool string
+	NowMillis       int64
+}
+
+// BackfillMCPToolLifecycleParams 是 discovery 回填 MCP tool lifecycle 的输入。
+// 回填只能刷新发现信息，不能覆盖人工设置的状态、原因或替代工具。
+type BackfillMCPToolLifecycleParams struct {
+	WorkspaceRoot string
+	ServerName    string
+	ManifestName  string
+	ToolName      string
+	NowMillis     int64
+}
+
 // MCPServerConfigStore 只暴露 MCP server 服务需要的配置持久化能力。
 type MCPServerConfigStore interface {
 	InsertServer(context.Context, StoreMCPServerConfigParams) (bool, error)
 	ListServers(context.Context, string) (map[string]MCPServerConfig, error)
 	DeleteServer(context.Context, string, string) (bool, error)
 	SetServerEnabled(context.Context, string, string, bool) (bool, error)
+	GetToolLifecycle(context.Context, string, string, string) (MCPToolLifecycleDecision, error)
+	ListToolLifecycle(context.Context, string, string) ([]MCPToolLifecycleDecision, error)
+	UpsertToolLifecycle(context.Context, StoreMCPToolLifecycleParams) (MCPToolLifecycleDecision, error)
+	BackfillToolLifecycle(context.Context, BackfillMCPToolLifecycleParams) (MCPToolLifecycleDecision, error)
+}
+
+// MCPToolLifecyclePolicyRequest 描述调用前策略查询所需的 MCP tool 身份。
+type MCPToolLifecyclePolicyRequest struct {
+	WorkspaceRoot       string `json:"workspaceRoot,omitempty"`
+	WorkspaceRootSource string `json:"workspaceRootSource,omitempty"`
+	ServerName          string `json:"serverName"`
+	ManifestName        string `json:"manifestName,omitempty"`
+	ToolName            string `json:"toolName"`
+	CallName            string `json:"callName,omitempty"`
+}
+
+// MCPToolLifecyclePolicyReader 暴露调用前只读策略入口。
+type MCPToolLifecyclePolicyReader interface {
+	ResolveMCPToolLifecycle(context.Context, MCPToolLifecyclePolicyRequest) (MCPToolLifecycleDecision, error)
 }
 
 // ToolInstance 是已连接 MCP peer 的 registry 快照。

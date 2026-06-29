@@ -5,10 +5,12 @@ import (
 	"errors"
 	"path/filepath"
 	"slices"
+	"sort"
 	"strings"
 	"testing"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
+	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
 )
 
 func TestAddServersPersistsProjectMCPServerConfig(t *testing.T) {
@@ -433,6 +435,120 @@ func TestDeleteServerReturnsNotFoundForMissingTableRow(t *testing.T) {
 	}
 }
 
+func TestBackfillMCPServerToolsPreservesManualLifecycleState(t *testing.T) {
+	store := newMemoryMCPServerStore()
+	svc := NewServiceWithStore(store)
+	project := t.TempDir()
+	t.Chdir(project)
+	store.seed(project, "my-search", ServerConfig{
+		Transport: "http",
+		URL:       "https://your-domain.com/mcp",
+	})
+
+	manual, err := svc.SetMCPToolLifecycle(context.Background(), SetMCPToolLifecycleRequest{
+		ServerName:      "my-search",
+		ToolName:        "search",
+		State:           contract.MCPToolLifecycleDisabled,
+		Reason:          "manual review",
+		ReplacementTool: "search_v2",
+	})
+	if err != nil {
+		t.Fatalf("SetMCPToolLifecycle() error = %v", err)
+	}
+	if manual.State != contract.MCPToolLifecycleDisabled {
+		t.Fatalf("manual lifecycle state = %q, want disabled", manual.State)
+	}
+
+	got, err := svc.BackfillMCPServerTools(context.Background(), BackfillMCPServerToolsRequest{
+		ServerName: "my-search",
+		Tools: []contract.MCPToolLifecycleObservedTool{{
+			ManifestName: "remote-manifest",
+			Name:         "search",
+		}},
+	})
+	if err != nil {
+		t.Fatalf("BackfillMCPServerTools() error = %v", err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("BackfillMCPServerTools() len = %d, want 1", len(got))
+	}
+	decision := got[0]
+	if decision.State != contract.MCPToolLifecycleDisabled {
+		t.Fatalf("backfilled state = %q, want disabled", decision.State)
+	}
+	if decision.Reason != "manual review" || decision.ReplacementTool != "search_v2" {
+		t.Fatalf("backfilled decision = %#v, want manual reason/replacement preserved", decision)
+	}
+	if decision.ManifestName != "remote-manifest" {
+		t.Fatalf("backfilled manifest = %q, want remote-manifest", decision.ManifestName)
+	}
+}
+
+func TestResolveMCPToolLifecycleReturnsServerDisabledDecision(t *testing.T) {
+	store := newMemoryMCPServerStore()
+	svc := NewServiceWithStore(store)
+	project := t.TempDir()
+	t.Chdir(project)
+	store.seed(project, "my-search", ServerConfig{
+		Transport: "http",
+		URL:       "https://your-domain.com/mcp",
+		Enabled:   boolPtr(false),
+	})
+
+	got, err := svc.ResolveMCPToolLifecycle(context.Background(), contract.MCPToolLifecyclePolicyRequest{
+		ServerName: "my-search",
+		ToolName:   "search",
+	})
+	if err != nil {
+		t.Fatalf("ResolveMCPToolLifecycle() error = %v", err)
+	}
+	if !got.ServerDisabled || got.DenyCode != contract.MCPToolLifecycleDenyCodeServerDisabled {
+		t.Fatalf("ResolveMCPToolLifecycle() = %#v, want server disabled denial", got)
+	}
+	if got.State != contract.MCPToolLifecycleDisabled {
+		t.Fatalf("ResolveMCPToolLifecycle() state = %q, want disabled", got.State)
+	}
+}
+
+func TestResolveMCPToolLifecycleFailsClosedWhenOwnerMissing(t *testing.T) {
+	store := newMemoryMCPServerStore()
+	svc := NewServiceWithStore(store)
+	project := t.TempDir()
+	t.Chdir(project)
+	store.seed(project, "my-search", ServerConfig{
+		Transport: "http",
+		URL:       "https://your-domain.com/mcp",
+	})
+
+	_, err := svc.ResolveMCPToolLifecycle(context.Background(), contract.MCPToolLifecyclePolicyRequest{
+		ServerName: "my-search",
+		ToolName:   "search",
+	})
+	if !errors.Is(err, errToolLifecycleNotFound) {
+		t.Fatalf("ResolveMCPToolLifecycle() error = %v, want errToolLifecycleNotFound", err)
+	}
+}
+
+func TestSetMCPToolLifecycleRejectsInvalidState(t *testing.T) {
+	store := newMemoryMCPServerStore()
+	svc := NewServiceWithStore(store)
+	project := t.TempDir()
+	t.Chdir(project)
+	store.seed(project, "my-search", ServerConfig{
+		Transport: "http",
+		URL:       "https://your-domain.com/mcp",
+	})
+
+	_, err := svc.SetMCPToolLifecycle(context.Background(), SetMCPToolLifecycleRequest{
+		ServerName: "my-search",
+		ToolName:   "search",
+		State:      contract.MCPToolLifecycleState("unknown"),
+	})
+	if !errors.Is(err, errInvalidToolLifecycleState) {
+		t.Fatalf("SetMCPToolLifecycle() error = %v, want errInvalidToolLifecycleState", err)
+	}
+}
+
 func TestMCPServerConfigProviderReadsProjectTableRowsForNestedCWD(t *testing.T) {
 	store := newMemoryMCPServerStore()
 	svc := NewServiceWithStore(store)
@@ -494,7 +610,14 @@ func TestMCPServerConfigProviderSkipsDisabledRows(t *testing.T) {
 }
 
 type memoryMCPServerStore struct {
-	servers map[string]map[string]ServerConfig
+	servers   map[string]map[string]ServerConfig
+	lifecycle map[memoryMCPToolLifecycleKey]contract.MCPToolLifecycleDecision
+}
+
+type memoryMCPToolLifecycleKey struct {
+	workspaceRoot string
+	serverName    string
+	toolName      string
 }
 
 type recordingPostgresInstaller struct {
@@ -508,7 +631,10 @@ func (i *recordingPostgresInstaller) EnsureInstalled(context.Context) error {
 }
 
 func newMemoryMCPServerStore() *memoryMCPServerStore {
-	return &memoryMCPServerStore{servers: map[string]map[string]ServerConfig{}}
+	return &memoryMCPServerStore{
+		servers:   map[string]map[string]ServerConfig{},
+		lifecycle: map[memoryMCPToolLifecycleKey]contract.MCPToolLifecycleDecision{},
+	}
 }
 
 func (s *memoryMCPServerStore) InsertServer(_ context.Context, params StoreMCPServerConfigParams) (bool, error) {
@@ -553,6 +679,102 @@ func (s *memoryMCPServerStore) SetServerEnabled(_ context.Context, workspaceRoot
 	return true, nil
 }
 
+func (s *memoryMCPServerStore) GetToolLifecycle(
+	_ context.Context,
+	workspaceRoot string,
+	serverName string,
+	toolName string,
+) (contract.MCPToolLifecycleDecision, error) {
+	if s.lifecycle == nil {
+		return contract.MCPToolLifecycleDecision{}, platformdb.ErrNotFound
+	}
+	decision, ok := s.lifecycle[memoryMCPToolLifecycleKey{workspaceRoot: workspaceRoot, serverName: serverName, toolName: toolName}]
+	if !ok {
+		return contract.MCPToolLifecycleDecision{}, platformdb.ErrNotFound
+	}
+	return cloneMCPToolLifecycleDecision(decision), nil
+}
+
+func (s *memoryMCPServerStore) ListToolLifecycle(
+	_ context.Context,
+	workspaceRoot string,
+	serverName string,
+) ([]contract.MCPToolLifecycleDecision, error) {
+	out := []contract.MCPToolLifecycleDecision{}
+	for key, decision := range s.lifecycle {
+		if key.workspaceRoot == workspaceRoot && key.serverName == serverName {
+			out = append(out, cloneMCPToolLifecycleDecision(decision))
+		}
+	}
+	sort.Slice(out, func(i, j int) bool {
+		return out[i].ToolName < out[j].ToolName
+	})
+	return out, nil
+}
+
+func (s *memoryMCPServerStore) UpsertToolLifecycle(
+	_ context.Context,
+	params contract.StoreMCPToolLifecycleParams,
+) (contract.MCPToolLifecycleDecision, error) {
+	if s.lifecycle == nil {
+		s.lifecycle = map[memoryMCPToolLifecycleKey]contract.MCPToolLifecycleDecision{}
+	}
+	key := memoryMCPToolLifecycleKey{
+		workspaceRoot: params.WorkspaceRoot,
+		serverName:    params.ServerName,
+		toolName:      params.ToolName,
+	}
+	createdAt := params.NowMillis
+	if existing, ok := s.lifecycle[key]; ok {
+		createdAt = existing.CreatedAt
+	}
+	decision := contract.MCPToolLifecycleDecision{
+		WorkspaceRoot:   params.WorkspaceRoot,
+		ServerName:      params.ServerName,
+		ManifestName:    params.ManifestName,
+		ToolName:        params.ToolName,
+		State:           params.State,
+		Reason:          params.Reason,
+		ReplacementTool: params.ReplacementTool,
+		LastSeenAt:      params.NowMillis,
+		CreatedAt:       createdAt,
+		UpdatedAt:       params.NowMillis,
+	}
+	s.lifecycle[key] = decision
+	return cloneMCPToolLifecycleDecision(decision), nil
+}
+
+func (s *memoryMCPServerStore) BackfillToolLifecycle(
+	_ context.Context,
+	params contract.BackfillMCPToolLifecycleParams,
+) (contract.MCPToolLifecycleDecision, error) {
+	if s.lifecycle == nil {
+		s.lifecycle = map[memoryMCPToolLifecycleKey]contract.MCPToolLifecycleDecision{}
+	}
+	key := memoryMCPToolLifecycleKey{
+		workspaceRoot: params.WorkspaceRoot,
+		serverName:    params.ServerName,
+		toolName:      params.ToolName,
+	}
+	decision, ok := s.lifecycle[key]
+	if !ok {
+		decision = contract.MCPToolLifecycleDecision{
+			WorkspaceRoot: params.WorkspaceRoot,
+			ServerName:    params.ServerName,
+			ManifestName:  params.ManifestName,
+			ToolName:      params.ToolName,
+			State:         contract.MCPToolLifecycleEnabled,
+			CreatedAt:     params.NowMillis,
+		}
+	} else if params.ManifestName != "" {
+		decision.ManifestName = params.ManifestName
+	}
+	decision.LastSeenAt = params.NowMillis
+	decision.UpdatedAt = params.NowMillis
+	s.lifecycle[key] = decision
+	return cloneMCPToolLifecycleDecision(decision), nil
+}
+
 func (s *memoryMCPServerStore) seed(workspaceRoot, name string, config ServerConfig) {
 	if s.servers == nil {
 		s.servers = map[string]map[string]ServerConfig{}
@@ -565,4 +787,8 @@ func (s *memoryMCPServerStore) seed(workspaceRoot, name string, config ServerCon
 
 func cloneSingleMCPServerConfig(config ServerConfig) ServerConfig {
 	return cloneMCPServers(map[string]ServerConfig{"server": config})["server"]
+}
+
+func cloneMCPToolLifecycleDecision(decision contract.MCPToolLifecycleDecision) contract.MCPToolLifecycleDecision {
+	return decision
 }

@@ -5,6 +5,7 @@ sql:
     schema:
       - "internal/platform/db/sqlite/migrations/001_baseline.sql"
       - "internal/platform/db/sqlite/migrations/107_datasource_v2_chunk_embeddings.sql"
+      - "internal/platform/db/sqlite/migrations/109_mcp_tool_lifecycle.sql"
     strict_order_by: true
     gen:
       go:
