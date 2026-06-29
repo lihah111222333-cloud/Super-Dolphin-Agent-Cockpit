@@ -28,12 +28,13 @@ var toolPayloadLogSeq atomic.Uint64
 
 var tokenLikePayloadPattern = regexp.MustCompile(`(?i)(sk-[a-z0-9_-]{8,}|gh[pousr]_[a-z0-9_]{8,}|xox[baprs]-[a-z0-9-]{8,}|[a-z0-9_-]{20,}\.[a-z0-9_-]{10,}\.[a-z0-9_-]{10,})`)
 
-// UnmarshalJSON 严格解码 tools/call 顶层参数，同时兼容历史 session metadata。
-// sessionId/session_id 只作为不可信旧 metadata 被忽略；其他未知字段仍会直接报错。
+// UnmarshalJSON 严格解码 tools/call 顶层参数，同时兼容 MCP 标准和历史 metadata。
+// _meta/sessionId/session_id 只作为不可信 metadata 被接收或忽略；其他未知字段仍会直接报错。
 func (p *ToolCallParams) UnmarshalJSON(raw []byte) error {
 	var wire struct {
 		Name                    string          `json:"name"`
 		Arguments               json.RawMessage `json:"arguments,omitempty"`
+		Meta                    json.RawMessage `json:"_meta,omitempty"`
 		MetaAgentID             string          `json:"_agentId,omitempty"`
 		MetaThreadID            string          `json:"_threadId,omitempty"`
 		MetaCallID              string          `json:"_callId,omitempty"`
@@ -55,6 +56,7 @@ func (p *ToolCallParams) UnmarshalJSON(raw []byte) error {
 	*p = ToolCallParams{
 		Name:                    wire.Name,
 		Arguments:               wire.Arguments,
+		Meta:                    wire.Meta,
 		MetaAgentID:             wire.MetaAgentID,
 		MetaThreadID:            wire.MetaThreadID,
 		MetaCallID:              wire.MetaCallID,

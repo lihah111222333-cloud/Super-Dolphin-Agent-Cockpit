@@ -46,6 +46,32 @@ func TestServerHandlesToolsList(t *testing.T) {
 	}
 }
 
+func TestServerInitializeAcceptsStandardClientFields(t *testing.T) {
+	input := bytes.NewBufferString(`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{"roots":{"listChanged":true}},"clientInfo":{"name":"codex-cli","version":"0.142.2"}}}`)
+	var output bytes.Buffer
+
+	server := NewServer("test", "dev", NewStdioTransport(input, &output), testToolProvider{})
+	if err := server.Run(context.Background()); err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	var resp struct {
+		Error  *jsonRPCError `json:"error,omitempty"`
+		Result struct {
+			ProtocolVersion string `json:"protocolVersion"`
+			ServerInfo      struct {
+				Name string `json:"name"`
+			} `json:"serverInfo"`
+		} `json:"result"`
+	}
+	decodeJSONRPCOutput(t, output.Bytes(), &resp)
+	if resp.Error != nil {
+		t.Fatalf("initialize error = %#v; raw=%s", resp.Error, output.String())
+	}
+	if resp.Result.ProtocolVersion != "2024-11-05" || resp.Result.ServerInfo.Name != "test" {
+		t.Fatalf("initialize result = %#v; raw=%s", resp.Result, output.String())
+	}
+}
+
 func TestServerHandlesToolsCall(t *testing.T) {
 	input := bytes.NewBufferString(`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"demo_tool","arguments":{}}}`)
 	var output bytes.Buffer
@@ -65,6 +91,45 @@ func TestServerHandlesToolsCall(t *testing.T) {
 	decodeJSONRPCOutput(t, output.Bytes(), &resp)
 	if len(resp.Result.Content) != 1 || resp.Result.Content[0].Type != "text" || resp.Result.Content[0].Text != `{"ok":true}` {
 		t.Fatalf("Run() content = %#v, want JSON text content; raw=%s", resp.Result.Content, output.String())
+	}
+}
+
+func TestServerToolsCallAcceptsStandardMCPMeta(t *testing.T) {
+	input := bytes.NewBufferString(`{"jsonrpc":"2.0","id":30,"method":"tools/call","params":{"name":"demo_tool","arguments":{"query":"ToolCallParams"},"_meta":{"progressToken":"codex-call-1"}}}`)
+	var output bytes.Buffer
+	var gotName string
+	var gotArgs json.RawMessage
+	provider := captureToolProvider{call: func(ctx context.Context, name string, args json.RawMessage) (any, error) {
+		gotName = name
+		gotArgs = append(json.RawMessage(nil), args...)
+		if scope, ok := ToolScopeFromContext(ctx); ok && scope.CWD != "" {
+			t.Fatalf("scope CWD = %q, want _meta to stay outside trusted scope", scope.CWD)
+		}
+		return map[string]any{"ok": true}, nil
+	}}
+
+	server := NewServer("test", "dev", NewStdioTransport(input, &output), provider)
+	if err := server.Run(context.Background()); err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	var resp struct {
+		Error  *jsonRPCError `json:"error,omitempty"`
+		Result struct {
+			IsError bool `json:"isError"`
+		} `json:"result"`
+	}
+	decodeJSONRPCOutput(t, output.Bytes(), &resp)
+	if resp.Error != nil {
+		t.Fatalf("tools/call error = %#v; raw=%s", resp.Error, output.String())
+	}
+	if resp.Result.IsError {
+		t.Fatalf("isError = true, want false; output=%s", output.String())
+	}
+	if gotName != "demo_tool" {
+		t.Fatalf("tool name = %q, want demo_tool", gotName)
+	}
+	if string(gotArgs) != `{"query":"ToolCallParams"}` {
+		t.Fatalf("arguments = %s, want original arguments without _meta", gotArgs)
 	}
 }
 

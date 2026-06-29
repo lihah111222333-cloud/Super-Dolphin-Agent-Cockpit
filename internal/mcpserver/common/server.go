@@ -151,9 +151,12 @@ type jsonRPCError struct {
 	Message string `json:"message"`
 }
 
-// initializeParams 保存 initialize 请求里当前只需要协商的 protocolVersion。
+// initializeParams 保存 MCP initialize 请求的标准握手字段。
+// 服务端当前只需要 protocolVersion，但必须接收客户端能力信息，避免把标准 MCP 客户端拒在握手阶段。
 type initializeParams struct {
-	ProtocolVersion string `json:"protocolVersion,omitempty"`
+	ProtocolVersion string          `json:"protocolVersion,omitempty"`
+	Capabilities    json.RawMessage `json:"capabilities,omitempty"`
+	ClientInfo      json.RawMessage `json:"clientInfo,omitempty"`
 }
 
 // textContent 是 MCP content 文本块的内部结构。
