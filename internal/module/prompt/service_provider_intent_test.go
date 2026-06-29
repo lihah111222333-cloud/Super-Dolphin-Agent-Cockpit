@@ -399,6 +399,40 @@ func TestPromptWriteStripsTagsHasOnlyMatchWhenToNil(t *testing.T) {
 	require.Empty(t, got.MatchWhen)
 }
 
+func TestPromptWriteRejectsNonObjectMatchWhen(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		raw      json.RawMessage
+		wantText string
+	}{
+		{name: "array", raw: json.RawMessage(`[]`), wantText: "object"},
+		{name: "string", raw: json.RawMessage(`"always"`), wantText: "object"},
+		{name: "number", raw: json.RawMessage(`1`), wantText: "object"},
+		{name: "malformed", raw: json.RawMessage(`{`), wantText: "valid JSON"},
+	}
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			store := newInMemoryPromptStore()
+			svc := newPromptService(store)
+
+			_, err := svc.WritePrompt(context.Background(), "/repo/a", PromptWriteRequest{
+				Name:         "Scoped Prompt",
+				Content:      "new body",
+				WhenToUse:    "Use when routing by match_when.",
+				WhenToUseSet: true,
+				MatchWhen:    tt.raw,
+				MatchWhenSet: true,
+			})
+			require.Error(t, err)
+			require.Contains(t, err.Error(), tt.wantText)
+		})
+	}
+}
+
 func TestPromptItemFromTemplateIncludesWhenToUse(t *testing.T) {
 	t.Parallel()
 

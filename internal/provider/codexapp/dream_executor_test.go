@@ -55,7 +55,7 @@ func TestCodexDreamExecutor_SuccessReturnsExtractedJSON(t *testing.T) {
 	if c.lastInput != "consolidate" {
 		t.Errorf("input: got %q, want 'consolidate'", c.lastInput)
 	}
-	wantArgs := []string{"exec", "--json", "--skip-git-repo-check"}
+	wantArgs := []string{"exec", "--json", "--skip-git-repo-check", "--sandbox", "read-only", "--ephemeral", "--ignore-user-config", "--ignore-rules", "-c", `shell_environment_policy.inherit="none"`}
 	if len(c.lastArgs) != len(wantArgs) {
 		t.Fatalf("args without model: got %v, want %v", c.lastArgs, wantArgs)
 	}
@@ -72,7 +72,7 @@ func TestCodexDreamExecutor_ModelEnvAddsArgs(t *testing.T) {
 	if _, err := exec.ExecuteDream(context.Background(), "p"); err != nil {
 		t.Fatalf("expected success, got %v", err)
 	}
-	want := []string{"exec", "--json", "--skip-git-repo-check", "--model", "gpt-5-codex"}
+	want := []string{"exec", "--json", "--skip-git-repo-check", "--sandbox", "read-only", "--ephemeral", "--ignore-user-config", "--ignore-rules", "-c", `shell_environment_policy.inherit="none"`, "--model", "gpt-5-codex"}
 	if len(c.lastArgs) != len(want) {
 		t.Fatalf("args: got %v, want %v", c.lastArgs, want)
 	}
@@ -89,7 +89,7 @@ func TestCodexDreamExecutor_RequestModelOverridesEnvModel(t *testing.T) {
 	if _, err := exec.ExecuteDreamWithOptions(context.Background(), "p", contract.DreamOptions{Model: "request-model"}); err != nil {
 		t.Fatalf("expected success, got %v", err)
 	}
-	want := []string{"exec", "--json", "--skip-git-repo-check", "--model", "request-model"}
+	want := []string{"exec", "--json", "--skip-git-repo-check", "--sandbox", "read-only", "--ephemeral", "--ignore-user-config", "--ignore-rules", "-c", `shell_environment_policy.inherit="none"`, "--model", "request-model"}
 	if len(c.lastArgs) != len(want) {
 		t.Fatalf("args: got %v, want %v", c.lastArgs, want)
 	}
@@ -106,7 +106,7 @@ func TestCodexDreamExecutor_RequestModelProviderAddsConfigArg(t *testing.T) {
 	if _, err := exec.ExecuteDreamWithOptions(context.Background(), "p", contract.DreamOptions{ModelProvider: "openrouter"}); err != nil {
 		t.Fatalf("expected success, got %v", err)
 	}
-	want := []string{"exec", "--json", "--skip-git-repo-check", "-c", `model_provider="openrouter"`}
+	want := []string{"exec", "--json", "--skip-git-repo-check", "--sandbox", "read-only", "--ephemeral", "--ignore-user-config", "--ignore-rules", "-c", `shell_environment_policy.inherit="none"`, "-c", `model_provider="openrouter"`}
 	if len(c.lastArgs) != len(want) {
 		t.Fatalf("args: got %v, want %v", c.lastArgs, want)
 	}
@@ -115,6 +115,19 @@ func TestCodexDreamExecutor_RequestModelProviderAddsConfigArg(t *testing.T) {
 			t.Fatalf("args[%d]: got %q, want %q", i, c.lastArgs[i], a)
 		}
 	}
+}
+
+func TestCodexDreamExecutorEnforcesNoToolsReadOnlyMinEnvRuntime(t *testing.T) {
+	c := &capturingCommander{outputs: []string{`{"memories":[]}`}}
+	exec := newDreamExecutor(c, "codex", "")
+	if _, err := exec.ExecuteDream(context.Background(), "p"); err != nil {
+		t.Fatalf("ExecuteDream() error = %v", err)
+	}
+	assertArgPair(t, c.lastArgs, "--sandbox", "read-only")
+	assertArgPresent(t, c.lastArgs, "--ephemeral")
+	assertArgPresent(t, c.lastArgs, "--ignore-user-config")
+	assertArgPresent(t, c.lastArgs, "--ignore-rules")
+	assertArgPair(t, c.lastArgs, "-c", `shell_environment_policy.inherit="none"`)
 }
 
 // TestCodexDreamExecutor_JSONLUsageIncrementsDreamMetrics 验证完整流路：
@@ -213,4 +226,24 @@ func TestCodexDreamExecutor_ProviderProviderUsesCodexName(t *testing.T) {
 	if p.Executor == nil {
 		t.Fatalf("expected non-nil Executor")
 	}
+}
+
+func assertArgPresent(t *testing.T, args []string, flag string) {
+	t.Helper()
+	for _, arg := range args {
+		if arg == flag {
+			return
+		}
+	}
+	t.Fatalf("args missing %s: %v", flag, args)
+}
+
+func assertArgPair(t *testing.T, args []string, flag, value string) {
+	t.Helper()
+	for i := 0; i+1 < len(args); i++ {
+		if args[i] == flag && args[i+1] == value {
+			return
+		}
+	}
+	t.Fatalf("args missing %s %q: %v", flag, value, args)
 }

@@ -62,6 +62,12 @@ type logsParams struct {
 	Limit          int    `json:"limit,omitempty"`
 }
 
+// logDetailParams 是 dashboard/logDetail 的请求参数。
+type logDetailParams struct {
+	Source string `json:"source,omitempty"`
+	ID     int64  `json:"id,omitempty"`
+}
+
 // limitParams 是只需要 limit 的日志列表请求参数。
 type limitParams struct {
 	Limit int `json:"limit,omitempty"`
@@ -251,6 +257,11 @@ type skillsResponse struct {
 // logsResponse 是 dashboard/logs 的响应结构。
 type logsResponse struct {
 	Logs []LogEntry `json:"logs"`
+}
+
+// logDetailResponse 是 dashboard/logDetail 的响应结构。
+type logDetailResponse struct {
+	Detail *LogDetail `json:"detail"`
 }
 
 // aiLogsResponse 是 AI 日志列表接口的响应结构。
@@ -452,6 +463,13 @@ func registerDashboardDataHandlers(m handler.Map, svc Service) {
 			return nil, err
 		}
 		return logsResponse{Logs: logs}, nil
+	})
+	m["dashboard/logDetail"] = platformrpc.StrictHandler(func(ctx context.Context, p logDetailParams) (any, error) {
+		detail, err := svc.GetLogDetail(ctx, LogDetailRequest{Source: p.Source, ID: p.ID})
+		if err != nil {
+			return nil, err
+		}
+		return logDetailResponse{Detail: detail}, nil
 	})
 }
 

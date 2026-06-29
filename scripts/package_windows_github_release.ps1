@@ -62,6 +62,34 @@ function Assert-UpdatePublicKeyContinuity() {
     }
 }
 
+function Test-ReleaseDirtyWhitelistEntry() {
+    param([Parameter(Mandatory)][string]$Path)
+    $raw = [Environment]::GetEnvironmentVariable('SUPER_DOLPHIN_RELEASE_DIRTY_WHITELIST', 'Process')
+    if ($null -eq $raw -or $raw.Trim() -eq '') { return $false }
+    foreach ($entry in $raw.Split(',')) {
+        if ($entry.Trim() -ne '' -and $entry.Trim() -eq $Path) {
+            return $true
+        }
+    }
+    return $false
+}
+
+function Require-CleanReleaseTree() {
+    $dirty = $false
+    $lines = & git status --porcelain=v1 --untracked-files=all
+    foreach ($line in $lines) {
+        if ($line.Trim() -eq '') { continue }
+        $path = $line.Substring(3)
+        if (-not (Test-ReleaseDirtyWhitelistEntry -Path $path)) {
+            Write-Error "release worktree has uncommitted changes: $line"
+            $dirty = $true
+        }
+    }
+    if ($dirty) {
+        throw 'Set SUPER_DOLPHIN_RELEASE_DIRTY_WHITELIST to a comma-separated exact path list only for audited manual overrides.'
+    }
+}
+
 $Root = Resolve-RepoRoot
 Set-Location -LiteralPath $Root
 
@@ -80,10 +108,12 @@ $MinimumVersion = Get-EnvOrDefault -Name 'SUPER_DOLPHIN_UPDATE_MINIMUM_VERSION' 
 if ($StageDir.Trim() -eq '') {
     $StageDir = Join-Path $Root "dist/release/github/$Version"
 }
+$BuildCommit = (& git rev-parse HEAD).Trim()
 
 $env:SUPER_DOLPHIN_WINDOWS_ARCH = 'arm64'
 $env:SUPER_DOLPHIN_WINDOWS_OUTPUT = 'installer'
 $env:SUPER_DOLPHIN_RELEASE_BUILD = '1'
+$env:SUPER_DOLPHIN_RELEASE_BUILD_COMMIT = $BuildCommit
 $env:SUPER_DOLPHIN_UPDATE_ENABLED = '1'
 $env:SUPER_DOLPHIN_UPDATE_GITHUB_REPO = $GitHubReleaseRepo
 $env:SUPER_DOLPHIN_UPDATE_PUBLIC_KEY = $PublicKey
@@ -92,6 +122,7 @@ $env:SUPER_DOLPHIN_UPDATE_VERSION = $PackageVersion
 $env:VERSION = $PackageVersion
 
 Assert-UpdatePublicKeyContinuity -PreviousPublicKey $PreviousPublicKey -PublicKey $PublicKey
+Require-CleanReleaseTree
 
 & go run .\cmd\super-dolphin-release-manifest `
     -check-key `
@@ -114,6 +145,7 @@ $artifact = Join-Path $StageDir $assetName
 $manifest = Join-Path $StageDir $manifestName
 $artifactUrl = "https://github.com/$GitHubReleaseRepo/releases/download/$Version/$assetName"
 Copy-Item -LiteralPath $sourceInstaller -Destination $artifact -Force
+Set-Content -LiteralPath (Join-Path $StageDir 'release-build-commit.txt') -Value $BuildCommit -Encoding utf8NoBOM
 
 & go run ./cmd/super-dolphin-release-manifest `
     -artifact $artifact `

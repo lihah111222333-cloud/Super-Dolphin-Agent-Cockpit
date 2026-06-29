@@ -61,9 +61,16 @@ func (e dreamExecutor) ExecuteDreamWithOptions(ctx context.Context, prompt strin
 	if err := ctx.Err(); err != nil {
 		return "", err
 	}
+	options.RuntimePolicy = options.RuntimePolicy.WithStrictDefaults()
 	// --output-format json 让 claude -p 输出 envelope JSON（含 result + usage），
 	// dreamexec.Run 自动探测后走 ExtractClaudeEnvelope，usage 由 OnUsage 路由到 dreammetrics。
 	args := []string{"-p", "--output-format", "json"}
+	if options.RuntimePolicy.ToolsDisabled {
+		args = append(args, "--tools", "")
+	}
+	if options.RuntimePolicy.ReadOnlySandbox {
+		args = append(args, "--permission-mode", "default")
+	}
 	model := strings.TrimSpace(options.Model)
 	if model == "" {
 		model = e.model
@@ -77,6 +84,7 @@ func (e dreamExecutor) ExecuteDreamWithOptions(ctx context.Context, prompt strin
 		Prompt:         prompt,
 		MaxStdoutBytes: dreamMaxStdoutBytes,
 		MaxRetries:     dreamMaxRetries,
+		RuntimePolicy:  options.RuntimePolicy,
 		OnUsage: func(usage dreamexec.TokenUsage) {
 			dreammetrics.AddTokens(usage.InputTokens, usage.OutputTokens, usage.CacheReadTokens)
 		},

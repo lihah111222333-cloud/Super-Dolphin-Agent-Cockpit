@@ -14,8 +14,10 @@ import (
 	"sync"
 	"time"
 
+	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	mcpdto "github.com/anthropic-ai/super-agent-v3/internal/dto/mcp"
 	providerdto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/httpegress"
 )
 
 const (
@@ -77,6 +79,9 @@ func newHTTPMCPClient(ctx context.Context, binary providerdto.MCPBinary) (*httpM
 
 // buildHTTPMCPClient 校验 HTTP MCP binary 配置；URL 或 header 异常时直接失败，避免启动半可用工具面。
 func buildHTTPMCPClient(binary providerdto.MCPBinary) (*httpMCPClient, error) {
+	if err := contract.DefaultRuntimeMCPPolicy().ValidateManifestBinary(binary); err != nil {
+		return nil, err
+	}
 	name := strings.TrimSpace(binary.Name)
 	if name == "" {
 		return nil, fmt.Errorf("toolbridge: HTTP MCP server name is required")
@@ -88,6 +93,15 @@ func buildHTTPMCPClient(binary providerdto.MCPBinary) (*httpMCPClient, error) {
 	if endpoint == "" {
 		return nil, fmt.Errorf("toolbridge: HTTP MCP url is required for %q", name)
 	}
+	client := httpMCPDoer(defaultHTTPMCPClient)
+	if !contract.IsManagedRuntimeMCPServerName(name) {
+		var err error
+		endpoint, err = httpegress.ValidatePublicURL(endpoint)
+		if err != nil {
+			return nil, fmt.Errorf("toolbridge: HTTP MCP url for %q: %w", name, err)
+		}
+		client = httpegress.NewPublicHTTPClient(30 * time.Second)
+	}
 	headers, err := cloneHTTPMCPHeaders(binary.Headers)
 	if err != nil {
 		return nil, err
@@ -95,11 +109,13 @@ func buildHTTPMCPClient(binary providerdto.MCPBinary) (*httpMCPClient, error) {
 	return &httpMCPClient{
 		endpoint:        endpoint,
 		headers:         headers,
-		client:          defaultHTTPMCPClient,
+		client:          client,
 		protocolVersion: ProxyProtocolVersion,
 	}, nil
 }
 
+// cloneHTTPMCPHeaders 复制并校验外部 HTTP MCP 请求头。
+// 空 header 名和值、危险 header 都会阻断，避免运行时配置绕过 egress 策略。
 func cloneHTTPMCPHeaders(headers map[string]string) (map[string]string, error) {
 	if len(headers) == 0 {
 		return nil, nil
@@ -113,6 +129,9 @@ func cloneHTTPMCPHeaders(headers map[string]string) (map[string]string, error) {
 		}
 		out[name] = value
 	}
+	if err := httpegress.ValidateHeaders(out); err != nil {
+		return nil, fmt.Errorf("toolbridge: HTTP MCP header: %w", err)
+	}
 	return out, nil
 }
 
@@ -122,11 +141,7 @@ func (c *httpMCPClient) ListTools(ctx context.Context) ([]mcpdto.MCPTool, error)
 	if err != nil {
 		return nil, err
 	}
-	var decoded peerToolsListResult
-	if err := json.Unmarshal(raw, &decoded); err != nil {
-		return nil, err
-	}
-	return decoded.Tools, nil
+	return decodePeerToolsListResult(raw, "HTTP MCP tools/list")
 }
 
 // CallTool 通过 HTTP MCP tools/call 调用远端工具，并透传可信的 agent/thread/cwd 元数据。

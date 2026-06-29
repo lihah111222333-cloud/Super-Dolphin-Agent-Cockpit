@@ -412,7 +412,13 @@ func provideDreamExtractFunc(p dreamExtractParams) ExtractFunc {
 	if p.Executor == nil {
 		return nil
 	}
-	return p.Executor.ExecuteDream
+	return func(ctx context.Context, prompt string) (string, error) {
+		options := contract.DreamOptions{RuntimePolicy: contract.StrictDreamRuntimePolicy()}
+		if withOptions, ok := p.Executor.(contract.DreamExecutorWithOptions); ok {
+			return withOptions.ExecuteDreamWithOptions(ctx, prompt, options)
+		}
+		return p.Executor.ExecuteDream(ctx, prompt)
+	}
 }
 
 func provideAutoDreamConsolidator(extractor *MemoryExtractor, dreamExtractFn ExtractFunc) *AutoDreamConsolidator {

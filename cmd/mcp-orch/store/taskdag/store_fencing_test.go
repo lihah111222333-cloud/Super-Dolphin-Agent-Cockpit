@@ -75,6 +75,53 @@ func TestReclaimStaleDispatchingWakeupsAllowsFreshClaimAndBlocksStaleCommit(t *t
 	}
 }
 
+func TestReclaimStaleDispatchingWakeupsSkipsRunningActiveWakeup(t *testing.T) {
+	t.Parallel()
+
+	store, db, now := newTaskDAGTestStore()
+	runID := db.runs["run-1"].ID
+	db.wakeups[7] = newDispatchingWakeup(now, 7, "worker-a", -time.Second)
+	db.nodes[dagRunNodeKey("dag-1", "node-1", runID)] = newRunningNode(now, 7)
+
+	reclaimed, err := store.ReclaimStaleDispatchingWakeups(context.Background())
+	if err != nil {
+		t.Fatalf("ReclaimStaleDispatchingWakeups() error = %v", err)
+	}
+	if reclaimed != 0 {
+		t.Fatalf("reclaimed = %d, want 0 while node is running with active_wakeup_id", reclaimed)
+	}
+	if got := db.wakeups[7].Status; got != "dispatching" {
+		t.Fatalf("wakeup status = %q, want dispatching", got)
+	}
+}
+
+func TestCompleteNodeRejectsStaleWakeupAttempt(t *testing.T) {
+	t.Parallel()
+
+	store, db, now := newTaskDAGTestStore()
+	runID := db.runs["run-1"].ID
+	wakeup := newDispatchingWakeup(now, 7, "worker-a", 30*time.Second)
+	wakeup.AttemptCount = 2
+	db.wakeups[7] = wakeup
+	db.nodes[dagRunNodeKey("dag-1", "node-1", runID)] = newRunningNode(now, 7)
+
+	_, err := store.CompleteNode(context.Background(), CompleteNodeInput{
+		DagKey:        "dag-1",
+		NodeKey:       "node-1",
+		RunID:         runID,
+		Status:        "done",
+		Result:        json.RawMessage(`{}`),
+		WakeupID:      7,
+		WakeupAttempt: 1,
+	})
+	if err == nil {
+		t.Fatal("CompleteNode() stale attempt error = nil, want fence rejection")
+	}
+	if got := db.nodes[dagRunNodeKey("dag-1", "node-1", runID)].Status; got != "running" {
+		t.Fatalf("node status = %q, want running after stale completion", got)
+	}
+}
+
 func claimOneDueWakeup(t *testing.T, store Store, worker string) Wakeup {
 	t.Helper()
 	claimed, err := store.ClaimDueWakeups(context.Background(), ClaimDueWakeupsInput{

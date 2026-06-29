@@ -74,7 +74,9 @@ func (s *store) upsertDiskBacked(ctx context.Context, cleaned string, params Ups
 	if resolveErr != nil {
 		return nil, wrapSharedFileError(resolveErr, "upsert")
 	}
-	_ = sharedfilegitignore.Ensure(s.cfg.CWD, nil)
+	if err := sharedfilegitignore.Ensure(s.cfg.CWD, nil); err != nil {
+		return nil, wrapSharedFileError(err, "upsert")
+	}
 	var mapped *SharedFile
 	err := s.pathLocks.WithPathLock(abs, func() error {
 		previous, hadPrevious, previousErr := s.currentSharedFileIndex(ctx, cleaned)

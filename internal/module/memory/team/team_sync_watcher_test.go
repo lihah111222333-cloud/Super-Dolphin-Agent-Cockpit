@@ -3,6 +3,7 @@ package team
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -58,6 +59,40 @@ func TestTeamSyncWatcherDetectDirtyOnlyForTeamMarkdown(t *testing.T) {
 	assertTeamSyncDirtyState(t, watcher, "outside change", false)
 	writeTeamSyncTestFile(t, filepath.Join(root, "keep.md"), "three")
 	assertTeamSyncDirtyState(t, watcher, "md change", true)
+}
+
+func TestTeamSyncWatcherRootCapsFailClosed(t *testing.T) {
+	root := filepath.Join(t.TempDir(), teamMemoryRootDirName)
+	writeTeamSyncTestFile(t, filepath.Join(root, "nested", "child.md"), "child")
+	svc := &TeamSyncService{root: root}
+
+	_, err := newTeamSyncWatcherWithCaps(svc, root, nil, teamSyncWatcherRootCaps{MaxDirs: 1, MaxFiles: 10, MaxBytes: 1024})
+	if err == nil || !strings.Contains(err.Error(), "root cap") {
+		t.Fatalf("newTeamSyncWatcherWithCaps() error = %v, want root cap violation", err)
+	}
+}
+
+func TestTeamSyncWatcherHealthSnapshotReportsCapViolation(t *testing.T) {
+	root := filepath.Join(t.TempDir(), teamMemoryRootDirName)
+	writeTeamSyncTestFile(t, filepath.Join(root, "keep.md"), "one")
+	svc := &TeamSyncService{root: root}
+	watcher, err := newTeamSyncWatcherWithCaps(svc, root, nil, teamSyncWatcherRootCaps{MaxDirs: 10, MaxFiles: 10, MaxBytes: 1024})
+	if err != nil {
+		t.Fatalf("newTeamSyncWatcherWithCaps() error = %v", err)
+	}
+	t.Cleanup(watcher.closeWatcher)
+
+	if err := os.MkdirAll(filepath.Join(root, "nested"), 0o755); err != nil {
+		t.Fatalf("MkdirAll nested: %v", err)
+	}
+	watcher.caps = teamSyncWatcherRootCaps{MaxDirs: 1, MaxFiles: 10, MaxBytes: 1024}
+	if err := watcher.addRecursive(root); err == nil {
+		t.Fatal("addRecursive() error = nil, want cap violation")
+	}
+	snapshot := watcher.HealthSnapshot()
+	if snapshot.WatchedDirs == 0 || !strings.Contains(snapshot.LastCapViolation, "root cap") {
+		t.Fatalf("HealthSnapshot() = %+v, want watched dirs and cap violation", snapshot)
+	}
 }
 
 func assertTeamSyncDirtyState(t *testing.T, watcher *teamSyncWatcher, label string, want bool) {

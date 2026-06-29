@@ -195,8 +195,12 @@ func (s *service) Delete(ctx context.Context, threadID string) error {
 		return err
 	}
 	stopState := newThreadStopState(binding, id)
-	if err := s.deleteThreadRuntime(ctx, stopState, binding); err != nil {
+	releaseResume, err := s.deleteThreadRuntime(ctx, stopState, binding)
+	if err != nil {
 		return err
+	}
+	if releaseResume != nil {
+		defer releaseResume()
 	}
 	if err := s.deleteThreadBinding(ctx, binding); err != nil {
 		return err
@@ -266,9 +270,9 @@ func (s *service) deleteThreadRuntime(
 	ctx context.Context,
 	stopState threadStopState,
 	binding *bindingStoreRecord,
-) error {
+) (func(), error) {
 	if binding == nil {
-		return nil
+		return nil, nil
 	}
 	return s.stopThreadRuntime(ctx, stopState, "thread_deleted", true)
 }

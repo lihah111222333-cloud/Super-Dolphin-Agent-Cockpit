@@ -44,7 +44,7 @@ func TestTranslateCodexEventWarnsOnUnknownRawEvent(t *testing.T) {
 
 	translateCodexEvent(dto.RawProviderEvent{
 		EventType: "mystery/event",
-		Data:      map[string]any{"foo": "bar"},
+		Data:      map[string]any{"foo": "bar", "api_key": "sk-live-secret"},
 	}, func(any) {
 		t.Fatal("unknown raw event should not publish typed event")
 	})
@@ -55,6 +55,16 @@ func TestTranslateCodexEventWarnsOnUnknownRawEvent(t *testing.T) {
 	}
 	if !strings.Contains(output, "mystery/event") {
 		t.Fatalf("warn output = %q, want raw event type", output)
+	}
+	for _, forbidden := range []string{"sk-live-secret", "api_key"} {
+		if strings.Contains(output, forbidden) {
+			t.Fatalf("warn output leaked %q: %q", forbidden, output)
+		}
+	}
+	for _, want := range []string{"payload_sha256", "payload_size_bytes"} {
+		if !strings.Contains(output, want) {
+			t.Fatalf("warn output = %q, want %q metadata", output, want)
+		}
 	}
 }
 

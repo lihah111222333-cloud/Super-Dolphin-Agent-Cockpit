@@ -1793,6 +1793,20 @@ APP_NAME="Super Dolphin"
 SRC_DIR="$(cd "$(dirname "$0")" && pwd)"
 SRC_APP="$SRC_DIR/$APP_NAME.app"
 DEST_APP="/Applications/$APP_NAME.app"
+STAGED_APP="/Applications/.$APP_NAME.installing.$$"
+BACKUP_APP="/Applications/.$APP_NAME.backup.$$"
+
+rollback_install() {
+  local status=$?
+  rm -rf "$STAGED_APP"
+  if [[ -d "$BACKUP_APP" && ! -d "$DEST_APP" ]]; then
+    mv "$BACKUP_APP" "$DEST_APP"
+  elif [[ -d "$BACKUP_APP" ]]; then
+    rm -rf "$BACKUP_APP"
+  fi
+  return "$status"
+}
+trap rollback_install ERR
 
 clear
 printf '\n'
@@ -1809,12 +1823,16 @@ if [[ ! -d "$SRC_APP" ]]; then
 fi
 
 printf '正在安装到 /Applications ...\n'
+rm -rf "$STAGED_APP" "$BACKUP_APP"
+ditto "$SRC_APP" "$STAGED_APP"
 if [[ -d "$DEST_APP" ]]; then
   printf '检测到已安装的旧版本，正在替换...\n'
-  rm -rf "$DEST_APP"
+  mv "$DEST_APP" "$BACKUP_APP"
 fi
 
-ditto "$SRC_APP" "$DEST_APP"
+mv "$STAGED_APP" "$DEST_APP"
+rm -rf "$BACKUP_APP"
+trap - ERR
 
 printf '正在解除下载隔离标签...\n'
 xattr -dr com.apple.quarantine "$DEST_APP" 2>/dev/null || true

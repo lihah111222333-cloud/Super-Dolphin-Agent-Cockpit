@@ -188,6 +188,33 @@ describe('wails bridge shared file helpers', () => {
     }));
     await expect(openSharedFile({ path: ' ' })).rejects.toThrow('openSharedFile path is required');
   });
+
+  it('requests tokenized shared file previews through the native sharedFile RPC', async () => {
+    const byID = vi.fn().mockResolvedValue({
+      url: 'http://127.0.0.1:4511/shared-file-preview?id=sf_123',
+      path: 'dag/video/final.mp4',
+      contentType: 'video/mp4',
+      sizeBytes: 24,
+    });
+    vi.doMock(runtimeModule, () => ({
+      Call: { ByID: byID },
+      Events: { On: vi.fn() },
+    }));
+    const { previewSharedFile } = await import('./wailsBridge.js');
+
+    await expect(previewSharedFile({ path: ' dag/video/final.mp4 ' })).resolves.toEqual({
+      url: 'http://127.0.0.1:4511/shared-file-preview?id=sf_123',
+      path: 'dag/video/final.mp4',
+      contentType: 'video/mp4',
+      sizeBytes: 24,
+    });
+
+    expect(byID).toHaveBeenCalledWith(expect.any(Number), 'ui/sharedFile/open', expect.objectContaining({
+      path: 'dag/video/final.mp4',
+      preview: true,
+    }));
+    await expect(previewSharedFile({ path: '' })).rejects.toThrow('previewSharedFile path is required');
+  });
 });
 
 describe('wails bridge warning logs', () => {

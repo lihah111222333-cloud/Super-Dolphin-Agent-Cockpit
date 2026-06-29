@@ -3,7 +3,6 @@ package mcpcontrol
 import (
 	"context"
 	"encoding/json"
-	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 	"log/slog"
 	"sort"
 	"strings"
@@ -11,8 +10,10 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/mcp"
 	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/observability"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/rpc"
 	platformshared "github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
+	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 	"github.com/creachadair/jrpc2"
 	"github.com/creachadair/jrpc2/handler"
 	"github.com/kelindar/event"
@@ -326,7 +327,24 @@ func controlLogArgs(instance *ToolInstance, req dto.LogNotify) []any {
 	}
 	sort.Strings(keys)
 	for _, key := range keys {
-		args = append(args, key, req.Fields[key])
+		args = append(args, controlSafeLogField(key, req.Fields[key])...)
+	}
+	return args
+}
+
+// controlSafeLogField 将 peer 自定义字段限制为脱敏、可 JSON 表达的日志字段。
+func controlSafeLogField(key string, value any) []any {
+	if safe, ok := observability.SafeMetadataValue(key, value, 512); ok {
+		return []any{key, safe}
+	}
+	preview := observability.SafePreview(value, 512)
+	args := []any{
+		key + "_preview", preview.Preview,
+		key + "_bytes", preview.Bytes,
+		key + "_truncated", preview.Truncated,
+	}
+	if preview.SHA256 != "" {
+		args = append(args, key+"_sha256", preview.SHA256)
 	}
 	return args
 }

@@ -39,6 +39,38 @@ func TestStructureSchemaHidesLegacyPathAlias(t *testing.T) {
 	}
 }
 
+func TestFileSchemaExposesLanguageIDOverride(t *testing.T) {
+	props, ok := lspFileSchema["properties"].(map[string]any)
+	if !ok {
+		t.Fatalf("file schema properties type = %T", lspFileSchema["properties"])
+	}
+	if _, ok := props["language_id"]; !ok {
+		t.Fatalf("file schema missing language_id override used by handler")
+	}
+}
+
+func TestStructureSchemaActionEnumMatchesHandlerActions(t *testing.T) {
+	props, ok := lspStructureSchema["properties"].(map[string]any)
+	if !ok {
+		t.Fatalf("structure schema properties type = %T", lspStructureSchema["properties"])
+	}
+	action, ok := props["action"].(map[string]any)
+	if !ok {
+		t.Fatalf("structure action schema type = %T", props["action"])
+	}
+	values, ok := action["enum"].([]string)
+	if !ok {
+		t.Fatalf("structure action enum type = %T", action["enum"])
+	}
+	want := []string{"document_symbol", "workspace_symbol", "folding_range", "semantic_tokens"}
+	if !reflect.DeepEqual(values, want) {
+		t.Fatalf("structure action enum = %#v, want %#v", values, want)
+	}
+	if _, ok := props["language_id"]; !ok {
+		t.Fatalf("structure schema missing language_id override used by handler")
+	}
+}
+
 func TestGrepSchemaDocumentsSmartCaseOverride(t *testing.T) {
 	props, ok := lspGrepSchema["properties"].(map[string]any)
 	if !ok {

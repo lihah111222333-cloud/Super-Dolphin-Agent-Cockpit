@@ -94,6 +94,7 @@ func appendExtraManifestBinaries(bins []dto.MCPBinary, extras []dto.MCPBinary) [
 		}
 		extra.Type = strings.TrimSpace(extra.Type)
 		extra.URL = strings.TrimSpace(extra.URL)
+		extra.TrustedServerID = strings.TrimSpace(extra.TrustedServerID)
 		extra.Headers = cloneManifestEnv(extra.Headers)
 		extra.Env = cloneManifestEnv(extra.Env)
 		extra.Command = append([]string(nil), extra.Command...)

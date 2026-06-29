@@ -34,6 +34,35 @@ func TestStdioMCPClientRequestSkipsNotificationsUntilMatchingResponse(t *testing
 	}
 }
 
+func TestStdioMCPClientListToolsRejectsMalformedResult(t *testing.T) {
+	cases := []struct {
+		name    string
+		result  string
+		wantErr string
+	}{
+		{name: "missing tools", result: `{}`, wantErr: "tools array is required"},
+		{name: "tools not array", result: `{"tools":null}`, wantErr: "tools array is required"},
+		{name: "empty name", result: `{"tools":[{"name":" ","inputSchema":{"type":"object"}}]}`, wantErr: "tool name is required"},
+		{name: "schema not object", result: `{"tools":[{"name":"grep","inputSchema":"bad"}]}`, wantErr: "inputSchema must be a JSON object"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			transport := &fakeStdioTransport{reads: []json.RawMessage{
+				json.RawMessage(`{"jsonrpc":"2.0","id":1,"result":` + tc.result + `}`),
+			}}
+			client := &stdioMCPClient{transport: transport}
+
+			_, err := client.ListTools(context.Background())
+			if err == nil {
+				t.Fatalf("ListTools() error = nil, want %s", tc.wantErr)
+			}
+			if !strings.Contains(err.Error(), tc.wantErr) {
+				t.Fatalf("ListTools() error = %v, want %s", err, tc.wantErr)
+			}
+		})
+	}
+}
+
 func TestStdioMCPClientCallToolForwardsWorkspaceRootsMetadata(t *testing.T) {
 	transport := &fakeStdioTransport{reads: []json.RawMessage{
 		json.RawMessage(`{"jsonrpc":"2.0","id":1,"result":{"content":[{"type":"text","text":"ok"}]}}`),
@@ -138,6 +167,23 @@ func TestStdioMCPClientRejectsOversizePeerResponse(t *testing.T) {
 	}
 }
 
+func TestDefaultStdioClientFactoryRejectsUntrustedRuntimeCommand(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	h := &Handler{}
+
+	_, err := h.defaultStdioClientFactory(ctx, providerdto.MCPBinary{
+		Name:    "shell",
+		Command: []string{os.Args[0], "-test.run=^$"},
+	})
+	if err == nil {
+		t.Fatal("defaultStdioClientFactory() error = nil, want untrusted runtime command rejection")
+	}
+	if !strings.Contains(err.Error(), "trusted server id") {
+		t.Fatalf("defaultStdioClientFactory() error = %v, want trusted server id rejection", err)
+	}
+}
+
 func TestStdioMCPClientCloseTerminatesChildProcesses(t *testing.T) {
 	if os.Getenv("TOOLBRIDGE_STDIO_CHILD_HELPER") == "1" {
 		runStdioChildTestHelper()
@@ -150,7 +196,8 @@ func TestStdioMCPClientCloseTerminatesChildProcesses(t *testing.T) {
 
 	marker := filepath.Join(t.TempDir(), "child.pid")
 	client, err := newStdioMCPClient(context.Background(), providerdto.MCPBinary{
-		Name: "helper",
+		Name:            "helper",
+		TrustedServerID: "helper",
 		Command: []string{
 			os.Args[0],
 			"-test.run=TestStdioMCPClientCloseTerminatesChildProcesses",
@@ -184,10 +231,13 @@ func TestStdioMCPClientScrubsDatabaseEnvFromParentAndManifest(t *testing.T) {
 	t.Setenv("SUPER_DOLPHIN_SQLITE_PATH", filepath.Join(t.TempDir(), "parent.db"))
 	t.Setenv("SUPER_DOLPHIN_INTERNAL_SQLITE_PATH", filepath.Join(t.TempDir(), "parent-internal.db"))
 	t.Setenv("TOOLBRIDGE_SAFE_PARENT", "keep-parent")
+	t.Setenv("OPENAI_API_KEY", "parent-openai-secret")
+	t.Setenv("ANTHROPIC_API_KEY", "parent-anthropic-secret")
 
 	envPath := filepath.Join(t.TempDir(), "stdio-env.txt")
 	client, err := newStdioMCPClient(context.Background(), providerdto.MCPBinary{
-		Name: "env-helper",
+		Name:            "env-helper",
+		TrustedServerID: "env-helper",
 		Command: []string{
 			os.Args[0],
 			"-test.run=^TestStdioMCPClientScrubsDatabaseEnvFromParentAndManifest$",
@@ -211,7 +261,9 @@ func TestStdioMCPClientScrubsDatabaseEnvFromParentAndManifest(t *testing.T) {
 	for _, key := range []string{"DATABASE_URL", "POSTGRES_CONNECTION_STRING", "SUPER_DOLPHIN_SQLITE_PATH", "SUPER_DOLPHIN_INTERNAL_SQLITE_PATH"} {
 		requireEnvKeyAbsent(t, env, key)
 	}
-	requireEnvValueInSlice(t, env, "TOOLBRIDGE_SAFE_PARENT", "keep-parent")
+	for _, key := range []string{"TOOLBRIDGE_SAFE_PARENT", "OPENAI_API_KEY", "ANTHROPIC_API_KEY"} {
+		requireEnvKeyAbsent(t, env, key)
+	}
 	requireEnvValueInSlice(t, env, "TOOLBRIDGE_SAFE_MANIFEST", "keep-manifest")
 }
 
@@ -271,7 +323,8 @@ func TestStdioMCPClientInitializeUsesProxyProtocolVersion(t *testing.T) {
 
 	initFile := filepath.Join(t.TempDir(), "init.json")
 	client, err := newStdioMCPClient(context.Background(), providerdto.MCPBinary{
-		Name: "version-helper",
+		Name:            "version-helper",
+		TrustedServerID: "version-helper",
 		Command: []string{
 			os.Args[0],
 			"-test.run=^TestStdioMCPClientInitializeUsesProxyProtocolVersion$",

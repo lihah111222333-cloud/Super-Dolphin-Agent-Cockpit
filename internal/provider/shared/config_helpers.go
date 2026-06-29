@@ -9,7 +9,9 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/httpegress"
 	"github.com/anthropic-ai/super-agent-v3/internal/util/configutil"
 )
 
@@ -264,15 +266,23 @@ func mcpBinaryFromServerObject(name string, raw any) (dto.MCPBinary, error) {
 	if err != nil {
 		return dto.MCPBinary{}, err
 	}
+	serverID, err := contract.DefaultRuntimeMCPPolicy().ValidateRuntimeServerReference(name, server)
+	if err != nil {
+		return dto.MCPBinary{}, err
+	}
 	transport, err := requiredConfigString(server, label, "transport", "type")
 	if err != nil {
 		return dto.MCPBinary{}, err
 	}
 	switch strings.ToLower(strings.TrimSpace(transport)) {
 	case "http":
-		return httpMCPBinaryFromServerObject(name, server, label)
+		binary, err := httpMCPBinaryFromServerObject(name, server, label)
+		binary.TrustedServerID = serverID
+		return binary, err
 	case "stdio":
-		return stdioMCPBinaryFromServerObject(name, server, label)
+		binary, err := stdioMCPBinaryFromServerObject(name, server, label)
+		binary.TrustedServerID = serverID
+		return binary, err
 	default:
 		return dto.MCPBinary{}, fmt.Errorf("%s.transport unsupported: %s", label, transport)
 	}
@@ -283,9 +293,16 @@ func httpMCPBinaryFromServerObject(name string, server map[string]any, label str
 	if err != nil {
 		return dto.MCPBinary{}, err
 	}
+	url, err = httpegress.ValidatePublicURL(url)
+	if err != nil {
+		return dto.MCPBinary{}, fmt.Errorf("%s.url: %w", label, err)
+	}
 	headers, err := configStringHeaderMap(server["headers"], label+".headers")
 	if err != nil {
 		return dto.MCPBinary{}, err
+	}
+	if err := httpegress.ValidateHeaders(headers); err != nil {
+		return dto.MCPBinary{}, fmt.Errorf("%s.headers: %w", label, err)
 	}
 	return dto.MCPBinary{
 		Name:    name,
@@ -485,10 +502,5 @@ func configStringMap(raw any, label string) (map[string]string, error) {
 }
 
 func isManagedManifestServerName(name string) bool {
-	switch strings.TrimSpace(name) {
-	case string(dto.FamilyLSP), string(dto.FamilyOrch):
-		return true
-	default:
-		return false
-	}
+	return contract.IsManagedRuntimeMCPServerName(name)
 }

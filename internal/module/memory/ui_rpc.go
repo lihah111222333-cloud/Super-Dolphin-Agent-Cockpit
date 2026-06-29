@@ -70,10 +70,23 @@ type UIMemoryEntry struct {
 
 // UIMemoryHealth 汇总可执行的治理信号，如类型计数和相似组，用于 UI banner 而非写盘校验。
 type UIMemoryHealth struct {
-	PreferenceCount int              `json:"preferenceCount"`
-	ProjectCount    int              `json:"projectCount"`
-	MaxPerCategory  int              `json:"maxPerCategory"`
-	SimilarGroups   []UISimilarGroup `json:"similarGroups,omitempty"`
+	PreferenceCount int                `json:"preferenceCount"`
+	ProjectCount    int                `json:"projectCount"`
+	MaxPerCategory  int                `json:"maxPerCategory"`
+	SimilarGroups   []UISimilarGroup   `json:"similarGroups,omitempty"`
+	AutoDream       *UIAutoDreamHealth `json:"autoDream,omitempty"`
+}
+
+type UIAutoDreamHealth struct {
+	DroppedTotal   int64     `json:"droppedTotal"`
+	ProcessedTotal int64     `json:"processedTotal"`
+	ScheduledTotal int64     `json:"scheduledTotal"`
+	LastError      string    `json:"lastError,omitempty"`
+	LastAt         time.Time `json:"lastAt,omitempty"`
+	LastThreadID   string    `json:"lastThreadID,omitempty"`
+	Running        bool      `json:"running"`
+	ThreadID       string    `json:"threadID,omitempty"`
+	Phase          string    `json:"phase,omitempty"`
 }
 
 // UISimilarGroup 是前端相似记忆提示的 wire DTO，target/path 会回传给 ignore/merge RPC。
@@ -123,6 +136,9 @@ func buildUIMemorySnapshot(ctx context.Context, svc Service, logger *slog.Logger
 
 	health := computeUIMemoryHealth(privateSection.Entries, teamSection.Entries)
 	populateUIMemoryHealthSimilarGroups(health, privateRoot, privateSection.Entries, teamSection.RootPath, teamSection.Entries)
+	if autoHealth := uiAutoDreamHealthFromSnapshot(svc.GetDreamTaskStatus()); autoHealth != nil {
+		health.AutoDream = autoHealth
+	}
 
 	return UIMemorySnapshot{
 		Overview: UIMemoryOverview{
@@ -141,6 +157,31 @@ func buildUIMemorySnapshot(ctx context.Context, svc Service, logger *slog.Logger
 		Private: privateSection,
 		Team:    teamSection,
 	}, nil
+}
+
+func uiAutoDreamHealthFromSnapshot(snapshot DreamTaskSnapshot) *UIAutoDreamHealth {
+	health := autoDreamHealthSnapshot{
+		DroppedTotal:   snapshot.DroppedTotal,
+		ProcessedTotal: snapshot.ProcessedTotal,
+		ScheduledTotal: snapshot.ScheduledTotal,
+		LastError:      snapshot.LastError,
+		LastAt:         snapshot.LastAt,
+		LastThreadID:   snapshot.LastThreadID,
+	}
+	if !snapshot.Running && autoDreamHealthEmpty(health) {
+		return nil
+	}
+	return &UIAutoDreamHealth{
+		DroppedTotal:   snapshot.DroppedTotal,
+		ProcessedTotal: snapshot.ProcessedTotal,
+		ScheduledTotal: snapshot.ScheduledTotal,
+		LastError:      snapshot.LastError,
+		LastAt:         snapshot.LastAt,
+		LastThreadID:   snapshot.LastThreadID,
+		Running:        snapshot.Running,
+		ThreadID:       snapshot.ThreadID,
+		Phase:          snapshot.Phase,
+	}
 }
 
 // computeUIMemoryHealth 统计私有和团队记忆的类型计数，作为 UI 的轻量健康提示。
@@ -625,8 +666,10 @@ func (s similarityAdapter) DreamExecute(ctx context.Context, prompt string) (str
 	if s.deps.DreamExecutor == nil {
 		return "", contract.ErrDreamExecutorNotConfigured
 	}
+	options := s.dreamOptions
+	options.RuntimePolicy = options.RuntimePolicy.WithStrictDefaults()
 	if withOptions, ok := s.deps.DreamExecutor.(contract.DreamExecutorWithOptions); ok {
-		return withOptions.ExecuteDreamWithOptions(ctx, prompt, s.dreamOptions)
+		return withOptions.ExecuteDreamWithOptions(ctx, prompt, options)
 	}
 	return s.deps.DreamExecutor.ExecuteDream(ctx, prompt)
 }

@@ -19,11 +19,22 @@ const (
 	TierSlow = 120 * time.Second
 )
 
+const defaultTimeoutWorkerLimit = 64
+
 // Timeout 给请求套上超时控制。
 func Timeout(limit time.Duration) Middleware {
+	return timeoutWithWorkerLimit(limit, defaultTimeoutWorkerLimit)
+}
+
+// timeoutWithWorkerLimit 构造带有有界 worker 槽位的超时中间件，测试可缩小上限验证背压。
+func timeoutWithWorkerLimit(limit time.Duration, workerLimit int) Middleware {
 	if limit <= 0 {
 		limit = TierNormal
 	}
+	if workerLimit <= 0 {
+		workerLimit = 1
+	}
+	workerSem := make(chan struct{}, workerLimit)
 	return func(next Handler) Handler {
 		return func(ctx context.Context, params json.RawMessage) (any, error) {
 			timeoutCtx, cancel := withToolTimeout(ctx, limit)
@@ -31,8 +42,12 @@ func Timeout(limit time.Duration) Middleware {
 			if err := timeoutCtx.Err(); err != nil {
 				return nil, err
 			}
+			if err := acquireTimeoutWorker(timeoutCtx, workerSem); err != nil {
+				return nil, err
+			}
 			resultC := make(chan timeoutResult, 1)
 			go func() {
+				defer releaseTimeoutWorker(workerSem)
 				result, err := callWithRecover(next, timeoutCtx, params)
 				resultC <- timeoutResult{value: result, err: err}
 			}()
@@ -44,6 +59,23 @@ func Timeout(limit time.Duration) Middleware {
 			}
 		}
 	}
+}
+
+// acquireTimeoutWorker 给异步 handler 分配有界槽位；满载时 fail-fast，避免超时请求无限堆积。
+func acquireTimeoutWorker(ctx context.Context, workerSem chan struct{}) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	select {
+	case workerSem <- struct{}{}:
+		return nil
+	default:
+		return newToolTimeoutCapacityError(cap(workerSem))
+	}
+}
+
+func releaseTimeoutWorker(workerSem chan struct{}) {
+	<-workerSem
 }
 
 // withToolTimeout 为工具请求创建超时上下文，遵守父上下文的已有截止时间。
@@ -69,6 +101,19 @@ func callWithRecover(next Handler, ctx context.Context, params json.RawMessage) 
 		}
 	}()
 	return next(ctx, params)
+}
+
+// newToolTimeoutCapacityError 构造 timeout middleware 的容量错误，提醒调用方稍后重试。
+func newToolTimeoutCapacityError(maxOutstanding int) error {
+	return &common.CodedToolError{
+		Err:       errors.New("tool timeout worker capacity exhausted"),
+		Code:      "lsp_timeout_capacity",
+		Retryable: true,
+		Hint:      "next: retry after current LSP requests finish or narrow concurrent tool calls",
+		Meta: map[string]any{
+			"max_outstanding": maxOutstanding,
+		},
+	}
 }
 
 // newToolTimeoutError 构造工具超时的结构化错误，包含重试提示和超时时长元数据。

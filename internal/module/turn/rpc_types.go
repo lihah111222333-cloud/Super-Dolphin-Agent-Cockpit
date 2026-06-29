@@ -36,43 +36,46 @@ type turnStartParams struct {
 
 // UnmarshalJSON 先解码当前字段，再把历史 camelCase 字段补到空值位置。
 func (p *turnStartParams) UnmarshalJSON(data []byte) error {
-	var legacy struct {
-		ThreadID             string           `json:"threadId"`
-		SelectedSkills       []string         `json:"selectedSkills"`
-		SelectedSkillRefs    []skillRefParams `json:"selectedSkillRefs"`
-		ManualSkillSelection *bool            `json:"manualSkillSelection"`
-		ApprovalPolicy       string           `json:"approvalPolicy"`
-		OutputSchema         json.RawMessage  `json:"outputSchema"`
+	if err := rejectUnknownTurnFields(data, "turn/start", turnStartParamFields); err != nil {
+		return err
 	}
-	type raw turnStartParams
-	return decodeLegacyTurnParams(data, (*raw)(p), &legacy, func(current *raw, legacy *struct {
-		ThreadID             string           `json:"threadId"`
-		SelectedSkills       []string         `json:"selectedSkills"`
-		SelectedSkillRefs    []skillRefParams `json:"selectedSkillRefs"`
-		ManualSkillSelection *bool            `json:"manualSkillSelection"`
-		ApprovalPolicy       string           `json:"approvalPolicy"`
-		OutputSchema         json.RawMessage  `json:"outputSchema"`
-	}) error {
-		if strings.TrimSpace(current.ThreadID) == "" {
-			current.ThreadID = strings.TrimSpace(legacy.ThreadID)
-		}
-		if len(current.SelectedSkills) == 0 && len(legacy.SelectedSkills) > 0 {
-			current.SelectedSkills = append([]string(nil), legacy.SelectedSkills...)
-		}
-		if len(current.SelectedSkillRefs) == 0 && len(legacy.SelectedSkillRefs) > 0 {
-			current.SelectedSkillRefs = append([]skillRefParams(nil), legacy.SelectedSkillRefs...)
-		}
-		if !current.ManualSkillSelection && legacy.ManualSkillSelection != nil {
-			current.ManualSkillSelection = *legacy.ManualSkillSelection
-		}
-		if strings.TrimSpace(current.ApprovalPolicy) == "" {
-			current.ApprovalPolicy = strings.TrimSpace(legacy.ApprovalPolicy)
-		}
-		if len(current.OutputSchema) == 0 {
-			current.OutputSchema = append(json.RawMessage(nil), legacy.OutputSchema...)
-		}
-		return nil
-	})
+	var legacy legacyTurnStartParams
+	return decodeLegacyTurnParams(data, (*rawTurnStartParams)(p), &legacy, mergeTurnStartLegacy)
+}
+
+type rawTurnStartParams turnStartParams
+
+type legacyTurnStartParams struct {
+	ThreadID             string           `json:"threadId"`
+	SelectedSkills       []string         `json:"selectedSkills"`
+	SelectedSkillRefs    []skillRefParams `json:"selectedSkillRefs"`
+	ManualSkillSelection *bool            `json:"manualSkillSelection"`
+	ApprovalPolicy       string           `json:"approvalPolicy"`
+	OutputSchema         json.RawMessage  `json:"outputSchema"`
+}
+
+// mergeTurnStartLegacy 把旧版 camelCase 字段补进 turn/start 新版参数。
+// 只有新版字段为空时才补值，避免旧客户端兼容逻辑覆盖当前 wire 格式。
+func mergeTurnStartLegacy(current *rawTurnStartParams, legacy *legacyTurnStartParams) error {
+	if strings.TrimSpace(current.ThreadID) == "" {
+		current.ThreadID = strings.TrimSpace(legacy.ThreadID)
+	}
+	if len(current.SelectedSkills) == 0 && len(legacy.SelectedSkills) > 0 {
+		current.SelectedSkills = append([]string(nil), legacy.SelectedSkills...)
+	}
+	if len(current.SelectedSkillRefs) == 0 && len(legacy.SelectedSkillRefs) > 0 {
+		current.SelectedSkillRefs = append([]skillRefParams(nil), legacy.SelectedSkillRefs...)
+	}
+	if !current.ManualSkillSelection && legacy.ManualSkillSelection != nil {
+		current.ManualSkillSelection = *legacy.ManualSkillSelection
+	}
+	if strings.TrimSpace(current.ApprovalPolicy) == "" {
+		current.ApprovalPolicy = strings.TrimSpace(legacy.ApprovalPolicy)
+	}
+	if len(current.OutputSchema) == 0 {
+		current.OutputSchema = append(json.RawMessage(nil), legacy.OutputSchema...)
+	}
+	return nil
 }
 
 // turnInputItemParams 是 text/image/mention/skill 等输入项的宽松 RPC 形态。
@@ -118,38 +121,113 @@ type turnSteerParams struct {
 
 // UnmarshalJSON 兼容旧版 turn/steer camelCase 字段，同时保留新版 snake_case 优先级。
 func (p *turnSteerParams) UnmarshalJSON(data []byte) error {
-	var legacy struct {
-		ThreadID             string           `json:"threadId"`
-		ExpectedTurnID       string           `json:"expectedTurnId"`
-		SelectedSkills       []string         `json:"selectedSkills"`
-		SelectedSkillRefs    []skillRefParams `json:"selectedSkillRefs"`
-		ManualSkillSelection *bool            `json:"manualSkillSelection"`
+	if err := rejectUnknownTurnFields(data, "turn/steer", turnSteerParamFields); err != nil {
+		return err
 	}
-	type raw turnSteerParams
-	return decodeLegacyTurnParams(data, (*raw)(p), &legacy, func(current *raw, legacy *struct {
-		ThreadID             string           `json:"threadId"`
-		ExpectedTurnID       string           `json:"expectedTurnId"`
-		SelectedSkills       []string         `json:"selectedSkills"`
-		SelectedSkillRefs    []skillRefParams `json:"selectedSkillRefs"`
-		ManualSkillSelection *bool            `json:"manualSkillSelection"`
-	}) error {
-		if strings.TrimSpace(current.ThreadID) == "" {
-			current.ThreadID = strings.TrimSpace(legacy.ThreadID)
-		}
-		if strings.TrimSpace(current.ExpectedTurnID) == "" {
-			current.ExpectedTurnID = strings.TrimSpace(legacy.ExpectedTurnID)
-		}
-		if len(current.SelectedSkills) == 0 && len(legacy.SelectedSkills) > 0 {
-			current.SelectedSkills = append([]string(nil), legacy.SelectedSkills...)
-		}
-		if len(current.SelectedSkillRefs) == 0 && len(legacy.SelectedSkillRefs) > 0 {
-			current.SelectedSkillRefs = append([]skillRefParams(nil), legacy.SelectedSkillRefs...)
-		}
-		if !current.ManualSkillSelection && legacy.ManualSkillSelection != nil {
-			current.ManualSkillSelection = *legacy.ManualSkillSelection
-		}
-		return nil
-	})
+	var legacy legacyTurnSteerParams
+	return decodeLegacyTurnParams(data, (*rawTurnSteerParams)(p), &legacy, mergeTurnSteerLegacy)
+}
+
+type rawTurnSteerParams turnSteerParams
+
+type legacyTurnSteerParams struct {
+	ThreadID             string           `json:"threadId"`
+	ExpectedTurnID       string           `json:"expectedTurnId"`
+	SelectedSkills       []string         `json:"selectedSkills"`
+	SelectedSkillRefs    []skillRefParams `json:"selectedSkillRefs"`
+	ManualSkillSelection *bool            `json:"manualSkillSelection"`
+}
+
+// mergeTurnSteerLegacy 把旧版 camelCase 字段补进 turn/steer 新版参数。
+// 兼容字段只作为兜底填充，确保新版 snake_case 请求拥有更高优先级。
+func mergeTurnSteerLegacy(current *rawTurnSteerParams, legacy *legacyTurnSteerParams) error {
+	if strings.TrimSpace(current.ThreadID) == "" {
+		current.ThreadID = strings.TrimSpace(legacy.ThreadID)
+	}
+	if strings.TrimSpace(current.ExpectedTurnID) == "" {
+		current.ExpectedTurnID = strings.TrimSpace(legacy.ExpectedTurnID)
+	}
+	if len(current.SelectedSkills) == 0 && len(legacy.SelectedSkills) > 0 {
+		current.SelectedSkills = append([]string(nil), legacy.SelectedSkills...)
+	}
+	if len(current.SelectedSkillRefs) == 0 && len(legacy.SelectedSkillRefs) > 0 {
+		current.SelectedSkillRefs = append([]skillRefParams(nil), legacy.SelectedSkillRefs...)
+	}
+	if !current.ManualSkillSelection && legacy.ManualSkillSelection != nil {
+		current.ManualSkillSelection = *legacy.ManualSkillSelection
+	}
+	return nil
+}
+
+// turnStartParamFields 列出 turn/start 的 wire 字段，包含明确保留的 camelCase 兼容别名。
+var turnStartParamFields = map[string]struct{}{
+	"additionalWorkingDirectories":   {},
+	"additional_working_directories": {},
+	"approvalPolicy":                 {},
+	"approval_policy":                {},
+	"cwd":                            {},
+	"effort":                         {},
+	"enabledTools":                   {},
+	"enabled_tools":                  {},
+	"files":                          {},
+	"gitRoot":                        {},
+	"git_root":                       {},
+	"images":                         {},
+	"input":                          {},
+	"isWorktree":                     {},
+	"is_worktree":                    {},
+	"language":                       {},
+	"manualSkillSelection":           {},
+	"manual_skill_selection":         {},
+	"mcpSnapshot":                    {},
+	"mcp_snapshot":                   {},
+	"model":                          {},
+	"outputSchema":                   {},
+	"output_schema":                  {},
+	"prompt":                         {},
+	"provider":                       {},
+	"selectedSkillRefs":              {},
+	"selectedSkills":                 {},
+	"selected_skill_refs":            {},
+	"selected_skills":                {},
+	"sessionFlags":                   {},
+	"session_flags":                  {},
+	"threadID":                       {},
+	"threadId":                       {},
+	"thread_id":                      {},
+}
+
+// turnSteerParamFields 列出 turn/steer 的 wire 字段，避免拼写错误在 steer 时被忽略。
+var turnSteerParamFields = map[string]struct{}{
+	"additionalWorkingDirectories":   {},
+	"additional_working_directories": {},
+	"cwd":                            {},
+	"enabledTools":                   {},
+	"enabled_tools":                  {},
+	"expectedTurnId":                 {},
+	"expected_turn_id":               {},
+	"gitRoot":                        {},
+	"git_root":                       {},
+	"input":                          {},
+	"isWorktree":                     {},
+	"is_worktree":                    {},
+	"language":                       {},
+	"manualSkillSelection":           {},
+	"manual_skill_selection":         {},
+	"mcpSnapshot":                    {},
+	"mcp_snapshot":                   {},
+	"model":                          {},
+	"prompt":                         {},
+	"provider":                       {},
+	"selectedSkillRefs":              {},
+	"selectedSkills":                 {},
+	"selected_skill_refs":            {},
+	"selected_skills":                {},
+	"sessionFlags":                   {},
+	"session_flags":                  {},
+	"threadID":                       {},
+	"threadId":                       {},
+	"thread_id":                      {},
 }
 
 // turnInterruptParams 是 turn/interrupt 入参，只允许线程标识和中断来源。

@@ -12,6 +12,7 @@ import (
 
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/sqlc"
 	sharedfilefs "github.com/anthropic-ai/super-agent-v3/internal/platform/sharedfilefs"
+	sharedfilegitignore "github.com/anthropic-ai/super-agent-v3/internal/platform/sharedfilegitignore"
 )
 
 func TestSharedFileDiskOnlyMissingFileFails(t *testing.T) {
@@ -107,6 +108,41 @@ func TestSharedFilePersistsContentLocation(t *testing.T) {
 				t.Fatalf("content_location = %q, want %q", got, tt.want)
 			}
 		})
+	}
+}
+
+func TestSharedFileUpsertFailsBeforeWriteWhenGitignoreEnsureFails(t *testing.T) {
+	t.Parallel()
+
+	cwd := t.TempDir()
+	if err := os.Mkdir(filepath.Join(cwd, ".gitignore"), 0o755); err != nil {
+		t.Fatalf("mkdir .gitignore sentinel: %v", err)
+	}
+	sharedfilegitignore.ResetForTests()
+	t.Cleanup(sharedfilegitignore.ResetForTests)
+	db := newFakeImportDB(t)
+	store := newStoreWithConfig(sqlc.New(db), sharedfilefs.Config{
+		CWD:                  cwd,
+		InlineThresholdBytes: 1,
+	})
+
+	_, err := store.Upsert(context.Background(), UpsertParams{
+		Path:      "reports/gitignore-fail.md",
+		Content:   "body",
+		UpdatedBy: "tester",
+	})
+	if err == nil || !strings.Contains(err.Error(), "sharedfilegitignore") {
+		t.Fatalf("Upsert() error = %v, want gitignore ensure failure", err)
+	}
+	if _, statErr := os.Stat(filepath.Join(cwd, ".agnet", "shared", "reports", "gitignore-fail.md")); !errors.Is(statErr, os.ErrNotExist) {
+		t.Fatalf("disk file stat error = %v, want not exist", statErr)
+	}
+	var count int
+	if scanErr := db.QueryRowContext(context.Background(), `SELECT COUNT(*) FROM shared_files WHERE path = ?`, "reports/gitignore-fail.md").Scan(&count); scanErr != nil {
+		t.Fatalf("query shared_files: %v", scanErr)
+	}
+	if count != 0 {
+		t.Fatalf("shared_files rows = %d, want 0 after gitignore failure", count)
 	}
 }
 

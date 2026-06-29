@@ -4,10 +4,15 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
 	uidto "github.com/anthropic-ai/super-agent-v3/internal/dto/ui"
+	sharedfilefs "github.com/anthropic-ai/super-agent-v3/internal/platform/sharedfilefs"
+	sharedfilegitignore "github.com/anthropic-ai/super-agent-v3/internal/platform/sharedfilegitignore"
 	"github.com/anthropic-ai/super-agent-v3/internal/store/sqlc"
 	_ "modernc.org/sqlite"
 )
@@ -219,6 +224,45 @@ func TestUpsertWritesContentLocationToRealSQLite(t *testing.T) {
 	}
 	if got != contentLocationInline {
 		t.Fatalf("content_location = %q, want %q", got, contentLocationInline)
+	}
+}
+
+func TestUpsertDiskBackedFailsBeforeWriteWhenGitignoreEnsureFails(t *testing.T) {
+	t.Parallel()
+
+	cwd := t.TempDir()
+	if err := os.Mkdir(filepath.Join(cwd, ".gitignore"), 0o755); err != nil {
+		t.Fatalf("mkdir .gitignore sentinel: %v", err)
+	}
+	sharedfilegitignore.ResetForTests()
+	t.Cleanup(sharedfilegitignore.ResetForTests)
+	upsertCalled := false
+	s := &store{
+		q: &sharedFileQuerierStub{
+			getFn: func(context.Context, sqlc.GetSharedFileParams) (sqlc.SharedFile, error) {
+				return sqlc.SharedFile{}, sql.ErrNoRows
+			},
+			upsertFn: func(context.Context, sqlc.UpsertSharedFileParams) (sqlc.SharedFile, error) {
+				upsertCalled = true
+				return sqlc.SharedFile{}, nil
+			},
+		},
+		cfg: sharedfilefs.Config{CWD: cwd, InlineThresholdBytes: 1},
+	}
+
+	_, err := s.Upsert(context.Background(), UpsertParams{
+		Path:      "reports/gitignore-fail.md",
+		Content:   "body",
+		UpdatedBy: "tester",
+	})
+	if err == nil || !strings.Contains(err.Error(), "sharedfilegitignore") {
+		t.Fatalf("Upsert() error = %v, want gitignore ensure failure", err)
+	}
+	if upsertCalled {
+		t.Fatal("UpsertSharedFile called after gitignore ensure failure")
+	}
+	if _, statErr := os.Stat(filepath.Join(cwd, ".agnet", "shared", "reports", "gitignore-fail.md")); !errors.Is(statErr, os.ErrNotExist) {
+		t.Fatalf("disk file stat error = %v, want not exist", statErr)
 	}
 }
 

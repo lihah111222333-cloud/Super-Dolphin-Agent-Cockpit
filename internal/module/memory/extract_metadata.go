@@ -3,6 +3,7 @@ package memory
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"strings"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
@@ -11,6 +12,7 @@ import (
 
 type threadRuntimeMetadata struct {
 	resolved         bool
+	err              error
 	parentAgentID    string
 	threadKind       string
 	ownerThreadID    string
@@ -29,7 +31,15 @@ func (h *MemoryLifecycleHooks) shouldExtractThread(ctx context.Context, evt turn
 	if h == nil || !h.extractOnStop || !evt.Success {
 		return false
 	}
-	return h.resolveThreadRuntimeMetadata(ctx, strings.TrimSpace(evt.ThreadID)).isAutoMemoryRootThread()
+	meta := h.resolveThreadRuntimeMetadata(ctx, strings.TrimSpace(evt.ThreadID))
+	if meta.err != nil {
+		if h.logger != nil {
+			h.logger.Warn("memory: thread runtime metadata decode failed",
+				"thread_id", strings.TrimSpace(evt.ThreadID), "error", meta.err)
+		}
+		return false
+	}
+	return meta.isAutoMemoryRootThread()
 }
 
 // resolveThreadRuntimeMetadata 从线程存储读取 runtime 元数据。
@@ -57,7 +67,10 @@ func resolveThreadRuntimeMetadataFromThread(thread *contract.ThreadMetadata) thr
 		ownerThreadID:    strings.TrimSpace(thread.OwnerThreadID),
 		agentMemoryScope: strings.TrimSpace(thread.AgentMemoryScope),
 	}
-	cfg := decodeStoredThreadRuntime(thread)
+	cfg, err := decodeStoredThreadRuntime(thread)
+	if err != nil {
+		return threadRuntimeMetadata{err: err}
+	}
 	if meta.parentAgentID == "" {
 		meta.parentAgentID = firstRuntimeString(cfg, "parent_agent_id", "parentAgentId", "parentId", "parentID")
 	}
@@ -71,16 +84,16 @@ func resolveThreadRuntimeMetadataFromThread(thread *contract.ThreadMetadata) thr
 }
 
 // decodeStoredThreadRuntime 解码线程 ConfigOverride 中的 runtime 节点。
-// JSON 损坏时返回 nil，让调用方退回显式字段而不是中断 turn 结束处理。
-func decodeStoredThreadRuntime(thread *contract.ThreadMetadata) map[string]any {
+// JSON 损坏时返回错误，让调用方按 fail-closed 处理，避免坏配置被当成缺省配置。
+func decodeStoredThreadRuntime(thread *contract.ThreadMetadata) (map[string]any, error) {
 	if thread == nil || len(thread.ConfigOverride) == 0 {
-		return nil
+		return nil, nil
 	}
 	var stored storedThreadRuntime
 	if err := json.Unmarshal(thread.ConfigOverride, &stored); err != nil {
-		return nil
+		return nil, fmt.Errorf("config_override.runtime: %w", err)
 	}
-	return stored.Runtime
+	return stored.Runtime, nil
 }
 
 // firstRuntimeString 按候选键顺序读取 runtime 字符串。

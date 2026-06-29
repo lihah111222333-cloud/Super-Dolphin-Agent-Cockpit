@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 
@@ -89,6 +90,23 @@ func TestNewHTTPAssetServerUsesConfiguredAddr(t *testing.T) {
 	}
 	if server.addr != "127.0.0.1:0" {
 		t.Fatalf("addr = %q, want configured ephemeral bind", server.addr)
+	}
+}
+
+func TestSharedFilePreviewURLUsesBoundHTTPAddr(t *testing.T) {
+	t.Setenv("SUPER_DOLPHIN_HTTP_ADDR", "127.0.0.1:0")
+	previous := setSharedFilePreviewHTTPAddr("127.0.0.1:45199")
+	t.Cleanup(func() {
+		setSharedFilePreviewHTTPAddr(previous)
+	})
+
+	previewURL := sharedFilePreviewURL("sf_test")
+	parsed, err := url.Parse(previewURL)
+	if err != nil {
+		t.Fatalf("parse preview URL %q: %v", previewURL, err)
+	}
+	if parsed.Host != "127.0.0.1:45199" || strings.HasSuffix(parsed.Host, ":0") {
+		t.Fatalf("preview URL host = %q, want reachable bound port", parsed.Host)
 	}
 }
 
@@ -178,10 +196,22 @@ func TestWailsWebSocketRequestGuardAllowsLoopbackHostAndOrigin(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodGet, "http://127.0.0.1:4511/wails/ws", nil)
 	req.Host = "127.0.0.1:4511"
-	req.Header.Set("Origin", "http://localhost:4511")
+	req.Header.Set("Origin", "http://127.0.0.1:4511")
 
 	if err := validateWailsWebSocketRequest(req); err != nil {
 		t.Fatalf("validateWailsWebSocketRequest() error = %v", err)
+	}
+}
+
+func TestWailsWebSocketRequestGuardRejectsCrossLoopbackOrigin(t *testing.T) {
+	t.Parallel()
+
+	req := httptest.NewRequest(http.MethodGet, "http://127.0.0.1:4511/wails/ws", nil)
+	req.Host = "127.0.0.1:4511"
+	req.Header.Set("Origin", "http://localhost:4511")
+
+	if err := validateWailsWebSocketRequest(req); err == nil || !strings.Contains(err.Error(), "same origin") {
+		t.Fatalf("validateWailsWebSocketRequest() error = %v, want same-origin validation failure", err)
 	}
 }
 

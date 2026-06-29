@@ -39,9 +39,14 @@ type scopedPath struct {
 func resolveScopeRoots(project string, projects []string, catalog scopeCatalog) ([]string, error) {
 	roots := make([]string, 0, len(projects)+1)
 	seen := map[string]struct{}{}
-	for _, entry := range scopeEntries(project, projects) {
+	entries := scopeEntries(project, projects)
+	failOnInvalid := strings.TrimSpace(project) != "" || len(projects) > 0
+	for _, entry := range entries {
 		root, err := catalog.resolve(entry)
 		if err != nil {
+			if failOnInvalid {
+				return nil, fmt.Errorf("invalid project root %q: %w", entry, err)
+			}
 			continue
 		}
 		if _, ok := seen[root]; ok {

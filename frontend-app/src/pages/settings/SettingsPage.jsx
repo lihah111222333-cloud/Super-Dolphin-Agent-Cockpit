@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Menu, Settings } from 'lucide-react';
+import { normalizeRuntimeProviderName } from '../../entities/client/model/providerPreferences.js';
 import { useClientStore } from '../../entities/client/model/useClientStore.js';
 import { PageHeader } from '../shared/pageComponents.jsx';
 import { BuiltinToolsCard } from './components/BuiltinToolsCard.jsx';
@@ -147,10 +148,7 @@ function normalizeProviderName(_value) {
 
 function providerNameFromPreference(value) {
   if (isPreferenceAbsent(value) || isPreferenceTombstone(value)) return SETTINGS_DEFAULTS.activeProvider;
-  const provider = providerConfigValue(value).toLowerCase();
-  if (provider === 'codex') return 'codex';
-  if (provider === 'claude' || provider.startsWith('claude-')) return 'claude';
-  throw new Error(`invalid provider preference: ${providerConfigValue(value) || String(value)}`);
+  return normalizeRuntimeProviderName(value, SETTINGS_KEYS.activeProvider);
 }
 
 function providerDefaults(provider) {

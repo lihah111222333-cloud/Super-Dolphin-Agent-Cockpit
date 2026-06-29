@@ -582,6 +582,7 @@ func renderMCPServerConfigMap(values map[string]contract.MCPServerConfig) map[st
 			server["env"] = env
 		}
 		if len(server) > 0 {
+			server[contract.RuntimeMCPTrustedServerIDKey] = name
 			out[name] = server
 		}
 	}

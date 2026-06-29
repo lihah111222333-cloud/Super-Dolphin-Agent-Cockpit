@@ -13,13 +13,13 @@ import (
 )
 
 // -----------------------------------------------------------------------------
-// TestAutoDreamBusyDropsWithoutReplay
+// TestAutoDreamOverflowCoalescesForReplay
 // -----------------------------------------------------------------------------
 
-// TestAutoDreamBusyDropsWithoutReplay 锁定 auto-dream 队列“丢弃即终态”的行为。
-// Enqueue 是有界非阻塞写入：队列满时只增加 droppedTotal，不能把溢出事件放进重试缓冲或 pending map。
-// worker 启动后只能处理启动时已经在队列里的事件，ProcessedTotal 不能超过队列容量。
-func TestAutoDreamBusyDropsWithoutReplay(t *testing.T) {
+// TestAutoDreamOverflowCoalescesForReplay 锁定 auto-dream 队列溢出后的耐久补处理。
+// Enqueue 仍然不能阻塞总线回调，但满队列时必须按 threadID 合并为 pending，
+// worker 启动后除了队列内事件，还要至少补处理每个溢出 threadID 一次。
+func TestAutoDreamOverflowCoalescesForReplay(t *testing.T) {
 	t.Parallel()
 	// enabled=true 且 consolidator=nil 会走生产 Enqueue 路径，同时让 process 快速自增返回，
 	// 便于测试只观察队列容量与丢弃语义。
@@ -34,21 +34,21 @@ func TestAutoDreamBusyDropsWithoutReplay(t *testing.T) {
 		t.Fatalf("DroppedTotal at cap = %d, want 0 (queue not yet full)", got)
 	}
 
-	// 队列满后继续写入必须走丢弃分支，不能进入缓冲区。
+	// 队列满后继续写入同一个 threadID，必须合并为一次 pending 重试而不是丢弃为终态。
 	const overflow = 7
 	for i := 0; i < overflow; i++ {
-		s.Enqueue("thread-dropped")
+		s.Enqueue("thread-coalesced")
 	}
-	if got := s.DroppedTotal(); got != overflow {
-		t.Fatalf("DroppedTotal after overflow = %d, want %d", got, overflow)
+	if got := s.DroppedTotal(); got != 0 {
+		t.Fatalf("DroppedTotal after overflow = %d, want 0 because overflow is coalesced", got)
 	}
 
-	// worker 只能看到已入队的 cap 条事件；溢出事件从未进入缓冲区，不能被回放。
+	// worker 必须处理已入队的 cap 条事件，并补处理合并后的溢出 threadID 一次。
 	// Stop 会让 runWorker 直接退出，所以先轮询自然 drain，避免未取出的队列事件被测试自身截断。
 	s.Start()
 	deadline := time.Now().Add(2 * time.Second)
 	for time.Now().Before(deadline) {
-		if s.ProcessedTotal() >= int64(autoDreamSchedulerQueueCap) {
+		if s.ProcessedTotal() >= int64(autoDreamSchedulerQueueCap+1) {
 			break
 		}
 		time.Sleep(5 * time.Millisecond)
@@ -60,15 +60,13 @@ func TestAutoDreamBusyDropsWithoutReplay(t *testing.T) {
 		t.Fatalf("Stop error = %v", err)
 	}
 
-	// 核心不变量：worker 只处理队列内容且每条一次；丢弃事件不计入 ProcessedTotal，
-	// 队列 drain 后也不能被任何 replay 机制恢复。
-	if got := s.ProcessedTotal(); got != int64(autoDreamSchedulerQueueCap) {
-		t.Errorf("ProcessedTotal after drain = %d, want %d (no replay of dropped events)",
-			got, autoDreamSchedulerQueueCap)
+	// 核心不变量：溢出 threadID 只 coalesce 一次，既不静默丢失，也不按溢出次数重复放大。
+	if got := s.ProcessedTotal(); got != int64(autoDreamSchedulerQueueCap+1) {
+		t.Errorf("ProcessedTotal after drain = %d, want %d (queue plus one coalesced retry)",
+			got, autoDreamSchedulerQueueCap+1)
 	}
-	if got := s.DroppedTotal(); got != overflow {
-		t.Errorf("DroppedTotal after drain = %d, want %d (drops stay terminal, no decrement)",
-			got, overflow)
+	if got := s.DroppedTotal(); got != 0 {
+		t.Errorf("DroppedTotal after drain = %d, want 0 (overflow should be durable/coalesced)", got)
 	}
 }
 

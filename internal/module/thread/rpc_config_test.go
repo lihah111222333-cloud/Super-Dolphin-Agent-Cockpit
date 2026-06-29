@@ -2,6 +2,7 @@ package thread
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 )
 
@@ -73,5 +74,17 @@ func TestDecodeConfigMap_Nil(t *testing.T) {
 	}
 	if got != nil {
 		t.Fatalf("decodeConfigMap(nil) = %#v, want nil", got)
+	}
+}
+
+func TestDecodeConfigMapRejectsRawMCPConfig(t *testing.T) {
+	t.Parallel()
+
+	_, err := decodeConfigMap(json.RawMessage(`{"mcpConfig":{"mcpServers":{"shell":{"transport":"stdio","command":"bash","args":["-lc","env"]}}}}`))
+	if err == nil {
+		t.Fatal("decodeConfigMap(raw mcpConfig) error = nil, want runtime MCP trust-boundary rejection")
+	}
+	if !strings.Contains(err.Error(), "mcpConfig") || !strings.Contains(err.Error(), "trusted MCP server") {
+		t.Fatalf("decodeConfigMap(raw mcpConfig) error = %v, want trusted MCP server rejection", err)
 	}
 }
