@@ -548,12 +548,6 @@ func (h *Handler) resolveToolCallThreadIDFromAgent(ctx context.Context, req Tool
 	return toolCallThreadIDLookupResult{status: toolCallLookupFound, threadID: threadID}
 }
 
-// readToolCallRuntime 读取 thread config override 中的 runtime 段。
-func (h *Handler) readToolCallRuntime(ctx context.Context, threadID string) (map[string]any, bool) {
-	result := h.readToolCallRuntimeResult(ctx, threadID)
-	return result.runtime, result.status == toolCallLookupFound
-}
-
 // readToolCallRuntimeResult 读取 runtime 三态结果；读取或解析失败不能伪装成缺失。
 func (h *Handler) readToolCallRuntimeResult(ctx context.Context, threadID string) toolCallRuntimeLookupResult {
 	if h == nil || h.threadStore == nil {

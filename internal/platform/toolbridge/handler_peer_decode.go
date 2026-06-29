@@ -159,7 +159,6 @@ func prepareMCPSurfaceBinaries(
 	}
 
 	for i, binary := range binaries {
-		i, binary := i, binary
 		wg.Add(1)
 		safego.Go(ctx, nil, "toolbridge.prepareMCPSurfaceBinary", func(workerCtx context.Context) {
 			defer wg.Done()
