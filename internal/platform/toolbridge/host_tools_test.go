@@ -383,7 +383,7 @@ func listToolsPeer(tools []dto.MCPTool, err error) *mcpcontrol.ToolInstance {
 		if !ok {
 			return fmt.Errorf("result type = %T, want *peerToolsListResult", result)
 		}
-		*out = peerToolsListResult{Tools: tools}
+		*out = peerToolsListResult{Tools: tools, toolsPresent: true}
 		return nil
 	}}}
 }
@@ -403,7 +403,7 @@ func blockingListToolsPeer(kind string, tools []dto.MCPTool, started chan<- stri
 		if !ok {
 			return fmt.Errorf("result type = %T, want *peerToolsListResult", result)
 		}
-		*out = peerToolsListResult{Tools: tools}
+		*out = peerToolsListResult{Tools: tools, toolsPresent: true}
 		return nil
 	}}}
 }

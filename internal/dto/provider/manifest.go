@@ -13,13 +13,14 @@ const (
 
 // MCPBinary 描述一个 MCP binary 的启动配置，支持 stdio 和 HTTP 两种传输模式。
 type MCPBinary struct {
-	Name        string            `json:"name"`
-	Type        string            `json:"type,omitempty"` // "http" 或 ""（stdio）。
-	URL         string            `json:"url,omitempty"`  // HTTP 模式的端点地址。
-	Headers     map[string]string `json:"headers,omitempty"`
-	Command     []string          `json:"command,omitempty"` // stdio 模式的启动命令。
-	Env         map[string]string `json:"env,omitempty"`
-	AutoApprove []string          `json:"autoApprove,omitempty"`
+	Name            string            `json:"name"`
+	TrustedServerID string            `json:"trustedServerId,omitempty"` // 受控 MCP server 配置生成的内部信任标记。
+	Type            string            `json:"type,omitempty"`            // "http" 或 ""（stdio）。
+	URL             string            `json:"url,omitempty"`             // HTTP 模式的端点地址。
+	Headers         map[string]string `json:"headers,omitempty"`
+	Command         []string          `json:"command,omitempty"` // stdio 模式的启动命令。
+	Env             map[string]string `json:"env,omitempty"`
+	AutoApprove     []string          `json:"autoApprove,omitempty"`
 }
 
 // MCPManifest 是一次 provider 会话所需的所有 MCP binary 列表。

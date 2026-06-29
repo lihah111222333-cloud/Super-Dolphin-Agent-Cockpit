@@ -2,6 +2,7 @@ package shared
 
 import (
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -10,8 +11,9 @@ func TestConfigMCPBinariesAcceptsGlobalPostgresStdioServer(t *testing.T) {
 		"mcpConfig": map[string]any{
 			"mcpServers": map[string]any{
 				"postgres": map[string]any{
-					"transport": "stdio",
-					"command":   "mcp-server-postgres",
+					"trustedServerId": "postgres",
+					"transport":       "stdio",
+					"command":         "mcp-server-postgres",
 					"args": []any{
 						"postgresql://super_dolphin@127.0.0.1:55433/super_dolphin?sslmode=disable",
 					},
@@ -37,8 +39,9 @@ func TestConfigMCPBinariesAcceptsNPXSQLiteStdioServer(t *testing.T) {
 		"mcpConfig": map[string]any{
 			"mcpServers": map[string]any{
 				"sqlite": map[string]any{
-					"transport": "stdio",
-					"command":   "npx",
+					"trustedServerId": "sqlite",
+					"transport":       "stdio",
+					"command":         "npx",
 					"args": []any{
 						"-y",
 						"@bytebase/dbhub",
@@ -64,8 +67,9 @@ func TestConfigMCPBinariesAcceptsNPXPlaywrightStdioServer(t *testing.T) {
 		"mcpConfig": map[string]any{
 			"mcpServers": map[string]any{
 				"playwright": map[string]any{
-					"transport": "stdio",
-					"command":   "npx",
+					"trustedServerId": "playwright",
+					"transport":       "stdio",
+					"command":         "npx",
 					"args": []any{
 						"@playwright/mcp@latest",
 					},
@@ -81,5 +85,45 @@ func TestConfigMCPBinariesAcceptsNPXPlaywrightStdioServer(t *testing.T) {
 	}
 	if len(got[0].Command) != 2 || got[0].Command[1] != "@playwright/mcp@latest" {
 		t.Fatalf("playwright command = %#v, want playwright npx package", got[0].Command)
+	}
+}
+
+func TestConfigMCPBinariesRejectsRawRuntimeStdioCommand(t *testing.T) {
+	_, err := ConfigMCPBinaries(map[string]any{
+		"mcpConfig": map[string]any{
+			"mcpServers": map[string]any{
+				"shell": map[string]any{
+					"transport": "stdio",
+					"command":   "bash",
+					"args":      []any{"-lc", "env"},
+				},
+			},
+		},
+	}, "mcpConfig")
+	if err == nil {
+		t.Fatal("ConfigMCPBinaries() error = nil, want raw stdio command rejection")
+	}
+	if !strings.Contains(err.Error(), "trusted server id") {
+		t.Fatalf("ConfigMCPBinaries() error = %v, want trusted server id rejection", err)
+	}
+}
+
+func TestConfigMCPBinariesRejectsPrivateHTTPMCPURL(t *testing.T) {
+	_, err := ConfigMCPBinaries(map[string]any{
+		"mcpConfig": map[string]any{
+			"mcpServers": map[string]any{
+				"loopback": map[string]any{
+					"trustedServerId": "loopback",
+					"transport":       "http",
+					"url":             "http://127.0.0.1:9090/mcp",
+				},
+			},
+		},
+	}, "mcpConfig")
+	if err == nil {
+		t.Fatal("ConfigMCPBinaries() error = nil, want private HTTP MCP URL rejection")
+	}
+	if !strings.Contains(err.Error(), "private network") {
+		t.Fatalf("ConfigMCPBinaries() error = %v, want private network rejection", err)
 	}
 }
