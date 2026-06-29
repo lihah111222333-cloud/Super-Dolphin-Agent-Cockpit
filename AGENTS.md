@@ -192,26 +192,3 @@ If a command is intentionally skipped because the task is docs-only or the surfa
 - 先写明函数或关键代码块做什么；必要时再写为什么这样做、哪里不能乱改、失败时会怎样。
 
 函数级注释守卫应由 `internal/archtest/guardlib.go` 实现，并通过 `./scripts/test_with_guard.sh <file.go>`、`make guard`、`./scripts/test_with_guard.sh ./internal/archtest -count=1` 验证。
-
-## Guard and Baseline Rules
-
-1. Any failing guard means the task is not complete.
-2. `internal/archtest/baseline.json` is the per-file ratchet baseline. Default checks may shrink it, but agents must inspect and report any baseline diff.
-3. Do not use `go run scripts/code_size_guard.go --freeze` unless the user explicitly approves it or the task is specifically about updating guard rules.
-4. Do not weaken guard thresholds to pass a task.
-5. Fix-like commits must include a same-commit regression test, fixture, golden, or snapshot that locks the bug.
-
-## Git Hooks
-
-- Hooks are managed automatically and adapt to all linked worktrees.
-- `pre-commit` checks staged Go impact, rejects staged/worktree mismatch, runs gofmt/go vet/short tests, and runs the guard for Go changes.
-- `commit-msg` rejects fix/hotfix/bugfix/修复 commits without a same-commit bug-locking test.
-- `pre-push` requires a clean worktree/index/untracked state, only allows pushing current `HEAD`, and rechecks fix-test and affected package tests over the pushed range.
-
-## Git Discipline
-
-- Check `git status --short` before editing and before final reporting.
-- Do not revert, stage, or format unrelated user changes.
-- Do not use `git add .`; stage only owned files.
-- Avoid `--no-verify`. It is only for emergency bypass, and missed checks must be run afterward.
-- For atomic push/merge requests, keep unrelated local modifications out of the commit and push only the coherent branch.
