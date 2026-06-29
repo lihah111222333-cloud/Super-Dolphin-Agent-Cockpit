@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	sharedfilepath "github.com/anthropic-ai/super-agent-v3/internal/platform/sharedfilepath"
@@ -355,6 +356,13 @@ type OnFailureConfig struct {
 	EscalationChain []string `json:"escalation_chain,omitempty"`
 }
 
+// ExecutionConfig 描述节点级执行策略。timeout 支持 Go duration 字符串，
+// timeout_sec 兼容 task_create_dag 的既有输入形态；两者冲突时 fail-fast。
+type ExecutionConfig struct {
+	Timeout    string `json:"timeout,omitempty"`
+	TimeoutSec int    `json:"timeout_sec,omitempty"`
+}
+
 // AgentExecConfig 是 node_type=agent 节点的 exec 块。
 // 字段会映射到 LaunchRequest 与 remote thread/start 配置，是 DAG 到 agent runtime 的跨模块 wire 边界。
 type AgentExecConfig struct {
@@ -397,25 +405,28 @@ type HybridExecConfig struct {
 
 // AgentNodeConfig 是 node_type=agent 节点的完整 config。
 type AgentNodeConfig struct {
-	Exec    AgentExecConfig `json:"exec"`
-	Inputs  InputsConfig    `json:"inputs,omitempty"`
-	Outputs OutputsConfig   `json:"outputs,omitempty"`
+	Exec      AgentExecConfig `json:"exec"`
+	Execution ExecutionConfig `json:"execution,omitempty"`
+	Inputs    InputsConfig    `json:"inputs,omitempty"`
+	Outputs   OutputsConfig   `json:"outputs,omitempty"`
 	// FirstTurn 可选：覆盖 agent_key 的默认提示词（一次性指令）。
 	FirstTurn string `json:"first_turn,omitempty"`
 }
 
 // AutomationNodeConfig 是 node_type=automation 节点的完整 config。
 type AutomationNodeConfig struct {
-	Exec    AutomationExecConfig `json:"exec"`
-	Inputs  InputsConfig         `json:"inputs,omitempty"`
-	Outputs OutputsConfig        `json:"outputs,omitempty"`
+	Exec      AutomationExecConfig `json:"exec"`
+	Execution ExecutionConfig      `json:"execution,omitempty"`
+	Inputs    InputsConfig         `json:"inputs,omitempty"`
+	Outputs   OutputsConfig        `json:"outputs,omitempty"`
 }
 
 // HybridNodeConfig 是 node_type=hybrid 节点的完整 config。
 type HybridNodeConfig struct {
-	Exec    HybridExecConfig `json:"exec"`
-	Inputs  InputsConfig     `json:"inputs,omitempty"`
-	Outputs OutputsConfig    `json:"outputs,omitempty"`
+	Exec      HybridExecConfig `json:"exec"`
+	Execution ExecutionConfig  `json:"execution,omitempty"`
+	Inputs    InputsConfig     `json:"inputs,omitempty"`
+	Outputs   OutputsConfig    `json:"outputs,omitempty"`
 }
 
 // ErrUnknownNodeType 在 ParseNodeConfig 收到未知 node_type 时返回；errors.Is 可用。
@@ -528,6 +539,106 @@ func validatePersistableAutomationExec(exec AutomationExecConfig) error {
 	return nil
 }
 
+// ResolveExecutionTimeout 合并 DAG metadata 默认 timeout 与节点 config 覆盖值。
+// 返回 0 表示未配置 timeout；配置存在但非法时返回错误，调用方必须阻断执行。
+func ResolveExecutionTimeout(dagMetadata, nodeConfig json.RawMessage) (time.Duration, error) {
+	dagTimeout, hasDag, err := decodeExecutionTimeout(dagMetadata, true)
+	if err != nil {
+		return 0, fmt.Errorf("dag metadata execution timeout: %w", err)
+	}
+	nodeTimeout, hasNode, err := decodeExecutionTimeout(nodeConfig, false)
+	if err != nil {
+		return 0, fmt.Errorf("node config execution timeout: %w", err)
+	}
+	if hasNode {
+		return nodeTimeout, nil
+	}
+	if hasDag {
+		return dagTimeout, nil
+	}
+	return 0, nil
+}
+
+// ExecutionTimeout 解析单个 execution 块，供 executor 直测和 router 合并逻辑共用。
+func (cfg ExecutionConfig) ExecutionTimeout() (time.Duration, bool, error) {
+	return resolveExecutionConfigTimeout(cfg)
+}
+
+type executionTimeoutEnvelope struct {
+	Execution ExecutionConfig `json:"execution,omitempty"`
+	Schedule  struct {
+		DefaultTimeoutSec int `json:"default_timeout_sec,omitempty"`
+	} `json:"schedule,omitempty"`
+}
+
+func decodeExecutionTimeout(raw json.RawMessage, includeScheduleDefault bool) (time.Duration, bool, error) {
+	if len(raw) == 0 {
+		return 0, false, nil
+	}
+	var envelope executionTimeoutEnvelope
+	if err := json.Unmarshal(raw, &envelope); err != nil {
+		return 0, false, fmt.Errorf("decode execution envelope: %w", err)
+	}
+	timeout, ok, err := resolveExecutionConfigTimeout(envelope.Execution)
+	if err != nil || ok || !includeScheduleDefault {
+		return timeout, ok, err
+	}
+	if envelope.Schedule.DefaultTimeoutSec == 0 {
+		return 0, false, nil
+	}
+	if envelope.Schedule.DefaultTimeoutSec < 0 {
+		return 0, false, errors.New("schedule.default_timeout_sec must be positive")
+	}
+	return time.Duration(envelope.Schedule.DefaultTimeoutSec) * time.Second, true, nil
+}
+
+func resolveExecutionConfigTimeout(cfg ExecutionConfig) (time.Duration, bool, error) {
+	durationTimeout, hasDuration, err := parseExecutionTimeoutString(cfg.Timeout)
+	if err != nil {
+		return 0, false, err
+	}
+	secondsTimeout, hasSeconds, err := parseExecutionTimeoutSeconds(cfg.TimeoutSec)
+	if err != nil {
+		return 0, false, err
+	}
+	if hasDuration && hasSeconds && durationTimeout != secondsTimeout {
+		return 0, false, errors.New("execution.timeout conflicts with execution.timeout_sec")
+	}
+	switch {
+	case hasDuration:
+		return durationTimeout, true, nil
+	case hasSeconds:
+		return secondsTimeout, true, nil
+	default:
+		return 0, false, nil
+	}
+}
+
+func parseExecutionTimeoutString(raw string) (time.Duration, bool, error) {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		return 0, false, nil
+	}
+	timeout, err := time.ParseDuration(trimmed)
+	if err != nil {
+		return 0, false, fmt.Errorf("execution.timeout parse duration: %w", err)
+	}
+	if timeout <= 0 {
+		return 0, false, errors.New("execution.timeout must be positive")
+	}
+	return timeout, true, nil
+}
+
+func parseExecutionTimeoutSeconds(seconds int) (time.Duration, bool, error) {
+	if seconds == 0 {
+		return 0, false, nil
+	}
+	if seconds < 0 {
+		return 0, false, errors.New("execution.timeout_sec must be positive")
+	}
+	return time.Duration(seconds) * time.Second, true, nil
+}
+
 // ParseAgentConfig 解码 node_type=agent 的完整 config。
 // 空 raw（未配置）返回 zero-value config，不报错。
 func ParseAgentConfig(raw json.RawMessage) (*AgentNodeConfig, error) {
@@ -537,6 +648,9 @@ func ParseAgentConfig(raw json.RawMessage) (*AgentNodeConfig, error) {
 	}
 	if err := json.Unmarshal(raw, &cfg); err != nil {
 		return nil, fmt.Errorf("nodeexec: parse agent config: %w", err)
+	}
+	if err := validateExecutionConfig(cfg.Execution); err != nil {
+		return nil, err
 	}
 	if err := validateOutputsConfig(cfg.Outputs); err != nil {
 		return nil, err
@@ -553,6 +667,9 @@ func ParseAutomationConfig(raw json.RawMessage) (*AutomationNodeConfig, error) {
 	}
 	if err := json.Unmarshal(raw, &cfg); err != nil {
 		return nil, fmt.Errorf("nodeexec: parse automation config: %w", err)
+	}
+	if err := validateExecutionConfig(cfg.Execution); err != nil {
+		return nil, err
 	}
 	if err := validateOutputsConfig(cfg.Outputs); err != nil {
 		return nil, err
@@ -576,8 +693,18 @@ func ParseHybridConfig(raw json.RawMessage) (*HybridNodeConfig, error) {
 	if err := json.Unmarshal(raw, &cfg); err != nil {
 		return nil, fmt.Errorf("nodeexec: parse hybrid config: %w", err)
 	}
+	if err := validateExecutionConfig(cfg.Execution); err != nil {
+		return nil, err
+	}
 	if err := validateOutputsConfig(cfg.Outputs); err != nil {
 		return nil, err
 	}
 	return &cfg, nil
+}
+
+func validateExecutionConfig(cfg ExecutionConfig) error {
+	if _, _, err := cfg.ExecutionTimeout(); err != nil {
+		return err
+	}
+	return nil
 }

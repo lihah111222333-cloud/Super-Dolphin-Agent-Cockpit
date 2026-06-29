@@ -113,7 +113,7 @@ func TestStopAllAgentsPublishesShutdownAfterObservedExit(t *testing.T) {
 		close(waitDone)
 	}()
 
-	svc.StopAllAgents()
+	svc.StopAllAgents(context.Background())
 
 	waitForStopTestProcessExit(t, waitDone)
 	requireStopTestEvent(t, stopped, "shutdown", "")
@@ -145,7 +145,7 @@ func TestStopAllAgentsReturnsAfterWaitTimeout(t *testing.T) {
 
 	done := make(chan struct{})
 	go func() {
-		svc.StopAllAgents()
+		svc.StopAllAgents(context.Background())
 		close(done)
 	}()
 
@@ -153,6 +153,27 @@ func TestStopAllAgentsReturnsAfterWaitTimeout(t *testing.T) {
 	case <-done:
 	case <-time.After(time.Second):
 		t.Fatal("StopAllAgents() did not return after process exit wait timeout")
+	}
+}
+
+func TestStopAllAgentsHonorsTotalShutdownDeadline(t *testing.T) {
+	t.Parallel()
+
+	svc := NewService(silentLogger(), nil, nil, nil, nil, nil)
+	blocker := make(chan struct{})
+	svc.asyncWg.Add(1)
+	go func() {
+		defer svc.asyncWg.Done()
+		<-blocker
+	}()
+	defer close(blocker)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 25*time.Millisecond)
+	defer cancel()
+	started := time.Now()
+	svc.StopAllAgents(ctx)
+	if elapsed := time.Since(started); elapsed > 250*time.Millisecond {
+		t.Fatalf("StopAllAgents(ctx) elapsed = %s, want bounded by shutdown context", elapsed)
 	}
 }
 
