@@ -84,56 +84,6 @@
 
 本策略管理从 `.agent/skills/**` 加载代理指令的行为。它不会禁用或描述产品运行时技能管线。运行时规范技能由本项目管理，位置包括项目内 `<cwd>/.agent/skills` 以及活跃个人根目录 `~/.super-dolphin/skills/personal/{user,agent,imported}`；`personal/hub` 仅作为目录索引，不得被扫描、镜像或当作普通个人技能处理。活跃规范技能会同步到生成的提供方原生镜像中，因此 Claude 会发现 `<cwd>/.claude/skills` 和 `~/.claude/skills`，Codex 会发现 `<cwd>/.agents/skills` 和 `~/.agents/skills`。显式配置的提供方主目录仍可使用自己的 `skills` 目录。提供方镜像是生成物，不是规范事实来源。要检查运行时技能行为，请查看 `internal/module/skill*`、`internal/provider/shared/provider_home.go`、提供方镜像测试以及相关 toolbridge 兼容性测试。
 
-## 子代理与编排策略
-
-- 子代理不要求将自身生命周期绑定到 `mcp-orch` 或 `mcp-go-agent-orchestration`。
-- 当平台原生子代理或多代理能力是可用或被请求的执行路径时，直接使用该能力。
-- 只有当任务明确需要持久 DAG 状态、重试和租约语义、cron/wakeup 行为或结构化跨代理交接记录时，才使用 `mcp-orch`。
-- 如果 `mcp-orch` 工具不可用，应根据情况继续使用原生子代理或单会话执行，并报告可观测性降低，而不是仅因缺少编排工具而阻塞。
-
-
-## 当前仓库结构
-
-- Go 模块：`github.com/anthropic-ai/super-agent-v3`，Go `1.25.7`。
-- 入口点：
-  - `cmd/agent-terminal`：Wails 桌面宿主和 HTTP/RPC 桥接服务。开发模式下，`VITE_DEV_URL` 会把宿主代理到当前 `frontend-app` Vite 服务器；打包运行时嵌入由 `frontend-app` 复制出的资源。
-  - `cmd/mcp-orch`：负责代理生命周期、DAG、cron 和 toolbridge 的编排对等进程。
-  - `cmd/mcp-lsp`：通用多语言 LSP 对等进程。
-  - `cmd/mcp-ida`：IDA MCP 对等进程。
-- 核心包：
-  - `internal/app`：应用装配、runner 和适配器。
-  - `internal/contract`：跨模块边界的接口和 DTO。
-  - `internal/module`：memory、prompt、thread、cron、skill 等业务模块。
-  - `internal/platform`：db、rpc、config、运行时安全和 toolbridge 基础设施。
-  - `internal/provider`：Claude CLI、Codex 及相关运行时的提供方适配器。
-  - `internal/store`：基于 sqlc 的持久化层。
-  - `internal/archtest`：架构守卫、代码大小守卫和棘轮基线。
-  - `pkg`：可复用公共库。
-  - `frontend-app`：当前 React/Vite 新 UI 包，由 `run-new-ui-desktop.sh` 使用。
-  - `cmd/agent-terminal/frontend`：旧 Vue/Vite 嵌入式前端包；只有当任务明确指向 legacy/package-embed 路径时才编辑。
-
-## 命令策略
-
-- 除非命令明确切换目录，否则从仓库根目录运行命令。
-- `go`、`node`、`npm`、`pwsh` 等工具应来自当前环境的 `PATH` 或仓库脚本；不要在本文件维护机器本地安装路径。
-- 如果必需工具不可用，报告缺失的命令和目标操作，不要静默改用本机硬编码路径。
-- 本仓库没有 `backend/` 子模块；不要使用 `go -C backend`、`GOWORK=off go -C backend` 或 `./cmd/code_guard`。
-- 优先使用仓库封装命令，而不是临时拼接命令：
-  - `make guard`
-  - `./scripts/test_with_guard.sh <packages> -count=1`
-  - `make test`
-  - `make build-plain`
-  - `make sqlc-verify`
-  - `make codemap-check`
-- 每改完一个 Go 文件，先运行单文件守卫再继续。根据当前设备和 shell 选择守卫入口：
-  - macOS / Linux / Git Bash / WSL：
-    `./scripts/test_with_guard.sh <file.go>`
-  - Windows 原生 PowerShell：
-    `pwsh -NoProfile -ExecutionPolicy Bypass -File .\scripts\test_with_guard.ps1 <file.go>`
-  只传入 Go 文件路径时，该守卫保持安静：exit 0 表示无违规且不输出内容；exit 1 表示有违规，stderr 只输出具体违规项。不要在 Windows PowerShell 中直接运行 `.sh`；必须使用 `.ps1` 入口。
-- 当前新 UI 前端命令在 `frontend-app` 中运行。
-- 旧 Vue 前端命令只在任务明确指向 legacy/package-embed 路径时，才在 `cmd/agent-terminal/frontend` 中运行。
-
 ## 完成验证
 
 在声称已完成、已修复、可提交或可合并之前，运行与变更面匹配的验证。
