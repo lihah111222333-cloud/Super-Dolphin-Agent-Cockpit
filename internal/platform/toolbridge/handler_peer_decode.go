@@ -29,11 +29,12 @@ type mcpClient interface {
 
 // codexToolSurface 保存一次 Codex thread/start 动态工具面及其底层 MCP client。
 type codexToolSurface struct {
-	keys    []string
-	cwd     string
-	tools   map[string]codexToolEntry
-	aliases map[string]string
-	clients []mcpClient
+	keys           []string
+	cwd            string
+	tools          map[string]codexToolEntry
+	aliases        map[string]string
+	hiddenMCPTools map[string]codexToolEntry
+	clients        []mcpClient
 }
 
 // codexToolEntry 描述动态工具名到真实执行端的映射。
@@ -52,7 +53,11 @@ func (h *Handler) PrepareCodexToolSurface(ctx context.Context, scope contract.Co
 	if err := validateCodexToolSurfaceScope(scope); err != nil {
 		return nil, err
 	}
-	surface := &codexToolSurface{tools: map[string]codexToolEntry{}, aliases: map[string]string{}}
+	surface := &codexToolSurface{
+		tools:          map[string]codexToolEntry{},
+		aliases:        map[string]string{},
+		hiddenMCPTools: map[string]codexToolEntry{},
+	}
 	out := make([]contract.DynamicToolSchema, 0)
 	if err := h.addHostSurfaceTools(surface, &out); err != nil {
 		return nil, err
@@ -118,11 +123,37 @@ func (h *Handler) addMCPSurfaceTools(ctx context.Context, scope contract.CodexTo
 		if err := h.backfillMCPToolLifecycle(ctx, scope.CWD, result.binary.Name, result.binary.Name, result.tools); err != nil {
 			return err
 		}
-		if err := addMCPToolsToSurface(surface, out, result.binary.Name, result.client, result.tools); err != nil {
+		tools, err := h.filterMCPToolLifecycleTools(ctx, scope.CWD, result.binary.Name, result.binary.Name, result.tools)
+		if err != nil {
+			return err
+		}
+		if err := addMCPToolsToSurface(surface, out, result.binary.Name, result.client, tools); err != nil {
+			return err
+		}
+		if err := addHiddenLifecycleFilteredMCPTools(surface, result.binary.Name, result.tools, tools); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+// addHiddenLifecycleFilteredMCPTools 只登记被 lifecycle policy 过滤掉的工具身份。
+// hidden 工具不进入动态 schema，也不会获得可调用 client。
+func addHiddenLifecycleFilteredMCPTools(surface *codexToolSurface, family string, original, visibleTools []mcpdto.MCPTool) error {
+	if len(original) == len(visibleTools) {
+		return nil
+	}
+	visible := make(map[string]struct{}, len(visibleTools))
+	for _, tool := range visibleTools {
+		visible[strings.TrimSpace(tool.Name)] = struct{}{}
+	}
+	hidden := make([]mcpdto.MCPTool, 0, len(original)-len(visibleTools))
+	for _, tool := range original {
+		if _, ok := visible[strings.TrimSpace(tool.Name)]; !ok {
+			hidden = append(hidden, tool)
+		}
+	}
+	return addHiddenMCPToolAliases(surface, family, hidden)
 }
 
 // mcpSurfaceBinaryResult 保存单个 MCP binary 的 client 和 tools/list 结果。
@@ -227,6 +258,39 @@ func addMCPToolsToSurface(surface *codexToolSurface, out *[]contract.DynamicTool
 			if err := addSurfaceAlias(surface, alias, canonical); err != nil {
 				return err
 			}
+		}
+	}
+	return nil
+}
+
+// addHiddenMCPToolAliases 记录被 policy 隐藏的 MCP 工具身份，供直连时先返回稳定 deny。
+// 这里不发布 schema、不保存 client，也不把工具放入可调用 tools 表。
+func addHiddenMCPToolAliases(surface *codexToolSurface, family string, tools []mcpdto.MCPTool) error {
+	for _, tool := range tools {
+		if _, reserved := reservedHostOnlySurfaceToolCanonicalName(family, tool.Name); reserved {
+			continue
+		}
+		canonical := canonicalCodexToolName(family, tool.Name)
+		if shouldNamespaceExternalMCPTool(surface, family, canonical) {
+			canonical = wrappedMCPToolName(family, tool.Name)
+		}
+		entry := codexToolEntry{name: canonical, realName: tool.Name, executionKind: "stdio", family: strings.TrimSpace(family)}
+		aliases := []string{canonical, tool.Name, wrappedMCPToolName(family, tool.Name)}
+		aliases = append(aliases, legacyCodexToolAliases(family, canonical)...)
+		for _, alias := range aliases {
+			alias = strings.TrimSpace(alias)
+			if alias == "" {
+				continue
+			}
+			if _, visible := surface.aliases[alias]; visible {
+				continue
+			}
+			if existing, ok := surface.hiddenMCPTools[alias]; ok &&
+				(existing.family != entry.family || existing.realName != entry.realName) {
+				return fmt.Errorf("toolbridge: hidden codex surface alias %q maps to both %q/%q and %q/%q",
+					alias, existing.family, existing.realName, entry.family, entry.realName)
+			}
+			surface.hiddenMCPTools[alias] = entry
 		}
 	}
 	return nil
@@ -412,7 +476,7 @@ func (h *Handler) lookupCodexToolSurface(req ToolCallRequest) *codexToolSurface 
 func (h *Handler) callCodexSurfaceTool(ctx context.Context, surface *codexToolSurface, req ToolCallRequest) (*ToolCallResult, error) {
 	canonical := surface.aliases[strings.TrimSpace(req.Name)]
 	if canonical == "" {
-		return nil, fmt.Errorf("toolbridge: unknown codex surface tool %q", req.Name)
+		return h.denyHiddenCodexSurfaceMCPToolCall(ctx, surface, req)
 	}
 	entry := surface.tools[canonical]
 	eventReq := req
@@ -430,7 +494,15 @@ func (h *Handler) callCodexSurfaceTool(ctx context.Context, surface *codexToolSu
 			h.publishProxyToolCallEnd(eventReq, started, result, err)
 		}
 	}()
-	if err := validateToolInputSchema(entry.name, entry.inputSchema, req.Arguments); err != nil {
+	callName := req.Name
+	if entry.executionKind == "stdio" {
+		var denied bool
+		result, denied, err = h.denyCodexSurfaceMCPToolLifecycleCall(ctx, surface, entry, req, callName)
+		if denied || err != nil {
+			return result, err
+		}
+	}
+	if err = validateToolInputSchema(entry.name, entry.inputSchema, req.Arguments); err != nil {
 		return nil, err
 	}
 	req.Name = entry.realName
@@ -445,6 +517,18 @@ func (h *Handler) callCodexSurfaceTool(ctx context.Context, surface *codexToolSu
 	}
 	result, err = entry.client.CallTool(ctx, entry.realName, req.Arguments, req)
 	return result, err
+}
+
+// denyHiddenCodexSurfaceMCPToolCall 为已隐藏的 MCP 工具保留直连拒绝安全边界。
+// 若 policy 已恢复 enabled，则继续返回 unknown，避免绕过列表过滤注册可调用入口。
+func (h *Handler) denyHiddenCodexSurfaceMCPToolCall(ctx context.Context, surface *codexToolSurface, req ToolCallRequest) (*ToolCallResult, error) {
+	if entry, ok := surface.hiddenMCPTools[strings.TrimSpace(req.Name)]; ok {
+		result, denied, err := h.denyCodexSurfaceMCPToolLifecycleCall(ctx, surface, entry, req, req.Name)
+		if denied || err != nil {
+			return result, err
+		}
+	}
+	return nil, fmt.Errorf("toolbridge: unknown codex surface tool %q", req.Name)
 }
 
 // codexSurfaceLifecycleThreadID 选择 lifecycle 事件使用的 threadID，agent scoped surface 优先 agentID。

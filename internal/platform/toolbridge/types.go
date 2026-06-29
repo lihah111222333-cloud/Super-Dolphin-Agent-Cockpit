@@ -172,6 +172,9 @@ func canonicalToolName(name string) string {
 // classifyTool 根据工具名推断所属 MCP client family。
 func classifyTool(name string) string {
 	trimmed := strings.TrimSpace(name)
+	if namespace, ok := SplitMCPToolName(trimmed); ok {
+		return strings.TrimSpace(namespace.Server)
+	}
 	switch canonicalToolName(trimmed) {
 	case "file", "grep", "inspect", "xref", "structure", "edit", "format_preview", "completion":
 		return dto.ClientKindLSP
@@ -197,9 +200,7 @@ func resolveToolClientKind(req ToolCallRequest) (string, error) {
 	if requested == "" {
 		return classified, nil
 	}
-	switch requested {
-	case dto.ClientKindLSP, dto.ClientKindOrch, dto.ClientKindIDA:
-	default:
+	if requested != dto.ClientKindLSP && requested != dto.ClientKindOrch && requested != dto.ClientKindIDA && requested != classified {
 		return "", fmt.Errorf("toolbridge: unsupported tool family %q", requested)
 	}
 	if requested != classified {

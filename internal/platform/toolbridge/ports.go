@@ -82,3 +82,15 @@ type MCPToolLifecycleBackfiller interface {
 
 // mcpToolLifecycleBackfiller 是 Handler 内部使用的别名，保持字段命名与端口解耦。
 type mcpToolLifecycleBackfiller = MCPToolLifecycleBackfiller
+
+// MCPToolLifecyclePolicyReader 是 toolbridge 查询 MCP tool 调用策略的只读端口。
+// 具体 owner 由 app assembly 注入；platform 层只传递已解析的 workspace/server/tool 身份。
+type MCPToolLifecyclePolicyReader interface {
+	ResolveMCPToolLifecycle(
+		ctx context.Context,
+		req contract.MCPToolLifecyclePolicyRequest,
+	) (contract.MCPToolLifecycleDecision, error)
+}
+
+// mcpToolLifecyclePolicyReader 是 Handler 内部使用的别名，避免暴露字段依赖具体 adapter。
+type mcpToolLifecyclePolicyReader = MCPToolLifecyclePolicyReader

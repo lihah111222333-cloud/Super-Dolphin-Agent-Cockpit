@@ -102,6 +102,9 @@ func (h *Handler) ListToolsForCodex(ctx context.Context) ([]contract.DynamicTool
 	if err := h.backfillListToolsForCodexPeerDiscovery(ctx, outcomes); err != nil {
 		return nil, err
 	}
+	if err := h.filterListToolsForCodexMCPPolicy(ctx, outcomes); err != nil {
+		return nil, err
+	}
 	for _, outcome := range outcomes {
 		merged = h.appendDynamicToolsWithShadowWarning(merged, seenToolSources, outcome.clientKind, outcome.tools)
 	}
@@ -125,6 +128,31 @@ func (h *Handler) backfillListToolsForCodexPeerDiscovery(ctx context.Context, ou
 		if err := h.backfillMCPToolLifecycle(ctx, workspaceRoot, outcome.clientKind, outcome.clientKind, outcome.tools); err != nil {
 			return err
 		}
+	}
+	return nil
+}
+
+// filterListToolsForCodexMCPPolicy 在旧版动态工具列表入口完成 backfill 后执行 lifecycle filtering。
+func (h *Handler) filterListToolsForCodexMCPPolicy(ctx context.Context, outcomes []peerToolsListOutcome) error {
+	if len(outcomes) == 0 || !h.requiresMCPToolLifecyclePolicy() {
+		return nil
+	}
+	workspaceRoot, err := currentMCPToolLifecycleWorkspaceRoot()
+	if err != nil {
+		return err
+	}
+	for i := range outcomes {
+		filtered, err := h.filterMCPToolLifecycleTools(
+			ctx,
+			workspaceRoot,
+			outcomes[i].clientKind,
+			outcomes[i].clientKind,
+			outcomes[i].tools,
+		)
+		if err != nil {
+			return err
+		}
+		outcomes[i].tools = filtered
 	}
 	return nil
 }
