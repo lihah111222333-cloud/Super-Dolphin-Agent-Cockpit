@@ -405,7 +405,45 @@ func (s *Server) listTools(ctx context.Context) ([]MCPTool, error) {
 	if s.tools == nil {
 		return nil, nil
 	}
-	return s.tools.ListTools(ctx)
+	tools, err := s.tools.ListTools(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if err := validateToolsList(tools); err != nil {
+		return nil, err
+	}
+	return tools, nil
+}
+
+// validateToolsList 在 MCP server 输出边界校验工具描述。
+// 这里 fail-fast 阻断畸形 schema，避免 provider 或 sidecar 发布模型无法可靠调用的工具面。
+func validateToolsList(tools []MCPTool) error {
+	for i, tool := range tools {
+		if strings.TrimSpace(tool.Name) == "" {
+			return fmt.Errorf("tools[%d] tool name is required", i)
+		}
+		if err := validateToolSchema(tool.InputSchema, i, "inputSchema"); err != nil {
+			return err
+		}
+		if err := validateToolSchema(tool.OutputSchema, i, "outputSchema"); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func validateToolSchema(schema json.RawMessage, index int, field string) error {
+	trimmed := bytes.TrimSpace(schema)
+	if len(trimmed) == 0 {
+		return nil
+	}
+	if !json.Valid(trimmed) {
+		return fmt.Errorf("tools[%d].%s must be valid JSON", index, field)
+	}
+	if !bytes.HasPrefix(trimmed, []byte("{")) {
+		return fmt.Errorf("tools[%d].%s must be a JSON object", index, field)
+	}
+	return nil
 }
 
 // reply 写出 JSON-RPC 响应；nil 响应用于 notification，不会触碰 transport。

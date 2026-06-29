@@ -50,6 +50,9 @@ type stdioRPCResponse struct {
 
 // defaultStdioClientFactory 根据 MCP binary 配置选择 HTTP 或 stdio client。
 func (h *Handler) defaultStdioClientFactory(ctx context.Context, binary providerdto.MCPBinary) (mcpClient, error) {
+	if err := contract.DefaultRuntimeMCPPolicy().ValidateManifestBinary(binary); err != nil {
+		return nil, err
+	}
 	if strings.EqualFold(strings.TrimSpace(binary.Type), "http") || strings.TrimSpace(binary.URL) != "" {
 		return newHTTPMCPClient(ctx, binary)
 	}
@@ -61,8 +64,14 @@ func (h *Handler) defaultStdioClientFactory(ctx context.Context, binary provider
 
 // newStdioMCPClient 启动 stdio MCP 子进程并完成 initialize 握手。
 func newStdioMCPClient(ctx context.Context, binary providerdto.MCPBinary) (*stdioMCPClient, error) {
+	if err := contract.DefaultRuntimeMCPPolicy().ValidateManifestBinary(binary); err != nil {
+		return nil, err
+	}
+	if len(binary.Command) == 0 || strings.TrimSpace(binary.Command[0]) == "" {
+		return nil, fmt.Errorf("toolbridge: missing stdio command for %q", binary.Name)
+	}
 	cmd := exec.Command(strings.TrimSpace(binary.Command[0]), binary.Command[1:]...)
-	cmd.Env = append(contract.ScrubDatabaseEnv(os.Environ()), manifestEnv(binary.Env)...)
+	cmd.Env = append(stdioParentEnv(os.Environ()), manifestEnv(binary.Env)...)
 	stdioConfigureCommand(cmd)
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
@@ -104,17 +113,39 @@ func manifestEnv(env map[string]string) []string {
 	return out
 }
 
+// stdioParentEnv 只继承启动子进程所需的安全基础环境。
+// API key、数据库连接串等敏感父进程变量必须由 manifest 显式声明，不能自动外泄给第三方 MCP。
+func stdioParentEnv(env []string) []string {
+	out := make([]string, 0, len(env))
+	for _, item := range env {
+		key, _, ok := strings.Cut(item, "=")
+		if !ok || strings.TrimSpace(key) == "" {
+			continue
+		}
+		if !isAllowedStdioParentEnvKey(key) || contract.IsForbiddenDatabaseEnvKey(key) {
+			continue
+		}
+		out = append(out, item)
+	}
+	return out
+}
+
+func isAllowedStdioParentEnvKey(key string) bool {
+	switch strings.ToUpper(strings.TrimSpace(key)) {
+	case "PATH", "HOME", "TMPDIR", "TMP", "TEMP", "USER", "USERNAME", "USERPROFILE", "SYSTEMROOT", "WINDIR", "COMSPEC", "PATHEXT":
+		return true
+	default:
+		return false
+	}
+}
+
 // ListTools 调用 stdio peer 的 tools/list 并解码工具列表。
 func (c *stdioMCPClient) ListTools(ctx context.Context) ([]mcpdto.MCPTool, error) {
 	raw, err := c.request(ctx, "tools/list", map[string]any{})
 	if err != nil {
 		return nil, err
 	}
-	var decoded peerToolsListResult
-	if err := json.Unmarshal(raw, &decoded); err != nil {
-		return nil, err
-	}
-	return decoded.Tools, nil
+	return decodePeerToolsListResult(raw, "stdio MCP tools/list")
 }
 
 // CallTool 调用 stdio peer 暴露的工具，并透传 agent/thread/cwd 元数据。

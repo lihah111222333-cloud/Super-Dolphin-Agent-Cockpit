@@ -21,6 +21,16 @@ func (testToolProvider) CallTool(context.Context, string, json.RawMessage) (any,
 	return map[string]any{"ok": true}, nil
 }
 
+type badSchemaToolProvider struct{}
+
+func (badSchemaToolProvider) ListTools(context.Context) ([]MCPTool, error) {
+	return []MCPTool{{Name: "bad_schema", InputSchema: json.RawMessage(`"not-object"`)}}, nil
+}
+
+func (badSchemaToolProvider) CallTool(context.Context, string, json.RawMessage) (any, error) {
+	return map[string]any{"ok": true}, nil
+}
+
 type captureToolProvider struct {
 	call func(context.Context, string, json.RawMessage) (any, error)
 }
@@ -43,6 +53,26 @@ func TestServerHandlesToolsList(t *testing.T) {
 	}
 	if !bytes.Contains(output.Bytes(), []byte(`"tools":[{"name":"demo_tool"`)) {
 		t.Fatalf("Run() output = %s", output.String())
+	}
+}
+
+func TestServerToolsListRejectsInvalidToolSchema(t *testing.T) {
+	input := bytes.NewBufferString(`{"jsonrpc":"2.0","id":1,"method":"tools/list"}`)
+	var output bytes.Buffer
+
+	server := NewServer("test", "dev", NewStdioTransport(input, &output), badSchemaToolProvider{})
+	if err := server.Run(context.Background()); err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	var resp struct {
+		Error *jsonRPCError `json:"error,omitempty"`
+	}
+	decodeJSONRPCOutput(t, output.Bytes(), &resp)
+	if resp.Error == nil {
+		t.Fatalf("tools/list error = nil, want invalid schema rejection; raw=%s", output.String())
+	}
+	if !strings.Contains(resp.Error.Message, "inputSchema must be a JSON object") {
+		t.Fatalf("tools/list error = %#v, want inputSchema object rejection; raw=%s", resp.Error, output.String())
 	}
 }
 

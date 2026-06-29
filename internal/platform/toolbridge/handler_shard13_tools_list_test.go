@@ -2,6 +2,7 @@ package toolbridge
 
 import (
 	"errors"
+	"strings"
 	"testing"
 
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/mcp"
@@ -61,6 +62,26 @@ func TestProxyToolsList_LSPDoesNotIncludeHostMemory(t *testing.T) {
 	tool := tools[0].(map[string]any)
 	if tool["name"] != "lsp_hover" {
 		t.Fatalf("tool = %#v, want lsp_hover", tool)
+	}
+}
+
+func TestProxyToolsList_MultiplePeersAmbiguousLikeToolsCall(t *testing.T) {
+	h := &Handler{
+		registry: &stubKindRegistry{peers: map[string][]*mcpcontrol.ToolInstance{
+			dto.ClientKindLSP: {
+				listToolsPeer([]dto.MCPTool{{Name: "lsp_hover", Description: "first"}}, nil),
+				listToolsPeer([]dto.MCPTool{{Name: "lsp_definition", Description: "second"}}, nil),
+			},
+		}},
+		proxyAuthToken: newProxyAuthToken(),
+	}
+
+	got := callProxyRequest(t, h, "/mcp/lsp/agent-1", `{"jsonrpc":"2.0","id":"req-1","method":"tools/list"}`)
+	if got.Error == nil {
+		t.Fatalf("proxy tools/list error = nil, want %v parity with tools/call", ErrAmbiguousPeer)
+	}
+	if !strings.Contains(got.Error.Message, ErrAmbiguousPeer.Error()) {
+		t.Fatalf("proxy tools/list error = %+v, want %v", got.Error, ErrAmbiguousPeer)
 	}
 }
 

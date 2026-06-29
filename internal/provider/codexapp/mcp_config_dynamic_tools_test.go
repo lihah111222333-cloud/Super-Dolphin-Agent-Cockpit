@@ -12,8 +12,9 @@ func TestCodexToolSurfaceScopeAddsMCPConfigHTTPBinaries(t *testing.T) {
 		"mcpConfig": map[string]any{
 			"mcpServers": map[string]any{
 				"my-search": map[string]any{
-					"transport": "http",
-					"url":       "https://example.test/mcp",
+					"trustedServerId": "my-search",
+					"transport":       "http",
+					"url":             "https://example.test/mcp",
 					"headers": map[string]any{
 						"Authorization": "Bearer token",
 					},

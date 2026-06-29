@@ -328,7 +328,7 @@ func TestBuildThreadStartParamsUsesCodexModelProviderForCLI(t *testing.T) {
 			"provider":           "codex",
 			"modelProvider":      "codex",
 			"codexModelProvider": "openai",
-			"mcpConfig":          map[string]any{"mcpServers": map[string]any{"my-search": map[string]any{"transport": "http", "url": "https://your-domain.com/mcp"}}},
+			"mcpConfig":          map[string]any{"mcpServers": map[string]any{"my-search": map[string]any{"trustedServerId": "my-search", "transport": "http", "url": "https://your-domain.com/mcp"}}},
 		},
 	})
 
