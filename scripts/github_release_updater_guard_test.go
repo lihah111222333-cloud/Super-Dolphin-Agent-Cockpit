@@ -109,6 +109,39 @@ func TestGitHubReleasePackagingWrappersProduceCanonicalAssets(t *testing.T) {
 	assertScriptOrder(t, windows, "scripts\\package_windows_local.ps1", "cmd/super-dolphin-release-manifest")
 }
 
+func TestGitHubReleaseWrappersRequireCleanTreeAndRecordBuildCommit(t *testing.T) {
+	macos := readScript(t, "package_macos_github_release.sh")
+	windows := readScript(t, "package_windows_github_release.ps1")
+
+	for _, want := range []string{
+		"require_clean_release_tree",
+		"SUPER_DOLPHIN_RELEASE_DIRTY_WHITELIST",
+		"git status --porcelain=v1 --untracked-files=all",
+		"release worktree has uncommitted changes",
+		"build_commit=\"$(git rev-parse HEAD)\"",
+		"SUPER_DOLPHIN_RELEASE_BUILD_COMMIT=\"$build_commit\"",
+		"release-build-commit.txt",
+	} {
+		assertScriptContains(t, macos, want)
+	}
+	assertScriptOrder(t, macos, "require_clean_release_tree", "./scripts/package_macos.sh")
+	assertScriptOrder(t, macos, "build_commit=\"$(git rev-parse HEAD)\"", "go run ./cmd/super-dolphin-release-manifest")
+
+	for _, want := range []string{
+		"Require-CleanReleaseTree",
+		"SUPER_DOLPHIN_RELEASE_DIRTY_WHITELIST",
+		"git status --porcelain=v1 --untracked-files=all",
+		"release worktree has uncommitted changes",
+		"$BuildCommit = (& git rev-parse HEAD).Trim()",
+		"$env:SUPER_DOLPHIN_RELEASE_BUILD_COMMIT = $BuildCommit",
+		"release-build-commit.txt",
+	} {
+		assertScriptContains(t, windows, want)
+	}
+	assertScriptOrder(t, windows, "Require-CleanReleaseTree", "scripts\\package_windows_local.ps1")
+	assertScriptOrder(t, windows, "$BuildCommit = (& git rev-parse HEAD).Trim()", "cmd/super-dolphin-release-manifest")
+}
+
 func TestGitHubReleasePublisherGuardsDraftPublish(t *testing.T) {
 	script := readScript(t, "publish_github_release.sh")
 
@@ -116,6 +149,8 @@ func TestGitHubReleasePublisherGuardsDraftPublish(t *testing.T) {
 		"github_repo=\"$(require_github_release_repo)\"",
 		"Super-Dolphin-darwin-arm64.dmg",
 		"Super-Dolphin-darwin-arm64.update.json",
+		"Super-Dolphin-windows-arm64.exe",
+		"Super-Dolphin-windows-arm64.update.json",
 		"SUPER_DOLPHIN_UPDATE_SIGNING_KEY",
 		"SUPER_DOLPHIN_UPDATE_PUBLIC_KEY",
 		"SUPER_DOLPHIN_UPDATE_PREVIOUS_DMG",
@@ -132,8 +167,8 @@ func TestGitHubReleasePublisherGuardsDraftPublish(t *testing.T) {
 	} {
 		assertScriptContains(t, script, want)
 	}
-	assertScriptDoesNotContain(t, script, "Super-Dolphin-windows-arm64.exe")
-	assertScriptDoesNotContain(t, script, "Super-Dolphin-windows-arm64.update.json")
+	assertScriptContains(t, script, "release_asset_specs=(")
+	assertScriptContains(t, script, "\"windows-arm64|Super-Dolphin-windows-arm64.exe|Super-Dolphin-windows-arm64.update.json\"")
 	assertScriptOrder(t, script, "require_previous_update_public_key", "validate_release_assets")
 	assertScriptOrderAfter(t, script, "gh release create \"$tag\"", "gh release create \"$tag\"", "verify_uploaded_asset_digests")
 	assertScriptOrderAfter(t, script, "gh release create \"$tag\"", "verify_uploaded_asset_digests", "gh release edit \"$tag\"")
@@ -343,8 +378,10 @@ func TestGitHubReleasePublisherVerifyExistingExecutesDigestCheck(t *testing.T) {
 		size   int
 	}{}
 	for name, content := range map[string]string{
-		"Super-Dolphin-darwin-arm64.dmg":         "darwin artifact",
-		"Super-Dolphin-darwin-arm64.update.json": `{"darwin":"manifest"}`,
+		"Super-Dolphin-darwin-arm64.dmg":          "darwin artifact",
+		"Super-Dolphin-darwin-arm64.update.json":  `{"darwin":"manifest"}`,
+		"Super-Dolphin-windows-arm64.exe":         "windows arm64 artifact",
+		"Super-Dolphin-windows-arm64.update.json": `{"windows-arm64":"manifest"}`,
 	} {
 		raw := []byte(content)
 		if err := os.WriteFile(filepath.Join(stageDir, name), raw, 0o600); err != nil {
@@ -387,8 +424,10 @@ func TestGitHubReleasePublisherInspectLatestAcceptsMacOSAssets(t *testing.T) {
 		digest string
 		size   int
 	}{
-		"Super-Dolphin-darwin-arm64.dmg":         {digest: strings.Repeat("a", 64), size: 10},
-		"Super-Dolphin-darwin-arm64.update.json": {digest: strings.Repeat("b", 64), size: 10},
+		"Super-Dolphin-darwin-arm64.dmg":          {digest: strings.Repeat("a", 64), size: 10},
+		"Super-Dolphin-darwin-arm64.update.json":  {digest: strings.Repeat("b", 64), size: 10},
+		"Super-Dolphin-windows-arm64.exe":         {digest: strings.Repeat("c", 64), size: 10},
+		"Super-Dolphin-windows-arm64.update.json": {digest: strings.Repeat("d", 64), size: 10},
 	})
 
 	cmd := exec.Command("bash", "publish_github_release.sh", "--inspect-latest")
@@ -460,13 +499,13 @@ func writeGitHubReleaseFakeGH(t *testing.T, binDir, latestTag string, assets map
 	t.Helper()
 	var queryChecks strings.Builder
 	for name, asset := range assets {
-		queryChecks.WriteString("    if [[ \"$query\" == *" + bashQuote(name) + "* ]]; then\n")
+		fmt.Fprintf(&queryChecks, "    if [[ \"$query\" == *%s* ]]; then\n", bashQuote(name))
 		queryChecks.WriteString("      if [[ \"$query\" == *'.digest' ]]; then\n")
 		queryChecks.WriteString(fmt.Sprintf("        printf 'sha256:%s\\n'\n", asset.digest))
 		queryChecks.WriteString("      elif [[ \"$query\" == *'.size' ]]; then\n")
 		queryChecks.WriteString(fmt.Sprintf("        printf '%d\\n'\n", asset.size))
 		queryChecks.WriteString("      elif [[ \"$query\" == *'.browser_download_url' ]]; then\n")
-		queryChecks.WriteString("        printf 'https://downloads.example.test/" + name + "\\n'\n")
+		fmt.Fprintf(&queryChecks, "        printf 'https://downloads.example.test/%s\\n'\n", name)
 		queryChecks.WriteString("      fi\n")
 		queryChecks.WriteString("      exit 0\n")
 		queryChecks.WriteString("    fi\n")

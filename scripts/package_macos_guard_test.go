@@ -237,6 +237,35 @@ func TestPackageMacOSScriptEmbedsNewFrontendApp(t *testing.T) {
 	assertScriptOrder(t, script, "rsync -a --delete --exclude .gitkeep \"$root/frontend-app/dist\"/ \"$root/cmd/agent-terminal/web-dist\"/", "go build -o bin/agent-terminal ./cmd/agent-terminal")
 }
 
+func TestPackageMacOSDMGInstallScriptStagesAndRollsBackApplication(t *testing.T) {
+	script := readScript(t, "package_macos.sh")
+	installStart := strings.Index(script, "cat > \"$install_script\" <<'INSTALL_SH'")
+	if installStart < 0 {
+		t.Fatal("package_macos.sh missing DMG install script heredoc")
+	}
+	installEnd := strings.Index(script[installStart:], "\nINSTALL_SH\n")
+	if installEnd < 0 {
+		t.Fatal("package_macos.sh install script heredoc is not closed")
+	}
+	installScript := script[installStart : installStart+installEnd]
+
+	for _, want := range []string{
+		"STAGED_APP=",
+		"BACKUP_APP=",
+		"rollback_install()",
+		"trap rollback_install ERR",
+		"ditto \"$SRC_APP\" \"$STAGED_APP\"",
+		"mv \"$DEST_APP\" \"$BACKUP_APP\"",
+		"mv \"$STAGED_APP\" \"$DEST_APP\"",
+		"rm -rf \"$BACKUP_APP\"",
+	} {
+		assertScriptContains(t, installScript, want)
+	}
+	assertScriptDoesNotContain(t, installScript, "rm -rf \"$DEST_APP\"")
+	assertScriptOrder(t, installScript, "ditto \"$SRC_APP\" \"$STAGED_APP\"", "mv \"$DEST_APP\" \"$BACKUP_APP\"")
+	assertScriptOrder(t, installScript, "mv \"$DEST_APP\" \"$BACKUP_APP\"", "mv \"$STAGED_APP\" \"$DEST_APP\"")
+}
+
 func TestPackageMacOSScriptUsesLinearDylibQueue(t *testing.T) {
 	script := readScript(t, "package_macos.sh")
 	body := functionBody(t, script, "bundle_macho_dylibs")
