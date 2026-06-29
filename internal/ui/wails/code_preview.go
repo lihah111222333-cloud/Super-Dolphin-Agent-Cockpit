@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"net/http"
 	"os"
 	"os/exec"
 	"path"
@@ -142,14 +143,21 @@ func buildCodeOpenResult(target scopedPath, line int) (codeOpenResult, error) {
 		Relative:  target.Relative,
 		SizeBytes: info.Size(),
 	}
+	if info.Size() > maxCodeOpenFileBytes {
+		return codeOpenResult{}, fmt.Errorf("ui/code/open: file %q exceeds preview size limit", target.Abs)
+	}
 	if mediaType := previewMediaType(target.Abs); mediaType != "" {
+		sniffed, err := sniffPreviewImageMediaType(target.Abs)
+		if err != nil {
+			return codeOpenResult{}, err
+		}
+		if sniffed != mediaType {
+			return codeOpenResult{}, fmt.Errorf("ui/code/open: image media type mismatch for %q: extension=%s sniffed=%s", target.Abs, mediaType, sniffed)
+		}
 		result.Type = "image"
 		result.Image = true
 		result.MediaType = mediaType
 		return result, nil
-	}
-	if info.Size() > maxCodeOpenFileBytes {
-		return codeOpenResult{}, fmt.Errorf("ui/code/open: file %q exceeds preview size limit", target.Abs)
 	}
 	data, err := os.ReadFile(target.Abs)
 	if err != nil {
@@ -305,7 +313,7 @@ func isFullTextPreviewPath(path string) bool {
 	}
 }
 
-// previewMediaType 按扩展名识别可直接预览的图片类型。
+// previewMediaType 按扩展名识别可直接预览的位图图片类型。
 func previewMediaType(path string) string {
 	switch strings.ToLower(filepath.Ext(strings.TrimSpace(path))) {
 	case ".png":
@@ -314,11 +322,48 @@ func previewMediaType(path string) string {
 		return "image/jpeg"
 	case ".gif":
 		return "image/gif"
-	case ".svg":
-		return "image/svg+xml"
 	case ".webp":
 		return "image/webp"
 	case ".ico":
+		return "image/x-icon"
+	default:
+		return ""
+	}
+}
+
+func sniffPreviewImageMediaType(path string) (string, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return "", err
+	}
+	defer file.Close()
+	header := make([]byte, 512)
+	n, err := file.Read(header)
+	if err != nil && err != io.EOF {
+		return "", err
+	}
+	header = header[:n]
+	if mediaType := imageMediaTypeFromMagic(header); mediaType != "" {
+		return mediaType, nil
+	}
+	detected := http.DetectContentType(header)
+	if strings.HasPrefix(detected, "image/") {
+		return detected, nil
+	}
+	return "", fmt.Errorf("ui/code/open: image header is not a supported bitmap image for %q", path)
+}
+
+func imageMediaTypeFromMagic(header []byte) string {
+	switch {
+	case bytes.HasPrefix(header, []byte{0x89, 'P', 'N', 'G', 0x0D, 0x0A, 0x1A, 0x0A}):
+		return "image/png"
+	case bytes.HasPrefix(header, []byte{0xFF, 0xD8, 0xFF}):
+		return "image/jpeg"
+	case bytes.HasPrefix(header, []byte("GIF87a")) || bytes.HasPrefix(header, []byte("GIF89a")):
+		return "image/gif"
+	case len(header) >= 12 && bytes.Equal(header[:4], []byte("RIFF")) && bytes.Equal(header[8:12], []byte("WEBP")):
+		return "image/webp"
+	case bytes.HasPrefix(header, []byte{0x00, 0x00, 0x01, 0x00}):
 		return "image/x-icon"
 	default:
 		return ""

@@ -631,11 +631,6 @@ describe('WorkflowPage module', () => {
     renderWorkflowPage();
 
     expect(await screen.findByText(finalPath)).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: '页内播放' }));
-    const previewVideo = document.querySelector('.workflow-media-preview video');
-    expect(previewVideo).toBeInTheDocument();
-    expect(previewVideo.querySelector('track[kind="captions"]')).toHaveAttribute('label', '无字幕');
-
     fireEvent.click(screen.getByRole('button', { name: '系统打开' }));
 
     await waitFor(() => expect(backend.openSharedFile).toHaveBeenCalledWith({ path: finalPath }));

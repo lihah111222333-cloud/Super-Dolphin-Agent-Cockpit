@@ -1,7 +1,9 @@
 package wails
 
 import (
+	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -11,12 +13,17 @@ import (
 func TestSaveClipboardImageRouteReturnsPath(t *testing.T) {
 	t.Parallel()
 
+	png := validClipboardPNG()
+	payload, err := json.Marshal(map[string]any{
+		"base64Payload":  base64.StdEncoding.EncodeToString(png),
+		"_aoClientKind":  "web-debug-shim",
+		"_aoClientRoute": "/chat",
+	})
+	if err != nil {
+		t.Fatalf("Marshal(ui/saveClipboardImage payload) error = %v", err)
+	}
 	server := newWailsRPCServer(t, &App{})
-	raw, err := server.Dispatch(context.Background(), "ui/saveClipboardImage", json.RawMessage(`{
-		"base64Payload":"aGVsbG8=",
-		"_aoClientKind":"web-debug-shim",
-		"_aoClientRoute":"/chat"
-	}`))
+	raw, err := server.Dispatch(context.Background(), "ui/saveClipboardImage", payload)
 	if err != nil {
 		t.Fatalf("Dispatch(ui/saveClipboardImage) error = %v", err)
 	}
@@ -31,8 +38,8 @@ func TestSaveClipboardImageRouteReturnsPath(t *testing.T) {
 		t.Fatal("ui/saveClipboardImage path is empty")
 	}
 	defer os.Remove(result.Path)
-	if got, err := os.ReadFile(result.Path); err != nil || string(got) != "hello" {
-		t.Fatalf("saved clipboard image = %q, %v; want hello, nil", string(got), err)
+	if got, err := os.ReadFile(result.Path); err != nil || !bytes.Equal(got, png) {
+		t.Fatalf("saved clipboard image = %v, %v; want png bytes, nil", got, err)
 	}
 }
 

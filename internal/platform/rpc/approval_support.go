@@ -260,6 +260,18 @@ func decisionApproved(decision contract.ApprovalDecision) bool {
 	return decision.Approved != nil && *decision.Approved
 }
 
+// sameApprovalDecision 判断重试响应是否与已完成响应一致。
+// 不一致的重复响应必须报错，避免超时后反向点击覆盖真实决策。
+func sameApprovalDecision(a, b contract.ApprovalDecision) bool {
+	if (a.Approved == nil) != (b.Approved == nil) {
+		return false
+	}
+	if a.Approved != nil && b.Approved != nil && *a.Approved != *b.Approved {
+		return false
+	}
+	return strings.TrimSpace(a.Reason) == strings.TrimSpace(b.Reason)
+}
+
 // detailReason 从原始决策 detail 中提取用户可读原因。
 func detailReason(raw json.RawMessage) string {
 	var text string

@@ -178,10 +178,22 @@ func TestWailsWebSocketRequestGuardAllowsLoopbackHostAndOrigin(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodGet, "http://127.0.0.1:4511/wails/ws", nil)
 	req.Host = "127.0.0.1:4511"
-	req.Header.Set("Origin", "http://localhost:4511")
+	req.Header.Set("Origin", "http://127.0.0.1:4511")
 
 	if err := validateWailsWebSocketRequest(req); err != nil {
 		t.Fatalf("validateWailsWebSocketRequest() error = %v", err)
+	}
+}
+
+func TestWailsWebSocketRequestGuardRejectsCrossLoopbackOrigin(t *testing.T) {
+	t.Parallel()
+
+	req := httptest.NewRequest(http.MethodGet, "http://127.0.0.1:4511/wails/ws", nil)
+	req.Host = "127.0.0.1:4511"
+	req.Header.Set("Origin", "http://localhost:4511")
+
+	if err := validateWailsWebSocketRequest(req); err == nil || !strings.Contains(err.Error(), "same origin") {
+		t.Fatalf("validateWailsWebSocketRequest() error = %v, want same-origin validation failure", err)
 	}
 }
 
