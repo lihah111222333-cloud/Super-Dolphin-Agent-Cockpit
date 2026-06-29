@@ -59,6 +59,27 @@ func TestDecodeToolCallParamsIgnoresDeclaredLegacySessionMetadata(t *testing.T) 
 	}
 }
 
+func TestDecodeToolCallParamsAcceptsStandardMCPMeta(t *testing.T) {
+	raw := mustJSONRaw(t, map[string]any{
+		"name":      "demo_tool",
+		"arguments": map[string]any{"query": "ToolCallParams"},
+		"_meta": map[string]any{
+			"progressToken": "codex-call-1",
+		},
+	})
+
+	params, err := DecodeToolCallParams(raw)
+	if err != nil {
+		t.Fatalf("DecodeToolCallParams() error = %v", err)
+	}
+	if params.Name != "demo_tool" {
+		t.Fatalf("Name = %q, want demo_tool", params.Name)
+	}
+	if !bytes.Contains(params.Arguments, []byte(`"query":"ToolCallParams"`)) {
+		t.Fatalf("Arguments = %s, want preserved tool arguments", params.Arguments)
+	}
+}
+
 func TestDecodeToolCallParamsRejectsUnknownTopLevelFields(t *testing.T) {
 	_, err := DecodeToolCallParams(json.RawMessage(`{"name":"demo_tool","dryRun":true}`))
 	if err == nil {

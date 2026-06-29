@@ -32,8 +32,10 @@ type ToolScope struct {
 // ToolCallParams 是 stdio/control-plane 共用的 tools/call payload。
 // 私有 metadata key 是 peer 线协议的一部分，必须保留下划线形式，不能改成公开参数字段。
 type ToolCallParams struct {
-	Name         string          `json:"name"`
-	Arguments    json.RawMessage `json:"arguments,omitempty"`
+	Name      string          `json:"name"`
+	Arguments json.RawMessage `json:"arguments,omitempty"`
+	// Meta 接收 MCP 标准保留元数据，但不参与可信 scope 提取。
+	Meta         json.RawMessage `json:"_meta,omitempty"`
 	MetaAgentID  string          `json:"_agentId,omitempty"`
 	MetaThreadID string          `json:"_threadId,omitempty"`
 	MetaCallID   string          `json:"_callId,omitempty"`
