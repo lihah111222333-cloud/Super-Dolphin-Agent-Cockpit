@@ -86,6 +86,34 @@ func TestMcpLSPBinaryJavaToolsAndAndroidClasspathDiagnostics_E2E(t *testing.T) {
 	}
 }
 
+func TestMcpLSPBinaryJavaDocumentSymbolSkipsDiagnosticsReadiness_E2E(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping mcp-lsp binary e2e test in short mode")
+	}
+
+	root := t.TempDir()
+	target := writeJavaAndroidClasspathFixture(t, root)
+	binary := buildMcpLSPBinaryForTest(t)
+	fakeJDTLSBinDir := writeFakeJDTLSLangserver(t)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 150*time.Second)
+	defer cancel()
+	client := startMcpLSPBinaryForTestWithEnv(t, ctx, binary, root, fakeJDTLSBinDir, []string{
+		"MCP_LSP_FAKE_JDTLS_SUPPRESS_DIAGNOSTICS=1",
+	})
+	defer client.close(t)
+
+	client.call(t, "initialize", map[string]any{"protocolVersion": "2024-11-05"})
+
+	structure := client.callTool(t, "structure", map[string]any{
+		"action":      "document_symbol",
+		"file_path":   target,
+		"max_results": 10,
+	})
+	requireMCPToolSuccess(t, client, structure, "java document_symbol without diagnostics")
+	requireToolResultContains(t, structure, "MainActivity", "java document_symbol without diagnostics")
+}
+
 func javaAndroidClasspathMissingMessage(message string) bool {
 	return strings.Contains(message, "The import android cannot be resolved") ||
 		strings.Contains(message, "Activity cannot be resolved to a type") ||
@@ -149,6 +177,9 @@ func fakeJDTLSHandleNotification(writer *fakeLSPWriter, req fakeLSPRequest) bool
 	}
 	uri := strings.TrimSpace(params.TextDocument.URI)
 	if uri == "" {
+		return true
+	}
+	if os.Getenv("MCP_LSP_FAKE_JDTLS_SUPPRESS_DIAGNOSTICS") == "1" {
 		return true
 	}
 	go func() {

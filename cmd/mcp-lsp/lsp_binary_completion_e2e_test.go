@@ -442,7 +442,7 @@ func (w *fakeLSPWriter) handleNotification(req fakeLSPRequest) bool {
 	if len(bytes.TrimSpace(req.ID)) != 0 {
 		return false
 	}
-	if req.Method != "textDocument/didOpen" || os.Getenv("MCP_LSP_FAKE_PYRIGHT_DIAGNOSTICS") == "" {
+	if req.Method != "textDocument/didOpen" {
 		return false
 	}
 	var params fakeLSPDidOpenParams
@@ -556,6 +556,7 @@ func fakePyrightDurationFromEnv(name string) time.Duration {
 }
 
 func fakePyrightDiagnostics(uri string) map[string]any {
+	diagnostics := []map[string]any(nil)
 	message := "fake diagnostic for " + filepath.Base(uri)
 	code := "fake-type"
 	if os.Getenv("MCP_LSP_FAKE_PYRIGHT_DIAGNOSTICS") == "multiline" {
@@ -567,9 +568,8 @@ func fakePyrightDiagnostics(uri string) map[string]any {
 		}, "\n")
 		code = "reportArgumentType"
 	}
-	return map[string]any{
-		"uri": uri,
-		"diagnostics": []map[string]any{{
+	if os.Getenv("MCP_LSP_FAKE_PYRIGHT_DIAGNOSTICS") != "" {
+		diagnostics = []map[string]any{{
 			"range": map[string]any{
 				"start": map[string]any{"line": 0, "character": 0},
 				"end":   map[string]any{"line": 0, "character": 5},
@@ -578,6 +578,10 @@ func fakePyrightDiagnostics(uri string) map[string]any {
 			"source":   "fake-pyright",
 			"message":  message,
 			"code":     code,
-		}},
+		}}
+	}
+	return map[string]any{
+		"uri":         uri,
+		"diagnostics": diagnostics,
 	}
 }
