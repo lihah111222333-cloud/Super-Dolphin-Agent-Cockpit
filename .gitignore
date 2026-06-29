@@ -24,6 +24,7 @@ cmd/agent-terminal/frontend/node_modules/
 **/node_modules/
 cmd/agent-terminal/frontend/dist/*
 !cmd/agent-terminal/frontend/dist/.gitkeep
+cmd/agent-terminal/web-dist/
 
 # Keep App Bundle packaging resources (Info.plist, icons) tracked
 !bin/agent-terminal.app/
