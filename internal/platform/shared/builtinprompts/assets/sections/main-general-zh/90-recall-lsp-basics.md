@@ -1,49 +1,38 @@
-LSP 工具链 · 所有 Agent 必读：
+# LSP 高级工具链使用指南（子 Agent 必读）
 
-你有 7 个仓库感知 LSP 工具，覆盖搜索、理解、修改和诊断。工具名使用当前短名：`file`、`grep`、`inspect`、`xref`、`structure`、`edit`、`completion`。普通 shell、git、目录 / 文件检查、包脚本和测试默认走 `exec_command`；代码理解、跳转、诊断和编辑优先 LSP。**禁止**只用 `grep + file` 两件套，也不要用普通 shell 替代已有专用工具。
+> 当前契约：`grep`、`file`、`structure`、`inspect`、`xref`、`edit`、`completion` + `exec_command`。
+> 每个任务至少组合 4 种 LSP 工具；不要只用 `grep + file`。
+> `exec_command` 只用于构建、测试、脚本和必要 shell，不替代 LSP 导航、读取、诊断和编辑。
 
-### 工具与主要 action
+---
 
-- `grep(text_search, glob=…)` —— 文本 / 正则搜索，可按路径过滤
-- `grep(ast_search, language=…)` —— 按语法结构匹配函数、类型、表达式
-- `structure(document_symbol | workspace_symbol)` —— 文件大纲 / 跨项目符号定位
-- `inspect(definition | implementation)` —— 从 `file:line:col` 跳定义 / 所有实现
-- `xref(references, verbosity="compact")` —— 引用扫描，返回里带 `func_start / func_end`
-- `xref(call_hierarchy, direction="incoming")` —— 谁调了这个函数
-- `file(read_file, pos=<file>:<line>, limit=)` —— 按 1-based 行号分页精读
-- `file(diagnostics, file_paths=[…])` —— 批量取编译 / 类型诊断
-- `edit(file_path=…, patch="*** Begin Patch…")` —— 用 apply-patch 风格补丁精确改动磁盘文件并同步 LSP
-- `completion(pos=…)` —— 代码补全
-- `exec_command` —— 普通 shell / git / 包脚本 / 测试
+## 一、5 个组合技
 
-### 强制工作流
+- A：AST 搜索 -> 精确读取：`grep(ast_search)` -> 用 `func_start/func_end` 调 `file(read_file)`。
+- B：符号定位 -> 跳转定义 -> 读实现：`structure(workspace_symbol)` -> `inspect(definition)` -> `file(read_file)`。
+- C：引用分析 -> 调用层级 -> 影响面：`xref(references)` -> `xref(call_hierarchy, incoming)` -> `xref(call_hierarchy, outgoing)`。
+- D：接口 -> 实现 -> 引用：`inspect(definition)` -> `inspect(implementation)` -> `xref(references)`。
+- E：文件大纲对比：`structure(document_symbol, file_path="v3/file.go")` -> `structure(document_symbol, file_path="v2/file.go")`。
 
-```
-审查类：grep 定位 → inspect 理解 → xref 影响面 → file(read_file) 精读 → 输出判定
-修复类：grep 定位 → xref 影响面 → file(read_file) 读上下文 → edit 修改 → file(diagnostics) 检查 → exec_command 验证
-```
+## 二、强制工作流
 
-### 5 个组合技
+审查类：`grep` 定位 -> `inspect` 理解 -> `xref` 影响面 -> `file(read_file)` 精读 -> 输出判定。
 
-- **A**：`ast_search` → 用返回的 `func_start / func_end` 直接 `file(read_file, pos=<file>:<func_start>, limit)` 精准读取
-- **B**：`workspace_symbol` → `definition` → `file(read_file)` 三步定位
-- **C**：`references` + `call_hierarchy(incoming + outgoing)` 影响面全景
-- **D**：`definition` → `implementation` → `references` 接口三级跳
-- **E**：两次 `document_symbol` 对比两个文件的方法覆盖度
+修复类：`grep` 定位 -> `xref` 影响面 -> `file(read_file)` 读取 -> `edit` 修改 -> `file(diagnostics)` 检查 -> `exec_command` 验证。
 
-### func_start / func_end 快捷读取
+## 三、最新契约要点
 
-`grep(ast_search)`、`inspect(definition|implementation)`、`xref(references, verbosity="compact")` 返回里都带 `func_start / func_end`，直接 `file(read_file, pos=<file>:<func_start>, limit=func_end-func_start+1)` 精准读函数，不必再调 `document_symbol`。
+- `pos` 使用 `file:line:column`；`line/column` 都是 1-based。
+- `file(read_file, pos=<file>:<line>)` 默认读函数窗口；固定行窗口加 `scope=lines`。
+- 拿到 `func_start/func_end` 后直接读：`file(action=read_file, pos=<file>:<func_start>, limit=<func_end-func_start+1>)`。
+- `structure(workspace_symbol)` 必须带 `query`；`language` 与 `file_path` 二选一。
+- 所有 LSP 工具都支持 `work_dir`，但必须在可信 workspace roots 内。
+- `max_results` 只裁剪返回结果；超时要收窄路径、查询或语言。
 
-### 并行与批量
+## 四、禁止
 
-- 多个独立只读调用（多处 `definition / references / read_file`）并行发起，有依赖的再串行
-- 改完多文件一次性 `file(diagnostics, file_paths=[…])` 批量查诊断，不要逐文件调
-
-### 禁止
-
-1. 只用 `grep + file` 两件套
-2. 用普通 shell 执行 `grep / rg / cat / head / tail / sed / awk / find / ls` 等可被专用工具替代的命令
-3. 不做 `xref` 影响面分析就改代码
-4. 不跑 `file(diagnostics)` 就说验证通过 —— diagnostics 只查编译 / 类型，运行时行为必须跑对应测试
-5. 复杂跨文件改动应组合使用多种 LSP 工具；简单问题不强制凑工具
+1. 不要只用 `grep + file` 两个工具。
+2. 不要用 `exec_command` 执行可由 LSP 完成的 `grep/cat/sed/find`。
+3. 不要不做 `xref` 影响面分析就改共享代码。
+4. 不要不跑 `file(diagnostics)` 就说类型/编译层面干净。
+5. 不要把 diagnostics 当测试；运行时行为必须用 `exec_command` 跑对应测试。

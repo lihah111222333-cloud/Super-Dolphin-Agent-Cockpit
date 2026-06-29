@@ -38,7 +38,7 @@
 ### C：引用分析 → 调用层级 → 影响面
 
 ```text
-1. xref(references, pos=<file>:<line>:<col>, verbosity="compact") → 找所有引用点
+1. xref(references, pos=<file>:<line>:<col>) → 找所有引用点
 2. xref(call_hierarchy, pos=<file>:<line>:<col>, direction="incoming") → 谁调用了它
 3. xref(call_hierarchy, pos=<file>:<line>:<col>, direction="outgoing") → 它调用了谁
 ```
@@ -48,7 +48,7 @@
 ```text
 1. inspect(definition, pos=<file>:<line>:<col>) → 接口定义
 2. inspect(implementation, pos=<file>:<line>:<col>) → 所有实现类
-3. xref(references, pos=<file>:<line>:<col>, verbosity="compact") → 所有调用点
+3. xref(references, pos=<file>:<line>:<col>) → 所有调用点
 ```
 
 ### E：文件大纲对比
@@ -63,7 +63,7 @@
 
 审查类：grep(text_search|ast_search) 定位 → inspect(definition|hover|type_definition) 理解 → xref(references|call_hierarchy) 影响面 → file(read_file) 精读 → 输出判定
 
-修复类：grep(text_search|ast_search) 定位 → xref(references|call_hierarchy) 影响面 → file(read_file) 读取 → edit(patch) 修改 → file(diagnostics) 检查 → build/test 验证
+修复类：grep(text_search|ast_search) 定位 → xref(references|call_hierarchy) 影响面 → file(read_file) 读取 → edit(replace_range) 修改 → file(diagnostics) 检查 → build/test 验证
 
 
 ## 上下文预算卫生
