@@ -72,7 +72,12 @@ Thumbs.db
 /.agent/skills/**/.super-dolphin-skill-recovery.json
 # Local Claude harness state (settings, scheduled-task locks, per-user memory stores)
 /.claude/
-/.agents/
+/.agents/*
+!/.agents/skills/
+!/.agents/skills/**
+/.agents/skills/.DS_Store
+/.agents/skills/**/.DS_Store
+/.agents/skills/**/.coverage
 /.codex/*
 !/.codex/
 !/.codex/config.toml

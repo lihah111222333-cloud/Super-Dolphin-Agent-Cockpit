@@ -1,0 +1,327 @@
+{
+  "version": 1,
+  "keep_selected": [
+    {
+      "name": "使用git工作区",
+      "selected_source_id": "project/使用git工作区",
+      "selected_content_hash": "b5a2839f98fe3c0774d07b5be561273e43a8e78cd862153fcddcfb48868f5358",
+      "excluded_source_ids": [
+        "personal/hub/使用git工作区",
+        "personal/user/使用git工作区"
+      ],
+      "sources": [
+        {
+          "canonical_id": "personal/hub/使用git工作区",
+          "scope": "personal",
+          "personal_type": "hub",
+          "content_hash": "de83cb4e858d85869fe2be914c5ade5521637bb7182166c8a129d03a9712e4d0"
+        },
+        {
+          "canonical_id": "personal/user/使用git工作区",
+          "scope": "personal",
+          "personal_type": "user",
+          "content_hash": "b0d43e64cfa1253087b9e8dbee952f57f3d077f1f7c1d2ca58c1df1200301c19"
+        },
+        {
+          "canonical_id": "project/使用git工作区",
+          "scope": "project",
+          "content_hash": "b5a2839f98fe3c0774d07b5be561273e43a8e78cd862153fcddcfb48868f5358"
+        }
+      ]
+    },
+    {
+      "name": "完成前验证",
+      "selected_source_id": "project/完成前验证",
+      "selected_content_hash": "6f82944901c2b889da65611ca516b618477d0ad5c48094f314931e2ddf3e9579",
+      "excluded_source_ids": [
+        "personal/hub/完成前验证"
+      ],
+      "sources": [
+        {
+          "canonical_id": "personal/hub/完成前验证",
+          "scope": "personal",
+          "personal_type": "hub",
+          "content_hash": "b89ad49720a3408d18bc4eda7a6fd003255df1b9ff3e2cf497df8512514db6b7"
+        },
+        {
+          "canonical_id": "project/完成前验证",
+          "scope": "project",
+          "content_hash": "6f82944901c2b889da65611ca516b618477d0ad5c48094f314931e2ddf3e9579"
+        }
+      ]
+    },
+    {
+      "name": "执行计划",
+      "selected_source_id": "project/执行计划",
+      "selected_content_hash": "826c8f6abf95c2debff1b0928f5c5a13e652e4d8d6fae927fc869df90d6fde2c",
+      "excluded_source_ids": [
+        "personal/hub/执行计划"
+      ],
+      "sources": [
+        {
+          "canonical_id": "personal/hub/执行计划",
+          "scope": "personal",
+          "personal_type": "hub",
+          "content_hash": "75bf3292f5261d7ba7c79cbec1f49e4b10fc275cc9cc9ffce5d844c8a1b88f48"
+        },
+        {
+          "canonical_id": "project/执行计划",
+          "scope": "project",
+          "content_hash": "826c8f6abf95c2debff1b0928f5c5a13e652e4d8d6fae927fc869df90d6fde2c"
+        }
+      ]
+    },
+    {
+      "name": "接收代码审查",
+      "selected_source_id": "project/接收代码审查",
+      "selected_content_hash": "052b2b879015f82d6ec1af52cd5a9b5dfbea81ac300a5ad6c1f06baf67fec5e5",
+      "excluded_source_ids": [
+        "personal/hub/接收代码审查"
+      ],
+      "sources": [
+        {
+          "canonical_id": "personal/hub/接收代码审查",
+          "scope": "personal",
+          "personal_type": "hub",
+          "content_hash": "ea43c6dfe1f3467eba8ed700345ade0f01d7471ecfe4320ef167ede1e9d47675"
+        },
+        {
+          "canonical_id": "project/接收代码审查",
+          "scope": "project",
+          "content_hash": "052b2b879015f82d6ec1af52cd5a9b5dfbea81ac300a5ad6c1f06baf67fec5e5"
+        }
+      ]
+    },
+    {
+      "name": "测试驱动开发",
+      "selected_source_id": "project/测试驱动开发",
+      "selected_content_hash": "83dbbf93778b994c260705f63509f39a0f6c506587bb2a53e49ab44d2e0f2f24",
+      "excluded_source_ids": [
+        "personal/hub/测试驱动开发"
+      ],
+      "sources": [
+        {
+          "canonical_id": "personal/hub/测试驱动开发",
+          "scope": "personal",
+          "personal_type": "hub",
+          "content_hash": "e3b4a266f598be401009d8475745366b58a55c19fe8dc7ae2cbb3ae967a860cf"
+        },
+        {
+          "canonical_id": "project/测试驱动开发",
+          "scope": "project",
+          "content_hash": "83dbbf93778b994c260705f63509f39a0f6c506587bb2a53e49ab44d2e0f2f24"
+        }
+      ]
+    },
+    {
+      "name": "系统化调试",
+      "selected_source_id": "project/系统化调试",
+      "selected_content_hash": "36de49a4e8956e2a3960c98ea3dce7663be7cf009927298f34ecac245928a678",
+      "excluded_source_ids": [
+        "personal/hub/系统化调试"
+      ],
+      "sources": [
+        {
+          "canonical_id": "personal/hub/系统化调试",
+          "scope": "personal",
+          "personal_type": "hub",
+          "content_hash": "e48539a6799fe101f97b51b4be4d67536e73fae3f6812208f497fb4a223e66ba"
+        },
+        {
+          "canonical_id": "project/系统化调试",
+          "scope": "project",
+          "content_hash": "36de49a4e8956e2a3960c98ea3dce7663be7cf009927298f34ecac245928a678"
+        }
+      ]
+    },
+    {
+      "name": "结束开发分支",
+      "selected_source_id": "project/结束开发分支",
+      "selected_content_hash": "158d857779f5bb71875bcefc95273d21869f4cff6a313e9fc1d352ef461fc90d",
+      "excluded_source_ids": [
+        "personal/hub/结束开发分支"
+      ],
+      "sources": [
+        {
+          "canonical_id": "personal/hub/结束开发分支",
+          "scope": "personal",
+          "personal_type": "hub",
+          "content_hash": "767fe669259c1b48b409c011cdfae68aefc584f26dbbb95b351a11c4bb6c94d3"
+        },
+        {
+          "canonical_id": "project/结束开发分支",
+          "scope": "project",
+          "content_hash": "158d857779f5bb71875bcefc95273d21869f4cff6a313e9fc1d352ef461fc90d"
+        }
+      ]
+    },
+    {
+      "name": "编写技能",
+      "selected_source_id": "project/编写技能",
+      "selected_content_hash": "715737cf6e7e6babe9cff01a7ba58e8664f34d92c355dd4b224dd57170eb2715",
+      "excluded_source_ids": [
+        "personal/hub/编写技能"
+      ],
+      "sources": [
+        {
+          "canonical_id": "personal/hub/编写技能",
+          "scope": "personal",
+          "personal_type": "hub",
+          "content_hash": "03674a13a826fe9ee2660a45c9e32bff021ec500b35266170b874f77edc1d8e3"
+        },
+        {
+          "canonical_id": "project/编写技能",
+          "scope": "project",
+          "content_hash": "715737cf6e7e6babe9cff01a7ba58e8664f34d92c355dd4b224dd57170eb2715"
+        }
+      ]
+    },
+    {
+      "name": "编写计划",
+      "selected_source_id": "project/编写计划",
+      "selected_content_hash": "53e057f367c5f745a91c3fdeec342ac1a76b8089a6767e5e47163d838349225a",
+      "excluded_source_ids": [
+        "personal/hub/编写计划"
+      ],
+      "sources": [
+        {
+          "canonical_id": "personal/hub/编写计划",
+          "scope": "personal",
+          "personal_type": "hub",
+          "content_hash": "73a002edbfa1bcf2e216c6cbdd915afffe624cb571baaf0c474437b458cdffa6"
+        },
+        {
+          "canonical_id": "project/编写计划",
+          "scope": "project",
+          "content_hash": "53e057f367c5f745a91c3fdeec342ac1a76b8089a6767e5e47163d838349225a"
+        }
+      ]
+    },
+    {
+      "name": "请求代码审查",
+      "selected_source_id": "project/请求代码审查",
+      "selected_content_hash": "8c297b1e05acfc0886e4b125cb60adede32e120d99a50bccbe9001b35fe30afe",
+      "excluded_source_ids": [
+        "personal/hub/请求代码审查"
+      ],
+      "sources": [
+        {
+          "canonical_id": "personal/hub/请求代码审查",
+          "scope": "personal",
+          "personal_type": "hub",
+          "content_hash": "fbffaaa81882e623c8b50676cb18a5cc658b1eab6496578e219b46e3400dbc8d"
+        },
+        {
+          "canonical_id": "project/请求代码审查",
+          "scope": "project",
+          "content_hash": "8c297b1e05acfc0886e4b125cb60adede32e120d99a50bccbe9001b35fe30afe"
+        }
+      ]
+    },
+    {
+      "name": "调度并行代理",
+      "selected_source_id": "project/调度并行代理",
+      "selected_content_hash": "6fa2933bb2994a1c609f57465715d8d54f9599a875e19d8f3b9b0d257036045d",
+      "excluded_source_ids": [
+        "personal/hub/调度并行代理"
+      ],
+      "sources": [
+        {
+          "canonical_id": "personal/hub/调度并行代理",
+          "scope": "personal",
+          "personal_type": "hub",
+          "content_hash": "9515d61bc8ab73363ea6689525e60c807fc4cf125b3976f6af966d10e5e03e0c"
+        },
+        {
+          "canonical_id": "project/调度并行代理",
+          "scope": "project",
+          "content_hash": "6fa2933bb2994a1c609f57465715d8d54f9599a875e19d8f3b9b0d257036045d"
+        }
+      ]
+    },
+    {
+      "name": "使用超能力",
+      "selected_source_id": "project/使用超能力",
+      "selected_content_hash": "eb069fc4bc2255842dadd46a963013d20d3afba234bc6b27e70b6dec74de7ad0",
+      "excluded_source_ids": [
+        "personal/imported/使用超能力"
+      ],
+      "sources": [
+        {
+          "canonical_id": "personal/imported/使用超能力",
+          "scope": "personal",
+          "personal_type": "imported",
+          "content_hash": "2807537d68d5fbeacfe17961d3bcef190a5d568f9b0af895afa4721d045842d7"
+        },
+        {
+          "canonical_id": "project/使用超能力",
+          "scope": "project",
+          "content_hash": "eb069fc4bc2255842dadd46a963013d20d3afba234bc6b27e70b6dec74de7ad0"
+        }
+      ]
+    },
+    {
+      "name": "头脑风暴",
+      "selected_source_id": "project/头脑风暴",
+      "selected_content_hash": "626a9b9b56119953931484a42a359ae700ef13c3cb95325a02ec53fabe3517f3",
+      "excluded_source_ids": [
+        "personal/imported/头脑风暴"
+      ],
+      "sources": [
+        {
+          "canonical_id": "personal/imported/头脑风暴",
+          "scope": "personal",
+          "personal_type": "imported",
+          "content_hash": "626a9b9b56119953931484a42a359ae700ef13c3cb95325a02ec53fabe3517f3"
+        },
+        {
+          "canonical_id": "project/头脑风暴",
+          "scope": "project",
+          "content_hash": "626a9b9b56119953931484a42a359ae700ef13c3cb95325a02ec53fabe3517f3"
+        }
+      ]
+    },
+    {
+      "name": "子代理驱动开发",
+      "selected_source_id": "project/子代理驱动开发",
+      "selected_content_hash": "1efbb0574f862c4ad019cc5880878372929451c7a2821cbdf49ce96212b7b8f6",
+      "excluded_source_ids": [
+        "personal/imported/子代理驱动开发"
+      ],
+      "sources": [
+        {
+          "canonical_id": "personal/imported/子代理驱动开发",
+          "scope": "personal",
+          "personal_type": "imported",
+          "content_hash": "1db750cb5fbb10a2a9b717d7c88912e3de52785b0b2278bb7ed03d2e3c0d8506"
+        },
+        {
+          "canonical_id": "project/子代理驱动开发",
+          "scope": "project",
+          "content_hash": "1efbb0574f862c4ad019cc5880878372929451c7a2821cbdf49ce96212b7b8f6"
+        }
+      ]
+    },
+    {
+      "name": "思维与决策辅助",
+      "selected_source_id": "project/思维与决策辅助",
+      "selected_content_hash": "661cfa104af587eca735fd105f50dac734f685e6c04933e2f81c6dc332925b45",
+      "excluded_source_ids": [
+        "personal/imported/思维与决策辅助"
+      ],
+      "sources": [
+        {
+          "canonical_id": "personal/imported/思维与决策辅助",
+          "scope": "personal",
+          "personal_type": "imported",
+          "content_hash": "661cfa104af587eca735fd105f50dac734f685e6c04933e2f81c6dc332925b45"
+        },
+        {
+          "canonical_id": "project/思维与决策辅助",
+          "scope": "project",
+          "content_hash": "661cfa104af587eca735fd105f50dac734f685e6c04933e2f81c6dc332925b45"
+        }
+      ]
+    }
+  ]
+}
