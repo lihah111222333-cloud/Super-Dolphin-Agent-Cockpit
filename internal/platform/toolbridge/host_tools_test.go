@@ -94,6 +94,9 @@ func TestCallHostTool_ApprovalDeniedReturnsStructuredResult(t *testing.T) {
 	if envelope["kind"] != "approval_denied" || envelope["tool"] != testHostToolName {
 		t.Fatalf("structured denied envelope = %#v", envelope)
 	}
+	if envelope["success"] != false || envelope["code"] != "approval_denied" || envelope["hint"] == "" {
+		t.Fatalf("structured denied envelope = %#v, want compatible ToolErrorEnvelope fields", envelope)
+	}
 	if envelope["error"] == "" {
 		t.Fatalf("structured denied envelope missing error: %#v", envelope)
 	}
@@ -154,8 +157,27 @@ func assertApprovalRequiredEnvelope(t *testing.T, got *ToolCallResult) {
 
 func assertApprovalEnvelopeHeaders(t *testing.T, envelope, approval map[string]any) {
 	t.Helper()
-	if envelope["kind"] != "approval_required" || approval["callId"] != "call-1" || approval["toolName"] != testHostToolName || approval["agentId"] != "agent-1" || approval["threadId"] != "thread-1" || approval["turnId"] != "turn-1" {
+	if envelope["kind"] != "approval_required" {
 		t.Fatalf("structured approval_required envelope = %#v", envelope)
+	}
+	assertApprovalEnvelopeField(t, approval, "callId", "call-1")
+	assertApprovalEnvelopeField(t, approval, "toolName", testHostToolName)
+	assertApprovalEnvelopeField(t, approval, "agentId", "agent-1")
+	assertApprovalEnvelopeField(t, approval, "threadId", "thread-1")
+	assertApprovalEnvelopeField(t, approval, "turnId", "turn-1")
+	if envelope["success"] != false || envelope["code"] != "approval_required" || envelope["hint"] == "" {
+		t.Fatalf("structured approval_required envelope = %#v, want compatible ToolErrorEnvelope fields", envelope)
+	}
+	meta, ok := envelope["meta"].(map[string]any)
+	if !ok || meta["kind"] != "approval_required" || meta["tool"] != testHostToolName {
+		t.Fatalf("structured approval_required meta = %#v, want tool/kind", envelope["meta"])
+	}
+}
+
+func assertApprovalEnvelopeField(t *testing.T, approval map[string]any, key, want string) {
+	t.Helper()
+	if approval[key] != want {
+		t.Fatalf("approval[%s] = %#v, want %q in %#v", key, approval[key], want, approval)
 	}
 }
 

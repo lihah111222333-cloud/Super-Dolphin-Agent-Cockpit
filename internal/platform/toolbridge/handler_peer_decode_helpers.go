@@ -307,6 +307,7 @@ var canonicalCodexSurfaceTools = map[string]struct{}{
 	"get_agent_reports": {},
 	ToolNameMemoryRead:  {},
 	ToolNameMemoryWrite: {},
+	ToolNameHistoryRead: {},
 	ToolNameReadSection: {},
 	"skill_expand_body": {},
 }

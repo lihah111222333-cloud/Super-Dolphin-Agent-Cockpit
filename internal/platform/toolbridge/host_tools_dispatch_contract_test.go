@@ -52,15 +52,46 @@ func TestHostToolErrorMirrorsValidStructuredContent(t *testing.T) {
 	got := hostToolErrorResult(ToolCallRequest{Name: "observability_trace_get"}, err)
 
 	textEnvelope := decodeToolResultEnvelope(t, got)
-	if textEnvelope["kind"] != "host_tool_error" || textEnvelope["error"] == "" {
-		t.Fatalf("inputText envelope = %#v, want host_tool_error", textEnvelope)
+	assertHostToolErrorLegacyEnvelope(t, textEnvelope)
+	assertHostToolErrorMeta(t, textEnvelope)
+	assertHostToolErrorStructuredContent(t, got, textEnvelope)
+}
+
+func assertHostToolErrorLegacyEnvelope(t *testing.T, textEnvelope map[string]any) {
+	t.Helper()
+	if textEnvelope["kind"] != "host_tool_error" {
+		t.Fatalf("inputText envelope = %#v, want legacy host_tool_error", textEnvelope)
 	}
+	if textEnvelope["error"] == "" {
+		t.Fatalf("inputText envelope = %#v, want non-empty error", textEnvelope)
+	}
+	if textEnvelope["success"] != false {
+		t.Fatalf("inputText envelope = %#v, want success=false", textEnvelope)
+	}
+	if textEnvelope["code"] == "" || textEnvelope["hint"] == "" {
+		t.Fatalf("inputText envelope = %#v, want stable code and hint", textEnvelope)
+	}
+}
+
+func assertHostToolErrorMeta(t *testing.T, textEnvelope map[string]any) {
+	t.Helper()
+	meta, ok := textEnvelope["meta"].(map[string]any)
+	if !ok || meta["tool"] != "observability_trace_get" || meta["kind"] != "host_tool_error" {
+		t.Fatalf("inputText meta = %#v, want tool/kind metadata", textEnvelope["meta"])
+	}
+}
+
+func assertHostToolErrorStructuredContent(t *testing.T, got *ToolCallResult, textEnvelope map[string]any) {
+	t.Helper()
 	var structured map[string]any
 	if err := json.Unmarshal(got.StructuredContent, &structured); err != nil {
 		t.Fatalf("StructuredContent = %s, want valid object: %v", got.StructuredContent, err)
 	}
 	if structured["kind"] != "host_tool_error" || structured["error"] != textEnvelope["error"] {
 		t.Fatalf("StructuredContent = %#v, want mirrored error envelope %#v", structured, textEnvelope)
+	}
+	if structured["success"] != false {
+		t.Fatalf("StructuredContent = %#v, want success=false", structured)
 	}
 }
 

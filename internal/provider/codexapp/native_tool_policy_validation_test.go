@@ -2,6 +2,7 @@ package codexapp
 
 import (
 	"context"
+	"encoding/json"
 	"strings"
 	"testing"
 
@@ -54,6 +55,31 @@ func TestNativeToolPolicyRejectsInvalidListTypes(t *testing.T) {
 	for _, tt := range invalidNativeToolPolicyCases() {
 		t.Run(tt.name, func(t *testing.T) {
 			assertNativeToolPolicyValidationError(t, resolveInvalidNativeToolPolicy(tt.value))
+		})
+	}
+}
+
+func TestCodexSandboxReadOnlyParsingIsConservative(t *testing.T) {
+	cases := []struct {
+		name string
+		raw  json.RawMessage
+		want bool
+	}{
+		{name: "string read-only", raw: json.RawMessage(`"read-only"`), want: true},
+		{name: "string readOnly", raw: json.RawMessage(`"readOnly"`), want: true},
+		{name: "object read-only key", raw: json.RawMessage(`{"read-only":null}`), want: true},
+		{name: "object readOnly key", raw: json.RawMessage(`{"readOnly":true}`), want: true},
+		{name: "object mode read-only", raw: json.RawMessage(`{"mode":"read-only"}`), want: true},
+		{name: "readOnlyHint only", raw: json.RawMessage(`{"readOnlyHint":true}`), want: false},
+		{name: "workspace write", raw: json.RawMessage(`{"mode":"workspace-write"}`), want: false},
+		{name: "malformed json", raw: json.RawMessage(`{"mode":`), want: false},
+		{name: "empty", raw: nil, want: false},
+	}
+	for _, tt := range cases {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := codexSandboxIsReadOnly(tt.raw); got != tt.want {
+				t.Fatalf("codexSandboxIsReadOnly(%s) = %v, want %v", string(tt.raw), got, tt.want)
+			}
 		})
 	}
 }
