@@ -33,7 +33,6 @@ var (
 	errInvalidConfigDocument       = errors.New("mcp_server: invalid config document")
 	errServerAlreadyExists         = errors.New("mcp_server: server already exists")
 	errServerNotFound              = errors.New("mcp_server: server not found")
-	errMissingWorkspaceRoot        = errors.New("mcp_server: workspaceRoot is required")
 	errMCPServerStoreNotConfigured = errors.New("mcp_server: config store is not configured")
 	errMCPServerToolsRequestFailed = errors.New("mcp_server: tools request failed")
 	errInvalidToolsResponse        = errors.New("mcp_server: invalid tools response")
