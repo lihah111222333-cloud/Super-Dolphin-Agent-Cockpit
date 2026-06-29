@@ -38,6 +38,10 @@ type PoolConfig struct {
 	// SpawnBackoff 控制同一身份启动失败后的冷却窗口。
 	// 窗口内返回缓存错误，避免反复拉起同一个失败进程。
 	SpawnBackoff time.Duration
+	// MaxLive 控制池内同时存活的 app-server 总数，0 表示不限制。
+	MaxLive int
+	// MaxLivePerHome 控制同一 canonical home 同时存活的 app-server 数，0 表示不限制。
+	MaxLivePerHome int
 }
 
 // ServerPool 默认空闲回收与启动退避时间。
@@ -52,6 +56,7 @@ var (
 	ErrSpawnBackoff    = errors.New("codexapp: spawn backoff active for codexHome")
 	ErrPoolClosed      = errors.New("codexapp: server pool is closed")
 	ErrInvalidIdentity = errors.New("codexapp: invalid codex identity")
+	ErrPoolCapacity    = errors.New("codexapp: server pool capacity exhausted")
 	noopRelease        = func() {}
 )
 
@@ -125,6 +130,10 @@ func (p *ServerPool) Acquire(ctx context.Context, identity providershared.CodexI
 	}
 	// 启动新进程前先检查退避窗口，避免失败身份被快速重试打爆。
 	if err := p.checkBackoffLocked(fastPath.entry, fastPath.now); err != nil {
+		p.mu.Unlock()
+		return nil, noopRelease, err
+	}
+	if err := p.checkCapacityLocked(entryKey); err != nil {
 		p.mu.Unlock()
 		return nil, noopRelease, err
 	}
@@ -213,6 +222,32 @@ func (p *ServerPool) checkBackoffLocked(entry *poolEntry, now time.Time) error {
 		return nil
 	}
 	return fmt.Errorf("%w: %v", ErrSpawnBackoff, entry.spawnErr)
+}
+
+// checkCapacityLocked 在启动新进程前执行容量门，避免超限身份继续拉起 app-server。
+func (p *ServerPool) checkCapacityLocked(entryKey poolEntryKey) error {
+	if p.cfg.MaxLive > 0 && p.liveEntriesLocked("") >= p.cfg.MaxLive {
+		return fmt.Errorf("%w: max_live=%d", ErrPoolCapacity, p.cfg.MaxLive)
+	}
+	if p.cfg.MaxLivePerHome > 0 && p.liveEntriesLocked(entryKey.home) >= p.cfg.MaxLivePerHome {
+		return fmt.Errorf("%w: home=%q max_live_per_home=%d", ErrPoolCapacity, entryKey.home, p.cfg.MaxLivePerHome)
+	}
+	return nil
+}
+
+// liveEntriesLocked 统计当前仍存活的池条目；home 为空时统计全局容量。
+func (p *ServerPool) liveEntriesLocked(home string) int {
+	count := 0
+	for _, entry := range p.entries {
+		if entry == nil || entry.server == nil || !entry.server.Alive() {
+			continue
+		}
+		if home != "" && entry.key.home != home {
+			continue
+		}
+		count++
+	}
+	return count
 }
 
 func (p *ServerPool) recordSpawnErrorLocked(entry *poolEntry, entryKey poolEntryKey, err error, now time.Time) {

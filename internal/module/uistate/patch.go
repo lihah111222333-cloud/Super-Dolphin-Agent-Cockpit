@@ -170,7 +170,7 @@ func (s *service) recordUITrace(method, threadID, agentID, turnID, callID, toolN
 	if duration.Milliseconds() >= slowUIStateTraceMS {
 		status = observability.StatusSlow
 	}
-	_ = s.trace.Record(context.Background(), observability.TraceEvent{
+	event := observability.TraceEvent{
 		SchemaVersion: observability.SchemaVersion,
 		Timestamp:     time.Now(),
 		Kind:          "ui_state",
@@ -184,7 +184,26 @@ func (s *service) recordUITrace(method, threadID, agentID, turnID, callID, toolN
 		Status:        status,
 		Code:          observability.CodeAnchorFromCaller(0),
 		Metadata:      metadata,
-	})
+	}
+	if err := s.trace.Record(context.Background(), event); err != nil {
+		s.warnUITraceRecordFailure(event, err)
+	}
+}
+
+// warnUITraceRecordFailure 把 UI trace 写失败暴露到日志，避免观测落盘故障静默。
+func (s *service) warnUITraceRecordFailure(event observability.TraceEvent, err error) {
+	if s == nil || s.logger == nil || err == nil {
+		return
+	}
+	s.logger.Warn("uistate trace record failed",
+		"method", event.Method,
+		"thread_id", event.ThreadID,
+		"turn_id", event.TurnID,
+		"call_id", event.CallID,
+		"status", string(event.Status),
+		observability.ErrorPreviewField, observability.SafeErrorPreview(err),
+		observability.ErrorCodeField, "trace_record_failed",
+	)
 }
 
 // threadPatchLocked 组装单线程 UI patch，调用方必须已持有 service 锁。

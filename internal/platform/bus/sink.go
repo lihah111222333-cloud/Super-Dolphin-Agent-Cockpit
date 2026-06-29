@@ -17,16 +17,18 @@ import (
 	tooldto "github.com/anthropic-ai/super-agent-v3/internal/dto/tool"
 	turndto "github.com/anthropic-ai/super-agent-v3/internal/dto/turn"
 	uidto "github.com/anthropic-ai/super-agent-v3/internal/dto/ui"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/observability"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 	"github.com/kelindar/event"
 )
 
 // LogSink 订阅总线上的已知事件类型，将其镜像到结构化日志，并按需记录追踪信息。
 type LogSink struct {
-	subs        *Subscription    // 订阅集合，Close 时统一注销
-	trace       TraceRecorder    // 可选的追踪记录器
-	traceMu     sync.Mutex       // 保护 traceCounts 的并发写
-	traceCounts map[string]int64 // 高频事件采样计数器，按事件类型分组
+	subs        *Subscription     // 订阅集合，Close 时统一注销
+	logger      *pkglogger.Logger // trace 写入失败时输出可见告警
+	trace       TraceRecorder     // 可选的追踪记录器
+	traceMu     sync.Mutex        // 保护 traceCounts 的并发写
+	traceCounts map[string]int64  // 高频事件采样计数器，按事件类型分组
 }
 
 // TraceStatus 表示追踪记录的状态类型。
@@ -83,7 +85,7 @@ func NewLogSink(p LogSinkDeps) (*LogSink, error) {
 	if p.Logger == nil {
 		return nil, errors.New("bus: nil logger")
 	}
-	sink := &LogSink{subs: NewSubscription(), trace: p.Trace, traceCounts: map[string]int64{}}
+	sink := &LogSink{subs: NewSubscription(), logger: p.Logger, trace: p.Trace, traceCounts: map[string]int64{}}
 	sink.bindAgent(p.Dispatcher, p.Logger)
 	sink.bindThread(p.Dispatcher, p.Logger)
 	sink.bindTurn(p.Dispatcher, p.Logger)
@@ -158,10 +160,7 @@ func logEvent[T event.Event](dispatcher *event.Dispatcher, logger *pkglogger.Log
 		return func() {}
 	}
 	return event.Subscribe(dispatcher, func(ev T) {
-		logger.Info("bus event",
-			pkglogger.String("event_type", eventTypeName(ev)),
-			pkglogger.Any("event", ev),
-		)
+		logger.Info("bus event", busEventLogArgs(ev)...)
 		if trace != nil {
 			trace(ev)
 		}
@@ -173,14 +172,26 @@ func logDebugEvent[T event.Event](dispatcher *event.Dispatcher, logger *pkglogge
 		return func() {}
 	}
 	return event.Subscribe(dispatcher, func(ev T) {
-		logger.Debug("bus event",
-			pkglogger.String("event_type", eventTypeName(ev)),
-			pkglogger.Any("event", ev),
-		)
+		logger.Debug("bus event", busEventLogArgs(ev)...)
 		if trace != nil {
 			trace(ev)
 		}
 	})
+}
+
+// busEventLogArgs 只记录事件类型和脱敏预览，禁止把完整 event struct 写入日志。
+func busEventLogArgs(ev any) []any {
+	preview := observability.SafePreview(ev, 512)
+	args := []any{
+		pkglogger.String("event_type", eventTypeName(ev)),
+		pkglogger.String("event_preview", preview.Preview),
+		pkglogger.Int64("event_bytes", preview.Bytes),
+		"event_truncated", preview.Truncated,
+	}
+	if preview.SHA256 != "" {
+		args = append(args, pkglogger.String("event_sha256", preview.SHA256))
+	}
+	return args
 }
 
 func eventTypeName(ev any) string {
@@ -225,7 +236,7 @@ func (s *LogSink) recordTraceEvent(ev any, status TraceStatus, metadata map[stri
 		metadata = map[string]any{}
 	}
 	metadata["event_type"] = eventTypeName(ev)
-	_ = s.trace.RecordTrace(context.Background(), TraceRecord{
+	record := TraceRecord{
 		SchemaVersion: 1,
 		Timestamp:     time.Now(),
 		Kind:          "bus_event",
@@ -241,7 +252,24 @@ func (s *LogSink) recordTraceEvent(ev any, status TraceStatus, metadata map[stri
 		Status:        status,
 		Code:          traceCodeAnchorFromCaller(0),
 		Metadata:      metadata,
-	})
+	}
+	if err := s.trace.RecordTrace(context.Background(), record); err != nil {
+		s.warnTraceRecordFailure(ev, record, err)
+	}
+}
+
+// warnTraceRecordFailure 把 trace 写失败转成限界日志，避免观测链路故障静默。
+func (s *LogSink) warnTraceRecordFailure(ev any, record TraceRecord, err error) {
+	if s == nil || s.logger == nil || err == nil {
+		return
+	}
+	s.logger.Warn("bus trace record failed",
+		pkglogger.String("event_type", eventTypeName(ev)),
+		pkglogger.String("method", record.Method),
+		pkglogger.String("thread_id", record.ThreadID),
+		pkglogger.String(observability.ErrorPreviewField, observability.SafeErrorPreview(err)),
+		pkglogger.String(observability.ErrorCodeField, "trace_record_failed"),
+	)
 }
 
 func traceCodeAnchorFromCaller(skip int) TraceCodeAnchor {
