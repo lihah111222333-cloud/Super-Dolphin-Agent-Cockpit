@@ -39,7 +39,7 @@ func TestServiceSendsTextMessage(t *testing.T) {
 			t.Parallel()
 
 			session := newMessageSession()
-			svc := moduleturn.NewService(pkglogger.Get())
+			svc := moduleturn.NewServiceWithPromptAssembly(pkglogger.Get(), &messagePromptAssembly{})
 			t.Cleanup(func() {
 				if shutdowner, ok := svc.(interface{ Shutdown() }); ok {
 					shutdowner.Shutdown()
@@ -82,6 +82,24 @@ func assertSentTextTurn(t *testing.T, req dto.TurnRequest, wantLocalID string, w
 	if req.Inputs[0].Type != "text" || req.Inputs[0].Content != wantText {
 		t.Fatalf("sent input = %#v, want text %q", req.Inputs[0], wantText)
 	}
+}
+
+type messagePromptAssembly struct{}
+
+func (*messagePromptAssembly) AssembleStart(context.Context, contract.StartInput) (contract.StartAssembly, error) {
+	return contract.StartAssembly{}, nil
+}
+
+func (*messagePromptAssembly) AssembleTurn(context.Context, contract.TurnInput) (contract.TurnAssembly, error) {
+	return contract.TurnAssembly{}, nil
+}
+
+func (*messagePromptAssembly) AssembleAgent(context.Context, contract.AgentInput) (contract.StartAssembly, error) {
+	return contract.StartAssembly{}, nil
+}
+
+func (*messagePromptAssembly) Invalidate(context.Context, contract.InvalidateReason) error {
+	return nil
 }
 
 type messageSession struct {
