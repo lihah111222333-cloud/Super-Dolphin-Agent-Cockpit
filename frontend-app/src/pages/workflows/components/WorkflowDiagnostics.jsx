@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { textValue } from '../../shared/pageShared.js';
 import { Panel } from '../../shared/pageComponents.jsx';
-import { workflowSharedFileRows, workflowTopologyRows } from '../adapters/workflowDisplayAdapter.js';
+import { workflowConfigDiagnostics, workflowSharedFileRows, workflowTopologyRows } from '../adapters/workflowDisplayAdapter.js';
 
 function WorkflowDiagnostics({ model }) {
   /*
@@ -12,9 +12,28 @@ function WorkflowDiagnostics({ model }) {
   return (
     <div className="workflow-diagnostics">
       <WorkflowDiagnosticPanel model={model} />
+      <WorkflowConfigDiagnosticPanel nodes={derived.diagnosticNodes} />
       <WorkflowTopologyPanel nodes={derived.diagnosticNodes} />
       <WorkflowSharedFilesPanel nodes={derived.diagnosticNodes} />
     </div>
+  );
+}
+
+function WorkflowConfigDiagnosticPanel({ nodes }) {
+  const rows = workflowConfigDiagnostics(nodes);
+  return (
+    <Panel title="配置诊断">
+      {rows.length === 0 ? <p>暂无配置错误</p> : (
+        <div className="workflow-diagnostic-list">
+          {rows.map((row) => (
+            <article className={`workflow-diagnostic-row ${row.severity || ''}`} key={row.key}>
+              <strong>{row.title}</strong>
+              <span>{row.message}</span>
+            </article>
+          ))}
+        </div>
+      )}
+    </Panel>
   );
 }
 

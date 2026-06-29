@@ -459,6 +459,37 @@ function expectInvalidInputDoesNotCall(callAPI, action, message) {
     });
   });
 
+  it('allows launch skill facade keys on thread/start', async () => {
+    const callAPI = vi.fn().mockResolvedValue({ threadId: 'thread-123' });
+    const api = createBackendApi({ callAPI });
+
+    await api.startThread({
+      cwd: '/repo/app',
+      modelProvider: 'claude',
+      selectedSkills: ['review'],
+      selectedSkillRefs: [{ name: 'review', scope: 'project' }],
+      manualSkillSelection: true,
+    });
+
+    expect(callAPI).toHaveBeenCalledWith(RPC_METHODS.THREAD_START, expect.objectContaining({
+      selectedSkills: ['review'],
+      selectedSkillRefs: [{ name: 'review', scope: 'project' }],
+      manualSkillSelection: true,
+    }));
+  });
+
+  it('rejects unknown turn/start facade fields before calling the backend', () => {
+    const callAPI = vi.fn().mockResolvedValue({ ok: true });
+    const api = createBackendApi({ callAPI });
+
+    expectInvalidInputDoesNotCall(callAPI, () => api.startTurn({
+      cwd: '/repo/app',
+      threadId: 'thread-123',
+      input: 'build it',
+      surprise: true,
+    }), 'turn/start: unsupported payload field surprise');
+  });
+
   it('sends turn/start input-only text and expanded arrays with explicit cwd', async () => {
     const firstResponse = { turnId: 'turn-1', status: 'queued' };
     const secondResponse = { turnId: 'turn-2', status: 'queued' };
@@ -1396,15 +1427,17 @@ function expectMemoryCenterValidation(api) {
     expect(() => api.openNewWindow({ cwd: '' })).toThrow('cwd is required');
   });
 
-  it('wraps shared file list, read, delete and native open helpers with the expected payload shapes', async () => {
+  it('wraps shared file list, read, delete, open and preview helpers with the expected payload shapes', async () => {
     const callAPI = vi.fn().mockResolvedValue({ ok: true });
     const openSharedFile = vi.fn().mockResolvedValue({ opened: true });
-    const api = createBackendApi({ callAPI, openSharedFile });
+    const previewSharedFile = vi.fn().mockResolvedValue({ url: '/shared-file-preview?id=sf_1' });
+    const api = createBackendApi({ callAPI, openSharedFile, previewSharedFile });
 
     await api.listSharedFiles();
     await api.readSharedFile({ path: 'reports/final.md' });
     await api.deleteSharedFile({ path: 'scratch/work.json' });
     await api.openSharedFile({ path: 'dag/video/final.mp4' });
+    await api.previewSharedFile({ path: 'dag/video/final.mp4' });
 
     expect(callAPI).toHaveBeenCalledWith(RPC_METHODS.DASHBOARD_SHARED_FILES, {});
     expect(callAPI).toHaveBeenCalledWith(RPC_METHODS.UI_SHARED_FILE_GET, {
@@ -1414,9 +1447,11 @@ function expectMemoryCenterValidation(api) {
       path: 'scratch/work.json',
     });
     expect(openSharedFile).toHaveBeenCalledWith({ path: 'dag/video/final.mp4' });
+    expect(previewSharedFile).toHaveBeenCalledWith({ path: 'dag/video/final.mp4' });
     expect(() => api.listSharedFiles([])).toThrow('params must be an object');
     expect(() => api.readSharedFile({ path: '' })).toThrow('path is required');
     expect(() => api.deleteSharedFile({ path: '' })).toThrow('path is required');
+    expect(() => api.previewSharedFile({ path: '' })).toThrow('path is required');
   });
 
   it('wraps runtime code locate, open and save RPCs with scoped payloads', async () => {

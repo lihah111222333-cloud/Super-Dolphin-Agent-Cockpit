@@ -10,7 +10,7 @@ import (
 func TestSaveClipboardImageDecodesBase64Payload(t *testing.T) {
 	t.Parallel()
 
-	png := []byte{0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 'S', 'u', 'p', 'e', 'r'}
+	png := validClipboardPNG()
 	payload := base64.StdEncoding.EncodeToString(png)
 
 	app := &App{}
@@ -38,7 +38,7 @@ func TestSaveClipboardImageDecodesBase64Payload(t *testing.T) {
 func TestSaveClipboardImageStripsDataURLPrefix(t *testing.T) {
 	t.Parallel()
 
-	raw := []byte("hello-clipboard")
+	raw := validClipboardPNG()
 	payload := "data:image/png;base64," + base64.StdEncoding.EncodeToString(raw)
 
 	app := &App{}
@@ -83,10 +83,40 @@ func TestSaveClipboardImageRejectsInvalidBase64(t *testing.T) {
 	}
 }
 
+func TestSaveClipboardImageRejectsPNGDataURLWithInvalidHeader(t *testing.T) {
+	t.Parallel()
+
+	payload := "data:image/png;base64," + base64.StdEncoding.EncodeToString([]byte("not-a-png"))
+
+	app := &App{}
+	_, err := app.SaveClipboardImage(payload)
+	if err == nil {
+		t.Fatal("SaveClipboardImage() error = nil, want PNG header rejection")
+	}
+	if !strings.Contains(err.Error(), "png") {
+		t.Fatalf("SaveClipboardImage() error = %v, want contain 'png'", err)
+	}
+}
+
+func TestSaveClipboardImageRejectsNonImageDataURLMime(t *testing.T) {
+	t.Parallel()
+
+	payload := "data:text/plain;base64," + base64.StdEncoding.EncodeToString(validClipboardPNG())
+
+	app := &App{}
+	_, err := app.SaveClipboardImage(payload)
+	if err == nil {
+		t.Fatal("SaveClipboardImage() error = nil, want MIME rejection")
+	}
+	if !strings.Contains(err.Error(), "image/png") {
+		t.Fatalf("SaveClipboardImage() error = %v, want contain 'image/png'", err)
+	}
+}
+
 func TestSaveClipboardImageTolerantToWhitespace(t *testing.T) {
 	t.Parallel()
 
-	raw := []byte("wrapped-base64-payload-needs-to-be-long-enough")
+	raw := validClipboardPNG()
 	encoded := base64.StdEncoding.EncodeToString(raw)
 	// simulate line-wrapped base64 (e.g. MIME/RFC 2045)
 	wrapped := encoded[:8] + "\n" + encoded[8:16] + " \t " + encoded[16:]
@@ -105,4 +135,8 @@ func TestSaveClipboardImageTolerantToWhitespace(t *testing.T) {
 	if string(got) != string(raw) {
 		t.Fatalf("SaveClipboardImage() decoded bytes = %q, want %q", got, raw)
 	}
+}
+
+func validClipboardPNG() []byte {
+	return []byte{0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 'S', 'u', 'p', 'e', 'r'}
 }

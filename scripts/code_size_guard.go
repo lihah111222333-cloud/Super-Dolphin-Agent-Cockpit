@@ -30,9 +30,10 @@ func main() {
 		os.Exit(1)
 	}
 	opts := archtest.CheckOptions{
-		RepoRoot:  repoRoot,
-		ScanRoots: []string{"internal", "cmd", "pkg", "scripts"},
-		SkipDirs:  archtest.DefaultSkipDirs(),
+		RepoRoot:            repoRoot,
+		ScanRoots:           []string{"internal", "cmd", "pkg", "scripts"},
+		SkipDirs:            archtest.DefaultSkipDirs(),
+		EnforceFuncComments: true,
 	}
 	baselinePath := filepath.Join(repoRoot, "internal/archtest/baseline.json")
 	testBaselinePath := filepath.Join(repoRoot, "internal/archtest/baseline_test.json")

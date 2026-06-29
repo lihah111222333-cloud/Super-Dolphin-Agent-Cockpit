@@ -107,6 +107,7 @@ type UIThreadPatch struct {
 	ThreadID          string                 `json:"threadId"`
 	Source            string                 `json:"source,omitempty"`
 	Sequence          int64                  `json:"sequence,omitempty"`
+	Generation        int64                  `json:"generation,omitempty"`
 	Thread            *ThreadPatchThread     `json:"thread,omitempty"`
 	Status            string                 `json:"status,omitempty"`
 	StatusHeader      string                 `json:"statusHeader,omitempty"`

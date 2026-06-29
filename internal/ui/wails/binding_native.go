@@ -1,6 +1,7 @@
 package wails
 
 import (
+	"bytes"
 	"encoding/base64"
 	"errors"
 	"fmt"
@@ -10,6 +11,10 @@ import (
 
 	"github.com/wailsapp/wails/v3/pkg/application"
 )
+
+const maxClipboardImageBytes = 10 << 20
+
+var clipboardPNGSig = []byte{0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A}
 
 // SaveClipboardImage 接受前端从 `ClipboardEvent`/`Blob` 读取并编码好的 base64 图像数据，
 // 解码后写入临时 PNG 文件并返回其路径。允许载荷带 `data:image/...;base64,` 前缀。
@@ -41,11 +46,16 @@ func decodeClipboardImagePayload(payload string) ([]byte, error) {
 	if payload == "" {
 		return nil, errors.New("clipboard image: base64 payload is empty")
 	}
-	// 容错 data URL 前缀（例如 data:image/png;base64,AAAA）与裸 base64。
 	if strings.HasPrefix(payload, "data:") {
-		if idx := strings.Index(payload, ","); idx >= 0 {
-			payload = payload[idx+1:]
+		idx := strings.Index(payload, ",")
+		if idx < 0 {
+			return nil, errors.New("clipboard image: data URL is missing base64 separator")
 		}
+		header := strings.ToLower(strings.TrimSpace(payload[:idx]))
+		if !strings.HasPrefix(header, "data:image/png;") || !strings.Contains(header, ";base64") {
+			return nil, errors.New("clipboard image: data URL MIME must be image/png;base64")
+		}
+		payload = payload[idx+1:]
 	}
 	payload = stripBase64Whitespace(payload)
 	data, err := decodeBase64Flexible(payload)
@@ -54,6 +64,12 @@ func decodeClipboardImagePayload(payload string) ([]byte, error) {
 	}
 	if len(data) == 0 {
 		return nil, errors.New("clipboard image: payload decoded to zero bytes")
+	}
+	if len(data) > maxClipboardImageBytes {
+		return nil, fmt.Errorf("clipboard image: payload exceeds size limit of %d bytes", maxClipboardImageBytes)
+	}
+	if !bytes.HasPrefix(data, clipboardPNGSig) {
+		return nil, errors.New("clipboard image: png header mismatch")
 	}
 	return data, nil
 }

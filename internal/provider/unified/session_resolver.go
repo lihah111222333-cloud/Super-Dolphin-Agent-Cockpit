@@ -28,6 +28,11 @@ type sessionResolver struct {
 
 var _ contract.SessionResolver = (*sessionResolver)(nil)
 
+type autoResumeThreadState struct {
+	runtimeConfig  map[string]any
+	promptSnapshot contract.PromptAssemblySnapshot
+}
+
 // NewSessionResolver 创建会话解析器。
 func NewSessionResolver(p sessionResolverParams) contract.SessionResolver {
 	return &sessionResolver{
@@ -126,7 +131,10 @@ func (r *sessionResolver) resolveThreadSession(ctx context.Context, threadID str
 		}
 		return nil, contract.ErrSessionNotFound
 	}
-	return r.autoResumeSession(ctx, binding, ref.RuntimeConfig, ref.ThreadID, threadID)
+	return r.autoResumeSession(ctx, binding, autoResumeThreadState{
+		runtimeConfig:  ref.RuntimeConfig,
+		promptSnapshot: ref.PromptSnapshot,
+	}, ref.ThreadID, threadID)
 }
 
 // resolveProviderThreadSession 按 provider thread ID 反查绑定，支持重启后从 provider 侧线程恢复。
@@ -155,11 +163,11 @@ func (r *sessionResolver) resolveProviderThreadSession(ctx context.Context, thre
 			return session, nil
 		}
 		// 内存未命中时从持久化 binding 恢复 provider session。
-		runtimeConfig, err := r.lookupAutoResumeRuntimeConfig(ctx, binding)
+		threadState, err := r.lookupAutoResumeThreadState(ctx, binding)
 		if err != nil {
 			return nil, err
 		}
-		return r.autoResumeSession(ctx, binding, runtimeConfig)
+		return r.autoResumeSession(ctx, binding, threadState)
 	}
 	if len(errs) > 0 {
 		return nil, errors.Join(errs...)
@@ -169,8 +177,8 @@ func (r *sessionResolver) resolveProviderThreadSession(ctx context.Context, thre
 
 // autoResumeSession 根据持久化绑定重建运行时 session。
 // 这是应用重启后的关键恢复路径：数据库仍有线程 UUID，但内存 SessionManager 已为空。
-func (r *sessionResolver) autoResumeSession(ctx context.Context, binding *contract.SessionBinding, runtimeConfig map[string]any, publicThreadID ...string) (contract.Session, error) {
-	plan, err := r.buildAutoResumePlan(binding, runtimeConfig, publicThreadID...)
+func (r *sessionResolver) autoResumeSession(ctx context.Context, binding *contract.SessionBinding, threadState autoResumeThreadState, publicThreadID ...string) (contract.Session, error) {
+	plan, err := r.buildAutoResumePlan(binding, threadState.runtimeConfig, threadState.promptSnapshot, publicThreadID...)
 	if err != nil {
 		return nil, err
 	}
@@ -199,11 +207,11 @@ func (r *sessionResolver) autoResumeSession(ctx context.Context, binding *contra
 	return session, nil
 }
 
-// lookupAutoResumeRuntimeConfig 从线程记录中读取 auto-resume 配置，返回副本避免调用方修改持久化快照。
+// lookupAutoResumeThreadState 从线程记录中读取 auto-resume 配置和 prompt 快照。
 // 只有 NotFound 表示候选线程不存在可继续查找，其它存储或解码错误都要阻断恢复。
-func (r *sessionResolver) lookupAutoResumeRuntimeConfig(ctx context.Context, binding *contract.SessionBinding) (map[string]any, error) {
+func (r *sessionResolver) lookupAutoResumeThreadState(ctx context.Context, binding *contract.SessionBinding) (autoResumeThreadState, error) {
 	if r == nil || r.threadStore == nil || binding == nil {
-		return nil, nil
+		return autoResumeThreadState{}, nil
 	}
 	for _, candidate := range []string{binding.CodexThreadID, binding.AgentID} {
 		candidate = strings.TrimSpace(candidate)
@@ -215,16 +223,17 @@ func (r *sessionResolver) lookupAutoResumeRuntimeConfig(ctx context.Context, bin
 			if contract.IsNotFound(err) {
 				continue
 			}
-			return nil, fmt.Errorf("resolve session: runtime config lookup thread %q: %w", candidate, err)
+			return autoResumeThreadState{}, fmt.Errorf("resolve session: runtime config lookup thread %q: %w", candidate, err)
 		}
 		if ref == nil {
 			continue
 		}
-		if len(ref.RuntimeConfig) > 0 {
-			return clone.RuntimeConfigMap(ref.RuntimeConfig), nil
-		}
+		return autoResumeThreadState{
+			runtimeConfig:  clone.RuntimeConfigMap(ref.RuntimeConfig),
+			promptSnapshot: ref.PromptSnapshot,
+		}, nil
 	}
-	return nil, nil
+	return autoResumeThreadState{}, nil
 }
 
 // rejectBindingAutoResumeLifecycle 在按 binding 恢复前检查线程状态，阻止 stopped 或 archived 会话被重新拉起。

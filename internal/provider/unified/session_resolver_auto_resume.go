@@ -24,7 +24,7 @@ type autoResumePlan struct {
 }
 
 // buildAutoResumePlan 从持久化 binding 构造恢复计划，任何关键字段缺失都会阻断恢复。
-func (r *sessionResolver) buildAutoResumePlan(binding *contract.SessionBinding, runtimeConfig map[string]any, publicThreadID ...string) (autoResumePlan, error) {
+func (r *sessionResolver) buildAutoResumePlan(binding *contract.SessionBinding, runtimeConfig map[string]any, promptSnapshot contract.PromptAssemblySnapshot, publicThreadID ...string) (autoResumePlan, error) {
 	provider, err := autoResumeBindingProvider(binding)
 	if err != nil {
 		return autoResumePlan{}, err
@@ -42,7 +42,10 @@ func (r *sessionResolver) buildAutoResumePlan(binding *contract.SessionBinding, 
 	if err != nil {
 		return autoResumePlan{}, err
 	}
-	req := buildAutoResumeRequest(binding, runtimeConfig, provider, providerThreadID, cwd, publicThreadID)
+	req := buildAutoResumeRequest(binding, runtimeConfig, promptSnapshot, provider, providerThreadID, cwd, publicThreadID)
+	if err := contract.ValidateResumePromptSnapshot(req.PromptSnapshot); err != nil {
+		return autoResumePlan{}, fmt.Errorf("resolve session: auto-resume prompt snapshot: %w", err)
+	}
 	return autoResumePlan{driver: driver, req: req}, nil
 }
 
@@ -71,7 +74,7 @@ func (r *sessionResolver) autoResumeDriver(provider string) (contract.Driver, er
 }
 
 // buildAutoResumeRequest 组装 provider 恢复请求，并复制 runtimeConfig 防止后续修改污染输入。
-func buildAutoResumeRequest(binding *contract.SessionBinding, runtimeConfig map[string]any, provider, providerThreadID, cwd string, publicThreadID []string) dto.ResumeSessionRequest {
+func buildAutoResumeRequest(binding *contract.SessionBinding, runtimeConfig map[string]any, promptSnapshot contract.PromptAssemblySnapshot, provider, providerThreadID, cwd string, publicThreadID []string) dto.ResumeSessionRequest {
 	codexHome, codexInstanceKey, codexModelProvider := autoResumeCodexIdentityFields(binding, runtimeConfig)
 	return dto.ResumeSessionRequest{
 		Provider:           provider,
@@ -80,9 +83,34 @@ func buildAutoResumeRequest(binding *contract.SessionBinding, runtimeConfig map[
 		ProviderThreadID:   providerThreadID,
 		CWD:                cwd,
 		Config:             clone.RuntimeConfigMap(runtimeConfig),
+		PromptSnapshot:     cloneAutoResumePromptSnapshot(promptSnapshot),
 		CodexHome:          codexHome,
 		CodexInstanceKey:   codexInstanceKey,
 		CodexModelProvider: codexModelProvider,
+	}
+}
+
+func cloneAutoResumePromptSnapshot(snapshot contract.PromptAssemblySnapshot) dto.PromptAssemblySnapshot {
+	return dto.PromptAssemblySnapshot{
+		DisplayName:           strings.TrimSpace(snapshot.DisplayName),
+		BaseInstructions:      strings.TrimSpace(snapshot.BaseInstructions),
+		Boundary:              cloneAutoResumePromptBoundary(snapshot.Boundary),
+		DeveloperInstructions: strings.TrimSpace(snapshot.DeveloperInstructions),
+		Provider:              strings.TrimSpace(snapshot.Provider),
+		Version:               snapshot.Version,
+		Hash:                  strings.TrimSpace(snapshot.Hash),
+		SectionSnapshot:       clone.StringMap(snapshot.SectionSnapshot),
+		Generation:            snapshot.Generation,
+	}
+}
+
+func cloneAutoResumePromptBoundary(boundary *dto.PromptAssemblyBoundary) *dto.PromptAssemblyBoundary {
+	if boundary == nil {
+		return nil
+	}
+	return &dto.PromptAssemblyBoundary{
+		CachedPrefix: strings.TrimSpace(boundary.CachedPrefix),
+		UncachedTail: strings.TrimSpace(boundary.UncachedTail),
 	}
 }
 

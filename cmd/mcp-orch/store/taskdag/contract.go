@@ -251,11 +251,13 @@ type ListDAGsFilter struct {
 
 // NodeStatusUpdate 是 UpdateNodeStatus 的入参。
 type NodeStatusUpdate struct {
-	Status  string
-	Result  json.RawMessage
-	DagKey  string
-	NodeKey string
-	RunID   int64
+	Status        string
+	Result        json.RawMessage
+	DagKey        string
+	NodeKey       string
+	RunID         int64
+	WakeupID      int64
+	WakeupAttempt int32
 }
 
 // AssignNodeInput 是 AssignNode 的入参。
@@ -305,11 +307,13 @@ type AwaitingVerifyNodeStatusUpdate struct {
 
 // CompleteNodeInput 是 CompleteNode / CompleteNodeAndScheduleDownstream 的入参。
 type CompleteNodeInput struct {
-	Status  string
-	Result  json.RawMessage
-	DagKey  string
-	NodeKey string
-	RunID   int64
+	Status        string
+	Result        json.RawMessage
+	DagKey        string
+	NodeKey       string
+	RunID         int64
+	WakeupID      int64
+	WakeupAttempt int32
 }
 
 // NodeConfigPatchInput 是 smart retry 原子 patch runtime node.config 的入参。
@@ -398,11 +402,13 @@ type DownstreamUpstreamRef struct {
 // Reason 会写入节点 result 供排障；FailFast 保留给调用方区分是否取消无依赖失败的其它分支。
 // 直接或间接依赖失败节点且仍 pending 的下游节点总会终态化，避免 run 卡住。
 type FailNodeInput struct {
-	DagKey   string
-	NodeKey  string
-	RunID    int64
-	Reason   string
-	FailFast bool
+	DagKey        string
+	NodeKey       string
+	RunID         int64
+	Reason        string
+	FailFast      bool
+	WakeupID      int64
+	WakeupAttempt int32
 }
 
 // FailNodeResult 报告失败事务实际触达的节点。

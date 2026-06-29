@@ -354,16 +354,16 @@ func (s *service) establishResumedSession(
 	); err != nil {
 		return nil, err
 	}
-	if _, err := s.resumeResolvedRequestSession(ctx, req); err != nil {
+	session, err := s.resumeResolvedRequestSession(ctx, req)
+	if err != nil {
 		s.stopAgent(ctx, req.AgentID)
 		return nil, err
+	}
+	if session == nil {
+		s.stopAgent(ctx, req.AgentID)
+		return nil, errors.New("thread: resumed session is nil")
 	}
 	if err := s.bindSessionGeneration(ctx, req.AgentID); err != nil {
-		s.stopAgent(ctx, req.AgentID)
-		return nil, err
-	}
-	session, err := s.lookupSession(req.AgentID)
-	if err != nil {
 		s.stopAgent(ctx, req.AgentID)
 		return nil, err
 	}
@@ -386,7 +386,7 @@ func (s *service) persistResumedSession(
 	runtimeIdentity, hasRuntimeIdentity := sessionRuntimeCodexIdentityConfig(session)
 	configOverride, identity, ok, err := canonicalizeResumeStoredThreadConfig(provider, state.ConfigOverrideRaw, codexHome, codexInstanceKey, codexModelProvider, reqIdentityResolved, runtimeIdentity, hasRuntimeIdentity)
 	if err != nil {
-		return ResumeResult{}, err
+		return ResumeResult{}, s.resumePersistFailure(ctx, req.AgentID, err)
 	}
 	if ok {
 		codexHome, codexInstanceKey, codexModelProvider = identity.Home, identity.InstanceKey, identity.ModelProvider
@@ -427,11 +427,11 @@ func (s *service) persistResumedSession(
 					"agent_id", req.AgentID,
 					"stale_provider_thread_id", providerThreadID)
 			}
-			s.stopAgent(ctx, req.AgentID)
-			return ResumeResult{}, fmt.Errorf("resume aborted due to binding conflict: %w", err)
+			return ResumeResult{}, fmt.Errorf("resume aborted due to binding conflict: %w", s.resumePersistFailure(ctx, req.AgentID, err))
 		}
-		return ResumeResult{}, fmt.Errorf("persist resumed thread state: %w", err)
+		return ResumeResult{}, fmt.Errorf("persist resumed thread state: %w", s.resumePersistFailure(ctx, req.AgentID, err))
 	}
+	s.activateResumedSession(req.AgentID)
 	if promptResumeRestoreRequiresInvalidation(state.StoredCWD, req.CWD, s.cfg) {
 		if err := s.invalidatePromptAssembly(ctx, contract.InvalidateResumeRestore); err != nil {
 			return ResumeResult{}, err
@@ -444,6 +444,44 @@ func (s *service) persistResumedSession(
 		Model:     model,
 		CWD:       req.CWD,
 	}, nil
+}
+
+type resumedSessionActivator interface {
+	ActivateSession(agentID string) bool
+}
+
+func (s *service) activateResumedSession(agentID string) {
+	if s == nil || s.sessions == nil {
+		return
+	}
+	activator, ok := s.sessions.(resumedSessionActivator)
+	if !ok {
+		return
+	}
+	activator.ActivateSession(agentID)
+}
+
+func (s *service) resumePersistFailure(ctx context.Context, agentID string, cause error) error {
+	if cleanupErr := s.cleanupFailedResumeRuntime(ctx, agentID); cleanupErr != nil {
+		return errors.Join(cause, cleanupErr)
+	}
+	return cause
+}
+
+// cleanupFailedResumeRuntime 清理已恢复但未成功持久化的 runtime。
+// provider session 先从本地管理器移除，再停止 orchestration agent，避免 pending session 泄露。
+func (s *service) cleanupFailedResumeRuntime(ctx context.Context, agentID string) error {
+	if s == nil {
+		return nil
+	}
+	agentID = strings.TrimSpace(agentID)
+	if agentID == "" {
+		return nil
+	}
+	if s.sessions != nil {
+		s.sessions.RemoveSession(agentID)
+	}
+	return s.stopAgent(ctx, agentID)
 }
 
 func (s *service) logResumePersistFailure(agentID, threadID, providerThreadID string, err error) {

@@ -18,13 +18,15 @@ import (
 // ApprovalManager 管理工具调用审批、用户输入请求以及客户端回调结果。
 // pending 与 pendingByRequestID 必须在同一把锁下维护，避免 callID/requestID 查询视图分裂。
 type ApprovalManager struct {
-	mu                 sync.Mutex
-	lifecycleMu        sync.Mutex
-	pending            map[string]*pendingApproval
-	pendingByRequestID map[int64]map[string]*pendingApproval
-	nextRequestID      atomic.Int64
-	logger             *pkglogger.Logger
-	dispatcher         *event.Dispatcher
+	mu                   sync.Mutex
+	lifecycleMu          sync.Mutex
+	pending              map[string]*pendingApproval
+	pendingByRequestID   map[int64]map[string]*pendingApproval
+	completed            map[string]completedApproval
+	completedByRequestID map[int64]map[string]completedApproval
+	nextRequestID        atomic.Int64
+	logger               *pkglogger.Logger
+	dispatcher           *event.Dispatcher
 }
 
 var _ contract.ApprovalResponder = (*ApprovalManager)(nil)
@@ -47,6 +49,13 @@ type pendingApproval struct {
 	decision    contract.ApprovalDecision
 	err         error
 	once        sync.Once
+}
+
+type completedApproval struct {
+	callID    string
+	requestID *int64
+	decision  contract.ApprovalDecision
+	err       error
 }
 
 // ApprovalRequest 是 RPC 层内部使用的审批请求 DTO。
@@ -74,10 +83,12 @@ func NewApprovalManager(logger *pkglogger.Logger, dispatcher *event.Dispatcher) 
 		logger = pkglogger.Get()
 	}
 	return &ApprovalManager{
-		pending:            make(map[string]*pendingApproval),
-		pendingByRequestID: make(map[int64]map[string]*pendingApproval),
-		logger:             logger,
-		dispatcher:         dispatcher,
+		pending:              make(map[string]*pendingApproval),
+		pendingByRequestID:   make(map[int64]map[string]*pendingApproval),
+		completed:            make(map[string]completedApproval),
+		completedByRequestID: make(map[int64]map[string]completedApproval),
+		logger:               logger,
+		dispatcher:           dispatcher,
 	}
 }
 
@@ -140,6 +151,12 @@ func (m *ApprovalManager) Respond(callID string, requestID *int64, decision cont
 	if pending == nil {
 		if approvalCallID(callID, requestID) == "" {
 			return ErrInvalidState("approval call id is required")
+		}
+		if completed, ok := m.lookupCompleted(callID, requestID); ok {
+			if !sameApprovalDecision(completed.decision, decision) {
+				return ErrInvalidState("approval already resolved with a different decision")
+			}
+			return completed.err
 		}
 		return ErrNotFound("approval is not pending")
 	}
@@ -309,6 +326,12 @@ func (m *ApprovalManager) finishPending(pending *pendingApproval, decision contr
 		pending.dispatching = false
 		pending.decision = decision
 		pending.err = err
+		m.indexCompletedLocked(completedApproval{
+			callID:    pending.callID,
+			requestID: cloneInt64Ptr(pending.requestID),
+			decision:  decision,
+			err:       err,
+		})
 		m.mu.Unlock()
 		if cancel != nil {
 			cancel()
@@ -375,6 +398,52 @@ func (m *ApprovalManager) lookupPendingByRequestIDLocked(requestID int64, callID
 	return nil
 }
 
+// lookupCompleted 返回已完成审批的决策，用于处理前端超时后的同一请求重试。
+func (m *ApprovalManager) lookupCompleted(callID string, requestID *int64) (completedApproval, bool) {
+	callID = strings.TrimSpace(callID)
+	if callID == "" && int64Value(requestID) <= 0 {
+		return completedApproval{}, false
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if reqID := int64Value(requestID); reqID > 0 {
+		if callID != "" {
+			if completed, ok := m.completed[pendingStorageKey(callID, requestID)]; ok {
+				return completed, true
+			}
+		}
+		if completed, ok := m.lookupCompletedByRequestIDLocked(reqID, callID); ok {
+			return completed, true
+		}
+	}
+	if callID == "" {
+		return completedApproval{}, false
+	}
+	completed, ok := m.completed[pendingStorageKey(callID, nil)]
+	return completed, ok
+}
+
+// lookupCompletedByRequestIDLocked 在持锁状态下按 requestID 查找已完成审批。
+// 当 requestID 对应多条不同 callID 时，只允许精确 callID 命中，避免把审批结果串给其他请求。
+func (m *ApprovalManager) lookupCompletedByRequestIDLocked(requestID int64, callID string) (completedApproval, bool) {
+	entries := m.completedByRequestID[requestID]
+	if len(entries) == 0 {
+		return completedApproval{}, false
+	}
+	for _, completed := range entries {
+		if callID != "" && completed.callID == callID {
+			return completed, true
+		}
+	}
+	if len(entries) != 1 {
+		return completedApproval{}, false
+	}
+	for _, completed := range entries {
+		return completed, true
+	}
+	return completedApproval{}, false
+}
+
 // indexPendingLocked 在持锁状态下维护 requestID 到 pending 的反向索引。
 func (m *ApprovalManager) indexPendingLocked(pending *pendingApproval) {
 	requestID := int64Value(pending.requestID)
@@ -387,6 +456,24 @@ func (m *ApprovalManager) indexPendingLocked(pending *pendingApproval) {
 		m.pendingByRequestID[requestID] = entries
 	}
 	entries[pending.key] = pending
+}
+
+func (m *ApprovalManager) indexCompletedLocked(completed completedApproval) {
+	key := pendingStorageKey(completed.callID, completed.requestID)
+	if key == "" {
+		return
+	}
+	m.completed[key] = completed
+	requestID := int64Value(completed.requestID)
+	if requestID <= 0 {
+		return
+	}
+	entries := m.completedByRequestID[requestID]
+	if entries == nil {
+		entries = make(map[string]completedApproval)
+		m.completedByRequestID[requestID] = entries
+	}
+	entries[key] = completed
 }
 
 // removePendingLocked 在持锁状态下从 requestID 反向索引移除 pending。

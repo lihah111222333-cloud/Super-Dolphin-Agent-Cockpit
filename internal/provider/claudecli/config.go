@@ -59,6 +59,12 @@ func configFromMap(cfg map[string]any) cliLaunchConfig {
 // validateClaudeSecurityConfig 在 provider 启动前严格校验安全相关配置。
 // 配置错误必须返回启动错误，不能被 NormalizeConfigStringSlice 隐式收敛为空列表。
 func validateClaudeSecurityConfig(cfg map[string]any) error {
+	if err := validateApprovalPolicyKeys(cfg, "approval_policy", "approvalPolicy", "approvals"); err != nil {
+		return err
+	}
+	if err := validateSandboxConfigKey(cfg, "sandbox"); err != nil {
+		return err
+	}
 	if err := validateConfigStringSliceKeys(cfg, "claude_builtin_tools", "claudeBuiltinTools", "builtin_tools", "builtinTools"); err != nil {
 		return err
 	}
@@ -69,6 +75,89 @@ func validateClaudeSecurityConfig(cfg map[string]any) error {
 		return err
 	}
 	return validateConfigBoolKeys(cfg, "providerNativeSkills", "provider_native_skills", "disableProviderNativeSkills", "disable_provider_native_skills")
+}
+
+func validateApprovalPolicyKeys(cfg map[string]any, keys ...string) error {
+	for _, key := range keys {
+		raw, ok := cfg[key]
+		if !ok {
+			continue
+		}
+		value, ok := raw.(string)
+		if !ok {
+			return fmt.Errorf("invalid approval policy %s: must be string", key)
+		}
+		switch strings.ToLower(strings.TrimSpace(value)) {
+		case "", "always", "never", "auto", "on-request", "on-failure", "untrusted":
+			return nil
+		default:
+			return fmt.Errorf("invalid approval policy %s: %q", key, value)
+		}
+	}
+	return nil
+}
+
+// validateSandboxConfigKey 校验 Claude 配置中的 sandbox 字段。
+// 支持字符串、RawMessage 和对象输入，但任何未知类型或未知 sandbox 都会阻断启动。
+func validateSandboxConfigKey(cfg map[string]any, key string) error {
+	raw, ok := cfg[key]
+	if !ok {
+		return nil
+	}
+	switch typed := raw.(type) {
+	case string:
+		return validateClaudeSandboxType(typed)
+	case json.RawMessage:
+		return validateClaudeSandboxRaw(typed)
+	case []byte:
+		return validateClaudeSandboxRaw(typed)
+	case map[string]any:
+		encoded, err := json.Marshal(typed)
+		if err != nil {
+			return fmt.Errorf("invalid sandbox %s: %w", key, err)
+		}
+		return validateClaudeSandboxRaw(encoded)
+	default:
+		return fmt.Errorf("invalid sandbox %s: expected string or object", key)
+	}
+}
+
+// validateClaudeSandboxRaw 校验原始 sandbox JSON。
+// 这里只接受字符串或带 type 的对象，防止未知 alias 被映射到提权模式。
+func validateClaudeSandboxRaw(raw []byte) error {
+	raw = []byte(strings.TrimSpace(string(raw)))
+	if len(raw) == 0 {
+		return nil
+	}
+	if raw[0] != '{' {
+		var value string
+		if err := json.Unmarshal(raw, &value); err != nil {
+			return fmt.Errorf("invalid sandbox: expected string or object with type")
+		}
+		return validateClaudeSandboxType(value)
+	}
+	var payload struct {
+		Type *string `json:"type"`
+	}
+	if err := json.Unmarshal(raw, &payload); err != nil {
+		return fmt.Errorf("invalid sandbox object: %w", err)
+	}
+	if payload.Type == nil {
+		return fmt.Errorf("invalid sandbox object: type is required")
+	}
+	return validateClaudeSandboxType(*payload.Type)
+}
+
+func validateClaudeSandboxType(value string) error {
+	normalized := strings.ToLower(strings.TrimSpace(value))
+	normalized = strings.ReplaceAll(normalized, "-", "")
+	normalized = strings.ReplaceAll(normalized, "_", "")
+	switch normalized {
+	case "", "readonly", "workspacewrite", "dangerfullaccess":
+		return nil
+	default:
+		return fmt.Errorf("invalid sandbox type %q", value)
+	}
 }
 
 func validateConfigStringSliceKeys(cfg map[string]any, keys ...string) error {

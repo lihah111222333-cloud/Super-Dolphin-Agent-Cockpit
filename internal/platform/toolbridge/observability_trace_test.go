@@ -73,7 +73,7 @@ func (failingToolTraceSink) Append(context.Context, observability.TraceEvent) er
 func TestHandleToolCallErrorTraceIncludesCompactStack(t *testing.T) {
 	tracer := newToolbridgeTraceService(t)
 	peer := &mcpcontrol.ToolInstance{Peer: &stubPeer{callbackFn: func(context.Context, string, any, any) error {
-		return assertErr("peer failed with private payload")
+		return assertErr("peer failed with token=sk-privatepayload123456")
 	}}}
 	h, _ := newHandlerForTest(peer)
 	h.tracer = tracer
@@ -107,8 +107,47 @@ func TestHandleToolCallErrorTraceIncludesCompactStack(t *testing.T) {
 	if len(end.Stack) == 0 {
 		t.Fatalf("end stack is empty: %+v", end)
 	}
-	if strings.Contains(mustTraceJSON(t, []observability.TraceEvent{end}), "private payload") {
+	if strings.Contains(mustTraceJSON(t, []observability.TraceEvent{end}), "sk-privatepayload") {
 		t.Fatalf("trace JSON leaked raw peer error: %+v", end)
+	}
+}
+
+func TestHandleToolCallErrorTraceUsesSafeErrorPreviewField(t *testing.T) {
+	tracer := newToolbridgeTraceService(t)
+	peer := &mcpcontrol.ToolInstance{Peer: &stubPeer{callbackFn: func(context.Context, string, any, any) error {
+		return assertErr("peer denied request token=sk-abcdefghijklmnopqrstuvwxyz")
+	}}}
+	h, _ := newHandlerForTest(peer)
+	h.tracer = tracer
+
+	ctx := observability.ContextWithSpan(context.Background(), "trace-tool-error-preview", "turn-span", "root-span")
+	result, err := h.HandleToolCall(ctx, contract.ToolCallRawMessage{
+		ID:     json.RawMessage(`"call-error-preview"`),
+		Method: "item/tool/call",
+		Params: mustRawJSON(t, map[string]any{
+			"name":       "file",
+			"arguments":  map[string]any{},
+			"agentId":    "agent-1",
+			"threadId":   "thread-1",
+			"turnId":     "turn-1",
+			"callId":     "call-error-preview",
+			"clientKind": dto.ClientKindLSP,
+		}),
+	})
+	if err != nil {
+		t.Fatalf("HandleToolCall() error = %v", err)
+	}
+	if got := result.(*ToolCallResult); got.Success {
+		t.Fatal("HandleToolCall() Success = true, want false")
+	}
+
+	end := requireTraceMethod(t, tracer.Query(context.Background(), observability.Query{TraceID: "trace-tool-error-preview"}).Events, "tool.call.end")
+	preview, _ := end.Metadata[observability.ErrorPreviewField].(string)
+	if !strings.Contains(preview, "peer denied request") || strings.Contains(preview, "sk-") {
+		t.Fatalf("error_preview = %q, want sanitized peer error detail", preview)
+	}
+	if end.Metadata[observability.ErrorCodeField] != "tool_call_failed" {
+		t.Fatalf("error_code = %#v, want tool_call_failed", end.Metadata[observability.ErrorCodeField])
 	}
 }
 

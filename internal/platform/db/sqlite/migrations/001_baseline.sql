@@ -125,7 +125,7 @@ CREATE TABLE IF NOT EXISTS prompt_templates (
     when_to_use TEXT NOT NULL DEFAULT '',
     enabled INTEGER NOT NULL DEFAULT 1 CHECK(enabled IN (0, 1)),
     manually_edited INTEGER NOT NULL DEFAULT 0 CHECK(manually_edited IN (0, 1)),
-    match_when TEXT NOT NULL DEFAULT '{}' CHECK(json_valid(match_when)),
+    match_when TEXT CHECK(match_when IS NULL OR (json_valid(match_when) AND json_type(match_when) = 'object')),
     priority INTEGER NOT NULL DEFAULT 0,
     created_by TEXT NOT NULL DEFAULT '',
     updated_by TEXT NOT NULL DEFAULT '',
@@ -718,7 +718,7 @@ CREATE INDEX IF NOT EXISTS idx_prompts_agent_key ON prompts(agent_key);
 CREATE INDEX IF NOT EXISTS idx_prompts_sort_order ON prompts(sort_order, agent_key);
 CREATE INDEX IF NOT EXISTS idx_prompt_templates_agent_tool ON prompt_templates(agent_key, tool_name);
 CREATE INDEX IF NOT EXISTS idx_prompt_templates_enabled ON prompt_templates(enabled, updated_at DESC);
-CREATE INDEX IF NOT EXISTS idx_prompt_templates_auto_route ON prompt_templates(enabled, priority DESC) WHERE match_when <> '{}';
+CREATE INDEX IF NOT EXISTS idx_prompt_templates_auto_route ON prompt_templates(enabled, priority DESC) WHERE match_when IS NOT NULL AND match_when <> '{}';
 CREATE INDEX IF NOT EXISTS idx_prompt_versions_key_id ON prompt_versions(prompt_key, id DESC);
 CREATE INDEX IF NOT EXISTS idx_prompt_template_versions_key_id ON prompt_template_versions(prompt_key, id DESC);
 CREATE INDEX IF NOT EXISTS idx_prompt_template_sections_lookup ON prompt_template_sections(template_id, enabled, region, ordinal);
@@ -837,6 +837,30 @@ WHEN NEW.agent_id <> OLD.agent_id
 BEGIN
     SELECT RAISE(ABORT, 'agent_provider_binding identity is immutable');
 END;
+
+CREATE TABLE IF NOT EXISTS mcp_tool_lifecycle (
+    workspace_root TEXT NOT NULL,
+    server_name TEXT NOT NULL,
+    manifest_name TEXT NOT NULL DEFAULT '',
+    tool_name TEXT NOT NULL,
+    state TEXT NOT NULL DEFAULT 'enabled',
+    reason TEXT NOT NULL DEFAULT '',
+    replacement_tool TEXT NOT NULL DEFAULT '',
+    last_seen_at INTEGER NOT NULL,
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL,
+    PRIMARY KEY (workspace_root, server_name, tool_name),
+    CHECK (workspace_root <> ''),
+    CHECK (server_name <> ''),
+    CHECK (tool_name <> ''),
+    CHECK (state IN ('enabled', 'disabled', 'suspended', 'removed')),
+    CHECK (last_seen_at >= 0),
+    CHECK (created_at >= 0),
+    CHECK (updated_at >= 0)
+);
+
+CREATE INDEX IF NOT EXISTS idx_mcp_tool_lifecycle_server
+    ON mcp_tool_lifecycle(workspace_root, server_name, state, updated_at DESC);
 
 INSERT OR IGNORE INTO schema_migrations(version, name, filename, applied_at)
 VALUES (103, 'sqlite baseline', '001_baseline.sql', 0);

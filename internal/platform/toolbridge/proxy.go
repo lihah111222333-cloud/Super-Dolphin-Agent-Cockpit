@@ -18,6 +18,7 @@ import (
 	shareddto "github.com/anthropic-ai/super-agent-v3/internal/dto/shared"
 	tooldto "github.com/anthropic-ai/super-agent-v3/internal/dto/tool"
 	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/observability"
 	platformshared "github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 	"github.com/kelindar/event"
 )
@@ -310,12 +311,15 @@ func (h *Handler) handleProxyOrchToolsList(w http.ResponseWriter, ctx context.Co
 	tools := h.appendMCPToolsWithShadowWarning(nil, seen, "host", hostTools)
 	peerTools, err := h.listPeerTools(ctx, mcpdto.ClientKindOrch)
 	if err != nil {
-		if len(tools) == 0 {
-			writeJSONRPCError(w, id, jsonRPCCodeInternal, err.Error())
-			return
-		}
-		h.warn("toolbridge proxy tools/list peer degraded", "client_kind", mcpdto.ClientKindOrch, "error", err)
-		writeJSONRPCResult(w, id, map[string]any{"tools": tools})
+		writeJSONRPCResult(w, id, map[string]any{
+			"tools":                         tools,
+			"degraded":                      true,
+			"blocks_provider_start":         true,
+			"blocks_turn":                   true,
+			observability.ErrorPreviewField: observability.SafeErrorPreview(err),
+			observability.ErrorCodeField:    "peer_down",
+			observability.PeerIDField:       mcpdto.ClientKindOrch,
+		})
 		return
 	}
 	workspaceRoot, err := h.proxyMCPToolLifecycleWorkspaceRoot(ctx, agentID)
@@ -396,7 +400,7 @@ func (h *Handler) publishProxyToolCallBegin(req ToolCallRequest, started time.Ti
 	}
 	event.Publish(h.dispatcher, tooldto.ToolCallBegin{
 		ToolCallHeader:   proxyToolCallHeader(req, started),
-		ArgumentsPreview: strings.TrimSpace(string(req.Arguments)),
+		ArgumentsPreview: proxySafePreview(req.Arguments),
 	})
 }
 
@@ -445,13 +449,25 @@ func proxyToolResultPreview(result *ToolCallResult) string {
 		return ""
 	}
 	if raw := bytes.TrimSpace(result.StructuredContent); len(raw) != 0 {
-		return string(raw)
+		return proxySafePreview(json.RawMessage(raw))
 	}
 	raw, err := json.Marshal(result)
 	if err != nil {
 		return ""
 	}
-	return string(raw)
+	return proxySafePreview(raw)
+}
+
+// proxySafePreview 返回可写入 lifecycle event 的短脱敏预览。
+func proxySafePreview(value any) string {
+	preview := observability.SafePreview(value, 512)
+	if preview.Preview != "" {
+		return preview.Preview
+	}
+	if preview.Truncated {
+		return fmt.Sprintf("truncated bytes=%d sha256=%s", preview.Bytes, preview.SHA256)
+	}
+	return ""
 }
 
 // proxyToolCallErrorCode 将 tool call 错误映射为 JSON-RPC error code。

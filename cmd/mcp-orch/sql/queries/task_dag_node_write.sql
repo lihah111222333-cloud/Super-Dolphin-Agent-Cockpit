@@ -75,11 +75,26 @@ RETURNING id, dag_key, node_key, title, node_type, assigned_to, CAST(depends_on 
 -- name: FailTaskDagNodeIfNonTerminal :one
 UPDATE task_dag_nodes
 SET status = sqlc.arg('status'), result = sqlc.arg('result'), updated_at = (CAST(strftime('%s','now') AS INTEGER) * 1000)
-WHERE dag_key = sqlc.arg('dag_key')
-  AND node_key = sqlc.arg('node_key')
-  AND run_id = sqlc.arg('run_id')
+WHERE task_dag_nodes.dag_key = sqlc.arg('dag_key')
+  AND task_dag_nodes.node_key = sqlc.arg('node_key')
+  AND task_dag_nodes.run_id = sqlc.arg('run_id')
   AND sqlc.arg('run_id') > 0
   AND status NOT IN ('done', 'failed', 'cancelled', 'skipped')
+  AND (
+    sqlc.arg('wakeup_id') = 0
+    OR (
+      task_dag_nodes.active_wakeup_id = sqlc.arg('wakeup_id')
+      AND EXISTS (
+        SELECT 1
+        FROM task_dag_wakeups w
+        WHERE w.id = sqlc.arg('wakeup_id')
+          AND w.run_id = task_dag_nodes.run_id
+          AND w.dag_key = task_dag_nodes.dag_key
+          AND w.node_key = task_dag_nodes.node_key
+          AND w.attempt_count = sqlc.arg('wakeup_attempt')
+      )
+    )
+  )
 RETURNING id, dag_key, node_key, title, node_type, assigned_to, CAST(depends_on AS BLOB) AS depends_on,
           status, command_ref, CAST(config AS BLOB) AS config, CAST(result AS BLOB) AS result, started_at, finished_at,
           created_at, updated_at, active_turn_id, active_wakeup_id,

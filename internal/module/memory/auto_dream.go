@@ -227,12 +227,14 @@ const autoDreamSchedulerQueueCap = 64
 const autoDreamSchedulerDrainGrace = 10 * time.Second
 
 // autoDreamScheduler 串行消费 thread.stopped 信号并决定是否启动 auto-dream。
-// 队列满时丢弃新信号并计数；Stop 会取消 taskCtx 并等待 worker 退出。
+// 队列满时按 threadID 合并到 pending，Stop 会取消 taskCtx 并等待 worker 退出。
 type autoDreamScheduler struct {
 	hooks  *MemoryLifecycleHooks
 	logger *slog.Logger
 
-	queue chan string
+	queue     chan string
+	pendingMu sync.Mutex
+	pending   map[string]struct{}
 
 	startOnce sync.Once
 	stopOnce  sync.Once
@@ -288,7 +290,7 @@ func (s *autoDreamScheduler) Start() {
 }
 
 // Enqueue 非阻塞地把 threadID 放入待检查队列。
-// 空 threadID、已停止调度器或满队列都会丢弃，避免总线回调被后台 consolidation 阻塞。
+// 空 threadID 和已停止调度器会丢弃；满队列会合并到 pending，避免总线回调被后台 consolidation 阻塞。
 func (s *autoDreamScheduler) Enqueue(threadID string) {
 	if s == nil {
 		return
@@ -306,9 +308,9 @@ func (s *autoDreamScheduler) Enqueue(threadID string) {
 	select {
 	case s.queue <- threadID:
 	default:
-		s.droppedTotal.Add(1)
+		s.coalesce(threadID)
 		if s.logger != nil {
-			s.logger.Warn("memory auto-dream scheduler: queue full, dropping enqueue",
+			s.logger.Warn("memory auto-dream scheduler: queue full, coalescing enqueue",
 				"thread_id", threadID, "cap", autoDreamSchedulerQueueCap)
 		}
 	}
@@ -352,11 +354,34 @@ func (s *autoDreamScheduler) ProcessedTotal() int64 { return s.processedTotal.Lo
 // ScheduledTotal 返回实际启动 auto-dream task 的次数。
 func (s *autoDreamScheduler) ScheduledTotal() int64 { return s.scheduledTotal.Load() }
 
+func (s *autoDreamScheduler) coalesce(threadID string) {
+	s.pendingMu.Lock()
+	if s.pending == nil {
+		s.pending = make(map[string]struct{})
+	}
+	s.pending[threadID] = struct{}{}
+	s.pendingMu.Unlock()
+}
+
+func (s *autoDreamScheduler) takeCoalesced() (string, bool) {
+	s.pendingMu.Lock()
+	defer s.pendingMu.Unlock()
+	for threadID := range s.pending {
+		delete(s.pending, threadID)
+		return threadID, true
+	}
+	return "", false
+}
+
 // runWorker 串行处理队列，直到 Stop 关闭 stopCh。
 // 它是唯一读取 queue 的 goroutine，保证 maybeScheduleAutoDream 不会并发启动多个 dream task。
 func (s *autoDreamScheduler) runWorker() {
 	defer close(s.doneCh)
 	for {
+		if threadID, ok := s.takeCoalesced(); ok {
+			s.process(threadID)
+			continue
+		}
 		select {
 		case <-s.stopCh:
 			return
@@ -375,6 +400,7 @@ func (s *autoDreamScheduler) process(threadID string) {
 	s.processedTotal.Add(1)
 	scheduled, err := s.hooks.maybeScheduleAutoDream(s.taskCtx, threadID)
 	if err != nil && !errors.Is(err, context.Canceled) {
+		s.publishHealth(threadID, err)
 		if s.logger != nil {
 			s.logger.Warn("memory auto-dream scheduler: schedule failed",
 				"thread_id", threadID, "error", err)
@@ -384,4 +410,22 @@ func (s *autoDreamScheduler) process(threadID string) {
 	if scheduled {
 		s.scheduledTotal.Add(1)
 	}
+	s.publishHealth(threadID, nil)
+}
+
+func (s *autoDreamScheduler) publishHealth(threadID string, err error) {
+	if s == nil || s.hooks == nil {
+		return
+	}
+	snapshot := autoDreamHealthSnapshot{
+		DroppedTotal:   s.DroppedTotal(),
+		ProcessedTotal: s.ProcessedTotal(),
+		ScheduledTotal: s.ScheduledTotal(),
+		LastAt:         time.Now().UTC(),
+		LastThreadID:   strings.TrimSpace(threadID),
+	}
+	if err != nil {
+		snapshot.LastError = err.Error()
+	}
+	s.hooks.recordAutoDreamSchedulerHealth(snapshot)
 }

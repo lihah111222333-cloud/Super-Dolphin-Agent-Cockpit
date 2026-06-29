@@ -18,7 +18,28 @@ import (
 const (
 	teamSyncWatcherDebounce    = 300 * time.Millisecond
 	teamSyncWatcherSuppressFor = time.Second
+	teamSyncWatcherMaxDirs     = 2048
+	teamSyncWatcherMaxFiles    = 10000
+	teamSyncWatcherMaxBytes    = 64 << 20
 )
+
+type teamSyncWatcherRootCaps struct {
+	MaxDirs  int
+	MaxFiles int
+	MaxBytes int64
+}
+
+type teamSyncWatcherHealthSnapshot struct {
+	WatchedDirs        int
+	LastCapViolation   string
+	LastCapViolationAt time.Time
+}
+
+type teamSyncWatcherRootStats struct {
+	Dirs  int
+	Files int
+	Bytes int64
+}
 
 // teamSyncWatcher 监听团队记忆目录变化，并把稳定后的本地变更推送到远端。
 // watched 和 suppressedPaths 由 mu 保护；closed/done 控制 loop 生命周期，Close 可选择最终 flush。
@@ -30,19 +51,31 @@ type teamSyncWatcher struct {
 	watcher       *fsnotify.Watcher
 	debounce      time.Duration
 	now           func() time.Time
+	caps          teamSyncWatcherRootCaps
 
-	mu              sync.Mutex
-	watched         map[string]struct{}
-	suppressedPaths map[string]time.Time
-	closed          chan struct{}
-	done            chan struct{}
-	loopCtx         context.Context
-	loopCancel      context.CancelFunc
+	mu                 sync.Mutex
+	watched            map[string]struct{}
+	suppressedPaths    map[string]time.Time
+	lastCapViolation   string
+	lastCapViolationAt time.Time
+	closed             chan struct{}
+	done               chan struct{}
+	loopCtx            context.Context
+	loopCancel         context.CancelFunc
 }
 
 // newTeamSyncWatcher 创建团队记忆目录 watcher。
 // 创建时会解析 canonicalRoot 并递归注册目录；遇到符号链接或不可解析路径直接失败。
 func newTeamSyncWatcher(service *TeamSyncService, root string, logger *slog.Logger) (*teamSyncWatcher, error) {
+	return newTeamSyncWatcherWithCaps(service, root, logger, defaultTeamSyncWatcherRootCaps())
+}
+
+func defaultTeamSyncWatcherRootCaps() teamSyncWatcherRootCaps {
+	return teamSyncWatcherRootCaps{MaxDirs: teamSyncWatcherMaxDirs, MaxFiles: teamSyncWatcherMaxFiles, MaxBytes: teamSyncWatcherMaxBytes}
+}
+
+// newTeamSyncWatcherWithCaps 创建带 root 上限的 watcher，供测试缩小 cap 验证 fail-fast。
+func newTeamSyncWatcherWithCaps(service *TeamSyncService, root string, logger *slog.Logger, caps teamSyncWatcherRootCaps) (*teamSyncWatcher, error) {
 	canonicalRoot, err := resolveTeamMemRealPath(root, invalidTeamMemWritePath)
 	if err != nil {
 		return nil, err
@@ -60,6 +93,7 @@ func newTeamSyncWatcher(service *TeamSyncService, root string, logger *slog.Logg
 		watcher:         watcher,
 		debounce:        teamSyncWatcherDebounce,
 		now:             time.Now,
+		caps:            normalizeTeamSyncWatcherRootCaps(caps),
 		watched:         map[string]struct{}{},
 		suppressedPaths: map[string]time.Time{},
 		closed:          make(chan struct{}),
@@ -72,6 +106,19 @@ func newTeamSyncWatcher(service *TeamSyncService, root string, logger *slog.Logg
 		return nil, err
 	}
 	return w, nil
+}
+
+func normalizeTeamSyncWatcherRootCaps(caps teamSyncWatcherRootCaps) teamSyncWatcherRootCaps {
+	if caps.MaxDirs <= 0 {
+		caps.MaxDirs = teamSyncWatcherMaxDirs
+	}
+	if caps.MaxFiles <= 0 {
+		caps.MaxFiles = teamSyncWatcherMaxFiles
+	}
+	if caps.MaxBytes <= 0 {
+		caps.MaxBytes = teamSyncWatcherMaxBytes
+	}
+	return caps
 }
 
 // Start 启动 watcher loop；loop 使用 safego 托管，异常会进入统一日志。
@@ -298,6 +345,7 @@ func (w *teamSyncWatcher) ensureStableRoot() error {
 
 // addRecursive 递归注册目录 watcher，并拒绝符号链接目录。
 func (w *teamSyncWatcher) addRecursive(root string) error {
+	stats := teamSyncWatcherRootStats{}
 	return filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
 		if err != nil {
 			return err
@@ -306,10 +354,65 @@ func (w *teamSyncWatcher) addRecursive(root string) error {
 			return fmt.Errorf("%w: watcher symlink path is not allowed", ErrInvalidTeamMemWritePath)
 		}
 		if !d.IsDir() {
+			if err := w.countWatchedFile(path, &stats); err != nil {
+				return err
+			}
 			return nil
+		}
+		stats.Dirs++
+		if err := w.checkRootCaps(stats); err != nil {
+			return err
 		}
 		return w.addWatch(path)
 	})
+}
+
+func (w *teamSyncWatcher) countWatchedFile(path string, stats *teamSyncWatcherRootStats) error {
+	info, err := os.Lstat(path)
+	if err != nil {
+		return err
+	}
+	stats.Files++
+	stats.Bytes += info.Size()
+	return w.checkRootCaps(*stats)
+}
+
+// checkRootCaps 校验团队记忆监听根目录的目录数、文件数和字节上限。
+// 超限会记录最近一次违规，便于设置页和健康检查展示阻断原因。
+func (w *teamSyncWatcher) checkRootCaps(stats teamSyncWatcherRootStats) error {
+	caps := w.caps
+	if caps.MaxDirs > 0 && stats.Dirs > caps.MaxDirs {
+		return w.recordCapViolation(fmt.Sprintf("team sync watcher root cap exceeded: dirs=%d max_dirs=%d", stats.Dirs, caps.MaxDirs))
+	}
+	if caps.MaxFiles > 0 && stats.Files > caps.MaxFiles {
+		return w.recordCapViolation(fmt.Sprintf("team sync watcher root cap exceeded: files=%d max_files=%d", stats.Files, caps.MaxFiles))
+	}
+	if caps.MaxBytes > 0 && stats.Bytes > caps.MaxBytes {
+		return w.recordCapViolation(fmt.Sprintf("team sync watcher root cap exceeded: bytes=%d max_bytes=%d", stats.Bytes, caps.MaxBytes))
+	}
+	return nil
+}
+
+func (w *teamSyncWatcher) recordCapViolation(message string) error {
+	w.mu.Lock()
+	w.lastCapViolation = message
+	w.lastCapViolationAt = w.now()
+	w.mu.Unlock()
+	return fmt.Errorf("%w: %s", ErrInvalidTeamMemWritePath, message)
+}
+
+// HealthSnapshot 返回 watcher 当前目录数和最近 root cap 违规。
+func (w *teamSyncWatcher) HealthSnapshot() teamSyncWatcherHealthSnapshot {
+	if w == nil {
+		return teamSyncWatcherHealthSnapshot{}
+	}
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return teamSyncWatcherHealthSnapshot{
+		WatchedDirs:        len(w.watched),
+		LastCapViolation:   w.lastCapViolation,
+		LastCapViolationAt: w.lastCapViolationAt,
+	}
 }
 
 // addWatch 注册单个目录，重复路径会被去重。

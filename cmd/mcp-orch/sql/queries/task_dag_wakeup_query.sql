@@ -1,7 +1,17 @@
 -- name: ReclaimStaleDispatchingTaskDagWakeups :execrows
 UPDATE task_dag_wakeups
 SET status = 'pending', claimed_at = NULL, claimed_by = '', lease_expires_at = NULL, updated_at = (CAST(strftime('%s','now') AS INTEGER) * 1000)
-WHERE status = 'dispatching' AND lease_expires_at < (CAST(strftime('%s','now') AS INTEGER) * 1000);
+WHERE status = 'dispatching'
+  AND lease_expires_at < (CAST(strftime('%s','now') AS INTEGER) * 1000)
+  AND NOT EXISTS (
+    SELECT 1
+    FROM task_dag_nodes n
+    WHERE n.run_id = task_dag_wakeups.run_id
+      AND n.dag_key = task_dag_wakeups.dag_key
+      AND n.node_key = task_dag_wakeups.node_key
+      AND n.status = 'running'
+      AND n.active_wakeup_id = task_dag_wakeups.id
+  );
 
 -- name: ListSentUnboundTaskDagWakeups :many
 SELECT id, dag_key, node_key, wakeup_kind, target_agent_id,

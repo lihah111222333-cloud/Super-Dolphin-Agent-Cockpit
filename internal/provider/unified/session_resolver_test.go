@@ -19,6 +19,16 @@ func (s stubThreadLookup) GetByThreadID(context.Context, string) (*contract.Sess
 	return s.thread, s.err
 }
 
+func autoResumePromptSnapshotForTest() contract.PromptAssemblySnapshot {
+	return contract.PromptAssemblySnapshot{
+		DisplayName:      "resume",
+		BaseInstructions: "resume system prompt",
+		Provider:         "codex",
+		Version:          contract.PromptAssemblySnapshotVersion,
+		Hash:             "snapshot-hash",
+	}
+}
+
 type stubBindingLookup struct {
 	bindings  map[string]*contract.SessionBinding
 	errs      map[string]error
@@ -68,6 +78,15 @@ func (s *sequenceThreadLookup) GetByThreadID(context.Context, string) (*contract
 		return ref, s.errs[index]
 	}
 	return ref, nil
+}
+
+type keyedThreadLookup map[string]*contract.SessionThreadRef
+
+func (s keyedThreadLookup) GetByThreadID(_ context.Context, threadID string) (*contract.SessionThreadRef, error) {
+	if ref, ok := s[strings.TrimSpace(threadID)]; ok {
+		return ref, nil
+	}
+	return nil, platformdb.ErrNotFound
 }
 
 func TestSessionResolverResolveSessionUsesThreadStoreAgent(t *testing.T) {

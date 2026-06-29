@@ -2,7 +2,9 @@ package bus
 
 import (
 	"context"
+	"errors"
 	"log/slog"
+	"strings"
 	"testing"
 	"time"
 
@@ -85,6 +87,22 @@ func TestLogSinkSummarizesHighFrequencyLifecycleTrace(t *testing.T) {
 	}
 }
 
+func TestLogSinkWarnsWhenTraceRecordFails(t *testing.T) {
+	dispatcher := NewDispatcher()
+	t.Cleanup(func() { _ = dispatcher.Close() })
+	var buf lockedBuffer
+	logger := slog.New(slog.NewJSONHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug}))
+	sink := mustNewLogSink(t, LogSinkDeps{Dispatcher: dispatcher, Logger: logger, Trace: failingBusTraceRecorder{err: errors.New("trace sink down")}})
+	t.Cleanup(sink.Close)
+
+	event.Publish(dispatcher, turndto.TurnStarted{TurnHeader: sharedto.TurnHeader{AgentHeader: sharedto.AgentHeader{ThreadHeader: sharedto.ThreadHeader{ThreadID: "thread-1"}, AgentID: "agent-1"}, TurnIDHeader: sharedto.TurnIDHeader{TurnID: "turn-1"}}})
+
+	raw := waitForBusLogText(t, &buf, "bus trace record failed")
+	if !strings.Contains(raw, "trace sink down") || !strings.Contains(raw, "TurnStarted") {
+		t.Fatalf("trace failure log = %s, want error and event type", raw)
+	}
+}
+
 func waitForTraceEvents(t *testing.T, trace *observability.Service, method string, want int) []observability.TraceEvent {
 	t.Helper()
 	return waitForTraceQueryEvents(t, trace, observability.Query{Limit: 100}, method, want)
@@ -139,4 +157,23 @@ func (r testBusTraceRecorder) RecordTrace(ctx context.Context, record TraceRecor
 		},
 		Metadata: observability.Metadata(record.Metadata),
 	})
+}
+
+type failingBusTraceRecorder struct{ err error }
+
+func (r failingBusTraceRecorder) RecordTrace(context.Context, TraceRecord) error {
+	return r.err
+}
+
+func waitForBusLogText(t *testing.T, buf *lockedBuffer, needle string) string {
+	t.Helper()
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		if raw := buf.String(); strings.Contains(raw, needle) {
+			return raw
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatalf("bus log missing %q: %s", needle, buf.String())
+	return ""
 }

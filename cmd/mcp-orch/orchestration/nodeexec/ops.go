@@ -101,6 +101,9 @@ func (n *NodeSpec) UnmarshalJSON(data []byte) error {
 	if err := dec.Decode(&plain); err != nil {
 		return addNodeStrictDecodeError(err, "node_key/title/node_type/assigned_to/depends_on/config")
 	}
+	if err := validateNodeConfigObject(plain.Config); err != nil {
+		return fmt.Errorf("add_node: node config invalid: %w", err)
+	}
 	*n = NodeSpec(plain)
 	return nil
 }
@@ -184,6 +187,9 @@ func (p *NodePatch) UnmarshalJSON(data []byte) error {
 		}
 		return fmt.Errorf("node patch decode: %w", err)
 	}
+	if err := validateNodeConfigObject(plain.Config); err != nil {
+		return fmt.Errorf("%w: config invalid: %w", ErrNodePatchBannedField, err)
+	}
 	if err := validateConfigDoesNotContainBannedKeys(plain.Config); err != nil {
 		return err
 	}
@@ -206,6 +212,21 @@ func validateConfigDoesNotContainBannedKeys(raw json.RawMessage) error {
 		return fmt.Errorf("decode node config for banned-key scan: %w", err)
 	}
 	return walkConfigForBannedKeys(v, nil)
+}
+
+func validateNodeConfigObject(raw json.RawMessage) error {
+	trimmed := strings.TrimSpace(string(raw))
+	if trimmed == "" || trimmed == "null" {
+		return nil
+	}
+	if !strings.HasPrefix(trimmed, "{") {
+		return errors.New("config must be a JSON object or null")
+	}
+	var obj map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &obj); err != nil {
+		return fmt.Errorf("decode config object: %w", err)
+	}
+	return nil
 }
 
 // walkConfigForBannedKeys 对任意 JSON 值做深度优先扫，命中 banned key 返回。

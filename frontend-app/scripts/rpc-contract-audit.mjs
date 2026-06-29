@@ -10,6 +10,25 @@ const RPC_METHODS_PATH = 'frontend-app/src/shared/api/backendApi.js'
 const RPC_MATRIX_PATH = 'frontend-app/src/shared/api/backendApi.contractMatrix.js'
 const GO_RPC_CONSTANTS_PATH = 'internal/contract/rpc_handler.go'
 const GO_HANDLER_ROOTS = ['internal', 'cmd']
+const GO_PAYLOAD_KEY_MAPS = new Map([
+  ['thread/start', 'internal/module/thread/rpc_types.go:startParamWireFields'],
+  ['turn/start', 'internal/module/turn/rpc_types.go:turnStartParamFields'],
+  ['turn/steer', 'internal/module/turn/rpc_types.go:turnSteerParamFields'],
+])
+const COMPATIBILITY_PAYLOAD_ALIASES = new Map([
+  ['thread/start', [
+    'agentKey',
+    'codexModelProvider',
+    'codex_model_provider',
+    'deferSpawn',
+    'optimisticUserMessage',
+    'optimistic_user_message',
+    'promptKey',
+    'skipInitialRuntimeSync',
+    'skip_initial_runtime_sync',
+  ]],
+  ['turn/start', ['attachments']],
+])
 
 const GO_HANDLER_CALLS = [
   'StrictHandler',
@@ -30,9 +49,14 @@ export async function auditRpcContracts({ repoRoot = DEFAULT_REPO_ROOT } = {}) {
     method: methodsByKey.get(entry.key)?.method ?? '',
   }))
   const backendHandlers = await collectGoRpcHandlers(repoRoot)
+  const goPayloadKeysByMethod = await collectGoPayloadKeys(repoRoot)
+  const frontendPayloadKeysByMethod = parseAllowedPayloadRegistry(
+    await readFile(join(repoRoot, RPC_METHODS_PATH), 'utf8'),
+  )
 
   const registryByKey = new Map(registryEntries.map((entry) => [entry.key, entry]))
   const handlerMethods = new Set(backendHandlers.map((entry) => entry.method))
+  const allowedPayloadRegistryDrift = payloadRegistryDrift(goPayloadKeysByMethod, frontendPayloadKeysByMethod)
 
   const missingRegistryKeys = rpcMethods
     .filter((entry) => !registryByKey.has(entry.key))
@@ -58,6 +82,9 @@ export async function auditRpcContracts({ repoRoot = DEFAULT_REPO_ROOT } = {}) {
     registryWithoutRpcMethods,
     mismatchedRegistryMethods,
     p0MissingBackendHandlers,
+    goPayloadKeysByMethod,
+    frontendPayloadKeysByMethod,
+    allowedPayloadRegistryDrift,
   }
 }
 
@@ -70,6 +97,7 @@ export function formatRpcAuditReport(report) {
     `Registry entries without RPC_METHODS: ${report.registryWithoutRpcMethods.length}`,
     `Mismatched registry methods: ${report.mismatchedRegistryMethods.length}`,
     `P0 methods missing Go handlers: ${report.p0MissingBackendHandlers.length}`,
+    `Allowed payload registry drift: ${report.allowedPayloadRegistryDrift.length}`,
   ].join('\n')
 }
 
@@ -110,6 +138,80 @@ function parseContractMatrix(source) {
   }
 
   return entries
+}
+
+function parseAllowedPayloadRegistry(source) {
+  const objectMatch = source.match(/export const RPC_ALLOWED_PAYLOAD_KEYS = Object\.freeze\(\{([\s\S]*?)\n\}\)/)
+  if (!objectMatch) {
+    throw new Error('RPC_ALLOWED_PAYLOAD_KEYS object was not found in backendApi.js')
+  }
+  const entries = new Map()
+  const entryPattern = /^\s*'([^']+)':\s*Object\.freeze\(\[([\s\S]*?)\]\),/gm
+  let match
+  while ((match = entryPattern.exec(objectMatch[1])) !== null) {
+    entries.set(match[1], uniqueSorted(stringLiterals(match[2])))
+  }
+  return entries
+}
+
+async function collectGoPayloadKeys(repoRoot) {
+  const out = new Map()
+  for (const [method, locator] of GO_PAYLOAD_KEY_MAPS.entries()) {
+    const [filePath, symbol] = locator.split(':')
+    const source = await readFile(join(repoRoot, filePath), 'utf8')
+    out.set(method, parseGoStringSet(source, symbol))
+  }
+  return out
+}
+
+function parseGoStringSet(source, symbol) {
+  const mapMatch = source.match(new RegExp(`var\\s+${symbol}\\s*=\\s*map\\[string\\]struct\\{\\}\\s*\\{([\\s\\S]*?)\\n\\}`))
+  if (!mapMatch) {
+    throw new Error(`${symbol} map was not found in Go DTO source`)
+  }
+  return uniqueSorted(stringLiterals(mapMatch[1]))
+}
+
+function payloadRegistryDrift(goPayloadKeysByMethod, frontendPayloadKeysByMethod) {
+  const drift = []
+  for (const [method, goKeys] of goPayloadKeysByMethod.entries()) {
+    const expected = uniqueSorted([
+      ...goKeys,
+      ...(COMPATIBILITY_PAYLOAD_ALIASES.get(method) || []),
+    ])
+    const actual = frontendPayloadKeysByMethod.get(method) || []
+    if (!arraysEqual(expected, actual)) {
+      drift.push({
+        method,
+        missing: expected.filter((key) => !actual.includes(key)),
+        extra: actual.filter((key) => !expected.includes(key)),
+      })
+    }
+  }
+  for (const method of frontendPayloadKeysByMethod.keys()) {
+    if (!goPayloadKeysByMethod.has(method)) {
+      drift.push({ method, missing: [], extra: frontendPayloadKeysByMethod.get(method) || [] })
+    }
+  }
+  return drift
+}
+
+function stringLiterals(source) {
+  const values = []
+  const pattern = /'([^']+)'|"([^"]+)"/g
+  let match
+  while ((match = pattern.exec(source)) !== null) {
+    values.push(match[1] || match[2])
+  }
+  return values
+}
+
+function uniqueSorted(values) {
+  return [...new Set(values)].sort((a, b) => a.localeCompare(b))
+}
+
+function arraysEqual(a, b) {
+  return a.length === b.length && a.every((value, index) => value === b[index])
 }
 
 async function collectGoRpcHandlers(repoRoot) {
@@ -226,6 +328,7 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
     ['Registry entries without RPC_METHODS', report.registryWithoutRpcMethods],
     ['Mismatched registry methods', report.mismatchedRegistryMethods],
     ['P0 methods missing Go handlers', report.p0MissingBackendHandlers],
+    ['Allowed payload registry drift', report.allowedPayloadRegistryDrift],
   ].filter(([, values]) => values.length > 0)
 
   if (failures.length > 0) {

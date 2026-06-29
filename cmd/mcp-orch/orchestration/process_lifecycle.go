@@ -245,6 +245,8 @@ func (a *runnerActor) Run(ctx context.Context) error {
 // stop 时先停 agent，再把已经在路上的退出事件处理完。
 // 否则 agentRuntime 可能卡在 stopping/provisioning。
 func (a *runnerActor) drainOnStop(exitEvents <-chan exitmonitor.Event) {
+	drainCtx, cancel := platformconfig.WithTimeout(context.Background(), runnerShutdownDrainGrace)
+	defer cancel()
 	stopDone := make(chan struct{})
 	go func() {
 		defer close(stopDone)
@@ -253,10 +255,8 @@ func (a *runnerActor) drainOnStop(exitEvents <-chan exitmonitor.Event) {
 				a.service.logger.Error("orchestration: stopAll panic", slog.Any("panic", r))
 			}
 		}()
-		a.stopAll()
+		a.stopAll(drainCtx)
 	}()
-	drainCtx, cancel := platformconfig.WithTimeout(context.Background(), runnerShutdownDrainGrace)
-	defer cancel()
 	drainDone := make(chan struct{})
 	go func() {
 		defer close(drainDone)
@@ -335,6 +335,6 @@ func (a *runnerActor) recoverStalledAgents(ctx context.Context, stallDetector *S
 	}
 }
 
-func (a *runnerActor) stopAll() {
-	a.service.StopAllAgents()
+func (a *runnerActor) stopAll(ctx context.Context) {
+	a.service.StopAllAgents(ctx)
 }

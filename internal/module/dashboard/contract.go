@@ -22,6 +22,7 @@ type Service interface {
 	GetAgentDetail(ctx context.Context, agentID string) (*AgentDetail, error)
 	GetSystemInfo(ctx context.Context) (*SystemInfo, error)
 	GetLogs(ctx context.Context, filter LogFilter) ([]LogEntry, error)
+	GetLogDetail(ctx context.Context, req LogDetailRequest) (*LogDetail, error)
 	GetAuditLogs(ctx context.Context, filter AuditLogFilter) ([]AuditEvent, error)
 	GetBusLogs(ctx context.Context, filter BusLogFilter) ([]BusExceptionLog, error)
 	ListDAGs(ctx context.Context, filter contract.ListDAGsFilter) ([]contract.DAGSummary, error)

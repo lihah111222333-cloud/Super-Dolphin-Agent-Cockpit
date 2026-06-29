@@ -284,7 +284,7 @@ function registerBridgeEventHandlersForTest() {
     expect(useClientStore.getState().activeProject).toBe('/repo/app');
   });
 
-  it.skip('hydrates thread providers from sidebar runtime metadata', async () => {
+  it('hydrates thread providers from sidebar runtime metadata', async () => {
     backend.getSidebarState.mockResolvedValue({
       activeThreadId: 'thread-claude',
       threads: [{ id: 'thread-claude', name: 'Claude runtime thread', status: 'running' }],
@@ -2516,40 +2516,40 @@ function registerBridgeEventHandlersForTest() {
     }));
   });
 
-  it.skip('starts a selected-provider thread instead of sending into a failed active session', async () => {
+  it('starts a selected Codex provider thread instead of sending into a failed active session', async () => {
     resetClientStoreForTests({
       cwd: '/repo/app',
       activeProject: '/repo/app',
       activeThreadId: 'thread-failed',
-      provider: 'claude',
-      draft: 'Retry through selected provider',
+      provider: 'codex',
+      draft: 'Retry through selected Codex provider',
       attachments: [],
       threads: [{ id: 'thread-failed', name: 'Broken', provider: 'codex', status: 'failed' }],
     });
     backend.getPreference.mockImplementation(({ key }) => Promise.resolve({
-      'settings.provider.active': 'claude',
-      'settings.provider.claude.model': 'sonnet',
-      'settings.provider.claude.effort': 'high',
+      'settings.provider.active': 'codex',
+      'settings.provider.codex.model': 'gpt-5.5',
+      'settings.provider.codex.effort': 'xhigh',
     }[key] ?? null));
-    backend.startThread.mockResolvedValue({ threadId: 'thread-claude' });
+    backend.startThread.mockResolvedValue({ threadId: 'thread-codex' });
     backend.startTurn.mockResolvedValue({ ok: true });
 
     await useClientStore.getState().sendDraft();
 
     expect(backend.startThread).toHaveBeenCalledWith(expect.objectContaining({
       cwd: '/repo/app',
-      modelProvider: 'claude',
-      model: 'sonnet',
-      effort: 'high',
+      modelProvider: 'codex',
+      model: 'gpt-5.5',
+      effort: 'xhigh',
       deferSpawn: true,
     }));
     expect(backend.startTurn).toHaveBeenCalledWith({
       cwd: '/repo/app',
-      threadId: 'thread-claude',
-      input: [{ type: 'text', text: 'Retry through selected provider' }],
+      threadId: 'thread-codex',
+      input: [{ type: 'text', text: 'Retry through selected Codex provider' }],
       manualSkillSelection: false,
     });
-    expect(useClientStore.getState().activeThreadId).toBe('thread-claude');
+    expect(useClientStore.getState().activeThreadId).toBe('thread-codex');
   });
 
   it('does not auto-recover or retry turn/start when the backend session is missing', async () => {
@@ -5139,6 +5139,50 @@ function registerBridgeEventHandlersForTest() {
     expect(state.tokenUsageByThread['thread-1']).toEqual(expect.objectContaining({
       usedTokens: 10,
     }));
+  });
+
+  it('applies restarted thread patch sequences when generation advances', () => {
+    resetClientStoreForTests({
+      cwd: '/repo/app',
+      activeProject: '/repo/app',
+      activeThreadId: 'thread-1',
+      timelinesByThread: { 'thread-1': [] },
+    });
+    registerBridgeEventHandlersForTest();
+
+    bridgeCallback({
+      type: 'ui/thread/patch',
+      payload: {
+        threadId: 'thread-1',
+        generation: 1,
+        sequence: '1',
+        timelineItems: [{ id: 'assistant-1', kind: 'assistant', text: 'first generation' }],
+      },
+    });
+    bridgeCallback({
+      type: 'ui/thread/patch',
+      payload: {
+        threadId: 'thread-1',
+        generation: 1,
+        sequence: '2',
+        timelineItems: [{ id: 'assistant-2', kind: 'assistant', text: 'second patch' }],
+      },
+    });
+    bridgeCallback({
+      type: 'ui/thread/patch',
+      payload: {
+        threadId: 'thread-1',
+        generation: 2,
+        sequence: '1',
+        timelineItems: [{ id: 'assistant-restarted', kind: 'assistant', text: 'restarted generation' }],
+      },
+    });
+
+    expect(useClientStore.getState().timelinesByThread['thread-1']).toEqual([
+      expect.objectContaining({ id: 'assistant-1', text: 'first generation' }),
+      expect.objectContaining({ id: 'assistant-2', text: 'second patch' }),
+      expect.objectContaining({ id: 'assistant-restarted', text: 'restarted generation' }),
+    ]);
   });
 
   it('coalesces repeated RPC warning entries while preserving occurrence count', () => {

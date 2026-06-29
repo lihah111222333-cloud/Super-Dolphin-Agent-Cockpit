@@ -72,7 +72,7 @@ func translateCodexEvent(raw dto.RawProviderEvent, publish func(ev any)) {
 		return
 	}
 	if shouldWarnUnknownRawEvent(eventType, payload) {
-		pkglogger.Get().Warn("codexapp: unknown raw event", "raw_type", eventType, "payload", payload)
+		pkglogger.Get().Warn("codexapp: unknown raw event", "raw_type", eventType, "payload_metadata", raw.SanitizedCopy().Data)
 	}
 }
 

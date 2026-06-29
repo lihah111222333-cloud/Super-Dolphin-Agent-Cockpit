@@ -54,6 +54,8 @@ jobs:
           rustup component add rust-analyzer
       - name: Prepare embedded frontend assets
         run: make frontend-app-build
+      - name: Frontend embed verify
+        run: make frontend-embed-verify
       - name: Vet
         run: make vet
       - name: Build
@@ -121,6 +123,8 @@ jobs:
       - name: Build frontend-app
         working-directory: frontend-app
         run: npm run build
+      - name: Frontend embed verify
+        run: make frontend-embed-verify
 
   cross-platform-smoke:
     needs: commit-guard

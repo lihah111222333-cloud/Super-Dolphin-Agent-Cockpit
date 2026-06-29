@@ -112,6 +112,58 @@ func TestSimilarityAdapterDreamExecutePassesRequestedProviderOptions(t *testing.
 	if got := dream.options[0]; got.Provider != "codex" || got.Model != "gpt-5.5" || got.ModelProvider != "openai" {
 		t.Fatalf("dream options = %+v, want codex/gpt-5.5/openai", got)
 	}
+	if got := dream.options[0].RuntimePolicy; !got.ToolsDisabled || !got.ReadOnlySandbox || !got.MinEnv {
+		t.Fatalf("RuntimePolicy = %+v, want strict dream policy", got)
+	}
+}
+
+func TestProvideDreamExtractFuncUsesStrictRuntimePolicy(t *testing.T) {
+	dream := &recordingOptionsDreamExecutor{output: `{"decisions":[]}`}
+	extractFn := provideDreamExtractFunc(dreamExtractParams{Executor: dream})
+
+	if _, err := extractFn(context.Background(), "memory prompt"); err != nil {
+		t.Fatalf("extractFn() error = %v", err)
+	}
+	if len(dream.options) != 1 {
+		t.Fatalf("recorded options = %d, want 1", len(dream.options))
+	}
+	if got := dream.options[0].RuntimePolicy; !got.ToolsDisabled || !got.ReadOnlySandbox || !got.MinEnv {
+		t.Fatalf("RuntimePolicy = %+v, want strict dream policy", got)
+	}
+}
+
+func TestBuildUIMemorySnapshotSurfacesAutoDreamHealth(t *testing.T) {
+	projectRoot := newTestGitProjectRoot(t)
+	privateRoot := filepath.Join(t.TempDir(), "private")
+	if err := os.MkdirAll(privateRoot, 0o755); err != nil {
+		t.Fatalf("MkdirAll(privateRoot) error = %v", err)
+	}
+	cfg := newUIMemorySnapshotConfig(t, projectRoot, privateRoot)
+	hooks := newMemoryLifecycleHooks(cfg, nil, nil, nil, nil, nil, NewMemoryExtractor(), NewManifestBuilder())
+	lastAt := time.Date(2026, 6, 29, 12, 0, 0, 0, time.UTC)
+	hooks.recordAutoDreamSchedulerHealth(autoDreamHealthSnapshot{
+		DroppedTotal:   1,
+		ProcessedTotal: 2,
+		ScheduledTotal: 3,
+		LastError:      "provider failed",
+		LastAt:         lastAt,
+		LastThreadID:   "thread-1",
+	})
+
+	snapshot, err := buildUIMemorySnapshot(context.Background(), newServiceWithConsolidator(cfg, nil, nil, hooks), nil, projectRoot)
+	if err != nil {
+		t.Fatalf("buildUIMemorySnapshot() error = %v", err)
+	}
+	got := snapshot.Overview.Health.AutoDream
+	if got == nil {
+		t.Fatal("Overview.Health.AutoDream = nil, want health snapshot")
+	}
+	if got.DroppedTotal != 1 || got.ProcessedTotal != 2 || got.ScheduledTotal != 3 {
+		t.Fatalf("AutoDream totals = %+v, want dropped=1 processed=2 scheduled=3", got)
+	}
+	if got.LastError != "provider failed" || got.LastThreadID != "thread-1" || !got.LastAt.Equal(lastAt) {
+		t.Fatalf("AutoDream last snapshot = %+v, want error/thread/time", got)
+	}
 }
 
 func TestConsolidateAllDreamFailureUsesUserFacingError(t *testing.T) {

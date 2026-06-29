@@ -57,6 +57,7 @@ func TestAutoDreamIntentBadJSONSurfacesDiagnostics(t *testing.T) {
 	projectRoot := newTestGitProjectRoot(t)
 	t.Setenv(envMemoryRoot, root)
 	t.Setenv(envClaudeRemoteMemoryDir, "")
+	t.Setenv(envMemoryExtractOnStop, "1")
 	writeRawAutoDreamIntent(t, root, "{")
 
 	got, err := ReadAutoDreamIntent(root)
@@ -66,6 +67,9 @@ func TestAutoDreamIntentBadJSONSurfacesDiagnostics(t *testing.T) {
 	cfg := NewConfig(&contract.Config{ProjectRoot: projectRoot})
 	if cfg.AutoDreamIntentError == "" {
 		t.Fatal("AutoDreamIntentError = empty, want bad JSON diagnostic")
+	}
+	if cfg.ExtractOnStop {
+		t.Fatal("ExtractOnStop = true after malformed intent, want fail-closed false")
 	}
 	overview := buildAutoDreamIntentOverviewForTest(t, cfg, projectRoot)
 	if overview.AutoDreamIntent != nil {

@@ -407,16 +407,20 @@ func LoadVideoEnv() error {
 	if err != nil {
 		return err
 	}
-	for _, line := range strings.Split(string(data), "\n") {
+	for lineNo, line := range strings.Split(string(data), "\n") {
 		line = strings.TrimSpace(line)
 		if line == "" || strings.HasPrefix(line, "#") {
 			continue
 		}
 		k, v, ok := strings.Cut(line, "=")
 		if !ok {
-			continue
+			return fmt.Errorf("video.env:%d malformed KEY=VALUE line", lineNo+1)
 		}
-		if err := os.Setenv(strings.TrimSpace(k), strings.TrimSpace(v)); err != nil {
+		key := strings.TrimSpace(k)
+		if key == "" {
+			return fmt.Errorf("video.env:%d empty key", lineNo+1)
+		}
+		if err := os.Setenv(key, strings.TrimSpace(v)); err != nil {
 			return err
 		}
 	}

@@ -78,6 +78,27 @@ func TestPackagedRuntimeFromExecutableRejectsDevBinary(t *testing.T) {
 	}
 }
 
+func TestLoadVideoEnvRejectsMalformedLine(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv(superDolphinHomeEnv, home)
+	t.Setenv("MALFORMED_VIDEO_ENV_LINE", "")
+	path := filepath.Join(home, "video.env")
+	if err := os.WriteFile(path, []byte("MALFORMED_VIDEO_ENV_LINE\n"), 0o600); err != nil {
+		t.Fatalf("write video.env: %v", err)
+	}
+
+	err := LoadVideoEnv()
+	if err == nil {
+		t.Fatal("LoadVideoEnv() error = nil, want malformed line error")
+	}
+	if !strings.Contains(err.Error(), "video.env:1") {
+		t.Fatalf("LoadVideoEnv() error = %v, want video.env line number", err)
+	}
+	if got := os.Getenv("MALFORMED_VIDEO_ENV_LINE"); got != "" {
+		t.Fatalf("MALFORMED_VIDEO_ENV_LINE = %q, want unset", got)
+	}
+}
+
 func TestPackagedResourcesDirDetectsWindowsBinExecutable(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "Super Dolphin")
 	makeDirs(t, root)

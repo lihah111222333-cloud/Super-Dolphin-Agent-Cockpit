@@ -104,6 +104,32 @@ func TestNodePatch_UnmarshalStrict_EmptyOk(t *testing.T) {
 	}
 }
 
+func TestNodePatch_UnmarshalStrict_RejectsScalarConfig(t *testing.T) {
+	t.Parallel()
+
+	var p NodePatch
+	err := json.Unmarshal([]byte(`{"config":"not-an-object"}`), &p)
+	if err == nil {
+		t.Fatal("scalar config: want err, got nil")
+	}
+	if !strings.Contains(err.Error(), "config") {
+		t.Fatalf("scalar config err = %v, want config validation", err)
+	}
+}
+
+func TestOpAddNode_UnmarshalStrict_RejectsScalarConfig(t *testing.T) {
+	t.Parallel()
+
+	var op OpAddNode
+	err := json.Unmarshal([]byte(`{"op":"add_node","node":{"node_key":"a","title":"A","node_type":"agent","config":"not-an-object"}}`), &op)
+	if err == nil {
+		t.Fatal("scalar add_node config: want err, got nil")
+	}
+	if !strings.Contains(err.Error(), "config") {
+		t.Fatalf("scalar add_node config err = %v, want config validation", err)
+	}
+}
+
 // TestNodePatch_UnmarshalStrict_NestedBannedKeysInConfig 关键 case：
 // 禁改字段藏在 patch.config 内层也要拒绝。
 // agent_key 是例外：完整 config 覆盖必须能保留合法 exec.agent_key /

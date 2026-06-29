@@ -20,6 +20,7 @@ import (
 	tooldto "github.com/anthropic-ai/super-agent-v3/internal/dto/tool"
 	turndto "github.com/anthropic-ai/super-agent-v3/internal/dto/turn"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/bus"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/runtimesafe"
 	platformshared "github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 	"github.com/kelindar/event"
 	"github.com/qmuntal/stateless"
@@ -362,8 +363,11 @@ func (s *service) StopAgent(ctx context.Context, agentID string) error {
 	return s.stopAgentViaLauncher(ctx, agentID, "user_requested")
 }
 
-// StopAllAgents 按字母顺序停止所有运行中的 agent，并等待异步任务完成。
-func (s *service) StopAllAgents() {
+// StopAllAgents 按字母顺序停止所有运行中的 agent，并在调用方 deadline 内等待异步任务完成。
+func (s *service) StopAllAgents(ctx context.Context) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	s.mu.RLock()
 	ids := make([]string, 0, len(s.agents))
 	for agentID := range s.agents {
@@ -372,21 +376,33 @@ func (s *service) StopAllAgents() {
 	s.mu.RUnlock()
 	sort.Strings(ids)
 	for _, agentID := range ids {
-		if err := s.stopAgentViaLauncher(context.Background(), agentID, "shutdown"); err != nil &&
+		if err := s.stopAgentViaLauncher(ctx, agentID, "shutdown"); err != nil &&
 			!errors.Is(err, errAgentNotFound) {
 			s.logger.Warn("orchestration: failed to stop agent during shutdown", "agent_id", agentID, "error", err)
 		}
 	}
-	s.DrainAsync()
+	s.DrainAsync(ctx)
 }
 
 // DrainAsync 取消 service 共享异步 context，并等待已登记 goroutine 收尾。
 // 多次调用是安全的：cancel 本身幂等，asyncWg 归零后后续调用会立即返回。
-func (s *service) DrainAsync() {
+func (s *service) DrainAsync(ctx context.Context) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	if s.asyncCancel != nil {
 		s.asyncCancel()
 	}
-	s.asyncWg.Wait()
+	done := make(chan struct{})
+	runtimesafe.SafeGo(ctx, s.logger, "orchestration.drainAsync", func(context.Context) {
+		defer close(done)
+		s.asyncWg.Wait()
+	})
+	select {
+	case <-done:
+	case <-ctx.Done():
+		s.logger.Warn("orchestration: async drain deadline reached", "error", ctx.Err())
+	}
 }
 
 // SubmitTurn 提交一次 turn，远端 agent 优先走 launcher，其他 agent 进入本地队列。

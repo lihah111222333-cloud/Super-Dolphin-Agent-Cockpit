@@ -75,6 +75,7 @@ func TestDriverResumeSessionRestoresApprovalPolicy(t *testing.T) {
 		ThreadID:           "thread-1",
 		ProviderThreadID:   "thread-1",
 		CWD:                workDir,
+		PromptSnapshot:     validResumePromptSnapshotForTest(),
 		CodexHome:          t.TempDir(),
 		CodexInstanceKey:   "default",
 		CodexModelProvider: "openai",

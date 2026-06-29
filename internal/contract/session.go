@@ -3,6 +3,8 @@ package contract
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	"strings"
 
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
 )
@@ -125,10 +127,35 @@ type SessionPorts interface {
 
 // SessionThreadRef 是 resolver 需要的最小 thread 投影，携带 thread 到 agent 的绑定信息。
 type SessionThreadRef struct {
-	ThreadID      string
-	AgentID       string
-	Status        string
-	RuntimeConfig map[string]any
+	ThreadID       string
+	AgentID        string
+	Status         string
+	RuntimeConfig  map[string]any
+	PromptSnapshot PromptAssemblySnapshot
+}
+
+// ValidateResumePromptSnapshot 校验 resume 请求必须携带可复用的启动提示快照。
+// auto-resume 和 provider adapter 共用这道边界，避免空快照进入运行时后再隐式补默认提示。
+func ValidateResumePromptSnapshot(snapshot PromptAssemblySnapshot) error {
+	if snapshot.Version != PromptAssemblySnapshotVersion {
+		return fmt.Errorf("resume prompt snapshot version %d is invalid", snapshot.Version)
+	}
+	if strings.TrimSpace(snapshot.Hash) == "" {
+		return fmt.Errorf("resume prompt snapshot hash is required")
+	}
+	if strings.TrimSpace(snapshot.BaseInstructions) == "" &&
+		strings.TrimSpace(snapshot.DeveloperInstructions) == "" &&
+		resumePromptBoundaryBlank(snapshot.Boundary) &&
+		len(snapshot.SectionSnapshot) == 0 {
+		return fmt.Errorf("resume prompt snapshot content is empty")
+	}
+	return nil
+}
+
+func resumePromptBoundaryBlank(boundary *PromptAssemblyBoundary) bool {
+	return boundary == nil ||
+		(strings.TrimSpace(boundary.CachedPrefix) == "" &&
+			strings.TrimSpace(boundary.UncachedTail) == "")
 }
 
 // SessionBinding 是重启后 auto-resume 所需的持久化绑定投影。

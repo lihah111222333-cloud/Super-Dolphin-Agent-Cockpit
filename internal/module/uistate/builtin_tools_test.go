@@ -3,6 +3,7 @@ package uistate
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"sort"
 	"strings"
 	"testing"
@@ -121,6 +122,32 @@ func TestResolveDisabledBuiltinToolsFallsBackToDefaults(t *testing.T) {
 	}
 }
 
+func TestResolveFilteredBuiltinToolsReturnsPreferenceReadError(t *testing.T) {
+	t.Parallel()
+
+	readErr := errors.New("preference read failed")
+	got, err := ResolveFilteredBuiltinTools(context.Background(), preferenceErrorReader{err: readErr}, "/repo", testNativeTools, testNativeToolIndex())
+	if !errors.Is(err, readErr) {
+		t.Fatalf("ResolveFilteredBuiltinTools() err = %v, want %v", err, readErr)
+	}
+	if got != nil {
+		t.Fatalf("ResolveFilteredBuiltinTools() tools = %#v, want nil on read error", got)
+	}
+}
+
+func TestResolveSoftFilteredBuiltinToolsReturnsPreferenceReadError(t *testing.T) {
+	t.Parallel()
+
+	readErr := errors.New("preference read failed")
+	got, err := ResolveSoftFilteredBuiltinTools(context.Background(), preferenceErrorReader{err: readErr}, "/repo", testNativeTools, testNativeToolIndex(), "codex")
+	if !errors.Is(err, readErr) {
+		t.Fatalf("ResolveSoftFilteredBuiltinTools() err = %v, want %v", err, readErr)
+	}
+	if got != nil {
+		t.Fatalf("ResolveSoftFilteredBuiltinTools() tools = %#v, want nil on read error", got)
+	}
+}
+
 func TestResolveDisabledBuiltinToolsHonorsExplicitEmptyOverride(t *testing.T) {
 	t.Parallel()
 	prefs := &uiPreferenceStoreStub{values: map[string]json.RawMessage{
@@ -130,6 +157,14 @@ func TestResolveDisabledBuiltinToolsHonorsExplicitEmptyOverride(t *testing.T) {
 	if len(got) != 0 {
 		t.Fatalf("ResolveDisabledBuiltinTools(explicit empty) = %#v, want empty", got)
 	}
+}
+
+type preferenceErrorReader struct {
+	err error
+}
+
+func (r preferenceErrorReader) GetValue(context.Context, string, string) (json.RawMessage, error) {
+	return nil, r.err
 }
 
 func TestResolveDisabledBuiltinToolsMergesDefaultsForLegacyStoredSet(t *testing.T) {
@@ -159,7 +194,10 @@ func TestResolveDisabledBuiltinToolsRespectsKnownEnabledDefaults(t *testing.T) {
 
 func TestResolveSoftFilteredBuiltinToolsReturnsOnlySoftTools(t *testing.T) {
 	t.Parallel()
-	got := ResolveSoftFilteredBuiltinTools(context.Background(), nil, "/repo", testNativeTools, testNativeToolIndex(), "")
+	got, err := ResolveSoftFilteredBuiltinTools(context.Background(), nil, "/repo", testNativeTools, testNativeToolIndex(), "")
+	if err != nil {
+		t.Fatalf("ResolveSoftFilteredBuiltinTools(nil prefs) error = %v", err)
+	}
 	want := []string{"shell"}
 	if !equalSortedStrings(got, want) {
 		t.Fatalf("ResolveSoftFilteredBuiltinTools(nil prefs) = %#v, want %#v", got, want)
@@ -168,7 +206,10 @@ func TestResolveSoftFilteredBuiltinToolsReturnsOnlySoftTools(t *testing.T) {
 
 func TestResolveSoftFilteredBuiltinToolsFiltersProvider(t *testing.T) {
 	t.Parallel()
-	got := ResolveSoftFilteredBuiltinTools(context.Background(), nil, "/repo", testNativeTools, testNativeToolIndex(), "claude")
+	got, err := ResolveSoftFilteredBuiltinTools(context.Background(), nil, "/repo", testNativeTools, testNativeToolIndex(), "claude")
+	if err != nil {
+		t.Fatalf("ResolveSoftFilteredBuiltinTools(provider=claude) error = %v", err)
+	}
 	if len(got) != 0 {
 		t.Fatalf("ResolveSoftFilteredBuiltinTools(provider=claude) = %#v, want none", got)
 	}
@@ -197,7 +238,10 @@ func TestBuiltinToolsReadReturnsEnforcementTier(t *testing.T) {
 
 func TestResolveHardEnabledBuiltinToolsReturnsClaudeAllowlist(t *testing.T) {
 	t.Parallel()
-	got := ResolveHardEnabledBuiltinTools(context.Background(), nil, "/repo", testNativeTools, testNativeToolIndex(), "claude")
+	got, err := ResolveHardEnabledBuiltinTools(context.Background(), nil, "/repo", testNativeTools, testNativeToolIndex(), "claude")
+	if err != nil {
+		t.Fatalf("ResolveHardEnabledBuiltinTools(nil prefs) error = %v", err)
+	}
 	want := []string{"WebFetch"}
 	if !equalSortedStrings(got, want) {
 		t.Fatalf("ResolveHardEnabledBuiltinTools(nil prefs) = %#v, want %#v", got, want)
@@ -209,7 +253,10 @@ func TestResolveHardEnabledBuiltinToolsHonorsExplicitEmptyOverride(t *testing.T)
 	prefs := &uiPreferenceStoreStub{values: map[string]json.RawMessage{
 		preferenceStubKey("/repo", builtinToolsDisabledKey): json.RawMessage(`[]`),
 	}}
-	got := ResolveHardEnabledBuiltinTools(context.Background(), prefs, "/repo", testNativeTools, testNativeToolIndex(), "claude")
+	got, err := ResolveHardEnabledBuiltinTools(context.Background(), prefs, "/repo", testNativeTools, testNativeToolIndex(), "claude")
+	if err != nil {
+		t.Fatalf("ResolveHardEnabledBuiltinTools(explicit empty) error = %v", err)
+	}
 	want := []string{"Bash", "Read", "WebFetch", "Write"}
 	if !equalSortedStrings(got, want) {
 		t.Fatalf("ResolveHardEnabledBuiltinTools(explicit empty) = %#v, want %#v", got, want)
