@@ -1025,6 +1025,15 @@ export async function openSharedFile({ path } = {}) {
   return raw && typeof raw === 'object' ? raw : {};
 }
 
+export async function previewSharedFile({ path } = {}) {
+  const filePath = (path || '').toString().trim();
+  if (!filePath) throw new Error('previewSharedFile path is required');
+  writeBridgeLog('info', 'ui.previewSharedFile.start', { path: filePath });
+  const raw = await callAPI('ui/sharedFile/open', { path: filePath, preview: true });
+  writeBridgeLog('info', 'ui.previewSharedFile.done', { path: filePath });
+  return raw && typeof raw === 'object' ? raw : {};
+}
+
 export async function copyTextToClipboard(text) {
   const value = (text || '').toString().trim();
   if (!value) throw new Error('clipboard text is empty');

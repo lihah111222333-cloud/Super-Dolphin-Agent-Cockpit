@@ -51,7 +51,7 @@ func registerHTTPAssetRoutes(mux *http.ServeMux, server *rpc.Server, assetHandle
 // NewHTTPAssetServer 创建同时服务前端资源和 JRPC WebSocket 的 runner。
 // WebSocket token 在 runner 构造时确定，后续 route guard 和 asset cookie 共用同一值。
 func NewHTTPAssetServer(p httpAssetServerParams) httpAssetRunnerResult {
-	handler := withClipboardAssets(AssetHandlerFromForMode(p.Frontend, isDebug(p.Config)))
+	handler := withSharedFilePreviewAssets(withClipboardAssets(AssetHandlerFromForMode(p.Frontend, isDebug(p.Config))))
 	return httpAssetRunnerResult{
 		Runner: &httpAssetServer{
 			logger:  p.Logger,
