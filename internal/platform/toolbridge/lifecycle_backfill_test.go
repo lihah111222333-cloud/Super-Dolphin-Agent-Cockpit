@@ -14,10 +14,11 @@ func TestPrepareCodexToolSurfaceBackfillsDiscoveredMCPTools(t *testing.T) {
 	root := t.TempDir()
 	lsp := &fakeMCPClient{tools: []mcpdto.MCPTool{{Name: "grep"}}}
 	orch := &fakeMCPClient{tools: []mcpdto.MCPTool{{Name: "orchestration_launch_agent"}}}
-	backfiller := &recordingMCPToolLifecycleBackfiller{}
+	owner := newFakeMCPToolLifecycleOwner()
 	h := &Handler{
 		stdioClientFactory: fakeClientFactory(map[string]mcpClient{"lsp": lsp, "orch": orch}),
-		lifecycle:          backfiller,
+		lifecycle:          owner,
+		lifecyclePolicy:    owner,
 	}
 
 	_, err := h.PrepareCodexToolSurface(context.Background(), contract.CodexToolSurfaceScope{
@@ -33,33 +34,34 @@ func TestPrepareCodexToolSurfaceBackfillsDiscoveredMCPTools(t *testing.T) {
 		t.Fatalf("PrepareCodexToolSurface() error = %v", err)
 	}
 
-	assertMCPToolLifecycleBackfill(t, backfiller.requests, root, mcpdto.ClientKindLSP, "grep")
-	assertMCPToolLifecycleBackfill(t, backfiller.requests, root, mcpdto.ClientKindOrch, "orchestration_launch_agent")
+	assertMCPToolLifecycleBackfill(t, owner.backfills, root, mcpdto.ClientKindLSP, "grep")
+	assertMCPToolLifecycleBackfill(t, owner.backfills, root, mcpdto.ClientKindOrch, "orchestration_launch_agent")
 }
 
 func TestListToolsForCodexBackfillsPeerDiscovery(t *testing.T) {
 	root := t.TempDir()
 	t.Chdir(root)
-	backfiller := &recordingMCPToolLifecycleBackfiller{}
+	owner := newFakeMCPToolLifecycleOwner()
 	h := &Handler{
 		registry: &stubKindRegistry{peers: map[string][]*mcpcontrol.ToolInstance{
 			mcpdto.ClientKindOrch: {listToolsPeer([]mcpdto.MCPTool{{Name: "orchestration_launch_agent"}}, nil)},
 			mcpdto.ClientKindLSP:  {listToolsPeer([]mcpdto.MCPTool{{Name: "grep"}}, nil)},
 		}},
-		lifecycle: backfiller,
+		lifecycle:       owner,
+		lifecyclePolicy: owner,
 	}
 
 	if _, err := h.ListToolsForCodex(context.Background()); err != nil {
 		t.Fatalf("ListToolsForCodex() error = %v", err)
 	}
 
-	assertMCPToolLifecycleBackfill(t, backfiller.requests, root, mcpdto.ClientKindLSP, "grep")
-	assertMCPToolLifecycleBackfill(t, backfiller.requests, root, mcpdto.ClientKindOrch, "orchestration_launch_agent")
+	assertMCPToolLifecycleBackfill(t, owner.backfills, root, mcpdto.ClientKindLSP, "grep")
+	assertMCPToolLifecycleBackfill(t, owner.backfills, root, mcpdto.ClientKindOrch, "orchestration_launch_agent")
 }
 
 func TestProxyToolsListBackfillsPeerDiscoveryFromBindingCWD(t *testing.T) {
 	root := t.TempDir()
-	backfiller := &recordingMCPToolLifecycleBackfiller{}
+	owner := newFakeMCPToolLifecycleOwner()
 	h := &Handler{
 		registry: &stubKindRegistry{peers: map[string][]*mcpcontrol.ToolInstance{
 			mcpdto.ClientKindLSP: {listToolsPeer([]mcpdto.MCPTool{{Name: "grep"}}, nil)},
@@ -67,8 +69,9 @@ func TestProxyToolsListBackfillsPeerDiscoveryFromBindingCWD(t *testing.T) {
 		bindingStore: &toolCallBindingStoreStub{bindingsByAgent: map[string]toolCallBinding{
 			"agent-1": {AgentID: "agent-1", CWD: root},
 		}},
-		lifecycle:      backfiller,
-		proxyAuthToken: newProxyAuthToken(),
+		lifecycle:       owner,
+		lifecyclePolicy: owner,
+		proxyAuthToken:  newProxyAuthToken(),
 	}
 
 	got := callProxyRequest(t, h, "/mcp/lsp/agent-1", `{"jsonrpc":"2.0","id":"req-1","method":"tools/list"}`)
@@ -76,7 +79,7 @@ func TestProxyToolsListBackfillsPeerDiscoveryFromBindingCWD(t *testing.T) {
 		t.Fatalf("proxy tools/list error = %+v", got.Error)
 	}
 
-	assertMCPToolLifecycleBackfill(t, backfiller.requests, root, mcpdto.ClientKindLSP, "grep")
+	assertMCPToolLifecycleBackfill(t, owner.backfills, root, mcpdto.ClientKindLSP, "grep")
 }
 
 type recordingMCPToolLifecycleBackfiller struct {

@@ -27,6 +27,7 @@ func toolbridgeAdaptersModule() fx.Option {
 		provideToolbridgeUIPreferenceReader,
 		provideToolbridgeWorkDirResolver,
 		provideToolbridgeMCPToolLifecycleBackfiller,
+		provideToolbridgeMCPToolLifecyclePolicyReader,
 	)
 }
 
@@ -194,6 +195,26 @@ func (a mcpToolLifecycleBackfillAdapter) BackfillMCPTools(ctx context.Context, r
 // provideToolbridgeMCPToolLifecycleBackfiller 把 mcp_server.Service 暴露成 toolbridge 窄端口。
 func provideToolbridgeMCPToolLifecycleBackfiller(svc mcpserver.Service) toolbridge.MCPToolLifecycleBackfiller {
 	return mcpToolLifecycleBackfillAdapter{inner: svc}
+}
+
+type mcpToolLifecyclePolicyAdapter struct {
+	inner mcpserver.Service
+}
+
+// ResolveMCPToolLifecycle 将 toolbridge 的只读策略查询转交给 mcp_server owner 服务。
+func (a mcpToolLifecyclePolicyAdapter) ResolveMCPToolLifecycle(
+	ctx context.Context,
+	req contract.MCPToolLifecyclePolicyRequest,
+) (contract.MCPToolLifecycleDecision, error) {
+	if a.inner == nil {
+		return contract.MCPToolLifecycleDecision{}, errors.New("mcp server service is not configured")
+	}
+	return a.inner.ResolveMCPToolLifecycle(ctx, req)
+}
+
+// provideToolbridgeMCPToolLifecyclePolicyReader 把 owner 只读策略端口注入 toolbridge。
+func provideToolbridgeMCPToolLifecyclePolicyReader(svc mcpserver.Service) toolbridge.MCPToolLifecyclePolicyReader {
+	return mcpToolLifecyclePolicyAdapter{inner: svc}
 }
 
 // ----- 工作目录解析适配器 -----

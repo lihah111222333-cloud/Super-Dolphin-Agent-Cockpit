@@ -32,18 +32,19 @@ var persistentSubagentDefaultFallbackTotal atomic.Uint64
 // Handler 负责把模型侧 tool call 路由到 host-direct、Codex surface 或外部 MCP peer。
 // 结构体持有的 store、registry 与 hostTools 都是可选边界，调用路径必须显式处理缺失依赖。
 type Handler struct {
-	registry     activePeerRegistry
-	emitter      difftracker.DiffEmitter
-	resolver     difftracker.WorkDirResolver
-	diffFallback *diffFallbackTracker
-	bindingStore agentThreadLookup
-	threadStore  threadConfigOverrideStore
-	preferences  uiPreferenceReader
-	cfg          *platformconfig.Config
-	logger       *pkglogger.Logger
-	tracer       *observability.Service
-	dispatcher   *event.Dispatcher
-	lifecycle    mcpToolLifecycleBackfiller
+	registry        activePeerRegistry
+	emitter         difftracker.DiffEmitter
+	resolver        difftracker.WorkDirResolver
+	diffFallback    *diffFallbackTracker
+	bindingStore    agentThreadLookup
+	threadStore     threadConfigOverrideStore
+	preferences     uiPreferenceReader
+	cfg             *platformconfig.Config
+	logger          *pkglogger.Logger
+	tracer          *observability.Service
+	dispatcher      *event.Dispatcher
+	lifecycle       mcpToolLifecycleBackfiller
+	lifecyclePolicy mcpToolLifecyclePolicyReader
 	// hostTools 是可选依赖：agent-terminal 生产图只装配 memory_read / memory_write
 	// host-direct 工具。字段保持 nil-safe：测试或未来无 HostToolRegistry 的
 	// toolbridge 图会退回 peer 路径；当前 mcp-orch / mcp-lsp standalone 不加载
@@ -108,22 +109,23 @@ func NewHandler(in handlerIn) *Handler {
 		logger = pkglogger.Get()
 	}
 	handler := &Handler{
-		registry:       in.Registry,
-		emitter:        in.Emitter,
-		resolver:       in.Resolver,
-		diffFallback:   in.DiffFallback,
-		bindingStore:   in.BindingStore,
-		threadStore:    in.ThreadStore,
-		preferences:    in.Preferences,
-		cfg:            in.Config,
-		logger:         logger,
-		tracer:         in.Tracer,
-		dispatcher:     in.Dispatcher,
-		lifecycle:      in.Lifecycle,
-		hostTools:      in.HostTools,
-		skillTools:     in.SkillTools,
-		surfaces:       make(map[string]*codexToolSurface),
-		proxyAuthToken: newProxyAuthToken(),
+		registry:        in.Registry,
+		emitter:         in.Emitter,
+		resolver:        in.Resolver,
+		diffFallback:    in.DiffFallback,
+		bindingStore:    in.BindingStore,
+		threadStore:     in.ThreadStore,
+		preferences:     in.Preferences,
+		cfg:             in.Config,
+		logger:          logger,
+		tracer:          in.Tracer,
+		dispatcher:      in.Dispatcher,
+		lifecycle:       in.Lifecycle,
+		lifecyclePolicy: in.LifecyclePolicy,
+		hostTools:       in.HostTools,
+		skillTools:      in.SkillTools,
+		surfaces:        make(map[string]*codexToolSurface),
+		proxyAuthToken:  newProxyAuthToken(),
 	}
 	handler.stdioClientFactory = handler.defaultStdioClientFactory
 	return handler
@@ -173,9 +175,17 @@ func (h *Handler) routeToolCall(ctx context.Context, req ToolCallRequest) (*Tool
 	if result, handled, err := h.routePrePeerToolCall(ctx, req); handled || err != nil {
 		return result, err
 	}
+	return h.routeMCPPeerToolCall(ctx, req)
+}
+
+// routeMCPPeerToolCall 在选择 peer 前执行 lifecycle policy，避免隐藏工具被裸名或 alias 直连。
+func (h *Handler) routeMCPPeerToolCall(ctx context.Context, req ToolCallRequest) (*ToolCallResult, error) {
 	clientKind, err := resolveToolClientKind(req)
 	if err != nil {
 		return nil, err
+	}
+	if result, denied, err := h.denyMCPToolLifecycleCall(ctx, req, clientKind); denied || err != nil {
+		return result, err
 	}
 	peer, err := h.selectActiveToolPeer(mcpcontrol.ToolScope{
 		AgentID:  req.AgentID,

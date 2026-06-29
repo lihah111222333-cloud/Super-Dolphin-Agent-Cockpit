@@ -56,6 +56,16 @@ func TestAppModuleGraphProvidesToolbridgeMCPToolLifecycleBackfiller(t *testing.T
 	}
 }
 
+func TestAppModuleGraphProvidesToolbridgeMCPToolLifecyclePolicyReader(t *testing.T) {
+	t.Parallel()
+
+	var reader toolbridge.MCPToolLifecyclePolicyReader
+	opts := append(appGraphValidationOptions(), fx.Populate(&reader))
+	if err := fx.ValidateApp(opts...); err != nil {
+		t.Fatalf("fx.ValidateApp missing MCP tool lifecycle policy reader: %v", err)
+	}
+}
+
 func TestAppModuleGraphProvidesDatasourceV2Service(t *testing.T) {
 	t.Parallel()
 

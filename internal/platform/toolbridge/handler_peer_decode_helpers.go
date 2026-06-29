@@ -402,6 +402,14 @@ func (h *Handler) hasMCPToolLifecycleBackfiller() bool {
 	return h != nil && h.lifecycle != nil
 }
 
+func (h *Handler) hasMCPToolLifecyclePolicyReader() bool {
+	return h != nil && h.lifecyclePolicy != nil
+}
+
+func (h *Handler) requiresMCPToolLifecyclePolicy() bool {
+	return h.hasMCPToolLifecycleBackfiller() || h.hasMCPToolLifecyclePolicyReader()
+}
+
 func observedMCPToolLifecycleTools(tools []mcpdto.MCPTool, manifestName string) []contract.MCPToolLifecycleObservedTool {
 	if len(tools) == 0 {
 		return nil
@@ -414,6 +422,305 @@ func observedMCPToolLifecycleTools(tools []mcpdto.MCPTool, manifestName string) 
 		})
 	}
 	return out
+}
+
+// filterMCPToolLifecycleTools 对 discovery 后的 MCP 工具列表执行 lifecycle policy。
+// disabled/suspended/removed 只隐藏；缺 row、store 错误、未知状态和身份解析错误都向上返回错误。
+func (h *Handler) filterMCPToolLifecycleTools(
+	ctx context.Context,
+	workspaceRoot string,
+	serverName string,
+	manifestName string,
+	tools []mcpdto.MCPTool,
+) ([]mcpdto.MCPTool, error) {
+	if len(tools) == 0 || !h.requiresMCPToolLifecyclePolicy() {
+		return tools, nil
+	}
+	policy, err := h.requireMCPToolLifecyclePolicyReader()
+	if err != nil {
+		return nil, err
+	}
+	workspaceRoot, err = normalizeMCPToolLifecycleWorkspaceRoot(workspaceRoot)
+	if err != nil {
+		return nil, err
+	}
+	serverName = strings.TrimSpace(serverName)
+	if serverName == "" {
+		return nil, fmt.Errorf("toolbridge: mcp tool lifecycle server name is required")
+	}
+	manifestName = strings.TrimSpace(manifestName)
+	if manifestName == "" {
+		manifestName = serverName
+	}
+	out := make([]mcpdto.MCPTool, 0, len(tools))
+	for _, tool := range tools {
+		allowed, err := h.allowsListedMCPToolLifecycle(ctx, policy, workspaceRoot, serverName, manifestName, tool)
+		if err != nil {
+			return nil, err
+		}
+		if allowed {
+			out = append(out, tool)
+		}
+	}
+	return out, nil
+}
+
+func (h *Handler) allowsListedMCPToolLifecycle(
+	ctx context.Context,
+	policy mcpToolLifecyclePolicyReader,
+	workspaceRoot string,
+	serverName string,
+	manifestName string,
+	tool mcpdto.MCPTool,
+) (bool, error) {
+	toolName := strings.TrimSpace(tool.Name)
+	if toolName == "" {
+		return false, fmt.Errorf("toolbridge: mcp tool lifecycle tool name is required")
+	}
+	decision, err := policy.ResolveMCPToolLifecycle(ctx, contract.MCPToolLifecyclePolicyRequest{
+		WorkspaceRoot:       workspaceRoot,
+		WorkspaceRootSource: "toolbridge_discovery",
+		ServerName:          serverName,
+		ManifestName:        manifestName,
+		ToolName:            toolName,
+		CallName:            toolName,
+	})
+	if err != nil {
+		return false, fmt.Errorf("toolbridge: resolve mcp tool lifecycle for %s/%s: %w", serverName, toolName, err)
+	}
+	return mcpToolLifecycleDecisionAllows(decision)
+}
+
+func (h *Handler) requireMCPToolLifecyclePolicyReader() (mcpToolLifecyclePolicyReader, error) {
+	if h == nil || h.lifecyclePolicy == nil {
+		return nil, fmt.Errorf("toolbridge: mcp tool lifecycle policy reader is not configured")
+	}
+	return h.lifecyclePolicy, nil
+}
+
+func mcpToolLifecycleDecisionAllows(decision contract.MCPToolLifecycleDecision) (bool, error) {
+	switch decision.State {
+	case contract.MCPToolLifecycleEnabled:
+		return true, nil
+	case contract.MCPToolLifecycleDisabled,
+		contract.MCPToolLifecycleSuspended,
+		contract.MCPToolLifecycleRemoved:
+		return false, nil
+	default:
+		return false, fmt.Errorf("toolbridge: unknown mcp tool lifecycle state %q for %s/%s", decision.State, decision.ServerName, decision.ToolName)
+	}
+}
+
+// denyCodexSurfaceMCPToolLifecycleCall 在 Codex surface stdio client 调用前读取 owner 决策。
+// surface 已保存真实 server/tool 身份，所以这里不依赖调用名猜测，拒绝时返回稳定工具结果。
+func (h *Handler) denyCodexSurfaceMCPToolLifecycleCall(
+	ctx context.Context,
+	surface *codexToolSurface,
+	entry codexToolEntry,
+	req ToolCallRequest,
+	callName string,
+) (*ToolCallResult, bool, error) {
+	if !h.requiresMCPToolLifecyclePolicy() {
+		return nil, false, nil
+	}
+	workspaceRoot := ""
+	if surface != nil {
+		workspaceRoot = surface.cwd
+	}
+	if workspaceRoot == "" {
+		workspaceRoot = req.CWD
+	}
+	identity := mcpToolLifecycleIdentity{
+		serverName:   strings.TrimSpace(entry.family),
+		manifestName: strings.TrimSpace(entry.family),
+		toolName:     strings.TrimSpace(entry.realName),
+		callName:     strings.TrimSpace(callName),
+	}
+	decision, denied, err := h.resolveMCPToolLifecycleCallDecision(ctx, workspaceRoot, identity)
+	if err != nil || !denied {
+		return nil, denied, err
+	}
+	return mcpToolLifecycleDeniedResult(req, decision), true, nil
+}
+
+// denyMCPToolLifecycleCall 在非 surface peer 路径选择 peer 前执行 lifecycle deny。
+// 这里会把 legacy alias 和 mcp__server__tool 名称还原到 owner key，避免列表隐藏被直连绕过。
+func (h *Handler) denyMCPToolLifecycleCall(
+	ctx context.Context,
+	req ToolCallRequest,
+	clientKind string,
+) (*ToolCallResult, bool, error) {
+	if !h.requiresMCPToolLifecyclePolicy() {
+		return nil, false, nil
+	}
+	workspaceRoot, err := h.resolveMCPToolLifecycleCallWorkspaceRoot(ctx, req)
+	if err != nil {
+		return nil, false, err
+	}
+	identity, err := resolveMCPToolLifecycleCallIdentity(req.Name, clientKind)
+	if err != nil {
+		return nil, false, err
+	}
+	decision, denied, err := h.resolveMCPToolLifecycleCallDecision(ctx, workspaceRoot, identity)
+	if err != nil || !denied {
+		return nil, denied, err
+	}
+	return mcpToolLifecycleDeniedResult(req, decision), true, nil
+}
+
+type mcpToolLifecycleIdentity struct {
+	serverName   string
+	manifestName string
+	toolName     string
+	callName     string
+}
+
+func resolveMCPToolLifecycleCallIdentity(callName string, clientKind string) (mcpToolLifecycleIdentity, error) {
+	callName = strings.TrimSpace(callName)
+	if callName == "" {
+		return mcpToolLifecycleIdentity{}, fmt.Errorf("toolbridge: mcp tool lifecycle call name is required")
+	}
+	serverName := strings.TrimSpace(clientKind)
+	toolName := callName
+	if namespace, ok := SplitMCPToolName(callName); ok {
+		serverName = strings.TrimSpace(namespace.Server)
+		toolName = strings.TrimSpace(namespace.Tool)
+	}
+	if serverName == "" {
+		return mcpToolLifecycleIdentity{}, fmt.Errorf("toolbridge: mcp tool lifecycle server name is required for %q", callName)
+	}
+	toolName = mcpToolLifecycleCanonicalToolName(serverName, toolName)
+	if strings.TrimSpace(toolName) == "" {
+		return mcpToolLifecycleIdentity{}, fmt.Errorf("toolbridge: mcp tool lifecycle tool name is required for %q", callName)
+	}
+	return mcpToolLifecycleIdentity{
+		serverName:   serverName,
+		manifestName: serverName,
+		toolName:     toolName,
+		callName:     callName,
+	}, nil
+}
+
+func mcpToolLifecycleCanonicalToolName(serverName string, toolName string) string {
+	toolName = strings.TrimSpace(toolName)
+	switch strings.TrimSpace(serverName) {
+	case mcpdto.ClientKindLSP:
+		return canonicalToolName(toolName)
+	case mcpdto.ClientKindOrch:
+		canonical := canonicalOrchestrationToolName(toolName)
+		if legacy := legacyOrchName(canonical); legacy != "" {
+			return legacy
+		}
+		return canonical
+	default:
+		return toolName
+	}
+}
+
+func (h *Handler) resolveMCPToolLifecycleCallWorkspaceRoot(ctx context.Context, req ToolCallRequest) (string, error) {
+	if cwd := normalizeToolCallCWD(req.CWD); cwd != "" {
+		return normalizeMCPToolLifecycleWorkspaceRoot(cwd)
+	}
+	result := h.resolveCurrentToolCallBindingResult(ctx, req)
+	switch result.status {
+	case toolCallLookupFound:
+		if cwd := normalizeToolCallCWD(result.binding.CWD); cwd != "" {
+			return normalizeMCPToolLifecycleWorkspaceRoot(cwd)
+		}
+		return "", fmt.Errorf("toolbridge: mcp tool lifecycle workspace root is required")
+	case toolCallLookupFailed:
+		return "", toolCallPolicyUnavailable("resolve lifecycle workspace root", result.err)
+	default:
+		return "", fmt.Errorf("toolbridge: mcp tool lifecycle workspace root is required")
+	}
+}
+
+// resolveMCPToolLifecycleCallDecision 统一封装直接调用前的 owner 查询和状态解释。
+// 读取失败或未知状态直接返回错误；只有 disabled/suspended/removed 会转换成工具级拒绝结果。
+func (h *Handler) resolveMCPToolLifecycleCallDecision(
+	ctx context.Context,
+	workspaceRoot string,
+	identity mcpToolLifecycleIdentity,
+) (contract.MCPToolLifecycleDecision, bool, error) {
+	policy, err := h.requireMCPToolLifecyclePolicyReader()
+	if err != nil {
+		return contract.MCPToolLifecycleDecision{}, false, err
+	}
+	workspaceRoot, err = normalizeMCPToolLifecycleWorkspaceRoot(workspaceRoot)
+	if err != nil {
+		return contract.MCPToolLifecycleDecision{}, false, err
+	}
+	decision, err := policy.ResolveMCPToolLifecycle(ctx, contract.MCPToolLifecyclePolicyRequest{
+		WorkspaceRoot:       workspaceRoot,
+		WorkspaceRootSource: "toolbridge_call",
+		ServerName:          identity.serverName,
+		ManifestName:        identity.manifestName,
+		ToolName:            identity.toolName,
+		CallName:            identity.callName,
+	})
+	if err != nil {
+		return contract.MCPToolLifecycleDecision{}, false, fmt.Errorf(
+			"toolbridge: resolve mcp tool lifecycle for %s/%s: %w",
+			identity.serverName,
+			identity.toolName,
+			err,
+		)
+	}
+	allowed, err := mcpToolLifecycleDecisionAllows(decision)
+	if err != nil {
+		return contract.MCPToolLifecycleDecision{}, false, err
+	}
+	return decision, !allowed, nil
+}
+
+// mcpToolLifecycleDeniedResult 生成模型可断言的生命周期拒绝结果。
+// 字段保持 machine-readable，调用方可基于 code/state/server/tool 做稳定判断。
+func mcpToolLifecycleDeniedResult(req ToolCallRequest, decision contract.MCPToolLifecycleDecision) *ToolCallResult {
+	denyCode := strings.TrimSpace(decision.DenyCode)
+	if denyCode == "" {
+		denyCode = mcpToolLifecycleDenyCode(decision.State)
+	}
+	envelope := map[string]any{
+		"kind":   "mcp_tool_lifecycle_denied",
+		"tool":   strings.TrimSpace(decision.ToolName),
+		"server": strings.TrimSpace(decision.ServerName),
+		"state":  string(decision.State),
+		"code":   denyCode,
+	}
+	if reason := strings.TrimSpace(decision.Reason); reason != "" {
+		envelope["reason"] = reason
+	}
+	if replacement := strings.TrimSpace(decision.ReplacementTool); replacement != "" {
+		envelope["replacementTool"] = replacement
+	}
+	if callName := strings.TrimSpace(req.Name); callName != "" {
+		envelope["callName"] = callName
+	}
+	payload, err := json.Marshal(envelope)
+	if err != nil {
+		return toolCallErrorResult("toolbridge: mcp tool lifecycle denied")
+	}
+	return &ToolCallResult{
+		Success:           false,
+		StructuredContent: json.RawMessage(append([]byte(nil), payload...)),
+		ContentItems: []ToolCallContentItem{{
+			Type: "inputText",
+			Text: string(payload),
+		}},
+	}
+}
+
+func mcpToolLifecycleDenyCode(state contract.MCPToolLifecycleState) string {
+	switch state {
+	case contract.MCPToolLifecycleDisabled:
+		return contract.MCPToolLifecycleDenyCodeDisabled
+	case contract.MCPToolLifecycleSuspended:
+		return contract.MCPToolLifecycleDenyCodeSuspended
+	case contract.MCPToolLifecycleRemoved:
+		return contract.MCPToolLifecycleDenyCodeRemoved
+	default:
+		return "mcp_tool_lifecycle_denied"
+	}
 }
 
 func currentMCPToolLifecycleWorkspaceRoot() (string, error) {
@@ -438,7 +745,7 @@ func normalizeMCPToolLifecycleWorkspaceRoot(cwd string) (string, error) {
 // proxyMCPToolLifecycleWorkspaceRoot 解析 proxy tools/list 所属工作区。
 // 优先使用 agent binding 中的 CWD，再退到已注入 resolver；找不到时阻断回填，避免写到错误 owner。
 func (h *Handler) proxyMCPToolLifecycleWorkspaceRoot(ctx context.Context, agentID string) (string, error) {
-	if !h.hasMCPToolLifecycleBackfiller() {
+	if !h.requiresMCPToolLifecyclePolicy() {
 		return "", nil
 	}
 	agentID = strings.TrimSpace(agentID)

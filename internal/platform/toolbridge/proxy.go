@@ -277,6 +277,11 @@ func (h *Handler) handleProxyToolsList(w http.ResponseWriter, ctx context.Contex
 		writeJSONRPCError(w, id, jsonRPCCodeInternal, err.Error())
 		return
 	}
+	tools, err = h.filterMCPToolLifecycleTools(ctx, workspaceRoot, clientKind, clientKind, tools)
+	if err != nil {
+		writeJSONRPCError(w, id, jsonRPCCodeInternal, err.Error())
+		return
+	}
 	writeJSONRPCResult(w, id, map[string]any{"tools": filterProxyPeerReservedHostTools(tools)})
 }
 
@@ -319,6 +324,11 @@ func (h *Handler) handleProxyOrchToolsList(w http.ResponseWriter, ctx context.Co
 		return
 	}
 	if err := h.backfillMCPToolLifecycle(ctx, workspaceRoot, mcpdto.ClientKindOrch, mcpdto.ClientKindOrch, peerTools); err != nil {
+		writeJSONRPCError(w, id, jsonRPCCodeInternal, err.Error())
+		return
+	}
+	peerTools, err = h.filterMCPToolLifecycleTools(ctx, workspaceRoot, mcpdto.ClientKindOrch, mcpdto.ClientKindOrch, peerTools)
+	if err != nil {
 		writeJSONRPCError(w, id, jsonRPCCodeInternal, err.Error())
 		return
 	}
