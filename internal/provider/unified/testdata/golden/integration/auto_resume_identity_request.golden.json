@@ -5,7 +5,13 @@
   "codexModelProvider": "openai",
   "configOverride": {},
   "cwd": "/repo",
-  "promptSnapshot": {},
+  "promptSnapshot": {
+    "baseInstructions": "resume system prompt",
+    "displayName": "resume",
+    "hash": "snapshot-hash",
+    "provider": "codex",
+    "version": 2
+  },
   "provider": "codex",
   "providerThreadId": "11111111-aaaa-bbbb-cccc-111111111111",
   "threadId": "public-thread-1"

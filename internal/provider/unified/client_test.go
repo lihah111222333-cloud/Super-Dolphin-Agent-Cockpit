@@ -2,6 +2,7 @@ package unified_test
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
@@ -42,9 +43,34 @@ func TestClient_ResumeSession_SelectsCorrectDriver(t *testing.T) {
 	sessions := unified.NewSessionManager(nil)
 	client := unified.NewClient(registry, sessions, nil)
 	got, err := client.ResumeSession(context.Background(), dto.ResumeSessionRequest{Provider: "codex", AgentID: "agent-2"})
+	sessions.Activate("agent-2")
 	registered, regErr := sessions.Get("agent-2")
 	if err != nil || regErr != nil || got != codexSession || registered != codexSession || codex.resumed != 1 || claude.resumed != 0 {
 		t.Fatalf("resume session mismatch: session=%v err=%v registered=%v regErr=%v resumes=%d/%d", got, err, registered, regErr, codex.resumed, claude.resumed)
+	}
+}
+
+func TestClient_ResumeSessionRegistersPendingUntilActivated(t *testing.T) {
+	claudeSession, codexSession := &mockSession{threadID: "claude-thread"}, &mockSession{threadID: "codex-thread"}
+	claude, codex := &mockDriver{name: "claude", session: claudeSession}, &mockDriver{name: "codex", session: codexSession}
+	registry := unified.NewRegistry(unified.RegistryParams{Drivers: []contract.DriverFactory{
+		{Name: "claude", Create: func() contract.Driver { return claude }},
+		{Name: "codex", Create: func() contract.Driver { return codex }},
+	}})
+	sessions := unified.NewSessionManager(nil)
+	client := unified.NewClient(registry, sessions, nil)
+
+	got, err := client.ResumeSession(context.Background(), dto.ResumeSessionRequest{Provider: "codex", AgentID: "agent-pending"})
+	if err != nil || got != codexSession {
+		t.Fatalf("ResumeSession() = (%v, %v), want returned codex session", got, err)
+	}
+	if registered, regErr := sessions.Get("agent-pending"); !errors.Is(regErr, contract.ErrSessionNotFound) || registered != nil {
+		t.Fatalf("pending resume visible before activation: session=%v err=%v", registered, regErr)
+	}
+	sessions.Activate("agent-pending")
+	registered, regErr := sessions.Get("agent-pending")
+	if regErr != nil || registered != codexSession {
+		t.Fatalf("activated resume = (%v, %v), want codex session", registered, regErr)
 	}
 }
 

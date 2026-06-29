@@ -388,11 +388,7 @@ func TestResumeSessionKeepsExplicitClaudeHomeBeforeLaunchAndMirror(t *testing.T)
 		ProviderThreadID: "11111111-2222-3333-4444-555555555555",
 		CWD:              workDir,
 		ClaudeHome:       explicitHome,
-		PromptSnapshot: dto.PromptAssemblySnapshot{
-			DisplayName:      "resume",
-			BaseInstructions: "base",
-			Provider:         "claude",
-		},
+		PromptSnapshot:   validResumePromptSnapshotForTest(),
 	})
 	if err != nil {
 		t.Fatalf("ResumeSession() error = %v", err)
@@ -418,6 +414,7 @@ func TestResumeSessionRuntimeConfigSnapshotIncludesCWDAndRequestConfig(t *testin
 		ThreadID:         "thread-claude-runtime",
 		ProviderThreadID: "11111111-2222-3333-4444-555555555555",
 		CWD:              workDir,
+		PromptSnapshot:   validResumePromptSnapshotForTest(),
 		Config: map[string]any{
 			"gitRoot":  workDir,
 			"provider": "claude",

@@ -51,6 +51,14 @@ func (a *sessionProviderAdapter) SessionGeneration(agentID string) uint64 {
 	return a.manager.SessionGeneration(agentID)
 }
 
+// ActivateSession 公开 pending resume session，必须在 thread 状态持久化成功后调用。
+func (a *sessionProviderAdapter) ActivateSession(agentID string) bool {
+	if a == nil || a.manager == nil {
+		return false
+	}
+	return a.manager.ActivateSession(agentID)
+}
+
 // RemoveSessionGeneration 只移除匹配 generation 的 session，防止异步清理删掉新会话。
 func (a *sessionProviderAdapter) RemoveSessionGeneration(agentID string, generation uint64) {
 	if a == nil || a.manager == nil {
