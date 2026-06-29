@@ -15,7 +15,7 @@ func TestPromptTemplateCreateAndUpsertWriteSQLiteRequiredTimestamps(t *testing.T
 	t.Parallel()
 
 	db := openPromptSQLite(t)
-	createPromptTemplateTable(t, db)
+	createNullablePromptTemplateTable(t, db)
 	s := &store{q: sqlc.New(db)}
 
 	createInput := promptUpsertInput()
@@ -48,11 +48,11 @@ func TestPromptTemplateCreateAndUpsertWriteSQLiteRequiredTimestamps(t *testing.T
 	assertStoredPromptTemplateUpdate(t, db, upsertInput.PromptKey, originalCreatedAt, originalUpdatedAt)
 }
 
-func TestCreateAndUpsertPromptTemplateNormalizeEmptyMatchWhenForSQLite(t *testing.T) {
+func TestCreateAndUpsertPromptTemplatePreserveNilMatchWhenForSQLite(t *testing.T) {
 	t.Parallel()
 
 	db := openPromptSQLite(t)
-	createPromptTemplateTable(t, db)
+	createNullablePromptTemplateTable(t, db)
 	s := &store{q: sqlc.New(db)}
 
 	createInput := promptUpsertInput()
@@ -61,13 +61,14 @@ func TestCreateAndUpsertPromptTemplateNormalizeEmptyMatchWhenForSQLite(t *testin
 	if err != nil {
 		t.Fatalf("CreatePromptTemplate() unexpected error: %v", err)
 	}
-	assertEmptyPromptMatchWhen(t, created.MatchWhen)
+	assertNilPromptMatchWhen(t, created.MatchWhen)
+	assertStoredPromptMatchWhenNull(t, db, createInput.PromptKey)
 
 	gotCreated, err := s.Get(context.Background(), createInput.PromptKey)
 	if err != nil {
 		t.Fatalf("Get(created) unexpected error: %v", err)
 	}
-	assertEmptyPromptMatchWhen(t, gotCreated.MatchWhen)
+	assertNilPromptMatchWhen(t, gotCreated.MatchWhen)
 
 	upsertInput := promptUpsertInput()
 	upsertInput.PromptKey = "main/upsert-empty-match-when"
@@ -76,13 +77,25 @@ func TestCreateAndUpsertPromptTemplateNormalizeEmptyMatchWhenForSQLite(t *testin
 	if err != nil {
 		t.Fatalf("Upsert() unexpected error: %v", err)
 	}
-	assertEmptyPromptMatchWhen(t, upserted.MatchWhen)
+	assertNilPromptMatchWhen(t, upserted.MatchWhen)
+	assertStoredPromptMatchWhenNull(t, db, upsertInput.PromptKey)
 
 	gotUpserted, err := s.Get(context.Background(), upsertInput.PromptKey)
 	if err != nil {
 		t.Fatalf("Get(upserted) unexpected error: %v", err)
 	}
-	assertEmptyPromptMatchWhen(t, gotUpserted.MatchWhen)
+	assertNilPromptMatchWhen(t, gotUpserted.MatchWhen)
+
+	matchAllInput := promptUpsertInput()
+	matchAllInput.PromptKey = "main/explicit-match-all"
+	matchAllInput.MatchWhen = json.RawMessage(`{}`)
+	matchAll, err := s.Upsert(context.Background(), matchAllInput)
+	if err != nil {
+		t.Fatalf("Upsert(explicit match-all) unexpected error: %v", err)
+	}
+	if string(matchAll.MatchWhen) != "{}" {
+		t.Fatalf("explicit match_when = %q, want {}", matchAll.MatchWhen)
+	}
 }
 
 func TestInsertPromptVersionWritesSQLiteRequiredTimestamps(t *testing.T) {
@@ -165,6 +178,48 @@ func assertEmptyPromptMatchWhen(t *testing.T, raw json.RawMessage) {
 	if len(decoded) != 0 {
 		t.Fatalf("match_when = %s, want empty object", raw)
 	}
+}
+
+func assertNilPromptMatchWhen(t *testing.T, raw json.RawMessage) {
+	t.Helper()
+	if len(raw) != 0 {
+		t.Fatalf("match_when = %q, want nil/empty for non-routed template", raw)
+	}
+}
+
+func assertStoredPromptMatchWhenNull(t *testing.T, db *sql.DB, promptKey string) {
+	t.Helper()
+	var raw sql.NullString
+	if err := db.QueryRow(`SELECT match_when FROM prompt_templates WHERE prompt_key = ?`, promptKey).Scan(&raw); err != nil {
+		t.Fatalf("read prompt_templates.match_when: %v", err)
+	}
+	if raw.Valid {
+		t.Fatalf("stored match_when = %q, want SQL NULL", raw.String)
+	}
+}
+
+func createNullablePromptTemplateTable(t *testing.T, db *sql.DB) {
+	t.Helper()
+	execPromptSQL(t, db, `CREATE TABLE prompt_templates (
+		id INTEGER PRIMARY KEY,
+		prompt_key TEXT NOT NULL UNIQUE,
+		title TEXT NOT NULL,
+		agent_key TEXT NOT NULL,
+		tool_name TEXT NOT NULL,
+		prompt_text TEXT NOT NULL,
+		variables TEXT NOT NULL,
+		tags TEXT NOT NULL,
+		description TEXT NOT NULL,
+		when_to_use TEXT NOT NULL,
+		enabled INTEGER NOT NULL,
+		manually_edited INTEGER NOT NULL,
+		match_when TEXT CHECK(match_when IS NULL OR json_valid(match_when)),
+		priority INTEGER NOT NULL,
+		created_by TEXT NOT NULL,
+		updated_by TEXT NOT NULL,
+		created_at INTEGER NOT NULL,
+		updated_at INTEGER NOT NULL
+	);`)
 }
 
 func createPromptVersionTable(t *testing.T, db *sql.DB) {

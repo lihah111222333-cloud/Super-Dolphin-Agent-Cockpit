@@ -3,6 +3,7 @@ package uistate
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"sort"
 	"strings"
 	"testing"
@@ -121,6 +122,19 @@ func TestResolveDisabledBuiltinToolsFallsBackToDefaults(t *testing.T) {
 	}
 }
 
+func TestResolveFilteredBuiltinToolsReturnsPreferenceReadError(t *testing.T) {
+	t.Parallel()
+
+	readErr := errors.New("preference read failed")
+	got, err := ResolveFilteredBuiltinTools(context.Background(), preferenceErrorReader{err: readErr}, "/repo", testNativeTools, testNativeToolIndex())
+	if !errors.Is(err, readErr) {
+		t.Fatalf("ResolveFilteredBuiltinTools() err = %v, want %v", err, readErr)
+	}
+	if got != nil {
+		t.Fatalf("ResolveFilteredBuiltinTools() tools = %#v, want nil on read error", got)
+	}
+}
+
 func TestResolveDisabledBuiltinToolsHonorsExplicitEmptyOverride(t *testing.T) {
 	t.Parallel()
 	prefs := &uiPreferenceStoreStub{values: map[string]json.RawMessage{
@@ -130,6 +144,14 @@ func TestResolveDisabledBuiltinToolsHonorsExplicitEmptyOverride(t *testing.T) {
 	if len(got) != 0 {
 		t.Fatalf("ResolveDisabledBuiltinTools(explicit empty) = %#v, want empty", got)
 	}
+}
+
+type preferenceErrorReader struct {
+	err error
+}
+
+func (r preferenceErrorReader) GetValue(context.Context, string, string) (json.RawMessage, error) {
+	return nil, r.err
 }
 
 func TestResolveDisabledBuiltinToolsMergesDefaultsForLegacyStoredSet(t *testing.T) {

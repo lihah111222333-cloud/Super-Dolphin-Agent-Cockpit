@@ -96,3 +96,25 @@ func TestMemoryFrontmatterSourceRoundTrip(t *testing.T) {
 		t.Fatalf("legacy frontmatter Source = %q, want empty", got)
 	}
 }
+
+func TestAgentMemoryIndexHitReturnsIndexReadError(t *testing.T) {
+	root := newTestMemoryRoot(t)
+	entryPath := filepath.Join(root, string(MemoryTypeUser), "alpha.md")
+	entry := testMemoryEntry("Alpha", "hook", MemoryTypeUser, "body")
+	writeTestTopicFile(t, entryPath, entry)
+	if err := os.Remove(memoryIndexPath(root)); err != nil && !os.IsNotExist(err) {
+		t.Fatalf("remove MEMORY.md: %v", err)
+	}
+	if err := os.Mkdir(memoryIndexPath(root), 0o755); err != nil {
+		t.Fatalf("mkdir MEMORY.md sentinel: %v", err)
+	}
+	entry.FilePath = entryPath
+
+	hit, err := agentMemoryIndexHit(root, entry)
+	if err == nil {
+		t.Fatalf("agentMemoryIndexHit() hit=%v nil error, want unreadable index error", hit)
+	}
+	if hit {
+		t.Fatal("agentMemoryIndexHit() hit = true on unreadable index")
+	}
+}

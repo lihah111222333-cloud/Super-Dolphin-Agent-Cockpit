@@ -5,6 +5,8 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"reflect"
+	"unsafe"
 
 	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
 )
@@ -29,12 +31,75 @@ func WithTx(ctx context.Context, db *sql.DB, fn func(tx *sql.Tx) error) error {
 }
 
 // WithImmediateTx 开启 SQLite 写入竞争防护用的 IMMEDIATE 事务。
-func WithImmediateTx(ctx context.Context, db *sql.DB, fn func(tx *sql.Tx) error) error {
-	tx, err := db.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelSerializable})
+func WithImmediateTx(ctx context.Context, db *sql.DB, fn func(tx *sql.Tx) error) (retErr error) {
+	conn, err := db.Conn(ctx)
 	if err != nil {
-		return fmt.Errorf("begin immediate tx: %w", err)
+		return fmt.Errorf("connect immediate tx: %w", err)
 	}
-	return runWithTx(ctx, tx, fn)
+	defer func() {
+		if err := conn.Close(); err != nil {
+			retErr = errors.Join(retErr, fmt.Errorf("close immediate tx connection: %w", err))
+		}
+	}()
+
+	restoreBeginMode, err := setSQLiteConnBeginMode(ctx, conn, "immediate")
+	if err != nil {
+		return err
+	}
+	tx, err := conn.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelSerializable})
+	restoreErr := restoreBeginMode()
+	if err != nil {
+		return errors.Join(fmt.Errorf("begin immediate tx: %w", err), restoreErr)
+	}
+	if restoreErr != nil {
+		_ = tx.Rollback()
+		return restoreErr
+	}
+	retErr = runWithTx(ctx, tx, fn)
+	return retErr
+}
+
+// setSQLiteConnBeginMode 临时设置 modernc sqlite 连接的 beginMode。
+// database/sql 没有暴露 BEGIN IMMEDIATE 选项；如果驱动字段消失，这里必须报错而不能退回 deferred。
+func setSQLiteConnBeginMode(ctx context.Context, conn *sql.Conn, mode string) (func() error, error) {
+	var previous string
+	if err := conn.Raw(func(driverConn any) error {
+		field, err := sqliteBeginModeField(driverConn)
+		if err != nil {
+			return err
+		}
+		previous = field.String()
+		setUnexportedString(field, mode)
+		return nil
+	}); err != nil {
+		return nil, fmt.Errorf("configure immediate tx begin mode: %w", err)
+	}
+	return func() error {
+		return conn.Raw(func(driverConn any) error {
+			field, err := sqliteBeginModeField(driverConn)
+			if err != nil {
+				return err
+			}
+			setUnexportedString(field, previous)
+			return nil
+		})
+	}, nil
+}
+
+func sqliteBeginModeField(driverConn any) (reflect.Value, error) {
+	value := reflect.ValueOf(driverConn)
+	if value.Kind() != reflect.Pointer || value.IsNil() {
+		return reflect.Value{}, fmt.Errorf("SQLite driver connection has unexpected type %T", driverConn)
+	}
+	field := value.Elem().FieldByName("beginMode")
+	if !field.IsValid() || field.Kind() != reflect.String || !field.CanAddr() {
+		return reflect.Value{}, fmt.Errorf("SQLite driver connection %T does not expose beginMode", driverConn)
+	}
+	return field, nil
+}
+
+func setUnexportedString(field reflect.Value, value string) {
+	reflect.NewAt(field.Type(), unsafe.Pointer(field.UnsafeAddr())).Elem().SetString(value)
 }
 
 // sqlTxCommitter 抽象 *sql.Tx 以便单元测试覆盖提交和回滚路径。

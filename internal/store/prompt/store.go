@@ -276,6 +276,10 @@ func (s *store) CreatePromptTemplate(ctx context.Context, template PromptTemplat
 	if !ok {
 		return nil, wrapPromptError(errors.New("prompt store does not support create"), "create", "prompt_template")
 	}
+	matchWhen, err := normalizePromptMatchWhen(template.MatchWhen)
+	if err != nil {
+		return nil, wrapPromptError(err, "create", "prompt_template")
+	}
 	row, err := q.CreatePromptTemplate(ctx, sqlc.CreatePromptTemplateParams{
 		PromptKey:      template.PromptKey,
 		Title:          template.Title,
@@ -288,7 +292,7 @@ func (s *store) CreatePromptTemplate(ctx context.Context, template PromptTemplat
 		WhenToUse:      template.WhenToUse,
 		Enabled:        boolToInt64(template.Enabled),
 		ManuallyEdited: boolToInt64(template.ManuallyEdited),
-		MatchWhen:      normalizePromptMatchWhen(template.MatchWhen),
+		MatchWhen:      matchWhen,
 		Priority:       int64(template.Priority),
 		CreatedBy:      template.CreatedBy,
 		UpdatedBy:      template.UpdatedBy,
@@ -310,6 +314,10 @@ func (s *store) Upsert(ctx context.Context, template PromptTemplate) (*PromptTem
 	if !ok {
 		return nil, wrapPromptError(errors.New("prompt store does not support upsert"), "upsert", "prompt_template")
 	}
+	matchWhen, err := normalizePromptMatchWhen(template.MatchWhen)
+	if err != nil {
+		return nil, wrapPromptError(err, "upsert", "prompt_template")
+	}
 	row, err := q.UpsertPromptTemplate(ctx, sqlc.UpsertPromptTemplateParams{
 		PromptKey:      template.PromptKey,
 		Title:          template.Title,
@@ -322,7 +330,7 @@ func (s *store) Upsert(ctx context.Context, template PromptTemplate) (*PromptTem
 		WhenToUse:      template.WhenToUse,
 		Enabled:        boolToInt64(template.Enabled),
 		ManuallyEdited: boolToInt64(template.ManuallyEdited),
-		MatchWhen:      normalizePromptMatchWhen(template.MatchWhen),
+		MatchWhen:      matchWhen,
 		Priority:       int64(template.Priority),
 		CreatedBy:      template.CreatedBy,
 		UpdatedBy:      template.UpdatedBy,
@@ -644,11 +652,17 @@ func boolToInt64(b bool) int64 {
 	return 0
 }
 
-func normalizePromptMatchWhen(matchWhen json.RawMessage) string {
-	if strings.TrimSpace(string(matchWhen)) == "" {
-		return "{}"
+func normalizePromptMatchWhen(matchWhen json.RawMessage) (*string, error) {
+	trimmed := strings.TrimSpace(string(matchWhen))
+	if trimmed == "" || trimmed == "null" {
+		return nil, nil
 	}
-	return string(matchWhen)
+	var object map[string]any
+	if err := json.Unmarshal([]byte(trimmed), &object); err != nil {
+		return nil, errors.New("prompt template match_when must be a valid JSON object")
+	}
+	normalized := trimmed
+	return &normalized, nil
 }
 
 func timePtrToInt64Ptr(t *time.Time) *int64 {
