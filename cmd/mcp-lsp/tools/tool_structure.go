@@ -35,7 +35,7 @@ type documentSymbolListResponse struct {
 
 // NewStructureHandler 创建 structure 工具处理器，按 action 延迟选择文件或语言级 manager。
 func NewStructureHandler(registry lspmanager.Registry) ToolHandler {
-	return newManagerTool("structure", middleware.TierNormal, registry, decodeLenient, func(ctx context.Context, registry lspmanager.Registry, req structureParams) (any, error) {
+	return newManagerTool("structure", middleware.TierSlow, registry, decodeLenient, func(ctx context.Context, registry lspmanager.Registry, req structureParams) (any, error) {
 		req.FilePath = firstNonEmpty(req.FilePath, req.Path)
 		// Resolve the manager lazily per action: workspace_symbol can use
 		// the "language" parameter instead of "file_path", so we must not
