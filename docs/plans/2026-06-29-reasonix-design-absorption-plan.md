@@ -1,7 +1,7 @@
 # Reasonix 设计优点吸收计划
 
 > 日期：2026-06-29
-> 状态：执行中（Wave 1 / Wave 2 已闭环，Wave 3 待收口）
+> 状态：执行中（Wave 1 / Wave 2 已闭环，Wave 3 已补上下文/权限策略实现，待主控复核）
 > 范围：设计吸收计划与执行追踪；生产代码改动必须以源码、测试和 ADR 为准
 
 ## 0. 结论
@@ -376,7 +376,7 @@ Reasonix 把低频 compaction、history retrieval、memory retrieval 作为减�
 1. thread history 继续由 `internal/module/thread` 提供分页读取。
 2. memory retrieval 继续通过 host-direct `memory_read`，不 fallback 到 peer MCP memory tool。
 3. compact 成功后发布 compacted event 并 invalidate prompt assembly。
-4. 后续新增“history_read”能力时，必须是 bounded tool，带 limit/cursor/scope。
+4. `history_read` 是 host-direct bounded tool，只允许 `scope=current_thread`、显式 `limit=1..50` 和可选非空 `cursor`。
 
 ### 改哪些代码
 
@@ -389,7 +389,7 @@ Reasonix 把低频 compaction、history retrieval、memory retrieval 作为减�
 - `internal/module/thread/compact_event_test.go`
   - compact event + prompt invalidation。
 - `internal/platform/toolbridge/memory_read_tool.go`
-  - host-direct memory retrieval。
+  - host-direct memory retrieval 和 current-thread history retrieval。
 - `internal/platform/toolbridge/host_tools_memory_*_test.go`
   - 禁 peer fallback、disabled stable envelope。
 - `internal/module/memory/module.go`
@@ -528,10 +528,10 @@ cd frontend-app && npm test -- backendApi.test.js backendApi.contractMatrix.test
 
 ### Wave 3：上下文和权限策略
 
-- [ ] 为 history/memory retrieval 定义 bounded tool contract；当前已有 `memory_read`，尚未新增 `history_read` bounded tool。
-- [ ] 补 plan/read-only/tool trust 策略测试；当前有 read-only routing 和 memory/toolbridge 基础测试，但还没有本计划的策略矩阵闭环。
+- [x] 为 history/memory retrieval 定义 bounded tool contract；`history_read` 已作为 app host-direct toolbridge registry 接入 `contract.SessionStatusPort.ReadMessages(ctx, threadID, limit, before)`，threadID 只来自可信 `HostToolCall.ThreadID` metadata，schema 只允许 `scope/limit/cursor`。
+- [x] 补 plan/read-only/tool trust 策略测试；覆盖 read-only sandbox 保守解析、`readOnlyHint` 不升级为本地 policy、`memory_read/memory_write/history_read` host-only reserved list/call filtering 和 no-peer-fallback。
 - [x] 把 PrefixShape telemetry 接入 observability；Codex provider start 已记录 prefix hash、section 列表和 cached/uncached 字节元数据。
-- [ ] 先批准 host-direct error 兼容策略，再标准化所有 host-direct tool error envelope；当前 `kind=host_tool_error` 兼容路径仍保留。
+- [x] 先批准 host-direct error 兼容策略，再标准化所有 host-direct tool error envelope；采用“加字段兼容，不替换旧 kind/approval”策略，保留 `kind/tool/error/code/approval`，新增 `success:false/retryable/hint/meta` 双协议镜像，普通 MCP `ToolErrorEnvelope` 不带 host-direct `kind`。
 
 建议命令：
 

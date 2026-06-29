@@ -204,7 +204,7 @@ func (h *Handler) appendMCPToolsWithShadowWarning(dst []dto.MCPTool, seen map[st
 // isReservedHostOnlyToolName 判断工具名是否只能由 host-direct registry 处理。
 func isReservedHostOnlyToolName(name string) bool {
 	switch strings.TrimSpace(name) {
-	case ToolNameMemoryRead, ToolNameMemoryWrite, ToolNameObservabilityTraceGet:
+	case ToolNameMemoryRead, ToolNameMemoryWrite, ToolNameHistoryRead, ToolNameObservabilityTraceGet:
 		return true
 	default:
 		return false
@@ -378,27 +378,44 @@ func hostToolInputSchema(tools []dto.MCPTool, name string) (json.RawMessage, boo
 // hostToolErrorResult 将 host-direct 错误包装成模型可读的结构化 ToolCallResult。
 // approval_required/denied 需要保留专门 kind，前端据此显示授权交互。
 func hostToolErrorResult(req ToolCallRequest, err error) *ToolCallResult {
-	envelope := map[string]any{
-		"kind":  "host_tool_error",
-		"tool":  strings.TrimSpace(req.Name),
-		"error": err.Error(),
+	if err == nil {
+		err = errors.New("host tool failed")
 	}
-	if code := contract.AgentMemoryErrorCode(err); code != "" {
-		envelope["code"] = code
+	toolName := strings.TrimSpace(req.Name)
+	code, retryable, hint, meta := hostToolErrorEnvelopeFields(req, err)
+	kind := "host_tool_error"
+	envelope := map[string]any{
+		"kind":      kind,
+		"tool":      toolName,
+		"error":     err.Error(),
+		"success":   false,
+		"code":      code,
+		"retryable": retryable,
+		"hint":      hint,
+		"meta":      meta,
 	}
 	var required contract.SkillApprovalRequiredError
 	switch {
 	case errors.As(err, &required):
-		envelope["kind"] = "approval_required"
+		kind = "approval_required"
+		envelope["kind"] = kind
+		envelope["code"] = "approval_required"
+		envelope["hint"] = hostToolErrorHint("approval_required")
+		meta["kind"] = kind
 		envelope["approval"] = approvalRequestEnvelope(required.Request)
 	case isSkillApprovalDenied(err):
-		envelope["kind"] = "approval_denied"
+		kind = "approval_denied"
+		envelope["kind"] = kind
+		envelope["code"] = "approval_denied"
+		envelope["hint"] = hostToolErrorHint("approval_denied")
+		meta["kind"] = kind
 	}
 	payload, marshalErr := json.Marshal(envelope)
-	structured := json.RawMessage(append([]byte(nil), payload...))
+	var structured json.RawMessage
 	if marshalErr != nil {
 		payload = []byte(err.Error())
-		structured = nil
+	} else {
+		structured = json.RawMessage(append([]byte(nil), payload...))
 	}
 	return &ToolCallResult{
 		Success:           false,
@@ -407,6 +424,73 @@ func hostToolErrorResult(req ToolCallRequest, err error) *ToolCallResult {
 			Type: "inputText",
 			Text: string(payload),
 		}},
+	}
+}
+
+// hostToolErrorEnvelopeFields 生成 host-direct 错误兼容期新增的 ToolErrorEnvelope 字段。
+func hostToolErrorEnvelopeFields(req ToolCallRequest, err error) (string, bool, string, map[string]any) {
+	code, retryable, hint, classifiedMeta := common.ClassifyToolError(req.Name, err)
+	if stableCode := contract.AgentMemoryErrorCode(err); stableCode != "" {
+		code = stableCode
+		retryable = false
+	}
+	code = firstNonEmptyHostToolString(code, "host_tool_error")
+	if strings.TrimSpace(hint) == "" {
+		hint = hostToolErrorHint(code)
+	}
+	meta := hostToolErrorMeta(req, classifiedMeta)
+	meta["kind"] = "host_tool_error"
+	return code, retryable, hint, meta
+}
+
+// hostToolErrorMeta 只记录工具调用身份，不把参数或敏感路径写入错误 envelope。
+func hostToolErrorMeta(req ToolCallRequest, classified map[string]any) map[string]any {
+	meta := map[string]any{"tool": strings.TrimSpace(req.Name)}
+	for key, value := range classified {
+		if strings.TrimSpace(key) != "" {
+			meta[key] = value
+		}
+	}
+	addHostToolMetaString(meta, "agent_id", req.AgentID)
+	addHostToolMetaString(meta, "thread_id", req.ThreadID)
+	addHostToolMetaString(meta, "call_id", req.CallID)
+	return meta
+}
+
+func addHostToolMetaString(meta map[string]any, key, value string) {
+	if value = strings.TrimSpace(value); value != "" {
+		meta[key] = value
+	}
+}
+
+func firstNonEmptyHostToolString(values ...string) string {
+	for _, value := range values {
+		if value = strings.TrimSpace(value); value != "" {
+			return value
+		}
+	}
+	return ""
+}
+
+// hostToolErrorHint 为 host-direct 错误 code 生成模型可执行的下一步提示。
+func hostToolErrorHint(code string) string {
+	switch strings.TrimSpace(code) {
+	case "invalid_input":
+		return "next: check the host tool schema and retry with documented field names and JSON value types"
+	case "missing_thread_id":
+		return "next: retry from a bound current thread so trusted thread metadata is available"
+	case "history_unavailable", "reader_unavailable", "writer_unavailable", "trace_unavailable":
+		return "next: retry after the host-direct tool registry is configured"
+	case "history_read_failed":
+		return "next: verify the current thread exists and retry with a smaller bounded page if needed"
+	case "feature_disabled", "tools_disabled":
+		return "next: enable the host-direct tool feature before retrying"
+	case "approval_required":
+		return "next: wait for explicit approval before retrying the same host tool call"
+	case "approval_denied":
+		return "next: change the request or ask the user for approval before retrying"
+	default:
+		return "next: inspect the host tool error and retry only after the local issue is fixed"
 	}
 }
 

@@ -216,6 +216,9 @@ func (h *Handler) routeReservedHostOnlyToolCall(ctx context.Context, req ToolCal
 	case ToolNameMemoryWrite:
 		result, err := h.routeHostOnlyToolCall(ctx, req, "writer_unavailable")
 		return result, true, err
+	case ToolNameHistoryRead:
+		result, err := h.routeHostOnlyToolCall(ctx, req, "history_unavailable")
+		return result, true, err
 	case ToolNameObservabilityTraceGet:
 		result, err := h.routeHostOnlyToolCall(ctx, req, "trace_unavailable")
 		return result, true, err

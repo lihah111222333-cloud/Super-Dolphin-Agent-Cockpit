@@ -254,6 +254,13 @@ func assertToolErrorEnvelopeFields(t *testing.T, envelope map[string]any, toolNa
 	if envelope["kind"] != "host_tool_error" || envelope["tool"] != toolName || envelope["code"] != code {
 		t.Fatalf("envelope = %#v, want tool=%q code=%q", envelope, toolName, code)
 	}
+	if envelope["success"] != false || envelope["hint"] == "" {
+		t.Fatalf("envelope = %#v, want success=false and non-empty hint", envelope)
+	}
+	meta, ok := envelope["meta"].(map[string]any)
+	if !ok || meta["tool"] != toolName || meta["kind"] != "host_tool_error" {
+		t.Fatalf("envelope meta = %#v, want tool=%q kind=host_tool_error", envelope["meta"], toolName)
+	}
 	if strings.TrimSpace(fmt.Sprint(envelope["error"])) == "" {
 		t.Fatalf("envelope missing non-empty error: %#v", envelope)
 	}

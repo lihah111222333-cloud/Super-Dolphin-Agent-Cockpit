@@ -1,6 +1,7 @@
 package common
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -14,6 +15,24 @@ func TestClassifyToolErrorLaunchCWDRequired(t *testing.T) {
 	for _, name := range []string{"launch_agent", "orchestration_launch_agent"} {
 		env := NewToolErrorEnvelope(name, err)
 		assertLaunchToolError(t, env, "cwd_required")
+	}
+}
+
+func TestToolErrorEnvelopeDoesNotEmitHostDirectKind(t *testing.T) {
+	env := NewToolErrorEnvelope("grep", errors.New("sg not found in PATH"))
+	raw, err := json.Marshal(env)
+	if err != nil {
+		t.Fatalf("marshal envelope: %v", err)
+	}
+	var got map[string]any
+	if err := json.Unmarshal(raw, &got); err != nil {
+		t.Fatalf("decode envelope: %v", err)
+	}
+	if got["success"] != false || got["code"] == "" || got["hint"] == "" {
+		t.Fatalf("envelope = %#v, want ordinary ToolErrorEnvelope fields", got)
+	}
+	if _, ok := got["kind"]; ok {
+		t.Fatalf("envelope = %#v, must not include host-direct legacy kind", got)
 	}
 }
 
