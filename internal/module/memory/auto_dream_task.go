@@ -91,6 +91,8 @@ func (h *MemoryLifecycleHooks) recordAutoDreamSchedulerHealth(snapshot autoDream
 	}
 }
 
+// autoDreamHealthEmpty 判断 auto-dream 健康快照是否完全没有可展示状态。
+// UI 空态依赖这个判断，新增健康字段时需要同步扩展这里。
 func autoDreamHealthEmpty(snapshot autoDreamHealthSnapshot) bool {
 	return snapshot.DroppedTotal == 0 &&
 		snapshot.ProcessedTotal == 0 &&

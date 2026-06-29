@@ -78,6 +78,8 @@ func rawProviderPayloadBytes(data any) []byte {
 	}
 }
 
+// payloadMap 只把 provider payload 转成字段名集合使用的 map。
+// 解析失败时返回空集合，不能把原始 payload 带回日志或事件。
 func payloadMap(data any) map[string]any {
 	switch typed := data.(type) {
 	case map[string]any:
@@ -113,6 +115,8 @@ func safeProviderFieldNames(payload map[string]any) []string {
 	return names
 }
 
+// safeProviderFieldName 把允许公开的 provider 字段名归一化。
+// 未登记字段直接丢弃，避免 token、prompt 或嵌套 payload 名称泄露。
 func safeProviderFieldName(key string) string {
 	switch key {
 	case "session_id", "sessionId":

@@ -18,6 +18,7 @@ previous_dmg_mount=""
 asset_paths=()
 release_asset_specs=(
   "darwin-arm64|Super-Dolphin-darwin-arm64.dmg|Super-Dolphin-darwin-arm64.update.json"
+  "windows-arm64|Super-Dolphin-windows-arm64.exe|Super-Dolphin-windows-arm64.update.json"
 )
 
 cleanup() {

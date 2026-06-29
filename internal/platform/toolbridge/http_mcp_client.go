@@ -114,6 +114,8 @@ func buildHTTPMCPClient(binary providerdto.MCPBinary) (*httpMCPClient, error) {
 	}, nil
 }
 
+// cloneHTTPMCPHeaders 复制并校验外部 HTTP MCP 请求头。
+// 空 header 名和值、危险 header 都会阻断，避免运行时配置绕过 egress 策略。
 func cloneHTTPMCPHeaders(headers map[string]string) (map[string]string, error) {
 	if len(headers) == 0 {
 		return nil, nil

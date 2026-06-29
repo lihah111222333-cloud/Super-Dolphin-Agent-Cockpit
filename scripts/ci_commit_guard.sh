@@ -17,6 +17,9 @@ usage:
 When no --range is provided, GitHub Actions must pass:
   pull_request: GITHUB_EVENT_NAME, GITHUB_BASE_SHA, GITHUB_HEAD_SHA
   push:         GITHUB_EVENT_NAME, GITHUB_EVENT_BEFORE, GITHUB_SHA
+
+For local runs without GitHub event variables, the guard uses:
+  merge-base(${SUPER_DOLPHIN_CI_COMMIT_GUARD_BASE_REF:-origin/main}, HEAD)..HEAD
 USAGE
 }
 
@@ -66,6 +69,23 @@ resolve_github_range() {
   printf '%s..%s\n' "$base_sha" "$head_sha"
 }
 
+resolve_local_range() {
+  local base_ref="${SUPER_DOLPHIN_CI_COMMIT_GUARD_BASE_REF:-origin/main}"
+  local base_sha
+  local head_sha
+
+  if ! git rev-parse --verify --quiet "${base_ref}^{commit}" >/dev/null; then
+    fail "unsupported GITHUB_EVENT_NAME=<empty> and local base ref is unavailable: $base_ref; pass --range explicitly"
+  fi
+  if ! base_sha="$(git merge-base "$base_ref" HEAD)"; then
+    fail "cannot compute merge-base for $base_ref and HEAD; pass --range explicitly"
+  fi
+  head_sha="$(git rev-parse HEAD)"
+  require_commit "local base ref $base_ref" "$base_sha"
+  require_commit "HEAD" "$head_sha"
+  printf '%s..%s\n' "$base_sha" "$head_sha"
+}
+
 resolve_range() {
   case "${1:-}" in
     "")
@@ -73,7 +93,11 @@ resolve_range() {
         usage
         exit 2
       fi
-      resolve_github_range
+      if [ -z "${GITHUB_EVENT_NAME:-}" ]; then
+        resolve_local_range
+      else
+        resolve_github_range
+      fi
       ;;
     --range)
       if [ "$#" -ne 2 ] || [ -z "${2:-}" ]; then

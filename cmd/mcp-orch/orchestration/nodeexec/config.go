@@ -571,6 +571,8 @@ type executionTimeoutEnvelope struct {
 	} `json:"schedule,omitempty"`
 }
 
+// decodeExecutionTimeout 解析节点配置或 DAG metadata 里的执行超时。
+// includeScheduleDefault 只给 DAG 默认值使用，节点级 timeout 冲突会直接报错。
 func decodeExecutionTimeout(raw json.RawMessage, includeScheduleDefault bool) (time.Duration, bool, error) {
 	if len(raw) == 0 {
 		return 0, false, nil
@@ -592,6 +594,8 @@ func decodeExecutionTimeout(raw json.RawMessage, includeScheduleDefault bool) (t
 	return time.Duration(envelope.Schedule.DefaultTimeoutSec) * time.Second, true, nil
 }
 
+// resolveExecutionConfigTimeout 合并 timeout 字符串和 timeout_sec 兼容字段。
+// 两种写法同时存在但数值不同视为配置错误，避免保存了不生效的超时。
 func resolveExecutionConfigTimeout(cfg ExecutionConfig) (time.Duration, bool, error) {
 	durationTimeout, hasDuration, err := parseExecutionTimeoutString(cfg.Timeout)
 	if err != nil {

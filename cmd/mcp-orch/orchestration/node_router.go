@@ -538,6 +538,8 @@ func (r *NodeExecutorRouter) advanceAgentNodeToRunning(ctx context.Context, dagK
 	}
 }
 
+// dispatchAutomation 执行 automation 节点并在同一 wakeup attempt 内推进完成态。
+// ready->running 和完成写回都必须带 fence，避免过期 wakeup 或重复调度覆盖新状态。
 func (r *NodeExecutorRouter) dispatchAutomation(ctx context.Context, node nodeexec.Node, runCtx nodeexec.RunContext, executionTimeout time.Duration, wakeupID int64, wakeupAttempt int32, oldStatus string) (nodeexec.NodeOutcome, error) {
 	if r.autoExec == nil {
 		return validationOutcome("node router: automation executor not wired"), nil

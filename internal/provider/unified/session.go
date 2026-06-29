@@ -50,6 +50,8 @@ func (m *SessionManager) RegisterPending(agentID string, session contract.Sessio
 	return m.register(agentID, session, true)
 }
 
+// register 写入 session manager，并返回新的 generation。
+// pending session 不会被 Get 暴露，替换旧 session 时负责停止旧进程。
 func (m *SessionManager) register(agentID string, session contract.Session, pending bool) uint64 {
 	id := normalizeAgentID(agentID)
 	if id == "" || session == nil {

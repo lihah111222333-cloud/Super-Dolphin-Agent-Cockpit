@@ -136,6 +136,8 @@ type peerToolsListResult struct {
 	toolsPresent bool
 }
 
+// UnmarshalJSON 严格解析 peer tools/list 响应。
+// tools 字段缺失或不是数组时返回错误，避免把坏 peer 静默当作空工具集。
 func (r *peerToolsListResult) UnmarshalJSON(raw []byte) error {
 	var payload map[string]json.RawMessage
 	if err := json.Unmarshal(raw, &payload); err != nil {
