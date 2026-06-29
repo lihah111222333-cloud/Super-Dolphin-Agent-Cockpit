@@ -38,6 +38,18 @@ path=".worktrees/<short-task-name>"
 git worktree add "$path" -b "$branch" "$base_branch"
 ```
 
+Shell 安全要求：
+
+- 不要把 `git worktree add ...` 拼成字符串变量再执行；zsh 不会像 bash 那样默认对普通变量做空白分词，字符串命令容易被当成一个参数。
+- 如果必须动态组装命令，使用 shell 数组并以 `"${cmd[@]}"` 执行：
+
+```bash
+cmd=(git worktree add "$path" -b "$branch" "$base_branch")
+"${cmd[@]}"
+```
+
+- 不要用 `eval` 或 zsh 全局分词兼容选项绕过参数边界。
+
 进入新 worktree 后：
 
 ```bash
