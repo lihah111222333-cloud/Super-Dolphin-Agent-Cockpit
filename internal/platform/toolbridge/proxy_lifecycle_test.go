@@ -65,6 +65,34 @@ func TestProxyToolCallLifecycleUsesAgentIDWithoutBindingStore(t *testing.T) {
 	}
 }
 
+func TestProxyToolCallLifecycleUsesSafePreview(t *testing.T) {
+	dispatcher := event.NewDispatcher()
+	t.Cleanup(func() { _ = dispatcher.Close() })
+	beginCh := make(chan tooldto.ToolCallBegin, 1)
+	endCh := make(chan tooldto.ToolCallEnd, 1)
+	cancelBegin := event.Subscribe(dispatcher, func(ev tooldto.ToolCallBegin) { beginCh <- ev })
+	t.Cleanup(cancelBegin)
+	cancelEnd := event.Subscribe(dispatcher, func(ev tooldto.ToolCallEnd) { endCh <- ev })
+	t.Cleanup(cancelEnd)
+
+	args := json.RawMessage(`{"action":"read_file","token":"sk-abcdefghijklmnopqrstuvwxyz"}`)
+	h, _ := newHandlerForTest(newToolCallPeer(t, "file", args, `{"success":true,"api_key":"sk-zyxwvutsrqponmlkjihgfedcba"}`, nil))
+	h.dispatcher = dispatcher
+	h.bindingStore = &toolCallBindingStoreStub{threadID: "thread-1"}
+
+	got := callProxyRequest(t, h, "/mcp/lsp/agent-1", proxyLifecycleRequestBody(t, args))
+	assertProxyLifecycleResponse(t, got)
+
+	begin := waitProxyToolBegin(t, beginCh)
+	if strings.Contains(begin.ArgumentsPreview, "sk-") || !strings.Contains(begin.ArgumentsPreview, "[REDACTED]") {
+		t.Fatalf("begin ArgumentsPreview = %q, want redacted safe preview", begin.ArgumentsPreview)
+	}
+	end := waitProxyToolEnd(t, endCh)
+	if strings.Contains(end.Result, "sk-") || !strings.Contains(end.Result, "[REDACTED]") {
+		t.Fatalf("end Result = %q, want redacted safe preview", end.Result)
+	}
+}
+
 func TestProxyToolCallNormalizesPeerStructuredContent(t *testing.T) {
 	args := json.RawMessage(`{"action":"document_symbol","file_path":"smoke.go"}`)
 	h, _ := newHandlerForTest(&mcpcontrol.ToolInstance{Peer: &stubPeer{callbackFn: func(_ context.Context, method string, params any, result any) error {

@@ -2,6 +2,7 @@ package codexapp
 
 import (
 	"context"
+	"errors"
 	"path/filepath"
 	"sync/atomic"
 	"testing"
@@ -114,4 +115,61 @@ func TestServerPoolConcurrentAcquireSharesInFlightSpawn(t *testing.T) {
 	secondResult := readAcquireResult(t, second, "second")
 	assertSharedAcquireResult(t, p, id, firstResult, secondResult, &spawnCalls)
 	releaseSharedAcquireResult(t, p, firstResult, secondResult)
+}
+
+func TestServerPoolMaxLiveCapacityRejectsSecondIdentity(t *testing.T) {
+	t.Parallel()
+	spawnCalls := atomic.Int32{}
+	p, _ := newPoolForTest(t, newCountingFakeSpawner(&spawnCalls), PoolConfig{MaxLive: 1})
+	defer p.Close(context.Background())
+
+	first, release, err := p.Acquire(context.Background(), identityFor(t, "glm-a"), "agent-1")
+	if err != nil {
+		t.Fatalf("first Acquire: %v", err)
+	}
+	defer release()
+	if first == nil {
+		t.Fatal("first Acquire server = nil")
+	}
+
+	second, secondRelease, err := p.Acquire(context.Background(), identityFor(t, "glm-b"), "agent-2")
+	defer secondRelease()
+	if !errors.Is(err, ErrPoolCapacity) {
+		t.Fatalf("second Acquire error = %v, want ErrPoolCapacity", err)
+	}
+	if second != nil {
+		t.Fatalf("second Acquire server = %#v, want nil when capacity exhausted", second)
+	}
+	if spawnCalls.Load() != 1 {
+		t.Fatalf("spawn calls = %d, want capacity check before second spawn", spawnCalls.Load())
+	}
+}
+
+func TestServerPoolMaxLivePerHomeRejectsSecondOwner(t *testing.T) {
+	t.Parallel()
+	spawnCalls := atomic.Int32{}
+	p, _ := newPoolForTest(t, newCountingFakeSpawner(&spawnCalls), PoolConfig{MaxLivePerHome: 1})
+	defer p.Close(context.Background())
+
+	identity := identityFor(t, "glm-home")
+	first, release, err := p.Acquire(context.Background(), identity, "agent-1")
+	if err != nil {
+		t.Fatalf("first Acquire: %v", err)
+	}
+	defer release()
+	if first == nil {
+		t.Fatal("first Acquire server = nil")
+	}
+
+	second, secondRelease, err := p.Acquire(context.Background(), identity, "agent-2")
+	defer secondRelease()
+	if !errors.Is(err, ErrPoolCapacity) {
+		t.Fatalf("second owner Acquire error = %v, want ErrPoolCapacity", err)
+	}
+	if second != nil {
+		t.Fatalf("second owner Acquire server = %#v, want nil when per-home capacity exhausted", second)
+	}
+	if spawnCalls.Load() != 1 {
+		t.Fatalf("spawn calls = %d, want per-home capacity check before second spawn", spawnCalls.Load())
+	}
 }

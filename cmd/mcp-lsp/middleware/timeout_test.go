@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -45,5 +46,61 @@ func TestTimeoutUsesShorterToolLimitWhenParentDeadlineIsLonger(t *testing.T) {
 		}
 	case <-time.After(120 * time.Millisecond):
 		t.Fatal("Timeout did not return at shorter tool limit")
+	}
+}
+
+func TestTimeoutCapacityRejectsWhileTimedOutHandlerIsStillRunning(t *testing.T) {
+	release := make(chan struct{})
+	started := make(chan struct{})
+	var startedCount atomic.Int32
+	handler := timeoutWithWorkerLimit(10*time.Millisecond, 1)(func(context.Context, json.RawMessage) (any, error) {
+		if startedCount.Add(1) == 1 {
+			close(started)
+		}
+		<-release
+		return map[string]any{"ok": true}, nil
+	})
+
+	firstDone := make(chan error, 1)
+	go func() {
+		_, err := handler(context.Background(), nil)
+		firstDone <- err
+	}()
+	waitForTimeoutTestSignal(t, started, "first handler did not start")
+	requireTimeoutCode(t, waitForTimeoutTestError(t, firstDone, "first timeout did not return"), "lsp_timeout")
+
+	_, err := handler(context.Background(), nil)
+	requireTimeoutCode(t, err, "lsp_timeout_capacity")
+	if startedCount.Load() != 1 {
+		t.Fatal("second handler started despite timeout capacity being full")
+	}
+	close(release)
+}
+
+func waitForTimeoutTestSignal(t *testing.T, signal <-chan struct{}, message string) {
+	t.Helper()
+	select {
+	case <-signal:
+	case <-time.After(100 * time.Millisecond):
+		t.Fatal(message)
+	}
+}
+
+func waitForTimeoutTestError(t *testing.T, done <-chan error, message string) error {
+	t.Helper()
+	select {
+	case err := <-done:
+		return err
+	case <-time.After(120 * time.Millisecond):
+		t.Fatal(message)
+		return nil
+	}
+}
+
+func requireTimeoutCode(t *testing.T, err error, code string) {
+	t.Helper()
+	var coded *common.CodedToolError
+	if !errors.As(err, &coded) || coded.Code != code {
+		t.Fatalf("timeout error = %T %v, want %s", err, err, code)
 	}
 }
