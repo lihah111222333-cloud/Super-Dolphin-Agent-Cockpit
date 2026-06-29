@@ -7,8 +7,10 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	lspmanager "github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/manager"
+	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/middleware"
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/multilsp"
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/protocol"
 	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/common"
@@ -82,6 +84,7 @@ type structureTestManager struct {
 	definitions       []protocol.LocationResult
 	references        []protocol.LocationResult
 	callHierarchy     []protocol.CallHierarchyResult
+	documentContext   context.Context
 	gotWorkspaceQuery string
 	gotWorkspaceLang  string
 	didOpenContext    context.Context
@@ -124,7 +127,8 @@ func (*structureTestManager) TypeHierarchy(context.Context, string, protocol.Pos
 	return nil, nil
 }
 
-func (m *structureTestManager) DocumentSymbol(context.Context, string) ([]protocol.DocumentSymbol, error) {
+func (m *structureTestManager) DocumentSymbol(ctx context.Context, _ string) ([]protocol.DocumentSymbol, error) {
+	m.documentContext = ctx
 	return m.documentSymbols, nil
 }
 
@@ -299,6 +303,35 @@ func TestStructureDocumentSymbolReportsTotalShowingAndTruncation(t *testing.T) {
 	requireNumberField(t, payload, "showing", 2)
 	requireBoolField(t, payload, "truncated", true)
 	requireStringFieldContains(t, payload, "hint", "max_results")
+}
+
+func TestStructureDocumentSymbolUsesSlowDeadlineBudget(t *testing.T) {
+	root := t.TempDir()
+	target := writeStructureTestFile(t, root, "frontend/big-store.js", "export const clientStore = {};\n")
+	manager := &structureTestManager{
+		documentSymbols: []protocol.DocumentSymbol{reproDocumentSymbol("clientStore")},
+	}
+	registry := &structureTestRegistry{fileManager: manager}
+	handler := NewStructureHandler(registry)
+
+	if _, err := handler(testToolContext(root), marshalStructureParams(t, structureParams{
+		Action:     "document_symbol",
+		FilePath:   target,
+		MaxResults: 50,
+	})); err != nil {
+		t.Fatalf("document_symbol returned error: %v", err)
+	}
+	if manager.documentContext == nil {
+		t.Fatal("DocumentSymbol was not called")
+	}
+	deadline, ok := manager.documentContext.Deadline()
+	if !ok {
+		t.Fatal("DocumentSymbol context has no deadline")
+	}
+	remaining := time.Until(deadline)
+	if remaining < middleware.TierSlow-5*time.Second {
+		t.Fatalf("DocumentSymbol deadline budget = %s, want slow tier near %s so large JS outlines do not hit the normal tool timeout", remaining.Round(time.Second), middleware.TierSlow)
+	}
 }
 
 func reproDocumentSymbol(name string) protocol.DocumentSymbol {
