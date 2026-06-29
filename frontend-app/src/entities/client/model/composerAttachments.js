@@ -91,7 +91,7 @@ export function normalizeFileAttachment(path) {
     path: value,
     name,
     kind: image ? 'image' : 'file',
-    previewUrl: image ? `file://${value}` : '',
+    previewUrl: '',
   };
 }
 
@@ -108,7 +108,7 @@ export function normalizeAttachment(value) {
   const path = normalizeString(attachmentValue.path || attachmentValue.url);
   if (!path) return null;
   const kind = normalizeString(attachmentValue.kind) || (isImagePath(path) ? 'image' : 'file');
-  const previewUrl = normalizeString(attachmentValue.previewUrl || attachmentValue.url) || (kind === 'image' && isImagePath(path) ? `file://${path}` : '');
+  const previewUrl = normalizeString(attachmentValue.previewUrl || attachmentValue.url);
   return {
     path,
     name: normalizeString(attachmentValue.name) || basename(path),

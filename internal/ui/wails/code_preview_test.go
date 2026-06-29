@@ -191,7 +191,7 @@ func TestBuildCodeOpenResultRejectsLargeFiles(t *testing.T) {
 	}
 }
 
-func TestBuildCodeOpenResultAllowsLargeImageFiles(t *testing.T) {
+func TestBuildCodeOpenResultRejectsLargeImageFiles(t *testing.T) {
 	root := t.TempDir()
 	for _, ext := range []string{".png", ".jpg", ".gif", ".svg", ".webp", ".ico"} {
 		ext := ext
@@ -200,13 +200,24 @@ func TestBuildCodeOpenResultAllowsLargeImageFiles(t *testing.T) {
 			writeTestFile(t, target, strings.Repeat("a", int(maxCodeOpenFileBytes)+1))
 
 			result, err := buildCodeOpenResult(scopedPath{Root: root, Abs: target, Relative: "assets/large" + ext}, 1)
-			if err != nil {
-				t.Fatalf("buildCodeOpenResult() error = %v", err)
-			}
-			if !result.Image || result.Type != "image" || result.Path != target {
-				t.Fatalf("buildCodeOpenResult() = %#v", result)
+			if err == nil {
+				t.Fatalf("buildCodeOpenResult() result = %#v, want image size rejection", result)
 			}
 		})
+	}
+}
+
+func TestBuildCodeOpenResultRejectsImageExtensionWithInvalidHeader(t *testing.T) {
+	root := t.TempDir()
+	target := filepath.Join(root, "assets", "fake.png")
+	writeTestFile(t, target, "not really a png")
+
+	result, err := buildCodeOpenResult(scopedPath{Root: root, Abs: target, Relative: "assets/fake.png"}, 1)
+	if err == nil {
+		t.Fatalf("buildCodeOpenResult() result = %#v, want image header rejection", result)
+	}
+	if !strings.Contains(err.Error(), "image") {
+		t.Fatalf("buildCodeOpenResult() error = %v, want image validation failure", err)
 	}
 }
 

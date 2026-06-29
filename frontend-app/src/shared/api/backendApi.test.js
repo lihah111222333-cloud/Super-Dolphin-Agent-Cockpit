@@ -459,6 +459,37 @@ function expectInvalidInputDoesNotCall(callAPI, action, message) {
     });
   });
 
+  it('allows launch skill facade keys on thread/start', async () => {
+    const callAPI = vi.fn().mockResolvedValue({ threadId: 'thread-123' });
+    const api = createBackendApi({ callAPI });
+
+    await api.startThread({
+      cwd: '/repo/app',
+      modelProvider: 'claude',
+      selectedSkills: ['review'],
+      selectedSkillRefs: [{ name: 'review', scope: 'project' }],
+      manualSkillSelection: true,
+    });
+
+    expect(callAPI).toHaveBeenCalledWith(RPC_METHODS.THREAD_START, expect.objectContaining({
+      selectedSkills: ['review'],
+      selectedSkillRefs: [{ name: 'review', scope: 'project' }],
+      manualSkillSelection: true,
+    }));
+  });
+
+  it('rejects unknown turn/start facade fields before calling the backend', () => {
+    const callAPI = vi.fn().mockResolvedValue({ ok: true });
+    const api = createBackendApi({ callAPI });
+
+    expectInvalidInputDoesNotCall(callAPI, () => api.startTurn({
+      cwd: '/repo/app',
+      threadId: 'thread-123',
+      input: 'build it',
+      surprise: true,
+    }), 'turn/start: unsupported payload field surprise');
+  });
+
   it('sends turn/start input-only text and expanded arrays with explicit cwd', async () => {
     const firstResponse = { turnId: 'turn-1', status: 'queued' };
     const secondResponse = { turnId: 'turn-2', status: 'queued' };

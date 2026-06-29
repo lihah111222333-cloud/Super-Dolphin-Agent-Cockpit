@@ -2,8 +2,6 @@ import React, { useMemo, useState } from 'react';
 import { finalOutputKind, finalOutputPath } from '../adapters/workflowDisplayAdapter.js';
 import { Panel } from '../../shared/pageComponents.jsx';
 
-const EMPTY_VIDEO_CAPTIONS = 'data:text/vtt;charset=utf-8,WEBVTT%0A%0A';
-
 function formatWorkflowFileContent(content) {
   if (!content) return '';
   let trimmed = content.trim();
@@ -46,16 +44,7 @@ function WorkflowInlinePreviewText({ text }) {
   return <p className="workflow-inline-preview-text">{text}</p>;
 }
 
-function workflowFileUrl(outputPath, workflowCwd) {
-  if (!outputPath || !workflowCwd) return '';
-  const cleanCwd = workflowCwd.replace(/\\/g, '/');
-  const cleanPath = outputPath.replace(/\\/g, '/');
-  const fullPath = `${cleanCwd}/.agnet/shared/${cleanPath}`;
-  if (/^[A-Za-z]:\//.test(fullPath)) return `file:///${fullPath}`;
-  return fullPath.startsWith('/') ? `file://${fullPath}` : `file:///${fullPath}`;
-}
-
-function WorkflowFinalOutputPanel({ finalOutput, previewText, workflowCwd, readFile, openFile }) {
+function WorkflowFinalOutputPanel({ finalOutput, previewText, readFile, openFile }) {
   const [fileContent, setFileContent] = useState('');
   const [fileError, setFileError] = useState('');
   const [openError, setOpenError] = useState('');
@@ -64,21 +53,16 @@ function WorkflowFinalOutputPanel({ finalOutput, previewText, workflowCwd, readF
   const outputPath = finalOutputPath(finalOutput);
   const isImage = useMemo(() => /\.(png|jpe?g|webp|gif|svg)$/i.test(outputPath || ''), [outputPath]);
   const isVideo = useMemo(() => /\.(mp4|webm|ogg|mov)$/i.test(outputPath || ''), [outputPath]);
-  const isSystemOpenOnly = useMemo(() => /\.(pdf|docx?|pptx?|xlsx?)$/i.test(outputPath || ''), [outputPath]);
   const isMedia = isImage || isVideo;
+  const isSystemOpenOnly = useMemo(() => isMedia || /\.(pdf|docx?|pptx?|xlsx?)$/i.test(outputPath || ''), [isMedia, outputPath]);
   const mediaKindLabel = isVideo ? '视频' : '图片';
   const formattedContent = useMemo(() => formatWorkflowFileContent(fileContent), [fileContent]);
-  const fileUrl = useMemo(() => workflowFileUrl(outputPath, workflowCwd), [outputPath, workflowCwd]);
 
   const readFinalOutput = async () => {
     if (!outputPath) return;
     setOpenError('');
     if (fileContent) {
       setFileContent('');
-      return;
-    }
-    if (isMedia) {
-      setFileContent('__MEDIA_PREVIEW__');
       return;
     }
     setReading(true);
@@ -111,7 +95,6 @@ function WorkflowFinalOutputPanel({ finalOutput, previewText, workflowCwd, readF
         <WorkflowFinalOutputFile
           fileContent={fileContent}
           fileError={fileError}
-          fileUrl={fileUrl}
           finalOutput={finalOutput}
           formattedContent={formattedContent}
           isImage={isImage}
@@ -150,7 +133,7 @@ function WorkflowFinalOutputFile(props) {
           >
             {workflowPrimaryActionLabel(props)}
           </button>
-          {props.isMedia ? (
+          {props.isMedia && !props.isSystemOpenOnly ? (
             <button type="button" className="workflow-output-action workflow-output-action-system" disabled={props.opening} onClick={() => { void props.onOpen(); }} title={`用系统默认应用打开${props.mediaKindLabel}`}>
               {props.opening ? '打开中...' : '系统打开'}
             </button>
@@ -160,14 +143,13 @@ function WorkflowFinalOutputFile(props) {
       {props.fileError ? <p className="danger-text">{props.fileError}</p> : null}
       {props.openError ? <p className="danger-text">{props.openError}</p> : null}
       {previewBlock}
-      {props.fileContent === '__MEDIA_PREVIEW__' ? <p className="workflow-media-tip">提示：如果浏览器环境限制无法直接播放/预览本地媒体文件，请在「文件产物」页导出查看。</p> : null}
     </div>
   );
 }
 
 function workflowPrimaryActionTitle(props) {
   if (props.isSystemOpenOnly) return '用系统默认应用打开最终结果文件';
-  if (props.isMedia) return `在当前页面内预览${props.mediaKindLabel}`;
+  if (props.isMedia) return `用系统默认应用打开${props.mediaKindLabel}`;
   return '读取最终结果内容';
 }
 
@@ -178,26 +160,14 @@ function workflowPrimaryActionLabel(props) {
 
 function workflowPreviewButtonLabel({ fileContent, isImage, isMedia, isVideo, reading }) {
   if (reading) return '读取中...';
-  if (fileContent) return isMedia ? '收起预览' : '收起最终结果';
+  if (fileContent) return isMedia ? '系统打开' : '收起最终结果';
   if (isVideo) return '页内播放';
   if (isImage) return '页内预览';
   return '读取最终结果';
 }
 
-function workflowPreviewBlock({ fileContent, fileUrl, formattedContent, isImage, isVideo }) {
+function workflowPreviewBlock({ fileContent, formattedContent }) {
   if (!fileContent) return null;
-  if (fileContent === '__MEDIA_PREVIEW__') {
-    if (isImage) return <div className="workflow-media-preview"><img src={fileUrl} alt="最终结果图片" /></div>;
-    if (isVideo) {
-      return (
-        <div className="workflow-media-preview">
-          <video src={fileUrl} controls aria-label="最终结果视频">
-            <track kind="captions" srcLang="zh" label="无字幕" src={EMPTY_VIDEO_CAPTIONS} default />
-          </video>
-        </div>
-      );
-    }
-  }
   return <pre className="workflow-final-preview">{formattedContent}</pre>;
 }
 

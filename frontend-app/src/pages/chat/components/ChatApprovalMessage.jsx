@@ -10,6 +10,7 @@ const REJECT_ARIA_PREFIX = '\u62d2\u7edd\u5ba1\u6279';
 
 function ChatApprovalMessage({ message, actions, formatTime }) {
   const [submittingRequestId, setSubmittingRequestId] = useState(0);
+  const [errorText, setErrorText] = useState('');
   const [resolved, setResolved] = useState(false);
   const requestId = approvalRequestId(message);
   const busy = submittingRequestId === requestId;
@@ -18,19 +19,25 @@ function ChatApprovalMessage({ message, actions, formatTime }) {
   const title = (message.title || message.command || '审批请求').toString().trim();
   const hint = approvalHintText({ requestId, busy, resolved, terminal });
 
-  // submitApproval 按 requestId 锁定，超时只告警，不能释放仍在飞行的原始请求。
+  // submitApproval 按 requestId 锁定单次提交；超时释放按钮并展示错误，后续重试走新的响应。
   const submitApproval = async (approved) => {
     if (disabled) return;
+    setErrorText('');
     setSubmittingRequestId(requestId);
-    const timeoutId = window.setTimeout(() => {
-      actions.onError?.('approval.failed', '审批提交超时');
-    }, 15_000);
+    let timeoutId = 0;
     try {
-      const ok = await actions.onApproval(message, approved);
+      const ok = await Promise.race([
+        actions.onApproval(message, approved),
+        new Promise((_, reject) => {
+          timeoutId = window.setTimeout(() => reject(new Error('审批提交超时')), 15_000);
+        }),
+      ]);
       if (ok) setResolved(true);
     }
     catch (error) {
-      actions.onError?.('approval.failed', error.message || String(error));
+      const messageText = error.message || String(error);
+      setErrorText(messageText);
+      actions.onError?.('approval.failed', messageText);
     }
     finally {
       window.clearTimeout(timeoutId);
@@ -47,7 +54,7 @@ function ChatApprovalMessage({ message, actions, formatTime }) {
         </header>
         <MessageContent text={message.text || message.command || '审批请求'} actions={actions} />
         <div className="approval-footer">
-          <span className="approval-hint">{hint}</span>
+          <span className="approval-hint">{errorText || hint}</span>
           <div className="approval-actions">
             <button
               type="button"
