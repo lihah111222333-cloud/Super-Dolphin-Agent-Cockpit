@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"database/sql/driver"
 	"errors"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -343,6 +344,81 @@ func TestConfigStorePersistsEnabledState(t *testing.T) {
 	}
 }
 
+func TestConfigStoreBackfillsToolLifecycleWithoutOverwritingManualState(t *testing.T) {
+	store, closeDB := newSQLiteConfigStore(t)
+	defer closeDB()
+	ctx := context.Background()
+	workspaceRoot := filepath.Join(t.TempDir(), "project")
+	ensureMCPToolLifecycleTable(t, store, ctx)
+
+	initial, err := store.BackfillToolLifecycle(ctx, contract.BackfillMCPToolLifecycleParams{
+		WorkspaceRoot: workspaceRoot,
+		ServerName:    "my-search",
+		ManifestName:  "manifest-v1",
+		ToolName:      "search",
+		NowMillis:     100,
+	})
+	if err != nil {
+		t.Fatalf("BackfillToolLifecycle(initial) error = %v", err)
+	}
+	if initial.State != contract.MCPToolLifecycleEnabled {
+		t.Fatalf("initial state = %q, want enabled", initial.State)
+	}
+
+	manual, err := store.UpsertToolLifecycle(ctx, contract.StoreMCPToolLifecycleParams{
+		WorkspaceRoot:   workspaceRoot,
+		ServerName:      "my-search",
+		ManifestName:    "manifest-v1",
+		ToolName:        "search",
+		State:           contract.MCPToolLifecycleSuspended,
+		Reason:          "needs review",
+		ReplacementTool: "search_v2",
+		NowMillis:       200,
+	})
+	if err != nil {
+		t.Fatalf("UpsertToolLifecycle(manual) error = %v", err)
+	}
+	if manual.State != contract.MCPToolLifecycleSuspended {
+		t.Fatalf("manual state = %q, want suspended", manual.State)
+	}
+
+	got, err := store.BackfillToolLifecycle(ctx, contract.BackfillMCPToolLifecycleParams{
+		WorkspaceRoot: workspaceRoot,
+		ServerName:    "my-search",
+		ManifestName:  "manifest-v2",
+		ToolName:      "search",
+		NowMillis:     300,
+	})
+	if err != nil {
+		t.Fatalf("BackfillToolLifecycle(existing) error = %v", err)
+	}
+	assertLifecycleManualStatePreserved(t, got)
+}
+
+func TestConfigStoreRejectsUnknownToolLifecycleStateFromDB(t *testing.T) {
+	store, closeDB := newSQLiteConfigStore(t)
+	defer closeDB()
+	ctx := context.Background()
+	workspaceRoot := filepath.Join(t.TempDir(), "project")
+	ensureMCPToolLifecycleTable(t, store, ctx)
+
+	if _, err := store.db.ExecContext(ctx, "PRAGMA ignore_check_constraints = ON"); err != nil {
+		t.Fatalf("enable ignore_check_constraints: %v", err)
+	}
+	if _, err := store.db.ExecContext(ctx, `
+		INSERT INTO mcp_tool_lifecycle (
+			workspace_root, server_name, manifest_name, tool_name, state, reason, replacement_tool, last_seen_at, created_at, updated_at
+		) VALUES (?, 'my-search', '', 'search', 'bogus', '', '', 100, 100, 100)
+	`, workspaceRoot); err != nil {
+		t.Fatalf("seed bogus lifecycle row: %v", err)
+	}
+
+	_, err := store.GetToolLifecycle(ctx, workspaceRoot, "my-search", "search")
+	if !errors.Is(err, errInvalidLifecycleState) {
+		t.Fatalf("GetToolLifecycle() error = %v, want errInvalidLifecycleState", err)
+	}
+}
+
 func newSQLiteConfigStore(t *testing.T) (*configStore, func()) {
 	t.Helper()
 	db, err := sql.Open("sqlite", ":memory:")
@@ -353,6 +429,30 @@ func newSQLiteConfigStore(t *testing.T) (*configStore, func()) {
 		if err := db.Close(); err != nil {
 			t.Fatalf("close sqlite: %v", err)
 		}
+	}
+}
+
+func ensureMCPToolLifecycleTable(t *testing.T, store *configStore, ctx context.Context) {
+	t.Helper()
+	raw, err := os.ReadFile(filepath.Join("..", "..", "platform", "db", "sqlite", "migrations", "109_mcp_tool_lifecycle.sql"))
+	if err != nil {
+		t.Fatalf("read lifecycle migration: %v", err)
+	}
+	if _, err := store.db.ExecContext(ctx, string(raw)); err != nil {
+		t.Fatalf("create lifecycle table: %v", err)
+	}
+}
+
+func assertLifecycleManualStatePreserved(t *testing.T, got contract.MCPToolLifecycleDecision) {
+	t.Helper()
+	if got.State != contract.MCPToolLifecycleSuspended {
+		t.Fatalf("backfilled state = %q, want suspended", got.State)
+	}
+	if got.Reason != "needs review" || got.ReplacementTool != "search_v2" {
+		t.Fatalf("backfilled row = %#v, want manual reason/replacement preserved", got)
+	}
+	if got.ManifestName != "manifest-v2" || got.LastSeenAt != 300 {
+		t.Fatalf("backfilled discovery fields = %#v, want manifest-v2 last_seen=300", got)
 	}
 }
 

@@ -14,6 +14,7 @@ type Querier interface {
 	AgentThreadExists(ctx context.Context, arg AgentThreadExistsParams) (int64, error)
 	AgentThreadRunningExists(ctx context.Context, arg AgentThreadRunningExistsParams) (int64, error)
 	ApproveTopologyApproval(ctx context.Context, arg ApproveTopologyApprovalParams) (int64, error)
+	BackfillMCPToolLifecycle(ctx context.Context, arg BackfillMCPToolLifecycleParams) (McpToolLifecycle, error)
 	BindAgentThread(ctx context.Context, arg BindAgentThreadParams) error
 	BindTurnDedupeProviderID(ctx context.Context, arg BindTurnDedupeProviderIDParams) error
 	// CASCronJobRunStatus only advances the status when the current status
@@ -79,6 +80,7 @@ type Querier interface {
 	// scheduler's caller checks local_turn_id == "" to distinguish miss
 	// from hit.
 	GetLiveTurnDedupe(ctx context.Context, arg GetLiveTurnDedupeParams) (TurnDedupeRegistry, error)
+	GetMCPToolLifecycle(ctx context.Context, arg GetMCPToolLifecycleParams) (McpToolLifecycle, error)
 	GetPromptIntentDraft(ctx context.Context, arg GetPromptIntentDraftParams) (GetPromptIntentDraftRow, error)
 	GetPromptTemplate(ctx context.Context, arg GetPromptTemplateParams) (GetPromptTemplateRow, error)
 	// Used by CompleteTurn to locate the active run for a completed turn without
@@ -126,6 +128,7 @@ type Querier interface {
 	ListEnabledPromptRoutingTests(ctx context.Context) ([]PromptRoutingTest, error)
 	ListHookPendingReviewsByAgent(ctx context.Context, arg ListHookPendingReviewsByAgentParams) ([]ListHookPendingReviewsByAgentRow, error)
 	ListInteractions(ctx context.Context, arg ListInteractionsParams) ([]AgentInteraction, error)
+	ListMCPToolLifecycle(ctx context.Context, arg ListMCPToolLifecycleParams) ([]McpToolLifecycle, error)
 	// ListObservedApprovalRequests returns the per-thread approval_requests
 	// window but only for turns where approval_requests_observed = TRUE.
 	// Claude path rows (observed=FALSE, value=0) are excluded so callers
@@ -228,6 +231,7 @@ type Querier interface {
 	UpsertAgentThread(ctx context.Context, arg UpsertAgentThreadParams) error
 	UpsertCommandCard(ctx context.Context, arg UpsertCommandCardParams) (UpsertCommandCardRow, error)
 	UpsertDatasourceV2DocumentImporting(ctx context.Context, arg UpsertDatasourceV2DocumentImportingParams) (DatasourceV2Document, error)
+	UpsertMCPToolLifecycle(ctx context.Context, arg UpsertMCPToolLifecycleParams) (McpToolLifecycle, error)
 	UpsertPromptIntentDraft(ctx context.Context, arg UpsertPromptIntentDraftParams) (UpsertPromptIntentDraftRow, error)
 	UpsertPromptRecallTopicTargetInCWD(ctx context.Context, arg UpsertPromptRecallTopicTargetInCWDParams) error
 	UpsertPromptTemplate(ctx context.Context, arg UpsertPromptTemplateParams) (UpsertPromptTemplateRow, error)

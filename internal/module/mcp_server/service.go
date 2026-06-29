@@ -37,6 +37,9 @@ var (
 	errMCPServerToolsRequestFailed = errors.New("mcp_server: tools request failed")
 	errInvalidToolsResponse        = errors.New("mcp_server: invalid tools response")
 	errPostgresInstallerMissing    = errors.New("mcp_server: postgres installer is not configured")
+	errMissingToolName             = errors.New("mcp_server: tool name is required")
+	errInvalidToolLifecycleState   = errors.New("mcp_server: invalid tool lifecycle state")
+	errToolLifecycleNotFound       = errors.New("mcp_server: tool lifecycle not found")
 )
 
 // Service 定义 MCP server 配置管理的跨模块入口。
@@ -52,6 +55,10 @@ type Service interface {
 	StartPlaywrightServer(context.Context, StartPlaywrightServerRequest) (StartPlaywrightServerResult, error)
 	StopPlaywrightServer(context.Context, StopPlaywrightServerRequest) (StopPlaywrightServerResult, error)
 	DeleteServer(context.Context, DeleteServerRequest) (DeleteServerResult, error)
+	BackfillMCPServerTools(context.Context, BackfillMCPServerToolsRequest) ([]contract.MCPToolLifecycleDecision, error)
+	SetMCPToolLifecycle(context.Context, SetMCPToolLifecycleRequest) (contract.MCPToolLifecycleDecision, error)
+	ListMCPToolLifecycle(context.Context, ListMCPToolLifecycleRequest) ([]contract.MCPToolLifecycleDecision, error)
+	ResolveMCPToolLifecycle(context.Context, contract.MCPToolLifecyclePolicyRequest) (contract.MCPToolLifecycleDecision, error)
 }
 
 // ConfigDocument 是落盘配置文件的 JSON 外壳。
