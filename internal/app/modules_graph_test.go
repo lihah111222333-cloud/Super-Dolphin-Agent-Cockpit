@@ -10,6 +10,7 @@ import (
 	datasourcev2 "github.com/anthropic-ai/super-agent-v3/internal/module/datasource_v2"
 	"github.com/anthropic-ai/super-agent-v3/internal/module/turn"
 	"github.com/anthropic-ai/super-agent-v3/internal/module/workflowtemplate"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/toolbridge"
 	uiwails "github.com/anthropic-ai/super-agent-v3/internal/ui/wails"
 )
 
@@ -42,6 +43,16 @@ func TestAppModuleGraphProvidesMCPServerConfigProvider(t *testing.T) {
 	opts := append(appGraphValidationOptions(), fx.Populate(&provider))
 	if err := fx.ValidateApp(opts...); err != nil {
 		t.Fatalf("fx.ValidateApp missing MCP server config provider: %v", err)
+	}
+}
+
+func TestAppModuleGraphProvidesToolbridgeMCPToolLifecycleBackfiller(t *testing.T) {
+	t.Parallel()
+
+	var backfiller toolbridge.MCPToolLifecycleBackfiller
+	opts := append(appGraphValidationOptions(), fx.Populate(&backfiller))
+	if err := fx.ValidateApp(opts...); err != nil {
+		t.Fatalf("fx.ValidateApp missing MCP tool lifecycle backfiller: %v", err)
 	}
 }
 

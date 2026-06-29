@@ -261,6 +261,13 @@ func (s *service) ListServerTools(ctx context.Context, req ListServerToolsReques
 	if tools == nil {
 		tools = []mcpdto.MCPTool{}
 	}
+	if _, err := s.BackfillMCPServerTools(ctx, BackfillMCPServerToolsRequest{
+		WorkspaceRoot: workspaceRoot,
+		ServerName:    name,
+		Tools:         observedMCPServerTools(tools, ""),
+	}); err != nil {
+		return ListServerToolsResult{}, fmt.Errorf("mcp_server: backfill discovered tools: %w", err)
+	}
 	return ListServerToolsResult{
 		ConfigPath: mcpServerConfigPath(workspaceRoot),
 		ServerName: name,
@@ -344,6 +351,20 @@ func normalizeListServerToolsName(req ListServerToolsRequest) (string, error) {
 		return "", errMissingServerName
 	}
 	return name, nil
+}
+
+func observedMCPServerTools(tools []mcpdto.MCPTool, manifestName string) []contract.MCPToolLifecycleObservedTool {
+	if len(tools) == 0 {
+		return nil
+	}
+	out := make([]contract.MCPToolLifecycleObservedTool, 0, len(tools))
+	for _, tool := range tools {
+		out = append(out, contract.MCPToolLifecycleObservedTool{
+			ManifestName: manifestName,
+			Name:         tool.Name,
+		})
+	}
+	return out
 }
 
 // insertMCPServerConfigs 按排序后的名称逐个写入新增配置。

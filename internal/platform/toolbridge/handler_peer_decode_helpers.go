@@ -6,6 +6,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"reflect"
 	"strings"
 
@@ -364,4 +366,104 @@ func (h *Handler) callSkillSurfaceTool(ctx context.Context, surface *codexToolSu
 		return nil, fmt.Errorf("toolbridge: call skill tool %q: %w", strings.TrimSpace(req.Name), err)
 	}
 	return toolCallTextResult(true, content), nil
+}
+
+// backfillMCPToolLifecycle 将可信 tools/list 结果写入 owner 表。
+// 单元测试和 standalone Handler 可以不注入 backfiller；生产 Fx 图由 app 层测试保证该端口存在。
+func (h *Handler) backfillMCPToolLifecycle(ctx context.Context, workspaceRoot, serverName, manifestName string, tools []mcpdto.MCPTool) error {
+	if len(tools) == 0 || h == nil || h.lifecycle == nil {
+		return nil
+	}
+	workspaceRoot, err := normalizeMCPToolLifecycleWorkspaceRoot(workspaceRoot)
+	if err != nil {
+		return err
+	}
+	serverName = strings.TrimSpace(serverName)
+	if serverName == "" {
+		return fmt.Errorf("toolbridge: mcp tool lifecycle server name is required")
+	}
+	manifestName = strings.TrimSpace(manifestName)
+	if manifestName == "" {
+		manifestName = serverName
+	}
+	req := MCPToolLifecycleBackfillRequest{
+		WorkspaceRoot: workspaceRoot,
+		ServerName:    serverName,
+		ManifestName:  manifestName,
+		Tools:         observedMCPToolLifecycleTools(tools, manifestName),
+	}
+	if err := h.lifecycle.BackfillMCPTools(ctx, req); err != nil {
+		return fmt.Errorf("toolbridge: backfill mcp tool lifecycle for %s: %w", serverName, err)
+	}
+	return nil
+}
+
+func (h *Handler) hasMCPToolLifecycleBackfiller() bool {
+	return h != nil && h.lifecycle != nil
+}
+
+func observedMCPToolLifecycleTools(tools []mcpdto.MCPTool, manifestName string) []contract.MCPToolLifecycleObservedTool {
+	if len(tools) == 0 {
+		return nil
+	}
+	out := make([]contract.MCPToolLifecycleObservedTool, 0, len(tools))
+	for _, tool := range tools {
+		out = append(out, contract.MCPToolLifecycleObservedTool{
+			ManifestName: manifestName,
+			Name:         tool.Name,
+		})
+	}
+	return out
+}
+
+func currentMCPToolLifecycleWorkspaceRoot() (string, error) {
+	workingDir, err := os.Getwd()
+	if err != nil {
+		return "", fmt.Errorf("toolbridge: get working directory: %w", err)
+	}
+	return normalizeMCPToolLifecycleWorkspaceRoot(workingDir)
+}
+
+func normalizeMCPToolLifecycleWorkspaceRoot(cwd string) (string, error) {
+	cwd = strings.TrimSpace(cwd)
+	if cwd == "" {
+		return "", fmt.Errorf("toolbridge: mcp tool lifecycle workspace root is required")
+	}
+	if abs, err := filepath.Abs(cwd); err == nil {
+		cwd = abs
+	}
+	return filepath.Clean(cwd), nil
+}
+
+// proxyMCPToolLifecycleWorkspaceRoot 解析 proxy tools/list 所属工作区。
+// 优先使用 agent binding 中的 CWD，再退到已注入 resolver；找不到时阻断回填，避免写到错误 owner。
+func (h *Handler) proxyMCPToolLifecycleWorkspaceRoot(ctx context.Context, agentID string) (string, error) {
+	if !h.hasMCPToolLifecycleBackfiller() {
+		return "", nil
+	}
+	agentID = strings.TrimSpace(agentID)
+	if agentID == "" {
+		return "", fmt.Errorf("toolbridge: proxy agent id is required for mcp tool lifecycle backfill")
+	}
+	if h.bindingStore != nil {
+		if lookup, ok := h.bindingStore.(toolCallBindingLookup); ok {
+			binding, err := lookup.GetBindingByAgent(ctx, agentID)
+			if err != nil {
+				return "", fmt.Errorf("toolbridge: resolve lifecycle workspace for agent %q: %w", agentID, err)
+			}
+			if cwd := strings.TrimSpace(binding.CWD); cwd != "" {
+				return normalizeMCPToolLifecycleWorkspaceRoot(cwd)
+			}
+		}
+	}
+	if h.resolver != nil {
+		cwd, err := h.resolver.ResolveAgentCWD(ctx, agentID)
+		if err != nil {
+			return "", fmt.Errorf("toolbridge: resolve lifecycle cwd for agent %q: %w", agentID, err)
+		}
+		if strings.TrimSpace(cwd) != "" {
+			return normalizeMCPToolLifecycleWorkspaceRoot(cwd)
+		}
+	}
+	return "", fmt.Errorf("toolbridge: lifecycle workspace root is required for proxy agent %q", agentID)
 }

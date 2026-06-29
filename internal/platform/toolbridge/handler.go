@@ -43,6 +43,7 @@ type Handler struct {
 	logger       *pkglogger.Logger
 	tracer       *observability.Service
 	dispatcher   *event.Dispatcher
+	lifecycle    mcpToolLifecycleBackfiller
 	// hostTools 是可选依赖：agent-terminal 生产图只装配 memory_read / memory_write
 	// host-direct 工具。字段保持 nil-safe：测试或未来无 HostToolRegistry 的
 	// toolbridge 图会退回 peer 路径；当前 mcp-orch / mcp-lsp standalone 不加载
@@ -118,6 +119,7 @@ func NewHandler(in handlerIn) *Handler {
 		logger:         logger,
 		tracer:         in.Tracer,
 		dispatcher:     in.Dispatcher,
+		lifecycle:      in.Lifecycle,
 		hostTools:      in.HostTools,
 		skillTools:     in.SkillTools,
 		surfaces:       make(map[string]*codexToolSurface),

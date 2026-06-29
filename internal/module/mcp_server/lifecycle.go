@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
+	mcpdto "github.com/anthropic-ai/super-agent-v3/internal/dto/mcp"
 	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
 )
 
@@ -198,7 +199,7 @@ func (s *service) ResolveMCPToolLifecycle(
 	return decisionWithDenyCode(decision), nil
 }
 
-// normalizeLifecycleServerRequest 解析 workspace 并确认 server 已配置。
+// normalizeLifecycleServerRequest 解析 workspace 并确认 server 已配置或属于内置 managed peer。
 func (s *service) normalizeLifecycleServerRequest(ctx context.Context, cwd string, serverName string) (string, string, error) {
 	rawServerName := serverName
 	serverName = strings.TrimSpace(serverName)
@@ -209,7 +210,7 @@ func (s *service) normalizeLifecycleServerRequest(ctx context.Context, cwd strin
 	if err != nil {
 		return "", "", err
 	}
-	if _, ok := servers[serverName]; !ok {
+	if _, ok := servers[serverName]; !ok && !isManagedMCPToolLifecycleServerName(serverName) {
 		return "", "", fmt.Errorf("%w: %s", errServerNotFound, serverName)
 	}
 	return workspaceRoot, serverName, nil
@@ -229,10 +230,19 @@ func (s *service) resolveLifecyclePolicyServer(
 	if err != nil {
 		return "", "", nil, err
 	}
-	if _, ok := servers[serverName]; !ok {
+	if _, ok := servers[serverName]; !ok && !isManagedMCPToolLifecycleServerName(serverName) {
 		return "", "", nil, fmt.Errorf("%w: %s", errServerNotFound, serverName)
 	}
 	return workspaceRoot, serverName, servers, nil
+}
+
+func isManagedMCPToolLifecycleServerName(serverName string) bool {
+	switch strings.TrimSpace(serverName) {
+	case mcpdto.ClientKindOrch, mcpdto.ClientKindLSP, mcpdto.ClientKindIDA:
+		return true
+	default:
+		return false
+	}
 }
 
 func normalizeMCPToolLifecycleToolName(raw string) (string, error) {

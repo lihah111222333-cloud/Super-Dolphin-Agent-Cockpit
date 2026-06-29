@@ -99,6 +99,9 @@ func (h *Handler) ListToolsForCodex(ctx context.Context) ([]contract.DynamicTool
 	if err := joinPeerToolErrors(outcomes); err != nil {
 		return nil, fmt.Errorf("toolbridge dynamic tools peer discovery failed: %w", err)
 	}
+	if err := h.backfillListToolsForCodexPeerDiscovery(ctx, outcomes); err != nil {
+		return nil, err
+	}
 	for _, outcome := range outcomes {
 		merged = h.appendDynamicToolsWithShadowWarning(merged, seenToolSources, outcome.clientKind, outcome.tools)
 	}
@@ -106,6 +109,24 @@ func (h *Handler) ListToolsForCodex(ctx context.Context) ([]contract.DynamicTool
 		return nil, ErrNoPeerAvailable
 	}
 	return toCodexDynamicTools(merged), nil
+}
+
+// backfillListToolsForCodexPeerDiscovery 为旧版 Codex 动态工具列表入口补写 peer owner。
+// 这个入口没有显式 scope，只能使用当前进程工作目录；生产 Codex 会优先走带 CWD 的 surface 准备路径。
+func (h *Handler) backfillListToolsForCodexPeerDiscovery(ctx context.Context, outcomes []peerToolsListOutcome) error {
+	if !h.hasMCPToolLifecycleBackfiller() {
+		return nil
+	}
+	workspaceRoot, err := currentMCPToolLifecycleWorkspaceRoot()
+	if err != nil {
+		return err
+	}
+	for _, outcome := range outcomes {
+		if err := h.backfillMCPToolLifecycle(ctx, workspaceRoot, outcome.clientKind, outcome.clientKind, outcome.tools); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // appendDynamicToolsWithShadowWarning 是测试可替换的动态工具合并入口。
