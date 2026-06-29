@@ -29,9 +29,11 @@ func (s *service) Archive(ctx context.Context, threadID string) error {
 		"targets", strings.Join(stopState.targets, ","),
 		"caller", caller,
 	)
-	if err := s.stopThreadRuntime(ctx, stopState, "thread_archived", true); err != nil {
+	releaseResume, err := s.stopThreadRuntime(ctx, stopState, "thread_archived", true)
+	if err != nil {
 		return err
 	}
+	defer releaseResume()
 	if err := s.updateThreadStatus(ctx, stopState.stoppedID, statusArchived); err != nil {
 		return err
 	}

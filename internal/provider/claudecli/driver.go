@@ -194,6 +194,9 @@ func (d *driver) ResumeSession(ctx context.Context, req dto.ResumeSessionRequest
 	if err != nil {
 		return nil, err
 	}
+	if err := contract.ValidateResumePromptSnapshot(req.PromptSnapshot); err != nil {
+		return nil, fmt.Errorf("claudecli: %w", err)
+	}
 	req.ProviderThreadID = providerThreadID
 	snapshot := req.PromptSnapshot
 	rawConfig := resumeSessionRuntimeConfig(req)

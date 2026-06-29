@@ -344,6 +344,9 @@ func (d *driver) ResumeSession(ctx context.Context, req dto.ResumeSessionRequest
 	if err != nil {
 		return nil, err
 	}
+	if err := contract.ValidateResumePromptSnapshot(req.PromptSnapshot); err != nil {
+		return nil, fmt.Errorf("codexapp: %w", err)
+	}
 	req, err = d.prepareResumeSessionRequest(ctx, req)
 	if err != nil {
 		return nil, err
