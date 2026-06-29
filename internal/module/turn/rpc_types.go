@@ -54,6 +54,8 @@ type legacyTurnStartParams struct {
 	OutputSchema         json.RawMessage  `json:"outputSchema"`
 }
 
+// mergeTurnStartLegacy 把旧版 camelCase 字段补进 turn/start 新版参数。
+// 只有新版字段为空时才补值，避免旧客户端兼容逻辑覆盖当前 wire 格式。
 func mergeTurnStartLegacy(current *rawTurnStartParams, legacy *legacyTurnStartParams) error {
 	if strings.TrimSpace(current.ThreadID) == "" {
 		current.ThreadID = strings.TrimSpace(legacy.ThreadID)
@@ -136,6 +138,8 @@ type legacyTurnSteerParams struct {
 	ManualSkillSelection *bool            `json:"manualSkillSelection"`
 }
 
+// mergeTurnSteerLegacy 把旧版 camelCase 字段补进 turn/steer 新版参数。
+// 兼容字段只作为兜底填充，确保新版 snake_case 请求拥有更高优先级。
 func mergeTurnSteerLegacy(current *rawTurnSteerParams, legacy *legacyTurnSteerParams) error {
 	if strings.TrimSpace(current.ThreadID) == "" {
 		current.ThreadID = strings.TrimSpace(legacy.ThreadID)

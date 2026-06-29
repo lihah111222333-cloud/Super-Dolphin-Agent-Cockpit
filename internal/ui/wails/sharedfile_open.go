@@ -145,6 +145,8 @@ func resolveSharedFileOpenPathWithCleanPath(projectRoot, rawPath string) (string
 	return abs, cleaned, nil
 }
 
+// looksLikeWindowsDrivePath 在进入通用路径清理前拦截 Windows 盘符绝对路径。
+// macOS/Linux 上 filepath.IsAbs 不会识别 C:\ 形态，因此这里单独 fail-fast。
 func looksLikeWindowsDrivePath(path string) bool {
 	trimmed := strings.TrimSpace(path)
 	return len(trimmed) >= 2 && trimmed[1] == ':' &&
@@ -357,6 +359,8 @@ func sniffSharedFilePreviewContentType(abs, cleaned string) (string, error) {
 	return expected, nil
 }
 
+// sharedFilePreviewContentTypeFromExt 返回 shared file 预览允许的媒体类型。
+// 白名单不包含 SVG，避免把可执行脚本语义的图片格式暴露给浏览器预览。
 func sharedFilePreviewContentTypeFromExt(path string) (string, bool) {
 	switch strings.ToLower(filepath.Ext(path)) {
 	case ".png":
@@ -409,6 +413,8 @@ func sniffSharedFilePreviewHeaderBytes(buf []byte, expected string) (string, err
 	return "", errors.New("shared file preview: unsupported media header")
 }
 
+// sniffSharedImageHeader 根据文件头确认 shared file 图片预览的真实格式。
+// 返回值必须和扩展名白名单一致，后续会用它阻断伪装扩展名的文件。
 func sniffSharedImageHeader(buf []byte) string {
 	switch {
 	case hasSharedPreviewPNGHeader(buf):
@@ -446,6 +452,8 @@ func hasSharedPreviewBMPHeader(buf []byte) bool {
 	return bytes.HasPrefix(buf, []byte("BM"))
 }
 
+// sniffSharedVideoHeader 根据文件头确认 shared file 视频预览的真实格式。
+// MOV/MP4 共用 ftyp 头时保留 expected 约束，避免扩展名与响应类型失配。
 func sniffSharedVideoHeader(buf []byte, expected string) string {
 	switch {
 	case len(buf) >= 12 && string(buf[4:8]) == "ftyp" && expected == "video/quicktime":
