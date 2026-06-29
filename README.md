@@ -57,11 +57,8 @@ export SUPER_DOLPHIN_SQLITE_PATH="$PWD/.super-dolphin/super-dolphin.db"
 SUPER_DOLPHIN_BACKEND_HOT_RELOAD=1 ./run-new-ui-desktop.sh
 
 # Package/embed builds use frontend-app and copy dist into
-# cmd/agent-terminal/frontend/dist for Go embed:
+# cmd/agent-terminal/web-dist for Go embed:
 make frontend-app-build
-
-# Build the legacy Vue package only when explicitly working on that path:
-( cd cmd/agent-terminal/frontend && npm install && npm run build )
 ```
 
 First-run side effects (auto, no manual step):

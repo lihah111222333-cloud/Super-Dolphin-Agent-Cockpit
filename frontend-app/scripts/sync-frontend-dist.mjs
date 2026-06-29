@@ -1,4 +1,4 @@
-import { access, cp, rm } from 'node:fs/promises';
+import { access, cp, mkdir, readdir, rm } from 'node:fs/promises';
 import { constants } from 'node:fs';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -20,10 +20,14 @@ async function requireFile(path, message) {
 
 export async function syncFrontendDist({
   sourceDir = resolve(defaultRepoRoot(), 'frontend-app', 'dist'),
-  destDir = resolve(defaultRepoRoot(), 'cmd', 'agent-terminal', 'frontend', 'dist'),
+  destDir = resolve(defaultRepoRoot(), 'cmd', 'agent-terminal', 'web-dist'),
 } = {}) {
   await requireFile(resolve(sourceDir, 'index.html'), `frontend-app dist is missing index.html: ${sourceDir}`);
-  await rm(destDir, { recursive: true, force: true });
+  await mkdir(destDir, { recursive: true });
+  const entries = await readdir(destDir, { withFileTypes: true });
+  await Promise.all(entries
+    .filter((entry) => entry.name !== '.gitkeep')
+    .map((entry) => rm(resolve(destDir, entry.name), { recursive: true, force: true })));
   await cp(sourceDir, destDir, { recursive: true });
   await requireFile(resolve(destDir, 'index.html'), `embedded frontend dist is missing index.html: ${destDir}`);
 }

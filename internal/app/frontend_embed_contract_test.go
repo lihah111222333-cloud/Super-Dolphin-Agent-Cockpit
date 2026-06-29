@@ -12,13 +12,13 @@ func TestFrontendAppBuildFeedsAgentTerminalEmbedBundle(t *testing.T) {
 
 	requiredMakefileTokens := []string{
 		"FRONTEND_APP_DIR := frontend-app",
-		"LEGACY_FRONTEND_DIR := cmd/agent-terminal/frontend",
+		"EMBEDDED_FRONTEND_DIR := cmd/agent-terminal/web-dist",
 		"frontend-build: frontend-app-build",
 		"frontend-app-build: frontend-app-deps",
 		"cd $(FRONTEND_APP_DIR) && $(NPM) run build",
 		"test -f $(FRONTEND_APP_DIR)/dist/index.html",
 		"node $(FRONTEND_APP_DIR)/scripts/sync-frontend-dist.mjs",
-		"test -f $(LEGACY_FRONTEND_DIR)/dist/index.html",
+		"test -f $(EMBEDDED_FRONTEND_DIR)/index.html",
 	}
 	for _, want := range requiredMakefileTokens {
 		if !strings.Contains(makefile, want) {
@@ -26,15 +26,18 @@ func TestFrontendAppBuildFeedsAgentTerminalEmbedBundle(t *testing.T) {
 		}
 	}
 	assertFrontendEmbedContractTextOrder(t, makefile, "cd $(FRONTEND_APP_DIR) && $(NPM) run build", "node $(FRONTEND_APP_DIR)/scripts/sync-frontend-dist.mjs")
-	assertFrontendEmbedContractTextOrder(t, makefile, "node $(FRONTEND_APP_DIR)/scripts/sync-frontend-dist.mjs", "test -f $(LEGACY_FRONTEND_DIR)/dist/index.html")
+	assertFrontendEmbedContractTextOrder(t, makefile, "node $(FRONTEND_APP_DIR)/scripts/sync-frontend-dist.mjs", "test -f $(EMBEDDED_FRONTEND_DIR)/index.html")
 
 	if strings.Contains(makefile, "frontend-build: frontend-legacy-build") {
 		t.Fatal("frontend-build must not silently switch back to the legacy frontend package")
 	}
+	if strings.Contains(makefile, "frontend-legacy-build") || strings.Contains(makefile, "LEGACY_FRONTEND_DIR") {
+		t.Fatal("Makefile must not keep legacy frontend package build targets")
+	}
 	requiredFrontendGoTokens := []string{
-		"//go:embed all:frontend/dist",
-		`fs.Sub(frontendDist, "frontend/dist")`,
-		"当前 React/Vite frontend-app 复制到该目录",
+		"//go:embed all:web-dist",
+		`fs.Sub(frontendDist, "web-dist")`,
+		"当前 React/Vite frontend-app 复制到 web-dist",
 	}
 	for _, want := range requiredFrontendGoTokens {
 		if !strings.Contains(frontendGo, want) {

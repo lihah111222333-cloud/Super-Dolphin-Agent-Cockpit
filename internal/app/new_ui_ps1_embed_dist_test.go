@@ -13,7 +13,7 @@ func TestNewUIPowerShellScriptBuildsEmbeddedFrontendDist(t *testing.T) {
 	required := []string{
 		`function Test-PathTreeNewerThanFile`,
 		`function Ensure-EmbeddedFrontendDist`,
-		`$embeddedIndex = Join-Path $ProjectDir 'cmd\agent-terminal\frontend\dist\index.html'`,
+		`$embeddedIndex = Join-Path $ProjectDir 'cmd\agent-terminal\web-dist\index.html'`,
 		`'frontend-app\scripts\sync-frontend-dist.mjs'`,
 		`Write-Host '  -> building embedded frontend dist'`,
 		`& $npm run build`,

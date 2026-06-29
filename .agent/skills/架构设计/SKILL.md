@@ -26,7 +26,7 @@ aliases: ["@架构设计", "@architecture"]
 3. runtime 装配优先看 fx module 和现有 constructor pattern。
 4. MCP 工具壳在 `cmd/mcp-*`，通用协议在 `internal/mcpserver/common`。
 5. provider mirror 是生成物；skill canonical truth 在 `.agent/skills`。
-6. 默认前端是 `frontend-app`，legacy Vue 只在明确任务中使用。
+6. 当前前端是 `frontend-app`；旧 Vue 前端已删除，不再作为编辑或验证目标。
 
 ## 验证
 

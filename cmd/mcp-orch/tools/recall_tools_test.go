@@ -275,7 +275,7 @@ func TestHandlePromptRecallRequiresTrustedCWD(t *testing.T) {
 }
 
 func TestValidRecallTopicName(t *testing.T) {
-	valid := []string{"lsp-basics", "frontend-vue3", "sqlc-workflow", strings.Repeat("a", 63)}
+	valid := []string{"lsp-basics", "frontend-react", "sqlc-workflow", strings.Repeat("a", 63)}
 	for _, topic := range valid {
 		if !validRecallTopicName(topic) {
 			t.Fatalf("validRecallTopicName(%q) = false, want true", topic)
