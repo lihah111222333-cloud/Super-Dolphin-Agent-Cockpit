@@ -2,13 +2,13 @@
 
 日期：2026-06-29
 
-状态：Proposed / NEEDS_APPROVAL
+状态：Accepted
 
 ## 背景
 
 Reasonix 的 `mcp__server__tool` 命名方式能清楚表达工具来源。V3 已经有 `WrapMCPToolName` / `SplitMCPToolName`、server config 级 `enabled`、toolbridge 动态工具 surface、host-direct 工具和 MCP control plane，但还没有持久的 per-tool lifecycle 事实源。
 
-这个 ADR 草案只决定 per-tool lifecycle 的 owner、状态、存储和接入门槛；不表示生产 filtering 或 direct-call deny 已经落地。进入生产实现前，必须先完成本文件的交叉复核并由主线程明确批准。
+这个 ADR 决定 per-tool lifecycle 的 owner、状态、存储和接入门槛；不表示生产 filtering 或 direct-call deny 已经落地。2026-06-29 主线程已明确批准进入实现，生产 enforcement 仍必须按本文的实施门槛分波落地。
 
 ## 当前事实
 
@@ -149,7 +149,6 @@ type MCPToolLifecycleOwner interface {
 
 ## 实施门槛
 
-- 本 ADR 被批准前，不允许新增生产 lifecycle enforcement。
 - owner/store/backfill 必须先于 toolbridge filtering/direct-call deny 合入。
 - enforcement 合入前必须有旧配置无 per-tool row 的 backfill readiness 测试。
 - enforcement 合入时必须同时覆盖 ListTools filtering 和 direct-call deny；只隐藏列表不满足安全边界。
@@ -210,7 +209,6 @@ make sqlc-verify
 
 ## 后果
 
-- per-tool lifecycle 实现仍处于 approval gate；未批准前只能继续审查或修本文档。
-- 批准后实现必须先从 contract/store/module owner 和 backfill readiness 开始，再接入 toolbridge。
+- 实现必须先从 contract/store/module owner 和 backfill readiness 开始，再接入 toolbridge。
 - 只改 toolbridge filtering 而没有 owner/storage/backfill 的实现不满足本 ADR。
 - 未来 UI 若要控制 lifecycle，只能调用 guarded backend API，由 owner module 写入 store。
