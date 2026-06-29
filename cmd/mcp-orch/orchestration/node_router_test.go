@@ -19,10 +19,20 @@ import (
 type stubRouterStore struct {
 	taskdag.Store
 	nodes   []taskdag.Node
+	dag     *taskdag.DAG
 	listErr error
 	// 记录 ready 到 running 的推进，避免测试绕过节点启动前的状态边界。
 	runningStatusErr   error                             // 默认 nil（成功路径）
 	runningStatusCalls []taskdag.RunningNodeStatusUpdate // 记录调用详情
+	completeErr        error
+	completeCalls      []taskdag.CompleteNodeInput
+}
+
+func (s *stubRouterStore) GetDAG(_ context.Context, dagKey string) (*taskdag.DAG, error) {
+	if s.dag != nil {
+		return s.dag, nil
+	}
+	return &taskdag.DAG{DagKey: dagKey}, nil
 }
 
 func (s *stubRouterStore) ListNodes(_ context.Context, _ string) ([]taskdag.Node, error) {
@@ -59,6 +69,16 @@ func (s *stubRouterStore) UpdateRunningNodeStatus(_ context.Context, input taskd
 		return nil, s.runningStatusErr
 	}
 	return &taskdag.Node{DagKey: input.DagKey, NodeKey: input.NodeKey, Status: input.Status}, nil
+}
+
+func (s *stubRouterStore) CompleteNodeAndScheduleDownstream(_ context.Context, input taskdag.CompleteNodeInput) (*taskdag.CompleteNodeWithDownstreamResult, error) {
+	s.completeCalls = append(s.completeCalls, input)
+	if s.completeErr != nil {
+		return nil, s.completeErr
+	}
+	return &taskdag.CompleteNodeWithDownstreamResult{
+		Node: &taskdag.Node{DagKey: input.DagKey, NodeKey: input.NodeKey, RunID: routerTestRunID(input.RunID), Status: input.Status, Result: input.Result},
+	}, nil
 }
 
 // stubAgentLauncher 是 nodeexec.AgentLauncher 的最小实现，不启动真实进程。
@@ -108,7 +128,7 @@ func TestNodeExecutorRouter_RoutesAgentNode(t *testing.T) {
 		t.Fatalf("RouteByWakeup err = %v", err)
 	}
 	if outcome.Status != nodeexec.NodeStatusDone {
-		t.Fatalf("outcome.Status = %v, want done", outcome.Status)
+		t.Fatalf("outcome.Status = %v, want done; class=%s summary=%q", outcome.Status, outcome.FailureClass, outcome.ErrorSummary)
 	}
 	if len(launcher.calls) != 1 {
 		t.Fatalf("launcher calls = %d, want 1", len(launcher.calls))
@@ -218,6 +238,50 @@ func TestNodeExecutorRouter_LifecycleHookTimeoutDoesNotBlockDispatch(t *testing.
 	case <-time.After(lifecycleHookExecutionTimeout + lifecycleHookDispatchWait):
 		t.Fatal("slow hook context was not canceled")
 	}
+}
+
+func TestNodeExecutorRouter_AutomationWritesRunningFenceAndAppliesTimeout(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	cfgRaw, err := json.Marshal(nodeexec.AutomationNodeConfig{
+		Exec: nodeexec.AutomationExecConfig{
+			CommandRef:     "build",
+			CWD:            root,
+			WorkspaceRoots: []string{root},
+		},
+		Execution: nodeexec.ExecutionConfig{Timeout: "25ms"},
+	})
+	if err != nil {
+		t.Fatalf("marshal automation config: %v", err)
+	}
+	store := &stubRouterStore{
+		dag: &taskdag.DAG{
+			DagKey:   "dag-1",
+			Metadata: json.RawMessage(`{"execution":{"timeout":"75ms"}}`),
+		},
+		nodes: []taskdag.Node{{
+			DagKey:   "dag-1",
+			NodeKey:  "auto-1",
+			RunID:    routerTestRunID(7),
+			NodeType: "automation",
+			Title:    "auto-1",
+			Config:   cfgRaw,
+			Status:   string(nodeexec.NodeStatusReady),
+		}},
+	}
+	runner := &deadlineAssertingAutomationRunner{store: store}
+	autoExec := nodeexec.NewAutomationExecutor(stubAutomationCmdGetter{}, runner)
+	router := NewNodeExecutorRouter(store, nil, autoExec, nil, nil, nil)
+
+	outcome, err := router.RouteByWakeup(context.Background(), &taskdag.Wakeup{
+		ID:           55,
+		DagKey:       "dag-1",
+		NodeKey:      "auto-1",
+		RunID:        routerTestRunID(7),
+		AttemptCount: 3,
+	})
+	requireAutomationRouteDone(t, outcome, err, runner)
+	requireAutomationWakeupFence(t, store, 55, 3)
 }
 
 // TestNodeExecutorRouter_EmptyNodeTypeDefaultsToAgent 验证旧 DAG 未写 node_type
@@ -371,6 +435,60 @@ func (s stubAutomationCmdRunner) RunCommandCard(_ context.Context, card nodeexec
 		Stdout:   s.stdout,
 		ExitCode: 0,
 	}, nil
+}
+
+func requireAutomationRouteDone(t *testing.T, outcome nodeexec.NodeOutcome, err error, runner *deadlineAssertingAutomationRunner) {
+	t.Helper()
+	if err != nil {
+		t.Fatalf("RouteByWakeup err = %v", err)
+	}
+	if outcome.Status != nodeexec.NodeStatusDone {
+		t.Fatalf("outcome.Status = %v, want done; class=%s summary=%q", outcome.Status, outcome.FailureClass, outcome.ErrorSummary)
+	}
+	if runner.called != 1 {
+		t.Fatalf("runner calls = %d, want 1", runner.called)
+	}
+	if runner.timeoutBudget <= 0 || runner.timeoutBudget > 100*time.Millisecond {
+		t.Fatalf("runner timeout budget = %s, want node execution timeout applied", runner.timeoutBudget)
+	}
+}
+
+func requireAutomationWakeupFence(t *testing.T, store *stubRouterStore, wakeupID int64, attempt int32) {
+	t.Helper()
+	if len(store.runningStatusCalls) != 1 {
+		t.Fatalf("runningStatusCalls = %d, want 1 before command", len(store.runningStatusCalls))
+	}
+	if got := store.runningStatusCalls[0].WakeupID; got != wakeupID {
+		t.Fatalf("running WakeupID = %d, want %d", got, wakeupID)
+	}
+	if len(store.completeCalls) != 1 {
+		t.Fatalf("completeCalls = %d, want 1", len(store.completeCalls))
+	}
+	if got := store.completeCalls[0].WakeupID; got != wakeupID {
+		t.Fatalf("complete WakeupID = %d, want %d", got, wakeupID)
+	}
+	if got := store.completeCalls[0].WakeupAttempt; got != attempt {
+		t.Fatalf("complete WakeupAttempt = %d, want %d", got, attempt)
+	}
+}
+
+type deadlineAssertingAutomationRunner struct {
+	store         *stubRouterStore
+	called        int
+	timeoutBudget time.Duration
+}
+
+func (r *deadlineAssertingAutomationRunner) RunCommandCard(ctx context.Context, card nodeexec.AutomationCommandCard, _ json.RawMessage, _ ...nodeexec.AutomationCommandRunOptions) (nodeexec.AutomationCommandResult, error) {
+	r.called++
+	if r.store == nil || len(r.store.runningStatusCalls) == 0 {
+		return nodeexec.AutomationCommandResult{}, errors.New("automation command ran before ready-to-running fence")
+	}
+	deadline, ok := ctx.Deadline()
+	if !ok {
+		return nodeexec.AutomationCommandResult{}, errors.New("automation command missing execution timeout")
+	}
+	r.timeoutBudget = time.Until(deadline)
+	return nodeexec.AutomationCommandResult{CardKey: card.CardKey, Stdout: "ok", ExitCode: 0}, nil
 }
 
 type recordingLifecycleHook struct {

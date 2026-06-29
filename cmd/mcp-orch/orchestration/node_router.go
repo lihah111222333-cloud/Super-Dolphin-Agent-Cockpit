@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
+	"time"
 
 	orchmetrics "github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/orchestration/metrics"
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/orchestration/nodeevents"
@@ -32,7 +33,10 @@ type NodeExecutorRouter struct {
 	logger           *slog.Logger
 }
 
-var errAgentReadyRunningWriteFailed = errors.New("node router: ready->running write failed")
+var (
+	errAgentReadyRunningWriteFailed = errors.New("node router: ready->running write failed")
+	errRunExecutionTimeoutFramework = errors.New("node router: execution timeout framework error")
+)
 
 // NewNodeExecutorRouter 构造节点执行路由器。
 // agentExec/autoExec/sharedFileReader/sharedFileWriter 可为空，但只有节点实际引用缺失能力时才转为节点级失败：
@@ -157,11 +161,11 @@ func (r *NodeExecutorRouter) RouteByWakeup(ctx context.Context, w *taskdag.Wakeu
 		Config:           append(json.RawMessage(nil), target.Config...),
 		SpawningThreadID: targetRecordedSpawn(target),
 	}
-	runCtx, runCtxErr := r.buildRunContext(ctx, dagKey, nodeKey, runID, nodeType, target.Config)
+	runCtx, executionTimeout, runCtxErr := r.buildRunContext(ctx, dagKey, nodeKey, runID, nodeType, target.Config)
 	if runCtxErr != nil {
 		return runCtxErr.outcome, runCtxErr.frameworkErr
 	}
-	return r.dispatchByNodeType(ctx, nodeType, node, runCtx, w.ID, target.Status)
+	return r.dispatchByNodeType(ctx, nodeType, node, runCtx, executionTimeout, w.ID, w.AttemptCount, target.Status)
 }
 
 // validateAutomationRouteConfig 在 executor 前拦截不可执行的 automation command 配置。
@@ -197,17 +201,26 @@ func (r *NodeExecutorRouter) buildRunContext(
 	runID int64,
 	nodeType string,
 	cfgRaw json.RawMessage,
-) (nodeexec.RunContext, *runContextBuildErr) {
+) (nodeexec.RunContext, time.Duration, *runContextBuildErr) {
 	fromNodes, parseErr := extractFromNodes(nodeType, cfgRaw)
 	if parseErr != nil {
-		return nodeexec.RunContext{}, &runContextBuildErr{
+		return nodeexec.RunContext{}, 0, &runContextBuildErr{
 			outcome: validationOutcome(fmt.Sprintf(
 				"node router: parse %s config for prefetch failed: %v", nodeType, parseErr)),
 		}
 	}
 	prevResults, fetchErr := r.prefetchPrevResults(ctx, dagKey, runID, fromNodes)
 	if fetchErr != nil {
-		return nodeexec.RunContext{}, &runContextBuildErr{frameworkErr: fetchErr}
+		return nodeexec.RunContext{}, 0, &runContextBuildErr{frameworkErr: fetchErr}
+	}
+	timeout, timeoutErr := r.resolveRunExecutionTimeout(ctx, dagKey, cfgRaw)
+	if timeoutErr != nil {
+		if errors.Is(timeoutErr, errRunExecutionTimeoutFramework) {
+			return nodeexec.RunContext{}, 0, &runContextBuildErr{frameworkErr: timeoutErr}
+		}
+		return nodeexec.RunContext{}, 0, &runContextBuildErr{
+			outcome: validationOutcome("node router: execution timeout invalid: " + timeoutErr.Error()),
+		}
 	}
 	return nodeexec.RunContext{
 		DagKey:           dagKey,
@@ -216,7 +229,26 @@ func (r *NodeExecutorRouter) buildRunContext(
 		PrevResults:      prevResults,
 		SharedFileReader: r.sharedFileReader,
 		SharedFileWriter: r.sharedFileWriter,
-	}, nil
+	}, timeout, nil
+}
+
+func (r *NodeExecutorRouter) resolveRunExecutionTimeout(ctx context.Context, dagKey string, cfgRaw json.RawMessage) (time.Duration, error) {
+	if r.store == nil {
+		return 0, fmt.Errorf("%w: store nil", errRunExecutionTimeoutFramework)
+	}
+	dag, err := r.store.GetDAG(ctx, dagKey)
+	if err != nil {
+		return 0, fmt.Errorf("%w: load dag %s metadata: %w", errRunExecutionTimeoutFramework, dagKey, err)
+	}
+	var metadata json.RawMessage
+	if dag != nil {
+		metadata = dag.Metadata
+	}
+	timeout, timeoutErr := nodeexec.ResolveExecutionTimeout(metadata, cfgRaw)
+	if timeoutErr != nil {
+		return 0, timeoutErr
+	}
+	return timeout, nil
 }
 
 // extractFromNodes 拆出 cfg.Inputs.FromNodes。三种 nodeType 走 ParseNodeConfig
@@ -375,12 +407,12 @@ func resolveNodeType(raw string) string {
 //
 // wakeupID 是本轮 dispatcher 绑定的 wakeup row id，仅 dispatchAgent 用于
 // ready→running 推进；其他路径不需要。
-func (r *NodeExecutorRouter) dispatchByNodeType(ctx context.Context, nodeType string, node nodeexec.Node, runCtx nodeexec.RunContext, wakeupID int64, oldStatus string) (nodeexec.NodeOutcome, error) {
+func (r *NodeExecutorRouter) dispatchByNodeType(ctx context.Context, nodeType string, node nodeexec.Node, runCtx nodeexec.RunContext, executionTimeout time.Duration, wakeupID int64, wakeupAttempt int32, oldStatus string) (nodeexec.NodeOutcome, error) {
 	switch nodeType {
 	case "agent":
 		return r.dispatchAgent(ctx, node, runCtx, wakeupID, oldStatus)
 	case "automation":
-		return r.dispatchAutomation(ctx, node, runCtx, oldStatus)
+		return r.dispatchAutomation(ctx, node, runCtx, executionTimeout, wakeupID, wakeupAttempt, oldStatus)
 	case "hybrid":
 		return nodeexec.NodeOutcome{
 			Status:       nodeexec.NodeStatusFailed,
@@ -506,18 +538,26 @@ func (r *NodeExecutorRouter) advanceAgentNodeToRunning(ctx context.Context, dagK
 	}
 }
 
-func (r *NodeExecutorRouter) dispatchAutomation(ctx context.Context, node nodeexec.Node, runCtx nodeexec.RunContext, oldStatus string) (nodeexec.NodeOutcome, error) {
+func (r *NodeExecutorRouter) dispatchAutomation(ctx context.Context, node nodeexec.Node, runCtx nodeexec.RunContext, executionTimeout time.Duration, wakeupID int64, wakeupAttempt int32, oldStatus string) (nodeexec.NodeOutcome, error) {
 	if r.autoExec == nil {
 		return validationOutcome("node router: automation executor not wired"), nil
 	}
 	hooks := r.autoExec.Hooks()
-	outcome, execErr := r.executeNodeWithLifecycleHooks(ctx, hooks, r.autoExec, node, runCtx)
+	advanced, advanceErr := r.advanceAgentNodeToRunning(ctx, node.DagKey, node.NodeKey, runCtx.RunID, wakeupID, oldStatus)
+	if advanceErr != nil {
+		return nodeexec.NodeOutcome{}, advanceErr
+	}
+	if !advanced {
+		return nodeexec.NodeOutcome{}, fmt.Errorf("node router: automation ready->running fence missed for %s/%s/%d", node.DagKey, node.NodeKey, runCtx.RunID)
+	}
+	execCtx := nodeexec.WithExecutionTimeout(ctx, executionTimeout)
+	outcome, execErr := r.executeNodeWithLifecycleHooks(execCtx, hooks, r.autoExec, node, runCtx)
 	if execErr != nil {
 		return outcome, execErr
 	}
 	// Automation 节点没有 child agent 在外面驱动 CompleteNode；路由器代为推进。
 	if outcome.Status == nodeexec.NodeStatusDone {
-		if err := r.completeAutomationNode(ctx, node.DagKey, node.NodeKey, runCtx.RunID, outcome.Result, oldStatus); err != nil {
+		if err := r.completeAutomationNode(ctx, node.DagKey, node.NodeKey, runCtx.RunID, wakeupID, wakeupAttempt, outcome.Result, oldStatus); err != nil {
 			r.logger.Warn("node router: automation complete propagate failed",
 				"dag_key", node.DagKey, "node_key", node.NodeKey, "error", err)
 			return outcome, fmt.Errorf("node router: automation complete propagate failed: %w", err)
@@ -534,7 +574,7 @@ func (r *NodeExecutorRouter) dispatchAutomation(ctx context.Context, node nodeex
 // completeAutomationNode 在 automation 节点 Execute 成功后同步推进 status=done
 // + 调度下游。失败必须作为 framework error 返回，让 dispatcher 重试，避免
 // wakeup 被标记 sent 后隐藏持久化失败。
-func (r *NodeExecutorRouter) completeAutomationNode(ctx context.Context, dagKey, nodeKey string, runID int64, result json.RawMessage, oldStatus string) error {
+func (r *NodeExecutorRouter) completeAutomationNode(ctx context.Context, dagKey, nodeKey string, runID int64, wakeupID int64, wakeupAttempt int32, result json.RawMessage, oldStatus string) error {
 	if r.store == nil {
 		return errors.New("node router: store nil, cannot complete automation node")
 	}
@@ -549,11 +589,13 @@ func (r *NodeExecutorRouter) completeAutomationNode(ctx context.Context, dagKey,
 		resBytes = json.RawMessage(`{}`)
 	}
 	res, err := flow.CompleteNodeAndScheduleDownstream(ctx, taskdag.CompleteNodeInput{
-		Status:  "done",
-		Result:  resBytes,
-		DagKey:  dagKey,
-		NodeKey: nodeKey,
-		RunID:   runID,
+		Status:        "done",
+		Result:        resBytes,
+		DagKey:        dagKey,
+		NodeKey:       nodeKey,
+		RunID:         runID,
+		WakeupID:      wakeupID,
+		WakeupAttempt: wakeupAttempt,
 	})
 	if err != nil {
 		return err

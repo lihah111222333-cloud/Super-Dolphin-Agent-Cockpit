@@ -116,6 +116,38 @@ func TestFailNodeAndCancelDownstream_PrimaryTerminalFence(t *testing.T) {
 	}
 }
 
+func TestFailNodeAndCancelDownstreamRejectsStaleWakeupAttempt(t *testing.T) {
+	t.Parallel()
+
+	store, db, now := newTaskDAGTestStore()
+	runID := seedFailDownstreamRuntimeDAG(t, db, now, []seedNode{
+		{key: "A", deps: nil, status: "running", agent: "agent-a"},
+		{key: "B", deps: []string{"A"}, status: "pending", agent: "agent-b"},
+	})
+	wakeup := newDispatchingWakeup(now, 7, "worker-a", 30*time.Second)
+	wakeup.AttemptCount = 2
+	db.wakeups[7] = wakeup
+	key := dagRunNodeKey("dag-1", "A", runID)
+	node := db.nodes[key]
+	node.ActiveWakeupID = sqlc.Int8ValuePtr(&wakeup.ID)
+	db.nodes[key] = node
+
+	_, err := store.FailNodeAndCancelDownstream(context.Background(), FailNodeInput{
+		DagKey:        "dag-1",
+		NodeKey:       "A",
+		RunID:         runID,
+		Reason:        "late stale failure",
+		FailFast:      true,
+		WakeupID:      7,
+		WakeupAttempt: 1,
+	})
+	if err == nil {
+		t.Fatal("FailNodeAndCancelDownstream() stale attempt error = nil, want fence rejection")
+	}
+	requireRunNodeStatus(t, db, runID, "A", "running")
+	requireRunNodeStatus(t, db, runID, "B", "pending")
+}
+
 func TestFailNodeAndCancelDownstream_CascadeTerminalRaceSkips(t *testing.T) {
 	t.Parallel()
 
