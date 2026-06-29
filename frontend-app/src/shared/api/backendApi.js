@@ -12,6 +12,7 @@ import {
   registerBridgeLogStore,
   saveTextFile as saveTextFileViaBridge,
   openSharedFile as openSharedFileViaBridge,
+  previewSharedFile as previewSharedFileViaBridge,
   beginTextClipboardWrite as beginTextClipboardWriteViaBridge,
   copyTextToClipboard as copyTextToClipboardViaBridge,
   selectFiles as selectFilesViaBridge,
@@ -1019,6 +1020,7 @@ const NATIVE_DEP_FALLBACKS = Object.freeze([
   ['saveClipboardImage', saveClipboardImageViaBridge],
   ['saveTextFile', saveTextFileViaBridge],
   ['openSharedFile', openSharedFileViaBridge],
+  ['previewSharedFile', previewSharedFileViaBridge],
   ['beginTextClipboardWrite', beginTextClipboardWriteViaBridge],
   ['copyTextToClipboard', copyTextToClipboardViaBridge],
   ['selectFiles', selectFilesViaBridge],
@@ -1776,7 +1778,13 @@ function createNativeApi(native) {
     readDroppedTextFiles: native.readDroppedTextFiles,
     saveClipboardImage: native.saveClipboardImage,
     saveTextFile: native.saveTextFile,
-    openSharedFile: native.openSharedFile,
+    openSharedFile: (params) => {
+      const payload = requireKey('openSharedFile', assertPlainObject('openSharedFile', params), 'path');
+      return payload.preview === true
+        ? native.previewSharedFile({ path: payload.path })
+        : native.openSharedFile({ path: payload.path });
+    },
+    previewSharedFile: (params) => native.previewSharedFile(requireKey('previewSharedFile', assertPlainObject('previewSharedFile', params), 'path')),
     beginTextClipboardWrite: native.beginTextClipboardWrite,
     copyTextToClipboard: native.copyTextToClipboard,
     selectFiles: native.selectFiles,
@@ -1948,6 +1956,7 @@ export const readDroppedTextFiles = backendApi.readDroppedTextFiles;
 export const saveClipboardImage = backendApi.saveClipboardImage;
 export const saveTextFile = backendApi.saveTextFile;
 export const openSharedFile = backendApi.openSharedFile;
+export const previewSharedFile = backendApi.previewSharedFile;
 export const beginTextClipboardWrite = backendApi.beginTextClipboardWrite;
 export const copyTextToClipboard = backendApi.copyTextToClipboard;
 export const selectFiles = backendApi.selectFiles;

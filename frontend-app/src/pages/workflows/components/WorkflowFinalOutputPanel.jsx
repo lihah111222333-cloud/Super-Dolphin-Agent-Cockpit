@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { finalOutputKind, finalOutputPath } from '../adapters/workflowDisplayAdapter.js';
 import { Panel } from '../../shared/pageComponents.jsx';
 
@@ -44,19 +44,81 @@ function WorkflowInlinePreviewText({ text }) {
   return <p className="workflow-inline-preview-text">{text}</p>;
 }
 
-function WorkflowFinalOutputPanel({ finalOutput, previewText, readFile, openFile }) {
+function WorkflowFinalOutputPanel({ finalOutput, previewText, readFile, openFile, previewFile }) {
   const [fileContent, setFileContent] = useState('');
   const [fileError, setFileError] = useState('');
   const [openError, setOpenError] = useState('');
+  const [previewError, setPreviewError] = useState('');
+  const [mediaPreview, setMediaPreview] = useState(null);
   const [opening, setOpening] = useState(false);
+  const [previewing, setPreviewing] = useState(false);
   const [reading, setReading] = useState(false);
   const outputPath = finalOutputPath(finalOutput);
-  const isImage = useMemo(() => /\.(png|jpe?g|webp|gif|svg)$/i.test(outputPath || ''), [outputPath]);
+  const isImage = useMemo(() => /\.(png|jpe?g|webp|gif)$/i.test(outputPath || ''), [outputPath]);
   const isVideo = useMemo(() => /\.(mp4|webm|ogg|mov)$/i.test(outputPath || ''), [outputPath]);
   const isMedia = isImage || isVideo;
-  const isSystemOpenOnly = useMemo(() => isMedia || /\.(pdf|docx?|pptx?|xlsx?)$/i.test(outputPath || ''), [isMedia, outputPath]);
+  const isSystemOpenOnly = useMemo(() => !isMedia && /\.(pdf|docx?|pptx?|xlsx?)$/i.test(outputPath || ''), [isMedia, outputPath]);
   const mediaKindLabel = isVideo ? '视频' : '图片';
   const formattedContent = useMemo(() => formatWorkflowFileContent(fileContent), [fileContent]);
+
+  const loadMediaPreview = async () => {
+    if (!outputPath || !isMedia) return;
+    if (typeof previewFile !== 'function') {
+      setPreviewError('无法生成最终结果预览：后端预览接口不可用。');
+      return;
+    }
+    setPreviewing(true);
+    setPreviewError('');
+    try {
+      const response = await previewFile({ path: outputPath });
+      const url = (response?.url || '').toString().trim();
+      if (!url) throw new Error('preview URL is empty');
+      if (url.toLowerCase().startsWith('file://')) throw new Error('preview URL must be tokenized');
+      setMediaPreview({
+        url,
+        contentType: (response?.contentType || '').toString(),
+      });
+    } catch (err) {
+      setMediaPreview(null);
+      setPreviewError(`无法生成最终结果预览：${err?.message || String(err)}`);
+    } finally {
+      setPreviewing(false);
+    }
+  };
+
+  useEffect(() => {
+    let active = true;
+    const load = async () => {
+      setMediaPreview(null);
+      setPreviewError('');
+      if (!outputPath || !isMedia) return;
+      if (typeof previewFile !== 'function') {
+        setPreviewError('无法生成最终结果预览：后端预览接口不可用。');
+        return;
+      }
+      setPreviewing(true);
+      try {
+        const response = await previewFile({ path: outputPath });
+        if (!active) return;
+        const url = (response?.url || '').toString().trim();
+        if (!url) throw new Error('preview URL is empty');
+        if (url.toLowerCase().startsWith('file://')) throw new Error('preview URL must be tokenized');
+        setMediaPreview({
+          url,
+          contentType: (response?.contentType || '').toString(),
+        });
+      } catch (err) {
+        if (!active) return;
+        setPreviewError(`无法生成最终结果预览：${err?.message || String(err)}`);
+      } finally {
+        if (active) setPreviewing(false);
+      }
+    };
+    void load();
+    return () => {
+      active = false;
+    };
+  }, [isMedia, outputPath, previewFile]);
 
   const readFinalOutput = async () => {
     if (!outputPath) return;
@@ -101,12 +163,16 @@ function WorkflowFinalOutputPanel({ finalOutput, previewText, readFile, openFile
           isMedia={isMedia}
           isSystemOpenOnly={isSystemOpenOnly}
           isVideo={isVideo}
+          mediaPreview={mediaPreview}
           mediaKindLabel={mediaKindLabel}
           onOpen={openFinalOutput}
+          onPreview={loadMediaPreview}
           onRead={readFinalOutput}
           openError={openError}
           opening={opening}
           outputPath={outputPath}
+          previewError={previewError}
+          previewing={previewing}
           reading={reading}
         />
       ) : (
@@ -127,13 +193,13 @@ function WorkflowFinalOutputFile(props) {
           <button
             type="button"
             className={'workflow-output-action ' + (props.isSystemOpenOnly ? 'workflow-output-action-system' : 'workflow-output-action-preview')}
-            disabled={props.isSystemOpenOnly ? props.opening : props.reading}
-            onClick={() => { void (props.isSystemOpenOnly ? props.onOpen() : props.onRead()); }}
+            disabled={workflowPrimaryActionDisabled(props)}
+            onClick={() => { void workflowRunPrimaryAction(props); }}
             title={workflowPrimaryActionTitle(props)}
           >
             {workflowPrimaryActionLabel(props)}
           </button>
-          {props.isMedia && !props.isSystemOpenOnly ? (
+          {props.isMedia ? (
             <button type="button" className="workflow-output-action workflow-output-action-system" disabled={props.opening} onClick={() => { void props.onOpen(); }} title={`用系统默认应用打开${props.mediaKindLabel}`}>
               {props.opening ? '打开中...' : '系统打开'}
             </button>
@@ -142,19 +208,33 @@ function WorkflowFinalOutputFile(props) {
       </div>
       {props.fileError ? <p className="danger-text">{props.fileError}</p> : null}
       {props.openError ? <p className="danger-text">{props.openError}</p> : null}
+      {props.previewError ? <p className="danger-text">{props.previewError}</p> : null}
       {previewBlock}
     </div>
   );
 }
 
+function workflowPrimaryActionDisabled(props) {
+  if (props.isSystemOpenOnly) return props.opening;
+  if (props.isMedia) return props.previewing;
+  return props.reading;
+}
+
+function workflowRunPrimaryAction(props) {
+  if (props.isSystemOpenOnly) return props.onOpen();
+  if (props.isMedia) return props.onPreview();
+  return props.onRead();
+}
+
 function workflowPrimaryActionTitle(props) {
   if (props.isSystemOpenOnly) return '用系统默认应用打开最终结果文件';
-  if (props.isMedia) return `用系统默认应用打开${props.mediaKindLabel}`;
+  if (props.isMedia) return `刷新${props.mediaKindLabel}预览`;
   return '读取最终结果内容';
 }
 
 function workflowPrimaryActionLabel(props) {
   if (props.isSystemOpenOnly) return props.opening ? '打开中...' : '系统打开';
+  if (props.isMedia) return props.previewing ? '生成中...' : '刷新预览';
   return workflowPreviewButtonLabel(props);
 }
 
@@ -166,7 +246,16 @@ function workflowPreviewButtonLabel({ fileContent, isImage, isMedia, isVideo, re
   return '读取最终结果';
 }
 
-function workflowPreviewBlock({ fileContent, formattedContent }) {
+function workflowPreviewBlock({ fileContent, formattedContent, isImage, isMedia, isVideo, mediaPreview, previewing }) {
+  if (isMedia) {
+    if (mediaPreview?.url && isImage) {
+      return <img className="workflow-final-media" src={mediaPreview.url} alt="" />;
+    }
+    if (mediaPreview?.url && isVideo) {
+      return <video className="workflow-final-media" src={mediaPreview.url} controls />;
+    }
+    return previewing ? <p className="workflow-inline-preview-text">正在生成预览...</p> : null;
+  }
   if (!fileContent) return null;
   return <pre className="workflow-final-preview">{formattedContent}</pre>;
 }

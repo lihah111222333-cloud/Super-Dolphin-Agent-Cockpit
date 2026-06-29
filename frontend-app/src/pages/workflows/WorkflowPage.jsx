@@ -2700,6 +2700,7 @@ function WorkflowDetail({ copy, model }) {
 
 function WorkflowDetailContent({ copy, model }) {
   const { derived, detail, notices, selection } = model;
+  const previewSharedOutputFile = useCallback((payload) => openSharedFile({ ...payload, preview: true }), []);
   return (
     <section className="workflow-detail">
       <WorkflowDetailTop model={model} />
@@ -2711,6 +2712,7 @@ function WorkflowDetailContent({ copy, model }) {
         key={finalOutputPath(derived.finalOutput) || 'inline-output'}
         finalOutput={derived.finalOutput}
         openFile={(payload) => openSharedFile(payload)}
+        previewFile={previewSharedOutputFile}
         previewText={derived.finalText}
         readFile={(payload) => readSharedFile(payload)}
         workflowCwd={model.workflowCwd}

@@ -1427,15 +1427,17 @@ function expectMemoryCenterValidation(api) {
     expect(() => api.openNewWindow({ cwd: '' })).toThrow('cwd is required');
   });
 
-  it('wraps shared file list, read, delete and native open helpers with the expected payload shapes', async () => {
+  it('wraps shared file list, read, delete, open and preview helpers with the expected payload shapes', async () => {
     const callAPI = vi.fn().mockResolvedValue({ ok: true });
     const openSharedFile = vi.fn().mockResolvedValue({ opened: true });
-    const api = createBackendApi({ callAPI, openSharedFile });
+    const previewSharedFile = vi.fn().mockResolvedValue({ url: '/shared-file-preview?id=sf_1' });
+    const api = createBackendApi({ callAPI, openSharedFile, previewSharedFile });
 
     await api.listSharedFiles();
     await api.readSharedFile({ path: 'reports/final.md' });
     await api.deleteSharedFile({ path: 'scratch/work.json' });
     await api.openSharedFile({ path: 'dag/video/final.mp4' });
+    await api.previewSharedFile({ path: 'dag/video/final.mp4' });
 
     expect(callAPI).toHaveBeenCalledWith(RPC_METHODS.DASHBOARD_SHARED_FILES, {});
     expect(callAPI).toHaveBeenCalledWith(RPC_METHODS.UI_SHARED_FILE_GET, {
@@ -1445,9 +1447,11 @@ function expectMemoryCenterValidation(api) {
       path: 'scratch/work.json',
     });
     expect(openSharedFile).toHaveBeenCalledWith({ path: 'dag/video/final.mp4' });
+    expect(previewSharedFile).toHaveBeenCalledWith({ path: 'dag/video/final.mp4' });
     expect(() => api.listSharedFiles([])).toThrow('params must be an object');
     expect(() => api.readSharedFile({ path: '' })).toThrow('path is required');
     expect(() => api.deleteSharedFile({ path: '' })).toThrow('path is required');
+    expect(() => api.previewSharedFile({ path: '' })).toThrow('path is required');
   });
 
   it('wraps runtime code locate, open and save RPCs with scoped payloads', async () => {
