@@ -146,6 +146,9 @@ func (r *NodeExecutorRouter) RouteByWakeup(ctx context.Context, w *taskdag.Wakeu
 		return nodeexec.NodeOutcome{Status: nodeexec.NodeStatusDone}, nil
 	}
 	nodeType := resolveNodeType(target.NodeType)
+	if failure := validateAutomationRouteConfig(nodeType, target.Config); failure != nil {
+		return *failure, nil
+	}
 	node := nodeexec.Node{
 		DagKey:           dagKey,
 		NodeKey:          nodeKey,
@@ -159,6 +162,20 @@ func (r *NodeExecutorRouter) RouteByWakeup(ctx context.Context, w *taskdag.Wakeu
 		return runCtxErr.outcome, runCtxErr.frameworkErr
 	}
 	return r.dispatchByNodeType(ctx, nodeType, node, runCtx, w.ID, target.Status)
+}
+
+// validateAutomationRouteConfig 在 executor 前拦截不可执行的 automation command 配置。
+// 返回 NodeOutcome 指针表示节点级 validation 失败，避免把用户配置错误升级成 dispatcher 框架错误。
+func validateAutomationRouteConfig(nodeType string, raw json.RawMessage) *nodeexec.NodeOutcome {
+	if nodeType != "automation" {
+		return nil
+	}
+	validationErr := nodeexec.ValidateAutomationCommandDispatchConfig(raw)
+	if validationErr == nil {
+		return nil
+	}
+	outcome := validationOutcome("node router: automation command config invalid: " + validationErr.Error())
+	return &outcome
 }
 
 // runContextBuildErr 是 buildRunContext 的多路返值载体：

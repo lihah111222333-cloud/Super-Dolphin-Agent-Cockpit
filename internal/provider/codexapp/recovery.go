@@ -37,7 +37,11 @@ type turnReplayState struct {
 
 type replayTurnStatus struct {
 	Active *bool
-	Turn   struct{ Active *bool }
+	Status string
+	Turn   struct {
+		Active *bool
+		Status string
+	}
 }
 
 // CheckHealth 检查 transport 是否仍能响应本地健康探测。
@@ -370,7 +374,24 @@ func (s *session) confirmPendingTurnLost(ctx context.Context, snapshot *turnRepl
 	if active == nil {
 		return false, errors.New("codexapp: turn/status before replay missing active state")
 	}
-	return !*active, nil
+	if *active {
+		return false, nil
+	}
+	return replayAllowedForStatus(payload)
+}
+
+func replayAllowedForStatus(payload replayTurnStatus) (bool, error) {
+	status := strings.ToLower(strings.TrimSpace(shared.FirstNonEmpty(payload.Turn.Status, payload.Status)))
+	switch status {
+	case "lost", "not_found", "not-found", "missing":
+		return true, nil
+	case "completed", "complete", "failed", "canceled", "cancelled", "aborted":
+		return false, nil
+	case "":
+		return false, errors.New("codexapp: turn/status before replay missing lost or terminal state")
+	default:
+		return false, fmt.Errorf("codexapp: turn/status before replay unknown state %q", status)
+	}
 }
 
 func (s *session) pendingTurnSnapshot() *turnReplayState {

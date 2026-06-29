@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   appendUniqueAttachments,
+  attachmentDisplayName,
   attachmentKey,
   basename,
   buildTurnInput,
@@ -32,6 +33,21 @@ describe('composerAttachments', () => {
       previewUrl: 'C:/tmp/readme.txt',
     });
     expect(normalizeAttachment('')).toBeNull();
+  });
+
+  it('preserves token-backed native image previews while keeping path for send', () => {
+    const attachment = normalizeAttachment({
+      path: '/Users/mima0000/Pictures/native-secret.png',
+      previewUrl: '/local-image?id=drop_asset_123',
+    });
+
+    expect(attachment).toEqual({
+      path: '/Users/mima0000/Pictures/native-secret.png',
+      name: 'native-secret.png',
+      kind: 'image',
+      previewUrl: '/local-image?id=drop_asset_123',
+    });
+    expect(attachmentDisplayName(attachment)).toBe('native-secret.png');
   });
 
   it('clones composer draft snapshots and detects empty drafts', () => {
@@ -107,7 +123,7 @@ describe('composerAttachments', () => {
     });
   });
 
-  it('builds turn input from text, mentions, and local images', () => {
+  it('builds turn input from text, plain file paths, and local images', () => {
     expect(buildTurnInput(' hello ', [
       { path: 'C:/tmp/readme.md' },
       { path: 'C:/tmp/image.png', kind: 'image', previewUrl: 'data:image/png;base64,abc' },

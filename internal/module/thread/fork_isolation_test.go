@@ -81,12 +81,13 @@ func TestServiceForkUsesRecoverableSessionUUIDWhenProviderThreadIDMissing(t *tes
 		Cwd:           "/repo",
 	}}
 	threads := &stubThreadStore{thread: &threadstore.Thread{
-		ThreadID:  "agent-parent",
-		AgentID:   "agent-parent",
-		Prompt:    "Forked Thread",
-		Model:     "gpt-5.5",
-		Cwd:       "/repo",
-		CreatedAt: 123,
+		ThreadID:       "agent-parent",
+		AgentID:        "agent-parent",
+		Prompt:         "Forked Thread",
+		Model:          "gpt-5.5",
+		Cwd:            "/repo",
+		CreatedAt:      123,
+		ConfigOverride: legacyPromptSnapshotMigrationConfig(t),
 	}}
 	starter := &stubSessionStarter{onResume: func(context.Context, dto.ResumeSessionRequest) (contract.Session, error) {
 		sessions.session = forkedSession
@@ -197,7 +198,7 @@ func forkParentThreadStore() *stubThreadStore {
 		DeveloperInstructions: "stored dev",
 		Provider:              "codex",
 		Version:               contract.PromptAssemblySnapshotVersion,
-		Hash:                  promptSnapshotHash("Forked Thread", "stored base", "stored dev", "codex", nil),
+		Hash:                  promptSnapshotHash("Forked Thread", "stored base", "stored dev", "codex", nil, nil, 0),
 	}}
 }
 
@@ -375,7 +376,7 @@ func resumeRecoverThreadStore() *stubThreadStore {
 		DeveloperInstructions: "stored dev",
 		Provider:              "codex",
 		Version:               contract.PromptAssemblySnapshotVersion,
-		Hash:                  promptSnapshotHash("Recovered Thread", "stored base", "stored dev", "codex", nil),
+		Hash:                  promptSnapshotHash("Recovered Thread", "stored base", "stored dev", "codex", nil, nil, 0),
 	}}
 }
 
@@ -472,13 +473,19 @@ func claudeRecoverBindingStore(providerParentUUID, rolloutPath string) *stubBind
 func claudeRecoverThreadStore(t *testing.T, model, effort string) *stubThreadStore {
 	t.Helper()
 	return &stubThreadStore{thread: &threadstore.Thread{
-		ThreadID:       "thread-parent",
-		AgentID:        "agent-parent",
-		Prompt:         "Recovered Thread",
-		Model:          "sonnet",
-		Cwd:            "/repo",
-		CreatedAt:      123,
-		ConfigOverride: mustStoredThreadConfigRaw(t, storedThreadConfig{Model: model, Effort: effort}),
+		ThreadID:  "thread-parent",
+		AgentID:   "agent-parent",
+		Prompt:    "Recovered Thread",
+		Model:     "sonnet",
+		Cwd:       "/repo",
+		CreatedAt: 123,
+		ConfigOverride: mustStoredThreadConfigRaw(t, storedThreadConfig{
+			Model:  model,
+			Effort: effort,
+			Runtime: map[string]any{
+				"legacyPromptSnapshotMigration": true,
+			},
+		}),
 	}}
 }
 

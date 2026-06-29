@@ -22,7 +22,7 @@ func TestWorktreeResumeInvalidationClearsCache(t *testing.T) {
 	firstStart := assemblePromptStart(t, promptAssembly, "first")
 	assertMemoryPromptBuild(t, *calls, firstStart.BaseInstructions, 1, "before resume")
 
-	svc := newResumeInvalidationService(worktreeCWD, promptAssembly)
+	svc := newResumeInvalidationService(t, worktreeCWD, promptAssembly)
 	resumeThreadForPromptInvalidation(t, svc)
 
 	secondStart := assemblePromptStart(t, promptAssembly, "second")
@@ -72,20 +72,25 @@ func assertMemoryPromptBuild(t *testing.T, gotCalls int, instructions string, wa
 	}
 }
 
-func newResumeInvalidationService(worktreeCWD string, promptAssembly promptpkg.Service) *service {
+func newResumeInvalidationService(t *testing.T, worktreeCWD string, promptAssembly promptpkg.Service) *service {
+	t.Helper()
+	const providerThreadID = "019d5f6b-fb3c-7760-9d6f-54005553f705"
 	threads := &stubThreadStore{thread: &threadstore.Thread{
-		ThreadID:  "thread-resume",
-		AgentID:   "agent-resume",
-		Prompt:    "resume name",
-		Model:     "gpt-5.5",
-		Cwd:       worktreeCWD,
-		CreatedAt: 123,
-		Status:    statusCreated,
+		ThreadID:       "thread-resume",
+		AgentID:        "agent-resume",
+		Prompt:         "resume name",
+		Model:          "gpt-5.5",
+		Cwd:            worktreeCWD,
+		CreatedAt:      123,
+		Status:         statusCreated,
+		ConfigOverride: legacyPromptSnapshotMigrationConfig(t),
 	}}
 	bindings := &stubBindingStore{binding: &bindingstore.Binding{
 		AgentID:       "agent-resume",
 		Provider:      "codex",
 		CodexThreadID: "thread-resume",
+		RolloutPath:   writeExistingProviderHistoryFile(t),
+		SessionUUID:   providerThreadID,
 		Cwd:           worktreeCWD,
 	}}
 	sessions := &stubSessionProvider{}

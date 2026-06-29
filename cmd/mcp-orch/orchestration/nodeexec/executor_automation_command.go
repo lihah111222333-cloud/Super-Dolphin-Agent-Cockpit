@@ -17,26 +17,29 @@ const (
 	automationCommandStderrLimitBytes = 256 * 1024
 )
 
-var sensitiveCommandTextPattern = regexp.MustCompile(`(?i)\b(token|api[_-]?key|password|secret)=\S+`)
+var (
+	sensitiveHeaderTextPattern  = regexp.MustCompile(`(?im)(^|[^\pL\pN_])((?:token|api[_-]?key|password|secret|authorization|cookie)\s*:\s*)[^\r\n]*`)
+	sensitiveCommandTextPattern = regexp.MustCompile(`(?i)\b(token|api[_-]?key|password|secret|authorization|cookie)\b(\s*=\s*)(?:"[^"\r\n]*"|'[^'\r\n]*'|[^\s\r\n]+)`)
+)
 
 // ShellCommandRunner 执行 automation command 卡片。
-// 调用前会校验风险级别、工作区边界和命令文本，失败时不启动 shell。
+// 调用前会校验风险级别、工作区边界和命令文本，失败时不启动进程。
 type ShellCommandRunner struct{}
 
 // preparedAutomationCommand 保存一次命令执行所需的进程和可回传结果。
 type preparedAutomationCommand struct {
-	cmd            *exec.Cmd            // 已绑定 context/cwd/env 的 shell 进程
+	cmd            *exec.Cmd            // 已绑定 context/cwd/env 的 argv 进程
 	stdout         *commandOutputBuffer // 带上限的 stdout 缓冲区
 	stderr         *commandOutputBuffer // 带上限的 stderr 缓冲区
 	command        string               // 渲染后的命令，回传前会脱敏
 	normalizedArgs json.RawMessage      // 模板渲染后的结构化参数快照
 }
 
-// NewShellCommandRunner 创建无状态 shell 命令 runner。
+// NewShellCommandRunner 创建无状态命令 runner。
 // runner 本身不持有工作区或环境，所有执行边界必须随 RunCommandCard 的 options 显式传入。
 func NewShellCommandRunner() *ShellCommandRunner { return &ShellCommandRunner{} }
 
-// RunCommandCard 运行命令卡；shell 执行必须显式标记 high 风险，并限制在允许工作区内。
+// RunCommandCard 运行命令卡；命令执行必须显式标记 high 风险，并限制在允许工作区内。
 func (ShellCommandRunner) RunCommandCard(ctx context.Context, card AutomationCommandCard, args json.RawMessage, opts ...AutomationCommandRunOptions) (AutomationCommandResult, error) {
 	prepared, err := prepareAutomationCommand(ctx, card, args, opts)
 	if err != nil {
@@ -53,7 +56,7 @@ func (ShellCommandRunner) RunCommandCard(ctx context.Context, card AutomationCom
 	return result, CommandExitError{ExitCode: result.ExitCode, Err: err}
 }
 
-// prepareAutomationCommand 渲染命令模板并组装可执行的 shell 进程。
+// prepareAutomationCommand 渲染命令模板并组装可执行的 argv 进程。
 // 所有策略、安全和路径校验都在这里完成，调用方拿到结果后才能真正 Run。
 func prepareAutomationCommand(ctx context.Context, card AutomationCommandCard, args json.RawMessage, opts []AutomationCommandRunOptions) (preparedAutomationCommand, error) {
 	if err := validateAutomationCommandPolicy(card); err != nil {
@@ -74,7 +77,11 @@ func prepareAutomationCommand(ctx context.Context, card AutomationCommandCard, a
 	if err := validateRenderedCommandShellSafety(command); err != nil {
 		return preparedAutomationCommand{}, err
 	}
-	cmd := exec.CommandContext(ctx, "sh", "-c", command)
+	argv, err := splitAutomationCommandArgv(command)
+	if err != nil {
+		return preparedAutomationCommand{}, err
+	}
+	cmd := exec.CommandContext(ctx, argv[0], argv[1:]...)
 	applyAutomationCommandOptions(cmd, cwd, runOpts.Env)
 	stdout := newCommandOutputBuffer("stdout", automationCommandStdoutLimitBytes)
 	stderr := newCommandOutputBuffer("stderr", automationCommandStderrLimitBytes)
@@ -87,6 +94,80 @@ func prepareAutomationCommand(ctx context.Context, card AutomationCommandCard, a
 		command:        command,
 		normalizedArgs: normalizedArgs,
 	}, nil
+}
+
+// splitAutomationCommandArgv 将已渲染命令拆为 argv，且只支持引号分组。
+// 这里不实现 shell 展开；变量、glob、管道等语法会在前置校验中 fail-fast。
+func splitAutomationCommandArgv(command string) ([]string, error) {
+	state := automationArgvSplitState{}
+	for _, r := range command {
+		state.accept(r)
+	}
+	return state.finish()
+}
+
+type automationArgvSplitState struct {
+	argv                     []string
+	current                  strings.Builder
+	inSingle, inDouble       bool
+	escaped, tokenWasStarted bool
+}
+
+// accept 消费一个 rune 并维护 argv 拆分状态。
+// 引号只用于分组，不会触发任何 shell 展开。
+func (s *automationArgvSplitState) accept(r rune) {
+	if s.escaped {
+		s.current.WriteRune(r)
+		s.escaped, s.tokenWasStarted = false, true
+		return
+	}
+	if s.acceptQuoteOrEscape(r) {
+		return
+	}
+	if (r == ' ' || r == '\t') && !s.inSingle && !s.inDouble {
+		s.flushToken()
+		return
+	}
+	s.current.WriteRune(r)
+	s.tokenWasStarted = true
+}
+
+// acceptQuoteOrEscape 处理引号和转义状态。
+// 单引号内反斜杠按普通字符处理，避免模拟 shell 的复杂规则。
+func (s *automationArgvSplitState) acceptQuoteOrEscape(r rune) bool {
+	switch {
+	case r == '\\' && !s.inSingle:
+		s.escaped, s.tokenWasStarted = true, true
+	case r == '\'' && !s.inDouble:
+		s.inSingle, s.tokenWasStarted = !s.inSingle, true
+	case r == '"' && !s.inSingle:
+		s.inDouble, s.tokenWasStarted = !s.inDouble, true
+	default:
+		return false
+	}
+	return true
+}
+
+func (s *automationArgvSplitState) flushToken() {
+	if !s.tokenWasStarted {
+		return
+	}
+	s.argv = append(s.argv, s.current.String())
+	s.current.Reset()
+	s.tokenWasStarted = false
+}
+
+// finish 完成末尾 token 收集并校验 argv 入口。
+// 未闭合引号或空命令会在进程启动前直接失败。
+func (s *automationArgvSplitState) finish() ([]string, error) {
+	if s.escaped || s.inSingle || s.inDouble {
+		return nil, errors.New("shell argv command has unterminated quote or escape")
+	}
+	s.flushToken()
+	if len(s.argv) == 0 || strings.TrimSpace(s.argv[0]) == "" {
+		return nil, errors.New("shell argv command is empty")
+	}
+	return s.argv, nil
 }
 
 func applyAutomationCommandOptions(cmd *exec.Cmd, cwd string, env map[string]string) {
@@ -202,8 +283,11 @@ func allowedAutomationCommandEnv(env map[string]string) []string {
 	return out
 }
 
+// redactSensitiveText 对命令、stdout、stderr 中的敏感键做统一脱敏。
+// Header 形态的值可能包含空格和多个字段，必须整行截断，避免 Bearer/Cookie 残留。
 func redactSensitiveText(text string) string {
-	return sensitiveCommandTextPattern.ReplaceAllString(text, "$1=[REDACTED]")
+	redacted := sensitiveHeaderTextPattern.ReplaceAllString(text, "${1}${2}[REDACTED]")
+	return sensitiveCommandTextPattern.ReplaceAllString(redacted, "${1}${2}[REDACTED]")
 }
 
 func stripAutomationControlFieldsBeforePromptReuse(raw string) string {
@@ -259,10 +343,7 @@ func (b *commandOutputBuffer) String() string {
 	if !b.truncated {
 		return out
 	}
-	dropped := b.total - b.buf.Len()
-	if dropped < 0 {
-		dropped = 0
-	}
+	dropped := max(b.total-b.buf.Len(), 0)
 	return out + fmt.Sprintf(
 		"\n[super-dolphin: %s truncated after %d bytes; dropped %d bytes]\n",
 		b.label,

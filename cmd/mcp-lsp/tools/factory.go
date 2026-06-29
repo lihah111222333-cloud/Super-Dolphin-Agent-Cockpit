@@ -9,6 +9,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"reflect"
 	"regexp"
 	"sort"
 	"strconv"
@@ -36,12 +37,32 @@ type decodeMode int
 // actionHandler 是按 action 分发表中单个动作的处理函数。
 type actionHandler[T any] func(context.Context, T) (any, error)
 
+type appManagedWriteCapabilityContextKey struct{}
+
 // 解码模式常量决定未知字段、空参数和原始 payload 的处理策略。
 const (
 	decodeRaw decodeMode = iota
 	decodeLenient
 	decodeStrict
 )
+
+// WithAppManagedWriteCapability 标记调用方已经通过应用侧授权，可写入 app-managed 数据根。
+// 默认 direct edit 不带该能力，因此只能写 workspace roots 内文件。
+func WithAppManagedWriteCapability(ctx context.Context) context.Context {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	return context.WithValue(ctx, appManagedWriteCapabilityContextKey{}, true)
+}
+
+// hasAppManagedWriteCapability 读取应用侧授予的 app-managed 写能力标记。
+func hasAppManagedWriteCapability(ctx context.Context) bool {
+	if ctx == nil {
+		return false
+	}
+	allowed, _ := ctx.Value(appManagedWriteCapabilityContextKey{}).(bool)
+	return allowed
+}
 
 func toolWorkspaceRoot(ctx context.Context) (string, error) {
 	return common.WorkspaceRootFromContextStrict(ctx)
@@ -54,6 +75,13 @@ func toolWorkspaceRoots(ctx context.Context) (string, []string, error) {
 	}
 	if len(roots) == 0 {
 		return "", nil, common.ErrMissingWorkspaceRoots
+	}
+	if hasAppManagedWriteCapability(ctx) {
+		appRoots, err := platformshared.AppManagedDataRoots()
+		if err != nil {
+			return "", nil, fmt.Errorf("resolve app-managed write roots: %w", err)
+		}
+		roots = append(append([]string(nil), roots...), appRoots...)
 	}
 	return roots[0], append([]string(nil), roots[1:]...), nil
 }
@@ -107,11 +135,16 @@ func decodeRawToolParams[T any](raw json.RawMessage, value *T) error {
 }
 
 func decodeLenientToolParams[T any](raw json.RawMessage, value *T) error {
-	return unmarshalToolParams(normalizeOptionalToolParams(raw), value)
+	return decodeStrictToolParams(raw, value)
 }
 
 func decodeStrictToolParams[T any](raw json.RawMessage, value *T) error {
-	decoder := json.NewDecoder(bytes.NewReader(normalizeOptionalToolParams(raw)))
+	normalized := normalizeOptionalToolParams(raw)
+	stripped := stripToolWrapperFields(normalized)
+	if err := validateStrictToolFields(stripped, value); err != nil {
+		return formatDecodeParamsError(err)
+	}
+	decoder := json.NewDecoder(bytes.NewReader(stripped))
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(value); err != nil {
 		return formatDecodeParamsError(err)
@@ -121,6 +154,111 @@ func decodeStrictToolParams[T any](raw json.RawMessage, value *T) error {
 		return errors.New("decode params: unexpected trailing JSON payload")
 	}
 	return nil
+}
+
+// validateStrictToolFields 在自定义 UnmarshalJSON 前检查顶层字段，避免自定义解码吞掉未知字段。
+func validateStrictToolFields[T any](raw []byte, value *T) error {
+	trimmed := bytes.TrimSpace(raw)
+	if len(trimmed) == 0 || trimmed[0] != '{' {
+		return nil
+	}
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(trimmed, &fields); err != nil {
+		return err
+	}
+	allowed := strictToolFieldSet(value)
+	for field := range fields {
+		if _, ok := allowed[field]; !ok {
+			return fmt.Errorf("json: unknown field %q", field)
+		}
+	}
+	return nil
+}
+
+// strictToolFieldSet 收集工具入参允许的 JSON 字段，并保留明确支持的兼容别名。
+func strictToolFieldSet[T any](value *T) map[string]struct{} {
+	allowed := make(map[string]struct{})
+	addStrictJSONFields(reflect.TypeFor[T](), allowed)
+	switch any(value).(type) {
+	case *grepToolInput:
+		allowed["paths"] = struct{}{}
+		allowed["file_paths"] = struct{}{}
+	}
+	return allowed
+}
+
+// addStrictJSONFields 按 encoding/json 的顶层字段规则收集结构体字段。
+func addStrictJSONFields(t reflect.Type, allowed map[string]struct{}) {
+	t = strictJSONStructType(t)
+	if t.Kind() != reflect.Struct {
+		return
+	}
+	for i := range t.NumField() {
+		addStrictJSONField(t.Field(i), allowed)
+	}
+}
+
+// strictJSONStructType 解开指针层，nil 时返回空结构体类型方便调用方统一处理。
+func strictJSONStructType(t reflect.Type) reflect.Type {
+	for t != nil && t.Kind() == reflect.Pointer {
+		t = t.Elem()
+	}
+	if t == nil {
+		return reflect.TypeOf(struct{}{})
+	}
+	return t
+}
+
+// addStrictJSONField 处理单个结构体字段，匿名嵌入字段按 JSON 展开规则递归收集。
+func addStrictJSONField(field reflect.StructField, allowed map[string]struct{}) {
+	if field.PkgPath != "" && !field.Anonymous {
+		return
+	}
+	name, _, _ := strings.Cut(field.Tag.Get("json"), ",")
+	if name == "-" {
+		return
+	}
+	if field.Anonymous && name == "" {
+		addStrictJSONFields(field.Type, allowed)
+		return
+	}
+	if name == "" {
+		name = field.Name
+	}
+	allowed[name] = struct{}{}
+}
+
+// stripToolWrapperFields 去掉 handler 外层已经消费的参数，剩余字段继续走严格 schema。
+// work_dir 由 wrapper 处理；agent_id/cwd 是旧兼容字段，只能被可信 ToolScope 覆盖。
+func stripToolWrapperFields(raw []byte) []byte {
+	trimmed := bytes.TrimSpace(raw)
+	if len(trimmed) == 0 || trimmed[0] != '{' {
+		return raw
+	}
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(trimmed, &fields); err != nil {
+		return raw
+	}
+	if !stripKnownToolWrapperFields(fields) {
+		return raw
+	}
+	encoded, err := json.Marshal(fields)
+	if err != nil {
+		return raw
+	}
+	return encoded
+}
+
+// stripKnownToolWrapperFields 删除明确受支持的 wrapper/legacy 字段并报告是否修改。
+func stripKnownToolWrapperFields(fields map[string]json.RawMessage) bool {
+	changed := false
+	for _, field := range []string{"work_dir", "agent_id", "cwd"} {
+		if _, ok := fields[field]; ok {
+			delete(fields, field)
+			changed = true
+		}
+	}
+	return changed
 }
 
 func normalizeOptionalToolParams(raw json.RawMessage) []byte {

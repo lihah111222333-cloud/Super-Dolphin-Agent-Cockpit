@@ -332,6 +332,11 @@ func newFxHarness(t *testing.T) *fxHarness {
 			},
 		),
 		fx.Invoke(func(reg contract.DynamicSectionRegistrar, provider *datasource.PromptProvider) error {
+			if unregister, ok := reg.(interface {
+				UnregisterDynamicProvider(string) bool
+			}); ok {
+				unregister.UnregisterDynamicProvider(provider.SectionName())
+			}
 			return reg.RegisterDynamicProvider(provider)
 		}),
 		promptpkg.Module,
@@ -369,6 +374,7 @@ func newGitProjectRoot(t *testing.T) string {
 
 func mustRegisterProvider(t *testing.T, registry promptpkg.PromptRegistry, name string, build func(promptpkg.SectionContext) string) {
 	t.Helper()
+	registry.UnregisterDynamicProvider(name)
 	err := registry.RegisterDynamicProvider(promptpkg.DynamicTextProvider{
 		Name: name,
 		ResolveFunc: func(_ context.Context, in promptpkg.SectionContext) (*string, error) {

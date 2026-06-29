@@ -340,6 +340,10 @@ func (d *driver) StartSession(ctx context.Context, req dto.StartSessionRequest) 
 // 恢复失败会清理新建 session 并清掉过期 provider thread 绑定，避免下一次继续读错历史。
 func (d *driver) ResumeSession(ctx context.Context, req dto.ResumeSessionRequest) (contract.Session, error) {
 	var err error
+	req.ProviderThreadID, err = requireProviderResumeThreadID("codexapp", req.ProviderThreadID)
+	if err != nil {
+		return nil, err
+	}
 	req, err = d.prepareResumeSessionRequest(ctx, req)
 	if err != nil {
 		return nil, err
@@ -456,14 +460,25 @@ type startResult struct {
 }
 
 func resumeRemoteThread(ctx context.Context, t *transport, req dto.ResumeSessionRequest) (string, error) {
-	resumeID := shared.FirstNonEmpty(req.ProviderThreadID, req.ThreadID)
+	resumeID, err := requireProviderResumeThreadID("codexapp", req.ProviderThreadID)
+	if err != nil {
+		return "", err
+	}
 	params := buildThreadResumeParams(req)
-	params.ThreadID = strings.TrimSpace(resumeID)
+	params.ThreadID = resumeID
 	raw, err := callWithTimeout(ctx, t, 30*time.Second, "thread/resume", params)
 	if err != nil {
 		return "", err
 	}
 	return decodeThreadID(raw, resumeID)
+}
+
+func requireProviderResumeThreadID(component, providerThreadID string) (string, error) {
+	providerThreadID = strings.TrimSpace(providerThreadID)
+	if providerThreadID == "" {
+		return "", fmt.Errorf("%s: provider thread id is required", component)
+	}
+	return providerThreadID, nil
 }
 
 func (d *driver) startAssemblyInstructions(req dto.StartSessionRequest) (string, string) {

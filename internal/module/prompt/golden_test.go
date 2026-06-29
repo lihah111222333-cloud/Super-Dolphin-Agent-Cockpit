@@ -39,14 +39,11 @@ func TestStartAssemblyGolden(t *testing.T) {
 func registerGoldenPromptProvider(t *testing.T, svc Service, name, text string) {
 	t.Helper()
 
-	err := svc.RegisterDynamicProvider(DynamicTextProvider{
+	registerDynamicProviderForTest(t, svc, DynamicTextProvider{
 		Name: name,
 		ResolveFunc: func(context.Context, SectionContext) (*string, error) {
 			value := text
 			return &value, nil
 		},
 	})
-	if err != nil {
-		t.Fatalf("RegisterDynamicProvider(%q) error = %v", name, err)
-	}
 }

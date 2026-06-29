@@ -126,6 +126,23 @@ func TestGuardFixCommitsHaveTestsRange(t *testing.T) {
 	})
 }
 
+func TestFixCommitRejectsUnrelatedTestFile(t *testing.T) {
+	root := prepareFixTestGuardRepo(t)
+	writeFixTestGuardFile(t, root, "internal/app/parser.go", "package app\n\nfunc parse() {}\n")
+	writeFixTestGuardFile(t, root, "internal/other/parser_test.go", "package other\n\nimport \"testing\"\n\nfunc TestOtherParser(t *testing.T) {}\n")
+	runFixTestGuardGit(t, root, "add", ".")
+	msgFile := filepath.Join(root, "COMMIT_EDITMSG")
+	if err := os.WriteFile(msgFile, []byte("fix: 修复 parser panic\n"), 0o644); err != nil {
+		t.Fatalf("write commit message: %v", err)
+	}
+
+	out, err := runFixTestGuard(t, root, "--cached", msgFile)
+	if err == nil {
+		t.Fatalf("guard succeeded with unrelated direct test; want failure\n%s", out)
+	}
+	assertOutputContainsAll(t, out, "fix 提交缺少锁定 bug 的测试", "fix: 修复 parser panic")
+}
+
 func TestPrePushRunsFixTestGuardForPushedRange(t *testing.T) {
 	root := prepareFixTestGuardRepo(t)
 	copyFixTestGuardRepoFile(t, root, ".githooks/pre-push", 0o755)

@@ -4534,7 +4534,8 @@ async function toggleInlineTraceFromRecentLogs(table) {
 
     const dialog = screen.getByRole('dialog', { name: '附件预览' });
     expect(dialog).toBeInTheDocument();
-    expect(dialog).toHaveTextContent('/tmp/a.txt');
+    expect(dialog).toHaveTextContent('a.txt');
+    expect(dialog).not.toHaveTextContent('/tmp/a.txt');
     expect(screen.getByRole('button', { name: /预览附件 a\.txt/ })).toBeInTheDocument();
 
     fireEvent.click(screen.getByLabelText('关闭附件预览'));

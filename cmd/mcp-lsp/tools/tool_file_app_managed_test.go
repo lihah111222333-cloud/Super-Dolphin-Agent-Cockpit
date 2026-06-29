@@ -70,7 +70,7 @@ func TestFileReadFileRejectsOrdinaryHomePathOutsideWorkspace(t *testing.T) {
 	}
 }
 
-func TestEditAllowsAppManagedPathOutsideWorkspace(t *testing.T) {
+func TestEditRejectsAppManagedPathWithoutWriteCapability(t *testing.T) {
 	fakeHome := filepath.Join(t.TempDir(), "home")
 	appHome := filepath.Join(fakeHome, "Library", "Application Support", "Super Dolphin")
 	appFile := filepath.Join(appHome, "skills", "personal", "agent", "note.md")
@@ -86,6 +86,44 @@ func TestEditAllowsAppManagedPathOutsideWorkspace(t *testing.T) {
 	workspace := t.TempDir()
 	handler := NewEditHandlerWithRoot(workspace, &structureTestRegistry{fileErr: lspmanager.ErrUnsupportedLanguage})
 	ctx := common.WithToolScope(context.Background(), common.ToolScope{CWD: workspace, WorkspaceRoots: []string{workspace}})
+	req, err := json.Marshal(EditRequest{FilePath: appFile, Patch: "@@\n-old\n+new\n"})
+	if err != nil {
+		t.Fatalf("marshal edit request: %v", err)
+	}
+
+	_, err = handler(ctx, req)
+	if err == nil {
+		t.Fatal("edit returned nil error, want app-managed write capability rejection")
+	}
+	if !strings.Contains(err.Error(), "app-managed") || !strings.Contains(err.Error(), "write capability") {
+		t.Fatalf("edit error = %v, want app-managed write capability rejection", err)
+	}
+	raw, err := os.ReadFile(appFile)
+	if err != nil {
+		t.Fatalf("read app managed file: %v", err)
+	}
+	if string(raw) != "old\n" {
+		t.Fatalf("app managed file content = %q, want unchanged old content", raw)
+	}
+}
+
+func TestEditAllowsAppManagedPathWithWriteCapability(t *testing.T) {
+	fakeHome := filepath.Join(t.TempDir(), "home")
+	appHome := filepath.Join(fakeHome, "Library", "Application Support", "Super Dolphin")
+	appFile := filepath.Join(appHome, "skills", "personal", "agent", "note.md")
+	if err := os.MkdirAll(filepath.Dir(appFile), 0o700); err != nil {
+		t.Fatalf("mkdir app managed parent: %v", err)
+	}
+	if err := os.WriteFile(appFile, []byte("old\n"), 0o600); err != nil {
+		t.Fatalf("write app managed file: %v", err)
+	}
+	t.Setenv("HOME", fakeHome)
+	t.Setenv("SUPER_DOLPHIN_HOME", appHome)
+
+	workspace := t.TempDir()
+	handler := NewEditHandlerWithRoot(workspace, &structureTestRegistry{fileErr: lspmanager.ErrUnsupportedLanguage})
+	ctx := common.WithToolScope(context.Background(), common.ToolScope{CWD: workspace, WorkspaceRoots: []string{workspace}})
+	ctx = WithAppManagedWriteCapability(ctx)
 	req, err := json.Marshal(EditRequest{FilePath: appFile, Patch: "@@\n-old\n+new\n"})
 	if err != nil {
 		t.Fatalf("marshal edit request: %v", err)

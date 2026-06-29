@@ -169,7 +169,7 @@ func TestSkillMirrorPublisherReportsPersonalDeletedWithDriftAsNonBlockingSkipped
 	}
 }
 
-func TestSkillMirrorPublisherReportsProjectManagedDriftAsNonBlockingConflict(t *testing.T) {
+func TestSkillMirrorPublisherReportsProjectManagedDriftAsBlockingConflict(t *testing.T) {
 	project := t.TempDir()
 	writeSkillWithSupportFiles(t, filepath.Join(project, ".agent", "skills", "build"), "build")
 	records, err := newCanonicalStore("").scan(project)
@@ -197,12 +197,12 @@ func TestSkillMirrorPublisherReportsProjectManagedDriftAsNonBlockingConflict(t *
 
 	assertFileContent(t, filepath.Join(target.Root, "build", "references", "guide.md"), "project edit")
 	assertConflictReportItem(t, report.Conflicts, target.TargetID, SkillProviderCodex, skillScopeProject, "build", "project/build", "drift")
-	if err := providershared.EnsureNoSkillMirrorConflicts(contract.SkillMirrorReport(report)); err != nil {
-		t.Fatalf("EnsureNoSkillMirrorConflicts project drift error = %v, want provider startup allowed", err)
+	if err := providershared.EnsureNoSkillMirrorConflicts(contract.SkillMirrorReport(report)); err == nil || !strings.Contains(err.Error(), "drift") {
+		t.Fatalf("EnsureNoSkillMirrorConflicts project drift error = %v, want provider startup blocked", err)
 	}
 }
 
-func TestSkillMirrorPublisherReportsProjectDeletedWithDriftAsNonBlockingConflict(t *testing.T) {
+func TestSkillMirrorPublisherReportsProjectDeletedWithDriftAsBlockingConflict(t *testing.T) {
 	project := t.TempDir()
 	canonicalDir := filepath.Join(project, ".agent", "skills", "build")
 	writeSkillWithSupportFiles(t, canonicalDir, "build")
@@ -217,8 +217,8 @@ func TestSkillMirrorPublisherReportsProjectDeletedWithDriftAsNonBlockingConflict
 
 	assertFileContent(t, filepath.Join(target.Root, "build", "references", "guide.md"), "project deleted drift")
 	assertConflictReportItem(t, report.Conflicts, target.TargetID, SkillProviderCodex, skillScopeProject, "build", "project/build", "drift")
-	if err := providershared.EnsureNoSkillMirrorConflicts(contract.SkillMirrorReport(report)); err != nil {
-		t.Fatalf("EnsureNoSkillMirrorConflicts project deleted drift error = %v, want provider startup allowed", err)
+	if err := providershared.EnsureNoSkillMirrorConflicts(contract.SkillMirrorReport(report)); err == nil || !strings.Contains(err.Error(), "drift") {
+		t.Fatalf("EnsureNoSkillMirrorConflicts project deleted drift error = %v, want provider startup blocked", err)
 	}
 }
 

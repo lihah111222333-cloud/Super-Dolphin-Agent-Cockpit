@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/orchestration"
+	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/orchestration/nodeexec"
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	mcpcommon "github.com/anthropic-ai/super-agent-v3/internal/mcpserver/common"
 )
@@ -146,8 +147,25 @@ func HandleCreateDAG(svc contract.OrchestrationService) ToolHandler {
 		if err != nil {
 			return nil, err
 		}
+		if err := validateAutomationCommandNodesForCreate(req.Nodes); err != nil {
+			return nil, err
+		}
 		return svc.CreateDAG(ctx, req)
 	})
+}
+
+// validateAutomationCommandNodesForCreate 在工具创建入口拦截不可执行的 automation command 配置。
+// 这里要求 cwd/workspace_roots 显式存在，避免 DAG 创建成功后到 dispatcher 才发现执行边界缺失。
+func validateAutomationCommandNodesForCreate(nodes []contract.CreateDAGNodeRequest) error {
+	for i, node := range nodes {
+		if strings.TrimSpace(node.NodeType) != "automation" {
+			continue
+		}
+		if err := nodeexec.ValidateAutomationCommandDispatchConfig(node.Config); err != nil {
+			return fmt.Errorf("nodes[%d].config invalid for automation command: %w", i, err)
+		}
+	}
+	return nil
 }
 
 // trustedAgentID 从工具调用作用域取可信 agent ID。

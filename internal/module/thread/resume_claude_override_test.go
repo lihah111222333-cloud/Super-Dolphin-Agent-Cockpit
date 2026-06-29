@@ -21,6 +21,7 @@ func TestServiceResumeClaudeWithoutStoredOverrideDoesNotInventConfigOverride(t *
 		ThreadID: "thread-1", AgentID: "agent-1", Prompt: "resume",
 		Model: "sonnet", Cwd: "/repo", CreatedAt: 123,
 		Status: statusCreated, LastEventType: "",
+		ConfigOverride: legacyPromptSnapshotMigrationConfig(t),
 	}}
 	bindings := &stubBindingStore{binding: &bindingstore.Binding{
 		AgentID: "agent-1", Provider: "claude", ProviderThreadID: providerThreadID,
@@ -56,7 +57,13 @@ func TestBackgroundResumeIfNeededRehydratesClaudeOverrideConfig(t *testing.T) {
 	threads := &stubThreadStore{thread: &threadstore.Thread{
 		ThreadID: "thread-1", AgentID: "agent-1", Prompt: "resume",
 		Model: "sonnet", Cwd: "/repo", CreatedAt: 123, Status: statusCreated,
-		ConfigOverride: mustStoredThreadConfigRaw(t, storedThreadConfig{Model: model, Effort: effort}),
+		ConfigOverride: mustStoredThreadConfigRaw(t, storedThreadConfig{
+			Model:  model,
+			Effort: effort,
+			Runtime: map[string]any{
+				"legacyPromptSnapshotMigration": true,
+			},
+		}),
 	}}
 	bindings := &stubBindingStore{binding: &bindingstore.Binding{
 		AgentID: "agent-1", Provider: "claude", ProviderThreadID: providerThreadID,

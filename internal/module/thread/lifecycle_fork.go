@@ -26,6 +26,10 @@ func (s *service) Fork(ctx context.Context, threadID string) (ForkResult, error)
 	if err != nil {
 		return ForkResult{}, err
 	}
+	snapshot, err := s.resolveStablePromptSnapshot(ctx, threadID, provider, contract.PromptAssemblySnapshot{})
+	if err != nil {
+		return ForkResult{}, err
+	}
 	result, err := session.ForkThread(ctx, dto.ForkRequest{ThreadID: historyTargetID(binding, threadID)})
 	if err != nil {
 		return ForkResult{}, err
@@ -35,18 +39,9 @@ func (s *service) Fork(ctx context.Context, threadID string) (ForkResult, error)
 		return ForkResult{}, errors.New("fork thread id is required")
 	}
 	displayName := continuationName(strings.TrimSpace(meta.Name))
-	snapshot, err := s.resolveStablePromptSnapshot(ctx, threadID, provider, contract.PromptAssemblySnapshot{})
-	if err != nil {
-		return ForkResult{}, err
-	}
 	state := threadStateFields{PublicThreadID: newThreadID, OwnerThreadID: historyTargetID(binding, threadID), AgentID: newThreadID, ParentAgentID: meta.ParentAgentID, AgentType: meta.AgentType, AgentMemoryScope: meta.AgentMemoryScope, Provider: provider, CWD: cwd, Model: meta.Model, Name: displayName, Prompt: displayName, ConfigOverride: configOverride, CodexHome: identity.Home, CodexInstanceKey: identity.InstanceKey, CodexModelProvider: identity.ModelProvider, CreatedAt: time.Now().Unix()}
-	if err := s.persistThreadState(ctx, newThreadState(threadStateForkKind, state), true); err != nil {
+	if err := s.persistThreadStateWithPromptSnapshot(ctx, newThreadState(threadStateForkKind, state), true, contract.StartAssembly{Snapshot: snapshot}, false); err != nil {
 		return ForkResult{}, err
-	}
-	if !promptSnapshotBlank(snapshot) {
-		if err := s.savePromptSnapshot(ctx, newThreadID, contract.StartAssembly{Snapshot: snapshot}); err != nil {
-			return ForkResult{}, fmt.Errorf("save fork prompt snapshot for %q: %w", strings.TrimSpace(newThreadID), err)
-		}
 	}
 	if err := s.kickoffForkSession(ctx, state, meta, provider, cwd, displayName, newThreadID, snapshot, identity, config); err != nil {
 		return ForkResult{}, err
@@ -59,7 +54,7 @@ func (s *service) kickoffForkSession(ctx context.Context, state threadStateField
 	if err := s.launchAgent(ctx, newThreadID, cwd, displayName, meta.ParentAgentID, meta.AgentType, meta.AgentMemoryScope, provider, meta.Model); err != nil {
 		return err
 	}
-	forkedSession, err := s.resumeForkSession(ctx, ResumeRequest{Provider: provider, AgentID: newThreadID, ThreadID: newThreadID, CWD: cwd, Model: meta.Model, PromptSnapshot: snapshot, Config: clone.RuntimeConfigMap(config), CodexHome: identity.Home, CodexInstanceKey: identity.InstanceKey, CodexModelProvider: identity.ModelProvider})
+	forkedSession, err := s.resumeForkSession(ctx, ResumeRequest{Provider: provider, AgentID: newThreadID, ThreadID: newThreadID, ProviderThreadID: newThreadID, CWD: cwd, Model: meta.Model, PromptSnapshot: snapshot, Config: clone.RuntimeConfigMap(config), CodexHome: identity.Home, CodexInstanceKey: identity.InstanceKey, CodexModelProvider: identity.ModelProvider})
 	if err != nil {
 		s.stopAgent(ctx, newThreadID)
 		return err
@@ -124,7 +119,7 @@ func resolveLifecycleCodexIdentity(action, provider, home, key, modelProvider st
 			return contract.CodexIdentity{}, nil, nil, err
 		}
 	}
-	return identity, clone.RuntimeConfigMap(stored.Runtime), clone.RawMessage(raw), nil
+	return identity, providerRuntimeConfig(stored.Runtime), clone.RawMessage(raw), nil
 }
 
 // Recover 重新接上 binding 指向的 provider session。

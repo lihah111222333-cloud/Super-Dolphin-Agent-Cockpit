@@ -14,6 +14,11 @@ import (
 	"github.com/wailsapp/wails/v3/pkg/application"
 )
 
+const (
+	viteDevURLEnv           = "VITE_DEV_URL"
+	frontendDevServerURLEnv = "FRONTEND_DEVSERVER_URL"
+)
+
 // FrontendFS 承载入口程序通过 Fx 注入的前端资源文件系统。
 type FrontendFS struct {
 	FS fs.FS
@@ -24,13 +29,22 @@ type FrontendFS struct {
 //go:embed frontend
 var placeholderAssets embed.FS
 
-// AssetHandlerFrom 构造 Wails 前端资源处理器。
-// VITE_DEV_URL 存在时会转发到 Vite dev server；否则使用注入资源或内置占位资源。
+// AssetHandlerFrom 构造生产模式 Wails 前端资源处理器。
+// 生产模式拒绝 VITE_DEV_URL，避免发布环境被环境变量切到 dev proxy。
 func AssetHandlerFrom(injected FrontendFS) http.Handler {
-	if devURL := strings.TrimSpace(os.Getenv("VITE_DEV_URL")); devURL != "" {
-		target, err := parseViteDevProxyURL(devURL)
+	return AssetHandlerFromForMode(injected, false)
+}
+
+// AssetHandlerFromForMode 构造 Wails 前端资源处理器。
+// 只有调试模式允许 VITE_DEV_URL，并且目标必须是 loopback dev server。
+func AssetHandlerFromForMode(injected FrontendFS, debug bool) http.Handler {
+	if devURL := strings.TrimSpace(os.Getenv(viteDevURLEnv)); devURL != "" {
+		target, err := parseFrontendDevServerURL(devURL, viteDevURLEnv)
+		if err == nil && !debug {
+			err = fmt.Errorf("production mode rejects dev URL")
+		}
 		if err != nil {
-			panic("invalid VITE_DEV_URL: " + err.Error())
+			panic("invalid " + viteDevURLEnv + ": " + err.Error())
 		}
 		return viteDevProxy(target)
 	}
@@ -50,26 +64,26 @@ func viteDevProxy(target *url.URL) http.Handler {
 	return proxy
 }
 
-// parseViteDevProxyURL 校验 VITE_DEV_URL 只指向本机 HTTP(S) Vite 服务。
-// 桌面壳会把该地址作为反向代理目标，非 loopback 或缺少端口必须 fail-fast，避免代理到外部主机。
-func parseViteDevProxyURL(rawURL string) (*url.URL, error) {
+// parseFrontendDevServerURL 校验桌面前端 dev server URL 只指向本机 HTTP(S) 服务。
+// Wails 会直接或通过反向代理加载该地址，非 loopback 或缺少端口必须 fail-fast。
+func parseFrontendDevServerURL(rawURL string, envName string) (*url.URL, error) {
 	target, err := url.Parse(strings.TrimSpace(rawURL))
 	if err != nil {
 		return nil, err
 	}
 	if target == nil || target.Host == "" || strings.TrimSpace(target.Hostname()) == "" || target.Port() == "" {
-		return nil, fmt.Errorf("must include host and port, got %q", rawURL)
+		return nil, fmt.Errorf("%s must include host and port, got %q", envName, rawURL)
 	}
 	if target.User != nil {
-		return nil, fmt.Errorf("must not include user info, got %q", rawURL)
+		return nil, fmt.Errorf("%s must not include user info, got %q", envName, rawURL)
 	}
 	switch strings.ToLower(strings.TrimSpace(target.Scheme)) {
 	case "http", "https":
 	default:
-		return nil, fmt.Errorf("must use http/https scheme, got %q", target.Scheme)
+		return nil, fmt.Errorf("%s must use http/https scheme, got %q", envName, target.Scheme)
 	}
 	if !isLoopbackHost(target.Hostname()) {
-		return nil, fmt.Errorf("must use loopback host, got %q", target.Hostname())
+		return nil, fmt.Errorf("%s must use loopback host, got %q", envName, target.Hostname())
 	}
 	return target, nil
 }

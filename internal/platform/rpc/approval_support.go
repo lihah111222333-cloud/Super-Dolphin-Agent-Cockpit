@@ -218,9 +218,9 @@ func shouldAutoApproveUserInput(req ApprovalRequest) bool {
 	return isRequestUserInputKind(req.Kind) && strings.EqualFold(approvalPolicy(req), "never")
 }
 
-// approvalPolicy 从结构字段或 payload 中读取审批策略。
+// approvalPolicy 只读取可信调用方显式写入的审批策略。
 func approvalPolicy(req ApprovalRequest) string {
-	return shared.FirstNonEmpty(req.ApprovalPolicy, stringFromMap(req.Payload, "approvalPolicy", "approval_policy"))
+	return strings.TrimSpace(req.ApprovalPolicy)
 }
 
 // cloneInt64Ptr 复制 int64 指针值。

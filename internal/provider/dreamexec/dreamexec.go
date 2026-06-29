@@ -16,6 +16,8 @@ package dreamexec
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -90,9 +92,8 @@ func (realCommander) Run(ctx context.Context, binary string, args []string, inpu
 			return nil, fmt.Errorf("%w: %s exited with error: %w: %v", ErrModelUnavailable, binary, err, modelErr)
 		}
 		// 退出码错误携带 stderr 预览
-		stderrPreview := strings.TrimSpace(stderrBuf.String())
-		if stderrPreview != "" {
-			return nil, fmt.Errorf("dreamexec: %s exited with error: %w (stderr: %s)", binary, err, stderrPreview)
+		if stderrBuf.Len() > 0 {
+			return nil, fmt.Errorf("dreamexec: %s exited with error: %w (%s)", binary, err, stderrFailureMetadata(stderrBuf.Bytes()))
 		}
 		return nil, fmt.Errorf("dreamexec: %s exited with error: %w", binary, err)
 	}
@@ -174,10 +175,10 @@ func Run(ctx context.Context, c Commander, opts RunOptions) (string, error) {
 	attempts := opts.MaxRetries + 1
 	for range attempts {
 		obj, usage, err := runDreamAttempt(ctx, c, opts)
-		if usage != (TokenUsage{}) && opts.OnUsage != nil {
-			opts.OnUsage(usage)
-		}
 		if err == nil {
+			if usage != (TokenUsage{}) && opts.OnUsage != nil {
+				opts.OnUsage(usage)
+			}
 			return obj, nil
 		}
 		if !isParseFailure(err) {
@@ -186,6 +187,54 @@ func Run(ctx context.Context, c Commander, opts RunOptions) (string, error) {
 		lastParseErr = err
 	}
 	return "", fmt.Errorf("dreamexec: failed to extract JSON after %d attempt(s): %w", attempts, lastParseErr)
+}
+
+// stderrFailureMetadata 把 provider stderr 压缩成可观测但不泄密的错误元数据。
+// 原始 stderr 只参与长度和 hash，摘要会删除 token、路径等常见敏感片段后再返回。
+func stderrFailureMetadata(raw []byte) string {
+	sum := sha256.Sum256(raw)
+	return fmt.Sprintf("stderr_len=%d stderr_sha256=%s stderr_summary=%q",
+		len(raw),
+		hex.EncodeToString(sum[:]),
+		redactStderrSummary(string(raw)),
+	)
+}
+
+func redactStderrSummary(raw string) string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return ""
+	}
+	fields := strings.Fields(raw)
+	if len(fields) > 16 {
+		fields = fields[:16]
+	}
+	for i, field := range fields {
+		fields[i] = redactStderrField(field)
+	}
+	summary := strings.Join(fields, " ")
+	runes := []rune(summary)
+	if len(runes) > 240 {
+		return strings.TrimSpace(string(runes[:240])) + "…"
+	}
+	return summary
+}
+
+func redactStderrField(field string) string {
+	lower := strings.ToLower(field)
+	switch {
+	case strings.Contains(lower, "token="),
+		strings.Contains(lower, "api_key"),
+		strings.Contains(lower, "apikey"),
+		strings.Contains(lower, "secret"),
+		strings.Contains(lower, "password"),
+		strings.Contains(lower, "sk-"):
+		return "[redacted-secret]"
+	case strings.Contains(field, "/") || strings.Contains(field, "\\"):
+		return "[redacted-path]"
+	default:
+		return field
+	}
 }
 
 func validateRunOptions(c Commander, opts RunOptions) error {

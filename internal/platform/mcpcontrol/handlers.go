@@ -152,7 +152,7 @@ func requestApproval(
 			callCtx, cancel = platformconfig.WithPeerTimeout(ctx, timeDurationMillis(req.TimeoutMs))
 			defer cancel()
 		}
-		payload := decodePayloadMap(req.Payload)
+		payload := trustedApprovalPayload(req.Payload)
 		decision, err := approvals.RequestApproval(callCtx, bridge, server, rpc.ApprovalRequest{
 			CallID:       req.CallID,
 			ApprovalID:   req.CallID,
@@ -174,6 +174,13 @@ func requestApproval(
 			DecisionSource: approvalDecisionSource(decision),
 		}, nil
 	})
+}
+
+func trustedApprovalPayload(raw json.RawMessage) map[string]any {
+	payload := decodePayloadMap(raw)
+	delete(payload, "approvalPolicy")
+	delete(payload, "approval_policy")
+	return payload
 }
 
 // approvalDecisionSource 将 approval 结果映射为协议字段，保留 auto approve 和 UI 决策来源。

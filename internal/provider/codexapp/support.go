@@ -242,11 +242,6 @@ func (s *session) setRuntimeConfigValue(key string, value any) {
 	s.runtimeConfig[key] = value
 }
 
-func resolveDefaultCodexModel(ctx context.Context, t *transport) (string, error) {
-	model, _, err := resolveSupportedCodexModel(ctx, t, "")
-	return model, err
-}
-
 // resolveSupportedCodexModel 查询 app-server 支持的模型，并在需要时选一个可用默认值。
 func resolveSupportedCodexModel(ctx context.Context, t *transport, requested string) (string, bool, error) {
 	requested = strings.TrimSpace(requested)
@@ -428,7 +423,7 @@ func (d *driver) finishStartedSession(s *session, req dto.StartSessionRequest, r
 }
 
 func primeResumeToolScope(s *session, req dto.ResumeSessionRequest) {
-	if resumeID := util.FirstNonEmpty(req.ProviderThreadID, req.ThreadID); resumeID != "" {
+	if resumeID := strings.TrimSpace(req.ProviderThreadID); resumeID != "" {
 		s.setThreadID(resumeID)
 	}
 	if cwd := strings.TrimSpace(req.CWD); cwd != "" {

@@ -18,19 +18,23 @@ func TestServiceResumeInfersProviderAndRebuildsSession(t *testing.T) {
 
 	const providerThreadID = "11111111-2222-3333-4444-555555555551"
 	rolloutPath := writeExistingProviderHistoryFile(t)
-	threads := &stubThreadStore{thread: &threadstore.Thread{
-		ThreadID:      "thread-1",
-		AgentID:       "agent-1",
-		Prompt:        "resume",
-		Model:         "stored-model",
-		Cwd:           "/repo",
-		CreatedAt:     123,
-		Status:        statusCreated,
-		LastEventType: "",
-		ConfigOverride: mustStoredThreadConfigRaw(t, storedThreadConfig{Runtime: map[string]any{
-			"additionalWorkingDirectories": []any{"/repo/extra"},
-		}}),
-	}}
+	snapshot := validThreadPromptSnapshotForTest("resume")
+	threads := &stubThreadStore{
+		thread: &threadstore.Thread{
+			ThreadID:      "thread-1",
+			AgentID:       "agent-1",
+			Prompt:        "resume",
+			Model:         "stored-model",
+			Cwd:           "/repo",
+			CreatedAt:     123,
+			Status:        statusCreated,
+			LastEventType: "",
+			ConfigOverride: mustStoredThreadConfigRaw(t, storedThreadConfig{Runtime: map[string]any{
+				"additionalWorkingDirectories": []any{"/repo/extra"},
+			}}),
+		},
+		promptSnapshot: &snapshot,
+	}
 	bindings := &stubBindingStore{binding: &bindingstore.Binding{
 		AgentID:          "agent-1",
 		Provider:         "codex",
@@ -262,6 +266,7 @@ func TestServiceResumeDropsDefaultPlaceholderName(t *testing.T) {
 		CreatedAt:       123,
 		Status:          statusCreated,
 		ManuallyRenamed: false,
+		ConfigOverride:  legacyPromptSnapshotMigrationConfig(t),
 	}}
 	bindings := &stubBindingStore{binding: &bindingstore.Binding{
 		AgentID:          agentID,
@@ -317,13 +322,14 @@ func TestServiceResumeBackfillsDefaultCodexIdentityWhenPackagedRuntime(t *testin
 	const providerThreadID = "11111111-2222-3333-4444-555555555552"
 	rolloutPath := writeExistingProviderHistoryFile(t)
 	threads := &stubThreadStore{thread: &threadstore.Thread{
-		ThreadID:  "thread-1",
-		AgentID:   "agent-1",
-		Prompt:    "resume",
-		Model:     "stored-model",
-		Cwd:       "/repo",
-		CreatedAt: 123,
-		Status:    statusCreated,
+		ThreadID:       "thread-1",
+		AgentID:        "agent-1",
+		Prompt:         "resume",
+		Model:          "stored-model",
+		Cwd:            "/repo",
+		CreatedAt:      123,
+		Status:         statusCreated,
+		ConfigOverride: legacyPromptSnapshotMigrationConfig(t),
 	}}
 	bindings := &stubBindingStore{binding: &bindingstore.Binding{
 		AgentID:          "agent-1",
@@ -383,7 +389,7 @@ func TestServiceResumePrefersStoredPromptSnapshot(t *testing.T) {
 		DeveloperInstructions: "stored dev",
 		Provider:              "codex",
 		Version:               contract.PromptAssemblySnapshotVersion,
-		Hash:                  promptSnapshotHash("resume", "stored base", "stored dev", "codex", nil),
+		Hash:                  promptSnapshotHash("resume", "stored base", "stored dev", "codex", nil, nil, 0),
 	}
 	threads := &stubThreadStore{
 		thread: &threadstore.Thread{
@@ -441,14 +447,20 @@ func TestServiceResumeRehydratesClaudeOverrideConfig(t *testing.T) {
 	const providerThreadID = "11111111-2222-3333-4444-555555555554"
 	rolloutPath := writeExistingProviderHistoryFile(t)
 	threads := &stubThreadStore{thread: &threadstore.Thread{
-		ThreadID:       "thread-1",
-		AgentID:        "agent-1",
-		Prompt:         "resume",
-		Model:          "sonnet",
-		Cwd:            "/repo",
-		CreatedAt:      123,
-		Status:         statusCreated,
-		ConfigOverride: mustStoredThreadConfigRaw(t, storedThreadConfig{Model: model, Effort: effort}),
+		ThreadID:  "thread-1",
+		AgentID:   "agent-1",
+		Prompt:    "resume",
+		Model:     "sonnet",
+		Cwd:       "/repo",
+		CreatedAt: 123,
+		Status:    statusCreated,
+		ConfigOverride: mustStoredThreadConfigRaw(t, storedThreadConfig{
+			Model:  model,
+			Effort: effort,
+			Runtime: map[string]any{
+				"legacyPromptSnapshotMigration": true,
+			},
+		}),
 	}}
 	bindings := &stubBindingStore{binding: &bindingstore.Binding{
 		AgentID:          "agent-1",
@@ -489,14 +501,17 @@ func TestServiceResumeRehydratesClaudeHomeFromStoredRuntime(t *testing.T) {
 	claudeHome := t.TempDir()
 	rolloutPath := writeExistingProviderHistoryFile(t)
 	threads := &stubThreadStore{thread: &threadstore.Thread{
-		ThreadID:       "thread-claude-home",
-		AgentID:        "agent-claude-home",
-		Prompt:         "resume",
-		Model:          "sonnet",
-		Cwd:            "/repo",
-		CreatedAt:      123,
-		Status:         statusCreated,
-		ConfigOverride: mustStoredThreadConfigRaw(t, storedThreadConfig{Runtime: map[string]any{"claude_home": claudeHome}}),
+		ThreadID:  "thread-claude-home",
+		AgentID:   "agent-claude-home",
+		Prompt:    "resume",
+		Model:     "sonnet",
+		Cwd:       "/repo",
+		CreatedAt: 123,
+		Status:    statusCreated,
+		ConfigOverride: mustStoredThreadConfigRaw(t, storedThreadConfig{Runtime: map[string]any{
+			"claude_home":                   claudeHome,
+			"legacyPromptSnapshotMigration": true,
+		}}),
 	}}
 	bindings := &stubBindingStore{binding: &bindingstore.Binding{
 		AgentID:          "agent-claude-home",
@@ -532,14 +547,17 @@ func TestServiceResumeRequestClaudeHomeOverridesStoredRuntime(t *testing.T) {
 	requestHome := t.TempDir()
 	rolloutPath := writeExistingProviderHistoryFile(t)
 	threads := &stubThreadStore{thread: &threadstore.Thread{
-		ThreadID:       "thread-claude-home-override",
-		AgentID:        "agent-claude-home-override",
-		Prompt:         "resume",
-		Model:          "sonnet",
-		Cwd:            "/repo",
-		CreatedAt:      123,
-		Status:         statusCreated,
-		ConfigOverride: mustStoredThreadConfigRaw(t, storedThreadConfig{Runtime: map[string]any{"claudeHome": storedHome}}),
+		ThreadID:  "thread-claude-home-override",
+		AgentID:   "agent-claude-home-override",
+		Prompt:    "resume",
+		Model:     "sonnet",
+		Cwd:       "/repo",
+		CreatedAt: 123,
+		Status:    statusCreated,
+		ConfigOverride: mustStoredThreadConfigRaw(t, storedThreadConfig{Runtime: map[string]any{
+			"claudeHome":                    storedHome,
+			"legacyPromptSnapshotMigration": true,
+		}}),
 	}}
 	bindings := &stubBindingStore{binding: &bindingstore.Binding{
 		AgentID:          "agent-claude-home-override",

@@ -211,6 +211,11 @@ func (s *service) Resume(ctx context.Context, req ResumeRequest) (ResumeResult, 
 	req.Model = util.FirstNonEmpty(req.Model, state.Model)
 	req.CWD = util.FirstNonEmpty(req.CWD, state.CWD, s.lookupBindingCWD(ctx, req.AgentID))
 	displayName := resolveDisplayName(ctx, s.threadStore, req.AgentID, "", state.Prompt)
+	snapshot, err := s.resolveResumePromptSnapshot(ctx, req, state)
+	if err != nil {
+		return ResumeResult{}, err
+	}
+	req.PromptSnapshot = snapshot
 	session, err := s.establishResumedSession(ctx, req, state, displayName)
 	if err != nil {
 		return ResumeResult{}, err
@@ -296,23 +301,8 @@ func (s *service) persistStartedSession(
 	})
 	publicThreadID := state.PublicThreadID
 	providerThreadID = state.ProviderThreadID
-	if err := s.persistThreadState(ctx, state, true); err != nil {
-		return StartResult{}, idempotency.Retain(errors.Join(err, s.stopAgent(ctx, agentID)))
-	}
-	if err := s.savePromptSnapshot(ctx, publicThreadID, assembly); err != nil {
-		err = idempotency.RetainOnError(err, s.stopAgent(ctx, agentID))
-		var cleanupErr error
-		if store := s.threadBindingStorePort(); store != nil {
-			cleanupErr = errors.Join(cleanupErr, store.DeleteByAgentID(ctx, agentID))
-		}
-		if s.threadStore != nil {
-			cleanupErr = errors.Join(cleanupErr, s.threadStore.DeleteByThreadID(ctx, publicThreadID))
-		}
-		s.forgetThreadAgents(publicThreadID, providerThreadID)
-		if cleanupErr != nil {
-			err = idempotency.Retain(errors.Join(err, cleanupErr))
-		}
-		return StartResult{}, err
+	if err := s.persistThreadStateWithPromptSnapshot(ctx, state, true, assembly, true); err != nil {
+		return StartResult{}, idempotency.RetainOnError(err, s.stopAgent(ctx, agentID))
 	}
 	return newStartResult(req, publicThreadID, agentID, providerUUID, providerThreadID, effectiveModel, effectiveCWD), nil
 }
@@ -502,6 +492,57 @@ func (s *service) persistThreadState(ctx context.Context, state threadState, upd
 		return err
 	}
 	return s.persistStartedThread(ctx, state, bindingOutcome)
+}
+
+// persistThreadStateWithPromptSnapshot 先写 durable row/binding 和 prompt snapshot，再按需发布 Started。
+// snapshot 写失败时回滚已写入的 row/binding，避免 UI 看到一个不能 resume/fork 的线程。
+func (s *service) persistThreadStateWithPromptSnapshot(
+	ctx context.Context,
+	state threadState,
+	updateBinding bool,
+	assembly contract.StartAssembly,
+	publishStarted bool,
+) error {
+	state, err := normalizeThreadState(state)
+	if err != nil {
+		return err
+	}
+	if err := s.ensurePublicThreadAvailable(ctx, state); err != nil {
+		return err
+	}
+	if state.PublicThreadID == "" || state.AgentID == "" {
+		return errors.New("thread and agent ids are required")
+	}
+	bindingOutcome, err := s.maybeRegisterThreadBinding(ctx, state, updateBinding)
+	if err != nil {
+		return err
+	}
+	if err := s.upsertPublicThread(ctx, state, bindingOutcome); err != nil {
+		return err
+	}
+	if err := s.savePromptSnapshot(ctx, state.PublicThreadID, assembly); err != nil {
+		if cleanupErr := s.cleanupThreadStateAfterSnapshotFailure(ctx, state); cleanupErr != nil {
+			return idempotency.Retain(errors.Join(err, cleanupErr))
+		}
+		return err
+	}
+	if publishStarted {
+		s.rememberStartedThread(state)
+		s.publishThreadStarted(state)
+	}
+	return nil
+}
+
+func (s *service) cleanupThreadStateAfterSnapshotFailure(ctx context.Context, state threadState) error {
+	var cleanupErr error
+	if store := s.threadBindingStorePort(); store != nil {
+		cleanupErr = errors.Join(cleanupErr, store.DeleteByAgentID(ctx, state.AgentID))
+	}
+	if s.threadStore != nil {
+		cleanupErr = errors.Join(cleanupErr, s.threadStore.DeleteByThreadID(ctx, state.PublicThreadID))
+	}
+	s.forgetThreadAgents(state.PublicThreadID, state.ProviderThreadID)
+	return cleanupErr
 }
 
 func (s *service) lookupThreadMeta(ctx context.Context, threadID string) threadMeta {

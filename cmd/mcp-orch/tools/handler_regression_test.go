@@ -140,7 +140,7 @@ func TestHandleCreateDAGPreservesNodeConfig(t *testing.T) {
 			"node_key":"smoke",
 			"title":"Smoke",
 			"node_type":"automation",
-			"config":{"exec":{"kind":"command_card","command_ref":"build"},"outputs":{"to_node_result":true}}
+			"config":{"exec":{"kind":"command_card","command_ref":"build","cwd":"/repo","workspace_roots":["/repo"]},"outputs":{"to_node_result":true}}
 		}]
 	}`))
 	if err != nil {
@@ -149,7 +149,7 @@ func TestHandleCreateDAGPreservesNodeConfig(t *testing.T) {
 	if len(got.Nodes) != 1 {
 		t.Fatalf("nodes = %d, want 1", len(got.Nodes))
 	}
-	assertJSONEqual(t, got.Nodes[0].Config, `{"exec":{"kind":"command_card","command_ref":"build"},"outputs":{"to_node_result":true}}`)
+	assertJSONEqual(t, got.Nodes[0].Config, `{"exec":{"kind":"command_card","command_ref":"build","cwd":"/repo","workspace_roots":["/repo"]},"outputs":{"to_node_result":true}}`)
 }
 
 func TestHandleCreateDAGSynthesizesAutomationConfigFromCommandRef(t *testing.T) {
@@ -170,7 +170,8 @@ func TestHandleCreateDAGSynthesizesAutomationConfigFromCommandRef(t *testing.T) 
 			"node_key":"smoke",
 			"title":"Smoke",
 			"node_type":"automation",
-			"command_ref":" build "
+			"command_ref":" build ",
+			"config":{"exec":{"cwd":"/repo","workspace_roots":["/repo"]}}
 		}]
 	}`))
 	if err != nil {
@@ -179,7 +180,7 @@ func TestHandleCreateDAGSynthesizesAutomationConfigFromCommandRef(t *testing.T) 
 	if len(got.Nodes) != 1 {
 		t.Fatalf("nodes = %d, want 1", len(got.Nodes))
 	}
-	assertJSONEqual(t, got.Nodes[0].Config, `{"exec":{"kind":"command_card","command_ref":"build"}}`)
+	assertJSONEqual(t, got.Nodes[0].Config, `{"exec":{"kind":"command_card","command_ref":"build","cwd":"/repo","workspace_roots":["/repo"]}}`)
 }
 
 func TestHandleCreateDAGInfersAutomationNodeTypeFromCommandRef(t *testing.T) {
@@ -199,7 +200,8 @@ func TestHandleCreateDAGInfersAutomationNodeTypeFromCommandRef(t *testing.T) {
 		"nodes":[{
 			"node_key":"smoke",
 			"title":"Smoke",
-			"command_ref":" build "
+			"command_ref":" build ",
+			"config":{"exec":{"cwd":"/repo","workspace_roots":["/repo"]}}
 		}]
 	}`))
 	if err != nil {
@@ -211,7 +213,7 @@ func TestHandleCreateDAGInfersAutomationNodeTypeFromCommandRef(t *testing.T) {
 	if got.Nodes[0].NodeType != "automation" {
 		t.Fatalf("NodeType = %q, want automation", got.Nodes[0].NodeType)
 	}
-	assertJSONEqual(t, got.Nodes[0].Config, `{"exec":{"kind":"command_card","command_ref":"build"}}`)
+	assertJSONEqual(t, got.Nodes[0].Config, `{"exec":{"kind":"command_card","command_ref":"build","cwd":"/repo","workspace_roots":["/repo"]}}`)
 }
 
 func TestHandleCreateDAGMergesCommandRefIntoAutomationConfig(t *testing.T) {
@@ -233,7 +235,7 @@ func TestHandleCreateDAGMergesCommandRefIntoAutomationConfig(t *testing.T) {
 			"title":"Smoke",
 			"node_type":"automation",
 			"command_ref":" build ",
-			"config":{"outputs":{"to_node_result":true}}
+			"config":{"exec":{"cwd":"/repo","workspace_roots":["/repo"]},"outputs":{"to_node_result":true}}
 		}]
 	}`))
 	if err != nil {
@@ -242,7 +244,7 @@ func TestHandleCreateDAGMergesCommandRefIntoAutomationConfig(t *testing.T) {
 	if len(got.Nodes) != 1 {
 		t.Fatalf("nodes = %d, want 1", len(got.Nodes))
 	}
-	assertJSONEqual(t, got.Nodes[0].Config, `{"exec":{"kind":"command_card","command_ref":"build"},"outputs":{"to_node_result":true}}`)
+	assertJSONEqual(t, got.Nodes[0].Config, `{"exec":{"kind":"command_card","command_ref":"build","cwd":"/repo","workspace_roots":["/repo"]},"outputs":{"to_node_result":true}}`)
 }
 
 func TestHandleCreateDAGAcceptsFlatScheduleAndNodeExecution(t *testing.T) {
@@ -390,7 +392,7 @@ func TestHandleApplyOpsBuildsFlatAddNode(t *testing.T) {
 		"node_type":"automation",
 		"assigned_to":"agent-score",
 		"depends_on":["plan"],
-		"config":{"exec":{"kind":"command_card","command_ref":"score"}}
+		"config":{"exec":{"kind":"command_card","command_ref":"score","cwd":"/repo","workspace_roots":["/repo"]}}
 	}`))
 	if err != nil {
 		t.Fatalf("HandleApplyOps() error = %v", err)
@@ -398,7 +400,7 @@ func TestHandleApplyOpsBuildsFlatAddNode(t *testing.T) {
 	if got.DagKey != "dag-flat" || got.BaseVersion != 5 {
 		t.Fatalf("ApplyOps request = %#v", got)
 	}
-	assertJSONEqual(t, got.Ops, `[{"op":"add_node","node":{"node_key":"score","title":"Score","node_type":"automation","assigned_to":"agent-score","depends_on":["plan"],"config":{"exec":{"kind":"command_card","command_ref":"score"}}}}]`)
+	assertJSONEqual(t, got.Ops, `[{"op":"add_node","node":{"node_key":"score","title":"Score","node_type":"automation","assigned_to":"agent-score","depends_on":["plan"],"config":{"exec":{"kind":"command_card","command_ref":"score","cwd":"/repo","workspace_roots":["/repo"]}}}}]`)
 }
 
 func TestHandleApplyOpsBuildsFlatUpdateNode(t *testing.T) {

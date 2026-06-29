@@ -130,11 +130,16 @@ func TestWithClipboardAssetsFallsThroughForNonClipboardURLs(t *testing.T) {
 
 func TestServeLocalImageAssetServesAbsolutePNG(t *testing.T) {
 	full := mustCreateLocalPNG(t, t.TempDir())
+	registry := newLocalImageAssetRegistry(nil)
+	previewURL, err := registry.register(full, "test")
+	if err != nil {
+		t.Fatalf("register local image: %v", err)
+	}
 
-	srv := httptest.NewServer(withClipboardAssets(http.NotFoundHandler()))
+	srv := httptest.NewServer(withClipboardAssetsRegistry(http.NotFoundHandler(), registry))
 	defer srv.Close()
 
-	res, err := http.Get(srv.URL + "/local-image?path=" + url.QueryEscape(full))
+	res, err := http.Get(srv.URL + previewURL)
 	if err != nil {
 		t.Fatalf("GET local image: %v", err)
 	}
@@ -144,6 +149,22 @@ func TestServeLocalImageAssetServesAbsolutePNG(t *testing.T) {
 	}
 	if got := res.Header.Get("Content-Type"); got != "image/png" {
 		t.Errorf("Content-Type = %q, want image/png", got)
+	}
+}
+
+func TestLocalImageRejectsUnregisteredAbsolutePath(t *testing.T) {
+	full := mustCreateLocalPNG(t, t.TempDir())
+
+	srv := httptest.NewServer(withClipboardAssets(http.NotFoundHandler()))
+	defer srv.Close()
+
+	res, err := http.Get(srv.URL + "/local-image?path=" + url.QueryEscape(full))
+	if err != nil {
+		t.Fatalf("GET local image: %v", err)
+	}
+	defer res.Body.Close()
+	if res.StatusCode != http.StatusNotFound {
+		t.Fatalf("status = %d, want 404 for unregistered absolute path", res.StatusCode)
 	}
 }
 

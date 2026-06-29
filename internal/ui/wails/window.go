@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 	"github.com/wailsapp/wails/v3/pkg/application"
 	"github.com/wailsapp/wails/v3/pkg/events"
 )
@@ -21,7 +22,8 @@ func CreateMainWindow(app *application.App, title string, debug bool) {
 }
 
 // newWindowOptions 构造桌面窗口默认参数，并把 bootstrap/cwd 编入 URL。
-func newWindowOptions(title string, debug bool, name, uiBootstrap, cwd string) application.WebviewWindowOptions {
+// dev server 配置错误会返回错误，调用方必须阻断窗口创建。
+func newWindowOptions(title string, debug bool, name, uiBootstrap, cwd string) (application.WebviewWindowOptions, error) {
 	options := application.WebviewWindowOptions{
 		Name:                   "main",
 		Title:                  title,
@@ -38,8 +40,12 @@ func newWindowOptions(title string, debug bool, name, uiBootstrap, cwd string) a
 		options.Name = name
 	}
 	// 后端把 bootstrap 值放进窗口 URL，前端从查询串读取 ao_ui_bootstrap/ao_window_cwd。
-	options.URL = windowURL(uiBootstrap, cwd)
-	return options
+	windowURL, err := windowURLForMode(debug, uiBootstrap, cwd)
+	if err != nil {
+		return application.WebviewWindowOptions{}, err
+	}
+	options.URL = windowURL
+	return options, nil
 }
 
 // createWindow 创建 Wails WebviewWindow 并绑定文件拖拽事件。
@@ -48,7 +54,12 @@ func createWindow(app *application.App, title string, debug bool, name, uiBootst
 	if app == nil {
 		return nil
 	}
-	window := app.Window.NewWithOptions(newWindowOptions(title, debug, name, uiBootstrap, cwd))
+	options, err := newWindowOptions(title, debug, name, uiBootstrap, cwd)
+	if err != nil {
+		pkglogger.Error("wails: create window options failed", "error", err)
+		return nil
+	}
+	window := app.Window.NewWithOptions(options)
 	bindFileDrop(window, app, firstAppBinding(bindings))
 	return window
 }
@@ -105,10 +116,29 @@ func buildFilesDroppedPayload(files []string, details *application.DropTargetDet
 	payload := map[string]any{
 		"files": append([]string(nil), files...),
 	}
+	if previews := droppedImagePreviews(files); len(previews) > 0 {
+		payload["imagePreviews"] = previews
+	}
 	if detailPayload := fileDropDetails(details); detailPayload != nil {
 		payload["details"] = detailPayload
 	}
 	return payload, true
+}
+
+// droppedImagePreviews 为拖入的本地图片登记短期预览 token。
+func droppedImagePreviews(files []string) map[string]string {
+	previews := make(map[string]string)
+	for _, raw := range files {
+		path := strings.TrimSpace(raw)
+		if path == "" {
+			continue
+		}
+		previewURL, err := registerLocalImageAsset(path, "dropped-file")
+		if err == nil {
+			previews[path] = previewURL
+		}
+	}
+	return previews
 }
 
 // fileDropDetails 提取 Wails 提供的拖拽目标元素信息。
@@ -125,11 +155,25 @@ func fileDropDetails(details *application.DropTargetDetails) map[string]any {
 	}
 }
 
-// windowURL 生成窗口入口 URL，并附加启动快照和工作目录参数。
-func windowURL(uiBootstrap, cwd string) string {
-	base := strings.TrimSpace(os.Getenv("FRONTEND_DEVSERVER_URL"))
+// windowURL 以生产模式生成窗口入口 URL，并附加启动快照和工作目录参数。
+func windowURL(uiBootstrap, cwd string) (string, error) {
+	return windowURLForMode(false, uiBootstrap, cwd)
+}
+
+// windowURLForMode 生成窗口入口 URL，并在开发模式下允许 loopback dev server。
+func windowURLForMode(debug bool, uiBootstrap, cwd string) (string, error) {
+	base := strings.TrimSpace(os.Getenv(frontendDevServerURLEnv))
 	if base == "" {
 		base = "/"
+	} else {
+		target, err := parseFrontendDevServerURL(base, frontendDevServerURLEnv)
+		if err != nil {
+			return "", fmt.Errorf("invalid %s: %w", frontendDevServerURLEnv, err)
+		}
+		if !debug {
+			return "", fmt.Errorf("invalid %s: production mode rejects dev URL", frontendDevServerURLEnv)
+		}
+		base = target.String()
 	}
 	values := url.Values{}
 	if value := strings.TrimSpace(uiBootstrap); value != "" {
@@ -139,11 +183,11 @@ func windowURL(uiBootstrap, cwd string) string {
 		values.Set("ao_window_cwd", value)
 	}
 	if len(values) == 0 {
-		return base
+		return base, nil
 	}
 	parsed, err := url.Parse(base)
 	if err != nil {
-		return base
+		return "", fmt.Errorf("parse window URL base: %w", err)
 	}
 	query := parsed.Query()
 	for key, items := range values {
@@ -152,7 +196,7 @@ func windowURL(uiBootstrap, cwd string) string {
 		}
 	}
 	parsed.RawQuery = query.Encode()
-	return parsed.String()
+	return parsed.String(), nil
 }
 
 // buildWindowName 生成同组窗口名，使用时间戳避免重复。

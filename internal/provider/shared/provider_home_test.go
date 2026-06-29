@@ -307,7 +307,47 @@ func TestProviderMirrorTargetsRedirectsPackagedRootLibraryCWDToWritableHome(t *t
 	assertAllMirrorTargetsUnderRoot(t, targets, superHome)
 }
 
-func TestEnsureNoSkillMirrorConflictsAllowsOrdinarySkillContentConflicts(t *testing.T) {
+func TestProviderHomeBlocksDrift(t *testing.T) {
+	assertProviderHomeBlocksActiveConflict(t, "mirror_drift")
+}
+
+func TestProviderHomeBlocksUnmanaged(t *testing.T) {
+	assertProviderHomeBlocksActiveConflict(t, "unmanaged_provider_skill")
+}
+
+func TestProviderHomeBlocksCanonicalDeletedWithDrift(t *testing.T) {
+	assertProviderHomeBlocksActiveConflict(t, "canonical_deleted_with_drift")
+}
+
+func assertProviderHomeBlocksActiveConflict(t *testing.T, kind string) {
+	t.Helper()
+	for _, tc := range []struct {
+		name     string
+		targetID string
+		scope    string
+	}{
+		{name: "project", targetID: "codex:project:repo", scope: "project"},
+		{name: "app-managed", targetID: "codex:app-managed:owner", scope: "personal"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			report := contract.SkillMirrorReport{Conflicts: []contract.SkillMirrorReportItem{{
+				TargetID:     tc.targetID,
+				Scope:        tc.scope,
+				ConflictKind: kind,
+			}}}
+
+			err := EnsureNoSkillMirrorConflicts(report)
+			if err == nil {
+				t.Fatalf("EnsureNoSkillMirrorConflicts() error = nil, want active mirror conflict to block provider start")
+			}
+			if !strings.Contains(err.Error(), kind) || !strings.Contains(err.Error(), tc.scope) {
+				t.Fatalf("EnsureNoSkillMirrorConflicts() error = %v, want kind %q and scope %q", err, kind, tc.scope)
+			}
+		})
+	}
+}
+
+func TestEnsureNoSkillMirrorConflictsAllowsReportOnlySkillContentConflicts(t *testing.T) {
 	kinds := []string{
 		"same_name",
 		"same_name_scope_conflict",
@@ -322,13 +362,13 @@ func TestEnsureNoSkillMirrorConflictsAllowsOrdinarySkillContentConflicts(t *test
 	for _, kind := range kinds {
 		t.Run(kind, func(t *testing.T) {
 			report := contract.SkillMirrorReport{Conflicts: []contract.SkillMirrorReportItem{{
-				TargetID:     "codex:project:repo",
-				Scope:        "project",
+				TargetID:     "codex:user-global:owner",
+				Scope:        "personal",
 				ConflictKind: kind,
 			}}}
 
 			if err := EnsureNoSkillMirrorConflicts(report); err != nil {
-				t.Fatalf("EnsureNoSkillMirrorConflicts() error = %v, want ordinary content conflict to allow provider start", err)
+				t.Fatalf("EnsureNoSkillMirrorConflicts() error = %v, want UI-only content conflict to remain report-only", err)
 			}
 		})
 	}
