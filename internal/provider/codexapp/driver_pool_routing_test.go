@@ -235,7 +235,7 @@ func TestStartSessionFailsClosedWhenPreparedIdentityHasNoPool(t *testing.T) {
 	assertExplicitCodexMirrorTargets(t, mirror.targets, workDir, wantHome)
 }
 
-func TestStartSessionMirrorContentConflictAllowsPoolAcquire(t *testing.T) {
+func TestStartSessionMirrorContentConflictBlocksPoolAcquire(t *testing.T) {
 	t.Setenv(poolRoutingEnvVar, "1")
 	superHome := filepath.Join(t.TempDir(), "sd-home")
 	t.Setenv(providershared.SuperDolphinHomeEnv, superHome)
@@ -258,11 +258,11 @@ func TestStartSessionMirrorContentConflictAllowsPoolAcquire(t *testing.T) {
 	}
 
 	_, err := d.StartSession(context.Background(), dto.StartSessionRequest{AgentID: "agent-conflict", CWD: workDir})
-	if err == nil || !strings.Contains(err.Error(), "stop after acquire") {
-		t.Fatalf("StartSession() error = %v, want pool acquire error after non-blocking mirror content conflict", err)
+	if err == nil || !strings.Contains(err.Error(), "skill mirror conflicts") || !strings.Contains(err.Error(), "drift") {
+		t.Fatalf("StartSession() error = %v, want blocking project mirror content conflict", err)
 	}
-	if acquires.Load() != 1 {
-		t.Fatalf("pool acquire calls = %d, want 1", acquires.Load())
+	if acquires.Load() != 0 {
+		t.Fatalf("pool acquire calls = %d, want 0", acquires.Load())
 	}
 }
 

@@ -43,7 +43,6 @@ func TestMinRequiredSchemaVersion(t *testing.T) {
 func TestQuerySchemaVersion_AcceptsAtOrAboveMinimum(t *testing.T) {
 	t.Parallel()
 	for _, v := range []int{MinRequiredSchemaVersion, MinRequiredSchemaVersion + 1, MinRequiredSchemaVersion + 50} {
-		v := v
 		t.Run("", func(t *testing.T) {
 			t.Parallel()
 			db := openTestDB(t)
@@ -74,6 +73,32 @@ func TestVerifyMinSchemaVersion_RejectsBelowMinimum(t *testing.T) {
 	for _, want := range []string{"migration", "apply", "数据库", "database migration version"} {
 		if !strings.Contains(msg, want) {
 			t.Errorf("error message missing %q: %s", want, msg)
+		}
+	}
+}
+
+func TestSchemaGateRejectsMissingRequiredColumns(t *testing.T) {
+	t.Parallel()
+	db := openTestDB(t)
+	insertVersion(t, db, MinRequiredSchemaVersion)
+	createMarkerBaselineTables(t, db)
+
+	err := VerifyMinSchemaVersion(context.Background(), db)
+	if err == nil {
+		t.Fatal("VerifyMinSchemaVersion err = nil, want missing required column error")
+	}
+	for _, want := range []string{"agent_threads.prompt_snapshot", "shared_files.content_location"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Fatalf("VerifyMinSchemaVersion err = %v, want missing %s", err, want)
+		}
+	}
+}
+
+func createMarkerBaselineTables(t *testing.T, db *sql.DB) {
+	t.Helper()
+	for _, table := range requiredBaselineTables {
+		if _, err := db.ExecContext(context.Background(), fmt.Sprintf(`CREATE TABLE %s (id INTEGER)`, table)); err != nil {
+			t.Fatalf("create marker table %s: %v", table, err)
 		}
 	}
 }

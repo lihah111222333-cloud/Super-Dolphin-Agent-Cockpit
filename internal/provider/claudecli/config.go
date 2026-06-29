@@ -2,6 +2,7 @@ package claudecli
 
 import (
 	"encoding/json"
+	"fmt"
 	"maps"
 	"os"
 	"path/filepath"
@@ -53,6 +54,67 @@ func configFromMap(cfg map[string]any) cliLaunchConfig {
 		AdditionalDisallowedTools:   additionalDisallowedToolsFromMap(cfg),
 		DisableProviderNativeSkills: providerNativeSkillsDisabledFromMap(cfg),
 	}
+}
+
+// validateClaudeSecurityConfig 在 provider 启动前严格校验安全相关配置。
+// 配置错误必须返回启动错误，不能被 NormalizeConfigStringSlice 隐式收敛为空列表。
+func validateClaudeSecurityConfig(cfg map[string]any) error {
+	if err := validateConfigStringSliceKeys(cfg, "claude_builtin_tools", "claudeBuiltinTools", "builtin_tools", "builtinTools"); err != nil {
+		return err
+	}
+	if err := validateConfigStringSliceKeys(cfg, "disallowed_tools", "disallowedTools", "disallowed_builtin_tools", "disallowedBuiltinTools"); err != nil {
+		return err
+	}
+	if err := validateConfigStringSliceKeys(cfg, "additional_disallowed_tools", "additionalDisallowedTools", "extra_disallowed_tools", "extraDisallowedTools", "claude_additional_disallowed_tools", "claudeAdditionalDisallowedTools"); err != nil {
+		return err
+	}
+	return validateConfigBoolKeys(cfg, "providerNativeSkills", "provider_native_skills", "disableProviderNativeSkills", "disable_provider_native_skills")
+}
+
+func validateConfigStringSliceKeys(cfg map[string]any, keys ...string) error {
+	for _, key := range keys {
+		raw, ok := cfg[key]
+		if !ok {
+			continue
+		}
+		if err := validateConfigStringSliceValue(key, raw); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// validateConfigStringSliceValue 校验字符串列表配置的原始类型。
+// []any 内任何非字符串元素都视为配置错误，避免安全列表被悄悄截断。
+func validateConfigStringSliceValue(key string, raw any) error {
+	switch typed := raw.(type) {
+	case string, []string:
+		return nil
+	case []any:
+		for i, value := range typed {
+			if _, ok := value.(string); !ok {
+				return fmt.Errorf("%s[%d] must be string", key, i)
+			}
+		}
+		return nil
+	default:
+		return fmt.Errorf("%s must be string or string array", key)
+	}
+}
+
+// validateConfigBoolKeys 校验布尔安全开关必须显式为 bool。
+// 字符串或对象不能被当成 false 处理，否则会隐藏配置写错的问题。
+func validateConfigBoolKeys(cfg map[string]any, keys ...string) error {
+	for _, key := range keys {
+		raw, ok := cfg[key]
+		if !ok {
+			continue
+		}
+		if _, ok := raw.(bool); !ok {
+			return fmt.Errorf("%s must be boolean", key)
+		}
+	}
+	return nil
 }
 
 // builtinToolsFromMap 读取显式 builtin tools 覆盖；nil 表示使用默认策略。
@@ -233,7 +295,7 @@ func cloneConfigMap(cfg map[string]any) map[string]any {
 }
 
 // fallbackThreadID 返回恢复请求中已有的 threadID；新会话必须等待 provider 回报真实 id。
-func fallbackThreadID(agentID, threadID string) string {
+func fallbackThreadID(threadID string) string {
 	if threadID = strings.TrimSpace(threadID); threadID != "" {
 		return threadID
 	}

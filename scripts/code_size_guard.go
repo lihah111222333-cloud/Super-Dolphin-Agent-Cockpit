@@ -5,6 +5,7 @@ package main
 import (
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 
@@ -120,6 +121,7 @@ func runStrict(opts archtest.CheckOptions) {
 	if len(violations) > 0 {
 		reportAndExit("strict", violations)
 	}
+	failIfGuardGeneratedFilesDrifted(opts)
 	fmt.Println("✅  strict 模式全量通过")
 }
 
@@ -151,6 +153,7 @@ func runCheck(opts archtest.CheckOptions, blPath, testBLPath string) {
 	root := resolveRoot(opts)
 	runRatchetPhase("生产", blPath, opts, root, false)
 	runRatchetPhase("测试", testBLPath, opts, root, true)
+	failIfGuardGeneratedFilesDrifted(opts)
 	printPassSummary()
 }
 
@@ -247,6 +250,34 @@ func runFreezeRegistryAutoRepair(opts archtest.CheckOptions) {
 	for _, fix := range fixes {
 		fmt.Printf("🧹  %s\n", fix.String())
 	}
+}
+
+// failIfGuardGeneratedFilesDrifted 让 hook/CI 守卫在自动修复 baseline 或 freeze 后失败。
+// 开发者需要显式运行 freeze/shrink 修复命令并人工审查这些生成文件，而不是让 hook 静默改写。
+func failIfGuardGeneratedFilesDrifted(opts archtest.CheckOptions) {
+	if os.Getenv("SUPER_DOLPHIN_GUARD_FAIL_ON_DRIFT") != "1" {
+		return
+	}
+	repoRoot := resolveRoot(opts)
+	paths := []string{
+		"internal/archtest/baseline.json",
+		"internal/archtest/baseline_test.json",
+		"internal/archtest/freeze_registry.go",
+	}
+	args := append([]string{"-C", repoRoot, "diff", "--exit-code", "--"}, paths...)
+	cmd := exec.Command("git", args...)
+	out, err := cmd.CombinedOutput()
+	if err == nil {
+		return
+	}
+	fmt.Fprintln(os.Stderr, "❌  guard generated-file drift detected; run explicit baseline/freeze repair and review the diff.")
+	for _, path := range paths {
+		fmt.Fprintf(os.Stderr, "  • %s\n", path)
+	}
+	if len(out) > 0 {
+		fmt.Fprintln(os.Stderr, string(out))
+	}
+	os.Exit(1)
 }
 
 // printThresholds 输出当前代码守卫阈值，方便定位哪类限制触发。

@@ -73,6 +73,7 @@ func TestDriverResumeSessionRestoresApprovalPolicy(t *testing.T) {
 		Provider:           "codex",
 		AgentID:            "agent-1",
 		ThreadID:           "thread-1",
+		ProviderThreadID:   "thread-1",
 		CWD:                workDir,
 		CodexHome:          t.TempDir(),
 		CodexInstanceKey:   "default",
@@ -84,6 +85,25 @@ func TestDriverResumeSessionRestoresApprovalPolicy(t *testing.T) {
 	s := mustCodexSession(t, got, "ResumeSession")
 	defer closeCodexTestSession(t, s)
 	assertResumeApprovalSession(t, s, workDir)
+}
+
+func TestDriverResumeSessionRejectsMissingProviderThreadID(t *testing.T) {
+	t.Parallel()
+
+	serverURL := startCodexRPCServer(t, resumeApprovalPolicyResult)
+	d := &driver{pool: newSingleURLPoolForTest(t, serverURL), mirror: &recordingSkillMirrorReconciler{}}
+	_, err := d.ResumeSession(context.Background(), dto.ResumeSessionRequest{
+		Provider:           "codex",
+		AgentID:            "agent-1",
+		ThreadID:           "thread-public",
+		CWD:                t.TempDir(),
+		CodexHome:          t.TempDir(),
+		CodexInstanceKey:   "default",
+		CodexModelProvider: "openai",
+	})
+	if err == nil || !strings.Contains(err.Error(), "provider thread id is required") {
+		t.Fatalf("ResumeSession() error = %v, want provider thread id required", err)
+	}
 }
 
 func resumeApprovalPolicyResult(method string) json.RawMessage {

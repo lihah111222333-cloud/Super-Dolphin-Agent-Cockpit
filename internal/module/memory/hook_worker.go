@@ -2,6 +2,7 @@ package memory
 
 import (
 	"context"
+	"fmt"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -13,6 +14,9 @@ import (
 
 // memoryHookDrainGrace 限制 Stop 等待 worker 的最长时间，避免磁盘 I/O 卡住时拖住进程退出。
 const memoryHookDrainGrace = 10 * time.Second
+
+// memoryHookMaxQueue 限制生命周期 hook 积压，防止 turn 风暴把内存队列撑成无界 slice。
+const memoryHookMaxQueue = 32
 
 // ----- 记忆事件 worker -----
 
@@ -42,6 +46,9 @@ type memoryHookWorker struct {
 
 	wake chan struct{}
 
+	lifecycleCtx    context.Context
+	lifecycleCancel context.CancelFunc
+
 	startOnce sync.Once
 	stopOnce  sync.Once
 	stopCh    chan struct{}
@@ -49,6 +56,8 @@ type memoryHookWorker struct {
 
 	enqueuedTotal  atomic.Int64
 	processedTotal atomic.Int64
+	droppedTotal   atomic.Int64
+	degraded       atomic.Bool
 }
 
 // newMemoryHookWorker 创建记忆事件 worker，并在未注入 logger 时使用全局 logger。
@@ -56,12 +65,15 @@ func newMemoryHookWorker(hooks *MemoryLifecycleHooks, logger *pkglogger.Logger) 
 	if logger == nil {
 		logger = pkglogger.Get()
 	}
+	lifecycleCtx, lifecycleCancel := context.WithCancel(context.Background())
 	return &memoryHookWorker{
-		hooks:  hooks,
-		logger: logger,
-		wake:   make(chan struct{}, 1),
-		stopCh: make(chan struct{}),
-		doneCh: make(chan struct{}),
+		hooks:           hooks,
+		logger:          logger,
+		wake:            make(chan struct{}, 1),
+		lifecycleCtx:    lifecycleCtx,
+		lifecycleCancel: lifecycleCancel,
+		stopCh:          make(chan struct{}),
+		doneCh:          make(chan struct{}),
 	}
 }
 
@@ -95,6 +107,7 @@ func (w *memoryHookWorker) Stop(ctx context.Context) error {
 	var firstErr error
 	w.stopOnce.Do(func() {
 		close(w.stopCh)
+		w.lifecycleCancel()
 		waitCtx := ctx
 		if waitCtx == nil {
 			waitCtx = context.Background()
@@ -108,7 +121,7 @@ func (w *memoryHookWorker) Stop(ctx context.Context) error {
 		select {
 		case <-w.doneCh:
 		case <-waitCtx.Done():
-			firstErr = waitCtx.Err()
+			firstErr = w.stopError(waitCtx.Err())
 		}
 	})
 	return firstErr
@@ -125,13 +138,70 @@ func (w *memoryHookWorker) Enqueue(req memoryHookRequest) {
 	default:
 	}
 	w.mu.Lock()
-	w.queue = append(w.queue, req)
+	dropTotal, backlog := w.enqueueLocked(req)
 	w.mu.Unlock()
-	w.enqueuedTotal.Add(1)
+	enqueuedTotal := w.enqueuedTotal.Add(1)
+	if shouldLogMemoryHookDrop(dropTotal) {
+		w.logQueueBackpressure(dropTotal, backlog, enqueuedTotal)
+	}
 	select {
 	case w.wake <- struct{}{}:
 	default:
 	}
+}
+
+// enqueueLocked 在持有 w.mu 时追加任务，队列满时压缩最旧事件并返回 drop 诊断。
+func (w *memoryHookWorker) enqueueLocked(req memoryHookRequest) (int64, int) {
+	if len(w.queue) < memoryHookMaxQueue {
+		w.queue = append(w.queue, req)
+		return 0, len(w.queue)
+	}
+	w.queue = append(w.queue[1:], req)
+	w.degraded.Store(true)
+	return w.droppedTotal.Add(1), len(w.queue)
+}
+
+func shouldLogMemoryHookDrop(dropTotal int64) bool {
+	return dropTotal == 1 || dropTotal%memoryHookMaxQueue == 0
+}
+
+// logQueueBackpressure 暴露 memory hook 队列压缩，避免后台记忆写入退化变成静默丢事件。
+func (w *memoryHookWorker) logQueueBackpressure(dropTotal int64, backlog int, enqueuedTotal int64) {
+	logger := w.logger
+	if logger == nil {
+		logger = pkglogger.Get()
+	}
+	logger.Warn("memory hook worker queue full; dropping oldest event",
+		"backlog", backlog,
+		"capacity", memoryHookMaxQueue,
+		"dropped_total", dropTotal,
+		"enqueued_total", enqueuedTotal,
+		"processed_total", w.processedTotal.Load(),
+	)
+}
+
+// Backlog 返回当前尚未处理的记忆 hook 数量，用于退出和诊断时暴露积压状态。
+func (w *memoryHookWorker) Backlog() int {
+	if w == nil {
+		return 0
+	}
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return len(w.queue)
+}
+
+// Degraded 返回 worker 是否发生过队列压缩，供调用方把后台记忆写入退化状态显式暴露。
+func (w *memoryHookWorker) Degraded() bool {
+	if w == nil {
+		return false
+	}
+	return w.degraded.Load()
+}
+
+// stopError 将 Stop 超时和剩余 backlog/dropped 数量放进同一个错误，避免上层只能看到裸 context 错误。
+func (w *memoryHookWorker) stopError(cause error) error {
+	return fmt.Errorf("memory hook worker stop: %w (backlog=%d dropped=%d degraded=%t)",
+		cause, w.Backlog(), w.droppedTotal.Load(), w.Degraded())
 }
 
 // runWorker 持有唯一的消费循环；收到 stop 后会先清空队列再关闭 doneCh。
@@ -169,11 +239,10 @@ func (w *memoryHookWorker) drainPending() {
 // dispatch 将 worker 请求分发回 MemoryLifecycleHooks。
 // 所有记忆磁盘写入都保持在 worker goroutine 上串行化。
 func (w *memoryHookWorker) dispatch(req memoryHookRequest) {
-	ctx := context.Background()
 	switch req.kind {
 	case memoryHookTurnInputReceived:
-		w.hooks.onTurnInputReceived(ctx, req.turnInput)
+		w.hooks.onTurnInputReceived(w.lifecycleCtx, req.turnInput)
 	case memoryHookTurnCompleted:
-		w.hooks.onTurnCompleted(ctx, req.turnCompleted)
+		w.hooks.onTurnCompleted(w.lifecycleCtx, req.turnCompleted)
 	}
 }

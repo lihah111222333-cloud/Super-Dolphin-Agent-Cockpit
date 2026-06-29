@@ -224,7 +224,22 @@ function waitRuntime() {
   return runtimePromise;
 }
 
-function parseRuntimeEventJSON(rawText) {
+function bridgeEventParseFailureEnvelope(rawText, error, eventName) {
+  const rawValue = rawText == null ? '' : String(rawText);
+  const payload = {
+    eventName: eventName || 'runtime-event',
+    error: error?.message || String(error),
+    rawLen: rawValue.length,
+  };
+  writeBridgeLog('error', 'bridge.event.parse_failed', payload);
+  return {
+    method: 'bridge.event.parse_failed',
+    type: 'bridge.event.parse_failed',
+    payload,
+  };
+}
+
+function parseRuntimeEventJSON(rawText, eventName) {
   let parsed;
   try {
     if (typeof rawText === 'string') {
@@ -237,12 +252,7 @@ function parseRuntimeEventJSON(rawText) {
     }
   }
   catch (error) {
-    writeBridgeLog('warn', 'api.json.parse.failed', {
-      error,
-      raw_len: rawText.length,
-      raw_preview: rawText.slice(0, 200),
-    });
-    return {};
+    return bridgeEventParseFailureEnvelope(rawText, error, eventName);
   }
   return parsed;
 }
@@ -256,7 +266,7 @@ export function normalizeRuntimeEventEnvelope(evt) {
   const inner = evt.data;
   if (inner == null || inner === '') return {};
   if (typeof inner === 'object') return inner;
-  if (typeof inner === 'string') return parseRuntimeEventJSON(inner);
+  if (typeof inner === 'string') return parseRuntimeEventJSON(inner, evt.name);
   return { data: inner };
 }
 

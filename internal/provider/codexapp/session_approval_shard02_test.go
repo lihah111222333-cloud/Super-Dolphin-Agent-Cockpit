@@ -114,6 +114,46 @@ func commandApprovalPayload(requestID int64, callID, command string) []byte {
 	})
 }
 
+func TestApprovalPayloadMalformedReturnsErrorDecision(t *testing.T) {
+	recorder := &approvalRespondRecorder{}
+	server := startApprovalRespondRecorderServer(t, recorder)
+	defer server.Close()
+
+	s := newApprovalRecorderSession(t, server.URL, nil)
+	hookCalled := false
+	s.approvalDecisionHook = func(context.Context, rpc.ApprovalRequest) (contract.ApprovalDecision, error) {
+		hookCalled = true
+		return rpcDecision(true, "unexpected"), nil
+	}
+	s.runtime.Start()
+	defer closeCodexTestSession(t, s)
+
+	payload := mustJSON(map[string]any{
+		"requestId": int64(91),
+		"callId":    map[string]any{"bad": "shape"},
+		"toolName":  "shell",
+		"turnId":    "turn-1",
+	})
+	if err := s.requestToolApproval("item/commandExecution/requestApproval", payload); err != nil {
+		t.Fatalf("requestToolApproval() error = %v", err)
+	}
+	if hookCalled {
+		t.Fatal("approval hook was called for malformed provider payload")
+	}
+
+	params := waitForApprovalRespondParams(t, recorder, 1)
+	if got := params[0]["requestId"]; got != float64(91) {
+		t.Fatalf("approval/respond requestId = %#v, want 91", got)
+	}
+	if got := params[0]["approved"]; got != false {
+		t.Fatalf("approval/respond approved = %#v, want false", got)
+	}
+	decision, ok := params[0]["decision"].(string)
+	if !ok || !strings.Contains(decision, "approval_parse_failed") {
+		t.Fatalf("approval/respond decision = %#v, want approval_parse_failed string", params[0]["decision"])
+	}
+}
+
 func TestRequestToolApprovalDedupesProcessedRequestID(t *testing.T) {
 	recorder := &approvalRespondRecorder{}
 	server := startApprovalRespondRecorderServer(t, recorder)

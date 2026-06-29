@@ -1,6 +1,7 @@
 import React from 'react';
 import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
+import { AttachmentPreviewModal } from './AttachmentPreviewModal.jsx';
 import { ComposerAttachments } from './ComposerAttachments.jsx';
 import { composerAttachmentKey } from './composerAttachmentKey.js';
 
@@ -88,7 +89,7 @@ describe('ComposerAttachments', () => {
     expect(imagePreview.querySelector('img')).toHaveAttribute('src', '/clipboard/codex-clipboard-f05.png');
   });
 
-  it('renders normal local screenshot attachments without a broken file URL', () => {
+  it('renders normal local screenshot attachments as file pills', () => {
     const screenshotPath = windowsScreenshotPath();
 
     render(
@@ -105,12 +106,47 @@ describe('ComposerAttachments', () => {
     );
 
     const imagePreview = screen.getByLabelText(/\u9884\u89c8\u9644\u4ef6 \u5c4f\u5e55\u622a\u56fe 2026-06-13 170324\.png/);
-    expect(imagePreview.querySelector('img')).toHaveAttribute('src', `/local-image?path=${encodeURIComponent(screenshotPath)}`);
+    expect(imagePreview.querySelector('img')).toBeNull();
+    expect(imagePreview).toHaveTextContent(screenshotName);
   });
 
   it('normalizes attachment identity from path, preview URL, or URL', () => {
     expect(composerAttachmentKey({ path: ' /tmp/a.txt ' })).toBe('/tmp/a.txt');
     expect(composerAttachmentKey({ previewUrl: ' blob:a ' })).toBe('blob:a');
     expect(composerAttachmentKey({ url: ' file:///tmp/a.txt ' })).toBe('file:///tmp/a.txt');
+  });
+
+  it('does not render raw native image paths in composer or preview modal', () => {
+    const rawPath = '/Users/mima0000/Pictures/native-secret.png';
+    const attachment = {
+      kind: 'image',
+      path: rawPath,
+      previewUrl: '/local-image?id=drop_asset_456',
+    };
+
+    const { rerender } = render(
+      <ComposerAttachments
+        attachments={[attachment]}
+        onPreview={vi.fn()}
+        onRemove={vi.fn()}
+      />,
+    );
+
+    const pill = screen.getByRole('button', { name: '预览附件 native-secret.png' });
+    expect(pill).toHaveTextContent('native-secret.png');
+    expect(pill.querySelector('img')).toHaveAttribute('src', '/local-image?id=drop_asset_456');
+    expect(screen.queryByText(rawPath)).not.toBeInTheDocument();
+
+    rerender(
+      <AttachmentPreviewModal
+        attachment={attachment}
+        onClose={vi.fn()}
+        onRemove={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByRole('dialog', { name: '附件预览' })).toHaveTextContent('native-secret.png');
+    expect(screen.queryByText(rawPath)).not.toBeInTheDocument();
+    expect(screen.getByAltText('native-secret.png')).toHaveAttribute('src', '/local-image?id=drop_asset_456');
   });
 });

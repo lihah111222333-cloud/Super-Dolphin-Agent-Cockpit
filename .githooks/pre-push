@@ -256,7 +256,7 @@ run_go_package_tests() {
 
   echo "[pre-push] go package tests: ${GO_PKGS[*]}"
   LOG=$(mktemp -t pre-push-go.XXXXXX)
-  if run_without_git_env ./scripts/test_with_guard.sh "${GO_PKGS[@]}" -count=1 >"$LOG" 2>&1; then
+  if run_without_git_env env SUPER_DOLPHIN_GUARD_FAIL_ON_DRIFT=1 ./scripts/test_with_guard.sh "${GO_PKGS[@]}" -count=1 >"$LOG" 2>&1; then
     grep -v '^ld: warning:' "$LOG" || true
     rm -f "$LOG"
     LOG=

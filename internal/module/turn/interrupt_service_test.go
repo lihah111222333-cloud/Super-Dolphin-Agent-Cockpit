@@ -27,7 +27,7 @@ func TestInterruptTurnReturnsEnvelope(t *testing.T) {
 		},
 	}
 
-	svc := NewService(silentLogger())
+	svc := NewServiceWithPromptAssembly(silentLogger(), &stubPromptAssemblyService{})
 	_, err := svc.StartTurn(context.Background(), session, dto.TurnRequest{
 		LocalID:  "local-1",
 		ThreadID: "thread-1",
@@ -64,7 +64,7 @@ func TestInterruptTurnNoActiveReturnsEnvelope(t *testing.T) {
 			return nil
 		},
 	}
-	svc := NewService(silentLogger())
+	svc := NewServiceWithPromptAssembly(silentLogger(), &stubPromptAssemblyService{})
 
 	status, err := svc.InterruptTurn(context.Background(), session, "user")
 	if err != nil {
@@ -94,7 +94,7 @@ func TestInterruptTurnSettleTimeoutReturnsEnvelope(t *testing.T) {
 		interrupt: func(context.Context, dto.InterruptRequest) error { return nil },
 	}
 
-	svc := NewService(silentLogger()).(*service)
+	svc := NewServiceWithPromptAssembly(silentLogger(), &stubPromptAssemblyService{}).(*service)
 	svc.interruptSettleTimeout = 25 * time.Millisecond
 	_, err := svc.StartTurn(context.Background(), session, dto.TurnRequest{
 		LocalID:  "local-timeout",

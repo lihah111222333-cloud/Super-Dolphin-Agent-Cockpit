@@ -105,7 +105,7 @@ describe('UserMessageAttachments', () => {
     expect(resolveAttachmentImageSrc({ previewUrl: 'https://example.test/a.png' })).toBe('https://example.test/a.png');
     expect(resolveAttachmentImageSrc({ path: 'C:/Users/ai/AppData/Local/Temp/clipboard-222.png' })).toBe('/clipboard/clipboard-222.png');
     expect(resolveAttachmentImageSrc({ path: 'C:/Users/ai/AppData/Local/Temp/codex-clipboard-f05.png' })).toBe('/clipboard/codex-clipboard-f05.png');
-    expect(resolveAttachmentImageSrc({ path: screenshotPath })).toBe(`/local-image?path=${encodeURIComponent(screenshotPath)}`);
+    expect(resolveAttachmentImageSrc({ path: screenshotPath })).toBe('');
 
     const { container } = render(<UserMessageAttachments attachments={[]} />);
     expect(container.firstChild).toBeNull();
@@ -138,19 +138,22 @@ describe('UserMessageAttachments', () => {
     expect(img).toHaveAttribute('src', '/clipboard/codex-clipboard-f05.png');
   });
 
-  it('renders normal local screenshot paths through the local image route', () => {
+  it('renders normal local screenshot paths as file attachments', () => {
     const screenshotPath = localScreenshotPath('\\');
+    const onOpenPath = vi.fn();
 
     render(
       <UserMessageAttachments
         attachments={[
           { path: screenshotPath, name: screenshotName },
         ]}
+        actions={{ onOpenPath }}
       />,
     );
 
-    const img = screen.getByRole('img', { name: screenshotName });
-    expect(img).toHaveAttribute('src', `/local-image?path=${encodeURIComponent(screenshotPath)}`);
+    expect(screen.queryByRole('img', { name: screenshotName })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: `打开文件 ${screenshotName}` }));
+    expect(onOpenPath).toHaveBeenCalledWith(expect.objectContaining({ path: screenshotPath, raw: screenshotName }));
   });
 });
 

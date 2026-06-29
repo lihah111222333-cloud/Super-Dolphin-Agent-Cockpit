@@ -33,9 +33,6 @@ type SkillMirrorTarget struct {
 // 只做“真实来源 -> mirror”；遇到人工改动或未知目录要报告，不要自动覆盖。
 func PublishSkillMirrors(ctx context.Context, records []canonicalSkillRecord, targets []SkillMirrorTarget) (SkillMirrorReport, error) {
 	var report SkillMirrorReport
-	for i := range targets {
-		targets[i].Root = mirrorpath.ResolveValidRootSymlink(targets[i].Root)
-	}
 	for _, target := range targets {
 		if err := ctx.Err(); err != nil {
 			return report, err

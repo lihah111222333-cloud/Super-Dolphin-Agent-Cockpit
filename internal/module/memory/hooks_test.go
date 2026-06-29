@@ -1,12 +1,15 @@
 package memory
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	shared "github.com/anthropic-ai/super-agent-v3/internal/dto/shared"
@@ -151,6 +154,60 @@ func TestMemoryLifecycleHooksOnTurnEndUsesAutoMemPathOverride(t *testing.T) {
 	indexPath := filepath.Join(storeRoot, memoryIndexFileName)
 	if _, err := os.Stat(indexPath); err != nil {
 		t.Fatalf("Stat(%q) error = %v", indexPath, err)
+	}
+}
+
+func TestMemoryHookWorkerBackpressureAndStopReportsTimeout(t *testing.T) {
+	worker := newMemoryHookWorker(nil, nil)
+	const burst = 64
+	for range burst {
+		worker.Enqueue(memoryHookRequest{kind: memoryHookTurnCompleted})
+	}
+
+	worker.mu.Lock()
+	backlog := len(worker.queue)
+	worker.mu.Unlock()
+	if backlog >= burst {
+		t.Fatalf("memory hook queue length = %d after burst %d, want bounded backpressure", backlog, burst)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Nanosecond)
+	defer cancel()
+	err := worker.Stop(ctx)
+	if err == nil {
+		t.Fatal("Stop() error = nil, want timeout with backlog detail")
+	}
+	if !strings.Contains(err.Error(), "backlog") {
+		t.Fatalf("Stop() error = %v, want backlog detail", err)
+	}
+}
+
+func TestMemoryHookWorkerBackpressureLogsDrop(t *testing.T) {
+	var logs bytes.Buffer
+	logger := slog.New(slog.NewTextHandler(&logs, &slog.HandlerOptions{Level: slog.LevelWarn}))
+	worker := newMemoryHookWorker(nil, logger)
+
+	for range memoryHookMaxQueue + 1 {
+		worker.Enqueue(memoryHookRequest{kind: memoryHookTurnCompleted})
+	}
+
+	if !worker.Degraded() {
+		t.Fatal("Degraded() = false, want true after queue backpressure")
+	}
+	if got := worker.droppedTotal.Load(); got != 1 {
+		t.Fatalf("droppedTotal = %d, want 1", got)
+	}
+	logText := logs.String()
+	for _, want := range []string{
+		"memory hook worker queue full",
+		"backlog=32",
+		"capacity=32",
+		"dropped_total=1",
+		"enqueued_total=33",
+	} {
+		if !strings.Contains(logText, want) {
+			t.Fatalf("backpressure log missing %q:\n%s", want, logText)
+		}
 	}
 }
 

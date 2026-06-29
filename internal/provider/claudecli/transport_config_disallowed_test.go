@@ -2,6 +2,7 @@ package claudecli
 
 import (
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -284,6 +285,44 @@ func TestConfigFromMapParsesAdditionalDisallowedToolsKeys(t *testing.T) {
 	}
 }
 
+func TestValidateClaudeSecurityConfigRejectsMalformedValues(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		name  string
+		input map[string]any
+		want  string
+	}{
+		{
+			name:  "disallowed tools rejects object",
+			input: map[string]any{"disallowed_tools": map[string]any{"tool": "Read"}},
+			want:  "disallowed_tools",
+		},
+		{
+			name:  "additional disallowed tools rejects non-string element",
+			input: map[string]any{"additional_disallowed_tools": []any{"Read", 42}},
+			want:  "additional_disallowed_tools",
+		},
+		{
+			name:  "builtin tools rejects object",
+			input: map[string]any{"builtin_tools": map[string]any{"tool": "Read"}},
+			want:  "builtin_tools",
+		},
+		{
+			name:  "provider native skills rejects string",
+			input: map[string]any{"providerNativeSkills": "false"},
+			want:  "providerNativeSkills",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			err := validateClaudeSecurityConfig(tc.input)
+			if err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("validateClaudeSecurityConfig() error = %v, want key %q", err, tc.want)
+			}
+		})
+	}
+}
+
 func TestConfigFromMapParsesProviderNativeSkillsIsolation(t *testing.T) {
 	t.Parallel()
 
@@ -328,12 +367,7 @@ func TestConfigFromMapParsesProviderNativeSkillsIsolation(t *testing.T) {
 }
 
 func containsDisallowedToolID(values []string, want string) bool {
-	for _, value := range values {
-		if value == want {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(values, want)
 }
 
 func countDisallowedToolID(values []string, want string) int {

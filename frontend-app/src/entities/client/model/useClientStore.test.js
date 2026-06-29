@@ -4763,6 +4763,60 @@ function registerBridgeEventHandlersForTest() {
     ]);
   });
 
+  it('routes malformed bridge event parse failures into visible warnings', () => {
+    resetClientStoreForTests({
+      cwd: '/repo/app',
+      activeProject: '/repo/app',
+      activeThreadId: 'thread-1',
+    });
+    registerBridgeEventHandlersForTest();
+
+    bridgeCallback({
+      type: 'bridge.event.parse_failed',
+      payload: {
+        eventName: 'bridge-event',
+        error: 'Unexpected end of JSON input',
+        rawLen: 10,
+        rawPreview: '{"method":',
+      },
+    });
+
+    expect(useClientStore.getState().warningEntries).toEqual([
+      expect.objectContaining({
+        level: 'error',
+        event: 'bridge.event.parse_failed',
+        fields: expect.objectContaining({
+          eventName: 'bridge-event',
+          error: 'Unexpected end of JSON input',
+          rawLen: 10,
+        }),
+      }),
+    ]);
+    expect(useClientStore.getState().warningEntries[0].fields).not.toHaveProperty('rawPreview');
+  });
+
+  it('routes bridge events without a method into visible warnings', () => {
+    resetClientStoreForTests({
+      cwd: '/repo/app',
+      activeProject: '/repo/app',
+      activeThreadId: 'thread-1',
+    });
+    registerBridgeEventHandlersForTest();
+
+    bridgeCallback({ payload: { source: 'runtime', rawPreview: '{}' } });
+
+    expect(useClientStore.getState().warningEntries).toEqual([
+      expect.objectContaining({
+        level: 'error',
+        event: 'bridge.event.method_missing',
+        fields: expect.objectContaining({
+          payloadKeys: ['source', 'rawPreview'],
+        }),
+      }),
+    ]);
+    expect(useClientStore.getState().warningEntries[0].fields).not.toHaveProperty('payload');
+  });
+
   it('normalizes legacy token usage pushes like the Vue frontend', () => {
     resetClientStoreForTests({
       cwd: '/repo/app',
@@ -5204,6 +5258,31 @@ function registerBridgeEventHandlersForTest() {
       message: '审批结果已提交',
       tone: 'success',
     }));
+  });
+
+  it('keeps approval RPC submission idempotent per request id while in flight', async () => {
+    const pendingApproval = deferred();
+    backend.respondApproval.mockReturnValueOnce(pendingApproval.promise);
+    resetClientStoreForTests({
+      cwd: '/repo/app',
+      activeProject: '/repo/app',
+      activeThreadId: 'thread-1',
+      threads: [{ id: 'thread-1', name: '运行线程', provider: 'codex', status: 'waiting' }],
+    });
+
+    const first = useClientStore.getState().respondApproval({ requestId: 11, command: 'deploy' }, true);
+    await flushPromises();
+    await expect(useClientStore.getState().respondApproval({ requestId: 11, command: 'deploy' }, false)).resolves.toBe(false);
+
+    expect(backend.respondApproval).toHaveBeenCalledTimes(1);
+    expect(useClientStore.getState().approvalSubmitByRequestId[11]).toEqual(expect.objectContaining({
+      approved: true,
+      inFlight: true,
+    }));
+
+    pendingApproval.resolve({ ok: true });
+    await expect(first).resolves.toBe(true);
+    expect(useClientStore.getState().approvalSubmitByRequestId[11]).toBeUndefined();
   });
 
   it('does not call interrupt when the selected running thread has no active turn id', async () => {

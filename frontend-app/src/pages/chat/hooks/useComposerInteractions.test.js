@@ -68,4 +68,24 @@ describe('useComposerInteractions file transfer helpers', () => {
       details: { classList: ['app-nav'] },
     })).toEqual([]);
   });
+
+  it('keeps Wails local image token previews when unwrapping native drops', () => {
+    const photoPath = '/Users/mima0000/Pictures/native drop.png';
+    expect(nativeDropFiles({
+      files: [photoPath, '/tmp/readme.md'],
+      imagePreviews: {
+        [photoPath]: '/local-image?id=drop_asset_123',
+        '/tmp/readme.md': '/local-image?path=/tmp/readme.md',
+      },
+      details: { attributes: { 'data-file-drop-target': '' } },
+    })).toEqual([
+      {
+        path: photoPath,
+        name: 'native drop.png',
+        kind: 'image',
+        previewUrl: '/local-image?id=drop_asset_123',
+      },
+      '/tmp/readme.md',
+    ]);
+  });
 });

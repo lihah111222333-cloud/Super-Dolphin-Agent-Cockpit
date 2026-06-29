@@ -478,7 +478,7 @@ func (r *sessionRecoveryRPCRecorder) handle(msg jsonRPCMessage) (json.RawMessage
 		return mustJSON(map[string]any{"turn": map[string]any{"id": fmt.Sprintf("turn-%d", current)}}), true
 	case "turn/status":
 		r.incrementTurnStatus()
-		return mustJSON(map[string]any{"turn": map[string]any{"active": false}}), true
+		return mustJSON(map[string]any{"turn": map[string]any{"active": false, "status": "lost"}}), true
 	default:
 		return mustJSON(map[string]any{"ok": true}), true
 	}

@@ -75,6 +75,16 @@ var requiredBaselineTables = []string{
 	"runtime_locks",
 }
 
+type requiredSQLiteColumn struct {
+	table  string
+	column string
+}
+
+var requiredBaselineColumns = []requiredSQLiteColumn{
+	{table: "agent_threads", column: "prompt_snapshot"},
+	{table: "shared_files", column: "content_location"},
+}
+
 // VerifyMinSchemaVersion 校验 SQLite schema 版本和基线表完整性。
 func VerifyMinSchemaVersion(ctx context.Context, q any) error {
 	return verifyMinSchemaVersion(ctx, q)
@@ -93,11 +103,18 @@ func verifyMinSchemaVersion(ctx context.Context, q any) error {
 	if err := verifySQLiteBaselineTables(ctx, q); err != nil {
 		return err
 	}
+	if err := verifySQLiteRequiredColumns(ctx, q); err != nil {
+		return err
+	}
 	return nil
 }
 
 type sqlContextQueryRow interface {
 	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
+}
+
+type sqlContextQuery interface {
+	QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error)
 }
 
 func querySchemaVersion(ctx context.Context, q any, dest *int) error {
@@ -141,6 +158,73 @@ func missingSQLiteBaselineTables(ctx context.Context, q sqlContextQueryRow) ([]s
 	}
 	sort.Strings(missing)
 	return missing, nil
+}
+
+// verifySQLiteRequiredColumns 用 PRAGMA table_info 校验生产代码依赖的关键列。
+// 该检查补上 marker-only / 旧 schema 只建表不建列的启动缺口，缺列时必须阻断启动。
+func verifySQLiteRequiredColumns(ctx context.Context, q any) error {
+	v, ok := q.(sqlContextQuery)
+	if !ok {
+		return nil
+	}
+	missing, err := missingSQLiteRequiredColumns(ctx, v)
+	if err != nil {
+		return fmt.Errorf("verify SQLite baseline schema columns: %w", err)
+	}
+	if len(missing) > 0 {
+		return fmt.Errorf("SQLite baseline schema incomplete: missing required column(s): %s", strings.Join(missing, ", "))
+	}
+	return nil
+}
+
+// missingSQLiteRequiredColumns 汇总 schema gate 需要的缺失列列表。
+// 同一张表只读取一次 PRAGMA，避免启动检查随 required 列数量线性重复扫表。
+func missingSQLiteRequiredColumns(ctx context.Context, q sqlContextQuery) ([]string, error) {
+	columnsByTable := make(map[string]map[string]struct{}, len(requiredBaselineColumns))
+	missing := make([]string, 0)
+	for _, required := range requiredBaselineColumns {
+		columns, ok := columnsByTable[required.table]
+		if !ok {
+			var err error
+			columns, err = sqliteTableColumns(ctx, q, required.table)
+			if err != nil {
+				return nil, err
+			}
+			columnsByTable[required.table] = columns
+		}
+		if _, ok := columns[required.column]; !ok {
+			missing = append(missing, required.table+"."+required.column)
+		}
+	}
+	sort.Strings(missing)
+	return missing, nil
+}
+
+func sqliteTableColumns(ctx context.Context, q sqlContextQuery, table string) (map[string]struct{}, error) {
+	rows, err := q.QueryContext(ctx, "PRAGMA table_info("+table+")")
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	columns := make(map[string]struct{})
+	for rows.Next() {
+		var (
+			cid        int
+			name       string
+			columnType string
+			notNull    int
+			defaultVal sql.NullString
+			pk         int
+		)
+		if err := rows.Scan(&cid, &name, &columnType, &notNull, &defaultVal, &pk); err != nil {
+			return nil, err
+		}
+		columns[name] = struct{}{}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return columns, nil
 }
 
 // registerLifecycle 在应用生命周期中执行 SQLite 迁移、schema gate 和关闭逻辑。

@@ -104,10 +104,7 @@ func TestConcurrentInvalidateAndAssembleTurnRemainSafe(t *testing.T) {
 func mustRegisterDynamicTextProvider(t *testing.T, svc Service, name string, resolve func(context.Context, SectionContext) (*string, error)) {
 	t.Helper()
 
-	err := svc.RegisterDynamicProvider(DynamicTextProvider{Name: name, ResolveFunc: resolve})
-	if err != nil {
-		t.Fatalf("RegisterDynamicProvider(%q) error = %v", name, err)
-	}
+	registerDynamicProviderForTest(t, svc, DynamicTextProvider{Name: name, ResolveFunc: resolve})
 }
 
 func mustTurnSection(t *testing.T, svc Service, name string) string {

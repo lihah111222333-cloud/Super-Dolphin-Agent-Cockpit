@@ -26,13 +26,14 @@ func TestServiceResumePrefersSessionUUIDOverStaleProviderThreadID(t *testing.T) 
 	t.Parallel()
 
 	threads := &stubThreadStore{thread: &threadstore.Thread{
-		ThreadID:  "thread-public",
-		AgentID:   "agent-1",
-		Prompt:    "resume",
-		Model:     "claude-3",
-		Cwd:       "/repo",
-		CreatedAt: 123,
-		Status:    statusCreated,
+		ThreadID:       "thread-public",
+		AgentID:        "agent-1",
+		Prompt:         "resume",
+		Model:          "claude-3",
+		Cwd:            "/repo",
+		CreatedAt:      123,
+		Status:         statusCreated,
+		ConfigOverride: legacyPromptSnapshotMigrationConfig(t),
 	}}
 	// SessionUUID must look like a real UUID so the resume logic prefers it
 	// over the stale ProviderThreadID placeholder when the CLI file exists.
@@ -74,13 +75,14 @@ func TestServiceResumeDoesNotUseAgentIDAsClaudeProviderThreadID(t *testing.T) {
 	t.Parallel()
 
 	threads := &stubThreadStore{thread: &threadstore.Thread{
-		ThreadID:  "thread-public",
-		AgentID:   "agent-1",
-		Prompt:    "resume",
-		Model:     "claude-3",
-		Cwd:       "/repo",
-		CreatedAt: 123,
-		Status:    statusCreated,
+		ThreadID:       "thread-public",
+		AgentID:        "agent-1",
+		Prompt:         "resume",
+		Model:          "claude-3",
+		Cwd:            "/repo",
+		CreatedAt:      123,
+		Status:         statusCreated,
+		ConfigOverride: legacyPromptSnapshotMigrationConfig(t),
 	}}
 	bindings := &stubBindingStore{binding: &bindingstore.Binding{
 		AgentID:       "agent-1",
@@ -89,20 +91,20 @@ func TestServiceResumeDoesNotUseAgentIDAsClaudeProviderThreadID(t *testing.T) {
 		Cwd:           "/repo",
 	}}
 	sessions := &stubSessionProvider{}
-	var resumeReq dto.ResumeSessionRequest
+	resumeCalled := false
 	starter := &stubSessionStarter{onResume: func(_ context.Context, req dto.ResumeSessionRequest) (contract.Session, error) {
-		resumeReq = req
-		session := &stubSession{}
-		sessions.session = session
-		return session, nil
+		resumeCalled = true
+		t.Fatalf("ResumeSession called without recoverable ProviderThreadID: %#v", req)
+		return nil, nil
 	}}
 
 	svc := NewService(silentLogger(), threads, bindings, sessions, starter, nil, &stubThreadOrchestration{}, nil).(*service)
-	if _, err := svc.Resume(context.Background(), ResumeRequest{ThreadID: "thread-public"}); err != nil {
-		t.Fatalf("Resume() error = %v", err)
+	_, err := svc.Resume(context.Background(), ResumeRequest{ThreadID: "thread-public"})
+	if err == nil || !strings.Contains(err.Error(), "provider thread id is required") {
+		t.Fatalf("Resume() error = %v, want provider thread id required", err)
 	}
-	if resumeReq.ProviderThreadID != "" {
-		t.Fatalf("ResumeSessionRequest.ProviderThreadID = %q, want empty", resumeReq.ProviderThreadID)
+	if resumeCalled {
+		t.Fatal("ResumeSession should not be called without recoverable ProviderThreadID")
 	}
 	if bindings.upsert.ProviderThreadID == "agent-1" {
 		t.Fatalf("binding upsert provider_thread_id = agent id %q", bindings.upsert.ProviderThreadID)
@@ -127,7 +129,7 @@ func TestServiceRecoverUsesSessionUUIDForProviderResumeWhenPublicThreadIsAgentID
 		DeveloperInstructions: "stored dev",
 		Provider:              "codex",
 		Version:               contract.PromptAssemblySnapshotVersion,
-		Hash:                  promptSnapshotHash("Recovered Thread", "stored base", "stored dev", "codex", nil),
+		Hash:                  promptSnapshotHash("Recovered Thread", "stored base", "stored dev", "codex", nil, nil, 0),
 	}}
 	bindings := &stubBindingStore{binding: &bindingstore.Binding{
 		AgentID:          "agent-1",

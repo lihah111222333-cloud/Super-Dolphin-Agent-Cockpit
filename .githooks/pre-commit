@@ -311,7 +311,7 @@ done
 if [ ${#PKGS[@]} -gt 0 ]; then
   # ── Backend Guard
   echo "[pre-commit] backend codebase guard..."
-  if ! ./scripts/test_with_guard.sh --guard-only; then
+  if ! SUPER_DOLPHIN_GUARD_FAIL_ON_DRIFT=1 ./scripts/test_with_guard.sh --guard-only; then
     echo "❌ 后端代码守卫未通过" >&2
     echo "  ⚠️  紧急 bypass（违反仓库规约 docs/1/会话习惯.md §10.12«禁止 bypass pre-commit hook»、需事后补检查）：git commit --no-verify" >&2
     exit 1

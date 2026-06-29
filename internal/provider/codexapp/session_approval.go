@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strconv"
 	"strings"
 	"time"
@@ -43,10 +44,23 @@ func (s *session) requestToolApproval(method string, params json.RawMessage) err
 	return s.requestToolApprovalWithContext(s.ctx, method, params)
 }
 
+// requestToolApprovalWithContext 将 provider approval 通知转成宿主审批请求。
+// payload 身份字段异常时必须 fail-fast；能定位 requestId 时回写拒绝决策，否则终止当前 turn。
 func (s *session) requestToolApprovalWithContext(ctx context.Context, method string, params json.RawMessage) error {
-	req, requestID, ok := s.buildApprovalRequest(method, decodeEventPayload(params))
+	payload := decodeEventPayload(params)
+	requestID := int64Value(payload, "requestId", "request_id")
+	if err := validateApprovalPayload(payload); err != nil {
+		if requestID > 0 {
+			return s.sendApprovalDecision(requestID, approvalParseFailedDecision(err))
+		}
+		s.failTurns(err)
+		return err
+	}
+	req, requestID, ok := s.buildApprovalRequest(method, payload)
 	if !ok {
-		return nil
+		err := errors.New("codexapp: approval_parse_failed: approval request identity is required")
+		s.failTurns(err)
+		return err
 	}
 	key := processedApprovalRequestKey(req, requestID)
 	entry, owner := s.beginProcessedApproval(key)
@@ -79,6 +93,54 @@ func (s *session) requestApprovalDecision(req rpc.ApprovalRequest) (contract.App
 		return s.approvals.RequestUserInput(ctx, nil, nil, req)
 	}
 	return s.approvals.RequestApproval(ctx, nil, nil, req)
+}
+
+func validateApprovalPayload(payload map[string]any) error {
+	if len(payload) == 0 {
+		return errors.New("codexapp: approval_parse_failed: payload is required")
+	}
+	if err := validateApprovalStringFields(payload, "callId", "call_id", "approvalId", "approval_id", "toolName", "tool_name", "tool", "name", "threadId", "thread_id", "turnId", "turn_id", "reason", "message"); err != nil {
+		return err
+	}
+	if err := validateApprovalObjectField(payload, "item"); err != nil {
+		return err
+	}
+	return validateApprovalObjectField(payload, "turn")
+}
+
+func validateApprovalObjectField(payload map[string]any, key string) error {
+	value, ok := payload[key]
+	if !ok || value == nil {
+		return nil
+	}
+	child, ok := value.(map[string]any)
+	if !ok {
+		return fmt.Errorf("codexapp: approval_parse_failed: field %q must be object", key)
+	}
+	return validateApprovalStringFields(child, "callId", "call_id", "toolName", "tool_name", "tool", "name", "threadId", "thread_id", "turnId", "turn_id", "id")
+}
+
+func validateApprovalStringFields(payload map[string]any, keys ...string) error {
+	for _, key := range keys {
+		value, ok := payload[key]
+		if !ok || value == nil {
+			continue
+		}
+		switch value.(type) {
+		case string, json.Number:
+		default:
+			return fmt.Errorf("codexapp: approval_parse_failed: field %q must be string", key)
+		}
+	}
+	return nil
+}
+
+func approvalParseFailedDecision(err error) contract.ApprovalDecision {
+	approved := false
+	return contract.ApprovalDecision{
+		Approved: &approved,
+		Reason:   err.Error(),
+	}
 }
 
 func approvalDecisionContext(ctx context.Context) (context.Context, context.CancelFunc) {

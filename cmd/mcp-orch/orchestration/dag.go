@@ -501,7 +501,7 @@ func dagNodeDTO(item taskdag.Node) DAGNode {
 		Status:         item.Status,
 		CommandRef:     item.CommandRef,
 		Config:         append(json.RawMessage(nil), item.Config...),
-		Result:         append(json.RawMessage(nil), item.Result...),
+		Result:         dagNodeResultDTO(item),
 		StartedAt:      shared.CloneTime(item.StartedAt),
 		FinishedAt:     shared.CloneTime(item.FinishedAt),
 		CreatedAt:      item.CreatedAt,
@@ -512,6 +512,21 @@ func dagNodeDTO(item taskdag.Node) DAGNode {
 		// spawning_thread_id 透出给 task_get_dag / DAG detail，供 UI 从节点行跳到子 agent thread。
 		SpawningThreadID: trimStringPtr(item.SpawningThreadID),
 	}
+}
+
+// dagNodeResultDTO 输出节点 result 前挡住 automation command 的历史敏感 payload。
+// 新结果在 executor 已脱敏；这里补 DTO 层防线，避免旧 args.__inputs 继续对外暴露。
+func dagNodeResultDTO(item taskdag.Node) json.RawMessage {
+	result := append(json.RawMessage(nil), item.Result...)
+	if resolveNodeType(item.NodeType) == "automation" || resultLooksLikeRawAutomationInputs(result) {
+		return nodeexec.ScrubAutomationResultPayload(result)
+	}
+	return result
+}
+
+func resultLooksLikeRawAutomationInputs(raw json.RawMessage) bool {
+	text := string(raw)
+	return strings.Contains(text, `"__inputs"`) || strings.Contains(text, `"from_sharedfiles"`)
 }
 
 // decodeDependsOn 将节点依赖 JSON 转为字符串列表；非法 JSON 返回 nil。

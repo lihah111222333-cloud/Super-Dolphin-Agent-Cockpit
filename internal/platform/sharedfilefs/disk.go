@@ -18,8 +18,8 @@ import (
 // 正文落在 `<CWD>/.agnet/shared/<rel>`，DB 保留索引、作者和时间戳；
 // 内容超过 InlineThresholdBytes 后，磁盘成为正文来源。
 //
-// 本包只负责文件 IO 和 sandbox 边界，不感知 SQL。store 层负责先清理相对路径，
-// 写入时先落磁盘再更新 DB，删除时先删 DB 再删磁盘，避免列表索引指向缺失正文。
+// 本包只负责文件 IO、sandbox 边界和 staged publish/delete 原语，不感知 SQL。
+// store 层负责在 DB 提交前后调用 StageWrite/StageDelete，失败时回滚 DB 或正文。
 
 const (
 	// SandboxDir 是 sharedfile 磁盘正文相对 CWD 的固定子目录。

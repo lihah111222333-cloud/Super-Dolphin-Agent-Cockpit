@@ -373,6 +373,7 @@ func runDynamicToolsResumeScenario(t *testing.T) dynamicToolsResumeObservation {
 		Provider:           "codex",
 		AgentID:            "agent-1",
 		ThreadID:           "provider-thread-1",
+		ProviderThreadID:   "provider-thread-1",
 		CWD:                workDir,
 		CodexHome:          t.TempDir(),
 		CodexInstanceKey:   "default",
