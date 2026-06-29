@@ -30,6 +30,12 @@ const sharedFilePreviewTTL = 15 * time.Minute
 // archguard:ignore global_vars -- shared file preview token 是 Wails HTTP capability 状态，需要被 RPC 和 HTTP handler 共同访问。
 var defaultSharedFilePreviewAssets = newSharedFilePreviewRegistry(time.Now)
 
+// archguard:ignore global_vars -- 预览 URL 需要复用 HTTP server 实际监听地址，避免 :0 绑定后生成不可访问链接。
+var sharedFilePreviewHTTPAddr = struct {
+	mu    sync.RWMutex
+	value string
+}{}
+
 // openSharedFileParams 是 ui/sharedFile/open 的请求参数。
 // Path 使用 shared file 相对路径 wire 格式，不能直接接受任意本地绝对路径。
 type openSharedFileParams struct {
@@ -312,10 +318,30 @@ func sharedFilePreviewURL(id string) string {
 	values.Set("id", id)
 	return (&url.URL{
 		Scheme:   "http",
-		Host:     resolveHTTPAssetAddr(),
+		Host:     currentSharedFilePreviewHTTPAddr(),
 		Path:     sharedFilePreviewPathPrefix,
 		RawQuery: values.Encode(),
 	}).String()
+}
+
+// setSharedFilePreviewHTTPAddr 记录 HTTP asset server 已绑定的地址，返回旧值便于测试恢复全局状态。
+func setSharedFilePreviewHTTPAddr(addr string) string {
+	sharedFilePreviewHTTPAddr.mu.Lock()
+	defer sharedFilePreviewHTTPAddr.mu.Unlock()
+	previous := sharedFilePreviewHTTPAddr.value
+	sharedFilePreviewHTTPAddr.value = strings.TrimSpace(addr)
+	return previous
+}
+
+// currentSharedFilePreviewHTTPAddr 优先使用 listener 真实地址，未启动时退回配置地址。
+func currentSharedFilePreviewHTTPAddr() string {
+	sharedFilePreviewHTTPAddr.mu.RLock()
+	addr := sharedFilePreviewHTTPAddr.value
+	sharedFilePreviewHTTPAddr.mu.RUnlock()
+	if strings.TrimSpace(addr) != "" {
+		return addr
+	}
+	return resolveHTTPAssetAddr()
 }
 
 func newSharedFilePreviewID() (string, error) {

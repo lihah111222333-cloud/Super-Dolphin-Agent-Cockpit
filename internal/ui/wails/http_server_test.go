@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 
@@ -89,6 +90,23 @@ func TestNewHTTPAssetServerUsesConfiguredAddr(t *testing.T) {
 	}
 	if server.addr != "127.0.0.1:0" {
 		t.Fatalf("addr = %q, want configured ephemeral bind", server.addr)
+	}
+}
+
+func TestSharedFilePreviewURLUsesBoundHTTPAddr(t *testing.T) {
+	t.Setenv("SUPER_DOLPHIN_HTTP_ADDR", "127.0.0.1:0")
+	previous := setSharedFilePreviewHTTPAddr("127.0.0.1:45199")
+	t.Cleanup(func() {
+		setSharedFilePreviewHTTPAddr(previous)
+	})
+
+	previewURL := sharedFilePreviewURL("sf_test")
+	parsed, err := url.Parse(previewURL)
+	if err != nil {
+		t.Fatalf("parse preview URL %q: %v", previewURL, err)
+	}
+	if parsed.Host != "127.0.0.1:45199" || strings.HasSuffix(parsed.Host, ":0") {
+		t.Fatalf("preview URL host = %q, want reachable bound port", parsed.Host)
 	}
 }
 

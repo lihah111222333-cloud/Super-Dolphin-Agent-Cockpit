@@ -106,6 +106,7 @@ func (s *httpAssetServer) Run(ctx context.Context) error {
 	}
 	defer listener.Close()
 
+	setSharedFilePreviewHTTPAddr(listener.Addr().String())
 	s.logger.Info("http asset server listening", "addr", listener.Addr().String())
 
 	errCh := make(chan error, 1)

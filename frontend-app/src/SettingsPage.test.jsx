@@ -258,7 +258,7 @@ describe('SettingsPage provider settings', () => {
     });
   });
 
-  it.skip('loads and saves summary and approval for the active Claude provider', async () => {
+  it('surfaces unsupported Claude active provider preferences instead of loading them', async () => {
     backend.getPreference.mockImplementation(({ key }) => Promise.resolve({
       'settings.provider.active': 'claude',
       'settings.provider.claude.summary': 'auto',
@@ -270,34 +270,9 @@ describe('SettingsPage provider settings', () => {
 
     await renderSettingsPage();
 
-    await waitFor(() => {
-      expect(screen.getByRole('combobox', { name: 'Active Provider' })).toHaveValue('claude');
-      expect(screen.getByRole('combobox', { name: '推理摘要 (Summary)' })).toHaveValue('auto');
-      expect(screen.getByRole('combobox', { name: '审批策略 (ApprovalPolicy)' })).toHaveValue('on-failure');
-    });
-
-    fireEvent.change(screen.getByTestId('provider-summary-mode-select'), { target: { value: 'none' } });
-    fireEvent.change(screen.getByTestId('provider-approval-mode-select'), { target: { value: 'never' } });
-    fireEvent.click(screen.getByTestId('provider-sandbox-save-button'));
-
-    await waitFor(() => {
-      expect(backend.setPreference).toHaveBeenCalledWith({
-        cwd: '/repo/app',
-        key: 'settings.provider.claude.summary',
-        value: 'none',
-      });
-      expect(backend.setPreference).toHaveBeenCalledWith({
-        cwd: '/repo/app',
-        key: 'settings.provider.claude.approvalPolicy',
-        value: 'never',
-      });
-    });
-    expect(backend.setPreference).not.toHaveBeenCalledWith(expect.objectContaining({
-      key: 'settings.provider.codex.summary',
-    }));
-    expect(backend.setPreference).not.toHaveBeenCalledWith(expect.objectContaining({
-      key: 'settings.provider.codex.approvalPolicy',
-    }));
+    expect(await screen.findByRole('alert')).toHaveTextContent('settings.provider.active: unsupported provider preference "claude"; current desktop UI supports codex only');
+    expect(screen.getByRole('combobox', { name: 'Active Provider' })).toHaveValue('codex');
+    expect(backend.setPreference).not.toHaveBeenCalled();
   });
 
   it('loads provider model effort personality and saves read-only restricted roots', async () => {
@@ -460,20 +435,20 @@ describe('SettingsPage provider settings', () => {
     expect(backend.setPreference).not.toHaveBeenCalled();
   });
 
-  it.skip('falls back from scoped provider preferences to global values and canonicalizes Claude effort', async () => {
+  it('falls back from scoped provider preferences to global Codex values', async () => {
     backend.getPreference.mockImplementation(({ cwd, key }) => {
       const scoped = {
         'settings.provider.active': null,
-        'settings.provider.claude.model': null,
-        'settings.provider.claude.effort': null,
-        'settings.provider.claude.sandbox': null,
+        'settings.provider.codex.model': null,
+        'settings.provider.codex.effort': null,
+        'settings.provider.codex.sandbox': null,
       };
       const global = {
-        'settings.provider.active': 'claude',
-        'settings.provider.claude.model': 'claude-opus-4-7',
-        'settings.provider.claude.effort': 'max',
-        'settings.provider.claude.personality': 'friendly',
-        'settings.provider.claude.sandbox': { type: 'workspaceWrite', writableRoots: ['/repo/app'], networkAccess: false },
+        'settings.provider.active': 'codex',
+        'settings.provider.codex.model': 'gpt-5.5',
+        'settings.provider.codex.effort': 'xhigh',
+        'settings.provider.codex.personality': 'friendly',
+        'settings.provider.codex.sandbox': { type: 'workspaceWrite', writableRoots: ['/repo/app'], networkAccess: false },
       };
       return Promise.resolve(cwd ? scoped[key] ?? null : global[key] ?? null);
     });
@@ -481,32 +456,31 @@ describe('SettingsPage provider settings', () => {
     await renderSettingsPage();
 
     await waitFor(() => {
-      expect(screen.getByRole('combobox', { name: 'Active Provider' })).toHaveValue('claude');
+      expect(screen.getByRole('combobox', { name: 'Active Provider' })).toHaveValue('codex');
     });
-    expect(screen.getByRole('combobox', { name: 'Provider Model' })).toHaveValue('opus');
-    expect(screen.getByRole('combobox', { name: 'Provider Effort' })).toHaveValue('max');
+    expect(screen.getByRole('combobox', { name: 'Provider Model' })).toHaveValue('gpt-5.5');
+    expect(screen.getByRole('combobox', { name: 'Provider Effort' })).toHaveValue('xhigh');
     expect(screen.getByRole('combobox', { name: 'Personality' })).toHaveValue('friendly');
-    expect(backend.getPreference).toHaveBeenCalledWith({ cwd: '/repo/app', key: 'settings.provider.claude.model' });
-    expect(backend.getPreference).toHaveBeenCalledWith({ key: 'settings.provider.claude.model' });
+    expect(backend.getPreference).toHaveBeenCalledWith({ cwd: '/repo/app', key: 'settings.provider.codex.model' });
+    expect(backend.getPreference).toHaveBeenCalledWith({ key: 'settings.provider.codex.model' });
 
-    fireEvent.change(screen.getByRole('combobox', { name: 'Provider Model' }), { target: { value: 'sonnet' } });
+    fireEvent.change(screen.getByRole('combobox', { name: 'Provider Model' }), { target: { value: 'gpt-5' } });
 
     await waitFor(() => {
-      expect(screen.getByRole('combobox', { name: 'Provider Effort' })).toHaveValue('high');
+      expect(screen.getByRole('combobox', { name: 'Provider Model' })).toHaveValue('gpt-5');
     });
-    expect(screen.queryByRole('option', { name: 'max（仅 Opus）' })).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: '保存 Provider 设置' }));
     await waitFor(() => {
       expect(backend.setPreference).toHaveBeenCalledWith({
         cwd: '/repo/app',
-        key: 'settings.provider.claude.model',
-        value: 'sonnet',
+        key: 'settings.provider.codex.model',
+        value: 'gpt-5',
       });
       expect(backend.setPreference).toHaveBeenCalledWith({
         cwd: '/repo/app',
-        key: 'settings.provider.claude.effort',
-        value: 'high',
+        key: 'settings.provider.codex.effort',
+        value: 'xhigh',
       });
     });
   });

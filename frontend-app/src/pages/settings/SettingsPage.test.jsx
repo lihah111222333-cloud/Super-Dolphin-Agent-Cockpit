@@ -389,7 +389,7 @@ describe('SettingsPage provider migration', () => {
     expect(screen.getByRole('combobox', { name: 'Active Provider' })).toHaveValue('codex');
   });
 
-  it.skip('persists active provider changes immediately before saving provider details', async () => {
+  it('keeps active provider selection codex-only', async () => {
     const preferences = preferenceFixture({
       'settings.provider.claude.model': 'sonnet',
       'settings.provider.claude.effort': 'high',
@@ -406,13 +406,13 @@ describe('SettingsPage provider migration', () => {
     fireEvent.change(activeProvider, { target: { value: 'claude' } });
 
     await waitFor(() => {
-      expect(backend.setPreference).toHaveBeenCalledWith({
-        cwd: '/repo/app',
-        key: 'settings.provider.active',
-        value: 'claude',
-      });
-      expect(activeProvider).toHaveValue('claude');
+      expect(activeProvider).toHaveValue('codex');
     });
+    expect(screen.queryByRole('option', { name: 'Claude' })).not.toBeInTheDocument();
+    expect(backend.setPreference).not.toHaveBeenCalledWith(expect.objectContaining({
+      key: 'settings.provider.active',
+      value: 'claude',
+    }));
   });
 
   it('loads provider summary and approval through scoped/global fallback with tombstones', async () => {
@@ -432,7 +432,7 @@ describe('SettingsPage provider migration', () => {
     expect(screen.getByTestId('provider-approval-mode-select')).toHaveValue('on-request');
   });
 
-  it.skip('ignores stale provider properties loads after switching active provider', async () => {
+  it('keeps provider properties scoped to codex after an unsupported provider change', async () => {
     const staleCodexSummary = deferred();
     const preferences = preferenceFixture({
       'settings.provider.claude.model': 'sonnet',
@@ -454,9 +454,8 @@ describe('SettingsPage provider migration', () => {
     fireEvent.change(activeProvider, { target: { value: 'claude' } });
 
     await waitFor(() => {
-      expect(activeProvider).toHaveValue('claude');
-      expect(screen.getByTestId('provider-summary-mode-select')).toHaveValue('auto');
-      expect(screen.getByTestId('provider-approval-mode-select')).toHaveValue('on-failure');
+      expect(activeProvider).toHaveValue('codex');
+      expect(screen.getByTestId('provider-approval-mode-select')).toHaveValue('on-request');
     });
 
     await act(async () => {
@@ -465,46 +464,26 @@ describe('SettingsPage provider migration', () => {
       await Promise.resolve();
       await Promise.resolve();
     });
-    expect(screen.getByTestId('provider-summary-mode-select')).toHaveValue('auto');
-    expect(screen.getByTestId('provider-approval-mode-select')).toHaveValue('on-failure');
+    expect(activeProvider).toHaveValue('codex');
+    expect(screen.getByTestId('provider-summary-mode-select')).toHaveValue('concise');
+    expect(screen.getByTestId('provider-approval-mode-select')).toHaveValue('on-request');
   });
 
-  it.skip('ignores stale provider preference loads after a newer active provider selection wins', async () => {
-    const staleActiveProvider = deferred();
-    backend.getPreference.mockImplementation(({ key }) => {
-      if (key === 'settings.provider.active') return staleActiveProvider.promise;
-      return Promise.resolve({
-        'settings.provider.claude.model': 'sonnet',
-        'settings.provider.claude.effort': 'high',
-        'settings.provider.claude.personality': 'friendly',
-        'settings.provider.claude.sandbox': { type: 'readOnly' },
-        stallThresholdSec: 60,
-        'contextUsageAlerts.thresholds': [70, 85, 95],
-      }[key] ?? null);
+  it('surfaces unsupported active provider preferences without switching provider', async () => {
+    const preferences = preferenceFixture({
+      'settings.provider.active': 'claude',
     });
+    backend.getPreference.mockImplementation(({ key }) => Promise.resolve(preferences[key] ?? null));
 
     renderSettingsPage();
 
     const activeProvider = await screen.findByRole('combobox', { name: 'Active Provider' });
-    fireEvent.change(activeProvider, { target: { value: 'claude' } });
-
-    await waitFor(() => {
-      expect(activeProvider).toHaveValue('claude');
-      expect(backend.setPreference).toHaveBeenCalledWith({
-        cwd: '/repo/app',
-        key: 'settings.provider.active',
-        value: 'claude',
-      });
-    });
-
-    await act(async () => {
-      staleActiveProvider.resolve('codex');
-      await staleActiveProvider.promise;
-      await Promise.resolve();
-      await Promise.resolve();
-      await Promise.resolve();
-    });
-    expect(activeProvider).toHaveValue('claude');
+    expect(await screen.findByRole('alert')).toHaveTextContent('settings.provider.active: unsupported provider preference "claude"; current desktop UI supports codex only');
+    expect(activeProvider).toHaveValue('codex');
+    expect(backend.setPreference).not.toHaveBeenCalledWith(expect.objectContaining({
+      key: 'settings.provider.active',
+      value: 'claude',
+    }));
   });
 
   it('hides the internal Codex model provider and clears Codex identity fields with tombstones', async () => {

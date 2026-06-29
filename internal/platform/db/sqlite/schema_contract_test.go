@@ -113,6 +113,66 @@ func TestSharedFilesContentLocationMigrationPreservesOldRowsAsInline(t *testing.
 	}
 }
 
+func TestPromptTemplatesNullableMatchWhenMigrationNormalizesLegacyScalars(t *testing.T) {
+	db := openBaselineDB(t)
+	mustExec(t, db, "DROP INDEX IF EXISTS idx_prompt_templates_agent_tool")
+	mustExec(t, db, "DROP INDEX IF EXISTS idx_prompt_templates_enabled")
+	mustExec(t, db, "DROP INDEX IF EXISTS idx_prompt_templates_auto_route")
+	mustExec(t, db, "DROP TABLE prompt_templates")
+	mustExec(t, db, `
+		CREATE TABLE prompt_templates (
+			id INTEGER PRIMARY KEY,
+			prompt_key TEXT NOT NULL UNIQUE,
+			title TEXT NOT NULL DEFAULT '',
+			agent_key TEXT NOT NULL DEFAULT '',
+			tool_name TEXT NOT NULL DEFAULT '',
+			prompt_text TEXT NOT NULL,
+			variables TEXT NOT NULL DEFAULT '{}' CHECK(json_valid(variables)),
+			tags TEXT NOT NULL DEFAULT '[]' CHECK(json_valid(tags)),
+			description TEXT NOT NULL DEFAULT '',
+			when_to_use TEXT NOT NULL DEFAULT '',
+			enabled INTEGER NOT NULL DEFAULT 1 CHECK(enabled IN (0, 1)),
+			manually_edited INTEGER NOT NULL DEFAULT 0 CHECK(manually_edited IN (0, 1)),
+			match_when TEXT NOT NULL DEFAULT '{}' CHECK(json_valid(match_when)),
+			priority INTEGER NOT NULL DEFAULT 0,
+			created_by TEXT NOT NULL DEFAULT '',
+			updated_by TEXT NOT NULL DEFAULT '',
+			created_at INTEGER NOT NULL,
+			updated_at INTEGER NOT NULL
+		)
+	`)
+	mustExec(t, db, "CREATE INDEX idx_prompt_templates_agent_tool ON prompt_templates(agent_key, tool_name)")
+	mustExec(t, db, "CREATE INDEX idx_prompt_templates_enabled ON prompt_templates(enabled, updated_at DESC)")
+	mustExec(t, db, "CREATE INDEX idx_prompt_templates_auto_route ON prompt_templates(enabled, priority DESC) WHERE match_when <> '{}'")
+	mustExec(t, db, `
+		INSERT INTO prompt_templates (id, prompt_key, prompt_text, match_when, created_at, updated_at)
+		VALUES
+			(1, 'legacy-array', 'body', '[]', 1710000000000, 1710000000000),
+			(2, 'legacy-string', 'body', '"x"', 1710000000000, 1710000000000),
+			(3, 'legacy-object', 'body', '{"provider":"codex"}', 1710000000000, 1710000000000)
+	`)
+
+	execFile(t, db, "internal/platform/db/sqlite/migrations/111_prompt_templates_nullable_match_when.sql")
+
+	var arrayMatch, stringMatch sql.NullString
+	if err := db.QueryRow("SELECT match_when FROM prompt_templates WHERE prompt_key = 'legacy-array'").Scan(&arrayMatch); err != nil {
+		t.Fatalf("read legacy-array match_when: %v", err)
+	}
+	if err := db.QueryRow("SELECT match_when FROM prompt_templates WHERE prompt_key = 'legacy-string'").Scan(&stringMatch); err != nil {
+		t.Fatalf("read legacy-string match_when: %v", err)
+	}
+	if arrayMatch.Valid || stringMatch.Valid {
+		t.Fatalf("legacy scalar match_when = array:%q string:%q, want SQL NULL", arrayMatch.String, stringMatch.String)
+	}
+	var objectMatch string
+	if err := db.QueryRow("SELECT match_when FROM prompt_templates WHERE prompt_key = 'legacy-object'").Scan(&objectMatch); err != nil {
+		t.Fatalf("read legacy-object match_when: %v", err)
+	}
+	if objectMatch != `{"provider":"codex"}` {
+		t.Fatalf("legacy object match_when = %q, want object preserved", objectMatch)
+	}
+}
+
 func baselineContracts() map[string]tableContract {
 	return map[string]tableContract{
 		"schema_migrations": {PrimaryKey: []string{"version"}, NotNull: []string{"name", "filename", "applied_at"}},
@@ -129,7 +189,7 @@ func baselineContracts() map[string]tableContract {
 		"task_traces":        {PrimaryKey: []string{"id"}, NotNull: []string{"trace_id", "span_id", "parent_span_id", "span_name", "component", "status", "input_payload", "output_payload", "metadata", "started_at", "duration_ms"}, Checks: []string{"json_valid(input_payload)", "json_valid(output_payload)", "json_valid(metadata)", "duration_ms >= 0"}, Indexes: []string{"idx_task_traces_trace_started", "idx_task_traces_component_started"}},
 
 		"prompts":                  {PrimaryKey: []string{"id"}, NotNull: []string{"agent_key", "tool_name", "prompt_text", "is_pinned", "sort_order", "created_at", "updated_at"}, Checks: []string{"is_pinned IN (0, 1)"}, Indexes: []string{"idx_prompts_agent_key", "idx_prompts_sort_order"}},
-		"prompt_templates":         {PrimaryKey: []string{"id"}, NotNull: []string{"prompt_key", "title", "agent_key", "tool_name", "prompt_text", "variables", "tags", "description", "when_to_use", "enabled", "manually_edited", "match_when", "priority", "created_by", "updated_by", "created_at", "updated_at"}, Checks: []string{"json_valid(variables)", "json_valid(tags)", "json_valid(match_when)", "enabled IN (0, 1)", "manually_edited IN (0, 1)"}, Indexes: []string{"idx_prompt_templates_agent_tool", "idx_prompt_templates_enabled", "idx_prompt_templates_auto_route"}},
+		"prompt_templates":         {PrimaryKey: []string{"id"}, NotNull: []string{"prompt_key", "title", "agent_key", "tool_name", "prompt_text", "variables", "tags", "description", "when_to_use", "enabled", "manually_edited", "priority", "created_by", "updated_by", "created_at", "updated_at"}, Checks: []string{"json_valid(variables)", "json_valid(tags)", "match_when IS NULL OR (json_valid(match_when) AND json_type(match_when) = 'object')", "enabled IN (0, 1)", "manually_edited IN (0, 1)"}, Indexes: []string{"idx_prompt_templates_agent_tool", "idx_prompt_templates_enabled", "idx_prompt_templates_auto_route"}},
 		"prompt_template_versions": {PrimaryKey: []string{"id"}, NotNull: []string{"prompt_key", "title", "agent_key", "tool_name", "prompt_text", "variables", "tags", "enabled", "created_by", "updated_by", "created_at", "archived_at"}, Checks: []string{"json_valid(variables)", "json_valid(tags)", "enabled IN (0, 1)"}, Indexes: []string{"idx_prompt_template_versions_key_id"}},
 		"prompt_versions":          {PrimaryKey: []string{"id"}, NotNull: []string{"prompt_key", "title", "agent_key", "tool_name", "prompt_text", "variables", "tags", "description", "enabled", "created_by", "updated_by", "created_at", "archived_at"}, Checks: []string{"json_valid(variables)", "json_valid(tags)", "enabled IN (0, 1)"}, Indexes: []string{"idx_prompt_versions_key_id"}},
 		"prompt_template_sections": {PrimaryKey: []string{"id"}, NotNull: []string{"template_id", "section_key", "region", "ordinal", "body", "enable_when", "enabled", "created_at", "updated_at", "trigger_type", "recall_topic"}, Checks: []string{"region IN ('static', 'dynamic')", "json_valid(enable_when)", "enabled IN (0, 1)", "trigger_type IN ('always', 'keyword', 'recall')"}, Indexes: []string{"idx_prompt_template_sections_lookup", "idx_prompt_sections_recall_topic_lookup"}, ForeignKey: []foreignKeyContract{{Column: "template_id", Table: "prompt_templates"}}},

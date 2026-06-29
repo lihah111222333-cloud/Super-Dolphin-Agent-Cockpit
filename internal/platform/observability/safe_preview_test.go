@@ -28,6 +28,25 @@ func TestSafePreviewRedactsShortTextAndBoundsLongText(t *testing.T) {
 	}
 }
 
+func TestSafePreviewRedactsJSONSecretKeys(t *testing.T) {
+	preview := SafePreview(map[string]any{
+		"password": "hunter2",
+		"nested": map[string]any{
+			"token": "ghp_secret_token",
+		},
+		"message": "plain diagnostic",
+	}, 512)
+	if preview.Truncated || preview.Preview == "" {
+		t.Fatalf("SafePreview() = %+v, want visible sanitized JSON preview", preview)
+	}
+	if strings.Contains(preview.Preview, "hunter2") || strings.Contains(preview.Preview, "ghp_secret_token") {
+		t.Fatalf("SafePreview() leaked JSON secret values: %q", preview.Preview)
+	}
+	if !strings.Contains(preview.Preview, "[REDACTED]") || !strings.Contains(preview.Preview, "plain diagnostic") {
+		t.Fatalf("SafePreview() = %q, want redacted secrets and non-secret context", preview.Preview)
+	}
+}
+
 func TestSafeErrorPreviewUsesStandardFieldAndRedacts(t *testing.T) {
 	preview := SafeErrorPreview(errors.New("provider failed: password=hunter2\nexit status 42"))
 	if preview == "" {
