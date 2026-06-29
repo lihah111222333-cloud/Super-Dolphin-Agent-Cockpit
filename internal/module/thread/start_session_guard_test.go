@@ -100,6 +100,31 @@ func TestResolveStartConfigRejectsMalformedSandboxShape(t *testing.T) {
 	}
 }
 
+func TestResolveStartConfigRejectsUnknownSandboxEvenWithExplicitApproval(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		name    string
+		sandbox json.RawMessage
+	}{
+		{name: "object mode alias", sandbox: json.RawMessage(`{"mode":"danger-full-access"}`)},
+		{name: "unknown object type", sandbox: json.RawMessage(`{"type":"network-open"}`)},
+		{name: "unknown string type", sandbox: json.RawMessage(`"network-open"`)},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := resolveStartConfig(StartRequest{
+				Provider:       "codex",
+				CWD:            wantStartCWD(t),
+				ApprovalPolicy: "never",
+				Sandbox:        tc.sandbox,
+			})
+			if err == nil || !strings.Contains(err.Error(), "invalid sandbox") {
+				t.Fatalf("resolveStartConfig() error = %v, want invalid sandbox", err)
+			}
+		})
+	}
+}
+
 func TestResolveStartConfigAcceptsLegacyApprovalPolicies(t *testing.T) {
 	t.Parallel()
 

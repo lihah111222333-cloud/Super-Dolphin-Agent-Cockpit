@@ -202,6 +202,44 @@ func (f *fakeCommander) Run(ctx context.Context, binary string, args []string, i
 	return nil, nil
 }
 
+type fakePolicyCommander struct {
+	outputs  []string
+	policies []contract.DreamRuntimePolicy
+}
+
+func (f *fakePolicyCommander) Run(context.Context, string, []string, string, int64) ([]byte, error) {
+	return nil, errors.New("fakePolicyCommander: Run should not be used when RunWithPolicy is available")
+}
+
+func (f *fakePolicyCommander) RunWithPolicy(_ context.Context, _ string, _ []string, _ string, _ int64, policy contract.DreamRuntimePolicy) ([]byte, error) {
+	f.policies = append(f.policies, policy)
+	if len(f.outputs) == 0 {
+		return []byte(`{"memories":[]}`), nil
+	}
+	out := f.outputs[0]
+	f.outputs = f.outputs[1:]
+	return []byte(out), nil
+}
+
+func TestRunPassesStrictRuntimePolicyToCommander(t *testing.T) {
+	c := &fakePolicyCommander{outputs: []string{`{"memories":[]}`}}
+	_, err := Run(context.Background(), c, RunOptions{
+		Binary:         "claude",
+		Prompt:         "p",
+		MaxStdoutBytes: 1024,
+		RuntimePolicy:  contract.StrictDreamRuntimePolicy(),
+	})
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	if len(c.policies) != 1 {
+		t.Fatalf("recorded policies = %d, want 1", len(c.policies))
+	}
+	if got := c.policies[0]; !got.ToolsDisabled || !got.ReadOnlySandbox || !got.MinEnv {
+		t.Fatalf("RuntimePolicy = %+v, want strict dream policy", got)
+	}
+}
+
 func TestRun_SuccessWithFenceAndProse(t *testing.T) {
 	c := &fakeCommander{outputs: []string{"Sure here:\n```json\n{\"memories\":[{\"content\":\"x\"}]}\n```\n"}}
 	got, err := Run(context.Background(), c, RunOptions{

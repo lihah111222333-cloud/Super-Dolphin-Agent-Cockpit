@@ -73,8 +73,9 @@ type MemoryLifecycleHooks struct {
 	drainMu     sync.Mutex
 	drainClosed bool
 
-	dreamMu   sync.Mutex
-	dreamTask *dreamTaskState
+	dreamMu     sync.Mutex
+	dreamTask   *dreamTaskState
+	dreamHealth autoDreamHealthSnapshot
 
 	dedupFilter *dedup.Filter
 
