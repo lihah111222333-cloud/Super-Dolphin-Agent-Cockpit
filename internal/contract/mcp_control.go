@@ -211,6 +211,7 @@ type MCPServerConfigStore interface {
 	SetServerEnabled(context.Context, string, string, bool) (bool, error)
 	GetToolLifecycle(context.Context, string, string, string) (MCPToolLifecycleDecision, error)
 	ListToolLifecycle(context.Context, string, string) ([]MCPToolLifecycleDecision, error)
+	ExportToolLifecycle(context.Context, string) ([]MCPToolLifecycleDecision, error)
 	UpsertToolLifecycle(context.Context, StoreMCPToolLifecycleParams) (MCPToolLifecycleDecision, error)
 	BackfillToolLifecycle(context.Context, BackfillMCPToolLifecycleParams) (MCPToolLifecycleDecision, error)
 }

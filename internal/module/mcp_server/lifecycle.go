@@ -36,6 +36,11 @@ type ListMCPToolLifecycleRequest struct {
 	ServerName    string `json:"serverName"`
 }
 
+// ExportMCPToolLifecycleRequest 指定要导出 lifecycle 状态的 workspace。
+type ExportMCPToolLifecycleRequest struct {
+	WorkspaceRoot string `json:"workspaceRoot,omitempty"`
+}
+
 // BackfillMCPServerTools 将 discovery 看到的工具写入生命周期表。
 // 该方法只刷新可观测信息，不覆盖人工设置的 disabled/suspended/removed 状态。
 func (s *service) BackfillMCPServerTools(
@@ -143,6 +148,34 @@ func (s *service) ListMCPToolLifecycle(
 		return nil, err
 	}
 	decisions, err := store.ListToolLifecycle(ctx, workspaceRoot, serverName)
+	if err != nil {
+		return nil, err
+	}
+	for i := range decisions {
+		decisions[i] = decisionWithDenyCode(decisions[i])
+	}
+	return decisions, nil
+}
+
+// ExportMCPToolLifecycle 导出当前 workspace 的全部 MCP tool lifecycle 状态。
+// 回滚或降级前可用它保留用户显式关闭、暂停或移除的工具决策。
+func (s *service) ExportMCPToolLifecycle(
+	ctx context.Context,
+	req ExportMCPToolLifecycleRequest,
+) ([]contract.MCPToolLifecycleDecision, error) {
+	ctx = mcpServerContext(ctx)
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	workspaceRoot, _, err := s.resolveWorkspaceServers(ctx, req.WorkspaceRoot)
+	if err != nil {
+		return nil, err
+	}
+	store, err := s.requireStore()
+	if err != nil {
+		return nil, err
+	}
+	decisions, err := store.ExportToolLifecycle(ctx, workspaceRoot)
 	if err != nil {
 		return nil, err
 	}

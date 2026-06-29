@@ -59,6 +59,7 @@ type Querier interface {
 	DeleteSharedFile(ctx context.Context, arg DeleteSharedFileParams) (int64, error)
 	DeleteStaleCwdLocks(ctx context.Context, arg DeleteStaleCwdLocksParams) (int64, error)
 	ExpireStaleAgentThreads(ctx context.Context, arg ExpireStaleAgentThreadsParams) (int64, error)
+	ExportMCPToolLifecycle(ctx context.Context, arg ExportMCPToolLifecycleParams) ([]McpToolLifecycle, error)
 	ExtendClaim(ctx context.Context, arg ExtendClaimParams) (int64, error)
 	ForceAcquireCwdLock(ctx context.Context, arg ForceAcquireCwdLockParams) (int64, error)
 	GetAgentProviderBindingByAgentID(ctx context.Context, arg GetAgentProviderBindingByAgentIDParams) (AgentProviderBinding, error)

@@ -9,6 +9,12 @@ FROM mcp_tool_lifecycle
 WHERE workspace_root = ? AND server_name = ?
 ORDER BY tool_name ASC;
 
+-- name: ExportMCPToolLifecycle :many
+SELECT workspace_root, server_name, manifest_name, tool_name, state, reason, replacement_tool, last_seen_at, created_at, updated_at
+FROM mcp_tool_lifecycle
+WHERE workspace_root = ?
+ORDER BY server_name ASC, tool_name ASC;
+
 -- name: UpsertMCPToolLifecycle :one
 INSERT INTO mcp_tool_lifecycle (
     workspace_root, server_name, manifest_name, tool_name, state, reason, replacement_tool, last_seen_at, created_at, updated_at

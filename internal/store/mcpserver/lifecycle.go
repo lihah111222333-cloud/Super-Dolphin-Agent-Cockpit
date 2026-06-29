@@ -87,6 +87,35 @@ func (s *configStore) ListToolLifecycle(
 	return out, nil
 }
 
+// ExportToolLifecycle 导出当前 workspace 的全部 MCP tool lifecycle 状态。
+// 该只读入口用于回滚或降级前保留人工 disabled/suspended/removed 决策。
+func (s *configStore) ExportToolLifecycle(
+	ctx context.Context,
+	workspaceRoot string,
+) ([]contract.MCPToolLifecycleDecision, error) {
+	workspaceRoot = strings.TrimSpace(workspaceRoot)
+	if workspaceRoot == "" {
+		return nil, errMissingWorkspaceRoot
+	}
+	q, err := s.lifecycleQueries()
+	if err != nil {
+		return nil, err
+	}
+	rows, err := q.ExportMCPToolLifecycle(ctx, sqlc.ExportMCPToolLifecycleParams{WorkspaceRoot: workspaceRoot})
+	if err != nil {
+		return nil, wrapMCPToolLifecycleStoreError(err, "export")
+	}
+	out := make([]contract.MCPToolLifecycleDecision, 0, len(rows))
+	for _, row := range rows {
+		decision, err := decodeMCPToolLifecycle(row)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, decision)
+	}
+	return out, nil
+}
+
 // UpsertToolLifecycle 写入人工状态变更；状态、原因和替代工具以本次请求为准。
 func (s *configStore) UpsertToolLifecycle(
 	ctx context.Context,

@@ -419,6 +419,61 @@ func TestConfigStoreRejectsUnknownToolLifecycleStateFromDB(t *testing.T) {
 	}
 }
 
+func TestConfigStoreExportsToolLifecycleForRollback(t *testing.T) {
+	store, closeDB := newSQLiteConfigStore(t)
+	defer closeDB()
+	ctx := context.Background()
+	workspaceRoot := filepath.Join(t.TempDir(), "project")
+	otherWorkspace := filepath.Join(t.TempDir(), "other")
+	ensureMCPToolLifecycleTable(t, store, ctx)
+
+	_, err := store.UpsertToolLifecycle(ctx, contract.StoreMCPToolLifecycleParams{
+		WorkspaceRoot:   workspaceRoot,
+		ServerName:      "z-search",
+		ManifestName:    "manifest-z",
+		ToolName:        "search",
+		State:           contract.MCPToolLifecycleRemoved,
+		Reason:          "migrated",
+		ReplacementTool: "search_v2",
+		NowMillis:       200,
+	})
+	if err != nil {
+		t.Fatalf("UpsertToolLifecycle(z-search) error = %v", err)
+	}
+	_, err = store.UpsertToolLifecycle(ctx, contract.StoreMCPToolLifecycleParams{
+		WorkspaceRoot: workspaceRoot,
+		ServerName:    "a-lsp",
+		ManifestName:  "manifest-a",
+		ToolName:      "grep",
+		State:         contract.MCPToolLifecycleSuspended,
+		Reason:        "policy review",
+		NowMillis:     300,
+	})
+	if err != nil {
+		t.Fatalf("UpsertToolLifecycle(a-lsp) error = %v", err)
+	}
+	_, err = store.UpsertToolLifecycle(ctx, contract.StoreMCPToolLifecycleParams{
+		WorkspaceRoot: otherWorkspace,
+		ServerName:    "a-lsp",
+		ToolName:      "hidden",
+		State:         contract.MCPToolLifecycleDisabled,
+		NowMillis:     400,
+	})
+	if err != nil {
+		t.Fatalf("UpsertToolLifecycle(other workspace) error = %v", err)
+	}
+
+	got, err := store.ExportToolLifecycle(ctx, workspaceRoot)
+	if err != nil {
+		t.Fatalf("ExportToolLifecycle() error = %v", err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("ExportToolLifecycle() len = %d, want 2: %#v", len(got), got)
+	}
+	assertExportedLifecycleRow(t, got[0], "a-lsp", "grep", contract.MCPToolLifecycleSuspended, "")
+	assertExportedLifecycleRow(t, got[1], "z-search", "search", contract.MCPToolLifecycleRemoved, "search_v2")
+}
+
 func newSQLiteConfigStore(t *testing.T) (*configStore, func()) {
 	t.Helper()
 	db, err := sql.Open("sqlite", ":memory:")
@@ -453,6 +508,29 @@ func assertLifecycleManualStatePreserved(t *testing.T, got contract.MCPToolLifec
 	}
 	if got.ManifestName != "manifest-v2" || got.LastSeenAt != 300 {
 		t.Fatalf("backfilled discovery fields = %#v, want manifest-v2 last_seen=300", got)
+	}
+}
+
+func assertExportedLifecycleRow(
+	t *testing.T,
+	got contract.MCPToolLifecycleDecision,
+	serverName string,
+	toolName string,
+	state contract.MCPToolLifecycleState,
+	replacementTool string,
+) {
+	t.Helper()
+	if got.ServerName != serverName {
+		t.Fatalf("export server = %q, want %q; row=%#v", got.ServerName, serverName, got)
+	}
+	if got.ToolName != toolName {
+		t.Fatalf("export tool = %q, want %q; row=%#v", got.ToolName, toolName, got)
+	}
+	if got.State != state {
+		t.Fatalf("export state = %q, want %q; row=%#v", got.State, state, got)
+	}
+	if got.ReplacementTool != replacementTool {
+		t.Fatalf("export replacement = %q, want %q; row=%#v", got.ReplacementTool, replacementTool, got)
 	}
 }
 
