@@ -98,6 +98,11 @@ type CodexListToolsSetter interface {
 	SetListTools(fn func(context.Context) ([]DynamicToolSchema, error))
 }
 
+// ToolbridgeReadinessProbe 在 provider 启动前检查工具桥接是否完成生产装配。
+type ToolbridgeReadinessProbe interface {
+	CheckToolbridgeReady(ctx context.Context, provider string) error
+}
+
 // CodexToolSurfaceScope 携带暴露和路由 Codex 动态工具所需的可信会话上下文。
 type CodexToolSurfaceScope struct {
 	SurfaceID        string
