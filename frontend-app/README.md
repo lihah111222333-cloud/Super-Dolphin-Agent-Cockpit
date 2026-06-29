@@ -3,10 +3,9 @@
 Independent React/Vite client UI for the Super Agent desktop-style shell.
 
 This folder is the current new UI for the desktop dev flow. It is intentionally
-separate from `cmd/agent-terminal/frontend`, which remains the legacy
-Vue/package-embed frontend path.
+the only frontend source package used by the desktop host.
 For package/embed builds, `make frontend-app-build` builds this app and copies
-`frontend-app/dist` into `cmd/agent-terminal/frontend/dist` for Go embed.
+`frontend-app/dist` into `cmd/agent-terminal/web-dist` for Go embed.
 
 ```bash
 cd frontend-app

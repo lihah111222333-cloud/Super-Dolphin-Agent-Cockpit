@@ -169,7 +169,7 @@ func writeGuardFixture(t *testing.T, content string) string {
 }
 
 func TestAgentDocsRequireSingleFileGuardAfterGoEdits(t *testing.T) {
-	for _, path := range []string{"../AGENTS.md", "../CLAUDE.md"} {
+	for _, path := range []string{"../CLAUDE.md"} {
 		t.Run(filepath.Base(path), func(t *testing.T) {
 			body := readRepoFile(t, path)
 			assertScriptContains(t, body, "./scripts/test_with_guard.sh <file.go>")
@@ -177,20 +177,5 @@ func TestAgentDocsRequireSingleFileGuardAfterGoEdits(t *testing.T) {
 			assertScriptContains(t, body, "0 表示无违规")
 			assertScriptContains(t, body, "1 表示有违规")
 		})
-	}
-}
-
-func TestAgentDocsSelectGuardCommandByDevice(t *testing.T) {
-	body := readRepoFile(t, "../AGENTS.md")
-
-	for _, want := range []string{
-		"根据当前设备和 shell 选择守卫入口",
-		"macOS / Linux / Git Bash / WSL",
-		"./scripts/test_with_guard.sh <file.go>",
-		"Windows 原生 PowerShell",
-		"pwsh -NoProfile -ExecutionPolicy Bypass -File .\\scripts\\test_with_guard.ps1 <file.go>",
-		"不要在 Windows PowerShell 中直接运行 `.sh`",
-	} {
-		assertScriptContains(t, body, want)
 	}
 }

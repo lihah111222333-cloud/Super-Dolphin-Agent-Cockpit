@@ -43,18 +43,19 @@ function Assert-RepoChildPath() {
 
 function Copy-FrontendAppDistToEmbed() {
     $source = Join-Path $Root 'frontend-app/dist'
-    $destination = Join-Path $Root 'cmd/agent-terminal/frontend/dist'
+    $destination = Join-Path $Root 'cmd/agent-terminal/web-dist'
     if (-not (Test-Path -LiteralPath (Join-Path $source 'index.html') -PathType Leaf)) {
         throw "frontend-app/dist/index.html is missing before embed copy"
     }
     Assert-RepoChildPath -Label 'embedded frontend dist' -Path $destination
     if (Test-Path -LiteralPath $destination) {
-        Remove-Item -LiteralPath $destination -Recurse -Force
+        Get-ChildItem -LiteralPath $destination -Force | Where-Object { $_.Name -ne '.gitkeep' } | Remove-Item -Recurse -Force
+    } else {
+        New-Item -ItemType Directory -Force -Path $destination | Out-Null
     }
-    New-Item -ItemType Directory -Force -Path $destination | Out-Null
     Get-ChildItem -LiteralPath $source -Force | Copy-Item -Destination $destination -Recurse -Force
     if (-not (Test-Path -LiteralPath (Join-Path $destination 'index.html') -PathType Leaf)) {
-        throw "cmd/agent-terminal/frontend/dist/index.html is missing after embed copy"
+        throw "cmd/agent-terminal/web-dist/index.html is missing after embed copy"
     }
 }
 

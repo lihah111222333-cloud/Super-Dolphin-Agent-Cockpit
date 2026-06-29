@@ -58,7 +58,7 @@ aliases: ["@编写计划", "@writing-plans"]
 
 **Tech Stack:** [Key technologies/libraries]
 
-**Verification Surface:** [Go packages, frontend-app, legacy Vue, SQL/store, codemap, docs/skills]
+**Verification Surface:** [Go packages, frontend-app, SQL/store, codemap, docs/skills]
 
 ---
 ```

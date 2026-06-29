@@ -20,7 +20,7 @@ func TestPackageWindowsScriptBuildsNativeWindowsPackage(t *testing.T) {
 	assertScriptContains(t, script, "Invoke-WindowsGoBuild -Output (Join-Path $Root 'bin/mcp-ida.exe') -Package './cmd/mcp-ida' -LdFlags $windowsGuiLdFlags")
 	assertScriptContains(t, script, "SUPER_DOLPHIN_SKIP_FRONTEND_BUILD")
 	assertScriptContains(t, script, "npm run build")
-	assertScriptContains(t, script, "Copy-DirectoryClean -Source (Join-Path $Root 'frontend-app/dist') -Destination (Join-Path $Root 'cmd/agent-terminal/frontend/dist')")
+	assertScriptContains(t, script, "Copy-DirectoryClean -Source (Join-Path $Root 'frontend-app/dist') -Destination (Join-Path $Root 'cmd/agent-terminal/web-dist') -PreserveNames @('.gitkeep')")
 	assertScriptDoesNotContain(t, script, "Copy-PostgresRuntime")
 	assertScriptDoesNotContain(t, script, "SUPER_DOLPHIN_POSTGRES_DIST")
 	assertScriptContains(t, script, "$ProgressPreference = 'SilentlyContinue'")

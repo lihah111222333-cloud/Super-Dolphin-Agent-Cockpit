@@ -13,11 +13,6 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 REQUIRED = {
-    "AGENTS.md": [
-        "not required to bind their lifecycle to `mcp-orch`",
-        "native sub-agent or multi-agent capability",
-        "Use `mcp-orch` only when",
-    ],
     "CLAUDE.md": [
         "子代理不强制绑定 `mcp-go-agent-orchestration`",
         "原生子代理/多代理能力",
@@ -62,15 +57,10 @@ REQUIRED = {
         "stdio MCP",
         "legacy HTTP",
     ],
-    ".agent/skills/vue3/SKILL.md": [
-        "frontend-app",
-        "legacy/package-embed",
-        "明确",
-    ],
     ".agent/skills/前端/SKILL.md": [
         "frontend-app",
-        "cmd/agent-terminal/frontend",
-        "legacy",
+        "cmd/agent-terminal/web-dist",
+        "React/Vite",
     ],
     ".agent/skills/UI设计/SKILL.md": [
         "frontend-app",
@@ -203,9 +193,6 @@ FORBIDDEN = {
         "核心配置",
         "github.com/mark3labs",
         "、`sql/queries/task_dag*`",
-    ],
-    ".agent/skills/vue3/SKILL.md": [
-        "当用户需要在 V3 仓库的前端进行开发时加载",
     ],
     ".agent/skills/使用git工作区/SKILL.md": [
         "添加到 .gitignore + 提交该变更",

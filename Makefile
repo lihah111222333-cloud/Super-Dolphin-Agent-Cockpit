@@ -1,4 +1,4 @@
-.PHONY: build build-plain build-agent-terminal build-agent-terminal-plain frontend-deps frontend-build frontend-app-deps frontend-app-build frontend-legacy-deps frontend-legacy-build run run-plain dev-hot run-agent-terminal-debug run-agent-terminal-debug-plain build-peer-binaries package-macos package-linux package-windows test test-deferred vet clean guard guard-shell protocol-sync-check rpc-regression-check codemap-check codemap-refresh project-map-check project-map-refresh capcontract-check capcontract-refresh setup-cgo ui-cover-build ui-cover-run ui-cover-report app-cover-build app-cover-run app-cover-report log-audit p2-audit ida-test-all ida-test-heavy sqlc-generate sqlc-verify
+.PHONY: build build-plain build-agent-terminal build-agent-terminal-plain frontend-deps frontend-build frontend-app-deps frontend-app-build run run-plain dev-hot run-agent-terminal-debug run-agent-terminal-debug-plain build-peer-binaries package-macos package-linux package-windows test test-deferred vet clean guard guard-shell protocol-sync-check rpc-regression-check codemap-check codemap-refresh project-map-check project-map-refresh capcontract-check capcontract-refresh setup-cgo ui-cover-build ui-cover-run ui-cover-report app-cover-build app-cover-run app-cover-report log-audit p2-audit ida-test-all ida-test-heavy sqlc-generate sqlc-verify
 
 # Auto-detect macOS version to avoid ld warnings about version mismatch.
 # Override with: make MIN_MACOS_VERSION=15.0 build
@@ -8,7 +8,7 @@ FRIDA_DEVKIT_VERSION ?= $(shell cat $(FRIDA_VERSION_FILE) 2>/dev/null)
 FRIDA_LDFLAGS ?= -X github.com/multi-agent/go-agent-v2/pkg/idamcp.defaultFridaVersion=$(FRIDA_DEVKIT_VERSION)
 AGENT_TERMINAL_DEBUG_PORT ?= 4501
 FRONTEND_APP_DIR := frontend-app
-LEGACY_FRONTEND_DIR := cmd/agent-terminal/frontend
+EMBEDDED_FRONTEND_DIR := cmd/agent-terminal/web-dist
 ifeq ($(OS),Windows_NT)
 NPM ?= npm.cmd
 NPM_INSTALL ?= install --no-audit --no-fund
@@ -61,18 +61,7 @@ frontend-app-build: frontend-app-deps
 	cd $(FRONTEND_APP_DIR) && $(NPM) run build
 	test -f $(FRONTEND_APP_DIR)/dist/index.html
 	node $(FRONTEND_APP_DIR)/scripts/sync-frontend-dist.mjs
-	test -f $(LEGACY_FRONTEND_DIR)/dist/index.html
-
-frontend-legacy-deps:
-	cd $(LEGACY_FRONTEND_DIR) && \
-	if [ ! -d node_modules ] || [ package-lock.json -nt node_modules ] || [ package.json -nt node_modules ]; then \
-		$(NPM) $(NPM_INSTALL); \
-	else \
-		echo "legacy frontend dependencies are up to date"; \
-	fi
-
-frontend-legacy-build: frontend-legacy-deps
-	cd $(LEGACY_FRONTEND_DIR) && $(NPM) run build
+	test -f $(EMBEDDED_FRONTEND_DIR)/index.html
 
 # The root desktop scripts are the preferred dev launchers. These make targets
 # keep the minimal packaged-asset run path for CI and local checks.

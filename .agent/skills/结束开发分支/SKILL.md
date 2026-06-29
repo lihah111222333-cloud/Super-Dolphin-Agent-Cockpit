@@ -32,7 +32,6 @@ git rev-parse --show-toplevel
 | Go 文件 | `./scripts/test_with_guard.sh <file.go>`，再跑受影响包 `./scripts/test_with_guard.sh <packages> -count=1` |
 | guard/archtest | `./scripts/test_with_guard.sh ./internal/archtest -count=1` 或 `make guard` |
 | frontend-app | `cd frontend-app && npm run lint && npm test && npm run build` |
-| legacy Vue | `cd cmd/agent-terminal/frontend && node scripts/size-guard.cjs && npx vitest run && npm run build` |
 | SQL/store | `make sqlc-verify` |
 | codemap | `make codemap-check` |
 | docs/skills-only | `git diff --check` + 对应文本校验脚本 |
