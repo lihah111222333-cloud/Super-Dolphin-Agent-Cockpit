@@ -51,7 +51,7 @@ func registerHTTPAssetRoutes(mux *http.ServeMux, server *rpc.Server, assetHandle
 // NewHTTPAssetServer 创建同时服务前端资源和 JRPC WebSocket 的 runner。
 // WebSocket token 在 runner 构造时确定，后续 route guard 和 asset cookie 共用同一值。
 func NewHTTPAssetServer(p httpAssetServerParams) httpAssetRunnerResult {
-	handler := withClipboardAssets(AssetHandlerFromForMode(p.Frontend, isDebug(p.Config)))
+	handler := withSharedFilePreviewAssets(withClipboardAssets(AssetHandlerFromForMode(p.Frontend, isDebug(p.Config))))
 	return httpAssetRunnerResult{
 		Runner: &httpAssetServer{
 			logger:  p.Logger,
@@ -179,7 +179,7 @@ func wailsAssetCookieHandler(next http.Handler, wsToken string) http.Handler {
 	})
 }
 
-// validateWailsWebSocketRequest 校验 WebSocket 请求的 Host 和 Origin 都来自 loopback。
+// validateWailsWebSocketRequest 校验 WebSocket 请求的 Host 和 Origin 都来自同一 loopback 来源。
 func validateWailsWebSocketRequest(r *http.Request) error {
 	if r == nil {
 		return errors.New("wails websocket request must be present")
@@ -189,6 +189,9 @@ func validateWailsWebSocketRequest(r *http.Request) error {
 	}
 	if origin := strings.TrimSpace(r.Header.Get("Origin")); origin != "" && !isLoopbackOrigin(origin) {
 		return fmt.Errorf("wails websocket origin must be loopback, got %q", origin)
+	}
+	if origin := strings.TrimSpace(r.Header.Get("Origin")); origin != "" && !isSameHTTPOrigin(r.Host, origin) {
+		return fmt.Errorf("wails websocket origin must be same origin as host %q, got %q", r.Host, origin)
 	}
 	return nil
 }
@@ -225,6 +228,15 @@ func isLoopbackOrigin(raw string) bool {
 	}
 }
 
+// isSameHTTPOrigin 比较 Host 与 Origin 的 authority，避免 localhost/127.0.0.1 互相冒充。
+func isSameHTTPOrigin(host, origin string) bool {
+	parsed, err := url.Parse(strings.TrimSpace(origin))
+	if err != nil || parsed == nil || parsed.Host == "" {
+		return false
+	}
+	return canonicalHTTPAuthority(host) == canonicalHTTPAuthority(parsed.Host)
+}
+
 // isLoopbackHTTPAuthority 判断 Host 或 host:port 是否指向本机。
 func isLoopbackHTTPAuthority(raw string) bool {
 	host := strings.TrimSpace(raw)
@@ -235,6 +247,14 @@ func isLoopbackHTTPAuthority(raw string) bool {
 		host = splitHost
 	}
 	return isLoopbackHost(host)
+}
+
+func canonicalHTTPAuthority(raw string) string {
+	host := strings.ToLower(strings.TrimSpace(raw))
+	if splitHost, splitPort, err := net.SplitHostPort(host); err == nil {
+		return strings.Trim(strings.ToLower(splitHost), "[]") + ":" + splitPort
+	}
+	return strings.Trim(host, "[]")
 }
 
 // isLoopbackHost 判断 host 字面量是否为允许的 loopback 名称。

@@ -24,7 +24,7 @@ describe('composerAttachments', () => {
       path: 'C:/tmp/photo.png',
       name: 'photo.png',
       kind: 'image',
-      previewUrl: 'file://C:/tmp/photo.png',
+      previewUrl: '',
     });
     expect(normalizeAttachment({ url: 'C:/tmp/readme.txt' })).toEqual({
       path: 'C:/tmp/readme.txt',
@@ -92,7 +92,7 @@ describe('composerAttachments', () => {
         path: 'C:/tmp/b.png',
         name: 'b.png',
         kind: 'image',
-        previewUrl: 'file://C:/tmp/b.png',
+        previewUrl: '',
       },
     ]);
     expect(attachmentKey(next[1])).toBe('C:/tmp/b.png');

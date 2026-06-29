@@ -6,15 +6,35 @@ import { firstText, textValue } from '../../shared/pageShared.js';
  */
 
 function parsedWorkflowConfig(value) {
-  if (!value) return {};
-  if (typeof value === 'object' && !Array.isArray(value)) return value;
-  if (typeof value !== 'string') return {};
+  return parseWorkflowConfig(value).value;
+}
+
+function parseWorkflowConfig(value) {
+  if (!value) return { value: {}, error: '' };
+  if (typeof value === 'object' && !Array.isArray(value)) return { value, error: '' };
+  if (typeof value !== 'string') return { value: {}, error: 'config must be a JSON object' };
   try {
     const parsed = JSON.parse(value);
-    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
-  } catch {
-    return {};
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) return { value: parsed, error: '' };
+    return { value: {}, error: 'config must be a JSON object' };
+  } catch (error) {
+    return { value: {}, error: `config JSON parse failed: ${error.message || String(error)}` };
   }
+}
+
+function workflowConfigDiagnostics(nodes = []) {
+  return (Array.isArray(nodes) ? nodes : []).flatMap((node, index) => {
+    const parsed = parseWorkflowConfig(node?.config);
+    if (!parsed.error) return [];
+    const nodeKey = node?.nodeKey || `node:${index}`;
+    return [{
+      key: `config:${nodeKey}`,
+      nodeKey,
+      severity: 'error',
+      title: node?.title || nodeKey,
+      message: parsed.error,
+    }];
+  });
 }
 
 function finalOutputPath(value) {
@@ -125,6 +145,7 @@ function workflowTopologyRows(nodes = []) {
 export {
   finalOutputKind,
   finalOutputPath,
+  workflowConfigDiagnostics,
   workflowOrderedNodes,
   workflowSharedFileRows,
   workflowTopologyRows,
