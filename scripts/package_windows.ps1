@@ -1054,8 +1054,7 @@ function Try-BuildInstaller() {
     )
     $iscc = Resolve-InnoCompiler
     if ($iscc -eq '') {
-        Write-Host 'Windows installer skipped: Inno Setup iscc.exe not found.'
-        return
+        throw 'Windows installer requested but Inno Setup iscc.exe was not found'
     }
     $setupName = "SuperDolphinSetup-$Version-$Platform"
     $iss = Join-Path $Dist "$setupName.iss"

@@ -21,6 +21,36 @@ require_github_release_repo() {
   printf '%s\n' "$repo"
 }
 
+release_dirty_whitelist_matches() {
+  local path="$1" entry
+  IFS=',' read -ra entries <<< "${SUPER_DOLPHIN_RELEASE_DIRTY_WHITELIST:-}"
+  for entry in "${entries[@]}"; do
+    entry="${entry#"${entry%%[![:space:]]*}"}"
+    entry="${entry%"${entry##*[![:space:]]}"}"
+    if [[ -n "$entry" && "$path" == "$entry" ]]; then
+      return 0
+    fi
+  done
+  return 1
+}
+
+require_clean_release_tree() {
+  local dirty=0 status path
+  while IFS= read -r line; do
+    [[ -n "$line" ]] || continue
+    status="${line:0:2}"
+    path="${line:3}"
+    if ! release_dirty_whitelist_matches "$path"; then
+      echo "release worktree has uncommitted changes: $status $path" >&2
+      dirty=1
+    fi
+  done < <(git status --porcelain=v1 --untracked-files=all)
+  if [[ "$dirty" != "0" ]]; then
+    echo "Set SUPER_DOLPHIN_RELEASE_DIRTY_WHITELIST to a comma-separated exact path list only for audited manual overrides." >&2
+    exit 1
+  fi
+}
+
 tag="${VERSION:?VERSION is required, for example v1.0.4}"
 default_package_version="${tag#v}"
 default_package_version="${default_package_version#V}"
@@ -35,6 +65,8 @@ artifact="$stage_dir/$asset_name"
 manifest="$stage_dir/$manifest_name"
 artifact_url="https://github.com/${github_release_repo}/releases/download/${tag}/${asset_name}"
 previous_dmg_mount=""
+build_commit="$(git rev-parse HEAD)"
+export SUPER_DOLPHIN_RELEASE_BUILD_COMMIT="$build_commit"
 
 cleanup() {
   if [[ -n "$previous_dmg_mount" && -d "$previous_dmg_mount" ]]; then
@@ -127,6 +159,8 @@ if [[ -z "${SUPER_DOLPHIN_UPDATE_SIGNING_KEY:-}" ]]; then
 fi
 resolve_update_public_key
 
+require_clean_release_tree
+
 go run "$root/cmd/super-dolphin-release-manifest" \
   -check-key \
   -signing-key "$SUPER_DOLPHIN_UPDATE_SIGNING_KEY" \
@@ -143,6 +177,7 @@ export VERSION="$package_version"
 
 mkdir -p "$stage_dir"
 cp -f "$root/dist/package/macos/Super Dolphin.dmg" "$artifact"
+printf '%s\n' "$build_commit" > "$stage_dir/release-build-commit.txt"
 
 go run ./cmd/super-dolphin-release-manifest \
   -artifact "$artifact" \

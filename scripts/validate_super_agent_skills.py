@@ -368,6 +368,22 @@ def rel_files(base: Path) -> set[str]:
     }
 
 
+def normalize_mirror_bytes(data: bytes) -> bytes:
+    """Normalize provider mirror whitespace that should not change skill meaning."""
+    lines = data.replace(b"\r\n", b"\n").split(b"\n")
+    lines = [line.rstrip(b" \t") for line in lines]
+    while lines and not lines[-1]:
+        lines.pop()
+    return b"\n".join(lines)
+
+
+def mirror_bytes_equal(canonical: bytes, mirror: bytes) -> bool:
+    """Compare generated mirrors while tolerating checkout-safe whitespace cleanup."""
+    if canonical == mirror:
+        return True
+    return normalize_mirror_bytes(canonical) == normalize_mirror_bytes(mirror)
+
+
 def check_mirror(failures: list[str], mirror_rel: str, *, required: bool) -> None:
     canonical_root = ROOT / ".agent/skills"
     mirror_root = ROOT / mirror_rel
@@ -401,7 +417,7 @@ def check_mirror(failures: list[str], mirror_rel: str, *, required: bool) -> Non
             failures.append(f"{mirror_rel}/{name}: file set differs from canonical")
             continue
         for rel in sorted(canonical_files):
-            if (canonical_dir / rel).read_bytes() != (mirror_dir / rel).read_bytes():
+            if not mirror_bytes_equal((canonical_dir / rel).read_bytes(), (mirror_dir / rel).read_bytes()):
                 failures.append(f"{mirror_rel}/{name}/{rel}: differs from canonical")
 
 
