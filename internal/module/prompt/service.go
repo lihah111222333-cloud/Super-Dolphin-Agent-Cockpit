@@ -42,7 +42,7 @@ var _ contract.SectionInvalidator = (*service)(nil)
 
 // DisabledBuiltinToolsFn 返回用户在 UI 偏好中手动禁用的 builtin tool IDs。
 // 该函数由上层注入，避免 prompt 包直接依赖 uistate 实现。
-type DisabledBuiltinToolsFn func(ctx context.Context, cwd, provider string) []string
+type DisabledBuiltinToolsFn func(ctx context.Context, cwd, provider string) ([]string, error)
 
 // service 是 prompt 模块的运行时实现，持有 section 注册表、动态 provider 和缓存。
 type service struct {

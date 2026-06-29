@@ -215,21 +215,25 @@ func snapshotHash(parts ...string) string {
 
 // aggregateSuppressedTools 汇总用户禁用工具产生的 prompt 软过滤列表。
 // provider-native skills 不再通过 prompt assembly metadata 隐式屏蔽原生工具。
-func (s *service) aggregateSuppressedTools(ctx context.Context, cwd, provider string) []string {
+func (s *service) aggregateSuppressedTools(ctx context.Context, cwd, provider string) ([]string, error) {
 	seen := make(map[string]struct{})
 	provider = strings.TrimSpace(provider)
 	if s.disabledToolsFn != nil {
-		for _, name := range s.disabledToolsFn(ctx, cwd, provider) {
+		disabledTools, err := s.disabledToolsFn(ctx, cwd, provider)
+		if err != nil {
+			return nil, err
+		}
+		for _, name := range disabledTools {
 			seen[name] = struct{}{}
 		}
 	}
 	if len(seen) == 0 {
-		return nil
+		return nil, nil
 	}
 	out := make([]string, 0, len(seen))
 	for name := range seen {
 		out = append(out, name)
 	}
 	sort.Strings(out)
-	return out
+	return out, nil
 }

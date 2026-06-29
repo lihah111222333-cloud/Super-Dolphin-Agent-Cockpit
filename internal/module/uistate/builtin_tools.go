@@ -199,20 +199,20 @@ func ResolveDisabledBuiltinTools(ctx context.Context, prefs preferenceValueReade
 }
 
 // ResolveSoftFilteredBuiltinTools 返回指定 provider 下 soft filter 的禁用工具。
-func ResolveSoftFilteredBuiltinTools(ctx context.Context, prefs preferenceValueReader, cwd string, registry []contract.NativeToolDescriptor, index map[string]contract.NativeToolDescriptor, provider string) []string {
+func ResolveSoftFilteredBuiltinTools(ctx context.Context, prefs preferenceValueReader, cwd string, registry []contract.NativeToolDescriptor, index map[string]contract.NativeToolDescriptor, provider string) ([]string, error) {
 	filtered, err := ResolveFilteredBuiltinTools(ctx, prefs, cwd, registry, index)
 	if err != nil {
-		return nil
+		return nil, err
 	}
-	return filterBuiltinToolsByModeAndProvider(filtered, index, contract.NativeToolFilterModeSoft, provider)
+	return filterBuiltinToolsByModeAndProvider(filtered, index, contract.NativeToolFilterModeSoft, provider), nil
 }
 
 // ResolveHardEnabledBuiltinTools 返回指定 provider 下 hard filter 但当前仍启用的工具。
-func ResolveHardEnabledBuiltinTools(ctx context.Context, prefs preferenceValueReader, cwd string, registry []contract.NativeToolDescriptor, index map[string]contract.NativeToolDescriptor, provider string) []string {
+func ResolveHardEnabledBuiltinTools(ctx context.Context, prefs preferenceValueReader, cwd string, registry []contract.NativeToolDescriptor, index map[string]contract.NativeToolDescriptor, provider string) ([]string, error) {
 	disabled := make(map[string]struct{})
 	filtered, err := ResolveFilteredBuiltinTools(ctx, prefs, cwd, registry, index)
 	if err != nil {
-		return nil
+		return nil, err
 	}
 	for _, id := range filtered {
 		disabled[id] = struct{}{}
@@ -232,7 +232,7 @@ func ResolveHardEnabledBuiltinTools(ctx context.Context, prefs preferenceValueRe
 		out = append(out, item.ID)
 	}
 	sort.Strings(out)
-	return out
+	return out, nil
 }
 
 // filterBuiltinToolsByModeAndProvider 按 filter mode 和可选 provider 过滤工具 ID。
