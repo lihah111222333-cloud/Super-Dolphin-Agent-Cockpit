@@ -26,6 +26,9 @@ func (s *store) FailNodeAndCancelDownstream(ctx context.Context, input FailNodeI
 	if err := requireRuntimeRunID("fail_and_cancel_downstream", input.RunID); err != nil {
 		return nil, err
 	}
+	if err := requireWakeupAttemptFence("fail_and_cancel_downstream", input.WakeupID, input.WakeupAttempt); err != nil {
+		return nil, err
+	}
 	var result FailNodeResult
 	err := sqlctx.WithImmediateTxOrReuse(ctx, s.db, s.q, func(txq *sqlc.Queries, txdb sqlc.DBTX) error {
 		txStore := &store{db: txdb, q: txq}
@@ -48,7 +51,7 @@ func failNodeAndCancelDownstreamTx(ctx context.Context, txStore *store, input Fa
 	if oldErr != nil {
 		return nil, oldErr
 	}
-	node, failErr := failNodeTx(ctx, txStore, input.DagKey, input.NodeKey, input.RunID, failNodeReason{
+	node, failErr := failNodeTx(ctx, txStore, input.DagKey, input.NodeKey, input.RunID, input.WakeupID, input.WakeupAttempt, failNodeReason{
 		Kind:   failNodeKindExhaustedRetries,
 		Reason: input.Reason,
 	})
@@ -83,18 +86,20 @@ func lockedNodeStatusBeforeFailTx(ctx context.Context, txStore *store, dagKey, n
 
 // failNodeTx 在当前事务内把单个非终态节点写成 failed。
 // 失败原因编码进 result，调用方无需额外 join 就能区分原发失败和级联失败。
-func failNodeTx(ctx context.Context, txStore *store, dagKey, nodeKey string, runID int64, reason failNodeReason) (*Node, error) {
+func failNodeTx(ctx context.Context, txStore *store, dagKey, nodeKey string, runID int64, wakeupID int64, wakeupAttempt int32, reason failNodeReason) (*Node, error) {
 	encoded, err := json.Marshal(reason)
 	if err != nil {
 		return nil, fmt.Errorf("marshal fail reason for %s/%s: %w", dagKey, nodeKey, err)
 	}
 	return updateNodeStatus(func() (sqlc.FailTaskDagNodeIfNonTerminalRow, error) {
 		return txStore.q.FailTaskDagNodeIfNonTerminal(ctx, sqlc.FailTaskDagNodeIfNonTerminalParams{
-			Status:  "failed",
-			Result:  encoded,
-			DagKey:  dagKey,
-			NodeKey: nodeKey,
-			RunID:   int64Ptr(runID),
+			Status:        "failed",
+			Result:        encoded,
+			DagKey:        dagKey,
+			NodeKey:       nodeKey,
+			RunID:         int64Ptr(runID),
+			WakeupID:      wakeupID,
+			WakeupAttempt: int64(wakeupAttempt),
 		})
 	}, "fail_non_terminal", fromNodeFailNonTerminalRow)
 }

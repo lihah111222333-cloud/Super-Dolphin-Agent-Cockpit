@@ -9,6 +9,7 @@ import (
 	"maps"
 	"strings"
 	"text/template"
+	"time"
 )
 
 // AutomationExecutor 执行 node_type=automation 节点。
@@ -74,6 +75,25 @@ func NewAutomationExecutor(getter AutomationCommandGetter, runner AutomationComm
 	return e
 }
 
+type executionTimeoutContextKey struct{}
+
+// WithExecutionTimeout 把 router 解析出的 DAG 默认 timeout 放入执行 context。
+// 节点自身 execution.timeout 仍在 AutomationExecutor 内解析并覆盖该默认值。
+func WithExecutionTimeout(ctx context.Context, timeout time.Duration) context.Context {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if timeout <= 0 {
+		return ctx
+	}
+	return context.WithValue(ctx, executionTimeoutContextKey{}, timeout)
+}
+
+func executionTimeoutFromContext(ctx context.Context) time.Duration {
+	timeout, _ := ctx.Value(executionTimeoutContextKey{}).(time.Duration)
+	return timeout
+}
+
 // Execute 解析 automation config、读取命令卡并运行命令。
 // 配置、wiring、输入和命令执行错误都通过 NodeOutcome 分类返回，error 通道只保留框架级失败。
 func (e *AutomationExecutor) Execute(ctx context.Context, node Node, runCtx RunContext) (NodeOutcome, error) {
@@ -101,11 +121,38 @@ func (e *AutomationExecutor) Execute(ctx context.Context, node Node, runCtx RunC
 		return *failure, nil
 	}
 
-	result, err := e.runner.RunCommandCard(ctx, card, runArgs, automationCommandRunOptionsFromConfig(cfg))
+	commandCtx, cancel, failure := automationCommandContext(ctx, cfg, runCtx)
+	if failure != nil {
+		return *failure, nil
+	}
+	defer cancel()
+
+	result, err := e.runner.RunCommandCard(commandCtx, card, runArgs, automationCommandRunOptionsFromConfig(cfg))
 	if err != nil {
 		return failedAutomationOutcome(classifyAutomationError(err), "run command card: "+err.Error()), nil
 	}
 	return finalizeAutomationOutcome(ctx, cfg, node, runCtx, result)
+}
+
+// automationCommandContext 把有效 execution timeout 施加到命令运行上下文。
+// 节点配置优先；直接调用 executor 时仍能从 node.config 生效，避免仅 router 路径有超时。
+func automationCommandContext(ctx context.Context, cfg *AutomationNodeConfig, runCtx RunContext) (context.Context, context.CancelFunc, *NodeOutcome) {
+	timeout := executionTimeoutFromContext(ctx)
+	if cfg != nil {
+		nodeTimeout, ok, err := cfg.Execution.ExecutionTimeout()
+		if err != nil {
+			outcome := failedAutomationOutcome(FailureClassValidation, "automation execution timeout invalid: "+err.Error())
+			return ctx, func() {}, &outcome
+		}
+		if ok {
+			timeout = nodeTimeout
+		}
+	}
+	if timeout <= 0 {
+		return ctx, func() {}, nil
+	}
+	commandCtx, cancel := context.WithTimeout(ctx, timeout)
+	return commandCtx, cancel, nil
 }
 
 func automationCommandRunOptionsFromConfig(cfg *AutomationNodeConfig) AutomationCommandRunOptions {
