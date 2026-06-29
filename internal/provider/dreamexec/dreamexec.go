@@ -51,6 +51,13 @@ type Commander interface {
 	Run(ctx context.Context, binary string, args []string, input string, maxStdoutBytes int64) ([]byte, error)
 }
 
+// PolicyCommander 表示支持接收 dream runtime policy 的 commander。
+// 旧测试 fake 可继续只实现 Commander；真实 commander 会用该接口应用 MinEnv。
+type PolicyCommander interface {
+	Commander
+	RunWithPolicy(ctx context.Context, binary string, args []string, input string, maxStdoutBytes int64, policy contract.DreamRuntimePolicy) ([]byte, error)
+}
+
 // stderrPreviewBytes 限制错误信息里嵌入的 stderr 预览长度，防爆日志。
 const stderrPreviewBytes = 4 * 1024
 
@@ -63,6 +70,12 @@ func NewRealCommander() Commander { return realCommander{} }
 // Run 执行一次真实 CLI 子进程并返回受限 stdout。
 // ctx 取消优先于退出码错误；binary 缺失会映射为哨兵错误供 dispatcher failover。
 func (realCommander) Run(ctx context.Context, binary string, args []string, input string, maxStdoutBytes int64) ([]byte, error) {
+	return realCommander{}.RunWithPolicy(ctx, binary, args, input, maxStdoutBytes, contract.DreamRuntimePolicy{})
+}
+
+// RunWithPolicy 执行真实 CLI，并按 dream runtime policy 收紧环境继承。
+// MinEnv=true 时只保留 CLI 启动所需的基础环境键，避免 provider 读取父进程 secret。
+func (realCommander) RunWithPolicy(ctx context.Context, binary string, args []string, input string, maxStdoutBytes int64, policy contract.DreamRuntimePolicy) ([]byte, error) {
 	if strings.TrimSpace(binary) == "" {
 		return nil, errors.New("dreamexec: binary is empty")
 	}
@@ -71,7 +84,7 @@ func (realCommander) Run(ctx context.Context, binary string, args []string, inpu
 	}
 
 	cmd := exec.CommandContext(ctx, binary, args...)
-	cmd.Env = contract.ScrubDatabaseEnv(os.Environ())
+	cmd.Env = dreamCommandEnv(policy)
 	cmd.Stdin = strings.NewReader(input)
 
 	var stdoutBuf, stderrBuf bytes.Buffer
@@ -102,6 +115,34 @@ func (realCommander) Run(ctx context.Context, binary string, args []string, inpu
 		return nil, fmt.Errorf("dreamexec: %s stdout exceeded %d bytes", binary, maxStdoutBytes)
 	}
 	return stdoutBuf.Bytes(), nil
+}
+
+func dreamCommandEnv(policy contract.DreamRuntimePolicy) []string {
+	if policy.MinEnv {
+		return minimalDreamEnv()
+	}
+	return contract.ScrubDatabaseEnv(os.Environ())
+}
+
+func minimalDreamEnv() []string {
+	keep := []string{
+		"PATH",
+		"HOME",
+		"TMPDIR",
+		"TEMP",
+		"TMP",
+		"SSL_CERT_FILE",
+		"SSL_CERT_DIR",
+		"SYSTEMROOT",
+		"WINDIR",
+	}
+	out := make([]string, 0, len(keep))
+	for _, key := range keep {
+		if value := os.Getenv(key); value != "" {
+			out = append(out, key+"="+value)
+		}
+	}
+	return contract.ScrubDatabaseEnv(out)
 }
 
 // isBinaryNotAvailable 识别 binary 不可用场景：
@@ -151,6 +192,7 @@ type RunOptions struct {
 	Prompt         string
 	MaxStdoutBytes int64 // 必须 > 0
 	MaxRetries     int   // fence/JSON 解析失败时 retry 次数（建议 0 或 1）
+	RuntimePolicy  contract.DreamRuntimePolicy
 
 	// OnUsage 在 Run 检测到结构化 CLI 输出（claude envelope / codex JSONL）并提取到非零
 	// usage 时被调用；wrapper 通常传入 dreammetrics.AddTokens。
@@ -170,6 +212,7 @@ func Run(ctx context.Context, c Commander, opts RunOptions) (string, error) {
 	if err := validateRunOptions(c, opts); err != nil {
 		return "", err
 	}
+	opts.RuntimePolicy = opts.RuntimePolicy.WithStrictDefaults()
 
 	var lastParseErr error
 	attempts := opts.MaxRetries + 1
@@ -257,7 +300,15 @@ func runDreamAttempt(ctx context.Context, c Commander, opts RunOptions) (string,
 	if err := ctx.Err(); err != nil {
 		return "", TokenUsage{}, err
 	}
-	raw, err := c.Run(ctx, opts.Binary, opts.Args, opts.Prompt, opts.MaxStdoutBytes)
+	var (
+		raw []byte
+		err error
+	)
+	if policyCommander, ok := c.(PolicyCommander); ok {
+		raw, err = policyCommander.RunWithPolicy(ctx, opts.Binary, opts.Args, opts.Prompt, opts.MaxStdoutBytes, opts.RuntimePolicy)
+	} else {
+		raw, err = c.Run(ctx, opts.Binary, opts.Args, opts.Prompt, opts.MaxStdoutBytes)
+	}
 	if err != nil {
 		return "", TokenUsage{}, err
 	}

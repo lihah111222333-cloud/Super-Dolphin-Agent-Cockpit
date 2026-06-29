@@ -39,10 +39,10 @@ func TestAutoDreamSchedulerDisabledHooksSkipsWorker(t *testing.T) {
 }
 
 // -----------------------------------------------------------------------------
-// Test 2: Enqueue is non-blocking; overflow counted as dropped
+// Test 2: Enqueue is non-blocking; overflow is coalesced for retry
 // -----------------------------------------------------------------------------
 
-func TestAutoDreamSchedulerEnqueueOverflowCountsAsDropped(t *testing.T) {
+func TestAutoDreamSchedulerEnqueueOverflowCoalescesForRetry(t *testing.T) {
 	t.Parallel()
 	// Don't Start() — worker never consumes, so the queue fills predictably.
 	// enabled=true keeps Enqueue on the production code path (otherwise it
@@ -62,8 +62,8 @@ func TestAutoDreamSchedulerEnqueueOverflowCountsAsDropped(t *testing.T) {
 	for i := 0; i < overflow; i++ {
 		s.Enqueue("thread-overflow")
 	}
-	if got := s.DroppedTotal(); got != overflow {
-		t.Fatalf("DroppedTotal after overflow = %d, want %d", got, overflow)
+	if got := s.DroppedTotal(); got != 0 {
+		t.Fatalf("DroppedTotal after overflow = %d, want 0 because overflow is coalesced", got)
 	}
 
 	// Stop on a never-started scheduler must still be safe (taskCancel +

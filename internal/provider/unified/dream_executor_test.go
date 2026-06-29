@@ -42,6 +42,20 @@ func (f *fakeDreamExecutor) ExecuteDream(ctx context.Context, prompt string) (st
 	return f.result, f.err
 }
 
+type fakePolicyDreamExecutor struct {
+	result  string
+	options []contract.DreamOptions
+}
+
+func (f *fakePolicyDreamExecutor) ExecuteDream(context.Context, string) (string, error) {
+	return f.result, nil
+}
+
+func (f *fakePolicyDreamExecutor) ExecuteDreamWithOptions(_ context.Context, _ string, options contract.DreamOptions) (string, error) {
+	f.options = append(f.options, options)
+	return f.result, nil
+}
+
 // newDreamExecutorWithTimeout 构造 dispatcher 后用反射式断言注入 timeout，
 // 仅供测试调小 dispatcher deadline。生产构造走 NewDreamExecutor + defaultDreamTimeout。
 func newDreamExecutorWithTimeout(t *testing.T, providers []contract.DreamExecutorProvider, timeout time.Duration) contract.DreamExecutor {
@@ -147,6 +161,25 @@ func TestDreamExecutor_SingleProviderSuccess(t *testing.T) {
 	}
 	if got != "consolidated" {
 		t.Fatalf("expected 'consolidated', got %q", got)
+	}
+}
+
+func TestDreamExecutor_AppliesStrictRuntimePolicy(t *testing.T) {
+	provider := &fakePolicyDreamExecutor{result: "consolidated"}
+	d := NewDreamExecutor([]contract.DreamExecutorProvider{{Name: "codex", Executor: provider}}, newSilentLogger())
+
+	got, err := d.ExecuteDream(context.Background(), "p")
+	if err != nil {
+		t.Fatalf("ExecuteDream() error = %v", err)
+	}
+	if got != "consolidated" {
+		t.Fatalf("ExecuteDream() = %q, want consolidated", got)
+	}
+	if len(provider.options) != 1 {
+		t.Fatalf("recorded options = %d, want 1", len(provider.options))
+	}
+	if got := provider.options[0].RuntimePolicy; !got.ToolsDisabled || !got.ReadOnlySandbox || !got.MinEnv {
+		t.Fatalf("RuntimePolicy = %+v, want strict dream policy", got)
 	}
 }
 
