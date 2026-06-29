@@ -423,6 +423,8 @@ func (m *ApprovalManager) lookupCompleted(callID string, requestID *int64) (comp
 	return completed, ok
 }
 
+// lookupCompletedByRequestIDLocked 在持锁状态下按 requestID 查找已完成审批。
+// 当 requestID 对应多条不同 callID 时，只允许精确 callID 命中，避免把审批结果串给其他请求。
 func (m *ApprovalManager) lookupCompletedByRequestIDLocked(requestID int64, callID string) (completedApproval, bool) {
 	entries := m.completedByRequestID[requestID]
 	if len(entries) == 0 {

@@ -331,6 +331,8 @@ func previewMediaType(path string) string {
 	}
 }
 
+// sniffPreviewImageMediaType 读取文件头确认图片预览的真实媒体类型。
+// 这里不只信任扩展名，避免非图片内容被包装成前端可渲染的 data URL。
 func sniffPreviewImageMediaType(path string) (string, error) {
 	file, err := os.Open(path)
 	if err != nil {
@@ -353,6 +355,8 @@ func sniffPreviewImageMediaType(path string) (string, error) {
 	return "", fmt.Errorf("ui/code/open: image header is not a supported bitmap image for %q", path)
 }
 
+// imageMediaTypeFromMagic 根据常见图片魔数返回稳定媒体类型。
+// 只覆盖 Wails 代码预览允许的位图格式，避免 SVG 等主动内容进入内联预览。
 func imageMediaTypeFromMagic(header []byte) string {
 	switch {
 	case bytes.HasPrefix(header, []byte{0x89, 'P', 'N', 'G', 0x0D, 0x0A, 0x1A, 0x0A}):
