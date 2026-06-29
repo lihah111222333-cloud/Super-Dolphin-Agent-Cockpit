@@ -1,16 +1,20 @@
 package app
 
 import (
+	"context"
 	"io/fs"
+	"strings"
 	"testing"
 
 	"go.uber.org/fx"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
+	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
 	datasourcev2 "github.com/anthropic-ai/super-agent-v3/internal/module/datasource_v2"
 	"github.com/anthropic-ai/super-agent-v3/internal/module/turn"
 	"github.com/anthropic-ai/super-agent-v3/internal/module/workflowtemplate"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/toolbridge"
+	"github.com/anthropic-ai/super-agent-v3/internal/provider/codexapp"
 	uiwails "github.com/anthropic-ai/super-agent-v3/internal/ui/wails"
 )
 
@@ -86,6 +90,85 @@ func TestAppModuleGraphProvidesWorkflowTemplateService(t *testing.T) {
 	}
 }
 
+func TestToolbridgeCodexProductionBindingRequiresCriticalDependencies(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name string
+		opts []fx.Option
+		want string
+	}{
+		{
+			name: "missing ServerManager",
+			opts: []fx.Option{
+				fx.Supply(newGraphTestCodexDriverFactory()),
+				fx.Supply(toolbridge.NewHandlerForTesting(nil, nil)),
+			},
+			want: "*codexapp.ServerManager",
+		},
+		{
+			name: "missing DriverFactory",
+			opts: []fx.Option{
+				fx.Supply(&codexapp.ServerManager{}),
+				fx.Supply(toolbridge.NewHandlerForTesting(nil, nil)),
+			},
+			want: "*codexapp.DriverFactory",
+		},
+		{
+			name: "missing toolbridge Handler",
+			opts: []fx.Option{
+				fx.Supply(&codexapp.ServerManager{}),
+				fx.Supply(newGraphTestCodexDriverFactory()),
+			},
+			want: "*toolbridge.Handler",
+		},
+	}
+
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			opts := append([]fx.Option{
+				toolbridgeCodexBindingModule(),
+				fx.Provide(func() contract.SessionStarter { return graphTestSessionStarter{} }),
+			}, tc.opts...)
+			err := fx.ValidateApp(opts...)
+			if err == nil {
+				t.Fatalf("fx.ValidateApp() error = nil, want missing %s", tc.want)
+			}
+			if !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("fx.ValidateApp() error = %v, want %s", err, tc.want)
+			}
+		})
+	}
+}
+
+func TestToolbridgeCodexProductionBindingWrapsSessionStarter(t *testing.T) {
+	t.Parallel()
+
+	inner := graphTestSessionStarter{}
+	var starter contract.SessionStarter
+	app := fx.New(
+		toolbridgeCodexBindingModule(),
+		fx.Provide(func() contract.SessionStarter { return inner }),
+		fx.Supply(&codexapp.ServerManager{}),
+		fx.Supply(newGraphTestCodexDriverFactory()),
+		fx.Supply(toolbridge.NewHandlerForTesting(nil, nil)),
+		fx.Populate(&starter),
+		fx.NopLogger,
+	)
+	if err := app.Err(); err != nil {
+		t.Fatalf("fx.New() error = %v", err)
+	}
+	if starter == nil {
+		t.Fatal("contract.SessionStarter = nil, want readiness wrapped starter")
+	}
+	if starter == contract.SessionStarter(inner) {
+		t.Fatal("contract.SessionStarter was not wrapped with toolbridge readiness")
+	}
+}
+
 func appGraphValidationOptions() []fx.Option {
 	// RunDesktop 正常会注入前端文件系统；这里用空 fs 满足 uiwails.Module 依赖，避免启动 Wails。
 	frontend := fx.Supply(uiwails.FrontendFS{FS: emptyFS{}})
@@ -106,3 +189,17 @@ func appGraphValidationOptions() []fx.Option {
 type emptyFS struct{}
 
 func (emptyFS) Open(string) (fs.File, error) { return nil, fs.ErrNotExist }
+
+type graphTestSessionStarter struct{}
+
+func (graphTestSessionStarter) StartSession(context.Context, dto.StartSessionRequest) (contract.Session, error) {
+	return nil, nil
+}
+
+func (graphTestSessionStarter) ResumeSession(context.Context, dto.ResumeSessionRequest) (contract.Session, error) {
+	return nil, nil
+}
+
+func newGraphTestCodexDriverFactory() *codexapp.DriverFactory {
+	return codexapp.NewDriverFactory(nil, nil, nil, nil, nil, nil, nil, nil)
+}
