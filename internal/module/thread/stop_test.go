@@ -209,6 +209,29 @@ func TestStopContinuesWhenLocalSessionAlreadyGone(t *testing.T) {
 	}
 }
 
+func TestStopKeepsResumeBlockedUntilStatusIsDurable(t *testing.T) {
+	t.Parallel()
+
+	svc := newResumeBlockTimingService(t, statusCreated)
+	store := &resumeBlockAssertingThreadStore{
+		stubThreadStore: svc.threadStore.(*stubThreadStore),
+		t:               t,
+		svc:             svc,
+		agentID:         "agent-1",
+	}
+	svc.threadStore = store
+
+	if err := svc.Stop(context.Background(), "thread-1"); err != nil {
+		t.Fatalf("Stop() error = %v", err)
+	}
+	if !store.statusObserved {
+		t.Fatal("UpdateStatus was not observed")
+	}
+	if _, blocked := svc.resumeBlocked.Load("agent-1"); blocked {
+		t.Fatal("resumeBlocked remains after Stop completed")
+	}
+}
+
 func TestStopRetriesBindingAfterPendingLaunchLock(t *testing.T) {
 	t.Parallel()
 
@@ -280,6 +303,29 @@ func TestArchiveStopsManagedAgentBeforeArchiving(t *testing.T) {
 	assertArchiveStopsManagedAgent(t, calls, orch, bindingStore, threadStore, session, sessions)
 	if _, blocked := svc.resumeBlocked.Load("agent-1"); blocked {
 		t.Fatal("resumeBlocked has not been cleared for agent-1 after successful Archive")
+	}
+}
+
+func TestArchiveKeepsResumeBlockedUntilArchiveIsDurable(t *testing.T) {
+	t.Parallel()
+
+	svc := newResumeBlockTimingService(t, statusCreated)
+	store := &resumeBlockAssertingThreadStore{
+		stubThreadStore: svc.threadStore.(*stubThreadStore),
+		t:               t,
+		svc:             svc,
+		agentID:         "agent-1",
+	}
+	svc.threadStore = store
+
+	if err := svc.Archive(context.Background(), "thread-1"); err != nil {
+		t.Fatalf("Archive() error = %v", err)
+	}
+	if !store.statusObserved {
+		t.Fatal("UpdateStatus was not observed")
+	}
+	if _, blocked := svc.resumeBlocked.Load("agent-1"); blocked {
+		t.Fatal("resumeBlocked remains after Archive completed")
 	}
 }
 
@@ -451,6 +497,29 @@ func TestDeleteStopsManagedAgentBeforeDeleting(t *testing.T) {
 	assertDeleteStopsManagedAgent(t, calls, orch, bindingStore, threadStore, session, sessions)
 	if _, blocked := svc.resumeBlocked.Load("agent-1"); blocked {
 		t.Fatal("resumeBlocked has not been cleared for agent-1 after successful Delete")
+	}
+}
+
+func TestDeleteKeepsResumeBlockedUntilDeleteIsDurable(t *testing.T) {
+	t.Parallel()
+
+	svc := newResumeBlockTimingService(t, statusCreated)
+	store := &resumeBlockAssertingThreadStore{
+		stubThreadStore: svc.threadStore.(*stubThreadStore),
+		t:               t,
+		svc:             svc,
+		agentID:         "agent-1",
+	}
+	svc.threadStore = store
+
+	if err := svc.Delete(context.Background(), "thread-1"); err != nil {
+		t.Fatalf("Delete() error = %v", err)
+	}
+	if !store.deleteObserved {
+		t.Fatal("DeleteByThreadID was not observed")
+	}
+	if _, blocked := svc.resumeBlocked.Load("agent-1"); blocked {
+		t.Fatal("resumeBlocked remains after Delete completed")
 	}
 }
 
@@ -633,4 +702,55 @@ func newScratchpadCleanupService(t *testing.T) (*service, string) {
 		}},
 		orchestration: &stubThreadOrchestration{},
 	}, dir
+}
+
+func newResumeBlockTimingService(t *testing.T, status string) *service {
+	t.Helper()
+	return &service{
+		bindingStore: &stubThreadBindingStore{binding: &bindingstore.Binding{
+			AgentID:          "agent-1",
+			Provider:         "codex",
+			ProviderThreadID: "provider-thread-1",
+			CodexThreadID:    "thread-1",
+		}},
+		threadStore: &stubThreadStore{thread: &threadstore.Thread{
+			ThreadID: "thread-1",
+			AgentID:  "agent-1",
+			Status:   status,
+		}},
+		sessions: &stubThreadSessions{
+			agentID: "agent-1",
+			session: &stubThreadSession{threadID: "thread-1"},
+		},
+		turns:         &stubTurnService{},
+		orchestration: &stubThreadOrchestration{},
+	}
+}
+
+type resumeBlockAssertingThreadStore struct {
+	*stubThreadStore
+	t              *testing.T
+	svc            *service
+	agentID        string
+	statusObserved bool
+	deleteObserved bool
+}
+
+func (s *resumeBlockAssertingThreadStore) UpdateStatus(ctx context.Context, params threadstore.UpdateStatusParams) error {
+	s.statusObserved = true
+	s.assertBlocked("UpdateStatus")
+	return s.stubThreadStore.UpdateStatus(ctx, params)
+}
+
+func (s *resumeBlockAssertingThreadStore) DeleteByThreadID(ctx context.Context, threadID string) error {
+	s.deleteObserved = true
+	s.assertBlocked("DeleteByThreadID")
+	return s.stubThreadStore.DeleteByThreadID(ctx, threadID)
+}
+
+func (s *resumeBlockAssertingThreadStore) assertBlocked(stage string) {
+	s.t.Helper()
+	if _, blocked := s.svc.resumeBlocked.Load(s.agentID); !blocked {
+		s.t.Fatalf("resumeBlocked missing during %s; concurrent Resume can pass before terminal state is durable", stage)
+	}
 }

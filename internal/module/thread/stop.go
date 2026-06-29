@@ -49,6 +49,20 @@ func (s *service) unblockResumeForAgent(agentID string) {
 	s.resumeBlocked.Delete(agentID)
 }
 
+// blockResumeForAgentUntilDurable 持有恢复阻断，直到调用方完成持久化状态写入。
+// 返回的 release 可安全多次调用，供 Stop/Archive/Delete 在成功和错误路径统一释放。
+func (s *service) blockResumeForAgentUntilDurable(agentID string) func() {
+	s.blockResumeForAgent(agentID)
+	released := false
+	return func() {
+		if released {
+			return
+		}
+		released = true
+		s.unblockResumeForAgent(agentID)
+	}
+}
+
 // unblockResumeForThread 根据 thread/binding 反查 agent 后解除恢复阻断。
 // binding 不可用时退回 threadID 作为 key，覆盖停止早期还没写入 binding 的场景。
 func (s *service) unblockResumeForThread(ctx context.Context, threadID string) {
@@ -209,9 +223,11 @@ func (s *service) Stop(ctx context.Context, threadID string) error {
 			return err
 		}
 	}
-	if err := s.stopThreadRuntime(ctx, stopState, "thread_stopped", false); err != nil {
+	releaseResume, err := s.stopThreadRuntime(ctx, stopState, "thread_stopped", false)
+	if err != nil {
 		return err
 	}
+	defer releaseResume()
 	if err := s.updateThreadStatus(ctx, stopState.stoppedID, statusStopped); err != nil {
 		return err
 	}
@@ -279,7 +295,7 @@ func (s *service) stopThreadRuntime(
 	stopState threadStopState,
 	source string,
 	allowMissingAgent bool,
-) error {
+) (func(), error) {
 	pkglogger.Info("thread: stopThreadRuntime ENTERED",
 		"agent_id", stopState.agentID,
 		"stopped_id", stopState.stoppedID,
@@ -287,31 +303,30 @@ func (s *service) stopThreadRuntime(
 		"allow_missing_agent", allowMissingAgent,
 		"caller", archiveCallerStack(),
 	)
-	s.blockResumeForAgent(stopState.agentID)
+	releaseResume := s.blockResumeForAgentUntilDurable(stopState.agentID)
 	s.interruptStoppingThread(ctx, stopState.agentID, source)
 	localSessionGone := false
 	if err := s.closeSessionForAgent(ctx, stopState.agentID); err != nil {
 		if !errors.Is(err, errLocalSessionAlreadyGone) {
-			s.unblockResumeForAgent(stopState.agentID)
+			releaseResume()
 			pkglogger.Warn("thread: stopThreadRuntime closeSession FAILED",
 				"agent_id", stopState.agentID,
 				"error", err,
 			)
-			return err
+			return nil, err
 		}
 		localSessionGone = true
 	}
 	err := s.stopManagedAgent(ctx, stopState.agentID, allowMissingAgent || localSessionGone)
 	if err != nil {
-		s.unblockResumeForAgent(stopState.agentID)
+		releaseResume()
 		pkglogger.Warn("thread: stopThreadRuntime DONE with error",
 			"agent_id", stopState.agentID,
 			"error", err,
 		)
-	} else {
-		s.unblockResumeForAgent(stopState.agentID)
+		return nil, err
 	}
-	return err
+	return releaseResume, nil
 }
 
 // interruptStoppingThread 在停止 provider 前尝试中断活跃 turn。

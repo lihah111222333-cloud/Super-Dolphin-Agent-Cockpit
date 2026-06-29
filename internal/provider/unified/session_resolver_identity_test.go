@@ -69,7 +69,11 @@ func TestSessionResolverAutoResumePassesCodexIdentityGolden(t *testing.T) {
 	rolloutPath := writeExistingProviderHistoryFile(t)
 	driver := &resumeCaptureDriver{name: "codex", session: &generationTestSession{threadID: "11111111-aaaa-bbbb-cccc-111111111111"}}
 	resolver := &sessionResolver{
-		threadStore: stubThreadLookup{thread: &contract.SessionThreadRef{ThreadID: "public-thread-1", AgentID: "agent-1"}},
+		threadStore: stubThreadLookup{thread: &contract.SessionThreadRef{
+			ThreadID:       "public-thread-1",
+			AgentID:        "agent-1",
+			PromptSnapshot: autoResumePromptSnapshotForTest(),
+		}},
 		bindingStore: stubBindingLookup{bindings: map[string]*contract.SessionBinding{
 			"codex:provider-thread-1": {
 				Provider:           "codex",
@@ -106,8 +110,9 @@ func TestSessionResolverAutoResumePassesRuntimeConfig(t *testing.T) {
 	driver := &resumeCaptureDriver{name: "codex", session: &generationTestSession{threadID: "11111111-aaaa-bbbb-cccc-111111111112"}}
 	resolver := &sessionResolver{
 		threadStore: stubThreadLookup{thread: &contract.SessionThreadRef{
-			ThreadID: "public-thread-1",
-			AgentID:  "agent-1",
+			ThreadID:       "public-thread-1",
+			AgentID:        "agent-1",
+			PromptSnapshot: autoResumePromptSnapshotForTest(),
 			RuntimeConfig: map[string]any{
 				"additionalWorkingDirectories": []any{"/repo/extra"},
 			},
@@ -133,6 +138,82 @@ func TestSessionResolverAutoResumePassesRuntimeConfig(t *testing.T) {
 	want := map[string]any{"additionalWorkingDirectories": []any{"/repo/extra"}}
 	if !reflect.DeepEqual(driver.resumeReq.Config, want) {
 		t.Fatalf("ResumeSession Config = %#v, want %#v", driver.resumeReq.Config, want)
+	}
+}
+
+func TestSessionResolverAutoResumePassesPromptSnapshot(t *testing.T) {
+	t.Parallel()
+
+	rolloutPath := writeExistingProviderHistoryFile(t)
+	driver := &resumeCaptureDriver{name: "codex", session: &generationTestSession{threadID: "11111111-aaaa-bbbb-cccc-111111111116"}}
+	resolver := &sessionResolver{
+		threadStore: stubThreadLookup{thread: &contract.SessionThreadRef{
+			ThreadID: "public-thread-1",
+			AgentID:  "agent-1",
+			PromptSnapshot: contract.PromptAssemblySnapshot{
+				BaseInstructions: "resume system prompt",
+				Provider:         "codex",
+				Version:          2,
+				Hash:             "snapshot-hash",
+			},
+		}},
+		bindingStore: stubBindingLookup{bindings: map[string]*contract.SessionBinding{
+			"codex:provider-thread-1": {
+				Provider:         "codex",
+				AgentID:          "agent-1",
+				ProviderThreadID: "11111111-aaaa-bbbb-cccc-111111111116",
+				RolloutPath:      rolloutPath,
+				Cwd:              "/repo",
+			},
+		}},
+		registry: NewRegistry(RegistryParams{Drivers: []contract.DriverFactory{
+			{Name: "codex", Create: func() contract.Driver { return driver }},
+		}}),
+		sessions: NewSessionManager(nil),
+	}
+
+	if _, err := resolver.ResolveSession(context.Background(), "public-thread-1"); err != nil {
+		t.Fatalf("ResolveSession() error = %v", err)
+	}
+	if driver.resumeReq.PromptSnapshot.BaseInstructions != "resume system prompt" ||
+		driver.resumeReq.PromptSnapshot.Version != 2 ||
+		driver.resumeReq.PromptSnapshot.Hash != "snapshot-hash" {
+		t.Fatalf("ResumeSession PromptSnapshot = %#v, want stored snapshot", driver.resumeReq.PromptSnapshot)
+	}
+}
+
+func TestSessionResolverAutoResumeRejectsMissingPromptSnapshot(t *testing.T) {
+	t.Parallel()
+
+	rolloutPath := writeExistingProviderHistoryFile(t)
+	driver := &resumeCaptureDriver{name: "codex", session: &generationTestSession{threadID: "11111111-aaaa-bbbb-cccc-111111111117"}}
+	resolver := &sessionResolver{
+		threadStore: stubThreadLookup{thread: &contract.SessionThreadRef{
+			ThreadID: "public-thread-1",
+			AgentID:  "agent-1",
+			Status:   "running",
+		}},
+		bindingStore: stubBindingLookup{bindings: map[string]*contract.SessionBinding{
+			"codex:provider-thread-1": {
+				Provider:         "codex",
+				AgentID:          "agent-1",
+				ProviderThreadID: "11111111-aaaa-bbbb-cccc-111111111117",
+				RolloutPath:      rolloutPath,
+				Cwd:              "/repo",
+			},
+		}},
+		registry: NewRegistry(RegistryParams{Drivers: []contract.DriverFactory{
+			{Name: "codex", Create: func() contract.Driver { return driver }},
+		}}),
+		sessions: NewSessionManager(nil),
+	}
+
+	_, err := resolver.ResolveSession(context.Background(), "public-thread-1")
+	if err == nil || !strings.Contains(err.Error(), "prompt snapshot") {
+		t.Fatalf("ResolveSession() error = %v, want prompt snapshot error", err)
+	}
+	if driver.resumed != 0 {
+		t.Fatalf("ResumeSession calls = %d, want 0 without prompt snapshot", driver.resumed)
 	}
 }
 
@@ -163,9 +244,10 @@ func TestSessionResolverAutoResumeBackfillsCodexIdentityFromRuntimeConfig(t *tes
 			driver := &resumeCaptureDriver{name: "codex", session: &generationTestSession{threadID: "66666666-aaaa-bbbb-cccc-666666666666"}}
 			resolver := &sessionResolver{
 				threadStore: stubThreadLookup{thread: &contract.SessionThreadRef{
-					ThreadID:      "public-thread-1",
-					AgentID:       "agent-1",
-					RuntimeConfig: tc.runtime,
+					ThreadID:       "public-thread-1",
+					AgentID:        "agent-1",
+					PromptSnapshot: autoResumePromptSnapshotForTest(),
+					RuntimeConfig:  tc.runtime,
 				}},
 				bindingStore: stubBindingLookup{bindings: map[string]*contract.SessionBinding{
 					"codex:provider-thread-1": {
@@ -206,8 +288,9 @@ func TestSessionResolverAutoResumeResolvesAndBackfillsLegacyCodexIdentity(t *tes
 	}}
 	resolver := &sessionResolver{
 		threadStore: stubThreadLookup{thread: &contract.SessionThreadRef{
-			ThreadID: "public-thread-legacy",
-			AgentID:  "agent-legacy",
+			ThreadID:       "public-thread-legacy",
+			AgentID:        "agent-legacy",
+			PromptSnapshot: autoResumePromptSnapshotForTest(),
 			RuntimeConfig: map[string]any{
 				"provider": "codex",
 				"cwd":      "/repo",
@@ -270,8 +353,9 @@ func TestAutoResumeBackfillWritesCanonicalCodexIdentity(t *testing.T) {
 	}
 	resolver := &sessionResolver{
 		threadStore: stubThreadLookup{thread: &contract.SessionThreadRef{
-			ThreadID: "public-thread-canonical-backfill",
-			AgentID:  "agent-canonical-backfill",
+			ThreadID:       "public-thread-canonical-backfill",
+			AgentID:        "agent-canonical-backfill",
+			PromptSnapshot: autoResumePromptSnapshotForTest(),
 			RuntimeConfig: map[string]any{
 				contract.CodexHomeKey:          aliasHome,
 				contract.CodexInstanceKeyKey:   "default",
@@ -327,8 +411,9 @@ func TestSessionResolverAutoResumePrefersBindingCodexIdentityOverRuntimeConfig(t
 	driver := &resumeCaptureDriver{name: "codex", session: &generationTestSession{threadID: "77777777-aaaa-bbbb-cccc-777777777777"}}
 	resolver := &sessionResolver{
 		threadStore: stubThreadLookup{thread: &contract.SessionThreadRef{
-			ThreadID: "public-thread-1",
-			AgentID:  "agent-1",
+			ThreadID:       "public-thread-1",
+			AgentID:        "agent-1",
+			PromptSnapshot: autoResumePromptSnapshotForTest(),
 			RuntimeConfig: map[string]any{
 				"codexHome":          "/runtime/.codex",
 				"codexInstanceKey":   "runtime-instance-key",
@@ -396,6 +481,14 @@ func TestSessionResolverProviderThreadAutoResumeDoesNotUseCodexThreadID(t *testi
 	rolloutPath := writeExistingProviderHistoryFile(t)
 	driver := &resumeCaptureDriver{name: "codex", session: &generationTestSession{threadID: "33333333-aaaa-bbbb-cccc-333333333333"}}
 	resolver := &sessionResolver{
+		threadStore: keyedThreadLookup{
+			"public-thread-3": {
+				ThreadID:       "public-thread-3",
+				AgentID:        "agent-3",
+				Status:         "running",
+				PromptSnapshot: autoResumePromptSnapshotForTest(),
+			},
+		},
 		bindingStore: stubBindingLookup{bindings: map[string]*contract.SessionBinding{
 			"codex:33333333-aaaa-bbbb-cccc-333333333333": {
 				Provider:         "codex",
@@ -433,6 +526,14 @@ func TestSessionResolverAutoResumeDoesNotUseAgentIDAsThreadIDWithoutPublicThread
 	rolloutPath := writeExistingProviderHistoryFile(t)
 	driver := &resumeCaptureDriver{name: "codex", session: &generationTestSession{threadID: "22222222-aaaa-bbbb-cccc-222222222222"}}
 	resolver := &sessionResolver{
+		threadStore: keyedThreadLookup{
+			"agent-2": {
+				ThreadID:       "agent-2",
+				AgentID:        "agent-2",
+				Status:         "running",
+				PromptSnapshot: autoResumePromptSnapshotForTest(),
+			},
+		},
 		bindingStore: stubBindingLookup{bindings: map[string]*contract.SessionBinding{
 			"codex:22222222-aaaa-bbbb-cccc-222222222222": {
 				Provider:         "codex",

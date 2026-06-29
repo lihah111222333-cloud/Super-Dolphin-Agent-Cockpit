@@ -38,7 +38,7 @@ func (c *Client) StartSession(
 	ctx context.Context,
 	req dto.StartSessionRequest,
 ) (contract.Session, error) {
-	return c.open(ctx, "starting", req.Provider, req.AgentID, func(driver contract.Driver) (contract.Session, error) {
+	return c.open(ctx, "starting", req.Provider, req.AgentID, false, func(driver contract.Driver) (contract.Session, error) {
 		return driver.StartSession(ctx, req)
 	})
 }
@@ -49,7 +49,7 @@ func (c *Client) ResumeSession(
 	ctx context.Context,
 	req dto.ResumeSessionRequest,
 ) (contract.Session, error) {
-	return c.open(ctx, "resuming", req.Provider, req.AgentID, func(driver contract.Driver) (contract.Session, error) {
+	return c.open(ctx, "resuming", req.Provider, req.AgentID, true, func(driver contract.Driver) (contract.Session, error) {
 		return driver.ResumeSession(ctx, req)
 	})
 }
@@ -59,6 +59,7 @@ func (c *Client) open(
 	action string,
 	provider string,
 	agentID string,
+	pending bool,
 	run func(contract.Driver) (contract.Session, error),
 ) (contract.Session, error) {
 	driver, err := c.registry.Resolve(provider)
@@ -75,7 +76,11 @@ func (c *Client) open(
 	session = c.wrapSession(provider, session)
 	c.recordProviderTrace(ctx, providerSessionEvent("provider.session.ready", provider, agentID, session.ThreadID(), time.Since(started), nil))
 	if c.sessions != nil {
-		c.sessions.Register(agentID, session)
+		if pending {
+			c.sessions.RegisterPending(agentID, session)
+		} else {
+			c.sessions.Register(agentID, session)
+		}
 	}
 	return session, nil
 }

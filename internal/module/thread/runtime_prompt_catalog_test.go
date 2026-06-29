@@ -2,6 +2,7 @@ package thread
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
@@ -49,6 +50,22 @@ func TestResolveRoutedPromptUsesBuiltinDefaultWhenDBSeedMissing(t *testing.T) {
 	}
 	if req.PromptVersionID != nil {
 		t.Fatalf("PromptVersionID = %v, want nil when DB store is absent", req.PromptVersionID)
+	}
+}
+
+func TestResolveRoutedPromptFailsWhenDefaultTemplateMissing(t *testing.T) {
+	t.Parallel()
+
+	store := &fakePromptStore{}
+	svc := newServiceWithRouter(store)
+	req := &StartRequest{CWD: "/repo/a", Prompt: "hello"}
+
+	err := svc.resolveRoutedPrompt(context.Background(), req)
+	if err == nil || !strings.Contains(err.Error(), defaultPromptKey) {
+		t.Fatalf("resolveRoutedPrompt() error = %v, want missing %s error", err, defaultPromptKey)
+	}
+	if req.BaseInstructions != "" || len(req.BaseInstructionBlocks) != 0 {
+		t.Fatalf("request mutated despite missing default: base=%q blocks=%#v", req.BaseInstructions, req.BaseInstructionBlocks)
 	}
 }
 

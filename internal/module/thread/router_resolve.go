@@ -47,6 +47,7 @@ func (s *service) resolveRoutedPrompt(ctx context.Context, req *StartRequest) er
 
 	// match_when 自动路由只在没有显式 PromptKey/AgentKey 时运行，位于显式 pin 与默认模板之间。
 	// 它选择优先级最高且规则命中当前 BuildCtx 的模板。
+	defaultPromptRequired := routedPromptDefaultRequired(req)
 	s.maybeAutoRouteByMatchWhen(req, templates)
 
 	picked, err := s.pickRoutedTemplate(ctx, req, templates)
@@ -54,6 +55,9 @@ func (s *service) resolveRoutedPrompt(ctx context.Context, req *StartRequest) er
 		return err
 	}
 	if picked == nil || !picked.Enabled {
+		if routedPromptDefaultMissing(defaultPromptRequired, req, templates) {
+			return fmt.Errorf("router: required default prompt %q is missing", defaultPromptKey)
+		}
 		pkglogger.Info("router: no prompt_template matched",
 			"requested_agent_key", req.AgentKey,
 			"candidate_count", len(templates))
@@ -65,6 +69,19 @@ func (s *service) resolveRoutedPrompt(ctx context.Context, req *StartRequest) er
 		"candidate_count", len(templates),
 		"prompt_text_len", len(picked.PromptText))
 	return s.applyPickedRoutedTemplate(ctx, req, picked)
+}
+
+func routedPromptDefaultRequired(req *StartRequest) bool {
+	return req != nil &&
+		strings.TrimSpace(req.PromptKey) == "" &&
+		strings.TrimSpace(req.AgentKey) == ""
+}
+
+func routedPromptDefaultMissing(required bool, req *StartRequest, templates []runtimePromptTemplate) bool {
+	if !required || req == nil || strings.TrimSpace(req.PromptKey) != "" || strings.TrimSpace(req.AgentKey) != "" {
+		return false
+	}
+	return findByPromptKey(templates, defaultPromptKey) == nil
 }
 
 // applyPickedRoutedTemplate 将命中的 prompt_template 写回启动请求。
