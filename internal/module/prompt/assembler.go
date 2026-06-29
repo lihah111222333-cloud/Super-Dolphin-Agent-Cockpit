@@ -104,13 +104,16 @@ func (s *service) AssembleStart(ctx context.Context, in StartInput) (StartAssemb
 		return StartAssembly{}, err
 	}
 	buildCtx := buildStartCtx(in)
-	suppressedTools := s.aggregateSuppressedTools(ctx, strings.TrimSpace(in.CWD), strings.TrimSpace(in.Provider))
+	suppressedTools, err := s.aggregateSuppressedTools(ctx, strings.TrimSpace(in.CWD), strings.TrimSpace(in.Provider))
+	if err != nil {
+		return StartAssembly{}, err
+	}
 	buildCtx.SuppressedTools = suppressedTools
 	if _, err := s.resolveClaudeMdSources(ctx, buildCtx); err != nil {
 		return StartAssembly{}, err
 	}
 	if simpleStartEnabled(in) {
-		return s.simpleStartAssembly(ctx, in), nil
+		return s.simpleStartAssembly(ctx, in, suppressedTools), nil
 	}
 
 	resolved, err := s.resolveSections(ctx, s.startSections(), SectionContext{BuildCtx: buildCtx, Start: &in})
@@ -165,10 +168,9 @@ func simpleStartEnabled(in StartInput) bool {
 
 // simpleStartAssembly 生成简化 start prompt。
 // 该路径只保留身份、CWD 和日期三行，不计算动态 section、gitStatus 或 runtime extras。
-func (s *service) simpleStartAssembly(ctx context.Context, in StartInput) StartAssembly {
+func (s *service) simpleStartAssembly(ctx context.Context, in StartInput, suppressedTools []string) StartAssembly {
 	displayName := strings.TrimSpace(in.Name)
 	buildCtx := buildStartCtx(in)
-	suppressedTools := s.aggregateSuppressedTools(ctx, strings.TrimSpace(in.CWD), strings.TrimSpace(in.Provider))
 	buildCtx.SuppressedTools = suppressedTools
 	base := strings.Join([]string{
 		simpleStartIdentityLine,
@@ -371,11 +373,14 @@ func (s *service) regionSections(region PromptRegion) []PromptSection {
 // fallbackStartAssembly 在 section 解析失败时用原始 BaseInstructions 构建降级 assembly。
 // fallbackStartAssembly 在组装失败后保留原始 BaseInstructions 并补齐结构化上下文。
 // 该路径仍写 snapshot，保证后续 resume/fork/recover 能拿到一致的降级结果。
-func (s *service) fallbackStartAssembly(ctx context.Context, in StartInput) StartAssembly {
+func (s *service) fallbackStartAssembly(ctx context.Context, in StartInput) (StartAssembly, error) {
 	displayName := strings.TrimSpace(in.Name)
 	base := strings.TrimSpace(in.BaseInstructions)
 	buildCtx := buildStartCtx(in)
-	suppressedTools := s.aggregateSuppressedTools(ctx, strings.TrimSpace(in.CWD), strings.TrimSpace(in.Provider))
+	suppressedTools, err := s.aggregateSuppressedTools(ctx, strings.TrimSpace(in.CWD), strings.TrimSpace(in.Provider))
+	if err != nil {
+		return StartAssembly{}, err
+	}
 	buildCtx.SuppressedTools = suppressedTools
 	userMeta := s.buildStartUserMeta(buildCtx, nil)
 	systemCtx := s.buildSystemContext(ctx, buildCtx)
@@ -392,7 +397,7 @@ func (s *service) fallbackStartAssembly(ctx context.Context, in StartInput) Star
 		UserContext:           map[string]string(cloneUserContextPayload(userMeta)),
 		UserContextText:       contract.FormatUserContextText(userMeta),
 		SystemContext:         systemCtx,
-	}
+	}, nil
 }
 
 // buildStartUserMeta 构建每次 start 都可能变化的结构化 user meta。

@@ -164,8 +164,8 @@ func TestAssembleStartKeepsStaticSectionsAheadOfDynamicSections(t *testing.T) {
 }
 
 func TestAssembleStartRendersSuppressedToolsInToolPreferences(t *testing.T) {
-	svc := NewService(&Config{}, nil, WithDisabledBuiltinToolsFn(func(context.Context, string, string) []string {
-		return []string{"Read", "WebSearch"}
+	svc := NewService(&Config{}, nil, WithDisabledBuiltinToolsFn(func(context.Context, string, string) ([]string, error) {
+		return []string{"Read", "WebSearch"}, nil
 	}))
 
 	assembly, err := svc.AssembleStart(context.Background(), StartInput{
@@ -190,8 +190,8 @@ func TestAssembleStartRendersSuppressedToolsInToolPreferences(t *testing.T) {
 }
 
 func TestAssembleStartSimpleCodexCarriesSuppressedTools(t *testing.T) {
-	svc := NewService(&Config{}, nil, WithDisabledBuiltinToolsFn(func(context.Context, string, string) []string {
-		return []string{"shell"}
+	svc := NewService(&Config{}, nil, WithDisabledBuiltinToolsFn(func(context.Context, string, string) ([]string, error) {
+		return []string{"shell"}, nil
 	}))
 
 	assembly, err := svc.AssembleStart(context.Background(), StartInput{
@@ -208,11 +208,11 @@ func TestAssembleStartSimpleCodexCarriesSuppressedTools(t *testing.T) {
 }
 
 func TestAssembleStartSuppressesUserDisabledToolsForRequestedProvider(t *testing.T) {
-	svc := NewService(&Config{}, nil, WithDisabledBuiltinToolsFn(func(_ context.Context, _ string, provider string) []string {
+	svc := NewService(&Config{}, nil, WithDisabledBuiltinToolsFn(func(_ context.Context, _ string, provider string) ([]string, error) {
 		if provider == "codex" {
-			return []string{"codex_only_disabled_tool"}
+			return []string{"codex_only_disabled_tool"}, nil
 		}
-		return []string{"Bash"}
+		return []string{"Bash"}, nil
 	}))
 
 	assembly, err := svc.AssembleStart(context.Background(), StartInput{CWD: "/repo", Provider: "claude"})
@@ -224,6 +224,21 @@ func TestAssembleStartSuppressesUserDisabledToolsForRequestedProvider(t *testing
 	}
 	if strings.Contains(assembly.BaseInstructions, "codex_only_disabled_tool") {
 		t.Fatalf("BaseInstructions leaked codex suppression:\n%s", assembly.BaseInstructions)
+	}
+}
+
+func TestAssembleStartReturnsErrorWhenDisabledBuiltinToolsReadFails(t *testing.T) {
+	readErr := errors.New("ui preference read failed")
+	svc := NewService(&Config{}, nil, WithDisabledBuiltinToolsFn(func(context.Context, string, string) ([]string, error) {
+		return nil, readErr
+	}))
+
+	assembly, err := svc.AssembleStart(context.Background(), StartInput{CWD: "/repo", Provider: "codex"})
+	if !errors.Is(err, readErr) {
+		t.Fatalf("AssembleStart() error = %v, want preference read error", err)
+	}
+	if len(assembly.SuppressedTools) != 0 || assembly.BaseInstructions != "" {
+		t.Fatalf("AssembleStart() assembly = %#v, want zero value on preference read error", assembly)
 	}
 }
 

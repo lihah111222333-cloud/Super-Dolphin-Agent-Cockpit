@@ -38,6 +38,12 @@ func (s *store) ImportLocalFile(ctx context.Context, params ImportLocalFileParam
 	if err != nil {
 		return nil, importInfrastructure("resolve target", err)
 	}
+	return s.importLocalFileToTarget(ctx, params, cleanedTarget, targetAbs)
+}
+
+// importLocalFileToTarget 在目标路径已通过策略校验后完成源文件校验、复制和 DB 索引写入。
+// 这里仍然在复制前确认 .gitignore 可写，避免磁盘或 DB 留下半成品。
+func (s *store) importLocalFileToTarget(ctx context.Context, params ImportLocalFileParams, cleanedTarget, targetAbs string) (*SharedFile, error) {
 	sourceAbs, info, err := validateImportSource(params)
 	if err != nil {
 		return nil, err
@@ -45,7 +51,9 @@ func (s *store) ImportLocalFile(ctx context.Context, params ImportLocalFileParam
 	if err := ensureImportAllowed(params, sourceAbs, cleanedTarget, info.Size()); err != nil {
 		return nil, err
 	}
-	_ = sharedfilegitignore.Ensure(s.cfg.CWD, nil)
+	if err := sharedfilegitignore.Ensure(s.cfg.CWD, nil); err != nil {
+		return nil, importInfrastructure("sharedfilegitignore ensure", err)
+	}
 	if err := copyImportToTarget(sourceAbs, targetAbs, params); err != nil {
 		return nil, err
 	}

@@ -5,7 +5,7 @@ import (
 	"testing"
 )
 
-func TestValidateWritePath_AcceptsAllFiveWhitelistPrefixes(t *testing.T) {
+func TestValidateWritePath_AcceptsPublicWritePrefixes(t *testing.T) {
 	t.Parallel()
 
 	cases := []struct {
@@ -18,7 +18,6 @@ func TestValidateWritePath_AcceptsAllFiveWhitelistPrefixes(t *testing.T) {
 		{"dag node output", "dag/dag-1/node-a/output.json", "dag/dag-1/node-a/output.json"},
 		{"inbox", "inbox/task-1/user-1.md", "inbox/task-1/user-1.md"},
 		{"reports", "reports/task-1/result.md", "reports/task-1/result.md"},
-		{"internal runtime state", "_internal/runtime/state/thr-1.json", "_internal/runtime/state/thr-1.json"},
 		{"normalises backslash", "handoff\\task-1\\notes.md", "handoff/task-1/notes.md"},
 		{"strips redundant ./", "./handoff/task-1/notes.md", "handoff/task-1/notes.md"},
 		{"resolves intra-segment ..", "handoff/foo/../task-1/notes.md", "handoff/task-1/notes.md"},
@@ -35,6 +34,14 @@ func TestValidateWritePath_AcceptsAllFiveWhitelistPrefixes(t *testing.T) {
 				t.Fatalf("ValidateWritePath(%q) = %q, want %q", tt.path, got, tt.want)
 			}
 		})
+	}
+}
+
+func TestValidateWritePath_RejectsProtectedInternalRoot(t *testing.T) {
+	t.Parallel()
+
+	if got, err := ValidateWritePath("_internal/runtime/state/thr-1.json"); err == nil {
+		t.Fatalf("ValidateWritePath(_internal) = %q nil error, want protected-root rejection", got)
 	}
 }
 

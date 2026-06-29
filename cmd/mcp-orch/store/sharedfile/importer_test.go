@@ -11,6 +11,7 @@ import (
 
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/sqlc"
 	sharedfilefs "github.com/anthropic-ai/super-agent-v3/internal/platform/sharedfilefs"
+	sharedfilegitignore "github.com/anthropic-ai/super-agent-v3/internal/platform/sharedfilegitignore"
 	_ "modernc.org/sqlite"
 )
 
@@ -115,6 +116,46 @@ func TestImportLocalFile_RejectsAllowedRootSymlinkedParentEscape(t *testing.T) {
 	}
 	if !errors.Is(err, ErrImportValidation) || !strings.Contains(err.Error(), "allowed_source_roots") {
 		t.Fatalf("ImportLocalFile() error = %v, want allowed_source_roots validation rejection", err)
+	}
+}
+
+func TestImportLocalFile_FailsBeforeCopyWhenGitignoreEnsureFails(t *testing.T) {
+	t.Parallel()
+
+	sourceRoot := t.TempDir()
+	sourcePath := filepath.Join(sourceRoot, "final.mp4")
+	if err := os.WriteFile(sourcePath, []byte("video"), 0o644); err != nil {
+		t.Fatalf("write source: %v", err)
+	}
+	cwd := t.TempDir()
+	if err := os.Mkdir(filepath.Join(cwd, ".gitignore"), 0o755); err != nil {
+		t.Fatalf("mkdir .gitignore sentinel: %v", err)
+	}
+	sharedfilegitignore.ResetForTests()
+	t.Cleanup(sharedfilegitignore.ResetForTests)
+	db := newFakeImportDB(t)
+	sfStore := newStoreWithConfig(sqlc.New(db), sharedfilefs.Config{CWD: cwd, InlineThresholdBytes: 1})
+
+	_, err := sfStore.ImportLocalFile(context.Background(), ImportLocalFileParams{
+		SourcePath:         sourcePath,
+		TargetPath:         "dag/run-1/final.mp4",
+		AllowedExtensions:  []string{".mp4"},
+		AllowedSourceRoots: []string{sourceRoot},
+		Overwrite:          "fail",
+	})
+	if err == nil || !strings.Contains(err.Error(), "sharedfilegitignore") {
+		t.Fatalf("ImportLocalFile() error = %v, want gitignore ensure failure", err)
+	}
+	targetAbs := filepath.Join(cwd, ".agnet", "shared", "dag", "run-1", "final.mp4")
+	if _, statErr := os.Stat(targetAbs); !errors.Is(statErr, os.ErrNotExist) {
+		t.Fatalf("target stat error = %v, want not exist", statErr)
+	}
+	var count int
+	if scanErr := db.QueryRowContext(context.Background(), `SELECT COUNT(*) FROM shared_files WHERE path = ?`, "dag/run-1/final.mp4").Scan(&count); scanErr != nil {
+		t.Fatalf("query shared_files: %v", scanErr)
+	}
+	if count != 0 {
+		t.Fatalf("shared_files rows = %d, want 0 after gitignore failure", count)
 	}
 }
 
