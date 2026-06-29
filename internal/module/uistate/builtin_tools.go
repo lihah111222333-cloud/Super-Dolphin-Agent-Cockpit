@@ -172,11 +172,12 @@ func writeBuiltinTool(ctx context.Context, prefs preferenceStore, store contract
 	return readBuiltinTools(ctx, prefs, store, registry, index, p.Cwd)
 }
 
-// ResolveFilteredBuiltinTools 返回当前作用域应过滤的工具 ID；偏好读取失败时回退到 registry 默认值。
-func ResolveFilteredBuiltinTools(ctx context.Context, prefs preferenceValueReader, cwd string, registry []contract.NativeToolDescriptor, index map[string]contract.NativeToolDescriptor) []string {
+// ResolveFilteredBuiltinTools 返回当前作用域应过滤的工具 ID。
+// 偏好读取失败会直接返回错误，避免把读失败误当成“没有配置”而启用/禁用错误工具。
+func ResolveFilteredBuiltinTools(ctx context.Context, prefs preferenceValueReader, cwd string, registry []contract.NativeToolDescriptor, index map[string]contract.NativeToolDescriptor) ([]string, error) {
 	disabled, err := effectiveDisabledBuiltinToolSet(ctx, prefs, cwd, registry, index)
 	if err != nil {
-		disabled = defaultDisabledBuiltinToolSet(registry)
+		return nil, err
 	}
 	out := make([]string, 0, len(disabled))
 	for id := range disabled {
@@ -185,23 +186,35 @@ func ResolveFilteredBuiltinTools(ctx context.Context, prefs preferenceValueReade
 		}
 	}
 	sort.Strings(out)
-	return out
+	return out, nil
 }
 
 // ResolveDisabledBuiltinTools 保留旧 API 名称，语义等同 ResolveFilteredBuiltinTools。
 func ResolveDisabledBuiltinTools(ctx context.Context, prefs preferenceValueReader, cwd string, registry []contract.NativeToolDescriptor, index map[string]contract.NativeToolDescriptor) []string {
-	return ResolveFilteredBuiltinTools(ctx, prefs, cwd, registry, index)
+	filtered, err := ResolveFilteredBuiltinTools(ctx, prefs, cwd, registry, index)
+	if err != nil {
+		return nil
+	}
+	return filtered
 }
 
 // ResolveSoftFilteredBuiltinTools 返回指定 provider 下 soft filter 的禁用工具。
 func ResolveSoftFilteredBuiltinTools(ctx context.Context, prefs preferenceValueReader, cwd string, registry []contract.NativeToolDescriptor, index map[string]contract.NativeToolDescriptor, provider string) []string {
-	return filterBuiltinToolsByModeAndProvider(ResolveFilteredBuiltinTools(ctx, prefs, cwd, registry, index), index, contract.NativeToolFilterModeSoft, provider)
+	filtered, err := ResolveFilteredBuiltinTools(ctx, prefs, cwd, registry, index)
+	if err != nil {
+		return nil
+	}
+	return filterBuiltinToolsByModeAndProvider(filtered, index, contract.NativeToolFilterModeSoft, provider)
 }
 
 // ResolveHardEnabledBuiltinTools 返回指定 provider 下 hard filter 但当前仍启用的工具。
 func ResolveHardEnabledBuiltinTools(ctx context.Context, prefs preferenceValueReader, cwd string, registry []contract.NativeToolDescriptor, index map[string]contract.NativeToolDescriptor, provider string) []string {
 	disabled := make(map[string]struct{})
-	for _, id := range ResolveFilteredBuiltinTools(ctx, prefs, cwd, registry, index) {
+	filtered, err := ResolveFilteredBuiltinTools(ctx, prefs, cwd, registry, index)
+	if err != nil {
+		return nil
+	}
+	for _, id := range filtered {
 		disabled[id] = struct{}{}
 	}
 	provider = strings.TrimSpace(provider)

@@ -10,14 +10,14 @@ import (
 // sharedfilepath 定义 sharedfile 读写路径的 lexical 安全边界。
 //
 // 写路径只允许固定业务前缀：
-//   handoff/   dag/   inbox/   reports/   _internal/
+//   handoff/   dag/   inbox/   reports/
 //
 // 读路径只做 traversal/absolute 校验（ValidateReadPath），不做白名单 ——
 // 历史数据可能含计划之前的 prefix，但 traversal 已经够防御越界；强制白名
 // 单会让 list/dashboard 上的旧行 read 直接 500。
 
 const (
-	// sharedfile 写路径允许的顶层前缀。
+	// sharedfile 写路径允许的顶层前缀；_internal/ 是运行时保护根，不能由 sharedfile 写入口创建。
 	prefixHandoff  = "handoff/"
 	prefixDag      = "dag/"
 	prefixInbox    = "inbox/"
@@ -27,12 +27,13 @@ const (
 
 // 暴露给调用方做 errors.Is 判断，前端 / agent 看 friendly 文案时按 sentinel
 // 分支化（prefix_not_allowed 提示 \"路径前缀必须是 handoff/ dag/ inbox/
-// reports/ _internal/ 之一\"）。
+// reports/ 之一\"）。
 var (
 	ErrPathEmpty            = errors.New("sharedfile: path is empty")
 	ErrPathAbsolute         = errors.New("sharedfile: absolute path not allowed")
 	ErrPathTraversal        = errors.New("sharedfile: path traversal not allowed")
 	ErrPathPrefixNotAllowed = errors.New("sharedfile: path prefix not in whitelist")
+	ErrPathProtectedRoot    = errors.New("sharedfile: protected root not writable")
 )
 
 // writePrefixes 是写入路径白名单；读路径只做 lexical 安全校验。
@@ -41,7 +42,6 @@ var writePrefixes = []string{
 	prefixDag,
 	prefixInbox,
 	prefixReports,
-	prefixInternal,
 }
 
 // WritePrefixes 返回白名单写入路径前缀的拷贝。
@@ -58,6 +58,9 @@ func ValidateWritePath(raw string) (string, error) {
 	cleaned, err := cleanRelative(raw)
 	if err != nil {
 		return "", err
+	}
+	if strings.HasPrefix(cleaned, prefixInternal) {
+		return "", ErrPathProtectedRoot
 	}
 	if !hasAnyPrefix(cleaned, writePrefixes) {
 		return "", ErrPathPrefixNotAllowed

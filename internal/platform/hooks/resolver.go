@@ -123,11 +123,15 @@ func (r *HookResolver) Resolve(ctx context.Context, callerLease mcp.LeaseKey, re
 	); err != nil {
 		return mcp.HookResolveResponse{}, err
 	}
-	canonicalDecision, resolvedAt := r.loadResolvedReview(ctx, hookCallID, decision)
+	canonicalDecision, resolvedAt, _, err := r.readResolvedReview(ctx, hookCallID)
+	if err != nil {
+		return mcp.HookResolveResponse{}, fmt.Errorf("hook resolve readback failed for %q: %w", hookCallID, err)
+	}
+	if strings.TrimSpace(canonicalDecision) == "" {
+		return mcp.HookResolveResponse{}, fmt.Errorf("hook resolve readback returned empty decision for %q", hookCallID)
+	}
 	if resolvedAt.IsZero() {
-		r.logger.Warn("hooks resolver: readback failed, using fallback", "hook_call_id", hookCallID)
-		canonicalDecision = decision
-		resolvedAt = time.Now().UTC()
+		return mcp.HookResolveResponse{}, fmt.Errorf("hook resolve readback returned empty resolved_at for %q", hookCallID)
 	}
 
 	return mcp.HookResolveResponse{

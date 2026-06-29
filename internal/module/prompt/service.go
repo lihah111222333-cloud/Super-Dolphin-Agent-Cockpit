@@ -430,7 +430,10 @@ func upsertPrompt(
 	if err != nil {
 		return nil, err
 	}
-	template := buildPromptTemplate(p, cwd, key, current)
+	template, err := buildPromptTemplate(p, cwd, key, current)
+	if err != nil {
+		return nil, err
+	}
 	if err := validatePromptDiscoverability(template, current, p.WhenToUseSet); err != nil {
 		return nil, err
 	}
@@ -502,7 +505,7 @@ func buildPromptTemplate(
 	p PromptWriteRequest,
 	cwd, key string,
 	current *promptTemplate,
-) promptTemplate {
+) (promptTemplate, error) {
 	baseTags := clientTagsOrDefault(p.Tags, nil)
 	scope := promptScopeForWrite(current, cwd, p.Scope, p.ScopeSet)
 	whenToUse := ""
@@ -525,10 +528,14 @@ func buildPromptTemplate(
 		Priority:       p.Priority,
 	}
 	if p.MatchWhenSet {
-		template.MatchWhen = sanitizeTemplateMatchWhen(p.MatchWhen)
+		matchWhen, err := sanitizeTemplateMatchWhen(p.MatchWhen)
+		if err != nil {
+			return promptTemplate{}, err
+		}
+		template.MatchWhen = matchWhen
 	}
 	if current == nil {
-		return template
+		return template, nil
 	}
 	template.CreatedBy = current.CreatedBy
 	template.ToolName = current.ToolName
@@ -543,7 +550,7 @@ func buildPromptTemplate(
 	if strings.TrimSpace(p.AgentType) == "" {
 		template.AgentKey = current.AgentKey
 	}
-	return template
+	return template, nil
 }
 
 // promptEnabledForWrite 解析 enabled 字段，缺省更新时继承旧值、创建时默认启用。
@@ -565,28 +572,29 @@ func promptTextForWrite(p PromptWriteRequest, current *promptTemplate) string {
 	return p.Content
 }
 
-// sanitizeTemplateMatchWhen 移除已废弃的 tags_has 条件，保留无法解析的原始 JSON 交给后续校验。
-func sanitizeTemplateMatchWhen(raw json.RawMessage) json.RawMessage {
+// sanitizeTemplateMatchWhen 移除已废弃的 tags_has 条件，并拒绝非对象或损坏 JSON。
+// match_when 的 nil 表示“不参与自动路由”；显式 {} 才表示匹配全部。
+func sanitizeTemplateMatchWhen(raw json.RawMessage) (json.RawMessage, error) {
 	trimmed := strings.TrimSpace(string(raw))
 	if trimmed == "" || trimmed == "null" {
-		return nil
+		return nil, nil
 	}
 	var expr map[string]any
 	if err := json.Unmarshal([]byte(trimmed), &expr); err != nil {
-		return append(json.RawMessage(nil), raw...)
+		return nil, fmt.Errorf("dashboard: prompt match_when must be a valid JSON object: %w", err)
 	}
 	if _, ok := expr["tags_has"]; !ok {
-		return append(json.RawMessage(nil), raw...)
+		return json.RawMessage(trimmed), nil
 	}
 	delete(expr, "tags_has")
 	if len(expr) == 0 {
-		return nil
+		return nil, nil
 	}
 	encoded, err := json.Marshal(expr)
 	if err != nil {
-		return nil
+		return nil, fmt.Errorf("dashboard: prompt match_when must be a valid JSON object: %w", err)
 	}
-	return json.RawMessage(encoded)
+	return json.RawMessage(encoded), nil
 }
 
 // archivePrompt 写入 prompt 当前版本快照，供更新和删除前保留审计历史。

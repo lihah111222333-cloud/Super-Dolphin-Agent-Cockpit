@@ -2,7 +2,10 @@ package db
 
 import (
 	"context"
+	"database/sql"
 	"errors"
+	"path/filepath"
+	"strings"
 	"testing"
 
 	_ "modernc.org/sqlite"
@@ -83,6 +86,43 @@ func TestRollbackTxJoinsFunctionAndRollbackErrors(t *testing.T) {
 	if tx.committed {
 		t.Fatal("rollbackTx() committed after function error")
 	}
+}
+
+func TestWithImmediateTxAcquiresWriteLockBeforeCallback(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "immediate.db")
+	db1 := openImmediateTxTestDB(t, path)
+	db2 := openImmediateTxTestDB(t, path)
+	if _, err := db1.ExecContext(context.Background(), `CREATE TABLE locks (id INTEGER PRIMARY KEY, value TEXT)`); err != nil {
+		t.Fatalf("create locks table: %v", err)
+	}
+
+	err := WithImmediateTx(context.Background(), db1, func(tx *sql.Tx) error {
+		if tx == nil {
+			return errors.New("callback tx is nil")
+		}
+		_, secondErr := db2.ExecContext(context.Background(), `INSERT INTO locks(value) VALUES ('second writer')`)
+		if secondErr == nil {
+			return errors.New("second writer acquired lock while immediate transaction callback was running")
+		}
+		if !strings.Contains(secondErr.Error(), "locked") && !strings.Contains(secondErr.Error(), "busy") {
+			return secondErr
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("WithImmediateTx() error = %v, want second writer locked before callback body", err)
+	}
+}
+
+func openImmediateTxTestDB(t *testing.T, path string) *sql.DB {
+	t.Helper()
+	db, err := sql.Open("sqlite", path+"?_pragma=busy_timeout(1)")
+	if err != nil {
+		t.Fatalf("open sqlite: %v", err)
+	}
+	db.SetMaxOpenConns(1)
+	t.Cleanup(func() { _ = db.Close() })
+	return db
 }
 
 type captureTx struct {

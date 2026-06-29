@@ -204,7 +204,7 @@ func TestResolve_Idempotent(t *testing.T) {
 	}
 }
 
-func TestResolve_ReadbackFallback(t *testing.T) {
+func TestResolve_ReadbackFailureReturnsError(t *testing.T) {
 	t.Parallel()
 
 	store := &stubHookReviewStore{
@@ -222,24 +222,11 @@ func TestResolve_ReadbackFallback(t *testing.T) {
 		Reason:         "missing reader",
 		IdempotencyKey: "idem-fallback",
 	})
-	if err != nil {
-		t.Fatalf("Resolve() error = %v", err)
+	if err == nil {
+		t.Fatalf("Resolve() = %+v nil error, want readback failure", got)
 	}
-	if !got.Accepted {
-		t.Fatal("Resolve() Accepted = false, want true")
-	}
-	if got.CanonicalDecision != mcp.HookDecisionReject {
-		t.Fatalf("CanonicalDecision = %q, want %q", got.CanonicalDecision, mcp.HookDecisionReject)
-	}
-	if got.PendingState != pendingStateResolved {
-		t.Fatalf("PendingState = %q, want %q", got.PendingState, pendingStateResolved)
-	}
-	resolvedAt, err := time.Parse(time.RFC3339Nano, got.ResolvedAt)
-	if err != nil {
-		t.Fatalf("ResolvedAt parse error = %v", err)
-	}
-	if resolvedAt.IsZero() {
-		t.Fatal("ResolvedAt = zero, want fallback timestamp")
+	if got.Accepted {
+		t.Fatalf("Resolve() Accepted = true on readback failure: %+v", got)
 	}
 }
 

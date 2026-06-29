@@ -35,7 +35,7 @@ type CreatePromptTemplateParams struct {
 	WhenToUse      string          `db:"when_to_use" json:"when_to_use"`
 	Enabled        int64           `db:"enabled" json:"enabled"`
 	ManuallyEdited int64           `db:"manually_edited" json:"manually_edited"`
-	MatchWhen      string          `db:"match_when" json:"match_when"`
+	MatchWhen      *string         `db:"match_when" json:"match_when"`
 	Priority       int64           `db:"priority" json:"priority"`
 	CreatedBy      string          `db:"created_by" json:"created_by"`
 	UpdatedBy      string          `db:"updated_by" json:"updated_by"`
@@ -371,7 +371,7 @@ type UpsertPromptTemplateParams struct {
 	WhenToUse      string          `db:"when_to_use" json:"when_to_use"`
 	Enabled        int64           `db:"enabled" json:"enabled"`
 	ManuallyEdited int64           `db:"manually_edited" json:"manually_edited"`
-	MatchWhen      string          `db:"match_when" json:"match_when"`
+	MatchWhen      *string         `db:"match_when" json:"match_when"`
 	Priority       int64           `db:"priority" json:"priority"`
 	CreatedBy      string          `db:"created_by" json:"created_by"`
 	UpdatedBy      string          `db:"updated_by" json:"updated_by"`
