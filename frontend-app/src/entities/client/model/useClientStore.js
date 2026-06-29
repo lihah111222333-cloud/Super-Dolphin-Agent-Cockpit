@@ -33,8 +33,6 @@ import {
   setActiveProject as setActiveProjectRPC,
   setPreference,
   setThreadConfig,
-  startThread,
-  startTurn,
   removeProject as removeProjectRPC,
   unarchiveThread as unarchiveThreadRPC,
 } from '../../../shared/api/backendApi.js';
@@ -1439,8 +1437,8 @@ const forkActionDeps = {
   normalizeString,
   normalizeThreadIdentity,
   resolveLaunchPreferences,
-  startThread: (payload) => startThread(payload),
-  startTurn: (payload) => startTurn(payload),
+  startThread: (payload) => sessionApi.start(payload),
+  startTurn: (payload) => sessionApi.startTurn(payload),
 };
 
 const runtimeActionDeps = {
@@ -1595,11 +1593,11 @@ function isCodexIdentityAutoResumeError(error) {
 
 async function startTurnWithStoppedThreadRecovery(params) {
   try {
-    return await startTurn(params);
+    return await sessionApi.startTurn(params);
   } catch (error) {
     if (!isStoppedThreadTurnStartError(error)) throw error;
     await recoverThread({ cwd: params.cwd, threadId: params.threadId });
-    return startTurn(params);
+    return sessionApi.startTurn(params);
   }
 }
 
@@ -2966,7 +2964,7 @@ function createDashboardCommandActions(runtime) {
           }));
         }
 
-        await startTurn({
+        await sessionApi.startTurn({
           cwd: request.cwd,
           threadId,
           input: request.input,

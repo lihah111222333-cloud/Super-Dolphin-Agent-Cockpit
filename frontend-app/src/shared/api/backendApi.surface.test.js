@@ -7,6 +7,7 @@ import { RPC_METHODS } from './backendApi.js';
 const sourceRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const rawBridgeNames = new Set(['callAPI', 'callBackend']);
 const rawBridgeModules = ['/backendApi.js', '/wailsBridge.js'];
+const sessionBackendApiNames = new Set(['startThread', 'startTurn']);
 
 function collectProductFiles() {
   const files = [];
@@ -60,6 +61,20 @@ function parseRawBridgeReferences(source) {
   return { directImports, namespaces };
 }
 
+function parseBackendApiSessionImports(source) {
+  const imports = [];
+  const importPattern = /import\s*\{([^}]+)\}\s*from\s*['"]([^'"]*\/backendApi(?:\.js)?)['"]/g;
+  for (const match of source.matchAll(importPattern)) {
+    const [, names, specifier] = match;
+    if (!isRawBridgeModule(specifier)) continue;
+    for (const part of names.split(',')) {
+      const imported = part.trim().split(/\s+as\s+/)[0]?.trim();
+      if (sessionBackendApiNames.has(imported)) imports.push({ imported, specifier });
+    }
+  }
+  return imports;
+}
+
 function directCallPattern(name) {
   return new RegExp(`\\b${escapeRegExp(name)}\\s*\\(`);
 }
@@ -92,6 +107,20 @@ describe('backend API surface gate', () => {
         if (callMatch) {
           violations.push(`${relativePath} calls raw ${local}.${callMatch[1]}() from ${specifier}`);
         }
+      }
+    }
+
+    expect(violations).toEqual([]);
+  });
+
+  it('keeps thread start calls behind sessionApi', () => {
+    const violations = [];
+
+    for (const filePath of collectProductFiles()) {
+      const relativePath = rel(filePath);
+      const source = fs.readFileSync(filePath, 'utf8');
+      for (const { imported, specifier } of parseBackendApiSessionImports(source)) {
+        violations.push(`${relativePath} imports ${imported} directly from ${specifier}`);
       }
     }
 

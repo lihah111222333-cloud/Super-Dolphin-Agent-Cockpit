@@ -50,6 +50,38 @@ func TestToProviderStartAssemblyCarriesRuntimeContext(t *testing.T) {
 	}
 }
 
+func TestToProviderStartAssemblyCarriesPrefixShape(t *testing.T) {
+	source := contract.StartAssembly{PrefixShape: contract.PrefixShape{
+		Hash:                "shape-hash",
+		StaticSectionNames:  []string{"base"},
+		DynamicSectionNames: []string{"memory"},
+		SuppressedToolNames: []string{"shell"},
+		CachedPrefixBytes:   11,
+		UncachedTailBytes:   7,
+		DeveloperBytes:      3,
+		ChurnReason:         "compact",
+	}}
+	want := contract.PrefixShape{
+		Hash:                "shape-hash",
+		StaticSectionNames:  []string{"base"},
+		DynamicSectionNames: []string{"memory"},
+		SuppressedToolNames: []string{"shell"},
+		CachedPrefixBytes:   11,
+		UncachedTailBytes:   7,
+		DeveloperBytes:      3,
+		ChurnReason:         "compact",
+	}
+
+	got := toProviderStartAssembly(source)
+	source.PrefixShape.StaticSectionNames[0] = "mutated-static"
+	source.PrefixShape.DynamicSectionNames[0] = "mutated-dynamic"
+	source.PrefixShape.SuppressedToolNames[0] = "mutated-tool"
+
+	if !reflect.DeepEqual(got.PrefixShape, want) {
+		t.Fatalf("PrefixShape = %#v, want %#v", got.PrefixShape, want)
+	}
+}
+
 func TestBuildStartSessionConfigCarriesTurnContextFields(t *testing.T) {
 	cfg := buildStartSessionConfig(StartRequest{
 		ApprovalPolicy: "on-request",

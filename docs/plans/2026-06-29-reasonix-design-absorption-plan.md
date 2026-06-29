@@ -24,7 +24,7 @@ V3 不应该复制 Reasonix 的整体架构。Reasonix 的长处是轻量 agent 
 | Prompt prefix shape | `internal/dto/provider/session.go`, `internal/contract/prompt.go`, `internal/module/prompt/assembler.go` | 已有 `PromptAssemblyBoundary` / `PrefixShape`，并由 prompt assembler 构建。 |
 | MCP tool namespace | `internal/platform/toolbridge/handler_peer_decode_helpers.go`, `internal/platform/toolbridge/mcp_namespace_test.go` | 已有 `WrapMCPToolName` / `SplitMCPToolName`，但文件名还不是独立 namespace owner。 |
 | Event wire golden | `internal/platform/eventsurface/methods_test.go`, `frontend-app/src/shared/api/eventWireMethods.js`, `frontend-app/src/shared/api/eventWire.js` | 已有后端读取前端 event 方法表的校验面。 |
-| Frontend session facade | `frontend-app/src/shared/api/sessionApi.js`, `frontend-app/src/entities/client/model/useClientStore.js` | 已有 `sessionApi` 并至少接入 `startNewDraftThread`。 |
+| Frontend session facade | `frontend-app/src/shared/api/sessionApi.js`, `frontend-app/src/entities/client/model/useClientStore.js`, `frontend-app/src/shared/api/backendApi.surface.test.js` | 已有 `sessionApi`，thread start/turn 产品调用已收口到 facade，surface test 禁止直接 import `startThread` / `startTurn`。 |
 | Desktop dependency guard | `internal/archtest/desktop_dependency_test.go`, `internal/archtest/dependency_direction_test.go` | 已有 Wails 依赖隔离和依赖方向守卫。 |
 | Tool error envelope | `internal/mcpserver/common/tool_error_envelope.go`, `internal/platform/toolbridge/handler_host_tools.go`, `internal/platform/toolbridge/proxy.go` | 已有结构化工具错误和 `isError` 语义。 |
 
@@ -142,6 +142,8 @@ Reasonix 的 prompt prefix 稳定性意识很强：稳定前缀、动态尾部�
   - 维护 `BuildPrefixShape` 调用点。
 - `internal/module/prompt/*prefix*_test.go`
   - 锁定 hash 稳定性、section order、suppressed tool order。
+- `internal/module/thread/start_session_helpers.go`
+  - provider start assembly 转换必须携带 `PrefixShape`，并保持 slice copy 语义。
 - `internal/provider/codexapp/driver.go`
   - provider start telemetry 使用 shape metadata。
 - `internal/provider/claudecli/driver.go`
@@ -164,12 +166,12 @@ Reasonix 的 MCP 工具名更统一，`mcp__server__tool` 这种命名让工具�
 
 ### 怎么吸收
 
-分两步，不能一步到位：
+分两步，不能一步到位；当前仓库只具备 MCP server config 级 `enabled`，还没有 per-tool lifecycle 的 owner、schema 或迁移决策：
 
 1. Namespace 先稳定：所有 MCP wrapped name 都走统一 helper。
-2. Lifecycle 后接入：只有当 owner API、store schema、backfill、toolbridge filtering、direct-call deny 都齐了，才进入生产路径。
+2. Lifecycle 先决策、后接入：必须先新增并批准 `docs/adr/0003-mcp-tool-lifecycle-owner-storage.md` 或等价决策文档，明确 state owner、store schema、migration/backfill、rollback、toolbridge filtering、direct-call deny 和测试门槛。决策未落定前，生产改动只能覆盖 namespace helper/test，不能临时加 filtering map。
 
-建议生命周期状态：
+建议生命周期状态仅作为待决策草案，不是当前可直接执行的生产状态表：
 
 | 状态 | 含义 | ListTools | Direct Call |
 | --- | --- | --- | --- |
@@ -185,15 +187,15 @@ Reasonix 的 MCP 工具名更统一，`mcp__server__tool` 这种命名让工具�
   - 后续可抽成 `internal/platform/toolbridge/mcp_namespace.go`，但必须保持测试。
 - `internal/platform/toolbridge/handler_peer_decode.go`
   - `addMCPToolsToSurface` 走 namespace helper。
-  - lifecycle filtering 在这里阻断 ListTools。
+  - 只有 owner/storage 决策批准后，才允许在这里接入 lifecycle filtering 阻断 ListTools。
 - `internal/platform/toolbridge/handler_host_tools.go`
-  - direct-call 入口必须识别 disabled/suspended/removed，不能只靠列表隐藏。
+  - 只有 owner/storage 决策批准后，direct-call 入口才识别 disabled/suspended/removed；不能只靠列表隐藏。
 - `internal/contract/mcp_control.go`
-  - 扩展 per-tool lifecycle DTO 和 owner API。
+  - 决策批准后再扩展 per-tool lifecycle DTO 和 owner API。
 - `internal/module/mcp_server/service.go`
-  - owner module 维护 server/tool lifecycle。
+  - 决策批准后由 owner module 维护 server/tool lifecycle。
 - `internal/store/mcpserver/store.go`
-  - 持久化 lifecycle，不用内存 registry 当事实源。
+  - 决策批准后新增 migration/store/test 持久化 lifecycle，不用内存 registry 当事实源。
 - `frontend-app/src/shared/api/backendApi.js`
   - 如果 UI 控制 per-tool lifecycle，新增 guarded API。
 - 测试：
@@ -208,6 +210,7 @@ Reasonix 的 MCP 工具名更统一，`mcp__server__tool` 这种命名让工具�
 - ListTools 隐藏不等于安全，direct-call 必须单独 deny。
 - alias/canonical name 两条路径都要测。
 - lifecycle 状态 owner 不明确前，不允许在 toolbridge 里做临时 map。
+- `docs/li/reasonix-absorption-spikes/mcp-tool-lifecycle.md` 仍是当前边界：未有后续 owner/storage 决策前，不引入 per-tool lifecycle filtering。
 - 不要让 `cmd/mcp-orch` 的 runtime 状态反向成为桌面主进程事实源。
 
 ## 6. 吸收项 E：Provider / Tool Capability Registry Discipline
@@ -271,19 +274,19 @@ Reasonix 的 CLI/API 面很薄，调用入口清晰。V3 前端更复杂，如�
 - `frontend-app/src/shared/api/backendApi.js`
   - RPC method、payload builder、guarded exports。
 - `frontend-app/src/shared/api/backendApi.surface.test.js`
-  - 禁 raw bridge surface。
+  - 禁 raw bridge surface，并禁止产品代码直接从 `backendApi.js` import `startThread` / `startTurn`。
 - `frontend-app/src/shared/api/sessionApi.js`
   - session facade。
 - `frontend-app/src/shared/api/sessionApi.test.js`
   - 证明 facade 不调用 raw `callBackend`。
 - `frontend-app/src/entities/client/model/useClientStore.js`
-  - 已有 `sessionApi` 接入点，继续迁移剩余 session 操作。
+  - thread start/turn 注入点、stopped-thread recovery、dashboard command turn 都走 `sessionApi`。
 - `frontend-app/src/entities/client/model/forkSlice.js`
-  - 如果存在 fork/resume 入口，迁移到 `sessionApi`。
+  - fork/resume 入口通过 `useClientStore` 传入的 `sessionApi` deps 调用。
 - `frontend-app/src/pages/workflows/WorkflowPage.jsx`
   - workflow 页面里的 session 操作迁移到 facade。
 - `frontend-app/src/pages/workflows/services/workflowPageService.js`
-  - 当前 workflow 服务层直接包 `startThread` / `startTurn`，后续迁移时应改为调用 `sessionApi` 或更窄的 workflow session facade。
+  - workflow 服务层通过 `sessionApi` 转发 `startThread` / `startTurn`。
 
 ### 注意事项
 
@@ -417,6 +420,7 @@ Reasonix 的 agent loop 倾向把工具失败反馈给模型，让模型能修�
 2. envelope 同时进入 plain text 和 `structuredContent`。
 3. `isError` 根据 envelope 或 `success=false` 判断。
 4. transport/bootstrap/registry 缺失等基础设施错误仍然返回 RPC error，不伪装成工具结果。
+5. host-direct 现有 `kind=host_tool_error` 结果形态进入统一 envelope 前，必须先写明兼容策略和迁移测试；不能静默改掉已被 UI/provider 消费的稳定字段。
 
 ### 改哪些代码
 
@@ -441,6 +445,7 @@ Reasonix 的 agent loop 倾向把工具失败反馈给模型，让模型能修�
 - envelope code 要稳定，方便 UI、模型和测试判断。
 - plain text 只放模型立即可用的信息，完整结构放 `structuredContent`。
 - secret、token、绝对敏感路径不能进入 envelope meta。
+- host-direct error 迁移必须保留旧字段兼容期，或用明确版本门控切换；任何直接改 wire shape 的实现都需要先回到 NEEDS_APPROVAL。
 
 ## 12. 不吸收清单
 
@@ -467,22 +472,23 @@ Reasonix 的 agent loop 倾向把工具失败反馈给模型，让模型能修�
 建议命令：
 
 ```bash
-go test ./internal/contract ./internal/app ./internal/module/thread ./internal/module/prompt ./internal/platform/eventsurface ./internal/archtest -run 'Session|Prefix|Event|Desktop|Dependency' -count=1
+./scripts/test_with_guard.sh ./internal/contract ./internal/app ./internal/module/thread ./internal/module/prompt ./internal/provider/codexapp ./internal/provider/claudecli ./internal/platform/eventsurface ./internal/archtest -run 'Session|Prefix|Event|Desktop|Dependency|StartAssembly|BuildThreadStartParams' -count=1
 cd frontend-app && npm test -- sessionApi.test.js eventWire.test.js backendApi.surface.test.js
 ```
 
-### Wave 2：补 MCP lifecycle 闭环
+### Wave 2：MCP lifecycle 决策与闭环（NEEDS_APPROVAL）
 
-- [ ] owner API：`internal/contract/mcp_control.go` + `internal/module/mcp_server`。
-- [ ] store：`internal/store/mcpserver` migration/store/test。
-- [ ] toolbridge filtering：ListTools 不展示 disabled/suspended/removed。
-- [ ] direct-call deny：隐藏工具被调用时返回 stable tool error。
-- [ ] frontend guarded API：如果 UI 需要控制 lifecycle。
+- [ ] 决策文档：新增并批准 `docs/adr/0003-mcp-tool-lifecycle-owner-storage.md` 或等价决策，明确 per-tool lifecycle 的 owner、状态枚举、server/tool 边界、store schema、migration/backfill、rollback、可观测性和验收测试。
+- [ ] owner API：决策批准后再扩展 `internal/contract/mcp_control.go` + `internal/module/mcp_server`。
+- [ ] store：决策批准后新增 `internal/store/mcpserver` migration/store/test；不能把现有 server config 级 `enabled` 当成 per-tool lifecycle 事实源。
+- [ ] toolbridge filtering：决策批准后，ListTools 不展示 disabled/suspended/removed。
+- [ ] direct-call deny：决策批准后，隐藏工具被调用时返回 stable tool error。
+- [ ] frontend guarded API：如果 UI 需要控制 lifecycle，必须通过 `backendApi.js` guarded API。
 
 建议命令：
 
 ```bash
-go test ./internal/contract ./internal/store/mcpserver ./internal/module/mcp_server ./internal/platform/toolbridge -run 'MCP|Lifecycle|Tool|Namespace|Disabled|Suspended|Removed' -count=1
+./scripts/test_with_guard.sh ./internal/contract ./internal/store/mcpserver ./internal/module/mcp_server ./internal/platform/toolbridge -run 'MCP|Lifecycle|Tool|Namespace|Disabled|Suspended|Removed' -count=1
 ```
 
 ### Wave 3：上下文和权限策略
@@ -490,13 +496,28 @@ go test ./internal/contract ./internal/store/mcpserver ./internal/module/mcp_ser
 - [ ] 为 history/memory retrieval 定义 bounded tool contract。
 - [ ] 补 plan/read-only/tool trust 策略测试。
 - [ ] 把 PrefixShape telemetry 接入 observability。
-- [ ] 标准化所有 host-direct tool error envelope。
+- [ ] 先批准 host-direct error 兼容策略，再标准化所有 host-direct tool error envelope。
 
 建议命令：
 
 ```bash
-go test ./internal/module/thread ./internal/module/memory ./internal/platform/toolbridge ./internal/mcpserver/common ./internal/provider/codexapp -run 'Compact|History|Memory|ReadOnly|ToolError|Envelope|StructuredContent' -count=1
+./scripts/test_with_guard.sh ./internal/module/thread ./internal/module/memory ./internal/platform/toolbridge ./internal/mcpserver/common ./internal/provider/codexapp -run 'Compact|History|Memory|ReadOnly|ToolError|Envelope|StructuredContent' -count=1
 ```
+
+### 合并前统一验证
+
+按实际变更面执行，不能用单个 narrow test 代替最终 gate：
+
+```bash
+make guard
+./scripts/test_with_guard.sh ./internal/module/thread ./internal/module/prompt ./internal/provider/codexapp ./internal/provider/claudecli -run 'PrefixShape|ToProviderStartAssembly|StartAssembly|BuildThreadStartParams' -count=1
+cd frontend-app && npm run lint && npm test && npm run build
+make sqlc-verify
+```
+
+- 没有前端变更时可跳过 frontend 三连，但必须说明跳过原因。
+- 没有 store/schema/migration 变更时可跳过 `make sqlc-verify`，但 Wave 2 一旦触碰 store 必须执行。
+- 如果 `frontend-app` 依赖未安装，先按 lockfile 安装依赖；缺少 `vitest` 或 node 依赖不能算 PASS。
 
 ## 14. 最终验收标准
 
@@ -506,4 +527,5 @@ go test ./internal/module/thread ./internal/module/memory ./internal/platform/to
 - 每个前端 RPC 新入口都经过 `backendApi.js` payload guard。
 - 每个 prompt/context 变化都能用 `PrefixShape` 或 trace 解释。
 - 所有变更保持 `cmd/mcp-orch` / `cmd/mcp-lsp` 独立运行态。
+- MCP per-tool lifecycle 进入实现前，必须已有批准的 owner/storage 决策文档。
 - 任何架构 guard allowlist 都有原因和移除条件。
