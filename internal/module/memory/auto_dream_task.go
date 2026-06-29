@@ -43,9 +43,61 @@ type dreamTaskState struct {
 // DreamTaskSnapshot 是 UI/RPC 查询后台 dream task 时暴露的只读状态。
 // 它只复制当前锁内状态，不暴露 cancel/done 等生命周期控制句柄。
 type DreamTaskSnapshot struct {
-	Running  bool
-	ThreadID string
-	Phase    string
+	Running        bool
+	ThreadID       string
+	Phase          string
+	DroppedTotal   int64
+	ProcessedTotal int64
+	ScheduledTotal int64
+	LastError      string
+	LastAt         time.Time
+	LastThreadID   string
+}
+
+type autoDreamHealthSnapshot struct {
+	DroppedTotal   int64
+	ProcessedTotal int64
+	ScheduledTotal int64
+	LastError      string
+	LastAt         time.Time
+	LastThreadID   string
+}
+
+// recordAutoDreamSchedulerHealth 合并 auto-dream 调度与执行的健康快照。
+// 计数是单调递增值；错误和时间只在调用方给出非空值时覆盖，避免成功路径清掉最后失败线索。
+func (h *MemoryLifecycleHooks) recordAutoDreamSchedulerHealth(snapshot autoDreamHealthSnapshot) {
+	if h == nil {
+		return
+	}
+	h.dreamMu.Lock()
+	defer h.dreamMu.Unlock()
+	if snapshot.DroppedTotal != 0 {
+		h.dreamHealth.DroppedTotal = snapshot.DroppedTotal
+	}
+	if snapshot.ProcessedTotal != 0 {
+		h.dreamHealth.ProcessedTotal = snapshot.ProcessedTotal
+	}
+	if snapshot.ScheduledTotal != 0 {
+		h.dreamHealth.ScheduledTotal = snapshot.ScheduledTotal
+	}
+	if snapshot.LastError != "" {
+		h.dreamHealth.LastError = snapshot.LastError
+	}
+	if !snapshot.LastAt.IsZero() {
+		h.dreamHealth.LastAt = snapshot.LastAt
+	}
+	if snapshot.LastThreadID != "" {
+		h.dreamHealth.LastThreadID = snapshot.LastThreadID
+	}
+}
+
+func autoDreamHealthEmpty(snapshot autoDreamHealthSnapshot) bool {
+	return snapshot.DroppedTotal == 0 &&
+		snapshot.ProcessedTotal == 0 &&
+		snapshot.ScheduledTotal == 0 &&
+		snapshot.LastError == "" &&
+		snapshot.LastThreadID == "" &&
+		snapshot.LastAt.IsZero()
 }
 
 // ErrDreamTaskNotRunning 表示用户请求取消时当前没有可取消的 dream task。
@@ -123,14 +175,21 @@ func (h *MemoryLifecycleHooks) dreamTaskSnapshot() DreamTaskSnapshot {
 	}
 	h.dreamMu.Lock()
 	defer h.dreamMu.Unlock()
+	snapshot := DreamTaskSnapshot{
+		DroppedTotal:   h.dreamHealth.DroppedTotal,
+		ProcessedTotal: h.dreamHealth.ProcessedTotal,
+		ScheduledTotal: h.dreamHealth.ScheduledTotal,
+		LastError:      h.dreamHealth.LastError,
+		LastAt:         h.dreamHealth.LastAt,
+		LastThreadID:   h.dreamHealth.LastThreadID,
+	}
 	if h.dreamTask == nil {
-		return DreamTaskSnapshot{}
+		return snapshot
 	}
-	return DreamTaskSnapshot{
-		Running:  true,
-		ThreadID: h.dreamTask.threadID,
-		Phase:    h.dreamTask.phase,
-	}
+	snapshot.Running = true
+	snapshot.ThreadID = h.dreamTask.threadID
+	snapshot.Phase = h.dreamTask.phase
+	return snapshot
 }
 
 func (h *MemoryLifecycleHooks) killDreamTask() bool {
@@ -308,6 +367,13 @@ func (h *MemoryLifecycleHooks) launchAutoDreamTask(taskCtx context.Context, thre
 		if err != nil {
 			if h.logger != nil && !errors.Is(err, context.Canceled) {
 				h.logger.Error("memory auto-dream execution failed", "thread_id", threadID, "error", err)
+			}
+			if !errors.Is(err, context.Canceled) {
+				h.recordAutoDreamSchedulerHealth(autoDreamHealthSnapshot{
+					LastError:    err.Error(),
+					LastAt:       h.now(),
+					LastThreadID: threadID,
+				})
 			}
 			return
 		}

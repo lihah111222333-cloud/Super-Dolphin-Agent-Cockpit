@@ -55,7 +55,7 @@ func TestClaudeDreamExecutor_SuccessReturnsExtractedJSON(t *testing.T) {
 	if c.lastInput != "consolidate" {
 		t.Errorf("input: got %q, want 'consolidate'", c.lastInput)
 	}
-	wantArgs := []string{"-p", "--output-format", "json"}
+	wantArgs := []string{"-p", "--output-format", "json", "--tools", "", "--permission-mode", "default"}
 	if len(c.lastArgs) != len(wantArgs) {
 		t.Fatalf("args without model: got %v, want %v", c.lastArgs, wantArgs)
 	}
@@ -72,7 +72,7 @@ func TestClaudeDreamExecutor_ModelEnvAddsArgs(t *testing.T) {
 	if _, err := exec.ExecuteDream(context.Background(), "p"); err != nil {
 		t.Fatalf("expected success, got %v", err)
 	}
-	want := []string{"-p", "--output-format", "json", "--model", "claude-sonnet-4-5"}
+	want := []string{"-p", "--output-format", "json", "--tools", "", "--permission-mode", "default", "--model", "claude-sonnet-4-5"}
 	if len(c.lastArgs) != len(want) {
 		t.Fatalf("args: got %v, want %v", c.lastArgs, want)
 	}
@@ -89,7 +89,7 @@ func TestClaudeDreamExecutor_RequestModelOverridesEnvModel(t *testing.T) {
 	if _, err := exec.ExecuteDreamWithOptions(context.Background(), "p", contract.DreamOptions{Model: "request-model"}); err != nil {
 		t.Fatalf("expected success, got %v", err)
 	}
-	want := []string{"-p", "--output-format", "json", "--model", "request-model"}
+	want := []string{"-p", "--output-format", "json", "--tools", "", "--permission-mode", "default", "--model", "request-model"}
 	if len(c.lastArgs) != len(want) {
 		t.Fatalf("args: got %v, want %v", c.lastArgs, want)
 	}
@@ -97,6 +97,19 @@ func TestClaudeDreamExecutor_RequestModelOverridesEnvModel(t *testing.T) {
 		if c.lastArgs[i] != a {
 			t.Fatalf("args[%d]: got %q, want %q", i, c.lastArgs[i], a)
 		}
+	}
+}
+
+func TestClaudeDreamExecutorEnforcesNoToolsReadOnlyRuntime(t *testing.T) {
+	c := &capturingCommander{outputs: []string{`{"memories":[]}`}}
+	exec := newDreamExecutor(c, "claude", "")
+	if _, err := exec.ExecuteDream(context.Background(), "p"); err != nil {
+		t.Fatalf("ExecuteDream() error = %v", err)
+	}
+	assertArgPair(t, c.lastArgs, "--tools", "")
+	assertArgPair(t, c.lastArgs, "--permission-mode", "default")
+	if hasArgValue(c.lastArgs, "--permission-mode", "bypassPermissions") {
+		t.Fatalf("dream args must not bypass permissions: %v", c.lastArgs)
 	}
 }
 
@@ -200,4 +213,20 @@ func TestClaudeDreamExecutor_ProviderProviderUsesClaudeName(t *testing.T) {
 	if p.Executor == nil {
 		t.Fatalf("expected non-nil Executor")
 	}
+}
+
+func assertArgPair(t *testing.T, args []string, flag, value string) {
+	t.Helper()
+	if !hasArgValue(args, flag, value) {
+		t.Fatalf("args missing %s %q: %v", flag, value, args)
+	}
+}
+
+func hasArgValue(args []string, flag, value string) bool {
+	for i := 0; i+1 < len(args); i++ {
+		if args[i] == flag && args[i+1] == value {
+			return true
+		}
+	}
+	return false
 }

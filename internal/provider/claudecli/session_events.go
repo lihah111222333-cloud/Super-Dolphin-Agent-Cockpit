@@ -319,7 +319,7 @@ func decodeClaudeLine(line []byte, base rawBase) ([]dto.RawProviderEvent, error)
 	case "assistant":
 		return decodeMessageEvents(raw, base, "assistant")
 	case "user":
-		pkglogger.Get().Warn("claudecli: user event received", "line", string(line))
+		pkglogger.Get().Warn("claudecli: user event received", "payload_metadata", dto.RawProviderEvent{EventType: "user", Data: json.RawMessage(line)}.SanitizedCopy().Data)
 		return decodeMessageEvents(raw, base, "user")
 	case "result":
 		return decodeResultEvent(raw, base), nil
@@ -377,7 +377,19 @@ func decodeResultEvent(raw streamEvent, base rawBase) []dto.RawProviderEvent {
 		errStr = strings.TrimSpace(shared.FirstNonEmpty(errStr, objReq.Message, plainStr, joinErrorsArray(raw.Errors)))
 		if errStr == "" {
 			errStr = errorMessageFromTerminalReason(terminalReason)
-			pkglogger.Get().Warn("claudecli: stream error result missing message", "agent_id", base.AgentID, "terminal_reason", terminalReason, "raw_error", string(raw.Error), "raw_message", string(raw.Message), "raw_errors", raw.Errors)
+			pkglogger.Get().Warn("claudecli: stream error result missing message",
+				"agent_id", base.AgentID,
+				"terminal_reason", terminalReason,
+				"payload_metadata", dto.RawProviderEvent{
+					EventType: "result",
+					Data: map[string]any{
+						"error":           raw.Error,
+						"message":         raw.Message,
+						"errors":          raw.Errors,
+						"terminal_reason": terminalReason,
+					},
+				}.SanitizedCopy().Data,
+			)
 		}
 		data["error"] = errStr
 	}

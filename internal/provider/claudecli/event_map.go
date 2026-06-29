@@ -121,7 +121,7 @@ func claudeAgentErrorFromRaw(raw dto.RawProviderEvent) agentdto.AgentError {
 		RawType:            raw.EventType,
 		Message:            dataString(raw.Data, "message"),
 		Code:               dataString(raw.Data, "code"),
-		Payload:            claudeProviderErrorPayload(raw.Data),
+		Payload:            raw.SafePayload(),
 	}
 }
 

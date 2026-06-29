@@ -152,6 +152,7 @@ func (e *dreamExecutor) ExecuteDreamWithOptions(ctx context.Context, prompt stri
 		ctx, cancel = platformconfig.WithTimeout(ctx, e.timeout)
 		defer cancel()
 	}
+	options.RuntimePolicy = options.RuntimePolicy.WithStrictDefaults()
 	return e.runFailover(ctx, prompt, options)
 }
 
