@@ -220,6 +220,51 @@ func TestPostSnapshotResumeRejectsMissingPromptSnapshot(t *testing.T) {
 	}
 }
 
+func TestPersistResumedSessionCleansRuntimeOnThreadStoreFailure(t *testing.T) {
+	t.Parallel()
+
+	storeErr := errors.New("thread store unavailable")
+	threads := &stubThreadStore{upsertErr: storeErr}
+	bindings := &stubBindingStore{}
+	sessions := &stubSessionProvider{session: &stubSession{threadID: "provider-thread-1"}}
+	orch := &stubThreadOrchestration{}
+	svc := &service{
+		threadStore:    threads,
+		bindingStore:   bindings,
+		sessions:       sessions,
+		orchestration:  orch,
+		logger:         silentLogger(),
+		threadAgents:   map[string]string{},
+		reconnectDelay: 0,
+	}
+
+	_, err := svc.persistResumedSession(context.Background(), ResumeRequest{
+		Provider:         "claude",
+		AgentID:          "agent-resume",
+		ThreadID:         "thread-resume",
+		ProviderThreadID: "provider-thread-1",
+		CWD:              "/repo",
+	}, resumeState{
+		AgentID:          "agent-resume",
+		PublicThreadID:   "thread-resume",
+		Provider:         "claude",
+		ProviderThreadID: "provider-thread-1",
+		SessionUUID:      "provider-thread-1",
+		CWD:              "/repo",
+		CreatedAt:        123,
+	}, "resume display", &stubSession{threadID: "provider-thread-1"})
+
+	if !errors.Is(err, storeErr) {
+		t.Fatalf("persistResumedSession() error = %v, want %v", err, storeErr)
+	}
+	if orch.stoppedAgentID != "agent-resume" {
+		t.Fatalf("stopped agent = %q, want agent-resume", orch.stoppedAgentID)
+	}
+	if len(sessions.removed) != 1 || sessions.removed[0] != "agent-resume" {
+		t.Fatalf("removed sessions = %#v, want [agent-resume]", sessions.removed)
+	}
+}
+
 func TestPostSnapshotForkRejectsInvalidPromptSnapshot(t *testing.T) {
 	t.Parallel()
 

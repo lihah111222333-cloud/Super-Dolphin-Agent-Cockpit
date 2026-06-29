@@ -199,6 +199,7 @@ func TestDriverResumeSessionDoesNotWaitForSystemInit(t *testing.T) {
 		ThreadID:         "thread-public",
 		ProviderThreadID: resumedUUID,
 		CWD:              t.TempDir(),
+		PromptSnapshot:   validResumePromptSnapshotForTest(),
 	})
 	if err != nil {
 		t.Fatalf("ResumeSession() error = %v", err)
@@ -271,6 +272,7 @@ func TestDriverResumeSessionAppliesRuntimeToolSafetyConfig(t *testing.T) {
 		ThreadID:         "thread-public",
 		ProviderThreadID: "provider-thread-tools",
 		CWD:              t.TempDir(),
+		PromptSnapshot:   validResumePromptSnapshotForTest(),
 		Config: map[string]any{
 			"builtinTools":                []any{"Read", "Skill", "Task"},
 			"disallowedTools":             []any{"Bash"},
@@ -327,6 +329,7 @@ func TestDriverResumeSessionRehydratesClaudeOverrideState(t *testing.T) {
 		CWD:              t.TempDir(),
 		Model:            model,
 		Effort:           effectiveEffort,
+		PromptSnapshot:   validResumePromptSnapshotForTest(),
 		ConfigOverride: dto.ThreadConfigPatch{
 			Model:  &model,
 			Effort: &overrideEffort,
@@ -364,6 +367,7 @@ func TestDriverResumeSessionPreservesExplicitClearOverrideState(t *testing.T) {
 		CWD:              t.TempDir(),
 		Model:            effectiveModel,
 		Effort:           effectiveEffort,
+		PromptSnapshot:   validResumePromptSnapshotForTest(),
 		ConfigOverride: dto.ThreadConfigPatch{
 			Model:  &empty,
 			Effort: &empty,

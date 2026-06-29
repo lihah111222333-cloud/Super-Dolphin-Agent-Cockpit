@@ -25,6 +25,7 @@ type SessionManager struct {
 type sessionEntry struct {
 	generation uint64
 	session    contract.Session
+	pending    bool
 }
 
 // NewSessionManager 创建空的内存 session 管理器，logger 缺失时使用包级默认 logger。
@@ -41,6 +42,15 @@ func NewSessionManager(logger *slog.Logger) *SessionManager {
 // Register 绑定 agent ID 到新 session，并关闭被替换的旧 session。
 // 返回的 generation 供调用方后续按代际移除，避免覆盖新注册会话。
 func (m *SessionManager) Register(agentID string, session contract.Session) uint64 {
+	return m.register(agentID, session, false)
+}
+
+// RegisterPending 先登记恢复出的 session 但不让 Get 返回，等待上层持久化提交后再激活。
+func (m *SessionManager) RegisterPending(agentID string, session contract.Session) uint64 {
+	return m.register(agentID, session, true)
+}
+
+func (m *SessionManager) register(agentID string, session contract.Session, pending bool) uint64 {
 	id := normalizeAgentID(agentID)
 	if id == "" || session == nil {
 		return 0
@@ -49,7 +59,7 @@ func (m *SessionManager) Register(agentID string, session contract.Session) uint
 	m.mu.Lock()
 	previous := m.sessions[id]
 	generation := m.nextGenerationLocked()
-	m.sessions[id] = sessionEntry{generation: generation, session: session}
+	m.sessions[id] = sessionEntry{generation: generation, session: session, pending: pending}
 	m.mu.Unlock()
 
 	if previous.session != nil && previous.session != session {
@@ -66,10 +76,32 @@ func (m *SessionManager) Get(agentID string) (contract.Session, error) {
 	m.mu.RLock()
 	entry, ok := m.sessions[id]
 	m.mu.RUnlock()
-	if ok && entry.session != nil {
+	if ok && entry.session != nil && !entry.pending {
 		return entry.session, nil
 	}
 	return nil, fmt.Errorf("%w for agent %q", contract.ErrSessionNotFound, agentID)
+}
+
+// Activate 将 pending resume session 标记为可见；没有匹配 session 时返回 false。
+func (m *SessionManager) Activate(agentID string) bool {
+	return m.ActivateSession(agentID)
+}
+
+// ActivateSession 在 resume 持久化成功后公开 session，供 thread service 通过窄接口调用。
+func (m *SessionManager) ActivateSession(agentID string) bool {
+	id := normalizeAgentID(agentID)
+	if id == "" {
+		return false
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	entry, ok := m.sessions[id]
+	if !ok || entry.session == nil {
+		return false
+	}
+	entry.pending = false
+	m.sessions[id] = entry
+	return true
 }
 
 // SessionGeneration 返回当前 session 代际，空 agent 或未注册时返回 0。

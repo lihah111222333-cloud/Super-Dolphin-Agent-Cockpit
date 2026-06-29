@@ -61,6 +61,7 @@ func TestResumeSessionManifestIncludesAdditionalWorkspaceRoots(t *testing.T) {
 		ThreadID:         "thread-1",
 		ProviderThreadID: "provider-thread-1",
 		CWD:              workDir,
+		PromptSnapshot:   validResumePromptSnapshotForTest(),
 		Config: map[string]any{
 			"additionalWorkingDirectories": []string{extraDir},
 			"autoApprove":                  []string{"lsp_workspace_info"},
