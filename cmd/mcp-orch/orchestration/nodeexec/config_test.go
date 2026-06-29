@@ -119,8 +119,9 @@ func TestParseAutomationConfig_RoundTrip(t *testing.T) {
 				MaxAttempts: 2,
 			},
 		},
-		Inputs:  InputsConfig{FromNodes: []string{"prep"}},
-		Outputs: OutputsConfig{ToNodeResult: true},
+		Execution: ExecutionConfig{Timeout: "45s"},
+		Inputs:    InputsConfig{FromNodes: []string{"prep"}},
+		Outputs:   OutputsConfig{ToNodeResult: true},
 	}
 	data, _ := json.Marshal(original)
 	got, err := ParseAutomationConfig(data)
@@ -132,6 +133,9 @@ func TestParseAutomationConfig_RoundTrip(t *testing.T) {
 	}
 	if string(got.Exec.Args) != `{"target":"linux"}` {
 		t.Errorf("Args lost: %s", got.Exec.Args)
+	}
+	if got.Execution.Timeout != "45s" {
+		t.Errorf("Execution.Timeout lost: %q", got.Execution.Timeout)
 	}
 }
 

@@ -317,15 +317,33 @@ func (s *store) CompleteNode(ctx context.Context, input CompleteNodeInput) (*Nod
 	if err := requireRuntimeRunID("complete", input.RunID); err != nil {
 		return nil, err
 	}
+	if err := requireWakeupAttemptFence("complete", input.WakeupID, input.WakeupAttempt); err != nil {
+		return nil, err
+	}
 	return updateNodeStatusWrite(ctx, func() (sqlc.CompleteTaskDagNodeRow, error) {
 		return s.q.CompleteTaskDagNode(ctx, sqlc.CompleteTaskDagNodeParams{
-			Status:  input.Status,
-			Result:  input.Result,
-			DagKey:  input.DagKey,
-			NodeKey: input.NodeKey,
-			RunID:   int64Ptr(input.RunID),
+			Status:        input.Status,
+			Result:        input.Result,
+			DagKey:        input.DagKey,
+			NodeKey:       input.NodeKey,
+			RunID:         int64Ptr(input.RunID),
+			WakeupID:      input.WakeupID,
+			WakeupAttempt: int64(input.WakeupAttempt),
 		})
 	}, "complete", fromNodeCompleteRow)
+}
+
+func requireWakeupAttemptFence(op string, wakeupID int64, wakeupAttempt int32) error {
+	switch {
+	case wakeupID == 0 && wakeupAttempt == 0:
+		return nil
+	case wakeupID <= 0:
+		return fmt.Errorf("%s task_dag_node: wakeup_id required when wakeup_attempt is set", op)
+	case wakeupAttempt <= 0:
+		return fmt.Errorf("%s task_dag_node: wakeup_attempt required when wakeup_id is set", op)
+	default:
+		return nil
+	}
 }
 
 // UpdateNodeStatusFlexible 更新节点状态，不做状态机前置检查，适用于强制覆写场景。

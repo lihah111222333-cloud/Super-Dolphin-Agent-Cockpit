@@ -60,6 +60,12 @@ FROM task_dag_wakeups
 WHERE status = 'pending' AND next_retry_at <= ?
 ORDER BY next_retry_at ASC, id ASC
 LIMIT 25`, int64(1<<62))
+	assertQueryPlanUsesIndex(t, db, "idx_task_dag_wakeups_dispatching_lease", `
+SELECT id
+FROM task_dag_wakeups
+WHERE status = 'dispatching' AND lease_expires_at < ?
+ORDER BY lease_expires_at ASC, id ASC
+LIMIT 25`, int64(1<<62))
 	assertQueryPlanUsesIndex(t, db, "idx_task_dag_runs_dag_status_started", `
 SELECT id, run_key, dag_key, status, started_at
 FROM task_dag_runs
