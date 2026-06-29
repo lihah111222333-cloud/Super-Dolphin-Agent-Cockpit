@@ -3,6 +3,8 @@ package toolbridge
 import (
 	"context"
 	"encoding/json"
+
+	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 )
 
 // 本文件定义 toolbridge 消费 store/app 能力时使用的窄接口。
@@ -62,3 +64,21 @@ type UIPreferenceReader interface {
 
 // uiPreferenceReader 是 Handler 内部使用的 UI 偏好端口别名。
 type uiPreferenceReader = UIPreferenceReader
+
+// MCPToolLifecycleBackfillRequest 是 toolbridge 在可信 discovery 路径回填 MCP 工具 owner 的输入。
+// platform 层只描述观察到的 server/tool，不接触 mcp_server 模块或 store 细节。
+type MCPToolLifecycleBackfillRequest struct {
+	WorkspaceRoot string
+	ServerName    string
+	ManifestName  string
+	Tools         []contract.MCPToolLifecycleObservedTool
+}
+
+// MCPToolLifecycleBackfiller 是 toolbridge 写入 MCP tool lifecycle owner 的最小端口。
+// app assembly 负责把该端口接到 mcp_server.Service，避免 platform 包反向依赖业务模块。
+type MCPToolLifecycleBackfiller interface {
+	BackfillMCPTools(ctx context.Context, req MCPToolLifecycleBackfillRequest) error
+}
+
+// mcpToolLifecycleBackfiller 是 Handler 内部使用的别名，保持字段命名与端口解耦。
+type mcpToolLifecycleBackfiller = MCPToolLifecycleBackfiller

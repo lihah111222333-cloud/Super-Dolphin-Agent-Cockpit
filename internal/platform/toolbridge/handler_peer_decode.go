@@ -115,6 +115,9 @@ func (h *Handler) addMCPSurfaceTools(ctx context.Context, scope contract.CodexTo
 	}
 	for _, result := range results {
 		surface.clients = append(surface.clients, result.client)
+		if err := h.backfillMCPToolLifecycle(ctx, scope.CWD, result.binary.Name, result.binary.Name, result.tools); err != nil {
+			return err
+		}
 		if err := addMCPToolsToSurface(surface, out, result.binary.Name, result.client, result.tools); err != nil {
 			return err
 		}

@@ -53,13 +53,14 @@ type handlerIn struct {
 	Resolver     difftracker.WorkDirResolver `optional:"true"`
 	DiffFallback *diffFallbackTracker
 	// store 依赖只通过 ports.go 的窄接口进入 toolbridge；具体 adapter 留在 app 装配层。
-	BindingStore agentThreadLookup         `optional:"true"`
-	ThreadStore  threadConfigOverrideStore `optional:"true"`
-	Preferences  uiPreferenceReader        `optional:"true"`
-	Config       *platformconfig.Config    `optional:"true"`
-	Logger       *pkglogger.Logger         `optional:"true"`
-	Tracer       *observability.Service    `optional:"true"`
-	Dispatcher   *event.Dispatcher         `optional:"true"`
+	BindingStore agentThreadLookup          `optional:"true"`
+	ThreadStore  threadConfigOverrideStore  `optional:"true"`
+	Preferences  uiPreferenceReader         `optional:"true"`
+	Config       *platformconfig.Config     `optional:"true"`
+	Logger       *pkglogger.Logger          `optional:"true"`
+	Tracer       *observability.Service     `optional:"true"`
+	Dispatcher   *event.Dispatcher          `optional:"true"`
+	Lifecycle    mcpToolLifecycleBackfiller `optional:"true"`
 	// HostTools 是 Fx 可选字段：agent-terminal 生产图由 provideHostToolRegistry 填充；
 	// 测试或无 provider 图可以留空，Handler 会走 peer 路径。
 	HostTools  HostToolRegistry           `optional:"true"`

@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
+	mcpdto "github.com/anthropic-ai/super-agent-v3/internal/dto/mcp"
 	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
 )
 
@@ -481,6 +482,35 @@ func TestBackfillMCPServerToolsPreservesManualLifecycleState(t *testing.T) {
 	}
 	if decision.ManifestName != "remote-manifest" {
 		t.Fatalf("backfilled manifest = %q, want remote-manifest", decision.ManifestName)
+	}
+}
+
+func TestBackfillMCPServerToolsAcceptsManagedPeerWithoutSavedConfig(t *testing.T) {
+	store := newMemoryMCPServerStore()
+	svc := NewServiceWithStore(store)
+	project := t.TempDir()
+	t.Chdir(project)
+
+	got, err := svc.BackfillMCPServerTools(context.Background(), BackfillMCPServerToolsRequest{
+		ServerName:   mcpdto.ClientKindLSP,
+		ManifestName: mcpdto.ClientKindLSP,
+		Tools: []contract.MCPToolLifecycleObservedTool{{
+			Name: "grep",
+		}},
+	})
+	if err != nil {
+		t.Fatalf("BackfillMCPServerTools() error = %v", err)
+	}
+	if len(got) != 1 || got[0].ServerName != mcpdto.ClientKindLSP || got[0].ToolName != "grep" || got[0].State != contract.MCPToolLifecycleEnabled {
+		t.Fatalf("BackfillMCPServerTools() = %#v, want enabled lsp/grep", got)
+	}
+
+	listed, err := svc.ListMCPToolLifecycle(context.Background(), ListMCPToolLifecycleRequest{ServerName: mcpdto.ClientKindLSP})
+	if err != nil {
+		t.Fatalf("ListMCPToolLifecycle() error = %v", err)
+	}
+	if len(listed) != 1 || listed[0].ToolName != "grep" {
+		t.Fatalf("ListMCPToolLifecycle() = %#v, want grep", listed)
 	}
 }
 

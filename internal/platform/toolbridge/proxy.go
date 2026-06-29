@@ -146,7 +146,7 @@ func (h *Handler) handleProxyRequest(w http.ResponseWriter, r *http.Request) {
 	case ProxyNotificationMethod:
 		writeJSONRPCNotificationAck(w)
 	case ProxyMethodToolsList:
-		h.handleProxyToolsList(w, r.Context(), req.ID, family)
+		h.handleProxyToolsList(w, r.Context(), req.ID, family, agentID)
 	case ProxyMethodToolsCall:
 		h.handleProxyToolCall(w, r.Context(), req, family, agentID)
 	default:
@@ -253,18 +253,27 @@ func validateProxyToolFamily(family, toolName string) error {
 }
 
 // handleProxyToolsList 返回指定 family 的工具列表。
-func (h *Handler) handleProxyToolsList(w http.ResponseWriter, ctx context.Context, id any, family string) {
+func (h *Handler) handleProxyToolsList(w http.ResponseWriter, ctx context.Context, id any, family, agentID string) {
 	clientKind := familyToClientKind(family)
 	if clientKind == "" {
 		writeJSONRPCError(w, id, jsonRPCCodeInvalidParam, "unsupported family")
 		return
 	}
 	if clientKind == mcpdto.ClientKindOrch {
-		h.handleProxyOrchToolsList(w, ctx, id)
+		h.handleProxyOrchToolsList(w, ctx, id, agentID)
 		return
 	}
 	tools, err := h.listPeerTools(ctx, clientKind)
 	if err != nil {
+		writeJSONRPCError(w, id, jsonRPCCodeInternal, err.Error())
+		return
+	}
+	workspaceRoot, err := h.proxyMCPToolLifecycleWorkspaceRoot(ctx, agentID)
+	if err != nil {
+		writeJSONRPCError(w, id, jsonRPCCodeInternal, err.Error())
+		return
+	}
+	if err := h.backfillMCPToolLifecycle(ctx, workspaceRoot, clientKind, clientKind, tools); err != nil {
 		writeJSONRPCError(w, id, jsonRPCCodeInternal, err.Error())
 		return
 	}
@@ -287,7 +296,7 @@ func filterProxyPeerReservedHostTools(tools []mcpdto.MCPTool) []mcpdto.MCPTool {
 }
 
 // handleProxyOrchToolsList 合并 host-direct 与 orchestration peer 工具列表。
-func (h *Handler) handleProxyOrchToolsList(w http.ResponseWriter, ctx context.Context, id any) {
+func (h *Handler) handleProxyOrchToolsList(w http.ResponseWriter, ctx context.Context, id any, agentID string) {
 	var hostTools []mcpdto.MCPTool
 	if h != nil && h.hostTools != nil {
 		hostTools = h.hostTools.ListHostTools()
@@ -302,6 +311,15 @@ func (h *Handler) handleProxyOrchToolsList(w http.ResponseWriter, ctx context.Co
 		}
 		h.warn("toolbridge proxy tools/list peer degraded", "client_kind", mcpdto.ClientKindOrch, "error", err)
 		writeJSONRPCResult(w, id, map[string]any{"tools": tools})
+		return
+	}
+	workspaceRoot, err := h.proxyMCPToolLifecycleWorkspaceRoot(ctx, agentID)
+	if err != nil {
+		writeJSONRPCError(w, id, jsonRPCCodeInternal, err.Error())
+		return
+	}
+	if err := h.backfillMCPToolLifecycle(ctx, workspaceRoot, mcpdto.ClientKindOrch, mcpdto.ClientKindOrch, peerTools); err != nil {
+		writeJSONRPCError(w, id, jsonRPCCodeInternal, err.Error())
 		return
 	}
 	tools = h.appendMCPToolsWithShadowWarning(tools, seen, mcpdto.ClientKindOrch, peerTools)

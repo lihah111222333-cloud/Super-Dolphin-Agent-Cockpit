@@ -11,6 +11,8 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 )
 
 func TestAddServersRejectsUnsafeHTTPHeaders(t *testing.T) {
@@ -60,6 +62,18 @@ func TestListServerToolsRequestsHTTPMCPServer(t *testing.T) {
 	}
 	if !slices.Equal(client.methods, []string{"initialize", "notifications/initialized", "tools/list"}) {
 		t.Fatalf("methods = %#v", client.methods)
+	}
+	assertListServerToolsBackfilledLifecycle(t, svc, "my-search", "remote_search")
+}
+
+func assertListServerToolsBackfilledLifecycle(t *testing.T, svc Service, serverName, toolName string) {
+	t.Helper()
+	decisions, err := svc.ListMCPToolLifecycle(context.Background(), ListMCPToolLifecycleRequest{ServerName: serverName})
+	if err != nil {
+		t.Fatalf("ListMCPToolLifecycle() error = %v", err)
+	}
+	if len(decisions) != 1 || decisions[0].ToolName != toolName || decisions[0].State != contract.MCPToolLifecycleEnabled {
+		t.Fatalf("lifecycle decisions = %#v, want enabled %s", decisions, toolName)
 	}
 }
 

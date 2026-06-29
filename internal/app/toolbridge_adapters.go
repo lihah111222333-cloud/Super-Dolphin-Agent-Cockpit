@@ -3,9 +3,11 @@ package app
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"strings"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
+	mcpserver "github.com/anthropic-ai/super-agent-v3/internal/module/mcp_server"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/difftracker"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/toolbridge"
 	"github.com/anthropic-ai/super-agent-v3/internal/provider/codexapp"
@@ -24,6 +26,7 @@ func toolbridgeAdaptersModule() fx.Option {
 		provideToolbridgeThreadConfigOverrideStore,
 		provideToolbridgeUIPreferenceReader,
 		provideToolbridgeWorkDirResolver,
+		provideToolbridgeMCPToolLifecycleBackfiller,
 	)
 }
 
@@ -166,6 +169,31 @@ func provideToolbridgeUIPreferenceReader(store uipreferencestore.Store) toolbrid
 		return nil
 	}
 	return uiPreferenceReaderAdapter{inner: store}
+}
+
+// ----- MCP tool lifecycle 适配器 -----
+
+type mcpToolLifecycleBackfillAdapter struct {
+	inner mcpserver.Service
+}
+
+// BackfillMCPTools 将 toolbridge 的 discovery 观察结果转交给 mcp_server owner 服务。
+func (a mcpToolLifecycleBackfillAdapter) BackfillMCPTools(ctx context.Context, req toolbridge.MCPToolLifecycleBackfillRequest) error {
+	if a.inner == nil {
+		return errors.New("mcp server service is not configured")
+	}
+	_, err := a.inner.BackfillMCPServerTools(ctx, mcpserver.BackfillMCPServerToolsRequest{
+		WorkspaceRoot: req.WorkspaceRoot,
+		ServerName:    req.ServerName,
+		ManifestName:  req.ManifestName,
+		Tools:         req.Tools,
+	})
+	return err
+}
+
+// provideToolbridgeMCPToolLifecycleBackfiller 把 mcp_server.Service 暴露成 toolbridge 窄端口。
+func provideToolbridgeMCPToolLifecycleBackfiller(svc mcpserver.Service) toolbridge.MCPToolLifecycleBackfiller {
+	return mcpToolLifecycleBackfillAdapter{inner: svc}
 }
 
 // ----- 工作目录解析适配器 -----
