@@ -261,7 +261,7 @@ func TestRegistryCorePromptsAvoidExternalIdentityToolAndHostLeaks(t *testing.T) 
 	}
 }
 
-func TestMainGeneralZhResidentLSPSectionsStayThinAndRecallBacked(t *testing.T) {
+func TestMainGeneralZhLSPSectionsUseLatestShortContract(t *testing.T) {
 	t.Parallel()
 
 	reg, err := NewDefaultRegistry()
@@ -273,20 +273,30 @@ func TestMainGeneralZhResidentLSPSectionsStayThinAndRecallBacked(t *testing.T) {
 
 	lspBasics := sectionBodyByKey(sections, "lsp_basics")
 	recallLSPBasics := sectionBodyByKey(sections, "recall_lsp_basics")
-	require.NotEqual(t, strings.TrimSpace(lspBasics), strings.TrimSpace(recallLSPBasics))
-	require.LessOrEqual(t, nonBlankLineCount(lspBasics), 14)
-	require.LessOrEqual(t, sharedNonBlankLineCount(lspBasics, recallLSPBasics), 3)
-	require.Contains(t, lspBasics, "简单任务不强制凑工具")
-	require.NotContains(t, lspBasics, "每个任务必须组合使用至少 4 种 LSP 工具")
-	require.Contains(t, recallLSPBasics, "复杂跨文件改动应组合使用多种 LSP 工具")
-	require.NotContains(t, recallLSPBasics, "每个任务必须组合使用至少 4 种 LSP 工具")
-
 	lspAdvanced := sectionBodyByKey(sections, "lsp_advanced")
 	recallLSPAdvanced := sectionBodyByKey(sections, "recall_lsp_advanced")
-	require.NotEqual(t, strings.TrimSpace(lspAdvanced), strings.TrimSpace(recallLSPAdvanced))
-	require.LessOrEqual(t, nonBlankLineCount(lspAdvanced), 12)
-	require.LessOrEqual(t, sharedNonBlankLineCount(lspAdvanced, recallLSPAdvanced), 3)
 	require.Contains(t, string(requireSection(t, sections, "lsp_advanced").EnableWhen), "tags_has")
+
+	lspBodies := map[string]string{
+		"lsp_basics":          lspBasics,
+		"lsp_advanced":        lspAdvanced,
+		"recall_lsp_basics":   recallLSPBasics,
+		"recall_lsp_advanced": recallLSPAdvanced,
+	}
+	for name, body := range lspBodies {
+		require.LessOrEqual(t, nonBlankLineCount(body), 42, name)
+		require.Contains(t, body, "当前契约", name)
+		require.Contains(t, body, "每个任务至少组合 4 种 LSP 工具", name)
+		require.Contains(t, body, "不要只用 `grep + file`", name)
+		require.Contains(t, body, "`grep`、`file`、`structure`、`inspect`、`xref`、`edit`、`completion`", name)
+		require.Contains(t, body, "`grep(ast_search)`", name)
+		require.Contains(t, body, "`file(read_file)`", name)
+		require.Contains(t, body, "file(action=read_file, pos=<file>:<func_start>", name)
+		require.Contains(t, body, "`scope=lines`", name)
+		require.Contains(t, body, "`work_dir`", name)
+		require.Contains(t, body, "`max_results`", name)
+		require.Contains(t, body, "`exec_command`", name)
+	}
 
 	body := strings.Join([]string{
 		lspBasics,
@@ -294,18 +304,9 @@ func TestMainGeneralZhResidentLSPSectionsStayThinAndRecallBacked(t *testing.T) {
 		recallLSPBasics,
 		recallLSPAdvanced,
 	}, "\n")
-	for _, want := range []string{
-		"7 个仓库感知 LSP 工具",
-		"`file`、`grep`、`inspect`、`xref`、`structure`、`edit`、`completion`",
-		"`grep(text_search",
-		"`file(read_file",
-		"`edit(file_path",
-		"npm run lint",
-	} {
-		require.Contains(t, body, want)
-	}
 	for _, stale := range []string{
 		"11 个仓库感知工具",
+		"7 个仓库感知 LSP 工具",
 		"lsp_file",
 		"lsp_grep",
 		"lsp_inspect",
@@ -313,8 +314,16 @@ func TestMainGeneralZhResidentLSPSectionsStayThinAndRecallBacked(t *testing.T) {
 		"lsp_structure",
 		"lsp_edit",
 		"lsp_completion",
+		"verbosity",
+		"offset=",
+		"line/end_line",
+		"new_text",
+		"persist_to_disk",
+		"force",
 		"replace_range",
 		"code_action",
+		"folding_range",
+		"semantic_tokens",
 		"`edit(rename)",
 		"`edit(format)",
 	} {

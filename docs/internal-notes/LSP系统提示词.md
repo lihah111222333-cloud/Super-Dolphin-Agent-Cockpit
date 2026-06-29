@@ -1,45 +1,38 @@
-# LSP 工具链使用规范
+# LSP 高级工具链使用指南（子 Agent 必读）
 
-本文档是使用 LSP 工具前的必读规范。LSP 工具用于代码理解、符号跳转、引用分析、诊断和结构化编辑；普通 shell、git、目录检查、包脚本和测试仍使用常规命令。
+> 当前契约：`grep`、`file`、`structure`、`inspect`、`xref`、`edit`、`completion` + `exec_command`。
+> 每个任务至少组合 4 种 LSP 工具；不要只用 `grep + file`。
+> `exec_command` 只用于构建、测试、脚本和必要 shell，不替代 LSP 导航、读取、诊断和编辑。
 
-## 基础工具
+---
 
-- `grep(text_search, glob=...)`：文本或正则搜索，可按路径过滤。
-- `grep(ast_search, language=...)`：按语法结构匹配函数、类型和表达式。
-- `structure(document_symbol | workspace_symbol)`：查看文件大纲或项目符号。
-- `inspect(definition | implementation | hover | signature_help | type_definition)`：从 `file:line:col` 跳转或查看符号信息。
-- `xref(references, verbosity="compact")`：扫描引用，结果可带 `func_start` 和 `func_end`。
-- `xref(call_hierarchy, direction="incoming|outgoing|both")`：追踪调用链。
-- `file(read_file, pos=<file>:<line>, limit=<n>)`：按 1-based 行号分页读取文件。
-- `file(diagnostics, file_paths=[...])`：批量获取编译或类型诊断。
-- `edit(file_path=..., patch="*** Begin Patch...")`：使用 apply-patch 风格精确修改文件并同步 LSP。
-- `completion(pos=<file>:<line>:<col>)`：获取代码补全候选。
+## 一、5 个组合技
 
-## 推荐流程
+- A：AST 搜索 -> 精确读取：`grep(ast_search)` -> 用 `func_start/func_end` 调 `file(read_file)`。
+- B：符号定位 -> 跳转定义 -> 读实现：`structure(workspace_symbol)` -> `inspect(definition)` -> `file(read_file)`。
+- C：引用分析 -> 调用层级 -> 影响面：`xref(references)` -> `xref(call_hierarchy, incoming)` -> `xref(call_hierarchy, outgoing)`。
+- D：接口 -> 实现 -> 引用：`inspect(definition)` -> `inspect(implementation)` -> `xref(references)`。
+- E：文件大纲对比：`structure(document_symbol, file_path="v3/file.go")` -> `structure(document_symbol, file_path="v2/file.go")`。
 
-审查类任务：
+## 二、强制工作流
 
-```text
-grep 定位 -> inspect 理解 -> xref 影响面 -> file(read_file) 精读 -> 输出结论
-```
+审查类：`grep` 定位 -> `inspect` 理解 -> `xref` 影响面 -> `file(read_file)` 精读 -> 输出判定。
 
-修复类任务：
+修复类：`grep` 定位 -> `xref` 影响面 -> `file(read_file)` 读取 -> `edit` 修改 -> `file(diagnostics)` 检查 -> `exec_command` 验证。
 
-```text
-grep 定位 -> xref 影响面 -> file(read_file) 读上下文 -> edit 修改 -> file(diagnostics) 检查 -> 运行对应测试
-```
+## 三、最新契约要点
 
-## 关键约束
+- `pos` 使用 `file:line:column`；`line/column` 都是 1-based。
+- `file(read_file, pos=<file>:<line>)` 默认读函数窗口；固定行窗口加 `scope=lines`。
+- 拿到 `func_start/func_end` 后直接读：`file(action=read_file, pos=<file>:<func_start>, limit=<func_end-func_start+1>)`。
+- `structure(workspace_symbol)` 必须带 `query`；`language` 与 `file_path` 二选一。
+- 所有 LSP 工具都支持 `work_dir`，但必须在可信 workspace roots 内。
+- `max_results` 只裁剪返回结果；超时要收窄路径、查询或语言。
 
-- 已知行号时，使用 `file(read_file, pos=<file>:<line>, limit=<n>)` 精读上下文。
-- 从 `ast_search`、`definition`、`implementation` 或 `references` 得到 `func_start` / `func_end` 后，可直接使用 `file(read_file, pos=<file>:<func_start>, limit=<func_end-func_start+1>)` 读取函数范围。
-- 修改共享符号前先用 `xref(references)` 或调用链工具确认影响面。
-- 多文件修改后优先一次性运行 `file(diagnostics, file_paths=[...])`，再运行对应测试。
-- 诊断不能替代测试；运行时行为变化必须跑相关测试。
+## 四、禁止
 
-## 禁止事项
-
-- 不要只靠 `grep + file` 两件套完成复杂代码审查。
-- 不要在应使用 LSP 符号工具时用普通文本搜索替代影响面分析。
-- 不要未读取上下文就修改代码。
-- 不要未运行诊断或测试就声称修复完成。
+1. 不要只用 `grep + file` 两个工具。
+2. 不要用 `exec_command` 执行可由 LSP 完成的 `grep/cat/sed/find`。
+3. 不要不做 `xref` 影响面分析就改共享代码。
+4. 不要不跑 `file(diagnostics)` 就说类型/编译层面干净。
+5. 不要把 diagnostics 当测试；运行时行为必须用 `exec_command` 跑对应测试。
