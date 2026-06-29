@@ -205,7 +205,11 @@ func readAgentMemoryEntry(root string, req contract.MemoryReadRequest) (MemoryEn
 			}
 			return MemoryEntry{}, false, agentMemoryError("read_failed", err)
 		}
-		return entry, agentMemoryIndexHit(root, entry), nil
+		indexHit, err := agentMemoryIndexHit(root, entry)
+		if err != nil {
+			return MemoryEntry{}, false, agentMemoryError("index_read_failed", err)
+		}
+		return entry, indexHit, nil
 	}
 	name, err := canonicalLookupName(req.Name)
 	if err != nil {
@@ -218,24 +222,28 @@ func readAgentMemoryEntry(root string, req contract.MemoryReadRequest) (MemoryEn
 	if !exists {
 		return MemoryEntry{}, false, agentMemoryError("not_found", ErrMemoryNotFound)
 	}
-	return entry, agentMemoryIndexHit(root, entry), nil
+	indexHit, err := agentMemoryIndexHit(root, entry)
+	if err != nil {
+		return MemoryEntry{}, false, agentMemoryError("index_read_failed", err)
+	}
+	return entry, indexHit, nil
 }
 
 // agentMemoryIndexHit 判断读取到的条目是否仍在 MEMORY.md 索引中。
-// 该结果随 wire result 返回，供调用方区分索引命中和直接文件读取。
-func agentMemoryIndexHit(root string, entry MemoryEntry) bool {
+// 索引不可读时必须返回错误，避免把索引损坏静默降级为未命中。
+func agentMemoryIndexHit(root string, entry MemoryEntry) (bool, error) {
 	entries, err := ReadMemoryIndex(memoryIndexPath(root))
 	if err != nil {
-		return false
+		return false, err
 	}
 	rel, _ := filepath.Rel(root, entry.FilePath)
 	rel = filepath.ToSlash(rel)
 	for _, item := range entries {
 		if item.CanonicalName == entry.CanonicalName || item.Path == rel {
-			return true
+			return true, nil
 		}
 	}
-	return false
+	return false, nil
 }
 
 // relativeAgentMemoryReadPath 返回面向工具结果的相对路径。

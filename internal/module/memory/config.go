@@ -107,7 +107,7 @@ const (
 )
 
 // NewConfig 从平台配置和环境变量构建 memory 配置快照。
-// auto-dream 手动开关会从 memory root 旁的 intent 文件恢复；读取失败时保留环境变量结果并记录诊断。
+// auto-dream 手动开关会从 memory root 旁的 intent 文件恢复；读取失败时关闭自动抽取并记录诊断。
 func NewConfig(platformCfg *contract.Config) *Config {
 	kairosEnabled := parseBoolEnv(envFeatureKairos, false)
 	envOverride := firstNonEmptyEnv(envMemoryPathOverride, envClaudeMemoryPathOverride)
@@ -134,6 +134,7 @@ func NewConfig(platformCfg *contract.Config) *Config {
 		cfg.RootDir = root
 	}
 	if intent, err := ReadAutoDreamIntent(cfg.RootDir); err != nil {
+		cfg.ExtractOnStop = false
 		cfg.AutoDreamIntentError = autoDreamIntentErrorSummary(err)
 	} else if intent != nil {
 		cfg.ExtractOnStop = *intent
