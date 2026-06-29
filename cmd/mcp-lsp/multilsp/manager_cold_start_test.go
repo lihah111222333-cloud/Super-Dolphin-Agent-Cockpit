@@ -98,6 +98,42 @@ func TestDefinitionWaitsForColdStartDiagnosticsBeforeRequest(t *testing.T) {
 	}
 }
 
+func TestDocumentSymbolDoesNotWaitForColdStartDiagnostics(t *testing.T) {
+	root := t.TempDir()
+	target := writeColdStartJavaScriptFixture(t, root)
+	factory := &coldStartDefinitionFactory{readyDelay: 200 * time.Millisecond}
+	mgr := NewManager(Config{
+		WorkspaceRoot:                    root,
+		ClientFactory:                    factory,
+		DiagnosticsInitialDelay:          time.Millisecond,
+		DiagnosticsPollInterval:          time.Millisecond,
+		DiagnosticsMaxWait:               time.Second,
+		DisableInitialWorkspaceBootstrap: true,
+	}).(*manager)
+	defer func() { _ = mgr.Close() }()
+	ctx, cancel := context.WithTimeout(common.WithToolScope(context.Background(), common.ToolScope{
+		CWD:            root,
+		WorkspaceRoots: []string{root},
+		Family:         "lsp",
+	}), 80*time.Millisecond)
+	defer cancel()
+
+	symbols, err := mgr.DocumentSymbol(ctx, target)
+	if err != nil {
+		t.Fatalf("DocumentSymbol() error = %v, want first outline request to skip diagnostics readiness", err)
+	}
+	if len(symbols) != 1 || symbols[0].Name != "value" {
+		t.Fatalf("DocumentSymbol() symbols = %#v, want value outline", symbols)
+	}
+	client := factory.clientAt(t)
+	if got := client.beforeReadyRequestCount(); got == 0 {
+		t.Fatal("DocumentSymbol waited for cold-start diagnostics before requesting outline")
+	}
+	if got := client.openedLanguageID(); got != "javascript" {
+		t.Fatalf("DidOpen language ID = %q, want javascript", got)
+	}
+}
+
 type coldStartLanguageCase struct {
 	languageID string
 	write      func(t *testing.T, root string) string
@@ -312,9 +348,6 @@ func (c *coldStartDefinitionClient) publishReadyDiagnostics(ctx context.Context,
 }
 
 func (c *coldStartDefinitionClient) Request(_ context.Context, method string, _ any) (json.RawMessage, error) {
-	if method != protocol.MethodDefinition {
-		return nil, fmt.Errorf("unexpected request method %q, want %q", method, protocol.MethodDefinition)
-	}
 	c.mu.Lock()
 	ready := c.ready
 	uri := c.openedURI
@@ -322,16 +355,34 @@ func (c *coldStartDefinitionClient) Request(_ context.Context, method string, _ 
 		c.beforeReadyRequests++
 	}
 	c.mu.Unlock()
-	if !ready {
-		return json.RawMessage("null"), nil
+	switch method {
+	case protocol.MethodDefinition:
+		if !ready {
+			return json.RawMessage("null"), nil
+		}
+		return json.Marshal([]protocol.Location{{
+			URI: uri,
+			Range: protocol.Range{
+				Start: protocol.Position{Line: 0, Character: 13},
+				End:   protocol.Position{Line: 0, Character: 18},
+			},
+		}})
+	case protocol.MethodDocumentSymbol:
+		return json.Marshal([]protocol.DocumentSymbol{{
+			Name: "value",
+			Kind: protocol.SymbolKindVariable,
+			Range: protocol.Range{
+				Start: protocol.Position{Line: 0, Character: 13},
+				End:   protocol.Position{Line: 0, Character: 18},
+			},
+			SelectionRange: protocol.Range{
+				Start: protocol.Position{Line: 0, Character: 13},
+				End:   protocol.Position{Line: 0, Character: 18},
+			},
+		}})
+	default:
+		return nil, fmt.Errorf("unexpected request method %q", method)
 	}
-	return json.Marshal([]protocol.Location{{
-		URI: uri,
-		Range: protocol.Range{
-			Start: protocol.Position{Line: 0, Character: 13},
-			End:   protocol.Position{Line: 0, Character: 18},
-		},
-	}})
 }
 
 func (c *coldStartDefinitionClient) beforeReadyRequestCount() int {

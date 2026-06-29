@@ -149,7 +149,7 @@ func TestMcpLSPBinaryPythonDiagnosticsWaitsForDelayedTargets_E2E(t *testing.T) {
 	defer cancel()
 	client := startMcpLSPBinaryForTestWithEnv(t, ctx, binary, root, fakePyrightBinDir, []string{
 		"MCP_LSP_FAKE_PYRIGHT_DIAGNOSTICS=delayed_second",
-		"MCP_LSP_FAKE_PYRIGHT_DIAGNOSTIC_SLOW_DELAY=5s",
+		"MCP_LSP_FAKE_PYRIGHT_DIAGNOSTIC_SLOW_DELAY=250ms",
 	})
 	defer client.close(t)
 

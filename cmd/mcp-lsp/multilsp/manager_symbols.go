@@ -164,28 +164,19 @@ func (m *manager) resolveTypeDirections(ctx context.Context, client Client, item
 }
 
 // DocumentSymbol 读取单文档符号列表。
-// 对 markdown/json/yaml/受限 Python 常量文件先走静态 fallback，其余语言再启动 LSP，减少非代码文件依赖。
+// 大纲查询用于冷启动时快速定位结构，不能被诊断稳定等待拖到工具超时；需要诊断就绪的导航能力在各自路径等待。
 func (m *manager) DocumentSymbol(ctx context.Context, uri string) ([]protocol.DocumentSymbol, error) {
-	ref, err := m.resolveDocumentRef(ctx, uri, "")
-	if err != nil {
-		return nil, err
-	}
-	if symbols, ok, err := m.fallbackDocumentSymbols(ref); ok || err != nil {
-		return symbols, err
-	}
-	return requestDocument(ctx, m, ref.uri, protocol.MethodDocumentSymbol,
-		func(ref documentRef) any {
-			return protocol.DocumentSymbolParams{
-				TextDocument: protocol.TextDocumentIdentifier{URI: ref.uri},
-			}
-		},
-		decodeDocumentSymbols,
-		nil,
-	)
+	return m.documentSymbolsWithoutDiagnosticsWait(ctx, uri)
 }
 
 // DocumentSymbolBestEffort 尽量读取文档符号，允许返回降级结果。
 func (m *manager) DocumentSymbolBestEffort(ctx context.Context, uri string) ([]protocol.DocumentSymbol, error) {
+	return m.documentSymbolsWithoutDiagnosticsWait(ctx, uri)
+}
+
+// documentSymbolsWithoutDiagnosticsWait 在单文档大纲路径跳过诊断等待。
+// LSP 符号请求本身会按调用方 context 失败，避免首轮索引未完成时先耗尽工具级 deadline。
+func (m *manager) documentSymbolsWithoutDiagnosticsWait(ctx context.Context, uri string) ([]protocol.DocumentSymbol, error) {
 	ref, err := m.resolveDocumentRef(ctx, uri, "")
 	if err != nil {
 		return nil, err
