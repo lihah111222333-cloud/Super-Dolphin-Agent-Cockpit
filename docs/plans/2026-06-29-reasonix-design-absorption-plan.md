@@ -1,8 +1,8 @@
 # Reasonix 设计优点吸收计划
 
 > 日期：2026-06-29
-> 状态：Draft
-> 范围：文档计划，不直接修改生产代码
+> 状态：执行中（Wave 1 / Wave 2 主线已合入 main，Wave 3 和条件项待收口）
+> 范围：设计吸收计划与执行追踪；生产代码改动必须以源码、测试和 ADR 为准
 
 ## 0. 结论
 
@@ -29,6 +29,34 @@ V3 不应该复制 Reasonix 的整体架构。Reasonix 的长处是轻量 agent 
 | Tool error envelope | `internal/mcpserver/common/tool_error_envelope.go`, `internal/platform/toolbridge/handler_host_tools.go`, `internal/platform/toolbridge/proxy.go` | 已有结构化工具错误和 `isError` 语义。 |
 
 后续执行不要重复造这些基础；优先补齐未闭合的行为边界、迁移剩余调用方和测试覆盖。
+
+### 1.1 2026-06-29 执行记录
+
+已合入 `main` 的相关提交：
+
+- `7bf483f6`：批准 MCP tool lifecycle 实现。
+- `4840998c`：新增 per-tool lifecycle owner/store/sqlc/migration。
+- `6124ce31`：接入 lifecycle owner backfill。
+- `dbf412e7`：接入 toolbridge list filtering 和 direct-call enforcement。
+
+本轮复核后的状态边界：
+
+- Wave 1 基础不退化检查已通过，后端和前端指定测试均已执行。
+- Wave 2 的 ADR、owner API、store、backfill、toolbridge filtering、direct-call deny 已落地并合入 `main`。
+- Wave 2 仍保留两个未闭合项：lifecycle state rollback/export 证据，以及“如果 UI 需要控制 lifecycle”时的 frontend guarded API。
+- Wave 3 不是本轮完成范围；现有 `memory_read`、PrefixShape、read-only routing 和 tool error envelope 只能算基础，不等同于 Wave 3 全部完成。
+
+已执行验证：
+
+```bash
+./scripts/test_with_guard.sh ./internal/contract ./internal/app ./internal/module/thread ./internal/module/prompt ./internal/provider/codexapp ./internal/provider/claudecli ./internal/platform/eventsurface ./internal/archtest -run 'Session|Prefix|Event|Desktop|Dependency|StartAssembly|BuildThreadStartParams' -count=1
+cd frontend-app && npm test -- sessionApi.test.js eventWire.test.js backendApi.surface.test.js
+./scripts/test_with_guard.sh ./internal/contract ./internal/store/mcpserver ./internal/module/mcp_server ./internal/platform/toolbridge ./internal/app -count=1
+./scripts/test_with_guard.sh ./internal/module/thread ./internal/module/memory ./internal/platform/toolbridge ./internal/mcpserver/common ./internal/provider/codexapp -run 'Compact|History|Memory|ReadOnly|ToolError|Envelope|StructuredContent' -count=1
+make sqlc-verify
+make guard
+make build-plain
+```
 
 ## 2. 吸收项 A：Session-facing Ports
 
@@ -463,11 +491,11 @@ Reasonix 的 agent loop 倾向把工具失败反馈给模型，让模型能修�
 
 ### Wave 1：确认已吸收基础不退化
 
-- [ ] 跑 session ports 相关单测。
-- [ ] 跑 prompt prefix shape 相关单测。
-- [ ] 跑 event wire 前后端 golden。
-- [ ] 跑 frontend `sessionApi` 测试。
-- [ ] 跑 desktop dependency guard。
+- [x] 跑 session ports 相关单测。
+- [x] 跑 prompt prefix shape 相关单测。
+- [x] 跑 event wire 前后端 golden。
+- [x] 跑 frontend `sessionApi` 测试。
+- [x] 跑 desktop dependency guard。
 
 建议命令：
 
@@ -478,12 +506,13 @@ cd frontend-app && npm test -- sessionApi.test.js eventWire.test.js backendApi.s
 
 ### Wave 2：MCP lifecycle 决策与闭环（NEEDS_APPROVAL）
 
-- [ ] 决策文档：新增并批准 `docs/adr/0003-mcp-tool-lifecycle-owner-storage.md` 或等价决策，明确 per-tool lifecycle 的 owner、状态枚举、server/tool 边界、store schema、migration/backfill、rollback、可观测性和验收测试。
-- [ ] owner API：决策批准后再扩展 `internal/contract/mcp_control.go` + `internal/module/mcp_server`。
-- [ ] store：决策批准后新增 `internal/store/mcpserver` migration/store/test；不能把现有 server config 级 `enabled` 当成 per-tool lifecycle 事实源。
-- [ ] toolbridge filtering：决策批准后，ListTools 不展示 disabled/suspended/removed。
-- [ ] direct-call deny：决策批准后，隐藏工具被调用时返回 stable tool error。
-- [ ] frontend guarded API：如果 UI 需要控制 lifecycle，必须通过 `backendApi.js` guarded API。
+- [x] 决策文档：新增并批准 `docs/adr/0003-mcp-tool-lifecycle-owner-storage.md` 或等价决策，明确 per-tool lifecycle 的 owner、状态枚举、server/tool 边界、store schema、migration/backfill、rollback、可观测性和验收测试。
+- [x] owner API：决策批准后再扩展 `internal/contract/mcp_control.go` + `internal/module/mcp_server`。
+- [x] store：决策批准后新增 `internal/store/mcpserver` migration/store/test；不能把现有 server config 级 `enabled` 当成 per-tool lifecycle 事实源。
+- [x] toolbridge filtering：决策批准后，ListTools 不展示 disabled/suspended/removed。
+- [x] direct-call deny：决策批准后，隐藏工具被调用时返回 stable tool error。
+- [ ] rollback/export：补 lifecycle state 导出或降级验证，证明回滚时不会丢失用户显式关闭、暂停或移除的状态。
+- [ ] frontend guarded API：如果 UI 需要控制 lifecycle，必须通过 `backendApi.js` guarded API；当前没有 UI lifecycle 控制入口，保持条件项。
 
 建议命令：
 
@@ -493,10 +522,10 @@ cd frontend-app && npm test -- sessionApi.test.js eventWire.test.js backendApi.s
 
 ### Wave 3：上下文和权限策略
 
-- [ ] 为 history/memory retrieval 定义 bounded tool contract。
-- [ ] 补 plan/read-only/tool trust 策略测试。
-- [ ] 把 PrefixShape telemetry 接入 observability。
-- [ ] 先批准 host-direct error 兼容策略，再标准化所有 host-direct tool error envelope。
+- [ ] 为 history/memory retrieval 定义 bounded tool contract；当前已有 `memory_read`，尚未新增 `history_read` bounded tool。
+- [ ] 补 plan/read-only/tool trust 策略测试；当前有 read-only routing 和 memory/toolbridge 基础测试，但还没有本计划的策略矩阵闭环。
+- [x] 把 PrefixShape telemetry 接入 observability；Codex provider start 已记录 prefix hash、section 列表和 cached/uncached 字节元数据。
+- [ ] 先批准 host-direct error 兼容策略，再标准化所有 host-direct tool error envelope；当前 `kind=host_tool_error` 兼容路径仍保留。
 
 建议命令：
 
