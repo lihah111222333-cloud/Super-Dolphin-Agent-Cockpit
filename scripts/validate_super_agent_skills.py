@@ -141,6 +141,11 @@ REQUIRED = {
         "codex/",
         "使用git工作区",
     ],
+    ".agent/skills/使用git工作区/SKILL.md": [
+        'git worktree add "$path" -b "$branch" "$base_branch"',
+        "不要把 `git worktree add ...` 拼成字符串变量再执行",
+        '如果必须动态组装命令，使用 shell 数组并以 `"${cmd[@]}"` 执行',
+    ],
     ".agent/skills/结束开发分支/SKILL.md": [
         "./scripts/test_with_guard.sh",
         "frontend-app",

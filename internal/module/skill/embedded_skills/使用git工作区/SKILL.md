@@ -1,6 +1,6 @@
 ---
 name: 使用git工作区
-description: 开始需要与当前工作区隔离的功能工作，或执行实现计划前使用；通过智能目录选择和安全验证创建隔离的 git worktree
+description: 开始需要与当前工作区隔离的功能工作，或执行实现计划前使用；在 super-agent-v3 中创建 codex/ 分支 worktree 并保护 dirty 边界。
 ---
 
 # 使用 Git Worktree
@@ -9,7 +9,7 @@ description: 开始需要与当前工作区隔离的功能工作，或执行实�
 
 Git worktree 会创建共享同一仓库的隔离工作区，使你可以在不切换分支的情况下同时处理多个分支。
 
-**核心原则：** 系统化目录选择 + 安全验证 = 可靠隔离。
+**核心原则：** worktree 用来隔离实现，不用来绕过主工作区的脏状态。
 
 **开始时声明：** “我正在使用 使用git工作区 技能来设置隔离工作区。”
 
@@ -61,10 +61,7 @@ git check-ignore -q .worktrees 2>/dev/null || git check-ignore -q worktrees 2>/d
 
 **如果未被忽略：**
 
-根据 Jesse 的规则 “Fix broken things immediately”：
-1. 向 .gitignore 添加合适行
-2. 提交该变更
-3. 继续创建 worktree
+停止并请用户确认是否允许修改 `.gitignore`。不要自动修改 `.gitignore`，更不要自动提交治理文件。
 
 **为什么关键：** 防止意外把 worktree 内容提交到仓库。
 
@@ -83,20 +80,26 @@ project=$(basename "$(git rev-parse --show-toplevel)")
 ### 2. 创建 Worktree
 
 ```bash
-# Determine full path
-case $LOCATION in
-  .worktrees|worktrees)
-    path="$LOCATION/$BRANCH_NAME"
-    ;;
-  ~/.config/superpowers/worktrees/*)
-    path="~/.config/superpowers/worktrees/$project/$BRANCH_NAME"
-    ;;
-esac
+base_branch=$(git branch --show-current)
+branch="codex/<short-task-name>"
+path=".worktrees/<short-task-name>"
 
 # Create worktree with new branch
-git worktree add "$path" -b "$BRANCH_NAME"
+git worktree add "$path" -b "$branch" "$base_branch"
 cd "$path"
 ```
+
+Shell 安全要求：
+
+- 不要把 `git worktree add ...` 拼成字符串变量再执行；zsh 不会像 bash 那样默认对普通变量做空白分词，字符串命令容易被当成一个参数。
+- 如果必须动态组装命令，使用 shell 数组并以 `"${cmd[@]}"` 执行：
+
+```bash
+cmd=(git worktree add "$path" -b "$branch" "$base_branch")
+"${cmd[@]}"
+```
+
+- 不要用 `eval` 或 zsh 全局分词兼容选项绕过参数边界。
 
 ### 3. 运行项目设置
 
@@ -149,7 +152,7 @@ Ready to implement <feature-name>
 | `worktrees/` 存在 | 使用它（验证被忽略） |
 | 两者都存在 | 使用 `.worktrees/` |
 | 两者都不存在 | 检查 CLAUDE.md → 询问用户 |
-| 目录未被忽略 | 添加到 .gitignore + 提交 |
+| 目录未被忽略 | 停止并请用户确认 |
 | 基线测试失败 | 报告失败 + 询问 |
 | 没有 package.json/Cargo.toml | 跳过依赖安装 |
 
