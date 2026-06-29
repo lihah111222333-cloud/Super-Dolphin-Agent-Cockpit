@@ -5,8 +5,10 @@ import (
 	"encoding/json"
 	"errors"
 	"strings"
+	"sync"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
+	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
 	mcpserver "github.com/anthropic-ai/super-agent-v3/internal/module/mcp_server"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/difftracker"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/toolbridge"
@@ -33,7 +35,14 @@ func toolbridgeAdaptersModule() fx.Option {
 
 // toolbridgeCodexBindingModule 以 fx.Invoke 形式接入 Codex tool handler 绑定。
 func toolbridgeCodexBindingModule() fx.Option {
-	return fx.Invoke(bindToolbridgeCodexHandlers)
+	return fx.Options(
+		fx.Provide(
+			newCodexToolbridgeReadinessProbe,
+			provideToolbridgeReadinessProbe,
+		),
+		fx.Decorate(decorateSessionStarterWithToolbridgeReadiness),
+		fx.Invoke(bindToolbridgeCodexHandlers),
+	)
 }
 
 // ----- binding store 适配器 -----
@@ -248,16 +257,26 @@ func provideToolbridgeWorkDirResolver(bindingStore bindingstore.Store) difftrack
 type codexBindingParams struct {
 	fx.In
 
-	Manager *codexapp.ServerManager `optional:"true"`
-	Factory *codexapp.DriverFactory `optional:"true"`
-	Handler *toolbridge.Handler     `optional:"true"`
+	Manager   *codexapp.ServerManager
+	Factory   *codexapp.DriverFactory
+	Handler   *toolbridge.Handler
+	Readiness *codexToolbridgeReadinessProbe
 }
 
 // bindToolbridgeCodexHandlers 将 Codex server/driver 的 tool 调用接到 toolbridge handler。
-// 任一依赖未注入时保持 no-op，避免非 Codex 装配启动失败。
-func bindToolbridgeCodexHandlers(p codexBindingParams) {
-	if p.Manager == nil || p.Factory == nil || p.Handler == nil {
-		return
+// 生产图缺少任一关键依赖都会报错，测试或 no-provider 图必须显式提供 stub。
+func bindToolbridgeCodexHandlers(p codexBindingParams) error {
+	if p.Manager == nil {
+		return errors.New("toolbridge: codex ServerManager is not configured")
+	}
+	if p.Factory == nil {
+		return errors.New("toolbridge: codex DriverFactory is not configured")
+	}
+	if p.Handler == nil {
+		return errors.New("toolbridge: handler is not configured")
+	}
+	if p.Readiness == nil {
+		return errors.New("toolbridge: readiness probe is not configured")
 	}
 	// 只在 assembly 层做 DTO 转换，provider 和 platform/toolbridge 不直接互相导入。
 	p.Manager.SetToolHandler(func(ctx context.Context, msg codexapp.RawMessage) (any, error) {
@@ -285,4 +304,79 @@ func bindToolbridgeCodexHandlers(p codexBindingParams) {
 	p.Factory.SetReleaseTools(func(scope contract.CodexToolSurfaceScope) error {
 		return p.Handler.ReleaseCodexToolSurface(scope)
 	})
+	p.Readiness.markReady()
+	return nil
+}
+
+type codexToolbridgeReadinessProbe struct {
+	mu    sync.RWMutex
+	ready bool
+}
+
+func newCodexToolbridgeReadinessProbe() *codexToolbridgeReadinessProbe {
+	return &codexToolbridgeReadinessProbe{}
+}
+
+func provideToolbridgeReadinessProbe(probe *codexToolbridgeReadinessProbe) contract.ToolbridgeReadinessProbe {
+	return probe
+}
+
+func (p *codexToolbridgeReadinessProbe) markReady() {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.ready = true
+}
+
+// CheckToolbridgeReady 在 Codex provider 启动前确认工具桥已经完成绑定。
+func (p *codexToolbridgeReadinessProbe) CheckToolbridgeReady(_ context.Context, provider string) error {
+	if !strings.EqualFold(strings.TrimSpace(provider), "codex") {
+		return nil
+	}
+	if p == nil {
+		return errors.New("toolbridge: readiness probe is not configured")
+	}
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	if !p.ready {
+		return errors.New("toolbridge: codex binding is not ready")
+	}
+	return nil
+}
+
+type toolbridgeReadySessionStarter struct {
+	inner     contract.SessionStarter
+	readiness contract.ToolbridgeReadinessProbe
+}
+
+func decorateSessionStarterWithToolbridgeReadiness(
+	starter contract.SessionStarter,
+	readiness contract.ToolbridgeReadinessProbe,
+) contract.SessionStarter {
+	return toolbridgeReadySessionStarter{inner: starter, readiness: readiness}
+}
+
+// StartSession 在 thread 生命周期进入 provider 前检查 Codex/toolbridge 绑定状态。
+func (s toolbridgeReadySessionStarter) StartSession(ctx context.Context, req dto.StartSessionRequest) (contract.Session, error) {
+	if err := s.checkReady(ctx, req.Provider); err != nil {
+		return nil, err
+	}
+	return s.inner.StartSession(ctx, req)
+}
+
+// ResumeSession 在恢复 provider session 前复用同一条工具桥 readiness 护栏。
+func (s toolbridgeReadySessionStarter) ResumeSession(ctx context.Context, req dto.ResumeSessionRequest) (contract.Session, error) {
+	if err := s.checkReady(ctx, req.Provider); err != nil {
+		return nil, err
+	}
+	return s.inner.ResumeSession(ctx, req)
+}
+
+func (s toolbridgeReadySessionStarter) checkReady(ctx context.Context, provider string) error {
+	if s.inner == nil {
+		return errors.New("session starter is not configured")
+	}
+	if s.readiness == nil {
+		return errors.New("toolbridge: readiness probe is not configured")
+	}
+	return s.readiness.CheckToolbridgeReady(ctx, provider)
 }
