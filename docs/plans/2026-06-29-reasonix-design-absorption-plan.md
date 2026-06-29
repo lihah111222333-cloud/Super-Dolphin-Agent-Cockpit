@@ -1,7 +1,7 @@
 # Reasonix 设计优点吸收计划
 
 > 日期：2026-06-29
-> 状态：执行中（Wave 1 / Wave 2 已落地，Wave 3 和条件性 UI 控制入口待收口）
+> 状态：执行中（Wave 1 / Wave 2 已闭环，Wave 3 待收口）
 > 范围：设计吸收计划与执行追踪；生产代码改动必须以源码、测试和 ADR 为准
 
 ## 0. 结论
@@ -44,7 +44,7 @@ V3 不应该复制 Reasonix 的整体架构。Reasonix 的长处是轻量 agent 
 - Wave 1 基础不退化检查已通过，后端和前端指定测试均已执行。
 - Wave 2 的 ADR、owner API、store、backfill、toolbridge filtering、direct-call deny 已落地并合入 `main`。
 - Wave 2 的 rollback/export 证据已补齐：owner 可按 workspace 导出全部 lifecycle rows，保留 disabled/suspended/removed 的人工状态、reason、replacement 和 deny code。
-- Wave 2 仅保留条件项：“如果 UI 需要控制 lifecycle”时必须新增 frontend guarded API；当前没有 UI 控制入口，不新增裸 RPC。
+- Wave 2 的 frontend guarded API 已补齐：UI 如需控制 lifecycle，必须通过 `backendApi.js` 的 set/list/export facade，不允许页面拼裸 RPC。
 - Wave 3 不是本轮完成范围；现有 `memory_read`、PrefixShape、read-only routing 和 tool error envelope 只能算基础，不等同于 Wave 3 全部完成。
 
 已执行验证：
@@ -54,6 +54,8 @@ V3 不应该复制 Reasonix 的整体架构。Reasonix 的长处是轻量 agent 
 cd frontend-app && npm test -- sessionApi.test.js eventWire.test.js backendApi.surface.test.js
 ./scripts/test_with_guard.sh ./internal/contract ./internal/store/mcpserver ./internal/module/mcp_server ./internal/platform/toolbridge ./internal/app -count=1
 ./scripts/test_with_guard.sh ./internal/store/mcpserver ./internal/module/mcp_server -run 'Export' -count=1
+./scripts/test_with_guard.sh ./internal/module/mcp_server -run 'ToolLifecycle|Lifecycle' -count=1
+cd frontend-app && npm test -- backendApi.test.js backendApi.contractMatrix.test.js backendApi.surface.test.js
 ./scripts/test_with_guard.sh ./internal/module/thread ./internal/module/memory ./internal/platform/toolbridge ./internal/mcpserver/common ./internal/provider/codexapp -run 'Compact|History|Memory|ReadOnly|ToolError|Envelope|StructuredContent' -count=1
 make sqlc-verify
 make guard
@@ -196,12 +198,13 @@ Reasonix 的 MCP 工具名更统一，`mcp__server__tool` 这种命名让工具�
 
 ### 怎么吸收
 
-分两步，不能一步到位；当前仓库只具备 MCP server config 级 `enabled`，还没有 per-tool lifecycle 的 owner、schema 或迁移决策：
+该项已按“先 namespace、后 lifecycle”分波落地。当前仓库仍保留 MCP server config 级 `enabled` 作为 server 开关，但 per-tool lifecycle 已有批准的 owner/storage 决策、持久化 schema、backfill、rollback/export、toolbridge filtering、direct-call deny 和 frontend guarded API：
 
 1. Namespace 先稳定：所有 MCP wrapped name 都走统一 helper。
-2. Lifecycle 先决策、后接入：必须先新增并批准 `docs/adr/0003-mcp-tool-lifecycle-owner-storage.md` 或等价决策文档，明确 state owner、store schema、migration/backfill、rollback、toolbridge filtering、direct-call deny 和测试门槛。决策未落定前，生产改动只能覆盖 namespace helper/test，不能临时加 filtering map。
+2. Lifecycle 由 `internal/module/mcp_server` owner 维护事实源，经 `internal/store/mcpserver` 持久化，并由 toolbridge 在 ListTools 和 direct-call 两条路径执行 deny。
+3. UI 后续如需控制 lifecycle，只能通过 `frontend-app/src/shared/api/backendApi.js` 的 guarded set/list/export facade，不允许页面或 service 自己拼 raw RPC payload。
 
-建议生命周期状态仅作为待决策草案，不是当前可直接执行的生产状态表：
+当前 lifecycle 状态表：
 
 | 状态 | 含义 | ListTools | Direct Call |
 | --- | --- | --- | --- |
@@ -217,17 +220,17 @@ Reasonix 的 MCP 工具名更统一，`mcp__server__tool` 这种命名让工具�
   - 后续可抽成 `internal/platform/toolbridge/mcp_namespace.go`，但必须保持测试。
 - `internal/platform/toolbridge/handler_peer_decode.go`
   - `addMCPToolsToSurface` 走 namespace helper。
-  - 只有 owner/storage 决策批准后，才允许在这里接入 lifecycle filtering 阻断 ListTools。
+  - 已接入 lifecycle filtering，ListTools 不展示 disabled/suspended/removed 工具。
 - `internal/platform/toolbridge/handler_host_tools.go`
-  - 只有 owner/storage 决策批准后，direct-call 入口才识别 disabled/suspended/removed；不能只靠列表隐藏。
+  - direct-call 入口已识别 disabled/suspended/removed；不能只靠列表隐藏。
 - `internal/contract/mcp_control.go`
-  - 决策批准后再扩展 per-tool lifecycle DTO 和 owner API。
+  - 已扩展 per-tool lifecycle DTO、store 端口和 policy reader。
 - `internal/module/mcp_server/service.go`
-  - 决策批准后由 owner module 维护 server/tool lifecycle。
+  - owner module 维护 server/tool lifecycle，并提供 set/list/export/resolve 行为。
 - `internal/store/mcpserver/store.go`
-  - 决策批准后新增 migration/store/test 持久化 lifecycle，不用内存 registry 当事实源。
+  - 已新增 migration/store/test 持久化 lifecycle，不用内存 registry 当事实源。
 - `frontend-app/src/shared/api/backendApi.js`
-  - 如果 UI 控制 per-tool lifecycle，新增 guarded API。
+  - 已新增 guarded set/list/export API；后续 UI 控制入口必须复用它。
 - 测试：
   - `internal/platform/toolbridge/mcp_namespace_test.go`
   - `internal/platform/toolbridge/*tools*_test.go`
@@ -239,8 +242,8 @@ Reasonix 的 MCP 工具名更统一，`mcp__server__tool` 这种命名让工具�
 - 不信任外部 MCP `readOnlyHint`，只能作为提示，最终策略由 V3 owner 决定。
 - ListTools 隐藏不等于安全，direct-call 必须单独 deny。
 - alias/canonical name 两条路径都要测。
-- lifecycle 状态 owner 不明确前，不允许在 toolbridge 里做临时 map。
-- `docs/li/reasonix-absorption-spikes/mcp-tool-lifecycle.md` 仍是当前边界：未有后续 owner/storage 决策前，不引入 per-tool lifecycle filtering。
+- lifecycle 状态必须继续以 owner/store 为事实源，不允许在 toolbridge 里新增临时 map。
+- `docs/li/reasonix-absorption-spikes/mcp-tool-lifecycle.md` 只保留为历史 spike；当前事实以 ADR 0003、owner/store、toolbridge enforcement 和 guarded facade 为准。
 - 不要让 `cmd/mcp-orch` 的 runtime 状态反向成为桌面主进程事实源。
 
 ## 6. 吸收项 E：Provider / Tool Capability Registry Discipline
@@ -506,7 +509,7 @@ Reasonix 的 agent loop 倾向把工具失败反馈给模型，让模型能修�
 cd frontend-app && npm test -- sessionApi.test.js eventWire.test.js backendApi.surface.test.js
 ```
 
-### Wave 2：MCP lifecycle 决策与闭环（NEEDS_APPROVAL）
+### Wave 2：MCP lifecycle 决策与闭环（已闭环）
 
 - [x] 决策文档：新增并批准 `docs/adr/0003-mcp-tool-lifecycle-owner-storage.md` 或等价决策，明确 per-tool lifecycle 的 owner、状态枚举、server/tool 边界、store schema、migration/backfill、rollback、可观测性和验收测试。
 - [x] owner API：决策批准后再扩展 `internal/contract/mcp_control.go` + `internal/module/mcp_server`。
@@ -514,12 +517,13 @@ cd frontend-app && npm test -- sessionApi.test.js eventWire.test.js backendApi.s
 - [x] toolbridge filtering：决策批准后，ListTools 不展示 disabled/suspended/removed。
 - [x] direct-call deny：决策批准后，隐藏工具被调用时返回 stable tool error。
 - [x] rollback/export：补 lifecycle state 导出或降级验证，证明回滚时不会丢失用户显式关闭、暂停或移除的状态。
-- [ ] frontend guarded API：如果 UI 需要控制 lifecycle，必须通过 `backendApi.js` guarded API；当前没有 UI lifecycle 控制入口，保持条件项。
+- [x] frontend guarded API：如果 UI 需要控制 lifecycle，必须通过 `backendApi.js` guarded API；本轮已补 set/list/export facade 与 RPC handler。
 
 建议命令：
 
 ```bash
 ./scripts/test_with_guard.sh ./internal/contract ./internal/store/mcpserver ./internal/module/mcp_server ./internal/platform/toolbridge -run 'MCP|Lifecycle|Tool|Namespace|Disabled|Suspended|Removed' -count=1
+cd frontend-app && npm test -- backendApi.test.js backendApi.contractMatrix.test.js backendApi.surface.test.js
 ```
 
 ### Wave 3：上下文和权限策略

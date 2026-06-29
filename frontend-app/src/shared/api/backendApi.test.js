@@ -12,11 +12,14 @@ import {
   installAppUpdate,
   installLatestAppUpdate,
   listDatasourceDocuments,
+  listMCPToolLifecycle,
   listMCPServers,
+  exportMCPToolLifecycle,
   getVideoApiKey,
   RPC_METHODS,
   rollbackWorkflowTemplate,
   saveWorkflowTemplate,
+  setMCPToolLifecycle,
   setVideoApiKey,
   startPlaywrightMCPServer,
   startSQLiteMCPServer,
@@ -181,6 +184,88 @@ function expectInvalidInputDoesNotCall(callAPI, action, message) {
     expect(typeof stopSQLiteMCPServer).toBe('function');
     expect(typeof startPlaywrightMCPServer).toBe('function');
     expect(typeof stopPlaywrightMCPServer).toBe('function');
+  });
+
+  it('wraps MCP tool lifecycle RPC methods with guarded canonical payloads', async () => {
+    const setResponse = { serverName: 'my-search', toolName: 'remote_search', state: 'disabled' };
+    const listResponse = [{ serverName: 'my-search', toolName: 'remote_search', state: 'disabled' }];
+    const exportResponse = [
+      { serverName: 'my-search', toolName: 'remote_search', state: 'disabled' },
+      { serverName: 'my-worker', toolName: 'remote_worker', state: 'suspended' },
+    ];
+    const callAPI = vi.fn()
+      .mockResolvedValueOnce(setResponse)
+      .mockResolvedValueOnce(listResponse)
+      .mockResolvedValueOnce(exportResponse);
+    const api = createBackendApi({ callAPI });
+
+    await expect(api.setMCPToolLifecycle({
+      workspace_root: ' /repo ',
+      server_name: ' my-search ',
+      manifest_name: ' search_v1 ',
+      tool_name: ' remote_search ',
+      state: 'disabled',
+      reason: ' manual review ',
+      replacement_tool: ' remote_search_v2 ',
+    })).resolves.toEqual(setResponse);
+    await expect(api.listMCPToolLifecycle({
+      workspaceRoot: ' /repo ',
+      serverName: ' my-search ',
+    })).resolves.toEqual(listResponse);
+    await expect(api.exportMCPToolLifecycle({
+      workspace_root: ' /repo ',
+    })).resolves.toEqual(exportResponse);
+
+    expect(callAPI).toHaveBeenNthCalledWith(1, RPC_METHODS.MCP_TOOL_LIFECYCLE_SET, {
+      workspaceRoot: '/repo',
+      serverName: 'my-search',
+      manifestName: 'search_v1',
+      toolName: 'remote_search',
+      state: 'disabled',
+      reason: 'manual review',
+      replacementTool: 'remote_search_v2',
+    });
+    expect(callAPI).toHaveBeenNthCalledWith(2, RPC_METHODS.MCP_TOOL_LIFECYCLE_LIST, {
+      workspaceRoot: '/repo',
+      serverName: 'my-search',
+    });
+    expect(callAPI).toHaveBeenNthCalledWith(3, RPC_METHODS.MCP_TOOL_LIFECYCLE_EXPORT, {
+      workspaceRoot: '/repo',
+    });
+    expect(typeof setMCPToolLifecycle).toBe('function');
+    expect(typeof listMCPToolLifecycle).toBe('function');
+    expect(typeof exportMCPToolLifecycle).toBe('function');
+  });
+
+  it('fails fast for invalid MCP tool lifecycle facade inputs', () => {
+    const callAPI = vi.fn().mockResolvedValue({ ok: true });
+    const api = createBackendApi({ callAPI });
+
+    expectInvalidInputDoesNotCall(callAPI, () => api.setMCPToolLifecycle([]), 'params must be an object');
+    expectInvalidInputDoesNotCall(callAPI, () => api.setMCPToolLifecycle({
+      toolName: 'remote_search',
+      state: 'disabled',
+    }), 'serverName is required');
+    expectInvalidInputDoesNotCall(callAPI, () => api.setMCPToolLifecycle({
+      serverName: 'my-search',
+      state: 'disabled',
+    }), 'toolName is required');
+    expectInvalidInputDoesNotCall(callAPI, () => api.setMCPToolLifecycle({
+      serverName: 'my-search',
+      toolName: 'remote_search',
+    }), 'state is required');
+    expectInvalidInputDoesNotCall(callAPI, () => api.setMCPToolLifecycle({
+      serverName: 'my-search',
+      toolName: 'remote_search',
+      state: 'unknown',
+    }), 'state must be enabled, disabled, suspended, or removed');
+    expectInvalidInputDoesNotCall(callAPI, () => api.listMCPToolLifecycle({
+      serverName: 'my-search',
+      extra: true,
+    }), 'unsupported payload field extra');
+    expectInvalidInputDoesNotCall(callAPI, () => api.exportMCPToolLifecycle({
+      serverName: 'my-search',
+    }), 'unsupported payload field serverName');
   });
 
   it('wraps workflow template RPC methods with canonical payloads', async () => {
