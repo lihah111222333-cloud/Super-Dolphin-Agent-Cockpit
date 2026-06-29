@@ -35,7 +35,8 @@ SELECT
     variables, tags, description, when_to_use, enabled, manually_edited,
     CASE
         WHEN match_when IS NULL OR trim(match_when) = '' OR trim(match_when) = 'null' THEN NULL
-        ELSE match_when
+        WHEN json_valid(match_when) AND json_type(match_when) = 'object' THEN match_when
+        ELSE NULL
     END,
     priority, created_by, updated_by, created_at, updated_at
 FROM prompt_templates;

@@ -38,7 +38,12 @@ func SafePreview(value any, maxBytes int) SafePreviewResult {
 		result.SHA256 = safePreviewHash(raw)
 		return result
 	}
-	result.Preview = safePreviewSanitizer(maxBytes).String(string(raw))
+	sanitizer := safePreviewSanitizer(maxBytes)
+	if preview, ok := safePreviewJSON(raw, sanitizer); ok {
+		result.Preview = sanitizer.String(preview)
+		return result
+	}
+	result.Preview = sanitizer.String(string(raw))
 	return result
 }
 
@@ -92,6 +97,49 @@ func safePreviewBytes(value any) []byte {
 
 func safePreviewSanitizer(maxBytes int) Sanitizer {
 	return Sanitizer{stringMaxBytes: maxBytes, metadataMaxBytes: maxBytes}
+}
+
+// safePreviewJSON 对对象或数组 JSON 做键名感知脱敏，避免 quoted password/token 绕过文本正则。
+func safePreviewJSON(raw []byte, sanitizer Sanitizer) (string, bool) {
+	var decoded any
+	if err := json.Unmarshal(raw, &decoded); err != nil {
+		return "", false
+	}
+	switch decoded.(type) {
+	case map[string]any, []any:
+	default:
+		return "", false
+	}
+	encoded, err := json.Marshal(safePreviewJSONValue(decoded, "", sanitizer))
+	if err != nil {
+		return "", false
+	}
+	return string(encoded), true
+}
+
+// safePreviewJSONValue 递归复制 JSON 值，敏感键下的值整体替换，普通字符串继续走通用脱敏。
+func safePreviewJSONValue(value any, key string, sanitizer Sanitizer) any {
+	if key != "" && secretLikeKey(key) {
+		return redacted
+	}
+	switch typed := value.(type) {
+	case map[string]any:
+		out := make(map[string]any, len(typed))
+		for childKey, childValue := range typed {
+			out[sanitizer.String(childKey)] = safePreviewJSONValue(childValue, childKey, sanitizer)
+		}
+		return out
+	case []any:
+		out := make([]any, 0, len(typed))
+		for _, childValue := range typed {
+			out = append(out, safePreviewJSONValue(childValue, key, sanitizer))
+		}
+		return out
+	case string:
+		return sanitizer.String(typed)
+	default:
+		return typed
+	}
 }
 
 func safePreviewHash(raw []byte) string {
