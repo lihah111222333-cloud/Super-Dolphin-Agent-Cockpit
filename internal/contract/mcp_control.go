@@ -3,8 +3,11 @@ package contract
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	"strings"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/dto/mcp"
+	providerdto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
 )
 
 // MCPServerConfig 是工作区 MCP server 配置的跨模块 wire 形状。
@@ -17,6 +20,86 @@ type MCPServerConfig struct {
 	Args      []string          `json:"args,omitempty"`
 	Env       map[string]string `json:"env,omitempty"`
 	Enabled   *bool             `json:"enabled,omitempty"`
+}
+
+const RuntimeMCPTrustedServerIDKey = "trustedServerId"
+
+// RuntimeMCPPolicy 集中校验 runtime MCP 配置的信任边界。
+// thread/start 的开放 config 不能直接携带 command/url/header/env；只有 mcp_server 模块
+// 产出的配置会带 trustedServerId，并在 provider/toolbridge 入口再次校验。
+type RuntimeMCPPolicy struct{}
+
+// DefaultRuntimeMCPPolicy 返回无状态策略实例，方便各包共享同一组错误语义。
+func DefaultRuntimeMCPPolicy() RuntimeMCPPolicy {
+	return RuntimeMCPPolicy{}
+}
+
+// RejectThreadStartConfig 拒绝开放 thread/start config 直接声明 MCP peer。
+// 受控 MCP 配置只能来自 internal/module/mcp_server 读取后的 MCPSnapshot.ServerConfigs。
+func (RuntimeMCPPolicy) RejectThreadStartConfig(cfg map[string]any) error {
+	if len(cfg) == 0 {
+		return nil
+	}
+	for _, key := range []string{"mcpConfig", "mcp_config"} {
+		if _, ok := cfg[key]; ok {
+			return fmt.Errorf("runtime MCP config %s must reference a trusted MCP server from mcp_server, not raw thread/start config", key)
+		}
+	}
+	return nil
+}
+
+// ValidateRuntimeServerReference 校验单个 mcpConfig.mcpServers 条目是否来自受控 server id。
+func (RuntimeMCPPolicy) ValidateRuntimeServerReference(name string, server map[string]any) (string, error) {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return "", fmt.Errorf("runtime MCP server name is required")
+	}
+	raw, ok := server[RuntimeMCPTrustedServerIDKey]
+	if !ok {
+		return "", fmt.Errorf("runtime MCP server %q must include trusted server id", name)
+	}
+	serverID, ok := raw.(string)
+	if !ok {
+		return "", fmt.Errorf("runtime MCP server %q trusted server id must be a string", name)
+	}
+	serverID = strings.TrimSpace(serverID)
+	if serverID == "" {
+		return "", fmt.Errorf("runtime MCP server %q trusted server id is required", name)
+	}
+	if serverID != name {
+		return "", fmt.Errorf("runtime MCP server %q trusted server id %q does not match server name", name, serverID)
+	}
+	return serverID, nil
+}
+
+// ValidateManifestBinary 校验 provider manifest 中的动态 MCP binary 是否带受控来源。
+// 内置 lsp/orch/ida peer 由本进程生成，可以没有 trustedServerId；其它 peer 必须来自 mcp_server。
+func (RuntimeMCPPolicy) ValidateManifestBinary(binary providerdto.MCPBinary) error {
+	name := strings.TrimSpace(binary.Name)
+	if name == "" {
+		return fmt.Errorf("runtime MCP binary name is required")
+	}
+	if IsManagedRuntimeMCPServerName(name) {
+		return nil
+	}
+	serverID := strings.TrimSpace(binary.TrustedServerID)
+	if serverID == "" {
+		return fmt.Errorf("runtime MCP binary %q must include trusted server id", name)
+	}
+	if serverID != name {
+		return fmt.Errorf("runtime MCP binary %q trusted server id %q does not match server name", name, serverID)
+	}
+	return nil
+}
+
+// IsManagedRuntimeMCPServerName 判断 server 名称是否属于主进程生成的内置 peer。
+func IsManagedRuntimeMCPServerName(name string) bool {
+	switch strings.TrimSpace(name) {
+	case string(providerdto.FamilyLSP), string(providerdto.FamilyOrch), string(providerdto.FamilyIDA):
+		return true
+	default:
+		return false
+	}
 }
 
 // MCPServerConfigProvider 读取指定工作区解析后的 MCP server 配置集合。

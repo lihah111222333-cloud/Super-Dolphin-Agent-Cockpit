@@ -132,7 +132,74 @@ type ToolCallResult struct {
 
 // peerToolsListResult 是 peer tools/list 返回的工具列表外壳。
 type peerToolsListResult struct {
-	Tools []dto.MCPTool `json:"tools"`
+	Tools        []dto.MCPTool `json:"tools"`
+	toolsPresent bool
+}
+
+func (r *peerToolsListResult) UnmarshalJSON(raw []byte) error {
+	var payload map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &payload); err != nil {
+		return err
+	}
+	toolsRaw, ok := payload["tools"]
+	if !ok || bytes.Equal(bytes.TrimSpace(toolsRaw), []byte("null")) {
+		return fmt.Errorf("tools array is required")
+	}
+	var tools []dto.MCPTool
+	if err := json.Unmarshal(toolsRaw, &tools); err != nil {
+		return fmt.Errorf("tools array is required: %w", err)
+	}
+	r.Tools = tools
+	r.toolsPresent = true
+	return nil
+}
+
+// decodePeerToolsListResult 严格解码 MCP tools/list，避免 peer 吞字段后暴露空或畸形工具面。
+func decodePeerToolsListResult(raw json.RawMessage, source string) ([]dto.MCPTool, error) {
+	var result peerToolsListResult
+	if err := json.Unmarshal(raw, &result); err != nil {
+		return nil, fmt.Errorf("%s: %w", source, err)
+	}
+	if err := validatePeerToolsListResult(result, source); err != nil {
+		return nil, err
+	}
+	return result.Tools, nil
+}
+
+func validatePeerToolsListResult(result peerToolsListResult, source string) error {
+	if !result.toolsPresent {
+		return fmt.Errorf("%s: tools array is required", source)
+	}
+	return validateMCPTools(result.Tools, source)
+}
+
+func validateMCPTools(tools []dto.MCPTool, source string) error {
+	for i, tool := range tools {
+		if strings.TrimSpace(tool.Name) == "" {
+			return fmt.Errorf("%s: tools[%d] tool name is required", source, i)
+		}
+		if err := validateMCPToolSchema(tool.InputSchema, source, i, "inputSchema"); err != nil {
+			return err
+		}
+		if err := validateMCPToolSchema(tool.OutputSchema, source, i, "outputSchema"); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func validateMCPToolSchema(schema json.RawMessage, source string, index int, field string) error {
+	trimmed := bytes.TrimSpace(schema)
+	if len(trimmed) == 0 {
+		return nil
+	}
+	if !json.Valid(trimmed) {
+		return fmt.Errorf("%s: tools[%d].%s must be valid JSON", source, index, field)
+	}
+	if !bytes.HasPrefix(trimmed, []byte("{")) {
+		return fmt.Errorf("%s: tools[%d].%s must be a JSON object", source, index, field)
+	}
+	return nil
 }
 
 // peerToolCallResponse 是 peer tools/call 返回的 MCP 结果外壳。

@@ -569,6 +569,9 @@ func (h *Handler) listPeerTools(ctx context.Context, clientKind string) ([]mcpdt
 	if err := peers[0].Peer.Callback(ctx, "tools/list", nil, &result); err != nil {
 		return nil, err
 	}
+	if err := validatePeerToolsListResult(result, "peer tools/list"); err != nil {
+		return nil, err
+	}
 	h.storePeerToolInputSchemas(clientKind, result.Tools)
 	return result.Tools, nil
 }
@@ -578,10 +581,11 @@ func (h *Handler) waitForPeer(ctx context.Context, clientKind string) ([]*mcpcon
 	deadline := time.Now().Add(peerReadyTimeout)
 	for {
 		peers := h.registry.FindActiveByKind(clientKind)
-		if len(peers) >= 1 {
-			// 同类 peer 并存时选择第一个活跃实例；恢复线程可能额外拉起 sidecar，
-			// 这里保持确定性选择，避免 tools/list 暴露面随枚举顺序外的状态抖动。
-			return peers[:1], nil
+		if len(peers) == 1 {
+			return peers, nil
+		}
+		if len(peers) > 1 {
+			return nil, ErrAmbiguousPeer
 		}
 		if time.Now().After(deadline) {
 			return nil, ErrNoPeerAvailable
