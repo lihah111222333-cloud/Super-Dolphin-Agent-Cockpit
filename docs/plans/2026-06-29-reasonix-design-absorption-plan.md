@@ -1,7 +1,7 @@
 # Reasonix 设计优点吸收计划
 
 > 日期：2026-06-29
-> 状态：执行中（Wave 1 / Wave 2 主线已合入 main，Wave 3 和条件项待收口）
+> 状态：执行中（Wave 1 / Wave 2 已落地，Wave 3 和条件性 UI 控制入口待收口）
 > 范围：设计吸收计划与执行追踪；生产代码改动必须以源码、测试和 ADR 为准
 
 ## 0. 结论
@@ -43,7 +43,8 @@ V3 不应该复制 Reasonix 的整体架构。Reasonix 的长处是轻量 agent 
 
 - Wave 1 基础不退化检查已通过，后端和前端指定测试均已执行。
 - Wave 2 的 ADR、owner API、store、backfill、toolbridge filtering、direct-call deny 已落地并合入 `main`。
-- Wave 2 仍保留两个未闭合项：lifecycle state rollback/export 证据，以及“如果 UI 需要控制 lifecycle”时的 frontend guarded API。
+- Wave 2 的 rollback/export 证据已补齐：owner 可按 workspace 导出全部 lifecycle rows，保留 disabled/suspended/removed 的人工状态、reason、replacement 和 deny code。
+- Wave 2 仅保留条件项：“如果 UI 需要控制 lifecycle”时必须新增 frontend guarded API；当前没有 UI 控制入口，不新增裸 RPC。
 - Wave 3 不是本轮完成范围；现有 `memory_read`、PrefixShape、read-only routing 和 tool error envelope 只能算基础，不等同于 Wave 3 全部完成。
 
 已执行验证：
@@ -52,6 +53,7 @@ V3 不应该复制 Reasonix 的整体架构。Reasonix 的长处是轻量 agent 
 ./scripts/test_with_guard.sh ./internal/contract ./internal/app ./internal/module/thread ./internal/module/prompt ./internal/provider/codexapp ./internal/provider/claudecli ./internal/platform/eventsurface ./internal/archtest -run 'Session|Prefix|Event|Desktop|Dependency|StartAssembly|BuildThreadStartParams' -count=1
 cd frontend-app && npm test -- sessionApi.test.js eventWire.test.js backendApi.surface.test.js
 ./scripts/test_with_guard.sh ./internal/contract ./internal/store/mcpserver ./internal/module/mcp_server ./internal/platform/toolbridge ./internal/app -count=1
+./scripts/test_with_guard.sh ./internal/store/mcpserver ./internal/module/mcp_server -run 'Export' -count=1
 ./scripts/test_with_guard.sh ./internal/module/thread ./internal/module/memory ./internal/platform/toolbridge ./internal/mcpserver/common ./internal/provider/codexapp -run 'Compact|History|Memory|ReadOnly|ToolError|Envelope|StructuredContent' -count=1
 make sqlc-verify
 make guard
@@ -511,7 +513,7 @@ cd frontend-app && npm test -- sessionApi.test.js eventWire.test.js backendApi.s
 - [x] store：决策批准后新增 `internal/store/mcpserver` migration/store/test；不能把现有 server config 级 `enabled` 当成 per-tool lifecycle 事实源。
 - [x] toolbridge filtering：决策批准后，ListTools 不展示 disabled/suspended/removed。
 - [x] direct-call deny：决策批准后，隐藏工具被调用时返回 stable tool error。
-- [ ] rollback/export：补 lifecycle state 导出或降级验证，证明回滚时不会丢失用户显式关闭、暂停或移除的状态。
+- [x] rollback/export：补 lifecycle state 导出或降级验证，证明回滚时不会丢失用户显式关闭、暂停或移除的状态。
 - [ ] frontend guarded API：如果 UI 需要控制 lifecycle，必须通过 `backendApi.js` guarded API；当前没有 UI lifecycle 控制入口，保持条件项。
 
 建议命令：

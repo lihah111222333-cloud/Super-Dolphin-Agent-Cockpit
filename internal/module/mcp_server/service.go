@@ -58,6 +58,7 @@ type Service interface {
 	BackfillMCPServerTools(context.Context, BackfillMCPServerToolsRequest) ([]contract.MCPToolLifecycleDecision, error)
 	SetMCPToolLifecycle(context.Context, SetMCPToolLifecycleRequest) (contract.MCPToolLifecycleDecision, error)
 	ListMCPToolLifecycle(context.Context, ListMCPToolLifecycleRequest) ([]contract.MCPToolLifecycleDecision, error)
+	ExportMCPToolLifecycle(context.Context, ExportMCPToolLifecycleRequest) ([]contract.MCPToolLifecycleDecision, error)
 	ResolveMCPToolLifecycle(context.Context, contract.MCPToolLifecyclePolicyRequest) (contract.MCPToolLifecycleDecision, error)
 }
 

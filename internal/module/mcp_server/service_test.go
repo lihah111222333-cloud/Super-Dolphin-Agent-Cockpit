@@ -742,6 +742,25 @@ func (s *memoryMCPServerStore) ListToolLifecycle(
 	return out, nil
 }
 
+func (s *memoryMCPServerStore) ExportToolLifecycle(
+	_ context.Context,
+	workspaceRoot string,
+) ([]contract.MCPToolLifecycleDecision, error) {
+	out := []contract.MCPToolLifecycleDecision{}
+	for key, decision := range s.lifecycle {
+		if key.workspaceRoot == workspaceRoot {
+			out = append(out, cloneMCPToolLifecycleDecision(decision))
+		}
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].ServerName == out[j].ServerName {
+			return out[i].ToolName < out[j].ToolName
+		}
+		return out[i].ServerName < out[j].ServerName
+	})
+	return out, nil
+}
+
 func (s *memoryMCPServerStore) UpsertToolLifecycle(
 	_ context.Context,
 	params contract.StoreMCPToolLifecycleParams,

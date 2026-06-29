@@ -66,6 +66,51 @@ func (q *Queries) BackfillMCPToolLifecycle(ctx context.Context, arg BackfillMCPT
 	return i, err
 }
 
+const exportMCPToolLifecycle = `-- name: ExportMCPToolLifecycle :many
+SELECT workspace_root, server_name, manifest_name, tool_name, state, reason, replacement_tool, last_seen_at, created_at, updated_at
+FROM mcp_tool_lifecycle
+WHERE workspace_root = ?
+ORDER BY server_name ASC, tool_name ASC
+`
+
+type ExportMCPToolLifecycleParams struct {
+	WorkspaceRoot string `db:"workspace_root" json:"workspace_root"`
+}
+
+func (q *Queries) ExportMCPToolLifecycle(ctx context.Context, arg ExportMCPToolLifecycleParams) ([]McpToolLifecycle, error) {
+	rows, err := q.db.QueryContext(ctx, exportMCPToolLifecycle, arg.WorkspaceRoot)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []McpToolLifecycle{}
+	for rows.Next() {
+		var i McpToolLifecycle
+		if err := rows.Scan(
+			&i.WorkspaceRoot,
+			&i.ServerName,
+			&i.ManifestName,
+			&i.ToolName,
+			&i.State,
+			&i.Reason,
+			&i.ReplacementTool,
+			&i.LastSeenAt,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const getMCPToolLifecycle = `-- name: GetMCPToolLifecycle :one
 SELECT workspace_root, server_name, manifest_name, tool_name, state, reason, replacement_tool, last_seen_at, created_at, updated_at
 FROM mcp_tool_lifecycle
