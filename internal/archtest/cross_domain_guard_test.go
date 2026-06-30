@@ -65,28 +65,28 @@ func crossDomainViolationsForPath(root, path string, info os.FileInfo, walkErr e
 	if err != nil {
 		return nil, err
 	}
-	return crossDomainFileViolations(path, filepath.ToSlash(rel)), nil
+	return crossDomainFileViolations(path, filepath.ToSlash(rel))
 }
 
 func isCrossDomainGuardSource(path string) bool {
 	return strings.HasSuffix(path, ".go") && !strings.HasSuffix(path, "_test.go")
 }
 
-func crossDomainFileViolations(path, rel string) []string {
+func crossDomainFileViolations(path, rel string) ([]string, error) {
 	if !strings.Contains(rel, "internal/") {
-		return nil
+		return nil, nil
 	}
 
 	relWithSlash := "/" + rel
 	currentDomain := crossDomainForPath(relWithSlash)
 	isCommon := crossDomainPathContains(relWithSlash, "common")
 	if currentDomain == "" && !isCommon {
-		return nil
+		return nil, nil
 	}
 
 	fileNode, parseErr := parser.ParseFile(token.NewFileSet(), path, nil, parser.ImportsOnly)
 	if parseErr != nil {
-		return nil
+		return nil, fmt.Errorf("parse %s: %w", rel, parseErr)
 	}
 	var violations []string
 	for _, imp := range fileNode.Imports {
@@ -99,7 +99,7 @@ func crossDomainFileViolations(path, rel string) []string {
 		}
 		violations = append(violations, violationsForCrossDomainImport(rel, importPath, currentDomain, isCommon)...)
 	}
-	return violations
+	return violations, nil
 }
 
 func crossDomainForPath(relWithSlash string) string {

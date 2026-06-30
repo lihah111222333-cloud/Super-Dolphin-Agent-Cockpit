@@ -20,28 +20,44 @@ fx = V3 的工厂。所有服务组件的创建、依赖注入、生命周期管
 // 每个子系统定义为独立的 fx.Module
 // 模块内部的 Provide/Invoke 对外部透明
 
-// internal/store/module.go
+// internal/platform/db/module.go + internal/store/module.go
+var DBModule = fx.Module("db",
+    fx.Provide(NewDB),          // *sql.DB (modernc.org/sqlite)
+    fx.Invoke(registerLifecycle), // 启动时执行 migration / schema baseline 校验
+)
+
 var StoreModule = fx.Module("store",
-    fx.Provide(NewPgxPool),     // *pgxpool.Pool
-    fx.Provide(NewQueries),     // db.Querier (sqlc generated)
-    fx.Invoke(runMigrations),   // 启动时执行 migration
+    fx.Provide(func(db *sql.DB) *sqlc.Queries { return sqlc.New(db) }),
+    fx.Provide(func(q *sqlc.Queries) sqlc.Querier { return q }),
 )
 
-// internal/runner/module.go
-var RunnerModule = fx.Module("runner",
-    fx.Provide(NewAgentManager),
-    fx.Provide(func(m *AgentManager) app.RunnerOut {
-        return app.RunnerOut{Runner: m}
-    }),
+// internal/platform/runner/group.go
+// Runner 是 platform 层统一的长跑组件 contract。
+type Runner interface {
+    Run(ctx context.Context) error
+}
+
+// internal/app/runner.go
+type RunnerResult struct {
+    fx.Out
+    Runner platformrunner.Runner `group:"runners"`
+}
+
+// internal/app/modules.go
+func AsRPCRunner(server *rpc.Server) RunnerResult {
+    return RunnerResult{Runner: server}
+}
+
+var AppModule = fx.Module("app",
+    rpc.Module,
+    fx.Provide(AsRPCRunner),
 )
 
-// internal/rpcapi/module.go
+// internal/platform/rpc/module.go
 var RPCModule = fx.Module("rpc",
-    fx.Provide(NewService),
-    fx.Provide(NewJRPC2Server),
-    fx.Provide(func(s *JRPC2Server) app.RunnerOut {
-        return app.RunnerOut{Runner: s}
-    }),
+    fx.Provide(NewServer),
+    fx.Provide(NewPushBridge),
+    fx.Invoke(registerAllHandlers),
 )
 ```
 
@@ -66,33 +82,33 @@ fx.Module("desktop", ...)
 // Provider 函数就是普通的 Go 构造函数
 // fx 根据参数类型自动注入依赖
 
-func NewPgxPool(cfg *Config) (*pgxpool.Pool, error) {
-    pool, err := pgxpool.New(context.Background(), cfg.DatabaseURL)
+func NewDB(cfg *Config) (*sql.DB, error) {
+    db, err := sql.Open("sqlite", cfg.SQLitePath)
     if err != nil {
-        return nil, fmt.Errorf("connect to database: %w", err)
+        return nil, fmt.Errorf("open sqlite database: %w", err)
     }
-    return pool, nil
+    return db, nil
 }
 
-func NewQueries(pool *pgxpool.Pool) db.Querier {
-    return db.New(pool) // sqlc generated constructor
+func NewQueries(db *sql.DB) sqlc.Querier {
+    return sqlc.New(db) // sqlc generated constructor
 }
 
 // fx 自动解析依赖链：
-//   Config → NewPgxPool → *pgxpool.Pool → NewQueries → db.Querier
+//   Config → NewDB → *sql.DB → sqlc.New → sqlc.Querier
 ```
 
 ### 2.2 返回接口，接收具体类型
 
 ```go
 // ✅ 正确：Provider 返回接口类型
-func NewQueries(pool *pgxpool.Pool) db.Querier {
-    return db.New(pool)
+func NewQueries(db *sql.DB) sqlc.Querier {
+    return sqlc.New(db)
 }
 
 // ❌ 错误：返回具体类型导致消费者耦合实现
-func NewQueries(pool *pgxpool.Pool) *db.Queries {
-    return db.New(pool)
+func NewQueries(db *sql.DB) *sqlc.Queries {
+    return sqlc.New(db)
 }
 ```
 
@@ -101,12 +117,12 @@ func NewQueries(pool *pgxpool.Pool) *db.Queries {
 ```go
 // fx 支持 (T, error) 返回值
 // 如果 error != nil，fx 启动失败并打印依赖链
-func NewPgxPool(cfg *Config) (*pgxpool.Pool, error) {
-    pool, err := pgxpool.New(context.Background(), cfg.DatabaseURL)
+func NewDB(cfg *Config) (*sql.DB, error) {
+    db, err := sql.Open("sqlite", cfg.SQLitePath)
     if err != nil {
-        return nil, err // fx 会显示: NewPgxPool failed: ...
+        return nil, err // fx 会显示: NewDB failed: ...
     }
-    return pool, nil
+    return db, nil
 }
 ```
 
@@ -168,24 +184,25 @@ func NewService(p ServiceParams) ServiceResult {
 ### 4.1 收集多个 Runner
 
 ```go
-// 定义：每个模块把 Runner 注册到 "runners" group
-fx.Provide(func(s *JRPC2Server) app.RunnerOut {
-    return app.RunnerOut{Runner: s} // Runner `group:"runners"`
+// 定义：每个模块把 platformrunner.Runner 注册到 "runners" group
+fx.Provide(func(s *rpc.Server) app.RunnerResult {
+    return app.RunnerResult{Runner: s} // Runner `group:"runners"`
 })
 
-fx.Provide(func(m *AgentManager) app.RunnerOut {
-    return app.RunnerOut{Runner: m}
+fx.Provide(func(r *cachekeepalive.Runner) app.RunnerResult {
+    return app.RunnerResult{Runner: r}
 })
 
-fx.Provide(func(d *DesktopRunner) app.RunnerOut {
-    return app.RunnerOut{Runner: d}
-})
+fx.Provide(fx.Annotate(NewApprovalCleanupRunner, fx.ResultTags(`group:"runners"`)))
 
 // 消费：一次性注入所有 Runner
-fx.Invoke(func(in app.RunnerIn) {
-    // in.Runners 包含所有注册的 Runner
-    g := app.BuildRunGroup(in.Runners)
-    g.Run()
+type runtimeParams struct {
+    fx.In
+    Runners []platformrunner.Runner `group:"runners"`
+}
+
+fx.Invoke(func(lc fx.Lifecycle, p runtimeParams) {
+    app.BindRuntime(lc, p)
 })
 ```
 
@@ -269,21 +286,17 @@ func main() {
 ### 6.1 OnStart / OnStop
 
 ```go
-func registerStoreLifecycle(lc fx.Lifecycle, pool *pgxpool.Pool) {
+func registerLifecycle(lc fx.Lifecycle, db *sql.DB, cfg *config.Config) {
     lc.Append(fx.Hook{
         OnStart: func(ctx context.Context) error {
-            // 启动时验证数据库连接
-            if err := pool.Ping(ctx); err != nil {
-                return fmt.Errorf("database ping failed: %w", err)
+            // 启动时执行 SQLite migrations、schema version 和 baseline table 校验
+            if err := autoMigrate(ctx, db, cfg); err != nil {
+                return fmt.Errorf("migrate sqlite database: %w", err)
             }
-            log.Info("database connected")
             return nil
         },
         OnStop: func(ctx context.Context) error {
-            // 停止时关闭连接池
-            pool.Close()
-            log.Info("database pool closed")
-            return nil
+            return db.Close()
         },
     })
 }
@@ -293,14 +306,14 @@ func registerStoreLifecycle(lc fx.Lifecycle, pool *pgxpool.Pool) {
 
 ```
 OnStart 按注册顺序执行：
-  1. StoreModule.OnStart  → DB 连接
-  2. BusModule.OnStart    → 事件订阅注册
-  3. RPCModule.OnStart    → 无（server 由 run.Group 启动）
+  1. db.Module.OnStart    → SQLite migration / schema baseline 校验
+  2. bus.Module.OnStart   → 事件订阅注册
+  3. app.BindRuntime      → platformrunner.RunGroup 托管 runners
 
 OnStop 按注册逆序执行：
-  3. RPCModule.OnStop     → 无（server 由 run.Group 停止）
-  2. BusModule.OnStop     → 取消事件订阅
-  1. StoreModule.OnStop   → 关闭 DB 连接池
+  3. app.BindRuntime      → 取消 runners、等待退出、drain 收尾
+  2. bus.Module.OnStop    → 取消事件订阅
+  1. db.Module.OnStop     → 关闭 SQLite *sql.DB
 ```
 
 ### 6.3 超时控制
@@ -345,9 +358,9 @@ var AppModule = fx.Module("app",
 ### 7.2 模块依赖关系
 
 ```
-StoreModule ─── db.Querier ──→ RPCModule (Service)
-    │                              │
-    └── *pgxpool.Pool              └── JRPC2Server ──→ run.Group
+DBModule ─── *sql.DB ──→ StoreModule ─── sqlc.Querier ──→ RPCModule / Module services
+                              │
+                              └── sqlc.Queries
                                        
 BusModule ──── event subscriptions ──→ RunnerModule (AgentManager)
                                        │
@@ -361,9 +374,9 @@ ProviderModule ── MCP client ─────────→┘
 ### 8.1 配置 struct
 
 ```go
-// internal/config/config.go
+// internal/platform/config/config.go
 type Config struct {
-    DatabaseURL  string `env:"DATABASE_URL" default:"postgres://localhost:5432/agent"`
+    SQLitePath   string `env:"SUPER_DOLPHIN_SQLITE_PATH"`
     RPCAddr      string `env:"RPC_ADDR" default:":9090"`
     DesktopMode  bool   `env:"DESKTOP_MODE" default:"false"`
     LogLevel     string `env:"LOG_LEVEL" default:"info"`
@@ -402,7 +415,7 @@ func TestDIGraph(t *testing.T) {
         RPCModule,
         // 替换真实数据库为 mock
         fx.Replace(func() *Config {
-            return &Config{DatabaseURL: "postgres://test:test@localhost/test"}
+            return &Config{SQLitePath: filepath.Join(t.TempDir(), "super-dolphin.db")}
         }),
     )
     defer app.RequireStop()
@@ -416,7 +429,7 @@ func TestDIGraph(t *testing.T) {
 func TestStoreModule(t *testing.T) {
     app := fxtest.New(t,
         fx.Provide(func() *Config {
-            return &Config{DatabaseURL: testDatabaseURL(t)}
+            return &Config{SQLitePath: filepath.Join(t.TempDir(), "super-dolphin.db")}
         }),
         StoreModule,
     )
@@ -445,7 +458,7 @@ func TestServiceWithMockDB(t *testing.T) {
 
 ---
 
-## 10. 与 run.Group 的分工
+## 10. 与 platform runner 的分工
 
 > 详见 `fx-rungroup-skeleton.md`
 
@@ -457,7 +470,7 @@ fx 职责（构建期）：
   ├── OnStart: 初始化（DB ping, migration）
   └── OnStop: 清理（关闭连接池）
 
-run.Group 职责（运行期）：
+platformrunner.RunGroup 职责（运行期）：
   ├── 并发启动所有 Actor
   ├── 监听信号
   ├── 一停全停
@@ -466,8 +479,8 @@ run.Group 职责（运行期）：
 时间线：
   fx.New()          → 构建 DI 图（编译期检查）
   fx.Start()        → 执行 OnStart hooks（顺序）
-  run.Group.Run()   → 所有 Actor 并发运行
-  Actor 退出        → run.Group 停止所有 Actor
+  platformrunner.RunGroup() → 所有 Actor 并发运行
+  Actor 退出                → platform runner 停止所有 Actor
   fx.Stop()         → 执行 OnStop hooks（逆序）
 ```
 
@@ -477,14 +490,14 @@ run.Group 职责（运行期）：
 
 | Module | 包路径 | 主要提供 | 依赖 |
 |---|---|---|---|
-| `ConfigModule` | `internal/config` | `*Config` | 无 |
-| `StoreModule` | `internal/store` | `*pgxpool.Pool`, `db.Querier` | Config |
-| `BusModule` | `internal/bus` | event subscriptions | Logger |
-| `RunnerModule` | `internal/runner` | `*AgentManager`, `Runner` | Querier, Logger |
-| `RPCModule` | `internal/rpcapi` | `*Service`, `*JRPC2Server`, `Runner` | Querier, Manager, Logger |
-| `ProviderModule` | `internal/provider` | `*MCPProvider` | Config, Logger |
-| `ToolModule` | `internal/tools` | tool handlers | Querier, Provider |
-| `DesktopModule` | `internal/desktop` | `*DesktopRunner`, `Runner` (optional) | Config, Service |
+| `config.Module` | `internal/platform/config` | `*config.Config` | 无 |
+| `db.Module` | `internal/platform/db` | `*sql.DB`、migration/schema 校验 | Config |
+| `store.Module` | `internal/store` | `*sqlc.Queries`, `sqlc.Querier`, 各 store 子模块 | `*sql.DB` |
+| `bus.Module` | `internal/platform/bus` | typed event dispatcher / emitters | Logger |
+| `runner.Module` | `internal/platform/runner` | `Runner` contract / runtime group helper | 无 |
+| `rpc.Module` | `internal/platform/rpc` | `*Server`, `HandlerMapResult`, push bridge, runners | Config, Logger, grouped handlers |
+| `provider.*.Module` | `internal/provider/{unified,claudecli,codexapp}` | provider drivers / sessions | Config, Logger, skill mirror reconciler |
+| `uiwails.Module` | `internal/ui/wails` | Wails desktop lifecycle / HTTP-RPC bridge | App, Config, RPC server |
 
 ---
 
@@ -507,11 +520,11 @@ run.Group 职责（运行期）：
 
 | 框架 | 集成点 | 说明 |
 |---|---|---|
-| **oklog/run** (`skeleton-rungroup.md`) | `group:"runners"` | fx 收集所有 Runner，传入 BuildRunGroup |
-| **jrpc2** (`skeleton-jrpc2.md`) | `RPCModule` | fx 注入依赖，创建 JRPC2Server |
+| **platform runner** (`skeleton-rungroup.md`) | `group:"runners"` | fx 收集所有 Runner，传入 `internal/platform/runner.RunGroup` |
+| **jrpc2** (`skeleton-jrpc2.md`) | `rpc.Module` + `HandlerMapResult` | fx 注入依赖，分组收集 handler.Map 后注册到 `rpc.Server` |
 | **kelindar/event** (`skeleton-event.md`) | `BusModule` / `fx.Invoke` | fx 启动时注册事件订阅 |
 | **stateless** (`skeleton-stateless.md`) | `RunnerModule` | fx 注入 AgentManager（内含状态机） |
-| **sqlc** (`skeleton-sqlc.md`) | `StoreModule` | fx 创建 pgxpool + Querier |
+| **sqlc** (`docs/契约/sqlc-convention.md`) | `db.Module` + `store.Module` | fx 创建 SQLite `*sql.DB`，store.Module 创建 `sqlc.Queries/Querier` |
 
 ---
 
@@ -522,7 +535,7 @@ run.Group 职责（运行期）：
 | ❌ 在 `fx.Provide` 中做 I/O 操作 | Provide 只做对象创建，I/O 放 OnStart |
 | ❌ 在 `fx.Invoke` 中创建长期对象 | Invoke 用于副作用注册，长期对象用 Provide |
 | ❌ 使用全局变量传递依赖 | 所有依赖通过 fx 注入 |
-| ❌ 在 Provider 函数中启动 goroutine | goroutine 在 run.Group 中管理 |
+| ❌ 在 Provider 函数中启动 goroutine | 长跑 goroutine 通过 platform runner / safego 管理 |
 | ❌ 循环依赖 | fx 会检测并报错，但设计上应避免 |
 | ❌ Module 之间直接 import 内部类型 | 通过接口解耦 |
 | ❌ 在 OnStart 中做可能超时的操作但不传递 ctx | 必须使用 fx 传入的 ctx |

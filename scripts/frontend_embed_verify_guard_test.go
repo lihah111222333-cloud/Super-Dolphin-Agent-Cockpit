@@ -180,6 +180,7 @@ func TestValidateSuperAgentSkillsMirrorComparisonNormalizesLineEndings(t *testin
 import importlib.util
 import pathlib
 import sys
+import tempfile
 
 script = pathlib.Path("validate_super_agent_skills.py")
 spec = importlib.util.spec_from_file_location("validate_super_agent_skills", script)
@@ -192,6 +193,16 @@ if not module.mirror_bytes_equal(b"line one  \r\nline two\t\r\n\r\n", b"line one
     sys.exit("trailing whitespace-only mirror drift must compare equal")
 if module.mirror_bytes_equal(b"line one\r\nline two\r\n", b"line one\nchanged\n"):
     sys.exit("content drift must not compare equal")
+
+root = pathlib.Path(tempfile.mkdtemp())
+(root / "references/ui-styling/scripts").mkdir(parents=True)
+(root / "references/ui-styling/scripts/.coverage").write_bytes(b"sqlite coverage")
+(root / "SKILL.md").write_text("skill", encoding="utf-8")
+files = module.rel_files(root)
+if "references/ui-styling/scripts/.coverage" in files:
+    sys.exit("coverage artifact must not participate in provider mirror comparison")
+if "SKILL.md" not in files:
+    sys.exit("real skill files must still participate in provider mirror comparison")
 `
 	cmd := exec.Command("python3", "-c", code)
 	cmd.Dir = "."
