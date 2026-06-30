@@ -364,13 +364,15 @@ Pre-round2 dispatch decision, later reopened:
 
 ## 2026-06-30 A3 Post-review Repairs
 
-Status: A3 pre-round2 closure was reopened by review, then closed after round2 integration and fresh gates on final code verification head `e17cb8b393293f34ae8af73238906b66abc8d45c`.
+Status: A3 pre-round2 closure was reopened by review, then closed at round2. Later P1 repairs are recorded in the final gate section below.
 
 Repair commits:
 
 - `836705200f7b4a7eca05bb93925dde4fbb9124f8` (`修复只读子代理启动工具面`) is included by round2 base head `7c14c7ee435ae9051672ca79962cd938ba5ce780`.
 - `5f7406d992b4d2dba19408d738799b298673009a` (`修复只读子代理原生工具面`) was merged by `0b16e06f`.
-- Docs round2 commit `ade6151d28c4d6480029cfe087322ec2acb2aebf` was merged by `e17cb8b3`.
+- Docs round2 commit `ade6151d28c4d6480029cfe087322ec2acb2aebf` was merged by historical docs merge `e17cb8b3`.
+- `2803b0b5178959bc67bfac1951eb0da6b4f29099` (`修复 Codex 原生工具未知禁用项校验`) was merged by `ae857bba`.
+- `6fdba6c1a2552dd0cf21d25b0dcf43d5130faa2c` (`修复: 增加 launch_agent 只读字段`) was merged by `73fe7f12`.
 
 Round2 ownership:
 
@@ -386,11 +388,25 @@ Round2 ownership:
   - `internal/module/thread/start_session_helpers.go`
   - `internal/module/thread/start_session_helpers_test.go`
   - `internal/provider/codexapp/driver_session_test.go`
+- `2803b0b` changed:
+  - `internal/contract/provider.go`
+  - `internal/provider/codexapp/driver.go`
+  - `internal/provider/codexapp/driver_pool_routing.go`
+  - `internal/provider/codexapp/driver_session_test.go`
+  - `internal/provider/codexapp/native_tool_policy_validation_test.go`
+  - `internal/provider/codexapp/support.go`
+- `6fdba6c` changed:
+  - `cmd/mcp-orch/tools/orchestration_tool_definitions.go`
+  - `cmd/mcp-orch/tools/orchestration_tools.go`
+  - `cmd/mcp-orch/tools/orchestration_tools_test.go`
 
 Review findings and fixes:
 
-- R1 fixed: Plan/Explore Codex launches now disable native shell/write/recursive/update-plan surfaces through `AGENT_CODEX_DISABLED_NATIVE_TOOLS`.
-- R2 fixed in round2: `buildStartSessionConfig` now merges launch `codexDisabledNativeTools` with assembly-suppressed tools instead of dropping the launch list when assembly suppression exists.
+- R1 round2 fixed: Plan/Explore Codex launches disable native shell/write/recursive/update-plan surfaces through `AGENT_CODEX_DISABLED_NATIVE_TOOLS`.
+- R1 final P1 fixed: `launch_agent.read_only=true` is now the structured read-only/review/planning delegation flag; free-form `agent_type` is no longer the only stage signal, Plan/Explore compatibility remains, and ordinary workers are not read-only.
+- R2 round2 fixed: `buildStartSessionConfig` now merges launch `codexDisabledNativeTools` with assembly-suppressed tools instead of dropping the launch list when assembly suppression exists.
+- R2 final P1 fixed: non-empty unknown `codexDisabledNativeTools` IDs now fail-fast across start/resume typed paths.
+- R3 passed without additional code repair.
 
 Worker verification:
 
@@ -404,13 +420,13 @@ Worker verification:
 git diff --check
 ```
 
-Controller final evidence:
+Round2 controller evidence:
 
-- `git diff --check 7c14c7ee435ae9051672ca79962cd938ba5ce780...HEAD` passed on code verification head `e17cb8b393293f34ae8af73238906b66abc8d45c`.
+- `git diff --check 7c14c7ee435ae9051672ca79962cd938ba5ce780...HEAD` passed on the round2 code head.
 - `git diff --check 5ccc29e69c48c407895b2d9a4182b0d124d6b813...HEAD` passed.
 - `git diff --cached --check` passed.
 - Round2 A3 focused guard, broad A3/toolpolicy guard, Lane A guard, Lane B guard, C1 scoped writer-surface `rg`, archtest aggregation, and `make guard` passed.
-- Final code gates are recorded against code verification head `e17cb8b393293f34ae8af73238906b66abc8d45c`; this docs-only status commit keeps workflow state synchronized after those gates.
+- Later P1 repair gates are recorded in the final gate section below.
 
 ## 2026-06-30 B1 Sessionpaths Core Review And Integration
 
@@ -592,9 +608,9 @@ Dispatch decision:
 - PN-integration was recorded as `done` at the time.
 - Final closure is re-recorded in the after-round2 section below.
 
-## 2026-06-30 PN Final Integration Gate After A3 Round2
+## 2026-06-30 PN Round2 Integration Gate After A3 Round2
 
-Status: final code verification completed on `e17cb8b393293f34ae8af73238906b66abc8d45c`; this docs-only status commit records that result.
+Status: round2 code verification completed on `e17cb8b393293f34ae8af73238906b66abc8d45c`; later P1 repairs supersede this as the latest code verification point.
 
 Integrated commits:
 
@@ -616,7 +632,7 @@ rg -n --glob '!docs/archive/**' --glob '!docs/doc/codemap/**' 'memory_write|work
 make guard
 ```
 
-All commands above passed on code verification head `e17cb8b393293f34ae8af73238906b66abc8d45c`.
+All commands above passed on the round2 code head `e17cb8b393293f34ae8af73238906b66abc8d45c`.
 
 Dispatch decision:
 
@@ -624,3 +640,44 @@ Dispatch decision:
 - PN-integration accepted as `done`.
 - A2 remains `not_applicable_with_evidence`; no runtime planning-stage blocking was wired.
 - C1 remains ADR-only; production preview API and host-direct preview/execute tests remain deferred.
+
+## 2026-07-01 PN Final Gate After P1 Repairs
+
+Status: final code verification completed on `73fe7f124280ec034cff082cc5e2d048d23d4ee3`; this docs-only status commit records that result.
+
+Integrated commits:
+
+- `ae857bba` merged R2 P1 worker commit `2803b0b5178959bc67bfac1951eb0da6b4f29099`.
+- `73fe7f12` merged R1 P1 worker commit `6fdba6c1a2552dd0cf21d25b0dcf43d5130faa2c`.
+- `e17cb8b3` remains the historical docs round2 merge commit.
+
+Final behavior facts:
+
+- `codexDisabledNativeTools` now rejects non-empty unknown Codex native tool IDs fail-fast across start/resume typed paths.
+- `launch_agent.read_only=true` is the structured read-only/review/planning delegation flag; Plan/Explore compatibility remains, and ordinary workers are not made read-only.
+- R3 passed with no additional code repair.
+- A2 remains `not_applicable_with_evidence`; no runtime planning-stage blocking was wired.
+- C1 remains ADR-only; production preview API and host-direct preview/execute tests remain deferred.
+
+Controller final gates:
+
+```bash
+git diff --check 5ccc29e69c48c407895b2d9a4182b0d124d6b813...HEAD
+git diff --cached --check
+python3 -m json.tool .agent/workflows/20260630-reasonix-hardening-absorption/STATE.json >/dev/null
+./scripts/test_with_guard.sh ./cmd/mcp-orch/tools ./internal/provider/codexapp ./internal/contract -run 'LaunchRequestFromExecutable|ReadOnly|NativeToolPolicy|CodexNativeToolPolicy' -count=1
+./scripts/test_with_guard.sh ./cmd/mcp-orch/tools ./internal/module/thread ./internal/provider/codexapp ./internal/contract -run 'LaunchRequestFromExecutable|BuildStartSessionConfig|CodexNativeToolPolicy|NativeToolPolicy|ReadOnly' -count=1
+./scripts/test_with_guard.sh ./cmd/mcp-orch/tools ./internal/module/thread ./internal/provider/toolfilter ./internal/platform/toolpolicy ./internal/contract -count=1
+./scripts/test_with_guard.sh ./internal/platform/toolpolicy ./internal/provider/toolfilter ./internal/platform/toolbridge ./internal/provider/codexapp ./internal/provider/claudecli -run 'Plan|ReadOnly|Trust|Shell|Lifecycle|Sandbox|Permission|Reviewer|Worker|FullAccess|Native|Tool' -count=1
+./scripts/test_with_guard.sh ./internal/platform/sessionpaths ./internal/provider/codexapp ./internal/module/thread ./internal/util/historyjsonl -run 'Rollout|Scratchpad|Path|Cleanup|CodexHome|History' -count=1
+./scripts/test_with_guard.sh ./internal/archtest -run 'Dependency|Tool|Provider|Path|Preview|Workflow' -count=1
+make guard
+```
+
+All commands above passed on code verification head `73fe7f124280ec034cff082cc5e2d048d23d4ee3`.
+
+Dispatch decision:
+
+- A3 final P1 repairs accepted as integrated.
+- PN-integration accepted as `done`.
+- This docs-only status commit keeps workflow state synchronized after those gates.

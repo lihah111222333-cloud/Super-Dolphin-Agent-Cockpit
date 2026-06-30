@@ -1,6 +1,6 @@
 {
   "workflow_key": "20260630-reasonix-hardening-absorption",
-  "last_updated": "2026-06-30T23:31:40+09:00",
+  "last_updated": "2026-07-01T00:14:50+09:00",
   "overall_status": "done",
   "source_plan": "docs/plans/2026-06-30-reasonix-hardening-absorption-review.md",
   "source_plan_status": "NEEDS_APPROVAL",
@@ -34,8 +34,12 @@
       "round2_worker_commit": "5f7406d992b4d2dba19408d738799b298673009a",
       "round2_merge_commit": "0b16e06f",
       "round2_worker_branch": "codex/reasonix-hardening-fix-a3-round2-20260630",
+      "unknown_native_tool_failfast_commit": "2803b0b5178959bc67bfac1951eb0da6b4f29099",
+      "unknown_native_tool_failfast_merge_commit": "ae857bba",
+      "explicit_read_only_launch_field_commit": "6fdba6c1a2552dd0cf21d25b0dcf43d5130faa2c",
+      "explicit_read_only_launch_field_merge_commit": "73fe7f12",
       "status": "done",
-      "review": "Pre-round2 A3 closure was reopened. 83670520 and 5f7406d are integrated; fresh round2 Lane A and final gates passed on e17cb8b3."
+      "review": "A3 post-review P1s are closed: unknown non-empty Codex native tool IDs now fail-fast for start/resume typed paths; launch_agent.read_only=true is the structured read-only delegation flag while Plan/Explore compatibility remains. R3 PASS; final gates passed on 73fe7f12."
     },
     "B1-sessionpaths-core": {
       "agent_id": "019f1868-b4b7-7e41-9b42-2f5ce1e7d2f0",
@@ -63,9 +67,11 @@
       "pre_round2_gate_head": "8fa31b90",
       "current_base_head": "7c14c7ee435ae9051672ca79962cd938ba5ce780",
       "round2_docs_merge_commit": "e17cb8b3",
-      "final_code_verification_head": "e17cb8b393293f34ae8af73238906b66abc8d45c",
+      "unknown_native_tool_failfast_merge_commit": "ae857bba",
+      "explicit_read_only_launch_field_merge_commit": "73fe7f12",
+      "final_code_verification_head": "73fe7f124280ec034cff082cc5e2d048d23d4ee3",
       "status": "done",
-      "review": "A3 round2 and docs round2 are integrated; fresh Lane A, Lane B, C1 rg, archtest, make guard, and diff checks passed on code verification head e17cb8b3. This docs-only status commit keeps workflow state synchronized after those gates."
+      "review": "A3 round2, docs round2, and final P1 repairs are integrated; fresh controller gates passed on code verification head 73fe7f12. This docs-only status commit keeps workflow state synchronized after those gates."
     }
   },
   "next_actions": [
