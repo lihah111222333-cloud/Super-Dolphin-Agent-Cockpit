@@ -211,6 +211,19 @@ function Assert-UpdatePublicKey() {
     }
 }
 
+function Test-PlaceholderUpdateRepo() {
+    param([Parameter(Mandatory)][string]$Repo)
+    return $Repo.Trim() -eq 'xiaoxiaotest9527-bit/-'
+}
+
+function Assert-UpdateWindowsThumbprint() {
+    param([Parameter(Mandatory)][string]$Thumbprint)
+    $normalized = ($Thumbprint.Trim() -replace '[ :]', '').ToUpperInvariant()
+    if ($normalized -notmatch '^[0-9A-F]{40}$') {
+        throw 'SUPER_DOLPHIN_UPDATE_WINDOWS_THUMBPRINT must be a 40-character certificate thumbprint'
+    }
+}
+
 function Verify-UpdateEnv() {
     param([Parameter(Mandatory)][string]$PackageRoot)
     $envFile = Join-Path $PackageRoot '.env'
@@ -221,6 +234,9 @@ function Verify-UpdateEnv() {
     $githubRepo = Get-DotEnvValue -EnvFile $envFile -Name 'SUPER_DOLPHIN_UPDATE_GITHUB_REPO'
     if ($manifestURL.Trim() -eq '' -and $githubRepo.Trim() -eq '') {
         throw 'SUPER_DOLPHIN_UPDATE_MANIFEST_URL or SUPER_DOLPHIN_UPDATE_GITHUB_REPO is required when app update is enabled'
+    }
+    if ($manifestURL.Trim() -ne '' -and $githubRepo.Trim() -ne '') {
+        throw 'SUPER_DOLPHIN_UPDATE_MANIFEST_URL and SUPER_DOLPHIN_UPDATE_GITHUB_REPO are mutually exclusive'
     }
     $source = ''
     if ($manifestURL.Trim() -ne '') {
@@ -233,13 +249,19 @@ function Verify-UpdateEnv() {
         if ($githubRepo -notmatch '^[^/\s]+/[^/\s]+$') {
             throw 'SUPER_DOLPHIN_UPDATE_GITHUB_REPO must be owner/repo without whitespace'
         }
+        if (Test-PlaceholderUpdateRepo -Repo $githubRepo) {
+            throw 'known placeholder update repo is not allowed'
+        }
         $source = "github:$githubRepo"
     }
     $publicKey = Require-DotEnvValue -EnvFile $envFile -Name 'SUPER_DOLPHIN_UPDATE_PUBLIC_KEY'
     $channel = Require-DotEnvValue -EnvFile $envFile -Name 'SUPER_DOLPHIN_UPDATE_CHANNEL'
     $version = Require-DotEnvValue -EnvFile $envFile -Name 'SUPER_DOLPHIN_UPDATE_VERSION'
+    $windowsPublisher = Require-DotEnvValue -EnvFile $envFile -Name 'SUPER_DOLPHIN_UPDATE_WINDOWS_PUBLISHER'
+    $windowsThumbprint = Require-DotEnvValue -EnvFile $envFile -Name 'SUPER_DOLPHIN_UPDATE_WINDOWS_THUMBPRINT'
     Assert-UpdatePublicKey -PublicKey $publicKey
-    Write-Host "packaged app update env verified: source=$source channel=$channel version=$version"
+    Assert-UpdateWindowsThumbprint -Thumbprint $windowsThumbprint
+    Write-Host "packaged app update env verified: source=$source channel=$channel version=$version publisher=$windowsPublisher"
 }
 
 function Assert-JsonStringArray() {
