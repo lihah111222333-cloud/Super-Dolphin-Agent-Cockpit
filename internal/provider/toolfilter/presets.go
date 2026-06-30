@@ -1,17 +1,10 @@
 package toolfilter
 
-import mcp "github.com/anthropic-ai/super-agent-v3/internal/dto/mcp"
-
-var reviewerAllowedTools = []string{
-	"file", "grep", "inspect", "xref", "structure", "completion",
-	"lsp_file", "lsp_grep", "lsp_inspect", "lsp_xref", "lsp_structure", "lsp_completion",
-	"shared_file_read",
-}
-
-var reviewerDeniedTools = []string{
-	"edit", "lsp_edit",
-	"orchestration_launch_agent", "orchestration_stop_agent",
-}
+import (
+	"github.com/anthropic-ai/super-agent-v3/internal/contract"
+	mcp "github.com/anthropic-ai/super-agent-v3/internal/dto/mcp"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/toolpolicy"
+)
 
 var workerDeniedTools = []string{
 	"orchestration_launch_agent", "orchestration_send_message",
@@ -20,12 +13,12 @@ var workerDeniedTools = []string{
 }
 
 // ReviewerDecision 返回审查 agent 的只读工具白名单。
-// 允许 LSP/文件读取类工具，显式拒绝编辑和 orchestration 生命周期工具，避免 review 角色越权修改。
+// 允许 LSP/文件读取类工具，显式拒绝 writer、workflow/process、planning、provider-native 递归 agent 和 connector 工具。
 func ReviewerDecision() mcp.BeforeDecision {
 	return mcp.BeforeDecision{
 		Decision:     mcp.HookDecisionAllow,
-		AllowedTools: append([]string(nil), reviewerAllowedTools...),
-		DeniedTools:  append([]string(nil), reviewerDeniedTools...),
+		AllowedTools: reviewerAllowedTools(),
+		DeniedTools:  reviewerDeniedTools(),
 	}
 }
 
@@ -42,4 +35,66 @@ func WorkerDecision() mcp.BeforeDecision {
 // 该 preset 只用于明确受信任的控制面，调用方仍可在外层叠加 hook 规则。
 func FullAccessDecision() mcp.BeforeDecision {
 	return mcp.BeforeDecision{Decision: mcp.HookDecisionAllow}
+}
+
+// reviewerToolCandidate 是 reviewer preset 交给 toolpolicy 判断的最小输入。
+// preset 只维护候选工具名和能力标签，是否进入 allow/deny surface 由 toolpolicy 决定。
+type reviewerToolCandidate struct {
+	name              string
+	trust             toolpolicy.TrustSource
+	capabilities      toolpolicy.Capability
+	readOnlyHint      bool
+	readOnlyHintTrust toolpolicy.TrustSource
+}
+
+func reviewerAllowedTools() []string {
+	return reviewerPolicyAllowedTools([]reviewerToolCandidate{
+		trustedReadOnlyTool("file"),
+		trustedReadOnlyTool("grep"),
+		trustedReadOnlyTool("inspect"),
+		trustedReadOnlyTool("xref"),
+		trustedReadOnlyTool("structure"),
+		trustedReadOnlyTool("completion"),
+		trustedReadOnlyTool("lsp_file"),
+		trustedReadOnlyTool("lsp_grep"),
+		trustedReadOnlyTool("lsp_inspect"),
+		trustedReadOnlyTool("lsp_xref"),
+		trustedReadOnlyTool("lsp_structure"),
+		trustedReadOnlyTool("lsp_completion"),
+		trustedReadOnlyTool("shared_file_read"),
+	})
+}
+
+// reviewerDeniedTools 返回 reviewer 必须精确拒绝的工具名。
+// DeniedTools 没有前缀匹配语义，新增工具族时必须同步 contract 中的真实工具名。
+func reviewerDeniedTools() []string {
+	return contract.ReadOnlyAgentDeniedTools()
+}
+
+func trustedReadOnlyTool(name string) reviewerToolCandidate {
+	return reviewerToolCandidate{
+		name:         name,
+		trust:        toolpolicy.TrustInternal,
+		capabilities: toolpolicy.CapabilityReadOnly,
+	}
+}
+
+func reviewerPolicyAllowedTools(candidates []reviewerToolCandidate) []string {
+	names := make([]string, 0, len(candidates))
+	for _, candidate := range candidates {
+		if reviewerToolPolicyDecision(candidate).Allow {
+			names = append(names, candidate.name)
+		}
+	}
+	return names
+}
+
+func reviewerToolPolicyDecision(candidate reviewerToolCandidate) toolpolicy.Decision {
+	return toolpolicy.Decide(toolpolicy.Assessment{
+		Stage:             toolpolicy.StageReadOnly,
+		Trust:             candidate.trust,
+		Capabilities:      candidate.capabilities,
+		ReadOnlyHint:      candidate.readOnlyHint,
+		ReadOnlyHintTrust: candidate.readOnlyHintTrust,
+	})
 }

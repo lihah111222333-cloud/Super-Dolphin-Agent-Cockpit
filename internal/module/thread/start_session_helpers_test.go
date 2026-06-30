@@ -268,6 +268,27 @@ func TestBuildStartSessionConfigCarriesCodexDisabledNativeTools(t *testing.T) {
 	}
 }
 
+func TestBuildStartSessionConfigMergesLaunchToolSurfaceConfig(t *testing.T) {
+	cfg := buildStartSessionConfig(StartRequest{
+		Config: map[string]any{
+			"disallowed_tools":         "edit,lsp_edit,task_start_dag",
+			"codexDisabledNativeTools": []any{"shell", "apply_patch", "spawn_agent"},
+		},
+	}, contract.StartInput{
+		Provider: "codex",
+	}, contract.StartAssembly{
+		SuppressedTools: []string{"spawn_agent", "write_new_file"},
+	})
+
+	requireSessionConfigValue(t, cfg, "disallowed_tools", "edit,lsp_edit,task_start_dag")
+	requireSessionConfigStringSlice(t, cfg, "codexDisabledNativeTools", []string{
+		"spawn_agent",
+		"write_new_file",
+		"shell",
+		"apply_patch",
+	})
+}
+
 func TestBuildStartSessionConfigFiltersSpawnAgentWhenPersistentManagedLaunchEnabled(t *testing.T) {
 	cfg := buildStartSessionConfig(StartRequest{}, contract.StartInput{
 		EnabledTools: []string{"spawn_agent", "orchestration_launch_agent", "request_user_input"},

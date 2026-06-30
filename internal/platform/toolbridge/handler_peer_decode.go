@@ -33,6 +33,7 @@ type codexToolSurface struct {
 	cwd            string
 	tools          map[string]codexToolEntry
 	aliases        map[string]string
+	disabledTools  map[string]string
 	hiddenMCPTools map[string]codexToolEntry
 	clients        []mcpClient
 }
@@ -56,16 +57,18 @@ func (h *Handler) PrepareCodexToolSurface(ctx context.Context, scope contract.Co
 	surface := &codexToolSurface{
 		tools:          map[string]codexToolEntry{},
 		aliases:        map[string]string{},
+		disabledTools:  map[string]string{},
 		hiddenMCPTools: map[string]codexToolEntry{},
 	}
 	out := make([]contract.DynamicToolSchema, 0)
-	if err := h.addHostSurfaceTools(surface, &out); err != nil {
+	disabled := newCodexDisabledToolSet(scope.DisabledTools)
+	if err := h.addHostSurfaceTools(surface, &out, disabled); err != nil {
 		return nil, err
 	}
-	if err := h.addSkillSurfaceTools(ctx, scope, surface, &out); err != nil {
+	if err := h.addSkillSurfaceTools(ctx, scope, surface, &out, disabled); err != nil {
 		return nil, err
 	}
-	if err := h.addMCPSurfaceTools(ctx, scope, surface, &out); err != nil {
+	if err := h.addMCPSurfaceTools(ctx, scope, surface, &out, disabled); err != nil {
 		_ = surface.Close()
 		return nil, err
 	}
@@ -96,11 +99,17 @@ func validateCodexToolSurfaceScope(scope contract.CodexToolSurfaceScope) error {
 }
 
 // addHostSurfaceTools 将 host-direct 工具加入 Codex surface。
-func (h *Handler) addHostSurfaceTools(surface *codexToolSurface, out *[]contract.DynamicToolSchema) error {
+func (h *Handler) addHostSurfaceTools(surface *codexToolSurface, out *[]contract.DynamicToolSchema, disabled codexDisabledToolSet) error {
 	if h == nil || h.hostTools == nil {
 		return nil
 	}
 	for _, tool := range h.hostTools.ListHostTools() {
+		if disabledName, ok := disabled.match(tool.Name); ok {
+			if err := addDisabledSurfaceToolAliases(surface, disabledName, tool.Name); err != nil {
+				return err
+			}
+			continue
+		}
 		if err := addSurfaceTool(surface, out, tool, codexToolEntry{name: tool.Name, realName: tool.Name, executionKind: "host", family: "host"}); err != nil {
 			return err
 		}
@@ -109,7 +118,7 @@ func (h *Handler) addHostSurfaceTools(surface *codexToolSurface, out *[]contract
 }
 
 // addMCPSurfaceTools 启动 scope manifest 中的 MCP binary，并把工具加入 surface。
-func (h *Handler) addMCPSurfaceTools(ctx context.Context, scope contract.CodexToolSurfaceScope, surface *codexToolSurface, out *[]contract.DynamicToolSchema) error {
+func (h *Handler) addMCPSurfaceTools(ctx context.Context, scope contract.CodexToolSurfaceScope, surface *codexToolSurface, out *[]contract.DynamicToolSchema, disabled codexDisabledToolSet) error {
 	factory := h.stdioClientFactory
 	if factory == nil {
 		factory = h.defaultStdioClientFactory
@@ -127,7 +136,7 @@ func (h *Handler) addMCPSurfaceTools(ctx context.Context, scope contract.CodexTo
 		if err != nil {
 			return err
 		}
-		if err := addMCPToolsToSurface(surface, out, result.binary.Name, result.client, tools); err != nil {
+		if err := addMCPToolsToSurface(surface, out, result.binary.Name, result.client, tools, disabled); err != nil {
 			return err
 		}
 		if err := addHiddenLifecycleFilteredMCPTools(surface, result.binary.Name, result.tools, tools); err != nil {
@@ -235,29 +244,10 @@ func closeMCPClients(results []mcpSurfaceBinaryResult) {
 }
 
 // addMCPToolsToSurface 把 MCP 工具添加到 Codex surface，并补齐 canonical 名和 legacy alias。
-func addMCPToolsToSurface(surface *codexToolSurface, out *[]contract.DynamicToolSchema, family string, client mcpClient, tools []mcpdto.MCPTool) error {
+func addMCPToolsToSurface(surface *codexToolSurface, out *[]contract.DynamicToolSchema, family string, client mcpClient, tools []mcpdto.MCPTool, disabled codexDisabledToolSet) error {
 	for _, tool := range tools {
-		if _, reserved := reservedHostOnlySurfaceToolCanonicalName(family, tool.Name); reserved {
-			continue
-		}
-		canonical := canonicalCodexToolName(family, tool.Name)
-		if shouldNamespaceExternalMCPTool(surface, family, canonical) {
-			canonical = wrappedMCPToolName(family, tool.Name)
-		}
-		entry := codexToolEntry{name: canonical, realName: tool.Name, executionKind: "stdio", family: strings.TrimSpace(family), client: client}
-		if err := addSurfaceTool(surface, out, tool, entry); err != nil {
+		if err := addSingleMCPToolToSurface(surface, out, family, client, tool, disabled); err != nil {
 			return err
-		}
-		if err := addMCPToolAlias(surface, family, tool.Name, canonical); err != nil {
-			return err
-		}
-		if err := addSurfaceAlias(surface, wrappedMCPToolName(family, tool.Name), canonical); err != nil {
-			return err
-		}
-		for _, alias := range legacyCodexToolAliases(family, canonical) {
-			if err := addSurfaceAlias(surface, alias, canonical); err != nil {
-				return err
-			}
 		}
 	}
 	return nil
@@ -435,13 +425,16 @@ func nonEmptyUnique(values ...string) []string {
 func (h *Handler) routeCodexSurfaceToolCall(ctx context.Context, req ToolCallRequest) (*ToolCallResult, bool, error) {
 	surface := h.lookupCodexToolSurface(req)
 	if surface == nil {
-		if _, reserved := reservedHostOnlyToolCanonicalName(req.Name); reserved {
-			return nil, false, nil
-		}
 		if req.Scoped && requiresCodexToolSurface(req.Name) {
 			return nil, true, fmt.Errorf("toolbridge: codex tool surface is not prepared for agent %q thread %q", req.AgentID, req.ThreadID)
 		}
+		if _, reserved := reservedHostOnlyToolCanonicalName(req.Name); reserved {
+			return nil, false, nil
+		}
 		return nil, false, nil
+	}
+	if result, denied := disabledCodexSurfaceToolCallResult(surface, req.Name); denied {
+		return result, true, nil
 	}
 	if surface.aliases[strings.TrimSpace(req.Name)] == "" {
 		if _, reserved := reservedHostOnlyToolCanonicalName(req.Name); reserved {

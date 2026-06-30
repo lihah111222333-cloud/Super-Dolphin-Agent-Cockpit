@@ -36,6 +36,15 @@ func resolveInvalidNativeToolPolicy(value any) error {
 	return err
 }
 
+// resolveInvalidResumeNativeToolPolicy 走 ResumeSession 会调用的 typed native tool 策略解析路径。
+func resolveInvalidResumeNativeToolPolicy(ids []string) error {
+	_, err := (&driver{}).resolveResumeOptions(context.Background(), dto.ResumeSessionRequest{
+		AgentID:                  "agent-1",
+		CodexDisabledNativeTools: ids,
+	})
+	return err
+}
+
 // assertNativeToolPolicyValidationError 要求错误明确指向 codexDisabledNativeTools 配置形态。
 func assertNativeToolPolicyValidationError(t *testing.T, err error) {
 	t.Helper()
@@ -51,12 +60,48 @@ func assertNativeToolPolicyValidationError(t *testing.T, err error) {
 	}
 }
 
+// assertNativeToolPolicyUnknownError 要求 unknown native tool ID 在启动前 fail-fast。
+func assertNativeToolPolicyUnknownError(t *testing.T, err error, unknown string) {
+	t.Helper()
+	if err == nil {
+		t.Fatal("native tool policy error = nil, want unknown native tool ID")
+	}
+	message := err.Error()
+	if !strings.Contains(message, codexDisabledNativeToolsConfigKey) {
+		t.Fatalf("error = %v, want %s validation detail", err, codexDisabledNativeToolsConfigKey)
+	}
+	if !strings.Contains(message, unknown) {
+		t.Fatalf("error = %v, want unknown native tool ID %q", err, unknown)
+	}
+}
+
 func TestNativeToolPolicyRejectsInvalidListTypes(t *testing.T) {
 	for _, tt := range invalidNativeToolPolicyCases() {
 		t.Run(tt.name, func(t *testing.T) {
 			assertNativeToolPolicyValidationError(t, resolveInvalidNativeToolPolicy(tt.value))
 		})
 	}
+}
+
+func TestNativeToolPolicyRejectsUnknownToolIDs(t *testing.T) {
+	const unknown = "not_a_tool"
+	cases := []struct {
+		name  string
+		value any
+	}{
+		{name: "typed string list", value: []string{unknown}},
+		{name: "wire any list", value: []any{unknown}},
+	}
+	for _, tt := range cases {
+		t.Run(tt.name, func(t *testing.T) {
+			assertNativeToolPolicyUnknownError(t, resolveInvalidNativeToolPolicy(tt.value), unknown)
+		})
+	}
+}
+
+func TestNativeToolPolicyRejectsUnknownTypedResumeToolIDs(t *testing.T) {
+	const unknown = "not_a_tool"
+	assertNativeToolPolicyUnknownError(t, resolveInvalidResumeNativeToolPolicy([]string{unknown}), unknown)
 }
 
 func TestCodexSandboxReadOnlyParsingIsConservative(t *testing.T) {

@@ -2,22 +2,16 @@ package thread
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"os"
 	"path/filepath"
 	"strings"
-	"unicode"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/sessionpaths"
 	"github.com/anthropic-ai/super-agent-v3/internal/util"
 )
 
-const (
-	scratchpadEnabledFlag      = "scratchpad_enabled"
-	managedScratchpadNamespace = "super-agent-v3"
-	managedScratchpadLeaf      = "scratchpad"
-)
+const scratchpadEnabledFlag = "scratchpad_enabled"
 
 func (s *service) prepareScratchpadBuildCtx(req StartRequest, threadID string, buildCtx contract.BuildCtx) (contract.BuildCtx, func(), error) {
 	if dir := strings.TrimSpace(buildCtx.ScratchpadDir); dir != "" {
@@ -57,15 +51,11 @@ func configScratchpadDir(cfg map[string]any, keys ...string) string {
 	return ""
 }
 
+// ensureManagedScratchpadDir 为本次线程创建受控 scratchpad 目录并固定权限。
+// 路径派生归 sessionpaths，目录创建和权限仍由 thread 模块负责。
 func ensureManagedScratchpadDir(buildCtx contract.BuildCtx, req StartRequest, threadID string, cfg *contract.Config) (string, error) {
 	projectRoot := managedScratchpadProjectRoot(buildCtx, req, cfg)
-	dir := filepath.Join(
-		os.TempDir(),
-		managedScratchpadNamespace,
-		sanitizeScratchpadPath(projectRoot),
-		strings.TrimSpace(threadID),
-		managedScratchpadLeaf,
-	)
+	dir := sessionpaths.ManagedScratchpadDir(os.TempDir(), projectRoot, threadID)
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return "", err
 	}
@@ -93,49 +83,13 @@ func configProjectRoot(cfg *contract.Config) string {
 	return strings.TrimSpace(cfg.ProjectRoot)
 }
 
-// sanitizeScratchpadPath 清理scratchpad路径。
-func sanitizeScratchpadPath(raw string) string {
-	normalized := filepath.ToSlash(strings.TrimSpace(raw))
-	var builder strings.Builder
-	lastDash := false
-	for _, r := range normalized {
-		switch {
-		case unicode.IsLetter(r) || unicode.IsDigit(r):
-			builder.WriteRune(unicode.ToLower(r))
-			lastDash = false
-		case lastDash:
-		default:
-			builder.WriteByte('-')
-			lastDash = true
-		}
-	}
-	slug := strings.Trim(builder.String(), "-")
-	if slug != "" {
-		return slug
-	}
-	hash := sha256.Sum256([]byte(normalized))
-	return "project-" + hex.EncodeToString(hash[:4])
-}
-
+// cleanupManagedScratchpadDir 只清理 sessionpaths 管理的临时 scratchpad。
+// 删除 leaf 的父目录以保持按 thread 清理的旧行为，不接管外部配置目录。
 func cleanupManagedScratchpadDir(dir string) error {
-	if !isManagedScratchpadDir(dir) {
+	if !sessionpaths.IsManagedScratchpadDir(os.TempDir(), dir) {
 		return nil
 	}
 	return os.RemoveAll(filepath.Dir(filepath.Clean(dir)))
-}
-
-// isManagedScratchpadDir 判断 scratchpad 路径是否属于本进程管理的临时命名空间。
-func isManagedScratchpadDir(dir string) bool {
-	cleaned := filepath.Clean(strings.TrimSpace(dir))
-	if cleaned == "." || cleaned == string(filepath.Separator) {
-		return false
-	}
-	root := filepath.Join(os.TempDir(), managedScratchpadNamespace)
-	rel, err := filepath.Rel(root, cleaned)
-	if err != nil {
-		return false
-	}
-	return rel != "." && rel != "" && !strings.HasPrefix(rel, "..")
 }
 
 func (s *service) cleanupThreadScratchpadRecord(ctx context.Context, threadID string, binding *threadBindingRecord) {

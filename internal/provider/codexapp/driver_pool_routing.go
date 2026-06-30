@@ -279,7 +279,10 @@ func (d *driver) resolveSessionOptions(ctx context.Context, req dto.StartSession
 	if err := validateCodexNativeToolPolicyConfig(req.Config); err != nil {
 		return nil, err
 	}
-	policy := codexNativeToolPolicyFromConfig(req.Config)
+	policy, err := codexNativeToolPolicyFromConfig(req.Config)
+	if err != nil {
+		return nil, err
+	}
 	if d == nil || d.pool == nil {
 		if _, err := providershared.ResolveCodexIdentity(req.Config); err == nil {
 			return nil, errors.New("codexapp: codex identity requires pool-backed app-server")
@@ -395,7 +398,15 @@ func canonicalStartRuntimeConfig(config map[string]any) map[string]any {
 // resolveResumeOptions 为 ResumeSession 选择 pool 或 legacy 路径。
 // 带 Codex 身份的恢复必须走 pool；非 strict legacy 仅用于老线程兼容并会记录告警。
 func (d *driver) resolveResumeOptions(ctx context.Context, req dto.ResumeSessionRequest) ([]sessionOption, error) {
-	policy := codexNativeToolPolicyFromDisabled(req.CodexDisabledNativeTools)
+	policy, err := codexNativeToolPolicyFromDisabled(req.CodexDisabledNativeTools)
+	if err != nil {
+		return nil, err
+	}
+	return d.resolveResumeOptionsWithPolicy(ctx, req, policy)
+}
+
+// resolveResumeOptionsWithPolicy 在 native 工具策略已校验后执行 resume 的 pool/legacy 路由。
+func (d *driver) resolveResumeOptionsWithPolicy(ctx context.Context, req dto.ResumeSessionRequest, policy codexNativeToolPolicy) ([]sessionOption, error) {
 	identity, hasIdentity := resumeIdentity(req)
 	enabled, strict, err := poolRoutingDecision()
 	if err != nil {
@@ -487,21 +498,24 @@ const codexDisabledNativeToolsConfigKey = "codexDisabledNativeTools"
 
 type codexNativeToolPolicy struct{ contract.CodexNativeToolPolicy }
 
-func codexNativeToolPolicyFromConfig(cfg map[string]any) codexNativeToolPolicy {
-	return codexNativeToolPolicy{CodexNativeToolPolicy: contract.NewCodexNativeToolPolicy(codexDisabledNativeToolIDs(cfg))}
+func codexNativeToolPolicyFromConfig(cfg map[string]any) (codexNativeToolPolicy, error) {
+	values, err := rawStringList(cfg[codexDisabledNativeToolsConfigKey])
+	if err != nil {
+		return codexNativeToolPolicy{}, err
+	}
+	return codexNativeToolPolicyFromDisabled(values)
 }
 
-func codexNativeToolPolicyFromDisabled(ids []string) codexNativeToolPolicy {
-	return codexNativeToolPolicy{CodexNativeToolPolicy: contract.NewCodexNativeToolPolicy(cleanCodexNativeToolIDs(ids))}
-}
-
-func codexDisabledNativeToolIDs(cfg map[string]any) []string {
-	values, _ := rawStringList(cfg[codexDisabledNativeToolsConfigKey])
-	return cleanCodexNativeToolIDs(values)
+func codexNativeToolPolicyFromDisabled(ids []string) (codexNativeToolPolicy, error) {
+	cleaned := cleanCodexNativeToolIDs(ids)
+	if err := validateCodexNativeToolIDs(cleaned); err != nil {
+		return codexNativeToolPolicy{}, err
+	}
+	return codexNativeToolPolicy{CodexNativeToolPolicy: contract.NewCodexNativeToolPolicy(cleaned)}, nil
 }
 
 func validateCodexNativeToolPolicyConfig(cfg map[string]any) error {
-	_, err := rawStringList(cfg[codexDisabledNativeToolsConfigKey])
+	_, err := codexNativeToolPolicyFromConfig(cfg)
 	return err
 }
 
@@ -542,6 +556,15 @@ func cleanCodexNativeToolIDs(values []string) []string {
 	return out
 }
 
+func validateCodexNativeToolIDs(ids []string) error {
+	for _, id := range ids {
+		if !contract.IsKnownCodexNativeTool(id) {
+			return fmt.Errorf("%s contains unknown Codex native tool %q", codexDisabledNativeToolsConfigKey, id)
+		}
+	}
+	return nil
+}
+
 // ApplyThreadStartParams 在禁用 native tool 时强制 StartThread 使用 read-only sandbox。
 // approvalPolicy 同步改为 never，避免 app-server 再向前端发起本地执行审批。
 func (p codexNativeToolPolicy) ApplyThreadStartParams(params *threadStartParams) {
@@ -562,13 +585,21 @@ func (p codexNativeToolPolicy) ApplyThreadResumeParams(params *threadResumeParam
 	params.ApprovalPolicy = "never"
 }
 
-func applyResumeNativeToolRuntimePolicy(s *session, disabled []string) {
-	if s == nil || !codexNativeToolPolicyFromDisabled(disabled).RequiresReadOnlySandbox() {
-		return
+func applyResumeNativeToolRuntimePolicy(s *session, disabled []string) error {
+	if s == nil {
+		return nil
+	}
+	policy, err := codexNativeToolPolicyFromDisabled(disabled)
+	if err != nil {
+		return err
+	}
+	if !policy.RequiresReadOnlySandbox() {
+		return nil
 	}
 	s.setApprovalPolicy("never")
 	s.setRuntimeConfigValue("approvalPolicy", "never")
 	s.setRuntimeConfigValue("sandbox", "read-only")
+	return nil
 }
 
 func codexReadOnlySandbox(raw json.RawMessage) json.RawMessage {
