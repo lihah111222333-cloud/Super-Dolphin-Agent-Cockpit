@@ -153,6 +153,33 @@ func TestBuildCLIArgsKeepsHardFilterWhenNoMCPConfig(t *testing.T) {
 	}
 }
 
+func TestConfigFromMapParsesCamelCaseApprovalPolicyForPermissionMode(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		name   string
+		policy string
+	}{
+		{name: "on failure", policy: "on-failure"},
+		{name: "untrusted", policy: "untrusted"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := configFromMap(map[string]any{"approvalPolicy": tc.policy})
+			args := buildCLIArgs("claude-sonnet", "system", "/tmp/mcp.json", cfg)
+
+			if cfg.ApprovalPolicy != tc.policy {
+				t.Fatalf("ApprovalPolicy = %q, want %q", cfg.ApprovalPolicy, tc.policy)
+			}
+			if !hasArgValue(args, "--permission-mode", "default") {
+				t.Fatalf("args missing secure permission mode for %q: %v", tc.policy, args)
+			}
+			if hasArgValue(args, "--permission-mode", "bypassPermissions") {
+				t.Fatalf("args must not bypass permissions for %q: %v", tc.policy, args)
+			}
+		})
+	}
+}
+
 func TestConfigFromMapParsesBuiltinToolsKeys(t *testing.T) {
 	t.Parallel()
 
