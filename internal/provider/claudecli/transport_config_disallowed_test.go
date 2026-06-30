@@ -10,7 +10,7 @@ import (
 func TestBuildCLIArgsUsesDefaultDisabledNativeToolsByDefault(t *testing.T) {
 	t.Parallel()
 
-	args := buildCLIArgs("claude-sonnet", "system", "/tmp/mcp.json", cliLaunchConfig{})
+	args := mustBuildCLIArgs(t, "claude-sonnet", "system", "/tmp/mcp.json", cliLaunchConfig{})
 	got := flagValues(args, "--disallowedTools")
 	want := []string{"Read,Write,Edit,MultiEdit,Bash,BashOutput,KillShell,Grep,Glob,LS,Agent,AskUserQuestion,CronCreate,CronDelete,CronList,EnterPlanMode,ExitPlanMode,EnterWorktree,ExitWorktree,TodoWrite,ListMcpResources,ReadMcpResource,PushNotification,RemoteTrigger,ScheduleWakeup,SendUserFile,SendUserMessage,SendMessage,Task,TaskCreate,TaskGet,TaskList,TaskOutput,TaskStop,TaskUpdate,TeamCreate,TeamDelete,ToolSearch,WaitForMcpServers,ShareOnboardingGuide"}
 	if !reflect.DeepEqual(got, want) {
@@ -31,7 +31,7 @@ func TestClaudeLaunchEnvUsesConfigDirForNativeSkills(t *testing.T) {
 func TestBuildCLIArgsUsesConfiguredBuiltinToolsAllowlist(t *testing.T) {
 	t.Parallel()
 
-	args := buildCLIArgs("claude-sonnet", "system", "/tmp/mcp.json", cliLaunchConfig{
+	args := mustBuildCLIArgs(t, "claude-sonnet", "system", "/tmp/mcp.json", cliLaunchConfig{
 		BuiltinTools: []string{"WebFetch", "Task"},
 	})
 	got := flagValues(args, "--tools")
@@ -47,7 +47,7 @@ func TestBuildCLIArgsUsesConfiguredBuiltinToolsAllowlist(t *testing.T) {
 func TestBuildCLIArgsRemovesSkillWhenProviderNativeSkillsDisabled(t *testing.T) {
 	t.Parallel()
 
-	args := buildCLIArgs("claude-sonnet", "system", "/tmp/mcp.json", cliLaunchConfig{
+	args := mustBuildCLIArgs(t, "claude-sonnet", "system", "/tmp/mcp.json", cliLaunchConfig{
 		BuiltinTools:                []string{"WebFetch", "Skill", "Task"},
 		DisableProviderNativeSkills: true,
 	})
@@ -64,7 +64,7 @@ func TestBuildCLIArgsRemovesSkillWhenProviderNativeSkillsDisabled(t *testing.T) 
 func TestBuildCLIArgsDisallowsSkillWhenProviderNativeSkillsDisabledWithoutAllowlist(t *testing.T) {
 	t.Parallel()
 
-	args := buildCLIArgs("claude-sonnet", "system", "/tmp/mcp.json", cliLaunchConfig{
+	args := mustBuildCLIArgs(t, "claude-sonnet", "system", "/tmp/mcp.json", cliLaunchConfig{
 		DisableProviderNativeSkills: true,
 	})
 	got := flagValues(args, "--disallowedTools")
@@ -85,7 +85,7 @@ func TestBuildCLIArgsDisallowsSkillWhenProviderNativeSkillsDisabledWithoutAllowl
 func TestBuildCLIArgsUsesEmptyBuiltinToolsAllowlist(t *testing.T) {
 	t.Parallel()
 
-	args := buildCLIArgs("claude-sonnet", "system", "/tmp/mcp.json", cliLaunchConfig{
+	args := mustBuildCLIArgs(t, "claude-sonnet", "system", "/tmp/mcp.json", cliLaunchConfig{
 		BuiltinTools: []string{},
 	})
 	got := flagValues(args, "--tools")
@@ -98,7 +98,7 @@ func TestBuildCLIArgsUsesEmptyBuiltinToolsAllowlist(t *testing.T) {
 func TestBuildCLIArgsHonorsConfiguredDisallowedOverride(t *testing.T) {
 	t.Parallel()
 
-	args := buildCLIArgs("claude-sonnet", "system", "/tmp/mcp.json", cliLaunchConfig{
+	args := mustBuildCLIArgs(t, "claude-sonnet", "system", "/tmp/mcp.json", cliLaunchConfig{
 		DisallowedTools: []string{"Read", "Bash", "WebFetch"},
 	})
 	got := flagValues(args, "--disallowedTools")
@@ -111,7 +111,7 @@ func TestBuildCLIArgsHonorsConfiguredDisallowedOverride(t *testing.T) {
 func TestBuildCLIArgsMergesAdditionalDisallowedToolsWithDefaults(t *testing.T) {
 	t.Parallel()
 
-	args := buildCLIArgs("claude-sonnet", "system", "/tmp/mcp.json", cliLaunchConfig{
+	args := mustBuildCLIArgs(t, "claude-sonnet", "system", "/tmp/mcp.json", cliLaunchConfig{
 		AdditionalDisallowedTools: []string{"Skill(头脑风暴)", "Read", " Skill(编写计划) "},
 	})
 	got := flagValues(args, "--disallowedTools")
@@ -132,7 +132,7 @@ func TestBuildCLIArgsMergesAdditionalDisallowedToolsWithDefaults(t *testing.T) {
 func TestBuildCLIArgsSkipsDisallowedFlagWhenOverrideExplicitlyEmpty(t *testing.T) {
 	t.Parallel()
 
-	args := buildCLIArgs("claude-sonnet", "system", "/tmp/mcp.json", cliLaunchConfig{
+	args := mustBuildCLIArgs(t, "claude-sonnet", "system", "/tmp/mcp.json", cliLaunchConfig{
 		DisallowedTools: []string{},
 	})
 	if got := flagValues(args, "--disallowedTools"); len(got) != 0 {
@@ -143,7 +143,7 @@ func TestBuildCLIArgsSkipsDisallowedFlagWhenOverrideExplicitlyEmpty(t *testing.T
 func TestBuildCLIArgsKeepsHardFilterWhenNoMCPConfig(t *testing.T) {
 	t.Parallel()
 
-	args := buildCLIArgs("claude-sonnet", "system", "", cliLaunchConfig{
+	args := mustBuildCLIArgs(t, "claude-sonnet", "system", "", cliLaunchConfig{
 		DisallowedTools: []string{"Read"},
 	})
 	got := flagValues(args, "--disallowedTools")
@@ -165,7 +165,7 @@ func TestConfigFromMapParsesCamelCaseApprovalPolicyForPermissionMode(t *testing.
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			cfg := configFromMap(map[string]any{"approvalPolicy": tc.policy})
-			args := buildCLIArgs("claude-sonnet", "system", "/tmp/mcp.json", cfg)
+			args := mustBuildCLIArgs(t, "claude-sonnet", "system", "/tmp/mcp.json", cfg)
 
 			if cfg.ApprovalPolicy != tc.policy {
 				t.Fatalf("ApprovalPolicy = %q, want %q", cfg.ApprovalPolicy, tc.policy)

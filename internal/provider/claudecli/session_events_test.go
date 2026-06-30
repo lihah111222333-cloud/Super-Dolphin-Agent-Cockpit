@@ -288,7 +288,7 @@ func TestDriverResumeSessionAppliesRuntimeToolSafetyConfig(t *testing.T) {
 	if !launchedConfig.DisableProviderNativeSkills {
 		t.Fatal("DisableProviderNativeSkills = false, want true")
 	}
-	args := buildCLIArgs("claude-sonnet", "system", "", launchedConfig)
+	args := mustBuildCLIArgs(t, "claude-sonnet", "system", "", launchedConfig)
 	if values := flagValues(args, "--tools"); len(values) != 1 || values[0] != "Read,Task" {
 		t.Fatalf("--tools = %#v from resumed config, want [Read,Task]", values)
 	}

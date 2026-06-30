@@ -202,6 +202,31 @@ describe('ChatPage module', () => {
     expect(screen.getByTestId('chat-action-feedback')).toHaveTextContent('已创建新对话草稿');
   });
 
+  it('shows approval action failures as a visible alert', async () => {
+    const store = createActiveThreadStore([
+      {
+        id: 'approval-1',
+        kind: 'approval',
+        role: 'assistant',
+        requestId: 5,
+        title: 'Run command',
+        text: 'Allow command execution?',
+        time: '2026-06-15T08:00:00Z',
+      },
+    ], {
+      respondApproval: vi.fn().mockRejectedValue(new Error('approval backend offline')),
+    });
+
+    render(<TestChatPageWrapper store={store} projectPath="/repo/app" />);
+    fireEvent.click(screen.getByRole('button', { name: '同意审批 5' }));
+
+    const alert = await screen.findByTestId('approval-action-feedback');
+    expect(alert).toHaveAttribute('role', 'alert');
+    expect(alert).toHaveClass('approval-action-feedback');
+    expect(alert).not.toHaveClass('sr-only');
+    expect(alert).toHaveTextContent('approval backend offline');
+  });
+
   it('keeps the generic title when active thread metadata is missing', () => {
     const store = createFakeStore({
       activeThreadId: 'missing-thread',
