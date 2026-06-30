@@ -114,8 +114,8 @@ describe('MemoryPage dashboard loading', () => {
 });
 
 describe('MemoryPage editor', () => {
-  it('creates a preference memory entry with the upsert payload expected by backendApi', async () => {
-    renderMemoryPage();
+	it('creates a preference memory entry with the upsert payload expected by backendApi', async () => {
+		renderMemoryPage();
 
     expect(await screen.findByText('暂无记忆')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: '+ 新建 ▾' }));
@@ -136,10 +136,54 @@ describe('MemoryPage editor', () => {
         description: '回复时使用中文',
         title: '',
         type: 'feedback',
-        content: '规则\n默认中文回复',
-      });
-    });
-  });
+			content: '规则\n默认中文回复',
+		});
+	});
+	});
+
+	it('blocks editing when detail response omits content', async () => {
+		fetchMemoryDashboard.mockResolvedValue(normalizeMemorySnapshot(memorySnapshot({
+			privateEntries: [{
+				name: 'reply-language',
+				title: '默认中文',
+				description: '回复时使用中文',
+				type: 'feedback',
+				path: 'feedback/reply-language.md',
+				updatedAt: '2026-05-30T08:00:00Z',
+				preview: '规则\n默认中文回复',
+			}],
+		})));
+		backend.getMemoryEntry.mockResolvedValue({
+			target: 'private',
+			path: 'feedback/reply-language.md',
+			name: 'reply-language',
+			description: '回复时使用中文',
+			type: 'feedback',
+		});
+
+		renderMemoryPage();
+
+		const title = await screen.findByText('默认中文');
+		const card = title.closest('article');
+		fireEvent.click(within(card).getByRole('button', { name: '编辑' }));
+
+		await waitFor(() => {
+			expect(screen.getByText(/记忆详情缺少内容/)).toBeInTheDocument();
+		});
+		expect(screen.queryByRole('dialog', { name: '编辑记忆' })).not.toBeInTheDocument();
+		expect(upsertMemoryEntry).not.toHaveBeenCalled();
+	});
+
+	it('passes cwd when toggling auto-dream intent', async () => {
+		backend.setMemoryAutoDreamIntent.mockResolvedValue({ ok: true, enabled: true });
+		renderMemoryPage('/repo/app');
+
+		fireEvent.click(await screen.findByRole('button', { name: '开启' }));
+
+		await waitFor(() => {
+			expect(backend.setMemoryAutoDreamIntent).toHaveBeenCalledWith({ cwd: '/repo/app', enabled: true });
+		});
+	});
 });
 
 describe('MemoryPage consolidation polling', () => {
