@@ -1,6 +1,6 @@
 {
   "workflow_key": "20260630-reasonix-hardening-absorption",
-  "last_updated": "2026-07-01T01:23:56+09:00",
+  "last_updated": "2026-07-01T01:47:32+09:00",
   "overall_status": "done",
   "source_plan": "docs/plans/2026-06-30-reasonix-hardening-absorption-review.md",
   "source_plan_status": "NEEDS_APPROVAL",
@@ -42,8 +42,10 @@
       "dynamic_disabled_tool_filter_merge_commit": "d08c6962",
       "lsp_hint_cleanup_commit": "dfeff4745e957ae6ee94d3f998f20c03f82ecd05",
       "lsp_hint_cleanup_merge_commit": "28aa3e54",
+      "final_review3_scoped_surface_commit": "e82c2300356cef51d3676b7231d77fb083ee2e47",
+      "final_review3_scoped_surface_merge_commit": "29fe8e13",
       "status": "done",
-      "review": "Final review2 dynamic disabled-tool repair remains integrated. User also required six LSP hints to be cleared; dfeff474/28aa3e54 cleaned range-over-int, strings.SplitSeq, strings.CutPrefix, and slices.ContainsFunc/Contains hints. Final gates passed on 28aa3e54."
+      "review": "Final review2 dynamic disabled-tool repair remains integrated. User also required six LSP hints to be cleared; dfeff474/28aa3e54 cleaned range-over-int, strings.SplitSeq, strings.CutPrefix, and slices.ContainsFunc/Contains hints. Final-review3 then found Bacon P1 scoped missing-surface fallback and Turing P2 remaining history_rollout.go strings.Index hint; e82c230 fixed both, and 29fe8e13 is the latest code verification head."
     },
     "B1-sessionpaths-core": {
       "agent_id": "019f1868-b4b7-7e41-9b42-2f5ce1e7d2f0",
@@ -75,9 +77,15 @@
       "explicit_read_only_launch_field_merge_commit": "73fe7f12",
       "dynamic_disabled_tool_filter_merge_commit": "d08c6962",
       "lsp_hint_cleanup_merge_commit": "28aa3e54",
-      "final_code_verification_head": "28aa3e54bcfa6b71bc5d83e859d96b3938c69016",
+      "previous_docs_sync_head": "ba18c2e7d54a245f3f0b7bc0b42fd388a42fb051",
+      "final_review3_target_head": "ba18c2e7d54a245f3f0b7bc0b42fd388a42fb051",
+      "scoped_surface_missing_surface_commit": "e82c2300356cef51d3676b7231d77fb083ee2e47",
+      "scoped_surface_missing_surface_merge_commit": "29fe8e13",
+      "final_code_verification_head": "29fe8e130ed35716e8cae11698b281bd0601823d",
+      "final_integration_head": "pending_this_docs_commit",
+      "final_integration_head_note": "ba18c2e7 was the previous docs sync head reviewed by final-review3; 29fe8e13 is the latest code verification head after merging e82c230; this round6 docs commit is the final workflow sync head, but its own SHA cannot be precomputed inside the commit.",
       "status": "done",
-      "review": "A3 round2, docs round2, R1/R2 P1 repairs, dynamic disabled-tool repair, and LSP hint cleanup are integrated; fresh controller gates passed on code verification head 28aa3e54. This docs-only status commit keeps workflow state synchronized after those gates."
+      "review": "A3 round2, docs round2, R1/R2 P1 repairs, dynamic disabled-tool repair, LSP hint cleanup, and final-review3 scoped missing-surface repair are integrated; fresh controller gates passed on code verification head 29fe8e13. This round6 docs-only commit is the final workflow sync head after those gates."
     }
   },
   "next_actions": [
