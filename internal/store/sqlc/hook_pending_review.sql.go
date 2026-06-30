@@ -7,6 +7,7 @@ package sqlc
 
 import (
 	"context"
+	"encoding/json"
 )
 
 const cancelExpiredHookReviews = `-- name: CancelExpiredHookReviews :execrows
@@ -86,7 +87,7 @@ func (q *Queries) CheckHookReviewIdempotency(ctx context.Context, arg CheckHookR
 }
 
 const getHookPendingReview = `-- name: GetHookPendingReview :one
-SELECT hook_call_id, topic, agent_id, subscriber_lease, default_action,
+SELECT hook_call_id, topic, agent_id, thread_id, turn_id, subscriber_lease, payload, default_action,
        status, created_at, deadline_at
 FROM hook_pending_reviews
 WHERE hook_call_id = ? AND status = 'pending'
@@ -97,14 +98,17 @@ type GetHookPendingReviewParams struct {
 }
 
 type GetHookPendingReviewRow struct {
-	HookCallID      string `db:"hook_call_id" json:"hook_call_id"`
-	Topic           string `db:"topic" json:"topic"`
-	AgentID         string `db:"agent_id" json:"agent_id"`
-	SubscriberLease string `db:"subscriber_lease" json:"subscriber_lease"`
-	DefaultAction   string `db:"default_action" json:"default_action"`
-	Status          string `db:"status" json:"status"`
-	CreatedAt       int64  `db:"created_at" json:"created_at"`
-	DeadlineAt      int64  `db:"deadline_at" json:"deadline_at"`
+	HookCallID      string          `db:"hook_call_id" json:"hook_call_id"`
+	Topic           string          `db:"topic" json:"topic"`
+	AgentID         string          `db:"agent_id" json:"agent_id"`
+	ThreadID        string          `db:"thread_id" json:"thread_id"`
+	TurnID          string          `db:"turn_id" json:"turn_id"`
+	SubscriberLease string          `db:"subscriber_lease" json:"subscriber_lease"`
+	Payload         json.RawMessage `db:"payload" json:"payload"`
+	DefaultAction   string          `db:"default_action" json:"default_action"`
+	Status          string          `db:"status" json:"status"`
+	CreatedAt       int64           `db:"created_at" json:"created_at"`
+	DeadlineAt      int64           `db:"deadline_at" json:"deadline_at"`
 }
 
 func (q *Queries) GetHookPendingReview(ctx context.Context, arg GetHookPendingReviewParams) (GetHookPendingReviewRow, error) {
@@ -114,7 +118,54 @@ func (q *Queries) GetHookPendingReview(ctx context.Context, arg GetHookPendingRe
 		&i.HookCallID,
 		&i.Topic,
 		&i.AgentID,
+		&i.ThreadID,
+		&i.TurnID,
 		&i.SubscriberLease,
+		&i.Payload,
+		&i.DefaultAction,
+		&i.Status,
+		&i.CreatedAt,
+		&i.DeadlineAt,
+	)
+	return i, err
+}
+
+const getHookPendingReviewForSave = `-- name: GetHookPendingReviewForSave :one
+SELECT hook_call_id, topic, agent_id, thread_id, turn_id, subscriber_lease, payload, default_action,
+       status, created_at, deadline_at
+FROM hook_pending_reviews
+WHERE hook_call_id = ?
+`
+
+type GetHookPendingReviewForSaveParams struct {
+	HookCallID string `db:"hook_call_id" json:"hook_call_id"`
+}
+
+type GetHookPendingReviewForSaveRow struct {
+	HookCallID      string          `db:"hook_call_id" json:"hook_call_id"`
+	Topic           string          `db:"topic" json:"topic"`
+	AgentID         string          `db:"agent_id" json:"agent_id"`
+	ThreadID        string          `db:"thread_id" json:"thread_id"`
+	TurnID          string          `db:"turn_id" json:"turn_id"`
+	SubscriberLease string          `db:"subscriber_lease" json:"subscriber_lease"`
+	Payload         json.RawMessage `db:"payload" json:"payload"`
+	DefaultAction   string          `db:"default_action" json:"default_action"`
+	Status          string          `db:"status" json:"status"`
+	CreatedAt       int64           `db:"created_at" json:"created_at"`
+	DeadlineAt      int64           `db:"deadline_at" json:"deadline_at"`
+}
+
+func (q *Queries) GetHookPendingReviewForSave(ctx context.Context, arg GetHookPendingReviewForSaveParams) (GetHookPendingReviewForSaveRow, error) {
+	row := q.db.QueryRowContext(ctx, getHookPendingReviewForSave, arg.HookCallID)
+	var i GetHookPendingReviewForSaveRow
+	err := row.Scan(
+		&i.HookCallID,
+		&i.Topic,
+		&i.AgentID,
+		&i.ThreadID,
+		&i.TurnID,
+		&i.SubscriberLease,
+		&i.Payload,
 		&i.DefaultAction,
 		&i.Status,
 		&i.CreatedAt,
@@ -147,7 +198,7 @@ func (q *Queries) GetHookResolvedReview(ctx context.Context, arg GetHookResolved
 }
 
 const listHookPendingReviewsByAgent = `-- name: ListHookPendingReviewsByAgent :many
-SELECT hook_call_id, topic, agent_id, subscriber_lease, default_action,
+SELECT hook_call_id, topic, agent_id, thread_id, turn_id, subscriber_lease, payload, default_action,
        status, created_at, deadline_at
 FROM hook_pending_reviews
 WHERE agent_id = ? AND status = 'pending'
@@ -159,14 +210,17 @@ type ListHookPendingReviewsByAgentParams struct {
 }
 
 type ListHookPendingReviewsByAgentRow struct {
-	HookCallID      string `db:"hook_call_id" json:"hook_call_id"`
-	Topic           string `db:"topic" json:"topic"`
-	AgentID         string `db:"agent_id" json:"agent_id"`
-	SubscriberLease string `db:"subscriber_lease" json:"subscriber_lease"`
-	DefaultAction   string `db:"default_action" json:"default_action"`
-	Status          string `db:"status" json:"status"`
-	CreatedAt       int64  `db:"created_at" json:"created_at"`
-	DeadlineAt      int64  `db:"deadline_at" json:"deadline_at"`
+	HookCallID      string          `db:"hook_call_id" json:"hook_call_id"`
+	Topic           string          `db:"topic" json:"topic"`
+	AgentID         string          `db:"agent_id" json:"agent_id"`
+	ThreadID        string          `db:"thread_id" json:"thread_id"`
+	TurnID          string          `db:"turn_id" json:"turn_id"`
+	SubscriberLease string          `db:"subscriber_lease" json:"subscriber_lease"`
+	Payload         json.RawMessage `db:"payload" json:"payload"`
+	DefaultAction   string          `db:"default_action" json:"default_action"`
+	Status          string          `db:"status" json:"status"`
+	CreatedAt       int64           `db:"created_at" json:"created_at"`
+	DeadlineAt      int64           `db:"deadline_at" json:"deadline_at"`
 }
 
 func (q *Queries) ListHookPendingReviewsByAgent(ctx context.Context, arg ListHookPendingReviewsByAgentParams) ([]ListHookPendingReviewsByAgentRow, error) {
@@ -182,7 +236,10 @@ func (q *Queries) ListHookPendingReviewsByAgent(ctx context.Context, arg ListHoo
 			&i.HookCallID,
 			&i.Topic,
 			&i.AgentID,
+			&i.ThreadID,
+			&i.TurnID,
 			&i.SubscriberLease,
+			&i.Payload,
 			&i.DefaultAction,
 			&i.Status,
 			&i.CreatedAt,
@@ -202,7 +259,7 @@ func (q *Queries) ListHookPendingReviewsByAgent(ctx context.Context, arg ListHoo
 }
 
 const recoverHookPendingReviews = `-- name: RecoverHookPendingReviews :many
-SELECT hook_call_id, topic, agent_id, subscriber_lease, default_action,
+SELECT hook_call_id, topic, agent_id, thread_id, turn_id, subscriber_lease, payload, default_action,
        status, created_at, deadline_at
 FROM hook_pending_reviews
 WHERE status = 'pending'
@@ -210,14 +267,17 @@ ORDER BY deadline_at ASC
 `
 
 type RecoverHookPendingReviewsRow struct {
-	HookCallID      string `db:"hook_call_id" json:"hook_call_id"`
-	Topic           string `db:"topic" json:"topic"`
-	AgentID         string `db:"agent_id" json:"agent_id"`
-	SubscriberLease string `db:"subscriber_lease" json:"subscriber_lease"`
-	DefaultAction   string `db:"default_action" json:"default_action"`
-	Status          string `db:"status" json:"status"`
-	CreatedAt       int64  `db:"created_at" json:"created_at"`
-	DeadlineAt      int64  `db:"deadline_at" json:"deadline_at"`
+	HookCallID      string          `db:"hook_call_id" json:"hook_call_id"`
+	Topic           string          `db:"topic" json:"topic"`
+	AgentID         string          `db:"agent_id" json:"agent_id"`
+	ThreadID        string          `db:"thread_id" json:"thread_id"`
+	TurnID          string          `db:"turn_id" json:"turn_id"`
+	SubscriberLease string          `db:"subscriber_lease" json:"subscriber_lease"`
+	Payload         json.RawMessage `db:"payload" json:"payload"`
+	DefaultAction   string          `db:"default_action" json:"default_action"`
+	Status          string          `db:"status" json:"status"`
+	CreatedAt       int64           `db:"created_at" json:"created_at"`
+	DeadlineAt      int64           `db:"deadline_at" json:"deadline_at"`
 }
 
 func (q *Queries) RecoverHookPendingReviews(ctx context.Context) ([]RecoverHookPendingReviewsRow, error) {
@@ -233,7 +293,10 @@ func (q *Queries) RecoverHookPendingReviews(ctx context.Context) ([]RecoverHookP
 			&i.HookCallID,
 			&i.Topic,
 			&i.AgentID,
+			&i.ThreadID,
+			&i.TurnID,
 			&i.SubscriberLease,
+			&i.Payload,
 			&i.DefaultAction,
 			&i.Status,
 			&i.CreatedAt,
@@ -282,36 +345,45 @@ func (q *Queries) ResolveHookPendingReview(ctx context.Context, arg ResolveHookP
 	return result.RowsAffected()
 }
 
-const saveHookPendingReview = `-- name: SaveHookPendingReview :exec
+const saveHookPendingReview = `-- name: SaveHookPendingReview :execrows
 
 INSERT INTO hook_pending_reviews (
-    hook_call_id, topic, agent_id, subscriber_lease, default_action,
+    hook_call_id, topic, agent_id, thread_id, turn_id, subscriber_lease, payload, default_action,
     status, created_at, deadline_at
-) VALUES (?, ?, ?, ?, ?, 'pending', ?, ?)
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?)
 ON CONFLICT (hook_call_id) DO NOTHING
 `
 
 type SaveHookPendingReviewParams struct {
-	HookCallID      string `db:"hook_call_id" json:"hook_call_id"`
-	Topic           string `db:"topic" json:"topic"`
-	AgentID         string `db:"agent_id" json:"agent_id"`
-	SubscriberLease string `db:"subscriber_lease" json:"subscriber_lease"`
-	DefaultAction   string `db:"default_action" json:"default_action"`
-	CreatedAt       int64  `db:"created_at" json:"created_at"`
-	DeadlineAt      int64  `db:"deadline_at" json:"deadline_at"`
+	HookCallID      string          `db:"hook_call_id" json:"hook_call_id"`
+	Topic           string          `db:"topic" json:"topic"`
+	AgentID         string          `db:"agent_id" json:"agent_id"`
+	ThreadID        string          `db:"thread_id" json:"thread_id"`
+	TurnID          string          `db:"turn_id" json:"turn_id"`
+	SubscriberLease string          `db:"subscriber_lease" json:"subscriber_lease"`
+	Payload         json.RawMessage `db:"payload" json:"payload"`
+	DefaultAction   string          `db:"default_action" json:"default_action"`
+	CreatedAt       int64           `db:"created_at" json:"created_at"`
+	DeadlineAt      int64           `db:"deadline_at" json:"deadline_at"`
 }
 
 // hook_pending_review.sql - sqlc queries for hook_pending_reviews table.
 // Migrated from internal/store/hookstore/hookstore.go raw SQL.
-func (q *Queries) SaveHookPendingReview(ctx context.Context, arg SaveHookPendingReviewParams) error {
-	_, err := q.db.ExecContext(ctx, saveHookPendingReview,
+func (q *Queries) SaveHookPendingReview(ctx context.Context, arg SaveHookPendingReviewParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, saveHookPendingReview,
 		arg.HookCallID,
 		arg.Topic,
 		arg.AgentID,
+		arg.ThreadID,
+		arg.TurnID,
 		arg.SubscriberLease,
+		arg.Payload,
 		arg.DefaultAction,
 		arg.CreatedAt,
 		arg.DeadlineAt,
 	)
-	return err
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
 }

@@ -1,7 +1,10 @@
 package hookstore
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
+	"fmt"
 	"time"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
@@ -14,7 +17,8 @@ import (
 var _ contract.HookReviewStore = (*store)(nil)
 
 type querier interface {
-	SaveHookPendingReview(ctx context.Context, arg sqlc.SaveHookPendingReviewParams) error
+	SaveHookPendingReview(ctx context.Context, arg sqlc.SaveHookPendingReviewParams) (int64, error)
+	GetHookPendingReviewForSave(ctx context.Context, arg sqlc.GetHookPendingReviewForSaveParams) (sqlc.GetHookPendingReviewForSaveRow, error)
 	GetHookPendingReview(ctx context.Context, arg sqlc.GetHookPendingReviewParams) (sqlc.GetHookPendingReviewRow, error)
 	ListHookPendingReviewsByAgent(ctx context.Context, arg sqlc.ListHookPendingReviewsByAgentParams) ([]sqlc.ListHookPendingReviewsByAgentRow, error)
 	CheckHookReviewIdempotency(ctx context.Context, arg sqlc.CheckHookReviewIdempotencyParams) (int64, error)
@@ -47,16 +51,36 @@ func newStoreForTest(q querier) *store {
 // SavePendingReview 保存等待人工决策的 hook review。
 // hookCallID 是幂等和后续恢复的主键，deadline 用于超时自动落到默认动作。
 func (s *store) SavePendingReview(ctx context.Context, review mcp.PendingHookReview) error {
-	err := s.q.SaveHookPendingReview(ctx, sqlc.SaveHookPendingReviewParams{
+	payload, err := normalizeHookReviewPayload(review.Payload)
+	if err != nil {
+		return wrapErr(err, "save.validate")
+	}
+	rows, err := s.q.SaveHookPendingReview(ctx, sqlc.SaveHookPendingReviewParams{
 		HookCallID:      review.HookCallID,
 		Topic:           review.Topic,
 		AgentID:         review.AgentID,
+		ThreadID:        review.ThreadID,
+		TurnID:          review.TurnID,
 		SubscriberLease: review.SubscriberLease,
+		Payload:         payload,
 		DefaultAction:   review.DefaultAction,
 		CreatedAt:       toMS(review.CreatedAt),
 		DeadlineAt:      toMS(review.DeadlineAt),
 	})
-	return wrapErr(err, "save")
+	if err != nil {
+		return wrapErr(err, "save")
+	}
+	if rows > 0 {
+		return nil
+	}
+	existing, err := s.q.GetHookPendingReviewForSave(ctx, sqlc.GetHookPendingReviewForSaveParams{HookCallID: review.HookCallID})
+	if err != nil {
+		return wrapErr(err, "save.conflict_read")
+	}
+	if hookPendingReviewSaveParamsMatch(existing, review, payload) {
+		return nil
+	}
+	return wrapErr(fmt.Errorf("%w: hook_call_id=%s", contract.ErrHookReviewConflict, review.HookCallID), "save.conflict")
 }
 
 // GetPendingReview 按 hookCallID 读取仍处于 pending 状态的 review。
@@ -187,7 +211,10 @@ func pendingFromGet(row sqlc.GetHookPendingReviewRow) mcp.PendingHookReview {
 		HookCallID:      row.HookCallID,
 		Topic:           row.Topic,
 		AgentID:         row.AgentID,
+		ThreadID:        row.ThreadID,
+		TurnID:          row.TurnID,
 		SubscriberLease: row.SubscriberLease,
+		Payload:         row.Payload,
 		DefaultAction:   row.DefaultAction,
 		CreatedAt:       fromMS(row.CreatedAt),
 		DeadlineAt:      fromMS(row.DeadlineAt),
@@ -199,7 +226,10 @@ func pendingFromList(row sqlc.ListHookPendingReviewsByAgentRow) mcp.PendingHookR
 		HookCallID:      row.HookCallID,
 		Topic:           row.Topic,
 		AgentID:         row.AgentID,
+		ThreadID:        row.ThreadID,
+		TurnID:          row.TurnID,
 		SubscriberLease: row.SubscriberLease,
+		Payload:         row.Payload,
 		DefaultAction:   row.DefaultAction,
 		CreatedAt:       fromMS(row.CreatedAt),
 		DeadlineAt:      fromMS(row.DeadlineAt),
@@ -211,11 +241,45 @@ func pendingFromRecover(row sqlc.RecoverHookPendingReviewsRow) mcp.PendingHookRe
 		HookCallID:      row.HookCallID,
 		Topic:           row.Topic,
 		AgentID:         row.AgentID,
+		ThreadID:        row.ThreadID,
+		TurnID:          row.TurnID,
 		SubscriberLease: row.SubscriberLease,
+		Payload:         row.Payload,
 		DefaultAction:   row.DefaultAction,
 		CreatedAt:       fromMS(row.CreatedAt),
 		DeadlineAt:      fromMS(row.DeadlineAt),
 	}
+}
+
+func normalizeHookReviewPayload(payload json.RawMessage) (json.RawMessage, error) {
+	if len(payload) == 0 {
+		return nil, fmt.Errorf("hook pending review payload is required")
+	}
+	var compacted bytes.Buffer
+	if err := json.Compact(&compacted, payload); err != nil {
+		return nil, fmt.Errorf("hook pending review payload must be valid JSON: %w", err)
+	}
+	return json.RawMessage(compacted.Bytes()), nil
+}
+
+// hookPendingReviewSaveParamsMatch 校验重复保存是否真的是同参幂等。
+// 任何会改变复核上下文、租约、默认动作或 payload 的冲突都不能被 ON CONFLICT 吞掉。
+func hookPendingReviewSaveParamsMatch(row sqlc.GetHookPendingReviewForSaveRow, review mcp.PendingHookReview, payload json.RawMessage) bool {
+	if row.Status != "pending" {
+		return false
+	}
+	existingPayload, err := normalizeHookReviewPayload(row.Payload)
+	if err != nil {
+		return false
+	}
+	return row.HookCallID == review.HookCallID &&
+		row.Topic == review.Topic &&
+		row.AgentID == review.AgentID &&
+		row.ThreadID == review.ThreadID &&
+		row.TurnID == review.TurnID &&
+		row.SubscriberLease == review.SubscriberLease &&
+		row.DefaultAction == review.DefaultAction &&
+		bytes.Equal(existingPayload, payload)
 }
 
 func toMS(t time.Time) int64 {

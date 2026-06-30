@@ -1,7 +1,9 @@
 package codexapp
 
 import (
+	"bytes"
 	"encoding/json"
+	"fmt"
 	"regexp"
 	"strconv"
 	"strings"
@@ -50,22 +52,26 @@ func buildToolApprovalHeader(payload map[string]any) shareddto.ToolApprovalHeade
 // 未识别事件只在排除 token usage、重试进度和已知噪声后告警，避免日志被高频流事件淹没。
 func translateCodexEvent(raw dto.RawProviderEvent, publish func(ev any)) {
 	eventType := strings.TrimSpace(raw.EventType)
-	payload := decodeAnyPayload(raw.Data)
+	payload, err := decodeRawEventPayload(raw.Data)
+	if err != nil {
+		pkglogger.Get().Warn("codexapp: invalid raw event payload", "raw_type", eventType, "error", err, "payload_metadata", raw.SanitizedCopy().Data)
+		return
+	}
 	unified.PublishUITokensUpdated(payload, publish)
 	if ev, ok := translateAgentEvent(eventType, payload); ok {
-		publish(ev)
+		publishCodexTranslatedEvent(eventType, ev, publish)
 		return
 	}
 	if ev, ok := translateTurnEvent(eventType, payload); ok {
-		publish(ev)
+		publishCodexTranslatedEvent(eventType, ev, publish)
 		return
 	}
 	if ev, ok := translateCodexRolloutToolEvent(eventType, payload); ok {
-		publish(ev)
+		publishCodexTranslatedEvent(eventType, ev, publish)
 		return
 	}
 	if ev, ok := translateToolEvent(eventType, payload); ok {
-		publish(ev)
+		publishCodexTranslatedEvent(eventType, ev, publish)
 		return
 	}
 	if logCodexMCPStartupStatus(eventType, payload) {
@@ -74,6 +80,149 @@ func translateCodexEvent(raw dto.RawProviderEvent, publish func(ev any)) {
 	if shouldWarnUnknownRawEvent(eventType, payload) {
 		pkglogger.Get().Warn("codexapp: unknown raw event", "raw_type", eventType, "payload_metadata", raw.SanitizedCopy().Data)
 	}
+}
+
+func publishCodexTranslatedEvent(eventType string, ev any, publish func(ev any)) {
+	if err := validateCodexTranslatedEventIDs(eventType, ev); err != nil {
+		pkglogger.Get().Warn("codexapp: invalid translated event", "raw_type", eventType, "error", err)
+		return
+	}
+	publish(ev)
+}
+
+// validateCodexTranslatedEventIDs 在事件发布前阻断缺少关键 ID 的 DTO。
+// 这里保持 fail-fast 记录并丢弃坏事件，避免坏 JSON 或缺 ID 被转换成零值 DTO 写入下游。
+func validateCodexTranslatedEventIDs(eventType string, ev any) error {
+	if err, ok := validateCodexAgentEventIDs(ev); ok {
+		return err
+	}
+	if err, ok := validateCodexTurnEventIDs(ev); ok {
+		return err
+	}
+	if err, ok := validateCodexToolEventIDs(eventType, ev); ok {
+		return err
+	}
+	return nil
+}
+
+// validateCodexAgentEventIDs 校验 agent 级事件必须带 agent_id 和 thread_id。
+// 返回的 bool 表示当前事件是否属于 agent 分类，方便主校验函数保持低复杂度。
+func validateCodexAgentEventIDs(ev any) (error, bool) {
+	switch typed := ev.(type) {
+	case agentdto.AgentLaunched:
+		return validateAgentSessionHeader(typed.AgentSessionHeader), true
+	case agentdto.StateChanged:
+		return validateAgentSessionHeader(typed.AgentSessionHeader), true
+	case agentdto.AgentStopped:
+		return validateAgentSessionHeader(typed.AgentSessionHeader), true
+	case agentdto.AgentRecovering:
+		return validateAgentSessionHeader(typed.AgentSessionHeader), true
+	case agentdto.AgentFailed:
+		return validateAgentSessionHeader(typed.AgentSessionHeader), true
+	default:
+		return nil, false
+	}
+}
+
+// validateCodexTurnEventIDs 校验 turn 级事件必须保留完整线程和轮次上下文。
+func validateCodexTurnEventIDs(ev any) (error, bool) {
+	switch typed := ev.(type) {
+	case turndto.TurnStarted:
+		return validateTurnHeader(typed.TurnHeader), true
+	case turndto.TurnCompleted:
+		return validateTurnHeader(typed.TurnHeader), true
+	case turndto.TurnInterrupted:
+		return validateTurnHeader(typed.TurnHeader), true
+	case turndto.TurnOutputDelta:
+		return validateTurnHeader(typed.TurnHeader), true
+	default:
+		return nil, false
+	}
+}
+
+// validateCodexToolEventIDs 校验工具事件必须带调用上下文。
+// tool diff 事件没有通用 ToolCallHeader，单独校验 agent/thread 边界。
+func validateCodexToolEventIDs(eventType string, ev any) (error, bool) {
+	switch typed := ev.(type) {
+	case tooldto.ToolCallBegin:
+		return validateToolCallHeaderForEvent(eventType, typed.ToolCallHeader), true
+	case tooldto.ToolCallEnd:
+		return validateToolCallHeaderForEvent(eventType, typed.ToolCallHeader), true
+	case tooldto.ToolApprovalRequested:
+		return validateToolCallHeader(typed.ToolCallHeader), true
+	case tooldto.ToolApprovalResolved:
+		return validateToolCallHeader(typed.ToolCallHeader), true
+	case tooldto.ToolDiffUpdated:
+		return validateToolDiffUpdatedIDs(typed), true
+	default:
+		return nil, false
+	}
+}
+
+// validateToolCallHeaderForEvent 校验工具事件头；rollout 工具帧可能没有 turn_id。
+// 这类事件仍必须带 agent/thread/call/tool，不能发布完全零值的工具 DTO。
+func validateToolCallHeaderForEvent(eventType string, header shareddto.ToolCallHeader) error {
+	if isCodexRolloutToolEventType(eventType) && strings.TrimSpace(header.TurnID) == "" {
+		return validateRolloutToolCallHeader(header)
+	}
+	return validateToolCallHeader(header)
+}
+
+// validateRolloutToolCallHeader 校验 Codex rollout 工具帧的最小可追踪 ID。
+func validateRolloutToolCallHeader(header shareddto.ToolCallHeader) error {
+	if err := validateAgentSessionHeader(shareddto.AgentSessionHeader{AgentHeader: header.AgentHeader}); err != nil {
+		return err
+	}
+	if strings.TrimSpace(header.CallID) == "" {
+		return fmt.Errorf("call_id is required")
+	}
+	if strings.TrimSpace(header.ToolName) == "" {
+		return fmt.Errorf("tool_name is required")
+	}
+	return nil
+}
+
+func validateToolDiffUpdatedIDs(event tooldto.ToolDiffUpdated) error {
+	if strings.TrimSpace(event.ThreadID) == "" {
+		return fmt.Errorf("thread_id is required")
+	}
+	if strings.TrimSpace(event.AgentID) == "" {
+		return fmt.Errorf("agent_id is required")
+	}
+	return nil
+}
+
+func validateAgentSessionHeader(header shareddto.AgentSessionHeader) error {
+	if strings.TrimSpace(header.AgentID) == "" {
+		return fmt.Errorf("agent_id is required")
+	}
+	if strings.TrimSpace(header.ThreadID) == "" {
+		return fmt.Errorf("thread_id is required")
+	}
+	return nil
+}
+
+func validateTurnHeader(header shareddto.TurnHeader) error {
+	if err := validateAgentSessionHeader(shareddto.AgentSessionHeader{AgentHeader: header.AgentHeader}); err != nil {
+		return err
+	}
+	if strings.TrimSpace(header.TurnID) == "" {
+		return fmt.Errorf("turn_id is required")
+	}
+	return nil
+}
+
+func validateToolCallHeader(header shareddto.ToolCallHeader) error {
+	if err := validateTurnHeader(header.TurnHeader); err != nil {
+		return err
+	}
+	if strings.TrimSpace(header.CallID) == "" {
+		return fmt.Errorf("call_id is required")
+	}
+	if strings.TrimSpace(header.ToolName) == "" {
+		return fmt.Errorf("tool_name is required")
+	}
+	return nil
 }
 
 // logCodexMCPStartupStatus 将 Codex MCP server 启动状态降噪写入日志。
@@ -357,24 +506,54 @@ func translateToolEvent(eventType string, payload map[string]any) (any, bool) {
 	}
 }
 
-func decodeAnyPayload(data any) map[string]any {
+func decodeRawEventPayload(data any) (map[string]any, error) {
 	switch value := data.(type) {
 	case map[string]any:
-		return value
+		return value, nil
 	case json.RawMessage:
-		return decodeEventPayload(value)
+		return decodeRawEventPayloadBytes(value)
 	case []byte:
-		return decodeEventPayload(value)
+		return decodeRawEventPayloadBytes(value)
 	default:
 		raw, err := json.Marshal(value)
 		if err != nil {
-			return nil
+			return nil, fmt.Errorf("marshal raw payload: %w", err)
 		}
-		return decodeEventPayload(raw)
+		return decodeRawEventPayloadBytes(raw)
 	}
 }
 
-func decodeEventPayload(raw []byte) map[string]any { return decodeJSONMap(raw) }
+func decodeRawEventPayloadBytes(raw []byte) (map[string]any, error) {
+	if len(bytes.TrimSpace(raw)) == 0 {
+		return nil, fmt.Errorf("raw payload is empty")
+	}
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	decoder.UseNumber()
+	var payload map[string]any
+	if err := decoder.Decode(&payload); err != nil {
+		return nil, fmt.Errorf("decode raw payload JSON object: %w", err)
+	}
+	if payload == nil {
+		return nil, fmt.Errorf("raw payload must be a JSON object")
+	}
+	return payload, nil
+}
+
+func decodeAnyPayload(data any) map[string]any {
+	payload, err := decodeRawEventPayload(data)
+	if err != nil {
+		return nil
+	}
+	return payload
+}
+
+func decodeEventPayload(raw []byte) map[string]any {
+	payload, err := decodeRawEventPayloadBytes(raw)
+	if err != nil {
+		return nil
+	}
+	return payload
+}
 
 // encodeEventPayload 将可变 payload 重新编码为 json.RawMessage 后再分发。
 // onNotification 会在 terminal event 前注入已累积的 message 输出；编码失败时保留原始 raw，避免丢弃事件本身。

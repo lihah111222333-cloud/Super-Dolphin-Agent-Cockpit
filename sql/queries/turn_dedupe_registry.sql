@@ -19,8 +19,8 @@ ON CONFLICT (dedupe_key) DO UPDATE SET
                           ELSE EXCLUDED.thread_id
                        END,
     provider_turn_id = turn_dedupe_registry.provider_turn_id,
-    updated_at       = EXCLUDED.updated_at,
-    terminal_at      = NULL;
+    updated_at       = EXCLUDED.updated_at
+WHERE turn_dedupe_registry.terminal_at IS NULL;
 
 -- name: BindTurnDedupeProviderID :exec
 UPDATE turn_dedupe_registry
