@@ -26,6 +26,7 @@ func TestInterruptCancelsPendingRestart(t *testing.T) {
 		launchCLI:       launchFn,
 		suppressedTurns: map[string]struct{}{},
 		model:           "claude-old",
+		config:          cliLaunchConfig{PromptSnapshot: validResumePromptSnapshotForTest()},
 	})
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()

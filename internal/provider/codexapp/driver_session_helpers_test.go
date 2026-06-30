@@ -42,6 +42,10 @@ func mustCanonicalAppManagedCodexHome(t *testing.T, home string) string {
 	return wantHome
 }
 
+func validStartAssemblyForTest() dto.StartAssembly {
+	return dto.StartAssembly{BaseInstructions: "test base instructions"}
+}
+
 func canonicalCodexHomeResult(method, wantHome string) json.RawMessage {
 	switch method {
 	case "initialize":

@@ -258,6 +258,15 @@ func TestComposeLaunchSystemPromptUsesPromptAssemblySnapshot(t *testing.T) {
 	}
 }
 
+func TestBuildCLIArgsDoesNotFallbackSystemPromptWhenPromptEmpty(t *testing.T) {
+	t.Parallel()
+
+	args := buildCLIArgs("claude-sonnet", "", "", cliLaunchConfig{})
+	if got := flagValues(args, "--system-prompt"); len(got) != 0 {
+		t.Fatalf("flagValues(--system-prompt) = %#v, want no fallback prompt", got)
+	}
+}
+
 func TestBuildCLIArgsSplitsBoundaryBlocksIntoRepeatedSystemPrompts(t *testing.T) {
 	t.Parallel()
 

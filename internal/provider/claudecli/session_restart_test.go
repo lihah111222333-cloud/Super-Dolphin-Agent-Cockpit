@@ -331,6 +331,7 @@ func TestRestartIfNeededLockedRebuildsReadyAndPreservesIDs(t *testing.T) {
 		transport:       closedTransport(),
 		suppressedTurns: map[string]struct{}{"old-turn": {}},
 		model:           "claude-old",
+		config:          cliLaunchConfig{PromptSnapshot: validResumePromptSnapshotForTest()},
 		launchCLI:       launchFn,
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), restartTestTimeout)
@@ -374,6 +375,7 @@ func TestRestartIfNeededLockedKeepsEarlyReadyEvent(t *testing.T) {
 		transport:       closedTransport(),
 		suppressedTurns: map[string]struct{}{},
 		model:           "claude-old",
+		config:          cliLaunchConfig{PromptSnapshot: validResumePromptSnapshotForTest()},
 		launchCLI:       launchFn,
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), restartTestTimeout)
@@ -417,6 +419,7 @@ func TestStartTurnBlocksConcurrentSubmitUntilRestartReady(t *testing.T) {
 		transport:       closedTransport(),
 		suppressedTurns: map[string]struct{}{},
 		model:           "claude-old",
+		config:          cliLaunchConfig{PromptSnapshot: validResumePromptSnapshotForTest()},
 		launchCLI:       launchFn,
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), restartTestTimeout)

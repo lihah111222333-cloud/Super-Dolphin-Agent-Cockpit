@@ -9,6 +9,29 @@ import (
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
 )
 
+func TestDriverStartSessionFailsFastWhenPromptAssemblyEmpty(t *testing.T) {
+	var launched bool
+	launchFn := overrideLaunchCLI(t, func(string, string, string, string, cliLaunchConfig, dto.MCPManifest, string) (*transport, func(), error) {
+		launched = true
+		return nil, nil, nil
+	})
+
+	d := newDriver(nil, nil, nil, nil, nil, nil, &recordingMirrorReconciler{}, nil).(*driver)
+	d.launchCLI = launchFn
+	d.authStatus = loggedInClaudeAuthStatus
+	_, err := d.StartSession(context.Background(), dto.StartSessionRequest{
+		Provider: "claude",
+		AgentID:  "agent-empty-prompt",
+		CWD:      t.TempDir(),
+	})
+	if err == nil || !strings.Contains(err.Error(), "start prompt assembly is empty") {
+		t.Fatalf("StartSession() error = %v, want empty start prompt assembly error", err)
+	}
+	if launched {
+		t.Fatal("launchCLI was called with empty prompt assembly")
+	}
+}
+
 func TestDriverStartSessionFailsFastWhenClaudeAuthMissing(t *testing.T) {
 	var launched bool
 	launchFn := overrideLaunchCLI(t, func(string, string, string, string, cliLaunchConfig, dto.MCPManifest, string) (*transport, func(), error) {
@@ -22,9 +45,10 @@ func TestDriverStartSessionFailsFastWhenClaudeAuthMissing(t *testing.T) {
 		return claudeAuthStatus{LoggedIn: false, AuthMethod: "none", APIProvider: "firstParty"}, `{"loggedIn":false}`, nil
 	}
 	_, err := d.StartSession(context.Background(), dto.StartSessionRequest{
-		Provider: "claude",
-		AgentID:  "agent-auth-missing",
-		CWD:      t.TempDir(),
+		Provider:      "claude",
+		AgentID:       "agent-auth-missing",
+		CWD:           t.TempDir(),
+		StartAssembly: validClaudeStartAssemblyForTest(),
 	})
 	if err == nil {
 		t.Fatal("StartSession() error = nil, want auth preflight failure")
@@ -52,9 +76,10 @@ func TestDriverStartSessionPassesClaudeHomeToAuthPreflight(t *testing.T) {
 		return claudeAuthStatus{LoggedIn: true, AuthMethod: "oauth_token", APIProvider: "firstParty"}, `{"loggedIn":true}`, nil
 	}
 	_, err := d.StartSession(context.Background(), dto.StartSessionRequest{
-		Provider: "claude",
-		AgentID:  "agent-auth-ok",
-		CWD:      t.TempDir(),
+		Provider:      "claude",
+		AgentID:       "agent-auth-ok",
+		CWD:           t.TempDir(),
+		StartAssembly: validClaudeStartAssemblyForTest(),
 		Config: map[string]any{
 			"claude_home": claudeHome,
 		},
@@ -81,9 +106,10 @@ func TestDriverStartSessionFailsFastWhenClaudeAuthStatusFails(t *testing.T) {
 		return claudeAuthStatus{}, "unsupported auth status command", errors.New("exit status 1")
 	}
 	_, err := d.StartSession(context.Background(), dto.StartSessionRequest{
-		Provider: "claude",
-		AgentID:  "agent-auth-status-error",
-		CWD:      t.TempDir(),
+		Provider:      "claude",
+		AgentID:       "agent-auth-status-error",
+		CWD:           t.TempDir(),
+		StartAssembly: validClaudeStartAssemblyForTest(),
 	})
 	if err == nil {
 		t.Fatal("StartSession() error = nil, want auth status failure")
@@ -110,9 +136,10 @@ func TestDriverStartSessionFailsFastWhenClaudeAuthStatusIsInconclusive(t *testin
 		return claudeAuthStatus{}, `{}`, nil
 	}
 	_, err := d.StartSession(context.Background(), dto.StartSessionRequest{
-		Provider: "claude",
-		AgentID:  "agent-auth-status-inconclusive",
-		CWD:      t.TempDir(),
+		Provider:      "claude",
+		AgentID:       "agent-auth-status-inconclusive",
+		CWD:           t.TempDir(),
+		StartAssembly: validClaudeStartAssemblyForTest(),
 	})
 	if err == nil {
 		t.Fatal("StartSession() error = nil, want inconclusive auth status failure")

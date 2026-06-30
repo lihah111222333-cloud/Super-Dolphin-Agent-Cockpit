@@ -160,11 +160,12 @@ func TestServiceStartUsesResolvedStartConfig(t *testing.T) {
 	svc := NewService(silentLogger(), threads, bindings, sessions, starter, nil, orch, nil).(*service)
 
 	result, err := svc.Start(context.Background(), StartRequest{
-		AgentID:          "agent-start",
-		Provider:         " Codex ",
-		CWD:              wantStartCWD(t),
-		BaseInstructions: "  launch me  ",
-		Sandbox:          json.RawMessage(`{"type":"danger-full-access"}`),
+		AgentID:           "agent-start",
+		Provider:          " Codex ",
+		CWD:               wantStartCWD(t),
+		BaseInstructions:  "  launch me  ",
+		Sandbox:           json.RawMessage(`{"type":"danger-full-access"}`),
+		PromptAssemblyRef: promptAssemblyForTest("launch me"),
 	})
 	if err != nil {
 		t.Fatalf("Start() error = %v", err)
@@ -259,9 +260,10 @@ func TestServiceStartRequiresProviderUUID(t *testing.T) {
 	svc := NewService(silentLogger(), threads, bindings, sessions, starter, nil, orch, nil).(*service)
 
 	_, err := svc.Start(context.Background(), StartRequest{
-		AgentID:  "agent-start",
-		Provider: "codex",
-		CWD:      wantStartCWD(t),
+		AgentID:           "agent-start",
+		Provider:          "codex",
+		CWD:               wantStartCWD(t),
+		PromptAssemblyRef: promptAssemblyForTest("test system prompt"),
 	})
 	if err == nil || !strings.Contains(err.Error(), "provider session UUID required") {
 		t.Fatalf("Start() error = %v, want provider session UUID required", err)
@@ -332,9 +334,10 @@ func TestServiceStartDoesNotPersistProviderThreadIDWithoutHistoryFile(t *testing
 	svc := NewService(silentLogger(), threads, bindings, sessions, starter, nil, orch, nil).(*service)
 
 	result, err := svc.Start(context.Background(), StartRequest{
-		AgentID:  "agent-start-no-history",
-		Provider: "codex",
-		CWD:      wantStartCWD(t),
+		AgentID:           "agent-start-no-history",
+		Provider:          "codex",
+		CWD:               wantStartCWD(t),
+		PromptAssemblyRef: promptAssemblyForTest("test system prompt"),
 	})
 	if err != nil {
 		t.Fatalf("Start() error = %v", err)
@@ -379,9 +382,10 @@ func TestServiceStartPersistsCodexIdentityFromSessionRuntimeConfig(t *testing.T)
 	svc := NewService(silentLogger(), threads, bindings, sessions, starter, nil, orch, nil).(*service)
 
 	if _, err := svc.Start(context.Background(), StartRequest{
-		AgentID:  "agent-runtime-identity",
-		Provider: "codex",
-		CWD:      wantStartCWD(t),
+		AgentID:           "agent-runtime-identity",
+		Provider:          "codex",
+		CWD:               wantStartCWD(t),
+		PromptAssemblyRef: promptAssemblyForTest("test system prompt"),
 	}); err != nil {
 		t.Fatalf("Start() error = %v", err)
 	}
@@ -428,6 +432,9 @@ func TestServiceStartPrefersExplicitNameForLaunchAndPersist(t *testing.T) {
 		Name:             "display name",
 		Prompt:           "legacy prompt",
 		BaseInstructions: "system prompt",
+		PromptAssemblyRef: promptAssemblyStub{
+			startAssembly: contract.StartAssembly{BaseInstructions: "system prompt"},
+		},
 	}); err != nil {
 		t.Fatalf("Start() error = %v", err)
 	}
@@ -436,6 +443,30 @@ func TestServiceStartPrefersExplicitNameForLaunchAndPersist(t *testing.T) {
 	}
 	if threads.upsert.Prompt != "display name" {
 		t.Fatalf("persisted prompt = %q, want display name", threads.upsert.Prompt)
+	}
+}
+
+func TestServiceStartRejectsMissingPromptAssemblyRef(t *testing.T) {
+	t.Parallel()
+
+	threads := &stubThreadStore{}
+	sessions := &stubSessionProvider{}
+	starter := &startOnlySessionStarter{
+		onStart: func(context.Context, dto.StartSessionRequest) (contract.Session, error) {
+			t.Fatal("StartSession must not run without prompt assembly")
+			return nil, nil
+		},
+	}
+	svc := NewService(silentLogger(), threads, nil, sessions, starter, nil, &stubThreadOrchestration{}, nil).(*service)
+
+	_, err := svc.Start(context.Background(), StartRequest{
+		AgentID:          "agent-no-assembly",
+		Provider:         "codex",
+		CWD:              wantStartCWD(t),
+		BaseInstructions: "legacy system prompt",
+	})
+	if err == nil || !strings.Contains(err.Error(), "prompt assembly service is not configured") {
+		t.Fatalf("Start() error = %v, want missing prompt assembly service error", err)
 	}
 }
 
@@ -529,6 +560,7 @@ func TestServiceStartForwardsLaunchSkills(t *testing.T) {
 		AgentID:           "agent-launch-skills",
 		Provider:          "codex",
 		CWD:               wantStartCWD(t),
+		PromptAssemblyRef: promptAssemblyForTest("test system prompt"),
 		LaunchSkillNames:  []string{"planner", "reviewer"},
 		LaunchSkillRefs:   []dto.SkillRef{{Key: "project::planner:/repo/.agent/skills/planner", Name: "planner", Scope: "project", Path: "/repo/.agent/skills/planner", Source: dto.SkillSourceManual}},
 		ForceLaunchSkills: true,
@@ -566,9 +598,10 @@ func TestServiceStartLeavesLaunchSkillsEmptyByDefault(t *testing.T) {
 	svc := NewService(silentLogger(), threads, nil, sessions, starter, nil, orch, nil).(*service)
 
 	if _, err := svc.Start(context.Background(), StartRequest{
-		AgentID:  "agent-legacy",
-		Provider: "codex",
-		CWD:      wantStartCWD(t),
+		AgentID:           "agent-legacy",
+		Provider:          "codex",
+		CWD:               wantStartCWD(t),
+		PromptAssemblyRef: promptAssemblyForTest("test system prompt"),
 	}); err != nil {
 		t.Fatalf("Start() error = %v", err)
 	}
@@ -624,6 +657,10 @@ func (s *startOnlySessionStarter) ResumeSession(context.Context, dto.ResumeSessi
 
 type promptAssemblyStub struct {
 	startAssembly contract.StartAssembly
+}
+
+func promptAssemblyForTest(base string) promptAssemblyStub {
+	return promptAssemblyStub{startAssembly: contract.StartAssembly{BaseInstructions: base}}
 }
 
 func (p promptAssemblyStub) AssembleStart(context.Context, contract.StartInput) (contract.StartAssembly, error) {
