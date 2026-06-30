@@ -29,20 +29,22 @@ import (
 const (
 	appID = "super-dolphin"
 
-	envUpdateEnabled       = "SUPER_DOLPHIN_UPDATE_ENABLED"
-	envUpdateManifestURL   = "SUPER_DOLPHIN_UPDATE_MANIFEST_URL"
-	envUpdateGitHubRepo    = "SUPER_DOLPHIN_UPDATE_GITHUB_REPO"
-	envUpdatePublicKey     = "SUPER_DOLPHIN_UPDATE_PUBLIC_KEY"
-	envUpdateChannel       = "SUPER_DOLPHIN_UPDATE_CHANNEL"
-	envUpdateStageDir      = "SUPER_DOLPHIN_UPDATE_STAGE_DIR"
-	envUpdateHelperPath    = "SUPER_DOLPHIN_UPDATE_HELPER_PATH"
-	envUpdateTargetApp     = "SUPER_DOLPHIN_UPDATE_TARGET_APP_PATH"
-	envUpdatePlatform      = "SUPER_DOLPHIN_UPDATE_PLATFORM"
-	envUpdateVersion       = "SUPER_DOLPHIN_UPDATE_VERSION"
-	envUpdateAllowUnsigned = "SUPER_DOLPHIN_UPDATE_ALLOW_UNSIGNED"
-	envRuntimeResources    = "SUPER_DOLPHIN_RUNTIME_RESOURCES_DIR"
-	envSuperDolphinHome    = "SUPER_DOLPHIN_HOME"
-	envVersion             = "VERSION"
+	envUpdateEnabled           = "SUPER_DOLPHIN_UPDATE_ENABLED"
+	envUpdateManifestURL       = "SUPER_DOLPHIN_UPDATE_MANIFEST_URL"
+	envUpdateGitHubRepo        = "SUPER_DOLPHIN_UPDATE_GITHUB_REPO"
+	envUpdatePublicKey         = "SUPER_DOLPHIN_UPDATE_PUBLIC_KEY"
+	envUpdateChannel           = "SUPER_DOLPHIN_UPDATE_CHANNEL"
+	envUpdateStageDir          = "SUPER_DOLPHIN_UPDATE_STAGE_DIR"
+	envUpdateHelperPath        = "SUPER_DOLPHIN_UPDATE_HELPER_PATH"
+	envUpdateTargetApp         = "SUPER_DOLPHIN_UPDATE_TARGET_APP_PATH"
+	envUpdatePlatform          = "SUPER_DOLPHIN_UPDATE_PLATFORM"
+	envUpdateVersion           = "SUPER_DOLPHIN_UPDATE_VERSION"
+	envUpdateAllowUnsigned     = "SUPER_DOLPHIN_UPDATE_ALLOW_UNSIGNED"
+	envUpdateWindowsPublisher  = "SUPER_DOLPHIN_UPDATE_WINDOWS_PUBLISHER"
+	envUpdateWindowsThumbprint = "SUPER_DOLPHIN_UPDATE_WINDOWS_THUMBPRINT"
+	envRuntimeResources        = "SUPER_DOLPHIN_RUNTIME_RESOURCES_DIR"
+	envSuperDolphinHome        = "SUPER_DOLPHIN_HOME"
+	envVersion                 = "VERSION"
 
 	selectedUpdateFilename  = "selected-update.json"
 	dmgFilename             = "Super-Dolphin-update.dmg"
@@ -55,17 +57,19 @@ const (
 
 // Config 是 appupdate 模块运行所需的更新源、签名、公钥和本地路径配置。
 type Config struct {
-	Enabled        bool
-	ManifestURL    string
-	GitHubRepo     string
-	PublicKey      []byte
-	Channel        string
-	StageDir       string
-	HelperPath     string
-	TargetAppPath  string
-	Platform       string
-	CurrentVersion string
-	AllowUnsigned  bool
+	Enabled           bool
+	ManifestURL       string
+	GitHubRepo        string
+	PublicKey         []byte
+	Channel           string
+	StageDir          string
+	HelperPath        string
+	TargetAppPath     string
+	Platform          string
+	CurrentVersion    string
+	AllowUnsigned     bool
+	WindowsPublisher  string
+	WindowsThumbprint string
 }
 
 // RequestQuit 是安装 helper 启动后请求桌面宿主退出的回调。
@@ -114,9 +118,10 @@ type selectedUpdate struct {
 
 // service 是 Service 接口的实现，封装 HTTP 客户端和更新配置。
 type service struct {
-	cfg         Config
-	httpClient  *http.Client
-	requestQuit RequestQuit
+	cfg                      Config
+	httpClient               *http.Client
+	requestQuit              RequestQuit
+	windowsSignatureVerifier windowsInstallerSignatureVerifier
 }
 
 // ProvideConfig 提供配置。
@@ -126,16 +131,18 @@ func ProvideConfig(_ *platformconfig.Config) (Config, error) {
 		return Config{}, nil
 	}
 	cfg := Config{
-		Enabled:        true,
-		ManifestURL:    strings.TrimSpace(os.Getenv(envUpdateManifestURL)),
-		GitHubRepo:     strings.TrimSpace(os.Getenv(envUpdateGitHubRepo)),
-		Channel:        strings.TrimSpace(os.Getenv(envUpdateChannel)),
-		StageDir:       strings.TrimSpace(os.Getenv(envUpdateStageDir)),
-		HelperPath:     strings.TrimSpace(os.Getenv(envUpdateHelperPath)),
-		TargetAppPath:  strings.TrimSpace(os.Getenv(envUpdateTargetApp)),
-		Platform:       strings.TrimSpace(os.Getenv(envUpdatePlatform)),
-		CurrentVersion: strings.TrimSpace(os.Getenv(envVersion)),
-		AllowUnsigned:  envTruthy(os.Getenv(envUpdateAllowUnsigned)),
+		Enabled:           true,
+		ManifestURL:       strings.TrimSpace(os.Getenv(envUpdateManifestURL)),
+		GitHubRepo:        strings.TrimSpace(os.Getenv(envUpdateGitHubRepo)),
+		Channel:           strings.TrimSpace(os.Getenv(envUpdateChannel)),
+		StageDir:          strings.TrimSpace(os.Getenv(envUpdateStageDir)),
+		HelperPath:        strings.TrimSpace(os.Getenv(envUpdateHelperPath)),
+		TargetAppPath:     strings.TrimSpace(os.Getenv(envUpdateTargetApp)),
+		Platform:          strings.TrimSpace(os.Getenv(envUpdatePlatform)),
+		CurrentVersion:    strings.TrimSpace(os.Getenv(envVersion)),
+		AllowUnsigned:     envTruthy(os.Getenv(envUpdateAllowUnsigned)),
+		WindowsPublisher:  strings.TrimSpace(os.Getenv(envUpdateWindowsPublisher)),
+		WindowsThumbprint: strings.TrimSpace(os.Getenv(envUpdateWindowsThumbprint)),
 	}
 	if cfg.Channel == "" {
 		cfg.Channel = "gray"
@@ -214,7 +221,12 @@ func newService(cfg Config, client *http.Client, requestQuit RequestQuit) *servi
 	if client == nil {
 		client = http.DefaultClient
 	}
-	return &service{cfg: cfg, httpClient: client, requestQuit: requestQuit}
+	return &service{
+		cfg:                      cfg,
+		httpClient:               client,
+		requestQuit:              requestQuit,
+		windowsSignatureVerifier: verifyWindowsInstallerSignatureWithPowerShell,
+	}
 }
 
 // Check 检查是否有可用更新；未启用或版本不高于当前版本时返回 Available=false。
@@ -287,6 +299,9 @@ func (s *service) Install(ctx context.Context) (InstallResult, error) {
 		return InstallResult{}, err
 	}
 	if err := validateStagedUpdate(staged); err != nil {
+		return InstallResult{}, err
+	}
+	if err := s.verifyInstallGate(staged); err != nil {
 		return InstallResult{}, err
 	}
 	cmd, helper, err := s.installCommand(staged)
@@ -458,6 +473,25 @@ func (s *service) helperLogPath() string {
 	return filepath.Join(s.cfg.StageDir, helperLogFilename)
 }
 
+// verifyInstallGate 在启动平台安装器之前执行最后一道平台安全校验。
+// Windows 更新包必须先通过 Authenticode 发布者和证书指纹检查，避免仅靠 manifest/hash 信任 .exe。
+func (s *service) verifyInstallGate(staged selectedUpdate) error {
+	switch updatePlatformOS(staged.Artifact.Platform) {
+	case "windows":
+		verifier := s.windowsSignatureVerifier
+		if verifier == nil {
+			verifier = verifyWindowsInstallerSignatureWithPowerShell
+		}
+		return verifier(
+			selectedArtifactPath(staged),
+			s.cfg.WindowsPublisher,
+			s.cfg.WindowsThumbprint,
+		)
+	default:
+		return nil
+	}
+}
+
 // installCommand 按平台构造安装命令，macOS 使用 helper，Windows 直接运行安装包。
 func (s *service) installCommand(staged selectedUpdate) (*exec.Cmd, string, error) {
 	artifactPath := selectedArtifactPath(staged)
@@ -506,6 +540,10 @@ func validateUpdateSourceConfig(cfg Config) error {
 	if cfg.ManifestURL == "" && cfg.GitHubRepo == "" {
 		return fmt.Errorf("%s or %s is required when app update is enabled", envUpdateGitHubRepo, envUpdateManifestURL)
 	}
+	if cfg.ManifestURL != "" && cfg.GitHubRepo != "" {
+		return fmt.Errorf("%s and %s are mutually exclusive; configure exactly one update source",
+			envUpdateManifestURL, envUpdateGitHubRepo)
+	}
 	if err := validateLegacyManifestURL(cfg.ManifestURL); err != nil {
 		return err
 	}
@@ -543,6 +581,8 @@ func requiredUpdateConfigValues(cfg Config) (map[string]string, error) {
 		required[envUpdateHelperPath] = cfg.HelperPath
 		required[envUpdateTargetApp] = cfg.TargetAppPath
 	case "windows":
+		required[envUpdateWindowsPublisher] = cfg.WindowsPublisher
+		required[envUpdateWindowsThumbprint] = cfg.WindowsThumbprint
 	default:
 		return nil, fmt.Errorf("unsupported app update platform %q", cfg.Platform)
 	}
@@ -555,6 +595,23 @@ func requireConfigValues(required map[string]string) error {
 		if strings.TrimSpace(value) == "" {
 			return fmt.Errorf("%s is required when app update is enabled", name)
 		}
+	}
+	if thumbprint, ok := required[envUpdateWindowsThumbprint]; ok {
+		if err := validateWindowsThumbprint(thumbprint); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// validateWindowsThumbprint 校验证书指纹使用 Windows Authenticode 常见的 40 位 SHA-1 十六进制格式。
+func validateWindowsThumbprint(value string) error {
+	normalized := normalizeCertificateThumbprint(value)
+	if len(normalized) != 40 {
+		return fmt.Errorf("%s must be a 40-character certificate thumbprint", envUpdateWindowsThumbprint)
+	}
+	if _, err := hex.DecodeString(normalized); err != nil {
+		return fmt.Errorf("%s must be a hex certificate thumbprint: %w", envUpdateWindowsThumbprint, err)
 	}
 	return nil
 }

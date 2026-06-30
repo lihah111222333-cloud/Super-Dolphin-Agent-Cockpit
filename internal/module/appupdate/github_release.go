@@ -15,6 +15,10 @@ import (
 // githubLatestReleaseAPI 是 GitHub latest release API 的 URL 模板。
 const githubLatestReleaseAPI = "https://api.github.com/repos/%s/%s/releases/latest"
 
+var blockedGitHubUpdateRepos = map[string]struct{}{
+	"xiaoxiaotest9527-bit/-": {},
+}
+
 // githubRelease 是 GitHub latest release API 返回的最小结构。
 type githubRelease struct {
 	TagName string               `json:"tag_name"`
@@ -140,8 +144,15 @@ func githubLatestReleaseURL(repo string) (string, error) {
 
 // validateGitHubRepo 校验 GitHub repo 格式是否合法。
 func validateGitHubRepo(repo string) error {
-	_, _, err := githubRepoParts(repo)
-	return err
+	owner, name, err := githubRepoParts(repo)
+	if err != nil {
+		return err
+	}
+	normalized := strings.ToLower(owner + "/" + name)
+	if _, blocked := blockedGitHubUpdateRepos[normalized]; blocked {
+		return fmt.Errorf("%s uses known placeholder/test repo %q", envUpdateGitHubRepo, repo)
+	}
+	return nil
 }
 
 // githubRepoParts 解析 "owner/repo" 格式字符串，不符合格式时返回错误。

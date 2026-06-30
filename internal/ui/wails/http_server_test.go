@@ -11,6 +11,7 @@ import (
 	"net/url"
 	"strings"
 	"testing"
+	"testing/fstest"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/metrics"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
@@ -81,7 +82,8 @@ func TestNewHTTPAssetServerUsesConfiguredAddr(t *testing.T) {
 	t.Setenv("SUPER_DOLPHIN_HTTP_ADDR", "127.0.0.1:0")
 
 	result := NewHTTPAssetServer(httpAssetServerParams{
-		Logger: slog.New(slog.NewTextHandler(io.Discard, nil)),
+		Logger:   slog.New(slog.NewTextHandler(io.Discard, nil)),
+		Frontend: testHTTPFrontendFS(),
 	})
 
 	server, ok := result.Runner.(*httpAssetServer)
@@ -116,7 +118,8 @@ func TestNewHTTPAssetServerUsesDevSessionTokenForWebSocket(t *testing.T) {
 	t.Setenv("GO_AGENT_MCP_SESSION_TOKEN", "")
 
 	result := NewHTTPAssetServer(httpAssetServerParams{
-		Logger: slog.New(slog.NewTextHandler(io.Discard, nil)),
+		Logger:   slog.New(slog.NewTextHandler(io.Discard, nil)),
+		Frontend: testHTTPFrontendFS(),
 	})
 	server, ok := result.Runner.(*httpAssetServer)
 	if !ok {
@@ -131,7 +134,8 @@ func TestHTTPAssetServerRejectsNonLoopbackConfiguredAddr(t *testing.T) {
 	t.Setenv("SUPER_DOLPHIN_HTTP_ADDR", "0.0.0.0:0")
 
 	result := NewHTTPAssetServer(httpAssetServerParams{
-		Logger: slog.New(slog.NewTextHandler(io.Discard, nil)),
+		Logger:   slog.New(slog.NewTextHandler(io.Discard, nil)),
+		Frontend: testHTTPFrontendFS(),
 	})
 	server, ok := result.Runner.(*httpAssetServer)
 	if !ok {
@@ -143,6 +147,14 @@ func TestHTTPAssetServerRejectsNonLoopbackConfiguredAddr(t *testing.T) {
 	err := server.Run(ctx)
 	if err == nil || !strings.Contains(err.Error(), "loopback") {
 		t.Fatalf("Run() error = %v, want loopback validation failure", err)
+	}
+}
+
+func testHTTPFrontendFS() FrontendFS {
+	return FrontendFS{
+		FS: fstest.MapFS{
+			"index.html": {Data: []byte("<!doctype html><div id=\"root\"></div>")},
+		},
 	}
 }
 
