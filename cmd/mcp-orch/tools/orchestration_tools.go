@@ -311,7 +311,7 @@ func reserveLaunchAgentID(ctx context.Context, svc contract.OrchestrationService
 		return candidate, releaseLaunchAgentID(candidate), true, nil
 	}
 	candidate = shared.NewAgentID()
-	for i := 0; i < 64; i++ {
+	for range 64 {
 		if !launchAgentIDInUseLocked(candidate, existing) {
 			agentIDReg.reservations[candidate] = struct{}{}
 			return candidate, releaseLaunchAgentID(candidate), true, nil
@@ -600,7 +600,7 @@ func joinUniqueCSV(defaults []string, extra string) string {
 	seen := make(map[string]struct{}, len(defaults))
 	out := make([]string, 0, len(defaults))
 	add := func(value string) {
-		for _, item := range strings.Split(value, ",") {
+		for item := range strings.SplitSeq(value, ",") {
 			item = strings.TrimSpace(item)
 			if item == "" {
 				continue
