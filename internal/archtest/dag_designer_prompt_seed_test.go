@@ -47,11 +47,10 @@ func TestDAGDesignerPromptSeed_ZHCoversCoreSurface(t *testing.T) {
 		"task_dispatch_node",
 	}, "migration 0084 must reference MCP tool %q in prompt body")
 
-	// 关键字段三：node_type typed schema 三种都要点名，避免 prompt 退化成旧版单形态节点。
+	// 关键字段三：node_type typed schema 只允许当前可创建的两类节点。
 	assertDAGDesignerPromptContainsAll(t, content, []string{
 		`node_type = "agent"`,
 		`node_type = "automation"`,
-		`node_type = "hybrid"`,
 	}, "migration 0084 must describe %s typed schema")
 
 	// 关键字段四：运行时与输出约束关键词不能丢。
@@ -76,13 +75,18 @@ func TestDAGDesignerPromptSeed_ZHCoversCoreSurface(t *testing.T) {
 		"first_turn",
 		"assigned_to",
 		"waiting_for_assignee",
-		`{"op":"add_node","node":{"node_key":"...","title":"...","node_type":"agent|automation|hybrid","assigned_to"`,
+		`{"op":"add_node","node":{"node_key":"...","title":"...","node_type":"agent|automation","assigned_to"`,
 	}, "migration 0084 must keep executable schema keyword or add_node assigned_to example %q")
 
 	assertDAGDesignerPromptNotContains(t, content, []string{
 		`"output_file"`,
 		`"config": {"provider"`,
 		"task_update_node",
+		`node_type = "hybrid"`,
+		`node_type":"hybrid"`,
+		`node_type\":\"hybrid\"`,
+		`node_type":"agent|automation|hybrid"`,
+		`node_type\":\"agent|automation|hybrid\"`,
 	}, "migration 0084 must not teach unavailable DAG designer field or tool %q")
 
 	// 关键字段五：tags 含中文路由命中词 (router 选这条模板就靠它)。

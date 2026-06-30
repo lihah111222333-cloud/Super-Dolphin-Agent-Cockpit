@@ -48,7 +48,7 @@
 
 automation 节点示例：`{"node_key":"fetch","title":"采集","node_type":"automation","assigned_to":"my_dag_fetch_runner","depends_on":[],"config":{"exec":{"kind":"command_card","command_ref":"<card_key from command_list>","args":{}},"outputs":{"to_node_result":true}}}`
 
-hybrid 节点示例：`{"node_key":"test_and_review","title":"测试并复核","node_type":"hybrid","assigned_to":"my_dag_review_runner","depends_on":["fetch"],"config":{"exec":{"automation":{"kind":"command_card","command_ref":"run_tests","args":{}},"verifier":{"prompt_key":"main/expert/prompt","provider":"<selected provider from list_models()>","model":"<selected model from list_models()>","cwd":"/absolute/project/cwd"}},"inputs":{"from_nodes":["fetch"]},"outputs":{"to_node_result":true}}}`
+历史 `hybrid` 类型只允许读取和诊断旧数据，不要创建新节点。需要“先 command_card 再 agent 复核”时，拆成两个节点：`{"node_key":"run_tests","title":"运行测试","node_type":"automation","assigned_to":"my_dag_run_tests_runner","depends_on":["fetch"],"config":{"exec":{"kind":"command_card","command_ref":"run_tests","args":{}},"outputs":{"to_node_result":true}}}`，再接 `{"node_key":"review_tests","title":"复核测试结果","node_type":"agent","assigned_to":"my_dag_review_tests_runner","depends_on":["run_tests"],"config":{"exec":{"prompt_key":"main/expert/prompt","provider":"<selected provider from list_models()>","model":"<selected model from list_models()>","cwd":"/absolute/project/cwd"},"inputs":{"from_nodes":["run_tests"]},"outputs":{"to_node_result":true},"first_turn":"复核上游测试结果是否满足交付标准，输出结论和需修复项。"}}`。
 
 # 视频成片 DAG 契约
 
