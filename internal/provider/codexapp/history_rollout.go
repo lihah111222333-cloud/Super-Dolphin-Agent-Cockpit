@@ -9,6 +9,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/sessionpaths"
 	providershared "github.com/anthropic-ai/super-agent-v3/internal/provider/shared"
 )
 
@@ -264,7 +265,10 @@ func findRolloutPath(threadID, codexHome string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	pattern := filepath.Join(root, "sessions", "*", "*", "*", "rollout-*-"+strings.TrimSpace(threadID)+".jsonl")
+	pattern, err := sessionpaths.CodexRolloutGlob(root, threadID)
+	if err != nil {
+		return "", err
+	}
 	matches, err := filepath.Glob(pattern)
 	if err != nil {
 		return "", err

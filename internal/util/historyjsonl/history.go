@@ -12,6 +12,7 @@ import (
 	"time"
 
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/sessionpaths"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 )
 
@@ -139,7 +140,7 @@ func discoverPath(provider string, req ReadRequest) string {
 
 // discoverCodexPath 在 Codex sessions 目录中按候选 ID 查找最新 rollout JSONL。
 func discoverCodexPath(req ReadRequest) string {
-	root := filepath.Join(codexRoot(req.CodexHome), "sessions", "*", "*", "*")
+	root := codexRoot(req.CodexHome)
 	for _, id := range []string{
 		req.ProviderThreadID,
 		req.ThreadID,
@@ -149,7 +150,11 @@ func discoverCodexPath(req ReadRequest) string {
 		if id == "" {
 			continue
 		}
-		if path := latestExistingMatch(filepath.Join(root, "rollout-*-"+id+".jsonl")); path != "" {
+		pattern, err := sessionpaths.CodexRolloutGlob(root, id)
+		if err != nil {
+			continue
+		}
+		if path := latestExistingMatch(pattern); path != "" {
 			return path
 		}
 	}

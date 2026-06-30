@@ -28,8 +28,8 @@ func TestEnsureManagedScratchpadDirCreatesSessionScopedPath(t *testing.T) {
 	if _, err := os.Stat(dir); err != nil {
 		t.Fatalf("Stat(%q) error = %v", dir, err)
 	}
-	if filepath.Base(dir) != managedScratchpadLeaf {
-		t.Fatalf("scratchpad leaf = %q, want %q", filepath.Base(dir), managedScratchpadLeaf)
+	if filepath.Base(dir) != "scratchpad" {
+		t.Fatalf("scratchpad leaf = %q, want scratchpad", filepath.Base(dir))
 	}
 	if got := filepath.Base(filepath.Dir(dir)); got != "agent-1" {
 		t.Fatalf("scratchpad session segment = %q, want agent-1", got)
