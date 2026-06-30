@@ -216,6 +216,7 @@ func (s *service) UpdateNodeStatus(ctx context.Context, req UpdateNodeStatusRequ
 			return err
 		}
 		oldStatus := current.Status
+		input.ExpectedStatus = oldStatus
 		if input.Status == "done" {
 			if flow, ok := store.(taskdag.NodeFlowStore); ok {
 				return s.completeNodeWithDownstream(ctx, flow, input, oldStatus, &result)
@@ -274,7 +275,15 @@ func (s *service) validateNodeTransition(ctx context.Context, store taskdag.Orch
 // completeNodeWithDownstream 完成节点时让 store 统一处理下游和 run 收尾。
 // service 只发布事件和记日志，不自己重新扫 DAG。
 func (s *service) completeNodeWithDownstream(ctx context.Context, flow taskdag.NodeFlowStore, input taskdag.NodeStatusUpdate, oldStatus string, result *DAGNode) error {
-	res, err := flow.CompleteNodeAndScheduleDownstream(ctx, taskdag.CompleteNodeInput(input))
+	res, err := flow.CompleteNodeAndScheduleDownstream(ctx, taskdag.CompleteNodeInput{
+		Status:        input.Status,
+		Result:        input.Result,
+		DagKey:        input.DagKey,
+		NodeKey:       input.NodeKey,
+		RunID:         input.RunID,
+		WakeupID:      input.WakeupID,
+		WakeupAttempt: input.WakeupAttempt,
+	})
 	if err != nil {
 		return err
 	}

@@ -292,7 +292,7 @@ func cloneSQLiteRunNodes(t *testing.T, ctx context.Context, store *store, runID 
 
 func completeSQLiteRunNode(t *testing.T, ctx context.Context, store *store, runID int64) {
 	t.Helper()
-	if _, err := store.UpdateNodeStatus(ctx, NodeStatusUpdate{DagKey: "dag-multi", NodeKey: "root", RunID: runID, Status: "done", Result: []byte(`{"ok":true}`)}); err != nil {
+	if _, err := store.UpdateNodeStatus(ctx, NodeStatusUpdate{DagKey: "dag-multi", NodeKey: "root", RunID: runID, ExpectedStatus: "pending", Status: "done", Result: []byte(`{"ok":true}`)}); err != nil {
 		t.Fatalf("UpdateNodeStatus(run-a) error = %v", err)
 	}
 }
