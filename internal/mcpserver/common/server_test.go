@@ -77,7 +77,7 @@ func TestServerToolsListRejectsInvalidToolSchema(t *testing.T) {
 }
 
 func TestServerInitializeAcceptsStandardClientFields(t *testing.T) {
-	input := bytes.NewBufferString(`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{"roots":{"listChanged":true}},"clientInfo":{"name":"codex-cli","version":"0.142.2"}}}`)
+	input := bytes.NewBufferString(`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{"roots":{"listChanged":true}},"clientInfo":{"name":"codex-cli","version":"0.142.2"},"_meta":{"trace":"init-1"}}}`)
 	var output bytes.Buffer
 
 	server := NewServer("test", "dev", NewStdioTransport(input, &output), testToolProvider{})
@@ -99,6 +99,31 @@ func TestServerInitializeAcceptsStandardClientFields(t *testing.T) {
 	}
 	if resp.Result.ProtocolVersion != "2024-11-05" || resp.Result.ServerInfo.Name != "test" {
 		t.Fatalf("initialize result = %#v; raw=%s", resp.Result, output.String())
+	}
+}
+
+func TestHTTPInitializeAcceptsStandardMCPMeta(t *testing.T) {
+	server := NewHTTPServer("test", "dev", testToolProvider{})
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/mcp", strings.NewReader(`{"jsonrpc":"2.0","id":31,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"codex-cli"},"_meta":{"trace":"init-http"}}}`))
+
+	server.handleMCP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("HTTP status = %d, want 200; body=%s", rec.Code, rec.Body.String())
+	}
+	var resp struct {
+		Error  *jsonRPCError `json:"error,omitempty"`
+		Result struct {
+			ProtocolVersion string `json:"protocolVersion"`
+		} `json:"result"`
+	}
+	decodeJSONRPCOutput(t, rec.Body.Bytes(), &resp)
+	if resp.Error != nil {
+		t.Fatalf("initialize error = %#v; body=%s", resp.Error, rec.Body.String())
+	}
+	if resp.Result.ProtocolVersion != "2024-11-05" {
+		t.Fatalf("protocolVersion = %q, want 2024-11-05; body=%s", resp.Result.ProtocolVersion, rec.Body.String())
 	}
 }
 
@@ -160,6 +185,64 @@ func TestServerToolsCallAcceptsStandardMCPMeta(t *testing.T) {
 	}
 	if string(gotArgs) != `{"query":"ToolCallParams"}` {
 		t.Fatalf("arguments = %s, want original arguments without _meta", gotArgs)
+	}
+}
+
+func TestToolsCallRejectsMissingNameBeforeProvider(t *testing.T) {
+	tests := []struct {
+		name string
+		body string
+		http bool
+	}{
+		{
+			name: "stdio missing name",
+			body: `{"jsonrpc":"2.0","id":32,"method":"tools/call","params":{"arguments":{}}}`,
+		},
+		{
+			name: "stdio blank name",
+			body: `{"jsonrpc":"2.0","id":33,"method":"tools/call","params":{"name":"  ","arguments":{}}}`,
+		},
+		{
+			name: "http missing name",
+			body: `{"jsonrpc":"2.0","id":34,"method":"tools/call","params":{"arguments":{}}}`,
+			http: true,
+		},
+		{
+			name: "http blank name",
+			body: `{"jsonrpc":"2.0","id":35,"method":"tools/call","params":{"name":"  ","arguments":{}}}`,
+			http: true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			called := false
+			provider := captureToolProvider{call: func(context.Context, string, json.RawMessage) (any, error) {
+				called = true
+				return map[string]any{"unexpected": true}, nil
+			}}
+			var raw []byte
+			if tt.http {
+				server := NewHTTPServer("test", "dev", provider)
+				rec := httptest.NewRecorder()
+				req := httptest.NewRequest(http.MethodPost, "/mcp", strings.NewReader(tt.body))
+				server.handleMCP(rec, req)
+				if rec.Code != http.StatusOK {
+					t.Fatalf("HTTP status = %d, want 200; body=%s", rec.Code, rec.Body.String())
+				}
+				raw = rec.Body.Bytes()
+			} else {
+				var output bytes.Buffer
+				server := NewServer("test", "dev", NewStdioTransport(bytes.NewBufferString(tt.body), &output), provider)
+				if err := server.Run(context.Background()); err != nil {
+					t.Fatalf("Run() error = %v", err)
+				}
+				raw = output.Bytes()
+			}
+			if called {
+				t.Fatalf("CallTool() was called; raw=%s", raw)
+			}
+			assertJSONRPCError(t, raw, codeInvalidParams, "tool name is required")
+		})
 	}
 }
 
@@ -233,6 +316,33 @@ func TestHTTPToolsCallTypedNilErrorReturnsStructuredToolError(t *testing.T) {
 	if envelope.Code != "launch_request_invalid" {
 		t.Fatalf("envelope code = %q, want launch_request_invalid; body=%s", envelope.Code, rec.Body.String())
 	}
+}
+
+func TestHTTPToolsListRejectsInvalidToolSchema(t *testing.T) {
+	server := NewHTTPServer("test", "dev", badSchemaToolProvider{})
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/mcp", strings.NewReader(`{"jsonrpc":"2.0","id":36,"method":"tools/list"}`))
+
+	server.handleMCP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("HTTP status = %d, want 200; body=%s", rec.Code, rec.Body.String())
+	}
+	assertJSONRPCError(t, rec.Body.Bytes(), codeInternal, "inputSchema must be a JSON object")
+}
+
+func TestHTTPRejectsOversizedBody(t *testing.T) {
+	server := NewHTTPServer("test", "dev", testToolProvider{})
+	rec := httptest.NewRecorder()
+	body := strings.Repeat(" ", 10*1024*1024) + "{}"
+	req := httptest.NewRequest(http.MethodPost, "/mcp", strings.NewReader(body))
+
+	server.handleMCP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("HTTP status = %d, want 200; body=%s", rec.Code, rec.Body.String())
+	}
+	assertJSONRPCError(t, rec.Body.Bytes(), codeParseError, "request body exceeds")
 }
 
 func TestToolErrorClassifiesMissingAstGrepDependency(t *testing.T) {
@@ -419,5 +529,22 @@ func TestRecoveryErrorIsStructured(t *testing.T) {
 	}
 	if !strings.Contains(envelope.Error, "panic") {
 		t.Fatalf("envelope error = %q, want panic context", envelope.Error)
+	}
+}
+
+func assertJSONRPCError(t *testing.T, raw []byte, wantCode int, wantMessage string) {
+	t.Helper()
+	var resp struct {
+		Error *jsonRPCError `json:"error,omitempty"`
+	}
+	decodeJSONRPCOutput(t, raw, &resp)
+	if resp.Error == nil {
+		t.Fatalf("JSON-RPC error = nil, want code %d; raw=%s", wantCode, raw)
+	}
+	if resp.Error.Code != wantCode {
+		t.Fatalf("JSON-RPC code = %d, want %d; raw=%s", resp.Error.Code, wantCode, raw)
+	}
+	if !strings.Contains(resp.Error.Message, wantMessage) {
+		t.Fatalf("JSON-RPC message = %q, want contains %q; raw=%s", resp.Error.Message, wantMessage, raw)
 	}
 }
