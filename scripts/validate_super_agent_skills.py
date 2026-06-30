@@ -96,6 +96,11 @@ REQUIRED = {
     ],
     ".agent/skills/代码审查维度/SKILL.md": [
         "super-agent-v3",
+        "## 详细模式",
+        "## 18 维详细审查表",
+        "| D18 | DRY",
+        "## 优先级规律",
+        "## 使用方式",
         "mcp-orch 是可选编排面",
         "不得把子代理生命周期强制绑定到 DAG",
         "frontend-app",
