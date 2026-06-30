@@ -216,6 +216,7 @@ func (h *Handler) addSkillSurfaceTools(
 	scope contract.CodexToolSurfaceScope,
 	surface *codexToolSurface,
 	out *[]contract.DynamicToolSchema,
+	disabled codexDisabledToolSet,
 ) error {
 	if h == nil || h.skillTools == nil {
 		return nil
@@ -226,6 +227,12 @@ func (h *Handler) addSkillSurfaceTools(
 	}
 	for _, tool := range tools {
 		name := strings.TrimSpace(tool.Name)
+		if disabledName, ok := disabled.match(name); ok {
+			if err := addDisabledSurfaceToolAliases(surface, disabledName, name); err != nil {
+				return err
+			}
+			continue
+		}
 		entry := codexToolEntry{name: name, realName: name, executionKind: "skill", family: "skill"}
 		schema := mcpdto.MCPTool{
 			Name:         name,
