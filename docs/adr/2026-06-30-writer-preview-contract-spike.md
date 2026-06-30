@@ -2,13 +2,17 @@
 
 日期：2026-06-30
 
-状态：Proposed / Review
+状态：Accepted as ADR-only spike; production preview contract deferred
 
 ## 背景
 
 Reasonix 的 `Previewer` 更接近 UI/checkpoint 预览：先把即将发生的文件或状态变化展示出来，再由外层决定是否继续。V3 的写入面并不是单一 in-process file writer，而是分散在 host-direct toolbridge、mcp-lsp、mcp-orch、provider-native runtime 和媒体进程/远端 API 里。
 
 本 spike 只盘点 V3 一方模型可调用 writer / side-effect surfaces，并判断未来是否值得新增可选 pre-call preview contract。本 lane 不新增生产 preview API，也不改变工具调用、审批、difftracker 或 provider 行为。
+
+## 与源计划验收的差异
+
+源计划曾要求至少为一个 host-direct writer 补 preview/execute 一致性单元测试。本 ADR 不关闭该测试验收；C1 被有意收束为 ADR-only spike，因为当前没有 production preview API、host interface、MCP schema、provider hook、UI surface 或共享 preview/execute 路径可测。后续如要实现生产 preview contract，必须另开已批准任务并补对应测试。
 
 ## 当前事实
 
@@ -101,10 +105,15 @@ git status --short
 git rev-parse HEAD
 git branch --show-current
 git worktree list --porcelain
-rg -n 'memory_write|workflow_template_save|workflow_template_rollback|shared_file_write|defineTaskWriteTool|workspace_create_run|workspace_merge_run|workspace_abort_run|tts_generate|av_merge|video_with_audio|difftracker|Preview' internal cmd docs
 rg -n 'A0|tool surface|inventory|memory_write|workflow_template_save|shared_file_write|workspace_create_run' .agent/workflows/20260630-reasonix-hardening-absorption
 rg -n 'func .*Rename|func .*CodeAction|func .*Format|ApplyWorkspaceEdit|Format\(' cmd/mcp-lsp/multilsp cmd/mcp-lsp/manager cmd/mcp-lsp/tools
 rg -n 'func BuildManifest|buildDefault|FamilyLSP|FamilyOrch|mcp-lsp|mcp-orch' internal/contract internal/dto/provider internal/provider/manifestbuilder
+```
+
+The original discovery search was broad. For review or refresh, use a scoped command and do not count archive/codemap or generic UI/log `Preview` hits as current writer-surface evidence:
+
+```bash
+rg -n --glob '!docs/archive/**' --glob '!docs/doc/codemap/**' 'memory_write|workflow_template_save|workflow_template_rollback|shared_file_write|defineTaskWriteTool|workspace_create_run|workspace_merge_run|workspace_abort_run|tts_generate|av_merge|video_with_audio|difftracker' internal/platform/toolbridge internal/contract internal/provider/codexapp internal/provider/claudecli cmd/mcp-lsp cmd/mcp-orch/tools cmd/mcp-orch/workspace
 ```
 
 LSP verification:
