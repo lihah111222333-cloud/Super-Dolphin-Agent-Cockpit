@@ -1,0 +1,24 @@
+{
+  "workflow_key": "20260630-reasonix-hardening-absorption",
+  "last_updated": "2026-06-30T17:28:29+09:00",
+  "overall_status": "needs_approval",
+  "source_plan": "docs/plans/2026-06-30-reasonix-hardening-absorption-review.md",
+  "source_plan_status": "NEEDS_APPROVAL",
+  "plan_executable": false,
+  "blocked_items": [
+    {
+      "id": "approval",
+      "reason": "Source plan is docs-only and explicitly requires separate approval before production changes."
+    },
+    {
+      "id": "dirty-worktree-boundary",
+      "reason": "Unrelated modified files are currently present and also preserved in temporary stash commit 30dc0e34fc4d4e45151ccd4ecd098d49f694f673; do not stage, edit, or pop them for this workflow."
+    }
+  ],
+  "agents": {},
+  "next_actions": [
+    "Approve Lane A only, or approve the full workflow with Lane A first.",
+    "Create isolated worktrees before implementation.",
+    "Keep this workflow package separate from unrelated dirty and stash-preserved files."
+  ]
+}

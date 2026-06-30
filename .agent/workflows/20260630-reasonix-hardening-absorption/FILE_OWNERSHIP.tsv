@@ -1,0 +1,32 @@
+path	owner_task	mode	notes
+docs/plans/2026-06-30-reasonix-hardening-absorption-review.md	ALL	RO	Source review plan; do not rewrite during implementation unless user asks for plan revision.
+.agent/workflows/20260630-reasonix-hardening-absorption/	orchestrator	RW	Workflow state, gates, and handoff control files; task-owned evidence append exceptions are listed explicitly.
+.agent/workflows/20260630-reasonix-hardening-absorption/CHECKS/EVIDENCE.md	A0-stage-source-inventory	RW	Append source inventory, stage-source decision, and patch-ready A3 proposal only.
+internal/platform/toolpolicy/	A1-toolpolicy-core	RW	New leaf package for stage/trust/capability/shell policy; stdlib-only preferred.
+internal/archtest/toolpolicy_dependency_guard_test.go	A1-toolpolicy-core	RW	Add only if A1 needs an arch guard proving toolpolicy dependency direction.
+internal/platform/toolbridge/types.go	A2-toolbridge-stage-gate	RW	Add stage source only after A0 proves authority; default must be execution.
+internal/platform/toolbridge/handler*.go	A2-toolbridge-stage-gate	RW	Planning-stage gate integration; lifecycle deny and schema validation must remain owner-authoritative.
+internal/platform/toolbridge/host_tools.go	A2-toolbridge-stage-gate	RW	Host-direct policy classification and tests only if needed.
+internal/platform/toolbridge/*_test.go	A2-toolbridge-stage-gate	RW	Planning allow/deny, lifecycle non-bypass, schema-before-handler tests.
+internal/provider/toolfilter/	A3-readonly-delegation-filter	RW	Reuse reviewer preset only as input; not a complete policy owner.
+internal/provider/codexapp/native_tool_policy_validation_test.go	A2-toolbridge-stage-gate	RO	Regression suite must continue passing.
+internal/provider/claudecli/transport_config_security_test.go	A2-toolbridge-stage-gate	RO	Regression suite must continue passing.
+internal/platform/sessionpaths/	B1-sessionpaths-core	RW	New stdlib-only leaf helper and golden tests.
+internal/provider/codexapp/history_rollout.go	B2-sessionpaths-migration	RW	Use sessionpaths for rollout glob while preserving explicit Codex home semantics.
+internal/provider/codexapp/history_rollout_path_test.go	B2-sessionpaths-migration	RW	Preserve current rollout path behavior.
+internal/util/historyjsonl/history.go	B2-sessionpaths-migration	RW	Use sessionpaths without changing empty Codex home fallback to ~/.codex.
+internal/module/thread/scratchpad.go	B2-sessionpaths-migration	RW	Use sessionpaths for managed scratchpad path, sanitize, and managed check.
+internal/module/thread/phasef_scratchpad_test.go	B2-sessionpaths-migration	RW	Preserve scratchpad path and config behavior.
+internal/module/thread/stop_test.go	B2-sessionpaths-migration	RW	Preserve scratchpad cleanup coverage.
+internal/archtest/sessionpaths_dependency_guard_test.go	B1-sessionpaths-core	RW	Add dependency guard proving sessionpaths stays stdlib-only.
+internal/archtest/sessionpaths_literal_guard_test.go	B2-sessionpaths-migration	RW	Add literal-placement guard for rollout/scratchpad path fragments after caller migration.
+docs/adr/2026-06-30-writer-preview-contract-spike.md	C1-writer-preview-spike	RW	Preferred spike output; create only this ADR if ADR output is chosen.
+docs/plans/2026-06-30-writer-preview-contract-spike-amendment.md	C1-writer-preview-spike	RW	Alternative spike output; create only this amendment if ADR is not chosen.
+cmd/mcp-orch/tools/	C1-writer-preview-spike	RO	Inventory writer/process-control surfaces; no production edits in spike unless separately approved.
+cmd/mcp-lsp/	C1-writer-preview-spike	RO	Inventory edit actions and preview feasibility.
+frontend-app/	ALL	NO-TOUCH	No frontend changes in this workflow.
+cmd/agent-terminal/web-dist/	ALL	NO-TOUCH	Generated embed output must not be touched.
+docs/archive/	ALL	NO-TOUCH	No historical archive updates.
+.githooks/	ALL	NO-TOUCH	Unrelated dirty and stash-preserved work; do not restore, stage, or edit for this workflow.
+scripts/guard_fix_commits_have_tests_guard_test.go	ALL	NO-TOUCH	Unrelated dirty and stash-preserved work; do not restore, stage, or edit for this workflow.
+scripts/guard_fix_commits_have_tests_helpers_test.go	ALL	NO-TOUCH	Unrelated dirty and stash-preserved work; do not restore, stage, or edit for this workflow.
