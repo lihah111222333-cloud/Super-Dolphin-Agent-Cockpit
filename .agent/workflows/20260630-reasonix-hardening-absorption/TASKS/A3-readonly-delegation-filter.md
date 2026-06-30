@@ -27,15 +27,20 @@ Ensure read-only subagent or planning-only delegation receives a restricted tool
 
 - RW: `internal/provider/toolfilter/presets.go`
 - RW: `internal/provider/toolfilter/presets_test.go`
+- RW: `cmd/mcp-orch/tools/orchestration_tool_definitions.go`
 - RW: `cmd/mcp-orch/tools/orchestration_tools.go`
 - RW: `cmd/mcp-orch/tools/orchestration_tools_test.go`
 - RW: `internal/contract/prompt.go`
 - RW: `internal/contract/provider.go`
 - RW: `internal/module/thread/start_session_helpers.go`
 - RW: `internal/module/thread/start_session_helpers_test.go`
+- RW: `internal/provider/codexapp/driver.go`
+- RW: `internal/provider/codexapp/driver_pool_routing.go`
 - RW: `internal/provider/codexapp/driver_session_test.go`
+- RW: `internal/provider/codexapp/native_tool_policy_validation_test.go`
+- RW: `internal/provider/codexapp/support.go`
 - RO: `internal/platform/toolbridge/`
-- NO-TOUCH: unrelated provider/session lifecycle code.
+- NO-TOUCH: unrelated provider/session lifecycle code outside the listed A3 repair files.
 
 Source entry point from A0:
 
@@ -64,6 +69,8 @@ The orchestrator applied the exact delegation package command from A0 evidence b
 
 - `836705200f7b4a7eca05bb93925dde4fbb9124f8` fixed read-only launch tool-surface propagation and is included before the final code verification head.
 - `5f7406d992b4d2dba19408d738799b298673009a` fixed Codex native disabled-tool propagation from launch config through thread/provider startup and was merged by `0b16e06f`.
+- `2803b0b5178959bc67bfac1951eb0da6b4f29099` fixed unknown non-empty `codexDisabledNativeTools` ID validation and was merged by `ae857bba`.
+- `6fdba6c1a2552dd0cf21d25b0dcf43d5130faa2c` added structured `launch_agent.read_only=true` delegation input and was merged by `73fe7f12`.
 
 Round2 verification recorded by the worker:
 
@@ -73,7 +80,15 @@ Round2 verification recorded by the worker:
 git diff --check
 ```
 
-Controller final gates also passed on code verification head `e17cb8b393293f34ae8af73238906b66abc8d45c`; see `CHECKS/EVIDENCE.md`.
+Final P1 repair verification recorded by the controller:
+
+```bash
+./scripts/test_with_guard.sh ./cmd/mcp-orch/tools ./internal/provider/codexapp ./internal/contract -run 'LaunchRequestFromExecutable|ReadOnly|NativeToolPolicy|CodexNativeToolPolicy' -count=1
+./scripts/test_with_guard.sh ./cmd/mcp-orch/tools ./internal/module/thread ./internal/provider/codexapp ./internal/contract -run 'LaunchRequestFromExecutable|BuildStartSessionConfig|CodexNativeToolPolicy|NativeToolPolicy|ReadOnly' -count=1
+./scripts/test_with_guard.sh ./cmd/mcp-orch/tools ./internal/module/thread ./internal/provider/toolfilter ./internal/platform/toolpolicy ./internal/contract -count=1
+```
+
+Controller final gates passed on code verification head `73fe7f124280ec034cff082cc5e2d048d23d4ee3`; see `CHECKS/EVIDENCE.md`.
 
 ## 7. DoD
 

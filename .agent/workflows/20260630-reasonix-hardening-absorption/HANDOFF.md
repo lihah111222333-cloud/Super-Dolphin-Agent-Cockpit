@@ -2,7 +2,7 @@
 
 ## Current Status
 
-Overall: done. A3 round2 commit `5f7406d992b4d2dba19408d738799b298673009a` was merged by `0b16e06f`, docs round2 commit `ade6151d28c4d6480029cfe087322ec2acb2aebf` was merged by `e17cb8b3`, and fresh final gates passed on final code verification head `e17cb8b393293f34ae8af73238906b66abc8d45c`. This docs-only status commit keeps the workflow state synchronized after those gates.
+Overall: done. A3 round2 commit `5f7406d992b4d2dba19408d738799b298673009a` was merged by `0b16e06f`, docs round2 commit `ade6151d28c4d6480029cfe087322ec2acb2aebf` was merged by `e17cb8b3`, final P1 repairs were merged by `ae857bba` and `73fe7f12`, and controller final gates passed on code verification head `73fe7f124280ec034cff082cc5e2d048d23d4ee3`. This docs-only status commit keeps the workflow state synchronized after those gates.
 
 ## Completed
 
@@ -20,14 +20,17 @@ Overall: done. A3 round2 commit `5f7406d992b4d2dba19408d738799b298673009a` was m
 - A3 was later reopened by post-review findings on read-only launch/native tool propagation.
 - Post-review repair `836705200f7b4a7eca05bb93925dde4fbb9124f8` is integrated in current HEAD.
 - Round2 repair `5f7406d992b4d2dba19408d738799b298673009a` fixed Codex native disabled-tool propagation through orchestration launch, thread config, and provider tests; it was merged by `0b16e06f`.
-- Fresh round2 Lane A focused gates and `make guard` passed on code verification head `e17cb8b393293f34ae8af73238906b66abc8d45c`.
+- Round2 Lane A focused gates and `make guard` passed on the round2 code head before later P1 repairs.
+- R2 P1 repair `2803b0b5178959bc67bfac1951eb0da6b4f29099` was merged by `ae857bba`: non-empty unknown `codexDisabledNativeTools` IDs now fail-fast across start/resume typed paths.
+- R1 P1 repair `6fdba6c1a2552dd0cf21d25b0dcf43d5130faa2c` was merged by `73fe7f12`: `launch_agent.read_only=true` is the structured read-only/review/planning delegation flag; Plan/Explore compatibility remains, and ordinary workers are not made read-only.
+- R3 passed with no additional code repair.
 - B1 completed in `codex/reasonix-hardening-b1-20260630` at `2f8c85a569037f25950498dc484848b80cc942a1`.
 - B1 added `internal/platform/sessionpaths`, golden tests, and the stdlib dependency guard without migrating callers.
 - B2 completed in `codex/reasonix-hardening-b2-20260630` at `28e36eae9cc079daca0ffbbbd05d0836125a7d2e`.
 - B2 migrated provider/util/thread callers to `sessionpaths`; Lane B focused gates and `make guard` passed after integration.
 - C1 completed in `codex/reasonix-hardening-c1-20260630` at `e13c157123fd4999b21387af0583d3a2d45f13b7`.
 - C1 produced `docs/adr/2026-06-30-writer-preview-contract-spike.md` only; Lane C focused gates passed after integration.
-- PN final gates passed after A3 round2 on code verification head `e17cb8b393293f34ae8af73238906b66abc8d45c`.
+- PN final gates passed after the final P1 repairs on code verification head `73fe7f124280ec034cff082cc5e2d048d23d4ee3`.
 
 ## In Progress
 
@@ -40,19 +43,19 @@ Overall: done. A3 round2 commit `5f7406d992b4d2dba19408d738799b298673009a` was m
 
 ## Recommended Next Action
 
-Review or merge the integration branch. Fresh gates already passed on code verification head `e17cb8b393293f34ae8af73238906b66abc8d45c` with:
+Review this docs-only status update. Controller final gates already passed on code verification head `73fe7f124280ec034cff082cc5e2d048d23d4ee3` with:
 
 ```bash
-./scripts/test_with_guard.sh ./internal/platform/toolpolicy ./internal/provider/toolfilter ./internal/platform/toolbridge ./internal/provider/codexapp ./internal/provider/claudecli -run 'Plan|ReadOnly|Trust|Shell|Lifecycle|Sandbox|Permission|Reviewer|Worker|FullAccess|Native|Tool' -count=1
-./scripts/test_with_guard.sh ./cmd/mcp-orch/tools ./internal/module/thread ./internal/provider/codexapp ./internal/contract -run 'LaunchRequestFromExecutable|BuildStartSessionConfig|CodexNativeToolPolicy|ReadOnly' -count=1
+git diff --check 5ccc29e69c48c407895b2d9a4182b0d124d6b813...HEAD
+git diff --cached --check
+python3 -m json.tool .agent/workflows/20260630-reasonix-hardening-absorption/STATE.json >/dev/null
+./scripts/test_with_guard.sh ./cmd/mcp-orch/tools ./internal/provider/codexapp ./internal/contract -run 'LaunchRequestFromExecutable|ReadOnly|NativeToolPolicy|CodexNativeToolPolicy' -count=1
+./scripts/test_with_guard.sh ./cmd/mcp-orch/tools ./internal/module/thread ./internal/provider/codexapp ./internal/contract -run 'LaunchRequestFromExecutable|BuildStartSessionConfig|CodexNativeToolPolicy|NativeToolPolicy|ReadOnly' -count=1
 ./scripts/test_with_guard.sh ./cmd/mcp-orch/tools ./internal/module/thread ./internal/provider/toolfilter ./internal/platform/toolpolicy ./internal/contract -count=1
+./scripts/test_with_guard.sh ./internal/platform/toolpolicy ./internal/provider/toolfilter ./internal/platform/toolbridge ./internal/provider/codexapp ./internal/provider/claudecli -run 'Plan|ReadOnly|Trust|Shell|Lifecycle|Sandbox|Permission|Reviewer|Worker|FullAccess|Native|Tool' -count=1
 ./scripts/test_with_guard.sh ./internal/platform/sessionpaths ./internal/provider/codexapp ./internal/module/thread ./internal/util/historyjsonl -run 'Rollout|Scratchpad|Path|Cleanup|CodexHome|History' -count=1
-rg -n 'memory_write|workflow_template_save|workflow_template_rollback|shared_file_write|defineTaskWriteTool|workspace_create_run|workspace_merge_run|workspace_abort_run|tts_generate|av_merge|video_with_audio|difftracker|Preview' internal cmd docs
 ./scripts/test_with_guard.sh ./internal/archtest -run 'Dependency|Tool|Provider|Path|Preview|Workflow' -count=1
 make guard
-git diff --check
-git diff --cached --check
-git status --short
 ```
 
 ## Historical Execution Sequence
@@ -62,7 +65,7 @@ git status --short
 3. A2 closed as `not_applicable_with_evidence`; no runtime planning-stage blocking was wired.
 4. A1 landed the `toolpolicy` package and tests.
 5. A3 applied the A0 delegation proposal and landed restricted read-only delegation tests.
-6. Post-review A3 repairs expanded the task from toolfilter presets to orchestration launch, contract, thread startup config, and Codex provider test surfaces.
+6. Post-review A3 repairs expanded the task from toolfilter presets to orchestration launch, contract, thread startup config, and Codex provider start/resume native-tool validation surfaces.
 7. Lane B landed `sessionpaths` helper extraction, golden tests, and caller migration.
 8. C1 produced only `docs/adr/2026-06-30-writer-preview-contract-spike.md`; no production preview contract or tests were added.
 
