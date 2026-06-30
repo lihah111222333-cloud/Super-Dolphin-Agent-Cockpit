@@ -238,8 +238,8 @@ func stripAgentsMDBlock(text string) string {
 }
 
 func trimInjectedLSPHint(text string) string {
-	if idx := strings.Index(text, "\n已注入"); idx >= 0 {
-		return text[:idx]
+	if before, _, ok := strings.Cut(text, "\n已注入"); ok {
+		return before
 	}
 	return text
 }

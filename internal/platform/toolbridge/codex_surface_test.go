@@ -500,6 +500,33 @@ func TestCodexToolSurfaceMissingSurfaceFails(t *testing.T) {
 	}
 }
 
+func TestCodexToolSurfaceMissingSurfaceReservedHostOnlyDoesNotReachBackend(t *testing.T) {
+	host := &stubHostToolRegistry{
+		hasToolName: ToolNameMemoryWrite,
+		tools:       []mcpdto.MCPTool{{Name: ToolNameMemoryWrite, Description: "host memory write", InputSchema: strictEmptyObjectSchema()}},
+		result:      map[string]any{"status": "host backend should not run"},
+	}
+	h := &Handler{hostTools: host}
+
+	_, err := h.HandleToolCall(context.Background(), contract.ToolCallRawMessage{Params: mustRawJSON(t, map[string]any{
+		"name":      ToolNameMemoryWrite,
+		"arguments": map[string]any{},
+		"_agentId":  "agent-1",
+		"_threadId": "provider-thread-1",
+		"_callId":   "call-memory-write",
+		"_cwd":      "/repo",
+	})})
+	if err == nil {
+		t.Fatal("HandleToolCall() error = nil, want missing surface failure")
+	}
+	if got := err.Error(); got != `toolbridge: codex tool surface is not prepared for agent "agent-1" thread "provider-thread-1"` {
+		t.Fatalf("HandleToolCall() error = %q", got)
+	}
+	if host.calls != 0 {
+		t.Fatalf("reserved host-only scoped missing-surface call reached host backend: calls=%d", host.calls)
+	}
+}
+
 func TestPrepareCodexToolSurfaceReplacesOverlappingSurface(t *testing.T) {
 	oldClient := &fakeMCPClient{tools: []mcpdto.MCPTool{{Name: "grep", InputSchema: json.RawMessage(`{"type":"object"}`)}}}
 	newClient := &fakeMCPClient{tools: []mcpdto.MCPTool{{Name: "grep", InputSchema: json.RawMessage(`{"type":"object"}`)}}}
