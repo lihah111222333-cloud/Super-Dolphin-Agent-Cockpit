@@ -124,3 +124,114 @@ Verification:
 - JSON validation: `OK jq validation passed`.
 - Red-flag scan outside `CHECKS/EVIDENCE.md`: no matches.
 - Current unrelated dirty files remain outside workflow ownership: `.githooks/README.md`, `.githooks/pre-commit`, `docs/plans/2026-06-29-reasonix-design-absorption-plan.md`, `scripts/guard_fix_commits_have_tests_guard_test.go`, and `scripts/guard_fix_commits_have_tests_helpers_test.go`.
+
+## 2026-06-30 A0 Stage Source Inventory
+
+Status: source inventory only. No production implementation started. Source plan remains `NEEDS_APPROVAL`; execution flag remains `plan_executable=false`.
+
+Exact commands/tools used:
+
+```bash
+git status --short
+git branch --show-current
+git rev-parse --show-toplevel
+git worktree list --porcelain
+rg --files internal/platform/toolbridge | rg 'handler.*\.go$'
+rg -n 'AgentTypePlan|update_plan|EnterPlanMode|ExitPlanMode|TodoWrite|readOnlyHint|PlanSafety|toolfilter' internal cmd
+rg -n 'defineTaskWriteTool|task_create_dag|task_apply_ops|task_start_dag|task_update_node|task_dispatch_node' cmd/mcp-orch/tools
+rg -n 'tts_generate|av_merge|video_with_audio|ttsToolDefinitions|avMergeToolDefinitions|videoWithAudioToolDefinitions' cmd/mcp-orch/tools internal/platform/shared/builtinprompts internal/platform/shared/workflowtemplates internal/archtest
+rg -n 'ListHostTools|WorkflowTemplateWriteHostToolRegistry|ToolNameWorkflowTemplateSave|ToolNameWorkflowTemplateRollback|ToolNameMemoryWrite|NewCompositeHostToolRegistry|provideHostToolRegistry|memory_write' internal/platform/toolbridge internal/app internal/module/memory
+```
+
+LSP tools/actions used:
+
+- `structure(document_symbol)` on `internal/platform/toolbridge/types.go`, `internal/platform/toolbridge/handler.go`, `internal/platform/toolbridge/handler_host_tools.go`, `internal/platform/toolbridge/host_tools.go`, `cmd/mcp-orch/tools/registry.go`, and `cmd/mcp-lsp/tools/tool_edit.go`.
+- `structure(workspace_symbol)` for `ToolCallRequest`, `HandleToolCall`, `AgentTypePlan`, `CodexNativeToolUpdatePlan`, `ReviewerDecision`, `codexSandboxIsReadOnly`, and `taskToolDefinitions`.
+- `grep(text_search)` for `AgentTypePlan|update_plan|EnterPlanMode|ExitPlanMode|TodoWrite|readOnlyHint|PlanSafety|toolfilter` under `internal cmd`.
+- `grep(ast_search)` for `func ($R) HandleToolCall($$$)` and `func ($R) CallHostTool($$$)`.
+- `inspect(definition)` for `AgentTypePlan`, `CodexNativeToolUpdatePlan`, `ReviewerDecision`, and `codexSandboxIsReadOnly`.
+- `xref(references)` for `ToolCallRequest`, `AgentTypePlan`, `CodexNativeToolUpdatePlan`, and `codexSandboxIsReadOnly`.
+- `xref(call_hierarchy)` for `HandleToolCall`, `ReviewerDecision`, and `codexSandboxIsReadOnly`.
+- `file(read_file)` for the exact functions/line windows listed below.
+- `file(diagnostics)` on `internal/platform/toolbridge/types.go`, `internal/platform/toolbridge/handler.go`, and `internal/platform/toolbridge/handler_host_tools.go`: no diagnostics.
+
+LSP limitations observed:
+
+- `xref(call_hierarchy)` on `internal/contract/prompt.go:714:2` returned `AgentTypePlan is not a function`; this is expected for a constant and is not counted as call-hierarchy evidence.
+- `structure(document_symbol)` on `cmd/mcp-lsp/tools/edit.go` failed because that path does not exist. Exact follow-up located the real file at `cmd/mcp-lsp/tools/tool_edit.go`.
+
+Stage-source anchors:
+
+- `internal/platform/toolbridge/types.go:27-36` defines `ToolCallRequest` with `Name`, `Arguments`, `AgentID`, `ThreadID`, `TurnID`, `CallID`, `CWD`, `WorkspaceRoots`, `ClientKind`, and internal `Scoped`; there is no `stage`, `mode`, `planning`, or `execution` field.
+- `internal/platform/toolbridge/types.go:40-49` normalizes those existing fields only.
+- `internal/platform/toolbridge/handler.go:136-156` decodes a `ToolCallRequest`, normalizes tracing metadata, routes Codex surface tools first, then calls `routeToolCall`; no stage value is read or derived.
+- `internal/platform/toolbridge/handler_peer_decode.go:474-520` routes Codex surface calls by surface alias, entry execution kind, lifecycle, schema validation, and injected launch context; no planning/execution stage branch exists.
+- LSP `xref(references)` for `ToolCallRequest` found consumers in `diff_gen.go`, `handler.go`, `handler_host_tools.go`, `handler_managed_launch.go`, `handler_peer_decode.go`, and decode helpers; the visible reference set used request metadata, routing, host tool, managed launch, lifecycle, and diff paths, not a stage carrier.
+- `internal/dto/mcp/tool.go:7-12` defines `MCPTool` with name/description/input/output schema only; it does not carry `readOnlyHint`.
+- `internal/contract/prompt.go:707-714` defines `AgentTypePlan` as a subagent prompt assembly type, not a tool-call stage.
+- `internal/module/prompt/agent_assembler.go:26-37` uses `AgentTypePlan` only while assembling subagent prompts.
+- `internal/module/prompt/agent_assembler.go:53-74` uses `AgentTypePlan` with `AgentTypeExplore` to redact parent context.
+- `internal/module/thread/start_session_helpers.go:296-303` recognizes `AgentTypePlan` as a known subagent type; this is still session/prompt identity, not runtime tool stage.
+- `internal/contract/provider.go:65` defines Codex native tool `update_plan`.
+- `internal/contract/provider.go:138-156` treats `update_plan` as a known Codex native tool ID.
+- `internal/contract/provider.go:243-259` classifies `update_plan` as a soft-audit native tool, not as authoritative stage input.
+- `internal/provider/codexapp/driver.go:139-170` exposes Codex native tool descriptors; `CodexNativeToolUpdatePlan` is default-disabled soft filter metadata.
+- `internal/module/prompt/section.go:127-144` mentions `update_plan` only in prompt/tool-preference text.
+- `internal/provider/claudecli/module.go:53-60` declares Claude native `EnterPlanMode`, `ExitPlanMode`, and `TodoWrite` as default-disabled hard-filter native tools.
+- `internal/provider/codexapp/driver_pool_routing.go:581-605` parses Codex sandbox read-only state conservatively; it recognizes only explicit read-only/readOnly forms.
+- `internal/provider/codexapp/native_tool_policy_validation_test.go:62-84` proves `{"readOnlyHint":true}` alone is not trusted as read-only.
+- The required `rg` command found no `PlanSafety` match under `internal cmd`.
+
+Decision:
+
+- `stage_source_found=false`
+- V3 currently has planning-related prompt/native-tool markers, but no authoritative runtime/contract field carrying `planning` versus `execution` into `internal/platform/toolbridge`.
+- A2 runtime blocking must remain absent and A2 should close as `not_applicable_with_evidence`; do not wire toolbridge runtime blocking from `AgentTypePlan`, `update_plan`, Claude plan-mode tools, or external `readOnlyHint`.
+
+Read-only delegation entry point found:
+
+- `internal/provider/toolfilter/presets.go:5-14` defines the current reviewer allow/deny lists.
+- `internal/provider/toolfilter/presets.go:22-30` defines `ReviewerDecision()` as a read-only delegation preset allowing LSP/file/shared-file read tools and denying `edit`, `lsp_edit`, `orchestration_launch_agent`, and `orchestration_stop_agent`.
+- `internal/provider/toolfilter/presets_test.go:17-40` tests allowed read-only tools, denied write/lifecycle tools, and exclusion of `shared_file_write`.
+- LSP `xref(call_hierarchy)` for `ReviewerDecision` showed only tests as incoming callers, so this is a concrete preset/entry point but not yet a complete runtime policy owner.
+
+Patch-ready orchestrator proposal for A3:
+
+```diff
+--- a/.agent/workflows/20260630-reasonix-hardening-absorption/FILE_OWNERSHIP.tsv
++++ b/.agent/workflows/20260630-reasonix-hardening-absorption/FILE_OWNERSHIP.tsv
+@@
+-internal/provider/toolfilter/	A3-readonly-delegation-filter	RW	Reuse reviewer preset only as input; not a complete policy owner.
++internal/provider/toolfilter/presets.go	A3-readonly-delegation-filter	RW	Tighten read-only delegation preset; must exclude writer, planning mutator, lifecycle/process-control, recursive agent, connector, and untrusted external hint surfaces.
++internal/provider/toolfilter/presets_test.go	A3-readonly-delegation-filter	RW	Focused tests for read-only delegation allow/deny surface.
+```
+
+```diff
+--- a/.agent/workflows/20260630-reasonix-hardening-absorption/TASKS/A3-readonly-delegation-filter.md
++++ b/.agent/workflows/20260630-reasonix-hardening-absorption/TASKS/A3-readonly-delegation-filter.md
+@@
++Source entry point:
++- `internal/provider/toolfilter/presets.go:5-14`
++- `internal/provider/toolfilter/presets.go:22-30`
++- `internal/provider/toolfilter/presets_test.go:17-40`
++
++Recommended verification commands:
++```bash
++./scripts/test_with_guard.sh ./internal/provider/toolfilter -run 'Reviewer|Worker|FullAccess' -count=1
++rg -n 'ReviewerDecision|reviewerAllowedTools|reviewerDeniedTools|shared_file_write|orchestration_launch_agent|lsp_edit|memory_write|task_|workspace_|workflow_template_|update_plan' internal/provider/toolfilter internal/platform/toolbridge cmd/mcp-orch/tools cmd/mcp-lsp
++```
+```
+
+C1 reusable model-callable writer/tool-surface family anchors:
+
+- Host-direct tool surface: `internal/platform/toolbridge/handler_peer_decode.go:98-107` adds host tools into the Codex surface; `internal/platform/toolbridge/host_tools.go:29-40` defines `HostToolRegistry`.
+- Host-direct default writer: `internal/platform/toolbridge/memory_write_tool.go:14-22` defines `memory_write`; `internal/platform/toolbridge/memory_write_tool.go:51-82` exposes and calls it when enabled.
+- Host-direct workflow template read/write split: `internal/platform/toolbridge/host_tools.go:57-64` defines template tools; `internal/platform/toolbridge/host_tools.go:187-199` exposes read-only list/get/render; `internal/platform/toolbridge/host_tools.go:236-281` exposes authorized `workflow_template_save` and `workflow_template_rollback`.
+- MCP LSP writer: `cmd/mcp-lsp/tools.go:35-41` registers `edit`; `cmd/mcp-lsp/schema.go:131-140` declares `replace_range`, `rename`, `code_action`, and `format`; `cmd/mcp-lsp/tools/tool_edit.go:68-99` dispatches those actions.
+- MCP LSP write behavior: `cmd/mcp-lsp/tools/tool_edit_replace.go:170-249` applies `replace_range`; `cmd/mcp-lsp/tools/tool_edit_lsp_actions.go:21-82` can apply a single `code_action` workspace edit; `cmd/mcp-lsp/tools/tool_edit_lsp_actions.go:84-112` applies format edits.
+- MCP-orch registry surface: `cmd/mcp-orch/tools/registry.go:38-48` registers orchestration/task/workspace/prompt/command/shared-file/registry/TTS/AV/video tool families.
+- MCP-orch task writers: `cmd/mcp-orch/tools/task_tool_definitions.go:17-27` defines `defineTaskWriteTool`; `cmd/mcp-orch/tools/task_tool_definitions.go:50-101` registers `task_create_dag`, `task_dag_apply_ops`, `task_update_node`, `task_dispatch_node`, `task_start_dag`, `task_terminate_dag`, `task_delete_dag`, and recovery action as high-risk workflow-write tools.
+- MCP-orch workspace writers: `cmd/mcp-orch/tools/workspace_tools.go:117-150` registers `workspace_create_run`, `workspace_merge_run` with `dry_run`, and `workspace_abort_run`.
+- MCP-orch shared-file writer: `cmd/mcp-orch/tools/shared_file_tools.go:50-61` registers `shared_file_write`; `cmd/mcp-orch/tools/shared_file_tools.go:85-112` validates write path/content and upserts.
+- Artifact/process side-effect tools: `cmd/mcp-orch/tools/tts_tools.go:23-57` registers `tts_generate`; `cmd/mcp-orch/tools/av_merge_tools.go:21-35` registers `av_merge`; `cmd/mcp-orch/tools/video_with_audio_tools.go:24-42` registers `video_with_audio`.
+- Provider-native boundaries: `internal/provider/codexapp/driver.go:139-170` lists Codex native tools such as file write/apply patch/shell/subagent/update_plan; `internal/provider/claudecli/module.go:47-76` lists Claude native tools including write/edit/bash/plan/todo/task controls.
