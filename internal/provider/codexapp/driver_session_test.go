@@ -133,6 +133,26 @@ func TestCodexNativeToolPolicyUsesReadOnlySandboxForPartialWriteDisable(t *testi
 	}
 }
 
+func TestCodexNativeToolPolicyUsesReadOnlySandboxForReadOnlyLaunchDenyList(t *testing.T) {
+	params := threadStartParams{}
+	policy := codexNativeToolPolicyFromConfig(map[string]any{
+		codexDisabledNativeToolsConfigKey: []string{
+			contract.CodexNativeToolShell,
+			contract.CodexNativeToolApplyPatch,
+			contract.CodexNativeToolWriteNewFile,
+			contract.CodexNativeToolSpawnAgent,
+		},
+	})
+
+	policy.ApplyThreadStartParams(&params)
+	if params.ApprovalPolicy != "never" {
+		t.Fatalf("ApprovalPolicy = %q, want never", params.ApprovalPolicy)
+	}
+	if string(params.Sandbox) != `{"read-only":null}` {
+		t.Fatalf("Sandbox = %s, want read-only object", string(params.Sandbox))
+	}
+}
+
 func TestNewDriverFactoryCreateReturnsCodexDriver(t *testing.T) {
 	t.Parallel()
 
