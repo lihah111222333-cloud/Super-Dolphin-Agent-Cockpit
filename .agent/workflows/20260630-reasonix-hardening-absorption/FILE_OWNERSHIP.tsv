@@ -16,6 +16,9 @@ cmd/mcp-orch/tools/orchestration_tools_test.go	A3-readonly-delegation-filter	RW	
 internal/contract/prompt.go	A3-readonly-delegation-filter	RW	Post-review repair from 83670520: contract surface for read-only launch/tool policy data.
 internal/contract/provider.go	A3-readonly-delegation-filter	RW	Round2 repair from 5f7406d: provider launch config carries disabled native tool names; dfeff474 clears LSP modernization hints here.
 internal/contract/toolbridge.go	A3-readonly-delegation-filter	RW	P1 repair from d8754cc1: CodexToolSurfaceScope carries DisabledTools.
+internal/module/thread/factory_config.go	A3-readonly-delegation-filter	RW	P1 repair from 7dbfc068: resume runtime codexDisabledNativeTools malformed values fail fast instead of being silently cleaned.
+internal/module/thread/resume_test.go	A3-readonly-delegation-filter	RW	P1 regression from 7dbfc068 for resume malformed mixed array/object/integer runtime values and typed request precedence.
+internal/module/thread/start_session.go	A3-readonly-delegation-filter	RW	P1 repair from 7dbfc068: resume disabled-native-tool parsing returns errors through the resume path.
 internal/module/thread/start_session_helpers.go	A3-readonly-delegation-filter	RW	Round2 repair: merge launch disabled native tools with assembly-suppressed tools.
 internal/module/thread/start_session_helpers_test.go	A3-readonly-delegation-filter	RW	Round2 regression for merged launch and assembly tool-surface config.
 internal/platform/toolbridge/codex_surface_test.go	A3-readonly-delegation-filter	RW	P1 regressions from d8754cc1/e82c230 for dynamic disabled-tool filtering, stale scoped-call denial, and missing-surface reserved host-only backend isolation.

@@ -18,7 +18,7 @@
 
 ## Gate 2: Lane A Completion
 
-Status: passed after A3 round2, R1/R2 P1 repairs, final review2 dynamic disabled-tool repair, LSP hint cleanup, and final-review3 scoped missing-surface repair on code verification head `29fe8e130ed35716e8cae11698b281bd0601823d`.
+Status: passed after A3 round2, R1/R2 P1 repairs, final review2 dynamic disabled-tool repair, LSP hint cleanup, final-review3 scoped missing-surface repair, and final-review4 resume native-tool malformed-value repair on code verification head `a09d7d2efde958c47087ec7b95d8fdcecd00357b`.
 
 - [x] A0 stage source inventory completed with LSP references and exact source anchors.
 - [x] A1 `internal/platform/toolpolicy` tests passed.
@@ -31,7 +31,9 @@ Status: passed after A3 round2, R1/R2 P1 repairs, final review2 dynamic disabled
 - [x] User-required six LSP hints were cleared: `range over int`, `strings.SplitSeq`, `strings.CutPrefix`, and `slices.ContainsFunc`/`slices.Contains`.
 - [x] Final-review3 recorded Dirac FAIL P2 for missing final target HEAD `ba18c2e7`, Bacon FAIL P1 for scoped missing-surface reserved host-only fallback, and Turing FAIL P2 for missing `ba18c2e7` docs plus remaining `history_rollout.go` `strings.Index` -> `strings.Cut` hint.
 - [x] Tesla repair `e82c2300356cef51d3676b7231d77fb083ee2e47` fail-fast blocks scoped reserved host-only calls when the Codex surface is missing and changed `trimInjectedLSPHint` to `strings.Cut`; it was merged by `29fe8e13`.
-- [x] Final Lane A guard commands passed on code verification head `29fe8e130ed35716e8cae11698b281bd0601823d`.
+- [x] Final-review4 recorded Pasteur PASS, Popper PASS, and Meitner FAIL P1 because resume runtime `codexDisabledNativeTools` malformed values were silently cleaned instead of rejected.
+- [x] Sartre repair `7dbfc068495ee91dffcf53e9fefb760058099add` makes `cleanResumeStringList`, `codexDisabledNativeToolsFromRuntime`, and `resolveResumeCodexDisabledNativeTools` return errors; malformed mixed array, object, and integer runtime values fail fast with `codexDisabledNativeTools` and type in the error before provider `ResumeSession`, while valid `[]any` strings and typed `ResumeRequest.CodexDisabledNativeTools []string` behavior are preserved.
+- [x] Final Lane A guard commands passed on code verification head `a09d7d2efde958c47087ec7b95d8fdcecd00357b`.
 
 ## Gate 3: Lane B Completion
 
@@ -50,7 +52,7 @@ Status: passed after A3 round2, R1/R2 P1 repairs, final review2 dynamic disabled
 
 ## Gate 5: Integration
 
-Status: passed on code verification head `29fe8e130ed35716e8cae11698b281bd0601823d` after A3 round2, docs round2, R1/R2 P1 repairs, dynamic disabled-tool P1 repair, LSP hint cleanup, and final-review3 scoped missing-surface repair were merged. Final workflow sync is this round6 docs commit; inside the commit it is recorded as `pending_this_docs_commit` because a commit cannot reliably include its own SHA.
+Status: passed on code verification head `a09d7d2efde958c47087ec7b95d8fdcecd00357b` after A3 round2, docs round2, R1/R2 P1 repairs, dynamic disabled-tool P1 repair, LSP hint cleanup, final-review3 scoped missing-surface repair, and final-review4 resume native-tool malformed-value repair were merged. Final workflow sync is this round7 docs commit; inside the commit it is recorded as `pending_this_docs_commit` because a commit cannot reliably include its own SHA.
 
 - [x] A3 round2 worker commit `5f7406d992b4d2dba19408d738799b298673009a` was merged by `0b16e06f`.
 - [x] Docs round2 commit `ade6151d28c4d6480029cfe087322ec2acb2aebf` was merged by historical docs merge `e17cb8b3`.
@@ -60,7 +62,9 @@ Status: passed on code verification head `29fe8e130ed35716e8cae11698b281bd060182
 - [x] LSP hint cleanup commit `dfeff4745e957ae6ee94d3f998f20c03f82ecd05` was merged by `28aa3e54`.
 - [x] Previous docs sync head `ba18c2e7d54a245f3f0b7bc0b42fd388a42fb051` was the final-review3 target, not the latest code verification head.
 - [x] Scoped missing-surface P1/LSP P2 commit `e82c2300356cef51d3676b7231d77fb083ee2e47` was merged by `29fe8e13`.
-- [x] LSP diagnostics on `handler_peer_decode.go`, `codex_surface_test.go`, `history_rollout.go`, `orchestration_tools.go`, `orchestration_tools_test.go`, and `provider.go` returned no diagnostics.
-- [x] Focused scoped-surface, Lane A, JSON, and diff checks passed fresh on code verification head `29fe8e13`.
-- [x] This round6 docs-only status commit keeps workflow state synchronized after those gates and is the final workflow sync head.
+- [x] Round6 docs sync head `4e38067ffb7c983eb58c86b57c7c1468c7e4a1b3` is historical/superseded and is not the latest code verification head.
+- [x] Resume malformed-value P1 commit `7dbfc068495ee91dffcf53e9fefb760058099add` was merged by `a09d7d2efde958c47087ec7b95d8fdcecd00357b`.
+- [x] LSP diagnostics on `factory_config.go`, `start_session.go`, `start_session_helpers.go`, `resume_test.go`, `orchestration_tools.go`, `support.go`, `provider.go`, `handler_peer_decode.go`, `codex_surface_test.go`, and `history_rollout.go` returned no diagnostics.
+- [x] Focused resume/native-tool, Lane A, guard, JSON, and diff checks passed fresh on code verification head `a09d7d2e`.
+- [x] This round7 docs-only status commit keeps workflow state synchronized after those gates and is the final workflow sync head.
 - [x] Workflow `STATE.json`, `CHECKS/EVIDENCE.md`, `RESULT_GATES.md`, and `HANDOFF.md` updated to final integrated state.

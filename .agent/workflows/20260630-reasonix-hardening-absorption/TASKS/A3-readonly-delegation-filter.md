@@ -33,6 +33,9 @@ Ensure read-only subagent or planning-only delegation receives a restricted tool
 - RW: `internal/contract/prompt.go`
 - RW: `internal/contract/provider.go`
 - RW: `internal/contract/toolbridge.go`
+- RW: `internal/module/thread/factory_config.go`
+- RW: `internal/module/thread/resume_test.go`
+- RW: `internal/module/thread/start_session.go`
 - RW: `internal/module/thread/start_session_helpers.go`
 - RW: `internal/module/thread/start_session_helpers_test.go`
 - RW: `internal/platform/toolbridge/codex_surface_test.go`
@@ -83,7 +86,10 @@ The orchestrator applied the exact delegation package command from A0 evidence b
 - Einstein cleanup `dfeff4745e957ae6ee94d3f998f20c03f82ecd05` cleared `range over int`, `strings.SplitSeq`, `strings.CutPrefix`, and `slices.ContainsFunc`/`slices.Contains` hints in A3-owned files and was merged by `28aa3e54`.
 - Final-review3 on `ba18c2e7` recorded Dirac FAIL P2 for missing final target HEAD documentation, Bacon FAIL P1 for scoped Codex reserved host-only calls falling back to ordinary backend when the surface was missing, and Turing FAIL P2 for missing `ba18c2e7` docs plus the remaining `history_rollout.go` `strings.Index` -> `strings.Cut` LSP hint.
 - Tesla repair `e82c2300356cef51d3676b7231d77fb083ee2e47` updated `routeCodexSurfaceToolCall` so `surface == nil` first fail-fast rejects `req.Scoped && requiresCodexToolSurface(req.Name)`, then allows only non-scoped reserved host-only fallback; it also added `TestCodexToolSurfaceMissingSurfaceReservedHostOnlyDoesNotReachBackend` and changed `trimInjectedLSPHint` to `strings.Cut`.
-- Integration merge `29fe8e130ed35716e8cae11698b281bd0601823d` brought `e82c2300356cef51d3676b7231d77fb083ee2e47` into the integration branch and is the latest code verification head.
+- Integration merge `29fe8e130ed35716e8cae11698b281bd0601823d` brought `e82c2300356cef51d3676b7231d77fb083ee2e47` into the integration branch; it is now superseded by final-review4.
+- Final-review4 on round6 docs sync head `4e38067ffb7c983eb58c86b57c7c1468c7e4a1b3` recorded Pasteur PASS, Popper PASS, and Meitner FAIL P1: resume runtime `codexDisabledNativeTools` malformed values were silently swallowed because `cleanResumeStringList` kept only strings from mixed arrays such as `[]any{"shell", 42}` and returned nil for object/integer values.
+- Sartre repair `7dbfc068495ee91dffcf53e9fefb760058099add` made `cleanResumeStringList`, `codexDisabledNativeToolsFromRuntime`, and `resolveResumeCodexDisabledNativeTools` return errors; mixed array, object, and integer malformed runtime values fail fast with `codexDisabledNativeTools` and the offending type in the error before provider `ResumeSession`; valid `[]any` strings still trim/drop-empty/deduplicate/sort, and explicit typed `ResumeRequest.CodexDisabledNativeTools []string` still takes precedence.
+- Integration merge `a09d7d2efde958c47087ec7b95d8fdcecd00357b` brought `7dbfc068495ee91dffcf53e9fefb760058099add` into the integration branch and is the latest code verification head.
 
 Round2 verification recorded by the worker:
 
@@ -104,7 +110,28 @@ Final P1 repair verification recorded by the controller:
 ./scripts/test_with_guard.sh ./cmd/mcp-orch/tools ./internal/module/thread ./internal/provider/toolfilter ./internal/platform/toolpolicy ./internal/contract -count=1
 ```
 
-LSP diagnostics on `internal/platform/toolbridge/handler_peer_decode.go`, `internal/platform/toolbridge/codex_surface_test.go`, `internal/provider/codexapp/history_rollout.go`, `cmd/mcp-orch/tools/orchestration_tools.go`, `cmd/mcp-orch/tools/orchestration_tools_test.go`, and `internal/contract/provider.go` returned no diagnostics. Controller final gates passed on code verification head `29fe8e130ed35716e8cae11698b281bd0601823d`; see `CHECKS/EVIDENCE.md`.
+Final-review4 controller verification recorded:
+
+```bash
+# LSP diagnostics on internal/module/thread/factory_config.go,
+# internal/module/thread/start_session.go,
+# internal/module/thread/start_session_helpers.go,
+# internal/module/thread/resume_test.go,
+# cmd/mcp-orch/tools/orchestration_tools.go,
+# internal/provider/codexapp/support.go,
+# internal/contract/provider.go,
+# internal/platform/toolbridge/handler_peer_decode.go,
+# internal/platform/toolbridge/codex_surface_test.go,
+# internal/provider/codexapp/history_rollout.go returned no diagnostics.
+./scripts/test_with_guard.sh ./internal/module/thread -run 'Resume.*CodexDisabledNativeTools|CodexDisabledNativeTools|hydrateResume|ResumeSession' -count=1
+./scripts/test_with_guard.sh ./cmd/mcp-orch/tools ./internal/module/thread ./internal/provider/codexapp ./internal/contract -run 'LaunchRequestFromExecutable|BuildStartSessionConfig|CodexNativeToolPolicy|NativeToolPolicy|ReadOnly|Resume|CodexDisabledNativeTools' -count=1
+make guard
+git diff --check 5ccc29e69c48c407895b2d9a4182b0d124d6b813...HEAD
+git diff --cached --check
+python3 -m json.tool .agent/workflows/20260630-reasonix-hardening-absorption/STATE.json >/dev/null
+```
+
+Controller final gates passed on code verification head `a09d7d2efde958c47087ec7b95d8fdcecd00357b`; see `CHECKS/EVIDENCE.md`.
 
 ## 7. DoD
 

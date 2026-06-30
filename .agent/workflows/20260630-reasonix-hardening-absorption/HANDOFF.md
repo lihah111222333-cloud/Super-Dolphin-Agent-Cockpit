@@ -2,7 +2,7 @@
 
 ## Current Status
 
-Overall: done. A3 round2 commit `5f7406d992b4d2dba19408d738799b298673009a` was merged by `0b16e06f`, docs round2 commit `ade6151d28c4d6480029cfe087322ec2acb2aebf` was merged by `e17cb8b3`, R1/R2 P1 repairs were merged by `ae857bba` and `73fe7f12`, dynamic disabled-tool repair `d8754cc1e86bf3dfc62273390ebebf1f86b9b3fe` was merged by `d08c6962`, LSP hint cleanup `dfeff4745e957ae6ee94d3f998f20c03f82ecd05` was merged by `28aa3e54`, and final-review3 scoped missing-surface repair `e82c2300356cef51d3676b7231d77fb083ee2e47` was merged by `29fe8e13`. `ba18c2e7` was the previous docs sync head and final-review3 target, `29fe8e130ed35716e8cae11698b281bd0601823d` is the final code verification head, and this round6 docs commit is the final workflow sync head (`pending_this_docs_commit` inside the commit because a commit cannot reliably contain its own SHA).
+Overall: done. A3 round2 commit `5f7406d992b4d2dba19408d738799b298673009a` was merged by `0b16e06f`, docs round2 commit `ade6151d28c4d6480029cfe087322ec2acb2aebf` was merged by `e17cb8b3`, R1/R2 P1 repairs were merged by `ae857bba` and `73fe7f12`, dynamic disabled-tool repair `d8754cc1e86bf3dfc62273390ebebf1f86b9b3fe` was merged by `d08c6962`, LSP hint cleanup `dfeff4745e957ae6ee94d3f998f20c03f82ecd05` was merged by `28aa3e54`, final-review3 scoped missing-surface repair `e82c2300356cef51d3676b7231d77fb083ee2e47` was merged by `29fe8e13`, and final-review4 resume native-tool malformed-value repair `7dbfc068495ee91dffcf53e9fefb760058099add` was merged by `a09d7d2efde958c47087ec7b95d8fdcecd00357b`. `ba18c2e7` was the previous docs sync head and final-review3 target, `4e38067f` was the historical round6 docs sync head after `29fe8e13`, `a09d7d2efde958c47087ec7b95d8fdcecd00357b` is the final code verification head, and this round7 docs commit is the final workflow sync head (`pending_this_docs_commit` inside the commit because a commit cannot reliably contain its own SHA).
 
 ## Completed
 
@@ -30,13 +30,15 @@ Overall: done. A3 round2 commit `5f7406d992b4d2dba19408d738799b298673009a` was m
 - Einstein cleanup `dfeff4745e957ae6ee94d3f998f20c03f82ecd05` was merged by `28aa3e54`: it cleared `range over int`, `strings.SplitSeq`, `strings.CutPrefix`, and `slices.ContainsFunc`/`slices.Contains` hints in `cmd/mcp-orch/tools/orchestration_tools.go`, `cmd/mcp-orch/tools/orchestration_tools_test.go`, and `internal/contract/provider.go`.
 - Final-review3 results on `ba18c2e7`: Dirac FAIL P2 because workflow docs did not record final target HEAD `ba18c2e7`; Bacon FAIL P1 because scoped Codex reserved host-only calls could fall back to ordinary host-direct backend when the surface was missing; Turing FAIL P2 because workflow docs did not record `ba18c2e7` and `internal/provider/codexapp/history_rollout.go` still had a `strings.Index` -> `strings.Cut` LSP hint.
 - Tesla repair `e82c2300356cef51d3676b7231d77fb083ee2e47` was merged by `29fe8e13`: `routeCodexSurfaceToolCall` now fail-fast rejects `req.Scoped && requiresCodexToolSurface(req.Name)` when `surface == nil` before allowing non-scoped reserved host-only fallback; `TestCodexToolSurfaceMissingSurfaceReservedHostOnlyDoesNotReachBackend` proves stale scoped `memory_write` missing-surface returns a missing surface error and `host.calls == 0`; `trimInjectedLSPHint` now uses `strings.Cut`.
+- Final-review4 results on `4e38067f`: Pasteur PASS, Popper PASS, Meitner FAIL P1. Meitner found resume runtime `codexDisabledNativeTools` parsing silently cleaned malformed values: `cleanResumeStringList` kept only strings from mixed arrays such as `[]any{"shell", 42}` and returned nil for object/integer values, allowing provider resume to continue instead of failing fast.
+- Sartre repair `7dbfc068495ee91dffcf53e9fefb760058099add` was merged by `a09d7d2efde958c47087ec7b95d8fdcecd00357b`: `cleanResumeStringList`, `codexDisabledNativeToolsFromRuntime`, and `resolveResumeCodexDisabledNativeTools` now return errors; mixed array, object, and integer malformed runtime values fail fast with errors containing `codexDisabledNativeTools` and the offending type, blocking provider `ResumeSession`; valid `[]any` string lists still trim, drop empty values, deduplicate, and sort; explicit typed `ResumeRequest.CodexDisabledNativeTools []string` still takes precedence.
 - B1 completed in `codex/reasonix-hardening-b1-20260630` at `2f8c85a569037f25950498dc484848b80cc942a1`.
 - B1 added `internal/platform/sessionpaths`, golden tests, and the stdlib dependency guard without migrating callers.
 - B2 completed in `codex/reasonix-hardening-b2-20260630` at `28e36eae9cc079daca0ffbbbd05d0836125a7d2e`.
 - B2 migrated provider/util/thread callers to `sessionpaths`; Lane B focused gates and `make guard` passed after integration.
 - C1 completed in `codex/reasonix-hardening-c1-20260630` at `e13c157123fd4999b21387af0583d3a2d45f13b7`.
 - C1 produced `docs/adr/2026-06-30-writer-preview-contract-spike.md` only; Lane C focused gates passed after integration.
-- PN final gates passed after the final-review3 P1/P2 repair on code verification head `29fe8e130ed35716e8cae11698b281bd0601823d`.
+- PN final gates passed after the final-review4 P1 repair on code verification head `a09d7d2efde958c47087ec7b95d8fdcecd00357b`.
 
 ## In Progress
 
@@ -49,21 +51,25 @@ Overall: done. A3 round2 commit `5f7406d992b4d2dba19408d738799b298673009a` was m
 
 ## Recommended Next Action
 
-Review this round6 docs-only status update. Controller final gates already passed on code verification head `29fe8e130ed35716e8cae11698b281bd0601823d` with:
+Review this round7 docs-only status update. Controller final gates already passed on code verification head `a09d7d2efde958c47087ec7b95d8fdcecd00357b` with:
 
 ```bash
+# LSP diagnostics on internal/module/thread/factory_config.go,
+# internal/module/thread/start_session.go,
+# internal/module/thread/start_session_helpers.go,
+# internal/module/thread/resume_test.go,
+# cmd/mcp-orch/tools/orchestration_tools.go,
+# internal/provider/codexapp/support.go,
+# internal/contract/provider.go,
+# internal/platform/toolbridge/handler_peer_decode.go,
+# internal/platform/toolbridge/codex_surface_test.go,
+# and internal/provider/codexapp/history_rollout.go returned no diagnostics.
+./scripts/test_with_guard.sh ./internal/module/thread -run 'Resume.*CodexDisabledNativeTools|CodexDisabledNativeTools|hydrateResume|ResumeSession' -count=1
+./scripts/test_with_guard.sh ./cmd/mcp-orch/tools ./internal/module/thread ./internal/provider/codexapp ./internal/contract -run 'LaunchRequestFromExecutable|BuildStartSessionConfig|CodexNativeToolPolicy|NativeToolPolicy|ReadOnly|Resume|CodexDisabledNativeTools' -count=1
+make guard
 git diff --check 5ccc29e69c48c407895b2d9a4182b0d124d6b813...HEAD
 git diff --cached --check
 python3 -m json.tool .agent/workflows/20260630-reasonix-hardening-absorption/STATE.json >/dev/null
-# LSP diagnostics on internal/platform/toolbridge/handler_peer_decode.go,
-# internal/platform/toolbridge/codex_surface_test.go,
-# internal/provider/codexapp/history_rollout.go,
-# cmd/mcp-orch/tools/orchestration_tools.go,
-# cmd/mcp-orch/tools/orchestration_tools_test.go,
-# and internal/contract/provider.go returned no diagnostics.
-./scripts/test_with_guard.sh ./internal/platform/toolbridge -run TestCodexToolSurfaceMissingSurfaceReservedHostOnlyDoesNotReachBackend -count=1
-./scripts/test_with_guard.sh ./internal/platform/toolbridge ./internal/provider/codexapp -run 'CodexToolSurface|Scoped|HostOnly|History|Rollout|Injected|LSP' -count=1
-./scripts/test_with_guard.sh ./cmd/mcp-orch/tools ./internal/module/thread ./internal/provider/codexapp ./internal/platform/toolbridge ./internal/contract -run 'LaunchRequestFromExecutable|BuildStartSessionConfig|CodexToolSurface|PrepareCodexToolSurface|Disabled|Disallowed|ReadOnly|Scoped' -count=1
 ```
 
 ## Historical Execution Sequence
