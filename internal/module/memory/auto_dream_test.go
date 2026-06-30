@@ -136,7 +136,7 @@ func newAutoDreamMinSessionsHarness(
 		if prompt == "" {
 			t.Fatal("auto-dream prompt should not be empty")
 		}
-		return `{"memories":[{"content":"Keep answers short\nWhy: default to concise responses.","type":"feedback"}]}`, nil
+		return `{"memories":[{"scope":"private","name":"Keep answers short","description":"Default to concise responses.","content":"Keep answers short\nWhy: default to concise responses.","type":"feedback"}]}`, nil
 	}
 	return store, hooks, calls
 }

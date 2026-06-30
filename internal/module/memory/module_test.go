@@ -270,7 +270,7 @@ func TestMemorySubscribersHandleTurnCompletedAsync(t *testing.T) {
 		}
 		close(started)
 		<-release
-		return `{"memories":[{"content":"Keep build commands guarded in this repo.","type":"project","tags":["build"]}]}`, nil
+		return `{"memories":[{"scope":"private","name":"Keep build commands guarded","description":"Keep build commands guarded in this repo.","content":"Keep build commands guarded in this repo.","type":"project","tags":["build"]}]}`, nil
 	}
 
 	spec := NewMemorySubscribers(nil, nil, nil, memorySubscriberParams{Hooks: hooks}).Spec

@@ -105,7 +105,7 @@ func TestConsolidationConsolidateUsesMemoryIndexTopicsAndLogs(t *testing.T) {
 			"feedback/keep-answers-short.md",
 			"logs/2026/04/2026-04-15.md",
 		)
-		return `{"memories":[{"content":"Keep answers short\nWhy: default to concise responses.","type":"feedback","tags":["style"]}]}`, nil
+		return `{"memories":[{"scope":"private","name":"Keep answers short","description":"Default to concise responses.","content":"Keep answers short\nWhy: default to concise responses.","type":"feedback","tags":["style"]}]}`, nil
 	})
 	if err != nil {
 		t.Fatalf("Consolidate() error = %v", err)
