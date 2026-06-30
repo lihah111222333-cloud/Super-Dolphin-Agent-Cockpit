@@ -9,13 +9,16 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"sort"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	"github.com/anthropic-ai/super-agent-v3/internal/module/datasource"
 	mcpserver "github.com/anthropic-ai/super-agent-v3/internal/module/mcp_server"
 	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
+	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
 	platformrpc "github.com/anthropic-ai/super-agent-v3/internal/platform/rpc"
 	"github.com/gorilla/websocket"
 )
@@ -220,11 +223,23 @@ func writeDatasourceFiles(t *testing.T, project string, names ...string) {
 }
 
 type wsMCPServerStore struct {
-	servers map[string]map[string]mcpserver.ServerConfig
+	servers   map[string]map[string]mcpserver.ServerConfig
+	lifecycle map[wsMCPToolLifecycleKey]contract.MCPToolLifecycleDecision
 }
 
+type wsMCPToolLifecycleKey struct {
+	workspaceRoot string
+	serverName    string
+	toolName      string
+}
+
+var _ mcpserver.MCPServerConfigStore = (*wsMCPServerStore)(nil)
+
 func newWSMCPServerStore() *wsMCPServerStore {
-	return &wsMCPServerStore{servers: map[string]map[string]mcpserver.ServerConfig{}}
+	return &wsMCPServerStore{
+		servers:   map[string]map[string]mcpserver.ServerConfig{},
+		lifecycle: map[wsMCPToolLifecycleKey]contract.MCPToolLifecycleDecision{},
+	}
 }
 
 func (s *wsMCPServerStore) InsertServer(_ context.Context, params mcpserver.StoreMCPServerConfigParams) (bool, error) {
@@ -266,6 +281,118 @@ func (s *wsMCPServerStore) SetServerEnabled(_ context.Context, workspaceRoot, na
 	return true, nil
 }
 
+func (s *wsMCPServerStore) GetToolLifecycle(
+	_ context.Context,
+	workspaceRoot string,
+	serverName string,
+	toolName string,
+) (contract.MCPToolLifecycleDecision, error) {
+	decision, ok := s.lifecycle[wsMCPToolLifecycleKey{workspaceRoot: workspaceRoot, serverName: serverName, toolName: toolName}]
+	if !ok {
+		return contract.MCPToolLifecycleDecision{}, platformdb.ErrNotFound
+	}
+	return cloneWSMCPToolLifecycleDecision(decision), nil
+}
+
+func (s *wsMCPServerStore) ListToolLifecycle(
+	_ context.Context,
+	workspaceRoot string,
+	serverName string,
+) ([]contract.MCPToolLifecycleDecision, error) {
+	out := []contract.MCPToolLifecycleDecision{}
+	for key, decision := range s.lifecycle {
+		if key.workspaceRoot == workspaceRoot && key.serverName == serverName {
+			out = append(out, cloneWSMCPToolLifecycleDecision(decision))
+		}
+	}
+	sort.Slice(out, func(i, j int) bool {
+		return out[i].ToolName < out[j].ToolName
+	})
+	return out, nil
+}
+
+func (s *wsMCPServerStore) ExportToolLifecycle(
+	_ context.Context,
+	workspaceRoot string,
+) ([]contract.MCPToolLifecycleDecision, error) {
+	out := []contract.MCPToolLifecycleDecision{}
+	for key, decision := range s.lifecycle {
+		if key.workspaceRoot == workspaceRoot {
+			out = append(out, cloneWSMCPToolLifecycleDecision(decision))
+		}
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].ServerName == out[j].ServerName {
+			return out[i].ToolName < out[j].ToolName
+		}
+		return out[i].ServerName < out[j].ServerName
+	})
+	return out, nil
+}
+
+func (s *wsMCPServerStore) UpsertToolLifecycle(
+	_ context.Context,
+	params contract.StoreMCPToolLifecycleParams,
+) (contract.MCPToolLifecycleDecision, error) {
+	if s.lifecycle == nil {
+		s.lifecycle = map[wsMCPToolLifecycleKey]contract.MCPToolLifecycleDecision{}
+	}
+	key := wsMCPToolLifecycleKey{
+		workspaceRoot: params.WorkspaceRoot,
+		serverName:    params.ServerName,
+		toolName:      params.ToolName,
+	}
+	createdAt := params.NowMillis
+	if existing, ok := s.lifecycle[key]; ok {
+		createdAt = existing.CreatedAt
+	}
+	decision := contract.MCPToolLifecycleDecision{
+		WorkspaceRoot:   params.WorkspaceRoot,
+		ServerName:      params.ServerName,
+		ManifestName:    params.ManifestName,
+		ToolName:        params.ToolName,
+		State:           params.State,
+		Reason:          params.Reason,
+		ReplacementTool: params.ReplacementTool,
+		LastSeenAt:      params.NowMillis,
+		CreatedAt:       createdAt,
+		UpdatedAt:       params.NowMillis,
+	}
+	s.lifecycle[key] = decision
+	return cloneWSMCPToolLifecycleDecision(decision), nil
+}
+
+func (s *wsMCPServerStore) BackfillToolLifecycle(
+	_ context.Context,
+	params contract.BackfillMCPToolLifecycleParams,
+) (contract.MCPToolLifecycleDecision, error) {
+	if s.lifecycle == nil {
+		s.lifecycle = map[wsMCPToolLifecycleKey]contract.MCPToolLifecycleDecision{}
+	}
+	key := wsMCPToolLifecycleKey{
+		workspaceRoot: params.WorkspaceRoot,
+		serverName:    params.ServerName,
+		toolName:      params.ToolName,
+	}
+	decision, ok := s.lifecycle[key]
+	if !ok {
+		decision = contract.MCPToolLifecycleDecision{
+			WorkspaceRoot: params.WorkspaceRoot,
+			ServerName:    params.ServerName,
+			ManifestName:  params.ManifestName,
+			ToolName:      params.ToolName,
+			State:         contract.MCPToolLifecycleEnabled,
+			CreatedAt:     params.NowMillis,
+		}
+	} else if params.ManifestName != "" {
+		decision.ManifestName = params.ManifestName
+	}
+	decision.LastSeenAt = params.NowMillis
+	decision.UpdatedAt = params.NowMillis
+	s.lifecycle[key] = decision
+	return cloneWSMCPToolLifecycleDecision(decision), nil
+}
+
 func cloneWSMCPServers(input map[string]mcpserver.ServerConfig) map[string]mcpserver.ServerConfig {
 	out := make(map[string]mcpserver.ServerConfig, len(input))
 	for name, config := range input {
@@ -284,6 +411,10 @@ func cloneWSMCPServerConfig(config mcpserver.ServerConfig) mcpserver.ServerConfi
 	}
 	config.Headers = headers
 	return config
+}
+
+func cloneWSMCPToolLifecycleDecision(decision contract.MCPToolLifecycleDecision) contract.MCPToolLifecycleDecision {
+	return decision
 }
 
 func websocketResponseBody(t *testing.T, resp *http.Response) string {
