@@ -2,9 +2,11 @@ package toolfilter
 
 import (
 	"slices"
+	"strings"
 	"testing"
 
 	mcp "github.com/anthropic-ai/super-agent-v3/internal/dto/mcp"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/toolpolicy"
 )
 
 func assertAllow(t *testing.T, got mcp.BeforeDecision) {
@@ -26,18 +28,93 @@ func TestReviewerPreset_AllowsReadOnlyTools(t *testing.T) {
 func TestReviewerPreset_DeniesWriteTools(t *testing.T) {
 	got := ReviewerDecision()
 	assertAllow(t, got)
-	want := []string{"edit", "lsp_edit", "orchestration_launch_agent", "orchestration_stop_agent"}
+	want := []string{
+		"edit", "lsp_edit", "shared_file_write", "memory_write",
+		"task_", "workspace_", "workflow_template_",
+		"wait", "bash_output", "update_plan", "todo_write", "complete_step",
+		"orchestration_launch_agent", "orchestration_stop_agent",
+		"connect_tool_source",
+	}
 	if !slices.Equal(got.DeniedTools, want) {
 		t.Fatalf("denied = %#v, want %#v", got.DeniedTools, want)
 	}
 }
 
-func TestReviewerPreset_ExcludesSharedFileWrite(t *testing.T) {
+func TestReviewerPreset_ExcludesUnsafeDelegationSurfaces(t *testing.T) {
 	got := ReviewerDecision()
 	assertAllow(t, got)
-	if slices.Contains(got.AllowedTools, "shared_file_write") {
-		t.Fatalf("allowed unexpectedly contains shared_file_write: %#v", got.AllowedTools)
+
+	deniedNames := []string{
+		"shared_file_write",
+		"orchestration_launch_agent",
+		"orchestration_stop_agent",
+		"lsp_edit",
+		"memory_write",
+		"task_create_dag",
+		"workspace_create_run",
+		"workflow_template_save",
+		"update_plan",
+		"wait",
+		"bash_output",
+		"todo_write",
+		"complete_step",
+		"connect_tool_source",
 	}
+	for _, name := range deniedNames {
+		if slices.Contains(got.AllowedTools, name) {
+			t.Fatalf("allowed unexpectedly contains %s: %#v", name, got.AllowedTools)
+		}
+		if !toolDenied(got, name) {
+			t.Fatalf("denied missing %s: %#v", name, got.DeniedTools)
+		}
+	}
+}
+
+func TestReviewerPreset_AllowsOnlyInternallyTrustedReadOnlyTools(t *testing.T) {
+	got := ReviewerDecision()
+	assertAllow(t, got)
+
+	readOnlyDecision := reviewerToolPolicyDecision(trustedReadOnlyTool("file"))
+	if !readOnlyDecision.Allow {
+		t.Fatalf("trusted read-only decision = %#v, want allow", readOnlyDecision)
+	}
+
+	externalSourceDecision := reviewerToolPolicyDecision(reviewerToolCandidate{
+		name:              "external_claimed_read",
+		trust:             toolpolicy.TrustExternal,
+		capabilities:      toolpolicy.CapabilityReadOnly,
+		readOnlyHint:      true,
+		readOnlyHintTrust: toolpolicy.TrustExternal,
+	})
+	if externalSourceDecision.Allow || externalSourceDecision.Code != toolpolicy.CodeUntrustedSource {
+		t.Fatalf("external source decision = %#v, want untrusted-source deny", externalSourceDecision)
+	}
+
+	externalHintDecision := reviewerToolPolicyDecision(reviewerToolCandidate{
+		name:              "provider_claimed_external_hint",
+		trust:             toolpolicy.TrustProvider,
+		capabilities:      toolpolicy.CapabilityReadOnly,
+		readOnlyHint:      true,
+		readOnlyHintTrust: toolpolicy.TrustExternal,
+	})
+	if externalHintDecision.Allow || externalHintDecision.Code != toolpolicy.CodeExternalHint {
+		t.Fatalf("external read-only hint decision = %#v, want external-hint deny", externalHintDecision)
+	}
+
+	for _, name := range got.AllowedTools {
+		if !reviewerToolPolicyDecision(trustedReadOnlyTool(name)).Allow {
+			t.Fatalf("allowed tool %s is not backed by trusted read-only policy", name)
+		}
+	}
+}
+
+func toolDenied(decision mcp.BeforeDecision, name string) bool {
+	for _, denied := range decision.DeniedTools {
+		if denied == name || strings.HasSuffix(denied, "_") && strings.HasPrefix(name, denied) {
+			return true
+		}
+	}
+	return false
 }
 
 func TestWorkerPreset_DeniesOrchestration(t *testing.T) {
