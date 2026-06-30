@@ -1,7 +1,7 @@
 ---
 task_id: A1-toolpolicy-core
 owner: agent-a1
-status: ready
+status: done
 depends_on: [A0-stage-source-inventory]
 ---
 
@@ -48,11 +48,11 @@ Create a small `internal/platform/toolpolicy` owner for stage, trust source, cap
 
 ## 7. DoD
 
-- [ ] Tests prove `PlanSafe => ReadOnly`.
-- [ ] Tests prove `ReadOnly != PlanSafe`.
-- [ ] Unknown and external hint paths deny with stable codes.
-- [ ] Shell policy denies process-control/background/dangerous forms.
-- [ ] Package has no unnecessary internal dependencies.
+- [x] Tests prove `PlanSafe => ReadOnly`.
+- [x] Tests prove `ReadOnly != PlanSafe`.
+- [x] Unknown and external hint paths deny with stable codes.
+- [x] Shell policy denies process-control/background/dangerous forms.
+- [x] Package has no unnecessary internal dependencies.
 
 ## 8. Rollback
 

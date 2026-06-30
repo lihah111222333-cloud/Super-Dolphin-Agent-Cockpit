@@ -17,13 +17,13 @@ workflow_key: 20260630-reasonix-hardening-absorption
 - Packaged snapshot for isolated workers: `SOURCE_PLAN_SNAPSHOT.md`
 - Source status: `NEEDS_APPROVAL`
 - Execution flag: `plan_executable=false`
-- Current workflow status: orchestration ready, production implementation blocked on approval.
+- Current workflow status: approved and in progress; Lane A is executing first through isolated worker worktrees.
 
 ## 3. Scope
 
 - In scope after approval: Lane A tool policy hardening, Lane B session path helper extraction, Lane C writer preview inventory spike.
 - Out of scope: provider wire-normalization, schema canonical-cache registry, Reasonix global registry, blank imports, event bus, workers/site/accounts shells.
-- No production code has been changed by this orchestration package.
+- Production code changes are accepted only from child-agent worktrees and are reviewed before integration.
 
 ## 4. Execution Topology
 
@@ -51,9 +51,9 @@ Worker report statuses map into DAG states as follows: `DONE` -> `done`, `NOT_AP
 ## 7. Current Status
 
 - Overall: in progress after explicit user approval for the full workflow.
-- Completed: P0 workflow structure and A0 stage-source inventory.
+- Completed: P0 workflow structure, A0 stage-source inventory, and A1 toolpolicy core.
 - Closed as not applicable: A2 runtime stage gate, because A0 found no authoritative stage source.
-- Next step: dispatch A1 in an isolated worker worktree; A3 waits for A1 and the A0-applied exact ownership paths.
+- Next step: dispatch A3 in an isolated worker worktree using the A0-applied exact ownership paths.
 
 ## 8. Quick Navigation
 
