@@ -425,11 +425,11 @@ func nonEmptyUnique(values ...string) []string {
 func (h *Handler) routeCodexSurfaceToolCall(ctx context.Context, req ToolCallRequest) (*ToolCallResult, bool, error) {
 	surface := h.lookupCodexToolSurface(req)
 	if surface == nil {
-		if _, reserved := reservedHostOnlyToolCanonicalName(req.Name); reserved {
-			return nil, false, nil
-		}
 		if req.Scoped && requiresCodexToolSurface(req.Name) {
 			return nil, true, fmt.Errorf("toolbridge: codex tool surface is not prepared for agent %q thread %q", req.AgentID, req.ThreadID)
+		}
+		if _, reserved := reservedHostOnlyToolCanonicalName(req.Name); reserved {
+			return nil, false, nil
 		}
 		return nil, false, nil
 	}
