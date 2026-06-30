@@ -90,3 +90,31 @@ func TestAIIndex_CompactFormat(t *testing.T) {
 		)
 	}
 }
+
+func TestScanSourceFilesSkipsWebDist(t *testing.T) {
+	root := t.TempDir()
+	writeTestFile(t, filepath.Join(root, "cmd", "agent-terminal", "main.go"), "package main\n")
+	writeTestFile(t, filepath.Join(root, "cmd", "agent-terminal", "web-dist", "wails", "runtime.js"), "console.log('generated')\n")
+
+	files, err := codemapindex.ScanSourceFiles(root)
+	if err != nil {
+		t.Fatalf("ScanSourceFiles() error = %v", err)
+	}
+	got := strings.Join(files, "\n")
+	if strings.Contains(got, "cmd/agent-terminal/web-dist/") {
+		t.Fatalf("ScanSourceFiles() indexed ignored web-dist output:\n%s", got)
+	}
+	if !strings.Contains(got, "cmd/agent-terminal/main.go") {
+		t.Fatalf("ScanSourceFiles() = %v, want tracked source file", files)
+	}
+}
+
+func writeTestFile(t *testing.T, path, body string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatalf("mkdir fixture dir: %v", err)
+	}
+	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+		t.Fatalf("write fixture file: %v", err)
+	}
+}

@@ -23,6 +23,7 @@ var indexedSourceSkipDirs = map[string]bool{
 	".git":              true,
 	".vite-cache":       true,
 	"dist":              true,
+	"web-dist":          true,
 	".build-cache":      true,
 	".workspace":        true,
 	"testdata":          true,
