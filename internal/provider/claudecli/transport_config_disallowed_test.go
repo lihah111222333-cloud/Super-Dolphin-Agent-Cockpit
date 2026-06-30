@@ -336,6 +336,16 @@ func TestValidateClaudeSecurityConfigRejectsMalformedValues(t *testing.T) {
 			want:  "builtin_tools",
 		},
 		{
+			name:  "auto approve rejects non-string element",
+			input: map[string]any{"autoApprove": []any{"Read", 42}},
+			want:  "autoApprove[1]",
+		},
+		{
+			name:  "auto approve snake case rejects object",
+			input: map[string]any{"auto_approve": map[string]any{"tool": "Write"}},
+			want:  "auto_approve",
+		},
+		{
 			name:  "provider native skills rejects string",
 			input: map[string]any{"providerNativeSkills": "false"},
 			want:  "providerNativeSkills",

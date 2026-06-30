@@ -206,6 +206,36 @@ func TestDisallowedToolsRejectsMalformedConfig(t *testing.T) {
 	}
 }
 
+func TestStartSessionRejectsMalformedAutoApproveConfig(t *testing.T) {
+	superHome := filepath.Join(t.TempDir(), "sd-home")
+	t.Setenv(providershared.SuperDolphinHomeEnv, superHome)
+	launched := false
+	next := newBufferedTransport(t, "claude-session-malformed-auto-approve")
+	d := newTestDriverWithLaunch(t, &recordingMirrorReconciler{}, func(string, string, string, string, cliLaunchConfig, dto.MCPManifest, string) (*transport, func(), error) {
+		launched = true
+		return next.tr, func() { next.finish() }, nil
+	})
+
+	got, err := d.StartSession(context.Background(), dto.StartSessionRequest{
+		AgentID:       "agent-claude-malformed-auto-approve",
+		CWD:           t.TempDir(),
+		StartAssembly: validClaudeStartAssemblyForTest(),
+		Config: map[string]any{
+			"autoApprove": []any{"Read", 42},
+		},
+	})
+	if got != nil {
+		next.finish()
+		_ = got.Close(context.Background())
+	}
+	if err == nil || !strings.Contains(err.Error(), "autoApprove[1]") {
+		t.Fatalf("StartSession() error = %v, want malformed autoApprove rejection", err)
+	}
+	if launched {
+		t.Fatalf("launchCLI was called with malformed autoApprove")
+	}
+}
+
 func TestStartSessionRequiresSkillMirrorReconciler(t *testing.T) {
 	t.Setenv(providershared.SuperDolphinHomeEnv, filepath.Join(t.TempDir(), "sd-home"))
 	d := newTestDriverWithLaunch(t, nil, func(string, string, string, string, cliLaunchConfig, dto.MCPManifest, string) (*transport, func(), error) {
@@ -414,6 +444,36 @@ func TestResumeSessionKeepsExplicitClaudeHomeBeforeLaunchAndMirror(t *testing.T)
 		t.Fatalf("history sessionDir = %#v, want %q", s.history, wantHome)
 	}
 	assertExplicitClaudeMirrorTargets(t, mirror.targets, workDir, wantHome)
+}
+
+func TestResumeSessionRejectsMalformedAutoApproveConfig(t *testing.T) {
+	launched := false
+	next := newBufferedTransport(t, "provider-thread-malformed-auto-approve")
+	d := newTestDriverWithLaunch(t, &recordingMirrorReconciler{}, func(string, string, string, string, cliLaunchConfig, dto.MCPManifest, string) (*transport, func(), error) {
+		launched = true
+		return next.tr, func() { next.finish() }, nil
+	})
+
+	got, err := d.ResumeSession(context.Background(), dto.ResumeSessionRequest{
+		AgentID:          "agent-claude-resume-malformed-auto-approve",
+		ThreadID:         "thread-public",
+		ProviderThreadID: "provider-thread-malformed-auto-approve",
+		CWD:              t.TempDir(),
+		PromptSnapshot:   validResumePromptSnapshotForTest(),
+		Config: map[string]any{
+			"auto_approve": []any{"Write", false},
+		},
+	})
+	if got != nil {
+		next.finish()
+		_ = got.Close(context.Background())
+	}
+	if err == nil || !strings.Contains(err.Error(), "auto_approve[1]") {
+		t.Fatalf("ResumeSession() error = %v, want malformed auto_approve rejection", err)
+	}
+	if launched {
+		t.Fatalf("launchCLI was called with malformed auto_approve")
+	}
 }
 
 func TestResumeSessionRuntimeConfigSnapshotIncludesCWDAndRequestConfig(t *testing.T) {
