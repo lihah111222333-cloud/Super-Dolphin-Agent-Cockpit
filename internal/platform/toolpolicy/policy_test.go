@@ -138,6 +138,25 @@ func TestShellClassificationRejectsBackgroundProcessControlDangerousArgsAndSynta
 	}
 }
 
+func TestShellClassificationRejectsGitExternalHelperOptions(t *testing.T) {
+	tests := []struct {
+		name    string
+		command string
+	}{
+		{name: "git diff ext diff helper", command: "git diff --ext-diff"},
+		{name: "git diff textconv filter", command: "git diff --textconv"},
+		{name: "git log ext diff helper", command: "git log --ext-diff"},
+		{name: "git show textconv filter", command: "git show --textconv"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := ClassifyShell(tt.command)
+			assertDenied(t, got, CodeShellArgumentDenied, "")
+		})
+	}
+}
+
 func assertAllowed(t *testing.T, got Decision) {
 	t.Helper()
 	if !got.Allow {
