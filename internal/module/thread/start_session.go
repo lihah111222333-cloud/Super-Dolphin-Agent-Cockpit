@@ -491,7 +491,10 @@ func (s *service) resolveResumeRequest(ctx context.Context, req ResumeRequest) (
 	}
 	req.ClaudeHome = util.FirstNonEmpty(req.ClaudeHome, state.ClaudeHome, resumeRuntimeConfigString(state.ConfigOverride.Runtime, "claudeHome", "claude_home", "history_dir"))
 	req = hydrateResumeCodexIdentity(req, state)
-	req.CodexDisabledNativeTools = resolveResumeCodexDisabledNativeTools(req.CodexDisabledNativeTools, state.ConfigOverride.Runtime)
+	req.CodexDisabledNativeTools, err = resolveResumeCodexDisabledNativeTools(req.CodexDisabledNativeTools, state.ConfigOverride.Runtime)
+	if err != nil {
+		return ResumeRequest{}, resumeState{}, err
+	}
 	req.Config = mergeRuntimeConfig(clone.RuntimeConfigMap(state.ConfigOverride.Runtime), req.Config)
 	req, err = s.injectDefaultCodexIdentityForResume(req)
 	if err != nil {
