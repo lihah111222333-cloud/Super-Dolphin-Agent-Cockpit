@@ -53,7 +53,11 @@ func TestToolBridge_StartSession_UsesDynamicTools(t *testing.T) {
 		t.Fatal("toolHandler = non-nil, want nil")
 	}
 
-	sessionAny, err := got.StartSession(context.Background(), dto.StartSessionRequest{AgentID: "agent-1", CWD: t.TempDir()})
+	sessionAny, err := got.StartSession(context.Background(), dto.StartSessionRequest{
+		AgentID:       "agent-1",
+		CWD:           t.TempDir(),
+		StartAssembly: validStartAssemblyForTest(),
+	})
 	if err != nil {
 		t.Fatalf("StartSession() error = %v", err)
 	}
@@ -78,7 +82,12 @@ func TestToolBridge_StartSession_ChatModeCarriesDynamicTools(t *testing.T) {
 		}}, nil
 	}))
 
-	sessionAny, err := got.StartSession(context.Background(), dto.StartSessionRequest{AgentID: "agent-1", CWD: t.TempDir(), ToolSurfaceMode: contract.ToolSurfaceModeChat})
+	sessionAny, err := got.StartSession(context.Background(), dto.StartSessionRequest{
+		AgentID:         "agent-1",
+		CWD:             t.TempDir(),
+		StartAssembly:   validStartAssemblyForTest(),
+		ToolSurfaceMode: contract.ToolSurfaceModeChat,
+	})
 	if err != nil {
 		t.Fatalf("StartSession() error = %v", err)
 	}
@@ -108,8 +117,9 @@ func TestToolBridge_StartSession_PreparesScopedCodexSurface(t *testing.T) {
 	extraDir := t.TempDir()
 
 	sessionAny, err := d.StartSession(context.Background(), dto.StartSessionRequest{
-		AgentID: "agent-1",
-		CWD:     workDir,
+		AgentID:       "agent-1",
+		CWD:           workDir,
+		StartAssembly: validStartAssemblyForTest(),
 		Config: map[string]any{
 			"binary_dir":                   "/tmp/super-agent-bin",
 			"additionalWorkingDirectories": []string{extraDir},
@@ -172,7 +182,11 @@ func TestToolBridge_StartSession_InjectsMemoryReadDynamicTool(t *testing.T) {
 		}}, nil
 	}).(*driver)
 
-	sessionAny, err := got.StartSession(context.Background(), dto.StartSessionRequest{AgentID: "agent-1", CWD: t.TempDir()})
+	sessionAny, err := got.StartSession(context.Background(), dto.StartSessionRequest{
+		AgentID:       "agent-1",
+		CWD:           t.TempDir(),
+		StartAssembly: validStartAssemblyForTest(),
+	})
 	if err != nil {
 		t.Fatalf("StartSession() error = %v", err)
 	}
@@ -222,7 +236,10 @@ func TestThreadResume_AppServerRetainsStartDynamicTools(t *testing.T) {
 }
 
 func TestThreadResume_DynamicToolsWireCompatibilityIsExplicit(t *testing.T) {
-	raw := mustJSON(buildThreadResumeParams(dto.ResumeSessionRequest{ThreadID: "thread-1"}))
+	raw := mustJSON(mustBuildThreadResumeParams(t, dto.ResumeSessionRequest{
+		ThreadID:       "thread-1",
+		PromptSnapshot: validResumePromptSnapshotForTest(),
+	}))
 	var params map[string]any
 	if err := json.Unmarshal(raw, &params); err != nil {
 		t.Fatalf("json.Unmarshal(thread resume params) error = %v", err)
@@ -362,7 +379,11 @@ func runDynamicToolsResumeScenario(t *testing.T) dynamicToolsResumeObservation {
 		},
 	}
 	workDir := t.TempDir()
-	started, err := d.StartSession(context.Background(), dto.StartSessionRequest{AgentID: "agent-1", CWD: workDir})
+	started, err := d.StartSession(context.Background(), dto.StartSessionRequest{
+		AgentID:       "agent-1",
+		CWD:           workDir,
+		StartAssembly: validStartAssemblyForTest(),
+	})
 	if err != nil {
 		t.Fatalf("StartSession() error = %v", err)
 	}

@@ -29,10 +29,11 @@ func TestServiceStartRequiresOrchestration(t *testing.T) {
 	svc := NewService(silentLogger(), threads, nil, sessions, starter, nil, nil, nil).(*service)
 
 	_, err := svc.Start(context.Background(), StartRequest{
-		AgentID:  "agent-no-orchestration",
-		Provider: "codex",
-		CWD:      wantStartCWD(t),
-		Prompt:   "start",
+		AgentID:           "agent-no-orchestration",
+		Provider:          "codex",
+		CWD:               wantStartCWD(t),
+		Prompt:            "start",
+		PromptAssemblyRef: promptAssemblyForTest("start"),
 	})
 	if err == nil || !strings.Contains(err.Error(), "orchestration service is not configured") {
 		t.Fatalf("Start() error = %v, want missing orchestration error", err)
@@ -395,10 +396,11 @@ func TestStartDoesNotPublishStartedBeforeSnapshotSaved(t *testing.T) {
 	}
 
 	_, err := svc.Start(context.Background(), StartRequest{
-		AgentID:  "agent-start",
-		Provider: "codex",
-		CWD:      wantStartCWD(t),
-		Prompt:   "start",
+		AgentID:           "agent-start",
+		Provider:          "codex",
+		CWD:               wantStartCWD(t),
+		Prompt:            "start",
+		PromptAssemblyRef: promptAssemblyForTest("start"),
 	})
 	if !errors.Is(err, cause) {
 		t.Fatalf("Start() error = %v, want %v", err, cause)

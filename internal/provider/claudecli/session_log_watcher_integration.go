@@ -2,6 +2,7 @@ package claudecli
 
 import (
 	"context"
+	"errors"
 	"reflect"
 	"strings"
 
@@ -246,6 +247,9 @@ func (s *session) logRestartLocked(reason string, next stagedSessionState, resum
 // 新进程必须先写入 PID registry，写入失败会停止候选进程并保留当前 session。
 func (s *session) prepareSessionRestartLocked(ctx context.Context, next stagedSessionState, resumeID, reason string) (preparedSessionRestart, error) {
 	baseInstructions := promptSnapshotBaseInstructions(next.config.PromptSnapshot, s.instructions)
+	if promptLaunchBaseBlank(baseInstructions, next.config) {
+		return preparedSessionRestart{}, errors.New("claudecli: restart prompt snapshot has empty base instructions")
+	}
 	fn := s.launchCLI
 	if fn == nil {
 		fn = launchCLIWithManifest

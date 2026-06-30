@@ -41,8 +41,6 @@ type DriverFactory struct {
 	recovery        contract.SessionRecoveryReporter
 }
 
-const fallbackBaseInstructions = "You are a helpful assistant."
-
 type driver struct {
 	logger          *slog.Logger
 	serverURL       string
@@ -312,7 +310,11 @@ func (d *driver) StartSession(ctx context.Context, req dto.StartSessionRequest) 
 	if s.runtime != nil {
 		s.runtime.Start()
 	}
-	baseInstructions, developerInstructions := d.startAssemblyInstructions(req)
+	baseInstructions, developerInstructions, err := d.startAssemblyInstructions(req)
+	if err != nil {
+		cleanupFailedSession(s, "force stop failed on start prompt assembly error")
+		return nil, err
+	}
 	s.setRuntimeConfig(canonicalStartRuntimeConfig(req.Config))
 	s.ensureRuntimeCodexHomeFromInitialize("start")
 	s.setRuntimeConfigValue("baseInstructions", baseInstructions)
@@ -467,7 +469,10 @@ func resumeRemoteThread(ctx context.Context, t *transport, req dto.ResumeSession
 	if err != nil {
 		return "", err
 	}
-	params := buildThreadResumeParams(req)
+	params, err := buildThreadResumeParams(req)
+	if err != nil {
+		return "", err
+	}
 	params.ThreadID = resumeID
 	raw, err := callWithTimeout(ctx, t, 30*time.Second, "thread/resume", params)
 	if err != nil {
@@ -484,10 +489,10 @@ func requireProviderResumeThreadID(component, providerThreadID string) (string, 
 	return providerThreadID, nil
 }
 
-func (d *driver) startAssemblyInstructions(req dto.StartSessionRequest) (string, string) {
+func (d *driver) startAssemblyInstructions(req dto.StartSessionRequest) (string, string, error) {
 	base := strings.TrimSpace(shared.FirstNonEmpty(
 		req.StartAssembly.BaseInstructions,
-		req.StartAssembly.Snapshot.BaseInstructions,
+		promptSnapshotBaseInstructions(req.StartAssembly.Snapshot),
 		req.Instructions,
 	))
 	developer := strings.TrimSpace(shared.FirstNonEmpty(
@@ -497,18 +502,28 @@ func (d *driver) startAssemblyInstructions(req dto.StartSessionRequest) (string,
 		supportutil.ConfigString(req.Config, "developer_instructions"),
 	))
 	if base == "" {
-		base = fallbackBaseInstructions
+		return "", "", errors.New("codexapp: start prompt assembly is empty: base instructions or prompt snapshot are required")
 	}
 	base = contract.AppendStartRuntimeContext(base, req.StartAssembly)
-	return base, developer
+	return base, developer, nil
+}
+
+func promptSnapshotBaseInstructions(snapshot dto.PromptAssemblySnapshot) string {
+	if boundary := normalizePromptBoundary(snapshot.Boundary); boundary != nil {
+		return joinPromptBlocks(boundary.CachedPrefix, boundary.UncachedTail)
+	}
+	return strings.TrimSpace(snapshot.BaseInstructions)
 }
 
 func promptSnapshotInstructions(snapshot dto.PromptAssemblySnapshot) (string, string) {
-	return strings.TrimSpace(snapshot.BaseInstructions), strings.TrimSpace(snapshot.DeveloperInstructions)
+	return promptSnapshotBaseInstructions(snapshot), strings.TrimSpace(snapshot.DeveloperInstructions)
 }
 
-func buildThreadResumeParams(req dto.ResumeSessionRequest) threadResumeParams {
+func buildThreadResumeParams(req dto.ResumeSessionRequest) (threadResumeParams, error) {
 	baseInstructions, developerInstructions := promptSnapshotInstructions(req.PromptSnapshot)
+	if strings.TrimSpace(baseInstructions) == "" {
+		return threadResumeParams{}, errors.New("codexapp: resume prompt snapshot has empty base instructions")
+	}
 	params := threadResumeParams{
 		Cwd:                   strings.TrimSpace(req.CWD),
 		Model:                 strings.TrimSpace(req.Model),
@@ -517,7 +532,31 @@ func buildThreadResumeParams(req dto.ResumeSessionRequest) threadResumeParams {
 		Effort:                strings.TrimSpace(req.Effort),
 	}
 	codexNativeToolPolicyFromDisabled(req.CodexDisabledNativeTools).ApplyThreadResumeParams(&params)
-	return params
+	return params, nil
+}
+
+func normalizePromptBoundary(boundary *dto.PromptAssemblyBoundary) *dto.PromptAssemblyBoundary {
+	if boundary == nil {
+		return nil
+	}
+	out := &dto.PromptAssemblyBoundary{
+		CachedPrefix: strings.TrimSpace(boundary.CachedPrefix),
+		UncachedTail: strings.TrimSpace(boundary.UncachedTail),
+	}
+	if out.CachedPrefix == "" && out.UncachedTail == "" {
+		return nil
+	}
+	return out
+}
+
+func joinPromptBlocks(values ...string) string {
+	blocks := make([]string, 0, len(values))
+	for _, value := range values {
+		if value = strings.TrimSpace(value); value != "" {
+			blocks = append(blocks, value)
+		}
+	}
+	return strings.Join(blocks, "\n\n")
 }
 
 // codexSandboxWireJSON 将 Codex sandbox wire 值规整成 app-server 接受的 JSON。

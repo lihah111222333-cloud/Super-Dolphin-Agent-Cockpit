@@ -123,7 +123,7 @@ func TestHandoff_UsesSourceBindingProvider(t *testing.T) {
 		Model:    "gpt-5.5",
 		Prompt:   "Source task",
 	}
-	svc := NewService(
+	svc := NewServiceWithPromptAssembly(
 		silentLogger(),
 		&stubThreadStore{thread: source},
 		&stubBindingStore{binding: &bindingstore.Binding{
@@ -136,6 +136,9 @@ func TestHandoff_UsesSourceBindingProvider(t *testing.T) {
 		starter,
 		nil,
 		&stubThreadOrchestration{},
+		nil,
+		promptAssemblyForTest("test system prompt"),
+		nil,
 		nil,
 	).(*service)
 
@@ -200,7 +203,19 @@ func TestHandoff_PreservesSourceCodexIdentity(t *testing.T) {
 		Cwd:                wantStartCWD(t),
 	}}
 	threads := &stubThreadStore{thread: source}
-	svc := NewService(silentLogger(), threads, bindings, sessions, starter, nil, &stubThreadOrchestration{}, nil).(*service)
+	svc := NewServiceWithPromptAssembly(
+		silentLogger(),
+		threads,
+		bindings,
+		sessions,
+		starter,
+		nil,
+		&stubThreadOrchestration{},
+		nil,
+		promptAssemblyForTest("test system prompt"),
+		nil,
+		nil,
+	).(*service)
 
 	result, err := svc.Handoff(context.Background(), HandoffRequest{
 		SourceThreadID: "thread-src",

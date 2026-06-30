@@ -2,10 +2,19 @@ package thread
 
 import (
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 )
+
+func buildStartAssemblyForTest(req StartRequest) contract.StartAssembly {
+	return ensureStartAssemblySnapshot(contract.StartAssembly{
+		DisplayName:           normalizeStartDisplayName(req.Name),
+		BaseInstructions:      strings.TrimSpace(req.BaseInstructions),
+		DeveloperInstructions: strings.TrimSpace(req.DeveloperInstructions),
+	}, req.Provider)
+}
 
 func TestBuildStartAssemblyInputCarriesChildAgentMetadata(t *testing.T) {
 	input := buildStartAssemblyInput(StartRequest{
@@ -47,6 +56,28 @@ func TestToProviderStartAssemblyCarriesRuntimeContext(t *testing.T) {
 	}
 	if assembly.SystemContext["gitStatus"] == "" {
 		t.Fatalf("SystemContext not carried to provider start assembly: %#v", assembly.SystemContext)
+	}
+}
+
+func TestEnsureStartAssemblySnapshotPersistsRuntimeContextForResume(t *testing.T) {
+	assembly := ensureStartAssemblySnapshot(contract.StartAssembly{
+		BaseInstructions: "assembled base",
+		UserContext: map[string]string{
+			"currentDate":   "Today's date is 2026-05-22.",
+			"runtimeExtras": "可用专家: main/expert/prompt",
+		},
+		SystemContext: contract.SystemContext{"gitStatus": "## main\n M prompt.go"},
+	}, "codex")
+
+	for _, want := range []string{
+		"assembled base",
+		"Today's date is 2026-05-22.",
+		"可用专家: main/expert/prompt",
+		"# System Context",
+	} {
+		if !strings.Contains(assembly.Snapshot.BaseInstructions, want) {
+			t.Fatalf("snapshot.BaseInstructions = %q, want substring %q", assembly.Snapshot.BaseInstructions, want)
+		}
 	}
 }
 
