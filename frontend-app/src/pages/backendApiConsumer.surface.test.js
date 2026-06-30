@@ -18,11 +18,13 @@ const migratedBackendApiConsumers = new Set([
 const migratedBackendApiConsumerPrefixes = [
   'pages/chat/',
   'pages/settings/',
+  'pages/skills/',
   'pages/workflows/',
 ];
 const backendApiServiceConsumerPrefixes = [
   'pages/chat/services/',
   'pages/settings/services/',
+  'pages/skills/services/',
   'pages/workflows/services/',
 ];
 
