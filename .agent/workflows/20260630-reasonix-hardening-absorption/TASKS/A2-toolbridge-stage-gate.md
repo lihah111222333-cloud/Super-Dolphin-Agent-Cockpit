@@ -58,11 +58,11 @@ A0 evidence recorded `stage_source_found=false`; this task is closed as `not_app
 
 ## 7. DoD
 
-- [ ] No runtime blocking exists without A0-proven stage source; if no stage source exists, this task is closed as `not_applicable_with_evidence`.
-- [ ] Planning denies writers/process-control/memory mutation/approval finalizers as specified.
-- [ ] Lifecycle deny stays authoritative.
-- [ ] Schema validation remains before handler call.
-- [ ] Existing provider sandbox tests pass.
+- [x] N/A: A0 recorded `stage_source_found=false`; no runtime planning-stage blocking was wired.
+- [x] N/A: planning deny behavior remains owned by A1 `toolpolicy`; A2 added no runtime gate.
+- [x] N/A: lifecycle deny was not changed by this non-applicable task.
+- [x] N/A: schema-validation order was not changed by this non-applicable task.
+- [x] N/A: provider sandbox tests remained integration-gate coverage, not A2 implementation output.
 
 ## 8. Rollback
 

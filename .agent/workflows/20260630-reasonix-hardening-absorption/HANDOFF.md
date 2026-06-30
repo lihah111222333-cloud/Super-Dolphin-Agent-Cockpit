@@ -34,6 +34,7 @@ Overall: done on integration branch `codex/reasonix-hardening-integration-202606
 ## Blocked
 
 - A2 runtime blocking must remain absent until a future approved source proves a concrete planning/execution stage source.
+- C1 production preview API and host-direct preview/execute tests remain deferred; the integrated C1 result is ADR-only.
 
 ## Recommended Next Action
 
@@ -50,15 +51,21 @@ git diff --cached --check
 git status --short
 ```
 
-## After Approval
+## Historical Execution Sequence
 
-1. Create an isolated worktree with a branch using prefix `codex/`.
-2. Run `git status --short` in the implementation worktree.
-3. Execute A0 first and update `CHECKS/EVIDENCE.md`.
-4. If A0 proves stage authority, continue A1 -> A2 -> A3.
-5. If A0 does not prove stage authority, land only A1 tests/package if still approved, and mark A2 `not_applicable_with_evidence`.
-6. If A0 finds no concrete delegation entry point, mark A3 `not_applicable_with_evidence`; if it finds one, the orchestrator must apply A0's ownership and verification proposal before A3 starts.
-7. Treat `not_applicable_with_evidence` as a terminal dependency-satisfying state, not as permission to wire fallback production behavior.
+1. P0 created the workflow structure and ownership files.
+2. A0 ran first, recorded `stage_source_found=false`, and proposed the concrete A3 ownership/verification paths.
+3. A2 closed as `not_applicable_with_evidence`; no runtime planning-stage blocking was wired.
+4. A1 landed the `toolpolicy` package and tests.
+5. A3 applied the A0 delegation proposal and landed restricted read-only delegation tests.
+6. Lane B landed `sessionpaths` helper extraction, golden tests, and caller migration.
+7. C1 produced only `docs/adr/2026-06-30-writer-preview-contract-spike.md`; no production preview contract or tests were added.
+
+## Review Entry Points
+
+- Start with `STATE.json` for task statuses and integrated branch/commit pointers.
+- Use `CHECKS/EVIDENCE.md` for source anchors and verification logs.
+- Use `CHECKS/RESULT_GATES.md` to distinguish completed gates from deferred A2/C1 production work.
 
 ## Verification Commands
 

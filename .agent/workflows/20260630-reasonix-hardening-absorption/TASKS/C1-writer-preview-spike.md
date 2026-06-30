@@ -27,6 +27,10 @@ Inventory model-callable first-party writer and side-effect surfaces before deci
 - `docs/adr/2026-06-30-writer-preview-contract-spike.md` or `docs/plans/2026-06-30-writer-preview-contract-spike-amendment.md`, classifying writer surfaces by owner, model-callable status, default exposure, preview feasibility, and excluded side-effect class.
 - No production preview API unless separately approved.
 
+## 3.1 Closure Scope
+
+C1 is closed as an ADR-only spike. It does not implement a production preview API, host interface, MCP schema, provider hook, UI surface, or preview/execute unit test. The source plan's host-direct preview/execute test acceptance remains deferred until a separately approved production preview-contract task exists.
+
 ## 4. File Permissions
 
 - RW: `docs/adr/2026-06-30-writer-preview-contract-spike.md` if ADR output is chosen.
@@ -49,7 +53,7 @@ Inventory model-callable first-party writer and side-effect surfaces before deci
 ## 6. Verification Commands
 
 ```bash
-rg -n 'memory_write|workflow_template_save|workflow_template_rollback|shared_file_write|defineTaskWriteTool|workspace_create_run|workspace_merge_run|workspace_abort_run|tts_generate|av_merge|video_with_audio|difftracker|Preview' internal cmd docs
+rg -n 'memory_write|workflow_template_save|workflow_template_rollback|shared_file_write|defineTaskWriteTool|workspace_create_run|workspace_merge_run|workspace_abort_run|tts_generate|av_merge|video_with_audio|difftracker' internal/platform/toolbridge internal/contract internal/provider/codexapp internal/provider/claudecli cmd/mcp-lsp cmd/mcp-orch/tools cmd/mcp-orch/workspace
 ```
 
 ## 7. DoD
@@ -58,6 +62,7 @@ rg -n 'memory_write|workflow_template_save|workflow_template_rollback|shared_fil
 - [x] Output marks whether the writer is default model-callable.
 - [x] Output does not treat post-call diff as pre-call approval preview.
 - [x] Output records preview/execute consistency requirements before any future interface work.
+- [x] ADR-only closure is explicit; no production preview API/test closure is claimed.
 
 ## 8. Rollback
 
