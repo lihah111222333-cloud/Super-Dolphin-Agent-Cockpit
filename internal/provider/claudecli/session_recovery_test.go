@@ -28,6 +28,7 @@ func TestStartTurnRestartsUnavailableTransportWithoutSettingsChange(t *testing.T
 		launchCLI:       launchFn,
 		suppressedTurns: map[string]struct{}{},
 		model:           "claude-same",
+		config:          cliLaunchConfig{PromptSnapshot: validResumePromptSnapshotForTest()},
 	})
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()

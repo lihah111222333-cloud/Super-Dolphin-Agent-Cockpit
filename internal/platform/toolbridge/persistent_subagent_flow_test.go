@@ -180,7 +180,7 @@ func TestPersistentSubagentDefaultFlow_StartFiltersSpawnAgentAndToolbridgeBlocks
 	sessions := &persistentFlowSessions{byAgent: map[string]contract.Session{}}
 	starter := &persistentFlowStarter{sessions: sessions}
 	cfg := &platformconfig.Config{Agent: platformconfig.AgentConfig{PersistentSubagentDefault: true}}
-	service := threadmod.NewServiceWithPromptAssemblyAndSharedFiles(nil, store, nil, persistentFlowSharedFiles{}, sessions, starter, nil, &persistentFlowOrchestration{}, nil, nil, cfg, nil, nil, nil, nil, nil, nil)
+	service := threadmod.NewServiceWithPromptAssemblyAndSharedFiles(nil, store, nil, persistentFlowSharedFiles{}, sessions, starter, nil, &persistentFlowOrchestration{}, nil, &persistentFlowPromptAssembly{}, cfg, nil, nil, nil, nil, nil, nil)
 
 	result, err := service.Start(ctx, threadmod.StartRequest{
 		AgentID:       "agent-child-persistent",
@@ -241,6 +241,24 @@ func TestPersistentSubagentDefaultFlow_StartFiltersSpawnAgentAndToolbridgeBlocks
 }
 
 type persistentFlowSharedFiles struct{}
+
+type persistentFlowPromptAssembly struct{}
+
+func (*persistentFlowPromptAssembly) AssembleStart(context.Context, contract.StartInput) (contract.StartAssembly, error) {
+	return contract.StartAssembly{}, nil
+}
+
+func (*persistentFlowPromptAssembly) AssembleTurn(context.Context, contract.TurnInput) (contract.TurnAssembly, error) {
+	return contract.TurnAssembly{}, nil
+}
+
+func (*persistentFlowPromptAssembly) AssembleAgent(context.Context, contract.AgentInput) (contract.StartAssembly, error) {
+	return contract.StartAssembly{}, nil
+}
+
+func (*persistentFlowPromptAssembly) Invalidate(context.Context, contract.InvalidateReason) error {
+	return nil
+}
 
 func (persistentFlowSharedFiles) Get(context.Context, string) (*sharedfilestore.SharedFile, error) {
 	return nil, platformdb.ErrNotFound

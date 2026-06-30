@@ -48,8 +48,8 @@ func fromNodePatchConfigRow(row sqlc.PatchTaskDagNodeConfigIfUnchangedRow) Node 
 	return fromNodeRaw(row.ID, row.DagKey, row.NodeKey, row.RunID, row.Title, row.NodeType, row.AssignedTo, row.DependsOn, row.Status, row.CommandRef, row.Config, row.Result, row.StartedAt, row.FinishedAt, row.CreatedAt, row.UpdatedAt, row.ActiveTurnID, row.ActiveWakeupID, row.LastEventAt, row.SpawningThreadID)
 }
 
-// fromNodeStatusFlexibleRow 把 UpdateTaskDagNodeStatusFlexibleRow 投影成 contract Node。
-func fromNodeStatusFlexibleRow(row sqlc.UpdateTaskDagNodeStatusFlexibleRow) Node {
+// fromNodeStatusIfCurrentRow 把 UpdateTaskDagNodeStatusIfCurrentRow 投影成 contract Node。
+func fromNodeStatusIfCurrentRow(row sqlc.UpdateTaskDagNodeStatusIfCurrentRow) Node {
 	return fromNodeRaw(row.ID, row.DagKey, row.NodeKey, row.RunID, row.Title, row.NodeType, row.AssignedTo, row.DependsOn, row.Status, row.CommandRef, row.Config, row.Result, row.StartedAt, row.FinishedAt, row.CreatedAt, row.UpdatedAt, row.ActiveTurnID, row.ActiveWakeupID, row.LastEventAt, row.SpawningThreadID)
 }
 
@@ -95,11 +95,6 @@ func fromNodeTouchEventRow(row sqlc.TouchRunningTaskDagNodeEventRow) Node {
 
 // fromNodeUpdateRunningRow 把 UpdateRunningTaskDagNodeStatusRow 投影成 contract Node。
 func fromNodeUpdateRunningRow(row sqlc.UpdateRunningTaskDagNodeStatusRow) Node {
-	return fromNodeRaw(row.ID, row.DagKey, row.NodeKey, row.RunID, row.Title, row.NodeType, row.AssignedTo, row.DependsOn, row.Status, row.CommandRef, row.Config, row.Result, row.StartedAt, row.FinishedAt, row.CreatedAt, row.UpdatedAt, row.ActiveTurnID, row.ActiveWakeupID, row.LastEventAt, row.SpawningThreadID)
-}
-
-// fromNodeUpdateAwaitingVerifyRow 把 UpdateAwaitingVerifyTaskDagNodeStatusRow 投影成 contract Node。
-func fromNodeUpdateAwaitingVerifyRow(row sqlc.UpdateAwaitingVerifyTaskDagNodeStatusRow) Node {
 	return fromNodeRaw(row.ID, row.DagKey, row.NodeKey, row.RunID, row.Title, row.NodeType, row.AssignedTo, row.DependsOn, row.Status, row.CommandRef, row.Config, row.Result, row.StartedAt, row.FinishedAt, row.CreatedAt, row.UpdatedAt, row.ActiveTurnID, row.ActiveWakeupID, row.LastEventAt, row.SpawningThreadID)
 }
 

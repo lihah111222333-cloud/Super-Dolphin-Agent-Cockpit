@@ -109,6 +109,7 @@ func newInterruptRestartSession(t *testing.T, script string, cleanupCalled *bool
 		activeTurn:      active,
 		suppressedTurns: map[string]struct{}{},
 		model:           "claude-old",
+		config:          cliLaunchConfig{PromptSnapshot: validResumePromptSnapshotForTest()},
 		launchCLI:       launchFn,
 		settleTransport: func(tr *transport) error {
 			return settleInterruptedTransportWithTimeout(tr, 50*time.Millisecond)

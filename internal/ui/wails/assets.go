@@ -44,11 +44,11 @@ func AssetHandlerFromForMode(injected FrontendFS, debug bool) http.Handler {
 			err = fmt.Errorf("production mode rejects dev URL")
 		}
 		if err != nil {
-			panic("invalid " + viteDevURLEnv + ": " + err.Error())
+			panicAssetConfig("invalid " + viteDevURLEnv + ": " + err.Error())
 		}
 		return viteDevProxy(target)
 	}
-	return application.BundledAssetFileServer(resolveFS(injected))
+	return application.BundledAssetFileServer(resolveFS(injected, debug))
 }
 
 // viteDevProxy 创建指向 Vite dev server 的反向代理。
@@ -89,13 +89,37 @@ func parseFrontendDevServerURL(rawURL string, envName string) (*url.URL, error) 
 }
 
 // resolveFS 选择实际提供给 Wails 的前端资源文件系统。
-func resolveFS(injected FrontendFS) fs.FS {
+// 生产模式必须使用包含 index.html 的注入资源；placeholder 仅允许 debug/test 显式启用。
+func resolveFS(injected FrontendFS, debug bool) fs.FS {
 	if injected.FS != nil {
+		if err := requireFrontendIndex(injected.FS); err != nil {
+			panicAssetConfig("invalid production frontend assets: " + err.Error())
+		}
 		return injected.FS
+	}
+	if !debug {
+		panicAssetConfig("production frontend assets are not configured")
 	}
 	sub, err := fs.Sub(placeholderAssets, "frontend")
 	if err == nil {
 		return sub
 	}
 	return placeholderAssets
+}
+
+// panicAssetConfig 统一承载资产配置的 fail-fast panic，避免生产入口散落多个 panic 调用点。
+func panicAssetConfig(message string) {
+	panic(message)
+}
+
+// requireFrontendIndex 确认资源文件系统可以提供 Wails 启动所需的 index.html。
+func requireFrontendIndex(frontend fs.FS) error {
+	info, err := fs.Stat(frontend, "index.html")
+	if err != nil {
+		return fmt.Errorf("missing index.html")
+	}
+	if info.IsDir() {
+		return fmt.Errorf("index.html must be a file")
+	}
+	return nil
 }

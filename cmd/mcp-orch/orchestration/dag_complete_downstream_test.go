@@ -87,10 +87,6 @@ func (s *stubNodeFlowStore) FailNodeAndCancelDownstream(_ context.Context, input
 	}, nil
 }
 
-func (s *stubNodeFlowStore) UpdateNodeStatusFlexible(_ context.Context, _ taskdag.FlexibleNodeStatusUpdate) (*taskdag.Node, error) {
-	return nil, errors.New("not used in this test")
-}
-
 func (s *stubNodeFlowStore) AcquireWorkerLease(context.Context, taskdag.AcquireWorkerLeaseInput) (int64, error) {
 	return 0, errors.New("not used in this test")
 }
@@ -194,9 +190,9 @@ func TestUpdateNodeStatusDonePublishesTaskNodeStatusChanged(t *testing.T) {
 	}
 }
 
-// TestUpdateNodeStatusNonDone_KeepsLegacyUpdate 验证非 done 状态保留普通 UpdateNodeStatus 路径。
+// TestUpdateNodeStatusNonDone_UsesCASUpdate 验证非 done 状态保留普通 UpdateNodeStatus 路径。
 // 该路径不应触发 CompleteNodeAndScheduleDownstream。
-func TestUpdateNodeStatusNonDone_KeepsLegacyUpdate(t *testing.T) {
+func TestUpdateNodeStatusNonDone_UsesCASUpdate(t *testing.T) {
 	stub := &stubNodeFlowStore{fromStatus: "ready"} // ready → running 合法
 	s := makeServiceWithStub(stub)
 	_, err := s.UpdateNodeStatus(taskUpdateNodeTestContext(), UpdateNodeStatusRequest{
@@ -210,13 +206,16 @@ func TestUpdateNodeStatusNonDone_KeepsLegacyUpdate(t *testing.T) {
 		t.Fatalf("UpdateNodeStatus running err = %v", err)
 	}
 	if len(stub.updateCalls) != 1 {
-		t.Fatalf("updateCalls = %d, want 1 (legacy path)", len(stub.updateCalls))
+		t.Fatalf("updateCalls = %d, want 1 (ordinary CAS path)", len(stub.updateCalls))
 	}
 	if len(stub.completeCalls) != 0 {
 		t.Fatalf("completeCalls = %d, want 0 (no spawn for non-done)", len(stub.completeCalls))
 	}
 	if got := stub.updateCalls[0]; got.RunID != 43 {
 		t.Fatalf("UpdateNodeStatus RunID = %d, want 43", got.RunID)
+	}
+	if got := stub.updateCalls[0]; got.ExpectedStatus != "ready" {
+		t.Fatalf("UpdateNodeStatus ExpectedStatus = %q, want ready", got.ExpectedStatus)
 	}
 }
 

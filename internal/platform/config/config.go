@@ -161,15 +161,16 @@ func loadDotEnv(projectRoot string) error {
 }
 
 // applyDotEnv 将 .env 内容写入当前进程环境，已有环境变量保持调用方显式配置优先。
-// strict 为真时解析错误会阻断启动，用于打包运行时避免静默忽略坏配置。
+// 只要 .env 文件存在，解析错误就会阻断启动，避免关键配置行被静默跳过。
 func applyDotEnv(setenv func(string, string) error, path, content string, strict bool) error {
 	for i, line := range strings.Split(content, "\n") {
 		key, value, ok, err := parseDotEnvLineStrict(line, i+1)
 		if err != nil {
+			prefix := "parse .env"
 			if strict {
-				return fmt.Errorf("parse packaged .env %s: %w", redactPath(path), err)
+				prefix = "parse packaged .env"
 			}
-			continue
+			return fmt.Errorf("%s %s: %w", prefix, redactPath(path), err)
 		}
 		if !ok || strings.TrimSpace(os.Getenv(key)) != "" {
 			continue
@@ -334,7 +335,10 @@ func validateSQLitePath(path string, explicitKey string) (string, error) {
 		}
 		return "", fmt.Errorf("resolved SQLite path is empty")
 	}
-	clean := filepath.Clean(path)
+	clean, err := absoluteCleanPath(path)
+	if err != nil {
+		return "", err
+	}
 	parent := filepath.Dir(clean)
 	if err := validateSQLiteParent(clean, parent); err != nil {
 		return "", err
@@ -345,6 +349,19 @@ func validateSQLitePath(path string, explicitKey string) (string, error) {
 		return "", fmt.Errorf("inspect SQLite database path %s: %s", redactPath(clean), securefs.SafeErrorForPath(err, clean))
 	}
 	return clean, nil
+}
+
+// absoluteCleanPath 在配置边界把相对路径固定为绝对路径，避免数据库位置随后续 CWD 改变。
+func absoluteCleanPath(path string) (string, error) {
+	clean := filepath.Clean(path)
+	if filepath.IsAbs(clean) {
+		return clean, nil
+	}
+	abs, err := filepath.Abs(clean)
+	if err != nil {
+		return "", fmt.Errorf("resolve absolute SQLite path %s: %w", redactPath(clean), err)
+	}
+	return filepath.Clean(abs), nil
 }
 
 // validateSQLiteParent 检查 SQLite 父目录的类型、权限和可写性。

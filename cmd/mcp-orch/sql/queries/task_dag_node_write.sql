@@ -48,12 +48,13 @@ RETURNING id, dag_key, node_key, title, node_type, assigned_to, CAST(depends_on 
           created_at, updated_at, active_turn_id, active_wakeup_id,
           last_event_at, run_id, CAST(reads AS BLOB) AS reads, CAST(writes AS BLOB) AS writes, spawning_thread_id;
 
--- name: UpdateTaskDagNodeStatusFlexible :one
+-- name: UpdateTaskDagNodeStatusIfCurrent :one
 UPDATE task_dag_nodes
 SET status = sqlc.arg('status'), result = sqlc.arg('result'), updated_at = (CAST(strftime('%s','now') AS INTEGER) * 1000)
 WHERE dag_key = sqlc.arg('dag_key') AND node_key = sqlc.arg('node_key')
   AND run_id = sqlc.arg('run_id')
   AND sqlc.arg('run_id') > 0
+  AND status = sqlc.arg('expected_status')
 RETURNING id, dag_key, node_key, title, node_type, assigned_to, CAST(depends_on AS BLOB) AS depends_on,
           status, command_ref, CAST(config AS BLOB) AS config, CAST(result AS BLOB) AS result, started_at, finished_at,
           created_at, updated_at, active_turn_id, active_wakeup_id,
@@ -61,12 +62,12 @@ RETURNING id, dag_key, node_key, title, node_type, assigned_to, CAST(depends_on 
 
 -- name: ClaimTaskDagNodeOutputMaterialization :one
 UPDATE task_dag_nodes
-SET status = 'awaiting_verify', result = sqlc.arg('result'), updated_at = (CAST(strftime('%s','now') AS INTEGER) * 1000)
+SET result = sqlc.arg('result'), updated_at = (CAST(strftime('%s','now') AS INTEGER) * 1000)
 WHERE dag_key = sqlc.arg('dag_key')
   AND node_key = sqlc.arg('node_key')
   AND run_id = sqlc.arg('run_id')
   AND sqlc.arg('run_id') > 0
-  AND status IN ('ready', 'running', 'awaiting_verify')
+  AND status IN ('ready', 'running')
 RETURNING id, dag_key, node_key, title, node_type, assigned_to, CAST(depends_on AS BLOB) AS depends_on,
           status, command_ref, CAST(config AS BLOB) AS config, CAST(result AS BLOB) AS result, started_at, finished_at,
           created_at, updated_at, active_turn_id, active_wakeup_id,

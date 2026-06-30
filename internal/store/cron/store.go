@@ -430,12 +430,16 @@ func (s *store) MarkFailed(ctx context.Context, p MarkFailedParams) error {
 	if status == "" {
 		status = StatusFailed
 	}
+	if p.NextRunAt.IsZero() {
+		return wrap(errors.New("cron: next_run_at is required"), "mark_failed")
+	}
 	rows, err := s.q.MarkCronJobFailed(ctx, sqlc.MarkCronJobFailedParams{
 		LastRunAt:            tsPtr(p.LastRunAt),
 		LastTurnID:           p.LastTurnID,
 		LastStatus:           status,
 		LastErrorAt:          tsPtr(p.LastErrorAt),
 		LastError:            p.LastError,
+		NextRunAt:            ts(p.NextRunAt),
 		NextRetryAt:          tsPtr(p.NextRetryAt),
 		UpdatedAt:            ts(p.Now),
 		ID:                   id,

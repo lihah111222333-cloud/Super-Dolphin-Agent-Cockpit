@@ -11,6 +11,10 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 
+MIRROR_IGNORED_REL_FILES = {
+    "references/ui-styling/scripts/.coverage",
+}
+
 
 REQUIRED = {
     "CLAUDE.md": [
@@ -361,11 +365,15 @@ def skill_dirs(base: Path) -> list[Path]:
 
 
 def rel_files(base: Path) -> set[str]:
-    return {
-        str(p.relative_to(base))
-        for p in base.rglob("*")
-        if p.is_file()
-    }
+    files: set[str] = set()
+    for p in base.rglob("*"):
+        if not p.is_file():
+            continue
+        rel = str(p.relative_to(base))
+        if rel in MIRROR_IGNORED_REL_FILES:
+            continue
+        files.add(rel)
+    return files
 
 
 def normalize_mirror_bytes(data: bytes) -> bytes:

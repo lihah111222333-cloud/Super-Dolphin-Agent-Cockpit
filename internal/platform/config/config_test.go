@@ -79,6 +79,32 @@ func TestNew_UsesExplicitSQLitePath(t *testing.T) {
 	}
 }
 
+func TestNew_NormalizesRelativeExplicitSQLitePathToAbsolute(t *testing.T) {
+	isolateConfigTestEnv(t)
+	root := t.TempDir()
+	t.Chdir(root)
+	t.Setenv("SUPER_DOLPHIN_SQLITE_PATH", filepath.Join("state", "custom.db"))
+
+	cfg := mustNewConfig(t)
+	want := filepath.Join(root, "state", "custom.db")
+	if cfg.SQLitePath != want {
+		t.Fatalf("SQLitePath = %q, want absolute normalized path %q", cfg.SQLitePath, want)
+	}
+}
+
+func TestNew_NormalizesRelativeSuperDolphinHomeToAbsoluteSQLitePath(t *testing.T) {
+	isolateConfigTestEnv(t)
+	root := t.TempDir()
+	t.Chdir(root)
+	t.Setenv("SUPER_DOLPHIN_HOME", "home")
+
+	cfg := mustNewConfig(t)
+	want := filepath.Join(root, "home", "super-dolphin.db")
+	if cfg.SQLitePath != want {
+		t.Fatalf("SQLitePath = %q, want absolute SUPER_DOLPHIN_HOME path %q", cfg.SQLitePath, want)
+	}
+}
+
 func TestNew_UsesInternalSQLitePathChannelWhenPublicKeyAbsent(t *testing.T) {
 	isolateConfigTestEnv(t)
 	explicit := filepath.Join(t.TempDir(), "state", "internal.db")
@@ -539,6 +565,24 @@ func TestPrimeProcessEnvironmentAllowsMissingDotEnvOutsidePackagedRuntime(t *tes
 	}
 	if got != root {
 		t.Fatalf("PrimeProcessEnvironment() = %q, want %q", got, root)
+	}
+}
+
+func TestPrimeProcessEnvironmentFailsFastForMalformedDotEnvOutsidePackagedRuntime(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv("PROJECT_ROOT", root)
+	if err := os.WriteFile(filepath.Join(root, ".env"), []byte("LOG_LEVEL\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err := PrimeProcessEnvironment()
+	if err == nil {
+		t.Fatal("PrimeProcessEnvironment() error = nil, want malformed .env failure")
+	}
+	for _, want := range []string{"parse .env", "line 1"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Fatalf("PrimeProcessEnvironment() error = %v, want substring %q", err, want)
+		}
 	}
 }
 

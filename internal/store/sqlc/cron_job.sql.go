@@ -765,17 +765,18 @@ SET claimed_by        = '',
     last_error_at     = ?4,
     last_error        = ?5,
     failure_count     = failure_count + 1,
-    next_retry_at     = ?6,
-    updated_at        = ?7
-WHERE cron_jobs.id = ?8
-  AND cron_jobs.claim_token = ?9
-  AND cron_jobs.active_turn_id = ?10
+    next_run_at       = ?6,
+    next_retry_at     = ?7,
+    updated_at        = ?8
+WHERE cron_jobs.id = ?9
+  AND cron_jobs.claim_token = ?10
+  AND cron_jobs.active_turn_id = ?11
   AND EXISTS (
       SELECT 1
       FROM cron_job_runs
-      WHERE cron_job_runs.id = ?11
+      WHERE cron_job_runs.id = ?12
         AND cron_job_runs.job_id = cron_jobs.id
-        AND cron_job_runs.turn_id = ?10
+        AND cron_job_runs.turn_id = ?11
         AND cron_job_runs.status = ?3
   )
 `
@@ -786,6 +787,7 @@ type MarkCronJobFailedParams struct {
 	LastStatus           string `db:"last_status" json:"last_status"`
 	LastErrorAt          *int64 `db:"last_error_at" json:"last_error_at"`
 	LastError            string `db:"last_error" json:"last_error"`
+	NextRunAt            int64  `db:"next_run_at" json:"next_run_at"`
 	NextRetryAt          *int64 `db:"next_retry_at" json:"next_retry_at"`
 	UpdatedAt            int64  `db:"updated_at" json:"updated_at"`
 	ID                   string `db:"id" json:"id"`
@@ -801,6 +803,7 @@ func (q *Queries) MarkCronJobFailed(ctx context.Context, arg MarkCronJobFailedPa
 		arg.LastStatus,
 		arg.LastErrorAt,
 		arg.LastError,
+		arg.NextRunAt,
 		arg.NextRetryAt,
 		arg.UpdatedAt,
 		arg.ID,

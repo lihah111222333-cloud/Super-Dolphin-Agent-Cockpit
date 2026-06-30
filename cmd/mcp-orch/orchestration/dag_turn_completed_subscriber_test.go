@@ -45,7 +45,6 @@ type dagSubscriberFlowSpy struct {
 	enqueueErr    error
 	claimCalls    []taskdag.OutputMaterializationClaimInput
 	claimErr      error
-	flexibleCalls []taskdag.FlexibleNodeStatusUpdate
 }
 
 func (s *dagSubscriberFlowSpy) CompleteNodeAndScheduleDownstream(_ context.Context, input taskdag.CompleteNodeInput) (*taskdag.CompleteNodeWithDownstreamResult, error) {
@@ -82,11 +81,6 @@ func (s *dagSubscriberFlowSpy) ClaimNodeOutputMaterialization(_ context.Context,
 		return nil, s.claimErr
 	}
 	return &taskdag.Node{DagKey: input.DagKey, NodeKey: input.NodeKey, Status: "awaiting_verify", Result: input.Result}, nil
-}
-
-func (s *dagSubscriberFlowSpy) UpdateNodeStatusFlexible(_ context.Context, input taskdag.FlexibleNodeStatusUpdate) (*taskdag.Node, error) {
-	s.flexibleCalls = append(s.flexibleCalls, input)
-	return &taskdag.Node{DagKey: input.DagKey, NodeKey: input.NodeKey, Status: input.Status}, nil
 }
 
 type dagSubscriberThreadSpy struct {

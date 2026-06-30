@@ -60,7 +60,7 @@ INSERT INTO public.prompt_templates (
 
 - `task_create_dag(agent_id, dag_key, title, description?, schedule, final_node_key?, nodes?)`：新建 DAG。`final_node_key` 必须指向唯一的用户可见最终交付节点；run 完成后该节点结果会被索引到 run-level `metadata.final_output`，大结果仍用 Shared Files 承载。`schedule.trigger ∈ {manual, auto, scheduled}`；scheduled 需要后续 task_dag_apply_ops 写 cron_expr。`agent_id` 填你自己的 orchestration agent id。
 - `task_dag_apply_ops(dag_key, base_version, ops)`：在已有 DAG 上批量增改。`base_version` 是从 task_get_dag 拿到的当前 version (OCC 乐观锁，写冲突会返回 ErrVersionConflict，须重读重试)。`ops` 数组每项含 `op` discriminator：
-  - `{"op":"add_node","node":{"node_key":"...","title":"...","node_type":"agent|automation|hybrid","assigned_to":"<dag_key>_<node_key>_runner","depends_on":["..."],"config":{...}}}` — add_node 也必须传节点顶层 assigned_to；不要放进 config。
+  - `{"op":"add_node","node":{"node_key":"...","title":"...","node_type":"agent|automation","assigned_to":"<dag_key>_<node_key>_runner","depends_on":["..."],"config":{...}}}` — add_node 也必须传节点顶层 assigned_to；不要放进 config。
   - `{"op":"update_node","node_key":"...","patch":{"title":"...","depends_on":["..."],"config":{...}}}` — depends_on 用 [] 显式清空；不传字段表示不改。
   - `{"op":"remove_node","node_key":"..."}` — 有下游依赖会被拒，先改下游或先删下游。
   - `{"op":"update_dag","patch":{"title":"...","description":"...","trigger":"manual|auto|scheduled","cron_expr":"CRON_TZ=Asia/Shanghai 0 8 * * *","owner_id":"..."}}` — 字段全可选，nil 表示不改。
@@ -79,7 +79,7 @@ INSERT INTO public.prompt_templates (
 
 # 节点 typed schema (S5.1 / config 字段)
 
-每个节点的 `config` 是一段 JSON，按 `node_type` 分三种 schema。执行字段必须在 `node.config.exec`；输出字段必须用 `outputs.to_sharedfile` / `outputs.to_node_result`；`first_turn` 是 config 顶层字段。不要再使用旧顶层 provider/model/output_file/cwd：
+每个新建节点的 `config` 是一段 JSON，当前只允许 `agent` / `automation` 两种可创建 schema。执行字段必须在 `node.config.exec`；输出字段必须用 `outputs.to_sharedfile` / `outputs.to_node_result`；`first_turn` 是 config 顶层字段。不要再使用旧顶层 provider/model/output_file/cwd：
 
 ## node_type = "agent" — 让一个 sub-agent 跑一段 prompt
 
@@ -130,19 +130,12 @@ INSERT INTO public.prompt_templates (
 - 当前 `kind` 只支持 `"command_card"` (省略也按这个解析，ADR-007)。其他 kind (webhook / shell / mcp_call) 字段位预留，**禁止使用**。
 - `command_ref` 必须来自 command_list 的返回。
 
-## node_type = "hybrid" — 先 automation 后 agent verifier
+## automation + agent 复核组合 — 替代历史 hybrid 配置
 
-```json
-{
-  "exec": {
-    "automation": { "kind": "command_card", "command_ref": "run_tests", "args": {} },
-    "verifier":   { "provider": "claude", "model": "sonnet", "agent_key": "code-review", "cwd": "/absolute/path/to/project" }
-  },
-  "inputs": {...}, "outputs": {...}
-}
-```
+历史 `hybrid` 类型只允许读取和诊断旧 DAG，不要作为新建节点写入。需要“先跑机械步骤，再让 agent 判断是否合格”时，创建两个节点：
 
-用途：跑一个机械步骤 (跑测试 / 调 API)，再让 agent 检查结果是否合格。
+- `automation` 节点：用 command_list 返回的 command_card 跑测试 / 调 API，并把摘要写入 `outputs.to_node_result` 或 sharedfile。
+- `agent` 复核节点：`depends_on` 指向上游 automation 节点，`inputs.from_nodes` 或 `inputs.from_sharedfiles` 读取结果，再输出复核结论和需修复项。
 
 ## 共享字段
 

@@ -139,8 +139,9 @@ func TestStartSessionReconcilesMirrorsBeforePoolAcquireAndDefaultsIdentity(t *te
 	d := &driver{logger: slog.Default(), pool: pool, mirror: mirror}
 
 	_, err := d.StartSession(context.Background(), dto.StartSessionRequest{
-		AgentID: "agent-default",
-		CWD:     workDir,
+		AgentID:       "agent-default",
+		CWD:           workDir,
+		StartAssembly: validStartAssemblyForTest(),
 	})
 	if err == nil || !strings.Contains(err.Error(), "stop after acquire") {
 		t.Fatalf("StartSession() error = %v, want acquire error after reconcile", err)
@@ -187,8 +188,9 @@ func TestStartSessionReconcilesProjectMirrorsFromGitRootBeforePoolAcquire(t *tes
 	d := &driver{logger: slog.Default(), pool: pool, mirror: mirror}
 
 	_, err := d.StartSession(context.Background(), dto.StartSessionRequest{
-		AgentID: "agent-subdir",
-		CWD:     subdir,
+		AgentID:       "agent-subdir",
+		CWD:           subdir,
+		StartAssembly: validStartAssemblyForTest(),
 	})
 	if err == nil || !strings.Contains(err.Error(), "stop after acquire") {
 		t.Fatalf("StartSession() error = %v, want acquire error after reconcile", err)
@@ -216,8 +218,9 @@ func TestStartSessionFailsClosedWhenPreparedIdentityHasNoPool(t *testing.T) {
 	d := &driver{logger: slog.Default(), mirror: mirror}
 
 	session, err := d.StartSession(context.Background(), dto.StartSessionRequest{
-		AgentID: "agent-no-pool",
-		CWD:     workDir,
+		AgentID:       "agent-no-pool",
+		CWD:           workDir,
+		StartAssembly: validStartAssemblyForTest(),
 	})
 	if err == nil || !strings.Contains(err.Error(), "pool-backed app-server") {
 		t.Fatalf("StartSession() error = %v, want pool-backed app-server requirement", err)
@@ -257,7 +260,11 @@ func TestStartSessionMirrorContentConflictBlocksPoolAcquire(t *testing.T) {
 		}}}},
 	}
 
-	_, err := d.StartSession(context.Background(), dto.StartSessionRequest{AgentID: "agent-conflict", CWD: workDir})
+	_, err := d.StartSession(context.Background(), dto.StartSessionRequest{
+		AgentID:       "agent-conflict",
+		CWD:           workDir,
+		StartAssembly: validStartAssemblyForTest(),
+	})
 	if err == nil || !strings.Contains(err.Error(), "skill mirror conflicts") || !strings.Contains(err.Error(), "drift") {
 		t.Fatalf("StartSession() error = %v, want blocking project mirror content conflict", err)
 	}
@@ -287,7 +294,11 @@ func TestStartSessionMirrorSafetyConflictBlocksPoolAcquire(t *testing.T) {
 		}}}},
 	}
 
-	_, err := d.StartSession(context.Background(), dto.StartSessionRequest{AgentID: "agent-safety-conflict", CWD: workDir})
+	_, err := d.StartSession(context.Background(), dto.StartSessionRequest{
+		AgentID:       "agent-safety-conflict",
+		CWD:           workDir,
+		StartAssembly: validStartAssemblyForTest(),
+	})
 	if err == nil || !strings.Contains(err.Error(), "skill mirror conflicts") || !strings.Contains(err.Error(), "mirror_root_symlink") {
 		t.Fatalf("StartSession() error = %v, want blocking mirror safety conflict", err)
 	}
@@ -308,7 +319,11 @@ func TestStartSessionRequiresSkillMirrorReconciler(t *testing.T) {
 	defer pool.Close(context.Background())
 	d := &driver{logger: slog.Default(), pool: pool}
 
-	_, err := d.StartSession(context.Background(), dto.StartSessionRequest{AgentID: "agent-no-mirror", CWD: workDir})
+	_, err := d.StartSession(context.Background(), dto.StartSessionRequest{
+		AgentID:       "agent-no-mirror",
+		CWD:           workDir,
+		StartAssembly: validStartAssemblyForTest(),
+	})
 	if err == nil || !strings.Contains(err.Error(), "skill mirror reconciler") {
 		t.Fatalf("StartSession() error = %v, want skill mirror reconciler requirement", err)
 	}
@@ -335,7 +350,11 @@ func TestStartSessionMirrorReconcileFailureBlocksPoolAcquire(t *testing.T) {
 		mirror: &recordingSkillMirrorReconciler{err: errors.New("mirror unavailable")},
 	}
 
-	_, err := d.StartSession(context.Background(), dto.StartSessionRequest{AgentID: "agent-blocked", CWD: workDir})
+	_, err := d.StartSession(context.Background(), dto.StartSessionRequest{
+		AgentID:       "agent-blocked",
+		CWD:           workDir,
+		StartAssembly: validStartAssemblyForTest(),
+	})
 	if err == nil || !strings.Contains(err.Error(), "mirror unavailable") {
 		t.Fatalf("StartSession() error = %v, want mirror reconcile failure", err)
 	}
@@ -361,8 +380,9 @@ func TestStartSessionReconcilesMirrorsToExplicitCodexHome(t *testing.T) {
 	d := &driver{logger: slog.Default(), pool: pool, mirror: mirror}
 
 	_, err := d.StartSession(context.Background(), dto.StartSessionRequest{
-		AgentID: "agent-explicit",
-		CWD:     workDir,
+		AgentID:       "agent-explicit",
+		CWD:           workDir,
+		StartAssembly: validStartAssemblyForTest(),
 		Config: map[string]any{
 			contract.CodexHomeKey:          explicitHome,
 			contract.CodexInstanceKeyKey:   "explicit",
@@ -393,8 +413,9 @@ func TestStartSessionRejectsRelativeExplicitCodexHome(t *testing.T) {
 	d := &driver{logger: slog.Default(), pool: pool, mirror: &recordingSkillMirrorReconciler{}}
 
 	_, err := d.StartSession(context.Background(), dto.StartSessionRequest{
-		AgentID: "agent-relative-home",
-		CWD:     workDir,
+		AgentID:       "agent-relative-home",
+		CWD:           workDir,
+		StartAssembly: validStartAssemblyForTest(),
 		Config: map[string]any{
 			contract.CodexHomeKey:          "relative-codex-home",
 			contract.CodexInstanceKeyKey:   "default",
@@ -421,8 +442,9 @@ func TestStartSessionRejectsMalformedCodexIdentityBeforeHomeOrMirror(t *testing.
 	d := &driver{logger: slog.Default(), pool: pool, mirror: mirror}
 
 	_, err := d.StartSession(context.Background(), dto.StartSessionRequest{
-		AgentID: "agent-malformed-home",
-		CWD:     workDir,
+		AgentID:       "agent-malformed-home",
+		CWD:           workDir,
+		StartAssembly: validStartAssemblyForTest(),
 		Config: map[string]any{
 			contract.CodexHomeKey:          123,
 			contract.CodexInstanceKeyKey:   "default",
@@ -469,8 +491,9 @@ func TestStartSessionNormalizesExplicitCodexHomeBeforeMirrorAndPool(t *testing.T
 	d := &driver{logger: slog.Default(), pool: pool, mirror: mirror}
 
 	_, err = d.StartSession(context.Background(), dto.StartSessionRequest{
-		AgentID: "agent-explicit-normalized",
-		CWD:     workDir,
+		AgentID:       "agent-explicit-normalized",
+		CWD:           workDir,
+		StartAssembly: validStartAssemblyForTest(),
 		Config: map[string]any{
 			contract.CodexHomeKey:          aliasHome,
 			contract.CodexInstanceKeyKey:   "explicit",

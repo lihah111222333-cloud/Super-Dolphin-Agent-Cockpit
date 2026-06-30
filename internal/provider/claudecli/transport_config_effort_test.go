@@ -29,7 +29,7 @@ func TestNormalizeEffortRespectsClaudeModelFamily(t *testing.T) {
 }
 
 func TestBuildCLIArgsIncludesModelAndNormalizedEffort(t *testing.T) {
-	args := buildCLIArgs("best", "system", "", cliLaunchConfig{Effort: "max"})
+	args := mustBuildCLIArgs(t, "best", "system", "", cliLaunchConfig{Effort: "max"})
 	if !hasFlagValue(args, "--model", "best") {
 		t.Fatalf("buildCLIArgs() = %#v, want --model best", args)
 	}
@@ -37,14 +37,14 @@ func TestBuildCLIArgsIncludesModelAndNormalizedEffort(t *testing.T) {
 		t.Fatalf("buildCLIArgs() = %#v, want --effort max", args)
 	}
 
-	args = buildCLIArgs("sonnet", "system", "", cliLaunchConfig{Effort: "max"})
+	args = mustBuildCLIArgs(t, "sonnet", "system", "", cliLaunchConfig{Effort: "max"})
 	if !hasFlagValue(args, "--effort", "high") {
 		t.Fatalf("buildCLIArgs() = %#v, want sonnet max -> --effort high", args)
 	}
 }
 
 func TestBuildCLIArgsDropsAccidentalObjectModelString(t *testing.T) {
-	args := buildCLIArgs("[object Object]", "system", "", cliLaunchConfig{Effort: "high"})
+	args := mustBuildCLIArgs(t, "[object Object]", "system", "", cliLaunchConfig{Effort: "high"})
 	if hasFlag(args, "--model") {
 		t.Fatalf("buildCLIArgs() = %#v, want no --model for object artifact", args)
 	}

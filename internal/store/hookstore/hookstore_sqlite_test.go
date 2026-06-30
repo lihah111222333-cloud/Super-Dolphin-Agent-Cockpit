@@ -23,21 +23,54 @@ func TestHookStoreSQLiteSavePendingReviewIsIdempotent(t *testing.T) {
 	if err := store.SavePendingReview(context.Background(), review); err != nil {
 		t.Fatalf("SavePendingReview() first error = %v", err)
 	}
+	if err := store.SavePendingReview(context.Background(), review); err != nil {
+		t.Fatalf("SavePendingReview() idempotent error = %v", err)
+	}
 	changed := review
 	changed.Topic = "topic/changed"
 	changed.DefaultAction = "approve"
-	if err := store.SavePendingReview(context.Background(), changed); err != nil {
-		t.Fatalf("SavePendingReview() second error = %v", err)
+	changed.SubscriberLease = "changed-lease"
+	changed.Payload = []byte(`{"changed":true}`)
+	if err := store.SavePendingReview(context.Background(), changed); !errors.Is(err, contract.ErrHookReviewConflict) {
+		t.Fatalf("SavePendingReview() conflict error = %v, want ErrHookReviewConflict", err)
 	}
 
-	var count int
-	var topic, defaultAction string
-	if err := db.QueryRow("SELECT COUNT(*), topic, default_action FROM hook_pending_reviews WHERE hook_call_id = ?", review.HookCallID).Scan(&count, &topic, &defaultAction); err != nil {
-		t.Fatalf("query saved review: %v", err)
+	assertSQLitePendingReviewUnchanged(t, db, review)
+}
+
+func TestHookStoreSQLiteRoundTripsContextFields(t *testing.T) {
+	t.Parallel()
+
+	store, _ := newHookStoreSQLiteStore(t)
+	base := time.Date(2026, 3, 24, 12, 30, 0, 0, time.UTC)
+	review := testPendingReview("call-roundtrip", "agent-roundtrip", "reject", base, base.Add(time.Hour))
+	if err := store.SavePendingReview(context.Background(), review); err != nil {
+		t.Fatalf("SavePendingReview() error = %v", err)
 	}
-	if count != 1 || topic != review.Topic || defaultAction != review.DefaultAction {
-		t.Fatalf("saved row count/topic/default_action = %d/%q/%q, want 1/%q/%q", count, topic, defaultAction, review.Topic, review.DefaultAction)
+
+	got, err := store.GetPendingReview(context.Background(), review.HookCallID)
+	if err != nil {
+		t.Fatalf("GetPendingReview() error = %v", err)
 	}
+	assertPendingReview(t, got, review)
+
+	listed, err := store.ListPendingReviews(context.Background(), review.AgentID)
+	if err != nil {
+		t.Fatalf("ListPendingReviews() error = %v", err)
+	}
+	if len(listed) != 1 {
+		t.Fatalf("ListPendingReviews() len = %d, want 1", len(listed))
+	}
+	assertPendingReview(t, listed[0], review)
+
+	recovered, err := store.RecoverOnStartup(context.Background())
+	if err != nil {
+		t.Fatalf("RecoverOnStartup() error = %v", err)
+	}
+	if len(recovered) != 1 {
+		t.Fatalf("RecoverOnStartup() len = %d, want 1", len(recovered))
+	}
+	assertPendingReview(t, recovered[0], review)
 }
 
 func TestHookStoreSQLiteResolveIdempotencyKey(t *testing.T) {
@@ -205,4 +238,20 @@ func assertHookResolvedMetadata(t *testing.T, db *sql.DB, hookCallID, wantDecisi
 	if decision != wantDecision || reason != wantReason || idempotencyKey != wantIdempotencyKey || resolvedBy != wantResolvedBy {
 		t.Fatalf("hook review metadata = %q/%q/%q/%q, want %q/%q/%q/%q", decision, reason, idempotencyKey, resolvedBy, wantDecision, wantReason, wantIdempotencyKey, wantResolvedBy)
 	}
+}
+
+func assertSQLitePendingReviewUnchanged(t *testing.T, db *sql.DB, review mcp.PendingHookReview) {
+	t.Helper()
+
+	var count int
+	var topic, threadID, turnID, payload, defaultAction string
+	if err := db.QueryRow("SELECT COUNT(*), topic, thread_id, turn_id, payload, default_action FROM hook_pending_reviews WHERE hook_call_id = ?", review.HookCallID).Scan(&count, &topic, &threadID, &turnID, &payload, &defaultAction); err != nil {
+		t.Fatalf("query saved review: %v", err)
+	}
+	assertReviewInt(t, "saved count", count, 1)
+	assertReviewString(t, "saved topic", topic, review.Topic)
+	assertReviewString(t, "saved thread_id", threadID, review.ThreadID)
+	assertReviewString(t, "saved turn_id", turnID, review.TurnID)
+	assertReviewString(t, "saved payload", payload, string(review.Payload))
+	assertReviewString(t, "saved default_action", defaultAction, review.DefaultAction)
 }

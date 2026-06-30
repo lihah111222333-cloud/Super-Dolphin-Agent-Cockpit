@@ -65,8 +65,9 @@ func TestCloseSessionReleasesCodexToolSurface(t *testing.T) {
 	workDir := t.TempDir()
 
 	sessionAny, err := d.StartSession(context.Background(), dto.StartSessionRequest{
-		AgentID: "agent-1",
-		CWD:     workDir,
+		AgentID:       "agent-1",
+		CWD:           workDir,
+		StartAssembly: validStartAssemblyForTest(),
 	})
 	if err != nil {
 		t.Fatalf("StartSession() error = %v", err)
@@ -221,10 +222,28 @@ func TestSessionCapabilitiesReturnsClone(t *testing.T) {
 	}
 }
 
+func mustBuildThreadStartParams(t *testing.T, req dto.StartSessionRequest) threadStartParams {
+	t.Helper()
+	params, err := (&driver{}).buildThreadStartParams(req)
+	if err != nil {
+		t.Fatalf("buildThreadStartParams() error = %v", err)
+	}
+	return params
+}
+
+func mustBuildThreadResumeParams(t *testing.T, req dto.ResumeSessionRequest) threadResumeParams {
+	t.Helper()
+	params, err := buildThreadResumeParams(req)
+	if err != nil {
+		t.Fatalf("buildThreadResumeParams() error = %v", err)
+	}
+	return params
+}
+
 func TestBuildThreadStartParamsUsesStartAssemblyInstructions(t *testing.T) {
 	t.Parallel()
 
-	params := (&driver{}).buildThreadStartParams(dto.StartSessionRequest{
+	params := mustBuildThreadStartParams(t, dto.StartSessionRequest{
 		CWD:          " /repo ",
 		Model:        " gpt-5.5 ",
 		Instructions: "legacy instructions",
@@ -245,10 +264,19 @@ func TestBuildThreadStartParamsUsesStartAssemblyInstructions(t *testing.T) {
 	}
 }
 
+func TestBuildThreadStartParamsRejectsEmptyPromptAssembly(t *testing.T) {
+	t.Parallel()
+
+	_, err := (&driver{}).buildThreadStartParams(dto.StartSessionRequest{})
+	if err == nil || !strings.Contains(err.Error(), "start prompt assembly is empty") {
+		t.Fatalf("buildThreadStartParams() error = %v, want empty start prompt assembly error", err)
+	}
+}
+
 func TestBuildThreadStartParamsIgnoresPrefixShapeContent(t *testing.T) {
 	t.Parallel()
 
-	params := (&driver{}).buildThreadStartParams(dto.StartSessionRequest{
+	params := mustBuildThreadStartParams(t, dto.StartSessionRequest{
 		StartAssembly: dto.StartAssembly{
 			BaseInstructions:      "assembled base",
 			DeveloperInstructions: "assembled dev",
@@ -273,8 +301,9 @@ func TestBuildThreadStartParamsIgnoresPrefixShapeContent(t *testing.T) {
 func TestBuildThreadStartParamsNormalizesMinimalEffortToLow(t *testing.T) {
 	t.Parallel()
 
-	params := (&driver{}).buildThreadStartParams(dto.StartSessionRequest{
-		Config: map[string]any{"effort": " minimal "},
+	params := mustBuildThreadStartParams(t, dto.StartSessionRequest{
+		StartAssembly: dto.StartAssembly{BaseInstructions: "test base"},
+		Config:        map[string]any{"effort": " minimal "},
 	})
 	if params.Effort != "low" {
 		t.Fatalf("Effort = %q, want low", params.Effort)
@@ -284,7 +313,8 @@ func TestBuildThreadStartParamsNormalizesMinimalEffortToLow(t *testing.T) {
 func TestBuildThreadStartParamsPrefersCanonicalCodexModelProvider(t *testing.T) {
 	t.Parallel()
 
-	params := (&driver{}).buildThreadStartParams(dto.StartSessionRequest{
+	params := mustBuildThreadStartParams(t, dto.StartSessionRequest{
+		StartAssembly: dto.StartAssembly{BaseInstructions: "test base"},
 		Config: map[string]any{
 			contract.CodexModelProviderKey: " canonical-relay ",
 			"modelProvider":                "legacy-camel",
@@ -310,7 +340,10 @@ func TestBuildThreadStartParamsKeepsLegacyModelProviderKeys(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			params := (&driver{}).buildThreadStartParams(dto.StartSessionRequest{Config: tt.config})
+			params := mustBuildThreadStartParams(t, dto.StartSessionRequest{
+				StartAssembly: dto.StartAssembly{BaseInstructions: "test base"},
+				Config:        tt.config,
+			})
 			if params.ModelProvider != tt.want {
 				t.Fatalf("ModelProvider = %q, want %q", params.ModelProvider, tt.want)
 			}
@@ -320,10 +353,13 @@ func TestBuildThreadStartParamsKeepsLegacyModelProviderKeys(t *testing.T) {
 
 func TestBuildThreadStartParamsUsesCodexModelProviderForCLI(t *testing.T) {
 	t.Parallel()
-	params := (&driver{}).buildThreadStartParams(dto.StartSessionRequest{
+	params := mustBuildThreadStartParams(t, dto.StartSessionRequest{
 		Provider: "codex",
 		CWD:      "/repo",
 		Model:    "gpt-5.5",
+		StartAssembly: dto.StartAssembly{
+			BaseInstructions: "test base",
+		},
 		Config: map[string]any{
 			"provider":           "codex",
 			"modelProvider":      "codex",
@@ -342,7 +378,7 @@ func TestBuildThreadStartParamsUsesCodexModelProviderForCLI(t *testing.T) {
 
 func TestBuildThreadStartParamsIncludesStartRuntimeContext(t *testing.T) {
 	t.Parallel()
-	params := (&driver{}).buildThreadStartParams(dto.StartSessionRequest{
+	params := mustBuildThreadStartParams(t, dto.StartSessionRequest{
 		StartAssembly: dto.StartAssembly{
 			BaseInstructions: "assembled base",
 			UserContext: map[string]string{
@@ -362,7 +398,7 @@ func TestBuildThreadStartParamsIncludesStartRuntimeContext(t *testing.T) {
 func TestBuildThreadStartParamsDoesNotDuplicateBoundaryRuntimeExtras(t *testing.T) {
 	t.Parallel()
 
-	params := (&driver{}).buildThreadStartParams(dto.StartSessionRequest{
+	params := mustBuildThreadStartParams(t, dto.StartSessionRequest{
 		StartAssembly: dto.StartAssembly{
 			BaseInstructions: "assembled base\n\n可用专家: main/expert/prompt",
 			Boundary: &dto.PromptAssemblyBoundary{
@@ -390,7 +426,7 @@ func TestBuildThreadStartParamsDoesNotDuplicateBoundaryRuntimeExtras(t *testing.
 func TestBuildThreadStartParamsDoesNotPrependLegacySkillManifest(t *testing.T) {
 	t.Parallel()
 
-	params := (&driver{}).buildThreadStartParams(dto.StartSessionRequest{
+	params := mustBuildThreadStartParams(t, dto.StartSessionRequest{
 		StartAssembly: dto.StartAssembly{BaseInstructions: "assembled base"},
 	})
 
@@ -405,7 +441,7 @@ func TestBuildThreadStartParamsDoesNotPrependLegacySkillManifest(t *testing.T) {
 func TestBuildThreadResumeParamsUsesPromptSnapshotInstructions(t *testing.T) {
 	t.Parallel()
 
-	params := buildThreadResumeParams(dto.ResumeSessionRequest{
+	params := mustBuildThreadResumeParams(t, dto.ResumeSessionRequest{
 		CWD:    " /repo ",
 		Model:  " gpt-5.5 ",
 		Effort: " high ",
@@ -422,6 +458,47 @@ func TestBuildThreadResumeParamsUsesPromptSnapshotInstructions(t *testing.T) {
 	}
 	if params.Cwd != "/repo" || params.Model != "gpt-5.5" || params.Effort != "high" {
 		t.Fatalf("unexpected params = %#v", params)
+	}
+}
+
+func TestBuildThreadResumeParamsRejectsEmptyPromptSnapshot(t *testing.T) {
+	t.Parallel()
+
+	_, err := buildThreadResumeParams(dto.ResumeSessionRequest{})
+	if err == nil || !strings.Contains(err.Error(), "resume prompt snapshot has empty base instructions") {
+		t.Fatalf("buildThreadResumeParams() error = %v, want empty resume prompt snapshot error", err)
+	}
+}
+
+func TestBuildThreadResumeParamsUsesProviderEffectiveBoundarySnapshot(t *testing.T) {
+	t.Parallel()
+
+	params := mustBuildThreadResumeParams(t, dto.ResumeSessionRequest{
+		PromptSnapshot: dto.PromptAssemblySnapshot{
+			BaseInstructions: "stale base must not win",
+			Boundary: &dto.PromptAssemblyBoundary{
+				CachedPrefix: "assembled base",
+				UncachedTail: strings.Join([]string{
+					"Today's date is 2026-05-22.",
+					"可用专家: main/expert/prompt",
+					"# System Context\n## main\n M prompt.go",
+				}, "\n\n"),
+			},
+		},
+	})
+
+	for _, want := range []string{
+		"assembled base",
+		"Today's date is 2026-05-22.",
+		"可用专家: main/expert/prompt",
+		"# System Context",
+	} {
+		if !strings.Contains(params.BaseInstructions, want) {
+			t.Fatalf("BaseInstructions = %q, want substring %q", params.BaseInstructions, want)
+		}
+	}
+	if strings.Contains(params.BaseInstructions, "stale base must not win") {
+		t.Fatalf("BaseInstructions = %q, want boundary prompt to override stale base", params.BaseInstructions)
 	}
 }
 
@@ -457,9 +534,10 @@ func TestDriverStartSessionUsesAppManagedCodexHomeWhenConfigMissing(t *testing.T
 	}
 	workDir := t.TempDir()
 	got, err := d.StartSession(context.Background(), dto.StartSessionRequest{
-		Provider: "codex",
-		AgentID:  "agent-1",
-		CWD:      workDir,
+		Provider:      "codex",
+		AgentID:       "agent-1",
+		CWD:           workDir,
+		StartAssembly: validStartAssemblyForTest(),
 	})
 	if err != nil {
 		t.Fatalf("StartSession() error = %v", err)
@@ -503,10 +581,11 @@ func TestDriverStartSessionCanonicalizesRuntimeCodexHome(t *testing.T) {
 		listTools: noopCodexToolLister,
 	}
 	got, err := d.StartSession(context.Background(), dto.StartSessionRequest{
-		Provider: "codex",
-		AgentID:  "agent-canonical",
-		CWD:      t.TempDir(),
-		Config:   config,
+		Provider:      "codex",
+		AgentID:       "agent-canonical",
+		CWD:           t.TempDir(),
+		StartAssembly: validStartAssemblyForTest(),
+		Config:        config,
 	})
 	if err != nil {
 		t.Fatalf("StartSession() error = %v", err)

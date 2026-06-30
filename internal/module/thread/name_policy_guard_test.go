@@ -156,10 +156,11 @@ func TestNamePolicy_StartWithoutNameStaysUnnamed(t *testing.T) {
 	svc := NewService(silentLogger(), threads, nil, sessions, starter, nil, orch, nil).(*service)
 
 	if _, err := svc.Start(context.Background(), StartRequest{
-		AgentID:  "agent-noname",
-		Provider: "codex",
-		CWD:      wantStartCWD(t),
-		Prompt:   "hello world",
+		AgentID:           "agent-noname",
+		Provider:          "codex",
+		CWD:               wantStartCWD(t),
+		Prompt:            "hello world",
+		PromptAssemblyRef: promptAssemblyForTest("test system prompt"),
 	}); err != nil {
 		t.Fatalf("Start() error = %v", err)
 	}
@@ -187,11 +188,12 @@ func TestNamePolicy_StartWithExplicitNamePropagatesToLaunch(t *testing.T) {
 	svc := NewService(silentLogger(), threads, nil, sessions, starter, nil, orch, nil).(*service)
 
 	if _, err := svc.Start(context.Background(), StartRequest{
-		AgentID:  "agent-named",
-		Provider: "codex",
-		CWD:      wantStartCWD(t),
-		Name:     "My Custom Agent",
-		Prompt:   "do something",
+		AgentID:           "agent-named",
+		Provider:          "codex",
+		CWD:               wantStartCWD(t),
+		Name:              "My Custom Agent",
+		Prompt:            "do something",
+		PromptAssemblyRef: promptAssemblyForTest("test system prompt"),
 	}); err != nil {
 		t.Fatalf("Start() error = %v", err)
 	}
@@ -201,30 +203,30 @@ func TestNamePolicy_StartWithExplicitNamePropagatesToLaunch(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// §4  buildStartAssembly: DisplayName must not use Prompt
+// §4  test start assembly helper: DisplayName must not use Prompt
 // ---------------------------------------------------------------------------
 
 func TestNamePolicy_BuildStartAssemblyIgnoresPrompt(t *testing.T) {
 	t.Parallel()
 
-	assembly := buildStartAssembly(StartRequest{
+	assembly := buildStartAssemblyForTest(StartRequest{
 		Name:   "",
 		Prompt: "should not appear",
 	})
 	if assembly.DisplayName != "" {
-		t.Fatalf("POLICY VIOLATION: buildStartAssembly.DisplayName = %q, want empty", assembly.DisplayName)
+		t.Fatalf("POLICY VIOLATION: test start assembly DisplayName = %q, want empty", assembly.DisplayName)
 	}
 }
 
 func TestNamePolicy_BuildStartAssemblyUsesExplicitName(t *testing.T) {
 	t.Parallel()
 
-	assembly := buildStartAssembly(StartRequest{
+	assembly := buildStartAssemblyForTest(StartRequest{
 		Name:   "agent name",
 		Prompt: "irrelevant",
 	})
 	if assembly.DisplayName != "agent name" {
-		t.Fatalf("buildStartAssembly.DisplayName = %q, want 'agent name'", assembly.DisplayName)
+		t.Fatalf("test start assembly DisplayName = %q, want 'agent name'", assembly.DisplayName)
 	}
 }
 

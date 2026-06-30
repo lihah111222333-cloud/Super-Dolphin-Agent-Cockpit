@@ -23,8 +23,10 @@ func TestEscalate_Normal(t *testing.T) {
 	)
 
 	got, err := resolver.Escalate(context.TODO(), "call-escalate", mcp.HookPayload{
-		Topic:   " " + TopicToolAfter + " ",
-		AgentID: " agent-1 ",
+		Topic:    " " + TopicToolAfter + " ",
+		AgentID:  " agent-1 ",
+		ThreadID: " thread-1 ",
+		TurnID:   " turn-1 ",
 	}, mcp.LeaseKey{InstanceID: " lease-a ", Generation: 1}, 0)
 	if err != nil {
 		t.Fatalf("Escalate() error = %v", err)
@@ -32,24 +34,7 @@ func TestEscalate_Normal(t *testing.T) {
 	if len(store.saved) != 1 {
 		t.Fatalf("saved reviews = %d, want 1", len(store.saved))
 	}
-	if got.HookCallID != "call-escalate" {
-		t.Fatalf("HookCallID = %q, want %q", got.HookCallID, "call-escalate")
-	}
-	if got.Topic != TopicToolAfter {
-		t.Fatalf("Topic = %q, want %q", got.Topic, TopicToolAfter)
-	}
-	if got.AgentID != "agent-1" {
-		t.Fatalf("AgentID = %q, want %q", got.AgentID, "agent-1")
-	}
-	if got.SubscriberLease != "lease-a/1" {
-		t.Fatalf("SubscriberLease = %q, want %q", got.SubscriberLease, "lease-a/1")
-	}
-	if got.DefaultAction != pendingDefaultDecision {
-		t.Fatalf("DefaultAction = %q, want %q", got.DefaultAction, pendingDefaultDecision)
-	}
-	if got.DeadlineAt.Sub(got.CreatedAt) != 2*time.Minute {
-		t.Fatalf("DeadlineAt-CreatedAt = %s, want %s", got.DeadlineAt.Sub(got.CreatedAt), 2*time.Minute)
-	}
+	assertEscalatedReview(t, got)
 }
 
 func TestEscalate_EmptyHookCallID(t *testing.T) {
@@ -87,6 +72,7 @@ func TestEscalate_UsesExplicitTTLMs(t *testing.T) {
 	got, err := resolver.Escalate(context.TODO(), "call-escalate-ttl", mcp.HookPayload{
 		Topic:      TopicToolAfter,
 		AgentID:    "agent-1",
+		ThreadID:   "thread-1",
 		DeadlineMs: time.Now().Add(10 * time.Minute).UnixMilli(),
 	}, mcp.LeaseKey{InstanceID: "lease-a", Generation: 1}, 30_000)
 	if err != nil {
@@ -209,5 +195,43 @@ func TestListPendingReviews_EmptyAgentID(t *testing.T) {
 	}
 	if len(store.listAgentIDs) != 0 {
 		t.Fatalf("list calls = %d, want 0", len(store.listAgentIDs))
+	}
+}
+
+func assertEscalatedReview(t *testing.T, got mcp.PendingHookReview) {
+	t.Helper()
+
+	assertHookString(t, "HookCallID", got.HookCallID, "call-escalate")
+	assertHookString(t, "Topic", got.Topic, TopicToolAfter)
+	assertHookString(t, "AgentID", got.AgentID, "agent-1")
+	assertHookString(t, "ThreadID", got.ThreadID, "thread-1")
+	assertHookString(t, "TurnID", got.TurnID, "turn-1")
+	assertHookString(t, "SubscriberLease", got.SubscriberLease, "lease-a/1")
+	assertHookPayloadContains(t, got.Payload, `"thread_id":" thread-1 "`)
+	assertHookString(t, "DefaultAction", got.DefaultAction, pendingDefaultDecision)
+	assertHookDuration(t, "DeadlineAt-CreatedAt", got.DeadlineAt.Sub(got.CreatedAt), 2*time.Minute)
+}
+
+func assertHookString(t *testing.T, name, got, want string) {
+	t.Helper()
+
+	if got != want {
+		t.Fatalf("%s = %q, want %q", name, got, want)
+	}
+}
+
+func assertHookPayloadContains(t *testing.T, payload []byte, want string) {
+	t.Helper()
+
+	if !strings.Contains(string(payload), want) {
+		t.Fatalf("Payload = %s, want %s", string(payload), want)
+	}
+}
+
+func assertHookDuration(t *testing.T, name string, got, want time.Duration) {
+	t.Helper()
+
+	if got != want {
+		t.Fatalf("%s = %s, want %s", name, got, want)
 	}
 }

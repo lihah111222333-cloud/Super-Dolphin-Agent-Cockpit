@@ -6605,10 +6605,10 @@ async function createGeneratedPromptIntent() {
     fireEvent.click(screen.getByLabelText('记忆中心'));
     expect(await screen.findByText('遵守 TDD')).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole('button', { name: '开启' }));
-    await waitFor(() => {
-      expect(backend.setMemoryAutoDreamIntent).toHaveBeenCalledWith({ enabled: true });
-    });
+	fireEvent.click(screen.getByRole('button', { name: '开启' }));
+	await waitFor(() => {
+		expect(backend.setMemoryAutoDreamIntent).toHaveBeenCalledWith({ cwd: '/repo/app', enabled: true });
+	});
 
     fireEvent.click(screen.getByRole('button', { name: '+ 新建 ▾' }));
     fireEvent.click(screen.getByRole('button', { name: '新建偏好' }));

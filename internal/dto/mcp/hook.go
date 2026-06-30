@@ -103,11 +103,14 @@ type HookPendingResponse struct {
 
 // PendingHookReview 表示一个正在等待人工审核的 hook 调用记录。
 type PendingHookReview struct {
-	HookCallID      string    `json:"hook_call_id"`
-	Topic           string    `json:"topic"`
-	AgentID         string    `json:"agent_id"`
-	SubscriberLease string    `json:"subscriber_lease,omitempty"`
-	CreatedAt       time.Time `json:"created_at"`
-	DeadlineAt      time.Time `json:"deadline_at"` // 超过此时间后服务端会按 DefaultAction 自动决策。
-	DefaultAction   string    `json:"default_action"`
+	HookCallID      string          `json:"hook_call_id"`
+	Topic           string          `json:"topic"`
+	AgentID         string          `json:"agent_id"`
+	ThreadID        string          `json:"thread_id"`
+	TurnID          string          `json:"turn_id,omitempty"`
+	SubscriberLease string          `json:"subscriber_lease,omitempty"`
+	Payload         json.RawMessage `json:"payload"`
+	CreatedAt       time.Time       `json:"created_at"`
+	DeadlineAt      time.Time       `json:"deadline_at"` // 超过此时间后服务端会按 DefaultAction 自动决策。
+	DefaultAction   string          `json:"default_action"`
 }

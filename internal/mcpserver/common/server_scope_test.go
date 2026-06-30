@@ -90,6 +90,21 @@ func TestDecodeToolCallParamsRejectsUnknownTopLevelFields(t *testing.T) {
 	}
 }
 
+func TestDecodeToolCallParamsRejectsMissingOrBlankName(t *testing.T) {
+	for _, raw := range []json.RawMessage{
+		json.RawMessage(`{"arguments":{}}`),
+		json.RawMessage(`{"name":"  ","arguments":{}}`),
+	} {
+		_, err := DecodeToolCallParams(raw)
+		if err == nil {
+			t.Fatalf("DecodeToolCallParams(%s) error = nil, want missing name rejection", raw)
+		}
+		if !strings.Contains(err.Error(), "tool name is required") {
+			t.Fatalf("DecodeToolCallParams(%s) error = %v, want tool name required", raw, err)
+		}
+	}
+}
+
 func TestToolCallParamsScopeUsesTrustedWorkspaceRootsMetadata(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "repo")
 	extra := filepath.Join(root, "packages", "..", "packages", "api")

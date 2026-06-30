@@ -5,12 +5,15 @@ from __future__ import annotations
 
 import argparse
 import re
+import subprocess
 import sys
 from pathlib import Path
 
 
 ID_RE = re.compile(r"\bP[0-9]-[0-9]{2}\b")
 TABLE_ID_RE = re.compile(r"^\|\s*(P[0-9]-[0-9]{2})\s*\|")
+COMMIT_RE = re.compile(r"^[0-9a-f]{7,40}$")
+PLACEHOLDER_COMMITS = {"local", "none", "n/a", "na", "pending", "tbd", "todo", "working-tree", "worktree"}
 
 
 def parse_args() -> argparse.Namespace:
@@ -87,11 +90,90 @@ def evidence_rows(evidence_text: str) -> dict[str, set[str]]:
     return sections
 
 
+def table_cells(line: str) -> list[str]:
+    cells: list[str] = []
+    current: list[str] = []
+    in_code = False
+    for char in line.strip():
+        if char == "`":
+            in_code = not in_code
+            current.append(char)
+            continue
+        if char == "|" and not in_code:
+            cells.append("".join(current))
+            current = []
+            continue
+        current.append(char)
+    cells.append("".join(current))
+    if cells and cells[0].strip() == "":
+        cells = cells[1:]
+    if cells and cells[-1].strip() == "":
+        cells = cells[:-1]
+    return [cell.strip().strip("`") for cell in cells]
+
+
+def active_commit_cells(evidence_text: str) -> dict[str, str]:
+    commits: dict[str, str] = {}
+    current = ""
+    for line in evidence_text.splitlines():
+        current = section_for_line(line, current)
+        if current != "Active Evidence":
+            continue
+        match = TABLE_ID_RE.match(line)
+        if not match:
+            continue
+        cells = table_cells(line)
+        if len(cells) < 5:
+            raise ValueError(f"active evidence row {match.group(1)} is missing a Commit cell")
+        commits[match.group(1)] = cells[4]
+    return commits
+
+
 def format_ids(ids: set[str]) -> str:
     return ", ".join(sorted(ids)) if ids else "<none>"
 
 
-def validate(plan_text: str, evidence_text: str) -> list[str]:
+def repo_root_for(path: Path) -> Path | None:
+    result = subprocess.run(
+        ["git", "-C", str(path.parent), "rev-parse", "--show-toplevel"],
+        check=False,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.DEVNULL,
+        text=True,
+    )
+    if result.returncode != 0:
+        return None
+    return Path(result.stdout.strip())
+
+
+def commit_exists(repo_root: Path | None, commit: str) -> bool:
+    if repo_root is None:
+        return True
+    result = subprocess.run(
+        ["git", "-C", str(repo_root), "cat-file", "-e", f"{commit}^{{commit}}"],
+        check=False,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+    return result.returncode == 0
+
+
+def validate_active_commits(evidence_text: str, repo_root: Path | None) -> list[str]:
+    failures: list[str] = []
+    for queue_id, commit in active_commit_cells(evidence_text).items():
+        normalized = commit.lower().strip()
+        if normalized in PLACEHOLDER_COMMITS:
+            failures.append(f"{queue_id}: Commit must be a concrete git SHA, got {commit!r}")
+            continue
+        if not COMMIT_RE.fullmatch(normalized):
+            failures.append(f"{queue_id}: Commit must be 7-40 lowercase hex characters, got {commit!r}")
+            continue
+        if not commit_exists(repo_root, normalized):
+            failures.append(f"{queue_id}: Commit {commit!r} does not resolve in git")
+    return failures
+
+
+def validate(plan_text: str, evidence_text: str, repo_root: Path | None = None) -> list[str]:
     active, reserved = classify_plan_ids(plan_text)
     rows = evidence_rows(evidence_text)
     failures: list[str] = []
@@ -102,6 +184,7 @@ def validate(plan_text: str, evidence_text: str) -> list[str]:
         failures.append(f"missing active evidence rows: {format_ids(missing_active)}")
     if extra_active:
         failures.append(f"extra active evidence rows: {format_ids(extra_active)}")
+    failures.extend(validate_active_commits(evidence_text, repo_root))
 
     reserved_ids = set().union(*reserved.values())
     misplaced_reserved = rows["Active Evidence"] & reserved_ids
@@ -126,7 +209,7 @@ def validate(plan_text: str, evidence_text: str) -> list[str]:
 def main() -> int:
     args = parse_args()
     try:
-        failures = validate(read_text(args.plan), read_text(args.evidence))
+        failures = validate(read_text(args.plan), read_text(args.evidence), repo_root_for(args.plan))
     except ValueError as exc:
         print(f"FAIL: risk evidence validation: {exc}", file=sys.stderr)
         return 2

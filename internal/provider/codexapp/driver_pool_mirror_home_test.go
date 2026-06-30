@@ -33,8 +33,9 @@ func TestStartSessionDefaultCodexHomeDoesNotRedirectPersonalMirror(t *testing.T)
 	d := &driver{logger: slog.Default(), pool: pool, mirror: mirror}
 
 	_, err := d.StartSession(context.Background(), dto.StartSessionRequest{
-		AgentID: "agent-default-codex-home",
-		CWD:     workDir,
+		AgentID:       "agent-default-codex-home",
+		CWD:           workDir,
+		StartAssembly: validStartAssemblyForTest(),
 		Config: map[string]any{
 			contract.CodexHomeKey:          "~/.codex",
 			contract.CodexInstanceKeyKey:   "default",

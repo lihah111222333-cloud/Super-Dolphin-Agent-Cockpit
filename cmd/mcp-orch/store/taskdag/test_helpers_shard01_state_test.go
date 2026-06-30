@@ -254,9 +254,9 @@ func (db *fakeTaskDAGDB) updateRunningNodeStatus(args ...any) ([]any, error) {
 	return taskDagNodeValues(row), nil
 }
 
-func (db *fakeTaskDAGDB) updateNodeStatusFlexible(args ...any) ([]any, error) {
-	if len(args) != 5 {
-		return nil, fmt.Errorf("flexible update args len = %d, want 5", len(args))
+func (db *fakeTaskDAGDB) updateNodeStatusIfCurrent(args ...any) ([]any, error) {
+	if len(args) != 6 {
+		return nil, fmt.Errorf("status CAS update args len = %d, want 6", len(args))
 	}
 	status, ok := args[0].(string)
 	if !ok {
@@ -278,9 +278,13 @@ func (db *fakeTaskDAGDB) updateNodeStatusFlexible(args ...any) ([]any, error) {
 	if err != nil {
 		return nil, err
 	}
+	expectedStatus, ok := args[5].(string)
+	if !ok {
+		return nil, fmt.Errorf("expected status arg = %T", args[5])
+	}
 	key := dagNodeLookupKey(dagKey, nodeKey, runID)
 	row, ok := db.nodes[key]
-	if !ok {
+	if !ok || row.Status != expectedStatus {
 		return nil, pgx.ErrNoRows
 	}
 	row.Status = status
@@ -359,10 +363,9 @@ func (db *fakeTaskDAGDB) claimNodeOutputMaterialization(args ...any) ([]any, err
 	}
 	key := dagNodeLookupKey(dagKey, nodeKey, runID)
 	row, ok := db.nodes[key]
-	if !ok || (row.Status != "ready" && row.Status != "running" && row.Status != "awaiting_verify") {
+	if !ok || (row.Status != "ready" && row.Status != "running") {
 		return nil, pgx.ErrNoRows
 	}
-	row.Status = "awaiting_verify"
 	row.Result = append([]byte(nil), result...)
 	row.UpdatedAt = timestamptzValue(db.now)
 	db.nodes[key] = row

@@ -78,7 +78,7 @@ func structuredLogPathViolations(root, path string, info os.FileInfo, walkErr er
 	if structuredLogPathAllowed(relSlash) {
 		return nil, nil
 	}
-	return structuredLogFileViolations(path, relSlash), nil
+	return structuredLogFileViolations(path, relSlash)
 }
 
 func isStructuredLogGuardTarget(path string) bool {
@@ -98,18 +98,18 @@ func structuredLogPathAllowed(relSlash string) bool {
 	return false
 }
 
-func structuredLogFileViolations(path, relSlash string) []string {
+func structuredLogFileViolations(path, relSlash string) ([]string, error) {
 	data, readErr := os.ReadFile(path)
 	if readErr != nil {
-		return nil
+		return nil, readErr
 	}
 	fset := token.NewFileSet()
 	node, parseErr := parser.ParseFile(fset, path, data, parser.ImportsOnly|parser.SkipObjectResolution)
 	if parseErr != nil {
-		return nil
+		return nil, parseErr
 	}
 	violations := structuredLogImportViolations(relSlash, node)
-	return append(violations, structuredLogStderrViolations(relSlash, data)...)
+	return append(violations, structuredLogStderrViolations(relSlash, data)...), nil
 }
 
 func structuredLogImportViolations(relSlash string, node *ast.File) []string {

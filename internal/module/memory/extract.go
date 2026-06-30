@@ -70,41 +70,102 @@ func (e *MemoryExtractor) limit() int {
 }
 
 // parseExtractedMemories 解析抽取模型返回的 JSON，并按上限规整结果。
-// 空响应表示没有可保存记忆；格式错误会返回错误以便调用方记录抽取失败。
+// 生产路径只接受 {"memories":[...]} envelope；空响应和旧数组/单对象格式都会 fail-fast。
 func parseExtractedMemories(raw string, limit int) ([]ExtractedMemory, error) {
 	raw = strings.TrimSpace(raw)
 	if raw == "" {
-		return nil, nil
+		return nil, fmt.Errorf("invalid extractor response: empty output")
 	}
 	items, err := decodeExtractedMemories(raw)
 	if err != nil {
 		return nil, err
 	}
-	return normalizeExtractedMemories(items, limit), nil
+	return normalizeStrictExtractedMemories(items, limit)
 }
 
-// decodeExtractedMemories 兼容抽取响应的三种 JSON 形态。
-// 支持 envelope、数组和单对象，便于模型输出轻微变化时仍能被统一规范化。
+// decodeExtractedMemories 解码严格 envelope，拒绝 legacy 数组或单对象输出。
+// 这样 dream/turn 抽取不会把模型的空白或非契约输出当作成功。
 func decodeExtractedMemories(raw string) ([]ExtractedMemory, error) {
-	if strings.Contains(raw, `"memories"`) {
-		var envelope extractEnvelope
-		if err := json.Unmarshal([]byte(raw), &envelope); err == nil {
-			return envelope.Memories, nil
+	var envelope map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(raw), &envelope); err != nil {
+		return nil, fmt.Errorf("invalid extractor response: %w", err)
+	}
+	memoriesRaw, ok := envelope["memories"]
+	if !ok {
+		return nil, fmt.Errorf("invalid extractor response: memories envelope is required")
+	}
+	if strings.TrimSpace(string(memoriesRaw)) == "null" {
+		return nil, fmt.Errorf("invalid extractor response: memories must be an array")
+	}
+	var envelopePayload extractEnvelope
+	if err := json.Unmarshal([]byte(raw), &envelopePayload); err != nil {
+		return nil, fmt.Errorf("invalid extractor response: %w", err)
+	}
+	return envelopePayload.Memories, nil
+}
+
+// normalizeStrictExtractedMemories 校验模型 envelope 内的每条 memory 是否满足写入契约。
+// 任一条缺少 scope/name/description/type/content 或 type/scope 非法都会立即返回错误，不能靠 normalize 推断补齐。
+func normalizeStrictExtractedMemories(items []ExtractedMemory, limit int) ([]ExtractedMemory, error) {
+	if len(items) == 0 {
+		return nil, nil
+	}
+	checked := make([]ExtractedMemory, 0, len(items))
+	for i, item := range items {
+		normalized, err := normalizeStrictExtractedMemory(item, i)
+		if err != nil {
+			return nil, err
 		}
+		checked = append(checked, normalized)
 	}
-	var list []ExtractedMemory
-	if err := json.Unmarshal([]byte(raw), &list); err == nil {
-		return list, nil
+	if limit <= 0 {
+		return nil, nil
 	}
-	var single ExtractedMemory
-	if err := json.Unmarshal([]byte(raw), &single); err == nil {
-		return []ExtractedMemory{single}, nil
+	return normalizeExtractedMemories(checked, limit), nil
+}
+
+// normalizeStrictExtractedMemory 只接受模型明确给出的契约字段。
+// 内容结构化、tag 去重等无损规整仍复用普通 normalize，但不会再为缺字段推断默认值。
+func normalizeStrictExtractedMemory(item ExtractedMemory, index int) (ExtractedMemory, error) {
+	scope := normalizeExtractedMemoryScope(item.Scope)
+	if scope == "" {
+		return ExtractedMemory{}, fmt.Errorf("invalid extractor response: memories[%d].scope must be private or team", index)
 	}
-	return nil, fmt.Errorf("invalid extractor response")
+	name, err := requireExtractedMemoryField(index, "name", item.Name)
+	if err != nil {
+		return ExtractedMemory{}, err
+	}
+	description, err := requireExtractedMemoryField(index, "description", item.Description)
+	if err != nil {
+		return ExtractedMemory{}, err
+	}
+	content, err := requireExtractedMemoryField(index, "content", item.Content)
+	if err != nil {
+		return ExtractedMemory{}, err
+	}
+	memoryType := ParseMemoryType(string(item.Type))
+	if !memoryType.IsKnown() {
+		return ExtractedMemory{}, fmt.Errorf("invalid extractor response: memories[%d].type must be user, feedback, project, or reference", index)
+	}
+	item.Scope = scope
+	item.Name = name
+	item.Description = description
+	item.Content = content
+	item.Type = memoryType
+	return normalizeExtractedMemory(item), nil
+}
+
+// requireExtractedMemoryField 校验必填字符串字段，并返回去掉外层空白后的值。
+func requireExtractedMemoryField(index int, field, value string) (string, error) {
+	trimmed := strings.TrimSpace(value)
+	if trimmed == "" {
+		return "", fmt.Errorf("invalid extractor response: memories[%d].%s is required", index, field)
+	}
+	return trimmed, nil
 }
 
 // normalizeExtractedMemories 清洗、去重并裁剪抽取结果。
-// 没有正文、无法生成去重 key 或超过 limit 的条目会被丢弃，避免低质量内容进入磁盘。
+// scope 无效、没有正文、无法生成去重 key 或超过 limit 的条目会被丢弃，避免低质量内容进入磁盘。
 func normalizeExtractedMemories(items []ExtractedMemory, limit int) []ExtractedMemory {
 	if len(items) == 0 || limit <= 0 {
 		return nil
@@ -113,6 +174,9 @@ func normalizeExtractedMemories(items []ExtractedMemory, limit int) []ExtractedM
 	normalized := make([]ExtractedMemory, 0, minInt(len(items), limit))
 	for _, item := range items {
 		item = normalizeExtractedMemory(item)
+		if item.Scope == "" {
+			continue
+		}
 		if strings.TrimSpace(item.Content) == "" {
 			continue
 		}
@@ -151,13 +215,15 @@ func normalizeExtractedMemory(item ExtractedMemory) ExtractedMemory {
 }
 
 // normalizeExtractedMemoryScope 将抽取 scope 限定为 private/team。
-// 未知或空 scope 默认 private，避免模型输出任意 scope 字符串。
+// 未知或空 scope 返回空值，由严格 parse 路径报错，内部启发式路径只会传入已知 scope。
 func normalizeExtractedMemoryScope(scope string) string {
 	switch strings.ToLower(strings.TrimSpace(scope)) {
+	case extractScopePrivate:
+		return extractScopePrivate
 	case extractScopeTeam:
 		return extractScopeTeam
 	default:
-		return extractScopePrivate
+		return ""
 	}
 }
 

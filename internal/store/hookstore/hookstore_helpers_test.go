@@ -41,24 +41,47 @@ func newTestStore(records ...testRecord) (*store, *hookStoreQuerierStub) {
 	return newStoreForTest(db), db
 }
 
-func (db *hookStoreQuerierStub) SaveHookPendingReview(_ context.Context, arg sqlc.SaveHookPendingReviewParams) error {
+func (db *hookStoreQuerierStub) SaveHookPendingReview(_ context.Context, arg sqlc.SaveHookPendingReviewParams) (int64, error) {
 	db.execOps = append(db.execOps, "insert")
 	if _, exists := db.records[arg.HookCallID]; exists {
-		return nil
+		return 0, nil
 	}
 	db.records[arg.HookCallID] = &testRecord{
 		review: mcp.PendingHookReview{
 			HookCallID:      arg.HookCallID,
 			Topic:           arg.Topic,
 			AgentID:         arg.AgentID,
+			ThreadID:        arg.ThreadID,
+			TurnID:          arg.TurnID,
 			SubscriberLease: arg.SubscriberLease,
+			Payload:         arg.Payload,
 			DefaultAction:   arg.DefaultAction,
 			CreatedAt:       fromMS(arg.CreatedAt),
 			DeadlineAt:      fromMS(arg.DeadlineAt),
 		},
 		status: "pending",
 	}
-	return nil
+	return 1, nil
+}
+
+func (db *hookStoreQuerierStub) GetHookPendingReviewForSave(_ context.Context, arg sqlc.GetHookPendingReviewForSaveParams) (sqlc.GetHookPendingReviewForSaveRow, error) {
+	record, ok := db.records[arg.HookCallID]
+	if !ok {
+		return sqlc.GetHookPendingReviewForSaveRow{}, sql.ErrNoRows
+	}
+	return sqlc.GetHookPendingReviewForSaveRow{
+		HookCallID:      record.review.HookCallID,
+		Topic:           record.review.Topic,
+		AgentID:         record.review.AgentID,
+		ThreadID:        record.review.ThreadID,
+		TurnID:          record.review.TurnID,
+		SubscriberLease: record.review.SubscriberLease,
+		Payload:         record.review.Payload,
+		DefaultAction:   record.review.DefaultAction,
+		Status:          record.status,
+		CreatedAt:       toMS(record.review.CreatedAt),
+		DeadlineAt:      toMS(record.review.DeadlineAt),
+	}, nil
 }
 
 func (db *hookStoreQuerierStub) GetHookPendingReview(_ context.Context, arg sqlc.GetHookPendingReviewParams) (sqlc.GetHookPendingReviewRow, error) {
@@ -70,7 +93,10 @@ func (db *hookStoreQuerierStub) GetHookPendingReview(_ context.Context, arg sqlc
 		HookCallID:      record.review.HookCallID,
 		Topic:           record.review.Topic,
 		AgentID:         record.review.AgentID,
+		ThreadID:        record.review.ThreadID,
+		TurnID:          record.review.TurnID,
 		SubscriberLease: record.review.SubscriberLease,
+		Payload:         record.review.Payload,
 		DefaultAction:   record.review.DefaultAction,
 		Status:          "pending",
 		CreatedAt:       toMS(record.review.CreatedAt),
@@ -89,7 +115,10 @@ func (db *hookStoreQuerierStub) ListHookPendingReviewsByAgent(_ context.Context,
 			HookCallID:      record.review.HookCallID,
 			Topic:           record.review.Topic,
 			AgentID:         record.review.AgentID,
+			ThreadID:        record.review.ThreadID,
+			TurnID:          record.review.TurnID,
 			SubscriberLease: record.review.SubscriberLease,
+			Payload:         record.review.Payload,
 			DefaultAction:   record.review.DefaultAction,
 			Status:          "pending",
 			CreatedAt:       toMS(record.review.CreatedAt),
@@ -191,7 +220,10 @@ func (db *hookStoreQuerierStub) RecoverHookPendingReviews(_ context.Context) ([]
 			HookCallID:      record.review.HookCallID,
 			Topic:           record.review.Topic,
 			AgentID:         record.review.AgentID,
+			ThreadID:        record.review.ThreadID,
+			TurnID:          record.review.TurnID,
 			SubscriberLease: record.review.SubscriberLease,
+			Payload:         record.review.Payload,
 			DefaultAction:   record.review.DefaultAction,
 			Status:          "pending",
 			CreatedAt:       toMS(record.review.CreatedAt),

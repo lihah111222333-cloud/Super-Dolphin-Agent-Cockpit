@@ -30,6 +30,10 @@ func (r *recordingMirrorReconciler) ReconcileProviderMirrors(ctx context.Context
 	return r.report, r.err
 }
 
+func validClaudeStartAssemblyForTest() dto.StartAssembly {
+	return dto.StartAssembly{BaseInstructions: "test base instructions"}
+}
+
 func TestStartSessionReconcilesMirrorsBeforeLaunchWithUserClaudeHome(t *testing.T) {
 	superHome := filepath.Join(t.TempDir(), "sd-home")
 	userHome := filepath.Join(t.TempDir(), "user-home")
@@ -54,8 +58,9 @@ func TestStartSessionReconcilesMirrorsBeforeLaunchWithUserClaudeHome(t *testing.
 	})
 
 	got, err := d.StartSession(context.Background(), dto.StartSessionRequest{
-		AgentID: "agent-claude",
-		CWD:     workDir,
+		AgentID:       "agent-claude",
+		CWD:           workDir,
+		StartAssembly: validClaudeStartAssemblyForTest(),
 	})
 	if err != nil {
 		t.Fatalf("StartSession() error = %v", err)
@@ -97,8 +102,9 @@ func TestStartSessionReconcilesProjectMirrorsFromGitRootBeforeLaunch(t *testing.
 	})
 
 	got, err := d.StartSession(context.Background(), dto.StartSessionRequest{
-		AgentID: "agent-claude-subdir",
-		CWD:     subdir,
+		AgentID:       "agent-claude-subdir",
+		CWD:           subdir,
+		StartAssembly: validClaudeStartAssemblyForTest(),
 	})
 	if err != nil {
 		t.Fatalf("StartSession() error = %v", err)
@@ -126,8 +132,9 @@ func TestStartSessionMirrorContentConflictBlocksClaudeLaunch(t *testing.T) {
 	})
 
 	got, err := d.StartSession(context.Background(), dto.StartSessionRequest{
-		AgentID: "agent-claude-conflict",
-		CWD:     t.TempDir(),
+		AgentID:       "agent-claude-conflict",
+		CWD:           t.TempDir(),
+		StartAssembly: validClaudeStartAssemblyForTest(),
 	})
 	if err == nil || !strings.Contains(err.Error(), "drift") {
 		t.Fatalf("StartSession() error = %v, want active mirror drift startup error", err)
@@ -154,8 +161,9 @@ func TestStartSessionMirrorSafetyConflictBlocksClaudeLaunch(t *testing.T) {
 	})
 
 	got, err := d.StartSession(context.Background(), dto.StartSessionRequest{
-		AgentID: "agent-claude-safety-conflict",
-		CWD:     t.TempDir(),
+		AgentID:       "agent-claude-safety-conflict",
+		CWD:           t.TempDir(),
+		StartAssembly: validClaudeStartAssemblyForTest(),
 	})
 	if err == nil || !strings.Contains(err.Error(), "skill mirror conflicts") || !strings.Contains(err.Error(), "mirror_root_symlink") {
 		t.Fatalf("StartSession() error = %v, want blocking mirror safety conflict", err)
@@ -179,8 +187,9 @@ func TestDisallowedToolsRejectsMalformedConfig(t *testing.T) {
 	})
 
 	got, err := d.StartSession(context.Background(), dto.StartSessionRequest{
-		AgentID: "agent-claude-malformed-security-config",
-		CWD:     t.TempDir(),
+		AgentID:       "agent-claude-malformed-security-config",
+		CWD:           t.TempDir(),
+		StartAssembly: validClaudeStartAssemblyForTest(),
 		Config: map[string]any{
 			"disallowed_tools": map[string]any{"tool": "Read"},
 		},
@@ -197,6 +206,36 @@ func TestDisallowedToolsRejectsMalformedConfig(t *testing.T) {
 	}
 }
 
+func TestStartSessionRejectsMalformedAutoApproveConfig(t *testing.T) {
+	superHome := filepath.Join(t.TempDir(), "sd-home")
+	t.Setenv(providershared.SuperDolphinHomeEnv, superHome)
+	launched := false
+	next := newBufferedTransport(t, "claude-session-malformed-auto-approve")
+	d := newTestDriverWithLaunch(t, &recordingMirrorReconciler{}, func(string, string, string, string, cliLaunchConfig, dto.MCPManifest, string) (*transport, func(), error) {
+		launched = true
+		return next.tr, func() { next.finish() }, nil
+	})
+
+	got, err := d.StartSession(context.Background(), dto.StartSessionRequest{
+		AgentID:       "agent-claude-malformed-auto-approve",
+		CWD:           t.TempDir(),
+		StartAssembly: validClaudeStartAssemblyForTest(),
+		Config: map[string]any{
+			"autoApprove": []any{"Read", 42},
+		},
+	})
+	if got != nil {
+		next.finish()
+		_ = got.Close(context.Background())
+	}
+	if err == nil || !strings.Contains(err.Error(), "autoApprove[1]") {
+		t.Fatalf("StartSession() error = %v, want malformed autoApprove rejection", err)
+	}
+	if launched {
+		t.Fatalf("launchCLI was called with malformed autoApprove")
+	}
+}
+
 func TestStartSessionRequiresSkillMirrorReconciler(t *testing.T) {
 	t.Setenv(providershared.SuperDolphinHomeEnv, filepath.Join(t.TempDir(), "sd-home"))
 	d := newTestDriverWithLaunch(t, nil, func(string, string, string, string, cliLaunchConfig, dto.MCPManifest, string) (*transport, func(), error) {
@@ -205,8 +244,9 @@ func TestStartSessionRequiresSkillMirrorReconciler(t *testing.T) {
 	})
 
 	_, err := d.StartSession(context.Background(), dto.StartSessionRequest{
-		AgentID: "agent-claude-no-mirror",
-		CWD:     t.TempDir(),
+		AgentID:       "agent-claude-no-mirror",
+		CWD:           t.TempDir(),
+		StartAssembly: validClaudeStartAssemblyForTest(),
 	})
 	if err == nil || !strings.Contains(err.Error(), "skill mirror reconciler") {
 		t.Fatalf("StartSession() error = %v, want skill mirror reconciler requirement", err)
@@ -235,9 +275,10 @@ func TestStartSessionKeepsExplicitClaudeHome(t *testing.T) {
 	})
 
 	got, err := d.StartSession(context.Background(), dto.StartSessionRequest{
-		AgentID: "agent-claude-explicit",
-		CWD:     workDir,
-		Config:  map[string]any{"claude_home": explicitHome},
+		AgentID:       "agent-claude-explicit",
+		CWD:           workDir,
+		StartAssembly: validClaudeStartAssemblyForTest(),
+		Config:        map[string]any{"claude_home": explicitHome},
 	})
 	if err != nil {
 		t.Fatalf("StartSession() error = %v", err)
@@ -280,9 +321,10 @@ func TestStartSessionAcceptsCamelCaseClaudeHomeAndPreservesSettings(t *testing.T
 	})
 
 	got, err := d.StartSession(context.Background(), dto.StartSessionRequest{
-		AgentID: "agent-claude-camel-home",
-		CWD:     workDir,
-		Config:  map[string]any{"claudeHome": explicitHome},
+		AgentID:       "agent-claude-camel-home",
+		CWD:           workDir,
+		StartAssembly: validClaudeStartAssemblyForTest(),
+		Config:        map[string]any{"claudeHome": explicitHome},
 	})
 	if err != nil {
 		t.Fatalf("StartSession() error = %v", err)
@@ -308,8 +350,9 @@ func TestStartSessionOmitsClaudeHomeFromRuntimeSnapshotByDefault(t *testing.T) {
 	})
 
 	got, err := d.StartSession(context.Background(), dto.StartSessionRequest{
-		AgentID: "agent-runtime-home",
-		CWD:     workDir,
+		AgentID:       "agent-runtime-home",
+		CWD:           workDir,
+		StartAssembly: validClaudeStartAssemblyForTest(),
 	})
 	if err != nil {
 		t.Fatalf("StartSession() error = %v", err)
@@ -347,9 +390,10 @@ func TestStartSessionNormalizesExplicitClaudeHomeBeforeLaunchAndMirror(t *testin
 	})
 
 	got, err := d.StartSession(context.Background(), dto.StartSessionRequest{
-		AgentID: "agent-claude-normalized",
-		CWD:     workDir,
-		Config:  map[string]any{"claude_home": "~/explicit-claude"},
+		AgentID:       "agent-claude-normalized",
+		CWD:           workDir,
+		StartAssembly: validClaudeStartAssemblyForTest(),
+		Config:        map[string]any{"claude_home": "~/explicit-claude"},
 	})
 	if err != nil {
 		t.Fatalf("StartSession() error = %v", err)
@@ -400,6 +444,36 @@ func TestResumeSessionKeepsExplicitClaudeHomeBeforeLaunchAndMirror(t *testing.T)
 		t.Fatalf("history sessionDir = %#v, want %q", s.history, wantHome)
 	}
 	assertExplicitClaudeMirrorTargets(t, mirror.targets, workDir, wantHome)
+}
+
+func TestResumeSessionRejectsMalformedAutoApproveConfig(t *testing.T) {
+	launched := false
+	next := newBufferedTransport(t, "provider-thread-malformed-auto-approve")
+	d := newTestDriverWithLaunch(t, &recordingMirrorReconciler{}, func(string, string, string, string, cliLaunchConfig, dto.MCPManifest, string) (*transport, func(), error) {
+		launched = true
+		return next.tr, func() { next.finish() }, nil
+	})
+
+	got, err := d.ResumeSession(context.Background(), dto.ResumeSessionRequest{
+		AgentID:          "agent-claude-resume-malformed-auto-approve",
+		ThreadID:         "thread-public",
+		ProviderThreadID: "provider-thread-malformed-auto-approve",
+		CWD:              t.TempDir(),
+		PromptSnapshot:   validResumePromptSnapshotForTest(),
+		Config: map[string]any{
+			"auto_approve": []any{"Write", false},
+		},
+	})
+	if got != nil {
+		next.finish()
+		_ = got.Close(context.Background())
+	}
+	if err == nil || !strings.Contains(err.Error(), "auto_approve[1]") {
+		t.Fatalf("ResumeSession() error = %v, want malformed auto_approve rejection", err)
+	}
+	if launched {
+		t.Fatalf("launchCLI was called with malformed auto_approve")
+	}
 }
 
 func TestResumeSessionRuntimeConfigSnapshotIncludesCWDAndRequestConfig(t *testing.T) {
@@ -460,8 +534,9 @@ func TestStartSessionMirrorFailureBlocksClaudeLaunch(t *testing.T) {
 	})
 
 	got, err := d.StartSession(context.Background(), dto.StartSessionRequest{
-		AgentID: "agent-claude-blocked",
-		CWD:     t.TempDir(),
+		AgentID:       "agent-claude-blocked",
+		CWD:           t.TempDir(),
+		StartAssembly: validClaudeStartAssemblyForTest(),
 	})
 	if err == nil || !strings.Contains(err.Error(), "mirror unavailable") {
 		t.Fatalf("StartSession() error = %v, want mirror failure", err)

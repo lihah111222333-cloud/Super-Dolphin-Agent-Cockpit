@@ -57,8 +57,9 @@ func TestBuildTurnStartParamsNormalizesMinimalEffortToLow(t *testing.T) {
 }
 
 func TestBuildThreadStartParamsNormalizesSandboxModeForAppServer(t *testing.T) {
-	params := (&driver{}).buildThreadStartParams(dto.StartSessionRequest{
-		CWD: t.TempDir(),
+	params := mustBuildThreadStartParams(t, dto.StartSessionRequest{
+		CWD:           t.TempDir(),
+		StartAssembly: validStartAssemblyForTest(),
 		Config: map[string]any{
 			"sandbox": map[string]any{
 				"mode":           "workspace-write",
