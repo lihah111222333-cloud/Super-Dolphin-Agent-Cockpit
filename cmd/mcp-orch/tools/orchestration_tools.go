@@ -552,7 +552,7 @@ func launchRequestFromExecutable(in LaunchAgentInput, exe string) (contract.Laun
 		Env:            launchEnv(provider, strings.TrimSpace(in.Model), strings.TrimSpace(in.Effort), strings.TrimSpace(in.CodexHome), strings.TrimSpace(in.CodexInstanceKey), strings.TrimSpace(in.CodexModelProvider)),
 		Language:       strings.TrimSpace(in.Language),
 	}
-	if dt := mergeLaunchDisabledTools(in.DisabledTools); dt != "" {
+	if dt := mergeLaunchDisabledTools(in.AgentType, in.DisabledTools); dt != "" {
 		req.Env = append(req.Env, "AGENT_DISABLED_TOOLS="+dt)
 	}
 	if strings.EqualFold(provider, "codex") {
@@ -561,9 +561,14 @@ func launchRequestFromExecutable(in LaunchAgentInput, exe string) (contract.Laun
 	return req, nil
 }
 
-// mergeLaunchDisabledTools 合并默认禁用工具列表与用户指定的额外禁用工具。
-func mergeLaunchDisabledTools(userValue string) string {
-	return joinUniqueCSV(append([]string(nil), launchAgentDefaultDisabledTools...), userValue)
+// mergeLaunchDisabledTools 合并 launch 默认禁用项、只读 agent 工具面禁用项和用户指定的额外禁用工具。
+func mergeLaunchDisabledTools(agentType, userValue string) string {
+	defaults := append([]string(nil), launchAgentDefaultDisabledTools...)
+	switch contract.AgentType(strings.TrimSpace(agentType)) {
+	case contract.AgentTypeExplore, contract.AgentTypePlan:
+		defaults = append(defaults, contract.ReadOnlyAgentDeniedTools()...)
+	}
+	return joinUniqueCSV(defaults, userValue)
 }
 
 // joinUniqueCSV 把 defaults 和 extra（逗号分隔）合并为去重的 CSV 字符串。
