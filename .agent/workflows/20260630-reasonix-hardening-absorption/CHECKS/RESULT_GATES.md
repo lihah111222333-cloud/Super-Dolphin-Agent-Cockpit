@@ -18,16 +18,17 @@
 
 ## Gate 2: Lane A Completion
 
-Status: passed after A3 round2 plus final P1 repairs on code verification head `73fe7f124280ec034cff082cc5e2d048d23d4ee3`.
+Status: passed after A3 round2, R1/R2 P1 repairs, and final review2 dynamic disabled-tool repair on code verification head `d08c69629f6dd52fbb2ffb6df85fcb4445898a2e`.
 
 - [x] A0 stage source inventory completed with LSP references and exact source anchors.
 - [x] A1 `internal/platform/toolpolicy` tests passed.
 - [x] A2 remains `not_applicable_with_evidence` because A0 found no valid stage source.
-- [x] A3 post-review repairs `836705200f7b4a7eca05bb93925dde4fbb9124f8`, `5f7406d992b4d2dba19408d738799b298673009a`, `2803b0b5178959bc67bfac1951eb0da6b4f29099`, and `6fdba6c1a2552dd0cf21d25b0dcf43d5130faa2c` are integrated.
+- [x] A3 post-review repairs `836705200f7b4a7eca05bb93925dde4fbb9124f8`, `5f7406d992b4d2dba19408d738799b298673009a`, `2803b0b5178959bc67bfac1951eb0da6b4f29099`, `6fdba6c1a2552dd0cf21d25b0dcf43d5130faa2c`, and `d8754cc1e86bf3dfc62273390ebebf1f86b9b3fe` are integrated.
 - [x] R2 P1 unknown non-empty Codex native tool IDs fail-fast across start/resume typed paths.
 - [x] R1 P1 `launch_agent.read_only=true` is the structured read-only delegation flag; Plan/Explore compatibility remains, and ordinary workers are not read-only.
 - [x] R3 passed with no additional code repair.
-- [x] Final Lane A guard commands passed on code verification head `73fe7f124280ec034cff082cc5e2d048d23d4ee3`.
+- [x] Final review2 recorded Mill PASS, Hume PASS, and Beauvoir FAIL P1; d8754cc1 fixed dynamic host/skill/MCP disabled-tool filtering and stale disabled scoped-call denial.
+- [x] Final Lane A guard commands passed on code verification head `d08c69629f6dd52fbb2ffb6df85fcb4445898a2e`.
 
 ## Gate 3: Lane B Completion
 
@@ -46,12 +47,13 @@ Status: passed after A3 round2 plus final P1 repairs on code verification head `
 
 ## Gate 5: Integration
 
-Status: passed on code verification head `73fe7f124280ec034cff082cc5e2d048d23d4ee3` after A3 round2, docs round2, and final P1 repairs were merged.
+Status: passed on code verification head `d08c69629f6dd52fbb2ffb6df85fcb4445898a2e` after A3 round2, docs round2, R1/R2 P1 repairs, and the dynamic disabled-tool P1 repair were merged.
 
 - [x] A3 round2 worker commit `5f7406d992b4d2dba19408d738799b298673009a` was merged by `0b16e06f`.
 - [x] Docs round2 commit `ade6151d28c4d6480029cfe087322ec2acb2aebf` was merged by historical docs merge `e17cb8b3`.
 - [x] R2 P1 commit `2803b0b5178959bc67bfac1951eb0da6b4f29099` was merged by `ae857bba`.
 - [x] R1 P1 commit `6fdba6c1a2552dd0cf21d25b0dcf43d5130faa2c` was merged by `73fe7f12`.
-- [x] Lane A, Lane B, archtest, `make guard`, and diff checks passed fresh on code verification head `73fe7f12`.
+- [x] Dynamic disabled-tool P1 commit `d8754cc1e86bf3dfc62273390ebebf1f86b9b3fe` was merged by `d08c6962`.
+- [x] Lane A, Lane B, archtest, `make guard`, and diff checks passed fresh on code verification head `d08c6962`.
 - [x] This docs-only status commit keeps workflow state synchronized after those gates.
 - [x] Workflow `STATE.json`, `CHECKS/EVIDENCE.md`, `RESULT_GATES.md`, and `HANDOFF.md` updated to final integrated state.

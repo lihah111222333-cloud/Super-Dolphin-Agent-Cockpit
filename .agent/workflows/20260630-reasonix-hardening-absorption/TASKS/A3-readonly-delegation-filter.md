@@ -32,14 +32,20 @@ Ensure read-only subagent or planning-only delegation receives a restricted tool
 - RW: `cmd/mcp-orch/tools/orchestration_tools_test.go`
 - RW: `internal/contract/prompt.go`
 - RW: `internal/contract/provider.go`
+- RW: `internal/contract/toolbridge.go`
 - RW: `internal/module/thread/start_session_helpers.go`
 - RW: `internal/module/thread/start_session_helpers_test.go`
+- RW: `internal/platform/toolbridge/codex_surface_test.go`
+- RW: `internal/platform/toolbridge/handler_codex_surface_store.go`
+- RW: `internal/platform/toolbridge/handler_peer_decode.go`
+- RW: `internal/platform/toolbridge/handler_peer_decode_helpers.go`
 - RW: `internal/provider/codexapp/driver.go`
 - RW: `internal/provider/codexapp/driver_pool_routing.go`
 - RW: `internal/provider/codexapp/driver_session_test.go`
+- RW: `internal/provider/codexapp/driver_toolsurface_contract_test.go`
 - RW: `internal/provider/codexapp/native_tool_policy_validation_test.go`
 - RW: `internal/provider/codexapp/support.go`
-- RO: `internal/platform/toolbridge/`
+- RO: other `internal/platform/toolbridge/` files.
 - NO-TOUCH: unrelated provider/session lifecycle code outside the listed A3 repair files.
 
 Source entry point from A0:
@@ -71,6 +77,8 @@ The orchestrator applied the exact delegation package command from A0 evidence b
 - `5f7406d992b4d2dba19408d738799b298673009a` fixed Codex native disabled-tool propagation from launch config through thread/provider startup and was merged by `0b16e06f`.
 - `2803b0b5178959bc67bfac1951eb0da6b4f29099` fixed unknown non-empty `codexDisabledNativeTools` ID validation and was merged by `ae857bba`.
 - `6fdba6c1a2552dd0cf21d25b0dcf43d5130faa2c` added structured `launch_agent.read_only=true` delegation input and was merged by `73fe7f12`.
+- Final review2 recorded Mill PASS, Hume PASS, and Beauvoir FAIL P1: read-only launch `disallowed_tools` reached thread config but not `CodexToolSurfaceScope`, so dynamic host/MCP/skill tools could still be exposed or called through stale scoped calls.
+- `d8754cc1e86bf3dfc62273390ebebf1f86b9b3fe` fixed the dynamic disabled-tool gap and was merged by `d08c6962`.
 
 Round2 verification recorded by the worker:
 
@@ -83,12 +91,14 @@ git diff --check
 Final P1 repair verification recorded by the controller:
 
 ```bash
+./scripts/test_with_guard.sh ./internal/platform/toolbridge ./internal/provider/codexapp ./internal/contract -run 'CodexToolSurface|PrepareCodexToolSurface|Disabled|Disallowed|ReadOnly' -count=1
+./scripts/test_with_guard.sh ./cmd/mcp-orch/tools ./internal/module/thread ./internal/provider/codexapp ./internal/platform/toolbridge ./internal/contract -run 'LaunchRequestFromExecutable|BuildStartSessionConfig|CodexToolSurface|PrepareCodexToolSurface|Disabled|Disallowed|ReadOnly' -count=1
 ./scripts/test_with_guard.sh ./cmd/mcp-orch/tools ./internal/provider/codexapp ./internal/contract -run 'LaunchRequestFromExecutable|ReadOnly|NativeToolPolicy|CodexNativeToolPolicy' -count=1
 ./scripts/test_with_guard.sh ./cmd/mcp-orch/tools ./internal/module/thread ./internal/provider/codexapp ./internal/contract -run 'LaunchRequestFromExecutable|BuildStartSessionConfig|CodexNativeToolPolicy|NativeToolPolicy|ReadOnly' -count=1
 ./scripts/test_with_guard.sh ./cmd/mcp-orch/tools ./internal/module/thread ./internal/provider/toolfilter ./internal/platform/toolpolicy ./internal/contract -count=1
 ```
 
-Controller final gates passed on code verification head `73fe7f124280ec034cff082cc5e2d048d23d4ee3`; see `CHECKS/EVIDENCE.md`.
+Controller final gates passed on code verification head `d08c69629f6dd52fbb2ffb6df85fcb4445898a2e`; see `CHECKS/EVIDENCE.md`.
 
 ## 7. DoD
 

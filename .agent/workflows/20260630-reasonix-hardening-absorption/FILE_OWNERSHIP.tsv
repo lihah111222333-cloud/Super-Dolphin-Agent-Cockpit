@@ -5,9 +5,9 @@ docs/plans/2026-06-30-reasonix-hardening-absorption-review.md	ALL	RO	Source revi
 internal/platform/toolpolicy/	A1-toolpolicy-core	RW	New leaf package for stage/trust/capability/shell policy; stdlib-only preferred.
 internal/archtest/toolpolicy_dependency_guard_test.go	A1-toolpolicy-core	RW	Add only if A1 needs an arch guard proving toolpolicy dependency direction.
 internal/platform/toolbridge/types.go	A2-toolbridge-stage-gate	RW	Add stage source only after A0 proves authority; default must be execution.
-internal/platform/toolbridge/handler*.go	A2-toolbridge-stage-gate	RW	Planning-stage gate integration; lifecycle deny and schema validation must remain owner-authoritative.
-internal/platform/toolbridge/host_tools.go	A2-toolbridge-stage-gate	RW	Host-direct policy classification and tests only if needed.
-internal/platform/toolbridge/*_test.go	A2-toolbridge-stage-gate	RW	Planning allow/deny, lifecycle non-bypass, schema-before-handler tests.
+internal/platform/toolbridge/handler*.go	A2-toolbridge-stage-gate	RW	Planning-stage gate integration only; exact A3 dynamic disabled-tool repair files are listed below.
+internal/platform/toolbridge/host_tools.go	A2-toolbridge-stage-gate	RW	Host-direct policy classification only if needed; no A2 runtime stage gate was wired.
+internal/platform/toolbridge/*_test.go	A2-toolbridge-stage-gate	RW	Planning allow/deny tests only if A2 becomes applicable; A3 dynamic disabled-tool tests are listed below.
 internal/provider/toolfilter/presets.go	A3-readonly-delegation-filter	RW	Tighten read-only delegation preset; must exclude writer, planning mutator, lifecycle/process-control, recursive agent, connector, and untrusted external hint surfaces.
 internal/provider/toolfilter/presets_test.go	A3-readonly-delegation-filter	RW	Focused tests for read-only delegation allow/deny surface.
 cmd/mcp-orch/tools/orchestration_tool_definitions.go	A3-readonly-delegation-filter	RW	P1 repair from 6fdba6c: expose structured launch_agent read_only field.
@@ -15,13 +15,19 @@ cmd/mcp-orch/tools/orchestration_tools.go	A3-readonly-delegation-filter	RW	Post-
 cmd/mcp-orch/tools/orchestration_tools_test.go	A3-readonly-delegation-filter	RW	Post-review regression tests for read-only launch native tool deny lists.
 internal/contract/prompt.go	A3-readonly-delegation-filter	RW	Post-review repair from 83670520: contract surface for read-only launch/tool policy data.
 internal/contract/provider.go	A3-readonly-delegation-filter	RW	Round2 repair from 5f7406d: provider launch config carries disabled native tool names.
+internal/contract/toolbridge.go	A3-readonly-delegation-filter	RW	P1 repair from d8754cc1: CodexToolSurfaceScope carries DisabledTools.
 internal/module/thread/start_session_helpers.go	A3-readonly-delegation-filter	RW	Round2 repair: merge launch disabled native tools with assembly-suppressed tools.
 internal/module/thread/start_session_helpers_test.go	A3-readonly-delegation-filter	RW	Round2 regression for merged launch and assembly tool-surface config.
+internal/platform/toolbridge/codex_surface_test.go	A3-readonly-delegation-filter	RW	P1 regression from d8754cc1 for dynamic disabled-tool filtering and stale scoped-call denial.
+internal/platform/toolbridge/handler_codex_surface_store.go	A3-readonly-delegation-filter	RW	P1 repair from d8754cc1: store dynamic Codex tool surface with disabled tools.
+internal/platform/toolbridge/handler_peer_decode.go	A3-readonly-delegation-filter	RW	P1 repair from d8754cc1: filter disabled dynamic host/skill/MCP surfaces before exposure.
+internal/platform/toolbridge/handler_peer_decode_helpers.go	A3-readonly-delegation-filter	RW	P1 repair from d8754cc1: helper plumbing for disabled scoped-tool rejection.
 internal/provider/codexapp/driver.go	A3-readonly-delegation-filter	RW	P1 repair from 2803b0b: validate unknown Codex disabled native tool IDs fail-fast.
 internal/provider/codexapp/driver_pool_routing.go	A3-readonly-delegation-filter	RW	P1 repair from 2803b0b: keep disabled native tool validation on resume/typed launch paths.
 internal/provider/codexapp/driver_session_test.go	A3-readonly-delegation-filter	RW	Round2 regression for Codex native read-only sandbox deny list.
+internal/provider/codexapp/driver_toolsurface_contract_test.go	A3-readonly-delegation-filter	RW	P1 regression from d8754cc1 for disallowed_tools/disallowedTools surface contract.
 internal/provider/codexapp/native_tool_policy_validation_test.go	A3-readonly-delegation-filter	RW	P1 regression for unknown Codex native tool ID fail-fast behavior.
-internal/provider/codexapp/support.go	A3-readonly-delegation-filter	RW	P1 repair from 2803b0b: support Codex native tool validation plumbing.
+internal/provider/codexapp/support.go	A3-readonly-delegation-filter	RW	P1 repairs from 2803b0b/d8754cc1: support native and dynamic disabled-tool validation plumbing.
 internal/provider/claudecli/transport_config_security_test.go	A2-toolbridge-stage-gate	RO	Regression suite must continue passing.
 internal/platform/sessionpaths/	B1-sessionpaths-core	RW	New stdlib-only leaf helper and golden tests.
 internal/provider/codexapp/history_rollout.go	B2-sessionpaths-migration	RW	Use sessionpaths for rollout glob while preserving explicit Codex home semantics.
