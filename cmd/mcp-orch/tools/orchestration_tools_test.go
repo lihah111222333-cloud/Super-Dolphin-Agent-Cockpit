@@ -501,8 +501,8 @@ func TestLaunchRequestFromExecutableOmitsEmptyModel(t *testing.T) {
 func launchEnvValue(env []string, key string) string {
 	prefix := key + "="
 	for _, item := range env {
-		if strings.HasPrefix(item, prefix) {
-			return strings.TrimSpace(strings.TrimPrefix(item, prefix))
+		if value, ok := strings.CutPrefix(item, prefix); ok {
+			return strings.TrimSpace(value)
 		}
 	}
 	return ""
@@ -510,7 +510,7 @@ func launchEnvValue(env []string, key string) string {
 
 func disabledToolCounts(csv string) map[string]int {
 	counts := map[string]int{}
-	for _, item := range strings.Split(csv, ",") {
+	for item := range strings.SplitSeq(csv, ",") {
 		tool := strings.TrimSpace(item)
 		if tool == "" {
 			continue

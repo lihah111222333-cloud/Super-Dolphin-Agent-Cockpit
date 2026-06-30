@@ -3,6 +3,7 @@ package contract
 import (
 	"context"
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 
@@ -301,20 +302,13 @@ func (p CodexNativeToolPolicy) has(id string) bool {
 
 // hasAny 判断任一工具 ID 是否被禁用，用于同类工具组快速分支。
 func (p CodexNativeToolPolicy) hasAny(ids ...string) bool {
-	for _, id := range ids {
-		if p.has(id) {
-			return true
-		}
-	}
-	return false
+	return slices.ContainsFunc(ids, p.has)
 }
 
 // addFeature 追加 App Server 禁用特性并保持稳定排序。
 func (p *CodexNativeToolPolicy) addFeature(feature string) {
-	for _, item := range p.appServerFeatures {
-		if item == feature {
-			return
-		}
+	if slices.Contains(p.appServerFeatures, feature) {
+		return
 	}
 	p.appServerFeatures = append(p.appServerFeatures, feature)
 	sort.Strings(p.appServerFeatures)
