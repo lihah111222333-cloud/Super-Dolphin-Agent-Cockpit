@@ -503,3 +503,40 @@ Dispatch decision:
 - C1 accepted as `done`.
 - Lane C spike gates passed.
 - PN-integration moved to `ready`.
+
+## 2026-06-30 PN Final Integration Gate
+
+Status: final integration review and verification completed on `codex/reasonix-hardening-integration-20260630`.
+
+Integration branch state before final workflow status update:
+
+- Branch: `codex/reasonix-hardening-integration-20260630`.
+- Head: `8fa31b90`.
+- Worktree status: clean.
+
+Final verification:
+
+```bash
+./scripts/test_with_guard.sh ./internal/platform/toolpolicy ./internal/provider/toolfilter ./internal/platform/toolbridge ./internal/provider/codexapp ./internal/provider/claudecli -run 'Plan|ReadOnly|Trust|Shell|Lifecycle|Sandbox|Permission|Reviewer|Worker|FullAccess|Native|Tool' -count=1
+./scripts/test_with_guard.sh ./internal/platform/sessionpaths ./internal/provider/codexapp ./internal/module/thread ./internal/util/historyjsonl -run 'Rollout|Scratchpad|Path|Cleanup|CodexHome|History' -count=1
+rg -n 'memory_write|workflow_template_save|workflow_template_rollback|shared_file_write|defineTaskWriteTool|workspace_create_run|workspace_merge_run|workspace_abort_run|tts_generate|av_merge|video_with_audio|difftracker|Preview' internal cmd docs
+./scripts/test_with_guard.sh ./internal/archtest -run 'Dependency|Tool|Provider|Path|Preview|Workflow' -count=1
+make guard
+git diff --check
+git diff --cached --check
+git status --short
+```
+
+Results:
+
+- Lane A guard command passed.
+- Lane B guard command passed.
+- C1 writer/preview `rg` evidence command exited 0.
+- Final archtest aggregation passed.
+- `make guard` passed.
+- `git diff --check`, `git diff --cached --check`, and `git status --short` produced no output.
+
+Dispatch decision:
+
+- PN-integration accepted as `done`.
+- Workflow completed on the integration branch.

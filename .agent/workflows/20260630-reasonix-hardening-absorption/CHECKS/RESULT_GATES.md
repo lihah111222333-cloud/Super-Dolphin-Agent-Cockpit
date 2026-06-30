@@ -41,8 +41,8 @@
 
 ## Gate 5: Integration
 
-- [ ] Worker reports reviewed.
-- [ ] Diffs checked for ownership violations.
-- [ ] Lane-specific guard commands passed.
-- [ ] `make guard` passed.
-- [ ] Workflow `STATE.json`, `CHECKS/EVIDENCE.md`, and `HANDOFF.md` updated.
+- [x] Worker reports reviewed.
+- [x] Diffs checked for ownership violations.
+- [x] Lane-specific guard commands passed.
+- [x] `make guard` passed.
+- [x] Workflow `STATE.json`, `CHECKS/EVIDENCE.md`, and `HANDOFF.md` updated.
