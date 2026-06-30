@@ -2,7 +2,7 @@
 
 ## Current Status
 
-Overall: in progress. The user approved the full workflow with Lane A first, and production code must still be implemented only by child agents in isolated worktrees.
+Overall: in progress. The user approved the full workflow with Lane A first, production/doc lane work was performed only by child agents in isolated worktrees, and the integration branch is ready for final PN gates.
 
 ## Completed
 
@@ -23,6 +23,8 @@ Overall: in progress. The user approved the full workflow with Lane A first, and
 - B1 added `internal/platform/sessionpaths`, golden tests, and the stdlib dependency guard without migrating callers.
 - B2 completed in `codex/reasonix-hardening-b2-20260630` at `28e36eae9cc079daca0ffbbbd05d0836125a7d2e`.
 - B2 migrated provider/util/thread callers to `sessionpaths`; Lane B focused gates and `make guard` passed after integration.
+- C1 completed in `codex/reasonix-hardening-c1-20260630` at `e13c157123fd4999b21387af0583d3a2d45f13b7`.
+- C1 produced `docs/adr/2026-06-30-writer-preview-contract-spike.md` only; Lane C focused gates passed after integration.
 
 ## In Progress
 
@@ -34,13 +36,18 @@ Overall: in progress. The user approved the full workflow with Lane A first, and
 
 ## Recommended Next Action
 
-Dispatch C1 next in an isolated worker worktree:
+Run PN-integration final gates on `codex/reasonix-hardening-integration-20260630`:
 
-```text
-执行 C1-writer-preview-spike；只输出 ADR 或计划修订，盘点 writer/side-effect surfaces，不改生产 preview API。
+```bash
+./scripts/test_with_guard.sh ./internal/platform/toolpolicy ./internal/provider/toolfilter ./internal/platform/toolbridge ./internal/provider/codexapp ./internal/provider/claudecli -run 'Plan|ReadOnly|Trust|Shell|Lifecycle|Sandbox|Permission|Reviewer|Worker|FullAccess|Native|Tool' -count=1
+./scripts/test_with_guard.sh ./internal/platform/sessionpaths ./internal/provider/codexapp ./internal/module/thread ./internal/util/historyjsonl -run 'Rollout|Scratchpad|Path|Cleanup|CodexHome|History' -count=1
+rg -n 'memory_write|workflow_template_save|workflow_template_rollback|shared_file_write|defineTaskWriteTool|workspace_create_run|workspace_merge_run|workspace_abort_run|tts_generate|av_merge|video_with_audio|difftracker|Preview' internal cmd docs
+./scripts/test_with_guard.sh ./internal/archtest -run 'Dependency|Tool|Provider|Path|Preview|Workflow' -count=1
+make guard
+git diff --check
+git diff --cached --check
+git status --short
 ```
-
-This starts Lane C only after Lane B has passed.
 
 ## After Approval
 
@@ -73,7 +80,8 @@ make guard
 Lane C:
 
 ```bash
-rg -n 'memory_write|workflow_template_save|workflow_template_rollback|shared_file_write|defineTaskWriteTool|workspace_create_run|workspace_merge_run|workspace_abort_run|tts_generate|av_merge|video_with_audio' internal cmd
+rg -n 'memory_write|workflow_template_save|workflow_template_rollback|shared_file_write|defineTaskWriteTool|workspace_create_run|workspace_merge_run|workspace_abort_run|tts_generate|av_merge|video_with_audio|difftracker|Preview' internal cmd docs
+./scripts/test_with_guard.sh ./internal/archtest -run 'VideoSkill|Tool|Preview|Workflow|Dependency' -count=1
 ```
 
 ## Ownership Reminder

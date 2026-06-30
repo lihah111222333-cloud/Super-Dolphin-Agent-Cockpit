@@ -462,3 +462,44 @@ Dispatch decision:
 - B2 accepted as `done`.
 - Lane B gates passed.
 - C1 moved to `ready`; PN-integration remains waiting behind C1.
+
+## 2026-06-30 C1 Writer Preview Spike Review And Integration
+
+Status: C1 documentation spike was performed by a child agent in an isolated worktree and reviewed before integration. No production preview API or behavior change was introduced.
+
+Worker branch and commit:
+
+- Agent id: `019f188d-cbd5-74e1-a262-02e6548ddb54`.
+- Branch: `codex/reasonix-hardening-c1-20260630`.
+- Commit: `e13c157123fd4999b21387af0583d3a2d45f13b7`.
+- Integrated by fast-forward into `codex/reasonix-hardening-integration-20260630`.
+
+Ownership review:
+
+- `git diff --name-status 66915977..HEAD` showed only the C1-owned ADR output:
+  - `docs/adr/2026-06-30-writer-preview-contract-spike.md`
+- Main checkout was checked before integration; the ADR had no residual main checkout diff.
+
+Main LSP/source review:
+
+- `file(read_file)` on `cmd/mcp-orch/workspace/service.go:256` and `cmd/mcp-orch/workspace/service_dry_run.go:11` confirmed `workspace_merge_run.dry_run=true` transitions persistent run status `active -> merging -> active`, so it is not a pure pre-call preview.
+- Source review confirmed `memory_write` is capability-gated host-direct, workflow template save/rollback uses a separate protected write registry, mcp-lsp `edit` actions write files, mcp-orch task/workspace/shared-file/media tools are side-effecting, and difftracker is post-call observation.
+- Provider codemap/source review confirmed Codex and Claude native writers are provider-native boundaries for this spike.
+
+Lane C verification after integration:
+
+```bash
+rg -n 'memory_write|workflow_template_save|workflow_template_rollback|shared_file_write|defineTaskWriteTool|workspace_create_run|workspace_merge_run|workspace_abort_run|tts_generate|av_merge|video_with_audio|difftracker|Preview' internal cmd docs
+./scripts/test_with_guard.sh ./internal/archtest -run 'VideoSkill|Tool|Preview|Workflow|Dependency' -count=1
+git diff --check 66915977..HEAD
+git diff --cached --check
+git status --short
+```
+
+All commands above passed; `git diff --check`, `git diff --cached --check`, and final status checks produced no output.
+
+Dispatch decision:
+
+- C1 accepted as `done`.
+- Lane C spike gates passed.
+- PN-integration moved to `ready`.

@@ -34,10 +34,10 @@
 
 ## Gate 4: Lane C Spike Completion
 
-- [ ] Writer inventory marks model-callable status and owner for each writer surface.
-- [ ] Preview feasibility is classified per writer type.
-- [ ] ADR or explicitly named plan amendment records which writers can preview and which cannot.
-- [ ] No production preview interface is added without separate approval.
+- [x] Writer inventory marks model-callable status and owner for each writer surface.
+- [x] Preview feasibility is classified per writer type.
+- [x] ADR or explicitly named plan amendment records which writers can preview and which cannot.
+- [x] No production preview interface is added without separate approval.
 
 ## Gate 5: Integration
 
