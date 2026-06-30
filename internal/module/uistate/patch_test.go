@@ -347,20 +347,20 @@ func TestApplyThreadStoppedResetsPatchSequence(t *testing.T) {
 	svc.mu.Lock()
 	first := svc.threadPatchLocked("thread-1", "turn/completed")
 	svc.mu.Unlock()
-	if first.Sequence != 1 {
+	if first.Sequence != 1 || first.Generation != 1 {
 		t.Fatalf("first patch sequence = %#v", first)
 	}
 
 	svc.applyThreadStopped(threaddto.Stopped{ThreadID: "thread-1"})
 	stopped := mustReceiveThreadPatch(t, got)
-	if stopped.ThreadID != "thread-1" || stopped.Sequence != 2 || stopped.Status != "idle" {
+	if stopped.ThreadID != "thread-1" || stopped.Sequence != 2 || stopped.Generation != 1 || stopped.Status != "idle" {
 		t.Fatalf("stopped patch = %#v", stopped)
 	}
 
 	svc.mu.Lock()
 	restarted := svc.threadPatchLocked("thread-1", "thread/started")
 	svc.mu.Unlock()
-	if restarted.Sequence != 1 {
+	if restarted.Sequence != 1 || restarted.Generation != 2 {
 		t.Fatalf("restarted patch sequence = %#v", restarted)
 	}
 }

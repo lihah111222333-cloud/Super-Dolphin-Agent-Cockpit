@@ -218,6 +218,7 @@ func (s *service) threadPatchLocked(threadID, source string) uidto.UIThreadPatch
 		ThreadID:          id,
 		Source:            strings.TrimSpace(source),
 		Sequence:          s.nextPatchSequenceLocked(id),
+		Generation:        s.currentPatchGenerationLocked(id),
 		ActiveThreadID:    strings.TrimSpace(s.state.ActiveThreadID),
 		ActiveCmdThreadID: strings.TrimSpace(s.state.ActiveCmdThreadID),
 		MainAgentID:       s.mainAgentIDLocked(),
@@ -311,6 +312,26 @@ func (s *service) nextPatchSequenceLocked(threadID string) int64 {
 	}
 	s.patchSeq[threadID]++
 	return s.patchSeq[threadID]
+}
+
+func (s *service) currentPatchGenerationLocked(threadID string) int64 {
+	if s.patchGeneration == nil {
+		s.patchGeneration = map[string]int64{}
+	}
+	if s.patchGeneration[threadID] == 0 {
+		s.patchGeneration[threadID] = 1
+	}
+	return s.patchGeneration[threadID]
+}
+
+func (s *service) advancePatchGenerationLocked(threadID string) {
+	if strings.TrimSpace(threadID) == "" {
+		return
+	}
+	if s.patchGeneration == nil {
+		s.patchGeneration = map[string]int64{}
+	}
+	s.patchGeneration[threadID] = s.currentPatchGenerationLocked(threadID) + 1
 }
 
 const threadPatchMaxPayloadBytes = 64 * 1024
