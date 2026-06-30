@@ -392,6 +392,10 @@ func (d *driver) codexToolSurfaceScope(agentID, localThreadID, providerThreadID,
 	if err != nil {
 		return contract.CodexToolSurfaceScope{}, fmt.Errorf("codexapp: dynamic tools mcpConfig: %w", err)
 	}
+	disabledTools, err := codexDisabledToolsFromConfig(cfg)
+	if err != nil {
+		return contract.CodexToolSurfaceScope{}, fmt.Errorf("codexapp: %w", err)
+	}
 	return contract.CodexToolSurfaceScope{
 		AgentID:          strings.TrimSpace(agentID),
 		UIThreadID:       strings.TrimSpace(localThreadID),
@@ -399,6 +403,7 @@ func (d *driver) codexToolSurfaceScope(agentID, localThreadID, providerThreadID,
 		ProviderThreadID: strings.TrimSpace(providerThreadID),
 		CWD:              cwd,
 		WorkspaceRoots:   append([]string(nil), workspaceRoots...),
+		DisabledTools:    disabledTools,
 		Manifest: contract.BuildManifest(dto.ManifestContext{
 			AgentID:                      strings.TrimSpace(agentID),
 			ThreadID:                     strings.TrimSpace(util.FirstNonEmpty(providerThreadID, localThreadID, agentID)),
@@ -412,6 +417,39 @@ func (d *driver) codexToolSurfaceScope(agentID, localThreadID, providerThreadID,
 			TransportMode:                dto.ManifestTransportStdioOnly,
 		}),
 	}, nil
+}
+
+// codexDisabledToolsFromConfig 严格读取 Codex session config 中的禁用工具列表。
+// 安全相关列表只接受字符串、csv 字符串或字符串数组，类型错误会阻断启动。
+func codexDisabledToolsFromConfig(cfg map[string]any) ([]string, error) {
+	for _, key := range []string{"disallowed_tools", "disallowedTools"} {
+		raw, ok := cfg[key]
+		if !ok {
+			continue
+		}
+		return normalizeCodexDisabledToolsConfig(key, raw)
+	}
+	return nil, nil
+}
+
+// normalizeCodexDisabledToolsConfig 校验并规范化 Codex 禁用工具配置。
+// 这里不能吞掉对象或混合数组，否则 read-only 子 agent 会误获得写工具。
+func normalizeCodexDisabledToolsConfig(key string, raw any) ([]string, error) {
+	switch typed := raw.(type) {
+	case string:
+		return providershared.SplitConfigStringSlice(typed), nil
+	case []string:
+		return providershared.TrimStrings(typed), nil
+	case []any:
+		for i, value := range typed {
+			if _, ok := value.(string); !ok {
+				return nil, fmt.Errorf("%s[%d] must be string", key, i)
+			}
+		}
+		return providershared.TrimConfigStringValues(typed), nil
+	default:
+		return nil, fmt.Errorf("%s must be string or string array", key)
+	}
 }
 
 func (d *driver) finishStartedSession(s *session, req dto.StartSessionRequest, result startResult) contract.Session {
