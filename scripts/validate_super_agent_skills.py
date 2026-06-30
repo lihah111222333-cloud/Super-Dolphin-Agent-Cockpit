@@ -99,6 +99,14 @@ REQUIRED = {
         "## 详细模式",
         "## 18 维详细审查表",
         "| D18 | DRY",
+        "## 维度参考要求",
+        "| D01 | 当前改动所属 codemap 分卷或 README 架构图",
+        "| D18 | 重复规则或重复实现出现的位置",
+        "## D01 类型分类",
+        "## D04 典型症状/判定场景",
+        "## D18 类型分类",
+        "## D18 DRY 要求",
+        "## D18 典型症状/判定场景",
         "## 优先级规律",
         "## 使用方式",
         "mcp-orch 是可选编排面",
@@ -464,6 +472,52 @@ def check_policy_hashes(failures: list[str]) -> None:
                 failures.append(f"policy source hash mismatch: {name}")
 
 
+def check_review_dimension_sections(failures: list[str]) -> None:
+    rel_path = ".agent/skills/代码审查维度/SKILL.md"
+    text = read(rel_path)
+    for i in range(1, 19):
+        dim = f"D{i:02d}"
+        for needle in (
+            f"| {dim} |",
+            f"## {dim} 类型分类",
+            f"## {dim} 典型症状/判定场景",
+        ):
+            if needle not in text:
+                failures.append(f"{rel_path}: missing {needle!r}")
+    if "## D18 DRY 要求" not in text:
+        failures.append(f"{rel_path}: missing '## D18 DRY 要求'")
+    for needle in (
+        "同一规则、字段清单",
+        "DRY 简化必须保留 D01 架构边界、D02 fail-fast、D10 安全边界和 D17 字段守卫",
+        "若重复代码承载不同 provider 语义",
+    ):
+        if needle not in text:
+            failures.append(f"{rel_path}: missing D18 DRY anchor {needle!r}")
+
+    start_marker = "## 维度参考要求"
+    end_marker = "## D01 类型分类"
+    try:
+        start = text.index(start_marker)
+        end = text.index(end_marker, start)
+    except ValueError:
+        failures.append(f"{rel_path}: missing review dimension reference section")
+        return
+
+    reference_section = text[start:end]
+    for i in range(1, 19):
+        dim = f"D{i:02d}"
+        matching_rows = [
+            line for line in reference_section.splitlines()
+            if line.startswith(f"| {dim} |")
+        ]
+        if not matching_rows:
+            failures.append(f"{rel_path}: missing {dim} row in review dimension reference section")
+            continue
+        cells = [cell.strip() for cell in matching_rows[0].strip().strip("|").split("|")]
+        if len(cells) != 3 or not cells[1] or not cells[2]:
+            failures.append(f"{rel_path}: incomplete {dim} reference row")
+
+
 def main() -> int:
     failures: list[str] = []
 
@@ -476,6 +530,8 @@ def main() -> int:
         for needle in needles:
             if needle not in text:
                 failures.append(f"{rel_path}: missing {needle!r}")
+
+    check_review_dimension_sections(failures)
 
     for rel_path, needles in FORBIDDEN.items():
         path = ROOT / rel_path
