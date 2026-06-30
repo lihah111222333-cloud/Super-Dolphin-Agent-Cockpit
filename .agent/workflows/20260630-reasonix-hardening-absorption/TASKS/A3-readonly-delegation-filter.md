@@ -79,6 +79,8 @@ The orchestrator applied the exact delegation package command from A0 evidence b
 - `6fdba6c1a2552dd0cf21d25b0dcf43d5130faa2c` added structured `launch_agent.read_only=true` delegation input and was merged by `73fe7f12`.
 - Final review2 recorded Mill PASS, Hume PASS, and Beauvoir FAIL P1: read-only launch `disallowed_tools` reached thread config but not `CodexToolSurfaceScope`, so dynamic host/MCP/skill tools could still be exposed or called through stale scoped calls.
 - `d8754cc1e86bf3dfc62273390ebebf1f86b9b3fe` fixed the dynamic disabled-tool gap and was merged by `d08c6962`.
+- The user required the six LSP modernization hints to be cleared.
+- Einstein cleanup `dfeff4745e957ae6ee94d3f998f20c03f82ecd05` cleared `range over int`, `strings.SplitSeq`, `strings.CutPrefix`, and `slices.ContainsFunc`/`slices.Contains` hints in A3-owned files and was merged by `28aa3e54`.
 
 Round2 verification recorded by the worker:
 
@@ -91,6 +93,7 @@ git diff --check
 Final P1 repair verification recorded by the controller:
 
 ```bash
+./scripts/test_with_guard.sh ./cmd/mcp-orch/tools ./internal/contract -run 'LaunchRequestFromExecutable|ReadOnly|NativeToolPolicy|CodexNativeToolPolicy|Tool|Provider' -count=1
 ./scripts/test_with_guard.sh ./internal/platform/toolbridge ./internal/provider/codexapp ./internal/contract -run 'CodexToolSurface|PrepareCodexToolSurface|Disabled|Disallowed|ReadOnly' -count=1
 ./scripts/test_with_guard.sh ./cmd/mcp-orch/tools ./internal/module/thread ./internal/provider/codexapp ./internal/platform/toolbridge ./internal/contract -run 'LaunchRequestFromExecutable|BuildStartSessionConfig|CodexToolSurface|PrepareCodexToolSurface|Disabled|Disallowed|ReadOnly' -count=1
 ./scripts/test_with_guard.sh ./cmd/mcp-orch/tools ./internal/provider/codexapp ./internal/contract -run 'LaunchRequestFromExecutable|ReadOnly|NativeToolPolicy|CodexNativeToolPolicy' -count=1
@@ -98,7 +101,7 @@ Final P1 repair verification recorded by the controller:
 ./scripts/test_with_guard.sh ./cmd/mcp-orch/tools ./internal/module/thread ./internal/provider/toolfilter ./internal/platform/toolpolicy ./internal/contract -count=1
 ```
 
-Controller final gates passed on code verification head `d08c69629f6dd52fbb2ffb6df85fcb4445898a2e`; see `CHECKS/EVIDENCE.md`.
+LSP diagnostics on `cmd/mcp-orch/tools/orchestration_tools.go`, `cmd/mcp-orch/tools/orchestration_tools_test.go`, and `internal/contract/provider.go` returned no diagnostics. Controller final gates passed on code verification head `28aa3e54bcfa6b71bc5d83e859d96b3938c69016`; see `CHECKS/EVIDENCE.md`.
 
 ## 7. DoD
 

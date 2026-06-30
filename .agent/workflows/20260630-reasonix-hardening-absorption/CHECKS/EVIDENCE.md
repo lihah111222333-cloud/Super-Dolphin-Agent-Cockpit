@@ -659,7 +659,7 @@ Final behavior facts:
 - A2 remains `not_applicable_with_evidence`; no runtime planning-stage blocking was wired.
 - C1 remains ADR-only; production preview API and host-direct preview/execute tests remain deferred.
 
-Controller final gates:
+Controller gates for this superseded step:
 
 ```bash
 git diff --check 5ccc29e69c48c407895b2d9a4182b0d124d6b813...HEAD
@@ -682,9 +682,9 @@ Dispatch decision:
 - PN-integration accepted as `done`.
 - This docs-only status commit keeps workflow state synchronized after those gates.
 
-## 2026-07-01 PN Final Gate After Dynamic Disabled-tool P1
+## 2026-07-01 PN Gate After Dynamic Disabled-tool P1
 
-Status: final code verification completed on `d08c69629f6dd52fbb2ffb6df85fcb4445898a2e`; this docs-only status commit records that result.
+Status: code verification completed on `d08c69629f6dd52fbb2ffb6df85fcb4445898a2e`; later LSP hint cleanup supersedes this verification point.
 
 Final review2:
 
@@ -739,5 +739,51 @@ All commands above passed on code verification head `d08c69629f6dd52fbb2ffb6df85
 Dispatch decision:
 
 - Beauvoir P1 accepted as fixed and integrated.
+- PN-integration accepted as `done`.
+- This docs-only status commit keeps workflow state synchronized after those gates.
+
+## 2026-07-01 PN Final Gate After LSP Hint Cleanup
+
+Status: final code verification completed on `28aa3e54bcfa6b71bc5d83e859d96b3938c69016`; this docs-only status commit records that result.
+
+User request:
+
+- The user required the six LSP modernization hints to be fixed too.
+
+Integrated commits:
+
+- `dfeff4745e957ae6ee94d3f998f20c03f82ecd05` (`修复 LSP hint 现代化提示`) cleared six LSP hints in three A3-owned files.
+- `28aa3e54` merged `dfeff4745e957ae6ee94d3f998f20c03f82ecd05` into `codex/reasonix-hardening-integration-20260630`.
+- Dynamic disabled-tool repair `d8754cc1e86bf3dfc62273390ebebf1f86b9b3fe` remains integrated by `d08c6962`.
+
+LSP hint cleanup facts:
+
+- Cleared `range over int`.
+- Cleared `strings.SplitSeq`.
+- Cleared `strings.CutPrefix`.
+- Cleared `slices.ContainsFunc` / `slices.Contains`.
+- The affected files were `cmd/mcp-orch/tools/orchestration_tools.go`, `cmd/mcp-orch/tools/orchestration_tools_test.go`, and `internal/contract/provider.go`.
+- A2 remains `not_applicable_with_evidence`; no runtime planning-stage blocking was wired.
+- C1 remains ADR-only; production preview API and host-direct preview/execute tests remain deferred.
+
+Controller final gates:
+
+```bash
+git diff --check 5ccc29e69c48c407895b2d9a4182b0d124d6b813...HEAD
+git diff --cached --check
+python3 -m json.tool .agent/workflows/20260630-reasonix-hardening-absorption/STATE.json >/dev/null
+# LSP diagnostics on cmd/mcp-orch/tools/orchestration_tools.go,
+# cmd/mcp-orch/tools/orchestration_tools_test.go, and
+# internal/contract/provider.go returned no diagnostics.
+./scripts/test_with_guard.sh ./cmd/mcp-orch/tools ./internal/contract -run 'LaunchRequestFromExecutable|ReadOnly|NativeToolPolicy|CodexNativeToolPolicy|Tool|Provider' -count=1
+./scripts/test_with_guard.sh ./cmd/mcp-orch/tools ./internal/module/thread ./internal/provider/codexapp ./internal/platform/toolbridge ./internal/contract -run 'LaunchRequestFromExecutable|BuildStartSessionConfig|CodexToolSurface|PrepareCodexToolSurface|Disabled|Disallowed|ReadOnly' -count=1
+make guard
+```
+
+All commands above passed on code verification head `28aa3e54bcfa6b71bc5d83e859d96b3938c69016`.
+
+Dispatch decision:
+
+- LSP hint cleanup accepted as integrated.
 - PN-integration accepted as `done`.
 - This docs-only status commit keeps workflow state synchronized after those gates.
