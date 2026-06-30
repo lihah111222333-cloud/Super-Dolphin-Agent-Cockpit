@@ -418,13 +418,63 @@ func buildStartSessionConfig(req StartRequest, input contract.StartInput, assemb
 		putConfigStrings(cfg, "codexDisabledNativeTools", assembly.SuppressedTools)
 	}
 	putConfigJSON(cfg, "sandbox", req.Sandbox)
-	for key, value := range req.Config {
-		mergeConfigValueIfAbsent(cfg, key, value)
-	}
+	mergeStartRequestConfig(cfg, req.Config, input.Provider)
 	if len(cfg) == 0 {
 		return nil
 	}
 	return cfg
+}
+
+// mergeStartRequestConfig 把 thread/start config 合入 provider config。
+// Codex native 工具禁用项可能同时来自 prompt assembly 和 launch env，必须合并而不是后者被同名键跳过。
+func mergeStartRequestConfig(cfg map[string]any, values map[string]any, provider string) {
+	codexProvider := strings.EqualFold(strings.TrimSpace(provider), "codex")
+	for key, value := range values {
+		if codexProvider && key == "codexDisabledNativeTools" {
+			mergeConfigStringListValue(cfg, key, value)
+			continue
+		}
+		mergeConfigValueIfAbsent(cfg, key, value)
+	}
+}
+
+// mergeConfigStringListValue 合并 launch config 中的字符串列表，保留已有 assembly 值并暴露坏配置给 provider 校验。
+func mergeConfigStringListValue(cfg map[string]any, key string, value any) {
+	incoming, ok := configStringListValue(value)
+	if !ok {
+		cfg[key] = value
+		return
+	}
+	if len(incoming) == 0 {
+		return
+	}
+	existing, ok := cfg[key].([]string)
+	if !ok {
+		cfg[key] = incoming
+		return
+	}
+	cfg[key] = appendUniqueConfigStrings(existing, incoming)
+}
+
+// configStringListValue 接受 JSON-RPC 解码后的 []any 或本地 []string，并清理空白字符串。
+// 其他形态返回 ok=false，让后续 provider 校验报告原始坏配置。
+func configStringListValue(value any) ([]string, bool) {
+	switch typed := value.(type) {
+	case []string:
+		return cleanedConfigStrings(typed), true
+	case []any:
+		values := make([]string, 0, len(typed))
+		for _, item := range typed {
+			text, ok := item.(string)
+			if !ok {
+				return nil, false
+			}
+			values = append(values, text)
+		}
+		return cleanedConfigStrings(values), true
+	default:
+		return nil, false
+	}
 }
 
 func mergeConfigValueIfAbsent(cfg map[string]any, key string, value any) {
@@ -512,6 +562,33 @@ func putConfigStrings(cfg map[string]any, key string, values []string) {
 	if len(cleaned) > 0 {
 		cfg[key] = cleaned
 	}
+}
+
+func cleanedConfigStrings(values []string) []string {
+	cleaned := make([]string, 0, len(values))
+	for _, value := range values {
+		if value = strings.TrimSpace(value); value != "" {
+			cleaned = append(cleaned, value)
+		}
+	}
+	return cleaned
+}
+
+func appendUniqueConfigStrings(existing, incoming []string) []string {
+	seen := make(map[string]struct{}, len(existing)+len(incoming))
+	merged := make([]string, 0, len(existing)+len(incoming))
+	for _, item := range append(existing, incoming...) {
+		tool := strings.TrimSpace(item)
+		if tool == "" {
+			continue
+		}
+		if _, exists := seen[tool]; exists {
+			continue
+		}
+		seen[tool] = struct{}{}
+		merged = append(merged, tool)
+	}
+	return merged
 }
 
 // putConfigStringMap 把字符串 map 写入 provider 配置。
