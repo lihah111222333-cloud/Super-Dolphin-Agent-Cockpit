@@ -1,6 +1,7 @@
 package hookstore
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"strings"
@@ -37,6 +38,28 @@ func TestSavePendingReview(t *testing.T) {
 	}
 	if db.execCount("insert") != 2 {
 		t.Fatalf("insert exec count = %d, want 2", db.execCount("insert"))
+	}
+}
+
+func TestSavePendingReviewRejectsConflictingDuplicate(t *testing.T) {
+	t.Parallel()
+
+	createdAt := time.Date(2026, 3, 24, 10, 0, 0, 0, time.UTC)
+	review := testPendingReview("call-save-conflict", "agent-save", "reject", createdAt, createdAt.Add(10*time.Minute))
+	store, _ := newTestStore()
+
+	if err := store.SavePendingReview(context.Background(), review); err != nil {
+		t.Fatalf("SavePendingReview() error = %v", err)
+	}
+	changed := review
+	changed.Topic = "topic/changed"
+	changed.DefaultAction = "approve"
+	changed.SubscriberLease = "other-lease"
+	changed.Payload = []byte(`{"changed":true}`)
+
+	err := store.SavePendingReview(context.Background(), changed)
+	if !errors.Is(err, contract.ErrHookReviewConflict) {
+		t.Fatalf("SavePendingReview() conflict error = %v, want ErrHookReviewConflict", err)
 	}
 }
 
@@ -112,7 +135,10 @@ func testPendingReview(hookCallID, agentID, defaultAction string, createdAt, dea
 		HookCallID:      hookCallID,
 		Topic:           "topic/" + hookCallID,
 		AgentID:         agentID,
+		ThreadID:        "thread/" + hookCallID,
+		TurnID:          "turn/" + hookCallID,
 		SubscriberLease: hookCallID + "/1",
+		Payload:         []byte(`{"hook_call_id":"` + hookCallID + `","source":"test"}`),
 		DefaultAction:   defaultAction,
 		CreatedAt:       createdAt,
 		DeadlineAt:      deadlineAt,
@@ -122,8 +148,47 @@ func testPendingReview(hookCallID, agentID, defaultAction string, createdAt, dea
 func assertPendingReview(t *testing.T, got, want mcp.PendingHookReview) {
 	t.Helper()
 
+	assertReviewString(t, "HookCallID", got.HookCallID, want.HookCallID)
+	assertReviewString(t, "Topic", got.Topic, want.Topic)
+	assertReviewString(t, "AgentID", got.AgentID, want.AgentID)
+	assertReviewString(t, "ThreadID", got.ThreadID, want.ThreadID)
+	assertReviewString(t, "TurnID", got.TurnID, want.TurnID)
+	assertReviewString(t, "SubscriberLease", got.SubscriberLease, want.SubscriberLease)
+	assertReviewString(t, "DefaultAction", got.DefaultAction, want.DefaultAction)
+	assertReviewTime(t, "CreatedAt", got.CreatedAt, want.CreatedAt)
+	assertReviewTime(t, "DeadlineAt", got.DeadlineAt, want.DeadlineAt)
+	assertReviewPayload(t, got.Payload, want.Payload)
+}
+
+func assertReviewString(t *testing.T, name, got, want string) {
+	t.Helper()
+
 	if got != want {
-		t.Fatalf("review = %+v, want %+v", got, want)
+		t.Fatalf("%s = %q, want %q", name, got, want)
+	}
+}
+
+func assertReviewInt(t *testing.T, name string, got, want int) {
+	t.Helper()
+
+	if got != want {
+		t.Fatalf("%s = %d, want %d", name, got, want)
+	}
+}
+
+func assertReviewTime(t *testing.T, name string, got, want time.Time) {
+	t.Helper()
+
+	if !got.Equal(want) {
+		t.Fatalf("%s = %s, want %s", name, got, want)
+	}
+}
+
+func assertReviewPayload(t *testing.T, got, want []byte) {
+	t.Helper()
+
+	if !bytes.Equal(got, want) {
+		t.Fatalf("Payload = %s, want %s", string(got), string(want))
 	}
 }
 
