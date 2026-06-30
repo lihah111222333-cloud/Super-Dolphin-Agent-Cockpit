@@ -1,6 +1,6 @@
 {
   "workflow_key": "20260630-reasonix-hardening-absorption",
-  "status": "in_progress",
+  "status": "done",
   "nodes": [
     {
       "id": "P0-orchestration",
@@ -68,7 +68,7 @@
         "C1-writer-preview-spike"
       ],
       "owner": "orchestrator",
-      "state": "ready"
+      "state": "done"
     }
   ]
 }

@@ -2,7 +2,7 @@
 
 ## Current Status
 
-Overall: in progress. The user approved the full workflow with Lane A first, production/doc lane work was performed only by child agents in isolated worktrees, and the integration branch is ready for final PN gates.
+Overall: done on integration branch `codex/reasonix-hardening-integration-20260630`. The user approved the full workflow with Lane A first, production/doc lane work was performed only by child agents in isolated worktrees, and the main/controller performed review plus fast-forward integration.
 
 ## Completed
 
@@ -25,6 +25,7 @@ Overall: in progress. The user approved the full workflow with Lane A first, pro
 - B2 migrated provider/util/thread callers to `sessionpaths`; Lane B focused gates and `make guard` passed after integration.
 - C1 completed in `codex/reasonix-hardening-c1-20260630` at `e13c157123fd4999b21387af0583d3a2d45f13b7`.
 - C1 produced `docs/adr/2026-06-30-writer-preview-contract-spike.md` only; Lane C focused gates passed after integration.
+- PN final integration gates passed on `codex/reasonix-hardening-integration-20260630`.
 
 ## In Progress
 
@@ -36,7 +37,7 @@ Overall: in progress. The user approved the full workflow with Lane A first, pro
 
 ## Recommended Next Action
 
-Run PN-integration final gates on `codex/reasonix-hardening-integration-20260630`:
+Review or merge `codex/reasonix-hardening-integration-20260630`. Final gates already passed with:
 
 ```bash
 ./scripts/test_with_guard.sh ./internal/platform/toolpolicy ./internal/provider/toolfilter ./internal/platform/toolbridge ./internal/provider/codexapp ./internal/provider/claudecli -run 'Plan|ReadOnly|Trust|Shell|Lifecycle|Sandbox|Permission|Reviewer|Worker|FullAccess|Native|Tool' -count=1
