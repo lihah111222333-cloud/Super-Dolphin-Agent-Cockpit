@@ -1,7 +1,7 @@
 ---
 task_id: B2-sessionpaths-migration
 owner: agent-b2
-status: ready
+status: done
 depends_on: [B1-sessionpaths-core]
 ---
 
@@ -59,11 +59,11 @@ Move existing rollout and scratchpad callers to `sessionpaths` without changing 
 
 ## 7. DoD
 
-- [ ] Provider/codexapp explicit Codex home semantics unchanged.
-- [ ] util/historyjsonl empty home fallback to `~/.codex` unchanged.
-- [ ] Scratchpad cleanup semantics unchanged.
-- [ ] Literal-placement guard is separate from B1's dependency guard.
-- [ ] No provider home or skill mirror responsibilities moved into sessionpaths.
+- [x] Provider/codexapp explicit Codex home semantics unchanged.
+- [x] util/historyjsonl empty home fallback to `~/.codex` unchanged.
+- [x] Scratchpad cleanup semantics unchanged.
+- [x] Literal-placement guard is separate from B1's dependency guard.
+- [x] No provider home or skill mirror responsibilities moved into sessionpaths.
 
 ## 8. Rollback
 

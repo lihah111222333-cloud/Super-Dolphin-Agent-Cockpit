@@ -21,6 +21,8 @@ Overall: in progress. The user approved the full workflow with Lane A first, and
 - Lane A focused gates and `make guard` passed after A3 integration.
 - B1 completed in `codex/reasonix-hardening-b1-20260630` at `2f8c85a569037f25950498dc484848b80cc942a1`.
 - B1 added `internal/platform/sessionpaths`, golden tests, and the stdlib dependency guard without migrating callers.
+- B2 completed in `codex/reasonix-hardening-b2-20260630` at `28e36eae9cc079daca0ffbbbd05d0836125a7d2e`.
+- B2 migrated provider/util/thread callers to `sessionpaths`; Lane B focused gates and `make guard` passed after integration.
 
 ## In Progress
 
@@ -32,13 +34,13 @@ Overall: in progress. The user approved the full workflow with Lane A first, and
 
 ## Recommended Next Action
 
-Dispatch B2 next in an isolated worker worktree:
+Dispatch C1 next in an isolated worker worktree:
 
 ```text
-执行 B2-sessionpaths-migration；迁移 provider/util/thread callers 到 sessionpaths，保持 Codex home fallback 与 scratchpad cleanup 语义不变。
+执行 C1-writer-preview-spike；只输出 ADR 或计划修订，盘点 writer/side-effect surfaces，不改生产 preview API。
 ```
 
-This continues Lane B only after B1 has been integrated and reviewed.
+This starts Lane C only after Lane B has passed.
 
 ## After Approval
 

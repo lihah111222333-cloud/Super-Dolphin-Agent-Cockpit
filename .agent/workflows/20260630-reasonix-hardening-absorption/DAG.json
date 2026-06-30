@@ -49,14 +49,14 @@
       "title": "Migrate rollout and scratchpad callers to sessionpaths",
       "deps": ["B1-sessionpaths-core"],
       "owner": "agent-b2",
-      "state": "ready"
+      "state": "done"
     },
     {
       "id": "C1-writer-preview-spike",
       "title": "Inventory model-callable writers and propose preview contract decision",
       "deps": ["A0-stage-source-inventory", "B2-sessionpaths-migration"],
       "owner": "agent-c1",
-      "state": "waiting"
+      "state": "ready"
     },
     {
       "id": "PN-integration",
