@@ -97,7 +97,7 @@ func nakedGoroutineViolationForFile(root, path string, allowedFiles map[string]s
 	fset := token.NewFileSet()
 	node, parseErr := parser.ParseFile(fset, path, nil, parser.SkipObjectResolution)
 	if parseErr != nil {
-		return "", false, nil
+		return "", false, parseErr
 	}
 	count := CountNakedGoStmts(node)
 	if count == 0 {

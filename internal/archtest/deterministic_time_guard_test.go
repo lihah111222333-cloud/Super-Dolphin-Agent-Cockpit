@@ -1,6 +1,7 @@
 package archtest
 
 import (
+	"fmt"
 	"go/ast"
 	"go/parser"
 	"go/token"
@@ -93,7 +94,7 @@ func (s deterministicTimeScan) visit(path string, info os.FileInfo, walkErr erro
 	}
 	node, parseErr := parser.ParseFile(token.NewFileSet(), path, nil, parser.SkipObjectResolution)
 	if parseErr != nil {
-		return nil
+		return fmt.Errorf("parse %s: %w", relSlash, parseErr)
 	}
 	if hasNowFuncInjection(node) {
 		return nil
