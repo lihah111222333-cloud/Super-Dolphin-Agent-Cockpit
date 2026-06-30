@@ -691,6 +691,11 @@ require_dotenv_value() {
   printf '%s\n' "$value"
 }
 
+is_placeholder_update_repo() {
+  local repo="$1"
+  [[ "$repo" == "xiaoxiaotest9527-bit/-" ]]
+}
+
 verify_update_env() {
   local env_file="$resources/.env"
   if [[ ! -f "$env_file" ]]; then
@@ -711,12 +716,20 @@ verify_update_env() {
     echo "SUPER_DOLPHIN_UPDATE_MANIFEST_URL or SUPER_DOLPHIN_UPDATE_GITHUB_REPO is required when app update is enabled" >&2
     exit 1
   fi
+  if [[ -n "${manifest_url//[[:space:]]/}" && -n "${github_repo//[[:space:]]/}" ]]; then
+    echo "SUPER_DOLPHIN_UPDATE_MANIFEST_URL and SUPER_DOLPHIN_UPDATE_GITHUB_REPO are mutually exclusive" >&2
+    exit 1
+  fi
   if [[ -n "${manifest_url//[[:space:]]/}" && ! "$manifest_url" =~ ^https://[^/?#]+($|[/?#]) ]]; then
     echo "SUPER_DOLPHIN_UPDATE_MANIFEST_URL must be HTTPS with host: $manifest_url" >&2
     exit 1
   fi
   if [[ -n "${github_repo//[[:space:]]/}" && ! "$github_repo" =~ ^[^/[:space:]]+/[^/[:space:]]+$ ]]; then
     echo "SUPER_DOLPHIN_UPDATE_GITHUB_REPO must be owner/repo without whitespace: $github_repo" >&2
+    exit 1
+  fi
+  if [[ -n "${github_repo//[[:space:]]/}" ]] && is_placeholder_update_repo "$github_repo"; then
+    echo "known placeholder update repo is not allowed" >&2
     exit 1
   fi
   decoded_key="$(mktemp)"

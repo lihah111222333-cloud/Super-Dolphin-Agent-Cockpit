@@ -75,6 +75,8 @@ $UpdateGitHubRepoEnv = 'SUPER_DOLPHIN_UPDATE_GITHUB_REPO'
 $UpdatePublicKeyEnv = 'SUPER_DOLPHIN_UPDATE_PUBLIC_KEY'
 $UpdateChannelEnv = 'SUPER_DOLPHIN_UPDATE_CHANNEL'
 $UpdateVersionEnv = 'SUPER_DOLPHIN_UPDATE_VERSION'
+$UpdateWindowsPublisherEnv = 'SUPER_DOLPHIN_UPDATE_WINDOWS_PUBLISHER'
+$UpdateWindowsThumbprintEnv = 'SUPER_DOLPHIN_UPDATE_WINDOWS_THUMBPRINT'
 $LSPBundleDirEnv = 'SUPER_DOLPHIN_LSP_BUNDLE_DIR'
 $LSPManifestName = 'lsp-manifest.json'
 $LSPChecksumsName = 'lsp-checksums.sha256'
@@ -510,12 +512,27 @@ function Assert-UpdatePublicKey() {
     }
 }
 
+function Test-PlaceholderUpdateRepo() {
+    param([Parameter(Mandatory)][string]$Repo)
+    return $Repo.Trim() -eq 'xiaoxiaotest9527-bit/-'
+}
+
+function Assert-UpdateWindowsThumbprint() {
+    param([Parameter(Mandatory)][string]$Thumbprint)
+    $normalized = ($Thumbprint.Trim() -replace '[ :]', '').ToUpperInvariant()
+    if ($normalized -notmatch '^[0-9A-F]{40}$') {
+        throw "$UpdateWindowsThumbprintEnv must be a 40-character certificate thumbprint"
+    }
+}
+
 function Resolve-UpdateConfig() {
     $script:PackagedUpdateManifestURL = Get-EnvValue $UpdateManifestURLEnv
     $script:PackagedUpdateGitHubRepo = Get-EnvValue $UpdateGitHubRepoEnv
     $script:PackagedUpdatePublicKey = Get-EnvValue $UpdatePublicKeyEnv
     $script:PackagedUpdateChannel = Get-EnvValue $UpdateChannelEnv
     $script:PackagedUpdateVersion = Get-EnvValue $UpdateVersionEnv
+    $script:PackagedUpdateWindowsPublisher = Get-EnvValue $UpdateWindowsPublisherEnv
+    $script:PackagedUpdateWindowsThumbprint = Get-EnvValue $UpdateWindowsThumbprintEnv
     $enabledValue = Get-EnvValue $UpdateEnabledEnv
     $script:PackagedUpdateEnabled = (Test-Truthy -Value $enabledValue) -or
         ($script:PackagedUpdateManifestURL.Trim() -ne '') -or
@@ -525,6 +542,9 @@ function Resolve-UpdateConfig() {
     }
     if ($script:PackagedUpdateManifestURL.Trim() -eq '' -and $script:PackagedUpdateGitHubRepo.Trim() -eq '') {
         throw "SUPER_DOLPHIN_UPDATE_MANIFEST_URL or SUPER_DOLPHIN_UPDATE_GITHUB_REPO is required when app update is enabled"
+    }
+    if ($script:PackagedUpdateManifestURL.Trim() -ne '' -and $script:PackagedUpdateGitHubRepo.Trim() -ne '') {
+        throw "SUPER_DOLPHIN_UPDATE_MANIFEST_URL and SUPER_DOLPHIN_UPDATE_GITHUB_REPO are mutually exclusive"
     }
     if ($script:PackagedUpdateManifestURL.Trim() -ne '') {
         Validate-EnvFileValue -Label $UpdateManifestURLEnv -Value $script:PackagedUpdateManifestURL
@@ -537,6 +557,9 @@ function Resolve-UpdateConfig() {
         if ($script:PackagedUpdateGitHubRepo -notmatch '^[^/\s]+/[^/\s]+$') {
             throw "SUPER_DOLPHIN_UPDATE_GITHUB_REPO must be owner/repo without whitespace"
         }
+        if (Test-PlaceholderUpdateRepo -Repo $script:PackagedUpdateGitHubRepo) {
+            throw "known placeholder update repo is not allowed"
+        }
     }
     if ($script:PackagedUpdateChannel.Trim() -eq '') {
         $script:PackagedUpdateChannel = 'gray'
@@ -547,7 +570,10 @@ function Resolve-UpdateConfig() {
     Validate-EnvFileValue -Label $UpdatePublicKeyEnv -Value $script:PackagedUpdatePublicKey
     Validate-EnvFileValue -Label $UpdateChannelEnv -Value $script:PackagedUpdateChannel
     Validate-EnvFileValue -Label $UpdateVersionEnv -Value $script:PackagedUpdateVersion
+    Validate-EnvFileValue -Label $UpdateWindowsPublisherEnv -Value $script:PackagedUpdateWindowsPublisher
+    Validate-EnvFileValue -Label $UpdateWindowsThumbprintEnv -Value $script:PackagedUpdateWindowsThumbprint
     Assert-UpdatePublicKey -PublicKey $script:PackagedUpdatePublicKey
+    Assert-UpdateWindowsThumbprint -Thumbprint $script:PackagedUpdateWindowsThumbprint
 }
 
 function Write-PackagedUpdateEnv() {
@@ -567,6 +593,8 @@ function Write-PackagedUpdateEnv() {
     $lines.Add("$UpdatePublicKeyEnv=$script:PackagedUpdatePublicKey")
     $lines.Add("$UpdateChannelEnv=$script:PackagedUpdateChannel")
     $lines.Add("$UpdateVersionEnv=$script:PackagedUpdateVersion")
+    $lines.Add("$UpdateWindowsPublisherEnv=$script:PackagedUpdateWindowsPublisher")
+    $lines.Add("$UpdateWindowsThumbprintEnv=$script:PackagedUpdateWindowsThumbprint")
 
     $content = ''
     if (Test-Path -LiteralPath $envPath -PathType Leaf) {

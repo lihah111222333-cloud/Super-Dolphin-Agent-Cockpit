@@ -44,7 +44,7 @@ func TestProvideConfigRequiresHTTPSManifestWithHost(t *testing.T) {
 func TestProvideConfigAcceptsGitHubRepoWithoutLegacyManifestURL(t *testing.T) {
 	publicKey, _ := testManifestKeypair(t)
 	t.Setenv(envUpdateEnabled, "1")
-	t.Setenv(envUpdateGitHubRepo, "xiaoxiaotest9527-bit/-")
+	t.Setenv(envUpdateGitHubRepo, testValidGitHubRepo)
 	t.Setenv(envUpdatePublicKey, base64.StdEncoding.EncodeToString(publicKey))
 	t.Setenv(envUpdateStageDir, t.TempDir())
 	t.Setenv(envUpdateHelperPath, "/bin/echo")
@@ -56,11 +56,44 @@ func TestProvideConfigAcceptsGitHubRepoWithoutLegacyManifestURL(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ProvideConfig() error = %v", err)
 	}
-	if cfg.GitHubRepo != "xiaoxiaotest9527-bit/-" {
+	if cfg.GitHubRepo != testValidGitHubRepo {
 		t.Fatalf("GitHubRepo = %q, want configured repo", cfg.GitHubRepo)
 	}
 	if cfg.ManifestURL != "" {
 		t.Fatalf("ManifestURL = %q, want empty legacy manifest URL", cfg.ManifestURL)
+	}
+}
+
+func TestProvideConfigRejectsBothUpdateSources(t *testing.T) {
+	publicKey, _ := testManifestKeypair(t)
+	t.Setenv(envUpdateEnabled, "1")
+	t.Setenv(envUpdateManifestURL, "https://updates.example.test/manifest.json")
+	t.Setenv(envUpdateGitHubRepo, testValidGitHubRepo)
+	t.Setenv(envUpdatePublicKey, base64.StdEncoding.EncodeToString(publicKey))
+	t.Setenv(envUpdateStageDir, t.TempDir())
+	t.Setenv(envUpdateHelperPath, "/bin/echo")
+	t.Setenv(envUpdateTargetApp, "/Applications/Super Dolphin.app")
+	t.Setenv(envUpdatePlatform, "darwin-arm64")
+	t.Setenv(envVersion, "1.0.0")
+
+	_, err := ProvideConfig(&platformconfig.Config{})
+	if err == nil || !strings.Contains(err.Error(), "exactly one") {
+		t.Fatalf("ProvideConfig() error = %v, want exactly-one update source rejection", err)
+	}
+}
+
+func TestProvideConfigRejectsWindowsUpdatesWithoutAuthenticodeGate(t *testing.T) {
+	publicKey, _ := testManifestKeypair(t)
+	t.Setenv(envUpdateEnabled, "1")
+	t.Setenv(envUpdateManifestURL, "https://updates.example.test/manifest.json")
+	t.Setenv(envUpdatePublicKey, base64.StdEncoding.EncodeToString(publicKey))
+	t.Setenv(envUpdateStageDir, t.TempDir())
+	t.Setenv(envUpdatePlatform, "windows-amd64")
+	t.Setenv(envVersion, "1.0.0")
+
+	_, err := ProvideConfig(&platformconfig.Config{})
+	if err == nil || !strings.Contains(err.Error(), "SUPER_DOLPHIN_UPDATE_WINDOWS_") {
+		t.Fatalf("ProvideConfig() error = %v, want Windows publisher requirement", err)
 	}
 }
 
@@ -379,12 +412,23 @@ func TestInstallStartsWindowsInstallerWithSilentFlag(t *testing.T) {
 	installer := writeArgsHelperScriptWithName(t, argsPath, "Super-Dolphin-windows-amd64.exe")
 	quitCalled := make(chan struct{}, 1)
 	svc := newService(Config{
-		Enabled:  true,
-		StageDir: stageDir,
-		Platform: "windows-amd64",
+		Enabled:           true,
+		StageDir:          stageDir,
+		Platform:          "windows-amd64",
+		WindowsPublisher:  "Super Dolphin Test Publisher",
+		WindowsThumbprint: strings.Repeat("a", 40),
 	}, nil, func() {
 		quitCalled <- struct{}{}
 	})
+	svc.windowsSignatureVerifier = func(path, publisher, thumbprint string) error {
+		if path != installer {
+			t.Fatalf("signature path = %q, want %q", path, installer)
+		}
+		if publisher != "Super Dolphin Test Publisher" || thumbprint != strings.Repeat("a", 40) {
+			t.Fatalf("signature gate = (%q, %q), want configured publisher/thumbprint", publisher, thumbprint)
+		}
+		return nil
+	}
 	writeSelectedInstallFixtureForPlatform(t, svc, "windows-amd64", installer)
 
 	result, err := svc.Install(context.Background())
@@ -406,6 +450,39 @@ func TestInstallStartsWindowsInstallerWithSilentFlag(t *testing.T) {
 		t.Fatalf("Install() Helper = %q, want installer path", result.Helper)
 	}
 	waitForSignal(t, quitCalled, "RequestQuit")
+}
+
+func TestInstallRejectsWindowsInstallerBeforeStartWhenAuthenticodeGateFails(t *testing.T) {
+	stageDir := t.TempDir()
+	argsPath := filepath.Join(stageDir, "installer.args")
+	installer := writeArgsHelperScriptWithName(t, argsPath, "Super-Dolphin-windows-amd64.exe")
+	quitCalled := make(chan struct{}, 1)
+	svc := newService(Config{
+		Enabled:           true,
+		StageDir:          stageDir,
+		Platform:          "windows-amd64",
+		WindowsPublisher:  "Super Dolphin Test Publisher",
+		WindowsThumbprint: strings.Repeat("a", 40),
+	}, nil, func() {
+		quitCalled <- struct{}{}
+	})
+	svc.windowsSignatureVerifier = func(path, publisher, thumbprint string) error {
+		return errors.New("mock authenticode rejected")
+	}
+	writeSelectedInstallFixtureForPlatform(t, svc, "windows-amd64", installer)
+
+	_, err := svc.Install(context.Background())
+	if err == nil || !strings.Contains(err.Error(), "authenticode") {
+		t.Fatalf("Install() error = %v, want Authenticode rejection", err)
+	}
+	if _, statErr := os.Stat(argsPath); !errors.Is(statErr, os.ErrNotExist) {
+		t.Fatalf("installer args stat error = %v, want installer not started", statErr)
+	}
+	select {
+	case <-quitCalled:
+		t.Fatal("RequestQuit called, want install fail-fast before shutdown")
+	default:
+	}
 }
 
 func testServiceConfig(publicKey []byte, stageDir, currentVersion string) Config {
@@ -548,7 +625,7 @@ func writeSelectedInstallFixtureForPlatform(t *testing.T, svc *service, platform
 	}
 	artifactURL := "https://updates.example.com/Super-Dolphin-1.2.3-arm64.dmg"
 	if platform == "windows-amd64" {
-		artifactURL = "https://github.com/xiaoxiaotest9527-bit/-/releases/download/v1.2.3/Super-Dolphin-windows-amd64.exe"
+		artifactURL = testGitHubReleaseAssetURL("v1.2.3", "Super-Dolphin-windows-amd64.exe")
 	}
 	staged := selectedUpdate{
 		Payload: testManifestPayload(),

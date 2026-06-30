@@ -238,6 +238,11 @@ updates_enabled_for_profile() {
   [[ "$release_profile" == "gray" || "$release_profile" == "gray-unsigned" ]]
 }
 
+is_placeholder_update_repo() {
+  local repo="$1"
+  [[ "$repo" == "xiaoxiaotest9527-bit/-" ]]
+}
+
 resolve_update_config() {
   if ! updates_enabled_for_profile; then
     return
@@ -254,6 +259,10 @@ resolve_update_config() {
     echo "SUPER_DOLPHIN_UPDATE_MANIFEST_URL or SUPER_DOLPHIN_UPDATE_GITHUB_REPO is required when app update is enabled" >&2
     exit 1
   fi
+  if [[ -n "${update_manifest_url//[[:space:]]/}" && -n "${update_github_repo//[[:space:]]/}" ]]; then
+    echo "SUPER_DOLPHIN_UPDATE_MANIFEST_URL and SUPER_DOLPHIN_UPDATE_GITHUB_REPO are mutually exclusive" >&2
+    exit 1
+  fi
   if [[ -n "${update_manifest_url//[[:space:]]/}" ]]; then
     validate_env_file_value "SUPER_DOLPHIN_UPDATE_MANIFEST_URL" "$update_manifest_url"
     if [[ ! "$update_manifest_url" =~ ^https://[^/?#]+($|[/?#]) ]]; then
@@ -265,6 +274,10 @@ resolve_update_config() {
     validate_env_file_value "SUPER_DOLPHIN_UPDATE_GITHUB_REPO" "$update_github_repo"
     if [[ ! "$update_github_repo" =~ ^[^/[:space:]]+/[^/[:space:]]+$ ]]; then
       echo "SUPER_DOLPHIN_UPDATE_GITHUB_REPO must be owner/repo without whitespace" >&2
+      exit 1
+    fi
+    if is_placeholder_update_repo "$update_github_repo"; then
+      echo "known placeholder update repo is not allowed" >&2
       exit 1
     fi
   fi
