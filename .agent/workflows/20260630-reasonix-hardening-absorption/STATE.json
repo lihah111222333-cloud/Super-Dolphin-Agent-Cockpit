@@ -63,9 +63,9 @@
       "pre_round2_gate_head": "8fa31b90",
       "current_base_head": "7c14c7ee435ae9051672ca79962cd938ba5ce780",
       "round2_docs_merge_commit": "e17cb8b3",
-      "final_gate_head": "e17cb8b393293f34ae8af73238906b66abc8d45c",
+      "final_code_verification_head": "e17cb8b393293f34ae8af73238906b66abc8d45c",
       "status": "done",
-      "review": "A3 round2 and docs round2 are integrated; fresh Lane A, Lane B, C1 rg, archtest, make guard, and diff checks passed on e17cb8b3."
+      "review": "A3 round2 and docs round2 are integrated; fresh Lane A, Lane B, C1 rg, archtest, make guard, and diff checks passed on code verification head e17cb8b3. This docs-only status commit keeps workflow state synchronized after those gates."
     }
   },
   "next_actions": [

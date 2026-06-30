@@ -18,13 +18,13 @@
 
 ## Gate 2: Lane A Completion
 
-Status: passed after A3 round2 integration on `e17cb8b393293f34ae8af73238906b66abc8d45c`.
+Status: passed after A3 round2 integration on final code verification head `e17cb8b393293f34ae8af73238906b66abc8d45c`.
 
 - [x] A0 stage source inventory completed with LSP references and exact source anchors.
 - [x] A1 `internal/platform/toolpolicy` tests passed.
 - [x] A2 remains `not_applicable_with_evidence` because A0 found no valid stage source.
 - [x] A3 post-review repairs `836705200f7b4a7eca05bb93925dde4fbb9124f8` and `5f7406d992b4d2dba19408d738799b298673009a` are integrated.
-- [x] Round2 Lane A guard commands passed on integration HEAD `e17cb8b393293f34ae8af73238906b66abc8d45c`.
+- [x] Round2 Lane A guard commands passed on code verification head `e17cb8b393293f34ae8af73238906b66abc8d45c`.
 
 ## Gate 3: Lane B Completion
 
@@ -43,9 +43,10 @@ Status: passed after A3 round2 integration on `e17cb8b393293f34ae8af73238906b66a
 
 ## Gate 5: Integration
 
-Status: passed on integration HEAD `e17cb8b393293f34ae8af73238906b66abc8d45c` after A3 round2 and docs round2 were merged.
+Status: passed on code verification head `e17cb8b393293f34ae8af73238906b66abc8d45c` after A3 round2 and docs round2 were merged.
 
 - [x] A3 round2 worker commit `5f7406d992b4d2dba19408d738799b298673009a` was merged by `0b16e06f`.
 - [x] Docs round2 commit `ade6151d28c4d6480029cfe087322ec2acb2aebf` was merged by `e17cb8b3`.
-- [x] Lane A, Lane B, C1 writer-surface `rg`, archtest, `make guard`, and diff checks passed fresh on `e17cb8b3`.
+- [x] Lane A, Lane B, C1 writer-surface `rg`, archtest, `make guard`, and diff checks passed fresh on code verification head `e17cb8b3`.
+- [x] This docs-only status commit keeps workflow state synchronized after those gates.
 - [x] Workflow `STATE.json`, `CHECKS/EVIDENCE.md`, `RESULT_GATES.md`, and `HANDOFF.md` updated to final integrated state.

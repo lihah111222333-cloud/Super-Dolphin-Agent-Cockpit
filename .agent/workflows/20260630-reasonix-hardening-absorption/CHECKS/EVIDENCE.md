@@ -364,11 +364,11 @@ Pre-round2 dispatch decision, later reopened:
 
 ## 2026-06-30 A3 Post-review Repairs
 
-Status: A3 pre-round2 closure was reopened by review, then closed after round2 integration and fresh gates on `e17cb8b393293f34ae8af73238906b66abc8d45c`.
+Status: A3 pre-round2 closure was reopened by review, then closed after round2 integration and fresh gates on final code verification head `e17cb8b393293f34ae8af73238906b66abc8d45c`.
 
 Repair commits:
 
-- `836705200f7b4a7eca05bb93925dde4fbb9124f8` (`修复只读子代理启动工具面`) is included in current integration HEAD `7c14c7ee435ae9051672ca79962cd938ba5ce780`.
+- `836705200f7b4a7eca05bb93925dde4fbb9124f8` (`修复只读子代理启动工具面`) is included by round2 base head `7c14c7ee435ae9051672ca79962cd938ba5ce780`.
 - `5f7406d992b4d2dba19408d738799b298673009a` (`修复只读子代理原生工具面`) was merged by `0b16e06f`.
 - Docs round2 commit `ade6151d28c4d6480029cfe087322ec2acb2aebf` was merged by `e17cb8b3`.
 
@@ -406,11 +406,11 @@ git diff --check
 
 Controller final evidence:
 
-- `git diff --check 7c14c7ee435ae9051672ca79962cd938ba5ce780...HEAD` passed on `e17cb8b393293f34ae8af73238906b66abc8d45c`.
+- `git diff --check 7c14c7ee435ae9051672ca79962cd938ba5ce780...HEAD` passed on code verification head `e17cb8b393293f34ae8af73238906b66abc8d45c`.
 - `git diff --check 5ccc29e69c48c407895b2d9a4182b0d124d6b813...HEAD` passed.
 - `git diff --cached --check` passed.
 - Round2 A3 focused guard, broad A3/toolpolicy guard, Lane A guard, Lane B guard, C1 scoped writer-surface `rg`, archtest aggregation, and `make guard` passed.
-- Final closure is recorded against integration HEAD `e17cb8b393293f34ae8af73238906b66abc8d45c`.
+- Final code gates are recorded against code verification head `e17cb8b393293f34ae8af73238906b66abc8d45c`; this docs-only status commit keeps workflow state synchronized after those gates.
 
 ## 2026-06-30 B1 Sessionpaths Core Review And Integration
 
@@ -594,7 +594,7 @@ Dispatch decision:
 
 ## 2026-06-30 PN Final Integration Gate After A3 Round2
 
-Status: final integration review and verification completed on `e17cb8b393293f34ae8af73238906b66abc8d45c`.
+Status: final code verification completed on `e17cb8b393293f34ae8af73238906b66abc8d45c`; this docs-only status commit records that result.
 
 Integrated commits:
 
@@ -616,7 +616,7 @@ rg -n --glob '!docs/archive/**' --glob '!docs/doc/codemap/**' 'memory_write|work
 make guard
 ```
 
-All commands above passed on integration HEAD `e17cb8b393293f34ae8af73238906b66abc8d45c`.
+All commands above passed on code verification head `e17cb8b393293f34ae8af73238906b66abc8d45c`.
 
 Dispatch decision:
 

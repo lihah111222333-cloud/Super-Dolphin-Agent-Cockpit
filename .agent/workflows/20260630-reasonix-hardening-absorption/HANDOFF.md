@@ -2,7 +2,7 @@
 
 ## Current Status
 
-Overall: done on integration HEAD `e17cb8b393293f34ae8af73238906b66abc8d45c`. A3 round2 commit `5f7406d992b4d2dba19408d738799b298673009a` was merged by `0b16e06f`, docs round2 commit `ade6151d28c4d6480029cfe087322ec2acb2aebf` was merged by `e17cb8b3`, and fresh final gates passed on that HEAD.
+Overall: done. A3 round2 commit `5f7406d992b4d2dba19408d738799b298673009a` was merged by `0b16e06f`, docs round2 commit `ade6151d28c4d6480029cfe087322ec2acb2aebf` was merged by `e17cb8b3`, and fresh final gates passed on final code verification head `e17cb8b393293f34ae8af73238906b66abc8d45c`. This docs-only status commit keeps the workflow state synchronized after those gates.
 
 ## Completed
 
@@ -20,14 +20,14 @@ Overall: done on integration HEAD `e17cb8b393293f34ae8af73238906b66abc8d45c`. A3
 - A3 was later reopened by post-review findings on read-only launch/native tool propagation.
 - Post-review repair `836705200f7b4a7eca05bb93925dde4fbb9124f8` is integrated in current HEAD.
 - Round2 repair `5f7406d992b4d2dba19408d738799b298673009a` fixed Codex native disabled-tool propagation through orchestration launch, thread config, and provider tests; it was merged by `0b16e06f`.
-- Fresh round2 Lane A focused gates and `make guard` passed on `e17cb8b393293f34ae8af73238906b66abc8d45c`.
+- Fresh round2 Lane A focused gates and `make guard` passed on code verification head `e17cb8b393293f34ae8af73238906b66abc8d45c`.
 - B1 completed in `codex/reasonix-hardening-b1-20260630` at `2f8c85a569037f25950498dc484848b80cc942a1`.
 - B1 added `internal/platform/sessionpaths`, golden tests, and the stdlib dependency guard without migrating callers.
 - B2 completed in `codex/reasonix-hardening-b2-20260630` at `28e36eae9cc079daca0ffbbbd05d0836125a7d2e`.
 - B2 migrated provider/util/thread callers to `sessionpaths`; Lane B focused gates and `make guard` passed after integration.
 - C1 completed in `codex/reasonix-hardening-c1-20260630` at `e13c157123fd4999b21387af0583d3a2d45f13b7`.
 - C1 produced `docs/adr/2026-06-30-writer-preview-contract-spike.md` only; Lane C focused gates passed after integration.
-- PN final integration gates passed after A3 round2 on `e17cb8b393293f34ae8af73238906b66abc8d45c`.
+- PN final gates passed after A3 round2 on code verification head `e17cb8b393293f34ae8af73238906b66abc8d45c`.
 
 ## In Progress
 
@@ -40,7 +40,7 @@ Overall: done on integration HEAD `e17cb8b393293f34ae8af73238906b66abc8d45c`. A3
 
 ## Recommended Next Action
 
-Review or merge final integration HEAD `e17cb8b393293f34ae8af73238906b66abc8d45c`. Fresh gates already passed with:
+Review or merge the integration branch. Fresh gates already passed on code verification head `e17cb8b393293f34ae8af73238906b66abc8d45c` with:
 
 ```bash
 ./scripts/test_with_guard.sh ./internal/platform/toolpolicy ./internal/provider/toolfilter ./internal/platform/toolbridge ./internal/provider/codexapp ./internal/provider/claudecli -run 'Plan|ReadOnly|Trust|Shell|Lifecycle|Sandbox|Permission|Reviewer|Worker|FullAccess|Native|Tool' -count=1

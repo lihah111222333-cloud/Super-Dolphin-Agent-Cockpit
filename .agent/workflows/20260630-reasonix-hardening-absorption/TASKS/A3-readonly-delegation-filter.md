@@ -62,7 +62,7 @@ rg -n 'ReviewerDecision|reviewerAllowedTools|reviewerDeniedTools|shared_file_wri
 
 The orchestrator applied the exact delegation package command from A0 evidence before A3 dispatch. The original A3 branch completed at `2637e908adebffff737f9470adb84d647e017cbb`, then post-review repairs expanded the A3 surface:
 
-- `836705200f7b4a7eca05bb93925dde4fbb9124f8` fixed read-only launch tool-surface propagation and is already in current integration HEAD.
+- `836705200f7b4a7eca05bb93925dde4fbb9124f8` fixed read-only launch tool-surface propagation and is included before the final code verification head.
 - `5f7406d992b4d2dba19408d738799b298673009a` fixed Codex native disabled-tool propagation from launch config through thread/provider startup and was merged by `0b16e06f`.
 
 Round2 verification recorded by the worker:
@@ -73,7 +73,7 @@ Round2 verification recorded by the worker:
 git diff --check
 ```
 
-Controller final gates also passed on integration HEAD `e17cb8b393293f34ae8af73238906b66abc8d45c`; see `CHECKS/EVIDENCE.md`.
+Controller final gates also passed on code verification head `e17cb8b393293f34ae8af73238906b66abc8d45c`; see `CHECKS/EVIDENCE.md`.
 
 ## 7. DoD
 
