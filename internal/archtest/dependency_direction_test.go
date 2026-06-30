@@ -660,11 +660,23 @@ func goListDeps(t *testing.T, root, relPkg string) []string {
 	t.Helper()
 	cmd := exec.Command("go", "list", "-deps", "./"+relPkg)
 	cmd.Dir = root
-	out, err := cmd.Output()
+	cmd.Env = archtestSubprocessEnv(os.Environ())
+	out, err := cmd.CombinedOutput()
 	if err != nil {
-		t.Fatalf("go list -deps %s: %v", relPkg, err)
+		t.Fatalf("go list -deps ./%s: %v\n%s", relPkg, err, string(out))
 	}
 	lines := strings.Fields(string(out))
 	slices.Sort(lines)
 	return lines
+}
+
+func archtestSubprocessEnv(env []string) []string {
+	out := make([]string, 0, len(env))
+	for _, kv := range env {
+		if strings.HasPrefix(kv, "GIT_") {
+			continue
+		}
+		out = append(out, kv)
+	}
+	return out
 }

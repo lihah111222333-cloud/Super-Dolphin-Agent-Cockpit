@@ -86,7 +86,7 @@ func TestTestWithGuardPowerShellWrapperMatchesBashContract(t *testing.T) {
 		"go\\s+test",
 		"function Invoke-Guard",
 		"code_size_guard.go",
-		"TestCodeSizeGuard",
+		"./internal/archtest",
 		"function Test-AllArgsAreGoFiles",
 		"function Invoke-SingleFileGuard",
 		"[System.IO.Path]::GetFullPath",
@@ -95,6 +95,18 @@ func TestTestWithGuardPowerShellWrapperMatchesBashContract(t *testing.T) {
 		"& $realGo test @GuardArgs",
 	} {
 		assertScriptContains(t, script, want)
+	}
+}
+
+func TestTestWithGuardGuardOnlyRunsFullArchtest(t *testing.T) {
+	for _, scriptName := range []string{"test_with_guard.sh", "test_with_guard.ps1"} {
+		t.Run(scriptName, func(t *testing.T) {
+			script := readScript(t, scriptName)
+			assertScriptContains(t, script, "test ./internal/archtest -count=1")
+			if strings.Contains(script, "-run TestCodeSizeGuard") {
+				t.Fatalf("%s still narrows guard-only to TestCodeSizeGuard", scriptName)
+			}
+		})
 	}
 }
 

@@ -46,7 +46,11 @@ func collectOnionArchitectureViolations(root, scanRoot string, skipDirs map[stri
 			return err
 		}
 		rel = filepath.ToSlash(rel)
-		*violations = append(*violations, onionArchitectureViolationsForFile(path, rel)...)
+		fileViolations, err := onionArchitectureViolationsForFile(path, rel)
+		if err != nil {
+			return err
+		}
+		*violations = append(*violations, fileViolations...)
 		return nil
 	})
 }
@@ -58,14 +62,14 @@ func shouldSkipOnionWalkEntry(info os.FileInfo, skipDirs map[string]bool) bool {
 	return skipDirs[info.Name()]
 }
 
-func onionArchitectureViolationsForFile(path, rel string) []string {
+func onionArchitectureViolationsForFile(path, rel string) ([]string, error) {
 	guarded, isDomain, isService := onionLayerFlags(rel)
 	if !guarded {
-		return nil
+		return nil, nil
 	}
 	fileNode, parseErr := parser.ParseFile(token.NewFileSet(), path, nil, parser.ImportsOnly)
 	if parseErr != nil {
-		return nil
+		return nil, fmt.Errorf("parse %s: %w", rel, parseErr)
 	}
 	var violations []string
 	for _, imp := range fileNode.Imports {
@@ -75,7 +79,7 @@ func onionArchitectureViolationsForFile(path, rel string) []string {
 		importPath := strings.Trim(imp.Path.Value, "\"")
 		violations = append(violations, onionImportViolations(rel, importPath, isDomain, isService)...)
 	}
-	return violations
+	return violations, nil
 }
 
 func onionLayerFlags(rel string) (guarded, isDomain, isService bool) {

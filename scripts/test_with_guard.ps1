@@ -223,7 +223,7 @@ function Invoke-Guard {
             $script:LastStatus = $LASTEXITCODE
             return
         }
-        & $realGo test -run TestCodeSizeGuard ./internal/archtest/... -count=1
+        & $realGo test ./internal/archtest -count=1
         $script:LastStatus = $LASTEXITCODE
     } finally {
         Pop-Location

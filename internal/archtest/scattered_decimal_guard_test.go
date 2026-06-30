@@ -67,7 +67,7 @@ func scatteredDecimalViolationsForFile(root, path string) ([]string, error) {
 	fset := token.NewFileSet()
 	fileNode, parseErr := parser.ParseFile(fset, path, nil, 0)
 	if parseErr != nil {
-		return nil, nil
+		return nil, fmt.Errorf("parse %s: %w", rel, parseErr)
 	}
 	var violations []string
 	for _, decl := range fileNode.Decls {
