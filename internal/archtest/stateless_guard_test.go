@@ -61,7 +61,7 @@ func visitStatelessGuardPath(root string, skipDirs map[string]bool, violations *
 	}
 	fileNode, parseErr := parser.ParseFile(token.NewFileSet(), path, nil, 0)
 	if parseErr != nil {
-		return nil
+		return fmt.Errorf("parse %s: %w", rel, parseErr)
 	}
 	if globalVarCount := countGlobalVars(fileNode); globalVarCount > 0 {
 		*violations = append(*violations, fmt.Sprintf("%s: 核心业务层违规: 必须保持无状态，禁止任何包级全局变量 var（当前发现 %d 个）", rel, globalVarCount))

@@ -73,10 +73,15 @@ First-run side effects (auto, no manual step):
   `~/.super-dolphin/skills/personal/{user,agent,imported}/` for active personal
   skills (`SUPER_DOLPHIN_HOME` can override the home root). `personal/hub` is
   catalog-only and is not scanned, mirrored, or exposed to providers.
-- Provider-native skill mirrors are reconciled before provider launch/acquire:
-  project mirrors live under `<workspace>/.claude/skills/` and `<workspace>/.agents/skills/`;
-  personal mirrors live under `~/.claude/skills/` and `~/.agents/skills/` by default,
-  or under an explicit provider home `skills/` directory when configured.
+- Provider-native skill mirrors are reconciled before provider launch/acquire.
+  Project canonical skills live under tracked `<workspace>/.agent/skills/`.
+  The project Codex mirror `<workspace>/.agents/skills/` is also tracked and
+  validated against canonical skills for repo-local Codex/AGENTS behavior; edit
+  `.agent/skills` as the source of truth, then refresh/validate the mirror.
+  `<workspace>/.claude/skills/` is optional and validated only when present.
+  Personal mirrors live under `~/.claude/skills/` and `~/.agents/skills/` by
+  default, or under an explicit provider home `skills/` directory when
+  configured.
 - Legacy `.claude/settings.json` nativefilter deny entries are not written or cleared during provider launch; skill visibility now comes from provider-native mirrors, not settings injection.
 
 ### Optional: Codex Fast Mode
@@ -142,9 +147,14 @@ SUPER_DOLPHIN_BACKEND_HOT_RELOAD=1 SUPER_DOLPHIN_HOT_WATCH_PATHS="cmd internal p
 
 - Canonical skill truth lives in project `<workspace>/.agent/skills/` plus
   active personal `~/.super-dolphin/skills/personal/{user,agent,imported}/`.
-  Provider-native mirror directories are generated, ignored, and not committed;
-  `personal/hub` is reserved for catalog/marketplace source data and is not a
-  runtime canonical root.
+  Project `<workspace>/.agents/skills/` is a generated provider-native Codex
+  mirror, but this repository intentionally tracks it and
+  `scripts/validate_super_agent_skills.py` requires it to match meaningful
+  source files from `.agent/skills` after whitespace normalization; generated
+  coverage artifacts are not part of the mirror contract. Optional
+  `.claude/skills` and personal provider mirrors are
+  generated mirror targets, not canonical roots. `personal/hub` is reserved for
+  catalog/marketplace source data and is not a runtime canonical root.
 - The legacy `skill_expand_body` / `skill_read_resource` MCP tools are gone; Claude
   and Codex discover skills via provider-native mirrors under project and personal
   provider-native roots (`<workspace>/.claude/skills/`, `<workspace>/.agents/skills/`,
