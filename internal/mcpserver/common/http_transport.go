@@ -15,6 +15,8 @@ import (
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
+const maxHTTPBodyBytes = 10 * 1024 * 1024
+
 // HTTPServerOption 配置 legacy Streamable HTTP MCP transport。
 //
 // Deprecated: HTTP MCP transport 仅保留给旧调用方；当前工具执行路径使用 stdio MCP sidecar Server。
@@ -125,9 +127,9 @@ func (h *HTTPServer) handleMCP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer r.Body.Close()
-	body, err := io.ReadAll(io.LimitReader(r.Body, 10*1024*1024)) // 10MB limit
+	body, err := readLimitedHTTPBody(r.Body)
 	if err != nil {
-		writeJSONError(w, nil, codeParseError, "read body failed")
+		writeJSONError(w, nil, codeParseError, err.Error())
 		return
 	}
 
@@ -149,6 +151,18 @@ func (h *HTTPServer) handleMCP(w http.ResponseWriter, r *http.Request) {
 		pkglogger.Warn("mcp http: write response failed",
 			"server", h.name, "error", err)
 	}
+}
+
+// readLimitedHTTPBody 读取 HTTP JSON-RPC body，并用 limit+1 检测避免截断后继续解析。
+func readLimitedHTTPBody(body io.Reader) ([]byte, error) {
+	raw, err := io.ReadAll(io.LimitReader(body, maxHTTPBodyBytes+1))
+	if err != nil {
+		return nil, fmt.Errorf("read body failed: %w", err)
+	}
+	if len(raw) > maxHTTPBodyBytes {
+		return nil, fmt.Errorf("request body exceeds %d bytes", maxHTTPBodyBytes)
+	}
+	return raw, nil
 }
 
 // authorized 校验可选 bearer token；未配置 token 时允许 legacy 本地调用通过。
@@ -223,6 +237,9 @@ func (h *HTTPServer) handleToolsList(ctx context.Context, req jsonRPCRequest) *j
 	}
 	tools, err := h.tools.ListTools(ctx)
 	if err != nil {
+		return errorResponse(req.ID, codeInternal, err.Error())
+	}
+	if err := validateToolsList(tools); err != nil {
 		return errorResponse(req.ID, codeInternal, err.Error())
 	}
 	return maybeResult(req.ID, map[string]any{"tools": tools})
