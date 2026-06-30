@@ -357,10 +357,6 @@ aliases: ["@代码审查维度", "@review-dimensions"]
 6. 新增守卫必须有 fail-first 证据：测试名、临时破坏后的失败摘要、恢复后的通过命令。
 7. 守卫必须进入 CI、pre-push 或仓库强制门禁；仅本地可运行不算通过，靠降低 baseline、删除 snapshot、注释测试通过的修改按 P1 处理。
 
-## Skill 文档审查补充
-
-审查 repo-local skill 变更时，还要确认 canonical `.agent/skills` 是事实源，`.agents/skills` 与 `.claude/skills` mirror 没有漂移；若 `.agent/skills/.super-dolphin-skill-policy.json` 已登记该 skill，必须同步对应 sha256 hash。技能文本必须通过 `python3 scripts/validate_super_agent_skills.py`，并确认没有旧项目词、错误命令、错误触发路由或过期 mirror 证据。
-
 ## 严重度标准
 
 | 级别 | 判定条件 |
