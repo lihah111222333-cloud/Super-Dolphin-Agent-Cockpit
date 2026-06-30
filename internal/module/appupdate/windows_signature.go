@@ -10,6 +10,8 @@ import (
 	"runtime"
 	"strings"
 	"time"
+
+	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
 )
 
 type windowsInstallerSignatureVerifier func(path, publisher, thumbprint string) error
@@ -42,7 +44,7 @@ func verifyWindowsInstallerSignatureWithPowerShell(path, publisher, thumbprint s
 		return errors.New("Windows app update installer Authenticode verification requires Windows runtime")
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	ctx, cancel := platformconfig.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	script := `
 $sig = Get-AuthenticodeSignature -LiteralPath $args[0]
