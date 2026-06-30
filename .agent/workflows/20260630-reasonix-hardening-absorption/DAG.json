@@ -42,14 +42,14 @@
       "title": "Add sessionpaths leaf helper and golden tests",
       "deps": ["A2-toolbridge-stage-gate", "A3-readonly-delegation-filter"],
       "owner": "agent-b1",
-      "state": "ready"
+      "state": "done"
     },
     {
       "id": "B2-sessionpaths-migration",
       "title": "Migrate rollout and scratchpad callers to sessionpaths",
       "deps": ["B1-sessionpaths-core"],
       "owner": "agent-b2",
-      "state": "waiting"
+      "state": "ready"
     },
     {
       "id": "C1-writer-preview-spike",

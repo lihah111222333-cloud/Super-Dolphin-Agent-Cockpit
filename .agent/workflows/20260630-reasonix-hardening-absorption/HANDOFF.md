@@ -19,6 +19,8 @@ Overall: in progress. The user approved the full workflow with Lane A first, and
 - A3 completed in `codex/reasonix-hardening-a3-20260630` at `2637e908adebffff737f9470adb84d647e017cbb`.
 - A3 was held twice during main review: first for prefix-style deny evidence that did not match real `DeniedTools` exact-name semantics, then for missing Codex native recursive controls.
 - Lane A focused gates and `make guard` passed after A3 integration.
+- B1 completed in `codex/reasonix-hardening-b1-20260630` at `2f8c85a569037f25950498dc484848b80cc942a1`.
+- B1 added `internal/platform/sessionpaths`, golden tests, and the stdlib dependency guard without migrating callers.
 
 ## In Progress
 
@@ -30,13 +32,13 @@ Overall: in progress. The user approved the full workflow with Lane A first, and
 
 ## Recommended Next Action
 
-Dispatch B1 next in an isolated worker worktree:
+Dispatch B2 next in an isolated worker worktree:
 
 ```text
-执行 B1-sessionpaths-core；只创建 sessionpaths leaf package and dependency guard，不迁移 callers。
+执行 B2-sessionpaths-migration；迁移 provider/util/thread callers 到 sessionpaths，保持 Codex home fallback 与 scratchpad cleanup 语义不变。
 ```
 
-This starts Lane B only after Lane A has passed.
+This continues Lane B only after B1 has been integrated and reviewed.
 
 ## After Approval
 

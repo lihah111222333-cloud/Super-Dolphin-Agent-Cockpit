@@ -1,7 +1,7 @@
 ---
 task_id: B1-sessionpaths-core
 owner: agent-b1
-status: ready
+status: done
 depends_on: [A2-toolbridge-stage-gate, A3-readonly-delegation-filter]
 ---
 
@@ -49,10 +49,10 @@ Add a stdlib-only `internal/platform/sessionpaths` package that captures current
 
 ## 7. DoD
 
-- [ ] Golden tests capture current path strings.
-- [ ] Package is stdlib-only.
-- [ ] Dependency guard is limited to sessionpaths import direction.
-- [ ] No caller migration yet.
+- [x] Golden tests capture current path strings.
+- [x] Package is stdlib-only.
+- [x] Dependency guard is limited to sessionpaths import direction.
+- [x] No caller migration yet.
 
 ## 8. Rollback
 

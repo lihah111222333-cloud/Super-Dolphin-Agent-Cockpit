@@ -27,7 +27,7 @@
 
 ## Gate 3: Lane B Completion
 
-- [ ] B1 sessionpaths golden tests pass before migration.
+- [x] B1 sessionpaths golden tests pass before migration.
 - [ ] B2 caller migration preserves rollout and scratchpad behavior.
 - [ ] B1 dependency guard and B2 literal-placement guard pass.
 - [ ] Affected package guard command passes.

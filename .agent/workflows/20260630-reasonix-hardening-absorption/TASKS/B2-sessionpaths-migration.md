@@ -1,7 +1,7 @@
 ---
 task_id: B2-sessionpaths-migration
 owner: agent-b2
-status: waiting
+status: ready
 depends_on: [B1-sessionpaths-core]
 ---
 

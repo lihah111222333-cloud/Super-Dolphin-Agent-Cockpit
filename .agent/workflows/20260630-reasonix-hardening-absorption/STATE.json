@@ -1,6 +1,6 @@
 {
   "workflow_key": "20260630-reasonix-hardening-absorption",
-  "last_updated": "2026-06-30T20:49:24+09:00",
+  "last_updated": "2026-06-30T21:16:10+09:00",
   "overall_status": "in_progress",
   "source_plan": "docs/plans/2026-06-30-reasonix-hardening-absorption-review.md",
   "source_plan_status": "NEEDS_APPROVAL",
@@ -32,11 +32,18 @@
       "native_recursive_commit": "2637e908adebffff737f9470adb84d647e017cbb",
       "status": "done",
       "review": "Prefix deny sentinel and missing Codex native recursive controls fixed before integration"
+    },
+    "B1-sessionpaths-core": {
+      "agent_id": "019f1868-b4b7-7e41-9b42-2f5ce1e7d2f0",
+      "branch": "codex/reasonix-hardening-b1-20260630",
+      "commit": "2f8c85a569037f25950498dc484848b80cc942a1",
+      "status": "done",
+      "review": "Leaf sessionpaths helper, golden tests, and stdlib dependency guard accepted before B2 migration"
     }
   },
   "next_actions": [
     "Keep A2 closed as not_applicable_with_evidence unless a future approved source introduces an authoritative stage carrier.",
-    "Dispatch B1 in an isolated worker worktree; Lane A gates have passed.",
-    "Do not start B2 until B1 is integrated and its path golden tests pass."
+    "Dispatch B2 in an isolated worker worktree; B1 is integrated and its path golden tests passed.",
+    "Do not start C1 until B2 is integrated and Lane B caller behavior gates pass."
   ]
 }
