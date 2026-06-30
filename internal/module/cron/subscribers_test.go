@@ -97,7 +97,7 @@ func TestCronProgressWorkerWarnsAndCountsStaleTerminal(t *testing.T) {
 	scheduler := NewScheduler(slog.Default(), store, &programmableSubmitter{}, SchedulerConfig{ClaimedBy: "test"})
 	worker := newCronProgressWorker(scheduler, logger)
 
-	worker.dispatch(cronProgressRequest{kind: cronCompleteTurn, turnID: "stale-turn", success: true})
+	worker.dispatch(context.Background(), cronProgressRequest{kind: cronCompleteTurn, turnID: "stale-turn", success: true})
 
 	if got := worker.staleTotal.Load(); got != 1 {
 		t.Fatalf("staleTotal = %d, want 1", got)

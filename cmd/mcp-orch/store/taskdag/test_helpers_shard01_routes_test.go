@@ -82,7 +82,7 @@ var fakeTaskDAGQueryRowRoutes = []fakeTaskDAGQueryRowRoute{
 	{tokens: []string{"FailTaskDagNodeIfNonTerminal"}, run: (*fakeTaskDAGDB).failNodeIfNonTerminal},
 	{tokens: []string{"PatchTaskDagNodeConfigIfUnchanged"}, run: (*fakeTaskDAGDB).patchNodeConfigIfUnchanged},
 	{tokens: []string{"ClaimTaskDagNodeOutputMaterialization"}, run: (*fakeTaskDAGDB).claimNodeOutputMaterialization},
-	{tokens: []string{"UpdateTaskDagNodeStatusFlexible"}, run: (*fakeTaskDAGDB).updateNodeStatusFlexible},
+	{tokens: []string{"UpdateTaskDagNodeStatusIfCurrent"}, run: (*fakeTaskDAGDB).updateNodeStatusIfCurrent},
 	{tokens: []string{"UpdateRunningTaskDagNodeStatus"}, run: (*fakeTaskDAGDB).updateRunningNodeStatus},
 	{tokens: []string{"UpdateTaskDagNodeSpawningThread"}, run: (*fakeTaskDAGDB).updateNodeSpawningThread},
 	{tokens: []string{"GetTaskDagRun"}, run: (*fakeTaskDAGDB).getTaskDagRun},

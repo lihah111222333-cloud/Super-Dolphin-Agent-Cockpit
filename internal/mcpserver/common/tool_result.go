@@ -66,7 +66,7 @@ func ResolveToolResultText(value any, raw []byte) (string, error) {
 }
 
 // BuildToolCallResult 生成 stdio、HTTP 和 scoped MCP 共用的工具调用结果 envelope。
-// content 使用 []map[string]string，方便跨包测试读取，同时 JSON 线格式与 textContent 等价。
+// content 使用 []map[string]string，方便跨包测试读取，同时保持 MCP text content 线格式。
 func BuildToolCallResult(value any) (map[string]any, error) {
 	raw, err := json.Marshal(value)
 	if err != nil {

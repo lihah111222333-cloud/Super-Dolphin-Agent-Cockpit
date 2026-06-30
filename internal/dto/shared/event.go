@@ -42,10 +42,7 @@ const (
 
 // DAG 任务事件（1300-1349）。
 const (
-	EventTypeTaskDagCreated        uint32 = 1300
 	EventTypeTaskNodeStatusChanged uint32 = 1301
-	EventTypeTaskWakeupDispatched  uint32 = 1302
-	EventTypeTaskWakeupCompleted   uint32 = 1303
 )
 
 // Thread 生命周期事件（1350-1399）。
@@ -154,12 +151,6 @@ type TaskNodeHeader struct {
 	NodeKey string `json:"node_key"`
 	RunID   int64  `json:"run_id,omitempty"`
 	RunKey  string `json:"run_key,omitempty"`
-}
-
-// TaskWakeupHeader 标识 DAG wakeup 级别的任务事件。
-type TaskWakeupHeader struct {
-	TaskNodeHeader
-	WakeupID int64 `json:"wakeup_id"`
 }
 
 // UIProjectionHeader 标识 UI 投影事件。

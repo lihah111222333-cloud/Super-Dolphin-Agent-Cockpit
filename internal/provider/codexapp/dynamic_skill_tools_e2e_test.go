@@ -161,7 +161,11 @@ func runDynamicSkillToolsModelE2E(t *testing.T, scenario dynamicSkillModelScenar
 		}}, nil
 	}).(*driver)
 
-	sessionAny, err := drv.StartSession(context.Background(), providerdto.StartSessionRequest{AgentID: "agent-1", CWD: t.TempDir()})
+	sessionAny, err := drv.StartSession(context.Background(), providerdto.StartSessionRequest{
+		AgentID:       "agent-1",
+		CWD:           t.TempDir(),
+		StartAssembly: validStartAssemblyForTest(),
+	})
 	if err != nil {
 		t.Fatalf("StartSession() error = %v", err)
 	}

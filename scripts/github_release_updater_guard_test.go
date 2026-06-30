@@ -23,6 +23,8 @@ func TestWindowsPackagingEmbedsAppUpdateConfig(t *testing.T) {
 		"SUPER_DOLPHIN_UPDATE_PUBLIC_KEY",
 		"SUPER_DOLPHIN_UPDATE_CHANNEL",
 		"SUPER_DOLPHIN_UPDATE_VERSION",
+		"SUPER_DOLPHIN_UPDATE_WINDOWS_PUBLISHER",
+		"SUPER_DOLPHIN_UPDATE_WINDOWS_THUMBPRINT",
 		"Resolve-UpdateConfig",
 		"Write-PackagedUpdateEnv -BundleRoot $Stage",
 	} {
@@ -35,8 +37,11 @@ func TestWindowsPackagingEmbedsAppUpdateConfig(t *testing.T) {
 	for _, want := range []string{
 		"Verify-UpdateEnv",
 		"SUPER_DOLPHIN_UPDATE_MANIFEST_URL or SUPER_DOLPHIN_UPDATE_GITHUB_REPO is required when app update is enabled",
+		"SUPER_DOLPHIN_UPDATE_MANIFEST_URL and SUPER_DOLPHIN_UPDATE_GITHUB_REPO are mutually exclusive",
 		"SUPER_DOLPHIN_UPDATE_GITHUB_REPO must be owner/repo without whitespace",
+		"known placeholder update repo is not allowed",
 		"decoded SUPER_DOLPHIN_UPDATE_PUBLIC_KEY must be 32 bytes",
+		"SUPER_DOLPHIN_UPDATE_WINDOWS_THUMBPRINT must be a 40-character certificate thumbprint",
 		"packaged app update env verified",
 	} {
 		assertScriptContains(t, verify, want)
@@ -44,15 +49,19 @@ func TestWindowsPackagingEmbedsAppUpdateConfig(t *testing.T) {
 	assertScriptContains(t, local, "$env:SUPER_DOLPHIN_UPDATE_GITHUB_REPO")
 	assertScriptContains(t, local, "$env:SUPER_DOLPHIN_UPDATE_PUBLIC_KEY")
 	assertScriptContains(t, local, "$env:SUPER_DOLPHIN_UPDATE_CHANNEL")
+	assertScriptContains(t, local, "$env:SUPER_DOLPHIN_UPDATE_WINDOWS_PUBLISHER")
+	assertScriptContains(t, local, "$env:SUPER_DOLPHIN_UPDATE_WINDOWS_THUMBPRINT")
 }
 
 func TestPackageEnvExampleDocumentsGitHubReleaseUpdateInputsWithoutSecrets(t *testing.T) {
 	example := readScript(t, "../.env.packaging.example")
 	for _, want := range []string{
-		"SUPER_DOLPHIN_UPDATE_GITHUB_REPO=xiaoxiaotest9527-bit/-",
+		"SUPER_DOLPHIN_UPDATE_GITHUB_REPO=super-dolphin/releases",
 		"SUPER_DOLPHIN_UPDATE_PUBLIC_KEY=",
 		"SUPER_DOLPHIN_UPDATE_CHANNEL=gray",
 		"SUPER_DOLPHIN_UPDATE_MINIMUM_VERSION=0.0.0",
+		"SUPER_DOLPHIN_UPDATE_WINDOWS_PUBLISHER=",
+		"SUPER_DOLPHIN_UPDATE_WINDOWS_THUMBPRINT=",
 		"SUPER_DOLPHIN_UPDATE_PREVIOUS_DMG=",
 		"SUPER_DOLPHIN_UPDATE_PREVIOUS_APP=",
 		"SUPER_DOLPHIN_UPDATE_PREVIOUS_ENV_FILE=",
@@ -60,6 +69,7 @@ func TestPackageEnvExampleDocumentsGitHubReleaseUpdateInputsWithoutSecrets(t *te
 	} {
 		assertScriptContains(t, example, want)
 	}
+	assertScriptDoesNotContain(t, example, "xiaoxiaotest9527-bit/-")
 	assertScriptDoesNotContain(t, example, "BEGIN PRIVATE KEY")
 	assertScriptDoesNotContain(t, example, "sk-")
 }
@@ -87,6 +97,7 @@ func TestGitHubReleasePackagingWrappersProduceCanonicalAssets(t *testing.T) {
 		assertScriptContains(t, macos, want)
 	}
 	assertScriptDoesNotContain(t, macos, "SUPER_DOLPHIN_UPDATE_GITHUB_REPO:-xiaoxiaotest9527-bit/-")
+	assertScriptContains(t, macos, "known placeholder update repo is not allowed")
 	assertScriptOrder(t, macos, "resolve_update_public_key", "go run \"$root/cmd/super-dolphin-release-manifest\"")
 	assertScriptOrder(t, macos, "./scripts/package_macos.sh", "go run ./cmd/super-dolphin-release-manifest")
 
@@ -106,7 +117,28 @@ func TestGitHubReleasePackagingWrappersProduceCanonicalAssets(t *testing.T) {
 		assertScriptContains(t, windows, want)
 	}
 	assertScriptDoesNotContain(t, windows, "Default 'xiaoxiaotest9527-bit/-'")
+	assertScriptContains(t, windows, "known placeholder update repo is not allowed")
 	assertScriptOrder(t, windows, "scripts\\package_windows_local.ps1", "cmd/super-dolphin-release-manifest")
+}
+
+func TestPackageScriptsEnforceExactlyOneUpdateSourceAndRepoDenylist(t *testing.T) {
+	macosPackage := readScript(t, "package_macos.sh")
+	macosVerify := readScript(t, "verify_packaged_app_macos.sh")
+	windowsPackage := readScript(t, "package_windows.ps1")
+	windowsVerify := readScript(t, "verify_packaged_app_windows.ps1")
+
+	for scriptName, script := range map[string]string{
+		"package_macos.sh":                macosPackage,
+		"verify_packaged_app_macos.sh":    macosVerify,
+		"package_windows.ps1":             windowsPackage,
+		"verify_packaged_app_windows.ps1": windowsVerify,
+	} {
+		t.Run(scriptName, func(t *testing.T) {
+			assertScriptContains(t, script, "SUPER_DOLPHIN_UPDATE_MANIFEST_URL and SUPER_DOLPHIN_UPDATE_GITHUB_REPO are mutually exclusive")
+			assertScriptContains(t, script, "known placeholder update repo is not allowed")
+			assertScriptContains(t, script, "xiaoxiaotest9527-bit/-")
+		})
+	}
 }
 
 func TestGitHubReleaseWrappersRequireCleanTreeAndRecordBuildCommit(t *testing.T) {

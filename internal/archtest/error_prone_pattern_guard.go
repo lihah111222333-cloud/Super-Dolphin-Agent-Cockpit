@@ -80,12 +80,19 @@ func (g *errorPronePatternGuard) guardAsyncStateTransitionFencePattern() {
 	)
 
 	const runtimeSQLRel = "cmd/mcp-orch/sql/queries/task_dag_node_runtime.sql"
-	g.requireContains(runtimeSQLRel, "asynchronous completion fences must accept pre-running/running/verification states",
+	g.requireContains(runtimeSQLRel, "asynchronous completion fences must accept only canonical active states",
+		"status IN ('ready', 'running')",
+	)
+	g.requireNotContains(runtimeSQLRel, "asynchronous completion fences must not accept legacy awaiting_verify",
 		"status IN ('ready', 'running', 'awaiting_verify')",
 	)
 	const writeSQLRel = "cmd/mcp-orch/sql/queries/task_dag_node_write.sql"
-	g.requireContains(writeSQLRel, "side-effect claim fences must reject terminal rows while accepting active race states",
+	g.requireContains(writeSQLRel, "side-effect claim fences must reject terminal rows while accepting canonical active race states",
 		"ClaimTaskDagNodeOutputMaterialization",
+		"status IN ('ready', 'running')",
+	)
+	g.requireNotContains(writeSQLRel, "side-effect claim must not write legacy awaiting_verify",
+		"SET status = 'awaiting_verify'",
 		"status IN ('ready', 'running', 'awaiting_verify')",
 	)
 }

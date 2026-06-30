@@ -43,7 +43,7 @@ func resolveBinaryPath() string {
 // configFromMap 将 provider runtime config 解析为 Claude CLI 启动配置。
 func configFromMap(cfg map[string]any) cliLaunchConfig {
 	return cliLaunchConfig{
-		ApprovalPolicy:              providershared.ConfigString(cfg, "approval_policy", "approvals"),
+		ApprovalPolicy:              providershared.ConfigString(cfg, "approval_policy", "approvalPolicy", "approvals"),
 		Sandbox:                     providershared.ConfigString(cfg, "sandbox"),
 		Summary:                     providershared.ConfigString(cfg, "summary"),
 		Effort:                      providershared.ConfigString(cfg, "effort"),
@@ -72,6 +72,9 @@ func validateClaudeSecurityConfig(cfg map[string]any) error {
 		return err
 	}
 	if err := validateConfigStringSliceKeys(cfg, "additional_disallowed_tools", "additionalDisallowedTools", "extra_disallowed_tools", "extraDisallowedTools", "claude_additional_disallowed_tools", "claudeAdditionalDisallowedTools"); err != nil {
+		return err
+	}
+	if err := validateConfigStringSliceKeys(cfg, "auto_approve", "autoApprove"); err != nil {
 		return err
 	}
 	return validateConfigBoolKeys(cfg, "providerNativeSkills", "provider_native_skills", "disableProviderNativeSkills", "disable_provider_native_skills")

@@ -26,7 +26,7 @@ run_guard() {
     cd "$ROOT_DIR"
     ./scripts/forbid_raw_go_test.sh
     "$real_go" run ./scripts/code_size_guard.go
-    "$real_go" test -run TestCodeSizeGuard ./internal/archtest/... -count=1
+    "$real_go" test ./internal/archtest -count=1
   )
 }
 

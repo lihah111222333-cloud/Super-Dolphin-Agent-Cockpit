@@ -183,18 +183,62 @@ func (c *AutoDreamConsolidator) runConsolidationExtract(
 	if err != nil {
 		return err
 	}
+	entries, err := prepareConsolidatedMemoryEntries(run.root, items)
+	if err != nil {
+		return err
+	}
 	return run.locks.withDiskStoreLock(run.root, func() error {
-		if err := removeMemoryFiles(run.root, staleMemoryPaths(input.TopicEntries)); err != nil {
-			return err
-		}
-		if err := writeConsolidatedMemories(run.root, items); err != nil {
-			return err
-		}
-		if _, err := UpdateMemoryIndex(run.root); err != nil {
-			return err
-		}
-		return recordConsolidation(run.root, run.now())
+		return commitConsolidationExtract(run.root, input.TopicEntries, entries, run.now())
 	})
+}
+
+// commitConsolidationExtract 在同一个磁盘锁内提交整理结果。
+// 它先建立旧文件/索引回滚快照，再删除 stale、写入 replacement、刷新索引和成功时间戳。
+func commitConsolidationExtract(root string, topicEntries []MemoryEntry, entries []MemoryEntry, when time.Time) (err error) {
+	stalePaths := staleMemoryPaths(topicEntries)
+	rollback, err := newConsolidationCommitRollback(root, stalePaths, entries)
+	if err != nil {
+		return err
+	}
+	committed := false
+	defer func() {
+		restoreConsolidationRollbackOnFailure(rollback, committed, &err)
+	}()
+	if err := removeMemoryFiles(root, stalePaths); err != nil {
+		return err
+	}
+	if err := writePreparedConsolidatedMemories(root, entries); err != nil {
+		return err
+	}
+	if _, err := UpdateMemoryIndex(root); err != nil {
+		return err
+	}
+	if err := recordConsolidation(root, when); err != nil {
+		return err
+	}
+	committed = true
+	return nil
+}
+
+// newConsolidationCommitRollback 收集本次提交可能改动的旧文件路径。
+// replacement 路径也会纳入快照，避免 stamp 失败后留下半成功的新文件。
+func newConsolidationCommitRollback(root string, stalePaths []string, entries []MemoryEntry) (*consolidationRollback, error) {
+	replacementPaths, err := consolidatedMemoryEntryPaths(root, entries)
+	if err != nil {
+		return nil, err
+	}
+	return newConsolidationRollback(root, append(stalePaths, replacementPaths...))
+}
+
+// restoreConsolidationRollbackOnFailure 在提交失败时恢复旧文件。
+// 回滚失败会和原始错误合并返回，避免吞掉真正的写入失败原因。
+func restoreConsolidationRollbackOnFailure(rollback *consolidationRollback, committed bool, err *error) {
+	if committed || rollback == nil || err == nil {
+		return
+	}
+	if rollbackErr := rollback.restore(); rollbackErr != nil {
+		*err = errors.Join(*err, rollbackErr)
+	}
 }
 
 // resolveExtractFunc 选择调用方显式传入或 consolidator 注入的 extract 函数。

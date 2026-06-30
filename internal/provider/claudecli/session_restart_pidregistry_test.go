@@ -38,6 +38,7 @@ func TestRestartIfNeededLockedReRegistersPIDRegistry(t *testing.T) {
 		launchCLI:       launchFn,
 		suppressedTurns: map[string]struct{}{},
 		model:           "claude-old",
+		config:          cliLaunchConfig{PromptSnapshot: validResumePromptSnapshotForTest()},
 	})
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
@@ -122,6 +123,7 @@ func TestRestartIfNeededLockedKeepsOldTransportWhenPIDRegistryFails(t *testing.T
 		suppressedTurns: map[string]struct{}{},
 		model:           "claude-old",
 		transportModel:  "claude-old",
+		config:          cliLaunchConfig{PromptSnapshot: validResumePromptSnapshotForTest()},
 	})
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()

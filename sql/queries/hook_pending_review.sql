@@ -1,21 +1,27 @@
 -- hook_pending_review.sql - sqlc queries for hook_pending_reviews table.
 -- Migrated from internal/store/hookstore/hookstore.go raw SQL.
 
--- name: SaveHookPendingReview :exec
+-- name: SaveHookPendingReview :execrows
 INSERT INTO hook_pending_reviews (
-    hook_call_id, topic, agent_id, subscriber_lease, default_action,
+    hook_call_id, topic, agent_id, thread_id, turn_id, subscriber_lease, payload, default_action,
     status, created_at, deadline_at
-) VALUES (?, ?, ?, ?, ?, 'pending', ?, ?)
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?)
 ON CONFLICT (hook_call_id) DO NOTHING;
 
+-- name: GetHookPendingReviewForSave :one
+SELECT hook_call_id, topic, agent_id, thread_id, turn_id, subscriber_lease, payload, default_action,
+       status, created_at, deadline_at
+FROM hook_pending_reviews
+WHERE hook_call_id = ?;
+
 -- name: GetHookPendingReview :one
-SELECT hook_call_id, topic, agent_id, subscriber_lease, default_action,
+SELECT hook_call_id, topic, agent_id, thread_id, turn_id, subscriber_lease, payload, default_action,
        status, created_at, deadline_at
 FROM hook_pending_reviews
 WHERE hook_call_id = ? AND status = 'pending';
 
 -- name: ListHookPendingReviewsByAgent :many
-SELECT hook_call_id, topic, agent_id, subscriber_lease, default_action,
+SELECT hook_call_id, topic, agent_id, thread_id, turn_id, subscriber_lease, payload, default_action,
        status, created_at, deadline_at
 FROM hook_pending_reviews
 WHERE agent_id = ? AND status = 'pending'
@@ -53,7 +59,7 @@ SET status = 'expired', decision = default_action, resolved_at = ?
 WHERE status = 'pending' AND deadline_at <= ?;
 
 -- name: RecoverHookPendingReviews :many
-SELECT hook_call_id, topic, agent_id, subscriber_lease, default_action,
+SELECT hook_call_id, topic, agent_id, thread_id, turn_id, subscriber_lease, payload, default_action,
        status, created_at, deadline_at
 FROM hook_pending_reviews
 WHERE status = 'pending'

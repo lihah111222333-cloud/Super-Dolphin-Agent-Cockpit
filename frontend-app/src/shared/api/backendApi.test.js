@@ -1368,7 +1368,7 @@ async function callMemoryCenterApis(api) {
     name: 'tdd-rule', description: '先写红测', type: 'feedback', content: '规则', title: '遵守 TDD',
   });
   await api.deleteMemoryEntry({ cwd: '/repo/app', target: 'private', path: 'feedback/tdd.md' });
-  await api.setMemoryAutoDreamIntent({ enabled: true });
+  await api.setMemoryAutoDreamIntent({ cwd: '/repo/app', enabled: true });
   await callMemorySimilarityApis(api);
 }
 
@@ -1393,7 +1393,7 @@ function expectMemoryCenterCalls(callAPI) {
     name: 'tdd-rule', description: '先写红测', type: 'feedback', content: '规则', title: '遵守 TDD',
   });
   expect(callAPI).toHaveBeenCalledWith(RPC_METHODS.UI_MEMORY_ENTRY_DELETE, { cwd: '/repo/app', target: 'private', path: 'feedback/tdd.md' });
-  expect(callAPI).toHaveBeenCalledWith(RPC_METHODS.UI_MEMORY_AUTO_DREAM_SET_INTENT, { enabled: true });
+  expect(callAPI).toHaveBeenCalledWith(RPC_METHODS.UI_MEMORY_AUTO_DREAM_SET_INTENT, { cwd: '/repo/app', enabled: true });
   expectMemorySimilarityCalls(callAPI);
 }
 
@@ -1413,6 +1413,7 @@ function expectMemorySimilarityCalls(callAPI) {
 function expectMemoryCenterValidation(api) {
   expect(() => api.getMemoryEntry({ cwd: '/repo/app', path: '' })).toThrow('path is required');
   expect(() => api.upsertMemoryEntry({ cwd: '/repo/app', name: 'x', description: 'd', type: 'feedback', content: '' })).toThrow('content is required');
+  expect(() => api.setMemoryAutoDreamIntent({ enabled: true })).toThrow('cwd is required');
   expect(() => api.setMemoryAutoDreamIntent({})).toThrow('enabled is required');
   expect(() => api.mergeMemoryEntries({ cwd: '/repo/app', targetA: 'private', pathA: 'a.md', targetB: 'team' })).toThrow('pathB is required');
 }

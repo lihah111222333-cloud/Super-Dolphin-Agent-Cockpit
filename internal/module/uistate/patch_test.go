@@ -443,6 +443,7 @@ func largeThreadPatch() uidto.UIThreadPatch {
 		ThreadID:        "thread-1",
 		Source:          "tool/diffUpdated",
 		Sequence:        7,
+		Generation:      3,
 		Status:          "running",
 		StatusHeader:    "Running",
 		StatusDetails:   "Applying large diff",
@@ -467,7 +468,7 @@ func assertLargeFallbackPatch(t *testing.T, patch uidto.UIThreadPatch) {
 
 func assertLargeFallbackIdentity(t *testing.T, patch uidto.UIThreadPatch) {
 	t.Helper()
-	if patch.ThreadID != "thread-1" || patch.Source != "tool/diffUpdated" || patch.Sequence != 7 {
+	if patch.ThreadID != "thread-1" || patch.Source != "tool/diffUpdated" || patch.Sequence != 7 || patch.Generation != 3 {
 		t.Fatalf("patch identity = %#v", patch)
 	}
 }

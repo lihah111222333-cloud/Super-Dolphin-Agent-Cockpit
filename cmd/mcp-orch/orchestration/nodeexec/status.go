@@ -38,6 +38,23 @@ var legalTransitions = map[transition]struct{}{
 	{NodeStatusRetrying, NodeStatusCancelled}: {},
 }
 
+// LegalTransitionTargetStatusStrings 返回状态机允许作为公开更新目标的状态列表。
+// 顺序跟随持久状态列表，但只保留 legalTransitions 中出现过的 To 状态，
+// 避免 task_update_node schema 暴露 pending 这类不可达目标。
+func LegalTransitionTargetStatusStrings() []string {
+	targets := make(map[NodeStatus]struct{}, len(legalTransitions))
+	for transition := range legalTransitions {
+		targets[transition.To] = struct{}{}
+	}
+	out := make([]string, 0, len(targets))
+	for _, status := range persistedNodeStatusList {
+		if _, ok := targets[status]; ok {
+			out = append(out, string(status))
+		}
+	}
+	return out
+}
+
 // ValidateTransition 校验 from → to 是否是合法的 NodeStatus 转移。
 //
 // 同态（from == to）一律拒绝：上层应去重而不是依赖 idempotent semantics；

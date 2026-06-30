@@ -29,6 +29,7 @@ const EXCLUDES = [
   'docs/archive/**',
   '**/node_modules/**',
   '**/dist/**',
+  '**/web-dist/**',
   '**/coverage/**',
   '**/.vite/**',
   '**/.tmp/**',
@@ -206,7 +207,7 @@ function walk(absDir, relDir, files) {
 
 function shouldSkipDir(rel) {
   const name = path.posix.basename(rel);
-  if (['.build-cache', '.git', '.idea', '.claude', '.workspace', '.worktrees', 'bin', 'node_modules', 'dist', 'coverage', '.vite', '.tmp', 'tmp', '.gocache', '.gomodcache', '.npm-cache'].includes(name)) return true;
+  if (['.build-cache', '.git', '.idea', '.claude', '.workspace', '.worktrees', 'bin', 'node_modules', 'dist', 'web-dist', 'coverage', '.vite', '.tmp', 'tmp', '.gocache', '.gomodcache', '.npm-cache'].includes(name)) return true;
   return [
     '.agent/code_exec',
     '.agent/workspaces',

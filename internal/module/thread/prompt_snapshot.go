@@ -18,7 +18,7 @@ import (
 const legacyPromptSnapshotMigrationRuntimeKey = "legacyPromptSnapshotMigration"
 
 // ensureStartAssemblySnapshot 把 start 提示整理成可保存的 snapshot。
-// start、fallback、resume rebuild 都走这里，避免 provider 和 thread store 各拿一份。
+// start 和 resume rebuild 都走这里，避免 provider 和 thread store 各拿一份。
 func ensureStartAssemblySnapshot(assembly contract.StartAssembly, provider string) contract.StartAssembly {
 	assembly.DisplayName = normalizeStartDisplayName(strings.TrimSpace(assembly.DisplayName))
 	assembly.BaseInstructions = strings.TrimSpace(assembly.BaseInstructions)
@@ -46,6 +46,7 @@ func ensureStartAssemblySnapshot(assembly contract.StartAssembly, provider strin
 	if len(snapshot.SectionSnapshot) == 0 {
 		snapshot.SectionSnapshot = promptSnapshotSectionMap(assembly.ResolvedSections)
 	}
+	snapshot = applyStartRuntimeContextToSnapshot(snapshot, assembly)
 	snapshot.Hash = promptSnapshotHash(
 		snapshot.DisplayName,
 		snapshot.BaseInstructions,
@@ -58,6 +59,41 @@ func ensureStartAssemblySnapshot(assembly contract.StartAssembly, provider strin
 	assembly.Boundary = clonePromptBoundary(snapshot.Boundary)
 	assembly.Snapshot = snapshot
 	return assembly
+}
+
+// applyStartRuntimeContextToSnapshot 保存 provider 启动时实际追加的运行时上下文。
+// resume 只依赖 snapshot，不能再从已丢失的 StartAssembly.UserContext 里临时重建。
+func applyStartRuntimeContextToSnapshot(
+	snapshot contract.PromptAssemblySnapshot,
+	assembly contract.StartAssembly,
+) contract.PromptAssemblySnapshot {
+	runtimeContext := strings.TrimSpace(contract.RenderStartRuntimeContext(assembly))
+	if runtimeContext == "" {
+		return snapshot
+	}
+	if snapshot.Boundary != nil {
+		boundary := *snapshot.Boundary
+		boundary.UncachedTail = appendPromptSnapshotBlock(boundary.UncachedTail, runtimeContext)
+		snapshot.Boundary = clonePromptBoundary(&boundary)
+		return snapshot
+	}
+	snapshot.BaseInstructions = contract.AppendStartRuntimeContext(snapshot.BaseInstructions, assembly)
+	return snapshot
+}
+
+func appendPromptSnapshotBlock(base, block string) string {
+	base = strings.TrimSpace(base)
+	block = strings.TrimSpace(block)
+	if block == "" {
+		return base
+	}
+	if base == "" {
+		return block
+	}
+	if strings.Contains(base, block) {
+		return base
+	}
+	return base + "\n\n" + block
 }
 
 func normalizePromptSnapshotContent(snapshot contract.PromptAssemblySnapshot) contract.PromptAssemblySnapshot {

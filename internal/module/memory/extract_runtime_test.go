@@ -92,12 +92,12 @@ func TestMemoryLifecycleHooksCoalescesPendingExtraction(t *testing.T) {
 		started <- call
 		if call == 1 {
 			<-release
-			return `{"memories":[{"content":"Prefer concise bullet points.","type":"user"}]}`, nil
+			return `{"memories":[{"scope":"private","name":"Prefer concise bullet points","description":"User prefers concise bullet points.","content":"Prefer concise bullet points.","type":"user"}]}`, nil
 		}
 		if !strings.Contains(prompt, "Use guarded build commands") {
 			t.Fatalf("second prompt missing latest transcript: %q", prompt)
 		}
-		return `{"memories":[{"content":"Use guarded build commands in this repo.","type":"project"}]}`, nil
+		return `{"memories":[{"scope":"private","name":"Use guarded build commands","description":"Use guarded build commands in this repo.","content":"Use guarded build commands in this repo.","type":"project"}]}`, nil
 	}
 
 	hooks.onTurnCompleted(context.Background(), turnCompletedEvent("thread-1", "turn-1"))
@@ -157,7 +157,7 @@ func TestMemoryLifecycleHooksFailureFreezesCursorUntilRetry(t *testing.T) {
 		if call == 1 {
 			return "", io.ErrUnexpectedEOF
 		}
-		return `{"memories":[{"content":"Remember both durable facts.","type":"project"}]}`, nil
+		return `{"memories":[{"scope":"private","name":"Remember both durable facts","description":"Remember both durable facts.","content":"Remember both durable facts.","type":"project"}]}`, nil
 	}
 
 	hooks.onTurnCompleted(context.Background(), turnCompletedEvent("thread-1", "turn-1"))
@@ -204,7 +204,7 @@ func TestMemoryLifecycleHooksExtractAndSaveInvalidatesPromptSections(t *testing.
 		NewManifestBuilder(),
 	)
 	hooks.extractFn = func(context.Context, string) (string, error) {
-		return `{"memories":[{"content":"Keep diffs focused.","type":"feedback"}]}`, nil
+		return `{"memories":[{"scope":"private","name":"Keep diffs focused","description":"Keep diffs focused.","content":"Keep diffs focused.","type":"feedback"}]}`, nil
 	}
 
 	err := hooks.ExtractAndSave(context.Background(), []providerdto.Message{{Role: "user", Content: "Keep diffs focused."}}, nil)
@@ -243,7 +243,7 @@ func TestMemoryLifecycleHooksExtractAndSaveHonorsSkipIndex(t *testing.T) {
 		NewManifestBuilder(),
 	)
 	hooks.extractFn = func(context.Context, string) (string, error) {
-		return `{"memories":[{"content":"Keep diffs focused.","type":"feedback"}]}`, nil
+		return `{"memories":[{"scope":"private","name":"Keep diffs focused","description":"Keep diffs focused.","content":"Keep diffs focused.","type":"feedback"}]}`, nil
 	}
 
 	err := hooks.ExtractAndSave(context.Background(), []providerdto.Message{{Role: "user", Content: "Keep diffs focused."}}, nil)

@@ -44,7 +44,7 @@ func TestRestartIfNeededLockedPublishesRestartStatusPatch(t *testing.T) {
 		transport:       closedTransport(),
 		model:           "sonnet",
 		transportModel:  "sonnet",
-		config:          cliLaunchConfig{Effort: "high"},
+		config:          cliLaunchConfig{Effort: "high", PromptSnapshot: validResumePromptSnapshotForTest()},
 		eventDispatcher: dispatcher,
 		launchCLI:       launchFn,
 		suppressedTurns: map[string]struct{}{},

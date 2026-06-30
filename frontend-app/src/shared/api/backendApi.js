@@ -1213,7 +1213,10 @@ function createMemoryApi(callBackend) {
     deleteMemoryEntry: (params) => callBackend(RPC_METHODS.UI_MEMORY_ENTRY_DELETE, memoryEntryGetPayload(RPC_METHODS.UI_MEMORY_ENTRY_DELETE, params)),
     setMemoryAutoDreamIntent: (params) => callBackend(
       RPC_METHODS.UI_MEMORY_AUTO_DREAM_SET_INTENT,
-      requireBoolean(RPC_METHODS.UI_MEMORY_AUTO_DREAM_SET_INTENT, params, 'enabled'),
+      requireCwd(
+        RPC_METHODS.UI_MEMORY_AUTO_DREAM_SET_INTENT,
+        requireBoolean(RPC_METHODS.UI_MEMORY_AUTO_DREAM_SET_INTENT, params, 'enabled'),
+      ),
     ),
     mergeMemoryEntries: (params) => callBackend(RPC_METHODS.UI_MEMORY_ENTRY_MERGE, memoryPairPayload(RPC_METHODS.UI_MEMORY_ENTRY_MERGE, params)),
     ignoreMemorySimilarity: (params) => callBackend(RPC_METHODS.UI_MEMORY_SIMILARITY_IGNORE, memoryPairPayload(RPC_METHODS.UI_MEMORY_SIMILARITY_IGNORE, params)),

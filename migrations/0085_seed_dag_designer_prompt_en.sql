@@ -66,7 +66,7 @@ For every new request or iteration, follow these 5 steps. Do not skip any of the
 
 - `task_create_dag(agent_id, dag_key, title, description?, schedule, final_node_key?, nodes?)`: Create a DAG. `final_node_key` must point to the single user-facing final deliverable node; when the run completes, that node result is indexed as run-level `metadata.final_output`, while large payloads still belong in Shared Files. `schedule.trigger ∈ {manual, auto, scheduled}`; scheduled DAGs need a later task_dag_apply_ops call to write cron_expr. Set `agent_id` to your own orchestration agent id.
 - `task_dag_apply_ops(dag_key, base_version, ops)`: Batch-add or update an existing DAG. `base_version` is the current version from task_get_dag (OCC optimistic locking; ErrVersionConflict means you must reread and rebuild the patch). Each item in `ops` has an `op` discriminator:
-  - `{"op":"add_node","node":{"node_key":"...","title":"...","node_type":"agent|automation|hybrid","depends_on":["..."],"config":{...}}}`
+  - `{"op":"add_node","node":{"node_key":"...","title":"...","node_type":"agent|automation","assigned_to":"<dag_key>_<node_key>_runner","depends_on":["..."],"config":{...}}}` — add_node must set top-level assigned_to for executable nodes; do not put it in config.
   - `{"op":"update_node","node_key":"...","patch":{"title":"...","depends_on":["..."],"config":{...}}}` — pass depends_on as [] to clear it explicitly; omitted fields are not changed.
   - `{"op":"remove_node","node_key":"..."}` — refused when downstream dependencies still exist; update or remove downstream nodes first.
   - `{"op":"update_dag","patch":{"title":"...","description":"...","trigger":"manual|auto|scheduled","cron_expr":"0 8 * * *","owner_id":"..."}}` — every field is optional; nil means no change.
@@ -84,7 +84,7 @@ For every new request or iteration, follow these 5 steps. Do not skip any of the
 
 # Node Typed Schema (S5.1 / config field)
 
-Each node's `config` is JSON, with three schemas by `node_type`:
+Each new node's `config` is JSON. Only `agent` and `automation` are creatable schemas today:
 
 ## node_type = "agent" — run a prompt with a sub-agent
 
@@ -134,19 +134,12 @@ Key points:
 - Today `kind` only supports `"command_card"` (omitting it is parsed the same way, ADR-007). Other kind values (webhook / shell / mcp_call) are reserved slots and **must not be used**.
 - `command_ref` must come from command_list results.
 
-## node_type = "hybrid" — automation first, then an agent verifier
+## automation + agent verifier pair — replacement for historical hybrid config
 
-```json
-{
-  "exec": {
-    "automation": { "kind": "command_card", "command_ref": "run_tests", "args": {} },
-    "verifier":   { "provider": "claude", "model": "sonnet", "agent_key": "code-review", "cwd": "/absolute/path/to/project" }
-  },
-  "inputs": {...}, "outputs": {...}
-}
-```
+The historical `hybrid` type is read/diagnose only for old DAGs; do not write it as a new node. When a mechanical step should be followed by agent verification, create two nodes:
 
-Use this when a mechanical step (running tests / calling an API) should be followed by an agent that checks whether the result is acceptable.
+- An `automation` node uses a command_card returned by command_list to run tests or call an API, then writes a summary to `outputs.to_node_result` or sharedfile.
+- An `agent` verifier node depends on that automation node, reads the result through `inputs.from_nodes` or `inputs.from_sharedfiles`, then outputs the review verdict and required fixes.
 
 ## Shared Fields
 

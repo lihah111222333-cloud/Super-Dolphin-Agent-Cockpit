@@ -82,7 +82,11 @@ type requiredSQLiteColumn struct {
 
 var requiredBaselineColumns = []requiredSQLiteColumn{
 	{table: "agent_threads", column: "prompt_snapshot"},
+	{table: "hook_pending_reviews", column: "thread_id"},
+	{table: "hook_pending_reviews", column: "turn_id"},
+	{table: "hook_pending_reviews", column: "payload"},
 	{table: "shared_files", column: "content_location"},
+	{table: "turn_dedupe_registry", column: "terminal_at"},
 }
 
 // VerifyMinSchemaVersion 校验 SQLite schema 版本和基线表完整性。
@@ -165,7 +169,7 @@ func missingSQLiteBaselineTables(ctx context.Context, q sqlContextQueryRow) ([]s
 func verifySQLiteRequiredColumns(ctx context.Context, q any) error {
 	v, ok := q.(sqlContextQuery)
 	if !ok {
-		return nil
+		return fmt.Errorf("unsupported SQLite required column queryer %T", q)
 	}
 	missing, err := missingSQLiteRequiredColumns(ctx, v)
 	if err != nil {

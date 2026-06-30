@@ -14,7 +14,7 @@ type outputMaterializationClaimer interface {
 	ClaimNodeOutputMaterialization(context.Context, OutputMaterializationClaimInput) (*Node, error)
 }
 
-func TestClaimNodeOutputMaterialization_FenceAcceptsReadyRunningAwaitingVerify(t *testing.T) {
+func TestClaimNodeOutputMaterialization_FenceAcceptsReadyRunning(t *testing.T) {
 	t.Parallel()
 
 	cases := []struct {
@@ -24,7 +24,7 @@ func TestClaimNodeOutputMaterialization_FenceAcceptsReadyRunningAwaitingVerify(t
 	}{
 		{name: "ready accepted", initial: "ready", wantSuccess: true},
 		{name: "running accepted", initial: "running", wantSuccess: true},
-		{name: "awaiting_verify accepted for replay", initial: "awaiting_verify", wantSuccess: true},
+		{name: "awaiting_verify rejected as legacy state", initial: "awaiting_verify", wantSuccess: false},
 		{name: "pending rejected", initial: "pending", wantSuccess: false},
 		{name: "done rejected", initial: "done", wantSuccess: false},
 		{name: "failed rejected", initial: "failed", wantSuccess: false},
@@ -63,8 +63,8 @@ func TestClaimNodeOutputMaterialization_FenceAcceptsReadyRunningAwaitingVerify(t
 				if err != nil {
 					t.Fatalf("ClaimNodeOutputMaterialization(%s) error = %v, want success", tc.initial, err)
 				}
-				if node == nil || node.Status != "awaiting_verify" {
-					t.Fatalf("node = %+v, want status=awaiting_verify", node)
+				if node == nil || node.Status != tc.initial {
+					t.Fatalf("node = %+v, want status=%s", node, tc.initial)
 				}
 				if got := string(db.nodes[key].Result); got != string(result) {
 					t.Fatalf("persisted result = %s, want %s", got, result)

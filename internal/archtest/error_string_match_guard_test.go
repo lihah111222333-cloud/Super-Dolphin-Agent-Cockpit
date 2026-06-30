@@ -55,7 +55,10 @@ func collectErrorStringMatchFile(root string, skipDirs map[string]bool, violatio
 	if err != nil {
 		return err
 	}
-	count := countErrorStringMatchesInFile(path)
+	count, err := countErrorStringMatchesInFile(path)
+	if err != nil {
+		return err
+	}
 	if count > 0 {
 		*violations = append(*violations,
 			rel+": 发现 "+itoa(count)+" 处 err.Error() 字符串匹配 — 应使用 errors.Is/errors.As")
@@ -70,13 +73,13 @@ func errorStringMatchDirAction(skipDirs map[string]bool, name string) error {
 	return nil
 }
 
-func countErrorStringMatchesInFile(path string) int {
+func countErrorStringMatchesInFile(path string) (int, error) {
 	fset := token.NewFileSet()
 	node, parseErr := parser.ParseFile(fset, path, nil, parser.SkipObjectResolution)
 	if parseErr != nil {
-		return 0
+		return 0, parseErr
 	}
-	return countErrorStringMatches(node)
+	return countErrorStringMatches(node), nil
 }
 
 // countErrorStringMatches 计算 strings.Contains(errValue.Error(), ...) 调用数量。

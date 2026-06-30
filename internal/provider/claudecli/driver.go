@@ -316,6 +316,10 @@ func (d *driver) prepareSessionStart(ctx context.Context, spec startSpec) (prepa
 	if launchConfig.ClaudeHome == "" {
 		launchConfig.ClaudeHome = strings.TrimSpace(spec.historyDir)
 	}
+	baseInstructions := promptBaseInstructions(spec.startAssembly.BaseInstructions, launchConfig.PromptSnapshot)
+	if promptLaunchBaseBlank(baseInstructions, launchConfig) {
+		return preparedStartSession{}, errors.New("claudecli: start prompt assembly is empty: base instructions or prompt snapshot are required")
+	}
 	if err := d.preflightClaudeAuth(ctx, d.binaryPath, spec.cwd, launchConfig); err != nil {
 		return preparedStartSession{}, err
 	}
@@ -323,7 +327,7 @@ func (d *driver) prepareSessionStart(ctx context.Context, spec startSpec) (prepa
 		d.binaryPath,
 		spec.cwd,
 		requestedModel,
-		promptBaseInstructions(spec.startAssembly.BaseInstructions, launchConfig.PromptSnapshot),
+		baseInstructions,
 		launchConfig,
 		spec.manifest,
 		spec.threadID,

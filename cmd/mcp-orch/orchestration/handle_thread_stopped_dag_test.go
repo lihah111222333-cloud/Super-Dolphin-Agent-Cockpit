@@ -51,10 +51,6 @@ func (f *fakeFallbackFlow) CompleteNodeAndScheduleDownstream(_ context.Context, 
 	return nil, errors.New("fakeFallbackFlow: CompleteNodeAndScheduleDownstream not used by thread.stopped fallback")
 }
 
-func (f *fakeFallbackFlow) UpdateNodeStatusFlexible(_ context.Context, _ taskdag.FlexibleNodeStatusUpdate) (*taskdag.Node, error) {
-	return nil, errors.New("fakeFallbackFlow: UpdateNodeStatusFlexible not used by thread.stopped fallback")
-}
-
 func (f *fakeFallbackFlow) EnqueueWakeup(_ context.Context, input taskdag.EnqueueWakeupInput) (int64, error) {
 	f.enqueueCalls = append(f.enqueueCalls, input)
 	return 1, nil

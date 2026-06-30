@@ -170,6 +170,7 @@ func TestDispatchAfter_EscalatePersistenceFailure_FailsClosed(t *testing.T) {
 	decision, err := manager.DispatchAfter(context.Background(), TopicToolAfter, mcp.HookPayload{
 		HookCallID: "call-escalate-fail",
 		AgentID:    "agent-1",
+		ThreadID:   "thread-1",
 	})
 	if err == nil {
 		t.Fatal("DispatchAfter() error = nil, want persistence failure")

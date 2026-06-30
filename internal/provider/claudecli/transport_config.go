@@ -69,7 +69,10 @@ func launchCLIWithManifest(
 	if err != nil {
 		return nil, nil, err
 	}
-	args := buildCLIArgs(model, instructions, mcpPath, cfg)
+	args, err := buildCLIArgs(model, instructions, mcpPath, cfg)
+	if err != nil {
+		return nil, nil, cleanupOnError(err, cleanup)
+	}
 	logManifestLaunch(binary, cwd, model, mcpPath, manifest)
 	logSystemPromptArgs(args)
 	args = appendFlagIfSet(args, "--resume", sanitizeResumeID(resumeID))
@@ -192,7 +195,7 @@ func writeSystemPromptDump(index int, content string) string {
 
 // buildCLIArgs 汇总模型、prompt、权限和工具策略并生成 Claude CLI 参数。
 // native tool allowlist 优先于 disallow list；带 MCP 配置时必须补权限模式，避免 CLI 交互式阻塞。
-func buildCLIArgs(model, instructions, mcpConfigPath string, cfg cliLaunchConfig) []string {
+func buildCLIArgs(model, instructions, mcpConfigPath string, cfg cliLaunchConfig) ([]string, error) {
 	model = sanitizeClaudeModel(model)
 	args := []string{
 		"-p",
@@ -202,7 +205,11 @@ func buildCLIArgs(model, instructions, mcpConfigPath string, cfg cliLaunchConfig
 	}
 	args = appendFlagIfSet(args, "--model", model)
 	args = appendSystemPromptFlags(args, instructions, cfg)
-	args = appendFlagIfSet(args, "--permission-mode", resolvePermissionMode(cfg.ApprovalPolicy, cfg.Sandbox))
+	permissionMode, err := resolvePermissionMode(cfg.ApprovalPolicy, cfg.Sandbox)
+	if err != nil {
+		return nil, err
+	}
+	args = appendFlagIfSet(args, "--permission-mode", permissionMode)
 	args = appendFlagIfSet(args, "--effort", normalizeEffort(model, cfg.Effort))
 	builtinTools := cfg.BuiltinTools
 	if cfg.DisableProviderNativeSkills && builtinTools != nil {
@@ -220,7 +227,7 @@ func buildCLIArgs(model, instructions, mcpConfigPath string, cfg cliLaunchConfig
 		}
 	}
 
-	return args
+	return args, nil
 }
 
 func hasFlag(args []string, flag string) bool {
@@ -312,14 +319,8 @@ func resolveDisallowedToolsFlag(override []string, additional ...[]string) strin
 	return strings.Join(ids, ",")
 }
 
-const fallbackSystemPrompt = "You are a helpful assistant."
-
 func appendSystemPromptFlags(args []string, instructions string, cfg cliLaunchConfig) []string {
 	blocks := composeLaunchSystemPromptBlocks(instructions, cfg)
-	if len(blocks) == 0 {
-		args = append(args, "--system-prompt", fallbackSystemPrompt)
-		return args
-	}
 	for _, block := range blocks {
 		args = append(args, "--system-prompt", block)
 	}
@@ -363,7 +364,14 @@ func promptBaseInstructions(instructions string, snapshot contract.PromptAssembl
 	return strings.TrimSpace(snapshot.BaseInstructions)
 }
 
+func promptLaunchBaseBlank(instructions string, cfg cliLaunchConfig) bool {
+	return len(promptBaseInstructionBlocks(instructions, cfg.PromptSnapshot)) == 0
+}
+
 func promptSnapshotBaseInstructions(snapshot contract.PromptAssemblySnapshot, fallback string) string {
+	if boundary := normalizePromptBoundary(snapshot.Boundary); boundary != nil {
+		return strings.TrimSpace(strings.Join(nonEmptyStrings(boundary.CachedPrefix, boundary.UncachedTail), "\n\n"))
+	}
 	if value := strings.TrimSpace(snapshot.BaseInstructions); value != "" {
 		return value
 	}
@@ -409,46 +417,54 @@ func promptBoundaryBlank(boundary *dto.PromptAssemblyBoundary) bool {
 	return normalizePromptBoundary(boundary) == nil
 }
 
-func resolvePermissionMode(approvalPolicy, sandbox string) string {
-	if mode := permissionModeFromSandbox(sandbox); mode != "" {
-		return mode
+func resolvePermissionMode(approvalPolicy, sandbox string) (string, error) {
+	if mode, err := permissionModeFromSandbox(sandbox); err != nil {
+		return "", err
+	} else if mode != "" {
+		return mode, nil
 	}
 	switch strings.ToLower(strings.TrimSpace(approvalPolicy)) {
 	case "", "never", "on-request", "always", "auto":
-		return "bypassPermissions"
+		return "bypassPermissions", nil
 	case "on-failure", "untrusted":
-		return "default"
+		return "default", nil
 	default:
-		return "bypassPermissions"
+		return "", fmt.Errorf("invalid approval policy %q", approvalPolicy)
 	}
 }
 
 // permissionModeFromSandbox 将运行时 sandbox 形态映射到 Claude CLI 权限模式。
-// sandbox 可能来自 JSON wire 或纯字符串，无法识别时交回 approvalPolicy 路径决定。
-func permissionModeFromSandbox(sandbox string) string {
+// sandbox 可能来自 JSON wire 或纯字符串，未知 sandbox 必须报错，避免落到提权模式。
+func permissionModeFromSandbox(sandbox string) (string, error) {
 	raw := strings.TrimSpace(sandbox)
 	if raw == "" {
-		return ""
+		return "", nil
 	}
 	if strings.HasPrefix(raw, "{") {
 		var payload struct {
-			Type string `json:"type"`
+			Type *string `json:"type"`
 		}
-		if err := json.Unmarshal([]byte(raw), &payload); err == nil {
-			raw = payload.Type
+		if err := json.Unmarshal([]byte(raw), &payload); err != nil {
+			return "", fmt.Errorf("invalid sandbox object: %w", err)
 		}
+		if payload.Type == nil {
+			return "", errors.New("invalid sandbox object: type is required")
+		}
+		raw = *payload.Type
 	}
 	raw = strings.Trim(raw, "\"")
 	normalized := strings.ToLower(strings.ReplaceAll(strings.ReplaceAll(raw, "-", ""), "_", ""))
 	switch normalized {
+	case "":
+		return "", nil
 	case "dangerfullaccess":
-		return "bypassPermissions"
+		return "bypassPermissions", nil
 	case "workspacewrite":
-		return "acceptEdits"
+		return "acceptEdits", nil
 	case "readonly":
-		return "default"
+		return "default", nil
 	default:
-		return ""
+		return "", fmt.Errorf("invalid sandbox type %q", raw)
 	}
 }
 

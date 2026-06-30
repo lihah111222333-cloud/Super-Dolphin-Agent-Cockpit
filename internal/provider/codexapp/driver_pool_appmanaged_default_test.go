@@ -32,8 +32,9 @@ func TestStartSessionMapsLegacyPackagedDefaultHomeToAppManagedRelayHome(t *testi
 	d := &driver{logger: slog.Default(), pool: pool, mirror: mirror}
 
 	_, err := d.StartSession(context.Background(), dto.StartSessionRequest{
-		AgentID: "agent-legacy-default",
-		CWD:     workDir,
+		AgentID:       "agent-legacy-default",
+		CWD:           workDir,
+		StartAssembly: validStartAssemblyForTest(),
 		Config: map[string]any{
 			contract.CodexHomeKey:          "~/.super-dolphin/providers/codex",
 			contract.CodexInstanceKeyKey:   "default",
