@@ -12,6 +12,8 @@ var (
 	ErrHookReviewPermissionDenied = errors.New("hook review permission denied")
 	// ErrHookReviewNotFound 表示请求的 hook review 不存在。
 	ErrHookReviewNotFound = errors.New("hook review not found")
+	// ErrHookReviewConflict 表示同一 hook_call_id 已绑定到另一组 pending review 参数。
+	ErrHookReviewConflict = errors.New("hook review conflict")
 )
 
 // HookManager 是 core 层 hook 调度和人工 review 的跨模块边界。

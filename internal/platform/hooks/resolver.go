@@ -2,6 +2,7 @@ package hooks
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
@@ -249,6 +250,8 @@ func (r *HookResolver) validate() error {
 	return nil
 }
 
+// newPendingReview 构造需要人工复核的 hook 记录，并把线程、轮次和原始 payload 一起落库。
+// 这些上下文字段缺失时直接报错，避免依赖数据库默认值吞掉复核来源。
 func (r *HookResolver) newPendingReview(now time.Time, hookCallID string, payload mcp.HookPayload, subscriberLease mcp.LeaseKey, ttlMs int64) (mcp.PendingHookReview, error) {
 	resolvedHookCallID, err := resolveHookCallID(hookCallID, payload.HookCallID)
 	if err != nil {
@@ -263,6 +266,15 @@ func (r *HookResolver) newPendingReview(now time.Time, hookCallID string, payloa
 	if agentID == "" {
 		return mcp.PendingHookReview{}, fmt.Errorf("hook escalate requires agent_id")
 	}
+	threadID := strings.TrimSpace(payload.ThreadID)
+	if threadID == "" {
+		return mcp.PendingHookReview{}, fmt.Errorf("hook escalate requires thread_id")
+	}
+	turnID := strings.TrimSpace(payload.TurnID)
+	payloadJSON, err := json.Marshal(payload)
+	if err != nil {
+		return mcp.PendingHookReview{}, fmt.Errorf("marshal hook pending review payload: %w", err)
+	}
 	resolvedSubscriberLease, err := formatLease(subscriberLease, hookSubscriberLeaseValidation)
 	if err != nil {
 		return mcp.PendingHookReview{}, err
@@ -272,7 +284,10 @@ func (r *HookResolver) newPendingReview(now time.Time, hookCallID string, payloa
 		HookCallID:      resolvedHookCallID,
 		Topic:           topic,
 		AgentID:         agentID,
+		ThreadID:        threadID,
+		TurnID:          turnID,
 		SubscriberLease: resolvedSubscriberLease,
+		Payload:         payloadJSON,
 		CreatedAt:       now,
 		DeadlineAt:      r.resolveDeadline(now, payload.DeadlineMs, ttlMs),
 		DefaultAction:   pendingDefaultDecision,
