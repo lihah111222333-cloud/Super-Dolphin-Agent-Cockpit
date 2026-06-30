@@ -118,17 +118,26 @@ func sharedFileCleanupDeps(p memoryHandlerDeps) sharedfilecleanup.Deps {
 	}
 }
 
-// uiAutoDreamIntentParams 是自动 dream 开关的持久化入参，Enabled 会写入记忆根目录下的意图文件。
+// uiAutoDreamIntentParams 是自动 dream 开关的持久化入参。
+// CWD 必须来自当前项目，用于解析对应项目的记忆根，避免跨项目写错 intent 文件。
 type uiAutoDreamIntentParams struct {
-	Enabled bool `json:"enabled"`
+	CWD     string `json:"cwd"`
+	Enabled bool   `json:"enabled"`
 }
 
 // setAutoDreamIntent 保存当前项目的 auto-dream 意图；memory service 或 root 缺失时 fail-fast。
-func setAutoDreamIntent(_ context.Context, p memoryHandlerDeps, req uiAutoDreamIntentParams) (map[string]any, error) {
+func setAutoDreamIntent(ctx context.Context, p memoryHandlerDeps, req uiAutoDreamIntentParams) (map[string]any, error) {
 	if p.Service == nil {
 		return nil, errors.New("memory service is not configured")
 	}
-	rootDir := strings.TrimSpace(p.Service.Config().RootDir)
+	projectRoot := strings.TrimSpace(req.CWD)
+	if projectRoot == "" {
+		return nil, publicValidationErr("cwd is required")
+	}
+	rootDir, _, err := resolveUIMemoryTargetRoot(ctx, p.Service, projectRoot, "private")
+	if err != nil {
+		return nil, err
+	}
 	if rootDir == "" {
 		return nil, errors.New("memory root dir is empty")
 	}

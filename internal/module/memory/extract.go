@@ -70,11 +70,11 @@ func (e *MemoryExtractor) limit() int {
 }
 
 // parseExtractedMemories 解析抽取模型返回的 JSON，并按上限规整结果。
-// 空响应表示没有可保存记忆；格式错误会返回错误以便调用方记录抽取失败。
+// 生产路径只接受 {"memories":[...]} envelope；空响应和旧数组/单对象格式都会 fail-fast。
 func parseExtractedMemories(raw string, limit int) ([]ExtractedMemory, error) {
 	raw = strings.TrimSpace(raw)
 	if raw == "" {
-		return nil, nil
+		return nil, fmt.Errorf("invalid extractor response: empty output")
 	}
 	items, err := decodeExtractedMemories(raw)
 	if err != nil {
@@ -83,24 +83,25 @@ func parseExtractedMemories(raw string, limit int) ([]ExtractedMemory, error) {
 	return normalizeExtractedMemories(items, limit), nil
 }
 
-// decodeExtractedMemories 兼容抽取响应的三种 JSON 形态。
-// 支持 envelope、数组和单对象，便于模型输出轻微变化时仍能被统一规范化。
+// decodeExtractedMemories 解码严格 envelope，拒绝 legacy 数组或单对象输出。
+// 这样 dream/turn 抽取不会把模型的空白或非契约输出当作成功。
 func decodeExtractedMemories(raw string) ([]ExtractedMemory, error) {
-	if strings.Contains(raw, `"memories"`) {
-		var envelope extractEnvelope
-		if err := json.Unmarshal([]byte(raw), &envelope); err == nil {
-			return envelope.Memories, nil
-		}
+	var envelope map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(raw), &envelope); err != nil {
+		return nil, fmt.Errorf("invalid extractor response: %w", err)
 	}
-	var list []ExtractedMemory
-	if err := json.Unmarshal([]byte(raw), &list); err == nil {
-		return list, nil
+	memoriesRaw, ok := envelope["memories"]
+	if !ok {
+		return nil, fmt.Errorf("invalid extractor response: memories envelope is required")
 	}
-	var single ExtractedMemory
-	if err := json.Unmarshal([]byte(raw), &single); err == nil {
-		return []ExtractedMemory{single}, nil
+	if strings.TrimSpace(string(memoriesRaw)) == "null" {
+		return nil, fmt.Errorf("invalid extractor response: memories must be an array")
 	}
-	return nil, fmt.Errorf("invalid extractor response")
+	var envelopePayload extractEnvelope
+	if err := json.Unmarshal([]byte(raw), &envelopePayload); err != nil {
+		return nil, fmt.Errorf("invalid extractor response: %w", err)
+	}
+	return envelopePayload.Memories, nil
 }
 
 // normalizeExtractedMemories 清洗、去重并裁剪抽取结果。

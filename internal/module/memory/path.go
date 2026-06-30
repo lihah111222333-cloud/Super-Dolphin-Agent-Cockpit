@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -477,6 +478,90 @@ func removeMemoryFiles(root string, paths []string) error {
 	return nil
 }
 
+type consolidationRollback struct {
+	files map[string]consolidationFileBackup
+}
+
+type consolidationFileBackup struct {
+	exists bool
+	data   []byte
+	mode   fs.FileMode
+}
+
+// newConsolidationRollback 捕获 consolidation 会改动的旧文件快照。
+// 后续删除、写入、索引或 stamp 任一步失败时，调用 restore 可以把旧事实和索引恢复回来。
+func newConsolidationRollback(root string, paths []string) (*consolidationRollback, error) {
+	rollback := &consolidationRollback{files: make(map[string]consolidationFileBackup)}
+	if err := rollback.captureValidatedPath(root, memoryIndexPath(root)); err != nil {
+		return nil, err
+	}
+	for _, path := range uniqueNonEmptyStrings(paths) {
+		if err := rollback.captureValidatedPath(root, path); err != nil {
+			return nil, err
+		}
+	}
+	return rollback, nil
+}
+
+func (r *consolidationRollback) captureValidatedPath(root, path string) error {
+	validatedPath, err := ValidateMemoryWritePath(root, path)
+	if err != nil {
+		return err
+	}
+	return r.captureFile(validatedPath)
+}
+
+// captureFile 记录单个文件在提交前的状态。
+// 不存在的文件也会记录，回滚时可删除本次失败提交新建出的残留文件。
+func (r *consolidationRollback) captureFile(path string) error {
+	if r == nil {
+		return nil
+	}
+	if _, exists := r.files[path]; exists {
+		return nil
+	}
+	info, err := os.Stat(path)
+	if errors.Is(err, os.ErrNotExist) {
+		r.files[path] = consolidationFileBackup{}
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if info.IsDir() {
+		return fmt.Errorf("consolidation rollback cannot backup directory %q", path)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return err
+	}
+	r.files[path] = consolidationFileBackup{exists: true, data: data, mode: info.Mode().Perm()}
+	return nil
+}
+
+// restore 按快照恢复 consolidation 提交前的文件状态。
+// 原本存在的文件会写回原内容，原本不存在的文件会被删除以清掉失败提交残留。
+func (r *consolidationRollback) restore() error {
+	if r == nil {
+		return nil
+	}
+	for path, backup := range r.files {
+		if !backup.exists {
+			if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
+				return err
+			}
+			continue
+		}
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			return err
+		}
+		if err := os.WriteFile(path, backup.data, backup.mode); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // writeConsolidatedMemories 将整理后的记忆条目写回磁盘。
 // 任何单条写入失败都会中断，避免索引与部分写入状态继续漂移。
 func writeConsolidatedMemories(root string, items []ExtractedMemory) error {
@@ -484,8 +569,14 @@ func writeConsolidatedMemories(root string, items []ExtractedMemory) error {
 	if err != nil {
 		return err
 	}
+	return writePreparedConsolidatedMemories(root, entries)
+}
+
+// writePreparedConsolidatedMemories 写入已完成批量校验的整理结果。
+// 调用方可先用同一批 entries 预计算回滚路径，避免边写边发现路径问题。
+func writePreparedConsolidatedMemories(root string, entries []MemoryEntry) error {
 	for _, entry := range entries {
-		if _, err := WriteMemoryFile(root, entry); err != nil {
+		if _, err := writePreparedMemoryFile(root, entry, nil); err != nil {
 			return err
 		}
 	}
@@ -515,6 +606,27 @@ func prepareConsolidatedMemoryEntries(root string, items []ExtractedMemory) ([]M
 		entries = append(entries, prepared)
 	}
 	return entries, nil
+}
+
+// consolidatedMemoryEntryPaths 返回整理结果最终可能写入的安全路径。
+// 该函数只解析路径，不写文件，用于在删除旧文件前建立完整回滚快照。
+func consolidatedMemoryEntryPaths(root string, entries []MemoryEntry) ([]string, error) {
+	if len(entries) == 0 {
+		return nil, nil
+	}
+	normalizedRoot, err := normalizeStoreRoot(root)
+	if err != nil {
+		return nil, err
+	}
+	paths := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		path, err := resolveMemoryFilePath(normalizedRoot, entry)
+		if err != nil {
+			return nil, err
+		}
+		paths = append(paths, path)
+	}
+	return uniqueNonEmptyStrings(paths), nil
 }
 
 // buildConsolidatedMemoryEntry 将抽取结果转换为可写 MemoryEntry。
