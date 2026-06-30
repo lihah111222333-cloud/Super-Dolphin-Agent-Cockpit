@@ -89,7 +89,13 @@ func TestCodexStartSession_InjectsHostMemoryReadAndFiltersPeerMemoryRead_E2E(t *
 	factory := newCodexE2EDriverFactory(t, serverURL)
 	factory.SetListTools(handler.ListToolsForCodex)
 
-	session, err := factory.Create().StartSession(context.Background(), dto.StartSessionRequest{AgentID: "agent-memory-read", CWD: t.TempDir()})
+	session, err := factory.Create().StartSession(context.Background(), dto.StartSessionRequest{
+		AgentID: "agent-memory-read",
+		CWD:     t.TempDir(),
+		StartAssembly: dto.StartAssembly{
+			BaseInstructions: "base prompt",
+		},
+	})
 	if err != nil {
 		t.Fatalf("StartSession() error = %v", err)
 	}
@@ -284,6 +290,9 @@ func TestCodexStartSession_ReconcilesNativeSkillMirrorsBeforeProviderStart_E2E(t
 	session, err := factory.Create().StartSession(context.Background(), dto.StartSessionRequest{
 		AgentID: "agent-provider-native",
 		CWD:     workDir,
+		StartAssembly: dto.StartAssembly{
+			BaseInstructions: "base prompt",
+		},
 	})
 	if err != nil {
 		t.Fatalf("StartSession() error = %v", err)
