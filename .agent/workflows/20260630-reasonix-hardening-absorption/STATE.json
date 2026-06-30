@@ -1,6 +1,6 @@
 {
   "workflow_key": "20260630-reasonix-hardening-absorption",
-  "last_updated": "2026-06-30T19:43:48+09:00",
+  "last_updated": "2026-06-30T20:49:24+09:00",
   "overall_status": "in_progress",
   "source_plan": "docs/plans/2026-06-30-reasonix-hardening-absorption-review.md",
   "source_plan_status": "NEEDS_APPROVAL",
@@ -24,11 +24,19 @@
       "fix_commit": "5bffbcca075917b5fad03cc09ffb831c0ef5f6c1",
       "status": "done",
       "review": "P1 git branch read-only classification fixed before integration"
+    },
+    "A3-readonly-delegation-filter": {
+      "branch": "codex/reasonix-hardening-a3-20260630",
+      "initial_commit": "832797fbbbe89f613d3d8573cb74f97452793a0e",
+      "exact_deny_commit": "8770a88067efca54303f07940c73afe14b242e4b",
+      "native_recursive_commit": "2637e908adebffff737f9470adb84d647e017cbb",
+      "status": "done",
+      "review": "Prefix deny sentinel and missing Codex native recursive controls fixed before integration"
     }
   },
   "next_actions": [
-    "Dispatch A3 in an isolated worker worktree using the exact A0-applied toolfilter ownership paths.",
     "Keep A2 closed as not_applicable_with_evidence unless a future approved source introduces an authoritative stage carrier.",
-    "Do not start Lane B until A3 and provider sandbox/security Lane A gates pass."
+    "Dispatch B1 in an isolated worker worktree; Lane A gates have passed.",
+    "Do not start B2 until B1 is integrated and its path golden tests pass."
   ]
 }

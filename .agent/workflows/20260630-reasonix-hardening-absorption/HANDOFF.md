@@ -16,6 +16,9 @@ Overall: in progress. The user approved the full workflow with Lane A first, and
 - A0's A3 ownership and verification proposal was applied to `FILE_OWNERSHIP.tsv` and `TASKS/A3-readonly-delegation-filter.md`.
 - A1 completed in `codex/reasonix-hardening-a1-20260630` at `5bffbcca075917b5fad03cc09ffb831c0ef5f6c1`.
 - A1 initial implementation was held after independent review found unsafe `git branch` read-only classification; the worker fixed it before integration.
+- A3 completed in `codex/reasonix-hardening-a3-20260630` at `2637e908adebffff737f9470adb84d647e017cbb`.
+- A3 was held twice during main review: first for prefix-style deny evidence that did not match real `DeniedTools` exact-name semantics, then for missing Codex native recursive controls.
+- Lane A focused gates and `make guard` passed after A3 integration.
 
 ## In Progress
 
@@ -27,13 +30,13 @@ Overall: in progress. The user approved the full workflow with Lane A first, and
 
 ## Recommended Next Action
 
-Dispatch A3 next in an isolated worker worktree:
+Dispatch B1 next in an isolated worker worktree:
 
 ```text
-执行 A3-readonly-delegation-filter；只修改 internal/provider/toolfilter/presets.go 和 internal/provider/toolfilter/presets_test.go。
+执行 B1-sessionpaths-core；只创建 sessionpaths leaf package and dependency guard，不迁移 callers。
 ```
 
-This finishes Lane A's concrete delegation filter before any Lane B/C worker starts.
+This starts Lane B only after Lane A has passed.
 
 ## After Approval
 
@@ -50,7 +53,7 @@ This finishes Lane A's concrete delegation filter before any Lane B/C worker sta
 Lane A:
 
 ```bash
-./scripts/test_with_guard.sh ./internal/platform/toolpolicy ./internal/platform/toolbridge ./internal/provider/codexapp ./internal/provider/claudecli -run 'Plan|ReadOnly|Trust|Shell|Lifecycle|Sandbox|Permission' -count=1
+./scripts/test_with_guard.sh ./internal/platform/toolpolicy ./internal/provider/toolfilter ./internal/platform/toolbridge ./internal/provider/codexapp ./internal/provider/claudecli -run 'Plan|ReadOnly|Trust|Shell|Lifecycle|Sandbox|Permission|Reviewer|Worker|FullAccess|Native|Tool' -count=1
 ./scripts/test_with_guard.sh ./internal/archtest -run 'Dependency|Tool|Provider' -count=1
 make guard
 ```

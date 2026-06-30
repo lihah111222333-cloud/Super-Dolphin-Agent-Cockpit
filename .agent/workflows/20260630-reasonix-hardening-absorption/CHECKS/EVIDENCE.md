@@ -309,3 +309,54 @@ Dispatch decision:
 - A1 accepted as `done`.
 - A3 moved to `ready` because A0 identified exact delegation entry files and A1 is now integrated.
 - Lane B remains waiting until A3 and the remaining Lane A gates close.
+
+## 2026-06-30 A3 Read-only Delegation Filter Review And Lane A Gate
+
+Status: A3 production implementation was performed by a child agent in an isolated worktree and reviewed before integration.
+
+Worker branch and commits:
+
+- Agent id: `019f1825-176b-71a0-bfb3-b5b079d6087c`.
+- Branch: `codex/reasonix-hardening-a3-20260630`.
+- Initial commit: `832797fbbbe89f613d3d8573cb74f97452793a0e`.
+- Exact-deny fix commit: `8770a88067efca54303f07940c73afe14b242e4b`.
+- Native-recursive fix commit: `2637e908adebffff737f9470adb84d647e017cbb`.
+- Integrated by fast-forward into `codex/reasonix-hardening-integration-20260630`.
+
+Ownership review:
+
+- `git diff --name-status 686d6f76..2637e908adebffff737f9470adb84d647e017cbb` showed only A3-owned files:
+  - `internal/provider/toolfilter/presets.go`
+  - `internal/provider/toolfilter/presets_test.go`
+- No workflow, toolbridge, cmd/mcp-orch, cmd/mcp-lsp, frontend, generated, or unrelated provider files were changed by the A3 worker.
+
+Review findings and fixes:
+
+- First main review held A3 because `DeniedTools` used `task_`, `workspace_`, and `workflow_template_` prefix sentinels, while real `internal/platform/hooks/merge.go` only merges exact string names. The A3 worker replaced prefix sentinels with exact tool names and added a regression test proving prefix sentinels are not used.
+- Second main review held A3 because Codex native recursive controls were missing. Source anchors included `internal/contract/provider.go:41-47`, `internal/contract/provider.go:121-130`, `internal/provider/codexapp/driver.go:145-151`, and `cmd/mcp-orch/tools/orchestration_tools.go:120-121`. The A3 worker added exact denies for `multi_agent`, `multi_tool_use.parallel`, `spawn_agent`, `send_input`, `resume_agent`, `wait_agent`, and `close_agent`.
+- Read-only reviewer `019f183f-c27b-7de3-af87-cc5d040d64d5` was resumed with the latest commit, but timed out without a verdict and was closed as `shutdown`. The controller did not use the stale/absent reviewer verdict for acceptance.
+
+Main LSP review:
+
+- `structure(document_symbol)` on `internal/provider/toolfilter/presets.go` and `presets_test.go` confirmed the new helper functions and tests.
+- `xref(references)` for `ReviewerDecision` and `reviewerDeniedTools` showed references only in the same package and tests.
+- `file(diagnostics)` for `internal/provider/toolfilter/presets.go` and `internal/provider/toolfilter/presets_test.go` returned no diagnostics.
+
+Lane A verification after integration:
+
+```bash
+./scripts/test_with_guard.sh ./internal/platform/toolpolicy ./internal/provider/toolfilter ./internal/platform/toolbridge ./internal/provider/codexapp ./internal/provider/claudecli -run 'Plan|ReadOnly|Trust|Shell|Lifecycle|Sandbox|Permission|Reviewer|Worker|FullAccess|Native|Tool' -count=1
+./scripts/test_with_guard.sh ./internal/archtest -run 'Dependency|Tool|Provider' -count=1
+make guard
+git diff --check 686d6f76..HEAD
+git diff --cached --check
+git status --short
+```
+
+All commands above passed; `git diff --cached --check` and final status checks produced no output.
+
+Dispatch decision:
+
+- A3 accepted as `done`.
+- Lane A gates passed.
+- B1 moved to `ready`; B2 and C1 remain waiting behind the DAG.

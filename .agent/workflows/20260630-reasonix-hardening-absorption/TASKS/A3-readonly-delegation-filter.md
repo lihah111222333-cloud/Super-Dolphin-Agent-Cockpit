@@ -1,7 +1,7 @@
 ---
 task_id: A3-readonly-delegation-filter
 owner: agent-a3
-status: ready
+status: done
 depends_on: [A1-toolpolicy-core, A0-stage-source-inventory]
 ---
 
@@ -57,10 +57,10 @@ The orchestrator applied the exact delegation package command from A0 evidence b
 
 ## 7. DoD
 
-- [ ] Restricted delegation tests cover all excluded tool classes from the source plan.
-- [ ] `FILE_OWNERSHIP.tsv` names every production and test file this task edits.
-- [ ] Prompt-only read-only enforcement is no longer the only boundary for the identified surface.
-- [ ] No broad provider refactor.
+- [x] Restricted delegation tests cover all excluded tool classes from the source plan.
+- [x] `FILE_OWNERSHIP.tsv` names every production and test file this task edits.
+- [x] Prompt-only read-only enforcement is no longer the only boundary for the identified surface.
+- [x] No broad provider refactor.
 
 ## 8. Rollback
 
