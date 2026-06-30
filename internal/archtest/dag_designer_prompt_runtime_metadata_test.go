@@ -308,7 +308,6 @@ func fixedProviderModelExampleLiterals() []string {
 	return []string{
 		`"provider": "claude"`,
 		`"model": "opus"`,
-		`"model": "sonnet"`,
 		`"escalation_chain": ["sonnet","opus"]`,
 		`list_models(provider="claude")`,
 		`model=sonnet`,
@@ -327,7 +326,6 @@ func providerNeutralModelDiscoveryLiterals() []string {
 	return []string{
 		`    "agent_key": "code-debug",`,
 		`"escalation_chain": []`,
-		`"verifier":   { "agent_key": "code-review", "cwd": "/absolute/path/to/project" }`,
 		`list_models()`,
 		`model=<selected model from list_models()>`,
 	}

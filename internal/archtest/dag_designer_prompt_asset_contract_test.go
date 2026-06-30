@@ -68,6 +68,16 @@ func TestDAGDesignerPromptAssetsUseCreateOnlyContract(t *testing.T) {
 					t.Fatalf("%s keeps obsolete prompt contract %q", tc.section, forbidden)
 				}
 			}
+			for _, forbidden := range []string{
+				`node_type":"hybrid"`,
+				`node_type\":\"hybrid\"`,
+				`Hybrid node example`,
+				`hybrid 节点示例`,
+			} {
+				if strings.Contains(body, forbidden) {
+					t.Fatalf("%s teaches unavailable hybrid node creation %q", tc.section, forbidden)
+				}
+			}
 			assertDAGDesignerTemplateEnablesDispatch(t, tc.template)
 		})
 	}
