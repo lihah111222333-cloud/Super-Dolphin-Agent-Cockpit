@@ -15,6 +15,7 @@ func orchestrationToolDefinitions(svc contract.OrchestrationService) []ToolDefin
 			"parent_id":        StringSchema("Optional parent agent ID for child-agent launches."),
 			"parent_thread_id": StringSchema("Optional desktop thread ID to fork when context_mode=forked and parent_id belongs to a root or managed agent outside the mcp-orch runtime map."),
 			"agent_type":       StringSchema("Optional stable agent identity for child-agent routing; display name is not used as a fallback."),
+			"read_only":        BooleanSchema("Optional explicit read-only review or planning delegation flag. When true, launch_agent applies the read-only tool surface and does not change agent_type routing identity."),
 			"agent_key":        StringSchema("Optional router agent_key. When set, thread/start looks up the matching prompt_template and injects its assembled sections as base_instructions."),
 			"prompt_key":       StringSchema("Optional exact prompt_template.prompt_key to launch. Prefer this for available experts so user-created templates with shared agent_key remain addressable."),
 			"memory_scope":     EnumStringSchema("Optional child-agent scope metadata for launches.", "project", "user", "local"),
