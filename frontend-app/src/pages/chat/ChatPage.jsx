@@ -428,6 +428,11 @@ function ChatPage({ copy = APP_COPY.zh.chat, store, projectPath, rightPanelOpen 
       {showHeader ? (
         <ChatPageHeader copy={copy} store={store} projectPath={projectPath} rightPanelOpen={rightPanelOpen} setRightPanelOpen={setRightPanelOpen} />
       ) : null}
+      {approvalNotice ? (
+        <output className="approval-action-feedback" role="alert" data-testid="approval-action-feedback">
+          {approvalNotice}
+        </output>
+      ) : null}
       <div ref={chatLayoutRef} className="chat-layout" data-testid="chat-layout" style={{ gridTemplateColumns: layoutColumns }}>
         <ThreadRail copy={copy} store={store} />
         <ThreadRailResizer copy={copy} rail={rail} />
@@ -476,11 +481,6 @@ function ChatPage({ copy = APP_COPY.zh.chat, store, projectPath, rightPanelOpen 
       {showIntroFeedback ? (
         <output className="sr-only" data-testid="chat-action-feedback">
           {headerFeedback.message}
-        </output>
-      ) : null}
-      {approvalNotice ? (
-        <output className="sr-only" role="alert" data-testid="approval-action-feedback">
-          {approvalNotice}
         </output>
       ) : null}
       {codePreview.dialogs}

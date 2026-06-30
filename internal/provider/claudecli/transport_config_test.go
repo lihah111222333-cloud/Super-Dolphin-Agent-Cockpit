@@ -12,6 +12,15 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/provider/manifestbuilder"
 )
 
+func mustBuildCLIArgs(t testing.TB, model, instructions, mcpConfigPath string, cfg cliLaunchConfig) []string {
+	t.Helper()
+	args, err := buildCLIArgs(model, instructions, mcpConfigPath, cfg)
+	if err != nil {
+		t.Fatalf("buildCLIArgs() error = %v", err)
+	}
+	return args
+}
+
 func TestWriteManifestConfigIncludesEnvAndAutoApprove(t *testing.T) {
 	t.Parallel()
 
@@ -236,8 +245,32 @@ func TestResolvePermissionModeAcceptsLegacyAndNewApprovalPolicies(t *testing.T) 
 		{name: "untrusted", policy: "untrusted", want: "default"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			if got := resolvePermissionMode(tc.policy, ""); got != tc.want {
+			got, err := resolvePermissionMode(tc.policy, "")
+			if err != nil {
+				t.Fatalf("resolvePermissionMode(%q, \"\") error = %v", tc.policy, err)
+			}
+			if got != tc.want {
 				t.Fatalf("resolvePermissionMode(%q, \"\") = %q, want %q", tc.policy, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestBuildCLIArgsRejectsUnknownPermissionInputs(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		name    string
+		cfg     cliLaunchConfig
+		wantErr string
+	}{
+		{name: "unknown approval", cfg: cliLaunchConfig{ApprovalPolicy: "danger"}, wantErr: "invalid approval policy"},
+		{name: "unknown sandbox", cfg: cliLaunchConfig{Sandbox: "god-mode"}, wantErr: "invalid sandbox type"},
+		{name: "sandbox object missing type", cfg: cliLaunchConfig{Sandbox: `{"mode":"workspace-write"}`}, wantErr: "type is required"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if _, err := buildCLIArgs("claude-sonnet", "system", "/tmp/mcp.json", tc.cfg); err == nil || !strings.Contains(err.Error(), tc.wantErr) {
+				t.Fatalf("buildCLIArgs() error = %v, want substring %q", err, tc.wantErr)
 			}
 		})
 	}
@@ -261,7 +294,7 @@ func TestComposeLaunchSystemPromptUsesPromptAssemblySnapshot(t *testing.T) {
 func TestBuildCLIArgsDoesNotFallbackSystemPromptWhenPromptEmpty(t *testing.T) {
 	t.Parallel()
 
-	args := buildCLIArgs("claude-sonnet", "", "", cliLaunchConfig{})
+	args := mustBuildCLIArgs(t, "claude-sonnet", "", "", cliLaunchConfig{})
 	if got := flagValues(args, "--system-prompt"); len(got) != 0 {
 		t.Fatalf("flagValues(--system-prompt) = %#v, want no fallback prompt", got)
 	}
@@ -270,7 +303,7 @@ func TestBuildCLIArgsDoesNotFallbackSystemPromptWhenPromptEmpty(t *testing.T) {
 func TestBuildCLIArgsSplitsBoundaryBlocksIntoRepeatedSystemPrompts(t *testing.T) {
 	t.Parallel()
 
-	args := buildCLIArgs("claude-sonnet", "", "", cliLaunchConfig{
+	args := mustBuildCLIArgs(t, "claude-sonnet", "", "", cliLaunchConfig{
 		DeveloperInstructions: "legacy developer",
 		PromptSnapshot: contract.PromptAssemblySnapshot{
 			BaseInstructions: "assembled base",
@@ -305,7 +338,7 @@ func TestBuildCLIArgsCanonicalizesLatestClaudeLongSlugs(t *testing.T) {
 		{name: "pinned version unchanged", model: "claude-opus-4-6[1m]", want: "claude-opus-4-6[1m]"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			args := buildCLIArgs(tc.model, "system", "", cliLaunchConfig{})
+			args := mustBuildCLIArgs(t, tc.model, "system", "", cliLaunchConfig{})
 			values := flagValues(args, "--model")
 			if len(values) != 1 || values[0] != tc.want {
 				t.Fatalf("--model values = %#v, want [%q]", values, tc.want)
@@ -353,7 +386,7 @@ func TestClaude_MCP_SmokeTest(t *testing.T) {
 	}
 	defer cleanup()
 
-	args := buildCLIArgs("claude-sonnet", "system", path, cliLaunchConfig{})
+	args := mustBuildCLIArgs(t, "claude-sonnet", "system", path, cliLaunchConfig{})
 	for i := 0; i < len(args)-1; i++ {
 		if args[i] != "--mcp-config" {
 			continue
@@ -403,7 +436,7 @@ func TestRouterInjectedPromptReachesSystemPromptFlag(t *testing.T) {
 			BaseInstructions: assembly.Snapshot.BaseInstructions,
 		},
 	}
-	args := buildCLIArgs("claude-sonnet", assembly.BaseInstructions, "", cfg)
+	args := mustBuildCLIArgs(t, "claude-sonnet", assembly.BaseInstructions, "", cfg)
 
 	found := false
 	for _, v := range flagValues(args, "--system-prompt") {
@@ -431,7 +464,7 @@ func TestStartRuntimeContextReachesSystemPromptFlag(t *testing.T) {
 		},
 	}
 	assembly := resolveStartAssembly(req, cliLaunchConfig{}, "claude")
-	args := buildCLIArgs("claude-sonnet", assembly.BaseInstructions, "", cliLaunchConfig{
+	args := mustBuildCLIArgs(t, "claude-sonnet", assembly.BaseInstructions, "", cliLaunchConfig{
 		PromptSnapshot: contract.PromptAssemblySnapshot{BaseInstructions: assembly.Snapshot.BaseInstructions},
 	})
 
@@ -461,7 +494,7 @@ func TestStartRuntimeContextReachesBoundarySystemPromptFlag(t *testing.T) {
 		},
 	}
 	assembly := resolveStartAssembly(req, cliLaunchConfig{}, "claude")
-	args := buildCLIArgs("claude-sonnet", assembly.BaseInstructions, "", cliLaunchConfig{
+	args := mustBuildCLIArgs(t, "claude-sonnet", assembly.BaseInstructions, "", cliLaunchConfig{
 		PromptSnapshot: assembly.Snapshot,
 	})
 

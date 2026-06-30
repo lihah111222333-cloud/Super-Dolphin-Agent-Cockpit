@@ -379,6 +379,7 @@ func (s *service) guardThreadPatchPayload(patch uidto.UIThreadPatch) uidto.UIThr
 		ThreadID:        patch.ThreadID,
 		Source:          patch.Source,
 		Sequence:        patch.Sequence,
+		Generation:      patch.Generation,
 		Status:          patch.Status,
 		StatusHeader:    patch.StatusHeader,
 		StatusDetails:   patch.StatusDetails,
