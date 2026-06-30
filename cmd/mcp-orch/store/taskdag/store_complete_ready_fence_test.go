@@ -10,13 +10,13 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/sqlc"
 )
 
-// TestCompleteTaskDagNode_FenceAcceptsReadyRunningAwaitingVerify 锁定 CompleteTaskDagNode 的状态围栏。
+// TestCompleteTaskDagNode_FenceAcceptsReadyRunning 锁定 CompleteTaskDagNode 的状态围栏。
 // TurnCompleted 可能先于 dispatchAgent 把 ready 切到 running，因此 done 写入必须接受
-// ready、running 和 awaiting_verify；pending、done、failed 仍要被拒绝，避免越过生命周期边界。
+// ready 和 running；pending、legacy awaiting_verify、done、failed 仍要被拒绝，避免越过生命周期边界。
 //
-// 该表驱动测试同时覆盖 ready/running/awaiting_verify 到 done 的成功路径，
+// 该表驱动测试同时覆盖 ready/running 到 done 的成功路径，
 // 以及 pending、done、failed 被围栏拒绝的下界和上界。
-func TestCompleteTaskDagNode_FenceAcceptsReadyRunningAwaitingVerify(t *testing.T) {
+func TestCompleteTaskDagNode_FenceAcceptsReadyRunning(t *testing.T) {
 	t.Parallel()
 
 	cases := []struct {
@@ -26,7 +26,7 @@ func TestCompleteTaskDagNode_FenceAcceptsReadyRunningAwaitingVerify(t *testing.T
 	}{
 		{name: "ready to done", initial: "ready", wantSuccess: true},
 		{name: "running to done", initial: "running", wantSuccess: true},
-		{name: "awaiting_verify to done", initial: "awaiting_verify", wantSuccess: true},
+		{name: "awaiting_verify rejected as legacy state", initial: "awaiting_verify", wantSuccess: false},
 		{name: "pending rejected", initial: "pending", wantSuccess: false},
 		{name: "done rejected", initial: "done", wantSuccess: false},
 		{name: "failed rejected", initial: "failed", wantSuccess: false},

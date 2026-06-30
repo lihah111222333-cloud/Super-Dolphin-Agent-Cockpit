@@ -61,7 +61,7 @@ func (db *fakeTaskDAGDB) claimWakeup(id int64, claimedBy string, leaseExpiresAt 
 
 func isFakeCompletableStatus(status string) bool {
 	switch status {
-	case "ready", "running", "awaiting_verify":
+	case "ready", "running":
 		return true
 	default:
 		return false

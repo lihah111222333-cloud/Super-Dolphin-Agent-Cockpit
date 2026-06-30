@@ -362,8 +362,8 @@ func (s *store) UpdateNodeStatusFlexible(ctx context.Context, input FlexibleNode
 	}, "update_status_flexible", fromNodeStatusFlexibleRow)
 }
 
-// ClaimNodeOutputMaterialization 把节点标记为 output_materializing 并写入 result，
-// 用于 CompleteNode 前的异步物化占位，避免并发重复物化。
+// ClaimNodeOutputMaterialization 在节点仍可完成时写入 result 作为物化占位。
+// 它不再写 legacy awaiting_verify，后续由 CompleteNode 直接把 ready/running 推到 done。
 func (s *store) ClaimNodeOutputMaterialization(ctx context.Context, input OutputMaterializationClaimInput) (*Node, error) {
 	if err := requireRuntimeRunID("claim_output_materialization", input.RunID); err != nil {
 		return nil, err

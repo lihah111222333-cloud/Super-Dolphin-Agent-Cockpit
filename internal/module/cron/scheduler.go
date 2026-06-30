@@ -413,7 +413,7 @@ func (s *Scheduler) observeStartedTurn(ctx context.Context, job jobRecord, run r
 // finalizeFailure 在 StartTurn 失败时将 run 标记为 failed 并计算下一次重试时间。
 func (s *Scheduler) finalizeFailure(ctx context.Context, job jobRecord, run runRecord, scheduledAt time.Time, startErr error) error {
 	now := s.now().UTC()
-	nextRetry, err := s.nextRetry(job, now)
+	nextRetry, nextRunAt, err := s.nextRetryAndRun(job, now)
 	if err != nil {
 		return err
 	}
@@ -432,6 +432,7 @@ func (s *Scheduler) finalizeFailure(ctx context.Context, job jobRecord, run runR
 		LastStatus:           statusFailed,
 		LastErrorAt:          now,
 		LastError:            startErr.Error(),
+		NextRunAt:            nextRunAt,
 		NextRetryAt:          nextRetry,
 		Now:                  now,
 	})
@@ -440,6 +441,10 @@ func (s *Scheduler) finalizeFailure(ctx context.Context, job jobRecord, run runR
 // finalizeObserveLost 在 Observe 失败后将 run 标记为 observe_lost，不触发自动重试。
 func (s *Scheduler) finalizeObserveLost(ctx context.Context, job jobRecord, run runRecord, result StartTurnResult, observeErr error) error {
 	now := s.now().UTC()
+	_, nextRunAt, err := s.nextRetryAndRun(job, now)
+	if err != nil {
+		return err
+	}
 	// observe_lost 需要人工看，不能自动 retry。无法跟踪旧 turn 时重试会制造重复任务。
 	s.casLogPublish(ctx, casRunStatusParams{
 		ID: run.ID, ExpectedStatus: statusSubmitted, NextStatus: statusObserveLost,
@@ -455,6 +460,7 @@ func (s *Scheduler) finalizeObserveLost(ctx context.Context, job jobRecord, run 
 		LastStatus:           statusObserveLost,
 		LastErrorAt:          now,
 		LastError:            observeErr.Error(),
+		NextRunAt:            nextRunAt,
 		NextRetryAt:          time.Time{}, // observe_lost 不自动重试，避免重复 turn
 		Now:                  now,
 	})

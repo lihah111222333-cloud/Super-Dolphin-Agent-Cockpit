@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"runtime"
+	"strings"
 	"testing"
 	"time"
 
@@ -413,18 +414,31 @@ func TestMarkFinishedReturnsTokenMismatchOnZeroRows(t *testing.T) {
 func TestMarkFailedDefaultsStatus(t *testing.T) {
 	t.Parallel()
 	var got sqlc.MarkCronJobFailedParams
+	nextRunAt := time.Unix(1_700_000_000, 0).UTC()
 	s := &store{q: &cronQuerierStub{
 		markFailedFn: func(_ context.Context, a sqlc.MarkCronJobFailedParams) (int64, error) {
 			got = a
 			return 1, nil
 		},
 	}}
-	err := s.MarkFailed(context.Background(), MarkFailedParams{ID: "j", ClaimToken: "tok", RunID: "run-1"})
+	err := s.MarkFailed(context.Background(), MarkFailedParams{ID: "j", ClaimToken: "tok", RunID: "run-1", NextRunAt: nextRunAt})
 	if err != nil {
 		t.Fatalf("MarkFailed error = %v", err)
 	}
 	if got.LastStatus != StatusFailed {
 		t.Fatalf("LastStatus = %q, want %q", got.LastStatus, StatusFailed)
+	}
+	if got.NextRunAt != ts(nextRunAt) {
+		t.Fatalf("NextRunAt = %d, want %d", got.NextRunAt, ts(nextRunAt))
+	}
+}
+
+func TestMarkFailedRejectsZeroNextRunAt(t *testing.T) {
+	t.Parallel()
+	s := &store{q: &cronQuerierStub{}}
+	err := s.MarkFailed(context.Background(), MarkFailedParams{ID: "j", ClaimToken: "tok", RunID: "run-1"})
+	if err == nil || !strings.Contains(err.Error(), "next_run_at") {
+		t.Fatalf("MarkFailed error = %v, want next_run_at required", err)
 	}
 }
 

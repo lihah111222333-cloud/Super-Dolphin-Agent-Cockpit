@@ -359,10 +359,9 @@ func (db *fakeTaskDAGDB) claimNodeOutputMaterialization(args ...any) ([]any, err
 	}
 	key := dagNodeLookupKey(dagKey, nodeKey, runID)
 	row, ok := db.nodes[key]
-	if !ok || (row.Status != "ready" && row.Status != "running" && row.Status != "awaiting_verify") {
+	if !ok || (row.Status != "ready" && row.Status != "running") {
 		return nil, pgx.ErrNoRows
 	}
-	row.Status = "awaiting_verify"
 	row.Result = append([]byte(nil), result...)
 	row.UpdatedAt = timestamptzValue(db.now)
 	db.nodes[key] = row
