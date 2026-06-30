@@ -51,9 +51,10 @@ Worker report statuses map into DAG states as follows: `DONE` -> `done`, `NOT_AP
 ## 7. Current Status
 
 - Overall: in progress after explicit user approval for the full workflow.
-- Completed: P0 workflow structure, A0 stage-source inventory, and A1 toolpolicy core.
+- Completed: P0 workflow structure, A0 stage-source inventory, A1 toolpolicy core, and A3 read-only delegation filter.
 - Closed as not applicable: A2 runtime stage gate, because A0 found no authoritative stage source.
-- Next step: dispatch A3 in an isolated worker worktree using the A0-applied exact ownership paths.
+- Lane A gates passed.
+- Next step: dispatch B1 in an isolated worker worktree.
 
 ## 8. Quick Navigation
 

@@ -35,14 +35,14 @@
       "title": "Connect read-only delegation surfaces to restricted tool sets",
       "deps": ["A1-toolpolicy-core", "A0-stage-source-inventory"],
       "owner": "agent-a3",
-      "state": "ready"
+      "state": "done"
     },
     {
       "id": "B1-sessionpaths-core",
       "title": "Add sessionpaths leaf helper and golden tests",
       "deps": ["A2-toolbridge-stage-gate", "A3-readonly-delegation-filter"],
       "owner": "agent-b1",
-      "state": "waiting"
+      "state": "ready"
     },
     {
       "id": "B2-sessionpaths-migration",

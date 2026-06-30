@@ -22,8 +22,8 @@
 - [x] If A0 identifies delegation entry files for A3, the orchestrator applies A0's evidence proposal to `FILE_OWNERSHIP.tsv` and A3 verification commands before A3 starts.
 - [x] A1 `internal/platform/toolpolicy` tests pass, and `internal/archtest/toolpolicy_dependency_guard_test.go` passes if created.
 - [x] A2 toolbridge planning-stage gate tests pass, or A2 is marked `not_applicable_with_evidence` because A0 found no valid stage source.
-- [ ] A3 read-only delegation filter tests pass, or A3 is marked `not_applicable_with_evidence` because A0 found no concrete delegation entry point.
-- [ ] Provider sandbox/security regression tests pass.
+- [x] A3 read-only delegation filter tests pass, or A3 is marked `not_applicable_with_evidence` because A0 found no concrete delegation entry point.
+- [x] Provider sandbox/security regression tests pass.
 
 ## Gate 3: Lane B Completion
 
