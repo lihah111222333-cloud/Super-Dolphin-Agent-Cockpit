@@ -409,3 +409,56 @@ Dispatch decision:
 
 - B1 accepted as `done`.
 - B2 moved to `ready`; C1 remains waiting behind B2.
+
+## 2026-06-30 B2 Sessionpaths Migration Review And Lane B Gate
+
+Status: B2 production implementation was performed by a child agent in an isolated worktree and reviewed before integration.
+
+Worker branch and commit:
+
+- Agent id: `019f187a-a355-72d1-bd51-2a8a17d1347b`.
+- Branch: `codex/reasonix-hardening-b2-20260630`.
+- Commit: `28e36eae9cc079daca0ffbbbd05d0836125a7d2e`.
+- Integrated by fast-forward into `codex/reasonix-hardening-integration-20260630`.
+
+Ownership review:
+
+- `git diff --name-status de6df85b..HEAD` showed only B2-owned files:
+  - `internal/provider/codexapp/history_rollout.go`
+  - `internal/util/historyjsonl/history.go`
+  - `internal/module/thread/scratchpad.go`
+  - `internal/module/thread/phasef_scratchpad_test.go`
+  - `internal/archtest/sessionpaths_literal_guard_test.go`
+- Main checkout was checked after the worker reported an accidental patch landing there; the B2-owned production/test files had no residual main checkout diff.
+
+Main LSP review:
+
+- `xref(references)` for `CodexRolloutGlob` showed the declaration, same-package tests, and the two expected caller migrations in provider/codexapp and util/historyjsonl.
+- `xref(references)` for `ManagedScratchpadDir` and `IsManagedScratchpadDir` showed only the expected thread caller migrations plus same-package tests.
+- `file(diagnostics)` for the modified caller files and `internal/archtest/sessionpaths_literal_guard_test.go` returned no new diagnostics; the only provider hint remained the pre-existing `strings.Cut` simplification hint.
+
+Behavior review:
+
+- `findRolloutPath` still obtains the root from `resolveRolloutRoot`, preserving the explicit `CODEXAPP_ALLOW_LEGACY_DEFAULT_HOME=1` legacy fallback before calling `sessionpaths.CodexRolloutGlob`.
+- `discoverCodexPath` still obtains the root from `codexRoot(req.CodexHome)`, preserving util/historyjsonl empty Codex home fallback to `~/.codex`.
+- Thread scratchpad still owns `os.MkdirAll`, `os.Chmod`, and cleanup; `sessionpaths` only derives paths and managed-dir membership.
+- `sessionpaths_literal_guard_test.go` is separate from the B1 dependency guard and limits literal placement checks to B2-owned production caller files.
+
+Lane B verification after integration:
+
+```bash
+./scripts/test_with_guard.sh ./internal/platform/sessionpaths ./internal/provider/codexapp ./internal/module/thread ./internal/util/historyjsonl -run 'Rollout|Scratchpad|Path|Cleanup|CodexHome|History' -count=1
+./scripts/test_with_guard.sh ./internal/archtest -run 'Dependency|Path|Provider|Thread' -count=1
+make guard
+git diff --check de6df85b..HEAD
+git diff --cached --check
+git status --short
+```
+
+All commands above passed; `git diff --cached --check` and final status checks produced no output.
+
+Dispatch decision:
+
+- B2 accepted as `done`.
+- Lane B gates passed.
+- C1 moved to `ready`; PN-integration remains waiting behind C1.

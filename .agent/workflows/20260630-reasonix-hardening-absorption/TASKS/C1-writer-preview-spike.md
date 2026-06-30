@@ -1,7 +1,7 @@
 ---
 task_id: C1-writer-preview-spike
 owner: agent-c1
-status: waiting
+status: ready
 depends_on: [A0-stage-source-inventory, B2-sessionpaths-migration]
 ---
 

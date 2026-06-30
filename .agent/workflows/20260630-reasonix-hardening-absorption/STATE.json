@@ -1,6 +1,6 @@
 {
   "workflow_key": "20260630-reasonix-hardening-absorption",
-  "last_updated": "2026-06-30T21:16:10+09:00",
+  "last_updated": "2026-06-30T21:39:48+09:00",
   "overall_status": "in_progress",
   "source_plan": "docs/plans/2026-06-30-reasonix-hardening-absorption-review.md",
   "source_plan_status": "NEEDS_APPROVAL",
@@ -39,11 +39,18 @@
       "commit": "2f8c85a569037f25950498dc484848b80cc942a1",
       "status": "done",
       "review": "Leaf sessionpaths helper, golden tests, and stdlib dependency guard accepted before B2 migration"
+    },
+    "B2-sessionpaths-migration": {
+      "agent_id": "019f187a-a355-72d1-bd51-2a8a17d1347b",
+      "branch": "codex/reasonix-hardening-b2-20260630",
+      "commit": "28e36eae9cc079daca0ffbbbd05d0836125a7d2e",
+      "status": "done",
+      "review": "Caller migration preserved provider/util fallback boundaries and scratchpad cleanup; Lane B gates passed"
     }
   },
   "next_actions": [
     "Keep A2 closed as not_applicable_with_evidence unless a future approved source introduces an authoritative stage carrier.",
-    "Dispatch B2 in an isolated worker worktree; B1 is integrated and its path golden tests passed.",
-    "Do not start C1 until B2 is integrated and Lane B caller behavior gates pass."
+    "Dispatch C1 in an isolated worker worktree; Lane B gates have passed.",
+    "Do not start PN-integration until C1 is integrated and Lane C spike gates pass."
   ]
 }
