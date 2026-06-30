@@ -123,9 +123,10 @@ make build-agent-terminal-plain   # Same without Frida (lighter)
 ### Test
 
 ```bash
-make test                  # Full test suite
-go test ./... -count=1     # Direct Go test
-go test -bench=. ./...     # Run benchmarks
+make test                  # Full guarded suite; prepares frontend embed assets first
+./scripts/test_with_guard.sh ./internal/module/ws_test -count=1  # Focused guarded Go package test
+make frontend-app-build && go test ./... -count=1  # Direct full Go test after embed assets exist
+make frontend-app-build && go test -bench=. ./...  # Run benchmarks after embed assets exist
 ( cd frontend-app && npm run lint && npm test && npm run build )
 ```
 
