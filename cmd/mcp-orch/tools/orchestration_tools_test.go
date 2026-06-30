@@ -259,6 +259,61 @@ func TestLaunchRequestFromExecutableMergesDefaultDisabledTools(t *testing.T) {
 	require.Equal(t, "spawn_agent", launchEnvValue(req.Env, "AGENT_CODEX_DISABLED_NATIVE_TOOLS"))
 }
 
+func TestLaunchRequestFromExecutableAppliesReviewerDisabledToolsForReadOnlyAgentTypes(t *testing.T) {
+	tests := []struct {
+		name      string
+		agentType contract.AgentType
+	}{
+		{name: "plan", agentType: contract.AgentTypePlan},
+		{name: "explore", agentType: contract.AgentTypeExplore},
+	}
+
+	reviewerDenied := contract.ReadOnlyAgentDeniedTools()
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req, err := launchRequestFromExecutable(LaunchAgentInput{
+				Name:          "agent-" + tt.name,
+				AgentType:     string(tt.agentType),
+				DisabledTools: " custom_tool , spawn_agent ",
+			}, "/tmp/agent-terminal")
+			require.NoError(t, err)
+
+			disabled := disabledToolCounts(launchEnvValue(req.Env, "AGENT_DISABLED_TOOLS"))
+			for _, tool := range []string{
+				"launch_agent",
+				"orchestration_launch_agent",
+				"spawn_agent",
+				"edit",
+				"lsp_edit",
+				"task_start_dag",
+			} {
+				require.Equalf(t, 1, disabled[tool], "%s disabled count", tool)
+			}
+			for _, tool := range reviewerDenied {
+				require.Equalf(t, 1, disabled[tool], "%s disabled count", tool)
+			}
+			require.Equal(t, 1, disabled["custom_tool"])
+		})
+	}
+}
+
+func TestLaunchRequestFromExecutableDoesNotApplyReviewerDisabledToolsToWorker(t *testing.T) {
+	req, err := launchRequestFromExecutable(LaunchAgentInput{
+		Name:          "agent-worker-deny",
+		AgentType:     "worker",
+		DisabledTools: " custom_tool , spawn_agent ",
+	}, "/tmp/agent-terminal")
+	require.NoError(t, err)
+
+	disabled := disabledToolCounts(launchEnvValue(req.Env, "AGENT_DISABLED_TOOLS"))
+	for _, tool := range []string{"launch_agent", "orchestration_launch_agent", "spawn_agent", "custom_tool"} {
+		require.Equalf(t, 1, disabled[tool], "%s disabled count", tool)
+	}
+	for _, tool := range []string{"edit", "lsp_edit", "task_start_dag"} {
+		require.NotContains(t, disabled, tool)
+	}
+}
+
 func TestLaunchRequestFromExecutableForwardsModel(t *testing.T) {
 	req, err := launchRequestFromExecutable(LaunchAgentInput{
 		Name:     "agent-m",
@@ -362,6 +417,18 @@ func launchEnvValue(env []string, key string) string {
 		}
 	}
 	return ""
+}
+
+func disabledToolCounts(csv string) map[string]int {
+	counts := map[string]int{}
+	for _, item := range strings.Split(csv, ",") {
+		tool := strings.TrimSpace(item)
+		if tool == "" {
+			continue
+		}
+		counts[tool]++
+	}
+	return counts
 }
 
 func TestListAgentsHandlerDefaultsToActiveCompactSnapshots(t *testing.T) {
