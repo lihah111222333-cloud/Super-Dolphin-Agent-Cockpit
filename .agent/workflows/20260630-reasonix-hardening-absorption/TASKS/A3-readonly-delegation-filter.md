@@ -81,6 +81,9 @@ The orchestrator applied the exact delegation package command from A0 evidence b
 - `d8754cc1e86bf3dfc62273390ebebf1f86b9b3fe` fixed the dynamic disabled-tool gap and was merged by `d08c6962`.
 - The user required the six LSP modernization hints to be cleared.
 - Einstein cleanup `dfeff4745e957ae6ee94d3f998f20c03f82ecd05` cleared `range over int`, `strings.SplitSeq`, `strings.CutPrefix`, and `slices.ContainsFunc`/`slices.Contains` hints in A3-owned files and was merged by `28aa3e54`.
+- Final-review3 on `ba18c2e7` recorded Dirac FAIL P2 for missing final target HEAD documentation, Bacon FAIL P1 for scoped Codex reserved host-only calls falling back to ordinary backend when the surface was missing, and Turing FAIL P2 for missing `ba18c2e7` docs plus the remaining `history_rollout.go` `strings.Index` -> `strings.Cut` LSP hint.
+- Tesla repair `e82c2300356cef51d3676b7231d77fb083ee2e47` updated `routeCodexSurfaceToolCall` so `surface == nil` first fail-fast rejects `req.Scoped && requiresCodexToolSurface(req.Name)`, then allows only non-scoped reserved host-only fallback; it also added `TestCodexToolSurfaceMissingSurfaceReservedHostOnlyDoesNotReachBackend` and changed `trimInjectedLSPHint` to `strings.Cut`.
+- Integration merge `29fe8e130ed35716e8cae11698b281bd0601823d` brought `e82c2300356cef51d3676b7231d77fb083ee2e47` into the integration branch and is the latest code verification head.
 
 Round2 verification recorded by the worker:
 
@@ -101,7 +104,7 @@ Final P1 repair verification recorded by the controller:
 ./scripts/test_with_guard.sh ./cmd/mcp-orch/tools ./internal/module/thread ./internal/provider/toolfilter ./internal/platform/toolpolicy ./internal/contract -count=1
 ```
 
-LSP diagnostics on `cmd/mcp-orch/tools/orchestration_tools.go`, `cmd/mcp-orch/tools/orchestration_tools_test.go`, and `internal/contract/provider.go` returned no diagnostics. Controller final gates passed on code verification head `28aa3e54bcfa6b71bc5d83e859d96b3938c69016`; see `CHECKS/EVIDENCE.md`.
+LSP diagnostics on `internal/platform/toolbridge/handler_peer_decode.go`, `internal/platform/toolbridge/codex_surface_test.go`, `internal/provider/codexapp/history_rollout.go`, `cmd/mcp-orch/tools/orchestration_tools.go`, `cmd/mcp-orch/tools/orchestration_tools_test.go`, and `internal/contract/provider.go` returned no diagnostics. Controller final gates passed on code verification head `29fe8e130ed35716e8cae11698b281bd0601823d`; see `CHECKS/EVIDENCE.md`.
 
 ## 7. DoD
 

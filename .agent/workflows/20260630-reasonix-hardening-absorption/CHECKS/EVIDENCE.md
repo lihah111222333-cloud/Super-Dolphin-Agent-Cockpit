@@ -742,9 +742,9 @@ Dispatch decision:
 - PN-integration accepted as `done`.
 - This docs-only status commit keeps workflow state synchronized after those gates.
 
-## 2026-07-01 PN Final Gate After LSP Hint Cleanup
+## 2026-07-01 PN Superseded Gate After LSP Hint Cleanup
 
-Status: final code verification completed on `28aa3e54bcfa6b71bc5d83e859d96b3938c69016`; this docs-only status commit records that result.
+Status: superseded code verification completed on `28aa3e54bcfa6b71bc5d83e859d96b3938c69016`; the later final-review3 P1/P2 repair at `29fe8e13` supersedes this as the latest final code verification point.
 
 User request:
 
@@ -780,10 +780,69 @@ python3 -m json.tool .agent/workflows/20260630-reasonix-hardening-absorption/STA
 make guard
 ```
 
-All commands above passed on code verification head `28aa3e54bcfa6b71bc5d83e859d96b3938c69016`.
+All commands above passed on superseded code verification head `28aa3e54bcfa6b71bc5d83e859d96b3938c69016`.
 
 Dispatch decision:
 
 - LSP hint cleanup accepted as integrated.
-- PN-integration accepted as `done`.
-- This docs-only status commit keeps workflow state synchronized after those gates.
+- PN-integration accepted as `done` at this superseded point.
+- The final workflow sync is now recorded in the following final-review3 section.
+
+## 2026-07-01 PN Final Gate After Final-review3 P1/P2 Repair
+
+Status: final code verification completed on `29fe8e130ed35716e8cae11698b281bd0601823d`. This round6 docs-only status commit records that result and is the final workflow sync head. Inside the commit, `final_integration_head` is recorded as `pending_this_docs_commit` because a Git commit cannot reliably contain its own SHA.
+
+Head terminology:
+
+- `ba18c2e7d54a245f3f0b7bc0b42fd388a42fb051` was the previous docs sync head and the target reviewed by final-review3.
+- `28aa3e54bcfa6b71bc5d83e859d96b3938c69016` was the superseded LSP hint cleanup verification point; it is not the latest final code verification head.
+- `29fe8e130ed35716e8cae11698b281bd0601823d` is the latest `final_code_verification_head` after merging the Tesla P1/P2 repair.
+- This round6 docs commit is the final workflow sync head.
+
+Final-review3 results:
+
+- Dirac FAIL P2: workflow docs did not record final target HEAD `ba18c2e7`.
+- Bacon FAIL P1: when a scoped Codex tool call had a missing surface, reserved host-only tools could fall back to the ordinary host-direct backend.
+- Turing FAIL P2: workflow docs did not record `ba18c2e7`; changed Go files still had `internal/provider/codexapp/history_rollout.go` `strings.Index` -> `strings.Cut` LSP hint.
+
+Integrated repair:
+
+- Tesla worker commit `e82c2300356cef51d3676b7231d77fb083ee2e47` fixed the final-review3 P1/P2 findings.
+- Merge commit `29fe8e130ed35716e8cae11698b281bd0601823d` integrated `e82c2300356cef51d3676b7231d77fb083ee2e47` into `codex/reasonix-hardening-integration-20260630`.
+- `routeCodexSurfaceToolCall` now checks `req.Scoped && requiresCodexToolSurface(req.Name)` while `surface == nil` and fail-fast returns the missing surface error before allowing non-scoped reserved host-only fallback.
+- `TestCodexToolSurfaceMissingSurfaceReservedHostOnlyDoesNotReachBackend` asserts stale scoped `memory_write` missing-surface returns a missing surface error and `host.calls == 0`.
+- `trimInjectedLSPHint` now uses `strings.Cut`, clearing the remaining LSP hint in `internal/provider/codexapp/history_rollout.go`.
+
+Preserved facts:
+
+- Dynamic disabled-tool repair `d8754cc1e86bf3dfc62273390ebebf1f86b9b3fe` remains integrated by `d08c6962`.
+- LSP six-hint cleanup `dfeff4745e957ae6ee94d3f998f20c03f82ecd05` remains integrated by `28aa3e54`.
+- A2 remains `not_applicable_with_evidence`; no runtime planning-stage blocking was wired.
+- C1 remains ADR-only/deferred; no production preview API or host-direct preview/execute test completion is claimed.
+
+Controller gates recorded after `29fe8e13`:
+
+```bash
+# LSP diagnostics on internal/platform/toolbridge/handler_peer_decode.go,
+# internal/platform/toolbridge/codex_surface_test.go,
+# internal/provider/codexapp/history_rollout.go,
+# cmd/mcp-orch/tools/orchestration_tools.go,
+# cmd/mcp-orch/tools/orchestration_tools_test.go,
+# and internal/contract/provider.go returned no diagnostics.
+./scripts/test_with_guard.sh ./internal/platform/toolbridge -run TestCodexToolSurfaceMissingSurfaceReservedHostOnlyDoesNotReachBackend -count=1
+./scripts/test_with_guard.sh ./internal/platform/toolbridge ./internal/provider/codexapp -run 'CodexToolSurface|Scoped|HostOnly|History|Rollout|Injected|LSP' -count=1
+./scripts/test_with_guard.sh ./cmd/mcp-orch/tools ./internal/module/thread ./internal/provider/codexapp ./internal/platform/toolbridge ./internal/contract -run 'LaunchRequestFromExecutable|BuildStartSessionConfig|CodexToolSurface|PrepareCodexToolSurface|Disabled|Disallowed|ReadOnly|Scoped' -count=1
+git diff --check 5ccc29e69c48c407895b2d9a4182b0d124d6b813...HEAD
+git diff --cached --check
+python3 -m json.tool .agent/workflows/20260630-reasonix-hardening-absorption/STATE.json >/dev/null
+```
+
+Round6 docs-worker local verification is recorded in the final response for this commit:
+
+```bash
+python3 -m json.tool .agent/workflows/20260630-reasonix-hardening-absorption/STATE.json >/dev/null
+git diff --check
+git diff --cached --check
+# stale wording scan: ba18c2e7 and 28aa3e54 appear only as previous/superseded historical points, not as latest final code verification head.
+git status --short
+```

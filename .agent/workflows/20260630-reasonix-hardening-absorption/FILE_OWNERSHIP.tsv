@@ -18,9 +18,9 @@ internal/contract/provider.go	A3-readonly-delegation-filter	RW	Round2 repair fro
 internal/contract/toolbridge.go	A3-readonly-delegation-filter	RW	P1 repair from d8754cc1: CodexToolSurfaceScope carries DisabledTools.
 internal/module/thread/start_session_helpers.go	A3-readonly-delegation-filter	RW	Round2 repair: merge launch disabled native tools with assembly-suppressed tools.
 internal/module/thread/start_session_helpers_test.go	A3-readonly-delegation-filter	RW	Round2 regression for merged launch and assembly tool-surface config.
-internal/platform/toolbridge/codex_surface_test.go	A3-readonly-delegation-filter	RW	P1 regression from d8754cc1 for dynamic disabled-tool filtering and stale scoped-call denial.
+internal/platform/toolbridge/codex_surface_test.go	A3-readonly-delegation-filter	RW	P1 regressions from d8754cc1/e82c230 for dynamic disabled-tool filtering, stale scoped-call denial, and missing-surface reserved host-only backend isolation.
 internal/platform/toolbridge/handler_codex_surface_store.go	A3-readonly-delegation-filter	RW	P1 repair from d8754cc1: store dynamic Codex tool surface with disabled tools.
-internal/platform/toolbridge/handler_peer_decode.go	A3-readonly-delegation-filter	RW	P1 repair from d8754cc1: filter disabled dynamic host/skill/MCP surfaces before exposure.
+internal/platform/toolbridge/handler_peer_decode.go	A3-readonly-delegation-filter	RW	P1 repairs from d8754cc1/e82c230: filter disabled dynamic host/skill/MCP surfaces before exposure and fail-fast scoped reserved host-only calls when Codex surface is missing.
 internal/platform/toolbridge/handler_peer_decode_helpers.go	A3-readonly-delegation-filter	RW	P1 repair from d8754cc1: helper plumbing for disabled scoped-tool rejection.
 internal/provider/codexapp/driver.go	A3-readonly-delegation-filter	RW	P1 repair from 2803b0b: validate unknown Codex disabled native tool IDs fail-fast.
 internal/provider/codexapp/driver_pool_routing.go	A3-readonly-delegation-filter	RW	P1 repair from 2803b0b: keep disabled native tool validation on resume/typed launch paths.
@@ -30,7 +30,7 @@ internal/provider/codexapp/native_tool_policy_validation_test.go	A3-readonly-del
 internal/provider/codexapp/support.go	A3-readonly-delegation-filter	RW	P1 repairs from 2803b0b/d8754cc1: support native and dynamic disabled-tool validation plumbing.
 internal/provider/claudecli/transport_config_security_test.go	A2-toolbridge-stage-gate	RO	Regression suite must continue passing.
 internal/platform/sessionpaths/	B1-sessionpaths-core	RW	New stdlib-only leaf helper and golden tests.
-internal/provider/codexapp/history_rollout.go	B2-sessionpaths-migration	RW	Use sessionpaths for rollout glob while preserving explicit Codex home semantics.
+internal/provider/codexapp/history_rollout.go	B2-sessionpaths-migration	RW	Use sessionpaths for rollout glob while preserving explicit Codex home semantics; e82c230 cleared final-review3 strings.Index -> strings.Cut LSP hint.
 internal/provider/codexapp/history_rollout_path_test.go	B2-sessionpaths-migration	RW	Preserve current rollout path behavior.
 internal/util/historyjsonl/history.go	B2-sessionpaths-migration	RW	Use sessionpaths without changing empty Codex home fallback to ~/.codex.
 internal/module/thread/scratchpad.go	B2-sessionpaths-migration	RW	Use sessionpaths for managed scratchpad path, sanitize, and managed check.
