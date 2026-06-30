@@ -247,7 +247,7 @@ internal/platform/bus/resilient.go	internal	platform-provider	go-source	656	事�
 internal/platform/bus/router.go	internal	platform-provider	go-source	1056	事件总线	internal,platform,bus,router,事件总线
 internal/platform/bus/sink_test.go	internal	platform-provider	go-test	5505	事件总线	internal,platform,bus,sink,test,事件总线
 internal/platform/bus/sink_tracing_test.go	internal	platform-provider	go-test	7591	事件总线	internal,platform,bus,sink,tracing,test,事件总线
-internal/platform/bus/sink.go	internal	platform-provider	go-source	14779	事件总线	internal,platform,bus,sink,事件总线
+internal/platform/bus/sink.go	internal	platform-provider	go-source	14501	事件总线	internal,platform,bus,sink,事件总线
 internal/platform/bus/subscribers_test.go	internal	platform-provider	go-test	1192	事件总线	internal,platform,bus,subscribers,test,事件总线
 internal/platform/bus/subscribers.go	internal	platform-provider	go-source	2311	事件总线	internal,platform,bus,subscribers,事件总线
 internal/platform/bus/subscription_test.go	internal	platform-provider	go-test	931	事件总线	internal,platform,bus,subscription,test,事件总线
@@ -328,6 +328,7 @@ internal/platform/eventsurface/legacy.go	internal	platform-provider	go-source	39
 internal/platform/eventsurface/methods_test.go	internal	platform-provider	go-test	4334	基础设施层	internal,platform,eventsurface,methods,test,基础设施层
 internal/platform/eventsurface/methods.go	internal	platform-provider	go-source	2565	基础设施层	internal,platform,eventsurface,methods,基础设施层
 internal/platform/eventsurface/remote_decode.go	internal	platform-provider	go-source	2220	基础设施层	internal,platform,eventsurface,remote,decode,基础设施层
+internal/platform/eventsurface/task_contract_test.go	internal	platform-provider	go-test	2446	基础设施层	internal,platform,eventsurface,task,contract,test,基础设施层
 internal/platform/hooks/dispatch_worker_test.go	internal	platform-provider	go-test	9735	hook 配置、执行与三阶段拦截	internal,platform,hooks,dispatch,worker,test,hook,配置,执行与三阶段拦截
 internal/platform/hooks/dispatch_worker.go	internal	platform-provider	go-source	6644	hook 配置、执行与三阶段拦截	internal,platform,hooks,dispatch,worker,hook,配置,执行与三阶段拦截
 internal/platform/hooks/dispatcher_test.go	internal	platform-provider	go-test	14428	hook 配置、执行与三阶段拦截	internal,platform,hooks,dispatcher,test,hook,配置,执行与三阶段拦截
@@ -515,8 +516,8 @@ internal/platform/securefs/owner_only_windows.go	internal	platform-provider	go-s
 internal/platform/securefs/securefs.go	internal	platform-provider	go-source	1823	基础设施层	internal,platform,securefs,基础设施层
 internal/platform/shared/builtinprompts/assets.go	internal	platform-provider	go-source	175	共享基础工具	internal,platform,shared,builtinprompts,assets,共享基础工具
 internal/platform/shared/builtinprompts/assets/manifest.json	internal	platform-provider	json	266	共享基础工具	internal,platform,shared,builtinprompts,assets,manifest,共享基础工具
-internal/platform/shared/builtinprompts/assets/sections/main-dag-designer-en/00-runtime-tools.md	internal	platform-provider	doc	7020	共享基础工具	internal,platform,shared,builtinprompts,assets,sections,main,dag,designer,en,00,runtime,tools,共享基础工具
-internal/platform/shared/builtinprompts/assets/sections/main-dag-designer-zh/00-runtime-tools.md	internal	platform-provider	doc	12956	共享基础工具	internal,platform,shared,builtinprompts,assets,sections,main,dag,designer,zh,00,runtime,tools,共享基础工具
+internal/platform/shared/builtinprompts/assets/sections/main-dag-designer-en/00-runtime-tools.md	internal	platform-provider	doc	7649	共享基础工具	internal,platform,shared,builtinprompts,assets,sections,main,dag,designer,en,00,runtime,tools,共享基础工具
+internal/platform/shared/builtinprompts/assets/sections/main-dag-designer-zh/00-runtime-tools.md	internal	platform-provider	doc	13374	共享基础工具	internal,platform,shared,builtinprompts,assets,sections,main,dag,designer,zh,00,runtime,tools,共享基础工具
 internal/platform/shared/builtinprompts/assets/sections/main-default/00-identity.md	internal	platform-provider	doc	365	共享基础工具	internal,platform,shared,builtinprompts,assets,sections,main,default,00,identity,共享基础工具
 internal/platform/shared/builtinprompts/assets/sections/main-default/10-engineering-principles.md	internal	platform-provider	doc	500	共享基础工具	internal,platform,shared,builtinprompts,assets,sections,main,default,10,engineering,principles,共享基础工具
 internal/platform/shared/builtinprompts/assets/sections/main-default/20-risky-actions.md	internal	platform-provider	doc	591	共享基础工具	internal,platform,shared,builtinprompts,assets,sections,main,default,20,risky,actions,共享基础工具
@@ -866,7 +867,7 @@ internal/provider/dreamexec/dreamexec.go	internal	platform-provider	go-source	12
 internal/provider/dreamexec/parse_test.go	internal	platform-provider	go-test	8840	AI provider 集成层	internal,provider,dreamexec,parse,test,AI,集成层
 internal/provider/dreamexec/parse.go	internal	platform-provider	go-source	11863	AI provider 集成层	internal,provider,dreamexec,parse,AI,集成层
 internal/provider/e2e/claude_mcp_test.go	internal	platform-provider	go-test	4400	AI provider 集成层	internal,provider,e2e,claude,mcp,test,AI,集成层
-internal/provider/e2e/codex_mcp_test.go	internal	platform-provider	go-test	20159	AI provider 集成层	internal,provider,e2e,codex,mcp,test,AI,集成层
+internal/provider/e2e/codex_mcp_test.go	internal	platform-provider	go-test	20325	AI provider 集成层	internal,provider,e2e,codex,mcp,test,AI,集成层
 internal/provider/e2e/doc.go	internal	platform-provider	go-source	604	AI provider 集成层	internal,provider,e2e,doc,AI,集成层
 internal/provider/e2efixture/dream_executor_test.go	internal	platform-provider	go-test	7078	AI provider 集成层	internal,provider,e2efixture,dream,executor,test,AI,集成层
 internal/provider/e2efixture/dream_executor.go	internal	platform-provider	go-source	4858	AI provider 集成层	internal,provider,e2efixture,dream,executor,AI,集成层
@@ -896,7 +897,7 @@ internal/provider/unified/dream_executor_provider_order_test.go	internal	platfor
 internal/provider/unified/dream_executor_test.go	internal	platform-provider	go-test	24172	统一 provider 会话解析与 manifest	internal,provider,unified,dream,executor,test,统一,会话解析与,manifest
 internal/provider/unified/dream_executor.go	internal	platform-provider	go-source	9968	统一 provider 会话解析与 manifest	internal,provider,unified,dream,executor,统一,会话解析与,manifest
 internal/provider/unified/event_map_test.go	internal	platform-provider	go-test	5206	统一 provider 会话解析与 manifest	internal,provider,unified,event,map,test,统一,会话解析与,manifest
-internal/provider/unified/event_map.go	internal	platform-provider	go-source	17853	统一 provider 会话解析与 manifest	internal,provider,unified,event,map,统一,会话解析与,manifest
+internal/provider/unified/event_map.go	internal	platform-provider	go-source	17578	统一 provider 会话解析与 manifest	internal,provider,unified,event,map,统一,会话解析与,manifest
 internal/provider/unified/manifest_test.go	internal	platform-provider	go-test	14253	统一 provider 会话解析与 manifest	internal,provider,unified,manifest,test,统一,会话解析与
 internal/provider/unified/module.go	internal	platform-provider	go-source	2738	统一 provider 会话解析与 manifest	internal,provider,unified,module,统一,会话解析与,manifest
 internal/provider/unified/observability_trace_test.go	internal	platform-provider	go-test	3103	统一 provider 会话解析与 manifest	internal,provider,unified,observability,trace,test,统一,会话解析与,manifest
