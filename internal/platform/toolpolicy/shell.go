@@ -67,11 +67,13 @@ var dangerousShellArgs = map[string]struct{}{
 	"--delete":       {},
 	"--exec":         {},
 	"--exec-path":    {},
+	"--ext-diff":     {},
 	"--in-place":     {},
 	"--out-dir":      {},
 	"--output":       {},
 	"--outfile":      {},
 	"--receive-pack": {},
+	"--textconv":     {},
 	"--upload-pack":  {},
 }
 
