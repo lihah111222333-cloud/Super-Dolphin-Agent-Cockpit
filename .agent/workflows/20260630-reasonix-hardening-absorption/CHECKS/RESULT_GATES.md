@@ -11,17 +11,17 @@
 
 ## Gate 1: Approval
 
-- [ ] User explicitly approves Lane A or the full workflow.
-- [ ] Isolated implementation worktree is created before production edits.
-- [ ] Source plan status is either updated to executable or approval is recorded in workflow evidence.
-- [ ] Worker report status is mapped to a DAG state; only `done` and `not_applicable_with_evidence` satisfy downstream DAG dependencies.
+- [x] User explicitly approves Lane A or the full workflow.
+- [x] Isolated implementation worktree is created before production edits.
+- [x] Source plan status is either updated to executable or approval is recorded in workflow evidence.
+- [x] Worker report status is mapped to a DAG state; only `done` and `not_applicable_with_evidence` satisfy downstream DAG dependencies.
 
 ## Gate 2: Lane A Completion
 
-- [ ] A0 stage source inventory completed with LSP references and exact source anchors.
-- [ ] If A0 identifies delegation entry files for A3, the orchestrator applies A0's evidence proposal to `FILE_OWNERSHIP.tsv` and A3 verification commands before A3 starts.
+- [x] A0 stage source inventory completed with LSP references and exact source anchors.
+- [x] If A0 identifies delegation entry files for A3, the orchestrator applies A0's evidence proposal to `FILE_OWNERSHIP.tsv` and A3 verification commands before A3 starts.
 - [ ] A1 `internal/platform/toolpolicy` tests pass, and `internal/archtest/toolpolicy_dependency_guard_test.go` passes if created.
-- [ ] A2 toolbridge planning-stage gate tests pass, or A2 is marked `not_applicable_with_evidence` because A0 found no valid stage source.
+- [x] A2 toolbridge planning-stage gate tests pass, or A2 is marked `not_applicable_with_evidence` because A0 found no valid stage source.
 - [ ] A3 read-only delegation filter tests pass, or A3 is marked `not_applicable_with_evidence` because A0 found no concrete delegation entry point.
 - [ ] Provider sandbox/security regression tests pass.
 

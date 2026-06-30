@@ -235,3 +235,26 @@ C1 reusable model-callable writer/tool-surface family anchors:
 - MCP-orch shared-file writer: `cmd/mcp-orch/tools/shared_file_tools.go:50-61` registers `shared_file_write`; `cmd/mcp-orch/tools/shared_file_tools.go:85-112` validates write path/content and upserts.
 - Artifact/process side-effect tools: `cmd/mcp-orch/tools/tts_tools.go:23-57` registers `tts_generate`; `cmd/mcp-orch/tools/av_merge_tools.go:21-35` registers `av_merge`; `cmd/mcp-orch/tools/video_with_audio_tools.go:24-42` registers `video_with_audio`.
 - Provider-native boundaries: `internal/provider/codexapp/driver.go:139-170` lists Codex native tools such as file write/apply patch/shell/subagent/update_plan; `internal/provider/claudecli/module.go:47-76` lists Claude native tools including write/edit/bash/plan/todo/task controls.
+
+## 2026-06-30 A0 Main Review And Dispatch Decision
+
+Status: orchestration-control update only. No production implementation performed by the main agent.
+
+User approval recorded:
+
+- Approved full workflow with Lane A first.
+- Constraint: all execution must happen in child agents and independent worktrees; main agent only reviews and integrates.
+
+A0 review:
+
+- Worker branch: `codex/reasonix-hardening-a0-20260630`.
+- Worker commit: `9aa751b451fa10ddb10730138437d251c1527ab2`.
+- Main LSP review confirmed `ToolCallRequest` has no stage/mode field and `HandleToolCall` does not read or derive a planning/execution stage.
+- Main LSP review confirmed `ReviewerDecision` exists in `internal/provider/toolfilter/presets.go` and is covered by `internal/provider/toolfilter/presets_test.go`.
+- Main verification reran the required `rg` command and `git diff --check` for the A0 evidence diff.
+
+Dispatch decision:
+
+- A0 accepted as `done_with_concerns`.
+- A2 mapped to `not_applicable_with_evidence` because `stage_source_found=false`.
+- A0's A3 ownership proposal was applied to workflow control files before A3 dispatch.

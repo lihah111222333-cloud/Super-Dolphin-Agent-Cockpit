@@ -39,6 +39,8 @@ See `DAG.json` for machine-readable state and `TASKS/` for task cards.
 
 - `done`: task completed and its verification evidence is recorded.
 - `not_applicable_with_evidence`: task has no valid runtime target after A0 evidence review; it satisfies DAG dependencies but must not produce production code.
+- `ready`: task is approved, its dependencies are satisfied, and it is waiting for worker dispatch.
+- `waiting`: task is approved but still depends on an unfinished upstream task.
 - `blocked`: task cannot satisfy its dependency or ownership contract; downstream tasks must not start.
 - `needs_approval`: task is not authorized to start.
 
@@ -48,10 +50,10 @@ Worker report statuses map into DAG states as follows: `DONE` -> `done`, `NOT_AP
 
 ## 7. Current Status
 
-- Overall: needs approval.
-- Completed: P0 workflow structure and task cards.
-- Blockers: source plan is still docs-only and says production changes require separate approval.
-- Next step: approve either Lane A only, or the full three-lane workflow with Lane A first.
+- Overall: in progress after explicit user approval for the full workflow.
+- Completed: P0 workflow structure and A0 stage-source inventory.
+- Closed as not applicable: A2 runtime stage gate, because A0 found no authoritative stage source.
+- Next step: dispatch A1 in an isolated worker worktree; A3 waits for A1 and the A0-applied exact ownership paths.
 
 ## 8. Quick Navigation
 

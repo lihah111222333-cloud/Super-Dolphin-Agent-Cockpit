@@ -1,7 +1,7 @@
 ---
 task_id: A1-toolpolicy-core
 owner: agent-a1
-status: needs_approval
+status: ready
 depends_on: [A0-stage-source-inventory]
 ---
 

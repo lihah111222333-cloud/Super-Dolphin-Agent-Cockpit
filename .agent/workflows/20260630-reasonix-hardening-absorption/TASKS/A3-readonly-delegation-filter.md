@@ -1,7 +1,7 @@
 ---
 task_id: A3-readonly-delegation-filter
 owner: agent-a3
-status: needs_approval
+status: waiting
 depends_on: [A1-toolpolicy-core, A0-stage-source-inventory]
 ---
 
@@ -25,11 +25,16 @@ Ensure read-only subagent or planning-only delegation receives a restricted tool
 
 ## 4. File Permissions
 
-- RW: `internal/provider/toolfilter/`
-- RW: exact delegation entry files added to `FILE_OWNERSHIP.tsv` by the orchestrator after A0 evidence review.
-- RW: matching tests added to `FILE_OWNERSHIP.tsv` by the orchestrator after A0 evidence review.
+- RW: `internal/provider/toolfilter/presets.go`
+- RW: `internal/provider/toolfilter/presets_test.go`
 - RO: `internal/platform/toolbridge/`
 - NO-TOUCH: unrelated provider/session lifecycle code.
+
+Source entry point from A0:
+
+- `internal/provider/toolfilter/presets.go:5-14`
+- `internal/provider/toolfilter/presets.go:22-30`
+- `internal/provider/toolfilter/presets_test.go:17-40`
 
 ## 5. Steps
 
@@ -44,10 +49,11 @@ Ensure read-only subagent or planning-only delegation receives a restricted tool
 ## 6. Verification Commands
 
 ```bash
-./scripts/test_with_guard.sh ./internal/provider/toolfilter ./internal/platform/toolpolicy -run 'ReadOnly|Reviewer|Tool|Trust|Plan' -count=1
+./scripts/test_with_guard.sh ./internal/provider/toolfilter -run 'Reviewer|Worker|FullAccess' -count=1
+rg -n 'ReviewerDecision|reviewerAllowedTools|reviewerDeniedTools|shared_file_write|orchestration_launch_agent|lsp_edit|memory_write|task_|workspace_|workflow_template_|update_plan' internal/provider/toolfilter internal/platform/toolbridge cmd/mcp-orch/tools cmd/mcp-lsp
 ```
 
-The orchestrator must replace this base command with exact delegation package commands from A0 evidence before A3 starts. Without those commands after A0 identifies a concrete entry point, this task remains blocked.
+The orchestrator applied the exact delegation package command from A0 evidence before A3 dispatch. A3 still waits for A1 because it reuses the toolpolicy decision owner.
 
 ## 7. DoD
 

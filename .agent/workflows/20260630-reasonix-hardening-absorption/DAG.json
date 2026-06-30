@@ -1,6 +1,6 @@
 {
   "workflow_key": "20260630-reasonix-hardening-absorption",
-  "status": "needs_approval",
+  "status": "in_progress",
   "nodes": [
     {
       "id": "P0-orchestration",
@@ -14,49 +14,49 @@
       "title": "Confirm planning/execution stage authority and tool surface inventory",
       "deps": ["P0-orchestration"],
       "owner": "agent-a0",
-      "state": "needs_approval"
+      "state": "done"
     },
     {
       "id": "A1-toolpolicy-core",
       "title": "Add stdlib-only toolpolicy core and unit tests",
       "deps": ["A0-stage-source-inventory"],
       "owner": "agent-a1",
-      "state": "needs_approval"
+      "state": "ready"
     },
     {
       "id": "A2-toolbridge-stage-gate",
       "title": "Wire planning stage gate through toolbridge without bypassing lifecycle policy",
       "deps": ["A1-toolpolicy-core"],
       "owner": "agent-a2",
-      "state": "needs_approval"
+      "state": "not_applicable_with_evidence"
     },
     {
       "id": "A3-readonly-delegation-filter",
       "title": "Connect read-only delegation surfaces to restricted tool sets",
       "deps": ["A1-toolpolicy-core", "A0-stage-source-inventory"],
       "owner": "agent-a3",
-      "state": "needs_approval"
+      "state": "waiting"
     },
     {
       "id": "B1-sessionpaths-core",
       "title": "Add sessionpaths leaf helper and golden tests",
       "deps": ["A2-toolbridge-stage-gate", "A3-readonly-delegation-filter"],
       "owner": "agent-b1",
-      "state": "needs_approval"
+      "state": "waiting"
     },
     {
       "id": "B2-sessionpaths-migration",
       "title": "Migrate rollout and scratchpad callers to sessionpaths",
       "deps": ["B1-sessionpaths-core"],
       "owner": "agent-b2",
-      "state": "needs_approval"
+      "state": "waiting"
     },
     {
       "id": "C1-writer-preview-spike",
       "title": "Inventory model-callable writers and propose preview contract decision",
       "deps": ["A0-stage-source-inventory", "B2-sessionpaths-migration"],
       "owner": "agent-c1",
-      "state": "needs_approval"
+      "state": "waiting"
     },
     {
       "id": "PN-integration",
@@ -68,7 +68,7 @@
         "C1-writer-preview-spike"
       ],
       "owner": "orchestrator",
-      "state": "needs_approval"
+      "state": "waiting"
     }
   ]
 }

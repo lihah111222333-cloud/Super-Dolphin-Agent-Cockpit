@@ -1,7 +1,7 @@
 ---
 task_id: A0-stage-source-inventory
 owner: agent-a0
-status: needs_approval
+status: done
 depends_on: [P0-orchestration]
 ---
 
