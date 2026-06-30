@@ -1,6 +1,6 @@
 {
   "workflow_key": "20260630-reasonix-hardening-absorption",
-  "last_updated": "2026-07-01T00:14:50+09:00",
+  "last_updated": "2026-07-01T01:08:25+09:00",
   "overall_status": "done",
   "source_plan": "docs/plans/2026-06-30-reasonix-hardening-absorption-review.md",
   "source_plan_status": "NEEDS_APPROVAL",
@@ -38,8 +38,10 @@
       "unknown_native_tool_failfast_merge_commit": "ae857bba",
       "explicit_read_only_launch_field_commit": "6fdba6c1a2552dd0cf21d25b0dcf43d5130faa2c",
       "explicit_read_only_launch_field_merge_commit": "73fe7f12",
+      "dynamic_disabled_tool_filter_commit": "d8754cc1e86bf3dfc62273390ebebf1f86b9b3fe",
+      "dynamic_disabled_tool_filter_merge_commit": "d08c6962",
       "status": "done",
-      "review": "A3 post-review P1s are closed: unknown non-empty Codex native tool IDs now fail-fast for start/resume typed paths; launch_agent.read_only=true is the structured read-only delegation flag while Plan/Explore compatibility remains. R3 PASS; final gates passed on 73fe7f12."
+      "review": "Final review2: Mill PASS, Hume PASS, Beauvoir FAIL P1. d8754cc1/d08c6962 fixed dynamic host/MCP/skill disabled-tool filtering and stale scoped-call denial; final gates passed on d08c6962."
     },
     "B1-sessionpaths-core": {
       "agent_id": "019f1868-b4b7-7e41-9b42-2f5ce1e7d2f0",
@@ -69,9 +71,10 @@
       "round2_docs_merge_commit": "e17cb8b3",
       "unknown_native_tool_failfast_merge_commit": "ae857bba",
       "explicit_read_only_launch_field_merge_commit": "73fe7f12",
-      "final_code_verification_head": "73fe7f124280ec034cff082cc5e2d048d23d4ee3",
+      "dynamic_disabled_tool_filter_merge_commit": "d08c6962",
+      "final_code_verification_head": "d08c69629f6dd52fbb2ffb6df85fcb4445898a2e",
       "status": "done",
-      "review": "A3 round2, docs round2, and final P1 repairs are integrated; fresh controller gates passed on code verification head 73fe7f12. This docs-only status commit keeps workflow state synchronized after those gates."
+      "review": "A3 round2, docs round2, R1/R2 P1 repairs, and final review2 dynamic-disabled-tool repair are integrated; fresh controller gates passed on code verification head d08c6962. This docs-only status commit keeps workflow state synchronized after those gates."
     }
   },
   "next_actions": [

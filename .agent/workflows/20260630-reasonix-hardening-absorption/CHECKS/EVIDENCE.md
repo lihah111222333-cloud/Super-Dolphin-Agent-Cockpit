@@ -641,9 +641,9 @@ Dispatch decision:
 - A2 remains `not_applicable_with_evidence`; no runtime planning-stage blocking was wired.
 - C1 remains ADR-only; production preview API and host-direct preview/execute tests remain deferred.
 
-## 2026-07-01 PN Final Gate After P1 Repairs
+## 2026-07-01 PN Gate After R1/R2 P1 Repairs
 
-Status: final code verification completed on `73fe7f124280ec034cff082cc5e2d048d23d4ee3`; this docs-only status commit records that result.
+Status: code verification completed on `73fe7f124280ec034cff082cc5e2d048d23d4ee3`; the later dynamic disabled-tool P1 repair supersedes this as the latest code verification point.
 
 Integrated commits:
 
@@ -679,5 +679,65 @@ All commands above passed on code verification head `73fe7f124280ec034cff082cc5e
 Dispatch decision:
 
 - A3 final P1 repairs accepted as integrated.
+- PN-integration accepted as `done`.
+- This docs-only status commit keeps workflow state synchronized after those gates.
+
+## 2026-07-01 PN Final Gate After Dynamic Disabled-tool P1
+
+Status: final code verification completed on `d08c69629f6dd52fbb2ffb6df85fcb4445898a2e`; this docs-only status commit records that result.
+
+Final review2:
+
+- Mill PASS.
+- Hume PASS.
+- Beauvoir FAIL P1: Codex read-only launch `disallowed_tools` reached thread config but not `CodexToolSurfaceScope`, so dynamic host/MCP/skill tools could still be exposed or called through stale scoped calls.
+
+Integrated commits:
+
+- `d8754cc1e86bf3dfc62273390ebebf1f86b9b3fe` (`fix: 过滤 Codex 动态工具禁用列表`) fixed the dynamic disabled-tool gap.
+- `d08c6962` merged `d8754cc1e86bf3dfc62273390ebebf1f86b9b3fe` into `codex/reasonix-hardening-integration-20260630`.
+
+Dynamic disabled-tool repair facts:
+
+- `CodexToolSurfaceScope` now carries `DisabledTools`.
+- `internal/provider/codexapp` reads `disallowed_tools` and `disallowedTools` into the Codex tool surface and fail-fast validates them.
+- `internal/platform/toolbridge` filters disabled host/skill/MCP dynamic surfaces.
+- Stale disabled scoped calls return a disabled-tool error before touching the backend.
+- A2 remains `not_applicable_with_evidence`; no runtime planning-stage blocking was wired.
+- C1 remains ADR-only; production preview API and host-direct preview/execute tests remain deferred.
+
+Repair ownership:
+
+- `d8754cc1` changed:
+  - `internal/contract/toolbridge.go`
+  - `internal/platform/toolbridge/codex_surface_test.go`
+  - `internal/platform/toolbridge/handler_codex_surface_store.go`
+  - `internal/platform/toolbridge/handler_peer_decode.go`
+  - `internal/platform/toolbridge/handler_peer_decode_helpers.go`
+  - `internal/provider/codexapp/driver_toolsurface_contract_test.go`
+  - `internal/provider/codexapp/support.go`
+
+Controller final gates:
+
+```bash
+python3 -m json.tool .agent/workflows/20260630-reasonix-hardening-absorption/STATE.json >/dev/null
+git diff --check 5ccc29e69c48c407895b2d9a4182b0d124d6b813...HEAD
+git diff --cached --check
+./scripts/test_with_guard.sh ./internal/platform/toolbridge ./internal/provider/codexapp ./internal/contract -run 'CodexToolSurface|PrepareCodexToolSurface|Disabled|Disallowed|ReadOnly' -count=1
+./scripts/test_with_guard.sh ./cmd/mcp-orch/tools ./internal/module/thread ./internal/provider/codexapp ./internal/platform/toolbridge ./internal/contract -run 'LaunchRequestFromExecutable|BuildStartSessionConfig|CodexToolSurface|PrepareCodexToolSurface|Disabled|Disallowed|ReadOnly' -count=1
+./scripts/test_with_guard.sh ./cmd/mcp-orch/tools ./internal/provider/codexapp ./internal/contract -run 'LaunchRequestFromExecutable|ReadOnly|NativeToolPolicy|CodexNativeToolPolicy' -count=1
+./scripts/test_with_guard.sh ./cmd/mcp-orch/tools ./internal/module/thread ./internal/provider/codexapp ./internal/contract -run 'LaunchRequestFromExecutable|BuildStartSessionConfig|CodexNativeToolPolicy|NativeToolPolicy|ReadOnly' -count=1
+./scripts/test_with_guard.sh ./cmd/mcp-orch/tools ./internal/module/thread ./internal/provider/toolfilter ./internal/platform/toolpolicy ./internal/contract -count=1
+./scripts/test_with_guard.sh ./internal/platform/toolpolicy ./internal/provider/toolfilter ./internal/platform/toolbridge ./internal/provider/codexapp ./internal/provider/claudecli -run 'Plan|ReadOnly|Trust|Shell|Lifecycle|Sandbox|Permission|Reviewer|Worker|FullAccess|Native|Tool' -count=1
+./scripts/test_with_guard.sh ./internal/platform/sessionpaths ./internal/provider/codexapp ./internal/module/thread ./internal/util/historyjsonl -run 'Rollout|Scratchpad|Path|Cleanup|CodexHome|History' -count=1
+./scripts/test_with_guard.sh ./internal/archtest -run 'Dependency|Tool|Provider|Path|Preview|Workflow' -count=1
+make guard
+```
+
+All commands above passed on code verification head `d08c69629f6dd52fbb2ffb6df85fcb4445898a2e`.
+
+Dispatch decision:
+
+- Beauvoir P1 accepted as fixed and integrated.
 - PN-integration accepted as `done`.
 - This docs-only status commit keeps workflow state synchronized after those gates.
