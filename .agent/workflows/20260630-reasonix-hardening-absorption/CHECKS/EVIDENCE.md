@@ -193,7 +193,7 @@ Read-only delegation entry point found:
 - `internal/provider/toolfilter/presets.go:5-14` defines the current reviewer allow/deny lists.
 - `internal/provider/toolfilter/presets.go:22-30` defines `ReviewerDecision()` as a read-only delegation preset allowing LSP/file/shared-file read tools and denying `edit`, `lsp_edit`, `orchestration_launch_agent`, and `orchestration_stop_agent`.
 - `internal/provider/toolfilter/presets_test.go:17-40` tests allowed read-only tools, denied write/lifecycle tools, and exclusion of `shared_file_write`.
-- LSP `xref(call_hierarchy)` for `ReviewerDecision` showed only tests as incoming callers, so this is a concrete preset/entry point but not yet a complete runtime policy owner.
+- Pre-round2 LSP `xref(call_hierarchy)` for `ReviewerDecision` did not cover remote launch or thread startup paths, so it was only a partial delegation entry point.
 
 Patch-ready orchestrator proposal for A3:
 
@@ -323,12 +323,12 @@ Worker branch and commits:
 - Native-recursive fix commit: `2637e908adebffff737f9470adb84d647e017cbb`.
 - Integrated by fast-forward into `codex/reasonix-hardening-integration-20260630`.
 
-Ownership review:
+Pre-round2 ownership review:
 
-- `git diff --name-status 686d6f76..2637e908adebffff737f9470adb84d647e017cbb` showed only A3-owned files:
+- `git diff --name-status 686d6f76..2637e908adebffff737f9470adb84d647e017cbb` showed only the pre-round2 A3-owned toolfilter files at that time:
   - `internal/provider/toolfilter/presets.go`
   - `internal/provider/toolfilter/presets_test.go`
-- No workflow, toolbridge, cmd/mcp-orch, cmd/mcp-lsp, frontend, generated, or unrelated provider files were changed by the A3 worker.
+- This statement is historical. Later post-review repairs expanded A3 ownership to orchestration launch, contract, thread startup config, and Codex provider test files.
 
 Review findings and fixes:
 
@@ -339,7 +339,8 @@ Review findings and fixes:
 Main LSP review:
 
 - `structure(document_symbol)` on `internal/provider/toolfilter/presets.go` and `presets_test.go` confirmed the new helper functions and tests.
-- `xref(references)` for `ReviewerDecision` and `reviewerDeniedTools` showed references only in the same package and tests.
+- Pre-round2 `xref(references)` for `ReviewerDecision` and `reviewerDeniedTools` did not cover the later remote launch or thread startup repair paths.
+- This was a pre-round2 check and did not cover the remote launch/thread RPC config path fixed later.
 - `file(diagnostics)` for `internal/provider/toolfilter/presets.go` and `internal/provider/toolfilter/presets_test.go` returned no diagnostics.
 
 Lane A verification after integration:
@@ -355,11 +356,57 @@ git status --short
 
 All commands above passed; `git diff --cached --check` and final status checks produced no output.
 
-Dispatch decision:
+Pre-round2 dispatch decision, later reopened:
 
-- A3 accepted as `done`.
-- Lane A gates passed.
+- The controller moved A3 to `done` at that time.
+- Lane A gate evidence existed at that time but is superseded by the post-review A3 repairs below.
 - B1 moved to `ready`; B2 and C1 remain waiting behind the DAG.
+
+## 2026-06-30 A3 Post-review Repairs
+
+Status: A3 pre-round2 closure was reopened by review. Current documentation must treat Lane A and PN final gates as pending until the controller integrates round2 and reruns gates.
+
+Repair commits:
+
+- `836705200f7b4a7eca05bb93925dde4fbb9124f8` (`修复只读子代理启动工具面`) is included in current integration HEAD `7c14c7ee435ae9051672ca79962cd938ba5ce780`.
+- `5f7406d992b4d2dba19408d738799b298673009a` (`修复只读子代理原生工具面`) is worker-complete on `codex/reasonix-hardening-fix-a3-round2-20260630`, with parent `7c14c7ee435ae9051672ca79962cd938ba5ce780`; it is not in this docs worktree HEAD yet.
+
+Round2 ownership:
+
+- `83670520` changed:
+  - `cmd/mcp-orch/tools/orchestration_tools.go`
+  - `cmd/mcp-orch/tools/orchestration_tools_test.go`
+  - `internal/contract/prompt.go`
+  - `internal/provider/toolfilter/presets.go`
+- `5f7406d` changed:
+  - `cmd/mcp-orch/tools/orchestration_tools.go`
+  - `cmd/mcp-orch/tools/orchestration_tools_test.go`
+  - `internal/contract/provider.go`
+  - `internal/module/thread/start_session_helpers.go`
+  - `internal/module/thread/start_session_helpers_test.go`
+  - `internal/provider/codexapp/driver_session_test.go`
+
+Review findings and fixes:
+
+- R1 fixed: Plan/Explore Codex launches now disable native shell/write/recursive/update-plan surfaces through `AGENT_CODEX_DISABLED_NATIVE_TOOLS`.
+- R2 fixed in round2: `buildStartSessionConfig` now merges launch `codexDisabledNativeTools` with assembly-suppressed tools instead of dropping the launch list when assembly suppression exists.
+
+Worker verification:
+
+```bash
+# RED before 5f7406d
+./scripts/test_with_guard.sh ./cmd/mcp-orch/tools ./internal/module/thread ./internal/provider/codexapp -run 'LaunchRequestFromExecutableAppliesReadOnlyCodexNativeToolsForReadOnlyAgentTypes|BuildStartSessionConfigMergesLaunchToolSurfaceConfig|CodexNativeToolPolicyUsesReadOnlySandboxForReadOnlyLaunchDenyList' -count=1
+
+# GREEN after 5f7406d
+./scripts/test_with_guard.sh ./cmd/mcp-orch/tools ./internal/module/thread ./internal/provider/codexapp ./internal/contract -run 'LaunchRequestFromExecutable|BuildStartSessionConfig|CodexNativeToolPolicy|ReadOnly' -count=1
+./scripts/test_with_guard.sh ./cmd/mcp-orch/tools ./internal/module/thread ./internal/provider/toolfilter ./internal/platform/toolpolicy ./internal/contract -count=1
+git diff --check
+```
+
+Controller follow-up:
+
+- Merge/review `5f7406d` in the controller integration path.
+- Rerun Lane A and final PN gates before recording final closure.
 
 ## 2026-06-30 B1 Sessionpaths Core Review And Integration
 
@@ -504,9 +551,9 @@ Dispatch decision:
 - Lane C spike gates passed.
 - PN-integration moved to `ready`.
 
-## 2026-06-30 PN Final Integration Gate
+## 2026-06-30 PN Pre-round2 Integration Gate
 
-Status: final integration review and verification completed on `codex/reasonix-hardening-integration-20260630`.
+Status: pre-round2 integration review and verification were recorded on `codex/reasonix-hardening-integration-20260630`; this section is superseded by the A3 post-review repairs above.
 
 Integration branch state before final workflow status update:
 
@@ -538,5 +585,5 @@ Results:
 
 Dispatch decision:
 
-- PN-integration accepted as `done`.
-- Workflow completed on the integration branch.
+- PN-integration was recorded as `done` at the time.
+- Final closure must be re-recorded only after A3 round2 is integrated and gates rerun.
