@@ -14,6 +14,8 @@ Overall: in progress. The user approved the full workflow with Lane A first, and
 - A0 completed in `codex/reasonix-hardening-a0-20260630` at `9aa751b451fa10ddb10730138437d251c1527ab2`.
 - A2 closed as `not_applicable_with_evidence` because A0 found no authoritative stage source.
 - A0's A3 ownership and verification proposal was applied to `FILE_OWNERSHIP.tsv` and `TASKS/A3-readonly-delegation-filter.md`.
+- A1 completed in `codex/reasonix-hardening-a1-20260630` at `5bffbcca075917b5fad03cc09ffb831c0ef5f6c1`.
+- A1 initial implementation was held after independent review found unsafe `git branch` read-only classification; the worker fixed it before integration.
 
 ## In Progress
 
@@ -21,18 +23,17 @@ Overall: in progress. The user approved the full workflow with Lane A first, and
 
 ## Blocked
 
-- A2 runtime blocking must remain absent until A0 proves a concrete planning/execution stage source.
-- A3 waits for A1 because A3 uses the A1 `toolpolicy` decision owner.
+- A2 runtime blocking must remain absent until a future approved source proves a concrete planning/execution stage source.
 
 ## Recommended Next Action
 
-Dispatch A1 next in an isolated worker worktree:
+Dispatch A3 next in an isolated worker worktree:
 
 ```text
-执行 A1-toolpolicy-core；不得接 A2 runtime blocking。
+执行 A3-readonly-delegation-filter；只修改 internal/provider/toolfilter/presets.go 和 internal/provider/toolfilter/presets_test.go。
 ```
 
-This keeps the highest-risk safety lane narrow and prevents accidental runtime behavior changes after A0 proved no stage authority exists.
+This finishes Lane A's concrete delegation filter before any Lane B/C worker starts.
 
 ## After Approval
 

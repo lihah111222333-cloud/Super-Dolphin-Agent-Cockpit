@@ -258,3 +258,54 @@ Dispatch decision:
 - A0 accepted as `done_with_concerns`.
 - A2 mapped to `not_applicable_with_evidence` because `stage_source_found=false`.
 - A0's A3 ownership proposal was applied to workflow control files before A3 dispatch.
+
+## 2026-06-30 A1 Toolpolicy Core Review And Integration
+
+Status: A1 production implementation was performed by a child agent in an isolated worktree and reviewed before integration.
+
+Worker branch and commits:
+
+- Branch: `codex/reasonix-hardening-a1-20260630`.
+- Initial commit: `914d5dfddb8e0315107f522f7bfd63295c3c67ff`.
+- Fix commit: `5bffbcca075917b5fad03cc09ffb831c0ef5f6c1`.
+- Integrated by fast-forward into `codex/reasonix-hardening-integration-20260630`.
+
+Ownership review:
+
+- `git diff --name-status 93fa54348efecaa01b7ee4fb374b6de198aa6d76..HEAD` showed only A1-owned files:
+  - `internal/platform/toolpolicy/policy.go`
+  - `internal/platform/toolpolicy/shell.go`
+  - `internal/platform/toolpolicy/policy_test.go`
+  - `internal/archtest/toolpolicy_dependency_guard_test.go`
+- No workflow, provider, toolbridge, frontend, generated, or mcp-orch production files were changed by the A1 worker.
+
+Review finding and fix:
+
+- Independent reviewer first returned `FAIL` because `allowGitArgs` treated every `git branch ...` invocation as read-only, allowing write forms such as `git branch foo`, `git branch -d foo`, `git branch -D foo`, rename, and upstream-changing commands.
+- The A1 worker added regression tests for those `git branch` write forms and for `git diff --output file`.
+- The A1 worker split `git branch` validation into exact read-only forms and added rejection for space-separated dangerous output/config args.
+- Independent reviewer reran after `5bffbcca075917b5fad03cc09ffb831c0ef5f6c1` and returned `PASS`.
+
+Main LSP review:
+
+- `structure(document_symbol)` on `internal/platform/toolpolicy/policy.go`, `shell.go`, and `policy_test.go` confirmed the new owner package shape.
+- `xref(references)` for `ClassifyShell` showed only same-package tests plus the declaration, so A1 did not wire A2 runtime blocking.
+- `file(diagnostics)` for `internal/platform/toolpolicy/policy.go`, `internal/platform/toolpolicy/shell.go`, `internal/platform/toolpolicy/policy_test.go`, and `internal/archtest/toolpolicy_dependency_guard_test.go` returned no diagnostics.
+
+Main verification:
+
+```bash
+./scripts/test_with_guard.sh ./internal/platform/toolpolicy -run 'Plan|ReadOnly|Trust|Shell' -count=1
+./scripts/test_with_guard.sh ./internal/archtest -run 'ToolPolicy|Dependency' -count=1
+git diff --check 93fa54348efecaa01b7ee4fb374b6de198aa6d76..HEAD
+git diff --cached --check
+git status --short
+```
+
+All commands above passed; both status checks produced no output.
+
+Dispatch decision:
+
+- A1 accepted as `done`.
+- A3 moved to `ready` because A0 identified exact delegation entry files and A1 is now integrated.
+- Lane B remains waiting until A3 and the remaining Lane A gates close.

@@ -1,6 +1,6 @@
 {
   "workflow_key": "20260630-reasonix-hardening-absorption",
-  "last_updated": "2026-06-30T19:04:46+09:00",
+  "last_updated": "2026-06-30T19:43:48+09:00",
   "overall_status": "in_progress",
   "source_plan": "docs/plans/2026-06-30-reasonix-hardening-absorption-review.md",
   "source_plan_status": "NEEDS_APPROVAL",
@@ -17,11 +17,18 @@
       "commit": "9aa751b451fa10ddb10730138437d251c1527ab2",
       "status": "done_with_concerns",
       "decision": "stage_source_found=false"
+    },
+    "A1-toolpolicy-core": {
+      "branch": "codex/reasonix-hardening-a1-20260630",
+      "initial_commit": "914d5dfddb8e0315107f522f7bfd63295c3c67ff",
+      "fix_commit": "5bffbcca075917b5fad03cc09ffb831c0ef5f6c1",
+      "status": "done",
+      "review": "P1 git branch read-only classification fixed before integration"
     }
   },
   "next_actions": [
-    "Dispatch A1 in an isolated worker worktree.",
+    "Dispatch A3 in an isolated worker worktree using the exact A0-applied toolfilter ownership paths.",
     "Keep A2 closed as not_applicable_with_evidence unless a future approved source introduces an authoritative stage carrier.",
-    "Dispatch A3 only after A1 is integrated, using the exact A0-applied toolfilter ownership paths."
+    "Do not start Lane B until A3 and provider sandbox/security Lane A gates pass."
   ]
 }

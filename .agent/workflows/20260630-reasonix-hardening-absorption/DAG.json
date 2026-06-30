@@ -21,7 +21,7 @@
       "title": "Add stdlib-only toolpolicy core and unit tests",
       "deps": ["A0-stage-source-inventory"],
       "owner": "agent-a1",
-      "state": "ready"
+      "state": "done"
     },
     {
       "id": "A2-toolbridge-stage-gate",
@@ -35,7 +35,7 @@
       "title": "Connect read-only delegation surfaces to restricted tool sets",
       "deps": ["A1-toolpolicy-core", "A0-stage-source-inventory"],
       "owner": "agent-a3",
-      "state": "waiting"
+      "state": "ready"
     },
     {
       "id": "B1-sessionpaths-core",
