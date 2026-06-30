@@ -110,6 +110,8 @@ $RelayUrl = [Environment]::GetEnvironmentVariable('SUPER_DOLPHIN_CODEX_RELAY_BAS
 $BootstrapToken = [Environment]::GetEnvironmentVariable('SUPER_DOLPHIN_CODEX_RELAY_BOOTSTRAP_TOKEN', 'Process')
 $UpdateManifestURL = [Environment]::GetEnvironmentVariable('SUPER_DOLPHIN_UPDATE_MANIFEST_URL', 'Process')
 $UpdateGitHubRepo = [Environment]::GetEnvironmentVariable('SUPER_DOLPHIN_UPDATE_GITHUB_REPO', 'Process')
+$UpdateWindowsPublisher = [Environment]::GetEnvironmentVariable('SUPER_DOLPHIN_UPDATE_WINDOWS_PUBLISHER', 'Process')
+$UpdateWindowsThumbprint = [Environment]::GetEnvironmentVariable('SUPER_DOLPHIN_UPDATE_WINDOWS_THUMBPRINT', 'Process')
 $CodexBin = if ($env:SUPER_DOLPHIN_CODEX_ARTIFACT) { $env:SUPER_DOLPHIN_CODEX_ARTIFACT } else { Get-CommandSource 'codex.exe' }
 $FFmpegBin = if ($env:SUPER_DOLPHIN_FFMPEG_BIN) { $env:SUPER_DOLPHIN_FFMPEG_BIN } else { Get-CommandSource 'ffmpeg.exe' }
 
@@ -153,6 +155,12 @@ function Forward-UpdateEnv() {
     }
     if (-not $env:SUPER_DOLPHIN_UPDATE_VERSION -and $env:VERSION) {
         $env:SUPER_DOLPHIN_UPDATE_VERSION = $env:VERSION
+    }
+    if ($null -ne $script:UpdateWindowsPublisher) {
+        $env:SUPER_DOLPHIN_UPDATE_WINDOWS_PUBLISHER = $script:UpdateWindowsPublisher
+    }
+    if ($null -ne $script:UpdateWindowsThumbprint) {
+        $env:SUPER_DOLPHIN_UPDATE_WINDOWS_THUMBPRINT = $script:UpdateWindowsThumbprint
     }
     if ($env:SUPER_DOLPHIN_UPDATE_PUBLIC_KEY) {
         $env:SUPER_DOLPHIN_UPDATE_PUBLIC_KEY = $env:SUPER_DOLPHIN_UPDATE_PUBLIC_KEY

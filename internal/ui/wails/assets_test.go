@@ -1,6 +1,9 @@
 package wails
 
-import "testing"
+import (
+	"testing"
+	"testing/fstest"
+)
 
 func TestAssetHandlerFromFailsFastOnInvalidViteDevURL(t *testing.T) {
 	t.Setenv("VITE_DEV_URL", "://bad-dev-url")
@@ -47,5 +50,59 @@ func TestAssetHandlerFromAllowsViteDevURLInDebugMode(t *testing.T) {
 
 	if handler := AssetHandlerFromForMode(FrontendFS{}, true); handler == nil {
 		t.Fatal("debug VITE_DEV_URL handler is nil")
+	}
+}
+
+func TestAssetHandlerFromRejectsMissingProductionFrontendFS(t *testing.T) {
+	t.Setenv("VITE_DEV_URL", "")
+
+	defer func() {
+		recovered := recover()
+		if recovered == nil {
+			t.Fatal("expected missing production FrontendFS to fail fast")
+		}
+		if recoveredMessage(recovered) != "production frontend assets are not configured" {
+			t.Fatalf("panic = %v, want missing production assets rejection", recovered)
+		}
+	}()
+
+	_ = AssetHandlerFrom(FrontendFS{})
+}
+
+func TestAssetHandlerFromRejectsProductionFrontendFSWithoutIndex(t *testing.T) {
+	t.Setenv("VITE_DEV_URL", "")
+	frontend := fstest.MapFS{
+		"assets/app.js": {Data: []byte("console.log('ready')")},
+	}
+
+	defer func() {
+		recovered := recover()
+		if recovered == nil {
+			t.Fatal("expected production FrontendFS without index.html to fail fast")
+		}
+		if recoveredMessage(recovered) != "invalid production frontend assets: missing index.html" {
+			t.Fatalf("panic = %v, want missing index.html rejection", recovered)
+		}
+	}()
+
+	_ = AssetHandlerFrom(FrontendFS{FS: frontend})
+}
+
+func TestAssetHandlerFromAcceptsProductionFrontendFSWithIndex(t *testing.T) {
+	t.Setenv("VITE_DEV_URL", "")
+	frontend := fstest.MapFS{
+		"index.html": {Data: []byte("<!doctype html><div id=\"root\"></div>")},
+	}
+
+	if handler := AssetHandlerFrom(FrontendFS{FS: frontend}); handler == nil {
+		t.Fatal("production asset handler is nil")
+	}
+}
+
+func TestAssetHandlerFromAllowsPlaceholderOnlyInDebugMode(t *testing.T) {
+	t.Setenv("VITE_DEV_URL", "")
+
+	if handler := AssetHandlerFromForMode(FrontendFS{}, true); handler == nil {
+		t.Fatal("debug placeholder handler is nil")
 	}
 }

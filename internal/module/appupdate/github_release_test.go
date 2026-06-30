@@ -7,13 +7,21 @@ import (
 	"testing"
 )
 
+const (
+	testValidGitHubRepo   = "super-dolphin/releases"
+	testBlockedGitHubRepo = "xiaoxiaotest9527-bit/-"
+)
+
 func TestCheckFetchesGitHubLatestReleaseManifestForCurrentPlatform(t *testing.T) {
 	publicKey, privateKey := testManifestKeypair(t)
 	payload := testGitHubManifestPayload(t, []byte("signed dmg bytes"), "darwin-arm64")
 	rawManifest := signTestManifest(t, privateKey, payload)
 	svc := newService(testGitHubServiceConfig(publicKey, t.TempDir(), "1.2.2", "darwin-arm64"), httpClientFor(map[string][]byte{
-		"https://api.github.com/repos/xiaoxiaotest9527-bit/-/releases/latest":                                       []byte(testGitHubReleaseJSON(t, "v1.2.3", payload.Artifacts[0], "darwin-arm64")),
-		"https://github.com/xiaoxiaotest9527-bit/-/releases/download/v1.2.3/Super-Dolphin-darwin-arm64.update.json": rawManifest,
+		testGitHubAPIURL(): []byte(testGitHubReleaseJSON(t, "v1.2.3", payload.Artifacts[0], "darwin-arm64")),
+		testGitHubReleaseAssetURL(
+			"v1.2.3",
+			"Super-Dolphin-darwin-arm64.update.json",
+		): rawManifest,
 	}), nil)
 
 	result, err := svc.Check(context.Background())
@@ -33,8 +41,11 @@ func TestCheckFetchesGitHubLatestReleaseManifestForWindowsEXE(t *testing.T) {
 	payload := testGitHubManifestPayload(t, []byte("signed exe bytes"), "windows-amd64")
 	rawManifest := signTestManifest(t, privateKey, payload)
 	svc := newService(testGitHubServiceConfig(publicKey, t.TempDir(), "1.2.2", "windows-amd64"), httpClientFor(map[string][]byte{
-		"https://api.github.com/repos/xiaoxiaotest9527-bit/-/releases/latest":                                        []byte(testGitHubReleaseJSON(t, "v1.2.3", payload.Artifacts[0], "windows-amd64")),
-		"https://github.com/xiaoxiaotest9527-bit/-/releases/download/v1.2.3/Super-Dolphin-windows-amd64.update.json": rawManifest,
+		testGitHubAPIURL(): []byte(testGitHubReleaseJSON(t, "v1.2.3", payload.Artifacts[0], "windows-amd64")),
+		testGitHubReleaseAssetURL(
+			"v1.2.3",
+			"Super-Dolphin-windows-amd64.update.json",
+		): rawManifest,
 	}), nil)
 
 	result, err := svc.Check(context.Background())
@@ -53,7 +64,7 @@ func TestCheckRejectsGitHubReleaseMissingPlatformManifest(t *testing.T) {
 	publicKey, _ := testManifestKeypair(t)
 	artifact := testGitHubArtifact([]byte("signed dmg bytes"), "darwin-arm64")
 	svc := newService(testGitHubServiceConfig(publicKey, t.TempDir(), "1.2.2", "darwin-arm64"), httpClientFor(map[string][]byte{
-		"https://api.github.com/repos/xiaoxiaotest9527-bit/-/releases/latest": []byte(testGitHubReleaseJSONWithoutManifest(t, "v1.2.3", artifact)),
+		testGitHubAPIURL(): []byte(testGitHubReleaseJSONWithoutManifest(t, "v1.2.3", artifact)),
 	}), nil)
 
 	_, err := svc.Check(context.Background())
@@ -65,9 +76,19 @@ func TestCheckRejectsGitHubReleaseMissingPlatformManifest(t *testing.T) {
 func TestCheckRejectsGitHubReleaseMissingPlatformArtifact(t *testing.T) {
 	publicKey, _ := testManifestKeypair(t)
 	svc := newService(testGitHubServiceConfig(publicKey, t.TempDir(), "1.2.2", "windows-amd64"), httpClientFor(map[string][]byte{
-		"https://api.github.com/repos/xiaoxiaotest9527-bit/-/releases/latest": []byte(testGitHubReleaseJSONForAssets(t, []map[string]any{
-			githubAssetMap("Super-Dolphin-darwin-arm64.dmg", "https://github.com/xiaoxiaotest9527-bit/-/releases/download/v1.2.3/Super-Dolphin-darwin-arm64.dmg", 12, strings.Repeat("a", 64)),
-			githubAssetMap("Super-Dolphin-windows-amd64.update.json", "https://github.com/xiaoxiaotest9527-bit/-/releases/download/v1.2.3/Super-Dolphin-windows-amd64.update.json", 1234, strings.Repeat("b", 64)),
+		testGitHubAPIURL(): []byte(testGitHubReleaseJSONForAssets(t, []map[string]any{
+			githubAssetMap(
+				"Super-Dolphin-darwin-arm64.dmg",
+				testGitHubReleaseAssetURL("v1.2.3", "Super-Dolphin-darwin-arm64.dmg"),
+				12,
+				strings.Repeat("a", 64),
+			),
+			githubAssetMap(
+				"Super-Dolphin-windows-amd64.update.json",
+				testGitHubReleaseAssetURL("v1.2.3", "Super-Dolphin-windows-amd64.update.json"),
+				1234,
+				strings.Repeat("b", 64),
+			),
 		}, "v1.2.3")),
 	}), nil)
 
@@ -83,8 +104,11 @@ func TestCheckRejectsGitHubReleaseAssetDigestMismatch(t *testing.T) {
 	rawManifest := signTestManifest(t, privateKey, payload)
 	releaseJSON := testGitHubReleaseJSONWithArtifactDigest(t, "v1.2.3", payload.Artifacts[0], "darwin-arm64", strings.Repeat("0", 64))
 	svc := newService(testGitHubServiceConfig(publicKey, t.TempDir(), "1.2.2", "darwin-arm64"), httpClientFor(map[string][]byte{
-		"https://api.github.com/repos/xiaoxiaotest9527-bit/-/releases/latest":                                       []byte(releaseJSON),
-		"https://github.com/xiaoxiaotest9527-bit/-/releases/download/v1.2.3/Super-Dolphin-darwin-arm64.update.json": rawManifest,
+		testGitHubAPIURL(): []byte(releaseJSON),
+		testGitHubReleaseAssetURL(
+			"v1.2.3",
+			"Super-Dolphin-darwin-arm64.update.json",
+		): rawManifest,
 	}), nil)
 
 	_, err := svc.Check(context.Background())
@@ -99,8 +123,11 @@ func TestCheckRejectsGitHubReleaseAssetSizeMismatch(t *testing.T) {
 	rawManifest := signTestManifest(t, privateKey, payload)
 	releaseJSON := testGitHubReleaseJSONWithArtifactSize(t, "v1.2.3", payload.Artifacts[0], "darwin-arm64", payload.Artifacts[0].Size+1)
 	svc := newService(testGitHubServiceConfig(publicKey, t.TempDir(), "1.2.2", "darwin-arm64"), httpClientFor(map[string][]byte{
-		"https://api.github.com/repos/xiaoxiaotest9527-bit/-/releases/latest":                                       []byte(releaseJSON),
-		"https://github.com/xiaoxiaotest9527-bit/-/releases/download/v1.2.3/Super-Dolphin-darwin-arm64.update.json": rawManifest,
+		testGitHubAPIURL(): []byte(releaseJSON),
+		testGitHubReleaseAssetURL(
+			"v1.2.3",
+			"Super-Dolphin-darwin-arm64.update.json",
+		): rawManifest,
 	}), nil)
 
 	_, err := svc.Check(context.Background())
@@ -112,9 +139,16 @@ func TestCheckRejectsGitHubReleaseAssetSizeMismatch(t *testing.T) {
 func testGitHubServiceConfig(publicKey []byte, stageDir, currentVersion, platform string) Config {
 	cfg := testServiceConfig(publicKey, stageDir, currentVersion)
 	cfg.ManifestURL = ""
-	cfg.GitHubRepo = "xiaoxiaotest9527-bit/-"
+	cfg.GitHubRepo = testValidGitHubRepo
 	cfg.Platform = platform
 	return cfg
+}
+
+func TestValidateGitHubRepoRejectsPlaceholderTestRepo(t *testing.T) {
+	err := validateGitHubRepo(testBlockedGitHubRepo)
+	if err == nil || !strings.Contains(err.Error(), "placeholder") {
+		t.Fatalf("validateGitHubRepo() error = %v, want placeholder/test repo rejection", err)
+	}
 }
 
 func testGitHubManifestPayload(t *testing.T, body []byte, platform string) ManifestPayload {
@@ -131,7 +165,7 @@ func testGitHubArtifact(body []byte, platform string) UpdateArtifact {
 	}
 	return UpdateArtifact{
 		Platform: platform,
-		URL:      "https://github.com/xiaoxiaotest9527-bit/-/releases/download/v1.2.3/Super-Dolphin-" + platform + extension,
+		URL:      testGitHubReleaseAssetURL("v1.2.3", "Super-Dolphin-"+platform+extension),
 		SHA256:   sha256Hex(body),
 		Size:     int64(len(body)),
 	}
@@ -170,8 +204,21 @@ func githubAssetMaps(tag string, artifact UpdateArtifact, platform, digest strin
 	}
 	return []map[string]any{
 		githubAssetMap(artifactName, artifact.URL, size, digest),
-		githubAssetMap("Super-Dolphin-"+platform+".update.json", "https://github.com/xiaoxiaotest9527-bit/-/releases/download/"+tag+"/Super-Dolphin-"+platform+".update.json", 1234, strings.Repeat("b", 64)),
+		githubAssetMap(
+			"Super-Dolphin-"+platform+".update.json",
+			testGitHubReleaseAssetURL(tag, "Super-Dolphin-"+platform+".update.json"),
+			1234,
+			strings.Repeat("b", 64),
+		),
 	}
+}
+
+func testGitHubAPIURL() string {
+	return "https://api.github.com/repos/" + testValidGitHubRepo + "/releases/latest"
+}
+
+func testGitHubReleaseAssetURL(tag, name string) string {
+	return "https://github.com/" + testValidGitHubRepo + "/releases/download/" + tag + "/" + name
 }
 
 func testGitHubReleaseJSONForAssets(t *testing.T, assets []map[string]any, tag string) string {
