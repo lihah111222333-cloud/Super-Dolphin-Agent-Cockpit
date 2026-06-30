@@ -3,6 +3,7 @@ package common
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	pathpkg "path"
 	"path/filepath"
 	"runtime"
@@ -46,11 +47,14 @@ type ToolCallParams struct {
 	MetaWorkspaceRootsSnake []string `json:"_workspace_roots,omitempty"`
 }
 
-// DecodeToolCallParams 解码工具callparams。
+// DecodeToolCallParams 解码 tools/call 顶层参数，并在进入 provider 前校验工具名。
 func DecodeToolCallParams(raw json.RawMessage) (ToolCallParams, error) {
 	var params ToolCallParams
 	if err := platformshared.DecodeInput(raw, &params); err != nil {
 		return ToolCallParams{}, err
+	}
+	if strings.TrimSpace(params.Name) == "" {
+		return ToolCallParams{}, errors.New("tool name is required")
 	}
 	return params, nil
 }
