@@ -2,7 +2,6 @@ package toolfilter
 
 import (
 	"slices"
-	"strings"
 	"testing"
 
 	mcp "github.com/anthropic-ai/super-agent-v3/internal/dto/mcp"
@@ -30,9 +29,16 @@ func TestReviewerPreset_DeniesWriteTools(t *testing.T) {
 	assertAllow(t, got)
 	want := []string{
 		"edit", "lsp_edit", "shared_file_write", "memory_write",
-		"task_", "workspace_", "workflow_template_",
-		"wait", "bash_output", "update_plan", "todo_write", "complete_step",
-		"orchestration_launch_agent", "orchestration_stop_agent",
+		"task_create_dag", "task_dag_apply_ops", "task_update_node", "task_dispatch_node",
+		"task_start_dag", "task_terminate_dag", "task_delete_dag", "task_workflow_recovery_action",
+		"workspace_create_run", "workspace_merge_run", "workspace_abort_run",
+		"workflow_template_save", "workflow_template_rollback",
+		"wait", "bash_output", "BashOutput", "update_plan", "todo_write", "TodoWrite", "complete_step",
+		"launch_agent", "send_message", "stop_agent", "recover_agent", "interrupt_agent",
+		"list_agents", "get_agent_report", "get_agent_reports",
+		"orchestration_launch_agent", "orchestration_send_message", "orchestration_stop_agent",
+		"orchestration_recover_agent", "orchestration_interrupt_agent", "orchestration_list_agents",
+		"orchestration_get_agent_report", "orchestration_get_agent_reports",
 		"connect_tool_source",
 	}
 	if !slices.Equal(got.DeniedTools, want) {
@@ -40,7 +46,7 @@ func TestReviewerPreset_DeniesWriteTools(t *testing.T) {
 	}
 }
 
-func TestReviewerPreset_ExcludesUnsafeDelegationSurfaces(t *testing.T) {
+func TestReviewerPreset_DeniesExactUnsafeDelegationSurfaces(t *testing.T) {
 	got := ReviewerDecision()
 	assertAllow(t, got)
 
@@ -51,13 +57,39 @@ func TestReviewerPreset_ExcludesUnsafeDelegationSurfaces(t *testing.T) {
 		"lsp_edit",
 		"memory_write",
 		"task_create_dag",
+		"task_dag_apply_ops",
+		"task_update_node",
+		"task_dispatch_node",
+		"task_start_dag",
+		"task_terminate_dag",
+		"task_delete_dag",
+		"task_workflow_recovery_action",
 		"workspace_create_run",
+		"workspace_merge_run",
+		"workspace_abort_run",
 		"workflow_template_save",
+		"workflow_template_rollback",
 		"update_plan",
 		"wait",
 		"bash_output",
+		"BashOutput",
 		"todo_write",
+		"TodoWrite",
 		"complete_step",
+		"launch_agent",
+		"send_message",
+		"stop_agent",
+		"recover_agent",
+		"interrupt_agent",
+		"list_agents",
+		"get_agent_report",
+		"get_agent_reports",
+		"orchestration_send_message",
+		"orchestration_recover_agent",
+		"orchestration_interrupt_agent",
+		"orchestration_list_agents",
+		"orchestration_get_agent_report",
+		"orchestration_get_agent_reports",
 		"connect_tool_source",
 	}
 	for _, name := range deniedNames {
@@ -66,6 +98,17 @@ func TestReviewerPreset_ExcludesUnsafeDelegationSurfaces(t *testing.T) {
 		}
 		if !toolDenied(got, name) {
 			t.Fatalf("denied missing %s: %#v", name, got.DeniedTools)
+		}
+	}
+}
+
+func TestReviewerPreset_DoesNotUseDeniedToolPrefixes(t *testing.T) {
+	got := ReviewerDecision()
+	assertAllow(t, got)
+
+	for _, denied := range got.DeniedTools {
+		if slices.Contains([]string{"task_", "workspace_", "workflow_template_"}, denied) {
+			t.Fatalf("denied uses prefix sentinel %q; DeniedTools are exact names: %#v", denied, got.DeniedTools)
 		}
 	}
 }
@@ -109,12 +152,7 @@ func TestReviewerPreset_AllowsOnlyInternallyTrustedReadOnlyTools(t *testing.T) {
 }
 
 func toolDenied(decision mcp.BeforeDecision, name string) bool {
-	for _, denied := range decision.DeniedTools {
-		if denied == name || strings.HasSuffix(denied, "_") && strings.HasPrefix(name, denied) {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(decision.DeniedTools, name)
 }
 
 func TestWorkerPreset_DeniesOrchestration(t *testing.T) {
