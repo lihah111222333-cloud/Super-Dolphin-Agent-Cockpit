@@ -4,7 +4,7 @@ path	module	domain	type	size_bytes	purpose	search_keys
 .codex/hooks.json	.codex	other	json	696	未细分职责：请结合路径、文件名和相邻代码判断	codex,hooks,未细分职责：请结合路径,文件名和相邻代码判断
 .env.example	(root)	other	example	1787	仓库根级配置、入口或说明文件	env,仓库根级配置,入口或说明文件
 .env.packaging.example	(root)	other	example	1607	仓库根级配置、入口或说明文件	env,packaging,仓库根级配置,入口或说明文件
-.git	(root)	other	file	106	仓库根级配置、入口或说明文件	仓库根级配置,入口或说明文件
+.git	(root)	other	file	91	仓库根级配置、入口或说明文件	仓库根级配置,入口或说明文件
 .gitattributes	(root)	other	file	864	仓库根级配置、入口或说明文件	仓库根级配置,入口或说明文件
 .githooks/commit-msg	.githooks	other	file	454	仓库 git hooks	仓库,git,hooks
 .githooks/pre-commit	.githooks	other	file	10332	仓库 git hooks	仓库,git,hooks
@@ -70,11 +70,11 @@ internal/archtest/bus_callback_guard_test.go	internal	other	go-test	10818	架构
 internal/archtest/ci_cross_platform_smoke_guard_test.go	internal	other	go-test	2229	架构守卫、baseline ratchet 与冻结规则	internal,archtest,ci,cross,platform,smoke,guard,test,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/code_size_guard_test.go	internal	other	go-test	7053	架构守卫、baseline ratchet 与冻结规则	internal,archtest,code,size,guard,test,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/cross_domain_guard_test.go	internal	other	go-test	4435	架构守卫、baseline ratchet 与冻结规则	internal,archtest,cross,domain,guard,test,架构守卫,baseline,ratchet,与冻结规则
-internal/archtest/dag_designer_prompt_asset_contract_test.go	internal	other	go-test	3589	架构守卫、baseline ratchet 与冻结规则	internal,archtest,dag,designer,prompt,asset,contract,test,架构守卫,baseline,ratchet,与冻结规则
+internal/archtest/dag_designer_prompt_asset_contract_test.go	internal	other	go-test	3887	架构守卫、baseline ratchet 与冻结规则	internal,archtest,dag,designer,prompt,asset,contract,test,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/dag_designer_prompt_refresh_test.go	internal	other	go-test	1891	架构守卫、baseline ratchet 与冻结规则	internal,archtest,dag,designer,prompt,refresh,test,架构守卫,baseline,ratchet,与冻结规则
-internal/archtest/dag_designer_prompt_runtime_metadata_test.go	internal	other	go-test	11791	架构守卫、baseline ratchet 与冻结规则	internal,archtest,dag,designer,prompt,runtime,metadata,test,架构守卫,baseline,ratchet,与冻结规则
-internal/archtest/dag_designer_prompt_seed_en_test.go	internal	other	go-test	4474	架构守卫、baseline ratchet 与冻结规则	internal,archtest,dag,designer,prompt,seed,en,test,架构守卫,baseline,ratchet,与冻结规则
-internal/archtest/dag_designer_prompt_seed_test.go	internal	other	go-test	4482	架构守卫、baseline ratchet 与冻结规则	internal,archtest,dag,designer,prompt,seed,test,架构守卫,baseline,ratchet,与冻结规则
+internal/archtest/dag_designer_prompt_runtime_metadata_test.go	internal	other	go-test	11682	架构守卫、baseline ratchet 与冻结规则	internal,archtest,dag,designer,prompt,runtime,metadata,test,架构守卫,baseline,ratchet,与冻结规则
+internal/archtest/dag_designer_prompt_seed_en_test.go	internal	other	go-test	4989	架构守卫、baseline ratchet 与冻结规则	internal,archtest,dag,designer,prompt,seed,en,test,架构守卫,baseline,ratchet,与冻结规则
+internal/archtest/dag_designer_prompt_seed_test.go	internal	other	go-test	4589	架构守卫、baseline ratchet 与冻结规则	internal,archtest,dag,designer,prompt,seed,test,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/dag_skill_seeds_test.go	internal	other	go-test	3343	架构守卫、baseline ratchet 与冻结规则	internal,archtest,dag,skill,seeds,test,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/dead_key_guard_test.go	internal	other	go-test	680	架构守卫、baseline ratchet 与冻结规则	internal,archtest,dead,key,guard,test,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/deep_map_probe_guard_test.go	internal	other	go-test	2904	架构守卫、baseline ratchet 与冻结规则	internal,archtest,deep,map,probe,guard,test,架构守卫,baseline,ratchet,与冻结规则
@@ -249,9 +249,9 @@ internal/dto/provider/thread.go	internal	other	go-source	256	provider/shared DTO
 internal/dto/provider/turn_test.go	internal	other	go-test	6783	provider/shared DTO 与事件协议	internal,dto,provider,turn,test,shared,DTO,与事件协议
 internal/dto/provider/turn.go	internal	other	go-source	6423	provider/shared DTO 与事件协议	internal,dto,provider,turn,shared,DTO,与事件协议
 internal/dto/shared/errors.go	internal	other	go-source	439	provider/shared DTO 与事件协议	internal,dto,shared,errors,provider,DTO,与事件协议
-internal/dto/shared/event.go	internal	other	go-source	4855	provider/shared DTO 与事件协议	internal,dto,shared,event,provider,DTO,与事件协议
+internal/dto/shared/event.go	internal	other	go-source	4569	provider/shared DTO 与事件协议	internal,dto,shared,event,provider,DTO,与事件协议
 internal/dto/shared/input.go	internal	other	go-source	553	provider/shared DTO 与事件协议	internal,dto,shared,input,provider,DTO,与事件协议
-internal/dto/task/event.go	internal	other	go-source	2084	provider/shared DTO 与事件协议	internal,dto,task,event,provider,shared,DTO,与事件协议
+internal/dto/task/event.go	internal	other	go-source	711	provider/shared DTO 与事件协议	internal,dto,task,event,provider,shared,DTO,与事件协议
 internal/dto/thread/event.go	internal	other	go-source	4361	provider/shared DTO 与事件协议	internal,dto,thread,event,provider,shared,DTO,与事件协议
 internal/dto/tool/event.go	internal	other	go-source	2814	provider/shared DTO 与事件协议	internal,dto,tool,event,provider,shared,DTO,与事件协议
 internal/dto/turn/event.go	internal	other	go-source	2899	provider/shared DTO 与事件协议	internal,dto,turn,event,provider,shared,DTO,与事件协议
@@ -350,9 +350,11 @@ pkg/logger/truncate.go	pkg	other	go-source	581	统一日志、采样、relay、w
 pkg/logger/watchdog.go	pkg	other	go-source	1664	统一日志、采样、relay、watchdog 与 trace context	pkg,logger,watchdog,统一日志,采样,relay,与,trace,context
 pkg/skillmetrics/skillmetrics_test.go	pkg	other	go-test	1876	skill 指标公共库	pkg,skillmetrics,test,skill,指标公共库
 pkg/skillmetrics/skillmetrics.go	pkg	other	go-source	4655	skill 指标公共库	pkg,skillmetrics,skill,指标公共库
-README.md	(root)	other	doc	8738	仓库根级配置、入口或说明文件	README,仓库根级配置,入口或说明文件
+README.md	(root)	other	doc	8981	仓库根级配置、入口或说明文件	README,仓库根级配置,入口或说明文件
 run-new-ui-desktop.ps1	(root)	other	script	32617	仓库根级配置、入口或说明文件	run,new,ui,desktop,仓库根级配置,入口或说明文件
 run-new-ui-desktop.sh	(root)	other	script	25754	仓库根级配置、入口或说明文件	run,new,ui,desktop,仓库根级配置,入口或说明文件
+scripts/__pycache__/validate_risk_evidence.cpython-314.pyc	scripts	other	pyc	13579	工程自动化、测试守卫、代码地图与开发脚本	scripts,pycache,validate,risk,evidence,cpython,314,工程自动化,测试守卫,代码地图与开发脚本
+scripts/__pycache__/validate_super_agent_skills.cpython-314.pyc	scripts	other	pyc	20401	工程自动化、测试守卫、代码地图与开发脚本	scripts,pycache,validate,super,agent,skills,cpython,314,工程自动化,测试守卫,代码地图与开发脚本
 scripts/activate_guard_env.sh	scripts	other	script	1148	工程自动化、测试守卫、代码地图与开发脚本	scripts,activate,guard,env,工程自动化,测试守卫,代码地图与开发脚本
 scripts/bash_test_helpers_test.go	scripts	other	go-test	8708	工程自动化、测试守卫、代码地图与开发脚本	scripts,bash,test,helpers,工程自动化,测试守卫,代码地图与开发脚本
 scripts/capcontract.go	scripts	other	go-source	579	工程自动化、测试守卫、代码地图与开发脚本	scripts,capcontract,工程自动化,测试守卫,代码地图与开发脚本
@@ -424,6 +426,7 @@ scripts/prepare_lsp_bundle_windows.ps1	scripts	other	script	22708	工程自动�
 scripts/prompt_intent_e2e_test.py	scripts	other	py	8881	工程自动化、测试守卫、代码地图与开发脚本	scripts,prompt,intent,e2e,test,工程自动化,测试守卫,代码地图与开发脚本
 scripts/prompt_intent_e2e.py	scripts	other	py	24095	工程自动化、测试守卫、代码地图与开发脚本	scripts,prompt,intent,e2e,工程自动化,测试守卫,代码地图与开发脚本
 scripts/publish_github_release.sh	scripts	other	script	19101	工程自动化、测试守卫、代码地图与开发脚本	scripts,publish,github,release,工程自动化,测试守卫,代码地图与开发脚本
+scripts/readme_go_test_guard_test.go	scripts	other	go-test	507	工程自动化、测试守卫、代码地图与开发脚本	scripts,readme,go,test,guard,工程自动化,测试守卫,代码地图与开发脚本
 scripts/real_go_resolver.sh	scripts	other	script	3493	工程自动化、测试守卫、代码地图与开发脚本	scripts,real,go,resolver,工程自动化,测试守卫,代码地图与开发脚本
 scripts/refactor/rename_codexsdk_to_agentsdk_error_path_guard_test.go	scripts	other	go-test	7326	工程自动化、测试守卫、代码地图与开发脚本	scripts,refactor,rename,codexsdk,to,agentsdk,error,path,guard,test,工程自动化,测试守卫,代码地图与开发脚本
 scripts/refactor/rename_codexsdk_to_agentsdk_guard_strength_test.go	scripts	other	go-test	4504	工程自动化、测试守卫、代码地图与开发脚本	scripts,refactor,rename,codexsdk,to,agentsdk,guard,strength,test,工程自动化,测试守卫,代码地图与开发脚本

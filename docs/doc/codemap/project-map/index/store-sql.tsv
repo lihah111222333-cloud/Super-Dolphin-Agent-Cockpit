@@ -245,8 +245,8 @@ migrations/0080_dag_v2_run_status_check.sql	migrations	store-sql	sql	1868	数据
 migrations/0081_dag_v2_dag_trigger_check.sql	migrations	store-sql	sql	1807	数据库 migration	migrations,0081,dag,v2,trigger,check,数据库,migration
 migrations/0082_dag_v2_run_trigger_source_check.sql	migrations	store-sql	sql	3560	数据库 migration	migrations,0082,dag,v2,run,trigger,source,check,数据库,migration
 migrations/0083_dag_v2_spawning_thread_id.sql	migrations	store-sql	sql	2701	数据库 migration	migrations,0083,dag,v2,spawning,thread,id,数据库,migration
-migrations/0084_seed_dag_designer_prompt_zh.sql	migrations	store-sql	sql	15392	数据库 migration	migrations,0084,seed,dag,designer,prompt,zh,数据库,migration
-migrations/0085_seed_dag_designer_prompt_en.sql	migrations	store-sql	sql	14557	数据库 migration	migrations,0085,seed,dag,designer,prompt,en,数据库,migration
+migrations/0084_seed_dag_designer_prompt_zh.sql	migrations	store-sql	sql	15552	数据库 migration	migrations,0084,seed,dag,designer,prompt,zh,数据库,migration
+migrations/0085_seed_dag_designer_prompt_en.sql	migrations	store-sql	sql	14830	数据库 migration	migrations,0085,seed,dag,designer,prompt,en,数据库,migration
 migrations/0086_prompt_template_manually_edited.sql	migrations	store-sql	sql	483	数据库 migration	migrations,0086,prompt,template,manually,edited,数据库,migration
 migrations/0087_seed_prompt_template_skill_cards.sql	migrations	store-sql	sql	9961	数据库 migration	migrations,0087,seed,prompt,template,skill,cards,数据库,migration
 migrations/0088_agent_threads_baseline_compat_columns.sql	migrations	store-sql	sql	797	数据库 migration	migrations,0088,agent,threads,baseline,compat,columns,数据库,migration
