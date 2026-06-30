@@ -329,7 +329,10 @@ func (d *driver) StartSession(ctx context.Context, req dto.StartSessionRequest) 
 		"cached_prefix_bytes", req.StartAssembly.PrefixShape.CachedPrefixBytes,
 		"uncached_tail_bytes", req.StartAssembly.PrefixShape.UncachedTailBytes,
 	)
-	startPolicy := codexNativeToolPolicyFromConfig(req.Config)
+	startPolicy, err := codexNativeToolPolicyFromConfig(req.Config)
+	if err != nil {
+		return nil, err
+	}
 	approvalPolicy := supportutil.ResolveApprovalPolicy(req.Config)
 	if startPolicy.RequiresReadOnlySandbox() {
 		approvalPolicy = "never"
@@ -383,7 +386,7 @@ func (d *driver) ResumeSession(ctx context.Context, req dto.ResumeSessionRequest
 		cleanupFailedSession(s, "force stop failed on resume tool surface error")
 		return nil, err
 	}
-	return d.finishResumedSession(ctx, s, req, threadID), nil
+	return d.finishOrCleanupResumedSession(ctx, s, req, threadID)
 }
 
 // ResolveResumeSessionIdentity 为恢复请求补齐 Codex home、instance key 和 model provider。
@@ -531,7 +534,11 @@ func buildThreadResumeParams(req dto.ResumeSessionRequest) (threadResumeParams, 
 		DeveloperInstructions: developerInstructions,
 		Effort:                strings.TrimSpace(req.Effort),
 	}
-	codexNativeToolPolicyFromDisabled(req.CodexDisabledNativeTools).ApplyThreadResumeParams(&params)
+	policy, err := codexNativeToolPolicyFromDisabled(req.CodexDisabledNativeTools)
+	if err != nil {
+		return threadResumeParams{}, err
+	}
+	policy.ApplyThreadResumeParams(&params)
 	return params, nil
 }
 
