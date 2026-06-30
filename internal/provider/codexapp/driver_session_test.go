@@ -90,8 +90,17 @@ func TestCloseSessionReleasesCodexToolSurface(t *testing.T) {
 	}
 }
 
+func mustCodexNativeToolPolicyFromConfig(t *testing.T, cfg map[string]any) codexNativeToolPolicy {
+	t.Helper()
+	policy, err := codexNativeToolPolicyFromConfig(cfg)
+	if err != nil {
+		t.Fatalf("codexNativeToolPolicyFromConfig() error = %v", err)
+	}
+	return policy
+}
+
 func TestCodexNativeToolPolicyMapsDisabledToolsToProcessFlags(t *testing.T) {
-	policy := codexNativeToolPolicyFromConfig(map[string]any{
+	policy := mustCodexNativeToolPolicyFromConfig(t, map[string]any{
 		codexDisabledNativeToolsConfigKey: []any{"write_new_file", "shell", "apply_patch"},
 	})
 	wantArgs := []string{"--disable", "shell_tool", "--disable", "unified_exec"}
@@ -104,7 +113,7 @@ func TestCodexNativeToolPolicyMapsDisabledToolsToProcessFlags(t *testing.T) {
 }
 
 func TestCodexNativeToolPolicyOmitsRemovedChildAgentsFeatureFlag(t *testing.T) {
-	policy := codexNativeToolPolicyFromConfig(map[string]any{
+	policy := mustCodexNativeToolPolicyFromConfig(t, map[string]any{
 		codexDisabledNativeToolsConfigKey: []string{"spawn_agent"},
 	})
 	wantArgs := []string{
@@ -122,7 +131,7 @@ func TestCodexNativeToolPolicyOmitsRemovedChildAgentsFeatureFlag(t *testing.T) {
 
 func TestCodexNativeToolPolicyUsesReadOnlySandboxForPartialWriteDisable(t *testing.T) {
 	params := threadStartParams{}
-	codexNativeToolPolicyFromConfig(map[string]any{
+	mustCodexNativeToolPolicyFromConfig(t, map[string]any{
 		codexDisabledNativeToolsConfigKey: []string{"apply_patch"},
 	}).ApplyThreadStartParams(&params)
 	if params.ApprovalPolicy != "never" {
@@ -135,7 +144,7 @@ func TestCodexNativeToolPolicyUsesReadOnlySandboxForPartialWriteDisable(t *testi
 
 func TestCodexNativeToolPolicyUsesReadOnlySandboxForReadOnlyLaunchDenyList(t *testing.T) {
 	params := threadStartParams{}
-	policy := codexNativeToolPolicyFromConfig(map[string]any{
+	policy := mustCodexNativeToolPolicyFromConfig(t, map[string]any{
 		codexDisabledNativeToolsConfigKey: []string{
 			contract.CodexNativeToolShell,
 			contract.CodexNativeToolApplyPatch,
