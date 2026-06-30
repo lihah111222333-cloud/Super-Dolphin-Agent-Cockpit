@@ -10,6 +10,13 @@ internal/platform/toolbridge/host_tools.go	A2-toolbridge-stage-gate	RW	Host-dire
 internal/platform/toolbridge/*_test.go	A2-toolbridge-stage-gate	RW	Planning allow/deny, lifecycle non-bypass, schema-before-handler tests.
 internal/provider/toolfilter/presets.go	A3-readonly-delegation-filter	RW	Tighten read-only delegation preset; must exclude writer, planning mutator, lifecycle/process-control, recursive agent, connector, and untrusted external hint surfaces.
 internal/provider/toolfilter/presets_test.go	A3-readonly-delegation-filter	RW	Focused tests for read-only delegation allow/deny surface.
+cmd/mcp-orch/tools/orchestration_tools.go	A3-readonly-delegation-filter	RW	Post-review repair: propagate read-only Codex native tool denies into orchestration launch requests.
+cmd/mcp-orch/tools/orchestration_tools_test.go	A3-readonly-delegation-filter	RW	Post-review regression tests for read-only launch native tool deny lists.
+internal/contract/prompt.go	A3-readonly-delegation-filter	RW	Post-review repair from 83670520: contract surface for read-only launch/tool policy data.
+internal/contract/provider.go	A3-readonly-delegation-filter	RW	Round2 repair from 5f7406d: provider launch config carries disabled native tool names.
+internal/module/thread/start_session_helpers.go	A3-readonly-delegation-filter	RW	Round2 repair: merge launch disabled native tools with assembly-suppressed tools.
+internal/module/thread/start_session_helpers_test.go	A3-readonly-delegation-filter	RW	Round2 regression for merged launch and assembly tool-surface config.
+internal/provider/codexapp/driver_session_test.go	A3-readonly-delegation-filter	RW	Round2 regression for Codex native read-only sandbox deny list.
 internal/provider/codexapp/native_tool_policy_validation_test.go	A2-toolbridge-stage-gate	RO	Regression suite must continue passing.
 internal/provider/claudecli/transport_config_security_test.go	A2-toolbridge-stage-gate	RO	Regression suite must continue passing.
 internal/platform/sessionpaths/	B1-sessionpaths-core	RW	New stdlib-only leaf helper and golden tests.

@@ -27,6 +27,13 @@ Ensure read-only subagent or planning-only delegation receives a restricted tool
 
 - RW: `internal/provider/toolfilter/presets.go`
 - RW: `internal/provider/toolfilter/presets_test.go`
+- RW: `cmd/mcp-orch/tools/orchestration_tools.go`
+- RW: `cmd/mcp-orch/tools/orchestration_tools_test.go`
+- RW: `internal/contract/prompt.go`
+- RW: `internal/contract/provider.go`
+- RW: `internal/module/thread/start_session_helpers.go`
+- RW: `internal/module/thread/start_session_helpers_test.go`
+- RW: `internal/provider/codexapp/driver_session_test.go`
 - RO: `internal/platform/toolbridge/`
 - NO-TOUCH: unrelated provider/session lifecycle code.
 
@@ -53,7 +60,18 @@ Source entry point from A0:
 rg -n 'ReviewerDecision|reviewerAllowedTools|reviewerDeniedTools|shared_file_write|orchestration_launch_agent|lsp_edit|memory_write|task_|workspace_|workflow_template_|update_plan' internal/provider/toolfilter internal/platform/toolbridge cmd/mcp-orch/tools cmd/mcp-lsp
 ```
 
-The orchestrator applied the exact delegation package command from A0 evidence before A3 dispatch. A3 then completed in `codex/reasonix-hardening-a3-20260630` at `2637e908adebffff737f9470adb84d647e017cbb`.
+The orchestrator applied the exact delegation package command from A0 evidence before A3 dispatch. The original A3 branch completed at `2637e908adebffff737f9470adb84d647e017cbb`, then post-review repairs expanded the A3 surface:
+
+- `836705200f7b4a7eca05bb93925dde4fbb9124f8` fixed read-only launch tool-surface propagation and is already in current integration HEAD.
+- `5f7406d992b4d2dba19408d738799b298673009a` fixed Codex native disabled-tool propagation from launch config through thread/provider startup and is worker-complete, pending controller integration.
+
+Round2 verification recorded by the worker:
+
+```bash
+./scripts/test_with_guard.sh ./cmd/mcp-orch/tools ./internal/module/thread ./internal/provider/codexapp ./internal/contract -run 'LaunchRequestFromExecutable|BuildStartSessionConfig|CodexNativeToolPolicy|ReadOnly' -count=1
+./scripts/test_with_guard.sh ./cmd/mcp-orch/tools ./internal/module/thread ./internal/provider/toolfilter ./internal/platform/toolpolicy ./internal/contract -count=1
+git diff --check
+```
 
 ## 7. DoD
 
