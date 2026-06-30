@@ -76,11 +76,18 @@ func assertDAGDesignerPromptSections(t *testing.T, content string) {
 
 func assertDAGDesignerPromptTypedSchemas(t *testing.T, content string) {
 	t.Helper()
-	// 三类 node_type schema 是 DAG 节点建模入口，缺一类都会破坏生成边界。
+	// 只允许当前运行时可创建的 node_type schema，历史 hybrid 不能回流为新建示例。
 	assertContainsAll(t, content, "must describe typed schema", []string{
 		`node_type = "agent"`,
 		`node_type = "automation"`,
+		`node_type":"agent|automation"`,
+	})
+	assertNotContainsAny(t, content, "must not teach unavailable hybrid node creation", []string{
 		`node_type = "hybrid"`,
+		`node_type":"hybrid"`,
+		`node_type\":\"hybrid\"`,
+		`node_type":"agent|automation|hybrid"`,
+		`node_type\":\"agent|automation|hybrid\"`,
 	})
 }
 
@@ -134,6 +141,15 @@ func assertContainsAll(t *testing.T, content, failure string, values []string) {
 	t.Helper()
 	for _, value := range values {
 		if !strings.Contains(content, value) {
+			t.Errorf("migration 0085 %s %q", failure, value)
+		}
+	}
+}
+
+func assertNotContainsAny(t *testing.T, content, failure string, values []string) {
+	t.Helper()
+	for _, value := range values {
+		if strings.Contains(content, value) {
 			t.Errorf("migration 0085 %s %q", failure, value)
 		}
 	}

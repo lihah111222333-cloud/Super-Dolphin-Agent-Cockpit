@@ -30,7 +30,7 @@ Minimal executable agent node example: `{"node_key":"final","title":"Final outpu
 
 Automation node example: `{"node_key":"fetch","title":"Fetch","node_type":"automation","depends_on":[],"config":{"exec":{"kind":"command_card","command_ref":"<card_key from command_list>"},"outputs":{"to_node_result":true}}}`
 
-Hybrid node example: `{"exec":{"automation":{"kind":"command_card","command_ref":"run_tests","args":{}},"verifier":{"prompt_key":"main/expert/prompt","provider":"claude","model":"<selected model from list_models()>","cwd":"/absolute/project/cwd"}}}`
+The historical `hybrid` type is read/diagnose only; do not create it. When a command_card step needs agent verification, create two nodes instead: `{"node_key":"run_tests","title":"Run tests","node_type":"automation","assigned_to":"my_dag_run_tests_runner","depends_on":["fetch"],"config":{"exec":{"kind":"command_card","command_ref":"run_tests","args":{}},"outputs":{"to_node_result":true}}}`, then `{"node_key":"review_tests","title":"Review test results","node_type":"agent","assigned_to":"my_dag_review_tests_runner","depends_on":["run_tests"],"config":{"exec":{"prompt_key":"main/expert/prompt","provider":"claude","model":"<selected model from list_models()>","cwd":"/absolute/project/cwd"},"inputs":{"from_nodes":["run_tests"]},"outputs":{"to_node_result":true},"first_turn":"Review whether the upstream test result meets the delivery bar and report fixes if needed."}}`.
 
 # Video Artifact DAG Contract
 
