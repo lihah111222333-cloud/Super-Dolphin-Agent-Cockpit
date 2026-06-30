@@ -154,17 +154,19 @@ func (s *store) UpdateNodeStatus(ctx context.Context, input NodeStatusUpdate) (*
 	if err := requireRuntimeRunID("update_status", input.RunID); err != nil {
 		return nil, err
 	}
-	// UpdateNodeStatus 与 flexible 状态更新共用同一条 SQL。
-	// 两个入口的输入类型不同，保留本方法能让旧调用方继续使用稳定接口。
-	return updateNodeStatusWrite(ctx, func() (sqlc.UpdateTaskDagNodeStatusFlexibleRow, error) {
-		return s.q.UpdateTaskDagNodeStatusFlexible(ctx, sqlc.UpdateTaskDagNodeStatusFlexibleParams{
-			Status:  input.Status,
-			Result:  input.Result,
-			DagKey:  input.DagKey,
-			NodeKey: input.NodeKey,
-			RunID:   int64Ptr(input.RunID),
+	if strings.TrimSpace(input.ExpectedStatus) == "" {
+		return nil, errors.New("update_status expected status is required")
+	}
+	return updateNodeStatusWrite(ctx, func() (sqlc.UpdateTaskDagNodeStatusIfCurrentRow, error) {
+		return s.q.UpdateTaskDagNodeStatusIfCurrent(ctx, sqlc.UpdateTaskDagNodeStatusIfCurrentParams{
+			Status:         input.Status,
+			Result:         input.Result,
+			DagKey:         input.DagKey,
+			NodeKey:        input.NodeKey,
+			RunID:          int64Ptr(input.RunID),
+			ExpectedStatus: input.ExpectedStatus,
 		})
-	}, "update_status", fromNodeStatusFlexibleRow)
+	}, "update_status", fromNodeStatusIfCurrentRow)
 }
 
 // ListNodes 列出 dag_key 下的模板节点，用于编辑/展示 DAG 结构，不包含 runtime 副本状态。
@@ -296,22 +298,6 @@ func (s *store) UpdateRunningNodeStatus(ctx context.Context, input RunningNodeSt
 	}, "update_running_status", fromNodeUpdateRunningRow)
 }
 
-// UpdateAwaitingVerifyNodeStatus 更新处于 awaiting_verify 状态的节点，不校验 wakeup fence。
-func (s *store) UpdateAwaitingVerifyNodeStatus(ctx context.Context, input AwaitingVerifyNodeStatusUpdate) (*Node, error) {
-	if err := requireRuntimeRunID("update_awaiting_verify_status", input.RunID); err != nil {
-		return nil, err
-	}
-	return updateNodeStatusWrite(ctx, func() (sqlc.UpdateAwaitingVerifyTaskDagNodeStatusRow, error) {
-		return s.q.UpdateAwaitingVerifyTaskDagNodeStatus(ctx, sqlc.UpdateAwaitingVerifyTaskDagNodeStatusParams{
-			Status:  input.Status,
-			Result:  input.Result,
-			DagKey:  input.DagKey,
-			NodeKey: input.NodeKey,
-			RunID:   int64Ptr(input.RunID),
-		})
-	}, "update_awaiting_verify_status", fromNodeUpdateAwaitingVerifyRow)
-}
-
 // CompleteNode 写入 runtime 节点终态和 result，run_id fence 防止模板节点或旧运行被误完成。
 func (s *store) CompleteNode(ctx context.Context, input CompleteNodeInput) (*Node, error) {
 	if err := requireRuntimeRunID("complete", input.RunID); err != nil {
@@ -344,22 +330,6 @@ func requireWakeupAttemptFence(op string, wakeupID int64, wakeupAttempt int32) e
 	default:
 		return nil
 	}
-}
-
-// UpdateNodeStatusFlexible 更新节点状态，不做状态机前置检查，适用于强制覆写场景。
-func (s *store) UpdateNodeStatusFlexible(ctx context.Context, input FlexibleNodeStatusUpdate) (*Node, error) {
-	if err := requireRuntimeRunID("update_status_flexible", input.RunID); err != nil {
-		return nil, err
-	}
-	return updateNodeStatusWrite(ctx, func() (sqlc.UpdateTaskDagNodeStatusFlexibleRow, error) {
-		return s.q.UpdateTaskDagNodeStatusFlexible(ctx, sqlc.UpdateTaskDagNodeStatusFlexibleParams{
-			Status:  input.Status,
-			Result:  input.Result,
-			DagKey:  input.DagKey,
-			NodeKey: input.NodeKey,
-			RunID:   int64Ptr(input.RunID),
-		})
-	}, "update_status_flexible", fromNodeStatusFlexibleRow)
 }
 
 // ClaimNodeOutputMaterialization 在节点仍可完成时写入 result 作为物化占位。

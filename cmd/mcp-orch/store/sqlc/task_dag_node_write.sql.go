@@ -434,27 +434,29 @@ func (q *Queries) PromoteSingleNodePendingToReady(ctx context.Context, arg Promo
 	return result.RowsAffected()
 }
 
-const updateTaskDagNodeStatusFlexible = `-- name: UpdateTaskDagNodeStatusFlexible :one
+const updateTaskDagNodeStatusIfCurrent = `-- name: UpdateTaskDagNodeStatusIfCurrent :one
 UPDATE task_dag_nodes
 SET status = ?1, result = ?2, updated_at = (CAST(strftime('%s','now') AS INTEGER) * 1000)
 WHERE dag_key = ?3 AND node_key = ?4
   AND run_id = ?5
   AND ?5 > 0
+  AND status = ?6
 RETURNING id, dag_key, node_key, title, node_type, assigned_to, CAST(depends_on AS BLOB) AS depends_on,
           status, command_ref, CAST(config AS BLOB) AS config, CAST(result AS BLOB) AS result, started_at, finished_at,
           created_at, updated_at, active_turn_id, active_wakeup_id,
           last_event_at, run_id, CAST(reads AS BLOB) AS reads, CAST(writes AS BLOB) AS writes, spawning_thread_id
 `
 
-type UpdateTaskDagNodeStatusFlexibleParams struct {
-	Status  string          `db:"status" json:"status"`
-	Result  json.RawMessage `db:"result" json:"result"`
-	DagKey  string          `db:"dag_key" json:"dag_key"`
-	NodeKey string          `db:"node_key" json:"node_key"`
-	RunID   *int64          `db:"run_id" json:"run_id"`
+type UpdateTaskDagNodeStatusIfCurrentParams struct {
+	Status         string          `db:"status" json:"status"`
+	Result         json.RawMessage `db:"result" json:"result"`
+	DagKey         string          `db:"dag_key" json:"dag_key"`
+	NodeKey        string          `db:"node_key" json:"node_key"`
+	RunID          *int64          `db:"run_id" json:"run_id"`
+	ExpectedStatus string          `db:"expected_status" json:"expected_status"`
 }
 
-type UpdateTaskDagNodeStatusFlexibleRow struct {
+type UpdateTaskDagNodeStatusIfCurrentRow struct {
 	ID               int64   `db:"id" json:"id"`
 	DagKey           string  `db:"dag_key" json:"dag_key"`
 	NodeKey          string  `db:"node_key" json:"node_key"`
@@ -479,15 +481,16 @@ type UpdateTaskDagNodeStatusFlexibleRow struct {
 	SpawningThreadID *string `db:"spawning_thread_id" json:"spawning_thread_id"`
 }
 
-func (q *Queries) UpdateTaskDagNodeStatusFlexible(ctx context.Context, arg UpdateTaskDagNodeStatusFlexibleParams) (UpdateTaskDagNodeStatusFlexibleRow, error) {
-	row := q.db.QueryRowContext(ctx, updateTaskDagNodeStatusFlexible,
+func (q *Queries) UpdateTaskDagNodeStatusIfCurrent(ctx context.Context, arg UpdateTaskDagNodeStatusIfCurrentParams) (UpdateTaskDagNodeStatusIfCurrentRow, error) {
+	row := q.db.QueryRowContext(ctx, updateTaskDagNodeStatusIfCurrent,
 		arg.Status,
 		arg.Result,
 		arg.DagKey,
 		arg.NodeKey,
 		arg.RunID,
+		arg.ExpectedStatus,
 	)
-	var i UpdateTaskDagNodeStatusFlexibleRow
+	var i UpdateTaskDagNodeStatusIfCurrentRow
 	err := row.Scan(
 		&i.ID,
 		&i.DagKey,

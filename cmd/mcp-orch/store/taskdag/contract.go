@@ -155,7 +155,6 @@ type RunningNodeStore interface {
 	BindRunningNodeTurn(ctx context.Context, input BindRunningNodeTurnInput) (*Node, error)
 	TouchRunningNodeEvent(ctx context.Context, input TouchRunningNodeEventInput) (*Node, error)
 	UpdateRunningNodeStatus(ctx context.Context, input RunningNodeStatusUpdate) (*Node, error)
-	UpdateAwaitingVerifyNodeStatus(ctx context.Context, input AwaitingVerifyNodeStatusUpdate) (*Node, error)
 	CompleteNode(ctx context.Context, input CompleteNodeInput) (*Node, error)
 }
 
@@ -164,7 +163,6 @@ type RunningNodeStore interface {
 type NodeFlowStore interface {
 	CompleteNodeAndScheduleDownstream(ctx context.Context, input CompleteNodeInput) (*CompleteNodeWithDownstreamResult, error)
 	FailNodeAndCancelDownstream(ctx context.Context, input FailNodeInput) (*FailNodeResult, error)
-	UpdateNodeStatusFlexible(ctx context.Context, input FlexibleNodeStatusUpdate) (*Node, error)
 }
 
 // NodeSpawnRecorderStore 是 nodeexec.AgentExecutor 写回 spawning_thread_id 的窄端口。
@@ -251,13 +249,14 @@ type ListDAGsFilter struct {
 
 // NodeStatusUpdate 是 UpdateNodeStatus 的入参。
 type NodeStatusUpdate struct {
-	Status        string
-	Result        json.RawMessage
-	DagKey        string
-	NodeKey       string
-	RunID         int64
-	WakeupID      int64
-	WakeupAttempt int32
+	Status         string
+	ExpectedStatus string
+	Result         json.RawMessage
+	DagKey         string
+	NodeKey        string
+	RunID          int64
+	WakeupID       int64
+	WakeupAttempt  int32
 }
 
 // AssignNodeInput 是 AssignNode 的入参。
@@ -294,15 +293,6 @@ type RunningNodeStatusUpdate struct {
 	DagKey   string
 	NodeKey  string
 	RunID    int64
-}
-
-// AwaitingVerifyNodeStatusUpdate 是 UpdateAwaitingVerifyNodeStatus 的入参。
-type AwaitingVerifyNodeStatusUpdate struct {
-	Status  string
-	Result  json.RawMessage
-	DagKey  string
-	NodeKey string
-	RunID   int64
 }
 
 // CompleteNodeInput 是 CompleteNode / CompleteNodeAndScheduleDownstream 的入参。
@@ -433,15 +423,6 @@ type failNodeReason struct {
 	Kind         string `json:"kind"`
 	Reason       string `json:"reason,omitempty"`
 	CausedByNode string `json:"caused_by_node,omitempty"`
-}
-
-// FlexibleNodeStatusUpdate 是 UpdateNodeStatusFlexible 的入参，不做状态机前置检查。
-type FlexibleNodeStatusUpdate struct {
-	Status  string
-	Result  json.RawMessage
-	DagKey  string
-	NodeKey string
-	RunID   int64
 }
 
 // EnqueueWakeupInput 是 EnqueueWakeup 的入参，RunID 必须非零。
