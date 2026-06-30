@@ -2,7 +2,7 @@
 
 Controller evidence for `docs/pians/2026-06-29-production-risk-remediation-plan.md`.
 
-The rows below record the integrated evidence surface after merge `4da1b000` plus the local follow-up fix for `P1-25` and `P3-07`.
+The rows below record the integrated evidence surface after merge `4da1b000` plus follow-up fix commit `12118542` for verified residual risks and a stricter ledger validator.
 
 ## Active Evidence
 
@@ -10,7 +10,7 @@ The rows below record the integrated evidence surface after merge `4da1b000` plu
 |---|---|---|---|---|---|
 | P0-01 | mcp-runtime-security | lane fail-first security tests rejected untrusted stdio MCP command/env inheritance | `./scripts/test_with_guard.sh ./internal/platform/toolbridge ./internal/provider/shared ./internal/provider/codexapp ./internal/provider/claudecli ./internal/module/thread ./internal/module/mcp_server ./internal/mcpserver/common ./internal/contract ./internal/dto/provider -count=1` | 4da1b000 | none |
 | P1-01 | mcp-runtime-security | lane fail-first tests rejected private HTTP MCP URL and unsafe headers | same as P0-01 lane command | 4da1b000 | none |
-| P1-02 | provider-security-logging | lane fail-first tests rejected unknown approval/sandbox values | `./scripts/test_with_guard.sh ./internal/module/thread ./internal/module/memory ./internal/provider/claudecli ./internal/provider/codexapp ./internal/provider/unified ./internal/provider/dreamexec ./internal/contract ./internal/dto/provider -count=1` | 4da1b000 | none |
+| P1-02 | provider-security-logging | lane fail-first tests rejected unknown approval/sandbox values | `./scripts/test_with_guard.sh ./internal/provider/claudecli -run 'TestResolvePermissionModeAcceptsLegacyAndNewApprovalPolicies|TestBuildCLIArgsRejectsUnknownPermissionInputs|TestConfigFromMapParsesCamelCaseApprovalPolicyForPermissionMode|TestBuildCLIArgsIncludesModelAndNormalizedEffort|TestBuildCLIArgsUsesDefaultDisabledNativeToolsByDefault' -count=1` | 12118542 | none |
 | P1-03 | provider-security-logging | lane fail-first dream executor tests required no-tools/read-only/min-env policy | same as P1-02 lane command | 4da1b000 | none |
 | P1-04 | thread-session-lifecycle | lane fail-first racing Stop/Archive/Delete vs Resume tests reproduced resume unblock gap | `./scripts/test_with_guard.sh ./internal/module/thread ./internal/module/memory ./internal/store/thread ./internal/provider/unified ./internal/provider/claudecli ./internal/provider/codexapp ./internal/contract ./internal/dto/provider -count=1` | 4da1b000 | none |
 | P1-05 | thread-session-lifecycle | lane fail-first auto-resume test rejected missing prompt snapshot | same as P1-04 lane command | 4da1b000 | none |
@@ -32,7 +32,7 @@ The rows below record the integrated evidence surface after merge `4da1b000` plu
 | P1-22 | frontend-wails | lane fail-first backend strict decode tests rejected unknown turn fields | `./scripts/test_with_guard.sh ./internal/module/turn ./internal/module/dashboard ./internal/platform/rpc ./internal/ui/wails ./cmd/mcp-orch/tools ./cmd/mcp-orch/orchestration/nodeexec -count=1` and frontend lint/test/build | 4da1b000 | none |
 | P1-23 | frontend-wails | lane fail-first frontend facade tests rejected unknown turn/start fields | same as P1-22 lane command | 4da1b000 | none |
 | P1-24 | frontend-wails | lane fail-first surface tests caught missing thread/start skill fields | same as P1-22 lane command | 4da1b000 | none |
-| P1-25 | frontend-wails | `./scripts/test_with_guard.sh -run TestApplyThreadStoppedResetsPatchSequence ./internal/module/uistate -count=1` failed with `Generation:0` | `./scripts/test_with_guard.sh -run TestApplyThreadStoppedResetsPatchSequence ./internal/module/uistate -count=1` | working-tree | none |
+| P1-25 | frontend-wails | `./scripts/test_with_guard.sh -run TestApplyThreadStoppedResetsPatchSequence ./internal/module/uistate -count=1` failed with `Generation:0`; follow-up review caught payload fallback dropping `Generation` | `./scripts/test_with_guard.sh ./internal/module/uistate -run 'TestApplyThreadStoppedResetsPatchSequence|TestEmitThreadPatchEventPayloadTooLargeFallsBack' -count=1` | 12118542 | none |
 | P1-26 | frontend-wails | lane fail-first Wails websocket tests rejected cross-loopback origin | same as P1-22 lane command | 4da1b000 | none |
 | P1-27 | frontend-wails | lane fail-first shared-file preview tests rejected absolute/path traversal input | same as P1-22 lane command | 4da1b000 | none |
 | P1-28 | release-ci-guard | lane fail-first Windows package guard test reproduced missing installer dependency success | `go test ./scripts -run 'Package|Release|Frontend|Guard|Commit|Evidence' -count=1` | 4da1b000 | none |
@@ -54,7 +54,7 @@ The rows below record the integrated evidence surface after merge `4da1b000` plu
 | P2-10 | frontend-wails | lane fail-first workflow display adapter tests rejected parse-as-empty behavior | same as P1-22 lane command | 4da1b000 | none |
 | P2-11 | frontend-wails | lane fail-first chat action tests detected swallowed UI action failures | same as P1-22 lane command | 4da1b000 | none |
 | P2-12 | frontend-wails | lane fail-first approval timeout tests kept busy state stuck | same as P1-22 lane command | 4da1b000 | none |
-| P2-13 | frontend-wails | lane fail-first approval notice tests required visible feedback | same as P1-22 lane command | 4da1b000 | none |
+| P2-13 | frontend-wails | lane fail-first approval notice tests required visible feedback | `npm test -- --run src/pages/chat/ChatPage.test.jsx` | 12118542 | none |
 | P2-14 | lsp-perf-observability | lane fail-first log detail tests required sanitized raw/extra detail surface | same as P1-12 lane command | 4da1b000 | none |
 | P2-15 | lsp-perf-observability | lane fail-first trace write tests detected swallowed trace errors | same as P1-12 lane command | 4da1b000 | none |
 | P2-16 | lsp-perf-observability | lane fail-first provider/toolbridge trace tests rejected generic operation failed only | same as P1-12 lane command | 4da1b000 | none |
