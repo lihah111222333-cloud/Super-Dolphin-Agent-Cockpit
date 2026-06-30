@@ -302,10 +302,11 @@ function useMemoryAutoDream({ dashboard, showNotice }) {
   const pendingRestart = intent !== null && intent !== runtime;
   const toggleAutoDream = useCallback(async () => {
     if (autoToggling || dashboard.isProjectPending) return;
+    if (!dashboard.memoryCwd) { showNotice('error', '正在连接本地项目...'); return; }
     const next = !enabled;
     setAutoToggling(true);
     try {
-      await setMemoryAutoDreamIntent({ enabled: next });
+      await setMemoryAutoDreamIntent({ cwd: dashboard.memoryCwd, enabled: next });
       showNotice('warning', `自动沉淀已切换为${next ? '开启' : '关闭'}，重启 ${APP_BRAND_NAME} 后生效`);
       await dashboard.refreshMemory();
     } catch (err) {
@@ -334,6 +335,10 @@ function useMemoryEditor({ dashboard, showNotice }) {
     setBusyKey(key);
     try {
       const detail = await getMemoryEntry({ cwd: dashboard.memoryCwd, target: entry.target, path: entry.path });
+      if (!memoryDetailHasContent(detail)) {
+        showNotice('error', '加载失败：记忆详情缺少内容，已阻断编辑保存');
+        return;
+      }
       setEditor({ open: true, mode: 'edit', form: memoryEditorFormFromDetail(detail, entry) });
     } catch (err) {
       showNotice('error', `加载失败：${errorMessage(err)}`);
@@ -348,6 +353,10 @@ function useMemoryEditor({ dashboard, showNotice }) {
   return { busyKey, closeEditor, createMenuOpen, editor, openCreate, openEdit, saveEditor, saving, setCreateMenuOpen, setEditor, updateEditorForm };
 }
 
+function memoryDetailHasContent(detail) {
+  return Boolean(detail && typeof detail === 'object' && Object.prototype.hasOwnProperty.call(detail, 'content'));
+}
+
 function memoryEditorFormFromDetail(detail, entry) {
   return {
     target: firstText(detail?.target, entry.target),
@@ -356,7 +365,7 @@ function memoryEditorFormFromDetail(detail, entry) {
     description: firstText(detail?.description, entry.description),
     title: firstText(detail?.title, entry.title),
     type: firstText(detail?.type, entry.type),
-    content: firstText(detail?.content, entry.preview, memoryTemplateForType(entry.type)),
+    content: textValue(detail.content),
   };
 }
 

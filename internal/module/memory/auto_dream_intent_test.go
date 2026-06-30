@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
@@ -119,34 +120,51 @@ func TestAutoDreamIntentUnreadableFileSurfacesDiagnostics(t *testing.T) {
 
 func TestSetAutoDreamIntentRPCPersists(t *testing.T) {
 	root := t.TempDir()
+	projectRoot := newTestGitProjectRoot(t)
 	cfg := &Config{
 		Enabled:     true,
 		EnableTools: true,
 		RootDir:     root,
-		ProjectRoot: filepath.Join(root, "project"),
+		ProjectRoot: projectRoot,
 	}
 	deps := memoryHandlerDeps{
 		Service: newServiceWithConsolidator(cfg, nil, nil, nil),
 	}
+	intentRoot, err := resolvedStoreRoot(root, projectRoot, "")
+	if err != nil {
+		t.Fatalf("resolvedStoreRoot() error = %v", err)
+	}
 
-	resp, err := setAutoDreamIntent(context.Background(), deps, uiAutoDreamIntentParams{Enabled: true})
+	resp, err := setAutoDreamIntent(context.Background(), deps, uiAutoDreamIntentParams{CWD: projectRoot, Enabled: true})
 	if err != nil {
 		t.Fatalf("setAutoDreamIntent(true) error = %v", err)
 	}
 	if ok, _ := resp["ok"].(bool); !ok {
 		t.Fatalf("setAutoDreamIntent(true) resp = %#v, want ok=true", resp)
 	}
-	got, err := ReadAutoDreamIntent(root)
+	got, err := ReadAutoDreamIntent(intentRoot)
 	if err != nil || got == nil || *got != true {
 		t.Fatalf("ReadAutoDreamIntent after RPC = %v err=%v, want *true", got, err)
 	}
 
-	if _, err := setAutoDreamIntent(context.Background(), deps, uiAutoDreamIntentParams{Enabled: false}); err != nil {
+	if _, err := setAutoDreamIntent(context.Background(), deps, uiAutoDreamIntentParams{CWD: projectRoot, Enabled: false}); err != nil {
 		t.Fatalf("setAutoDreamIntent(false) error = %v", err)
 	}
-	got, _ = ReadAutoDreamIntent(root)
+	got, _ = ReadAutoDreamIntent(intentRoot)
 	if got == nil || *got != false {
 		t.Fatalf("ReadAutoDreamIntent after RPC(false) = %v, want *false", got)
+	}
+}
+
+func TestSetAutoDreamIntentRPCRequiresCWD(t *testing.T) {
+	root := t.TempDir()
+	deps := memoryHandlerDeps{
+		Service: newServiceWithConsolidator(&Config{Enabled: true, RootDir: root}, nil, nil, nil),
+	}
+
+	_, err := setAutoDreamIntent(context.Background(), deps, uiAutoDreamIntentParams{Enabled: true})
+	if err == nil || !strings.Contains(err.Error(), "cwd is required") {
+		t.Fatalf("setAutoDreamIntent(empty cwd) error = %v, want cwd required", err)
 	}
 }
 
