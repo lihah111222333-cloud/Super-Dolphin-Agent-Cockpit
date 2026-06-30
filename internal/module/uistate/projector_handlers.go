@@ -308,10 +308,12 @@ func (s *service) applyThreadStopped(ev threaddto.Stopped) {
 			sortAgents(s.state.Agents)
 			patch := s.threadPatchLocked(threadID, "thread/stopped")
 			delete(s.patchSeq, threadID)
+			s.advancePatchGenerationLocked(threadID)
 			return patch
 		}
 		patch := s.refreshThreadPatchLocked(threadID, agentID, "thread/stopped")
 		delete(s.patchSeq, threadID)
+		s.advancePatchGenerationLocked(threadID)
 		return patch
 	})
 }

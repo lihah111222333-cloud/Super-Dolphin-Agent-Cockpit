@@ -34,6 +34,7 @@ type service struct {
 	timeline              timeline.Service
 	timelinePatchByThread map[string]threadTimelinePatchState
 	patchSeq              map[string]int64
+	patchGeneration       map[string]int64
 	projectionSeq         map[string]int64
 	emitThreadPatch       threadPatchEmitter
 	emitProjectionUpdated projectionUpdatedEmitter
@@ -123,6 +124,7 @@ func NewService(
 		timeline:              timeline.New(logger, nil, 0),
 		timelinePatchByThread: map[string]threadTimelinePatchState{},
 		patchSeq:              map[string]int64{},
+		patchGeneration:       map[string]int64{},
 		projectionSeq:         map[string]int64{},
 	}
 	for _, option := range options {
