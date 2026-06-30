@@ -123,12 +123,12 @@ func (q *Queries) CascadeFailPendingTaskDagNode(ctx context.Context, arg Cascade
 
 const claimTaskDagNodeOutputMaterialization = `-- name: ClaimTaskDagNodeOutputMaterialization :one
 UPDATE task_dag_nodes
-SET status = 'awaiting_verify', result = ?1, updated_at = (CAST(strftime('%s','now') AS INTEGER) * 1000)
+SET result = ?1, updated_at = (CAST(strftime('%s','now') AS INTEGER) * 1000)
 WHERE dag_key = ?2
   AND node_key = ?3
   AND run_id = ?4
   AND ?4 > 0
-  AND status IN ('ready', 'running', 'awaiting_verify')
+  AND status IN ('ready', 'running')
 RETURNING id, dag_key, node_key, title, node_type, assigned_to, CAST(depends_on AS BLOB) AS depends_on,
           status, command_ref, CAST(config AS BLOB) AS config, CAST(result AS BLOB) AS result, started_at, finished_at,
           created_at, updated_at, active_turn_id, active_wakeup_id,

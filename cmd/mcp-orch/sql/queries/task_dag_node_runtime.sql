@@ -63,7 +63,7 @@ SET status = sqlc.arg('status'), result = sqlc.arg('result'), active_turn_id = N
 WHERE task_dag_nodes.dag_key = sqlc.arg('dag_key') AND task_dag_nodes.node_key = sqlc.arg('node_key')
   AND task_dag_nodes.run_id = sqlc.arg('run_id')
   AND sqlc.arg('run_id') > 0
-  AND status IN ('ready', 'running', 'awaiting_verify')
+  AND status IN ('ready', 'running')
   AND (
     sqlc.arg('wakeup_id') = 0
     OR (

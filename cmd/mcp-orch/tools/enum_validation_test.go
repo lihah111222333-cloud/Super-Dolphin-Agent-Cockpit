@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/orchestration/nodeexec"
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 )
 
@@ -65,6 +66,20 @@ func TestEnumValidation_SchemaHandlerSingleSource(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestUpdateNodeStatusEnumMatchesStateMachineTargets(t *testing.T) {
+	t.Parallel()
+	want := nodeexec.LegalTransitionTargetStatusStrings()
+	got := enumValuesFromToolSchema(t, taskToolDefinitions(nil), "task_update_node", "status")
+	if strings.Join(got, ",") != strings.Join(want, ",") {
+		t.Fatalf("task_update_node.status enum = %v, want legal transition targets %v", got, want)
+	}
+	for _, status := range got {
+		if status == "pending" {
+			t.Fatalf("task_update_node.status must not expose unreachable pending: %v", got)
+		}
 	}
 }
 
@@ -222,10 +237,12 @@ func TestUpdateNodeRequestFromInput_EnumValidation(t *testing.T) {
 		wantErr    string
 		wantStatus string
 	}{
-		{name: "valid", in: UpdateNodeInput{DagKey: "dag-1", NodeKey: "n", RunID: 7, Status: "running"}, wantStatus: "running"},
+		{name: "valid running", in: UpdateNodeInput{DagKey: "dag-1", NodeKey: "n", RunID: 7, Status: "running"}, wantStatus: "running"},
+		{name: "valid ready", in: UpdateNodeInput{DagKey: "dag-1", NodeKey: "n", RunID: 7, Status: "ready"}, wantStatus: "ready"},
 		{name: "missing-run-id", in: UpdateNodeInput{DagKey: "dag-1", NodeKey: "n", Status: "running"}, wantErr: "run_id"},
 		{name: "empty", in: UpdateNodeInput{DagKey: "dag-1", NodeKey: "n", RunID: 7, Status: ""}, wantErr: "status is required"},
 		{name: "whitespace", in: UpdateNodeInput{DagKey: "dag-1", NodeKey: "n", RunID: 7, Status: "  "}, wantErr: "status is required"},
+		{name: "pending unreachable", in: UpdateNodeInput{DagKey: "dag-1", NodeKey: "n", RunID: 7, Status: "pending"}, wantErr: "status"},
 		{name: "invalid", in: UpdateNodeInput{DagKey: "dag-1", NodeKey: "n", RunID: 7, Status: "skipped"}, wantErr: "status"},
 	}
 	for _, tc := range cases {
