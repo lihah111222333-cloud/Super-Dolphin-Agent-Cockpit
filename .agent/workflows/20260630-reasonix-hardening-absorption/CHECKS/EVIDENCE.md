@@ -360,3 +360,52 @@ Dispatch decision:
 - A3 accepted as `done`.
 - Lane A gates passed.
 - B1 moved to `ready`; B2 and C1 remain waiting behind the DAG.
+
+## 2026-06-30 B1 Sessionpaths Core Review And Integration
+
+Status: B1 production implementation was performed by a child agent in an isolated worktree and reviewed before integration.
+
+Worker branch and commit:
+
+- Agent id: `019f1868-b4b7-7e41-9b42-2f5ce1e7d2f0`.
+- Branch: `codex/reasonix-hardening-b1-20260630`.
+- Commit: `2f8c85a569037f25950498dc484848b80cc942a1`.
+- Integrated by fast-forward into `codex/reasonix-hardening-integration-20260630`.
+
+Ownership review:
+
+- `git diff --name-status 4e026395..HEAD` showed only B1-owned files:
+  - `internal/platform/sessionpaths/sessionpaths.go`
+  - `internal/platform/sessionpaths/sessionpaths_test.go`
+  - `internal/archtest/sessionpaths_dependency_guard_test.go`
+- No provider, module, util caller, workflow template, frontend, generated, or unrelated files were changed by the B1 worker.
+
+Main LSP review:
+
+- `structure(document_symbol)` on `internal/platform/sessionpaths/sessionpaths.go` confirmed the exported helpers `CodexRolloutGlob`, `ManagedScratchpadDir`, `IsManagedScratchpadDir`, and `SanitizeProjectPath`.
+- `file(diagnostics)` for the new sessionpaths files and `internal/archtest/sessionpaths_dependency_guard_test.go` returned no diagnostics.
+- `xref(references)` for `CodexRolloutGlob` showed only same-package tests and the declaration, confirming B1 did not migrate callers.
+
+Behavior review:
+
+- `CodexRolloutGlob` only trims and validates `codexHome`/`threadID`, then derives `sessions/*/*/*/rollout-*-<threadID>.jsonl`; it does not glob, sort, stat, read HOME/env, or implement provider/util fallback behavior.
+- `ManagedScratchpadDir`, `IsManagedScratchpadDir`, and `SanitizeProjectPath` preserve the current thread scratchpad path shape and slug rules while taking `tempRoot` as an explicit parameter.
+- The dependency guard scans non-test production files in `internal/platform/sessionpaths` and rejects repo-internal and non-stdlib imports.
+
+Main verification:
+
+```bash
+./scripts/test_with_guard.sh ./internal/platform/sessionpaths -run 'Rollout|Scratchpad|Path' -count=1
+./scripts/test_with_guard.sh ./internal/archtest -run 'Dependency|Path' -count=1
+./scripts/test_with_guard.sh ./internal/provider/codexapp ./internal/module/thread ./internal/util/historyjsonl -run 'Rollout|Scratchpad|Path|Cleanup|CodexHome|History' -count=1
+git diff --check 4e026395..HEAD
+git diff --cached --check
+git status --short
+```
+
+All commands above passed; `git diff --cached --check` and final status checks produced no output.
+
+Dispatch decision:
+
+- B1 accepted as `done`.
+- B2 moved to `ready`; C1 remains waiting behind B2.
