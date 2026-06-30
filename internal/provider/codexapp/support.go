@@ -290,7 +290,11 @@ func (d *driver) buildThreadStartParams(req dto.StartSessionRequest) (threadStar
 		Sandbox:               codexSandboxWireJSON(supportutil.ConfigJSON(req.Config, "sandbox")),
 		MCPConfig:             supportutil.ConfigJSON(req.Config, "mcpConfig"),
 	}
-	codexNativeToolPolicyFromConfig(req.Config).ApplyThreadStartParams(&params)
+	policy, err := codexNativeToolPolicyFromConfig(req.Config)
+	if err != nil {
+		return threadStartParams{}, err
+	}
+	policy.ApplyThreadStartParams(&params)
 	return params, nil
 }
 
@@ -434,8 +438,18 @@ func primeResumeToolScope(s *session, req dto.ResumeSessionRequest) {
 	}
 }
 
+// finishOrCleanupResumedSession 统一 resume 收尾失败的 session 清理，避免主流程堆高复杂度。
+func (d *driver) finishOrCleanupResumedSession(ctx context.Context, s *session, req dto.ResumeSessionRequest, threadID string) (contract.Session, error) {
+	resumed, err := d.finishResumedSession(ctx, s, req, threadID)
+	if err != nil {
+		cleanupFailedSession(s, "force stop failed on resume finalization error")
+		return nil, err
+	}
+	return resumed, nil
+}
+
 // finishResumedSession 恢复 resume 后本地 session 需要继续使用的运行配置。
-func (d *driver) finishResumedSession(ctx context.Context, s *session, req dto.ResumeSessionRequest, threadID string) contract.Session {
+func (d *driver) finishResumedSession(ctx context.Context, s *session, req dto.ResumeSessionRequest, threadID string) (contract.Session, error) {
 	s.setThreadID(threadID)
 	s.ensureRuntimeCodexHomeFromInitialize("resume")
 	if cwd := strings.TrimSpace(req.CWD); cwd != "" {
@@ -455,9 +469,11 @@ func (d *driver) finishResumedSession(ctx context.Context, s *session, req dto.R
 		s.setRuntimeConfigValue("codexDisabledNativeTools", append([]string(nil), req.CodexDisabledNativeTools...))
 	}
 	d.restoreApprovalPolicy(ctx, s, threadID)
-	applyResumeNativeToolRuntimePolicy(s, req.CodexDisabledNativeTools)
+	if err := applyResumeNativeToolRuntimePolicy(s, req.CodexDisabledNativeTools); err != nil {
+		return nil, err
+	}
 	d.reportRuntime(s.agentID, s.transport.serverURL)
-	return s
+	return s, nil
 }
 
 func (d *driver) startRemoteThreadWithDynamicTools(ctx context.Context, t *transport, req dto.StartSessionRequest, tools []codexprotocol.DynamicToolSchema) (startResult, error) {

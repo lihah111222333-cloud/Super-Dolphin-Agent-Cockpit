@@ -175,8 +175,8 @@ type CodexNativeToolPolicy struct {
 	appServerFeatures []string
 }
 
-// NewCodexNativeToolPolicy 根据配置中的禁用工具 ID 构造 Codex 原生工具策略。
-// 未知 ID 会被忽略，避免旧配置字段影响后续进程启动参数。
+// NewCodexNativeToolPolicy 根据已校验的禁用工具 ID 构造 Codex 原生工具策略。
+// provider 启动入口负责拒绝未知 ID；这里仅把已知工具映射到执行策略。
 func NewCodexNativeToolPolicy(disabled []string) CodexNativeToolPolicy {
 	policy := CodexNativeToolPolicy{
 		disabled: make(map[string]struct{}),
