@@ -14,6 +14,7 @@ import (
 	"github.com/kelindar/event"
 
 	turndto "github.com/anthropic-ai/super-agent-v3/internal/dto/turn"
+	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
@@ -21,6 +22,8 @@ import (
 const cronProgressDrainGrace = 10 * time.Second
 
 const cronProgressQueueLimit = 256
+const cronProgressRetryBaseDelay = 100 * time.Millisecond
+const cronProgressRetryMaxDelay = 2 * time.Second
 
 // cronProgressEventKind 区分进度事件（续租）和终态事件（完成 turn）两种类型。
 type cronProgressEventKind int
@@ -36,6 +39,7 @@ type cronProgressRequest struct {
 	turnID      string
 	success     bool
 	terminalErr string
+	attempt     int
 }
 
 // cronProgressWorker 用单 goroutine 串行执行 progress/terminal 事件引发的 Scheduler 写库。
@@ -55,6 +59,8 @@ type cronProgressWorker struct {
 	stopOnce  sync.Once
 	stopCh    chan struct{}
 	doneCh    chan struct{}
+	runMu     sync.Mutex
+	runCancel context.CancelFunc
 
 	enqueuedTotal  atomic.Int64
 	processedTotal atomic.Int64
@@ -103,13 +109,16 @@ func (w *cronProgressWorker) Start() {
 		return
 	}
 	w.startOnce.Do(func() {
+		ctx, cancel := context.WithCancel(context.Background())
+		w.setRunCancel(cancel)
 		go func() {
 			defer func() {
+				cancel()
 				if rec := recover(); rec != nil {
 					pkglogger.Error("cron: recovered progress_worker panic", "panic", rec)
 				}
 			}()
-			w.runWorker()
+			w.runWorker(ctx)
 		}()
 	})
 }
@@ -136,10 +145,26 @@ func (w *cronProgressWorker) Stop(ctx context.Context) error {
 		select {
 		case <-w.doneCh:
 		case <-waitCtx.Done():
+			w.cancelRun()
 			firstErr = waitCtx.Err()
 		}
 	})
 	return firstErr
+}
+
+func (w *cronProgressWorker) setRunCancel(cancel context.CancelFunc) {
+	w.runMu.Lock()
+	w.runCancel = cancel
+	w.runMu.Unlock()
+}
+
+func (w *cronProgressWorker) cancelRun() {
+	w.runMu.Lock()
+	cancel := w.runCancel
+	w.runMu.Unlock()
+	if cancel != nil {
+		cancel()
+	}
 }
 
 // enqueue 将请求追加到队列并发送非阻塞唤醒信号。
@@ -177,7 +202,8 @@ func (w *cronProgressWorker) enqueueLocked(req cronProgressRequest) bool {
 		w.queue = append(w.queue, req)
 		return true
 	}
-	if req.kind == cronCompleteTurn && w.dropOldestProgressLocked() {
+	if req.kind == cronCompleteTurn {
+		_ = w.dropOldestProgressLocked()
 		w.queue = append(w.queue, req)
 		return true
 	}
@@ -240,21 +266,21 @@ func (w *cronProgressWorker) HealthSnapshot() CronProgressHealthSnapshot {
 }
 
 // runWorker 是 worker goroutine 的主循环，stopCh 关闭时排干队列后退出。
-func (w *cronProgressWorker) runWorker() {
+func (w *cronProgressWorker) runWorker(ctx context.Context) {
 	defer close(w.doneCh)
 	for {
 		select {
 		case <-w.stopCh:
-			w.drainPending()
+			w.drainPending(ctx)
 			return
 		case <-w.wake:
-			w.drainPending()
+			w.drainPending(ctx)
 		}
 	}
 }
 
 // drainPending 批量取出队列中的所有请求并依次 dispatch，不持锁执行 dispatch。
-func (w *cronProgressWorker) drainPending() {
+func (w *cronProgressWorker) drainPending(ctx context.Context) {
 	for {
 		w.mu.Lock()
 		if len(w.queue) == 0 {
@@ -265,27 +291,72 @@ func (w *cronProgressWorker) drainPending() {
 		w.queue = nil
 		w.mu.Unlock()
 		for _, req := range reqs {
-			w.dispatch(req)
+			w.dispatch(ctx, req)
 			w.processedTotal.Add(1)
 		}
 	}
 }
 
-// dispatch 根据 kind 调用 Scheduler 的对应方法，错误只记录不上传。
-func (w *cronProgressWorker) dispatch(req cronProgressRequest) {
-	ctx := context.Background()
+// dispatch 根据 kind 调用 Scheduler 的对应方法，可重试 DB 抖动会重新入队。
+func (w *cronProgressWorker) dispatch(ctx context.Context, req cronProgressRequest) {
 	switch req.kind {
 	case cronExtendClaim:
 		// 进度事件只续租，不改 run 状态。
 		if err := w.scheduler.ExtendClaimForTurnProgress(ctx, req.turnID); err != nil {
+			if w.retryTransient(ctx, req, err) {
+				return
+			}
 			w.logProgressError("cron: extend claim for turn progress failed", req.turnID, err)
 		}
 	case cronCompleteTurn:
 		// 终态事件才把 running run 结束；找不到 run 时让 CompleteTurn 暴露问题。
 		if err := w.scheduler.CompleteTurn(ctx, req.turnID, req.success, req.terminalErr); err != nil {
+			if w.retryTransient(ctx, req, err) {
+				return
+			}
 			w.logProgressError("cron: complete turn from terminal event failed", req.turnID, err)
 		}
 	}
+}
+
+func (w *cronProgressWorker) retryTransient(ctx context.Context, req cronProgressRequest, err error) bool {
+	if !isCronProgressRetryable(err) {
+		return false
+	}
+	w.recordLastError(req.turnID, err)
+	req.attempt++
+	delay := cronProgressRetryDelay(req.attempt)
+	w.logger.Debug("cron: progress event transient failure; requeueing",
+		slog.String("turn_id", req.turnID),
+		slog.Int("attempt", req.attempt),
+		slog.Duration("delay", delay),
+		slog.String("error", err.Error()),
+	)
+	timer := time.NewTimer(delay)
+	defer timer.Stop()
+	select {
+	case <-timer.C:
+	case <-ctx.Done():
+		return false
+	case <-w.stopCh:
+		return false
+	}
+	w.enqueue(req)
+	return true
+}
+
+func cronProgressRetryDelay(attempt int) time.Duration {
+	if attempt <= 0 {
+		attempt = 1
+	}
+	delay := cronProgressRetryBaseDelay
+	for i := 1; i < attempt && delay < cronProgressRetryMaxDelay; i++ {
+		delay *= 2
+	}
+	if delay > cronProgressRetryMaxDelay {
+		return cronProgressRetryMaxDelay
+	}
+	return delay
 }
 
 // logProgressError 将 stale/mismatch 事件升级为 warn，并记录累计数，避免迟到终态只停留在 debug。
@@ -321,6 +392,13 @@ func isCronProgressStaleMismatch(err error) bool {
 	return errors.Is(err, errStoreClaimTokenMismatch) ||
 		errors.Is(err, errStoreStatusTransitionRefused) ||
 		errors.Is(err, errStoreJobRunNotFound)
+}
+
+func isCronProgressRetryable(err error) bool {
+	if err == nil || isCronProgressStaleMismatch(err) || errors.Is(err, context.Canceled) {
+		return false
+	}
+	return platformdb.IsTimeout(err) || errors.Is(err, context.DeadlineExceeded)
 }
 
 // subscribeCronProgress 订阅 turn progress 事件并委托给 worker 续租。

@@ -104,7 +104,7 @@ SET status = ?1, result = ?2, active_turn_id = NULL, active_wakeup_id = NULL,
 WHERE task_dag_nodes.dag_key = ?3 AND task_dag_nodes.node_key = ?4
   AND task_dag_nodes.run_id = ?5
   AND ?5 > 0
-  AND status IN ('ready', 'running', 'awaiting_verify')
+  AND status IN ('ready', 'running')
   AND (
     ?6 = 0
     OR (

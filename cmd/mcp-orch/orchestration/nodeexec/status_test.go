@@ -94,6 +94,20 @@ func TestValidateTransition_Illegal(t *testing.T) {
 	}
 }
 
+func TestLegalTransitionTargetStatusStrings(t *testing.T) {
+	t.Parallel()
+	got := LegalTransitionTargetStatusStrings()
+	want := []string{"ready", "running", "retrying", "done", "failed", "cancelled"}
+	if strings.Join(got, ",") != strings.Join(want, ",") {
+		t.Fatalf("LegalTransitionTargetStatusStrings() = %v, want %v", got, want)
+	}
+	for _, status := range got {
+		if status == string(NodeStatusPending) {
+			t.Fatalf("public transition targets must not expose unreachable pending: %v", got)
+		}
+	}
+}
+
 func TestIsTerminal_FourStates(t *testing.T) {
 	t.Parallel()
 	terminal := []NodeStatus{

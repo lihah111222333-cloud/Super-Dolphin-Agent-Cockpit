@@ -20,7 +20,7 @@ var (
 	listDAGsStatusEnum   = []string{"draft", "active", "ready", "running", "archived"}
 	listRunsStatusEnum   = []string{"running", "succeeded", "failed", "cancelled"}
 	startDAGTriggerEnum  = []string{"manual", "auto", "scheduled", "external"}
-	updateNodeStatusEnum = []string{"pending", "running", "done", "failed"}
+	updateNodeStatusEnum = []string{"ready", "running", "retrying", "done", "failed", "cancelled"}
 	recoveryActionEnum   = []string{"cancel_with_cleanup", "retry_failed_node"}
 )
 

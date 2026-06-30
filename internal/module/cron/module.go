@@ -203,6 +203,7 @@ func (a *cronStoreAdapter) MarkFailed(ctx context.Context, p markFailedParams) e
 		LastStatus:           p.LastStatus,
 		LastErrorAt:          p.LastErrorAt,
 		LastError:            p.LastError,
+		NextRunAt:            p.NextRunAt,
 		NextRetryAt:          p.NextRetryAt,
 		Now:                  p.Now,
 	}))
