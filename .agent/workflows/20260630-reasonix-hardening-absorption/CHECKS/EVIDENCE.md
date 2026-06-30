@@ -744,7 +744,7 @@ Dispatch decision:
 
 ## 2026-07-01 PN Superseded Gate After LSP Hint Cleanup
 
-Status: superseded code verification completed on `28aa3e54bcfa6b71bc5d83e859d96b3938c69016`; the later final-review3 P1/P2 repair at `29fe8e13` supersedes this as the latest final code verification point.
+Status: superseded code verification completed on `28aa3e54bcfa6b71bc5d83e859d96b3938c69016`; the later final-review3 P1/P2 repair at `29fe8e13` superseded this as the next code verification point, and final-review4 later superseded both with `a09d7d2efde958c47087ec7b95d8fdcecd00357b`.
 
 User request:
 
@@ -786,18 +786,18 @@ Dispatch decision:
 
 - LSP hint cleanup accepted as integrated.
 - PN-integration accepted as `done` at this superseded point.
-- The final workflow sync is now recorded in the following final-review3 section.
+- The later workflow sync chain is recorded in the following final-review3 and final-review4 sections.
 
-## 2026-07-01 PN Final Gate After Final-review3 P1/P2 Repair
+## 2026-07-01 PN Superseded Gate After Final-review3 P1/P2 Repair
 
-Status: final code verification completed on `29fe8e130ed35716e8cae11698b281bd0601823d`. This round6 docs-only status commit records that result and is the final workflow sync head. Inside the commit, `final_integration_head` is recorded as `pending_this_docs_commit` because a Git commit cannot reliably contain its own SHA.
+Status: superseded code verification completed on `29fe8e130ed35716e8cae11698b281bd0601823d`. The later final-review4 Meitner P1 repair at `a09d7d2efde958c47087ec7b95d8fdcecd00357b` supersedes this as the latest final code verification point. Round6 docs sync head `4e38067ffb7c983eb58c86b57c7c1468c7e4a1b3` recorded this result historically, but is no longer the final workflow sync head.
 
 Head terminology:
 
 - `ba18c2e7d54a245f3f0b7bc0b42fd388a42fb051` was the previous docs sync head and the target reviewed by final-review3.
 - `28aa3e54bcfa6b71bc5d83e859d96b3938c69016` was the superseded LSP hint cleanup verification point; it is not the latest final code verification head.
-- `29fe8e130ed35716e8cae11698b281bd0601823d` is the latest `final_code_verification_head` after merging the Tesla P1/P2 repair.
-- This round6 docs commit is the final workflow sync head.
+- `29fe8e130ed35716e8cae11698b281bd0601823d` was the superseded `final_code_verification_head` after merging the Tesla P1/P2 repair.
+- `4e38067ffb7c983eb58c86b57c7c1468c7e4a1b3` was the historical round6 docs sync head for this stage.
 
 Final-review3 results:
 
@@ -837,12 +837,77 @@ git diff --cached --check
 python3 -m json.tool .agent/workflows/20260630-reasonix-hardening-absorption/STATE.json >/dev/null
 ```
 
-Round6 docs-worker local verification is recorded in the final response for this commit:
+Round6 docs-worker local verification was recorded in the final response for commit `4e38067ffb7c983eb58c86b57c7c1468c7e4a1b3`:
 
 ```bash
 python3 -m json.tool .agent/workflows/20260630-reasonix-hardening-absorption/STATE.json >/dev/null
 git diff --check
 git diff --cached --check
 # stale wording scan: ba18c2e7 and 28aa3e54 appear only as previous/superseded historical points, not as latest final code verification head.
+git status --short
+```
+
+## 2026-07-01 PN Final Gate After Final-review4 Meitner P1 Repair
+
+Status: final code verification completed on `a09d7d2efde958c47087ec7b95d8fdcecd00357b`. This round7 docs-only status commit records that result and is the final workflow sync head. Inside the commit, `final_integration_head` is recorded as `pending_this_docs_commit` because a Git commit cannot reliably contain its own SHA.
+
+Head terminology:
+
+- `4e38067ffb7c983eb58c86b57c7c1468c7e4a1b3` was the historical round6 docs sync head after `29fe8e13`; it is not the latest final code verification head and no longer represents the final workflow sync.
+- `29fe8e130ed35716e8cae11698b281bd0601823d` was the superseded code verification head after final-review3.
+- `a09d7d2efde958c47087ec7b95d8fdcecd00357b` is the latest `final_code_verification_head` after merging Sartre's Meitner P1 repair.
+- This round7 docs commit is the final workflow sync head.
+
+Final-review4 results:
+
+- Pasteur PASS.
+- Popper PASS.
+- Meitner FAIL P1: Resume runtime `codexDisabledNativeTools` parsing silently swallowed malformed values. `cleanResumeStringList` kept only string entries from mixed arrays such as `[]any{"shell", 42}` and returned nil for object/integer values, so provider resume continued instead of failing fast.
+
+Integrated repair:
+
+- Sartre worker commit `7dbfc068495ee91dffcf53e9fefb760058099add` fixed the final-review4 Meitner P1 finding.
+- Merge commit `a09d7d2efde958c47087ec7b95d8fdcecd00357b` integrated `7dbfc068495ee91dffcf53e9fefb760058099add` into `codex/reasonix-hardening-integration-20260630`.
+- `cleanResumeStringList`, `codexDisabledNativeToolsFromRuntime`, and `resolveResumeCodexDisabledNativeTools` now return errors.
+- Mixed array, object, and integer malformed runtime values fail fast with errors that contain `codexDisabledNativeTools` and the offending type, preventing provider `ResumeSession`.
+- Valid `[]any` string lists still trim values, drop empty entries, deduplicate, and sort.
+- Explicit typed `ResumeRequest.CodexDisabledNativeTools []string` still takes precedence over runtime values.
+
+Preserved facts:
+
+- Dynamic disabled-tool repair `d8754cc1e86bf3dfc62273390ebebf1f86b9b3fe` remains integrated by `d08c6962`.
+- Six-hint cleanup `dfeff4745e957ae6ee94d3f998f20c03f82ecd05` remains integrated by `28aa3e54`.
+- Scoped missing-surface repair `e82c2300356cef51d3676b7231d77fb083ee2e47` remains integrated by `29fe8e13`.
+- A2 remains `not_applicable_with_evidence`; no runtime planning-stage blocking was wired.
+- C1 remains ADR-only/deferred; no production preview API or host-direct preview/execute test completion is claimed.
+
+Controller gates recorded after `a09d7d2e`:
+
+```bash
+# LSP diagnostics on internal/module/thread/factory_config.go,
+# internal/module/thread/start_session.go,
+# internal/module/thread/start_session_helpers.go,
+# internal/module/thread/resume_test.go,
+# cmd/mcp-orch/tools/orchestration_tools.go,
+# internal/provider/codexapp/support.go,
+# internal/contract/provider.go,
+# internal/platform/toolbridge/handler_peer_decode.go,
+# internal/platform/toolbridge/codex_surface_test.go,
+# and internal/provider/codexapp/history_rollout.go returned no diagnostics.
+./scripts/test_with_guard.sh ./internal/module/thread -run 'Resume.*CodexDisabledNativeTools|CodexDisabledNativeTools|hydrateResume|ResumeSession' -count=1
+./scripts/test_with_guard.sh ./cmd/mcp-orch/tools ./internal/module/thread ./internal/provider/codexapp ./internal/contract -run 'LaunchRequestFromExecutable|BuildStartSessionConfig|CodexNativeToolPolicy|NativeToolPolicy|ReadOnly|Resume|CodexDisabledNativeTools' -count=1
+make guard
+git diff --check 5ccc29e69c48c407895b2d9a4182b0d124d6b813...HEAD
+git diff --cached --check
+python3 -m json.tool .agent/workflows/20260630-reasonix-hardening-absorption/STATE.json >/dev/null
+```
+
+Round7 docs-worker local verification is recorded in the final response for this commit:
+
+```bash
+python3 -m json.tool .agent/workflows/20260630-reasonix-hardening-absorption/STATE.json >/dev/null
+git diff --check
+git diff --cached --check
+# stale wording scan: 4e38067f and 29fe8e13 appear only as historical/superseded points, not as latest final code verification head.
 git status --short
 ```
