@@ -15,6 +15,10 @@ type shellWordScanner struct {
 	tokenStarted  bool
 }
 
+type gitBranchArgState struct {
+	listMode bool
+}
+
 var readOnlyShellCommands = map[string]shellCommandPolicy{
 	"cat":  allowPathReaderArgs,
 	"git":  allowGitArgs,
@@ -54,14 +58,21 @@ var deniedShellCommands = map[string]struct{}{
 }
 
 var dangerousShellArgs = map[string]struct{}{
-	"-c":         {},
-	"-delete":    {},
-	"-exec":      {},
-	"-i":         {},
-	"--command":  {},
-	"--delete":   {},
-	"--exec":     {},
-	"--in-place": {},
+	"-c":             {},
+	"-delete":        {},
+	"-exec":          {},
+	"-i":             {},
+	"--command":      {},
+	"--config-env":   {},
+	"--delete":       {},
+	"--exec":         {},
+	"--exec-path":    {},
+	"--in-place":     {},
+	"--out-dir":      {},
+	"--output":       {},
+	"--outfile":      {},
+	"--receive-pack": {},
+	"--upload-pack":  {},
 }
 
 var dangerousShellArgPrefixes = []string{
@@ -73,6 +84,33 @@ var dangerousShellArgPrefixes = []string{
 	"--outfile=",
 	"--receive-pack=",
 	"--upload-pack=",
+}
+
+var gitBranchReadOnlyFlags = map[string]struct{}{
+	"--all":          {},
+	"--color":        {},
+	"--column":       {},
+	"--list":         {},
+	"--no-color":     {},
+	"--no-column":    {},
+	"--remotes":      {},
+	"--show-current": {},
+	"-a":             {},
+	"-r":             {},
+	"-v":             {},
+	"-vv":            {},
+}
+
+var gitBranchOptionalValueFlags = map[string]struct{}{
+	"--contains":  {},
+	"--merged":    {},
+	"--no-merged": {},
+}
+
+var gitBranchRequiredValueFlags = map[string]struct{}{
+	"--format":    {},
+	"--points-at": {},
+	"--sort":      {},
 }
 
 // ClassifyShell 判断一条 shell 字符串是否属于规划/只读阶段可接受的读命令。
@@ -216,19 +254,118 @@ func allowRipgrepArgs(args []string) bool {
 	return true
 }
 
+// allowGitArgs 按 git 子命令拆分只读判断，避免 branch 等混合读写子命令整体放行。
 func allowGitArgs(args []string) bool {
 	args = trimGitReadOnlyGlobalArgs(args)
 	if len(args) == 0 {
 		return false
 	}
 	switch args[0] {
-	case "branch", "diff", "log", "rev-parse", "show", "status":
+	case "branch":
+		return allowGitBranchArgs(args[1:])
+	case "diff", "log", "rev-parse", "show", "status":
 		return true
 	case "worktree":
 		return len(args) >= 2 && args[1] == "list"
 	default:
 		return false
 	}
+}
+
+// allowGitBranchArgs 只允许 branch 的查看/列举参数；任何默认会创建、删除、重命名或改 upstream 的形态都拒绝。
+func allowGitBranchArgs(args []string) bool {
+	state := &gitBranchArgState{}
+	for i := 0; i < len(args); i++ {
+		consumed, ok := state.consume(args[i], args[i+1:])
+		if !ok {
+			return false
+		}
+		i += consumed
+	}
+	return true
+}
+
+// consume 消费一个 git branch 参数；返回额外吞掉的 value 数量，并在非只读形态上立即拒绝。
+func (s *gitBranchArgState) consume(arg string, rest []string) (int, bool) {
+	if arg == "" {
+		return 0, false
+	}
+	if s.consumeReadOnlyFlag(arg) {
+		return 0, true
+	}
+	if consumed, ok, handled := consumeGitBranchOptionalValue(arg, rest); handled {
+		return consumed, ok
+	}
+	if consumed, ok, handled := consumeGitBranchRequiredValue(arg, rest); handled {
+		return consumed, ok
+	}
+	if strings.HasPrefix(arg, "-") {
+		return 0, false
+	}
+	return 0, s.listMode
+}
+
+func (s *gitBranchArgState) consumeReadOnlyFlag(arg string) bool {
+	if _, ok := gitBranchReadOnlyFlags[arg]; ok {
+		s.markListMode(arg)
+		return true
+	}
+	if flag, ok := gitBranchInlineValueFlag(arg); ok {
+		s.markListMode(flag)
+		return true
+	}
+	return false
+}
+
+func (s *gitBranchArgState) markListMode(flag string) {
+	if flag == "--list" {
+		s.listMode = true
+	}
+}
+
+func consumeGitBranchOptionalValue(arg string, rest []string) (int, bool, bool) {
+	if _, ok := gitBranchOptionalValueFlags[arg]; !ok {
+		return 0, false, false
+	}
+	if hasGitBranchValue(rest) {
+		return 1, true, true
+	}
+	return 0, true, true
+}
+
+func consumeGitBranchRequiredValue(arg string, rest []string) (int, bool, bool) {
+	if _, ok := gitBranchRequiredValueFlags[arg]; !ok {
+		return 0, false, false
+	}
+	return 1, hasGitBranchValue(rest), true
+}
+
+func hasGitBranchValue(rest []string) bool {
+	return len(rest) > 0 && rest[0] != "" && !strings.HasPrefix(rest[0], "-")
+}
+
+func gitBranchInlineValueFlag(arg string) (string, bool) {
+	for _, flags := range []map[string]struct{}{
+		gitBranchOptionalValueFlags,
+		gitBranchRequiredValueFlags,
+		{"--list": {}},
+	} {
+		flag, ok := gitBranchInlineValueFlagInMap(arg, flags)
+		if ok {
+			return flag, true
+		}
+	}
+	return "", false
+}
+
+func gitBranchInlineValueFlagInMap(arg string, flags map[string]struct{}) (string, bool) {
+	for flag := range flags {
+		prefix := flag + "="
+		if strings.HasPrefix(arg, prefix) && strings.TrimPrefix(arg, prefix) != "" {
+			return flag, true
+		}
+	}
+	return "", false
 }
 
 func trimGitReadOnlyGlobalArgs(args []string) []string {
