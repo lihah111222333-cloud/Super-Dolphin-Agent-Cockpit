@@ -297,6 +297,40 @@ func TestLaunchRequestFromExecutableAppliesReviewerDisabledToolsForReadOnlyAgent
 	}
 }
 
+func TestLaunchRequestFromExecutableAppliesReadOnlyCodexNativeToolsForReadOnlyAgentTypes(t *testing.T) {
+	tests := []struct {
+		name      string
+		agentType contract.AgentType
+	}{
+		{name: "plan", agentType: contract.AgentTypePlan},
+		{name: "explore", agentType: contract.AgentTypeExplore},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req, err := launchRequestFromExecutable(LaunchAgentInput{
+				Name:      "agent-native-" + tt.name,
+				AgentType: string(tt.agentType),
+				Provider:  "codex",
+			}, "/tmp/agent-terminal")
+			require.NoError(t, err)
+
+			disabled := disabledToolCounts(launchEnvValue(req.Env, "AGENT_CODEX_DISABLED_NATIVE_TOOLS"))
+			for _, tool := range []string{
+				contract.CodexNativeToolShell,
+				contract.CodexNativeToolApplyPatch,
+				contract.CodexNativeToolWriteNewFile,
+				contract.CodexNativeToolSpawnAgent,
+				contract.CodexNativeToolMultiAgent,
+				contract.CodexNativeToolMultiToolParallel,
+				contract.CodexNativeToolUpdatePlan,
+			} {
+				require.Equalf(t, 1, disabled[tool], "%s native disabled count", tool)
+			}
+		})
+	}
+}
+
 func TestLaunchRequestFromExecutableDoesNotApplyReviewerDisabledToolsToWorker(t *testing.T) {
 	req, err := launchRequestFromExecutable(LaunchAgentInput{
 		Name:          "agent-worker-deny",
@@ -311,6 +345,18 @@ func TestLaunchRequestFromExecutableDoesNotApplyReviewerDisabledToolsToWorker(t 
 	}
 	for _, tool := range []string{"edit", "lsp_edit", "task_start_dag"} {
 		require.NotContains(t, disabled, tool)
+	}
+
+	nativeDisabled := disabledToolCounts(launchEnvValue(req.Env, "AGENT_CODEX_DISABLED_NATIVE_TOOLS"))
+	require.Equal(t, 1, nativeDisabled[contract.CodexNativeToolSpawnAgent])
+	for _, tool := range []string{
+		contract.CodexNativeToolShell,
+		contract.CodexNativeToolApplyPatch,
+		contract.CodexNativeToolWriteNewFile,
+		contract.CodexNativeToolMultiAgent,
+		contract.CodexNativeToolUpdatePlan,
+	} {
+		require.NotContains(t, nativeDisabled, tool)
 	}
 }
 
