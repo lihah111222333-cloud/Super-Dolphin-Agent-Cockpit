@@ -56,7 +56,7 @@
       "title": "Inventory model-callable writers and propose preview contract decision",
       "deps": ["A0-stage-source-inventory", "B2-sessionpaths-migration"],
       "owner": "agent-c1",
-      "state": "ready"
+      "state": "done"
     },
     {
       "id": "PN-integration",
@@ -68,7 +68,7 @@
         "C1-writer-preview-spike"
       ],
       "owner": "orchestrator",
-      "state": "waiting"
+      "state": "ready"
     }
   ]
 }

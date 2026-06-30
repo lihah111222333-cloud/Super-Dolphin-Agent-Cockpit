@@ -1,7 +1,7 @@
 ---
 task_id: C1-writer-preview-spike
 owner: agent-c1
-status: ready
+status: done
 depends_on: [A0-stage-source-inventory, B2-sessionpaths-migration]
 ---
 
@@ -54,10 +54,10 @@ rg -n 'memory_write|workflow_template_save|workflow_template_rollback|shared_fil
 
 ## 7. DoD
 
-- [ ] Output marks writer owner as host-direct, mcp-lsp, mcp-orch, provider-native, or artifact/process side effect.
-- [ ] Output marks whether the writer is default model-callable.
-- [ ] Output does not treat post-call diff as pre-call approval preview.
-- [ ] Output records preview/execute consistency requirements before any future interface work.
+- [x] Output marks writer owner as host-direct, mcp-lsp, mcp-orch, provider-native, or artifact/process side effect.
+- [x] Output marks whether the writer is default model-callable.
+- [x] Output does not treat post-call diff as pre-call approval preview.
+- [x] Output records preview/execute consistency requirements before any future interface work.
 
 ## 8. Rollback
 

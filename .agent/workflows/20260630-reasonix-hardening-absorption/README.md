@@ -17,7 +17,7 @@ workflow_key: 20260630-reasonix-hardening-absorption
 - Packaged snapshot for isolated workers: `SOURCE_PLAN_SNAPSHOT.md`
 - Source status: `NEEDS_APPROVAL`
 - Execution flag: `plan_executable=false`
-- Current workflow status: approved and in progress; Lane A and Lane B have passed, and Lane C is ready through an isolated worker worktree.
+- Current workflow status: approved and in progress; Lane A, Lane B, and Lane C have passed, and final PN integration gates are ready to run.
 
 ## 3. Scope
 
@@ -51,10 +51,10 @@ Worker report statuses map into DAG states as follows: `DONE` -> `done`, `NOT_AP
 ## 7. Current Status
 
 - Overall: in progress after explicit user approval for the full workflow.
-- Completed: P0 workflow structure, A0 stage-source inventory, A1 toolpolicy core, A3 read-only delegation filter, B1 sessionpaths core, and B2 sessionpaths migration.
+- Completed: P0 workflow structure, A0 stage-source inventory, A1 toolpolicy core, A3 read-only delegation filter, B1 sessionpaths core, B2 sessionpaths migration, and C1 writer preview spike.
 - Closed as not applicable: A2 runtime stage gate, because A0 found no authoritative stage source.
-- Lane A and Lane B gates passed.
-- Next step: dispatch C1 in an isolated worker worktree.
+- Lane A, Lane B, and Lane C gates passed.
+- Next step: run PN-integration final gates on the integration branch.
 
 ## 8. Quick Navigation
 

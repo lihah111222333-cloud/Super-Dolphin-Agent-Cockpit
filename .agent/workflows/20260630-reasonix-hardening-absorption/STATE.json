@@ -1,6 +1,6 @@
 {
   "workflow_key": "20260630-reasonix-hardening-absorption",
-  "last_updated": "2026-06-30T21:39:48+09:00",
+  "last_updated": "2026-06-30T22:03:20+09:00",
   "overall_status": "in_progress",
   "source_plan": "docs/plans/2026-06-30-reasonix-hardening-absorption-review.md",
   "source_plan_status": "NEEDS_APPROVAL",
@@ -46,11 +46,18 @@
       "commit": "28e36eae9cc079daca0ffbbbd05d0836125a7d2e",
       "status": "done",
       "review": "Caller migration preserved provider/util fallback boundaries and scratchpad cleanup; Lane B gates passed"
+    },
+    "C1-writer-preview-spike": {
+      "agent_id": "019f188d-cbd5-74e1-a262-02e6548ddb54",
+      "branch": "codex/reasonix-hardening-c1-20260630",
+      "commit": "e13c157123fd4999b21387af0583d3a2d45f13b7",
+      "status": "done",
+      "review": "ADR-only writer preview spike accepted; no production preview API or code behavior changed"
     }
   },
   "next_actions": [
     "Keep A2 closed as not_applicable_with_evidence unless a future approved source introduces an authoritative stage carrier.",
-    "Dispatch C1 in an isolated worker worktree; Lane B gates have passed.",
-    "Do not start PN-integration until C1 is integrated and Lane C spike gates pass."
+    "Run PN-integration final gates on codex/reasonix-hardening-integration-20260630.",
+    "Update final workflow evidence after PN gates pass; do not mark overall complete before that verification."
   ]
 }
