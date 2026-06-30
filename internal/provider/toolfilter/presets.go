@@ -12,7 +12,7 @@ var workerDeniedTools = []string{
 }
 
 // ReviewerDecision 返回审查 agent 的只读工具白名单。
-// 允许 LSP/文件读取类工具，显式拒绝编辑和 orchestration 生命周期工具，避免 review 角色越权修改。
+// 允许 LSP/文件读取类工具，显式拒绝 writer、workflow/process、planning、递归 agent 和 connector 工具。
 func ReviewerDecision() mcp.BeforeDecision {
 	return mcp.BeforeDecision{
 		Decision:     mcp.HookDecisionAllow,
@@ -64,22 +64,50 @@ func reviewerAllowedTools() []string {
 	})
 }
 
+// reviewerDeniedTools 返回 reviewer 必须精确拒绝的工具名。
+// DeniedTools 没有前缀匹配语义，新增工具族时必须在这里列出真实工具名。
 func reviewerDeniedTools() []string {
 	return reviewerPolicyDeniedTools([]reviewerToolCandidate{
 		deniedReviewerTool("edit", toolpolicy.CapabilityWriter),
 		deniedReviewerTool("lsp_edit", toolpolicy.CapabilityWriter),
 		deniedReviewerTool("shared_file_write", toolpolicy.CapabilityWriter),
 		deniedReviewerTool("memory_write", toolpolicy.CapabilityMemoryMutation),
-		deniedReviewerTool("task_", toolpolicy.CapabilityWorkflowMutation),
-		deniedReviewerTool("workspace_", toolpolicy.CapabilityWorkflowMutation),
-		deniedReviewerTool("workflow_template_", toolpolicy.CapabilityWorkflowMutation),
+		deniedReviewerTool("task_create_dag", toolpolicy.CapabilityWorkflowMutation),
+		deniedReviewerTool("task_dag_apply_ops", toolpolicy.CapabilityWorkflowMutation),
+		deniedReviewerTool("task_update_node", toolpolicy.CapabilityWorkflowMutation),
+		deniedReviewerTool("task_dispatch_node", toolpolicy.CapabilityWorkflowMutation),
+		deniedReviewerTool("task_start_dag", toolpolicy.CapabilityWorkflowMutation|toolpolicy.CapabilityProcessControl),
+		deniedReviewerTool("task_terminate_dag", toolpolicy.CapabilityWorkflowMutation|toolpolicy.CapabilityProcessControl),
+		deniedReviewerTool("task_delete_dag", toolpolicy.CapabilityWorkflowMutation),
+		deniedReviewerTool("task_workflow_recovery_action", toolpolicy.CapabilityWorkflowMutation|toolpolicy.CapabilityProcessControl),
+		deniedReviewerTool("workspace_create_run", toolpolicy.CapabilityWorkflowMutation|toolpolicy.CapabilityWriter),
+		deniedReviewerTool("workspace_merge_run", toolpolicy.CapabilityWorkflowMutation|toolpolicy.CapabilityWriter),
+		deniedReviewerTool("workspace_abort_run", toolpolicy.CapabilityWorkflowMutation),
+		deniedReviewerTool("workflow_template_save", toolpolicy.CapabilityWorkflowMutation|toolpolicy.CapabilityWriter),
+		deniedReviewerTool("workflow_template_rollback", toolpolicy.CapabilityWorkflowMutation|toolpolicy.CapabilityWriter),
 		deniedReviewerTool("wait", toolpolicy.CapabilityProcessControl),
 		deniedReviewerTool("bash_output", toolpolicy.CapabilityShell),
+		deniedReviewerTool("BashOutput", toolpolicy.CapabilityShell),
 		deniedReviewerTool("update_plan", toolpolicy.CapabilityWorkflowMutation),
 		deniedReviewerTool("todo_write", toolpolicy.CapabilityWorkflowMutation),
+		deniedReviewerTool("TodoWrite", toolpolicy.CapabilityWorkflowMutation),
 		deniedReviewerTool("complete_step", toolpolicy.CapabilityApprovalFinalizer),
+		deniedReviewerTool("launch_agent", toolpolicy.CapabilityRecursiveAgent|toolpolicy.CapabilityProcessControl),
+		deniedReviewerTool("send_message", toolpolicy.CapabilityRecursiveAgent),
+		deniedReviewerTool("stop_agent", toolpolicy.CapabilityRecursiveAgent|toolpolicy.CapabilityProcessControl),
+		deniedReviewerTool("recover_agent", toolpolicy.CapabilityRecursiveAgent|toolpolicy.CapabilityProcessControl),
+		deniedReviewerTool("interrupt_agent", toolpolicy.CapabilityRecursiveAgent|toolpolicy.CapabilityProcessControl),
+		deniedReviewerTool("list_agents", toolpolicy.CapabilityRecursiveAgent),
+		deniedReviewerTool("get_agent_report", toolpolicy.CapabilityRecursiveAgent),
+		deniedReviewerTool("get_agent_reports", toolpolicy.CapabilityRecursiveAgent),
 		deniedReviewerTool("orchestration_launch_agent", toolpolicy.CapabilityRecursiveAgent|toolpolicy.CapabilityProcessControl),
+		deniedReviewerTool("orchestration_send_message", toolpolicy.CapabilityRecursiveAgent),
 		deniedReviewerTool("orchestration_stop_agent", toolpolicy.CapabilityRecursiveAgent|toolpolicy.CapabilityProcessControl),
+		deniedReviewerTool("orchestration_recover_agent", toolpolicy.CapabilityRecursiveAgent|toolpolicy.CapabilityProcessControl),
+		deniedReviewerTool("orchestration_interrupt_agent", toolpolicy.CapabilityRecursiveAgent|toolpolicy.CapabilityProcessControl),
+		deniedReviewerTool("orchestration_list_agents", toolpolicy.CapabilityRecursiveAgent),
+		deniedReviewerTool("orchestration_get_agent_report", toolpolicy.CapabilityRecursiveAgent),
+		deniedReviewerTool("orchestration_get_agent_reports", toolpolicy.CapabilityRecursiveAgent),
 		deniedReviewerTool("connect_tool_source", toolpolicy.CapabilityConnector),
 	})
 }
