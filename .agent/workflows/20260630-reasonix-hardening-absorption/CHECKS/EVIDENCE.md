@@ -364,12 +364,13 @@ Pre-round2 dispatch decision, later reopened:
 
 ## 2026-06-30 A3 Post-review Repairs
 
-Status: A3 pre-round2 closure was reopened by review. Current documentation must treat Lane A and PN final gates as pending until the controller integrates round2 and reruns gates.
+Status: A3 pre-round2 closure was reopened by review, then closed after round2 integration and fresh gates on `e17cb8b393293f34ae8af73238906b66abc8d45c`.
 
 Repair commits:
 
 - `836705200f7b4a7eca05bb93925dde4fbb9124f8` (`修复只读子代理启动工具面`) is included in current integration HEAD `7c14c7ee435ae9051672ca79962cd938ba5ce780`.
-- `5f7406d992b4d2dba19408d738799b298673009a` (`修复只读子代理原生工具面`) is worker-complete on `codex/reasonix-hardening-fix-a3-round2-20260630`, with parent `7c14c7ee435ae9051672ca79962cd938ba5ce780`; it is not in this docs worktree HEAD yet.
+- `5f7406d992b4d2dba19408d738799b298673009a` (`修复只读子代理原生工具面`) was merged by `0b16e06f`.
+- Docs round2 commit `ade6151d28c4d6480029cfe087322ec2acb2aebf` was merged by `e17cb8b3`.
 
 Round2 ownership:
 
@@ -403,10 +404,13 @@ Worker verification:
 git diff --check
 ```
 
-Controller follow-up:
+Controller final evidence:
 
-- Merge/review `5f7406d` in the controller integration path.
-- Rerun Lane A and final PN gates before recording final closure.
+- `git diff --check 7c14c7ee435ae9051672ca79962cd938ba5ce780...HEAD` passed on `e17cb8b393293f34ae8af73238906b66abc8d45c`.
+- `git diff --check 5ccc29e69c48c407895b2d9a4182b0d124d6b813...HEAD` passed.
+- `git diff --cached --check` passed.
+- Round2 A3 focused guard, broad A3/toolpolicy guard, Lane A guard, Lane B guard, C1 scoped writer-surface `rg`, archtest aggregation, and `make guard` passed.
+- Final closure is recorded against integration HEAD `e17cb8b393293f34ae8af73238906b66abc8d45c`.
 
 ## 2026-06-30 B1 Sessionpaths Core Review And Integration
 
@@ -586,4 +590,37 @@ Results:
 Dispatch decision:
 
 - PN-integration was recorded as `done` at the time.
-- Final closure must be re-recorded only after A3 round2 is integrated and gates rerun.
+- Final closure is re-recorded in the after-round2 section below.
+
+## 2026-06-30 PN Final Integration Gate After A3 Round2
+
+Status: final integration review and verification completed on `e17cb8b393293f34ae8af73238906b66abc8d45c`.
+
+Integrated commits:
+
+- `0b16e06f` merged A3 round2 worker commit `5f7406d992b4d2dba19408d738799b298673009a`.
+- `e17cb8b3` merged docs round2 commit `ade6151d28c4d6480029cfe087322ec2acb2aebf`.
+
+Fresh verification:
+
+```bash
+git diff --check 7c14c7ee435ae9051672ca79962cd938ba5ce780...HEAD
+git diff --check 5ccc29e69c48c407895b2d9a4182b0d124d6b813...HEAD
+git diff --cached --check
+./scripts/test_with_guard.sh ./cmd/mcp-orch/tools ./internal/module/thread ./internal/provider/codexapp ./internal/contract -run 'LaunchRequestFromExecutable|BuildStartSessionConfig|CodexNativeToolPolicy|ReadOnly' -count=1
+./scripts/test_with_guard.sh ./cmd/mcp-orch/tools ./internal/module/thread ./internal/provider/toolfilter ./internal/platform/toolpolicy ./internal/contract -count=1
+./scripts/test_with_guard.sh ./internal/platform/toolpolicy ./internal/provider/toolfilter ./internal/platform/toolbridge ./internal/provider/codexapp ./internal/provider/claudecli -run 'Plan|ReadOnly|Trust|Shell|Lifecycle|Sandbox|Permission|Reviewer|Worker|FullAccess|Native|Tool' -count=1
+./scripts/test_with_guard.sh ./internal/platform/sessionpaths ./internal/provider/codexapp ./internal/module/thread ./internal/util/historyjsonl -run 'Rollout|Scratchpad|Path|Cleanup|CodexHome|History' -count=1
+./scripts/test_with_guard.sh ./internal/archtest -run 'Dependency|Tool|Provider|Path|Preview|Workflow' -count=1
+rg -n --glob '!docs/archive/**' --glob '!docs/doc/codemap/**' 'memory_write|workflow_template_save|workflow_template_rollback|shared_file_write|defineTaskWriteTool|workspace_create_run|workspace_merge_run|workspace_abort_run|tts_generate|av_merge|video_with_audio|difftracker' internal/platform/toolbridge internal/contract internal/provider/codexapp internal/provider/claudecli cmd/mcp-lsp cmd/mcp-orch/tools cmd/mcp-orch/workspace
+make guard
+```
+
+All commands above passed on integration HEAD `e17cb8b393293f34ae8af73238906b66abc8d45c`.
+
+Dispatch decision:
+
+- A3 round2 accepted as integrated.
+- PN-integration accepted as `done`.
+- A2 remains `not_applicable_with_evidence`; no runtime planning-stage blocking was wired.
+- C1 remains ADR-only; production preview API and host-direct preview/execute tests remain deferred.

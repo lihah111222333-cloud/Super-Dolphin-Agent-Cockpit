@@ -1,7 +1,7 @@
 {
   "workflow_key": "20260630-reasonix-hardening-absorption",
-  "last_updated": "2026-06-30T23:22:12+09:00",
-  "overall_status": "post_review_repair_pending_integration",
+  "last_updated": "2026-06-30T23:31:40+09:00",
+  "overall_status": "done",
   "source_plan": "docs/plans/2026-06-30-reasonix-hardening-absorption-review.md",
   "source_plan_status": "NEEDS_APPROVAL",
   "plan_executable": false,
@@ -32,9 +32,10 @@
       "native_recursive_commit": "2637e908adebffff737f9470adb84d647e017cbb",
       "post_review_launch_surface_commit": "836705200f7b4a7eca05bb93925dde4fbb9124f8",
       "round2_worker_commit": "5f7406d992b4d2dba19408d738799b298673009a",
+      "round2_merge_commit": "0b16e06f",
       "round2_worker_branch": "codex/reasonix-hardening-fix-a3-round2-20260630",
-      "status": "worker_done_pending_controller_integration",
-      "review": "Pre-round2 A3 closure was reopened. 83670520 is integrated in current HEAD; 5f7406d is worker-complete from base 7c14c7ee and awaits controller merge plus gate rerun."
+      "status": "done",
+      "review": "Pre-round2 A3 closure was reopened. 83670520 and 5f7406d are integrated; fresh round2 Lane A and final gates passed on e17cb8b3."
     },
     "B1-sessionpaths-core": {
       "agent_id": "019f1868-b4b7-7e41-9b42-2f5ce1e7d2f0",
@@ -61,14 +62,15 @@
       "branch": "codex/reasonix-hardening-integration-20260630",
       "pre_round2_gate_head": "8fa31b90",
       "current_base_head": "7c14c7ee435ae9051672ca79962cd938ba5ce780",
-      "status": "needs_rerun_after_a3_round2",
-      "review": "Pre-round2 gates are historical. Final closure now depends on controller integration of A3 round2 commit 5f7406d and fresh gate evidence."
+      "round2_docs_merge_commit": "e17cb8b3",
+      "final_gate_head": "e17cb8b393293f34ae8af73238906b66abc8d45c",
+      "status": "done",
+      "review": "A3 round2 and docs round2 are integrated; fresh Lane A, Lane B, C1 rg, archtest, make guard, and diff checks passed on e17cb8b3."
     }
   },
   "next_actions": [
     "Keep A2 closed as not_applicable_with_evidence unless a future approved source introduces an authoritative stage carrier.",
-    "Controller should review and merge A3 round2 commit 5f7406d before claiming final Lane A or PN closure.",
-    "After 5f7406d is integrated, rerun the round2 Lane A guard commands and final integration gates from the controller worktree.",
+    "Keep C1 production preview API and host-direct preview/execute tests deferred until a separately approved implementation task exists.",
     "Keep unrelated main checkout dirty files out of this workflow unless the user explicitly expands scope."
   ]
 }
