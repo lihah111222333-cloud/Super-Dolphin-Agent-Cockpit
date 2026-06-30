@@ -312,14 +312,8 @@ func resolveDisallowedToolsFlag(override []string, additional ...[]string) strin
 	return strings.Join(ids, ",")
 }
 
-const fallbackSystemPrompt = "You are a helpful assistant."
-
 func appendSystemPromptFlags(args []string, instructions string, cfg cliLaunchConfig) []string {
 	blocks := composeLaunchSystemPromptBlocks(instructions, cfg)
-	if len(blocks) == 0 {
-		args = append(args, "--system-prompt", fallbackSystemPrompt)
-		return args
-	}
 	for _, block := range blocks {
 		args = append(args, "--system-prompt", block)
 	}
@@ -363,7 +357,14 @@ func promptBaseInstructions(instructions string, snapshot contract.PromptAssembl
 	return strings.TrimSpace(snapshot.BaseInstructions)
 }
 
+func promptLaunchBaseBlank(instructions string, cfg cliLaunchConfig) bool {
+	return len(promptBaseInstructionBlocks(instructions, cfg.PromptSnapshot)) == 0
+}
+
 func promptSnapshotBaseInstructions(snapshot contract.PromptAssemblySnapshot, fallback string) string {
+	if boundary := normalizePromptBoundary(snapshot.Boundary); boundary != nil {
+		return strings.TrimSpace(strings.Join(nonEmptyStrings(boundary.CachedPrefix, boundary.UncachedTail), "\n\n"))
+	}
 	if value := strings.TrimSpace(snapshot.BaseInstructions); value != "" {
 		return value
 	}

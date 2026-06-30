@@ -172,10 +172,11 @@ func TestBaseInstructionsNotFoldedIntoPrompt(t *testing.T) {
 	svc := NewService(silentLogger(), threads, nil, sessions, starter, nil, orch, nil).(*service)
 
 	if _, err := svc.Start(context.Background(), StartRequest{
-		AgentID:          "agent-base",
-		Provider:         "codex",
-		CWD:              wantStartCWD(t),
-		BaseInstructions: "system prompt",
+		AgentID:           "agent-base",
+		Provider:          "codex",
+		CWD:               wantStartCWD(t),
+		BaseInstructions:  "system prompt",
+		PromptAssemblyRef: promptAssemblyForTest("system prompt"),
 	}); err != nil {
 		t.Fatalf("Start() error = %v", err)
 	}
@@ -440,11 +441,12 @@ func TestNameNotPollutedByPrompt(t *testing.T) {
 	svc := NewService(silentLogger(), threads, nil, sessions, starter, nil, orch, nil).(*service)
 
 	if _, err := svc.Start(context.Background(), StartRequest{
-		AgentID:  "agent-name",
-		Provider: "codex",
-		CWD:      wantStartCWD(t),
-		Name:     "clean display name",
-		Prompt:   "legacy prompt should stay out of the name slot",
+		AgentID:           "agent-name",
+		Provider:          "codex",
+		CWD:               wantStartCWD(t),
+		Name:              "clean display name",
+		Prompt:            "legacy prompt should stay out of the name slot",
+		PromptAssemblyRef: promptAssemblyForTest(""),
 	}); err != nil {
 		t.Fatalf("Start() error = %v", err)
 	}

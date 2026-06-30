@@ -80,21 +80,11 @@ func buildStartAssemblyInput(req StartRequest, threadID string, buildCtx contrac
 	}
 }
 
-// buildStartAssembly 是没有 PromptAssemblyService 时的最小备用路径。
-// 生产路径应走 resolveStartPromptAssembly，才能带上 memory/prompt 动态内容和 snapshot。
-func buildStartAssembly(req StartRequest) contract.StartAssembly {
-	return ensureStartAssemblySnapshot(contract.StartAssembly{
-		DisplayName:           normalizeStartDisplayName(req.Name),
-		BaseInstructions:      strings.TrimSpace(req.BaseInstructions),
-		DeveloperInstructions: strings.TrimSpace(req.DeveloperInstructions),
-	}, req.Provider)
-}
-
 // resolveStartPromptAssembly 是 thread 调 prompt 的地方。
 // 它补齐 snapshot，让 provider 和 thread store 看到同一份 start 提示。
 func resolveStartPromptAssembly(ctx context.Context, req StartRequest, input contract.StartInput) (contract.StartAssembly, error) {
 	if req.PromptAssemblyRef == nil {
-		return buildStartAssembly(req), nil
+		return contract.StartAssembly{}, errors.New("thread: prompt assembly service is not configured")
 	}
 	assembly, err := dispatchPromptAssembly(ctx, req, input)
 	if err != nil {

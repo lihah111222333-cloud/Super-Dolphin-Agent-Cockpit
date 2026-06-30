@@ -36,9 +36,10 @@ func TestStartSessionFailsFastAndCleansUpOnStartupPermanentError(t *testing.T) {
 
 	startedAt := time.Now()
 	session, err := d.StartSession(ctx, dto.StartSessionRequest{
-		Provider: "codex",
-		AgentID:  "agent-startup-auth-fail",
-		CWD:      t.TempDir(),
+		Provider:      "codex",
+		AgentID:       "agent-startup-auth-fail",
+		CWD:           t.TempDir(),
+		StartAssembly: validStartAssemblyForTest(),
 	})
 	elapsed := time.Since(startedAt)
 
