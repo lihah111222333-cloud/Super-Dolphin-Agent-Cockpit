@@ -74,6 +74,7 @@ type Querier interface {
 	GetCwdLockHolder(ctx context.Context, arg GetCwdLockHolderParams) (GetCwdLockHolderRow, error)
 	GetDatasourceV2Document(ctx context.Context, arg GetDatasourceV2DocumentParams) (DatasourceV2Document, error)
 	GetHookPendingReview(ctx context.Context, arg GetHookPendingReviewParams) (GetHookPendingReviewRow, error)
+	GetHookPendingReviewForSave(ctx context.Context, arg GetHookPendingReviewForSaveParams) (GetHookPendingReviewForSaveRow, error)
 	GetHookResolvedReview(ctx context.Context, arg GetHookResolvedReviewParams) (GetHookResolvedReviewRow, error)
 	GetInteraction(ctx context.Context, arg GetInteractionParams) (AgentInteraction, error)
 	// Returns the still-live registry row for dedupe_key, or an empty row
@@ -199,7 +200,7 @@ type Querier interface {
 	ReviewInteraction(ctx context.Context, arg ReviewInteractionParams) (AgentInteraction, error)
 	// hook_pending_review.sql - sqlc queries for hook_pending_reviews table.
 	// Migrated from internal/store/hookstore/hookstore.go raw SQL.
-	SaveHookPendingReview(ctx context.Context, arg SaveHookPendingReviewParams) error
+	SaveHookPendingReview(ctx context.Context, arg SaveHookPendingReviewParams) (int64, error)
 	SearchDatasourceV2ChunksByEmbedding(ctx context.Context, arg SearchDatasourceV2ChunksByEmbeddingParams) ([]SearchDatasourceV2ChunksByEmbeddingRow, error)
 	SetCronJobActiveTurn(ctx context.Context, arg SetCronJobActiveTurnParams) (int64, error)
 	SetCronJobEnabled(ctx context.Context, arg SetCronJobEnabledParams) error

@@ -87,11 +87,36 @@ func TestSchemaGateRejectsMissingRequiredColumns(t *testing.T) {
 	if err == nil {
 		t.Fatal("VerifyMinSchemaVersion err = nil, want missing required column error")
 	}
-	for _, want := range []string{"agent_threads.prompt_snapshot", "shared_files.content_location"} {
+	for _, want := range []string{
+		"agent_threads.prompt_snapshot",
+		"hook_pending_reviews.thread_id",
+		"hook_pending_reviews.turn_id",
+		"hook_pending_reviews.payload",
+		"shared_files.content_location",
+		"turn_dedupe_registry.terminal_at",
+	} {
 		if !strings.Contains(err.Error(), want) {
 			t.Fatalf("VerifyMinSchemaVersion err = %v, want missing %s", err, want)
 		}
 	}
+}
+
+func TestVerifySQLiteRequiredColumnsRejectsQueryerWithoutQueryContext(t *testing.T) {
+	t.Parallel()
+
+	err := verifySQLiteRequiredColumns(context.Background(), queryRowOnly{})
+	if err == nil {
+		t.Fatal("verifySQLiteRequiredColumns() error = nil, want unsupported QueryContext error")
+	}
+	if !strings.Contains(err.Error(), "unsupported SQLite required column queryer") {
+		t.Fatalf("verifySQLiteRequiredColumns() error = %v, want unsupported queryer", err)
+	}
+}
+
+type queryRowOnly struct{}
+
+func (queryRowOnly) QueryRowContext(context.Context, string, ...any) *sql.Row {
+	return nil
 }
 
 func createMarkerBaselineTables(t *testing.T, db *sql.DB) {

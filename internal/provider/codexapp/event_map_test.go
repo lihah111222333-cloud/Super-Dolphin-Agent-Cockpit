@@ -2,6 +2,7 @@ package codexapp
 
 import (
 	"bytes"
+	"encoding/json"
 	"strings"
 	"testing"
 
@@ -65,6 +66,47 @@ func TestTranslateCodexEventWarnsOnUnknownRawEvent(t *testing.T) {
 		if !strings.Contains(output, want) {
 			t.Fatalf("warn output = %q, want %q metadata", output, want)
 		}
+	}
+}
+
+func TestTranslateCodexEventRejectsBadJSONPayload(t *testing.T) {
+	var buf bytes.Buffer
+	old := pkglogger.Get()
+	pkglogger.InitWithConsoleWriter(&buf)
+	t.Cleanup(func() { pkglogger.SetForTest(old) })
+
+	translateCodexEvent(dto.RawProviderEvent{
+		EventType: "turn/completed",
+		Data:      json.RawMessage(`{"agentId":"agent-1",`),
+	}, func(ev any) {
+		t.Fatalf("bad JSON published %#v, want no typed event", ev)
+	})
+
+	output := buf.String()
+	if !strings.Contains(output, "invalid raw event payload") || !strings.Contains(output, "turn/completed") {
+		t.Fatalf("warn output = %q, want invalid raw event payload warning", output)
+	}
+}
+
+func TestTranslateCodexEventRejectsMissingCriticalIDs(t *testing.T) {
+	var buf bytes.Buffer
+	old := pkglogger.Get()
+	pkglogger.InitWithConsoleWriter(&buf)
+	t.Cleanup(func() { pkglogger.SetForTest(old) })
+
+	translateCodexEvent(dto.RawProviderEvent{
+		EventType: "turn/completed",
+		Data: map[string]any{
+			"agentId": "agent-1",
+			"status":  "completed",
+		},
+	}, func(ev any) {
+		t.Fatalf("missing turn_id published %#v, want no typed event", ev)
+	})
+
+	output := buf.String()
+	if !strings.Contains(output, "invalid translated event") || !strings.Contains(output, "turn_id is required") {
+		t.Fatalf("warn output = %q, want missing turn_id warning", output)
 	}
 }
 

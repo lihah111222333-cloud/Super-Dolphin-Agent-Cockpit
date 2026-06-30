@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/store/sqlc"
+	_ "modernc.org/sqlite"
 )
 
 // fakeQuerier is an in-memory stand-in for *sqlc.Queries that
@@ -36,26 +37,40 @@ func (f *fakeQuerier) UpsertTurnDedupeRegistry(_ context.Context, p sqlc.UpsertT
 		return f.upsertErr
 	}
 	existing, ok := f.rows[p.DedupeKey]
-	row := sqlc.TurnDedupeRegistry{
+	if isTerminalDedupeRow(existing, ok) {
+		return nil
+	}
+	f.rows[p.DedupeKey] = upsertFakeDedupeRow(existing, ok, p)
+	return nil
+}
+
+func isTerminalDedupeRow(row sqlc.TurnDedupeRegistry, ok bool) bool {
+	return ok && row.TerminalAt != nil
+}
+
+func upsertFakeDedupeRow(existing sqlc.TurnDedupeRegistry, ok bool, p sqlc.UpsertTurnDedupeRegistryParams) sqlc.TurnDedupeRegistry {
+	if !ok {
+		return newFakeDedupeRow(p)
+	}
+	row := existing
+	row.LocalTurnID = p.LocalTurnID
+	row.UpdatedAt = p.Now
+	row.TerminalAt = nil
+	if p.ThreadID != "" {
+		row.ThreadID = p.ThreadID
+	}
+	return row
+}
+
+func newFakeDedupeRow(p sqlc.UpsertTurnDedupeRegistryParams) sqlc.TurnDedupeRegistry {
+	return sqlc.TurnDedupeRegistry{
 		DedupeKey:   p.DedupeKey,
 		LocalTurnID: p.LocalTurnID,
+		ThreadID:    p.ThreadID,
+		CreatedAt:   p.Now,
 		UpdatedAt:   p.Now,
 		TerminalAt:  nil,
 	}
-	if !ok {
-		row.CreatedAt = p.Now
-		row.ThreadID = p.ThreadID
-	} else {
-		row.CreatedAt = existing.CreatedAt
-		row.ProviderTurnID = existing.ProviderTurnID
-		if p.ThreadID == "" {
-			row.ThreadID = existing.ThreadID
-		} else {
-			row.ThreadID = p.ThreadID
-		}
-	}
-	f.rows[p.DedupeKey] = row
-	return nil
 }
 
 func (f *fakeQuerier) BindTurnDedupeProviderID(_ context.Context, p sqlc.BindTurnDedupeProviderIDParams) error {
@@ -172,6 +187,98 @@ func TestStoreMarkTerminalHidesFromGetLive(t *testing.T) {
 	_, err := s.GetLive(context.Background(), "k")
 	if !errors.Is(err, ErrNotFound) {
 		t.Fatalf("want ErrNotFound after terminal, got %v", err)
+	}
+}
+
+func TestStoreTerminalRecordCannotBeRevivedByUpsert(t *testing.T) {
+	t.Parallel()
+	q := newFakeQuerier()
+	s := newStoreForTest(q)
+	base := time.Date(2026, 6, 30, 10, 0, 0, 0, time.UTC)
+	_ = s.Upsert(context.Background(), UpsertParams{DedupeKey: "k", LocalTurnID: "t1", ThreadID: "thread-1", Now: base})
+	if err := s.MarkTerminal(context.Background(), "k", base.Add(time.Minute)); err != nil {
+		t.Fatalf("MarkTerminal err = %v", err)
+	}
+	if err := s.Upsert(context.Background(), UpsertParams{DedupeKey: "k", LocalTurnID: "t2", ThreadID: "thread-2", Now: base.Add(2 * time.Minute)}); err != nil {
+		t.Fatalf("Upsert after terminal err = %v", err)
+	}
+
+	_, err := s.GetLive(context.Background(), "k")
+	if !errors.Is(err, ErrNotFound) {
+		t.Fatalf("GetLive after terminal upsert err = %v, want ErrNotFound", err)
+	}
+	row := q.rows["k"]
+	if row.LocalTurnID != "t1" || row.ThreadID != "thread-1" || row.TerminalAt == nil {
+		t.Fatalf("terminal row revived or overwritten: %+v", row)
+	}
+}
+
+func TestSQLiteTerminalRecordCannotBeRevivedByUpsert(t *testing.T) {
+	t.Parallel()
+	db, err := sql.Open("sqlite", ":memory:")
+	if err != nil {
+		t.Fatalf("open sqlite: %v", err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	if _, err := db.Exec(`
+CREATE TABLE turn_dedupe_registry (
+	dedupe_key TEXT PRIMARY KEY,
+	local_turn_id TEXT NOT NULL,
+	provider_turn_id TEXT NOT NULL DEFAULT '',
+	thread_id TEXT NOT NULL DEFAULT '',
+	created_at INTEGER NOT NULL,
+	updated_at INTEGER NOT NULL,
+	terminal_at INTEGER
+);
+`); err != nil {
+		t.Fatalf("create schema: %v", err)
+	}
+
+	s := NewStore(sqlc.New(db))
+	base := time.Date(2026, 6, 30, 10, 0, 0, 0, time.UTC)
+	if err := s.Upsert(context.Background(), UpsertParams{DedupeKey: "k", LocalTurnID: "t1", ThreadID: "thread-1", Now: base}); err != nil {
+		t.Fatalf("Upsert initial err = %v", err)
+	}
+	if err := s.MarkTerminal(context.Background(), "k", base.Add(time.Minute)); err != nil {
+		t.Fatalf("MarkTerminal err = %v", err)
+	}
+	if err := s.Upsert(context.Background(), UpsertParams{DedupeKey: "k", LocalTurnID: "t2", ThreadID: "thread-2", Now: base.Add(2 * time.Minute)}); err != nil {
+		t.Fatalf("Upsert after terminal err = %v", err)
+	}
+
+	_, err = s.GetLive(context.Background(), "k")
+	if !errors.Is(err, ErrNotFound) {
+		t.Fatalf("GetLive after terminal upsert err = %v, want ErrNotFound", err)
+	}
+	assertSQLiteTerminalRow(t, db, "k", "t1", "thread-1")
+}
+
+func assertSQLiteTerminalRow(t *testing.T, db *sql.DB, dedupeKey, wantLocalTurnID, wantThreadID string) {
+	t.Helper()
+
+	var localTurnID, threadID string
+	var terminalAt sql.NullInt64
+	if err := db.QueryRow(`SELECT local_turn_id, thread_id, terminal_at FROM turn_dedupe_registry WHERE dedupe_key = ?`, dedupeKey).Scan(&localTurnID, &threadID, &terminalAt); err != nil {
+		t.Fatalf("query terminal row: %v", err)
+	}
+	assertDedupeString(t, "local_turn_id", localTurnID, wantLocalTurnID)
+	assertDedupeString(t, "thread_id", threadID, wantThreadID)
+	assertDedupeBool(t, "terminal_at.Valid", terminalAt.Valid, true)
+}
+
+func assertDedupeString(t *testing.T, name, got, want string) {
+	t.Helper()
+
+	if got != want {
+		t.Fatalf("%s = %q, want %q", name, got, want)
+	}
+}
+
+func assertDedupeBool(t *testing.T, name string, got, want bool) {
+	t.Helper()
+
+	if got != want {
+		t.Fatalf("%s = %v, want %v", name, got, want)
 	}
 }
 
