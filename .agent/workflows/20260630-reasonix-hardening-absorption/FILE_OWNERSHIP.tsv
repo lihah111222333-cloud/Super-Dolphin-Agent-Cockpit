@@ -8,7 +8,8 @@ internal/platform/toolbridge/types.go	A2-toolbridge-stage-gate	RW	Add stage sour
 internal/platform/toolbridge/handler*.go	A2-toolbridge-stage-gate	RW	Planning-stage gate integration; lifecycle deny and schema validation must remain owner-authoritative.
 internal/platform/toolbridge/host_tools.go	A2-toolbridge-stage-gate	RW	Host-direct policy classification and tests only if needed.
 internal/platform/toolbridge/*_test.go	A2-toolbridge-stage-gate	RW	Planning allow/deny, lifecycle non-bypass, schema-before-handler tests.
-internal/provider/toolfilter/	A3-readonly-delegation-filter	RW	Reuse reviewer preset only as input; not a complete policy owner.
+internal/provider/toolfilter/presets.go	A3-readonly-delegation-filter	RW	Tighten read-only delegation preset; must exclude writer, planning mutator, lifecycle/process-control, recursive agent, connector, and untrusted external hint surfaces.
+internal/provider/toolfilter/presets_test.go	A3-readonly-delegation-filter	RW	Focused tests for read-only delegation allow/deny surface.
 internal/provider/codexapp/native_tool_policy_validation_test.go	A2-toolbridge-stage-gate	RO	Regression suite must continue passing.
 internal/provider/claudecli/transport_config_security_test.go	A2-toolbridge-stage-gate	RO	Regression suite must continue passing.
 internal/platform/sessionpaths/	B1-sessionpaths-core	RW	New stdlib-only leaf helper and golden tests.

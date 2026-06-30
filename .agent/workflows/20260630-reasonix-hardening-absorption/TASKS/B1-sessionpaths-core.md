@@ -1,7 +1,7 @@
 ---
 task_id: B1-sessionpaths-core
 owner: agent-b1
-status: needs_approval
+status: waiting
 depends_on: [A2-toolbridge-stage-gate, A3-readonly-delegation-filter]
 ---
 

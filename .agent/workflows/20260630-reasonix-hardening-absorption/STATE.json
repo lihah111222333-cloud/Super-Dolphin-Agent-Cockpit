@@ -1,24 +1,27 @@
 {
   "workflow_key": "20260630-reasonix-hardening-absorption",
-  "last_updated": "2026-06-30T17:28:29+09:00",
-  "overall_status": "needs_approval",
+  "last_updated": "2026-06-30T19:04:46+09:00",
+  "overall_status": "in_progress",
   "source_plan": "docs/plans/2026-06-30-reasonix-hardening-absorption-review.md",
   "source_plan_status": "NEEDS_APPROVAL",
   "plan_executable": false,
-  "blocked_items": [
-    {
-      "id": "approval",
-      "reason": "Source plan is docs-only and explicitly requires separate approval before production changes."
-    },
-    {
-      "id": "dirty-worktree-boundary",
-      "reason": "Unrelated modified files are currently present and also preserved in temporary stash commit 30dc0e34fc4d4e45151ccd4ecd098d49f694f673; do not stage, edit, or pop them for this workflow."
+  "approval": {
+    "status": "approved",
+    "scope": "full workflow, but Lane A must finish before downstream lanes",
+    "recorded_at": "2026-06-30T19:04:46+09:00"
+  },
+  "blocked_items": [],
+  "agents": {
+    "A0-stage-source-inventory": {
+      "branch": "codex/reasonix-hardening-a0-20260630",
+      "commit": "9aa751b451fa10ddb10730138437d251c1527ab2",
+      "status": "done_with_concerns",
+      "decision": "stage_source_found=false"
     }
-  ],
-  "agents": {},
+  },
   "next_actions": [
-    "Approve Lane A only, or approve the full workflow with Lane A first.",
-    "Create isolated worktrees before implementation.",
-    "Keep this workflow package separate from unrelated dirty and stash-preserved files."
+    "Dispatch A1 in an isolated worker worktree.",
+    "Keep A2 closed as not_applicable_with_evidence unless a future approved source introduces an authoritative stage carrier.",
+    "Dispatch A3 only after A1 is integrated, using the exact A0-applied toolfilter ownership paths."
   ]
 }

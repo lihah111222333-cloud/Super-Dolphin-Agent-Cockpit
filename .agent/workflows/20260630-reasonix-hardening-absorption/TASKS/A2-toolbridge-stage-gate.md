@@ -1,7 +1,7 @@
 ---
 task_id: A2-toolbridge-stage-gate
 owner: agent-a2
-status: needs_approval
+status: not_applicable_with_evidence
 depends_on: [A1-toolpolicy-core]
 ---
 
@@ -10,6 +10,10 @@ depends_on: [A1-toolpolicy-core]
 ## 1. Goal
 
 Wire the planning-stage gate into toolbridge only after A0 proves an authoritative stage source.
+
+## 0. Orchestrator Decision
+
+A0 evidence recorded `stage_source_found=false`; this task is closed as `not_applicable_with_evidence`. Do not wire runtime planning-stage blocking from `AgentTypePlan`, `update_plan`, Claude plan-mode tools, or external `readOnlyHint`.
 
 ## 2. Inputs
 

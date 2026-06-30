@@ -2,7 +2,7 @@
 
 ## Current Status
 
-Overall: needs approval. The task orchestration package is ready, but production code must not start until the user approves a lane or the full workflow.
+Overall: in progress. The user approved the full workflow with Lane A first, and production code must still be implemented only by child agents in isolated worktrees.
 
 ## Completed
 
@@ -11,6 +11,9 @@ Overall: needs approval. The task orchestration package is ready, but production
 - File ownership matrix created.
 - Risk register and gates initialized.
 - Initial source anchors recorded in evidence.
+- A0 completed in `codex/reasonix-hardening-a0-20260630` at `9aa751b451fa10ddb10730138437d251c1527ab2`.
+- A2 closed as `not_applicable_with_evidence` because A0 found no authoritative stage source.
+- A0's A3 ownership and verification proposal was applied to `FILE_OWNERSHIP.tsv` and `TASKS/A3-readonly-delegation-filter.md`.
 
 ## In Progress
 
@@ -18,18 +21,18 @@ Overall: needs approval. The task orchestration package is ready, but production
 
 ## Blocked
 
-- All production implementation lanes are blocked on explicit approval.
 - A2 runtime blocking must remain absent until A0 proves a concrete planning/execution stage source.
+- A3 waits for A1 because A3 uses the A1 `toolpolicy` decision owner.
 
 ## Recommended Next Action
 
-Approve Lane A only first:
+Dispatch A1 next in an isolated worker worktree:
 
 ```text
-批准 Lane A，先做 A0/A1；如果 A0 找不到明确 stage source，不接 runtime blocking。
+执行 A1-toolpolicy-core；不得接 A2 runtime blocking。
 ```
 
-This keeps the highest-risk safety lane narrow and prevents accidental runtime behavior changes before the stage authority is proven.
+This keeps the highest-risk safety lane narrow and prevents accidental runtime behavior changes after A0 proved no stage authority exists.
 
 ## After Approval
 
