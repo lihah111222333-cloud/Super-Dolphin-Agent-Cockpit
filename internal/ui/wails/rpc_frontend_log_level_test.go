@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"io"
 	"log/slog"
 	"strings"
 	"testing"
@@ -47,6 +48,73 @@ func TestUILogRouteDemotesSidebarRefreshLifecycleWarnings(t *testing.T) {
 	}
 }
 
+func TestUILogRouteRedactsNestedFrontendFieldsInLogsAndRelay(t *testing.T) {
+	payload := json.RawMessage(`{
+		"entries":[{
+			"level":"warn",
+			"scope":"auth",
+			"event":"login_failed",
+			"seq":7,
+			"fields":{
+				"Authorization":"Bearer raw-auth-token",
+				"details":{
+					"token":"raw-nested-token",
+					"cookie":"raw-nested-cookie",
+					"note":"password=raw-inline-password Authorization: Bearer raw-inline-auth"
+				},
+				"attempts":[
+					{"password":"raw-list-password"},
+					"cookie=raw-inline-cookie"
+				]
+			}
+		}],
+		"_aoClientKind":"desktop-wails",
+		"_aoClientRoute":"/login"
+	}`)
+	forbidden := []string{
+		"raw-auth-token",
+		"raw-nested-token",
+		"raw-nested-cookie",
+		"raw-inline-password",
+		"raw-inline-auth",
+		"raw-list-password",
+		"raw-inline-cookie",
+	}
+
+	origLogger := pkglogger.Get()
+	t.Cleanup(func() {
+		pkglogger.SetForTest(origLogger)
+		pkglogger.ClearRelayHook()
+	})
+
+	var logs bytes.Buffer
+	pkglogger.SetForTest(slog.New(slog.NewJSONHandler(&logs, &slog.HandlerOptions{Level: slog.LevelDebug})))
+	server := newWailsRPCServer(t, &App{})
+	if _, err := server.Dispatch(context.Background(), "ui/log", payload); err != nil {
+		t.Fatalf("Dispatch(ui/log) for local log error = %v", err)
+	}
+	assertNoFrontendLogLeak(t, logs.String(), forbidden)
+
+	var relays []pkglogger.RelayPayload
+	pkglogger.InitWithConsoleWriter(io.Discard)
+	pkglogger.SetRelayHook(func(_ context.Context, payload pkglogger.RelayPayload) {
+		if payload.Msg == "frontend: auth.login_failed" {
+			relays = append(relays, payload)
+		}
+	})
+	if _, err := server.Dispatch(context.Background(), "ui/log", payload); err != nil {
+		t.Fatalf("Dispatch(ui/log) for relay error = %v", err)
+	}
+	if len(relays) == 0 {
+		t.Fatal("relay payloads len = 0, want frontend log relay payload")
+	}
+	encodedRelay, err := json.Marshal(relays)
+	if err != nil {
+		t.Fatalf("Marshal relay payloads error = %v", err)
+	}
+	assertNoFrontendLogLeak(t, string(encodedRelay), forbidden)
+}
+
 func parseJSONLogRecords(t *testing.T, raw string) []map[string]any {
 	t.Helper()
 	lines := strings.Split(strings.TrimSpace(raw), "\n")
@@ -73,4 +141,16 @@ func findFrontendLogRecord(t *testing.T, records []map[string]any, event string)
 	}
 	t.Fatalf("missing frontend log event %q in %#v", event, records)
 	return nil
+}
+
+func assertNoFrontendLogLeak(t *testing.T, raw string, forbidden []string) {
+	t.Helper()
+	if !strings.Contains(raw, "[REDACTED]") {
+		t.Fatalf("log output missing redaction marker: %s", raw)
+	}
+	for _, value := range forbidden {
+		if strings.Contains(raw, value) {
+			t.Fatalf("log output leaked %q: %s", value, raw)
+		}
+	}
 }

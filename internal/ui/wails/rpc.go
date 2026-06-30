@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"regexp"
 	"strings"
 	"time"
 
@@ -18,6 +19,38 @@ import (
 
 // codeLocateLimit 限制一次 ui/code/locate 返回的候选数量。
 const codeLocateLimit = 24
+
+const frontendLogRedactedValue = "[REDACTED]"
+
+var frontendLogSecretPatterns = []struct {
+	pattern     *regexp.Regexp
+	replacement string
+}{
+	{
+		pattern:     regexp.MustCompile(`(?i)(authorization\s*[:=]\s*bearer\s+)[^\s,;&]+`),
+		replacement: `${1}` + frontendLogRedactedValue,
+	},
+	{
+		pattern:     regexp.MustCompile(`(?i)((?:api[_-]?key|secret[_-]?key|access[_-]?token|token|password|cookie)\s*[:=]\s*)[^\s,;&]+`),
+		replacement: `${1}` + frontendLogRedactedValue,
+	},
+}
+
+var frontendLogSecretKeyMarkers = []string{
+	"token",
+	"password",
+	"secret",
+	"database_url",
+	"postgres_connection_string",
+	"sqlite_path",
+	"sqlite_db_path",
+	"authorization",
+	"api_key",
+	"apikey",
+	"cookie",
+}
+
+var frontendLogKeyReplacer = strings.NewReplacer("-", "_", ".", "_", " ", "_")
 
 // clientMetaParams 承载前端客户端来源元数据。
 type clientMetaParams struct {
@@ -398,7 +431,7 @@ func buildFrontendLogArgs(
 		"frontend_level", level,
 		"frontend_seq", entry["seq"],
 		"frontend_ts", timestamp,
-		"frontend_fields", entry["fields"],
+		"frontend_fields", sanitizeFrontendLogFields(entry["fields"]),
 	}
 	if clientKind != "" {
 		args = append(args, "client_kind", clientKind)
@@ -413,6 +446,89 @@ func buildFrontendLogArgs(
 		args = append(args, "agent_id", agentID)
 	}
 	return args
+}
+
+// sanitizeFrontendLogFields 递归清洗前端 fields，防止 ui/log 把任意嵌套对象原样写入日志。
+// 这里只保留诊断结构，命中敏感 key 或字符串模式时替换具体值。
+func sanitizeFrontendLogFields(value any) any {
+	return sanitizeFrontendLogValue("", value)
+}
+
+// sanitizeFrontendLogValue 按当前字段名清洗单个值，并递归进入 JSON map/slice。
+// 命中敏感字段名时整值替换，普通字符串只替换其中的密钥片段。
+func sanitizeFrontendLogValue(key string, value any) any {
+	if secretLikeFrontendLogKey(key) {
+		return frontendLogRedactedValue
+	}
+	switch typed := value.(type) {
+	case nil:
+		return nil
+	case string:
+		return redactFrontendLogString(typed)
+	case map[string]any:
+		return sanitizeFrontendLogMap(typed)
+	case map[string]string:
+		return sanitizeFrontendLogStringMap(typed)
+	case []any:
+		return sanitizeFrontendLogSlice(typed)
+	case []string:
+		return sanitizeFrontendLogStringSlice(typed)
+	default:
+		return typed
+	}
+}
+
+func sanitizeFrontendLogMap(values map[string]any) map[string]any {
+	out := make(map[string]any, len(values))
+	for childKey, childValue := range values {
+		out[childKey] = sanitizeFrontendLogValue(childKey, childValue)
+	}
+	return out
+}
+
+func sanitizeFrontendLogStringMap(values map[string]string) map[string]string {
+	out := make(map[string]string, len(values))
+	for childKey, childValue := range values {
+		if secretLikeFrontendLogKey(childKey) {
+			out[childKey] = frontendLogRedactedValue
+			continue
+		}
+		out[childKey] = redactFrontendLogString(childValue)
+	}
+	return out
+}
+
+func sanitizeFrontendLogSlice(values []any) []any {
+	out := make([]any, len(values))
+	for i, item := range values {
+		out[i] = sanitizeFrontendLogValue("", item)
+	}
+	return out
+}
+
+func sanitizeFrontendLogStringSlice(values []string) []string {
+	out := make([]string, len(values))
+	for i, item := range values {
+		out[i] = redactFrontendLogString(item)
+	}
+	return out
+}
+
+func redactFrontendLogString(value string) string {
+	for _, current := range frontendLogSecretPatterns {
+		value = current.pattern.ReplaceAllString(value, current.replacement)
+	}
+	return value
+}
+
+func secretLikeFrontendLogKey(key string) bool {
+	normalized := frontendLogKeyReplacer.Replace(strings.ToLower(strings.TrimSpace(key)))
+	for _, marker := range frontendLogSecretKeyMarkers {
+		if strings.Contains(normalized, marker) {
+			return true
+		}
+	}
+	return false
 }
 
 // emitFrontendLog 按前端传入的等级写入后端结构化日志。
