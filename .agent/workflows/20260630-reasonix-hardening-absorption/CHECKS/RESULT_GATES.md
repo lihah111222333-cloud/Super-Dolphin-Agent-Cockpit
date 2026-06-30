@@ -32,12 +32,13 @@
 - [x] B1 dependency guard and B2 literal-placement guard pass.
 - [x] Affected package guard command passes.
 
-## Gate 4: Lane C Spike Completion
+## Gate 4: Lane C ADR-Only Spike Completion
 
 - [x] Writer inventory marks model-callable status and owner for each writer surface.
 - [x] Preview feasibility is classified per writer type.
 - [x] ADR or explicitly named plan amendment records which writers can preview and which cannot.
 - [x] No production preview interface is added without separate approval.
+- [x] Gate 4 does not claim the source plan's host-direct preview/execute unit-test acceptance; that production contract work remains deferred.
 
 ## Gate 5: Integration
 

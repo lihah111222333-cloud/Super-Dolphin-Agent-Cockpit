@@ -54,11 +54,11 @@ rg -n 'AgentTypePlan|update_plan|EnterPlanMode|ExitPlanMode|TodoWrite|readOnlyHi
 
 ## 7. DoD
 
-- [ ] Evidence contains exact file:line anchors and LSP actions used.
-- [ ] Stage-source decision is explicit.
-- [ ] Evidence includes a patch-ready A3 ownership and verification proposal if delegation entry files are found.
-- [ ] No production code changed.
-- [ ] A2 is marked `not_applicable_with_evidence` if no authoritative stage source exists.
+- [x] Evidence contains exact file:line anchors and LSP actions used in `CHECKS/EVIDENCE.md`.
+- [x] Stage-source decision is explicit: `stage_source_found=false`.
+- [x] Evidence includes the A3 ownership and verification proposal that the orchestrator later applied.
+- [x] No production code changed by A0.
+- [x] A2 is marked `not_applicable_with_evidence` because no authoritative stage source exists.
 
 ## 8. Rollback
 

@@ -53,7 +53,7 @@ Source entry point from A0:
 rg -n 'ReviewerDecision|reviewerAllowedTools|reviewerDeniedTools|shared_file_write|orchestration_launch_agent|lsp_edit|memory_write|task_|workspace_|workflow_template_|update_plan' internal/provider/toolfilter internal/platform/toolbridge cmd/mcp-orch/tools cmd/mcp-lsp
 ```
 
-The orchestrator applied the exact delegation package command from A0 evidence before A3 dispatch. A1 is integrated, so A3 is ready for an isolated worker worktree.
+The orchestrator applied the exact delegation package command from A0 evidence before A3 dispatch. A3 then completed in `codex/reasonix-hardening-a3-20260630` at `2637e908adebffff737f9470adb84d647e017cbb`.
 
 ## 7. DoD
 
