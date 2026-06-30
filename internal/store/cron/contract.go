@@ -222,6 +222,7 @@ type MarkFailedParams struct {
 	LastStatus           string
 	LastErrorAt          time.Time
 	LastError            string
+	NextRunAt            time.Time
 	NextRetryAt          time.Time
 	Now                  time.Time
 }

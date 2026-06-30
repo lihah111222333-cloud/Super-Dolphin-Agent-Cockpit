@@ -182,6 +182,7 @@ SET claimed_by        = '',
     last_error_at     = sqlc.arg(last_error_at),
     last_error        = sqlc.arg(last_error),
     failure_count     = failure_count + 1,
+    next_run_at       = sqlc.arg(next_run_at),
     next_retry_at     = sqlc.arg(next_retry_at),
     updated_at        = sqlc.arg(updated_at)
 WHERE cron_jobs.id = sqlc.arg(id)

@@ -74,7 +74,7 @@ func validateTerminalFence(job jobRecord, run runRecord, turnID string) error {
 // markTerminalFailed 将 submitted/running run 标记为 failed 并计算下一次重试时间。
 func (s *Scheduler) markTerminalFailed(ctx context.Context, job jobRecord, run runRecord, terminalErr string) error {
 	now := s.now().UTC()
-	nextRetryAt, err := s.nextRetry(job, now)
+	nextRetryAt, nextRunAt, err := s.nextRetryAndRun(job, now)
 	if err != nil {
 		return err
 	}
@@ -95,6 +95,7 @@ func (s *Scheduler) markTerminalFailed(ctx context.Context, job jobRecord, run r
 		LastStatus:           statusFailed,
 		LastErrorAt:          now,
 		LastError:            terminalErr,
+		NextRunAt:            nextRunAt,
 		NextRetryAt:          nextRetryAt,
 		Now:                  now,
 	})
@@ -128,17 +129,21 @@ func (s *Scheduler) markFinished(ctx context.Context, job jobRecord, run runReco
 	})
 }
 
-// nextRetry 计算下一次重试时间。
-// 重试次数耗尽或重试会跨过下一次正常 schedule 时返回零值，交给正常 tick 接管。
-func (s *Scheduler) nextRetry(job jobRecord, now time.Time) (time.Time, error) {
-	if job.MaxAttempts <= 0 || job.FailureCount+1 >= job.MaxAttempts {
-		return time.Time{}, nil
-	}
+// nextRetryAndRun 计算失败后的 retry 时间和下一次正常 cron 时间。
+// retry 耗尽或会越过下一次正常 schedule 时返回零值 retry，但仍返回新的 next_run_at，
+// 避免 MarkFailed 保留旧 due 时间导致同一失败 run 被下一轮 tick 立刻重复领取。
+func (s *Scheduler) nextRetryAndRun(job jobRecord, now time.Time) (time.Time, time.Time, error) {
 	nextRunAt, err := ComputeNextRunAt(job.ScheduleExpr, job.Timezone, now)
 	if err != nil {
-		return time.Time{}, err
+		return time.Time{}, time.Time{}, err
 	}
-	return NextRetryAt(s.cfg.Backoff, now, nextRunAt, job.FailureCount+1), nil
+	if nextRunAt.IsZero() {
+		return time.Time{}, time.Time{}, errors.New("cron: computed next_run_at is zero")
+	}
+	if job.MaxAttempts <= 0 || job.FailureCount+1 >= job.MaxAttempts {
+		return time.Time{}, nextRunAt, nil
+	}
+	return NextRetryAt(s.cfg.Backoff, now, nextRunAt, job.FailureCount+1), nextRunAt, nil
 }
 
 // RenewLeases 是 lease actor 的续租入口。
@@ -269,18 +274,30 @@ func (s *Scheduler) observeRecoveredSubmittedRun(ctx context.Context, job jobRec
 // finalizeRecoveredFailure 将恢复时确认失败的 run 标记为 failed 并更新 job 状态。
 func (s *Scheduler) finalizeRecoveredFailure(ctx context.Context, job jobRecord, run runRecord, err error) error {
 	now := s.now().UTC()
+	nextRetryAt, nextRunAt, scheduleErr := s.nextRetryAndRun(job, now)
+	if scheduleErr != nil {
+		return scheduleErr
+	}
 	if casErr := s.store.CASRunStatus(ctx, casRunStatusParams{ID: run.ID, ExpectedStatus: run.Status, NextStatus: statusFailed, Error: err.Error(), UpdatedAt: now}); casErr != nil {
 		s.logger.Warn("cron: recovered CAS submitting->failed failed",
 			slog.String("run_id", run.ID),
 			slog.String("error", casErr.Error()),
 		)
 	}
-	return s.store.MarkFailed(ctx, markFailedParams{ID: job.ID, ClaimToken: job.ClaimToken, RunID: run.ID, ExpectedActiveTurnID: run.TurnID, LastRunAt: run.ScheduledAt, LastTurnID: run.TurnID, LastStatus: statusFailed, LastErrorAt: now, LastError: err.Error(), Now: now})
+	return s.store.MarkFailed(ctx, markFailedParams{
+		ID: job.ID, ClaimToken: job.ClaimToken, RunID: run.ID, ExpectedActiveTurnID: run.TurnID,
+		LastRunAt: run.ScheduledAt, LastTurnID: run.TurnID, LastStatus: statusFailed,
+		LastErrorAt: now, LastError: err.Error(), NextRunAt: nextRunAt, NextRetryAt: nextRetryAt, Now: now,
+	})
 }
 
 // finalizeRecoveredObserveLost 将恢复时无法追踪的 run 标记为 observe_lost，不触发重试。
 func (s *Scheduler) finalizeRecoveredObserveLost(ctx context.Context, job jobRecord, run runRecord, turnID string, err error) error {
 	now := s.now().UTC()
+	_, nextRunAt, scheduleErr := s.nextRetryAndRun(job, now)
+	if scheduleErr != nil {
+		return scheduleErr
+	}
 	// 恢复期的 observe_lost 也不自动 retry；旧 turn 状态未知时，新 turn 会造成重复。
 	if casErr := s.store.CASRunStatus(ctx, casRunStatusParams{ID: run.ID, ExpectedStatus: run.Status, NextStatus: statusObserveLost, Error: err.Error(), UpdatedAt: now}); casErr != nil {
 		s.logger.Warn("cron: recovered CAS submitted->observe_lost failed",
@@ -288,7 +305,11 @@ func (s *Scheduler) finalizeRecoveredObserveLost(ctx context.Context, job jobRec
 			slog.String("error", casErr.Error()),
 		)
 	}
-	return s.store.MarkFailed(ctx, markFailedParams{ID: job.ID, ClaimToken: job.ClaimToken, RunID: run.ID, ExpectedActiveTurnID: turnID, LastRunAt: run.ScheduledAt, LastTurnID: turnID, LastStatus: statusObserveLost, LastErrorAt: now, LastError: err.Error(), Now: now})
+	return s.store.MarkFailed(ctx, markFailedParams{
+		ID: job.ID, ClaimToken: job.ClaimToken, RunID: run.ID, ExpectedActiveTurnID: turnID,
+		LastRunAt: run.ScheduledAt, LastTurnID: turnID, LastStatus: statusObserveLost,
+		LastErrorAt: now, LastError: err.Error(), NextRunAt: nextRunAt, Now: now,
+	})
 }
 
 // ExtendClaimForTurnProgress 在 turn 进度事件到达时延长 active job 的 claim。
