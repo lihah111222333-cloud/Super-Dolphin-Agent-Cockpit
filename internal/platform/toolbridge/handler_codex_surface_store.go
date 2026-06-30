@@ -6,7 +6,117 @@ import (
 	"strings"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
+	mcpdto "github.com/anthropic-ai/super-agent-v3/internal/dto/mcp"
 )
+
+type codexDisabledToolSet map[string]struct{}
+
+func newCodexDisabledToolSet(values []string) codexDisabledToolSet {
+	if len(values) == 0 {
+		return nil
+	}
+	out := make(codexDisabledToolSet, len(values))
+	for _, value := range values {
+		if value = strings.TrimSpace(value); value != "" {
+			out[value] = struct{}{}
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+func (s codexDisabledToolSet) match(names ...string) (string, bool) {
+	for _, name := range names {
+		name = strings.TrimSpace(name)
+		if name == "" {
+			continue
+		}
+		if _, ok := s[name]; ok {
+			return name, true
+		}
+	}
+	return "", false
+}
+
+func mcpSurfaceToolAliases(family, realName, canonical string) []string {
+	aliases := []string{canonical, realName, wrappedMCPToolName(family, realName)}
+	aliases = append(aliases, legacyCodexToolAliases(family, canonical)...)
+	return aliases
+}
+
+// addSingleMCPToolToSurface 处理一个 MCP 工具的可见性、禁用别名和可调用入口。
+// 被禁用的工具只登记 deny 别名，不会写入 surface.tools 或返回给 Codex 的 schema。
+func addSingleMCPToolToSurface(
+	surface *codexToolSurface,
+	out *[]contract.DynamicToolSchema,
+	family string,
+	client mcpClient,
+	tool mcpdto.MCPTool,
+	disabled codexDisabledToolSet,
+) error {
+	if _, reserved := reservedHostOnlySurfaceToolCanonicalName(family, tool.Name); reserved {
+		return nil
+	}
+	canonical := canonicalCodexToolName(family, tool.Name)
+	if shouldNamespaceExternalMCPTool(surface, family, canonical) {
+		canonical = wrappedMCPToolName(family, tool.Name)
+	}
+	aliases := mcpSurfaceToolAliases(family, tool.Name, canonical)
+	if disabledName, ok := disabled.match(aliases...); ok {
+		return addDisabledSurfaceToolAliases(surface, disabledName, aliases...)
+	}
+	entry := codexToolEntry{name: canonical, realName: tool.Name, executionKind: "stdio", family: strings.TrimSpace(family), client: client}
+	if err := addSurfaceTool(surface, out, tool, entry); err != nil {
+		return err
+	}
+	if err := addMCPToolAlias(surface, family, tool.Name, canonical); err != nil {
+		return err
+	}
+	if err := addSurfaceAlias(surface, wrappedMCPToolName(family, tool.Name), canonical); err != nil {
+		return err
+	}
+	for _, alias := range legacyCodexToolAliases(family, canonical) {
+		if err := addSurfaceAlias(surface, alias, canonical); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// addDisabledSurfaceToolAliases 记录被 session config 禁用的工具别名。
+// 禁用项不进入可调用表，但 scoped stale-call 会先命中这里并被拒绝。
+func addDisabledSurfaceToolAliases(surface *codexToolSurface, disabledName string, aliases ...string) error {
+	disabledName = strings.TrimSpace(disabledName)
+	for _, alias := range nonEmptyUnique(aliases...) {
+		if disabledName == "" {
+			disabledName = alias
+		}
+		if existing, ok := surface.aliases[alias]; ok {
+			return fmt.Errorf("toolbridge: disabled codex surface alias %q conflicts with visible tool %q", alias, existing)
+		}
+		if existing, ok := surface.disabledTools[alias]; ok && existing != disabledName {
+			return fmt.Errorf("toolbridge: disabled codex surface alias %q maps to both %q and %q", alias, existing, disabledName)
+		}
+		surface.disabledTools[alias] = disabledName
+	}
+	return nil
+}
+
+func disabledCodexSurfaceToolCallResult(surface *codexToolSurface, name string) (*ToolCallResult, bool) {
+	if surface == nil {
+		return nil, false
+	}
+	disabledName, ok := surface.disabledTools[strings.TrimSpace(name)]
+	if !ok {
+		return nil, false
+	}
+	if disabledName = strings.TrimSpace(disabledName); disabledName == "" {
+		disabledName = strings.TrimSpace(name)
+	}
+	return toolCallTextResult(false, fmt.Sprintf("codex surface tool %q is disabled by session config", disabledName)), true
+}
 
 // storeCodexToolSurface 将新的 Codex tool surface 写入索引。
 // 如果同一 key 已绑定旧 surface，旧 surface 会在替换后关闭，确保 stdio client 不泄漏。

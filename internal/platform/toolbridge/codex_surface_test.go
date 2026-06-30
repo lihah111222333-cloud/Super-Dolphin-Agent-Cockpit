@@ -64,6 +64,191 @@ func TestPrepareCodexToolSurfaceAdvertisesShortNamesAndRoutesCalls(t *testing.T)
 	}
 }
 
+func TestPrepareCodexToolSurfaceFiltersDisabledToolsAndRejectsStaleCalls(t *testing.T) {
+	host := &stubHostToolRegistry{
+		hasToolName: ToolNameMemoryWrite,
+		tools:       []mcpdto.MCPTool{{Name: ToolNameMemoryWrite, Description: "host memory write", InputSchema: strictEmptyObjectSchema()}},
+		result:      toolCallTextResult(true, "host ok"),
+	}
+	skills := &fakeSkillToolProvider{
+		tools: []contract.SkillToolSurfaceTool{{Name: "skill_write_note", Description: "skill writer", InputSchema: strictEmptyObjectSchema()}},
+	}
+	orch := &fakeMCPClient{tools: []mcpdto.MCPTool{{Name: "orchestration_launch_agent", Description: "launch", InputSchema: strictEmptyObjectSchema()}}}
+	external := &fakeMCPClient{tools: []mcpdto.MCPTool{{Name: "connect_tool_source", Description: "connect source", InputSchema: strictEmptyObjectSchema()}}}
+	h := &Handler{
+		hostTools:          host,
+		skillTools:         skills,
+		stdioClientFactory: fakeClientFactory(map[string]mcpClient{mcpdto.ClientKindOrch: orch, "external": external}),
+	}
+	manifest := providerdto.MCPManifest{Binaries: []providerdto.MCPBinary{
+		{Name: mcpdto.ClientKindOrch, Command: []string{"mcp-orch"}},
+		{Name: "external", Command: []string{"mcp-external"}},
+	}}
+	cwd := t.TempDir()
+	assertDisabledCodexSurfaceTools(t, h, manifest, cwd, host, skills, orch, external)
+	assertAllowedCodexSurfaceTools(t, h, manifest, cwd, host, skills, orch, external)
+}
+
+func assertDisabledCodexSurfaceTools(
+	t *testing.T,
+	h *Handler,
+	manifest providerdto.MCPManifest,
+	cwd string,
+	host *stubHostToolRegistry,
+	skills *fakeSkillToolProvider,
+	orch *fakeMCPClient,
+	external *fakeMCPClient,
+) {
+	t.Helper()
+
+	disabledNames := []string{ToolNameMemoryWrite, "skill_write_note", "launch_agent", "orchestration_launch_agent", "connect_tool_source"}
+	disabledTools, err := h.PrepareCodexToolSurface(context.Background(), contract.CodexToolSurfaceScope{
+		AgentID:          "agent-deny",
+		ProviderThreadID: "provider-thread-deny",
+		CWD:              cwd,
+		DisabledTools:    []string{ToolNameMemoryWrite, "skill_write_note", "launch_agent", "connect_tool_source"},
+		Manifest:         manifest,
+	})
+	if err != nil {
+		t.Fatalf("PrepareCodexToolSurface(disabled) error = %v", err)
+	}
+	assertNoDynamicToolNames(t, disabledTools, disabledNames)
+	assertDisabledCodexSurfaceToolCalls(t, h, cwd, disabledNames)
+	assertNoDisabledCodexSurfaceToolCallsReachedBackends(t, host, skills, orch, external)
+}
+
+func assertAllowedCodexSurfaceTools(
+	t *testing.T,
+	h *Handler,
+	manifest providerdto.MCPManifest,
+	cwd string,
+	host *stubHostToolRegistry,
+	skills *fakeSkillToolProvider,
+	orch *fakeMCPClient,
+	external *fakeMCPClient,
+) {
+	t.Helper()
+
+	allowedTools, err := h.PrepareCodexToolSurface(context.Background(), contract.CodexToolSurfaceScope{
+		AgentID:          "agent-allow",
+		ProviderThreadID: "provider-thread-allow",
+		CWD:              cwd,
+		Manifest:         manifest,
+	})
+	if err != nil {
+		t.Fatalf("PrepareCodexToolSurface(allowed) error = %v", err)
+	}
+	assertDynamicToolNames(t, allowedTools, []string{ToolNameMemoryWrite, "skill_write_note", "launch_agent", "connect_tool_source"})
+	callAllowedCodexSurfaceTools(t, h, cwd)
+	assertAllowedCodexSurfaceCallsReachedBackends(t, host, skills, orch, external)
+}
+
+func assertNoDynamicToolNames(t *testing.T, tools []contract.DynamicToolSchema, names []string) {
+	t.Helper()
+
+	for _, name := range names {
+		assertNoDynamicToolName(t, tools, name)
+	}
+}
+
+func assertDisabledCodexSurfaceToolCalls(t *testing.T, h *Handler, cwd string, names []string) {
+	t.Helper()
+
+	for _, name := range names {
+		t.Run("disabled stale call "+name, func(t *testing.T) {
+			result := callCodexSurfaceToolForTest(t, h, "agent-deny", "provider-thread-deny", cwd, name)
+			assertDisabledCodexSurfaceToolResult(t, result, name)
+		})
+	}
+}
+
+func assertNoDisabledCodexSurfaceToolCallsReachedBackends(
+	t *testing.T,
+	host *stubHostToolRegistry,
+	skills *fakeSkillToolProvider,
+	orch *fakeMCPClient,
+	external *fakeMCPClient,
+) {
+	t.Helper()
+
+	if host.calls != 0 {
+		t.Fatalf("disabled host tool reached host registry: calls=%d", host.calls)
+	}
+	if len(skills.calls) != 0 {
+		t.Fatalf("disabled skill tool reached skill provider: calls=%#v", skills.calls)
+	}
+	if len(orch.calls) != 0 || len(external.calls) != 0 {
+		t.Fatalf("disabled MCP tool reached clients: orch=%#v external=%#v", orch.calls, external.calls)
+	}
+}
+
+func callAllowedCodexSurfaceTools(t *testing.T, h *Handler, cwd string) {
+	t.Helper()
+
+	callCodexSurfaceToolForTest(t, h, "agent-allow", "provider-thread-allow", cwd, ToolNameMemoryWrite)
+	callCodexSurfaceToolForTest(t, h, "agent-allow", "provider-thread-allow", cwd, "skill_write_note")
+	callCodexSurfaceToolForTest(t, h, "agent-allow", "provider-thread-allow", cwd, "launch_agent")
+	callCodexSurfaceToolForTest(t, h, "agent-allow", "provider-thread-allow", cwd, "connect_tool_source")
+}
+
+func assertAllowedCodexSurfaceCallsReachedBackends(
+	t *testing.T,
+	host *stubHostToolRegistry,
+	skills *fakeSkillToolProvider,
+	orch *fakeMCPClient,
+	external *fakeMCPClient,
+) {
+	t.Helper()
+
+	if host.calls != 1 {
+		t.Fatalf("allowed host calls = %d, want 1", host.calls)
+	}
+	if len(skills.calls) != 1 {
+		t.Fatalf("allowed skill calls = %#v, want one call", skills.calls)
+	}
+	if !orch.calledWith("orchestration_launch_agent") {
+		t.Fatalf("allowed launch_agent did not reach orchestration client: %#v", orch.calls)
+	}
+	if !external.calledWith("connect_tool_source") {
+		t.Fatalf("allowed connect_tool_source did not reach external client: %#v", external.calls)
+	}
+}
+
+func callCodexSurfaceToolForTest(t *testing.T, h *Handler, agentID, threadID, cwd, name string) *ToolCallResult {
+	t.Helper()
+
+	result, err := h.HandleToolCall(context.Background(), contract.ToolCallRawMessage{Params: mustRawJSON(t, map[string]any{
+		"name":      name,
+		"arguments": map[string]any{},
+		"_agentId":  agentID,
+		"_threadId": threadID,
+		"_callId":   "call-" + name,
+		"_cwd":      cwd,
+	})})
+	if err != nil {
+		t.Fatalf("HandleToolCall(%q) error = %v", name, err)
+	}
+	got, ok := result.(*ToolCallResult)
+	if !ok {
+		t.Fatalf("HandleToolCall(%q) result = %T, want *ToolCallResult", name, result)
+	}
+	return got
+}
+
+func assertDisabledCodexSurfaceToolResult(t *testing.T, got *ToolCallResult, name string) {
+	t.Helper()
+
+	if got == nil {
+		t.Fatalf("HandleToolCall(%q) result = nil", name)
+	}
+	if got.Success {
+		t.Fatalf("HandleToolCall(%q) Success = true, want disabled result", name)
+	}
+	if len(got.ContentItems) == 0 || got.ContentItems[0].Text == "" {
+		t.Fatalf("HandleToolCall(%q) disabled result missing text: %#v", name, got)
+	}
+}
+
 func TestPrepareCodexToolSurfaceAdvertisesSkillToolsAndReturnsSkillText(t *testing.T) {
 	inputSchema := json.RawMessage(`{"type":"object","properties":{},"additionalProperties":false}`)
 	skillTools := &fakeSkillToolProvider{
