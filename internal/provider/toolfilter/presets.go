@@ -12,7 +12,7 @@ var workerDeniedTools = []string{
 }
 
 // ReviewerDecision 返回审查 agent 的只读工具白名单。
-// 允许 LSP/文件读取类工具，显式拒绝 writer、workflow/process、planning、递归 agent 和 connector 工具。
+// 允许 LSP/文件读取类工具，显式拒绝 writer、workflow/process、planning、provider-native 递归 agent 和 connector 工具。
 func ReviewerDecision() mcp.BeforeDecision {
 	return mcp.BeforeDecision{
 		Decision:     mcp.HookDecisionAllow,
@@ -92,6 +92,13 @@ func reviewerDeniedTools() []string {
 		deniedReviewerTool("todo_write", toolpolicy.CapabilityWorkflowMutation),
 		deniedReviewerTool("TodoWrite", toolpolicy.CapabilityWorkflowMutation),
 		deniedReviewerTool("complete_step", toolpolicy.CapabilityApprovalFinalizer),
+		deniedReviewerTool("multi_agent", toolpolicy.CapabilityRecursiveAgent),
+		deniedReviewerTool("multi_tool_use.parallel", toolpolicy.CapabilityRecursiveAgent),
+		deniedReviewerTool("spawn_agent", toolpolicy.CapabilityRecursiveAgent|toolpolicy.CapabilityProcessControl),
+		deniedReviewerTool("send_input", toolpolicy.CapabilityRecursiveAgent),
+		deniedReviewerTool("resume_agent", toolpolicy.CapabilityRecursiveAgent|toolpolicy.CapabilityProcessControl),
+		deniedReviewerTool("wait_agent", toolpolicy.CapabilityRecursiveAgent|toolpolicy.CapabilityProcessControl),
+		deniedReviewerTool("close_agent", toolpolicy.CapabilityRecursiveAgent|toolpolicy.CapabilityProcessControl),
 		deniedReviewerTool("launch_agent", toolpolicy.CapabilityRecursiveAgent|toolpolicy.CapabilityProcessControl),
 		deniedReviewerTool("send_message", toolpolicy.CapabilityRecursiveAgent),
 		deniedReviewerTool("stop_agent", toolpolicy.CapabilityRecursiveAgent|toolpolicy.CapabilityProcessControl),
