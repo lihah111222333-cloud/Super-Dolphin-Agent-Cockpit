@@ -73,6 +73,25 @@ func assertMemoryType(t *testing.T, memory ExtractedMemory, want MemoryType, lab
 	}
 }
 
+func TestParseExtractedMemoriesRejectsBlankAndLegacyShapes(t *testing.T) {
+	tests := []struct {
+		name string
+		raw  string
+	}{
+		{name: "blank", raw: " \n\t "},
+		{name: "legacy array", raw: `[{"content":"Keep answers short.","type":"feedback"}]`},
+		{name: "legacy single object", raw: `{"content":"Keep answers short.","type":"feedback"}`},
+		{name: "wrong envelope", raw: `{"items":[{"content":"Keep answers short.","type":"feedback"}]}`},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if _, err := parseExtractedMemories(tt.raw, 2); err == nil {
+				t.Fatal("parseExtractedMemories() error = nil, want strict envelope error")
+			}
+		})
+	}
+}
+
 func TestMemoryExtractorPromptIncludesTaxonomyAndExclusions(t *testing.T) {
 	extractor := NewMemoryExtractor()
 	called := false
@@ -104,7 +123,7 @@ func TestMemoryExtractorPromptIncludesTaxonomyAndExclusions(t *testing.T) {
 func TestMemoryExtractorExtractFiltersInvalidItems(t *testing.T) {
 	extractor := &MemoryExtractor{MaxItems: 3}
 	memories, err := extractor.Extract(context.Background(), func(_ context.Context, _ string) (string, error) {
-		return `[{"content":""},{"content":"你偏好简洁直接的回复风格。","tags":["style","style"]},{"content":"你偏好简洁直接的回复风格。","type":"user"}]`, nil
+		return `{"memories":[{"content":""},{"content":"你偏好简洁直接的回复风格。","tags":["style","style"]},{"content":"你偏好简洁直接的回复风格。","type":"user"}]}`, nil
 	}, ExtractParams{Transcript: []providerdto.Message{{Role: "user", Content: "remember my response style"}}})
 	if err != nil {
 		t.Fatalf("Extract() error = %v", err)
@@ -252,6 +271,38 @@ func TestAutoDreamConsolidatorConsolidateRemovesDuplicatesAndRebuildsIndex(t *te
 		t.Fatalf("extract func called %d times, want 1", called)
 	}
 	assertAutoDreamConsolidation(t, root, olderPath, newerPath, stalePath)
+}
+
+func TestAutoDreamConsolidatorConsolidateRestoresStaleMemoryWhenReplacementWriteFails(t *testing.T) {
+	root := newTestMemoryRoot(t)
+	stalePath := filepath.Join(root, "feedback", "keep-answers-short.md")
+	writeExtractFixture(t, stalePath, testMemoryEntry(
+		"Keep answers short",
+		"legacy",
+		MemoryTypeFeedback,
+		"Keep answers short\nWhy: old but still durable.\nHow to apply: preserve this if consolidation fails.",
+	))
+	writeMemoryIndexFixture(t, root, "- [Keep answers short](feedback/keep-answers-short.md)")
+	blockedProjectDir := filepath.Join(root, "project")
+	if err := os.WriteFile(blockedProjectDir, []byte("not a directory"), 0o644); err != nil {
+		t.Fatalf("WriteFile(blocked project dir) error = %v", err)
+	}
+
+	consolidator := NewAutoDreamConsolidator(NewMemoryExtractor())
+	consolidator.cfg = &Config{Enabled: true, RootDir: root}
+	err := consolidator.Consolidate(context.Background(), root, func(context.Context, string) (string, error) {
+		return `{"memories":[{"content":"Replacement project fact.\nWhy: exercise write failure.\nHow to apply: this write must fail.","type":"project"}]}`, nil
+	})
+	if err == nil {
+		t.Fatal("Consolidate() error = nil, want replacement write failure")
+	}
+	entry, readErr := readMemoryEntryFile(stalePath)
+	if readErr != nil {
+		t.Fatalf("stale memory was not restored after failed consolidation: %v", readErr)
+	}
+	if !strings.Contains(entry.Content, "old but still durable") {
+		t.Fatalf("restored stale memory content = %q", entry.Content)
+	}
 }
 
 func setExtractFixtureTimes(t *testing.T, olderPath, newerPath string, now time.Time) {
