@@ -2,7 +2,7 @@
 
 ## Current Status
 
-Overall: done. A3 round2 commit `5f7406d992b4d2dba19408d738799b298673009a` was merged by `0b16e06f`, docs round2 commit `ade6151d28c4d6480029cfe087322ec2acb2aebf` was merged by `e17cb8b3`, R1/R2 P1 repairs were merged by `ae857bba` and `73fe7f12`, dynamic disabled-tool repair `d8754cc1e86bf3dfc62273390ebebf1f86b9b3fe` was merged by `d08c6962`, and controller final gates passed on code verification head `d08c69629f6dd52fbb2ffb6df85fcb4445898a2e`. This docs-only status commit keeps the workflow state synchronized after those gates.
+Overall: done. A3 round2 commit `5f7406d992b4d2dba19408d738799b298673009a` was merged by `0b16e06f`, docs round2 commit `ade6151d28c4d6480029cfe087322ec2acb2aebf` was merged by `e17cb8b3`, R1/R2 P1 repairs were merged by `ae857bba` and `73fe7f12`, dynamic disabled-tool repair `d8754cc1e86bf3dfc62273390ebebf1f86b9b3fe` was merged by `d08c6962`, LSP hint cleanup `dfeff4745e957ae6ee94d3f998f20c03f82ecd05` was merged by `28aa3e54`, and controller final gates passed on code verification head `28aa3e54bcfa6b71bc5d83e859d96b3938c69016`. This docs-only status commit keeps the workflow state synchronized after those gates.
 
 ## Completed
 
@@ -26,13 +26,15 @@ Overall: done. A3 round2 commit `5f7406d992b4d2dba19408d738799b298673009a` was m
 - R3 passed with no additional code repair.
 - Final review2 results: Mill PASS, Hume PASS, Beauvoir FAIL P1.
 - Dynamic disabled-tool repair `d8754cc1e86bf3dfc62273390ebebf1f86b9b3fe` was merged by `d08c6962`: `CodexToolSurfaceScope` carries `DisabledTools`; Codex reads `disallowed_tools`/`disallowedTools` with fail-fast validation; toolbridge filters disabled host/skill/MCP dynamic surfaces and rejects stale disabled scoped calls before the backend.
+- User required the six LSP modernization hints to be cleared.
+- Einstein cleanup `dfeff4745e957ae6ee94d3f998f20c03f82ecd05` was merged by `28aa3e54`: it cleared `range over int`, `strings.SplitSeq`, `strings.CutPrefix`, and `slices.ContainsFunc`/`slices.Contains` hints in `cmd/mcp-orch/tools/orchestration_tools.go`, `cmd/mcp-orch/tools/orchestration_tools_test.go`, and `internal/contract/provider.go`.
 - B1 completed in `codex/reasonix-hardening-b1-20260630` at `2f8c85a569037f25950498dc484848b80cc942a1`.
 - B1 added `internal/platform/sessionpaths`, golden tests, and the stdlib dependency guard without migrating callers.
 - B2 completed in `codex/reasonix-hardening-b2-20260630` at `28e36eae9cc079daca0ffbbbd05d0836125a7d2e`.
 - B2 migrated provider/util/thread callers to `sessionpaths`; Lane B focused gates and `make guard` passed after integration.
 - C1 completed in `codex/reasonix-hardening-c1-20260630` at `e13c157123fd4999b21387af0583d3a2d45f13b7`.
 - C1 produced `docs/adr/2026-06-30-writer-preview-contract-spike.md` only; Lane C focused gates passed after integration.
-- PN final gates passed after the dynamic disabled-tool repair on code verification head `d08c69629f6dd52fbb2ffb6df85fcb4445898a2e`.
+- PN final gates passed after the LSP hint cleanup on code verification head `28aa3e54bcfa6b71bc5d83e859d96b3938c69016`.
 
 ## In Progress
 
@@ -45,20 +47,17 @@ Overall: done. A3 round2 commit `5f7406d992b4d2dba19408d738799b298673009a` was m
 
 ## Recommended Next Action
 
-Review this docs-only status update. Controller final gates already passed on code verification head `d08c69629f6dd52fbb2ffb6df85fcb4445898a2e` with:
+Review this docs-only status update. Controller final gates already passed on code verification head `28aa3e54bcfa6b71bc5d83e859d96b3938c69016` with:
 
 ```bash
-python3 -m json.tool .agent/workflows/20260630-reasonix-hardening-absorption/STATE.json >/dev/null
 git diff --check 5ccc29e69c48c407895b2d9a4182b0d124d6b813...HEAD
 git diff --cached --check
-./scripts/test_with_guard.sh ./internal/platform/toolbridge ./internal/provider/codexapp ./internal/contract -run 'CodexToolSurface|PrepareCodexToolSurface|Disabled|Disallowed|ReadOnly' -count=1
+python3 -m json.tool .agent/workflows/20260630-reasonix-hardening-absorption/STATE.json >/dev/null
+# LSP diagnostics on cmd/mcp-orch/tools/orchestration_tools.go,
+# cmd/mcp-orch/tools/orchestration_tools_test.go, and
+# internal/contract/provider.go returned no diagnostics.
+./scripts/test_with_guard.sh ./cmd/mcp-orch/tools ./internal/contract -run 'LaunchRequestFromExecutable|ReadOnly|NativeToolPolicy|CodexNativeToolPolicy|Tool|Provider' -count=1
 ./scripts/test_with_guard.sh ./cmd/mcp-orch/tools ./internal/module/thread ./internal/provider/codexapp ./internal/platform/toolbridge ./internal/contract -run 'LaunchRequestFromExecutable|BuildStartSessionConfig|CodexToolSurface|PrepareCodexToolSurface|Disabled|Disallowed|ReadOnly' -count=1
-./scripts/test_with_guard.sh ./cmd/mcp-orch/tools ./internal/provider/codexapp ./internal/contract -run 'LaunchRequestFromExecutable|ReadOnly|NativeToolPolicy|CodexNativeToolPolicy' -count=1
-./scripts/test_with_guard.sh ./cmd/mcp-orch/tools ./internal/module/thread ./internal/provider/codexapp ./internal/contract -run 'LaunchRequestFromExecutable|BuildStartSessionConfig|CodexNativeToolPolicy|NativeToolPolicy|ReadOnly' -count=1
-./scripts/test_with_guard.sh ./cmd/mcp-orch/tools ./internal/module/thread ./internal/provider/toolfilter ./internal/platform/toolpolicy ./internal/contract -count=1
-./scripts/test_with_guard.sh ./internal/platform/toolpolicy ./internal/provider/toolfilter ./internal/platform/toolbridge ./internal/provider/codexapp ./internal/provider/claudecli -run 'Plan|ReadOnly|Trust|Shell|Lifecycle|Sandbox|Permission|Reviewer|Worker|FullAccess|Native|Tool' -count=1
-./scripts/test_with_guard.sh ./internal/platform/sessionpaths ./internal/provider/codexapp ./internal/module/thread ./internal/util/historyjsonl -run 'Rollout|Scratchpad|Path|Cleanup|CodexHome|History' -count=1
-./scripts/test_with_guard.sh ./internal/archtest -run 'Dependency|Tool|Provider|Path|Preview|Workflow' -count=1
 make guard
 ```
 
@@ -69,7 +68,7 @@ make guard
 3. A2 closed as `not_applicable_with_evidence`; no runtime planning-stage blocking was wired.
 4. A1 landed the `toolpolicy` package and tests.
 5. A3 applied the A0 delegation proposal and landed restricted read-only delegation tests.
-6. Post-review A3 repairs expanded the task from toolfilter presets to orchestration launch, contract, thread startup config, Codex provider start/resume native-tool validation, and dynamic host/skill/MCP disabled-tool filtering.
+6. Post-review A3 repairs expanded the task from toolfilter presets to orchestration launch, contract, thread startup config, Codex provider start/resume native-tool validation, dynamic host/skill/MCP disabled-tool filtering, and LSP hint cleanup in the same A3-owned surfaces.
 7. Lane B landed `sessionpaths` helper extraction, golden tests, and caller migration.
 8. C1 produced only `docs/adr/2026-06-30-writer-preview-contract-spike.md`; no production preview contract or tests were added.
 

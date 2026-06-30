@@ -11,10 +11,10 @@ internal/platform/toolbridge/*_test.go	A2-toolbridge-stage-gate	RW	Planning allo
 internal/provider/toolfilter/presets.go	A3-readonly-delegation-filter	RW	Tighten read-only delegation preset; must exclude writer, planning mutator, lifecycle/process-control, recursive agent, connector, and untrusted external hint surfaces.
 internal/provider/toolfilter/presets_test.go	A3-readonly-delegation-filter	RW	Focused tests for read-only delegation allow/deny surface.
 cmd/mcp-orch/tools/orchestration_tool_definitions.go	A3-readonly-delegation-filter	RW	P1 repair from 6fdba6c: expose structured launch_agent read_only field.
-cmd/mcp-orch/tools/orchestration_tools.go	A3-readonly-delegation-filter	RW	Post-review repair: propagate read-only Codex native tool denies into orchestration launch requests.
-cmd/mcp-orch/tools/orchestration_tools_test.go	A3-readonly-delegation-filter	RW	Post-review regression tests for read-only launch native tool deny lists.
+cmd/mcp-orch/tools/orchestration_tools.go	A3-readonly-delegation-filter	RW	Post-review repair: propagate read-only Codex native tool denies; dfeff474 clears LSP modernization hints here.
+cmd/mcp-orch/tools/orchestration_tools_test.go	A3-readonly-delegation-filter	RW	Post-review regression tests for read-only launch native tool deny lists; dfeff474 clears LSP modernization hints here.
 internal/contract/prompt.go	A3-readonly-delegation-filter	RW	Post-review repair from 83670520: contract surface for read-only launch/tool policy data.
-internal/contract/provider.go	A3-readonly-delegation-filter	RW	Round2 repair from 5f7406d: provider launch config carries disabled native tool names.
+internal/contract/provider.go	A3-readonly-delegation-filter	RW	Round2 repair from 5f7406d: provider launch config carries disabled native tool names; dfeff474 clears LSP modernization hints here.
 internal/contract/toolbridge.go	A3-readonly-delegation-filter	RW	P1 repair from d8754cc1: CodexToolSurfaceScope carries DisabledTools.
 internal/module/thread/start_session_helpers.go	A3-readonly-delegation-filter	RW	Round2 repair: merge launch disabled native tools with assembly-suppressed tools.
 internal/module/thread/start_session_helpers_test.go	A3-readonly-delegation-filter	RW	Round2 regression for merged launch and assembly tool-surface config.
