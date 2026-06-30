@@ -33,6 +33,7 @@ type LaunchAgentInput struct {
 	ParentID           string `json:"parent_id,omitempty"`
 	ParentThreadID     string `json:"parent_thread_id,omitempty"`
 	AgentType          string `json:"agent_type,omitempty"`
+	ReadOnly           bool   `json:"read_only,omitempty"`
 	AgentKey           string `json:"agent_key,omitempty"`
 	PromptKey          string `json:"prompt_key,omitempty"`
 	MemoryScope        string `json:"memory_scope,omitempty"`
@@ -552,29 +553,37 @@ func launchRequestFromExecutable(in LaunchAgentInput, exe string) (contract.Laun
 		Env:            launchEnv(provider, strings.TrimSpace(in.Model), strings.TrimSpace(in.Effort), strings.TrimSpace(in.CodexHome), strings.TrimSpace(in.CodexInstanceKey), strings.TrimSpace(in.CodexModelProvider)),
 		Language:       strings.TrimSpace(in.Language),
 	}
-	if dt := mergeLaunchDisabledTools(in.AgentType, in.DisabledTools); dt != "" {
+	readOnlyToolSurface := launchReadOnlyToolSurface(in)
+	if dt := mergeLaunchDisabledTools(readOnlyToolSurface, in.DisabledTools); dt != "" {
 		req.Env = append(req.Env, "AGENT_DISABLED_TOOLS="+dt)
 	}
 	if strings.EqualFold(provider, "codex") {
-		req.Env = append(req.Env, "AGENT_CODEX_DISABLED_NATIVE_TOOLS="+strings.Join(launchCodexNativeDisabledTools(in.AgentType), ","))
+		req.Env = append(req.Env, "AGENT_CODEX_DISABLED_NATIVE_TOOLS="+strings.Join(launchCodexNativeDisabledTools(readOnlyToolSurface), ","))
 	}
 	return req, nil
 }
 
 // mergeLaunchDisabledTools 合并 launch 默认禁用项、只读 agent 工具面禁用项和用户指定的额外禁用工具。
-func mergeLaunchDisabledTools(agentType, userValue string) string {
+func mergeLaunchDisabledTools(readOnlyToolSurface bool, userValue string) string {
 	defaults := append([]string(nil), launchAgentDefaultDisabledTools...)
-	if readOnlyLaunchAgentType(agentType) {
+	if readOnlyToolSurface {
 		defaults = append(defaults, contract.ReadOnlyAgentDeniedTools()...)
 	}
 	return joinUniqueCSV(defaults, userValue)
 }
 
-func launchCodexNativeDisabledTools(agentType string) []string {
-	if readOnlyLaunchAgentType(agentType) {
+func launchCodexNativeDisabledTools(readOnlyToolSurface bool) []string {
+	if readOnlyToolSurface {
 		return contract.ReadOnlyCodexNativeDeniedTools()
 	}
 	return append([]string(nil), launchAgentCodexNativeDenyTools...)
+}
+
+func launchReadOnlyToolSurface(in LaunchAgentInput) bool {
+	if in.ReadOnly {
+		return true
+	}
+	return readOnlyLaunchAgentType(in.AgentType)
 }
 
 func readOnlyLaunchAgentType(agentType string) bool {
