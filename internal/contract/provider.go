@@ -135,6 +135,18 @@ func KnownCodexNativeToolIDs() []string {
 	return append([]string(nil), knownCodexNativeToolIDs...)
 }
 
+// ReadOnlyCodexNativeDeniedTools 返回只读/规划子 agent 必须禁用的 Codex 原生工具名。
+// 包含执行写入工具和递归 agent 工具，返回副本避免调用方污染共享列表。
+func ReadOnlyCodexNativeDeniedTools() []string {
+	tools := []string{
+		CodexNativeToolShell,
+		CodexNativeToolApplyPatch,
+		CodexNativeToolWriteNewFile,
+		CodexNativeToolUpdatePlan,
+	}
+	return append(tools, codexMultiAgentNativeToolIDs...)
+}
+
 // IsKnownCodexNativeTool 判断工具 ID 是否属于当前可治理的 Codex 原生工具集合。
 func IsKnownCodexNativeTool(id string) bool {
 	switch strings.TrimSpace(id) {
@@ -334,6 +346,9 @@ func (p CodexNativeToolPolicy) AppServerArgs() []string {
 
 // RequiresReadOnlySandbox 表示策略需要用只读沙箱补足无法原生硬禁用的写入工具。
 func (p CodexNativeToolPolicy) RequiresReadOnlySandbox() bool {
+	if p.has(CodexNativeToolApplyPatch) || p.has(CodexNativeToolWriteNewFile) {
+		return true
+	}
 	for _, tier := range p.tiers {
 		if tier == NativeToolEnforcementEffectHard {
 			return true
