@@ -147,10 +147,7 @@ func (s *LogSink) bindTool(dispatcher *event.Dispatcher, logger *pkglogger.Logge
 }
 
 func (s *LogSink) bindTask(dispatcher *event.Dispatcher, logger *pkglogger.Logger) {
-	s.subs.Add(logEvent[taskdto.TaskDagCreated](dispatcher, logger, s.traceLifecycleEvent))
 	s.subs.Add(logEvent[taskdto.TaskNodeStatusChanged](dispatcher, logger, s.traceLifecycleEvent))
-	s.subs.Add(logEvent[taskdto.TaskWakeupDispatched](dispatcher, logger, s.traceLifecycleEvent))
-	s.subs.Add(logEvent[taskdto.TaskWakeupCompleted](dispatcher, logger, s.traceLifecycleEvent))
 }
 
 func (s *LogSink) bindUI(dispatcher *event.Dispatcher, logger *pkglogger.Logger) {
