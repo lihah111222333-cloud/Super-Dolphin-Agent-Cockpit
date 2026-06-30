@@ -272,8 +272,11 @@ func resolveSupportedCodexModel(ctx context.Context, t *transport, requested str
 	return requested, false, nil
 }
 
-func (d *driver) buildThreadStartParams(req dto.StartSessionRequest) threadStartParams {
-	baseInstructions, developerInstructions := d.startAssemblyInstructions(req)
+func (d *driver) buildThreadStartParams(req dto.StartSessionRequest) (threadStartParams, error) {
+	baseInstructions, developerInstructions, err := d.startAssemblyInstructions(req)
+	if err != nil {
+		return threadStartParams{}, err
+	}
 	params := threadStartParams{
 		Cwd:                   strings.TrimSpace(req.CWD),
 		Model:                 strings.TrimSpace(req.Model),
@@ -288,7 +291,7 @@ func (d *driver) buildThreadStartParams(req dto.StartSessionRequest) threadStart
 		MCPConfig:             supportutil.ConfigJSON(req.Config, "mcpConfig"),
 	}
 	codexNativeToolPolicyFromConfig(req.Config).ApplyThreadStartParams(&params)
-	return params
+	return params, nil
 }
 
 func (d *driver) startDynamicSession(ctx context.Context, s *session, req dto.StartSessionRequest) (contract.Session, error) {
@@ -442,10 +445,9 @@ func (d *driver) finishResumedSession(ctx context.Context, s *session, req dto.R
 		s.setRuntimeConfigValue("model", m)
 	}
 	baseInstructions, developerInstructions := promptSnapshotInstructions(req.PromptSnapshot)
-	if baseInstructions == "" {
-		baseInstructions = fallbackBaseInstructions
+	if baseInstructions != "" {
+		s.setRuntimeConfigValue("baseInstructions", baseInstructions)
 	}
-	s.setRuntimeConfigValue("baseInstructions", baseInstructions)
 	if developerInstructions != "" {
 		s.setRuntimeConfigValue("developerInstructions", developerInstructions)
 	}
@@ -459,7 +461,10 @@ func (d *driver) finishResumedSession(ctx context.Context, s *session, req dto.R
 }
 
 func (d *driver) startRemoteThreadWithDynamicTools(ctx context.Context, t *transport, req dto.StartSessionRequest, tools []codexprotocol.DynamicToolSchema) (startResult, error) {
-	params := d.buildThreadStartParams(req)
+	params, err := d.buildThreadStartParams(req)
+	if err != nil {
+		return startResult{}, err
+	}
 	params.DynamicTools = tools
 	// dynamicTools schema 已由 codex app-server 暴露给模型，developerInstructions 不再重复塞工具名。
 	// 这避免把完整工具目录再次写入上下文，保留预算给真实任务内容。

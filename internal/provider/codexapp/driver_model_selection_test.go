@@ -47,9 +47,10 @@ func TestDriverStartSessionSelectsDefaultModelFromModelList(t *testing.T) {
 	}
 
 	got, err := d.StartSession(context.Background(), dto.StartSessionRequest{
-		Provider: "codex",
-		AgentID:  "agent-model-list",
-		CWD:      t.TempDir(),
+		Provider:      "codex",
+		AgentID:       "agent-model-list",
+		CWD:           t.TempDir(),
+		StartAssembly: validStartAssemblyForTest(),
 	})
 	if err != nil {
 		t.Fatalf("StartSession() error = %v", err)
@@ -107,10 +108,11 @@ func TestDriverStartSessionPreservesExplicitGPT5Model(t *testing.T) {
 	}
 
 	got, err := d.StartSession(context.Background(), dto.StartSessionRequest{
-		Provider: "codex",
-		AgentID:  "agent-model-replaced",
-		CWD:      t.TempDir(),
-		Model:    "gpt-5",
+		Provider:      "codex",
+		AgentID:       "agent-model-replaced",
+		CWD:           t.TempDir(),
+		Model:         "gpt-5",
+		StartAssembly: validStartAssemblyForTest(),
 	})
 	if err != nil {
 		t.Fatalf("StartSession() error = %v", err)
@@ -162,10 +164,11 @@ func TestDriverStartSessionPreservesExplicitGPT55Model(t *testing.T) {
 	}
 
 	got, err := d.StartSession(context.Background(), dto.StartSessionRequest{
-		Provider: "codex",
-		AgentID:  "agent-gpt55-preserved",
-		CWD:      t.TempDir(),
-		Model:    "gpt-5.5",
+		Provider:      "codex",
+		AgentID:       "agent-gpt55-preserved",
+		CWD:           t.TempDir(),
+		Model:         "gpt-5.5",
+		StartAssembly: validStartAssemblyForTest(),
 	})
 	if err != nil {
 		t.Fatalf("StartSession() error = %v", err)

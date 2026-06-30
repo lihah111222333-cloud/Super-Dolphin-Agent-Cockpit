@@ -27,7 +27,11 @@ func TestToolBridgeStartSessionAdvertisesDynamicToolDetails(t *testing.T) {
 		return []codexprotocol.DynamicToolSchema{{Name: want.name, Description: want.description, InputSchema: want.inputSchema, OutputSchema: want.outputSchema}}, nil
 	}))
 
-	sessionAny, err := driver.StartSession(context.Background(), dto.StartSessionRequest{AgentID: "agent-1", CWD: t.TempDir()})
+	sessionAny, err := driver.StartSession(context.Background(), dto.StartSessionRequest{
+		AgentID:       "agent-1",
+		CWD:           t.TempDir(),
+		StartAssembly: validStartAssemblyForTest(),
+	})
 	if err != nil {
 		t.Fatalf("StartSession() error = %v", err)
 	}
@@ -46,7 +50,11 @@ func TestToolBridgeStartSessionAdvertisesScopedSurfaceToolDetails(t *testing.T) 
 	}
 	driver.bindTools = func(contract.CodexToolSurfaceScope) error { return nil }
 
-	sessionAny, err := driver.StartSession(context.Background(), dto.StartSessionRequest{AgentID: "agent-1", CWD: t.TempDir()})
+	sessionAny, err := driver.StartSession(context.Background(), dto.StartSessionRequest{
+		AgentID:       "agent-1",
+		CWD:           t.TempDir(),
+		StartAssembly: validStartAssemblyForTest(),
+	})
 	if err != nil {
 		t.Fatalf("StartSession() error = %v", err)
 	}
