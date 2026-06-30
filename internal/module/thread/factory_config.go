@@ -149,36 +149,40 @@ func buildOfflineRuntimeConfig(stored storedThreadConfig, thread *threadConfigRe
 	return cfg
 }
 
-func resolveResumeCodexDisabledNativeTools(current []string, runtime map[string]any) []string {
+func resolveResumeCodexDisabledNativeTools(current []string, runtime map[string]any) ([]string, error) {
 	if len(current) > 0 {
-		return append([]string(nil), current...)
+		return append([]string(nil), current...), nil
 	}
 	return codexDisabledNativeToolsFromRuntime(runtime)
 }
 
-func codexDisabledNativeToolsFromRuntime(runtime map[string]any) []string {
+func codexDisabledNativeToolsFromRuntime(runtime map[string]any) ([]string, error) {
 	if len(runtime) == 0 {
-		return nil
+		return nil, nil
 	}
 	return cleanResumeStringList(runtime["codexDisabledNativeTools"])
 }
 
 // cleanResumeStringList 清洗 resume runtime 中的字符串列表。
 // 只接受 []string 或 JSON 解码后的 []any，元素会 trim、去空、去重并排序，避免恢复配置因重复工具名产生不稳定 diff。
-func cleanResumeStringList(value any) []string {
+func cleanResumeStringList(value any) ([]string, error) {
 	var raw []string
 	switch typed := value.(type) {
+	case nil:
+		return nil, nil
 	case []string:
 		raw = typed
 	case []any:
 		raw = make([]string, 0, len(typed))
 		for _, item := range typed {
-			if text, ok := item.(string); ok {
-				raw = append(raw, text)
+			text, ok := item.(string)
+			if !ok {
+				return nil, fmt.Errorf("codexDisabledNativeTools contains %T", item)
 			}
+			raw = append(raw, text)
 		}
 	default:
-		return nil
+		return nil, fmt.Errorf("codexDisabledNativeTools must be []string or []any of strings, got %T", value)
 	}
 	seen := make(map[string]struct{}, len(raw))
 	for _, item := range raw {
@@ -192,7 +196,7 @@ func cleanResumeStringList(value any) []string {
 		out = append(out, item)
 	}
 	sort.Strings(out)
-	return out
+	return out, nil
 }
 
 func offlineThreadProvider(binding *threadBindingRecord) string {

@@ -3,6 +3,7 @@ package contract
 import (
 	"context"
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 
@@ -135,6 +136,18 @@ func KnownCodexNativeToolIDs() []string {
 	return append([]string(nil), knownCodexNativeToolIDs...)
 }
 
+// ReadOnlyCodexNativeDeniedTools 返回只读/规划子 agent 必须禁用的 Codex 原生工具名。
+// 包含执行写入工具和递归 agent 工具，返回副本避免调用方污染共享列表。
+func ReadOnlyCodexNativeDeniedTools() []string {
+	tools := []string{
+		CodexNativeToolShell,
+		CodexNativeToolApplyPatch,
+		CodexNativeToolWriteNewFile,
+		CodexNativeToolUpdatePlan,
+	}
+	return append(tools, codexMultiAgentNativeToolIDs...)
+}
+
 // IsKnownCodexNativeTool 判断工具 ID 是否属于当前可治理的 Codex 原生工具集合。
 func IsKnownCodexNativeTool(id string) bool {
 	switch strings.TrimSpace(id) {
@@ -163,8 +176,8 @@ type CodexNativeToolPolicy struct {
 	appServerFeatures []string
 }
 
-// NewCodexNativeToolPolicy 根据配置中的禁用工具 ID 构造 Codex 原生工具策略。
-// 未知 ID 会被忽略，避免旧配置字段影响后续进程启动参数。
+// NewCodexNativeToolPolicy 根据已校验的禁用工具 ID 构造 Codex 原生工具策略。
+// provider 启动入口负责拒绝未知 ID；这里仅把已知工具映射到执行策略。
 func NewCodexNativeToolPolicy(disabled []string) CodexNativeToolPolicy {
 	policy := CodexNativeToolPolicy{
 		disabled: make(map[string]struct{}),
@@ -289,20 +302,13 @@ func (p CodexNativeToolPolicy) has(id string) bool {
 
 // hasAny 判断任一工具 ID 是否被禁用，用于同类工具组快速分支。
 func (p CodexNativeToolPolicy) hasAny(ids ...string) bool {
-	for _, id := range ids {
-		if p.has(id) {
-			return true
-		}
-	}
-	return false
+	return slices.ContainsFunc(ids, p.has)
 }
 
 // addFeature 追加 App Server 禁用特性并保持稳定排序。
 func (p *CodexNativeToolPolicy) addFeature(feature string) {
-	for _, item := range p.appServerFeatures {
-		if item == feature {
-			return
-		}
+	if slices.Contains(p.appServerFeatures, feature) {
+		return
 	}
 	p.appServerFeatures = append(p.appServerFeatures, feature)
 	sort.Strings(p.appServerFeatures)
@@ -334,6 +340,9 @@ func (p CodexNativeToolPolicy) AppServerArgs() []string {
 
 // RequiresReadOnlySandbox 表示策略需要用只读沙箱补足无法原生硬禁用的写入工具。
 func (p CodexNativeToolPolicy) RequiresReadOnlySandbox() bool {
+	if p.has(CodexNativeToolApplyPatch) || p.has(CodexNativeToolWriteNewFile) {
+		return true
+	}
 	for _, tier := range p.tiers {
 		if tier == NativeToolEnforcementEffectHard {
 			return true

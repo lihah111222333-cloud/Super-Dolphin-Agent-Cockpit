@@ -192,6 +192,19 @@ func TestLaunchAgentSchemaDocumentsContextMode(t *testing.T) {
 	}
 }
 
+func TestLaunchAgentSchemaDocumentsReadOnly(t *testing.T) {
+	props := launchAgentSchemaProperties(t)
+	readOnly, ok := props["read_only"].(map[string]any)
+	require.Truef(t, ok, "read_only schema type = %T, want map[string]any", props["read_only"])
+
+	description, _ := readOnly["description"].(string)
+	require.Equal(t, "boolean", readOnly["type"])
+	require.Contains(t, description, "read-only")
+	require.Contains(t, description, "review")
+	require.Contains(t, description, "planning")
+	require.Contains(t, description, "does not change agent_type")
+}
+
 func launchAgentSchemaProperties(t *testing.T) map[string]any {
 	t.Helper()
 	defs := orchestrationToolDefinitions(&golden.OrchestrationStub{})
@@ -257,6 +270,137 @@ func TestLaunchRequestFromExecutableMergesDefaultDisabledTools(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "launch_agent,orchestration_launch_agent,spawn_agent,shell,browser", launchEnvValue(req.Env, "AGENT_DISABLED_TOOLS"))
 	require.Equal(t, "spawn_agent", launchEnvValue(req.Env, "AGENT_CODEX_DISABLED_NATIVE_TOOLS"))
+}
+
+func TestLaunchRequestFromExecutableAppliesReviewerDisabledToolsForReadOnlyAgentTypes(t *testing.T) {
+	tests := []struct {
+		name      string
+		agentType contract.AgentType
+	}{
+		{name: "plan", agentType: contract.AgentTypePlan},
+		{name: "explore", agentType: contract.AgentTypeExplore},
+	}
+
+	reviewerDenied := contract.ReadOnlyAgentDeniedTools()
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req, err := launchRequestFromExecutable(LaunchAgentInput{
+				Name:          "agent-" + tt.name,
+				AgentType:     string(tt.agentType),
+				DisabledTools: " custom_tool , spawn_agent ",
+			}, "/tmp/agent-terminal")
+			require.NoError(t, err)
+
+			disabled := disabledToolCounts(launchEnvValue(req.Env, "AGENT_DISABLED_TOOLS"))
+			for _, tool := range []string{
+				"launch_agent",
+				"orchestration_launch_agent",
+				"spawn_agent",
+				"edit",
+				"lsp_edit",
+				"task_start_dag",
+			} {
+				require.Equalf(t, 1, disabled[tool], "%s disabled count", tool)
+			}
+			for _, tool := range reviewerDenied {
+				require.Equalf(t, 1, disabled[tool], "%s disabled count", tool)
+			}
+			require.Equal(t, 1, disabled["custom_tool"])
+		})
+	}
+}
+
+func TestLaunchRequestFromExecutableAppliesReadOnlyToolsWhenReadOnlyIsExplicit(t *testing.T) {
+	req, err := launchRequestFromExecutable(LaunchAgentInput{
+		Name:      "agent-reviewer",
+		AgentType: "reviewer",
+		ReadOnly:  true,
+		Provider:  "codex",
+	}, "/tmp/agent-terminal")
+	require.NoError(t, err)
+	require.Equal(t, "reviewer", req.AgentType)
+
+	disabled := disabledToolCounts(launchEnvValue(req.Env, "AGENT_DISABLED_TOOLS"))
+	for _, tool := range contract.ReadOnlyAgentDeniedTools() {
+		require.Equalf(t, 1, disabled[tool], "%s disabled count", tool)
+	}
+
+	nativeDisabled := disabledToolCounts(launchEnvValue(req.Env, "AGENT_CODEX_DISABLED_NATIVE_TOOLS"))
+	for _, tool := range []string{
+		contract.CodexNativeToolShell,
+		contract.CodexNativeToolApplyPatch,
+		contract.CodexNativeToolWriteNewFile,
+		contract.CodexNativeToolSpawnAgent,
+		contract.CodexNativeToolMultiAgent,
+		contract.CodexNativeToolMultiToolParallel,
+		contract.CodexNativeToolUpdatePlan,
+	} {
+		require.Equalf(t, 1, nativeDisabled[tool], "%s native disabled count", tool)
+	}
+}
+
+func TestLaunchRequestFromExecutableAppliesReadOnlyCodexNativeToolsForReadOnlyAgentTypes(t *testing.T) {
+	tests := []struct {
+		name      string
+		agentType contract.AgentType
+	}{
+		{name: "plan", agentType: contract.AgentTypePlan},
+		{name: "explore", agentType: contract.AgentTypeExplore},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req, err := launchRequestFromExecutable(LaunchAgentInput{
+				Name:      "agent-native-" + tt.name,
+				AgentType: string(tt.agentType),
+				Provider:  "codex",
+			}, "/tmp/agent-terminal")
+			require.NoError(t, err)
+
+			disabled := disabledToolCounts(launchEnvValue(req.Env, "AGENT_CODEX_DISABLED_NATIVE_TOOLS"))
+			for _, tool := range []string{
+				contract.CodexNativeToolShell,
+				contract.CodexNativeToolApplyPatch,
+				contract.CodexNativeToolWriteNewFile,
+				contract.CodexNativeToolSpawnAgent,
+				contract.CodexNativeToolMultiAgent,
+				contract.CodexNativeToolMultiToolParallel,
+				contract.CodexNativeToolUpdatePlan,
+			} {
+				require.Equalf(t, 1, disabled[tool], "%s native disabled count", tool)
+			}
+		})
+	}
+}
+
+func TestLaunchRequestFromExecutableDoesNotApplyReviewerDisabledToolsToWorker(t *testing.T) {
+	req, err := launchRequestFromExecutable(LaunchAgentInput{
+		Name:      "agent-worker-deny",
+		AgentType: "worker",
+		ReadOnly:  false,
+	}, "/tmp/agent-terminal")
+	require.NoError(t, err)
+
+	disabled := disabledToolCounts(launchEnvValue(req.Env, "AGENT_DISABLED_TOOLS"))
+	require.Len(t, disabled, 3)
+	for _, tool := range []string{"launch_agent", "orchestration_launch_agent", "spawn_agent"} {
+		require.Equalf(t, 1, disabled[tool], "%s disabled count", tool)
+	}
+	for _, tool := range []string{"edit", "lsp_edit", "task_start_dag"} {
+		require.NotContains(t, disabled, tool)
+	}
+
+	nativeDisabled := disabledToolCounts(launchEnvValue(req.Env, "AGENT_CODEX_DISABLED_NATIVE_TOOLS"))
+	require.Equal(t, 1, nativeDisabled[contract.CodexNativeToolSpawnAgent])
+	for _, tool := range []string{
+		contract.CodexNativeToolShell,
+		contract.CodexNativeToolApplyPatch,
+		contract.CodexNativeToolWriteNewFile,
+		contract.CodexNativeToolMultiAgent,
+		contract.CodexNativeToolUpdatePlan,
+	} {
+		require.NotContains(t, nativeDisabled, tool)
+	}
 }
 
 func TestLaunchRequestFromExecutableForwardsModel(t *testing.T) {
@@ -357,11 +501,23 @@ func TestLaunchRequestFromExecutableOmitsEmptyModel(t *testing.T) {
 func launchEnvValue(env []string, key string) string {
 	prefix := key + "="
 	for _, item := range env {
-		if strings.HasPrefix(item, prefix) {
-			return strings.TrimSpace(strings.TrimPrefix(item, prefix))
+		if value, ok := strings.CutPrefix(item, prefix); ok {
+			return strings.TrimSpace(value)
 		}
 	}
 	return ""
+}
+
+func disabledToolCounts(csv string) map[string]int {
+	counts := map[string]int{}
+	for item := range strings.SplitSeq(csv, ",") {
+		tool := strings.TrimSpace(item)
+		if tool == "" {
+			continue
+		}
+		counts[tool]++
+	}
+	return counts
 }
 
 func TestListAgentsHandlerDefaultsToActiveCompactSnapshots(t *testing.T) {

@@ -714,6 +714,29 @@ const (
 	AgentTypePlan    AgentType = "Plan"
 )
 
+var readOnlyAgentDeniedTools = []string{
+	"edit", "lsp_edit", "shared_file_write", "memory_write",
+	"task_create_dag", "task_dag_apply_ops", "task_update_node", "task_dispatch_node",
+	"task_start_dag", "task_terminate_dag", "task_delete_dag", "task_workflow_recovery_action",
+	"workspace_create_run", "workspace_merge_run", "workspace_abort_run",
+	"workflow_template_save", "workflow_template_rollback",
+	"wait", "bash_output", "BashOutput", "update_plan", "todo_write", "TodoWrite", "complete_step",
+	"multi_agent", "multi_tool_use.parallel", "spawn_agent", "send_input",
+	"resume_agent", "wait_agent", "close_agent",
+	"launch_agent", "send_message", "stop_agent", "recover_agent", "interrupt_agent",
+	"list_agents", "get_agent_report", "get_agent_reports",
+	"orchestration_launch_agent", "orchestration_send_message", "orchestration_stop_agent",
+	"orchestration_recover_agent", "orchestration_interrupt_agent", "orchestration_list_agents",
+	"orchestration_get_agent_report", "orchestration_get_agent_reports",
+	"connect_tool_source",
+}
+
+// ReadOnlyAgentDeniedTools 返回只读/规划子 agent 必须禁用的精确工具名。
+// 返回副本避免调用方修改共享 deny list，launch env 和 reviewer preset 共用这份名单。
+func ReadOnlyAgentDeniedTools() []string {
+	return append([]string(nil), readOnlyAgentDeniedTools...)
+}
+
 // AgentInput 汇总 AssembleAgent 所需的 subagent prompt 参数。
 // OverrideSystemPrompt 非空时直接作为最终系统 prompt；否则先执行 AssembleStart，
 // 再按 AgentType 应用 Explore/Plan 的规则文件、git 状态和环境信息处理。

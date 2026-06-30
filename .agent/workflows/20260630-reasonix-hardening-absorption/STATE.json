@@ -1,0 +1,101 @@
+{
+  "workflow_key": "20260630-reasonix-hardening-absorption",
+  "last_updated": "2026-07-01T02:30:15+09:00",
+  "overall_status": "done",
+  "source_plan": "docs/plans/2026-06-30-reasonix-hardening-absorption-review.md",
+  "source_plan_status": "NEEDS_APPROVAL",
+  "plan_executable": false,
+  "approval": {
+    "status": "approved",
+    "scope": "full workflow, but Lane A must finish before downstream lanes",
+    "recorded_at": "2026-06-30T19:04:46+09:00"
+  },
+  "blocked_items": [],
+  "agents": {
+    "A0-stage-source-inventory": {
+      "branch": "codex/reasonix-hardening-a0-20260630",
+      "commit": "9aa751b451fa10ddb10730138437d251c1527ab2",
+      "status": "done_with_concerns",
+      "decision": "stage_source_found=false"
+    },
+    "A1-toolpolicy-core": {
+      "branch": "codex/reasonix-hardening-a1-20260630",
+      "initial_commit": "914d5dfddb8e0315107f522f7bfd63295c3c67ff",
+      "fix_commit": "5bffbcca075917b5fad03cc09ffb831c0ef5f6c1",
+      "status": "done",
+      "review": "P1 git branch read-only classification fixed before integration"
+    },
+    "A3-readonly-delegation-filter": {
+      "branch": "codex/reasonix-hardening-a3-20260630",
+      "initial_commit": "832797fbbbe89f613d3d8573cb74f97452793a0e",
+      "exact_deny_commit": "8770a88067efca54303f07940c73afe14b242e4b",
+      "native_recursive_commit": "2637e908adebffff737f9470adb84d647e017cbb",
+      "post_review_launch_surface_commit": "836705200f7b4a7eca05bb93925dde4fbb9124f8",
+      "round2_worker_commit": "5f7406d992b4d2dba19408d738799b298673009a",
+      "round2_merge_commit": "0b16e06f",
+      "round2_worker_branch": "codex/reasonix-hardening-fix-a3-round2-20260630",
+      "unknown_native_tool_failfast_commit": "2803b0b5178959bc67bfac1951eb0da6b4f29099",
+      "unknown_native_tool_failfast_merge_commit": "ae857bba",
+      "explicit_read_only_launch_field_commit": "6fdba6c1a2552dd0cf21d25b0dcf43d5130faa2c",
+      "explicit_read_only_launch_field_merge_commit": "73fe7f12",
+      "dynamic_disabled_tool_filter_commit": "d8754cc1e86bf3dfc62273390ebebf1f86b9b3fe",
+      "dynamic_disabled_tool_filter_merge_commit": "d08c6962",
+      "lsp_hint_cleanup_commit": "dfeff4745e957ae6ee94d3f998f20c03f82ecd05",
+      "lsp_hint_cleanup_merge_commit": "28aa3e54",
+      "final_review3_scoped_surface_commit": "e82c2300356cef51d3676b7231d77fb083ee2e47",
+      "final_review3_scoped_surface_merge_commit": "29fe8e13",
+      "final_review4_resume_native_tools_commit": "7dbfc068495ee91dffcf53e9fefb760058099add",
+      "final_review4_resume_native_tools_merge_commit": "a09d7d2efde958c47087ec7b95d8fdcecd00357b",
+      "status": "done",
+      "review": "Final review2 dynamic disabled-tool repair remains integrated. User also required six LSP hints to be cleared; dfeff474/28aa3e54 cleaned range-over-int, strings.SplitSeq, strings.CutPrefix, and slices.ContainsFunc/Contains hints. Final-review3 then found Bacon P1 scoped missing-surface fallback and Turing P2 remaining history_rollout.go strings.Index hint; e82c230 fixed both. Final-review4 recorded Pasteur PASS, Popper PASS, and Meitner FAIL P1 because resume runtime codexDisabledNativeTools malformed values were silently cleaned instead of failing fast. Sartre commit 7dbfc068 fixed malformed resume validation and a09d7d2 is the latest code verification head."
+    },
+    "B1-sessionpaths-core": {
+      "agent_id": "019f1868-b4b7-7e41-9b42-2f5ce1e7d2f0",
+      "branch": "codex/reasonix-hardening-b1-20260630",
+      "commit": "2f8c85a569037f25950498dc484848b80cc942a1",
+      "status": "done",
+      "review": "Leaf sessionpaths helper, golden tests, and stdlib dependency guard accepted before B2 migration"
+    },
+    "B2-sessionpaths-migration": {
+      "agent_id": "019f187a-a355-72d1-bd51-2a8a17d1347b",
+      "branch": "codex/reasonix-hardening-b2-20260630",
+      "commit": "28e36eae9cc079daca0ffbbbd05d0836125a7d2e",
+      "status": "done",
+      "review": "Caller migration preserved provider/util fallback boundaries and scratchpad cleanup; Lane B gates passed"
+    },
+    "C1-writer-preview-spike": {
+      "agent_id": "019f188d-cbd5-74e1-a262-02e6548ddb54",
+      "branch": "codex/reasonix-hardening-c1-20260630",
+      "commit": "e13c157123fd4999b21387af0583d3a2d45f13b7",
+      "status": "done",
+      "review": "ADR-only writer preview spike accepted; no production preview API or code behavior changed"
+    },
+    "PN-integration": {
+      "branch": "codex/reasonix-hardening-integration-20260630",
+      "pre_round2_gate_head": "8fa31b90",
+      "current_base_head": "7c14c7ee435ae9051672ca79962cd938ba5ce780",
+      "round2_docs_merge_commit": "e17cb8b3",
+      "unknown_native_tool_failfast_merge_commit": "ae857bba",
+      "explicit_read_only_launch_field_merge_commit": "73fe7f12",
+      "dynamic_disabled_tool_filter_merge_commit": "d08c6962",
+      "lsp_hint_cleanup_merge_commit": "28aa3e54",
+      "previous_docs_sync_head": "ba18c2e7d54a245f3f0b7bc0b42fd388a42fb051",
+      "final_review3_target_head": "ba18c2e7d54a245f3f0b7bc0b42fd388a42fb051",
+      "round6_docs_sync_head": "4e38067ffb7c983eb58c86b57c7c1468c7e4a1b3",
+      "scoped_surface_missing_surface_commit": "e82c2300356cef51d3676b7231d77fb083ee2e47",
+      "scoped_surface_missing_surface_merge_commit": "29fe8e13",
+      "resume_native_tools_malformed_commit": "7dbfc068495ee91dffcf53e9fefb760058099add",
+      "resume_native_tools_malformed_merge_commit": "a09d7d2efde958c47087ec7b95d8fdcecd00357b",
+      "final_code_verification_head": "a09d7d2efde958c47087ec7b95d8fdcecd00357b",
+      "final_integration_head": "pending_this_docs_commit",
+      "final_integration_head_note": "ba18c2e7 was the previous docs sync head reviewed by final-review3; 4e38067f was the historical round6 docs sync head after 29fe8e13 and is no longer the final workflow sync; a09d7d2 is the latest code verification head after merging Sartre commit 7dbfc068. This round7 docs commit is the final workflow sync head, but its own SHA cannot be precomputed inside the commit.",
+      "status": "done",
+      "review": "A3 round2, docs round2, R1/R2 P1 repairs, dynamic disabled-tool repair, LSP hint cleanup, final-review3 scoped missing-surface repair, and final-review4 resume native-tool malformed-value repair are integrated; fresh controller gates passed on code verification head a09d7d2. This round7 docs-only commit is the final workflow sync head after those gates."
+    }
+  },
+  "next_actions": [
+    "Keep A2 closed as not_applicable_with_evidence unless a future approved source introduces an authoritative stage carrier.",
+    "Keep C1 production preview API and host-direct preview/execute tests deferred until a separately approved implementation task exists.",
+    "Keep unrelated main checkout dirty files out of this workflow unless the user explicitly expands scope."
+  ]
+}

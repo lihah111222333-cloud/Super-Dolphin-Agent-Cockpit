@@ -290,7 +290,11 @@ func (d *driver) buildThreadStartParams(req dto.StartSessionRequest) (threadStar
 		Sandbox:               codexSandboxWireJSON(supportutil.ConfigJSON(req.Config, "sandbox")),
 		MCPConfig:             supportutil.ConfigJSON(req.Config, "mcpConfig"),
 	}
-	codexNativeToolPolicyFromConfig(req.Config).ApplyThreadStartParams(&params)
+	policy, err := codexNativeToolPolicyFromConfig(req.Config)
+	if err != nil {
+		return threadStartParams{}, err
+	}
+	policy.ApplyThreadStartParams(&params)
 	return params, nil
 }
 
@@ -388,6 +392,10 @@ func (d *driver) codexToolSurfaceScope(agentID, localThreadID, providerThreadID,
 	if err != nil {
 		return contract.CodexToolSurfaceScope{}, fmt.Errorf("codexapp: dynamic tools mcpConfig: %w", err)
 	}
+	disabledTools, err := codexDisabledToolsFromConfig(cfg)
+	if err != nil {
+		return contract.CodexToolSurfaceScope{}, fmt.Errorf("codexapp: %w", err)
+	}
 	return contract.CodexToolSurfaceScope{
 		AgentID:          strings.TrimSpace(agentID),
 		UIThreadID:       strings.TrimSpace(localThreadID),
@@ -395,6 +403,7 @@ func (d *driver) codexToolSurfaceScope(agentID, localThreadID, providerThreadID,
 		ProviderThreadID: strings.TrimSpace(providerThreadID),
 		CWD:              cwd,
 		WorkspaceRoots:   append([]string(nil), workspaceRoots...),
+		DisabledTools:    disabledTools,
 		Manifest: contract.BuildManifest(dto.ManifestContext{
 			AgentID:                      strings.TrimSpace(agentID),
 			ThreadID:                     strings.TrimSpace(util.FirstNonEmpty(providerThreadID, localThreadID, agentID)),
@@ -408,6 +417,39 @@ func (d *driver) codexToolSurfaceScope(agentID, localThreadID, providerThreadID,
 			TransportMode:                dto.ManifestTransportStdioOnly,
 		}),
 	}, nil
+}
+
+// codexDisabledToolsFromConfig 严格读取 Codex session config 中的禁用工具列表。
+// 安全相关列表只接受字符串、csv 字符串或字符串数组，类型错误会阻断启动。
+func codexDisabledToolsFromConfig(cfg map[string]any) ([]string, error) {
+	for _, key := range []string{"disallowed_tools", "disallowedTools"} {
+		raw, ok := cfg[key]
+		if !ok {
+			continue
+		}
+		return normalizeCodexDisabledToolsConfig(key, raw)
+	}
+	return nil, nil
+}
+
+// normalizeCodexDisabledToolsConfig 校验并规范化 Codex 禁用工具配置。
+// 这里不能吞掉对象或混合数组，否则 read-only 子 agent 会误获得写工具。
+func normalizeCodexDisabledToolsConfig(key string, raw any) ([]string, error) {
+	switch typed := raw.(type) {
+	case string:
+		return providershared.SplitConfigStringSlice(typed), nil
+	case []string:
+		return providershared.TrimStrings(typed), nil
+	case []any:
+		for i, value := range typed {
+			if _, ok := value.(string); !ok {
+				return nil, fmt.Errorf("%s[%d] must be string", key, i)
+			}
+		}
+		return providershared.TrimConfigStringValues(typed), nil
+	default:
+		return nil, fmt.Errorf("%s must be string or string array", key)
+	}
 }
 
 func (d *driver) finishStartedSession(s *session, req dto.StartSessionRequest, result startResult) contract.Session {
@@ -434,8 +476,18 @@ func primeResumeToolScope(s *session, req dto.ResumeSessionRequest) {
 	}
 }
 
+// finishOrCleanupResumedSession 统一 resume 收尾失败的 session 清理，避免主流程堆高复杂度。
+func (d *driver) finishOrCleanupResumedSession(ctx context.Context, s *session, req dto.ResumeSessionRequest, threadID string) (contract.Session, error) {
+	resumed, err := d.finishResumedSession(ctx, s, req, threadID)
+	if err != nil {
+		cleanupFailedSession(s, "force stop failed on resume finalization error")
+		return nil, err
+	}
+	return resumed, nil
+}
+
 // finishResumedSession 恢复 resume 后本地 session 需要继续使用的运行配置。
-func (d *driver) finishResumedSession(ctx context.Context, s *session, req dto.ResumeSessionRequest, threadID string) contract.Session {
+func (d *driver) finishResumedSession(ctx context.Context, s *session, req dto.ResumeSessionRequest, threadID string) (contract.Session, error) {
 	s.setThreadID(threadID)
 	s.ensureRuntimeCodexHomeFromInitialize("resume")
 	if cwd := strings.TrimSpace(req.CWD); cwd != "" {
@@ -455,9 +507,11 @@ func (d *driver) finishResumedSession(ctx context.Context, s *session, req dto.R
 		s.setRuntimeConfigValue("codexDisabledNativeTools", append([]string(nil), req.CodexDisabledNativeTools...))
 	}
 	d.restoreApprovalPolicy(ctx, s, threadID)
-	applyResumeNativeToolRuntimePolicy(s, req.CodexDisabledNativeTools)
+	if err := applyResumeNativeToolRuntimePolicy(s, req.CodexDisabledNativeTools); err != nil {
+		return nil, err
+	}
 	d.reportRuntime(s.agentID, s.transport.serverURL)
-	return s
+	return s, nil
 }
 
 func (d *driver) startRemoteThreadWithDynamicTools(ctx context.Context, t *transport, req dto.StartSessionRequest, tools []codexprotocol.DynamicToolSchema) (startResult, error) {

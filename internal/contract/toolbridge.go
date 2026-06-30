@@ -112,6 +112,7 @@ type CodexToolSurfaceScope struct {
 	ProviderThreadID string
 	CWD              string
 	WorkspaceRoots   []string
+	DisabledTools    []string
 	Manifest         dto.MCPManifest
 }
 

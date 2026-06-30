@@ -1,0 +1,913 @@
+# Evidence
+
+## 2026-06-30 Orchestration Setup
+
+Status: orchestration only. No production implementation started.
+
+Commands and tool checks used:
+
+```bash
+git status --short
+rg --files | rg '(^AGENTS.md$|README.md$|docs/doc/codemap/README.md|\.agent/workflows|docs/plans/2026-06-30)'
+find .agent/workflows -maxdepth 3 -type f 2>/dev/null | sort | tail -80
+```
+
+LSP/source checks used:
+
+- `structure(document_symbol)` on `internal/platform/toolbridge/types.go`.
+- `grep(text_search)` for `type ToolCallRequest`, `type HostToolRegistry`, `type MCPTool`, rollout glob literals, and scratchpad references.
+- `file(read_file)` on `ToolCallRequest`, `HostToolRegistry`, `MCPTool`, Codex rollout discovery, historyjsonl Codex discovery, and thread scratchpad helpers.
+- `xref(references)` for `ToolCallRequest` and `sanitizeScratchpadPath`.
+
+Observed facts:
+
+- `ToolCallRequest` currently has no stage/mode field.
+- `MCPTool` currently has no read-only hint field.
+- Codex rollout glob logic exists in both provider-local rollout reading and util history fallback reading, with different fallback semantics.
+- Managed scratchpad path/sanitize/cleanup helpers are currently in `internal/module/thread/scratchpad.go`.
+- The current worktree contains unrelated modified files and an untracked source plan.
+
+Verification not run:
+
+- No Go tests were run because this turn created orchestration docs only.
+
+## 2026-06-30 Orchestration Review Fixes
+
+Status: workflow-document fixes only. No production implementation started.
+
+Fixed review findings:
+
+- Approval gate and handoff now require an isolated implementation worktree, not a plain branch in the dirty main checkout.
+- C1 writer-preview spike can only write one named ADR or one named plan amendment, not the whole `docs/plans/` directory.
+- A0 must update A3's exact ownership and verification commands before A3 can start; A3 remains blocked without those concrete paths.
+- README topology now matches `DAG.json`: Lane B and Lane C stay behind their declared dependencies.
+- B1 dependency guard and B2 literal-placement guard responsibilities are split in ownership and task text.
+
+Verification:
+
+```bash
+jq . .agent/workflows/20260630-reasonix-hardening-absorption/DAG.json >/dev/null
+jq . .agent/workflows/20260630-reasonix-hardening-absorption/STATE.json >/dev/null
+git diff --check -- .agent/workflows/20260630-reasonix-hardening-absorption
+```
+
+The red-flag placeholder scan was run against the workflow directory with evidence self-matches excluded.
+
+## 2026-06-30 Continued Orchestration Review Fixes
+
+Status: workflow-document fixes only. No production implementation started.
+
+Fixed review findings:
+
+- `DAG.json` now makes `B1-sessionpaths-core` depend on the Lane A implementation nodes, matching the README serial topology.
+- Added `SOURCE_PLAN_SNAPSHOT.md` so isolated implementation worktrees can read the execution-relevant source plan content from the workflow package even if the original untracked plan file is absent.
+- Replaced overlapping `internal/archtest/*sessionpaths*` / `*path*` ownership globs with explicit files: `sessionpaths_dependency_guard_test.go` and `sessionpaths_literal_guard_test.go`.
+- Gate 0 now says tasks have concrete verification commands or an explicit pre-start blocker when A0 must fill exact delegation commands.
+
+Verification:
+
+```bash
+jq . .agent/workflows/20260630-reasonix-hardening-absorption/DAG.json >/dev/null
+jq . .agent/workflows/20260630-reasonix-hardening-absorption/STATE.json >/dev/null
+git diff --check -- .agent/workflows/20260630-reasonix-hardening-absorption
+```
+
+## 2026-06-30 A0/A3 Ownership Boundary Fix
+
+Status: workflow-document fix only. No production implementation started.
+
+Fixed review finding:
+
+- A0 no longer edits control files directly. It writes a patch-ready proposal into `CHECKS/EVIDENCE.md`; the orchestrator must then update `FILE_OWNERSHIP.tsv` and A3 verification commands before A3 can start.
+- `FILE_OWNERSHIP.tsv` now lists A0's `CHECKS/EVIDENCE.md` append permission explicitly while keeping workflow control files under orchestrator ownership.
+- A2/A3 now use `not_applicable_with_evidence` for the no-stage-source or no-delegation-entry cases, so Lane B is not permanently blocked by an evidence-backed non-applicable Lane A subtask.
+
+## 2026-06-30 Skeptical Review State-Machine Fixes
+
+Status: workflow-document fix only. No production implementation started.
+
+Fixed review findings:
+
+- Defined `not_applicable_with_evidence` as a dependency-satisfying terminal state and kept `blocked` as non-terminal for downstream scheduling.
+- Replaced remaining stale A2 stop-state wording with the evidence-backed non-applicable state for the no-stage-source case.
+- Added `NOT_APPLICABLE_WITH_EVIDENCE` to worker return statuses.
+- Defined how worker return statuses map to lowercase DAG states, keeping `DONE_WITH_CONCERNS` and `NEEDS_CONTEXT` non-terminal until orchestrator review.
+- Replaced A1's broad `internal/archtest/` write permission with the exact `internal/archtest/toolpolicy_dependency_guard_test.go` path.
+- Tightened dirty-worktree wording so implementation lanes must use isolated worktrees and final staging remains owned-file-only.
+
+Verification:
+
+- Custom structural validation: `OK workflow structural validation passed`.
+- Custom whitespace/conflict-marker validation over untracked workflow files: `OK workflow whitespace/conflict-marker validation passed`.
+- JSON validation: both workflow JSON files parse with `jq`.
+- Tracked-diff whitespace check: `git diff --check -- .agent/workflows/20260630-reasonix-hardening-absorption` produced no output, but the custom whitespace scan is the authoritative check because these files are untracked.
+- Red-flag scan: no matches outside `CHECKS/EVIDENCE.md`.
+
+## 2026-06-30 Stash Restore Boundary Fix
+
+Status: workflow-document fix only. No production implementation started.
+
+Observed state:
+
+- Restored this workflow package and source plan from temporary stash commit `30dc0e34fc4d4e45151ccd4ecd098d49f694f673` third-parent untracked snapshot.
+- Restored only `.agent/workflows/20260630-reasonix-hardening-absorption/` and `docs/plans/2026-06-30-reasonix-hardening-absorption-review.md`.
+- Unrelated `.githooks`, older plan, and guard test changes are current dirty files and are also preserved in the stash snapshot.
+
+Fixed review finding:
+
+- `STATE.json` reports the dual boundary honestly: unrelated files are current dirty work and also stash-preserved; this workflow must not stage, edit, pop, or drop them.
+
+Verification:
+
+- Custom structural validation: `OK workflow structural validation passed`.
+- Custom whitespace/conflict-marker validation over the workflow package and source plan: `OK workflow/source whitespace/conflict-marker validation passed`.
+- JSON validation: `OK jq validation passed`.
+- Red-flag scan outside `CHECKS/EVIDENCE.md`: no matches.
+- Current unrelated dirty files remain outside workflow ownership: `.githooks/README.md`, `.githooks/pre-commit`, `docs/plans/2026-06-29-reasonix-design-absorption-plan.md`, `scripts/guard_fix_commits_have_tests_guard_test.go`, and `scripts/guard_fix_commits_have_tests_helpers_test.go`.
+
+## 2026-06-30 A0 Stage Source Inventory
+
+Status: source inventory only. No production implementation started. Source plan remains `NEEDS_APPROVAL`; execution flag remains `plan_executable=false`.
+
+Exact commands/tools used:
+
+```bash
+git status --short
+git branch --show-current
+git rev-parse --show-toplevel
+git worktree list --porcelain
+rg --files internal/platform/toolbridge | rg 'handler.*\.go$'
+rg -n 'AgentTypePlan|update_plan|EnterPlanMode|ExitPlanMode|TodoWrite|readOnlyHint|PlanSafety|toolfilter' internal cmd
+rg -n 'defineTaskWriteTool|task_create_dag|task_apply_ops|task_start_dag|task_update_node|task_dispatch_node' cmd/mcp-orch/tools
+rg -n 'tts_generate|av_merge|video_with_audio|ttsToolDefinitions|avMergeToolDefinitions|videoWithAudioToolDefinitions' cmd/mcp-orch/tools internal/platform/shared/builtinprompts internal/platform/shared/workflowtemplates internal/archtest
+rg -n 'ListHostTools|WorkflowTemplateWriteHostToolRegistry|ToolNameWorkflowTemplateSave|ToolNameWorkflowTemplateRollback|ToolNameMemoryWrite|NewCompositeHostToolRegistry|provideHostToolRegistry|memory_write' internal/platform/toolbridge internal/app internal/module/memory
+```
+
+LSP tools/actions used:
+
+- `structure(document_symbol)` on `internal/platform/toolbridge/types.go`, `internal/platform/toolbridge/handler.go`, `internal/platform/toolbridge/handler_host_tools.go`, `internal/platform/toolbridge/host_tools.go`, `cmd/mcp-orch/tools/registry.go`, and `cmd/mcp-lsp/tools/tool_edit.go`.
+- `structure(workspace_symbol)` for `ToolCallRequest`, `HandleToolCall`, `AgentTypePlan`, `CodexNativeToolUpdatePlan`, `ReviewerDecision`, `codexSandboxIsReadOnly`, and `taskToolDefinitions`.
+- `grep(text_search)` for `AgentTypePlan|update_plan|EnterPlanMode|ExitPlanMode|TodoWrite|readOnlyHint|PlanSafety|toolfilter` under `internal cmd`.
+- `grep(ast_search)` for `func ($R) HandleToolCall($$$)` and `func ($R) CallHostTool($$$)`.
+- `inspect(definition)` for `AgentTypePlan`, `CodexNativeToolUpdatePlan`, `ReviewerDecision`, and `codexSandboxIsReadOnly`.
+- `xref(references)` for `ToolCallRequest`, `AgentTypePlan`, `CodexNativeToolUpdatePlan`, and `codexSandboxIsReadOnly`.
+- `xref(call_hierarchy)` for `HandleToolCall`, `ReviewerDecision`, and `codexSandboxIsReadOnly`.
+- `file(read_file)` for the exact functions/line windows listed below.
+- `file(diagnostics)` on `internal/platform/toolbridge/types.go`, `internal/platform/toolbridge/handler.go`, and `internal/platform/toolbridge/handler_host_tools.go`: no diagnostics.
+
+LSP limitations observed:
+
+- `xref(call_hierarchy)` on `internal/contract/prompt.go:714:2` returned `AgentTypePlan is not a function`; this is expected for a constant and is not counted as call-hierarchy evidence.
+- `structure(document_symbol)` on `cmd/mcp-lsp/tools/edit.go` failed because that path does not exist. Exact follow-up located the real file at `cmd/mcp-lsp/tools/tool_edit.go`.
+
+Stage-source anchors:
+
+- `internal/platform/toolbridge/types.go:27-36` defines `ToolCallRequest` with `Name`, `Arguments`, `AgentID`, `ThreadID`, `TurnID`, `CallID`, `CWD`, `WorkspaceRoots`, `ClientKind`, and internal `Scoped`; there is no `stage`, `mode`, `planning`, or `execution` field.
+- `internal/platform/toolbridge/types.go:40-49` normalizes those existing fields only.
+- `internal/platform/toolbridge/handler.go:136-156` decodes a `ToolCallRequest`, normalizes tracing metadata, routes Codex surface tools first, then calls `routeToolCall`; no stage value is read or derived.
+- `internal/platform/toolbridge/handler_peer_decode.go:474-520` routes Codex surface calls by surface alias, entry execution kind, lifecycle, schema validation, and injected launch context; no planning/execution stage branch exists.
+- LSP `xref(references)` for `ToolCallRequest` found consumers in `diff_gen.go`, `handler.go`, `handler_host_tools.go`, `handler_managed_launch.go`, `handler_peer_decode.go`, and decode helpers; the visible reference set used request metadata, routing, host tool, managed launch, lifecycle, and diff paths, not a stage carrier.
+- `internal/dto/mcp/tool.go:7-12` defines `MCPTool` with name/description/input/output schema only; it does not carry `readOnlyHint`.
+- `internal/contract/prompt.go:707-714` defines `AgentTypePlan` as a subagent prompt assembly type, not a tool-call stage.
+- `internal/module/prompt/agent_assembler.go:26-37` uses `AgentTypePlan` only while assembling subagent prompts.
+- `internal/module/prompt/agent_assembler.go:53-74` uses `AgentTypePlan` with `AgentTypeExplore` to redact parent context.
+- `internal/module/thread/start_session_helpers.go:296-303` recognizes `AgentTypePlan` as a known subagent type; this is still session/prompt identity, not runtime tool stage.
+- `internal/contract/provider.go:65` defines Codex native tool `update_plan`.
+- `internal/contract/provider.go:138-156` treats `update_plan` as a known Codex native tool ID.
+- `internal/contract/provider.go:243-259` classifies `update_plan` as a soft-audit native tool, not as authoritative stage input.
+- `internal/provider/codexapp/driver.go:139-170` exposes Codex native tool descriptors; `CodexNativeToolUpdatePlan` is default-disabled soft filter metadata.
+- `internal/module/prompt/section.go:127-144` mentions `update_plan` only in prompt/tool-preference text.
+- `internal/provider/claudecli/module.go:53-60` declares Claude native `EnterPlanMode`, `ExitPlanMode`, and `TodoWrite` as default-disabled hard-filter native tools.
+- `internal/provider/codexapp/driver_pool_routing.go:581-605` parses Codex sandbox read-only state conservatively; it recognizes only explicit read-only/readOnly forms.
+- `internal/provider/codexapp/native_tool_policy_validation_test.go:62-84` proves `{"readOnlyHint":true}` alone is not trusted as read-only.
+- The required `rg` command found no `PlanSafety` match under `internal cmd`.
+
+Decision:
+
+- `stage_source_found=false`
+- V3 currently has planning-related prompt/native-tool markers, but no authoritative runtime/contract field carrying `planning` versus `execution` into `internal/platform/toolbridge`.
+- A2 runtime blocking must remain absent and A2 should close as `not_applicable_with_evidence`; do not wire toolbridge runtime blocking from `AgentTypePlan`, `update_plan`, Claude plan-mode tools, or external `readOnlyHint`.
+
+Read-only delegation entry point found:
+
+- `internal/provider/toolfilter/presets.go:5-14` defines the current reviewer allow/deny lists.
+- `internal/provider/toolfilter/presets.go:22-30` defines `ReviewerDecision()` as a read-only delegation preset allowing LSP/file/shared-file read tools and denying `edit`, `lsp_edit`, `orchestration_launch_agent`, and `orchestration_stop_agent`.
+- `internal/provider/toolfilter/presets_test.go:17-40` tests allowed read-only tools, denied write/lifecycle tools, and exclusion of `shared_file_write`.
+- Pre-round2 LSP `xref(call_hierarchy)` for `ReviewerDecision` did not cover remote launch or thread startup paths, so it was only a partial delegation entry point.
+
+Patch-ready orchestrator proposal for A3:
+
+```diff
+--- a/.agent/workflows/20260630-reasonix-hardening-absorption/FILE_OWNERSHIP.tsv
++++ b/.agent/workflows/20260630-reasonix-hardening-absorption/FILE_OWNERSHIP.tsv
+@@
+-internal/provider/toolfilter/	A3-readonly-delegation-filter	RW	Reuse reviewer preset only as input; not a complete policy owner.
++internal/provider/toolfilter/presets.go	A3-readonly-delegation-filter	RW	Tighten read-only delegation preset; must exclude writer, planning mutator, lifecycle/process-control, recursive agent, connector, and untrusted external hint surfaces.
++internal/provider/toolfilter/presets_test.go	A3-readonly-delegation-filter	RW	Focused tests for read-only delegation allow/deny surface.
+```
+
+```diff
+--- a/.agent/workflows/20260630-reasonix-hardening-absorption/TASKS/A3-readonly-delegation-filter.md
++++ b/.agent/workflows/20260630-reasonix-hardening-absorption/TASKS/A3-readonly-delegation-filter.md
+@@
++Source entry point:
++- `internal/provider/toolfilter/presets.go:5-14`
++- `internal/provider/toolfilter/presets.go:22-30`
++- `internal/provider/toolfilter/presets_test.go:17-40`
++
++Recommended verification commands:
++```bash
++./scripts/test_with_guard.sh ./internal/provider/toolfilter -run 'Reviewer|Worker|FullAccess' -count=1
++rg -n 'ReviewerDecision|reviewerAllowedTools|reviewerDeniedTools|shared_file_write|orchestration_launch_agent|lsp_edit|memory_write|task_|workspace_|workflow_template_|update_plan' internal/provider/toolfilter internal/platform/toolbridge cmd/mcp-orch/tools cmd/mcp-lsp
++```
+```
+
+C1 reusable model-callable writer/tool-surface family anchors:
+
+- Host-direct tool surface: `internal/platform/toolbridge/handler_peer_decode.go:98-107` adds host tools into the Codex surface; `internal/platform/toolbridge/host_tools.go:29-40` defines `HostToolRegistry`.
+- Host-direct default writer: `internal/platform/toolbridge/memory_write_tool.go:14-22` defines `memory_write`; `internal/platform/toolbridge/memory_write_tool.go:51-82` exposes and calls it when enabled.
+- Host-direct workflow template read/write split: `internal/platform/toolbridge/host_tools.go:57-64` defines template tools; `internal/platform/toolbridge/host_tools.go:187-199` exposes read-only list/get/render; `internal/platform/toolbridge/host_tools.go:236-281` exposes authorized `workflow_template_save` and `workflow_template_rollback`.
+- MCP LSP writer: `cmd/mcp-lsp/tools.go:35-41` registers `edit`; `cmd/mcp-lsp/schema.go:131-140` declares `replace_range`, `rename`, `code_action`, and `format`; `cmd/mcp-lsp/tools/tool_edit.go:68-99` dispatches those actions.
+- MCP LSP write behavior: `cmd/mcp-lsp/tools/tool_edit_replace.go:170-249` applies `replace_range`; `cmd/mcp-lsp/tools/tool_edit_lsp_actions.go:21-82` can apply a single `code_action` workspace edit; `cmd/mcp-lsp/tools/tool_edit_lsp_actions.go:84-112` applies format edits.
+- MCP-orch registry surface: `cmd/mcp-orch/tools/registry.go:38-48` registers orchestration/task/workspace/prompt/command/shared-file/registry/TTS/AV/video tool families.
+- MCP-orch task writers: `cmd/mcp-orch/tools/task_tool_definitions.go:17-27` defines `defineTaskWriteTool`; `cmd/mcp-orch/tools/task_tool_definitions.go:50-101` registers `task_create_dag`, `task_dag_apply_ops`, `task_update_node`, `task_dispatch_node`, `task_start_dag`, `task_terminate_dag`, `task_delete_dag`, and recovery action as high-risk workflow-write tools.
+- MCP-orch workspace writers: `cmd/mcp-orch/tools/workspace_tools.go:117-150` registers `workspace_create_run`, `workspace_merge_run` with `dry_run`, and `workspace_abort_run`.
+- MCP-orch shared-file writer: `cmd/mcp-orch/tools/shared_file_tools.go:50-61` registers `shared_file_write`; `cmd/mcp-orch/tools/shared_file_tools.go:85-112` validates write path/content and upserts.
+- Artifact/process side-effect tools: `cmd/mcp-orch/tools/tts_tools.go:23-57` registers `tts_generate`; `cmd/mcp-orch/tools/av_merge_tools.go:21-35` registers `av_merge`; `cmd/mcp-orch/tools/video_with_audio_tools.go:24-42` registers `video_with_audio`.
+- Provider-native boundaries: `internal/provider/codexapp/driver.go:139-170` lists Codex native tools such as file write/apply patch/shell/subagent/update_plan; `internal/provider/claudecli/module.go:47-76` lists Claude native tools including write/edit/bash/plan/todo/task controls.
+
+## 2026-06-30 A0 Main Review And Dispatch Decision
+
+Status: orchestration-control update only. No production implementation performed by the main agent.
+
+User approval recorded:
+
+- Approved full workflow with Lane A first.
+- Constraint: all execution must happen in child agents and independent worktrees; main agent only reviews and integrates.
+
+A0 review:
+
+- Worker branch: `codex/reasonix-hardening-a0-20260630`.
+- Worker commit: `9aa751b451fa10ddb10730138437d251c1527ab2`.
+- Main LSP review confirmed `ToolCallRequest` has no stage/mode field and `HandleToolCall` does not read or derive a planning/execution stage.
+- Main LSP review confirmed `ReviewerDecision` exists in `internal/provider/toolfilter/presets.go` and is covered by `internal/provider/toolfilter/presets_test.go`.
+- Main verification reran the required `rg` command and `git diff --check` for the A0 evidence diff.
+
+Dispatch decision:
+
+- A0 accepted as `done_with_concerns`.
+- A2 mapped to `not_applicable_with_evidence` because `stage_source_found=false`.
+- A0's A3 ownership proposal was applied to workflow control files before A3 dispatch.
+
+## 2026-06-30 A1 Toolpolicy Core Review And Integration
+
+Status: A1 production implementation was performed by a child agent in an isolated worktree and reviewed before integration.
+
+Worker branch and commits:
+
+- Branch: `codex/reasonix-hardening-a1-20260630`.
+- Initial commit: `914d5dfddb8e0315107f522f7bfd63295c3c67ff`.
+- Fix commit: `5bffbcca075917b5fad03cc09ffb831c0ef5f6c1`.
+- Integrated by fast-forward into `codex/reasonix-hardening-integration-20260630`.
+
+Ownership review:
+
+- `git diff --name-status 93fa54348efecaa01b7ee4fb374b6de198aa6d76..HEAD` showed only A1-owned files:
+  - `internal/platform/toolpolicy/policy.go`
+  - `internal/platform/toolpolicy/shell.go`
+  - `internal/platform/toolpolicy/policy_test.go`
+  - `internal/archtest/toolpolicy_dependency_guard_test.go`
+- No workflow, provider, toolbridge, frontend, generated, or mcp-orch production files were changed by the A1 worker.
+
+Review finding and fix:
+
+- Independent reviewer first returned `FAIL` because `allowGitArgs` treated every `git branch ...` invocation as read-only, allowing write forms such as `git branch foo`, `git branch -d foo`, `git branch -D foo`, rename, and upstream-changing commands.
+- The A1 worker added regression tests for those `git branch` write forms and for `git diff --output file`.
+- The A1 worker split `git branch` validation into exact read-only forms and added rejection for space-separated dangerous output/config args.
+- Independent reviewer reran after `5bffbcca075917b5fad03cc09ffb831c0ef5f6c1` and returned `PASS`.
+
+Main LSP review:
+
+- `structure(document_symbol)` on `internal/platform/toolpolicy/policy.go`, `shell.go`, and `policy_test.go` confirmed the new owner package shape.
+- `xref(references)` for `ClassifyShell` showed only same-package tests plus the declaration, so A1 did not wire A2 runtime blocking.
+- `file(diagnostics)` for `internal/platform/toolpolicy/policy.go`, `internal/platform/toolpolicy/shell.go`, `internal/platform/toolpolicy/policy_test.go`, and `internal/archtest/toolpolicy_dependency_guard_test.go` returned no diagnostics.
+
+Main verification:
+
+```bash
+./scripts/test_with_guard.sh ./internal/platform/toolpolicy -run 'Plan|ReadOnly|Trust|Shell' -count=1
+./scripts/test_with_guard.sh ./internal/archtest -run 'ToolPolicy|Dependency' -count=1
+git diff --check 93fa54348efecaa01b7ee4fb374b6de198aa6d76..HEAD
+git diff --cached --check
+git status --short
+```
+
+All commands above passed; both status checks produced no output.
+
+Dispatch decision:
+
+- A1 accepted as `done`.
+- A3 moved to `ready` because A0 identified exact delegation entry files and A1 is now integrated.
+- Lane B remains waiting until A3 and the remaining Lane A gates close.
+
+## 2026-06-30 A3 Read-only Delegation Filter Review And Lane A Gate
+
+Status: A3 production implementation was performed by a child agent in an isolated worktree and reviewed before integration.
+
+Worker branch and commits:
+
+- Agent id: `019f1825-176b-71a0-bfb3-b5b079d6087c`.
+- Branch: `codex/reasonix-hardening-a3-20260630`.
+- Initial commit: `832797fbbbe89f613d3d8573cb74f97452793a0e`.
+- Exact-deny fix commit: `8770a88067efca54303f07940c73afe14b242e4b`.
+- Native-recursive fix commit: `2637e908adebffff737f9470adb84d647e017cbb`.
+- Integrated by fast-forward into `codex/reasonix-hardening-integration-20260630`.
+
+Pre-round2 ownership review:
+
+- `git diff --name-status 686d6f76..2637e908adebffff737f9470adb84d647e017cbb` showed only the pre-round2 A3-owned toolfilter files at that time:
+  - `internal/provider/toolfilter/presets.go`
+  - `internal/provider/toolfilter/presets_test.go`
+- This statement is historical. Later post-review repairs expanded A3 ownership to orchestration launch, contract, thread startup config, and Codex provider test files.
+
+Review findings and fixes:
+
+- First main review held A3 because `DeniedTools` used `task_`, `workspace_`, and `workflow_template_` prefix sentinels, while real `internal/platform/hooks/merge.go` only merges exact string names. The A3 worker replaced prefix sentinels with exact tool names and added a regression test proving prefix sentinels are not used.
+- Second main review held A3 because Codex native recursive controls were missing. Source anchors included `internal/contract/provider.go:41-47`, `internal/contract/provider.go:121-130`, `internal/provider/codexapp/driver.go:145-151`, and `cmd/mcp-orch/tools/orchestration_tools.go:120-121`. The A3 worker added exact denies for `multi_agent`, `multi_tool_use.parallel`, `spawn_agent`, `send_input`, `resume_agent`, `wait_agent`, and `close_agent`.
+- Read-only reviewer `019f183f-c27b-7de3-af87-cc5d040d64d5` was resumed with the latest commit, but timed out without a verdict and was closed as `shutdown`. The controller did not use the stale/absent reviewer verdict for acceptance.
+
+Main LSP review:
+
+- `structure(document_symbol)` on `internal/provider/toolfilter/presets.go` and `presets_test.go` confirmed the new helper functions and tests.
+- Pre-round2 `xref(references)` for `ReviewerDecision` and `reviewerDeniedTools` did not cover the later remote launch or thread startup repair paths.
+- This was a pre-round2 check and did not cover the remote launch/thread RPC config path fixed later.
+- `file(diagnostics)` for `internal/provider/toolfilter/presets.go` and `internal/provider/toolfilter/presets_test.go` returned no diagnostics.
+
+Lane A verification after integration:
+
+```bash
+./scripts/test_with_guard.sh ./internal/platform/toolpolicy ./internal/provider/toolfilter ./internal/platform/toolbridge ./internal/provider/codexapp ./internal/provider/claudecli -run 'Plan|ReadOnly|Trust|Shell|Lifecycle|Sandbox|Permission|Reviewer|Worker|FullAccess|Native|Tool' -count=1
+./scripts/test_with_guard.sh ./internal/archtest -run 'Dependency|Tool|Provider' -count=1
+make guard
+git diff --check 686d6f76..HEAD
+git diff --cached --check
+git status --short
+```
+
+All commands above passed; `git diff --cached --check` and final status checks produced no output.
+
+Pre-round2 dispatch decision, later reopened:
+
+- The controller moved A3 to `done` at that time.
+- Lane A gate evidence existed at that time but is superseded by the post-review A3 repairs below.
+- B1 moved to `ready`; B2 and C1 remain waiting behind the DAG.
+
+## 2026-06-30 A3 Post-review Repairs
+
+Status: A3 pre-round2 closure was reopened by review, then closed at round2. Later P1 repairs are recorded in the final gate section below.
+
+Repair commits:
+
+- `836705200f7b4a7eca05bb93925dde4fbb9124f8` (`修复只读子代理启动工具面`) is included by round2 base head `7c14c7ee435ae9051672ca79962cd938ba5ce780`.
+- `5f7406d992b4d2dba19408d738799b298673009a` (`修复只读子代理原生工具面`) was merged by `0b16e06f`.
+- Docs round2 commit `ade6151d28c4d6480029cfe087322ec2acb2aebf` was merged by historical docs merge `e17cb8b3`.
+- `2803b0b5178959bc67bfac1951eb0da6b4f29099` (`修复 Codex 原生工具未知禁用项校验`) was merged by `ae857bba`.
+- `6fdba6c1a2552dd0cf21d25b0dcf43d5130faa2c` (`修复: 增加 launch_agent 只读字段`) was merged by `73fe7f12`.
+
+Round2 ownership:
+
+- `83670520` changed:
+  - `cmd/mcp-orch/tools/orchestration_tools.go`
+  - `cmd/mcp-orch/tools/orchestration_tools_test.go`
+  - `internal/contract/prompt.go`
+  - `internal/provider/toolfilter/presets.go`
+- `5f7406d` changed:
+  - `cmd/mcp-orch/tools/orchestration_tools.go`
+  - `cmd/mcp-orch/tools/orchestration_tools_test.go`
+  - `internal/contract/provider.go`
+  - `internal/module/thread/start_session_helpers.go`
+  - `internal/module/thread/start_session_helpers_test.go`
+  - `internal/provider/codexapp/driver_session_test.go`
+- `2803b0b` changed:
+  - `internal/contract/provider.go`
+  - `internal/provider/codexapp/driver.go`
+  - `internal/provider/codexapp/driver_pool_routing.go`
+  - `internal/provider/codexapp/driver_session_test.go`
+  - `internal/provider/codexapp/native_tool_policy_validation_test.go`
+  - `internal/provider/codexapp/support.go`
+- `6fdba6c` changed:
+  - `cmd/mcp-orch/tools/orchestration_tool_definitions.go`
+  - `cmd/mcp-orch/tools/orchestration_tools.go`
+  - `cmd/mcp-orch/tools/orchestration_tools_test.go`
+
+Review findings and fixes:
+
+- R1 round2 fixed: Plan/Explore Codex launches disable native shell/write/recursive/update-plan surfaces through `AGENT_CODEX_DISABLED_NATIVE_TOOLS`.
+- R1 final P1 fixed: `launch_agent.read_only=true` is now the structured read-only/review/planning delegation flag; free-form `agent_type` is no longer the only stage signal, Plan/Explore compatibility remains, and ordinary workers are not read-only.
+- R2 round2 fixed: `buildStartSessionConfig` now merges launch `codexDisabledNativeTools` with assembly-suppressed tools instead of dropping the launch list when assembly suppression exists.
+- R2 final P1 fixed: non-empty unknown `codexDisabledNativeTools` IDs now fail-fast across start/resume typed paths.
+- R3 passed without additional code repair.
+
+Worker verification:
+
+```bash
+# RED before 5f7406d
+./scripts/test_with_guard.sh ./cmd/mcp-orch/tools ./internal/module/thread ./internal/provider/codexapp -run 'LaunchRequestFromExecutableAppliesReadOnlyCodexNativeToolsForReadOnlyAgentTypes|BuildStartSessionConfigMergesLaunchToolSurfaceConfig|CodexNativeToolPolicyUsesReadOnlySandboxForReadOnlyLaunchDenyList' -count=1
+
+# GREEN after 5f7406d
+./scripts/test_with_guard.sh ./cmd/mcp-orch/tools ./internal/module/thread ./internal/provider/codexapp ./internal/contract -run 'LaunchRequestFromExecutable|BuildStartSessionConfig|CodexNativeToolPolicy|ReadOnly' -count=1
+./scripts/test_with_guard.sh ./cmd/mcp-orch/tools ./internal/module/thread ./internal/provider/toolfilter ./internal/platform/toolpolicy ./internal/contract -count=1
+git diff --check
+```
+
+Round2 controller evidence:
+
+- `git diff --check 7c14c7ee435ae9051672ca79962cd938ba5ce780...HEAD` passed on the round2 code head.
+- `git diff --check 5ccc29e69c48c407895b2d9a4182b0d124d6b813...HEAD` passed.
+- `git diff --cached --check` passed.
+- Round2 A3 focused guard, broad A3/toolpolicy guard, Lane A guard, Lane B guard, C1 scoped writer-surface `rg`, archtest aggregation, and `make guard` passed.
+- Later P1 repair gates are recorded in the final gate section below.
+
+## 2026-06-30 B1 Sessionpaths Core Review And Integration
+
+Status: B1 production implementation was performed by a child agent in an isolated worktree and reviewed before integration.
+
+Worker branch and commit:
+
+- Agent id: `019f1868-b4b7-7e41-9b42-2f5ce1e7d2f0`.
+- Branch: `codex/reasonix-hardening-b1-20260630`.
+- Commit: `2f8c85a569037f25950498dc484848b80cc942a1`.
+- Integrated by fast-forward into `codex/reasonix-hardening-integration-20260630`.
+
+Ownership review:
+
+- `git diff --name-status 4e026395..HEAD` showed only B1-owned files:
+  - `internal/platform/sessionpaths/sessionpaths.go`
+  - `internal/platform/sessionpaths/sessionpaths_test.go`
+  - `internal/archtest/sessionpaths_dependency_guard_test.go`
+- No provider, module, util caller, workflow template, frontend, generated, or unrelated files were changed by the B1 worker.
+
+Main LSP review:
+
+- `structure(document_symbol)` on `internal/platform/sessionpaths/sessionpaths.go` confirmed the exported helpers `CodexRolloutGlob`, `ManagedScratchpadDir`, `IsManagedScratchpadDir`, and `SanitizeProjectPath`.
+- `file(diagnostics)` for the new sessionpaths files and `internal/archtest/sessionpaths_dependency_guard_test.go` returned no diagnostics.
+- `xref(references)` for `CodexRolloutGlob` showed only same-package tests and the declaration, confirming B1 did not migrate callers.
+
+Behavior review:
+
+- `CodexRolloutGlob` only trims and validates `codexHome`/`threadID`, then derives `sessions/*/*/*/rollout-*-<threadID>.jsonl`; it does not glob, sort, stat, read HOME/env, or implement provider/util fallback behavior.
+- `ManagedScratchpadDir`, `IsManagedScratchpadDir`, and `SanitizeProjectPath` preserve the current thread scratchpad path shape and slug rules while taking `tempRoot` as an explicit parameter.
+- The dependency guard scans non-test production files in `internal/platform/sessionpaths` and rejects repo-internal and non-stdlib imports.
+
+Main verification:
+
+```bash
+./scripts/test_with_guard.sh ./internal/platform/sessionpaths -run 'Rollout|Scratchpad|Path' -count=1
+./scripts/test_with_guard.sh ./internal/archtest -run 'Dependency|Path' -count=1
+./scripts/test_with_guard.sh ./internal/provider/codexapp ./internal/module/thread ./internal/util/historyjsonl -run 'Rollout|Scratchpad|Path|Cleanup|CodexHome|History' -count=1
+git diff --check 4e026395..HEAD
+git diff --cached --check
+git status --short
+```
+
+All commands above passed; `git diff --cached --check` and final status checks produced no output.
+
+Dispatch decision:
+
+- B1 accepted as `done`.
+- B2 moved to `ready`; C1 remains waiting behind B2.
+
+## 2026-06-30 B2 Sessionpaths Migration Review And Lane B Gate
+
+Status: B2 production implementation was performed by a child agent in an isolated worktree and reviewed before integration.
+
+Worker branch and commit:
+
+- Agent id: `019f187a-a355-72d1-bd51-2a8a17d1347b`.
+- Branch: `codex/reasonix-hardening-b2-20260630`.
+- Commit: `28e36eae9cc079daca0ffbbbd05d0836125a7d2e`.
+- Integrated by fast-forward into `codex/reasonix-hardening-integration-20260630`.
+
+Ownership review:
+
+- `git diff --name-status de6df85b..HEAD` showed only B2-owned files:
+  - `internal/provider/codexapp/history_rollout.go`
+  - `internal/util/historyjsonl/history.go`
+  - `internal/module/thread/scratchpad.go`
+  - `internal/module/thread/phasef_scratchpad_test.go`
+  - `internal/archtest/sessionpaths_literal_guard_test.go`
+- Main checkout was checked after the worker reported an accidental patch landing there; the B2-owned production/test files had no residual main checkout diff.
+
+Main LSP review:
+
+- `xref(references)` for `CodexRolloutGlob` showed the declaration, same-package tests, and the two expected caller migrations in provider/codexapp and util/historyjsonl.
+- `xref(references)` for `ManagedScratchpadDir` and `IsManagedScratchpadDir` showed only the expected thread caller migrations plus same-package tests.
+- `file(diagnostics)` for the modified caller files and `internal/archtest/sessionpaths_literal_guard_test.go` returned no new diagnostics; the only provider hint remained the pre-existing `strings.Cut` simplification hint.
+
+Behavior review:
+
+- `findRolloutPath` still obtains the root from `resolveRolloutRoot`, preserving the explicit `CODEXAPP_ALLOW_LEGACY_DEFAULT_HOME=1` legacy fallback before calling `sessionpaths.CodexRolloutGlob`.
+- `discoverCodexPath` still obtains the root from `codexRoot(req.CodexHome)`, preserving util/historyjsonl empty Codex home fallback to `~/.codex`.
+- Thread scratchpad still owns `os.MkdirAll`, `os.Chmod`, and cleanup; `sessionpaths` only derives paths and managed-dir membership.
+- `sessionpaths_literal_guard_test.go` is separate from the B1 dependency guard and limits literal placement checks to B2-owned production caller files.
+
+Lane B verification after integration:
+
+```bash
+./scripts/test_with_guard.sh ./internal/platform/sessionpaths ./internal/provider/codexapp ./internal/module/thread ./internal/util/historyjsonl -run 'Rollout|Scratchpad|Path|Cleanup|CodexHome|History' -count=1
+./scripts/test_with_guard.sh ./internal/archtest -run 'Dependency|Path|Provider|Thread' -count=1
+make guard
+git diff --check de6df85b..HEAD
+git diff --cached --check
+git status --short
+```
+
+All commands above passed; `git diff --cached --check` and final status checks produced no output.
+
+Dispatch decision:
+
+- B2 accepted as `done`.
+- Lane B gates passed.
+- C1 moved to `ready`; PN-integration remains waiting behind C1.
+
+## 2026-06-30 C1 Writer Preview Spike Review And Integration
+
+Status: C1 documentation spike was performed by a child agent in an isolated worktree and reviewed before integration. No production preview API or behavior change was introduced.
+
+Worker branch and commit:
+
+- Agent id: `019f188d-cbd5-74e1-a262-02e6548ddb54`.
+- Branch: `codex/reasonix-hardening-c1-20260630`.
+- Commit: `e13c157123fd4999b21387af0583d3a2d45f13b7`.
+- Integrated by fast-forward into `codex/reasonix-hardening-integration-20260630`.
+
+Ownership review:
+
+- `git diff --name-status 66915977..HEAD` showed only the C1-owned ADR output:
+  - `docs/adr/2026-06-30-writer-preview-contract-spike.md`
+- Main checkout was checked before integration; the ADR had no residual main checkout diff.
+
+Main LSP/source review:
+
+- `file(read_file)` on `cmd/mcp-orch/workspace/service.go:256` and `cmd/mcp-orch/workspace/service_dry_run.go:11` confirmed `workspace_merge_run.dry_run=true` transitions persistent run status `active -> merging -> active`, so it is not a pure pre-call preview.
+- Source review confirmed `memory_write` is capability-gated host-direct, workflow template save/rollback uses a separate protected write registry, mcp-lsp `edit` actions write files, mcp-orch task/workspace/shared-file/media tools are side-effecting, and difftracker is post-call observation.
+- Provider codemap/source review confirmed Codex and Claude native writers are provider-native boundaries for this spike.
+
+Lane C verification after integration:
+
+```bash
+rg -n 'memory_write|workflow_template_save|workflow_template_rollback|shared_file_write|defineTaskWriteTool|workspace_create_run|workspace_merge_run|workspace_abort_run|tts_generate|av_merge|video_with_audio|difftracker|Preview' internal cmd docs
+./scripts/test_with_guard.sh ./internal/archtest -run 'VideoSkill|Tool|Preview|Workflow|Dependency' -count=1
+git diff --check 66915977..HEAD
+git diff --cached --check
+git status --short
+```
+
+All commands above passed; `git diff --check`, `git diff --cached --check`, and final status checks produced no output.
+
+Dispatch decision:
+
+- C1 accepted as `done`.
+- Lane C spike gates passed.
+- PN-integration moved to `ready`.
+
+## 2026-06-30 PN Pre-round2 Integration Gate
+
+Status: pre-round2 integration review and verification were recorded on `codex/reasonix-hardening-integration-20260630`; this section is superseded by the A3 post-review repairs above.
+
+Integration branch state before final workflow status update:
+
+- Branch: `codex/reasonix-hardening-integration-20260630`.
+- Head: `8fa31b90`.
+- Worktree status: clean.
+
+Final verification:
+
+```bash
+./scripts/test_with_guard.sh ./internal/platform/toolpolicy ./internal/provider/toolfilter ./internal/platform/toolbridge ./internal/provider/codexapp ./internal/provider/claudecli -run 'Plan|ReadOnly|Trust|Shell|Lifecycle|Sandbox|Permission|Reviewer|Worker|FullAccess|Native|Tool' -count=1
+./scripts/test_with_guard.sh ./internal/platform/sessionpaths ./internal/provider/codexapp ./internal/module/thread ./internal/util/historyjsonl -run 'Rollout|Scratchpad|Path|Cleanup|CodexHome|History' -count=1
+rg -n 'memory_write|workflow_template_save|workflow_template_rollback|shared_file_write|defineTaskWriteTool|workspace_create_run|workspace_merge_run|workspace_abort_run|tts_generate|av_merge|video_with_audio|difftracker|Preview' internal cmd docs
+./scripts/test_with_guard.sh ./internal/archtest -run 'Dependency|Tool|Provider|Path|Preview|Workflow' -count=1
+make guard
+git diff --check
+git diff --cached --check
+git status --short
+```
+
+Results:
+
+- Lane A guard command passed.
+- Lane B guard command passed.
+- C1 writer/preview `rg` evidence command exited 0.
+- Final archtest aggregation passed.
+- `make guard` passed.
+- `git diff --check`, `git diff --cached --check`, and `git status --short` produced no output.
+
+Dispatch decision:
+
+- PN-integration was recorded as `done` at the time.
+- Final closure is re-recorded in the after-round2 section below.
+
+## 2026-06-30 PN Round2 Integration Gate After A3 Round2
+
+Status: round2 code verification completed on `e17cb8b393293f34ae8af73238906b66abc8d45c`; later P1 repairs supersede this as the latest code verification point.
+
+Integrated commits:
+
+- `0b16e06f` merged A3 round2 worker commit `5f7406d992b4d2dba19408d738799b298673009a`.
+- `e17cb8b3` merged docs round2 commit `ade6151d28c4d6480029cfe087322ec2acb2aebf`.
+
+Fresh verification:
+
+```bash
+git diff --check 7c14c7ee435ae9051672ca79962cd938ba5ce780...HEAD
+git diff --check 5ccc29e69c48c407895b2d9a4182b0d124d6b813...HEAD
+git diff --cached --check
+./scripts/test_with_guard.sh ./cmd/mcp-orch/tools ./internal/module/thread ./internal/provider/codexapp ./internal/contract -run 'LaunchRequestFromExecutable|BuildStartSessionConfig|CodexNativeToolPolicy|ReadOnly' -count=1
+./scripts/test_with_guard.sh ./cmd/mcp-orch/tools ./internal/module/thread ./internal/provider/toolfilter ./internal/platform/toolpolicy ./internal/contract -count=1
+./scripts/test_with_guard.sh ./internal/platform/toolpolicy ./internal/provider/toolfilter ./internal/platform/toolbridge ./internal/provider/codexapp ./internal/provider/claudecli -run 'Plan|ReadOnly|Trust|Shell|Lifecycle|Sandbox|Permission|Reviewer|Worker|FullAccess|Native|Tool' -count=1
+./scripts/test_with_guard.sh ./internal/platform/sessionpaths ./internal/provider/codexapp ./internal/module/thread ./internal/util/historyjsonl -run 'Rollout|Scratchpad|Path|Cleanup|CodexHome|History' -count=1
+./scripts/test_with_guard.sh ./internal/archtest -run 'Dependency|Tool|Provider|Path|Preview|Workflow' -count=1
+rg -n --glob '!docs/archive/**' --glob '!docs/doc/codemap/**' 'memory_write|workflow_template_save|workflow_template_rollback|shared_file_write|defineTaskWriteTool|workspace_create_run|workspace_merge_run|workspace_abort_run|tts_generate|av_merge|video_with_audio|difftracker' internal/platform/toolbridge internal/contract internal/provider/codexapp internal/provider/claudecli cmd/mcp-lsp cmd/mcp-orch/tools cmd/mcp-orch/workspace
+make guard
+```
+
+All commands above passed on the round2 code head `e17cb8b393293f34ae8af73238906b66abc8d45c`.
+
+Dispatch decision:
+
+- A3 round2 accepted as integrated.
+- PN-integration accepted as `done`.
+- A2 remains `not_applicable_with_evidence`; no runtime planning-stage blocking was wired.
+- C1 remains ADR-only; production preview API and host-direct preview/execute tests remain deferred.
+
+## 2026-07-01 PN Gate After R1/R2 P1 Repairs
+
+Status: code verification completed on `73fe7f124280ec034cff082cc5e2d048d23d4ee3`; the later dynamic disabled-tool P1 repair supersedes this as the latest code verification point.
+
+Integrated commits:
+
+- `ae857bba` merged R2 P1 worker commit `2803b0b5178959bc67bfac1951eb0da6b4f29099`.
+- `73fe7f12` merged R1 P1 worker commit `6fdba6c1a2552dd0cf21d25b0dcf43d5130faa2c`.
+- `e17cb8b3` remains the historical docs round2 merge commit.
+
+Final behavior facts:
+
+- `codexDisabledNativeTools` now rejects non-empty unknown Codex native tool IDs fail-fast across start/resume typed paths.
+- `launch_agent.read_only=true` is the structured read-only/review/planning delegation flag; Plan/Explore compatibility remains, and ordinary workers are not made read-only.
+- R3 passed with no additional code repair.
+- A2 remains `not_applicable_with_evidence`; no runtime planning-stage blocking was wired.
+- C1 remains ADR-only; production preview API and host-direct preview/execute tests remain deferred.
+
+Controller gates for this superseded step:
+
+```bash
+git diff --check 5ccc29e69c48c407895b2d9a4182b0d124d6b813...HEAD
+git diff --cached --check
+python3 -m json.tool .agent/workflows/20260630-reasonix-hardening-absorption/STATE.json >/dev/null
+./scripts/test_with_guard.sh ./cmd/mcp-orch/tools ./internal/provider/codexapp ./internal/contract -run 'LaunchRequestFromExecutable|ReadOnly|NativeToolPolicy|CodexNativeToolPolicy' -count=1
+./scripts/test_with_guard.sh ./cmd/mcp-orch/tools ./internal/module/thread ./internal/provider/codexapp ./internal/contract -run 'LaunchRequestFromExecutable|BuildStartSessionConfig|CodexNativeToolPolicy|NativeToolPolicy|ReadOnly' -count=1
+./scripts/test_with_guard.sh ./cmd/mcp-orch/tools ./internal/module/thread ./internal/provider/toolfilter ./internal/platform/toolpolicy ./internal/contract -count=1
+./scripts/test_with_guard.sh ./internal/platform/toolpolicy ./internal/provider/toolfilter ./internal/platform/toolbridge ./internal/provider/codexapp ./internal/provider/claudecli -run 'Plan|ReadOnly|Trust|Shell|Lifecycle|Sandbox|Permission|Reviewer|Worker|FullAccess|Native|Tool' -count=1
+./scripts/test_with_guard.sh ./internal/platform/sessionpaths ./internal/provider/codexapp ./internal/module/thread ./internal/util/historyjsonl -run 'Rollout|Scratchpad|Path|Cleanup|CodexHome|History' -count=1
+./scripts/test_with_guard.sh ./internal/archtest -run 'Dependency|Tool|Provider|Path|Preview|Workflow' -count=1
+make guard
+```
+
+All commands above passed on code verification head `73fe7f124280ec034cff082cc5e2d048d23d4ee3`.
+
+Dispatch decision:
+
+- A3 final P1 repairs accepted as integrated.
+- PN-integration accepted as `done`.
+- This docs-only status commit keeps workflow state synchronized after those gates.
+
+## 2026-07-01 PN Gate After Dynamic Disabled-tool P1
+
+Status: code verification completed on `d08c69629f6dd52fbb2ffb6df85fcb4445898a2e`; later LSP hint cleanup supersedes this verification point.
+
+Final review2:
+
+- Mill PASS.
+- Hume PASS.
+- Beauvoir FAIL P1: Codex read-only launch `disallowed_tools` reached thread config but not `CodexToolSurfaceScope`, so dynamic host/MCP/skill tools could still be exposed or called through stale scoped calls.
+
+Integrated commits:
+
+- `d8754cc1e86bf3dfc62273390ebebf1f86b9b3fe` (`fix: 过滤 Codex 动态工具禁用列表`) fixed the dynamic disabled-tool gap.
+- `d08c6962` merged `d8754cc1e86bf3dfc62273390ebebf1f86b9b3fe` into `codex/reasonix-hardening-integration-20260630`.
+
+Dynamic disabled-tool repair facts:
+
+- `CodexToolSurfaceScope` now carries `DisabledTools`.
+- `internal/provider/codexapp` reads `disallowed_tools` and `disallowedTools` into the Codex tool surface and fail-fast validates them.
+- `internal/platform/toolbridge` filters disabled host/skill/MCP dynamic surfaces.
+- Stale disabled scoped calls return a disabled-tool error before touching the backend.
+- A2 remains `not_applicable_with_evidence`; no runtime planning-stage blocking was wired.
+- C1 remains ADR-only; production preview API and host-direct preview/execute tests remain deferred.
+
+Repair ownership:
+
+- `d8754cc1` changed:
+  - `internal/contract/toolbridge.go`
+  - `internal/platform/toolbridge/codex_surface_test.go`
+  - `internal/platform/toolbridge/handler_codex_surface_store.go`
+  - `internal/platform/toolbridge/handler_peer_decode.go`
+  - `internal/platform/toolbridge/handler_peer_decode_helpers.go`
+  - `internal/provider/codexapp/driver_toolsurface_contract_test.go`
+  - `internal/provider/codexapp/support.go`
+
+Controller final gates:
+
+```bash
+python3 -m json.tool .agent/workflows/20260630-reasonix-hardening-absorption/STATE.json >/dev/null
+git diff --check 5ccc29e69c48c407895b2d9a4182b0d124d6b813...HEAD
+git diff --cached --check
+./scripts/test_with_guard.sh ./internal/platform/toolbridge ./internal/provider/codexapp ./internal/contract -run 'CodexToolSurface|PrepareCodexToolSurface|Disabled|Disallowed|ReadOnly' -count=1
+./scripts/test_with_guard.sh ./cmd/mcp-orch/tools ./internal/module/thread ./internal/provider/codexapp ./internal/platform/toolbridge ./internal/contract -run 'LaunchRequestFromExecutable|BuildStartSessionConfig|CodexToolSurface|PrepareCodexToolSurface|Disabled|Disallowed|ReadOnly' -count=1
+./scripts/test_with_guard.sh ./cmd/mcp-orch/tools ./internal/provider/codexapp ./internal/contract -run 'LaunchRequestFromExecutable|ReadOnly|NativeToolPolicy|CodexNativeToolPolicy' -count=1
+./scripts/test_with_guard.sh ./cmd/mcp-orch/tools ./internal/module/thread ./internal/provider/codexapp ./internal/contract -run 'LaunchRequestFromExecutable|BuildStartSessionConfig|CodexNativeToolPolicy|NativeToolPolicy|ReadOnly' -count=1
+./scripts/test_with_guard.sh ./cmd/mcp-orch/tools ./internal/module/thread ./internal/provider/toolfilter ./internal/platform/toolpolicy ./internal/contract -count=1
+./scripts/test_with_guard.sh ./internal/platform/toolpolicy ./internal/provider/toolfilter ./internal/platform/toolbridge ./internal/provider/codexapp ./internal/provider/claudecli -run 'Plan|ReadOnly|Trust|Shell|Lifecycle|Sandbox|Permission|Reviewer|Worker|FullAccess|Native|Tool' -count=1
+./scripts/test_with_guard.sh ./internal/platform/sessionpaths ./internal/provider/codexapp ./internal/module/thread ./internal/util/historyjsonl -run 'Rollout|Scratchpad|Path|Cleanup|CodexHome|History' -count=1
+./scripts/test_with_guard.sh ./internal/archtest -run 'Dependency|Tool|Provider|Path|Preview|Workflow' -count=1
+make guard
+```
+
+All commands above passed on code verification head `d08c69629f6dd52fbb2ffb6df85fcb4445898a2e`.
+
+Dispatch decision:
+
+- Beauvoir P1 accepted as fixed and integrated.
+- PN-integration accepted as `done`.
+- This docs-only status commit keeps workflow state synchronized after those gates.
+
+## 2026-07-01 PN Superseded Gate After LSP Hint Cleanup
+
+Status: superseded code verification completed on `28aa3e54bcfa6b71bc5d83e859d96b3938c69016`; the later final-review3 P1/P2 repair at `29fe8e13` superseded this as the next code verification point, and final-review4 later superseded both with `a09d7d2efde958c47087ec7b95d8fdcecd00357b`.
+
+User request:
+
+- The user required the six LSP modernization hints to be fixed too.
+
+Integrated commits:
+
+- `dfeff4745e957ae6ee94d3f998f20c03f82ecd05` (`修复 LSP hint 现代化提示`) cleared six LSP hints in three A3-owned files.
+- `28aa3e54` merged `dfeff4745e957ae6ee94d3f998f20c03f82ecd05` into `codex/reasonix-hardening-integration-20260630`.
+- Dynamic disabled-tool repair `d8754cc1e86bf3dfc62273390ebebf1f86b9b3fe` remains integrated by `d08c6962`.
+
+LSP hint cleanup facts:
+
+- Cleared `range over int`.
+- Cleared `strings.SplitSeq`.
+- Cleared `strings.CutPrefix`.
+- Cleared `slices.ContainsFunc` / `slices.Contains`.
+- The affected files were `cmd/mcp-orch/tools/orchestration_tools.go`, `cmd/mcp-orch/tools/orchestration_tools_test.go`, and `internal/contract/provider.go`.
+- A2 remains `not_applicable_with_evidence`; no runtime planning-stage blocking was wired.
+- C1 remains ADR-only; production preview API and host-direct preview/execute tests remain deferred.
+
+Controller final gates:
+
+```bash
+git diff --check 5ccc29e69c48c407895b2d9a4182b0d124d6b813...HEAD
+git diff --cached --check
+python3 -m json.tool .agent/workflows/20260630-reasonix-hardening-absorption/STATE.json >/dev/null
+# LSP diagnostics on cmd/mcp-orch/tools/orchestration_tools.go,
+# cmd/mcp-orch/tools/orchestration_tools_test.go, and
+# internal/contract/provider.go returned no diagnostics.
+./scripts/test_with_guard.sh ./cmd/mcp-orch/tools ./internal/contract -run 'LaunchRequestFromExecutable|ReadOnly|NativeToolPolicy|CodexNativeToolPolicy|Tool|Provider' -count=1
+./scripts/test_with_guard.sh ./cmd/mcp-orch/tools ./internal/module/thread ./internal/provider/codexapp ./internal/platform/toolbridge ./internal/contract -run 'LaunchRequestFromExecutable|BuildStartSessionConfig|CodexToolSurface|PrepareCodexToolSurface|Disabled|Disallowed|ReadOnly' -count=1
+make guard
+```
+
+All commands above passed on superseded code verification head `28aa3e54bcfa6b71bc5d83e859d96b3938c69016`.
+
+Dispatch decision:
+
+- LSP hint cleanup accepted as integrated.
+- PN-integration accepted as `done` at this superseded point.
+- The later workflow sync chain is recorded in the following final-review3 and final-review4 sections.
+
+## 2026-07-01 PN Superseded Gate After Final-review3 P1/P2 Repair
+
+Status: superseded code verification completed on `29fe8e130ed35716e8cae11698b281bd0601823d`. The later final-review4 Meitner P1 repair at `a09d7d2efde958c47087ec7b95d8fdcecd00357b` supersedes this as the latest final code verification point. Round6 docs sync head `4e38067ffb7c983eb58c86b57c7c1468c7e4a1b3` recorded this result historically, but is no longer the final workflow sync head.
+
+Head terminology:
+
+- `ba18c2e7d54a245f3f0b7bc0b42fd388a42fb051` was the previous docs sync head and the target reviewed by final-review3.
+- `28aa3e54bcfa6b71bc5d83e859d96b3938c69016` was the superseded LSP hint cleanup verification point; it is not the latest final code verification head.
+- `29fe8e130ed35716e8cae11698b281bd0601823d` was the superseded `final_code_verification_head` after merging the Tesla P1/P2 repair.
+- `4e38067ffb7c983eb58c86b57c7c1468c7e4a1b3` was the historical round6 docs sync head for this stage.
+
+Final-review3 results:
+
+- Dirac FAIL P2: workflow docs did not record final target HEAD `ba18c2e7`.
+- Bacon FAIL P1: when a scoped Codex tool call had a missing surface, reserved host-only tools could fall back to the ordinary host-direct backend.
+- Turing FAIL P2: workflow docs did not record `ba18c2e7`; changed Go files still had `internal/provider/codexapp/history_rollout.go` `strings.Index` -> `strings.Cut` LSP hint.
+
+Integrated repair:
+
+- Tesla worker commit `e82c2300356cef51d3676b7231d77fb083ee2e47` fixed the final-review3 P1/P2 findings.
+- Merge commit `29fe8e130ed35716e8cae11698b281bd0601823d` integrated `e82c2300356cef51d3676b7231d77fb083ee2e47` into `codex/reasonix-hardening-integration-20260630`.
+- `routeCodexSurfaceToolCall` now checks `req.Scoped && requiresCodexToolSurface(req.Name)` while `surface == nil` and fail-fast returns the missing surface error before allowing non-scoped reserved host-only fallback.
+- `TestCodexToolSurfaceMissingSurfaceReservedHostOnlyDoesNotReachBackend` asserts stale scoped `memory_write` missing-surface returns a missing surface error and `host.calls == 0`.
+- `trimInjectedLSPHint` now uses `strings.Cut`, clearing the remaining LSP hint in `internal/provider/codexapp/history_rollout.go`.
+
+Preserved facts:
+
+- Dynamic disabled-tool repair `d8754cc1e86bf3dfc62273390ebebf1f86b9b3fe` remains integrated by `d08c6962`.
+- LSP six-hint cleanup `dfeff4745e957ae6ee94d3f998f20c03f82ecd05` remains integrated by `28aa3e54`.
+- A2 remains `not_applicable_with_evidence`; no runtime planning-stage blocking was wired.
+- C1 remains ADR-only/deferred; no production preview API or host-direct preview/execute test completion is claimed.
+
+Controller gates recorded after `29fe8e13`:
+
+```bash
+# LSP diagnostics on internal/platform/toolbridge/handler_peer_decode.go,
+# internal/platform/toolbridge/codex_surface_test.go,
+# internal/provider/codexapp/history_rollout.go,
+# cmd/mcp-orch/tools/orchestration_tools.go,
+# cmd/mcp-orch/tools/orchestration_tools_test.go,
+# and internal/contract/provider.go returned no diagnostics.
+./scripts/test_with_guard.sh ./internal/platform/toolbridge -run TestCodexToolSurfaceMissingSurfaceReservedHostOnlyDoesNotReachBackend -count=1
+./scripts/test_with_guard.sh ./internal/platform/toolbridge ./internal/provider/codexapp -run 'CodexToolSurface|Scoped|HostOnly|History|Rollout|Injected|LSP' -count=1
+./scripts/test_with_guard.sh ./cmd/mcp-orch/tools ./internal/module/thread ./internal/provider/codexapp ./internal/platform/toolbridge ./internal/contract -run 'LaunchRequestFromExecutable|BuildStartSessionConfig|CodexToolSurface|PrepareCodexToolSurface|Disabled|Disallowed|ReadOnly|Scoped' -count=1
+git diff --check 5ccc29e69c48c407895b2d9a4182b0d124d6b813...HEAD
+git diff --cached --check
+python3 -m json.tool .agent/workflows/20260630-reasonix-hardening-absorption/STATE.json >/dev/null
+```
+
+Round6 docs-worker local verification was recorded in the final response for commit `4e38067ffb7c983eb58c86b57c7c1468c7e4a1b3`:
+
+```bash
+python3 -m json.tool .agent/workflows/20260630-reasonix-hardening-absorption/STATE.json >/dev/null
+git diff --check
+git diff --cached --check
+# stale wording scan: ba18c2e7 and 28aa3e54 appear only as previous/superseded historical points, not as latest final code verification head.
+git status --short
+```
+
+## 2026-07-01 PN Final Gate After Final-review4 Meitner P1 Repair
+
+Status: final code verification completed on `a09d7d2efde958c47087ec7b95d8fdcecd00357b`. This round7 docs-only status commit records that result and is the final workflow sync head. Inside the commit, `final_integration_head` is recorded as `pending_this_docs_commit` because a Git commit cannot reliably contain its own SHA.
+
+Head terminology:
+
+- `4e38067ffb7c983eb58c86b57c7c1468c7e4a1b3` was the historical round6 docs sync head after `29fe8e13`; it is not the latest final code verification head and no longer represents the final workflow sync.
+- `29fe8e130ed35716e8cae11698b281bd0601823d` was the superseded code verification head after final-review3.
+- `a09d7d2efde958c47087ec7b95d8fdcecd00357b` is the latest `final_code_verification_head` after merging Sartre's Meitner P1 repair.
+- This round7 docs commit is the final workflow sync head.
+
+Final-review4 results:
+
+- Pasteur PASS.
+- Popper PASS.
+- Meitner FAIL P1: Resume runtime `codexDisabledNativeTools` parsing silently swallowed malformed values. `cleanResumeStringList` kept only string entries from mixed arrays such as `[]any{"shell", 42}` and returned nil for object/integer values, so provider resume continued instead of failing fast.
+
+Integrated repair:
+
+- Sartre worker commit `7dbfc068495ee91dffcf53e9fefb760058099add` fixed the final-review4 Meitner P1 finding.
+- Merge commit `a09d7d2efde958c47087ec7b95d8fdcecd00357b` integrated `7dbfc068495ee91dffcf53e9fefb760058099add` into `codex/reasonix-hardening-integration-20260630`.
+- `cleanResumeStringList`, `codexDisabledNativeToolsFromRuntime`, and `resolveResumeCodexDisabledNativeTools` now return errors.
+- Mixed array, object, and integer malformed runtime values fail fast with errors that contain `codexDisabledNativeTools` and the offending type, preventing provider `ResumeSession`.
+- Valid `[]any` string lists still trim values, drop empty entries, deduplicate, and sort.
+- Explicit typed `ResumeRequest.CodexDisabledNativeTools []string` still takes precedence over runtime values.
+
+Preserved facts:
+
+- Dynamic disabled-tool repair `d8754cc1e86bf3dfc62273390ebebf1f86b9b3fe` remains integrated by `d08c6962`.
+- Six-hint cleanup `dfeff4745e957ae6ee94d3f998f20c03f82ecd05` remains integrated by `28aa3e54`.
+- Scoped missing-surface repair `e82c2300356cef51d3676b7231d77fb083ee2e47` remains integrated by `29fe8e13`.
+- A2 remains `not_applicable_with_evidence`; no runtime planning-stage blocking was wired.
+- C1 remains ADR-only/deferred; no production preview API or host-direct preview/execute test completion is claimed.
+
+Controller gates recorded after `a09d7d2e`:
+
+```bash
+# LSP diagnostics on internal/module/thread/factory_config.go,
+# internal/module/thread/start_session.go,
+# internal/module/thread/start_session_helpers.go,
+# internal/module/thread/resume_test.go,
+# cmd/mcp-orch/tools/orchestration_tools.go,
+# internal/provider/codexapp/support.go,
+# internal/contract/provider.go,
+# internal/platform/toolbridge/handler_peer_decode.go,
+# internal/platform/toolbridge/codex_surface_test.go,
+# and internal/provider/codexapp/history_rollout.go returned no diagnostics.
+./scripts/test_with_guard.sh ./internal/module/thread -run 'Resume.*CodexDisabledNativeTools|CodexDisabledNativeTools|hydrateResume|ResumeSession' -count=1
+./scripts/test_with_guard.sh ./cmd/mcp-orch/tools ./internal/module/thread ./internal/provider/codexapp ./internal/contract -run 'LaunchRequestFromExecutable|BuildStartSessionConfig|CodexNativeToolPolicy|NativeToolPolicy|ReadOnly|Resume|CodexDisabledNativeTools' -count=1
+make guard
+git diff --check 5ccc29e69c48c407895b2d9a4182b0d124d6b813...HEAD
+git diff --cached --check
+python3 -m json.tool .agent/workflows/20260630-reasonix-hardening-absorption/STATE.json >/dev/null
+```
+
+Round7 docs-worker local verification is recorded in the final response for this commit:
+
+```bash
+python3 -m json.tool .agent/workflows/20260630-reasonix-hardening-absorption/STATE.json >/dev/null
+git diff --check
+git diff --cached --check
+# stale wording scan: 4e38067f and 29fe8e13 appear only as historical/superseded points, not as latest final code verification head.
+git status --short
+```

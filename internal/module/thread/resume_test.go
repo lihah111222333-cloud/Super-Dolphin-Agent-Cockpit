@@ -66,6 +66,109 @@ func TestServiceResumeInfersProviderAndRebuildsSession(t *testing.T) {
 	assertResumeRebuildSideEffects(t, sessions, threads, bindings, orch)
 }
 
+func TestServiceResumeHydratesCodexDisabledNativeToolsFromRuntime(t *testing.T) {
+	t.Parallel()
+
+	reqCh := make(chan dto.ResumeSessionRequest, 1)
+	svc := newResumeCodexDisabledNativeToolsService(t, map[string]any{
+		"codexDisabledNativeTools": []any{"shell", "apply_patch", "shell"},
+	}, func(_ context.Context, req dto.ResumeSessionRequest) (contract.Session, error) {
+		reqCh <- req
+		return &stubSession{
+			threadID:    "11111111-2222-3333-4444-555555555552",
+			rolloutPath: writeExistingProviderHistoryFile(t),
+		}, nil
+	})
+
+	if _, err := svc.Resume(context.Background(), ResumeRequest{ThreadID: "thread-native-tools"}); err != nil {
+		t.Fatalf("Resume() error = %v", err)
+	}
+	select {
+	case req := <-reqCh:
+		want := []string{"apply_patch", "shell"}
+		if !reflect.DeepEqual(req.CodexDisabledNativeTools, want) {
+			t.Fatalf("CodexDisabledNativeTools = %#v, want %#v", req.CodexDisabledNativeTools, want)
+		}
+	default:
+		t.Fatal("ResumeSession was not called")
+	}
+}
+
+func TestServiceResumeRejectsMalformedRuntimeCodexDisabledNativeTools(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name        string
+		value       any
+		wantType    string
+		wantElement bool
+	}{
+		{name: "mixed_array", value: []any{"shell", 42}, wantType: "float64", wantElement: true},
+		{name: "object", value: map[string]any{"tool": "shell"}, wantType: "map[string]interface {}"},
+		{name: "integer", value: 42, wantType: "float64"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			resumeCalled := false
+			svc := newResumeCodexDisabledNativeToolsService(t, map[string]any{
+				"codexDisabledNativeTools": tt.value,
+			}, func(context.Context, dto.ResumeSessionRequest) (contract.Session, error) {
+				resumeCalled = true
+				t.Fatal("ResumeSession should not be called with malformed codexDisabledNativeTools runtime config")
+				return nil, nil
+			})
+
+			_, err := svc.Resume(context.Background(), ResumeRequest{ThreadID: "thread-native-tools"})
+			if err == nil {
+				t.Fatal("Resume() error = nil, want malformed codexDisabledNativeTools error")
+			}
+			if !strings.Contains(err.Error(), "codexDisabledNativeTools") || !strings.Contains(err.Error(), tt.wantType) {
+				t.Fatalf("Resume() error = %v, want codexDisabledNativeTools and %q", err, tt.wantType)
+			}
+			if tt.wantElement && !strings.Contains(err.Error(), "contains") {
+				t.Fatalf("Resume() error = %v, want element type context", err)
+			}
+			if resumeCalled {
+				t.Fatal("ResumeSession was called despite malformed codexDisabledNativeTools runtime config")
+			}
+		})
+	}
+}
+
+func TestServiceResumeTypedRequestCodexDisabledNativeToolsTakesPrecedence(t *testing.T) {
+	t.Parallel()
+
+	reqCh := make(chan dto.ResumeSessionRequest, 1)
+	svc := newResumeCodexDisabledNativeToolsService(t, map[string]any{
+		"codexDisabledNativeTools": []any{"shell", 42},
+	}, func(_ context.Context, req dto.ResumeSessionRequest) (contract.Session, error) {
+		reqCh <- req
+		return &stubSession{
+			threadID:    "11111111-2222-3333-4444-555555555552",
+			rolloutPath: writeExistingProviderHistoryFile(t),
+		}, nil
+	})
+
+	// 显式请求字段已经由 Go 类型系统约束为 []string，不来自 runtime map；因此仍优先于持久化 runtime。
+	_, err := svc.Resume(context.Background(), ResumeRequest{
+		ThreadID:                 "thread-native-tools",
+		CodexDisabledNativeTools: []string{"shell"},
+	})
+	if err != nil {
+		t.Fatalf("Resume() error = %v", err)
+	}
+	select {
+	case req := <-reqCh:
+		if want := []string{"shell"}; !reflect.DeepEqual(req.CodexDisabledNativeTools, want) {
+			t.Fatalf("CodexDisabledNativeTools = %#v, want %#v", req.CodexDisabledNativeTools, want)
+		}
+	default:
+		t.Fatal("ResumeSession was not called")
+	}
+}
+
 func TestServiceResumeRejectsRequestCWDThatDiffersFromStoredThreadCWD(t *testing.T) {
 	t.Parallel()
 
@@ -175,6 +278,49 @@ func TestServiceResumeRejectsRequestCWDWhenStoredCWDIsMissing(t *testing.T) {
 	if !strings.Contains(err.Error(), "cwd is required") {
 		t.Fatalf("Resume() error = %v, want cwd required", err)
 	}
+}
+
+func newResumeCodexDisabledNativeToolsService(
+	t *testing.T,
+	runtime map[string]any,
+	onResume func(context.Context, dto.ResumeSessionRequest) (contract.Session, error),
+) *service {
+	t.Helper()
+
+	const providerThreadID = "11111111-2222-3333-4444-555555555552"
+	rolloutPath := writeExistingProviderHistoryFile(t)
+	snapshot := validThreadPromptSnapshotForTest("resume")
+	threads := &stubThreadStore{
+		thread: &threadstore.Thread{
+			ThreadID:       "thread-native-tools",
+			AgentID:        "agent-native-tools",
+			Prompt:         "resume",
+			Model:          "stored-model",
+			Cwd:            "/repo",
+			CreatedAt:      123,
+			Status:         statusCreated,
+			ConfigOverride: mustStoredThreadConfigRaw(t, storedThreadConfig{Runtime: runtime}),
+		},
+		promptSnapshot: &snapshot,
+	}
+	bindings := &stubBindingStore{binding: &bindingstore.Binding{
+		AgentID:          "agent-native-tools",
+		Provider:         "codex",
+		ProviderThreadID: providerThreadID,
+		CodexThreadID:    "thread-native-tools",
+		RolloutPath:      rolloutPath,
+		Cwd:              "/repo",
+	}}
+	return NewService(
+		silentLogger(),
+		threads,
+		bindings,
+		&stubSessionProvider{},
+		&stubSessionStarter{onResume: onResume},
+		nil,
+		&stubThreadOrchestration{},
+		nil,
+	).(*service)
 }
 
 func assertResumeRebuildRequest(t *testing.T, req dto.ResumeSessionRequest, providerThreadID string) {
