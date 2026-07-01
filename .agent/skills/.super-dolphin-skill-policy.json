@@ -4,7 +4,7 @@
     {
       "name": "使用git工作区",
       "selected_source_id": "project/使用git工作区",
-      "selected_content_hash": "b5a2839f98fe3c0774d07b5be561273e43a8e78cd862153fcddcfb48868f5358",
+      "selected_content_hash": "46b21295affeed3836f23c373b5e20d5d26fb20c1bcb3d80538ec2d52a5d8fed",
       "excluded_source_ids": [
         "personal/hub/使用git工作区",
         "personal/user/使用git工作区"
@@ -25,7 +25,7 @@
         {
           "canonical_id": "project/使用git工作区",
           "scope": "project",
-          "content_hash": "b5a2839f98fe3c0774d07b5be561273e43a8e78cd862153fcddcfb48868f5358"
+          "content_hash": "46b21295affeed3836f23c373b5e20d5d26fb20c1bcb3d80538ec2d52a5d8fed"
         }
       ]
     },
