@@ -107,7 +107,7 @@ sequenceDiagram
 3. `internal/ui/wails/module.go:101` `NewWailsApplication` 创建 `application.App`，把 `ShouldQuit` / `OnShutdown` 接到 `WailsLifecycle`，再用 `internal/ui/wails/binding.go:121` `bindRuntime` 回填 `wailsApp` 和事件 emitter。
 4. `internal/ui/wails/module.go:129` 监听 `events.Common.ApplicationStarted`，触发 `internal/ui/wails/lifecycle.go:90` `MarkFrontendReady()`；这决定了退出 overlay 是否可以真正落地到前端。
 5. `internal/ui/wails/window.go:14` `CreateMainWindow` 只创建主窗口；后续子窗口走 `internal/ui/wails/binding.go:93` `openNewWindow()`。
-6. `internal/ui/wails/window.go:95` `windowURL` 会把 `ao_ui_bootstrap` / `ao_window_cwd` 注入 query string；Go 侧已写出，前端消费留给 Vue 分卷。
+6. `internal/ui/wails/window.go:95` `windowURL` 会把 `ao_ui_bootstrap` / `ao_window_cwd` 注入 query string；Go 侧已写出，前端消费留给 React 分卷。
 
 ### 4.3 生命周期、Runner 与退出收口
 
@@ -205,7 +205,7 @@ sequenceDiagram
 3. `internal/ui/wails/window_state.go:9` `encodeWindowBootstrapSnapshot()` / `internal/ui/wails/window_state.go:20` `decodeWindowBootstrapSnapshot()` 采用 `base64.RawURLEncoding + JSON`，避免 query string 中出现额外转义负担。
 4. `internal/ui/wails/rpc.go:307` `handleUIWindowBootstrapGet()` 直接消费 `internal/ui/wails/window_state.go:90` `consumeWindowBootstrapSnapshot()`；这是一次性读取，不是长期共享状态。
 5. `internal/ui/wails/window.go:52` `bindFileDrop()` 监听 `WindowFilesDropped`，经 `internal/ui/wails/window.go:69` `buildFilesDroppedPayload()` 组装后统一发 `files-dropped`。
-6. Go 侧已把 `ao_ui_bootstrap` / `ao_window_cwd` 注入 query（`internal/ui/wails/binding.go:110`、`internal/ui/wails/window.go:37` 的 TODO 均有说明），但前端消费仍需到 Vue 分卷确认。
+6. Go 侧已把 `ao_ui_bootstrap` / `ao_window_cwd` 注入 query（`internal/ui/wails/binding.go:110`、`internal/ui/wails/window.go:37` 的 TODO 均有说明），但前端消费仍需到 React 分卷确认。
 
 ### 4.8 浏览器调试 HTTP runner 与 dormant runner adapter
 
@@ -283,7 +283,7 @@ graph TD
 
 ```mermaid
 sequenceDiagram
-    participant UI as Vue / runtime.Call.ByID
+    participant UI as React / runtime.Call.ByID
     participant APP as internal/ui/wails.App.CallAPI
     participant RPC as rpc.Server.Dispatch
     participant WH as wails.NewRPCHandlers

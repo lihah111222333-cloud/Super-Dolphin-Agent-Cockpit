@@ -19,7 +19,7 @@ internal/
 ├── module/              # Business logic (turn, prompt, cron, memory, skill)
 ├── platform/            # Infrastructure (db, rpc, config, runtime safety)
 ├── provider/            # AI provider adapters (Claude CLI, Codex)
-└── store/               # Data access layer (sqlc-generated)
+└── store/               # Data access layer (sqlc-backed stores with hand-written wrappers)
 
 pkg/                     # Reusable public libraries
 ```
@@ -170,7 +170,7 @@ SUPER_DOLPHIN_BACKEND_HOT_RELOAD=1 SUPER_DOLPHIN_HOT_WATCH_PATHS="cmd internal p
 
 | Metric | Value |
 |--------|-------|
-| Test Coverage | 67.4% |
+| Test Coverage | Recompute from current test run; no checked-in static baseline |
 | Architecture Tests | 50+ (internal/archtest) |
 | Linter | golangci-lint (see .golangci.yml) |
 | CI | GitHub Actions (see .github/workflows/ci.yml) |
