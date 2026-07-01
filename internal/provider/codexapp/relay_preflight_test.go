@@ -63,7 +63,8 @@ func mustDefaultCodexCLIHomeForTest(t *testing.T) string {
 	t.Helper()
 	home := t.TempDir()
 	t.Setenv("HOME", home)
-	return home + "/.codex"
+	t.Setenv("USERPROFILE", home)
+	return mustCanonicalCodexHome(t, home)
 }
 
 func mustAppManagedCodexHomeForTest(t *testing.T) string {

@@ -7,7 +7,6 @@ import (
 	"strings"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
-	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
 const (
@@ -166,8 +165,8 @@ func EnsureAppManagedProviderHome(provider string) (string, error) {
 	return filepath.Clean(real), nil
 }
 
-// EnsureProviderHome 确保 provider home 存在。
-// 只有显式传入 homeRoot 时，才创建它下面的 skills mirror。
+// EnsureProviderHome 解析 provider home。
+// 显式传入 homeRoot 时会创建 skills mirror；缺省 CLI home 只做只读诊断，不替用户创建或 chmod。
 func EnsureProviderHome(provider, homeRoot string) (string, error) {
 	normalizedProvider, err := normalizeAppManagedProvider(provider)
 	if err != nil {
@@ -180,12 +179,6 @@ func EnsureProviderHome(provider, homeRoot string) (string, error) {
 	explicitHome := strings.TrimSpace(homeRoot) != ""
 	if explicitHome {
 		return ensureExplicitProviderHome(normalizedProvider, home)
-	}
-	if err := os.MkdirAll(home, 0o700); err != nil {
-		return "", fmt.Errorf("create provider home: %w", err)
-	}
-	if err := os.Chmod(home, 0o700); err != nil {
-		pkglogger.Warn("provider_home: chmod home failed", "path", home, "error", err)
 	}
 	real, err := filepath.EvalSymlinks(home)
 	if err != nil {

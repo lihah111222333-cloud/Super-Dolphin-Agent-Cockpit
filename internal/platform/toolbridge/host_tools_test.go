@@ -312,6 +312,48 @@ func TestCallHostTool_ObservabilityCountersAndLogs(t *testing.T) {
 	}
 }
 
+func TestCallHostTool_PartialStructuredResultIsNotSuccess(t *testing.T) {
+	skillmetrics.ResetForTesting()
+	t.Cleanup(skillmetrics.ResetForTesting)
+	host := &stubHostToolRegistry{
+		hasToolName: testHostToolName,
+		result: map[string]any{
+			"success":  false,
+			"partial":  true,
+			"degraded": true,
+			"code":     "memory_write_partial",
+			"message":  "memory write completed partially",
+		},
+	}
+	resolver := &stubCWDResolver{cwd: t.TempDir()}
+	var logs bytes.Buffer
+	h := &Handler{
+		resolver:  resolver,
+		hostTools: host,
+		logger:    slog.New(slog.NewTextHandler(&logs, &slog.HandlerOptions{Level: slog.LevelDebug})),
+	}
+
+	got, err := h.callHostTool(context.Background(), ToolCallRequest{
+		Name:    testHostToolName,
+		AgentID: "agent-partial",
+		CallID:  "call-partial",
+	})
+	if err != nil {
+		t.Fatalf("callHostTool() error = %v", err)
+	}
+	if got == nil || got.Success {
+		t.Fatalf("callHostTool() result = %#v, want structured partial failure", got)
+	}
+	envelope := decodeToolResultEnvelope(t, got)
+	if envelope["success"] != false || envelope["partial"] != true || envelope["degraded"] != true {
+		t.Fatalf("structured envelope = %#v, want partial degraded failure flags", envelope)
+	}
+	if snap := skillmetrics.Read(); snap.HostToolCallOKTotal != 0 || snap.HostToolCallErrorTotal != 1 {
+		t.Fatalf("host tool counters = %+v, want 0 ok and 1 error", snap)
+	}
+	assertLogContainsAll(t, logs.String(), "toolbridge host-direct tool call", "agent_id=agent-partial", "call_id=call-partial", "outcome=error")
+}
+
 func TestCallHostTool_CWDMissingCounterAndWarn(t *testing.T) {
 	skillmetrics.ResetForTesting()
 	t.Cleanup(skillmetrics.ResetForTesting)
@@ -356,6 +398,15 @@ func decodeToolResultEnvelope(t *testing.T, got *ToolCallResult) map[string]any 
 		t.Fatalf("decode envelope %q: %v", got.ContentItems[0].Text, err)
 	}
 	return envelope
+}
+
+func assertLogContainsAll(t *testing.T, text string, wants ...string) {
+	t.Helper()
+	for _, want := range wants {
+		if !bytes.Contains([]byte(text), []byte(want)) {
+			t.Fatalf("log missing %q in %s", want, text)
+		}
+	}
 }
 
 type stubKindRegistry struct {

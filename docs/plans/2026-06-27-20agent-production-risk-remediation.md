@@ -241,10 +241,12 @@ cd frontend-app && npm run lint && npm test && npm run build
 - Modify: `cmd/mcp-orch/store/taskdag/store_fail_downstream.go`
 - Modify: `cmd/mcp-orch/store/taskdag/store_wakeup.go`
 - Modify: `cmd/mcp-orch/store/taskdag/contract.go`
+- Modify: `cmd/mcp-orch/sql/queries/task_dag_node_runtime.sql`
 - Modify: `cmd/mcp-orch/sql/queries/task_dag_wakeup_dispatch.sql`
 - Modify: `cmd/mcp-orch/sql/queries/task_dag_wakeup_query.sql`
 - Modify: `cmd/mcp-orch/tools/task_apply_ops.go`
 - Modify: `cmd/mcp-orch/tools/task_tools.go`
+- Generated: `cmd/mcp-orch/store/sqlc/task_dag_node_runtime.sql.go`
 - Generated: sqlc output affected by `cmd/mcp-orch/sql/queries/task_dag_wakeup_*.sql`
 - Test: `cmd/mcp-orch/orchestration/**/*_test.go`
 - Test: `cmd/mcp-orch/tools/*_test.go`
@@ -258,7 +260,7 @@ cd frontend-app && npm run lint && npm test && npm run build
 - [ ] GREEN: Split downstream convergence from `fail_fast`. Failed dependencies always mark impossible downstream nodes terminal; `fail_fast` only cancels unrelated runnable branches.
 - [ ] GREEN: Extract shared typed node config validation and call it inside CreateDAG and ApplyOps transactions, before Upsert/version bump in `dag_query.go`. start/run preflight only handles historical bad templates.
 - [ ] GREEN: Pass trusted `AutomationCommandRunOptions` with required cwd, allowed roots, and env allowlist. Never inherit full `os.Environ()` by default.
-- [ ] GREEN: Before executing a wakeup side effect, fence node status and lease. Add store-level renew/CAS support for long execution, and ensure CAS miss cannot occur after a side effect has already run. Terminal nodes mark wakeup sent without running executor.
+- [ ] GREEN: Before executing a wakeup side effect, fence node status and lease in `task_dag_node_runtime` and wakeup SQL. Add store-level renew/CAS support for long execution, and ensure CAS miss cannot occur after a side effect has already run. Terminal nodes mark wakeup sent without running executor.
 - [ ] GREEN: Connect local launcher to the service `exitMonitor` or move local start back through the service start path so exactly one owner calls `cmd.Wait()` and publishes exit events. stop waits, then force-stops, then waits again.
 - [ ] Upper guard: task start/dispatch/update APIs reject missing execution scope, terminal-node dispatch, bad templates, and stale wakeups with structured errors.
 - [ ] Verify:
