@@ -1,7 +1,7 @@
 # Reasonix 设计优点吸收计划
 
 > 日期：2026-06-29
-> 状态：执行中（Wave 1 / Wave 2 已闭环，Wave 3 已补上下文/权限策略实现，待主控复核）
+> 状态：已闭环（Wave 1 / Wave 2 / Wave 3 已实现并合入本地 `main`）
 > 范围：设计吸收计划与执行追踪；生产代码改动必须以源码、测试和 ADR 为准
 
 ## 0. 结论
@@ -28,7 +28,7 @@ V3 不应该复制 Reasonix 的整体架构。Reasonix 的长处是轻量 agent 
 | Desktop dependency guard | `internal/archtest/desktop_dependency_test.go`, `internal/archtest/dependency_direction_test.go` | 已有 Wails 依赖隔离和依赖方向守卫。 |
 | Tool error envelope | `internal/mcpserver/common/tool_error_envelope.go`, `internal/platform/toolbridge/handler_host_tools.go`, `internal/platform/toolbridge/proxy.go` | 已有结构化工具错误和 `isError` 语义。 |
 
-后续执行不要重复造这些基础；优先补齐未闭合的行为边界、迁移剩余调用方和测试覆盖。
+后续维护不要重复造这些基础；新增吸收点需继续补齐 owner、代码路径、测试覆盖和 fail-fast 语义。
 
 ### 1.1 2026-06-29 执行记录
 
@@ -38,6 +38,9 @@ V3 不应该复制 Reasonix 的整体架构。Reasonix 的长处是轻量 agent 
 - `4840998c`：新增 per-tool lifecycle owner/store/sqlc/migration。
 - `6124ce31`：接入 lifecycle owner backfill。
 - `dbf412e7`：接入 toolbridge list filtering 和 direct-call enforcement。
+- `3691560a`：补齐 lifecycle rollback/export 验证。
+- `1ea428ad`：新增 lifecycle 前端 guarded API。
+- `01f4797e`：新增 `history_read` 有界 host-direct tool。
 
 本轮复核后的状态边界：
 
@@ -45,7 +48,7 @@ V3 不应该复制 Reasonix 的整体架构。Reasonix 的长处是轻量 agent 
 - Wave 2 的 ADR、owner API、store、backfill、toolbridge filtering、direct-call deny 已落地并合入 `main`。
 - Wave 2 的 rollback/export 证据已补齐：owner 可按 workspace 导出全部 lifecycle rows，保留 disabled/suspended/removed 的人工状态、reason、replacement 和 deny code。
 - Wave 2 的 frontend guarded API 已补齐：UI 如需控制 lifecycle，必须通过 `backendApi.js` 的 set/list/export facade，不允许页面拼裸 RPC。
-- Wave 3 不是本轮完成范围；现有 `memory_read`、PrefixShape、read-only routing 和 tool error envelope 只能算基础，不等同于 Wave 3 全部完成。
+- Wave 3 的 history/memory bounded retrieval、plan/read-only/tool trust 策略测试、PrefixShape telemetry 和 host-direct error 兼容策略已落地并合入本地 `main`。
 
 已执行验证：
 
@@ -56,7 +59,7 @@ cd frontend-app && npm test -- sessionApi.test.js eventWire.test.js backendApi.s
 ./scripts/test_with_guard.sh ./internal/store/mcpserver ./internal/module/mcp_server -run 'Export' -count=1
 ./scripts/test_with_guard.sh ./internal/module/mcp_server -run 'ToolLifecycle|Lifecycle' -count=1
 cd frontend-app && npm test -- backendApi.test.js backendApi.contractMatrix.test.js backendApi.surface.test.js
-./scripts/test_with_guard.sh ./internal/module/thread ./internal/module/memory ./internal/platform/toolbridge ./internal/mcpserver/common ./internal/provider/codexapp -run 'Compact|History|Memory|ReadOnly|ToolError|Envelope|StructuredContent' -count=1
+./scripts/test_with_guard.sh ./internal/module/thread ./internal/module/memory ./internal/platform/toolbridge ./internal/mcpserver/common ./internal/provider/codexapp -run 'Compact|History|Memory|ReadOnly|ToolError|Envelope|StructuredContent|Surface|HostOnly|Fallback' -count=1
 make sqlc-verify
 make guard
 make build-plain
@@ -536,7 +539,7 @@ cd frontend-app && npm test -- backendApi.test.js backendApi.contractMatrix.test
 建议命令：
 
 ```bash
-./scripts/test_with_guard.sh ./internal/module/thread ./internal/module/memory ./internal/platform/toolbridge ./internal/mcpserver/common ./internal/provider/codexapp -run 'Compact|History|Memory|ReadOnly|ToolError|Envelope|StructuredContent' -count=1
+./scripts/test_with_guard.sh ./internal/module/thread ./internal/module/memory ./internal/platform/toolbridge ./internal/mcpserver/common ./internal/provider/codexapp -run 'Compact|History|Memory|ReadOnly|ToolError|Envelope|StructuredContent|Surface|HostOnly|Fallback' -count=1
 ```
 
 ### 合并前统一验证
@@ -562,5 +565,5 @@ make sqlc-verify
 - 每个前端 RPC 新入口都经过 `backendApi.js` payload guard。
 - 每个 prompt/context 变化都能用 `PrefixShape` 或 trace 解释。
 - 所有变更保持 `cmd/mcp-orch` / `cmd/mcp-lsp` 独立运行态。
-- MCP per-tool lifecycle 进入实现前，必须已有批准的 owner/storage 决策文档。
+- MCP per-tool lifecycle 已以批准的 owner/storage 决策文档为事实源；后续扩展继续先更新决策再实现。
 - 任何架构 guard allowlist 都有原因和移除条件。

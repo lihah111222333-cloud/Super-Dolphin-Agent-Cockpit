@@ -104,11 +104,42 @@ fixture_matches_production_dir() {
   [ -n "$owner" ] || return 1
   [ "$owner" = "$prod_dir" ] && return 0
   [[ "$owner" == "$prod_dir"/* ]] && return 0
+  parent_package_matches_production_dir "$owner" "$prod_dir" && return 0
+  repository_tooling_test_matches_production_dir "$owner" "$prod_dir" && return 0
   return 1
 }
 
 evidence_matches_production_dir() {
   fixture_matches_production_dir "$1" "$2"
+}
+
+parent_package_matches_production_dir() {
+  local owner="$1"
+  local prod_dir="$2"
+  [ "$owner" != "." ] || return 1
+  # Only deep package owners may cover child production packages; broad owners
+  # such as internal or cmd would turn unrelated tests into false positives.
+  case "$owner" in
+    internal/*/*|cmd/*/*|frontend-app/src/*/*)
+      [[ "$prod_dir" == "$owner"/* ]]
+      return
+      ;;
+  esac
+  return 1
+}
+
+repository_tooling_test_matches_production_dir() {
+  local owner="$1"
+  local prod_dir="$2"
+  [ "$owner" = "scripts" ] || return 1
+  # Repository tooling is guarded by scripts tests because hooks and Makefile
+  # paths are integration surfaces rather than language package directories.
+  case "$prod_dir" in
+    .|.githooks|scripts)
+      return 0
+      ;;
+  esac
+  return 1
 }
 
 explicit_bug_id_from_subject() {
@@ -199,6 +230,14 @@ commit_diff_has_bug_locking_test() {
   diff_stream_has_bug_locking_test "$subject" < <(git diff-tree --no-commit-id --name-status -r -z --root --diff-filter=ACMRD "$commit")
 }
 
+commit_is_merge() {
+  local commit="$1"
+  local line
+  line="$(git rev-list --parents -n 1 "$commit")"
+  set -- $line
+  [ "$#" -gt 2 ]
+}
+
 fail_missing_cached_test() {
   local subject="$1"
   cat >&2 <<EOF
@@ -258,6 +297,11 @@ check_range() {
     [ -n "$commit" ] || continue
     subject="$(git log -1 --format=%s "$commit")"
     if ! is_fix_subject "$subject"; then
+      continue
+    fi
+    # Merge commits are checked through their child commits in the pushed range.
+    # GitHub-style merge subjects often repeat the PR fix title with no own diff.
+    if commit_is_merge "$commit"; then
       continue
     fi
     if commit_diff_has_bug_locking_test "$commit" "$subject"; then

@@ -164,6 +164,15 @@ func writePrePushFakeGoTestScript(t *testing.T, root string) {
 	}
 }
 
+func writePreCommitFakeCodeGuardScript(t *testing.T, root string) {
+	t.Helper()
+	content := "#!/usr/bin/env bash\nset -e\nprintf 'fake code guard %s\\n' \"$*\"\nif [ \"$*\" != \"--guard-only\" ]; then\n  echo \"unexpected guard args: $*\" >&2\n  exit 1\nfi\n"
+	path := filepath.Join(root, "scripts", "test_with_guard.sh")
+	if err := os.WriteFile(path, []byte(content), 0o755); err != nil {
+		t.Fatalf("write fake test_with_guard.sh: %v", err)
+	}
+}
+
 func writePrePushScopeFakeBins(t *testing.T, logPath string) string {
 	t.Helper()
 	binDir := t.TempDir()
@@ -198,6 +207,15 @@ func runPrePushScopeHook(t *testing.T, root, stdin, binDir, logPath string) (str
 		"HOOK_SCOPE_LOG="+bashArg("", logPath),
 	)
 	cmd.Env = appendWSLEnvKeysWithGitPath(t, env, "PATH", "HOOK_SCOPE_LOG")
+	out, err := cmd.CombinedOutput()
+	return string(out), err
+}
+
+func runPreCommitHook(t *testing.T, root string) (string, error) {
+	t.Helper()
+	cmd := exec.Command("bash", bashPath(".githooks", "pre-commit"))
+	cmd.Dir = root
+	cmd.Env = appendWSLEnvKeysWithGitPath(t, os.Environ(), "PATH")
 	out, err := cmd.CombinedOutput()
 	return string(out), err
 }
