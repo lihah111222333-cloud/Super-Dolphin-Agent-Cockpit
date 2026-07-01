@@ -22,6 +22,7 @@ func TestStartSessionDefaultCodexHomeDoesNotRedirectPersonalMirror(t *testing.T)
 	t.Setenv("SUPER_DOLPHIN_RUNTIME_MODE", "packaged")
 	t.Setenv("HOME", userHome)
 	t.Setenv("USERPROFILE", userHome)
+	mustCanonicalCodexHome(t, userHome)
 	workDir := t.TempDir()
 	var gotHome string
 	pool := NewServerPool(slog.Default(), func(_ context.Context, home, _ string) (SpawnedServer, error) {

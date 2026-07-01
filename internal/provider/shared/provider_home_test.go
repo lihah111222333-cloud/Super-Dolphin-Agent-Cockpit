@@ -481,6 +481,12 @@ func TestEnsureProviderHomeDefaultsToUserCLIHome(t *testing.T) {
 	userHome := filepath.Join(t.TempDir(), "user-home")
 	t.Setenv("HOME", userHome)
 	t.Setenv("USERPROFILE", userHome)
+	if err := os.MkdirAll(filepath.Join(userHome, ".claude"), 0o700); err != nil {
+		t.Fatalf("mkdir claude home: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(userHome, ".codex"), 0o700); err != nil {
+		t.Fatalf("mkdir codex home: %v", err)
+	}
 
 	claudeHome, err := EnsureProviderHome(ProviderClaude, "")
 	if err != nil {
@@ -503,6 +509,30 @@ func TestEnsureProviderHomeDefaultsToUserCLIHome(t *testing.T) {
 	}
 	if codexHome != wantCodexHome {
 		t.Fatalf("codex home = %q, want user CLI home", codexHome)
+	}
+}
+
+func TestEnsureProviderHomeDefaultCLIHomeIsReadOnlyDiagnostic(t *testing.T) {
+	userHome := filepath.Join(t.TempDir(), "user-home")
+	t.Setenv("HOME", userHome)
+	t.Setenv("USERPROFILE", userHome)
+	if err := os.MkdirAll(userHome, 0o700); err != nil {
+		t.Fatalf("mkdir user home: %v", err)
+	}
+	defaultClaudeHome := filepath.Join(userHome, ".claude")
+
+	got, err := EnsureProviderHome(ProviderClaude, "")
+	if err == nil {
+		t.Fatalf("EnsureProviderHome() error = nil, want missing CLI home diagnostic")
+	}
+	if got != "" {
+		t.Fatalf("EnsureProviderHome() = %q, want empty on diagnostic failure", got)
+	}
+	if !strings.Contains(err.Error(), "resolve provider home realpath") {
+		t.Fatalf("EnsureProviderHome() error = %v, want realpath diagnostic", err)
+	}
+	if _, statErr := os.Stat(defaultClaudeHome); !os.IsNotExist(statErr) {
+		t.Fatalf("default CLI home stat error = %v, want not exist and not auto-created", statErr)
 	}
 }
 
@@ -601,6 +631,9 @@ func TestProviderHomeDevEmptyIgnoresPackagedLeftovers(t *testing.T) {
 	t.Setenv(PackagedCodexEnv, "1")
 	t.Setenv(ProjectRootEnv, project)
 	t.Setenv("SUPER_DOLPHIN_RUNTIME_MODE", "dev")
+	if err := os.MkdirAll(filepath.Join(userHome, ".codex"), 0o700); err != nil {
+		t.Fatalf("mkdir local codex home: %v", err)
+	}
 
 	home, err := EnsureProviderHome(ProviderCodex, "")
 	if err != nil {

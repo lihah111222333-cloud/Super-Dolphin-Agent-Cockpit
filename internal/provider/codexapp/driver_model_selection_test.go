@@ -9,8 +9,7 @@ import (
 )
 
 func TestDriverStartSessionSelectsDefaultModelFromModelList(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
-	t.Setenv("USERPROFILE", t.TempDir())
+	setDefaultCodexHomeEnvForTest(t)
 	modelListCalled := make(chan struct{}, 1)
 	startParams := make(chan map[string]any, 1)
 	serverURL := startCodexRPCServerWithHandler(t, func(msg jsonRPCMessage) json.RawMessage {
@@ -75,8 +74,7 @@ func TestDriverStartSessionSelectsDefaultModelFromModelList(t *testing.T) {
 }
 
 func TestDriverStartSessionPreservesExplicitGPT5Model(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
-	t.Setenv("USERPROFILE", t.TempDir())
+	setDefaultCodexHomeEnvForTest(t)
 	startParams := make(chan map[string]any, 1)
 	serverURL := startCodexRPCServerWithHandler(t, func(msg jsonRPCMessage) json.RawMessage {
 		switch msg.Method {
@@ -132,8 +130,7 @@ func TestDriverStartSessionPreservesExplicitGPT5Model(t *testing.T) {
 }
 
 func TestDriverStartSessionPreservesExplicitGPT55Model(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
-	t.Setenv("USERPROFILE", t.TempDir())
+	setDefaultCodexHomeEnvForTest(t)
 	startParams := make(chan map[string]any, 1)
 	serverURL := startCodexRPCServerWithHandler(t, func(msg jsonRPCMessage) json.RawMessage {
 		switch msg.Method {
