@@ -173,6 +173,69 @@ func TestPromptTemplatesNullableMatchWhenMigrationNormalizesLegacyScalars(t *tes
 	}
 }
 
+func TestSystemLogsTraceSpanMigrationPreservesAgentV3Rows(t *testing.T) {
+	db := openBaselineDB(t)
+	for _, index := range []string{
+		"idx_system_logs_ts_id",
+		"idx_system_logs_level_ts_id",
+		"idx_system_logs_source_ts_id",
+		"idx_system_logs_agent_ts_id",
+		"idx_system_logs_thread_ts_id",
+		"idx_system_logs_trace_ts_id",
+		"idx_system_logs_span_ts_id",
+		"idx_system_logs_logger",
+		"idx_system_logs_event",
+		"idx_system_logs_tool",
+	} {
+		mustExec(t, db, "DROP INDEX IF EXISTS "+index)
+	}
+	mustExec(t, db, "DROP TABLE system_logs")
+	mustExec(t, db, `
+		CREATE TABLE system_logs (
+			id INTEGER PRIMARY KEY,
+			ts INTEGER NOT NULL,
+			level TEXT NOT NULL,
+			logger TEXT NOT NULL,
+			message TEXT NOT NULL,
+			raw TEXT NOT NULL DEFAULT '',
+			source TEXT NOT NULL DEFAULT '',
+			component TEXT NOT NULL DEFAULT '',
+			agent_id TEXT NOT NULL DEFAULT '',
+			thread_id TEXT NOT NULL DEFAULT '',
+			trace_id TEXT NOT NULL DEFAULT '',
+			event_type TEXT NOT NULL DEFAULT '',
+			tool_name TEXT NOT NULL DEFAULT '',
+			duration_ms INTEGER,
+			extra TEXT NOT NULL DEFAULT '{}' CHECK(json_valid(extra))
+		)
+	`)
+	mustExec(t, db, `
+		INSERT INTO system_logs (
+			id, ts, level, logger, message, raw, source, component,
+			agent_id, thread_id, trace_id, event_type, tool_name, duration_ms, extra
+		)
+		VALUES (
+			7, 1710000000000, 'warn', 'mcp-control', 'agent-v3',
+			'raw', 'mcp-control', 'mcp-lsp', 'agent-1', 'thread-1',
+			'trace-1', 'ctl/log', 'definition', 42, '{"ok":true}'
+		)
+	`)
+
+	execFile(t, db, "internal/platform/db/sqlite/migrations/112_system_logs_trace_span.sql")
+
+	assertNotNullColumns(t, db, "system_logs", []string{"span_id", "parent_span_id"})
+	assertIndex(t, db, "system_logs", "idx_system_logs_trace_ts_id", false, "trace_id <> ''")
+	assertIndex(t, db, "system_logs", "idx_system_logs_span_ts_id", false, "span_id <> ''")
+
+	var traceID, spanID, parentSpanID, extra string
+	if err := db.QueryRow("SELECT trace_id, span_id, parent_span_id, extra FROM system_logs WHERE id = 7").Scan(&traceID, &spanID, &parentSpanID, &extra); err != nil {
+		t.Fatalf("read migrated system log: %v", err)
+	}
+	if traceID != "trace-1" || spanID != "" || parentSpanID != "" || extra != `{"ok":true}` {
+		t.Fatalf("migrated system log trace=%q span=%q parent=%q extra=%q", traceID, spanID, parentSpanID, extra)
+	}
+}
+
 func baselineContracts() map[string]tableContract {
 	return map[string]tableContract{
 		"schema_migrations": {PrimaryKey: []string{"version"}, NotNull: []string{"name", "filename", "applied_at"}},
@@ -185,7 +248,7 @@ func baselineContracts() map[string]tableContract {
 
 		"audit_events":       {PrimaryKey: []string{"id"}, NotNull: []string{"ts", "event_type", "action", "result", "actor", "target", "detail", "level", "extra"}, Checks: []string{"json_valid(extra)"}, Indexes: []string{"idx_audit_events_ts", "idx_audit_events_event_type", "idx_audit_events_action", "idx_audit_events_result", "idx_audit_events_actor"}},
 		"bus_exception_logs": {PrimaryKey: []string{"id"}, NotNull: []string{"ts", "category", "severity", "source", "tool_name", "message", "traceback", "extra"}, Checks: []string{"json_valid(extra)"}, Indexes: []string{"idx_bus_exception_logs_ts", "idx_bus_exception_logs_category", "idx_bus_exception_logs_severity"}},
-		"system_logs":        {PrimaryKey: []string{"id"}, NotNull: []string{"ts", "level", "logger", "message", "raw", "source", "component", "agent_id", "thread_id", "trace_id", "event_type", "tool_name", "extra"}, Checks: []string{"json_valid(extra)"}, Indexes: []string{"idx_system_logs_ts_id", "idx_system_logs_level_ts_id", "idx_system_logs_source_ts_id", "idx_system_logs_agent_ts_id", "idx_system_logs_thread_ts_id", "idx_system_logs_logger", "idx_system_logs_event", "idx_system_logs_tool"}},
+		"system_logs":        {PrimaryKey: []string{"id"}, NotNull: []string{"ts", "level", "logger", "message", "raw", "source", "component", "agent_id", "thread_id", "trace_id", "span_id", "parent_span_id", "event_type", "tool_name", "extra"}, Checks: []string{"json_valid(extra)"}, Indexes: []string{"idx_system_logs_ts_id", "idx_system_logs_level_ts_id", "idx_system_logs_source_ts_id", "idx_system_logs_agent_ts_id", "idx_system_logs_thread_ts_id", "idx_system_logs_trace_ts_id", "idx_system_logs_span_ts_id", "idx_system_logs_logger", "idx_system_logs_event", "idx_system_logs_tool"}},
 		"task_traces":        {PrimaryKey: []string{"id"}, NotNull: []string{"trace_id", "span_id", "parent_span_id", "span_name", "component", "status", "input_payload", "output_payload", "metadata", "started_at", "duration_ms"}, Checks: []string{"json_valid(input_payload)", "json_valid(output_payload)", "json_valid(metadata)", "duration_ms >= 0"}, Indexes: []string{"idx_task_traces_trace_started", "idx_task_traces_component_started"}},
 
 		"prompts":                  {PrimaryKey: []string{"id"}, NotNull: []string{"agent_key", "tool_name", "prompt_text", "is_pinned", "sort_order", "created_at", "updated_at"}, Checks: []string{"is_pinned IN (0, 1)"}, Indexes: []string{"idx_prompts_agent_key", "idx_prompts_sort_order"}},

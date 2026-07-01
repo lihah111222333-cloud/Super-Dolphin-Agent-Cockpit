@@ -121,7 +121,7 @@ func applyMigration(ctx context.Context, db *sql.DB, dir, name string) error {
 	if err != nil {
 		return fmt.Errorf("begin SQLite migration %s: %w", name, err)
 	}
-	if err := execMigrationSegments(ctx, tx, string(body)); err != nil {
+	if err := executeMigrationBody(ctx, tx, name, string(body)); err != nil {
 		_ = tx.Rollback()
 		return fmt.Errorf("execute SQLite migration %s: %w", name, err)
 	}
@@ -149,6 +149,152 @@ func applyMigration(ctx context.Context, db *sql.DB, dir, name string) error {
 	}
 	if err := tx.Commit(); err != nil {
 		return fmt.Errorf("commit SQLite migration %s: %w", name, err)
+	}
+	return nil
+}
+
+// executeMigrationBody 执行普通 SQL 迁移；少数需要按现有 schema 分支的迁移在这里收敛为 Go 逻辑。
+func executeMigrationBody(ctx context.Context, tx *sql.Tx, name, body string) error {
+	if name == "112_system_logs_trace_span.sql" {
+		return migrateSystemLogsTraceSpan(ctx, tx)
+	}
+	return execMigrationSegments(ctx, tx, body)
+}
+
+// migrateSystemLogsTraceSpan 只支持 agent-v3 的 system_logs 形状，补齐 span 字段和查询索引。
+// SQLite 不支持 ADD COLUMN IF NOT EXISTS；这里先探测列，遇到更老表形状直接 fail-fast。
+func migrateSystemLogsTraceSpan(ctx context.Context, tx *sql.Tx) error {
+	columns, err := sqliteTableColumns(ctx, tx, "system_logs")
+	if err != nil {
+		return err
+	}
+	if err := requireSystemLogColumns(columns, systemLogsTraceSpanRequiredColumns...); err != nil {
+		return err
+	}
+	if columns["span_id"] != columns["parent_span_id"] {
+		return fmt.Errorf("system_logs span columns are partially migrated")
+	}
+	if columns["span_id"] {
+		return execMigrationStatements(ctx, tx, systemLogsIndexSQL)
+	}
+	statements := []string{
+		createSystemLogsTraceSpanMigrationSQL,
+		systemLogsTraceSpanInsertSQL,
+		"DROP TABLE system_logs",
+		"ALTER TABLE system_logs_trace_span_migration RENAME TO system_logs",
+	}
+	statements = append(statements, systemLogsIndexSQL...)
+	return execMigrationStatements(ctx, tx, statements)
+}
+
+const createSystemLogsTraceSpanMigrationSQL = `
+CREATE TABLE system_logs_trace_span_migration (
+	id INTEGER PRIMARY KEY,
+	ts INTEGER NOT NULL,
+	level TEXT NOT NULL,
+	logger TEXT NOT NULL,
+	message TEXT NOT NULL,
+	raw TEXT NOT NULL DEFAULT '',
+	source TEXT NOT NULL DEFAULT '',
+	component TEXT NOT NULL DEFAULT '',
+	agent_id TEXT NOT NULL DEFAULT '',
+	thread_id TEXT NOT NULL DEFAULT '',
+	trace_id TEXT NOT NULL DEFAULT '',
+	span_id TEXT NOT NULL DEFAULT '',
+	parent_span_id TEXT NOT NULL DEFAULT '',
+	event_type TEXT NOT NULL DEFAULT '',
+	tool_name TEXT NOT NULL DEFAULT '',
+	duration_ms INTEGER,
+	extra TEXT NOT NULL DEFAULT '{}' CHECK(json_valid(extra))
+)`
+
+var systemLogsTraceSpanRequiredColumns = []string{
+	"id",
+	"ts",
+	"level",
+	"logger",
+	"message",
+	"raw",
+	"source",
+	"component",
+	"agent_id",
+	"thread_id",
+	"trace_id",
+	"event_type",
+	"tool_name",
+	"duration_ms",
+	"extra",
+}
+
+var systemLogsIndexSQL = []string{
+	"CREATE INDEX IF NOT EXISTS idx_system_logs_ts_id ON system_logs(ts DESC, id DESC)",
+	"CREATE INDEX IF NOT EXISTS idx_system_logs_level_ts_id ON system_logs(level, ts DESC, id DESC)",
+	"CREATE INDEX IF NOT EXISTS idx_system_logs_source_ts_id ON system_logs(source, ts DESC, id DESC) WHERE source <> ''",
+	"CREATE INDEX IF NOT EXISTS idx_system_logs_agent_ts_id ON system_logs(agent_id, ts DESC, id DESC) WHERE agent_id <> ''",
+	"CREATE INDEX IF NOT EXISTS idx_system_logs_thread_ts_id ON system_logs(thread_id, ts DESC, id DESC) WHERE thread_id <> ''",
+	"CREATE INDEX IF NOT EXISTS idx_system_logs_trace_ts_id ON system_logs(trace_id, ts DESC, id DESC) WHERE trace_id <> ''",
+	"CREATE INDEX IF NOT EXISTS idx_system_logs_span_ts_id ON system_logs(span_id, ts DESC, id DESC) WHERE span_id <> ''",
+	"CREATE INDEX IF NOT EXISTS idx_system_logs_logger ON system_logs(logger)",
+	"CREATE INDEX IF NOT EXISTS idx_system_logs_event ON system_logs(event_type) WHERE event_type <> ''",
+	"CREATE INDEX IF NOT EXISTS idx_system_logs_tool ON system_logs(tool_name) WHERE tool_name <> ''",
+}
+
+const systemLogsTraceSpanInsertSQL = `
+INSERT INTO system_logs_trace_span_migration (
+	id, ts, level, logger, message, raw,
+	source, component, agent_id, thread_id, trace_id,
+	span_id, parent_span_id,
+	event_type, tool_name, duration_ms, extra
+)
+SELECT
+	id, ts, level, logger, message, raw,
+	source, component, agent_id, thread_id, trace_id,
+	'', '',
+	event_type, tool_name, duration_ms, COALESCE(extra, '{}')
+FROM system_logs`
+
+func execMigrationStatements(ctx context.Context, tx *sql.Tx, statements []string) error {
+	for _, statement := range statements {
+		if _, err := tx.ExecContext(ctx, statement); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// sqliteTableColumns 读取 SQLite 表列集合；迁移代码只用固定表名调用，避免把外部输入拼进 SQL。
+func sqliteTableColumns(ctx context.Context, tx *sql.Tx, table string) (map[string]bool, error) {
+	rows, err := tx.QueryContext(ctx, fmt.Sprintf("PRAGMA table_info(%s)", table))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	columns := make(map[string]bool)
+	for rows.Next() {
+		var (
+			cid      int
+			name     string
+			colType  string
+			notNull  int
+			defaultV sql.NullString
+			primaryK int
+		)
+		if err := rows.Scan(&cid, &name, &colType, &notNull, &defaultV, &primaryK); err != nil {
+			return nil, err
+		}
+		columns[name] = true
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return columns, nil
+}
+
+func requireSystemLogColumns(columns map[string]bool, required ...string) error {
+	for _, column := range required {
+		if !columns[column] {
+			return fmt.Errorf("system_logs missing required column %s", column)
+		}
 	}
 	return nil
 }

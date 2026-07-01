@@ -37,6 +37,101 @@ func TestFromContextAddsTraceFields(t *testing.T) {
 	}
 }
 
+func TestExtractTraceCarrierFieldsDerivesTraceparent(t *testing.T) {
+	trace, err := ExtractTraceCarrierFields(map[string]any{
+		FieldAOTraceparent: "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
+		FieldParentSpanID:  "parent-1",
+	}, TraceFieldAliases{})
+	if err != nil {
+		t.Fatalf("ExtractTraceCarrierFields() error = %v", err)
+	}
+	if trace.TraceID != "4bf92f3577b34da6a3ce929d0e0e4736" ||
+		trace.SpanID != "00f067aa0ba902b7" ||
+		trace.ParentSpanID != "parent-1" {
+		t.Fatalf("trace = %+v, want traceparent ids with parent span", trace)
+	}
+}
+
+func TestExtractTraceCarrierFieldsRejectsTraceparentMismatch(t *testing.T) {
+	_, err := ExtractTraceCarrierFields(map[string]any{
+		FieldTraceID:     "11111111111111111111111111111111",
+		FieldTraceparent: "00-22222222222222222222222222222222-3333333333333333-01",
+	}, DefaultTraceFieldAliases())
+	if err == nil || !strings.Contains(err.Error(), "trace_id does not match traceparent") {
+		t.Fatalf("ExtractTraceCarrierFields() error = %v, want trace_id mismatch", err)
+	}
+}
+
+func TestExtractAOTraceCarrierJSONRejectsMismatchedMetadata(t *testing.T) {
+	trace, ok, err := ExtractAOTraceCarrierJSON(map[string]json.RawMessage{
+		FieldAOTraceparent: json.RawMessage(`"00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01"`),
+		FieldAOTraceID:     json.RawMessage(`"4bf92f3577b34da6a3ce929d0e0e4736"`),
+		FieldAOSpanID:      json.RawMessage(`"00f067aa0ba902b7"`),
+	})
+	if err != nil || !ok {
+		t.Fatalf("ExtractAOTraceCarrierJSON() = (%+v, %v, %v), want trace and ok", trace, ok, err)
+	}
+	if trace.TraceID != "4bf92f3577b34da6a3ce929d0e0e4736" || trace.SpanID != "00f067aa0ba902b7" {
+		t.Fatalf("trace = %+v, want traceparent ids", trace)
+	}
+
+	_, _, err = ExtractAOTraceCarrierJSON(map[string]json.RawMessage{
+		FieldAOTraceparent: json.RawMessage(`"00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01"`),
+		FieldAOTraceID:     json.RawMessage(`"11111111111111111111111111111111"`),
+	})
+	if err == nil || !strings.Contains(err.Error(), "mismatched _aoTraceId") {
+		t.Fatalf("ExtractAOTraceCarrierJSON() error = %v, want mismatched _aoTraceId", err)
+	}
+}
+
+func TestParseTraceparentRejectsInvalidParts(t *testing.T) {
+	cases := map[string]string{
+		"short fields":    "not-a-traceparent",
+		"version":         "01-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
+		"all zero trace":  "00-00000000000000000000000000000000-00f067aa0ba902b7-01",
+		"all zero span":   "00-4bf92f3577b34da6a3ce929d0e0e4736-0000000000000000-01",
+		"uppercase trace": "00-4BF92F3577B34DA6A3CE929D0E0E4736-00f067aa0ba902b7-01",
+		"flags":           "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-zz",
+	}
+	for name, traceparent := range cases {
+		t.Run(name, func(t *testing.T) {
+			if _, err := ParseTraceparent(traceparent); err == nil {
+				t.Fatal("ParseTraceparent() error = nil, want rejection")
+			}
+		})
+	}
+}
+
+func TestTraceIdentifierValidators(t *testing.T) {
+	if !ValidTraceID("4bf92f3577b34da6a3ce929d0e0e4736") {
+		t.Fatal("ValidTraceID() = false, want true")
+	}
+	if ValidTraceID("00000000000000000000000000000000") {
+		t.Fatal("ValidTraceID(all zero) = true, want false")
+	}
+	if !ValidSpanID("00f067aa0ba902b7") {
+		t.Fatal("ValidSpanID() = false, want true")
+	}
+	if ValidSpanID("0000000000000000") {
+		t.Fatal("ValidSpanID(all zero) = true, want false")
+	}
+	if !ValidTraceFlags("01") {
+		t.Fatal("ValidTraceFlags() = false, want true")
+	}
+	if ValidTraceFlags("0G") {
+		t.Fatal("ValidTraceFlags(uppercase/non-hex) = true, want false")
+	}
+}
+
+func TestExtractTraceCarrierFieldsRejectsUnsafeToken(t *testing.T) {
+	_, err := ExtractTraceCarrierFields(map[string]any{
+		FieldSpanID: "span/unsafe",
+	}, DefaultTraceFieldAliases())
+	if err == nil || !strings.Contains(err.Error(), "span_id contains unsafe characters") {
+		t.Fatalf("ExtractTraceCarrierFields() error = %v, want unsafe span token", err)
+	}
+}
+
 func TestProductionErrorLogAddsErrorFields(t *testing.T) {
 	var buf bytes.Buffer
 	logger := slog.New(newHandler(Production, slog.LevelInfo, &buf))

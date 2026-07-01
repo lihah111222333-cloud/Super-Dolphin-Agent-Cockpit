@@ -22,8 +22,13 @@ const (
 	logSourceSystem = "system"
 )
 
+var (
+	errDashboardSystemLogsNotConfigured = errors.New("dashboard: system log reader is not configured")
+	errDashboardAILogsNotConfigured     = errors.New("dashboard: ai log reader is not configured")
+)
+
 // service 聚合 dashboard 需要的 orchestration、store 和只读模块依赖。
-// 字段允许为 nil 的 reader 会在具体 list helper 中返回空切片；核心 orchestration 缺失时直接报错。
+// 日志 reader 缺失会在对应读取入口 fail-fast，避免装配漂移被空列表掩盖。
 type service struct {
 	orchestration  contract.OrchestrationService
 	dagRuntime     contract.DAGRuntime
@@ -47,7 +52,7 @@ type dashboardPromptScopeCWDKey struct{}
 var _ Service = (*service)(nil)
 
 // NewService 创建 dashboard 服务。
-// 构造阶段只保存依赖，不访问 store；部分 reader 可为 nil，以支持精简运行模式。
+// 构造阶段只保存依赖，不访问 store；具体读取入口按能力要求校验依赖是否存在。
 func NewService(
 	orchestrationSvc contract.OrchestrationService,
 	agentStatuses AgentStatusReader,
@@ -394,10 +399,10 @@ func resolveLogSource(source string) (logSourceMode, error) {
 }
 
 // appendSystemLogs 从 system log store 追加满足过滤条件的日志。
-// store 为 nil 时返回已有 entries，支持无 system log 的轻量运行模式。
+// store 为 nil 时直接报错，避免 system log 链路断开却返回空列表。
 func (s *service) appendSystemLogs(ctx context.Context, entries []LogEntry, filter LogFilter) ([]LogEntry, error) {
 	if s.systemLogs == nil {
-		return entries, nil
+		return nil, errDashboardSystemLogsNotConfigured
 	}
 	rows, err := s.systemLogs.List(ctx, newSystemLogListFilter(filter))
 	if err != nil {
@@ -409,10 +414,10 @@ func (s *service) appendSystemLogs(ctx context.Context, entries []LogEntry, filt
 }
 
 // appendAILogs 从 AI log store 追加满足过滤条件的日志。
-// store 为 nil 时返回已有 entries，错误不吞掉，交由 GetLogs 返回。
+// store 为 nil 时直接报错，错误不吞掉，交由 GetLogs 返回。
 func (s *service) appendAILogs(ctx context.Context, entries []LogEntry, filter LogFilter) ([]LogEntry, error) {
 	if s.aiLogs == nil {
-		return entries, nil
+		return nil, errDashboardAILogsNotConfigured
 	}
 	rows, err := s.aiLogs.List(ctx, AILogFilter{
 		Keyword: strings.TrimSpace(filter.Keyword),

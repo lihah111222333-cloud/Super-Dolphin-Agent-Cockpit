@@ -66,12 +66,12 @@ func httpTraceContext(ctx context.Context, r *http.Request) (context.Context, st
 		ctx = context.Background()
 	}
 	requestID := strings.TrimSpace(r.Header.Get(requestIDHeader))
-	traceID, spanID, err := parseHTTPTraceparent(r.Header.Get("traceparent"))
+	traceID, spanID, err := httpTraceparentFields(r.Header.Get("traceparent"))
 	if err != nil {
 		return ctx, "", "", err
 	}
 	if traceID == "" {
-		if validTraceID(requestID) {
+		if pkglogger.ValidTraceID(requestID) {
 			traceID = requestID
 		} else {
 			generated, err := pkglogger.NewTraceID()
@@ -94,42 +94,17 @@ func httpTraceContext(ctx context.Context, r *http.Request) (context.Context, st
 	return pkglogger.WithTraceContext(ctx, traceID, spanID, ""), traceID, requestID, nil
 }
 
-// parseHTTPTraceparent 解析 W3C traceparent，格式错误会阻断请求。
-func parseHTTPTraceparent(raw string) (string, string, error) {
+// httpTraceparentFields 从 HTTP traceparent 中取出 trace/span；空请求头交给调用方生成新 trace。
+func httpTraceparentFields(raw string) (string, string, error) {
 	raw = strings.TrimSpace(raw)
 	if raw == "" {
 		return "", "", nil
 	}
-	parts := strings.Split(raw, "-")
-	if len(parts) != 4 {
-		return "", "", fmt.Errorf("traceparent must have 4 dash-separated fields")
+	trace, err := pkglogger.ParseTraceparent(raw)
+	if err != nil {
+		return "", "", err
 	}
-	if parts[0] != "00" {
-		return "", "", fmt.Errorf("unsupported traceparent version %q", parts[0])
-	}
-	traceID, spanID := parts[1], parts[2]
-	if !validTraceID(traceID) {
-		return "", "", fmt.Errorf("invalid trace id")
-	}
-	if !validSpanID(spanID) {
-		return "", "", fmt.Errorf("invalid span id")
-	}
-	if len(parts[3]) != 2 || !isLowerHex(parts[3]) {
-		return "", "", fmt.Errorf("invalid trace flags")
-	}
-	return traceID, spanID, nil
-}
-
-// validTraceID 判断 trace id 是否为非零小写十六进制 16 字节值。
-// HTTP 入口用 bool 版本快速拒绝坏 traceparent，错误文本由调用方统一生成。
-func validTraceID(value string) bool {
-	return len(value) == 32 && isLowerHex(value) && !allZeroHex(value)
-}
-
-// validSpanID 判断 span id 是否为非零小写十六进制 8 字节值。
-// HTTP 入口用 bool 版本快速拒绝坏 traceparent，错误文本由调用方统一生成。
-func validSpanID(value string) bool {
-	return len(value) == 16 && isLowerHex(value) && !allZeroHex(value)
+	return trace.TraceID, trace.SpanID, nil
 }
 
 // clientIP 从代理头或 RemoteAddr 提取客户端 IP。

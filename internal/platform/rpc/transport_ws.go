@@ -173,21 +173,14 @@ func wsFrontendTraceContext(ctx context.Context, raw json.RawMessage) (context.C
 	if err != nil {
 		return nil, err
 	}
-	traceparent, ok, err := wsFrontendStringField(obj, "_aoTraceparent")
+	trace, ok, err := pkglogger.ExtractAOTraceCarrierJSON(obj)
 	if err != nil {
-		return nil, err
+		return nil, jrpc2.Errorf(jrpc2.Code(CodeInvalidParams), "%v", err)
 	}
 	if !ok {
 		return ctx, nil
 	}
-	traceID, spanID, err := wsParseFrontendTraceparent(traceparent)
-	if err != nil {
-		return nil, jrpc2.Errorf(jrpc2.Code(CodeInvalidParams), "invalid _aoTraceparent: %v", err)
-	}
-	if err := wsValidateFrontendTraceMetadata(obj, traceID, spanID); err != nil {
-		return nil, err
-	}
-	return pkglogger.WithTraceContext(ctx, traceID, spanID, ""), nil
+	return pkglogger.WithTraceContext(ctx, trace.TraceID, trace.SpanID, ""), nil
 }
 
 // wsIsJSONObject 快速判断 raw params 是否可能是 JSON object。
@@ -202,100 +195,6 @@ func wsDecodeFrontendMetaObject(raw json.RawMessage) (map[string]json.RawMessage
 		return nil, jrpc2.Errorf(jrpc2.Code(CodeInvalidParams), "decode frontend metadata: %v", err)
 	}
 	return obj, nil
-}
-
-// wsValidateFrontendTraceMetadata 校验冗余 traceID/spanID 与 traceparent 保持一致。
-func wsValidateFrontendTraceMetadata(obj map[string]json.RawMessage, traceID, spanID string) error {
-	if metadataTraceID, ok, err := wsFrontendStringField(obj, "_aoTraceId"); err != nil {
-		return err
-	} else if ok && metadataTraceID != traceID {
-		return jrpc2.Errorf(jrpc2.Code(CodeInvalidParams), "mismatched _aoTraceId")
-	}
-	if metadataSpanID, ok, err := wsFrontendStringField(obj, "_aoSpanId"); err != nil {
-		return err
-	} else if ok && metadataSpanID != spanID {
-		return jrpc2.Errorf(jrpc2.Code(CodeInvalidParams), "mismatched _aoSpanId")
-	}
-	return nil
-}
-
-// wsFrontendStringField 读取前端 metadata 字符串字段，类型错误时返回 RPC 参数错误。
-func wsFrontendStringField(obj map[string]json.RawMessage, key string) (string, bool, error) {
-	raw, ok := obj[key]
-	if !ok {
-		return "", false, nil
-	}
-	var value string
-	if err := json.Unmarshal(raw, &value); err != nil {
-		return "", true, jrpc2.Errorf(jrpc2.Code(CodeInvalidParams), "%s must be a string", key)
-	}
-	return value, true, nil
-}
-
-// wsParseFrontendTraceparent 解析 W3C traceparent，并返回 traceID/spanID。
-func wsParseFrontendTraceparent(value string) (string, string, error) {
-	parts := strings.Split(value, "-")
-	if len(parts) != 4 {
-		return "", "", jrpc2.Errorf(jrpc2.Code(CodeInvalidParams), "expected 4 dash-separated fields")
-	}
-	if parts[0] != "00" {
-		return "", "", jrpc2.Errorf(jrpc2.Code(CodeInvalidParams), "unsupported version %q", parts[0])
-	}
-	traceID, spanID, flags := parts[1], parts[2], parts[3]
-	if err := wsValidateTraceID(traceID); err != nil {
-		return "", "", err
-	}
-	if err := wsValidateSpanID(spanID); err != nil {
-		return "", "", err
-	}
-	if err := wsValidateTraceFlags(flags); err != nil {
-		return "", "", err
-	}
-	return traceID, spanID, nil
-}
-
-// wsValidateTraceID 校验 trace id 是非零小写十六进制 16 字节值。
-func wsValidateTraceID(value string) error {
-	if len(value) != 32 || !wsIsLowerHex(value) || wsAllZeroHex(value) {
-		return jrpc2.Errorf(jrpc2.Code(CodeInvalidParams), "invalid trace id")
-	}
-	return nil
-}
-
-// wsValidateSpanID 校验 span id 是非零小写十六进制 8 字节值。
-func wsValidateSpanID(value string) error {
-	if len(value) != 16 || !wsIsLowerHex(value) || wsAllZeroHex(value) {
-		return jrpc2.Errorf(jrpc2.Code(CodeInvalidParams), "invalid span id")
-	}
-	return nil
-}
-
-// wsValidateTraceFlags 校验 trace flags 是小写十六进制单字节值。
-func wsValidateTraceFlags(value string) error {
-	if len(value) != 2 || !wsIsLowerHex(value) {
-		return jrpc2.Errorf(jrpc2.Code(CodeInvalidParams), "invalid flags")
-	}
-	return nil
-}
-
-// wsIsLowerHex 判断字符串是否只包含小写十六进制字符。
-func wsIsLowerHex(value string) bool {
-	for _, ch := range value {
-		if (ch < '0' || ch > '9') && (ch < 'a' || ch > 'f') {
-			return false
-		}
-	}
-	return true
-}
-
-// wsAllZeroHex 判断十六进制字符串是否全为 0。
-func wsAllZeroHex(value string) bool {
-	for _, ch := range value {
-		if ch != '0' {
-			return false
-		}
-	}
-	return true
 }
 
 // wsChannel 把 gorilla websocket 适配为 jrpc2 channel.Channel。

@@ -23,28 +23,30 @@ type ListFilter struct {
 
 // AILog 是 AI 日志的跨模块 DTO，保留原始日志字段并附带查询侧派生的分类信息。
 type AILog struct {
-	ID         int64
-	Ts         time.Time
-	Level      string
-	Logger     string
-	Message    string
-	Raw        string
-	Source     string
-	Component  string
-	AgentID    string
-	ThreadID   string
-	TraceID    string
-	EventType  string
-	ToolName   string
-	DurationMs *int32
-	Extra      json.RawMessage
-	Category   string
-	Method     string
-	URL        string
-	Endpoint   string
-	Status     string
-	StatusText string
-	Model      string
+	ID           int64
+	Ts           time.Time
+	Level        string
+	Logger       string
+	Message      string
+	Raw          string
+	Source       string
+	Component    string
+	AgentID      string
+	ThreadID     string
+	TraceID      string
+	SpanID       string
+	ParentSpanID string
+	EventType    string
+	ToolName     string
+	DurationMs   *int32
+	Extra        json.RawMessage
+	Category     string
+	Method       string
+	URL          string
+	Endpoint     string
+	Status       string
+	StatusText   string
+	Model        string
 }
 
 // StatusCount 表示从 AI 日志消息中提取出的 HTTP 状态聚合结果。

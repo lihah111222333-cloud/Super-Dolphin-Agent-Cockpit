@@ -1613,7 +1613,7 @@
     "lines": 309,
     "max_func_len": 40,
     "max_nesting": 2,
-    "max_complexity": 19,
+    "max_complexity": 13,
     "max_params": 6,
     "max_returns": 2,
     "max_underscore": 0,

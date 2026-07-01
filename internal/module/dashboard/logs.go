@@ -55,6 +55,8 @@ func matchKeyword(keyword string, entry LogEntry) bool {
 		entry.AgentID,
 		entry.ThreadID,
 		entry.TraceID,
+		entry.SpanID,
+		entry.ParentSpanID,
 		entry.EventType,
 		entry.ToolName,
 		string(entry.Extra),

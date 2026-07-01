@@ -117,6 +117,8 @@ func TestSQLiteBaselineCriticalIndexesAndConstraints(t *testing.T) {
 	assertIndex(t, db, "system_logs", "idx_system_logs_source_ts_id", false, "source <> ''")
 	assertIndex(t, db, "system_logs", "idx_system_logs_agent_ts_id", false, "agent_id <> ''")
 	assertIndex(t, db, "system_logs", "idx_system_logs_thread_ts_id", false, "thread_id <> ''")
+	assertIndex(t, db, "system_logs", "idx_system_logs_trace_ts_id", false, "trace_id <> ''")
+	assertIndex(t, db, "system_logs", "idx_system_logs_span_ts_id", false, "span_id <> ''")
 	assertIndex(t, db, "system_logs", "idx_system_logs_ts_id", false, "")
 
 	assertIndex(t, db, "session_insights", "idx_session_insights_thread_created", false, "")

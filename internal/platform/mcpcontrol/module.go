@@ -55,6 +55,7 @@ type HandlerDeps struct {
 	Context           ContextProvider               `optional:"true"`
 	Events            EventSink                     `optional:"true"`
 	Logs              LogSink                       `optional:"true"`
+	SystemLogs        SystemLogSink                 `optional:"true"`
 	RuntimeReports    RuntimeReportHandler          `optional:"true"`
 	CompletionReports CompletionReportHandler       `optional:"true"`
 }
@@ -74,6 +75,7 @@ type handlerIn struct {
 	Context           ContextProvider               `optional:"true"`
 	Events            EventSink                     `optional:"true"`
 	Logs              LogSink                       `optional:"true"`
+	SystemLogs        SystemLogSink                 `optional:"true"`
 	RuntimeReports    RuntimeReportHandler          `optional:"true"`
 	CompletionReports CompletionReportHandler       `optional:"true"`
 }
@@ -145,6 +147,7 @@ func provideHandlers(in handlerIn) rpc.HandlerMapResult {
 		Context:           in.Context,
 		Events:            in.Events,
 		Logs:              in.Logs,
+		SystemLogs:        in.SystemLogs,
 		RuntimeReports:    in.RuntimeReports,
 		CompletionReports: in.CompletionReports,
 	})

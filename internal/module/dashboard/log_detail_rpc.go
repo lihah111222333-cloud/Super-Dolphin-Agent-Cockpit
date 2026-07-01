@@ -15,7 +15,7 @@ import (
 const logDetailPreviewBytes = 4096
 
 const dashboardLogDetailQuery = `
-SELECT id, ts, level, logger, message, raw, source, component, agent_id, thread_id, trace_id, event_type, tool_name, duration_ms, extra
+SELECT id, ts, level, logger, message, raw, source, component, agent_id, thread_id, trace_id, span_id, parent_span_id, event_type, tool_name, duration_ms, extra
 FROM system_logs
 WHERE id = ?
 LIMIT 1`
@@ -70,6 +70,8 @@ func logDetailFromRow(source string, row map[string]any) *LogDetail {
 		AgentID:        logDetailString(row, "agent_id"),
 		ThreadID:       logDetailString(row, "thread_id"),
 		TraceID:        logDetailString(row, "trace_id"),
+		SpanID:         logDetailString(row, "span_id"),
+		ParentSpanID:   logDetailString(row, "parent_span_id"),
 		EventType:      logDetailString(row, "event_type"),
 		ToolName:       logDetailString(row, "tool_name"),
 		DurationMs:     logDetailDuration(row, "duration_ms"),

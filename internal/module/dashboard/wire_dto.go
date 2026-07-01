@@ -29,28 +29,30 @@ type AILogFilter struct {
 // AILog 是 dashboard/aiLogs 系列接口返回的 AI 日志 wire 条目。
 // 该结构保留无 json tag 的字段命名，以兼容历史 store DTO 的编码输出。
 type AILog struct {
-	ID         int64
-	Ts         time.Time
-	Level      string
-	Logger     string
-	Message    string
-	Raw        string
-	Source     string
-	Component  string
-	AgentID    string
-	ThreadID   string
-	TraceID    string
-	EventType  string
-	ToolName   string
-	DurationMs *int32
-	Extra      json.RawMessage
-	Category   string
-	Method     string
-	URL        string
-	Endpoint   string
-	Status     string
-	StatusText string
-	Model      string
+	ID           int64
+	Ts           time.Time
+	Level        string
+	Logger       string
+	Message      string
+	Raw          string
+	Source       string
+	Component    string
+	AgentID      string
+	ThreadID     string
+	TraceID      string
+	SpanID       string
+	ParentSpanID string
+	EventType    string
+	ToolName     string
+	DurationMs   *int32
+	Extra        json.RawMessage
+	Category     string
+	Method       string
+	URL          string
+	Endpoint     string
+	Status       string
+	StatusText   string
+	Model        string
 }
 
 // AILogStatusCount 是 dashboard/aiLogs/stats 返回的状态聚合条目。
@@ -80,6 +82,8 @@ type LogDetail struct {
 	AgentID        string          `json:"agent_id,omitempty"`
 	ThreadID       string          `json:"thread_id,omitempty"`
 	TraceID        string          `json:"trace_id,omitempty"`
+	SpanID         string          `json:"span_id,omitempty"`
+	ParentSpanID   string          `json:"parent_span_id,omitempty"`
 	EventType      string          `json:"event_type,omitempty"`
 	ToolName       string          `json:"tool_name,omitempty"`
 	DurationMs     *int32          `json:"duration_ms,omitempty"`
@@ -134,36 +138,41 @@ type BusExceptionLog struct {
 
 // SystemLogFilter 是 dashboard 统一日志页读取 system log 的过滤条件。
 type SystemLogFilter struct {
-	Level     string
-	Logger    string
-	Source    string
-	Component string
-	AgentID   string
-	ThreadID  string
-	EventType string
-	ToolName  string
-	Keyword   string
-	Limit     int32
+	Level        string
+	Logger       string
+	Source       string
+	Component    string
+	AgentID      string
+	ThreadID     string
+	TraceID      string
+	SpanID       string
+	ParentSpanID string
+	EventType    string
+	ToolName     string
+	Keyword      string
+	Limit        int32
 }
 
 // SystemLog 是 dashboard 内部映射到 LogEntry 的 system log 行。
 // 该类型不直接暴露给前端，但字段名保持 store DTO，便于 adapter 逐字段转换。
 type SystemLog struct {
-	ID         int64
-	Ts         time.Time
-	Level      string
-	Logger     string
-	Message    string
-	Raw        string
-	Source     string
-	Component  string
-	AgentID    string
-	ThreadID   string
-	TraceID    string
-	EventType  string
-	ToolName   string
-	DurationMs *int32
-	Extra      json.RawMessage
+	ID           int64
+	Ts           time.Time
+	Level        string
+	Logger       string
+	Message      string
+	Raw          string
+	Source       string
+	Component    string
+	AgentID      string
+	ThreadID     string
+	TraceID      string
+	SpanID       string
+	ParentSpanID string
+	EventType    string
+	ToolName     string
+	DurationMs   *int32
+	Extra        json.RawMessage
 }
 
 // CommandCardFilter 是 dashboard/commandCards 的查询条件。

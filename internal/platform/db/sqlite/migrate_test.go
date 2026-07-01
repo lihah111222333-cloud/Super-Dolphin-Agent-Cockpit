@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	_ "modernc.org/sqlite"
@@ -62,6 +63,140 @@ func TestRunMigrationsAcceptsSelfRecordedBaselineMarker(t *testing.T) {
 	}
 }
 
+func TestRunMigrationsSystemLogsTraceSpanPreservesAgentV3Columns(t *testing.T) {
+	ctx := context.Background()
+	db := openMigrationTestDB(t)
+	createMigrationMarkerTable(t, db)
+	markBaselineApplied(t, db)
+	mustExec(t, db, `
+		CREATE TABLE system_logs (
+			id INTEGER PRIMARY KEY,
+			ts INTEGER NOT NULL,
+			level TEXT NOT NULL,
+			logger TEXT NOT NULL,
+			message TEXT NOT NULL,
+			raw TEXT NOT NULL DEFAULT '',
+			source TEXT NOT NULL DEFAULT '',
+			component TEXT NOT NULL DEFAULT '',
+			agent_id TEXT NOT NULL DEFAULT '',
+			thread_id TEXT NOT NULL DEFAULT '',
+			trace_id TEXT NOT NULL DEFAULT '',
+			event_type TEXT NOT NULL DEFAULT '',
+			tool_name TEXT NOT NULL DEFAULT '',
+			duration_ms INTEGER,
+			extra TEXT NOT NULL DEFAULT '{}' CHECK(json_valid(extra))
+		)
+	`)
+	mustExec(t, db, `
+		INSERT INTO system_logs (
+			id, ts, level, logger, message, raw, source, component,
+			agent_id, thread_id, trace_id, event_type, tool_name, duration_ms, extra
+		)
+		VALUES (
+			10, 1710000000000, 'warn', 'mcp-control', 'agent-v3 row', 'raw',
+			'mcp-control', 'mcp-lsp', 'agent-1', 'thread-1',
+			'trace-1', 'ctl/log', 'definition', 42, '{"ok":true}'
+		)
+	`)
+	dir := t.TempDir()
+	writeMigrationTestFile(t, dir, "112_system_logs_trace_span.sql", "SELECT broken_reference FROM nowhere;")
+
+	if err := RunMigrations(ctx, db, dir); err != nil {
+		t.Fatalf("RunMigrations() error = %v", err)
+	}
+	assertMigrationMarkerCount(t, db, "112_system_logs_trace_span.sql", 1)
+	assertSystemLogsTraceSpanRow(t, db, systemLogsTraceSpanWant{
+		id:      10,
+		source:  "mcp-control",
+		traceID: "trace-1",
+		spanID:  "",
+		extra:   `{"ok":true}`,
+	})
+}
+
+func TestRunMigrationsSystemLogsTraceSpanAcceptsCurrentAgentV3Table(t *testing.T) {
+	ctx := context.Background()
+	db := openMigrationTestDB(t)
+	createMigrationMarkerTable(t, db)
+	markBaselineApplied(t, db)
+	mustExec(t, db, `
+		CREATE TABLE system_logs (
+			id INTEGER PRIMARY KEY,
+			ts INTEGER NOT NULL,
+			level TEXT NOT NULL,
+			logger TEXT NOT NULL,
+			message TEXT NOT NULL,
+			raw TEXT NOT NULL DEFAULT '',
+			source TEXT NOT NULL DEFAULT '',
+			component TEXT NOT NULL DEFAULT '',
+			agent_id TEXT NOT NULL DEFAULT '',
+			thread_id TEXT NOT NULL DEFAULT '',
+			trace_id TEXT NOT NULL DEFAULT '',
+			span_id TEXT NOT NULL DEFAULT '',
+			parent_span_id TEXT NOT NULL DEFAULT '',
+			event_type TEXT NOT NULL DEFAULT '',
+			tool_name TEXT NOT NULL DEFAULT '',
+			duration_ms INTEGER,
+			extra TEXT NOT NULL DEFAULT '{}' CHECK(json_valid(extra))
+		)
+	`)
+	mustExec(t, db, `
+		INSERT INTO system_logs (
+			id, ts, level, logger, message, raw, source, component,
+			agent_id, thread_id, trace_id, span_id, parent_span_id,
+			event_type, tool_name, duration_ms, extra
+		)
+		VALUES (
+			11, 1710000000000, 'info', 'mcp-control', 'current row', 'raw',
+			'mcp-control', 'mcp-lsp', 'agent-1', 'thread-1',
+			'trace-2', 'span-2', 'parent-2', 'ctl/log', 'definition', 7, '{"ok":true}'
+		)
+	`)
+	dir := t.TempDir()
+	writeMigrationTestFile(t, dir, "112_system_logs_trace_span.sql", "SELECT broken_reference FROM nowhere;")
+
+	if err := RunMigrations(ctx, db, dir); err != nil {
+		t.Fatalf("RunMigrations() error = %v", err)
+	}
+	assertMigrationMarkerCount(t, db, "112_system_logs_trace_span.sql", 1)
+	assertSystemLogsTraceSpanRow(t, db, systemLogsTraceSpanWant{
+		id:           11,
+		source:       "mcp-control",
+		traceID:      "trace-2",
+		spanID:       "span-2",
+		parentSpanID: "parent-2",
+		extra:        `{"ok":true}`,
+	})
+}
+
+func TestRunMigrationsSystemLogsTraceSpanRejectsLegacyShape(t *testing.T) {
+	ctx := context.Background()
+	db := openMigrationTestDB(t)
+	createMigrationMarkerTable(t, db)
+	markBaselineApplied(t, db)
+	mustExec(t, db, `
+		CREATE TABLE system_logs (
+			id INTEGER PRIMARY KEY,
+			ts INTEGER NOT NULL,
+			level TEXT NOT NULL,
+			logger TEXT NOT NULL,
+			message TEXT NOT NULL,
+			raw TEXT NOT NULL DEFAULT ''
+		)
+	`)
+	dir := t.TempDir()
+	writeMigrationTestFile(t, dir, "112_system_logs_trace_span.sql", "SELECT broken_reference FROM nowhere;")
+
+	err := RunMigrations(ctx, db, dir)
+	if err == nil {
+		t.Fatal("RunMigrations() error = nil, want legacy system_logs shape rejection")
+	}
+	if !strings.Contains(err.Error(), "system_logs missing required column source") {
+		t.Fatalf("RunMigrations() error = %v, want missing source", err)
+	}
+	assertMigrationMarkerCount(t, db, "112_system_logs_trace_span.sql", 0)
+}
+
 func baselineMigrationForTest() string {
 	return `
 CREATE TABLE schema_migrations (
@@ -74,6 +209,53 @@ CREATE TABLE runtime_probe(id INTEGER PRIMARY KEY);
 INSERT OR IGNORE INTO schema_migrations(version, name, filename, applied_at)
 VALUES (103, 'sqlite baseline', '001_baseline.sql', 0);
 `
+}
+
+func createMigrationMarkerTable(t *testing.T, db *sql.DB) {
+	t.Helper()
+	mustExec(t, db, `
+		CREATE TABLE schema_migrations (
+			version INTEGER PRIMARY KEY,
+			name TEXT NOT NULL,
+			filename TEXT NOT NULL,
+			applied_at INTEGER NOT NULL
+		)
+	`)
+}
+
+func markBaselineApplied(t *testing.T, db *sql.DB) {
+	t.Helper()
+	mustExec(t, db, `
+		INSERT INTO schema_migrations(version, name, filename, applied_at)
+		VALUES (103, 'sqlite baseline', '001_baseline.sql', 0)
+	`)
+}
+
+type systemLogsTraceSpanWant struct {
+	id           int64
+	source       string
+	traceID      string
+	spanID       string
+	parentSpanID string
+	extra        string
+}
+
+func assertSystemLogsTraceSpanRow(t *testing.T, db *sql.DB, want systemLogsTraceSpanWant) {
+	t.Helper()
+	var source, traceID, spanID, parentSpanID, extra string
+	if err := db.QueryRow(`
+		SELECT source, trace_id, span_id, parent_span_id, extra
+		FROM system_logs
+		WHERE id = ?
+	`, want.id).Scan(&source, &traceID, &spanID, &parentSpanID, &extra); err != nil {
+		t.Fatalf("read migrated system log %d: %v", want.id, err)
+	}
+	if source != want.source || traceID != want.traceID || spanID != want.spanID || parentSpanID != want.parentSpanID || extra != want.extra {
+		t.Fatalf("migrated row = source:%q trace:%q span:%q parent:%q extra:%q, want source:%q trace:%q span:%q parent:%q extra:%q",
+			source, traceID, spanID, parentSpanID, extra, want.source, want.traceID, want.spanID, want.parentSpanID, want.extra)
+	}
+	assertIndex(t, db, "system_logs", "idx_system_logs_trace_ts_id", false, "trace_id <> ''")
+	assertIndex(t, db, "system_logs", "idx_system_logs_span_ts_id", false, "span_id <> ''")
 }
 
 func openMigrationTestDB(t *testing.T) *sql.DB {
