@@ -21,7 +21,11 @@ import (
 	teampkg "github.com/anthropic-ai/super-agent-v3/internal/module/memory/team"
 )
 
-var ErrInvalidProjectDir = errors.New("invalid project directory")
+var (
+	ErrInvalidProjectDir          = errors.New("invalid project directory")
+	ErrMemoryOverflowMergeFailed  = errors.New("memory_overflow_merge_failed")
+	ErrMemoryOverflowDeleteFailed = errors.New("memory_overflow_delete_failed")
+)
 
 // ==== team-memory bridge ====
 
@@ -158,15 +162,8 @@ func (h *MemoryLifecycleHooks) MemoryWriteToolsEnabled() bool {
 // WriteAgentMemory 接住 provider 发来的 memory_write。
 // 先检查开关、输入和敏感内容，再写入 memory；写完要让 prompt 下次读到新内容。
 func (h *MemoryLifecycleHooks) WriteAgentMemory(ctx context.Context, req contract.AgentMemoryWriteRequest) (contract.AgentMemoryWriteResult, error) {
-
-	if h == nil {
-		return contract.AgentMemoryWriteResult{}, agentMemoryError("writer_unavailable", fmt.Errorf("memory writer is not configured"))
-	}
-	if h.cfg != nil && !h.cfg.Enabled {
-		return contract.AgentMemoryWriteResult{}, agentMemoryError("feature_disabled", contract.ErrFeatureDisabled)
-	}
-	if h.cfg != nil && !h.cfg.EnableTools {
-		return contract.AgentMemoryWriteResult{}, agentMemoryError("tools_disabled", contract.ErrFeatureDisabled)
+	if err := h.ensureAgentMemoryWriteReady(); err != nil {
+		return contract.AgentMemoryWriteResult{}, err
 	}
 	entry, scope, err := buildAgentMemoryEntry(req)
 	if err != nil {
@@ -175,13 +172,51 @@ func (h *MemoryLifecycleHooks) WriteAgentMemory(ctx context.Context, req contrac
 	options := h.writeOptions(ctx, req.ThreadID)
 	outcome, err := h.writeStructuredAgentMemory(ctx, req.ThreadID, entry, options)
 	if err != nil {
+		return h.agentMemoryWriteErrorResult(outcome, entry.Type, scope, err)
+	}
+	return h.finishAgentMemoryWrite(outcome, entry.Type, scope, options)
+}
+
+// ensureAgentMemoryWriteReady 在解析请求前检查 memory_write 的模块和工具开关。
+// 这里返回带稳定 code 的错误，方便工具面区分功能关闭和 writer 缺失。
+func (h *MemoryLifecycleHooks) ensureAgentMemoryWriteReady() error {
+	if h == nil {
+		return agentMemoryError("writer_unavailable", fmt.Errorf("memory writer is not configured"))
+	}
+	if h.cfg != nil && !h.cfg.Enabled {
+		return agentMemoryError("feature_disabled", contract.ErrFeatureDisabled)
+	}
+	if h.cfg != nil && !h.cfg.EnableTools {
+		return agentMemoryError("tools_disabled", contract.ErrFeatureDisabled)
+	}
+	return nil
+}
+
+// agentMemoryWriteErrorResult 在主写入已落盘但维护失败时保留写入结果。
+// 只有显式 partial 才返回非空结果，其它错误继续按主写入失败处理。
+func (h *MemoryLifecycleHooks) agentMemoryWriteErrorResult(outcome agentMemoryWriteOutcome, memType MemoryType, scope contract.MemoryScope, err error) (contract.AgentMemoryWriteResult, error) {
+	if contract.AgentMemoryErrorCode(err) != "partial" || !outcome.hasPrimaryWrite() {
 		return contract.AgentMemoryWriteResult{}, err
 	}
-	if !outcome.skipped && !outcome.merged {
-		h.maybeOverflowMerge(outcome.store, entry.Type, options)
+	result := agentMemoryWriteResult(outcome, memType, scope)
+	h.invalidateMemorySections()
+	return result, err
+}
+
+// finishAgentMemoryWrite 处理写入后的 overflow 维护和 prompt 区块失效。
+// 维护失败会作为 partial 返回，但已经成功的主写入仍会触发失效。
+func (h *MemoryLifecycleHooks) finishAgentMemoryWrite(outcome agentMemoryWriteOutcome, memType MemoryType, scope contract.MemoryScope, options WriteOptions) (contract.AgentMemoryWriteResult, error) {
+	result := agentMemoryWriteResult(outcome, memType, scope)
+	if outcome.skipped || outcome.merged {
+		h.invalidateMemorySections()
+		return result, nil
+	}
+	if err := h.maybeOverflowMerge(outcome.store, memType, options); err != nil {
+		h.invalidateMemorySections()
+		return result, agentMemoryError("partial", err)
 	}
 	h.invalidateMemorySections()
-	return agentMemoryWriteResult(outcome, entry.Type, scope), nil
+	return result, nil
 }
 
 // agentMemoryWriteOutcome 记录这次写入最终去了哪里。
@@ -192,6 +227,10 @@ type agentMemoryWriteOutcome struct {
 	actualTarget string
 	skipped      bool
 	merged       bool
+}
+
+func (o agentMemoryWriteOutcome) hasPrimaryWrite() bool {
+	return strings.TrimSpace(o.path) != "" || o.skipped || o.merged
 }
 
 // writeStructuredAgentMemory 只把已检查的内容写进 private/team memory。
@@ -220,6 +259,10 @@ func (h *MemoryLifecycleHooks) writeStructuredAgentMemory(ctx context.Context, t
 	}
 	written, err := upsertStructuredMemoryReturningEntry(store, entry, options)
 	if err != nil {
+		outcome := agentMemoryWriteOutcome{store: store, path: relativeAgentMemoryPath(store, written.FilePath), actualTarget: actual}
+		if outcome.hasPrimaryWrite() && errors.Is(err, ErrMemoryIndexUpdateFailed) {
+			return outcome, agentMemoryError("partial", err)
+		}
 		return agentMemoryWriteOutcome{}, agentMemoryError("persist_failed", err)
 	}
 	return agentMemoryWriteOutcome{store: store, path: relativeAgentMemoryPath(store, written.FilePath), actualTarget: actual}, nil
@@ -531,7 +574,9 @@ func overflowMergeAndDelete(store memoryWriteStore, keepPath string, merged Memo
 		if err != nil {
 			return err
 		}
-		_ = os.Remove(validatedDel)
+		if err := os.Remove(validatedDel); err != nil {
+			return fmt.Errorf("%w: %v", ErrMemoryOverflowDeleteFailed, err)
+		}
 		return updateIndexAfterMutation(root, options)
 	})
 }

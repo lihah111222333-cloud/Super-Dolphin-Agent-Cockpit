@@ -52,7 +52,7 @@ type rpcPendingRequest struct {
 	ID            string    // jrpc2 request id。
 	Method        string    // RPC method。
 	ThreadID      string    // 从 params 提取的 thread id。
-	ParamsPreview string    // 裁剪后的参数预览。
+	ParamsSummary string    // 不含原始内容的参数安全摘要。
 	StartedAt     time.Time // 请求开始时间。
 }
 
@@ -76,13 +76,14 @@ func (t *rpcRequestTracker) LogRequest(_ context.Context, req *jrpc2.Request) {
 	if id == "" {
 		return
 	}
-	params := req.ParamString()
+	method := strings.TrimSpace(req.Method())
+	params := rpcRequestParamsRaw(req)
 	t.mu.Lock()
 	t.pending[id] = rpcPendingRequest{
 		ID:            id,
-		Method:        strings.TrimSpace(req.Method()),
+		Method:        method,
 		ThreadID:      rpcRequestThreadID(params),
-		ParamsPreview: rpcParamPreview(params),
+		ParamsSummary: SafeRPCLogSummary(method, params),
 		StartedAt:     time.Now(),
 	}
 	t.mu.Unlock()
@@ -131,8 +132,8 @@ func rpcFailureLogArgs(meta rpcPendingRequest, rpcErr *jrpc2.Error) []any {
 	if meta.ThreadID != "" {
 		args = append(args, "thread_id", meta.ThreadID)
 	}
-	if meta.ParamsPreview != "" {
-		args = append(args, "params_preview", meta.ParamsPreview)
+	if meta.ParamsSummary != "" {
+		args = append(args, "params_summary", meta.ParamsSummary)
 	}
 	return args
 }
@@ -191,12 +192,24 @@ func (t *rpcRequestTracker) snapshotPending(now time.Time) []map[string]any {
 		if current.ThreadID != "" {
 			summary["thread_id"] = current.ThreadID
 		}
-		if current.ParamsPreview != "" {
-			summary["params_preview"] = current.ParamsPreview
+		if current.ParamsSummary != "" {
+			summary["params_summary"] = current.ParamsSummary
 		}
 		out = append(out, summary)
 	}
 	return out
+}
+
+// rpcRequestParamsRaw 从 jrpc2 请求中复制 params 原文；调用方只能把它交给安全摘要或 ID 提取。
+func rpcRequestParamsRaw(req *jrpc2.Request) string {
+	if req == nil || !req.HasParams() {
+		return ""
+	}
+	var params json.RawMessage
+	if err := req.UnmarshalParams(&params); err != nil {
+		return ""
+	}
+	return string(params)
 }
 
 // rpcRequestThreadID 从未知形态 params 中提取 threadID。
@@ -222,27 +235,6 @@ func rpcRequestThreadID(raw string) string {
 		}
 	}
 	return ""
-}
-
-// rpcParamPreview 压缩 RPC params 文本，避免日志字段过长。
-func rpcParamPreview(raw string) string {
-	raw = strings.Join(strings.Fields(strings.TrimSpace(raw)), " ")
-	if raw == "" {
-		return ""
-	}
-	return truncateRPCText(raw, 160)
-}
-
-// truncateRPCText 按字节长度裁剪 RPC 日志文本。
-func truncateRPCText(raw string, limit int) string {
-	raw = strings.TrimSpace(raw)
-	if limit <= 0 || len(raw) <= limit {
-		return raw
-	}
-	if limit <= 1 {
-		return raw[:limit]
-	}
-	return raw[:limit-1] + "…"
 }
 
 // isRPCTimeoutMessage 判断错误文本是否表示超时。

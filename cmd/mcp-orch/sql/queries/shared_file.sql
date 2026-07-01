@@ -16,7 +16,7 @@ WHERE path = ?;
 -- name: ListSharedFiles :many
 SELECT path, content, content_location, updated_by, created_at, updated_at
 FROM shared_files
-WHERE (sqlc.arg(prefix) = '' OR path LIKE '%' || sqlc.arg(prefix) || '%')
+WHERE (sqlc.arg(prefix) = '' OR like(sqlc.arg(prefix) || '%', path, '\'))
 ORDER BY updated_at DESC, path ASC
 LIMIT sqlc.arg(limit_count);
 

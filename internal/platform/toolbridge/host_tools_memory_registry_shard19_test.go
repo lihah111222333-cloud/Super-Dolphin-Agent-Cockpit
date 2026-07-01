@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
@@ -33,6 +34,34 @@ func TestMemoryWriteHostToolRegistry_ListSchemaAndCall(t *testing.T) {
 	result := callMemoryWriteHostTool(t, reg)
 	assertHostToolsMemoryWriteRequest(t, writer)
 	assertMemoryWriteResult(t, result)
+}
+
+func TestMemoryWriteReportsDeleteFailureAsPartial(t *testing.T) {
+	writer := &stubAgentMemoryWriter{
+		result: contract.AgentMemoryWriteResult{
+			Path:           "feedback/daily-report-style.md",
+			RequestedScope: contract.MemoryScopeUser,
+			ActualTarget:   "private",
+			Type:           contract.MemoryTypeFeedback,
+		},
+		err: contract.NewAgentMemoryError("partial", errors.New("memory_overflow_delete_failed: unlink denied")),
+	}
+	reg := NewMemoryWriteHostToolRegistry(writer, MemoryWriteHostToolOptions{Enabled: true, ToolsEnabled: true})
+	result := callMemoryWriteHostTool(t, reg)
+
+	payload, ok := result.(map[string]any)
+	if !ok {
+		t.Fatalf("result type = %T, want map partial payload", result)
+	}
+	if payload["success"] != false || payload["partial"] != true || payload["degraded"] != true {
+		t.Fatalf("partial payload = %#v, want visible unsuccessful partial/degraded result", payload)
+	}
+	if payload["code"] != "partial" || payload["path"] != "feedback/daily-report-style.md" || payload["actualTarget"] != "private" {
+		t.Fatalf("partial payload = %#v, want code/path/target metadata", payload)
+	}
+	if errText, _ := payload["error"].(string); !strings.Contains(errText, "memory_overflow_delete_failed") {
+		t.Fatalf("partial payload error = %#v, want typed delete failure", payload["error"])
+	}
 }
 
 func assertMemoryWriteToolSchema(t *testing.T, reg *MemoryWriteHostToolRegistry, tools []dto.MCPTool) {
@@ -320,14 +349,19 @@ func TestMemoryReadHostToolRegistry_ReaderError(t *testing.T) {
 }
 
 type stubAgentMemoryWriter struct {
-	calls int
-	last  contract.AgentMemoryWriteRequest
+	calls  int
+	last   contract.AgentMemoryWriteRequest
+	result contract.AgentMemoryWriteResult
+	err    error
 }
 
 func (s *stubAgentMemoryWriter) WriteAgentMemory(_ context.Context, req contract.AgentMemoryWriteRequest) (contract.AgentMemoryWriteResult, error) {
 	s.calls++
 	s.last = req
-	return contract.AgentMemoryWriteResult{Path: "feedback/daily-report-style.md", RequestedScope: req.Scope, ActualTarget: "private", Type: req.Type}, nil
+	if s.result.Path == "" && s.result.ActualTarget == "" && s.result.Type == "" {
+		s.result = contract.AgentMemoryWriteResult{Path: "feedback/daily-report-style.md", RequestedScope: req.Scope, ActualTarget: "private", Type: req.Type}
+	}
+	return s.result, s.err
 }
 
 func (s *stubAgentMemoryWriter) MemoryWriteEnabled() bool { return true }

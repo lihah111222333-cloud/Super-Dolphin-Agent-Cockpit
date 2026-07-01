@@ -1,6 +1,9 @@
 package tools
 
-import "testing"
+import (
+	"encoding/json"
+	"testing"
+)
 
 func TestTaskToolDefinitionsRequireGovernanceMetadata(t *testing.T) {
 	defs := taskToolDefinitions(nil)
@@ -57,5 +60,32 @@ func TestWorkflowWriteToolsUseHighRiskWritePermission(t *testing.T) {
 		if def.Metadata.Permission != ToolPermissionWorkflowWrite {
 			t.Fatalf("%s permission = %q, want %q", def.Name, def.Metadata.Permission, ToolPermissionWorkflowWrite)
 		}
+	}
+}
+
+func TestMediaFileWritingToolsRequirePathPolicy(t *testing.T) {
+	registry := NewRegistry(Dependencies{})
+	for _, name := range []string{"shared_file_write", "tts_generate", "av_merge", "video_with_audio"} {
+		t.Run(name, func(t *testing.T) {
+			def, ok := registry.Lookup(name)
+			if !ok {
+				t.Fatalf("registry.Lookup(%q) = false", name)
+			}
+			raw, err := json.Marshal(def.Metadata)
+			if err != nil {
+				t.Fatalf("marshal metadata: %v", err)
+			}
+			var metadata map[string]any
+			if err := json.Unmarshal(raw, &metadata); err != nil {
+				t.Fatalf("unmarshal metadata: %v", err)
+			}
+			policy, ok := metadata["path_policy"].(map[string]any)
+			if !ok {
+				t.Fatalf("%s metadata = %s, missing path_policy", name, raw)
+			}
+			if policy["path_authority"] == "" {
+				t.Fatalf("%s path_policy = %#v, missing path_authority", name, policy)
+			}
+		})
 	}
 }

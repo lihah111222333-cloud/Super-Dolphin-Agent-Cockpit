@@ -1,7 +1,9 @@
 package memory
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io/fs"
 	"os"
@@ -18,9 +20,19 @@ import (
 )
 
 const (
-	memoryHookMaxRunes      = 150
-	manifestHeaderScanLimit = 32 * 1024
+	memoryHookMaxRunes        = 150
+	manifestHeaderScanLimit   = 32 * 1024
+	uiMemoryScanMaxEntries    = 200
+	uiMemoryScanMaxEntryBytes = 256 * 1024
+	uiMemoryScanMaxTotalBytes = 2 * 1024 * 1024
 )
+
+const (
+	uiMemoryScanReasonTruncated = "memory_scan_truncated"
+	uiMemoryScanReasonCanceled  = "memory_scan_canceled"
+)
+
+var errUIMemoryScanStopped = errors.New("ui memory scan stopped")
 
 type MemoryIndexEntry struct {
 	Title         string
@@ -96,6 +108,12 @@ func RebuildMemoryIndex(root string) ([]MemoryIndexEntry, error) {
 // scanMemoryEntries 扫描根目录下可进入索引的记忆条目。
 // 不存在的根目录返回空列表；遍历过程中遇到非法路径或解析错误会立即失败。
 func scanMemoryEntries(root string) ([]MemoryEntry, error) {
+	return scanMemoryEntriesWithBudget(context.Background(), root, nil)
+}
+
+// scanMemoryEntriesWithBudget 为 UI 首页扫描提供可取消、可截断的扫描入口。
+// 预算触顶不是存储错误，调用方通过 budget.metadata() 向前端展示降级状态。
+func scanMemoryEntriesWithBudget(ctx context.Context, root string, budget *uiMemoryScanBudget) ([]MemoryEntry, error) {
 	exists, err := memoryEntriesRootExists(root)
 	if err != nil {
 		return nil, err
@@ -105,7 +123,7 @@ func scanMemoryEntries(root string) ([]MemoryEntry, error) {
 	}
 	entries := make([]MemoryEntry, 0, 16)
 	err = filepath.WalkDir(root, func(path string, d fs.DirEntry, walkErr error) error {
-		entry, skipDir, ok, err := scannedMemoryEntry(root, path, d, walkErr)
+		entry, skipDir, ok, err := scannedMemoryEntryWithBudget(ctx, budget, root, path, d, walkErr)
 		if err != nil {
 			return err
 		}
@@ -117,7 +135,7 @@ func scanMemoryEntries(root string) ([]MemoryEntry, error) {
 		}
 		return nil
 	})
-	if err != nil {
+	if err != nil && !errors.Is(err, errUIMemoryScanStopped) {
 		return nil, err
 	}
 	sortEntries(entries)
@@ -137,7 +155,10 @@ func memoryEntriesRootExists(root string) (bool, error) {
 
 // scannedMemoryEntry 处理 WalkDir 扫描到的单个路径。
 // 它会跳过索引文件和整理日志目录，并对候选 markdown 再做读路径校验。
-func scannedMemoryEntry(root, path string, d fs.DirEntry, walkErr error) (MemoryEntry, bool, bool, error) {
+func scannedMemoryEntryWithBudget(ctx context.Context, budget *uiMemoryScanBudget, root, path string, d fs.DirEntry, walkErr error) (MemoryEntry, bool, bool, error) {
+	if err := uiMemoryScanStopped(ctx, budget); err != nil {
+		return MemoryEntry{}, false, false, err
+	}
 	if walkErr != nil {
 		return MemoryEntry{}, false, false, walkErr
 	}
@@ -150,11 +171,134 @@ func scannedMemoryEntry(root, path string, d fs.DirEntry, walkErr error) (Memory
 	if _, err := ValidateMemoryReadPath(root, path); err != nil {
 		return MemoryEntry{}, false, false, err
 	}
+	if !reserveUIMemoryScanFile(budget, d) {
+		return MemoryEntry{}, false, false, errUIMemoryScanStopped
+	}
 	entry, err := readMemoryEntryFile(path)
 	if err != nil {
 		return MemoryEntry{}, false, false, err
 	}
+	if budget != nil {
+		budget.recordEntry()
+	}
 	return entry, false, true, nil
+}
+
+type uiMemoryScanBudget struct {
+	ctx         context.Context
+	entryLimit  int
+	singleLimit int64
+	totalLimit  int64
+	entries     int
+	filesRead   int
+	bytesRead   int64
+	truncated   bool
+	canceled    bool
+	reason      string
+}
+
+func newUIMemoryScanBudget(ctx context.Context) *uiMemoryScanBudget {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	return &uiMemoryScanBudget{
+		ctx:         ctx,
+		entryLimit:  uiMemoryScanMaxEntries,
+		singleLimit: uiMemoryScanMaxEntryBytes,
+		totalLimit:  uiMemoryScanMaxTotalBytes,
+	}
+}
+
+func uiMemoryScanStopped(ctx context.Context, budget *uiMemoryScanBudget) error {
+	if budget == nil {
+		return nil
+	}
+	if ctx == nil {
+		ctx = budget.ctx
+	}
+	if err := ctx.Err(); err != nil {
+		budget.stop(uiMemoryScanReasonCanceled)
+		return errUIMemoryScanStopped
+	}
+	if budget.isStopped() {
+		return errUIMemoryScanStopped
+	}
+	return nil
+}
+
+func reserveUIMemoryScanFile(budget *uiMemoryScanBudget, d fs.DirEntry) bool {
+	if budget == nil {
+		return true
+	}
+	info, err := d.Info()
+	if err != nil {
+		budget.stop(uiMemoryScanReasonTruncated)
+		return false
+	}
+	return budget.reserveFile(info.Size())
+}
+
+func (b *uiMemoryScanBudget) reserveFile(size int64) bool {
+	if b == nil {
+		return true
+	}
+	if b.entries >= b.entryLimit || size > b.singleLimit || b.bytesRead+size > b.totalLimit {
+		b.stop(uiMemoryScanReasonTruncated)
+		return false
+	}
+	b.filesRead++
+	b.bytesRead += size
+	return true
+}
+
+func (b *uiMemoryScanBudget) recordEntry() {
+	if b != nil {
+		b.entries++
+	}
+}
+
+func (b *uiMemoryScanBudget) stop(reason string) {
+	if b == nil || b.reason != "" {
+		return
+	}
+	b.reason = strings.TrimSpace(reason)
+	b.truncated = b.reason == uiMemoryScanReasonTruncated
+	b.canceled = b.reason == uiMemoryScanReasonCanceled
+}
+
+func (b *uiMemoryScanBudget) isStopped() bool {
+	return b != nil && b.reason != ""
+}
+
+func (b *uiMemoryScanBudget) metadata() UIMemoryScanMetadata {
+	if b == nil {
+		return UIMemoryScanMetadata{}
+	}
+	return UIMemoryScanMetadata{
+		Truncated:            b.truncated,
+		Canceled:             b.canceled,
+		Reason:               b.reason,
+		Entries:              b.entries,
+		FilesRead:            b.filesRead,
+		BytesRead:            b.bytesRead,
+		EntryLimit:           b.entryLimit,
+		SingleFileBytesLimit: b.singleLimit,
+		TotalBytesLimit:      b.totalLimit,
+	}
+}
+
+func (b *uiMemoryScanBudget) notice() string {
+	if b == nil {
+		return ""
+	}
+	switch b.reason {
+	case uiMemoryScanReasonTruncated:
+		return "记忆扫描已达到安全上限，列表仅显示部分条目。"
+	case uiMemoryScanReasonCanceled:
+		return "记忆扫描已取消。"
+	default:
+		return ""
+	}
 }
 
 // shouldSkipScannedMemoryPath 判断扫描路径是否不应进入记忆索引。

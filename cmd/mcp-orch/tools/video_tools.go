@@ -8,7 +8,6 @@ import (
 	"io"
 	"net/http"
 	"os"
-	"path/filepath"
 	"strings"
 	"time"
 
@@ -136,40 +135,35 @@ func sfPoll(ctx context.Context, apiKey, requestID string) (string, error) {
 	return "", fmt.Errorf("siliconflow: request %s timed out", requestID)
 }
 
-// downloadVideoToDesktop 将生成的视频下载到用户 Movies 目录。
-// Movies 不可创建时退回 home，但下载状态码异常仍然 fail-fast。
+// downloadVideoToDesktop 是旧 home/Movies 下载入口，保留为 fail-fast shim。
+// 新代码必须调用 downloadVideoToControlledPath，避免 Movies 失败时退回 home。
 func downloadVideoToDesktop(ctx context.Context, videoURL, requestID string) (string, error) {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return "", err
-	}
-	filename := "video-" + requestID + "-" + time.Now().Format("20060102-150405") + ".mp4"
-	moviesDir := filepath.Join(home, "Movies")
-	if err := os.MkdirAll(moviesDir, 0o755); err != nil {
-		moviesDir = home
-	}
-	dest := filepath.Join(moviesDir, filename)
+	_ = ctx
+	_ = videoURL
+	_ = requestID
+	return "", fmt.Errorf("controlled video output_path is required; home/Movies fallback is disabled")
+}
 
+// downloadVideoToControlledPath 将生成的视频下载到 sharedfile 或 workspace-relative 受控路径。
+func downloadVideoToControlledPath(ctx context.Context, videoURL, requestID, outputPath string) (controlledMediaPath, error) {
+	dest, err := resolveControlledMediaOutput(ctx, outputPath, "video-"+strings.TrimSpace(requestID), "mp4")
+	if err != nil {
+		return controlledMediaPath{}, err
+	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, videoURL, nil)
 	if err != nil {
-		return "", err
+		return controlledMediaPath{}, err
 	}
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		return "", err
+		return controlledMediaPath{}, err
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return "", fmt.Errorf("download status %d", resp.StatusCode)
+		return controlledMediaPath{}, fmt.Errorf("download status %d", resp.StatusCode)
 	}
-
-	f, err := os.Create(dest)
-	if err != nil {
-		return "", err
-	}
-	defer f.Close()
-	if _, err := io.Copy(f, resp.Body); err != nil {
-		return "", err
+	if err := writeResponseBody(dest.AbsPath, resp.Body); err != nil {
+		return controlledMediaPath{}, err
 	}
 	return dest, nil
 }

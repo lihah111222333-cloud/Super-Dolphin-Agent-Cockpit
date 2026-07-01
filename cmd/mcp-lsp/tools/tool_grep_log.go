@@ -2,6 +2,7 @@ package tools
 
 import (
 	"context"
+	"errors"
 
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/middleware"
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/search"
@@ -17,9 +18,10 @@ func logGrepCallDecoded(input grepToolInput, limit int) {
 	)...)
 }
 
-// runGrepTextSearch 运行文本搜索；主工作区无匹配时才尝试 runtime 兄弟工作区 fallback。
+// runGrepTextSearch 只在可信 workspace roots 内运行文本搜索。
+// runtime fallback 曾经会读兄弟 worktree；现在遇到该场景直接报 stale-root，要求调用方传入明确作用域。
 func (handlerBase) runGrepTextSearch(ctx context.Context, input grepToolInput, limit int) ([]search.SearchMatch, error) {
-	root, roots, err := toolWorkspaceRoots(ctx)
+	root, roots, err := grepWorkspaceRoots(ctx)
 	if err != nil {
 		pkglogger.Warn("mcp-lsp grep text_search workspace roots failed", grepLogAttrs(input,
 			"error", err,
@@ -61,26 +63,16 @@ func (handlerBase) runGrepTextSearch(ctx context.Context, input grepToolInput, l
 	if len(matches) > 0 {
 		return matches, nil
 	}
-	pkglogger.Info("mcp-lsp grep text_search fallback started", grepLogAttrs(input,
-		"root", root,
-		"roots_count", len(roots),
-	)...)
-	fallbackMatches, err := searchSiblingWorkspaceOnRuntimeFallback(ctx, opts)
-	if err != nil {
-		pkglogger.Warn("mcp-lsp grep text_search fallback failed", grepLogAttrs(input,
+	if grepRuntimeFallbackWouldSearchOutsideRoots(ctx, input) {
+		err := errors.New(staleWorkspaceRootMessage())
+		pkglogger.Warn("mcp-lsp grep text_search stale workspace root", grepLogAttrs(input,
 			"root", root,
 			"roots_count", len(roots),
 			"error", err,
 		)...)
 		return nil, err
 	}
-	pkglogger.Info("mcp-lsp grep text_search fallback returned", grepLogAttrs(input,
-		"root", root,
-		"roots_count", len(roots),
-		"matches", len(fallbackMatches),
-		"used", len(fallbackMatches) > 0,
-	)...)
-	return fallbackMatches, nil
+	return nil, nil
 }
 
 // filterAndLogGrepMatches 执行结果上限裁剪，并记录裁剪前后的数量。

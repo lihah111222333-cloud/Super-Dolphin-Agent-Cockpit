@@ -188,7 +188,7 @@ func TestGrepTextSearchExcludesWorkspaceCacheDirectoriesFromRootSearch(t *testin
 	}
 }
 
-func TestGrepRuntimeFallbackSearchesClaudeWorktrees(t *testing.T) {
+func TestGrepRuntimeFallbackRejectsClaudeWorktreeSearch(t *testing.T) {
 	root := t.TempDir()
 	relPath := filepath.Join("docs", "li", "p15", "TASKS", "TN-integration.md")
 	worktreeRoot := filepath.Join(root, ".claude", "worktrees", "feature")
@@ -208,17 +208,70 @@ func TestGrepRuntimeFallbackSearchesClaudeWorktrees(t *testing.T) {
 	}
 	ctx := common.WithRuntimeWorkspaceScopeFallback(testToolContext(root))
 
-	got, err := handler(ctx, payload)
+	_, err = handler(ctx, payload)
+	if err == nil {
+		t.Fatal("grep returned nil error, want stale workspace root rejection")
+	}
+	if !strings.Contains(err.Error(), "mcp-lsp: stale workspace root; pass work_dir or _workspaceRoots") {
+		t.Fatalf("grep error = %v, want stale workspace root guidance for %s", err, target)
+	}
+}
+
+func TestGrepRuntimeFallbackDoesNotSearchSiblingWorktree(t *testing.T) {
+	parent := t.TempDir()
+	root := filepath.Join(parent, "main")
+	sibling := filepath.Join(parent, "feature")
+	relPath := filepath.Join("docs", "risk.md")
+	writeGrepFixtureFile(t, filepath.Join(root, relPath), "stale notes\n")
+	writeGrepFixtureFile(t, filepath.Join(sibling, relPath), "fresh L06L07Needle\n")
+
+	handler := NewGrepHandler(Config{WorkspaceRoot: root})
+	payload, err := json.Marshal(grepToolInput{
+		Action:     "text_search",
+		Query:      "L06L07Needle",
+		Path:       relPath,
+		MaxResults: 5,
+	})
 	if err != nil {
-		t.Fatalf("grep returned error: %v", err)
+		t.Fatalf("marshal grep input: %v", err)
 	}
-	resp, ok := got.(grepResponse)
-	if !ok {
-		t.Fatalf("grep result type = %T, want grepResponse", got)
+
+	_, err = handler(common.WithRuntimeWorkspaceScopeFallback(testToolContext(root)), payload)
+	if err == nil {
+		t.Fatal("grep returned nil error, want stale workspace root rejection before sibling search")
 	}
-	want := canonicalGrepPath(t, target)
-	if _, ok := resp.Data[want]; !ok {
-		t.Fatalf("grep data = %#v, want worktree result %q", resp.Data, want)
+	if !strings.Contains(err.Error(), "mcp-lsp: stale workspace root; pass work_dir or _workspaceRoots") {
+		t.Fatalf("grep error = %v, want stale workspace root guidance", err)
+	}
+}
+
+func TestGrepRequiresTrustedWorkspaceRootsWhenRuntimeFallbackWouldApply(t *testing.T) {
+	parent := t.TempDir()
+	root := filepath.Join(parent, "main")
+	sibling := filepath.Join(parent, "feature")
+	relPath := filepath.Join("docs", "risk.md")
+	writeGrepFixtureFile(t, filepath.Join(root, relPath), "stale notes\n")
+	writeGrepFixtureFile(t, filepath.Join(sibling, relPath), "fresh L06L07Needle\n")
+
+	handler := NewGrepHandler(Config{WorkspaceRoot: root})
+	payload, err := json.Marshal(grepToolInput{
+		Action:     "text_search",
+		Query:      "L06L07Needle",
+		Path:       relPath,
+		MaxResults: 5,
+	})
+	if err != nil {
+		t.Fatalf("marshal grep input: %v", err)
+	}
+
+	ctx := context.WithValue(context.Background(), common.CwdContextKey, root)
+	ctx = common.WithRuntimeWorkspaceScopeFallback(ctx)
+	_, err = handler(ctx, payload)
+	if err == nil {
+		t.Fatal("grep returned nil error, want missing trusted workspace roots rejection")
+	}
+	if !strings.Contains(err.Error(), "mcp-lsp: stale workspace root; pass work_dir or _workspaceRoots") {
+		t.Fatalf("grep error = %v, want trusted roots guidance", err)
 	}
 }
 

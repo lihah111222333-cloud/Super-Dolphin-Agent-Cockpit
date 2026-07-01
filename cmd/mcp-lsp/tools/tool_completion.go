@@ -3,7 +3,6 @@ package tools
 import (
 	"context"
 	"fmt"
-	"os"
 	"unicode"
 
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/format"
@@ -91,25 +90,21 @@ func identifierCompletionRetryPositions(filePath string, position protocol.Posit
 	if position.Line < 0 || position.Character < 0 {
 		return nil, nil
 	}
-	content, err := os.ReadFile(filePath)
+	mapping, err := loadLinePositionMapping(filePath, position.Line+1)
 	if err != nil {
 		return nil, err
 	}
-	lines := splitNormalizedLines(string(content))
-	if position.Line >= len(lines) {
-		return nil, fmt.Errorf("completion retry line %d is outside file with %d lines", position.Line+1, len(lines))
+	originalRuneIndex, err := mapping.runeIndexFromUTF16Character(position.Character)
+	if err != nil {
+		return nil, fmt.Errorf("completion retry character %d is outside target line: %w", position.Character, err)
 	}
-	runes := []rune(lines[position.Line])
-	if position.Character > len(runes) {
-		return nil, fmt.Errorf("completion retry character %d is outside line length %d", position.Character+1, len(runes)+1)
-	}
-	anchor, ok := completionIdentifierAnchor(runes, position.Character)
+	anchor, ok := completionIdentifierAnchor(mapping.runes, originalRuneIndex)
 	if !ok {
 		return nil, nil
 	}
-	start := completionIdentifierStart(runes, anchor)
-	end := completionIdentifierEnd(runes, anchor)
-	return completionRetryPositions(position.Line, position.Character, runes, start, end), nil
+	start := completionIdentifierStart(mapping.runes, anchor)
+	end := completionIdentifierEnd(mapping.runes, anchor)
+	return completionRetryPositions(originalRuneIndex, mapping, start, end), nil
 }
 
 // completionIdentifierAnchor 选择用于扩展标识符范围的锚点字符。
@@ -141,11 +136,11 @@ func completionIdentifierStart(runes []rune, anchor int) int {
 	return start
 }
 
-func completionRetryPositions(line int, original int, runes []rune, start int, end int) []protocol.Position {
+func completionRetryPositions(original int, mapping linePositionMapping, start int, end int) []protocol.Position {
 	characters := []int{
 		end + 1,
 		end,
-		completionIdentifierSuffixStart(runes, start, end),
+		completionIdentifierSuffixStart(mapping.runes, start, end),
 		start,
 	}
 	positions := make([]protocol.Position, 0, len(characters))
@@ -158,7 +153,11 @@ func completionRetryPositions(line int, original int, runes []rune, start int, e
 			continue
 		}
 		seen[character] = struct{}{}
-		positions = append(positions, protocol.Position{Line: line, Character: character})
+		position, err := mapping.positionFromRuneIndex(character)
+		if err != nil {
+			continue
+		}
+		positions = append(positions, position)
 	}
 	return positions
 }

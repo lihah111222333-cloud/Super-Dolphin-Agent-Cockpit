@@ -26,6 +26,7 @@ func TestMetricsHandlerServesSkillHostToolCounters(t *testing.T) {
 }
 
 func TestRegisterHTTPHandlersMountsMetricsPath(t *testing.T) {
+	t.Setenv(EnableMetricsEnv, "1")
 	skillmetrics.ResetForTesting()
 	t.Cleanup(skillmetrics.ResetForTesting)
 	skillmetrics.IncEnrichFailure()

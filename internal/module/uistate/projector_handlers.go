@@ -423,7 +423,7 @@ func (s *service) applyTurnCompleted(ev turndto.TurnCompleted) {
 		if s.state.ActiveTurn != nil && s.state.ActiveTurn.ID == completed.ID {
 			s.state.ActiveTurn = nil
 		}
-		status = patchStatus(completionStatus(ev))
+		status = patchStatus(completionThreadStatus(ev))
 		s.clearThreadActivityLocked(threadID)
 		s.state.Threads = upsertThreadSummary(s.state.Threads, ThreadSummary{
 			ID:           threadID,
@@ -437,6 +437,13 @@ func (s *service) applyTurnCompleted(ev turndto.TurnCompleted) {
 		applyPatchStatus(&patch, status)
 		return patch
 	})
+}
+
+func completionThreadStatus(ev turndto.TurnCompleted) string {
+	if strings.EqualFold(strings.TrimSpace(ev.Status), "completed_with_errors") {
+		return "error"
+	}
+	return completionStatus(ev)
 }
 
 // applyTurnResumed 恢复 turn 活动深度，并刷新线程 patch。

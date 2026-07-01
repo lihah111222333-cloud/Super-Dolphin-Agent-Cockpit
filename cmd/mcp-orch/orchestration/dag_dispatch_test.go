@@ -78,6 +78,36 @@ func (s *stubDispatchStore) AssignNode(_ context.Context, input taskdag.AssignNo
 	return &clone, nil
 }
 
+func (s *stubDispatchStore) AssignNodeAndEnqueueWakeup(_ context.Context, input taskdag.AssignNodeAndEnqueueWakeupInput) (*taskdag.AssignNodeAndEnqueueWakeupResult, error) {
+	if s.assignErr != nil {
+		return nil, s.assignErr
+	}
+	if s.enqueueErr != nil {
+		return nil, s.enqueueErr
+	}
+	clone := taskdag.Node{
+		DagKey:     input.Assign.DagKey,
+		NodeKey:    input.Assign.NodeKey,
+		RunID:      &input.Assign.RunID,
+		Status:     "ready",
+		AssignedTo: input.Assign.AssignedTo,
+	}
+	for i := range s.nodes {
+		if s.nodes[i].NodeKey == input.Assign.NodeKey && s.nodes[i].RunID != nil && *s.nodes[i].RunID == input.Assign.RunID {
+			clone = s.nodes[i]
+			clone.AssignedTo = input.Assign.AssignedTo
+			break
+		}
+	}
+	s.assigned = &clone
+	s.enqueued = append(s.enqueued, input.Wakeup)
+	wakeupID := s.enqueueID
+	if wakeupID == 0 {
+		wakeupID = 42
+	}
+	return &taskdag.AssignNodeAndEnqueueWakeupResult{Node: &clone, WakeupID: wakeupID}, nil
+}
+
 func (s *stubDispatchStore) EnqueueWakeup(_ context.Context, input taskdag.EnqueueWakeupInput) (int64, error) {
 	if s.enqueueErr != nil {
 		return 0, s.enqueueErr
@@ -87,6 +117,22 @@ func (s *stubDispatchStore) EnqueueWakeup(_ context.Context, input taskdag.Enque
 		return 42, nil
 	}
 	return s.enqueueID, nil
+}
+
+func (s *stubDispatchStore) MarkDispatchIncompleteIfMissingWakeup(_ context.Context, input taskdag.MarkDispatchIncompleteInput) (*taskdag.MarkDispatchIncompleteResult, error) {
+	for i := range s.nodes {
+		node := s.nodes[i]
+		if node.NodeKey != input.NodeKey || node.RunID == nil || *node.RunID != input.RunID {
+			continue
+		}
+		if strings.TrimSpace(node.AssignedTo) != "" && len(s.enqueued) == 0 {
+			node.Status = "dispatch_incomplete"
+			s.nodes[i] = node
+			return &taskdag.MarkDispatchIncompleteResult{Marked: true, Node: &node}, nil
+		}
+		return &taskdag.MarkDispatchIncompleteResult{Node: &node, ActiveWakeup: len(s.enqueued) > 0}, nil
+	}
+	return &taskdag.MarkDispatchIncompleteResult{}, nil
 }
 
 func newServiceForDispatch(store taskdag.DispatchNodeStore) *service {
@@ -204,6 +250,27 @@ func TestDispatchNode_RejectsAgentNodeMissingCwdBeforeAssignAndEnqueue(t *testin
 	}
 	if len(stub.enqueued) != 0 {
 		t.Fatalf("EnqueueWakeup called on missing cwd: %+v", stub.enqueued)
+	}
+}
+
+func TestDispatchNodeDoesNotPersistAssignmentWhenWakeupEnqueueFails(t *testing.T) {
+	t.Parallel()
+	stub := &stubDispatchStore{
+		nodes:      []taskdag.Node{{DagKey: "dag-1", NodeKey: "n1", RunID: dispatchTestRunID(7), NodeType: "agent", Status: "ready", Config: testRawConfig(t, `{"exec":{"agent_key":"alpha","cwd":"/tmp/node-cwd"}}`)}},
+		enqueueErr: errors.New("boom"),
+	}
+	svc := newServiceForDispatch(stub)
+	_, err := svc.DispatchNode(context.Background(), contract.DispatchNodeRequest{
+		DagKey:     "dag-1",
+		NodeKey:    "n1",
+		RunID:      7,
+		AssignedTo: "agent-alpha",
+	})
+	if err == nil {
+		t.Fatal("DispatchNode() error = nil, want enqueue failure")
+	}
+	if stub.assigned != nil {
+		t.Fatalf("DispatchNode() persisted assignment after enqueue failure: %+v", stub.assigned)
 	}
 }
 

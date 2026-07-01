@@ -63,8 +63,9 @@ func (h *MemoryLifecycleHooks) onTurnInputReceived(ctx context.Context, ev turnd
 	if !ok {
 		return
 	}
-	handled, err := h.handleExplicitUserMemoryIntent(ctx, turnCompletedFromInput(ev), text)
-	h.handleExplicitIntentError(ev.ThreadID, handled, err)
+	turn := turnCompletedFromInput(ev)
+	handled, action, err := h.handleExplicitUserMemoryIntent(ctx, turn, text)
+	h.handleExplicitIntentError(turn, handled, action, err)
 	if handled && err == nil {
 		h.markHandledTurnInput(key)
 	}

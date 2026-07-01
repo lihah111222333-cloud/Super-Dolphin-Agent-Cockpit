@@ -2,14 +2,19 @@ package memory
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
+	agentdto "github.com/anthropic-ai/super-agent-v3/internal/dto/agent"
+	shareddto "github.com/anthropic-ai/super-agent-v3/internal/dto/shared"
+	uidto "github.com/anthropic-ai/super-agent-v3/internal/dto/ui"
 	platformrpc "github.com/anthropic-ai/super-agent-v3/internal/platform/rpc"
 	"github.com/creachadair/jrpc2/handler"
 
@@ -33,17 +38,31 @@ type UIMemorySnapshot struct {
 
 // UIMemoryOverview 暴露记忆功能开关和根目录状态；路径字段只用于本机 UI 展示，不参与写盘决策。
 type UIMemoryOverview struct {
-	Enabled              bool            `json:"enabled"`
-	ToolsEnabled         bool            `json:"toolsEnabled"`
-	AutoDreamEnabled     bool            `json:"autoDreamEnabled"`
-	AutoDreamIntent      *bool           `json:"autoDreamIntent,omitempty"`
-	AutoDreamIntentError string          `json:"autoDreamIntentError,omitempty"`
-	RootDir              string          `json:"rootDir,omitempty"`
-	ProjectRoot          string          `json:"projectRoot,omitempty"`
-	PrivateRoot          string          `json:"privateRoot,omitempty"`
-	AutoMemPathOverride  string          `json:"autoMemPathOverride,omitempty"`
-	TeamFeatureEnabled   bool            `json:"teamFeatureEnabled"`
-	Health               *UIMemoryHealth `json:"health,omitempty"`
+	Enabled              bool                 `json:"enabled"`
+	ToolsEnabled         bool                 `json:"toolsEnabled"`
+	AutoDreamEnabled     bool                 `json:"autoDreamEnabled"`
+	AutoDreamIntent      *bool                `json:"autoDreamIntent,omitempty"`
+	AutoDreamIntentError string               `json:"autoDreamIntentError,omitempty"`
+	Scan                 UIMemoryScanMetadata `json:"scan"`
+	RootDir              string               `json:"rootDir,omitempty"`
+	ProjectRoot          string               `json:"projectRoot,omitempty"`
+	PrivateRoot          string               `json:"privateRoot,omitempty"`
+	AutoMemPathOverride  string               `json:"autoMemPathOverride,omitempty"`
+	TeamFeatureEnabled   bool                 `json:"teamFeatureEnabled"`
+	Health               *UIMemoryHealth      `json:"health,omitempty"`
+}
+
+// UIMemoryScanMetadata 暴露 UI 首页扫描预算状态，前端据此展示截断或取消。
+type UIMemoryScanMetadata struct {
+	Truncated            bool   `json:"truncated"`
+	Canceled             bool   `json:"canceled"`
+	Reason               string `json:"reason,omitempty"`
+	Entries              int    `json:"entries"`
+	FilesRead            int    `json:"filesRead"`
+	BytesRead            int64  `json:"bytesRead"`
+	EntryLimit           int    `json:"entryLimit"`
+	SingleFileBytesLimit int64  `json:"singleFileBytesLimit"`
+	TotalBytesLimit      int64  `json:"totalBytesLimit"`
 }
 
 // UIMemoryScopeSection 表示一个记忆作用域的 UI 列表，Notice 承载脱敏后的扫描/解析失败原因。
@@ -65,16 +84,18 @@ type UIMemoryEntry struct {
 	Preview     string    `json:"preview,omitempty"`
 	Title       string    `json:"title,omitempty"`
 	// Source 透传记忆条目的来源标记（如 "dream"），UI 据此渲染徽章。
-	Source string `json:"source,omitempty"`
+	Source      string `json:"source,omitempty"`
+	scanContent string `json:"-"`
 }
 
 // UIMemoryHealth 汇总可执行的治理信号，如类型计数和相似组，用于 UI banner 而非写盘校验。
 type UIMemoryHealth struct {
-	PreferenceCount int                `json:"preferenceCount"`
-	ProjectCount    int                `json:"projectCount"`
-	MaxPerCategory  int                `json:"maxPerCategory"`
-	SimilarGroups   []UISimilarGroup   `json:"similarGroups,omitempty"`
-	AutoDream       *UIAutoDreamHealth `json:"autoDream,omitempty"`
+	PreferenceCount    int                `json:"preferenceCount"`
+	ProjectCount       int                `json:"projectCount"`
+	MaxPerCategory     int                `json:"maxPerCategory"`
+	SimilarGroups      []UISimilarGroup   `json:"similarGroups,omitempty"`
+	SimilarityDegraded bool               `json:"similarityDegraded,omitempty"`
+	AutoDream          *UIAutoDreamHealth `json:"autoDream,omitempty"`
 }
 
 type UIAutoDreamHealth struct {
@@ -121,8 +142,9 @@ func buildUIMemorySnapshot(ctx context.Context, svc Service, logger *slog.Logger
 		intent = nil
 	}
 
+	scanBudget := newUIMemoryScanBudget(ctx)
 	privateRoot, privateErr := resolvedStoreRoot(cfg.RootDir, projectRoot, cfg.AutoMemPathOverride)
-	privateSection := loadUIMemoryScope(logger, "Private durable memory", privateRoot, privateErr, true)
+	privateSection := loadUIMemoryScope(ctx, logger, "Private durable memory", privateRoot, privateErr, true, scanBudget)
 
 	teamSection := UIMemoryScopeSection{
 		Label:   "Team durable memory",
@@ -131,14 +153,15 @@ func buildUIMemorySnapshot(ctx context.Context, svc Service, logger *slog.Logger
 	}
 	if teamMemoryConfigured(cfg) {
 		teamRoot, err := configuredTeamMemRoot(&cfg, buildCtx)
-		teamSection = loadUIMemoryScope(logger, "Team durable memory", teamRoot, err, false)
+		teamSection = loadUIMemoryScope(ctx, logger, "Team durable memory", teamRoot, err, false, scanBudget)
 	}
 
 	health := computeUIMemoryHealth(privateSection.Entries, teamSection.Entries)
-	populateUIMemoryHealthSimilarGroups(health, privateRoot, privateSection.Entries, teamSection.RootPath, teamSection.Entries)
+	populateUIMemoryHealthSimilarGroups(health, privateRoot, privateSection.Entries, teamSection.RootPath, teamSection.Entries, scanBudget)
 	if autoHealth := uiAutoDreamHealthFromSnapshot(svc.GetDreamTaskStatus()); autoHealth != nil {
 		health.AutoDream = autoHealth
 	}
+	scanMetadata := scanBudget.metadata()
 
 	return UIMemorySnapshot{
 		Overview: UIMemoryOverview{
@@ -147,6 +170,7 @@ func buildUIMemorySnapshot(ctx context.Context, svc Service, logger *slog.Logger
 			AutoDreamEnabled:     cfg.Enabled && cfg.ExtractOnStop && gate.AutoEnabled,
 			AutoDreamIntent:      intent,
 			AutoDreamIntentError: intentError,
+			Scan:                 scanMetadata,
 			RootDir:              strings.TrimSpace(cfg.RootDir),
 			ProjectRoot:          projectRoot,
 			PrivateRoot:          strings.TrimSpace(privateRoot),
@@ -201,8 +225,12 @@ func computeUIMemoryHealth(privateEntries, teamEntries []UIMemoryEntry) *UIMemor
 }
 
 // populateUIMemoryHealthSimilarGroups 计算相似记忆组，并过滤用户已经忽略的 pair。
-func populateUIMemoryHealthSimilarGroups(health *UIMemoryHealth, privateRoot string, privateEntries []UIMemoryEntry, teamRoot string, teamEntries []UIMemoryEntry) {
+func populateUIMemoryHealthSimilarGroups(health *UIMemoryHealth, privateRoot string, privateEntries []UIMemoryEntry, teamRoot string, teamEntries []UIMemoryEntry, budget *uiMemoryScanBudget) {
 	if health == nil {
+		return
+	}
+	if budget != nil && budget.isStopped() {
+		health.SimilarityDegraded = true
 		return
 	}
 	pairs := dedup.FindSimilarPairs(buildUIMemoryHealthSnapshots(privateRoot, privateEntries, "private", teamRoot, teamEntries, "team"))
@@ -235,19 +263,19 @@ func buildUIMemoryHealthSnapshots(privateRoot string, privateEntries []UIMemoryE
 	return snapshots
 }
 
-// readUIMemoryHealthSnapshots 逐条读取 UI 列表背后的文件；单条读取失败只跳过该条，避免 banner 阻断首页。
+// readUIMemoryHealthSnapshots 只使用列表扫描已经读过的正文，避免相似性健康检查二次全量扫盘。
 func readUIMemoryHealthSnapshots(root string, entries []UIMemoryEntry, scope string) []dedup.EntrySnapshot {
 	if strings.TrimSpace(root) == "" || len(entries) == 0 {
 		return nil
 	}
 	snapshots := make([]dedup.EntrySnapshot, 0, len(entries))
 	for _, entry := range entries {
-		detail, _, err := readUIMemoryEntryByPath(root, scope, entry.Path)
-		if err != nil {
+		content := strings.TrimSpace(entry.scanContent)
+		if content == "" {
 			continue
 		}
 		snapshots = append(snapshots, dedup.EntrySnapshot{
-			Name: strings.TrimSpace(detail.Frontmatter.Name), Type: strings.TrimSpace(string(detail.Type())), Content: detail.Content,
+			Name: strings.TrimSpace(entry.Name), Type: strings.TrimSpace(entry.Type), Content: content,
 			Path: entry.Path, Scope: scope,
 		})
 	}
@@ -265,7 +293,7 @@ func countByCategory(entryType string, pref, proj *int) {
 }
 
 // loadUIMemoryScope 加载 UI 记忆作用域并把路径类错误脱敏后放入 Notice。
-func loadUIMemoryScope(logger *slog.Logger, label, root string, rootErr error, filterPrivateTeam bool) UIMemoryScopeSection {
+func loadUIMemoryScope(ctx context.Context, logger *slog.Logger, label, root string, rootErr error, filterPrivateTeam bool, budget *uiMemoryScanBudget) UIMemoryScopeSection {
 	section := UIMemoryScopeSection{
 		Label:   label,
 		Entries: []UIMemoryEntry{},
@@ -283,7 +311,7 @@ func loadUIMemoryScope(logger *slog.Logger, label, root string, rootErr error, f
 	}
 	section.RootPath = root
 	section.IndexPath = memoryIndexPath(root)
-	entries, err := scanMemoryEntries(root)
+	entries, err := scanMemoryEntriesWithBudget(ctx, root, budget)
 	if err != nil {
 		// scanMemoryEntries 可能透出 filepath.Walk 的路径错误，返回 UI 前统一脱敏。
 		section.Notice = redactIfPathBearing(logger, "durable_memory_scope_scan",
@@ -304,7 +332,11 @@ func loadUIMemoryScope(logger *slog.Logger, label, root string, rootErr error, f
 			Preview:     uiPreviewText(entry.Content),
 			Title:       strings.TrimSpace(entry.Frontmatter.Title),
 			Source:      strings.TrimSpace(entry.Frontmatter.Source),
+			scanContent: strings.TrimSpace(entry.Content),
 		})
+	}
+	if budget != nil && budget.isStopped() {
+		section.Notice = firstNonEmptyUI(section.Notice, budget.notice())
 	}
 	if len(section.Entries) == 0 {
 		section.Notice = firstNonEmptyUI(section.Notice, "当前目录下还没有可读的记忆条目。")
@@ -359,11 +391,99 @@ func firstNonEmptyUI(values ...string) string {
 
 // registerUIMemoryHandlers 注册只读记忆 RPC，写入/删除入口在 mutation 文件中集中处理。
 func registerUIMemoryHandlers(p memoryHandlerDeps) handler.Map {
+	installMemoryIntentFailurePublisher(p)
 	return handler.Map{
 		"ui/memory/get": platformrpc.StrictHandler(func(ctx context.Context, req uiMemoryGetParams) (UIMemorySnapshot, error) {
 			return buildUIMemorySnapshot(ctx, p.Service, p.Logger, req.CWD)
 		}),
 	}
+}
+
+type memoryIntentFailureDiagnostic struct {
+	ThreadID string
+	AgentID  string
+	TurnID   string
+	Action   string
+	Error    string
+}
+
+var memoryIntentFailurePublisher = struct {
+	sync.RWMutex
+	warning func(agentdto.AgentWarning)
+	patch   func(uidto.UIThreadPatch)
+}{}
+
+// installMemoryIntentFailurePublisher 绑定显式记忆失败事件出口；缺 dispatcher 时发布会变成 no-op。
+func installMemoryIntentFailurePublisher(deps memoryHandlerDeps) {
+	memoryIntentFailurePublisher.Lock()
+	defer memoryIntentFailurePublisher.Unlock()
+	memoryIntentFailurePublisher.warning = contract.NewEmitter[agentdto.AgentWarning](deps.Dispatcher)
+	memoryIntentFailurePublisher.patch = contract.NewEmitter[uidto.UIThreadPatch](deps.Dispatcher)
+}
+
+// publishMemoryIntentFailedDiagnostic 发布显式 remember/forget 的失败诊断。
+// Payload 只包含线程、turn、动作和脱敏错误码，避免把本地路径透给 UI/模型事件面。
+func publishMemoryIntentFailedDiagnostic(d memoryIntentFailureDiagnostic) {
+	threadID := strings.TrimSpace(d.ThreadID)
+	if threadID == "" {
+		return
+	}
+	action := firstNonEmptyUI(d.Action, "memory")
+	errText := firstNonEmptyUI(d.Error, "memory_intent_failed")
+	payload, _ := json.Marshal(map[string]string{
+		"thread_id": threadID,
+		"turn_id":   strings.TrimSpace(d.TurnID),
+		"action":    action,
+		"error":     errText,
+	})
+
+	memoryIntentFailurePublisher.RLock()
+	emitWarning := memoryIntentFailurePublisher.warning
+	emitPatch := memoryIntentFailurePublisher.patch
+	memoryIntentFailurePublisher.RUnlock()
+	if emitWarning != nil {
+		emitWarning(agentdto.AgentWarning{
+			AgentSessionHeader: shareddto.AgentSessionHeader{
+				AgentHeader: shareddto.AgentHeader{
+					ThreadHeader: shareddto.ThreadHeader{ThreadID: threadID},
+					AgentID:      strings.TrimSpace(d.AgentID),
+				},
+			},
+			RawType: "memory.intent_failed",
+			Code:    "memory.intent_failed",
+			Message: "memory.intent_failed: " + errText,
+			Payload: payload,
+		})
+	}
+	if emitPatch != nil {
+		now := time.Now().UTC().Format(time.RFC3339Nano)
+		emitPatch(uidto.UIThreadPatch{
+			ThreadID: threadID,
+			Source:   "memory.intent_failed",
+			Alerts: []uidto.PatchAlert{{
+				ID:      "memory.intent_failed:" + strings.TrimSpace(d.TurnID) + ":" + action,
+				Time:    now,
+				Level:   "warning",
+				Message: "memory.intent_failed: " + errText,
+			}},
+		})
+	}
+}
+
+func redactedMemoryIntentError(err error) string {
+	if err == nil {
+		return ""
+	}
+	if code := contract.AgentMemoryErrorCode(err); code != "" {
+		return code
+	}
+	text := err.Error()
+	for _, marker := range []string{"memory_overflow_delete_failed", "memory_overflow_merge_failed", "memory_index_update_failed"} {
+		if strings.Contains(text, marker) {
+			return marker
+		}
+	}
+	return "memory_intent_failed"
 }
 
 // UI RPC 边界使用的公开错误哨兵。

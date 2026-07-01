@@ -3,6 +3,7 @@ package memory
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"log/slog"
 	"os"
@@ -12,8 +13,11 @@ import (
 	"time"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
+	agentdto "github.com/anthropic-ai/super-agent-v3/internal/dto/agent"
 	shared "github.com/anthropic-ai/super-agent-v3/internal/dto/shared"
 	turndto "github.com/anthropic-ai/super-agent-v3/internal/dto/turn"
+	uidto "github.com/anthropic-ai/super-agent-v3/internal/dto/ui"
+	"github.com/kelindar/event"
 )
 
 func TestRememberIntentWritesImmediatelyFromUserInput(t *testing.T) {
@@ -255,6 +259,113 @@ func TestWriteAgentMemoryValidation(t *testing.T) {
 	}
 }
 
+func TestExplicitMemoryIntentFailurePublishesDiagnostic(t *testing.T) {
+	hooks, warnings, patches, badMemoryRoot := newMemoryIntentFailureHarness(t)
+
+	ev := userTurnInputEvent("thread-1", "turn-1", "remember that status updates should stay concise")
+	ev.AgentID = "agent-1"
+	hooks.onTurnInputReceived(context.Background(), ev)
+
+	assertMemoryIntentWarning(t, receiveMemoryIntentWarning(t, warnings), badMemoryRoot)
+	assertMemoryIntentPatch(t, receiveMemoryIntentPatch(t, patches))
+
+	hooks.onTurnInputReceived(context.Background(), userTurnInputEvent("thread-1", "turn-2", "ordinary text without a memory command"))
+	assertNoMemoryIntentDiagnostic(t, warnings, patches)
+}
+
+func newMemoryIntentFailureHarness(t *testing.T) (*MemoryLifecycleHooks, <-chan agentdto.AgentWarning, <-chan uidto.UIThreadPatch, string) {
+	t.Helper()
+	dispatcher := event.NewDispatcher()
+	t.Cleanup(func() { _ = dispatcher.Close() })
+
+	warnings := make(chan agentdto.AgentWarning, 2)
+	cancelWarning := event.Subscribe(dispatcher, func(ev agentdto.AgentWarning) { warnings <- ev })
+	t.Cleanup(cancelWarning)
+	patches := make(chan uidto.UIThreadPatch, 2)
+	cancelPatch := event.Subscribe(dispatcher, func(ev uidto.UIThreadPatch) { patches <- ev })
+	t.Cleanup(cancelPatch)
+	registerUIMemoryHandlers(memoryHandlerDeps{Dispatcher: dispatcher})
+
+	badMemoryRoot := filepath.Join(t.TempDir(), "not-a-directory")
+	if err := os.WriteFile(badMemoryRoot, []byte("not a directory"), 0o644); err != nil {
+		t.Fatalf("WriteFile(badMemoryRoot) error = %v", err)
+	}
+	hooks := newMemoryLifecycleHooks(&Config{
+		Enabled:             true,
+		EnableTools:         true,
+		RootDir:             filepath.Join(t.TempDir(), "memory-root"),
+		ProjectRoot:         newTestGitProjectRoot(t),
+		AutoMemPathOverride: badMemoryRoot,
+	}, nil, nil, nil, nil, nil, nil, nil)
+	return hooks, warnings, patches, badMemoryRoot
+}
+
+func assertMemoryIntentWarning(t *testing.T, warning agentdto.AgentWarning, badMemoryRoot string) {
+	t.Helper()
+	if warning.RawType != "memory.intent_failed" || warning.Code != "memory.intent_failed" || warning.ThreadID != "thread-1" || warning.AgentID != "agent-1" {
+		t.Fatalf("AgentWarning = %#v, want memory.intent_failed scoped to thread/agent", warning)
+	}
+	payload := decodeMemoryIntentWarningPayload(t, warning)
+	if payload["thread_id"] != "thread-1" || payload["turn_id"] != "turn-1" || payload["action"] != "remember" {
+		t.Fatalf("warning payload = %#v, want thread_id/turn_id/action", payload)
+	}
+	if strings.Contains(warning.Message, badMemoryRoot) || strings.Contains(string(warning.Payload), badMemoryRoot) {
+		t.Fatalf("memory.intent_failed leaked local path in warning: message=%q payload=%s", warning.Message, warning.Payload)
+	}
+}
+
+func assertMemoryIntentPatch(t *testing.T, patch uidto.UIThreadPatch) {
+	t.Helper()
+	if patch.ThreadID != "thread-1" || patch.Source != "memory.intent_failed" || len(patch.Alerts) != 1 {
+		t.Fatalf("UIThreadPatch = %#v, want memory intent alert", patch)
+	}
+	if patch.Alerts[0].Level != "warning" || !strings.Contains(patch.Alerts[0].Message, "memory.intent_failed") {
+		t.Fatalf("patch alert = %#v, want warning memory.intent_failed", patch.Alerts[0])
+	}
+}
+
+func receiveMemoryIntentWarning(t *testing.T, ch <-chan agentdto.AgentWarning) agentdto.AgentWarning {
+	t.Helper()
+	select {
+	case got := <-ch:
+		return got
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for memory.intent_failed warning")
+		return agentdto.AgentWarning{}
+	}
+}
+
+func receiveMemoryIntentPatch(t *testing.T, ch <-chan uidto.UIThreadPatch) uidto.UIThreadPatch {
+	t.Helper()
+	select {
+	case got := <-ch:
+		return got
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for memory.intent_failed thread patch")
+		return uidto.UIThreadPatch{}
+	}
+}
+
+func decodeMemoryIntentWarningPayload(t *testing.T, warning agentdto.AgentWarning) map[string]string {
+	t.Helper()
+	payload := map[string]string{}
+	if err := json.Unmarshal(warning.Payload, &payload); err != nil {
+		t.Fatalf("warning payload is not string map: %v payload=%s", err, string(warning.Payload))
+	}
+	return payload
+}
+
+func assertNoMemoryIntentDiagnostic(t *testing.T, warnings <-chan agentdto.AgentWarning, patches <-chan uidto.UIThreadPatch) {
+	t.Helper()
+	select {
+	case got := <-warnings:
+		t.Fatalf("unexpected memory warning for ordinary text: %#v", got)
+	case got := <-patches:
+		t.Fatalf("unexpected memory patch for ordinary text: %#v", got)
+	case <-time.After(100 * time.Millisecond):
+	}
+}
+
 func TestWriteAgentMemoryFeedbackWritesPrivateAndInvalidates(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "memory-root")
 	projectRoot := newTestGitProjectRoot(t)
@@ -284,6 +395,56 @@ func TestWriteAgentMemoryFeedbackWritesPrivateAndInvalidates(t *testing.T) {
 	assertUIMemoryEntryVisible(t, snapshot.Private.Entries, "daily-report-style", "agent_tool")
 
 	assertInvalidatedEntrypoint(t, invalidator, "after WriteAgentMemory")
+}
+
+func TestMemoryWriteReportsOverflowMergeFailure(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "memory-root")
+	projectRoot := newTestGitProjectRoot(t)
+	invalidator := &sectionInvalidatorStub{}
+	cfg := &Config{Enabled: true, EnableTools: true, RootDir: root, ProjectRoot: projectRoot}
+	hooks := newMemoryLifecycleHooks(cfg, nil, nil, nil, nil, invalidator, nil, nil)
+	storeRoot, err := resolvedStoreRoot(root, projectRoot, "")
+	if err != nil {
+		t.Fatalf("resolvedStoreRoot() error = %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(storeRoot, memoryIndexFileName), 0o755); err != nil {
+		t.Fatalf("MkdirAll(MEMORY.md as dir) error = %v", err)
+	}
+
+	res, err := hooks.WriteAgentMemory(context.Background(), validAgentMemoryRequest(nil))
+	if err == nil {
+		t.Fatal("WriteAgentMemory() error = nil, want partial index update failure")
+	}
+	if code := contract.AgentMemoryErrorCode(err); code != "partial" {
+		t.Fatalf("error code = %q, want partial (err=%v)", code, err)
+	}
+	assertAgentMemoryWriteResult(t, res)
+	assertInvalidatedEntrypoint(t, invalidator, "after partial WriteAgentMemory")
+}
+
+func TestMemoryWriteReportsDeleteFailureAsPartial(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "memory-root")
+	store := mustNewTestDiskStore(t, root)
+	deletePath := filepath.Join(root, string(MemoryTypeFeedback), "delete-me.md")
+	if err := os.MkdirAll(filepath.Join(deletePath, "child"), 0o755); err != nil {
+		t.Fatalf("MkdirAll(deletePath as dir) error = %v", err)
+	}
+
+	memType := MemoryTypeFeedback
+	err := overflowMergeAndDelete(store, filepath.Join(string(MemoryTypeFeedback), "keep.md"), MemoryEntry{
+		Frontmatter: MemoryFrontmatter{
+			Name:        "keep",
+			Description: "merged memory",
+			Type:        &memType,
+		},
+		Content: "merged memory body",
+	}, filepath.Join(string(MemoryTypeFeedback), "delete-me.md"), WriteOptions{SkipIndex: true}, nil)
+	if err == nil {
+		t.Fatal("overflowMergeAndDelete() error = nil, want typed delete failure")
+	}
+	if !strings.Contains(err.Error(), "memory_overflow_delete_failed") {
+		t.Fatalf("overflowMergeAndDelete() error = %v, want memory_overflow_delete_failed", err)
+	}
 }
 
 func assertAgentMemoryWriteResult(t *testing.T, res contract.AgentMemoryWriteResult) {

@@ -50,6 +50,35 @@ func TestSQLiteReleaseGatePackageSmokeUsesRealRuntimeEntrypoint(t *testing.T) {
 	}
 }
 
+func TestSQLiteReleaseGateLinuxVerifierRejectsPackageRootHomeResolution(t *testing.T) {
+	stage := writeMinimalPackagedLinuxStage(t)
+	writeRuntimeManifest(t, stage, map[string]string{
+		"bundled_codex_path":  "bin/codex",
+		"bundled_gopls_path":  "bin/gopls",
+		"lsp_bundle_path":     "lsp",
+		"lsp_manifest_path":   "lsp/lsp-manifest.json",
+		"model_registry_path": "models.yaml",
+	})
+	writeFile(t, filepath.Join(stage, "run.sh"), `#!/usr/bin/env bash
+set -euo pipefail
+here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+export PROJECT_ROOT="$here"
+export SUPER_DOLPHIN_PACKAGE_ROOT="$here"
+export SUPER_DOLPHIN_RUNTIME_MODE=packaged
+export SUPER_DOLPHIN_PACKAGED_LAUNCHER=1
+export SUPER_DOLPHIN_HOME="$here"
+exec "$here/bin/agent-terminal" "$@"
+`, 0o755)
+
+	output, err := runVerifyPackagedAppLinux(t, stage)
+	if err == nil {
+		t.Fatalf("expected Linux verifier to reject SQLite home under package root, got success:\n%s", output)
+	}
+	if !strings.Contains(output, "Linux launcher must not resolve SQLite home under package root") {
+		t.Fatalf("expected package-root SQLite home rejection, got:\n%s", output)
+	}
+}
+
 func prepareSQLiteReleaseGatePackageSmokeHome(t *testing.T) (string, string) {
 	t.Helper()
 	home := filepath.Join(t.TempDir(), "super-dolphin-home")

@@ -1,6 +1,7 @@
 package shared
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -40,6 +41,19 @@ func TestEnsureAppManagedProviderHomeUsesSuperDolphinHome(t *testing.T) {
 		t.Fatalf("EnsureAppManagedProviderHome() = %q, want %q", got, want)
 	}
 	assertDirMode(t, filepath.Join(want, "skills"), 0o700)
+}
+
+func TestEnsureProviderHomeFailsWhenChmodFails(t *testing.T) {
+	home := protectedProviderHomeForChmodFailure(t)
+
+	_, err := EnsureProviderHome(ProviderCodex, home)
+	if err == nil {
+		t.Fatalf("EnsureProviderHome() error = nil, want chmod failure")
+	}
+	assertProviderStartupGateCode(t, err, "provider_home_permission_failed")
+	if !strings.Contains(err.Error(), ProviderCodex) || !strings.Contains(err.Error(), home) {
+		t.Fatalf("EnsureProviderHome() error = %v, want provider and path context", err)
+	}
 }
 
 func TestProviderMirrorTargetsIncludePersonalAndProjectRoots(t *testing.T) {
@@ -374,6 +388,47 @@ func TestEnsureNoSkillMirrorConflictsAllowsReportOnlySkillContentConflicts(t *te
 	}
 }
 
+func TestEnsureNoSkillMirrorConflictsBlocksActiveProjectSameName(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		targetID string
+		scope    string
+		kind     string
+	}{
+		{name: "project-scope-same-name", targetID: "codex:project:repo", scope: "project", kind: "same_name"},
+		{name: "project-target-same-name", targetID: "claude:project:repo", scope: "personal", kind: "same_name"},
+		{name: "app-managed-target-same-name", targetID: "codex:app-managed:owner", scope: "personal", kind: "same_name"},
+		{name: "project-scope-same-name-scope-conflict", targetID: "codex:project:repo", scope: "project", kind: "same_name_scope_conflict"},
+		{name: "project-target-same-name-scope-conflict", targetID: "claude:project:repo", scope: "personal", kind: "same_name_scope_conflict"},
+		{name: "app-managed-target-same-name-scope-conflict", targetID: "codex:app-managed:owner", scope: "personal", kind: "same_name_scope_conflict"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			report := contract.SkillMirrorReport{Conflicts: []contract.SkillMirrorReportItem{{
+				TargetID:     tc.targetID,
+				Scope:        tc.scope,
+				ConflictKind: tc.kind,
+			}}}
+
+			err := EnsureNoSkillMirrorConflicts(report)
+			if err == nil {
+				t.Fatalf("EnsureNoSkillMirrorConflicts() error = nil, want active same-name conflict to block provider start")
+			}
+			assertProviderStartupGateCode(t, err, "skill_mirror_conflict")
+			if !strings.Contains(err.Error(), tc.kind) || !strings.Contains(err.Error(), tc.targetID) {
+				t.Fatalf("EnsureNoSkillMirrorConflicts() error = %v, want kind and target context", err)
+			}
+		})
+	}
+	reportOnly := contract.SkillMirrorReport{Conflicts: []contract.SkillMirrorReportItem{{
+		TargetID:     "codex:user-global:owner",
+		Scope:        "personal",
+		ConflictKind: "same_name",
+	}}}
+	if err := EnsureNoSkillMirrorConflicts(reportOnly); err != nil {
+		t.Fatalf("EnsureNoSkillMirrorConflicts() personal same-name error = %v, want report-only", err)
+	}
+}
+
 func TestEnsureNoSkillMirrorConflictsReportsMirrorSafetyConflicts(t *testing.T) {
 	kinds := []string{
 		"publish_error",
@@ -501,6 +556,38 @@ func skipProviderHomeSymlinkPrivilegeNotHeld(t *testing.T, err error) {
 	t.Helper()
 	if runtime.GOOS == "windows" && strings.Contains(err.Error(), "privilege") {
 		t.Skipf("symlink privilege unavailable: %v", err)
+	}
+}
+
+func protectedProviderHomeForChmodFailure(t *testing.T) string {
+	t.Helper()
+	if os.Geteuid() == 0 {
+		t.Skip("chmod failure test requires non-root user")
+	}
+	if runtime.GOOS != "darwin" {
+		t.Skip("chmod failure test uses macOS protected system directories")
+	}
+	home := "/System"
+	info, err := os.Stat(home)
+	if err != nil {
+		t.Skipf("protected provider home %s unavailable: %v", home, err)
+	}
+	if !info.IsDir() {
+		t.Skipf("protected provider home %s is not a directory", home)
+	}
+	return home
+}
+
+func assertProviderStartupGateCode(t *testing.T, err error, want string) {
+	t.Helper()
+	var coded interface {
+		GateCode() string
+	}
+	if !errors.As(err, &coded) {
+		t.Fatalf("error = %T %v, want provider startup gate code %q", err, err, want)
+	}
+	if got := coded.GateCode(); got != want {
+		t.Fatalf("GateCode() = %q, want %q; error=%v", got, want, err)
 	}
 }
 

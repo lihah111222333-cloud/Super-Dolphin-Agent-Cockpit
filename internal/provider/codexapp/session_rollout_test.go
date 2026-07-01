@@ -56,6 +56,58 @@ func TestOnNotification_CodexRolloutAssistantMessageCompletesActiveTurn(t *testi
 	fixture.assertNoForceComplete(t)
 }
 
+func TestSyntheticAssistantCompletionPreservesToolFailure(t *testing.T) {
+	bus := event.NewDispatcher()
+	dispatcher := unified.NewEventDispatcher(bus, nil)
+	RegisterTranslators(dispatcher)
+	completedCh := make(chan turndto.TurnCompleted, 1)
+	cancelCompleted := event.Subscribe(bus, func(ev turndto.TurnCompleted) { completedCh <- ev })
+	defer cancelCompleted()
+	toolEndCh := make(chan tooldto.ToolCallEnd, 1)
+	cancelToolEnd := event.Subscribe(bus, func(ev tooldto.ToolCallEnd) { toolEndCh <- ev })
+	defer cancelToolEnd()
+	defer func() { _ = bus.Close() }()
+
+	s := newInboundTestSession(context.Background(), nil, &ServerManager{})
+	s.dispatcher = dispatcher
+	s.mu.Lock()
+	s.turns["turn-1"] = newTurnHandle("local-1", "turn-1")
+	s.activeTurnID = "turn-1"
+	s.mu.Unlock()
+
+	s.dispatch(dto.RawProviderEvent{
+		EventType: "tool.call.end",
+		Data: map[string]any{
+			"agentId":  "agent-1",
+			"threadId": "provider-thread-1",
+			"turnId":   "turn-1",
+			"callId":   "call-file",
+			"name":     "file",
+			"success":  false,
+			"error":    "file read failed",
+		},
+	})
+	toolEnd := waitToolCallEnd(t, toolEndCh)
+	if toolEnd.Success || toolEnd.Error != "file read failed" {
+		t.Fatalf("ToolCallEnd = %+v, want failed file read", toolEnd)
+	}
+
+	s.completeSyntheticTurn("turn-1", "rollout_assistant_message", "assistant text")
+
+	completed := waitRolloutTurnCompleted(t, completedCh)
+	if completed.Success || completed.Status != "completed_with_errors" {
+		t.Fatalf("TurnCompleted = %+v, want completed_with_errors", completed)
+	}
+	for _, want := range []string{"call-file", "file", "file read failed"} {
+		if !strings.Contains(completed.Error, want) {
+			t.Fatalf("TurnCompleted.Error = %q, want %q correlation", completed.Error, want)
+		}
+	}
+	if completed.Result != "assistant text" {
+		t.Fatalf("TurnCompleted.Result = %q, want assistant text", completed.Result)
+	}
+}
+
 func waitRolloutTurnCompleted(t *testing.T, ch <-chan turndto.TurnCompleted) turndto.TurnCompleted {
 	t.Helper()
 	select {

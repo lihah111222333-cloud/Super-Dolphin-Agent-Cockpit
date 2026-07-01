@@ -54,10 +54,26 @@ func sharedFileToolDefinitions(store sharedfilestore.Store) []ToolDefinition {
 			"pos":  StringSchema("Flattened shared-file locator, e.g. shared:<path>. Preferred over legacy path."),
 			"path": StringSchema("File path (for example 'config/settings.json')."),
 		}), HandleSharedFileRead(store)),
-		defineTool("shared_file_write", "Write content to a shared file. Creates or overwrites the file at the given path.", ObjectSchema(map[string]Schema{
+		defineGovernedTool("shared_file_write", "Write content to a shared file. Creates or overwrites the file at the given path.", ObjectSchema(map[string]Schema{
 			"path":    StringSchema("File path (for example 'config/settings.json')."),
 			"content": StringSchema("File content to write."),
-		}, "path", "content"), HandleSharedFileWrite(store)),
+		}, "path", "content"), HandleSharedFileWrite(store), ToolMetadata{
+			Version:                "shared_file.v1",
+			OutputSchema:           RawObjectSchema("Shared file write response."),
+			Capabilities:           []string{"shared_file.write"},
+			RiskClass:              ToolRiskHigh,
+			Permission:             ToolPermissionSharedFileWrite,
+			WorkspaceScope:         ToolWorkspaceScopeSharedFile,
+			IdempotencyRequirement: ToolIdempotencyRecommended,
+			ApprovalRequired:       false,
+			AuditEventType:         "shared_file.write",
+			RedactionPolicy:        ToolRedactionSensitiveFields,
+			PathPolicy: ToolPathPolicy{
+				PathAuthority: ToolPathAuthoritySharedFile,
+				WriteFields:   []string{"path"},
+				Validator:     "sharedfilepath.ValidateAgentWritePath",
+			},
+		}),
 	)
 }
 

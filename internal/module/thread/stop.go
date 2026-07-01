@@ -96,8 +96,8 @@ func (s *service) resumeLifecycleBlockReason(
 	if reason, blocked := s.resumeAgentLifecycleBlock(threadID, binding); blocked {
 		return reason, true
 	}
-	if status, ok := s.resumeLifecycleThreadStatus(ctx, threadID, binding); ok {
-		return resumeLifecycleStatusBlock(status)
+	if thread, ok := s.resumeLifecycleThreadRecord(ctx, threadID, binding); ok {
+		return resumeLifecycleThreadBlock(thread)
 	}
 	return "", false
 }
@@ -138,38 +138,49 @@ func (s *service) resumeAgentLifecycleBlock(threadID string, binding *threadBind
 	return "", false
 }
 
-// resumeLifecycleStatusBlock 把持久化线程状态转换为恢复阻断原因。
-// 只有 archived/stopped 会阻断，其它中间状态交给启动/恢复主流程继续判断。
-func resumeLifecycleStatusBlock(status string) (string, bool) {
-	switch strings.TrimSpace(status) {
+// resumeLifecycleThreadBlock 把持久化线程状态转换为恢复阻断原因。
+// fork creating/failed 不能被普通 resume 消费；非 fork failed 保留既有可恢复语义。
+func resumeLifecycleThreadBlock(thread threadConfigRecord) (string, bool) {
+	switch strings.TrimSpace(thread.Status) {
 	case statusArchived:
 		return "thread_archived", true
 	case statusStopped:
 		return "thread_stopped", true
+	case statusForkCreating:
+		return "fork_creating", true
+	case statusFailed:
+		if retainedForkThread(thread) {
+			return "fork_failed", true
+		}
+		return "", false
 	default:
 		return "", false
 	}
 }
 
-// resumeLifecycleThreadStatus 推导恢复请求应遵守的持久化线程状态。
-// 它按请求 threadID、binding.CodexThreadID、binding.AgentID 查找，任一命中 stopped/archived 都会阻断自动恢复。
-func (s *service) resumeLifecycleThreadStatus(
+func retainedForkThread(thread threadConfigRecord) bool {
+	return strings.TrimSpace(thread.OwnerThreadID) != ""
+}
+
+// resumeLifecycleThreadRecord 推导恢复请求应遵守的持久化线程记录。
+// 它按请求 threadID、binding.CodexThreadID、binding.AgentID 查找，命中后由调用方基于完整记录判断能否恢复。
+func (s *service) resumeLifecycleThreadRecord(
 	ctx context.Context,
 	threadID string,
 	binding *threadBindingStoreRecord,
-) (string, bool) {
+) (threadConfigRecord, bool) {
 	store := s.threadConfigStorePort()
 	if store == nil {
-		return "", false
+		return threadConfigRecord{}, false
 	}
 	for _, id := range resumeLifecycleThreadIDs(threadID, binding) {
 		thread, err := store.GetByThreadID(ctx, id)
 		if err != nil || thread == nil {
 			continue
 		}
-		return strings.TrimSpace(thread.Status), true
+		return *thread, true
 	}
-	return "", false
+	return threadConfigRecord{}, false
 }
 
 // resumeLifecycleThreadIDs 生成恢复生命周期检查需要查询的候选 thread id。

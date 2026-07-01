@@ -25,6 +25,38 @@ func TestSQLiteTaskDAGCoreCRUDListUpdateDelete(t *testing.T) {
 	assertSQLiteCoreDAGDelete(t, ctx, store)
 }
 
+func TestAssignNodeAndEnqueueWakeupRollsBackAssignmentWhenWakeupEnqueueFails(t *testing.T) {
+	ctx := context.Background()
+	db := openTaskDAGSQLiteDB(t)
+	store := NewStore(db).(*store)
+	seedSQLiteCoreDAG(t, ctx, store)
+	run := createSQLiteTaskDAGRun(t, ctx, store, "run-assign-rollback", "dag-core")
+	cloneAndPromoteSQLiteRun(t, ctx, store, "dag-core", run.ID)
+
+	_, err := store.AssignNodeAndEnqueueWakeup(ctx, AssignNodeAndEnqueueWakeupInput{
+		Assign: AssignNodeInput{DagKey: "dag-core", NodeKey: "root", RunID: run.ID, AssignedTo: "agent-alpha"},
+		Wakeup: EnqueueWakeupInput{
+			DagKey:         "dag-core",
+			NodeKey:        "root",
+			RunID:          run.ID,
+			WakeupKind:     "manual_dispatch",
+			TargetAgentID:  "agent-alpha",
+			PromptPayload:  json.RawMessage(`{`),
+			IdempotencyKey: "manual_dispatch:dag-core:rollback:root:agent-alpha",
+		},
+	})
+	if err == nil {
+		t.Fatal("AssignNodeAndEnqueueWakeup() error = nil, want enqueue JSON failure")
+	}
+	nodes, listErr := store.ListRunNodes(ctx, "dag-core", run.ID)
+	if listErr != nil {
+		t.Fatalf("ListRunNodes() error = %v", listErr)
+	}
+	if len(nodes) != 1 || nodes[0].AssignedTo != "" {
+		t.Fatalf("runtime node after failed assign+enqueue = %+v, want assigned_to rolled back", nodes)
+	}
+}
+
 func seedSQLiteCoreDAG(t *testing.T, ctx context.Context, store *store) {
 	t.Helper()
 	if _, err := store.UpsertDAG(ctx, DAG{DagKey: "dag-core", Title: "Core DAG", Description: "search target", Status: "draft", CreatedBy: "tester", Metadata: []byte(`{"full":true}`)}); err != nil {
