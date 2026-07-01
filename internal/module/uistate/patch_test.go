@@ -189,6 +189,39 @@ func TestTurnCompletedPatchIncludesLastActiveAt(t *testing.T) {
 	}
 }
 
+func TestUIStateCompletedWithErrorsDoesNotBecomeCleanIdle(t *testing.T) {
+	t.Parallel()
+
+	svc, dispatcher := newPatchTestService(t)
+	got := subscribeThreadPatch(t, dispatcher)
+	turnHeader := testTurnHeader(testAgentSessionHeader("thread-errors", "agent-errors"), "turn-errors")
+	svc.state.Threads = []ThreadSummary{{ID: "thread-errors", AgentID: "agent-errors", State: "running", ThreadStatus: "running"}}
+	svc.state.Agents = []AgentSummary{{ID: "agent-errors", ThreadID: "thread-errors", State: "running", ThreadStatus: "running"}}
+	svc.state.ActiveTurn = &TurnSummary{ID: "turn-errors", AgentID: "agent-errors", ThreadID: "thread-errors", Status: "running"}
+
+	svc.applyTurnCompleted(turndto.TurnCompleted{
+		TurnHeader: turnHeader,
+		Success:    false,
+		Status:     "completed_with_errors",
+		Error:      "tool call call-file/file failed",
+	})
+	patch := mustReceiveThreadPatch(t, got)
+
+	if patch.Status != "error" {
+		t.Fatalf("completion patch status = %q, want error; patch=%#v", patch.Status, patch)
+	}
+	if len(svc.state.RecentTurns) != 1 {
+		t.Fatalf("RecentTurns = %#v, want one failed turn", svc.state.RecentTurns)
+	}
+	recent := svc.state.RecentTurns[0]
+	if recent.Status != "completed_with_errors" || recent.Success == nil || *recent.Success || recent.Error == "" {
+		t.Fatalf("RecentTurns[0] = %#v, want completed_with_errors failure", recent)
+	}
+	if svc.state.Threads[0].ThreadStatus != "error" || svc.state.Threads[0].State != "error" {
+		t.Fatalf("Thread state = %#v, want visible error state", svc.state.Threads[0])
+	}
+}
+
 func TestTurnOutputDeltaUpdatesLastMessageWithoutPublishingThreadPatch(t *testing.T) {
 	t.Parallel()
 

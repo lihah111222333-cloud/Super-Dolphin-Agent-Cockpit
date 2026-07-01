@@ -1,6 +1,9 @@
 package tools
 
 import (
+	"context"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -36,5 +39,25 @@ func TestDownloadVideoDestIsMoviesDir(t *testing.T) {
 	}
 	if strings.Contains(dest, "Desktop") {
 		t.Fatalf("video dest %q must not target Desktop", dest)
+	}
+}
+
+func TestVideoGenerateRejectsHomeFallbackOutput(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	if err := os.WriteFile(filepath.Join(home, "Movies"), []byte("not a directory"), 0o644); err != nil {
+		t.Fatalf("seed Movies sentinel: %v", err)
+	}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte("mp4"))
+	}))
+	t.Cleanup(server.Close)
+
+	got, err := downloadVideoToDesktop(context.Background(), server.URL, "req-home-fallback")
+	if err == nil {
+		t.Fatalf("downloadVideoToDesktop() wrote %q after Movies failure; want fail-fast instead of home fallback", got)
+	}
+	if !strings.Contains(err.Error(), "Movies") && !strings.Contains(err.Error(), "output") {
+		t.Fatalf("downloadVideoToDesktop() error = %v, want output path failure", err)
 	}
 }

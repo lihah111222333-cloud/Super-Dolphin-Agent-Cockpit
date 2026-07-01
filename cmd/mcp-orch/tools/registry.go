@@ -1,6 +1,10 @@
 package tools
 
 import (
+	"context"
+	"encoding/json"
+	"fmt"
+
 	commandcardstore "github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/commandcard"
 	promptstore "github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/prompt"
 	sharedfilestore "github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/sharedfile"
@@ -20,8 +24,9 @@ type Dependencies struct {
 }
 
 type Registry struct {
-	tools  []ToolDefinition
-	byName map[string]ToolDefinition
+	tools   []ToolDefinition
+	byName  map[string]ToolDefinition
+	initErr error
 }
 
 var legacyOrchestrationAliases = map[string]string{
@@ -46,8 +51,13 @@ func NewRegistry(deps Dependencies) Registry {
 	tools = append(tools, ttsToolDefinitions()...)
 	tools = append(tools, avMergeToolDefinitions()...)
 	tools = append(tools, videoWithAudioToolDefinitions()...)
+	if err := validateRegistryPathPolicies(tools); err != nil {
+		return Registry{initErr: err}
+	}
 	byName := make(map[string]ToolDefinition, len(tools))
-	for _, tool := range tools {
+	for i, tool := range tools {
+		tool = withToolPathPolicy(tool)
+		tools[i] = tool
 		byName[tool.Name] = tool
 	}
 	return Registry{tools: tools, byName: byName}
@@ -55,11 +65,22 @@ func NewRegistry(deps Dependencies) Registry {
 
 // List 返回工具定义副本，避免调用方修改 Registry 内部切片。
 func (r Registry) List() []ToolDefinition {
+	if r.initErr != nil {
+		return nil
+	}
 	return append([]ToolDefinition(nil), r.tools...)
 }
 
 // Lookup 按工具名查找定义，并兼容旧 orchestration_* 别名。
 func (r Registry) Lookup(name string) (ToolDefinition, bool) {
+	if r.initErr != nil {
+		return ToolDefinition{
+			Name: name,
+			Handler: func(context.Context, json.RawMessage) (any, error) {
+				return nil, fmt.Errorf("tool registry invalid: %w", r.initErr)
+			},
+		}, true
+	}
 	if canonical, ok := legacyOrchestrationAliases[name]; ok {
 		name = canonical
 	}

@@ -294,8 +294,8 @@ func (h *MemoryLifecycleHooks) handleTrackedTurnIntent(ctx context.Context, evt 
 	if !ok {
 		return false
 	}
-	handled, err := h.handleExplicitUserMemoryIntent(ctx, evt, text)
-	h.handleExplicitIntentError(evt.ThreadID, handled, err)
+	handled, action, err := h.handleExplicitUserMemoryIntent(ctx, evt, text)
+	h.handleExplicitIntentError(evt, handled, action, err)
 	return handled || err != nil
 }
 
@@ -355,7 +355,10 @@ func (h *MemoryLifecycleHooks) writeIntent(ctx context.Context, threadID string,
 	if writeErr := upsertStructuredMemory(store, entry, options); writeErr != nil {
 		return writeErr
 	}
-	h.maybeOverflowMerge(store, entry.Type, options)
+	if err := h.maybeOverflowMerge(store, entry.Type, options); err != nil {
+		h.invalidateMemorySections()
+		return agentMemoryError("partial", err)
+	}
 	return nil
 }
 
@@ -400,40 +403,49 @@ func (h *MemoryLifecycleHooks) tryDedupMerge(result dedup.CheckResult, store mem
 	if mergeErr := mergeAndWriteMemory(ws, result.TargetPath, merged, options, h.memoryCoordinator()); mergeErr != nil {
 		return false, mergeErr
 	}
-	h.handleDedupOverflow(ws, memType, options)
+	if err := h.handleDedupOverflow(ws, memType, options); err != nil {
+		return false, err
+	}
 	return true, nil
 }
 
 // maybeOverflowMerge 在普通写入成功后触发同 scope 溢出合并。
 // 只对可写 store 生效，避免只读或测试替身误进入删除路径。
-func (h *MemoryLifecycleHooks) maybeOverflowMerge(store memoryStructuredStore, memType MemoryType, options WriteOptions) {
+func (h *MemoryLifecycleHooks) maybeOverflowMerge(store memoryStructuredStore, memType MemoryType, options WriteOptions) error {
 	if ws, ok := store.(memoryWriteStore); ok {
-		h.handleDedupOverflow(ws, memType, options)
+		return h.handleDedupOverflow(ws, memType, options)
 	}
+	return nil
 }
 
 // handleDedupOverflow 只在当前写入 store 内执行溢出合并。
 // 全局去重可以跨 scope 检测重复，但溢出删除不能拿 private 的指令去改 team store，
 // 也不能反向操作，避免越过记忆 scope 边界。
-func (h *MemoryLifecycleHooks) handleDedupOverflow(store memoryWriteStore, memType MemoryType, options WriteOptions) {
+func (h *MemoryLifecycleHooks) handleDedupOverflow(store memoryWriteStore, memType MemoryType, options WriteOptions) error {
 	if store == nil {
-		return
+		return nil
 	}
 	filter := dedup.NewFilter(func(typeFilter string) ([]dedup.EntrySnapshot, error) {
 		return scanEntriesAsSnapshots(store.Root(), typeFilter, storeScopeName(store, h))
 	}, nil)
 	instruction, err := filter.FindOverflowMerge(string(memType))
-	if err != nil || instruction == nil {
-		if err != nil && h != nil && h.logger != nil {
+	if err != nil {
+		if h != nil && h.logger != nil {
 			h.logger.Warn("memory dedup overflow check failed", "err", err, "scope", storeScopeName(store, h), "type", memType)
 		}
-		return
+		return fmt.Errorf("%w: %v", ErrMemoryOverflowMergeFailed, err)
+	}
+	if instruction == nil {
+		return nil
 	}
 	merged := snapshotToMemoryEntry(instruction.KeepEntry)
-	if err := overflowMergeAndDelete(store, instruction.KeepEntry.Path, merged, instruction.DeletePath, options, h.memoryCoordinator()); err != nil && h != nil && h.logger != nil {
-
-		h.logger.Warn("memory dedup overflow merge failed", "err", err, "scope", storeScopeName(store, h), "type", memType)
+	if err := overflowMergeAndDelete(store, instruction.KeepEntry.Path, merged, instruction.DeletePath, options, h.memoryCoordinator()); err != nil {
+		if h != nil && h.logger != nil {
+			h.logger.Warn("memory dedup overflow merge failed", "err", err, "scope", storeScopeName(store, h), "type", memType)
+		}
+		return fmt.Errorf("%w: %v", ErrMemoryOverflowMergeFailed, err)
 	}
+	return nil
 }
 
 // storeScopeName 返回当前 store 对应的 scope 标签。
@@ -545,24 +557,34 @@ func (h *MemoryLifecycleHooks) handleExplicitUserMemoryIntent(
 	ctx context.Context,
 	evt turndto.TurnCompleted,
 	text string,
-) (bool, error) {
+) (bool, string, error) {
 	if forget := DetectForgetIntent(text); forget.Detected {
-		return true, h.deleteIntent(ctx, evt.ThreadID, forget)
+		return true, "forget", h.deleteIntent(ctx, evt.ThreadID, forget)
 	}
 	intent := DetectSaveIntent(text)
 	if !intent.Detected {
-		return false, nil
+		return false, "", nil
 	}
-	return true, h.writeDetectedIntent(ctx, evt, intent)
+	return true, "remember", h.writeDetectedIntent(ctx, evt, intent)
 }
 
 // handleExplicitIntentError 记录显式记忆指令失败。
 // handled=false 表示普通文本，不应记录为记忆错误。
-func (h *MemoryLifecycleHooks) handleExplicitIntentError(threadID string, handled bool, err error) {
-	if !handled || err == nil || h == nil || h.logger == nil {
+func (h *MemoryLifecycleHooks) handleExplicitIntentError(evt turndto.TurnCompleted, handled bool, action string, err error) {
+	if !handled || err == nil {
 		return
 	}
-	h.logger.Warn("memory explicit intent failed", "thread_id", strings.TrimSpace(threadID), "error", err)
+	threadID := strings.TrimSpace(evt.ThreadID)
+	if h != nil && h.logger != nil {
+		h.logger.Warn("memory explicit intent failed", "thread_id", threadID, "turn_id", strings.TrimSpace(evt.TurnID), "action", strings.TrimSpace(action), "error", err)
+	}
+	publishMemoryIntentFailedDiagnostic(memoryIntentFailureDiagnostic{
+		ThreadID: threadID,
+		AgentID:  strings.TrimSpace(evt.AgentID),
+		TurnID:   strings.TrimSpace(evt.TurnID),
+		Action:   strings.TrimSpace(action),
+		Error:    redactedMemoryIntentError(err),
+	})
 }
 
 // resolvedStoreRoot 解析最终可写记忆根目录。

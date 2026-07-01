@@ -29,6 +29,14 @@ func mustCanonicalCodexHome(t *testing.T, home string) string {
 	return wantHome
 }
 
+func setDefaultCodexHomeEnvForTest(t *testing.T) string {
+	t.Helper()
+	userHome := t.TempDir()
+	t.Setenv("HOME", userHome)
+	t.Setenv("USERPROFILE", userHome)
+	return mustCanonicalCodexHome(t, userHome)
+}
+
 func mustCanonicalAppManagedCodexHome(t *testing.T, home string) string {
 	t.Helper()
 	codexHome := filepath.Join(home, ".super-dolphin", "providers", "codex")

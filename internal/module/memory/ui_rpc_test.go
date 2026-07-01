@@ -2,6 +2,7 @@ package memory
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -605,6 +606,113 @@ func TestComputeUIMemoryHealthUsesFullContentNotPreviewOnly(t *testing.T) {
 	if got := len(snapshot.Overview.Health.SimilarGroups); got != 0 {
 		t.Fatalf("SimilarGroups = %#v, want none when only the truncated preview matches", snapshot.Overview.Health.SimilarGroups)
 	}
+}
+
+func TestUIMemoryGetRespectsEntryLimit(t *testing.T) {
+	projectRoot := newTestGitProjectRoot(t)
+	privateRoot := filepath.Join(t.TempDir(), "private")
+	cfg := newUIMemorySnapshotConfig(t, projectRoot, privateRoot)
+	for i := 0; i < 260; i++ {
+		writeUIMemoryScanEntry(t, privateRoot, i, "small memory body\nWhy: scan budget fixture.\nHow to apply: keep enough files to cross the UI cap.")
+	}
+
+	snapshot, err := buildUIMemorySnapshot(context.Background(), newServiceWithConsolidator(cfg, nil, nil, nil), nil, projectRoot)
+	if err != nil {
+		t.Fatalf("buildUIMemorySnapshot() error = %v", err)
+	}
+	if got := len(snapshot.Private.Entries); got >= 260 {
+		t.Fatalf("private entries = %d, want authoritative cap before every body is exposed", got)
+	}
+	assertUIMemoryScanReason(t, snapshot, "memory_scan_truncated")
+}
+
+func TestUIMemoryGetRejectsOversizedEntry(t *testing.T) {
+	projectRoot := newTestGitProjectRoot(t)
+	privateRoot := filepath.Join(t.TempDir(), "private")
+	cfg := newUIMemorySnapshotConfig(t, projectRoot, privateRoot)
+	writeUIMemoryScanEntry(t, privateRoot, 1, strings.Repeat("oversized ", 40*1024))
+
+	snapshot, err := buildUIMemorySnapshot(context.Background(), newServiceWithConsolidator(cfg, nil, nil, nil), nil, projectRoot)
+	if err != nil {
+		t.Fatalf("buildUIMemorySnapshot() error = %v", err)
+	}
+	if got := len(snapshot.Private.Entries); got != 0 {
+		t.Fatalf("private entries = %d, want oversized entry omitted from listing", got)
+	}
+	assertUIMemoryScanReason(t, snapshot, "memory_scan_truncated")
+}
+
+func TestUIMemoryGetStopsOnContextCancel(t *testing.T) {
+	projectRoot := newTestGitProjectRoot(t)
+	privateRoot := filepath.Join(t.TempDir(), "private")
+	cfg := newUIMemorySnapshotConfig(t, projectRoot, privateRoot)
+	writeUIMemoryScanEntry(t, privateRoot, 1, "small memory body\nWhy: cancellation fixture.\nHow to apply: scan should stop before reading entries.")
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	snapshot, err := buildUIMemorySnapshot(ctx, newServiceWithConsolidator(cfg, nil, nil, nil), nil, projectRoot)
+	if err != nil {
+		t.Fatalf("buildUIMemorySnapshot() error = %v", err)
+	}
+	if got := len(snapshot.Private.Entries); got != 0 {
+		t.Fatalf("private entries = %d, want canceled scan to avoid exposing partial bodies", got)
+	}
+	assertUIMemoryScanReason(t, snapshot, "memory_scan_canceled")
+}
+
+func TestUIMemorySimilarityHealthRespectsScanBudget(t *testing.T) {
+	projectRoot := newTestGitProjectRoot(t)
+	privateRoot := filepath.Join(t.TempDir(), "private")
+	cfg := newUIMemorySnapshotConfig(t, projectRoot, privateRoot)
+	for i := 0; i < 260; i++ {
+		writeUIMemoryScanEntry(t, privateRoot, i, "same body for similarity\nWhy: all entries share enough text to be similar.\nHow to apply: similarity must be skipped after scan truncates.")
+	}
+
+	snapshot, err := buildUIMemorySnapshot(context.Background(), newServiceWithConsolidator(cfg, nil, nil, nil), nil, projectRoot)
+	if err != nil {
+		t.Fatalf("buildUIMemorySnapshot() error = %v", err)
+	}
+	assertUIMemoryScanReason(t, snapshot, "memory_scan_truncated")
+	if health := snapshot.Overview.Health; health == nil || len(health.SimilarGroups) != 0 {
+		t.Fatalf("health = %#v, want similarity groups omitted after scan budget truncates", health)
+	}
+}
+
+func writeUIMemoryScanEntry(t *testing.T, root string, index int, body string) {
+	t.Helper()
+	path := filepath.Join(root, string(MemoryTypeProject), fmt.Sprintf("scan-entry-%03d.md", index))
+	writeTestTopicFile(t, path, testMemoryEntry(fmt.Sprintf("Scan Entry %03d", index), "scan budget fixture", MemoryTypeProject, body))
+}
+
+func assertUIMemoryScanReason(t *testing.T, snapshot UIMemorySnapshot, want string) {
+	t.Helper()
+	scan := uiMemoryOverviewScanMap(t, snapshot)
+	if got, _ := scan["reason"].(string); got != want {
+		t.Fatalf("overview.scan.reason = %q, want %q (scan=%#v)", got, want, scan)
+	}
+	if want == "memory_scan_truncated" && scan["truncated"] != true {
+		t.Fatalf("overview.scan = %#v, want truncated=true", scan)
+	}
+	if want == "memory_scan_canceled" && scan["canceled"] != true {
+		t.Fatalf("overview.scan = %#v, want canceled=true", scan)
+	}
+}
+
+func uiMemoryOverviewScanMap(t *testing.T, snapshot UIMemorySnapshot) map[string]any {
+	t.Helper()
+	raw, err := json.Marshal(snapshot.Overview)
+	if err != nil {
+		t.Fatalf("Marshal(overview) error = %v", err)
+	}
+	var overview map[string]any
+	if err := json.Unmarshal(raw, &overview); err != nil {
+		t.Fatalf("Unmarshal(overview) error = %v", err)
+	}
+	scan, ok := overview["scan"].(map[string]any)
+	if !ok {
+		t.Fatalf("overview.scan missing from wire snapshot: %#v", overview)
+	}
+	return scan
 }
 
 func uniqueTokenRun(prefix string, count int) string {

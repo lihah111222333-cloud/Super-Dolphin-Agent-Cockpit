@@ -150,7 +150,7 @@ func TestRPCRequestTrackerLogsPendingRequestsOnConnectionExit(t *testing.T) {
 		ID:            "req-1",
 		Method:        "thread/start",
 		ThreadID:      "thread-1",
-		ParamsPreview: `{"cwd":"/tmp/project","baseInstructions":"hello"}`,
+		ParamsSummary: SafeRPCLogSummary("thread/start", `{"cwd":"/tmp/project","baseInstructions":"hello"}`),
 		StartedAt:     time.Now().Add(-2 * time.Second),
 	}
 

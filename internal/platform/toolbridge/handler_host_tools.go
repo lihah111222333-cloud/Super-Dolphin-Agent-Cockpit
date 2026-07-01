@@ -317,9 +317,12 @@ func (h *Handler) callHostTool(ctx context.Context, req ToolCallRequest) (*ToolC
 	if marshalErr != nil {
 		return nil, marshalErr
 	}
-	outcome = skillmetrics.HostToolOutcomeOK
+	success := hostToolStructuredResultSuccess(payload)
+	if success {
+		outcome = skillmetrics.HostToolOutcomeOK
+	}
 	return &ToolCallResult{
-		Success:           true,
+		Success:           success,
 		StructuredContent: structured,
 		ContentItems: []ToolCallContentItem{{
 			Type: "inputText",
@@ -339,6 +342,34 @@ func marshalHostToolResult(result any) ([]byte, json.RawMessage, error) {
 		return nil, nil, err
 	}
 	return payload, structured, nil
+}
+
+// hostToolStructuredResultSuccess 从 host tool 的结构化返回中识别显式失败。
+// success=false 与 partial=true 必须向上暴露为失败；degraded 可表示成功返回的降级诊断，不能全局误判。
+func hostToolStructuredResultSuccess(payload []byte) bool {
+	var envelope map[string]json.RawMessage
+	if err := json.Unmarshal(payload, &envelope); err != nil {
+		return true
+	}
+	if success, ok := hostToolStructuredBool(envelope, "success"); ok && !success {
+		return false
+	}
+	if partial, ok := hostToolStructuredBool(envelope, "partial"); ok && partial {
+		return false
+	}
+	return true
+}
+
+func hostToolStructuredBool(envelope map[string]json.RawMessage, key string) (bool, bool) {
+	raw, ok := envelope[key]
+	if !ok {
+		return false, false
+	}
+	var flag bool
+	if err := json.Unmarshal(raw, &flag); err != nil {
+		return false, false
+	}
+	return flag, true
 }
 
 // hostToolErrorOutcome 将 host-direct 错误归类到 metrics label。

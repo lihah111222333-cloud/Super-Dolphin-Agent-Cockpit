@@ -28,6 +28,22 @@ func TestResolveFilePositionRequestAllowsEndOfLineColumn(t *testing.T) {
 	}
 }
 
+func TestResolveLSPPositionConvertsEmojiColumn(t *testing.T) {
+	dir := t.TempDir()
+	writePositionFixture(t, dir, "emoji.go", "ab😀cd\n")
+
+	_, position, err := resolveFilePositionRequest(testToolContext(dir), filePositionParams{
+		Pos: "emoji.go:1:4",
+	})
+	if err != nil {
+		t.Fatalf("resolveFilePositionRequest returned error: %v", err)
+	}
+	want := protocol.Position{Line: 0, Character: 4}
+	if position != want {
+		t.Fatalf("position = %#v, want UTF-16 position %#v", position, want)
+	}
+}
+
 func TestIdentifierCompletionRetryPositionsIncludeUnderscoreSuffixStart(t *testing.T) {
 	dir := t.TempDir()
 	target := filepath.Join(dir, "constant.py")
@@ -49,6 +65,27 @@ func TestIdentifierCompletionRetryPositionsIncludeUnderscoreSuffixStart(t *testi
 		if got[index] != want[index] {
 			t.Fatalf("retry characters = %#v, want %#v", got, want)
 		}
+	}
+}
+
+func TestCompletionRetryUsesUTF16PositionAfterEmoji(t *testing.T) {
+	dir := t.TempDir()
+	target := filepath.Join(dir, "constant.py")
+	writePositionFixture(t, dir, "constant.py", "😀REG_CRYPTO = \"crypto\"\n")
+	manager := &utf16CompletionRetryManager{}
+
+	result, err := completionWithIdentifierEndRetry(context.Background(), manager, target, protocol.Position{Line: 0, Character: 6})
+	if err != nil {
+		t.Fatalf("completionWithIdentifierEndRetry returned error: %v", err)
+	}
+	if result == nil || len(result.Items) != 1 {
+		t.Fatalf("completion result = %#v, want one retry item", result)
+	}
+	if len(manager.positions) < 2 {
+		t.Fatalf("completion positions = %#v, want original plus retry positions", manager.positions)
+	}
+	if got := manager.positions[1]; got != (protocol.Position{Line: 0, Character: 12}) {
+		t.Fatalf("first retry position = %#v, want UTF-16 identifier end", got)
 	}
 }
 
@@ -114,6 +151,19 @@ func TestResolveFilePositionRequestRejectsLineBeyondFileWithLLMHint(t *testing.T
 	if !strings.Contains(coded.Hint, "next: file action=read_file") {
 		t.Fatalf("hint = %q, want read_file guidance", coded.Hint)
 	}
+}
+
+type utf16CompletionRetryManager struct {
+	structureTestManager
+	positions []protocol.Position
+}
+
+func (m *utf16CompletionRetryManager) Completion(_ context.Context, _ string, position protocol.Position) (*protocol.CompletionList, error) {
+	m.positions = append(m.positions, position)
+	if position.Line == 0 && position.Character == 12 {
+		return &protocol.CompletionList{Items: []protocol.CompletionItem{{Label: "REG_CRYPTO"}}}, nil
+	}
+	return &protocol.CompletionList{}, nil
 }
 
 func writePositionFixture(t *testing.T, dir string, name string, content string) {

@@ -6,6 +6,8 @@ import (
 	"strings"
 
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
+	shareddto "github.com/anthropic-ai/super-agent-v3/internal/dto/shared"
+	tooldto "github.com/anthropic-ai/super-agent-v3/internal/dto/tool"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 	"github.com/anthropic-ai/super-agent-v3/internal/provider/codexapp/supportutil"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
@@ -14,6 +16,7 @@ import (
 const (
 	maxSuppressedToolEnds = 256
 	maxRolloutToolNames   = 256
+	turnToolFailurePrefix = "\x00turn_tool_failure\x00"
 )
 
 // dispatch 统一发出 Codex provider 事件，并在发送前修正宿主可见身份。
@@ -34,6 +37,7 @@ func (s *session) dispatch(raw dto.RawProviderEvent) {
 		if s.trackCodexRolloutToolName(raw.EventType, payload) {
 			payloadChanged = true
 		}
+		s.recordToolFailureFromRaw(raw.EventType, payload)
 		if payloadChanged {
 			raw.Data = payload
 		}
@@ -106,6 +110,7 @@ func (s *session) takeTurn(turnID string) *turnHandle {
 	s.mu.Unlock()
 	// turn 结束后必须在 session 锁外清理输出累积器，避免与 accumulatorMu 形成嵌套锁。
 	s.dropTurnOutputAccumulator(turnID)
+	s.discardTurnToolFailures(turnID)
 	return h
 }
 
@@ -127,13 +132,25 @@ func (s *session) forceCompleteTurn(turnID string) {
 	s.completeSyntheticTurn(turnID, "force_complete", "")
 }
 
+// completeSyntheticTurn 在 Codex 只给出 assistant message 时合成 turn 终态。
+// 若同一 active turn 已记录工具失败，终态必须标为 completed_with_errors，避免 UI 误显示干净完成。
 func (s *session) completeSyntheticTurn(turnID, reason, result string) {
 	turnID = strings.TrimSpace(turnID)
 	if turnID == "" {
 		return
 	}
 	s.suppressTurn(turnID)
-	payload := map[string]any{"turnId": turnID, "success": true, "status": "completed", "reason": strings.TrimSpace(reason)}
+	failures := s.takeTurnToolFailures(turnID)
+	success := len(failures) == 0
+	status := "completed"
+	if !success {
+		status = "completed_with_errors"
+	}
+	payload := map[string]any{"turnId": turnID, "success": success, "status": status, "reason": strings.TrimSpace(reason)}
+	if !success {
+		payload["error"] = toolFailureSummary(failures)
+		payload["tool_failure_count"] = len(failures)
+	}
 	if result = strings.TrimSpace(result); result != "" {
 		payload["result"] = result
 	}
@@ -141,6 +158,155 @@ func (s *session) completeSyntheticTurn(turnID, reason, result string) {
 	if h := s.takeTurn(turnID); h != nil {
 		h.complete(nil)
 	}
+}
+
+type turnToolFailure struct {
+	TurnID   string
+	CallID   string
+	ToolName string
+	Error    string
+}
+
+type toolEndTranslator func(map[string]any) (any, bool)
+
+// recordToolFailureFromRaw 从 Codex 原始事件中提取工具失败并挂到当前 turn。
+// 这里只记录失败关联，不改变事件分发本身，避免 rollout assistant completion 覆盖真实工具错误。
+func (s *session) recordToolFailureFromRaw(eventType string, payload map[string]any) {
+	if len(payload) == 0 {
+		return
+	}
+	if eventType == "item/completed" || eventType == "tool.call.end" {
+		s.recordDirectToolFailure(eventType, payload)
+		return
+	}
+	if s.recordTranslatedToolFailure(payload, translateCodexMCPToolCallEnd) {
+		return
+	}
+	s.recordTranslatedToolFailure(payload, translateCodexFunctionCallOutputEnd)
+}
+
+func (s *session) recordDirectToolFailure(eventType string, payload map[string]any) {
+	if !looksLikeToolCall(payload) {
+		return
+	}
+	header := buildToolCallHeader(payload)
+	success, errorText := toolEventEndOutcome(eventType, payload)
+	if !success {
+		s.recordTurnToolFailure(header, errorText)
+	}
+}
+
+func (s *session) recordTranslatedToolFailure(payload map[string]any, translate toolEndTranslator) bool {
+	ev, ok := translate(payload)
+	if !ok {
+		return false
+	}
+	end, ok := ev.(tooldto.ToolCallEnd)
+	if ok && !end.Success {
+		s.recordTurnToolFailure(end.ToolCallHeader, end.Error)
+	}
+	return true
+}
+
+// recordTurnToolFailure 将工具失败写入 session-local turn 关联表。
+// 它只接受仍在 active turns 中的 turn，避免迟到事件污染下一轮 synthetic completion。
+func (s *session) recordTurnToolFailure(header shareddto.ToolCallHeader, errorText string) {
+	if s == nil {
+		return
+	}
+	turnID := strings.TrimSpace(header.TurnID)
+	errorText = strings.TrimSpace(errorText)
+	if errorText == "" {
+		errorText = "tool call failed"
+	}
+	s.mu.Lock()
+	if turnID == "" {
+		turnID = strings.TrimSpace(s.activeTurnID)
+	}
+	if turnID == "" || s.turns[turnID] == nil {
+		s.mu.Unlock()
+		return
+	}
+	if s.suppressed == nil {
+		s.suppressed = map[string]struct{}{}
+	}
+	s.suppressed[encodeTurnToolFailure(turnToolFailure{
+		TurnID:   turnID,
+		CallID:   strings.TrimSpace(header.CallID),
+		ToolName: strings.TrimSpace(header.ToolName),
+		Error:    errorText,
+	})] = struct{}{}
+	s.mu.Unlock()
+}
+
+// takeTurnToolFailures 取出并删除指定 turn 的工具失败。
+// 删除发生在锁内，确保 synthetic completion 只消费一次失败状态。
+func (s *session) takeTurnToolFailures(turnID string) []turnToolFailure {
+	if s == nil {
+		return nil
+	}
+	turnID = strings.TrimSpace(turnID)
+	if turnID == "" {
+		return nil
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	failures := make([]turnToolFailure, 0)
+	for key := range s.suppressed {
+		failure, ok := decodeTurnToolFailure(key)
+		if !ok || failure.TurnID != turnID {
+			continue
+		}
+		failures = append(failures, failure)
+		delete(s.suppressed, key)
+	}
+	return failures
+}
+
+func (s *session) discardTurnToolFailures(turnID string) {
+	_ = s.takeTurnToolFailures(turnID)
+}
+
+func encodeTurnToolFailure(failure turnToolFailure) string {
+	return turnToolFailurePrefix + strings.Join([]string{
+		strings.TrimSpace(failure.TurnID),
+		strings.TrimSpace(failure.CallID),
+		strings.TrimSpace(failure.ToolName),
+		strings.TrimSpace(failure.Error),
+	}, "\x00")
+}
+
+func decodeTurnToolFailure(key string) (turnToolFailure, bool) {
+	if !strings.HasPrefix(key, turnToolFailurePrefix) {
+		return turnToolFailure{}, false
+	}
+	parts := strings.SplitN(strings.TrimPrefix(key, turnToolFailurePrefix), "\x00", 4)
+	if len(parts) != 4 {
+		return turnToolFailure{}, false
+	}
+	return turnToolFailure{TurnID: parts[0], CallID: parts[1], ToolName: parts[2], Error: parts[3]}, true
+}
+
+// toolFailureSummary 汇总失败 callID、工具名和错误文本。
+// 结果写入 TurnCompleted.Error，供 UI 与日志保留可追踪的失败来源。
+func toolFailureSummary(failures []turnToolFailure) string {
+	parts := make([]string, 0, len(failures))
+	for _, failure := range failures {
+		callID := strings.TrimSpace(failure.CallID)
+		toolName := strings.TrimSpace(failure.ToolName)
+		errorText := strings.TrimSpace(failure.Error)
+		switch {
+		case callID != "" && toolName != "":
+			parts = append(parts, callID+"/"+toolName+": "+errorText)
+		case callID != "":
+			parts = append(parts, callID+": "+errorText)
+		case toolName != "":
+			parts = append(parts, toolName+": "+errorText)
+		default:
+			parts = append(parts, errorText)
+		}
+	}
+	return strings.Join(parts, "; ")
 }
 
 func (s *session) shouldSuppressTurnEvent(method string, params json.RawMessage) bool {

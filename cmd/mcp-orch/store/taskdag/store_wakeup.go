@@ -251,6 +251,15 @@ func (s *store) ReclaimStaleDispatchingWakeups(ctx context.Context) (int64, erro
 	}, "reclaim_stale_dispatching", "task_dag_wakeup")
 }
 
+// MarkDispatchIncompleteNodesWithoutActiveWakeup 扫描历史半写 runtime node。
+// pending/ready 且 assigned_to 已存在的节点如果没有 pending、dispatching 或 sent-unbound wakeup，
+// 会被推进到 dispatch_incomplete，让启动/周期恢复主动暴露缺失派发。
+func (s *store) MarkDispatchIncompleteNodesWithoutActiveWakeup(ctx context.Context) ([]Node, error) {
+	return queryManyWrite(ctx, func() ([]sqlc.MarkDispatchIncompleteNodesWithoutActiveWakeupRow, error) {
+		return s.q.MarkDispatchIncompleteNodesWithoutActiveWakeup(ctx)
+	}, "mark_dispatch_incomplete", "task_dag_node", fromDispatchIncompleteRecoveryRow)
+}
+
 // ListSentUnboundWakeups 列出已发送但还没绑定 turn 的 wakeup。
 func (s *store) ListSentUnboundWakeups(ctx context.Context, targetAgentID string) ([]Wakeup, error) {
 	return queryMany(func() ([]sqlc.ListSentUnboundTaskDagWakeupsRow, error) {
@@ -417,4 +426,8 @@ func fromPendingOrDispatchingWakeup(row sqlc.ListPendingOrDispatchingTaskDagWake
 		CreatedAt:      timeValue(row.CreatedAt),
 		UpdatedAt:      timeValue(row.UpdatedAt),
 	}
+}
+
+func fromDispatchIncompleteRecoveryRow(row sqlc.MarkDispatchIncompleteNodesWithoutActiveWakeupRow) Node {
+	return fromNodeRaw(row.ID, row.DagKey, row.NodeKey, row.RunID, row.Title, row.NodeType, row.AssignedTo, row.DependsOn, row.Status, row.CommandRef, row.Config, row.Result, row.StartedAt, row.FinishedAt, row.CreatedAt, row.UpdatedAt, row.ActiveTurnID, row.ActiveWakeupID, row.LastEventAt, row.SpawningThreadID)
 }

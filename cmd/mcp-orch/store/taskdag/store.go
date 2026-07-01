@@ -2,6 +2,7 @@ package taskdag
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strconv"
@@ -189,6 +190,147 @@ func (s *store) AssignNode(ctx context.Context, input AssignNodeInput) (*Node, e
 			RunID:      int64Ptr(input.RunID),
 		})
 	}, "assign", "task_dag_node", fromNodeAssignRow)
+}
+
+// AssignNodeAndEnqueueWakeup 在同一 SQLite 写事务内完成节点指派和 wakeup 入队。
+// enqueue 失败必须回滚 assigned_to，避免 task_dispatch_node 留下不可恢复的半写状态。
+func (s *store) AssignNodeAndEnqueueWakeup(ctx context.Context, input AssignNodeAndEnqueueWakeupInput) (*AssignNodeAndEnqueueWakeupResult, error) {
+	if err := validateAssignNodeAndEnqueueWakeupInput(input); err != nil {
+		return nil, err
+	}
+	var result AssignNodeAndEnqueueWakeupResult
+	err := sqlctx.WithImmediateTxOrReuse(ctx, s.db, s.q, func(txq *sqlc.Queries, _ sqlc.DBTX) error {
+		row, err := txq.AssignTaskDagNode(ctx, sqlc.AssignTaskDagNodeParams{
+			AssignedTo: input.Assign.AssignedTo,
+			DagKey:     input.Assign.DagKey,
+			NodeKey:    input.Assign.NodeKey,
+			RunID:      int64Ptr(input.Assign.RunID),
+		})
+		if err != nil {
+			return wrapTaskDAGError(err, "assign", "task_dag_node")
+		}
+		node := fromNodeAssignRow(row)
+		wakeupID, err := txq.EnqueueTaskDagWakeup(ctx, sqlc.EnqueueTaskDagWakeupParams{
+			DagKey:         input.Wakeup.DagKey,
+			NodeKey:        input.Wakeup.NodeKey,
+			RunID:          int64Ptr(input.Wakeup.RunID),
+			WakeupKind:     input.Wakeup.WakeupKind,
+			TargetAgentID:  input.Wakeup.TargetAgentID,
+			PromptPayload:  input.Wakeup.PromptPayload,
+			IdempotencyKey: input.Wakeup.IdempotencyKey,
+		})
+		if err != nil {
+			return wrapTaskDAGError(err, "enqueue", "task_dag_wakeup")
+		}
+		result.Node = &node
+		result.WakeupID = wakeupID
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
+// validateAssignNodeAndEnqueueWakeupInput 校验原子派发写入的目标一致性。
+// assignment 和 wakeup 必须指向同一个 runtime 节点，否则事务会写出无法恢复的半派发记录。
+func validateAssignNodeAndEnqueueWakeupInput(input AssignNodeAndEnqueueWakeupInput) error {
+	if err := requireRuntimeRunID("assign_and_enqueue", input.Assign.RunID); err != nil {
+		return err
+	}
+	if err := requireRuntimeRunID("assign_and_enqueue", input.Wakeup.RunID); err != nil {
+		return err
+	}
+	if input.Assign.DagKey != input.Wakeup.DagKey || input.Assign.NodeKey != input.Wakeup.NodeKey || input.Assign.RunID != input.Wakeup.RunID {
+		return fmt.Errorf("assign_and_enqueue: assignment and wakeup target mismatch")
+	}
+	if strings.TrimSpace(input.Assign.AssignedTo) == "" || strings.TrimSpace(input.Wakeup.TargetAgentID) == "" {
+		return fmt.Errorf("assign_and_enqueue: assigned_to and target_agent_id required")
+	}
+	return nil
+}
+
+// MarkDispatchIncompleteIfMissingWakeup 标记历史半写的 pending/ready 节点。
+// 只有 assigned_to 已写入且找不到 pending/dispatching wakeup 时才推进到 dispatch_incomplete。
+func (s *store) MarkDispatchIncompleteIfMissingWakeup(ctx context.Context, input MarkDispatchIncompleteInput) (*MarkDispatchIncompleteResult, error) {
+	if err := requireRuntimeRunID("mark_dispatch_incomplete", input.RunID); err != nil {
+		return nil, err
+	}
+	var result MarkDispatchIncompleteResult
+	err := sqlctx.WithImmediateTxOrReuse(ctx, s.db, s.q, func(txq *sqlc.Queries, txdb sqlc.DBTX) error {
+		txStore := &store{db: txdb, q: txq}
+		node, err := findRuntimeNodeForDispatchMark(ctx, txStore, input)
+		if err != nil || node == nil {
+			return err
+		}
+		result.Node = node
+		if !isAssignedDispatchCandidate(*node, input.AssignedTo) {
+			return nil
+		}
+		active, err := txStore.hasPendingOrDispatchingWakeup(ctx, input)
+		if err != nil || active {
+			result.ActiveWakeup = active
+			return err
+		}
+		marked, err := txStore.UpdateNodeStatus(ctx, NodeStatusUpdate{
+			Status:         "dispatch_incomplete",
+			ExpectedStatus: node.Status,
+			Result:         json.RawMessage(`{"kind":"dispatch_incomplete"}`),
+			DagKey:         input.DagKey,
+			NodeKey:        input.NodeKey,
+			RunID:          input.RunID,
+		})
+		if err != nil {
+			return err
+		}
+		result.Marked = marked != nil
+		result.Node = marked
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
+func findRuntimeNodeForDispatchMark(ctx context.Context, s *store, input MarkDispatchIncompleteInput) (*Node, error) {
+	nodes, err := s.ListRunNodes(ctx, input.DagKey, input.RunID)
+	if err != nil {
+		return nil, err
+	}
+	for i := range nodes {
+		if nodes[i].NodeKey == input.NodeKey {
+			return &nodes[i], nil
+		}
+	}
+	return nil, nil
+}
+
+func isAssignedDispatchCandidate(node Node, assignedTo string) bool {
+	if node.Status != "pending" && node.Status != "ready" {
+		return false
+	}
+	current := strings.TrimSpace(node.AssignedTo)
+	if current == "" {
+		return false
+	}
+	expected := strings.TrimSpace(assignedTo)
+	return expected == "" || current == expected
+}
+
+// hasPendingOrDispatchingWakeup 检查节点是否已经存在未完成的派发唤醒。
+// 只要还有 pending/dispatching wakeup，恢复预检就不能把节点标成 dispatch_incomplete。
+func (s *store) hasPendingOrDispatchingWakeup(ctx context.Context, input MarkDispatchIncompleteInput) (bool, error) {
+	rows, err := s.q.ListPendingOrDispatchingTaskDagWakeups(ctx)
+	if err != nil {
+		return false, wrapTaskDAGError(err, "list_pending_or_dispatching", "task_dag_wakeup")
+	}
+	for _, row := range rows {
+		if row.DagKey == input.DagKey && row.NodeKey == input.NodeKey && row.RunID != nil && *row.RunID == input.RunID {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 // ListRunNodes 列出指定 run_id 下的 runtime 节点副本，供调度器按运行态状态图推进。

@@ -5,11 +5,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"path/filepath"
 	"reflect"
 	"strings"
 
 	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/sharedfilepath"
 )
 
 // requiredField 是字段校验的名称/值对。
@@ -69,6 +71,138 @@ func defineGovernedTool(name, description string, schema Schema, handler ToolHan
 	def := defineTool(name, description, schema, handler)
 	def.Metadata = metadata
 	return def
+}
+
+var toolsRequiringPathPolicy = map[string]bool{
+	"shared_file_write": true,
+	"tts_generate":      true,
+	"av_merge":          true,
+	"video_with_audio":  true,
+}
+
+// validateRegistryPathPolicies 在 registry 构造期拒绝缺少路径策略的本地写入/媒体工具。
+// 这层是启动期护栏，防止新增本地文件写工具时忘记声明 handler 前置校验字段。
+func validateRegistryPathPolicies(defs []ToolDefinition) error {
+	for _, def := range defs {
+		if !toolsRequiringPathPolicy[def.Name] {
+			continue
+		}
+		if def.Metadata.PathPolicy.PathAuthority == ToolPathAuthorityNone {
+			return fmt.Errorf("tool %s requires ToolPathPolicy", def.Name)
+		}
+		if len(def.Metadata.PathPolicy.ReadFields)+len(def.Metadata.PathPolicy.WriteFields) == 0 {
+			return fmt.Errorf("tool %s path policy requires read_fields or write_fields", def.Name)
+		}
+	}
+	return nil
+}
+
+// withToolPathPolicy 包装工具 handler，在业务逻辑运行前先按 metadata 校验路径字段。
+// handler 仍负责把受控 ref 解析为实际路径；这里先拦住 absolute/traversal/home 等明显越界输入。
+func withToolPathPolicy(def ToolDefinition) ToolDefinition {
+	policy := def.Metadata.PathPolicy
+	if policy.PathAuthority == ToolPathAuthorityNone || def.Handler == nil {
+		return def
+	}
+	next := def.Handler
+	def.Handler = func(ctx context.Context, input json.RawMessage) (any, error) {
+		if err := validateToolPathPolicyInput(policy, input); err != nil {
+			return nil, err
+		}
+		return next(ctx, input)
+	}
+	return def
+}
+
+// validateToolPathPolicyInput 根据工具 metadata 校验输入中的路径字段。
+// 它只做权限边界检查，不把 ref 解析为真实路径，避免 registry 层承担业务副作用。
+func validateToolPathPolicyInput(policy ToolPathPolicy, input json.RawMessage) error {
+	if len(input) == 0 {
+		input = json.RawMessage("{}")
+	}
+	var fields map[string]any
+	if err := json.Unmarshal(input, &fields); err != nil {
+		return fmt.Errorf("invalid input: %w", err)
+	}
+	for _, field := range policy.ReadFields {
+		if err := validateToolPathPolicyField(policy, field, fields[field], false); err != nil {
+			return err
+		}
+	}
+	for _, field := range policy.WriteFields {
+		if err := validateToolPathPolicyField(policy, field, fields[field], true); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// validateToolPathPolicyField 校验单个路径字段是否符合声明的读写权限。
+// 读写方向由 ToolPathPolicy 指定，缺失或空字符串由具体工具决定是否必填。
+func validateToolPathPolicyField(policy ToolPathPolicy, field string, raw any, write bool) error {
+	if raw == nil {
+		return nil
+	}
+	value, ok := raw.(string)
+	if !ok {
+		return fmt.Errorf("%s must be a string path", field)
+	}
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return nil
+	}
+	switch policy.PathAuthority {
+	case ToolPathAuthoritySharedFile:
+		return validateSharedFilePolicyPath(field, value, write)
+	case ToolPathAuthorityWorkspaceRelative:
+		_, err := cleanWorkspaceRelativePath(value)
+		if err != nil {
+			return fmt.Errorf("%s violates workspace_relative path policy: %w", field, err)
+		}
+		return nil
+	case ToolPathAuthoritySharedOrWorkspace:
+		if sharedPath, ok := strings.CutPrefix(value, "shared:"); ok {
+			return validateSharedFilePolicyPath(field, sharedPath, write)
+		}
+		_, err := cleanWorkspaceRelativePath(value)
+		if err != nil {
+			return fmt.Errorf("%s violates sharedfile_or_workspace_relative path policy: %w", field, err)
+		}
+		return nil
+	default:
+		return fmt.Errorf("%s has unsupported path authority %q", field, policy.PathAuthority)
+	}
+}
+
+func validateSharedFilePolicyPath(field, value string, write bool) error {
+	var err error
+	if write {
+		_, err = sharedfilepath.ValidateAgentWritePath(value)
+	} else {
+		_, err = sharedfilepath.ValidateReadPath(value)
+	}
+	if err != nil {
+		return fmt.Errorf("%s violates sharedfile path policy: %w", field, err)
+	}
+	return nil
+}
+
+// cleanWorkspaceRelativePath 归一化工作区相对路径并拒绝逃逸形式。
+// 这里不拼接根目录，只负责把 absolute、home、traversal 这类越权输入挡在工具执行前。
+func cleanWorkspaceRelativePath(raw string) (string, error) {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		return "", errors.New("path is empty")
+	}
+	normalized := strings.ReplaceAll(trimmed, "\\", "/")
+	if strings.HasPrefix(normalized, "~") || strings.HasPrefix(normalized, "/") || filepath.IsAbs(normalized) {
+		return "", errors.New("absolute or home path not allowed")
+	}
+	cleaned := filepath.ToSlash(filepath.Clean(normalized))
+	if cleaned == "." || cleaned == ".." || strings.HasPrefix(cleaned, "../") {
+		return "", errors.New("path traversal not allowed")
+	}
+	return cleaned, nil
 }
 
 // buildToolDefinitions 将多个 ToolDefinition 合并为切片，便于注册。

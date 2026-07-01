@@ -245,6 +245,11 @@ func translateDispatchNodeError(req contract.DispatchNodeRequest, err error) err
 			"节点 %s/%s 当前状态不允许 dispatch（仅 pending/ready 可推进）; node %s/%s not in pending/ready: %w",
 			req.DagKey, req.NodeKey, req.DagKey, req.NodeKey, err,
 		)
+	case errors.Is(err, orchestration.ErrDispatchIncomplete):
+		return fmt.Errorf(
+			"节点 %s/%s 已标记 dispatch_incomplete：assigned_to 已写入但没有 active wakeup，请人工检查后重建派发; node %s/%s marked dispatch_incomplete: %w",
+			req.DagKey, req.NodeKey, req.DagKey, req.NodeKey, err,
+		)
 	}
 	return err
 }

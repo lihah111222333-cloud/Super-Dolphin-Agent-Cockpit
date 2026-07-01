@@ -55,8 +55,9 @@ cmd=(git worktree add "$path" -b "$branch" "$base_branch")
 ```bash
 cd "$path"
 git status --short
-make install-hooks
 ```
+
+当前默认不安装 hooks。只有用户或控制器明确要求验证 hook 安装/提交链路时，才在对应 worktree 内运行 `make install-hooks`。
 
 如果 `.worktrees/` 意外未被忽略，停止并请用户确认是否允许修改 `.gitignore`。不要自动修改 `.gitignore`，更不要自动提交治理文件。
 

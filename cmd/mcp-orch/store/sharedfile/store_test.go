@@ -15,6 +15,64 @@ import (
 	sharedfilegitignore "github.com/anthropic-ai/super-agent-v3/internal/platform/sharedfilegitignore"
 )
 
+func TestSharedFileListPrefixIsPrefixOnly(t *testing.T) {
+	t.Parallel()
+	db := newFakeImportDB(t)
+	store := NewStore(sqlc.New(db))
+	seedSharedFileRows(t, db,
+		"reports/alpha.md",
+		"reports/nested/beta.md",
+		"archive/reports/alpha.md",
+		"reports_extra.md",
+	)
+
+	got, err := store.List(context.Background(), ListFilter{Prefix: "reports/", Limit: 20})
+	if err != nil {
+		t.Fatalf("List() error = %v", err)
+	}
+	paths := sharedFilePaths(got)
+	if strings.Join(paths, ",") != "reports/nested/beta.md,reports/alpha.md" {
+		t.Fatalf("List(prefix reports/) paths = %#v, want only reports/ prefix", paths)
+	}
+}
+
+func TestSharedFileListPrefixEscapesLikeWildcards(t *testing.T) {
+	t.Parallel()
+	db := newFakeImportDB(t)
+	store := NewStore(sqlc.New(db))
+	seedSharedFileRows(t, db,
+		"reports/%literal.md",
+		"reports/_literal.md",
+		"reports/aliteral.md",
+	)
+
+	got, err := store.List(context.Background(), ListFilter{Prefix: "reports/%", Limit: 20})
+	if err != nil {
+		t.Fatalf("List() error = %v", err)
+	}
+	paths := sharedFilePaths(got)
+	if strings.Join(paths, ",") != "reports/%literal.md" {
+		t.Fatalf("List(prefix reports/%%) paths = %#v, want literal percent prefix only", paths)
+	}
+}
+
+func seedSharedFileRows(t *testing.T, db *fakeImportDB, paths ...string) {
+	t.Helper()
+	for i, path := range paths {
+		if _, err := db.ExecContext(context.Background(), `INSERT INTO shared_files (path, content, content_location, updated_by, created_at, updated_at) VALUES (?, '', 'inline', 'tester', ?, ?)`, path, i+1, i+1); err != nil {
+			t.Fatalf("insert shared file %q: %v", path, err)
+		}
+	}
+}
+
+func sharedFilePaths(files []SharedFile) []string {
+	paths := make([]string, len(files))
+	for i, file := range files {
+		paths[i] = file.Path
+	}
+	return paths
+}
+
 func TestSharedFileDiskOnlyMissingFileFails(t *testing.T) {
 	t.Parallel()
 
