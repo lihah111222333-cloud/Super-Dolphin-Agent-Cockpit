@@ -2,6 +2,7 @@ package thread
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -142,6 +143,142 @@ func TestServiceForkRejectsMissingCWDBeforeProviderOrchestrationSideEffects(t *t
 	}
 }
 
+func TestForkKickoffFailureLeavesNoRecoverableThread(t *testing.T) {
+	t.Parallel()
+
+	fixture := newForkServiceFixture(t)
+	threads := &recordingForkThreadStore{stubThreadStore: fixture.threads}
+	starterErr := errors.New("provider resume failed")
+	starter := &stubSessionStarter{onResume: func(context.Context, dto.ResumeSessionRequest) (contract.Session, error) {
+		return nil, starterErr
+	}}
+	fixture.svc = NewService(silentLogger(), threads, fixture.bindings, &stubSessionProvider{session: fixture.originalSession}, starter, nil, fixture.orch, nil).(*service)
+
+	_, err := fixture.svc.Fork(context.Background(), "thread-parent")
+	if !errors.Is(err, starterErr) {
+		t.Fatalf("Fork() error = %v, want %v", err, starterErr)
+	}
+	assertForkFailureCleaned(t, threads, fixture.bindings)
+	assertForkNotRecoverable(t, fixture.svc, "thread-fork")
+}
+
+func TestForkBindGenerationFailureMarksForkFailed(t *testing.T) {
+	t.Parallel()
+
+	fixture := newForkServiceFixture(t)
+	threads := &recordingForkThreadStore{stubThreadStore: fixture.threads}
+	bindErr := errors.New("bind generation failed")
+	orch := &forkOrchestrationStub{bindErr: bindErr}
+	forkedSession := &stubSession{threadID: "019d5f6b-aaaa-7760-9d6f-54005553f5b3"}
+	sessions := &generationForkSessionProvider{stubSessionProvider: &stubSessionProvider{session: fixture.originalSession}, generation: 42}
+	starter := &stubSessionStarter{onResume: func(context.Context, dto.ResumeSessionRequest) (contract.Session, error) {
+		sessions.session = forkedSession
+		return forkedSession, nil
+	}}
+	svc := NewService(silentLogger(), threads, fixture.bindings, sessions, starter, nil, orch, nil).(*service)
+
+	_, err := svc.Fork(context.Background(), "thread-parent")
+	if !errors.Is(err, bindErr) {
+		t.Fatalf("Fork() error = %v, want %v", err, bindErr)
+	}
+	if threads.status.ThreadID != "thread-fork" || threads.status.Status != statusFailed {
+		t.Fatalf("UpdateStatus = %#v, want thread-fork failed", threads.status)
+	}
+	assertForkNotRecoverable(t, svc, "thread-fork")
+}
+
+func TestForkPersistStartedFailureCleansSnapshot(t *testing.T) {
+	t.Parallel()
+
+	fixture := newForkServiceFixture(t)
+	threads := &recordingForkThreadStore{stubThreadStore: fixture.threads}
+	persistErr := errors.New("persist started failed")
+	threads.failAfterUpserts = 2
+	threads.failAfterErr = persistErr
+	forkedSession := &stubSession{threadID: "019d5f6b-aaaa-7760-9d6f-54005553f5b3"}
+	sessions := &stubSessionProvider{session: fixture.originalSession}
+	starter := &stubSessionStarter{onResume: func(context.Context, dto.ResumeSessionRequest) (contract.Session, error) {
+		sessions.session = forkedSession
+		return forkedSession, nil
+	}}
+	svc := NewService(silentLogger(), threads, fixture.bindings, sessions, starter, nil, fixture.orch, nil).(*service)
+
+	_, err := svc.Fork(context.Background(), "thread-parent")
+	if !errors.Is(err, persistErr) {
+		t.Fatalf("Fork() error = %v, want %v", err, persistErr)
+	}
+	assertForkFailureCleaned(t, threads, fixture.bindings)
+	assertForkNotRecoverable(t, svc, "thread-fork")
+}
+
+func TestPersistedForkCreatingAndFailedRejectDirectResume(t *testing.T) {
+	t.Parallel()
+
+	for _, status := range []string{statusForkCreating, statusFailed} {
+		t.Run(status, func(t *testing.T) {
+			t.Parallel()
+
+			svc, _, _, resumeCalls := newPersistedForkLifecycleFixture(t, status, "thread-parent")
+
+			_, err := svc.Resume(context.Background(), ResumeRequest{ThreadID: "thread-fork", ProviderThreadID: retainedForkProviderThreadID})
+
+			if !errors.Is(err, errResumeLifecycleBlocked) {
+				t.Fatalf("Resume() error = %v, want lifecycle block for fork status %q", err, status)
+			}
+			if *resumeCalls != 0 {
+				t.Fatalf("ResumeSession calls = %d, want none for fork status %q", *resumeCalls, status)
+			}
+		})
+	}
+}
+
+func TestPersistedForkCreatingAndFailedAreNotBackgroundResumeCandidates(t *testing.T) {
+	t.Parallel()
+
+	for _, status := range []string{statusForkCreating, statusFailed} {
+		t.Run(status, func(t *testing.T) {
+			t.Parallel()
+
+			svc, _, _, _ := newPersistedForkLifecycleFixture(t, status, "thread-parent")
+
+			agentID, ok := svc.backgroundResumeCandidate(context.Background(), "thread-fork")
+
+			if ok || agentID != "" {
+				t.Fatalf("backgroundResumeCandidate() = %q/%v, want no candidate for fork status %q", agentID, ok, status)
+			}
+		})
+	}
+}
+
+func TestNonForkFailedThreadCanStillResume(t *testing.T) {
+	t.Parallel()
+
+	svc, _, _, resumeCalls := newPersistedForkLifecycleFixture(t, statusFailed, "")
+
+	result, err := svc.Resume(context.Background(), ResumeRequest{ThreadID: "thread-fork", ProviderThreadID: retainedForkProviderThreadID})
+
+	if err != nil {
+		t.Fatalf("Resume() error = %v, want non-fork failed row to keep existing resume semantics", err)
+	}
+	if *resumeCalls != 1 {
+		t.Fatalf("ResumeSession calls = %d, want one non-fork resume", *resumeCalls)
+	}
+	if result.ThreadID != "thread-fork" || result.Status != "resumed" {
+		t.Fatalf("Resume() result = %#v, want resumed thread-fork", result)
+	}
+}
+
+func TestRetainedFailedForkCanBeDeleted(t *testing.T) {
+	t.Parallel()
+
+	svc, threads, bindings, _ := newPersistedForkLifecycleFixture(t, statusFailed, "thread-parent")
+
+	if err := svc.Delete(context.Background(), "thread-fork"); err != nil {
+		t.Fatalf("Delete() error = %v", err)
+	}
+	assertForkFailureCleaned(t, threads, bindings)
+}
+
 type forkServiceFixture struct {
 	originalSession *stubSession
 	bindings        *stubBindingStore
@@ -201,6 +338,52 @@ func forkParentThreadStore() *stubThreadStore {
 		Hash:                  promptSnapshotHash("Forked Thread", "stored base", "stored dev", "codex", nil, nil, 0),
 	}}
 }
+
+func newPersistedForkLifecycleFixture(t *testing.T, status, ownerThreadID string) (*service, *recordingForkThreadStore, *stubBindingStore, *int) {
+	t.Helper()
+	provider := "claude"
+	rolloutPath := writeExistingProviderHistoryFile(t)
+	threads := &recordingForkThreadStore{stubThreadStore: &stubThreadStore{
+		thread: &threadstore.Thread{
+			ThreadID:      "thread-fork",
+			AgentID:       "thread-fork",
+			OwnerThreadID: strings.TrimSpace(ownerThreadID),
+			Prompt:        "Retained Fork",
+			Model:         "sonnet",
+			Cwd:           "/repo",
+			Status:        status,
+			CreatedAt:     123,
+		},
+		promptSnapshotID: "thread-fork",
+		promptSnapshot: &threadstore.PromptSnapshot{
+			DisplayName:           "Retained Fork",
+			BaseInstructions:      "stored base",
+			DeveloperInstructions: "stored dev",
+			Provider:              provider,
+			Version:               contract.PromptAssemblySnapshotVersion,
+			Hash:                  promptSnapshotHash("Retained Fork", "stored base", "stored dev", provider, nil, nil, 0),
+		},
+	}}
+	bindings := &stubBindingStore{binding: &bindingstore.Binding{
+		AgentID:          "thread-fork",
+		Provider:         provider,
+		ProviderThreadID: retainedForkProviderThreadID,
+		SessionUUID:      retainedForkProviderThreadID,
+		CodexThreadID:    "thread-fork",
+		RolloutPath:      rolloutPath,
+		Cwd:              "/repo",
+	}}
+	resumeCalls := 0
+	sessions := &stubSessionProvider{}
+	starter := &stubSessionStarter{onResume: func(context.Context, dto.ResumeSessionRequest) (contract.Session, error) {
+		resumeCalls++
+		return &stubSession{threadID: retainedForkProviderThreadID, rolloutPath: rolloutPath}, nil
+	}}
+	svc := NewService(silentLogger(), threads, bindings, sessions, starter, nil, &forkOrchestrationStub{}, nil).(*service)
+	return svc, threads, bindings, &resumeCalls
+}
+
+const retainedForkProviderThreadID = "019d5f6b-aaaa-7760-9d6f-54005553f5b3"
 
 func assertForkResumeRequest(t *testing.T, req dto.ResumeSessionRequest) {
 	t.Helper()
@@ -631,6 +814,7 @@ type forkOrchestrationStub struct {
 	recovered    []string
 	bindAgentIDs []string
 	recoverErr   error
+	bindErr      error
 }
 
 func (s *forkOrchestrationStub) LaunchAgent(_ context.Context, req LaunchAgentRequest) error {
@@ -647,5 +831,60 @@ func (s *forkOrchestrationStub) Recover(_ context.Context, agentID string) error
 
 func (s *forkOrchestrationStub) BindSessionGeneration(_ context.Context, agentID string, _ uint64) error {
 	s.bindAgentIDs = append(s.bindAgentIDs, agentID)
+	return s.bindErr
+}
+
+type generationForkSessionProvider struct {
+	*stubSessionProvider
+	generation uint64
+}
+
+func (p *generationForkSessionProvider) SessionGeneration(string) uint64 {
+	return p.generation
+}
+
+type recordingForkThreadStore struct {
+	*stubThreadStore
+	deletedThreadIDs []string
+	failAfterUpserts int
+	failAfterErr     error
+}
+
+func (s *recordingForkThreadStore) Upsert(ctx context.Context, params threadstore.UpsertParams) error {
+	if s.failAfterUpserts > 0 && s.upsertCount+1 >= s.failAfterUpserts {
+		return s.failAfterErr
+	}
+	return s.stubThreadStore.Upsert(ctx, params)
+}
+
+func (s *recordingForkThreadStore) DeleteByThreadID(_ context.Context, threadID string) error {
+	s.deletedThreadIDs = append(s.deletedThreadIDs, threadID)
+	if s.thread != nil && s.thread.ThreadID == threadID {
+		s.thread = nil
+	}
+	if s.promptSnapshotID == threadID {
+		s.promptSnapshotID = ""
+		s.promptSnapshot = nil
+	}
 	return nil
+}
+
+func assertForkFailureCleaned(t *testing.T, threads *recordingForkThreadStore, bindings *stubBindingStore) {
+	t.Helper()
+	if len(threads.deletedThreadIDs) == 0 || threads.deletedThreadIDs[len(threads.deletedThreadIDs)-1] != "thread-fork" {
+		t.Fatalf("DeleteByThreadID calls = %#v, want thread-fork cleanup", threads.deletedThreadIDs)
+	}
+	if len(bindings.deleteAgentIDs) == 0 || bindings.deleteAgentIDs[len(bindings.deleteAgentIDs)-1] != "thread-fork" {
+		t.Fatalf("DeleteByAgentID calls = %#v, want thread-fork cleanup", bindings.deleteAgentIDs)
+	}
+	if threads.promptSnapshot != nil || threads.promptSnapshotID == "thread-fork" {
+		t.Fatalf("prompt snapshot still present after fork failure: id=%q snapshot=%#v", threads.promptSnapshotID, threads.promptSnapshot)
+	}
+}
+
+func assertForkNotRecoverable(t *testing.T, svc *service, threadID string) {
+	t.Helper()
+	if _, err := svc.Resume(context.Background(), ResumeRequest{ThreadID: threadID}); err == nil {
+		t.Fatalf("Resume(%q) error = nil, want failed/creating fork to be non-recoverable", threadID)
+	}
 }

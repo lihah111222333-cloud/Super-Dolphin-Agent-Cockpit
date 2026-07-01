@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"os"
 	"path/filepath"
 	"slices"
 	"sort"
@@ -183,7 +182,7 @@ func (h handlerBase) handleGrep(ctx context.Context, params json.RawMessage) (an
 			return nil, runErr
 		},
 		"ast_search": func(ctx context.Context, input grepToolInput) (any, error) {
-			root, roots, err := toolWorkspaceRoots(ctx)
+			root, roots, err := grepWorkspaceRoots(ctx)
 			if err != nil {
 				return nil, err
 			}
@@ -237,155 +236,27 @@ func grepMessage(regexFallback bool, dropped int) string {
 	return strings.Join(parts, "; ")
 }
 
-// searchSiblingWorkspaceOnRuntimeFallback 在运行时工作区路径解析失败时查找兄弟 worktree。
-// 该 fallback 只在主搜索无结果时启用，避免覆盖明确工作区范围。
-func searchSiblingWorkspaceOnRuntimeFallback(ctx context.Context, opts search.TextSearchOptions) ([]search.SearchMatch, error) {
-	relPath, root, parent, ok := runtimeSiblingSearchScope(ctx, opts)
-	if !ok {
-		return nil, nil
+func grepWorkspaceRoots(ctx context.Context) (string, []string, error) {
+	scope, ok := common.ToolScopeFromContext(ctx)
+	if !ok || len(scope.WorkspaceRoots) == 0 {
+		return "", nil, errors.New(staleWorkspaceRootMessage())
 	}
-	configured := configuredWorkspaceRoots(root, opts.Roots)
-	candidates, err := collectSiblingWorkspaceFileCandidates(parent, relPath, configured)
-	if err != nil {
-		return nil, err
-	}
-	claudeWorktreeCandidates, err := collectClaudeWorktreeFileCandidates(root, relPath, configured)
-	if err != nil {
-		return nil, err
-	}
-	candidates = appendUniqueWorkspaceCandidates(candidates, claudeWorktreeCandidates...)
-	return searchUniqueSiblingWorkspaceText(ctx, opts, root, relPath, candidates)
+	return toolWorkspaceRoots(ctx)
 }
 
-// runtimeSiblingSearchScope 计算运行时兄弟 worktree fallback 的搜索范围。
-// 只有在显式开启 fallback、请求是相对单路径、且根目录有可用父目录时才返回候选范围。
-func runtimeSiblingSearchScope(ctx context.Context, opts search.TextSearchOptions) (string, string, string, bool) {
+func staleWorkspaceRootMessage() string {
+	return "mcp-lsp: stale workspace root; pass work_dir or _workspaceRoots"
+}
+
+func grepRuntimeFallbackWouldSearchOutsideRoots(ctx context.Context, input grepToolInput) bool {
 	if !common.RuntimeWorkspaceScopeFallbackFromContext(ctx) {
-		return "", "", "", false
+		return false
 	}
-	if len(opts.Paths) > 0 {
-		return "", "", "", false
+	if len(input.Paths) > 0 {
+		return false
 	}
-	relPath := strings.TrimSpace(opts.Path)
-	if relPath == "" || filepath.IsAbs(relPath) {
-		return "", "", "", false
-	}
-	root := filepath.Clean(opts.Root)
-	parent := filepath.Dir(root)
-	if parent == "" || parent == "." || parent == root {
-		return "", "", "", false
-	}
-	return relPath, root, parent, true
-}
-
-func configuredWorkspaceRoots(root string, additionalRoots []string) map[string]struct{} {
-	configured := map[string]struct{}{filepath.Clean(root): {}}
-	for _, additional := range additionalRoots {
-		configured[filepath.Clean(additional)] = struct{}{}
-	}
-	return configured
-}
-
-func collectSiblingWorkspaceFileCandidates(parent, relPath string, configured map[string]struct{}) ([]string, error) {
-	return collectWorkspaceFileCandidates(parent, relPath, configured, "runtime fallback sibling search path")
-}
-
-func collectClaudeWorktreeFileCandidates(root, relPath string, configured map[string]struct{}) ([]string, error) {
-	worktreesDir := filepath.Join(root, ".claude", "worktrees")
-	info, err := os.Stat(worktreesDir)
-	if errors.Is(err, os.ErrNotExist) {
-		return nil, nil
-	}
-	if err != nil {
-		return nil, fmt.Errorf("stat runtime fallback Claude worktrees %s: %w", worktreesDir, err)
-	}
-	if !info.IsDir() {
-		return nil, fmt.Errorf("runtime fallback Claude worktrees path is not a directory: %s", worktreesDir)
-	}
-	return collectWorkspaceFileCandidates(worktreesDir, relPath, configured, "runtime fallback Claude worktree search path")
-}
-
-// collectWorkspaceFileCandidates 收集工作区文件候选项。
-func collectWorkspaceFileCandidates(parent, relPath string, configured map[string]struct{}, errorPrefix string) ([]string, error) {
-	entries, err := os.ReadDir(parent)
-	if err != nil {
-		return nil, fmt.Errorf("read %s parent %s: %w", errorPrefix, parent, err)
-	}
-	candidates := make([]string, 0, 1)
-	for _, entry := range entries {
-		if !entry.IsDir() {
-			continue
-		}
-		candidateRoot := filepath.Join(parent, entry.Name())
-		if _, ok := configured[filepath.Clean(candidateRoot)]; ok {
-			continue
-		}
-		candidateTarget := filepath.Join(candidateRoot, relPath)
-		info, err := os.Lstat(candidateTarget)
-		if errors.Is(err, os.ErrNotExist) {
-			continue
-		}
-		if err != nil {
-			return nil, fmt.Errorf("stat %s %s: %w", errorPrefix, candidateTarget, err)
-		}
-		if info.Mode()&os.ModeSymlink != 0 {
-			return nil, fmt.Errorf("%s %q cannot be a symlink", errorPrefix, candidateTarget)
-		}
-		if info.IsDir() {
-			continue
-		}
-		candidates = append(candidates, candidateRoot)
-	}
-	sort.Strings(candidates)
-	return candidates, nil
-}
-
-func appendUniqueWorkspaceCandidates(candidates []string, extra ...string) []string {
-	if len(extra) == 0 {
-		return candidates
-	}
-	seen := make(map[string]struct{}, len(candidates)+len(extra))
-	for _, candidate := range candidates {
-		seen[filepath.Clean(candidate)] = struct{}{}
-	}
-	for _, candidate := range extra {
-		cleaned := filepath.Clean(candidate)
-		if _, ok := seen[cleaned]; ok {
-			continue
-		}
-		seen[cleaned] = struct{}{}
-		candidates = append(candidates, candidate)
-	}
-	sort.Strings(candidates)
-	return candidates
-}
-
-// searchUniqueSiblingWorkspaceText 在兄弟 worktree 候选中执行文本搜索。
-// 多个候选同时命中说明运行时根目录已不唯一，直接报错提醒调用方传入可信 work_dir。
-func searchUniqueSiblingWorkspaceText(ctx context.Context, opts search.TextSearchOptions, root, relPath string, candidates []string) ([]search.SearchMatch, error) {
-	if len(candidates) == 0 {
-		return nil, nil
-	}
-	matchedRoots := make([]string, 0, 1)
-	var matched []search.SearchMatch
-	for _, candidate := range candidates {
-		candidateOpts := opts
-		candidateOpts.Root = candidate
-		candidateOpts.Roots = nil
-		matches, err := search.SearchText(ctx, candidateOpts)
-		if err != nil {
-			return nil, err
-		}
-		if len(matches) == 0 {
-			continue
-		}
-		matchedRoots = append(matchedRoots, candidate)
-		matched = matches
-	}
-	if len(matchedRoots) > 1 {
-		return nil, fmt.Errorf("runtime fallback workspace root %s is stale for relative search path %q: multiple sibling workspaces matched query [%s]; pass work_dir or trusted _cwd/_workspaceRoots", root, relPath, strings.Join(matchedRoots, ", "))
-	}
-	return matched, nil
+	path := strings.TrimSpace(input.Path)
+	return path != "" && !filepath.IsAbs(path)
 }
 
 func emptyGrepMessage(regexFallback bool) string {

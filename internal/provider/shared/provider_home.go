@@ -22,6 +22,92 @@ const (
 	ProviderCodex  = "codex"
 )
 
+const (
+	ProviderHomePermissionFailedCode = "provider_home_permission_failed"
+	SkillMirrorConflictCode          = "skill_mirror_conflict"
+)
+
+// ProviderStartupGateError 表示 provider 启动前置闸门失败。
+// Code 给 UI/上层路由稳定分类，字段保留 provider、路径和冲突目标，便于定位失败点。
+type ProviderStartupGateError struct {
+	Code         string
+	Provider     string
+	Path         string
+	Operation    string
+	TargetID     string
+	Scope        string
+	ConflictKind string
+	Count        int
+	Err          error
+}
+
+// Error 返回包含稳定 code 和关键上下文的错误文本。
+func (e *ProviderStartupGateError) Error() string {
+	if e == nil {
+		return ""
+	}
+	message := providerStartupGateBaseMessage(e.Code, e.Count)
+	message += providerStartupGateDetails(e)
+	if e.Err != nil {
+		message += ": " + e.Err.Error()
+	}
+	return message
+}
+
+// Unwrap 保留底层 chmod/mkdir 错误，调用方可继续用 errors.Is/As 判断根因。
+func (e *ProviderStartupGateError) Unwrap() error {
+	if e == nil {
+		return nil
+	}
+	return e.Err
+}
+
+// GateCode 返回 provider 启动前置闸门的稳定错误码。
+func (e *ProviderStartupGateError) GateCode() string {
+	if e == nil {
+		return ""
+	}
+	return e.Code
+}
+
+func providerStartupGateBaseMessage(code string, count int) string {
+	switch code {
+	case ProviderHomePermissionFailedCode:
+		return code + ": provider home permission failed"
+	case SkillMirrorConflictCode:
+		if count > 0 {
+			return fmt.Sprintf("%s: skill mirror conflicts: %d unresolved", code, count)
+		}
+		return code + ": skill mirror conflicts"
+	default:
+		return code
+	}
+}
+
+func providerStartupGateDetails(e *ProviderStartupGateError) string {
+	fields := []struct {
+		key   string
+		value string
+	}{
+		{key: "provider", value: e.Provider},
+		{key: "path", value: e.Path},
+		{key: "operation", value: e.Operation},
+		{key: "kind", value: e.ConflictKind},
+		{key: "scope", value: e.Scope},
+		{key: "target", value: e.TargetID},
+	}
+	details := make([]string, 0, len(fields))
+	for _, field := range fields {
+		if field.value != "" {
+			details = append(details, field.key+"="+field.value)
+		}
+	}
+	if len(details) == 0 {
+		return ""
+	}
+	return " (" + strings.Join(details, " ") + ")"
+}
+
 // AppManagedProviderHome 返回 Super Dolphin 自己管理的 provider home。
 // 没有 SUPER_DOLPHIN_HOME 就报错，不要回退到用户全局目录。
 func AppManagedProviderHome(provider string) (string, error) {
@@ -41,7 +127,7 @@ func AppManagedProviderHome(provider string) (string, error) {
 	if os.IsNotExist(err) {
 		return home, nil
 	}
-	return "", fmt.Errorf("resolve app-managed provider home realpath: %w", err)
+	return "", providerHomePermissionError(provider, home, "resolve app-managed provider home realpath", err)
 }
 
 // AppManagedProviderSkillsRoot 是应用管理的 provider skills mirror。
@@ -61,17 +147,17 @@ func EnsureAppManagedProviderHome(provider string) (string, error) {
 		return "", err
 	}
 	if err := os.MkdirAll(home, 0o700); err != nil {
-		return "", fmt.Errorf("create app-managed provider home: %w", err)
+		return "", providerHomePermissionError(provider, home, "create app-managed provider home", err)
 	}
 	if err := os.Chmod(home, 0o700); err != nil {
-		pkglogger.Warn("provider_home: chmod home failed", "path", home, "error", err)
+		return "", providerHomePermissionError(provider, home, "chmod app-managed provider home", err)
 	}
 	skillsRoot := filepath.Join(home, "skills")
 	if err := os.MkdirAll(skillsRoot, 0o700); err != nil {
-		return "", fmt.Errorf("create app-managed provider skills root: %w", err)
+		return "", providerHomePermissionError(provider, skillsRoot, "create app-managed provider skills root", err)
 	}
 	if err := os.Chmod(skillsRoot, 0o700); err != nil {
-		pkglogger.Warn("provider_home: chmod skills root failed", "path", skillsRoot, "error", err)
+		return "", providerHomePermissionError(provider, skillsRoot, "chmod app-managed provider skills root", err)
 	}
 	real, err := filepath.EvalSymlinks(home)
 	if err != nil {
@@ -91,24 +177,42 @@ func EnsureProviderHome(provider, homeRoot string) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	explicitHome := strings.TrimSpace(homeRoot) != ""
+	if explicitHome {
+		return ensureExplicitProviderHome(normalizedProvider, home)
+	}
 	if err := os.MkdirAll(home, 0o700); err != nil {
 		return "", fmt.Errorf("create provider home: %w", err)
 	}
 	if err := os.Chmod(home, 0o700); err != nil {
 		pkglogger.Warn("provider_home: chmod home failed", "path", home, "error", err)
 	}
-	if strings.TrimSpace(homeRoot) != "" {
-		skillsRoot := filepath.Join(home, "skills")
-		if err := os.MkdirAll(skillsRoot, 0o700); err != nil {
-			return "", fmt.Errorf("create explicit provider skills root: %w", err)
-		}
-		if err := os.Chmod(skillsRoot, 0o700); err != nil {
-			pkglogger.Warn("provider_home: chmod skills root failed", "path", skillsRoot, "error", err)
-		}
-	}
 	real, err := filepath.EvalSymlinks(home)
 	if err != nil {
 		return "", fmt.Errorf("resolve provider home realpath: %w", err)
+	}
+	return filepath.Clean(real), nil
+}
+
+// ensureExplicitProviderHome 准备用户显式指定的 provider home。
+// 这是启动硬闸门，权限收紧失败必须返回 typed error，不能继续读旧 mirror。
+func ensureExplicitProviderHome(provider, home string) (string, error) {
+	if err := os.MkdirAll(home, 0o700); err != nil {
+		return "", providerHomePermissionError(provider, home, "create provider home", err)
+	}
+	if err := os.Chmod(home, 0o700); err != nil {
+		return "", providerHomePermissionError(provider, home, "chmod provider home", err)
+	}
+	skillsRoot := filepath.Join(home, "skills")
+	if err := os.MkdirAll(skillsRoot, 0o700); err != nil {
+		return "", providerHomePermissionError(provider, skillsRoot, "create explicit provider skills root", err)
+	}
+	if err := os.Chmod(skillsRoot, 0o700); err != nil {
+		return "", providerHomePermissionError(provider, skillsRoot, "chmod explicit provider skills root", err)
+	}
+	real, err := filepath.EvalSymlinks(home)
+	if err != nil {
+		return "", providerHomePermissionError(provider, home, "resolve provider home realpath", err)
 	}
 	return filepath.Clean(real), nil
 }
@@ -420,7 +524,13 @@ func EnsureNoSkillMirrorConflicts(report contract.SkillMirrorReport) error {
 	}
 	scope := strings.TrimSpace(first.Scope)
 	target := strings.TrimSpace(first.TargetID)
-	return fmt.Errorf("skill mirror conflicts: %d unresolved (kind=%s scope=%s target=%s)", len(blocking), detail, scope, target)
+	return &ProviderStartupGateError{
+		Code:         SkillMirrorConflictCode,
+		TargetID:     target,
+		Scope:        scope,
+		ConflictKind: detail,
+		Count:        len(blocking),
+	}
 }
 
 func blockingSkillMirrorConflicts(conflicts []contract.SkillMirrorReportItem) []contract.SkillMirrorReportItem {
@@ -440,7 +550,7 @@ func isBlockingSkillMirrorConflict(item contract.SkillMirrorReportItem) bool {
 	switch strings.ToLower(strings.TrimSpace(item.ConflictKind)) {
 	case "same_name",
 		"same_name_scope_conflict":
-		return false
+		return isActiveProviderMirrorTarget(item)
 	case "drift",
 		"mirror_drift",
 		"multi_mirror_drift",
@@ -464,6 +574,16 @@ func isActiveProviderMirrorTarget(item contract.SkillMirrorReportItem) bool {
 	return scope == "project" ||
 		strings.Contains(targetID, ":project:") ||
 		strings.Contains(targetID, ":app-managed:")
+}
+
+func providerHomePermissionError(provider, path, operation string, err error) error {
+	return &ProviderStartupGateError{
+		Code:      ProviderHomePermissionFailedCode,
+		Provider:  strings.TrimSpace(provider),
+		Path:      filepath.Clean(strings.TrimSpace(path)),
+		Operation: strings.TrimSpace(operation),
+		Err:       err,
+	}
 }
 
 func absCleanPath(path string) (string, error) {

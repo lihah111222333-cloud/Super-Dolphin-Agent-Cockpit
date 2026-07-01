@@ -305,6 +305,38 @@ verify_runtime_manifest() {
   require_runtime_manifest_path model_registry_path "$model_registry_path" "models.yaml" file
 }
 
+require_launcher_export() {
+  local launcher="$1"
+  local label="$2"
+  local pattern="$3"
+  if ! grep -Eq "$pattern" "$launcher"; then
+    echo "Linux launcher missing packaged runtime env: $label" >&2
+    exit 1
+  fi
+}
+
+verify_linux_launcher_runtime_env() {
+  local launcher="$package_root/run.sh"
+  if [[ ! -e "$launcher" ]]; then
+    return
+  fi
+  if [[ ! -f "$launcher" ]]; then
+    echo "Linux launcher is not a regular file: $launcher" >&2
+    exit 1
+  fi
+  if [[ ! -x "$launcher" ]]; then
+    echo "Linux launcher is not executable: $launcher" >&2
+    exit 1
+  fi
+  require_launcher_export "$launcher" "SUPER_DOLPHIN_PACKAGE_ROOT" '^[[:space:]]*export[[:space:]]+SUPER_DOLPHIN_PACKAGE_ROOT="\$here"[[:space:]]*$'
+  require_launcher_export "$launcher" "SUPER_DOLPHIN_RUNTIME_MODE=packaged" '^[[:space:]]*export[[:space:]]+SUPER_DOLPHIN_RUNTIME_MODE="?packaged"?[[:space:]]*$'
+  require_launcher_export "$launcher" "SUPER_DOLPHIN_PACKAGED_LAUNCHER=1" '^[[:space:]]*export[[:space:]]+SUPER_DOLPHIN_PACKAGED_LAUNCHER="?1"?[[:space:]]*$'
+  if grep -Eq '^[[:space:]]*export[[:space:]]+SUPER_DOLPHIN_HOME=.*(\$here|\$\{?SUPER_DOLPHIN_PACKAGE_ROOT\}?)' "$launcher"; then
+    echo "Linux launcher must not resolve SQLite home under package root" >&2
+    exit 1
+  fi
+}
+
 verify_codex_manifest() {
   local manifest="$package_root/codex-manifest.json"
   if [[ ! -f "$manifest" ]]; then
@@ -369,6 +401,7 @@ verify_package_root_links() {
 }
 
 verify_runtime_manifest
+verify_linux_launcher_runtime_env
 
 required_execs=(
   "$package_root/bin/agent-terminal"

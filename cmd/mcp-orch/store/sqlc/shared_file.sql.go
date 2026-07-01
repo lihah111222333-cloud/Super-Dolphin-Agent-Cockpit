@@ -53,7 +53,7 @@ func (q *Queries) GetSharedFile(ctx context.Context, arg GetSharedFileParams) (S
 const listSharedFiles = `-- name: ListSharedFiles :many
 SELECT path, content, content_location, updated_by, created_at, updated_at
 FROM shared_files
-WHERE (?1 = '' OR path LIKE '%' || ?1 || '%')
+WHERE (?1 = '' OR like(?1 || '%', path, '\'))
 ORDER BY updated_at DESC, path ASC
 LIMIT ?2
 `

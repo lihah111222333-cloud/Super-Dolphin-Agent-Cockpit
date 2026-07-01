@@ -6,78 +6,72 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"strings"
-	"time"
 )
 
 // avMergeInput 是 av_merge 工具的入参。
 type avMergeInput struct {
-	VideoPath  string `json:"video_path"`
-	AudioPath  string `json:"audio_path"`
+	VideoRef   string `json:"video_ref"`
+	AudioRef   string `json:"audio_ref"`
 	OutputPath string `json:"output_path,omitempty"`
 }
 
 // avMergeToolDefinitions 注册 av_merge 工具；该工具直接调用本机 ffmpeg，失败时回传命令输出。
 func avMergeToolDefinitions() []ToolDefinition {
 	return buildToolDefinitions(
-		defineTool(
+		defineGovernedTool(
 			"av_merge",
-			"Merge a video file and an audio file into a single MP4 using ffmpeg. The audio replaces or overlays the video's original audio. Returns the output file path. Requires ffmpeg installed or FFMPEG_PATH env var pointing to the binary.",
+			"Merge a controlled video_ref and audio_ref into a single MP4 using ffmpeg. Refs must be shared:<path> or workspace-relative paths; output_path is optional but must use the same controlled path policy.",
 			ObjectSchema(map[string]Schema{
-				"video_path":  StringSchema("Absolute path to the input video file."),
-				"audio_path":  StringSchema("Absolute path to the input audio file."),
-				"output_path": StringSchema("Absolute path for the output file (optional). Defaults to ~/Movies/merged-<timestamp>.mp4."),
-			}, "video_path", "audio_path"),
+				"video_ref":   StringSchema("Input video ref: shared:<path> or workspace-relative path."),
+				"audio_ref":   StringSchema("Input audio ref: shared:<path> or workspace-relative path."),
+				"output_path": StringSchema("Optional output ref: shared:<path> or workspace-relative path. Defaults to shared:reports/media/merged-<timestamp>.mp4."),
+			}, "video_ref", "audio_ref"),
 			handleAVMerge(),
+			mediaToolMetadata("av_merge", []string{"video_ref", "audio_ref"}, []string{"output_path"}),
 		),
 	)
 }
 
-// handleAVMerge 校验输入路径并生成合并后的 MPEG-4 文件；未显式传 output_path 时写入用户 Movies 目录。
+// handleAVMerge 校验受控输入引用并生成合并后的 MPEG-4 文件。
+// 所有本地路径都必须从 trusted workspace scope 或 sharedfile sandbox 解析，避免任意 absolute path 覆盖。
 func handleAVMerge() ToolHandler {
 	return func(ctx context.Context, input json.RawMessage) (any, error) {
 		var in avMergeInput
 		if err := json.Unmarshal(input, &in); err != nil {
 			return nil, fmt.Errorf("invalid input: %w", err)
 		}
-		if strings.TrimSpace(in.VideoPath) == "" {
-			return nil, fmt.Errorf("video_path is required")
+		if err := rejectUncontrolledOutputPath(in.OutputPath, "output_path"); err != nil {
+			return nil, err
 		}
-		if strings.TrimSpace(in.AudioPath) == "" {
-			return nil, fmt.Errorf("audio_path is required")
+		videoPath, err := resolveControlledMediaInput(ctx, in.VideoRef, "video_ref")
+		if err != nil {
+			return nil, err
 		}
-
-		ffmpeg := ffmpegBin()
-
-		out := strings.TrimSpace(in.OutputPath)
-		if out == "" {
-			home, err := os.UserHomeDir()
-			if err != nil {
-				return nil, err
-			}
-			dir := filepath.Join(home, "Movies")
-			if err := os.MkdirAll(dir, 0o755); err != nil {
-				return nil, fmt.Errorf("create output dir %q: %w", dir, err)
-			}
-			out = filepath.Join(dir, "merged-"+time.Now().Format("20060102-150405")+".mp4")
+		audioPath, err := resolveControlledMediaInput(ctx, in.AudioRef, "audio_ref")
+		if err != nil {
+			return nil, err
+		}
+		output, err := resolveControlledMediaOutput(ctx, in.OutputPath, "merged", "mp4")
+		if err != nil {
+			return nil, err
 		}
 
 		// 输出文件允许覆盖，视频轨直接 copy，音频按最短流截断后转 AAC。
-		cmd := exec.CommandContext(ctx, ffmpeg,
+		cmd := exec.CommandContext(ctx, ffmpegBin(),
 			"-y",
-			"-i", in.VideoPath,
-			"-i", in.AudioPath,
+			"-i", videoPath,
+			"-i", audioPath,
 			"-shortest",
 			"-c:v", "copy",
 			"-c:a", "aac",
-			out,
+			output.AbsPath,
 		)
 		if output, err := cmd.CombinedOutput(); err != nil {
 			return nil, fmt.Errorf("ffmpeg failed: %w\n%s", err, strings.TrimSpace(string(output)))
 		}
 
-		return map[string]any{"success": true, "output_path": out}, nil
+		return map[string]any{"success": true, "output_path": output.Ref, "local_path": output.AbsPath}, nil
 	}
 }
 

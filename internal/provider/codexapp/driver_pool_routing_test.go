@@ -307,6 +307,44 @@ func TestStartSessionMirrorSafetyConflictBlocksPoolAcquire(t *testing.T) {
 	}
 }
 
+func TestStartSessionProviderHomeChmodFailureBlocksStart(t *testing.T) {
+	t.Setenv(poolRoutingEnvVar, "1")
+	blocker := filepath.Join(t.TempDir(), "blocked")
+	if err := os.WriteFile(blocker, []byte("not a directory"), 0o600); err != nil {
+		t.Fatalf("WriteFile blocker: %v", err)
+	}
+	t.Setenv(providershared.SuperDolphinHomeEnv, filepath.Join(blocker, "sd-home"))
+	t.Setenv("SUPER_DOLPHIN_RUNTIME_MODE", "packaged")
+	acquires := atomic.Int32{}
+	pool := NewServerPool(slog.Default(), func(context.Context, string, string) (SpawnedServer, error) {
+		acquires.Add(1)
+		t.Fatal("pool acquire called after provider home permission failure")
+		return nil, nil
+	}, PoolConfig{})
+	defer pool.Close(context.Background())
+	mirror := &recordingSkillMirrorReconciler{}
+	d := &driver{logger: slog.Default(), pool: pool, mirror: mirror}
+
+	_, err := d.StartSession(context.Background(), dto.StartSessionRequest{
+		AgentID:       "agent-codex-home-permission",
+		CWD:           t.TempDir(),
+		StartAssembly: validStartAssemblyForTest(),
+	})
+	if err == nil {
+		t.Fatalf("StartSession() error = nil, want provider home permission failure")
+	}
+	assertProviderStartupGateCode(t, err, "provider_home_permission_failed")
+	if !strings.Contains(err.Error(), providershared.ProviderCodex) || !strings.Contains(err.Error(), filepath.Join(blocker, "sd-home")) {
+		t.Fatalf("StartSession() error = %v, want provider and path context", err)
+	}
+	if mirror.calls != 0 {
+		t.Fatalf("mirror reconcile calls = %d, want 0", mirror.calls)
+	}
+	if acquires.Load() != 0 {
+		t.Fatalf("pool acquire calls = %d, want 0", acquires.Load())
+	}
+}
+
 func TestStartSessionRequiresSkillMirrorReconciler(t *testing.T) {
 	t.Setenv(poolRoutingEnvVar, "1")
 	t.Setenv(providershared.SuperDolphinHomeEnv, filepath.Join(t.TempDir(), "sd-home"))
@@ -547,6 +585,19 @@ func assertExplicitCodexMirrorTargets(t *testing.T, targets []contract.SkillProv
 	}
 	if targets[1].Provider != "codex" || targets[1].SkillsRoot != filepath.Join(wantProject, ".agents", "skills") {
 		t.Fatalf("project target = %#v, want project skills under %q", targets[1], wantProject)
+	}
+}
+
+func assertProviderStartupGateCode(t *testing.T, err error, want string) {
+	t.Helper()
+	var coded interface {
+		GateCode() string
+	}
+	if !errors.As(err, &coded) {
+		t.Fatalf("error = %T %v, want provider startup gate code %q", err, err, want)
+	}
+	if got := coded.GateCode(); got != want {
+		t.Fatalf("GateCode() = %q, want %q; error=%v", got, want, err)
 	}
 }
 

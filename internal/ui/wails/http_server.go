@@ -41,11 +41,17 @@ type httpAssetServer struct {
 }
 
 // registerHTTPAssetRoutes 注册 metrics、WebSocket 和静态资源路由。
-func registerHTTPAssetRoutes(mux *http.ServeMux, server *rpc.Server, assetHandler http.Handler, wsToken string) {
-	// 误判防护：registerHTTPAssetRoutes 先注册 metrics，再注册 /wails/ws 和 /，避免 /metrics 被兜底路由吞掉。
-	metrics.RegisterHTTPHandlers(mux)
-	mux.Handle("/wails/ws", wailsWebSocketRequestGuard(rpc.WSHandler(server, nil), wsToken))
-	mux.Handle("/", wailsAssetCookieHandler(assetHandler, wsToken))
+// 非静态入口必须通过 RoutePolicy 声明守卫，防止新增 route 绕过本地来源检查。
+func registerHTTPAssetRoutes(mux *http.ServeMux, server *rpc.Server, assetHandler http.Handler, wsToken string) error {
+	if metrics.EnabledFromEnv() {
+		if err := registerWailsHTTPRoute(mux, metrics.PrometheusMetricsPath, RoutePolicyMetricsGuarded, wailsMetricsRequestGuard(metrics.Handler(), wsToken)); err != nil {
+			return err
+		}
+	}
+	if err := registerWailsHTTPRoute(mux, "/wails/ws", RoutePolicyWailsRPC, wailsWebSocketRequestGuard(rpc.WSHandler(server, nil), wsToken)); err != nil {
+		return err
+	}
+	return registerWailsHTTPRoute(mux, "/", RoutePolicyLocalAssetToken, wailsAssetCookieHandler(assetHandler, wsToken))
 }
 
 // NewHTTPAssetServer 创建同时服务前端资源和 JRPC WebSocket 的 runner。
@@ -90,7 +96,9 @@ func (s *httpAssetServer) Run(ctx context.Context) error {
 	}
 
 	mux := http.NewServeMux()
-	registerHTTPAssetRoutes(mux, s.server, s.handler, s.wsToken)
+	if err := registerHTTPAssetRoutes(mux, s.server, s.handler, s.wsToken); err != nil {
+		return err
+	}
 
 	srv := &http.Server{
 		Addr:         s.addr,
@@ -151,6 +159,21 @@ func validateHTTPAssetAddr(addr string) error {
 // wailsWebSocketRequestGuard 在升级到 UI RPC WebSocket 前校验浏览器入口来源。
 // 绑定地址只能限制监听面，Host/Origin 还要单独拦截 DNS rebinding 或跨站发起的本地请求。
 func wailsWebSocketRequestGuard(next http.Handler, wsToken string) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := validateWailsWebSocketRequest(r); err != nil {
+			http.Error(w, err.Error(), http.StatusForbidden)
+			return
+		}
+		if err := validateWailsWebSocketToken(r, wsToken); err != nil {
+			http.Error(w, err.Error(), http.StatusForbidden)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+// wailsMetricsRequestGuard 让 metrics route 复用 Wails RPC 的本地来源和 token 校验。
+func wailsMetricsRequestGuard(next http.Handler, wsToken string) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if err := validateWailsWebSocketRequest(r); err != nil {
 			http.Error(w, err.Error(), http.StatusForbidden)

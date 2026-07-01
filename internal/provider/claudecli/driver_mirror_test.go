@@ -176,6 +176,40 @@ func TestStartSessionMirrorSafetyConflictBlocksClaudeLaunch(t *testing.T) {
 	}
 }
 
+func TestStartSessionProviderHomeChmodFailureBlocksStart(t *testing.T) {
+	blocker := filepath.Join(t.TempDir(), "blocked")
+	if err := os.WriteFile(blocker, []byte("not a directory"), 0o600); err != nil {
+		t.Fatalf("WriteFile blocker: %v", err)
+	}
+	explicitHome := filepath.Join(blocker, "claude")
+	launched := false
+	d := newTestDriverWithLaunch(t, &recordingMirrorReconciler{}, func(string, string, string, string, cliLaunchConfig, dto.MCPManifest, string) (*transport, func(), error) {
+		launched = true
+		t.Fatal("launchCLI was called after provider home permission failure")
+		return nil, nil, nil
+	})
+
+	got, err := d.StartSession(context.Background(), dto.StartSessionRequest{
+		AgentID:       "agent-claude-home-permission",
+		CWD:           t.TempDir(),
+		StartAssembly: validClaudeStartAssemblyForTest(),
+		Config:        map[string]any{"claude_home": explicitHome},
+	})
+	if got != nil {
+		_ = got.Close(context.Background())
+	}
+	if err == nil {
+		t.Fatalf("StartSession() error = nil, want provider home permission failure")
+	}
+	assertProviderStartupGateCode(t, err, "provider_home_permission_failed")
+	if !strings.Contains(err.Error(), providershared.ProviderClaude) || !strings.Contains(err.Error(), explicitHome) {
+		t.Fatalf("StartSession() error = %v, want provider and path context", err)
+	}
+	if launched {
+		t.Fatalf("launchCLI was called")
+	}
+}
+
 func TestDisallowedToolsRejectsMalformedConfig(t *testing.T) {
 	superHome := filepath.Join(t.TempDir(), "sd-home")
 	t.Setenv(providershared.SuperDolphinHomeEnv, superHome)
@@ -520,6 +554,19 @@ func assertFileContent(t *testing.T, path, want string) {
 	}
 	if got := string(data); got != want {
 		t.Fatalf("file %s = %q, want %q", path, got, want)
+	}
+}
+
+func assertProviderStartupGateCode(t *testing.T, err error, want string) {
+	t.Helper()
+	var coded interface {
+		GateCode() string
+	}
+	if !errors.As(err, &coded) {
+		t.Fatalf("error = %T %v, want provider startup gate code %q", err, err, want)
+	}
+	if got := coded.GateCode(); got != want {
+		t.Fatalf("GateCode() = %q, want %q; error=%v", got, want, err)
 	}
 }
 

@@ -71,3 +71,29 @@ RETURNING id, dag_key, node_key, title, node_type, assigned_to, CAST(depends_on 
           status, command_ref, CAST(config AS BLOB) AS config, CAST(result AS BLOB) AS result, started_at, finished_at,
           created_at, updated_at, active_turn_id, active_wakeup_id,
           last_event_at, run_id, CAST(reads AS BLOB) AS reads, CAST(writes AS BLOB) AS writes, spawning_thread_id;
+
+-- name: MarkDispatchIncompleteNodesWithoutActiveWakeup :many
+UPDATE task_dag_nodes
+SET status = 'dispatch_incomplete',
+    result = '{"kind":"dispatch_incomplete","reason":"assigned_without_active_wakeup"}',
+    active_turn_id = NULL,
+    active_wakeup_id = NULL,
+    updated_at = (CAST(strftime('%s','now') AS INTEGER) * 1000)
+WHERE run_id IS NOT NULL
+  AND status IN ('pending', 'ready')
+  AND trim(assigned_to) <> ''
+  AND NOT EXISTS (
+      SELECT 1
+      FROM task_dag_wakeups w
+      WHERE w.run_id = task_dag_nodes.run_id
+        AND w.dag_key = task_dag_nodes.dag_key
+        AND w.node_key = task_dag_nodes.node_key
+        AND (
+          w.status IN ('pending', 'dispatching')
+          OR (w.status = 'sent' AND w.sent_at IS NOT NULL AND w.bound_turn_id IS NULL)
+        )
+  )
+RETURNING id, dag_key, node_key, title, node_type, assigned_to, CAST(depends_on AS BLOB) AS depends_on,
+          status, command_ref, CAST(config AS BLOB) AS config, CAST(result AS BLOB) AS result, started_at, finished_at,
+          created_at, updated_at, active_turn_id, active_wakeup_id,
+          last_event_at, run_id, CAST(reads AS BLOB) AS reads, CAST(writes AS BLOB) AS writes, spawning_thread_id;

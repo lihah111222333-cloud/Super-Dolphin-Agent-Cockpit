@@ -99,6 +99,31 @@ func TestPackageLinuxRunScriptPrefersBundledCodexBin(t *testing.T) {
 	assertScriptOrder(t, script, "bundled_execs=(mcp-orch mcp-lsp mcp-ida gopls go typescript-language-server vscode-css-language-server pyright-langserver rust-analyzer bash-language-server shellcheck sg)", "exec \"$here/bin/agent-terminal\"")
 }
 
+func TestPackageLinuxRunScriptDeclaresPackagedRuntime(t *testing.T) {
+	script := readScript(t, "package_linux.sh")
+
+	for _, want := range []string{
+		"export SUPER_DOLPHIN_PACKAGE_ROOT=\"$here\"",
+		"export SUPER_DOLPHIN_RUNTIME_MODE=packaged",
+		"export SUPER_DOLPHIN_PACKAGED_LAUNCHER=1",
+	} {
+		assertScriptContains(t, script, want)
+	}
+	assertScriptOrder(t, script, "here=\"$(cd \"$(dirname \"${BASH_SOURCE[0]}\")\" && pwd)\"", "export SUPER_DOLPHIN_PACKAGE_ROOT=\"$here\"")
+	assertScriptOrder(t, script, "export SUPER_DOLPHIN_PACKAGE_ROOT=\"$here\"", "export SUPER_DOLPHIN_RUNTIME_MODE=packaged")
+	assertScriptOrder(t, script, "export SUPER_DOLPHIN_RUNTIME_MODE=packaged", "export SUPER_DOLPHIN_PACKAGED_LAUNCHER=1")
+	assertScriptOrder(t, script, "export SUPER_DOLPHIN_PACKAGED_LAUNCHER=1", "exec \"$here/bin/agent-terminal\"")
+}
+
+func TestPackageLinuxRunsVerifierBeforeTarReady(t *testing.T) {
+	script := readScript(t, "package_linux.sh")
+
+	assertScriptContains(t, script, "\"$root/scripts/verify_packaged_app_linux.sh\" \"$stage\"")
+	assertScriptOrder(t, script, "write_runtime_manifest \"$stage\"", "\"$root/scripts/verify_packaged_app_linux.sh\" \"$stage\"")
+	assertScriptOrder(t, script, "\"$root/scripts/verify_packaged_app_linux.sh\" \"$stage\"", "tar -C \"$dist\"")
+	assertScriptOrder(t, script, "\"$root/scripts/verify_packaged_app_linux.sh\" \"$stage\"", "Linux package ready")
+}
+
 func TestPackageLinuxScriptRequiresAndCopiesBashLanguageServer(t *testing.T) {
 	script := readScript(t, "package_linux.sh")
 
@@ -329,6 +354,32 @@ func TestVerifyPackagedAppLinuxRequiresRuntimeManifest(t *testing.T) {
 	}
 	if !strings.Contains(output, "missing runtime manifest") {
 		t.Fatalf("expected missing runtime manifest error, got:\n%s", output)
+	}
+}
+
+func TestVerifyPackagedAppLinuxRejectsLauncherMissingRuntimeEnv(t *testing.T) {
+	stage := writeMinimalPackagedLinuxStage(t)
+	writeRuntimeManifest(t, stage, map[string]string{
+		"bundled_codex_path":  "bin/codex",
+		"bundled_gopls_path":  "bin/gopls",
+		"lsp_bundle_path":     "lsp",
+		"lsp_manifest_path":   "lsp/lsp-manifest.json",
+		"model_registry_path": "models.yaml",
+	})
+	writeFile(t, filepath.Join(stage, "run.sh"), `#!/usr/bin/env bash
+set -euo pipefail
+here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+export SUPER_DOLPHIN_PACKAGE_ROOT="$here"
+export SUPER_DOLPHIN_RUNTIME_MODE=packaged
+exec "$here/bin/agent-terminal" "$@"
+`, 0o755)
+
+	output, err := runVerifyPackagedAppLinux(t, stage)
+	if err == nil {
+		t.Fatalf("expected Linux verifier to reject launcher missing packaged env, got success:\n%s", output)
+	}
+	if !strings.Contains(output, "Linux launcher missing packaged runtime env") {
+		t.Fatalf("expected launcher runtime env error, got:\n%s", output)
 	}
 }
 

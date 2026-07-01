@@ -202,6 +202,19 @@ function memoryHealthHasSimilarGroups(health) {
   return Array.isArray(health?.similarGroups) && health.similarGroups.length > 0;
 }
 
+function memoryScanDiagnostic(snapshot) {
+  const overview = plainMemoryObject(snapshot?.overview) || {};
+  const scan = plainMemoryObject(overview.scan);
+  switch (textValue(scan?.reason)) {
+    case 'memory_scan_truncated':
+      return { level: 'warning', message: '记忆扫描已达到安全上限，列表仅显示部分条目。' };
+    case 'memory_scan_canceled':
+      return { level: 'info', message: '记忆扫描已取消。' };
+    default:
+      return null;
+  }
+}
+
 function memorySnapshotWithClearedSimilarGroups(snapshot, overview, health) {
   return {
     ...snapshot,
@@ -243,7 +256,7 @@ function useMemoryDashboard(projectPath) {
   const queryClient = useQueryClient();
   const { data: memoryData, error: memoryError, isPending: memoryPending } = useQuery({
     queryKey: dashboardQueryKey(memoryCwd, 'memory'),
-    queryFn: () => fetchMemoryDashboard(memoryCwd),
+    queryFn: ({ signal }) => fetchMemoryDashboardWithSignal(memoryCwd, signal),
     enabled: Boolean(memoryCwd),
   });
   const memoryQuery = { data: memoryData, error: memoryError, isPending: memoryPending };
@@ -256,6 +269,13 @@ function useMemoryDashboard(projectPath) {
     await queryClient.invalidateQueries({ queryKey: dashboardQueryKey(memoryCwd, 'memory') });
   }, [memoryCwd, queryClient]);
   return { error, isProjectPending: !memoryCwd, loading, memoryCwd, queryClient, refreshMemory, snapshot, syncError };
+}
+
+function fetchMemoryDashboardWithSignal(memoryCwd, signal) {
+  if (typeof fetchMemoryDashboard.withSignal === 'function') {
+    return fetchMemoryDashboard.withSignal(memoryCwd, signal);
+  }
+  return fetchMemoryDashboard(memoryCwd);
 }
 
 function useMemoryNotice(memoryCwd) {
@@ -767,9 +787,11 @@ function memoryMergeAllLabel(similarity, copy) {
 }
 
 function MemoryStatusMessages({ copy, dashboard, notice }) {
+  const scanNotice = memoryScanDiagnostic(dashboard.snapshot);
   return (
     <>
       {notice.message ? <div className={'memory-notice is-' + notice.level}>{notice.message}</div> : null}
+      {scanNotice ? <div className={'memory-notice is-' + scanNotice.level}>{scanNotice.message}</div> : null}
       {dashboard.isProjectPending ? <div className="memory-notice is-info">{copy.connecting}</div> : null}
       {!dashboard.isProjectPending && dashboard.loading ? <div className="memory-notice is-info">{copy.loading}</div> : null}
       {dashboard.syncError ? <MemorySyncError copy={copy} message={dashboard.syncError} onRefresh={dashboard.refreshMemory} /> : null}

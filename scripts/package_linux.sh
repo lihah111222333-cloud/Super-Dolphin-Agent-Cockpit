@@ -780,6 +780,9 @@ case "$(uname -m)" in
   *) echo "unsupported Linux architecture: $(uname -m)" >&2; exit 1 ;;
 esac
 export PROJECT_ROOT="$here"
+export SUPER_DOLPHIN_PACKAGE_ROOT="$here"
+export SUPER_DOLPHIN_RUNTIME_MODE=packaged
+export SUPER_DOLPHIN_PACKAGED_LAUNCHER=1
 export SUPER_DOLPHIN_MODEL_REGISTRY="$here/models.yaml"
 export PATH="$here/bin:${PATH:-}"
 export GO_AGENT_PEER_BIN_DIR="$here/bin"
@@ -800,6 +803,7 @@ exec "$here/bin/agent-terminal" "$@"
 RUN
   chmod +x "$stage/run.sh"
 
+  "$root/scripts/verify_packaged_app_linux.sh" "$stage"
   tar -C "$dist" -czf "$stage.tar.gz" "$(basename "$stage")"
   echo "Linux package ready: $stage.tar.gz"
 }

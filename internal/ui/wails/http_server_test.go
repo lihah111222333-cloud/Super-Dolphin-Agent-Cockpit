@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"os"
 	"strings"
 	"testing"
 	"testing/fstest"
@@ -18,24 +19,94 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/pkg/skillmetrics"
 )
 
-func TestHTTPAssetRoutesExposePrometheusMetricsEndpoint(t *testing.T) {
+func TestHTTPAssetRoutesExposePrometheusMetricsEndpointWhenExplicitlyEnabled(t *testing.T) {
+	t.Setenv("SUPER_DOLPHIN_ENABLE_METRICS", "1")
 	skillmetrics.ResetForTesting()
 	t.Cleanup(skillmetrics.ResetForTesting)
 	skillmetrics.IncHostToolCallOutcome(skillmetrics.HostToolOutcomeOK)
 
 	mux := http.NewServeMux()
-	registerHTTPAssetRoutes(mux, nil, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	if err := registerHTTPAssetRoutes(mux, nil, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "asset fallback should not handle /metrics", http.StatusTeapot)
-	}), "")
+	}), ""); err != nil {
+		t.Fatalf("registerHTTPAssetRoutes: %v", err)
+	}
 
 	rec := httptest.NewRecorder()
-	mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, metrics.PrometheusMetricsPath, nil))
+	req := httptest.NewRequest(http.MethodGet, metrics.PrometheusMetricsPath, nil)
+	req.Host = "127.0.0.1:4511"
+	mux.ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("metrics status = %d, want %d", rec.Code, http.StatusOK)
 	}
 	if body := rec.Body.String(); !strings.Contains(body, `host_tool_calls_total{outcome="ok"} 1`) {
 		t.Fatalf("metrics endpoint did not expose host tool counters:\n%s", body)
+	}
+}
+
+func TestMetricsRouteDisabledByDefault(t *testing.T) {
+	t.Setenv("SUPER_DOLPHIN_ENABLE_METRICS", "")
+	mux := http.NewServeMux()
+	if err := registerHTTPAssetRoutes(mux, nil, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "asset fallback", http.StatusTeapot)
+	}), ""); err != nil {
+		t.Fatalf("registerHTTPAssetRoutes: %v", err)
+	}
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, metrics.PrometheusMetricsPath, nil)
+	req.Host = "127.0.0.1:4511"
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code == http.StatusOK || strings.Contains(rec.Body.String(), "host_tool_calls_total") {
+		t.Fatalf("metrics route exposed by default: status=%d body=%s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestMetricsRouteRequiresExplicitPolicy(t *testing.T) {
+	source, err := os.ReadFile("http_server.go")
+	if err != nil {
+		t.Fatalf("read http_server.go: %v", err)
+	}
+	if strings.Contains(string(source), "metrics.RegisterHTTPHandlers(mux)") {
+		t.Fatal("metrics route is registered directly without an explicit Wails route policy")
+	}
+	if strings.Contains(string(source), "mux.Handle(") {
+		t.Fatal("Wails HTTP routes must be registered through RoutePolicy helper")
+	}
+
+	t.Setenv("SUPER_DOLPHIN_ENABLE_METRICS", "1")
+	mux := http.NewServeMux()
+	if err := registerHTTPAssetRoutes(mux, nil, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "asset fallback", http.StatusTeapot)
+	}), "token-1"); err != nil {
+		t.Fatalf("registerHTTPAssetRoutes: %v", err)
+	}
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, metrics.PrometheusMetricsPath, nil)
+	req.Host = "evil.example:4511"
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("metrics with untrusted host status = %d, want %d", rec.Code, http.StatusForbidden)
+	}
+
+	rec = httptest.NewRecorder()
+	req = httptest.NewRequest(http.MethodGet, metrics.PrometheusMetricsPath, nil)
+	req.Host = "127.0.0.1:4511"
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("metrics without Wails token status = %d, want %d", rec.Code, http.StatusForbidden)
+	}
+
+	rec = httptest.NewRecorder()
+	req = httptest.NewRequest(http.MethodGet, metrics.PrometheusMetricsPath, nil)
+	req.Host = "127.0.0.1:4511"
+	req.AddCookie(&http.Cookie{Name: wailsWebSocketCookieName, Value: "token-1"})
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("metrics with loopback host and token status = %d, want %d: %s", rec.Code, http.StatusOK, rec.Body.String())
 	}
 }
 

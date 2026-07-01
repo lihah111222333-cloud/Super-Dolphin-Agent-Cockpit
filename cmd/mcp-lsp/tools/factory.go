@@ -15,6 +15,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf16"
 
 	lspmanager "github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/manager"
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/middleware"
@@ -444,18 +445,96 @@ func requireFilePath(raw string) (string, error) {
 	return filePath, nil
 }
 
-// requirePosition 把 1-based 行列转换为 LSP 0-based Position，拒绝非正值。
-func requirePosition(line, column int) (protocol.Position, error) {
-	if line <= 0 {
-		return protocol.Position{}, errors.New("line must be >= 1")
+// ResolveLSPPosition 把用户传入的 1-based rune 列转换为 LSP UTF-16 Position。
+// LSP 协议的 character 是 UTF-16 code unit，不能直接使用人读列号减一。
+func ResolveLSPPosition(ctx context.Context, filePath string, line int, column int) (protocol.Position, error) {
+	if ctx == nil {
+		ctx = context.Background()
 	}
+	if err := ctx.Err(); err != nil {
+		return protocol.Position{}, err
+	}
+	mapping, err := loadLinePositionMapping(filePath, line)
+	if err != nil {
+		return protocol.Position{}, err
+	}
+	return mapping.positionFromRuneColumn(column)
+}
+
+type linePositionMapping struct {
+	lineNumber   int
+	lineText     string
+	runes        []rune
+	utf16Offsets []int
+}
+
+func loadLinePositionMapping(filePath string, line int) (linePositionMapping, error) {
+	if line <= 0 {
+		return linePositionMapping{}, errors.New("line must be >= 1")
+	}
+	content, err := os.ReadFile(filePath)
+	if err != nil {
+		return linePositionMapping{}, err
+	}
+	lines := splitNormalizedLines(string(content))
+	if line > len(lines) {
+		return linePositionMapping{}, newLineOutOfRangeError(line, len(lines))
+	}
+	lineText := lines[line-1]
+	runes := []rune(lineText)
+	return linePositionMapping{
+		lineNumber:   line,
+		lineText:     lineText,
+		runes:        runes,
+		utf16Offsets: utf16OffsetsForRunes(runes),
+	}, nil
+}
+
+func utf16OffsetsForRunes(runes []rune) []int {
+	offsets := make([]int, len(runes)+1)
+	current := 0
+	for index, value := range runes {
+		offsets[index] = current
+		current += utf16.RuneLen(value)
+	}
+	offsets[len(runes)] = current
+	return offsets
+}
+
+func (m linePositionMapping) positionFromRuneColumn(column int) (protocol.Position, error) {
 	if column <= 0 {
 		return protocol.Position{}, errors.New("column must be >= 1")
 	}
+	runeIndex := column - 1
+	if runeIndex > len(m.runes) {
+		return protocol.Position{}, newPositionOutOfRangeError(m.lineNumber, column, m.lineText, len(m.runes), len(m.runes)+1)
+	}
 	return protocol.Position{
-		Line:      line - 1,
-		Character: column - 1,
+		Line:      m.lineNumber - 1,
+		Character: m.utf16Offsets[runeIndex],
 	}, nil
+}
+
+func (m linePositionMapping) positionFromRuneIndex(runeIndex int) (protocol.Position, error) {
+	if runeIndex < 0 || runeIndex > len(m.runes) {
+		return protocol.Position{}, fmt.Errorf("rune index %d is outside line length %d", runeIndex, len(m.runes))
+	}
+	return protocol.Position{Line: m.lineNumber - 1, Character: m.utf16Offsets[runeIndex]}, nil
+}
+
+func (m linePositionMapping) runeIndexFromUTF16Character(character int) (int, error) {
+	if character < 0 {
+		return 0, errors.New("character must be >= 0")
+	}
+	for index, offset := range m.utf16Offsets {
+		if offset == character {
+			return index, nil
+		}
+		if offset > character {
+			return 0, fmt.Errorf("character %d splits UTF-16 code units before rune column %d", character, index+1)
+		}
+	}
+	return 0, fmt.Errorf("character %d is outside line UTF-16 length %d", character, m.utf16Offsets[len(m.utf16Offsets)-1])
 }
 
 // resolveFilePositionRequest 解析 pos 参数、解析路径、校验位置是否在文件范围内。
@@ -468,11 +547,8 @@ func resolveFilePositionRequest(ctx context.Context, params filePositionParams) 
 	if err != nil {
 		return "", protocol.Position{}, err
 	}
-	position, err := requirePosition(line, col)
+	position, err := ResolveLSPPosition(ctx, filePath, line, col)
 	if err != nil {
-		return "", protocol.Position{}, err
-	}
-	if err := validateResolvedFilePosition(filePath, line, col); err != nil {
 		return "", protocol.Position{}, err
 	}
 	return filePath, position, nil
@@ -545,25 +621,6 @@ func parseFileLineColumnPos(pos string, rawFilePath string, line int, col int) (
 		return "", 0, 0, false, fmt.Errorf("invalid pos format %q; missing file path before ':line:column' (example internal/foo.go:42:9)", pos)
 	}
 	return filePath, line, col, true, nil
-}
-
-// validateResolvedFilePosition 校验行列是否在文件实际范围内，超出时返回带元信息的 coded error。
-func validateResolvedFilePosition(filePath string, line int, column int) error {
-	content, err := os.ReadFile(filePath)
-	if err != nil {
-		return err
-	}
-	lines := splitNormalizedLines(string(content))
-	if line > len(lines) {
-		return newLineOutOfRangeError(line, len(lines))
-	}
-	lineText := lines[line-1]
-	lineLength := len([]rune(lineText))
-	maxColumn := lineLength + 1
-	if column > maxColumn {
-		return newPositionOutOfRangeError(line, column, lineText, lineLength, maxColumn)
-	}
-	return nil
 }
 
 // newLineOutOfRangeError 构建行号超出文件范围的 coded error，附带元信息。

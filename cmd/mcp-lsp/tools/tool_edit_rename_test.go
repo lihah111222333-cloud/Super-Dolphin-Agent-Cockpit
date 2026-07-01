@@ -16,11 +16,13 @@ import (
 
 type renameTestManager struct {
 	structureTestManager
-	renameResult *protocol.WorkspaceEdit
-	renameErr    error
+	renameResult       *protocol.WorkspaceEdit
+	renameErr          error
+	lastRenamePosition protocol.Position
 }
 
-func (m *renameTestManager) Rename(_ context.Context, _ string, _ protocol.Position, _ string) (*protocol.WorkspaceEdit, error) {
+func (m *renameTestManager) Rename(_ context.Context, _ string, position protocol.Position, _ string) (*protocol.WorkspaceEdit, error) {
+	m.lastRenamePosition = position
 	return m.renameResult, m.renameErr
 }
 
@@ -70,6 +72,31 @@ func TestEditRenameHappyPath(t *testing.T) {
 		t.Fatalf("file content after rename = %q, want containing 'newName'", got)
 	}
 }
+
+func TestRenameUsesUTF16Position(t *testing.T) {
+	root := t.TempDir()
+	target := filepath.Join(root, "main.go")
+	if err := os.WriteFile(target, []byte("package main\n\nfunc main() {\n\t😀oldName := 1\n}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	manager := &renameTestManager{}
+	handler := NewEditHandlerWithRoot(root, &structureTestRegistry{fileManager: manager})
+
+	params, _ := json.Marshal(map[string]any{
+		"action":   "rename",
+		"pos":      "main.go:4:3",
+		"new_name": "newName",
+	})
+	_, err := handler(testToolContext(root), params)
+	if err != nil {
+		t.Fatalf("handleRename() error = %v", err)
+	}
+	want := protocol.Position{Line: 3, Character: 3}
+	if manager.lastRenamePosition != want {
+		t.Fatalf("rename position = %#v, want UTF-16 position %#v", manager.lastRenamePosition, want)
+	}
+}
+
 func TestEditRenameMultiFile(t *testing.T) {
 	root := t.TempDir()
 	file1 := filepath.Join(root, "a.go")
