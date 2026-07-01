@@ -1,5 +1,5 @@
 -- name: ListAILogSystemLogs :many
-SELECT id, ts, level, logger, message, '' AS raw, source, component, agent_id, thread_id, trace_id, event_type, tool_name, duration_ms, '{}' AS extra
+SELECT id, ts, level, logger, message, '' AS raw, source, component, agent_id, thread_id, trace_id, span_id, parent_span_id, event_type, tool_name, duration_ms, '{}' AS extra
 FROM system_logs
 WHERE (sqlc.arg(keyword) = '' OR lower(message) LIKE lower(sqlc.arg(keyword_pattern)))
 ORDER BY ts DESC, id DESC
@@ -18,6 +18,8 @@ SELECT
     agent_id,
     thread_id,
     trace_id,
+    span_id,
+    parent_span_id,
     event_type,
     tool_name,
     duration_ms,
@@ -64,6 +66,8 @@ SELECT
     agent_id,
     thread_id,
     trace_id,
+    span_id,
+    parent_span_id,
     event_type,
     tool_name,
     duration_ms,

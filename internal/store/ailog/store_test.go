@@ -60,21 +60,23 @@ func TestList(t *testing.T) {
 				t.Fatalf("List() forwarded wrong params: %+v", arg)
 			}
 			return []sqlc.ListAILogSystemLogsRow{{
-				ID:         1,
-				Ts:         ts.UnixMilli(),
-				Level:      "info",
-				Logger:     "ai",
-				Message:    "request",
-				Raw:        "",
-				Source:     "ai",
-				Component:  "model",
-				AgentID:    "agent-1",
-				ThreadID:   "thread-1",
-				TraceID:    "trace-1",
-				EventType:  "evt",
-				ToolName:   "tool",
-				DurationMs: &duration,
-				Extra:      `{}`,
+				ID:           1,
+				Ts:           ts.UnixMilli(),
+				Level:        "info",
+				Logger:       "ai",
+				Message:      "request",
+				Raw:          "",
+				Source:       "ai",
+				Component:    "model",
+				AgentID:      "agent-1",
+				ThreadID:     "thread-1",
+				TraceID:      "trace-1",
+				SpanID:       "span-1",
+				ParentSpanID: "parent-1",
+				EventType:    "evt",
+				ToolName:     "tool",
+				DurationMs:   &duration,
+				Extra:        `{}`,
 			}}, nil
 		},
 	}}
@@ -88,6 +90,9 @@ func TestList(t *testing.T) {
 	}
 	if string(rows[0].Extra) != `{}` {
 		t.Fatalf("List() Extra = %s", rows[0].Extra)
+	}
+	if rows[0].TraceID != "trace-1" || rows[0].SpanID != "span-1" || rows[0].ParentSpanID != "parent-1" {
+		t.Fatalf("List() trace fields = trace:%q span:%q parent:%q", rows[0].TraceID, rows[0].SpanID, rows[0].ParentSpanID)
 	}
 }
 
@@ -221,35 +226,65 @@ func TestSQLiteAILogQueriesUseMetadataProjectionAndGoDerivedFields(t *testing.T)
 	if len(recent) != 1 {
 		t.Fatalf("ListRecent() len = %d, want 1", len(recent))
 	}
-	if recent[0].Raw != "" || string(recent[0].Extra) != `{}` {
-		t.Fatalf("ListRecent() projected heavy fields: raw=%q extra=%s", recent[0].Raw, recent[0].Extra)
-	}
-	if recent[0].Endpoint != "/v1/responses" || recent[0].Status != "200" || recent[0].Category != "api_request" {
-		t.Fatalf("ListRecent() derived fields = %+v", recent[0])
-	}
+	assertRecentAILogProjection(t, recent[0])
 
 	filtered, err := s.List(context.Background(), ListFilter{Keyword: "responses", Limit: 10})
 	if err != nil {
 		t.Fatalf("List() error = %v", err)
 	}
-	if len(filtered) != 1 || filtered[0].Raw != "" || string(filtered[0].Extra) != `{}` {
-		t.Fatalf("List() = %+v", filtered)
-	}
+	assertFilteredAILogProjection(t, filtered)
 
 	categoryRows, err := s.ListByCategory(context.Background(), "compat_fallback", "", 10)
 	if err != nil {
 		t.Fatalf("ListByCategory() error = %v", err)
 	}
-	if len(categoryRows) != 1 || categoryRows[0].Category != "compat_fallback" {
-		t.Fatalf("ListByCategory() = %+v", categoryRows)
-	}
+	assertCategoryAILogProjection(t, categoryRows)
 
 	counts, err := s.CountByStatus(context.Background())
 	if err != nil {
 		t.Fatalf("CountByStatus() error = %v", err)
 	}
+	assertAILogStatusCounts(t, counts)
+}
+
+func assertRecentAILogProjection(t *testing.T, row AILog) {
+	t.Helper()
+	if row.Raw != "" || string(row.Extra) != `{}` {
+		t.Fatalf("ListRecent() projected heavy fields: raw=%q extra=%s", row.Raw, row.Extra)
+	}
+	if row.Endpoint != "/v1/responses" || row.Status != "200" || row.Category != "api_request" {
+		t.Fatalf("ListRecent() derived fields = %+v", row)
+	}
+	assertAILogTraceFields(t, "ListRecent()", row)
+}
+
+func assertFilteredAILogProjection(t *testing.T, rows []AILog) {
+	t.Helper()
+	if len(rows) != 1 || rows[0].Raw != "" || string(rows[0].Extra) != `{}` {
+		t.Fatalf("List() = %+v", rows)
+	}
+	assertAILogTraceFields(t, "List()", rows[0])
+}
+
+func assertCategoryAILogProjection(t *testing.T, rows []AILog) {
+	t.Helper()
+	if len(rows) != 1 || rows[0].Category != "compat_fallback" {
+		t.Fatalf("ListByCategory() = %+v", rows)
+	}
+	assertAILogTraceFields(t, "ListByCategory()", rows[0])
+}
+
+func assertAILogStatusCounts(t *testing.T, counts []StatusCount) {
+	t.Helper()
 	if len(counts) != 1 || counts[0].Status != "200" || counts[0].Count != 1 {
 		t.Fatalf("CountByStatus() = %+v", counts)
+	}
+}
+
+func assertAILogTraceFields(t *testing.T, label string, row AILog) {
+	t.Helper()
+	if row.TraceID != "trace-1" || row.SpanID != "span-1" || row.ParentSpanID != "parent-1" {
+		t.Fatalf("%s trace fields = trace:%q span:%q parent:%q", label, row.TraceID, row.SpanID, row.ParentSpanID)
 	}
 }
 
@@ -322,9 +357,9 @@ func insertAILogSystemRow(t *testing.T, db *sql.DB, ts int64, level string, mess
 	t.Helper()
 
 	_, err := db.Exec(`
-INSERT INTO system_logs (
-    ts, level, logger, message, raw, source, component, agent_id, thread_id, trace_id, event_type, tool_name, duration_ms, extra
-) VALUES (?, ?, 'ai', ?, ?, 'provider', 'model', 'agent-1', 'thread-1', 'trace-1', 'event', 'tool', 25, ?);
+	INSERT INTO system_logs (
+	    ts, level, logger, message, raw, source, component, agent_id, thread_id, trace_id, span_id, parent_span_id, event_type, tool_name, duration_ms, extra
+	) VALUES (?, ?, 'ai', ?, ?, 'provider', 'model', 'agent-1', 'thread-1', 'trace-1', 'span-1', 'parent-1', 'event', 'tool', 25, ?);
 `, ts, level, message, raw, `{"big":"payload"}`)
 	if err != nil {
 		t.Fatalf("insert system log: %v", err)

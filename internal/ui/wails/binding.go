@@ -336,21 +336,14 @@ func frontendTraceContext(ctx context.Context, raw json.RawMessage) (context.Con
 	if err != nil {
 		return nil, err
 	}
-	traceparent, ok, err := frontendStringField(obj, "_aoTraceparent")
+	trace, ok, err := pkglogger.ExtractAOTraceCarrierJSON(obj)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("wails binding: %w", err)
 	}
 	if !ok {
 		return ctx, nil
 	}
-	traceID, spanID, err := parseFrontendTraceparent(traceparent)
-	if err != nil {
-		return nil, fmt.Errorf("wails binding: invalid _aoTraceparent: %w", err)
-	}
-	if err := validateFrontendTraceMetadata(obj, traceID, spanID); err != nil {
-		return nil, err
-	}
-	return pkglogger.WithTraceContext(ctx, traceID, spanID, ""), nil
+	return pkglogger.WithTraceContext(ctx, trace.TraceID, trace.SpanID, ""), nil
 }
 
 // isJSONObject 快速判断 RawMessage 是否为 JSON object。
@@ -365,103 +358,6 @@ func decodeFrontendMetaObject(raw json.RawMessage) (map[string]json.RawMessage, 
 		return nil, fmt.Errorf("wails binding: decode frontend metadata: %w", err)
 	}
 	return obj, nil
-}
-
-// validateFrontendTraceMetadata 校验拆分后的 trace id/span id 与显式 meta 字段一致。
-func validateFrontendTraceMetadata(obj map[string]json.RawMessage, traceID, spanID string) error {
-	if metadataTraceID, ok, err := frontendStringField(obj, "_aoTraceId"); err != nil {
-		return err
-	} else if ok && metadataTraceID != traceID {
-		return fmt.Errorf("wails binding: mismatched _aoTraceId")
-	}
-	if metadataSpanID, ok, err := frontendStringField(obj, "_aoSpanId"); err != nil {
-		return err
-	} else if ok && metadataSpanID != spanID {
-		return fmt.Errorf("wails binding: mismatched _aoSpanId")
-	}
-	return nil
-}
-
-// frontendStringField 从前端 meta object 中读取 string 字段并校验类型。
-func frontendStringField(obj map[string]json.RawMessage, key string) (string, bool, error) {
-	raw, ok := obj[key]
-	if !ok {
-		return "", false, nil
-	}
-	var value string
-	if err := json.Unmarshal(raw, &value); err != nil {
-		return "", true, fmt.Errorf("wails binding: %s must be a string", key)
-	}
-	return value, true, nil
-}
-
-// parseFrontendTraceparent 解析前端传入的 W3C traceparent。
-func parseFrontendTraceparent(value string) (string, string, error) {
-	parts := strings.Split(value, "-")
-	if len(parts) != 4 {
-		return "", "", fmt.Errorf("expected 4 dash-separated fields")
-	}
-	if parts[0] != "00" {
-		return "", "", fmt.Errorf("unsupported version %q", parts[0])
-	}
-	traceID, spanID, flags := parts[1], parts[2], parts[3]
-	if err := validateTraceID(traceID); err != nil {
-		return "", "", err
-	}
-	if err := validateSpanID(spanID); err != nil {
-		return "", "", err
-	}
-	if err := validateTraceFlags(flags); err != nil {
-		return "", "", err
-	}
-	return traceID, spanID, nil
-}
-
-// validateTraceID 校验前端 trace id 是否符合 W3C traceparent 要求。
-// 非法或全零 ID 会直接拒绝，避免把无效链路写入观测日志。
-func validateTraceID(value string) error {
-	if len(value) != 32 || !isLowerHex(value) || allZeroHex(value) {
-		return fmt.Errorf("invalid trace id")
-	}
-	return nil
-}
-
-// validateSpanID 校验前端 span id 是否符合 W3C traceparent 要求。
-// 非法或全零 ID 会直接拒绝，避免父子 span 关系被错误串联。
-func validateSpanID(value string) error {
-	if len(value) != 16 || !isLowerHex(value) || allZeroHex(value) {
-		return fmt.Errorf("invalid span id")
-	}
-	return nil
-}
-
-// validateTraceFlags 校验 trace flags 为两位小写十六进制。
-// 这里不解释采样语义，只保证前端传入的 traceparent 格式可被后端记录。
-func validateTraceFlags(value string) error {
-	if len(value) != 2 || !isLowerHex(value) {
-		return fmt.Errorf("invalid flags")
-	}
-	return nil
-}
-
-// isLowerHex 判断字符串是否只包含小写十六进制字符。
-func isLowerHex(value string) bool {
-	for _, ch := range value {
-		if (ch < '0' || ch > '9') && (ch < 'a' || ch > 'f') {
-			return false
-		}
-	}
-	return true
-}
-
-// allZeroHex 判断十六进制 ID 是否全零。
-func allZeroHex(value string) bool {
-	for _, ch := range value {
-		if ch != '0' {
-			return false
-		}
-	}
-	return true
 }
 
 // decodeAPIResult 把 RPC JSON 结果还原为前端可消费的 Go 值。

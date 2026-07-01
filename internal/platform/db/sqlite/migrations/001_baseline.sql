@@ -410,6 +410,8 @@ CREATE TABLE IF NOT EXISTS system_logs (
     agent_id TEXT NOT NULL DEFAULT '',
     thread_id TEXT NOT NULL DEFAULT '',
     trace_id TEXT NOT NULL DEFAULT '',
+    span_id TEXT NOT NULL DEFAULT '',
+    parent_span_id TEXT NOT NULL DEFAULT '',
     event_type TEXT NOT NULL DEFAULT '',
     tool_name TEXT NOT NULL DEFAULT '',
     duration_ms INTEGER,
@@ -758,6 +760,8 @@ CREATE INDEX IF NOT EXISTS idx_system_logs_level_ts_id ON system_logs(level, ts 
 CREATE INDEX IF NOT EXISTS idx_system_logs_source_ts_id ON system_logs(source, ts DESC, id DESC) WHERE source <> '';
 CREATE INDEX IF NOT EXISTS idx_system_logs_agent_ts_id ON system_logs(agent_id, ts DESC, id DESC) WHERE agent_id <> '';
 CREATE INDEX IF NOT EXISTS idx_system_logs_thread_ts_id ON system_logs(thread_id, ts DESC, id DESC) WHERE thread_id <> '';
+CREATE INDEX IF NOT EXISTS idx_system_logs_trace_ts_id ON system_logs(trace_id, ts DESC, id DESC) WHERE trace_id <> '';
+CREATE INDEX IF NOT EXISTS idx_system_logs_span_ts_id ON system_logs(span_id, ts DESC, id DESC) WHERE span_id <> '';
 CREATE INDEX IF NOT EXISTS idx_system_logs_logger ON system_logs(logger);
 CREATE INDEX IF NOT EXISTS idx_system_logs_event ON system_logs(event_type) WHERE event_type <> '';
 CREATE INDEX IF NOT EXISTS idx_system_logs_tool ON system_logs(tool_name) WHERE tool_name <> '';

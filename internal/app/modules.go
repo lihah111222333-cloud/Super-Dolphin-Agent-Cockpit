@@ -67,7 +67,7 @@ var Module = fx.Options(
 	platformrunner.Module,
 	statemachine.Module,
 	platformobservability.Module,
-	fx.Provide(provideBusTraceRecorder, provideRPCTraceRecorder),
+	fx.Provide(provideBusTraceRecorder, provideRPCTraceRecorder, provideMCPControlSystemLogSink),
 	store.Module,
 	dashboard.Module,
 	datasource.Module,

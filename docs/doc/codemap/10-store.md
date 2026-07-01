@@ -240,10 +240,10 @@
   - `List(ctx context.Context, filter ListFilter) ([]SystemLog, error)`
   - `Insert(ctx context.Context, params InsertParams) error`
 - **关键实现**：
-  - `Insert`：当前只写基础列 `level/logger/message/raw`。
-  - `List`：支持 `level/logger/source/component/agent_id/thread_id/event_type/tool_name` 的精确过滤，以及关键词检索。
+  - `Insert`：写入 `level/logger/message/raw` 以及 `source/component/agent_id/thread_id/trace_id/span_id/parent_span_id/event_type/tool_name/duration_ms/extra`。
+  - `List`：支持 `level/logger/source/component/agent_id/thread_id/trace_id/span_id/parent_span_id/event_type/tool_name` 的精确过滤，以及关键词检索。
 - **表 / SQL**：`system_logs` / `sql/queries/system_log.sql`
-- **备注**：关键词搜索字段实际只覆盖 `level/logger/message/raw/source/component`，扩展元数据字段主要通过精确过滤使用。
+- **备注**：关键词搜索覆盖 `level/logger/message/raw/source/component/trace_id/span_id/parent_span_id`，扩展元数据字段主要通过精确过滤使用。
 
 ### 2.14 `tasktrace`
 - **文件**：`contract.go` / `store.go` / `module.go`
@@ -501,11 +501,11 @@ store 层的主要价值在于：
 
 #### `system_logs`
 - 初始列：`id, ts, level, logger, message, raw`
-- `0009_system_logs_v2.sql` 后扩展为：
-  `source, component, agent_id, thread_id, trace_id, event_type, tool_name, duration_ms, extra`
+- 当前 baseline / `112_system_logs_trace_span.sql` 后扩展为：
+  `source, component, agent_id, thread_id, trace_id, span_id, parent_span_id, event_type, tool_name, duration_ms, extra`
 - 索引：
   - 基础索引：`ts / level / logger`
-  - 部分索引：`source / agent_id / thread_id / event_type / tool_name`（仅非空值）
+  - 部分索引：`source / agent_id / thread_id / trace_id / span_id / event_type / tool_name`（仅非空值）
 - 对应 store：`systemlog`
 - 投影 store：`ailog`
 

@@ -13,6 +13,7 @@ import (
 	datasourcev2 "github.com/anthropic-ai/super-agent-v3/internal/module/datasource_v2"
 	"github.com/anthropic-ai/super-agent-v3/internal/module/turn"
 	"github.com/anthropic-ai/super-agent-v3/internal/module/workflowtemplate"
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/mcpcontrol"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/toolbridge"
 	"github.com/anthropic-ai/super-agent-v3/internal/provider/codexapp"
 	uiwails "github.com/anthropic-ai/super-agent-v3/internal/ui/wails"
@@ -90,6 +91,16 @@ func TestAppModuleGraphProvidesWorkflowTemplateService(t *testing.T) {
 	}
 }
 
+func TestAppModuleGraphProvidesMCPControlSystemLogSink(t *testing.T) {
+	t.Parallel()
+
+	var sink mcpcontrol.SystemLogSink
+	opts := append(appGraphValidationOptions(), fx.Populate(&sink))
+	if err := fx.ValidateApp(opts...); err != nil {
+		t.Fatalf("fx.ValidateApp missing MCP control system log sink: %v", err)
+	}
+}
+
 func TestToolbridgeCodexProductionBindingRequiresCriticalDependencies(t *testing.T) {
 	t.Parallel()
 
@@ -125,7 +136,6 @@ func TestToolbridgeCodexProductionBindingRequiresCriticalDependencies(t *testing
 	}
 
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 

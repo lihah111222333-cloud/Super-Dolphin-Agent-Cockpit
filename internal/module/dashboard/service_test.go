@@ -527,6 +527,61 @@ func TestGetRecentAILogsUsesStore(t *testing.T) {
 	}
 }
 
+func TestGetLogsRequiresEnabledReaders(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name string
+		svc  *service
+		src  string
+		want error
+	}{
+		{name: "system", svc: &service{}, src: logSourceSystem, want: errDashboardSystemLogsNotConfigured},
+		{name: "ai", svc: &service{}, src: logSourceAI, want: errDashboardAILogsNotConfigured},
+		{name: "all requires ai after system", svc: &service{systemLogs: &stubSystemLogStore{}}, src: logSourceAll, want: errDashboardAILogsNotConfigured},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			_, err := tc.svc.GetLogs(context.Background(), LogFilter{Source: tc.src})
+			if !errors.Is(err, tc.want) {
+				t.Fatalf("GetLogs(%q) error = %v, want %v", tc.src, err, tc.want)
+			}
+		})
+	}
+}
+
+func TestAILogAPIsRequireStore(t *testing.T) {
+	t.Parallel()
+
+	svc := &service{}
+	cases := []struct {
+		name string
+		call func() error
+	}{
+		{name: "category", call: func() error {
+			_, err := svc.GetAILogsByCategory(context.Background(), "api_request", "", 10)
+			return err
+		}},
+		{name: "stats", call: func() error {
+			_, err := svc.GetAILogStats(context.Background())
+			return err
+		}},
+		{name: "recent", call: func() error {
+			_, err := svc.GetRecentAILogs(context.Background(), 10)
+			return err
+		}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			if err := tc.call(); !errors.Is(err, errDashboardAILogsNotConfigured) {
+				t.Fatalf("%s error = %v, want %v", tc.name, err, errDashboardAILogsNotConfigured)
+			}
+		})
+	}
+}
+
 func TestGetAuditLogsUsesStore(t *testing.T) {
 	t.Parallel()
 
@@ -623,6 +678,21 @@ type stubAILogStore struct {
 }
 
 var _ AILogReader = (*stubAILogStore)(nil)
+
+type stubSystemLogStore struct {
+	listResult []SystemLog
+	listErr    error
+	listFilter SystemLogFilter
+	listCalls  int
+}
+
+var _ SystemLogReader = (*stubSystemLogStore)(nil)
+
+func (s *stubSystemLogStore) List(_ context.Context, filter SystemLogFilter) ([]SystemLog, error) {
+	s.listCalls++
+	s.listFilter = filter
+	return s.listResult, s.listErr
+}
 
 func (s *stubAILogStore) List(_ context.Context, filter AILogFilter) ([]AILog, error) {
 	s.listCalls++

@@ -45,21 +45,27 @@ type agentDetailParams struct {
 // logsParams 是 dashboard 日志类接口的统一 wire 参数。
 // 同时保留 camelCase 和 snake_case 字段以兼容旧前端。
 type logsParams struct {
-	Source         string `json:"source,omitempty"`
-	Category       string `json:"category,omitempty"`
-	Keyword        string `json:"keyword,omitempty"`
-	Level          string `json:"level,omitempty"`
-	Logger         string `json:"logger,omitempty"`
-	Component      string `json:"component,omitempty"`
-	AgentID        string `json:"agentId,omitempty"`
-	AgentIDSnake   string `json:"agent_id,omitempty"`
-	ThreadID       string `json:"threadId,omitempty"`
-	ThreadIDSnake  string `json:"thread_id,omitempty"`
-	EventType      string `json:"eventType,omitempty"`
-	EventTypeSnake string `json:"event_type,omitempty"`
-	ToolName       string `json:"toolName,omitempty"`
-	ToolNameSnake  string `json:"tool_name,omitempty"`
-	Limit          int    `json:"limit,omitempty"`
+	Source            string `json:"source,omitempty"`
+	Category          string `json:"category,omitempty"`
+	Keyword           string `json:"keyword,omitempty"`
+	Level             string `json:"level,omitempty"`
+	Logger            string `json:"logger,omitempty"`
+	Component         string `json:"component,omitempty"`
+	AgentID           string `json:"agentId,omitempty"`
+	AgentIDSnake      string `json:"agent_id,omitempty"`
+	ThreadID          string `json:"threadId,omitempty"`
+	ThreadIDSnake     string `json:"thread_id,omitempty"`
+	TraceID           string `json:"traceId,omitempty"`
+	TraceIDSnake      string `json:"trace_id,omitempty"`
+	SpanID            string `json:"spanId,omitempty"`
+	SpanIDSnake       string `json:"span_id,omitempty"`
+	ParentSpanID      string `json:"parentSpanId,omitempty"`
+	ParentSpanIDSnake string `json:"parent_span_id,omitempty"`
+	EventType         string `json:"eventType,omitempty"`
+	EventTypeSnake    string `json:"event_type,omitempty"`
+	ToolName          string `json:"toolName,omitempty"`
+	ToolNameSnake     string `json:"tool_name,omitempty"`
+	Limit             int    `json:"limit,omitempty"`
 }
 
 // logDetailParams 是 dashboard/logDetail 的请求参数。

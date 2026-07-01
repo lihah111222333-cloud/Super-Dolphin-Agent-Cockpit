@@ -2,6 +2,7 @@ package systemlog
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"testing"
 	"time"
@@ -38,36 +39,41 @@ func TestListForwardsAll9ColumnsAndLimit(t *testing.T) {
 		listFn: func(_ context.Context, arg sqlc.ListSystemLogsParams) ([]sqlc.ListSystemLogsRow, error) {
 			captured = arg
 			return []sqlc.ListSystemLogsRow{{
-				ID:         1,
-				Ts:         now.UnixMilli(),
-				Level:      "info",
-				Logger:     "app",
-				Message:    "hello",
-				Raw:        "raw",
-				Source:     "src",
-				Component:  "cmp",
-				AgentID:    "a1",
-				ThreadID:   "t1",
-				TraceID:    "tr1",
-				EventType:  "evt",
-				ToolName:   "tool",
-				DurationMs: &duration,
-				Extra:      `{"ok":true}`,
+				ID:           1,
+				Ts:           now.UnixMilli(),
+				Level:        "info",
+				Logger:       "app",
+				Message:      "hello",
+				Raw:          "raw",
+				Source:       "src",
+				Component:    "cmp",
+				AgentID:      "a1",
+				ThreadID:     "t1",
+				TraceID:      "tr1",
+				SpanID:       "sp1",
+				ParentSpanID: "parent1",
+				EventType:    "evt",
+				ToolName:     "tool",
+				DurationMs:   &duration,
+				Extra:        []byte(`{"ok":true}`),
 			}}, nil
 		},
 	}}
 
 	filter := ListFilter{
-		Level:     "info",
-		Logger:    "app",
-		Source:    "src",
-		Component: "cmp",
-		AgentID:   "a1",
-		ThreadID:  "t1",
-		EventType: "evt",
-		ToolName:  "tool",
-		Keyword:   "hel",
-		Limit:     10,
+		Level:        "info",
+		Logger:       "app",
+		Source:       "src",
+		Component:    "cmp",
+		AgentID:      "a1",
+		ThreadID:     "t1",
+		TraceID:      "tr1",
+		SpanID:       "sp1",
+		ParentSpanID: "parent1",
+		EventType:    "evt",
+		ToolName:     "tool",
+		Keyword:      "hel",
+		Limit:        10,
 	}
 	got, err := s.List(context.Background(), filter)
 	if err != nil {
@@ -90,6 +96,9 @@ func assertSystemLogListParams(t *testing.T, captured sqlc.ListSystemLogsParams)
 		{name: "component", got: captured.ComponentFilter, want: "cmp"},
 		{name: "agent", got: captured.AgentIDFilter, want: "a1"},
 		{name: "thread", got: captured.ThreadIDFilter, want: "t1"},
+		{name: "trace", got: captured.TraceIDFilter, want: "tr1"},
+		{name: "span", got: captured.SpanIDFilter, want: "sp1"},
+		{name: "parent span", got: captured.ParentSpanIDFilter, want: "parent1"},
 		{name: "event", got: captured.EventTypeFilter, want: "evt"},
 		{name: "tool", got: captured.ToolNameFilter, want: "tool"},
 		{name: "keyword", got: captured.Keyword, want: "hel"},
@@ -127,6 +136,9 @@ func assertSystemLogCoreFields(t *testing.T, row SystemLog) {
 	}
 	if row.AgentID != "a1" {
 		t.Fatalf("List() row AgentID = %q, want a1", row.AgentID)
+	}
+	if row.TraceID != "tr1" || row.SpanID != "sp1" || row.ParentSpanID != "parent1" {
+		t.Fatalf("List() trace fields = trace:%q span:%q parent:%q", row.TraceID, row.SpanID, row.ParentSpanID)
 	}
 	if row.DurationMs == nil {
 		t.Fatalf("List() row DurationMs = nil, want 42")
@@ -176,13 +188,28 @@ func TestInsertForwardsParamsAndWrapsError(t *testing.T) {
 			return nil
 		},
 	}}
-	params := InsertParams{Level: "warn", Logger: "audit", Message: "denied", Raw: "raw-line"}
+	duration := int32(87)
+	params := InsertParams{
+		Level:        "warn",
+		Logger:       "audit",
+		Message:      "denied",
+		Raw:          "raw-line",
+		Source:       "mcp-control",
+		Component:    "mcp-lsp",
+		AgentID:      "agent-1",
+		ThreadID:     "thread-1",
+		TraceID:      "trace-1",
+		SpanID:       "span-1",
+		ParentSpanID: "parent-1",
+		EventType:    "ctl/log",
+		ToolName:     "mcp-lsp",
+		DurationMs:   &duration,
+		Extra:        json.RawMessage(`{"span_id":"span-1"}`),
+	}
 	if err := s.Insert(context.Background(), params); err != nil {
 		t.Fatalf("Insert() unexpected error: %v", err)
 	}
-	if captured.Level != "warn" || captured.Logger != "audit" || captured.Message != "denied" || captured.Raw != "raw-line" {
-		t.Fatalf("Insert() forwarded wrong params: %+v", captured)
-	}
+	assertSystemLogInsertParams(t, captured)
 	if captured.Ts == 0 {
 		t.Fatalf("Insert() Ts = 0, want Go epoch milliseconds")
 	}
@@ -193,5 +220,36 @@ func TestInsertForwardsParamsAndWrapsError(t *testing.T) {
 	}}
 	if err := s.Insert(context.Background(), InsertParams{}); err == nil || !errors.Is(err, sentinel) {
 		t.Fatalf("Insert() err = %v, want wrap of sentinel", err)
+	}
+}
+
+func assertSystemLogInsertParams(t *testing.T, captured sqlc.InsertSystemLogParams) {
+	t.Helper()
+	for _, check := range []struct {
+		name string
+		got  string
+		want string
+	}{
+		{name: "level", got: captured.Level, want: "warn"},
+		{name: "logger", got: captured.Logger, want: "audit"},
+		{name: "message", got: captured.Message, want: "denied"},
+		{name: "raw", got: captured.Raw, want: "raw-line"},
+		{name: "source", got: captured.Source, want: "mcp-control"},
+		{name: "component", got: captured.Component, want: "mcp-lsp"},
+		{name: "agent", got: captured.AgentID, want: "agent-1"},
+		{name: "thread", got: captured.ThreadID, want: "thread-1"},
+		{name: "trace", got: captured.TraceID, want: "trace-1"},
+		{name: "span", got: captured.SpanID, want: "span-1"},
+		{name: "parent span", got: captured.ParentSpanID, want: "parent-1"},
+		{name: "event", got: captured.EventType, want: "ctl/log"},
+		{name: "tool", got: captured.ToolName, want: "mcp-lsp"},
+		{name: "extra", got: string(captured.Extra), want: `{"span_id":"span-1"}`},
+	} {
+		if check.got != check.want {
+			t.Fatalf("Insert() %s = %q, want %q; params=%+v", check.name, check.got, check.want, captured)
+		}
+	}
+	if captured.DurationMs == nil || *captured.DurationMs != 87 {
+		t.Fatalf("Insert() DurationMs = %v, want 87; params=%+v", captured.DurationMs, captured)
 	}
 }

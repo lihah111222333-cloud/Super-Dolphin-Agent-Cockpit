@@ -7,19 +7,39 @@ package sqlc
 
 import (
 	"context"
+	"encoding/json"
 )
 
 const insertSystemLog = `-- name: InsertSystemLog :exec
-INSERT INTO system_logs (ts, level, logger, message, raw)
-VALUES (?1, ?2, ?3, ?4, ?5)
+INSERT INTO system_logs (
+    ts, level, logger, message, raw,
+    source, component, agent_id, thread_id, trace_id, span_id, parent_span_id,
+    event_type, tool_name, duration_ms, extra
+)
+VALUES (
+    ?1, ?2, ?3, ?4, ?5,
+    ?6, ?7, ?8, ?9, ?10, ?11, ?12,
+    ?13, ?14, ?15, ?16
+)
 `
 
 type InsertSystemLogParams struct {
-	Ts      int64  `db:"ts" json:"ts"`
-	Level   string `db:"level" json:"level"`
-	Logger  string `db:"logger" json:"logger"`
-	Message string `db:"message" json:"message"`
-	Raw     string `db:"raw" json:"raw"`
+	Ts           int64           `db:"ts" json:"ts"`
+	Level        string          `db:"level" json:"level"`
+	Logger       string          `db:"logger" json:"logger"`
+	Message      string          `db:"message" json:"message"`
+	Raw          string          `db:"raw" json:"raw"`
+	Source       string          `db:"source" json:"source"`
+	Component    string          `db:"component" json:"component"`
+	AgentID      string          `db:"agent_id" json:"agent_id"`
+	ThreadID     string          `db:"thread_id" json:"thread_id"`
+	TraceID      string          `db:"trace_id" json:"trace_id"`
+	SpanID       string          `db:"span_id" json:"span_id"`
+	ParentSpanID string          `db:"parent_span_id" json:"parent_span_id"`
+	EventType    string          `db:"event_type" json:"event_type"`
+	ToolName     string          `db:"tool_name" json:"tool_name"`
+	DurationMs   *int64          `db:"duration_ms" json:"duration_ms"`
+	Extra        json.RawMessage `db:"extra" json:"extra"`
 }
 
 func (q *Queries) InsertSystemLog(ctx context.Context, arg InsertSystemLogParams) error {
@@ -29,12 +49,23 @@ func (q *Queries) InsertSystemLog(ctx context.Context, arg InsertSystemLogParams
 		arg.Logger,
 		arg.Message,
 		arg.Raw,
+		arg.Source,
+		arg.Component,
+		arg.AgentID,
+		arg.ThreadID,
+		arg.TraceID,
+		arg.SpanID,
+		arg.ParentSpanID,
+		arg.EventType,
+		arg.ToolName,
+		arg.DurationMs,
+		arg.Extra,
 	)
 	return err
 }
 
 const listSystemLogs = `-- name: ListSystemLogs :many
-SELECT id, ts, level, logger, message, '' AS raw, source, component, agent_id, thread_id, trace_id, event_type, tool_name, duration_ms, '{}' AS extra
+SELECT id, ts, level, logger, message, raw, source, component, agent_id, thread_id, trace_id, span_id, parent_span_id, event_type, tool_name, duration_ms, CAST(extra AS BLOB) AS extra
 FROM system_logs
 WHERE (?1 = '' OR level = ?1)
   AND (?2 = '' OR logger = ?2)
@@ -42,49 +73,60 @@ WHERE (?1 = '' OR level = ?1)
   AND (?4 = '' OR component = ?4)
   AND (?5 = '' OR agent_id = ?5)
   AND (?6 = '' OR thread_id = ?6)
-  AND (?7 = '' OR event_type = ?7)
-  AND (?8 = '' OR tool_name = ?8)
-  AND (?9 = ''
-    OR lower(level) LIKE lower(?10)
-    OR lower(logger) LIKE lower(?10)
-    OR lower(message) LIKE lower(?10)
-    OR lower(raw) LIKE lower(?10)
-    OR lower(source) LIKE lower(?10)
-    OR lower(component) LIKE lower(?10))
+  AND (?7 = '' OR trace_id = ?7)
+  AND (?8 = '' OR span_id = ?8)
+  AND (?9 = '' OR parent_span_id = ?9)
+  AND (?10 = '' OR event_type = ?10)
+  AND (?11 = '' OR tool_name = ?11)
+  AND (?12 = ''
+    OR lower(level) LIKE lower(?13)
+    OR lower(logger) LIKE lower(?13)
+    OR lower(message) LIKE lower(?13)
+    OR lower(raw) LIKE lower(?13)
+    OR lower(source) LIKE lower(?13)
+    OR lower(component) LIKE lower(?13)
+    OR lower(trace_id) LIKE lower(?13)
+    OR lower(span_id) LIKE lower(?13)
+    OR lower(parent_span_id) LIKE lower(?13))
 ORDER BY ts DESC, id DESC
-LIMIT ?11
+LIMIT ?14
 `
 
 type ListSystemLogsParams struct {
-	LevelFilter     interface{} `db:"level_filter" json:"level_filter"`
-	LoggerFilter    interface{} `db:"logger_filter" json:"logger_filter"`
-	SourceFilter    interface{} `db:"source_filter" json:"source_filter"`
-	ComponentFilter interface{} `db:"component_filter" json:"component_filter"`
-	AgentIDFilter   interface{} `db:"agent_id_filter" json:"agent_id_filter"`
-	ThreadIDFilter  interface{} `db:"thread_id_filter" json:"thread_id_filter"`
-	EventTypeFilter interface{} `db:"event_type_filter" json:"event_type_filter"`
-	ToolNameFilter  interface{} `db:"tool_name_filter" json:"tool_name_filter"`
-	Keyword         interface{} `db:"keyword" json:"keyword"`
-	KeywordPattern  string      `db:"keyword_pattern" json:"keyword_pattern"`
-	LimitCount      int64       `db:"limit_count" json:"limit_count"`
+	LevelFilter        interface{} `db:"level_filter" json:"level_filter"`
+	LoggerFilter       interface{} `db:"logger_filter" json:"logger_filter"`
+	SourceFilter       interface{} `db:"source_filter" json:"source_filter"`
+	ComponentFilter    interface{} `db:"component_filter" json:"component_filter"`
+	AgentIDFilter      interface{} `db:"agent_id_filter" json:"agent_id_filter"`
+	ThreadIDFilter     interface{} `db:"thread_id_filter" json:"thread_id_filter"`
+	TraceIDFilter      interface{} `db:"trace_id_filter" json:"trace_id_filter"`
+	SpanIDFilter       interface{} `db:"span_id_filter" json:"span_id_filter"`
+	ParentSpanIDFilter interface{} `db:"parent_span_id_filter" json:"parent_span_id_filter"`
+	EventTypeFilter    interface{} `db:"event_type_filter" json:"event_type_filter"`
+	ToolNameFilter     interface{} `db:"tool_name_filter" json:"tool_name_filter"`
+	Keyword            interface{} `db:"keyword" json:"keyword"`
+	KeywordPattern     string      `db:"keyword_pattern" json:"keyword_pattern"`
+	LimitCount         int64       `db:"limit_count" json:"limit_count"`
 }
 
 type ListSystemLogsRow struct {
-	ID         int64  `db:"id" json:"id"`
-	Ts         int64  `db:"ts" json:"ts"`
-	Level      string `db:"level" json:"level"`
-	Logger     string `db:"logger" json:"logger"`
-	Message    string `db:"message" json:"message"`
-	Raw        string `db:"raw" json:"raw"`
-	Source     string `db:"source" json:"source"`
-	Component  string `db:"component" json:"component"`
-	AgentID    string `db:"agent_id" json:"agent_id"`
-	ThreadID   string `db:"thread_id" json:"thread_id"`
-	TraceID    string `db:"trace_id" json:"trace_id"`
-	EventType  string `db:"event_type" json:"event_type"`
-	ToolName   string `db:"tool_name" json:"tool_name"`
-	DurationMs *int64 `db:"duration_ms" json:"duration_ms"`
-	Extra      string `db:"extra" json:"extra"`
+	ID           int64  `db:"id" json:"id"`
+	Ts           int64  `db:"ts" json:"ts"`
+	Level        string `db:"level" json:"level"`
+	Logger       string `db:"logger" json:"logger"`
+	Message      string `db:"message" json:"message"`
+	Raw          string `db:"raw" json:"raw"`
+	Source       string `db:"source" json:"source"`
+	Component    string `db:"component" json:"component"`
+	AgentID      string `db:"agent_id" json:"agent_id"`
+	ThreadID     string `db:"thread_id" json:"thread_id"`
+	TraceID      string `db:"trace_id" json:"trace_id"`
+	SpanID       string `db:"span_id" json:"span_id"`
+	ParentSpanID string `db:"parent_span_id" json:"parent_span_id"`
+	EventType    string `db:"event_type" json:"event_type"`
+	ToolName     string `db:"tool_name" json:"tool_name"`
+	DurationMs   *int64 `db:"duration_ms" json:"duration_ms"`
+	Extra        []byte `db:"extra" json:"extra"`
 }
 
 func (q *Queries) ListSystemLogs(ctx context.Context, arg ListSystemLogsParams) ([]ListSystemLogsRow, error) {
@@ -95,6 +137,9 @@ func (q *Queries) ListSystemLogs(ctx context.Context, arg ListSystemLogsParams) 
 		arg.ComponentFilter,
 		arg.AgentIDFilter,
 		arg.ThreadIDFilter,
+		arg.TraceIDFilter,
+		arg.SpanIDFilter,
+		arg.ParentSpanIDFilter,
 		arg.EventTypeFilter,
 		arg.ToolNameFilter,
 		arg.Keyword,
@@ -120,6 +165,8 @@ func (q *Queries) ListSystemLogs(ctx context.Context, arg ListSystemLogsParams) 
 			&i.AgentID,
 			&i.ThreadID,
 			&i.TraceID,
+			&i.SpanID,
+			&i.ParentSpanID,
 			&i.EventType,
 			&i.ToolName,
 			&i.DurationMs,

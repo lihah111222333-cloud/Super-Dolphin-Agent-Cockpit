@@ -40,7 +40,7 @@ func (q *Queries) CountAILogsByStatus(ctx context.Context) ([]string, error) {
 }
 
 const listAILogSystemLogs = `-- name: ListAILogSystemLogs :many
-SELECT id, ts, level, logger, message, '' AS raw, source, component, agent_id, thread_id, trace_id, event_type, tool_name, duration_ms, '{}' AS extra
+SELECT id, ts, level, logger, message, '' AS raw, source, component, agent_id, thread_id, trace_id, span_id, parent_span_id, event_type, tool_name, duration_ms, '{}' AS extra
 FROM system_logs
 WHERE (?1 = '' OR lower(message) LIKE lower(?2))
 ORDER BY ts DESC, id DESC
@@ -54,21 +54,23 @@ type ListAILogSystemLogsParams struct {
 }
 
 type ListAILogSystemLogsRow struct {
-	ID         int64  `db:"id" json:"id"`
-	Ts         int64  `db:"ts" json:"ts"`
-	Level      string `db:"level" json:"level"`
-	Logger     string `db:"logger" json:"logger"`
-	Message    string `db:"message" json:"message"`
-	Raw        string `db:"raw" json:"raw"`
-	Source     string `db:"source" json:"source"`
-	Component  string `db:"component" json:"component"`
-	AgentID    string `db:"agent_id" json:"agent_id"`
-	ThreadID   string `db:"thread_id" json:"thread_id"`
-	TraceID    string `db:"trace_id" json:"trace_id"`
-	EventType  string `db:"event_type" json:"event_type"`
-	ToolName   string `db:"tool_name" json:"tool_name"`
-	DurationMs *int64 `db:"duration_ms" json:"duration_ms"`
-	Extra      string `db:"extra" json:"extra"`
+	ID           int64  `db:"id" json:"id"`
+	Ts           int64  `db:"ts" json:"ts"`
+	Level        string `db:"level" json:"level"`
+	Logger       string `db:"logger" json:"logger"`
+	Message      string `db:"message" json:"message"`
+	Raw          string `db:"raw" json:"raw"`
+	Source       string `db:"source" json:"source"`
+	Component    string `db:"component" json:"component"`
+	AgentID      string `db:"agent_id" json:"agent_id"`
+	ThreadID     string `db:"thread_id" json:"thread_id"`
+	TraceID      string `db:"trace_id" json:"trace_id"`
+	SpanID       string `db:"span_id" json:"span_id"`
+	ParentSpanID string `db:"parent_span_id" json:"parent_span_id"`
+	EventType    string `db:"event_type" json:"event_type"`
+	ToolName     string `db:"tool_name" json:"tool_name"`
+	DurationMs   *int64 `db:"duration_ms" json:"duration_ms"`
+	Extra        string `db:"extra" json:"extra"`
 }
 
 func (q *Queries) ListAILogSystemLogs(ctx context.Context, arg ListAILogSystemLogsParams) ([]ListAILogSystemLogsRow, error) {
@@ -92,6 +94,8 @@ func (q *Queries) ListAILogSystemLogs(ctx context.Context, arg ListAILogSystemLo
 			&i.AgentID,
 			&i.ThreadID,
 			&i.TraceID,
+			&i.SpanID,
+			&i.ParentSpanID,
 			&i.EventType,
 			&i.ToolName,
 			&i.DurationMs,
@@ -123,6 +127,8 @@ SELECT
     agent_id,
     thread_id,
     trace_id,
+    span_id,
+    parent_span_id,
     event_type,
     tool_name,
     duration_ms,
@@ -160,21 +166,23 @@ type ListAILogsByCategoryParams struct {
 }
 
 type ListAILogsByCategoryRow struct {
-	ID         int64  `db:"id" json:"id"`
-	Ts         int64  `db:"ts" json:"ts"`
-	Level      string `db:"level" json:"level"`
-	Logger     string `db:"logger" json:"logger"`
-	Message    string `db:"message" json:"message"`
-	Raw        string `db:"raw" json:"raw"`
-	Source     string `db:"source" json:"source"`
-	Component  string `db:"component" json:"component"`
-	AgentID    string `db:"agent_id" json:"agent_id"`
-	ThreadID   string `db:"thread_id" json:"thread_id"`
-	TraceID    string `db:"trace_id" json:"trace_id"`
-	EventType  string `db:"event_type" json:"event_type"`
-	ToolName   string `db:"tool_name" json:"tool_name"`
-	DurationMs *int64 `db:"duration_ms" json:"duration_ms"`
-	Extra      string `db:"extra" json:"extra"`
+	ID           int64  `db:"id" json:"id"`
+	Ts           int64  `db:"ts" json:"ts"`
+	Level        string `db:"level" json:"level"`
+	Logger       string `db:"logger" json:"logger"`
+	Message      string `db:"message" json:"message"`
+	Raw          string `db:"raw" json:"raw"`
+	Source       string `db:"source" json:"source"`
+	Component    string `db:"component" json:"component"`
+	AgentID      string `db:"agent_id" json:"agent_id"`
+	ThreadID     string `db:"thread_id" json:"thread_id"`
+	TraceID      string `db:"trace_id" json:"trace_id"`
+	SpanID       string `db:"span_id" json:"span_id"`
+	ParentSpanID string `db:"parent_span_id" json:"parent_span_id"`
+	EventType    string `db:"event_type" json:"event_type"`
+	ToolName     string `db:"tool_name" json:"tool_name"`
+	DurationMs   *int64 `db:"duration_ms" json:"duration_ms"`
+	Extra        string `db:"extra" json:"extra"`
 }
 
 func (q *Queries) ListAILogsByCategory(ctx context.Context, arg ListAILogsByCategoryParams) ([]ListAILogsByCategoryRow, error) {
@@ -204,6 +212,8 @@ func (q *Queries) ListAILogsByCategory(ctx context.Context, arg ListAILogsByCate
 			&i.AgentID,
 			&i.ThreadID,
 			&i.TraceID,
+			&i.SpanID,
+			&i.ParentSpanID,
 			&i.EventType,
 			&i.ToolName,
 			&i.DurationMs,
@@ -235,6 +245,8 @@ SELECT
     agent_id,
     thread_id,
     trace_id,
+    span_id,
+    parent_span_id,
     event_type,
     tool_name,
     duration_ms,
@@ -249,21 +261,23 @@ type ListRecentAILogsParams struct {
 }
 
 type ListRecentAILogsRow struct {
-	ID         int64  `db:"id" json:"id"`
-	Ts         int64  `db:"ts" json:"ts"`
-	Level      string `db:"level" json:"level"`
-	Logger     string `db:"logger" json:"logger"`
-	Message    string `db:"message" json:"message"`
-	Raw        string `db:"raw" json:"raw"`
-	Source     string `db:"source" json:"source"`
-	Component  string `db:"component" json:"component"`
-	AgentID    string `db:"agent_id" json:"agent_id"`
-	ThreadID   string `db:"thread_id" json:"thread_id"`
-	TraceID    string `db:"trace_id" json:"trace_id"`
-	EventType  string `db:"event_type" json:"event_type"`
-	ToolName   string `db:"tool_name" json:"tool_name"`
-	DurationMs *int64 `db:"duration_ms" json:"duration_ms"`
-	Extra      string `db:"extra" json:"extra"`
+	ID           int64  `db:"id" json:"id"`
+	Ts           int64  `db:"ts" json:"ts"`
+	Level        string `db:"level" json:"level"`
+	Logger       string `db:"logger" json:"logger"`
+	Message      string `db:"message" json:"message"`
+	Raw          string `db:"raw" json:"raw"`
+	Source       string `db:"source" json:"source"`
+	Component    string `db:"component" json:"component"`
+	AgentID      string `db:"agent_id" json:"agent_id"`
+	ThreadID     string `db:"thread_id" json:"thread_id"`
+	TraceID      string `db:"trace_id" json:"trace_id"`
+	SpanID       string `db:"span_id" json:"span_id"`
+	ParentSpanID string `db:"parent_span_id" json:"parent_span_id"`
+	EventType    string `db:"event_type" json:"event_type"`
+	ToolName     string `db:"tool_name" json:"tool_name"`
+	DurationMs   *int64 `db:"duration_ms" json:"duration_ms"`
+	Extra        string `db:"extra" json:"extra"`
 }
 
 func (q *Queries) ListRecentAILogs(ctx context.Context, arg ListRecentAILogsParams) ([]ListRecentAILogsRow, error) {
@@ -287,6 +301,8 @@ func (q *Queries) ListRecentAILogs(ctx context.Context, arg ListRecentAILogsPara
 			&i.AgentID,
 			&i.ThreadID,
 			&i.TraceID,
+			&i.SpanID,
+			&i.ParentSpanID,
 			&i.EventType,
 			&i.ToolName,
 			&i.DurationMs,

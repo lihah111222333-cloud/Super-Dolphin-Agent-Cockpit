@@ -88,34 +88,39 @@ type TurnRef struct {
 // LogFilter 指定日志查询的统一过滤条件。
 // 空字段表示不过滤，Limit 在 service 入口统一 clamp。
 type LogFilter struct {
-	Source    string `json:"source,omitempty"`
-	Keyword   string `json:"keyword,omitempty"`
-	Level     string `json:"level,omitempty"`
-	Logger    string `json:"logger,omitempty"`
-	Component string `json:"component,omitempty"`
-	AgentID   string `json:"agent_id,omitempty"`
-	ThreadID  string `json:"thread_id,omitempty"`
-	EventType string `json:"event_type,omitempty"`
-	ToolName  string `json:"tool_name,omitempty"`
-	Limit     int    `json:"limit,omitempty"`
+	Source       string `json:"source,omitempty"`
+	Keyword      string `json:"keyword,omitempty"`
+	Level        string `json:"level,omitempty"`
+	Logger       string `json:"logger,omitempty"`
+	Component    string `json:"component,omitempty"`
+	AgentID      string `json:"agent_id,omitempty"`
+	ThreadID     string `json:"thread_id,omitempty"`
+	TraceID      string `json:"trace_id,omitempty"`
+	SpanID       string `json:"span_id,omitempty"`
+	ParentSpanID string `json:"parent_span_id,omitempty"`
+	EventType    string `json:"event_type,omitempty"`
+	ToolName     string `json:"tool_name,omitempty"`
+	Limit        int    `json:"limit,omitempty"`
 }
 
 // LogEntry 是跨 system 和 AI 日志源统一格式化的 wire 条目。
 // Source 标记来源，Extra 保留原始 JSON 供前端展开详情。
 type LogEntry struct {
-	Source     string          `json:"source"`
-	ID         int64           `json:"id"`
-	Timestamp  time.Time       `json:"timestamp"`
-	Level      string          `json:"level,omitempty"`
-	Logger     string          `json:"logger,omitempty"`
-	Message    string          `json:"message,omitempty"`
-	Raw        string          `json:"raw,omitempty"`
-	Component  string          `json:"component,omitempty"`
-	AgentID    string          `json:"agent_id,omitempty"`
-	ThreadID   string          `json:"thread_id,omitempty"`
-	TraceID    string          `json:"trace_id,omitempty"`
-	EventType  string          `json:"event_type,omitempty"`
-	ToolName   string          `json:"tool_name,omitempty"`
-	DurationMs *int32          `json:"duration_ms,omitempty"`
-	Extra      json.RawMessage `json:"extra,omitempty"`
+	Source       string          `json:"source"`
+	ID           int64           `json:"id"`
+	Timestamp    time.Time       `json:"timestamp"`
+	Level        string          `json:"level,omitempty"`
+	Logger       string          `json:"logger,omitempty"`
+	Message      string          `json:"message,omitempty"`
+	Raw          string          `json:"raw,omitempty"`
+	Component    string          `json:"component,omitempty"`
+	AgentID      string          `json:"agent_id,omitempty"`
+	ThreadID     string          `json:"thread_id,omitempty"`
+	TraceID      string          `json:"trace_id,omitempty"`
+	SpanID       string          `json:"span_id,omitempty"`
+	ParentSpanID string          `json:"parent_span_id,omitempty"`
+	EventType    string          `json:"event_type,omitempty"`
+	ToolName     string          `json:"tool_name,omitempty"`
+	DurationMs   *int32          `json:"duration_ms,omitempty"`
+	Extra        json.RawMessage `json:"extra,omitempty"`
 }
