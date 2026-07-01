@@ -1,6 +1,7 @@
 package shared
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -40,6 +41,19 @@ func TestEnsureAppManagedProviderHomeUsesSuperDolphinHome(t *testing.T) {
 		t.Fatalf("EnsureAppManagedProviderHome() = %q, want %q", got, want)
 	}
 	assertDirMode(t, filepath.Join(want, "skills"), 0o700)
+}
+
+func TestEnsureProviderHomeFailsWhenChmodFails(t *testing.T) {
+	home := protectedProviderHomeForChmodFailure(t)
+
+	_, err := EnsureProviderHome(ProviderCodex, home)
+	if err == nil {
+		t.Fatalf("EnsureProviderHome() error = nil, want chmod failure")
+	}
+	assertProviderStartupGateCode(t, err, "provider_home_permission_failed")
+	if !strings.Contains(err.Error(), ProviderCodex) || !strings.Contains(err.Error(), home) {
+		t.Fatalf("EnsureProviderHome() error = %v, want provider and path context", err)
+	}
 }
 
 func TestProviderMirrorTargetsIncludePersonalAndProjectRoots(t *testing.T) {
@@ -374,6 +388,47 @@ func TestEnsureNoSkillMirrorConflictsAllowsReportOnlySkillContentConflicts(t *te
 	}
 }
 
+func TestEnsureNoSkillMirrorConflictsBlocksActiveProjectSameName(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		targetID string
+		scope    string
+		kind     string
+	}{
+		{name: "project-scope-same-name", targetID: "codex:project:repo", scope: "project", kind: "same_name"},
+		{name: "project-target-same-name", targetID: "claude:project:repo", scope: "personal", kind: "same_name"},
+		{name: "app-managed-target-same-name", targetID: "codex:app-managed:owner", scope: "personal", kind: "same_name"},
+		{name: "project-scope-same-name-scope-conflict", targetID: "codex:project:repo", scope: "project", kind: "same_name_scope_conflict"},
+		{name: "project-target-same-name-scope-conflict", targetID: "claude:project:repo", scope: "personal", kind: "same_name_scope_conflict"},
+		{name: "app-managed-target-same-name-scope-conflict", targetID: "codex:app-managed:owner", scope: "personal", kind: "same_name_scope_conflict"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			report := contract.SkillMirrorReport{Conflicts: []contract.SkillMirrorReportItem{{
+				TargetID:     tc.targetID,
+				Scope:        tc.scope,
+				ConflictKind: tc.kind,
+			}}}
+
+			err := EnsureNoSkillMirrorConflicts(report)
+			if err == nil {
+				t.Fatalf("EnsureNoSkillMirrorConflicts() error = nil, want active same-name conflict to block provider start")
+			}
+			assertProviderStartupGateCode(t, err, "skill_mirror_conflict")
+			if !strings.Contains(err.Error(), tc.kind) || !strings.Contains(err.Error(), tc.targetID) {
+				t.Fatalf("EnsureNoSkillMirrorConflicts() error = %v, want kind and target context", err)
+			}
+		})
+	}
+	reportOnly := contract.SkillMirrorReport{Conflicts: []contract.SkillMirrorReportItem{{
+		TargetID:     "codex:user-global:owner",
+		Scope:        "personal",
+		ConflictKind: "same_name",
+	}}}
+	if err := EnsureNoSkillMirrorConflicts(reportOnly); err != nil {
+		t.Fatalf("EnsureNoSkillMirrorConflicts() personal same-name error = %v, want report-only", err)
+	}
+}
+
 func TestEnsureNoSkillMirrorConflictsReportsMirrorSafetyConflicts(t *testing.T) {
 	kinds := []string{
 		"publish_error",
@@ -426,6 +481,12 @@ func TestEnsureProviderHomeDefaultsToUserCLIHome(t *testing.T) {
 	userHome := filepath.Join(t.TempDir(), "user-home")
 	t.Setenv("HOME", userHome)
 	t.Setenv("USERPROFILE", userHome)
+	if err := os.MkdirAll(filepath.Join(userHome, ".claude"), 0o700); err != nil {
+		t.Fatalf("mkdir claude home: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(userHome, ".codex"), 0o700); err != nil {
+		t.Fatalf("mkdir codex home: %v", err)
+	}
 
 	claudeHome, err := EnsureProviderHome(ProviderClaude, "")
 	if err != nil {
@@ -448,6 +509,30 @@ func TestEnsureProviderHomeDefaultsToUserCLIHome(t *testing.T) {
 	}
 	if codexHome != wantCodexHome {
 		t.Fatalf("codex home = %q, want user CLI home", codexHome)
+	}
+}
+
+func TestEnsureProviderHomeDefaultCLIHomeIsReadOnlyDiagnostic(t *testing.T) {
+	userHome := filepath.Join(t.TempDir(), "user-home")
+	t.Setenv("HOME", userHome)
+	t.Setenv("USERPROFILE", userHome)
+	if err := os.MkdirAll(userHome, 0o700); err != nil {
+		t.Fatalf("mkdir user home: %v", err)
+	}
+	defaultClaudeHome := filepath.Join(userHome, ".claude")
+
+	got, err := EnsureProviderHome(ProviderClaude, "")
+	if err == nil {
+		t.Fatalf("EnsureProviderHome() error = nil, want missing CLI home diagnostic")
+	}
+	if got != "" {
+		t.Fatalf("EnsureProviderHome() = %q, want empty on diagnostic failure", got)
+	}
+	if !strings.Contains(err.Error(), "resolve provider home realpath") {
+		t.Fatalf("EnsureProviderHome() error = %v, want realpath diagnostic", err)
+	}
+	if _, statErr := os.Stat(defaultClaudeHome); !os.IsNotExist(statErr) {
+		t.Fatalf("default CLI home stat error = %v, want not exist and not auto-created", statErr)
 	}
 }
 
@@ -504,6 +589,38 @@ func skipProviderHomeSymlinkPrivilegeNotHeld(t *testing.T, err error) {
 	}
 }
 
+func protectedProviderHomeForChmodFailure(t *testing.T) string {
+	t.Helper()
+	if os.Geteuid() == 0 {
+		t.Skip("chmod failure test requires non-root user")
+	}
+	if runtime.GOOS != "darwin" {
+		t.Skip("chmod failure test uses macOS protected system directories")
+	}
+	home := "/System"
+	info, err := os.Stat(home)
+	if err != nil {
+		t.Skipf("protected provider home %s unavailable: %v", home, err)
+	}
+	if !info.IsDir() {
+		t.Skipf("protected provider home %s is not a directory", home)
+	}
+	return home
+}
+
+func assertProviderStartupGateCode(t *testing.T, err error, want string) {
+	t.Helper()
+	var coded interface {
+		GateCode() string
+	}
+	if !errors.As(err, &coded) {
+		t.Fatalf("error = %T %v, want provider startup gate code %q", err, err, want)
+	}
+	if got := coded.GateCode(); got != want {
+		t.Fatalf("GateCode() = %q, want %q; error=%v", got, want, err)
+	}
+}
+
 func TestProviderHomeDevEmptyIgnoresPackagedLeftovers(t *testing.T) {
 	userHome := filepath.Join(t.TempDir(), "user-home")
 	superHome := filepath.Join(t.TempDir(), "sd-home")
@@ -514,6 +631,9 @@ func TestProviderHomeDevEmptyIgnoresPackagedLeftovers(t *testing.T) {
 	t.Setenv(PackagedCodexEnv, "1")
 	t.Setenv(ProjectRootEnv, project)
 	t.Setenv("SUPER_DOLPHIN_RUNTIME_MODE", "dev")
+	if err := os.MkdirAll(filepath.Join(userHome, ".codex"), 0o700); err != nil {
+		t.Fatalf("mkdir local codex home: %v", err)
+	}
 
 	home, err := EnsureProviderHome(ProviderCodex, "")
 	if err != nil {

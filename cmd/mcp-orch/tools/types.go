@@ -80,6 +80,30 @@ const (
 	ToolRedactionSensitiveFields ToolRedactionPolicy = "sensitive_fields"
 )
 
+// ToolPathAuthority 描述工具本地路径参数接受哪类受控来源。
+type ToolPathAuthority string
+
+// 工具路径授权常量，用于声明 handler 前置校验应采用的路径边界。
+const (
+	// ToolPathAuthorityNone 表示工具不接收本地文件路径。
+	ToolPathAuthorityNone ToolPathAuthority = ""
+	// ToolPathAuthoritySharedFile 表示路径必须是 sharedfile 相对路径或 shared:<path> 引用。
+	ToolPathAuthoritySharedFile ToolPathAuthority = "sharedfile"
+	// ToolPathAuthorityWorkspaceRelative 表示路径必须是可信 workspace 内的相对路径。
+	ToolPathAuthorityWorkspaceRelative ToolPathAuthority = "workspace_relative"
+	// ToolPathAuthoritySharedOrWorkspace 表示工具可接受 sharedfile 引用或 workspace 相对路径。
+	ToolPathAuthoritySharedOrWorkspace ToolPathAuthority = "sharedfile_or_workspace_relative"
+)
+
+// ToolPathPolicy 说明本地读写工具的路径字段和校验来源。
+// Registry 会在工具被调用前按这些字段做轻量 fail-fast，handler 内仍要解析成最终路径。
+type ToolPathPolicy struct {
+	PathAuthority ToolPathAuthority `json:"path_authority,omitempty"`
+	ReadFields    []string          `json:"read_fields,omitempty"`
+	WriteFields   []string          `json:"write_fields,omitempty"`
+	Validator     string            `json:"validator,omitempty"`
+}
+
 // ToolMetadata 是工具注册表里的治理元数据；审批 MVP 未实现前 ApprovalRequired 必须为 false。
 type ToolMetadata struct {
 	Version                string                     `json:"version"`
@@ -93,6 +117,7 @@ type ToolMetadata struct {
 	ApprovalRequired       bool                       `json:"approval_required"`
 	AuditEventType         string                     `json:"audit_event_type"`
 	RedactionPolicy        ToolRedactionPolicy        `json:"redaction_policy"`
+	PathPolicy             ToolPathPolicy             `json:"path_policy,omitempty"`
 }
 
 // ToolDefinition 是注册到 Registry 的工具完整定义，含 schema、handler 和治理元数据。

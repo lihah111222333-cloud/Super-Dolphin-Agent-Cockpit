@@ -181,16 +181,16 @@ type NodeSpawningThreadLookup interface {
 // DispatchNodeStore 是 task_dispatch_node MCP 工具需要的窄端口：
 //   - DAGDetailStore:    保留 GetDAG + 模板 ListNodes 兼容读取能力
 //   - RunNodeReadStore:  按 run_id 读取 runtime node
-//   - AssignNode:        赋值 runtime node assigned_to
-//   - EnqueueWakeup:     入队一条带 run_id 的 wakeup 让 dispatcher 能 pick
+//   - AssignNodeAndEnqueueWakeup: 在同一事务里赋值 assigned_to 并入队 wakeup
+//   - MarkDispatchIncompleteIfMissingWakeup: 标记历史半写节点，阻断重复派发
 //
 // 生产依赖仍然是同一个 *store (由 ProvideDispatchNodeStore type-assert)，
 // 此处窄接口仅为了避免 service 层頻繁拿到全集合 Store 接口。
 type DispatchNodeStore interface {
 	DAGDetailStore
 	RunNodeReadStore
-	AssignNode(ctx context.Context, input AssignNodeInput) (*Node, error)
-	EnqueueWakeup(ctx context.Context, input EnqueueWakeupInput) (int64, error)
+	AssignNodeAndEnqueueWakeup(ctx context.Context, input AssignNodeAndEnqueueWakeupInput) (*AssignNodeAndEnqueueWakeupResult, error)
+	MarkDispatchIncompleteIfMissingWakeup(ctx context.Context, input MarkDispatchIncompleteInput) (*MarkDispatchIncompleteResult, error)
 }
 
 // RecordNodeSpawnInput 是 RecordNodeSpawn 的入参。
@@ -233,6 +233,12 @@ type WakeupStore interface {
 	GetWakeup(ctx context.Context, id int64) (*Wakeup, error)
 }
 
+// DispatchIncompleteRecoveryStore 是启动/周期恢复扫描使用的窄端口。
+// 它不嵌入 Store，避免普通 wakeup 测试 stub 被迫实现恢复扫描方法。
+type DispatchIncompleteRecoveryStore interface {
+	MarkDispatchIncompleteNodesWithoutActiveWakeup(ctx context.Context) ([]Node, error)
+}
+
 // WorkerLeaseStore 管理 task_dag_worker_leases 表：获取、续约和释放 worker 级独占锁。
 type WorkerLeaseStore interface {
 	AcquireWorkerLease(ctx context.Context, input AcquireWorkerLeaseInput) (int64, error)
@@ -265,6 +271,35 @@ type AssignNodeInput struct {
 	NodeKey    string
 	RunID      int64
 	AssignedTo string
+}
+
+// AssignNodeAndEnqueueWakeupInput 把 task_dispatch_node 的 assignment 和
+// manual_dispatch wakeup 写入绑定为一个事务；两个子输入必须指向同一个 runtime node。
+type AssignNodeAndEnqueueWakeupInput struct {
+	Assign AssignNodeInput
+	Wakeup EnqueueWakeupInput
+}
+
+// AssignNodeAndEnqueueWakeupResult 返回事务内更新后的节点和入队 wakeup id。
+type AssignNodeAndEnqueueWakeupResult struct {
+	Node     *Node
+	WakeupID int64
+}
+
+// MarkDispatchIncompleteInput 描述需要恢复标记的 runtime node。
+// AssignedTo 为空时不限定 assignee；非空时必须与节点当前 assigned_to 一致才会标记。
+type MarkDispatchIncompleteInput struct {
+	DagKey     string
+	NodeKey    string
+	RunID      int64
+	AssignedTo string
+}
+
+// MarkDispatchIncompleteResult 报告 preflight 是否发现并标记了历史半写。
+type MarkDispatchIncompleteResult struct {
+	Marked       bool
+	ActiveWakeup bool
+	Node         *Node
 }
 
 // BindRunningNodeTurnInput 是 BindRunningNodeTurn 的入参，要求 RunID 非零。

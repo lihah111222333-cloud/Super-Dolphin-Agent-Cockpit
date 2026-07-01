@@ -68,6 +68,7 @@ function bridgePatchedThread({ payload, threadId, rawRuntime, rawThread, patchPr
 
 function bridgePatchData(method, payload, threadId, deps = {}) {
   const timelineItems = payload.timelineItems || payload.timeline_items;
+  const alerts = payload.alerts || payload.Alerts;
   const rawRuntime = bridgePatchRuntime(payload);
   const rawThread = bridgePatchRawThread(payload);
   const patchProvider = bridgePatchProvider(rawRuntime, rawThread);
@@ -78,6 +79,7 @@ function bridgePatchData(method, payload, threadId, deps = {}) {
     payload,
     threadId,
     timelineItems,
+    alerts: Array.isArray(alerts) ? alerts : [],
     runtimeResultEntries: deps.runtimeResultEntriesFromTimelineItems?.(timelineItems, threadId) || [],
     tokenUsage: normalizeTokenUsage(payload.tokenUsage || payload.token_usage),
     activityStats: normalizeActivityStats(payload.activityStats || payload.activity_stats),
@@ -124,6 +126,8 @@ function bridgePatchWarningSignature(level, event, threadId, fields = {}) {
     threadId,
     normalizeString(fields.itemId),
     normalizeString(fields.status),
+    normalizeString(fields.alertId),
+    normalizeString(fields.message),
   ].join('|');
 }
 
@@ -153,11 +157,56 @@ function mergeBridgePatchWarningEntries(existingEntries = [], incomingEntries = 
   return merged;
 }
 
-function bridgePatchApprovalWarningEntries(state, patch, deps = {}) {
-  if (!Array.isArray(patch.timelineItems)) return state.warningEntries;
+function bridgePatchAlertLevel(alert) {
+  const level = normalizeString(alert.level || alert.Level).toLowerCase();
+  if (level === 'warning') return 'warn';
+  if (level === 'warn' || level === 'error' || level === 'info') return level;
+  return 'warn';
+}
+
+function bridgePatchAlertEvent(alert, patch) {
+  return normalizeString(
+    alert.event || alert.Event ||
+    alert.code || alert.Code ||
+    alert.source || alert.Source ||
+    patch.payload.source || patch.payload.Source,
+  ) || 'thread.patch.alert';
+}
+
+function bridgePatchAlertEntries(patch, deps = {}) {
+  if (!Array.isArray(patch.alerts) || patch.alerts.length === 0) return [];
   const nowISO = deps.nowISO || (() => new Date().toISOString());
   const nowMillis = deps.nowMillis || (() => Date.now());
-  const entries = patch.timelineItems
+  return patch.alerts
+    .filter((alert) => alert && typeof alert === 'object')
+    .map((alert) => {
+      const level = bridgePatchAlertLevel(alert);
+      const event = bridgePatchAlertEvent(alert, patch);
+      const alertId = normalizeString(alert.id || alert.ID);
+      const message = normalizeString(alert.message || alert.Message);
+      const fields = cleanObject({
+        threadId: patch.threadId,
+        alertId,
+        message,
+        source: normalizeString(patch.payload.source || patch.payload.Source),
+      });
+      return {
+        id: alertId || `${event}-${nowMillis()}`,
+        timestamp: normalizeString(alert.time || alert.Time || alert.timestamp || alert.Timestamp) || nowISO(),
+        level,
+        event,
+        threadId: patch.threadId,
+        fields,
+        occurrenceCount: 1,
+        signature: bridgePatchWarningSignature(level, event, patch.threadId, fields),
+      };
+    });
+}
+
+function bridgePatchApprovalWarningEntries(state, patch, deps = {}) {
+  const nowISO = deps.nowISO || (() => new Date().toISOString());
+  const nowMillis = deps.nowMillis || (() => Date.now());
+  const approvalEntries = Array.isArray(patch.timelineItems) ? patch.timelineItems
     .map(normalizeTimelineItem)
     .filter(pendingApprovalCannotRender)
     .map((item) => {
@@ -179,7 +228,11 @@ function bridgePatchApprovalWarningEntries(state, patch, deps = {}) {
         occurrenceCount: 1,
         signature,
       };
-    });
+    }) : [];
+  const entries = [
+    ...approvalEntries,
+    ...bridgePatchAlertEntries(patch, deps),
+  ];
   return mergeBridgePatchWarningEntries(state.warningEntries, entries);
 }
 

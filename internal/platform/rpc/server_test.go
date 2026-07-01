@@ -1,7 +1,11 @@
 package rpc
 
 import (
+	"fmt"
+	"os"
+	"strings"
 	"testing"
+	"time"
 
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/mcp"
 	"github.com/creachadair/jrpc2"
@@ -71,5 +75,85 @@ func TestNotifyConnectedInvokesOnConnectHooks(t *testing.T) {
 		}
 	default:
 		t.Fatal("notifyConnected did not invoke hook")
+	}
+}
+
+func TestRPCFailureLogDoesNotIncludeRawParamsPreview(t *testing.T) {
+	meta := rpcPendingRequest{
+		ID:            "req-1",
+		Method:        "thread/start",
+		ThreadID:      "thread-1",
+		ParamsSummary: SafeRPCLogSummary("thread/start", `{"threadId":"thread-1","prompt":"secret prompt from user","baseInstructions":"do not leak"}`),
+		StartedAt:     time.Now(),
+	}
+
+	got := fmt.Sprint(rpcFailureLogArgs(meta, jrpc2.Errorf(jrpc2.InvalidParams, "bad params")))
+	for _, forbidden := range []string{"params_preview", "secret prompt from user", "do not leak"} {
+		if strings.Contains(got, forbidden) {
+			t.Fatalf("failure log args leaked %q: %s", forbidden, got)
+		}
+	}
+}
+
+func TestRPCFailureLoggingRejectsRawParamsPreviewAndParamStringLogging(t *testing.T) {
+	entries, err := os.ReadDir(".")
+	if err != nil {
+		t.Fatalf("read rpc package: %v", err)
+	}
+	allowedParamStringFiles := map[string]bool{
+		"transport_ws.go": true,
+	}
+	for _, entry := range entries {
+		name := entry.Name()
+		if entry.IsDir() || !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
+			continue
+		}
+		raw, err := os.ReadFile(name)
+		if err != nil {
+			t.Fatalf("read %s: %v", name, err)
+		}
+		source := string(raw)
+		if strings.Contains(source, `"params_preview"`) {
+			t.Fatalf("%s still registers raw params_preview log field", name)
+		}
+		if strings.Contains(source, "ParamString()") && !allowedParamStringFiles[name] {
+			t.Fatalf("%s calls ParamString() outside the non-logging transport path", name)
+		}
+	}
+}
+
+func TestRPCSafeLogSummaryKeepsIDsAndLengthsOnly(t *testing.T) {
+	raw := `{"threadId":"thread-1","agentId":"agent-1","prompt":"secret prompt from user","baseInstructions":"do not leak","developerInstructions":"dev secret","input":{"content":"user content"},"headers":{"Authorization":"Bearer secret"},"apiKey":"api-key-value"}`
+
+	summary := SafeRPCLogSummary("thread/start", raw)
+	for _, want := range []string{
+		`"method":"thread/start"`,
+		`"threadId":"thread-1"`,
+		`"agentId":"agent-1"`,
+		`"raw_bytes":`,
+		`"raw_sha256":`,
+		`"fields":`,
+		`"prompt"`,
+		`"prompt_bytes":`,
+		`"baseInstructions_bytes":`,
+		`"developerInstructions_bytes":`,
+		`"headers_bytes":`,
+		`"apiKey_bytes":`,
+	} {
+		if !strings.Contains(summary, want) {
+			t.Fatalf("summary missing %q: %s", want, summary)
+		}
+	}
+	for _, forbidden := range []string{
+		"secret prompt from user",
+		"do not leak",
+		"dev secret",
+		"user content",
+		"Bearer secret",
+		"api-key-value",
+	} {
+		if strings.Contains(summary, forbidden) {
+			t.Fatalf("summary leaked %q: %s", forbidden, summary)
+		}
 	}
 }

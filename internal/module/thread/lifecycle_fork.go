@@ -14,6 +14,19 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/util/clone"
 )
 
+const statusForkCreating = "creating"
+
+type forkKickoffError struct {
+	err        error
+	markFailed bool
+}
+
+// Error 返回 fork kickoff 的原始失败，保留 errors.Is/As 可见的错误文本。
+func (e forkKickoffError) Error() string { return e.err.Error() }
+
+// Unwrap 暴露被包装错误，方便上层判断 provider 或持久化的具体失败。
+func (e forkKickoffError) Unwrap() error { return e.err }
+
 // Fork 从当前 provider 历史分出一个新 thread。
 // 它复用旧 thread 的 prompt snapshot，再接上新的 provider session；不要重新跑 start 路由。
 func (s *service) Fork(ctx context.Context, threadID string) (ForkResult, error) {
@@ -40,13 +53,99 @@ func (s *service) Fork(ctx context.Context, threadID string) (ForkResult, error)
 	}
 	displayName := continuationName(strings.TrimSpace(meta.Name))
 	state := threadStateFields{PublicThreadID: newThreadID, OwnerThreadID: historyTargetID(binding, threadID), AgentID: newThreadID, ParentAgentID: meta.ParentAgentID, AgentType: meta.AgentType, AgentMemoryScope: meta.AgentMemoryScope, Provider: provider, CWD: cwd, Model: meta.Model, Name: displayName, Prompt: displayName, ConfigOverride: configOverride, CodexHome: identity.Home, CodexInstanceKey: identity.InstanceKey, CodexModelProvider: identity.ModelProvider, CreatedAt: time.Now().Unix()}
-	if err := s.persistThreadStateWithPromptSnapshot(ctx, newThreadState(threadStateForkKind, state), true, contract.StartAssembly{Snapshot: snapshot}, false); err != nil {
+	forkState := newThreadState(threadStateForkKind, state)
+	if err := s.persistCreatingForkStateWithPromptSnapshot(ctx, forkState, snapshot); err != nil {
 		return ForkResult{}, err
 	}
 	if err := s.kickoffForkSession(ctx, state, meta, provider, cwd, displayName, newThreadID, snapshot, identity, config); err != nil {
-		return ForkResult{}, err
+		return ForkResult{}, s.handleForkKickoffFailure(ctx, forkState, err)
 	}
 	return ForkResult{NewThreadID: newThreadID, ForkedFrom: bindingPublicThreadID(binding, threadID), KickoffState: ForkKickoffState("created_only")}, nil
+}
+
+// handleForkKickoffFailure 统一处理 creating fork 的失败出口。
+// 可诊断为运行态失败的保留 failed 行；启动未完成的半成品会删除 row、binding 与 snapshot。
+func (s *service) handleForkKickoffFailure(ctx context.Context, state threadState, err error) error {
+	if shouldMarkForkFailed(err) {
+		if markErr := s.markForkFailed(ctx, state); markErr != nil {
+			return forkKickoffError{err: errors.Join(err, markErr), markFailed: true}
+		}
+		return err
+	}
+	if cleanupErr := s.cleanupForkCreatingState(ctx, state); cleanupErr != nil {
+		return forkKickoffError{err: errors.Join(err, cleanupErr)}
+	}
+	return forkKickoffError{err: err}
+}
+
+// persistCreatingForkStateWithPromptSnapshot 先写入不可恢复的 creating fork 行。
+// kickoff 未完成前不暴露为 created，失败路径可统一删除半成品 thread、binding 和 snapshot。
+func (s *service) persistCreatingForkStateWithPromptSnapshot(ctx context.Context, state threadState, snapshot contract.PromptAssemblySnapshot) error {
+	state, err := normalizeThreadState(state)
+	if err != nil {
+		return err
+	}
+	if err := s.ensurePublicThreadAvailable(ctx, state); err != nil {
+		return err
+	}
+	bindingOutcome, err := s.maybeRegisterThreadBinding(ctx, state, true)
+	if err != nil {
+		return err
+	}
+	if err := s.upsertForkThreadStatus(ctx, state, statusForkCreating); err != nil {
+		if rollbackErr := s.rollbackThreadBinding(ctx, bindingOutcome); rollbackErr != nil {
+			return errors.Join(err, rollbackErr)
+		}
+		return err
+	}
+	if err := s.savePromptSnapshot(ctx, state.PublicThreadID, contract.StartAssembly{Snapshot: snapshot}); err != nil {
+		if cleanupErr := s.cleanupForkCreatingState(ctx, state); cleanupErr != nil {
+			return errors.Join(err, cleanupErr)
+		}
+		return err
+	}
+	return nil
+}
+
+func (s *service) upsertForkThreadStatus(ctx context.Context, state threadState, status string) error {
+	if s.threadStore == nil {
+		return errors.New("thread: thread store is not configured")
+	}
+	displayName := strings.TrimSpace(util.FirstNonEmpty(state.Name, state.Prompt))
+	return s.upsertThread(ctx, threadConfigStoreRecord{
+		ThreadID:        state.PublicThreadID,
+		Name:            displayName,
+		Prompt:          displayName,
+		Model:           state.Model,
+		Cwd:             state.CWD,
+		Status:          strings.TrimSpace(status),
+		CreatedAt:       state.CreatedAt,
+		UpdatedAt:       time.Now().Unix(),
+		OwnerThreadID:   state.OwnerThreadID,
+		ConfigOverride:  clone.RawMessage(state.ConfigOverride),
+		PromptVersionID: state.PromptVersionID,
+	})
+}
+
+func (s *service) cleanupForkCreatingState(ctx context.Context, state threadState) error {
+	var cleanupErr error
+	if store := s.threadBindingStorePort(); store != nil {
+		cleanupErr = errors.Join(cleanupErr, store.DeleteByAgentID(ctx, state.AgentID))
+	}
+	if s.threadStore != nil {
+		cleanupErr = errors.Join(cleanupErr, s.threadStore.DeleteByThreadID(ctx, state.PublicThreadID))
+	}
+	s.forgetThreadAgents(state.PublicThreadID, state.ProviderThreadID)
+	return cleanupErr
+}
+
+func (s *service) markForkFailed(ctx context.Context, state threadState) error {
+	return s.updateThreadStatus(ctx, state.PublicThreadID, statusFailed)
+}
+
+func shouldMarkForkFailed(err error) bool {
+	var kickoffErr forkKickoffError
+	return errors.As(err, &kickoffErr) && kickoffErr.markFailed
 }
 
 // kickoffForkSession 启动 fork 的 provider session，并在成功后补齐最终 thread 状态。
@@ -61,7 +160,7 @@ func (s *service) kickoffForkSession(ctx context.Context, state threadStateField
 	}
 	if err := s.bindSessionGeneration(ctx, newThreadID); err != nil {
 		s.stopAgent(ctx, newThreadID)
-		return err
+		return forkKickoffError{err: err, markFailed: true}
 	}
 	fillForkProviderState(&state, forkedSession)
 	finalState := newThreadState(threadStateForkKind, state)

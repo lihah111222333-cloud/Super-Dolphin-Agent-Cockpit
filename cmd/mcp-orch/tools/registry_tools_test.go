@@ -151,6 +151,31 @@ func TestHandleSharedFileList_ReturnsEnvelopeWithLegacyFiles(t *testing.T) {
 	}
 }
 
+func TestSharedFileListDefaultLimit(t *testing.T) {
+	store := &stubSharedFileListStore{}
+	h := HandleSharedFileList(store)
+	if _, err := h(context.Background(), json.RawMessage(`{}`)); err != nil {
+		t.Fatalf("HandleSharedFileList() error = %v", err)
+	}
+	if store.got.Limit != 50 {
+		t.Fatalf("shared_file_list default limit = %d, want 50", store.got.Limit)
+	}
+}
+
+func TestSharedFileListLimitMaxCap(t *testing.T) {
+	store := &stubSharedFileListStore{}
+	h := HandleSharedFileList(store)
+	if _, err := h(context.Background(), json.RawMessage(`{"limit":500}`)); err != nil {
+		t.Fatalf("HandleSharedFileList() max cap error = %v", err)
+	}
+	if store.got.Limit != 200 {
+		t.Fatalf("shared_file_list capped limit = %d, want 200", store.got.Limit)
+	}
+	if _, err := h(context.Background(), json.RawMessage(`{"limit":-1}`)); err == nil {
+		t.Fatal("HandleSharedFileList() negative limit error = nil, want rejection")
+	}
+}
+
 type providerModelsJSON struct {
 	Provider          string   `json:"provider"`
 	Models            []string `json:"models"`

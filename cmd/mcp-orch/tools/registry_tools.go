@@ -15,6 +15,11 @@ import (
 // Registry/discovery 工具集中暴露模型列表和 sharedfile 列表。
 // prompt_list 与 command_list 在各自文件中注册，本文件只负责跨资源发现入口。
 
+const (
+	defaultSharedFileListLimit = int32(50)
+	maxSharedFileListLimit     = int32(200)
+)
+
 // ----- list_models -----
 
 // ListModelsInput 是 list_models 工具的可选过滤器。
@@ -156,9 +161,13 @@ type SharedFileListResult struct {
 // HandleSharedFileList 列出已存在 sharedfile；内容读取必须走 shared_file_read，列表只给路径元数据。
 func HandleSharedFileList(store sharedfilestore.Store) ToolHandler {
 	return makeHandler(store, "shared file store", func(ctx context.Context, in SharedFileListInput) (SharedFileListResult, error) {
+		limit, err := normalizeSharedFileListLimit(in.Limit)
+		if err != nil {
+			return SharedFileListResult{}, err
+		}
 		rows, err := store.List(ctx, sharedfilestore.ListFilter{
-			Prefix: in.Prefix,
-			Limit:  in.Limit,
+			Prefix: strings.TrimSpace(in.Prefix),
+			Limit:  limit,
 		})
 		if err != nil {
 			return SharedFileListResult{}, err
@@ -171,8 +180,21 @@ func HandleSharedFileList(store sharedfilestore.Store) ToolHandler {
 				UpdatedAt: r.UpdatedAt.Format("2006-01-02T15:04:05Z07:00"),
 			})
 		}
-		return newSharedFileListResult(entries, int(in.Limit)), nil
+		return newSharedFileListResult(entries, int(limit)), nil
 	})
+}
+
+func normalizeSharedFileListLimit(limit int32) (int32, error) {
+	switch {
+	case limit < 0:
+		return 0, fmt.Errorf("limit must be non-negative")
+	case limit == 0:
+		return defaultSharedFileListLimit, nil
+	case limit > maxSharedFileListLimit:
+		return maxSharedFileListLimit, nil
+	default:
+		return limit, nil
+	}
 }
 
 // newSharedFileListResult 构造 shared_file_list envelope，并附带允许写入的路径前缀。

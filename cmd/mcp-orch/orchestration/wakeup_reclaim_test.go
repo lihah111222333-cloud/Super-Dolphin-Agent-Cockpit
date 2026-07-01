@@ -18,6 +18,7 @@ type reclaimStubStore struct {
 	calls       int
 	rowsReplies []int64 // FIFO；空时默认返回 0
 	err         error
+	recoveryErr error
 }
 
 func (s *reclaimStubStore) ReclaimStaleDispatchingWakeups(_ context.Context) (int64, error) {
@@ -33,9 +34,27 @@ func (s *reclaimStubStore) ReclaimStaleDispatchingWakeups(_ context.Context) (in
 	return r, nil
 }
 
+func (s *reclaimStubStore) MarkDispatchIncompleteNodesWithoutActiveWakeup(context.Context) ([]taskdag.Node, error) {
+	return nil, s.recoveryErr
+}
+
+type reclaimStoreWithoutRecovery struct {
+	taskdag.Store
+}
+
+func (s reclaimStoreWithoutRecovery) ReclaimStaleDispatchingWakeups(context.Context) (int64, error) {
+	return 0, nil
+}
+
 func TestNewWakeupReclaimerRejectsNilStore(t *testing.T) {
 	if _, err := wakeupreclaim.NewWakeupReclaimer(nil, nil, wakeupreclaim.WakeupReclaimerConfig{}); err == nil {
 		t.Fatalf("err = nil, want error for nil store")
+	}
+}
+
+func TestNewWakeupReclaimerRejectsStoreWithoutDispatchRecovery(t *testing.T) {
+	if _, err := wakeupreclaim.NewWakeupReclaimer(reclaimStoreWithoutRecovery{}, nil, wakeupreclaim.WakeupReclaimerConfig{}); err == nil {
+		t.Fatalf("err = nil, want error for store without dispatch incomplete recovery")
 	}
 }
 

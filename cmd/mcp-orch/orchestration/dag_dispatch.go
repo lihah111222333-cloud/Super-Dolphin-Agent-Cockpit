@@ -25,6 +25,9 @@ var ErrDispatchStoreUnset = errors.New("orchestration: dispatch store is not con
 // 不允许走 DispatchNode 路径（避免误覆盖 running / done / failed 等终态）。
 var ErrDispatchNodeIneligible = errors.New("orchestration: node is not in pending/ready state, cannot dispatch")
 
+// ErrDispatchIncomplete 表示检测到历史半写 assignment 但没有可继续投递的 wakeup。
+var ErrDispatchIncomplete = errors.New("orchestration: node dispatch incomplete")
+
 // dispatchNodeWakeupKind 是 task_dispatch_node 入队的 wakeup_kind 值。
 // 与 store_complete_downstream.go 的 downstreamWakeupKind 区分：手工显式
 // dispatch 用 "manual_dispatch" 让运维 + 日志能一眼分流，避免与依赖完成自动
@@ -50,20 +53,19 @@ func (s *service) DispatchNode(ctx context.Context, req contract.DispatchNodeReq
 			return contract.DispatchNodeResponse{}, fmt.Errorf("orchestration: DispatchNode: agent node %s/%s requires node.config.exec.cwd before task_dispatch_node enqueue: %w", target.DagKey, target.NodeKey, err)
 		}
 	}
-	assigned, err := s.assignAndPersist(ctx, target, assignedTo, runID)
-	if err != nil {
+	if err := s.blockDispatchIncomplete(ctx, target, assignedTo, runID); err != nil {
 		return contract.DispatchNodeResponse{}, err
 	}
-	wakeupID, err := s.enqueueManualDispatchWakeup(ctx, dagKey, nodeKey, runID, assignedTo)
+	result, err := s.assignAndEnqueueDispatch(ctx, target, assignedTo, runID)
 	if err != nil {
 		return contract.DispatchNodeResponse{}, err
 	}
 	resp := contract.DispatchNodeResponse{
-		WakeupID: wakeupID,
-		Enqueued: wakeupID > 0,
+		WakeupID: result.WakeupID,
+		Enqueued: result.WakeupID > 0,
 	}
-	if assigned != nil {
-		resp.Node = dagNodeDTO(*assigned)
+	if result.Node != nil {
+		resp.Node = dagNodeDTO(*result.Node)
 	}
 	return resp, nil
 }
@@ -154,40 +156,55 @@ func ensureDispatchEligible(target *taskdag.Node) error {
 	}
 }
 
-// assignAndPersist 把 assigned_to 写到 runtime node。其他列原样保留。
-func (s *service) assignAndPersist(ctx context.Context, target *taskdag.Node, assignedTo string, runID int64) (*taskdag.Node, error) {
-	assigned, err := s.dispatchStore.AssignNode(ctx, taskdag.AssignNodeInput{
+// blockDispatchIncomplete 在重复派发前标记历史半写节点并阻断。
+// 这能把 assign 成功但 wakeup 入队失败的旧状态显式暴露为 dispatch_incomplete。
+func (s *service) blockDispatchIncomplete(ctx context.Context, target *taskdag.Node, assignedTo string, runID int64) error {
+	if strings.TrimSpace(target.AssignedTo) == "" {
+		return nil
+	}
+	result, err := s.dispatchStore.MarkDispatchIncompleteIfMissingWakeup(ctx, taskdag.MarkDispatchIncompleteInput{
 		DagKey:     target.DagKey,
 		NodeKey:    target.NodeKey,
 		RunID:      runID,
-		AssignedTo: assignedTo,
+		AssignedTo: target.AssignedTo,
 	})
 	if err != nil {
-		return nil, fmt.Errorf("orchestration: DispatchNode assign %s/%s run_id=%d: %w", target.DagKey, target.NodeKey, runID, err)
+		return fmt.Errorf("orchestration: DispatchNode preflight %s/%s run_id=%d: %w", target.DagKey, target.NodeKey, runID, err)
 	}
-	return assigned, nil
+	if result != nil && result.Marked {
+		return fmt.Errorf("%w: node %s/%s run_id=%d assigned_to=%q has no active wakeup; status=dispatch_incomplete", ErrDispatchIncomplete, target.DagKey, target.NodeKey, runID, assignedTo)
+	}
+	return nil
 }
 
-// enqueueManualDispatchWakeup 构建 idempotency_key 并入队 manual_dispatch wakeup。
-// 同 assignee 多次 dispatch 被 ON CONFLICT 去重；换 assignee 重试得到新 row。
-func (s *service) enqueueManualDispatchWakeup(ctx context.Context, dagKey, nodeKey string, runID int64, assignedTo string) (int64, error) {
+// assignAndEnqueueDispatch 在 store 事务里同时写 assigned_to 和 manual_dispatch wakeup。
+// 任何一步失败都不能留下半写 assignment。
+func (s *service) assignAndEnqueueDispatch(ctx context.Context, target *taskdag.Node, assignedTo string, runID int64) (*taskdag.AssignNodeAndEnqueueWakeupResult, error) {
 	payload, err := json.Marshal(taskdag.DownstreamWakeupPayload{AgentID: assignedTo})
 	if err != nil {
-		return 0, fmt.Errorf("orchestration: DispatchNode marshal payload: %w", err)
+		return nil, fmt.Errorf("orchestration: DispatchNode marshal payload: %w", err)
 	}
-	wakeupID, err := s.dispatchStore.EnqueueWakeup(ctx, taskdag.EnqueueWakeupInput{
-		DagKey:         dagKey,
-		NodeKey:        nodeKey,
-		RunID:          runID,
-		WakeupKind:     dispatchNodeWakeupKind,
-		TargetAgentID:  assignedTo,
-		PromptPayload:  payload,
-		IdempotencyKey: taskdag.ManualDispatchIdempotencyKey(dagKey, nodeKey, runID, assignedTo),
+	result, err := s.dispatchStore.AssignNodeAndEnqueueWakeup(ctx, taskdag.AssignNodeAndEnqueueWakeupInput{
+		Assign: taskdag.AssignNodeInput{
+			DagKey:     target.DagKey,
+			NodeKey:    target.NodeKey,
+			RunID:      runID,
+			AssignedTo: assignedTo,
+		},
+		Wakeup: taskdag.EnqueueWakeupInput{
+			DagKey:         target.DagKey,
+			NodeKey:        target.NodeKey,
+			RunID:          runID,
+			WakeupKind:     dispatchNodeWakeupKind,
+			TargetAgentID:  assignedTo,
+			PromptPayload:  payload,
+			IdempotencyKey: taskdag.ManualDispatchIdempotencyKey(target.DagKey, target.NodeKey, runID, assignedTo),
+		},
 	})
 	if err != nil {
-		return 0, fmt.Errorf("orchestration: DispatchNode enqueue %s/%s: %w", dagKey, nodeKey, err)
+		return nil, fmt.Errorf("orchestration: DispatchNode assign+enqueue %s/%s run_id=%d: %w", target.DagKey, target.NodeKey, runID, err)
 	}
-	return wakeupID, nil
+	return result, nil
 }
 
 type Scheduler interface {

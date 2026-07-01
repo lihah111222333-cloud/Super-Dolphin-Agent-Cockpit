@@ -3,6 +3,7 @@ package thread
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"runtime"
 	"strings"
@@ -36,7 +37,7 @@ func NewThreadHandlers(svc Service, capResolver contract.CapabilityResolver) pla
 		"thread/delete":           newThreadEffect(svc.Delete),
 
 		"thread/list": platformrpc.StrictHandler(func(ctx context.Context, _ struct{}) (any, error) {
-			return svc.List(ctx)
+			return listRenderableThreads(ctx, svc)
 		}),
 		"thread/loaded/list": platformrpc.StrictHandler(func(ctx context.Context, _ struct{}) (any, error) {
 			return svc.ListByStatus(ctx, statusCreated)
@@ -351,10 +352,20 @@ func newForkHandler(svc Service) handler.Func {
 	return newThreadCall(func(ctx context.Context, id string) (any, error) {
 		result, err := svc.Fork(ctx, id)
 		if err != nil {
-			return nil, err
+			return nil, forkRPCError(err)
 		}
 		return forkResponse{Thread: threadInfo{ID: result.NewThreadID, ForkedFrom: result.ForkedFrom}, KickoffState: string(result.KickoffState), KickoffStateCamel: string(result.KickoffState)}, nil
 	})
+}
+
+// forkRPCError 将 fork kickoff 阶段的失败转成带错误码的 RPC 错误。
+// fork 前置校验错误保持原样返回，避免把 not found 或参数错误误报成运行态失败。
+func forkRPCError(err error) error {
+	var kickoffErr forkKickoffError
+	if errors.As(err, &kickoffErr) {
+		return platformrpc.ErrInvalidState("thread/fork kickoff failed: " + strings.TrimSpace(kickoffErr.Error()))
+	}
+	return err
 }
 
 func newHandoffHandler(svc Service) handler.Func {
@@ -392,6 +403,26 @@ func newRecoverHandler(svc Service) handler.Func {
 		}
 		return recoverResponse{Thread: threadInfo{ID: result.ThreadID, Status: result.Status}, Recovered: result.Recovered, Mode: result.Mode}, nil
 	})
+}
+
+// listRenderableThreads 过滤 fork kickoff 半成品状态，避免 UI 将不可恢复线程暴露为可选项。
+func listRenderableThreads(ctx context.Context, svc Service) ([]Ref, error) {
+	refs, err := svc.List(ctx)
+	if err != nil {
+		return nil, err
+	}
+	filtered := refs[:0]
+	for _, ref := range refs {
+		if isHiddenForkState(ref.Status) {
+			continue
+		}
+		filtered = append(filtered, ref)
+	}
+	return filtered, nil
+}
+
+func isHiddenForkState(status string) bool {
+	return strings.EqualFold(strings.TrimSpace(status), statusForkCreating)
 }
 
 // newThreadCommandHandler 构造低频命令的 SendCommand handler。
@@ -486,8 +517,12 @@ var errApprovalsSetArgsConflict = platformrpc.ErrInvalidParams("thread/approvals
 
 func newResumeHandler(svc Service) handler.Func {
 	return platformrpc.ThreadHandler(func(ctx context.Context, p resumeParams) (any, error) {
+		threadID := util.FirstNonEmpty(p.ThreadID, contract.ThreadIDFrom(ctx))
+		if err := rejectBlockedForkResume(ctx, svc, threadID); err != nil {
+			return nil, err
+		}
 		result, err := svc.Resume(ctx, ResumeRequest{
-			ThreadID: util.FirstNonEmpty(p.ThreadID, contract.ThreadIDFrom(ctx)),
+			ThreadID: threadID,
 			Path:     p.Path,
 			CWD:      p.CWD,
 			Model:    p.Model,
@@ -500,6 +535,17 @@ func newResumeHandler(svc Service) handler.Func {
 		sessionID := util.FirstNonEmpty(result.SessionID, result.ThreadID)
 		return resumeResponse{Thread: threadInfo{ID: result.ThreadID, Status: status}, ThreadID: result.ThreadID, ThreadIDSnake: result.ThreadID, SessionID: sessionID, SessionIDSnake: sessionID, Status: status, Model: result.Model, CWD: result.CWD}, nil
 	})
+}
+
+func rejectBlockedForkResume(ctx context.Context, svc Service, threadID string) error {
+	ref, err := svc.Get(ctx, threadID)
+	if err != nil || ref == nil {
+		return err
+	}
+	if isHiddenForkState(ref.Status) {
+		return platformrpc.ErrInvalidState("thread/resume: fork kickoff state is not resumable: " + strings.TrimSpace(ref.Status))
+	}
+	return nil
 }
 
 func runtimeMemoryStats() runtime.MemStats {

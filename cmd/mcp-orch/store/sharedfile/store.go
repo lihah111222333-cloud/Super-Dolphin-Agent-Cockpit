@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"strings"
 
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/sqlc"
 	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
@@ -167,9 +168,13 @@ func (s *store) diskBackedSharedFile(cleaned string, mapped SharedFile, contentL
 
 // List 按前缀列出 sharedfile 索引，不读取磁盘正文。
 func (s *store) List(ctx context.Context, filter ListFilter) ([]SharedFile, error) {
+	prefix, limit, err := normalizeListFilter(filter)
+	if err != nil {
+		return nil, wrapSharedFileError(err, "list")
+	}
 	rows, err := s.q.ListSharedFiles(ctx, sqlc.ListSharedFilesParams{
-		Prefix:     filter.Prefix,
-		LimitCount: int64(filter.Limit),
+		Prefix:     prefix,
+		LimitCount: int64(limit),
 	})
 	if err != nil {
 		return nil, wrapSharedFileError(err, "list")
@@ -179,6 +184,25 @@ func (s *store) List(ctx context.Context, filter ListFilter) ([]SharedFile, erro
 		result[i] = mapSharedFile(row)
 	}
 	return result, nil
+}
+
+func normalizeListFilter(filter ListFilter) (string, int32, error) {
+	if filter.Limit < 0 {
+		return "", 0, errors.New("limit must be non-negative")
+	}
+	limit := filter.Limit
+	if limit == 0 {
+		limit = 50
+	}
+	if limit > 200 {
+		limit = 200
+	}
+	return escapeSQLLikePrefix(strings.TrimSpace(filter.Prefix)), limit, nil
+}
+
+func escapeSQLLikePrefix(prefix string) string {
+	replacer := strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`)
+	return replacer.Replace(prefix)
 }
 
 // Delete 删除 sharedfile；磁盘模式先 stage 正文，DB 删除成功后才最终删除 tombstone。

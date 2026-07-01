@@ -72,6 +72,30 @@ func TestNewThreadHandlersDispatchList(t *testing.T) {
 	}
 }
 
+func TestNewThreadHandlersDispatchListHidesCreatingButShowsFailedFork(t *testing.T) {
+	t.Parallel()
+
+	stub := &stubThreadService{
+		listResult: []Ref{
+			{ID: "thread-creating", Status: statusForkCreating},
+			{ID: "thread-failed", Status: statusFailed},
+			{ID: "thread-created", Status: statusCreated},
+		},
+	}
+	server := newThreadTestServer(stub)
+	raw, err := server.Dispatch(context.Background(), "thread/list", json.RawMessage(`{}`))
+	if err != nil {
+		t.Fatalf("Dispatch(thread/list) error = %v", err)
+	}
+	var got []Ref
+	if err := json.Unmarshal(raw, &got); err != nil {
+		t.Fatalf("Unmarshal(thread/list) error = %v", err)
+	}
+	if len(got) != 2 || got[0].ID != "thread-failed" || got[1].ID != "thread-created" {
+		t.Fatalf("Dispatch(thread/list) = %#v, want failed fork visible and creating hidden", got)
+	}
+}
+
 func TestNewThreadHandlersDispatchStart(t *testing.T) {
 	t.Parallel()
 

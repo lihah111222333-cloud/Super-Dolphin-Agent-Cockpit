@@ -16,22 +16,25 @@ const (
 
 // ttsInput 是 tts_generate 的入参。
 type ttsInput struct {
-	Text  string `json:"text"`
-	Voice string `json:"voice,omitempty"`
+	Text       string `json:"text"`
+	Voice      string `json:"voice,omitempty"`
+	OutputPath string `json:"output_path,omitempty"`
 }
 
 // ttsToolDefinitions 注册文本转语音工具定义。
 // 工具 schema 要求 text，实际鉴权和本地文件写入失败会在 handler 中 fail-fast。
 func ttsToolDefinitions() []ToolDefinition {
 	return buildToolDefinitions(
-		defineTool(
+		defineGovernedTool(
 			"tts_generate",
-			"Convert text to speech using SiliconFlow CosyVoice2. Returns the local path of the generated MP3 file. Requires SILICONFLOW_API_KEY environment variable.",
+			"Convert text to speech using SiliconFlow CosyVoice2. Returns a controlled MP3 output path. output_path must be shared:<path> or workspace-relative when provided.",
 			ObjectSchema(map[string]Schema{
-				"text":  StringSchema("The text to convert to speech."),
-				"voice": StringSchema("Voice ID to use (optional). Defaults to anna."),
+				"text":        StringSchema("The text to convert to speech."),
+				"voice":       StringSchema("Voice ID to use (optional). Defaults to anna."),
+				"output_path": StringSchema("Optional output ref: shared:<path> or workspace-relative path. Defaults to shared:reports/media/tts-<timestamp>.mp3."),
 			}, "text"),
 			handleTTSGenerate(),
+			mediaToolMetadata("tts_generate", nil, []string{"output_path"}),
 		),
 	)
 }
@@ -48,11 +51,11 @@ func handleTTSGenerate() ToolHandler {
 		if err != nil {
 			return nil, err
 		}
-		audioPath, err := generateTTS(ctx, apiKey, in.Text, in.Voice)
+		audioPath, err := generateTTS(ctx, apiKey, in.Text, in.Voice, in.OutputPath)
 		if err != nil {
 			return nil, fmt.Errorf("generate tts: %w", err)
 		}
-		return map[string]any{"success": true, "local_path": audioPath}, nil
+		return map[string]any{"success": true, "output_path": audioPath.Ref, "local_path": audioPath.AbsPath}, nil
 	}
 }
 
@@ -65,8 +68,12 @@ func decodeTTSInput(input json.RawMessage) (ttsInput, error) {
 	}
 	in.Text = strings.TrimSpace(in.Text)
 	in.Voice = strings.TrimSpace(in.Voice)
+	in.OutputPath = strings.TrimSpace(in.OutputPath)
 	if in.Text == "" {
 		return ttsInput{}, fmt.Errorf("text is required")
+	}
+	if err := rejectUncontrolledOutputPath(in.OutputPath, "output_path"); err != nil {
+		return ttsInput{}, err
 	}
 	return in, nil
 }

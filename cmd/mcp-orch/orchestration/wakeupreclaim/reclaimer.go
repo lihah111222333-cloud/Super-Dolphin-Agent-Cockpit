@@ -45,9 +45,10 @@ func (c WakeupReclaimerConfig) ConfigOrDefaults() WakeupReclaimerConfig {
 // WakeupReclaimer 是 lease 过期回收后台 runner。
 // Run 是阻塞主循环，调用方通过 run.Group 或 goroutine 管理其生命周期。
 type WakeupReclaimer struct {
-	store  taskdag.Store
-	logger *slog.Logger
-	cfg    WakeupReclaimerConfig
+	store            taskdag.Store
+	dispatchRecovery taskdag.DispatchIncompleteRecoveryStore
+	logger           *slog.Logger
+	cfg              WakeupReclaimerConfig
 }
 
 // NewWakeupReclaimer 构造 reclaimer。
@@ -59,10 +60,15 @@ func NewWakeupReclaimer(store taskdag.Store, logger *slog.Logger, cfg WakeupRecl
 	if logger == nil {
 		logger = pkglogger.Get()
 	}
+	recovery, ok := store.(taskdag.DispatchIncompleteRecoveryStore)
+	if !ok {
+		return nil, errors.New("wakeup reclaimer: store must implement dispatch incomplete recovery")
+	}
 	return &WakeupReclaimer{
-		store:  store,
-		logger: logger,
-		cfg:    cfg.ConfigOrDefaults(),
+		store:            store,
+		dispatchRecovery: recovery,
+		logger:           logger,
+		cfg:              cfg.ConfigOrDefaults(),
 	}, nil
 }
 
@@ -92,9 +98,8 @@ func (r *WakeupReclaimer) Run(ctx context.Context) error {
 	}
 }
 
-// ReclaimOnce 调一次 ReclaimStaleDispatchingWakeups，返回回收行数。
-// 0 行（无过期 lease）是常态空跑，不打 info 噪声日志；>0 行打一行 info
-// 让运维可以观察到 reclaim 频率。
+// ReclaimOnce 调一次 wakeup 恢复周期，返回过期 lease 回收行数。
+// 除了回收 stale dispatching wakeup，它还主动标记历史半写 runtime node，避免只有再次手动 dispatch 才暴露缺失 wakeup。
 func (r *WakeupReclaimer) ReclaimOnce(ctx context.Context) (int64, error) {
 	if ctx == nil {
 		ctx = context.Background()
@@ -109,7 +114,27 @@ func (r *WakeupReclaimer) ReclaimOnce(ctx context.Context) (int64, error) {
 		r.logger.Info("wakeup reclaimer: reclaimed stale dispatching wakeups",
 			"rows", rows)
 	}
+	marked, err := r.dispatchRecovery.MarkDispatchIncompleteNodesWithoutActiveWakeup(ctx)
+	if err != nil {
+		r.logger.Warn("wakeup reclaimer: dispatch incomplete recovery failed",
+			"error", err)
+		return rows, err
+	}
+	for _, node := range marked {
+		r.logger.Warn("wakeup reclaimer: marked dispatch_incomplete for assigned node without active wakeup",
+			"dag_key", node.DagKey,
+			"node_key", node.NodeKey,
+			"run_id", nodeRunIDForLog(node),
+			"assigned_to", node.AssignedTo)
+	}
 	return rows, nil
+}
+
+func nodeRunIDForLog(node taskdag.Node) int64 {
+	if node.RunID == nil {
+		return 0
+	}
+	return *node.RunID
 }
 
 // ProvideWakeupReclaimerRunnerIn 是 fx 注入 wakeup reclaimer runner 的参数结构。

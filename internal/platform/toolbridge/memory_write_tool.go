@@ -78,7 +78,50 @@ func (r *MemoryWriteHostToolRegistry) CallHostTool(ctx context.Context, call Hos
 	if err != nil {
 		return nil, err
 	}
-	return r.writer.WriteAgentMemory(ctx, req)
+	result, err := r.writer.WriteAgentMemory(ctx, req)
+	if partial, ok := partialMemoryWriteToolResult(result, err); ok {
+		return partial, nil
+	}
+	return result, err
+}
+
+func isPartialMemoryWriteResult(result contract.AgentMemoryWriteResult, err error) bool {
+	if err == nil || contract.AgentMemoryErrorCode(err) != "partial" {
+		return false
+	}
+	return strings.TrimSpace(result.Path) != "" || result.Skipped || result.Merged
+}
+
+func partialMemoryWriteToolResult(result contract.AgentMemoryWriteResult, err error) (map[string]any, bool) {
+	if !isPartialMemoryWriteResult(result, err) {
+		return nil, false
+	}
+	return map[string]any{
+		"success":        false,
+		"partial":        true,
+		"degraded":       true,
+		"code":           contract.AgentMemoryErrorCode(err),
+		"error":          partialMemoryWriteErrorMessage(err),
+		"path":           result.Path,
+		"requestedScope": string(result.RequestedScope),
+		"actualTarget":   result.ActualTarget,
+		"type":           string(result.Type),
+		"skipped":        result.Skipped,
+		"merged":         result.Merged,
+	}, true
+}
+
+func partialMemoryWriteErrorMessage(err error) string {
+	text := err.Error()
+	for _, marker := range []string{"memory_overflow_delete_failed", "memory_overflow_merge_failed", "memory_index_update_failed"} {
+		if strings.Contains(text, marker) {
+			return marker
+		}
+	}
+	if code := contract.AgentMemoryErrorCode(err); code != "" {
+		return code
+	}
+	return "memory_write_partial"
 }
 
 // buildAgentMemoryWriteRequest 将模型输入转换为持久化写入请求。

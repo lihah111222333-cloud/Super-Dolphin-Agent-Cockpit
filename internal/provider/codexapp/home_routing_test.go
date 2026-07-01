@@ -15,6 +15,7 @@ func TestSelectCodexProviderHomeDevEmptyUsesLocalCLIHome(t *testing.T) {
 	t.Setenv(providershared.SuperDolphinHomeEnv, superHome)
 	t.Setenv("SUPER_DOLPHIN_RUNTIME_MODE", "dev")
 	t.Setenv(providershared.PackagedCodexEnv, "1")
+	mustCanonicalCodexHome(t, userHome)
 
 	selection, err := selectCodexProviderHome("")
 	if err != nil {

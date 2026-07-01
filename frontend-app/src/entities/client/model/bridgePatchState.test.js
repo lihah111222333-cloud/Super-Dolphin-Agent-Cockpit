@@ -165,4 +165,39 @@ describe('bridgePatchState', () => {
       }),
     ]);
   });
+
+  it('records backend patch alerts as warning entries', () => {
+    const patch = bridgePatchData('ui/thread/patch', {
+      status: 'running',
+      source: 'memory.intent_failed',
+      thread: { name: 'Worker' },
+      alerts: [{
+        id: 'memory.intent_failed:turn-1:remember',
+        level: 'warning',
+        message: 'memory.intent_failed: partial',
+        time: '2026-06-15T00:00:00.000Z',
+      }],
+    }, 'thread-1', { normalizeThread });
+    const next = bridgePatchState({
+      ...baseState,
+      warningEntries: [],
+    }, patch, {
+      threadMatchesIdentifier,
+      nowISO: () => '2026-06-15T00:00:01.000Z',
+      nowMillis: () => 789,
+    });
+
+    expect(next.warningEntries).toEqual([
+      expect.objectContaining({
+        level: 'warn',
+        event: 'memory.intent_failed',
+        threadId: 'thread-1',
+        timestamp: '2026-06-15T00:00:00.000Z',
+        fields: expect.objectContaining({
+          alertId: 'memory.intent_failed:turn-1:remember',
+          message: 'memory.intent_failed: partial',
+        }),
+      }),
+    ]);
+  });
 });
