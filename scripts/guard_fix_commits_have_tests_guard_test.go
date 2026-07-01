@@ -143,6 +143,43 @@ func TestFixCommitRejectsUnrelatedTestFile(t *testing.T) {
 	assertOutputContainsAll(t, out, "fix 提交缺少锁定 bug 的测试", "fix: 修复 parser panic")
 }
 
+func TestFixCommitAllowsParentPackageRegressionTest(t *testing.T) {
+	root := prepareFixTestGuardRepo(t)
+	writeFixTestGuardFile(t, root, "internal/module/prompt/intent/commit.go", "package intent\n\nfunc CommitDraft() {}\n")
+	writeFixTestGuardFile(t, root, "internal/module/prompt/intent_commit_test.go", "package prompt\n\nimport \"testing\"\n\nfunc TestCommitDraftSerializesIntent(t *testing.T) {}\n")
+	runFixTestGuardGit(t, root, "add", ".")
+
+	msgFile := filepath.Join(root, "COMMIT_EDITMSG")
+	if err := os.WriteFile(msgFile, []byte("fix(prompt): 修复并发草稿提交\n"), 0o644); err != nil {
+		t.Fatalf("write commit message: %v", err)
+	}
+
+	out, err := runFixTestGuard(t, root, "--cached", msgFile)
+	if err != nil {
+		t.Fatalf("guard rejected parent package regression test: %v\n%s", err, out)
+	}
+	assertOutputContainsAll(t, out, "fix-test guard OK")
+}
+
+func TestFixCommitAllowsRepositoryToolingRegressionTest(t *testing.T) {
+	root := prepareFixTestGuardRepo(t)
+	writeFixTestGuardFile(t, root, ".githooks/pre-commit", "#!/usr/bin/env bash\nexit 0\n")
+	writeFixTestGuardFile(t, root, "Makefile", "install-hooks:\n\t@true\n")
+	writeFixTestGuardFile(t, root, "scripts/install_hooks_guard_test.go", "package main\n\nimport \"testing\"\n\nfunc TestInstallHooksUsesLinkedWorktreeRoot(t *testing.T) {}\n")
+	runFixTestGuardGit(t, root, "add", ".")
+
+	msgFile := filepath.Join(root, "COMMIT_EDITMSG")
+	if err := os.WriteFile(msgFile, []byte("fix: 修复 hooks 工作树路径\n"), 0o644); err != nil {
+		t.Fatalf("write commit message: %v", err)
+	}
+
+	out, err := runFixTestGuard(t, root, "--cached", msgFile)
+	if err != nil {
+		t.Fatalf("guard rejected repository tooling regression test: %v\n%s", err, out)
+	}
+	assertOutputContainsAll(t, out, "fix-test guard OK")
+}
+
 func TestPrePushRunsFixTestGuardForPushedRange(t *testing.T) {
 	root := prepareFixTestGuardRepo(t)
 	copyFixTestGuardRepoFile(t, root, ".githooks/pre-push", 0o755)
@@ -169,6 +206,45 @@ func TestPrePushRunsFixTestGuardForPushedRange(t *testing.T) {
 			t.Fatalf("pre-push output missing %q\n%s", part, string(out))
 		}
 	}
+}
+
+func TestFixTestGuardSkipsMergeCommitSubjects(t *testing.T) {
+	root := prepareFixTestGuardRepo(t)
+	writeFixTestGuardFile(t, root, "internal/app/parser.go", "package app\n\nfunc parse(input string) string { return input }\n")
+	writeFixTestGuardFile(t, root, "internal/app/parser_test.go", "package app\n\nimport \"testing\"\n\nfunc TestParserPanicBug(t *testing.T) {}\n")
+	runFixTestGuardGit(t, root, "add", ".")
+	runFixTestGuardGit(t, root, "commit", "-m", "fix: 修复 parser panic")
+	featureHead := strings.TrimSpace(runFixTestGuardGitOutput(t, root, "rev-parse", "HEAD"))
+
+	runFixTestGuardGit(t, root, "checkout", "-b", "side", "HEAD~1")
+	writeFixTestGuardFile(t, root, "docs/side.md", "side\n")
+	runFixTestGuardGit(t, root, "add", "docs/side.md")
+	runFixTestGuardGit(t, root, "commit", "-m", "docs: 更新 side")
+	runFixTestGuardGit(t, root, "merge", "--no-ff", featureHead, "-m", "fix: 修复 parser panic (#1)")
+
+	out, err := runFixTestGuard(t, root, "--range", "HEAD~2..HEAD")
+	if err != nil {
+		t.Fatalf("guard rejected fix-title merge commit even though child fix carried a test: %v\n%s", err, out)
+	}
+	assertOutputContainsAll(t, out, "fix-test guard OK")
+}
+
+func TestPreCommitRunsCodeGuardForDocsOnlyCommit(t *testing.T) {
+	root := prepareFixTestGuardRepo(t)
+	copyFixTestGuardRepoFile(t, root, ".githooks/pre-commit", 0o755)
+	writePreCommitFakeCodeGuardScript(t, root)
+	runFixTestGuardGit(t, root, "add", ".githooks/pre-commit", "scripts/test_with_guard.sh")
+	runFixTestGuardGit(t, root, "commit", "-m", "chore: 安装 precommit fixture")
+
+	writeFixTestGuardFile(t, root, "docs/readme.md", "docs only\n")
+	runFixTestGuardGit(t, root, "add", "docs/readme.md")
+
+	out, err := runPreCommitHook(t, root)
+	if err != nil {
+		t.Fatalf("pre-commit failed: %v\n%s", err, out)
+	}
+	assertOutputContainsAll(t, out, "[pre-commit] full codebase guard", "fake code guard --guard-only", "pre-commit OK")
+	assertOutputOmitsAll(t, out, "go vet", "frontend-app tests")
 }
 
 func TestCommitMsgRunsChineseTitleGuard(t *testing.T) {

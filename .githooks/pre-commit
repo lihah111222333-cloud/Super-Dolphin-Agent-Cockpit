@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# pre-commit — 检查 staged 的 .go 影响面，秒级
+# pre-commit — 每次提交先跑全量代码守卫，再检查 staged 的 Go/前端影响面。
 # Bypass: git commit --no-verify
 set -e
 
@@ -202,7 +202,16 @@ for p in "${PKG_CANDIDATES[@]}"; do
   done < <(git ls-files --others --exclude-standard -z -- "$pkg_dir")
 done
 
+# ── Full codebase guard
+echo "[pre-commit] full codebase guard..."
+if ! SUPER_DOLPHIN_GUARD_FAIL_ON_DRIFT=1 ./scripts/test_with_guard.sh --guard-only; then
+  echo "❌ 后端代码守卫未通过" >&2
+  echo "  ⚠️  紧急 bypass（违反仓库规约 docs/1/会话习惯.md §10.12«禁止 bypass pre-commit hook»、需事后补检查）：git commit --no-verify" >&2
+  exit 1
+fi
+
 if [ ${#GOFMT_FILES[@]} -eq 0 ] && [ ${#PKG_CANDIDATES[@]} -eq 0 ] && [ "$HAS_FRONTEND_APP_CHANGES" -eq 0 ]; then
+  echo "✅ pre-commit OK"
   exit 0
 fi
 
@@ -256,7 +265,7 @@ if [ ${#GOFMT_FILES[@]} -gt 0 ]; then
     echo "  ⚠️  紧急 bypass（违反仓库规约 docs/1/会话习惯.md §10.12«禁止 bypass pre-commit hook»，需事后补检查）：git commit --no-verify" >&2
     exit 1
   fi
-else
+elif [ ${#PKG_CANDIDATES[@]} -gt 0 ]; then
   echo "[pre-commit] gofmt... (skipped: only deleted Go files)"
 fi
 
@@ -283,14 +292,6 @@ for p in "${PKG_CANDIDATES[@]}"; do
 done
 
 if [ ${#PKGS[@]} -gt 0 ]; then
-  # ── Backend Guard
-  echo "[pre-commit] backend codebase guard..."
-  if ! SUPER_DOLPHIN_GUARD_FAIL_ON_DRIFT=1 ./scripts/test_with_guard.sh --guard-only; then
-    echo "❌ 后端代码守卫未通过" >&2
-    echo "  ⚠️  紧急 bypass（违反仓库规约 docs/1/会话习惯.md §10.12«禁止 bypass pre-commit hook»、需事后补检查）：git commit --no-verify" >&2
-    exit 1
-  fi
-
   # ── go vet
   echo "[pre-commit] go vet..."
   if ! run_go_without_git_env go vet "${PKGS[@]}"; then
