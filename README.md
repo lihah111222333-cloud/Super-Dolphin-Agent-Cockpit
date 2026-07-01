@@ -171,7 +171,7 @@ SUPER_DOLPHIN_BACKEND_HOT_RELOAD=1 SUPER_DOLPHIN_HOT_WATCH_PATHS="cmd internal p
 | Metric | Value |
 |--------|-------|
 | Test Coverage | Recompute from current test run; no checked-in static baseline |
-| Architecture Tests | 50+ (internal/archtest) |
+| Architecture Tests | Current tree: 190 Test* entries across 99 `_test.go` files in `internal/archtest` (recompute with `go test ./internal/archtest -list '^Test'`) |
 | Linter | golangci-lint (see .golangci.yml) |
 | CI | GitHub Actions (see .github/workflows/ci.yml) |
 
