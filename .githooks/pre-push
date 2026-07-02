@@ -178,7 +178,7 @@ add_codemap_path() {
 
 add_skill_path() {
   case "$1" in
-    .agent/skills/*|.agents/skills/*|.claude/skills/*|scripts/validate_super_agent_skills.py|CLAUDE.md|AGENTS.md)
+    .agents/skills/*|.claude/skills/*|scripts/validate_super_agent_skills.py|CLAUDE.md|AGENTS.md)
       HAS_SKILL_CHANGES=1
       ;;
   esac

@@ -71,18 +71,19 @@
 - 优先使用定向 `rg` 搜索和单文件读取，避免大范围目录扫描。
 - 默认不要递归读取或索引 `.build-cache/`、`bin/`、前端 `node_modules/`、前端 `dist/`、`.worktrees/`、`.workspace/`、`.claude/`、`.agent/code_exec/`、`.agent/workspaces/`、`.agnet/report/`、`.agnet/shared/_internal/`、`.agnet/shared/handoff/` 或生成的测试报告。
 - 默认不要递归读取或索引 `docs/archive/**`。只有当用户要求历史报告、旧代理笔记、迁移证据或来源追溯时才使用它。
-- 不要批量加载 `.agent/skills/**`。仓库本地技能是按需选择的参考，不是默认上下文。
+- 不要批量加载 `.agents/skills/**`。仓库本地技能是按需选择的参考，不是默认上下文。
 - 如果生成物看起来可能过期，在直接编辑它之前先验证生成器或检查目标。
 
 ## 仓库本地技能策略
 
-`super-agent-v3` 在 `.agent/skills/**/SKILL.md` 下包含仓库本地技能文档。
+`super-agent-v3` 的仓库本地技能唯一规范入口是 `.agents/skills/*/SKILL.md`。
 
-- 当技能与当前任务上下文、文件类型或目录相关时，应自动使用这些技能。
-- 鼓励代理加载并应用这些技能，以遵循仓库专属最佳实践。
+- 用户点名技能、任务明显匹配某个技能 `description`，或技能与当前任务上下文、文件类型、目录、变更面明显相关时，本回合必须自动使用覆盖范围最小的匹配技能。
+- 使用技能前必须先完整读取对应 `SKILL.md`；仅在该文件要求时再读取 references、scripts 或 assets。
+- 未匹配到可用技能时，直接按本文件的项目地图、LSP 与验证闭环执行，禁止全量扫读技能目录。
 - 如果加载了某个技能，它的指令从属于本文件、用户最新指令和当前仓库证据。
 
-本策略管理从 `.agent/skills/**` 加载代理指令的行为。它不会禁用或描述产品运行时技能管线。运行时规范技能由本项目管理，位置包括项目内 `<cwd>/.agent/skills` 以及活跃个人根目录 `~/.super-dolphin/skills/personal/{user,agent,imported}`；`personal/hub` 仅作为目录索引，不得被扫描、镜像或当作普通个人技能处理。活跃规范技能会同步到生成的提供方原生镜像中，因此 Claude 会发现 `<cwd>/.claude/skills` 和 `~/.claude/skills`，Codex 会发现 `<cwd>/.agents/skills` 和 `~/.agents/skills`。显式配置的提供方主目录仍可使用自己的 `skills` 目录。提供方镜像是生成物，不是规范事实来源。要检查运行时技能行为，请查看 `internal/module/skill*`、`internal/provider/shared/provider_home.go`、提供方镜像测试以及相关 toolbridge 兼容性测试。
+本策略管理从 `.agents/skills/*/SKILL.md` 加载代理指令的行为。它不会禁用或描述产品运行时技能管线。历史 `.agent/skills` 仅作为旧路径保留，不是规范入口，也不是人工编辑目标。运行时规范技能由本项目管理，位置包括项目内 `<cwd>/.agents/skills` 以及活跃个人根目录 `~/.super-dolphin/skills/personal/{user,agent,imported}`；`personal/hub` 仅作为目录索引，不得被扫描、镜像或当作普通个人技能处理。显式配置的提供方主目录仍可使用自己的 `skills` 目录。要检查运行时技能行为，请查看 `internal/module/skill*`、`internal/provider/shared/provider_home.go`、提供方镜像测试以及相关 toolbridge 兼容性测试。
 
 ## 完成验证
 

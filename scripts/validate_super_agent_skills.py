@@ -22,79 +22,79 @@ REQUIRED = {
         "原生子代理/多代理能力",
         "可选使用 `task_create_dag`",
     ],
-    ".agent/skills/使用超能力/references/codex-tools.md": [
+    ".agents/skills/使用超能力/references/codex-tools.md": [
         "子代理生命周期不绑定 mcp-orch",
         "Codex 多代理是本仓库允许的正常派发路径",
         "不要伪造 DAG/node/run 证据",
     ],
-    ".agent/skills/子代理驱动开发/SKILL.md": [
+    ".agents/skills/子代理驱动开发/SKILL.md": [
         "子代理生命周期不强制绑定 mcp-orch",
         "缺少 mcp-go-agent-orchestration 工具不是阻断条件",
         "未使用 mcp-orch 时伪造 DAG/node/run 证据",
     ],
-    ".agent/skills/调度并行代理/SKILL.md": [
+    ".agents/skills/调度并行代理/SKILL.md": [
         "并行代理不强制绑定 mcp-orch",
         "缺少 mcp-go-agent-orchestration 工具不是阻断条件",
         "不需要伪造 DAG/node 证据",
     ],
-    ".agent/skills/并行代理调度/SKILL.md": [
+    ".agents/skills/并行代理调度/SKILL.md": [
         "平台原生并行代理可直接使用",
         "不要因为没有 mcp-go-agent-orchestration 就阻断派发",
     ],
-    ".agent/skills/子代理开发/SKILL.md": [
+    ".agents/skills/子代理开发/SKILL.md": [
         "平台原生子代理直接派发",
         "不要把生命周期强制绑定到 mcp-orch",
         "没有 mcp-go-agent-orchestration 工具不是阻断条件",
     ],
-    ".agent/skills/请求代码审查/SKILL.md": [
+    ".agents/skills/请求代码审查/SKILL.md": [
         "可选创建审查 DAG/node",
         "没有 mcp-go-agent-orchestration 工具不是阻断条件",
     ],
-    ".agent/skills/MCP协议/SKILL.md": [
+    ".agents/skills/MCP协议/SKILL.md": [
         "internal/mcpserver/common",
         "stdio MCP",
         "legacy HTTP",
         "cmd/mcp-orch/sql/queries/task_dag",
     ],
-    ".agent/skills/MCP服务器构建/SKILL.md": [
+    ".agents/skills/MCP服务器构建/SKILL.md": [
         "internal/mcpserver/common",
         "stdio MCP",
         "legacy HTTP",
     ],
-    ".agent/skills/前端/SKILL.md": [
+    ".agents/skills/前端/SKILL.md": [
         "frontend-app",
         "cmd/agent-terminal/web-dist",
         "React/Vite",
     ],
-    ".agent/skills/UI设计/SKILL.md": [
+    ".agents/skills/UI设计/SKILL.md": [
         "frontend-app",
         "不默认引入 Tailwind",
         "前端",
     ],
-    ".agent/skills/TailwindCSS样式规范/SKILL.md": [
+    ".agents/skills/TailwindCSS样式规范/SKILL.md": [
         "仅当用户明确要求",
         "super-agent-v3 默认不引入 Tailwind",
     ],
-    ".agent/skills/ui-ux-design/SKILL.md": [
+    ".agents/skills/ui-ux-design/SKILL.md": [
         "super-agent-v3 路由约束",
         "前端",
         "只有显式要求或依赖已存在时",
     ],
-    ".agent/skills/测试规范/SKILL.md": [
+    ".agents/skills/测试规范/SKILL.md": [
         "./scripts/test_with_guard.sh",
         "make guard",
         "python3 scripts/validate_super_agent_skills.py",
         "canonical 与 mirror 一致",
     ],
-    ".agent/skills/测试驱动开发/SKILL.md": [
+    ".agents/skills/测试驱动开发/SKILL.md": [
         "./scripts/test_with_guard.sh path/to/file.go",
         "cd frontend-app && npm test",
     ],
-    ".agent/skills/注释规范/SKILL.md": [
+    ".agents/skills/注释规范/SKILL.md": [
         "函数级中文注释",
         "internal/archtest/guardlib.go",
     ],
-    ".agent/skills/代码审查维度/SKILL.md": [
+    ".agents/skills/代码审查维度/SKILL.md": [
         "super-agent-v3",
         "## 详细模式",
         "## 18 维详细审查表",
@@ -116,14 +116,14 @@ REQUIRED = {
         "无效豁免",
         "pre-push",
         "validate_super_agent_skills.py",
-        "canonical `.agent/skills`",
+        "canonical `.agents/skills`",
     ],
-    ".agent/skills/后端/project_structure.md": [
+    ".agents/skills/后端/project_structure.md": [
         "internal/platform/db",
         "modernc.org/sqlite",
         "cmd/mcp-orch/sql/queries",
     ],
-    ".agent/skills/后端/testing_pitfalls.md": [
+    ".agents/skills/后端/testing_pitfalls.md": [
         'sql.Open("sqlite", ":memory:")',
         "t.Fatalf",
     ],
@@ -133,58 +133,58 @@ REQUIRED = {
         "modernc.org/sqlite",
         "cmd/mcp-orch/sql/queries",
     ],
-    ".agent/skills/refactoring-guardrails/SKILL.md": [
+    ".agents/skills/refactoring-guardrails/SKILL.md": [
         "禁止静默兜底",
         "return Output{}, fmt.Errorf",
         "./scripts/test_with_guard.sh",
     ],
-    ".agent/skills/Git原子提交规范/SKILL.md": [
+    ".agents/skills/Git原子提交规范/SKILL.md": [
         "codex/",
         "git status --short",
         "git diff --cached --check",
     ],
-    ".agent/skills/Git工作树/SKILL.md": [
+    ".agents/skills/Git工作树/SKILL.md": [
         ".worktrees/",
         "codex/",
         "使用git工作区",
     ],
-    ".agent/skills/使用git工作区/SKILL.md": [
+    ".agents/skills/使用git工作区/SKILL.md": [
         'git worktree add "$path" -b "$branch" "$base_branch"',
         "不要把 `git worktree add ...` 拼成字符串变量再执行",
         '如果必须动态组装命令，使用 shell 数组并以 `"${cmd[@]}"` 执行',
     ],
-    ".agent/skills/结束开发分支/SKILL.md": [
+    ".agents/skills/结束开发分支/SKILL.md": [
         "./scripts/test_with_guard.sh",
         "frontend-app",
         "git status --short",
     ],
-    ".agent/skills/完成开发分支/SKILL.md": [
+    ".agents/skills/完成开发分支/SKILL.md": [
         "结束开发分支",
         "frontend-app",
         "git status --short",
     ],
-    ".agent/skills/编写技能/SKILL.md": [
-        ".agent/skills",
+    ".agents/skills/编写技能/SKILL.md": [
         ".agents/skills",
+        "历史 `.agent/skills`",
         "不要强制绑定 `mcp-orch`",
         "可选编排路径",
     ],
-    ".agent/skills/架构设计/SKILL.md": [
+    ".agents/skills/架构设计/SKILL.md": [
         "frontend-app",
         "SQLite + sqlc",
         "internal/provider",
     ],
-    ".agent/skills/日志与错误处理/SKILL.md": [
+    ".agents/skills/日志与错误处理/SKILL.md": [
         "stdio MCP",
         "fail-fast",
         "./scripts/test_with_guard.sh",
     ],
-    ".agent/skills/安全工程师/SKILL.md": [
+    ".agents/skills/安全工程师/SKILL.md": [
         "sqlc",
         "MCP tool",
         "fail-fast",
     ],
-    ".agent/skills/全量项目地图生成/SKILL.md": [
+    ".agents/skills/全量项目地图生成/SKILL.md": [
         "docs/doc/codemap",
         "make codemap-check",
         "frontend-app",
@@ -202,19 +202,19 @@ FORBIDDEN = {
         "必须使用 `mcp-go-agent-orchestration`",
         "task_start_node",
     ],
-    ".agent/skills/super-dolphin-workflow/SKILL.md": [
+    ".agents/skills/super-dolphin-workflow/SKILL.md": [
         "/Users/ai/Desktop/Super-Dolphin",
     ],
-    ".agent/skills/MCP协议/SKILL.md": [
+    ".agents/skills/MCP协议/SKILL.md": [
         "go-agent-orchestration",
         "核心配置",
         "github.com/mark3labs",
         "、`sql/queries/task_dag*`",
     ],
-    ".agent/skills/使用git工作区/SKILL.md": [
+    ".agents/skills/使用git工作区/SKILL.md": [
         "添加到 .gitignore + 提交该变更",
     ],
-    ".agent/skills/使用超能力/references/codex-tools.md": [
+    ".agents/skills/使用超能力/references/codex-tools.md": [
         "task_start_node",
         "只有在用户仍要求",
         "子代理强制编排",
@@ -223,14 +223,14 @@ FORBIDDEN = {
         "不能替代 mcp-orch DAG 状态",
         "除非用户明确要求绕过本仓库编排规则",
     ],
-    ".agent/skills/子代理驱动开发/SKILL.md": [
+    ".agents/skills/子代理驱动开发/SKILL.md": [
         "task_start_node",
         "降级为 Codex 多代理 fallback",
         "强制前置",
         "生命周期必须先进入 mcp-orch",
         "不要启动子代理",
     ],
-    ".agent/skills/调度并行代理/SKILL.md": [
+    ".agents/skills/调度并行代理/SKILL.md": [
         "task_start_node",
         "Codex 多代理 fallback，则用多个",
         "强制要求",
@@ -238,36 +238,36 @@ FORBIDDEN = {
         "不要启动子代理",
         "不要把它当成本仓库的子代理执行路径",
     ],
-    ".agent/skills/并行代理调度/SKILL.md": [
+    ".agents/skills/并行代理调度/SKILL.md": [
         "task_start_node",
         "Codex 多代理 fallback",
         "先用 `task_create_dag` 建 DAG",
         "只能改为单代理只读分析或等待工具可用",
     ],
-    ".agent/skills/子代理开发/SKILL.md": [
+    ".agents/skills/子代理开发/SKILL.md": [
         "task_start_node",
         "Codex fallback",
         "都必须是 mcp-orch",
         "不要启动子代理",
     ],
-    ".agent/skills/请求代码审查/SKILL.md": [
+    ".agents/skills/请求代码审查/SKILL.md": [
         "task_start_node",
         "再使用 Codex 多代理 fallback",
         "优先创建审查 DAG/node，而不是裸派发后台任务",
         "不要启动子代理",
     ],
-    ".agent/skills/编写技能/SKILL.md": [
+    ".agents/skills/编写技能/SKILL.md": [
         "task_start_node",
         "工具缺失时说明 fallback",
         "涉及子代理时必须写入",
         "先 mcp-orch DAG/run/node",
         "工具缺失时停止",
     ],
-    ".agent/skills/执行计划/SKILL.md": [
+    ".agents/skills/执行计划/SKILL.md": [
         "task_start_node",
         "任何子代理执行都必须先进入 mcp-orch",
     ],
-    ".agent/skills/编写计划/SKILL.md": [
+    ".agents/skills/编写计划/SKILL.md": [
         "task_start_node",
         "subagents must be represented by mcp-orch",
     ],
@@ -278,11 +278,11 @@ FORBIDDEN = {
         "CopyFrom",
         "sql_package: \"pgx",
     ],
-    ".agent/skills/后端/project_structure.md": [
+    ".agents/skills/后端/project_structure.md": [
         "database/        # 数据库连接池",
         "pgxpool",
     ],
-    ".agent/skills/后端/testing_pitfalls.md": [
+    ".agents/skills/后端/testing_pitfalls.md": [
         'sql.Open("sqlite3"',
         "db, _ :=",
     ],
@@ -290,27 +290,27 @@ FORBIDDEN = {
 
 
 NO_TASK_TOOL_TEMPLATES = [
-    ".agent/skills/子代理驱动开发/implementer-prompt.md",
-    ".agent/skills/子代理驱动开发/spec-reviewer-prompt.md",
-    ".agent/skills/子代理驱动开发/code-quality-reviewer-prompt.md",
-    ".agent/skills/编写计划/plan-document-reviewer-prompt.md",
-    ".agent/skills/头脑风暴/spec-document-reviewer-prompt.md",
+    ".agents/skills/子代理驱动开发/implementer-prompt.md",
+    ".agents/skills/子代理驱动开发/spec-reviewer-prompt.md",
+    ".agents/skills/子代理驱动开发/code-quality-reviewer-prompt.md",
+    ".agents/skills/编写计划/plan-document-reviewer-prompt.md",
+    ".agents/skills/头脑风暴/spec-document-reviewer-prompt.md",
 ]
 
 STALE_TOKEN_PATHS = [
-    ".agent/skills/代码审查维度",
-    ".agent/skills/全量项目地图生成",
-    ".agent/skills/后端",
-    ".agent/skills/日志与错误处理",
-    ".agent/skills/架构设计",
-    ".agent/skills/测试规范",
-    ".agent/skills/测试驱动开发",
-    ".agent/skills/完成前验证",
-    ".agent/skills/接收代码审查",
-    ".agent/skills/请求代码审查",
-    ".agent/skills/系统化调试",
-    ".agent/skills/编写技能",
-    ".agent/skills/refactoring-guardrails",
+    ".agents/skills/代码审查维度",
+    ".agents/skills/全量项目地图生成",
+    ".agents/skills/后端",
+    ".agents/skills/日志与错误处理",
+    ".agents/skills/架构设计",
+    ".agents/skills/测试规范",
+    ".agents/skills/测试驱动开发",
+    ".agents/skills/完成前验证",
+    ".agents/skills/接收代码审查",
+    ".agents/skills/请求代码审查",
+    ".agents/skills/系统化调试",
+    ".agents/skills/编写技能",
+    ".agents/skills/refactoring-guardrails",
     "docs/契约/sqlc-convention.md",
 ]
 
@@ -406,7 +406,7 @@ def mirror_bytes_equal(canonical: bytes, mirror: bytes) -> bool:
 
 
 def check_mirror(failures: list[str], mirror_rel: str, *, required: bool) -> None:
-    canonical_root = ROOT / ".agent/skills"
+    canonical_root = ROOT / ".agents/skills"
     mirror_root = ROOT / mirror_rel
     if not mirror_root.exists():
         if required:
@@ -443,7 +443,7 @@ def check_mirror(failures: list[str], mirror_rel: str, *, required: bool) -> Non
 
 
 def check_policy_hashes(failures: list[str]) -> None:
-    policy_path = ROOT / ".agent/skills/.super-dolphin-skill-policy.json"
+    policy_path = ROOT / ".agents/skills/.super-dolphin-skill-policy.json"
     if not policy_path.exists():
         return
     policy = json.loads(policy_path.read_text(encoding="utf-8"))
@@ -451,7 +451,7 @@ def check_policy_hashes(failures: list[str]) -> None:
         selected = entry.get("selected_source_id", "")
         if selected.startswith("project/"):
             name = selected.split("/", 1)[1]
-            skill = ROOT / ".agent/skills" / name / "SKILL.md"
+            skill = ROOT / ".agents/skills" / name / "SKILL.md"
             if not skill.exists():
                 failures.append(f"policy selected project skill missing: {name}")
                 continue
@@ -463,7 +463,7 @@ def check_policy_hashes(failures: list[str]) -> None:
             if not canonical.startswith("project/"):
                 continue
             name = canonical.split("/", 1)[1]
-            skill = ROOT / ".agent/skills" / name / "SKILL.md"
+            skill = ROOT / ".agents/skills" / name / "SKILL.md"
             if not skill.exists():
                 failures.append(f"policy source project skill missing: {name}")
                 continue
@@ -473,7 +473,7 @@ def check_policy_hashes(failures: list[str]) -> None:
 
 
 def check_review_dimension_sections(failures: list[str]) -> None:
-    rel_path = ".agent/skills/代码审查维度/SKILL.md"
+    rel_path = ".agents/skills/代码审查维度/SKILL.md"
     text = read(rel_path)
     for i in range(1, 19):
         dim = f"D{i:02d}"
@@ -562,7 +562,6 @@ def main() -> int:
                     rel = file_path.relative_to(ROOT)
                     failures.append(f"{rel}: stale token {needle!r}")
 
-    check_mirror(failures, ".agents/skills", required=True)
     check_mirror(failures, ".claude/skills", required=False)
     check_policy_hashes(failures)
 

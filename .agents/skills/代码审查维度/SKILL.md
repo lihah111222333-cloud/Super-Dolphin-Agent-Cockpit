@@ -37,7 +37,7 @@ aliases: ["@代码审查维度", "@review-dimensions"]
 | D05 | Provider/runtime | Claude/Codex adapter、provider home、skill mirror、toolbridge、session acquire/release、turn/session 生命周期、prompt snapshot、事件流和取消必须一致。重点查 provider 凭据路径泄露、事件乱序、后台任务未托管、provider 错误被改写、session resume/fork 状态丢失。 | `internal/provider/**`、runtime tests、event log、thread/session fixture |
 | D06 | Orchestration/DAG/Cron/Wakeup | mcp-orch 是可选编排面，不得把子代理生命周期强制绑定到 DAG。只有真实改动 mcp-orch 时才审 `task_create_dag`、`task_start_dag`、`task_dispatch_node`、`task_update_node`、`task_dag_apply_ops`。Cron/Wakeup 重点查租约、重试、幂等、重复唤醒、任务状态回写和取消。 | `cmd/mcp-orch/**`、cron/wakeup tests、DAG SQL、状态机 fixture |
 | D07 | Store/sqlc | SQLite/sqlc 查询、migration、事务、幂等、分页、排序、零值、NULL、baseline 数据和 schema 版本必须一致。重点查手写 SQL 与 sqlc 结构漂移、事务遗漏、读写路径不一致、migration 不可重复、测试数据库与生产路径不一致。 | `internal/store/**`、`internal/platform/db/**`、sqlc query、migration、store tests |
-| D08 | Skill/Memory/Prompt/Thread | Skill 事实源是 canonical `.agent/skills`，provider mirror 只作生成目标；Memory、Prompt、Thread、Dream/auto-dream、resume/fork、prompt snapshot 要保持读写边界清楚。重点查 mirror 漂移、个人 hub 被当运行时根、prompt 泄露、memory 写入丢字段、thread fork 顺序和 snapshot 不一致。 | skill validator、memory/prompt/thread tests、codemap 11/12、provider mirror diff |
+| D08 | Skill/Memory/Prompt/Thread | Skill 事实源是 canonical `.agents/skills`，历史 `.agent/skills` 不作为入口；Memory、Prompt、Thread、Dream/auto-dream、resume/fork、prompt snapshot 要保持读写边界清楚。重点查 mirror 漂移、个人 hub 被当运行时根、prompt 泄露、memory 写入丢字段、thread fork 顺序和 snapshot 不一致。 | skill validator、memory/prompt/thread tests、codemap 11/12、provider mirror diff |
 | D09 | Frontend | 当前 UI 只在 `frontend-app` React/Vite；`cmd/agent-terminal/web-dist` 是 embed 产物。重点查 Wails bridge、状态 store、请求取消、错误提示、表单校验、事件流、可访问性、布局溢出、构建 env 和旧前端路径引用。 | `frontend-app` 源码、lint/test/build、Playwright 或截图证据 |
 | D10 | Security | secrets、命令注入、路径穿越、shell quoting、权限审批、WebSocket/HTTP origin、日志泄露、临时文件、用户路径和 provider home 都要按不可信输入处理。tool 执行必须保留审批和最小权限边界。 | 输入校验、exec 调用、日志字段、权限分支、安全测试 |
 | D11 | Observability | 结构化日志、错误码、状态字段、诊断输出和用户可见状态必须能解释失败原因。禁止只打 debug 后吞证据，禁止用成功事件覆盖失败，禁止丢 trace/span/session/thread 关联。 | slog 字段、event stream、diagnostic payload、trace/log fixture |
@@ -167,14 +167,14 @@ aliases: ["@代码审查维度", "@review-dimensions"]
 
 ## D08 类型分类
 
-- Canonical/mirror 漂移：`.agent/skills`、`.agents/skills`、`.claude/skills` 或个人 skill 根之间事实源不清。
+- Canonical/mirror 漂移：`.agents/skills`、`.claude/skills` 或个人 skill 根之间事实源不清，或仍把历史 `.agent/skills` 当入口。
 - Personal hub 误用：`personal/hub` 被当 runtime root 扫描、同步或镜像，污染运行时技能集合。
 - Prompt/Memory 写入丢字段：memory 注入、prompt snapshot、thread message、dream/auto-dream 持久化字段缺失未失败。
 - Thread fork/resume 顺序错位：fork、resume、message replay、tool result 和 snapshot 的顺序不一致。
 
 ## D08 典型症状/判定场景
 
-- Mirror 场景：只改 `.agents` 或 `.claude`，canonical 未变；或生成 mirror 与 `.agent/skills` 内容不一致。
+- Mirror 场景：只改 `.claude` 或个人镜像，canonical `.agents/skills` 未变；或生成 mirror 与 `.agents/skills` 内容不一致。
 - Prompt 场景：memory、skill、tool schema 已参与 provider prompt，但本地 snapshot 缺记录，后续无法复现。
 - Thread 场景：fork 后消息、tool result、状态事件或 auto-dream 写入顺序改变，恢复时看到不同上下文。
 
