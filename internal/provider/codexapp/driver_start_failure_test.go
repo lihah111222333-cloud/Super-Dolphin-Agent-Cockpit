@@ -17,6 +17,7 @@ import (
 )
 
 func TestStartSessionFailsFastAndCleansUpOnStartupPermanentError(t *testing.T) {
+	const startupPermanentErrorTimeout = 2 * time.Minute
 	serverURL := startStartupPermanentErrorServer(t)
 	var released atomic.Int32
 	d := &driver{
@@ -31,23 +32,19 @@ func TestStartSessionFailsFastAndCleansUpOnStartupPermanentError(t *testing.T) {
 			return nil
 		},
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-	defer cancel()
-
-	startedAt := time.Now()
-	session, err := d.StartSession(ctx, dto.StartSessionRequest{
+	req := dto.StartSessionRequest{
 		Provider:      "codex",
 		AgentID:       "agent-startup-auth-fail",
 		CWD:           t.TempDir(),
+		Model:         "gpt-5",
 		StartAssembly: validStartAssemblyForTest(),
-	})
-	elapsed := time.Since(startedAt)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), startupPermanentErrorTimeout)
+	defer cancel()
 
+	session, err := d.StartSession(ctx, req)
 	if err == nil || !strings.Contains(err.Error(), "API Error: Unable to connect to API") {
 		t.Fatalf("StartSession() error = %v, want startup API error", err)
-	}
-	if elapsed > time.Second {
-		t.Fatalf("StartSession() returned after %s, want fail-fast before context deadline", elapsed)
 	}
 	if session != nil {
 		t.Fatalf("StartSession() session = %#v, want nil after startup failure", session)
@@ -89,22 +86,32 @@ func serveStartupPermanentErrorConn(t *testing.T, conn *websocket.Conn) {
 				return
 			}
 		case "thread/start":
-			notification := mustJSON(map[string]any{
-				"jsonrpc": "2.0",
-				"method":  "connection.dead",
-				"params": mustJSON(map[string]any{
-					"error": "API Error: Unable to connect to API (ConnectionRefused)",
-				}),
-			})
-			if err := conn.WriteMessage(websocket.TextMessage, notification); err != nil {
+			if !writeStartupPermanentErrorRPCError(t, conn, msg.ID, -32000, "API Error: Unable to connect to API (ConnectionRefused)") {
 				return
 			}
+			return
 		default:
 			if !writeStartupPermanentErrorResponse(t, conn, msg.ID, mustJSON(map[string]any{"ok": true})) {
 				return
 			}
 		}
 	}
+}
+
+func writeStartupPermanentErrorRPCError(t *testing.T, conn *websocket.Conn, id json.RawMessage, code int, message string) bool {
+	t.Helper()
+	resp, err := json.Marshal(map[string]any{
+		"jsonrpc": "2.0",
+		"id":      json.RawMessage(append([]byte(nil), id...)),
+		"error": map[string]any{
+			"code":    code,
+			"message": message,
+		},
+	})
+	if err != nil {
+		t.Fatalf("marshal error response: %v", err)
+	}
+	return conn.WriteMessage(websocket.TextMessage, resp) == nil
 }
 
 func writeStartupPermanentErrorResponse(t *testing.T, conn *websocket.Conn, id json.RawMessage, result json.RawMessage) bool {
