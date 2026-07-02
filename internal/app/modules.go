@@ -104,8 +104,9 @@ var Module = fx.Options(
 	// 桌面进程不能再嵌入 orchestration module，否则本地 launcher 会把桌面二进制当子进程拉起并导致 agent 失败。
 	fx.Provide(
 		AsRPCRunner,
+		newToolbridgeHandlerRef,
 		fx.Annotate(newMCPOrchDAGRuntime, fx.As(new(contract.DAGRuntime))),
-		newThreadOrchestrationFacade,
+		fx.Annotate(newMCPOrchOrchestrationFacade, fx.As(new(thread.OrchestrationFacade))),
 		newRuntimeReporter,
 		thread.NewSessionLifecyclePort,
 		thread.NewSessionStatusPort,
@@ -115,6 +116,7 @@ var Module = fx.Options(
 		provideNativeToolDescriptors,
 		provideDisabledBuiltinToolsFn,
 	),
+	fx.Invoke(bindToolbridgeHandlerRef),
 )
 
 // promptIntentE2EFixtureModule 仅在显式配置 fixture path 时加载 e2e provider。

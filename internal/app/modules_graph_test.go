@@ -11,6 +11,7 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
 	datasourcev2 "github.com/anthropic-ai/super-agent-v3/internal/module/datasource_v2"
+	threadmodule "github.com/anthropic-ai/super-agent-v3/internal/module/thread"
 	"github.com/anthropic-ai/super-agent-v3/internal/module/turn"
 	"github.com/anthropic-ai/super-agent-v3/internal/module/workflowtemplate"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/mcpcontrol"
@@ -98,6 +99,16 @@ func TestAppModuleGraphProvidesMCPControlSystemLogSink(t *testing.T) {
 	opts := append(appGraphValidationOptions(), fx.Populate(&sink))
 	if err := fx.ValidateApp(opts...); err != nil {
 		t.Fatalf("fx.ValidateApp missing MCP control system log sink: %v", err)
+	}
+}
+
+func TestAppModuleGraphProvidesThreadOrchestrationFacade(t *testing.T) {
+	t.Parallel()
+
+	var facade threadmodule.OrchestrationFacade
+	opts := append(appGraphValidationOptions(), fx.Populate(&facade))
+	if err := fx.ValidateApp(opts...); err != nil {
+		t.Fatalf("fx.ValidateApp missing thread orchestration facade: %v", err)
 	}
 }
 
