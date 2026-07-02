@@ -56,6 +56,80 @@ func TestOnNotification_CodexRolloutAssistantMessageCompletesActiveTurn(t *testi
 	fixture.assertNoForceComplete(t)
 }
 
+func TestOnNotification_CodexAssistantItemCompletedCompletesActiveTurnFromAccumulator(t *testing.T) {
+	bus := event.NewDispatcher()
+	dispatcher := unified.NewEventDispatcher(bus, nil)
+	RegisterTranslators(dispatcher)
+	completedCh := make(chan turndto.TurnCompleted, 1)
+	cancelCompleted := event.Subscribe(bus, func(ev turndto.TurnCompleted) { completedCh <- ev })
+	defer cancelCompleted()
+	toolEndCh := make(chan tooldto.ToolCallEnd, 1)
+	cancelToolEnd := event.Subscribe(bus, func(ev tooldto.ToolCallEnd) { toolEndCh <- ev })
+	defer cancelToolEnd()
+	defer func() { _ = bus.Close() }()
+
+	s := newInboundTestSession(context.Background(), nil, &ServerManager{})
+	s.dispatcher = dispatcher
+	active := configureSingleForceCompleteTurn(s, "turn-1")
+
+	s.onNotification("item/agentMessage/delta", json.RawMessage(`{
+		"agentId":"agent-1",
+		"threadId":"provider-thread-1",
+		"turnId":"turn-1",
+		"stream":"message",
+		"delta":"你好"
+	}`))
+	s.onNotification("item/completed", json.RawMessage(`{
+		"agentId":"agent-1",
+		"threadId":"provider-thread-1",
+		"turnId":"turn-1",
+		"item":{"type":"agent_message","role":"assistant","content":[]}
+	}`))
+
+	completed := waitRolloutTurnCompleted(t, completedCh)
+	if completed.TurnID != "turn-1" || !completed.Success || completed.Status != "completed" {
+		t.Fatalf("TurnCompleted = %+v, want successful completed turn-1", completed)
+	}
+	if completed.Result != "你好" {
+		t.Fatalf("TurnCompleted.Result = %q, want accumulated assistant message", completed.Result)
+	}
+	assertTurnDone(t, active, "assistant item/completed did not complete active turn")
+	assertNoToolCallEnd(t, toolEndCh)
+}
+
+func TestOnNotification_CodexAssistantItemCompletedDoesNotCompleteToolItem(t *testing.T) {
+	bus := event.NewDispatcher()
+	dispatcher := unified.NewEventDispatcher(bus, nil)
+	RegisterTranslators(dispatcher)
+	completedCh := make(chan turndto.TurnCompleted, 1)
+	cancelCompleted := event.Subscribe(bus, func(ev turndto.TurnCompleted) { completedCh <- ev })
+	defer cancelCompleted()
+	toolEndCh := make(chan tooldto.ToolCallEnd, 1)
+	cancelToolEnd := event.Subscribe(bus, func(ev tooldto.ToolCallEnd) { toolEndCh <- ev })
+	defer cancelToolEnd()
+	defer func() { _ = bus.Close() }()
+
+	s := newInboundTestSession(context.Background(), nil, &ServerManager{})
+	s.dispatcher = dispatcher
+	configureSingleForceCompleteTurn(s, "turn-1")
+
+	s.onNotification("item/completed", json.RawMessage(`{
+		"agentId":"agent-1",
+		"threadId":"provider-thread-1",
+		"turnId":"turn-1",
+		"callId":"call-file",
+		"name":"file",
+		"success":true,
+		"result":{"ok":true}
+	}`))
+
+	end := waitToolCallEnd(t, toolEndCh)
+	if end.CallID != "call-file" || end.ToolName != "file" || !end.Success {
+		t.Fatalf("ToolCallEnd = %+v, want successful call-file/file", end)
+	}
+	assertNoRolloutTurnCompleted(t, completedCh)
+}
+
 func TestSyntheticAssistantCompletionPreservesToolFailure(t *testing.T) {
 	bus := event.NewDispatcher()
 	dispatcher := unified.NewEventDispatcher(bus, nil)
@@ -116,6 +190,15 @@ func waitRolloutTurnCompleted(t *testing.T, ch <-chan turndto.TurnCompleted) tur
 	case <-time.After(time.Second):
 		t.Fatal("timed out waiting for TurnCompleted")
 		return turndto.TurnCompleted{}
+	}
+}
+
+func assertNoRolloutTurnCompleted(t *testing.T, ch <-chan turndto.TurnCompleted) {
+	t.Helper()
+	select {
+	case ev := <-ch:
+		t.Fatalf("unexpected TurnCompleted = %+v", ev)
+	case <-time.After(50 * time.Millisecond):
 	}
 }
 

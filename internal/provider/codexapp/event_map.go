@@ -334,10 +334,11 @@ func translateTurnEvent(eventType string, payload map[string]any) (any, bool) {
 	if isTurnTerminalEvent(eventType) {
 		header := buildTurnHeader(payload)
 		providershared.ResetToolResultScope(header.ThreadID, header.TurnID)
+		success := turnTerminalSuccess(eventType, payload)
 		return turndto.TurnCompleted{
 			TurnHeader: header,
-			Success:    turnTerminalSuccess(eventType, payload),
-			Error:      stringValue(payload, "error", "message", "reason"),
+			Success:    success,
+			Error:      turnTerminalError(success, payload),
 			Status:     stringValue(payload, "status"),
 			Reason:     stringValue(payload, "reason"),
 			// result 由 session 的 per-turn 输出累积器在分发前合并进 payload。
@@ -395,6 +396,21 @@ func translateTurnEvent(eventType string, payload map[string]any) (any, bool) {
 	default:
 		return nil, false
 	}
+}
+
+// turnTerminalError 将失败终态的错误字段映射到 Error。
+// 成功终态的 reason 是结束原因，不能误填到 Error 字段影响 UI 和编排判断。
+func turnTerminalError(success bool, payload map[string]any) string {
+	if explicit := shared.FirstNonEmpty(
+		stringValue(payload, "error"),
+		stringValue(nestedValue(payload, "error"), "message"),
+	); explicit != "" {
+		return explicit
+	}
+	if success {
+		return ""
+	}
+	return stringValue(payload, "message", "reason")
 }
 
 // validatedStateChangedEvent 规范化并校验 Codex state changed payload。

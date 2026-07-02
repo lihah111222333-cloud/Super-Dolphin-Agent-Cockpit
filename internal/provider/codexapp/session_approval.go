@@ -468,24 +468,25 @@ func (s *session) handleNotificationAction(method string, params json.RawMessage
 		s.handleApprovalRequest(method, params)
 	case isTurnTerminalEvent(method):
 		s.finishTurn(params, turnTerminalSuccess(method, decodeEventPayload(params)))
-	case s.completeRolloutAssistantMessage(method, params):
+	case s.completeAssistantMessageCompleted(method, params):
 	case method == "connection.dead":
 		s.handleConnectionDead(params)
 	}
 }
 
-// completeRolloutAssistantMessage 将 rollout 中的 assistant response_item 合成为本地 turn 完成事件。
-// 只有消息属于当前 active turn 时才会补完成，避免其他线程或历史回放误关闭正在运行的 turn。
-func (s *session) completeRolloutAssistantMessage(method string, params json.RawMessage) bool {
-	if strings.TrimSpace(method) != "response_item" {
-		return false
-	}
-	msg, ok := parseRolloutLine(mustJSON(map[string]any{"type": "response_item", "payload": params}))
-	if !ok || msg.Role != "assistant" {
+// completeAssistantMessageCompleted 将 Codex 的 assistant message 完成事件合成本地 turn 终态。
+// 只有当前 active turn 的 assistant message 会触发，工具 item 和历史回放不会关闭正在运行的 turn。
+func (s *session) completeAssistantMessageCompleted(method string, params json.RawMessage) bool {
+	method = strings.TrimSpace(method)
+	if !isAssistantMessageCompletedMethod(method) {
 		return false
 	}
 	payload := decodeEventPayload(params)
-	turnID := shared.FirstNonEmpty(payloadTurnID(payload), payloadTurnID(codexToolItemPayload(payload)))
+	item, ok := assistantMessagePayload(payload)
+	if !ok {
+		return false
+	}
+	turnID := shared.FirstNonEmpty(payloadTurnID(payload), payloadTurnID(item))
 	s.mu.Lock()
 	if turnID == "" {
 		turnID = s.activeTurnID
@@ -495,8 +496,85 @@ func (s *session) completeRolloutAssistantMessage(method string, params json.Raw
 	if !ok {
 		return false
 	}
-	s.completeSyntheticTurn(turnID, "rollout_assistant_message", msg.Content)
+	s.completeSyntheticTurn(turnID, "assistant_message_completed", assistantMessageText(item))
 	return true
+}
+
+func isAssistantMessageCompletedMethod(method string) bool {
+	switch strings.TrimSpace(method) {
+	case "response_item",
+		"item/completed", "item_completed", "agent/event/item_completed", "rawResponseItem/completed":
+		return true
+	default:
+		return false
+	}
+}
+
+// assistantMessagePayload 从 root、item 或 payload 三种 Codex wire 形态里提取 assistant message。
+// role/type 必须明确指向 assistant message，避免把工具结束事件误当成 turn 终态。
+func assistantMessagePayload(payload map[string]any) (map[string]any, bool) {
+	for _, candidate := range []map[string]any{
+		payload,
+		nestedValue(payload, "item"),
+		nestedValue(payload, "payload"),
+	} {
+		if isAssistantMessageItem(candidate) {
+			return candidate, true
+		}
+	}
+	return nil, false
+}
+
+func isAssistantMessageItem(item map[string]any) bool {
+	if len(item) == 0 {
+		return false
+	}
+	role := strings.ToLower(strings.TrimSpace(stringValue(item, "role")))
+	itemType := strings.ToLower(strings.TrimSpace(stringValue(item, "type", "kind")))
+	switch itemType {
+	case "message":
+		return role == "assistant"
+	case "assistant", "assistant_message", "agent_message", "agentmessage":
+		return role == "" || role == "assistant"
+	default:
+		return false
+	}
+}
+
+// assistantMessageText 提取 assistant message 的文本结果。
+// 当前 Codex 会优先通过 delta 流传正文；这里仅消费 completed item 自带的显式文本字段。
+func assistantMessageText(item map[string]any) string {
+	if text := stringValue(item, "text", "message", "result"); text != "" {
+		return text
+	}
+	return assistantMessageContentText(item["content"])
+}
+
+// assistantMessageContentText 解析 Codex message content 数组中的文本块。
+// 只接受明确文本块类型，避免把图片、工具或结构化附件误拼进最终回答。
+func assistantMessageContentText(raw any) string {
+	switch typed := raw.(type) {
+	case string:
+		return strings.TrimSpace(typed)
+	case []any:
+		var b strings.Builder
+		for _, entry := range typed {
+			obj, ok := entry.(map[string]any)
+			if !ok {
+				continue
+			}
+			kind := strings.ToLower(strings.TrimSpace(stringValue(obj, "type")))
+			if kind != "" && kind != "text" && kind != "output_text" {
+				continue
+			}
+			b.WriteString(stringValue(obj, "text"))
+		}
+		return strings.TrimSpace(b.String())
+	case map[string]any:
+		return stringValue(typed, "text")
+	default:
+		return ""
+	}
 }
 
 func (s *session) alienThreadEventThread(params json.RawMessage) (string, bool) {

@@ -151,7 +151,12 @@ func (s *session) completeSyntheticTurn(turnID, reason, result string) {
 		payload["error"] = toolFailureSummary(failures)
 		payload["tool_failure_count"] = len(failures)
 	}
-	if result = strings.TrimSpace(result); result != "" {
+	result = strings.TrimSpace(result)
+	if result == "" {
+		result, _ = s.consumeTurnOutputAccumulator(turnID)
+		result = strings.TrimSpace(result)
+	}
+	if result != "" {
 		payload["result"] = result
 	}
 	s.dispatch(dto.RawProviderEvent{EventType: "turn/completed", Data: payload})

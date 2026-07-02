@@ -173,6 +173,29 @@ func TestTurnCompleted_EndToEnd_ProviderProvidedFieldsPreserved(t *testing.T) {
 	}
 }
 
+func TestTurnCompleted_EndToEnd_SuccessReasonDoesNotPopulateError(t *testing.T) {
+	s := newAccumulatorTestSession()
+	terminal, _ := json.Marshal(map[string]any{
+		"turnId":  "T-synthetic",
+		"success": true,
+		"status":  "completed",
+		"reason":  "assistant_message_completed",
+	})
+	completed, ok := sniffAndTranslate(t, s, "turn/completed", terminal)
+	if !ok {
+		t.Fatalf("expected DTO translation")
+	}
+	if !completed.Success {
+		t.Fatalf("expected Success=true")
+	}
+	if completed.Reason != "assistant_message_completed" {
+		t.Fatalf("Reason = %q, want assistant_message_completed", completed.Reason)
+	}
+	if completed.Error != "" {
+		t.Fatalf("Error = %q, want empty for successful terminal reason", completed.Error)
+	}
+}
+
 // TestTurnCompleted_EndToEnd_NoDeltaNoResult 验证没有 message delta 的工具型 turn 会产生空 Result。
 func TestTurnCompleted_EndToEnd_NoDeltaNoResult(t *testing.T) {
 	s := newAccumulatorTestSession()
@@ -211,6 +234,26 @@ func TestTurnCompleted_EndToEnd_FailedTurnCarriesError(t *testing.T) {
 	}
 	if completed.Error != "codex tool call denied" {
 		t.Fatalf("TurnCompleted.Error = %q, want the failure detail", completed.Error)
+	}
+}
+
+func TestTurnCompleted_EndToEnd_FailedTurnReasonCarriesError(t *testing.T) {
+	s := newAccumulatorTestSession()
+	terminal, _ := json.Marshal(map[string]any{
+		"turnId":  "T-fail-reason",
+		"success": false,
+		"status":  "failed",
+		"reason":  "tool rejected",
+	})
+	completed, ok := sniffAndTranslate(t, s, "turn/completed", terminal)
+	if !ok {
+		t.Fatalf("expected turn/completed to translate into TurnCompleted DTO")
+	}
+	if completed.Success {
+		t.Fatalf("expected Success=false for a failed turn")
+	}
+	if completed.Error != "tool rejected" {
+		t.Fatalf("TurnCompleted.Error = %q, want reason as failure detail", completed.Error)
 	}
 }
 
