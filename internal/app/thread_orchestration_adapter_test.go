@@ -18,7 +18,9 @@ func TestMCPOrchOrchestrationFacadeRequiresTools(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	assertFacadeNotConfigured(t, "LaunchAgent", facade.LaunchAgent(ctx, thread.LaunchAgentRequest{AgentID: "agent-1"}), "toolbridge handler")
+	if err := facade.LaunchAgent(ctx, thread.LaunchAgentRequest{AgentID: "agent-1"}); err != nil {
+		t.Fatalf("LaunchAgent() error = %v, want nil local provider lifecycle no-op", err)
+	}
 	assertFacadeNotConfigured(t, "StopAgent", facade.StopAgent(ctx, "agent-1"), "toolbridge handler")
 	assertFacadeNotConfigured(t, "Recover", facade.Recover(ctx, "agent-1"), "toolbridge handler")
 
@@ -27,7 +29,7 @@ func TestMCPOrchOrchestrationFacadeRequiresTools(t *testing.T) {
 	}
 }
 
-func TestMCPOrchOrchestrationFacadeLaunchAgentAddsLifecycleWorkspaceMetadata(t *testing.T) {
+func TestMCPOrchOrchestrationFacadeLaunchAgentDoesNotCallToolbridge(t *testing.T) {
 	t.Parallel()
 
 	caller := &recordingThreadOrchToolCaller{}
@@ -44,20 +46,8 @@ func TestMCPOrchOrchestrationFacadeLaunchAgentAddsLifecycleWorkspaceMetadata(t *
 	if err != nil {
 		t.Fatalf("LaunchAgent() error = %v", err)
 	}
-
-	params := decodeThreadOrchToolParams(t, caller.params)
-	if got := params[toolbridge.MetadataKeyCWD]; got != "/repo/project" {
-		t.Fatalf("toolbridge %s = %#v, want /repo/project", toolbridge.MetadataKeyCWD, got)
-	}
-	if got := params[toolbridge.MetadataKeyAgentID]; got != "agent-1" {
-		t.Fatalf("toolbridge %s = %#v, want agent-1", toolbridge.MetadataKeyAgentID, got)
-	}
-	roots, ok := params[toolbridge.MetadataKeyWorkspaceRoots].([]any)
-	if !ok {
-		t.Fatalf("toolbridge %s = %#v, want []any", toolbridge.MetadataKeyWorkspaceRoots, params[toolbridge.MetadataKeyWorkspaceRoots])
-	}
-	if len(roots) != 1 || roots[0] != "/repo/project" {
-		t.Fatalf("toolbridge %s = %#v, want [/repo/project]", toolbridge.MetadataKeyWorkspaceRoots, roots)
+	if len(caller.params) != 0 {
+		t.Fatalf("LaunchAgent called toolbridge with params=%s, want no-op", string(caller.params))
 	}
 }
 

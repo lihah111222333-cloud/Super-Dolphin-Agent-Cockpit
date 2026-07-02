@@ -81,19 +81,11 @@ func (r *toolbridgeHandlerRef) HandleToolCall(ctx context.Context, msg contract.
 	return handler.HandleToolCall(ctx, msg)
 }
 
-// LaunchAgent 通过 mcp-orch 的 launch_agent 工具启动子 agent。
-func (f *mcpOrchOrchestrationFacade) LaunchAgent(ctx context.Context, req thread.LaunchAgentRequest) error {
-	agentID := strings.TrimSpace(req.AgentID)
-	cwd := strings.TrimSpace(req.Cwd)
-	args := map[string]any{
-		"agent_id":     agentID,
-		"name":         strings.TrimSpace(req.Name),
-		"parent_id":    strings.TrimSpace(req.ParentID),
-		"agent_type":   strings.TrimSpace(req.AgentType),
-		"memory_scope": strings.TrimSpace(req.MemoryScope),
-		"cwd":          cwd,
-	}
-	return f.call(ctx, "launch_agent", args, orchFacadeToolMetadata{agentID: agentID, cwd: cwd}, nil)
+// LaunchAgent 在桌面进程中不调用 mcp-orch。
+// thread 自身的 Start/SpawnIfNeeded 已负责启动当前 provider session；真正的子 agent 由模型工具
+// launch_agent 经 toolbridge 进入 mcp-orch。这里如果反调 launch_agent，会在父 Codex surface 尚未建立时失败。
+func (f *mcpOrchOrchestrationFacade) LaunchAgent(context.Context, thread.LaunchAgentRequest) error {
+	return nil
 }
 
 // StopAgent 通过 mcp-orch 的 stop_agent 工具停止 agent。
