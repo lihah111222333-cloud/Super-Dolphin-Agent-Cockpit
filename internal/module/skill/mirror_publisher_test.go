@@ -517,6 +517,63 @@ func TestReconcileProviderMirrorsReportsSameNameConflictButContinuesSafeMirrorWr
 	assertDeletedReportItem(t, report.Deleted, "codex:project:"+RepoFingerprint(project), SkillProviderCodex, skillScopeProject, "old", "project/old")
 }
 
+func TestReconcileProviderMirrorsDoesNotReportConflictedProjectSkillAsUnmanagedProviderSkill(t *testing.T) {
+	project := t.TempDir()
+	superHome := filepath.Join(t.TempDir(), ".super-dolphin")
+	svc := &service{projectRoot: project, projectSkillsRoot: defaultProjectSkillsRoot(project), superDolphinHome: superHome}
+	codexProjectRoot := providerProjectMirrorRoot(SkillProviderCodex, project)
+	targets := []contract.SkillProviderMirrorTarget{{
+		Provider:   "codex",
+		SkillsRoot: codexProjectRoot,
+	}}
+	writeSkillWithSupportFiles(t, filepath.Join(project, ".agent", "skills", "build"), "build")
+	writeSkillWithSupportFiles(t, filepath.Join(superHome, "skills", "personal", "user", "build"), "build")
+
+	report, err := svc.ReconcileProviderMirrors(context.Background(), project, targets)
+	if err != nil {
+		t.Fatalf("ReconcileProviderMirrors: %v", err)
+	}
+
+	assertConflictReportItem(t, report.Conflicts, "codex:project:"+RepoFingerprint(project), SkillProviderCodex, skillScopeProject, "build", "", "same_name")
+	for _, item := range report.Conflicts {
+		if item.Provider == SkillProviderCodex && item.Scope == skillScopeProject && item.RelativeMirrorPath == "build" && item.ConflictKind == "unmanaged_provider_skill" {
+			t.Fatalf("conflicts include project canonical skill as unmanaged provider skill: %+v", report.Conflicts)
+		}
+	}
+}
+
+func TestReconcileProviderMirrorsUsesAgentsPolicyRootAsCanonicalSelfMirror(t *testing.T) {
+	project := t.TempDir()
+	superHome := filepath.Join(t.TempDir(), ".super-dolphin")
+	agentsRoot := filepath.Join(project, ".agents", "skills")
+	writeSkillWithSupportFiles(t, filepath.Join(agentsRoot, "Agent工程学"), "Agent工程学")
+	if _, err := writeSkillPolicyJSON(filepath.Join(agentsRoot, projectSkillPolicyFile), projectSkillPolicy{Version: 1}, 0o644); err != nil {
+		t.Fatalf("write .agents project policy: %v", err)
+	}
+	svc := &service{projectRoot: project, projectSkillsRoot: defaultProjectSkillsRoot(project), superDolphinHome: superHome}
+
+	report, err := svc.ReconcileProviderMirrors(context.Background(), project, []contract.SkillProviderMirrorTarget{{
+		Provider:   "codex",
+		SkillsRoot: agentsRoot,
+	}})
+	if err != nil {
+		t.Fatalf("ReconcileProviderMirrors: %v", err)
+	}
+
+	if len(report.Conflicts) > 0 {
+		t.Fatalf("conflicts = %+v, want none for canonical .agents self mirror", report.Conflicts)
+	}
+	manifest, err := readSkillMirrorManifest(filepath.Join(agentsRoot, skillMirrorManifestFile))
+	if err != nil {
+		t.Fatalf("read manifest: %v", err)
+	}
+	entry := manifest.Skills["Agent工程学"]
+	if !entry.Owned || entry.CanonicalID != "project/Agent工程学" || entry.CanonicalHash == "" || entry.MirrorHash == "" {
+		t.Fatalf("manifest entry = %+v, want canonical .agents skill recorded without self-copy", entry)
+	}
+	assertMirrorFile(t, filepath.Join(agentsRoot, "Agent工程学", skillMainFile), false)
+}
+
 func TestReconcileProviderMirrorsReportsOrphanUnmanagedProviderSkill(t *testing.T) {
 	project := t.TempDir()
 	superHome := filepath.Join(t.TempDir(), ".super-dolphin")

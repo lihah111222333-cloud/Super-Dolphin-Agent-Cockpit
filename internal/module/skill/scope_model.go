@@ -76,7 +76,21 @@ func defaultProjectSkillsRoot(projectRoot string) string {
 	if projectRoot = strings.TrimSpace(projectRoot); projectRoot == "" {
 		return ""
 	}
+	agentsRoot := filepath.Join(projectRoot, ".agents", "skills")
+	if hasProjectSkillPolicy(agentsRoot) {
+		return agentsRoot
+	}
 	return filepath.Join(projectRoot, ".agent", "skills")
+}
+
+// hasProjectSkillPolicy 识别已迁移到 .agents/skills 的项目 canonical skill 根。
+// 普通 provider mirror 只会写 mirror manifest，不会写项目选择策略；因此这里不会因为一次发布生成 .agents 而切换来源。
+func hasProjectSkillPolicy(root string) bool {
+	info, err := os.Lstat(filepath.Join(root, projectSkillPolicyFile))
+	if err != nil {
+		return false
+	}
+	return info.Mode().IsRegular()
 }
 func defaultSuperDolphinHome() string {
 	if override := strings.TrimSpace(os.Getenv("SUPER_DOLPHIN_HOME")); override != "" {

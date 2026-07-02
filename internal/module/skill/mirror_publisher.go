@@ -37,7 +37,11 @@ func PublishSkillMirrors(ctx context.Context, records []canonicalSkillRecord, ta
 		if err := ctx.Err(); err != nil {
 			return report, err
 		}
-		targetReport, err := publishSkillMirrorTarget(recordsForMirrorTarget(records, target), target)
+		targetRecords := recordsForMirrorTarget(records, target)
+		if targetUsesCanonicalSelfMirror(records, target) {
+			targetRecords = canonicalRecordsForMirrorTargetScope(records, target)
+		}
+		targetReport, err := publishSkillMirrorTarget(targetRecords, target)
 		appendSkillMirrorReport(&report, targetReport)
 		if err != nil {
 			return report, err
@@ -66,6 +70,35 @@ func recordsForMirrorTarget(records []canonicalSkillRecord, target SkillMirrorTa
 	return filtered
 }
 
+func canonicalRecordsForMirrorTargetScope(records []canonicalSkillRecord, target SkillMirrorTarget) []canonicalSkillRecord {
+	filtered := make([]canonicalSkillRecord, 0, len(records))
+	for _, record := range records {
+		if record.Scope == strings.TrimSpace(target.Scope) {
+			filtered = append(filtered, record)
+		}
+	}
+	return filtered
+}
+
+// targetUsesCanonicalSelfMirror 判断 provider 目标是否就是当前项目 canonical skill 根。
+// 这种场景不能按普通 mirror 处理，否则目录名和规范化 skill name 不一致时会把真实来源误报为外部 provider 内容。
+func targetUsesCanonicalSelfMirror(records []canonicalSkillRecord, target SkillMirrorTarget) bool {
+	if target.Scope != skillScopeProject {
+		return false
+	}
+	var scoped int
+	for _, record := range records {
+		if record.Scope != skillScopeProject {
+			continue
+		}
+		scoped++
+		if !sameCleanPath(filepath.Dir(record.Dir), target.Root) {
+			return false
+		}
+	}
+	return scoped > 0
+}
+
 // publishSkillMirrorTarget 刷新一个 provider skills 根。
 // 只有本系统创建、且内容没被改过的目录，才会自动替换或删除。
 func publishSkillMirrorTarget(records []canonicalSkillRecord, target SkillMirrorTarget) (SkillMirrorReport, error) {
@@ -85,6 +118,9 @@ func publishSkillMirrorTarget(records []canonicalSkillRecord, target SkillMirror
 	if stop {
 		return report, nil
 	}
+	if targetUsesCanonicalSelfMirror(records, target) {
+		return publishCanonicalSelfMirrorTarget(records, target, manifestPath)
+	}
 	report, err = deleteMissingMirrorEntries(&manifest, target, records)
 	if err != nil {
 		return report, err
@@ -103,6 +139,26 @@ func publishSkillMirrorTarget(records []canonicalSkillRecord, target SkillMirror
 		return report, err
 	}
 	return report, nil
+}
+
+// publishCanonicalSelfMirrorTarget 记录 canonical 根自身的 mirror manifest。
+// 源目录和 provider 读取目录相同时不能自我复制或做 unmanaged 检查；scan 阶段已经对 canonical 目录做了 symlink/格式校验。
+func publishCanonicalSelfMirrorTarget(records []canonicalSkillRecord, target SkillMirrorTarget, manifestPath string) (SkillMirrorReport, error) {
+	manifest := newSkillMirrorManifest(target)
+	for _, record := range records {
+		if record.Scope != target.Scope {
+			continue
+		}
+		hash, err := stableMirrorDirectoryHash(record.Dir)
+		if err != nil {
+			return SkillMirrorReport{}, err
+		}
+		manifest.Skills[record.Name] = mirrorManifestEntry(record, hash, hash)
+	}
+	if err := writeSkillMirrorManifest(manifestPath, manifest); err != nil {
+		return SkillMirrorReport{}, err
+	}
+	return SkillMirrorReport{}, nil
 }
 
 // loadPublishTargetManifest 加载或修复目标 manifest。
