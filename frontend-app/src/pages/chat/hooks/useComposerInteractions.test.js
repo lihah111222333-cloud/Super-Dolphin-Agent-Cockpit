@@ -3,6 +3,7 @@ import {
   CONVERSATION_DROP_TARGET_ID,
   clipboardPathsFromText,
   extractFilePathsFromTransferData,
+  fileDropSubscriptionCleanup,
   nativeDropFiles,
   nativeDropTargetAcceptsFiles,
 } from './useComposerInteractions.js';
@@ -87,5 +88,18 @@ describe('useComposerInteractions file transfer helpers', () => {
       },
       '/tmp/readme.md',
     ]);
+  });
+
+  it('normalizes Wails file-drop subscription cleanup handlers', () => {
+    const functionCleanup = vi.fn();
+    expect(fileDropSubscriptionCleanup(functionCleanup)).toBe(functionCleanup);
+
+    const objectCleanup = vi.fn();
+    const cleanup = fileDropSubscriptionCleanup({ unsubscribe: objectCleanup });
+    expect(cleanup).toEqual(expect.any(Function));
+    cleanup();
+    expect(objectCleanup).toHaveBeenCalledTimes(1);
+
+    expect(fileDropSubscriptionCleanup(null)).toBeUndefined();
   });
 });

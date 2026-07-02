@@ -215,6 +215,12 @@ export function nativeDropTargetAcceptsFiles(details, options = {}) {
     || Boolean(options.acceptEmptyDetails && !nativeDropHasTargetEvidence(details, attributes));
 }
 
+export function fileDropSubscriptionCleanup(subscription) {
+  if (typeof subscription === 'function') return subscription;
+  if (subscription && typeof subscription.unsubscribe === 'function') return () => subscription.unsubscribe();
+  return undefined;
+}
+
 export function useComposerInteractions({
   attachments,
   attachPaths,
@@ -278,13 +284,14 @@ function useComposerTransferHandlers({ attachDroppedFiles, attachPaths, canUsePr
 
   useEffect(() => {
     if (typeof attachPaths !== 'function') return undefined;
-    return onFilesDropped((event) => {
+    const subscription = onFilesDropped((event) => {
       const files = nativeDropFiles(event, { acceptEmptyDetails: dropDepthRef.current > 0 });
       if (files.length === 0) return;
       if (!canUseProjectActions) return;
       attachPaths(files);
       resetDropState();
     });
+    return fileDropSubscriptionCleanup(subscription);
   }, [attachPaths, canUseProjectActions, dropDepthRef, resetDropState]);
   const handlePaste = async (event) => {
     const paths = extractClipboardFilePaths(event);
