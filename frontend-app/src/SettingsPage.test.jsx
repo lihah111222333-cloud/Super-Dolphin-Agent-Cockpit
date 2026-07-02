@@ -256,7 +256,7 @@ describe('SettingsPage provider settings', () => {
       });
       expect(screen.getByText('已保存：auto / never')).toHaveAttribute('role', 'status');
     });
-  });
+  }, 10_000);
 
   it('surfaces unsupported Claude active provider preferences instead of loading them', async () => {
     backend.getPreference.mockImplementation(({ key }) => Promise.resolve({

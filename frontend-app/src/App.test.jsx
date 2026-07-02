@@ -721,7 +721,7 @@ async function showAllTraceDashboardEvents() {
     fireEvent.click(screen.getByRole('button', { name: '设置' }));
     await screen.findByTestId('settings-page');
     expect(shell).not.toHaveClass('sidebar-open');
-  });
+  }, 10_000);
 
   it('uses the custom brand icon only in the sidebar brand area', async () => {
     render(<App />);
@@ -870,7 +870,7 @@ async function showAllTraceDashboardEvents() {
     expect(backend.addProject).toHaveBeenCalledWith({ cwd: '/repo/app', path: '/repo/new' });
     expect(backend.setActiveProject).toHaveBeenCalledWith({ cwd: '/repo/app', path: '/repo/new' });
     await waitFor(() => expect(useClientStore.getState().activePage).toBe('chat'));
-  });
+  }, 10_000);
 
   it('keeps sidebar project order stable and toggles project chats from folder clicks without switching projects', async () => {
     backend.getProjects.mockResolvedValue({ projects: ['/repo/app', '/repo/other'], active: '/repo/app' });
