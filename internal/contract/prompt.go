@@ -155,6 +155,7 @@ const (
 	DynamicSectionMemoryEntrypoint       = "memory_entrypoint"
 	DynamicSectionEnvInfoSimple          = "env_info_simple"
 	DynamicSectionDatasource             = "datasource"
+	DynamicSectionDatasourceV2           = "datasource_v2"
 	DynamicSectionLanguage               = "language"
 	DynamicSectionMCPInstructions        = "mcp_instructions"
 	DynamicSectionOutputStyle            = "output_style"

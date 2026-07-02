@@ -19,6 +19,7 @@ const (
 	DynamicSectionMemoryEntrypoint       = contract.DynamicSectionMemoryEntrypoint
 	DynamicSectionEnvInfoSimple          = contract.DynamicSectionEnvInfoSimple
 	DynamicSectionDatasource             = contract.DynamicSectionDatasource
+	DynamicSectionDatasourceV2           = contract.DynamicSectionDatasourceV2
 	DynamicSectionLanguage               = contract.DynamicSectionLanguage
 	DynamicSectionMCPInstructions        = contract.DynamicSectionMCPInstructions
 	DynamicSectionOutputStyle            = contract.DynamicSectionOutputStyle
@@ -72,6 +73,7 @@ var dynamicSectionSpecs = []dynamicSectionSpec{
 	{name: DynamicSectionMemoryContext, order: 125, cachePolicy: InputScoped},
 	{name: DynamicSectionEnvInfoSimple, order: 130, cachePolicy: InputScoped},
 	{name: DynamicSectionDatasource, order: 135, cachePolicy: Uncached},
+	{name: DynamicSectionDatasourceV2, order: 136, cachePolicy: Uncached},
 	{name: DynamicSectionLanguage, order: 140, cachePolicy: InputScoped},
 	{name: DynamicSectionMCPInstructions, order: 150, cachePolicy: Uncached},
 	{name: DynamicSectionOutputStyle, order: 200, cachePolicy: CacheByName},

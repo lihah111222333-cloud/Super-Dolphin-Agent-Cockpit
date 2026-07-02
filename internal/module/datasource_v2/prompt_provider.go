@@ -26,7 +26,7 @@ func NewPromptProvider(svc Service) *PromptProvider {
 
 // SectionName 返回 datasource_v2 写入的 prompt section 名称。
 func (p *PromptProvider) SectionName() string {
-	return contract.DynamicSectionDatasource
+	return contract.DynamicSectionDatasourceV2
 }
 
 // Resolve 根据当前 chat 请求做语义检索，并把排序前 10 个 datasource_v2 分块渲染到 prompt。
@@ -34,7 +34,7 @@ func (p *PromptProvider) SectionName() string {
 func (p *PromptProvider) Resolve(ctx context.Context, input contract.SectionContext) (*string, error) {
 	if p == nil || p.svc == nil {
 		err := errors.New("datasource v2 service is not configured")
-		return nil, contract.NewCriticalPromptSectionError(contract.DynamicSectionDatasource, err)
+		return nil, contract.NewCriticalPromptSectionError(contract.DynamicSectionDatasourceV2, err)
 	}
 	query := datasourceV2PromptQuery(input)
 	if query == "" {
@@ -45,7 +45,7 @@ func (p *PromptProvider) Resolve(ctx context.Context, input contract.SectionCont
 		Limit: datasourceV2PromptChunkLimit,
 	})
 	if err != nil {
-		return nil, contract.NewCriticalPromptSectionError(contract.DynamicSectionDatasource, err)
+		return nil, contract.NewCriticalPromptSectionError(contract.DynamicSectionDatasourceV2, err)
 	}
 	text := renderDatasourceV2PromptSection(result.Chunks)
 	if text == "" {
@@ -70,7 +70,7 @@ func renderDatasourceV2PromptSection(chunks []SemanticChunkResult) string {
 	}
 	lines := make([]string, 0, len(chunks)*4+3)
 	lines = append(lines,
-		"## "+contract.DynamicSectionDatasource,
+		"## "+contract.DynamicSectionDatasourceV2,
 		"",
 		"Uploaded datasource_v2 semantic matches for the current chat request. Chunks are ordered by semantic similarity.",
 	)

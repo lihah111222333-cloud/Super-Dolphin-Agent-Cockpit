@@ -73,9 +73,9 @@ func TestPromptAssemblyIncludesDatasourceV2SemanticChunksForCurrentRequest(t *te
 	if err != nil {
 		t.Fatalf("AssembleStart() error = %v", err)
 	}
-	content := promptSectionContent(start.ResolvedSections, contract.DynamicSectionDatasource)
+	content := promptSectionContent(start.ResolvedSections, contract.DynamicSectionDatasourceV2)
 	for _, want := range []string{
-		"## " + contract.DynamicSectionDatasource,
+		"## " + contract.DynamicSectionDatasourceV2,
 		"### 1. launch-notes.txt [chunk 7]",
 		"semantic launch answer",
 		"### 2. rollout.txt [chunk 2]",
