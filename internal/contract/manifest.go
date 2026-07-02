@@ -259,6 +259,8 @@ var mcpRequiredEnvKeys = []string{
 	"GO_AGENT_CTL_THREAD_ID",
 	"GO_AGENT_CTL_SESSION_TOKEN",
 	"GO_AGENT_CTL_BOOTSTRAP_JSON",
+	"SUPER_DOLPHIN_RUNTIME_MODE",
+	"SUPER_DOLPHIN_RUNTIME_RESOURCES_DIR",
 }
 
 // MCP 透传环境变量键名列表：这些键允许透传到 provider 进程。

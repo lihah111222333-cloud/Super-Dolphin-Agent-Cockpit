@@ -28,6 +28,28 @@ func TestBuildManifestPassesModelRegistryEnvFromProcessToStdioBinaries(t *testin
 	}
 }
 
+func TestBuildManifestPassesSidecarRuntimeContractToStdioBinaries(t *testing.T) {
+	t.Setenv("SUPER_DOLPHIN_RUNTIME_MODE", "dev")
+	t.Setenv("SUPER_DOLPHIN_RUNTIME_RESOURCES_DIR", "/work/repo")
+
+	manifest := BuildManifest(dto.ManifestContext{
+		BinaryDir:     "/bundle/bin",
+		TransportMode: dto.ManifestTransportStdioOnly,
+	})
+
+	if len(manifest.Binaries) == 0 {
+		t.Fatal("BuildManifest() returned no binaries")
+	}
+	for _, bin := range manifest.Binaries {
+		if got := bin.Env["SUPER_DOLPHIN_RUNTIME_MODE"]; got != "dev" {
+			t.Fatalf("binary %s SUPER_DOLPHIN_RUNTIME_MODE = %q, want dev", bin.Name, got)
+		}
+		if got := bin.Env["SUPER_DOLPHIN_RUNTIME_RESOURCES_DIR"]; got != "/work/repo" {
+			t.Fatalf("binary %s SUPER_DOLPHIN_RUNTIME_RESOURCES_DIR = %q, want /work/repo", bin.Name, got)
+		}
+	}
+}
+
 func TestBuildManifestStripsDatabaseEnvironmentFromStdioBinaries(t *testing.T) {
 	t.Setenv("DATABASE_URL", "postgres://process@127.0.0.1:5432/super_dolphin?sslmode=disable")
 	t.Setenv("POSTGRES_CONNECTION_STRING", "postgres://compat@127.0.0.1:5432/super_dolphin?sslmode=disable")
