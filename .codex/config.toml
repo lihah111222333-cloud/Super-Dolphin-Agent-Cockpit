@@ -2,26 +2,25 @@
 hooks = true
 
 [mcp_servers.playwright]
-command = "npx"
+command = "/home/l4p/.nvm/versions/node/v24.14.0/bin/node"
 args = [
-    "-y",
-    "@playwright/mcp@0.0.75",
+    "/home/l4p/Super-Dolphin/.codex/mcp/playwright/node_modules/@playwright/mcp/cli.js",
 ]
 
 [mcp_servers.lsp]
 enabled = true
 type = "stdio"
-command = "/Users/mima0000/Desktop/wj/super-agent-v3/bin/mcp-lsp"
+command = "/home/l4p/Super-Dolphin/bin/mcp-lsp"
 args = []
-cwd = "/Users/mima0000/Desktop/wj/super-agent-v3"
+cwd = "/home/l4p/Super-Dolphin"
 startup_timeout_sec = 30.0
 default_tools_approval_mode = "approve"
 
 [mcp_servers.lsp.env]
 SUPER_DOLPHIN_RUNTIME_MODE = "dev"
-SUPER_DOLPHIN_RUNTIME_RESOURCES_DIR = "/Users/mima0000/Desktop/wj/super-agent-v3"
-GO_AGENT_LSP_ROOT = "/Users/mima0000/Desktop/wj/super-agent-v3"
-GO_AGENT_LSP_ROOTS = '["/Users/mima0000/Desktop/wj/super-agent-v3"]'
+SUPER_DOLPHIN_RUNTIME_RESOURCES_DIR = "/home/l4p/Super-Dolphin"
+GO_AGENT_LSP_ROOT = "/home/l4p/Super-Dolphin"
+GO_AGENT_LSP_ROOTS = '["/home/l4p/Super-Dolphin"]'
 
 [mcp_servers.lsp.tools.file]
 approval_mode = "approve"
