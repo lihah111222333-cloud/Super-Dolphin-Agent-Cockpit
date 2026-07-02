@@ -4,7 +4,7 @@
     {
       "name": "使用git工作区",
       "selected_source_id": "project/使用git工作区",
-      "selected_content_hash": "b5a2839f98fe3c0774d07b5be561273e43a8e78cd862153fcddcfb48868f5358",
+      "selected_content_hash": "46b21295affeed3836f23c373b5e20d5d26fb20c1bcb3d80538ec2d52a5d8fed",
       "excluded_source_ids": [
         "personal/hub/使用git工作区",
         "personal/user/使用git工作区"
@@ -25,7 +25,7 @@
         {
           "canonical_id": "project/使用git工作区",
           "scope": "project",
-          "content_hash": "b5a2839f98fe3c0774d07b5be561273e43a8e78cd862153fcddcfb48868f5358"
+          "content_hash": "46b21295affeed3836f23c373b5e20d5d26fb20c1bcb3d80538ec2d52a5d8fed"
         }
       ]
     },
@@ -158,7 +158,7 @@
     {
       "name": "编写技能",
       "selected_source_id": "project/编写技能",
-      "selected_content_hash": "715737cf6e7e6babe9cff01a7ba58e8664f34d92c355dd4b224dd57170eb2715",
+      "selected_content_hash": "1fb4be17844991ac9b8f575d1fcd577dbe13666726249c89cdf8f06bb0ef81fc",
       "excluded_source_ids": [
         "personal/hub/编写技能"
       ],
@@ -172,7 +172,7 @@
         {
           "canonical_id": "project/编写技能",
           "scope": "project",
-          "content_hash": "715737cf6e7e6babe9cff01a7ba58e8664f34d92c355dd4b224dd57170eb2715"
+          "content_hash": "1fb4be17844991ac9b8f575d1fcd577dbe13666726249c89cdf8f06bb0ef81fc"
         }
       ]
     },
@@ -305,7 +305,7 @@
     {
       "name": "思维与决策辅助",
       "selected_source_id": "project/思维与决策辅助",
-      "selected_content_hash": "661cfa104af587eca735fd105f50dac734f685e6c04933e2f81c6dc332925b45",
+      "selected_content_hash": "2341971f639bb2718e3a0c606fb600f03f09c096f41ceec77d151046cf279d8f",
       "excluded_source_ids": [
         "personal/imported/思维与决策辅助"
       ],
@@ -319,7 +319,7 @@
         {
           "canonical_id": "project/思维与决策辅助",
           "scope": "project",
-          "content_hash": "661cfa104af587eca735fd105f50dac734f685e6c04933e2f81c6dc332925b45"
+          "content_hash": "2341971f639bb2718e3a0c606fb600f03f09c096f41ceec77d151046cf279d8f"
         }
       ]
     }

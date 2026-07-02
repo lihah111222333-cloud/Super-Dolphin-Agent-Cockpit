@@ -88,8 +88,8 @@ Common Go/backend paths:
 
 Skill runtime truth:
 
-- Canonical repo-local skills live under `.agent/skills`.
-- `.agents/skills` and `.claude/skills` are generated provider mirrors, not the normal edit target.
+- Canonical repo-local skill entrypoints live under `.agents/skills`.
+- Historical `.agent/skills` is not the skill entrypoint or normal edit target.
 - Runtime skill behavior usually lives under `internal/module/skill*`, `internal/provider/shared/provider_home.go`, provider mirror tests, and toolbridge compatibility tests.
 
 ## Verification Matrix

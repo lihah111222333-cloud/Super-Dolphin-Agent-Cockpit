@@ -104,7 +104,7 @@ func TestPrePushRunsPathBasedReleaseGates(t *testing.T) {
 		},
 		{
 			name:    "skill changes run skill validation",
-			path:    ".agent/skills/demo/SKILL.md",
+			path:    ".agents/skills/demo/SKILL.md",
 			content: "---\nname: demo\ndescription: demo\n---\n",
 			wantOut: []string{"[pre-push] skill mirror validation"},
 			wantLog: []string{"python3 scripts/validate_super_agent_skills.py"},
