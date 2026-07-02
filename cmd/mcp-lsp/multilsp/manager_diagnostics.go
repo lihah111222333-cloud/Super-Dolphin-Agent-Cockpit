@@ -184,8 +184,6 @@ func (m *manager) PublishDiagnostics(params protocol.PublishDiagnosticsParams) e
 // publishDiagnosticsForGeneration 在指定代际内写入诊断快照。
 // 如果 client 已重建导致代际过期，旧通知会被忽略而不是覆盖新 workspace 状态。
 func (m *manager) publishDiagnosticsForGeneration(params protocol.PublishDiagnosticsParams, capturedGen uint64) error {
-	m.diagMu.Lock()
-	defer m.diagMu.Unlock()
 	if capturedGen < m.CurrentDiagnosticGeneration() {
 		return nil
 	}
@@ -196,9 +194,21 @@ func (m *manager) publishDiagnosticsForGeneration(params protocol.PublishDiagnos
 	params.URI = uri
 
 	scope := m.scopeForPublishedDiagnostics(params.URI)
+	staleVersion, err := m.diagnosticVersionOlderThanCached(params, scope)
+	if err != nil {
+		return err
+	}
+	if staleVersion {
+		return nil
+	}
 	key := diagnosticStoreKeyFor(scope, params.URI)
 
 	metadata := diagnosticMetadataForURI(params.URI)
+	m.diagMu.Lock()
+	defer m.diagMu.Unlock()
+	if capturedGen < m.CurrentDiagnosticGeneration() {
+		return nil
+	}
 	m.diagnostics[key.String()] = diagnosticSnapshot{
 		scopeKey:     scope.ScopeKey,
 		workspaceKey: scope.WorkspaceKey,
@@ -214,6 +224,23 @@ func (m *manager) publishDiagnosticsForGeneration(params protocol.PublishDiagnos
 		params:       params,
 	}
 	return nil
+}
+
+// diagnosticVersionOlderThanCached 判断 LSP 推送是否落后于当前已同步文档版本。
+// 延迟到达的旧版本诊断不能写成当前磁盘 fingerprint，否则后续 diagnostics 会误认为旧结果仍有效。
+func (m *manager) diagnosticVersionOlderThanCached(params protocol.PublishDiagnosticsParams, scope ResolvedLSPToolScope) (bool, error) {
+	if params.Version == nil {
+		return false, nil
+	}
+	coordinator, err := bootstrapCoordinatorFor(m)
+	if err != nil {
+		return false, err
+	}
+	record, ok := coordinator.cache.Load(scope.cacheKey(scope.LanguageID, params.URI))
+	if !ok || record.Version <= 0 {
+		return false, nil
+	}
+	return *params.Version < record.Version, nil
 }
 
 func (m *manager) latestDiagnosticUpdate(filter diagnosticFilter) time.Time {
