@@ -476,6 +476,20 @@ func TestPrePushScopesPackageTestsByChangedLanguage(t *testing.T) {
 	})
 }
 
+func TestPrePushAllowsDirtyLocalWorktree(t *testing.T) {
+	fixture := newPrePushScopeFixture(t)
+	head := commitPrePushDocsOnlyChange(t, fixture.root)
+
+	writeFixTestGuardFile(t, fixture.root, "README.md", "fixture repo\nlocal unstaged edit\n")
+	writeFixTestGuardFile(t, fixture.root, "local-staged.txt", "local staged edit\n")
+	runFixTestGuardGit(t, fixture.root, "add", "local-staged.txt")
+	writeFixTestGuardFile(t, fixture.root, "local-untracked.txt", "local untracked edit\n")
+
+	out := fixture.run(t, head)
+	assertOutputContainsAll(t, out, "[pre-push] Chinese commit message guard", "[pre-push] fix-test guard", "pre-push OK")
+	assertOutputOmitsAll(t, out, "worktree 有未暂存改动", "index 有已暂存但未提交改动", "worktree 有未跟踪文件")
+}
+
 type prePushScopeFixture struct {
 	root    string
 	base    string
