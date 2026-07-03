@@ -9,7 +9,7 @@ import (
 
 func TestSkillMirrorReconcilerPropagatesInvalidMirrorRootError(t *testing.T) {
 	project := t.TempDir()
-	root := providerProjectMirrorRoot(SkillProviderCodex, project)
+	root := testCodexProjectMirrorRoot(project)
 	if err := os.MkdirAll(filepath.Dir(root), 0o755); err != nil {
 		t.Fatalf("MkdirAll mirror parent: %v", err)
 	}

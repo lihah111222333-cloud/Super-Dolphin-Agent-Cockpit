@@ -16,13 +16,24 @@ func TestResolveCanonicalRoots_ProjectAndPersonal(t *testing.T) {
 
 	got := resolveCanonicalRoots(project, home)
 
-	assertPath(t, got.Project, filepath.Join(project, ".agent", "skills"))
+	assertPath(t, got.Project, filepath.Join(project, ".agents", "skills"))
 	assertPath(t, got.Personal["user"], filepath.Join(home, ".super-dolphin", "skills", "personal", "user"))
 	assertPath(t, got.Personal["agent"], filepath.Join(home, ".super-dolphin", "skills", "personal", "agent"))
 	assertPath(t, got.Personal["imported"], filepath.Join(home, ".super-dolphin", "skills", "personal", "imported"))
 	if _, ok := got.Personal["hub"]; ok {
 		t.Fatalf("hub root is catalog-only and must not be an active canonical root: %+v", got.Personal)
 	}
+}
+
+func TestDefaultProjectSkillsRootUsesAgentsWithoutPolicyFile(t *testing.T) {
+	t.Parallel()
+
+	project := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(project, ".agents", "skills"), 0o755); err != nil {
+		t.Fatalf("mkdir .agents/skills: %v", err)
+	}
+
+	assertPath(t, defaultProjectSkillsRoot(project), filepath.Join(project, ".agents", "skills"))
 }
 
 func TestNormalizeSkillScopeRejectsNewSystemWrites(t *testing.T) {

@@ -15,7 +15,7 @@ import (
 func TestCanonicalStoreListIncludesProjectAndActivePersonal(t *testing.T) {
 	project := t.TempDir()
 	home := t.TempDir()
-	writeCanonicalSkill(t, filepath.Join(project, ".agent", "skills", "proj"), "proj")
+	writeCanonicalSkill(t, filepath.Join(project, ".agents", "skills", "proj"), "proj")
 	writeCanonicalSkill(t, filepath.Join(home, ".super-dolphin", "skills", "personal", "user", "mine"), "mine")
 	writeCanonicalSkill(t, filepath.Join(home, ".super-dolphin", "skills", "personal", "agent", "agentmade"), "agentmade")
 	writeCanonicalSkill(t, filepath.Join(home, ".super-dolphin", "skills", "personal", "imported", "imported"), "imported")
@@ -39,7 +39,7 @@ func TestCanonicalStoreListIncludesProjectAndActivePersonal(t *testing.T) {
 func TestEffectiveSetSameNameIsStrictConflict(t *testing.T) {
 	project := t.TempDir()
 	home := t.TempDir()
-	writeCanonicalSkill(t, filepath.Join(project, ".agent", "skills", "build"), "build")
+	writeCanonicalSkill(t, filepath.Join(project, ".agents", "skills", "build"), "build")
 	writeCanonicalSkill(t, filepath.Join(home, ".super-dolphin", "skills", "personal", "user", "build"), "build")
 
 	records, conflicts, err := newTestCanonicalStore(project, home).EffectiveSet(context.Background(), project)
@@ -58,7 +58,7 @@ func TestEffectiveSetSameNameIsStrictConflict(t *testing.T) {
 func TestEffectiveSetIgnoresInactiveHubProjectDuplicate(t *testing.T) {
 	project := t.TempDir()
 	home := t.TempDir()
-	writeCanonicalSkill(t, filepath.Join(project, ".agent", "skills", "build"), "build")
+	writeCanonicalSkill(t, filepath.Join(project, ".agents", "skills", "build"), "build")
 	writeCanonicalSkill(t, filepath.Join(home, ".super-dolphin", "skills", "personal", "hub", "build"), "build")
 
 	records, conflicts, err := newTestCanonicalStore(project, home).EffectiveSet(context.Background(), project)
@@ -75,7 +75,7 @@ func TestEffectiveSetIgnoresInactiveHubProjectDuplicate(t *testing.T) {
 func TestCanonicalStoreConvertsSafeLegacyDisplayName(t *testing.T) {
 	project := t.TempDir()
 	home := t.TempDir()
-	writeSkillContent(t, filepath.Join(project, ".agent", "skills", "Docker 容器化部署"), "Docker 容器化部署", "# legacy display name\n")
+	writeSkillContent(t, filepath.Join(project, ".agents", "skills", "Docker 容器化部署"), "Docker 容器化部署", "# legacy display name\n")
 
 	records, conflicts, err := newTestCanonicalStore(project, home).EffectiveSet(context.Background(), project)
 	if err != nil {
@@ -98,7 +98,7 @@ func TestCanonicalStoreConvertsSafeLegacyDisplayName(t *testing.T) {
 func TestCanonicalStoreRejectsUnsafeLegacyDisplayName(t *testing.T) {
 	project := t.TempDir()
 	home := t.TempDir()
-	writeSkillContent(t, filepath.Join(project, ".agent", "skills", "bad"), "../bad", "# unsafe name\n")
+	writeSkillContent(t, filepath.Join(project, ".agents", "skills", "bad"), "../bad", "# unsafe name\n")
 
 	_, _, err := newTestCanonicalStore(project, home).EffectiveSet(context.Background(), project)
 	if err == nil {
@@ -118,7 +118,7 @@ func TestCanonicalStoreRejectsSymlinkedSkillMainFile(t *testing.T) {
 	if err := os.WriteFile(outside, []byte("---\nname: demo\n---\noutside"), 0o644); err != nil {
 		t.Fatalf("write outside skill file: %v", err)
 	}
-	demoDir := filepath.Join(project, ".agent", "skills", "demo")
+	demoDir := filepath.Join(project, ".agents", "skills", "demo")
 	if err := os.MkdirAll(demoDir, 0o755); err != nil {
 		t.Fatalf("mkdir demo skill: %v", err)
 	}
@@ -138,7 +138,7 @@ func TestCanonicalStoreRejectsSymlinkedSkillMainFile(t *testing.T) {
 func TestEffectiveSetSameNameIsCaseInsensitiveConflict(t *testing.T) {
 	project := t.TempDir()
 	home := t.TempDir()
-	writeCanonicalSkill(t, filepath.Join(project, ".agent", "skills", "Build"), "Build")
+	writeCanonicalSkill(t, filepath.Join(project, ".agents", "skills", "Build"), "Build")
 	writeCanonicalSkill(t, filepath.Join(home, ".super-dolphin", "skills", "personal", "user", "build"), "build")
 
 	records, conflicts, err := newTestCanonicalStore(project, home).EffectiveSet(context.Background(), project)
@@ -190,7 +190,7 @@ func TestServiceListSkillsIncludesPersonalCanonical(t *testing.T) {
 	project := t.TempDir()
 	home := t.TempDir()
 	superDolphinHome := filepath.Join(home, ".super-dolphin")
-	writeCanonicalSkill(t, filepath.Join(project, ".agent", "skills", "proj"), "proj")
+	writeCanonicalSkill(t, filepath.Join(project, ".agents", "skills", "proj"), "proj")
 	writeCanonicalSkill(t, filepath.Join(superDolphinHome, "skills", "personal", "user", "mine"), "mine")
 	svc := &service{projectRoot: project, projectSkillsRoot: defaultProjectSkillsRoot(project), superDolphinHome: superDolphinHome}
 
@@ -206,7 +206,7 @@ func TestServiceListSkillsIgnoresInactiveHubDuplicates(t *testing.T) {
 	project := t.TempDir()
 	home := t.TempDir()
 	superDolphinHome := filepath.Join(home, ".super-dolphin")
-	writeCanonicalSkill(t, filepath.Join(project, ".agent", "skills", "safe"), "safe")
+	writeCanonicalSkill(t, filepath.Join(project, ".agents", "skills", "safe"), "safe")
 	writeCanonicalSkill(t, filepath.Join(superDolphinHome, "skills", "personal", "user", "build"), "build")
 	writeCanonicalSkill(t, filepath.Join(superDolphinHome, "skills", "personal", "hub", "build"), "build")
 	svc := &service{projectRoot: project, projectSkillsRoot: defaultProjectSkillsRoot(project), superDolphinHome: superDolphinHome}
@@ -226,7 +226,7 @@ func TestServiceMatchPreviewSameNameConflictFailsClosed(t *testing.T) {
 	project := t.TempDir()
 	home := t.TempDir()
 	superDolphinHome := filepath.Join(home, ".super-dolphin")
-	writeCanonicalSkill(t, filepath.Join(project, ".agent", "skills", "build"), "build")
+	writeCanonicalSkill(t, filepath.Join(project, ".agents", "skills", "build"), "build")
 	writeCanonicalSkill(t, filepath.Join(superDolphinHome, "skills", "personal", "user", "build"), "build")
 	svc := &service{projectRoot: project, projectSkillsRoot: defaultProjectSkillsRoot(project), superDolphinHome: superDolphinHome}
 
@@ -241,8 +241,8 @@ func TestEffectiveSetProjectPolicyDisablesPersonalForOnlyThatProject(t *testing.
 	otherProject := t.TempDir()
 	home := t.TempDir()
 	superDolphinHome := filepath.Join(home, ".super-dolphin")
-	writeCanonicalSkill(t, filepath.Join(project, ".agent", "skills", "build"), "build")
-	writeCanonicalSkill(t, filepath.Join(otherProject, ".agent", "skills", "build"), "build")
+	writeCanonicalSkill(t, filepath.Join(project, ".agents", "skills", "build"), "build")
+	writeCanonicalSkill(t, filepath.Join(otherProject, ".agents", "skills", "build"), "build")
 	personalDir := filepath.Join(superDolphinHome, "skills", "personal", "user", "build")
 	writeCanonicalSkill(t, personalDir, "build")
 	writeProjectSkillPolicy(t, project, projectSkillPolicy{
@@ -277,7 +277,7 @@ func TestEffectiveSetProjectPolicyAcceptsLegacyDisplayName(t *testing.T) {
 	project := t.TempDir()
 	home := t.TempDir()
 	superDolphinHome := filepath.Join(home, ".super-dolphin")
-	writeSkillContent(t, filepath.Join(project, ".agent", "skills", "Docker 容器化部署"), "Docker 容器化部署", "# project\n")
+	writeSkillContent(t, filepath.Join(project, ".agents", "skills", "Docker 容器化部署"), "Docker 容器化部署", "# project\n")
 	writeSkillContent(t, filepath.Join(superDolphinHome, "skills", "personal", "user", "Docker 容器化部署"), "Docker 容器化部署", "# personal\n")
 	writeProjectSkillPolicy(t, project, projectSkillPolicy{
 		Version: 1,
@@ -302,7 +302,7 @@ func TestEffectiveSetProjectKeepSelectedSuppressesFuturePersonalDuplicate(t *tes
 	project := t.TempDir()
 	home := t.TempDir()
 	superDolphinHome := filepath.Join(home, ".super-dolphin")
-	writeCanonicalSkill(t, filepath.Join(project, ".agent", "skills", "build"), "build")
+	writeCanonicalSkill(t, filepath.Join(project, ".agents", "skills", "build"), "build")
 	userDir := filepath.Join(superDolphinHome, "skills", "personal", "user", "build")
 	writeCanonicalSkill(t, userDir, "build")
 	writeProjectSkillPolicy(t, project, projectKeepSelectedPolicy("build", "project/build", "personal/user/build"))
@@ -410,7 +410,7 @@ func TestEffectiveSetIgnoresStalePersonalKeepSelectedWhenSelectedSourceIsMissing
 	project := t.TempDir()
 	home := t.TempDir()
 	superDolphinHome := filepath.Join(home, ".super-dolphin")
-	projectDir := filepath.Join(project, ".agent", "skills", "build")
+	projectDir := filepath.Join(project, ".agents", "skills", "build")
 	writeCanonicalSkill(t, projectDir, "build")
 	projectRecord := findCanonicalRecord(
 		t,
@@ -543,7 +543,7 @@ func writeSkillContent(t *testing.T, dir, name, body string) {
 
 func writeProjectSkillPolicy(t *testing.T, project string, policy projectSkillPolicy) {
 	t.Helper()
-	writeJSONFile(t, filepath.Join(project, ".agent", "skills", projectSkillPolicyFile), policy, 0o644)
+	writeJSONFile(t, filepath.Join(project, ".agents", "skills", projectSkillPolicyFile), policy, 0o644)
 }
 
 func projectKeepSelectedPolicy(name, selectedSourceID string, excludedSourceIDs ...string) projectSkillPolicy {

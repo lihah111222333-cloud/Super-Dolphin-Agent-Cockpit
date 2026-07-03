@@ -11,7 +11,7 @@ import (
 	"testing"
 )
 
-// TestParseSkillRecord_RejectsOversizedFile 防 DoS：恶意项目在 .agent/skills/evil/SKILL.md
+// TestParseSkillRecord_RejectsOversizedFile 防 DoS：恶意项目在 .agents/skills/evil/SKILL.md
 // 塞进大于 maxSkillFileBytes (1MB) 的内容，扫盘期必须拒绝而不是读入内存。
 // 这条回归防止未来重构误删 size check 。
 func TestParseSkillRecord_RejectsOversizedFile(t *testing.T) {

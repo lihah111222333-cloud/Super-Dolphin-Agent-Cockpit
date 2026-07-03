@@ -185,13 +185,13 @@ func TestWriteLocalRejectsUnsafeFrontmatterSkillName(t *testing.T) {
 	if !errors.Is(err, ErrInvalidSkillName) {
 		t.Fatalf("WriteLocal invalid frontmatter name error = %v, want ErrInvalidSkillName", err)
 	}
-	assertMissing(t, filepath.Join(projectRoot, ".agent", "skills", "agent工程学", skillMainFile))
+	assertMissing(t, filepath.Join(projectRoot, ".agents", "skills", "agent工程学", skillMainFile))
 }
 
 func TestReadLocalAcceptsLegacyDisplayNameAlias(t *testing.T) {
 	projectRoot := t.TempDir()
 	svc := &service{projectRoot: projectRoot, projectSkillsRoot: defaultProjectSkillsRoot(projectRoot), superDolphinHome: newTestSuperDolphinHome(t), http: &http.Client{}}
-	writeSkillContent(t, filepath.Join(projectRoot, ".agent", "skills", "Docker 容器化部署"), "Docker 容器化部署", "# legacy body\n")
+	writeSkillContent(t, filepath.Join(projectRoot, ".agents", "skills", "Docker 容器化部署"), "Docker 容器化部署", "# legacy body\n")
 
 	out, err := svc.ReadLocal(skillTestContext(projectRoot), "Docker 容器化部署")
 	if err != nil {
@@ -205,7 +205,7 @@ func TestReadLocalAcceptsLegacyDisplayNameAlias(t *testing.T) {
 	if !ok {
 		t.Fatalf("ReadLocal skill type = %T", result["skill"])
 	}
-	if got, _ := skill["path"].(string); !sameCleanPath(got, filepath.Join(projectRoot, ".agent", "skills", "Docker 容器化部署", skillMainFile)) {
+	if got, _ := skill["path"].(string); !sameCleanPath(got, filepath.Join(projectRoot, ".agents", "skills", "Docker 容器化部署", skillMainFile)) {
 		t.Fatalf("ReadLocal path = %q, want legacy dir SKILL.md", got)
 	}
 	if got, _ := skill["content"].(string); !strings.Contains(got, "name: Docker 容器化部署") {
@@ -216,7 +216,7 @@ func TestReadLocalAcceptsLegacyDisplayNameAlias(t *testing.T) {
 func TestDeleteLocalAcceptsLegacyDisplayNameAlias(t *testing.T) {
 	projectRoot := t.TempDir()
 	svc := &service{projectRoot: projectRoot, projectSkillsRoot: defaultProjectSkillsRoot(projectRoot), superDolphinHome: newTestSuperDolphinHome(t), http: &http.Client{}}
-	legacyDir := filepath.Join(projectRoot, ".agent", "skills", "Docker 容器化部署")
+	legacyDir := filepath.Join(projectRoot, ".agents", "skills", "Docker 容器化部署")
 	writeSkillContent(t, legacyDir, "Docker 容器化部署", "# legacy body\n")
 
 	out, err := svc.DeleteLocal(skillTestContext(projectRoot), DeleteSkillParams{Name: "Docker 容器化部署", Scope: skillScopeProject})
@@ -234,7 +234,7 @@ func TestDeleteLocalAcceptsLegacyDisplayNameAlias(t *testing.T) {
 		t.Fatalf("DeleteLocal dir = %q, want legacy dir", got)
 	}
 	assertMissing(t, legacyDir)
-	assertMissing(t, filepath.Join(projectRoot, ".agent", "skills", "docker-容器化部署"))
+	assertMissing(t, filepath.Join(projectRoot, ".agents", "skills", "docker-容器化部署"))
 }
 
 func TestWriteProjectPolicyRejectsSymlinkFile(t *testing.T) {
@@ -272,9 +272,11 @@ func TestWriteLocalPublishesProjectMirrors(t *testing.T) {
 	result := out.(map[string]any)
 	report := mustMirrorPublishReport(t, result)
 	assertPublishedReportItem(t, report.Published, "claude:project:"+RepoFingerprint(projectRoot), SkillProviderClaude, skillScopeProject, "build", "project/build")
-	assertPublishedReportItem(t, report.Published, "codex:project:"+RepoFingerprint(projectRoot), SkillProviderCodex, skillScopeProject, "build", "project/build")
 	assertFileContent(t, filepath.Join(projectRoot, ".claude", "skills", "build", skillMainFile), "---\nname: build\n---\nbody")
 	assertFileContent(t, filepath.Join(providerProjectMirrorRoot(SkillProviderCodex, projectRoot), "build", skillMainFile), "---\nname: build\n---\nbody")
+	if _, err := readSkillMirrorManifest(filepath.Join(providerProjectMirrorRoot(SkillProviderCodex, projectRoot), skillMirrorManifestFile)); err != nil {
+		t.Fatalf("read codex self manifest: %v", err)
+	}
 }
 
 func TestWriteLocalProjectIgnoresConfiguredMirrorTargets(t *testing.T) {
@@ -301,14 +303,16 @@ func TestWriteLocalProjectIgnoresConfiguredMirrorTargets(t *testing.T) {
 
 	report := mustMirrorPublishReport(t, out.(map[string]any))
 	assertPublishedReportItem(t, report.Published, "claude:project:"+RepoFingerprint(projectRoot), SkillProviderClaude, skillScopeProject, "build", "project/build")
-	assertPublishedReportItem(t, report.Published, "codex:project:"+RepoFingerprint(projectRoot), SkillProviderCodex, skillScopeProject, "build", "project/build")
 	assertMissing(t, filepath.Join(outsideRoot, "build", skillMainFile))
+	if _, err := readSkillMirrorManifest(filepath.Join(providerProjectMirrorRoot(SkillProviderCodex, projectRoot), skillMirrorManifestFile)); err != nil {
+		t.Fatalf("read codex self manifest: %v", err)
+	}
 }
 
 func TestWriteLocalPublishReportsSameNameConflictButContinuesSafeMirrorWrites(t *testing.T) {
 	projectRoot := t.TempDir()
 	superDolphinHome := filepath.Join(t.TempDir(), ".super-dolphin")
-	writeSkillWithSupportFiles(t, filepath.Join(projectRoot, ".agent", "skills", "old"), "old")
+	writeSkillWithSupportFiles(t, filepath.Join(projectRoot, ".agents", "skills", "old"), "old")
 	writeSkillWithSupportFiles(t, filepath.Join(superDolphinHome, "skills", "personal", "user", "build"), "build")
 	svc := &service{
 		projectRoot:       projectRoot,
@@ -323,13 +327,13 @@ func TestWriteLocalPublishReportsSameNameConflictButContinuesSafeMirrorWrites(t 
 	initialReport := mustMirrorPublishReport(t, initial.(map[string]any))
 	assertPublishedReportItem(t, initialReport.Published, "claude:project:"+RepoFingerprint(projectRoot), SkillProviderClaude, skillScopeProject, "old", "project/old")
 	assertMirrorFile(t, filepath.Join(projectRoot, ".claude", "skills", "old", skillMainFile), false)
-	if err := os.RemoveAll(filepath.Join(projectRoot, ".agent", "skills", "old")); err != nil {
+	if err := os.RemoveAll(filepath.Join(projectRoot, ".agents", "skills", "old")); err != nil {
 		t.Fatalf("RemoveAll old canonical skill: %v", err)
 	}
-	if err := os.MkdirAll(filepath.Join(projectRoot, ".agent", "skills", "safe"), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Join(projectRoot, ".agents", "skills", "safe"), 0o755); err != nil {
 		t.Fatalf("MkdirAll safe canonical skill: %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(projectRoot, ".agent", "skills", "safe", skillMainFile), []byte("---\nname: safe\n---\nsafe"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(projectRoot, ".agents", "skills", "safe", skillMainFile), []byte("---\nname: safe\n---\nsafe"), 0o644); err != nil {
 		t.Fatalf("WriteFile safe canonical skill: %v", err)
 	}
 
@@ -340,7 +344,7 @@ func TestWriteLocalPublishReportsSameNameConflictButContinuesSafeMirrorWrites(t 
 
 	report := mustMirrorPublishReport(t, out.(map[string]any))
 	assertConflictReportItem(t, report.Conflicts, "claude:project:"+RepoFingerprint(projectRoot), SkillProviderClaude, skillScopeProject, "build", "", "same_name")
-	assertFileContent(t, filepath.Join(projectRoot, ".agent", "skills", "build", skillMainFile), "---\nname: build\n---\nproject")
+	assertFileContent(t, filepath.Join(projectRoot, ".agents", "skills", "build", skillMainFile), "---\nname: build\n---\nproject")
 	assertMissing(t, filepath.Join(projectRoot, ".claude", "skills", "build", skillMainFile))
 	assertMissing(t, filepath.Join(projectRoot, ".claude", "skills", "old", skillMainFile))
 	assertFileContent(t, filepath.Join(projectRoot, ".claude", "skills", "safe", skillMainFile), "---\nname: safe\n---\nsafe")
@@ -363,7 +367,7 @@ func TestWriteLocalPublishConflictKeepsCanonicalResult(t *testing.T) {
 	result := out.(map[string]any)
 	report := mustMirrorPublishReport(t, result)
 	assertConflictReportItem(t, report.Conflicts, "claude:project:"+RepoFingerprint(projectRoot), SkillProviderClaude, skillScopeProject, "build", "project/build", "unmanaged")
-	assertFileContent(t, filepath.Join(projectRoot, ".agent", "skills", "build", skillMainFile), "---\nname: build\n---\ncanonical")
+	assertFileContent(t, filepath.Join(projectRoot, ".agents", "skills", "build", skillMainFile), "---\nname: build\n---\ncanonical")
 	assertFileContent(t, filepath.Join(claudeMirror, skillMainFile), "unmanaged")
 }
 
@@ -387,7 +391,7 @@ func TestWriteLocalPublishErrorReportIncludesDetail(t *testing.T) {
 	if !strings.Contains(item.Error, "symlink") {
 		t.Fatalf("publish error detail = %q, want symlink detail", item.Error)
 	}
-	assertFileContent(t, filepath.Join(projectRoot, ".agent", "skills", "build", skillMainFile), "---\nname: build\n---\ncanonical")
+	assertFileContent(t, filepath.Join(projectRoot, ".agents", "skills", "build", skillMainFile), "---\nname: build\n---\ncanonical")
 }
 
 func TestWriteLocalPersonalPublishesUserGlobalMirrors(t *testing.T) {

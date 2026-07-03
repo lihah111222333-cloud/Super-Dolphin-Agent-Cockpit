@@ -22,6 +22,7 @@ const (
 	skillConflictCanonicalDeletedWithDrift       = "canonical_deleted_with_drift"
 	skillConflictMultiMirrorDrift                = "multi_mirror_drift"
 	skillConflictMirrorRootSymlink               = "mirror_root_symlink"
+	skillConflictManualOnlySelfMirror            = "manual_only_self_mirror"
 	skillMirrorBackupDirName                     = ".super-dolphin-mirror-backup"
 )
 
@@ -44,7 +45,7 @@ type SkillMirrorConflict struct {
 }
 
 // SkillMirrorConflictSource 指向冲突背后的真实 skill。
-// 排查时顺着 canonical_id 找 .agent/skills 或 active personal，不看 mirror 副本。
+// 排查时顺着 canonical_id 找 .agents/skills 或 active personal，不看 mirror 副本。
 type SkillMirrorConflictSource struct {
 	Scope         string
 	PersonalType  string
@@ -423,7 +424,7 @@ func projectRootFromProjectSkillDir(dir string) (string, bool) {
 		return "", false
 	}
 	agentRoot := filepath.Dir(skillsRoot)
-	if filepath.Base(agentRoot) != ".agent" {
+	if filepath.Base(agentRoot) != ".agents" {
 		return "", false
 	}
 	return filepath.Dir(agentRoot), true

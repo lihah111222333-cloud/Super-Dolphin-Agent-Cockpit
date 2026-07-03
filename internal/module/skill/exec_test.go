@@ -245,7 +245,7 @@ func TestNewServiceConfiguresProjectRootAndHTTPTimeout(t *testing.T) {
 	if impl.projectRoot != project {
 		t.Fatalf("projectRoot mismatch: got %q", impl.projectRoot)
 	}
-	if got, want := impl.projectSkillsRoot, filepath.Join(project, ".agent", "skills"); got != want {
+	if got, want := impl.projectSkillsRoot, filepath.Join(project, ".agents", "skills"); got != want {
 		t.Fatalf("projectSkillsRoot mismatch: got %q want %q", got, want)
 	}
 	if impl.http == nil || impl.http.Timeout != 15*time.Second {

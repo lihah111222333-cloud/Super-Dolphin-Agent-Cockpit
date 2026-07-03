@@ -33,17 +33,18 @@ func TestSubdirWriteLocalProjectUsesGitRootCanonicalAndMirrors(t *testing.T) {
 	}
 
 	result := out.(map[string]any)
-	if got, want := result["path"], filepath.Join(projectRoot, ".agent", "skills", "build", skillMainFile); got != want {
+	if got, want := result["path"], filepath.Join(projectRoot, ".agents", "skills", "build", skillMainFile); got != want {
 		t.Fatalf("WriteLocal path = %v, want %s", got, want)
 	}
-	assertFileContent(t, filepath.Join(projectRoot, ".agent", "skills", "build", skillMainFile), "---\nname: build\n---\nbody")
-	assertMissing(t, filepath.Join(subdir, ".agent", "skills", "build", skillMainFile))
+	assertFileContent(t, filepath.Join(projectRoot, ".agents", "skills", "build", skillMainFile), "---\nname: build\n---\nbody")
+	assertMissing(t, filepath.Join(subdir, ".agents", "skills", "build", skillMainFile))
 
 	report := mustMirrorPublishReport(t, result)
 	assertPublishedReportItem(t, report.Published, "claude:project:"+RepoFingerprint(projectRoot), SkillProviderClaude, skillScopeProject, "build", "project/build")
-	assertPublishedReportItem(t, report.Published, "codex:project:"+RepoFingerprint(projectRoot), SkillProviderCodex, skillScopeProject, "build", "project/build")
 	assertFileContent(t, filepath.Join(projectRoot, ".claude", "skills", "build", skillMainFile), "---\nname: build\n---\nbody")
-	assertFileContent(t, filepath.Join(projectRoot, ".agents", "skills", "build", skillMainFile), "---\nname: build\n---\nbody")
+	if _, err := readSkillMirrorManifest(filepath.Join(projectRoot, ".agents", "skills", skillMirrorManifestFile)); err != nil {
+		t.Fatalf("read codex self manifest: %v", err)
+	}
 	assertMissing(t, filepath.Join(subdir, ".claude", "skills", "build", skillMainFile))
 	assertMissing(t, filepath.Join(subdir, ".agents", "skills", "build", skillMainFile))
 }
@@ -80,7 +81,7 @@ func TestSubdirResolutionUsesGitRootMirrorTargets(t *testing.T) {
 		superDolphinHome:  superHome,
 		http:              &http.Client{},
 	}
-	writeSkillWithSupportFiles(t, filepath.Join(projectRoot, ".agent", "skills", "drift"), "drift")
+	writeSkillWithSupportFiles(t, filepath.Join(projectRoot, ".agents", "skills", "drift"), "drift")
 	records, err := newCanonicalStore(superHome).scan(projectRoot)
 	if err != nil {
 		t.Fatalf("scan canonical records: %v", err)
@@ -164,12 +165,12 @@ func setupScopedSkillService(t *testing.T) (*service, string, string) {
 	projectA := filepath.Join(t.TempDir(), "wj", "langgraph")
 	projectB := filepath.Join(t.TempDir(), "wj", "go-agent-v2")
 	for _, root := range []string{projectA, projectB} {
-		if err := os.MkdirAll(filepath.Join(root, ".agent", "skills"), 0o755); err != nil {
+		if err := os.MkdirAll(filepath.Join(root, ".agents", "skills"), 0o755); err != nil {
 			t.Fatalf("mkdir project skills root: %v", err)
 		}
 	}
-	writeTestSkill(t, filepath.Join(projectA, ".agent", "skills"), "local-a", "# local a")
-	writeTestSkill(t, filepath.Join(projectB, ".agent", "skills"), "local-b", "# local b")
+	writeTestSkill(t, filepath.Join(projectA, ".agents", "skills"), "local-a", "# local a")
+	writeTestSkill(t, filepath.Join(projectB, ".agents", "skills"), "local-b", "# local b")
 	writeScopedSystemSkill(t, systemRoot, projectA, "shared", "---\nname: shared\nsummary: global\n---\nA")
 
 	svc := &service{

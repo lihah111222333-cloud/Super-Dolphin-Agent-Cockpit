@@ -271,6 +271,9 @@ func TestCodexStartSession_ReconcilesNativeSkillMirrorsBeforeProviderStart_E2E(t
 	userHome := t.TempDir()
 	t.Setenv("HOME", userHome)
 	t.Setenv("USERPROFILE", userHome)
+	if err := os.MkdirAll(filepath.Join(userHome, ".codex"), 0o700); err != nil {
+		t.Fatalf("mkdir codex home: %v", err)
+	}
 	events := []string{}
 	recorder := &codexRPCRecorder{events: &events}
 	serverURL := startCodexRPCServer(t, recorder)

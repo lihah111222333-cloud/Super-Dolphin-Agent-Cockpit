@@ -70,7 +70,7 @@ func TestEmbeddedBuiltInSkillsDoNotEnterRuntimeCanonicalSet(t *testing.T) {
 }
 
 func TestWorktreeSkillUsesShellSafeCreationRecipe(t *testing.T) {
-	canonical := readRepoSkill(t, ".agent", "skills", "使用git工作区", skillMainFile)
+	canonical := readRepoSkill(t, ".agents", "skills", "使用git工作区", skillMainFile)
 	embeddedBytes, err := builtInSkillFS.ReadFile(builtInSkillRoot + "/使用git工作区/" + skillMainFile)
 	if err != nil {
 		t.Fatalf("read embedded worktree skill: %v", err)
