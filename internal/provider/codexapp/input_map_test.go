@@ -1,6 +1,7 @@
 package codexapp
 
 import (
+	"encoding/json"
 	"reflect"
 	"testing"
 	"time"
@@ -79,6 +80,24 @@ func TestBuildThreadStartParamsNormalizesSandboxModeForAppServer(t *testing.T) {
 	}
 }
 
+func TestBuildThreadStartParamsBuildsSandboxPolicyForTurns(t *testing.T) {
+	params := mustBuildThreadStartParams(t, dto.StartSessionRequest{
+		CWD:           t.TempDir(),
+		StartAssembly: validStartAssemblyForTest(),
+		Config: map[string]any{
+			"sandbox": map[string]any{
+				"mode":           "workspace-write",
+				"writable_roots": []string{"/repo"},
+				"network_access": false,
+			},
+		},
+	})
+	if string(params.Sandbox) != `"workspace-write"` {
+		t.Fatalf("Sandbox = %s, want workspace-write mode string", string(params.Sandbox))
+	}
+	assertJSONEqual(t, params.SandboxPolicy, `{"type":"workspaceWrite","writableRoots":["/repo"],"networkAccess":false}`)
+}
+
 func TestBuildTurnStartParamsIncludesAttachments(t *testing.T) {
 	t.Parallel()
 
@@ -113,6 +132,21 @@ func TestBuildTurnStartParamsIncludesAttachments(t *testing.T) {
 	}
 	if got.Input[1].Text != "hello" {
 		t.Fatalf("final input = %q, want original user text", got.Input[1].Text)
+	}
+}
+
+func assertJSONEqual(t *testing.T, got json.RawMessage, want string) {
+	t.Helper()
+	var gotValue any
+	if err := json.Unmarshal(got, &gotValue); err != nil {
+		t.Fatalf("got JSON decode failed: %v; raw=%s", err, string(got))
+	}
+	var wantValue any
+	if err := json.Unmarshal([]byte(want), &wantValue); err != nil {
+		t.Fatalf("want JSON decode failed: %v; raw=%s", err, want)
+	}
+	if !reflect.DeepEqual(gotValue, wantValue) {
+		t.Fatalf("JSON = %#v, want %#v", gotValue, wantValue)
 	}
 }
 

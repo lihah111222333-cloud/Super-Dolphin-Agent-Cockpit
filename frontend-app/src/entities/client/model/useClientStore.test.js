@@ -2488,6 +2488,49 @@ function registerBridgeEventHandlersForTest() {
     });
   });
 
+  it('includes Codex runtime permission preferences in launch preferences', async () => {
+    resetClientStoreForTests({
+      cwd: '/repo/app',
+      activeProject: '/repo/app',
+    });
+    backend.getPreference.mockImplementation(({ key }) => Promise.resolve({
+      'settings.provider.active': 'codex',
+      'settings.provider.codex.model': 'gpt-5.5',
+      'settings.provider.codex.effort': 'xhigh',
+      'settings.provider.codex.codexHome': '/Users/test/.codex-alt',
+      'settings.provider.codex.codexInstanceKey': 'desktop-main',
+      'settings.provider.codex.codexModelProvider': 'openrouter',
+      'settings.provider.codex.sandbox': {
+        type: 'workspaceWrite',
+        writableRoots: ['/repo/app'],
+        networkAccess: true,
+      },
+      'settings.provider.codex.approvalPolicy': 'on-request',
+      'settings.provider.codex.personality': 'pragmatic',
+      'settings.provider.codex.summary': 'concise',
+    }[key] ?? null));
+
+    await expect(useClientStore.getState().resolveLaunchPreferences('/repo/app')).resolves.toEqual({
+      modelProvider: 'codex',
+      model: 'gpt-5.5',
+      effort: 'xhigh',
+      codexModelProvider: 'openrouter',
+      sandbox: {
+        type: 'workspaceWrite',
+        writableRoots: ['/repo/app'],
+        networkAccess: true,
+      },
+      approvalPolicy: 'on-request',
+      personality: 'pragmatic',
+      summary: 'concise',
+      config: {
+        codexHome: '/Users/test/.codex-alt',
+        codexInstanceKey: 'desktop-main',
+        codexModelProvider: 'openrouter',
+      },
+    });
+  });
+
   it('canonicalizes object-shaped provider preferences before thread/start', async () => {
     resetClientStoreForTests({
       cwd: '/repo/app',
@@ -2503,6 +2546,14 @@ function registerBridgeEventHandlersForTest() {
       'settings.provider.codex.codexHome': '/Users/test/.codex-alt',
       'settings.provider.codex.codexInstanceKey': 'desktop-main',
       'settings.provider.codex.codexModelProvider': 'openrouter',
+      'settings.provider.codex.sandbox': {
+        type: 'workspaceWrite',
+        writableRoots: ['/repo/app'],
+        networkAccess: false,
+      },
+      'settings.provider.codex.approvalPolicy': 'never',
+      'settings.provider.codex.personality': 'pragmatic',
+      'settings.provider.codex.summary': 'concise',
     }[key] ?? null));
     backend.startThread.mockResolvedValue({ threadId: 'thread-object-prefs' });
     backend.startTurn.mockResolvedValue({ ok: true });
@@ -2513,6 +2564,14 @@ function registerBridgeEventHandlersForTest() {
       modelProvider: 'codex',
       model: 'gpt-5.5',
       effort: 'medium',
+      sandbox: {
+        type: 'workspaceWrite',
+        writableRoots: ['/repo/app'],
+        networkAccess: false,
+      },
+      approvalPolicy: 'never',
+      personality: 'pragmatic',
+      summary: 'concise',
     }));
   });
 

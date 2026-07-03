@@ -199,6 +199,38 @@ func (s *session) runtimeConfigString(key string) string {
 	return supportutil.SanitizeConfigStringArtifact(v)
 }
 
+// runtimeConfigJSON 把 runtimeConfig 中的 JSON 风格值序列化成 RawMessage。
+// 权限类配置不能静默丢弃；如果值无法 JSON 编码，调用方会收到错误并阻断 turn/start。
+func (s *session) runtimeConfigJSON(key string) (json.RawMessage, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.runtimeConfig == nil {
+		return nil, nil
+	}
+	value, ok := s.runtimeConfig[key]
+	if !ok || value == nil {
+		return nil, nil
+	}
+	switch typed := value.(type) {
+	case json.RawMessage:
+		if len(typed) == 0 {
+			return nil, nil
+		}
+		return append(json.RawMessage(nil), typed...), nil
+	case []byte:
+		if len(typed) == 0 {
+			return nil, nil
+		}
+		return append(json.RawMessage(nil), typed...), nil
+	default:
+		raw, err := json.Marshal(value)
+		if err != nil {
+			return nil, fmt.Errorf("codexapp: runtime config %s must be JSON serializable: %w", key, err)
+		}
+		return raw, nil
+	}
+}
+
 func (s *session) runtimeConfigStringSlice(keys ...string) []string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -288,6 +320,7 @@ func (d *driver) buildThreadStartParams(req dto.StartSessionRequest) (threadStar
 		Summary:               supportutil.ConfigString(req.Config, "summary"),
 		Effort:                normalizeCodexAppEffort(supportutil.ConfigString(req.Config, "effort")),
 		Sandbox:               codexSandboxWireJSON(supportutil.ConfigJSON(req.Config, "sandbox")),
+		SandboxPolicy:         codexSandboxPolicyWireJSON(supportutil.ConfigJSON(req.Config, "sandbox")),
 		MCPConfig:             supportutil.ConfigJSON(req.Config, "mcpConfig"),
 	}
 	policy, err := codexNativeToolPolicyFromConfig(req.Config)

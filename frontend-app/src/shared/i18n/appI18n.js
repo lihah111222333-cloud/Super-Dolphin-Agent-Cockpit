@@ -214,7 +214,7 @@ const APP_COPY = Object.freeze({
       provider: {
         saveSettings: '保存 Provider 设置',
         switchedTo: 'Active Provider 已切换为 ',
-        settingsSaved: 'Provider 设置已保存',
+        settingsSaved: 'Provider 设置已保存，新建线程时生效',
         loadPreferencesFailed: '加载 Preferences 失败: ',
         savedPrefix: '已保存：',
         saveFailed: '保存失败: ',
@@ -784,7 +784,7 @@ const APP_COPY = Object.freeze({
       provider: {
         saveSettings: 'Save Provider Settings',
         switchedTo: 'Active Provider switched to ',
-        settingsSaved: 'Provider settings saved',
+        settingsSaved: 'Provider settings saved. Changes apply to new threads.',
         loadPreferencesFailed: 'Failed to load preferences: ',
         savedPrefix: 'Saved: ',
         saveFailed: 'Save failed: ',

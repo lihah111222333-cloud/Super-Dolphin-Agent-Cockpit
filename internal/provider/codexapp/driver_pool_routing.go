@@ -379,12 +379,24 @@ func legacySessionOptionsForNativeToolPolicy(policy codexNativeToolPolicy) ([]se
 	return []sessionOption(nil), nil
 }
 
+// canonicalStartRuntimeConfig 把启动 config 规整成会话运行时可复用的形态。
+// Codex 身份字段和 sandboxPolicy 会在后续 turn/start 继续使用，native tool 限制会强制收敛到只读策略。
 func canonicalStartRuntimeConfig(config map[string]any) map[string]any {
 	if len(config) == 0 {
 		return nil
 	}
 	out := make(map[string]any, len(config))
 	maps.Copy(out, config)
+	if policyRaw := codexSandboxPolicyWireJSON(supportutil.ConfigJSON(config, "sandbox")); len(policyRaw) > 0 {
+		var policyValue any
+		if err := json.Unmarshal(policyRaw, &policyValue); err == nil {
+			out["sandboxPolicy"] = policyValue
+		}
+	}
+	if policy, err := codexNativeToolPolicyFromConfig(config); err == nil && policy.RequiresReadOnlySandbox() {
+		out["sandbox"] = "read-only"
+		out["sandboxPolicy"] = codexReadOnlySandboxPolicyValue()
+	}
 	identity, err := providershared.ResolveCodexIdentity(config)
 	if err != nil {
 		return out
@@ -572,6 +584,7 @@ func (p codexNativeToolPolicy) ApplyThreadStartParams(params *threadStartParams)
 		return
 	}
 	params.Sandbox = codexReadOnlySandbox(params.Sandbox)
+	params.SandboxPolicy = codexReadOnlySandboxPolicy()
 	params.ApprovalPolicy = "never"
 }
 
@@ -599,14 +612,23 @@ func applyResumeNativeToolRuntimePolicy(s *session, disabled []string) error {
 	s.setApprovalPolicy("never")
 	s.setRuntimeConfigValue("approvalPolicy", "never")
 	s.setRuntimeConfigValue("sandbox", "read-only")
+	s.setRuntimeConfigValue("sandboxPolicy", codexReadOnlySandboxPolicyValue())
 	return nil
 }
 
 func codexReadOnlySandbox(raw json.RawMessage) json.RawMessage {
 	if codexSandboxIsReadOnly(raw) {
-		return append(json.RawMessage(nil), raw...)
+		return mustJSON("read-only")
 	}
-	return json.RawMessage(`{"read-only":null}`)
+	return mustJSON("read-only")
+}
+
+func codexReadOnlySandboxPolicy() json.RawMessage {
+	return mustJSON(codexReadOnlySandboxPolicyValue())
+}
+
+func codexReadOnlySandboxPolicyValue() map[string]any {
+	return map[string]any{"type": "readOnly"}
 }
 
 // codexSandboxIsReadOnly 兼容 Codex sandbox 的字符串和对象两种 wire 形态。
@@ -631,6 +653,12 @@ func codexSandboxIsReadOnly(raw json.RawMessage) bool {
 	if _, ok := obj["readOnly"]; ok {
 		return true
 	}
-	mode, _ := obj["mode"].(string)
-	return strings.EqualFold(strings.TrimSpace(mode), "read-only")
+	for _, key := range []string{"mode", "type"} {
+		value, _ := obj[key].(string)
+		if strings.EqualFold(strings.TrimSpace(value), "read-only") ||
+			strings.EqualFold(strings.TrimSpace(value), "readOnly") {
+			return true
+		}
+	}
+	return false
 }

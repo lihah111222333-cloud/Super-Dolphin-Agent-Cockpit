@@ -23,6 +23,7 @@ type turnStartParams struct {
 	ManualSkillSelection bool                              `json:"manualSkillSelection,omitempty"`
 	Model                string                            `json:"model,omitempty"`
 	Effort               string                            `json:"effort,omitempty"`
+	SandboxPolicy        json.RawMessage                   `json:"sandboxPolicy,omitempty"`
 	OutputSchema         json.RawMessage                   `json:"outputSchema,omitempty"`
 	DynamicTools         []codexprotocol.DynamicToolSchema `json:"dynamicTools,omitempty"`
 }

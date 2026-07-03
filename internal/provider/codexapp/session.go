@@ -330,21 +330,14 @@ func (s *session) StartTurn(ctx context.Context, req dto.TurnRequest) (contract.
 	if params.DynamicTools, err = s.prepareTurnDynamicTools(ctx, req); err != nil {
 		return nil, err
 	}
-	// turn 请求未显式设置 model/effort 时，从会话 runtimeConfig 补齐。
-	// thread/config/set 写入的值会在下一次 turn/start 生效。
-	if params.Model == "" {
-		params.Model = s.runtimeConfigString("model")
-	}
-	if params.Effort == "" {
-		params.Effort = normalizeCodexAppEffort(s.runtimeConfigString("effort"))
-	}
-	if supportutil.CodexModelNeedsListResolution(params.Model) {
-		params.Model = s.resolveTurnStartModel(ctx, params.Model)
+	if err := s.applyRuntimeTurnStartOverrides(ctx, &params); err != nil {
+		return nil, err
 	}
 	pkglogger.Debug("codexapp: turn/start params",
 		"agent_id", s.agentID,
 		"model", params.Model,
 		"effort", params.Effort,
+		"sandbox_policy_shape", sandboxPolicyLogShape(params.SandboxPolicy),
 	)
 	raw, err := callWithTimeout(ctx, callTargetFunc(s.callTransport), 30*time.Second, "turn/start", params)
 	if err != nil {
@@ -363,6 +356,50 @@ func (s *session) StartTurn(ctx context.Context, req dto.TurnRequest) (contract.
 	s.mu.Unlock()
 	s.rememberPendingTurn(h, params)
 	return h, nil
+}
+
+// applyRuntimeTurnStartOverrides 从会话 runtimeConfig 补齐 turn/start 支持的运行时覆盖。
+// thread/config/set 或启动配置写入的值会在下一轮 turn/start 生效，sandboxPolicy 编码失败时直接阻断。
+func (s *session) applyRuntimeTurnStartOverrides(ctx context.Context, params *turnStartParams) error {
+	if params == nil {
+		return nil
+	}
+	if params.Model == "" {
+		params.Model = s.runtimeConfigString("model")
+	}
+	if params.Effort == "" {
+		params.Effort = normalizeCodexAppEffort(s.runtimeConfigString("effort"))
+	}
+	if len(params.SandboxPolicy) == 0 {
+		sandboxPolicy, err := s.runtimeConfigJSON("sandboxPolicy")
+		if err != nil {
+			return err
+		}
+		params.SandboxPolicy = sandboxPolicy
+	}
+	if supportutil.CodexModelNeedsListResolution(params.Model) {
+		params.Model = s.resolveTurnStartModel(ctx, params.Model)
+	}
+	return nil
+}
+
+func sandboxPolicyLogShape(raw json.RawMessage) string {
+	raw = json.RawMessage(strings.TrimSpace(string(raw)))
+	if len(raw) == 0 {
+		return "empty"
+	}
+	var obj map[string]any
+	if err := json.Unmarshal(raw, &obj); err == nil {
+		if policyType, _ := obj["type"].(string); strings.TrimSpace(policyType) != "" {
+			return "object:" + strings.TrimSpace(policyType)
+		}
+		return "object"
+	}
+	var text string
+	if err := json.Unmarshal(raw, &text); err == nil {
+		return "string"
+	}
+	return "invalid"
 }
 
 func (s *session) contextWithTurnTrace(ctx context.Context, providerTurnID string) context.Context {

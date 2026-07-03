@@ -86,6 +86,7 @@ type threadStartParams struct {
 	Summary               string                            `json:"summary,omitempty"`
 	Effort                string                            `json:"effort,omitempty"`
 	Sandbox               json.RawMessage                   `json:"sandbox,omitempty"`
+	SandboxPolicy         json.RawMessage                   `json:"-"`
 	MCPConfig             json.RawMessage                   `json:"mcpConfig,omitempty"`
 	DynamicTools          []codexprotocol.DynamicToolSchema `json:"dynamicTools,omitempty"`
 }
@@ -595,6 +596,106 @@ func codexSandboxWireJSON(raw json.RawMessage) json.RawMessage {
 		}
 	}
 	return raw
+}
+
+// codexSandboxPolicyWireJSON 将历史 sandbox 配置转成 turn/start 接受的 sandboxPolicy 对象。
+// thread/start 仍只发送 mode string；writable roots/networkAccess 必须随 turn/start 传给 app-server。
+func codexSandboxPolicyWireJSON(raw json.RawMessage) json.RawMessage {
+	raw = json.RawMessage(strings.TrimSpace(string(raw)))
+	if len(raw) == 0 {
+		return nil
+	}
+	var text string
+	if err := json.Unmarshal(raw, &text); err == nil {
+		return codexSandboxPolicyFromMode(canonicalCodexSandboxMode(text), nil)
+	}
+	var obj map[string]any
+	if err := json.Unmarshal(raw, &obj); err != nil {
+		return raw
+	}
+	if mode := sandboxModeObjectValue(obj); mode != "" {
+		return codexSandboxPolicyFromMode(mode, obj)
+	}
+	if len(obj) == 1 {
+		for key := range obj {
+			if mode := canonicalCodexSandboxMode(key); mode != "" {
+				return codexSandboxPolicyFromMode(mode, obj)
+			}
+		}
+	}
+	return raw
+}
+
+func codexSandboxPolicyFromMode(mode string, obj map[string]any) json.RawMessage {
+	var policy map[string]any
+	switch mode {
+	case "read-only":
+		policy = map[string]any{"type": "readOnly"}
+		copySandboxBoolField(policy, obj, "networkAccess", "network_access")
+	case "workspace-write":
+		policy = map[string]any{"type": "workspaceWrite"}
+		if roots := sandboxStringSliceField(obj, "writableRoots", "writable_roots"); len(roots) > 0 {
+			policy["writableRoots"] = roots
+		}
+		copySandboxBoolField(policy, obj, "networkAccess", "network_access")
+		copySandboxBoolField(policy, obj, "excludeSlashTmp", "exclude_slash_tmp")
+		copySandboxBoolField(policy, obj, "excludeTmpdirEnvVar", "exclude_tmpdir_env_var")
+	case "danger-full-access":
+		policy = map[string]any{"type": "dangerFullAccess"}
+	default:
+		return nil
+	}
+	return mustJSON(policy)
+}
+
+func copySandboxBoolField(policy map[string]any, obj map[string]any, camelKey, snakeKey string) {
+	if value, ok := sandboxBoolField(obj, camelKey, snakeKey); ok {
+		policy[camelKey] = value
+	}
+}
+
+func sandboxBoolField(obj map[string]any, keys ...string) (bool, bool) {
+	if len(obj) == 0 {
+		return false, false
+	}
+	for _, key := range keys {
+		value, ok := obj[key]
+		if !ok {
+			continue
+		}
+		typed, ok := value.(bool)
+		return typed, ok
+	}
+	return false, false
+}
+
+// sandboxStringSliceField 从 sandbox 对象读取 camelCase 或 snake_case 列表字段。
+// 前端和历史配置可能使用不同命名，转换时只保留非空字符串，避免把非法元素传给 app-server。
+func sandboxStringSliceField(obj map[string]any, keys ...string) []string {
+	if len(obj) == 0 {
+		return nil
+	}
+	for _, key := range keys {
+		value, ok := obj[key]
+		if !ok {
+			continue
+		}
+		switch typed := value.(type) {
+		case []string:
+			return append([]string(nil), typed...)
+		case []any:
+			out := make([]string, 0, len(typed))
+			for _, item := range typed {
+				if text, ok := item.(string); ok && strings.TrimSpace(text) != "" {
+					out = append(out, text)
+				}
+			}
+			return out
+		default:
+			return nil
+		}
+	}
+	return nil
 }
 
 func sandboxModeObjectValue(obj map[string]any) string {

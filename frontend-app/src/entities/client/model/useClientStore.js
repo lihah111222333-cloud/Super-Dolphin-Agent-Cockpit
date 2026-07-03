@@ -304,6 +304,13 @@ async function getScopedPreference(cwd, key) {
   return isPreferenceAbsent(globalValue) ? null : globalValue;
 }
 
+function sanitizeLaunchSandboxPreference(value) {
+  if (isPreferenceAbsent(value) || isPreferenceTombstone(value)) return undefined;
+  if (typeof value === 'string') return normalizeProviderConfigValue(value);
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined;
+  return value;
+}
+
 function normalizeThreadConfig(raw = {}, fallbackThreadId = '', fallbackProvider = DEFAULT_PROVIDER) {
   const source = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {};
   const provider = normalizeProviderName(source.provider || fallbackProvider) || DEFAULT_PROVIDER;
@@ -367,6 +374,10 @@ async function resolveLaunchPreferences(cwd, addWarning = null) {
     codexHome,
     codexInstanceKey,
     codexModelProvider,
+    sandbox,
+    approvalPolicy,
+    personality,
+    summary,
   ] = await Promise.all([
     getPreference({ cwd, key: providerPreferenceKey(provider, 'model') }),
     getPreference({ cwd, key: providerPreferenceKey(provider, 'effort') }),
@@ -374,12 +385,20 @@ async function resolveLaunchPreferences(cwd, addWarning = null) {
     getScopedPreference(cwd, providerPreferenceKey('codex', 'codexHome')),
     getScopedPreference(cwd, providerPreferenceKey('codex', 'codexInstanceKey')),
     getScopedPreference(cwd, providerPreferenceKey('codex', 'codexModelProvider')),
+    getScopedPreference(cwd, providerPreferenceKey(provider, 'sandbox')),
+    getScopedPreference(cwd, providerPreferenceKey(provider, 'approvalPolicy')),
+    getScopedPreference(cwd, providerPreferenceKey(provider, 'personality')),
+    getScopedPreference(cwd, providerPreferenceKey(provider, 'summary')),
   ]);
   const launch = cleanObject({
     modelProvider: provider,
     model: normalizeProviderConfigValue(model),
     effort: normalizeProviderConfigValue(effort),
     prompt_key: normalizeProviderConfigValue(activePromptKey),
+    sandbox: sanitizeLaunchSandboxPreference(sandbox),
+    approvalPolicy: normalizeProviderConfigValue(approvalPolicy),
+    personality: normalizeProviderConfigValue(personality),
+    summary: normalizeProviderConfigValue(summary),
   });
   const normalizedCodexModelProvider = normalizeCodexIdentityValue(codexModelProvider);
   if (normalizedCodexModelProvider) launch.codexModelProvider = normalizedCodexModelProvider;

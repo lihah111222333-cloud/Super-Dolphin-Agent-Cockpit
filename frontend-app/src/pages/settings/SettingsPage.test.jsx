@@ -375,6 +375,7 @@ describe('SettingsPage provider migration', () => {
         },
       });
     });
+    expect(screen.getByText(/新建线程时生效/)).toBeInTheDocument();
   });
 
   it('fails fast when the backend returns an invalid active provider preference', async () => {

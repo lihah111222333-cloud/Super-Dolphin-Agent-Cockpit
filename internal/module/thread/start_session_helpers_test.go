@@ -1,6 +1,7 @@
 package thread
 
 import (
+	"encoding/json"
 	"reflect"
 	"strings"
 	"testing"
@@ -153,6 +154,27 @@ func TestBuildStartSessionConfigCarriesTurnContextFields(t *testing.T) {
 	requireSessionConfigValue(t, cfg, "promptKey", "main/launch-fav")
 	requireSessionConfigValue(t, cfg, "prompt_key", "main/launch-fav")
 	requireSessionConfigValue(t, cfg, "threadKind", "child_agent")
+}
+
+func TestBuildStartSessionConfigPreservesObjectSandbox(t *testing.T) {
+	cfg := buildStartSessionConfig(StartRequest{
+		Sandbox: json.RawMessage(`{"type":"workspaceWrite","writableRoots":["/repo/app"],"networkAccess":true}`),
+	}, contract.StartInput{Provider: "codex"}, contract.StartAssembly{})
+
+	sandbox, ok := cfg["sandbox"].(map[string]any)
+	if !ok {
+		t.Fatalf("sandbox = %#v, want object", cfg["sandbox"])
+	}
+	if sandbox["type"] != "workspaceWrite" {
+		t.Fatalf("sandbox.type = %#v, want workspaceWrite", sandbox["type"])
+	}
+	roots, ok := sandbox["writableRoots"].([]any)
+	if !ok || len(roots) != 1 || roots[0] != "/repo/app" {
+		t.Fatalf("sandbox.writableRoots = %#v, want [/repo/app]", sandbox["writableRoots"])
+	}
+	if sandbox["networkAccess"] != true {
+		t.Fatalf("sandbox.networkAccess = %#v, want true", sandbox["networkAccess"])
+	}
 }
 
 func TestBuildStartSessionConfigCarriesConfiguredMCPServers(t *testing.T) {
