@@ -161,6 +161,10 @@ func (s *session) completeSyntheticTurn(turnID, reason, result string) {
 	}
 	s.dispatch(dto.RawProviderEvent{EventType: "turn/completed", Data: payload})
 	if h := s.takeTurn(turnID); h != nil {
+		if !success {
+			h.complete(errors.New(toolFailureSummary(failures)))
+			return
+		}
 		h.complete(nil)
 	}
 }

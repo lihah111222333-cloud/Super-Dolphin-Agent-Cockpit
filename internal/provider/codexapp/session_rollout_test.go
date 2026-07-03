@@ -144,8 +144,9 @@ func TestSyntheticAssistantCompletionPreservesToolFailure(t *testing.T) {
 
 	s := newInboundTestSession(context.Background(), nil, &ServerManager{})
 	s.dispatcher = dispatcher
+	active := newTurnHandle("local-1", "turn-1")
 	s.mu.Lock()
-	s.turns["turn-1"] = newTurnHandle("local-1", "turn-1")
+	s.turns["turn-1"] = active
 	s.activeTurnID = "turn-1"
 	s.mu.Unlock()
 
@@ -179,6 +180,10 @@ func TestSyntheticAssistantCompletionPreservesToolFailure(t *testing.T) {
 	}
 	if completed.Result != "assistant text" {
 		t.Fatalf("TurnCompleted.Result = %q, want assistant text", completed.Result)
+	}
+	assertTurnDone(t, active, "synthetic completion with tool failure did not complete active turn")
+	if active.Err() == nil || !strings.Contains(active.Err().Error(), "file read failed") {
+		t.Fatalf("turn handle error = %v, want correlated tool failure", active.Err())
 	}
 }
 
