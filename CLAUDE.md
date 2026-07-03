@@ -89,6 +89,8 @@
 
 本策略管理从 `.agents/skills/*/SKILL.md` 加载代理指令的行为。它不会禁用或描述产品运行时技能管线。历史 `.agent/skills` 仅作为旧路径保留，不是规范入口，也不是人工编辑目标。运行时规范技能由本项目管理，位置包括项目内 `<cwd>/.agents/skills` 以及活跃个人根目录 `~/.super-dolphin/skills/personal/{user,agent,imported}`；`personal/hub` 仅作为目录索引，不得被扫描、镜像或当作普通个人技能处理。显式配置的提供方主目录仍可使用自己的 `skills` 目录。要检查运行时技能行为，请查看 `internal/module/skill*`、`internal/provider/shared/provider_home.go`、提供方镜像测试以及相关 toolbridge 兼容性测试。
 
+子代理不强制绑定 `mcp-go-agent-orchestration` 或 `mcp-orch` 生命周期；优先使用当前平台可用的原生子代理/多代理能力。只有任务确实需要持久 DAG、重试、租约或结构化交接记录时，才可选使用 `task_create_dag`、`task_start_dag`、`task_dispatch_node`、`task_update_node`。
+
 ## 完成验证
 
 在声称已完成、已修复、可提交或可合并之前，运行与变更面匹配的验证。
@@ -105,25 +107,3 @@ npm run build
 ## 禁止兜底代码
 遇到异常、配置为空或数据缺失时，必须立即报错并阻断（Fail-Fast）。
 严禁使用包括但不限于静默降级、默认配置、吞错捕获等隐式兜底逻辑。
-
-## 函数级中文注释策略
-
-函数级注释写给维护系统的人看，先说明这个函数或关键代码块做什么，再补充代码本身看不出来的原因、约束和风险；不要逐行复述实现。
-
-必须补函数级中文注释的场景：
-
-- 导出函数、导出方法、导出类型的关键方法。
-- 跨模块入口、provider / store / scheduler / thread / prompt / memory / skill / DAG 等关键路径函数。
-- 涉及状态变化、幂等、重试、锁、并发、恢复、fail-fast、权限或持久化边界的函数。
-- 私有函数如果有效代码行较长、分支复杂、嵌套较深，必须说明它负责什么、不能误改什么。
-- React hooks、store slice、service、复杂页面 controller 需要说明数据来源和本地状态边界。
-
-不要求给简单 getter/setter、小型纯映射、小 JSX 渲染片段、测试内直观辅助函数机械补注释。
-
-注释风格要求：
-
-- 使用自然、简洁的中文，优先 1-3 行。
-- 少用“语义、契约、生命周期、治理、收敛”等重工程词，除非代码里的领域名必须保留。
-- 先写明函数或关键代码块做什么；必要时再写为什么这样做、哪里不能乱改、失败时会怎样。
-
-函数级注释守卫应由 `internal/archtest/guardlib.go` 实现，并通过 `./scripts/test_with_guard.sh <file.go>`、`make guard`、`./scripts/test_with_guard.sh ./internal/archtest -count=1` 验证。

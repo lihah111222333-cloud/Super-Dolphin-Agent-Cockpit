@@ -105,25 +105,3 @@ npm run build
 ## 禁止兜底代码
 遇到异常、配置为空或数据缺失时，必须立即报错并阻断（Fail-Fast）。
 严禁使用包括但不限于静默降级、默认配置、吞错捕获等隐式兜底逻辑。
-
-## 函数级中文注释策略
-
-函数级注释写给维护系统的人看，先说明这个函数或关键代码块做什么，再补充代码本身看不出来的原因、约束和风险；不要逐行复述实现。
-
-必须补函数级中文注释的场景：
-
-- 导出函数、导出方法、导出类型的关键方法。
-- 跨模块入口、provider / store / scheduler / thread / prompt / memory / skill / DAG 等关键路径函数。
-- 涉及状态变化、幂等、重试、锁、并发、恢复、fail-fast、权限或持久化边界的函数。
-- 私有函数如果有效代码行较长、分支复杂、嵌套较深，必须说明它负责什么、不能误改什么。
-- React hooks、store slice、service、复杂页面 controller 需要说明数据来源和本地状态边界。
-
-不要求给简单 getter/setter、小型纯映射、小 JSX 渲染片段、测试内直观辅助函数机械补注释。
-
-注释风格要求：
-
-- 使用自然、简洁的中文，优先 1-3 行。
-- 少用“语义、契约、生命周期、治理、收敛”等重工程词，除非代码里的领域名必须保留。
-- 先写明函数或关键代码块做什么；必要时再写为什么这样做、哪里不能乱改、失败时会怎样。
-
-函数级注释守卫应由 `internal/archtest/guardlib.go` 实现，并通过 `./scripts/test_with_guard.sh <file.go>`、`make guard`、`./scripts/test_with_guard.sh ./internal/archtest -count=1` 验证。
