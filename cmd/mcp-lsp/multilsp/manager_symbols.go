@@ -197,7 +197,14 @@ func (m *manager) documentSymbolsWithoutDiagnosticsWait(ctx context.Context, uri
 	if err != nil {
 		return nil, unsupportedCapabilityError(err)
 	}
-	return decodeDocumentSymbols(raw)
+	symbols, err := decodeDocumentSymbols(raw)
+	if err != nil {
+		return nil, err
+	}
+	if fallback, ok, err := m.fallbackEmptyLSPDocumentSymbols(ref, symbols); ok || err != nil {
+		return fallback, err
+	}
+	return symbols, nil
 }
 
 // WorkspaceSymbol 查询指定语言 workspace 内的符号。
