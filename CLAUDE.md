@@ -1,159 +1,105 @@
-# Super Agent v3 项目指令
+## 默认上下文加载顺序
 
-## 本地技能索引
+路径发现模式，适用于用户询问文件位置或应修改哪个路径时：
 
-> 使用方法：Agent 应根据上下文语义、任务类型或涉及的文件自动加载并应用对应的技能。
-> 也可以通过 `@触发词` 或 `请参考 <path>` 显式指定，但系统默认支持基于上下文的自动感知触发。
+1. 读取 `README.md`，了解当前项目布局和入口点。
+2. 读取 `docs/doc/codemap/README.md`，了解代码地图目录和阅读边界。
+3. 根据目录选择并打开一个相关的代码地图分卷。
+4. 使用 `rg` 搜索 `docs/doc/codemap/ai-index.json` 或精确源码目录，缩小候选符号和路径范围。
+5. 读取 `docs/internal-notes/LSP系统提示词.md`，然后使用 LSP 符号和导航工具确认定义、引用、调用方、实现和诊断，再决定要编辑或报告的路径。
+6. 在 LSP 确认路径后，打开精确源码文件和同包测试。
 
-| 触发词 | 技能路径 |
-|--------|----------|
-| @后端 | `.agent/skills/后端/SKILL.md` |
-| @Agent工程学 | `.agent/skills/Agent工程学/SKILL.md` |
-| @MCP协议 | `.agent/skills/MCP协议/SKILL.md` |
-| @UI设计 | `.agent/skills/ui-ux-design/SKILL.md` |
-| @测试驱动开发 | `.agent/skills/测试驱动开发/SKILL.md` |
-| @编写计划 | `.agent/skills/编写计划/SKILL.md` |
-| @执行计划 | `.agent/skills/执行计划/SKILL.md` |
-| @调度并行代理 | `.agent/skills/调度并行代理/SKILL.md` |
-| @子代理驱动开发 | `.agent/skills/子代理驱动开发/SKILL.md` |
-| @系统化调试 | `.agent/skills/系统化调试/SKILL.md` |
-| @头脑风暴 | `.agent/skills/头脑风暴/SKILL.md` |
-| @思维与决策辅助 | `.agent/skills/思维与决策辅助/SKILL.md` |
-| @请求代码审查 | `.agent/skills/请求代码审查/SKILL.md` |
-| @接收代码审查 | `.agent/skills/接收代码审查/SKILL.md` |
-| @完成前验证 | `.agent/skills/完成前验证/SKILL.md` |
-| @使用git工作区 | `.agent/skills/使用git工作区/SKILL.md` |
-| @使用超能力 | `.agent/skills/使用超能力/SKILL.md` |
-| @结束开发分支 | `.agent/skills/结束开发分支/SKILL.md` |
-| @编写技能 | `.agent/skills/编写技能/SKILL.md` |
-| @安全工程师 | `.agent/skills/安全工程师规范/SKILL.md` |
-| @核心信息提取与总结 | `.agent/skills/核心信息提取与总结/SKILL.md` |
+行为阅读模式，适用于用户询问某个机制如何工作时：
 
-### 技能系统说明
+1. 源码和测试是事实来源。
+2. 使用 `docs/decisions/*.md` 和 `docs/adr/*.md` 查看已接受的架构决策。
+3. 使用 `docs/契约/*.md` 查看 fx、rungroup、jrpc2、sqlc、stateless、MCP 服务、洋葱架构等约定。
+4. 使用 `docs/doc/codemap/*.md` 导航大型子系统。
+5. 除非用户明确询问迁移历史，否则将 `docs/plans/**`、`docs/迁移/**`、`docs/superpowers/plans/**` 和旧报告视为历史规划材料。
+6. 读取 `docs/internal-notes/LSP系统提示词.md`，然后在回答行为、影响或实现问题前，使用 LSP 工具对相关文件做符号导航、引用和调用层级检查、悬停和签名上下文检查以及诊断检查。
 
-- 上表规定了 agent 在本仓库内读取 `.agent/skills/**/SKILL.md` 的触发映射关系。
-- 产品运行时的技能系统：canonical 真值由本项目管理，项目级在 `<cwd>/.agent/skills`，生效的个人级在 `~/.super-dolphin/skills/personal/{user,agent,imported}`；`personal/hub` 仅作为目录/市场来源，不参与扫描、镜像或 provider 调用。生效 canonical 再 reconcile 到生成型 provider-native mirror。Claude 通过 `<cwd>/.claude/skills` 和 `~/.claude/skills` 发现，Codex 通过 `<cwd>/.agents/skills` 和 `~/.agents/skills` 发现；显式配置 provider home 时才使用该 home 下的 `skills`；mirror 不是 canonical 真值。
-- 涉及运行时技能行为时，以 `internal/module/skill*`、`internal/provider/shared/provider_home.go`、provider mirror 测试和 toolbridge 兼容性测试为准；`skill_read_section` 不是生产 skill 发现入口。
-- **子代理编排**：子代理不强制绑定 `mcp-go-agent-orchestration` 或 `mcp-orch` 生命周期；优先使用当前平台可用的原生子代理/多代理能力。只有任务确实需要持久 DAG、重试、租约或结构化交接记录时，才可选使用 `task_create_dag`、`task_start_dag`、`task_dispatch_node`、`task_update_node`。
+## LSP 强制使用规则
 
-## 代码地图与上下文加载
+### LSP diagnostics 处理规则
 
-定位文件路径、模块入口、或改动影响面时，按低 token 顺序读取：
+- LSP diagnostics 返回的 `Error`、`Warning`、`Information`、`Hint` 均视为待修复项；不得因 severity 为 hint 或“仅建议”而忽略。无法修复时必须记录 blocker，包含文件、行号、规则和原因。
 
-1. `README.md`：项目结构、启动方式、核心模块概览。
-2. `docs/doc/codemap/README.md`：代码地图目录和阅读边界。
-3. 根据问题选择单个代码地图卷，例如：
-   - `docs/doc/codemap/01-terminal-ui.md`
-   - `docs/doc/codemap/02-mcp-orch.md`
-   - `docs/doc/codemap/04-app-contract.md`
-   - `docs/doc/codemap/07-module.md`
-   - `docs/doc/codemap/08-platform.md`
-   - `docs/doc/codemap/09-provider.md`
-   - `docs/doc/codemap/10-store.md`
-   - `docs/doc/codemap/11-memory-prompt-thread.md`
-4. 用 `rg` 在 `docs/doc/codemap/ai-index.json` 或具体源码目录里精确检索。
-5. 打开目标源码和同包测试；行为问题以代码和测试为准。
+### A：AST 搜索 → 精确读取
 
-架构/契约问题优先读 `docs/decisions/*.md`、`docs/adr/*.md`、`docs/契约/*.md`；LSP 工具链规范必读 `docs/internal-notes/LSP系统提示词.md`；`docs/plans/**`、`docs/迁移/**`、`docs/superpowers/plans/**`、历史报告默认视为历史材料。
-
-避免默认扫描 `.build-cache/`、`bin/`、`frontend-app/node_modules/`、`frontend-app/dist/`、`cmd/agent-terminal/web-dist/`、`.worktrees/`、`.workspace/`、`.claude/`、`.agent/code_exec/`、`.agent/workspaces/`、`.agnet/report/`、`.agnet/shared/_internal/`、`.agnet/shared/handoff/`、历史迁移文档和报告目录，除非用户明确要求。
-
-## 项目现状
-
-- Go module：`github.com/anthropic-ai/super-agent-v3`，Go `1.25.7`。
-- 主入口：
-  - `cmd/agent-terminal`：Wails 桌面宿主与 HTTP server；开发模式通过 `VITE_DEV_URL` 代理 `frontend-app`，无 dev proxy 时读取嵌入产物。
-  - `cmd/mcp-orch`：agent lifecycle、DAG、cron、toolbridge orchestration peer。
-  - `cmd/mcp-lsp`：gopls/LSP 代码智能 peer。
-  - `cmd/mcp-ida`：IDA MCP peer。
-- 核心目录：
-  - `internal/app`：应用装配、runner、toolbridge adapters。
-  - `internal/contract`：跨模块接口和 DTO。
-  - `internal/module`：turn、prompt、cron、memory、skill 等业务模块。
-  - `internal/platform`：db、rpc、config、runtime safety、toolbridge。
-  - `internal/provider`：Claude CLI、Codex 等 provider 适配。
-  - `internal/store`：sqlc 生成的数据访问层。
-  - `internal/archtest`：架构守卫和 baseline 棘轮。
-  - `pkg`：可复用公共库。
-  - `frontend-app`：当前 React/Vite 新 UI 包，由 `run-new-ui-desktop.sh` / `.ps1` 启动。
-  - `cmd/agent-terminal/web-dist`：由 `frontend-app/dist` 同步来的 Go embed 产物目录，不手写源码。
-
-## 任务完成验证
-
-每次声称 done/fixed/ready-to-commit/ready-to-merge 前，根据改动范围跑对应验证。不要套用 `wjboot-v2` 的 `backend/`、`GOWORK=off go -C backend`、`docs/guide` 或 `cmd/code_guard` 命令。
-
-### Go 代码
-
-常规包级验证：
-
-```bash
-./scripts/test_with_guard.sh <affected packages> -count=1
+```text
+1. grep(ast_search, query="func ($R) MethodName(", language="go")
+2. 用返回的 func_start/func_end → file(read_file, pos=<file>:<func_start>, limit=<func_end-func_start+1>) 精准读取
 ```
 
-只需要快速跑仓库守卫时：
+### B：符号定位 → 跳转定义 → 读实现
 
-```bash
-make guard
+```text
+1. structure(workspace_symbol, query="SymbolName") → 找到符号位置
+2. inspect(definition, pos=<file>:<line>:<col>) → 跳到定义
+3. file(read_file, pos=<file>:<line>, limit=<n>) → 读实现
 ```
 
-每改完一个 Go 文件，先跑单文件守卫再继续：
+### C：引用分析 → 调用层级 → 影响面
 
-```bash
-./scripts/test_with_guard.sh <file.go>
+```text
+1. xref(references, pos=<file>:<line>:<col>) → 找所有引用点
+2. xref(call_hierarchy, pos=<file>:<line>:<col>, direction="incoming") → 谁调用了它
+3. xref(call_hierarchy, pos=<file>:<line>:<col>, direction="outgoing") → 它调用了谁
 ```
 
-只传入 Go 文件路径时，该守卫保持安静：exit 0 表示无违规且不输出内容；exit 1 表示有违规，stderr 只输出具体违规项。
+### D：接口→实现→引用 三级跳
 
-大范围改动或发布前：
-
-```bash
-make test
-make build-plain
+```text
+1. inspect(definition, pos=<file>:<line>:<col>) → 接口定义
+2. inspect(implementation, pos=<file>:<line>:<col>) → 所有实现类
+3. xref(references, pos=<file>:<line>:<col>) → 所有调用点
 ```
 
-修改 `internal/archtest`、守卫、baseline 或架构边界时，至少补跑：
+### E：文件大纲对比
 
-```bash
-./scripts/test_with_guard.sh ./internal/archtest -count=1
+```text
+1. structure(document_symbol, file_path="v3/file.go")
+2. structure(document_symbol, file_path="v2/file.go")
+3. 逐一对比找缺失
 ```
 
-### 前端代码
+## 三、强制工作流
+
+审查类：grep(text_search|ast_search) 定位 → inspect(definition|hover|type_definition) 理解 → xref(references|call_hierarchy) 影响面 → file(read_file) 精读 → 输出判定
+
+修复类：grep(text_search|ast_search) 定位 → xref(references|call_hierarchy) 影响面 → file(read_file) 读取 → edit(replace_range) 修改 → file(diagnostics) 检查 → build/test 验证
+
+
+## 上下文预算卫生
+
+- 优先使用定向 `rg` 搜索和单文件读取，避免大范围目录扫描。
+- 默认不要递归读取或索引 `.build-cache/`、`bin/`、前端 `node_modules/`、前端 `dist/`、`.worktrees/`、`.workspace/`、`.claude/`、`.agent/code_exec/`、`.agent/workspaces/`、`.agnet/report/`、`.agnet/shared/_internal/`、`.agnet/shared/handoff/` 或生成的测试报告。
+- 默认不要递归读取或索引 `docs/archive/**`。只有当用户要求历史报告、旧代理笔记、迁移证据或来源追溯时才使用它。
+- 不要批量加载 `.agents/skills/**`。仓库本地技能是按需选择的参考，不是默认上下文。
+- 如果生成物看起来可能过期，在直接编辑它之前先验证生成器或检查目标。
+
+## 仓库本地技能策略
+
+`super-agent-v3` 的仓库本地技能唯一规范入口是 `.agents/skills/*/SKILL.md`。
+
+- 用户点名技能、任务明显匹配某个技能 `description`，或技能与当前任务上下文、文件类型、目录、变更面明显相关时，本回合必须自动使用覆盖范围最小的匹配技能。
+- 使用技能前必须先完整读取对应 `SKILL.md`；仅在该文件要求时再读取 references、scripts 或 assets。
+- 未匹配到可用技能时，直接按本文件的项目地图、LSP 与验证闭环执行，禁止全量扫读技能目录。
+- 如果加载了某个技能，它的指令从属于本文件、用户最新指令和当前仓库证据。
+
+本策略管理从 `.agents/skills/*/SKILL.md` 加载代理指令的行为。它不会禁用或描述产品运行时技能管线。历史 `.agent/skills` 仅作为旧路径保留，不是规范入口，也不是人工编辑目标。运行时规范技能由本项目管理，位置包括项目内 `<cwd>/.agents/skills` 以及活跃个人根目录 `~/.super-dolphin/skills/personal/{user,agent,imported}`；`personal/hub` 仅作为目录索引，不得被扫描、镜像或当作普通个人技能处理。显式配置的提供方主目录仍可使用自己的 `skills` 目录。要检查运行时技能行为，请查看 `internal/module/skill*`、`internal/provider/shared/provider_home.go`、提供方镜像测试以及相关 toolbridge 兼容性测试。
+
+## 完成验证
+
+在声称已完成、已修复、可提交或可合并之前，运行与变更面匹配的验证。
+
+当前新 UI 前端变更：
 
 ```bash
 cd frontend-app
 npm run lint
 npm test
 npm run build
-```
-
-`cmd/agent-terminal` 无 dev proxy 时会读取 `cmd/agent-terminal/web-dist`。`make frontend-app-build` 会先构建 `frontend-app/dist`，再用跨平台 Node 同步脚本更新 embedded dist。
-
-### SQL / store
-
-修改 `sql/queries/**`、migrations、或 `internal/store/sqlc/**` 时：
-
-```bash
-make sqlc-verify
-```
-
-需要重生成时先运行：
-
-```bash
-make sqlc-generate
-```
-
-### 代码地图
-
-修改影响代码地图覆盖范围时：
-
-```bash
-make codemap-check
-```
-
-需要刷新 `docs/doc/codemap/ai-index.json` 时：
-
-```bash
-make codemap-refresh
 ```
 
 ## 禁止兜底代码
@@ -172,7 +118,7 @@ make codemap-refresh
 - 私有函数如果有效代码行较长、分支复杂、嵌套较深，必须说明它负责什么、不能误改什么。
 - React hooks、store slice、service、复杂页面 controller 需要说明数据来源和本地状态边界。
 
-不要求给简单 getter/setter、小型纯映射、小 JSX 渲染片段、测试内直观 helper 机械补注释。
+不要求给简单 getter/setter、小型纯映射、小 JSX 渲染片段、测试内直观辅助函数机械补注释。
 
 注释风格要求：
 
@@ -181,29 +127,3 @@ make codemap-refresh
 - 先写明函数或关键代码块做什么；必要时再写为什么这样做、哪里不能乱改、失败时会怎样。
 
 函数级注释守卫应由 `internal/archtest/guardlib.go` 实现，并通过 `./scripts/test_with_guard.sh <file.go>`、`make guard`、`./scripts/test_with_guard.sh ./internal/archtest -count=1` 验证。
-
-## 守卫和 baseline 红线
-
-1. 守卫任一失败 = 任务未完成；不得声称完成、提交或合并。
-2. `internal/archtest/baseline.json` 是 per-file ratchet baseline。默认 guard 可自动收缩，不应手工放宽。
-3. `go run scripts/code_size_guard.go --freeze` 只能在守卫规则变化或用户明确同意时使用；不能用来掩盖代码恶化。
-4. fix/hotfix/bugfix/修复/修正 类提交必须在同一提交包含锁定 bug 的测试、fixture、golden 或 snapshot。
-5. `git commit --no-verify` / `git push --no-verify` 仅限紧急事故；使用后必须补跑遗漏验证。
-
-## Git Hook
-
-- 首次 clone、仓库移动、或新 worktree 首次开发前运行：
-  ```bash
-  make install-hooks
-  ```
-- 用 `git config --get core.hooksPath` 确认 hooks 指向当前仓库的 `.githooks` 绝对路径。
-- `pre-commit` 会检查 staged Go 影响面、拒绝 staged/worktree 不一致、运行 gofmt/go vet/短测，并在 Go 改动时跑守卫。
-- `commit-msg` 会拦截缺少同提交 bug-locking 测试的 fix/hotfix/bugfix/修复 类提交。
-- `pre-push` 要求 worktree/index/untracked 干净，只允许推送当前 `HEAD`，并按 push range 复查 fix-test 规则和受影响包测试。
-
-## Git 与工作区纪律
-
-- 开始前看 `git status --short`；不要覆盖或整理无关本地改动。
-- 不使用 `git add .`；只 stage 本任务拥有的文件。
-- 需要原子提交/推送时，保持一个主题一个提交，修复与锁定测试同提交。
-- 多 worktree / 多代理并行时，先确认各自 owns 的路径，避免跨工作区修改。
