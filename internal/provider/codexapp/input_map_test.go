@@ -28,7 +28,10 @@ func TestBuildTurnStartParams(t *testing.T) {
 		Overrides:            dto.TurnOverrides{Model: "gpt-5.5", Effort: "high"},
 	}
 
-	got := buildTurnStartParams("thread-1", req)
+	got, err := buildTurnStartParams("thread-1", req)
+	if err != nil {
+		t.Fatalf("buildTurnStartParams() error = %v", err)
+	}
 	// 单个 turn 不再追加 skill 正文块，Input 只保留用户文本。
 	want := turnStartParams{
 		ThreadID:             "thread-1",
@@ -47,10 +50,13 @@ func TestBuildTurnStartParams(t *testing.T) {
 func TestBuildTurnStartParamsNormalizesMinimalEffortToLow(t *testing.T) {
 	t.Parallel()
 
-	got := buildTurnStartParams("thread-1", dto.TurnRequest{
+	got, err := buildTurnStartParams("thread-1", dto.TurnRequest{
 		Inputs:    []dto.InputItem{{Type: "text", Content: "hello"}},
 		Overrides: dto.TurnOverrides{Effort: " minimal "},
 	})
+	if err != nil {
+		t.Fatalf("buildTurnStartParams() error = %v", err)
+	}
 	if got.Effort != "low" {
 		t.Fatalf("Effort = %q, want low", got.Effort)
 	}
@@ -94,7 +100,10 @@ func TestBuildTurnStartParamsIncludesAttachments(t *testing.T) {
 		},
 	}
 
-	got := buildTurnStartParams("thread-1", req)
+	got, err := buildTurnStartParams("thread-1", req)
+	if err != nil {
+		t.Fatalf("buildTurnStartParams() error = %v", err)
+	}
 	// system-reminder 只在会话启动时注入，单个 turn 仅保留附件和用户文本。
 	if len(got.Input) != 2 {
 		t.Fatalf("len(buildTurnStartParams().Input) = %d, want 2", len(got.Input))
@@ -111,10 +120,13 @@ func TestBuildTurnStartParamsIncludesSystemContext(t *testing.T) {
 	t.Parallel()
 
 	systemContext := dto.SystemContext{"gitStatus": "## main\n M changed.go"}
-	got := buildTurnStartParams("thread-1", dto.TurnRequest{
+	got, err := buildTurnStartParams("thread-1", dto.TurnRequest{
 		Inputs:       []dto.InputItem{{Type: "text", Content: "hello"}},
 		TurnAssembly: dto.TurnAssembly{SystemContext: systemContext},
 	})
+	if err != nil {
+		t.Fatalf("buildTurnStartParams() error = %v", err)
+	}
 	// SystemContext 只在会话启动时注入，单个 turn 只发送用户文本。
 	if len(got.Input) != 1 {
 		t.Fatalf("len(buildTurnStartParams().Input) = %d, want 1", len(got.Input))
@@ -145,7 +157,10 @@ func TestBuildTurnSteerParams(t *testing.T) {
 		ManualSkillSelection: true,
 	}
 
-	got := buildTurnSteerParams("thread-1", req)
+	got, err := buildTurnSteerParams("thread-1", req)
+	if err != nil {
+		t.Fatalf("buildTurnSteerParams() error = %v", err)
+	}
 	// steer 输入不追加 per-turn skill 块，只包含用户文本和选择元数据。
 	want := map[string]any{
 		"threadId":             "thread-1",
@@ -168,5 +183,16 @@ func TestBuildTurnInterruptParamsIncludesTurnID(t *testing.T) {
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("buildTurnInterruptParams() = %#v, want %#v", got, want)
+	}
+}
+
+func TestBuildTurnStartParamsRejectsUnknownInputType(t *testing.T) {
+	t.Parallel()
+
+	_, err := buildTurnStartParams("thread-1", dto.TurnRequest{
+		Inputs: []dto.InputItem{{Type: "mystery", Content: "hello"}},
+	})
+	if err == nil {
+		t.Fatal("buildTurnStartParams() error = nil, want unsupported input type")
 	}
 }

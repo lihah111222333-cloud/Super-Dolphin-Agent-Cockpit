@@ -52,6 +52,47 @@ func TestStartTurnAppliesTurnToolScopeRuntimeConfig(t *testing.T) {
 	}
 }
 
+func TestStartTurnRejectsUnknownInputBeforeRuntimeConfigMutation(t *testing.T) {
+	turnStartCalls := 0
+	serverURL := startCodexRPCServerWithHandler(t, func(msg jsonRPCMessage) json.RawMessage {
+		if msg.Method != "turn/start" {
+			return mustJSON(map[string]any{"ok": true})
+		}
+		turnStartCalls++
+		return mustJSON(map[string]any{"turn": map[string]any{"id": "turn-unexpected"}})
+	})
+	s, err := newSession(context.Background(), pkglogger.Get(), serverURL, "agent-1", nil, nil, nil)
+	if err != nil {
+		t.Fatalf("newSession() error = %v", err)
+	}
+	s.runtime.Start()
+	t.Cleanup(func() { closeCodexTestSession(t, s) })
+	s.setThreadID("provider-thread-1")
+	s.setRuntimeConfig(map[string]any{
+		"cwd":                          "/old",
+		"additionalWorkingDirectories": []string{"/old-extra"},
+	})
+
+	_, err = s.StartTurn(context.Background(), dto.TurnRequest{
+		CWD:                          "/new",
+		AdditionalWorkingDirectories: []string{"/new-extra"},
+		Inputs:                       []dto.InputItem{{Type: "mystery", Content: "hello"}},
+	})
+	if err == nil {
+		t.Fatal("StartTurn() error = nil, want unsupported input type")
+	}
+	if turnStartCalls != 0 {
+		t.Fatalf("turn/start calls = %d, want no provider call after invalid input", turnStartCalls)
+	}
+	got := s.RuntimeConfigSnapshot()
+	if got["cwd"] != "/old" {
+		t.Fatalf("runtime cwd = %#v, want unchanged /old", got["cwd"])
+	}
+	if roots := providershared.ConfigStringSlice(got, "additionalWorkingDirectories"); len(roots) != 1 || roots[0] != "/old-extra" {
+		t.Fatalf("runtime additionalWorkingDirectories = %#v, want unchanged [/old-extra]", got["additionalWorkingDirectories"])
+	}
+}
+
 func TestStartTurnAdvertisesDynamicToolsFromTurnMCPManifest(t *testing.T) {
 	turnParams := make(chan map[string]any, 1)
 	serverURL := startTurnDynamicToolsRPCServer(t, turnParams)

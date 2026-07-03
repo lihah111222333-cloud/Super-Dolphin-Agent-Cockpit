@@ -10,6 +10,7 @@ import (
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
+	shareddto "github.com/anthropic-ai/super-agent-v3/internal/dto/shared"
 	turnobservation "github.com/anthropic-ai/super-agent-v3/internal/module/turn/observation"
 	platformobs "github.com/anthropic-ai/super-agent-v3/internal/platform/observability"
 	"github.com/anthropic-ai/super-agent-v3/internal/util"
@@ -177,6 +178,9 @@ func (s *service) PrepareTurn(ctx context.Context, session contract.Session, inp
 	ctx = span.ctx
 	defer func() { s.finishTurnTraceSpan(span, err) }()
 	input = hydratePrepareInput(input, session)
+	if err := validatePrepareInputTypes(input.Inputs); err != nil {
+		return dto.TurnRequest{}, err
+	}
 	input, err = s.hydrateMCPServerConfigs(ctx, input)
 	if err != nil {
 		return dto.TurnRequest{}, err
@@ -228,6 +232,17 @@ func (s *service) PrepareTurn(ctx context.Context, session contract.Session, inp
 	req.TurnAssembly = assembly
 	s.recordSkillsSelected(req.LocalID, resolvedSkills)
 	return req, nil
+}
+
+// validatePrepareInputTypes 在 service 边界拒绝未知输入类型。
+// RPC 入口已有同类校验；这里保护 orchestration、测试和 provider 直连等非 RPC 调用方。
+func validatePrepareInputTypes(inputs []InputItem) error {
+	for i, item := range inputs {
+		if _, ok := shareddto.NormalizeInputType(item.Type); !ok {
+			return fmt.Errorf("turn input[%d]: unsupported input type %q", i, strings.TrimSpace(item.Type))
+		}
+	}
+	return nil
 }
 
 // StartTurn 提交已准备好的 turn，并把本地跟踪状态接到 provider handle 上。

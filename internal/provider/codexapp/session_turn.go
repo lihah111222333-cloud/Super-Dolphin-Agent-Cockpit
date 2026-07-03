@@ -4,11 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"path/filepath"
 	"strings"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
+	shareddto "github.com/anthropic-ai/super-agent-v3/internal/dto/shared"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 	codexprotocol "github.com/anthropic-ai/super-agent-v3/internal/provider/codexapp/protocol"
 	"github.com/anthropic-ai/super-agent-v3/internal/provider/codexapp/toolsurface"
@@ -40,9 +42,12 @@ type turnStartResult struct {
 	} `json:"turn"`
 }
 
-func buildTurnStartParams(threadID string, req dto.TurnRequest) turnStartParams {
+func buildTurnStartParams(threadID string, req dto.TurnRequest) (turnStartParams, error) {
 	selectedSkills := selectedSkillNames(req.Skills)
-	inputs := turnInputsFromRequest(req.Inputs, req.Skills, req.TurnAssembly)
+	inputs, err := turnInputsFromRequest(req.Inputs, req.Skills, req.TurnAssembly)
+	if err != nil {
+		return turnStartParams{}, err
+	}
 	return turnStartParams{
 		ThreadID:             threadID,
 		Input:                inputs,
@@ -51,7 +56,7 @@ func buildTurnStartParams(threadID string, req dto.TurnRequest) turnStartParams 
 		Model:                strings.TrimSpace(req.Overrides.Model),
 		Effort:               normalizeCodexAppEffort(req.Overrides.Effort),
 		OutputSchema:         req.OutputSchema,
-	}
+	}, nil
 }
 
 // prepareTurnDynamicTools 为每次 turn/start 重新声明 Codex dynamicTools。
@@ -106,11 +111,15 @@ func trimTurnToolScopeRoots(roots []string) []string {
 	return out
 }
 
-func buildTurnSteerParams(threadID string, req dto.SteerRequest) map[string]any {
+func buildTurnSteerParams(threadID string, req dto.SteerRequest) (map[string]any, error) {
+	inputs, err := turnInputsFromRequest(req.Inputs, req.Skills, req.TurnAssembly)
+	if err != nil {
+		return nil, err
+	}
 	params := map[string]any{
 		"threadId":       threadID,
 		"expectedTurnId": strings.TrimSpace(req.ExpectedTurnID),
-		"input":          turnInputsFromRequest(req.Inputs, req.Skills, req.TurnAssembly),
+		"input":          inputs,
 	}
 	if selectedSkills := selectedSkillNames(req.Skills); len(selectedSkills) > 0 {
 		params["selectedSkills"] = selectedSkills
@@ -118,7 +127,7 @@ func buildTurnSteerParams(threadID string, req dto.SteerRequest) map[string]any 
 	if req.ManualSkillSelection {
 		params["manualSkillSelection"] = true
 	}
-	return params
+	return params, nil
 }
 
 func buildTurnInterruptParams(threadID, turnID, source string) map[string]any {
@@ -145,7 +154,7 @@ func selectedSkillNames(skills []dto.SkillRef) []string {
 	return selected
 }
 
-func turnInputsFromRequest(inputs []dto.InputItem, skills []dto.SkillRef, assembly dto.TurnAssembly) []turnInputItem {
+func turnInputsFromRequest(inputs []dto.InputItem, skills []dto.SkillRef, assembly dto.TurnAssembly) ([]turnInputItem, error) {
 	items := make([]turnInputItem, 0, len(inputs)+len(assembly.Attachments)+3)
 	// system reminder 和 git 上下文由 thread/start 的 baseInstructions 注入，turn/start 不再重复拼接。
 	for _, attachment := range assembly.Attachments {
@@ -153,28 +162,36 @@ func turnInputsFromRequest(inputs []dto.InputItem, skills []dto.SkillRef, assemb
 			items = append(items, newTextTurnInput("text", text))
 		}
 	}
-	for _, item := range inputs {
-		items = append(items, mapTurnInput(item))
+	for i, item := range inputs {
+		mapped, err := mapTurnInput(item)
+		if err != nil {
+			return nil, fmt.Errorf("turn input[%d]: %w", i, err)
+		}
+		items = append(items, mapped)
 	}
-	return items
+	return items, nil
 }
 
 // mapTurnInput 将统一 turn 输入转换为 Codex app-server 支持的输入 item。
-// 未识别类型按文本 fallback，保证上层新增轻量类型时不会直接丢内容。
-func mapTurnInput(item dto.InputItem) turnInputItem {
-	switch strings.ToLower(strings.TrimSpace(item.Type)) {
-	case "", "text":
-		return textTurnInput(item)
+// 未识别类型直接报错，避免把上层契约漂移静默转换成错误 provider payload。
+func mapTurnInput(item dto.InputItem) (turnInputItem, error) {
+	typ, ok := shareddto.NormalizeInputType(item.Type)
+	if !ok {
+		return turnInputItem{}, fmt.Errorf("unsupported input type %q", strings.TrimSpace(item.Type))
+	}
+	switch typ {
+	case "text":
+		return textTurnInput(item), nil
 	case "filecontent":
-		return textTurnInput(dto.InputItem{Content: item.Content})
+		return textTurnInput(dto.InputItem{Content: item.Content}), nil
 	case "image":
-		return imageTurnInput(item)
-	case "local_image", "localimage":
-		return localImageTurnInput(item)
-	case "file", "mention":
-		return mentionTurnInput(item)
+		return imageTurnInput(item), nil
+	case "local_image":
+		return localImageTurnInput(item), nil
+	case "mention":
+		return mentionTurnInput(item), nil
 	default:
-		return fallbackTurnInput(item)
+		return turnInputItem{}, fmt.Errorf("unsupported input type %q", strings.TrimSpace(item.Type))
 	}
 }
 
@@ -204,10 +221,6 @@ func mentionTurnInput(item dto.InputItem) turnInputItem {
 		name = filepath.Base(path)
 	}
 	return turnInputItem{Type: "mention", Path: path, Name: name}
-}
-
-func fallbackTurnInput(item dto.InputItem) turnInputItem {
-	return newTextTurnInput(item.Type, item.Content)
 }
 
 func resolvedInputPath(item dto.InputItem) string {
