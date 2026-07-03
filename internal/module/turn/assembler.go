@@ -105,8 +105,13 @@ func (a *inputAssembler) collect(input PrepareInput) []shareddto.InputItem {
 }
 
 // normalize 按 type 路由到对应规范化函数，返回 (规范化后的 item, 是否有效)。
+// 未知 type 必须在上游边界被拒绝；这里保留 false 作为内部防线。
 func (a *inputAssembler) normalize(item shareddto.InputItem) (shareddto.InputItem, bool) {
-	switch normalizeInputType(item.Type) {
+	typ, ok := shareddto.NormalizeInputType(item.Type)
+	if !ok {
+		return shareddto.InputItem{}, false
+	}
+	switch typ {
 	case "text":
 		return normalizeTextItem(item)
 	case "filecontent":
@@ -118,7 +123,7 @@ func (a *inputAssembler) normalize(item shareddto.InputItem) (shareddto.InputIte
 	case "mention":
 		return normalizeMentionItem(item)
 	default:
-		return normalizeFallbackItem(item)
+		return shareddto.InputItem{}, false
 	}
 }
 
@@ -187,29 +192,12 @@ func normalizeMentionItem(item shareddto.InputItem) (shareddto.InputItem, bool) 
 	return out, true
 }
 
-func normalizeFallbackItem(item shareddto.InputItem) (shareddto.InputItem, bool) {
-	if strings.TrimSpace(item.Content) != "" {
-		return normalizeFileContentItem(item)
-	}
-	return normalizeMentionItem(item)
-}
-
 // normalizeInputType 将各种别名统一为标准类型字符串，未知类型保持小写原值。
 func normalizeInputType(value string) string {
-	switch strings.ToLower(strings.TrimSpace(value)) {
-	case "", "text":
-		return "text"
-	case "image":
-		return "image"
-	case "localimage", "local_image":
-		return "local_image"
-	case "file", "mention":
-		return "mention"
-	case "filecontent":
-		return "filecontent"
-	default:
-		return strings.ToLower(strings.TrimSpace(value))
+	if normalized, ok := shareddto.NormalizeInputType(value); ok {
+		return normalized
 	}
+	return strings.ToLower(strings.TrimSpace(value))
 }
 
 func normalizeInputTarget(values ...string) string {

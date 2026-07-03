@@ -18,11 +18,14 @@ import (
 func TestBuildPrepareInputSupportsExpandedFields(t *testing.T) {
 	t.Parallel()
 
-	items, inputSkills := buildTurnStartInputs([]turnInputItemParams{
+	items, inputSkills, err := buildTurnStartInputs([]turnInputItemParams{
 		{Type: "text", Text: "typed text"},
 		{Type: "skill", Name: "debug"},
 		{Type: "mention", Path: "doc.md"},
 	})
+	if err != nil {
+		t.Fatalf("buildTurnStartInputs() error = %v", err)
+	}
 	input := buildPrepareInput(expandedPrepareInputSpec(items), prepareSkillSpec{
 		Selected:     []string{"review", "debug"},
 		SelectedRefs: []skillRefParams{{Name: "project-review", Scope: "project"}},
@@ -32,6 +35,15 @@ func TestBuildPrepareInputSupportsExpandedFields(t *testing.T) {
 	assertExpandedPrepareInputItems(t, input)
 	assertExpandedPrepareInputContext(t, input)
 	assertExpandedPrepareInputRuntimeFallbacks(t, input)
+}
+
+func TestBuildTurnStartInputsRejectsUnknownType(t *testing.T) {
+	t.Parallel()
+
+	_, _, err := buildTurnStartInputs([]turnInputItemParams{{Type: "mystery", Text: "payload"}})
+	if err == nil || !strings.Contains(err.Error(), `unsupported input type "mystery"`) {
+		t.Fatalf("buildTurnStartInputs() error = %v, want unsupported type", err)
+	}
 }
 
 func TestTurnStartParamsAcceptsSelectedSkillRefsCamelCase(t *testing.T) {

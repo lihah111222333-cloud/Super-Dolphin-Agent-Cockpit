@@ -2,6 +2,7 @@ package taskdag
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -251,7 +252,7 @@ func validateAssignNodeAndEnqueueWakeupInput(input AssignNodeAndEnqueueWakeupInp
 }
 
 // MarkDispatchIncompleteIfMissingWakeup 标记历史半写的 pending/ready 节点。
-// 只有 assigned_to 已写入且找不到 pending/dispatching wakeup 时才推进到 dispatch_incomplete。
+// 只有 assigned_to 已写入且找不到未完成 wakeup 时才推进到 dispatch_incomplete。
 func (s *store) MarkDispatchIncompleteIfMissingWakeup(ctx context.Context, input MarkDispatchIncompleteInput) (*MarkDispatchIncompleteResult, error) {
 	if err := requireRuntimeRunID("mark_dispatch_incomplete", input.RunID); err != nil {
 		return nil, err
@@ -259,12 +260,12 @@ func (s *store) MarkDispatchIncompleteIfMissingWakeup(ctx context.Context, input
 	var result MarkDispatchIncompleteResult
 	err := sqlctx.WithImmediateTxOrReuse(ctx, s.db, s.q, func(txq *sqlc.Queries, txdb sqlc.DBTX) error {
 		txStore := &store{db: txdb, q: txq}
-		node, err := findRuntimeNodeForDispatchMark(ctx, txStore, input)
-		if err != nil || node == nil {
+		node, found, err := findRuntimeNodeForDispatchMark(ctx, txStore, input)
+		if err != nil || !found {
 			return err
 		}
-		result.Node = node
-		if !isAssignedDispatchCandidate(*node, input.AssignedTo) {
+		result.Node = &node
+		if !isAssignedDispatchCandidate(node, input.AssignedTo) {
 			return nil
 		}
 		active, err := txStore.hasPendingOrDispatchingWakeup(ctx, input)
@@ -293,17 +294,20 @@ func (s *store) MarkDispatchIncompleteIfMissingWakeup(ctx context.Context, input
 	return &result, nil
 }
 
-func findRuntimeNodeForDispatchMark(ctx context.Context, s *store, input MarkDispatchIncompleteInput) (*Node, error) {
-	nodes, err := s.ListRunNodes(ctx, input.DagKey, input.RunID)
+func findRuntimeNodeForDispatchMark(ctx context.Context, s *store, input MarkDispatchIncompleteInput) (Node, bool, error) {
+	row, err := s.q.GetTaskDagRunNodeForUpdate(ctx, sqlc.GetTaskDagRunNodeForUpdateParams{
+		DagKey:  input.DagKey,
+		NodeKey: input.NodeKey,
+		RunID:   int64Ptr(input.RunID),
+	})
 	if err != nil {
-		return nil, err
-	}
-	for i := range nodes {
-		if nodes[i].NodeKey == input.NodeKey {
-			return &nodes[i], nil
+		if errors.Is(err, sql.ErrNoRows) {
+			return Node{}, false, nil
 		}
+		return Node{}, false, wrapTaskDAGError(err, "get_run_node_for_dispatch_mark", "task_dag_node")
 	}
-	return nil, nil
+	node := fromNodeRunForUpdateRow(row)
+	return node, true, nil
 }
 
 func isAssignedDispatchCandidate(node Node, assignedTo string) bool {
@@ -319,18 +323,17 @@ func isAssignedDispatchCandidate(node Node, assignedTo string) bool {
 }
 
 // hasPendingOrDispatchingWakeup 检查节点是否已经存在未完成的派发唤醒。
-// 只要还有 pending/dispatching wakeup，恢复预检就不能把节点标成 dispatch_incomplete。
+// pending、dispatching，以及 sent 但尚未绑定 turn 的 wakeup 都表示派发仍在进行。
 func (s *store) hasPendingOrDispatchingWakeup(ctx context.Context, input MarkDispatchIncompleteInput) (bool, error) {
-	rows, err := s.q.ListPendingOrDispatchingTaskDagWakeups(ctx)
+	exists, err := s.q.HasPendingOrDispatchingTaskDagWakeupForNode(ctx, sqlc.HasPendingOrDispatchingTaskDagWakeupForNodeParams{
+		RunID:   int64Ptr(input.RunID),
+		DagKey:  input.DagKey,
+		NodeKey: input.NodeKey,
+	})
 	if err != nil {
-		return false, wrapTaskDAGError(err, "list_pending_or_dispatching", "task_dag_wakeup")
+		return false, wrapTaskDAGError(err, "has_pending_or_dispatching", "task_dag_wakeup")
 	}
-	for _, row := range rows {
-		if row.DagKey == input.DagKey && row.NodeKey == input.NodeKey && row.RunID != nil && *row.RunID == input.RunID {
-			return true, nil
-		}
-	}
-	return false, nil
+	return exists != 0, nil
 }
 
 // ListRunNodes 列出指定 run_id 下的 runtime 节点副本，供调度器按运行态状态图推进。

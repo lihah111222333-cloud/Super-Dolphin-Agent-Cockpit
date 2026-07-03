@@ -24,7 +24,7 @@ func TestSkillResolutionApplyRPCUseProjectSharedRemovesExternalPersonalSameName(
 	if _, err := os.Stat(externalDir); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("external provider dir stat err = %v, want removed", err)
 	}
-	assertFileContent(t, filepath.Join(project, ".agent", "skills", "build", skillMainFile), "---\nname: build\n---\n# build\n")
+	assertFileContent(t, filepath.Join(project, ".agents", "skills", "build", skillMainFile), "---\nname: build\n---\n# build\n")
 	assertResolutionItemAbsent(t, dispatchResolutionList(t, server, project).Items, "external_personal_project_same_name", "build", skillScopePersonal)
 }
 
@@ -72,14 +72,14 @@ func TestSkillResolutionApplyRPCSavesExternalPersonalSameNameAsNewPersonalSkill(
 
 func TestSkillResolutionApplyRPCSavesExternalPersonalKeepsResolvedSameNameResolved(t *testing.T) {
 	project, server, _, svc := setupExternalPersonalProjectConflictFixtureWithService(t)
-	writeSkillContent(t, filepath.Join(project, ".agent", "skills", "same"), "same", "# project same\n")
+	writeSkillContent(t, filepath.Join(project, ".agents", "skills", "same"), "same", "# project same\n")
 	writeSkillContent(t, filepath.Join(svc.resolvedSuperDolphinHome(), "skills", "personal", personalSkillTypeUser, "same"), "same", "# personal same\n")
 	same := findResolutionItem(t, dispatchResolutionList(t, server, project).Items, "same_name", "same", "")
 	projectSource := findResolutionSource(t, same, skillScopeProject, "")
 	samePreview := dispatchResolutionPreviewWithKeepSource(t, server, project, same.ConflictID, projectSource.CanonicalID)
 	dispatchResolutionApplyWithSourceIDs(t, server, project, same.ConflictID, ResolutionKeepSelected, samePreview.Items[0], projectSource.CanonicalID, "")
 	assertResolutionItemAbsent(t, dispatchResolutionList(t, server, project).Items, "same_name", "same", "")
-	assertRuntimeSelectedSkill(t, svc, project, "same", filepath.Join(project, ".agent", "skills", "same"))
+	assertRuntimeSelectedSkill(t, svc, project, "same", filepath.Join(project, ".agents", "skills", "same"))
 
 	item := findResolutionItem(t, dispatchResolutionList(t, server, project).Items, "external_personal_project_same_name", "build", skillScopePersonal)
 	preview := dispatchExternalPersonalProjectPreview(t, server, project, item.ConflictID, ResolutionSaveAsNewPersonal, "build-private")
@@ -87,7 +87,7 @@ func TestSkillResolutionApplyRPCSavesExternalPersonalKeepsResolvedSameNameResolv
 	dispatchExternalPersonalProjectApply(t, server, project, item.ConflictID, ResolutionSaveAsNewPersonal, preview.Items[0], "build-private")
 
 	assertResolutionItemAbsent(t, dispatchResolutionList(t, server, project).Items, "same_name", "same", "")
-	assertRuntimeSelectedSkill(t, svc, project, "same", filepath.Join(project, ".agent", "skills", "same"))
+	assertRuntimeSelectedSkill(t, svc, project, "same", filepath.Join(project, ".agents", "skills", "same"))
 }
 
 func TestSkillResolutionApplyRPCUseExternalPersonalReplacesProjectAndRemovesMirror(t *testing.T) {
@@ -100,7 +100,7 @@ func TestSkillResolutionApplyRPCUseExternalPersonalReplacesProjectAndRemovesMirr
 	if report.Action != ResolutionUseExternalProviderSkill || report.ResultingHash == "" {
 		t.Fatalf("use external report = %+v, want action/resulting hash", report)
 	}
-	assertFileContent(t, filepath.Join(project, ".agent", "skills", "build", "references", "guide.md"), "external personal edit\n")
+	assertFileContent(t, filepath.Join(project, ".agents", "skills", "build", "references", "guide.md"), "external personal edit\n")
 	if _, err := os.Stat(externalDir); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("external provider dir stat err = %v, want moved into project", err)
 	}

@@ -119,15 +119,17 @@ type AuditEvent struct {
 }
 
 type BusExceptionLog struct {
-	ID        int64  `db:"id" json:"id"`
-	Ts        int64  `db:"ts" json:"ts"`
-	Category  string `db:"category" json:"category"`
-	Severity  string `db:"severity" json:"severity"`
-	Source    string `db:"source" json:"source"`
-	ToolName  string `db:"tool_name" json:"tool_name"`
-	Message   string `db:"message" json:"message"`
-	Traceback string `db:"traceback" json:"traceback"`
-	Extra     string `db:"extra" json:"extra"`
+	ID           int64  `db:"id" json:"id"`
+	Ts           int64  `db:"ts" json:"ts"`
+	Category     string `db:"category" json:"category"`
+	Severity     string `db:"severity" json:"severity"`
+	Source       string `db:"source" json:"source"`
+	ToolName     string `db:"tool_name" json:"tool_name"`
+	Message      string `db:"message" json:"message"`
+	Traceback    string `db:"traceback" json:"traceback"`
+	Extra        string `db:"extra" json:"extra"`
+	HasTraceback int64  `db:"has_traceback" json:"has_traceback"`
+	HasExtra     int64  `db:"has_extra" json:"has_extra"`
 }
 
 type CWDInstanceLock struct {

@@ -31,6 +31,19 @@ FROM task_dag_wakeups
 WHERE status IN ('pending', 'dispatching')
 ORDER BY next_retry_at, id;
 
+-- name: HasPendingOrDispatchingTaskDagWakeupForNode :one
+SELECT EXISTS(
+    SELECT 1
+    FROM task_dag_wakeups
+    WHERE run_id = sqlc.arg('run_id')
+      AND dag_key = sqlc.arg('dag_key')
+      AND node_key = sqlc.arg('node_key')
+      AND (
+        status IN ('pending', 'dispatching')
+        OR (status = 'sent' AND sent_at IS NOT NULL AND bound_turn_id IS NULL)
+      )
+);
+
 -- name: GetTaskDagWakeup :one
 SELECT id, dag_key, node_key, wakeup_kind, target_agent_id, prompt_payload,
        idempotency_key, status, attempt_count, next_retry_at, claimed_at,

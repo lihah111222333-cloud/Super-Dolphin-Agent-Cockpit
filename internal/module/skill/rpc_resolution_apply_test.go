@@ -97,7 +97,7 @@ func TestSkillResolutionApplyRPCRestoresCanonicalDeletedWithDrift(t *testing.T) 
 	if report.ResultingHash == "" {
 		t.Fatalf("resolution_apply deleted sync report = %+v, want resulting hash", report)
 	}
-	assertFileContent(t, filepath.Join(project, ".agent", "skills", "deleted", "references", "guide.md"), "project drift\n")
+	assertFileContent(t, filepath.Join(project, ".agents", "skills", "deleted", "references", "guide.md"), "project drift\n")
 }
 
 func TestSkillResolutionApplyRPCConfirmsDeleteDriftedMirror(t *testing.T) {
@@ -111,10 +111,11 @@ func TestSkillResolutionApplyRPCConfirmsDeleteDriftedMirror(t *testing.T) {
 	if report.Action != ResolutionConfirmDeleteDriftedMirror {
 		t.Fatalf("resolution_apply confirm-delete report = %+v, want action", report)
 	}
-	if _, err := os.Stat(filepath.Join(providerProjectMirrorRoot(SkillProviderCodex, project), "deleted")); !errors.Is(err, os.ErrNotExist) {
+	mirrorRoot := providerProjectMirrorRoot(SkillProviderClaude, project)
+	if _, err := os.Stat(filepath.Join(mirrorRoot, "deleted")); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("deleted mirror stat error = %v, want not exist", err)
 	}
-	manifest, err := readSkillMirrorManifest(filepath.Join(providerProjectMirrorRoot(SkillProviderCodex, project), skillMirrorManifestFile))
+	manifest, err := readSkillMirrorManifest(filepath.Join(mirrorRoot, skillMirrorManifestFile))
 	if err != nil {
 		t.Fatalf("read mirror manifest: %v", err)
 	}
@@ -134,11 +135,12 @@ func TestSkillResolutionApplyRPCSaveAsNewCanonicalDeletedClearsOriginalMirror(t 
 	if report.ResultingHash == "" || report.PartialFailure {
 		t.Fatalf("resolution_apply deleted save-as-new report = %+v, want complete resulting hash", report)
 	}
-	assertFileContent(t, filepath.Join(project, ".agent", "skills", "deleted-copy", "references", "guide.md"), "project drift\n")
-	if _, err := os.Stat(filepath.Join(providerProjectMirrorRoot(SkillProviderCodex, project), "deleted")); !errors.Is(err, os.ErrNotExist) {
+	assertFileContent(t, filepath.Join(project, ".agents", "skills", "deleted-copy", "references", "guide.md"), "project drift\n")
+	mirrorRoot := providerProjectMirrorRoot(SkillProviderClaude, project)
+	if _, err := os.Stat(filepath.Join(mirrorRoot, "deleted")); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("original deleted mirror stat error = %v, want not exist", err)
 	}
-	manifest, err := readSkillMirrorManifest(filepath.Join(providerProjectMirrorRoot(SkillProviderCodex, project), skillMirrorManifestFile))
+	manifest, err := readSkillMirrorManifest(filepath.Join(mirrorRoot, skillMirrorManifestFile))
 	if err != nil {
 		t.Fatalf("read mirror manifest: %v", err)
 	}
@@ -165,7 +167,7 @@ func TestSkillResolutionApplyRPCImportsUnmanagedProviderSkill(t *testing.T) {
 
 func TestSkillResolutionApplyImportsLegacyDisplayNameProviderSkill(t *testing.T) {
 	project := t.TempDir()
-	providerRoot := providerProjectMirrorRoot(SkillProviderCodex, project)
+	providerRoot := testCodexProjectMirrorRoot(project)
 	displayName := "Docker 容器化部署"
 	canonicalName := "docker-容器化部署"
 	unmanagedDir := filepath.Join(providerRoot, displayName)
@@ -189,7 +191,7 @@ func TestSkillResolutionApplyImportsLegacyDisplayNameProviderSkill(t *testing.T)
 	if report.Name != canonicalName {
 		t.Fatalf("report name = %q, want canonical name %q", report.Name, canonicalName)
 	}
-	assertFileContent(t, filepath.Join(project, ".agent", "skills", canonicalName, skillMainFile), "---\nname: "+canonicalName+"\ndisplay_name: \"Docker 容器化部署\"\n---\n# docker\n")
+	assertFileContent(t, filepath.Join(project, ".agents", "skills", canonicalName, skillMainFile), "---\nname: "+canonicalName+"\ndisplay_name: \"Docker 容器化部署\"\n---\n# docker\n")
 }
 
 func TestSkillResolutionApplyRPCTakesOverUnmanagedProviderSkill(t *testing.T) {
@@ -214,7 +216,7 @@ func TestSkillResolutionApplyRPCTakesOverUnmanagedProviderSkill(t *testing.T) {
 	if entry := manifest.Skills["scratch"]; !entry.Owned || entry.CanonicalHash != report.ResultingHash || entry.MirrorHash != mirrorHash {
 		t.Fatalf("takeover manifest entry = %+v, want canonical=%s mirror=%s", entry, report.ResultingHash, mirrorHash)
 	}
-	assertFileContent(t, filepath.Join(project, ".agent", "skills", "scratch", skillMainFile), "---\nname: scratch\n---\n# scratch\n")
+	assertFileContent(t, filepath.Join(project, ".agents", "skills", "scratch", skillMainFile), "---\nname: scratch\n---\n# scratch\n")
 }
 
 func TestSkillResolutionApplyRPCReplacesProviderRootSymlink(t *testing.T) {
@@ -285,12 +287,12 @@ func setupProviderManifestMismatchResolutionFixtureWithService(t *testing.T) (st
 		http:              &http.Client{},
 		auditStore:        audit,
 	}
-	writeSkillWithSupportFiles(t, filepath.Join(project, ".agent", "skills", "build"), "build")
+	writeSkillWithSupportFiles(t, filepath.Join(project, ".agents", "skills", "build"), "build")
 	claudeRoot := providerProjectMirrorRoot(SkillProviderClaude, project)
 	if err := os.MkdirAll(claudeRoot, 0o755); err != nil {
 		t.Fatalf("MkdirAll claude root: %v", err)
 	}
-	if _, err := replaceMirrorSkillDir(claudeRoot, "build", filepath.Join(project, ".agent", "skills", "build"), skillScopeProject); err != nil {
+	if _, err := replaceMirrorSkillDir(claudeRoot, "build", filepath.Join(project, ".agents", "skills", "build"), skillScopeProject); err != nil {
 		t.Fatalf("replaceMirrorSkillDir build: %v", err)
 	}
 	if err := writeSkillMirrorManifest(filepath.Join(claudeRoot, skillMirrorManifestFile), SkillMirrorManifest{
@@ -319,7 +321,7 @@ func setupProviderRootSymlinkResolutionFixture(t *testing.T) (string, *platformr
 		http:              &http.Client{},
 		auditStore:        audit,
 	}
-	writeSkillWithSupportFiles(t, filepath.Join(project, ".agent", "skills", "build"), "build")
+	writeSkillWithSupportFiles(t, filepath.Join(project, ".agents", "skills", "build"), "build")
 	legacyCache := filepath.Join(t.TempDir(), "skills-cache")
 	writeSkillWithSupportFiles(t, filepath.Join(legacyCache, "legacy"), "legacy")
 	claudeRoot := providerProjectMirrorRoot(SkillProviderClaude, project)
@@ -367,9 +369,9 @@ func TestSkillResolutionApplyRPCSaveAsNewClearsOriginalMirrorDrift(t *testing.T)
 	if report.ResultingHash == "" {
 		t.Fatalf("resolution_apply save-as-new report = %+v, want resulting hash", report)
 	}
-	assertFileContent(t, filepath.Join(project, ".agent", "skills", "drift-copy", "references", "guide.md"), "project drift\n")
+	assertFileContent(t, filepath.Join(project, ".agents", "skills", "drift-copy", "references", "guide.md"), "project drift\n")
 	assertFileContent(t, filepath.Join(mirrorDir, "references", "guide.md"), "guide\n")
-	manifest, err := readSkillMirrorManifest(filepath.Join(providerProjectMirrorRoot(SkillProviderCodex, project), skillMirrorManifestFile))
+	manifest, err := readSkillMirrorManifest(filepath.Join(providerProjectMirrorRoot(SkillProviderClaude, project), skillMirrorManifestFile))
 	if err != nil {
 		t.Fatalf("read mirror manifest: %v", err)
 	}
@@ -389,7 +391,7 @@ func TestSkillResolutionApplyRPCSaveAsNewClearsOriginalMirrorDrift(t *testing.T)
 	if err != nil {
 		t.Fatalf("scan canonical records: %v", err)
 	}
-	target := SkillMirrorTarget{TargetID: "codex:project:" + RepoFingerprint(project), Provider: SkillProviderCodex, Scope: skillScopeProject, Root: providerProjectMirrorRoot(SkillProviderCodex, project), CanonicalRootID: RepoFingerprint(project)}
+	target := SkillMirrorTarget{TargetID: "claude:project:" + RepoFingerprint(project), Provider: SkillProviderClaude, Scope: skillScopeProject, Root: providerProjectMirrorRoot(SkillProviderClaude, project), CanonicalRootID: RepoFingerprint(project)}
 	conflicts, err := DetectSkillMirrorConflicts(records, []SkillMirrorTarget{target})
 	if err != nil {
 		t.Fatalf("DetectSkillMirrorConflicts: %v", err)
@@ -419,7 +421,7 @@ func dispatchResolutionApplyRaw(t *testing.T, server *platformrpc.Server, projec
 		"conflict_id":  conflictID,
 		"name":         name,
 		"scope":        skillScopeProject,
-		"provider":     "codex",
+		"provider":     "claude",
 		"action":       action,
 		"preview_id":   proof.PreviewID,
 		"preview_hash": proof.PreviewHash,

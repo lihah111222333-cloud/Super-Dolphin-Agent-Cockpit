@@ -9,16 +9,50 @@ import (
 	"context"
 )
 
+const getBusExceptionLog = `-- name: GetBusExceptionLog :one
+SELECT id, ts, category, severity, source, tool_name, message, traceback, extra,
+       has_traceback,
+       has_extra
+FROM bus_exception_logs
+WHERE id = ?
+`
+
+type GetBusExceptionLogParams struct {
+	ID int64 `db:"id" json:"id"`
+}
+
+func (q *Queries) GetBusExceptionLog(ctx context.Context, arg GetBusExceptionLogParams) (BusExceptionLog, error) {
+	row := q.db.QueryRowContext(ctx, getBusExceptionLog, arg.ID)
+	var i BusExceptionLog
+	err := row.Scan(
+		&i.ID,
+		&i.Ts,
+		&i.Category,
+		&i.Severity,
+		&i.Source,
+		&i.ToolName,
+		&i.Message,
+		&i.Traceback,
+		&i.Extra,
+		&i.HasTraceback,
+		&i.HasExtra,
+	)
+	return i, err
+}
+
 const listBusExceptionLogs = `-- name: ListBusExceptionLogs :many
-SELECT id, ts, category, severity, source, tool_name, message, '' AS traceback, '{}' AS extra
+SELECT id, ts, category, severity, source, tool_name, message,
+       '' AS traceback,
+       '{}' AS extra,
+       has_traceback,
+       has_extra
 FROM bus_exception_logs
 WHERE (?1 = '' OR category = ?1)
   AND (?2 = '' OR severity = ?2)
   AND (?3 = ''
     OR lower(source) LIKE lower(?4)
     OR lower(tool_name) LIKE lower(?4)
-    OR lower(message) LIKE lower(?4)
-    OR lower(traceback) LIKE lower(?4))
+    OR lower(message) LIKE lower(?4))
 ORDER BY ts DESC, id DESC
 LIMIT ?5
 `
@@ -32,15 +66,17 @@ type ListBusExceptionLogsParams struct {
 }
 
 type ListBusExceptionLogsRow struct {
-	ID        int64  `db:"id" json:"id"`
-	Ts        int64  `db:"ts" json:"ts"`
-	Category  string `db:"category" json:"category"`
-	Severity  string `db:"severity" json:"severity"`
-	Source    string `db:"source" json:"source"`
-	ToolName  string `db:"tool_name" json:"tool_name"`
-	Message   string `db:"message" json:"message"`
-	Traceback string `db:"traceback" json:"traceback"`
-	Extra     string `db:"extra" json:"extra"`
+	ID           int64  `db:"id" json:"id"`
+	Ts           int64  `db:"ts" json:"ts"`
+	Category     string `db:"category" json:"category"`
+	Severity     string `db:"severity" json:"severity"`
+	Source       string `db:"source" json:"source"`
+	ToolName     string `db:"tool_name" json:"tool_name"`
+	Message      string `db:"message" json:"message"`
+	Traceback    string `db:"traceback" json:"traceback"`
+	Extra        string `db:"extra" json:"extra"`
+	HasTraceback int64  `db:"has_traceback" json:"has_traceback"`
+	HasExtra     int64  `db:"has_extra" json:"has_extra"`
 }
 
 func (q *Queries) ListBusExceptionLogs(ctx context.Context, arg ListBusExceptionLogsParams) ([]ListBusExceptionLogsRow, error) {
@@ -68,6 +104,8 @@ func (q *Queries) ListBusExceptionLogs(ctx context.Context, arg ListBusException
 			&i.Message,
 			&i.Traceback,
 			&i.Extra,
+			&i.HasTraceback,
+			&i.HasExtra,
 		); err != nil {
 			return nil, err
 		}

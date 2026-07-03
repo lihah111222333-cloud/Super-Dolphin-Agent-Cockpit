@@ -13,6 +13,7 @@ import (
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
+	shareddto "github.com/anthropic-ai/super-agent-v3/internal/dto/shared"
 	threaddto "github.com/anthropic-ai/super-agent-v3/internal/dto/thread"
 	platformobs "github.com/anthropic-ai/super-agent-v3/internal/platform/observability"
 	platformrpc "github.com/anthropic-ai/super-agent-v3/internal/platform/rpc"
@@ -23,8 +24,11 @@ import (
 )
 
 // buildRPCPrepareInput 将 turn/start RPC 参数拆成普通输入和 skill 输入后构造 PrepareInput。
-func buildRPCPrepareInput(p turnStartParams, session contract.Session, threadRuntimeConfig map[string]any) PrepareInput {
-	items, inputSkills := buildTurnStartInputs(p.Input)
+func buildRPCPrepareInput(p turnStartParams, session contract.Session, threadRuntimeConfig map[string]any) (PrepareInput, error) {
+	items, inputSkills, err := buildTurnStartInputs(p.Input)
+	if err != nil {
+		return PrepareInput{}, err
+	}
 	return buildPrepareInput(prepareInputSpec{
 		Inputs:                       items,
 		Prompt:                       p.Prompt,
@@ -48,7 +52,7 @@ func buildRPCPrepareInput(p turnStartParams, session contract.Session, threadRun
 		Selected:     p.SelectedSkills,
 		SelectedRefs: p.SelectedSkillRefs,
 		Derived:      inputSkills,
-	}, session)
+	}, session), nil
 }
 
 // resolveTurnRPCCWD 使用线程运行时配置中的 cwd 作为权威值，拒绝请求携带的不一致 cwd。
@@ -96,20 +100,27 @@ func strictRuntimeCWD(cfg map[string]any, label string) (string, error) {
 }
 
 // buildTurnStartInputs 把 RPC input 拆为 provider 输入项和 name-only skill 请求。
-func buildTurnStartInputs(raw []turnInputItemParams) ([]InputItem, []string) {
+func buildTurnStartInputs(raw []turnInputItemParams) ([]InputItem, []string, error) {
 	items := make([]InputItem, 0, len(raw))
 	skills := make([]string, 0, len(raw))
-	for _, item := range raw {
-		if skill := item.skillName(); skill != "" {
+	for i, item := range raw {
+		if item.isSkillType() {
+			skill := item.skillName()
+			if skill == "" {
+				return nil, nil, platformrpc.ErrInvalidParams(fmt.Sprintf("turn input[%d] skill name is required", i))
+			}
 			skills = append(skills, skill)
 			continue
 		}
-		input, ok := item.inputItem()
+		input, ok, err := item.inputItem()
+		if err != nil {
+			return nil, nil, platformrpc.ErrInvalidParams(fmt.Sprintf("turn input[%d]: %s", i, err.Error()))
+		}
 		if ok {
 			items = append(items, input)
 		}
 	}
-	return items, skills
+	return items, skills, nil
 }
 
 // resolveTurnSession 立即解析当前线程 session，缺失时返回可展示的 RPC 状态错误。
@@ -262,7 +273,10 @@ func turnStartHandler(svc Service, resolver contract.SessionResolver, spawner co
 				return nil, err
 			}
 			p.CWD = resolvedCWD
-			input := buildRPCPrepareInput(p, session, threadRuntimeConfig)
+			input, err := buildRPCPrepareInput(p, session, threadRuntimeConfig)
+			if err != nil {
+				return nil, err
+			}
 			if err := applyTurnStartConfig(ctx, session, p); err != nil {
 				return nil, err
 			}
@@ -338,7 +352,10 @@ func turnSteerHandler(svc Service, resolver contract.SessionResolver, capResolve
 			if err := platformrpc.RequireSessionCapability(session, dto.CapMessageSend); err != nil {
 				return nil, err
 			}
-			items, inputSkills := buildTurnStartInputs(p.Input)
+			items, inputSkills, err := buildTurnStartInputs(p.Input)
+			if err != nil {
+				return nil, err
+			}
 			threadRuntimeConfig, err := readThreadRuntimeConfig(ctx, runtimeReader, contract.ThreadIDFrom(ctx))
 			if err != nil {
 				return nil, err
@@ -421,31 +438,45 @@ func approvalRespondHandler(approver contract.ApprovalResponder) handler.Func {
 
 // skillName 从兼容输入项中提取 skill 名称，非 skill 类型返回空。
 func (p turnInputItemParams) skillName() string {
-	if !strings.EqualFold(strings.TrimSpace(p.Type), "skill") {
-		return ""
-	}
 	return util.FirstTrimmed(p.Name, p.Text, p.Content, p.Path)
 }
 
+func (p turnInputItemParams) isSkillType() bool {
+	return strings.EqualFold(strings.TrimSpace(p.Type), "skill")
+}
+
 // inputItem 将兼容 text/content/path/url 形态归一化为 provider 输入项。
-func (p turnInputItemParams) inputItem() (InputItem, bool) {
+func (p turnInputItemParams) inputItem() (InputItem, bool, error) {
 	item := InputItem{
-		Type:    util.FirstTrimmed(p.Type),
+		Type:    inferTurnInputType(p),
 		Content: util.FirstTrimmed(p.Content, p.Text),
 		Path:    util.FirstTrimmed(p.Path),
 		Name:    util.FirstTrimmed(p.Name),
 		URL:     util.FirstTrimmed(p.URL),
 	}
-	switch {
-	case item.Type == "" && item.URL != "":
-		item.Type = "image"
-	case item.Type == "" && item.Path != "":
-		item.Type = "mention"
-	case item.Type == "" && item.Content != "":
-		item.Type = "text"
+	if normalized, ok := shareddto.NormalizeInputType(item.Type); !ok {
+		return InputItem{}, false, fmt.Errorf("unsupported input type %q", strings.TrimSpace(item.Type))
+	} else {
+		item.Type = normalized
 	}
 	if item.Type == "" {
-		return InputItem{}, false
+		return InputItem{}, false, nil
 	}
-	return item, item.Content != "" || item.Path != "" || item.URL != ""
+	return item, item.Content != "" || item.Path != "" || item.URL != "", nil
+}
+
+func inferTurnInputType(p turnInputItemParams) string {
+	if typ := util.FirstTrimmed(p.Type); typ != "" {
+		return typ
+	}
+	switch {
+	case util.FirstTrimmed(p.URL) != "":
+		return "image"
+	case util.FirstTrimmed(p.Path) != "":
+		return "mention"
+	case util.FirstTrimmed(p.Content, p.Text) != "":
+		return "text"
+	default:
+		return ""
+	}
 }

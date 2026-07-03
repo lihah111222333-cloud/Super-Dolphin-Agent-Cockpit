@@ -46,7 +46,7 @@ func TestSkillMirrorReconcilerRepairsPersonalManifestTargetMismatch(t *testing.T
 
 func TestSkillResolutionApplyRPCRejectsTakeoverForProviderManifestTargetMismatchBeforeCanonicalWrite(t *testing.T) {
 	project, server, claudeRoot, _, svc := setupProviderManifestMismatchResolutionFixtureWithService(t)
-	canonicalSkillFile := filepath.Join(project, ".agent", "skills", "build", skillMainFile)
+	canonicalSkillFile := filepath.Join(project, ".agents", "skills", "build", skillMainFile)
 	beforeCanonical := mustReadFileString(t, canonicalSkillFile)
 	writeFileWithMode(t, filepath.Join(claudeRoot, "build", skillMainFile), "---\nname: build\n---\n# provider build\n", 0o644)
 	item := findResolutionItem(t, dispatchResolutionList(t, server, project).Items, "unmanaged_same_name", "build", skillScopeProject)
@@ -72,7 +72,7 @@ func setupProjectManifestTargetMismatchFixture(t *testing.T) manifestTargetRepai
 	t.Helper()
 	project := t.TempDir()
 	root := filepath.Join(project, ".claude", "skills")
-	skillDir := filepath.Join(project, ".agent", "skills", "build")
+	skillDir := filepath.Join(project, ".agents", "skills", "build")
 	writeSkillWithSupportFiles(t, skillDir, "build")
 	if err := os.MkdirAll(root, 0o755); err != nil {
 		t.Fatalf("MkdirAll root: %v", err)

@@ -154,11 +154,13 @@ func TestDashboardAuditAndBusLogHandlersReturnLogs(t *testing.T) {
 	}
 	busStore := &stubBusLogStore{
 		listResult: []BusExceptionLog{{ID: 9, Category: "rpc", Severity: "error"}},
+		getResult:  BusExceptionLog{ID: 9, Category: "rpc", Severity: "error", Traceback: "stack"},
 	}
 	server := newDashboardTestServer(t, &service{auditLogs: auditStore, busLogs: busStore})
 
 	assertDashboardAuditLogs(t, server, auditStore)
 	assertDashboardBusLogs(t, server, busStore)
+	assertDashboardBusLogDetail(t, server, busStore)
 }
 
 func assertDashboardAuditLogs(t *testing.T, server *platformrpc.Server, auditStore *stubAuditLogStore) {
@@ -216,6 +218,23 @@ func assertDashboardBusLogs(t *testing.T, server *platformrpc.Server, busStore *
 	}
 	if busResp.Logs[0].ID != 9 {
 		t.Fatalf("bus response = %#v", busResp)
+	}
+}
+
+func assertDashboardBusLogDetail(t *testing.T, server *platformrpc.Server, busStore *stubBusLogStore) {
+	t.Helper()
+
+	var detailResp struct {
+		Log BusExceptionLog `json:"log"`
+	}
+	if err := dispatchDashboardInto(server, "dashboard/busLogs/detail", `{"id":9}`, &detailResp); err != nil {
+		t.Fatalf("dispatch bus log detail error = %v", err)
+	}
+	if busStore.getID != 9 {
+		t.Fatalf("bus detail id = %d, want 9", busStore.getID)
+	}
+	if detailResp.Log.Traceback != "stack" {
+		t.Fatalf("bus detail response = %#v", detailResp)
 	}
 }
 

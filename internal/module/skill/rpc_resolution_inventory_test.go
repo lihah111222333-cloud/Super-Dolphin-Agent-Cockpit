@@ -13,9 +13,9 @@ func TestSkillResolutionListReportsPolicyHiddenSameNameConflicts(t *testing.T) {
 	project := t.TempDir()
 	superHome := filepath.Join(t.TempDir(), ".super-dolphin")
 	svc := &service{projectRoot: project, projectSkillsRoot: defaultProjectSkillsRoot(project), superDolphinHome: superHome, http: &http.Client{}}
-	writeSkillContent(t, filepath.Join(project, ".agent", "skills", "security-engineer"), "安全工程师规范", "# project a\n")
-	writeSkillContent(t, filepath.Join(project, ".agent", "skills", "security-standards"), "安全工程师规范", "# project b\n")
-	writeSkillContent(t, filepath.Join(project, ".agent", "skills", "plan"), "编写计划", "# project plan\n")
+	writeSkillContent(t, filepath.Join(project, ".agents", "skills", "security-engineer"), "安全工程师规范", "# project a\n")
+	writeSkillContent(t, filepath.Join(project, ".agents", "skills", "security-standards"), "安全工程师规范", "# project b\n")
+	writeSkillContent(t, filepath.Join(project, ".agents", "skills", "plan"), "编写计划", "# project plan\n")
 	writeSkillContent(t, filepath.Join(superHome, "skills", "personal", personalSkillTypeImported, "plan"), "编写计划", "# imported plan\n")
 	writeProjectSkillPolicy(t, project, projectSkillPolicy{Version: 1, KeepSelected: []projectSkillKeepSelected{
 		projectKeepSelected("安全工程师规范", "project/security-engineer", "project/security-standards"),

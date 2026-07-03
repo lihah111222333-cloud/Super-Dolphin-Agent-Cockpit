@@ -97,8 +97,28 @@ CREATE TABLE IF NOT EXISTS bus_exception_logs (
     tool_name TEXT NOT NULL DEFAULT '',
     message TEXT NOT NULL DEFAULT '',
     traceback TEXT NOT NULL DEFAULT '',
-    extra TEXT NOT NULL DEFAULT '{}' CHECK(json_valid(extra))
+    extra TEXT NOT NULL DEFAULT '{}' CHECK(json_valid(extra)),
+    has_traceback INTEGER NOT NULL DEFAULT 0 CHECK(has_traceback IN (0, 1)),
+    has_extra INTEGER NOT NULL DEFAULT 0 CHECK(has_extra IN (0, 1))
 );
+
+CREATE TRIGGER IF NOT EXISTS trg_bus_exception_logs_flags_insert
+AFTER INSERT ON bus_exception_logs
+BEGIN
+    UPDATE bus_exception_logs
+    SET has_traceback = CASE WHEN NEW.traceback <> '' THEN 1 ELSE 0 END,
+        has_extra = CASE WHEN NEW.extra <> '{}' THEN 1 ELSE 0 END
+    WHERE id = NEW.id;
+END;
+
+CREATE TRIGGER IF NOT EXISTS trg_bus_exception_logs_flags_update
+AFTER UPDATE OF traceback, extra ON bus_exception_logs
+BEGIN
+    UPDATE bus_exception_logs
+    SET has_traceback = CASE WHEN NEW.traceback <> '' THEN 1 ELSE 0 END,
+        has_extra = CASE WHEN NEW.extra <> '{}' THEN 1 ELSE 0 END
+    WHERE id = NEW.id;
+END;
 
 CREATE TABLE IF NOT EXISTS prompts (
     id INTEGER PRIMARY KEY,

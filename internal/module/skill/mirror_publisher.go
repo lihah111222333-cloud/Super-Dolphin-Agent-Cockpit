@@ -86,6 +86,10 @@ func targetUsesCanonicalSelfMirror(records []canonicalSkillRecord, target SkillM
 	if target.Scope != skillScopeProject {
 		return false
 	}
+	root := filepath.Clean(strings.TrimSpace(target.Root))
+	if filepath.Base(root) == "skills" && filepath.Base(filepath.Dir(root)) == ".agents" {
+		return true
+	}
 	var scoped int
 	for _, record := range records {
 		if record.Scope != skillScopeProject {
@@ -144,6 +148,9 @@ func publishSkillMirrorTarget(records []canonicalSkillRecord, target SkillMirror
 // publishCanonicalSelfMirrorTarget 记录 canonical 根自身的 mirror manifest。
 // 源目录和 provider 读取目录相同时不能自我复制或做 unmanaged 检查；scan 阶段已经对 canonical 目录做了 symlink/格式校验。
 func publishCanonicalSelfMirrorTarget(records []canonicalSkillRecord, target SkillMirrorTarget, manifestPath string) (SkillMirrorReport, error) {
+	if report := manualOnlySelfMirrorReport(records, target); len(report.Conflicts) > 0 {
+		return report, nil
+	}
 	manifest := newSkillMirrorManifest(target)
 	for _, record := range records {
 		if record.Scope != target.Scope {
@@ -159,6 +166,17 @@ func publishCanonicalSelfMirrorTarget(records []canonicalSkillRecord, target Ski
 		return SkillMirrorReport{}, err
 	}
 	return SkillMirrorReport{}, nil
+}
+
+func manualOnlySelfMirrorReport(records []canonicalSkillRecord, target SkillMirrorTarget) SkillMirrorReport {
+	var report SkillMirrorReport
+	for _, record := range records {
+		if record.Scope != target.Scope || !record.info.DisableModelInvocation {
+			continue
+		}
+		report.Conflicts = append(report.Conflicts, reportItem(target, record.Name, canonicalSourceID(record), "", "", skillConflictManualOnlySelfMirror))
+	}
+	return report
 }
 
 // loadPublishTargetManifest 加载或修复目标 manifest。

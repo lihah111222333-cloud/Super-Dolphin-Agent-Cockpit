@@ -63,7 +63,7 @@ func TestWriteLocalScopeRoutesProjectSystemAndDefaultProject(t *testing.T) {
 		t.Fatalf("WriteLocal(project) error = %v", err)
 	}
 	projectPath, _ := projectOut.(map[string]any)["path"].(string)
-	wantProjectPath := filepath.Join(projectRoot, ".agent", "skills", "project-skill", skillMainFile)
+	wantProjectPath := filepath.Join(projectRoot, ".agents", "skills", "project-skill", skillMainFile)
 	if projectPath != wantProjectPath {
 		t.Fatalf("project path = %q, want %q", projectPath, wantProjectPath)
 	}
@@ -77,7 +77,7 @@ func TestWriteLocalScopeRoutesProjectSystemAndDefaultProject(t *testing.T) {
 		t.Fatalf("WriteLocal(default) error = %v", err)
 	}
 	defaultPath, _ := defaultOut.(map[string]any)["path"].(string)
-	wantDefaultPath := filepath.Join(projectRoot, ".agent", "skills", "default-skill", skillMainFile)
+	wantDefaultPath := filepath.Join(projectRoot, ".agents", "skills", "default-skill", skillMainFile)
 	if defaultPath != wantDefaultPath {
 		t.Fatalf("default path = %q, want %q", defaultPath, wantDefaultPath)
 	}
@@ -108,7 +108,7 @@ func TestImportLocalDirScopeRoutesDefaultProjectAndSystemGlobal(t *testing.T) {
 	}
 	projectImported := projectOut.(map[string]any)["imported"].([]map[string]any)
 	projectSkillFile, _ := projectImported[0]["skill_file"].(string)
-	wantProjectSkillFile := filepath.Join(projectRoot, ".agent", "skills", "project-import", skillMainFile)
+	wantProjectSkillFile := filepath.Join(projectRoot, ".agents", "skills", "project-import", skillMainFile)
 	if projectSkillFile != wantProjectSkillFile {
 		t.Fatalf("default import path = %q, want %q", projectSkillFile, wantProjectSkillFile)
 	}

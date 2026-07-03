@@ -44,7 +44,7 @@ func TestSkillResolutionApplySameNameKeepsSelectedPersonal(t *testing.T) {
 	if report.Action != ResolutionKeepSelected || report.ResultingHash == "" {
 		t.Fatalf("same-name keep selected report = %+v, want action/resulting hash", report)
 	}
-	assertMissing(t, filepath.Join(project, ".agent", "skills", "same", skillMainFile))
+	assertMissing(t, filepath.Join(project, ".agents", "skills", "same", skillMainFile))
 	assertOnlySkillInfo(t, svc, project, "same", skillScopePersonal, personalSkillTypeUser)
 	assertFileContent(t, filepath.Join(providerPersonalMirrorRoot(SkillProviderClaude), "same", skillMainFile), "---\nname: same\n---\n# personal same\n")
 	assertFileContent(t, filepath.Join(providerPersonalMirrorRoot(SkillProviderCodex), "same", skillMainFile), "---\nname: same\n---\n# personal same\n")
@@ -59,8 +59,8 @@ func TestSkillResolutionApplySameNameKeepSelectedPersonalRemovesProjectDuplicate
 	superHome := filepath.Join(t.TempDir(), ".super-dolphin")
 	svc := &service{projectRoot: projectA, projectSkillsRoot: defaultProjectSkillsRoot(projectA), superDolphinHome: superHome, http: &http.Client{}}
 	server := newSkillRPCTestServer(t, svc)
-	writeSkillContent(t, filepath.Join(projectA, ".agent", "skills", "same"), "same", "# project a same\n")
-	writeSkillContent(t, filepath.Join(projectB, ".agent", "skills", "same"), "same", "# project b same\n")
+	writeSkillContent(t, filepath.Join(projectA, ".agents", "skills", "same"), "same", "# project a same\n")
+	writeSkillContent(t, filepath.Join(projectB, ".agents", "skills", "same"), "same", "# project b same\n")
 	writeSkillContent(t, filepath.Join(superHome, "skills", "personal", "user", "same"), "same", "# personal same\n")
 
 	item := findResolutionItem(t, dispatchResolutionList(t, server, projectA).Items, "same_name", "same", "")
@@ -72,7 +72,7 @@ func TestSkillResolutionApplySameNameKeepSelectedPersonalRemovesProjectDuplicate
 	if report.Action != ResolutionKeepSelected || report.ResultingHash == "" {
 		t.Fatalf("same-name keep selected report = %+v, want action/resulting hash", report)
 	}
-	assertMissing(t, filepath.Join(projectA, ".agent", "skills", "same", skillMainFile))
+	assertMissing(t, filepath.Join(projectA, ".agents", "skills", "same", skillMainFile))
 
 	_, conflicts, err := newCanonicalStoreForOwner(superHome, defaultOwnerOSUID(), defaultAppProfile()).EffectiveSet(context.Background(), projectB)
 	if err != nil {
@@ -128,8 +128,8 @@ func TestSkillResolutionApplySameNameKeepSelectedProjectDuplicateByDirectory(t *
 	superHome := filepath.Join(t.TempDir(), ".super-dolphin")
 	svc := &service{projectRoot: project, projectSkillsRoot: defaultProjectSkillsRoot(project), superDolphinHome: superHome, http: &http.Client{}}
 	server := newSkillRPCTestServer(t, svc)
-	writeSkillContent(t, filepath.Join(project, ".agent", "skills", "security-engineer"), "安全工程师规范", "# a\n")
-	writeSkillContent(t, filepath.Join(project, ".agent", "skills", "security-standards"), "安全工程师规范", "# b\n")
+	writeSkillContent(t, filepath.Join(project, ".agents", "skills", "security-engineer"), "安全工程师规范", "# a\n")
+	writeSkillContent(t, filepath.Join(project, ".agents", "skills", "security-standards"), "安全工程师规范", "# b\n")
 	item := findResolutionItem(t, dispatchResolutionList(t, server, project).Items, "same_name", "安全工程师规范", "")
 	source := findResolutionSource(t, item, skillScopeProject, "")
 	if source.CanonicalID != "project/security-engineer" {
@@ -157,7 +157,7 @@ func setupSameNameResolutionFixture(t *testing.T) (string, *platformrpc.Server, 
 	project := t.TempDir()
 	superHome := filepath.Join(t.TempDir(), ".super-dolphin")
 	svc := &service{projectRoot: project, projectSkillsRoot: defaultProjectSkillsRoot(project), superDolphinHome: superHome, http: &http.Client{}}
-	writeSkillContent(t, filepath.Join(project, ".agent", "skills", "same"), "same", "# project same\n")
+	writeSkillContent(t, filepath.Join(project, ".agents", "skills", "same"), "same", "# project same\n")
 	writeSkillContent(t, filepath.Join(superHome, "skills", "personal", "user", "same"), "same", "# personal same\n")
 	return project, newSkillRPCTestServer(t, svc), svc
 }
@@ -170,7 +170,6 @@ func publishSameNameMirrorsForTest(t *testing.T, svc *service, project string) {
 	}
 	targets := []SkillMirrorTarget{
 		{TargetID: "claude:project:" + RepoFingerprint(project), Provider: SkillProviderClaude, Scope: skillScopeProject, Root: providerProjectMirrorRoot(SkillProviderClaude, project), CanonicalRootID: RepoFingerprint(project)},
-		{TargetID: "codex:project:" + RepoFingerprint(project), Provider: SkillProviderCodex, Scope: skillScopeProject, Root: providerProjectMirrorRoot(SkillProviderCodex, project), CanonicalRootID: RepoFingerprint(project)},
 		{TargetID: "claude:user-global:test", Provider: SkillProviderClaude, Scope: skillScopePersonal, Root: providerPersonalMirrorRoot(SkillProviderClaude), CanonicalRootID: "sd_owner:test"},
 		{TargetID: "codex:user-global:test", Provider: SkillProviderCodex, Scope: skillScopePersonal, Root: providerPersonalMirrorRoot(SkillProviderCodex), CanonicalRootID: "sd_owner:test"},
 	}

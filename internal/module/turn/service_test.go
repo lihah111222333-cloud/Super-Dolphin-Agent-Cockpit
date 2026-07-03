@@ -98,6 +98,23 @@ func TestPrepareTurnProviderNativeSkillsDisabledForcesManualSkillMode(t *testing
 	}
 }
 
+func TestPrepareTurnRejectsUnknownInputTypeAtServiceBoundary(t *testing.T) {
+	t.Parallel()
+
+	assembly := &stubPromptAssemblyService{}
+	svc := NewServiceWithPromptAssembly(silentLogger(), assembly)
+	session := &stubSession{threadID: "thread-1"}
+	_, err := svc.PrepareTurn(context.Background(), session, PrepareInput{
+		Inputs: []InputItem{{Type: "mystery", Content: "hello"}},
+	})
+	if err == nil || !strings.Contains(err.Error(), `unsupported input type "mystery"`) {
+		t.Fatalf("PrepareTurn() error = %v, want unsupported input type", err)
+	}
+	if assembly.lastTurnInput.UserText != "" {
+		t.Fatalf("prompt assembly was called with user text %q, want validation before assembly", assembly.lastTurnInput.UserText)
+	}
+}
+
 func TestActiveProviderIDPrefersLiveHandle(t *testing.T) {
 	t.Parallel()
 

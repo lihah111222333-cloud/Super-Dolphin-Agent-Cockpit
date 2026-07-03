@@ -11,6 +11,7 @@ import (
 // querier 是 buslog store 依赖的 sqlc 查询子集，测试可用窄接口替身覆盖。
 type querier interface {
 	ListBusExceptionLogs(ctx context.Context, arg sqlc.ListBusExceptionLogsParams) ([]sqlc.ListBusExceptionLogsRow, error)
+	GetBusExceptionLog(ctx context.Context, arg sqlc.GetBusExceptionLogParams) (sqlc.BusExceptionLog, error)
 }
 
 // store 实现业务异常日志只读查询，并把数据库行映射为 UI DTO。
@@ -45,18 +46,45 @@ func (s *store) List(ctx context.Context, filter ListFilter) ([]BusExceptionLog,
 	return result, nil
 }
 
+// Get 读取单条业务异常日志详情，包含完整 traceback 和 extra。
+func (s *store) Get(ctx context.Context, id int64) (BusExceptionLog, error) {
+	row, err := s.q.GetBusExceptionLog(ctx, sqlc.GetBusExceptionLogParams{ID: id})
+	if err != nil {
+		return BusExceptionLog{}, wrapBusLogError(err, "get")
+	}
+	return mapBusExceptionLogDetail(row), nil
+}
+
 // mapBusExceptionLog 将 sqlc 查询行转换为前端 JSON wire DTO。
 func mapBusExceptionLog(row sqlc.ListBusExceptionLogsRow) BusExceptionLog {
 	return BusExceptionLog{
-		ID:        row.ID,
-		Ts:        platformdb.TimeFromMillis(row.Ts),
-		Category:  row.Category,
-		Severity:  row.Severity,
-		Source:    row.Source,
-		ToolName:  row.ToolName,
-		Message:   row.Message,
-		Traceback: row.Traceback,
-		Extra:     json.RawMessage(row.Extra),
+		ID:           row.ID,
+		Ts:           platformdb.TimeFromMillis(row.Ts),
+		Category:     row.Category,
+		Severity:     row.Severity,
+		Source:       row.Source,
+		ToolName:     row.ToolName,
+		Message:      row.Message,
+		Traceback:    row.Traceback,
+		Extra:        json.RawMessage(row.Extra),
+		HasTraceback: row.HasTraceback != 0,
+		HasExtra:     row.HasExtra != 0,
+	}
+}
+
+func mapBusExceptionLogDetail(row sqlc.BusExceptionLog) BusExceptionLog {
+	return BusExceptionLog{
+		ID:           row.ID,
+		Ts:           platformdb.TimeFromMillis(row.Ts),
+		Category:     row.Category,
+		Severity:     row.Severity,
+		Source:       row.Source,
+		ToolName:     row.ToolName,
+		Message:      row.Message,
+		Traceback:    row.Traceback,
+		Extra:        json.RawMessage(row.Extra),
+		HasTraceback: row.HasTraceback != 0,
+		HasExtra:     row.HasExtra != 0,
 	}
 }
 

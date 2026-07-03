@@ -54,7 +54,7 @@ type resolvedSkillPathTarget struct {
 }
 
 // resolveCanonicalRoots 返回运行时真正读取的 skill 目录。
-// .claude/.agents 这类 provider mirror 是生成物，不在这里。
+// .claude 是 provider mirror；项目内 .agents/skills 是唯一 canonical 入口。
 func resolveCanonicalRoots(projectRoot, home string) canonicalRoots {
 	superDolphinHome := filepath.Join(strings.TrimSpace(home), ".super-dolphin")
 	personal := make(map[string]string, len(activePersonalSkillTypes()))
@@ -76,11 +76,7 @@ func defaultProjectSkillsRoot(projectRoot string) string {
 	if projectRoot = strings.TrimSpace(projectRoot); projectRoot == "" {
 		return ""
 	}
-	agentsRoot := filepath.Join(projectRoot, ".agents", "skills")
-	if hasProjectSkillPolicy(agentsRoot) {
-		return agentsRoot
-	}
-	return filepath.Join(projectRoot, ".agent", "skills")
+	return filepath.Join(projectRoot, ".agents", "skills")
 }
 
 // hasProjectSkillPolicy 识别已迁移到 .agents/skills 的项目 canonical skill 根。

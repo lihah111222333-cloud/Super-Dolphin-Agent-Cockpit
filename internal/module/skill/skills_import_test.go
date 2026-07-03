@@ -110,7 +110,7 @@ func TestImportLocalDir_SingleStillWorks_BackwardCompat(t *testing.T) {
 		t.Fatalf("imported names = %#v, want demo-skill", got)
 	}
 	assertImportTargetExists(t, projectRoot, "demo-skill")
-	if _, err := os.Stat(filepath.Join(projectRoot, ".agent", "skills", "demo-skill", "references", "guide.md")); err != nil {
+	if _, err := os.Stat(filepath.Join(projectRoot, ".agents", "skills", "demo-skill", "references", "guide.md")); err != nil {
 		t.Fatalf("resource stat error = %v", err)
 	}
 }
@@ -155,7 +155,7 @@ func TestImportLocalDir_RewritesFrontmatterNameToImportedName(t *testing.T) {
 	if got := importDirNames(mustImportDirResult(t, out)); !reflect.DeepEqual(got, []string{"docs"}) {
 		t.Fatalf("imported names = %#v, want docs", got)
 	}
-	assertFileContent(t, filepath.Join(projectRoot, ".agent", "skills", "docs", skillMainFile), "---\nname: docs\nsummary: imported docs\n---\n# docs\n")
+	assertFileContent(t, filepath.Join(projectRoot, ".agents", "skills", "docs", skillMainFile), "---\nname: docs\nsummary: imported docs\n---\n# docs\n")
 }
 
 func TestImportLocalDirPublishesProjectMirrors(t *testing.T) {
@@ -173,9 +173,11 @@ func TestImportLocalDirPublishesProjectMirrors(t *testing.T) {
 	result := mustImportDirResult(t, out)
 	report := mustMirrorPublishReport(t, result)
 	assertPublishedReportItem(t, report.Published, "claude:project:"+RepoFingerprint(projectRoot), SkillProviderClaude, skillScopeProject, "demo-skill", "project/demo-skill")
-	assertPublishedReportItem(t, report.Published, "codex:project:"+RepoFingerprint(projectRoot), SkillProviderCodex, skillScopeProject, "demo-skill", "project/demo-skill")
 	assertFileContent(t, filepath.Join(projectRoot, ".claude", "skills", "demo-skill", "references", "guide.md"), "details")
 	assertFileContent(t, filepath.Join(providerProjectMirrorRoot(SkillProviderCodex, projectRoot), "demo-skill", "references", "guide.md"), "details")
+	if _, err := readSkillMirrorManifest(filepath.Join(providerProjectMirrorRoot(SkillProviderCodex, projectRoot), skillMirrorManifestFile)); err != nil {
+		t.Fatalf("read codex self manifest: %v", err)
+	}
 }
 
 func TestImportLocalDirRejectsSymlinkSkillsRoot(t *testing.T) {
@@ -421,14 +423,14 @@ func importDirNames(result map[string]any) []string {
 
 func assertImportTargetExists(t *testing.T, projectRoot, name string) {
 	t.Helper()
-	if _, err := os.Stat(filepath.Join(projectRoot, ".agent", "skills", name, skillMainFile)); err != nil {
+	if _, err := os.Stat(filepath.Join(projectRoot, ".agents", "skills", name, skillMainFile)); err != nil {
 		t.Fatalf("target %q SKILL.md stat error = %v", name, err)
 	}
 }
 
 func assertImportTargetMissing(t *testing.T, projectRoot, name string) {
 	t.Helper()
-	target := filepath.Join(projectRoot, ".agent", "skills", name)
+	target := filepath.Join(projectRoot, ".agents", "skills", name)
 	if _, err := os.Stat(target); !errorsIsNotExist(err) {
 		t.Fatalf("target %q stat error = %v, want missing", name, err)
 	}
@@ -518,7 +520,7 @@ func TestImportLocalDirAcceptsSourceOutsideProjectRoot(t *testing.T) {
 	if gotName, _ := imported[0]["name"].(string); gotName != "demo-skill" {
 		t.Fatalf("ImportLocalDir() imported name = %q, want demo-skill", gotName)
 	}
-	if _, err := os.Stat(filepath.Join(projectRoot, ".agent", "skills", "demo-skill", skillMainFile)); err != nil {
+	if _, err := os.Stat(filepath.Join(projectRoot, ".agents", "skills", "demo-skill", skillMainFile)); err != nil {
 		t.Fatalf("ImportLocalDir() target SKILL.md stat err = %v", err)
 	}
 }
@@ -548,7 +550,7 @@ func TestImportLocalDirAcceptsLegacyRootAsExplicitSource(t *testing.T) {
 	if got, present := result["failures"]; present {
 		t.Fatalf("ImportLocalDir() failures = %#v, want no failures", got)
 	}
-	if _, err := os.Stat(filepath.Join(projectRoot, ".agent", "skills", "demo-skill", skillMainFile)); err != nil {
+	if _, err := os.Stat(filepath.Join(projectRoot, ".agents", "skills", "demo-skill", skillMainFile)); err != nil {
 		t.Fatalf("imported project SKILL.md stat err = %v", err)
 	}
 }
@@ -580,7 +582,7 @@ func TestImportLocalDirConvertsSafeLegacyDisplayName(t *testing.T) {
 	if gotName, _ := imported[0]["name"].(string); gotName != "docker-容器化部署" {
 		t.Fatalf("ImportLocalDir() imported name = %q, want canonical name", gotName)
 	}
-	assertFileContent(t, filepath.Join(projectRoot, ".agent", "skills", "docker-容器化部署", skillMainFile), "---\nname: docker-容器化部署\ndisplay_name: \"Docker 容器化部署\"\n---\n# docker\n")
+	assertFileContent(t, filepath.Join(projectRoot, ".agents", "skills", "docker-容器化部署", skillMainFile), "---\nname: docker-容器化部署\ndisplay_name: \"Docker 容器化部署\"\n---\n# docker\n")
 }
 
 func TestImportLocalDirRejectsExistingTarget(t *testing.T) {
@@ -595,7 +597,7 @@ func TestImportLocalDirRejectsExistingTarget(t *testing.T) {
 		t.Fatalf("WriteFile() error = %v", err)
 	}
 	skillsRoot := t.TempDir()
-	existingDir := filepath.Join(projectRoot, ".agent", "skills", "demo-skill")
+	existingDir := filepath.Join(projectRoot, ".agents", "skills", "demo-skill")
 	if err := os.MkdirAll(existingDir, 0o755); err != nil {
 		t.Fatalf("MkdirAll(existing) error = %v", err)
 	}

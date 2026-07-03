@@ -302,19 +302,22 @@ func (s defaultLogSink) HandleLog(ctx context.Context, instance *ToolInstance, r
 	if message == "" {
 		return errInvalidParams("mcp log message is required")
 	}
-	if s.systemLogs == nil {
-		return errInternal("mcp log sink is not configured")
-	}
 	logLevel, slogLevel, err := parseControlLogLevel(req.Level)
 	if err != nil {
 		return err
 	}
-	entry, err := controlSystemLogEntry(instance, req, message, logLevel)
-	if err != nil {
-		return err
+	var entry SystemLogEntry
+	if s.systemLogs != nil {
+		entry, err = controlSystemLogEntry(instance, req, message, logLevel)
+		if err != nil {
+			return err
+		}
 	}
 	if s.logger != nil {
 		s.logger.Log(ctx, slogLevel, message, controlLogArgs(instance, req)...)
+	}
+	if s.systemLogs == nil {
+		return errInternal("mcp log sink is not configured")
 	}
 	if err := s.systemLogs.InsertSystemLog(ctx, entry); err != nil {
 		return errInternal("mcp system log insert failed: %v", err)

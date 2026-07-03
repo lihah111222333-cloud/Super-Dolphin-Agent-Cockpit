@@ -137,7 +137,7 @@ func assertSkillToolProviderReturnsSkillContent(t *testing.T, svc skill.Service,
 
 func writeSkillToolSkill(t *testing.T, projectRoot, name, content string) {
 	t.Helper()
-	dir := filepath.Join(projectRoot, ".agent", "skills", name)
+	dir := filepath.Join(projectRoot, ".agents", "skills", name)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatalf("create skill dir: %v", err)
 	}

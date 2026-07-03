@@ -7,7 +7,7 @@ import (
 
 func TestSkillMirrorReconcilerDetectsExternalPersonalProjectSameName(t *testing.T) {
 	project := t.TempDir()
-	writeSkillWithSupportFiles(t, filepath.Join(project, ".agent", "skills", "build"), "build")
+	writeSkillWithSupportFiles(t, filepath.Join(project, ".agents", "skills", "build"), "build")
 	records, err := newCanonicalStore("").scan(project)
 	if err != nil {
 		t.Fatalf("scan canonical records: %v", err)

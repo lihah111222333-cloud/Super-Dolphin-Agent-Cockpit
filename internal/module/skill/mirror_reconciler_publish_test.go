@@ -8,11 +8,10 @@ import (
 
 func TestResolveSkillMirrorDriftSyncBackPublishesOtherProjectMirrors(t *testing.T) {
 	project := t.TempDir()
-	skillDir := filepath.Join(project, ".agent", "skills", "build")
+	skillDir := filepath.Join(project, ".agents", "skills", "build")
 	writeSkillWithSupportFiles(t, skillDir, "build")
 	claudeTarget := projectMirrorTargetForTest(project, SkillProviderClaude)
-	codexTarget := projectMirrorTargetForTest(project, SkillProviderCodex)
-	publishInitialProjectMirrorsForTest(t, project, claudeTarget, codexTarget)
+	publishInitialProjectMirrorsForTest(t, project, claudeTarget)
 	writeFileWithMode(t, filepath.Join(claudeTarget.Root, "build", "references", "guide.md"), "claude edit\n", 0o644)
 	previewHash := mustStableMirrorDirectoryHash(t, filepath.Join(claudeTarget.Root, "build"))
 	svc := &service{projectRoot: project, projectSkillsRoot: defaultProjectSkillsRoot(project), auditStore: &capturingSkillAuditStore{}}
@@ -28,15 +27,13 @@ func TestResolveSkillMirrorDriftSyncBackPublishesOtherProjectMirrors(t *testing.
 	}
 
 	assertFileContent(t, filepath.Join(skillDir, "references", "guide.md"), "claude edit\n")
-	assertFileContent(t, filepath.Join(codexTarget.Root, "build", "references", "guide.md"), "claude edit\n")
 }
 
 func TestResolveSkillMirrorDriftSaveAsNewPublishesNewSkillToOtherProjectMirrors(t *testing.T) {
 	project := t.TempDir()
-	writeSkillWithSupportFiles(t, filepath.Join(project, ".agent", "skills", "build"), "build")
+	writeSkillWithSupportFiles(t, filepath.Join(project, ".agents", "skills", "build"), "build")
 	claudeTarget := projectMirrorTargetForTest(project, SkillProviderClaude)
-	codexTarget := projectMirrorTargetForTest(project, SkillProviderCodex)
-	publishInitialProjectMirrorsForTest(t, project, claudeTarget, codexTarget)
+	publishInitialProjectMirrorsForTest(t, project, claudeTarget)
 	writeFileWithMode(t, filepath.Join(claudeTarget.Root, "build", "references", "guide.md"), "new skill edit\n", 0o644)
 	previewHash := mustStableMirrorDirectoryHash(t, filepath.Join(claudeTarget.Root, "build"))
 	svc := &service{projectRoot: project, projectSkillsRoot: defaultProjectSkillsRoot(project), auditStore: &capturingSkillAuditStore{}}
@@ -52,15 +49,14 @@ func TestResolveSkillMirrorDriftSaveAsNewPublishesNewSkillToOtherProjectMirrors(
 		t.Fatalf("ResolveSkillMirrorDrift(save_as_new_skill): %v report=%+v", err, report)
 	}
 
-	assertFileContent(t, filepath.Join(codexTarget.Root, "build-copy", skillMainFile), "---\nname: build-copy\n---\n# build\n")
-	assertFileContent(t, filepath.Join(codexTarget.Root, "build-copy", "references", "guide.md"), "new skill edit\n")
+	assertFileContent(t, filepath.Join(project, ".agents", "skills", "build-copy", skillMainFile), "---\nname: build-copy\n---\n# build\n")
+	assertFileContent(t, filepath.Join(project, ".agents", "skills", "build-copy", "references", "guide.md"), "new skill edit\n")
 }
 
 func TestTakeoverProviderSkillPublishesTakenOverProjectSkillToOtherMirrors(t *testing.T) {
 	project := t.TempDir()
-	writeSkillWithSupportFiles(t, filepath.Join(project, ".agent", "skills", "owned"), "owned")
+	writeSkillWithSupportFiles(t, filepath.Join(project, ".agents", "skills", "owned"), "owned")
 	claudeTarget := projectMirrorTargetForTest(project, SkillProviderClaude)
-	codexTarget := projectMirrorTargetForTest(project, SkillProviderCodex)
 	writeSkillWithSupportFiles(t, filepath.Join(claudeTarget.Root, "owned"), "owned")
 	writeFileWithMode(t, filepath.Join(claudeTarget.Root, "owned", "references", "guide.md"), "provider edit\n", 0o644)
 	previewHash := mustStableMirrorDirectoryHash(t, filepath.Join(claudeTarget.Root, "owned"))
@@ -76,12 +72,12 @@ func TestTakeoverProviderSkillPublishesTakenOverProjectSkillToOtherMirrors(t *te
 		t.Fatalf("TakeoverProviderSkill: %v report=%+v", err, report)
 	}
 
-	assertFileContent(t, filepath.Join(codexTarget.Root, "owned", "references", "guide.md"), "provider edit\n")
+	assertFileContent(t, filepath.Join(project, ".agents", "skills", "owned", "references", "guide.md"), "provider edit\n")
 }
 
 func projectMirrorTargetForTest(project string, provider SkillProvider) SkillMirrorTarget {
 	fingerprint := RepoFingerprint(project)
-	rootName := ".agents"
+	rootName := ".codex"
 	if provider == SkillProviderClaude {
 		rootName = ".claude"
 	}
