@@ -8,8 +8,11 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/anthropic-ai/super-agent-v3/internal/platform/config"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/observability"
+	platformrpc "github.com/anthropic-ai/super-agent-v3/internal/platform/rpc"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
+	"github.com/creachadair/jrpc2/handler"
 )
 
 // TestFrontendMethodIDsMatchBackendFQN verifies that the hardcoded Wails v3
@@ -91,6 +94,43 @@ func TestCallAPIStripsFrontendMetaForStrictRoutes(t *testing.T) {
 	}
 	if got["defaultPath"] != "/tmp" {
 		t.Fatalf("captured params = %#v, want defaultPath preserved", got)
+	}
+}
+
+func TestCallAPIStrictRouteRejectsUnknownFrontendMetaThroughDispatch(t *testing.T) {
+	server := platformrpc.NewServer(platformrpc.Params{Config: &config.Config{RPCAddr: "127.0.0.1:0"}})
+	var captured json.RawMessage
+	called := false
+	server.Register(handler.Map{"ui/selectFiles": platformrpc.StrictHandler(func(_ context.Context, req struct {
+		DefaultPath string `json:"defaultPath"`
+	}) (map[string]string, error) {
+		called = true
+		return map[string]string{"defaultPath": req.DefaultPath}, nil
+	})})
+	app := &App{dispatch: func(ctx context.Context, method string, params json.RawMessage) (json.RawMessage, error) {
+		captured = append(json.RawMessage(nil), params...)
+		return server.Dispatch(ctx, method, params)
+	}}
+
+	_, err := app.CallAPI("ui/selectFiles", json.RawMessage(`{"defaultPath":"/tmp","_aoClientKind":"desktop-wails","_aoTypo":"leak"}`))
+	if err == nil {
+		t.Fatal("CallAPI(ui/selectFiles) error = nil, want strict handler unknown-field rejection")
+	}
+	if called {
+		t.Fatal("strict handler body was called despite unknown _ao field")
+	}
+	if !strings.Contains(err.Error(), "invalid parameters") {
+		t.Fatalf("CallAPI(ui/selectFiles) error = %v, want invalid parameters", err)
+	}
+	var got map[string]any
+	if err := json.Unmarshal(captured, &got); err != nil {
+		t.Fatalf("captured params are invalid JSON: %v", err)
+	}
+	if got["_aoTypo"] != "leak" {
+		t.Fatalf("captured params = %#v, want unknown _aoTypo preserved for strict rejection", got)
+	}
+	if _, ok := got["_aoClientKind"]; ok {
+		t.Fatalf("captured params still contain stripped _aoClientKind: %#v", got)
 	}
 }
 

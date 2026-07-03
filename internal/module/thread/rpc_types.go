@@ -86,6 +86,9 @@ func (p *startParams) UnmarshalJSON(data []byte) error {
 	if err := rejectUnknownStartFields(data); err != nil {
 		return err
 	}
+	if err := validateStartBoolFields(data); err != nil {
+		return err
+	}
 	if err := decodeLegacyParams(data, &current, nil); err != nil {
 		return err
 	}
@@ -117,6 +120,16 @@ type startParamCompatFields struct {
 
 func rejectUnknownStartFields(data []byte) error {
 	return rejectUnknownThreadFields(data, "thread/start", startParams{}, startParamCompatFields{})
+}
+
+// validateStartBoolFields 先用原始 JSON 校验 bool 别名，避免结构体解码的默认错误绕过统一 fail-fast 文案。
+func validateStartBoolFields(data []byte) error {
+	payload, err := decodeCompatPayload(data)
+	if err != nil {
+		return err
+	}
+	_, _, err = resolveCompatBool(payload, "manual skill selection", "manual_skill_selection", "manualSkillSelection")
+	return err
 }
 
 func rejectUnknownThreadFields(data []byte, method string, wireShapes ...any) error {

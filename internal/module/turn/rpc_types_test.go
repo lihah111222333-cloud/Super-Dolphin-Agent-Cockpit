@@ -93,6 +93,38 @@ func TestTurnStartParamsRejectsConflictingBoolAliases(t *testing.T) {
 	}
 }
 
+func TestTurnStartParamsRejectsInvalidBoolAliases(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		payload string
+		want    string
+	}{
+		{
+			name:    "manual skill selection null",
+			payload: `{"manualSkillSelection":null}`,
+			want:    `turn/start: manualSkillSelection must be a boolean`,
+		},
+		{
+			name:    "is worktree string",
+			payload: `{"isWorktree":"true"}`,
+			want:    `turn/start: isWorktree must be a boolean`,
+		},
+	}
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			var params turnStartParams
+			err := json.Unmarshal([]byte(tt.payload), &params)
+			if err == nil || !strings.Contains(err.Error(), tt.want) {
+				t.Fatalf("json.Unmarshal(turnStartParams) error = %v, want %q", err, tt.want)
+			}
+		})
+	}
+}
+
 func TestTurnSteerParamsRejectsConflictingBoolAliases(t *testing.T) {
 	t.Parallel()
 
@@ -110,6 +142,38 @@ func TestTurnSteerParamsRejectsConflictingBoolAliases(t *testing.T) {
 			name:    "is worktree",
 			payload: `{"thread_id":"thread-1","is_worktree":false,"isWorktree":true}`,
 			want:    `conflicting is worktree values`,
+		},
+	}
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			var params turnSteerParams
+			err := json.Unmarshal([]byte(tt.payload), &params)
+			if err == nil || !strings.Contains(err.Error(), tt.want) {
+				t.Fatalf("json.Unmarshal(turnSteerParams) error = %v, want %q", err, tt.want)
+			}
+		})
+	}
+}
+
+func TestTurnSteerParamsRejectsInvalidBoolAliases(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		payload string
+		want    string
+	}{
+		{
+			name:    "manual skill selection number",
+			payload: `{"thread_id":"thread-1","manualSkillSelection":1}`,
+			want:    `turn/steer: manualSkillSelection must be a boolean`,
+		},
+		{
+			name:    "is worktree null",
+			payload: `{"thread_id":"thread-1","isWorktree":null}`,
+			want:    `turn/steer: isWorktree must be a boolean`,
 		},
 	}
 	for _, tt := range tests {
