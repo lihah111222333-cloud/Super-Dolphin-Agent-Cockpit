@@ -6,7 +6,7 @@ aliases: ["@代码审查维度", "@review-dimensions"]
 
 # super-agent-v3 代码审查维度
 
-本技能用于审查 super-agent-v3 已完成代码、生产风险、子代理发现和修复编排。调用时先输出适用维度和本轮优先级，再按证据逐条给出 finding；不要套用其他项目的路径、命令或业务领域。
+本技能用于审查 super-agent-v3 已完成代码、生产风险、子代理发现和修复编排。调用时先输出适用维度，再按证据逐条给出 finding；不要套用其他项目的路径、命令或业务领域。
 
 ## 详细模式
 
@@ -315,17 +315,6 @@ aliases: ["@代码审查维度", "@review-dimensions"]
 - Handler/tool 场景：多个 tool 或 endpoint 重复鉴权、参数绑定、日志、错误分类、响应 envelope 和测试断言。
 - Prompt/UI 场景：prompt 规则、表单项、状态机、toast、thread card、tool result panel 或 session status 只差 label、字段名或单位。
 - 脚本/守卫场景：多个脚本重复路径过滤、stale token、diff check、hook 逻辑，修改一处不能同步约束其他入口。
-
-## 优先级规律
-
-1. Provider、toolbridge、turn/session、prompt、thread、memory 改动：优先 D02、D05、D08、D10、D11、D12。
-2. MCP sidecar、LSP、orchestration、cron/wakeup 改动：优先 D03、D04、D06、D11、D14、D16。
-3. Store、migration、sqlc、持久化改动：优先 D02、D07、D12、D17，再看 D01。
-4. Frontend/Wails 改动：优先 D09、D15、D02、D10、D12；涉及 event stream 时补 D05、D11。
-5. Skill、provider mirror、repo workflow 改动：优先 D08、D12、D16、D17；确认 canonical 与 mirror 一致。
-6. 发布、安装、embed、平台脚本改动：优先 D13、D02、D10、D12、D16。
-7. 性能或后台任务改动：优先 D14、D11、D02；涉及并发状态时补 D06 或 D05。
-8. 多 provider、多 tool、多 mapper、多 prompt 或前后端状态规则重复出现时：补 D18；先找单一事实源，只有差异真实存在时才允许保留重复，并要求测试覆盖差异。
 
 ## 使用方式
 
