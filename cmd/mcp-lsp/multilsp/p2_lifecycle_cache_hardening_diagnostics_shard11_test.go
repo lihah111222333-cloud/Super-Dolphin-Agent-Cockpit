@@ -222,6 +222,52 @@ func TestPublishDiagnosticsIgnoresOlderDocumentVersion(t *testing.T) {
 	requireNoDiagnosticItems(t, "old-version publish", items)
 }
 
+func TestPublishDiagnosticsDropsOlderVersionPublishedBeforeCacheRefresh(t *testing.T) {
+	root := canonicalScopePath(t.TempDir(), "")
+	writeGenericTestFile(t, filepath.Join(root, "package.json"), `{"name":"diagnostics-version-race"}`)
+	target := filepath.Join(root, "app.js")
+	writeGenericTestFile(t, target, "let value = 1\n")
+	factory := &p2DiagnosticsFactory{}
+	mgr := NewManager(Config{WorkspaceRoot: root, ClientFactory: factory}).(*manager)
+	t.Cleanup(func() { _ = mgr.Close() })
+	ctx := scopedDiagnosticsTestContext(root, "agent-version-race", "thread-1")
+	uri := fileURIFromPath(target)
+	if err := mgr.BootstrapDocument(ctx, uri); err != nil {
+		t.Fatalf("BootstrapDocument: %v", err)
+	}
+	ref, _, scope, err := mgr.resolvedScopeForURI(ctx, uri, "javascript")
+	if err != nil {
+		t.Fatalf("resolvedScopeForURI: %v", err)
+	}
+	key := scope.cacheKey("javascript", ref.uri)
+	firstRecord := requireCacheRecord(t, mgr, key, "initial")
+
+	writeGenericTestFile(t, target, "let value = 2\n")
+	oldVersion := firstRecord.Version
+	if err := mgr.PublishDiagnostics(protocol.PublishDiagnosticsParams{
+		URI:     uri,
+		Version: &oldVersion,
+		Diagnostics: []protocol.Diagnostic{{
+			Message: "stale-before-cache-refresh",
+		}},
+	}); err != nil {
+		t.Fatalf("PublishDiagnostics(old before cache refresh): %v", err)
+	}
+
+	items, err := mgr.Diagnostics(ctx, []string{uri})
+	if err != nil {
+		t.Fatalf("Diagnostics(refresh changed file): %v", err)
+	}
+	if got := factory.clientAt(t, 0).didChangeCount(); got == 0 {
+		t.Fatalf("Diagnostics did not refresh changed file before returning diagnostics")
+	}
+	changedRecord := requireCacheRecord(t, mgr, key, "changed")
+	if changedRecord.Version <= oldVersion {
+		t.Fatalf("changed cache record = %#v, want version newer than %d", changedRecord, oldVersion)
+	}
+	requireNoDiagnosticItems(t, "old-version publish before cache refresh", items)
+}
+
 func requireCacheRecord(t *testing.T, mgr *manager, key lspCacheKey, label string) lspCacheValue {
 	t.Helper()
 	record, ok := mustBootstrapCoordinator(t, mgr).cache.Load(key)

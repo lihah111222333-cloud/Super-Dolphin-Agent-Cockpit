@@ -7,7 +7,7 @@ import (
 	"testing"
 )
 
-func TestLSPBinaryGrepFindsCodeGuardPlaceholderInRelativeDirectory(t *testing.T) {
+func TestLSPBinaryGrepFindsCodeGuardPlaceholderInRelativeDirectoryWithTrustedScope(t *testing.T) {
 	skipLSPBinaryResidualE2EInShortMode(t)
 	root := filepath.Join(t.TempDir(), ".worktrees", "p16-batch1-selfguard-ci")
 	codeGuardDir := filepath.Join(root, "backend", "cmd", "code_guard")
@@ -23,7 +23,7 @@ func TestLSPBinaryGrepFindsCodeGuardPlaceholderInRelativeDirectory(t *testing.T)
 	root = canonicalToolTestRoot(t, root)
 	client := startLSPBinaryClient(t, root)
 
-	result := client.callToolWithoutTrustedScope(t, "grep", map[string]any{
+	result := client.callTool(t, "grep", map[string]any{
 		"action":      "text_search",
 		"query":       query,
 		"path":        "backend/cmd/code_guard",

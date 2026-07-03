@@ -371,6 +371,7 @@ func (c *bootstrapCoordinator) syncSnapshotToClient(
 	if err := c.cache.Upsert(cacheValueFromSnapshot(req.key, snapshot, req.version)); err != nil {
 		return err
 	}
+	m.deleteDiagnosticsOlderThanVersion(scope, snapshot.ref.uri, req.version)
 	if err := c.cache.RememberDocumentScope(snapshot.ref.uri, scope, snapshot.fingerprint); err != nil {
 		return err
 	}

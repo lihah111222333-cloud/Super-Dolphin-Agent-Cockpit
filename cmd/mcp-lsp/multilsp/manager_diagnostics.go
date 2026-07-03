@@ -194,6 +194,11 @@ func (m *manager) publishDiagnosticsForGeneration(params protocol.PublishDiagnos
 	params.URI = uri
 
 	scope := m.scopeForPublishedDiagnostics(params.URI)
+	key := diagnosticStoreKeyFor(scope, params.URI)
+	metadata := diagnosticMetadataForURI(params.URI)
+
+	m.diagMu.Lock()
+	defer m.diagMu.Unlock()
 	staleVersion, err := m.diagnosticVersionOlderThanCached(params, scope)
 	if err != nil {
 		return err
@@ -201,11 +206,6 @@ func (m *manager) publishDiagnosticsForGeneration(params protocol.PublishDiagnos
 	if staleVersion {
 		return nil
 	}
-	key := diagnosticStoreKeyFor(scope, params.URI)
-
-	metadata := diagnosticMetadataForURI(params.URI)
-	m.diagMu.Lock()
-	defer m.diagMu.Unlock()
 	if capturedGen < m.CurrentDiagnosticGeneration() {
 		return nil
 	}
@@ -241,6 +241,29 @@ func (m *manager) diagnosticVersionOlderThanCached(params protocol.PublishDiagno
 		return false, nil
 	}
 	return *params.Version < record.Version, nil
+}
+
+// deleteDiagnosticsOlderThanVersion 删除同一文档旧版本留下的诊断快照。
+// LSP server 省略版本号时仍交给指纹/mtime 刷新路径处理，避免误删无法比较的新结果。
+func (m *manager) deleteDiagnosticsOlderThanVersion(scope ResolvedLSPToolScope, uri string, version int) {
+	if strings.TrimSpace(uri) == "" || version <= 0 {
+		return
+	}
+	m.diagMu.Lock()
+	defer m.diagMu.Unlock()
+	current := m.CurrentDiagnosticGeneration()
+	for key, snapshot := range m.diagnostics {
+		if snapshot.generation != current || snapshot.uri != uri {
+			continue
+		}
+		if !diagnosticSnapshotMatchesRefreshScope(snapshot, scope) {
+			continue
+		}
+		if snapshot.params.Version == nil || *snapshot.params.Version >= version {
+			continue
+		}
+		delete(m.diagnostics, key)
+	}
 }
 
 func (m *manager) latestDiagnosticUpdate(filter diagnosticFilter) time.Time {

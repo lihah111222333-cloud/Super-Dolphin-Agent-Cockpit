@@ -485,6 +485,7 @@ func (m *manager) recordFullDocumentDidChange(ctx context.Context, ref documentR
 	}); err != nil {
 		return err
 	}
+	m.deleteDiagnosticsOlderThanVersion(scope, ref.uri, version)
 	if err := coordinator.cache.RememberDocumentScope(ref.uri, scope, hashDocument([]byte(text))); err != nil {
 		return err
 	}

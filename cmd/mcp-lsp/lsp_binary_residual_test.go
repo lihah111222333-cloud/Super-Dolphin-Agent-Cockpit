@@ -109,7 +109,7 @@ func TestLSPBinaryGrepSearchesWhitespaceSeparatedPaths(t *testing.T) {
 	}
 }
 
-func TestLSPBinaryGrepFindsExternalPatchInCurrentWorkspaceWithoutExplicitScope(t *testing.T) {
+func TestLSPBinaryGrepRejectsExternalPatchWithoutTrustedScope(t *testing.T) {
 	skipLSPBinaryResidualE2EInShortMode(t)
 	parent := t.TempDir()
 	staleRoot := canonicalToolTestRoot(t, filepath.Join(parent, "stale"))
@@ -130,14 +130,13 @@ func TestLSPBinaryGrepFindsExternalPatchInCurrentWorkspaceWithoutExplicitScope(t
 		"path":        relPath,
 		"max_results": 5,
 	})
-	if result.IsError {
-		t.Fatalf("grep returned tool error after external patch: %s; stderr=%s", result.ContentText(), client.stderr.String())
+	if !result.IsError {
+		t.Fatalf("grep without trusted scope returned success after external patch; structuredContent=%s stderr=%s",
+			string(result.StructuredContent), client.stderr.String())
 	}
-	var payload lspBinaryGrepResponse
-	decodeLSPBinaryStructuredContent(t, result, &payload)
-	if payload.Total == 0 {
-		t.Fatalf("grep did not find externally patched text %q in current workspace file %s; content=%s stderr=%s",
-			needle, currentPath, result.ContentText(), client.stderr.String())
+	if !strings.Contains(result.ContentText(), "stale workspace root") {
+		t.Fatalf("grep without trusted scope error = %q, want stale workspace root guidance; stderr=%s",
+			result.ContentText(), client.stderr.String())
 	}
 }
 
