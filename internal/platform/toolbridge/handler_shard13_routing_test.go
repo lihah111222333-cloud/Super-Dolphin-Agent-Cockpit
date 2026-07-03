@@ -37,30 +37,20 @@ func TestToolBridge_ForwardsInjectedCWDToPeer(t *testing.T) {
 		return nil
 	}}}
 	h, registry := newHandlerForTest(peer)
-	h.bindingStore = &toolCallBindingStoreStub{bindingsByAgent: map[string]toolCallBinding{
-		"agent-1": {AgentID: "agent-1", CWD: filepath.Join(t.TempDir(), "stale")},
-	}}
+	registry.scoped = true
 
-	result, err := h.HandleToolCall(context.Background(), contract.ToolCallRawMessage{
-		ID:     json.RawMessage(`1`),
-		Method: "item/tool/call",
-		Params: mustRawJSON(t, map[string]any{
-			"name":      "lsp_file",
-			"arguments": args,
-			"agentId":   "agent-1",
-			"_cwd":      root,
-		}),
+	got, err := h.routeToolCall(context.Background(), ToolCallRequest{
+		Name:      "lsp_file",
+		Arguments: args,
+		AgentID:   "agent-1",
+		CWD:       root,
 	})
 	if err != nil {
-		t.Fatalf("HandleToolCall() error = %v", err)
-	}
-	got, ok := result.(*ToolCallResult)
-	if !ok {
-		t.Fatalf("HandleToolCall() result type = %T, want *ToolCallResult", result)
+		t.Fatalf("routeToolCall() error = %v", err)
 	}
 	assertSingleTextItem(t, got, "ok", true)
-	if len(registry.gotKinds) != 1 || registry.gotKinds[0] != dto.ClientKindLSP {
-		t.Fatalf("FindActiveByKind() kinds = %#v, want [%q]", registry.gotKinds, dto.ClientKindLSP)
+	if len(registry.gotScopes) != 1 || registry.gotScopes[0].CWD != root {
+		t.Fatalf("FindActiveForScope() scopes = %#v, want cwd %q", registry.gotScopes, root)
 	}
 }
 
@@ -289,11 +279,16 @@ func TestToolBridge_DoesNotTrustRelativePrimaryRoot(t *testing.T) {
 	assertSingleTextItem(t, got, "relative dropped", true)
 }
 
-func TestToolBridge_DoesNotPromoteAdditionalRootWithoutTrustedPrimary(t *testing.T) {
+func TestToolBridge_ForwardsAbsoluteAdditionalRootWithoutTrustedPrimary(t *testing.T) {
 	extra := filepath.Join(t.TempDir(), "packages", "api")
 	args := mustRawJSON(t, map[string]any{"action": "read_file", "file_path": "go.mod"})
 	peer := newTrustedLSPPeer(t, trustedScopePayload{
-		agentID: "agent-no-primary", threadID: "thread-no-primary", callID: "call-no-primary", cwd: "", workspaceRoots: []string{}, replyText: "additional dropped",
+		agentID:        "agent-no-primary",
+		threadID:       "thread-no-primary",
+		callID:         "call-no-primary",
+		cwd:            "",
+		workspaceRoots: []string{extra},
+		replyText:      "additional forwarded",
 	})
 	h, registry := newHandlerForTest(peer)
 	registry.scoped = true
@@ -310,7 +305,7 @@ func TestToolBridge_DoesNotPromoteAdditionalRootWithoutTrustedPrimary(t *testing
 	if err != nil {
 		t.Fatalf("routeToolCall() error = %v", err)
 	}
-	assertSingleTextItem(t, got, "additional dropped", true)
+	assertSingleTextItem(t, got, "additional forwarded", true)
 }
 
 func TestToolBridge_ResolvesRelativeAdditionalRootsAgainstPrimaryRoot(t *testing.T) {

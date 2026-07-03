@@ -741,3 +741,25 @@ func TestCodexToolSurfaceLegacyNamesFailClosedWhenSurfaceMissing(t *testing.T) {
 		}
 	}
 }
+
+func TestCodexToolSurfaceCWDOnlyScopeFailsClosedWhenSurfaceMissing(t *testing.T) {
+	h := &Handler{}
+
+	_, err := h.HandleToolCall(context.Background(), contract.ToolCallRawMessage{
+		Params: json.RawMessage(`{"name":"mcp__lsp__grep","arguments":{},"_cwd":"/repo"}`),
+	})
+	if err == nil {
+		t.Fatal("HandleToolCall(cwd-only scoped lsp) error = nil, want missing surface failure")
+	}
+}
+
+func TestCodexToolSurfaceWorkspaceRootsOnlyScopeFailsClosedWhenSurfaceMissing(t *testing.T) {
+	h := &Handler{}
+
+	_, err := h.HandleToolCall(context.Background(), contract.ToolCallRawMessage{
+		Params: json.RawMessage(`{"name":"mcp__lsp__grep","arguments":{},"_workspaceRoots":["/repo"]}`),
+	})
+	if err == nil {
+		t.Fatal("HandleToolCall(workspace-roots scoped lsp) error = nil, want missing surface failure")
+	}
+}

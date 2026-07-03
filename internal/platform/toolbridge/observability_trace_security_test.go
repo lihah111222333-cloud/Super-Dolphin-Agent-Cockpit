@@ -27,14 +27,13 @@ func TestHandleToolCallRecordsSecurityAuditMetadata(t *testing.T) {
 		ID:     json.RawMessage(`"call-a"`),
 		Method: "item/tool/call",
 		Params: mustRawJSON(t, map[string]any{
-			"name":            "file",
-			"arguments":       map[string]any{"api_key": "sk-secret", "path": "safe.txt"},
-			"agentId":         "agent-a",
-			"threadId":        "thread-a",
-			"turnId":          "turn-a",
-			"callId":          "call-a",
-			"clientKind":      dto.ClientKindLSP,
-			"_workspaceRoots": []string{"/workspace"},
+			"name":       "file",
+			"arguments":  map[string]any{"api_key": "sk-secret", "path": "safe.txt"},
+			"agentId":    "agent-a",
+			"threadId":   "thread-a",
+			"turnId":     "turn-a",
+			"callId":     "call-a",
+			"clientKind": dto.ClientKindLSP,
 		}),
 	})
 	if err != nil {

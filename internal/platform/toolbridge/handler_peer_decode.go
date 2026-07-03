@@ -722,7 +722,20 @@ func decodeToolCallRequest(params json.RawMessage) (ToolCallRequest, error) {
 		return ToolCallRequest{}, fmt.Errorf("toolbridge: decode tool call params: %w", err)
 	}
 
-	req := ToolCallRequest{
+	req := baseToolCallRequest(payload)
+	fillNestedToolCallRequestFields(payload, &req)
+	if len(bytes.TrimSpace(req.Arguments)) == 0 {
+		req.Arguments = json.RawMessage(`{}`)
+	}
+	normalizeToolCallRequestScope(&req)
+	if strings.TrimSpace(req.Name) == "" {
+		return ToolCallRequest{}, fmt.Errorf("toolbridge: missing tool name")
+	}
+	return req, nil
+}
+
+func baseToolCallRequest(payload map[string]json.RawMessage) ToolCallRequest {
+	return ToolCallRequest{
 		Name:           firstString(payload, "name", "tool", "toolName", "tool_name"),
 		Arguments:      firstRaw(payload, "arguments", "args"),
 		AgentID:        firstString(payload, MetadataKeyAgentID, "agentId", "agent_id"),
@@ -734,6 +747,9 @@ func decodeToolCallRequest(params json.RawMessage) (ToolCallRequest, error) {
 		ClientKind:     firstString(payload, "clientKind", "client_kind", "family"),
 		Scoped:         hasPrivateScopeMetadata(payload),
 	}
+}
+
+func fillNestedToolCallRequestFields(payload map[string]json.RawMessage, req *ToolCallRequest) {
 	if req.Name == "" {
 		req.Name = nestedString(payload, "item", "name", "tool", "toolName")
 	}
@@ -746,15 +762,12 @@ func decodeToolCallRequest(params json.RawMessage) (ToolCallRequest, error) {
 	if req.CallID == "" {
 		req.CallID = nestedString(payload, "item", "callId", "call_id")
 	}
-	if len(bytes.TrimSpace(req.Arguments)) == 0 {
-		req.Arguments = json.RawMessage(`{}`)
-	}
+}
+
+func normalizeToolCallRequestScope(req *ToolCallRequest) {
 	req.CWD = normalizeToolCallCWD(req.CWD)
 	req.WorkspaceRoots = normalizeToolCallWorkspaceRoots(req.CWD, req.WorkspaceRoots)
-	if strings.TrimSpace(req.Name) == "" {
-		return ToolCallRequest{}, fmt.Errorf("toolbridge: missing tool name")
-	}
-	return req, nil
+	req.Scoped = req.Scoped || req.CWD != "" || len(req.WorkspaceRoots) > 0
 }
 
 // hasPrivateScopeMetadata 判断调用参数是否带有内部 scope 元数据。

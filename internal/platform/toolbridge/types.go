@@ -65,9 +65,6 @@ func normalizeToolCallWorkspaceRoots(cwd string, roots []string) []string {
 		out = append(out, root)
 	}
 	primary := normalizeToolCallWorkspaceRoot("", cwd)
-	if primary == "" {
-		return nil
-	}
 	add("", primary)
 	for _, root := range roots {
 		add(primary, root)
