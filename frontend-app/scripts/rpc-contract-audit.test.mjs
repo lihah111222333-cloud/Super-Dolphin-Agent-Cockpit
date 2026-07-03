@@ -10,6 +10,7 @@ describe('rpc contract audit', () => {
     expect(report.mismatchedRegistryMethods).toEqual([])
     expect(report.p0MissingBackendHandlers).toEqual([])
     expect(report.allowedPayloadRegistryDrift).toEqual([])
+    expect(report.hardcodedPayloadGuardFindings).toEqual([])
     expect(report.goPayloadKeysByMethod.get('turn/start')).toEqual(expect.arrayContaining([
       'thread_id',
       'threadId',

@@ -173,167 +173,9 @@ export const RPC_METHODS = Object.freeze({
   APPROVAL_RESPOND: 'approval/respond',
 });
 
-export const RPC_ALLOWED_PAYLOAD_KEYS = Object.freeze({
-  'thread/start': Object.freeze([
-    'agentKey',
-    'agent_key',
-    'agentId',
-    'agent_id',
-    'agent_type',
-    'agentMemoryScope',
-    'agentType',
-    'agent_memory_scope',
-    'approvalPolicy',
-    'approval_policy',
-    'baseInstructions',
-    'base_instructions',
-    'codexModelProvider',
-    'codex_model_provider',
-    'config',
-    'cwd',
-    'deferSpawn',
-    'defer_spawn',
-    'developerInstructions',
-    'developer_instructions',
-    'effort',
-    'instructions',
-    'language',
-    'launchIntentId',
-    'launch_intent_id',
-    'manualSkillSelection',
-    'manual_skill_selection',
-    'memoryScope',
-    'memory_scope',
-    'model',
-    'modelProvider',
-    'model_provider',
-    'name',
-    'optimisticUserMessage',
-    'optimistic_user_message',
-    'parentAgentId',
-    'parentID',
-    'parentId',
-    'parent_agent_id',
-    'personality',
-    'prompt',
-    'promptKey',
-    'prompt_key',
-    'provider',
-    'sandbox',
-    'selectedSkillRefs',
-    'selectedSkills',
-    'selected_skill_refs',
-    'selected_skills',
-    'skipInitialRuntimeSync',
-    'skip_initial_runtime_sync',
-    'summary',
-    'toolSurfaceMode',
-    'tool_surface_mode',
-  ]),
-  'turn/start': Object.freeze([
-    'additionalWorkingDirectories',
-    'additional_working_directories',
-    'approvalPolicy',
-    'approval_policy',
-    'attachments',
-    'cwd',
-    'effort',
-    'enabledTools',
-    'enabled_tools',
-    'files',
-    'gitRoot',
-    'git_root',
-    'images',
-    'input',
-    'isWorktree',
-    'is_worktree',
-    'language',
-    'manualSkillSelection',
-    'manual_skill_selection',
-    'mcpSnapshot',
-    'mcp_snapshot',
-    'model',
-    'outputSchema',
-    'output_schema',
-    'prompt',
-    'provider',
-    'selectedSkillRefs',
-    'selectedSkills',
-    'selected_skill_refs',
-    'selected_skills',
-    'sessionFlags',
-    'session_flags',
-    'threadID',
-    'threadId',
-    'thread_id',
-  ]),
-  'turn/steer': Object.freeze([
-    'additionalWorkingDirectories',
-    'additional_working_directories',
-    'cwd',
-    'enabledTools',
-    'enabled_tools',
-    'expectedTurnId',
-    'expected_turn_id',
-    'gitRoot',
-    'git_root',
-    'input',
-    'isWorktree',
-    'is_worktree',
-    'language',
-    'manualSkillSelection',
-    'manual_skill_selection',
-    'mcpSnapshot',
-    'mcp_snapshot',
-    'model',
-    'prompt',
-    'provider',
-    'selectedSkillRefs',
-    'selectedSkills',
-    'selected_skill_refs',
-    'selected_skills',
-    'sessionFlags',
-    'session_flags',
-    'threadID',
-    'threadId',
-    'thread_id',
-  ]),
-});
-
 const objectPrototype = Object.prototype;
 const TOOL_SURFACE_MODES = new Set(['chat', 'auto', 'agent']);
 const MCP_TOOL_LIFECYCLE_STATES = new Set(['enabled', 'disabled', 'suspended', 'removed']);
-const MCP_TOOL_LIFECYCLE_SET_ALLOWED_KEYS = new Set([
-  'workspaceRoot',
-  'workspace_root',
-  'serverName',
-  'server_name',
-  'manifestName',
-  'manifest_name',
-  'toolName',
-  'tool_name',
-  'state',
-  'reason',
-  'replacementTool',
-  'replacement_tool',
-]);
-const MCP_TOOL_LIFECYCLE_LIST_ALLOWED_KEYS = new Set([
-  'workspaceRoot',
-  'workspace_root',
-  'serverName',
-  'server_name',
-]);
-const MCP_TOOL_LIFECYCLE_EXPORT_ALLOWED_KEYS = new Set([
-  'workspaceRoot',
-  'workspace_root',
-]);
-/**
- * Fields accepted by the React thread/start facade before canonicalization.
- * Keep this list intentionally narrower than arbitrary objects so Go-side
- * strict decoders are not the first layer that catches UI payload drift.
- */
-const THREAD_START_ALLOWED_KEYS = new Set(RPC_ALLOWED_PAYLOAD_KEYS[RPC_METHODS.THREAD_START]);
-const TURN_START_ALLOWED_KEYS = new Set(RPC_ALLOWED_PAYLOAD_KEYS[RPC_METHODS.TURN_START]);
 const DEFAULT_PROMPT_INTENT_KIND = 'expert';
 const DEFAULT_PROMPT_SOURCE_TYPE = 'user_input';
 
@@ -355,12 +197,26 @@ function assertStrictPlainObject(method, params) {
   return value;
 }
 
-function assertAllowedPayloadFields(method, payload, allowedKeys) {
-  for (const key of Object.keys(payload)) {
-    if (!allowedKeys.has(key)) {
-      throw new Error(`${method}: unsupported payload field ${key}`);
-    }
+function assertNoExtraPayloadFields(method, payload) {
+  const [key] = Object.keys(payload);
+  if (key) {
+    throw new Error(`${method}: unsupported payload field ${key}`);
   }
+}
+
+function takePayloadField(payload, key) {
+  const value = payload[key];
+  delete payload[key];
+  return value;
+}
+
+function takePayloadFields(payload, keys) {
+  const out = {};
+  for (const key of keys) {
+    if (hasOwn(payload, key)) out[key] = payload[key];
+    delete payload[key];
+  }
+  return out;
 }
 
 function normalizeString(value) {
@@ -383,10 +239,6 @@ function normalizeToolSurfaceMode(value) {
   if (!mode) return '';
   if (!TOOL_SURFACE_MODES.has(mode)) throw new Error(`${RPC_METHODS.THREAD_START}: toolSurfaceMode must be chat, auto, or agent`);
   return mode;
-}
-
-function normalizeProvider(params) {
-  return normalizeString(params.modelProvider || params.model_provider || params.provider);
 }
 
 function requireCwd(method, params) {
@@ -1577,22 +1429,23 @@ function emptyStrictPayload(method, params = {}) {
   return {};
 }
 
-function mcpToolLifecyclePayload(method, params, allowedKeys) {
-  const payload = assertStrictPlainObject(method, params);
-  assertAllowedPayloadFields(method, payload, allowedKeys);
-  return payload;
-}
-
 function mcpToolLifecycleString(payload, camelKey, snakeKey = camelKey) {
-  return normalizeString(payload[camelKey] || payload[snakeKey]);
+  const camelValue = takePayloadField(payload, camelKey);
+  const snakeValue = snakeKey === camelKey ? undefined : takePayloadField(payload, snakeKey);
+  return normalizeString(camelValue || snakeValue);
 }
 
 function mcpToolLifecycleSetPayload(params) {
   const method = RPC_METHODS.MCP_TOOL_LIFECYCLE_SET;
-  const payload = mcpToolLifecyclePayload(method, params, MCP_TOOL_LIFECYCLE_SET_ALLOWED_KEYS);
+  const payload = { ...assertStrictPlainObject(method, params) };
   const serverName = mcpToolLifecycleString(payload, 'serverName', 'server_name');
   const toolName = mcpToolLifecycleString(payload, 'toolName', 'tool_name');
-  const state = normalizeString(payload.state);
+  const state = normalizeString(takePayloadField(payload, 'state'));
+  const workspaceRoot = mcpToolLifecycleString(payload, 'workspaceRoot', 'workspace_root');
+  const manifestName = mcpToolLifecycleString(payload, 'manifestName', 'manifest_name');
+  const reason = normalizeString(takePayloadField(payload, 'reason'));
+  const replacementTool = mcpToolLifecycleString(payload, 'replacementTool', 'replacement_tool');
+  assertNoExtraPayloadFields(method, payload);
   if (!serverName) throw new Error(`${method}: serverName is required`);
   if (!toolName) throw new Error(`${method}: toolName is required`);
   if (!state) throw new Error(`${method}: state is required`);
@@ -1600,32 +1453,36 @@ function mcpToolLifecycleSetPayload(params) {
     throw new Error(`${method}: state must be enabled, disabled, suspended, or removed`);
   }
   return cleanObject({
-    workspaceRoot: mcpToolLifecycleString(payload, 'workspaceRoot', 'workspace_root'),
+    workspaceRoot,
     serverName,
-    manifestName: mcpToolLifecycleString(payload, 'manifestName', 'manifest_name'),
+    manifestName,
     toolName,
     state,
-    reason: normalizeString(payload.reason),
-    replacementTool: mcpToolLifecycleString(payload, 'replacementTool', 'replacement_tool'),
+    reason,
+    replacementTool,
   });
 }
 
 function mcpToolLifecycleListPayload(params) {
   const method = RPC_METHODS.MCP_TOOL_LIFECYCLE_LIST;
-  const payload = mcpToolLifecyclePayload(method, params, MCP_TOOL_LIFECYCLE_LIST_ALLOWED_KEYS);
+  const payload = { ...assertStrictPlainObject(method, params) };
   const serverName = mcpToolLifecycleString(payload, 'serverName', 'server_name');
+  const workspaceRoot = mcpToolLifecycleString(payload, 'workspaceRoot', 'workspace_root');
+  assertNoExtraPayloadFields(method, payload);
   if (!serverName) throw new Error(`${method}: serverName is required`);
   return cleanObject({
-    workspaceRoot: mcpToolLifecycleString(payload, 'workspaceRoot', 'workspace_root'),
+    workspaceRoot,
     serverName,
   });
 }
 
 function mcpToolLifecycleExportPayload(params = {}) {
   const method = RPC_METHODS.MCP_TOOL_LIFECYCLE_EXPORT;
-  const payload = mcpToolLifecyclePayload(method, params, MCP_TOOL_LIFECYCLE_EXPORT_ALLOWED_KEYS);
+  const payload = { ...assertStrictPlainObject(method, params) };
+  const workspaceRoot = mcpToolLifecycleString(payload, 'workspaceRoot', 'workspace_root');
+  assertNoExtraPayloadFields(method, payload);
   return cleanObject({
-    workspaceRoot: mcpToolLifecycleString(payload, 'workspaceRoot', 'workspace_root'),
+    workspaceRoot,
   });
 }
 
@@ -1702,48 +1559,116 @@ function threadConfigPayload(params) {
 
 function threadStartPayload(params) {
   const payload = requireCwd(RPC_METHODS.THREAD_START, params);
-  assertAllowedPayloadFields(RPC_METHODS.THREAD_START, payload, THREAD_START_ALLOWED_KEYS);
-  const provider = normalizeProvider(payload);
+  const unused = { ...payload };
+  const providerRaw = takePayloadField(unused, 'provider');
+  const modelProvider = takePayloadField(unused, 'modelProvider');
+  const modelProviderSnake = takePayloadField(unused, 'model_provider');
+  takePayloadField(unused, 'codexModelProvider');
+  takePayloadField(unused, 'codex_model_provider');
+  const promptKey = normalizeString(takePayloadField(unused, 'promptKey') || takePayloadField(unused, 'prompt_key'));
+  const agentKey = normalizeString(takePayloadField(unused, 'agentKey') || takePayloadField(unused, 'agent_key'));
+  const deferSpawn = takePayloadField(unused, 'deferSpawn') ?? takePayloadField(unused, 'defer_spawn');
+  const toolSurfaceModeRaw = takePayloadField(unused, 'toolSurfaceMode') || takePayloadField(unused, 'tool_surface_mode');
+  takePayloadField(unused, 'optimisticUserMessage');
+  takePayloadField(unused, 'optimistic_user_message');
+  takePayloadField(unused, 'skipInitialRuntimeSync');
+  takePayloadField(unused, 'skip_initial_runtime_sync');
+  const request = cleanObject({
+    cwd: takePayloadField(unused, 'cwd'),
+    agentId: takePayloadField(unused, 'agentId'),
+    agent_id: takePayloadField(unused, 'agent_id'),
+    agent_type: takePayloadField(unused, 'agent_type'),
+    agentMemoryScope: takePayloadField(unused, 'agentMemoryScope'),
+    agentType: takePayloadField(unused, 'agentType'),
+    agent_memory_scope: takePayloadField(unused, 'agent_memory_scope'),
+    approvalPolicy: takePayloadField(unused, 'approvalPolicy'),
+    approval_policy: takePayloadField(unused, 'approval_policy'),
+    baseInstructions: takePayloadField(unused, 'baseInstructions'),
+    base_instructions: takePayloadField(unused, 'base_instructions'),
+    config: takePayloadField(unused, 'config'),
+    developerInstructions: takePayloadField(unused, 'developerInstructions'),
+    developer_instructions: takePayloadField(unused, 'developer_instructions'),
+    effort: takePayloadField(unused, 'effort'),
+    instructions: takePayloadField(unused, 'instructions'),
+    language: takePayloadField(unused, 'language'),
+    launchIntentId: takePayloadField(unused, 'launchIntentId'),
+    launch_intent_id: takePayloadField(unused, 'launch_intent_id'),
+    manualSkillSelection: takePayloadField(unused, 'manualSkillSelection'),
+    manual_skill_selection: takePayloadField(unused, 'manual_skill_selection'),
+    memoryScope: takePayloadField(unused, 'memoryScope'),
+    memory_scope: takePayloadField(unused, 'memory_scope'),
+    model: takePayloadField(unused, 'model'),
+    name: takePayloadField(unused, 'name'),
+    parentAgentId: takePayloadField(unused, 'parentAgentId'),
+    parentID: takePayloadField(unused, 'parentID'),
+    parentId: takePayloadField(unused, 'parentId'),
+    parent_agent_id: takePayloadField(unused, 'parent_agent_id'),
+    personality: takePayloadField(unused, 'personality'),
+    prompt: takePayloadField(unused, 'prompt'),
+    sandbox: takePayloadField(unused, 'sandbox'),
+    selectedSkillRefs: takePayloadField(unused, 'selectedSkillRefs'),
+    selectedSkills: takePayloadField(unused, 'selectedSkills'),
+    selected_skill_refs: takePayloadField(unused, 'selected_skill_refs'),
+    selected_skills: takePayloadField(unused, 'selected_skills'),
+    summary: takePayloadField(unused, 'summary'),
+  });
+  assertNoExtraPayloadFields(RPC_METHODS.THREAD_START, unused);
+  const provider = normalizeString(modelProvider || modelProviderSnake || providerRaw);
   if (!provider) throw new Error(`${RPC_METHODS.THREAD_START}: provider is required`);
-  const rest = { ...payload };
-  const promptKey = normalizeString(rest.promptKey || rest.prompt_key);
-  const agentKey = normalizeString(rest.agentKey || rest.agent_key);
-  const deferSpawn = rest.deferSpawn ?? rest.defer_spawn;
-  const toolSurfaceMode = normalizeToolSurfaceMode(rest.toolSurfaceMode || rest.tool_surface_mode);
-  stripThreadStartInternalKeys(rest);
-  const request = cleanObject({ ...rest, provider, prompt_key: promptKey, agent_key: agentKey, toolSurfaceMode });
+  request.provider = provider;
+  const toolSurfaceMode = normalizeToolSurfaceMode(toolSurfaceModeRaw);
+  if (promptKey) request.prompt_key = promptKey;
+  if (agentKey) request.agent_key = agentKey;
+  if (toolSurfaceMode) request.toolSurfaceMode = toolSurfaceMode;
   if (deferSpawn === true) request.defer_spawn = true;
   return request;
 }
 
-function stripThreadStartInternalKeys(rest) {
-  delete rest.provider;
-  delete rest.modelProvider;
-  delete rest.model_provider;
-  delete rest.codexModelProvider;
-  delete rest.codex_model_provider;
-  delete rest.promptKey;
-  delete rest.prompt_key;
-  delete rest.agentKey;
-  delete rest.agent_key;
-  delete rest.deferSpawn;
-  delete rest.defer_spawn;
-  delete rest.toolSurfaceMode;
-  delete rest.tool_surface_mode;
-  delete rest.optimisticUserMessage;
-  delete rest.optimistic_user_message;
-  delete rest.skipInitialRuntimeSync;
-  delete rest.skip_initial_runtime_sync;
-}
-
 function turnStartPayload(params) {
   const payload = requireThreadId(RPC_METHODS.TURN_START, requireCwd(RPC_METHODS.TURN_START, params));
-  assertAllowedPayloadFields(RPC_METHODS.TURN_START, payload, TURN_START_ALLOWED_KEYS);
-  const { input, attachments, ...rest } = payload;
-  if (normalizeString(rest.prompt) && hasAttachmentInputContent(attachments)) {
+  const unused = { ...payload };
+  const input = takePayloadField(unused, 'input');
+  const attachments = takePayloadField(unused, 'attachments');
+  const request = takePayloadFields(unused, [
+    'additionalWorkingDirectories',
+    'additional_working_directories',
+    'approvalPolicy',
+    'approval_policy',
+    'cwd',
+    'effort',
+    'enabledTools',
+    'enabled_tools',
+    'files',
+    'gitRoot',
+    'git_root',
+    'images',
+    'isWorktree',
+    'is_worktree',
+    'language',
+    'manualSkillSelection',
+    'manual_skill_selection',
+    'mcpSnapshot',
+    'mcp_snapshot',
+    'model',
+    'outputSchema',
+    'output_schema',
+    'prompt',
+    'provider',
+    'selectedSkillRefs',
+    'selectedSkills',
+    'selected_skill_refs',
+    'selected_skills',
+    'sessionFlags',
+    'session_flags',
+    'threadID',
+    'threadId',
+    'thread_id',
+  ]);
+  assertNoExtraPayloadFields(RPC_METHODS.TURN_START, unused);
+  if (normalizeString(request.prompt) && hasAttachmentInputContent(attachments)) {
     throw new Error(`${RPC_METHODS.TURN_START}: prompt and attachments cannot both contain content`);
   }
-  return { ...rest, ...normalizeTurnInput(input, attachments) };
+  return { ...request, ...normalizeTurnInput(input, attachments) };
 }
 
 function turnInterruptPayload(params) {
@@ -1753,17 +1678,29 @@ function turnInterruptPayload(params) {
 
 function forceCompleteTurnPayload(params) {
   const payload = requireThreadId(RPC_METHODS.TURN_FORCE_COMPLETE, requireCwd(RPC_METHODS.TURN_FORCE_COMPLETE, params));
+  const unused = { ...payload };
+  delete unused.cwd;
+  delete unused.threadId;
+  delete unused.thread_id;
+  assertNoExtraPayloadFields(RPC_METHODS.TURN_FORCE_COMPLETE, unused);
   return { threadId: payload.threadId };
 }
 
 function approvalRespondPayload(params) {
   const payload = assertPlainObject(RPC_METHODS.APPROVAL_RESPOND, params);
-  const rawRequestId = Number(payload.requestId || payload.request_id);
-  const requestId = Number.isFinite(rawRequestId) ? Math.trunc(rawRequestId) : 0;
-  if (requestId <= 0) throw new Error(`${RPC_METHODS.APPROVAL_RESPOND}: requestId is required`);
+  const {
+    approved,
+    requestId,
+    request_id: requestIdAlias,
+    ...unused
+  } = payload;
+  assertNoExtraPayloadFields(RPC_METHODS.APPROVAL_RESPOND, unused);
+  const rawRequestId = Number(requestId ?? requestIdAlias);
+  const normalizedRequestId = Number.isFinite(rawRequestId) ? Math.trunc(rawRequestId) : 0;
+  if (normalizedRequestId <= 0) throw new Error(`${RPC_METHODS.APPROVAL_RESPOND}: requestId is required`);
   if (!hasOwn(payload, 'approved')) throw new Error(`${RPC_METHODS.APPROVAL_RESPOND}: approved is required`);
-  if (typeof payload.approved !== 'boolean') throw new Error(`${RPC_METHODS.APPROVAL_RESPOND}: approved must be boolean`);
-  return { requestId, approved: payload.approved };
+  if (typeof approved !== 'boolean') throw new Error(`${RPC_METHODS.APPROVAL_RESPOND}: approved must be boolean`);
+  return { requestId: normalizedRequestId, approved };
 }
 
 function compactThreadPayload(params) {

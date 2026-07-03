@@ -61,6 +61,70 @@ func TestTurnStartParamsAcceptsCamelRuntimeAliases(t *testing.T) {
 	}
 }
 
+func TestTurnStartParamsRejectsConflictingBoolAliases(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		payload string
+		want    string
+	}{
+		{
+			name:    "manual skill selection",
+			payload: `{"manual_skill_selection":false,"manualSkillSelection":true}`,
+			want:    `conflicting manual skill selection values`,
+		},
+		{
+			name:    "is worktree",
+			payload: `{"is_worktree":false,"isWorktree":true}`,
+			want:    `conflicting is worktree values`,
+		},
+	}
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			var params turnStartParams
+			err := json.Unmarshal([]byte(tt.payload), &params)
+			if err == nil || !strings.Contains(err.Error(), tt.want) {
+				t.Fatalf("json.Unmarshal(turnStartParams) error = %v, want %q", err, tt.want)
+			}
+		})
+	}
+}
+
+func TestTurnSteerParamsRejectsConflictingBoolAliases(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		payload string
+		want    string
+	}{
+		{
+			name:    "manual skill selection",
+			payload: `{"thread_id":"thread-1","manual_skill_selection":false,"manualSkillSelection":true}`,
+			want:    `conflicting manual skill selection values`,
+		},
+		{
+			name:    "is worktree",
+			payload: `{"thread_id":"thread-1","is_worktree":false,"isWorktree":true}`,
+			want:    `conflicting is worktree values`,
+		},
+	}
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			var params turnSteerParams
+			err := json.Unmarshal([]byte(tt.payload), &params)
+			if err == nil || !strings.Contains(err.Error(), tt.want) {
+				t.Fatalf("json.Unmarshal(turnSteerParams) error = %v, want %q", err, tt.want)
+			}
+		})
+	}
+}
+
 func TestTurnThreadScopedParamsRejectUnknownFields(t *testing.T) {
 	t.Parallel()
 

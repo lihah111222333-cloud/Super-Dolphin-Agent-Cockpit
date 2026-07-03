@@ -2,6 +2,7 @@ package turn
 
 import (
 	"encoding/json"
+	"fmt"
 	"strings"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
@@ -39,8 +40,14 @@ func (p *turnStartParams) UnmarshalJSON(data []byte) error {
 	if err := rejectUnknownTurnFields(data, "turn/start", rawTurnStartParams{}, legacyTurnStartParams{}); err != nil {
 		return err
 	}
+	payload, err := decodeTurnCompatPayload(data)
+	if err != nil {
+		return err
+	}
 	var legacy legacyTurnStartParams
-	return decodeLegacyTurnParams(data, (*rawTurnStartParams)(p), &legacy, mergeTurnStartLegacy)
+	return decodeLegacyTurnParams(data, (*rawTurnStartParams)(p), &legacy, func(current *rawTurnStartParams, legacy *legacyTurnStartParams) error {
+		return mergeTurnStartLegacy(current, legacy, payload)
+	})
 }
 
 type rawTurnStartParams turnStartParams
@@ -63,7 +70,7 @@ type legacyTurnStartParams struct {
 
 // mergeTurnStartLegacy 把旧版 camelCase 字段补进 turn/start 新版参数。
 // 只有新版字段为空时才补值，避免旧客户端兼容逻辑覆盖当前 wire 格式。
-func mergeTurnStartLegacy(current *rawTurnStartParams, legacy *legacyTurnStartParams) error {
+func mergeTurnStartLegacy(current *rawTurnStartParams, legacy *legacyTurnStartParams, payload map[string]json.RawMessage) error {
 	if strings.TrimSpace(current.ThreadID) == "" {
 		current.ThreadID = firstTrimmed(legacy.ThreadID, legacy.ThreadIDUpper)
 	}
@@ -73,13 +80,15 @@ func mergeTurnStartLegacy(current *rawTurnStartParams, legacy *legacyTurnStartPa
 	if len(current.SelectedSkillRefs) == 0 && len(legacy.SelectedSkillRefs) > 0 {
 		current.SelectedSkillRefs = append([]skillRefParams(nil), legacy.SelectedSkillRefs...)
 	}
-	if !current.ManualSkillSelection && legacy.ManualSkillSelection != nil {
-		current.ManualSkillSelection = *legacy.ManualSkillSelection
+	if err := mergeTurnCompatBool("turn/start", payload, &current.ManualSkillSelection, "manual skill selection", "manual_skill_selection", "manualSkillSelection"); err != nil {
+		return err
 	}
 	if strings.TrimSpace(current.ApprovalPolicy) == "" {
 		current.ApprovalPolicy = strings.TrimSpace(legacy.ApprovalPolicy)
 	}
-	mergeRuntimeLegacyFields(
+	if err := mergeRuntimeLegacyFields(
+		"turn/start",
+		payload,
 		&current.GitRoot,
 		&current.IsWorktree,
 		&current.EnabledTools,
@@ -87,12 +96,13 @@ func mergeTurnStartLegacy(current *rawTurnStartParams, legacy *legacyTurnStartPa
 		&current.MCPSnapshot,
 		&current.SessionFlags,
 		legacy.GitRoot,
-		legacy.IsWorktree,
 		legacy.EnabledTools,
 		legacy.AdditionalWorkingDirectories,
 		legacy.MCPSnapshot,
 		legacy.SessionFlags,
-	)
+	); err != nil {
+		return err
+	}
 	if len(current.OutputSchema) == 0 {
 		current.OutputSchema = append(json.RawMessage(nil), legacy.OutputSchema...)
 	}
@@ -145,8 +155,14 @@ func (p *turnSteerParams) UnmarshalJSON(data []byte) error {
 	if err := rejectUnknownTurnFields(data, "turn/steer", rawTurnSteerParams{}, legacyTurnSteerParams{}); err != nil {
 		return err
 	}
+	payload, err := decodeTurnCompatPayload(data)
+	if err != nil {
+		return err
+	}
 	var legacy legacyTurnSteerParams
-	return decodeLegacyTurnParams(data, (*rawTurnSteerParams)(p), &legacy, mergeTurnSteerLegacy)
+	return decodeLegacyTurnParams(data, (*rawTurnSteerParams)(p), &legacy, func(current *rawTurnSteerParams, legacy *legacyTurnSteerParams) error {
+		return mergeTurnSteerLegacy(current, legacy, payload)
+	})
 }
 
 type rawTurnSteerParams turnSteerParams
@@ -168,7 +184,7 @@ type legacyTurnSteerParams struct {
 
 // mergeTurnSteerLegacy 把旧版 camelCase 字段补进 turn/steer 新版参数。
 // 兼容字段只作为兜底填充，确保新版 snake_case 请求拥有更高优先级。
-func mergeTurnSteerLegacy(current *rawTurnSteerParams, legacy *legacyTurnSteerParams) error {
+func mergeTurnSteerLegacy(current *rawTurnSteerParams, legacy *legacyTurnSteerParams, payload map[string]json.RawMessage) error {
 	if strings.TrimSpace(current.ThreadID) == "" {
 		current.ThreadID = firstTrimmed(legacy.ThreadID, legacy.ThreadIDUpper)
 	}
@@ -181,10 +197,12 @@ func mergeTurnSteerLegacy(current *rawTurnSteerParams, legacy *legacyTurnSteerPa
 	if len(current.SelectedSkillRefs) == 0 && len(legacy.SelectedSkillRefs) > 0 {
 		current.SelectedSkillRefs = append([]skillRefParams(nil), legacy.SelectedSkillRefs...)
 	}
-	if !current.ManualSkillSelection && legacy.ManualSkillSelection != nil {
-		current.ManualSkillSelection = *legacy.ManualSkillSelection
+	if err := mergeTurnCompatBool("turn/steer", payload, &current.ManualSkillSelection, "manual skill selection", "manual_skill_selection", "manualSkillSelection"); err != nil {
+		return err
 	}
-	mergeRuntimeLegacyFields(
+	if err := mergeRuntimeLegacyFields(
+		"turn/steer",
+		payload,
 		&current.GitRoot,
 		&current.IsWorktree,
 		&current.EnabledTools,
@@ -192,12 +210,13 @@ func mergeTurnSteerLegacy(current *rawTurnSteerParams, legacy *legacyTurnSteerPa
 		&current.MCPSnapshot,
 		&current.SessionFlags,
 		legacy.GitRoot,
-		legacy.IsWorktree,
 		legacy.EnabledTools,
 		legacy.AdditionalWorkingDirectories,
 		legacy.MCPSnapshot,
 		legacy.SessionFlags,
-	)
+	); err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -213,6 +232,8 @@ func firstTrimmed(values ...string) string {
 // mergeRuntimeLegacyFields 把旧版运行时字段补到新版 turn 参数的空位。
 // 这里不覆盖当前字段，避免 camelCase 兼容路径反向改变新版 snake_case 请求。
 func mergeRuntimeLegacyFields(
+	method string,
+	payload map[string]json.RawMessage,
 	currentGitRoot *string,
 	currentIsWorktree *bool,
 	currentEnabledTools *[]string,
@@ -220,29 +241,85 @@ func mergeRuntimeLegacyFields(
 	currentMCPSnapshot *contract.MCPSnapshot,
 	currentSessionFlags *map[string]bool,
 	legacyGitRoot string,
-	legacyIsWorktree *bool,
 	legacyEnabledTools []string,
 	legacyAdditionalWorkingDirectories []string,
 	legacyMCPSnapshot contract.MCPSnapshot,
 	legacySessionFlags map[string]bool,
-) {
+) error {
 	mergeLegacyString(currentGitRoot, legacyGitRoot)
-	mergeLegacyBool(currentIsWorktree, legacyIsWorktree)
+	if err := mergeTurnCompatBool(method, payload, currentIsWorktree, "is worktree", "is_worktree", "isWorktree"); err != nil {
+		return err
+	}
 	mergeLegacyStringSlice(currentEnabledTools, legacyEnabledTools)
 	mergeLegacyStringSlice(currentAdditionalWorkingDirectories, legacyAdditionalWorkingDirectories)
 	mergeLegacyMCPSnapshot(currentMCPSnapshot, legacyMCPSnapshot)
 	mergeLegacySessionFlags(currentSessionFlags, legacySessionFlags)
+	return nil
+}
+
+func decodeTurnCompatPayload(data []byte) (map[string]json.RawMessage, error) {
+	var payload map[string]json.RawMessage
+	if err := json.Unmarshal(data, &payload); err != nil {
+		return nil, err
+	}
+	return payload, nil
+}
+
+type turnCompatBoolValue struct {
+	key     string
+	value   bool
+	present bool
+}
+
+func mergeTurnCompatBool(method string, payload map[string]json.RawMessage, current *bool, field string, keys ...string) error {
+	value, present, err := resolveTurnCompatBool(method, payload, field, keys...)
+	if err != nil {
+		return err
+	}
+	if present {
+		*current = value
+	}
+	return nil
+}
+
+// resolveTurnCompatBool 根据原始 JSON 合并 turn 入参里的布尔别名。
+// 它用字段是否出现来判断优先级，冲突时 fail-fast，避免旧 camelCase 覆盖显式 false。
+func resolveTurnCompatBool(method string, payload map[string]json.RawMessage, field string, keys ...string) (bool, bool, error) {
+	var resolved turnCompatBoolValue
+	for _, key := range keys {
+		item, err := readTurnCompatBool(method, payload, key)
+		if err != nil {
+			return false, false, err
+		}
+		if !item.present {
+			continue
+		}
+		if !resolved.present {
+			resolved = item
+			continue
+		}
+		if resolved.value != item.value {
+			return false, false, platformrpc.ErrInvalidParams(fmt.Sprintf("%s: conflicting %s values for %q and %q", method, field, resolved.key, item.key))
+		}
+	}
+	return resolved.value, resolved.present, nil
+}
+
+func readTurnCompatBool(method string, payload map[string]json.RawMessage, key string) (turnCompatBoolValue, error) {
+	raw, ok := payload[key]
+	if !ok {
+		return turnCompatBoolValue{}, nil
+	}
+	var value *bool
+	if err := json.Unmarshal(raw, &value); err != nil || value == nil {
+		return turnCompatBoolValue{}, platformrpc.ErrInvalidParams(fmt.Sprintf("%s: %s must be a boolean", method, key))
+	}
+	return turnCompatBoolValue{key: key, value: *value, present: true}, nil
 }
 
 func mergeLegacyString(current *string, legacy string) {
 	if strings.TrimSpace(*current) == "" {
 		*current = strings.TrimSpace(legacy)
-	}
-}
-
-func mergeLegacyBool(current *bool, legacy *bool) {
-	if !*current && legacy != nil {
-		*current = *legacy
 	}
 }
 

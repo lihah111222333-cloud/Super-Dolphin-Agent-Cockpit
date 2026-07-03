@@ -245,6 +245,88 @@ func TestResumeParamsAcceptThreadBodyFields(t *testing.T) {
 	}
 }
 
+func TestThreadRPCParamsRejectUnknownFields(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		payload   string
+		newTarget func() any
+		want      string
+	}{
+		{
+			name:      "thread id",
+			payload:   `{"threadId":"thread-1","surprise":true}`,
+			newTarget: func() any { return &threadIDParams{} },
+			want:      `thread id: unknown field "surprise"`,
+		},
+		{
+			name:      "resume",
+			payload:   `{"threadId":"thread-1","cwd":"/repo","surprise":true}`,
+			newTarget: func() any { return &resumeParams{} },
+			want:      `thread/resume: unknown field "surprise"`,
+		},
+		{
+			name:      "messages",
+			payload:   `{"threadId":"thread-1","limit":20,"surprise":true}`,
+			newTarget: func() any { return &messagesParams{} },
+			want:      `thread/messages: unknown field "surprise"`,
+		},
+		{
+			name:      "name set",
+			payload:   `{"threadId":"thread-1","name":"next","surprise":true}`,
+			newTarget: func() any { return &nameSetParams{} },
+			want:      `thread/name/set: unknown field "surprise"`,
+		},
+		{
+			name:      "command",
+			payload:   `{"threadId":"thread-1","args":"now","surprise":true}`,
+			newTarget: func() any { return &commandParams{} },
+			want:      `thread command: unknown field "surprise"`,
+		},
+		{
+			name:      "approvals set",
+			payload:   `{"threadId":"thread-1","policy":"never","surprise":true}`,
+			newTarget: func() any { return &approvalsSetParams{} },
+			want:      `thread approvals: unknown field "surprise"`,
+		},
+		{
+			name:      "config get",
+			payload:   `{"threadId":"thread-1","surprise":true}`,
+			newTarget: func() any { return &configGetParams{} },
+			want:      `thread/config/get: unknown field "surprise"`,
+		},
+		{
+			name:      "config set",
+			payload:   `{"threadId":"thread-1","model":"gpt-5.5","surprise":true}`,
+			newTarget: func() any { return &configSetParams{} },
+			want:      `thread/config/set: unknown field "surprise"`,
+		},
+		{
+			name:      "model set",
+			payload:   `{"threadId":"thread-1","model":"gpt-5.5","surprise":true}`,
+			newTarget: func() any { return &modelSetParams{} },
+			want:      `thread/model/set: unknown field "surprise"`,
+		},
+		{
+			name:      "compact start",
+			payload:   `{"threadId":"thread-1","args":"compact","surprise":true}`,
+			newTarget: func() any { return &compactStartParams{} },
+			want:      `thread/compact/start: unknown field "surprise"`,
+		},
+	}
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			err := json.Unmarshal([]byte(tt.payload), tt.newTarget())
+			if err == nil || !strings.Contains(err.Error(), tt.want) {
+				t.Fatalf("json.Unmarshal(%s) error = %v, want %q", tt.name, err, tt.want)
+			}
+		})
+	}
+}
+
 func TestNormalizeStartRequestRejectsMissingProvider(t *testing.T) {
 	t.Parallel()
 
@@ -342,6 +424,16 @@ func TestStartParamsAcceptsSelectedSkillsCamelCase(t *testing.T) {
 	}
 	if len(params.SelectedSkills) != 2 || params.SelectedSkills[0] != "planner" || strings.TrimSpace(params.SelectedSkills[1]) != "reviewer" {
 		t.Fatalf("SelectedSkills = %#v", params.SelectedSkills)
+	}
+}
+
+func TestStartParamsRejectsConflictingManualSkillSelectionAliases(t *testing.T) {
+	t.Parallel()
+
+	var params startParams
+	err := json.Unmarshal([]byte(`{"manual_skill_selection":false,"manualSkillSelection":true}`), &params)
+	if err == nil || !strings.Contains(err.Error(), `conflicting manual skill selection values`) {
+		t.Fatalf("json.Unmarshal() error = %v, want manualSkillSelection conflict", err)
 	}
 }
 
