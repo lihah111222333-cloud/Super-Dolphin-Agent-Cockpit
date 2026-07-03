@@ -35,6 +35,39 @@ func isPendingLaunchIntent(req StartRequest) bool {
 	return true
 }
 
+// pendingLaunchRuntimeConfig 构造待启动线程首轮 spawn 会复用的 runtime 配置。
+// 顶层 sandbox 在 eager 路径由 buildStartSessionConfig 写入；pending 路径必须落库前补齐，避免真实启动时丢掉权限设置。
+func pendingLaunchRuntimeConfig(req StartRequest) map[string]any {
+	runtimeConfig := clone.RuntimeConfigMap(req.Config)
+	if rawSandbox := trimRawJSON(req.Sandbox); len(rawSandbox) > 0 {
+		if runtimeConfig == nil {
+			runtimeConfig = map[string]any{}
+		}
+		putConfigJSON(runtimeConfig, "sandbox", rawSandbox)
+		if len(runtimeConfig) == 0 {
+			return nil
+		}
+	}
+	return runtimeConfig
+}
+
+// buildPendingStoredThreadConfig 生成 pending_launch 落库配置。
+// 这里同时保存顶层 sandbox 和 runtime 快照，确保首轮 SpawnIfNeeded 可恢复启动权限与其它 provider 配置。
+func buildPendingStoredThreadConfig(req StartRequest) storedThreadConfig {
+	return storedThreadConfig{
+		Model:           strings.TrimSpace(req.Model),
+		Effort:          strings.TrimSpace(req.Effort),
+		Approvals:       strings.TrimSpace(req.ApprovalPolicy),
+		Personality:     strings.TrimSpace(req.Personality),
+		Sandbox:         clone.RawMessage(req.Sandbox),
+		Provider:        strings.TrimSpace(req.Provider),
+		PromptKey:       strings.TrimSpace(req.PromptKey),
+		AgentKey:        strings.TrimSpace(req.AgentKey),
+		ToolSurfaceMode: strings.TrimSpace(req.ToolSurfaceMode),
+		Runtime:         pendingLaunchRuntimeConfig(req),
+	}
+}
+
 // startPendingThread 写入 pending_launch 线程，但不 fork provider 进程。
 // 它持久化首轮启动所需配置，并立即发布 started，让 UI 能展示“待输入后启动”的线程。
 func (s *service) startPendingThread(ctx context.Context, req StartRequest, agentID string) (StartResult, error) {
@@ -43,17 +76,7 @@ func (s *service) startPendingThread(ctx context.Context, req StartRequest, agen
 	}
 	createdAt := time.Now().Unix()
 	displayName := resolveDisplayName(ctx, s.threadStore, agentID, req.Prompt, req.Name)
-	pendingStored := storedThreadConfig{
-		Model:           strings.TrimSpace(req.Model),
-		Effort:          strings.TrimSpace(req.Effort),
-		Approvals:       strings.TrimSpace(req.ApprovalPolicy),
-		Personality:     strings.TrimSpace(req.Personality),
-		Provider:        strings.TrimSpace(req.Provider),
-		PromptKey:       strings.TrimSpace(req.PromptKey),
-		AgentKey:        strings.TrimSpace(req.AgentKey),
-		ToolSurfaceMode: strings.TrimSpace(req.ToolSurfaceMode),
-		Runtime:         clone.RuntimeConfigMap(req.Config),
-	}
+	pendingStored := buildPendingStoredThreadConfig(req)
 	configOverride, err := encodeStoredThreadConfig(pendingStored)
 	if err != nil {
 		return StartResult{}, fmt.Errorf("thread: encode pending config: %w", err)
@@ -240,6 +263,7 @@ func buildPendingSpawnRequest(row *threadConfigStoreRecord, agentID, userInputFo
 		Effort:           storedCfg.Effort,
 		Personality:      storedCfg.Personality,
 		ApprovalPolicy:   storedCfg.Approvals,
+		Sandbox:          clone.RawMessage(storedCfg.Sandbox),
 		AgentKey:         util.FirstNonEmpty(storedCfg.AgentKey, row.AgentKey),
 		PromptKey:        storedCfg.PromptKey,
 		ToolSurfaceMode:  storedCfg.ToolSurfaceMode,

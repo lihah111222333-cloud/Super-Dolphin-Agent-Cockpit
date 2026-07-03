@@ -198,7 +198,7 @@ func provideDisabledBuiltinToolsFn(prefs uipreference.Store, tools []contract.Na
 		index[t.ID] = t
 	}
 	return func(ctx context.Context, cwd, provider string) ([]string, error) {
-		return uistate.ResolveSoftFilteredBuiltinTools(ctx, prefs, cwd, tools, index, provider)
+		return uistate.ResolveExplicitSoftFilteredBuiltinTools(ctx, prefs, cwd, tools, index, provider)
 	}
 }
 

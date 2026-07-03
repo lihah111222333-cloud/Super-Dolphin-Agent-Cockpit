@@ -182,6 +182,65 @@ func TestStartPendingLaunchAllowsIntakeMetadataWithoutStartingProvider(t *testin
 	assertString(t, stringValue(stored["prompt_key"]), "main/dag_designer_zh", "stored.prompt_key")
 }
 
+func TestSpawnIfNeededPreservesPendingLaunchSandboxPreference(t *testing.T) {
+	t.Parallel()
+
+	const providerUUID = "019d5f6b-fb3c-7760-9d6f-54005553f6c4"
+	workDir := "/tmp/project"
+	store := &stubThreadStore{}
+	sessions := &stubSessionProvider{}
+	bindings := &stubBindingStore{}
+	var capturedStart dto.StartSessionRequest
+	svc := &service{
+		threadStore:    store,
+		bindingStore:   bindings,
+		sessions:       sessions,
+		orchestration:  &stubThreadOrchestration{},
+		promptAssembly: promptAssemblyStub{},
+		starter: &startOnlySessionStarter{onStart: func(_ context.Context, req dto.StartSessionRequest) (contract.Session, error) {
+			capturedStart = req
+			session := &stubSession{threadID: providerUUID}
+			sessions.session = session
+			return session, nil
+		}},
+	}
+
+	started, err := svc.Start(context.Background(), StartRequest{
+		AgentID:        "thread-pending-sandbox",
+		Provider:       "codex",
+		CWD:            workDir,
+		DeferSpawn:     true,
+		ApprovalPolicy: "on-request",
+		Sandbox:        json.RawMessage(`{"type":"workspaceWrite","writableRoots":["/tmp/project"],"networkAccess":true}`),
+	})
+	if err != nil {
+		t.Fatalf("Start() error = %v, want pending_launch success", err)
+	}
+	store.thread.PendingLaunch = true
+
+	launched, _, err := svc.SpawnIfNeeded(context.Background(), started.ThreadID, "hello", workDir)
+	if err != nil {
+		t.Fatalf("SpawnIfNeeded() error = %v, want nil", err)
+	}
+	if !launched {
+		t.Fatal("SpawnIfNeeded() launched = false, want true")
+	}
+	sandbox, ok := capturedStart.Config["sandbox"].(map[string]any)
+	if !ok {
+		t.Fatalf("pending spawn config sandbox = %#v, want workspaceWrite sandbox object", capturedStart.Config["sandbox"])
+	}
+	if sandbox["type"] != "workspaceWrite" {
+		t.Fatalf("sandbox.type = %#v, want workspaceWrite", sandbox["type"])
+	}
+	roots, ok := sandbox["writableRoots"].([]any)
+	if !ok || len(roots) != 1 || roots[0] != workDir {
+		t.Fatalf("sandbox.writableRoots = %#v, want [%s]", sandbox["writableRoots"], workDir)
+	}
+	if sandbox["networkAccess"] != true {
+		t.Fatalf("sandbox.networkAccess = %#v, want true", sandbox["networkAccess"])
+	}
+}
+
 func TestSpawnIfNeededKeepsPendingThreadRetryableOnSpawnFailure(t *testing.T) {
 	t.Parallel()
 

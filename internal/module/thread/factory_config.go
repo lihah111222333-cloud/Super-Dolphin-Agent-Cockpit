@@ -29,11 +29,13 @@ const (
 )
 
 type storedThreadConfig struct {
-	Model       string         `json:"model,omitempty"`
-	Effort      string         `json:"effort,omitempty"`
-	Approvals   string         `json:"approvals,omitempty"`
-	Personality string         `json:"personality,omitempty"`
-	Runtime     map[string]any `json:"runtime,omitempty"`
+	Model       string `json:"model,omitempty"`
+	Effort      string `json:"effort,omitempty"`
+	Approvals   string `json:"approvals,omitempty"`
+	Personality string `json:"personality,omitempty"`
+	// Sandbox 保存 pending_launch intake 时的沙箱选择，首轮 SpawnIfNeeded 必须原样带回 provider 启动配置。
+	Sandbox json.RawMessage `json:"sandbox,omitempty"`
+	Runtime map[string]any  `json:"runtime,omitempty"`
 	// Provider 只为 pending_launch 线程落库，首轮 SpawnIfNeeded 用它恢复调用方选择的 provider。
 	// 立即启动路径以 agent_provider_binding.Provider 为准，因此 eager 记录为空不会影响运行时路由。
 	Provider string `json:"provider,omitempty"`

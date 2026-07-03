@@ -207,6 +207,31 @@ func ResolveSoftFilteredBuiltinTools(ctx context.Context, prefs preferenceValueR
 	return filterBuiltinToolsByModeAndProvider(filtered, index, contract.NativeToolFilterModeSoft, provider), nil
 }
 
+// ResolveExplicitSoftFilteredBuiltinTools 只返回用户显式保存的 soft filter 工具。
+// 默认禁用项只影响配置页初始状态，不应在无用户偏好时覆盖 provider sandbox 权限。
+func ResolveExplicitSoftFilteredBuiltinTools(
+	ctx context.Context,
+	prefs preferenceValueReader,
+	cwd string,
+	registry []contract.NativeToolDescriptor,
+	index map[string]contract.NativeToolDescriptor,
+	provider string,
+) ([]string, error) {
+	stored, present, err := loadStoredDisabledBuiltinToolSet(ctx, prefs, cwd, index)
+	if err != nil {
+		return nil, err
+	}
+	if !present || len(stored) == 0 {
+		return nil, nil
+	}
+	ids := make([]string, 0, len(stored))
+	for id := range stored {
+		ids = append(ids, id)
+	}
+	sort.Strings(ids)
+	return filterBuiltinToolsByModeAndProvider(ids, index, contract.NativeToolFilterModeSoft, provider), nil
+}
+
 // ResolveHardEnabledBuiltinTools 返回指定 provider 下 hard filter 但当前仍启用的工具。
 func ResolveHardEnabledBuiltinTools(ctx context.Context, prefs preferenceValueReader, cwd string, registry []contract.NativeToolDescriptor, index map[string]contract.NativeToolDescriptor, provider string) ([]string, error) {
 	disabled := make(map[string]struct{})

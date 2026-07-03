@@ -215,6 +215,46 @@ func TestResolveSoftFilteredBuiltinToolsFiltersProvider(t *testing.T) {
 	}
 }
 
+func TestResolveExplicitSoftFilteredBuiltinToolsIgnoresDefaultDisabledTools(t *testing.T) {
+	t.Parallel()
+	got, err := ResolveExplicitSoftFilteredBuiltinTools(
+		context.Background(),
+		nil,
+		"/repo",
+		testNativeTools,
+		testNativeToolIndex(),
+		"codex",
+	)
+	if err != nil {
+		t.Fatalf("ResolveExplicitSoftFilteredBuiltinTools(nil prefs) error = %v", err)
+	}
+	if len(got) != 0 {
+		t.Fatalf("ResolveExplicitSoftFilteredBuiltinTools(nil prefs) = %#v, want empty", got)
+	}
+}
+
+func TestResolveExplicitSoftFilteredBuiltinToolsReturnsStoredSoftTools(t *testing.T) {
+	t.Parallel()
+	prefs := &uiPreferenceStoreStub{values: map[string]json.RawMessage{
+		preferenceStubKey("/repo", builtinToolsDisabledKey): json.RawMessage(`["shell","Read","WebFetch"]`),
+	}}
+	got, err := ResolveExplicitSoftFilteredBuiltinTools(
+		context.Background(),
+		prefs,
+		"/repo",
+		testNativeTools,
+		testNativeToolIndex(),
+		"codex",
+	)
+	if err != nil {
+		t.Fatalf("ResolveExplicitSoftFilteredBuiltinTools(stored prefs) error = %v", err)
+	}
+	want := []string{"shell"}
+	if !equalSortedStrings(got, want) {
+		t.Fatalf("ResolveExplicitSoftFilteredBuiltinTools(stored prefs) = %#v, want %#v", got, want)
+	}
+}
+
 func TestBuiltinToolsReadReturnsEnforcementTier(t *testing.T) {
 	t.Parallel()
 	prefs := &uiPreferenceStoreStub{}
