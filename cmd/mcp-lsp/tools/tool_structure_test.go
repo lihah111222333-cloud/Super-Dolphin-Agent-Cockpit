@@ -504,30 +504,12 @@ func TestStructureMarkdownDocumentSymbolUsesFallback(t *testing.T) {
 	requireNumberField(t, payload, "showing", 2)
 }
 
-func TestStructureTypeScriptDocumentSymbolUsesFallbackInsteadOfEmptyEnvelope(t *testing.T) {
+func TestStructureTypeScriptDocumentSymbolUsesNavigationFallbackInsteadOfEmptyEnvelope(t *testing.T) {
 	root := t.TempDir()
-	writeStructureTestFile(t, root, "user-ui-v2/src/lib/market/Datafeed.ts", strings.Join([]string{
-		"type TradeCallback = (data: DatafeedTrade[]) => void;",
-		"const MOCK_REALTIME_MODE = false;",
-		"",
-		"export class WJDatafeed implements Datafeed {",
-		"    private static _instance: WJDatafeed | null = null;",
-		"    private _ws: WebSocket | null = null;",
-		"",
-		"    private constructor() { if (!MOCK_REALTIME_MODE) this._connect(); }",
-		"",
-		"    public static getInstance(): WJDatafeed { if (!this._instance) this._instance = new WJDatafeed(); return this._instance; }",
-		"",
-		"    private _connect() {",
-		"        this._ws = new WebSocket('wss://example.test/ws');",
-		"    }",
-		"",
-		"    async searchSymbols(search?: string): Promise<SymbolInfo[]> {",
-		"        return [];",
-		"    }",
-		"}",
-		"",
-	}, "\n"))
+	writeStructureTestFile(t, root, "user-ui-v2/package.json", `{"name":"user-ui-v2"}`)
+	content := "export default memo(function FancyWidget() { return null; })\n"
+	writeStructureTestFile(t, root, "user-ui-v2/src/lib/market/Datafeed.ts", content)
+	installStructureFakeTypeScriptNavigationNode(t, fakeStructureTypeScriptNavigationTree(t, content))
 	handler := NewStructureHandler(newTypeScriptEmptyDocumentSymbolRegistry(t, root))
 
 	got, err := handler(testToolContext(root), marshalStructureParams(t, structureParams{
@@ -543,13 +525,8 @@ func TestStructureTypeScriptDocumentSymbolUsesFallbackInsteadOfEmptyEnvelope(t *
 	}
 	payload := mustMarshalObject(t, got)
 	requireDocumentSymbolPayloadNames(t, payload, []string{
-		"TradeCallback",
-		"MOCK_REALTIME_MODE",
-		"WJDatafeed",
-		"constructor",
-		"getInstance",
-		"_connect",
-		"searchSymbols",
+		"FromNavigationTree",
+		"render",
 	})
 }
 
@@ -626,6 +603,60 @@ func (emptyDocumentSymbolClient) DidChange(context.Context, string, int, []proto
 }
 func (emptyDocumentSymbolClient) DidClose(context.Context, string) error { return nil }
 func (emptyDocumentSymbolClient) Close() error                           { return nil }
+
+func fakeStructureTypeScriptNavigationTree(t *testing.T, content string) string {
+	t.Helper()
+	nameStart := strings.Index(content, "FancyWidget")
+	if nameStart < 0 {
+		nameStart = 0
+	}
+	tree := map[string]any{
+		"text":  "<global>",
+		"kind":  "script",
+		"spans": []map[string]int{{"start": 0, "length": len(content)}},
+		"childItems": []map[string]any{{
+			"text":     "FromNavigationTree",
+			"kind":     "function",
+			"spans":    []map[string]int{{"start": 0, "length": len(content)}},
+			"nameSpan": map[string]int{"start": nameStart, "length": len("FancyWidget")},
+			"childItems": []map[string]any{{
+				"text":     "render",
+				"kind":     "method",
+				"spans":    []map[string]int{{"start": nameStart, "length": len("FancyWidget")}},
+				"nameSpan": map[string]int{"start": nameStart, "length": len("FancyWidget")},
+			}},
+		}},
+	}
+	raw, err := json.Marshal(tree)
+	if err != nil {
+		t.Fatalf("marshal fake navigation tree: %v", err)
+	}
+	return string(raw)
+}
+
+func installStructureFakeTypeScriptNavigationNode(t *testing.T, output string) {
+	t.Helper()
+	dir := t.TempDir()
+	outputPath := filepath.Join(dir, "navigation.json")
+	if err := os.WriteFile(outputPath, []byte(output), 0o600); err != nil {
+		t.Fatalf("write fake navigation output: %v", err)
+	}
+	nodePath := filepath.Join(dir, "node")
+	script := strings.Join([]string{
+		"#!/bin/sh",
+		"cat >/dev/null",
+		"cat " + structureShellQuote(outputPath),
+		"",
+	}, "\n")
+	if err := os.WriteFile(nodePath, []byte(script), 0o755); err != nil {
+		t.Fatalf("write fake node: %v", err)
+	}
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+}
+
+func structureShellQuote(value string) string {
+	return "'" + strings.ReplaceAll(value, "'", "'\\''") + "'"
+}
 
 func requireDocumentSymbolPayloadNames(t *testing.T, payload map[string]any, want []string) {
 	t.Helper()

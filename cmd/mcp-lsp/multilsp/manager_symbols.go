@@ -191,20 +191,30 @@ func (m *manager) documentSymbolsWithoutDiagnosticsWait(ctx context.Context, uri
 	if client == nil {
 		return nil, nil
 	}
+	symbols, err := m.requestDocumentSymbols(ctx, client, ref)
+	if err != nil {
+		return nil, err
+	}
+	symbols, err = m.retryEmptyDocumentSymbols(ctx, client, ref, symbols)
+	if err != nil {
+		return nil, err
+	}
+	if fallback, ok, err := m.fallbackEmptyLSPDocumentSymbols(ctx, ref, symbols); ok || err != nil {
+		return fallback, err
+	}
+	return symbols, nil
+}
+
+// requestDocumentSymbols 统一执行 documentSymbol 请求和结果解码。
+// 空结果是否重试或兜底由调用方决定，避免请求函数吞掉 LSP 的原始能力错误。
+func (m *manager) requestDocumentSymbols(ctx context.Context, client Client, ref documentRef) ([]protocol.DocumentSymbol, error) {
 	raw, err := m.request(ctx, client, protocol.MethodDocumentSymbol, protocol.DocumentSymbolParams{
 		TextDocument: protocol.TextDocumentIdentifier{URI: ref.uri},
 	})
 	if err != nil {
 		return nil, unsupportedCapabilityError(err)
 	}
-	symbols, err := decodeDocumentSymbols(raw)
-	if err != nil {
-		return nil, err
-	}
-	if fallback, ok, err := m.fallbackEmptyLSPDocumentSymbols(ref, symbols); ok || err != nil {
-		return fallback, err
-	}
-	return symbols, nil
+	return decodeDocumentSymbols(raw)
 }
 
 // WorkspaceSymbol 查询指定语言 workspace 内的符号。
