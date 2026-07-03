@@ -44,6 +44,9 @@ func (p *turnStartParams) UnmarshalJSON(data []byte) error {
 	if err != nil {
 		return err
 	}
+	if err := validateTurnBoolFields("turn/start", payload); err != nil {
+		return err
+	}
 	var legacy legacyTurnStartParams
 	return decodeLegacyTurnParams(data, (*rawTurnStartParams)(p), &legacy, func(current *rawTurnStartParams, legacy *legacyTurnStartParams) error {
 		return mergeTurnStartLegacy(current, legacy, payload)
@@ -159,6 +162,9 @@ func (p *turnSteerParams) UnmarshalJSON(data []byte) error {
 	if err != nil {
 		return err
 	}
+	if err := validateTurnBoolFields("turn/steer", payload); err != nil {
+		return err
+	}
 	var legacy legacyTurnSteerParams
 	return decodeLegacyTurnParams(data, (*rawTurnSteerParams)(p), &legacy, func(current *rawTurnSteerParams, legacy *legacyTurnSteerParams) error {
 		return mergeTurnSteerLegacy(current, legacy, payload)
@@ -263,6 +269,15 @@ func decodeTurnCompatPayload(data []byte) (map[string]json.RawMessage, error) {
 		return nil, err
 	}
 	return payload, nil
+}
+
+// validateTurnBoolFields 先用原始 JSON 校验 bool 别名，避免结构体解码提前返回通用错误。
+func validateTurnBoolFields(method string, payload map[string]json.RawMessage) error {
+	if _, _, err := resolveTurnCompatBool(method, payload, "manual skill selection", "manual_skill_selection", "manualSkillSelection"); err != nil {
+		return err
+	}
+	_, _, err := resolveTurnCompatBool(method, payload, "is worktree", "is_worktree", "isWorktree")
+	return err
 }
 
 type turnCompatBoolValue struct {

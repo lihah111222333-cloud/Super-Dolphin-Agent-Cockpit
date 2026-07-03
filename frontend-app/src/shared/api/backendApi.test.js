@@ -612,6 +612,60 @@ function expectInvalidInputDoesNotCall(callAPI, action, message) {
     expect(callAPI).toHaveBeenCalledWith(RPC_METHODS.THREAD_DELETE, { threadId: 'thread-3' });
   });
 
+  it('rejects unknown thread-scoped facade fields before calling the backend', () => {
+    const callAPI = vi.fn().mockResolvedValue({ ok: true });
+    const api = createBackendApi({ callAPI });
+
+    expectInvalidInputDoesNotCall(callAPI, () => api.resolveThreadIdentity({
+      cwd: '/repo/app',
+      threadId: 'thread-1',
+      surprise: true,
+    }), 'thread/resolve: unsupported payload field surprise');
+    expectInvalidInputDoesNotCall(callAPI, () => api.archiveThread({
+      cwd: '/repo/app',
+      threadId: 'thread-1',
+      surprise: true,
+    }), 'thread/archive: unsupported payload field surprise');
+    expectInvalidInputDoesNotCall(callAPI, () => api.renameThread({
+      cwd: '/repo/app',
+      threadId: 'thread-1',
+      name: 'Renamed',
+      surprise: true,
+    }), 'thread/name/set: unsupported payload field surprise');
+    expectInvalidInputDoesNotCall(callAPI, () => api.setThreadConfig({
+      threadId: 'thread-1',
+      model: 'gpt-5.4',
+      surprise: true,
+    }), 'thread/config/set: unsupported payload field surprise');
+    expectInvalidInputDoesNotCall(callAPI, () => api.interruptTurn({
+      cwd: '/repo/app',
+      threadId: 'thread-1',
+      turnId: 'turn-1',
+      source: 'ui_stop',
+      surprise: true,
+    }), 'turn/interrupt: unsupported payload field surprise');
+    expectInvalidInputDoesNotCall(callAPI, () => api.compactThread({
+      cwd: '/repo/app',
+      threadId: 'thread-1',
+      surprise: true,
+    }), 'thread/compact/start: unsupported payload field surprise');
+  });
+
+  it('rejects conflicting thread id aliases before calling thread-scoped backend RPCs', () => {
+    const callAPI = vi.fn().mockResolvedValue({ ok: true });
+    const api = createBackendApi({ callAPI });
+
+    expectInvalidInputDoesNotCall(callAPI, () => api.archiveThread({
+      threadId: 'thread-A',
+      thread_id: 'thread-B',
+    }), 'thread/archive: conflicting threadId values for threadId and thread_id');
+    expectInvalidInputDoesNotCall(callAPI, () => api.resolveThreadIdentity({
+      cwd: '/repo/app',
+      threadId: 'thread-A',
+      thread_id: 'thread-B',
+    }), 'thread/resolve: conflicting threadId values for threadId and thread_id');
+  });
+
   it('exposes text copy through the native bridge helper without adding a backend RPC payload', async () => {
     const callAPI = vi.fn();
     const beginTextClipboardWrite = vi.fn().mockReturnValue(null);
@@ -1078,18 +1132,19 @@ function expectSkillEditorCalls(callAPI) {
     await api.listPromptSections({ cwd: '/repo/app', prompt_id: 'prompt-1' });
     await api.writePromptSection({ cwd: '/repo/app', prompt_id: 'prompt-1', section: 'body' });
     await api.deletePromptSection({ cwd: '/repo/app', prompt_id: 'prompt-1', section: 'body' });
-    await api.getThreadMessages({ threadId: 'thread-1' });
-    await api.resolveThreadIdentity({ thread_id: 'thread-2' });
+    await api.getThreadMessages({ threadId: 'thread-1', limit: 20, before: 'cursor-1' });
+    await api.resolveThreadIdentity({ cwd: '/repo/app', thread_id: 'thread-2' });
 
     expect(callAPI).toHaveBeenCalledWith(RPC_METHODS.PROMPT_SECTIONS_LIST, { cwd: '/repo/app', prompt_id: 'prompt-1' });
     expect(callAPI).toHaveBeenCalledWith(RPC_METHODS.PROMPT_SECTIONS_WRITE, { cwd: '/repo/app', prompt_id: 'prompt-1', section: 'body' });
     expect(callAPI).toHaveBeenCalledWith(RPC_METHODS.PROMPT_SECTIONS_DELETE, { cwd: '/repo/app', prompt_id: 'prompt-1', section: 'body' });
-    expect(callAPI).toHaveBeenCalledWith(RPC_METHODS.THREAD_MESSAGES, { threadId: 'thread-1' });
-    expect(callAPI).toHaveBeenCalledWith(RPC_METHODS.THREAD_RESOLVE, { thread_id: 'thread-2', threadId: 'thread-2' });
+    expect(callAPI).toHaveBeenCalledWith(RPC_METHODS.THREAD_MESSAGES, { threadId: 'thread-1', limit: 20, before: 'cursor-1' });
+    expect(callAPI).toHaveBeenCalledWith(RPC_METHODS.THREAD_RESOLVE, { threadId: 'thread-2' });
 
     expect(() => api.listPromptSections({ cwd: '', prompt_id: 'prompt-1' })).toThrow('cwd is required');
     expect(() => api.writePromptSection({ cwd: '/repo/app', prompt_id: '' })).toThrow('prompt_id is required');
     expect(() => api.getThreadMessages({ threadId: '' })).toThrow('threadId is required');
+    expect(() => api.getThreadMessages({ threadId: 'thread-1', surprise: true })).toThrow('thread/messages: unsupported payload field surprise');
     expect(() => api.resolveThreadIdentity({})).toThrow('threadId is required');
   });
 

@@ -25,6 +25,32 @@ const GO_PAYLOAD_STRUCTS = new Map([
   ]],
 ])
 
+const FRONTEND_PAYLOAD_BUILDERS = new Map([
+  ['thread/start', 'threadStartPayload'],
+  ['turn/start', 'turnStartPayload'],
+])
+
+const FRONTEND_PAYLOAD_METHOD_EXEMPTIONS = new Map([
+  ['turn/steer', 'turn/steer is provider-facing and has no React facade builder'],
+])
+
+const FRONTEND_FACADE_ONLY_PAYLOAD_KEYS = new Map([
+  ['thread/start', [
+    'agentKey',
+    'codexModelProvider',
+    'codex_model_provider',
+    'deferSpawn',
+    'optimisticUserMessage',
+    'optimistic_user_message',
+    'promptKey',
+    'skipInitialRuntimeSync',
+    'skip_initial_runtime_sync',
+  ]],
+  ['turn/start', [
+    'attachments',
+  ]],
+])
+
 const GO_HANDLER_CALLS = [
   'StrictHandler',
   'LoggedStrictHandler',
@@ -46,12 +72,11 @@ export async function auditRpcContracts({ repoRoot = DEFAULT_REPO_ROOT } = {}) {
   }))
   const backendHandlers = await collectGoRpcHandlers(repoRoot)
   const goPayloadKeysByMethod = await collectGoPayloadKeys(repoRoot)
-  const frontendPayloadKeysByMethod = new Map()
+  const frontendPayloadKeysByMethod = collectFrontendPayloadKeysFromSource(frontendSource)
   const hardcodedPayloadGuardFindings = await collectHardcodedPayloadGuardFindings(repoRoot, frontendSource)
 
   const registryByKey = new Map(registryEntries.map((entry) => [entry.key, entry]))
   const handlerMethods = new Set(backendHandlers.map((entry) => entry.method))
-  const allowedPayloadRegistryDrift = []
 
   const missingRegistryKeys = rpcMethods
     .filter((entry) => !registryByKey.has(entry.key))
@@ -68,6 +93,7 @@ export async function auditRpcContracts({ repoRoot = DEFAULT_REPO_ROOT } = {}) {
       key: entry.key,
       method: entry.method,
     }))
+  const allowedPayloadRegistryDrift = collectPayloadRegistryDrift(goPayloadKeysByMethod, frontendPayloadKeysByMethod)
 
   return {
     rpcMethods,
@@ -170,6 +196,17 @@ function parseGoStructJSONTags(source, symbol) {
 }
 
 async function collectHardcodedPayloadGuardFindings(repoRoot, frontendSource) {
+  const inspectedFiles = uniqueSorted([
+    ...new Set([...GO_PAYLOAD_STRUCTS.values()].flat().map((locator) => locator.split(':')[0])),
+  ])
+  const goSources = new Map()
+  for (const filePath of inspectedFiles) {
+    goSources.set(filePath, await readFile(join(repoRoot, filePath), 'utf8'))
+  }
+  return collectHardcodedPayloadGuardFindingsFromSources({ frontendSource, goSources })
+}
+
+export function collectHardcodedPayloadGuardFindingsFromSources({ frontendSource = '', goSources = new Map() } = {}) {
   const findings = []
   if (frontendSource.includes('RPC_ALLOWED_PAYLOAD_KEYS')) {
     findings.push(`${RPC_METHODS_PATH}:RPC_ALLOWED_PAYLOAD_KEYS`)
@@ -179,11 +216,7 @@ async function collectHardcodedPayloadGuardFindings(repoRoot, frontendSource) {
   while ((frontendSetMatch = frontendSetPattern.exec(frontendSource)) !== null) {
     findings.push(`${RPC_METHODS_PATH}:${frontendSetMatch[1]}`)
   }
-  const inspectedFiles = uniqueSorted([
-    ...new Set([...GO_PAYLOAD_STRUCTS.values()].flat().map((locator) => locator.split(':')[0])),
-  ])
-  for (const filePath of inspectedFiles) {
-    const source = await readFile(join(repoRoot, filePath), 'utf8')
+  for (const [filePath, source] of goSources.entries()) {
     const goMapPattern = /^\s*var\s+([A-Za-z0-9_]*(?:Param|Payload)[A-Za-z0-9_]*(?:Fields|Keys))\s*=\s*map\[string\]struct\{\}/gm
     let goMapMatch
     while ((goMapMatch = goMapPattern.exec(source)) !== null) {
@@ -191,6 +224,226 @@ async function collectHardcodedPayloadGuardFindings(repoRoot, frontendSource) {
     }
   }
   return findings
+}
+
+export function collectFrontendPayloadKeysFromSource(source) {
+  const out = new Map()
+  for (const [method, functionName] of FRONTEND_PAYLOAD_BUILDERS.entries()) {
+    const functionSource = extractFunctionSource(source, functionName)
+    if (!functionSource) {
+      out.set(method, [])
+      continue
+    }
+    out.set(method, extractConsumedPayloadKeys(functionSource))
+  }
+  return out
+}
+
+export function collectPayloadRegistryDrift(goPayloadKeysByMethod, frontendPayloadKeysByMethod) {
+  const drift = []
+  for (const [method, goKeys] of goPayloadKeysByMethod.entries()) {
+    if (FRONTEND_PAYLOAD_METHOD_EXEMPTIONS.has(method)) {
+      continue
+    }
+    const frontendKeys = frontendPayloadKeysByMethod.get(method) ?? []
+    const goKeySet = new Set(goKeys)
+    const frontendKeySet = new Set(frontendKeys)
+    const facadeOnlyKeys = new Set(FRONTEND_FACADE_ONLY_PAYLOAD_KEYS.get(method) ?? [])
+    const missingFrontendKeys = goKeys.filter((key) => !frontendKeySet.has(key))
+    const extraFrontendKeys = frontendKeys.filter((key) => !goKeySet.has(key) && !facadeOnlyKeys.has(key))
+    if (missingFrontendKeys.length > 0 || extraFrontendKeys.length > 0) {
+      drift.push({
+        method,
+        missingFrontendKeys,
+        extraFrontendKeys,
+      })
+    }
+  }
+  return drift.sort((a, b) => a.method.localeCompare(b.method))
+}
+
+function extractFunctionSource(source, functionName) {
+  const pattern = new RegExp(`^\\s*function\\s+${escapeRegExp(functionName)}\\s*\\(`, 'm')
+  const match = pattern.exec(source)
+  if (!match) return ''
+  const start = match.index
+  const rest = source.slice(start + 1)
+  const next = rest.search(/\n\s*function\s+[A-Za-z0-9_]+\s*\(/)
+  if (next === -1) {
+    return source.slice(start)
+  }
+  return source.slice(start, start + 1 + next)
+}
+
+function extractConsumedPayloadKeys(functionSource) {
+  const keys = []
+  for (const args of findCallArguments(functionSource, 'takePayloadField')) {
+    const parts = splitTopLevelArguments(args)
+    if (parts[0]?.trim() !== 'unused') continue
+    const key = parseStringLiteral(parts[1] ?? '')
+    if (key) keys.push(key)
+  }
+
+  for (const args of findCallArguments(functionSource, 'takePayloadFields')) {
+    const parts = splitTopLevelArguments(args)
+    if (parts[0]?.trim() !== 'unused') continue
+    keys.push(...extractStringLiterals(parts[1] ?? ''))
+  }
+  return uniqueSorted(keys)
+}
+
+function findCallArguments(source, callee) {
+  const calls = []
+  for (let index = 0; index < source.length; index += 1) {
+    const skipped = skipJSSyntaxTrivia(source, index)
+    if (skipped !== index) {
+      index = skipped - 1
+      continue
+    }
+    if (!source.startsWith(callee, index) || isIdentifierChar(source[index - 1]) || isIdentifierChar(source[index + callee.length])) {
+      continue
+    }
+    let cursor = skipWhitespace(source, index + callee.length)
+    if (source[cursor] !== '(') {
+      continue
+    }
+    const call = readBalancedParens(source, cursor)
+    if (!call) {
+      continue
+    }
+    calls.push(call.body)
+    index = call.end - 1
+  }
+  return calls
+}
+
+function splitTopLevelArguments(source) {
+  const args = []
+  let start = 0
+  let depth = 0
+  for (let index = 0; index < source.length; index += 1) {
+    const skipped = skipJSSyntaxTrivia(source, index)
+    if (skipped !== index) {
+      index = skipped - 1
+      continue
+    }
+    const char = source[index]
+    if (char === '(' || char === '[' || char === '{') depth += 1
+    if (char === ')' || char === ']' || char === '}') depth -= 1
+    if (char === ',' && depth === 0) {
+      args.push(source.slice(start, index))
+      start = index + 1
+    }
+  }
+  args.push(source.slice(start))
+  return args
+}
+
+function readBalancedParens(source, start) {
+  let depth = 0
+  for (let index = start; index < source.length; index += 1) {
+    const skipped = skipJSSyntaxTrivia(source, index)
+    if (skipped !== index) {
+      index = skipped - 1
+      continue
+    }
+    const char = source[index]
+    if (char === '(') depth += 1
+    if (char !== ')') continue
+    depth -= 1
+    if (depth === 0) {
+      return {
+        body: source.slice(start + 1, index),
+        end: index + 1,
+      }
+    }
+  }
+  return null
+}
+
+function parseStringLiteral(source) {
+  const trimmed = source.trim()
+  const literal = readStringLiteral(trimmed, 0)
+  if (!literal || literal.end !== trimmed.length) {
+    return ''
+  }
+  return literal.value
+}
+
+function extractStringLiterals(source) {
+  const out = []
+  for (let index = 0; index < source.length; index += 1) {
+    const skipped = skipJSSyntaxComment(source, index)
+    if (skipped !== index) {
+      index = skipped - 1
+      continue
+    }
+    const literal = readStringLiteral(source, index)
+    if (!literal) {
+      continue
+    }
+    out.push(literal.value)
+    index = literal.end - 1
+  }
+  return out
+}
+
+function skipJSSyntaxTrivia(source, index) {
+  const commentEnd = skipJSSyntaxComment(source, index)
+  if (commentEnd !== index) return commentEnd
+  const literal = readStringLiteral(source, index)
+  return literal?.end ?? index
+}
+
+function skipJSSyntaxComment(source, index) {
+  if (source.startsWith('//', index)) {
+    const end = source.indexOf('\n', index + 2)
+    return end === -1 ? source.length : end
+  }
+  if (source.startsWith('/*', index)) {
+    const end = source.indexOf('*/', index + 2)
+    return end === -1 ? source.length : end + 2
+  }
+  return index
+}
+
+function readStringLiteral(source, start) {
+  const quote = source[start]
+  if (quote !== '"' && quote !== '\'' && quote !== '`') {
+    return null
+  }
+  let value = ''
+  for (let index = start + 1; index < source.length; index += 1) {
+    const char = source[index]
+    if (char === '\\') {
+      if (index + 1 < source.length) {
+        value += source[index + 1]
+        index += 1
+      }
+      continue
+    }
+    if (char === quote) {
+      return { value, end: index + 1 }
+    }
+    value += char
+  }
+  return null
+}
+
+function skipWhitespace(source, index) {
+  let cursor = index
+  while (/\s/.test(source[cursor] ?? '')) {
+    cursor += 1
+  }
+  return cursor
+}
+
+function isIdentifierChar(char) {
+  return typeof char === 'string' && /[A-Za-z0-9_$]/.test(char)
+}
+
+function escapeRegExp(value) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 }
 
 function uniqueSorted(values) {

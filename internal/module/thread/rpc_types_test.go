@@ -437,6 +437,38 @@ func TestStartParamsRejectsConflictingManualSkillSelectionAliases(t *testing.T) 
 	}
 }
 
+func TestStartParamsRejectsInvalidManualSkillSelectionAliases(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		payload string
+		want    string
+	}{
+		{
+			name:    "camel null",
+			payload: `{"manualSkillSelection":null}`,
+			want:    `manualSkillSelection must be a boolean`,
+		},
+		{
+			name:    "snake string",
+			payload: `{"manual_skill_selection":"false"}`,
+			want:    `manual_skill_selection must be a boolean`,
+		},
+	}
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			var params startParams
+			err := json.Unmarshal([]byte(tt.payload), &params)
+			if err == nil || !strings.Contains(err.Error(), tt.want) {
+				t.Fatalf("json.Unmarshal(startParams) error = %v, want %q", err, tt.want)
+			}
+		})
+	}
+}
+
 func TestStartParamsAcceptsSelectedSkillRefsCamelCase(t *testing.T) {
 	t.Parallel()
 

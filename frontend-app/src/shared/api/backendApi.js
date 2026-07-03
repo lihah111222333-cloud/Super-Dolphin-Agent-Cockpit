@@ -347,8 +347,11 @@ function observabilityRecentPayload(method, params = {}) {
 }
 
 function legacyThreadNamePayload(method, params) {
-  const payload = requireKey(method, requireThreadId(method, params), 'name');
-  return { threadId: payload.threadId, name: payload.name };
+  const { unused, threadId } = threadScopedPayload(method, params);
+  const name = takePayloadField(unused, 'name');
+  if (!normalizeString(name)) throw new Error(`${method}: name is required`);
+  assertNoExtraPayloadFields(method, unused);
+  return { threadId, name };
 }
 
 function memoryEntryGetPayload(method, params) {
@@ -1525,8 +1528,8 @@ function createMCPServerApi(callBackend) {
 
 function createThreadApi(callBackend) {
   return {
-    getThreadMessages: (params) => callBackend(RPC_METHODS.THREAD_MESSAGES, requireThreadId(RPC_METHODS.THREAD_MESSAGES, assertPlainObject(RPC_METHODS.THREAD_MESSAGES, params))),
-    resolveThreadIdentity: (params) => callBackend(RPC_METHODS.THREAD_RESOLVE, requireThreadId(RPC_METHODS.THREAD_RESOLVE, assertPlainObject(RPC_METHODS.THREAD_RESOLVE, params))),
+    getThreadMessages: (params) => callBackend(RPC_METHODS.THREAD_MESSAGES, threadMessagesPayload(params)),
+    resolveThreadIdentity: (params) => callBackend(RPC_METHODS.THREAD_RESOLVE, threadIdOnlyPayload(RPC_METHODS.THREAD_RESOLVE, params)),
     archiveThread: (params) => callBackend(RPC_METHODS.THREAD_ARCHIVE, threadIdOnlyPayload(RPC_METHODS.THREAD_ARCHIVE, params)),
     unarchiveThread: (params) => callBackend(RPC_METHODS.THREAD_UNARCHIVE, threadIdOnlyPayload(RPC_METHODS.THREAD_UNARCHIVE, params)),
     deleteThread: (params) => callBackend(RPC_METHODS.THREAD_DELETE, threadIdOnlyPayload(RPC_METHODS.THREAD_DELETE, params)),
@@ -1544,17 +1547,52 @@ function createThreadApi(callBackend) {
 }
 
 function threadIdOnlyPayload(method, params) {
-  const payload = requireThreadId(method, assertPlainObject(method, params));
-  return { threadId: payload.threadId };
+  const { unused, threadId } = threadScopedPayload(method, params);
+  assertNoExtraPayloadFields(method, unused);
+  return { threadId };
+}
+
+function threadMessagesPayload(params) {
+  const { unused, threadId } = threadScopedPayload(RPC_METHODS.THREAD_MESSAGES, params);
+  const limit = takePayloadField(unused, 'limit');
+  const before = takePayloadField(unused, 'before');
+  assertNoExtraPayloadFields(RPC_METHODS.THREAD_MESSAGES, unused);
+  return cleanObject({ threadId, limit, before });
 }
 
 function threadConfigPayload(params) {
-  const payload = requireThreadId(RPC_METHODS.THREAD_CONFIG_SET, assertPlainObject(RPC_METHODS.THREAD_CONFIG_SET, params));
+  const { unused, threadId } = threadScopedPayload(RPC_METHODS.THREAD_CONFIG_SET, params);
+  const model = normalizeProviderConfigValue(takePayloadField(unused, 'model'));
+  const effort = normalizeProviderConfigValue(takePayloadField(unused, 'effort'));
+  assertNoExtraPayloadFields(RPC_METHODS.THREAD_CONFIG_SET, unused);
   return {
-    threadId: payload.threadId,
-    model: normalizeProviderConfigValue(payload.model),
-    effort: normalizeProviderConfigValue(payload.effort),
+    threadId,
+    model,
+    effort,
   };
+}
+
+function threadScopedPayload(method, params) {
+  const payload = assertPlainObject(method, params);
+  const threadId = resolveThreadIdAliases(method, payload);
+  const unused = { ...payload };
+  takePayloadField(unused, 'threadId');
+  takePayloadField(unused, 'thread_id');
+  takePayloadField(unused, 'cwd');
+  return { unused, threadId };
+}
+
+function resolveThreadIdAliases(method, payload) {
+  const camel = hasOwn(payload, 'threadId') ? normalizeString(payload.threadId) : '';
+  const snake = hasOwn(payload, 'thread_id') ? normalizeString(payload.thread_id) : '';
+  if (camel && snake && camel !== snake) {
+    throw new Error(`${method}: conflicting threadId values for threadId and thread_id`);
+  }
+  const threadId = camel || snake;
+  if (!threadId) {
+    throw new Error(`${method}: threadId is required`);
+  }
+  return threadId;
 }
 
 function threadStartPayload(params) {
@@ -1672,8 +1710,12 @@ function turnStartPayload(params) {
 }
 
 function turnInterruptPayload(params) {
-  const payload = requireThreadId(RPC_METHODS.TURN_INTERRUPT, requireCwd(RPC_METHODS.TURN_INTERRUPT, params));
-  return cleanObject({ thread_id: payload.threadId, source: normalizeString(payload.source) });
+  const { unused, threadId } = threadScopedPayload(RPC_METHODS.TURN_INTERRUPT, requireCwd(RPC_METHODS.TURN_INTERRUPT, params));
+  const source = normalizeString(takePayloadField(unused, 'source'));
+  takePayloadField(unused, 'turnId');
+  takePayloadField(unused, 'turn_id');
+  assertNoExtraPayloadFields(RPC_METHODS.TURN_INTERRUPT, unused);
+  return cleanObject({ thread_id: threadId, source });
 }
 
 function forceCompleteTurnPayload(params) {
@@ -1704,8 +1746,10 @@ function approvalRespondPayload(params) {
 }
 
 function compactThreadPayload(params) {
-  const payload = requireThreadId(RPC_METHODS.THREAD_COMPACT_START, requireCwd(RPC_METHODS.THREAD_COMPACT_START, params));
-  return cleanObject({ threadId: payload.threadId, args: payload.args });
+  const { unused, threadId } = threadScopedPayload(RPC_METHODS.THREAD_COMPACT_START, requireCwd(RPC_METHODS.THREAD_COMPACT_START, params));
+  const args = takePayloadField(unused, 'args');
+  assertNoExtraPayloadFields(RPC_METHODS.THREAD_COMPACT_START, unused);
+  return cleanObject({ threadId, args });
 }
 
 function createNativeApi(native) {
