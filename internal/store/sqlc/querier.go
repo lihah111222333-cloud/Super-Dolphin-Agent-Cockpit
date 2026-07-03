@@ -67,6 +67,7 @@ type Querier interface {
 	GetAgentStatus(ctx context.Context, arg GetAgentStatusParams) (AgentStatus, error)
 	GetAgentThreadByID(ctx context.Context, arg GetAgentThreadByIDParams) (GetAgentThreadByIDRow, error)
 	GetAgentThreadByPort(ctx context.Context, arg GetAgentThreadByPortParams) (GetAgentThreadByPortRow, error)
+	GetBusExceptionLog(ctx context.Context, arg GetBusExceptionLogParams) (BusExceptionLog, error)
 	GetCommandCard(ctx context.Context, arg GetCommandCardParams) (GetCommandCardRow, error)
 	GetCronJobByID(ctx context.Context, arg GetCronJobByIDParams) (CronJob, error)
 	GetCronJobRunByDedupeKey(ctx context.Context, arg GetCronJobRunByDedupeKeyParams) (CronJobRun, error)

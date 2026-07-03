@@ -74,6 +74,33 @@ func (q *Queries) GetTaskDagWakeup(ctx context.Context, arg GetTaskDagWakeupPara
 	return i, err
 }
 
+const hasPendingOrDispatchingTaskDagWakeupForNode = `-- name: HasPendingOrDispatchingTaskDagWakeupForNode :one
+SELECT EXISTS(
+    SELECT 1
+    FROM task_dag_wakeups
+    WHERE run_id = ?1
+      AND dag_key = ?2
+      AND node_key = ?3
+      AND (
+        status IN ('pending', 'dispatching')
+        OR (status = 'sent' AND sent_at IS NOT NULL AND bound_turn_id IS NULL)
+      )
+)
+`
+
+type HasPendingOrDispatchingTaskDagWakeupForNodeParams struct {
+	RunID   *int64 `db:"run_id" json:"run_id"`
+	DagKey  string `db:"dag_key" json:"dag_key"`
+	NodeKey string `db:"node_key" json:"node_key"`
+}
+
+func (q *Queries) HasPendingOrDispatchingTaskDagWakeupForNode(ctx context.Context, arg HasPendingOrDispatchingTaskDagWakeupForNodeParams) (int64, error) {
+	row := q.db.QueryRowContext(ctx, hasPendingOrDispatchingTaskDagWakeupForNode, arg.RunID, arg.DagKey, arg.NodeKey)
+	var column_1 int64
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
 const listPendingOrDispatchingTaskDagWakeups = `-- name: ListPendingOrDispatchingTaskDagWakeups :many
 SELECT id, dag_key, node_key, wakeup_kind, target_agent_id,
        idempotency_key, status, attempt_count, next_retry_at, claimed_at,

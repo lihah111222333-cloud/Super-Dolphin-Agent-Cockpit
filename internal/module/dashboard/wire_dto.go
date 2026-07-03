@@ -125,15 +125,17 @@ type BusLogFilter struct {
 
 // BusExceptionLog 是 dashboard/busLogs 暴露的业务异常日志 wire 条目。
 type BusExceptionLog struct {
-	ID        int64           `json:"id"`
-	Ts        time.Time       `json:"ts"`
-	Category  string          `json:"category"`
-	Severity  string          `json:"severity"`
-	Source    string          `json:"source"`
-	ToolName  string          `json:"tool_name"`
-	Message   string          `json:"message"`
-	Traceback string          `json:"traceback"`
-	Extra     json.RawMessage `json:"extra"`
+	ID           int64           `json:"id"`
+	Ts           time.Time       `json:"ts"`
+	Category     string          `json:"category"`
+	Severity     string          `json:"severity"`
+	Source       string          `json:"source"`
+	ToolName     string          `json:"tool_name"`
+	Message      string          `json:"message"`
+	Traceback    string          `json:"traceback"`
+	Extra        json.RawMessage `json:"extra"`
+	HasTraceback bool            `json:"has_traceback"`
+	HasExtra     bool            `json:"has_extra"`
 }
 
 // SystemLogFilter 是 dashboard 统一日志页读取 system log 的过滤条件。
@@ -272,6 +274,7 @@ type AuditLogReader interface {
 // BusLogReader 是 dashboard 读取 bus 异常日志的窄 port。
 type BusLogReader interface {
 	List(ctx context.Context, filter BusLogFilter) ([]BusExceptionLog, error)
+	Get(ctx context.Context, id int64) (BusExceptionLog, error)
 }
 
 // SystemLogReader 是 dashboard 读取 system log 的窄 port。

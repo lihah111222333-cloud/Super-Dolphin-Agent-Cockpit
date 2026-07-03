@@ -158,6 +158,9 @@ func executeMigrationBody(ctx context.Context, tx *sql.Tx, name, body string) er
 	if name == "112_system_logs_trace_span.sql" {
 		return migrateSystemLogsTraceSpan(ctx, tx)
 	}
+	if name == "113_bus_exception_log_flags.sql" {
+		return migrateBusExceptionLogFlags(ctx, tx)
+	}
 	return execMigrationSegments(ctx, tx, body)
 }
 
@@ -294,6 +297,66 @@ func requireSystemLogColumns(columns map[string]bool, required ...string) error 
 	for _, column := range required {
 		if !columns[column] {
 			return fmt.Errorf("system_logs missing required column %s", column)
+		}
+	}
+	return nil
+}
+
+// migrateBusExceptionLogFlags 补齐 bus 日志列表所需的轻量标志列。
+// SQLite 不支持 ADD COLUMN IF NOT EXISTS，fresh baseline 已含列时只确保触发器和回填存在。
+func migrateBusExceptionLogFlags(ctx context.Context, tx *sql.Tx) error {
+	columns, err := sqliteTableColumns(ctx, tx, "bus_exception_logs")
+	if err != nil {
+		return err
+	}
+	if err := requireTableColumns("bus_exception_logs", columns, "id", "traceback", "extra"); err != nil {
+		return err
+	}
+	hasTraceback := columns["has_traceback"]
+	hasExtra := columns["has_extra"]
+	if hasTraceback != hasExtra {
+		return fmt.Errorf("bus_exception_logs flag columns are partially migrated")
+	}
+	statements := make([]string, 0, 5)
+	if !hasTraceback {
+		statements = append(statements,
+			"ALTER TABLE bus_exception_logs ADD COLUMN has_traceback INTEGER NOT NULL DEFAULT 0 CHECK(has_traceback IN (0, 1))",
+			"ALTER TABLE bus_exception_logs ADD COLUMN has_extra INTEGER NOT NULL DEFAULT 0 CHECK(has_extra IN (0, 1))",
+		)
+	}
+	statements = append(statements, busExceptionLogFlagBackfillSQL)
+	statements = append(statements, busExceptionLogFlagTriggerSQL...)
+	return execMigrationStatements(ctx, tx, statements)
+}
+
+const busExceptionLogFlagBackfillSQL = `
+UPDATE bus_exception_logs
+SET has_traceback = CASE WHEN traceback <> '' THEN 1 ELSE 0 END,
+    has_extra = CASE WHEN extra <> '{}' THEN 1 ELSE 0 END`
+
+var busExceptionLogFlagTriggerSQL = []string{
+	`CREATE TRIGGER IF NOT EXISTS trg_bus_exception_logs_flags_insert
+AFTER INSERT ON bus_exception_logs
+BEGIN
+    UPDATE bus_exception_logs
+    SET has_traceback = CASE WHEN NEW.traceback <> '' THEN 1 ELSE 0 END,
+        has_extra = CASE WHEN NEW.extra <> '{}' THEN 1 ELSE 0 END
+    WHERE id = NEW.id;
+END`,
+	`CREATE TRIGGER IF NOT EXISTS trg_bus_exception_logs_flags_update
+AFTER UPDATE OF traceback, extra ON bus_exception_logs
+BEGIN
+    UPDATE bus_exception_logs
+    SET has_traceback = CASE WHEN NEW.traceback <> '' THEN 1 ELSE 0 END,
+        has_extra = CASE WHEN NEW.extra <> '{}' THEN 1 ELSE 0 END
+    WHERE id = NEW.id;
+END`,
+}
+
+func requireTableColumns(table string, columns map[string]bool, required ...string) error {
+	for _, column := range required {
+		if !columns[column] {
+			return fmt.Errorf("%s missing required column %s", table, column)
 		}
 	}
 	return nil

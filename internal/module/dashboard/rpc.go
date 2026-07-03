@@ -96,6 +96,11 @@ type busLogsParams struct {
 	Limit    int    `json:"limit,omitempty"`
 }
 
+// busLogDetailParams 是 dashboard/busLogs/detail 的请求参数。
+type busLogDetailParams struct {
+	ID int64 `json:"id,omitempty"`
+}
+
 // dagsParams 是 dashboard/dags 的过滤参数。
 type dagsParams struct {
 	Keyword string `json:"keyword,omitempty"`
@@ -285,6 +290,11 @@ type busLogsResponse struct {
 	Logs []BusExceptionLog `json:"logs"`
 }
 
+// busLogDetailResponse 是单条 bus 异常日志详情接口的响应结构。
+type busLogDetailResponse struct {
+	Log BusExceptionLog `json:"log"`
+}
+
 // dagsResponse 是 dashboard/dags 的响应结构。
 type dagsResponse struct {
 	DAGs []contract.DAGSummary `json:"dags"`
@@ -447,6 +457,13 @@ func registerDashboardDataHandlers(m handler.Map, svc Service) {
 			return nil, err
 		}
 		return busLogsResponse{Logs: logs}, nil
+	})
+	m["dashboard/busLogs/detail"] = platformrpc.StrictHandler(func(ctx context.Context, p busLogDetailParams) (any, error) {
+		log, err := svc.GetBusLog(ctx, p.ID)
+		if err != nil {
+			return nil, err
+		}
+		return busLogDetailResponse{Log: log}, nil
 	})
 	registerDashboardDAGHandlers(m, svc)
 	m["dashboard/aiLogs/recent"] = platformrpc.StrictHandler(func(ctx context.Context, p limitParams) (any, error) {
