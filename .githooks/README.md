@@ -24,7 +24,7 @@ make install-hooks
 |---|---|---|---|
 | `pre-commit` | `git commit` | 每次提交先跑全量代码守卫；随后检查 **staged `.go` 影响面**：拒绝 staged/worktree 不一致和 AD 状态，`gofmt -l` + `go vet` + `go test -short`；删除/重命名会覆盖旧/新包 | 视全量守卫耗时而定 |
 | `commit-msg` | `git commit` | 要求提交标题包含中文；提交正文如果存在也必须包含中文；提交主题属于 `fix` / `hotfix` / `bugfix` / `修复` 时，要求同一提交修改锁定 bug 的测试、fixture、golden 或 snapshot | <1 秒 |
-| `pre-push` | `git push` | 要求 worktree/index/untracked 干净，只允许推送当前 `HEAD`；检查本次 push 范围内每个 commit 标题和非空正文都包含中文，fix commits 都带锁定 bug 的测试；按 push 范围只跑变更语言/包对应测试 | 视变更包而定 |
+| `pre-push` | `git push` | 只允许推送当前 `HEAD`；检查本次 push 范围内每个 commit 标题和非空正文都包含中文，fix commits 都带锁定 bug 的测试；按 push 范围只跑变更语言/包对应测试 | 视变更包而定 |
 
 `pre-commit` 每次提交都会先跑 `./scripts/test_with_guard.sh --guard-only`，即使本次只提交文档或脚本；Go 包级 `vet/test` 仍只跑 staged `.go` 影响到的包；当前前端变更只跑 `frontend-app` 的 lint/test/build。`commit-msg` 要求标题包含中文，正文如果存在也必须包含中文，并用提交主题识别 fix 类提交。`pre-push` 从本次 push range 计算变更路径：先校验范围内 commit 标题 / 非空正文的中文要求和 fix-test 规则；有 Go 代码才跑对应 Go 包测试，有前端代码才跑当前前端包测试，只有文档/其它非代码变更则不跑包测试。三者都**不**做格式自动修复，只拦下不通过的提交/推送。为保证检查对象就是将被提交的内容，`pre-commit` 会拒绝 staged Go 影响包内仍有未暂存/未跟踪 `.go` 改动，也会拒绝 `git add` 后又删除的 AD 状态。
 
@@ -109,7 +109,7 @@ FAIL  github.com/.../internal/app    0.5s
   ⚠️  紧急 bypass（违反仓库规约 docs/1/会话习惯.md §10.12«禁止 bypass pre-commit hook»、需事后补检查）：git push --no-verify
 ```
 
-`pre-push` 会先拒绝未提交/未暂存/未跟踪内容，并拒绝 `local_sha != HEAD` 的显式 ref 推送，确保包级检查对象等于将要推送的 commit；Go 输出会自动剔除 ld 链接器警告噪声（`ld: warning ... newer macOS version`）。
+`pre-push` 会拒绝 `local_sha != HEAD` 的显式 ref 推送；本地未提交、未暂存或未跟踪内容不属于本次 push range，不会阻断 pre-push。Go 输出会自动剔除 ld 链接器警告噪声（`ld: warning ... newer macOS version`）。
 
 ## 诊断
 
@@ -140,7 +140,7 @@ git config --get core.hooksPath
 
 ### rebase / cherry-pick / merge / revert 中间提交会怎样？
 
-`pre-commit` / `commit-msg` 不覆盖所有 sequencer 自动产生的中间提交；这是 Git 客户端 hook 的结构性限制。`pre-push` 会在最终 push 前要求 worktree/index/untracked 干净，并要求每个非删除 ref 的 `local_sha` 等于当前 `HEAD`，再检查本次 push 范围内所有 fix commits 都带锁定 bug 的测试，最后按 push range 只跑受影响的 Go 包测试和/或前端包测试，确保兜底检查的是将要推送的 commit。
+`pre-commit` / `commit-msg` 不覆盖所有 sequencer 自动产生的中间提交；这是 Git 客户端 hook 的结构性限制。`pre-push` 会在最终 push 前要求每个非删除 ref 的 `local_sha` 等于当前 `HEAD`，再检查本次 push 范围内所有 fix commits 都带锁定 bug 的测试，最后按 push range 只跑受影响的 Go 包测试和/或前端包测试。
 
 ### Linux 能用吗？
 
