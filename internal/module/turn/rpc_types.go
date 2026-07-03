@@ -2,10 +2,10 @@ package turn
 
 import (
 	"encoding/json"
-	"fmt"
 	"strings"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
+	platformrpc "github.com/anthropic-ai/super-agent-v3/internal/platform/rpc"
 )
 
 // turnStartParams 是 turn/start 的 RPC 入参，兼容 snake_case 与部分旧 camelCase 字段。
@@ -36,7 +36,7 @@ type turnStartParams struct {
 
 // UnmarshalJSON 先解码当前字段，再把历史 camelCase 字段补到空值位置。
 func (p *turnStartParams) UnmarshalJSON(data []byte) error {
-	if err := rejectUnknownTurnFields(data, "turn/start", turnStartParamFields); err != nil {
+	if err := rejectUnknownTurnFields(data, "turn/start", rawTurnStartParams{}, legacyTurnStartParams{}); err != nil {
 		return err
 	}
 	var legacy legacyTurnStartParams
@@ -46,19 +46,26 @@ func (p *turnStartParams) UnmarshalJSON(data []byte) error {
 type rawTurnStartParams turnStartParams
 
 type legacyTurnStartParams struct {
-	ThreadID             string           `json:"threadId"`
-	SelectedSkills       []string         `json:"selectedSkills"`
-	SelectedSkillRefs    []skillRefParams `json:"selectedSkillRefs"`
-	ManualSkillSelection *bool            `json:"manualSkillSelection"`
-	ApprovalPolicy       string           `json:"approvalPolicy"`
-	OutputSchema         json.RawMessage  `json:"outputSchema"`
+	ThreadID                     string               `json:"threadId"`
+	ThreadIDUpper                string               `json:"threadID"`
+	SelectedSkills               []string             `json:"selectedSkills"`
+	SelectedSkillRefs            []skillRefParams     `json:"selectedSkillRefs"`
+	ManualSkillSelection         *bool                `json:"manualSkillSelection"`
+	ApprovalPolicy               string               `json:"approvalPolicy"`
+	GitRoot                      string               `json:"gitRoot"`
+	IsWorktree                   *bool                `json:"isWorktree"`
+	EnabledTools                 []string             `json:"enabledTools"`
+	AdditionalWorkingDirectories []string             `json:"additionalWorkingDirectories"`
+	MCPSnapshot                  contract.MCPSnapshot `json:"mcpSnapshot"`
+	SessionFlags                 map[string]bool      `json:"sessionFlags"`
+	OutputSchema                 json.RawMessage      `json:"outputSchema"`
 }
 
 // mergeTurnStartLegacy 把旧版 camelCase 字段补进 turn/start 新版参数。
 // 只有新版字段为空时才补值，避免旧客户端兼容逻辑覆盖当前 wire 格式。
 func mergeTurnStartLegacy(current *rawTurnStartParams, legacy *legacyTurnStartParams) error {
 	if strings.TrimSpace(current.ThreadID) == "" {
-		current.ThreadID = strings.TrimSpace(legacy.ThreadID)
+		current.ThreadID = firstTrimmed(legacy.ThreadID, legacy.ThreadIDUpper)
 	}
 	if len(current.SelectedSkills) == 0 && len(legacy.SelectedSkills) > 0 {
 		current.SelectedSkills = append([]string(nil), legacy.SelectedSkills...)
@@ -72,6 +79,20 @@ func mergeTurnStartLegacy(current *rawTurnStartParams, legacy *legacyTurnStartPa
 	if strings.TrimSpace(current.ApprovalPolicy) == "" {
 		current.ApprovalPolicy = strings.TrimSpace(legacy.ApprovalPolicy)
 	}
+	mergeRuntimeLegacyFields(
+		&current.GitRoot,
+		&current.IsWorktree,
+		&current.EnabledTools,
+		&current.AdditionalWorkingDirectories,
+		&current.MCPSnapshot,
+		&current.SessionFlags,
+		legacy.GitRoot,
+		legacy.IsWorktree,
+		legacy.EnabledTools,
+		legacy.AdditionalWorkingDirectories,
+		legacy.MCPSnapshot,
+		legacy.SessionFlags,
+	)
 	if len(current.OutputSchema) == 0 {
 		current.OutputSchema = append(json.RawMessage(nil), legacy.OutputSchema...)
 	}
@@ -121,7 +142,7 @@ type turnSteerParams struct {
 
 // UnmarshalJSON 兼容旧版 turn/steer camelCase 字段，同时保留新版 snake_case 优先级。
 func (p *turnSteerParams) UnmarshalJSON(data []byte) error {
-	if err := rejectUnknownTurnFields(data, "turn/steer", turnSteerParamFields); err != nil {
+	if err := rejectUnknownTurnFields(data, "turn/steer", rawTurnSteerParams{}, legacyTurnSteerParams{}); err != nil {
 		return err
 	}
 	var legacy legacyTurnSteerParams
@@ -131,18 +152,25 @@ func (p *turnSteerParams) UnmarshalJSON(data []byte) error {
 type rawTurnSteerParams turnSteerParams
 
 type legacyTurnSteerParams struct {
-	ThreadID             string           `json:"threadId"`
-	ExpectedTurnID       string           `json:"expectedTurnId"`
-	SelectedSkills       []string         `json:"selectedSkills"`
-	SelectedSkillRefs    []skillRefParams `json:"selectedSkillRefs"`
-	ManualSkillSelection *bool            `json:"manualSkillSelection"`
+	ThreadID                     string               `json:"threadId"`
+	ThreadIDUpper                string               `json:"threadID"`
+	ExpectedTurnID               string               `json:"expectedTurnId"`
+	SelectedSkills               []string             `json:"selectedSkills"`
+	SelectedSkillRefs            []skillRefParams     `json:"selectedSkillRefs"`
+	ManualSkillSelection         *bool                `json:"manualSkillSelection"`
+	GitRoot                      string               `json:"gitRoot"`
+	IsWorktree                   *bool                `json:"isWorktree"`
+	EnabledTools                 []string             `json:"enabledTools"`
+	AdditionalWorkingDirectories []string             `json:"additionalWorkingDirectories"`
+	MCPSnapshot                  contract.MCPSnapshot `json:"mcpSnapshot"`
+	SessionFlags                 map[string]bool      `json:"sessionFlags"`
 }
 
 // mergeTurnSteerLegacy 把旧版 camelCase 字段补进 turn/steer 新版参数。
 // 兼容字段只作为兜底填充，确保新版 snake_case 请求拥有更高优先级。
 func mergeTurnSteerLegacy(current *rawTurnSteerParams, legacy *legacyTurnSteerParams) error {
 	if strings.TrimSpace(current.ThreadID) == "" {
-		current.ThreadID = strings.TrimSpace(legacy.ThreadID)
+		current.ThreadID = firstTrimmed(legacy.ThreadID, legacy.ThreadIDUpper)
 	}
 	if strings.TrimSpace(current.ExpectedTurnID) == "" {
 		current.ExpectedTurnID = strings.TrimSpace(legacy.ExpectedTurnID)
@@ -156,78 +184,95 @@ func mergeTurnSteerLegacy(current *rawTurnSteerParams, legacy *legacyTurnSteerPa
 	if !current.ManualSkillSelection && legacy.ManualSkillSelection != nil {
 		current.ManualSkillSelection = *legacy.ManualSkillSelection
 	}
+	mergeRuntimeLegacyFields(
+		&current.GitRoot,
+		&current.IsWorktree,
+		&current.EnabledTools,
+		&current.AdditionalWorkingDirectories,
+		&current.MCPSnapshot,
+		&current.SessionFlags,
+		legacy.GitRoot,
+		legacy.IsWorktree,
+		legacy.EnabledTools,
+		legacy.AdditionalWorkingDirectories,
+		legacy.MCPSnapshot,
+		legacy.SessionFlags,
+	)
 	return nil
 }
 
-// turnStartParamFields 列出 turn/start 的 wire 字段，包含明确保留的 camelCase 兼容别名。
-var turnStartParamFields = map[string]struct{}{
-	"additionalWorkingDirectories":   {},
-	"additional_working_directories": {},
-	"approvalPolicy":                 {},
-	"approval_policy":                {},
-	"cwd":                            {},
-	"effort":                         {},
-	"enabledTools":                   {},
-	"enabled_tools":                  {},
-	"files":                          {},
-	"gitRoot":                        {},
-	"git_root":                       {},
-	"images":                         {},
-	"input":                          {},
-	"isWorktree":                     {},
-	"is_worktree":                    {},
-	"language":                       {},
-	"manualSkillSelection":           {},
-	"manual_skill_selection":         {},
-	"mcpSnapshot":                    {},
-	"mcp_snapshot":                   {},
-	"model":                          {},
-	"outputSchema":                   {},
-	"output_schema":                  {},
-	"prompt":                         {},
-	"provider":                       {},
-	"selectedSkillRefs":              {},
-	"selectedSkills":                 {},
-	"selected_skill_refs":            {},
-	"selected_skills":                {},
-	"sessionFlags":                   {},
-	"session_flags":                  {},
-	"threadID":                       {},
-	"threadId":                       {},
-	"thread_id":                      {},
+func firstTrimmed(values ...string) string {
+	for _, value := range values {
+		if trimmed := strings.TrimSpace(value); trimmed != "" {
+			return trimmed
+		}
+	}
+	return ""
 }
 
-// turnSteerParamFields 列出 turn/steer 的 wire 字段，避免拼写错误在 steer 时被忽略。
-var turnSteerParamFields = map[string]struct{}{
-	"additionalWorkingDirectories":   {},
-	"additional_working_directories": {},
-	"cwd":                            {},
-	"enabledTools":                   {},
-	"enabled_tools":                  {},
-	"expectedTurnId":                 {},
-	"expected_turn_id":               {},
-	"gitRoot":                        {},
-	"git_root":                       {},
-	"input":                          {},
-	"isWorktree":                     {},
-	"is_worktree":                    {},
-	"language":                       {},
-	"manualSkillSelection":           {},
-	"manual_skill_selection":         {},
-	"mcpSnapshot":                    {},
-	"mcp_snapshot":                   {},
-	"model":                          {},
-	"prompt":                         {},
-	"provider":                       {},
-	"selectedSkillRefs":              {},
-	"selectedSkills":                 {},
-	"selected_skill_refs":            {},
-	"selected_skills":                {},
-	"sessionFlags":                   {},
-	"session_flags":                  {},
-	"threadID":                       {},
-	"threadId":                       {},
-	"thread_id":                      {},
+// mergeRuntimeLegacyFields 把旧版运行时字段补到新版 turn 参数的空位。
+// 这里不覆盖当前字段，避免 camelCase 兼容路径反向改变新版 snake_case 请求。
+func mergeRuntimeLegacyFields(
+	currentGitRoot *string,
+	currentIsWorktree *bool,
+	currentEnabledTools *[]string,
+	currentAdditionalWorkingDirectories *[]string,
+	currentMCPSnapshot *contract.MCPSnapshot,
+	currentSessionFlags *map[string]bool,
+	legacyGitRoot string,
+	legacyIsWorktree *bool,
+	legacyEnabledTools []string,
+	legacyAdditionalWorkingDirectories []string,
+	legacyMCPSnapshot contract.MCPSnapshot,
+	legacySessionFlags map[string]bool,
+) {
+	mergeLegacyString(currentGitRoot, legacyGitRoot)
+	mergeLegacyBool(currentIsWorktree, legacyIsWorktree)
+	mergeLegacyStringSlice(currentEnabledTools, legacyEnabledTools)
+	mergeLegacyStringSlice(currentAdditionalWorkingDirectories, legacyAdditionalWorkingDirectories)
+	mergeLegacyMCPSnapshot(currentMCPSnapshot, legacyMCPSnapshot)
+	mergeLegacySessionFlags(currentSessionFlags, legacySessionFlags)
+}
+
+func mergeLegacyString(current *string, legacy string) {
+	if strings.TrimSpace(*current) == "" {
+		*current = strings.TrimSpace(legacy)
+	}
+}
+
+func mergeLegacyBool(current *bool, legacy *bool) {
+	if !*current && legacy != nil {
+		*current = *legacy
+	}
+}
+
+func mergeLegacyStringSlice(current *[]string, legacy []string) {
+	if len(*current) == 0 && len(legacy) > 0 {
+		*current = append([]string(nil), legacy...)
+	}
+}
+
+func mergeLegacyMCPSnapshot(current *contract.MCPSnapshot, legacy contract.MCPSnapshot) {
+	if turnMCPSnapshotEmpty(*current) && !turnMCPSnapshotEmpty(legacy) {
+		*current = cloneMCPSnapshot(legacy)
+	}
+}
+
+func mergeLegacySessionFlags(current *map[string]bool, legacy map[string]bool) {
+	if len(*current) == 0 && len(legacy) > 0 {
+		*current = clonePrepareFlags(legacy)
+	}
+}
+
+// turnMCPSnapshotEmpty 判断兼容字段是否真的携带 MCP 快照内容。
+// bool 开关也纳入判断，避免空 slice 但 delta 标记为 true 的快照被误当作空值。
+func turnMCPSnapshotEmpty(snapshot contract.MCPSnapshot) bool {
+	return len(snapshot.Servers) == 0 &&
+		len(snapshot.Tools) == 0 &&
+		len(snapshot.Instructions) == 0 &&
+		len(snapshot.ServerConfigs) == 0 &&
+		!snapshot.InstructionsDeltaEnabled &&
+		len(snapshot.InstructionAttachments) == 0
 }
 
 // turnInterruptParams 是 turn/interrupt 入参，只允许线程标识和中断来源。
@@ -238,43 +283,27 @@ type turnInterruptParams struct {
 
 // UnmarshalJSON 对 turn/interrupt 启用字段白名单，避免拼错字段被静默忽略。
 func (p *turnInterruptParams) UnmarshalJSON(data []byte) error {
-	var legacy struct {
-		ThreadID string `json:"threadId"`
-	}
+	var legacy legacyTurnInterruptParams
 	type raw turnInterruptParams
-	if err := rejectUnknownTurnFields(data, "turn/interrupt", turnInterruptParamFields); err != nil {
+	if err := rejectUnknownTurnFields(data, "turn/interrupt", turnInterruptParams{}, legacyTurnInterruptParams{}); err != nil {
 		return err
 	}
-	return decodeLegacyTurnParams(data, (*raw)(p), &legacy, func(current *raw, legacy *struct {
-		ThreadID string `json:"threadId"`
-	}) error {
+	return decodeLegacyTurnParams(data, (*raw)(p), &legacy, func(current *raw, legacy *legacyTurnInterruptParams) error {
 		if strings.TrimSpace(current.ThreadID) == "" {
-			current.ThreadID = strings.TrimSpace(legacy.ThreadID)
+			current.ThreadID = firstTrimmed(legacy.ThreadID, legacy.ThreadIDUpper)
 		}
 		return nil
 	})
 }
 
-// turnInterruptParamFields 列出 turn/interrupt 允许的字段名，兼容历史 threadId/threadID。
-var turnInterruptParamFields = map[string]struct{}{
-	"source":    {},
-	"thread_id": {},
-	"threadId":  {},
-	"threadID":  {},
+type legacyTurnInterruptParams struct {
+	ThreadID      string `json:"threadId"`
+	ThreadIDUpper string `json:"threadID"`
 }
 
 // rejectUnknownTurnFields 在轻量 RPC 参数上做 fail-fast 字段检查，防止客户端误以为字段生效。
-func rejectUnknownTurnFields(data []byte, method string, allowed map[string]struct{}) error {
-	var payload map[string]json.RawMessage
-	if err := json.Unmarshal(data, &payload); err != nil {
-		return err
-	}
-	for key := range payload {
-		if _, ok := allowed[key]; !ok {
-			return fmt.Errorf("%s: unknown field %q", method, key)
-		}
-	}
-	return nil
+func rejectUnknownTurnFields(data []byte, method string, wireShapes ...any) error {
+	return platformrpc.RejectUnknownJSONFields(data, method, wireShapes...)
 }
 
 // threadIDOnlyParams 是只需要线程 ID 的 RPC 入参，保留旧 camelCase 兼容。
@@ -284,18 +313,21 @@ type threadIDOnlyParams struct {
 
 // UnmarshalJSON 兼容 threadId，同时让新版 thread_id 优先。
 func (p *threadIDOnlyParams) UnmarshalJSON(data []byte) error {
-	var legacy struct {
-		ThreadID string `json:"threadId"`
-	}
+	var legacy legacyTurnThreadIDParams
 	type raw threadIDOnlyParams
-	return decodeLegacyTurnParams(data, (*raw)(p), &legacy, func(current *raw, legacy *struct {
-		ThreadID string `json:"threadId"`
-	}) error {
+	if err := rejectUnknownTurnFields(data, "turn/forceComplete", threadIDOnlyParams{}, legacyTurnThreadIDParams{}); err != nil {
+		return err
+	}
+	return decodeLegacyTurnParams(data, (*raw)(p), &legacy, func(current *raw, legacy *legacyTurnThreadIDParams) error {
 		if strings.TrimSpace(current.ThreadID) == "" {
 			current.ThreadID = strings.TrimSpace(legacy.ThreadID)
 		}
 		return nil
 	})
+}
+
+type legacyTurnThreadIDParams struct {
+	ThreadID string `json:"threadId"`
 }
 
 // approvalRespondParams 是工具审批响应入参，Approved 与 Decision 至少要提供一种。
@@ -308,19 +340,12 @@ type approvalRespondParams struct {
 
 // UnmarshalJSON 兼容旧版 callId/requestId，并复制 RawMessage 防止共享底层 buffer。
 func (p *approvalRespondParams) UnmarshalJSON(data []byte) error {
-	var legacy struct {
-		CallID    string          `json:"callId"`
-		RequestID *int64          `json:"requestId"`
-		Approved  *bool           `json:"approved"`
-		Decision  json.RawMessage `json:"decision"`
-	}
+	var legacy legacyApprovalRespondParams
 	type raw approvalRespondParams
-	return decodeLegacyTurnParams(data, (*raw)(p), &legacy, func(current *raw, legacy *struct {
-		CallID    string          `json:"callId"`
-		RequestID *int64          `json:"requestId"`
-		Approved  *bool           `json:"approved"`
-		Decision  json.RawMessage `json:"decision"`
-	}) error {
+	if err := rejectUnknownTurnFields(data, "approval/respond", approvalRespondParams{}, legacyApprovalRespondParams{}); err != nil {
+		return err
+	}
+	return decodeLegacyTurnParams(data, (*raw)(p), &legacy, func(current *raw, legacy *legacyApprovalRespondParams) error {
 		if strings.TrimSpace(current.CallID) == "" {
 			current.CallID = strings.TrimSpace(legacy.CallID)
 		}
@@ -337,6 +362,13 @@ func (p *approvalRespondParams) UnmarshalJSON(data []byte) error {
 		}
 		return nil
 	})
+}
+
+type legacyApprovalRespondParams struct {
+	CallID    string          `json:"callId"`
+	RequestID *int64          `json:"requestId"`
+	Approved  *bool           `json:"approved"`
+	Decision  json.RawMessage `json:"decision"`
 }
 
 // turnInterruptResult 是 turn/interrupt 返回给 UI 的状态和 settle 摘要。
