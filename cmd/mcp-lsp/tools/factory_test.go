@@ -6,6 +6,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -147,34 +148,72 @@ func TestWrapToolHandlerRejectsExplicitAbsoluteWorkDirOutsideWorkspaceRoots(t *t
 func TestWrapToolHandlerResolvesRelativeClaudeWorktreeWorkDir(t *testing.T) {
 	root := t.TempDir()
 	worktreeRoot := filepath.Join(root, ".claude", "worktrees", "feature")
-	if err := os.MkdirAll(worktreeRoot, 0o755); err != nil {
-		t.Fatalf("mkdir worktree root: %v", err)
-	}
+	mustMkdirAll(t, worktreeRoot)
 	var gotScope common.ToolScope
+	gotExplicitWorkDir := false
 	handler := wrapToolHandler("file", time.Second, func(ctx context.Context, _ json.RawMessage) (any, error) {
-		var ok bool
-		gotScope, ok = common.ToolScopeFromContext(ctx)
-		if !ok {
-			t.Fatal("ToolScopeFromContext() missing scope")
-		}
+		gotScope = mustToolScopeFromContext(t, ctx)
+		gotExplicitWorkDir = explicitToolWorkDirFromContext(ctx)
 		return "ok", nil
 	})
-	payload, err := json.Marshal(map[string]any{
+	payload := mustMarshalToolPayload(t, map[string]any{
 		"work_dir": filepath.Join(".claude", "worktrees", "feature"),
 	})
-	if err != nil {
-		t.Fatalf("marshal payload: %v", err)
-	}
 	ctx := testToolContext(root)
 
 	if _, err := handler(ctx, payload); err != nil {
 		t.Fatalf("handler returned error: %v", err)
 	}
-	want, err := filepath.EvalSymlinks(worktreeRoot)
+	want := mustEvalCleanSymlinks(t, worktreeRoot)
+	requireExplicitWorkDirScope(t, gotScope, gotExplicitWorkDir, want, root)
+}
+
+func mustMkdirAll(t *testing.T, path string) {
+	t.Helper()
+	if err := os.MkdirAll(path, 0o755); err != nil {
+		t.Fatalf("mkdir worktree root: %v", err)
+	}
+}
+
+func mustToolScopeFromContext(t *testing.T, ctx context.Context) common.ToolScope {
+	t.Helper()
+	scope, ok := common.ToolScopeFromContext(ctx)
+	if !ok {
+		t.Fatal("ToolScopeFromContext() missing scope")
+	}
+	return scope
+}
+
+func mustMarshalToolPayload(t *testing.T, value any) json.RawMessage {
+	t.Helper()
+	payload, err := json.Marshal(value)
+	if err != nil {
+		t.Fatalf("marshal payload: %v", err)
+	}
+	return payload
+}
+
+func mustEvalCleanSymlinks(t *testing.T, path string) string {
+	t.Helper()
+	want, err := filepath.EvalSymlinks(path)
 	if err != nil {
 		t.Fatalf("eval worktree root: %v", err)
 	}
-	if gotScope.CWD != filepath.Clean(want) {
+	return filepath.Clean(want)
+}
+
+func requireExplicitWorkDirScope(t *testing.T, gotScope common.ToolScope, gotExplicitWorkDir bool, want string, root string) {
+	t.Helper()
+	if gotScope.CWD != want {
 		t.Fatalf("scope CWD = %q, want %q", gotScope.CWD, want)
+	}
+	if !gotExplicitWorkDir {
+		t.Fatalf("explicit work_dir marker = false, want true")
+	}
+	if len(gotScope.WorkspaceRoots) == 0 || gotScope.WorkspaceRoots[0] != want {
+		t.Fatalf("workspace roots = %#v, want explicit work_dir first %q", gotScope.WorkspaceRoots, want)
+	}
+	if !slices.Contains(gotScope.WorkspaceRoots, filepath.Clean(root)) {
+		t.Fatalf("workspace roots = %#v, want original root %q preserved", gotScope.WorkspaceRoots, filepath.Clean(root))
 	}
 }
