@@ -309,16 +309,16 @@ func (m *manager) createAndRegisterClient(ctx context.Context, cfg workspaceConf
 	}
 
 	m.mu.Lock()
-	defer m.mu.Unlock()
 	if m.closed {
-		_ = client.Shutdown(context.Background())
-		_ = client.Close()
+		m.mu.Unlock()
+		_ = shutdownClients([]Client{client})
 		return nil, ErrManagerClosed
 	}
 	if workspace := m.workspaces[cfg.key]; workspace != nil && workspace.client != nil {
-		_ = client.Shutdown(context.Background())
-		_ = client.Close()
-		return workspace.client, nil
+		existing := workspace.client
+		m.mu.Unlock()
+		_ = shutdownClients([]Client{client})
+		return existing, nil
 	}
 	m.workspaces[cfg.key] = &workspaceClient{
 		key:              cfg.key,
@@ -330,6 +330,7 @@ func (m *manager) createAndRegisterClient(ctx context.Context, cfg workspaceConf
 		client:           client,
 		lastActivity:     time.Now(),
 	}
+	m.mu.Unlock()
 	return client, nil
 }
 
