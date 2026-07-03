@@ -434,11 +434,11 @@ func setupSkillsListCWDProjects(t *testing.T) (string, string, string) {
 	projectA := filepath.Join(t.TempDir(), "wj", "langgraph")
 	projectB := filepath.Join(t.TempDir(), "wj", "go-agent-v2")
 	for _, root := range []string{projectA, projectB} {
-		if err := os.MkdirAll(filepath.Join(root, ".agent", "skills"), 0o755); err != nil {
+		if err := os.MkdirAll(filepath.Join(root, ".agents", "skills"), 0o755); err != nil {
 			t.Fatalf("mkdir project skills root: %v", err)
 		}
 	}
-	writeTestSkill(t, filepath.Join(projectB, ".agent", "skills"), "local-b", "# local b")
+	writeTestSkill(t, filepath.Join(projectB, ".agents", "skills"), "local-b", "# local b")
 	writeScopedSystemSkill(t, systemRoot, projectA, "shared-a", "---\nname: shared-a\nsummary: from-a\n---\nA")
 	writeScopedSystemSkill(t, systemRoot, projectB, "shared-b", "---\nname: shared-b\nsummary: from-b\n---\nB")
 	return systemRoot, projectA, projectB

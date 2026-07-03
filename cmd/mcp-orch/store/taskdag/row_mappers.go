@@ -68,6 +68,11 @@ func fromNodeRunListRow(row sqlc.ListTaskDagRunNodesRow) Node {
 	return fromNodeRaw(row.ID, row.DagKey, row.NodeKey, row.RunID, row.Title, row.NodeType, row.AssignedTo, row.DependsOn, row.Status, row.CommandRef, row.Config, row.Result, row.StartedAt, row.FinishedAt, row.CreatedAt, row.UpdatedAt, row.ActiveTurnID, row.ActiveWakeupID, row.LastEventAt, row.SpawningThreadID)
 }
 
+// fromNodeRunForUpdateRow 把 GetTaskDagRunNodeForUpdateRow 投影成 contract Node。
+func fromNodeRunForUpdateRow(row sqlc.GetTaskDagRunNodeForUpdateRow) Node {
+	return fromNodeRaw(row.ID, row.DagKey, row.NodeKey, row.RunID, row.Title, row.NodeType, row.AssignedTo, row.DependsOn, row.Status, row.CommandRef, row.Config, row.Result, row.StartedAt, row.FinishedAt, row.CreatedAt, row.UpdatedAt, row.ActiveTurnID, row.ActiveWakeupID, row.LastEventAt, row.SpawningThreadID)
+}
+
 // fromNodeLookupBySpawningThreadRow 把 LookupNodesBySpawningThreadRow 投影成 contract Node。
 func fromNodeLookupBySpawningThreadRow(row sqlc.LookupNodesBySpawningThreadRow) Node {
 	return fromNodeRaw(row.ID, row.DagKey, row.NodeKey, row.RunID, row.Title, row.NodeType, row.AssignedTo, row.DependsOn, row.Status, row.CommandRef, row.Config, row.Result, row.StartedAt, row.FinishedAt, row.CreatedAt, row.UpdatedAt, row.ActiveTurnID, row.ActiveWakeupID, row.LastEventAt, row.SpawningThreadID)

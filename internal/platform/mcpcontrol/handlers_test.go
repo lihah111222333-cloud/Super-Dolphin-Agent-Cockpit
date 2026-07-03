@@ -201,8 +201,9 @@ func TestDefaultLogSinkRedactsPeerFields(t *testing.T) {
 func TestDefaultLogSinkRequiresSystemLogSink(t *testing.T) {
 	t.Parallel()
 
+	var buf bytes.Buffer
 	err := (defaultLogSink{
-		logger: slog.New(slog.NewJSONHandler(&bytes.Buffer{}, &slog.HandlerOptions{Level: slog.LevelDebug})),
+		logger: slog.New(slog.NewJSONHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug})),
 	}).HandleLog(context.Background(), &ToolInstance{}, dto.LogNotify{
 		Level:   "INFO",
 		Message: "peer emitted diagnostic",
@@ -216,6 +217,9 @@ func TestDefaultLogSinkRequiresSystemLogSink(t *testing.T) {
 	}
 	if got := int(rpcErr.Code); got != dto.ErrCodeInternal {
 		t.Fatalf("HandleLog() code = %d, want %d", got, dto.ErrCodeInternal)
+	}
+	if !strings.Contains(buf.String(), "peer emitted diagnostic") {
+		t.Fatalf("backend log = %q, want diagnostic even when system log sink is missing", buf.String())
 	}
 }
 

@@ -10,6 +10,7 @@ import (
 // Store 定义业务异常日志查询边界，调用方不直接依赖 sqlc 生成行。
 type Store interface {
 	List(ctx context.Context, filter ListFilter) ([]BusExceptionLog, error)
+	Get(ctx context.Context, id int64) (BusExceptionLog, error)
 }
 
 // ListFilter 是业务异常日志列表过滤条件，用于按分类、严重级别和关键字收窄。
@@ -22,13 +23,15 @@ type ListFilter struct {
 
 // BusExceptionLog 是业务异常日志的前端 JSON wire DTO。
 type BusExceptionLog struct {
-	ID        int64           `json:"id"`
-	Ts        time.Time       `json:"ts"`
-	Category  string          `json:"category"`
-	Severity  string          `json:"severity"`
-	Source    string          `json:"source"`
-	ToolName  string          `json:"tool_name"`
-	Message   string          `json:"message"`
-	Traceback string          `json:"traceback"`
-	Extra     json.RawMessage `json:"extra"`
+	ID           int64           `json:"id"`
+	Ts           time.Time       `json:"ts"`
+	Category     string          `json:"category"`
+	Severity     string          `json:"severity"`
+	Source       string          `json:"source"`
+	ToolName     string          `json:"tool_name"`
+	Message      string          `json:"message"`
+	Traceback    string          `json:"traceback"`
+	Extra        json.RawMessage `json:"extra"`
+	HasTraceback bool            `json:"has_traceback"`
+	HasExtra     bool            `json:"has_extra"`
 }

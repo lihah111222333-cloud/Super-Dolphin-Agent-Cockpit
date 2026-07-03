@@ -21,22 +21,32 @@ func TestProjectMirrorCapsTrustFrontmatter(t *testing.T) {
 	superHome := filepath.Join(t.TempDir(), ".super-dolphin")
 	cases := map[string]string{"trust-scope-signed": "trust_scope: signed", "trustscope-verified": "trustscope: verified", "trust-verified": "trust: VERIFIED", "trust-user": "trust: user", "trust-signed": "trust: signed", "trust-trusted": "trust: trusted"}
 	for name, trustLine := range cases {
-		skillDir := filepath.Join(project, ".agent", "skills", name)
+		skillDir := filepath.Join(project, ".agents", "skills", name)
 		content := "---\nname: " + name + "\n" + trustLine + "\n---\n# " + name + "\n"
 		writeFileWithMode(t, filepath.Join(skillDir, skillMainFile), content, 0o644)
 	}
 	writeFileWithMode(t, filepath.Join(superHome, "skills", "personal", "user", "personal-elevated", skillMainFile), "---\nname: personal-elevated\ntrust: signed\n---\n# personal\n", 0o644)
-	svc := &service{projectRoot: project, projectSkillsRoot: defaultProjectSkillsRoot(project), superDolphinHome: superHome}
-	codexRoot := providerProjectMirrorRoot(SkillProviderCodex, project)
-	providerHome := filepath.Join(superHome, "providers", "codex")
+	records, err := newCanonicalStore(superHome).scan(project)
+	if err != nil {
+		t.Fatalf("scan canonical records: %v", err)
+	}
+	codexRoot := testCodexProjectMirrorRoot(project)
 	personalRoot := filepath.Join(superHome, "providers", "codex", "skills")
 
-	if _, err := svc.ReconcileProviderMirrors(context.Background(), project, []contract.SkillProviderMirrorTarget{{
-		Provider: "codex", HomeRoot: providerHome, SkillsRoot: codexRoot,
+	if _, err := PublishSkillMirrors(context.Background(), records, []SkillMirrorTarget{{
+		TargetID:        "codex:project:" + RepoFingerprint(project),
+		Provider:        SkillProviderCodex,
+		Scope:           skillScopeProject,
+		Root:            codexRoot,
+		CanonicalRootID: RepoFingerprint(project),
 	}, {
-		Provider: "codex", HomeRoot: providerHome, SkillsRoot: personalRoot,
+		TargetID:        "codex:app-managed:owner",
+		Provider:        SkillProviderCodex,
+		Scope:           skillScopePersonal,
+		Root:            personalRoot,
+		CanonicalRootID: "sd_owner:owner",
 	}}); err != nil {
-		t.Fatalf("ReconcileProviderMirrors: %v", err)
+		t.Fatalf("PublishSkillMirrors: %v", err)
 	}
 	for name := range cases {
 		gotPath := filepath.Join(codexRoot, name, skillMainFile)
@@ -56,7 +66,7 @@ func TestReconcileProviderMirrorsUsesRequestCWDWhenServiceProjectRootDiffers(t *
 	}
 	superHome := filepath.Join(t.TempDir(), ".super-dolphin")
 	providerHome := filepath.Join(superHome, "providers", "codex")
-	writeSkillWithSupportFiles(t, filepath.Join(requestProject, ".agent", "skills", "build"), "build")
+	writeSkillWithSupportFiles(t, filepath.Join(requestProject, ".agents", "skills", "build"), "build")
 	svc := &service{projectRoot: serviceProject, projectSkillsRoot: defaultProjectSkillsRoot(serviceProject), superDolphinHome: superHome}
 	targets, err := providershared.ProviderMirrorTargets(providershared.ProviderCodex, requestProject, providerHome)
 	if err != nil {
@@ -67,10 +77,15 @@ func TestReconcileProviderMirrorsUsesRequestCWDWhenServiceProjectRootDiffers(t *
 	if err != nil {
 		t.Fatalf("ReconcileProviderMirrors request cwd: %v", err)
 	}
+	if len(report.Conflicts) != 0 {
+		t.Fatalf("conflicts = %+v", report.Conflicts)
+	}
 
 	requestProjectRoot := providerProjectMirrorRoot(SkillProviderCodex, requestProject)
-	assertPublishedReportItem(t, report.Published, "codex:project:"+RepoFingerprint(requestProject), SkillProviderCodex, skillScopeProject, "build", "project/build")
 	assertMirrorFile(t, filepath.Join(requestProjectRoot, "build", skillMainFile), false)
+	if _, err := readSkillMirrorManifest(filepath.Join(requestProjectRoot, skillMirrorManifestFile)); err != nil {
+		t.Fatalf("read request project self manifest: %v", err)
+	}
 	assertMissing(t, filepath.Join(providerProjectMirrorRoot(SkillProviderCodex, serviceProject), "build", skillMainFile))
 }
 
@@ -80,7 +95,7 @@ func TestReconcileProviderMirrorsPublishesPackagedProjectMirrorToWritableHome(t 
 	if err := os.MkdirAll(resources, 0o755); err != nil {
 		t.Fatalf("MkdirAll resources: %v", err)
 	}
-	writeSkillWithSupportFiles(t, filepath.Join(resources, ".agent", "skills", "packaged"), "packaged")
+	writeSkillWithSupportFiles(t, filepath.Join(resources, ".agents", "skills", "packaged"), "packaged")
 	t.Setenv("SUPER_DOLPHIN_HOME", superHome)
 	t.Setenv("PROJECT_ROOT", resources)
 	t.Setenv("SUPER_DOLPHIN_RUNTIME_MODE", "packaged")
@@ -97,7 +112,7 @@ func TestReconcileProviderMirrorsPublishesPackagedProjectMirrorToWritableHome(t 
 
 	writableProjectRoot := filepath.Join(superHome, "provider-mirrors", "project", "codex", "skills")
 	assertMirrorFile(t, filepath.Join(writableProjectRoot, "packaged", skillMainFile), false)
-	assertMissing(t, filepath.Join(resources, ".agents", "skills", "packaged", skillMainFile))
+	assertMirrorFile(t, filepath.Join(resources, ".agents", "skills", "packaged", skillMainFile), false)
 }
 
 func TestSkillMirrorPublisherReportsPersonalManagedDriftAsNonBlockingSkipped(t *testing.T) {
@@ -171,7 +186,7 @@ func TestSkillMirrorPublisherReportsPersonalDeletedWithDriftAsNonBlockingSkipped
 
 func TestSkillMirrorPublisherReportsProjectManagedDriftAsBlockingConflict(t *testing.T) {
 	project := t.TempDir()
-	writeSkillWithSupportFiles(t, filepath.Join(project, ".agent", "skills", "build"), "build")
+	writeSkillWithSupportFiles(t, filepath.Join(project, ".agents", "skills", "build"), "build")
 	records, err := newCanonicalStore("").scan(project)
 	if err != nil {
 		t.Fatalf("scan canonical records: %v", err)
@@ -180,7 +195,7 @@ func TestSkillMirrorPublisherReportsProjectManagedDriftAsBlockingConflict(t *tes
 		TargetID:        "codex:project:repo",
 		Provider:        SkillProviderCodex,
 		Scope:           skillScopeProject,
-		Root:            providerProjectMirrorRoot(SkillProviderCodex, project),
+		Root:            testCodexProjectMirrorRoot(project),
 		CanonicalRootID: "repo",
 	}
 	if _, err := PublishSkillMirrors(context.Background(), records, []SkillMirrorTarget{target}); err != nil {
@@ -204,13 +219,13 @@ func TestSkillMirrorPublisherReportsProjectManagedDriftAsBlockingConflict(t *tes
 
 func TestSkillMirrorPublisherReportsProjectDeletedWithDriftAsBlockingConflict(t *testing.T) {
 	project := t.TempDir()
-	canonicalDir := filepath.Join(project, ".agent", "skills", "build")
+	canonicalDir := filepath.Join(project, ".agents", "skills", "build")
 	writeSkillWithSupportFiles(t, canonicalDir, "build")
 	target := SkillMirrorTarget{
 		TargetID:        "codex:project:repo",
 		Provider:        SkillProviderCodex,
 		Scope:           skillScopeProject,
-		Root:            providerProjectMirrorRoot(SkillProviderCodex, project),
+		Root:            testCodexProjectMirrorRoot(project),
 		CanonicalRootID: "repo",
 	}
 	report := publishDeletedWithDriftMirror(t, project, "", canonicalDir, target, "build", "project deleted drift")
@@ -242,20 +257,19 @@ func TestReconcileProviderMirrorsRepairsManagedProjectMirrorTrustCap(t *testing.
 	for _, tc := range cases {
 		content := "---\nname: " + tc.name + "\n" + tc.trustLine + "\n---\n# project\n"
 		projectContents[tc.name] = content
-		writeFileWithMode(t, filepath.Join(project, ".agent", "skills", tc.name, skillMainFile), content, 0o644)
+		writeFileWithMode(t, filepath.Join(project, ".agents", "skills", tc.name, skillMainFile), content, 0o644)
 	}
 	unchangedProjectContent := "---\nname: " + unchangedProjectName + "\ntrust: project\n---\n# project\n"
 	personalContent := "---\nname: " + personalName + "\ntrust: signed\n---\n# personal\n"
-	writeFileWithMode(t, filepath.Join(project, ".agent", "skills", unchangedProjectName, skillMainFile), unchangedProjectContent, 0o644)
+	writeFileWithMode(t, filepath.Join(project, ".agents", "skills", unchangedProjectName, skillMainFile), unchangedProjectContent, 0o644)
 	writeFileWithMode(t, filepath.Join(superHome, "skills", "personal", "user", personalName, skillMainFile), personalContent, 0o644)
 	records, err := newCanonicalStore(superHome).scan(project)
 	if err != nil {
 		t.Fatalf("scan canonical records: %v", err)
 	}
 	personalRecord := findCanonicalRecord(t, records, personalName, skillScopePersonal, personalSkillTypeUser)
-	svc := &service{projectRoot: project, projectSkillsRoot: defaultProjectSkillsRoot(project), superDolphinHome: superHome}
+	codexRoot := testCodexProjectMirrorRoot(project)
 	providerHome := filepath.Join(superHome, "providers", "codex")
-	codexRoot := providerProjectMirrorRoot(SkillProviderCodex, project)
 	personalRoot := filepath.Join(providerHome, "skills")
 	owner, err := resolveOwnerIdentity(superHome, defaultOwnerOSUID(), defaultAppProfile())
 	if err != nil {
@@ -275,13 +289,9 @@ func TestReconcileProviderMirrorsRepairsManagedProjectMirrorTrustCap(t *testing.
 	writeManagedMirrorFixtures(t, projectTarget, projectFixtures...)
 	writeManagedMirrorFixtures(t, personalTarget, managedMirrorFixture{record: personalRecord, content: personalContent})
 
-	report, err := svc.ReconcileProviderMirrors(context.Background(), project, []contract.SkillProviderMirrorTarget{{
-		Provider: "codex", HomeRoot: providerHome, SkillsRoot: codexRoot,
-	}, {
-		Provider: "codex", HomeRoot: providerHome, SkillsRoot: personalRoot,
-	}})
+	report, err := PublishSkillMirrors(context.Background(), records, []SkillMirrorTarget{projectTarget, personalTarget})
 	if err != nil {
-		t.Fatalf("ReconcileProviderMirrors: %v", err)
+		t.Fatalf("PublishSkillMirrors: %v", err)
 	}
 
 	for _, tc := range cases {

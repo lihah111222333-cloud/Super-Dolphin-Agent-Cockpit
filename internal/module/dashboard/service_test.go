@@ -639,6 +639,26 @@ func TestGetBusLogsUsesStore(t *testing.T) {
 	}
 }
 
+func TestGetBusLogUsesStore(t *testing.T) {
+	t.Parallel()
+
+	stub := &stubBusLogStore{
+		getResult: BusExceptionLog{ID: 9, Traceback: "stack", Extra: json.RawMessage(`{"k":"v"}`)},
+	}
+	svc := &service{busLogs: stub}
+
+	got, err := svc.GetBusLog(context.Background(), 9)
+	if err != nil {
+		t.Fatalf("GetBusLog() error = %v", err)
+	}
+	if stub.getCalls != 1 || stub.getID != 9 {
+		t.Fatalf("Get() calls=%d id=%d, want 1/9", stub.getCalls, stub.getID)
+	}
+	if got.ID != 9 || got.Traceback != "stack" {
+		t.Fatalf("GetBusLog() = %#v", got)
+	}
+}
+
 type stubPromptReader struct {
 	result     []PromptTemplate
 	err        error
@@ -739,6 +759,11 @@ type stubBusLogStore struct {
 	listErr    error
 	listFilter BusLogFilter
 	listCalls  int
+
+	getResult BusExceptionLog
+	getErr    error
+	getID     int64
+	getCalls  int
 }
 
 var _ BusLogReader = (*stubBusLogStore)(nil)
@@ -747,4 +772,10 @@ func (s *stubBusLogStore) List(_ context.Context, filter BusLogFilter) ([]BusExc
 	s.listCalls++
 	s.listFilter = filter
 	return s.listResult, s.listErr
+}
+
+func (s *stubBusLogStore) Get(_ context.Context, id int64) (BusExceptionLog, error) {
+	s.getCalls++
+	s.getID = id
+	return s.getResult, s.getErr
 }

@@ -160,6 +160,15 @@ func (a busLogStoreAdapter) List(ctx context.Context, filter BusLogFilter) ([]Bu
 	return mapBusExceptionLogs(items), nil
 }
 
+// Get 读取 bus 异常日志详情并转换为 dashboard wire DTO。
+func (a busLogStoreAdapter) Get(ctx context.Context, id int64) (BusExceptionLog, error) {
+	item, err := a.store.Get(ctx, id)
+	if err != nil {
+		return BusExceptionLog{}, err
+	}
+	return mapBusExceptionLogs([]buslogstore.BusExceptionLog{item})[0], nil
+}
+
 type systemLogStoreAdapter struct {
 	store systemlogstore.Store
 }
@@ -393,15 +402,17 @@ func mapBusExceptionLogs(items []buslogstore.BusExceptionLog) []BusExceptionLog 
 	out := make([]BusExceptionLog, 0, len(items))
 	for _, item := range items {
 		out = append(out, BusExceptionLog{
-			ID:        item.ID,
-			Ts:        item.Ts,
-			Category:  item.Category,
-			Severity:  item.Severity,
-			Source:    item.Source,
-			ToolName:  item.ToolName,
-			Message:   item.Message,
-			Traceback: item.Traceback,
-			Extra:     item.Extra,
+			ID:           item.ID,
+			Ts:           item.Ts,
+			Category:     item.Category,
+			Severity:     item.Severity,
+			Source:       item.Source,
+			ToolName:     item.ToolName,
+			Message:      item.Message,
+			Traceback:    item.Traceback,
+			Extra:        item.Extra,
+			HasTraceback: item.HasTraceback,
+			HasExtra:     item.HasExtra,
 		})
 	}
 	return out

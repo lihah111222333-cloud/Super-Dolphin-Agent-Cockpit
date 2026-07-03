@@ -15,7 +15,7 @@ func TestSkillResolutionListTreatsExternalPersonalProjectSameNameAsProjectChoice
 
 	assertResolutionActions(t, item, ResolutionViewDiff, ResolutionUseProjectSharedSkill, ResolutionUseExternalProviderSkill, ResolutionSaveAsNewPersonal)
 	assertResolutionProviderEntry(t, item, string(SkillProviderClaude), "build")
-	if !sameCleanPath(filepath.FromSlash(item.ProviderEntries[0].TargetPath), filepath.Join(project, ".agent", "skills", "build")) {
+	if !sameCleanPath(filepath.FromSlash(item.ProviderEntries[0].TargetPath), filepath.Join(project, ".agents", "skills", "build")) {
 		t.Fatalf("target_path = %q, want project canonical skill", item.ProviderEntries[0].TargetPath)
 	}
 }
@@ -32,7 +32,7 @@ func setupExternalPersonalProjectConflictFixtureWithService(t *testing.T) (strin
 	project := t.TempDir()
 	superHome := filepath.Join(t.TempDir(), ".super-dolphin")
 	svc := &service{root: t.TempDir(), projectRoot: project, projectSkillsRoot: defaultProjectSkillsRoot(project), superDolphinHome: superHome, http: &http.Client{}}
-	writeSkillWithSupportFiles(t, filepath.Join(project, ".agent", "skills", "build"), "build")
+	writeSkillWithSupportFiles(t, filepath.Join(project, ".agents", "skills", "build"), "build")
 	externalDir := filepath.Join(providerPersonalMirrorRoot(SkillProviderClaude), "build")
 	writeSkillWithSupportFiles(t, externalDir, "build")
 	writeFileWithMode(t, filepath.Join(externalDir, "references", "guide.md"), "external personal edit\n", 0o644)

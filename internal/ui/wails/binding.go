@@ -290,10 +290,10 @@ func (a *App) callAPIObject(method string, params any) (any, error) {
 	return a.CallAPI(method, json.RawMessage(data))
 }
 
-// stripFrontendMeta 移除前端专用 meta 字段，避免 strict handler 因未知字段拒绝请求。
+// stripFrontendMeta 移除已知前端 meta 字段；未知 _ao 字段保留给 strict handler 拒绝。
 func stripFrontendMeta(raw json.RawMessage) json.RawMessage {
 	return stripJSONFields(raw, func(key string) bool {
-		return strings.HasPrefix(key, "_ao")
+		return isFrontendMetaField(key)
 	})
 }
 
@@ -302,6 +302,15 @@ func stripFrontendTraceMeta(raw json.RawMessage) json.RawMessage {
 	return stripJSONFields(raw, func(key string) bool {
 		return key == "_aoTraceparent" || key == "_aoTraceId" || key == "_aoSpanId"
 	})
+}
+
+func isFrontendMetaField(key string) bool {
+	switch key {
+	case "_aoClientKind", "_aoClientRoute", "_aoTraceparent", "_aoTraceId", "_aoSpanId":
+		return true
+	default:
+		return false
+	}
 }
 
 // stripJSONFields 按谓词删除 JSON object 顶层字段，非 object 或重编码失败时保留原载荷。

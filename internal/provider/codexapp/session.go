@@ -320,10 +320,13 @@ func (s *session) StartTurn(ctx context.Context, req dto.TurnRequest) (contract.
 	if err != nil {
 		return nil, err
 	}
+	params, err := buildTurnStartParams(threadID, req)
+	if err != nil {
+		return nil, err
+	}
 	if err := s.applyTurnToolScopeRuntimeConfig(req); err != nil {
 		return nil, err
 	}
-	params := buildTurnStartParams(threadID, req)
 	if params.DynamicTools, err = s.prepareTurnDynamicTools(ctx, req); err != nil {
 		return nil, err
 	}
@@ -417,7 +420,11 @@ func (s *session) Steer(ctx context.Context, req dto.SteerRequest) error {
 	if expectedTurnID == "" {
 		return errors.New("codexapp: expected turn id is required")
 	}
-	_, err = callWithTimeout(ctx, callTargetFunc(s.callTransport), 30*time.Second, "turn/steer", buildTurnSteerParams(threadID, req))
+	params, err := buildTurnSteerParams(threadID, req)
+	if err != nil {
+		return err
+	}
+	_, err = callWithTimeout(ctx, callTargetFunc(s.callTransport), 30*time.Second, "turn/steer", params)
 	return err
 }
 

@@ -245,6 +245,37 @@ func TestGrepRuntimeFallbackDoesNotSearchSiblingWorktree(t *testing.T) {
 	}
 }
 
+func TestGrepRuntimeFallbackAllowsExplicitNestedWorkDirEmptyResult(t *testing.T) {
+	root := t.TempDir()
+	worktreeRoot := filepath.Join(root, ".worktrees", "feature")
+	relPath := filepath.Join("docs", "risk.md")
+	writeGrepFixtureFile(t, filepath.Join(worktreeRoot, relPath), "fresh notes\n")
+
+	handler := NewGrepHandler(Config{WorkspaceRoot: root})
+	payload, err := json.Marshal(map[string]any{
+		"action":      "text_search",
+		"query":       "NeedleThatDoesNotExist",
+		"path":        relPath,
+		"work_dir":    worktreeRoot,
+		"max_results": 5,
+	})
+	if err != nil {
+		t.Fatalf("marshal grep input: %v", err)
+	}
+
+	got, err := handler(common.WithRuntimeWorkspaceScopeFallback(testToolContext(root)), payload)
+	if err != nil {
+		t.Fatalf("grep with explicit nested work_dir returned error: %v", err)
+	}
+	resp, ok := got.(grepResponse)
+	if !ok {
+		t.Fatalf("grep result type = %T, want grepResponse", got)
+	}
+	if resp.Total != 0 || resp.Message != "no matches found" {
+		t.Fatalf("grep response = total:%d message:%q, want empty no-match result", resp.Total, resp.Message)
+	}
+}
+
 func TestGrepRequiresTrustedWorkspaceRootsWhenRuntimeFallbackWouldApply(t *testing.T) {
 	parent := t.TempDir()
 	root := filepath.Join(parent, "main")

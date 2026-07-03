@@ -31,3 +31,130 @@ func TestTurnSteerParamsRejectsUnknownField(t *testing.T) {
 		t.Fatalf("json.Unmarshal(turnSteerParams) error = %q", err)
 	}
 }
+
+func TestTurnStartParamsAcceptsCamelRuntimeAliases(t *testing.T) {
+	t.Parallel()
+
+	var params turnStartParams
+	err := json.Unmarshal([]byte(`{
+		"threadID":"thread-1",
+		"gitRoot":"/repo",
+		"isWorktree":true,
+		"enabledTools":["lsp_file"],
+		"additionalWorkingDirectories":["/repo/extra"],
+		"sessionFlags":{"verification_required":true}
+	}`), &params)
+	if err != nil {
+		t.Fatalf("json.Unmarshal(turnStartParams) error = %v", err)
+	}
+	if params.ThreadID != "thread-1" || params.GitRoot != "/repo" || !params.IsWorktree {
+		t.Fatalf("turnStartParams identity/runtime = %#v", params)
+	}
+	if len(params.EnabledTools) != 1 || params.EnabledTools[0] != "lsp_file" {
+		t.Fatalf("EnabledTools = %#v, want lsp_file", params.EnabledTools)
+	}
+	if len(params.AdditionalWorkingDirectories) != 1 || params.AdditionalWorkingDirectories[0] != "/repo/extra" {
+		t.Fatalf("AdditionalWorkingDirectories = %#v", params.AdditionalWorkingDirectories)
+	}
+	if !params.SessionFlags["verification_required"] {
+		t.Fatalf("SessionFlags = %#v, want verification_required", params.SessionFlags)
+	}
+}
+
+func TestTurnStartParamsRejectsConflictingBoolAliases(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		payload string
+		want    string
+	}{
+		{
+			name:    "manual skill selection",
+			payload: `{"manual_skill_selection":false,"manualSkillSelection":true}`,
+			want:    `conflicting manual skill selection values`,
+		},
+		{
+			name:    "is worktree",
+			payload: `{"is_worktree":false,"isWorktree":true}`,
+			want:    `conflicting is worktree values`,
+		},
+	}
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			var params turnStartParams
+			err := json.Unmarshal([]byte(tt.payload), &params)
+			if err == nil || !strings.Contains(err.Error(), tt.want) {
+				t.Fatalf("json.Unmarshal(turnStartParams) error = %v, want %q", err, tt.want)
+			}
+		})
+	}
+}
+
+func TestTurnSteerParamsRejectsConflictingBoolAliases(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		payload string
+		want    string
+	}{
+		{
+			name:    "manual skill selection",
+			payload: `{"thread_id":"thread-1","manual_skill_selection":false,"manualSkillSelection":true}`,
+			want:    `conflicting manual skill selection values`,
+		},
+		{
+			name:    "is worktree",
+			payload: `{"thread_id":"thread-1","is_worktree":false,"isWorktree":true}`,
+			want:    `conflicting is worktree values`,
+		},
+	}
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			var params turnSteerParams
+			err := json.Unmarshal([]byte(tt.payload), &params)
+			if err == nil || !strings.Contains(err.Error(), tt.want) {
+				t.Fatalf("json.Unmarshal(turnSteerParams) error = %v, want %q", err, tt.want)
+			}
+		})
+	}
+}
+
+func TestTurnThreadScopedParamsRejectUnknownFields(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		payload   string
+		newTarget func() any
+		want      string
+	}{
+		{
+			name:      "force complete",
+			payload:   `{"threadId":"thread-1","surprise":true}`,
+			newTarget: func() any { return &threadIDOnlyParams{} },
+			want:      `turn/forceComplete: unknown field "surprise"`,
+		},
+		{
+			name:      "approval respond",
+			payload:   `{"requestId":7,"approved":true,"surprise":true}`,
+			newTarget: func() any { return &approvalRespondParams{} },
+			want:      `approval/respond: unknown field "surprise"`,
+		},
+	}
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			err := json.Unmarshal([]byte(tt.payload), tt.newTarget())
+			if err == nil || !strings.Contains(err.Error(), tt.want) {
+				t.Fatalf("json.Unmarshal(%s) error = %v, want %q", tt.name, err, tt.want)
+			}
+		})
+	}
+}

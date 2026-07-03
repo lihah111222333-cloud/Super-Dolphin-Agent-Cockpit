@@ -252,6 +252,9 @@ func grepRuntimeFallbackWouldSearchOutsideRoots(ctx context.Context, input grepT
 	if !common.RuntimeWorkspaceScopeFallbackFromContext(ctx) {
 		return false
 	}
+	if explicitToolWorkDirFromContext(ctx) {
+		return false
+	}
 	if len(input.Paths) > 0 {
 		return false
 	}

@@ -2,6 +2,7 @@ package dashboard
 
 import (
 	"context"
+	"fmt"
 	"sort"
 	"strings"
 
@@ -110,4 +111,23 @@ func (s *service) GetBusLogs(ctx context.Context, filter BusLogFilter) ([]BusExc
 		filter.Limit = int32(util.ClampLimit(int(filter.Limit), 1, maxLogLimit, defaultLogLimit))
 		return s.busLogs.List(ctx, filter)
 	})
+}
+
+// GetBusLog 读取单条 bus 异常日志详情，详情接口才返回 traceback/extra 重字段。
+func (s *service) GetBusLog(ctx context.Context, id int64) (BusExceptionLog, error) {
+	if s.busLogs == nil {
+		return BusExceptionLog{}, errDashboardStoreMissing("bus_logs")
+	}
+	if id <= 0 {
+		return BusExceptionLog{}, errDashboardInvalidID("bus_logs", id)
+	}
+	return s.busLogs.Get(ctx, id)
+}
+
+func errDashboardStoreMissing(name string) error {
+	return fmt.Errorf("dashboard: %s store is not configured", strings.TrimSpace(name))
+}
+
+func errDashboardInvalidID(name string, id int64) error {
+	return fmt.Errorf("dashboard: %s id must be positive, got %d", strings.TrimSpace(name), id)
 }

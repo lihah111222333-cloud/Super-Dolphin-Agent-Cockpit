@@ -211,6 +211,9 @@ func cleanupSuppressedPersonalMirrorTarget(target SkillMirrorTarget, records []c
 // cleanupSuppressedPersonalMirrorRecord 删除仍由系统托管的被压制 personal mirror。
 // mirror hash 或内容 hash 已漂移时跳过删除，让冲突检测路径交给用户确认。
 func cleanupSuppressedPersonalMirrorRecord(target SkillMirrorTarget, record canonicalSkillRecord) (SkillMirrorReportItem, bool, error) {
+	if targetUsesCanonicalSelfMirror([]canonicalSkillRecord{record}, target) {
+		return SkillMirrorReportItem{}, false, nil
+	}
 	mirrorDir := filepath.Join(target.Root, record.Name)
 	mirrorHash, exists, err := existingMirrorHash(mirrorDir)
 	if err != nil || !exists {

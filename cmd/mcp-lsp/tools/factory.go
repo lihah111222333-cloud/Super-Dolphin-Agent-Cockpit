@@ -32,6 +32,8 @@ type ToolHandler = middleware.Handler
 // Handler 保留旧调用点使用的工具处理器别名。
 type Handler = ToolHandler
 
+type explicitToolWorkDirContextKey struct{}
+
 // decodeMode 控制工具参数按原始、宽松或严格模式解码。
 type decodeMode int
 
@@ -760,7 +762,7 @@ func contextWithExplicitWorkDir(ctx context.Context, workDir string) (context.Co
 	if strings.TrimSpace(scope.Family) == "" {
 		scope.Family = "lsp"
 	}
-	return common.WithToolScope(ctx, scope), normalized, nil
+	return context.WithValue(common.WithToolScope(ctx, scope), explicitToolWorkDirContextKey{}, true), normalized, nil
 }
 
 // ensureExplicitWorkDirWithinWorkspaceRoots 确保 work_dir 在工作区根目录范围内。
@@ -807,6 +809,16 @@ func normalizeExplicitWorkDir(ctx context.Context, workDir string) (string, erro
 		return "", fmt.Errorf("work_dir is not a directory: %s", resolved)
 	}
 	return filepath.Clean(resolved), nil
+}
+
+// explicitToolWorkDirFromContext 标记本次调用已经用参数中的 work_dir 重建可信作用域。
+// grep 的 stale fallback 只适用于缺少显式工作目录的旧运行时根，不应拦截这种调用。
+func explicitToolWorkDirFromContext(ctx context.Context) bool {
+	if ctx == nil {
+		return false
+	}
+	ok, _ := ctx.Value(explicitToolWorkDirContextKey{}).(bool)
+	return ok
 }
 
 // funcRangeEnricher 按需读取并缓存 DocumentSymbols。

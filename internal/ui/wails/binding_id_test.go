@@ -300,9 +300,14 @@ func TestStripFrontendMeta(t *testing.T) {
 		want  string
 	}{
 		{
-			name:  "strips _ao prefixed fields",
+			name:  "strips known frontend meta fields",
 			input: `{"method":"test","_aoClientKind":"desktop-wails","_aoClientRoute":"/"}`,
 			want:  `{"method":"test"}`,
+		},
+		{
+			name:  "preserves unknown _ao fields for strict handler rejection",
+			input: `{"method":"test","_aoTypo":"leak"}`,
+			want:  `{"method":"test","_aoTypo":"leak"}`,
 		},
 		{
 			name:  "no _ao fields passes through",

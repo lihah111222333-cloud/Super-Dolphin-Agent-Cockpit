@@ -41,7 +41,7 @@ func TestCreateSkillWritesToProjectScopeByDefault(t *testing.T) {
 	}
 
 	got, _ := out.(map[string]any)["path"].(string)
-	want := filepath.Join(projectRoot, ".agent", "skills", "demo-skill", skillMainFile)
+	want := filepath.Join(projectRoot, ".agents", "skills", "demo-skill", skillMainFile)
 	if got != want {
 		t.Fatalf("path = %q, want %q", got, want)
 	}

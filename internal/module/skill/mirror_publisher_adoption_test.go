@@ -44,13 +44,13 @@ func TestSkillMirrorPublisherAdoptsIdenticalUnmanagedPersonalMirror(t *testing.T
 
 func TestSkillMirrorPublisherAdoptsIdenticalUnmanagedProjectMirror(t *testing.T) {
 	project := t.TempDir()
-	writeSkillWithSupportFiles(t, filepath.Join(project, ".agent", "skills", "build"), "build")
+	writeSkillWithSupportFiles(t, filepath.Join(project, ".agents", "skills", "build"), "build")
 	records, err := newCanonicalStore("").scan(project)
 	if err != nil {
 		t.Fatalf("scan canonical records: %v", err)
 	}
 	record := findCanonicalRecord(t, records, "build", skillScopeProject, "")
-	root := providerProjectMirrorRoot(SkillProviderCodex, project)
+	root := testCodexProjectMirrorRoot(project)
 	if err := copyCanonicalSkillDir(record.Dir, filepath.Join(root, "build"), skillScopeProject); err != nil {
 		t.Fatalf("copy unmanaged project mirror: %v", err)
 	}
@@ -99,7 +99,7 @@ func TestProjectSuppressedPersonalSourceIDsProjectKeepSelectedCoversFuturePerson
 func TestReconcileProviderMirrorsProjectPolicyPrunesPersonalMirrorForCurrentProject(t *testing.T) {
 	project := t.TempDir()
 	superHome := filepath.Join(t.TempDir(), ".super-dolphin")
-	writeSkillWithSupportFiles(t, filepath.Join(project, ".agent", "skills", "same"), "same")
+	writeSkillWithSupportFiles(t, filepath.Join(project, ".agents", "skills", "same"), "same")
 	writeSkillWithSupportFiles(t, filepath.Join(superHome, "skills", "personal", "user", "same"), "same")
 	svc := &service{projectRoot: project, projectSkillsRoot: defaultProjectSkillsRoot(project), superDolphinHome: superHome}
 	personalHome := filepath.Join(superHome, "providers", "claude")
@@ -143,7 +143,7 @@ func TestReconcileProviderMirrorsProjectPolicyPrunesPersonalMirrorForCurrentProj
 func TestReconcileProviderMirrorsProjectKeepSelectedPrunesPersonalMirrorForCurrentProject(t *testing.T) {
 	project := t.TempDir()
 	superHome := filepath.Join(t.TempDir(), ".super-dolphin")
-	writeSkillWithSupportFiles(t, filepath.Join(project, ".agent", "skills", "same"), "same")
+	writeSkillWithSupportFiles(t, filepath.Join(project, ".agents", "skills", "same"), "same")
 	writeSkillWithSupportFiles(t, filepath.Join(superHome, "skills", "personal", "user", "same"), "same")
 	svc := &service{projectRoot: project, projectSkillsRoot: defaultProjectSkillsRoot(project), superDolphinHome: superHome}
 	personalHome := filepath.Join(superHome, "providers", "claude")
@@ -184,7 +184,7 @@ func TestReconcileProviderMirrorsProjectKeepSelectedPrunesPersonalMirrorForCurre
 func TestReconcileProviderMirrorsDeletesIdenticalUnmanagedSuppressedPersonalMirror(t *testing.T) {
 	project := t.TempDir()
 	superHome := filepath.Join(t.TempDir(), ".super-dolphin")
-	writeSkillWithSupportFiles(t, filepath.Join(project, ".agent", "skills", "same"), "same")
+	writeSkillWithSupportFiles(t, filepath.Join(project, ".agents", "skills", "same"), "same")
 	writeSkillWithSupportFiles(t, filepath.Join(superHome, "skills", "personal", "user", "same"), "same")
 	svc := &service{projectRoot: project, projectSkillsRoot: defaultProjectSkillsRoot(project), superDolphinHome: superHome}
 	personalHome := filepath.Join(superHome, "providers", "claude")

@@ -111,7 +111,7 @@ func TestMatchPreviewExplicitDisplayNameAliasReturnsCanonicalName(t *testing.T) 
 
 	svc := newTestSkillService(t)
 	cwd := filepath.Join(t.TempDir(), "repo")
-	writeSkillContent(t, filepath.Join(cwd, ".agent", "skills", "Docker 容器化部署"), "Docker 容器化部署", "# docker\n")
+	writeSkillContent(t, filepath.Join(cwd, ".agents", "skills", "Docker 容器化部署"), "Docker 容器化部署", "# docker\n")
 
 	out, err := svc.MatchPreview(skillTestContext(cwd), "agent", "thread", "please @Docker 容器化部署 now", nil)
 	if err != nil {
@@ -141,7 +141,7 @@ func TestMatchPreviewConfiguredDisplayNameAliasReturnsCanonicalName(t *testing.T
 
 	svc := newTestSkillService(t)
 	cwd := filepath.Join(t.TempDir(), "repo")
-	writeSkillContent(t, filepath.Join(cwd, ".agent", "skills", "Docker 容器化部署"), "Docker 容器化部署", "# docker\n")
+	writeSkillContent(t, filepath.Join(cwd, ".agents", "skills", "Docker 容器化部署"), "Docker 容器化部署", "# docker\n")
 	svc.readConfigState = func(_ context.Context, resolvedID string) (any, error) {
 		return map[string]any{"agent_id": resolvedID, "skills": []any{"Docker 容器化部署"}}, nil
 	}

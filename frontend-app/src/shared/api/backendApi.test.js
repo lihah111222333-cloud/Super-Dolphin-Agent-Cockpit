@@ -677,6 +677,17 @@ function expectInvalidInputDoesNotCall(callAPI, action, message) {
     });
   });
 
+  it('rejects unknown turn/forceComplete facade fields before calling the backend', () => {
+    const callAPI = vi.fn().mockResolvedValue({ ok: true });
+    const api = createBackendApi({ callAPI });
+
+    expectInvalidInputDoesNotCall(callAPI, () => api.forceCompleteTurn({
+      cwd: '/repo/app',
+      threadId: 'thread-1',
+      surprise: true,
+    }), 'turn/forceComplete: unsupported payload field surprise');
+  });
+
   it('wraps approval/respond with strict request id and decision payloads', async () => {
     const callAPI = vi.fn().mockResolvedValue({ ok: true });
     const api = createBackendApi({ callAPI });
@@ -692,6 +703,22 @@ function expectInvalidInputDoesNotCall(callAPI, action, message) {
       .toThrow('approval/respond: requestId is required');
     expect(() => api.respondApproval({ requestId: 11 }))
       .toThrow('approval/respond: approved is required');
+  });
+
+  it('rejects unknown approval/respond facade fields before calling the backend', () => {
+    const callAPI = vi.fn().mockResolvedValue({ ok: true });
+    const api = createBackendApi({ callAPI });
+
+    expectInvalidInputDoesNotCall(callAPI, () => api.respondApproval({
+      requestId: 11,
+      approved: true,
+      surprise: true,
+    }), 'approval/respond: unsupported payload field surprise');
+    expectInvalidInputDoesNotCall(callAPI, () => api.respondApproval({
+      requestId: 11,
+      approved: true,
+      callId: 'call-1',
+    }), 'approval/respond: unsupported payload field callId');
   });
 
   it('maps turn/interrupt to the backend request and response contract', async () => {

@@ -16,7 +16,7 @@ const (
 	personalSkillPolicyFile = ".super-dolphin-personal-skill-policy.json"
 )
 
-// canonicalStore 只读真正的 skill 来源：项目 .agent/skills 和 active personal。
+// canonicalStore 只读真正的 skill 来源：项目 .agents/skills 和 active personal。
 // 不要把 .claude/.agents 加进来，它们只是生成结果。
 type canonicalStore struct {
 	superDolphinHome string

@@ -18,13 +18,13 @@ func TestSkillMirrorReconcilerDetectsProjectAndPersonalDriftActions(t *testing.T
 	project := t.TempDir()
 	home := t.TempDir()
 	superHome := filepath.Join(home, ".super-dolphin")
-	writeSkillWithSupportFiles(t, filepath.Join(project, ".agent", "skills", "build"), "build")
+	writeSkillWithSupportFiles(t, filepath.Join(project, ".agents", "skills", "build"), "build")
 	writeSkillWithSupportFiles(t, filepath.Join(superHome, "skills", "personal", "user", "notes"), "notes")
 	records, err := newCanonicalStore(superHome).scan(project)
 	if err != nil {
 		t.Fatalf("scan canonical records: %v", err)
 	}
-	projectTarget := SkillMirrorTarget{TargetID: "codex:project:repo", Provider: SkillProviderCodex, Scope: skillScopeProject, Root: providerProjectMirrorRoot(SkillProviderCodex, project), CanonicalRootID: "repo"}
+	projectTarget := SkillMirrorTarget{TargetID: "codex:project:repo", Provider: SkillProviderCodex, Scope: skillScopeProject, Root: testCodexProjectMirrorRoot(project), CanonicalRootID: "repo"}
 	personalTarget := SkillMirrorTarget{TargetID: "claude:app-managed:owner", Provider: SkillProviderClaude, Scope: skillScopePersonal, Root: filepath.Join(superHome, "providers", "claude", "skills"), CanonicalRootID: "sd_owner:owner"}
 	if _, err := PublishSkillMirrors(context.Background(), records, []SkillMirrorTarget{projectTarget, personalTarget}); err != nil {
 		t.Fatalf("PublishSkillMirrors initial: %v", err)
@@ -48,13 +48,13 @@ func TestSkillMirrorReconcilerDetectsProjectAndPersonalDriftActions(t *testing.T
 
 func TestSkillMirrorReconcilerIgnoresIdenticalUnmanagedProjectSameName(t *testing.T) {
 	project := t.TempDir()
-	writeSkillWithSupportFiles(t, filepath.Join(project, ".agent", "skills", "build"), "build")
+	writeSkillWithSupportFiles(t, filepath.Join(project, ".agents", "skills", "build"), "build")
 	records, err := newCanonicalStore("").scan(project)
 	if err != nil {
 		t.Fatalf("scan canonical records: %v", err)
 	}
 	fingerprint := RepoFingerprint(project)
-	target := SkillMirrorTarget{TargetID: "codex:project:" + fingerprint, Provider: SkillProviderCodex, Scope: skillScopeProject, Root: providerProjectMirrorRoot(SkillProviderCodex, project), CanonicalRootID: fingerprint}
+	target := SkillMirrorTarget{TargetID: "codex:project:" + fingerprint, Provider: SkillProviderCodex, Scope: skillScopeProject, Root: testCodexProjectMirrorRoot(project), CanonicalRootID: fingerprint}
 	writeSkillWithSupportFiles(t, filepath.Join(target.Root, "build"), "build")
 
 	conflicts, err := DetectSkillMirrorConflicts(records, []SkillMirrorTarget{target})
@@ -69,13 +69,13 @@ func TestSkillMirrorReconcilerIgnoresIdenticalUnmanagedProjectSameName(t *testin
 
 func TestSkillMirrorReconcilerDetectsUnmanagedProjectSameNameAsProjectVersionConflict(t *testing.T) {
 	project := t.TempDir()
-	writeSkillWithSupportFiles(t, filepath.Join(project, ".agent", "skills", "build"), "build")
+	writeSkillWithSupportFiles(t, filepath.Join(project, ".agents", "skills", "build"), "build")
 	records, err := newCanonicalStore("").scan(project)
 	if err != nil {
 		t.Fatalf("scan canonical records: %v", err)
 	}
 	fingerprint := RepoFingerprint(project)
-	target := SkillMirrorTarget{TargetID: "codex:project:" + fingerprint, Provider: SkillProviderCodex, Scope: skillScopeProject, Root: providerProjectMirrorRoot(SkillProviderCodex, project), CanonicalRootID: fingerprint}
+	target := SkillMirrorTarget{TargetID: "codex:project:" + fingerprint, Provider: SkillProviderCodex, Scope: skillScopeProject, Root: testCodexProjectMirrorRoot(project), CanonicalRootID: fingerprint}
 	writeSkillWithSupportFiles(t, filepath.Join(target.Root, "build"), "build")
 	writeFileWithMode(t, filepath.Join(target.Root, "build", "references", "guide.md"), "provider edit\n", 0o644)
 
@@ -94,7 +94,7 @@ func TestSkillMirrorReconcilerDetectsUnmanagedProjectSameNameAsProjectVersionCon
 func TestSkillMirrorReconcilerDetectsOrphanUnmanagedProviderSkill(t *testing.T) {
 	project := t.TempDir()
 	fingerprint := RepoFingerprint(project)
-	target := SkillMirrorTarget{TargetID: "codex:project:" + fingerprint, Provider: SkillProviderCodex, Scope: skillScopeProject, Root: providerProjectMirrorRoot(SkillProviderCodex, project), CanonicalRootID: fingerprint}
+	target := SkillMirrorTarget{TargetID: "codex:project:" + fingerprint, Provider: SkillProviderCodex, Scope: skillScopeProject, Root: testCodexProjectMirrorRoot(project), CanonicalRootID: fingerprint}
 	writeSkillWithSupportFiles(t, filepath.Join(target.Root, "scratch"), "scratch")
 
 	conflicts, err := DetectSkillMirrorConflicts(nil, []SkillMirrorTarget{target})
@@ -111,7 +111,7 @@ func TestSkillMirrorReconcilerDetectsOrphanUnmanagedProviderSkill(t *testing.T) 
 
 func TestSkillMirrorReconcilerRejectsTopLevelSymlinkProviderSkill(t *testing.T) {
 	project := t.TempDir()
-	target := SkillMirrorTarget{TargetID: "codex:project:repo", Provider: SkillProviderCodex, Scope: skillScopeProject, Root: providerProjectMirrorRoot(SkillProviderCodex, project), CanonicalRootID: "repo"}
+	target := SkillMirrorTarget{TargetID: "codex:project:repo", Provider: SkillProviderCodex, Scope: skillScopeProject, Root: testCodexProjectMirrorRoot(project), CanonicalRootID: "repo"}
 	outside := filepath.Join(t.TempDir(), "scratch")
 	writeSkillWithSupportFiles(t, outside, "scratch")
 	if err := os.MkdirAll(target.Root, 0o755); err != nil {
@@ -154,13 +154,13 @@ func TestSkillMirrorReconcilerDetectsPersonalUnmanagedSameNameAgainstCanonical(t
 
 func TestSkillMirrorReconcilerDetectsCanonicalDeletedAndMultiMirrorDriftKinds(t *testing.T) {
 	project := t.TempDir()
-	writeSkillWithSupportFiles(t, filepath.Join(project, ".agent", "skills", "build"), "build")
+	writeSkillWithSupportFiles(t, filepath.Join(project, ".agents", "skills", "build"), "build")
 	records, err := newCanonicalStore("").scan(project)
 	if err != nil {
 		t.Fatalf("scan canonical records: %v", err)
 	}
 	claudeTarget := SkillMirrorTarget{TargetID: "claude:project:repo", Provider: SkillProviderClaude, Scope: skillScopeProject, Root: filepath.Join(project, ".claude", "skills"), CanonicalRootID: "repo"}
-	codexTarget := SkillMirrorTarget{TargetID: "codex:project:repo", Provider: SkillProviderCodex, Scope: skillScopeProject, Root: providerProjectMirrorRoot(SkillProviderCodex, project), CanonicalRootID: "repo"}
+	codexTarget := SkillMirrorTarget{TargetID: "codex:project:repo", Provider: SkillProviderCodex, Scope: skillScopeProject, Root: testCodexProjectMirrorRoot(project), CanonicalRootID: "repo"}
 	if _, err := PublishSkillMirrors(context.Background(), records, []SkillMirrorTarget{claudeTarget, codexTarget}); err != nil {
 		t.Fatalf("PublishSkillMirrors initial: %v", err)
 	}
@@ -173,7 +173,7 @@ func TestSkillMirrorReconcilerDetectsCanonicalDeletedAndMultiMirrorDriftKinds(t 
 	}
 	findMirrorConflict(t, conflicts, "multi_mirror_drift", "build", skillScopeProject)
 
-	if err := os.RemoveAll(filepath.Join(project, ".agent", "skills", "build")); err != nil {
+	if err := os.RemoveAll(filepath.Join(project, ".agents", "skills", "build")); err != nil {
 		t.Fatalf("RemoveAll canonical: %v", err)
 	}
 	records = nil
@@ -253,13 +253,13 @@ func TestSkillMirrorReconcilerConvertsSameNameConflicts(t *testing.T) {
 
 func TestSkillMirrorReconcilerSyncBackFailsClosedWithoutAudit(t *testing.T) {
 	project := t.TempDir()
-	skillDir := filepath.Join(project, ".agent", "skills", "build")
+	skillDir := filepath.Join(project, ".agents", "skills", "build")
 	writeSkillWithSupportFiles(t, skillDir, "build")
 	records, err := newCanonicalStore("").scan(project)
 	if err != nil {
 		t.Fatalf("scan canonical records: %v", err)
 	}
-	target := SkillMirrorTarget{TargetID: "codex:project:repo", Provider: SkillProviderCodex, Scope: skillScopeProject, Root: providerProjectMirrorRoot(SkillProviderCodex, project), CanonicalRootID: "repo"}
+	target := SkillMirrorTarget{TargetID: "codex:project:repo", Provider: SkillProviderCodex, Scope: skillScopeProject, Root: testCodexProjectMirrorRoot(project), CanonicalRootID: "repo"}
 	if _, err := PublishSkillMirrors(context.Background(), records, []SkillMirrorTarget{target}); err != nil {
 		t.Fatalf("PublishSkillMirrors initial: %v", err)
 	}
@@ -287,14 +287,14 @@ func TestSkillMirrorReconcilerSyncBackFailsClosedWithoutAudit(t *testing.T) {
 
 func TestSkillMirrorReconcilerSyncBackUpdatesManagedMirrorManifest(t *testing.T) {
 	project := t.TempDir()
-	skillDir := filepath.Join(project, ".agent", "skills", "build")
+	skillDir := filepath.Join(project, ".agents", "skills", "build")
 	writeSkillWithSupportFiles(t, skillDir, "build")
 	records, err := newCanonicalStore("").scan(project)
 	if err != nil {
 		t.Fatalf("scan canonical records: %v", err)
 	}
 	fingerprint := RepoFingerprint(project)
-	target := SkillMirrorTarget{TargetID: "codex:project:" + fingerprint, Provider: SkillProviderCodex, Scope: skillScopeProject, Root: providerProjectMirrorRoot(SkillProviderCodex, project), CanonicalRootID: fingerprint}
+	target := SkillMirrorTarget{TargetID: "codex:project:" + fingerprint, Provider: SkillProviderCodex, Scope: skillScopeProject, Root: testCodexProjectMirrorRoot(project), CanonicalRootID: fingerprint}
 	if _, err := PublishSkillMirrors(context.Background(), records, []SkillMirrorTarget{target}); err != nil {
 		t.Fatalf("PublishSkillMirrors initial: %v", err)
 	}
@@ -324,14 +324,14 @@ func TestSkillMirrorReconcilerSyncBackUpdatesManagedMirrorManifest(t *testing.T)
 
 func TestSkillMirrorReconcilerSyncBackCopyFailureKeepsCanonical(t *testing.T) {
 	project := t.TempDir()
-	skillDir := filepath.Join(project, ".agent", "skills", "build")
+	skillDir := filepath.Join(project, ".agents", "skills", "build")
 	writeSkillWithSupportFiles(t, skillDir, "build")
 	beforeHash := mustSkillDirContentHash(t, skillDir)
 	records, err := newCanonicalStore("").scan(project)
 	if err != nil {
 		t.Fatalf("scan canonical records: %v", err)
 	}
-	target := SkillMirrorTarget{TargetID: "codex:project:repo", Provider: SkillProviderCodex, Scope: skillScopeProject, Root: providerProjectMirrorRoot(SkillProviderCodex, project), CanonicalRootID: "repo"}
+	target := SkillMirrorTarget{TargetID: "codex:project:repo", Provider: SkillProviderCodex, Scope: skillScopeProject, Root: testCodexProjectMirrorRoot(project), CanonicalRootID: "repo"}
 	if _, err := PublishSkillMirrors(context.Background(), records, []SkillMirrorTarget{target}); err != nil {
 		t.Fatalf("PublishSkillMirrors initial: %v", err)
 	}
@@ -350,13 +350,13 @@ func TestSkillMirrorReconcilerSyncBackCopyFailureKeepsCanonical(t *testing.T) {
 
 func TestSkillMirrorReconcilerSyncBackReportsPartialFailureAfterMutation(t *testing.T) {
 	project := t.TempDir()
-	skillDir := filepath.Join(project, ".agent", "skills", "build")
+	skillDir := filepath.Join(project, ".agents", "skills", "build")
 	writeSkillWithSupportFiles(t, skillDir, "build")
 	records, err := newCanonicalStore("").scan(project)
 	if err != nil {
 		t.Fatalf("scan canonical records: %v", err)
 	}
-	target := SkillMirrorTarget{TargetID: "codex:project:repo", Provider: SkillProviderCodex, Scope: skillScopeProject, Root: providerProjectMirrorRoot(SkillProviderCodex, project), CanonicalRootID: "repo"}
+	target := SkillMirrorTarget{TargetID: "codex:project:repo", Provider: SkillProviderCodex, Scope: skillScopeProject, Root: testCodexProjectMirrorRoot(project), CanonicalRootID: "repo"}
 	if _, err := PublishSkillMirrors(context.Background(), records, []SkillMirrorTarget{target}); err != nil {
 		t.Fatalf("PublishSkillMirrors initial: %v", err)
 	}
@@ -385,7 +385,7 @@ func TestSkillMirrorReconcilerSyncBackReportsPartialFailureAfterMutation(t *test
 
 func TestSkillMirrorReconcilerImportValidatesPreviewAndProviderPath(t *testing.T) {
 	project := t.TempDir()
-	providerRoot := providerProjectMirrorRoot(SkillProviderCodex, project)
+	providerRoot := testCodexProjectMirrorRoot(project)
 	unmanagedDir := filepath.Join(providerRoot, "scratch")
 	writeSkillWithSupportFiles(t, unmanagedDir, "scratch")
 	previewHash, err := stableMirrorDirectoryHash(unmanagedDir)
@@ -413,7 +413,7 @@ func TestSkillMirrorReconcilerImportValidatesPreviewAndProviderPath(t *testing.T
 	if err != nil {
 		t.Fatalf("ImportUnmanagedProviderSkill: %v report=%+v", err, report)
 	}
-	assertFileContent(t, filepath.Join(project, ".agent", "skills", "scratch", skillMainFile), "---\nname: scratch\n---\n# scratch\n")
+	assertFileContent(t, filepath.Join(project, ".agents", "skills", "scratch", skillMainFile), "---\nname: scratch\n---\n# scratch\n")
 	if _, err := ImportUnmanagedProviderSkill(context.Background(), svc, SkillMirrorResolutionRequest{
 		Action:      "import_to_project",
 		Name:        "scratch",
@@ -445,7 +445,7 @@ func TestSkillMirrorReconcilerImportValidatesPreviewAndProviderPath(t *testing.T
 func TestSkillMirrorReconcilerImportProjectUsesProviderMirrorProjectRoot(t *testing.T) {
 	project := t.TempDir()
 	otherProject := t.TempDir()
-	providerRoot := providerProjectMirrorRoot(SkillProviderCodex, project)
+	providerRoot := testCodexProjectMirrorRoot(project)
 	unmanagedDir := filepath.Join(providerRoot, "scratch")
 	writeSkillWithSupportFiles(t, unmanagedDir, "scratch")
 	previewHash, err := stableMirrorDirectoryHash(unmanagedDir)
@@ -464,8 +464,8 @@ func TestSkillMirrorReconcilerImportProjectUsesProviderMirrorProjectRoot(t *test
 		t.Fatalf("ImportUnmanagedProviderSkill: %v", err)
 	}
 
-	assertFileContent(t, filepath.Join(project, ".agent", "skills", "scratch", skillMainFile), "---\nname: scratch\n---\n# scratch\n")
-	if _, err := os.Stat(filepath.Join(otherProject, ".agent", "skills", "scratch")); !errors.Is(err, os.ErrNotExist) {
+	assertFileContent(t, filepath.Join(project, ".agents", "skills", "scratch", skillMainFile), "---\nname: scratch\n---\n# scratch\n")
+	if _, err := os.Stat(filepath.Join(otherProject, ".agents", "skills", "scratch")); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("other project canonical stat error = %v, want not exist", err)
 	}
 }
@@ -512,7 +512,7 @@ func TestSkillMirrorReconcilerTakeoverValidatesPreviewAndWritesOwnership(t *test
 
 func TestSkillMirrorReconcilerTakeoverDivergedProviderSkillClearsConflict(t *testing.T) {
 	project := t.TempDir()
-	canonicalDir := filepath.Join(project, ".agent", "skills", "owned")
+	canonicalDir := filepath.Join(project, ".agents", "skills", "owned")
 	writeSkillWithSupportFiles(t, canonicalDir, "owned")
 	providerRoot := filepath.Join(project, ".claude", "skills")
 	providerDir := filepath.Join(providerRoot, "owned")

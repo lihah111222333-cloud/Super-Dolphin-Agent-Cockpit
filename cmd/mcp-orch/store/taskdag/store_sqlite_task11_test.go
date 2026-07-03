@@ -57,6 +57,88 @@ func TestAssignNodeAndEnqueueWakeupRollsBackAssignmentWhenWakeupEnqueueFails(t *
 	}
 }
 
+func TestMarkDispatchIncompleteIfMissingWakeupTreatsSentUnboundAsActive(t *testing.T) {
+	ctx := context.Background()
+	db := openTaskDAGSQLiteDB(t)
+	store := NewStore(db).(*store)
+	seedSQLiteCoreDAG(t, ctx, store)
+	run := createSQLiteTaskDAGRun(t, ctx, store, "run-sent-unbound", "dag-core")
+	cloneAndPromoteSQLiteRun(t, ctx, store, "dag-core", run.ID)
+	result, err := store.AssignNodeAndEnqueueWakeup(ctx, AssignNodeAndEnqueueWakeupInput{
+		Assign: AssignNodeInput{DagKey: "dag-core", NodeKey: "root", RunID: run.ID, AssignedTo: "agent-alpha"},
+		Wakeup: EnqueueWakeupInput{
+			DagKey:         "dag-core",
+			NodeKey:        "root",
+			RunID:          run.ID,
+			WakeupKind:     "manual_dispatch",
+			TargetAgentID:  "agent-alpha",
+			PromptPayload:  json.RawMessage(`{"prompt":"dispatch"}`),
+			IdempotencyKey: "manual_dispatch:dag-core:sent-unbound:root:agent-alpha",
+		},
+	})
+	if err != nil {
+		t.Fatalf("AssignNodeAndEnqueueWakeup() error = %v", err)
+	}
+	markSQLiteWakeupSent(t, ctx, store, result.WakeupID)
+
+	marked, err := store.MarkDispatchIncompleteIfMissingWakeup(ctx, MarkDispatchIncompleteInput{
+		DagKey: "dag-core", NodeKey: "root", RunID: run.ID, AssignedTo: "agent-alpha",
+	})
+	if err != nil {
+		t.Fatalf("MarkDispatchIncompleteIfMissingWakeup() error = %v", err)
+	}
+	if marked.Marked || !marked.ActiveWakeup {
+		t.Fatalf("dispatch mark = %+v, want active sent-unbound wakeup to block marking", marked)
+	}
+	if got := sqliteRunNodeStatus(t, ctx, store, "dag-core", run.ID, "root"); got != "ready" {
+		t.Fatalf("node status = %q, want ready while sent-unbound wakeup is active", got)
+	}
+}
+
+func TestMarkDispatchIncompleteIfMissingWakeupIsRunFenced(t *testing.T) {
+	ctx := context.Background()
+	db := openTaskDAGSQLiteDB(t)
+	store := NewStore(db).(*store)
+	seedSQLiteCoreDAG(t, ctx, store)
+	runA := createSQLiteTaskDAGRun(t, ctx, store, "run-active", "dag-core")
+	runB := createSQLiteTaskDAGRun(t, ctx, store, "run-missing-wakeup", "dag-core")
+	cloneAndPromoteSQLiteRun(t, ctx, store, "dag-core", runA.ID)
+	cloneAndPromoteSQLiteRun(t, ctx, store, "dag-core", runB.ID)
+	if _, err := store.AssignNodeAndEnqueueWakeup(ctx, AssignNodeAndEnqueueWakeupInput{
+		Assign: AssignNodeInput{DagKey: "dag-core", NodeKey: "root", RunID: runA.ID, AssignedTo: "agent-alpha"},
+		Wakeup: EnqueueWakeupInput{
+			DagKey:         "dag-core",
+			NodeKey:        "root",
+			RunID:          runA.ID,
+			WakeupKind:     "manual_dispatch",
+			TargetAgentID:  "agent-alpha",
+			PromptPayload:  json.RawMessage(`{"prompt":"dispatch"}`),
+			IdempotencyKey: "manual_dispatch:dag-core:run-active:root:agent-alpha",
+		},
+	}); err != nil {
+		t.Fatalf("AssignNodeAndEnqueueWakeup(runA) error = %v", err)
+	}
+	if _, err := store.AssignNode(ctx, AssignNodeInput{DagKey: "dag-core", NodeKey: "root", RunID: runB.ID, AssignedTo: "agent-alpha"}); err != nil {
+		t.Fatalf("AssignNode(runB) error = %v", err)
+	}
+
+	marked, err := store.MarkDispatchIncompleteIfMissingWakeup(ctx, MarkDispatchIncompleteInput{
+		DagKey: "dag-core", NodeKey: "root", RunID: runB.ID, AssignedTo: "agent-alpha",
+	})
+	if err != nil {
+		t.Fatalf("MarkDispatchIncompleteIfMissingWakeup() error = %v", err)
+	}
+	if !marked.Marked || marked.ActiveWakeup {
+		t.Fatalf("dispatch mark = %+v, want runB marked despite runA active wakeup", marked)
+	}
+	if got := sqliteRunNodeStatus(t, ctx, store, "dag-core", runB.ID, "root"); got != "dispatch_incomplete" {
+		t.Fatalf("runB node status = %q, want dispatch_incomplete", got)
+	}
+	if got := sqliteRunNodeStatus(t, ctx, store, "dag-core", runA.ID, "root"); got != "ready" {
+		t.Fatalf("runA node status = %q, want ready", got)
+	}
+}
+
 func seedSQLiteCoreDAG(t *testing.T, ctx context.Context, store *store) {
 	t.Helper()
 	if _, err := store.UpsertDAG(ctx, DAG{DagKey: "dag-core", Title: "Core DAG", Description: "search target", Status: "draft", CreatedBy: "tester", Metadata: []byte(`{"full":true}`)}); err != nil {
@@ -462,6 +544,30 @@ func createSQLiteTaskDAGRun(t *testing.T, ctx context.Context, store *store, run
 		t.Fatalf("CreateRun(%s) error = %v", runKey, err)
 	}
 	return run
+}
+
+func markSQLiteWakeupSent(t *testing.T, ctx context.Context, store *store, wakeupID int64) {
+	t.Helper()
+	claimed, err := store.ClaimDueWakeups(ctx, ClaimDueWakeupsInput{ClaimedBy: "worker-alpha", LeaseInterval: "30s", Limit: 1})
+	if err != nil {
+		t.Fatalf("ClaimDueWakeups() error = %v", err)
+	}
+	if len(claimed) != 1 || claimed[0].ID != wakeupID {
+		t.Fatalf("claimed wakeups = %+v, want wakeup %d", claimed, wakeupID)
+	}
+	wakeup := claimed[0]
+	if wakeup.ClaimedAt == nil || wakeup.LeaseExpiresAt == nil {
+		t.Fatalf("claimed wakeup missing fence fields: %+v", wakeup)
+	}
+	rows, err := store.MarkWakeupSent(ctx, MarkWakeupSentInput{
+		ID:             wakeup.ID,
+		ClaimedAt:      *wakeup.ClaimedAt,
+		ClaimedBy:      wakeup.ClaimedBy,
+		LeaseExpiresAt: *wakeup.LeaseExpiresAt,
+	})
+	if err != nil || rows != 1 {
+		t.Fatalf("MarkWakeupSent() rows=%d error=%v, want 1/nil", rows, err)
+	}
 }
 
 func cloneAndPromoteSQLiteRun(t *testing.T, ctx context.Context, store *store, dagKey string, runID int64) {

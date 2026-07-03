@@ -1,0 +1,4 @@
+-- Implemented in internal/platform/db/sqlite/migrate.go.
+-- SQLite does not support ADD COLUMN IF NOT EXISTS, so the migration runner
+-- probes bus_exception_logs and applies the required columns, backfill, and
+-- triggers without failing on fresh baselines that already include them.

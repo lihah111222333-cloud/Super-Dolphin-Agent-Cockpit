@@ -9,8 +9,8 @@ import (
 func TestServiceListSkillInventoryIncludesPolicyHiddenProjectDuplicates(t *testing.T) {
 	project := t.TempDir()
 	superDolphinHome := filepath.Join(t.TempDir(), ".super-dolphin")
-	leftDir := filepath.Join(project, ".agent", "skills", "security-engineer")
-	rightDir := filepath.Join(project, ".agent", "skills", "security-standards")
+	leftDir := filepath.Join(project, ".agents", "skills", "security-engineer")
+	rightDir := filepath.Join(project, ".agents", "skills", "security-standards")
 	writeCanonicalSkill(t, leftDir, "安全工程师规范")
 	writeCanonicalSkill(t, rightDir, "安全工程师规范")
 	writeProjectSkillPolicy(t, project, projectKeepSelectedPolicy("安全工程师规范", "project/security-engineer", "project/security-standards"))
@@ -35,7 +35,7 @@ func TestServiceListSkillInventoryIncludesPolicyHiddenProjectDuplicates(t *testi
 func TestServiceListSkillInventoryIncludesPolicyHiddenPersonalDuplicate(t *testing.T) {
 	project := t.TempDir()
 	superDolphinHome := filepath.Join(t.TempDir(), ".super-dolphin")
-	projectDir := filepath.Join(project, ".agent", "skills", "plan")
+	projectDir := filepath.Join(project, ".agents", "skills", "plan")
 	importedDir := filepath.Join(superDolphinHome, "skills", "personal", personalSkillTypeImported, "plan")
 	writeCanonicalSkill(t, projectDir, "plan")
 	writeCanonicalSkill(t, importedDir, "plan")
@@ -62,7 +62,7 @@ func TestServiceListSkillInventoryIncludesPolicyHiddenPersonalDuplicate(t *testi
 func TestServiceListSkillsStillFailsClosedForUnresolvedSameNameConflict(t *testing.T) {
 	project := t.TempDir()
 	superDolphinHome := filepath.Join(t.TempDir(), ".super-dolphin")
-	writeCanonicalSkill(t, filepath.Join(project, ".agent", "skills", "build"), "build")
+	writeCanonicalSkill(t, filepath.Join(project, ".agents", "skills", "build"), "build")
 	writeCanonicalSkill(t, filepath.Join(superDolphinHome, "skills", "personal", personalSkillTypeUser, "build"), "build")
 	svc := testInventoryService(project, superDolphinHome)
 

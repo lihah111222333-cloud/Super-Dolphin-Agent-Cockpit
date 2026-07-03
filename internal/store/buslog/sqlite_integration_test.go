@@ -19,16 +19,23 @@ func TestSQLiteBusLogListFiltersAndMetadataProjection(t *testing.T) {
 	insertBusLogFixture(t, db, 1_700_000_001_000, "bus", "warn", "cron", "task_run", "stale", "other")
 
 	s := NewStore(sqlc.New(db))
-	rows, err := s.List(context.Background(), ListFilter{Category: "rpc", Severity: "error", Keyword: "stack", Limit: 10})
+	tracebackRows, err := s.List(context.Background(), ListFilter{Category: "rpc", Severity: "error", Keyword: "stack", Limit: 10})
+	if err != nil {
+		t.Fatalf("List(traceback keyword) error = %v", err)
+	}
+	if len(tracebackRows) != 0 {
+		t.Fatalf("List(traceback keyword) = %+v, want no traceback search on lightweight list path", tracebackRows)
+	}
+	rows, err := s.List(context.Background(), ListFilter{Category: "rpc", Severity: "error", Keyword: "failed", Limit: 10})
 	if err != nil {
 		t.Fatalf("List() error = %v", err)
 	}
-	if len(rows) != 1 || rows[0].ID == 0 || rows[0].Category != "rpc" {
-		t.Fatalf("List() = %+v", rows)
+	row := assertBusLogListProjection(t, rows)
+	detail, err := s.Get(context.Background(), row.ID)
+	if err != nil {
+		t.Fatalf("Get() error = %v", err)
 	}
-	if rows[0].Traceback != "" || string(rows[0].Extra) != `{}` {
-		t.Fatalf("List() projected heavy fields: traceback=%q extra=%s", rows[0].Traceback, rows[0].Extra)
-	}
+	assertBusLogDetailProjection(t, detail)
 }
 
 func openBusLogSQLiteDB(t *testing.T) *sql.DB {
@@ -61,5 +68,39 @@ VALUES (?, ?, ?, ?, ?, ?, ?, ?);
 `, ts, category, severity, source, tool, message, traceback, `{"large":"bus"}`)
 	if err != nil {
 		t.Fatalf("insert bus log fixture: %v", err)
+	}
+}
+
+func assertBusLogListProjection(t *testing.T, rows []BusExceptionLog) BusExceptionLog {
+	t.Helper()
+	if len(rows) != 1 {
+		t.Fatalf("List() = %+v, want one row", rows)
+	}
+	row := rows[0]
+	if row.ID == 0 {
+		t.Fatalf("List() row ID = 0: %+v", row)
+	}
+	if row.Category != "rpc" {
+		t.Fatalf("List() row category = %q, want rpc: %+v", row.Category, row)
+	}
+	if row.Traceback != "" {
+		t.Fatalf("List() row traceback = %q, want lightweight empty traceback", row.Traceback)
+	}
+	if string(row.Extra) != `{}` {
+		t.Fatalf("List() row extra = %s, want lightweight empty object", row.Extra)
+	}
+	if !row.HasTraceback || !row.HasExtra {
+		t.Fatalf("List() row flags = (%v, %v), want heavy-field flags", row.HasTraceback, row.HasExtra)
+	}
+	return row
+}
+
+func assertBusLogDetailProjection(t *testing.T, detail BusExceptionLog) {
+	t.Helper()
+	if detail.Traceback != "STACK payload" {
+		t.Fatalf("Get() detail traceback = %q, want full traceback", detail.Traceback)
+	}
+	if string(detail.Extra) != `{"large":"bus"}` {
+		t.Fatalf("Get() detail extra = %s, want full extra payload", detail.Extra)
 	}
 }

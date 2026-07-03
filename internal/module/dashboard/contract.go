@@ -25,6 +25,7 @@ type Service interface {
 	GetLogDetail(ctx context.Context, req LogDetailRequest) (*LogDetail, error)
 	GetAuditLogs(ctx context.Context, filter AuditLogFilter) ([]AuditEvent, error)
 	GetBusLogs(ctx context.Context, filter BusLogFilter) ([]BusExceptionLog, error)
+	GetBusLog(ctx context.Context, id int64) (BusExceptionLog, error)
 	ListDAGs(ctx context.Context, filter contract.ListDAGsFilter) ([]contract.DAGSummary, error)
 	GetDAGDetail(ctx context.Context, dagKey string) (*contract.DAGDetail, error)
 	ListDAGRuns(ctx context.Context, dagKey, status string, limit int32) ([]contract.Run, error)

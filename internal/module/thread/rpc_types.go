@@ -16,11 +16,18 @@ type threadIDParams struct {
 func (p *threadIDParams) UnmarshalJSON(data []byte) error {
 	type raw threadIDParams
 	var current raw
+	if err := rejectUnknownThreadFields(data, "thread id", threadIDParams{}, legacyThreadIDParams{}); err != nil {
+		return err
+	}
 	if err := decodeLegacyThreadParams(data, &current, &current.ThreadID); err != nil {
 		return err
 	}
 	*p = threadIDParams(current)
 	return nil
+}
+
+type legacyThreadIDParams struct {
+	ThreadID string `json:"threadId"`
 }
 
 type startParams struct {
@@ -76,7 +83,7 @@ type handoffParams struct {
 func (p *startParams) UnmarshalJSON(data []byte) error {
 	type raw startParams
 	var current raw
-	if err := rejectUnknownStartParamFields(data); err != nil {
+	if err := rejectUnknownStartFields(data); err != nil {
 		return err
 	}
 	if err := decodeLegacyParams(data, &current, nil); err != nil {
@@ -86,65 +93,34 @@ func (p *startParams) UnmarshalJSON(data []byte) error {
 	return p.fillLegacyFields(data)
 }
 
-var startParamWireFields = map[string]struct{}{
-	"agent_id":               {},
-	"agent_type":             {},
-	"agent_key":              {},
-	"agent_memory_scope":     {},
-	"approval_policy":        {},
-	"base_instructions":      {},
-	"config":                 {},
-	"cwd":                    {},
-	"defer_spawn":            {},
-	"developer_instructions": {},
-	"effort":                 {},
-	"language":               {},
-	"launch_intent_id":       {},
-	"manual_skill_selection": {},
-	"model":                  {},
-	"model_provider":         {},
-	"name":                   {},
-	"parent_agent_id":        {},
-	"personality":            {},
-	"prompt":                 {},
-	"prompt_key":             {},
-	"provider":               {},
-	"sandbox":                {},
-	"selected_skill_refs":    {},
-	"selected_skills":        {},
-	"summary":                {},
-	"tool_surface_mode":      {},
-	"agentId":                {},
-	"agentMemoryScope":       {},
-	"agentType":              {},
-	"approvalPolicy":         {},
-	"baseInstructions":       {},
-	"developerInstructions":  {},
-	"instructions":           {},
-	"launchIntentId":         {},
-	"manualSkillSelection":   {},
-	"memoryScope":            {},
-	"memory_scope":           {},
-	"modelProvider":          {},
-	"parentAgentId":          {},
-	"parentID":               {},
-	"parentId":               {},
-	"selectedSkillRefs":      {},
-	"selectedSkills":         {},
-	"toolSurfaceMode":        {},
+type startParamCompatFields struct {
+	AgentID               string           `json:"agentId"`
+	AgentMemoryScope      string           `json:"agentMemoryScope"`
+	AgentType             string           `json:"agentType"`
+	ApprovalPolicy        string           `json:"approvalPolicy"`
+	BaseInstructions      string           `json:"baseInstructions"`
+	DeveloperInstructions string           `json:"developerInstructions"`
+	Instructions          string           `json:"instructions"`
+	LaunchIntentID        string           `json:"launchIntentId"`
+	ManualSkillSelection  bool             `json:"manualSkillSelection"`
+	MemoryScope           string           `json:"memoryScope"`
+	MemoryScopeSnake      string           `json:"memory_scope"`
+	ModelProvider         string           `json:"modelProvider"`
+	ParentAgentID         string           `json:"parentAgentId"`
+	ParentID              string           `json:"parentID"`
+	ParentId              string           `json:"parentId"`
+	Prompt                string           `json:"prompt"`
+	SelectedSkillRefs     []skillRefParams `json:"selectedSkillRefs"`
+	SelectedSkills        []string         `json:"selectedSkills"`
+	ToolSurfaceMode       string           `json:"toolSurfaceMode"`
 }
 
-func rejectUnknownStartParamFields(data []byte) error {
-	payload, err := decodeCompatPayload(data)
-	if err != nil {
-		return err
-	}
-	for key := range payload {
-		if _, ok := startParamWireFields[key]; !ok {
-			return fmt.Errorf("thread/start: unknown field %q", key)
-		}
-	}
-	return nil
+func rejectUnknownStartFields(data []byte) error {
+	return rejectUnknownThreadFields(data, "thread/start", startParams{}, startParamCompatFields{})
+}
+
+func rejectUnknownThreadFields(data []byte, method string, wireShapes ...any) error {
+	return platformrpc.RejectUnknownJSONFields(data, method, wireShapes...)
 }
 
 func (p *startParams) fillLegacyFields(data []byte) error {
@@ -182,14 +158,12 @@ func (p *startParams) fillLegacyLaunchSkillFields(payload map[string]json.RawMes
 			p.SelectedSkillRefs = refs
 		}
 	}
-	if !p.ManualSkillSelection {
-		if raw, ok := payload["manualSkillSelection"]; ok {
-			var flag bool
-			if err := json.Unmarshal(raw, &flag); err != nil {
-				return fmt.Errorf("thread/start: manualSkillSelection must be a boolean")
-			}
-			p.ManualSkillSelection = flag
-		}
+	flag, present, err := resolveCompatBool(payload, "manual skill selection", "manual_skill_selection", "manualSkillSelection")
+	if err != nil {
+		return err
+	}
+	if present {
+		p.ManualSkillSelection = flag
 	}
 	return nil
 }
@@ -311,6 +285,47 @@ func readCompatString(payload map[string]json.RawMessage, key string) (compatStr
 	return compatStringValue{key: key, value: strings.TrimSpace(*value), present: true}, nil
 }
 
+type compatBoolValue struct {
+	key     string
+	value   bool
+	present bool
+}
+
+// resolveCompatBool 根据原始 JSON 判断布尔别名是否出现并合并值。
+// 两个别名同时出现且取值不同会直接报错，避免把显式 false 误当作未传。
+func resolveCompatBool(payload map[string]json.RawMessage, field string, keys ...string) (bool, bool, error) {
+	var resolved compatBoolValue
+	for _, key := range keys {
+		item, err := readCompatBool(payload, key)
+		if err != nil {
+			return false, false, err
+		}
+		if !item.present {
+			continue
+		}
+		if !resolved.present {
+			resolved = item
+			continue
+		}
+		if resolved.value != item.value {
+			return false, false, fmt.Errorf("thread/start: conflicting %s values for %q and %q", field, resolved.key, item.key)
+		}
+	}
+	return resolved.value, resolved.present, nil
+}
+
+func readCompatBool(payload map[string]json.RawMessage, key string) (compatBoolValue, error) {
+	raw, ok := payload[key]
+	if !ok {
+		return compatBoolValue{}, nil
+	}
+	var value *bool
+	if err := json.Unmarshal(raw, &value); err != nil || value == nil {
+		return compatBoolValue{}, fmt.Errorf("thread/start: %s must be a boolean", key)
+	}
+	return compatBoolValue{key: key, value: *value, present: true}, nil
+}
+
 type resumeParams struct {
 	ThreadID string `json:"thread_id"`
 	Path     string `json:"path,omitempty"`
@@ -323,6 +338,9 @@ type resumeParams struct {
 func (p *resumeParams) UnmarshalJSON(data []byte) error {
 	type raw resumeParams
 	var current raw
+	if err := rejectUnknownThreadFields(data, "thread/resume", resumeParams{}, legacyThreadIDParams{}); err != nil {
+		return err
+	}
 	if err := decodeLegacyThreadParams(data, &current, &current.ThreadID); err != nil {
 		return err
 	}
@@ -351,6 +369,9 @@ func (p *messagesParams) UnmarshalJSON(data []byte) error {
 		Before   json.RawMessage `json:"before,omitempty"`
 	}
 	var current raw
+	if err := rejectUnknownThreadFields(data, "thread/messages", raw{}, legacyThreadIDParams{}); err != nil {
+		return err
+	}
 	if err := decodeLegacyParams(data, &current, nil); err != nil {
 		return err
 	}
@@ -391,6 +412,9 @@ type nameSetParams struct {
 func (p *nameSetParams) UnmarshalJSON(data []byte) error {
 	type raw nameSetParams
 	var current raw
+	if err := rejectUnknownThreadFields(data, "thread/name/set", nameSetParams{}, legacyThreadIDParams{}); err != nil {
+		return err
+	}
 	if err := decodeLegacyThreadParams(data, &current, &current.ThreadID); err != nil {
 		return err
 	}
@@ -407,6 +431,9 @@ type commandParams struct {
 func (p *commandParams) UnmarshalJSON(data []byte) error {
 	type raw commandParams
 	var current raw
+	if err := rejectUnknownThreadFields(data, "thread command", commandParams{}, legacyThreadIDParams{}); err != nil {
+		return err
+	}
 	if err := decodeLegacyThreadParams(data, &current, &current.ThreadID); err != nil {
 		return err
 	}
@@ -424,6 +451,9 @@ type approvalsSetParams struct {
 func (p *approvalsSetParams) UnmarshalJSON(data []byte) error {
 	type raw approvalsSetParams
 	var current raw
+	if err := rejectUnknownThreadFields(data, "thread approvals", approvalsSetParams{}, legacyThreadIDParams{}); err != nil {
+		return err
+	}
 	if err := decodeLegacyThreadParams(data, &current, &current.ThreadID); err != nil {
 		return err
 	}
@@ -439,6 +469,9 @@ type configGetParams struct {
 func (p *configGetParams) UnmarshalJSON(data []byte) error {
 	type raw configGetParams
 	var current raw
+	if err := rejectUnknownThreadFields(data, "thread/config/get", configGetParams{}, legacyThreadIDParams{}); err != nil {
+		return err
+	}
 	if err := decodeLegacyThreadParams(data, &current, &current.ThreadID); err != nil {
 		return err
 	}
@@ -456,6 +489,9 @@ type configSetParams struct {
 func (p *configSetParams) UnmarshalJSON(data []byte) error {
 	type raw configSetParams
 	var current raw
+	if err := rejectUnknownThreadFields(data, "thread/config/set", configSetParams{}, legacyThreadIDParams{}); err != nil {
+		return err
+	}
 	if err := decodeLegacyThreadParams(data, &current, &current.ThreadID); err != nil {
 		return err
 	}
@@ -473,6 +509,9 @@ type modelSetParams struct {
 func (p *modelSetParams) UnmarshalJSON(data []byte) error {
 	type raw modelSetParams
 	var current raw
+	if err := rejectUnknownThreadFields(data, "thread/model/set", modelSetParams{}, legacyThreadIDParams{}); err != nil {
+		return err
+	}
 	if err := decodeLegacyThreadParams(data, &current, &current.ThreadID); err != nil {
 		return err
 	}
@@ -489,6 +528,9 @@ type compactStartParams struct {
 func (p *compactStartParams) UnmarshalJSON(data []byte) error {
 	type raw compactStartParams
 	var current raw
+	if err := rejectUnknownThreadFields(data, "thread/compact/start", compactStartParams{}, legacyThreadIDParams{}); err != nil {
+		return err
+	}
 	if err := decodeLegacyThreadParams(data, &current, &current.ThreadID); err != nil {
 		return err
 	}

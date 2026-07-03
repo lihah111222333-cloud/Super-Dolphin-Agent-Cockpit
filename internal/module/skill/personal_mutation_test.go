@@ -86,7 +86,7 @@ func TestWriteLocalPersonalWriteTimeMirrorRespectsProjectDisablePersonalPolicy(t
 func TestReadLocalNameSameNameConflictFailsClosed(t *testing.T) {
 	project := t.TempDir()
 	superDolphinHome := filepath.Join(t.TempDir(), ".super-dolphin")
-	writeCanonicalSkill(t, filepath.Join(project, ".agent", "skills", "build"), "build")
+	writeCanonicalSkill(t, filepath.Join(project, ".agents", "skills", "build"), "build")
 	writeCanonicalSkill(t, filepath.Join(superDolphinHome, "skills", "personal", "user", "build"), "build")
 	svc := &service{projectRoot: project, projectSkillsRoot: defaultProjectSkillsRoot(project), superDolphinHome: superDolphinHome}
 
@@ -99,7 +99,7 @@ func TestReadLocalNameSameNameConflictFailsClosed(t *testing.T) {
 func TestReadLocalNameUsesResolvedProjectPolicy(t *testing.T) {
 	project := t.TempDir()
 	superDolphinHome := filepath.Join(t.TempDir(), ".super-dolphin")
-	writeSkillContent(t, filepath.Join(project, ".agent", "skills", "build"), "build", "project body")
+	writeSkillContent(t, filepath.Join(project, ".agents", "skills", "build"), "build", "project body")
 	writeSkillContent(t, filepath.Join(superDolphinHome, "skills", "personal", "user", "build"), "build", "personal body")
 	writeProjectSkillPolicy(t, project, projectSkillPolicy{
 		Version: 1,
@@ -123,7 +123,7 @@ func TestReadLocalNameUsesResolvedProjectPolicy(t *testing.T) {
 func TestReadLocalAbsolutePathSameNameConflictFailsClosed(t *testing.T) {
 	project := t.TempDir()
 	superDolphinHome := filepath.Join(t.TempDir(), ".super-dolphin")
-	writeCanonicalSkill(t, filepath.Join(project, ".agent", "skills", "build"), "build")
+	writeCanonicalSkill(t, filepath.Join(project, ".agents", "skills", "build"), "build")
 	personalDir := filepath.Join(superDolphinHome, "skills", "personal", "user", "build")
 	writeCanonicalSkill(t, personalDir, "build")
 	svc := &service{projectRoot: project, projectSkillsRoot: defaultProjectSkillsRoot(project), superDolphinHome: superDolphinHome}
@@ -137,7 +137,7 @@ func TestReadLocalAbsolutePathSameNameConflictFailsClosed(t *testing.T) {
 func TestListLocalFilesAbsolutePathSameNameConflictFailsClosed(t *testing.T) {
 	project := t.TempDir()
 	superDolphinHome := filepath.Join(t.TempDir(), ".super-dolphin")
-	writeCanonicalSkill(t, filepath.Join(project, ".agent", "skills", "build"), "build")
+	writeCanonicalSkill(t, filepath.Join(project, ".agents", "skills", "build"), "build")
 	personalDir := filepath.Join(superDolphinHome, "skills", "personal", "user", "build")
 	writeCanonicalSkill(t, personalDir, "build")
 	svc := &service{projectRoot: project, projectSkillsRoot: defaultProjectSkillsRoot(project), superDolphinHome: superDolphinHome}
@@ -151,7 +151,7 @@ func TestListLocalFilesAbsolutePathSameNameConflictFailsClosed(t *testing.T) {
 func TestReadLocalAbsolutePathExcludedByProjectPolicyFailsClosed(t *testing.T) {
 	project := t.TempDir()
 	superDolphinHome := filepath.Join(t.TempDir(), ".super-dolphin")
-	writeSkillContent(t, filepath.Join(project, ".agent", "skills", "build"), "build", "project body")
+	writeSkillContent(t, filepath.Join(project, ".agents", "skills", "build"), "build", "project body")
 	personalDir := filepath.Join(superDolphinHome, "skills", "personal", "user", "build")
 	writeSkillContent(t, personalDir, "build", "personal body")
 	writeProjectSkillPolicy(t, project, projectSkillPolicy{
