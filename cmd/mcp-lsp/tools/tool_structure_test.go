@@ -504,6 +504,55 @@ func TestStructureMarkdownDocumentSymbolUsesFallback(t *testing.T) {
 	requireNumberField(t, payload, "showing", 2)
 }
 
+func TestStructureTypeScriptDocumentSymbolUsesFallbackInsteadOfEmptyEnvelope(t *testing.T) {
+	root := t.TempDir()
+	writeStructureTestFile(t, root, "user-ui-v2/src/lib/market/Datafeed.ts", strings.Join([]string{
+		"type TradeCallback = (data: DatafeedTrade[]) => void;",
+		"const MOCK_REALTIME_MODE = false;",
+		"",
+		"export class WJDatafeed implements Datafeed {",
+		"    private static _instance: WJDatafeed | null = null;",
+		"    private _ws: WebSocket | null = null;",
+		"",
+		"    private constructor() { if (!MOCK_REALTIME_MODE) this._connect(); }",
+		"",
+		"    public static getInstance(): WJDatafeed { if (!this._instance) this._instance = new WJDatafeed(); return this._instance; }",
+		"",
+		"    private _connect() {",
+		"        this._ws = new WebSocket('wss://example.test/ws');",
+		"    }",
+		"",
+		"    async searchSymbols(search?: string): Promise<SymbolInfo[]> {",
+		"        return [];",
+		"    }",
+		"}",
+		"",
+	}, "\n"))
+	handler := NewStructureHandler(newTypeScriptEmptyDocumentSymbolRegistry(t, root))
+
+	got, err := handler(testToolContext(root), marshalStructureParams(t, structureParams{
+		Action:     "document_symbol",
+		FilePath:   "user-ui-v2/src/lib/market/Datafeed.ts",
+		MaxResults: 50,
+	}))
+	if err != nil {
+		t.Fatalf("typescript document_symbol returned error: %v", err)
+	}
+	if envelope, ok := got.(emptyListEnvelope); ok {
+		t.Fatalf("typescript document_symbol returned empty envelope: %#v", envelope)
+	}
+	payload := mustMarshalObject(t, got)
+	requireDocumentSymbolPayloadNames(t, payload, []string{
+		"TradeCallback",
+		"MOCK_REALTIME_MODE",
+		"WJDatafeed",
+		"constructor",
+		"getInstance",
+		"_connect",
+		"searchSymbols",
+	})
+}
+
 func TestStructureMarkdownWorkspaceSymbolReportsLimitedSupport(t *testing.T) {
 	root := t.TempDir()
 	writeStructureTestFile(t, root, "README.md", "# Intro\n")
@@ -536,4 +585,86 @@ func newMarkdownFallbackRegistry(t *testing.T, root string) lspmanager.Registry 
 		}
 	})
 	return registry
+}
+
+func newTypeScriptEmptyDocumentSymbolRegistry(t *testing.T, root string) lspmanager.Registry {
+	t.Helper()
+	registry := lspmanager.NewRegistryWithInstaller(nil)
+	manager := multilsp.NewManager(multilsp.Config{
+		WorkspaceRoot: root,
+		ClientFactory: multilsp.ClientFactoryFunc(func(string, protocol.NotificationHandler) (multilsp.Client, error) {
+			return emptyDocumentSymbolClient{}, nil
+		}),
+		LanguageAdapters:                 multilsp.NewDefaultLanguageAdapterRegistry(),
+		DisableInitialWorkspaceBootstrap: true,
+	})
+	registry.RegisterNoInstall("typescript", manager)
+	t.Cleanup(func() {
+		if err := registry.Close(); err != nil {
+			t.Fatalf("close typescript fallback registry: %v", err)
+		}
+	})
+	return registry
+}
+
+type emptyDocumentSymbolClient struct{}
+
+func (emptyDocumentSymbolClient) Initialize(context.Context, string) error { return nil }
+func (emptyDocumentSymbolClient) Shutdown(context.Context) error           { return nil }
+func (emptyDocumentSymbolClient) Request(_ context.Context, method string, _ any) (json.RawMessage, error) {
+	if method == protocol.MethodDocumentSymbol {
+		return json.RawMessage("[]"), nil
+	}
+	return json.RawMessage("null"), nil
+}
+func (emptyDocumentSymbolClient) Notify(context.Context, string, any) error { return nil }
+func (emptyDocumentSymbolClient) DidOpen(context.Context, string, string, int, string) error {
+	return nil
+}
+func (emptyDocumentSymbolClient) DidChange(context.Context, string, int, []protocol.TextDocumentContentChangeEvent) error {
+	return nil
+}
+func (emptyDocumentSymbolClient) DidClose(context.Context, string) error { return nil }
+func (emptyDocumentSymbolClient) Close() error                           { return nil }
+
+func requireDocumentSymbolPayloadNames(t *testing.T, payload map[string]any, want []string) {
+	t.Helper()
+	data, ok := payload["data"].([]any)
+	if !ok {
+		t.Fatalf("data = %#v, want array", payload["data"])
+	}
+	if len(data) == 0 {
+		t.Fatal("data is empty, want fallback document symbols")
+	}
+	names := collectDocumentSymbolPayloadNames(data)
+	seen := make(map[string]struct{}, len(names))
+	for _, name := range names {
+		seen[name] = struct{}{}
+	}
+	for _, name := range want {
+		if _, ok := seen[name]; !ok {
+			t.Fatalf("symbols = %v, missing %q", names, name)
+		}
+	}
+}
+
+func collectDocumentSymbolPayloadNames(items []any) []string {
+	names := make([]string, 0, len(items))
+	var walk func([]any)
+	walk = func(values []any) {
+		for _, value := range values {
+			item, ok := value.(map[string]any)
+			if !ok {
+				continue
+			}
+			if name, ok := item["name"].(string); ok {
+				names = append(names, name)
+			}
+			if children, ok := item["children"].([]any); ok {
+				walk(children)
+			}
+		}
+	}
+	walk(items)
+	return names
 }
