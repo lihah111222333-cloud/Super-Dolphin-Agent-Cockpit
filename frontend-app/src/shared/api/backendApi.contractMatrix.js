@@ -193,7 +193,7 @@ export const RPC_CONTRACT_REGISTRY = Object.freeze({
   THREAD_NAME_SET: contract('THREAD_NAME_SET', 'renameThread', 'P0', 'thread', [TESTS.API, TESTS.APP], ['thread mutation']),
   TURN_START: contract('TURN_START', 'startTurn', 'P0', 'turn', [TESTS.API, TESTS.APP], ['runtime lifecycle start'], false, { responseValidator: 'turnStartResponse' }),
   TURN_INTERRUPT: contract('TURN_INTERRUPT', 'interruptTurn', 'P0', 'turn', [TESTS.API, TESTS.APP], ['runtime lifecycle mutation'], false, { responsePassthroughReason: 'turn interrupt returns a command result envelope consumed by action handlers' }),
-  TURN_FORCE_COMPLETE: contract('TURN_FORCE_COMPLETE', 'forceCompleteTurn', 'P0', 'turn', [TESTS.API, TESTS.APP], ['runtime lifecycle mutation']),
+  TURN_FORCE_COMPLETE: contract('TURN_FORCE_COMPLETE', 'forceCompleteTurn', 'P0', 'turn', [TESTS.API, TESTS.APP], ['runtime lifecycle mutation'], false, { responseValidator: 'turnForceCompleteResponse' }),
   APPROVAL_RESPOND: contract('APPROVAL_RESPOND', 'respondApproval', 'P0', 'turn', [TESTS.API, TESTS.APP], ['runtime approval mutation']),
 });
 

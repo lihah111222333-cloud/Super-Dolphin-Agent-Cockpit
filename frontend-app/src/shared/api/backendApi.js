@@ -942,6 +942,14 @@ function validateTurnStartResponse(method, response) {
   return value;
 }
 
+function validateTurnForceCompleteResponse(method, response) {
+  const value = assertBackendResponseObject(method, response);
+  if (value.forceCompleted !== true) {
+    throw new TypeError(`${method} response forceCompleted must be true`);
+  }
+  return value;
+}
+
 function validateSkillReadResponse(method, response) {
   const value = assertBackendResponseObject(method, response);
   const skill = value.skill;
@@ -975,6 +983,7 @@ const BACKEND_RESPONSE_VALIDATORS = Object.freeze({
   [RPC_METHODS.THREAD_MESSAGES]: validateThreadMessagesResponse,
   [RPC_METHODS.THREAD_RESOLVE]: validateThreadResolveResponse,
   [RPC_METHODS.TURN_START]: validateTurnStartResponse,
+  [RPC_METHODS.TURN_FORCE_COMPLETE]: validateTurnForceCompleteResponse,
 });
 
 /** @type {ReadonlyArray<readonly [string, (...args: any[]) => any]>} */

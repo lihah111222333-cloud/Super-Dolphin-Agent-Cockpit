@@ -41,6 +41,7 @@ function guardedBackendResponse(method) {
   if (method === RPC_METHODS.THREAD_RESOLVE) return { id: 'thread-2' };
   if (method === RPC_METHODS.THREAD_START) return { threadId: 'thread-123', status: 'running' };
   if (method === RPC_METHODS.TURN_START) return { turn_id: 'turn-1' };
+  if (method === RPC_METHODS.TURN_FORCE_COMPLETE) return { ok: true, forceCompleted: true };
   return { ok: true };
 }
 
@@ -628,6 +629,11 @@ function guardedBackendResponse(method) {
         message: 'turn/start response missing turn_id or turnId',
       },
       {
+        call: (api) => api.forceCompleteTurn({ cwd: '/repo/app', threadId: 'thread-1' }),
+        response: { ok: true },
+        message: 'turn/forceComplete response forceCompleted must be true',
+      },
+      {
         call: (api) => api.readSkill({ cwd: '/repo/app', path: '.agents/skills/demo/SKILL.md' }),
         response: {},
         message: 'skills/local/read response skill must be an object',
@@ -819,7 +825,7 @@ function guardedBackendResponse(method) {
   });
 
   it('strips cwd from strict thread-scoped runtime RPC payloads', async () => {
-    const callAPI = vi.fn().mockResolvedValue({ ok: true });
+    const callAPI = vi.fn((method) => Promise.resolve(guardedBackendResponse(method)));
     const api = createBackendApi({ callAPI });
 
     await api.interruptTurn({ cwd: '/repo/app', threadId: 'thread-1', turnId: 'turn-1', source: 'ui_stop' });
