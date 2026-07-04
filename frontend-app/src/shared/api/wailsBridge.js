@@ -85,6 +85,20 @@ const BRIDGE_LOG_FORBIDDEN_KEYS = new Set([
 ]);
 const BRIDGE_ERROR_DATA_SAFE_KEYS = new Set(['message', 'code', 'name', 'type', 'status']);
 const BRIDGE_REDACTED_VALUE = '[redacted]';
+const FRONTEND_TRACE_SECRET_ASSIGNMENT_RE =
+  /\b(?:api[_\s-]?key|auth[_\s-]?token|access[_\s-]?token|refresh[_\s-]?token|id[_\s-]?token|authorization|credential(?:s)?|password|secret|token)\b\s*[:=]\s*["']?[^"',\s}]+/i;
+const FRONTEND_TRACE_TOKEN_VALUE_RE = /\b(?:bearer|basic)\s+[a-z0-9._~+/=-]{8,}|\bsk-[a-z0-9][a-z0-9_-]{6,}\b/i;
+const FRONTEND_TRACE_POSIX_PATH_RE =
+  /(?:^|[\s("'`=])\/(?:home|users|var|tmp|etc|opt|private|workspace|mnt|volumes|root)\/[^\s"'`<>]*/i;
+const FRONTEND_TRACE_WINDOWS_PATH_RE = /\b[a-z]:\\(?:[^\\/:*?"<>|\r\n]+\\?)+/i;
+const FRONTEND_TRACE_UNC_PATH_RE = /\\\\[a-z0-9._-]+\\[^\s"'`<>|]+/i;
+const FRONTEND_TRACE_SENSITIVE_TEXT_PATTERNS = [
+  FRONTEND_TRACE_SECRET_ASSIGNMENT_RE,
+  FRONTEND_TRACE_TOKEN_VALUE_RE,
+  FRONTEND_TRACE_POSIX_PATH_RE,
+  FRONTEND_TRACE_WINDOWS_PATH_RE,
+  FRONTEND_TRACE_UNC_PATH_RE,
+];
 
 function nativeImportModule(modulePath) {
   // public 目录里的 Wails runtime 只能由浏览器原生加载，避免 Vite 注入 ?import 后拦截。
@@ -413,9 +427,15 @@ function safeTraceString(value, limit = 160) {
   return text.length > limit ? `${text.slice(0, limit)}…` : text;
 }
 
+function safeTraceDiagnosticToken(value, limit = 80) {
+  const text = safeTraceString(value, limit);
+  if (!text || containsForbiddenTraceText(text)) return '';
+  return text;
+}
+
 function safeTraceErrorMessage(error) {
-  const code = safeTraceString(error?.code, 80);
-  const name = safeTraceString(error?.name, 80);
+  const code = safeTraceDiagnosticToken(error?.code, 80);
+  const name = safeTraceDiagnosticToken(error?.name, 80);
   const message = safeTraceString(error?.message, 240);
   const safeMessage = containsForbiddenTraceText(message) ? '' : message;
   if (code && safeMessage) return `${code}: ${safeMessage}`;
@@ -434,8 +454,12 @@ function safeTraceErrorValue(value) {
 
 function containsForbiddenTraceText(text) {
   // 误判防护：containsForbiddenTraceText 过滤 error/message 中的敏感 trace 文本。
-  const normalized = safeTraceString(text, 512).toLowerCase();
+  const value = safeTraceString(text, 512);
+  const normalized = value.toLowerCase();
   if (!normalized) return false;
+  if (FRONTEND_TRACE_SENSITIVE_TEXT_PATTERNS.some((pattern) => pattern.test(value))) {
+    return true;
+  }
   for (const key of FRONTEND_TRACE_FORBIDDEN_KEYS) {
     const token = key.toLowerCase();
     if (normalized.includes(token) || normalized.includes(token.replaceAll('_', ' '))) {

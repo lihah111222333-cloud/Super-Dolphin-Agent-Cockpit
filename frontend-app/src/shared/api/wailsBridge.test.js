@@ -952,6 +952,46 @@ describe('wails bridge frontend trace emitter', () => {
     expect(serialized).not.toContain('prompt');
   });
 
+  it('drops credential values and local paths from failed RPC trace errors', async () => {
+    const backendError = new Error(
+      'open /home/l4place/project/.env failed token=sk-live-secret password=hunter2 api_key=abc123',
+    );
+    backendError.code = 'E_SECRET';
+    const byID = vi.fn((_methodID, method, payload) => {
+      if (method === 'observability/frontend/ingest') return Promise.resolve({ recorded: payload.events.length });
+      return Promise.reject(backendError);
+    });
+    vi.doMock(runtimeModule, () => ({
+      Call: { ByID: byID },
+      Events: { On: vi.fn() },
+    }));
+    const { callAPI } = await import('./wailsBridge.js');
+
+    await expect(callAPI('thread/start', { prompt: 'safe prompt payload should still be stripped' }))
+      .rejects.toThrow('/home/l4place/project/.env failed');
+
+    let ingestCall;
+    await waitFor(() => {
+      ingestCall = byID.mock.calls.find(([, method]) => method === 'observability/frontend/ingest');
+      expect(ingestCall?.[2]?.events).toHaveLength(1);
+    });
+    expect(ingestCall[2].events[0]).toEqual(expect.objectContaining({
+      phase: 'frontend.rpc.failed',
+      method: 'thread/start',
+      status: 'error',
+      error: 'E_SECRET',
+    }));
+    const serialized = JSON.stringify(ingestCall[2].events);
+    expect(serialized).not.toContain('/home/l4place');
+    expect(serialized).not.toContain('.env');
+    expect(serialized).not.toContain('sk-live-secret');
+    expect(serialized).not.toContain('hunter2');
+    expect(serialized).not.toContain('abc123');
+    expect(serialized).not.toContain('token=');
+    expect(serialized).not.toContain('password=');
+    expect(serialized).not.toContain('api_key=');
+  });
+
   it('flushes failed frontend warning traces through observability ingest', async () => {
     const byID = vi.fn((_methodID, method, payload) => {
       if (method === 'observability/frontend/ingest') return Promise.resolve({ recorded: payload.events.length });
