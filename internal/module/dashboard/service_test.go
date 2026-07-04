@@ -551,6 +551,33 @@ func TestGetLogsRequiresEnabledReaders(t *testing.T) {
 	}
 }
 
+// TestGetLogsFiltersRawAndExtraWithoutReturningRawPayloads 确认列表接口不回传原始日志重字段。
+func TestGetLogsFiltersRawAndExtraWithoutReturningRawPayloads(t *testing.T) {
+	t.Parallel()
+
+	stub := &stubSystemLogStore{
+		listResult: []SystemLog{{
+			ID:      42,
+			Level:   "info",
+			Message: "safe summary",
+			Raw:     `{"prompt":"secret-token","api_key":"sk-live-secret"}`,
+			Extra:   json.RawMessage(`{"tool_result":"secret-token","path":"/home/user/private.txt"}`),
+		}},
+	}
+	svc := &service{systemLogs: stub}
+
+	got, err := svc.GetLogs(context.Background(), LogFilter{Source: logSourceSystem, Keyword: "secret-token", Limit: 5})
+	if err != nil {
+		t.Fatalf("GetLogs() error = %v", err)
+	}
+	if len(got) != 1 || got[0].ID != 42 {
+		t.Fatalf("GetLogs() = %#v, want raw/extra keyword match", got)
+	}
+	if got[0].Raw != "" || len(got[0].Extra) != 0 {
+		t.Fatalf("GetLogs() leaked raw payloads: raw=%q extra=%s", got[0].Raw, string(got[0].Extra))
+	}
+}
+
 func TestAILogAPIsRequireStore(t *testing.T) {
 	t.Parallel()
 
