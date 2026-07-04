@@ -24,6 +24,16 @@ function runtimeCodeScopePayload(filePath, projectPath, projects, position = nul
   return payload;
 }
 
+function runtimeCodeScopeKey(projectPath, projects) {
+  const project = normalizeRuntimeProjectPath(projectPath);
+  const projectList = [];
+  for (const rawProject of Array.isArray(projects) ? projects : []) {
+    const normalizedProject = normalizeRuntimeProjectPath(rawProject);
+    if (normalizedProject) projectList.push(normalizedProject);
+  }
+  return `${project}\u0000${projectList.join('\u0000')}`;
+}
+
 function codeActionError(error, fallback) {
   return (error?.message || fallback).toString();
 }
@@ -73,5 +83,6 @@ export {
   emptyPathChoiceState,
   fileRefPosition,
   normalizeCodeLocateOptions,
+  runtimeCodeScopeKey,
   runtimeCodeScopePayload,
 };

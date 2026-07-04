@@ -11,6 +11,7 @@ import {
   emptyPathChoiceState,
   fileRefPosition,
   normalizeCodeLocateOptions,
+  runtimeCodeScopeKey,
   runtimeCodeScopePayload,
 } from './adapters/runtimeCodeAdapter.js';
 import {
@@ -68,8 +69,29 @@ function renderCodePreviewMarkdown(content) {
 function useCodePreviewController({ projectPath, projects }) {
   const [codePreview, setCodePreview] = useState(emptyCodePreviewState);
   const [pathChoice, setPathChoice] = useState(emptyPathChoiceState);
+  const previewRequestSeqRef = useRef(0);
+  const previewScopeKey = useMemo(() => runtimeCodeScopeKey(projectPath, projects), [projectPath, projects]);
+  const previewScopeKeyRef = useRef(previewScopeKey);
+  previewScopeKeyRef.current = previewScopeKey;
+
+  const nextPreviewRequestSeq = useCallback(() => {
+    previewRequestSeqRef.current += 1;
+    return previewRequestSeqRef.current;
+  }, []);
+
+  const isCurrentPreviewRequest = useCallback((requestSeq, requestScopeKey) => (
+    previewRequestSeqRef.current === requestSeq && previewScopeKeyRef.current === requestScopeKey
+  ), []);
+
+  useEffect(() => {
+    previewRequestSeqRef.current += 1;
+    setCodePreview(emptyCodePreviewState());
+    setPathChoice(emptyPathChoiceState());
+  }, [previewScopeKey]);
 
   const openCodePreviewForPath = useCallback(async (filePath, fallbackRelative = '', position = null) => {
+    const requestSeq = nextPreviewRequestSeq();
+    const requestScopeKey = previewScopeKey;
     const displayPath = (fallbackRelative || filePath || '').toString();
     setCodePreview({
       ...emptyCodePreviewState(),
@@ -77,22 +99,30 @@ function useCodePreviewController({ projectPath, projects }) {
       loading: true,
       filePath,
       relative: displayPath,
+      scopeKey: requestScopeKey,
     });
     try {
       const result = await openCodeFile(runtimeCodeScopePayload(filePath, projectPath, projects, position));
-      setCodePreview(codePreviewStateFromOpenResult(result, filePath, displayPath));
+      if (!isCurrentPreviewRequest(requestSeq, requestScopeKey)) return;
+      setCodePreview({
+        ...codePreviewStateFromOpenResult(result, filePath, displayPath),
+        scopeKey: requestScopeKey,
+      });
     } catch (error) {
+      if (!isCurrentPreviewRequest(requestSeq, requestScopeKey)) return;
       setCodePreview((current) => ({
         ...current,
         loading: false,
         error: codeActionError(error, '打开失败'),
       }));
     }
-  }, [projectPath, projects]);
+  }, [isCurrentPreviewRequest, nextPreviewRequestSeq, previewScopeKey, projectPath, projects]);
 
   const openFileRef = useCallback(async (payload = {}) => {
     const filePath = (payload.path || payload.filePath || '').toString().trim();
     if (!filePath) return;
+    const requestSeq = nextPreviewRequestSeq();
+    const requestScopeKey = previewScopeKey;
     const position = fileRefPosition(payload);
     setCodePreview({
       ...emptyCodePreviewState(),
@@ -100,9 +130,11 @@ function useCodePreviewController({ projectPath, projects }) {
       loading: true,
       filePath,
       relative: filePath,
+      scopeKey: requestScopeKey,
     });
     try {
       const locateResult = await locateCodeFile(runtimeCodeScopePayload(filePath, projectPath, projects, position));
+      if (!isCurrentPreviewRequest(requestSeq, requestScopeKey)) return;
       const options = normalizeCodeLocateOptions(locateResult);
       if (options.length > 1) {
         setCodePreview(emptyCodePreviewState());
@@ -111,21 +143,25 @@ function useCodePreviewController({ projectPath, projects }) {
       }
       await openCodePreviewForPath(options[0] || filePath, filePath, position);
     } catch (error) {
+      if (!isCurrentPreviewRequest(requestSeq, requestScopeKey)) return;
       setCodePreview((current) => ({
         ...current,
         loading: false,
         error: codeActionError(error, '定位失败'),
       }));
     }
-  }, [openCodePreviewForPath, projectPath, projects]);
+  }, [isCurrentPreviewRequest, nextPreviewRequestSeq, openCodePreviewForPath, previewScopeKey, projectPath, projects]);
 
   const openLocalPath = useCallback(async (payload = {}) => {
     const filePath = (payload.path || payload.filePath || '').toString().trim();
     if (!filePath) return;
+    const requestSeq = nextPreviewRequestSeq();
+    const requestScopeKey = previewScopeKey;
     const position = fileRefPosition(payload);
     try {
       await openPath(runtimeCodeScopePayload(filePath, projectPath, projects, position));
     } catch (error) {
+      if (!isCurrentPreviewRequest(requestSeq, requestScopeKey)) return;
       setCodePreview({
         ...emptyCodePreviewState(),
         open: true,
@@ -133,9 +169,10 @@ function useCodePreviewController({ projectPath, projects }) {
         filePath,
         relative: filePath,
         error: codeActionError(error, '打开失败'),
+        scopeKey: requestScopeKey,
       });
     }
-  }, [projectPath, projects]);
+  }, [isCurrentPreviewRequest, nextPreviewRequestSeq, previewScopeKey, projectPath, projects]);
 
   const openChosenPath = useCallback(async (filePath) => {
     const fallback = pathChoice.file?.filename || filePath;
@@ -146,6 +183,14 @@ function useCodePreviewController({ projectPath, projects }) {
 
   const savePreviewChanges = useCallback(async () => {
     if (!codePreview.filePath || codePreview.saving) return;
+    if (codePreview.scopeKey && codePreview.scopeKey !== previewScopeKey) {
+      setCodePreview((current) => ({
+        ...current,
+        error: '项目已切换，请重新打开文件预览',
+        status: '',
+      }));
+      return;
+    }
     if (!codePreview.editable || codePreview.image || codePreview.loading) {
       setCodePreview((current) => ({
         ...current,
@@ -154,12 +199,15 @@ function useCodePreviewController({ projectPath, projects }) {
       }));
       return;
     }
+    const requestSeq = previewRequestSeqRef.current;
+    const requestScopeKey = previewScopeKey;
     setCodePreview((current) => ({ ...current, saving: true, error: '', status: '' }));
     try {
       const result = await saveCodeFile({
         ...runtimeCodeScopePayload(codePreview.filePath, projectPath, projects),
         content: codePreview.draft,
       });
+      if (!isCurrentPreviewRequest(requestSeq, requestScopeKey)) return;
       const relative = codeOpenDisplayPath(result, codePreview.relative || codePreview.filePath);
       setCodePreview((current) => ({
         ...current,
@@ -172,13 +220,19 @@ function useCodePreviewController({ projectPath, projects }) {
         status: `已保存 ${relative}`,
       }));
     } catch (error) {
+      if (!isCurrentPreviewRequest(requestSeq, requestScopeKey)) return;
       setCodePreview((current) => ({
         ...current,
         saving: false,
         error: codeActionError(error, '保存失败'),
       }));
     }
-  }, [codePreview.draft, codePreview.editable, codePreview.filePath, codePreview.image, codePreview.loading, codePreview.relative, codePreview.saving, projectPath, projects]);
+  }, [codePreview.draft, codePreview.editable, codePreview.filePath, codePreview.image, codePreview.loading, codePreview.relative, codePreview.saving, codePreview.scopeKey, isCurrentPreviewRequest, previewScopeKey, projectPath, projects]);
+
+  const closeCodePreview = useCallback(() => {
+    nextPreviewRequestSeq();
+    setCodePreview(emptyCodePreviewState());
+  }, [nextPreviewRequestSeq]);
 
   const dialogs = (
     <>
@@ -189,7 +243,7 @@ function useCodePreviewController({ projectPath, projects }) {
           onBeginEdit={() => setCodePreview((current) => ({ ...current, editing: true, error: '', status: '' }))}
           onCancelEdit={() => setCodePreview((current) => ({ ...current, editing: false, draft: current.content, error: '', status: '' }))}
           onChangeDraft={(draft) => setCodePreview((current) => ({ ...current, draft, error: '' }))}
-          onClose={() => setCodePreview(emptyCodePreviewState())}
+          onClose={closeCodePreview}
           onDirtyClose={() => setCodePreview((current) => ({ ...current, error: '请先保存或放弃预览更改' }))}
           onSave={savePreviewChanges}
         />

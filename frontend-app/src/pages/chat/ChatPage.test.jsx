@@ -94,6 +94,15 @@ function createFakeStore(overrides = {}) {
   return store;
 }
 
+function deferred() {
+  const pending = {};
+  pending.promise = new Promise((resolve, reject) => {
+    pending.resolve = resolve;
+    pending.reject = reject;
+  });
+  return pending;
+}
+
 function createActiveThreadStore(messages, overrides = {}) {
   return createFakeStore({
     activeThreadId: 'thread-1',
@@ -934,6 +943,82 @@ describe('ChatPage module', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Follow-up' }));
     expect(store.selectThread).toHaveBeenCalledWith('thread-2');
+  });
+
+  it('ignores stale file preview responses when a newer timeline preview is open', async () => {
+    const firstOpen = deferred();
+    const secondOpen = deferred();
+    locateCodeFile.mockImplementation(({ filePath }) => Promise.resolve({
+      ok: true,
+      paths: [`/repo/app/${filePath}`],
+      matches: [{ path: `/repo/app/${filePath}`, relative: filePath }],
+    }));
+    openCodeFile.mockImplementation(({ filePath }) => {
+      if (filePath.endsWith('src/a.js')) return firstOpen.promise;
+      if (filePath.endsWith('src/b.js')) return secondOpen.promise;
+      throw new Error(`unexpected open path ${filePath}`);
+    });
+    saveCodeFile.mockResolvedValue({ ok: true, filePath: '/repo/app/src/b.js', relative: 'src/b.js', totalLines: 1 });
+    const store = createActiveThreadStore([
+      {
+        id: 'assistant-race',
+        role: 'assistant',
+        text: [
+          ':codex-file-citation[]{path="src/a.js" line_range_start="1" line_range_end="1"}',
+          ':codex-file-citation[]{path="src/b.js" line_range_start="1" line_range_end="1"}',
+        ].join(' '),
+        time: '2026-06-02T08:00:00Z',
+      },
+    ], {
+      activeProject: '/repo/app',
+      projects: ['/repo/app'],
+    });
+
+    render(<TestChatPageWrapper store={store} projectPath="/repo/app" />);
+
+    fireEvent.click(await screen.findByRole('button', { name: '打开文件引用 src/a.js' }));
+    await waitFor(() => expect(openCodeFile).toHaveBeenCalledTimes(1));
+    fireEvent.click(await screen.findByRole('button', { name: '打开文件引用 src/b.js' }));
+    await waitFor(() => expect(openCodeFile).toHaveBeenCalledTimes(2));
+
+    await act(async () => {
+      secondOpen.resolve({
+        ok: true,
+        filePath: '/repo/app/src/b.js',
+        relative: 'src/b.js',
+        snippet: [{ line: 1, text: 'const latest = true;' }],
+        startLine: 1,
+        endLine: 1,
+        totalLines: 1,
+      });
+    });
+    const preview = await screen.findByRole('dialog', { name: '文件预览' });
+    expect(within(preview).getByText('src/b.js')).toBeInTheDocument();
+    expect(within(preview).getByLabelText('文件预览内容')).toHaveValue('const latest = true;');
+
+    await act(async () => {
+      firstOpen.resolve({
+        ok: true,
+        filePath: '/repo/app/src/a.js',
+        relative: 'src/a.js',
+        snippet: [{ line: 1, text: 'const stale = true;' }],
+        startLine: 1,
+        endLine: 1,
+        totalLines: 1,
+      });
+    });
+
+    expect(within(preview).getByText('src/b.js')).toBeInTheDocument();
+    const editor = within(preview).getByLabelText('文件预览内容');
+    expect(editor).toHaveValue('const latest = true;');
+    fireEvent.change(editor, { target: { value: 'const latest = false;' } });
+    fireEvent.click(within(preview).getByRole('button', { name: '保存预览更改' }));
+
+    await waitFor(() => expect(saveCodeFile).toHaveBeenCalledTimes(1));
+    expect(saveCodeFile).toHaveBeenCalledWith(expect.objectContaining({
+      filePath: '/repo/app/src/b.js',
+      content: 'const latest = false;',
+    }));
   });
 
   it('opens local markdown links from timeline messages directly', async () => {

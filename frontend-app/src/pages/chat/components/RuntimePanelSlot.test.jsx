@@ -1,5 +1,5 @@
 import React from 'react';
-import { fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { RuntimePanelSlot } from './RuntimePanelSlot.jsx';
 
@@ -10,6 +10,15 @@ const threadData = {
   warnings: [],
   runtimeResults: [],
 };
+
+function deferred() {
+  const pending = {};
+  pending.promise = new Promise((resolve, reject) => {
+    pending.resolve = resolve;
+    pending.reject = reject;
+  });
+  return pending;
+}
 
 function renderSlot(overrides = {}) {
   const props = {
@@ -56,5 +65,77 @@ describe('RuntimePanelSlot', () => {
 
     expect(props.handleKeyDown).toHaveBeenCalledTimes(1);
     expect(props.beginResize).toHaveBeenCalledTimes(1);
+  });
+
+  it('ignores stale code preview responses from earlier diff open actions', async () => {
+    const firstOpen = deferred();
+    const secondOpen = deferred();
+    const codeFileActions = {
+      locateCodeFile: vi.fn(),
+      openCodeFile: vi.fn(({ filePath }) => {
+        if (filePath === 'src/a.js') return firstOpen.promise;
+        if (filePath === 'src/b.js') return secondOpen.promise;
+        throw new Error(`unexpected open path ${filePath}`);
+      }),
+      saveCodeFile: vi.fn().mockResolvedValue({ ok: true, filePath: 'src/b.js', relative: 'src/b.js', totalLines: 1 }),
+    };
+    const diffText = [
+      'diff --git a/src/a.js b/src/a.js',
+      '+++ b/src/a.js',
+      '@@ -0,0 +1 @@',
+      '+a',
+      'diff --git a/src/b.js b/src/b.js',
+      '+++ b/src/b.js',
+      '@@ -0,0 +1 @@',
+      '+b',
+    ].join('\n');
+    renderSlot({
+      codeFileActions,
+      threadData: { ...threadData, diffText },
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: '打开 src/a.js' }));
+    await waitFor(() => expect(codeFileActions.openCodeFile).toHaveBeenCalledTimes(1));
+    fireEvent.click(screen.getByRole('button', { name: '打开 src/b.js' }));
+    await waitFor(() => expect(codeFileActions.openCodeFile).toHaveBeenCalledTimes(2));
+
+    await act(async () => {
+      secondOpen.resolve({
+        ok: true,
+        filePath: 'src/b.js',
+        relative: 'src/b.js',
+        snippet: [{ line: 1, text: 'const latest = true;' }],
+        startLine: 1,
+        endLine: 1,
+        totalLines: 1,
+      });
+    });
+    const preview = await screen.findByRole('dialog', { name: '文件预览' });
+    expect(within(preview).getByText('src/b.js')).toBeInTheDocument();
+    expect(within(preview).getByLabelText('文件预览内容')).toHaveValue('const latest = true;');
+
+    await act(async () => {
+      firstOpen.resolve({
+        ok: true,
+        filePath: 'src/a.js',
+        relative: 'src/a.js',
+        snippet: [{ line: 1, text: 'const stale = true;' }],
+        startLine: 1,
+        endLine: 1,
+        totalLines: 1,
+      });
+    });
+
+    expect(within(preview).getByText('src/b.js')).toBeInTheDocument();
+    const editor = within(preview).getByLabelText('文件预览内容');
+    expect(editor).toHaveValue('const latest = true;');
+    fireEvent.change(editor, { target: { value: 'const latest = false;' } });
+    fireEvent.click(within(preview).getByRole('button', { name: '保存预览更改' }));
+
+    await waitFor(() => expect(codeFileActions.saveCodeFile).toHaveBeenCalledTimes(1));
+    expect(codeFileActions.saveCodeFile).toHaveBeenCalledWith(expect.objectContaining({
+      filePath: 'src/b.js',
+      content: 'const latest = false;',
+    }));
   });
 });
