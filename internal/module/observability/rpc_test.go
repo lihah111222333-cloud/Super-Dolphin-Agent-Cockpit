@@ -421,7 +421,7 @@ func TestRecentListRPCDoesNotReuseStaleTailResult(t *testing.T) {
 func TestFrontendIngestSanitizesAllowlistedFields(t *testing.T) {
 	sink := &recordingSink{}
 	server := newTestRPCServer(t, newRecordingService(sink))
-	resp := dispatchIngest(t, server, json.RawMessage(`{"events":[{"kind":"ui/log","trace_id":"trace token=secret","method":"Authorization: Bearer abc.def","status":"error","metadata":{"token":"secret","safe":"ok"}}]}`))
+	resp := dispatchIngest(t, server, json.RawMessage(`{"events":[{"kind":"ui/log","trace_id":"trace token=secret","method":"Authorization: Bearer abc.def","status":"error","metadata":{"token":"secret","safe":"ok","prompt":"draft private prompt payload","tool_result":"tool returned private payload","file_path":"/home/alice/private.txt"}}]}`))
 	if !resp.Enabled || resp.Recorded != 1 || resp.Dropped != 0 {
 		t.Fatalf("response = %+v", resp)
 	}
@@ -442,6 +442,14 @@ func assertSanitizedFrontendEvent(t *testing.T, sink *recordingSink) {
 	}
 	if event.Metadata["token"] != "[REDACTED]" {
 		t.Fatalf("metadata token = %#v", event.Metadata["token"])
+	}
+	for _, key := range []string{"prompt", "tool_result", "file_path"} {
+		if event.Metadata[key] != "[REDACTED]" {
+			t.Fatalf("metadata %s = %#v, want redacted", key, event.Metadata[key])
+		}
+	}
+	if event.Metadata["safe"] != "ok" {
+		t.Fatalf("metadata safe = %#v, want ok", event.Metadata["safe"])
 	}
 }
 
