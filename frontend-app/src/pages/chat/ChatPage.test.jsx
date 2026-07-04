@@ -3,7 +3,7 @@ import { act, createEvent, fireEvent, render, screen, waitFor, within } from '@t
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import mermaid from 'mermaid';
 import { ChatPage } from './ChatPage.jsx';
-import { copyTextToClipboard, locateCodeFile, onFilesDropped, openCodeFile, openPath } from '../../shared/api/backendApi.js';
+import { copyTextToClipboard, locateCodeFile, onFilesDropped, openCodeFile, openPath, saveCodeFile } from '../../shared/api/backendApi.js';
 
 vi.mock('../../shared/api/backendApi.js', () => ({
   copyTextToClipboard: vi.fn(),
@@ -915,6 +915,9 @@ describe('ChatPage module', () => {
       projects: ['/repo/app'],
     });
     expect(within(preview).getByText('src/main.go')).toBeInTheDocument();
+    expect(within(preview).queryByLabelText('文件预览内容')).not.toBeInTheDocument();
+    expect(within(preview).queryByRole('button', { name: '保存预览更改' })).not.toBeInTheDocument();
+    expect(saveCodeFile).not.toHaveBeenCalled();
     fireEvent.click(within(preview).getByRole('button', { name: '关闭' }));
 
     fireEvent.click(screen.getByRole('button', { name: 'Review task' }));

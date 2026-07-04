@@ -90,6 +90,14 @@ function RuntimePanel({
 
   const savePreviewChanges = async () => {
     if (!codePreview.filePath || codePreview.saving) return;
+    if (!codePreview.editable || codePreview.image || codePreview.loading) {
+      setCodePreview((current) => ({
+        ...current,
+        error: '当前预览不是完整文件，不能保存片段内容',
+        status: '',
+      }));
+      return;
+    }
     setCodePreview((current) => ({ ...current, saving: true, error: '', status: '' }));
     try {
       const result = await codeFileActions.saveCodeFile({

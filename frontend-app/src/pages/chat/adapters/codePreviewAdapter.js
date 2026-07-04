@@ -59,6 +59,20 @@ function codePreviewLineRange(result, content) {
   return { startLine, endLine, totalLines };
 }
 
+function codePreviewIntegerField(value) {
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed)) return null;
+  return parsed;
+}
+
+function isFullCodePreview(result, content) {
+  const startLine = codePreviewIntegerField(result?.startLine);
+  const endLine = codePreviewIntegerField(result?.endLine);
+  const totalLines = codePreviewIntegerField(result?.totalLines);
+  if (startLine !== 1 || endLine === null || totalLines === null || totalLines < 1) return false;
+  return endLine === totalLines && countCodePreviewLines(content) === totalLines;
+}
+
 function codePreviewStateFromOpenResult(result, requestedPath, fallbackRelative = '') {
   const filePath = (result?.filePath || result?.path || requestedPath || '').toString();
   const relative = codeOpenDisplayPath(result, fallbackRelative || requestedPath);
@@ -69,6 +83,7 @@ function codePreviewStateFromOpenResult(result, requestedPath, fallbackRelative 
   const explicitKind = (result?.previewKind || '').toString().trim().toLowerCase();
   const previewKind = explicitKind === 'markdown' || isCodePreviewMarkdownPath(relative) || mediaType === 'text/markdown' ? 'markdown' : 'text';
   const { startLine, endLine, totalLines } = codePreviewLineRange(result, content);
+  const editable = Boolean(filePath) && isFullCodePreview(result, content);
   return {
     ...emptyCodePreviewState(),
     open: true,
@@ -78,8 +93,8 @@ function codePreviewStateFromOpenResult(result, requestedPath, fallbackRelative 
     draft: content,
     previewKind,
     language: codePreviewLanguage(result, relative, previewKind),
-    editable: Boolean(filePath),
-    editing: previewKind !== 'markdown',
+    editable,
+    editing: editable && previewKind !== 'markdown',
     startLine,
     endLine,
     totalLines,

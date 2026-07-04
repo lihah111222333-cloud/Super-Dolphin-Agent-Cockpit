@@ -146,6 +146,14 @@ function useCodePreviewController({ projectPath, projects }) {
 
   const savePreviewChanges = useCallback(async () => {
     if (!codePreview.filePath || codePreview.saving) return;
+    if (!codePreview.editable || codePreview.image || codePreview.loading) {
+      setCodePreview((current) => ({
+        ...current,
+        error: '当前预览不是完整文件，不能保存片段内容',
+        status: '',
+      }));
+      return;
+    }
     setCodePreview((current) => ({ ...current, saving: true, error: '', status: '' }));
     try {
       const result = await saveCodeFile({
@@ -170,7 +178,7 @@ function useCodePreviewController({ projectPath, projects }) {
         error: codeActionError(error, '保存失败'),
       }));
     }
-  }, [codePreview.draft, codePreview.filePath, codePreview.relative, codePreview.saving, projectPath, projects]);
+  }, [codePreview.draft, codePreview.editable, codePreview.filePath, codePreview.image, codePreview.loading, codePreview.relative, codePreview.saving, projectPath, projects]);
 
   const dialogs = (
     <>

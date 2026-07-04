@@ -2835,7 +2835,9 @@ async function toggleInlineTraceFromRecentLogs(table) {
       projects: ['/repo/app'],
     });
     expect(within(previewDialog).getByText('packages/demo/src/a.js')).toBeInTheDocument();
-    expect(within(previewDialog).getByLabelText('文件预览内容')).toHaveValue('chosen file');
+    expect(within(previewDialog).getByText('chosen file')).toBeInTheDocument();
+    expect(within(previewDialog).queryByLabelText('文件预览内容')).not.toBeInTheDocument();
+    expect(within(previewDialog).queryByRole('button', { name: '保存预览更改' })).not.toBeInTheDocument();
   });
 
   it('renders markdown runtime diff previews and blocks closing dirty edits', async () => {
