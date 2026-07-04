@@ -1627,7 +1627,13 @@ function useSaveScheduleAction({ actionState, derived, list, notices, refresh })
     actionState.setError('');
     notices.clearNotice();
     try {
-      await withWorkflowActionTimeout(applyDagOps({ dagKey: targetDagKey, baseVersion: derived.baseVersion, ops: [{ op: 'update_dag', patch: { trigger: 'scheduled', cron_expr: cronExpr } }] }));
+      const activeDetailDag = derived.activeDetailDag;
+      const schedulePatch = { trigger: 'scheduled', cron_expr: cronExpr };
+      const preservingExistingSchedule = isScheduledTrigger(activeDetailDag?.trigger) || Boolean(activeDetailDag?.cronExpr);
+      if (preservingExistingSchedule && activeDetailDag?.scheduleEnabled === false) {
+        schedulePatch.schedule_enabled = false;
+      }
+      await withWorkflowActionTimeout(applyDagOps({ dagKey: targetDagKey, baseVersion: derived.baseVersion, ops: [{ op: 'update_dag', patch: schedulePatch }] }));
       actionState.setScheduleOpen(false);
       await Promise.all([
         list.refreshDags().catch(() => []),

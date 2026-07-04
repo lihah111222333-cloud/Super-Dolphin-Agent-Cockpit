@@ -1078,6 +1078,36 @@ describe('WorkflowPage module', () => {
     });
   });
 
+  it('preserves paused scheduled DAGs when editing the schedule cron expression', async () => {
+    const dag = {
+      dag_key: 'paused-flow',
+      title: 'Paused Flow',
+      status: 'ready',
+      trigger: 'scheduled',
+      cron_expr: 'CRON_TZ=Asia/Shanghai 0 9 * * *',
+      schedule_enabled: false,
+      version: 7,
+    };
+    backend.getDashboardPage.mockResolvedValue({ dags: [dag] });
+    backend.getDagDetail.mockResolvedValue({ dag, nodes: [] });
+    backend.getDagRuns.mockResolvedValue({ runs: [] });
+    backend.getDagRun.mockResolvedValue({ run: null, nodes: [] });
+    backend.applyDagOps.mockResolvedValue({ newVersion: 8 });
+
+    renderWorkflowPage();
+
+    fireEvent.click(await screen.findByRole('button', { name: '修改计划' }));
+    fireEvent.change(screen.getByLabelText('运行时间'), { target: { value: '06:30' } });
+    fireEvent.click(screen.getAllByRole('button', { name: '修改计划' }).at(-1));
+
+    await waitFor(() => expect(backend.applyDagOps).toHaveBeenCalled());
+    expect(backend.applyDagOps.mock.calls[0][0].ops[0].patch).toMatchObject({
+      trigger: 'scheduled',
+      cron_expr: 'CRON_TZ=Asia/Shanghai 30 6 * * *',
+      schedule_enabled: false,
+    });
+  });
+
   it('renders the government enterprise workflow template catalog with DAG data', async () => {
     mockWorkflowDag();
 
