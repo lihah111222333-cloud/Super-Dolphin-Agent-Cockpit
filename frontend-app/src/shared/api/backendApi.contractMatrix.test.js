@@ -25,6 +25,8 @@ describe('backend API contract matrix', () => {
         backendOwner: expect.any(String),
         tests: expect.any(Array),
         rawLiteralRpc: expect.any(Boolean),
+        responseValidator: expect.any(String),
+        responsePassthroughReason: expect.any(String),
         notes: expect.any(Array),
       }));
       expect(Object.values(RPC_CONTRACT_LEVELS)).toContain(entry.level);
@@ -98,11 +100,13 @@ describe('backend API contract matrix', () => {
     }
   });
 
-  it('anchors known contract exceptions in notes instead of implicit defaults', () => {
+  it('anchors known contract exceptions in explicit policy fields instead of implicit defaults', () => {
     expect(RPC_CONTRACT_REGISTRY.DASHBOARD_SHARED_FILES.notes).toContain('params:{}-only');
-    expect(RPC_CONTRACT_REGISTRY.THREAD_START.notes).toContain('custom-decoder');
-    expect(RPC_CONTRACT_REGISTRY.TURN_START.notes).toContain('custom-decoder');
-    expect(RPC_CONTRACT_REGISTRY.TURN_INTERRUPT.notes).toContain('custom-decoder');
-    expect(RPC_CONTRACT_REGISTRY.TURN_INTERRUPT.notes).toContain('passthrough response');
+    expect(RPC_CONTRACT_REGISTRY.UI_STATE_GET.responseValidator).toBe('uiStateResponse');
+    expect(RPC_CONTRACT_REGISTRY.THREAD_START.responseValidator).toBe('threadStartResponse');
+    expect(RPC_CONTRACT_REGISTRY.THREAD_MESSAGES.responseValidator).toBe('threadMessagesResponse');
+    expect(RPC_CONTRACT_REGISTRY.THREAD_RESOLVE.responseValidator).toBe('threadResolveResponse');
+    expect(RPC_CONTRACT_REGISTRY.TURN_START.responseValidator).toBe('turnStartResponse');
+    expect(RPC_CONTRACT_REGISTRY.TURN_INTERRUPT.responsePassthroughReason).toContain('command result envelope');
   });
 });

@@ -35,6 +35,15 @@ function expectInvalidInputDoesNotCall(callAPI, action, message) {
   expect(callAPI).toHaveBeenCalledTimes(callCount);
 }
 
+function guardedBackendResponse(method) {
+  if (method === RPC_METHODS.UI_STATE_GET) return { threads: [], agents: [], token_usage: {} };
+  if (method === RPC_METHODS.THREAD_MESSAGES) return { messages: [], total: 0, hasMore: false, nextBefore: '' };
+  if (method === RPC_METHODS.THREAD_RESOLVE) return { id: 'thread-2' };
+  if (method === RPC_METHODS.THREAD_START) return { threadId: 'thread-123', status: 'running' };
+  if (method === RPC_METHODS.TURN_START) return { turn_id: 'turn-1' };
+  return { ok: true };
+}
+
   it('exposes the dedicated frontend observability ingest RPC method name', () => {
     expect(RPC_METHODS.OBSERVABILITY_FRONTEND_INGEST).toBe('observability/frontend/ingest');
     expect(typeof emitFrontendTraceEvent).toBe('function');
@@ -530,7 +539,9 @@ function expectInvalidInputDoesNotCall(callAPI, action, message) {
   });
 
   it('sends turn/start legacy attachments when input is absent or empty', async () => {
-    const callAPI = vi.fn().mockResolvedValue({ ok: true });
+    const callAPI = vi.fn()
+      .mockResolvedValueOnce({ turn_id: 'turn-legacy-1' })
+      .mockResolvedValueOnce({ turn_id: 'turn-legacy-2' });
     const api = createBackendApi({ callAPI });
 
     await api.startTurn({
@@ -561,6 +572,48 @@ function expectInvalidInputDoesNotCall(callAPI, action, message) {
         { type: 'localImage', path: '/tmp/b.png', url: 'data:image/png;base64,abc' },
       ],
     });
+  });
+
+  it('fails fast on malformed guarded backend responses before consumers normalize them', async () => {
+    const cases = [
+      {
+        call: (api) => api.getThreadState({ cwd: '/repo/app', threadId: 'thread-1' }),
+        response: {},
+        message: 'ui/state/get response missing UI state snapshot fields',
+      },
+      {
+        call: (api) => api.startThread({ cwd: '/repo/app', modelProvider: 'codex' }),
+        response: { status: 'running' },
+        message: 'thread/start response missing threadId or thread_id',
+      },
+      {
+        call: (api) => api.getThreadMessages({ threadId: 'thread-1' }),
+        response: { messages: null },
+        message: 'thread/messages response messages must be an array',
+      },
+      {
+        call: (api) => api.getThreadMessages({ threadId: 'thread-1' }),
+        response: { messages: [], total: '1' },
+        message: 'thread/messages response total must be a number',
+      },
+      {
+        call: (api) => api.resolveThreadIdentity({ cwd: '/repo/app', threadId: 'thread-1' }),
+        response: {},
+        message: 'thread/resolve response missing id or threadId or thread_id',
+      },
+      {
+        call: (api) => api.startTurn({ cwd: '/repo/app', threadId: 'thread-1', input: 'build it' }),
+        response: { ok: true },
+        message: 'turn/start response missing turn_id or turnId',
+      },
+    ];
+
+    for (const item of cases) {
+      const callAPI = vi.fn().mockResolvedValue(item.response);
+      const api = createBackendApi({ callAPI });
+      await expect(item.call(api)).rejects.toThrow(item.message);
+      expect(callAPI).toHaveBeenCalledTimes(1);
+    }
   });
 
   it('rejects turn/start legacy prompt with legacy attachments before calling the backend', () => {
@@ -1074,7 +1127,7 @@ function expectSkillEditorCalls(callAPI) {
   });
 
   it('wraps config, project, preference, and dashboard page RPCs with stable payloads', async () => {
-    const callAPI = vi.fn().mockResolvedValue({ ok: true });
+    const callAPI = vi.fn((method) => Promise.resolve(guardedBackendResponse(method)));
     const api = createBackendApi({ callAPI });
 
     await api.readConfig();
@@ -1126,7 +1179,7 @@ function expectSkillEditorCalls(callAPI) {
   });
 
   it('wraps prompt-section and thread read RPCs with stable payloads', async () => {
-    const callAPI = vi.fn().mockResolvedValue({ ok: true });
+    const callAPI = vi.fn((method) => Promise.resolve(guardedBackendResponse(method)));
     const api = createBackendApi({ callAPI });
 
     await api.listPromptSections({ cwd: '/repo/app', prompt_id: 'prompt-1' });

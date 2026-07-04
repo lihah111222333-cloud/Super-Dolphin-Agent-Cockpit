@@ -1,12 +1,15 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import process from 'node:process';
+import { fileURLToPath } from 'node:url';
 
 const appRoot = path.resolve(new URL('..', import.meta.url).pathname);
-const sourceRoot = path.join(appRoot, 'src');
-const criticalPattern = /\b(provider|thread|turn|workflow)\b/i;
+
+export const CRITICAL_SKIP_ROOTS = Object.freeze(['src', 'scripts']);
+export const criticalPattern = /\b(provider|thread|turn|workflow|rpc|contract|desktop|smoke)\b/i;
 
 function walkTestFiles(dir) {
+  if (!fs.existsSync(dir)) return [];
   const entries = fs.readdirSync(dir, { withFileTypes: true });
   const files = [];
   for (const entry of entries) {
@@ -49,11 +52,41 @@ function readStringLiteral(source, start) {
   return null;
 }
 
-function skippedTestsInSource(relFile, source) {
+function skipJSSyntaxComment(source, start) {
+  if (source.startsWith('//', start)) {
+    const end = source.indexOf('\n', start + 2);
+    return end === -1 ? source.length : end;
+  }
+  if (source.startsWith('/*', start)) {
+    const end = source.indexOf('*/', start + 2);
+    return end === -1 ? source.length : end + 2;
+  }
+  return start;
+}
+
+function skipJSSyntaxTrivia(source, start) {
+  const commentEnd = skipJSSyntaxComment(source, start);
+  if (commentEnd !== start) return commentEnd;
+  const literal = readStringLiteral(source, start);
+  return literal?.end ?? start;
+}
+
+function isInsideJSSyntaxTrivia(source, target) {
+  for (let cursor = 0; cursor < target; cursor += 1) {
+    const skipped = skipJSSyntaxTrivia(source, cursor);
+    if (skipped === cursor) continue;
+    if (target < skipped) return true;
+    cursor = skipped - 1;
+  }
+  return false;
+}
+
+export function skippedTestsInSource(relFile, source) {
   const skips = [];
   const skipPattern = /\b(?:it|test|describe)\.skip\s*\(/g;
   let match;
   while ((match = skipPattern.exec(source)) !== null) {
+    if (isInsideJSSyntaxTrivia(source, match.index)) continue;
     const literalStart = skipPattern.lastIndex;
     const literal = readStringLiteral(source, literalStart);
     if (!literal) {
@@ -75,26 +108,39 @@ function skippedTestsInSource(relFile, source) {
   return skips;
 }
 
-const violations = [];
-let skipped = 0;
-
-for (const file of walkTestFiles(sourceRoot)) {
-  const relFile = path.relative(appRoot, file).split(path.sep).join('/');
-  const source = fs.readFileSync(file, 'utf8');
-  for (const skip of skippedTestsInSource(relFile, source)) {
-    if (skip.parseError || criticalPattern.test(skip.name) || criticalPattern.test(skip.file)) {
-      skipped += 1;
-      violations.push(skip);
+export function criticalSkipViolationsFromSources(sources) {
+  const violations = [];
+  for (const [relFile, source] of sources.entries()) {
+    for (const skip of skippedTestsInSource(relFile, source)) {
+      if (skip.parseError || criticalPattern.test(skip.name) || criticalPattern.test(skip.file)) {
+        violations.push(skip);
+      }
     }
   }
+  return violations;
 }
 
-if (violations.length > 0) {
-  console.error('critical .skip guard failed:');
-  for (const violation of violations) {
-    console.error(`- ${violation.file}:${violation.line} :: ${violation.name}`);
+export function collectCriticalSkipViolations({ root = appRoot, roots = CRITICAL_SKIP_ROOTS } = {}) {
+  const sources = new Map();
+  for (const sourceRootName of roots) {
+    const sourceRoot = path.join(root, sourceRootName);
+    for (const file of walkTestFiles(sourceRoot)) {
+      const relFile = path.relative(root, file).split(path.sep).join('/');
+      sources.set(relFile, fs.readFileSync(file, 'utf8'));
+    }
   }
-  process.exit(1);
+  return criticalSkipViolationsFromSources(sources);
 }
 
-console.log(`critical .skip guard passed: no critical skips (${skipped} found)`);
+if (process.argv[1] === fileURLToPath(import.meta.url)) {
+  const violations = collectCriticalSkipViolations();
+  if (violations.length > 0) {
+    console.error('critical .skip guard failed:');
+    for (const violation of violations) {
+      console.error(`- ${violation.file}:${violation.line} :: ${violation.name}`);
+    }
+    process.exit(1);
+  }
+
+  console.log('critical .skip guard passed: no critical skips (0 found)');
+}

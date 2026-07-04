@@ -23,7 +23,7 @@ const TESTS = Object.freeze({
   WAILS_BRIDGE: 'src/shared/api/wailsBridge.test.js',
 });
 
-function contract(key, facade, level, backendOwner, tests, notes = [], rawLiteralRpc = false) {
+function contract(key, facade, level, backendOwner, tests, notes = [], rawLiteralRpc = false, options = {}) {
   return Object.freeze({
     key,
     method: RPC_METHODS[key],
@@ -32,6 +32,8 @@ function contract(key, facade, level, backendOwner, tests, notes = [], rawLitera
     backendOwner,
     tests: Object.freeze(tests),
     rawLiteralRpc,
+    responseValidator: options.responseValidator || '',
+    responsePassthroughReason: options.responsePassthroughReason || '',
     notes: Object.freeze(notes),
   });
 }
@@ -49,7 +51,7 @@ export const RPC_CONTRACT_REGISTRY = Object.freeze({
   APP_UPDATE_INSTALL_LATEST: contract('APP_UPDATE_INSTALL_LATEST', 'installLatestAppUpdate', 'P0', 'appUpdate', [TESTS.API, TESTS.SETTINGS], ['installer side effect']),
 
   UI_WINDOW_BOOTSTRAP_GET: contract('UI_WINDOW_BOOTSTRAP_GET', 'getWindowBootstrap', 'P1', 'uiState', [TESTS.API, TESTS.APP], ['bootstrap read']),
-  UI_STATE_GET: contract('UI_STATE_GET', 'getThreadState', 'P1', 'uiState', [TESTS.API, TESTS.APP], ['thread state read']),
+  UI_STATE_GET: contract('UI_STATE_GET', 'getThreadState', 'P1', 'uiState', [TESTS.API, TESTS.APP], ['thread state read'], false, { responseValidator: 'uiStateResponse' }),
   UI_SIDEBAR_GET: contract('UI_SIDEBAR_GET', 'getSidebarState', 'P1', 'uiState', [TESTS.API, TESTS.APP], ['workspace sidebar read']),
   UI_LOG: contract('UI_LOG', 'sendFrontendLogBatch', 'P1', 'observability', [TESTS.WAILS_BRIDGE], ['frontend telemetry ingest']),
   OBSERVABILITY_TRACE_GET: contract('OBSERVABILITY_TRACE_GET', 'getObservabilityTrace', 'P1', 'observability', [TESTS.API, TESTS.OBSERVABILITY], ['observability query']),
@@ -168,9 +170,9 @@ export const RPC_CONTRACT_REGISTRY = Object.freeze({
   MCP_TOOL_LIFECYCLE_LIST: contract('MCP_TOOL_LIFECYCLE_LIST', 'listMCPToolLifecycle', 'P1', 'mcpServer', [TESTS.API, TESTS.SURFACE, TESTS.SKILLS], ['MCP tool lifecycle read', 'strict payload']),
   MCP_TOOL_LIFECYCLE_EXPORT: contract('MCP_TOOL_LIFECYCLE_EXPORT', 'exportMCPToolLifecycle', 'P1', 'mcpServer', [TESTS.API, TESTS.SURFACE, TESTS.SKILLS], ['MCP tool lifecycle export', 'strict payload']),
 
-  THREAD_START: contract('THREAD_START', 'startThread', 'P0', 'thread', [TESTS.API, TESTS.APP], ['runtime lifecycle start', 'custom-decoder']),
-  THREAD_MESSAGES: contract('THREAD_MESSAGES', 'getThreadMessages', 'P1', 'thread', [TESTS.API, TESTS.APP], ['thread read']),
-  THREAD_RESOLVE: contract('THREAD_RESOLVE', 'resolveThreadIdentity', 'P1', 'thread', [TESTS.API, TESTS.APP], ['thread read']),
+  THREAD_START: contract('THREAD_START', 'startThread', 'P0', 'thread', [TESTS.API, TESTS.APP], ['runtime lifecycle start'], false, { responseValidator: 'threadStartResponse' }),
+  THREAD_MESSAGES: contract('THREAD_MESSAGES', 'getThreadMessages', 'P1', 'thread', [TESTS.API, TESTS.APP], ['thread read'], false, { responseValidator: 'threadMessagesResponse' }),
+  THREAD_RESOLVE: contract('THREAD_RESOLVE', 'resolveThreadIdentity', 'P1', 'thread', [TESTS.API, TESTS.APP], ['thread read'], false, { responseValidator: 'threadResolveResponse' }),
   THREAD_ARCHIVE: contract('THREAD_ARCHIVE', 'archiveThread', 'P0', 'thread', [TESTS.API, TESTS.APP], ['thread mutation']),
   THREAD_UNARCHIVE: contract('THREAD_UNARCHIVE', 'unarchiveThread', 'P0', 'thread', [TESTS.API, TESTS.APP], ['thread mutation']),
   THREAD_DELETE: contract('THREAD_DELETE', 'deleteThread', 'P0', 'thread', [TESTS.API, TESTS.APP], ['thread mutation']),
@@ -179,8 +181,8 @@ export const RPC_CONTRACT_REGISTRY = Object.freeze({
   THREAD_COMPACT_START: contract('THREAD_COMPACT_START', 'compactThread', 'P0', 'thread', [TESTS.API, TESTS.APP], ['runtime lifecycle mutation']),
   THREAD_RECOVER: contract('THREAD_RECOVER', 'recoverThread', 'P0', 'thread', [TESTS.API, TESTS.APP], ['runtime lifecycle mutation']),
   THREAD_NAME_SET: contract('THREAD_NAME_SET', 'renameThread', 'P0', 'thread', [TESTS.API, TESTS.APP], ['thread mutation']),
-  TURN_START: contract('TURN_START', 'startTurn', 'P0', 'turn', [TESTS.API, TESTS.APP], ['runtime lifecycle start', 'custom-decoder']),
-  TURN_INTERRUPT: contract('TURN_INTERRUPT', 'interruptTurn', 'P0', 'turn', [TESTS.API, TESTS.APP], ['runtime lifecycle mutation', 'custom-decoder', 'passthrough response']),
+  TURN_START: contract('TURN_START', 'startTurn', 'P0', 'turn', [TESTS.API, TESTS.APP], ['runtime lifecycle start'], false, { responseValidator: 'turnStartResponse' }),
+  TURN_INTERRUPT: contract('TURN_INTERRUPT', 'interruptTurn', 'P0', 'turn', [TESTS.API, TESTS.APP], ['runtime lifecycle mutation'], false, { responsePassthroughReason: 'turn interrupt returns a command result envelope consumed by action handlers' }),
   TURN_FORCE_COMPLETE: contract('TURN_FORCE_COMPLETE', 'forceCompleteTurn', 'P0', 'turn', [TESTS.API, TESTS.APP], ['runtime lifecycle mutation']),
   APPROVAL_RESPOND: contract('APPROVAL_RESPOND', 'respondApproval', 'P0', 'turn', [TESTS.API, TESTS.APP], ['runtime approval mutation']),
 });

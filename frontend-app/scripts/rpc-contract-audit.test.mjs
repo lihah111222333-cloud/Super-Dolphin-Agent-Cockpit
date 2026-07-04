@@ -16,6 +16,8 @@ describe('rpc contract audit', () => {
     expect(report.p0MissingBackendHandlers).toEqual([])
     expect(report.allowedPayloadRegistryDrift).toEqual([])
     expect(report.hardcodedPayloadGuardFindings).toEqual([])
+    expect(report.missingResponsePolicies).toEqual([])
+    expect(report.missingFrontendResponseValidators).toEqual([])
     expect(report.frontendPayloadKeysByMethod.get('thread/start')).toEqual(expect.arrayContaining([
       'manualSkillSelection',
       'manual_skill_selection',

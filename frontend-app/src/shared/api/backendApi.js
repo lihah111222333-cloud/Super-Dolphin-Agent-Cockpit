@@ -864,6 +864,92 @@ function hasOwn(value, key) {
   return objectPrototype.hasOwnProperty.call(value, key);
 }
 
+function assertBackendResponseObject(method, response) {
+  if (!response || typeof response !== 'object' || Array.isArray(response)) {
+    throw new TypeError(`${method} response must be an object`);
+  }
+  return response;
+}
+
+function requireResponseKey(method, response, keys) {
+  for (const key of keys) {
+    if (normalizeString(response[key])) return;
+  }
+  throw new Error(`${method} response missing ${keys.join(' or ')}`);
+}
+
+function validateUIStateResponse(method, response) {
+  const value = assertBackendResponseObject(method, response);
+  const snapshotKeys = [
+    'threads',
+    'agents',
+    'active_turn',
+    'recent_turns',
+    'token_usage',
+    'statuses',
+    'unchanged',
+    'activeThreadId',
+    'mainAgentId',
+  ];
+  if (!snapshotKeys.some((key) => hasOwn(value, key))) {
+    throw new Error(`${method} response missing UI state snapshot fields`);
+  }
+  if (hasOwn(value, 'threads') && value.threads !== null && !Array.isArray(value.threads)) {
+    throw new TypeError(`${method} response threads must be an array or null`);
+  }
+  if (hasOwn(value, 'agents') && value.agents !== null && !Array.isArray(value.agents)) {
+    throw new TypeError(`${method} response agents must be an array or null`);
+  }
+  return value;
+}
+
+function validateThreadStartResponse(method, response) {
+  const value = assertBackendResponseObject(method, response);
+  if (value.thread && (typeof value.thread !== 'object' || Array.isArray(value.thread))) {
+    throw new TypeError(`${method} response thread must be an object`);
+  }
+  if (value.thread && normalizeString(value.thread.id)) return value;
+  requireResponseKey(method, value, ['threadId', 'thread_id']);
+  return value;
+}
+
+function validateThreadMessagesResponse(method, response) {
+  const value = assertBackendResponseObject(method, response);
+  if (!Array.isArray(value.messages)) {
+    throw new TypeError(`${method} response messages must be an array`);
+  }
+  if (hasOwn(value, 'total') && (typeof value.total !== 'number' || !Number.isFinite(value.total))) {
+    throw new TypeError(`${method} response total must be a number`);
+  }
+  if (hasOwn(value, 'hasMore') && typeof value.hasMore !== 'boolean') {
+    throw new TypeError(`${method} response hasMore must be a boolean`);
+  }
+  if (hasOwn(value, 'nextBefore') && typeof value.nextBefore !== 'string') {
+    throw new TypeError(`${method} response nextBefore must be a string`);
+  }
+  return value;
+}
+
+function validateThreadResolveResponse(method, response) {
+  const value = assertBackendResponseObject(method, response);
+  requireResponseKey(method, value, ['id', 'threadId', 'thread_id']);
+  return value;
+}
+
+function validateTurnStartResponse(method, response) {
+  const value = assertBackendResponseObject(method, response);
+  requireResponseKey(method, value, ['turn_id', 'turnId']);
+  return value;
+}
+
+const BACKEND_RESPONSE_VALIDATORS = Object.freeze({
+  [RPC_METHODS.UI_STATE_GET]: validateUIStateResponse,
+  [RPC_METHODS.THREAD_START]: validateThreadStartResponse,
+  [RPC_METHODS.THREAD_MESSAGES]: validateThreadMessagesResponse,
+  [RPC_METHODS.THREAD_RESOLVE]: validateThreadResolveResponse,
+  [RPC_METHODS.TURN_START]: validateTurnStartResponse,
+});
+
 /** @type {ReadonlyArray<readonly [string, (...args: any[]) => any]>} */
 const NATIVE_DEP_FALLBACKS = Object.freeze([
   ['getBuildInfo', getWailsBuildInfo],
@@ -889,10 +975,12 @@ function resolveNativeDeps(deps) {
 }
 
 function createBackendCaller(callAPI) {
-  return (method, params = {}) => {
+  return async (method, params = {}) => {
     const rpcMethod = normalizeString(method);
     if (!rpcMethod) throw new Error('backend RPC method is required');
-    return callAPI(rpcMethod, assertPlainObject(rpcMethod, params));
+    const response = await callAPI(rpcMethod, assertPlainObject(rpcMethod, params));
+    const validator = BACKEND_RESPONSE_VALIDATORS[rpcMethod];
+    return validator ? validator(rpcMethod, response) : response;
   };
 }
 

@@ -215,6 +215,25 @@ describe('wails bridge shared file helpers', () => {
     }));
     await expect(previewSharedFile({ path: '' })).rejects.toThrow('previewSharedFile path is required');
   });
+
+  it('rejects malformed native shared file responses', async () => {
+    const byID = vi.fn((_methodID, method, payload) => {
+      if (method !== 'ui/sharedFile/open') {
+        throw new Error(`unexpected method ${method}`);
+      }
+      return Promise.resolve(payload.preview ? { url: '' } : {});
+    });
+    vi.doMock(runtimeModule, () => ({
+      Call: { ByID: byID },
+      Events: { On: vi.fn() },
+    }));
+    const { openSharedFile, previewSharedFile } = await import('./wailsBridge.js');
+
+    await expect(openSharedFile({ path: 'dag/video/final.mp4' }))
+      .rejects.toThrow('ui/sharedFile/open response opened must be true');
+    await expect(previewSharedFile({ path: 'dag/video/final.mp4' }))
+      .rejects.toThrow('ui/sharedFile/open response url must be a non-empty string');
+  });
 });
 
 describe('wails bridge warning logs', () => {
@@ -623,6 +642,70 @@ describe('wails bridge file picker helpers', () => {
       filters: [{ displayName: 'PDF/TXT/TEXT', pattern: '*.pdf;*.txt;*.text' }],
     }));
   });
+
+  it('parses native file helper responses only from explicit response shapes', async () => {
+    const byID = vi.fn((_methodID, method) => {
+      if (method === 'ui/selectProjectDirs') return Promise.resolve({ paths: ['/repo/a'] });
+      if (method === 'ui/saveTextFile') return Promise.resolve({ path: '/tmp/out.txt' });
+      if (method === 'ui/readDroppedTextFiles') {
+        return Promise.resolve({
+          files: [{
+            path: '/tmp/a.txt',
+            name: 'a.txt',
+            text: 'hello',
+            sizeBytes: 5,
+          }],
+        });
+      }
+      throw new Error(`unexpected method ${method}`);
+    });
+    vi.doMock(runtimeModule, () => ({
+      Call: { ByID: byID },
+      Events: { On: vi.fn() },
+    }));
+    const { selectProjectDirs, saveTextFile, readDroppedTextFiles } = await import('./wailsBridge.js');
+
+    await expect(selectProjectDirs()).resolves.toEqual(['/repo/a']);
+    await expect(saveTextFile({ defaultFilename: 'out.txt', content: 'hello' })).resolves.toBe('/tmp/out.txt');
+    await expect(readDroppedTextFiles(['/tmp/a.txt'], 'drop-1')).resolves.toEqual([{
+      path: '/tmp/a.txt',
+      name: 'a.txt',
+      text: 'hello',
+      sizeBytes: 5,
+    }]);
+  });
+
+  it('rejects malformed native file helper responses instead of defaulting to empty values', async () => {
+    const byID = vi.fn((_methodID, method) => {
+      if (method === 'ui/selectProjectDirs') return Promise.resolve({});
+      if (method === 'ui/saveTextFile') return Promise.resolve({});
+      if (method === 'ui/readDroppedTextFiles') return Promise.resolve({ files: [{ path: '/tmp/a.txt', name: 'a.txt', text: 'hello' }] });
+      throw new Error(`unexpected method ${method}`);
+    });
+    vi.doMock(runtimeModule, () => ({
+      Call: { ByID: byID },
+      Events: { On: vi.fn() },
+    }));
+    const { selectProjectDirs, saveTextFile, readDroppedTextFiles } = await import('./wailsBridge.js');
+
+    await expect(selectProjectDirs()).rejects.toThrow('ui/selectProjectDirs response paths must be an array');
+    await expect(saveTextFile({ defaultFilename: 'out.txt', content: 'hello' }))
+      .rejects.toThrow('ui/saveTextFile response path must be a string');
+    await expect(readDroppedTextFiles(['/tmp/a.txt'], 'drop-1'))
+      .rejects.toThrow('ui/readDroppedTextFiles response file sizeBytes must be a non-negative number');
+  });
+
+  it('rejects malformed selectFiles native responses without falling back to the RPC path', async () => {
+    const byID = vi.fn().mockResolvedValue({});
+    vi.doMock(runtimeModule, () => ({
+      Call: { ByID: byID },
+      Events: { On: vi.fn() },
+    }));
+    const { selectFiles } = await import('./wailsBridge.js');
+
+    await expect(selectFiles()).rejects.toThrow('ui/selectFiles response paths must be an array');
+    expect(byID).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe('wails bridge non-RPC binding logs', () => {
@@ -874,6 +957,28 @@ describe('wails bridge frontend trace emitter', () => {
     const serialized = JSON.stringify(events);
     expect(serialized).not.toContain('secret');
     expect(serialized).not.toContain('prompt');
+  });
+
+  it('rejects frontend traces with unknown statuses instead of coercing them to ok', async () => {
+    const byID = vi.fn((_methodID, method, payload) => {
+      if (method === 'observability/frontend/ingest') return Promise.resolve({ recorded: payload.events.length });
+      return Promise.resolve({ ok: true });
+    });
+    vi.doMock(runtimeModule, () => ({
+      Call: { ByID: byID },
+      Events: { On: vi.fn() },
+    }));
+    const { emitFrontendTraceEvent } = await import('./wailsBridge.js');
+
+    expect(emitFrontendTraceEvent({
+      phase: 'frontend.warning',
+      method: 'memory.badge.refresh.failed',
+      trace_id: 'trace-memory-invalid-status',
+      span_id: 'span-memory-invalid-status',
+      status: 'warn',
+    })).toBe(false);
+    await waitForTraceFlush();
+    expect(byID).not.toHaveBeenCalled();
   });
 
   it('keeps runtime RPC telemetry metadata while dropping forbidden content', async () => {

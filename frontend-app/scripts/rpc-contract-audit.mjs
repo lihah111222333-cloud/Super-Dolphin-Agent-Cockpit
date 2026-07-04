@@ -30,6 +30,23 @@ const FRONTEND_PAYLOAD_BUILDERS = new Map([
   ['turn/start', 'turnStartPayload'],
 ])
 
+const REQUIRED_RESPONSE_POLICY_KEYS = new Set([
+  'UI_STATE_GET',
+  'THREAD_START',
+  'THREAD_MESSAGES',
+  'THREAD_RESOLVE',
+  'TURN_START',
+  'TURN_INTERRUPT',
+])
+
+const FRONTEND_RESPONSE_VALIDATOR_KEYS = new Set([
+  'UI_STATE_GET',
+  'THREAD_START',
+  'THREAD_MESSAGES',
+  'THREAD_RESOLVE',
+  'TURN_START',
+])
+
 const FRONTEND_PAYLOAD_METHOD_EXEMPTIONS = new Map([
   ['turn/steer', 'turn/steer is provider-facing and has no React facade builder'],
 ])
@@ -77,6 +94,7 @@ export async function auditRpcContracts({ repoRoot = DEFAULT_REPO_ROOT } = {}) {
 
   const registryByKey = new Map(registryEntries.map((entry) => [entry.key, entry]))
   const handlerMethods = new Set(backendHandlers.map((entry) => entry.method))
+  const frontendResponseValidatorKeys = collectFrontendResponseValidatorKeys(frontendSource)
 
   const missingRegistryKeys = rpcMethods
     .filter((entry) => !registryByKey.has(entry.key))
@@ -94,6 +112,20 @@ export async function auditRpcContracts({ repoRoot = DEFAULT_REPO_ROOT } = {}) {
       method: entry.method,
     }))
   const allowedPayloadRegistryDrift = collectPayloadRegistryDrift(goPayloadKeysByMethod, frontendPayloadKeysByMethod)
+  const missingResponsePolicies = registryEntries
+    .filter((entry) => REQUIRED_RESPONSE_POLICY_KEYS.has(entry.key))
+    .filter((entry) => !entry.responseValidator && !entry.responsePassthroughReason)
+    .map((entry) => ({
+      key: entry.key,
+      method: entry.method,
+    }))
+  const missingFrontendResponseValidators = [...FRONTEND_RESPONSE_VALIDATOR_KEYS]
+    .filter((key) => !frontendResponseValidatorKeys.has(key))
+    .map((key) => ({
+      key,
+      method: methodsByKey.get(key)?.method ?? '',
+    }))
+    .sort((a, b) => a.key.localeCompare(b.key))
 
   return {
     rpcMethods,
@@ -107,6 +139,8 @@ export async function auditRpcContracts({ repoRoot = DEFAULT_REPO_ROOT } = {}) {
     frontendPayloadKeysByMethod,
     allowedPayloadRegistryDrift,
     hardcodedPayloadGuardFindings,
+    missingResponsePolicies,
+    missingFrontendResponseValidators,
   }
 }
 
@@ -121,6 +155,8 @@ export function formatRpcAuditReport(report) {
     `P0 methods missing Go handlers: ${report.p0MissingBackendHandlers.length}`,
     `Allowed payload registry drift: ${report.allowedPayloadRegistryDrift.length}`,
     `Hardcoded payload guards: ${report.hardcodedPayloadGuardFindings.length}`,
+    `Missing response policies: ${report.missingResponsePolicies.length}`,
+    `Missing frontend response validators: ${report.missingFrontendResponseValidators.length}`,
   ].join('\n')
 }
 
@@ -144,14 +180,21 @@ function parseRpcMethods(source) {
 
 function parseContractMatrix(source) {
   const entries = []
-  const entryPattern = /^\s*([A-Z0-9_]+):\s*contract\('([A-Z0-9_]+)',\s*'([^']+)',\s*'([^']+)'/gm
+  const entryPattern = /^\s*([A-Z0-9_]+):\s*contract\((.+)\),?$/gm
   let match
   while ((match = entryPattern.exec(source)) !== null) {
+    const args = match[2]
+    const header = args.match(/^\s*'([A-Z0-9_]+)',\s*'([^']+)',\s*'([^']+)'/)
+    if (!header) {
+      continue
+    }
     entries.push({
       key: match[1],
-      declaredKey: match[2],
-      facade: match[3],
-      level: match[4],
+      declaredKey: header[1],
+      facade: header[2],
+      level: header[3],
+      responseValidator: parseObjectStringProperty(args, 'responseValidator'),
+      responsePassthroughReason: parseObjectStringProperty(args, 'responsePassthroughReason'),
     })
   }
 
@@ -161,6 +204,25 @@ function parseContractMatrix(source) {
   }
 
   return entries
+}
+
+function parseObjectStringProperty(source, property) {
+  const pattern = new RegExp(`\\b${escapeRegExp(property)}\\s*:\\s*'([^']+)'`)
+  return source.match(pattern)?.[1] ?? ''
+}
+
+function collectFrontendResponseValidatorKeys(frontendSource) {
+  const match = frontendSource.match(/const\s+BACKEND_RESPONSE_VALIDATORS\s*=\s*Object\.freeze\(\{([\s\S]*?)\n\}\)/)
+  if (!match) {
+    return new Set()
+  }
+  const keys = new Set()
+  const keyPattern = /\[RPC_METHODS\.([A-Z0-9_]+)\]\s*:/g
+  let keyMatch
+  while ((keyMatch = keyPattern.exec(match[1])) !== null) {
+    keys.add(keyMatch[1])
+  }
+  return keys
 }
 
 async function collectGoPayloadKeys(repoRoot) {
@@ -566,6 +628,8 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
     ['P0 methods missing Go handlers', report.p0MissingBackendHandlers],
     ['Allowed payload registry drift', report.allowedPayloadRegistryDrift],
     ['Hardcoded payload guards', report.hardcodedPayloadGuardFindings],
+    ['Missing response policies', report.missingResponsePolicies],
+    ['Missing frontend response validators', report.missingFrontendResponseValidators],
   ].filter(([, values]) => values.length > 0)
 
   if (failures.length > 0) {

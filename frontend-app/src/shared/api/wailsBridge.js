@@ -468,11 +468,12 @@ function sanitizeFrontendTraceEvent(event) {
   const phase = safeTraceString(event.phase);
   if (!FRONTEND_TRACE_ALLOWED_PHASES.has(phase)) return null;
   const status = safeTraceString(event.status).toLowerCase();
+  if (!FRONTEND_TRACE_ALLOWED_STATUSES.has(status)) return null;
   const durationMS = Number(event.duration_ms);
   const out = {
     ts: new Date().toISOString(),
     phase,
-    status: FRONTEND_TRACE_ALLOWED_STATUSES.has(status) ? status : 'ok',
+    status,
   };
   for (const [target, source, limit] of [
     ['trace_id', 'trace_id', 64],
@@ -899,7 +900,7 @@ export async function selectProjectDir(defaultPath = '') {
 export async function selectProjectDirs() {
   writeBridgeLog('info', 'ui.selectProjectDirs.start', {});
   const raw = await callAPI('ui/selectProjectDirs', {});
-  const paths = Array.isArray(raw?.paths) ? raw.paths : [];
+  const paths = nativePathListResponse('ui/selectProjectDirs', raw);
   writeBridgeLog('info', 'ui.selectProjectDirs.done', {
     count: paths.length,
     first: paths[0] || '',
@@ -925,37 +926,118 @@ function normalizeSelectFilesOptions(options = {}) {
   return payload;
 }
 
+function assertNativeResponseObject(method, raw) {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+    throw new TypeError(`${method} response must be an object`);
+  }
+  return raw;
+}
+
+function assertNativeStringArray(method, field, value) {
+  if (!Array.isArray(value)) {
+    throw new TypeError(`${method} response ${field} must be an array`);
+  }
+  for (const item of value) {
+    if (typeof item !== 'string') {
+      throw new TypeError(`${method} response ${field} entries must be strings`);
+    }
+  }
+  return value;
+}
+
+function nativePathListResponse(method, raw) {
+  const value = assertNativeResponseObject(method, raw);
+  return assertNativeStringArray(method, 'paths', value.paths);
+}
+
+function nativeSelectFilesResponse(method, raw, { allowArray = false } = {}) {
+  if (allowArray && Array.isArray(raw)) {
+    return assertNativeStringArray(method, 'paths', raw);
+  }
+  return nativePathListResponse(method, raw);
+}
+
+function nativeDroppedTextFilesResponse(method, raw) {
+  const value = assertNativeResponseObject(method, raw);
+  if (!Array.isArray(value.files)) {
+    throw new TypeError(`${method} response files must be an array`);
+  }
+  return value.files.map((item) => {
+    if (!item || typeof item !== 'object' || Array.isArray(item)) {
+      throw new TypeError(`${method} response files entries must be objects`);
+    }
+    if (typeof item.path !== 'string') throw new TypeError(`${method} response file path must be a string`);
+    if (typeof item.name !== 'string') throw new TypeError(`${method} response file name must be a string`);
+    if (typeof item.text !== 'string') throw new TypeError(`${method} response file text must be a string`);
+    if (!Number.isFinite(item.sizeBytes) || item.sizeBytes < 0) {
+      throw new TypeError(`${method} response file sizeBytes must be a non-negative number`);
+    }
+    return {
+      path: item.path,
+      name: item.name,
+      text: item.text,
+      sizeBytes: item.sizeBytes,
+    };
+  });
+}
+
+function nativeTextFileSaveResponse(method, raw) {
+  const value = assertNativeResponseObject(method, raw);
+  if (typeof value.path !== 'string') {
+    throw new TypeError(`${method} response path must be a string`);
+  }
+  return value.path;
+}
+
+function nativeSharedFileOpenResponse(method, raw) {
+  const value = assertNativeResponseObject(method, raw);
+  if (value.opened !== true) {
+    throw new Error(`${method} response opened must be true`);
+  }
+  return value;
+}
+
+function nativeSharedFilePreviewResponse(method, raw) {
+  const value = assertNativeResponseObject(method, raw);
+  if (typeof value.url !== 'string' || !value.url.trim()) {
+    throw new TypeError(`${method} response url must be a non-empty string`);
+  }
+  if (typeof value.path !== 'string' || !value.path.trim()) {
+    throw new TypeError(`${method} response path must be a non-empty string`);
+  }
+  if (hasOwnBridgeProperty(value, 'contentType') && typeof value.contentType !== 'string') {
+    throw new TypeError(`${method} response contentType must be a string`);
+  }
+  if (hasOwnBridgeProperty(value, 'sizeBytes') && (!Number.isFinite(value.sizeBytes) || value.sizeBytes < 0)) {
+    throw new TypeError(`${method} response sizeBytes must be a non-negative number`);
+  }
+  return value;
+}
+
 export async function selectFiles(options = {}) {
   const payload = normalizeSelectFilesOptions(options);
   const hasOptions = Object.keys(payload).length > 0;
   writeBridgeLog('info', 'ui.selectFiles.start', {
     filtered: Boolean(payload.filters?.length),
   });
-  const normalize = (raw) => {
-    if (Array.isArray(raw)) return raw;
-    if (raw && typeof raw === 'object' && Array.isArray(raw.paths)) return raw.paths;
-    return null;
-  };
-
   if (!hasOptions) {
     try {
       const values = await callByID(METHOD_IDS.SELECT_FILES);
-      const files = normalize(values);
-      if (files != null) {
-        writeBridgeLog('info', 'ui.selectFiles.done', {
-          count: files.length,
-          first: files[0] || '',
-        });
-        return files;
-      }
+      const files = nativeSelectFilesResponse('ui/selectFiles', values, { allowArray: true });
+      writeBridgeLog('info', 'ui.selectFiles.done', {
+        count: files.length,
+        first: files[0] || '',
+      });
+      return files;
     }
     catch (error) {
+      if ((error?.message || '').startsWith('ui/selectFiles response')) throw error;
       writeBridgeLog('warn', 'ui.selectFiles.byId.failed', { error });
     }
   }
 
   const raw = await callAPI('ui/selectFiles', payload);
-  const files = normalize(raw) || [];
+  const files = nativeSelectFilesResponse('ui/selectFiles', raw);
   writeBridgeLog('info', 'ui.selectFiles.done', {
     count: files.length,
     first: files[0] || '',
@@ -976,13 +1058,7 @@ export async function readDroppedTextFiles(files, targetId = '') {
     files: paths,
     targetId: targetId,
   });
-  const items = Array.isArray(raw?.files) ? raw.files : [];
-  return items.map((item) => ({
-    path: (item?.path || '').toString(),
-    name: (item?.name || '').toString(),
-    text: (item?.text || '').toString(),
-    sizeBytes: Number(item?.sizeBytes) || 0,
-  }));
+  return nativeDroppedTextFilesResponse('ui/readDroppedTextFiles', raw);
 }
 
 export async function saveClipboardImage(base64Payload) {
@@ -1008,7 +1084,7 @@ export async function saveTextFile({ defaultPath = '', defaultFilename = '', con
     defaultFilename: filename,
     content,
   });
-  const path = raw && typeof raw === 'object' && typeof raw.path === 'string' ? raw.path : '';
+  const path = nativeTextFileSaveResponse('ui/saveTextFile', raw);
   writeBridgeLog('info', 'ui.saveTextFile.done', {
     selected: Boolean(path),
     path,
@@ -1022,7 +1098,7 @@ export async function openSharedFile({ path } = {}) {
   writeBridgeLog('info', 'ui.openSharedFile.start', { path: filePath });
   const raw = await callAPI('ui/sharedFile/open', { path: filePath });
   writeBridgeLog('info', 'ui.openSharedFile.done', { path: filePath });
-  return raw && typeof raw === 'object' ? raw : {};
+  return nativeSharedFileOpenResponse('ui/sharedFile/open', raw);
 }
 
 export async function previewSharedFile({ path } = {}) {
@@ -1031,7 +1107,7 @@ export async function previewSharedFile({ path } = {}) {
   writeBridgeLog('info', 'ui.previewSharedFile.start', { path: filePath });
   const raw = await callAPI('ui/sharedFile/open', { path: filePath, preview: true });
   writeBridgeLog('info', 'ui.previewSharedFile.done', { path: filePath });
-  return raw && typeof raw === 'object' ? raw : {};
+  return nativeSharedFilePreviewResponse('ui/sharedFile/open', raw);
 }
 
 export async function copyTextToClipboard(text) {
