@@ -397,7 +397,7 @@ func canonicalStartRuntimeConfig(config map[string]any) map[string]any {
 	}
 	if policy, err := codexNativeToolPolicyFromConfig(config); err == nil && policy.RequiresReadOnlySandbox() {
 		out["sandbox"] = "read-only"
-		out["sandboxPolicy"] = codexReadOnlySandboxPolicyValue()
+		out["sandboxPolicy"] = codexReadOnlySandboxPolicyValueFromAny(out["sandboxPolicy"])
 	}
 	identity, err := providershared.ResolveCodexIdentity(config)
 	if err != nil {
@@ -587,7 +587,7 @@ func (p codexNativeToolPolicy) ApplyThreadStartParams(params *threadStartParams)
 		return
 	}
 	params.Sandbox = codexReadOnlySandbox(params.Sandbox)
-	params.SandboxPolicy = codexReadOnlySandboxPolicy()
+	params.SandboxPolicy = codexReadOnlySandboxPolicy(params.SandboxPolicy)
 	params.ApprovalPolicy = "never"
 }
 
@@ -615,7 +615,8 @@ func applyResumeNativeToolRuntimePolicy(s *session, disabled []string) error {
 	s.setApprovalPolicy("never")
 	s.setRuntimeConfigValue("approvalPolicy", "never")
 	s.setRuntimeConfigValue("sandbox", "read-only")
-	s.setRuntimeConfigValue("sandboxPolicy", codexReadOnlySandboxPolicyValue())
+	runtimeSandboxPolicy := s.RuntimeConfigSnapshot()["sandboxPolicy"]
+	s.setRuntimeConfigValue("sandboxPolicy", codexReadOnlySandboxPolicyValueFromAny(runtimeSandboxPolicy))
 	return nil
 }
 
@@ -626,8 +627,8 @@ func codexReadOnlySandbox(raw json.RawMessage) json.RawMessage {
 	return mustJSON("read-only")
 }
 
-func codexReadOnlySandboxPolicy() json.RawMessage {
-	return mustJSON(codexReadOnlySandboxPolicyValue())
+func codexReadOnlySandboxPolicy(raw json.RawMessage) json.RawMessage {
+	return mustJSON(codexReadOnlySandboxPolicyValueFromRaw(raw))
 }
 
 func codexReadOnlySandboxPolicyValue() map[string]any {
