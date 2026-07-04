@@ -1,3 +1,5 @@
+import { compactSafeDiagnosticPreview } from '../../../shared/api/safeDiagnosticPreview.js';
+
 const MAX_RUNTIME_RESULT_ENTRIES = 120;
 const RUNTIME_RESULT_DETAIL_LIMIT = 1600;
 const RUNTIME_TOOL_FAILED_STATUSES = new Set(['failed', 'error']);
@@ -44,6 +46,10 @@ export function createRuntimeResultHelpers(deps = {}) {
     if (normalized.length <= RUNTIME_RESULT_DETAIL_LIMIT) return normalized;
     return `${normalized.slice(0, RUNTIME_RESULT_DETAIL_LIMIT)}...`;
   };
+
+  const compactRuntimeDiagnosticPreviewText = (value) => (
+    compactSafeDiagnosticPreview(value, RUNTIME_RESULT_DETAIL_LIMIT, { parseJsonStrings: true })
+  );
 
   const normalizeRuntimeToolName = (name) => {
     const raw = normalizeString(name);
@@ -107,7 +113,7 @@ export function createRuntimeResultHelpers(deps = {}) {
   const runtimeResultEntryFromRPCDone = (event, fields = {}) => {
     if (event !== 'api.rpc.done') return null;
     const method = normalizeString(fields.method || fields.rpcMethod || fields.rpc_method);
-    const detail = compactRuntimeResultText(fields.result_preview || fields.result);
+    const detail = compactRuntimeDiagnosticPreviewText(fields.result_preview || fields.result);
     if (!method || !detail) return null;
     const threadId = normalizeThreadId(runtimeThreadIdentifier(fields));
     const summary = detail.replace(/\s+/g, ' ').slice(0, 180);

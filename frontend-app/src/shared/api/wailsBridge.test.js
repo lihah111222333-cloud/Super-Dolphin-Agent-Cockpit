@@ -543,6 +543,52 @@ describe('wails bridge warning logs', () => {
       result_preview: expect.stringContaining('"total":3'),
     }));
   });
+
+  it('redacts sensitive successful RPC diagnostic previews before they reach the UI log store', async () => {
+    window.__AO_FRONTEND_TRACE_DEBUG__ = true;
+    vi.doMock(runtimeModule, () => ({
+      Call: {
+        ByID: vi.fn().mockResolvedValue({
+          ok: true,
+          tool: 'mcp__secret__read',
+          result: {
+            total: 3,
+            prompt: 'real-prompt-secret',
+            content: 'real-content-secret',
+            text: 'real-text-secret',
+            body: 'token=real-body-token',
+            profile: { name: 'real-profile-secret' },
+            cwd: '/home/l4place/private-project',
+            path: '/home/l4place/private-project/secret.txt',
+            paths: ['/home/l4place/private-project/secret-a.txt'],
+            nested: {
+              count: 2,
+              accessToken: 'real-access-token',
+              message: 'real-message-secret',
+            },
+          },
+        }),
+      },
+      Events: { On: vi.fn() },
+    }));
+    const { callAPI, registerBridgeLogStore } = await import('./wailsBridge.js');
+    const logs = captureBridgeLogs(registerBridgeLogStore);
+
+    await callAPI('tools/call', { name: 'mcp__secret__read' });
+
+    const done = logs.find((entry) => entry.event === 'api.rpc.done');
+    expect(done.fields.result_preview).toContain('"total":3');
+    expect(done.fields.result_preview).toContain('"count":2');
+    expect(done.fields.result_preview).not.toContain('real-');
+    expect(done.fields.result_preview).not.toContain('/home/l4place');
+    expect(done.fields.result_preview).not.toContain('"prompt"');
+    expect(done.fields.result_preview).not.toContain('"content"');
+    expect(done.fields.result_preview).not.toContain('"body"');
+    expect(done.fields.result_preview).not.toContain('"cwd"');
+    expect(done.fields.result_preview).not.toContain('"path"');
+    expect(done.fields.result_preview).not.toContain('"paths"');
+    expect(done.fields.result_preview).not.toContain('"accessToken"');
+  });
 });
 
 describe('wails bridge RPC trace log fields', () => {

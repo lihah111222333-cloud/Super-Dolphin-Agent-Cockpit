@@ -1,5 +1,7 @@
 // Wails Bridge Adapter for React Frontend
 
+import { compactSafeDiagnosticPreview } from './safeDiagnosticPreview.js';
+
 const METHOD_IDS = Object.freeze({
   CALL_API: 2963398832,
   GET_BUILD_INFO: 2341363104,
@@ -197,11 +199,7 @@ function writeBridgeSuccessDiagnosticLog(event, fields, isSlow) {
 }
 
 function compactBridgeValuePreview(value) {
-  const serializable = serializableBridgeValue(value);
-  const text = typeof serializable === 'string' ? serializable : JSON.stringify(serializable);
-  if (!text) return '';
-  if (text.length <= RPC_RESULT_PREVIEW_LIMIT) return text;
-  return `${text.slice(0, RPC_RESULT_PREVIEW_LIMIT)}...`;
+  return compactSafeDiagnosticPreview(value, RPC_RESULT_PREVIEW_LIMIT);
 }
 
 function waitRuntime() {

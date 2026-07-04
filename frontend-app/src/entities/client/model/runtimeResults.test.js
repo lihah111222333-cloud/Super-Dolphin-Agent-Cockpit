@@ -89,11 +89,34 @@ describe('runtime result helpers', () => {
     ]);
   });
 
+  it('redacts sensitive legacy RPC result previews before display', () => {
+    const entry = helpers.runtimeResultEntryFromRPCDone('api.rpc.done', {
+      method: 'thread/messages',
+      threadId: 'thread-1',
+      req_id: 3,
+      result_preview: JSON.stringify({
+        messages: [{
+          id: 1,
+          content: 'real-message-secret',
+          path: '/home/l4place/private-project/secret.txt',
+          count: 2,
+        }],
+        total: 1,
+      }),
+    });
+
+    expect(entry.detail).toContain('"total":1');
+    expect(entry.detail).toContain('"count":2');
+    expect(entry.detail).not.toContain('real-message-secret');
+    expect(entry.detail).not.toContain('/home/l4place');
+    expect(entry.message).not.toContain('real-message-secret');
+  });
+
   it('compacts oversized result detail before storing it', () => {
     const entry = helpers.runtimeResultEntryFromRPCDone('api.rpc.done', {
       method: 'thread/messages',
       threadId: 'thread-1',
-      result: 'x'.repeat(1700),
+      result: { values: Array.from({ length: 900 }, (_, index) => index) },
     });
 
     expect(entry.detail).toHaveLength(1603);
