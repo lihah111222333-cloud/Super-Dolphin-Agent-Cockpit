@@ -145,7 +145,11 @@ function guardedBackendResponse(method) {
   });
 
   it('wraps app update RPC methods', async () => {
-    const callAPI = vi.fn().mockResolvedValue({ ok: true });
+    const callAPI = vi.fn()
+      .mockResolvedValueOnce({ ok: true })
+      .mockResolvedValueOnce({ ok: true })
+      .mockResolvedValueOnce({ started: true, helper: 'updater' })
+      .mockResolvedValueOnce({ started: true, helper: 'updater' });
     const api = createBackendApi({ callAPI });
 
     await api.checkAppUpdate();
@@ -161,6 +165,23 @@ function guardedBackendResponse(method) {
     expect(typeof downloadAppUpdate).toBe('function');
     expect(typeof installAppUpdate).toBe('function');
     expect(typeof installLatestAppUpdate).toBe('function');
+  });
+
+  it('rejects malformed app update install responses', async () => {
+    const invalidResponses = [
+      {},
+      null,
+      { ok: true },
+      { started: false, helper: 'updater' },
+      { started: true, helper: '' },
+    ];
+    for (const response of invalidResponses) {
+      const callAPI = vi.fn().mockResolvedValue(response);
+      const api = createBackendApi({ callAPI });
+
+      await expect(api.installAppUpdate()).rejects.toThrow('app/update/install');
+      await expect(api.installLatestAppUpdate()).rejects.toThrow('app/update/installLatest');
+    }
   });
 
   it('wraps MCP server list and default controls with strict empty payloads', async () => {

@@ -955,7 +955,20 @@ function validateSkillReadResponse(method, response) {
   return value;
 }
 
+function validateAppUpdateInstallResponse(method, response) {
+  const value = assertBackendResponseObject(method, response);
+  if (value.started !== true) {
+    throw new TypeError(`${method} response started must be true`);
+  }
+  if (typeof value.helper !== 'string' || !normalizeString(value.helper)) {
+    throw new TypeError(`${method} response helper must be a non-empty string`);
+  }
+  return value;
+}
+
 const BACKEND_RESPONSE_VALIDATORS = Object.freeze({
+  [RPC_METHODS.APP_UPDATE_INSTALL]: validateAppUpdateInstallResponse,
+  [RPC_METHODS.APP_UPDATE_INSTALL_LATEST]: validateAppUpdateInstallResponse,
   [RPC_METHODS.UI_STATE_GET]: validateUIStateResponse,
   [RPC_METHODS.SKILLS_LOCAL_READ]: validateSkillReadResponse,
   [RPC_METHODS.THREAD_START]: validateThreadStartResponse,
