@@ -1,3 +1,5 @@
+import { appRouteForPage } from '../src/app/appShellModel.js';
+
 export const BLOCKED_ACTION_KEYWORDS = Object.freeze([
   '发送', '中断', '保存', '应用', '删除', '重置', '移除', '上传', '导入', '导出', '安装',
   'send', 'interrupt', 'save', 'apply', 'delete', 'reset', 'remove', 'upload', 'import', 'export', 'install',
@@ -11,6 +13,22 @@ const ALLOWED_ACTION_KEYWORDS = Object.freeze([
 const KNOWN_NAVIGATION_ENTRY_LABELS = Object.freeze([
   '链路追踪', 'Settings', '设置', '新对话', '记忆中心', '插件', '插件与技能', '自动化', '定制角色', '共享文件',
 ]);
+
+const NAVIGATION_PAGE_BY_LABEL = Object.freeze([
+  { pattern: /^新对话$/u, page: 'chat' },
+  { pattern: /^(插件|插件与技能)$/u, page: 'skills' },
+  { pattern: /^自动化$/u, page: 'workflows' },
+  { pattern: /^(提示词|定制角色)$/u, page: 'prompts' },
+  { pattern: /^共享文件$/u, page: 'files' },
+  { pattern: /^记忆中心$/u, page: 'memory' },
+  { pattern: /^链路追踪$/u, page: 'observability' },
+  { pattern: /^(Settings|设置)$/u, page: 'settings' },
+]);
+
+const READ_ONLY_NAVIGATION_SOURCE_IDS = Object.freeze(new Set([
+  'sidebar-nav',
+  'sidebar-secondary-nav',
+]));
 
 export function discoverBusinessFlows(facts = {}) {
   const route = routeFromURL(facts.url);
@@ -46,11 +64,16 @@ export function safetyForAction(action = {}) {
 export function businessEntriesFromDOMSummary(summary = [], route = '/') {
   return summary
     .filter((item) => isButtonLike(item) && (hasSidebarSource(item) || isKnownNavigationEntry(item)))
-    .map((item) => ({
-      route,
-      label: visibleName(item),
-      source: hasSidebarSource(item) ? normalizeString(item.sourceTestId || item.parentTestId || item.testId) : 'visible-navigation',
-    }))
+    .map((item) => {
+      const label = visibleName(item);
+      const targetRoute = targetRouteForNavigationLabel(label);
+      return {
+        route,
+        label,
+        source: hasSidebarSource(item) ? normalizeString(item.sourceTestId || item.parentTestId || item.testId) : 'visible-navigation',
+        ...(targetRoute ? { targetRoute } : {}),
+      };
+    })
     .filter((entry) => entry.label);
 }
 
@@ -59,13 +82,20 @@ export function businessActionsFromDOMSummary(summary = []) {
     .filter((item) => isButtonLike(item) && !item.disabled)
     .map((item) => {
       const label = visibleName(item);
-      const classified = safetyForAction({ type: 'click', label });
+      const targetRoute = targetRouteForNavigationLabel(label);
+      const source = sourceID(item);
+      const classified = safetyForAction({
+        type: 'click',
+        label,
+        source: readOnlyNavigationSourceForAction(source, targetRoute) ? 'navigation' : '',
+      });
       return {
         type: 'click',
         label,
         target: item.testId ? { type: 'testId', value: item.testId } : { type: 'role', role: 'button', name: label },
         safety: classified.safety,
         reason: classified.reason,
+        ...(targetRoute ? { targetRoute } : {}),
       };
     })
     .filter((action) => action.label);
@@ -76,12 +106,27 @@ function isButtonLike(item = {}) {
 }
 
 function hasSidebarSource(item = {}) {
-  return normalizeString(item.sourceTestId || item.parentTestId || item.testId).includes('sidebar');
+  return sourceID(item).includes('sidebar');
 }
 
 function isKnownNavigationEntry(item = {}) {
   const labels = [item.ariaLabel, item.text, item.testId].map((value) => normalizeString(value).toLowerCase()).filter(Boolean);
   return KNOWN_NAVIGATION_ENTRY_LABELS.some((entryLabel) => labels.includes(entryLabel.toLowerCase()));
+}
+
+function targetRouteForNavigationLabel(label) {
+  const page = NAVIGATION_PAGE_BY_LABEL.find((entry) => entry.pattern.test(label))?.page || '';
+  return page ? appRouteForPage(page) : '';
+}
+
+function readOnlyNavigationSourceForAction(source, targetRoute) {
+  if (!targetRoute || targetRoute === '/') return false;
+  if (READ_ONLY_NAVIGATION_SOURCE_IDS.has(source)) return true;
+  return source === 'app-sidebar' && targetRoute === '/settings';
+}
+
+function sourceID(item = {}) {
+  return normalizeString(item.sourceTestId || item.parentTestId || item.testId);
 }
 
 function visibleName(item = {}) {

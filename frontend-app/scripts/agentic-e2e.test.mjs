@@ -128,6 +128,31 @@ describe('agentic e2e business discovery', () => {
     expect(labels.some((label) => label === '插件与技能' || label === '插件')).toBe(true);
     expect(labels).toContain('设置');
     expect(labels).toContain('链路追踪');
+    expect(flows).toEqual(expect.arrayContaining([
+      expect.objectContaining({ entry: expect.objectContaining({ label: '插件与技能', targetRoute: '/skills' }) }),
+      expect.objectContaining({ entry: expect.objectContaining({ label: '设置', targetRoute: '/settings' }) }),
+      expect.objectContaining({ entry: expect.objectContaining({ label: '链路追踪', targetRoute: '/observability' }) }),
+    ]));
+  });
+
+  it('marks known navigation buttons as safe route changes without allowing shell controls', () => {
+    const actions = businessActionsFromDOMSummary([
+      { tag: 'button', role: '', testId: '', ariaLabel: '插件与技能', text: '插件', disabled: false, sourceTestId: 'sidebar-nav' },
+      { tag: 'button', role: '', testId: '', ariaLabel: '自动化', text: '自动化', disabled: false, sourceTestId: 'sidebar-nav' },
+      { tag: 'button', role: '', testId: '', ariaLabel: '设置', text: '设置', disabled: false, sourceTestId: 'app-sidebar' },
+      { tag: 'button', role: '', testId: '', ariaLabel: '新对话', text: '', disabled: false, sourceTestId: 'app-sidebar' },
+      { tag: 'button', role: '', testId: '', ariaLabel: '切换到 English', text: '', disabled: false, sourceTestId: 'app-sidebar' },
+      { tag: 'button', role: '', testId: '', ariaLabel: '发送消息', text: '', disabled: false, sourceTestId: 'sidebar-nav' },
+    ]);
+
+    expect(actions).toEqual(expect.arrayContaining([
+      expect.objectContaining({ label: '插件与技能', safety: 'allowed', reason: 'navigation entry', targetRoute: '/skills' }),
+      expect.objectContaining({ label: '自动化', safety: 'allowed', reason: 'navigation entry', targetRoute: '/dags' }),
+      expect.objectContaining({ label: '设置', safety: 'allowed', reason: 'navigation entry', targetRoute: '/settings' }),
+      expect.objectContaining({ label: '新对话', safety: 'blocked', reason: 'action is not recognized as read-only', targetRoute: '/' }),
+      expect.objectContaining({ label: '切换到 English', safety: 'blocked', reason: 'action is not recognized as read-only' }),
+      expect.objectContaining({ label: '发送消息', safety: 'blocked', reason: 'mutating or provider action keyword: 发送' }),
+    ]));
   });
 
   it('does not emit disabled controls as candidate actions', () => {
@@ -178,6 +203,31 @@ describe('agentic e2e discovery aggregation', () => {
     expect(merged).toHaveLength(2);
     expect(merged.find((flow) => flow.id === 'flow-a').actions).toHaveLength(2);
     expect(merged.find((flow) => flow.id === 'flow-b').result.summary).toBe('new flow');
+  });
+
+  it('keeps target route separate from the latest observed page when merging repeated flows', () => {
+    const merged = mergeDiscoveredFlows([
+      {
+        id: 'visible-sidebar-nav-插件与技能',
+        entry: { route: '/', label: '插件与技能', source: 'sidebar-nav', targetRoute: '/skills' },
+        page: { route: '/' },
+        actions: [{ type: 'click', label: '插件与技能', safety: 'allowed', reason: 'navigation entry' }],
+      },
+    ], [
+      {
+        id: 'visible-sidebar-nav-插件与技能',
+        entry: { route: '/observability', label: '插件与技能', source: 'sidebar-nav', targetRoute: '/skills' },
+        page: { route: '/observability' },
+        actions: [{ type: 'click', label: '查询最新日志', safety: 'allowed', reason: 'read-oriented action keyword: 查询' }],
+      },
+    ]);
+
+    expect(merged).toHaveLength(1);
+    expect(merged[0].entry).toEqual(expect.objectContaining({
+      route: '/',
+      targetRoute: '/skills',
+    }));
+    expect(merged[0].page.route).toBe('/observability');
   });
 
   it('fails fast for discovered flows without non-empty ids', () => {
@@ -286,6 +336,12 @@ describe('agentic e2e evidence writing', () => {
         totalFlows: 1,
         allowedActions: 1,
         blockedActions: 0,
+        uniqueAllowedActions: 1,
+        uniqueBlockedActions: 0,
+        reviewReadyFlows: 1,
+        stableGoalCandidates: 0,
+        shellControlFlows: 0,
+        contextualFlows: 0,
       });
     }
     finally {
@@ -300,6 +356,12 @@ describe('agentic e2e discovery report', () => {
       totalFlows: 0,
       allowedActions: 0,
       blockedActions: 0,
+      uniqueAllowedActions: 0,
+      uniqueBlockedActions: 0,
+      reviewReadyFlows: 0,
+      stableGoalCandidates: 0,
+      shellControlFlows: 0,
+      contextualFlows: 0,
     });
   });
 
@@ -320,28 +382,106 @@ describe('agentic e2e discovery report', () => {
     expect(summary.totalFlows).toBe(1);
     expect(summary.allowedActions).toBe(1);
     expect(summary.blockedActions).toBe(1);
+    expect(summary.uniqueAllowedActions).toBe(1);
+    expect(summary.uniqueBlockedActions).toBe(1);
+    expect(summary.reviewReadyFlows).toBe(1);
+    expect(summary.stableGoalCandidates).toBe(1);
+  });
+
+  it('separates review-ready entries from shell and contextual controls', () => {
+    const summary = summarizeDiscovery({
+      flows: [
+        {
+          id: 'visible-sidebar-secondary-nav-链路追踪',
+          entry: { route: '/', label: '链路追踪', source: 'sidebar-secondary-nav' },
+          actions: [],
+        },
+        {
+          id: 'visible-app-sidebar-切换到-english',
+          entry: { route: '/', label: '切换到 English', source: 'app-sidebar' },
+          actions: [],
+        },
+        {
+          id: 'visible-app-sidebar-新对话-agentic-e2e-harness',
+          entry: { route: '/', label: '新对话 agentic-e2e-harness', source: 'app-sidebar' },
+          actions: [],
+        },
+      ],
+    });
+
+    expect(summary.reviewReadyFlows).toBe(1);
+    expect(summary.stableGoalCandidates).toBe(1);
+    expect(summary.shellControlFlows).toBe(1);
+    expect(summary.contextualFlows).toBe(1);
+  });
+
+  it('deduplicates dynamic trace actions in discovery summaries', () => {
+    const summary = summarizeDiscovery({
+      flows: [{
+        id: 'visible-sidebar-secondary-nav-链路追踪',
+        entry: { route: '/', label: '链路追踪', source: 'sidebar-secondary-nav' },
+        actions: [
+          { type: 'click', label: '打开 Trace 8a7a506fc528263963f9234b0f45d581', safety: 'allowed', reason: 'read-oriented action keyword: 打开' },
+          { type: 'click', label: '打开 Trace f4af9f8d6d21b49ed9cf0a62cf9d2c81', safety: 'allowed', reason: 'read-oriented action keyword: 打开' },
+        ],
+      }],
+    });
+
+    expect(summary.allowedActions).toBe(2);
+    expect(summary.uniqueAllowedActions).toBe(1);
   });
 
   it('renders a human-readable markdown report', () => {
     const markdown = renderDiscoveryMarkdown({
-      summary: { totalFlows: 1, allowedActions: 1, blockedActions: 1 },
       flows: [{
         id: 'visible-sidebar-secondary-nav-链路追踪',
-        entry: { route: '/', label: '链路追踪', source: 'sidebar-secondary-nav' },
+        entry: { route: '/', label: '链路追踪', source: 'sidebar-secondary-nav', targetRoute: '/observability' },
         page: { route: '/observability', heading: '链路追踪', testIds: ['observability-page'] },
         actions: [{ type: 'click', label: '查询最新日志', safety: 'allowed', reason: 'read-oriented action keyword: 查询' }],
         result: { status: 'discovered', summary: 'Recent log table became visible' },
+      }, {
+        id: 'visible-sidebar-nav-自动化',
+        entry: { route: '/', label: '自动化', source: 'sidebar-nav', targetRoute: '/dags' },
+        page: { route: '/observability', heading: '链路追踪', testIds: ['observability-page'] },
+        actions: [{ type: 'click', label: '自动化', safety: 'allowed', reason: 'navigation entry', targetRoute: '/dags' }],
+        result: { status: 'candidate', summary: 'Discovered from visible page structure' },
+      }, {
+        id: 'visible-sidebar-nav-插件与技能',
+        entry: { route: '/', label: '插件与技能', source: 'sidebar-nav', targetRoute: '/skills' },
+        page: { route: '/observability', heading: '链路追踪', testIds: ['observability-page'] },
+        actions: [{ type: 'click', label: '插件与技能', safety: 'allowed', reason: 'navigation entry', targetRoute: '/skills' }],
+        result: { status: 'candidate', summary: 'Discovered from visible page structure' },
+      }, {
+        id: 'visible-sidebar-nav-提示词',
+        entry: { route: '/', label: '提示词', source: 'sidebar-nav', targetRoute: '/prompts' },
+        page: { route: '/observability', heading: '链路追踪', testIds: ['observability-page'] },
+        actions: [{ type: 'click', label: '提示词', safety: 'allowed', reason: 'navigation entry', targetRoute: '/prompts' }],
+        result: { status: 'candidate', summary: 'Discovered from visible page structure' },
+      }, {
+        id: 'visible-sidebar-nav-共享文件',
+        entry: { route: '/', label: '共享文件', source: 'sidebar-nav', targetRoute: '/files' },
+        page: { route: '/observability', heading: '链路追踪', testIds: ['observability-page'] },
+        actions: [{ type: 'click', label: '共享文件', safety: 'allowed', reason: 'navigation entry', targetRoute: '/files' }],
+        result: { status: 'candidate', summary: 'Discovered from visible page structure' },
       }],
     });
 
     expect(markdown).toContain('# Agentic E2E Business Flow Discovery');
+    expect(markdown).toContain('- Total flows: 5');
+    expect(markdown).toContain('- Stable goal candidates: 5');
+    expect(markdown).toContain('| Entry | Category | Source | Target Route | Observed Page | Result | Suggested Goal |');
     expect(markdown).toContain('链路追踪');
+    expect(markdown).toContain('| 自动化 | business-candidate | sidebar-nav | /dags | /observability | candidate - Discovered from visible page structure | automation-open |');
+    expect(markdown).toContain('| 插件与技能 | business-candidate | sidebar-nav | /skills | /observability | candidate - Discovered from visible page structure | plugins-skills-open |');
+    expect(markdown).toContain('| 提示词 | business-candidate | sidebar-nav | /prompts | /observability | candidate - Discovered from visible page structure | prompts-open |');
+    expect(markdown).toContain('| 共享文件 | business-candidate | sidebar-nav | /files | /observability | candidate - Discovered from visible page structure | shared-files-open |');
+    expect(markdown).toContain('Stable Goal Candidates');
+    expect(markdown).toContain('observability-latest-logs');
     expect(markdown).toContain('查询最新日志');
   });
 
   it('escapes markdown table cells in action labels and reasons', () => {
     const markdown = renderDiscoveryMarkdown({
-      summary: { totalFlows: 1, allowedActions: 1, blockedActions: 0 },
       flows: [{
         id: 'x',
         actions: [{
@@ -353,7 +493,7 @@ describe('agentic e2e discovery report', () => {
       }],
     });
 
-    expect(markdown).toContain('| allowed | click | 查询\\|最新 日志 | read\\|oriented reason |');
+    expect(markdown).toContain('| click | 查询\\|最新 日志 | 1 | read\\|oriented reason |');
   });
 
   it('fails fast with context for malformed discovery flows', () => {
