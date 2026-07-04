@@ -1070,9 +1070,12 @@ function createConfigProjectApi(callBackend) {
       if (!hasOwn(payload, 'value')) throw new Error(`${RPC_METHODS.UI_PREFERENCES_SET}: value is required`);
       return callBackend(RPC_METHODS.UI_PREFERENCES_SET, payload);
     },
-    listModelProviders: (params = {}) => callBackend(RPC_METHODS.MODEL_PROVIDERS_LIST, assertPlainObject(RPC_METHODS.MODEL_PROVIDERS_LIST, params)),
+    listModelProviders: (params) => callBackend(
+      RPC_METHODS.MODEL_PROVIDERS_LIST,
+      requireCwd(RPC_METHODS.MODEL_PROVIDERS_LIST, params),
+    ),
     saveModelProviders: (params) => {
-      const payload = assertPlainObject(RPC_METHODS.MODEL_PROVIDERS_SAVE, params);
+      const payload = requireCwd(RPC_METHODS.MODEL_PROVIDERS_SAVE, params);
       if (!payload.registry || typeof payload.registry !== 'object' || Array.isArray(payload.registry)) {
         throw new Error(`${RPC_METHODS.MODEL_PROVIDERS_SAVE}: registry is required`);
       }
@@ -1080,7 +1083,7 @@ function createConfigProjectApi(callBackend) {
     },
     applyModelProvider: (params) => callBackend(
       RPC_METHODS.MODEL_PROVIDERS_APPLY,
-      requireKey(RPC_METHODS.MODEL_PROVIDERS_APPLY, assertPlainObject(RPC_METHODS.MODEL_PROVIDERS_APPLY, params), 'vendorId'),
+      requireKey(RPC_METHODS.MODEL_PROVIDERS_APPLY, requireCwd(RPC_METHODS.MODEL_PROVIDERS_APPLY, params), 'vendorId'),
     ),
     getDashboardPage: (params) => callBackend(
       RPC_METHODS.UI_DASHBOARD_GET,

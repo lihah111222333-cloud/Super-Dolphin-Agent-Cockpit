@@ -84,6 +84,9 @@ function guardedBackendResponse(method) {
     expectInvalidInputDoesNotCall(callAPI, () => api.dispatchDagNode({ dagKey: 'dag-1', runId: 88, nodeKey: 'draft', assignedTo: '' }), 'assignedTo is required');
     expectInvalidInputDoesNotCall(callAPI, () => api.applyDagOps({ dagKey: 'dag-1', ops: [] }), 'baseVersion is required');
     expectInvalidInputDoesNotCall(callAPI, () => api.setVideoApiKey({ apiKey: '' }), 'apiKey is required');
+    expectInvalidInputDoesNotCall(callAPI, () => api.listModelProviders({ cwd: '' }), 'cwd is required');
+    expectInvalidInputDoesNotCall(callAPI, () => api.saveModelProviders({ registry: { vendors: [] } }), 'cwd is required');
+    expectInvalidInputDoesNotCall(callAPI, () => api.applyModelProvider({ vendorId: 'openrouter' }), 'cwd is required');
   });
 
   it('wraps datasource_v2 CRUD RPC methods with strict payloads', async () => {
