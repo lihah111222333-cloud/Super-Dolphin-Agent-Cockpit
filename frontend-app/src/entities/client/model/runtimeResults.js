@@ -51,6 +51,25 @@ export function createRuntimeResultHelpers(deps = {}) {
     compactSafeDiagnosticPreview(value, RUNTIME_RESULT_DETAIL_LIMIT, { parseJsonStrings: true })
   );
 
+  const compactRuntimeToolResultText = (value) => (
+    compactSafeDiagnosticPreview(value, RUNTIME_RESULT_DETAIL_LIMIT, { parseJsonStrings: true })
+  );
+
+  const safeRuntimeToolResultFields = (item = {}) => (
+    safeRuntimeToolResultFieldObject(compactSafeDiagnosticPreview(item, RUNTIME_RESULT_DETAIL_LIMIT, { parseJsonStrings: true }))
+  );
+
+  const safeRuntimeToolResultFieldObject = (preview) => {
+    if (!preview) return {};
+    try {
+      const parsed = JSON.parse(preview);
+      if (parsed && typeof parsed === 'object') return parsed;
+    } catch {
+      // Keep a structured container for the runtime popover without exposing raw text.
+    }
+    return { preview };
+  };
+
   const normalizeRuntimeToolName = (name) => {
     const raw = normalizeString(name);
     if (!raw) return '';
@@ -72,7 +91,7 @@ export function createRuntimeResultHelpers(deps = {}) {
 
   const runtimeToolResultDetail = (item = {}) => {
     for (const key of ['output', 'preview', 'result', 'error', 'message', 'text']) {
-      const detail = compactRuntimeResultText(item[key]);
+      const detail = compactRuntimeToolResultText(item[key]);
       if (detail) return detail;
     }
     return '';
@@ -96,7 +115,7 @@ export function createRuntimeResultHelpers(deps = {}) {
       threadId,
       message: `${toolName} ${failed ? '失败' : '返回'}${summary ? ` · ${summary}` : ''}`,
       detail,
-      fields: item,
+      fields: safeRuntimeToolResultFields(item),
       signature: `tool.result|${threadId}|${normalizeString(item.id) || toolName}|${detail}`,
     };
   };

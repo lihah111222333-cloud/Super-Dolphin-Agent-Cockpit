@@ -37,10 +37,12 @@ describe('runtime result helpers', () => {
         event: 'tool.result',
         threadId: 'thread-1',
         message: expect.stringContaining('grep 返回'),
-        detail: 'src/App.jsx: found runtime log',
-        signature: 'tool.result|thread-1|tool-grep|src/App.jsx: found runtime log',
+        detail: '[redacted]',
+        signature: 'tool.result|thread-1|tool-grep|[redacted]',
       }),
     ]);
+    expect(entries[0].message).not.toContain('src/App.jsx');
+    expect(JSON.stringify(entries[0].fields)).not.toContain('src/App.jsx');
   });
 
   it('records failed tool results even when the detail comes from error', () => {
@@ -57,8 +59,10 @@ describe('runtime result helpers', () => {
       id: 'tool-result-thread-2-0-1781517600000',
       level: 'error',
       message: expect.stringContaining('search 失败'),
-      detail: 'backend unavailable',
+      detail: '[redacted]',
     }));
+    expect(entry.message).not.toContain('backend unavailable');
+    expect(JSON.stringify(entry.fields)).not.toContain('backend unavailable');
   });
 
   it('creates and coalesces backend rpc return entries by signature', () => {
@@ -110,6 +114,33 @@ describe('runtime result helpers', () => {
     expect(entry.detail).not.toContain('real-message-secret');
     expect(entry.detail).not.toContain('/home/l4place');
     expect(entry.message).not.toContain('real-message-secret');
+  });
+
+  it('redacts sensitive tool timeline result details before display', () => {
+    const [entry] = helpers.runtimeResultEntriesFromTimelineItems([
+      {
+        id: 'tool-secret',
+        kind: 'tool',
+        tool: 'mcp__lsp__file',
+        status: 'completed',
+        result: JSON.stringify({
+          content: 'private prompt body',
+          path: '/home/l4place/private-project/secret.txt',
+          api_key: 'sk-live-secret',
+          total: 7,
+        }),
+      },
+    ], 'thread-1');
+
+    const serializedFields = JSON.stringify(entry.fields);
+    expect(entry.detail).toContain('"total":7');
+    expect(entry.detail).not.toContain('private prompt body');
+    expect(entry.detail).not.toContain('/home/l4place');
+    expect(entry.detail).not.toContain('sk-live-secret');
+    expect(entry.message).not.toContain('private prompt body');
+    expect(serializedFields).not.toContain('private prompt body');
+    expect(serializedFields).not.toContain('/home/l4place');
+    expect(serializedFields).not.toContain('sk-live-secret');
   });
 
   it('compacts oversized result detail before storing it', () => {

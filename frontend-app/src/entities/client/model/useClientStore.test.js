@@ -5170,9 +5170,11 @@ function registerBridgeEventHandlersForTest() {
         event: 'tool.result',
         threadId: 'thread-1',
         message: expect.stringContaining('grep'),
-        detail: expect.stringContaining('src/App.jsx: found runtime log'),
+        detail: '[redacted]',
       }),
     ]);
+    expect(state.runtimeResultEntries[0].message).not.toContain('src/App.jsx');
+    expect(JSON.stringify(state.runtimeResultEntries[0].fields)).not.toContain('src/App.jsx');
   });
 
   it('preserves backend thinking start and duration fields for elapsed-time display', () => {

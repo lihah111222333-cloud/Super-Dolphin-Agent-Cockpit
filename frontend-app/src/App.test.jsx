@@ -4297,8 +4297,10 @@ async function toggleInlineTraceFromRecentLogs(table) {
     expect(screen.queryByTestId('warning-log-popover')).not.toBeInTheDocument();
     fireEvent.click(resultLine);
 
-    expect(screen.getByTestId('warning-log-popover')).toHaveTextContent('src/App.jsx: runtime log result');
-    expect(screen.getByTestId('warning-log-popover')).toHaveTextContent('"preview": "{\\"total\\":3}"');
+    const popover = screen.getByTestId('warning-log-popover');
+    expect(popover).toHaveTextContent('[redacted]');
+    expect(popover).not.toHaveTextContent('src/App.jsx: runtime log result');
+    expect(popover).not.toHaveTextContent('"preview": "{\\"total\\":3}"');
   });
 
   it('clamps right-edge runtime click details into the viewport', async () => {
