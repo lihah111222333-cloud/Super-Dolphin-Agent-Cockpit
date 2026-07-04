@@ -282,7 +282,7 @@ function createComposerSendActions(runtime, deps) {
       }
       catch (error) {
         const createdThreadId = createdThreadIdForSendRollback(runtime.get(), activeRequest, threadId);
-        runtime.set((state) => rollbackSendDraftState(state, activeRequest, error));
+        runtime.set((state) => rollbackSendDraftState(state, activeRequest, error, { createdThreadId }));
         await deleteProvisionalThreadAfterSendFailure(createdThreadId, runtime.addWarning);
         runtime.addWarning('error', 'thread.send.failed', { error: error.message });
         throw error;

@@ -3408,7 +3408,14 @@ function registerBridgeEventHandlersForTest() {
     await expect(useClientStore.getState().sendDraft()).rejects.toThrow('turn/start failed');
 
     expect(backend.deleteThread).toHaveBeenCalledWith({ threadId: 'thread-provisional' });
-    expect(useClientStore.getState().draft).toBe('Clean up provisional thread');
+    const state = useClientStore.getState();
+    expect(state.draft).toBe('Clean up provisional thread');
+    expect(state.activeThreadId).not.toBe('thread-provisional');
+    expect(state.threads.some((thread) => thread.id === 'thread-provisional')).toBe(false);
+    expect((state.sidebarThreadsByProject['/repo/app'] || []).some((thread) => thread.id === 'thread-provisional')).toBe(false);
+    expect(state.timelinesByThread['thread-provisional']).toBeUndefined();
+    expect(state.threadTimelineReadyByThread['thread-provisional']).toBeUndefined();
+    expect(state.activityThreadAtById['thread-provisional']).toBeUndefined();
   });
 
 
@@ -3442,6 +3449,54 @@ function registerBridgeEventHandlersForTest() {
 
     expect(backend.deleteThread).toHaveBeenCalledWith({ threadId: 'thread-provisional' });
     expect(backend.deleteThread).not.toHaveBeenCalledWith({ threadId: 'thread-other' });
+  });
+
+  it('does not let a stale send failure overwrite the active composer after a thread switch', async () => {
+    const turnResult = deferred();
+    const nextAttachments = [{ path: '/tmp/next.txt', name: 'next.txt' }];
+
+    resetClientStoreForTests({
+      cwd: '/repo/app',
+      activeProject: '/repo/app',
+      activeThreadId: '',
+      draft: 'Original pending send',
+      attachments: [{ path: '/tmp/original.txt', name: 'original.txt' }],
+      threads: [{ id: 'thread-other', name: 'Other thread', provider: 'codex', status: 'running' }],
+      sidebarThreadsByProject: {
+        '/repo/app': [{ id: 'thread-other', name: 'Other thread', provider: 'codex', status: 'running' }],
+      },
+    });
+    backend.getPreference.mockImplementation(({ key }) => Promise.resolve({
+      'settings.provider.active': 'codex',
+      'settings.provider.codex.model': 'gpt-5.5',
+      'settings.provider.codex.effort': 'xhigh',
+      'settings.provider.codex.codexHome': '/Users/test/.codex-alt',
+      'settings.provider.codex.codexInstanceKey': 'desktop-main',
+      'settings.provider.codex.codexModelProvider': 'openrouter',
+    }[key] ?? null));
+    backend.startThread.mockResolvedValue({ threadId: 'thread-provisional' });
+    backend.startTurn.mockImplementation(() => turnResult.promise);
+
+    const sendPromise = useClientStore.getState().sendDraft();
+    await flushPromises();
+
+    useClientStore.setState({
+      activeThreadId: 'thread-other',
+      draft: 'New active draft',
+      attachments: nextAttachments,
+    });
+    turnResult.reject(new Error('turn/start failed'));
+
+    await expect(sendPromise).rejects.toThrow('turn/start failed');
+
+    const state = useClientStore.getState();
+    expect(state.activeThreadId).toBe('thread-other');
+    expect(state.draft).toBe('New active draft');
+    expect(state.attachments).toEqual(nextAttachments);
+    expect(state.threads.some((thread) => thread.id === 'thread-provisional')).toBe(false);
+    expect((state.sidebarThreadsByProject['/repo/app'] || []).some((thread) => thread.id === 'thread-provisional')).toBe(false);
+    expect(state.timelinesByThread['thread-provisional']).toBeUndefined();
+    expect(backend.deleteThread).toHaveBeenCalledWith({ threadId: 'thread-provisional' });
   });
 
   it('keeps sending fail-fast when cwd is missing', async () => {

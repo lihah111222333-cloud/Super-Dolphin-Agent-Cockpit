@@ -1564,18 +1564,44 @@ function promotedDraftThreadState(state, request, started) {
   };
 }
 
-function rollbackSendDraftState(state, request, error) {
+function rollbackSendDraftState(state, request, error, options = {}) {
+  const createdThreadId = normalizeString(options.createdThreadId);
+  const localDeleteIds = !request.previousThreadId
+    ? [request.provisionalThreadId, createdThreadId].filter(Boolean)
+    : [];
   const timelinesByThread = { ...state.timelinesByThread };
-  const activeTimeline = timelinesByThread[state.activeThreadId] || [];
-  timelinesByThread[state.activeThreadId] = activeTimeline.filter((item) => item.id !== request.optimisticItem.id);
-  if (!request.previousThreadId) delete timelinesByThread[request.provisionalThreadId];
-  const activeThreadId = state.activeThreadId === request.provisionalThreadId ? request.previousActiveThreadId : state.activeThreadId;
+  const timelineTargetId = request.previousThreadId || createdThreadId || request.provisionalThreadId;
+  const requestTimeline = timelinesByThread[timelineTargetId] || [];
+  timelinesByThread[timelineTargetId] = requestTimeline.filter((item) => item.id !== request.optimisticItem.id);
+  for (const threadId of localDeleteIds) delete timelinesByThread[threadId];
+  const threadTimelineReadyByThread = { ...state.threadTimelineReadyByThread };
+  const activityThreadAtById = { ...state.activityThreadAtById };
+  for (const threadId of localDeleteIds) {
+    delete threadTimelineReadyByThread[threadId];
+    delete activityThreadAtById[threadId];
+  }
+  const activeThreadId = localDeleteIds.includes(state.activeThreadId) ? request.previousActiveThreadId : state.activeThreadId;
+  const restoreComposer = [
+    request.previousThreadId,
+    request.provisionalThreadId,
+    createdThreadId,
+  ].filter(Boolean).includes(state.activeThreadId);
   return {
     sending: false,
-    draft: request.previousDraft,
-    attachments: request.previousAttachments,
+    ...(restoreComposer ? {
+      draft: request.previousDraft,
+      attachments: request.previousAttachments,
+    } : {}),
     activeThreadId,
     timelinesByThread,
+    threadTimelineReadyByThread,
+    activityThreadAtById,
+    threads: createdThreadId
+      ? state.threads.filter((thread) => thread.id !== createdThreadId)
+      : state.threads,
+    sidebarThreadsByProject: createdThreadId
+      ? mapSidebarThreadCache(state, (threads) => threads.filter((thread) => thread.id !== createdThreadId))
+      : state.sidebarThreadsByProject,
     error: error.message,
     actionNotice: actionNotice(`发送失败：${error.message}`, 'error'),
   };
@@ -3012,7 +3038,7 @@ function createDashboardCommandActions(runtime) {
       catch (error) {
         const createdThreadId = createdThreadIdForSendRollback(runtime.get(), request, threadId);
         runtime.set((state) => ({
-          ...rollbackSendDraftState(state, request, error),
+          ...rollbackSendDraftState(state, request, error, { createdThreadId }),
           activePage: 'commands',
         }));
         await deleteProvisionalThreadAfterSendFailure(createdThreadId, runtime.addWarning);
