@@ -48,6 +48,9 @@ func measureFileMetricsFromAST(rawLines []string, fset *token.FileSet, node *ast
 		measureFuncMetrics(rawLines, fset, fd, ignores, &m)
 	}
 	m.MaxUnderscore = measureMaxUnderscore(node)
+	m.RawGoroutines = countRawGoroutines(node)
+	m.MissingDocs = countMissingDocComments(node)
+	m.MaxStructMethods = measureMaxStructMethods(node)
 	return m
 }
 
@@ -390,4 +393,104 @@ func measureMaxUnderscore(node *ast.File) int {
 		return true
 	})
 	return maxU
+}
+
+// countRawGoroutines 计算 AST 中所有 go 语句的数量。
+func countRawGoroutines(node *ast.File) int {
+	count := 0
+	ast.Inspect(node, func(n ast.Node) bool {
+		if _, ok := n.(*ast.GoStmt); ok {
+			count++
+		}
+		return true
+	})
+	return count
+}
+
+// countMissingDocComments 计算所有导出函数、方法和类型中缺少文档注释的数量。
+func countMissingDocComments(node *ast.File) int {
+	return countMissingFuncDocs(node) + countMissingTypeDocs(node)
+}
+
+// countMissingFuncDocs 遍历 AST 并统计缺少文档注释的导出函数与方法。
+func countMissingFuncDocs(node *ast.File) int {
+	count := 0
+	for _, decl := range node.Decls {
+		fd, ok := decl.(*ast.FuncDecl)
+		if ok && fd.Name != nil && fd.Name.IsExported() {
+			if fd.Doc == nil || len(strings.TrimSpace(fd.Doc.Text())) == 0 {
+				count++
+			}
+		}
+	}
+	return count
+}
+
+// countMissingTypeDocs 遍历 AST 并统计缺少文档注释的导出类型与结构体。
+func countMissingTypeDocs(node *ast.File) int {
+	count := 0
+	for _, decl := range node.Decls {
+		gd, ok := decl.(*ast.GenDecl)
+		if !ok || gd.Tok != token.TYPE {
+			continue
+		}
+		for _, spec := range gd.Specs {
+			ts, ok := spec.(*ast.TypeSpec)
+			if ok && ts.Name != nil && ts.Name.IsExported() {
+				if !hasDocComment(ts, gd) {
+					count++
+				}
+			}
+		}
+	}
+	return count
+}
+
+// hasDocComment 检查类型定义或其所属声明块是否包含有效的中文/英文文档注释。
+func hasDocComment(ts *ast.TypeSpec, gd *ast.GenDecl) bool {
+	if ts.Doc != nil && len(strings.TrimSpace(ts.Doc.Text())) > 0 {
+		return true
+	}
+	if gd.Doc != nil && len(strings.TrimSpace(gd.Doc.Text())) > 0 {
+		return true
+	}
+	return false
+}
+
+// measureMaxStructMethods 计算文件中单个 Receiver 上定义的最大导出方法数。
+func measureMaxStructMethods(node *ast.File) int {
+	methodsCount := map[string]int{}
+	for _, decl := range node.Decls {
+		fd, ok := decl.(*ast.FuncDecl)
+		if !ok || fd.Recv == nil || fd.Name == nil {
+			continue
+		}
+		if !fd.Name.IsExported() {
+			continue
+		}
+		if typeName, ok := getReceiverTypeName(fd.Recv); ok {
+			methodsCount[typeName]++
+		}
+	}
+	maxVal := 0
+	for _, count := range methodsCount {
+		if count > maxVal {
+			maxVal = count
+		}
+	}
+	return maxVal
+}
+
+func getReceiverTypeName(recv *ast.FieldList) (string, bool) {
+	if recv == nil || len(recv.List) == 0 {
+		return "", false
+	}
+	t := recv.List[0].Type
+	if star, ok := t.(*ast.StarExpr); ok {
+		t = star.X
+	}
+	if ident, ok := t.(*ast.Ident); ok {
+		return ident.Name, true
+	}
+	return "", false
 }
