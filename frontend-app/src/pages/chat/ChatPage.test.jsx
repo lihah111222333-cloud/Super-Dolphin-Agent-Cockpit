@@ -418,6 +418,31 @@ describe('ChatPage module', () => {
     expect(store.sendDraft).not.toHaveBeenCalled();
   });
 
+  it('does not interrupt the active thread when Escape closes an image preview', () => {
+    const store = createActiveThreadStore([
+      {
+        id: 'msg-image-preview',
+        role: 'assistant',
+        text: '请看截图：![sample.png](data:image/png;base64,AA==)',
+        time: '2026-06-02T08:00:00Z',
+      },
+    ], {
+      hasInterruptibleThreadAction: vi.fn(() => true),
+      statuses: { 'thread-1': { state: 'running' } },
+      threads: [{ id: 'thread-1', name: '运行会话', provider: 'codex', status: 'running', updatedAt: '2026-06-02T08:00:00Z' }],
+    });
+
+    render(<TestChatPageWrapper store={store} projectPath="/repo/app" />);
+
+    fireEvent.click(screen.getByRole('button', { name: /sample\.png/ }));
+    expect(screen.getByRole('dialog', { name: /sample\.png/ })).toBeInTheDocument();
+
+    fireEvent.keyDown(window, { key: 'Escape' });
+
+    expect(screen.queryByRole('dialog', { name: /sample\.png/ })).not.toBeInTheDocument();
+    expect(store.interruptActiveThread).not.toHaveBeenCalled();
+  });
+
   it('accepts external file drops on the conversation window', async () => {
     const store = createActiveThreadStore([
       { id: 'msg-1', role: 'assistant', text: '把文件拖进来即可。', time: '2026-06-02T08:00:00Z' },

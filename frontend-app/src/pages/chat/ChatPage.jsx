@@ -270,6 +270,10 @@ function shouldIgnoreGlobalEscape(target) {
   return Boolean(element.closest('dialog, [role="dialog"], [role="menu"], [role="listbox"], [data-escape-scope="local"]'));
 }
 
+function hasOpenLocalEscapeSurface() {
+  return Boolean(document.querySelector('dialog[open], [role="dialog"], [role="menu"], [role="listbox"], [data-escape-scope="local"]'));
+}
+
 function timelineItemTextValue(item = {}) {
   return (item.text || item.content || item.message || item.output || item.result || item.error || '').toString().trim();
 }
@@ -415,6 +419,7 @@ function useChatInterruptShortcut(store, activeThreadId) {
     const onKeyDown = (event) => {
       if (event.defaultPrevented || event.key !== 'Escape' || event.metaKey || event.ctrlKey || event.altKey || event.shiftKey) return;
       if (shouldIgnoreGlobalEscape(event.target)) return;
+      if (hasOpenLocalEscapeSurface()) return;
       if (!store.hasActiveThreadActions?.()) return;
       event.preventDefault();
       runUIAction(() => store.interruptActiveThread?.());
