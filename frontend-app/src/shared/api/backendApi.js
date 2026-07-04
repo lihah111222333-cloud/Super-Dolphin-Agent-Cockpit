@@ -903,6 +903,19 @@ function validateUIStateResponse(method, response) {
   return value;
 }
 
+function validateLspPromptHintResponse(method, response) {
+  const value = assertBackendResponseObject(method, response);
+  for (const key of ['hint', 'defaultHint', 'overrideHint']) {
+    if (typeof value[key] !== 'string') {
+      throw new TypeError(`${method} response ${key} must be a string`);
+    }
+  }
+  if (typeof value.usingDefault !== 'boolean') {
+    throw new TypeError(`${method} response usingDefault must be a boolean`);
+  }
+  return value;
+}
+
 function validateThreadStartResponse(method, response) {
   const value = assertBackendResponseObject(method, response);
   if (value.thread && (typeof value.thread !== 'object' || Array.isArray(value.thread))) {
@@ -977,6 +990,8 @@ function validateAppUpdateInstallResponse(method, response) {
 const BACKEND_RESPONSE_VALIDATORS = Object.freeze({
   [RPC_METHODS.APP_UPDATE_INSTALL]: validateAppUpdateInstallResponse,
   [RPC_METHODS.APP_UPDATE_INSTALL_LATEST]: validateAppUpdateInstallResponse,
+  [RPC_METHODS.CONFIG_LSP_PROMPT_HINT_READ]: validateLspPromptHintResponse,
+  [RPC_METHODS.CONFIG_LSP_PROMPT_HINT_WRITE]: validateLspPromptHintResponse,
   [RPC_METHODS.UI_STATE_GET]: validateUIStateResponse,
   [RPC_METHODS.SKILLS_LOCAL_READ]: validateSkillReadResponse,
   [RPC_METHODS.THREAD_START]: validateThreadStartResponse,

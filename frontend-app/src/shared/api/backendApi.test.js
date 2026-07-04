@@ -36,6 +36,8 @@ function expectInvalidInputDoesNotCall(callAPI, action, message) {
 }
 
 function guardedBackendResponse(method) {
+  if (method === RPC_METHODS.CONFIG_LSP_PROMPT_HINT_READ) return { hint: 'effective prompt', defaultHint: 'default prompt', overrideHint: 'custom prompt', usingDefault: false };
+  if (method === RPC_METHODS.CONFIG_LSP_PROMPT_HINT_WRITE) return { hint: 'custom prompt', defaultHint: 'default prompt', overrideHint: 'custom prompt', usingDefault: false };
   if (method === RPC_METHODS.UI_STATE_GET) return { threads: [], agents: [], token_usage: {} };
   if (method === RPC_METHODS.THREAD_MESSAGES) return { messages: [], total: 0, hasMore: false, nextBefore: '' };
   if (method === RPC_METHODS.THREAD_RESOLVE) return { id: 'thread-2' };
@@ -602,6 +604,16 @@ function guardedBackendResponse(method) {
         call: (api) => api.getThreadState({ cwd: '/repo/app', threadId: 'thread-1' }),
         response: {},
         message: 'ui/state/get response missing UI state snapshot fields',
+      },
+      {
+        call: (api) => api.readLspPromptHint({ cwd: '/repo/app' }),
+        response: { hint: 'effective', overrideHint: '', usingDefault: true },
+        message: 'config/lspPromptHint/read response defaultHint must be a string',
+      },
+      {
+        call: (api) => api.writeLspPromptHint({ cwd: '/repo/app', hint: '' }),
+        response: { hint: 'effective', defaultHint: 'default', overrideHint: '', usingDefault: 'true' },
+        message: 'config/lspPromptHint/write response usingDefault must be a boolean',
       },
       {
         call: (api) => api.startThread({ cwd: '/repo/app', modelProvider: 'codex' }),
@@ -1171,7 +1183,7 @@ function expectSkillEditorCalls(callAPI) {
   });
 
   it('wraps settings config RPCs with the internal uistate method names', async () => {
-    const callAPI = vi.fn().mockResolvedValue({ ok: true });
+    const callAPI = vi.fn((method) => Promise.resolve(guardedBackendResponse(method)));
     const api = createBackendApi({ callAPI });
 
     await api.readLspPromptHint({ cwd: '/repo/app' });

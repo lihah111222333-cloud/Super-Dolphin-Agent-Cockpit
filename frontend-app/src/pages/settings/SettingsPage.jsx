@@ -768,8 +768,8 @@ function usePromptSettings(cwd, copy) {
   const loadPrompt = useCallback(() => loadLspPromptState({ copy, cwd, isCurrent: nextPromptLoadRequest(), setDefaultHint, setEffectiveHint, setHint, setLoading, setNotice, setUsingDefault }), [copy, cwd, nextPromptLoadRequest]);
   const loadScope = useCallback(() => loadPromptScope(setCurrentScopeCwd), []);
   const loadVisibility = useCallback(() => loadInjectedPromptVisibility({ copy, cwd, isCurrent: nextVisibilityLoadRequest(), setNotice, setShowInjected }), [copy, cwd, nextVisibilityLoadRequest]);
-  const save = useCallback(() => saveLspPromptHintState({ copy, cwd, defaultHint, hint, saving, setDefaultHint, setEffectiveHint, setHint, setNotice, setSaving, setUsingDefault }), [copy, cwd, defaultHint, hint, saving]);
-  const reset = useCallback(() => saveLspPromptHintState({ copy, cwd, defaultHint, hint: '', saving, setDefaultHint, setEffectiveHint, setHint, setNotice, setSaving, setUsingDefault }), [copy, cwd, defaultHint, saving]);
+  const save = useCallback(() => saveLspPromptHintState({ copy, cwd, hint, saving, setDefaultHint, setEffectiveHint, setHint, setNotice, setSaving, setUsingDefault }), [copy, cwd, hint, saving]);
+  const reset = useCallback(() => saveLspPromptHintState({ copy, cwd, hint: '', saving, setDefaultHint, setEffectiveHint, setHint, setNotice, setSaving, setUsingDefault }), [copy, cwd, saving]);
   const copyPrompt = useCallback(() => copyEffectivePromptHint(promptDisplayHint(effectiveHint, defaultHint, copy), copy, setNotice), [copy, defaultHint, effectiveHint]);
   const toggleVisibility = useCallback((event) => saveInjectedPromptVisibility({ copy, cwd, event, loadVisibility, saving: showInjectedSaving, setNotice, setSaving: setShowInjectedSaving, setShowInjected }), [copy, cwd, loadVisibility, showInjectedSaving]);
   useEffect(() => { void loadPrompt(); void loadScope(); void loadVisibility(); }, [loadPrompt, loadScope, loadVisibility]);
@@ -789,6 +789,21 @@ function promptModeLabel(loading, usingDefault, copy = APP_COPY.zh.settings) {
   return usingDefault ? copy.promptCard.defaultMode : copy.promptCard.customMode;
 }
 
+function normalizePromptHintResponse(response) {
+  if (!response || typeof response !== 'object' || Array.isArray(response)) {
+    throw new TypeError('prompt hint response must be an object');
+  }
+  for (const key of ['hint', 'defaultHint', 'overrideHint']) {
+    if (typeof response[key] !== 'string') {
+      throw new TypeError(`prompt hint response ${key} must be a string`);
+    }
+  }
+  if (typeof response.usingDefault !== 'boolean') {
+    throw new TypeError('prompt hint response usingDefault must be a boolean');
+  }
+  return response;
+}
+
 async function loadLspPromptState(state) {
   if (!state.cwd) {
     if (isCurrentPreferenceRequest(state.isCurrent)) state.setLoading(false);
@@ -796,12 +811,12 @@ async function loadLspPromptState(state) {
   }
   state.setLoading(true);
   try {
-    const res = await readLspPromptHint({ cwd: state.cwd });
+    const res = normalizePromptHintResponse(await readLspPromptHint({ cwd: state.cwd }));
     if (!isCurrentPreferenceRequest(state.isCurrent)) return;
-    state.setHint((res?.overrideHint || '').toString());
-    state.setEffectiveHint((res?.hint || '').toString());
-    state.setDefaultHint((res?.defaultHint || '').toString());
-    state.setUsingDefault(Boolean(res?.usingDefault) || (res?.overrideHint || '').toString().trim() === '');
+    state.setHint(res.overrideHint);
+    state.setEffectiveHint(res.hint);
+    state.setDefaultHint(res.defaultHint);
+    state.setUsingDefault(res.usingDefault);
     state.setNotice({ level: 'info', message: '' });
   } catch (error) {
     if (isCurrentPreferenceRequest(state.isCurrent)) state.setNotice({ level: 'error', message: state.copy.promptCard.loadFailed + (error?.message || error) });
@@ -833,12 +848,12 @@ async function saveLspPromptHintState(state) {
   if (!state.cwd || state.saving) return;
   state.setSaving(true);
   try {
-    const res = await writeLspPromptHint({ cwd: state.cwd, hint: state.hint });
-    state.setEffectiveHint((res?.hint || '').toString());
-    state.setDefaultHint((res?.defaultHint || state.defaultHint || '').toString());
-    state.setHint((res?.overrideHint || '').toString());
-    state.setUsingDefault(Boolean(res?.usingDefault));
-    state.setNotice({ level: 'info', message: res?.usingDefault ? state.copy.promptCard.restored : state.copy.promptCard.saved });
+    const res = normalizePromptHintResponse(await writeLspPromptHint({ cwd: state.cwd, hint: state.hint }));
+    state.setEffectiveHint(res.hint);
+    state.setDefaultHint(res.defaultHint);
+    state.setHint(res.overrideHint);
+    state.setUsingDefault(res.usingDefault);
+    state.setNotice({ level: 'info', message: res.usingDefault ? state.copy.promptCard.restored : state.copy.promptCard.saved });
   } catch (error) {
     state.setNotice({ level: 'error', message: state.copy.promptCard.saveFailed + (error?.message || error) });
   } finally {

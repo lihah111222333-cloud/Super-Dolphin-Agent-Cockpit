@@ -50,8 +50,8 @@ function contract(key, facade, level, backendOwner, tests, notes = [], rawLitera
 
 export const RPC_CONTRACT_REGISTRY = Object.freeze({
   CONFIG_READ: contract('CONFIG_READ', 'readConfig', 'P1', 'config', [TESTS.API, TESTS.SETTINGS], ['settings bootstrap read']),
-  CONFIG_LSP_PROMPT_HINT_READ: contract('CONFIG_LSP_PROMPT_HINT_READ', 'readLspPromptHint', 'P1', 'config', [TESTS.API, TESTS.SETTINGS], ['settings read']),
-  CONFIG_LSP_PROMPT_HINT_WRITE: contract('CONFIG_LSP_PROMPT_HINT_WRITE', 'writeLspPromptHint', 'P0', 'config', [TESTS.API, TESTS.SETTINGS], ['settings mutation']),
+  CONFIG_LSP_PROMPT_HINT_READ: contract('CONFIG_LSP_PROMPT_HINT_READ', 'readLspPromptHint', 'P1', 'config', [TESTS.API, TESTS.SETTINGS], ['settings read'], false, { responseValidator: 'lspPromptHintResponse' }),
+  CONFIG_LSP_PROMPT_HINT_WRITE: contract('CONFIG_LSP_PROMPT_HINT_WRITE', 'writeLspPromptHint', 'P0', 'config', [TESTS.API, TESTS.SETTINGS], ['settings mutation'], false, { responseValidator: 'lspPromptHintResponse' }),
   CONFIG_BUILTIN_TOOLS_READ: contract('CONFIG_BUILTIN_TOOLS_READ', 'readBuiltinTools', 'P1', 'config', [TESTS.API, TESTS.SETTINGS], ['settings read']),
   CONFIG_BUILTIN_TOOLS_WRITE: contract('CONFIG_BUILTIN_TOOLS_WRITE', 'writeBuiltinTool', 'P0', 'config', [TESTS.API, TESTS.SETTINGS], ['tool enablement mutation']),
 
