@@ -31,7 +31,6 @@ type LaunchAgentInput struct {
 	ContextMode        string `json:"context_mode,omitempty"`
 	Context            string `json:"context,omitempty"`
 	ParentID           string `json:"parent_id,omitempty"`
-	ParentThreadID     string `json:"parent_thread_id,omitempty"`
 	AgentType          string `json:"agent_type,omitempty"`
 	ReadOnly           bool   `json:"read_only,omitempty"`
 	AgentKey           string `json:"agent_key,omitempty"`
@@ -538,20 +537,19 @@ func launchRequestFromExecutable(in LaunchAgentInput, exe string) (contract.Laun
 		return contract.LaunchRequest{}, err
 	}
 	req := contract.LaunchRequest{
-		AgentID:        agentID,
-		Name:           name,
-		Prompt:         prompt,
-		ParentID:       strings.TrimSpace(in.ParentID),
-		ParentThreadID: strings.TrimSpace(in.ParentThreadID),
-		ContextMode:    contextMode,
-		AgentType:      strings.TrimSpace(in.AgentType),
-		AgentKey:       strings.TrimSpace(in.AgentKey),
-		PromptKey:      strings.TrimSpace(in.PromptKey),
-		MemoryScope:    memoryScope,
-		Cwd:            in.CWD,
-		Command:        []string{strings.TrimSpace(exe)},
-		Env:            launchEnv(provider, strings.TrimSpace(in.Model), strings.TrimSpace(in.Effort), strings.TrimSpace(in.CodexHome), strings.TrimSpace(in.CodexInstanceKey), strings.TrimSpace(in.CodexModelProvider)),
-		Language:       strings.TrimSpace(in.Language),
+		AgentID:     agentID,
+		Name:        name,
+		Prompt:      prompt,
+		ParentID:    strings.TrimSpace(in.ParentID),
+		ContextMode: contextMode,
+		AgentType:   strings.TrimSpace(in.AgentType),
+		AgentKey:    strings.TrimSpace(in.AgentKey),
+		PromptKey:   strings.TrimSpace(in.PromptKey),
+		MemoryScope: memoryScope,
+		Cwd:         in.CWD,
+		Command:     []string{strings.TrimSpace(exe)},
+		Env:         launchEnv(provider, strings.TrimSpace(in.Model), strings.TrimSpace(in.Effort), strings.TrimSpace(in.CodexHome), strings.TrimSpace(in.CodexInstanceKey), strings.TrimSpace(in.CodexModelProvider)),
+		Language:    strings.TrimSpace(in.Language),
 	}
 	readOnlyToolSurface := launchReadOnlyToolSurface(in)
 	if dt := mergeLaunchDisabledTools(readOnlyToolSurface, in.DisabledTools); dt != "" {

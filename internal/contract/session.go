@@ -171,6 +171,7 @@ type SessionBinding struct {
 	ParentAgentID      string
 	AgentType          string
 	AgentMemoryScope   string
+	Archived           bool
 	CreatedAt          int64
 	CodexHome          string
 	CodexInstanceKey   string

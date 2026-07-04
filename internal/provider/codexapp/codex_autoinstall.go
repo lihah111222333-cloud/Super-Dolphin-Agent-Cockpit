@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
+	platformshared "github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 	providershared "github.com/anthropic-ai/super-agent-v3/internal/provider/shared"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
@@ -361,7 +362,9 @@ func installManagedCodexCLI(ctx context.Context, root, checksum string) (string,
 	if err != nil {
 		return "", err
 	}
-	pkglogger.Info("codexapp: installed Codex CLI from official GitHub release", "tag", release.TagName, "asset", asset.Name, "path", path)
+	fields := []any{"tag", release.TagName, "asset", asset.Name}
+	fields = append(fields, platformshared.SafePathLogFields("path", path)...)
+	pkglogger.Info("codexapp: installed Codex CLI from official GitHub release", fields...)
 	return path, nil
 }
 
@@ -444,7 +447,7 @@ func promoteCodexInstall(extractDir, target, codexPath string) error {
 		if err := os.RemoveAll(target); err != nil {
 			return fmt.Errorf("remove incomplete Codex install target: %w", err)
 		}
-	} else if err != nil && !os.IsNotExist(err) {
+	} else if !os.IsNotExist(err) {
 		return fmt.Errorf("inspect Codex install target: %w", err)
 	}
 	if err := os.Rename(extractDir, target); err != nil {

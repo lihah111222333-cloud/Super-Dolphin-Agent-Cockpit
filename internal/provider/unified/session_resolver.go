@@ -7,10 +7,12 @@ import (
 	"strings"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
+	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
 	"github.com/anthropic-ai/super-agent-v3/internal/util/clone"
 	"github.com/anthropic-ai/super-agent-v3/internal/util/historyjsonl"
 	"github.com/anthropic-ai/super-agent-v3/internal/util/identifier"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
+	"golang.org/x/sync/singleflight"
 )
 
 type driverRegistry interface {
@@ -24,9 +26,19 @@ type sessionResolver struct {
 	bindingWriter contract.SessionBindingUpserter
 	registry      driverRegistry
 	sessions      *SessionManager
+
+	autoResumeFlight singleflight.Group
 }
 
 var _ contract.SessionResolver = (*sessionResolver)(nil)
+
+// AgentSessionResolver 是 provider/unified 内部可信路径使用的 agent ID 解析端口。
+// 不放入 contract.SessionResolver，避免外部 RPC 或公共 thread 路径把 agent id 当 thread id。
+type AgentSessionResolver interface {
+	ResolveSessionByAgentID(ctx context.Context, agentID string) (contract.Session, error)
+}
+
+var _ AgentSessionResolver = (*sessionResolver)(nil)
 
 type autoResumeThreadState struct {
 	runtimeConfig  map[string]any
@@ -44,7 +56,7 @@ func NewSessionResolver(p sessionResolverParams) contract.SessionResolver {
 	}
 }
 
-// ResolveSession 根据 threadID 解析当前可用 session，先复用内存会话，再尝试从持久化绑定恢复。
+// ResolveSession 根据公开 threadID 或 provider threadID 解析当前可用 session。
 func (r *sessionResolver) ResolveSession(ctx context.Context, threadID string) (contract.Session, error) {
 	threadID = strings.TrimSpace(threadID)
 	if threadID == "" {
@@ -53,9 +65,6 @@ func (r *sessionResolver) ResolveSession(ctx context.Context, threadID string) (
 	if r.sessions == nil {
 		return nil, fmt.Errorf("resolve session: session manager is not configured")
 	}
-	if session, ok := r.tryExistingSession(threadID); ok {
-		return session, nil
-	}
 	session, errs := r.tryCreateSession(ctx, threadID)
 	if session != nil {
 		return session, nil
@@ -63,14 +72,19 @@ func (r *sessionResolver) ResolveSession(ctx context.Context, threadID string) (
 	return nil, r.resolveLookupError(threadID, errs)
 }
 
-// tryExistingSession 处理调用方直接传 agent_id 的最快路径，只查询内存 SessionManager。
-func (r *sessionResolver) tryExistingSession(threadID string) (contract.Session, bool) {
-	// 调用方直接传 agent_id 时优先复用内存 session，避免触发持久化恢复路径。
-	session, err := r.sessions.Get(threadID)
-	return session, err == nil
+// ResolveSessionByAgentID 仅供已持有可信 agent ID 的内部调用方复用内存 session。
+func (r *sessionResolver) ResolveSessionByAgentID(_ context.Context, agentID string) (contract.Session, error) {
+	agentID = strings.TrimSpace(agentID)
+	if agentID == "" {
+		return nil, fmt.Errorf("resolve session by agent id: agent id is required")
+	}
+	if r.sessions == nil {
+		return nil, fmt.Errorf("resolve session by agent id: session manager is not configured")
+	}
+	return r.sessions.Get(agentID)
 }
 
-// tryCreateSession 在直接 agent_id 命中失败后，通过线程索引或 provider 绑定恢复活跃 session。
+// tryCreateSession 通过线程索引或 provider 绑定恢复活跃 session。
 // 这里的 create 只表示重建内存引用，不会创建全新的 provider 线程。
 func (r *sessionResolver) tryCreateSession(ctx context.Context, threadID string) (contract.Session, []error) {
 	errs := make([]error, 0, 2)
@@ -121,6 +135,18 @@ func (r *sessionResolver) resolveThreadSession(ctx context.Context, threadID str
 		return session, nil
 	}
 	// 内存 session 缺失通常来自应用重启，需要通过 binding 找回 provider 线程并执行 auto-resume。
+	binding, err := r.lookupAutoResumeBindingByAgentID(ctx, agentID)
+	if err != nil {
+		return nil, err
+	}
+	return r.autoResumeSession(ctx, binding, autoResumeThreadState{
+		runtimeConfig:  ref.RuntimeConfig,
+		promptSnapshot: ref.PromptSnapshot,
+	}, ref.ThreadID, threadID)
+}
+
+// lookupAutoResumeBindingByAgentID 读取 public-thread 路径需要的 binding 并执行统一生命周期门禁。
+func (r *sessionResolver) lookupAutoResumeBindingByAgentID(ctx context.Context, agentID string) (*contract.SessionBinding, error) {
 	if r.bindingStore == nil {
 		return nil, contract.ErrSessionNotFound
 	}
@@ -131,10 +157,10 @@ func (r *sessionResolver) resolveThreadSession(ctx context.Context, threadID str
 		}
 		return nil, contract.ErrSessionNotFound
 	}
-	return r.autoResumeSession(ctx, binding, autoResumeThreadState{
-		runtimeConfig:  ref.RuntimeConfig,
-		promptSnapshot: ref.PromptSnapshot,
-	}, ref.ThreadID, threadID)
+	if err := r.rejectBindingAutoResumeLifecycle(ctx, binding); err != nil {
+		return nil, err
+	}
+	return binding, nil
 }
 
 // resolveProviderThreadSession 按 provider thread ID 反查绑定，支持重启后从 provider 侧线程恢复。
@@ -182,6 +208,22 @@ func (r *sessionResolver) autoResumeSession(ctx context.Context, binding *contra
 	if err != nil {
 		return nil, err
 	}
+	key := autoResumeSingleflightKey(binding, plan.req)
+	res, err, _ := r.autoResumeFlight.Do(key, func() (any, error) {
+		return r.runAutoResumeSession(ctx, binding, plan)
+	})
+	if err != nil {
+		return nil, err
+	}
+	session, ok := res.(contract.Session)
+	if !ok || session == nil {
+		return nil, fmt.Errorf("resolve session: auto-resume returned invalid session")
+	}
+	return session, nil
+}
+
+// runAutoResumeSession 是 singleflight owner 执行的实际恢复流程。
+func (r *sessionResolver) runAutoResumeSession(ctx context.Context, binding *contract.SessionBinding, plan autoResumePlan) (contract.Session, error) {
 	req, err := resolveAutoResumeSessionIdentity(ctx, plan.driver, plan.req)
 	if err != nil {
 		pkglogger.Warn("resolve session: auto-resume identity resolution failed",
@@ -205,6 +247,23 @@ func (r *sessionResolver) autoResumeSession(ctx context.Context, binding *contra
 		"thread_id", session.ThreadID(),
 	)
 	return session, nil
+}
+
+// autoResumeSingleflightKey 用 provider、agent 和 provider/codex thread 身份合并同一冷恢复。
+func autoResumeSingleflightKey(binding *contract.SessionBinding, req dto.ResumeSessionRequest) string {
+	codexThreadID := ""
+	if binding != nil {
+		codexThreadID = strings.TrimSpace(binding.CodexThreadID)
+	}
+	if codexThreadID == "" {
+		codexThreadID = strings.TrimSpace(req.ThreadID)
+	}
+	return strings.Join([]string{
+		normalizeProviderName(req.Provider),
+		strings.TrimSpace(req.AgentID),
+		strings.TrimSpace(req.ProviderThreadID),
+		codexThreadID,
+	}, "\x00")
 }
 
 // lookupAutoResumeThreadState 从线程记录中读取 auto-resume 配置和 prompt 快照。
@@ -238,7 +297,13 @@ func (r *sessionResolver) lookupAutoResumeThreadState(ctx context.Context, bindi
 
 // rejectBindingAutoResumeLifecycle 在按 binding 恢复前检查线程状态，阻止 stopped 或 archived 会话被重新拉起。
 func (r *sessionResolver) rejectBindingAutoResumeLifecycle(ctx context.Context, binding *contract.SessionBinding) error {
-	if r == nil || r.threadStore == nil || binding == nil {
+	if binding == nil {
+		return nil
+	}
+	if binding.Archived {
+		return fmt.Errorf("resolve session: binding for agent %q is archived", strings.TrimSpace(binding.AgentID))
+	}
+	if r == nil || r.threadStore == nil {
 		return nil
 	}
 	for _, candidate := range []string{binding.CodexThreadID, binding.AgentID} {

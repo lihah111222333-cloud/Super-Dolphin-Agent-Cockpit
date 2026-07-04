@@ -113,17 +113,20 @@ func (s *service) upsertForkThreadStatus(ctx context.Context, state threadState,
 	}
 	displayName := strings.TrimSpace(util.FirstNonEmpty(state.Name, state.Prompt))
 	return s.upsertThread(ctx, threadConfigStoreRecord{
-		ThreadID:        state.PublicThreadID,
-		Name:            displayName,
-		Prompt:          displayName,
-		Model:           state.Model,
-		Cwd:             state.CWD,
-		Status:          strings.TrimSpace(status),
-		CreatedAt:       state.CreatedAt,
-		UpdatedAt:       time.Now().Unix(),
-		OwnerThreadID:   state.OwnerThreadID,
-		ConfigOverride:  clone.RawMessage(state.ConfigOverride),
-		PromptVersionID: state.PromptVersionID,
+		ThreadID:         state.PublicThreadID,
+		Name:             displayName,
+		Prompt:           displayName,
+		Model:            state.Model,
+		Cwd:              state.CWD,
+		Status:           strings.TrimSpace(status),
+		CreatedAt:        state.CreatedAt,
+		UpdatedAt:        time.Now().Unix(),
+		OwnerThreadID:    state.OwnerThreadID,
+		ParentAgentID:    state.ParentAgentID,
+		AgentType:        state.AgentType,
+		AgentMemoryScope: state.AgentMemoryScope,
+		ConfigOverride:   clone.RawMessage(state.ConfigOverride),
+		PromptVersionID:  state.PromptVersionID,
 	})
 }
 
@@ -185,7 +188,10 @@ func fillForkProviderState(state *threadStateFields, session contract.Session) {
 // resolveForkContext 只从 thread meta 和 binding 取 provider/cwd。
 // fork 不猜默认 provider；cwd 冲突时直接返回错误。
 func (s *service) resolveForkContext(ctx context.Context, threadID, bindingProvider, bindingCWD, bindingHome, bindingKey, bindingModelProvider string) (threadMeta, string, string, contract.CodexIdentity, map[string]any, json.RawMessage, error) {
-	meta := s.lookupThreadMeta(ctx, threadID)
+	meta, err := s.requireThreadMeta(ctx, threadID)
+	if err != nil {
+		return threadMeta{}, "", "", contract.CodexIdentity{}, nil, nil, err
+	}
 	cwd, err := resolveForkCWD(meta.CWD, bindingCWD)
 	if err != nil {
 		return threadMeta{}, "", "", contract.CodexIdentity{}, nil, nil, err
@@ -225,11 +231,10 @@ func resolveLifecycleCodexIdentity(action, provider, home, key, modelProvider st
 // 它复用 thread meta、runtime config 和已有 snapshot，只刷新 binding/thread 状态。
 func (s *service) Recover(ctx context.Context, threadID string) (RecoverResult, error) {
 	ctx = util.NonNilContext(ctx)
-	binding, err := s.resolveBinding(ctx, threadID)
+	binding, meta, err := s.resolveRecoverContext(ctx, threadID)
 	if err != nil {
 		return RecoverResult{}, err
 	}
-	meta := s.lookupThreadMeta(ctx, threadID)
 	displayName := strings.TrimSpace(meta.Name)
 	agentID := strings.TrimSpace(binding.AgentID)
 	provider := strings.TrimSpace(binding.Provider)
@@ -295,6 +300,18 @@ func (s *service) Recover(ctx context.Context, threadID string) (RecoverResult, 
 		Recovered: true,
 		Mode:      mode,
 	}, nil
+}
+
+func (s *service) resolveRecoverContext(ctx context.Context, threadID string) (*threadBindingStoreRecord, threadMeta, error) {
+	binding, err := s.resolveBinding(ctx, threadID)
+	if err != nil {
+		return nil, threadMeta{}, err
+	}
+	meta, err := s.requireThreadMeta(ctx, threadID)
+	if err != nil {
+		return nil, threadMeta{}, err
+	}
+	return binding, meta, nil
 }
 
 func (s *service) requireRecoverProviderSession(agentID, publicThreadID, providerThreadID string) error {

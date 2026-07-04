@@ -29,6 +29,52 @@ const (
 	healthCheckIdleThreshold = 30 * time.Second
 )
 
+type transportRetryPolicy struct {
+	retryAfterWrite bool
+}
+
+type recoverableTransportWriteError struct {
+	method string
+	err    error
+}
+
+func retryPolicyForTransportMethod(method string) transportRetryPolicy {
+	if strings.TrimSpace(method) == "turn/start" {
+		return transportRetryPolicy{retryAfterWrite: false}
+	}
+	return transportRetryPolicy{retryAfterWrite: true}
+}
+
+func newRecoverableTransportWriteError(method string, err error) error {
+	return &recoverableTransportWriteError{method: strings.TrimSpace(method), err: err}
+}
+
+// Error 描述写入后结果未知的 provider 调用，供上层提示用户可恢复重试。
+func (e *recoverableTransportWriteError) Error() string {
+	if e == nil {
+		return "codexapp: transport write outcome unknown"
+	}
+	method := strings.TrimSpace(e.method)
+	if method == "" {
+		method = "transport"
+	}
+	if e.err == nil {
+		return fmt.Sprintf("codexapp: %s write outcome unknown", method)
+	}
+	return fmt.Sprintf("codexapp: %s write outcome unknown: %v", method, e.err)
+}
+
+// Unwrap 保留底层 transport 失败，避免丢失 websocket 或 context 诊断。
+func (e *recoverableTransportWriteError) Unwrap() error {
+	if e == nil {
+		return nil
+	}
+	return e.err
+}
+
+// Recoverable 标记该错误可由用户或上层恢复流程重新发起，但本次不自动重放。
+func (e *recoverableTransportWriteError) Recoverable() bool { return true }
+
 type turnReplayState struct {
 	localID, providerID string
 	params              turnStartParams
@@ -101,10 +147,16 @@ func (s *session) rememberPendingTurn(handle *turnHandle, params turnStartParams
 	}
 }
 
+// callTransport 为同步 RPC 提供一次恢复重试，但尊重每个 method 的写后重试策略。
+// turn/start 没有 idempotency key，写入已尝试后必须返回 recoverable error，不能自动再发一次。
 func (s *session) callTransport(ctx context.Context, method string, params any) (json.RawMessage, error) {
 	raw, err := s.transport.Call(ctx, method, params)
 	if err == nil || !shouldReconnect(err) {
 		return raw, err
+	}
+	policy := retryPolicyForTransportMethod(method)
+	if transportWriteAttempted(err) && !policy.retryAfterWrite {
+		return nil, newRecoverableTransportWriteError(method, err)
 	}
 	// 同步调用方正在等待 RPC 结果，因此由当前 goroutine 直接恢复并重试一次。
 	// 异步信号只适合后台连接事件，否则调用方还要额外协调恢复完成时机。
@@ -290,7 +342,9 @@ func (s *session) resumeThreadAfterRecovery(ctx context.Context) error {
 		return err
 	}
 	if s.logger != nil {
-		s.logger.Info("codexapp: resuming thread after recovery", "thread_id", threadID, "cwd", cwd)
+		fields := []any{"thread_id", threadID}
+		fields = append(fields, shared.SafePathLogFields("cwd", cwd)...)
+		s.logger.Info("codexapp: resuming thread after recovery", fields...)
 	}
 	raw, err := callWithTimeout(ctx, s.transport, 30*time.Second, "thread/resume", threadResumeParams{
 		ThreadID: threadID,

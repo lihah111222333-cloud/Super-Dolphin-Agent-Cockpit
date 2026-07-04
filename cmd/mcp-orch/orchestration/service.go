@@ -253,19 +253,29 @@ func RegisterTurnLifecycle(lc fx.Lifecycle, dispatcher *event.Dispatcher, svc *s
 func RegisterApprovalLifecycle(lc fx.Lifecycle, dispatcher *event.Dispatcher, svc *service, logger *slog.Logger) {
 	requestedCancel := func() {}
 	resolvedCancel := func() {}
+	lifecycleCtx := context.Background()
+	lifecycleCancel := func() {}
 	lc.Append(fx.Hook{
 		OnStart: func(context.Context) error {
+			lifecycleCtx, lifecycleCancel = context.WithCancel(context.Background())
 			// approval requested 事件进入 awaiting_user_input；handler 内负责幂等处理漂移状态。
 			requestedCancel = bus.ResilientSubscribe(dispatcher, func(ev tooldto.ToolApprovalRequested) {
+				if lifecycleCtx.Err() != nil {
+					return
+				}
 				handleToolApprovalRequestedEvent(svc, loggerOrDefault(logger), ev)
 			}, logger)
 			// approval resolved 事件解除 awaiting_user_input；重复完成会被下游视为幂等。
 			resolvedCancel = bus.ResilientSubscribe(dispatcher, func(ev tooldto.ToolApprovalResolved) {
+				if lifecycleCtx.Err() != nil {
+					return
+				}
 				handleToolApprovalResolvedEvent(svc, loggerOrDefault(logger), ev)
 			}, logger)
 			return nil
 		},
 		OnStop: func(context.Context) error {
+			lifecycleCancel()
 			requestedCancel()
 			resolvedCancel()
 			return nil

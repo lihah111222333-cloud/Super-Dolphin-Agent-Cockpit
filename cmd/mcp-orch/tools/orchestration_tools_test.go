@@ -126,6 +126,36 @@ func TestLaunchRequestFromExecutableContextModeValidation(t *testing.T) {
 	}
 }
 
+func TestLaunchHandlerRejectsPayloadParentThreadID(t *testing.T) {
+	called := false
+	handler := handleLaunchAgentWithExeFn(&golden.OrchestrationStub{
+		LaunchAgentSnapshotFunc: func(_ context.Context, req contract.LaunchRequest) (contract.AgentSnapshot, error) {
+			called = true
+			return contract.AgentSnapshot{ID: req.AgentID, AgentID: req.AgentID, State: "launching"}, nil
+		},
+	}, func() (string, error) { return "/tmp/agent-terminal", nil })
+
+	_, err := handler(context.Background(), json.RawMessage(`{
+		"name":"agent-forked",
+		"context_mode":"forked",
+		"parent_id":"agent-parent",
+		"parent_thread_id":"thread-parent-payload",
+		"cwd":"/tmp/work",
+		"provider":"codex"
+	}`))
+
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "parent_thread_id")
+	require.False(t, called, "LaunchAgentSnapshot must not run after rejected parent_thread_id payload")
+}
+
+func TestLaunchAgentSchemaOmitsParentThreadID(t *testing.T) {
+	props := launchAgentSchemaProperties(t)
+
+	require.Contains(t, props, "parent_id")
+	require.NotContains(t, props, "parent_thread_id")
+}
+
 func TestLaunchAgentSchemaDocumentsAssembledSections(t *testing.T) {
 	props := launchAgentSchemaProperties(t)
 	agentKey, ok := props["agent_key"].(map[string]any)

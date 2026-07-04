@@ -3,9 +3,12 @@ package codexapp
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"strings"
 	"testing"
 
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
+	"github.com/anthropic-ai/super-agent-v3/internal/provider/codexapp/supportutil"
 )
 
 func TestDriverStartSessionSelectsDefaultModelFromModelList(t *testing.T) {
@@ -73,12 +76,107 @@ func TestDriverStartSessionSelectsDefaultModelFromModelList(t *testing.T) {
 	assertRuntimeConfigValue(t, s, "model", "gpt-5")
 }
 
-func TestDriverStartSessionPreservesExplicitGPT5Model(t *testing.T) {
+func TestThreadStartFailsWhenRequiredModelListFails(t *testing.T) {
 	setDefaultCodexHomeEnvForTest(t)
+	threadStartCalls := 0
+	serverURL := startCodexRPCServerWithHandler(t, func(msg jsonRPCMessage) json.RawMessage {
+		switch msg.Method {
+		case "model/list":
+			return mustJSON(map[string]any{"models": []map[string]any{}})
+		case "thread/start":
+			threadStartCalls++
+			return mustJSON(map[string]any{"thread": map[string]any{"id": "unexpected-thread"}})
+		case "initialize":
+			return mustJSON(map[string]any{"ok": true})
+		default:
+			return mustJSON(map[string]any{"ok": true})
+		}
+	})
+	d := &driver{
+		pool:      newSingleURLPoolForTest(t, serverURL),
+		mirror:    &recordingSkillMirrorReconciler{},
+		listTools: noopCodexToolLister,
+	}
+
+	got, err := d.StartSession(context.Background(), dto.StartSessionRequest{
+		Provider:      "codex",
+		AgentID:       "agent-model-list-fail",
+		CWD:           t.TempDir(),
+		StartAssembly: validStartAssemblyForTest(),
+	})
+	if err == nil {
+		if got != nil {
+			closeCodexTestSession(t, mustCodexSession(t, got, "StartSession"))
+		}
+		t.Fatal("StartSession() error = nil, want required model resolution error")
+	}
+	if !errors.Is(err, supportutil.ErrModelResolutionRequired) {
+		t.Fatalf("StartSession() error = %v, want ErrModelResolutionRequired", err)
+	}
+	if threadStartCalls != 0 {
+		t.Fatalf("thread/start calls = %d, want 0 after required model/list failure", threadStartCalls)
+	}
+}
+
+func TestThreadStartConfigGPTDefaultRequiresModelList(t *testing.T) {
+	setDefaultCodexHomeEnvForTest(t)
+	modelListCalls := 0
+	threadStartCalls := 0
+	serverURL := startCodexRPCServerWithHandler(t, func(msg jsonRPCMessage) json.RawMessage {
+		switch msg.Method {
+		case "model/list":
+			modelListCalls++
+			return mustJSON(map[string]any{"models": []map[string]any{}})
+		case "thread/start":
+			threadStartCalls++
+			return mustJSON(map[string]any{"thread": map[string]any{"id": "unexpected-thread"}})
+		case "initialize":
+			return mustJSON(map[string]any{"ok": true})
+		default:
+			return mustJSON(map[string]any{"ok": true})
+		}
+	})
+	d := &driver{
+		pool:      newSingleURLPoolForTest(t, serverURL),
+		mirror:    &recordingSkillMirrorReconciler{},
+		listTools: noopCodexToolLister,
+	}
+
+	got, err := d.StartSession(context.Background(), dto.StartSessionRequest{
+		Provider:      "codex",
+		AgentID:       "agent-config-model-list-fail",
+		CWD:           t.TempDir(),
+		Config:        map[string]any{"model": " gpt-5.5 "},
+		StartAssembly: validStartAssemblyForTest(),
+	})
+	if err == nil {
+		if got != nil {
+			closeCodexTestSession(t, mustCodexSession(t, got, "StartSession"))
+		}
+		t.Fatal("StartSession() error = nil, want required model resolution error")
+	}
+	if !errors.Is(err, supportutil.ErrModelResolutionRequired) {
+		t.Fatalf("StartSession() error = %v, want ErrModelResolutionRequired", err)
+	}
+	if !strings.Contains(err.Error(), "gpt-5.5") {
+		t.Fatalf("StartSession() error = %v, want requested config model in error", err)
+	}
+	if modelListCalls != 1 {
+		t.Fatalf("model/list calls = %d, want 1", modelListCalls)
+	}
+	if threadStartCalls != 0 {
+		t.Fatalf("thread/start calls = %d, want 0 after required config model/list empty", threadStartCalls)
+	}
+}
+
+func TestDriverStartSessionPreservesExplicitOverrideGPT5Model(t *testing.T) {
+	setDefaultCodexHomeEnvForTest(t)
+	modelListCalls := 0
 	startParams := make(chan map[string]any, 1)
 	serverURL := startCodexRPCServerWithHandler(t, func(msg jsonRPCMessage) json.RawMessage {
 		switch msg.Method {
 		case "model/list":
+			modelListCalls++
 			return mustJSON(map[string]any{
 				"models": []map[string]any{
 					{"id": "gpt-5"},
@@ -126,15 +224,20 @@ func TestDriverStartSessionPreservesExplicitGPT5Model(t *testing.T) {
 	default:
 		t.Fatal("thread/start params were not captured")
 	}
+	if modelListCalls != 0 {
+		t.Fatalf("model/list calls = %d, want 0 for explicit req.Model", modelListCalls)
+	}
 	assertRuntimeConfigValue(t, s, "model", "gpt-5")
 }
 
-func TestDriverStartSessionPreservesExplicitGPT55Model(t *testing.T) {
+func TestDriverStartSessionPreservesExplicitOverrideGPT55Model(t *testing.T) {
 	setDefaultCodexHomeEnvForTest(t)
+	modelListCalls := 0
 	startParams := make(chan map[string]any, 1)
 	serverURL := startCodexRPCServerWithHandler(t, func(msg jsonRPCMessage) json.RawMessage {
 		switch msg.Method {
 		case "model/list":
+			modelListCalls++
 			return mustJSON(map[string]any{
 				"models": []map[string]any{
 					{"id": "gpt-5.3-codex"},
@@ -180,6 +283,9 @@ func TestDriverStartSessionPreservesExplicitGPT55Model(t *testing.T) {
 		}
 	default:
 		t.Fatal("thread/start params were not captured")
+	}
+	if modelListCalls != 0 {
+		t.Fatalf("model/list calls = %d, want 0 for explicit req.Model", modelListCalls)
 	}
 	assertRuntimeConfigValue(t, s, "model", "gpt-5.5")
 }

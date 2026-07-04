@@ -290,10 +290,11 @@ func (m *manager) createAndRegisterClient(ctx context.Context, cfg workspaceConf
 	}
 	capturedGen := m.diagGeneration.Load()
 	handler := managerNotificationHandler{
-		publishDiagnostics: func(params protocol.PublishDiagnosticsParams) error {
-			return m.publishDiagnosticsForGeneration(params, capturedGen)
+		captureDiagnostics: func(params protocol.PublishDiagnosticsParams) (capturedPublishDiagnostics, error) {
+			return m.capturePublishDiagnostics(params, capturedGen)
 		},
-		logMessage: m.LogMessage,
+		publishDiagnostics: m.publishCapturedDiagnostics,
+		logMessage:         m.LogMessage,
 	}
 	if err := prepareWorkspaceDependencies(ctx, cfg); err != nil {
 		return nil, err
@@ -446,7 +447,7 @@ func (m *manager) recoverFullDocumentDidChange(ctx context.Context, client Clien
 	if reopenErr == nil {
 		return nil
 	}
-	replacement, rebuildErr := m.rebuildClientAfterFailure(ctx, client, false)
+	replacement, rebuildErr := m.rebuildClientAfterFailure(ctx, client, true)
 	if rebuildErr != nil {
 		return errors.Join(originalErr, reopenErr, rebuildErr)
 	}
@@ -461,7 +462,7 @@ func (m *manager) recoverFullDocumentDidChange(ctx context.Context, client Clien
 	return nil
 }
 
-// recordFullDocumentDidChange 将成功的全文 DidChange 写入 bootstrap cache。
+// recordFullDocumentDidChange 将成功的全文 DidChange 写入 bootstrap cache 并推进诊断 epoch。
 // 缓存记录包含指纹、mtime 和 scope，后续诊断刷新可判断文档是否仍是同一内容版本。
 func (m *manager) recordFullDocumentDidChange(ctx context.Context, ref documentRef, version int, text string) error {
 	_, _, scope, err := m.resolvedScopeForURI(ctx, ref.uri, ref.languageID)
@@ -486,6 +487,7 @@ func (m *manager) recordFullDocumentDidChange(ctx context.Context, ref documentR
 	}); err != nil {
 		return err
 	}
+	m.advanceDocumentDiagnosticEpoch(scope, ref.uri)
 	m.deleteDiagnosticsOlderThanVersion(scope, ref.uri, version)
 	if err := coordinator.cache.RememberDocumentScope(ref.uri, scope, hashDocument([]byte(text))); err != nil {
 		return err

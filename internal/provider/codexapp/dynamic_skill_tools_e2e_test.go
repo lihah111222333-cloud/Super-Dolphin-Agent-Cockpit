@@ -283,6 +283,8 @@ func dynamicSkillRPCResult(cfg dynamicSkillModelHandlerConfig, msg jsonRPCMessag
 	switch msg.Method {
 	case "initialize":
 		return map[string]any{"codexHome": cfg.codexHome}, false
+	case "model/list":
+		return validCodexModelListMap(), false
 	case "thread/start":
 		cfg.recorder.recordThreadStart(msg.Params)
 		return map[string]any{"thread": map[string]any{"id": "provider-thread-1"}}, false

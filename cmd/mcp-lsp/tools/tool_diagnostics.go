@@ -237,7 +237,7 @@ func (h handlerBase) collectDiagnosticURIs(ctx context.Context, input fileToolIn
 		return nil, nil, nil
 	}
 
-	root, roots, err := toolWorkspaceRoots(ctx)
+	root, roots, err := toolReadableRoots(ctx)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -395,11 +395,15 @@ func (h handlerBase) openDiagnosticDocument(ctx context.Context, uri string) err
 // appManagedDiagnosticsOutsideWorkspace 判断诊断目标是否全部位于 app-managed 外部数据区。
 // 这种路径可被读取但不应启动 workspace LSP，以免把应用托管缓存误当用户项目。
 func appManagedDiagnosticsOutsideWorkspace(ctx context.Context, uris []string) (bool, string, error) {
-	root, roots, err := toolWorkspaceRoots(ctx)
+	root, workspaceRootsOnly, err := toolWorkspaceRoots(ctx)
 	if err != nil {
 		return false, "", err
 	}
-	workspaceRoots, err := search.NormalizeRootSet(root, roots)
+	workspaceRoots, err := search.NormalizeRootSet(root, workspaceRootsOnly)
+	if err != nil {
+		return false, "", err
+	}
+	readRoot, readableRoots, err := toolReadableRoots(ctx)
 	if err != nil {
 		return false, "", err
 	}
@@ -409,7 +413,7 @@ func appManagedDiagnosticsOutsideWorkspace(ctx context.Context, uris []string) (
 		if strings.TrimSpace(path) == "" {
 			return false, "", nil
 		}
-		pathInfo, err := search.ResolvePathInRoots(root, roots, path)
+		pathInfo, err := search.ResolvePathInRoots(readRoot, readableRoots, path)
 		if err != nil {
 			return false, "", err
 		}
@@ -595,7 +599,7 @@ func (r diagnosticsResponse) ToPlainText() string {
 	var sb strings.Builder
 	sb.WriteString("LSP Diagnostics:\n")
 	if r.Meta.Message != "" {
-		sb.WriteString(fmt.Sprintf("Message: %s\n", r.Meta.Message))
+		fmt.Fprintf(&sb, "Message: %s\n", r.Meta.Message)
 	}
 	for _, table := range r.Data {
 		for _, row := range table.Rows {

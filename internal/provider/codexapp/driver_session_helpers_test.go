@@ -175,6 +175,34 @@ func startCodexRPCServer(t *testing.T, resultFor func(string) json.RawMessage) s
 	})
 }
 
+func validCodexModelListResult() json.RawMessage {
+	return mustJSON(validCodexModelListMap())
+}
+
+func validCodexModelListMap() map[string]any {
+	return map[string]any{
+		"models": []map[string]any{
+			{"id": "gpt-5"},
+		},
+	}
+}
+
+func codexTestRPCResultOrDefault(method string, result json.RawMessage) json.RawMessage {
+	if method != "model/list" || !isGenericOKResult(result) {
+		return result
+	}
+	return validCodexModelListResult()
+}
+
+func isGenericOKResult(result json.RawMessage) bool {
+	var payload map[string]any
+	if err := json.Unmarshal(result, &payload); err != nil {
+		return false
+	}
+	ok, hasOK := payload["ok"].(bool)
+	return hasOK && ok && len(payload) == 1
+}
+
 func startCodexRPCServerWithHandler(t *testing.T, handle func(jsonRPCMessage) json.RawMessage) string {
 	t.Helper()
 	upgrader := websocket.Upgrader{CheckOrigin: func(*http.Request) bool { return true }}
@@ -189,13 +217,6 @@ func startCodexRPCServerWithHandler(t *testing.T, handle func(jsonRPCMessage) js
 	return "ws" + strings.TrimPrefix(server.URL, "http")
 }
 
-func serveCodexRPCConnection(t *testing.T, conn *websocket.Conn, resultFor func(string) json.RawMessage) {
-	t.Helper()
-	serveCodexRPCConnectionWithHandler(t, conn, func(msg jsonRPCMessage) json.RawMessage {
-		return resultFor(msg.Method)
-	})
-}
-
 func serveCodexRPCConnectionWithHandler(t *testing.T, conn *websocket.Conn, handle func(jsonRPCMessage) json.RawMessage) {
 	t.Helper()
 	defer conn.Close()
@@ -208,7 +229,8 @@ func serveCodexRPCConnectionWithHandler(t *testing.T, conn *websocket.Conn, hand
 		if !ok {
 			continue
 		}
-		if !writeCodexTestRPCResponse(t, conn, msg.ID, handle(msg)) {
+		result := codexTestRPCResultOrDefault(msg.Method, handle(msg))
+		if !writeCodexTestRPCResponse(t, conn, msg.ID, result) {
 			return
 		}
 	}

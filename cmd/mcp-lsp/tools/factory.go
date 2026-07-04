@@ -41,6 +41,7 @@ type decodeMode int
 type actionHandler[T any] func(context.Context, T) (any, error)
 
 type appManagedWriteCapabilityContextKey struct{}
+type appManagedReadCapabilityContextKey struct{}
 
 // 解码模式常量决定未知字段、空参数和原始 payload 的处理策略。
 const (
@@ -58,6 +59,15 @@ func WithAppManagedWriteCapability(ctx context.Context) context.Context {
 	return context.WithValue(ctx, appManagedWriteCapabilityContextKey{}, true)
 }
 
+// WithAppManagedReadCapability 标记调用方已经通过应用侧授权，可读取 app-managed 数据根。
+// 默认 direct file/diagnostics 不带该能力，因此只能读取 workspace roots 内文件。
+func WithAppManagedReadCapability(ctx context.Context) context.Context {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	return context.WithValue(ctx, appManagedReadCapabilityContextKey{}, true)
+}
+
 // hasAppManagedWriteCapability 读取应用侧授予的 app-managed 写能力标记。
 func hasAppManagedWriteCapability(ctx context.Context) bool {
 	if ctx == nil {
@@ -67,24 +77,62 @@ func hasAppManagedWriteCapability(ctx context.Context) bool {
 	return allowed
 }
 
+// hasAppManagedReadCapability 读取应用侧授予的 app-managed 读能力标记。
+func hasAppManagedReadCapability(ctx context.Context) bool {
+	if ctx == nil {
+		return false
+	}
+	allowed, _ := ctx.Value(appManagedReadCapabilityContextKey{}).(bool)
+	return allowed
+}
+
 func toolWorkspaceRoot(ctx context.Context) (string, error) {
 	return common.WorkspaceRootFromContextStrict(ctx)
 }
 
-func toolWorkspaceRoots(ctx context.Context) (string, []string, error) {
+func scopedWorkspaceRoots(ctx context.Context) ([]string, error) {
 	roots, err := common.WorkspaceRootsFromContextStrict(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if len(roots) == 0 {
+		return nil, common.ErrMissingWorkspaceRoots
+	}
+	return append([]string(nil), roots...), nil
+}
+
+func appendAppManagedRoots(roots []string, capability string) ([]string, error) {
+	appRoots, err := platformshared.AppManagedDataRoots()
+	if err != nil {
+		return nil, fmt.Errorf("resolve app-managed %s roots: %w", capability, err)
+	}
+	return append(append([]string(nil), roots...), appRoots...), nil
+}
+
+func toolWorkspaceRoots(ctx context.Context) (string, []string, error) {
+	roots, err := scopedWorkspaceRoots(ctx)
 	if err != nil {
 		return "", nil, err
 	}
-	if len(roots) == 0 {
-		return "", nil, common.ErrMissingWorkspaceRoots
-	}
 	if hasAppManagedWriteCapability(ctx) {
-		appRoots, err := platformshared.AppManagedDataRoots()
+		roots, err = appendAppManagedRoots(roots, "write")
 		if err != nil {
-			return "", nil, fmt.Errorf("resolve app-managed write roots: %w", err)
+			return "", nil, err
 		}
-		roots = append(append([]string(nil), roots...), appRoots...)
+	}
+	return roots[0], append([]string(nil), roots[1:]...), nil
+}
+
+func toolReadableRoots(ctx context.Context) (string, []string, error) {
+	roots, err := scopedWorkspaceRoots(ctx)
+	if err != nil {
+		return "", nil, err
+	}
+	if hasAppManagedReadCapability(ctx) {
+		roots, err = appendAppManagedRoots(roots, "read")
+		if err != nil {
+			return "", nil, err
+		}
 	}
 	return roots[0], append([]string(nil), roots[1:]...), nil
 }

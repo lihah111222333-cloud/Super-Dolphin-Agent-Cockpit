@@ -8,6 +8,50 @@ import (
 	"strings"
 )
 
+// ErrModelResolutionRequired 标记默认模型必须解析但 model/list 不可用或为空。
+var ErrModelResolutionRequired = errors.New("codexapp: model resolution required")
+
+// ModelResolutionRequiredError 表示默认模型必须经 model/list 解析但解析失败。
+type ModelResolutionRequiredError struct {
+	Requested string
+	Err       error
+}
+
+// NewModelResolutionRequiredError 保留 model/list 根因，同时支持 errors.Is 哨兵匹配。
+func NewModelResolutionRequiredError(requested string, err error) error {
+	if err == nil {
+		err = errors.New("model/list returned no supported models")
+	}
+	return &ModelResolutionRequiredError{
+		Requested: strings.TrimSpace(requested),
+		Err:       err,
+	}
+}
+
+// Error 生成用户可见的模型解析错误，并带上请求模型与 model/list 根因。
+func (e *ModelResolutionRequiredError) Error() string {
+	if e == nil {
+		return ErrModelResolutionRequired.Error()
+	}
+	if e.Requested != "" {
+		return fmt.Sprintf("%s for %q: %v", ErrModelResolutionRequired, e.Requested, e.Err)
+	}
+	return fmt.Sprintf("%s: %v", ErrModelResolutionRequired, e.Err)
+}
+
+// Unwrap 暴露 provider 原始错误，便于调用方保留诊断根因。
+func (e *ModelResolutionRequiredError) Unwrap() error {
+	if e == nil {
+		return nil
+	}
+	return e.Err
+}
+
+// Is 让 errors.Is 可以稳定匹配 ErrModelResolutionRequired 哨兵。
+func (e *ModelResolutionRequiredError) Is(target error) bool {
+	return target == ErrModelResolutionRequired
+}
+
 // DecodeAllowedModels 从 Codex model/list 响应中提取模型 ID。
 // 兼容 `models`、`data` 和顶层数组三种 wire 形态；都不匹配时返回显式错误。
 func DecodeAllowedModels(raw []byte) ([]string, error) {
@@ -61,15 +105,32 @@ func CodexModelListContains(models []string, requested string) bool {
 	return false
 }
 
-// CodexModelNeedsListResolution 判断 turn/start 前是否需要查询 model/list。
-// 空模型或泛化默认值需要解析，已知可直接发送的 Codex 模型不再额外请求。
+// CodexModelResolutionSource 标记模型值来自本次显式覆盖还是默认/继承配置。
+type CodexModelResolutionSource string
+
+const (
+	// CodexModelResolutionSourceDefault 表示模型来自默认、继承或配置占位值。
+	CodexModelResolutionSourceDefault CodexModelResolutionSource = "default"
+	// CodexModelResolutionSourceExplicit 表示模型来自本次用户显式覆盖。
+	CodexModelResolutionSourceExplicit CodexModelResolutionSource = "explicit"
+)
+
+// CodexModelNeedsListResolution 判断默认/继承模型是否需要查询 model/list。
+// 空模型或泛化 GPT 默认值需要解析；显式覆盖请使用 CodexModelNeedsListResolutionForSource。
 func CodexModelNeedsListResolution(model string) bool {
-	model = strings.ToLower(strings.TrimSpace(model))
-	switch model {
-	case "gpt-5.5", "gpt-5.4", "gpt-5.4-mini", "gpt-5", "codex-auto-review":
+	return CodexModelNeedsListResolutionForSource(model, CodexModelResolutionSourceDefault)
+}
+
+// CodexModelNeedsListResolutionForSource 用模型来源决定是否必须先解析 model/list。
+func CodexModelNeedsListResolutionForSource(model string, source CodexModelResolutionSource) bool {
+	model = strings.TrimSpace(model)
+	if model == "" {
+		return true
+	}
+	if source == CodexModelResolutionSourceExplicit {
 		return false
 	}
-	return model == ""
+	return CodexModelIsGenericGPT(model)
 }
 
 // CodexModelIsGenericGPT 判断模型名是否是非 Codex 家族的 GPT 默认值。
@@ -197,16 +258,15 @@ func SortedConfigKeys(cfg map[string]any) []string {
 
 func quotedModelFromUnsupportedText(text string) string {
 	const prefix = "The '"
-	start := strings.Index(text, prefix)
-	if start < 0 {
+	_, rest, ok := strings.Cut(text, prefix)
+	if !ok {
 		return ""
 	}
-	rest := text[start+len(prefix):]
-	end := strings.Index(rest, "'")
-	if end <= 0 {
+	model, _, ok := strings.Cut(rest, "'")
+	if !ok || strings.TrimSpace(model) == "" {
 		return ""
 	}
-	return strings.TrimSpace(rest[:end])
+	return strings.TrimSpace(model)
 }
 
 func modelIDs(raw any) []string {

@@ -195,6 +195,37 @@ func TestGetAndListMapConfigOverride(t *testing.T) {
 	assertThreadListConfigOverride(t, "ListRecoverable()", recoverable, raw)
 }
 
+func TestSubagentIdentityFieldsRoundTripThroughStoreDTOs(t *testing.T) {
+	t.Parallel()
+
+	raw := []byte(`{"mode":"subagent"}`)
+	s := newThreadConfigOverrideStore(raw)
+
+	got, err := s.GetByThreadID(context.Background(), "thread-1")
+	if err != nil {
+		t.Fatalf("GetByThreadID() error = %v", err)
+	}
+	assertThreadConfigOverride(t, "GetByThreadID()", *got, raw)
+
+	all, err := s.ListAll(context.Background())
+	if err != nil {
+		t.Fatalf("ListAll() error = %v", err)
+	}
+	assertThreadListConfigOverride(t, "ListAll()", all, raw)
+
+	running, err := s.ListRunning(context.Background())
+	if err != nil {
+		t.Fatalf("ListRunning() error = %v", err)
+	}
+	assertThreadListConfigOverride(t, "ListRunning()", running, raw)
+
+	recoverable, err := s.ListRecoverable(context.Background())
+	if err != nil {
+		t.Fatalf("ListRecoverable() error = %v", err)
+	}
+	assertThreadListConfigOverride(t, "ListRecoverable()", recoverable, raw)
+}
+
 func newThreadConfigOverrideStore(raw []byte) *store {
 	rawStr := string(raw)
 	return &store{q: &threadQuerierStub{

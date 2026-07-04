@@ -475,11 +475,15 @@ func (s *Server) serveConn(ctx context.Context, ch channel.Channel, wg *sync.Wai
 		rpcLog = tracker
 	}
 	opts := prepareServerOptions(rpcLog, nil)
-	assigner := controlRPCAuthAssigner{base: s.methods, auth: newControlRPCConnectionAuth(s.controlRPCAuthToken())}
-	srv := jrpc2.NewServer(assigner, opts).Start(ch)
-	s.addActive(srv, dto.PeerKindTool)
+	var srv *jrpc2.Server
+	auth := newControlRPCConnectionAuth(s.controlRPCAuthToken())
+	assigner := controlRPCAuthAssigner{base: s.methods, auth: auth}
+	srv = jrpc2.NewServer(assigner, opts).Start(ch)
+	auth.setOnAuthenticated(func() {
+		s.addActive(srv, dto.PeerKindTool)
+		s.notifyConnected(srv)
+	})
 	defer s.removeActive(srv)
-	s.notifyConnected(srv)
 
 	runtimesafe.SafeGo(connCtx, s.logger, "rpc.serveConn.cancelWatcher", func(context.Context) {
 		<-connCtx.Done()

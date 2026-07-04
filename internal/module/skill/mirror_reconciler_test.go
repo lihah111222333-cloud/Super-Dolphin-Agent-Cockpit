@@ -46,6 +46,40 @@ func TestSkillMirrorReconcilerDetectsProjectAndPersonalDriftActions(t *testing.T
 	assertMirrorConflictActions(t, personalConflict, "sync_back_to_personal", "personal_overwrite_mirror", "save_as_new_personal_skill")
 }
 
+func TestManagedMirrorOwnedFalseIsDriftEvenWhenHashMatches(t *testing.T) {
+	project := t.TempDir()
+	writeSkillWithSupportFiles(t, filepath.Join(project, ".agents", "skills", "build"), "build")
+	records, err := newCanonicalStore("").scan(project)
+	if err != nil {
+		t.Fatalf("scan canonical records: %v", err)
+	}
+	target := SkillMirrorTarget{TargetID: "codex:project:repo", Provider: SkillProviderCodex, Scope: skillScopeProject, Root: testCodexProjectMirrorRoot(project), CanonicalRootID: "repo"}
+	if _, err := PublishSkillMirrors(context.Background(), records, []SkillMirrorTarget{target}); err != nil {
+		t.Fatalf("PublishSkillMirrors initial: %v", err)
+	}
+	manifest, err := readSkillMirrorManifest(filepath.Join(target.Root, skillMirrorManifestFile))
+	if err != nil {
+		t.Fatalf("read manifest: %v", err)
+	}
+	entry := manifest.Skills["build"]
+	entry.Owned = false
+	manifest.Skills["build"] = entry
+	if err := writeSkillMirrorManifest(filepath.Join(target.Root, skillMirrorManifestFile), manifest); err != nil {
+		t.Fatalf("write manifest: %v", err)
+	}
+
+	conflicts, err := DetectSkillMirrorConflicts(records, []SkillMirrorTarget{target})
+	if err != nil {
+		t.Fatalf("DetectSkillMirrorConflicts: %v", err)
+	}
+
+	conflict := findMirrorConflict(t, conflicts, "mirror_drift", "build", skillScopeProject)
+	if conflict.MirrorHash != entry.MirrorHash || conflict.CanonicalHash != entry.CanonicalHash {
+		t.Fatalf("conflict hashes = canonical:%q mirror:%q, want manifest hashes canonical:%q mirror:%q",
+			conflict.CanonicalHash, conflict.MirrorHash, entry.CanonicalHash, entry.MirrorHash)
+	}
+}
+
 func TestSkillMirrorReconcilerIgnoresIdenticalUnmanagedProjectSameName(t *testing.T) {
 	project := t.TempDir()
 	writeSkillWithSupportFiles(t, filepath.Join(project, ".agents", "skills", "build"), "build")
@@ -150,6 +184,66 @@ func TestSkillMirrorReconcilerDetectsPersonalUnmanagedSameNameAgainstCanonical(t
 		t.Fatalf("personal unmanaged conflict = %+v, want user canonical", conflict)
 	}
 	assertMirrorConflictActions(t, conflict, "view_unmanaged", "import_to_personal_imported")
+}
+
+func TestDetectSkillMirrorConflictsDoesNotHashPersonalOrphanDirs(t *testing.T) {
+	const testMirrorScanEntryBudget = 512
+
+	root := filepath.Join(t.TempDir(), "provider", "skills")
+	orphan := filepath.Join(root, "scratch")
+	for i := 0; i <= testMirrorScanEntryBudget; i++ {
+		writeFileWithMode(t, filepath.Join(orphan, "references", fmt.Sprintf("file-%03d.md", i)), "ignored orphan\n", 0o644)
+	}
+	target := SkillMirrorTarget{TargetID: "codex:user-global:owner", Provider: SkillProviderCodex, Scope: skillScopePersonal, Root: root, CanonicalRootID: "sd_owner:owner"}
+
+	conflicts, err := DetectSkillMirrorConflicts(nil, []SkillMirrorTarget{target})
+	if err != nil {
+		t.Fatalf("DetectSkillMirrorConflicts personal orphan: %v", err)
+	}
+	if len(conflicts) != 0 {
+		t.Fatalf("conflicts = %+v, want personal orphan mirror ignored before recursive hashing", conflicts)
+	}
+}
+
+func TestDetectSkillMirrorConflictsCapsRootEntries(t *testing.T) {
+	const testMirrorScanEntryBudget = 512
+
+	root := filepath.Join(t.TempDir(), "provider", "skills")
+	for i := 0; i <= testMirrorScanEntryBudget; i++ {
+		writeSkillWithSupportFiles(t, filepath.Join(root, fmt.Sprintf("skill-%03d", i)), fmt.Sprintf("skill-%03d", i))
+	}
+	target := SkillMirrorTarget{TargetID: "codex:project:repo", Provider: SkillProviderCodex, Scope: skillScopeProject, Root: root, CanonicalRootID: "repo"}
+
+	_, err := DetectSkillMirrorConflicts(nil, []SkillMirrorTarget{target})
+
+	if err == nil {
+		t.Fatalf("DetectSkillMirrorConflicts over budget error = nil, want typed truncation")
+	}
+	var coded interface {
+		MirrorScanCode() string
+	}
+	if !errors.As(err, &coded) || coded.MirrorScanCode() != "mirror_scan_truncated" {
+		t.Fatalf("DetectSkillMirrorConflicts error = %T %v, want mirror_scan_truncated", err, err)
+	}
+}
+
+func TestDetectSkillMirrorConflictsUsesCustomScanBudget(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "provider", "skills")
+	writeSkillWithSupportFiles(t, filepath.Join(root, "alpha"), "alpha")
+	writeSkillWithSupportFiles(t, filepath.Join(root, "beta"), "beta")
+	target := SkillMirrorTarget{TargetID: "codex:project:repo", Provider: SkillProviderCodex, Scope: skillScopeProject, Root: root, CanonicalRootID: "repo"}
+
+	_, err := DetectSkillMirrorConflictsWithBudget(nil, []SkillMirrorTarget{target}, SkillMirrorScanBudget{MaxRootEntries: 1})
+
+	if err == nil {
+		t.Fatalf("DetectSkillMirrorConflictsWithBudget error = nil, want typed truncation")
+	}
+	var coded interface {
+		MirrorScanCode() string
+	}
+	if !errors.As(err, &coded) || coded.MirrorScanCode() != "mirror_scan_truncated" {
+		t.Fatalf("DetectSkillMirrorConflictsWithBudget error = %T %v, want mirror_scan_truncated", err, err)
+	}
 }
 
 func TestSkillMirrorReconcilerDetectsCanonicalDeletedAndMultiMirrorDriftKinds(t *testing.T) {

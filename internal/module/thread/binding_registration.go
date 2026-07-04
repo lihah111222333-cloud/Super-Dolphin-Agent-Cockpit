@@ -11,6 +11,7 @@ import (
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
+	platformshared "github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 	"github.com/anthropic-ai/super-agent-v3/internal/util/identifier"
 )
 
@@ -170,7 +171,9 @@ func (s *service) logBindingPersisted(r bindingRegistration) {
 	if s == nil || s.logger == nil {
 		return
 	}
-	s.logger.Warn("thread: registerThreadBinding persisted OK", "agent_id", r.AgentID, "provider", r.Provider, "provider_thread_id", r.ProviderThreadID, "public_thread_id", r.PublicThreadID, "rollout_path", r.RolloutPath, "session_uuid", r.SessionUUID)
+	fields := []any{"agent_id", r.AgentID, "provider", r.Provider, "provider_thread_id", r.ProviderThreadID, "public_thread_id", r.PublicThreadID, "session_uuid", r.SessionUUID}
+	fields = append(fields, platformshared.SafePathLogFields("rollout_path", r.RolloutPath)...)
+	s.logger.Warn("thread: registerThreadBinding persisted OK", fields...)
 }
 
 // ensureProviderThreadAvailable 确认 provider_thread_id 没有被其他存活 agent 占用。
@@ -594,7 +597,9 @@ func (r *bindingRecoveryReporter) recordProviderThreadID(ctx context.Context, bi
 	}
 	if !bindingRecordHasProviderHistoryForUUID(binding, sessionUUID) {
 		if r.logger != nil {
-			r.logger.Info("thread: provider session uuid is not recoverable", "agent_id", agentID, "session_uuid", sessionUUID, "rollout_path", binding.RolloutPath)
+			fields := []any{"agent_id", agentID, "session_uuid", sessionUUID}
+			fields = append(fields, platformshared.SafePathLogFields("rollout_path", binding.RolloutPath)...)
+			r.logger.Info("thread: provider session uuid is not recoverable", fields...)
 		}
 		return nil
 	}

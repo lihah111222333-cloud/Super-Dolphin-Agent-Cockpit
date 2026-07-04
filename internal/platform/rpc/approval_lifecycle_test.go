@@ -2,9 +2,11 @@ package rpc
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
+	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/mcp"
 	tooldto "github.com/anthropic-ai/super-agent-v3/internal/dto/tool"
 	"github.com/creachadair/jrpc2"
@@ -35,6 +37,32 @@ func TestRequestApprovalAutoDeclinesWithoutFrontendWhenNoCallbackPath(t *testing
 	}
 	if len(manager.PendingSnapshot()) != 0 {
 		t.Fatal("RequestApproval left pending approvals behind after auto-decline")
+	}
+}
+
+func TestApprovalRequesterDoesNotFallbackToToolPeer(t *testing.T) {
+	manager := NewApprovalManager(nil, nil)
+	server := &Server{active: make(map[*jrpc2.Server]string)}
+	toolPeer := new(jrpc2.Server)
+	server.addActive(toolPeer, dto.PeerKindTool)
+
+	requester := approvalRequester{
+		manager: manager,
+		bridge:  NewPushBridge(nil, nil),
+		server:  server,
+	}
+	if got := requester.activeServer(); got != nil {
+		t.Fatalf("activeServer() = %p, want nil when only tool peers are active", got)
+	}
+	decision, err := requester.RequestApproval(context.Background(), contract.ApprovalRequest{CallID: "call-1"})
+	if !errors.Is(err, ErrNoUIPeer) {
+		t.Fatalf("RequestApproval() error = %v, want ErrNoUIPeer", err)
+	}
+	if decision.Approved == nil || *decision.Approved {
+		t.Fatalf("RequestApproval() approved = %v, want fail-closed decline", decision.Approved)
+	}
+	if len(manager.PendingSnapshot()) != 0 {
+		t.Fatal("RequestApproval left pending approvals behind without a UI peer")
 	}
 }
 

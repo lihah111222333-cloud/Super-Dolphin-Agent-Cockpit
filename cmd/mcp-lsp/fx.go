@@ -10,6 +10,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/multilsp"
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/tools"
 	mcp "github.com/anthropic-ai/super-agent-v3/internal/dto/mcp"
 	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/common"
@@ -74,7 +75,9 @@ func run() error {
 					return &mcp.ReportRequest{Report: mcp.ReportEnvelope{Type: mcp.ReportVariantCompletion, Completion: &mcp.CompletionReport{Status: "done", Report: "mcp-lsp shutdown"}}}
 				}
 				cfg.OnConfigChanged = func(notify mcp.ConfigChangedNotify) {
-					pkglogger.Info("mcp-lsp config changed", "binary_name", cfg.BinaryName, "instance_id", cfg.InstanceID, "scope", notify.Scope, "config_version", notify.ConfigVersion, "selector", notify.Selector, "payload", string(notify.Payload))
+					fields := []any{"binary_name", cfg.BinaryName, "instance_id", cfg.InstanceID, "scope", notify.Scope, "config_version", notify.ConfigVersion, "selector", notify.Selector}
+					fields = append(fields, platformshared.SafePayloadLogFields("payload", notify.Payload)...)
+					pkglogger.Info("mcp-lsp config changed", fields...)
 				}
 				cfg.OnLSPReleaseScope = func(ctx context.Context, req mcp.LSPReleaseScopeRequest) (mcp.LSPReleaseScopeResult, error) {
 					if runtimeManager == nil {
@@ -198,7 +201,11 @@ func runtimeSemanticLSPToolsAvailable(context.Context) (bool, error) {
 		}
 		return len(lspBundle.SemanticLanguages()) > 0, nil
 	}
-	for _, binary := range runtimeSemanticLSPServerBinaries() {
+	binaries, err := runtimeSemanticLSPServerBinaries()
+	if err != nil {
+		return false, err
+	}
+	for _, binary := range binaries {
 		if _, err := exec.LookPath(binary); err == nil {
 			return true, nil
 		}
@@ -207,15 +214,33 @@ func runtimeSemanticLSPToolsAvailable(context.Context) (bool, error) {
 }
 
 // runtimeSemanticLSPServerBinaries 返回支持的语义 LSP server 二进制名称列表。
-func runtimeSemanticLSPServerBinaries() []string {
-	return []string{
-		"gopls",
-		"typescript-language-server",
-		"pyright-langserver",
-		"vscode-css-language-server",
-		"rust-analyzer",
-		"jdtls",
+func runtimeSemanticLSPServerBinaries() ([]string, error) {
+	adapters := multilsp.NewDefaultLanguageAdapterRegistry()
+	binaries := make([]string, 0, len(runtimePrimaryLanguageIDs()))
+	seen := make(map[string]struct{}, len(runtimePrimaryLanguageIDs()))
+	for _, languageID := range runtimePrimaryLanguageIDs() {
+		adapter, ok := adapters.AdapterForLanguage(languageID)
+		if !ok {
+			return nil, errors.New("missing LSP language adapter: " + languageID)
+		}
+		if !adapter.CapabilityPolicy().RequiresLSPClient {
+			continue
+		}
+		command, err := adapter.ServerCommand(context.Background(), multilsp.ResolvedLanguageScope{})
+		if err != nil {
+			return nil, err
+		}
+		binary := strings.TrimSpace(command.Executable)
+		if binary == "" {
+			return nil, errors.New("missing semantic LSP server command for language: " + languageID)
+		}
+		if _, ok := seen[binary]; ok {
+			continue
+		}
+		seen[binary] = struct{}{}
+		binaries = append(binaries, binary)
 	}
+	return binaries, nil
 }
 
 // CallTool 调用当前 peer 暴露的工具，先补全工作区作用域后分发到具体处理器。
@@ -265,14 +290,15 @@ func warnLSPToolsCallScopeTrace(toolName string, scope common.ToolScope) {
 	if !shouldWarnLSPCWDTrace(toolName) {
 		return
 	}
-	pkglogger.Warn("mcp-lsp: tools/call scope trace",
+	fields := []any{
 		"tool", strings.TrimSpace(toolName),
 		"agent_id", scope.AgentID,
 		"thread_id", scope.ThreadID,
 		"call_id", scope.CallID,
-		"cwd", scope.CWD,
 		"has_cwd", scope.CWD != "",
-	)
+	}
+	fields = append(fields, platformshared.SafePathLogFields("cwd", scope.CWD)...)
+	pkglogger.Warn("mcp-lsp: tools/call scope trace", fields...)
 }
 
 // handleScopedToolsCall 解码工具调用参数，设置作用域后分发到具体工具处理器，panic 时包装为错误返回。

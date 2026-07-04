@@ -226,17 +226,19 @@ func (s *session) onInboundMessage(ctx context.Context, resp Responder, msg RawM
 	s.onNotification(msg.Method, msg.Params)
 }
 
+// handleInboundToolCall 解析远端工具调用并通过本地 tool bridge 返回响应。
 func (s *session) handleInboundToolCall(ctx context.Context, resp Responder, msg RawMessage, toolHandler ToolHandler) {
 	toolName := toolCallParamString(msg.Params, "name")
 	sessionCWD := s.runtimeConfigString("cwd")
 	if shouldWarnToolCWDTrace(toolName) {
-		s.logger.Warn("codexapp: tool call cwd trace",
+		fields := []any{
 			"agent_id", s.agentID,
 			"thread_id", s.ThreadID(),
 			"method", msg.Method,
 			"tool", toolName,
-			"session_cwd", sessionCWD,
-		)
+		}
+		fields = append(fields, shared.SafePathLogFields("session_cwd", sessionCWD)...)
+		s.logger.Warn("codexapp: tool call cwd trace", fields...)
 	}
 	prepared, err := s.prepareToolCall(msg)
 	if err != nil {
@@ -364,7 +366,9 @@ func (s *session) applyRuntimeTurnStartOverrides(ctx context.Context, params *tu
 	if params == nil {
 		return nil
 	}
+	modelSource := supportutil.CodexModelResolutionSourceExplicit
 	if params.Model == "" {
+		modelSource = supportutil.CodexModelResolutionSourceDefault
 		params.Model = s.runtimeConfigString("model")
 	}
 	if params.Effort == "" {
@@ -377,8 +381,12 @@ func (s *session) applyRuntimeTurnStartOverrides(ctx context.Context, params *tu
 		}
 		params.SandboxPolicy = sandboxPolicy
 	}
-	if supportutil.CodexModelNeedsListResolution(params.Model) {
-		params.Model = s.resolveTurnStartModel(ctx, params.Model)
+	if supportutil.CodexModelNeedsListResolutionForSource(params.Model, modelSource) {
+		model, err := s.resolveTurnStartModel(ctx, params.Model)
+		if err != nil {
+			return err
+		}
+		params.Model = model
 	}
 	return nil
 }
@@ -417,33 +425,29 @@ func (s *session) contextWithTurnTrace(ctx context.Context, providerTurnID strin
 }
 
 // resolveTurnStartModel 在 model/list 可用时把默认模型解析成 provider 当前支持的具体模型。
-// 解析失败只记录告警并沿用原值，避免一次模型列表异常阻断用户显式 turn/start。
-func (s *session) resolveTurnStartModel(ctx context.Context, requested string) string {
+// 默认模型必须解析成功；model/list 失败或为空会直接阻断 turn/start。
+func (s *session) resolveTurnStartModel(ctx context.Context, requested string) (string, error) {
 	requested = strings.TrimSpace(requested)
 	if s == nil || s.transport == nil {
-		return requested
+		return "", supportutil.NewModelResolutionRequiredError(requested, errors.New("model/list transport is not configured"))
 	}
-	model, replaced, err := resolveSupportedCodexModel(ctx, s.transport, requested)
+	resolution, err := resolveSupportedCodexModel(ctx, s.transport, requested)
 	if err != nil {
-		pkglogger.Warn("codexapp: turn/start model/list selection failed",
+		return "", err
+	}
+	if resolution.model == "" {
+		return "", supportutil.NewModelResolutionRequiredError(requested, nil)
+	}
+	if resolution.replaced {
+		s.setRuntimeConfigValue("model", resolution.model)
+		pkglogger.Info("codexapp: turn/start selected supported model from model/list",
 			"agent_id", s.agentID,
 			"thread_id", s.ThreadID(),
 			"requested_model", requested,
-			"error", err,
+			"model", resolution.model,
 		)
-		return requested
 	}
-	if model == "" || !replaced {
-		return requested
-	}
-	s.setRuntimeConfigValue("model", model)
-	pkglogger.Info("codexapp: turn/start selected supported model from model/list",
-		"agent_id", s.agentID,
-		"thread_id", s.ThreadID(),
-		"requested_model", requested,
-		"model", model,
-	)
-	return model
+	return resolution.model, nil
 }
 
 // Steer 向当前线程的指定 turn 发送 steering 输入。

@@ -561,6 +561,8 @@ func decodeJSONRPCParams(raw json.RawMessage) map[string]any {
 func dynamicToolsResumeResult(state *dynamicToolsResumeState, method string, params map[string]any) (map[string]any, bool) {
 	result := map[string]any{"ok": true}
 	switch method {
+	case "model/list":
+		result = validCodexModelListMap()
 	case "thread/start":
 		state.markStart(params)
 		result = map[string]any{"thread": map[string]any{"id": "provider-thread-1"}}
@@ -646,7 +648,10 @@ func startToolBridgeRPCServer(t *testing.T, recorder *toolBridgeRPCRecorder) str
 				continue
 			}
 			result := map[string]any{"ok": true}
-			if msg.Method == "thread/start" {
+			switch msg.Method {
+			case "model/list":
+				result = validCodexModelListMap()
+			case "thread/start":
 				result = map[string]any{"thread": map[string]any{"id": "provider-thread-1"}}
 			}
 			resp, err := json.Marshal(map[string]any{

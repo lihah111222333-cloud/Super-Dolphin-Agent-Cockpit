@@ -3,11 +3,14 @@ package codexapp
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"strings"
 	"testing"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
 	codexprotocol "github.com/anthropic-ai/super-agent-v3/internal/provider/codexapp/protocol"
+	"github.com/anthropic-ai/super-agent-v3/internal/provider/codexapp/supportutil"
 	providershared "github.com/anthropic-ai/super-agent-v3/internal/provider/shared"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
@@ -175,11 +178,13 @@ func assertTurnStartQueryTool(t *testing.T, params map[string]any) {
 	}
 }
 
-func TestStartTurnPreservesExplicitGPT5Model(t *testing.T) {
+func TestStartTurnPreservesExplicitOverrideGPT5Model(t *testing.T) {
+	modelListCalls := 0
 	turnParams := make(chan map[string]any, 1)
 	serverURL := startCodexRPCServerWithHandler(t, func(msg jsonRPCMessage) json.RawMessage {
 		switch msg.Method {
 		case "model/list":
+			modelListCalls++
 			return mustJSON(map[string]any{
 				"models": []map[string]any{
 					{"id": "gpt-5"},
@@ -201,11 +206,13 @@ func TestStartTurnPreservesExplicitGPT5Model(t *testing.T) {
 	}
 	s.runtime.Start()
 	t.Cleanup(func() { closeCodexTestSession(t, s) })
-	s.setRuntimeConfig(map[string]any{"model": "gpt-5"})
 
 	handle, err := s.StartTurn(context.Background(), dto.TurnRequest{
 		ThreadID: "provider-thread-1",
 		Inputs:   []dto.InputItem{{Type: "text", Content: "1+1=几"}},
+		Overrides: dto.TurnOverrides{
+			Model: "gpt-5",
+		},
 	})
 	if err != nil {
 		t.Fatalf("StartTurn() error = %v", err)
@@ -221,8 +228,92 @@ func TestStartTurnPreservesExplicitGPT5Model(t *testing.T) {
 	default:
 		t.Fatal("turn/start params were not captured")
 	}
-	if got := s.RuntimeConfigSnapshot()["model"]; got != "gpt-5" {
-		t.Fatalf("runtime model = %#v, want gpt-5", got)
+	if modelListCalls != 0 {
+		t.Fatalf("model/list calls = %d, want 0 for explicit turn override", modelListCalls)
+	}
+}
+
+func TestStartTurnRuntimeGPTDefaultRequiresModelList(t *testing.T) {
+	modelListCalls := 0
+	turnStartCalls := 0
+	serverURL := startCodexRPCServerWithHandler(t, func(msg jsonRPCMessage) json.RawMessage {
+		switch msg.Method {
+		case "model/list":
+			modelListCalls++
+			return mustJSON(map[string]any{"models": []map[string]any{}})
+		case "turn/start":
+			turnStartCalls++
+			return mustJSON(map[string]any{"turn": map[string]any{"id": "unexpected-turn"}})
+		default:
+			return mustJSON(map[string]any{"ok": true})
+		}
+	})
+	s, err := newSession(context.Background(), pkglogger.Get(), serverURL, "agent-1", nil, nil, nil)
+	if err != nil {
+		t.Fatalf("newSession() error = %v", err)
+	}
+	s.runtime.Start()
+	t.Cleanup(func() { closeCodexTestSession(t, s) })
+	s.setThreadID("provider-thread-1")
+	s.setRuntimeConfig(map[string]any{"model": " gpt-5.5 "})
+
+	_, err = s.StartTurn(context.Background(), dto.TurnRequest{
+		Inputs: []dto.InputItem{{Type: "text", Content: "hello"}},
+	})
+	if err == nil {
+		t.Fatal("StartTurn() error = nil, want required model resolution error")
+	}
+	if !errors.Is(err, supportutil.ErrModelResolutionRequired) {
+		t.Fatalf("StartTurn() error = %v, want ErrModelResolutionRequired", err)
+	}
+	if !strings.Contains(err.Error(), "gpt-5.5") {
+		t.Fatalf("StartTurn() error = %v, want requested runtime model in error", err)
+	}
+	if modelListCalls != 1 {
+		t.Fatalf("model/list calls = %d, want 1", modelListCalls)
+	}
+	if turnStartCalls != 0 {
+		t.Fatalf("turn/start calls = %d, want 0 after required runtime model/list empty", turnStartCalls)
+	}
+}
+
+func TestTurnStartFailsWhenRequiredModelListEmpty(t *testing.T) {
+	modelListCalls := 0
+	turnStartCalls := 0
+	serverURL := startCodexRPCServerWithHandler(t, func(msg jsonRPCMessage) json.RawMessage {
+		switch msg.Method {
+		case "model/list":
+			modelListCalls++
+			return mustJSON(map[string]any{"models": []map[string]any{}})
+		case "turn/start":
+			turnStartCalls++
+			return mustJSON(map[string]any{"turn": map[string]any{"id": "unexpected-turn"}})
+		default:
+			return mustJSON(map[string]any{"ok": true})
+		}
+	})
+	s, err := newSession(context.Background(), pkglogger.Get(), serverURL, "agent-1", nil, nil, nil)
+	if err != nil {
+		t.Fatalf("newSession() error = %v", err)
+	}
+	s.runtime.Start()
+	t.Cleanup(func() { closeCodexTestSession(t, s) })
+	s.setThreadID("provider-thread-1")
+
+	_, err = s.StartTurn(context.Background(), dto.TurnRequest{
+		Inputs: []dto.InputItem{{Type: "text", Content: "hello"}},
+	})
+	if err == nil {
+		t.Fatal("StartTurn() error = nil, want required model resolution error")
+	}
+	if !errors.Is(err, supportutil.ErrModelResolutionRequired) {
+		t.Fatalf("StartTurn() error = %v, want ErrModelResolutionRequired", err)
+	}
+	if modelListCalls != 1 {
+		t.Fatalf("model/list calls = %d, want 1", modelListCalls)
+	}
+	if turnStartCalls != 0 {
+		t.Fatalf("turn/start calls = %d, want 0 after required model/list empty", turnStartCalls)
 	}
 }
 

@@ -12,6 +12,7 @@ import (
 
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/discovery"
 	platformrunner "github.com/anthropic-ai/super-agent-v3/internal/platform/runner"
+	platformshared "github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 	providershared "github.com/anthropic-ai/super-agent-v3/internal/provider/shared"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 	"golang.org/x/sync/singleflight"
@@ -396,7 +397,9 @@ func closeWithTimeout(server SpawnedServer, timeout time.Duration, logger *slog.
 	ctx, cancel := withTimeout(context.Background(), timeout)
 	defer cancel()
 	if err := server.Close(ctx); err != nil {
-		logger.Debug("codexapp: pool close entry failed", slog.String("codex_home", key.home), slog.String("owner", key.ownerKey), slog.String("error", err.Error()))
+		fields := []any{"owner", key.ownerKey, "error", err.Error()}
+		fields = append(fields, platformshared.SafePathLogFields("codex_home", key.home)...)
+		logger.Debug("codexapp: pool close entry failed", fields...)
 	}
 }
 

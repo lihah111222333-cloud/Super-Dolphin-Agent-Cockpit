@@ -13,6 +13,7 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
 	platformrpc "github.com/anthropic-ai/super-agent-v3/internal/platform/rpc"
+	platformshared "github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 	"github.com/anthropic-ai/super-agent-v3/internal/util"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
@@ -119,7 +120,7 @@ func validateStartParams(p startParams) error {
 // 日志只写标量和布尔值，用于区分前端漏传、后端解析和 config 覆盖问题。
 func logStartRPCReceived(p startParams, cfg map[string]any) {
 	// 只记录标量和布尔字段，既能定位 agent_key 丢失边界，也避免把大块配置写进日志。
-	pkglogger.Info("thread/start: rpc received",
+	fields := []any{
 		"agent_id", p.AgentID,
 		"agent_key", p.AgentKey,
 		"prompt_key", p.PromptKey,
@@ -127,7 +128,6 @@ func logStartRPCReceived(p startParams, cfg map[string]any) {
 		"model_provider", p.ModelProvider,
 		"model", p.Model,
 		"effort", p.Effort,
-		"cwd", p.CWD,
 		"has_prompt", strings.TrimSpace(p.Prompt) != "",
 		"has_base_instructions", strings.TrimSpace(p.BaseInstructions) != "",
 		"tool_surface_mode", p.ToolSurfaceMode,
@@ -138,7 +138,10 @@ func logStartRPCReceived(p startParams, cfg map[string]any) {
 		"config_codex_model_provider", configTraceString(cfg, "codexModelProvider"),
 		"config_model", configTraceString(cfg, "model"),
 		"config_effort", configTraceString(cfg, "effort"),
-		"has_config", len(cfg) > 0)
+		"has_config", len(cfg) > 0,
+	}
+	fields = append(fields, platformshared.SafePathLogFields("cwd", p.CWD)...)
+	pkglogger.Info("thread/start: rpc received", fields...)
 	pkglogger.Debug("thread/start: config trace",
 		"agent_id", p.AgentID,
 		"provider", p.Provider,

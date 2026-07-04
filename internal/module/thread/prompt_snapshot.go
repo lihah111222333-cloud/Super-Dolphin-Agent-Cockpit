@@ -294,7 +294,10 @@ func (s *service) resolveStablePromptSnapshot(
 	if !promptSnapshotBlank(fallback) {
 		return fallback, nil
 	}
-	meta := s.lookupThreadMeta(ctx, threadID)
+	meta, err := s.requireThreadMeta(ctx, threadID)
+	if err != nil {
+		return contract.PromptAssemblySnapshot{}, err
+	}
 	legacyAllowed, err := legacyPromptSnapshotMigrationAllowed(resumeState{
 		PublicThreadID:    strings.TrimSpace(threadID),
 		ConfigOverrideRaw: meta.ConfigOverride,

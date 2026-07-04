@@ -200,6 +200,27 @@ func TestGetByAgentID(t *testing.T) {
 	})
 }
 
+func TestSessionBindingAdapterMapsArchived(t *testing.T) {
+	t.Parallel()
+
+	s := &store{q: &bindingQuerierStub{
+		getAgentProviderBindingByAgentIDFn: func(_ context.Context, agentID string) (sqlc.AgentProviderBinding, error) {
+			if agentID != "agent-lookup" {
+				t.Fatalf("GetByAgentID() agentID = %q, want agent-lookup", agentID)
+			}
+			return sampleAgentProviderBindingByAgentIDRow(), nil
+		},
+	}}
+	adapter := NewSessionBindingLookup(s)
+	binding, err := adapter.GetByAgentID(context.Background(), "agent-lookup")
+	if err != nil {
+		t.Fatalf("GetByAgentID() error = %v", err)
+	}
+	if binding == nil || !binding.Archived {
+		t.Fatalf("SessionBinding.Archived = %v, want true", binding)
+	}
+}
+
 func TestDeleteByAgentID(t *testing.T) {
 	t.Parallel()
 

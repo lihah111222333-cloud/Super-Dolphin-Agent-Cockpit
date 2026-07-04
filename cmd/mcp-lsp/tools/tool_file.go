@@ -17,6 +17,7 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/protocol"
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/search"
 	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/common"
+	platformshared "github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
@@ -119,23 +120,26 @@ type indexedBatchItem struct {
 
 func (h handlerBase) warnFileCWDTrace(ctx context.Context, input fileToolInput) {
 	metaCWD, _ := ctx.Value(common.CwdContextKey).(string)
-	pkglogger.Get().Warn("mcp-lsp: file cwd trace",
+	effectiveRoot, _ := toolWorkspaceRoot(ctx)
+	fields := []any{
 		"action", strings.TrimSpace(input.Action),
-		"fallback_root", strings.TrimSpace(h.root),
-		"meta_cwd", strings.TrimSpace(metaCWD),
-		"effective_root", func() string { r, _ := toolWorkspaceRoot(ctx); return r }(),
-		"file_path", strings.TrimSpace(input.FilePath),
-		"file_paths", input.FilePaths,
-	)
+	}
+	fields = append(fields, platformshared.SafePathLogFields("fallback_root", strings.TrimSpace(h.root))...)
+	fields = append(fields, platformshared.SafePathLogFields("meta_cwd", strings.TrimSpace(metaCWD))...)
+	fields = append(fields, platformshared.SafePathLogFields("effective_root", strings.TrimSpace(effectiveRoot))...)
+	fields = append(fields, platformshared.SafePathLogFields("file_path", strings.TrimSpace(input.FilePath))...)
+	fields = append(fields, platformshared.SafePathLogFields("file_paths", input.FilePaths)...)
+	pkglogger.Get().Warn("mcp-lsp: file cwd trace", fields...)
 }
 
 func warnFileReadFailure(action, root, rawPath string, err error) {
-	pkglogger.Get().Warn("mcp-lsp: file cwd failure",
+	fields := []any{
 		"action", strings.TrimSpace(action),
-		"effective_root", strings.TrimSpace(root),
-		"file_path", strings.TrimSpace(rawPath),
 		"error", err,
-	)
+	}
+	fields = append(fields, platformshared.SafePathLogFields("effective_root", strings.TrimSpace(root))...)
+	fields = append(fields, platformshared.SafePathLogFields("file_path", strings.TrimSpace(rawPath))...)
+	pkglogger.Get().Warn("mcp-lsp: file cwd failure", fields...)
 }
 
 // NewFileHandler 创建 file 工具处理器，支持 open_file、read_file 和 diagnostics。
@@ -224,7 +228,7 @@ func (h handlerBase) openFile(ctx context.Context, rawPath string, languageID st
 	if h.registry == nil {
 		return openFileResult{}, errManagerUnavailable
 	}
-	root, roots, err := toolWorkspaceRoots(ctx)
+	root, roots, err := toolReadableRoots(ctx)
 	if err != nil {
 		return openFileResult{}, err
 	}
@@ -256,7 +260,7 @@ func (h handlerBase) openFile(ctx context.Context, rawPath string, languageID st
 
 // readSingle 读取单文件内容；带 line 时优先尝试函数窗口，失败再降级为行窗口。
 func (h handlerBase) readSingle(ctx context.Context, req readFileRequest) (string, error) {
-	root, roots, err := toolWorkspaceRoots(ctx)
+	root, roots, err := toolReadableRoots(ctx)
 	if err != nil {
 		return "", err
 	}
@@ -330,7 +334,7 @@ func (h handlerBase) readBatch(ctx context.Context, req readFileRequest) (batchR
 		go func(idx int, target string) {
 			defer wg.Done()
 			item := batchReadItem{FilePath: strings.TrimSpace(target)}
-			root, roots, err := toolWorkspaceRoots(ctx)
+			root, roots, err := toolReadableRoots(ctx)
 			if err != nil {
 				item.Error = err.Error()
 				results <- indexedBatchItem{Index: idx, Item: item}
@@ -569,12 +573,10 @@ func (r openFileResult) ToPlainText() string {
 func (r batchReadResponse) ToPlainText() string {
 	var sb strings.Builder
 	successCount := r.Showing - r.Meta.ErrorCount
-	if successCount < 0 {
-		successCount = 0
-	}
-	sb.WriteString(fmt.Sprintf("Batch Read Results: success=%t (showing %d of %d requested; %d succeeded)\n", r.Success, r.Showing, r.Total, successCount))
+	successCount = max(successCount, 0)
+	fmt.Fprintf(&sb, "Batch Read Results: success=%t (showing %d of %d requested; %d succeeded)\n", r.Success, r.Showing, r.Total, successCount)
 	if r.Meta.Message != "" {
-		sb.WriteString(fmt.Sprintf("Message: %s\n", r.Meta.Message))
+		fmt.Fprintf(&sb, "Message: %s\n", r.Meta.Message)
 	}
 	sb.WriteString("\n")
 

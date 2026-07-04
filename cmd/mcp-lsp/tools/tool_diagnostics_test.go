@@ -155,6 +155,7 @@ func TestDiagnosticsAllowsEncodedAppManagedPathOutsideWorkspace(t *testing.T) {
 
 	workspace := t.TempDir()
 	ctx := common.WithToolScope(context.Background(), common.ToolScope{CWD: workspace, WorkspaceRoots: []string{workspace}})
+	ctx = WithAppManagedReadCapability(ctx)
 	tests := []struct {
 		name   string
 		target string
@@ -171,6 +172,32 @@ func TestDiagnosticsAllowsEncodedAppManagedPathOutsideWorkspace(t *testing.T) {
 			}
 			assertDiagnosticURIs(t, uris, []string{canonicalFileURI(t, appFile)})
 		})
+	}
+}
+
+func TestDiagnosticsRejectsAppManagedRootWithoutCapability(t *testing.T) {
+	fakeHome := filepath.Join(t.TempDir(), "home")
+	appHome := filepath.Join(fakeHome, "Library", "Application Support", "Super Dolphin")
+	appFile := filepath.Join(appHome, "providers", "codex", "mcp-lsp.go")
+	if err := os.MkdirAll(filepath.Dir(appFile), 0o700); err != nil {
+		t.Fatalf("mkdir app managed parent: %v", err)
+	}
+	if err := os.WriteFile(appFile, []byte("package fixture\n"), 0o600); err != nil {
+		t.Fatalf("write app managed file: %v", err)
+	}
+	t.Setenv("HOME", fakeHome)
+	t.Setenv("SUPER_DOLPHIN_HOME", appHome)
+
+	workspace := t.TempDir()
+	ctx := common.WithToolScope(context.Background(), common.ToolScope{CWD: workspace, WorkspaceRoots: []string{workspace}})
+	handler := handlerBase{}
+
+	_, _, err := handler.collectDiagnosticURIs(ctx, fileToolInput{Action: "diagnostics", FilePath: fileURI(appFile)})
+	if err == nil {
+		t.Fatal("diagnostics returned nil error, want app-managed path rejected without read capability")
+	}
+	if !strings.Contains(err.Error(), "outside workspace roots") {
+		t.Fatalf("diagnostics error = %q, want path_outside_workspace rejection", err.Error())
 	}
 }
 
@@ -191,6 +218,7 @@ func TestDiagnosticsAppManagedOutsideWorkspaceSkipsStartupOpenRecovery(t *testin
 	registry := &diagnosticsTestRegistry{waitErrs: []error{lspmanager.ErrDiagnosticsNotReady}}
 	handler := NewFileHandler(Config{WorkspaceRoot: workspace, Registry: registry})
 	ctx := common.WithToolScope(context.Background(), common.ToolScope{CWD: workspace, WorkspaceRoots: []string{workspace}})
+	ctx = WithAppManagedReadCapability(ctx)
 	target := strings.ReplaceAll(appFile, "Application Support", "Application%20Support")
 	req := marshalDiagnosticsInput(t, fileToolInput{Action: "diagnostics", FilePath: target})
 

@@ -13,6 +13,7 @@ import (
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/pidregistry"
+	platformshared "github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 	providershared "github.com/anthropic-ai/super-agent-v3/internal/provider/shared"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
@@ -74,7 +75,10 @@ func runPoolSpawn(ctx context.Context, home, modelProvider string, registry *pid
 		_ = t.shutdownTransport(false)
 		return nil, fmt.Errorf("codexapp: pool establish: %w", err)
 	}
-	logger.Info("codexapp: pool spawned app-server", slog.String("codex_home", home), slog.String("work_dir", workDir), slog.String("server_url", serverURL))
+	fields := []any{"server_url", serverURL}
+	fields = append(fields, platformshared.SafePathLogFields("codex_home", home)...)
+	fields = append(fields, platformshared.SafePathLogFields("work_dir", workDir)...)
+	logger.Info("codexapp: pool spawned app-server", fields...)
 	return t, nil
 }
 

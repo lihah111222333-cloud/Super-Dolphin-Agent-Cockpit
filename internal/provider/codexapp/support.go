@@ -13,6 +13,7 @@ import (
 	contract "github.com/anthropic-ai/super-agent-v3/internal/contract"
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
 	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
+	platformshared "github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 	codexprotocol "github.com/anthropic-ai/super-agent-v3/internal/provider/codexapp/protocol"
 	"github.com/anthropic-ai/super-agent-v3/internal/provider/codexapp/supportutil"
 	providershared "github.com/anthropic-ai/super-agent-v3/internal/provider/shared"
@@ -256,10 +257,12 @@ func (s *session) ensureRuntimeCodexHomeFromInitialize(reason string) {
 		return
 	}
 	s.setRuntimeConfigValue("codexHome", home)
-	pkglogger.Warn("codexapp: runtime codexHome injected from initialize",
+	fields := []any{
 		"agent_id", s.agentID,
-		"codex_home", home,
-		"stage", reason)
+		"stage", reason,
+	}
+	fields = append(fields, platformshared.SafePathLogFields("codex_home", home)...)
+	pkglogger.Warn("codexapp: runtime codexHome injected from initialize", fields...)
 }
 
 func (s *session) setRuntimeConfigValue(key string, value any) {
@@ -275,43 +278,93 @@ func (s *session) setRuntimeConfigValue(key string, value any) {
 }
 
 // resolveSupportedCodexModel 查询 app-server 支持的模型，并在需要时选一个可用默认值。
-func resolveSupportedCodexModel(ctx context.Context, t *transport, requested string) (string, bool, error) {
+type codexModelResolution struct {
+	model    string
+	replaced bool
+}
+
+type codexModelResolver struct {
+	target callTarget
+}
+
+func newCodexModelResolver(target callTarget) codexModelResolver {
+	return codexModelResolver{target: target}
+}
+
+// Resolve 通过 model/list 把默认模型解析成当前账号真实可用的模型。
+// 这是 thread/start 与 turn/start 的共同入口；列表不可用必须 fail-fast。
+func (r codexModelResolver) Resolve(ctx context.Context, requested string) (codexModelResolution, error) {
 	requested = strings.TrimSpace(requested)
-	raw, err := callWithTimeout(ctx, t, 10*time.Second, "model/list", map[string]any{})
+	models, err := r.listModels(ctx, requested)
 	if err != nil {
-		return "", false, err
+		return codexModelResolution{}, err
+	}
+	return selectCodexModel(requested, models)
+}
+
+// listModels 调用 provider 的 model/list，并把空列表归类为必需模型解析失败。
+func (r codexModelResolver) listModels(ctx context.Context, requested string) ([]string, error) {
+	if r.target == nil {
+		return nil, supportutil.NewModelResolutionRequiredError(requested, errors.New("model/list transport is not configured"))
+	}
+	raw, err := callWithTimeout(ctx, r.target, 10*time.Second, "model/list", map[string]any{})
+	if err != nil {
+		return nil, supportutil.NewModelResolutionRequiredError(requested, err)
 	}
 	models, err := supportutil.DecodeAllowedModels(raw)
 	if err != nil {
-		return "", false, err
+		return nil, supportutil.NewModelResolutionRequiredError(requested, err)
 	}
-	preferred := supportutil.PreferredCodexModel(models)
-	if requested == "" {
-		return preferred, preferred != "", nil
-	}
-	if supportutil.CodexModelIsCodexFamily(requested) && supportutil.CodexModelListContains(models, requested) {
-		return requested, false, nil
-	}
-	if !supportutil.CodexModelIsGenericGPT(requested) && supportutil.CodexModelListContains(models, requested) {
-		return requested, false, nil
-	}
-	if preferred != "" {
-		return preferred, !strings.EqualFold(preferred, requested), nil
-	}
-	if supportutil.CodexModelListContains(models, requested) {
-		return requested, false, nil
-	}
-	return requested, false, nil
+	return models, nil
 }
 
+// selectCodexModel 从已验证的 model/list 结果中选出要发送给 app-server 的模型。
+func selectCodexModel(requested string, models []string) (codexModelResolution, error) {
+	preferred := supportutil.PreferredCodexModel(models)
+	if requested == "" {
+		if preferred == "" {
+			return codexModelResolution{}, supportutil.NewModelResolutionRequiredError(requested, nil)
+		}
+		return codexModelResolution{model: preferred, replaced: true}, nil
+	}
+	if requestedCodexModelAllowed(requested, models) {
+		return codexModelResolution{model: requested}, nil
+	}
+	if preferred != "" {
+		return codexModelResolution{model: preferred, replaced: !strings.EqualFold(preferred, requested)}, nil
+	}
+	if supportutil.CodexModelListContains(models, requested) {
+		return codexModelResolution{model: requested}, nil
+	}
+	return codexModelResolution{model: requested}, nil
+}
+
+// requestedCodexModelAllowed 保留显式可用模型；泛化 GPT 默认值则交给 preferred 选择。
+func requestedCodexModelAllowed(requested string, models []string) bool {
+	if supportutil.CodexModelIsCodexFamily(requested) {
+		return supportutil.CodexModelListContains(models, requested)
+	}
+	return !supportutil.CodexModelIsGenericGPT(requested) && supportutil.CodexModelListContains(models, requested)
+}
+
+// resolveSupportedCodexModel 保留旧调用名，但内部统一走 typed resolver。
+func resolveSupportedCodexModel(ctx context.Context, t callTarget, requested string) (codexModelResolution, error) {
+	return newCodexModelResolver(t).Resolve(ctx, requested)
+}
+
+// buildThreadStartParams 汇总 thread/start 参数，并保留模型来源供后续解析区分默认值与显式指定。
 func (d *driver) buildThreadStartParams(req dto.StartSessionRequest) (threadStartParams, error) {
 	baseInstructions, developerInstructions, err := d.startAssemblyInstructions(req)
 	if err != nil {
 		return threadStartParams{}, err
 	}
+	model := strings.TrimSpace(req.Model)
+	if model == "" {
+		model = supportutil.ConfigString(req.Config, "model")
+	}
 	params := threadStartParams{
 		Cwd:                   strings.TrimSpace(req.CWD),
-		Model:                 strings.TrimSpace(req.Model),
+		Model:                 model,
 		ModelProvider:         supportutil.FirstConfigString(req.Config, contract.CodexModelProviderKey, "modelProvider", "model_provider"),
 		BaseInstructions:      baseInstructions,
 		DeveloperInstructions: developerInstructions,
@@ -561,22 +614,18 @@ func (d *driver) startRemoteThreadWithDynamicTools(ctx context.Context, t *trans
 // startRemoteThreadWithParams 发送 thread/start，并在发送前补齐模型选择和诊断日志。
 func startRemoteThreadWithParams(ctx context.Context, t *transport, req dto.StartSessionRequest, params threadStartParams) (startResult, error) {
 	configKeys := supportutil.SortedConfigKeys(req.Config)
-	if supportutil.CodexModelNeedsListResolution(params.Model) {
+	if supportutil.CodexModelNeedsListResolutionForSource(params.Model, threadStartModelResolutionSource(req)) {
 		requestedModel := strings.TrimSpace(params.Model)
-		model, replaced, err := resolveSupportedCodexModel(ctx, t, requestedModel)
+		resolution, err := resolveSupportedCodexModel(ctx, t, requestedModel)
 		if err != nil {
-			pkglogger.Warn("codexapp: model/list default selection failed",
-				"agent_id", strings.TrimSpace(req.AgentID),
-				"cwd", params.Cwd,
-				"requested_model", requestedModel,
-				"error", err,
-			)
-		} else if model != "" && replaced {
-			params.Model = model
+			return startResult{}, err
+		}
+		if resolution.model != "" && resolution.replaced {
+			params.Model = resolution.model
 			pkglogger.Info("codexapp: thread/start selected supported model from model/list",
 				"agent_id", strings.TrimSpace(req.AgentID),
 				"requested_model", requestedModel,
-				"model", model,
+				"model", resolution.model,
 			)
 		}
 	}
@@ -592,18 +641,18 @@ func startRemoteThreadWithParams(ctx context.Context, t *transport, req dto.Star
 		)
 	}
 	if strings.TrimSpace(params.Effort) == "" {
-		pkglogger.Warn("codexapp: thread/start effort missing",
+		fields := []any{
 			"agent_id", strings.TrimSpace(req.AgentID),
-			"cwd", params.Cwd,
 			"model", params.Model,
 			"approval_policy", params.ApprovalPolicy,
 			"config_keys", configKeys,
 			"expected_config_key", "effort",
-		)
+		}
+		fields = append(fields, platformshared.SafePathLogFields("cwd", params.Cwd)...)
+		pkglogger.Warn("codexapp: thread/start effort missing", fields...)
 	}
-	pkglogger.Info("codexapp: thread/start request",
+	requestFields := []any{
 		"agent_id", strings.TrimSpace(req.AgentID),
-		"cwd", params.Cwd,
 		"model", params.Model,
 		"effort", params.Effort,
 		"approval_policy", params.ApprovalPolicy,
@@ -611,14 +660,17 @@ func startRemoteThreadWithParams(ctx context.Context, t *transport, req dto.Star
 		"has_env", hasAnyConfigKey(req.Config, "env"),
 		"has_mcp", hasAnyConfigKey(req.Config, "mcp", "mcpConfig", "mcp_config", "mcpServers", "mcp_servers"),
 		"has_hooks", hasAnyConfigKey(req.Config, "hooks", "hookConfig", "hook_config"),
-	)
+	}
+	requestFields = append(requestFields, platformshared.SafePathLogFields("cwd", params.Cwd)...)
+	pkglogger.Info("codexapp: thread/start request", requestFields...)
 	logThreadStartIdentityTrace("codexapp: thread/start identity trace", t.serverURL, req, params, nil)
 	if len(params.DynamicTools) > 0 {
 		firstTool, _ := json.Marshal(params.DynamicTools[0])
-		pkglogger.Info("codexapp: thread/start payload debug",
+		fields := []any{
 			"dynamic_tools_count", len(params.DynamicTools),
-			"first_tool_json", string(firstTool),
-		)
+		}
+		fields = append(fields, platformshared.SafePayloadLogFields("first_tool_json", firstTool)...)
+		pkglogger.Info("codexapp: thread/start payload debug", fields...)
 	}
 	raw, err := callWithTimeout(ctx, t, 30*time.Second, "thread/start", params)
 	if err != nil {
@@ -626,6 +678,13 @@ func startRemoteThreadWithParams(ctx context.Context, t *transport, req dto.Star
 		return startResult{}, supportutil.WrapCodexModelUnsupportedError(err, params.Model)
 	}
 	return decodeStartResult(raw)
+}
+
+func threadStartModelResolutionSource(req dto.StartSessionRequest) supportutil.CodexModelResolutionSource {
+	if strings.TrimSpace(req.Model) != "" {
+		return supportutil.CodexModelResolutionSourceExplicit
+	}
+	return supportutil.CodexModelResolutionSourceDefault
 }
 
 // logThreadStartIdentityTrace 输出身份路由相关字段，方便排查 provider 选错的问题。
@@ -649,9 +708,9 @@ func logThreadStartIdentityTrace(msg, serverURL string, req dto.StartSessionRequ
 		"model", strings.TrimSpace(params.Model),
 		"effort", strings.TrimSpace(params.Effort),
 		"approval_policy", strings.TrimSpace(params.ApprovalPolicy),
-		"cwd", strings.TrimSpace(params.Cwd),
 		"config_keys", supportutil.SortedConfigKeys(req.Config),
 	}
+	fields = append(fields, platformshared.SafePathLogFields("cwd", strings.TrimSpace(params.Cwd))...)
 	if err != nil {
 		fields = append(fields, "error", err)
 	}

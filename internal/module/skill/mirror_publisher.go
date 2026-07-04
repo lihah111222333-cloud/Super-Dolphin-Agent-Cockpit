@@ -200,7 +200,7 @@ func loadPublishTargetManifest(records []canonicalSkillRecord, target SkillMirro
 // projectMismatchedManifestPublishReport 生成项目 manifest 不匹配的发布报告。
 func projectMismatchedManifestPublishReport(records []canonicalSkillRecord, target SkillMirrorTarget) (SkillMirrorReport, error) {
 	var report SkillMirrorReport
-	names, err := skillMirrorNames(target.Root)
+	names, err := skillMirrorNames(target.Root, DefaultSkillMirrorScanBudget())
 	if err != nil {
 		return report, err
 	}
@@ -248,7 +248,7 @@ func lockSkillMirrorRoot(root string) func() {
 // unmanagedProviderMirrorReport 生成未托管 provider mirror 的报告。
 func unmanagedProviderMirrorReport(target SkillMirrorTarget, manifest SkillMirrorManifest, records []canonicalSkillRecord) (SkillMirrorReport, error) {
 	var report SkillMirrorReport
-	names, err := skillMirrorNames(target.Root)
+	names, err := skillMirrorNames(target.Root, DefaultSkillMirrorScanBudget())
 	if err != nil {
 		return report, err
 	}
@@ -413,13 +413,11 @@ func publishCanonicalRecord(manifest *SkillMirrorManifest, target SkillMirrorTar
 	if exists && !managed {
 		return publishUnmanagedMirrorRecord(manifest, target, record, oldHash, item, &canonicalHash)
 	}
-	if driftedManagedMirror(managed, exists, entry, oldHash) {
+	if driftedManagedMirror(managed, exists, entry, oldHash, entry.CanonicalHash, true) {
 		item.ConflictKind = "drift"
 		return item, false, nil
 	}
-	if canonicalHash == "" {
-		canonicalHash, err = stableMirrorDirectoryHash(record.Dir)
-	}
+	canonicalHash, err = ensureCanonicalHash(canonicalHash, record.Dir)
 	if err != nil {
 		return item, false, err
 	}
@@ -432,6 +430,14 @@ func publishCanonicalRecord(manifest *SkillMirrorManifest, target SkillMirrorTar
 		return item, false, nil
 	}
 	return replaceChangedMirrorRecord(manifest, target, record, canonicalHash, item)
+}
+
+// ensureCanonicalHash 保证后续发布流程已有 canonical hash，避免调用方重复分支判断。
+func ensureCanonicalHash(hash, dir string) (string, error) {
+	if hash != "" {
+		return hash, nil
+	}
+	return stableMirrorDirectoryHash(dir)
 }
 
 func publishUnmanagedMirrorRecord(manifest *SkillMirrorManifest, target SkillMirrorTarget, record canonicalSkillRecord, oldHash string, item SkillMirrorReportItem, canonicalHash *string) (SkillMirrorReportItem, bool, error) {
@@ -465,10 +471,6 @@ func adoptIdenticalUnmanagedMirror(manifest *SkillMirrorManifest, target SkillMi
 	manifest.Skills[record.Name] = mirrorManifestEntry(record, hash, oldHash)
 	manifest.GeneratedAt = time.Now().UTC()
 	return true, nil
-}
-
-func driftedManagedMirror(managed, exists bool, entry SkillMirrorEntry, oldHash string) bool {
-	return managed && exists && (!entry.Owned || oldHash != entry.MirrorHash)
 }
 
 // unchangedOwnedMirror 判断已托管 mirror 是否无需更新。

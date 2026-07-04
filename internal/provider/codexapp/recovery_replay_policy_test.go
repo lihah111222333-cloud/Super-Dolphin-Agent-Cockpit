@@ -3,9 +3,16 @@ package codexapp
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"net/http"
+	"net/http/httptest"
+	"strings"
 	"sync"
 	"testing"
 	"time"
+
+	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
+	"github.com/gorilla/websocket"
 )
 
 type activeTurnRecoveryRecorder struct {
@@ -172,4 +179,91 @@ func TestRecoveryDoesNotReplayCompletedTurn(t *testing.T) {
 		t.Fatalf("activeTurnID = %q, want original turn-1", got)
 	}
 	recorder.assertNoReplayWhileActive(t)
+}
+
+func TestTurnStartNotReplayedAfterTransportWrite(t *testing.T) {
+	recorder, err := runTurnStartWithDroppedResponse(t)
+	if err == nil {
+		t.Fatal("StartTurn() error = nil, want uncertain write outcome error")
+	}
+	if got := recorder.count("turn/start"); got != 1 {
+		t.Fatalf("turn/start count = %d, want 1 after write outcome is unknown", got)
+	}
+}
+
+func TestTurnStartReturnsRecoverableWhenWriteOutcomeUnknown(t *testing.T) {
+	_, err := runTurnStartWithDroppedResponse(t)
+	if err == nil {
+		t.Fatal("StartTurn() error = nil, want uncertain write outcome error")
+	}
+	var recoverable interface{ Recoverable() bool }
+	if !errors.As(err, &recoverable) || !recoverable.Recoverable() {
+		t.Fatalf("StartTurn() error = %T %[1]v, want recoverable error", err)
+	}
+	if !strings.Contains(err.Error(), "turn/start write outcome unknown") {
+		t.Fatalf("StartTurn() error = %v, want turn/start write outcome unknown", err)
+	}
+}
+
+func runTurnStartWithDroppedResponse(t *testing.T) (*rpcMethodRecorder, error) {
+	t.Helper()
+	recorder := &rpcMethodRecorder{}
+	server := newTurnStartDisconnectServer(t, recorder)
+	t.Cleanup(server.Close)
+	s := newRecoveryTestSession(t, server)
+	t.Cleanup(func() { closeCodexTestSession(t, s) })
+	s.setThreadID("thread-1")
+	s.setRuntimeConfigValue("model", "gpt-5")
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	t.Cleanup(cancel)
+	_, err := s.StartTurn(ctx, dto.TurnRequest{
+		ThreadID: "thread-1",
+		Inputs:   []dto.InputItem{{Type: "text", Content: "hello"}},
+	})
+	return recorder, err
+}
+
+func newTurnStartDisconnectServer(t *testing.T, recorder *rpcMethodRecorder) *httptest.Server {
+	t.Helper()
+	upgrader := websocket.Upgrader{CheckOrigin: func(*http.Request) bool { return true }}
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		conn, err := upgrader.Upgrade(w, r, nil)
+		if err != nil {
+			return
+		}
+		serveTurnStartDisconnectConn(t, conn, recorder)
+	}))
+}
+
+func serveTurnStartDisconnectConn(t *testing.T, conn *websocket.Conn, recorder *rpcMethodRecorder) {
+	t.Helper()
+	defer conn.Close()
+	for {
+		_, rawBytes, err := conn.ReadMessage()
+		if err != nil {
+			return
+		}
+		msg, ok := decodeRecoveryTransportRPCMessage(rawBytes)
+		if !ok {
+			continue
+		}
+		recorder.record(msg.Method)
+		if msg.Method == "turn/start" {
+			return
+		}
+		if len(msg.ID) != 0 {
+			writeRecoveryTransportRPCResponse(t, conn, msg, turnStartDisconnectResult(msg.Method))
+		}
+	}
+}
+
+func turnStartDisconnectResult(method string) json.RawMessage {
+	switch method {
+	case "model/list":
+		return validCodexModelListResult()
+	case "thread/resume":
+		return mustJSON(map[string]any{"thread": map[string]any{"id": "thread-1"}})
+	default:
+		return mustJSON(map[string]any{"ok": true})
+	}
 }

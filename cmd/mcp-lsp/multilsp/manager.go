@@ -116,12 +116,13 @@ type manager struct {
 	closed     bool                        // manager 关闭后禁止再创建客户端。
 	workspaces map[string]*workspaceClient // workspace key 到客户端状态。
 
-	diagGeneration atomic.Uint64                 // 诊断缓存代际，关闭/刷新时递增。
-	diagMu         sync.RWMutex                  // 保护 diagnostics。
-	diagnostics    map[string]diagnosticSnapshot // scope+URI 维度的诊断快照。
-	diagInitial    time.Duration                 // 诊断稳定等待前置延迟。
-	diagPoll       time.Duration                 // 诊断稳定等待轮询间隔。
-	diagMaxWait    time.Duration                 // 诊断稳定等待最大时长。
+	diagGeneration   atomic.Uint64                 // 诊断缓存代际，关闭/刷新时递增。
+	diagMu           sync.RWMutex                  // 保护 diagnostics。
+	diagnostics      map[string]diagnosticSnapshot // scope+URI 维度的诊断快照。
+	diagnosticEpochs map[string]uint64             // scope+URI 维度的文档诊断 epoch。
+	diagInitial      time.Duration                 // 诊断稳定等待前置延迟。
+	diagPoll         time.Duration                 // 诊断稳定等待轮询间隔。
+	diagMaxWait      time.Duration                 // 诊断稳定等待最大时长。
 
 	explicitOpenMu sync.RWMutex        // 保护 explicitlyOpen。
 	explicitlyOpen map[string]struct{} // 工具主动打开且尚未关闭的文档 URI。
@@ -144,18 +145,19 @@ type workspaceClient struct {
 
 // diagnosticSnapshot 是诊断缓存中的一条不可变快照，按 scope 与 URI 精确隔离。
 type diagnosticSnapshot struct {
-	scopeKey     string                            // agent/thread scope key。
-	workspaceKey string                            // workspace root 缓存键。
-	language     string                            // 诊断来源语言。
-	uri          string                            // 被诊断文档 URI。
-	generation   uint64                            // 缓存代际，避免读取关闭前旧数据。
-	fingerprint  string                            // 文件内容指纹。
-	mtimeNS      int64                             // 文件修改时间纳秒。
-	size         int64                             // 文件大小。
-	updatedAt    time.Time                         // 最近一次诊断更新时间。
-	source       string                            // 诊断来源说明。
-	state        diagnosticState                   // ready/stale/deleted 等状态。
-	params       protocol.PublishDiagnosticsParams // 原始 publishDiagnostics 参数。
+	scopeKey      string                            // agent/thread scope key。
+	workspaceKey  string                            // workspace root 缓存键。
+	language      string                            // 诊断来源语言。
+	uri           string                            // 被诊断文档 URI。
+	generation    uint64                            // 缓存代际，避免读取关闭前旧数据。
+	fingerprint   string                            // 文件内容指纹。
+	mtimeNS       int64                             // 文件修改时间纳秒。
+	size          int64                             // 文件大小。
+	updatedAt     time.Time                         // 最近一次诊断更新时间。
+	documentEpoch uint64                            // publishDiagnostics 捕获到的文档诊断 epoch。
+	source        string                            // 诊断来源说明。
+	state         diagnosticState                   // ready/stale/deleted 等状态。
+	params        protocol.PublishDiagnosticsParams // 原始 publishDiagnostics 参数。
 }
 
 // documentRef 是工具输入文件解析后的规范引用，后续请求统一使用 URI 和 absPath。
@@ -201,6 +203,7 @@ func NewManager(cfg Config) Manager {
 		logger:                           cfg.Logger,
 		workspaces:                       make(map[string]*workspaceClient),
 		diagnostics:                      make(map[string]diagnosticSnapshot),
+		diagnosticEpochs:                 make(map[string]uint64),
 		explicitlyOpen:                   make(map[string]struct{}),
 		diagInitial:                      chooseDuration(cfg.DiagnosticsInitialDelay, defaultDiagnosticsInitialDelay),
 		diagPoll:                         chooseDuration(cfg.DiagnosticsPollInterval, defaultDiagnosticsPollInterval),
@@ -227,10 +230,11 @@ func (m *manager) cloneForWorkspace(workspaceRoot string) *manager {
 		root = normalized
 	}
 	clone := &manager{
-		workspaceRoot:  root,
-		workspaces:     make(map[string]*workspaceClient),
-		diagnostics:    make(map[string]diagnosticSnapshot),
-		explicitlyOpen: make(map[string]struct{}),
+		workspaceRoot:    root,
+		workspaces:       make(map[string]*workspaceClient),
+		diagnostics:      make(map[string]diagnosticSnapshot),
+		diagnosticEpochs: make(map[string]uint64),
+		explicitlyOpen:   make(map[string]struct{}),
 	}
 	if m != nil {
 		clone.factory = m.factory
