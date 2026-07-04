@@ -23,6 +23,16 @@ const TESTS = Object.freeze({
   WAILS_BRIDGE: 'src/shared/api/wailsBridge.test.js',
 });
 
+/**
+ * @param {keyof typeof RPC_METHODS} key
+ * @param {string} facade
+ * @param {'P0' | 'P1' | 'P2'} level
+ * @param {string} backendOwner
+ * @param {readonly string[]} tests
+ * @param {readonly string[]} notes
+ * @param {boolean} rawLiteralRpc
+ * @param {{ responseValidator?: string, responsePassthroughReason?: string }} options
+ */
 function contract(key, facade, level, backendOwner, tests, notes = [], rawLiteralRpc = false, options = {}) {
   return Object.freeze({
     key,
@@ -139,7 +149,7 @@ export const RPC_CONTRACT_REGISTRY = Object.freeze({
   CRONJOB_LIST_RUNS: contract('CRONJOB_LIST_RUNS', 'listCronJobRuns', 'P1', 'cronjob', [TESTS.API], ['schedule read']),
 
   SKILLS_LOCAL_DELETE: contract('SKILLS_LOCAL_DELETE', 'deleteSkill', 'P0', 'skill', [TESTS.API, TESTS.SKILLS], ['skill mutation']),
-  SKILLS_LOCAL_READ: contract('SKILLS_LOCAL_READ', 'readSkill', 'P1', 'skill', [TESTS.API, TESTS.SKILLS], ['skill read']),
+  SKILLS_LOCAL_READ: contract('SKILLS_LOCAL_READ', 'readSkill', 'P1', 'skill', [TESTS.API, TESTS.SKILLS], ['skill read'], false, { responseValidator: 'skillReadResponse' }),
   SKILLS_LOCAL_LIST_FILES: contract('SKILLS_LOCAL_LIST_FILES', 'listSkillFiles', 'P1', 'skill', [TESTS.API, TESTS.SKILLS], ['skill read']),
   SKILLS_LOCAL_WRITE: contract('SKILLS_LOCAL_WRITE', 'writeSkill', 'P0', 'skill', [TESTS.API, TESTS.SKILLS], ['skill mutation']),
   SKILLS_LOCAL_IMPORT_DIR: contract('SKILLS_LOCAL_IMPORT_DIR', 'importSkillDirectories', 'P0', 'skill', [TESTS.API, TESTS.SKILLS], ['skill mutation']),

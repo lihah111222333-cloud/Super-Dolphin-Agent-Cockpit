@@ -606,6 +606,31 @@ function guardedBackendResponse(method) {
         response: { ok: true },
         message: 'turn/start response missing turn_id or turnId',
       },
+      {
+        call: (api) => api.readSkill({ cwd: '/repo/app', path: '.agents/skills/demo/SKILL.md' }),
+        response: {},
+        message: 'skills/local/read response skill must be an object',
+      },
+      {
+        call: (api) => api.readSkill({ cwd: '/repo/app', path: '.agents/skills/demo/SKILL.md' }),
+        response: { skill: [] },
+        message: 'skills/local/read response skill must be an object',
+      },
+      {
+        call: (api) => api.readSkill({ cwd: '/repo/app', path: '.agents/skills/demo/SKILL.md' }),
+        response: { skill: { content: '# Demo' } },
+        message: 'skills/local/read response missing path',
+      },
+      {
+        call: (api) => api.readSkill({ cwd: '/repo/app', path: '.agents/skills/demo/SKILL.md' }),
+        response: { skill: { path: '.agents/skills/demo/SKILL.md' } },
+        message: 'skills/local/read response skill.content must be a string',
+      },
+      {
+        call: (api) => api.readSkill({ cwd: '/repo/app', path: '.agents/skills/demo/SKILL.md' }),
+        response: { skill: { path: '.agents/skills/demo/SKILL.md', content: null } },
+        message: 'skills/local/read response skill.content must be a string',
+      },
     ];
 
     for (const item of cases) {
@@ -614,6 +639,18 @@ function guardedBackendResponse(method) {
       await expect(item.call(api)).rejects.toThrow(item.message);
       expect(callAPI).toHaveBeenCalledTimes(1);
     }
+  });
+
+  it('allows explicit empty skill content from skills/local/read', async () => {
+    const response = { skill: { path: '.agents/skills/demo/SKILL.md', content: '' } };
+    const callAPI = vi.fn().mockResolvedValue(response);
+    const api = createBackendApi({ callAPI });
+
+    await expect(api.readSkill({ cwd: '/repo/app', path: '.agents/skills/demo/SKILL.md' })).resolves.toBe(response);
+    expect(callAPI).toHaveBeenCalledWith(RPC_METHODS.SKILLS_LOCAL_READ, {
+      cwd: '/repo/app',
+      path: '.agents/skills/demo/SKILL.md',
+    });
   });
 
   it('rejects turn/start legacy prompt with legacy attachments before calling the backend', () => {
@@ -908,7 +945,9 @@ function guardedBackendResponse(method) {
     const callAPI = vi.fn((method) => Promise.resolve(
       method === RPC_METHODS.SKILLS_SUMMARY_SUGGEST
         ? { description: '当你需要编写文档时使用。' }
-        : { ok: true },
+        : method === RPC_METHODS.SKILLS_LOCAL_READ
+          ? { skill: { path: '/repo/app/.agent/skills/docs/SKILL.md', content: '# DocsSkill' } }
+          : { ok: true },
     ));
     const selectProjectDirs = vi.fn().mockResolvedValue(['/imports/a']);
     const api = createBackendApi({ callAPI, selectProjectDirs });

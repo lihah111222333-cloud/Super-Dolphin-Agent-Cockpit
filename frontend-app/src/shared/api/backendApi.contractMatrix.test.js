@@ -106,6 +106,7 @@ describe('backend API contract matrix', () => {
     expect(RPC_CONTRACT_REGISTRY.THREAD_START.responseValidator).toBe('threadStartResponse');
     expect(RPC_CONTRACT_REGISTRY.THREAD_MESSAGES.responseValidator).toBe('threadMessagesResponse');
     expect(RPC_CONTRACT_REGISTRY.THREAD_RESOLVE.responseValidator).toBe('threadResolveResponse');
+    expect(RPC_CONTRACT_REGISTRY.SKILLS_LOCAL_READ.responseValidator).toBe('skillReadResponse');
     expect(RPC_CONTRACT_REGISTRY.TURN_START.responseValidator).toBe('turnStartResponse');
     expect(RPC_CONTRACT_REGISTRY.TURN_INTERRUPT.responsePassthroughReason).toContain('command result envelope');
   });

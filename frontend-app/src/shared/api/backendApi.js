@@ -942,8 +942,22 @@ function validateTurnStartResponse(method, response) {
   return value;
 }
 
+function validateSkillReadResponse(method, response) {
+  const value = assertBackendResponseObject(method, response);
+  const skill = value.skill;
+  if (!skill || typeof skill !== 'object' || Array.isArray(skill)) {
+    throw new TypeError(`${method} response skill must be an object`);
+  }
+  requireResponseKey(method, skill, ['path']);
+  if (!hasOwn(skill, 'content') || typeof skill.content !== 'string') {
+    throw new TypeError(`${method} response skill.content must be a string`);
+  }
+  return value;
+}
+
 const BACKEND_RESPONSE_VALIDATORS = Object.freeze({
   [RPC_METHODS.UI_STATE_GET]: validateUIStateResponse,
+  [RPC_METHODS.SKILLS_LOCAL_READ]: validateSkillReadResponse,
   [RPC_METHODS.THREAD_START]: validateThreadStartResponse,
   [RPC_METHODS.THREAD_MESSAGES]: validateThreadMessagesResponse,
   [RPC_METHODS.THREAD_RESOLVE]: validateThreadResolveResponse,
