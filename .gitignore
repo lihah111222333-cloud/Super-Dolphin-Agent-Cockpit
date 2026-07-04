@@ -83,7 +83,6 @@ Thumbs.db
 /.agents/skills/**/.coverage
 /.codex/*
 !/.codex/
-!/.codex/config.toml
 !/.codex/hooks.json
 !/.codex/.gitignore
 /.codex/logs/
