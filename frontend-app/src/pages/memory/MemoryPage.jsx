@@ -352,7 +352,9 @@ function useMemoryEditor({ dashboard, showNotice }) {
   const [busyKey, setBusyKey] = useState('');
   const [saving, setSaving] = useState(false);
   const memoryCwdRef = useLatestValue(dashboard.memoryCwd);
+  const editRequestRef = useRef(0);
   useEffect(() => {
+    editRequestRef.current += 1;
     setCreateMenuOpen(false);
     setBusyKey('');
     setEditor((current) => {
@@ -364,26 +366,30 @@ function useMemoryEditor({ dashboard, showNotice }) {
   const openCreate = useCallback((type) => {
     if (dashboard.isProjectPending) return;
     if (!dashboard.memoryCwd) { showNotice('error', '正在连接本地项目...'); return; }
+    editRequestRef.current += 1;
     setEditor({ open: true, mode: 'create', scopeCwd: dashboard.memoryCwd, form: defaultMemoryForm(type, memoryTargetForType(type)) });
     setCreateMenuOpen(false);
   }, [dashboard.isProjectPending, dashboard.memoryCwd, showNotice]);
   const openEdit = useCallback(async (entry) => {
     const requestCwd = dashboard.memoryCwd;
     if (!requestCwd) return;
+    const requestID = editRequestRef.current + 1;
+    editRequestRef.current = requestID;
     const key = `${entry.target}:${entry.path}`;
     setBusyKey(key);
     try {
       const detail = await getMemoryEntry({ cwd: requestCwd, target: entry.target, path: entry.path });
-      if (memoryCwdRef.current !== requestCwd) return;
+      if (editRequestRef.current !== requestID || memoryCwdRef.current !== requestCwd) return;
       if (!memoryDetailHasContent(detail)) {
         showNotice('error', '加载失败：记忆详情缺少内容，已阻断编辑保存');
         return;
       }
       setEditor({ open: true, mode: 'edit', scopeCwd: requestCwd, form: memoryEditorFormFromDetail(detail, entry) });
     } catch (err) {
+      if (editRequestRef.current !== requestID || memoryCwdRef.current !== requestCwd) return;
       showNotice('error', `加载失败：${errorMessage(err)}`);
     } finally {
-      setBusyKey('');
+      if (editRequestRef.current === requestID) setBusyKey('');
     }
   }, [dashboard.memoryCwd, memoryCwdRef, showNotice]);
   const closeEditor = useCallback(() => {

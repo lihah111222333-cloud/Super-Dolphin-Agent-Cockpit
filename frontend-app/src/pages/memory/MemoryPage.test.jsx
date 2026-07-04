@@ -235,6 +235,71 @@ describe('MemoryPage editor', () => {
     expect(upsertMemoryEntry).not.toHaveBeenCalled();
   });
 
+  it('ignores stale edit detail responses for older entries in the same project', async () => {
+    fetchMemoryDashboard.mockResolvedValue(normalizeMemorySnapshot(memorySnapshot({
+      privateEntries: [
+        {
+          name: 'first-rule',
+          title: '第一条',
+          description: '第一条描述',
+          target: 'private',
+          type: 'feedback',
+          path: 'feedback/first.md',
+          updatedAt: '2026-05-30T08:00:00Z',
+          preview: '第一条预览',
+        },
+        {
+          name: 'second-rule',
+          title: '第二条',
+          description: '第二条描述',
+          target: 'private',
+          type: 'feedback',
+          path: 'feedback/second.md',
+          updatedAt: '2026-05-31T08:00:00Z',
+          preview: '第二条预览',
+        },
+      ],
+    })));
+    const firstDetailRequest = deferred();
+    backend.getMemoryEntry
+      .mockReturnValueOnce(firstDetailRequest.promise)
+      .mockResolvedValueOnce({
+        target: 'private',
+        path: 'feedback/second.md',
+        name: 'second-rule',
+        description: '第二条描述',
+        title: '第二条',
+        type: 'feedback',
+        content: '第二条内容',
+      });
+
+    renderMemoryPage('/repo/app');
+
+    const firstCard = (await screen.findByText('第一条')).closest('article');
+    const secondCard = screen.getByText('第二条').closest('article');
+    fireEvent.click(within(firstCard).getByRole('button', { name: '编辑' }));
+    fireEvent.click(within(secondCard).getByRole('button', { name: '编辑' }));
+
+    const editor = await screen.findByRole('dialog', { name: '编辑记忆' });
+    expect(within(editor).getByLabelText('内容')).toHaveValue('第二条内容');
+
+    await act(async () => {
+      firstDetailRequest.resolve({
+        target: 'private',
+        path: 'feedback/first.md',
+        name: 'first-rule',
+        description: '第一条描述',
+        title: '第一条',
+        type: 'feedback',
+        content: '第一条内容',
+      });
+      await flushPromises();
+    });
+
+    expect(within(editor).getByLabelText('内容')).toHaveValue('第二条内容');
+    expect(upsertMemoryEntry).not.toHaveBeenCalled();
+  });
+
   it('closes stale delete confirmation after switching projects', async () => {
     fetchMemoryDashboard.mockResolvedValue(normalizeMemorySnapshot(memorySnapshot({
       privateEntries: [{
