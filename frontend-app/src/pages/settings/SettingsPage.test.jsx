@@ -660,6 +660,51 @@ describe('SettingsPage model provider management', () => {
   });
 });
 
+describe('SettingsPage prompt settings', () => {
+  it('ignores stale prompt settings loads after cwd changes', async () => {
+    const firstLoad = deferred();
+    const secondLoad = deferred();
+    backend.readLspPromptHint
+      .mockReturnValueOnce(firstLoad.promise)
+      .mockReturnValueOnce(secondLoad.promise);
+
+    const { rerender } = render(<SettingsPage projectPath="/repo/one" />);
+    await waitFor(() => {
+      expect(backend.readLspPromptHint).toHaveBeenCalledWith({ cwd: '/repo/one' });
+    });
+
+    rerender(<SettingsPage projectPath="/repo/two" />);
+    await waitFor(() => {
+      expect(backend.readLspPromptHint).toHaveBeenCalledWith({ cwd: '/repo/two' });
+    });
+
+    await act(async () => {
+      secondLoad.resolve({
+        hint: 'project two effective prompt',
+        defaultHint: 'project two default prompt',
+        overrideHint: 'project two override prompt',
+        usingDefault: false,
+      });
+    });
+    await waitFor(() => {
+      expect(screen.getByTestId('settings-lsp-prompt-input')).toHaveValue('project two override prompt');
+      expect(screen.getByTestId('settings-lsp-effective-output')).toHaveValue('project two effective prompt');
+    });
+
+    await act(async () => {
+      firstLoad.resolve({
+        hint: 'project one effective prompt',
+        defaultHint: 'project one default prompt',
+        overrideHint: 'project one override prompt',
+        usingDefault: false,
+      });
+    });
+
+    expect(screen.getByTestId('settings-lsp-prompt-input')).toHaveValue('project two override prompt');
+    expect(screen.getByTestId('settings-lsp-effective-output')).toHaveValue('project two effective prompt');
+  });
+});
+
 describe('SettingsPage builtin tools migration', () => {
   it('loads grouped builtin tools and toggles through config/builtinTools write facade', async () => {
     backend.readBuiltinTools.mockResolvedValueOnce({
@@ -682,6 +727,43 @@ describe('SettingsPage builtin tools migration', () => {
 
     await waitFor(() => {
       expect(backend.writeBuiltinTool).toHaveBeenCalledWith({ cwd: '/repo/app', id: 'Read', enabled: true });
+    });
+  });
+
+  it('ignores stale builtin tool loads after cwd changes', async () => {
+    const firstLoad = deferred();
+    const secondLoad = deferred();
+    backend.readBuiltinTools
+      .mockReturnValueOnce(firstLoad.promise)
+      .mockReturnValueOnce(secondLoad.promise);
+
+    const { rerender } = render(<SettingsPage projectPath="/repo/one" />);
+    await waitFor(() => {
+      expect(backend.readBuiltinTools).toHaveBeenCalledWith({ cwd: '/repo/one' });
+    });
+
+    rerender(<SettingsPage projectPath="/repo/two" />);
+    await waitFor(() => {
+      expect(backend.readBuiltinTools).toHaveBeenCalledWith({ cwd: '/repo/two' });
+    });
+
+    await act(async () => {
+      secondLoad.resolve({ tools: [{ id: 'TwoRead', label: 'Project Two Read', description: 'two', enabled: false, provider: 'claude', filterMode: 'hard', enforcement: 'native-hard' }] });
+    });
+    await waitFor(() => {
+      expect(screen.getByTestId('settings-builtin-tools-summary')).toHaveTextContent('已管控 1 / 1');
+    });
+    await act(async () => {
+      firstLoad.resolve({
+        tools: [
+          { id: 'OneRead', label: 'Project One Read', description: 'one', enabled: false, provider: 'claude', filterMode: 'hard', enforcement: 'native-hard' },
+          { id: 'OneWrite', label: 'Project One Write', description: 'one write', enabled: false, provider: 'claude', filterMode: 'hard', enforcement: 'native-hard' },
+        ],
+      });
+    });
+
+    await waitFor(() => {
+      expect(screen.getByTestId('settings-builtin-tools-summary')).toHaveTextContent('已管控 1 / 1');
     });
   });
 });
