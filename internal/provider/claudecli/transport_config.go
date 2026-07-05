@@ -35,7 +35,6 @@ func sanitizeResumeID(id string) string {
 
 const (
 	defaultClaudeCLIBin = "claude"
-	managedMCPPrefix    = "mcp-"
 	systemPromptDumpEnv = "SUPER_DOLPHIN_CLAUDE_SYSTEM_PROMPT_DUMP"
 )
 
@@ -551,7 +550,7 @@ func buildStdioServer(bin dto.MCPBinary, cwd string) (map[string]any, error) {
 	if command == "" {
 		return nil, errors.New("empty stdio command")
 	}
-	if !allowedStdioMCPCommand(command, bin.Command[1:]) {
+	if !allowedStdioMCPCommand(bin.Name, command, bin.Command[1:]) {
 		return nil, fmt.Errorf("stdio command %q is not allowed", command)
 	}
 	server := map[string]any{"command": command}
@@ -569,23 +568,13 @@ func buildStdioServer(bin dto.MCPBinary, cwd string) (map[string]any, error) {
 }
 
 // allowedStdioMCPCommand 控制 Claude MCP 配置里可被拉起的 stdio 命令范围。
-// 托管 sidecar 按 mcp-* 放行；npx 只允许明确列出的 MCP 包，避免任意 npm 包被配置启动。
-func allowedStdioMCPCommand(command string, args []string) bool {
-	base := strings.ToLower(strings.TrimSpace(filepath.Base(command)))
-	base = strings.TrimSuffix(strings.TrimSuffix(base, ".exe"), ".cmd")
-	if strings.HasPrefix(base, managedMCPPrefix) {
-		return true
+// 托管 sidecar 和用户可配 stdio server 共用 contract policy，避免各 provider 漂移出不同白名单。
+func allowedStdioMCPCommand(serverName, command string, args []string) bool {
+	policy := contract.DefaultRuntimeMCPPolicy()
+	if contract.IsManagedRuntimeMCPServerName(serverName) {
+		return policy.ValidateManagedRuntimeStdioCommand(serverName, command, args) == nil
 	}
-	if base != "npx" {
-		return false
-	}
-	for _, arg := range args {
-		switch strings.TrimSpace(arg) {
-		case "@modelcontextprotocol/server-postgres", "@bytebase/dbhub", "@playwright/mcp@latest":
-			return true
-		}
-	}
-	return false
+	return policy.ValidateRuntimeStdioCommand(command, args, "") == nil
 }
 
 func applyAutoApprove(server map[string]any, autoApprove []string) {

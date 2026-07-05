@@ -658,6 +658,29 @@ describe('SettingsPage model provider management', () => {
       expect(card).toHaveTextContent('已应用 OpenRouter');
     });
   });
+
+  it('saves the current provider draft before applying a configured vendor', async () => {
+    renderSettingsPage();
+    const card = await screen.findByTestId('settings-model-providers-card');
+    fireEvent.change(within(card).getByLabelText('Codex Home'), { target: { value: '/repo/app/.codex-openrouter' } });
+    fireEvent.change(within(card).getByLabelText('Codex Model Provider'), { target: { value: 'openrouter-project' } });
+
+    fireEvent.click(within(card).getByRole('button', { name: '应用厂商' }));
+
+    await waitFor(() => {
+      expect(backend.saveModelProviders).toHaveBeenCalledWith(expect.objectContaining({ cwd: '/repo/app' }));
+      expect(backend.applyModelProvider).toHaveBeenCalledWith({ cwd: '/repo/app', vendorId: 'openrouter' });
+    });
+    const savePayload = backend.saveModelProviders.mock.calls[0][0];
+    expect(savePayload.registry.vendors).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        id: 'openrouter',
+        codexHome: '/repo/app/.codex-openrouter',
+        codexModelProvider: 'openrouter-project',
+      }),
+    ]));
+    expect(backend.saveModelProviders.mock.invocationCallOrder[0]).toBeLessThan(backend.applyModelProvider.mock.invocationCallOrder[0]);
+  });
 });
 
 describe('SettingsPage prompt settings', () => {

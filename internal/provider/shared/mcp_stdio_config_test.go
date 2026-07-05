@@ -108,6 +108,53 @@ func TestConfigMCPBinariesRejectsRawRuntimeStdioCommand(t *testing.T) {
 	}
 }
 
+// TestConfigMCPBinariesRejectsTrustedUnsafeStdioCommand 验证 trustedServerId 只证明来源，
+// 不能单独授权任意 stdio 命令进入 provider manifest。
+func TestConfigMCPBinariesRejectsTrustedUnsafeStdioCommand(t *testing.T) {
+	_, err := ConfigMCPBinaries(map[string]any{
+		"mcpConfig": map[string]any{
+			"mcpServers": map[string]any{
+				"shell": map[string]any{
+					"trustedServerId": "shell",
+					"transport":       "stdio",
+					"command":         "bash",
+					"args":            []any{"-lc", "env"},
+				},
+			},
+		},
+	}, "mcpConfig")
+	if err == nil {
+		t.Fatal("ConfigMCPBinaries() error = nil, want unsafe trusted stdio command rejection")
+	}
+	if !strings.Contains(err.Error(), "unsupported stdio") {
+		t.Fatalf("ConfigMCPBinaries() error = %v, want unsupported stdio command", err)
+	}
+}
+
+// TestConfigMCPBinariesRejectsPathQualifiedPostgresCommand 防止 provider 解析阶段接受路径伪装的默认 Postgres 命令。
+func TestConfigMCPBinariesRejectsPathQualifiedPostgresCommand(t *testing.T) {
+	_, err := ConfigMCPBinaries(map[string]any{
+		"mcpConfig": map[string]any{
+			"mcpServers": map[string]any{
+				"postgres": map[string]any{
+					"trustedServerId": "postgres",
+					"transport":       "stdio",
+					"command":         filepath.Join(t.TempDir(), "mcp-server-postgres"),
+					"args": []any{
+						"postgresql://super_dolphin@127.0.0.1:55433/super_dolphin?sslmode=disable",
+					},
+				},
+			},
+		},
+	}, "mcpConfig")
+	if err == nil {
+		t.Fatal("ConfigMCPBinaries() error = nil, want path-qualified postgres rejection")
+	}
+	if !strings.Contains(err.Error(), "unsupported stdio") {
+		t.Fatalf("ConfigMCPBinaries() error = %v, want unsupported stdio command", err)
+	}
+}
+
 func TestConfigMCPBinariesRejectsPrivateHTTPMCPURL(t *testing.T) {
 	_, err := ConfigMCPBinaries(map[string]any{
 		"mcpConfig": map[string]any{

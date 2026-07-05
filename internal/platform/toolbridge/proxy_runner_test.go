@@ -115,8 +115,7 @@ func TestProxyRunnerServeFailureSurfaces(t *testing.T) {
 	_ = ln.Close()
 	runner.SetListener(ln)
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 	done := make(chan error, 1)
 	go func() { done <- runner.Run(ctx) }()
 	select {
@@ -136,8 +135,7 @@ func TestProxyRunnerServePanicSurfaces(t *testing.T) {
 	runner := NewProxyRunner(&Handler{})
 	runner.SetListener(panicListener{})
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 	done := make(chan error, 1)
 	go func() { done <- runner.Run(ctx) }()
 	select {

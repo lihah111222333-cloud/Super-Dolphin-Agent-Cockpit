@@ -62,8 +62,6 @@ func claudeMCPManifestFixture() dto.MCPManifest {
 	})
 	manifest.Binaries[0].Command = []string{
 		"/tmp/claude-e2e/bin/mcp-lsp",
-		"--transport", "stdio",
-		"--log-level", "debug",
 	}
 	return manifest
 }
@@ -84,8 +82,8 @@ func assertClaudeMCPManifest(t *testing.T, raw []byte, doc claudeManifestFile) {
 	if lsp.Command != "/tmp/claude-e2e/bin/mcp-lsp" {
 		t.Fatalf("lsp.command = %q, want binary path", lsp.Command)
 	}
-	if !reflect.DeepEqual(lsp.Args, []string{"--transport", "stdio", "--log-level", "debug"}) {
-		t.Fatalf("lsp.args = %#v, want split args", lsp.Args)
+	if len(lsp.Args) != 0 {
+		t.Fatalf("lsp.args = %#v, want no args for managed sidecar", lsp.Args)
 	}
 	// Check that caller-supplied env values are preserved.
 	// normalizeManifestEnv may auto-add GO_AGENT_CTL_* from os env,
@@ -107,12 +105,12 @@ func assertClaudeMCPManifest(t *testing.T, raw []byte, doc claudeManifestFile) {
 func TestClaudeMCPManifest_RejectsUnmanagedStdioServer_E2E(t *testing.T) {
 	manifest := dto.MCPManifest{Binaries: []dto.MCPBinary{
 		{
-			Name:    "mcp-lsp",
+			Name:    "lsp",
 			Command: []string{"/tmp/claude-e2e/bin/mcp-lsp"},
 		},
 		{
 			Name:    "third-party",
-			Command: []string{"/tmp/claude-e2e/bin/third-party"},
+			Command: []string{"/tmp/claude-e2e/bin/mcp-evil"},
 		},
 	}}
 
