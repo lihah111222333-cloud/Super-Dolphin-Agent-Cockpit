@@ -81,7 +81,9 @@ func TestPrepareStartRequestConcurrentChildReservationsAreUnique(t *testing.T) {
 	errs := make(chan error, n)
 	var wg sync.WaitGroup
 	wg.Add(n)
-	for i := 0; i < n; i++ {
+	workersDone := make(chan struct{})
+	registerThreadGoroutineCleanup(t, workersDone, "agent id reservation")
+	for range n {
 		go func() {
 			defer wg.Done()
 			<-start
@@ -101,6 +103,7 @@ func TestPrepareStartRequestConcurrentChildReservationsAreUnique(t *testing.T) {
 	}
 	close(start)
 	wg.Wait()
+	close(workersDone)
 	close(ids)
 	close(releases)
 	close(errs)

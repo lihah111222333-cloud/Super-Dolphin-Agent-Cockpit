@@ -45,7 +45,7 @@ func TestSendKeepaliveNormalFlow(t *testing.T) {
 	stdin := &recordingWriteCloser{writes: make(chan string, 1)}
 	tr := &transport{stdin: stdin, stderr: newLimitedBuffer(stderrLimitBytes), done: make(chan struct{})}
 	s, rawEvents, turnCompleted := newSilentTurnTestSession(t, tr)
-	errCh := startKeepaliveForTest(s)
+	errCh := startKeepaliveForTest(t, s)
 
 	expectKeepaliveWrite(t, stdin)
 	turnID := requireActiveSilentTurn(t, s)
@@ -55,9 +55,21 @@ func TestSendKeepaliveNormalFlow(t *testing.T) {
 	assertNoKeepaliveDispatch(t, rawEvents, turnCompleted)
 }
 
-func startKeepaliveForTest(s *session) chan error {
+func startKeepaliveForTest(t *testing.T, s *session) chan error {
+	t.Helper()
 	errCh := make(chan error, 1)
-	go func() { errCh <- s.SendKeepalive(context.Background()) }()
+	finished := make(chan struct{})
+	go func() {
+		defer close(finished)
+		errCh <- s.SendKeepalive(context.Background())
+	}()
+	t.Cleanup(func() {
+		select {
+		case <-finished:
+		case <-time.After(time.Second):
+			t.Fatal("keepalive goroutine did not stop")
+		}
+	})
 	return errCh
 }
 
@@ -152,7 +164,7 @@ func TestSendKeepaliveLockModel(t *testing.T) {
 	writer := &blockingWriteCloser{started: make(chan struct{}), release: make(chan struct{}), writes: make(chan string, 1)}
 	tr := &transport{stdin: writer, stderr: newLimitedBuffer(stderrLimitBytes), done: make(chan struct{})}
 	s := &session{transport: tr}
-	errCh := startKeepaliveForTest(s)
+	errCh := startKeepaliveForTest(t, s)
 
 	waitForBlockingWriteStart(t, writer)
 	lockAcquired := assertSessionMutexHeldDuringSend(t, s)
@@ -174,12 +186,21 @@ func waitForBlockingWriteStart(t *testing.T, writer *blockingWriteCloser) {
 func assertSessionMutexHeldDuringSend(t *testing.T, s *session) chan struct{} {
 	t.Helper()
 	lockAcquired := make(chan struct{})
+	finished := make(chan struct{})
 	go func() {
+		defer close(finished)
 		s.mu.Lock()
 		_ = s.activeTurn
 		s.mu.Unlock()
 		close(lockAcquired)
 	}()
+	t.Cleanup(func() {
+		select {
+		case <-finished:
+		case <-time.After(time.Second):
+			t.Fatal("session mutex probe goroutine did not stop")
+		}
+	})
 	select {
 	case <-lockAcquired:
 		t.Fatal("session mutex unlocked before SendKeepalive transport.Send completed")
@@ -236,7 +257,7 @@ func TestKeepaliveTurnEndToEndSilent(t *testing.T) {
 
 	// Start a real keepalive turn; prepareSilentTurnLocked assigns the
 	// keepalive turn id that the whole decode pipeline derives from.
-	errCh := startKeepaliveForTest(s)
+	errCh := startKeepaliveForTest(t, s)
 	expectKeepaliveWrite(t, stdin)
 	requireActiveSilentTurn(t, s)
 

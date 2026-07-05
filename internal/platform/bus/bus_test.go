@@ -70,40 +70,40 @@ func TestUnsubscribe(t *testing.T) {
 	t.Parallel()
 
 	dispatcher := NewDispatcher()
-	var calls int32
+	var calls atomic.Int32
 	cancel := event.Subscribe(dispatcher, func(busEvent) {
-		atomic.AddInt32(&calls, 1)
+		calls.Add(1)
 	})
 
 	event.Publish(dispatcher, busEvent{ID: 1})
-	waitForValue(t, int32(1), func() int32 { return atomic.LoadInt32(&calls) }, "call count before cancel")
+	waitForValue(t, int32(1), calls.Load, "call count before cancel")
 	cancel()
 	event.Publish(dispatcher, busEvent{ID: 2})
-	assertValueAfterDelay(t, int32(1), func() int32 { return atomic.LoadInt32(&calls) }, "call count after cancel")
+	assertValueAfterDelay(t, int32(1), calls.Load, "call count after cancel")
 }
 
 func TestTypeSafety(t *testing.T) {
 	t.Parallel()
 
 	dispatcher := NewDispatcher()
-	var busCalls int32
-	var otherCalls int32
+	var busCalls atomic.Int32
+	var otherCalls atomic.Int32
 	cancelBus := event.Subscribe(dispatcher, func(busEvent) {
-		atomic.AddInt32(&busCalls, 1)
+		busCalls.Add(1)
 	})
 	defer cancelBus()
 	cancelOther := event.Subscribe(dispatcher, func(otherBusEvent) {
-		atomic.AddInt32(&otherCalls, 1)
+		otherCalls.Add(1)
 	})
 	defer cancelOther()
 
 	event.Publish(dispatcher, busEvent{ID: 1})
-	waitForValue(t, int32(1), func() int32 { return atomic.LoadInt32(&busCalls) }, "bus event calls after bus publish")
-	assertValueAfterDelay(t, int32(0), func() int32 { return atomic.LoadInt32(&otherCalls) }, "other event calls after bus publish")
+	waitForValue(t, int32(1), busCalls.Load, "bus event calls after bus publish")
+	assertValueAfterDelay(t, int32(0), otherCalls.Load, "other event calls after bus publish")
 
 	event.Publish(dispatcher, otherBusEvent{Code: "x"})
-	waitForValue(t, int32(1), func() int32 { return atomic.LoadInt32(&otherCalls) }, "other event calls after other publish")
-	assertValueAfterDelay(t, int32(1), func() int32 { return atomic.LoadInt32(&busCalls) }, "bus event calls after other publish")
+	waitForValue(t, int32(1), otherCalls.Load, "other event calls after other publish")
+	assertValueAfterDelay(t, int32(1), busCalls.Load, "bus event calls after other publish")
 }
 
 func TestConcurrentPublish(t *testing.T) {
@@ -113,20 +113,28 @@ func TestConcurrentPublish(t *testing.T) {
 	const perWorker = 50
 
 	dispatcher := NewDispatcher()
-	var calls int64
+	var calls atomic.Int64
 	cancel := event.Subscribe(dispatcher, func(busEvent) {
-		atomic.AddInt64(&calls, 1)
+		calls.Add(1)
 	})
 	defer cancel()
 
 	start := make(chan struct{})
 	var wg sync.WaitGroup
 	wg.Add(workers)
-	for worker := 0; worker < workers; worker++ {
+	workersDone := make(chan struct{})
+	t.Cleanup(func() {
+		select {
+		case <-workersDone:
+		case <-time.After(time.Second):
+			t.Fatal("bus publish goroutines did not stop")
+		}
+	})
+	for worker := range workers {
 		go func(id int) {
 			defer wg.Done()
 			<-start
-			for i := 0; i < perWorker; i++ {
+			for i := range perWorker {
 				event.Publish(dispatcher, busEvent{ID: id*perWorker + i})
 			}
 		}(worker)
@@ -134,8 +142,9 @@ func TestConcurrentPublish(t *testing.T) {
 
 	close(start)
 	wg.Wait()
+	close(workersDone)
 
-	waitForValue(t, int64(workers*perWorker), func() int64 { return atomic.LoadInt64(&calls) }, "call count")
+	waitForValue(t, int64(workers*perWorker), calls.Load, "call count")
 }
 
 func TestDispatcherWrapperNilSafe(t *testing.T) {

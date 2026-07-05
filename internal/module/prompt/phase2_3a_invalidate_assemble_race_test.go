@@ -43,12 +43,14 @@ func TestPhase2_3aConcurrentAssembleStartInvalidateRaceFree(t *testing.T) {
 	)
 	var wg sync.WaitGroup
 	wg.Add(readers + writers)
+	workersDone := make(chan struct{})
+	registerPromptGoroutineCleanup(t, workersDone, "phase2 invalidate race")
 
-	for i := 0; i < readers; i++ {
+	for range readers {
 		go func() {
 			defer wg.Done()
 			ctx := context.Background()
-			for r := 0; r < rounds; r++ {
+			for range rounds {
 				assembly, err := svc.AssembleStart(ctx, input)
 				if err != nil {
 					t.Errorf("AssembleStart() error = %v", err)
@@ -64,15 +66,16 @@ func TestPhase2_3aConcurrentAssembleStartInvalidateRaceFree(t *testing.T) {
 			}
 		}()
 	}
-	for i := 0; i < writers; i++ {
+	for range writers {
 		go func() {
 			defer wg.Done()
-			for r := 0; r < rounds; r++ {
+			for range rounds {
 				internal.InvalidateSections(contract.InvalidateMemoryWrite, contract.DynamicSectionMemory)
 			}
 		}()
 	}
 	wg.Wait()
+	close(workersDone)
 
 	// writer 共执行 writers*rounds 次失效，generation 至少应推进这么多次。
 	// 预热或 section 计算触发额外失效时允许更高。
@@ -95,7 +98,9 @@ func TestPhase2_3aGenerationMonotonicUnderConcurrentReaders(t *testing.T) {
 	stop := make(chan struct{})
 	var rwg sync.WaitGroup
 	rwg.Add(readers)
-	for i := 0; i < readers; i++ {
+	readersDone := make(chan struct{})
+	registerPromptGoroutineCleanup(t, readersDone, "phase2 generation readers")
+	for range readers {
 		go func() {
 			defer rwg.Done()
 			ctx := context.Background()
@@ -111,7 +116,7 @@ func TestPhase2_3aGenerationMonotonicUnderConcurrentReaders(t *testing.T) {
 	}
 
 	prev := internal.cache.Generation()
-	for i := 0; i < invalidations; i++ {
+	for i := range invalidations {
 		if err := svc.Invalidate(context.Background(), contract.InvalidateMemoryWrite); err != nil {
 			t.Fatalf("Invalidate() error = %v", err)
 		}
@@ -124,6 +129,7 @@ func TestPhase2_3aGenerationMonotonicUnderConcurrentReaders(t *testing.T) {
 	}
 	close(stop)
 	rwg.Wait()
+	close(readersDone)
 }
 
 // phase2ConcurrentStartInput 避免并发压力测试在每轮 reader 中启动 git status 子进程。
@@ -164,7 +170,10 @@ func TestPhase2_3aSingleflightInvalidateNoStaleStore(t *testing.T) {
 	cwd := t.TempDir()
 
 	resultCh := make(chan phase2AssembleResult, 1)
+	resultDone := make(chan struct{})
+	registerPromptGoroutineCleanup(t, resultDone, "phase2 singleflight assemble")
 	go func() {
+		defer close(resultDone)
 		assembly, err := svc.AssembleStart(context.Background(), StartInput{
 			Provider: "claudecli",
 			CWD:      cwd,

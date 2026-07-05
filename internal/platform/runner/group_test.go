@@ -27,11 +27,9 @@ func TestRunGroupCancellationReturnsRunnerError(t *testing.T) {
 		err:     wantErr,
 		delay:   50 * time.Millisecond,
 	}
-	ctx, cancel := context.WithCancel(context.Background())
-	done := make(chan error, 1)
-	go func() {
-		done <- RunGroup(ctx, []Runner{runner}, GroupOptions{})
-	}()
+	cancel, done := startRunnerForTest(t, func(ctx context.Context) error {
+		return RunGroup(ctx, []Runner{runner}, GroupOptions{})
+	})
 	select {
 	case <-runner.started:
 	case <-time.After(time.Second):

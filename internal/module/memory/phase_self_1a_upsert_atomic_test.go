@@ -129,16 +129,19 @@ func runConcurrentUpserts(t *testing.T, store *diskStore, name string, concurren
 	counters := &upsertRaceCounters{}
 	var wg sync.WaitGroup
 	wg.Add(concurrency)
-	for i := 0; i < concurrency; i++ {
+	workersDone := make(chan struct{})
+	registerMemoryGoroutineCleanup(t, workersDone, "memory upsert race")
+	for i := range concurrency {
 		go upsertRaceWorker(t, store, name, i, rounds, counters, &wg)
 	}
 	wg.Wait()
+	close(workersDone)
 	return counters
 }
 
 func upsertRaceWorker(t *testing.T, store *diskStore, name string, workerID, rounds int, counters *upsertRaceCounters, wg *sync.WaitGroup) {
 	defer wg.Done()
-	for r := 0; r < rounds; r++ {
+	for r := range rounds {
 		req := upsertRaceRequest(name, workerID, r)
 		_, err := store.UpsertStructured(req)
 		switch {

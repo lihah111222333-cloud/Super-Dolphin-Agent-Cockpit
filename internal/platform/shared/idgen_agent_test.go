@@ -5,6 +5,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 )
 
 func TestNewAgentID_Format(t *testing.T) {
@@ -45,7 +46,15 @@ func TestNewAgentID_ConcurrentUniqueness(t *testing.T) {
 	ids := make(chan string, n)
 	var wg sync.WaitGroup
 	wg.Add(n)
-	for i := 0; i < n; i++ {
+	workersDone := make(chan struct{})
+	t.Cleanup(func() {
+		select {
+		case <-workersDone:
+		case <-time.After(time.Second):
+			t.Fatal("agent id goroutines did not stop")
+		}
+	})
+	for range n {
 		go func() {
 			defer wg.Done()
 			<-start
@@ -54,6 +63,7 @@ func TestNewAgentID_ConcurrentUniqueness(t *testing.T) {
 	}
 	close(start)
 	wg.Wait()
+	close(workersDone)
 	close(ids)
 
 	seen := make(map[string]struct{}, n)

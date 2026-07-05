@@ -12,6 +12,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 )
@@ -79,7 +80,7 @@ func TestAppendThenLoadIgnored(t *testing.T) {
 func TestAppendIgnoredIdempotent(t *testing.T) {
 	dir := t.TempDir()
 	key := IgnoreKey("private", "a.md", "team", "b.md")
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		if err := AppendIgnored(dir, key); err != nil {
 			t.Fatalf("append iter %d: %v", i, err)
 		}
@@ -144,7 +145,15 @@ func TestAppendIgnoredConcurrent(t *testing.T) {
 	const goroutines = 16
 	var wg sync.WaitGroup
 	wg.Add(goroutines)
-	for i := 0; i < goroutines; i++ {
+	workersDone := make(chan struct{})
+	t.Cleanup(func() {
+		select {
+		case <-workersDone:
+		case <-time.After(time.Second):
+			t.Fatal("similarity append goroutines did not stop")
+		}
+	})
+	for i := range goroutines {
 		go func(i int) {
 			defer wg.Done()
 			key := IgnoreKey("private", fmt.Sprintf("a%02d.md", i), "team", fmt.Sprintf("b%02d.md", i))
@@ -154,6 +163,7 @@ func TestAppendIgnoredConcurrent(t *testing.T) {
 		}(i)
 	}
 	wg.Wait()
+	close(workersDone)
 	set, _ := LoadIgnored(dir)
 	if len(set) != goroutines {
 		t.Fatalf("expected %d keys, got %d: %v", goroutines, len(set), set)

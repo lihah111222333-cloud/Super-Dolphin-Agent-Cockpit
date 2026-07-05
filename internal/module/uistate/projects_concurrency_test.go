@@ -31,6 +31,14 @@ func TestAddProjectConcurrentPreservesAllAdds(t *testing.T) {
 		}
 	}
 	var wg sync.WaitGroup
+	workersDone := make(chan struct{})
+	t.Cleanup(func() {
+		select {
+		case <-workersDone:
+		case <-time.After(time.Second):
+			t.Fatal("project add goroutines did not stop")
+		}
+	})
 	for _, path := range paths {
 		wg.Add(1)
 		go func(path string) {
@@ -41,6 +49,7 @@ func TestAddProjectConcurrentPreservesAllAdds(t *testing.T) {
 		}(path)
 	}
 	wg.Wait()
+	close(workersDone)
 	state, err := svc.GetProjects(context.Background())
 	if err != nil {
 		t.Fatalf("GetProjects() error = %v", err)
