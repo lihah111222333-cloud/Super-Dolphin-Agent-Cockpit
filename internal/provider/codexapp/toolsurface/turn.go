@@ -10,9 +10,16 @@ import (
 	codexprotocol "github.com/anthropic-ai/super-agent-v3/internal/provider/codexapp/protocol"
 )
 
+// PrepareFunc 按本轮 provider session scope 准备 Codex dynamic tools。
+// 实现方负责绑定 MCP manifest 和 provider thread 边界，失败应阻断 turn/start。
 type PrepareFunc func(context.Context, contract.CodexToolSurfaceScope) ([]codexprotocol.DynamicToolSchema, error)
+
+// ListFunc 提供旧路径的全量 dynamic tools 列表。
+// 仅在未注入 PrepareFunc 时使用，避免会话级 scope 还未接入的调用方静默丢工具。
 type ListFunc func(context.Context) ([]codexprotocol.DynamicToolSchema, error)
 
+// TurnInput 汇总 Codex turn/start 准备 dynamicTools 所需的 provider 侧上下文。
+// ProviderThreadID、CWD 和 manifest 共同限定工具绑定范围，缺失时应 fail-fast。
 type TurnInput struct {
 	Enabled          bool
 	AgentID          string

@@ -83,10 +83,12 @@ func provideContractDriverFactory(factory *DriverFactory) contract.DriverFactory
 	return factory.DriverFactory
 }
 
-// ServerManager 管理 legacy 共享 Codex app-server 进程。
-// 每个 session 仍独立建立 WebSocket，单条连接损坏不会直接拖垮其他 session。
+// ToolHandler 是 app-server 回调到 toolbridge 的最小处理函数。
+// 它接收原始 JSON-RPC 消息，返回结果或错误供 transport 写回 provider。
 type ToolHandler func(context.Context, RawMessage) (any, error)
 
+// ServerManager 管理 legacy 共享 Codex app-server 进程。
+// 每个 session 仍独立建立 WebSocket，单条连接损坏不会直接拖垮其他 session。
 type ServerManager struct {
 	mu          sync.Mutex
 	process     *transport // owns the local process; sessions use ServerURL() to connect independently
@@ -98,6 +100,8 @@ type ServerManager struct {
 	cleanupOnce sync.Once
 }
 
+// Responder 抽象 JSON-RPC 响应写回能力。
+// toolbridge 回调只依赖该窄接口，避免暴露完整 transport 生命周期。
 type Responder interface {
 	RespondWithID(id json.RawMessage, result any, callErr error) error
 }

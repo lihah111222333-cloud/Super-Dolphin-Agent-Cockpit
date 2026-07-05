@@ -2,6 +2,8 @@ package claudecli
 
 import "encoding/json"
 
+// Message 表示从 Claude CLI 历史 JSONL 归一化出的单条消息。
+// 该结构是 provider history 与统一 DTO 转换之间的边界，字段需保持历史文件 wire 兼容。
 type Message struct {
 	Role      string          `json:"role"`
 	Content   string          `json:"content"`

@@ -133,13 +133,11 @@ func TestWorkspaceAbortRunIdempotent(t *testing.T) {
 	const workers = 2
 	var wg sync.WaitGroup
 	errs := make(chan error, workers)
-	for i := 0; i < workers; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+	for range workers {
+		wg.Go(func() {
 			_, err := server.Dispatch(context.Background(), "workspace/run/abort", json.RawMessage(`{"run_key":"run-abort","updated_by":"tester","reason":"stop"}`))
 			errs <- err
-		}()
+		})
 	}
 	wg.Wait()
 	close(errs)

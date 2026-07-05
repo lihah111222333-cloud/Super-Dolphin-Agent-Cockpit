@@ -109,6 +109,8 @@ func validateOutputsConfig(out OutputsConfig) error {
 	return out.ToArtifact.Validate()
 }
 
+// ArtifactImportPlan 描述 automation/agent 结构化结果导入 sharedfile 前的文件边界。
+// 路径、扩展名、大小和覆盖策略都在 plan 中固定，执行层只能按计划导入。
 type ArtifactImportPlan struct {
 	SourcePath         string
 	TargetPath         string
@@ -345,6 +347,8 @@ func artifactTextFromObject(obj map[string]any, sourceTool, textField string, re
 	return "", false
 }
 
+// OnFailureConfig 描述节点失败后的调度策略。
+// 它只表达 retry/escalate 等策略数据，具体状态推进仍由 dispatcher 和 DAG store 决定。
 type OnFailureConfig struct {
 	// Default 是 by_class 未命中时的兜底策略。
 	Default OnFailureStrategy `json:"default,omitempty"`

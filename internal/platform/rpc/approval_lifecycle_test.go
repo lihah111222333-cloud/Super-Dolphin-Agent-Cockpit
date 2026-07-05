@@ -88,15 +88,9 @@ func TestApprovalCleanupRunnerTimesOutPendingApprovals(t *testing.T) {
 	}
 	pending.createdAt = time.Now().Add(-time.Minute)
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
 	runner := newApprovalCleanupRunnerWithConfig(manager, nil, 10*time.Millisecond, time.Second)
-	runDone := make(chan error, 1)
-	go func() { runDone <- runner.Run(ctx) }()
-	defer func() {
-		cancel()
-		<-runDone
-	}()
+	cancel, _ := startRPCRunnerForTest(t, runner.Run)
+	defer cancel()
 
 	ev := awaitResolvedEvent(t, resolved)
 	if ev.Decision != ErrApprovalTimeout("approval timed out").Error() {

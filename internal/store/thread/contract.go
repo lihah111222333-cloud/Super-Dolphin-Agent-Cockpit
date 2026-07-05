@@ -6,6 +6,8 @@ import (
 	"strings"
 )
 
+// Store 定义 thread 运行态、prompt 快照和恢复查询的持久化边界。
+// 该接口被 app、module 和 adapter 共用，新增方法需要同时评估恢复与 UI 调用面。
 type Store interface {
 	GetByThreadID(ctx context.Context, threadID string) (*Thread, error)
 	GetByPort(ctx context.Context, port int32) (*Thread, error)
@@ -30,6 +32,8 @@ type Store interface {
 	CountAll(ctx context.Context) (int64, error)
 }
 
+// UpsertParams 汇总创建或更新 thread 记录时需要写入的字段。
+// ConfigOverride 和 PromptVersionID 保留运行时配置快照，不能在 store 层静默补默认值。
 type UpsertParams struct {
 	ThreadID         string
 	Name             string
@@ -52,12 +56,16 @@ type UpsertParams struct {
 	ManuallyRenamed  bool
 }
 
+// UpdateStatusParams 描述 thread 状态变更写入。
+// UpdatedAt 由调用方提供，便于恢复逻辑保持事件时间和存储时间一致。
 type UpdateStatusParams struct {
 	ThreadID  string
 	Status    string
 	UpdatedAt int64
 }
 
+// UpdateLaunchResultParams 描述 provider 启动结果回写字段。
+// AgentKey 和 PromptVersionID 会影响后续恢复与 prompt 快照选择。
 type UpdateLaunchResultParams struct {
 	ThreadID        string
 	AgentKey        string
@@ -65,11 +73,15 @@ type UpdateLaunchResultParams struct {
 	UpdatedAt       int64
 }
 
+// ExpireStaleParams 限定过期运行中 thread 的批量收口窗口。
+// Cutoff 是判定陈旧的时间线，UpdatedAt 是写回 expired 状态的时间戳。
 type ExpireStaleParams struct {
 	UpdatedAt int64
 	Cutoff    int64
 }
 
+// Thread 是 thread 表的运行态快照 DTO。
+// 它承载 provider 会话、父子 agent、prompt 版本和恢复状态，供 UI 与模块共同读取。
 type Thread struct {
 	ThreadID         string
 	AgentID          string
@@ -97,6 +109,8 @@ type Thread struct {
 	ManuallyRenamed  bool
 }
 
+// PromptSnapshot 保存一次 thread 启动或恢复时使用的 prompt 组装结果。
+// 结构同时兼容旧字段解码，读取时会合并 legacy snapshot 后再返回。
 type PromptSnapshot struct {
 	DisplayName           string            `json:"displayName,omitempty"`
 	BaseInstructions      string            `json:"baseInstructions,omitempty"`
@@ -109,6 +123,8 @@ type PromptSnapshot struct {
 	Generation            uint64            `json:"generation,omitempty"`
 }
 
+// PromptBoundary 拆分 provider prompt 的缓存前缀和非缓存尾部。
+// 空字段表示该快照没有可复用边界，调用方需要重新组装。
 type PromptBoundary struct {
 	CachedPrefix string `json:"cachedPrefix,omitempty"`
 	UncachedTail string `json:"uncachedTail,omitempty"`
@@ -201,6 +217,8 @@ func clonePromptSnapshotSectionMap(src map[string]string) map[string]string {
 	return out
 }
 
+// RunningAgent 是 ListRunningAgents 返回的轻量运行中 agent 快照。
+// 它只携带连接和状态字段，避免列表查询读取完整 thread 配置。
 type RunningAgent struct {
 	ThreadID string
 	Port     int32
@@ -208,6 +226,8 @@ type RunningAgent struct {
 	Status   string
 }
 
+// ThreadCwd 表示 thread 与工作目录的最小映射。
+// cachekeepalive、选择器和 UI 可以用它按 cwd 聚合，而不需要读取完整 Thread。
 type ThreadCwd struct {
 	ThreadID string
 	Cwd      string

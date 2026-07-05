@@ -95,6 +95,7 @@ type StartRequest struct {
 	DeferSpawn bool
 }
 
+// StartResult 是启动 thread 后返回给 RPC/UI 的会话和路由快照。
 type StartResult struct {
 	ThreadID       string `json:"thread_id"`
 	AgentID        string `json:"agent_id,omitempty"`
@@ -140,6 +141,7 @@ type ResumeRequest struct {
 	CodexDisabledNativeTools []string
 }
 
+// ResumeResult 是恢复 provider thread 后返回的本地 thread 状态。
 type ResumeResult struct {
 	ThreadID  string `json:"thread_id"`
 	SessionID string `json:"session_id,omitempty"`
@@ -148,8 +150,10 @@ type ResumeResult struct {
 	CWD       string `json:"cwd,omitempty"`
 }
 
+// ForkKickoffState 表示 fork 后是否需要前端继续发起首轮输入。
 type ForkKickoffState string
 
+// ForkResult 描述 fork 创建的新 thread 及其来源关系。
 type ForkResult struct {
 	NewThreadID  string           `json:"new_thread_id"`
 	ForkedFrom   string           `json:"forked_from,omitempty"`
@@ -164,6 +168,7 @@ type HandoffRequest struct {
 	InitialMessage string
 }
 
+// HandoffResult 描述交接后源 thread 与新 thread 的关联结果。
 type HandoffResult struct {
 	SourceThreadID  string `json:"source_thread_id"`
 	NewThreadID     string `json:"new_thread_id"`
@@ -174,16 +179,21 @@ type HandoffResult struct {
 	Status          string `json:"status,omitempty"`
 }
 
+// RecoverResult 表示 thread recover 操作是否重新拉起或只刷新状态。
 type RecoverResult struct {
 	ThreadID  string `json:"thread_id"`
 	Status    string `json:"status,omitempty"`
 	Recovered bool   `json:"recovered"`
 	Mode      string `json:"mode,omitempty"`
 }
+
+// LaunchAgentRequest 是 thread 模块发起 agent 启动时使用的窄 DTO。
 type LaunchAgentRequest struct {
 	AgentID, Name, ParentID, AgentType, MemoryScope, Cwd string
 	Command, Env                                         []string
 }
+
+// Ref 是 thread 列表和详情 RPC 返回的轻量引用。
 type Ref struct {
 	ID               string `json:"id"`
 	Name             string `json:"name,omitempty"`
@@ -199,10 +209,12 @@ type Ref struct {
 	Port             int    `json:"port,omitempty"`
 }
 
+// ReadHistoryThread 是历史读取结果中的 thread 标识项。
 type ReadHistoryThread struct {
 	ThreadID string `json:"thread_id"`
 }
 
+// ReadHistoryResult 聚合可供历史读取使用的 thread 列表。
 type ReadHistoryResult struct {
 	History []ReadHistoryThread `json:"history"`
 }

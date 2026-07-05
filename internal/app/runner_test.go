@@ -87,12 +87,11 @@ func TestBindRuntimeWaitsRunGroupBeforeDrain(t *testing.T) {
 	hook := singleRuntimeHook(t, lifecycle)
 	requireRuntimeNoError(t, "OnStart()", hook.OnStart(context.Background()))
 
-	stopDone := make(chan error, 1)
-	go func() {
+	stopDone := startAppErrorGoroutineForTest(t, "runtime stop", func() error {
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 		defer cancel()
-		stopDone <- hook.OnStop(ctx)
-	}()
+		return hook.OnStop(ctx)
+	})
 
 	waitRuntimeSignal(t, runner.canceled, time.Second, "runner was not canceled before RunGroup wait")
 	assertRuntimeSignalBlocked(t, drainer.started, 150*time.Millisecond, "DrainPendingExtraction() started before RunGroup completed")

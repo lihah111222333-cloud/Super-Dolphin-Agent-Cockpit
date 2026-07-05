@@ -19,6 +19,7 @@ type RecordRequest struct {
 	Payload         []byte
 }
 
+// RecordResult 是反馈事件持久化后的最小返回值。
 type RecordResult struct {
 	ID        int64  `json:"id"`
 	EventType string `json:"event_type,omitempty"`

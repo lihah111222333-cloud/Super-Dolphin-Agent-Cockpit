@@ -78,6 +78,17 @@ func waitForThreadSubscriberEnqueued(t *testing.T, svc *service, want int64) {
 	t.Fatalf("EnqueuedTotal = %d, want %d", svc.agentLaunchedWorker.EnqueuedTotal(), want)
 }
 
+func registerThreadGoroutineCleanup(t *testing.T, done <-chan struct{}, label string) {
+	t.Helper()
+	t.Cleanup(func() {
+		select {
+		case <-done:
+		case <-time.After(time.Second):
+			t.Fatalf("%s goroutines did not stop", label)
+		}
+	})
+}
+
 func TestThreadBusWorkersAsRunnerRunStopsWorkers(t *testing.T) {
 	t.Parallel()
 
@@ -86,7 +97,19 @@ func TestThreadBusWorkersAsRunnerRunStopsWorkers(t *testing.T) {
 	runner := threadBusWorkersAsRunner(svc)
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
-	go func() { done <- runner.Run(ctx) }()
+	finished := make(chan struct{})
+	go func() {
+		defer close(finished)
+		done <- runner.Run(ctx)
+	}()
+	t.Cleanup(func() {
+		cancel()
+		select {
+		case <-finished:
+		case <-time.After(time.Second):
+			t.Fatal("thread bus runner goroutine did not stop")
+		}
+	})
 
 	cancel()
 	select {

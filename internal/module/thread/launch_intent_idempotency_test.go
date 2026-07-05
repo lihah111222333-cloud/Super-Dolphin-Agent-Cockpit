@@ -63,6 +63,8 @@ func TestStartLaunchIntentConcurrentCallsCreateOnePendingThread(t *testing.T) {
 	errs := make(chan error, n)
 	var wg sync.WaitGroup
 	wg.Add(n)
+	workersDone := make(chan struct{})
+	registerThreadGoroutineCleanup(t, workersDone, "launch intent")
 	for range n {
 		go func() {
 			defer wg.Done()
@@ -77,6 +79,7 @@ func TestStartLaunchIntentConcurrentCallsCreateOnePendingThread(t *testing.T) {
 	}
 	close(start)
 	wg.Wait()
+	close(workersDone)
 	close(results)
 	close(errs)
 

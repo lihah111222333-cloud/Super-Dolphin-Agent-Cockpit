@@ -15,6 +15,8 @@ const (
 	DefaultRelevantMemoryCandidates  = 20
 )
 
+// RelevantMemoryFinder 在 manifest 中选择可注入本轮 prompt 的相关记忆。
+// 它先按轻量 header 排序，再按预算读取正文，避免把整个 memory 根一次性塞给 provider。
 type RelevantMemoryFinder struct {
 	BudgetBytes    int
 	MaxResults     int

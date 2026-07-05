@@ -114,6 +114,8 @@ func TestLaunchHandlerConcurrentExplicitAgentIDLaunchesOnce(t *testing.T) {
 	var launchCalls atomic.Int64
 	launchStarted := make(chan struct{}, 2)
 	releaseLaunch := make(chan struct{})
+	releaseBlockedLaunch := closeTestSignalOnce(releaseLaunch)
+	defer releaseBlockedLaunch()
 	handler := HandleLaunchAgent(&golden.OrchestrationStub{
 		ListAgentsFunc: func(context.Context) ([]contract.AgentSnapshot, error) {
 			return nil, nil
@@ -128,10 +130,11 @@ func TestLaunchHandlerConcurrentExplicitAgentIDLaunchesOnce(t *testing.T) {
 	input := json.RawMessage(`{"agent_id":"agent-race","name":"worker","cwd":"/tmp/work","prompt":"start"}`)
 
 	firstDone := make(chan error, 1)
-	go func() {
+	goroutines := newTestGoroutineGroup(t)
+	goroutines.Go(func() {
 		_, err := handler(context.Background(), input)
 		firstDone <- err
-	}()
+	})
 	select {
 	case <-launchStarted:
 	case <-time.After(time.Second):
@@ -139,24 +142,24 @@ func TestLaunchHandlerConcurrentExplicitAgentIDLaunchesOnce(t *testing.T) {
 	}
 
 	secondDone := make(chan error, 1)
-	go func() {
+	goroutines.Go(func() {
 		_, err := handler(context.Background(), input)
 		secondDone <- err
-	}()
+	})
 	select {
 	case <-launchStarted:
-		close(releaseLaunch)
+		releaseBlockedLaunch()
 		t.Fatal("second concurrent explicit agent_id request started a duplicate launch")
 	case err := <-secondDone:
 		if err == nil || !strings.Contains(err.Error(), "launch already in progress") {
-			close(releaseLaunch)
+			releaseBlockedLaunch()
 			t.Fatalf("second HandleLaunchAgent() error = %v, want launch already in progress", err)
 		}
 	case <-time.After(time.Second):
-		close(releaseLaunch)
+		releaseBlockedLaunch()
 		t.Fatal("second concurrent explicit agent_id request did not return")
 	}
-	close(releaseLaunch)
+	releaseBlockedLaunch()
 	if err := <-firstDone; err != nil {
 		t.Fatalf("first HandleLaunchAgent() error = %v", err)
 	}

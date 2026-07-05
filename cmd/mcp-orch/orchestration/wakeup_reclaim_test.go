@@ -19,10 +19,17 @@ type reclaimStubStore struct {
 	rowsReplies []int64 // FIFO；空时默认返回 0
 	err         error
 	recoveryErr error
+	callSeen    chan struct{}
 }
 
 func (s *reclaimStubStore) ReclaimStaleDispatchingWakeups(_ context.Context) (int64, error) {
 	s.calls++
+	if s.callSeen != nil {
+		select {
+		case s.callSeen <- struct{}{}:
+		default:
+		}
+	}
 	if s.err != nil {
 		return 0, s.err
 	}
@@ -103,8 +110,7 @@ func TestWakeupReclaimerReclaimOncePropagatesError(t *testing.T) {
 func TestWakeupReclaimerReclaimOnceHandlesNilContextSafely(t *testing.T) {
 	store := &reclaimStubStore{}
 	r, _ := wakeupreclaim.NewWakeupReclaimer(store, nil, wakeupreclaim.WakeupReclaimerConfig{})
-	//lint:ignore SA1012 本测试覆盖 nil context 会被显式替换为 background 的兼容路径。
-	if _, err := r.ReclaimOnce(nil); err != nil { //nolint:staticcheck // 测试 nil context 会被显式替换为 background。
+	if _, err := r.ReclaimOnce(nilReclaimContext()); err != nil {
 		t.Fatalf("nil ctx fallback err = %v", err)
 	}
 	if store.calls != 1 {
@@ -112,13 +118,18 @@ func TestWakeupReclaimerReclaimOnceHandlesNilContextSafely(t *testing.T) {
 	}
 }
 
+func nilReclaimContext() context.Context {
+	return nil
+}
+
 func TestWakeupReclaimerRunStopsOnContextCancel(t *testing.T) {
-	store := &reclaimStubStore{}
+	store := &reclaimStubStore{callSeen: make(chan struct{}, 2)}
 	r, _ := wakeupreclaim.NewWakeupReclaimer(store, nil, wakeupreclaim.WakeupReclaimerConfig{TickInterval: 10 * time.Millisecond})
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
-	go func() { done <- r.Run(ctx) }()
-	time.Sleep(30 * time.Millisecond)
+	goroutines := newTestGoroutineGroup(t)
+	goroutines.Go(func() { done <- r.Run(ctx) })
+	waitForReclaimSignals(t, store.callSeen, 2)
 	cancel()
 	select {
 	case err := <-done:
@@ -134,16 +145,28 @@ func TestWakeupReclaimerRunStopsOnContextCancel(t *testing.T) {
 }
 
 func TestWakeupReclaimerRunSurvivesStoreError(t *testing.T) {
-	store := &reclaimStubStore{err: errors.New("transient db blip")}
+	store := &reclaimStubStore{err: errors.New("transient db blip"), callSeen: make(chan struct{}, 2)}
 	r, _ := wakeupreclaim.NewWakeupReclaimer(store, nil, wakeupreclaim.WakeupReclaimerConfig{TickInterval: 10 * time.Millisecond})
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
-	go func() { done <- r.Run(ctx) }()
-	time.Sleep(35 * time.Millisecond)
+	goroutines := newTestGoroutineGroup(t)
+	goroutines.Go(func() { done <- r.Run(ctx) })
+	waitForReclaimSignals(t, store.callSeen, 2)
 	cancel()
 	<-done
 	if store.calls < 2 {
 		t.Fatalf("Run gave up too early after store error: %d calls", store.calls)
+	}
+}
+
+func waitForReclaimSignals(t *testing.T, signals <-chan struct{}, want int) {
+	t.Helper()
+	for i := range want {
+		select {
+		case <-signals:
+		case <-time.After(time.Second):
+			t.Fatalf("timed out waiting for wakeup reclaim signal %d/%d", i+1, want)
+		}
 	}
 }
 

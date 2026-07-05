@@ -9,6 +9,7 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 )
 
+// ProjectDefaultRulesProvider 渲染当前项目可用的 default_rule 动态 section。
 type ProjectDefaultRulesProvider struct{ catalog RuntimePromptCatalog }
 
 // SectionName 返回本 provider 负责的动态 section 名称。

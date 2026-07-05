@@ -34,6 +34,8 @@ const (
 
 var errUIMemoryScanStopped = errors.New("ui memory scan stopped")
 
+// MemoryIndexEntry 表示 MEMORY.md 中的一条 pointer-only 索引。
+// 该结构只保存标题、相对路径和短 hook，完整记忆正文仍保存在 topic 文件里。
 type MemoryIndexEntry struct {
 	Title         string
 	Path          string

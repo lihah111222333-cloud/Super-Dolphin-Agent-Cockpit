@@ -292,20 +292,32 @@ func TestMemoryHeaderUsesFreshnessLanguage(t *testing.T) {
 }
 
 type historyStubSession struct {
+	historyStubSessionIdentity
+	historyStubSessionControl
+
 	history    []dto.Message
 	historyErr error
 }
 
-func (historyStubSession) ThreadID() string                { return "thread-1" }
-func (historyStubSession) RolloutPath() string             { return "" }
-func (historyStubSession) Capabilities() dto.CapabilitySet { return dto.CapabilitySet{} }
-func (historyStubSession) StartTurn(context.Context, dto.TurnRequest) (contract.TurnHandle, error) {
+type historyStubSessionIdentity struct{}
+
+func (historyStubSessionIdentity) ThreadID() string                { return "thread-1" }
+func (historyStubSessionIdentity) RolloutPath() string             { return "" }
+func (historyStubSessionIdentity) Capabilities() dto.CapabilitySet { return dto.CapabilitySet{} }
+
+type historyStubSessionControl struct{}
+
+func (historyStubSessionControl) StartTurn(context.Context, dto.TurnRequest) (contract.TurnHandle, error) {
 	return nil, nil
 }
-func (historyStubSession) Interrupt(context.Context, dto.InterruptRequest) error         { return nil }
-func (historyStubSession) ForceComplete(context.Context, dto.ForceCompleteRequest) error { return nil }
-func (historyStubSession) ListThreads(context.Context) ([]dto.ThreadRef, error)          { return nil, nil }
-func (historyStubSession) ForkThread(context.Context, dto.ForkRequest) (dto.ForkResult, error) {
+func (historyStubSessionControl) Interrupt(context.Context, dto.InterruptRequest) error { return nil }
+func (historyStubSessionControl) ForceComplete(context.Context, dto.ForceCompleteRequest) error {
+	return nil
+}
+func (historyStubSessionControl) ListThreads(context.Context) ([]dto.ThreadRef, error) {
+	return nil, nil
+}
+func (historyStubSessionControl) ForkThread(context.Context, dto.ForkRequest) (dto.ForkResult, error) {
 	return dto.ForkResult{}, nil
 }
 func (s historyStubSession) ReadHistory(context.Context, string, int) ([]dto.Message, error) {
@@ -314,9 +326,9 @@ func (s historyStubSession) ReadHistory(context.Context, string, int) ([]dto.Mes
 	}
 	return append([]dto.Message(nil), s.history...), nil
 }
-func (historyStubSession) Configure(context.Context, dto.ThreadConfigPatch) error { return nil }
-func (historyStubSession) Close(context.Context) error                            { return nil }
-func (historyStubSession) ForceStop() error                                       { return nil }
+func (historyStubSessionControl) Configure(context.Context, dto.ThreadConfigPatch) error { return nil }
+func (historyStubSessionControl) Close(context.Context) error                            { return nil }
+func (historyStubSessionControl) ForceStop() error                                       { return nil }
 
 func waitForPrefetchHandle(t *testing.T, provider *MemoryContextProvider, threadID string) *PrefetchHandle {
 	t.Helper()

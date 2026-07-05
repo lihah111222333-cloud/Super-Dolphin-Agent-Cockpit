@@ -10,6 +10,26 @@ import (
 
 type fakeWorker struct{ calls []string }
 
+func startRunnerForTest(t *testing.T, run func(context.Context) error) (context.CancelFunc, <-chan error) {
+	t.Helper()
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	finished := make(chan struct{})
+	go func() {
+		defer close(finished)
+		done <- run(ctx)
+	}()
+	t.Cleanup(func() {
+		cancel()
+		select {
+		case <-finished:
+		case <-time.After(time.Second):
+			t.Fatal("runner goroutine did not stop")
+		}
+	})
+	return cancel, done
+}
+
 func (w *fakeWorker) Start() { w.calls = append(w.calls, "start") }
 func (w *fakeWorker) Stop(context.Context) error {
 	w.calls = append(w.calls, "stop")
@@ -20,9 +40,7 @@ func TestWorkerAsRunnerAdapter(t *testing.T) {
 	worker := &fakeWorker{}
 	started := make(chan struct{})
 	runner := AsRunner(worker, WithStartedSignal(started))
-	ctx, cancel := context.WithCancel(context.Background())
-	done := make(chan error, 1)
-	go func() { done <- runner.Run(ctx) }()
+	cancel, done := startRunnerForTest(t, runner.Run)
 	select {
 	case <-started:
 	case <-time.After(time.Second):
@@ -55,9 +73,7 @@ func TestWorkerRunnerStopUsesFreshShutdownContext(t *testing.T) {
 	worker := &shutdownProbeWorker{}
 	started := make(chan struct{})
 	runner := AsRunner(worker, WithStartedSignal(started))
-	ctx, cancel := context.WithCancel(context.Background())
-	done := make(chan error, 1)
-	go func() { done <- runner.Run(ctx) }()
+	cancel, done := startRunnerForTest(t, runner.Run)
 	select {
 	case <-started:
 	case <-time.After(time.Second):

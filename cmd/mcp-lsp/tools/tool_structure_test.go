@@ -78,6 +78,11 @@ func (*structureTestRegistry) Close() error {
 }
 
 type structureTestManager struct {
+	testManagerNavigationNoop
+	testManagerSymbolNoop
+	testManagerEditNoop
+	testManagerDiagnosticsNoop
+
 	workspaceSymbols  []protocol.WorkspaceSymbolResult
 	documentSymbols   []protocol.DocumentSymbol
 	completionItems   []protocol.CompletionItem
@@ -93,26 +98,104 @@ type structureTestManager struct {
 	events            []string
 }
 
-func (*structureTestManager) Close() error { return nil }
+type testManagerNavigationNoop struct{}
+
+func (testManagerNavigationNoop) Definition(context.Context, string, protocol.Position) ([]protocol.LocationResult, error) {
+	return nil, nil
+}
+
+func (testManagerNavigationNoop) Implementation(context.Context, string, protocol.Position) ([]protocol.LocationResult, error) {
+	return nil, nil
+}
+
+func (testManagerNavigationNoop) TypeDefinition(context.Context, string, protocol.Position) ([]protocol.LocationResult, error) {
+	return nil, nil
+}
+
+func (testManagerNavigationNoop) Hover(context.Context, string, protocol.Position) (*protocol.HoverResult, error) {
+	return nil, nil
+}
+
+func (testManagerNavigationNoop) SignatureHelp(context.Context, string, protocol.Position) (*protocol.SignatureHelpResult, error) {
+	return nil, nil
+}
+
+func (testManagerNavigationNoop) References(context.Context, string, protocol.Position, bool) ([]protocol.LocationResult, error) {
+	return nil, nil
+}
+
+func (testManagerNavigationNoop) CallHierarchy(context.Context, string, protocol.Position, string) ([]protocol.CallHierarchyResult, error) {
+	return nil, nil
+}
+
+func (testManagerNavigationNoop) TypeHierarchy(context.Context, string, protocol.Position, string) ([]protocol.TypeHierarchyResult, error) {
+	return nil, nil
+}
+
+type testManagerSymbolNoop struct{}
+
+func (testManagerSymbolNoop) DocumentSymbol(context.Context, string) ([]protocol.DocumentSymbol, error) {
+	return nil, nil
+}
+
+func (testManagerSymbolNoop) WorkspaceSymbol(context.Context, string, string) ([]protocol.WorkspaceSymbolResult, error) {
+	return nil, nil
+}
+
+func (testManagerSymbolNoop) FoldingRange(context.Context, string) ([]protocol.FoldingRange, error) {
+	return nil, nil
+}
+
+func (testManagerSymbolNoop) SemanticTokens(context.Context, string) (*protocol.SemanticTokensResult, error) {
+	return nil, nil
+}
+
+func (testManagerSymbolNoop) Completion(context.Context, string, protocol.Position) (*protocol.CompletionList, error) {
+	return nil, nil
+}
+
+type testManagerEditNoop struct{}
+
+func (testManagerEditNoop) Close() error { return nil }
+
+func (testManagerEditNoop) Rename(context.Context, string, protocol.Position, string) (*protocol.WorkspaceEdit, error) {
+	return nil, nil
+}
+
+func (testManagerEditNoop) CodeAction(context.Context, string, protocol.Range, []string) ([]protocol.CodeActionResult, error) {
+	return nil, nil
+}
+
+func (testManagerEditNoop) Format(context.Context, string, protocol.FormattingOptions) ([]protocol.TextEdit, error) {
+	return nil, nil
+}
+
+func (testManagerEditNoop) DidOpen(context.Context, string, string, int, string) error { return nil }
+
+func (testManagerEditNoop) DidChange(context.Context, string, int, []protocol.TextDocumentContentChangeEvent) error {
+	return nil
+}
+
+func (testManagerEditNoop) DidClose(context.Context, string) error { return nil }
+
+func (testManagerEditNoop) BootstrapDocument(context.Context, string) error { return nil }
+
+func (testManagerEditNoop) BootstrapDocumentOpenOnly(context.Context, string) error { return nil }
+
+type testManagerDiagnosticsNoop struct{}
+
+func (testManagerDiagnosticsNoop) Diagnostics(context.Context, []string) ([]protocol.PublishDiagnosticsParams, error) {
+	return nil, nil
+}
+
+func (testManagerDiagnosticsNoop) WaitDiagnosticsStable(context.Context, []string) error { return nil }
+
+func (testManagerDiagnosticsNoop) CurrentDiagnosticGeneration() uint64 { return 0 }
+
+func (testManagerDiagnosticsNoop) AdvanceDiagnosticGeneration() uint64 { return 0 }
 
 func (m *structureTestManager) Definition(context.Context, string, protocol.Position) ([]protocol.LocationResult, error) {
 	return m.definitions, nil
-}
-
-func (*structureTestManager) Implementation(context.Context, string, protocol.Position) ([]protocol.LocationResult, error) {
-	return nil, nil
-}
-
-func (*structureTestManager) TypeDefinition(context.Context, string, protocol.Position) ([]protocol.LocationResult, error) {
-	return nil, nil
-}
-
-func (*structureTestManager) Hover(context.Context, string, protocol.Position) (*protocol.HoverResult, error) {
-	return nil, nil
-}
-
-func (*structureTestManager) SignatureHelp(context.Context, string, protocol.Position) (*protocol.SignatureHelpResult, error) {
-	return nil, nil
 }
 
 func (m *structureTestManager) References(context.Context, string, protocol.Position, bool) ([]protocol.LocationResult, error) {
@@ -121,10 +204,6 @@ func (m *structureTestManager) References(context.Context, string, protocol.Posi
 
 func (m *structureTestManager) CallHierarchy(context.Context, string, protocol.Position, string) ([]protocol.CallHierarchyResult, error) {
 	return m.callHierarchy, nil
-}
-
-func (*structureTestManager) TypeHierarchy(context.Context, string, protocol.Position, string) ([]protocol.TypeHierarchyResult, error) {
-	return nil, nil
 }
 
 func (m *structureTestManager) DocumentSymbol(ctx context.Context, _ string) ([]protocol.DocumentSymbol, error) {
@@ -139,28 +218,8 @@ func (m *structureTestManager) WorkspaceSymbol(_ context.Context, query string, 
 	return m.workspaceSymbols, nil
 }
 
-func (*structureTestManager) FoldingRange(context.Context, string) ([]protocol.FoldingRange, error) {
-	return nil, nil
-}
-
-func (*structureTestManager) SemanticTokens(context.Context, string) (*protocol.SemanticTokensResult, error) {
-	return nil, nil
-}
-
 func (m *structureTestManager) Completion(context.Context, string, protocol.Position) (*protocol.CompletionList, error) {
 	return &protocol.CompletionList{Items: m.completionItems}, nil
-}
-
-func (*structureTestManager) Rename(context.Context, string, protocol.Position, string) (*protocol.WorkspaceEdit, error) {
-	return nil, nil
-}
-
-func (*structureTestManager) CodeAction(context.Context, string, protocol.Range, []string) ([]protocol.CodeActionResult, error) {
-	return nil, nil
-}
-
-func (*structureTestManager) Format(context.Context, string, protocol.FormattingOptions) ([]protocol.TextEdit, error) {
-	return nil, nil
 }
 
 func (m *structureTestManager) DidOpen(ctx context.Context, _ string, _ string, _ int, _ string) error {
@@ -168,38 +227,10 @@ func (m *structureTestManager) DidOpen(ctx context.Context, _ string, _ string, 
 	return nil
 }
 
-func (*structureTestManager) DidChange(context.Context, string, int, []protocol.TextDocumentContentChangeEvent) error {
-	return nil
-}
-
-func (*structureTestManager) DidClose(context.Context, string) error {
-	return nil
-}
-
 func (m *structureTestManager) BootstrapDocument(_ context.Context, uri string) error {
 	m.events = append(m.events, "bootstrap:"+uri)
 	m.bootstrapURIs = append(m.bootstrapURIs, uri)
 	return m.bootstrapErr
-}
-
-func (*structureTestManager) BootstrapDocumentOpenOnly(context.Context, string) error {
-	return nil
-}
-
-func (*structureTestManager) Diagnostics(context.Context, []string) ([]protocol.PublishDiagnosticsParams, error) {
-	return nil, nil
-}
-
-func (*structureTestManager) WaitDiagnosticsStable(context.Context, []string) error {
-	return nil
-}
-
-func (*structureTestManager) CurrentDiagnosticGeneration() uint64 {
-	return 0
-}
-
-func (*structureTestManager) AdvanceDiagnosticGeneration() uint64 {
-	return 0
 }
 
 func TestStructureWorkspaceSymbolUsesLanguageManager(t *testing.T) {

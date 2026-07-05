@@ -327,12 +327,24 @@ func TestListForwardsFilterAndMapsRows(t *testing.T) {
 	if err != nil {
 		t.Fatalf("List() error = %v", err)
 	}
+	assertListInteractionsParams(t, captured)
+	assertListedInteractions(t, got, fixture)
+}
+
+func assertListInteractionsParams(t *testing.T, captured sqlc.ListInteractionsParams) {
+	t.Helper()
+
 	if captured.Column1 != "thread-1" || captured.Column3 != "agent" || captured.Limit != 20 {
 		t.Fatalf("List() forwarded wrong params: %+v", captured)
 	}
 	if captured.Column4 == nil || *captured.Column4 != "agent" || captured.Column5 == nil || *captured.Column5 != "agent" || captured.Column6 == nil || *captured.Column6 != "agent" {
 		t.Fatalf("List() forwarded wrong keyword LIKE params: %+v", captured)
 	}
+}
+
+func assertListedInteractions(t *testing.T, got []Interaction, fixture sqlc.AgentInteraction) {
+	t.Helper()
+
 	if len(got) != 1 || got[0].ID != fixture.ID || got[0].ThreadID != fixture.ThreadID {
 		t.Fatalf("List() = %+v", got)
 	}

@@ -18,6 +18,8 @@ import (
 	shared "github.com/anthropic-ai/super-agent-v3/internal/module/memory/shared"
 )
 
+// Service 是 memory 模块对外暴露的根目录、整理和状态管理端口。
+// UI/RPC 和生命周期装配只通过该接口触达持久化根，不直接操作 diskStore。
 type Service interface {
 	Config() Config
 	RootDir() string
@@ -35,6 +37,8 @@ type service struct {
 	dreamHooks   *MemoryLifecycleHooks
 }
 
+// MemoryLifecycleHooks 连接 turn/thread 事件、provider memory tools 和磁盘写入闭环。
+// 它持有同一个锁协调器，保证显式写入、自动抽取和整理不会绕过彼此的持久化边界。
 type MemoryLifecycleHooks struct {
 	cfg                 *Config
 	team                *TeamMemoryManager
@@ -546,6 +550,8 @@ func (h *MemoryLifecycleHooks) diskStore() (memoryWriteStore, error) {
 	return newDiskStore(root, h.memoryCoordinator())
 }
 
+// ForgetIntent 表示 runtime 从用户文本中识别出的删除记忆意图。
+// Query 只用于匹配可见 store，真正删除仍由 private/team 路由和路径校验控制。
 type ForgetIntent struct {
 	Detected bool
 	Query    string

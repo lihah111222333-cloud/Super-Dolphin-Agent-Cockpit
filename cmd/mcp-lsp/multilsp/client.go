@@ -24,6 +24,8 @@ var (
 	ErrBinaryRequired     = errors.New("LSP binary is required")
 )
 
+// Client 定义 multilsp manager 与底层 LSP transport 交互的最小生命周期接口。
+// 实现必须显式处理 initialize、文档事件、请求通知和资源关闭。
 type Client interface {
 	Initialize(context.Context, string) error
 	Shutdown(context.Context) error
@@ -40,11 +42,13 @@ type ServerCapabilitiesClient interface {
 	ServerCapabilities() protocol.ServerCapabilities
 }
 
+// HealthCheckedClient 在 Client 基础上暴露 pool 复用前的健康状态。
 type HealthCheckedClient interface {
 	Client
 	Healthy() bool
 }
 
+// Options 描述启动 LSP client 时传给 transport、initialize 和回调处理器的配置。
 type Options struct {
 	Binary              string
 	Args                []string

@@ -20,11 +20,15 @@ const (
 	kindBundled = "bundled"
 )
 
+// Verifier 校验 manifest 指向的 Codex 二进制是否可执行且能通过 CLI 自检。
+// 调用方注入该接口，避免 manifest 包直接依赖具体进程启动方式。
 type Verifier interface {
 	IsExecutable(path string) bool
 	ValidCLI(ctx context.Context, path string) bool
 }
 
+// File 是 codex-manifest.json 的顶层结构。
+// 它只承载 Codex 二进制条目，供托管安装和随包二进制验证共用同一 schema。
 type File struct {
 	Codex manifestEntry `json:"codex"`
 }

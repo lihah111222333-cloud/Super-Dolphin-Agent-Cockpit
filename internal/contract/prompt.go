@@ -122,10 +122,16 @@ type ClaudeMdSource struct {
 	Digest      string
 }
 
+// ResolvedPromptSection 复用 provider DTO 的已解析 section 形状。
+// contract 层只重新导出类型别名，避免 prompt 组装结果在跨模块传递时重复定义。
 type ResolvedPromptSection = dto.ResolvedPromptSection
 
+// SystemContext 复用 provider DTO 的系统上下文快照。
+// 调用方通过 contract 包依赖该别名，避免直接耦合 provider 子包。
 type SystemContext = dto.SystemContext
 
+// PromptAssemblyBoundary 复用 provider DTO 的缓存边界描述。
+// start/resume 快照通过该别名保持 provider wire 和 store 快照形状一致。
 type PromptAssemblyBoundary = dto.PromptAssemblyBoundary
 
 // PrefixShape 复用 provider DTO 的 start prompt 形状摘要，跨模块只传元数据不传正文。

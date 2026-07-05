@@ -59,14 +59,24 @@ func TestSQLiteRuntimeLockAllowsOnlyOneScheduledTickerAcrossConnections(t *testi
 	seedSQLiteScheduledDAG(t, ctx, dbA, "scheduled-dag", now.Add(-time.Minute))
 
 	starter := newBlockingRuntimeLockStarter()
+	releasedStarter := false
+	releaseStarter := func() {
+		if !releasedStarter {
+			close(starter.release)
+			releasedStarter = true
+		}
+	}
+	defer releaseStarter()
 	tickerA := newSQLiteScheduledTicker(t, dbA, "task12-shared-scheduled-lock", starter)
 	tickerB := newSQLiteScheduledTicker(t, dbB, "task12-shared-scheduled-lock", &recordingRuntimeLockStarter{})
 
 	firstDone := make(chan tickResult, 1)
-	go func() {
+	var wg sync.WaitGroup
+	defer wg.Wait()
+	wg.Go(func() {
 		n, err := tickerA.Tick(ctx, now)
 		firstDone <- tickResult{n: n, err: err}
-	}()
+	})
 	<-starter.entered
 	n, err := tickerB.Tick(ctx, now)
 	if err != nil {
@@ -75,7 +85,7 @@ func TestSQLiteRuntimeLockAllowsOnlyOneScheduledTickerAcrossConnections(t *testi
 	if n != 0 {
 		t.Fatalf("second Tick() triggered = %d, want 0 while first holder owns lock", n)
 	}
-	close(starter.release)
+	releaseStarter()
 	first := <-firstDone
 	if first.err != nil {
 		t.Fatalf("first Tick() error = %v", first.err)

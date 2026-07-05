@@ -352,6 +352,8 @@ func (b *commandOutputBuffer) String() string {
 	)
 }
 
+// CommandExitError 保留 command card 子进程的退出码和底层错误。
+// automation 错误分类依赖该类型识别 hard failure，不应被普通 fmt.Errorf 吞掉。
 type CommandExitError struct {
 	ExitCode int
 	Err      error

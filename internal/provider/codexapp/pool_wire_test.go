@@ -104,9 +104,7 @@ func TestPoolEvictRunnerTicks(t *testing.T) {
 	runner := newPoolEvictRunner(slog.Default(), pool)
 	runner.interval = 5 * time.Millisecond
 
-	ctx, cancel := context.WithCancel(context.Background())
-	done := make(chan error, 1)
-	go func() { done <- runner.Run(ctx) }()
+	cancel, done := startCodexRunnerForTest(t, "pool evict runner", runner.Run)
 
 	// Wait for at least one tick to run; eviction is async so poll.
 	deadline := time.Now().Add(2 * time.Second)

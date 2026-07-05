@@ -25,6 +25,8 @@ func cloneTurnSubmission(sub turndto.TurnSubmission) turndto.TurnSubmission {
 	return cloned
 }
 
+// SubmissionQueue 保存单个 agent 尚未领取的 turn 队列。
+// 入队和出队都会复制 payload，避免调用方在锁外修改队列中的 turn。
 type SubmissionQueue struct {
 	mu    sync.Mutex
 	items []turndto.TurnSubmission
@@ -197,7 +199,7 @@ func envCSVValue(env []string, key string) []string {
 	}
 	seen := map[string]struct{}{}
 	var out []string
-	for _, item := range strings.Split(raw, ",") {
+	for item := range strings.SplitSeq(raw, ",") {
 		item = strings.TrimSpace(item)
 		if item == "" {
 			continue

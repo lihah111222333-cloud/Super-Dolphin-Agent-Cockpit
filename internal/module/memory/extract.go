@@ -24,14 +24,20 @@ const (
 
 var includePattern = regexp.MustCompile(`(?:^|\s)@((?:[^\s\\]|\\ )+)`)
 
+// ExtractFunc 是记忆抽取模型的执行入口。
+// 调用方只传入整理 prompt，具体 provider 和运行策略由 fx 装配层注入。
 type ExtractFunc func(ctx context.Context, prompt string) (string, error)
 
+// ExtractParams 描述一次 transcript 记忆抽取请求。
+// Manifest 提供当前磁盘记忆索引，MaxItems 限制本轮可持久化的新条目数。
 type ExtractParams struct {
 	Transcript []providerdto.Message
 	Manifest   []MemoryEntry
 	MaxItems   int
 }
 
+// ExtractedMemory 是模型返回、准备写入磁盘的结构化记忆。
+// Scope 决定 private/team 目标，Type 和 Tags 会进入 frontmatter 供后续检索。
 type ExtractedMemory struct {
 	Scope       string
 	Name        string
@@ -41,6 +47,8 @@ type ExtractedMemory struct {
 	Tags        []string
 }
 
+// MemoryExtractor 保存抽取器的运行上限。
+// 它只负责解析和规整模型输出，不直接读写 memory 根目录。
 type MemoryExtractor struct {
 	MaxItems int
 }
@@ -528,7 +536,6 @@ func markdownFenceMarker(line string) (byte, bool) {
 // ExtractionState 是单个 thread 的后台抽取状态机。
 // cursor 记录已处理 transcript 位置，pendingLatest/pendingHandled 合并并发入队请求；
 // mu 保护所有字段，调用方不得无锁读取。
-
 type ExtractionState struct {
 	cursor         int64
 	inProgress     bool

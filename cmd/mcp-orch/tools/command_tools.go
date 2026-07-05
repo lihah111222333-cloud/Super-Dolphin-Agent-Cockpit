@@ -39,6 +39,7 @@ type commandCardDTO struct {
 	RunCount        int64           `json:"run_count"`
 }
 
+// CommandListOutput 是 command_list envelope 响应，保留 Commands/Data 双字段兼容旧调用方。
 type CommandListOutput struct {
 	Commands  []commandCardDTO `json:"commands"`
 	Data      []commandCardDTO `json:"data"`

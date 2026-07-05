@@ -8,21 +8,45 @@ import (
 	"time"
 )
 
+func startAppGoroutineForTest(t *testing.T, label string, run func()) <-chan struct{} {
+	t.Helper()
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		run()
+	}()
+	t.Cleanup(func() {
+		select {
+		case <-done:
+		case <-time.After(time.Second):
+			t.Fatalf("%s goroutine did not stop", label)
+		}
+	})
+	return done
+}
+
+func startAppErrorGoroutineForTest(t *testing.T, label string, run func() error) <-chan error {
+	t.Helper()
+	errCh := make(chan error, 1)
+	startAppGoroutineForTest(t, label, func() {
+		errCh <- run()
+	})
+	return errCh
+}
+
 func TestWatchFXShutdownHonorsContextCancel(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan os.Signal)
 	stop := make(chan struct{})
-	exited := make(chan struct{})
 	failed := make(chan struct{}, 1)
 
-	go func() {
-		defer close(exited)
+	exited := startAppGoroutineForTest(t, "shutdown watcher", func() {
 		runShutdownWatcher(ctx, done, stop, func() error {
 			return errors.New("watcher should not stop backend on context cancellation")
 		}, func(error) {
 			failed <- struct{}{}
 		})
-	}()
+	})
 
 	cancel()
 
@@ -49,10 +73,9 @@ func TestRunDesktopPreDrain(t *testing.T) {
 		return nil
 	})
 	owner.Cancel()
-	drained := make(chan error, 1)
-	go func() {
-		drained <- preDrainDesktopRuntime(owner.RootContext(), owner)
-	}()
+	drained := startAppErrorGoroutineForTest(t, "desktop pre-drain", func() error {
+		return preDrainDesktopRuntime(owner.RootContext(), owner)
+	})
 	select {
 	case <-drainStarted:
 		t.Fatal("preDrainDesktopRuntime started runtime drain before runtime done")
@@ -99,20 +122,17 @@ func TestRootCtxSymmetry(t *testing.T) {
 }
 
 func TestShutdownWatcherStopAndWaitJoins(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 	done := make(chan os.Signal)
 	stop := make(chan struct{})
-	exited := make(chan struct{})
 	errCh := make(chan error, 1)
-	go func() {
-		defer close(exited)
+	exited := startAppGoroutineForTest(t, "shutdown watcher", func() {
 		runShutdownWatcher(ctx, done, stop, func() error {
 			return errors.New("watcher should not stop backend on explicit stop")
 		}, func(error) {
 			errCh <- errors.New("watcher should not notify backend failure on explicit stop")
 		})
-	}()
+	})
 	close(stop)
 	select {
 	case <-exited:

@@ -172,9 +172,7 @@ func TestRPCRequestTrackerLogsPendingRequestsOnConnectionExit(t *testing.T) {
 func TestServerRunPublishesActualControlRPCAddr(t *testing.T) {
 	t.Setenv(controlRPCAddrEnv, "127.0.0.1:0")
 	server := newTestServer()
-	ctx, cancel := context.WithCancel(context.Background())
-	done := make(chan error, 1)
-	go func() { done <- server.Run(ctx) }()
+	cancel, done := startRPCRunnerForTest(t, server.Run)
 
 	deadline := time.After(time.Second)
 	for {

@@ -29,15 +29,12 @@ func TestSendMessageWaitReportReturnsNewReportAfterSubmit(t *testing.T) {
 			if req.AgentID != "agent-b" || req.ThreadID != "thread-b" {
 				t.Fatalf("SubmitTurn() req = %#v, want agent-b/thread-b", req)
 			}
-			go func() {
-				time.Sleep(75 * time.Millisecond)
-				reports.setReport(contract.AgentReportResult{
-					AgentID:   "agent-b",
-					State:     "idle",
-					Report:    "new report",
-					ReportSeq: 4,
-				})
-			}()
+			reports.setReport(contract.AgentReportResult{
+				AgentID:   "agent-b",
+				State:     "idle",
+				Report:    "new report",
+				ReportSeq: 4,
+			})
 			return nil
 		},
 	})
@@ -183,7 +180,8 @@ func TestSendMessageWaitReportTimeoutCoversSubmitTurn(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	errCh := make(chan error, 1)
-	go func() {
+	goroutines := newTestGoroutineGroup(t)
+	goroutines.Go(func() {
 		_, err := handler(ctx, json.RawMessage(`{
 			"agent_id": "agent-b",
 			"message": "follow-up",
@@ -191,7 +189,7 @@ func TestSendMessageWaitReportTimeoutCoversSubmitTurn(t *testing.T) {
 			"timeout_ms": 25
 		}`))
 		errCh <- err
-	}()
+	})
 
 	select {
 	case err := <-errCh:

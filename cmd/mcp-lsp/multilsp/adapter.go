@@ -27,6 +27,8 @@ type LanguageAdapter interface {
 	CapabilityPolicy() ToolCapabilityPolicy
 }
 
+// ResolvedLanguageScope 是 adapter 为 manager 解析出的语言工作区边界。
+// 它同时保留通用 workspace、语言专属 root 和缓存维度所需信息。
 type ResolvedLanguageScope struct {
 	LanguageID            string
 	WorkspaceRoot         string
@@ -37,11 +39,13 @@ type ResolvedLanguageScope struct {
 	WorkspaceFolders      []protocol.WorkspaceFolder
 }
 
+// ServerCommand 描述启动语言服务器所需的可执行文件和参数。
 type ServerCommand struct {
 	Executable string
 	Args       []string
 }
 
+// BootstrapPolicy 声明 LSP client 初始化后需要预打开的目标和辅助文件。
 type BootstrapPolicy struct {
 	OpenTarget                     bool
 	OpenSiblingDocuments           bool
@@ -51,12 +55,14 @@ type BootstrapPolicy struct {
 	IgnoredDirNames                map[string]struct{}
 }
 
+// ToolCapabilityPolicy 声明工具调用对真实 LSP client 或 fallback 能力的依赖。
 type ToolCapabilityPolicy struct {
 	RequiresLSPClient              bool
 	DocumentSymbolFallback         bool
 	RetryEmptyCallHierarchyPrepare bool
 }
 
+// LanguageAdapterRegistry 按 language id 管理 adapter，并提供并发安全的查询入口。
 type LanguageAdapterRegistry struct {
 	mu       sync.RWMutex
 	adapters map[string]LanguageAdapter

@@ -2,6 +2,8 @@ package metrics
 
 import "sync/atomic"
 
+// DAGFallbackMetrics 是 stopped-thread 兜底推进 DAG 节点的指标快照。
+// 它只暴露观测计数，真实节点终态仍由 orchestration 持久化流程写入。
 type DAGFallbackMetrics struct {
 	LookupFailed      int64
 	NoNode            int64

@@ -29,16 +29,16 @@ func discardLogger() *slog.Logger {
 // stubTicker 实现 Ticker 接口，记录被调次数。
 // stubTicker implements the Ticker interface and counts invocations.
 type stubTicker struct {
-	count int32
+	count atomic.Int32
 	err   error
 }
 
 func (s *stubTicker) Tick(ctx context.Context, now time.Time) (int, error) {
-	atomic.AddInt32(&s.count, 1)
+	s.count.Add(1)
 	return 0, s.err
 }
 
-func (s *stubTicker) calls() int32 { return atomic.LoadInt32(&s.count) }
+func (s *stubTicker) calls() int32 { return s.count.Load() }
 
 type fakeScheduleStore struct {
 	due []DueDAG
@@ -459,6 +459,14 @@ func TestScheduledDAGTicker_MultiInstance_OneAcquires(t *testing.T) {
 	if err != nil {
 		t.Fatalf("first ticker: %v", err)
 	}
+	releasedStarter := false
+	releaseStarter := func() {
+		if !releasedStarter {
+			close(starter.release)
+			releasedStarter = true
+		}
+	}
+	defer releaseStarter()
 	secondStarter := &fakeStarter{}
 	second, err := NewScheduledDAGTicker(ScheduledDAGTickerConfig{Store: store, Starter: secondStarter, Locker: locker})
 	if err != nil {
@@ -466,10 +474,11 @@ func TestScheduledDAGTicker_MultiInstance_OneAcquires(t *testing.T) {
 	}
 
 	firstDone := make(chan error, 1)
-	go func() {
+	goroutines := newTestGoroutineGroup(t)
+	goroutines.Go(func() {
 		_, err := first.Tick(context.Background(), time.Date(2026, 5, 11, 7, 0, 0, 0, time.UTC))
 		firstDone <- err
-	}()
+	})
 	<-starter.entered
 	n, err := second.Tick(context.Background(), time.Date(2026, 5, 11, 7, 0, 0, 0, time.UTC))
 	if err != nil {
@@ -481,7 +490,7 @@ func TestScheduledDAGTicker_MultiInstance_OneAcquires(t *testing.T) {
 	if len(secondStarter.starts) != 0 {
 		t.Fatalf("second starts = %d, want 0", len(secondStarter.starts))
 	}
-	close(starter.release)
+	releaseStarter()
 	if err := <-firstDone; err != nil {
 		t.Fatalf("first Tick err = %v", err)
 	}
@@ -563,7 +572,8 @@ func TestCronScheduler_StopCancelsInflight(t *testing.T) {
 	if err := s.Start(context.Background()); err != nil {
 		t.Fatalf("Start: %v", err)
 	}
-	go s.Tick()
+	goroutines := newTestGoroutineGroup(t)
+	goroutines.Go(s.Tick)
 	<-ticker.entered
 	if err := s.Stop(); err != nil {
 		t.Fatalf("Stop: %v", err)
@@ -588,8 +598,6 @@ func TestCronScheduler_StartStop_GracefulShutdown(t *testing.T) {
 	if err := s.Start(context.Background()); err != nil {
 		t.Fatalf("Start: %v", err)
 	}
-	// 给 cron loop 一次调度机会 / give cron loop a scheduling chance
-	time.Sleep(20 * time.Millisecond)
 	if err := s.Stop(); err != nil {
 		t.Fatalf("Stop: %v", err)
 	}
@@ -650,12 +658,10 @@ func TestCronScheduler_TickerErrorDoesNotPanic(t *testing.T) {
 		t.Fatalf("NewCronScheduler: %v", err)
 	}
 	var wg sync.WaitGroup
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
+	wg.Go(func() {
 		// 直接驱动 Tick 走错误路径；不应 panic / no panic
 		s.Tick()
-	}()
+	})
 	wg.Wait()
 	if ticker.calls() != 1 {
 		t.Fatalf("ticker calls = %d, want 1", ticker.calls())

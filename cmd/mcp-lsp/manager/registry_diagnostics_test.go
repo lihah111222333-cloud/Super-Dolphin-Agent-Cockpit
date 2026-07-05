@@ -67,91 +67,111 @@ func TestRegistryDiagnosticsExplicitUnsupportedLanguageReturnsFileError(t *testi
 }
 
 type registryDiagnosticsManager struct {
+	registryDiagnosticsNavigation
+	registryDiagnosticsStructure
+	registryDiagnosticsEdit
+	registryDiagnosticsLifecycle
+	registryDiagnosticsGeneration
+
 	diagnosticsContext context.Context
 	waitContext        context.Context
 }
 
-func (*registryDiagnosticsManager) Close() error { return nil }
+type registryDiagnosticsNavigation struct{}
 
-func (*registryDiagnosticsManager) Definition(context.Context, string, protocol.Position) ([]protocol.LocationResult, error) {
+func (registryDiagnosticsNavigation) Definition(context.Context, string, protocol.Position) ([]protocol.LocationResult, error) {
 	return nil, nil
 }
 
-func (*registryDiagnosticsManager) Implementation(context.Context, string, protocol.Position) ([]protocol.LocationResult, error) {
+func (registryDiagnosticsNavigation) Implementation(context.Context, string, protocol.Position) ([]protocol.LocationResult, error) {
 	return nil, nil
 }
 
-func (*registryDiagnosticsManager) TypeDefinition(context.Context, string, protocol.Position) ([]protocol.LocationResult, error) {
+func (registryDiagnosticsNavigation) TypeDefinition(context.Context, string, protocol.Position) ([]protocol.LocationResult, error) {
 	return nil, nil
 }
 
-func (*registryDiagnosticsManager) Hover(context.Context, string, protocol.Position) (*protocol.HoverResult, error) {
+func (registryDiagnosticsNavigation) Hover(context.Context, string, protocol.Position) (*protocol.HoverResult, error) {
 	return nil, nil
 }
 
-func (*registryDiagnosticsManager) SignatureHelp(context.Context, string, protocol.Position) (*protocol.SignatureHelpResult, error) {
+func (registryDiagnosticsNavigation) SignatureHelp(context.Context, string, protocol.Position) (*protocol.SignatureHelpResult, error) {
 	return nil, nil
 }
 
-func (*registryDiagnosticsManager) References(context.Context, string, protocol.Position, bool) ([]protocol.LocationResult, error) {
+func (registryDiagnosticsNavigation) References(context.Context, string, protocol.Position, bool) ([]protocol.LocationResult, error) {
 	return nil, nil
 }
 
-func (*registryDiagnosticsManager) CallHierarchy(context.Context, string, protocol.Position, string) ([]protocol.CallHierarchyResult, error) {
+func (registryDiagnosticsNavigation) CallHierarchy(context.Context, string, protocol.Position, string) ([]protocol.CallHierarchyResult, error) {
 	return nil, nil
 }
 
-func (*registryDiagnosticsManager) TypeHierarchy(context.Context, string, protocol.Position, string) ([]protocol.TypeHierarchyResult, error) {
+func (registryDiagnosticsNavigation) TypeHierarchy(context.Context, string, protocol.Position, string) ([]protocol.TypeHierarchyResult, error) {
 	return nil, nil
 }
 
-func (*registryDiagnosticsManager) DocumentSymbol(context.Context, string) ([]protocol.DocumentSymbol, error) {
+type registryDiagnosticsStructure struct{}
+
+func (registryDiagnosticsStructure) DocumentSymbol(context.Context, string) ([]protocol.DocumentSymbol, error) {
 	return nil, nil
 }
 
-func (*registryDiagnosticsManager) WorkspaceSymbol(context.Context, string, string) ([]protocol.WorkspaceSymbolResult, error) {
+func (registryDiagnosticsStructure) WorkspaceSymbol(context.Context, string, string) ([]protocol.WorkspaceSymbolResult, error) {
 	return nil, nil
 }
 
-func (*registryDiagnosticsManager) FoldingRange(context.Context, string) ([]protocol.FoldingRange, error) {
+func (registryDiagnosticsStructure) FoldingRange(context.Context, string) ([]protocol.FoldingRange, error) {
 	return nil, nil
 }
 
-func (*registryDiagnosticsManager) SemanticTokens(context.Context, string) (*protocol.SemanticTokensResult, error) {
+func (registryDiagnosticsStructure) SemanticTokens(context.Context, string) (*protocol.SemanticTokensResult, error) {
 	return nil, nil
 }
 
-func (*registryDiagnosticsManager) Completion(context.Context, string, protocol.Position) (*protocol.CompletionList, error) {
+func (registryDiagnosticsStructure) Completion(context.Context, string, protocol.Position) (*protocol.CompletionList, error) {
 	return nil, nil
 }
 
-func (*registryDiagnosticsManager) Rename(context.Context, string, protocol.Position, string) (*protocol.WorkspaceEdit, error) {
+type registryDiagnosticsEdit struct{}
+
+func (registryDiagnosticsEdit) Rename(context.Context, string, protocol.Position, string) (*protocol.WorkspaceEdit, error) {
 	return nil, nil
 }
 
-func (*registryDiagnosticsManager) CodeAction(context.Context, string, protocol.Range, []string) ([]protocol.CodeActionResult, error) {
+func (registryDiagnosticsEdit) CodeAction(context.Context, string, protocol.Range, []string) ([]protocol.CodeActionResult, error) {
 	return nil, nil
 }
 
-func (*registryDiagnosticsManager) Format(context.Context, string, protocol.FormattingOptions) ([]protocol.TextEdit, error) {
+func (registryDiagnosticsEdit) Format(context.Context, string, protocol.FormattingOptions) ([]protocol.TextEdit, error) {
 	return nil, nil
 }
 
-func (*registryDiagnosticsManager) DidOpen(context.Context, string, string, int, string) error {
+type registryDiagnosticsLifecycle struct{}
+
+func (registryDiagnosticsLifecycle) Close() error { return nil }
+
+func (registryDiagnosticsLifecycle) DidOpen(context.Context, string, string, int, string) error {
 	return nil
 }
 
-func (*registryDiagnosticsManager) DidChange(context.Context, string, int, []protocol.TextDocumentContentChangeEvent) error {
+func (registryDiagnosticsLifecycle) DidChange(context.Context, string, int, []protocol.TextDocumentContentChangeEvent) error {
 	return nil
 }
 
-func (*registryDiagnosticsManager) DidClose(context.Context, string) error { return nil }
+func (registryDiagnosticsLifecycle) DidClose(context.Context, string) error { return nil }
 
-func (*registryDiagnosticsManager) BootstrapDocument(context.Context, string) error { return nil }
+func (registryDiagnosticsLifecycle) BootstrapDocument(context.Context, string) error { return nil }
 
-func (*registryDiagnosticsManager) BootstrapDocumentOpenOnly(context.Context, string) error {
+func (registryDiagnosticsLifecycle) BootstrapDocumentOpenOnly(context.Context, string) error {
 	return nil
 }
+
+type registryDiagnosticsGeneration struct{}
+
+func (registryDiagnosticsGeneration) CurrentDiagnosticGeneration() uint64 { return 1 }
+
+func (registryDiagnosticsGeneration) AdvanceDiagnosticGeneration() uint64 { return 2 }
 
 func (m *registryDiagnosticsManager) Diagnostics(ctx context.Context, _ []string) ([]protocol.PublishDiagnosticsParams, error) {
 	m.diagnosticsContext = ctx
@@ -162,7 +182,3 @@ func (m *registryDiagnosticsManager) WaitDiagnosticsStable(ctx context.Context, 
 	m.waitContext = ctx
 	return nil
 }
-
-func (*registryDiagnosticsManager) CurrentDiagnosticGeneration() uint64 { return 1 }
-
-func (*registryDiagnosticsManager) AdvanceDiagnosticGeneration() uint64 { return 2 }

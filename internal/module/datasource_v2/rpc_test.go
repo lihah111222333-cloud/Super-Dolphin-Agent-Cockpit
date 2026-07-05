@@ -397,6 +397,8 @@ func datasourceV2RPCWorkspaceSource(t *testing.T, name string, body []byte) stri
 }
 
 type recordingDatasourceV2Store struct {
+	recordingDatasourceV2SemanticNoopStore
+
 	document datasourcev2store.Document
 	inserted []datasourcev2store.InsertChunkParams
 	chunks   []datasourcev2store.TextChunk
@@ -543,7 +545,9 @@ func (s *recordingDatasourceV2Store) ListChunksPage(
 	}, nil
 }
 
-func (s *recordingDatasourceV2Store) SearchChunks(
+type recordingDatasourceV2SemanticNoopStore struct{}
+
+func (recordingDatasourceV2SemanticNoopStore) SearchChunks(
 	context.Context,
 	datasourcev2store.SearchChunksParams,
 ) ([]datasourcev2store.SemanticChunk, error) {

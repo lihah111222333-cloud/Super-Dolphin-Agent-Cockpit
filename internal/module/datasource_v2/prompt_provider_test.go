@@ -99,26 +99,30 @@ func TestPromptAssemblyIncludesDatasourceV2SemanticChunksForCurrentRequest(t *te
 }
 
 type promptDatasourceV2Store struct {
+	promptDatasourceV2UnusedStore
+
 	semanticChunks []datasourcev2store.SemanticChunk
 	capturedSearch datasourcev2store.SearchChunksParams
 }
 
-func (s *promptDatasourceV2Store) WithTx(context.Context, func(datasourcev2store.Store) error) error {
+type promptDatasourceV2UnusedStore struct{}
+
+func (promptDatasourceV2UnusedStore) WithTx(context.Context, func(datasourcev2store.Store) error) error {
 	return errors.New("unexpected datasource_v2 prompt test write transaction")
 }
 
-func (s *promptDatasourceV2Store) ListDocuments(
+func (promptDatasourceV2UnusedStore) ListDocuments(
 	context.Context,
 	datasourcev2store.ListDocumentsParams,
 ) ([]datasourcev2store.Document, error) {
 	return nil, errors.New("unexpected datasource_v2 prompt test list documents")
 }
 
-func (s *promptDatasourceV2Store) GetDocument(context.Context, int64) (*datasourcev2store.Document, error) {
+func (promptDatasourceV2UnusedStore) GetDocument(context.Context, int64) (*datasourcev2store.Document, error) {
 	return nil, errors.New("unexpected datasource_v2 prompt test get document")
 }
 
-func (s *promptDatasourceV2Store) ListChunksPage(
+func (promptDatasourceV2UnusedStore) ListChunksPage(
 	context.Context,
 	datasourcev2store.ListChunksParams,
 ) (datasourcev2store.TextChunkPage, error) {
@@ -133,33 +137,33 @@ func (s *promptDatasourceV2Store) SearchChunks(
 	return append([]datasourcev2store.SemanticChunk(nil), s.semanticChunks...), nil
 }
 
-func (s *promptDatasourceV2Store) UpsertImporting(
+func (promptDatasourceV2UnusedStore) UpsertImporting(
 	context.Context,
 	datasourcev2store.UpsertDocumentParams,
 ) (*datasourcev2store.Document, error) {
 	return nil, errors.New("unexpected datasource_v2 prompt test import")
 }
 
-func (s *promptDatasourceV2Store) UpdateDocument(
+func (promptDatasourceV2UnusedStore) UpdateDocument(
 	context.Context,
 	datasourcev2store.UpdateDocumentParams,
 ) (*datasourcev2store.Document, error) {
 	return nil, errors.New("unexpected datasource_v2 prompt test update")
 }
 
-func (s *promptDatasourceV2Store) DeleteDocument(context.Context, int64) error {
+func (promptDatasourceV2UnusedStore) DeleteDocument(context.Context, int64) error {
 	return errors.New("unexpected datasource_v2 prompt test delete")
 }
 
-func (s *promptDatasourceV2Store) DeleteChunks(context.Context, int64) error {
+func (promptDatasourceV2UnusedStore) DeleteChunks(context.Context, int64) error {
 	return errors.New("unexpected datasource_v2 prompt test delete chunks")
 }
 
-func (s *promptDatasourceV2Store) InsertChunk(context.Context, datasourcev2store.InsertChunkParams) error {
+func (promptDatasourceV2UnusedStore) InsertChunk(context.Context, datasourcev2store.InsertChunkParams) error {
 	return errors.New("unexpected datasource_v2 prompt test insert chunk")
 }
 
-func (s *promptDatasourceV2Store) MarkReady(
+func (promptDatasourceV2UnusedStore) MarkReady(
 	context.Context,
 	datasourcev2store.MarkReadyParams,
 ) (*datasourcev2store.Document, error) {

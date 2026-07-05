@@ -31,16 +31,22 @@ type AgentLauncher interface {
 
 var ErrDAGAgentRequiresRemoteLauncher = errors.New("DAG agent launch requires remote launcher")
 
+// DAGAgentLaunchContractValidator 在 DAG agent 启动前校验远端 launcher 契约。
+// 它守住 cwd、provider 和节点身份等跨模块边界，失败时必须阻断启动。
 type DAGAgentLaunchContractValidator interface {
 	ValidateDAGAgentLaunch(ctx context.Context, req contract.LaunchRequest, dagKey, nodeKey string) error
 }
 
 var ErrSpawnWritebackFailed = errors.New("agent spawn write-back failed")
 
+// AgentLauncherWithSpawnRecord 支持在启动事务中原子写回 child thread 绑定。
+// record 回调失败时 launcher 必须终止或回滚，避免 DAG 节点丢失 spawning_thread_id。
 type AgentLauncherWithSpawnRecord interface {
 	LaunchAgentWithSpawnRecord(ctx context.Context, req contract.LaunchRequest, record func(threadID string) error) (threadID string, err error)
 }
 
+// LaunchedThreadStopper 在 spawn 写回失败后停止已启动的远端线程。
+// 它只用于补偿 DAG agent 启动，不能替代 service 的普通 StopAgent 路径。
 type LaunchedThreadStopper interface {
 	StopLaunchedThread(ctx context.Context, threadID string) error
 }

@@ -34,6 +34,9 @@ type AgentLauncher interface {
 	SubmitTurn(ctx context.Context, agent *agentRuntime, submission TurnSubmission) (string, error)
 	IsRunning(ctx context.Context, agent *agentRuntime) bool
 }
+
+// LaunchResult 返回 launcher 启动后写回 service runtime 的远端身份。
+// 本地 launcher 可以保持空值；远端 launcher 必须提供 thread/agent id 供后续 turn 和 archive 路由。
 type LaunchResult struct {
 	ThreadID, RemoteAgentID string
 }

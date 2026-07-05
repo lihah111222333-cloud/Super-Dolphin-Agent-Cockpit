@@ -80,6 +80,17 @@ func waitForTeamSyncEnqueued(t *testing.T, coordinator *teamSyncCoordinator, wan
 	t.Fatalf("EnqueuedTotal = %d, want %d", coordinator.EnqueuedTotal(), want)
 }
 
+func registerMemoryGoroutineCleanup(t *testing.T, done <-chan struct{}, label string) {
+	t.Helper()
+	t.Cleanup(func() {
+		select {
+		case <-done:
+		case <-time.After(time.Second):
+			t.Fatalf("%s goroutines did not stop", label)
+		}
+	})
+}
+
 func TestAutoDreamSchedulerAsRunnerRun(t *testing.T) {
 	t.Parallel()
 	runner := autoDreamSchedulerAsRunner(newAutoDreamScheduler(nil, nil))
@@ -102,7 +113,19 @@ func assertMemoryRunnerStopsAfterCancel(t *testing.T, run func(context.Context) 
 	t.Helper()
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
-	go func() { done <- run(ctx) }()
+	finished := make(chan struct{})
+	go func() {
+		defer close(finished)
+		done <- run(ctx)
+	}()
+	t.Cleanup(func() {
+		cancel()
+		select {
+		case <-finished:
+		case <-time.After(time.Second):
+			t.Fatal("memory runner goroutine did not stop")
+		}
+	})
 	time.Sleep(10 * time.Millisecond)
 	cancel()
 	select {

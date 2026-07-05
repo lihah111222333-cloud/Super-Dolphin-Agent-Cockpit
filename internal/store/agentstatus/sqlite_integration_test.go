@@ -33,6 +33,14 @@ func TestSQLiteAgentStatusUpsertGetAndList(t *testing.T) {
 		t.Fatalf("Upsert() timestamps were not populated: %+v", created)
 	}
 
+	assertAgentStatusGet(t, s)
+	assertAgentStatusList(t, s)
+	assertAgentStatusRejectsInvalidJSON(t, s)
+}
+
+func assertAgentStatusGet(t *testing.T, s Store) {
+	t.Helper()
+
 	got, err := s.Get(context.Background(), "agent-1")
 	if err != nil {
 		t.Fatalf("Get() error = %v", err)
@@ -40,6 +48,10 @@ func TestSQLiteAgentStatusUpsertGetAndList(t *testing.T) {
 	if got.AgentID != "agent-1" || string(got.OutputTail) != `["ready"]` {
 		t.Fatalf("Get() = %+v", got)
 	}
+}
+
+func assertAgentStatusList(t *testing.T, s Store) {
+	t.Helper()
 
 	rows, err := s.List(context.Background(), "running")
 	if err != nil {
@@ -48,6 +60,10 @@ func TestSQLiteAgentStatusUpsertGetAndList(t *testing.T) {
 	if len(rows) != 1 || rows[0].AgentID != "agent-1" {
 		t.Fatalf("List() = %+v", rows)
 	}
+}
+
+func assertAgentStatusRejectsInvalidJSON(t *testing.T, s Store) {
+	t.Helper()
 
 	if _, err := s.Upsert(context.Background(), UpsertParams{AgentID: "bad-json", Status: "running", OutputTail: json.RawMessage(`not-json`)}); err == nil {
 		t.Fatal("Upsert() invalid JSON error = nil")

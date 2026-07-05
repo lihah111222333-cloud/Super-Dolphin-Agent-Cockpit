@@ -89,6 +89,7 @@ var errPreferenceKeyRequired = errors.New("uistate: preference key is required")
 
 var _ Service = (*service)(nil)
 
+// ServiceOption 在构造 uistate service 时注入可选能力。
 type ServiceOption func(*service)
 
 // WithObservability 注入可选观测服务，用于记录 UI patch 和 timeline trace。

@@ -185,10 +185,11 @@ func TestDispatcherRetryAlertSinkDoesNotBlockBatch(t *testing.T) {
 	d, _ := NewWakeupDispatcher(store, launcher, nil, WakeupDispatcherConfig{})
 	d.WithDispatchRetryAlertSink(sink)
 	done := make(chan error, 1)
-	go func() {
+	goroutines := newTestGoroutineGroup(t)
+	goroutines.Go(func() {
 		_, err := d.ProcessBatch(context.Background())
 		done <- err
-	}()
+	})
 
 	closed := false
 	unblock := func() {

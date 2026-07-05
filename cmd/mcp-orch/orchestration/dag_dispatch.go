@@ -207,6 +207,8 @@ func (s *service) assignAndEnqueueDispatch(ctx context.Context, target *taskdag.
 	return result, nil
 }
 
+// Scheduler 是保留给旧调度 wiring 的最小端口。
+// 生产 scheduled DAG 已由 cron.ScheduledDAGTicker 承担；这里保持显式未实现边界。
 type Scheduler interface {
 	Tick(context.Context, time.Time) (int, error)
 	Schedule(context.Context, string) error

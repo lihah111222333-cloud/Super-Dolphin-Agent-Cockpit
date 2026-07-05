@@ -20,18 +20,16 @@ import (
 // the methods the scheduler calls have first-class slots; everything
 // else returns zero-values so lint / compile stays quiet.
 type recordingCronStore struct {
+	recordingCronRunWriteStore
+	recordingCronTerminalStore
+	recordingCronCompatibilityStore
+
 	mu                      sync.Mutex
 	claimFn                 func(context.Context, claimDueJobsForUpdateParams) ([]jobRecord, error)
-	insertRunFn             func(context.Context, insertRunParams) (runRecord, error)
 	casStatusFn             func(context.Context, casRunStatusParams) error
-	setRunTurnFn            func(context.Context, setRunTurnParams) error
-	setActiveTurnFn         func(context.Context, setActiveTurnParams) error
-	submitRunWithActiveTurn func(context.Context, submitRunWithActiveTurnParams) error
-	markFinishedFn          func(context.Context, markFinishedParams) error
 	markFailedFn            func(context.Context, markFailedParams) error
 	renewLeaseFn            func(context.Context, leaseParams) error
 	listJobsFn              func(context.Context) ([]jobRecord, error)
-	getJobFn                func(context.Context, string) (jobRecord, error)
 	listUnresolvedFn        func(context.Context) ([]runRecord, error)
 	getRunningRunByTurnIDFn func(context.Context, string) (runRecord, error)
 	getRunByTurnIDFn        func(context.Context, string) (runRecord, error)
@@ -41,13 +39,27 @@ type recordingCronStore struct {
 	casCalls []casRunStatusParams
 }
 
+type recordingCronRunWriteStore struct {
+	insertRunFn             func(context.Context, insertRunParams) (runRecord, error)
+	setRunTurnFn            func(context.Context, setRunTurnParams) error
+	setActiveTurnFn         func(context.Context, setActiveTurnParams) error
+	submitRunWithActiveTurn func(context.Context, submitRunWithActiveTurnParams) error
+}
+
+type recordingCronTerminalStore struct {
+	getJobFn       func(context.Context, string) (jobRecord, error)
+	markFinishedFn func(context.Context, markFinishedParams) error
+}
+
+type recordingCronCompatibilityStore struct{}
+
 func (s *recordingCronStore) ClaimDueJobsForUpdate(ctx context.Context, p claimDueJobsForUpdateParams) ([]jobRecord, error) {
 	if s.claimFn != nil {
 		return s.claimFn(ctx, p)
 	}
 	return nil, nil
 }
-func (s *recordingCronStore) InsertRun(ctx context.Context, p insertRunParams) (runRecord, error) {
+func (s *recordingCronRunWriteStore) InsertRun(ctx context.Context, p insertRunParams) (runRecord, error) {
 	if s.insertRunFn != nil {
 		return s.insertRunFn(ctx, p)
 	}
@@ -62,26 +74,26 @@ func (s *recordingCronStore) CASRunStatus(ctx context.Context, p casRunStatusPar
 	}
 	return nil
 }
-func (s *recordingCronStore) SetRunTurn(ctx context.Context, p setRunTurnParams) error {
+func (s *recordingCronRunWriteStore) SetRunTurn(ctx context.Context, p setRunTurnParams) error {
 	if s.setRunTurnFn != nil {
 		return s.setRunTurnFn(ctx, p)
 	}
 	return nil
 }
-func (s *recordingCronStore) SetActiveTurn(ctx context.Context, p setActiveTurnParams) error {
+func (s *recordingCronRunWriteStore) SetActiveTurn(ctx context.Context, p setActiveTurnParams) error {
 	if s.setActiveTurnFn != nil {
 		return s.setActiveTurnFn(ctx, p)
 	}
 	return nil
 }
 
-func (s *recordingCronStore) SubmitRunWithActiveTurn(ctx context.Context, p submitRunWithActiveTurnParams) error {
+func (s *recordingCronRunWriteStore) SubmitRunWithActiveTurn(ctx context.Context, p submitRunWithActiveTurnParams) error {
 	if s.submitRunWithActiveTurn != nil {
 		return s.submitRunWithActiveTurn(ctx, p)
 	}
 	return nil
 }
-func (s *recordingCronStore) MarkFinished(ctx context.Context, p markFinishedParams) error {
+func (s *recordingCronTerminalStore) MarkFinished(ctx context.Context, p markFinishedParams) error {
 	if s.markFinishedFn != nil {
 		return s.markFinishedFn(ctx, p)
 	}
@@ -99,7 +111,7 @@ func (s *recordingCronStore) RenewLease(ctx context.Context, p leaseParams) erro
 	}
 	return nil
 }
-func (s *recordingCronStore) GetJobByID(ctx context.Context, id string) (jobRecord, error) {
+func (s *recordingCronTerminalStore) GetJobByID(ctx context.Context, id string) (jobRecord, error) {
 	if s.getJobFn != nil {
 		return s.getJobFn(ctx, id)
 	}
@@ -113,21 +125,21 @@ func (s *recordingCronStore) ListJobs(ctx context.Context) ([]jobRecord, error) 
 }
 
 // Unused store methods keep the programmable double compatible with older scheduler tests.
-func (s *recordingCronStore) CreateJob(context.Context, createJobParams) (jobRecord, error) {
+func (recordingCronCompatibilityStore) CreateJob(context.Context, createJobParams) (jobRecord, error) {
 	return jobRecord{}, nil
 }
-func (s *recordingCronStore) DeleteJob(context.Context, string) error { return nil }
-func (s *recordingCronStore) UpdateJobSchedule(context.Context, updateJobScheduleParams) error {
+func (recordingCronCompatibilityStore) DeleteJob(context.Context, string) error { return nil }
+func (recordingCronCompatibilityStore) UpdateJobSchedule(context.Context, updateJobScheduleParams) error {
 	return nil
 }
-func (s *recordingCronStore) SetJobEnabled(context.Context, string, bool, time.Time) error {
+func (recordingCronCompatibilityStore) SetJobEnabled(context.Context, string, bool, time.Time) error {
 	return nil
 }
-func (s *recordingCronStore) PatchNextRunAt(context.Context, string, time.Time, time.Time) error {
+func (recordingCronCompatibilityStore) PatchNextRunAt(context.Context, string, time.Time, time.Time) error {
 	return nil
 }
-func (s *recordingCronStore) ExtendClaim(context.Context, leaseParams) error { return nil }
-func (s *recordingCronStore) ReleaseClaim(context.Context, string, string, time.Time) error {
+func (recordingCronCompatibilityStore) ExtendClaim(context.Context, leaseParams) error { return nil }
+func (recordingCronCompatibilityStore) ReleaseClaim(context.Context, string, string, time.Time) error {
 	return nil
 }
 func (s *recordingCronStore) ListUnresolvedRuns(ctx context.Context) ([]runRecord, error) {
@@ -323,8 +335,10 @@ func TestSchedulerDriveJobHappyPath(t *testing.T) {
 func TestPersistSubmittedTurnAtomicWithActiveTurn(t *testing.T) {
 	t.Parallel()
 	store := &recordingCronStore{
-		submitRunWithActiveTurn: func(context.Context, submitRunWithActiveTurnParams) error {
-			return errors.New("active turn write failed")
+		recordingCronRunWriteStore: recordingCronRunWriteStore{
+			submitRunWithActiveTurn: func(context.Context, submitRunWithActiveTurnParams) error {
+				return errors.New("active turn write failed")
+			},
 		},
 	}
 	s := newTestScheduler(t, store, &programmableSubmitter{})
@@ -347,8 +361,10 @@ func TestSetActiveTurnFailureDoesNotPublishSubmitted(t *testing.T) {
 	dispatcher := event.NewDispatcher()
 	defer func() { _ = dispatcher.Close() }()
 	store := &recordingCronStore{
-		submitRunWithActiveTurn: func(context.Context, submitRunWithActiveTurnParams) error {
-			return errors.New("active turn write failed")
+		recordingCronRunWriteStore: recordingCronRunWriteStore{
+			submitRunWithActiveTurn: func(context.Context, submitRunWithActiveTurnParams) error {
+				return errors.New("active turn write failed")
+			},
 		},
 		claimFn: func(context.Context, claimDueJobsForUpdateParams) ([]jobRecord, error) {
 			return []jobRecord{{ID: "job-1", ScheduleExpr: "0 9 * * *", Timezone: "UTC", Provider: "codex", CWD: "/repo", ClaimToken: "claim-token"}}, nil

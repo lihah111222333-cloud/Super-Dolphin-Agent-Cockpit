@@ -2,6 +2,8 @@ package retrieval
 
 import memshared "github.com/anthropic-ai/super-agent-v3/internal/module/memory/shared"
 
+// MemoryType 是 retrieval 子包使用的记忆类型别名。
+// 别名保持检索排序、manifest 和 root memory 包共享同一套分类。
 type MemoryType = memshared.MemoryType
 
 const (
@@ -12,8 +14,13 @@ const (
 	MemoryTypeReference = memshared.MemoryTypeReference
 )
 
+// MemoryFrontmatter 是检索读取 topic 头部时使用的 frontmatter 别名。
 type MemoryFrontmatter = memshared.MemoryFrontmatter
+
+// MemoryEntry 是检索 manifest、hydrate 和 attachment 渲染共享的条目结构。
 type MemoryEntry = memshared.MemoryEntry
+
+// ParsedMemory 是 retrieval 读取 markdown 文件后的解析结果别名。
 type ParsedMemory = memshared.ParsedMemory
 
 // ParseMemoryType 将字符串解析为共享记忆类型枚举。

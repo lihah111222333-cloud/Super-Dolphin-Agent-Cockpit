@@ -49,7 +49,16 @@ func TestDiagnoseTraceForceRefreshBypassesInflightTail(t *testing.T) {
 	})
 	svc := NewService(cfg, WithTailReader(tail))
 	ordinary := make(chan TraceDiagnosis, 1)
+	ordinaryDone := make(chan struct{})
+	t.Cleanup(func() {
+		select {
+		case <-ordinaryDone:
+		case <-time.After(time.Second):
+			t.Fatal("ordinary diagnosis goroutine did not stop")
+		}
+	})
 	go func() {
+		defer close(ordinaryDone)
 		diagnosis, _ := svc.DiagnoseTrace(context.Background(), TraceDiagnosisRequest{TraceID: "force-refresh"})
 		ordinary <- diagnosis
 	}()

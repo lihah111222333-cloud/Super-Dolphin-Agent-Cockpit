@@ -85,6 +85,16 @@ func fireKeepalivePing(t *testing.T, m *Manager) <-chan struct{} {
 		defer m.pingInflight.Done()
 		m.executePing("session-1", timerRef.timer)
 	}()
+	t.Cleanup(func() {
+		cleanupCtx, cancel := context.WithTimeout(context.Background(), time.Second)
+		defer cancel()
+		_ = m.Shutdown(cleanupCtx)
+		select {
+		case <-pingDone:
+		case <-time.After(time.Second):
+			t.Fatal("keepalive ping goroutine did not stop")
+		}
+	})
 	return pingDone
 }
 

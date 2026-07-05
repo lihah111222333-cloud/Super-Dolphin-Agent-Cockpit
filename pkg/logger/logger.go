@@ -13,6 +13,7 @@ import (
 	"time"
 )
 
+// Mode 表示日志运行模式，用于选择默认级别、输出格式和 source 记录策略。
 type Mode string
 
 // 日志运行模式决定默认级别、输出格式和 source 记录策略。

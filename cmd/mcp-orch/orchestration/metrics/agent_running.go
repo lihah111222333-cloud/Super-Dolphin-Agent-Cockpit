@@ -2,6 +2,8 @@ package metrics
 
 import "sync/atomic"
 
+// DispatchAgentRunningMetrics 是 agent 节点写入 running 状态的指标快照。
+// 计数只观察 dispatcher 写库结果，不改变 DAG 节点状态机。
 type DispatchAgentRunningMetrics struct {
 	Written                int64
 	SkippedAlreadyTerminal int64

@@ -14,33 +14,41 @@ import (
 // fakeSession 是只携带 ThreadID 的 contract.Session 假实现。
 // 这些测试把 turn 执行交给 fake CronTurnExecutor，因此不触发真实 StartTurn/Interrupt。
 type fakeSession struct {
+	fakeSessionInfo
+	fakeSessionControl
+
 	threadID string
 }
 
-func (f *fakeSession) ThreadID() string                        { return f.threadID }
-func (f *fakeSession) RolloutPath() string                     { return "" }
-func (f *fakeSession) Capabilities() providerdto.CapabilitySet { return nil }
-func (f *fakeSession) StartTurn(context.Context, providerdto.TurnRequest) (contract.TurnHandle, error) {
+type fakeSessionInfo struct{}
+
+func (fakeSessionInfo) RolloutPath() string                     { return "" }
+func (fakeSessionInfo) Capabilities() providerdto.CapabilitySet { return nil }
+
+type fakeSessionControl struct{}
+
+func (f *fakeSession) ThreadID() string { return f.threadID }
+func (fakeSessionControl) StartTurn(context.Context, providerdto.TurnRequest) (contract.TurnHandle, error) {
 	return nil, errors.New("fakeSession.StartTurn not used")
 }
-func (f *fakeSession) Interrupt(context.Context, providerdto.InterruptRequest) error {
+func (fakeSessionControl) Interrupt(context.Context, providerdto.InterruptRequest) error {
 	return nil
 }
-func (f *fakeSession) ForceComplete(context.Context, providerdto.ForceCompleteRequest) error {
+func (fakeSessionControl) ForceComplete(context.Context, providerdto.ForceCompleteRequest) error {
 	return nil
 }
-func (f *fakeSession) ListThreads(context.Context) ([]providerdto.ThreadRef, error) {
+func (fakeSessionControl) ListThreads(context.Context) ([]providerdto.ThreadRef, error) {
 	return nil, nil
 }
-func (f *fakeSession) ForkThread(context.Context, providerdto.ForkRequest) (providerdto.ForkResult, error) {
+func (fakeSessionControl) ForkThread(context.Context, providerdto.ForkRequest) (providerdto.ForkResult, error) {
 	return providerdto.ForkResult{}, nil
 }
-func (f *fakeSession) ReadHistory(context.Context, string, int) ([]providerdto.Message, error) {
+func (fakeSessionControl) ReadHistory(context.Context, string, int) ([]providerdto.Message, error) {
 	return nil, nil
 }
-func (f *fakeSession) Configure(context.Context, providerdto.ThreadConfigPatch) error { return nil }
-func (f *fakeSession) Close(context.Context) error                                    { return nil }
-func (f *fakeSession) ForceStop() error                                               { return nil }
+func (fakeSessionControl) Configure(context.Context, providerdto.ThreadConfigPatch) error { return nil }
+func (fakeSessionControl) Close(context.Context) error                                    { return nil }
+func (fakeSessionControl) ForceStop() error                                               { return nil }
 
 // fakeResolver 按 threadID 返回测试 session，未知 ID 用错误模拟解析失败。
 type fakeResolver struct {

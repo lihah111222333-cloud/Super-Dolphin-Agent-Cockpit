@@ -15,6 +15,26 @@ type tickActorRecorder struct {
 	ticks int32
 }
 
+func startActorForTest(t *testing.T, run func(context.Context) error) (context.CancelFunc, <-chan error) {
+	t.Helper()
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	finished := make(chan struct{})
+	go func() {
+		defer close(finished)
+		done <- run(ctx)
+	}()
+	t.Cleanup(func() {
+		cancel()
+		select {
+		case <-finished:
+		case <-time.After(time.Second):
+			t.Fatal("actor goroutine did not stop")
+		}
+	})
+	return cancel, done
+}
+
 func (r *tickActorRecorder) ClaimDueJobsForUpdate(ctx context.Context, p claimDueJobsForUpdateParams) ([]jobRecord, error) {
 	atomic.AddInt32(&r.ticks, 1)
 	if r.claimFn != nil {
@@ -33,9 +53,7 @@ func TestTickActorRunsOnCtxCancel(t *testing.T) {
 	})
 	actor := NewTickActor(slog.Default(), s)
 
-	ctx, cancel := context.WithCancel(context.Background())
-	done := make(chan error, 1)
-	go func() { done <- actor.Run(ctx) }()
+	cancel, done := startActorForTest(t, actor.Run)
 
 	// Give the actor long enough to tick at least twice before we cut
 	// the context (immediate tick + one via ticker).
@@ -73,9 +91,7 @@ func TestLeaseActorCallsRenewOnTick(t *testing.T) {
 	})
 	actor := NewLeaseActor(slog.Default(), s)
 
-	ctx, cancel := context.WithCancel(context.Background())
-	done := make(chan error, 1)
-	go func() { done <- actor.Run(ctx) }()
+	cancel, done := startActorForTest(t, actor.Run)
 
 	// Wait for a couple of heartbeats.
 	time.Sleep(40 * time.Millisecond)

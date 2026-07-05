@@ -131,7 +131,8 @@ func TestDispatchRetryAlertNotifierWebhookCapture(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
-	go func() { done <- flusher.Run(ctx) }()
+	goroutines := newTestGoroutineGroup(t)
+	goroutines.Go(func() { done <- flusher.Run(ctx) })
 	deadline := time.Now().Add(2 * time.Second)
 	for time.Now().Before(deadline) {
 		mu.Lock()

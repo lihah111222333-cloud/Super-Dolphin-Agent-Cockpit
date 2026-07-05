@@ -7,6 +7,8 @@ import (
 	"sync"
 )
 
+// MemoryMode 表示 start prompt 中 memory 规则的注入模式。
+// gate 会在 standard、combined 和 kairos 之间选择，provider 只消费最终渲染出的规则文本。
 type MemoryMode string
 
 const (
@@ -15,6 +17,8 @@ const (
 	MemoryModeKairos   MemoryMode = "kairos"
 )
 
+// MemoryRuleOptions 控制规则文本渲染时可见的 memory 行为。
+// 路径字段只用于提示模型写入位置，不会触发目录创建或磁盘读写。
 type MemoryRuleOptions struct {
 	SkipIndex                bool
 	SearchPastContextEnabled bool
@@ -23,6 +27,8 @@ type MemoryRuleOptions struct {
 	TeamMemPath              string
 }
 
+// MemoryTypeBehavior 描述某类记忆的保存、读取和信任规则。
+// 这些规则只进入 prompt 文本，真正的权限和路径校验仍在 runtime 执行。
 type MemoryTypeBehavior struct {
 	Summary string
 	Save    []string
@@ -30,6 +36,8 @@ type MemoryTypeBehavior struct {
 	Trust   []string
 }
 
+// MemoryRuleEngine 持有 memory prompt 的规则模板和类型顺序。
+// 实例化时会拷贝默认规则，防止测试或调用方修改包级模板影响其它 provider 会话。
 type MemoryRuleEngine struct {
 	order []MemoryType
 	rules map[MemoryType]MemoryTypeBehavior

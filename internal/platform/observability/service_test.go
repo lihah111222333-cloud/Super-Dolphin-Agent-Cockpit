@@ -126,14 +126,26 @@ func TestServiceQueryTailCoalescesInflightButDoesNotCacheCompletedResult(t *test
 	svc := NewService(cfg, WithTailReader(tail))
 	query := Query{TraceID: "same", IncludeTail: true}
 	results := make(chan QueryResult, 2)
+	var wg sync.WaitGroup
+	wg.Add(2)
+	queriesDone := make(chan struct{})
+	t.Cleanup(func() {
+		select {
+		case <-queriesDone:
+		case <-time.After(time.Second):
+			t.Fatal("tail coalescing query goroutines did not stop")
+		}
+	})
 
 	go func() {
+		defer wg.Done()
 		results <- svc.Query(context.Background(), query)
 	}()
 	waitForSignal(t, started, "first tail read to start")
 
 	secondCtx, secondWaiting := newDoneSignalContext(context.Background())
 	go func() {
+		defer wg.Done()
 		results <- svc.Query(secondCtx, query)
 	}()
 	waitForSignal(t, secondWaiting, "second query to wait on in-flight tail read")
@@ -148,6 +160,8 @@ func TestServiceQueryTailCoalescesInflightButDoesNotCacheCompletedResult(t *test
 	after := svc.Query(context.Background(), query)
 	assertQueryMethods(t, after, "tail-after", "sequential")
 	assertTailCalls(t, &calls, 2, "after sequential query")
+	wg.Wait()
+	close(queriesDone)
 }
 
 func TestServiceQueryTailReReadsJSONLForSameQuery(t *testing.T) {

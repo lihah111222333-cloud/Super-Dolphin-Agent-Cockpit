@@ -440,6 +440,28 @@ func (s *fxDatasourceStore) ListDocuments(_ context.Context, workspaceRoot strin
 	return out, nil
 }
 
+func (s *fxDatasourceStore) ListPromptDocuments(ctx context.Context, workspaceRoot string, maxDocuments int, maxWorkspaceBytes int64, maxDocumentBytes int64) ([]datasource.DatasourceDocument, error) {
+	documents, err := s.ListDocuments(ctx, workspaceRoot)
+	if err != nil {
+		return nil, err
+	}
+	if len(documents) > maxDocuments {
+		return nil, fmt.Errorf("datasource prompt documents exceed count cap: %d > %d", len(documents), maxDocuments)
+	}
+	var totalBytes int64
+	for _, document := range documents {
+		documentBytes := int64(len([]byte(document.Content)))
+		if documentBytes > maxDocumentBytes {
+			return nil, fmt.Errorf("datasource prompt document %q exceeds byte cap: %d > %d", document.Name, documentBytes, maxDocumentBytes)
+		}
+		totalBytes += documentBytes
+		if totalBytes > maxWorkspaceBytes {
+			return nil, fmt.Errorf("datasource prompt documents exceed byte cap: %d > %d", totalBytes, maxWorkspaceBytes)
+		}
+	}
+	return documents, nil
+}
+
 func (s *fxDatasourceStore) DeleteDocument(context.Context, string, string) error {
 	return nil
 }

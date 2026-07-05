@@ -445,6 +445,8 @@ func TestService_SubmitTurnRemoteMode(t *testing.T) {
 func TestService_SubmitTurnRemoteModeDoesNotHoldServiceLockDuringRPC(t *testing.T) {
 	turnStarted := make(chan struct{})
 	releaseTurn := make(chan struct{})
+	releaseBlockedTurn := closeTestSignalOnce(releaseTurn)
+	defer releaseBlockedTurn()
 	stopCalls := make(chan struct{}, 1)
 	svc := NewService(silentLogger(), event.NewDispatcher(), remoteLocalLauncher(t, handler.Map{
 		"turn/start": handler.New(func(_ context.Context, _ map[string]any) (map[string]any, error) {
@@ -462,9 +464,10 @@ func TestService_SubmitTurnRemoteModeDoesNotHoldServiceLockDuringRPC(t *testing.
 	svc.agents[agent.id] = agent
 
 	submitDone := make(chan error, 1)
-	go func() {
+	goroutines := newTestGoroutineGroup(t)
+	goroutines.Go(func() {
 		submitDone <- svc.SubmitTurn(context.Background(), TurnSubmission{AgentID: agent.id, Inputs: []shareddto.InputItem{{Type: "text", Content: "work"}}})
-	}()
+	})
 	select {
 	case <-turnStarted:
 	case <-time.After(time.Second):
@@ -472,7 +475,7 @@ func TestService_SubmitTurnRemoteModeDoesNotHoldServiceLockDuringRPC(t *testing.
 	}
 
 	stopDone := make(chan error, 1)
-	go func() { stopDone <- svc.StopAgent(context.Background(), agent.id) }()
+	goroutines.Go(func() { stopDone <- svc.StopAgent(context.Background(), agent.id) })
 	select {
 	case err := <-stopDone:
 		if err != nil {
@@ -487,7 +490,7 @@ func TestService_SubmitTurnRemoteModeDoesNotHoldServiceLockDuringRPC(t *testing.
 		t.Fatal("thread/stop was not called")
 	}
 
-	close(releaseTurn)
+	releaseBlockedTurn()
 	select {
 	case <-submitDone:
 	case <-time.After(time.Second):
@@ -653,16 +656,18 @@ func startRPCServerWithOptions(t *testing.T, methods handler.Map, opts *jrpc2.Se
 	}
 	methods = withLauncherControlMethods(methods)
 	var accepts int32
-	go func() {
+	goroutines := newTestGoroutineGroup(t)
+	goroutines.Go(func() {
 		for {
 			conn, err := ln.Accept()
 			if err != nil {
 				return
 			}
 			atomic.AddInt32(&accepts, 1)
-			go func(c net.Conn) { _ = jrpc2.NewServer(methods, opts).Start(channel.Line(c, c)).WaitStatus() }(conn)
+			serverConn := conn
+			goroutines.Go(func() { _ = jrpc2.NewServer(methods, opts).Start(channel.Line(serverConn, serverConn)).WaitStatus() })
 		}
-	}()
+	})
 	t.Cleanup(func() { _ = ln.Close() })
 	return ln.Addr().String(), &accepts
 }

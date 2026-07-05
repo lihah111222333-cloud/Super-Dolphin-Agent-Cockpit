@@ -20,10 +20,11 @@ func TestListAgentsReturnsWhenContextExpiresWhileWaitingForReadLock(t *testing.T
 	defer cancel()
 
 	result := make(chan error, 1)
-	go func() {
+	goroutines := newTestGoroutineGroup(t)
+	goroutines.Go(func() {
 		_, err := svc.ListAgents(ctx)
 		result <- err
-	}()
+	})
 
 	select {
 	case err := <-result:

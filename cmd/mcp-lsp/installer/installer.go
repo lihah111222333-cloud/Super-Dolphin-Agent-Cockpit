@@ -18,6 +18,7 @@ import (
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
+// InstallerConfig 描述单个语言服务的二进制、安装命令和伴随工具校验配置。
 type InstallerConfig struct {
 	BinaryName       string
 	InstallCmd       string
@@ -27,11 +28,13 @@ type InstallerConfig struct {
 	RequiredBinaries []RequiredBinary
 }
 
+// RequiredBinary 描述安装后必须存在并可选执行健康检查的伴随命令。
 type RequiredBinary struct {
 	Name      string
 	CheckArgs []string
 }
 
+// InstallStatus 标记语言服务二进制路径的来源。
 type InstallStatus string
 
 const (
@@ -41,6 +44,7 @@ const (
 	defaultInstallTimeout                        = 10 * time.Minute
 )
 
+// InstallResult 返回语言服务二进制解析后的路径、语言和来源状态。
 type InstallResult struct {
 	Path   string
 	Status InstallStatus
@@ -48,6 +52,7 @@ type InstallResult struct {
 	Binary string
 }
 
+// Provider 管理语言服务安装配置，并按需执行自动安装和复验。
 type Provider struct {
 	mu      sync.Mutex
 	configs map[string]InstallerConfig

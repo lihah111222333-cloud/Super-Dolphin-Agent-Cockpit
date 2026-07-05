@@ -7,6 +7,26 @@ import (
 	"time"
 )
 
+func startSweeperRunnerForTest(t *testing.T, run func(context.Context) error) (context.CancelFunc, <-chan error) {
+	t.Helper()
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	finished := make(chan struct{})
+	go func() {
+		defer close(finished)
+		done <- run(ctx)
+	}()
+	t.Cleanup(func() {
+		cancel()
+		select {
+		case <-finished:
+		case <-time.After(time.Second):
+			t.Fatal("sweeper runner goroutine did not stop")
+		}
+	})
+	return cancel, done
+}
+
 // TestSweeperRunnerBlocksUntilContextDone 锁定 runner 的阻塞 actor 行为。
 // Run 只有在 ctx 取消后才返回，并把 ctx.Err() 交给 run.Group 作为正常收尾信号。
 func TestSweeperRunnerBlocksUntilContextDone(t *testing.T) {
@@ -17,10 +37,7 @@ func TestSweeperRunnerBlocksUntilContextDone(t *testing.T) {
 	})
 	runner := NewSweeperRunner(sweeper)
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	done := make(chan error, 1)
-	go func() { done <- runner.Run(ctx) }()
+	cancel, done := startSweeperRunnerForTest(t, runner.Run)
 
 	// 等待 sweep 至少触发一次，确保覆盖的是循环运行路径，而不是冷启动立即返回。
 	time.Sleep(25 * time.Millisecond)
@@ -92,9 +109,7 @@ func TestRunnerStopDrainsBeforeFinalCleanup(t *testing.T) {
 	})
 	runner := NewSweeperRunner(sweeper)
 
-	ctx, cancel := context.WithCancel(context.Background())
-	done := make(chan error, 1)
-	go func() { done <- runner.Run(ctx) }()
+	cancel, done := startSweeperRunnerForTest(t, runner.Run)
 
 	time.Sleep(20 * time.Millisecond)
 	cancel()
@@ -120,9 +135,7 @@ func TestRunnerStopDrainsBeforeFinalCleanup(t *testing.T) {
 func TestSweeperRunnerNilSweeperBlocksUntilDone(t *testing.T) {
 	t.Parallel()
 	runner := NewSweeperRunner(nil)
-	ctx, cancel := context.WithCancel(context.Background())
-	done := make(chan error, 1)
-	go func() { done <- runner.Run(ctx) }()
+	cancel, done := startSweeperRunnerForTest(t, runner.Run)
 	cancel()
 	select {
 	case err := <-done:

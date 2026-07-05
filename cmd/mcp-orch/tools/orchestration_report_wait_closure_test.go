@@ -146,7 +146,8 @@ type reportWaitResult struct {
 func waitForAgentReportAsync(t *testing.T, svc contract.OrchestrationService, agentID, requesterID string) <-chan reportWaitResult {
 	t.Helper()
 	done := make(chan reportWaitResult, 1)
-	go func() {
+	goroutines := newTestGoroutineGroup(t)
+	goroutines.Go(func() {
 		result, err := HandleGetAgentReport(svc)(context.Background(), mustReportWaitJSON(t, map[string]any{
 			"agent_id":     agentID,
 			"requester_id": requesterID,
@@ -163,7 +164,7 @@ func waitForAgentReportAsync(t *testing.T, svc contract.OrchestrationService, ag
 			return
 		}
 		done <- reportWaitResult{report: report}
-	}()
+	})
 	return done
 }
 
