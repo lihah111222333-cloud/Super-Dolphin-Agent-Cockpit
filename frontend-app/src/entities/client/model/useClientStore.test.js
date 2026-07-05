@@ -3499,6 +3499,56 @@ function registerBridgeEventHandlersForTest() {
     expect(backend.deleteThread).toHaveBeenCalledWith({ threadId: 'thread-provisional' });
   });
 
+  it('restores a failed new-chat draft when returning after a thread switch', async () => {
+    const turnResult = deferred();
+    const originalAttachments = [{ path: '/tmp/original.txt', name: 'original.txt' }];
+    const nextAttachments = [{ path: '/tmp/next.txt', name: 'next.txt' }];
+
+    resetClientStoreForTests({
+      cwd: '/repo/app',
+      activeProject: '/repo/app',
+      activeThreadId: '',
+      draft: 'Original pending send',
+      attachments: originalAttachments,
+      threads: [{ id: 'thread-other', name: 'Other thread', provider: 'codex', status: 'running' }],
+      sidebarThreadsByProject: {
+        '/repo/app': [{ id: 'thread-other', name: 'Other thread', provider: 'codex', status: 'running' }],
+      },
+    });
+    backend.getPreference.mockImplementation(({ key }) => Promise.resolve({
+      'settings.provider.active': 'codex',
+      'settings.provider.codex.model': 'gpt-5.5',
+      'settings.provider.codex.effort': 'xhigh',
+      'settings.provider.codex.codexHome': '/Users/test/.codex-alt',
+      'settings.provider.codex.codexInstanceKey': 'desktop-main',
+      'settings.provider.codex.codexModelProvider': 'openrouter',
+    }[key] ?? null));
+    backend.startThread.mockResolvedValue({ threadId: 'thread-provisional' });
+    backend.startTurn.mockImplementation(() => turnResult.promise);
+
+    const sendPromise = useClientStore.getState().sendDraft();
+    await flushPromises();
+
+    useClientStore.setState({
+      activeThreadId: 'thread-other',
+      draft: 'New active draft',
+      attachments: nextAttachments,
+    });
+    turnResult.reject(new Error('turn/start failed'));
+
+    await expect(sendPromise).rejects.toThrow('turn/start failed');
+
+    expect(useClientStore.getState().draft).toBe('New active draft');
+    expect(useClientStore.getState().attachments).toEqual(nextAttachments);
+
+    useClientStore.getState().newThread();
+
+    expect(useClientStore.getState().draft).toBe('Original pending send');
+    expect(useClientStore.getState().attachments).toEqual([
+      expect.objectContaining({ path: '/tmp/original.txt', name: 'original.txt' }),
+    ]);
+  });
+
   it('keeps sending fail-fast when cwd is missing', async () => {
     resetClientStoreForTests({
       cwd: '',

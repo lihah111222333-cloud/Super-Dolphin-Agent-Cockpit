@@ -224,6 +224,8 @@ function createComposerSendActions(runtime, deps) {
     promotedDraftThreadState,
     resolveLaunchPreferences,
     rollbackSendDraftState,
+    saveFailedSendDraftSnapshot,
+    sendRollbackRestoresVisibleComposer,
     startNewDraftThread,
     startTurnWithStoppedThreadRecovery,
   } = deps;
@@ -281,8 +283,11 @@ function createComposerSendActions(runtime, deps) {
         return true;
       }
       catch (error) {
-        const createdThreadId = createdThreadIdForSendRollback(runtime.get(), activeRequest, threadId);
+        const rollbackState = runtime.get();
+        const createdThreadId = createdThreadIdForSendRollback(rollbackState, activeRequest, threadId);
+        const shouldCacheFailedDraft = !sendRollbackRestoresVisibleComposer(rollbackState, activeRequest, createdThreadId);
         runtime.set((state) => rollbackSendDraftState(state, activeRequest, error, { createdThreadId }));
+        if (shouldCacheFailedDraft) saveFailedSendDraftSnapshot(runtime, activeRequest);
         await deleteProvisionalThreadAfterSendFailure(createdThreadId, runtime.addWarning);
         runtime.addWarning('error', 'thread.send.failed', { error: error.message });
         throw error;
