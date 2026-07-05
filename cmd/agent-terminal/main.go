@@ -25,7 +25,12 @@ func main() {
 		pkglogger.Get().Error("agent-terminal video env failed", "error", err)
 		os.Exit(1)
 	}
-	if err := app.RunDesktop(frontendDistFS()); err != nil {
+	frontendFS, err := frontendDistFS()
+	if err != nil {
+		pkglogger.Get().Error("agent-terminal frontend setup failed", "error", err)
+		os.Exit(1)
+	}
+	if err := app.RunDesktop(frontendFS); err != nil {
 		pkglogger.Get().Error("agent-terminal failed", "error", err)
 		os.Exit(1)
 	}
