@@ -1567,8 +1567,7 @@
     "naked_returns": 0,
     "empty_funcs": 0,
     "todo_count": 0,
-    "max_struct_fields": 2,
-    "missing_docs": 1
+    "max_struct_fields": 2
   },
   "pkg/logger/relay.go": {
     "lines": 185,
