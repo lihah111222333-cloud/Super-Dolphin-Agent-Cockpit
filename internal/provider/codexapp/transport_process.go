@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
+	"github.com/anthropic-ai/super-agent-v3/internal/util/safego"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
@@ -109,7 +110,7 @@ func (p *localProcess) waitErrValue() error {
 }
 
 func (p *localProcess) waitAsync() {
-	go func() {
+	safego.Go(context.Background(), nil, "codexapp.localProcess.wait", func(context.Context) {
 		defer func() {
 			if rec := recover(); rec != nil {
 				pkglogger.Error("codexapp: recovered waitAsync panic",
@@ -119,7 +120,7 @@ func (p *localProcess) waitAsync() {
 			close(p.done)
 		}()
 		p.setWaitErr(p.cmd.Wait())
-	}()
+	})
 }
 
 func (p *localProcess) waitForExit(timeout time.Duration) bool {
@@ -260,19 +261,7 @@ func (t *transport) spawnLocal(ctx context.Context) error {
 	proc := newLocalProcess(cmd, stderr)
 	proc.guard = attachProcessGuard(cmd)
 	proc.waitAsync()
-	go func() {
-		defer func() {
-			if rec := recover(); rec != nil {
-				pkglogger.Error("codexapp: recovered collectProcessStderr panic", "panic", rec)
-				select {
-				case <-proc.stderrDone:
-				default:
-					close(proc.stderrDone)
-				}
-			}
-		}()
-		t.collectProcessStderr(proc, stderr)
-	}()
+	t.startCollectProcessStderr(proc, stderr)
 	serverURL, err := proc.waitForListenURL(ctx)
 	if err != nil {
 		_ = proc.signal(sigForceKill)
@@ -287,15 +276,35 @@ func (t *transport) spawnLocal(ctx context.Context) error {
 	t.process = proc
 	t.processErr = nil
 	t.stateMu.Unlock()
-	go func() {
+	t.startWatchLocalProcess(proc)
+	return nil
+}
+
+func (t *transport) startCollectProcessStderr(proc *localProcess, stderr io.ReadCloser) {
+	safego.Go(context.Background(), nil, "codexapp.transport.collectProcessStderr", func(context.Context) {
+		defer func() {
+			if rec := recover(); rec != nil {
+				pkglogger.Error("codexapp: recovered collectProcessStderr panic", "panic", rec)
+				select {
+				case <-proc.stderrDone:
+				default:
+					close(proc.stderrDone)
+				}
+			}
+		}()
+		t.collectProcessStderr(proc, stderr)
+	})
+}
+
+func (t *transport) startWatchLocalProcess(proc *localProcess) {
+	safego.Go(context.Background(), nil, "codexapp.transport.watchLocalProcess", func(context.Context) {
 		defer func() {
 			if rec := recover(); rec != nil {
 				pkglogger.Error("codexapp: recovered watchLocalProcess panic", "panic", rec)
 			}
 		}()
 		t.watchLocalProcess(proc)
-	}()
-	return nil
+	})
 }
 
 // collectProcessStderr 收集 app-server stderr，同时解析监听地址作为启动就绪信号。
