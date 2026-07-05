@@ -94,7 +94,7 @@ func TestClaimDueJobsCrossProcessNoDuplicates(t *testing.T) {
 	ctx := context.Background()
 	dbPath := filepath.Join(t.TempDir(), "secure", "cron-crossproc.db")
 	db := openMigratedCronDB(ctx, t, dbPath)
-	store := NewStore(sqlc.New(db))
+	store := NewStoreWithDB(db, sqlc.New(db))
 
 	now := time.Unix(1_700_000_000, 0).UTC()
 	const total = 100
@@ -249,7 +249,7 @@ func runCrossProcessClaimWorker(t *testing.T) {
 		os.Exit(2)
 	}
 	defer func() { _ = db.Close() }()
-	store := NewStore(sqlc.New(db))
+	store := NewStoreWithDB(db, sqlc.New(db))
 
 	for {
 		jobs, err := store.ClaimDueJobsForUpdate(ctx, ClaimDueJobsForUpdateParams{
@@ -443,7 +443,7 @@ func openMigratedCronStore(t *testing.T) (Store, *sql.DB) {
 	ctx := context.Background()
 	dbPath := filepath.Join(t.TempDir(), "secure", "cron-claim.db")
 	db := openMigratedCronDB(ctx, t, dbPath)
-	return NewStore(sqlc.New(db)), db
+	return NewStoreWithDB(db, sqlc.New(db)), db
 }
 
 func openMigratedCronDB(ctx context.Context, t *testing.T, dbPath string) *sql.DB {

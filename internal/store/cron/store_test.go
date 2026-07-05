@@ -2,6 +2,7 @@ package cron
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"os"
 	"path/filepath"
@@ -548,6 +549,44 @@ func TestListUnresolvedRunsPassesThrough(t *testing.T) {
 	}
 }
 
+// TestSubmitRunWithActiveTurnPersistsAllFieldsWithExplicitDB locks the explicit DB constructor path.
+func TestSubmitRunWithActiveTurnPersistsAllFieldsWithExplicitDB(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	store, db := openSubmitRunStore(t, "submit-success")
+	now := time.Unix(1_700_000_000, 0).UTC()
+	seedClaimedSubmittingRun(ctx, t, store, now)
+
+	err := store.SubmitRunWithActiveTurn(ctx, SubmitRunWithActiveTurnParams{
+		RunID: "run-submit", JobID: "job-submit", ClaimToken: "claim-token",
+		ActiveTurnID: "turn-submit", ThreadID: "thread-submit", AgentID: "agent-submit",
+		SubmittedAt: now.Add(time.Second), Now: now.Add(2 * time.Second),
+	})
+	if err != nil {
+		t.Fatalf("SubmitRunWithActiveTurn() error = %v", err)
+	}
+	assertSubmittedTurnState(ctx, t, db, "turn-submit", StatusSubmitted)
+}
+
+// TestSubmitRunWithActiveTurnRollsBackWhenActiveTurnFenceFails proves one-transaction semantics.
+func TestSubmitRunWithActiveTurnRollsBackWhenActiveTurnFenceFails(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	store, db := openSubmitRunStore(t, "submit-rollback")
+	now := time.Unix(1_700_000_000, 0).UTC()
+	seedClaimedSubmittingRun(ctx, t, store, now)
+
+	err := store.SubmitRunWithActiveTurn(ctx, SubmitRunWithActiveTurnParams{
+		RunID: "run-submit", JobID: "job-submit", ClaimToken: "wrong-token",
+		ActiveTurnID: "turn-submit", ThreadID: "thread-submit", AgentID: "agent-submit",
+		SubmittedAt: now.Add(time.Second), Now: now.Add(2 * time.Second),
+	})
+	if !errors.Is(err, ErrClaimTokenMismatch) {
+		t.Fatalf("SubmitRunWithActiveTurn() error = %v, want %v", err, ErrClaimTokenMismatch)
+	}
+	assertSubmittedTurnState(ctx, t, db, "", StatusSubmitting)
+}
+
 // ----- migration + query lint (schema-level guarantees) -----
 
 func TestClaimQueryUsesSQLiteAtomicClaimSemantics(t *testing.T) {
@@ -625,6 +664,61 @@ func indexOf(s, sub string) int {
 		}
 	}
 	return -1
+}
+
+// openSubmitRunStore returns a migrated cron store built through the explicit DB constructor.
+func openSubmitRunStore(t *testing.T, name string) (Store, *sql.DB) {
+	t.Helper()
+	ctx := context.Background()
+	dbPath := filepath.Join(t.TempDir(), "secure", name+".db")
+	db := openMigratedCronDB(ctx, t, dbPath)
+	return NewStoreWithDB(db, sqlc.New(db)), db
+}
+
+// seedClaimedSubmittingRun creates the exact precondition SubmitRunWithActiveTurn requires.
+func seedClaimedSubmittingRun(ctx context.Context, t *testing.T, store Store, now time.Time) {
+	t.Helper()
+	if _, err := store.CreateJob(ctx, CreateJobParams{
+		ID: "job-submit", Name: "submit", Prompt: "run", ScheduleExpr: "0 9 * * *",
+		Timezone: "UTC", Provider: ProviderCodex, CWD: "/repo", Enabled: true,
+		NextRunAt: now.Add(-time.Minute), CreatedAt: now, UpdatedAt: now,
+	}); err != nil {
+		t.Fatalf("CreateJob() error = %v", err)
+	}
+	claimed, err := store.ClaimDueJobsForUpdate(ctx, ClaimDueJobsForUpdateParams{
+		Now: now, ClaimedBy: "scheduler", LeaseExpiresAt: now.Add(time.Minute),
+		ClaimToken: "claim-token", MaxClaim: 1,
+	})
+	if err != nil || len(claimed) != 1 {
+		t.Fatalf("ClaimDueJobsForUpdate() = %v, %v; want one claim", claimed, err)
+	}
+	if _, err := store.InsertRun(ctx, InsertRunParams{
+		ID: "run-submit", JobID: "job-submit", ScheduledAt: now,
+		IdempotencyKey: "idem-submit", DedupeKey: "dedupe-submit",
+		Status: StatusSubmitting, CreatedAt: now, UpdatedAt: now,
+	}); err != nil {
+		t.Fatalf("InsertRun() error = %v", err)
+	}
+}
+
+// assertSubmittedTurnState checks run and job state from the same committed SQLite view.
+func assertSubmittedTurnState(ctx context.Context, t *testing.T, db *sql.DB, wantTurn, wantStatus string) {
+	t.Helper()
+	var runTurn, runStatus, threadID, agentID, activeTurn string
+	err := db.QueryRowContext(ctx, `
+		SELECT r.turn_id, r.status, r.thread_id, r.agent_id, j.active_turn_id
+		FROM cron_job_runs AS r JOIN cron_jobs AS j ON j.id = r.job_id
+		WHERE r.id = 'run-submit'
+	`).Scan(&runTurn, &runStatus, &threadID, &agentID, &activeTurn)
+	if err != nil {
+		t.Fatalf("read submitted state: %v", err)
+	}
+	if runTurn != wantTurn || activeTurn != wantTurn || runStatus != wantStatus {
+		t.Fatalf("state = run:%q active:%q status:%q, want turn %q status %q", runTurn, activeTurn, runStatus, wantTurn, wantStatus)
+	}
+	if wantTurn != "" && (threadID != "thread-submit" || agentID != "agent-submit") {
+		t.Fatalf("thread/agent = %q/%q, want submitted identities", threadID, agentID)
+	}
 }
 
 // readMigration0045 loads the 0045 migration SQL from the repo checkout.

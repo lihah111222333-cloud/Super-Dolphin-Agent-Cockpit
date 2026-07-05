@@ -5,10 +5,8 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"reflect"
 	"strings"
 	"time"
-	"unsafe"
 
 	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
 	"github.com/anthropic-ai/super-agent-v3/internal/store/sqlc"
@@ -56,18 +54,26 @@ type store struct {
 }
 
 type submitStore struct {
-	db    *sql.DB
-	dbErr error
-	q     querier
+	db        *sql.DB
+	q         querier
+	sqlcQuery *sqlc.Queries
 }
 
 // cronClaimBusyRetryAttempts 是 SQLite claim 遇到 busy 或 locked 时的有限重试次数。
 const cronClaimBusyRetryAttempts = 3
 
-// NewStore 使用 sqlc 查询对象创建生产 cron Store。
+// NewStore 使用 sqlc 查询对象创建 cron Store。生产 Fx 装配必须使用 NewStoreWithDB。
 func NewStore(q *sqlc.Queries) Store {
-	db, err := sqlDBFromQueries(q)
-	return &store{submitStore: &submitStore{db: db, dbErr: err, q: q}, q: q}
+	return &store{submitStore: &submitStore{q: q, sqlcQuery: q}, q: q}
+}
+
+// NewStoreWithDB 创建带 IMMEDIATE 事务能力的 cron Store，供 Fx 和测试显式注入 DB。
+func NewStoreWithDB(db *sql.DB, q *sqlc.Queries) Store {
+	return newStoreWithDB(db, q)
+}
+
+func newStoreWithDB(db *sql.DB, q *sqlc.Queries) Store {
+	return &store{submitStore: &submitStore{db: db, q: q, sqlcQuery: q}, q: q}
 }
 
 // ----- 校验与转换辅助 -----
@@ -138,28 +144,6 @@ func bytesOrDefault(b []byte, def string) []byte {
 		return []byte(def)
 	}
 	return b
-}
-
-// sqlDBFromQueries 读取 sqlc 生成 Queries 内部绑定的 *sql.DB。
-// 事务方法必须拿到数据库连接；提取失败时调用方会 fail-fast，不能降级为非事务写入。
-func sqlDBFromQueries(q *sqlc.Queries) (*sql.DB, error) {
-	if q == nil {
-		return nil, errors.New("cron: sqlc queries is nil")
-	}
-	value := reflect.ValueOf(q)
-	if value.Kind() != reflect.Pointer || value.IsNil() {
-		return nil, fmt.Errorf("cron: sqlc queries has unexpected type %T", q)
-	}
-	field := value.Elem().FieldByName("db")
-	if !field.IsValid() || !field.CanAddr() {
-		return nil, errors.New("cron: sqlc queries does not expose db field")
-	}
-	dbtx := reflect.NewAt(field.Type(), unsafe.Pointer(field.UnsafeAddr())).Elem().Interface()
-	db, ok := dbtx.(*sql.DB)
-	if !ok || db == nil {
-		return nil, fmt.Errorf("cron: sqlc queries db has type %T, want *sql.DB", dbtx)
-	}
-	return db, nil
 }
 
 // ----- 任务 -----
@@ -530,12 +514,18 @@ func (s *submitStore) SubmitRunWithActiveTurn(ctx context.Context, p SubmitRunWi
 	if err != nil {
 		return wrap(err, "submit_run_with_active_turn")
 	}
-	if s.dbErr != nil {
-		return wrap(s.dbErr, "submit_run_with_active_turn")
+	if s.db == nil {
+		return wrap(errors.New("cron: explicit DB is required for submit_run_with_active_turn"), "submit_run_with_active_turn")
+	}
+	if s.sqlcQuery == nil {
+		return wrap(errors.New("cron: sqlc queries is required for submit_run_with_active_turn"), "submit_run_with_active_turn")
 	}
 	err = platformdb.BoundedWriteRetry(ctx, cronClaimBusyRetryAttempts, func() error {
 		return platformdb.WithImmediateTx(ctx, s.db, func(tx *sql.Tx) error {
-			txq := sqlc.New(tx)
+			txq := s.sqlcQuery.WithTx(tx)
+			if txq == nil {
+				return errors.New("cron: failed to bind tx queries")
+			}
 			if err := setSubmittedRunTurn(ctx, txq, runID, p); err != nil {
 				return err
 			}
