@@ -18,9 +18,6 @@ import (
 // sqliteRuntimeLockLease 是 scheduled DAG cron 多实例锁的租约时长。
 const sqliteRuntimeLockLease = 2 * time.Minute
 
-// runtimeLockProcessStartNonce 区分同一主机同一 PID 复用后的 holder 身份。
-var runtimeLockProcessStartNonce = strconv.FormatInt(time.Now().UTC().UnixNano(), 36)
-
 // sqlDAGScheduleStore 把 sqlc 查询集适配为 cron.DAGScheduleStore。
 type sqlDAGScheduleStore struct {
 	q *sqlc.Queries
@@ -64,15 +61,24 @@ type sqliteRuntimeLocker struct {
 
 // NewSQLiteRuntimeLocker 创建基于 SQLite runtime_locks 表的运行时租约锁。
 func NewSQLiteRuntimeLocker(db *sql.DB, lockKey string) (orchcron.RuntimeLocker, error) {
+	holder, err := runtimeLockHolder(strconv.FormatInt(time.Now().UTC().UnixNano(), 36))
+	if err != nil {
+		return nil, err
+	}
+	return NewSQLiteRuntimeLockerWithHolder(db, lockKey, holder)
+}
+
+// NewSQLiteRuntimeLockerWithHolder 创建基于 SQLite runtime_locks 表的运行时租约锁。
+// holder 由调用方显式传入，便于测试和多实例启动路径固定身份来源。
+func NewSQLiteRuntimeLockerWithHolder(db *sql.DB, lockKey, holder string) (orchcron.RuntimeLocker, error) {
 	if db == nil {
 		return nil, orchcron.ErrNilLockPool
 	}
 	if lockKey == "" {
 		return nil, errors.New("cron: empty runtime lock key")
 	}
-	holder, err := runtimeLockHolder()
-	if err != nil {
-		return nil, err
+	if strings.TrimSpace(holder) == "" {
+		return nil, errors.New("cron: empty runtime lock holder")
 	}
 	return &sqliteRuntimeLocker{
 		db:      db,
@@ -160,7 +166,7 @@ func (h sqliteRuntimeLockHandle) Unlock(ctx context.Context) error {
 }
 
 // runtimeLockHolder 构造进程级唯一的运行时锁 holder 标识。
-func runtimeLockHolder() (string, error) {
+func runtimeLockHolder(nonce string) (string, error) {
 	host, err := os.Hostname()
 	if err != nil {
 		return "", fmt.Errorf("cron: resolve runtime lock hostname: %w", err)
@@ -169,7 +175,11 @@ func runtimeLockHolder() (string, error) {
 	if host == "" {
 		return "", errors.New("cron: runtime lock hostname is empty")
 	}
-	return fmt.Sprintf("%s:%d:%s", host, os.Getpid(), runtimeLockProcessStartNonce), nil
+	nonce = strings.TrimSpace(nonce)
+	if nonce == "" {
+		return "", errors.New("cron: runtime lock nonce is empty")
+	}
+	return fmt.Sprintf("%s:%d:%s", host, os.Getpid(), nonce), nil
 }
 
 // acquireRuntimeLockSQL 通过 INSERT ... ON CONFLICT 抢占已过期的 runtime lock。

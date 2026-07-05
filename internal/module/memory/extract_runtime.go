@@ -11,10 +11,18 @@ import (
 	tooldto "github.com/anthropic-ai/super-agent-v3/internal/dto/tool"
 	turndto "github.com/anthropic-ai/super-agent-v3/internal/dto/turn"
 	"github.com/anthropic-ai/super-agent-v3/internal/util/ctxutil"
+	"github.com/anthropic-ai/super-agent-v3/internal/util/safego"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
 const backgroundExtractTimeout = 5 * time.Second
+
+func (h *MemoryLifecycleHooks) memoryLogger() *pkglogger.Logger {
+	if h != nil && h.logger != nil {
+		return h.logger
+	}
+	return pkglogger.Get()
+}
 
 // onTurnStarted 记录 thread 当前活跃 turn，用于后续 tool diff 无 turnID 时补齐归属。
 // 只写内存状态，不做磁盘 I/O，因此可以从订阅回调的轻量路径调用。
@@ -254,19 +262,15 @@ func (h *MemoryLifecycleHooks) DrainPendingExtraction(ctx context.Context) error
 	h.drainClosed = true
 	h.drainMu.Unlock()
 	done := make(chan struct{})
-	go func() {
+	safego.Go(ctx, h.memoryLogger(), "memory.extraction.drain", func(context.Context) {
+		defer close(done)
 		defer func() {
 			if r := recover(); r != nil {
-				logger := pkglogger.Get()
-				if h.logger != nil {
-					logger = h.logger
-				}
-				logger.Error("memory: recovered drain panic", "panic", r)
+				h.memoryLogger().Error("memory: recovered drain panic", "panic", r)
 			}
 		}()
 		h.extractWG.Wait()
-		close(done)
-	}()
+	})
 	select {
 	case <-done:
 		return nil
@@ -333,14 +337,10 @@ func (h *MemoryLifecycleHooks) enqueueBackgroundExtraction(threadID string, hand
 	}
 	h.extractWG.Add(1)
 	h.drainMu.Unlock()
-	go func() {
+	safego.Go(context.Background(), h.memoryLogger(), "memory.background_extraction", func(context.Context) {
 		defer func() {
 			if rec := recover(); rec != nil {
-				logger := pkglogger.Get()
-				if h.logger != nil {
-					logger = h.logger
-				}
-				logger.Error("memory: recovered background extraction panic",
+				h.memoryLogger().Error("memory: recovered background extraction panic",
 					"thread_id", threadID,
 					"panic", rec,
 					"stack", string(debug.Stack()),
@@ -349,7 +349,7 @@ func (h *MemoryLifecycleHooks) enqueueBackgroundExtraction(threadID string, hand
 			}
 		}()
 		h.runBackgroundExtraction(threadID, state)
-	}()
+	})
 }
 
 // runBackgroundExtraction 持续处理同一 thread 上被合并的抽取周期。

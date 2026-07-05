@@ -12,6 +12,7 @@ import (
 
 	lspmanager "github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/manager"
 	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
+	"github.com/anthropic-ai/super-agent-v3/internal/util/safego"
 )
 
 // applyReplaceRangeUpdate 先写磁盘，再等待 LSP 同步或 git diff 确认。
@@ -42,7 +43,7 @@ func (h EditHandler) startReplaceConfirmations(ctx context.Context, manager lspm
 	syncCtx, cancelSync := platformconfig.WithTimeout(ctx, editLSPSyncTimeout)
 	syncC := make(chan replaceSyncResult, 1)
 	diffC := make(chan editDiskConfirmResult, 1)
-	go func() {
+	safego.Go(syncCtx, nil, "mcp-lsp.edit.lsp-sync", func(context.Context) {
 		stage := log.Started("lsp_sync", "timeout_ms", editLSPSyncTimeout.Milliseconds(), "version", version, "content_bytes", len(updatedContent))
 		lspSync, warning, err := h.syncDocument(syncCtx, manager, path, updatedContent, version)
 		if err != nil {
@@ -51,8 +52,8 @@ func (h EditHandler) startReplaceConfirmations(ctx context.Context, manager lspm
 			log.Completed("lsp_sync", stage, "lsp_sync", lspSync, "warning", warning != "")
 		}
 		syncC <- replaceSyncResult{lspSync: lspSync, warning: warning, err: err}
-	}()
-	go func() {
+	})
+	safego.Go(ctx, nil, "mcp-lsp.edit.disk-confirm", func(context.Context) {
 		stage := log.Started("disk_confirm", "timeout_ms", editDiskConfirmTimeout.Milliseconds())
 		result := confirmEditDiskWriteWithGitDiff(path, updatedContent)
 		if result.confirmed {
@@ -61,7 +62,7 @@ func (h EditHandler) startReplaceConfirmations(ctx context.Context, manager lspm
 			log.Failed("disk_confirm", stage, result.err)
 		}
 		diffC <- result
-	}()
+	})
 	return syncC, diffC, cancelSync
 }
 

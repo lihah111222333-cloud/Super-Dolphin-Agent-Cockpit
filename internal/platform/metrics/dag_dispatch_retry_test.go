@@ -10,10 +10,11 @@ import (
 )
 
 func TestMetricsHandlerServesDAGDispatchRetryCounters(t *testing.T) {
-	dagmetrics.ResetForTesting()
-	t.Cleanup(dagmetrics.ResetForTesting)
-	dagmetrics.IncDispatchFailed()
-	dagmetrics.RecordRetry("dag-prom", "node-retry", 2)
+	registry := dagmetrics.DefaultRegistry()
+	registry.ResetForTesting()
+	t.Cleanup(registry.ResetForTesting)
+	registry.IncDispatchFailed()
+	registry.RecordRetry("dag-prom", "node-retry", 2)
 
 	rec := httptest.NewRecorder()
 	Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, PrometheusMetricsPath, nil))

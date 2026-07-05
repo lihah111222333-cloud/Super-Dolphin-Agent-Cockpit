@@ -51,25 +51,29 @@ const (
 // NewLogger 初始化应用日志器并记录构建信息。
 func NewLogger() *slog.Logger {
 	info := currentBuildInfo()
-	pkglogger.ConfigureServiceFromEnv(info.Version)
-	pkglogger.Init(os.Getenv("LOG_LEVEL"))
+	logRuntime := pkglogger.NewRuntime(pkglogger.RuntimeConfig{
+		ServiceVersion: info.Version,
+	})
+	pkglogger.InstallRuntime(logRuntime)
+	logRuntime.ConfigureServiceFromEnv(info.Version)
+	logRuntime.Init(os.Getenv("LOG_LEVEL"))
 
 	homeDir, _ := os.UserHomeDir()
 	cwd, _ := os.Getwd()
 	logDir, projectName := pkglogger.ResolveProjectLogDir(homeDir, cwd)
-	if err := pkglogger.InitWithFile(logDir); err != nil {
-		pkglogger.Warn("file logging unavailable", pkglogger.FieldError, err)
+	if err := logRuntime.InitWithFile(logDir); err != nil {
+		logRuntime.Get().Warn("file logging unavailable", pkglogger.FieldError, err)
 	}
 	if projectName != "" {
-		pkglogger.SetProject(projectName)
+		logRuntime.SetProject(projectName)
 	}
-	pkglogger.Info("build info",
+	logRuntime.Get().Info("build info",
 		"version", info.Version,
 		"commit", info.Commit,
 		"build_time", info.BuildTime,
 		"runtime", info.Runtime,
 	)
-	return pkglogger.Get()
+	return logRuntime.Get()
 }
 
 // buildInfo 保存启动日志中展示的构建元数据。

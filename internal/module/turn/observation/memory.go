@@ -8,6 +8,8 @@ import (
 // Memory 是并发安全的内存 observation 实现，供默认 wiring 和测试替身使用。
 // 所有对外读取都会返回值或副本，避免调用方改写内部状态。
 type Memory struct {
+	memoryObservationRoles
+
 	mu          sync.RWMutex
 	localToProv map[string]string        // 本地 turnID → provider turnID 映射
 	provToLocal map[string]string        // provider turnID → 本地 turnID 反向映射
@@ -20,9 +22,27 @@ type Memory struct {
 	timestamps  map[string]Timestamps    // 按 turnID 存储的开始/完成时间戳
 }
 
+type memoryObservationRoles struct {
+	*memoryMappingOps
+	*memoryTokenOps
+	*memoryTerminalOps
+	*memorySkillOps
+	*memoryDedupeOps
+	*memoryCounterOps
+	*memoryTimestampOps
+}
+
+type memoryMappingOps struct{ memory *Memory }
+type memoryTokenOps struct{ memory *Memory }
+type memoryTerminalOps struct{ memory *Memory }
+type memorySkillOps struct{ memory *Memory }
+type memoryDedupeOps struct{ memory *Memory }
+type memoryCounterOps struct{ memory *Memory }
+type memoryTimestampOps struct{ memory *Memory }
+
 // NewMemory 创建空的并发安全观察存储，用于默认 wiring 和测试替身。
 func NewMemory() *Memory {
-	return &Memory{
+	m := &Memory{
 		localToProv: map[string]string{},
 		provToLocal: map[string]string{},
 		callToTurn:  map[string]string{},
@@ -33,13 +53,24 @@ func NewMemory() *Memory {
 		counts:      map[string]Counts{},
 		timestamps:  map[string]Timestamps{},
 	}
+	m.memoryObservationRoles = memoryObservationRoles{
+		memoryMappingOps:   &memoryMappingOps{memory: m},
+		memoryTokenOps:     &memoryTokenOps{memory: m},
+		memoryTerminalOps:  &memoryTerminalOps{memory: m},
+		memorySkillOps:     &memorySkillOps{memory: m},
+		memoryDedupeOps:    &memoryDedupeOps{memory: m},
+		memoryCounterOps:   &memoryCounterOps{memory: m},
+		memoryTimestampOps: &memoryTimestampOps{memory: m},
+	}
+	return m
 }
 
 // MapTurn 登记本地 turnID 与 provider turnID 的双向映射，冲突时返回 false 拒绝覆盖。
-func (m *Memory) MapTurn(local, provider string) bool {
+func (r *memoryMappingOps) MapTurn(local, provider string) bool {
 	if local == "" || provider == "" {
 		return false
 	}
+	m := r.memory
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if existing, ok := m.localToProv[local]; ok && existing != provider {
@@ -54,7 +85,8 @@ func (m *Memory) MapTurn(local, provider string) bool {
 }
 
 // ResolveLocalTurn 通过 provider turnID 反查本地 turnID。
-func (m *Memory) ResolveLocalTurn(provider string) (string, bool) {
+func (r *memoryMappingOps) ResolveLocalTurn(provider string) (string, bool) {
+	m := r.memory
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	id, ok := m.provToLocal[provider]
@@ -62,7 +94,8 @@ func (m *Memory) ResolveLocalTurn(provider string) (string, bool) {
 }
 
 // ResolveProviderTurn 通过本地 turnID 查询 provider turnID。
-func (m *Memory) ResolveProviderTurn(local string) (string, bool) {
+func (r *memoryMappingOps) ResolveProviderTurn(local string) (string, bool) {
+	m := r.memory
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	id, ok := m.localToProv[local]
@@ -70,10 +103,11 @@ func (m *Memory) ResolveProviderTurn(local string) (string, bool) {
 }
 
 // AttributeCall 把 provider callID 归因到本地 turn，后续工具结束事件可借此补 turnID。
-func (m *Memory) AttributeCall(callID, localTurnID string) bool {
+func (r *memoryMappingOps) AttributeCall(callID, localTurnID string) bool {
 	if callID == "" || localTurnID == "" {
 		return false
 	}
+	m := r.memory
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.callToTurn[callID] = localTurnID
@@ -81,7 +115,8 @@ func (m *Memory) AttributeCall(callID, localTurnID string) bool {
 }
 
 // LookupCall 根据 provider callID 查询本地 turnID。
-func (m *Memory) LookupCall(callID string) (string, bool) {
+func (r *memoryMappingOps) LookupCall(callID string) (string, bool) {
+	m := r.memory
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	id, ok := m.callToTurn[callID]
@@ -89,10 +124,11 @@ func (m *Memory) LookupCall(callID string) (string, bool) {
 }
 
 // RecordTokens 合并指定 turn 的 token 快照，只用非零字段覆盖已有值。
-func (m *Memory) RecordTokens(turnID string, snap TokenSnapshot) TokenSnapshot {
+func (r *memoryTokenOps) RecordTokens(turnID string, snap TokenSnapshot) TokenSnapshot {
 	if turnID == "" {
 		return snap
 	}
+	m := r.memory
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	merged := mergeTokens(m.tokens[turnID], snap)
@@ -101,7 +137,8 @@ func (m *Memory) RecordTokens(turnID string, snap TokenSnapshot) TokenSnapshot {
 }
 
 // Tokens 返回指定 turn 的最新 token 快照。
-func (m *Memory) Tokens(turnID string) (TokenSnapshot, bool) {
+func (r *memoryTokenOps) Tokens(turnID string) (TokenSnapshot, bool) {
+	m := r.memory
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	t, ok := m.tokens[turnID]
@@ -133,10 +170,11 @@ func mergeTokens(prev, next TokenSnapshot) TokenSnapshot {
 }
 
 // RecordTerminal 写入 turn 的粘性终态；Interrupted/Aborted 一旦出现就不再被覆盖。
-func (m *Memory) RecordTerminal(turnID string, t Terminal) Terminal {
+func (r *memoryTerminalOps) RecordTerminal(turnID string, t Terminal) Terminal {
 	if turnID == "" {
 		return t
 	}
+	m := r.memory
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	prev, ok := m.terminals[turnID]
@@ -163,7 +201,8 @@ func (m *Memory) RecordTerminal(turnID string, t Terminal) Terminal {
 }
 
 // Terminal 返回指定 turn 的粘性终止状态。
-func (m *Memory) Terminal(turnID string) (Terminal, bool) {
+func (r *memoryTerminalOps) Terminal(turnID string) (Terminal, bool) {
+	m := r.memory
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	t, ok := m.terminals[turnID]
@@ -171,10 +210,11 @@ func (m *Memory) Terminal(turnID string) (Terminal, bool) {
 }
 
 // SetSkillsSelected 保存 turn 已选 skill slug，并复制切片避免调用方后续修改影响内存状态。
-func (m *Memory) SetSkillsSelected(turnID string, slugs []string) {
+func (r *memorySkillOps) SetSkillsSelected(turnID string, slugs []string) {
 	if turnID == "" {
 		return
 	}
+	m := r.memory
 	cp := append([]string(nil), slugs...)
 	m.mu.Lock()
 	m.skills[turnID] = cp
@@ -182,18 +222,20 @@ func (m *Memory) SetSkillsSelected(turnID string, slugs []string) {
 }
 
 // SkillsSelected 返回 turn 已选 skill slug 的副本，避免调用方修改内部切片。
-func (m *Memory) SkillsSelected(turnID string) []string {
+func (r *memorySkillOps) SkillsSelected(turnID string) []string {
+	m := r.memory
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	return append([]string(nil), m.skills[turnID]...)
 }
 
 // Dedupe 记录事件去重键并返回是否首次出现；空键按唯一事件处理，不折叠未知来源。
-func (m *Memory) Dedupe(key DedupeKey) bool {
+func (r *memoryDedupeOps) Dedupe(key DedupeKey) bool {
 	if key == (DedupeKey{}) {
 		// 缺少去重标识时按唯一事件处理，避免把无 key 事件静默折叠到一起。
 		return true
 	}
+	m := r.memory
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if _, seen := m.seenDedupe[key]; seen {
@@ -204,24 +246,24 @@ func (m *Memory) Dedupe(key DedupeKey) bool {
 }
 
 // IncrementToolCalls 递增工具调用计数并标记该计数已被观测。
-func (m *Memory) IncrementToolCalls(turnID string) int32 {
-	return m.bumpCounter(turnID, func(c *Counts) {
+func (r *memoryCounterOps) IncrementToolCalls(turnID string) int32 {
+	return r.memory.bumpCounter(turnID, func(c *Counts) {
 		c.ToolCalls++
 		c.ToolCallsObserved = true
 	}).ToolCalls
 }
 
 // IncrementToolFailures 递增工具失败计数并标记该计数已被观测。
-func (m *Memory) IncrementToolFailures(turnID string) int32 {
-	return m.bumpCounter(turnID, func(c *Counts) {
+func (r *memoryCounterOps) IncrementToolFailures(turnID string) int32 {
+	return r.memory.bumpCounter(turnID, func(c *Counts) {
 		c.ToolFailures++
 		c.ToolFailuresObserved = true
 	}).ToolFailures
 }
 
 // IncrementApprovalRequests 递增审批请求计数并标记该计数已被观测。
-func (m *Memory) IncrementApprovalRequests(turnID string) int32 {
-	return m.bumpCounter(turnID, func(c *Counts) {
+func (r *memoryCounterOps) IncrementApprovalRequests(turnID string) int32 {
+	return r.memory.bumpCounter(turnID, func(c *Counts) {
 		c.ApprovalRequests++
 		c.ApprovalRequestsObserved = true
 	}).ApprovalRequests
@@ -243,7 +285,8 @@ func (m *Memory) bumpCounter(turnID string, apply func(*Counts)) Counts {
 }
 
 // Counts 返回工具调用、失败和审批请求的聚合计数。
-func (m *Memory) Counts(turnID string) (Counts, bool) {
+func (r *memoryCounterOps) Counts(turnID string) (Counts, bool) {
+	m := r.memory
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	c, ok := m.counts[turnID]
@@ -251,10 +294,11 @@ func (m *Memory) Counts(turnID string) (Counts, bool) {
 }
 
 // RecordStartedAt 只记录第一次开始时间，避免迟到或重复事件改写原始启动点。
-func (m *Memory) RecordStartedAt(turnID string, at time.Time) {
+func (r *memoryTimestampOps) RecordStartedAt(turnID string, at time.Time) {
 	if turnID == "" || at.IsZero() {
 		return
 	}
+	m := r.memory
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	ts := m.timestamps[turnID]
@@ -265,10 +309,11 @@ func (m *Memory) RecordStartedAt(turnID string, at time.Time) {
 }
 
 // RecordCompletedAt 保存最新完成时间，允许迟到事件把终止时间推进但不回退。
-func (m *Memory) RecordCompletedAt(turnID string, at time.Time) {
+func (r *memoryTimestampOps) RecordCompletedAt(turnID string, at time.Time) {
 	if turnID == "" || at.IsZero() {
 		return
 	}
+	m := r.memory
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	ts := m.timestamps[turnID]
@@ -279,7 +324,8 @@ func (m *Memory) RecordCompletedAt(turnID string, at time.Time) {
 }
 
 // Timestamps 返回 turn 的开始和完成时间戳快照。
-func (m *Memory) Timestamps(turnID string) (Timestamps, bool) {
+func (r *memoryTimestampOps) Timestamps(turnID string) (Timestamps, bool) {
+	m := r.memory
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	ts, ok := m.timestamps[turnID]

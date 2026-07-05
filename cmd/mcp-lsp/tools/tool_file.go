@@ -18,6 +18,7 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/search"
 	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/common"
 	platformshared "github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
+	"github.com/anthropic-ai/super-agent-v3/internal/util/safego"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
@@ -331,35 +332,37 @@ func (h handlerBase) readBatch(ctx context.Context, req readFileRequest) (batchR
 	var wg sync.WaitGroup
 	for index, rawPath := range paths {
 		wg.Add(1)
-		go func(idx int, target string) {
+		currentIndex := index
+		targetPath := rawPath
+		safego.Go(ctx, nil, "mcp-lsp.file.read-batch.item", func(context.Context) {
 			defer wg.Done()
-			item := batchReadItem{FilePath: strings.TrimSpace(target)}
+			item := batchReadItem{FilePath: strings.TrimSpace(targetPath)}
 			root, roots, err := toolReadableRoots(ctx)
 			if err != nil {
 				item.Error = err.Error()
-				results <- indexedBatchItem{Index: idx, Item: item}
+				results <- indexedBatchItem{Index: currentIndex, Item: item}
 				return
 			}
-			file, err := search.ReadToolFileContentInRoots(root, roots, target, maxReadFileBytes)
+			file, err := search.ReadToolFileContentInRoots(root, roots, targetPath, maxReadFileBytes)
 			if err != nil {
-				warnFileReadFailure("read_file", root, target, err)
+				warnFileReadFailure("read_file", root, targetPath, err)
 				item.Error = err.Error()
-				results <- indexedBatchItem{Index: idx, Item: item}
+				results <- indexedBatchItem{Index: currentIndex, Item: item}
 				return
 			}
 			item.FilePath = file.Path.DisplayPath
 			item.Success = true
 			// 批量读取固定走全文行窗口，不触发逐文件函数符号查询，避免多文件响应因 LSP 状态而抖动。
 			// 需要精确定位时由单文件 pos="file:line" 路径承担。
-			batchReq := readFileRequest{rawPath: target, limit: req.limit}
+			batchReq := readFileRequest{rawPath: targetPath, limit: req.limit}
 			item.Content = renderLineWindow(file.Path.DisplayPath, file.Content, batchReq, lineWindowReasonBatch)
-			results <- indexedBatchItem{Index: idx, Item: item}
-		}(index, rawPath)
+			results <- indexedBatchItem{Index: currentIndex, Item: item}
+		})
 	}
-	go func() {
+	safego.Go(ctx, nil, "mcp-lsp.file.read-batch.close", func(context.Context) {
 		wg.Wait()
 		close(results)
-	}()
+	})
 
 	items := make([]indexedBatchItem, 0, len(paths))
 	for {

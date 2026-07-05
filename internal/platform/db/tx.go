@@ -61,7 +61,7 @@ func WithImmediateTx(ctx context.Context, db *sql.DB, fn func(tx *sql.Tx) error)
 
 // setSQLiteConnBeginMode 临时设置 modernc sqlite 连接的 beginMode。
 // database/sql 没有暴露 BEGIN IMMEDIATE 选项；如果驱动字段消失，这里必须报错而不能退回 deferred。
-func setSQLiteConnBeginMode(ctx context.Context, conn *sql.Conn, mode string) (func() error, error) {
+func setSQLiteConnBeginMode(_ context.Context, conn *sql.Conn, mode string) (func() error, error) {
 	var previous string
 	if err := conn.Raw(func(driverConn any) error {
 		field, err := sqliteBeginModeField(driverConn)
@@ -123,9 +123,7 @@ func runWithCommitter(ctx context.Context, tx sqlTxCommitter, fn func(c sqlTxCom
 		if r := recover(); r != nil {
 			cleanupCtx, cancel := txCleanupContext(ctx)
 			defer cancel()
-			_ = tx.Rollback()
-			_ = cleanupCtx
-			panic(r)
+			retErr = rollbackTx(cleanupCtx, tx, fmt.Errorf("transaction callback panicked: %v", r))
 		}
 	}()
 	if err := fn(tx); err != nil {

@@ -13,9 +13,15 @@ import (
 // diskStore 以磁盘 Markdown 文件实现记忆存储。
 // 所有写入通过 diskLockCoordinator 串行化，guard 负责团队记忆等额外写入校验。
 type diskStore struct {
+	*diskStoreIndexOps
+
 	root  string
 	guard memoryWriteGuard
 	locks *diskLockCoordinator
+}
+
+type diskStoreIndexOps struct {
+	store *diskStore
 }
 
 // newDiskStore 创建不带额外写入守卫的磁盘记忆存储。
@@ -32,7 +38,9 @@ func newDiskStoreWithGuard(root string, guard memoryWriteGuard, locks *diskLockC
 	if locks == nil {
 		locks = newDiskLockCoordinator()
 	}
-	return &diskStore{root: normalizedRoot, guard: guard, locks: locks}, nil
+	store := &diskStore{root: normalizedRoot, guard: guard, locks: locks}
+	store.diskStoreIndexOps = &diskStoreIndexOps{store: store}
+	return store, nil
 }
 
 // Root 返回规范化后的记忆根目录。
@@ -55,7 +63,7 @@ func (s *diskStore) Create(entry MemoryEntry, opts ...WriteOptions) (MemoryEntry
 
 // Read 按规范化名称读取记忆条目。
 func (s *diskStore) Read(name string) (MemoryEntry, error) {
-	root, err := s.rootOrError()
+	root, err := diskStoreRootOrError(s)
 	if err != nil {
 		return MemoryEntry{}, err
 	}
@@ -97,7 +105,7 @@ func (s *diskStore) UpsertStructured(req MemoryWriteRequest, opts ...WriteOption
 
 // upsertWrite 在单次磁盘锁内写入条目并刷新索引。
 func (s *diskStore) upsertWrite(entry MemoryEntry, options WriteOptions) (MemoryEntry, error) {
-	root, err := s.rootOrError()
+	root, err := diskStoreRootOrError(s)
 	if err != nil {
 		return MemoryEntry{}, err
 	}
@@ -119,7 +127,7 @@ func (s *diskStore) upsertWrite(entry MemoryEntry, options WriteOptions) (Memory
 
 // Delete 按名称删除记忆条目，并在同一把磁盘锁内刷新索引。
 func (s *diskStore) Delete(name string, opts ...WriteOptions) error {
-	root, err := s.rootOrError()
+	root, err := diskStoreRootOrError(s)
 	if err != nil {
 		return err
 	}
@@ -134,7 +142,7 @@ func (s *diskStore) Delete(name string, opts ...WriteOptions) error {
 
 // DeletePath 按文件路径删除记忆条目，并在同一把磁盘锁内刷新索引。
 func (s *diskStore) DeletePath(path string, opts ...WriteOptions) error {
-	root, err := s.rootOrError()
+	root, err := diskStoreRootOrError(s)
 	if err != nil {
 		return err
 	}
@@ -148,8 +156,12 @@ func (s *diskStore) DeletePath(path string, opts ...WriteOptions) error {
 }
 
 // RebuildIndex 重建记忆索引文件。
-func (s *diskStore) RebuildIndex() ([]MemoryIndexEntry, error) {
-	root, err := s.rootOrError()
+func (s *diskStoreIndexOps) RebuildIndex() ([]MemoryIndexEntry, error) {
+	var store *diskStore
+	if s != nil {
+		store = s.store
+	}
+	root, err := diskStoreRootOrError(store)
 	if err != nil {
 		return nil, err
 	}
@@ -159,7 +171,7 @@ func (s *diskStore) RebuildIndex() ([]MemoryIndexEntry, error) {
 // write 在磁盘锁内执行 create/update 写入。
 // requireExisting 决定是否必须已有条目，写入成功后立即更新索引，避免索引和文件内容分离。
 func (s *diskStore) write(entry MemoryEntry, requireExisting bool, options WriteOptions) (MemoryEntry, error) {
-	root, err := s.rootOrError()
+	root, err := diskStoreRootOrError(s)
 	if err != nil {
 		return MemoryEntry{}, err
 	}
@@ -188,7 +200,7 @@ func (s *diskStore) write(entry MemoryEntry, requireExisting bool, options Write
 // updatePath 在磁盘锁内按路径更新条目。
 // 除路径安全外，还会校验现有文件的规范化名称和类型，防止跨条目覆盖。
 func (s *diskStore) updatePath(path string, entry MemoryEntry, options WriteOptions) (MemoryEntry, error) {
-	root, err := s.rootOrError()
+	root, err := diskStoreRootOrError(s)
 	if err != nil {
 		return MemoryEntry{}, err
 	}
@@ -603,8 +615,8 @@ func resolveWriteOptions(opts []WriteOptions) WriteOptions {
 	return opts[0]
 }
 
-// rootOrError 返回 diskStore 的规范化根目录，nil store 或空根目录直接报错以阻断后续路径校验。
-func (s *diskStore) rootOrError() (string, error) {
+// diskStoreRootOrError 返回 diskStore 的规范化根目录，nil store 或空根目录直接报错以阻断后续路径校验。
+func diskStoreRootOrError(s *diskStore) (string, error) {
 	if s == nil {
 		return "", fmt.Errorf("%w: nil store", ErrInvalidMemoryRoot)
 	}

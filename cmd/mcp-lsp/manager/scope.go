@@ -94,62 +94,71 @@ type resolvedScopeManager struct {
 	scope   ResolvedToolScope
 }
 
+type resolvedScopeLifecycle = resolvedScopeManager
+type resolvedScopeNavigation = resolvedScopeManager
+type resolvedScopeXRef = resolvedScopeManager
+type resolvedScopeStructure = resolvedScopeManager
+type resolvedScopeCompletion = resolvedScopeManager
+type resolvedScopeEdit = resolvedScopeManager
+type resolvedScopeDocumentLifecycle = resolvedScopeManager
+type resolvedScopeDiagnostics = resolvedScopeManager
+
 func (m *resolvedScopeManager) scoped(ctx context.Context) context.Context {
 	return WithResolvedToolScope(ctx, m.scope)
 }
 
 // Close 直接关闭底层 manager；scope 只影响请求路径，不影响资源归属。
-func (m *resolvedScopeManager) Close() error {
+func (m *resolvedScopeLifecycle) Close() error {
 	return m.manager.Close()
 }
 
 // Definition 注入 resolved scope 后转发定义查询。
-func (m *resolvedScopeManager) Definition(ctx context.Context, uri string, position protocol.Position) ([]protocol.LocationResult, error) {
+func (m *resolvedScopeNavigation) Definition(ctx context.Context, uri string, position protocol.Position) ([]protocol.LocationResult, error) {
 	return m.manager.Definition(m.scoped(ctx), uri, position)
 }
 
 // Implementation 注入 resolved scope 后转发实现查询。
-func (m *resolvedScopeManager) Implementation(ctx context.Context, uri string, position protocol.Position) ([]protocol.LocationResult, error) {
+func (m *resolvedScopeNavigation) Implementation(ctx context.Context, uri string, position protocol.Position) ([]protocol.LocationResult, error) {
 	return m.manager.Implementation(m.scoped(ctx), uri, position)
 }
 
 // TypeDefinition 查找符号的类型定义。
-func (m *resolvedScopeManager) TypeDefinition(ctx context.Context, uri string, position protocol.Position) ([]protocol.LocationResult, error) {
+func (m *resolvedScopeNavigation) TypeDefinition(ctx context.Context, uri string, position protocol.Position) ([]protocol.LocationResult, error) {
 	return m.manager.TypeDefinition(m.scoped(ctx), uri, position)
 }
 
 // Hover 注入 resolved scope 后转发 hover 查询。
-func (m *resolvedScopeManager) Hover(ctx context.Context, uri string, position protocol.Position) (*protocol.HoverResult, error) {
+func (m *resolvedScopeNavigation) Hover(ctx context.Context, uri string, position protocol.Position) (*protocol.HoverResult, error) {
 	return m.manager.Hover(m.scoped(ctx), uri, position)
 }
 
 // SignatureHelp 注入 resolved scope 后转发签名帮助查询。
-func (m *resolvedScopeManager) SignatureHelp(ctx context.Context, uri string, position protocol.Position) (*protocol.SignatureHelpResult, error) {
+func (m *resolvedScopeNavigation) SignatureHelp(ctx context.Context, uri string, position protocol.Position) (*protocol.SignatureHelpResult, error) {
 	return m.manager.SignatureHelp(m.scoped(ctx), uri, position)
 }
 
 // References 注入 resolved scope 后转发引用查询。
-func (m *resolvedScopeManager) References(ctx context.Context, uri string, position protocol.Position, includeDeclaration bool) ([]protocol.LocationResult, error) {
+func (m *resolvedScopeXRef) References(ctx context.Context, uri string, position protocol.Position, includeDeclaration bool) ([]protocol.LocationResult, error) {
 	return m.manager.References(m.scoped(ctx), uri, position, includeDeclaration)
 }
 
 // CallHierarchy 注入 resolved scope 后转发调用层级查询。
-func (m *resolvedScopeManager) CallHierarchy(ctx context.Context, uri string, position protocol.Position, direction string) ([]protocol.CallHierarchyResult, error) {
+func (m *resolvedScopeXRef) CallHierarchy(ctx context.Context, uri string, position protocol.Position, direction string) ([]protocol.CallHierarchyResult, error) {
 	return m.manager.CallHierarchy(m.scoped(ctx), uri, position, direction)
 }
 
 // TypeHierarchy 查询符号的类型层级。
-func (m *resolvedScopeManager) TypeHierarchy(ctx context.Context, uri string, position protocol.Position, direction string) ([]protocol.TypeHierarchyResult, error) {
+func (m *resolvedScopeXRef) TypeHierarchy(ctx context.Context, uri string, position protocol.Position, direction string) ([]protocol.TypeHierarchyResult, error) {
 	return m.manager.TypeHierarchy(m.scoped(ctx), uri, position, direction)
 }
 
 // DocumentSymbol 读取文档符号列表。
-func (m *resolvedScopeManager) DocumentSymbol(ctx context.Context, uri string) ([]protocol.DocumentSymbol, error) {
+func (m *resolvedScopeStructure) DocumentSymbol(ctx context.Context, uri string) ([]protocol.DocumentSymbol, error) {
 	return m.manager.DocumentSymbol(m.scoped(ctx), uri)
 }
 
 // DocumentSymbolBestEffort 尽量读取文档符号，允许返回降级结果。
-func (m *resolvedScopeManager) DocumentSymbolBestEffort(ctx context.Context, uri string) ([]protocol.DocumentSymbol, error) {
+func (m *resolvedScopeStructure) DocumentSymbolBestEffort(ctx context.Context, uri string) ([]protocol.DocumentSymbol, error) {
 	if bestEffort, ok := m.manager.(BestEffortDocumentSymbolManager); ok {
 		return bestEffort.DocumentSymbolBestEffort(m.scoped(ctx), uri)
 	}
@@ -157,81 +166,81 @@ func (m *resolvedScopeManager) DocumentSymbolBestEffort(ctx context.Context, uri
 }
 
 // WorkspaceSymbol 注入 resolved scope 后转发工作区符号查询。
-func (m *resolvedScopeManager) WorkspaceSymbol(ctx context.Context, query string, languageID string) ([]protocol.WorkspaceSymbolResult, error) {
+func (m *resolvedScopeStructure) WorkspaceSymbol(ctx context.Context, query string, languageID string) ([]protocol.WorkspaceSymbolResult, error) {
 	return m.manager.WorkspaceSymbol(m.scoped(ctx), query, languageID)
 }
 
 // FoldingRange 注入 resolved scope 后转发折叠范围查询。
-func (m *resolvedScopeManager) FoldingRange(ctx context.Context, uri string) ([]protocol.FoldingRange, error) {
+func (m *resolvedScopeStructure) FoldingRange(ctx context.Context, uri string) ([]protocol.FoldingRange, error) {
 	return m.manager.FoldingRange(m.scoped(ctx), uri)
 }
 
 // SemanticTokens 注入 resolved scope 后转发语义 token 查询。
-func (m *resolvedScopeManager) SemanticTokens(ctx context.Context, uri string) (*protocol.SemanticTokensResult, error) {
+func (m *resolvedScopeStructure) SemanticTokens(ctx context.Context, uri string) (*protocol.SemanticTokensResult, error) {
 	return m.manager.SemanticTokens(m.scoped(ctx), uri)
 }
 
 // Completion 注入 resolved scope 后转发补全查询。
-func (m *resolvedScopeManager) Completion(ctx context.Context, uri string, position protocol.Position) (*protocol.CompletionList, error) {
+func (m *resolvedScopeCompletion) Completion(ctx context.Context, uri string, position protocol.Position) (*protocol.CompletionList, error) {
 	return m.manager.Completion(m.scoped(ctx), uri, position)
 }
 
 // Rename 注入 resolved scope 后转发重命名请求。
-func (m *resolvedScopeManager) Rename(ctx context.Context, uri string, position protocol.Position, newName string) (*protocol.WorkspaceEdit, error) {
+func (m *resolvedScopeEdit) Rename(ctx context.Context, uri string, position protocol.Position, newName string) (*protocol.WorkspaceEdit, error) {
 	return m.manager.Rename(m.scoped(ctx), uri, position, newName)
 }
 
 // CodeAction 请求当前范围内的代码动作。
-func (m *resolvedScopeManager) CodeAction(ctx context.Context, uri string, rng protocol.Range, only []string) ([]protocol.CodeActionResult, error) {
+func (m *resolvedScopeEdit) CodeAction(ctx context.Context, uri string, rng protocol.Range, only []string) ([]protocol.CodeActionResult, error) {
 	return m.manager.CodeAction(m.scoped(ctx), uri, rng, only)
 }
 
 // Format 请求 LSP 格式化指定文档。
-func (m *resolvedScopeManager) Format(ctx context.Context, uri string, options protocol.FormattingOptions) ([]protocol.TextEdit, error) {
+func (m *resolvedScopeEdit) Format(ctx context.Context, uri string, options protocol.FormattingOptions) ([]protocol.TextEdit, error) {
 	return m.manager.Format(m.scoped(ctx), uri, options)
 }
 
 // DidOpen 把文档打开事件转给 LSP。
-func (m *resolvedScopeManager) DidOpen(ctx context.Context, uri, languageID string, version int, text string) error {
+func (m *resolvedScopeDocumentLifecycle) DidOpen(ctx context.Context, uri, languageID string, version int, text string) error {
 	return m.manager.DidOpen(m.scoped(ctx), uri, languageID, version, text)
 }
 
 // DidChange 把文档变更事件转给 LSP。
-func (m *resolvedScopeManager) DidChange(ctx context.Context, uri string, version int, changes []protocol.TextDocumentContentChangeEvent) error {
+func (m *resolvedScopeDocumentLifecycle) DidChange(ctx context.Context, uri string, version int, changes []protocol.TextDocumentContentChangeEvent) error {
 	return m.manager.DidChange(m.scoped(ctx), uri, version, changes)
 }
 
 // DidClose 把文档关闭事件转给 LSP。
-func (m *resolvedScopeManager) DidClose(ctx context.Context, uri string) error {
+func (m *resolvedScopeDocumentLifecycle) DidClose(ctx context.Context, uri string) error {
 	return m.manager.DidClose(m.scoped(ctx), uri)
 }
 
 // BootstrapDocument 确保文档已打开并完成启动检查。
-func (m *resolvedScopeManager) BootstrapDocument(ctx context.Context, uri string) error {
+func (m *resolvedScopeDocumentLifecycle) BootstrapDocument(ctx context.Context, uri string) error {
 	return m.manager.BootstrapDocument(m.scoped(ctx), uri)
 }
 
 // BootstrapDocumentOpenOnly 注入 resolved scope 后只执行文档打开同步。
-func (m *resolvedScopeManager) BootstrapDocumentOpenOnly(ctx context.Context, uri string) error {
+func (m *resolvedScopeDocumentLifecycle) BootstrapDocumentOpenOnly(ctx context.Context, uri string) error {
 	return m.manager.BootstrapDocumentOpenOnly(m.scoped(ctx), uri)
 }
 
 // Diagnostics 汇总匹配 manager 返回的诊断。
-func (m *resolvedScopeManager) Diagnostics(ctx context.Context, uris []string) ([]protocol.PublishDiagnosticsParams, error) {
+func (m *resolvedScopeDiagnostics) Diagnostics(ctx context.Context, uris []string) ([]protocol.PublishDiagnosticsParams, error) {
 	return m.manager.Diagnostics(m.scoped(ctx), uris)
 }
 
 // WaitDiagnosticsStable 等待诊断稳定状态。
-func (m *resolvedScopeManager) WaitDiagnosticsStable(ctx context.Context, uris []string) error {
+func (m *resolvedScopeDiagnostics) WaitDiagnosticsStable(ctx context.Context, uris []string) error {
 	return m.manager.WaitDiagnosticsStable(m.scoped(ctx), uris)
 }
 
 // CurrentDiagnosticGeneration 读取底层 manager 的当前诊断代际。
-func (m *resolvedScopeManager) CurrentDiagnosticGeneration() uint64 {
+func (m *resolvedScopeDiagnostics) CurrentDiagnosticGeneration() uint64 {
 	return m.manager.CurrentDiagnosticGeneration()
 }
 
 // AdvanceDiagnosticGeneration 推进诊断代际，防止旧结果覆盖新结果。
-func (m *resolvedScopeManager) AdvanceDiagnosticGeneration() uint64 {
+func (m *resolvedScopeDiagnostics) AdvanceDiagnosticGeneration() uint64 {
 	return m.manager.AdvanceDiagnosticGeneration()
 }

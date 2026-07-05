@@ -126,9 +126,19 @@ func (s *inMemoryTurnTrackerStore) Tick() time.Time {
 // turnTracker 封装 turn 状态机业务逻辑，所有可变状态经 store 读写。
 // watcher、interrupt 和 force-complete 可能并发推进同一 turn，非法转换只告警不回退。
 type turnTracker struct {
+	turnTrackerRoles
+
 	store  turnTrackerStore
 	logger *slog.Logger
 }
+
+type turnTrackerRoles struct {
+	*turnTrackerQueryOps
+	*turnTrackerDedupeOps
+}
+
+type turnTrackerQueryOps struct{ tracker *turnTracker }
+type turnTrackerDedupeOps struct{ tracker *turnTracker }
 
 // trackedTurn 是单个本地 turn 的可变状态，所有字段必须通过 store 锁访问。
 type trackedTurn struct {
@@ -151,7 +161,12 @@ type activeTurn struct {
 
 // newTurnTracker 创建默认进程内 tracker，终态记录按 trackerTTL 延迟清理。
 func newTurnTracker() *turnTracker {
-	return &turnTracker{store: newInMemoryTurnTrackerStore(), logger: pkglogger.Get()}
+	tracker := &turnTracker{store: newInMemoryTurnTrackerStore(), logger: pkglogger.Get()}
+	tracker.turnTrackerRoles = turnTrackerRoles{
+		turnTrackerQueryOps:  &turnTrackerQueryOps{tracker: tracker},
+		turnTrackerDedupeOps: &turnTrackerDedupeOps{tracker: tracker},
+	}
+	return tracker
 }
 
 // Start 注册新的本地 turn，并初始化状态机为 preparing。
@@ -309,11 +324,12 @@ func (t *turnTracker) Cleanup() {
 }
 
 // ActiveByThread 返回指定线程最近更新的非终态 turn。
-func (t *turnTracker) ActiveByThread(threadID string) (activeTurn, bool) {
+func (r *turnTrackerQueryOps) ActiveByThread(threadID string) (activeTurn, bool) {
 	threadID = strings.TrimSpace(threadID)
 	if threadID == "" {
 		return activeTurn{}, false
 	}
+	t := r.tracker
 	var result activeTurn
 	var found bool
 	var latestUpdate time.Time
@@ -359,11 +375,12 @@ func (t *turnTracker) AbortThread(threadID, errMsg string) bool {
 }
 
 // Get 按本地 turnID 返回 tracker 状态快照；读取在 store 读锁内完成，返回值不暴露内部指针。
-func (t *turnTracker) Get(localID string) (TurnStatus, bool) {
+func (r *turnTrackerQueryOps) Get(localID string) (TurnStatus, bool) {
 	localID = strings.TrimSpace(localID)
 	if localID == "" {
 		return TurnStatus{}, false
 	}
+	t := r.tracker
 	var status TurnStatus
 	found := t.store.View(localID, func(turn *trackedTurn) {
 		status = turn.status()
@@ -372,11 +389,12 @@ func (t *turnTracker) Get(localID string) (TurnStatus, bool) {
 }
 
 // GetByProviderID 按 provider turnID 查找本地状态快照。
-func (t *turnTracker) GetByProviderID(providerID string) (TurnStatus, bool) {
+func (r *turnTrackerQueryOps) GetByProviderID(providerID string) (TurnStatus, bool) {
 	providerID = strings.TrimSpace(providerID)
 	if providerID == "" {
 		return TurnStatus{}, false
 	}
+	t := r.tracker
 	var status TurnStatus
 	var found bool
 	t.store.RangeView(func(_ string, turn *trackedTurn) bool {
@@ -391,12 +409,13 @@ func (t *turnTracker) GetByProviderID(providerID string) (TurnStatus, bool) {
 }
 
 // RegisterDedupeKey 把调度去重键绑定到本地 turn，供并发查询和 watcher 终态回写使用。
-func (t *turnTracker) RegisterDedupeKey(localID, dedupeKey string) {
+func (r *turnTrackerDedupeOps) RegisterDedupeKey(localID, dedupeKey string) {
 	localID = strings.TrimSpace(localID)
 	dedupeKey = strings.TrimSpace(dedupeKey)
 	if localID == "" || dedupeKey == "" {
 		return
 	}
+	t := r.tracker
 	t.store.Mutate(localID, func(turn *trackedTurn) {
 		turn.dedupeKey = dedupeKey
 		turn.updatedAt = t.store.Tick()
@@ -404,11 +423,12 @@ func (t *turnTracker) RegisterDedupeKey(localID, dedupeKey string) {
 }
 
 // DedupeKeyOf 返回本地 turn 绑定的去重键，缺失时返回空字符串。
-func (t *turnTracker) DedupeKeyOf(localID string) string {
+func (r *turnTrackerDedupeOps) DedupeKeyOf(localID string) string {
 	localID = strings.TrimSpace(localID)
 	if localID == "" {
 		return ""
 	}
+	t := r.tracker
 	var key string
 	t.store.View(localID, func(turn *trackedTurn) {
 		key = turn.dedupeKey
@@ -417,11 +437,12 @@ func (t *turnTracker) DedupeKeyOf(localID string) string {
 }
 
 // GetByDedupeKey 返回指定去重键下最近更新的非终态 turn。
-func (t *turnTracker) GetByDedupeKey(dedupeKey string) (TurnStatus, bool) {
+func (r *turnTrackerDedupeOps) GetByDedupeKey(dedupeKey string) (TurnStatus, bool) {
 	dedupeKey = strings.TrimSpace(dedupeKey)
 	if dedupeKey == "" {
 		return TurnStatus{}, false
 	}
+	t := r.tracker
 	var result TurnStatus
 	var found bool
 	var latestUpdate time.Time

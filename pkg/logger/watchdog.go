@@ -6,14 +6,11 @@ import (
 	"time"
 )
 
-var (
-	fileWatcherStop   chan struct{}
-	fileWatchInterval = 30 * time.Second
-)
+const fileWatchInterval = 30 * time.Second
 
 // watchLogFile 定期检查日志文件是否被外部删除，并在缺失时重新创建。
 // stop 关闭后立即退出，避免 InitWithFileOptions 重建 watcher 时泄漏 goroutine。
-func watchLogFile(path string, stop chan struct{}) {
+func (r *Runtime) watchLogFile(path string, stop chan struct{}) {
 	ticker := time.NewTicker(fileWatchInterval)
 	defer ticker.Stop()
 	for {
@@ -30,41 +27,44 @@ func watchLogFile(path string, stop chan struct{}) {
 				Warn("log file watchdog: reopen failed", "path", path, "error", err)
 				continue
 			}
-			logFileMu.Lock()
-			closeLogFileLocked()
-			logFile = f
-			logFileMu.Unlock()
-			rebuildLoggerWithFile(f)
+			r.mu.Lock()
+			r.closeLogFileLocked()
+			r.logFile = f
+			r.mu.Unlock()
+			r.rebuildLoggerWithFile(f)
 			Info("log file watchdog: reopened deleted log file", "path", path)
 		}
 	}
 }
 
-// stopFileWatcherLocked 在持有 logFileMu 时关闭当前文件 watcher。
-func stopFileWatcherLocked() {
-	if fileWatcherStop != nil {
-		close(fileWatcherStop)
-		fileWatcherStop = nil
+func (r *Runtime) stopFileWatcherLocked() {
+	if r.fileWatcherStop != nil {
+		close(r.fileWatcherStop)
+		r.fileWatcherStop = nil
 	}
 }
 
-// closeLogFileLocked 在持有 logFileMu 时同步并关闭当前日志文件。
-func closeLogFileLocked() {
-	if logFile != nil {
-		_ = logFile.Sync()
-		_ = logFile.Close()
+func (r *Runtime) closeLogFileLocked() {
+	if r.logFile != nil {
+		_ = r.logFile.Sync()
+		_ = r.logFile.Close()
 	}
 }
 
 // ShutdownFileHandler 关闭 agent 专属日志、文件 watcher 和主日志文件。
 func ShutdownFileHandler() {
-	closeAllAgentLoggers()
-	logFileMu.Lock()
-	defer logFileMu.Unlock()
-	stopFileWatcherLocked()
-	if logFile != nil {
-		closeLogFileLocked()
-		logFile = nil
+	currentRuntime().ShutdownFileHandler()
+}
+
+// ShutdownFileHandler 关闭 runtime 的 agent 专属日志、文件 watcher 和主日志文件。
+func (r *Runtime) ShutdownFileHandler() {
+	r.closeAllAgentLoggers()
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.stopFileWatcherLocked()
+	if r.logFile != nil {
+		r.closeLogFileLocked()
+		r.logFile = nil
 	}
-	logFileConsole = nil
+	r.logFileConsole = nil
 }

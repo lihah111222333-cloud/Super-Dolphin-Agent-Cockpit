@@ -45,7 +45,7 @@ func runPoolSpawn(ctx context.Context, home, modelProvider string, registry *pid
 	proc := newLocalProcess(cmd, stderr)
 	proc.guard = attachProcessGuard(cmd)
 	proc.waitAsync()
-	go t.collectProcessStderr(proc, stderr)
+	t.startCollectProcessStderr(proc, stderr)
 	serverURL, err := proc.waitForListenURL(startupCtx)
 	if err != nil {
 		_ = proc.signal(sigForceKill)
@@ -60,7 +60,7 @@ func runPoolSpawn(ctx context.Context, home, modelProvider string, registry *pid
 	t.process = proc
 	t.processErr = nil
 	t.stateMu.Unlock()
-	go t.watchLocalProcess(proc)
+	t.startWatchLocalProcess(proc)
 	if registry != nil {
 		if pid := t.localPID(); pid > 0 {
 			if err := registry.RegisterChecked(pid, "codex-app-server-pool", map[string]string{"codex_home": home, "work_dir": workDir}); err != nil {

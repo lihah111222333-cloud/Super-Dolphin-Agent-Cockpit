@@ -302,12 +302,13 @@ func (p *ServerPool) releaser(entryKey poolEntryKey) func() {
 // 该方法供后台 runner 周期调用，返回回收数量用于日志或指标。
 func (p *ServerPool) EvictIdle() int {
 	p.mu.Lock()
-	defer p.mu.Unlock()
 	if p.closed {
+		p.mu.Unlock()
 		return 0
 	}
 	now := p.now()
 	removed := 0
+	evicted := make([]poolEvictedServer, 0)
 	for key, entry := range p.entries {
 		if entry.refCount > 0 {
 			continue
@@ -317,11 +318,20 @@ func (p *ServerPool) EvictIdle() int {
 		}
 		delete(p.entries, key)
 		if entry.server != nil {
-			go closeWithTimeout(entry.server, 2*time.Second, p.logger, key)
+			evicted = append(evicted, poolEvictedServer{server: entry.server, key: key})
 		}
 		removed++
 	}
+	p.mu.Unlock()
+	for _, item := range evicted {
+		closeWithTimeout(item.server, 2*time.Second, p.logger, item.key)
+	}
 	return removed
+}
+
+type poolEvictedServer struct {
+	server SpawnedServer
+	key    poolEntryKey
 }
 
 // Close 关闭池中所有 app-server，并阻止后续 Acquire。

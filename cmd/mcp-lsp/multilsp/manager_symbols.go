@@ -9,8 +9,14 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/protocol"
 )
 
+type managerNavigation = manager
+type managerXRef = manager
+type managerStructure = manager
+type managerCompletion = manager
+type managerEdit = manager
+
 // Definition 查询符号定义位置，并把 LSP 返回的 location/link 统一成工具层结果。
-func (m *manager) Definition(ctx context.Context, uri string, position protocol.Position) ([]protocol.LocationResult, error) {
+func (m *managerNavigation) Definition(ctx context.Context, uri string, position protocol.Position) ([]protocol.LocationResult, error) {
 	return m.locationQuery(ctx, uri, protocol.MethodDefinition, protocol.DefinitionParams{
 		TextDocument: protocol.TextDocumentIdentifier{URI: uri},
 		Position:     position,
@@ -19,7 +25,7 @@ func (m *manager) Definition(ctx context.Context, uri string, position protocol.
 
 // Implementation 查询接口或抽象符号的实现位置。
 // 不支持该能力的语言会按文档请求降级为空结果，而不是伪造静态匹配。
-func (m *manager) Implementation(ctx context.Context, uri string, position protocol.Position) ([]protocol.LocationResult, error) {
+func (m *managerNavigation) Implementation(ctx context.Context, uri string, position protocol.Position) ([]protocol.LocationResult, error) {
 	return m.locationQuery(ctx, uri, protocol.MethodImplementation, protocol.ImplementationParams{
 		TextDocument: protocol.TextDocumentIdentifier{URI: uri},
 		Position:     position,
@@ -27,7 +33,7 @@ func (m *manager) Implementation(ctx context.Context, uri string, position proto
 }
 
 // TypeDefinition 查找符号的类型定义。
-func (m *manager) TypeDefinition(ctx context.Context, uri string, position protocol.Position) ([]protocol.LocationResult, error) {
+func (m *managerNavigation) TypeDefinition(ctx context.Context, uri string, position protocol.Position) ([]protocol.LocationResult, error) {
 	return m.locationQuery(ctx, uri, protocol.MethodTypeDefinition, protocol.TypeDefinitionParams{
 		TextDocument: protocol.TextDocumentIdentifier{URI: uri},
 		Position:     position,
@@ -36,7 +42,7 @@ func (m *manager) TypeDefinition(ctx context.Context, uri string, position proto
 
 // Hover 查询指定位置的悬停信息。
 // 返回值保持 LSP markup 形状，解码失败会带上 hover 上下文直接报错。
-func (m *manager) Hover(ctx context.Context, uri string, position protocol.Position) (*protocol.HoverResult, error) {
+func (m *managerNavigation) Hover(ctx context.Context, uri string, position protocol.Position) (*protocol.HoverResult, error) {
 	return requestDocument(ctx, m, uri, protocol.MethodHover,
 		func(ref documentRef) any {
 			return protocol.HoverParams{
@@ -57,7 +63,7 @@ func (m *manager) Hover(ctx context.Context, uri string, position protocol.Posit
 
 // SignatureHelp 查询当前位置的函数签名候选。
 // 语言服务器不支持时返回能力错误，调用方可据此生成空结果提示。
-func (m *manager) SignatureHelp(ctx context.Context, uri string, position protocol.Position) (*protocol.SignatureHelpResult, error) {
+func (m *managerNavigation) SignatureHelp(ctx context.Context, uri string, position protocol.Position) (*protocol.SignatureHelpResult, error) {
 	return requestDocument(ctx, m, uri, protocol.MethodSignatureHelp,
 		func(ref documentRef) any {
 			return protocol.SignatureHelpParams{
@@ -77,7 +83,7 @@ func (m *manager) SignatureHelp(ctx context.Context, uri string, position protoc
 }
 
 // References 查询符号引用并按 includeDeclaration 保留或排除声明位置。
-func (m *manager) References(ctx context.Context, uri string, position protocol.Position, includeDeclaration bool) ([]protocol.LocationResult, error) {
+func (m *managerXRef) References(ctx context.Context, uri string, position protocol.Position, includeDeclaration bool) ([]protocol.LocationResult, error) {
 	return m.locationQuery(ctx, uri, protocol.MethodReferences, protocol.ReferenceParams{
 		TextDocument: protocol.TextDocumentIdentifier{URI: uri},
 		Position:     position,
@@ -88,7 +94,7 @@ func (m *manager) References(ctx context.Context, uri string, position protocol.
 }
 
 // CallHierarchy 调用层级。
-func (m *manager) CallHierarchy(ctx context.Context, uri string, position protocol.Position, direction string) ([]protocol.CallHierarchyResult, error) {
+func (m *managerXRef) CallHierarchy(ctx context.Context, uri string, position protocol.Position, direction string) ([]protocol.CallHierarchyResult, error) {
 	return queryHierarchy(ctx, m, uri, protocol.MethodPrepareCallHierarchy, position, direction,
 		func(ctx context.Context, client Client, item protocol.CallHierarchyItem, direction string) (protocol.CallHierarchyResult, error) {
 			return m.resolveCallDirections(ctx, client, item, direction)
@@ -130,7 +136,7 @@ func wantCallDirection(direction, target string) bool {
 }
 
 // TypeHierarchy 查询符号的类型层级。
-func (m *manager) TypeHierarchy(ctx context.Context, uri string, position protocol.Position, direction string) ([]protocol.TypeHierarchyResult, error) {
+func (m *managerXRef) TypeHierarchy(ctx context.Context, uri string, position protocol.Position, direction string) ([]protocol.TypeHierarchyResult, error) {
 	return queryHierarchy(ctx, m, uri, protocol.MethodPrepareTypeHierarchy, position, direction,
 		func(ctx context.Context, client Client, item protocol.TypeHierarchyItem, direction string) (protocol.TypeHierarchyResult, error) {
 			return m.resolveTypeDirections(ctx, client, item, direction)
@@ -165,12 +171,12 @@ func (m *manager) resolveTypeDirections(ctx context.Context, client Client, item
 
 // DocumentSymbol 读取单文档符号列表。
 // 大纲查询用于冷启动时快速定位结构，不能被诊断稳定等待拖到工具超时；需要诊断就绪的导航能力在各自路径等待。
-func (m *manager) DocumentSymbol(ctx context.Context, uri string) ([]protocol.DocumentSymbol, error) {
+func (m *managerStructure) DocumentSymbol(ctx context.Context, uri string) ([]protocol.DocumentSymbol, error) {
 	return m.documentSymbolsWithoutDiagnosticsWait(ctx, uri)
 }
 
 // DocumentSymbolBestEffort 尽量读取文档符号，允许返回降级结果。
-func (m *manager) DocumentSymbolBestEffort(ctx context.Context, uri string) ([]protocol.DocumentSymbol, error) {
+func (m *managerStructure) DocumentSymbolBestEffort(ctx context.Context, uri string) ([]protocol.DocumentSymbol, error) {
 	return m.documentSymbolsWithoutDiagnosticsWait(ctx, uri)
 }
 
@@ -219,7 +225,7 @@ func (m *manager) requestDocumentSymbols(ctx context.Context, client Client, ref
 
 // WorkspaceSymbol 查询指定语言 workspace 内的符号。
 // 没有文件路径时 languageID 必填，防止无界启动默认语言服务器。
-func (m *manager) WorkspaceSymbol(ctx context.Context, query string, languageID string) ([]protocol.WorkspaceSymbolResult, error) {
+func (m *managerStructure) WorkspaceSymbol(ctx context.Context, query string, languageID string) ([]protocol.WorkspaceSymbolResult, error) {
 	languageID = normalizeLanguageID(languageID)
 	if languageID == "" {
 		return nil, fmt.Errorf("workspace symbol language is required when no file path is provided")
@@ -302,7 +308,7 @@ func (m *manager) workspaceSymbolConfigFromResolvedScope(resolved ResolvedLSPToo
 
 // FoldingRange 查询文档折叠区间。
 // 不支持该能力时返回空切片，保持工具输出可渲染但不伪造范围。
-func (m *manager) FoldingRange(ctx context.Context, uri string) ([]protocol.FoldingRange, error) {
+func (m *managerStructure) FoldingRange(ctx context.Context, uri string) ([]protocol.FoldingRange, error) {
 	return requestDocument(ctx, m, uri, protocol.MethodFoldingRange,
 		func(ref documentRef) any {
 			return protocol.FoldingRangeParams{
@@ -322,7 +328,7 @@ func (m *manager) FoldingRange(ctx context.Context, uri string) ([]protocol.Fold
 
 // SemanticTokens 查询整篇文档的语义 token。
 // 不支持时返回空结果对象，保留 LSP wire 形状供前端/工具层统一处理。
-func (m *manager) SemanticTokens(ctx context.Context, uri string) (*protocol.SemanticTokensResult, error) {
+func (m *managerStructure) SemanticTokens(ctx context.Context, uri string) (*protocol.SemanticTokensResult, error) {
 	return requestDocument(ctx, m, uri, protocol.MethodSemanticTokensFull,
 		func(ref documentRef) any {
 			return protocol.SemanticTokensParams{
@@ -345,7 +351,7 @@ func (m *manager) SemanticTokens(ctx context.Context, uri string) (*protocol.Sem
 
 // Completion 查询指定位置的补全候选。
 // 响应兼容数组和 CompletionList 两种 LSP 形态，unsupported 时返回空列表。
-func (m *manager) Completion(ctx context.Context, uri string, position protocol.Position) (*protocol.CompletionList, error) {
+func (m *managerCompletion) Completion(ctx context.Context, uri string, position protocol.Position) (*protocol.CompletionList, error) {
 	return requestDocument(ctx, m, uri, protocol.MethodCompletion,
 		func(ref documentRef) any {
 			return protocol.CompletionParams{
@@ -360,7 +366,7 @@ func (m *manager) Completion(ctx context.Context, uri string, position protocol.
 
 // Rename 请求语言服务器生成跨文件 workspace edit。
 // 不支持 rename 时返回能力错误，调用方不能自行拼接替换以免破坏语义边界。
-func (m *manager) Rename(ctx context.Context, uri string, position protocol.Position, newName string) (*protocol.WorkspaceEdit, error) {
+func (m *managerEdit) Rename(ctx context.Context, uri string, position protocol.Position, newName string) (*protocol.WorkspaceEdit, error) {
 	return requestDocument(ctx, m, uri, protocol.MethodRename,
 		func(ref documentRef) any {
 			return protocol.RenameParams{
@@ -381,7 +387,7 @@ func (m *manager) Rename(ctx context.Context, uri string, position protocol.Posi
 }
 
 // CodeAction 请求当前范围内的代码动作。
-func (m *manager) CodeAction(ctx context.Context, uri string, rng protocol.Range, only []string) ([]protocol.CodeActionResult, error) {
+func (m *managerEdit) CodeAction(ctx context.Context, uri string, rng protocol.Range, only []string) ([]protocol.CodeActionResult, error) {
 	return requestDocument(ctx, m, uri, protocol.MethodCodeAction,
 		func(ref documentRef) any {
 			return protocol.CodeActionParams{
@@ -399,7 +405,7 @@ func (m *manager) CodeAction(ctx context.Context, uri string, rng protocol.Range
 }
 
 // Format 请求 LSP 格式化指定文档。
-func (m *manager) Format(ctx context.Context, uri string, options protocol.FormattingOptions) ([]protocol.TextEdit, error) {
+func (m *managerEdit) Format(ctx context.Context, uri string, options protocol.FormattingOptions) ([]protocol.TextEdit, error) {
 	return requestDocument(ctx, m, uri, protocol.MethodFormatting,
 		func(ref documentRef) any {
 			return protocol.DocumentFormattingParams{
@@ -420,7 +426,7 @@ func (m *manager) Format(ctx context.Context, uri string, options protocol.Forma
 
 // Symbols 是格式化/搜索层按绝对路径读取 document symbols 的适配入口。
 // 它复用 DocumentSymbol 的 LSP 与静态 fallback 策略，避免工具层重复实现解析逻辑。
-func (m *manager) Symbols(absPath string) ([]protocol.DocumentSymbol, error) {
+func (m *managerStructure) Symbols(absPath string) ([]protocol.DocumentSymbol, error) {
 	return m.DocumentSymbol(context.Background(), fileURIFromPath(absPath))
 }
 

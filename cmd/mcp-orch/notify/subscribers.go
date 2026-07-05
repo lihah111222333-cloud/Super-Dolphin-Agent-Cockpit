@@ -16,6 +16,7 @@ import (
 	taskdto "github.com/anthropic-ai/super-agent-v3/internal/dto/task"
 	platformbus "github.com/anthropic-ai/super-agent-v3/internal/platform/bus"
 	"github.com/anthropic-ai/super-agent-v3/internal/util/ctxutil"
+	"github.com/anthropic-ai/super-agent-v3/internal/util/safego"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
@@ -101,14 +102,9 @@ func (n *DAGNotifier) Start() {
 		return
 	}
 	n.startOnce.Do(func() {
-		go func() {
-			defer func() {
-				if rec := recover(); rec != nil {
-					pkglogger.Error("notify(orch): recovered dag_notifier_worker panic", "panic", rec)
-				}
-			}()
+		safego.Go(context.Background(), nil, "mcp-orch.notify.dagNotifier", func(context.Context) {
 			n.runWorker()
-		}()
+		})
 	})
 }
 

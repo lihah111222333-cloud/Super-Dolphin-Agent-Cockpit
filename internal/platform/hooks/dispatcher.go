@@ -187,18 +187,16 @@ func dispatchDecisions[T any](
 	workers := min(d.parallelismOrDefault(), len(leases))
 
 	var wg sync.WaitGroup
-	wg.Add(workers)
 	for i := 0; i < workers; i++ {
 		state := &dispatchWorkerState{}
-		go func(state *dispatchWorkerState) {
+		wg.Go(func() {
 			defer func() {
 				if rec := recover(); rec != nil {
 					markDispatchWorkerPanicResult(d, results, state.current, state.hasCurrent, rec)
 				}
-				wg.Done()
 			}()
 			runDispatchWorker(d, ctx, jobs, payload, results, invoke, state)
-		}(state)
+		})
 	}
 	for i, lease := range leases {
 		jobs <- dispatchJob{index: i, lease: lease}

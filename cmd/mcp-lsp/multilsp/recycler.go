@@ -24,17 +24,17 @@ const (
 	lspRSSLimitEnv          = "AGENT_LSP_RSS_LIMIT_MB"
 	lspGoRSSLimitEnv        = "AGENT_LSP_GO_RSS_LIMIT_MB"
 
-	idleTimeout       = 10 * time.Minute
-	idleCheckInterval = 30 * time.Second
+	idleTimeout = 10 * time.Minute
 )
 
-var clientRSSBytesForRecycler = clientRSSBytes
+type recyclerRSSProbe func(Client) (uint64, int, error)
 
 // poolRecycler 周期性扫描池内 LSP 子进程的 RSS 和 workspace 闲置时间。
 // 它只实现 platformrunner.Runner，不自行启动 goroutine；启动和停止都由根 runner 聚合器负责。
 type poolRecycler struct {
 	pool     *ManagerPool
 	interval time.Duration
+	rssProbe recyclerRSSProbe
 
 	mu         sync.Mutex
 	lastActive map[int]time.Time
@@ -47,6 +47,7 @@ func newPoolRecycler(pool *ManagerPool) *poolRecycler {
 	return &poolRecycler{
 		pool:       pool,
 		interval:   defaultRecyclerInterval,
+		rssProbe:   clientRSSBytes,
 		lastActive: map[int]time.Time{},
 	}
 }
@@ -107,7 +108,7 @@ func (r *poolRecycler) checkManager(index int, mgr *manager, scope ResolvedLSPTo
 // recycleIfNeeded 在单个 workspace client 超过 RSS 上限时尝试回收。
 // 仍有活跃租约时只记录日志不关闭进程，避免正在执行的 LSP 请求被异步切断。
 func (r *poolRecycler) recycleIfNeeded(mgr *manager, scope ResolvedLSPToolScope, workspace workspaceClient) {
-	rssBytes, pid, err := clientRSSBytesForRecycler(workspace.client)
+	rssBytes, pid, err := r.clientRSSBytes(workspace.client)
 	if err != nil || pid <= 0 {
 		return
 	}
@@ -188,7 +189,7 @@ func (r *poolRecycler) checkIdleWorkspaces(mgr *manager, scope ResolvedLSPToolSc
 		if r.pool != nil {
 			activeLeases = r.pool.activeLeases(workspace.client)
 		}
-		logIdleWindowExceeded(mgr, scope, workspace, idleDuration, activeLeases)
+		r.logIdleWindowExceeded(mgr, scope, workspace, idleDuration, activeLeases)
 		if activeLeases > 0 {
 			continue
 		}
@@ -220,7 +221,7 @@ func (r *poolRecycler) shutdownIdleWorkspace(mgr *manager, scope ResolvedLSPTool
 	}
 }
 
-func logIdleWindowExceeded(mgr *manager, scope ResolvedLSPToolScope, workspace workspaceClient, idleDuration time.Duration, activeLeases int) {
+func (r *poolRecycler) logIdleWindowExceeded(mgr *manager, scope ResolvedLSPToolScope, workspace workspaceClient, idleDuration time.Duration, activeLeases int) {
 	if mgr == nil || mgr.logger == nil {
 		return
 	}
@@ -235,7 +236,7 @@ func logIdleWindowExceeded(mgr *manager, scope ResolvedLSPToolScope, workspace w
 		"action", action,
 		"reason", "idle_timeout",
 	)
-	args = appendRecyclerRSSProbeArgs(args, workspace.client)
+	args = r.appendRecyclerRSSProbeArgs(args, workspace.client)
 	mgr.logger.Debug("LSP recycler idle window exceeded", args...)
 }
 
@@ -268,12 +269,19 @@ func recyclerWorkspaceLogArgs(scope ResolvedLSPToolScope, workspace workspaceCli
 	return append(args, extra...)
 }
 
-func appendRecyclerRSSProbeArgs(args []any, client Client) []any {
-	rssBytes, pid, err := clientRSSBytesForRecycler(client)
+func (r *poolRecycler) appendRecyclerRSSProbeArgs(args []any, client Client) []any {
+	rssBytes, pid, err := r.clientRSSBytes(client)
 	if err != nil {
 		return append(args, "rss_error", err.Error())
 	}
 	return append(args, "pid", pid, "rss_bytes", rssBytes)
+}
+
+func (r *poolRecycler) clientRSSBytes(current Client) (uint64, int, error) {
+	if r == nil || r.rssProbe == nil {
+		return clientRSSBytes(current)
+	}
+	return r.rssProbe(current)
 }
 
 // recycleWorkspaceClient 从 manager 中摘除目标 workspace client 后重建同一 workspace。

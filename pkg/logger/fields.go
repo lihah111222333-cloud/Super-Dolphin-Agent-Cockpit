@@ -157,6 +157,9 @@ func FromContext(ctx context.Context) *slog.Logger {
 // Get 返回当前全局日志器。
 func Get() *slog.Logger { return getLogger() }
 
+// Get 返回 runtime 当前日志器。
+func (r *Runtime) Get() *slog.Logger { return r.getLogger() }
+
 // With 返回绑定固定字段的全局日志器派生实例。
 func With(args ...any) *slog.Logger { return getLogger().With(args...) }
 
@@ -186,10 +189,15 @@ func Debugf(format string, args ...any) { getLogger().Debug(fmt.Sprintf(format, 
 
 // Fatal 写入 error 级别日志后关闭 DB/file handler 并以 1 退出。
 func Fatal(msg string, args ...any) {
-	getLogger().Error(msg, args...)
-	shutdownDBHandler()
-	ShutdownFileHandler()
-	exitFunc(1)
+	currentRuntime().Fatal(msg, args...)
+}
+
+// Fatal 写入 error 级别日志后关闭 runtime handler 并以 1 退出。
+func (r *Runtime) Fatal(msg string, args ...any) {
+	r.getLogger().Error(msg, args...)
+	r.shutdownDBHandler()
+	r.ShutdownFileHandler()
+	r.exitFunc(1)
 }
 
 // Infow 兼容 zap 风格键值字段写入 info 日志。
@@ -218,9 +226,14 @@ func DebugLevel() slog.Level { return slog.LevelDebug }
 
 // CurrentLogFilePath 返回当前文件日志路径；未初始化文件 handler 时返回空字符串。
 func CurrentLogFilePath() string {
-	logFileMu.Lock()
-	defer logFileMu.Unlock()
-	return logFilePath
+	return currentRuntime().CurrentLogFilePath()
+}
+
+// CurrentLogFilePath 返回 runtime 当前文件日志路径；未初始化文件 handler 时返回空字符串。
+func (r *Runtime) CurrentLogFilePath() string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.logFilePath
 }
 
 // IsDebugEnabled 判断当前全局日志器是否启用 debug 级别。
@@ -229,7 +242,10 @@ func IsDebugEnabled() bool {
 }
 
 // SetForTest 在测试中替换全局日志器，并同步 slog 默认 logger。
-func SetForTest(l *slog.Logger) { storeLogger(l) }
+func SetForTest(l *slog.Logger) { currentRuntime().SetForTest(l) }
+
+// SetForTest 在测试中替换 runtime 日志器，并同步 slog 默认 logger。
+func (r *Runtime) SetForTest(l *slog.Logger) { r.storeLogger(l) }
 
 // New 包装 slog.New，保持外部调用只依赖本包导出的别名。
 func New(handler slog.Handler) *slog.Logger { return slog.New(handler) }

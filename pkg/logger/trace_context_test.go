@@ -12,8 +12,9 @@ import (
 
 func TestFromContextAddsTraceFields(t *testing.T) {
 	var buf bytes.Buffer
+	previous := InstallRuntime(NewRuntime(RuntimeConfig{}))
 	SetForTest(slog.New(newHandler(Production, slog.LevelInfo, &buf)))
-	t.Cleanup(func() { SetForTest(newLogger(activeMode, activeLevel)) })
+	t.Cleanup(func() { InstallRuntime(previous) })
 
 	ctx := WithTraceContext(context.Background(), "trace-1", "span-1", "parent-1")
 	FromContext(ctx).Info("hello")

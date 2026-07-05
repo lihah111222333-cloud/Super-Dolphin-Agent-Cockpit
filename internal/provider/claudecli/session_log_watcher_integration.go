@@ -9,6 +9,7 @@ import (
 	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
 	"github.com/anthropic-ai/super-agent-v3/internal/util/identifier"
+	"github.com/anthropic-ai/super-agent-v3/internal/util/safego"
 )
 
 type logWatcherIdentity struct {
@@ -325,7 +326,7 @@ func (s *session) awaitSessionRestartLocked(prepared preparedSessionRestart, nex
 	s.finishRestartWaitLocked(prepared.generation)
 	unregisterTransportPID(s.pidRegistry, prepared.snapshot.transport)
 	if prepared.snapshot.transport != nil || prepared.snapshot.cleanup != nil {
-		go releaseTransport(prepared.snapshot.transport, prepared.snapshot.cleanup)
+		releaseTransportAsync(prepared.snapshot.transport, prepared.snapshot.cleanup)
 	}
 	return nil
 }
@@ -342,10 +343,10 @@ func (s *session) rollbackSessionRestartLocked(prepared preparedSessionRestart, 
 	}
 	s.finishRestartWaitLocked(prepared.generation)
 	unregisterTransportPID(s.pidRegistry, prepared.transport)
-	go releaseTransport(prepared.transport, prepared.cleanup)
+	releaseTransportAsync(prepared.transport, prepared.cleanup)
 	if !stagedCurrent && (prepared.snapshot.transport != nil || prepared.snapshot.cleanup != nil) {
 		unregisterTransportPID(s.pidRegistry, prepared.snapshot.transport)
-		go releaseTransport(prepared.snapshot.transport, prepared.snapshot.cleanup)
+		releaseTransportAsync(prepared.snapshot.transport, prepared.snapshot.cleanup)
 	}
 	if stagedCurrent {
 		s.mu.Unlock()
@@ -353,6 +354,12 @@ func (s *session) rollbackSessionRestartLocked(prepared preparedSessionRestart, 
 		s.mu.Lock()
 	}
 	return err
+}
+
+func releaseTransportAsync(tr *transport, cleanup func()) {
+	safego.Go(context.Background(), nil, "claudecli.sessionRestart.releaseTransport", func(context.Context) {
+		releaseTransport(tr, cleanup)
+	})
 }
 
 // stagedTurnSettingsLocked 计算本轮 turn 应使用的模型、effort 和 MCP manifest。

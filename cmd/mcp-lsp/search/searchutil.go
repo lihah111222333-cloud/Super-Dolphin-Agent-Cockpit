@@ -19,6 +19,7 @@ import (
 	"unicode"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
+	"github.com/anthropic-ai/super-agent-v3/internal/util/safego"
 )
 
 // SearchMatch 是 text/AST 搜索返回的单条命中，函数范围由 LSP/静态补充后可选填充。
@@ -461,7 +462,9 @@ func runSGStreaming(ctx context.Context, label string, args []string, root strin
 		cancel()
 	}
 	if errors.Is(decodeErr, errSearchResultsLimitReached) {
-		go func() { _ = cmd.Wait() }()
+		safego.Go(cmdCtx, nil, "mcp-lsp.search.ast-grep.wait", func(context.Context) {
+			_ = cmd.Wait()
+		})
 		return matches, errSearchResultsLimitReached
 	}
 	waitErr := cmd.Wait()

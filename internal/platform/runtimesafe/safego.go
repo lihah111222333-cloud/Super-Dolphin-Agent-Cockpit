@@ -5,6 +5,7 @@ package runtimesafe
 import (
 	"context"
 	"runtime/debug"
+	"sync"
 
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
@@ -18,7 +19,8 @@ func SafeGo(ctx context.Context, logger *pkglogger.Logger, label string, fn func
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	go func() {
+	var safeWG sync.WaitGroup
+	safeWG.Go(func() {
 		defer func() {
 			if rec := recover(); rec != nil {
 				if logger != nil {
@@ -38,5 +40,5 @@ func SafeGo(ctx context.Context, logger *pkglogger.Logger, label string, fn func
 			}
 		}()
 		fn(ctx)
-	}()
+	})
 }
