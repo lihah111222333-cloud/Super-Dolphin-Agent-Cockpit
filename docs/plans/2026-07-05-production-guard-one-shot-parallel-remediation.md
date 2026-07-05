@@ -4,17 +4,17 @@
 
 **Goal:** 在一次并行执行中消灭当前生产 baseline 的所有真实代码守卫违规，并在集成分支重新生成收缩后的生产 baseline。
 
-**Architecture:** 10 个彼此隔离的修复车道从同一个 `origin/main` 基线创建独立 worktree，各车道只修改自己拥有的文件；集成控制器只负责合并、冲突裁决和最终 guard freeze。方案不设置 W1/W2，也不允许先留冻结再二次清理。
+**Architecture:** 10 个彼此隔离的修复车道从同一个固定提交 `0a5cc09b0` 创建独立 worktree，各车道只修改自己拥有的文件；集成控制器只负责合并、冲突裁决和最终 `go run ./scripts/code_size_guard.go --freeze`。方案不设置 W1/W2，也不允许先留冻结再二次清理。
 
 **Tech Stack:** Go, repo-native archtest/code guard, git worktree, cmd/mcp-lsp LSP 工具链, repo test scripts.
 
-**Verification Surface:** LSP 定位/影响面/诊断证据、车道包级 `go test`、仓库 guard freeze、最终 `go test ./...` 或等价 repo-native 验证。
+**Verification Surface:** LSP 定位/影响面/诊断证据、车道 owned `.go` 文件单文件守卫、车道包级 `./scripts/test_with_guard.sh`、集成分支 `go run ./scripts/code_size_guard.go --freeze`、最终 `./scripts/test_with_guard.sh ./... -count=1`。
 
 ---
 
 ## Baseline Snapshot
 
-基线来源: `origin/main` at `0a5cc09b0 fix: 校验工作流 DAG 启动响应`。
+基线来源: fixed commit `0a5cc09b0 fix: 校验工作流 DAG 启动响应`。
 
 生产 baseline 当前冻结文件数: 100。
 
@@ -33,11 +33,11 @@
 
 ## Global Rules
 
-- [ ] 每个车道从同一个 `origin/main` 创建隔离 worktree；不得在主工作树直接修复。
+- [ ] 每个车道从固定提交 `0a5cc09b0` 创建隔离 worktree；不得从浮动远端分支派生，避免远端推进后清单失真。
 - [ ] 每个车道只能修改自己文件清单内的生产文件、同包测试、必要的同包 helper；跨车道文件必须退回集成控制器裁决。
 - [ ] 不允许新增 `archguard` ignore、扩大 baseline、放宽守卫规则、删除测试来通过。
 - [ ] `missing_docs` 不参与本计划修复。
-- [ ] 车道可以提交 guard 生成的 baseline 收缩；最终以集成控制器重新 freeze 后的 baseline 为准。
+- [ ] 车道不得 stage 或 commit `internal/archtest/baseline.json`、`internal/archtest/baseline_test.json`、`internal/archtest/freeze_registry.go`；这些生成文件只由集成控制器最终一次性更新。
 - [ ] 每个车道必须提交 LSP 证据摘要: 定位、影响面、精读文件、诊断。
 - [ ] 所有 goroutine 修复必须保留原生命周期和取消语义；禁止用同步调用替换异步行为来“消除计数”。
 - [ ] 所有 panic 修复必须把错误返回到已有边界；禁止用 recover 吞错。
@@ -61,16 +61,17 @@
 集成控制器先执行以下命令创建 10 个隔离工作树，然后并行派发子代理:
 
 ```bash
-git worktree add .worktrees/20260705-prodguard-pg01-mcp-lsp -b codex/20260705-prodguard-pg01-mcp-lsp origin/main
-git worktree add .worktrees/20260705-prodguard-pg02-mcp-orch -b codex/20260705-prodguard-pg02-mcp-orch origin/main
-git worktree add .worktrees/20260705-prodguard-pg03-cmd-other -b codex/20260705-prodguard-pg03-cmd-other origin/main
-git worktree add .worktrees/20260705-prodguard-pg04-module -b codex/20260705-prodguard-pg04-module origin/main
-git worktree add .worktrees/20260705-prodguard-pg05-platform-mcpserver -b codex/20260705-prodguard-pg05-platform-mcpserver origin/main
-git worktree add .worktrees/20260705-prodguard-pg06-provider -b codex/20260705-prodguard-pg06-provider origin/main
-git worktree add .worktrees/20260705-prodguard-pg07-store -b codex/20260705-prodguard-pg07-store origin/main
-git worktree add .worktrees/20260705-prodguard-pg08-pkg -b codex/20260705-prodguard-pg08-pkg origin/main
-git worktree add .worktrees/20260705-prodguard-pg09-internal-other -b codex/20260705-prodguard-pg09-internal-other origin/main
-git worktree add .worktrees/20260705-prodguard-pg10-misc -b codex/20260705-prodguard-pg10-misc origin/main
+BASE_COMMIT=0a5cc09b0
+git worktree add .worktrees/20260705-prodguard-pg01-mcp-lsp -b codex/20260705-prodguard-pg01-mcp-lsp "$BASE_COMMIT"
+git worktree add .worktrees/20260705-prodguard-pg02-mcp-orch -b codex/20260705-prodguard-pg02-mcp-orch "$BASE_COMMIT"
+git worktree add .worktrees/20260705-prodguard-pg03-cmd-other -b codex/20260705-prodguard-pg03-cmd-other "$BASE_COMMIT"
+git worktree add .worktrees/20260705-prodguard-pg04-module -b codex/20260705-prodguard-pg04-module "$BASE_COMMIT"
+git worktree add .worktrees/20260705-prodguard-pg05-platform-mcpserver -b codex/20260705-prodguard-pg05-platform-mcpserver "$BASE_COMMIT"
+git worktree add .worktrees/20260705-prodguard-pg06-provider -b codex/20260705-prodguard-pg06-provider "$BASE_COMMIT"
+git worktree add .worktrees/20260705-prodguard-pg07-store -b codex/20260705-prodguard-pg07-store "$BASE_COMMIT"
+git worktree add .worktrees/20260705-prodguard-pg08-pkg -b codex/20260705-prodguard-pg08-pkg "$BASE_COMMIT"
+git worktree add .worktrees/20260705-prodguard-pg09-internal-other -b codex/20260705-prodguard-pg09-internal-other "$BASE_COMMIT"
+git worktree add .worktrees/20260705-prodguard-pg10-misc -b codex/20260705-prodguard-pg10-misc "$BASE_COMMIT"
 ```
 
 ## Common Lane Workflow
@@ -80,9 +81,11 @@ git worktree add .worktrees/20260705-prodguard-pg10-misc -b codex/20260705-prodg
 - [ ] 读取 `AGENTS.md`、本计划、相关 repo-local 技能。
 - [ ] 用 LSP 完成定位、影响面、精读和诊断；命令失败时收窄路径重试，并把 blocker 写入车道回传。
 - [ ] 仅按本计划的 Unique Fix 修改所属文件。
-- [ ] 运行车道验证命令。
-- [ ] 运行 guard freeze 或对应 guard 检查，确认所属文件的真实违规清零。
-- [ ] 提交一个车道提交，提交信息格式为 `fix: 消除生产守卫 PG-XX <domain> 违规`。
+- [ ] 运行车道 owned `.go` 文件单文件守卫命令；该命令不使用 baseline，必须证明所属文件当前违规清零。
+- [ ] 运行车道包级验证命令；该命令用于证明行为和同包测试没有回归。
+- [ ] 如果包级验证自动改写 guard 生成文件，提交前执行 `git restore --staged --worktree -- internal/archtest/baseline.json internal/archtest/baseline_test.json internal/archtest/freeze_registry.go`，保持车道提交不含 baseline。
+- [ ] 提交前执行 `git status --short`，只 stage 当前车道拥有的生产文件、同包测试和同包 helper；禁止 `git add .`。
+- [ ] 使用本车道 Validation 代码块里的 exact `git commit -m ...` 命令提交；只有车道新增或修改行为测试并确认为 bug 修复时才把 `chore:` 改为 `fix:`。
 - [ ] 回传: commit hash、修改文件、已清零违规、验证命令输出摘要、剩余 blocker。
 
 通用 LSP 证据模板:
@@ -126,8 +129,22 @@ Unique remediation:
 Validation:
 
 ```bash
+./scripts/test_with_guard.sh \
+  cmd/mcp-lsp/manager/registry.go \
+  cmd/mcp-lsp/manager/scope.go \
+  cmd/mcp-lsp/middleware/timeout.go \
+  cmd/mcp-lsp/multilsp/bootstrap_doc.go \
+  cmd/mcp-lsp/multilsp/cache.go \
+  cmd/mcp-lsp/multilsp/manager_symbols.go \
+  cmd/mcp-lsp/multilsp/recycler.go \
+  cmd/mcp-lsp/multilsp/transport.go \
+  cmd/mcp-lsp/multilsp/transport_conn.go \
+  cmd/mcp-lsp/search/searchutil.go \
+  cmd/mcp-lsp/tools/tool_edit_replace_update.go \
+  cmd/mcp-lsp/tools/tool_file.go
 ./scripts/test_with_guard.sh ./cmd/mcp-lsp/manager ./cmd/mcp-lsp/middleware ./cmd/mcp-lsp/multilsp ./cmd/mcp-lsp/search ./cmd/mcp-lsp/tools -count=1
-go test ./cmd/mcp-lsp/... -count=1
+git restore --staged --worktree -- internal/archtest/baseline.json internal/archtest/baseline_test.json internal/archtest/freeze_registry.go
+git commit -m "chore: 消除生产守卫 PG-01 mcp-lsp 违规"
 ```
 
 ## PG-02 mcp-orch
@@ -162,8 +179,21 @@ Unique remediation:
 Validation:
 
 ```bash
+./scripts/test_with_guard.sh \
+  cmd/mcp-orch/fxadapter/dag_cron_store.go \
+  cmd/mcp-orch/notify/subscribers.go \
+  cmd/mcp-orch/orchestration/cron/scheduler_cron.go \
+  cmd/mcp-orch/orchestration/documentartifact/document_artifact.go \
+  cmd/mcp-orch/orchestration/exitmonitor/monitor.go \
+  cmd/mcp-orch/orchestration/launcher.go \
+  cmd/mcp-orch/orchestration/process_lifecycle.go \
+  cmd/mcp-orch/store/sqlctx/db.go \
+  cmd/mcp-orch/store/taskdag/store.go \
+  cmd/mcp-orch/store/taskdag/store_wakeup.go \
+  cmd/mcp-orch/tools/orchestration_tools.go
 ./scripts/test_with_guard.sh ./cmd/mcp-orch/fxadapter ./cmd/mcp-orch/notify ./cmd/mcp-orch/orchestration/... ./cmd/mcp-orch/store/... ./cmd/mcp-orch/tools -count=1
-go test ./cmd/mcp-orch/... -count=1
+git restore --staged --worktree -- internal/archtest/baseline.json internal/archtest/baseline_test.json internal/archtest/freeze_registry.go
+git commit -m "chore: 消除生产守卫 PG-02 mcp-orch 违规"
 ```
 
 ## PG-03 cmd-other
@@ -189,8 +219,13 @@ Unique remediation:
 Validation:
 
 ```bash
+./scripts/test_with_guard.sh \
+  cmd/agent-terminal/frontend.go \
+  cmd/super-dolphin-updater/install.go \
+  cmd/super-dolphin-updater/main.go
 ./scripts/test_with_guard.sh ./cmd/agent-terminal ./cmd/super-dolphin-updater -count=1
-go test ./cmd/agent-terminal ./cmd/super-dolphin-updater -count=1
+git restore --staged --worktree -- internal/archtest/baseline.json internal/archtest/baseline_test.json internal/archtest/freeze_registry.go
+git commit -m "chore: 消除生产守卫 PG-03 cmd-other 违规"
 ```
 
 ## PG-04 module
@@ -231,8 +266,28 @@ Unique remediation:
 Validation:
 
 ```bash
+./scripts/test_with_guard.sh \
+  internal/module/cron/module.go \
+  internal/module/cron/progress_subscriber.go \
+  internal/module/datasource_v2/module.go \
+  internal/module/memory/auto_dream.go \
+  internal/module/memory/auto_dream_task.go \
+  internal/module/memory/extract_runtime.go \
+  internal/module/memory/hook_worker.go \
+  internal/module/memory/kairos.go \
+  internal/module/memory/nested_ingest_worker.go \
+  internal/module/memory/retrieval/prefetch.go \
+  internal/module/memory/store.go \
+  internal/module/memory/team_sync_coordinator.go \
+  internal/module/prompt/module.go \
+  internal/module/skill/skills_fs.go \
+  internal/module/thread/agent_launched_worker.go \
+  internal/module/thread/session_recovery_worker.go \
+  internal/module/turn/observation/memory.go \
+  internal/module/turn/tracker.go
 ./scripts/test_with_guard.sh ./internal/module/cron ./internal/module/datasource_v2 ./internal/module/memory/... ./internal/module/prompt ./internal/module/skill ./internal/module/thread ./internal/module/turn/... -count=1
-go test ./internal/module/cron ./internal/module/datasource_v2 ./internal/module/memory/... ./internal/module/prompt ./internal/module/skill ./internal/module/thread ./internal/module/turn/... -count=1
+git restore --staged --worktree -- internal/archtest/baseline.json internal/archtest/baseline_test.json internal/archtest/freeze_registry.go
+git commit -m "chore: 消除生产守卫 PG-04 module 违规"
 ```
 
 ## PG-05 platform-mcpserver
@@ -276,8 +331,31 @@ Unique remediation:
 Validation:
 
 ```bash
+./scripts/test_with_guard.sh \
+  internal/mcpserver/common/bootstrap/client.go \
+  internal/mcpserver/common/bootstrap/heartbeat.go \
+  internal/mcpserver/common/bootstrap/lifecycle.go \
+  internal/mcpserver/common/bootstrap/reconnect.go \
+  internal/mcpserver/common/http_transport.go \
+  internal/mcpserver/common/server.go \
+  internal/platform/cachekeepalive/manager.go \
+  internal/platform/db/tx.go \
+  internal/platform/hooks/dispatch_worker.go \
+  internal/platform/hooks/dispatcher.go \
+  internal/platform/mcpcontrol/config_fanout_worker.go \
+  internal/platform/mcpcontrol/factory.go \
+  internal/platform/observability/record_error.go \
+  internal/platform/rpc/approval.go \
+  internal/platform/rpc/push.go \
+  internal/platform/rpc/push_worker.go \
+  internal/platform/rpc/server.go \
+  internal/platform/runtimesafe/safego.go \
+  internal/platform/shared/safe_go.go \
+  internal/platform/toolbridge/handler_host_tools.go \
+  internal/platform/toolbridge/proxy_runner.go
 ./scripts/test_with_guard.sh ./internal/mcpserver/common/... ./internal/platform/cachekeepalive ./internal/platform/db ./internal/platform/hooks ./internal/platform/mcpcontrol ./internal/platform/observability ./internal/platform/rpc ./internal/platform/runtimesafe ./internal/platform/shared ./internal/platform/toolbridge -count=1
-go test ./internal/mcpserver/common/... ./internal/platform/... -count=1
+git restore --staged --worktree -- internal/archtest/baseline.json internal/archtest/baseline_test.json internal/archtest/freeze_registry.go
+git commit -m "chore: 消除生产守卫 PG-05 platform-mcpserver 违规"
 ```
 
 ## PG-06 provider
@@ -310,8 +388,20 @@ Unique remediation:
 Validation:
 
 ```bash
+./scripts/test_with_guard.sh \
+  internal/provider/claudecli/session.go \
+  internal/provider/claudecli/session_log_watcher.go \
+  internal/provider/claudecli/session_log_watcher_integration.go \
+  internal/provider/claudecli/transport.go \
+  internal/provider/codexapp/peer_supervisor.go \
+  internal/provider/codexapp/pool_spawner.go \
+  internal/provider/codexapp/server_pool.go \
+  internal/provider/codexapp/session.go \
+  internal/provider/codexapp/session_runtime.go \
+  internal/provider/codexapp/transport_process.go
 ./scripts/test_with_guard.sh ./internal/provider/claudecli ./internal/provider/codexapp -count=1
-go test ./internal/provider/claudecli ./internal/provider/codexapp -count=1
+git restore --staged --worktree -- internal/archtest/baseline.json internal/archtest/baseline_test.json internal/archtest/freeze_registry.go
+git commit -m "chore: 消除生产守卫 PG-06 provider 违规"
 ```
 
 ## PG-07 store
@@ -343,8 +433,19 @@ Unique remediation:
 Validation:
 
 ```bash
+./scripts/test_with_guard.sh \
+  internal/store/binding/store.go \
+  internal/store/cron/store.go \
+  internal/store/datasourcev2/store.go \
+  internal/store/feedback/store.go \
+  internal/store/insight/store.go \
+  internal/store/mcpserver/store.go \
+  internal/store/prompt/intent_drafts.go \
+  internal/store/prompt/store.go \
+  internal/store/thread/store.go
 ./scripts/test_with_guard.sh ./internal/store/binding ./internal/store/cron ./internal/store/datasourcev2 ./internal/store/feedback ./internal/store/insight ./internal/store/mcpserver ./internal/store/prompt ./internal/store/thread -count=1
-go test ./internal/store/... -count=1
+git restore --staged --worktree -- internal/archtest/baseline.json internal/archtest/baseline_test.json internal/archtest/freeze_registry.go
+git commit -m "chore: 消除生产守卫 PG-07 store 违规"
 ```
 
 ## PG-08 pkg
@@ -373,8 +474,16 @@ Unique remediation:
 Validation:
 
 ```bash
+./scripts/test_with_guard.sh \
+  pkg/dagmetrics/dagmetrics.go \
+  pkg/logger/agent_logger.go \
+  pkg/logger/logger.go \
+  pkg/logger/relay.go \
+  pkg/logger/safego.go \
+  pkg/logger/watchdog.go
 ./scripts/test_with_guard.sh ./pkg/dagmetrics ./pkg/logger -count=1
-go test ./pkg/dagmetrics ./pkg/logger -count=1
+git restore --staged --worktree -- internal/archtest/baseline.json internal/archtest/baseline_test.json internal/archtest/freeze_registry.go
+git commit -m "chore: 消除生产守卫 PG-08 pkg 违规"
 ```
 
 ## PG-09 internal-other
@@ -401,8 +510,14 @@ Unique remediation:
 Validation:
 
 ```bash
+./scripts/test_with_guard.sh \
+  internal/app/runner.go \
+  internal/contract/contracttest/section_invalidator.go \
+  internal/devtools/sqlitepackagesmoke/main.go \
+  internal/devtools/sqlitereleasegate/runner.go
 ./scripts/test_with_guard.sh ./internal/app ./internal/contract/contracttest ./internal/devtools/sqlitepackagesmoke ./internal/devtools/sqlitereleasegate -count=1
-go test ./internal/app ./internal/contract/contracttest ./internal/devtools/sqlitepackagesmoke ./internal/devtools/sqlitereleasegate -count=1
+git restore --staged --worktree -- internal/archtest/baseline.json internal/archtest/baseline_test.json internal/archtest/freeze_registry.go
+git commit -m "chore: 消除生产守卫 PG-09 internal-other 违规"
 ```
 
 ## PG-10 misc
@@ -431,8 +546,16 @@ Unique remediation:
 Validation:
 
 ```bash
+./scripts/test_with_guard.sh \
+  internal/testutil/golden/orchestration_stub.go \
+  internal/ui/wails/assets.go \
+  internal/ui/wails/http_server.go \
+  internal/ui/wails/lifecycle.go \
+  internal/ui/wails/module.go \
+  internal/util/safego/safego.go
 ./scripts/test_with_guard.sh ./internal/testutil/golden ./internal/ui/wails ./internal/util/safego -count=1
-go test ./internal/testutil/golden ./internal/ui/wails ./internal/util/safego -count=1
+git restore --staged --worktree -- internal/archtest/baseline.json internal/archtest/baseline_test.json internal/archtest/freeze_registry.go
+git commit -m "chore: 消除生产守卫 PG-10 misc 违规"
 ```
 
 ## Integration Controller
@@ -440,7 +563,8 @@ go test ./internal/testutil/golden ./internal/ui/wails ./internal/util/safego -c
 集成控制器使用独立集成 worktree，按车道回传 commit 逐个合并，不在车道内做跨域修复。
 
 ```bash
-git worktree add .worktrees/20260705-prodguard-integration -b codex/20260705-prodguard-integration origin/main
+BASE_COMMIT=0a5cc09b0
+git worktree add .worktrees/20260705-prodguard-integration -b codex/20260705-prodguard-integration "$BASE_COMMIT"
 ```
 
 Integration steps:
@@ -448,15 +572,16 @@ Integration steps:
 - [ ] 确认 10 个车道都有 commit hash、验证摘要和 LSP 证据摘要。
 - [ ] 在集成 worktree 逐个 `git merge --no-ff` 车道分支。
 - [ ] 对 baseline 冲突采用重新生成策略，不手工拼接旧 baseline。
-- [ ] 运行生产 guard freeze，确认生产 baseline 自动收缩到真实剩余值。
+- [ ] 运行 `go run ./scripts/code_size_guard.go --freeze`，确认生产 baseline 自动收缩到真实剩余值。
 - [ ] 运行完整验证。
 - [ ] 只在全部验证通过后合并到主分支。
 
 Final verification commands:
 
 ```bash
+go run ./scripts/code_size_guard.go --freeze
+./scripts/test_with_guard.sh --guard-only
 ./scripts/test_with_guard.sh ./... -count=1
-go test ./... -count=1
 git diff --check
 ```
 
