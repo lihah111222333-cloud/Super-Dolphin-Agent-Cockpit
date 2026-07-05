@@ -116,6 +116,8 @@ describe('backend API contract matrix', () => {
     expect(RPC_CONTRACT_REGISTRY.SKILLS_LOCAL_READ.responseValidator).toBe('skillReadResponse');
     expect(RPC_CONTRACT_REGISTRY.TURN_START.responseValidator).toBe('turnStartResponse');
     expect(RPC_CONTRACT_REGISTRY.TURN_FORCE_COMPLETE.responseValidator).toBe('turnForceCompleteResponse');
+    expect(RPC_CONTRACT_REGISTRY.DASHBOARD_DAG_START.responseValidator).toBe('dashboardDagStartResponse');
+    expect(RPC_CONTRACT_REGISTRY.DASHBOARD_DAG_CREATE_AND_START.responseValidator).toBe('dashboardDagCreateAndStartResponse');
     expect(RPC_CONTRACT_REGISTRY.TURN_INTERRUPT.responsePassthroughReason).toContain('command result envelope');
   });
 });
