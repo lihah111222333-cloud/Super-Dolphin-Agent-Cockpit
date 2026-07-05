@@ -21,6 +21,7 @@ import {
   sendFrontendLogBatch,
   emitFrontendTraceEvent,
 } from './wailsBridge';
+import { positiveApprovalRequestIdFromFields } from './approvalRequestId.js';
 
 export const RPC_METHODS = Object.freeze({
   CONFIG_READ: 'config/read',
@@ -2010,9 +2011,15 @@ function approvalRespondPayload(params) {
     ...unused
   } = payload;
   assertNoExtraPayloadFields(RPC_METHODS.APPROVAL_RESPOND, unused);
-  const rawRequestId = Number(requestId ?? requestIdAlias);
-  const normalizedRequestId = Number.isFinite(rawRequestId) ? Math.trunc(rawRequestId) : 0;
-  if (normalizedRequestId <= 0) throw new Error(`${RPC_METHODS.APPROVAL_RESPOND}: requestId is required`);
+  const normalizedRequestId = positiveApprovalRequestIdFromFields(payload);
+  if (normalizedRequestId <= 0) {
+    const hasRequestId = hasOwn(payload, 'requestId') || hasOwn(payload, 'request_id');
+    const rawRequestId = hasOwn(payload, 'requestId') ? requestId : requestIdAlias;
+    if (!hasRequestId || rawRequestId === undefined || rawRequestId === null || rawRequestId === '' || rawRequestId === 0) {
+      throw new Error(`${RPC_METHODS.APPROVAL_RESPOND}: requestId is required`);
+    }
+    throw new Error(`${RPC_METHODS.APPROVAL_RESPOND}: requestId must be a positive integer`);
+  }
   if (!hasOwn(payload, 'approved')) throw new Error(`${RPC_METHODS.APPROVAL_RESPOND}: approved is required`);
   if (typeof approved !== 'boolean') throw new Error(`${RPC_METHODS.APPROVAL_RESPOND}: approved must be boolean`);
   return { requestId: normalizedRequestId, approved };

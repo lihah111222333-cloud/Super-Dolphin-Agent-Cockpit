@@ -36,6 +36,7 @@ import {
   removeProject as removeProjectRPC,
   unarchiveThread as unarchiveThreadRPC,
 } from '../../../shared/api/backendApi.js';
+import { positiveApprovalRequestIdFromFields } from '../../../shared/api/approvalRequestId.js';
 import { sessionApi } from '../../../shared/api/sessionApi.js';
 import {
   createComposerSlice,
@@ -204,11 +205,6 @@ function firstValueFromSources(sources = []) {
     if (value !== undefined) return value;
   }
   return undefined;
-}
-
-function positiveNumberFromFields(source, keys = []) {
-  const numeric = Number(firstFieldValue(source, keys));
-  return Math.max(0, Number.isFinite(numeric) ? numeric : 0);
 }
 
 function cleanObject(payload) {
@@ -3070,7 +3066,7 @@ function createActiveThreadActions(runtime) {
     },
 
     respondApproval: async (item, approved) => {
-      const requestId = positiveNumberFromFields(item, ['requestId', 'request_id']);
+      const requestId = positiveApprovalRequestIdFromFields(item);
       const decision = Boolean(approved);
       if (requestId <= 0) {
         runtime.notifyAction('当前审批缺少请求编号，无法提交', 'error');

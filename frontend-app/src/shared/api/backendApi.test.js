@@ -934,6 +934,16 @@ function guardedBackendResponse(method) {
     });
     expect(() => api.respondApproval({ requestId: 0, approved: true }))
       .toThrow('approval/respond: requestId is required');
+    expectInvalidInputDoesNotCall(callAPI, () => api.respondApproval({ requestId: '11', approved: true }),
+      'approval/respond: requestId must be a positive integer');
+    expectInvalidInputDoesNotCall(callAPI, () => api.respondApproval({ requestId: '11.9', approved: true }),
+      'approval/respond: requestId must be a positive integer');
+    expectInvalidInputDoesNotCall(callAPI, () => api.respondApproval({ requestId: 11.9, approved: true }),
+      'approval/respond: requestId must be a positive integer');
+    expectInvalidInputDoesNotCall(callAPI, () => api.respondApproval({
+      requestId: Number.MAX_SAFE_INTEGER + 1,
+      approved: true,
+    }), 'approval/respond: requestId must be a positive integer');
     expect(() => api.respondApproval({ requestId: 11 }))
       .toThrow('approval/respond: approved is required');
   });

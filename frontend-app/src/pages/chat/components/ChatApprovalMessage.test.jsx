@@ -45,13 +45,32 @@ describe('ChatApprovalMessage', () => {
     expect(screen.getByRole('button', { name: '拒绝审批 7' })).toBeDisabled();
     expect(screen.getByTestId('approval-request-7')).toHaveTextContent('审批结果已提交');
   });
+
+  it('disables malformed approval request ids without submitting a decision', () => {
+    const onApproval = vi.fn();
+    render(
+      <ChatApprovalMessage
+        message={{ kind: 'approval', request_id: '7.5', command: 'Malformed id' }}
+        actions={{ onApproval }}
+        formatTime={() => '--:--'}
+      />
+    );
+
+    expect(screen.getByTestId('approval-request-invalid')).toHaveTextContent('审批请求缺少编号');
+    expect(screen.getByRole('button', { name: '同意审批 0' })).toBeDisabled();
+    fireEvent.click(screen.getByRole('button', { name: '同意审批 0' }));
+    expect(onApproval).not.toHaveBeenCalled();
+  });
 });
 
 describe('chatApprovalModel', () => {
   it('normalizes approval identity and hint state', () => {
     expect(isApprovalMessage({ kind: 'approval' })).toBe(true);
     expect(isApprovalMessage({ kind: 'tool' })).toBe(false);
-    expect(approvalRequestId({ request_id: '9.9' })).toBe(9);
+    expect(approvalRequestId({ request_id: 9 })).toBe(9);
+    expect(approvalRequestId({ request_id: '9.9' })).toBe(0);
+    expect(approvalRequestId({ request_id: '9' })).toBe(0);
+    expect(approvalRequestId({ request_id: 9.1 })).toBe(0);
     expect(isApprovalTerminal({ status: 'success' })).toBe(true);
     expect(approvalHintText({ requestId: 0, busy: false, resolved: false, terminal: false })).toBe('审批请求缺少编号');
     expect(approvalHintText({ requestId: 1, busy: true, resolved: false, terminal: false })).toBe('正在提交审批结果');
