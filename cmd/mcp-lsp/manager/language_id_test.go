@@ -30,3 +30,20 @@ func TestDetectLanguageIDShellExtensionsUseShellscript(t *testing.T) {
 		}
 	}
 }
+
+func TestDetectLanguageIDGitHooksUseShellscript(t *testing.T) {
+	cases := map[string]string{
+		".githooks/pre-commit":                "shellscript",
+		".githooks/pre-push":                  "shellscript",
+		".githooks/custom-check":              "shellscript",
+		".githooks/README.md":                 "markdown",
+		"/repo/.githooks/commit-msg":          "shellscript",
+		"/repo/.git/hooks/prepare-commit-msg": "shellscript",
+		"scripts/pre-commit":                  "",
+	}
+	for file, want := range cases {
+		if got := DetectLanguageID(file); got != want {
+			t.Fatalf("DetectLanguageID(%q) = %q, want %q", file, got, want)
+		}
+	}
+}

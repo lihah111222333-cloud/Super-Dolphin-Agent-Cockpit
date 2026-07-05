@@ -25,6 +25,33 @@ var languageIDByBaseName = map[string]string{
 	"go.work": "gowork",
 }
 
+var gitHookShellBaseNames = map[string]struct{}{
+	"applypatch-msg":        {},
+	"commit-msg":            {},
+	"fsmonitor-watchman":    {},
+	"post-applypatch":       {},
+	"post-checkout":         {},
+	"post-commit":           {},
+	"post-index-change":     {},
+	"post-merge":            {},
+	"post-receive":          {},
+	"post-rewrite":          {},
+	"post-update":           {},
+	"pre-applypatch":        {},
+	"pre-auto-gc":           {},
+	"pre-commit":            {},
+	"pre-merge-commit":      {},
+	"pre-push":              {},
+	"pre-rebase":            {},
+	"pre-receive":           {},
+	"prepare-commit-msg":    {},
+	"proc-receive":          {},
+	"push-to-checkout":      {},
+	"reference-transaction": {},
+	"sendemail-validate":    {},
+	"update":                {},
+}
+
 var languageIDByExtension = map[string]string{
 	".go":       "go",
 	".js":       "javascript",
@@ -303,14 +330,30 @@ func (r *dynamicRegistry) Close() error {
 
 // DetectLanguageID 根据文件名或扩展名判断 LSP language id。
 func DetectLanguageID(path string) string {
-	if languageID, ok := languageIDByBaseName[strings.ToLower(filepath.Base(path))]; ok {
+	base := strings.ToLower(filepath.Base(path))
+	if languageID, ok := languageIDByBaseName[base]; ok {
 		return languageID
+	}
+	if isGitHookShellPath(path, base) {
+		return "shellscript"
 	}
 	ext := strings.ToLower(filepath.Ext(path))
 	if languageID, ok := languageIDByExtension[ext]; ok {
 		return languageID
 	}
 	return strings.TrimPrefix(ext, ".")
+}
+
+func isGitHookShellPath(path string, base string) bool {
+	dir := "/" + filepath.ToSlash(strings.ToLower(filepath.Dir(path))) + "/"
+	if strings.Contains(dir, "/.githooks/") {
+		return filepath.Ext(base) == ""
+	}
+	if !strings.Contains(dir, "/.git/hooks/") {
+		return false
+	}
+	_, ok := gitHookShellBaseNames[base]
+	return ok
 }
 
 // Diagnostics 按 manager 分组读取诊断后合并结果。
