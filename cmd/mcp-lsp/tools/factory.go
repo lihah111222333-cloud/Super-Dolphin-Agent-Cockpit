@@ -191,7 +191,10 @@ func decodeLenientToolParams[T any](raw json.RawMessage, value *T) error {
 
 func decodeStrictToolParams[T any](raw json.RawMessage, value *T) error {
 	normalized := normalizeOptionalToolParams(raw)
-	stripped := stripToolWrapperFields(normalized)
+	stripped, err := stripToolWrapperFields(normalized)
+	if err != nil {
+		return err
+	}
 	if err := validateStrictToolFields(stripped, value); err != nil {
 		return formatDecodeParamsError(err)
 	}
@@ -280,36 +283,28 @@ func addStrictJSONField(field reflect.StructField, allowed map[string]struct{}) 
 }
 
 // stripToolWrapperFields 去掉 handler 外层已经消费的参数，剩余字段继续走严格 schema。
-// work_dir 由 wrapper 处理；agent_id/cwd 是旧兼容字段，只能被可信 ToolScope 覆盖。
-func stripToolWrapperFields(raw []byte) []byte {
+// work_dir 只允许由 wrapper 处理；agent_id/cwd 旧字段必须显式迁移。
+func stripToolWrapperFields(raw []byte) ([]byte, error) {
 	trimmed := bytes.TrimSpace(raw)
 	if len(trimmed) == 0 || trimmed[0] != '{' {
-		return raw
+		return raw, nil
 	}
 	var fields map[string]json.RawMessage
 	if err := json.Unmarshal(trimmed, &fields); err != nil {
-		return raw
+		return nil, fmt.Errorf("parse wrapper fields: %w", err)
 	}
-	if !stripKnownToolWrapperFields(fields) {
-		return raw
+	changed, err := validateReservedToolWrapperFields(fields)
+	if err != nil {
+		return nil, err
+	}
+	if !changed {
+		return raw, nil
 	}
 	encoded, err := json.Marshal(fields)
 	if err != nil {
-		return raw
+		return nil, fmt.Errorf("encode params without wrapper fields: %w", err)
 	}
-	return encoded
-}
-
-// stripKnownToolWrapperFields 删除明确受支持的 wrapper/legacy 字段并报告是否修改。
-func stripKnownToolWrapperFields(fields map[string]json.RawMessage) bool {
-	changed := false
-	for _, field := range []string{"work_dir", "agent_id", "cwd"} {
-		if _, ok := fields[field]; ok {
-			delete(fields, field)
-			changed = true
-		}
-	}
-	return changed
+	return encoded, nil
 }
 
 func normalizeOptionalToolParams(raw json.RawMessage) []byte {
@@ -768,11 +763,6 @@ func wrapToolHandler(toolName string, tier time.Duration, handler middleware.Han
 	return middleware.WithOutputBudget(toolName, chained, middleware.Budget{})
 }
 
-// explicitToolWorkDirParams 是工具请求中 work_dir 字段的解码容器。
-type explicitToolWorkDirParams struct {
-	WorkDir string `json:"work_dir,omitempty"`
-}
-
 // contextWithExplicitToolWorkDir 从工具请求参数中提取 work_dir 并写入 tool scope。
 // 空参数保持原 context；非法 JSON 或越界路径会直接返回错误。
 func contextWithExplicitToolWorkDir(ctx context.Context, params json.RawMessage) (context.Context, error) {
@@ -780,13 +770,21 @@ func contextWithExplicitToolWorkDir(ctx context.Context, params json.RawMessage)
 	if len(trimmed) == 0 || bytes.Equal(trimmed, []byte("null")) {
 		return ctx, nil
 	}
-	var input explicitToolWorkDirParams
-	if err := json.Unmarshal(trimmed, &input); err != nil {
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(trimmed, &fields); err != nil {
 		return ctx, fmt.Errorf("parse explicit tool work_dir params: %w", err)
 	}
-	workDir := strings.TrimSpace(input.WorkDir)
-	if workDir == "" {
+	rawWorkDir, ok := fields["work_dir"]
+	if !ok {
 		return ctx, nil
+	}
+	var workDir string
+	if err := json.Unmarshal(rawWorkDir, &workDir); err != nil {
+		return ctx, fmt.Errorf("parse explicit tool work_dir: %w", err)
+	}
+	workDir = strings.TrimSpace(workDir)
+	if workDir == "" {
+		return ctx, errors.New("work_dir is required")
 	}
 	scopedCtx, _, err := contextWithExplicitWorkDir(ctx, workDir)
 	if err != nil {

@@ -90,7 +90,7 @@ func (h EditHandler) applyWorkspaceEdit(ctx context.Context, roots []string, edi
 		var rollbackErr error
 		for i := len(written) - 1; i >= 0; i-- {
 			wf := written[i]
-			if err := os.WriteFile(wf.path, wf.original, wf.mode); err != nil {
+			if err := atomicReplaceFile(wf.path, wf.original, wf.mode, defaultFileWriter); err != nil {
 				rollbackErr = errors.Join(rollbackErr, err)
 				continue
 			}

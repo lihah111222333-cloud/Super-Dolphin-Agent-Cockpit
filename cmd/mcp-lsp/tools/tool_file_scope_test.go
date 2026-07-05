@@ -47,8 +47,6 @@ func TestFileOpenProductionHandlerUsesResolvedScopeManager(t *testing.T) {
 	input, err := json.Marshal(map[string]any{
 		"action":    "open_file",
 		"file_path": "main.go",
-		"agent_id":  "agent-forged",
-		"cwd":       "/forged/root",
 	})
 	if err != nil {
 		t.Fatalf("marshal input: %v", err)
