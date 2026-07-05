@@ -547,14 +547,7 @@ func normalizeStdioServerConfig(name string, config ServerConfig, sqliteProductD
 }
 
 func allowedStdioServerCommand(command string, args []string, sqliteProductDBPath string) bool {
-	base := stdioCommandBase(command)
-	if base == defaultPostgresCommand {
-		return slices.Equal(args, []string{defaultPostgresDatabaseURL})
-	}
-	if base != "npx" {
-		return false
-	}
-	return allowedNPXServerArgs(args, sqliteProductDBPath)
+	return contract.DefaultRuntimeMCPPolicy().ValidateRuntimeStdioCommand(command, args, sqliteProductDBPath) == nil
 }
 
 // allowedNPXServerArgs 只接受项目内置 MCP server 的完整 argv，避免在包名后追加任意参数绕过 stdio 边界。

@@ -359,6 +359,7 @@ func TestWriteManifestConfigFailsFastForRejectedStdioServer(t *testing.T) {
 		{name: "mcp prefix exe", command: filepath.Join(t.TempDir(), "mcp-evil.exe")},
 		{name: "mcp prefix cmd", command: filepath.Join(t.TempDir(), "mcp-evil.cmd")},
 		{name: "managed basename with untrusted server name", command: filepath.Join(t.TempDir(), "mcp-lsp")},
+		{name: "path-qualified postgres", command: filepath.Join(t.TempDir(), "mcp-server-postgres")},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()

@@ -184,6 +184,26 @@ func TestDefaultStdioClientFactoryRejectsUntrustedRuntimeCommand(t *testing.T) {
 	}
 }
 
+// TestDefaultStdioClientFactoryRejectsTrustedUnsafeRuntimeCommand 是 exec.Command 前的最后一道防线，
+// 确认可信来源标记不能放行危险 stdio argv。
+func TestDefaultStdioClientFactoryRejectsTrustedUnsafeRuntimeCommand(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	h := &Handler{}
+
+	_, err := h.defaultStdioClientFactory(ctx, providerdto.MCPBinary{
+		Name:            "shell",
+		TrustedServerID: "shell",
+		Command:         []string{os.Args[0], "-test.run=^$"},
+	})
+	if err == nil {
+		t.Fatal("defaultStdioClientFactory() error = nil, want unsafe trusted runtime command rejection")
+	}
+	if !strings.Contains(err.Error(), "unsupported stdio") {
+		t.Fatalf("defaultStdioClientFactory() error = %v, want unsupported stdio command", err)
+	}
+}
+
 func TestStdioMCPClientCloseTerminatesChildProcesses(t *testing.T) {
 	if os.Getenv("TOOLBRIDGE_STDIO_CHILD_HELPER") == "1" {
 		runStdioChildTestHelper()
@@ -195,7 +215,7 @@ func TestStdioMCPClientCloseTerminatesChildProcesses(t *testing.T) {
 	}
 
 	marker := filepath.Join(t.TempDir(), "child.pid")
-	client, err := newStdioMCPClient(context.Background(), providerdto.MCPBinary{
+	client, err := newStdioMCPClientForValidatedBinary(context.Background(), providerdto.MCPBinary{
 		Name:            "helper",
 		TrustedServerID: "helper",
 		Command: []string{
@@ -208,7 +228,7 @@ func TestStdioMCPClientCloseTerminatesChildProcesses(t *testing.T) {
 		},
 	})
 	if err != nil {
-		t.Fatalf("newStdioMCPClient() error = %v", err)
+		t.Fatalf("newStdioMCPClientForValidatedBinary() error = %v", err)
 	}
 	childPID := waitForPIDFile(t, marker)
 	if childPID <= 0 {
@@ -235,7 +255,7 @@ func TestStdioMCPClientScrubsDatabaseEnvFromParentAndManifest(t *testing.T) {
 	t.Setenv("ANTHROPIC_API_KEY", "parent-anthropic-secret")
 
 	envPath := filepath.Join(t.TempDir(), "stdio-env.txt")
-	client, err := newStdioMCPClient(context.Background(), providerdto.MCPBinary{
+	client, err := newStdioMCPClientForValidatedBinary(context.Background(), providerdto.MCPBinary{
 		Name:            "env-helper",
 		TrustedServerID: "env-helper",
 		Command: []string{
@@ -253,7 +273,7 @@ func TestStdioMCPClientScrubsDatabaseEnvFromParentAndManifest(t *testing.T) {
 		},
 	})
 	if err != nil {
-		t.Fatalf("newStdioMCPClient() error = %v", err)
+		t.Fatalf("newStdioMCPClientForValidatedBinary() error = %v", err)
 	}
 	t.Cleanup(func() { _ = client.Close() })
 
@@ -322,7 +342,7 @@ func TestStdioMCPClientInitializeUsesProxyProtocolVersion(t *testing.T) {
 	}
 
 	initFile := filepath.Join(t.TempDir(), "init.json")
-	client, err := newStdioMCPClient(context.Background(), providerdto.MCPBinary{
+	client, err := newStdioMCPClientForValidatedBinary(context.Background(), providerdto.MCPBinary{
 		Name:            "version-helper",
 		TrustedServerID: "version-helper",
 		Command: []string{
@@ -335,7 +355,7 @@ func TestStdioMCPClientInitializeUsesProxyProtocolVersion(t *testing.T) {
 		},
 	})
 	if err != nil {
-		t.Fatalf("newStdioMCPClient() error = %v", err)
+		t.Fatalf("newStdioMCPClientForValidatedBinary() error = %v", err)
 	}
 	t.Cleanup(func() { _ = client.Close() })
 

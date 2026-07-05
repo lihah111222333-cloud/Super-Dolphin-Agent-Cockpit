@@ -305,6 +305,30 @@ func TestAddServersRejectsUnsafeStdioCommand(t *testing.T) {
 	}
 }
 
+// TestAddServersRejectsPathQualifiedPostgresCommand 锁定写入边界，禁止路径伪装的 mcp-server-postgres 被保存。
+func TestAddServersRejectsPathQualifiedPostgresCommand(t *testing.T) {
+	store := newMemoryMCPServerStore()
+	svc := NewServiceWithStore(store)
+	project := t.TempDir()
+	t.Chdir(project)
+
+	_, err := svc.AddServers(context.Background(), AddServersRequest{
+		MCPServers: map[string]ServerConfig{
+			"postgres": {
+				Transport: "stdio",
+				Command:   filepath.Join(t.TempDir(), defaultPostgresCommand),
+				Args:      []string{defaultPostgresDatabaseURL},
+			},
+		},
+	})
+	if err == nil || !strings.Contains(err.Error(), "unsupported stdio") {
+		t.Fatalf("AddServers() error = %v, want unsupported stdio command", err)
+	}
+	if len(store.servers[project]) != 0 {
+		t.Fatalf("stored servers = %#v, want none after rejected path-qualified postgres", store.servers[project])
+	}
+}
+
 func TestAddServersRejectsNPXArgvBypass(t *testing.T) {
 	store := newMemoryMCPServerStore()
 	svc := NewServiceWithStore(store)

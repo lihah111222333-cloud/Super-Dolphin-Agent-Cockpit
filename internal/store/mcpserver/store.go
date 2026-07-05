@@ -438,6 +438,9 @@ func normalizeStdioServerConfig(name string, config contract.MCPServerConfig) (c
 	if err != nil {
 		return contract.MCPServerConfig{}, err
 	}
+	if err := contract.DefaultRuntimeMCPPolicy().ValidateRuntimeStdioCommand(command, args, ""); err != nil {
+		return contract.MCPServerConfig{}, fmt.Errorf("mcp_server: %w: %s", err, name)
+	}
 	return contract.MCPServerConfig{
 		Transport: "stdio",
 		Command:   command,
