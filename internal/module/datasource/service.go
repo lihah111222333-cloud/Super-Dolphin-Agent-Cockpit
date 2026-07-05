@@ -485,11 +485,11 @@ func copySourceToUploadTemp(sourcePath, targetDir string) (tempPath string, err 
 	if _, copyErr := io.Copy(target, source); copyErr != nil {
 		_ = target.Close()
 		err = fmt.Errorf("copy upload file: %w", copyErr)
-		return
+		return tempPath, err
 	}
 	if closeErr := target.Close(); closeErr != nil {
 		err = fmt.Errorf("close upload file: %w", closeErr)
-		return
+		return tempPath, err
 	}
 	return tempPath, nil
 }
