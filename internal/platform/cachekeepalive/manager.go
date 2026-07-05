@@ -31,6 +31,8 @@ type agentTimer struct {
 	timer       *time.Timer
 }
 
+// Manager 维护活跃 agent 会话的 keepalive timer。
+// 它只保存 session/thread/agent 绑定并通过窄接口发送 ping，Shutdown 时会取消并等待进行中的 ping。
 type Manager struct {
 	resolver     contract.SessionResolver
 	bindingStore contract.CacheKeepaliveBindingLookup

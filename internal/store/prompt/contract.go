@@ -46,6 +46,8 @@ type Store interface {
 	LockRecallTopicInCWD(ctx context.Context, cwd, topic string) error
 }
 
+// ListFilter 限定 prompt template 管理视图的列表查询。
+// CWD 用于工作区隔离，Limit 由调用方显式传入以避免无界扫描。
 type ListFilter struct {
 	AgentKey string
 	Keyword  string
@@ -53,6 +55,8 @@ type ListFilter struct {
 	Limit    int32
 }
 
+// RuntimeListFilter 限定运行时 prompt catalog 的列表查询。
+// 它与管理视图 filter 分离，便于运行时按 cwd 和 agentKey 读取可用模板。
 type RuntimeListFilter struct {
 	AgentKey string
 	Keyword  string
@@ -60,6 +64,8 @@ type RuntimeListFilter struct {
 	Limit    int32
 }
 
+// RuntimePromptCatalog 是 prompt assembler 运行时读取模板和 section 的窄接口。
+// 该接口只暴露组装需要的读能力和版本归档入口，不包含 UI 管理写操作。
 type RuntimePromptCatalog interface {
 	ListTemplates(ctx context.Context, filter RuntimeListFilter) ([]PromptTemplate, error)
 	GetTemplate(ctx context.Context, promptKey, cwd string) (*PromptTemplate, error)

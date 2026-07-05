@@ -49,6 +49,8 @@ type Service struct {
 	inflightMu     sync.Mutex
 }
 
+// ServiceOption 在创建 observability Service 时注入 sink、tail reader 或采样器。
+// 该类型只用于构造期配置，运行中不应改变服务并发和持久化边界。
 type ServiceOption func(*Service)
 
 // tailCall 记录正在执行的 tail 查询，复用相同 Query 的并发调用结果。

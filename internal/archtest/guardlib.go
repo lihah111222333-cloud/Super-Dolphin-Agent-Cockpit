@@ -33,6 +33,8 @@ const (
 	FuncCommentMinCC        = 6
 )
 
+// ViolationKind 标识代码守卫发现的违规类别。
+// 新增类别时需要同步 freeze registry、报告文本和 baseline 棘轮映射。
 type ViolationKind int
 
 const (
@@ -46,6 +48,8 @@ const (
 	ViolationFuncComment
 )
 
+// Violation 是代码守卫输出的单条违规记录。
+// Message 为空时由通用字段生成可读文本，便于测试和脚本复用。
 type Violation struct {
 	Kind    ViolationKind
 	File    string
@@ -64,6 +68,8 @@ func (v Violation) String() string {
 	return fmt.Sprintf("%s:%d %s got=%d limit=%d", v.File, v.Line, v.Func, v.Got, v.Limit)
 }
 
+// CheckOptions 汇总代码守卫一次扫描的范围和开关。
+// RepoRoot/ScanRoots 由脚本入口传入，BaselineTestsOnly 用于生产与测试 baseline 分流。
 type CheckOptions struct {
 	RepoRoot            string
 	ScanRoots           []string
