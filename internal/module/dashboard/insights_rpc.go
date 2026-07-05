@@ -11,6 +11,7 @@ import (
 	"github.com/creachadair/jrpc2/handler"
 )
 
+// InsightReader 是 dashboard insight RPC 依赖的只读服务别名。
 type InsightReader = contract.InsightService
 
 // addDashboardInsightHandlers 向 handler.Map 注册 insights 相关 RPC，reader 为 nil 时跳过。

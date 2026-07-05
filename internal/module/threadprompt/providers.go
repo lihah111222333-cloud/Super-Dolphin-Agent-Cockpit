@@ -33,6 +33,7 @@ func registerProviders(registrar contract.DynamicSectionRegistrar, catalog Runti
 	return nil
 }
 
+// AvailableExpertsProvider 根据 prompt catalog 暴露当前 CWD 可委派的专家列表。
 type AvailableExpertsProvider struct{ catalog RuntimePromptCatalog }
 
 // SectionName 返回本 provider 负责的动态 section 名称。
@@ -250,6 +251,7 @@ func escapePromptKeyForInstruction(promptKey string) string {
 	return strings.ReplaceAll(promptKey, "'", "\\'")
 }
 
+// RecallCatalogProvider 渲染当前 CWD 可用的 recall section 目录。
 type RecallCatalogProvider struct{ catalog RuntimePromptCatalog }
 
 // SectionName 返回本 provider 负责的动态 section 名称。

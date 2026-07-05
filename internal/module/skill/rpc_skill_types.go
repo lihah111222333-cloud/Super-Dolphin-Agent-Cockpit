@@ -3,6 +3,7 @@ package skill
 import (
 	"fmt"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -91,6 +92,7 @@ type skillRemoteReadParams struct {
 	URL string `json:"url"`
 }
 
+// UserInput 表示 skill 匹配和预览 RPC 可接收的用户输入片段。
 type UserInput struct {
 	Type    string `json:"type"`
 	Text    string `json:"text,omitempty"`
@@ -545,10 +547,5 @@ func findResolutionItemByID(items []skillResolutionItem, id string) (skillResolu
 }
 
 func resolutionActionAllowed(actions []string, action string) bool {
-	for _, allowed := range actions {
-		if allowed == action {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(actions, action)
 }

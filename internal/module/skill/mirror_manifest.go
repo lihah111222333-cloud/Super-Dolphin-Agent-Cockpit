@@ -18,6 +18,7 @@ const skillMirrorManifestFile = ".super-dolphin-skill-mirror.json"
 
 var errSkillMirrorManifestTargetMismatch = errors.New("skill mirror manifest target mismatch")
 
+// SkillMirrorManifest 记录 provider mirror 与 canonical skill 根之间的托管关系。
 type SkillMirrorManifest struct {
 	Version         int                         `json:"version"`
 	Manager         string                      `json:"manager"`
@@ -28,6 +29,7 @@ type SkillMirrorManifest struct {
 	Skills          map[string]SkillMirrorEntry `json:"skills"`
 }
 
+// SkillMirrorEntry 保存单个 skill 在 canonical 与 mirror 两侧的 hash 和归属信息。
 type SkillMirrorEntry struct {
 	CanonicalID   string `json:"canonical_id"`
 	CanonicalHash string `json:"canonical_hash"`

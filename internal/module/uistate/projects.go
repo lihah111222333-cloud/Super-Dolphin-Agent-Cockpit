@@ -5,11 +5,13 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 )
 
 const preferenceProjectsState = "projects.state"
 
+// ProjectsState 保存 UI 可切换项目列表和当前 active 项目。
 type ProjectsState struct {
 	Projects []string `json:"projects"`
 	Active   string   `json:"active"`
@@ -222,12 +224,7 @@ func removeProjectPath(paths []string, target string) []string {
 }
 
 func containsProjectPath(paths []string, target string) bool {
-	for _, path := range paths {
-		if path == target {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(paths, target)
 }
 
 func cloneProjectsState(value ProjectsState) *ProjectsState {
