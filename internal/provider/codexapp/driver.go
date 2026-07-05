@@ -86,7 +86,7 @@ type threadStartParams struct {
 	Summary               string                            `json:"summary,omitempty"`
 	Effort                string                            `json:"effort,omitempty"`
 	Sandbox               json.RawMessage                   `json:"sandbox,omitempty"`
-	SandboxPolicy         json.RawMessage                   `json:"-"`
+	SandboxPolicy         json.RawMessage                   `json:"sandboxPolicy,omitempty"`
 	MCPConfig             json.RawMessage                   `json:"mcpConfig,omitempty"`
 	DynamicTools          []codexprotocol.DynamicToolSchema `json:"dynamicTools,omitempty"`
 }

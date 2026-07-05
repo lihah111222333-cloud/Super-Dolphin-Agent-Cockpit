@@ -105,6 +105,7 @@ describe('backend API contract matrix', () => {
     expect(RPC_CONTRACT_REGISTRY.CONFIG_LSP_PROMPT_HINT_READ.responseValidator).toBe('lspPromptHintResponse');
     expect(RPC_CONTRACT_REGISTRY.CONFIG_LSP_PROMPT_HINT_WRITE.responseValidator).toBe('lspPromptHintResponse');
     expect(RPC_CONTRACT_REGISTRY.UI_STATE_GET.responseValidator).toBe('uiStateResponse');
+    expect(RPC_CONTRACT_REGISTRY.MCP_SERVER_LIST.responseValidator).toBe('mcpServerListResponse');
     expect(RPC_CONTRACT_REGISTRY.MCP_SERVER_SQLITE_START.responseValidator).toBe('mcpServerControlResponse');
     expect(RPC_CONTRACT_REGISTRY.MCP_SERVER_SQLITE_STOP.responseValidator).toBe('mcpServerControlResponse');
     expect(RPC_CONTRACT_REGISTRY.MCP_SERVER_PLAYWRIGHT_START.responseValidator).toBe('mcpServerControlResponse');

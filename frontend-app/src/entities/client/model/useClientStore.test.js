@@ -5435,6 +5435,24 @@ function registerBridgeEventHandlersForTest() {
     }));
   });
 
+  it('rejects malformed timeline approval request ids before calling the approval RPC', async () => {
+    resetClientStoreForTests({
+      cwd: '/repo/app',
+      activeProject: '/repo/app',
+      activeThreadId: 'thread-1',
+      threads: [{ id: 'thread-1', name: '运行线程', provider: 'codex', status: 'waiting' }],
+    });
+
+    await expect(useClientStore.getState().respondApproval({ requestId: '11.9', command: 'deploy' }, true)).resolves.toBe(false);
+    await expect(useClientStore.getState().respondApproval({ request_id: '11', command: 'deploy' }, false)).resolves.toBe(false);
+
+    expect(backend.respondApproval).not.toHaveBeenCalled();
+    expect(useClientStore.getState().actionNotice).toEqual(expect.objectContaining({
+      message: '当前审批缺少请求编号，无法提交',
+      tone: 'error',
+    }));
+  });
+
   it('keeps approval RPC submission idempotent per request id while in flight', async () => {
     const pendingApproval = deferred();
     backend.respondApproval.mockReturnValueOnce(pendingApproval.promise);

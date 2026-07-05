@@ -1,3 +1,5 @@
+import { positiveApprovalRequestIdFromFields } from '../../../shared/api/approvalRequestId.js';
+
 const APPROVAL_TERMINAL_STATUSES = new Set(['approved', 'rejected', 'denied', 'resolved', 'completed', 'complete', 'done', 'success', 'succeeded']);
 
 function isApprovalMessage(message) {
@@ -5,9 +7,7 @@ function isApprovalMessage(message) {
 }
 
 function approvalRequestId(message) {
-  const raw = Number(message?.requestId || message?.request_id);
-  const requestId = Number.isFinite(raw) ? Math.trunc(raw) : 0;
-  return requestId > 0 ? requestId : 0;
+  return positiveApprovalRequestIdFromFields(message);
 }
 
 function isApprovalTerminal(message) {

@@ -21,6 +21,7 @@ import {
   sendFrontendLogBatch,
   emitFrontendTraceEvent,
 } from './wailsBridge';
+import { positiveApprovalRequestIdFromFields } from './approvalRequestId.js';
 
 export const RPC_METHODS = Object.freeze({
   CONFIG_READ: 'config/read',
@@ -1046,9 +1047,52 @@ const MCP_SERVER_CONTROL_RESPONSE_SPECS = Object.freeze({
   [RPC_METHODS.MCP_SERVER_PLAYWRIGHT_START]: { serverName: 'playwright', enabled: true },
   [RPC_METHODS.MCP_SERVER_PLAYWRIGHT_STOP]: { serverName: 'playwright', enabled: false },
 });
+const MCP_SERVER_LIST_RESPONSE_KEYS = new Set(['configPath', 'config_path', 'mcpServers', 'mcp_servers']);
+const MCP_SERVER_STATUS_RESPONSE_KEYS = new Set(['enabled']);
+const MCP_SERVER_CONTROL_RESPONSE_KEYS = new Set(['configPath', 'config_path', 'serverName', 'server_name', 'added', 'enabled']);
+
+function assertOnlyResponseKeys(method, value, allowedKeys, label) {
+  for (const key of Object.keys(value)) {
+    if (!allowedKeys.has(key)) {
+      throw new TypeError(`${method} response ${label} must not include ${key}`);
+    }
+  }
+}
+
+function validateMCPServerListResponse(method, response) {
+  const value = assertBackendResponseObject(method, response);
+  assertOnlyResponseKeys(method, value, MCP_SERVER_LIST_RESPONSE_KEYS, 'body');
+  const configPath = normalizeString(value.configPath || value.config_path);
+  if (!configPath) {
+    throw new Error(`${method} response configPath must be a non-empty string`);
+  }
+  const servers = value.mcpServers || value.mcp_servers;
+  if (!servers || typeof servers !== 'object' || Array.isArray(servers)) {
+    throw new TypeError(`${method} response mcpServers must be an object`);
+  }
+  for (const [serverName, server] of Object.entries(servers)) {
+    const normalizedName = normalizeString(serverName);
+    if (!normalizedName) {
+      throw new Error(`${method} response mcpServers must not include an empty server name`);
+    }
+    if (!server || typeof server !== 'object' || Array.isArray(server)) {
+      throw new TypeError(`${method} response mcpServers.${normalizedName} must be an object`);
+    }
+    assertOnlyResponseKeys(method, server, MCP_SERVER_STATUS_RESPONSE_KEYS, `mcpServers.${normalizedName}`);
+    if (typeof server.enabled !== 'boolean') {
+      throw new TypeError(`${method} response mcpServers.${normalizedName}.enabled must be a boolean`);
+    }
+  }
+  return value;
+}
 
 function validateMCPServerControlResponse(method, response) {
   const value = assertBackendResponseObject(method, response);
+  assertOnlyResponseKeys(method, value, MCP_SERVER_CONTROL_RESPONSE_KEYS, 'body');
+  const configPath = normalizeString(value.configPath || value.config_path);
+  if (!configPath) {
+    throw new Error(`${method} response configPath must be a non-empty string`);
+  }
   const spec = MCP_SERVER_CONTROL_RESPONSE_SPECS[method];
   const serverName = normalizeString(value.serverName || value.server_name);
   if (!spec || serverName !== spec.serverName) {
@@ -1060,9 +1104,6 @@ function validateMCPServerControlResponse(method, response) {
   if (hasOwn(value, 'added') && typeof value.added !== 'boolean') {
     throw new TypeError(`${method} response added must be a boolean`);
   }
-  if (hasOwn(value, 'config') && (!value.config || typeof value.config !== 'object' || Array.isArray(value.config))) {
-    throw new TypeError(`${method} response config must be an object`);
-  }
   return value;
 }
 
@@ -1071,6 +1112,7 @@ const BACKEND_RESPONSE_VALIDATORS = Object.freeze({
   [RPC_METHODS.APP_UPDATE_INSTALL_LATEST]: validateAppUpdateInstallResponse,
   [RPC_METHODS.CONFIG_LSP_PROMPT_HINT_READ]: validateLspPromptHintResponse,
   [RPC_METHODS.CONFIG_LSP_PROMPT_HINT_WRITE]: validateLspPromptHintResponse,
+  [RPC_METHODS.MCP_SERVER_LIST]: validateMCPServerListResponse,
   [RPC_METHODS.MCP_SERVER_SQLITE_START]: validateMCPServerControlResponse,
   [RPC_METHODS.MCP_SERVER_SQLITE_STOP]: validateMCPServerControlResponse,
   [RPC_METHODS.MCP_SERVER_PLAYWRIGHT_START]: validateMCPServerControlResponse,
@@ -1969,9 +2011,15 @@ function approvalRespondPayload(params) {
     ...unused
   } = payload;
   assertNoExtraPayloadFields(RPC_METHODS.APPROVAL_RESPOND, unused);
-  const rawRequestId = Number(requestId ?? requestIdAlias);
-  const normalizedRequestId = Number.isFinite(rawRequestId) ? Math.trunc(rawRequestId) : 0;
-  if (normalizedRequestId <= 0) throw new Error(`${RPC_METHODS.APPROVAL_RESPOND}: requestId is required`);
+  const normalizedRequestId = positiveApprovalRequestIdFromFields(payload);
+  if (normalizedRequestId <= 0) {
+    const hasRequestId = hasOwn(payload, 'requestId') || hasOwn(payload, 'request_id');
+    const rawRequestId = hasOwn(payload, 'requestId') ? requestId : requestIdAlias;
+    if (!hasRequestId || rawRequestId === undefined || rawRequestId === null || rawRequestId === '' || rawRequestId === 0) {
+      throw new Error(`${RPC_METHODS.APPROVAL_RESPOND}: requestId is required`);
+    }
+    throw new Error(`${RPC_METHODS.APPROVAL_RESPOND}: requestId must be a positive integer`);
+  }
   if (!hasOwn(payload, 'approved')) throw new Error(`${RPC_METHODS.APPROVAL_RESPOND}: approved is required`);
   if (typeof approved !== 'boolean') throw new Error(`${RPC_METHODS.APPROVAL_RESPOND}: approved must be boolean`);
   return { requestId: normalizedRequestId, approved };

@@ -58,17 +58,28 @@ func TestWailsWebSocketRequestsMCPServerAndDatasourceRPC(t *testing.T) {
 		t.Fatalf("mcpServer/add serverNames = %#v, want my-search", addResult.ServerNames)
 	}
 
-	var listResult mcpserver.ListServersResult
-	callWailsRPC(t, conn, 3, "mcpServer/list", map[string]any{}, &listResult)
+	var listRaw json.RawMessage
+	callWailsRPC(t, conn, 3, "mcpServer/list", map[string]any{}, &listRaw)
+	listPayload := string(listRaw)
+	for _, marker := range []string{`"transport"`, `"url"`, `"headers"`, `"command"`, `"args"`, `"env"`, "Bearer YOUR_API_KEY"} {
+		if strings.Contains(listPayload, marker) {
+			t.Fatalf("mcpServer/list leaked MCP config marker %q: %s", marker, listPayload)
+		}
+	}
+	var listResult struct {
+		MCPServers map[string]struct {
+			Enabled bool `json:"enabled"`
+		} `json:"mcpServers"`
+	}
+	if err := json.Unmarshal(listRaw, &listResult); err != nil {
+		t.Fatalf("decode mcpServer/list public result: %v", err)
+	}
 	gotServer, ok := listResult.MCPServers["my-search"]
 	if !ok {
 		t.Fatalf("mcpServer/list missing my-search: %#v", listResult.MCPServers)
 	}
-	if gotServer.Transport != "http" || gotServer.URL != "https://your-domain.com/mcp" {
-		t.Fatalf("mcpServer/list my-search = %#v", gotServer)
-	}
-	if gotServer.Headers["Authorization"] != "Bearer YOUR_API_KEY" {
-		t.Fatalf("mcpServer/list authorization header = %q", gotServer.Headers["Authorization"])
+	if !gotServer.Enabled {
+		t.Fatalf("mcpServer/list my-search enabled = false, want true")
 	}
 }
 

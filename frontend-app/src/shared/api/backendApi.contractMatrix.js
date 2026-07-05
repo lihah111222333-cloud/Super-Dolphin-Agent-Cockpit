@@ -171,7 +171,7 @@ export const RPC_CONTRACT_REGISTRY = Object.freeze({
   DATASOURCE_V2_UPDATE: contract('DATASOURCE_V2_UPDATE', 'updateDatasourceDocument', 'P0', 'datasourceV2', [TESTS.API, TESTS.SKILLS], ['datasource metadata mutation']),
   DATASOURCE_V2_DELETE: contract('DATASOURCE_V2_DELETE', 'deleteDatasourceDocument', 'P0', 'datasourceV2', [TESTS.API, TESTS.SKILLS], ['datasource mutation']),
 
-  MCP_SERVER_LIST: contract('MCP_SERVER_LIST', 'listMCPServers', 'P1', 'mcpServer', [TESTS.API, TESTS.SKILLS], ['MCP server config read', 'params:{}-only']),
+  MCP_SERVER_LIST: contract('MCP_SERVER_LIST', 'listMCPServers', 'P1', 'mcpServer', [TESTS.API, TESTS.SKILLS], ['MCP server status read', 'params:{}-only'], false, { responseValidator: 'mcpServerListResponse' }),
   MCP_SERVER_SQLITE_START: contract('MCP_SERVER_SQLITE_START', 'startSQLiteMCPServer', 'P0', 'mcpServer', [TESTS.API, TESTS.SKILLS], ['sqlite MCP server mutation', 'params:{}-only'], false, { responseValidator: 'mcpServerControlResponse' }),
   MCP_SERVER_SQLITE_STOP: contract('MCP_SERVER_SQLITE_STOP', 'stopSQLiteMCPServer', 'P0', 'mcpServer', [TESTS.API, TESTS.SKILLS], ['sqlite MCP server mutation', 'params:{}-only'], false, { responseValidator: 'mcpServerControlResponse' }),
   MCP_SERVER_PLAYWRIGHT_START: contract('MCP_SERVER_PLAYWRIGHT_START', 'startPlaywrightMCPServer', 'P0', 'mcpServer', [TESTS.API, TESTS.SKILLS], ['playwright MCP server mutation', 'params:{}-only'], false, { responseValidator: 'mcpServerControlResponse' }),
