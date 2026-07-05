@@ -62,6 +62,8 @@ func (e *ManifestScanTruncatedError) Error() string {
 	return "memory manifest scan truncated: " + strings.TrimSpace(e.Reason)
 }
 
+// ManifestBuilder 构建相关记忆检索使用的 manifest 快照。
+// 它只扫描 topic 文件头部，并用预算限制大目录对 turn 注入链的影响。
 type ManifestBuilder struct {
 	MaxFiles int
 	Budget   ManifestScanBudget

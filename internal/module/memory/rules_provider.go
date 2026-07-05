@@ -22,8 +22,17 @@ var (
 
 // retrieval 子包类型在 memory 根包下重新导出，保持旧调用方不必感知拆包。
 type ManifestBuilder = retrievalpkg.ManifestBuilder
+
+// RelevantMemoryFinder 是相关记忆查找器的 root 包兼容别名。
+// 生产 turn 链实际实现位于 retrieval 子包，root 包只保留旧引用面。
 type RelevantMemoryFinder = retrievalpkg.RelevantMemoryFinder
+
+// PrefetchManager 是相关记忆后台预取管理器的兼容别名。
+// MemoryContextProvider 通过它按 thread 保存短期预取状态，不持久化到 memory 文件。
 type PrefetchManager = retrievalpkg.PrefetchManager
+
+// PrefetchHandle 表示一次相关记忆预取任务的可消费句柄。
+// 句柄只在当前 thread 的 turn 缓存中流转，用于避免重复注入同一批记忆。
 type PrefetchHandle = retrievalpkg.PrefetchHandle
 type transcriptSnippet = retrievalpkg.TranscriptSnippet
 

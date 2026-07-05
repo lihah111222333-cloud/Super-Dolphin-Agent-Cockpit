@@ -41,6 +41,8 @@ const (
 	sourceTypeTeamMem = "teammem"
 )
 
+// ClaudeMdSource 是 prompt 层可消费的 CLAUDE.md 来源别名。
+// nested 包会把 auto/team memory entrypoint 也包装成这种 provider-visible 来源。
 type ClaudeMdSource = contract.ClaudeMdSource
 
 // GateSnapshot 是 nested 包内使用的门控快照，控制 CLAUDE.md 来源加载行为。
@@ -90,6 +92,8 @@ func (d Dependencies) teamRoot(buildCtx contract.BuildCtx) string {
 	return cleanClaudeMdPath(d.TeamRoot(buildCtx))
 }
 
+// ClaudeMdResolveConfig 描述一次 CLAUDE.md 来源解析所需的运行上下文。
+// TeamMemPath 和 TeamMemEntrypoint 决定团队记忆是否作为 provider-visible source 注入。
 type ClaudeMdResolveConfig struct {
 	BuildCtx          contract.BuildCtx
 	Dependencies      Dependencies

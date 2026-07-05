@@ -98,6 +98,8 @@ type UIMemoryHealth struct {
 	AutoDream          *UIAutoDreamHealth `json:"autoDream,omitempty"`
 }
 
+// UIAutoDreamHealth 是 UI 展示自动 dream 整理状态的只读 DTO。
+// 它只反映后台任务计数和最近错误，不允许前端据此直接改写 memory 持久化状态。
 type UIAutoDreamHealth struct {
 	DroppedTotal   int64     `json:"droppedTotal"`
 	ProcessedTotal int64     `json:"processedTotal"`

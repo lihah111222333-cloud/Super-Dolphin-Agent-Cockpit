@@ -25,6 +25,8 @@ import (
 	"go.uber.org/fx"
 )
 
+// RootManager 向外暴露 memory 根目录准备能力。
+// 它只委托 Service，不解析 provider 或 UI 请求，避免根目录生命周期散落到调用方。
 type RootManager struct {
 	svc Service
 }
