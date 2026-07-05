@@ -157,16 +157,14 @@ func (t *transport) spawnResponder(envelope protocol.Envelope) {
 	if t.closed.Load() {
 		return
 	}
-	t.responderWG.Add(1)
-	go func() {
-		defer t.responderWG.Done()
+	t.responderWG.Go(func() {
 		defer func() {
 			if r := recover(); r != nil {
 				slog.Error("LSP responder panic", "panic", fmt.Sprint(r))
 			}
 		}()
 		t.respondToServerRequest(envelope)
-	}()
+	})
 }
 
 // handleResponse 将收到的响应分发给对应的 pending 等待通道。

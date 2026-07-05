@@ -140,8 +140,7 @@
     "empty_funcs": 0,
     "todo_count": 0,
     "max_struct_fields": 16,
-    "naked_goroutines": 1,
-    "raw_goroutines": 3
+    "raw_goroutines": 2
   },
   "cmd/mcp-lsp/multilsp/transport_conn.go": {
     "lines": 235,
