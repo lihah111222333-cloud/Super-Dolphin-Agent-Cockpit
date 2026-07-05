@@ -92,6 +92,74 @@ func TestLogManifestLaunchKeepsEnvKeysOnly(t *testing.T) {
 	}
 }
 
+// TestLogManifestLaunchOmitsRawPathsAndSummarizesURL 锁住 MCP launch 日志的路径边界。
+// cwd、临时 mcp config、绝对 command 目录和 URL 非固定 path/query/fragment 都不能写入日志。
+func TestLogManifestLaunchOmitsRawPathsAndSummarizesURL(t *testing.T) {
+	var buf bytes.Buffer
+	old := pkglogger.Get()
+	pkglogger.InitWithConsoleWriter(&buf)
+	t.Cleanup(func() { pkglogger.SetForTest(old) })
+
+	cwd := "/Users/l05/private/repo"
+	mcpPath := "/var/folders/l05/private/mcp-config.json"
+	commandPath := "/Users/l05/private/bin/mcp-sensitive-server"
+	logManifestLaunch("claude", cwd, "sonnet", mcpPath, dto.MCPManifest{Binaries: []dto.MCPBinary{
+		{
+			Name: "fixed",
+			Type: "http",
+			URL:  "https://mcp.example.test:9443/mcp?token=sk-l05-query#sk-l05-fragment",
+		},
+		{
+			Name: "custom",
+			Type: "http",
+			Command: []string{
+				commandPath,
+				"--dsn",
+				"postgres://user:secret-pass@127.0.0.1/app",
+			},
+			URL: "https://mcp.example.test:9443/private/team/project?token=sk-l05-path-token#sk-l05-fragment",
+		},
+	}})
+
+	output := buf.String()
+	for _, forbidden := range []string{
+		cwd,
+		mcpPath,
+		filepath.Dir(commandPath),
+		"/private/team/project",
+		"token=",
+		"sk-l05-query",
+		"sk-l05-path-token",
+		"sk-l05-fragment",
+		"secret-pass",
+		"postgres://user",
+	} {
+		if strings.Contains(output, forbidden) {
+			t.Fatalf("launch manifest log leaked %q: %s", forbidden, output)
+		}
+	}
+	for _, required := range []string{
+		"cwd_present",
+		"mcp_config_present",
+		"mcp-sensitive-server",
+		"arg_sha256",
+		"url_scheme",
+		"https",
+		"url_host",
+		"mcp.example.test",
+		"url_port",
+		"9443",
+		"url_path",
+		"/mcp",
+		"url_path_segments",
+		"url_path_sha256",
+	} {
+		if !strings.Contains(output, required) {
+			t.Fatalf("launch manifest log missing safe field %q: %s", required, output)
+		}
+	}
+}
+
 func TestWriteManifestConfigIncludesEnvAndAutoApprove(t *testing.T) {
 	t.Parallel()
 

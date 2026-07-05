@@ -5,7 +5,9 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"net/url"
 	"os"
+	"path"
 	"reflect"
 	"sort"
 	"strings"
@@ -43,15 +45,23 @@ type ProviderErrorSummary struct {
 
 // MCPServerSummary 是 MCP launch 日志允许输出的 server 摘要。
 type MCPServerSummary struct {
-	Name          string   `json:"name,omitempty"`
-	Type          string   `json:"type"`
-	Command       string   `json:"command,omitempty"`
-	CommandExists bool     `json:"command_exists"`
-	ArgCount      int      `json:"arg_count,omitempty"`
-	HasURL        bool     `json:"has_url,omitempty"`
-	EnvKeys       []string `json:"env_keys,omitempty"`
-	HasRPCAddr    bool     `json:"has_rpc_addr,omitempty"`
-	HasBootstrap  bool     `json:"has_bootstrap,omitempty"`
+	Name            string   `json:"name,omitempty"`
+	Type            string   `json:"type"`
+	Command         string   `json:"command,omitempty"`
+	CommandExists   bool     `json:"command_exists"`
+	ArgCount        int      `json:"arg_count,omitempty"`
+	ArgSHA256       string   `json:"arg_sha256,omitempty"`
+	HasURL          bool     `json:"has_url,omitempty"`
+	URLScheme       string   `json:"url_scheme,omitempty"`
+	URLHost         string   `json:"url_host,omitempty"`
+	URLPort         string   `json:"url_port,omitempty"`
+	URLPath         string   `json:"url_path,omitempty"`
+	URLPathSegments int      `json:"url_path_segments,omitempty"`
+	URLPathSHA256   string   `json:"url_path_sha256,omitempty"`
+	URLParseError   bool     `json:"url_parse_error,omitempty"`
+	EnvKeys         []string `json:"env_keys,omitempty"`
+	HasRPCAddr      bool     `json:"has_rpc_addr,omitempty"`
+	HasBootstrap    bool     `json:"has_bootstrap,omitempty"`
 }
 
 // BusEventSummary 是 bus 结构化日志允许输出的事件摘要。
@@ -156,15 +166,18 @@ func SafeMCPServerSummaries(manifest dto.MCPManifest) []MCPServerSummary {
 			Name:         strings.TrimSpace(bin.Name),
 			Type:         serverType,
 			ArgCount:     safeCommandArgCount(bin.Command),
+			ArgSHA256:    safeCommandArgHash(bin.Command),
 			HasURL:       strings.TrimSpace(bin.URL) != "",
 			EnvKeys:      safeSortedEnvKeys(bin.Env),
 			HasRPCAddr:   strings.TrimSpace(bin.Env["GO_AGENT_CTL_RPC_ADDR"]) != "",
 			HasBootstrap: strings.TrimSpace(bin.Env["GO_AGENT_CTL_BOOTSTRAP_JSON"]) != "",
 		}
+		applySafeURLSummary(&summary, bin.URL)
 		if len(bin.Command) > 0 {
-			summary.Command = strings.TrimSpace(bin.Command[0])
-			if summary.Command != "" {
-				_, statErr := os.Stat(summary.Command)
+			rawCommand := strings.TrimSpace(bin.Command[0])
+			summary.Command = safeCommandBasename(rawCommand)
+			if rawCommand != "" {
+				_, statErr := os.Stat(rawCommand)
 				summary.CommandExists = statErr == nil
 			}
 		}
@@ -227,6 +240,74 @@ func safeCommandArgCount(command []string) int {
 		return 0
 	}
 	return len(command) - 1
+}
+
+func safeCommandArgHash(command []string) string {
+	if len(command) <= 1 {
+		return ""
+	}
+	raw, err := json.Marshal(command[1:])
+	if err != nil {
+		return ""
+	}
+	sum := sha256.Sum256(raw)
+	return hex.EncodeToString(sum[:])
+}
+
+func safeCommandBasename(command string) string {
+	command = strings.TrimSpace(command)
+	if command == "" {
+		return ""
+	}
+	command = strings.ReplaceAll(command, "\\", "/")
+	return path.Base(command)
+}
+
+func applySafeURLSummary(summary *MCPServerSummary, rawURL string) {
+	rawURL = strings.TrimSpace(rawURL)
+	if summary == nil || rawURL == "" {
+		return
+	}
+	parsed, err := url.Parse(rawURL)
+	if err != nil {
+		summary.URLParseError = true
+		return
+	}
+	summary.URLScheme = strings.ToLower(strings.TrimSpace(parsed.Scheme))
+	summary.URLHost = strings.TrimSpace(parsed.Hostname())
+	summary.URLPort = strings.TrimSpace(parsed.Port())
+	applySafeURLPathSummary(summary, parsed.EscapedPath())
+}
+
+func applySafeURLPathSummary(summary *MCPServerSummary, escapedPath string) {
+	escapedPath = strings.TrimSpace(escapedPath)
+	if summary == nil || escapedPath == "" {
+		return
+	}
+	if escapedPath == "/mcp" {
+		summary.URLPath = "/mcp"
+		return
+	}
+	segments := safeURLPathSegments(escapedPath)
+	if segments > 0 {
+		summary.URLPathSegments = segments
+	}
+	sum := sha256.Sum256([]byte(escapedPath))
+	summary.URLPathSHA256 = hex.EncodeToString(sum[:])
+}
+
+func safeURLPathSegments(escapedPath string) int {
+	trimmed := strings.Trim(strings.TrimSpace(escapedPath), "/")
+	if trimmed == "" {
+		return 0
+	}
+	count := 0
+	for segment := range strings.SplitSeq(trimmed, "/") {
+		if segment != "" {
+			count++
+		}
+	}
+	return count
 }
 
 func safeSortedEnvKeys(env map[string]string) []string {

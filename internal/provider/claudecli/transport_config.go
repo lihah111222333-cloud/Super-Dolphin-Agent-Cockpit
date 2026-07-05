@@ -92,17 +92,26 @@ func claudeLaunchEnv(cfg cliLaunchConfig) []string {
 }
 
 // logManifestLaunch 记录本轮写给 Claude CLI 的 MCP manifest 摘要。
-// 日志只暴露命令、参数个数和 env key，不输出 args、URL 或敏感 env value。
+// 日志只暴露路径存在性、命令 basename、参数摘要和 env key，不输出 cwd、配置路径、args 或 URL secret。
 func logManifestLaunch(binary, cwd, model, mcpPath string, manifest dto.MCPManifest) {
 	servers := observability.SafeMCPServerSummaries(manifest)
 	pkglogger.Info("claudecli: launch mcp manifest",
-		"binary", strings.TrimSpace(binary),
-		"cwd", strings.TrimSpace(cwd),
+		"binary", safeCLICommandName(binary),
+		"cwd_present", strings.TrimSpace(cwd) != "",
 		"model", strings.TrimSpace(model),
-		"mcp_config_path", strings.TrimSpace(mcpPath),
+		"mcp_config_present", strings.TrimSpace(mcpPath) != "",
 		"server_count", len(servers),
 		"servers", servers,
 	)
+}
+
+func safeCLICommandName(command string) string {
+	command = strings.TrimSpace(command)
+	if command == "" {
+		return ""
+	}
+	command = strings.ReplaceAll(command, "\\", "/")
+	return filepath.Base(filepath.FromSlash(command))
 }
 
 // logSystemPromptArgs 记录即将交给 Claude CLI 的每段 --system-prompt。
