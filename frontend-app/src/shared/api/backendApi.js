@@ -1040,11 +1040,41 @@ function validateAppUpdateInstallResponse(method, response) {
   return value;
 }
 
+const MCP_SERVER_CONTROL_RESPONSE_SPECS = Object.freeze({
+  [RPC_METHODS.MCP_SERVER_SQLITE_START]: { serverName: 'sqlite', enabled: true },
+  [RPC_METHODS.MCP_SERVER_SQLITE_STOP]: { serverName: 'sqlite', enabled: false },
+  [RPC_METHODS.MCP_SERVER_PLAYWRIGHT_START]: { serverName: 'playwright', enabled: true },
+  [RPC_METHODS.MCP_SERVER_PLAYWRIGHT_STOP]: { serverName: 'playwright', enabled: false },
+});
+
+function validateMCPServerControlResponse(method, response) {
+  const value = assertBackendResponseObject(method, response);
+  const spec = MCP_SERVER_CONTROL_RESPONSE_SPECS[method];
+  const serverName = normalizeString(value.serverName || value.server_name);
+  if (!spec || serverName !== spec.serverName) {
+    throw new Error(`${method} response serverName must be ${spec?.serverName || 'a known MCP server'}`);
+  }
+  if (value.enabled !== spec.enabled) {
+    throw new TypeError(`${method} response enabled must be ${spec.enabled}`);
+  }
+  if (hasOwn(value, 'added') && typeof value.added !== 'boolean') {
+    throw new TypeError(`${method} response added must be a boolean`);
+  }
+  if (hasOwn(value, 'config') && (!value.config || typeof value.config !== 'object' || Array.isArray(value.config))) {
+    throw new TypeError(`${method} response config must be an object`);
+  }
+  return value;
+}
+
 const BACKEND_RESPONSE_VALIDATORS = Object.freeze({
   [RPC_METHODS.APP_UPDATE_INSTALL]: validateAppUpdateInstallResponse,
   [RPC_METHODS.APP_UPDATE_INSTALL_LATEST]: validateAppUpdateInstallResponse,
   [RPC_METHODS.CONFIG_LSP_PROMPT_HINT_READ]: validateLspPromptHintResponse,
   [RPC_METHODS.CONFIG_LSP_PROMPT_HINT_WRITE]: validateLspPromptHintResponse,
+  [RPC_METHODS.MCP_SERVER_SQLITE_START]: validateMCPServerControlResponse,
+  [RPC_METHODS.MCP_SERVER_SQLITE_STOP]: validateMCPServerControlResponse,
+  [RPC_METHODS.MCP_SERVER_PLAYWRIGHT_START]: validateMCPServerControlResponse,
+  [RPC_METHODS.MCP_SERVER_PLAYWRIGHT_STOP]: validateMCPServerControlResponse,
   [RPC_METHODS.UI_STATE_GET]: validateUIStateResponse,
   [RPC_METHODS.SKILLS_LOCAL_READ]: validateSkillReadResponse,
   [RPC_METHODS.THREAD_START]: validateThreadStartResponse,

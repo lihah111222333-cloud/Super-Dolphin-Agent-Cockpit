@@ -222,6 +222,19 @@ function guardedBackendResponse(method) {
     expect(typeof stopPlaywrightMCPServer).toBe('function');
   });
 
+  it('rejects malformed MCP server default control responses', async () => {
+    for (const action of [
+      'startSQLiteMCPServer',
+      'stopSQLiteMCPServer',
+      'startPlaywrightMCPServer',
+      'stopPlaywrightMCPServer',
+    ]) {
+      const api = createBackendApi({ callAPI: vi.fn().mockResolvedValue({}) });
+
+      await expect(api[action]()).rejects.toThrow('serverName');
+    }
+  });
+
   it('wraps MCP tool lifecycle RPC methods with guarded canonical payloads', async () => {
     const setResponse = { serverName: 'my-search', toolName: 'remote_search', state: 'disabled' };
     const listResponse = [{ serverName: 'my-search', toolName: 'remote_search', state: 'disabled' }];
