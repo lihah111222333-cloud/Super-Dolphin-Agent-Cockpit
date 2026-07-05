@@ -723,7 +723,8 @@ function codeFilePayload(method, params, options = {}) {
   }
   if (options.includeContent) {
     if (!hasOwn(payload, 'content')) throw new Error(`${method}: content is required`);
-    request.content = (payload.content ?? '').toString();
+    if (typeof payload.content !== 'string') throw new Error(`${method}: content must be a string`);
+    request.content = payload.content;
   }
   return cleanObject(request);
 }

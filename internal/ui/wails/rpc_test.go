@@ -421,6 +421,40 @@ func TestCopyTextRejectsBlankText(t *testing.T) {
 	}
 }
 
+// TestCodeSaveRejectsNullContent 锁定 ui/code/save 的持久化边界：
+// JSON null 不能被当成空字符串写入并清空已有文件。
+func TestCodeSaveRejectsNullContent(t *testing.T) {
+	root := t.TempDir()
+	target := filepath.Join(root, "src", "app.js")
+	if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+	if err := os.WriteFile(target, []byte("const oldValue = true;\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile(old) error = %v", err)
+	}
+
+	server := rpcpkg.NewServer(rpcpkg.Params{Config: &config.Config{RPCAddr: "127.0.0.1:0"}})
+	server.Register(NewRPCHandlers(&App{}, &config.Config{ProjectRoot: root}, nil).Handlers)
+
+	_, err := server.Dispatch(context.Background(), "ui/code/save", json.RawMessage(`{
+		"filePath":"src/app.js",
+		"content":null
+	}`))
+	if err == nil {
+		t.Fatal("Dispatch(ui/code/save) error = nil, want null content rejection")
+	}
+	if !strings.Contains(err.Error(), "content must be a string") {
+		t.Fatalf("Dispatch(ui/code/save) error = %v, want content must be a string", err)
+	}
+	data, readErr := os.ReadFile(target)
+	if readErr != nil {
+		t.Fatalf("ReadFile() error = %v", readErr)
+	}
+	if string(data) != "const oldValue = true;\n" {
+		t.Fatalf("file content = %q, want original content unchanged", string(data))
+	}
+}
+
 func newWailsRPCServer(t *testing.T, app *App) *rpcpkg.Server {
 	t.Helper()
 

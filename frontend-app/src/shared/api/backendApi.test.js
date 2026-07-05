@@ -1756,4 +1756,5 @@ function expectMemoryCenterValidation(api) {
     expect(() => api.openCodeFile({ filePath: '' })).toThrow('filePath is required');
     expect(() => api.openPath({ filePath: '' })).toThrow('filePath is required');
     expect(() => api.saveCodeFile({ filePath: 'src/App.jsx' })).toThrow('content is required');
+    expect(() => api.saveCodeFile({ filePath: 'src/App.jsx', content: null })).toThrow('content must be a string');
   });
