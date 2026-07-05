@@ -64,7 +64,7 @@ func atomicReplaceFile(path string, content []byte, mode os.FileMode, writer fil
 		_ = tmp.Close()
 		return fmt.Errorf("write temp %s: %w", tmpPath, err)
 	}
-	if err := tmp.Chmod(mode.Perm()); err != nil {
+	if err := tmp.Chmod(mode); err != nil {
 		_ = tmp.Close()
 		return fmt.Errorf("chmod temp %s: %w", tmpPath, err)
 	}

@@ -4,6 +4,8 @@ import (
 	"go/ast"
 	"go/parser"
 	"go/token"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -22,6 +24,36 @@ func TestTextEditActionPreservesOriginalWhenWriteFails(t *testing.T) {
 func TestRollbackUsesAtomicWrite(t *testing.T) {
 	assertEditFunctionUsesAtomicWrite(t, "tool_edit_replace_update.go", "rollbackReplaceRangeUpdate")
 	assertEditFunctionUsesAtomicWrite(t, "tool_edit_rename.go", "applyWorkspaceEdit")
+}
+
+// TestAtomicReplaceFilePreservesOriginalModeBits locks atomic replacement to the original file mode.
+func TestAtomicReplaceFilePreservesOriginalModeBits(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "source.go")
+	if err := os.WriteFile(path, []byte("old\n"), 0o600); err != nil {
+		t.Fatalf("write fixture: %v", err)
+	}
+	wantMode := os.FileMode(0o640) | os.ModeSticky
+	if err := os.Chmod(path, wantMode); err != nil {
+		t.Fatalf("chmod fixture: %v", err)
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatalf("stat fixture: %v", err)
+	}
+	if info.Mode()&os.ModeSticky == 0 {
+		t.Skipf("filesystem did not preserve sticky bit for regular file: %v", info.Mode())
+	}
+
+	if err := atomicReplaceFile(path, []byte("new\n"), info.Mode(), defaultFileWriter); err != nil {
+		t.Fatalf("atomicReplaceFile: %v", err)
+	}
+	gotInfo, err := os.Stat(path)
+	if err != nil {
+		t.Fatalf("stat replaced file: %v", err)
+	}
+	if gotInfo.Mode()&os.ModeSticky == 0 || gotInfo.Mode().Perm() != wantMode.Perm() {
+		t.Fatalf("replaced mode = %v, want permissions %v and sticky bit", gotInfo.Mode(), wantMode.Perm())
+	}
 }
 
 func assertEditFunctionUsesAtomicWrite(t *testing.T, fileName string, funcName string) {
