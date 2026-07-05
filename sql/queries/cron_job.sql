@@ -275,6 +275,18 @@ FROM cron_job_runs
 WHERE status IN ('submitting', 'submitted', 'running')
 ORDER BY created_at ASC, id ASC;
 
+-- name: ListUnresolvedCronJobRunsPage :many
+-- Bounded scheduler boot recovery page. The caller advances cursor with the
+-- last returned id so startup recovery never materializes every unresolved row.
+SELECT id, job_id, scheduled_at, idempotency_key, dedupe_key, thread_id,
+       agent_id, turn_id, submitted_at, status, error, created_at,
+       updated_at
+FROM cron_job_runs
+WHERE status IN ('submitting', 'submitted', 'running')
+  AND (sqlc.arg(cursor) = '' OR id > sqlc.arg(cursor))
+ORDER BY id ASC
+LIMIT sqlc.arg(limit);
+
 -- name: GetRunningCronJobRunByTurnID :one
 -- Used by CompleteTurn to locate the active run for a completed turn without
 -- scanning all unresolved rows. turn_id is indexed by the dedupe_key B-tree
@@ -285,6 +297,18 @@ SELECT id, job_id, scheduled_at, idempotency_key, dedupe_key, thread_id,
        updated_at
 FROM cron_job_runs
 WHERE turn_id = ? AND status = 'running'
+LIMIT 1;
+
+-- name: GetSubmittedOrRunningCronJobRunByTurnID :one
+-- Used by CompleteTurn to locate early terminal events that arrive while a run
+-- is still submitted, without falling back to the unresolved recovery scan.
+SELECT id, job_id, scheduled_at, idempotency_key, dedupe_key, thread_id,
+       agent_id, turn_id, submitted_at, status, error, created_at,
+       updated_at
+FROM cron_job_runs
+WHERE turn_id = sqlc.arg(turn_id)
+  AND turn_id <> ''
+  AND status IN ('submitted', 'running')
 LIMIT 1;
 
 -- name: ListCronJobsClaimedBy :many

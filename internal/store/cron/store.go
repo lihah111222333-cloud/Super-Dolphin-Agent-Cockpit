@@ -2,10 +2,13 @@ package cron
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
+	"reflect"
 	"strings"
 	"time"
+	"unsafe"
 
 	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
 	"github.com/anthropic-ai/super-agent-v3/internal/store/sqlc"
@@ -38,14 +41,34 @@ type querier interface {
 	ListCronJobsClaimedBy(ctx context.Context, arg sqlc.ListCronJobsClaimedByParams) ([]sqlc.CronJob, error)
 }
 
+type unresolvedRunsPageQuerier interface {
+	ListUnresolvedCronJobRunsPage(ctx context.Context, arg sqlc.ListUnresolvedCronJobRunsPageParams) ([]sqlc.CronJobRun, error)
+}
+
+type submittedOrRunningTurnQuerier interface {
+	GetSubmittedOrRunningCronJobRunByTurnID(ctx context.Context, arg sqlc.GetSubmittedOrRunningCronJobRunByTurnIDParams) (sqlc.CronJobRun, error)
+}
+
 // store 实现 cron Store，所有数据库错误统一通过 wrap 带上 cron 操作名。
-type store struct{ q querier }
+type store struct {
+	*submitStore
+	q querier
+}
+
+type submitStore struct {
+	db    *sql.DB
+	dbErr error
+	q     querier
+}
 
 // cronClaimBusyRetryAttempts 是 SQLite claim 遇到 busy 或 locked 时的有限重试次数。
 const cronClaimBusyRetryAttempts = 3
 
 // NewStore 使用 sqlc 查询对象创建生产 cron Store。
-func NewStore(q *sqlc.Queries) Store { return &store{q: q} }
+func NewStore(q *sqlc.Queries) Store {
+	db, err := sqlDBFromQueries(q)
+	return &store{submitStore: &submitStore{db: db, dbErr: err, q: q}, q: q}
+}
 
 // ----- 校验与转换辅助 -----
 
@@ -115,6 +138,28 @@ func bytesOrDefault(b []byte, def string) []byte {
 		return []byte(def)
 	}
 	return b
+}
+
+// sqlDBFromQueries 读取 sqlc 生成 Queries 内部绑定的 *sql.DB。
+// 事务方法必须拿到数据库连接；提取失败时调用方会 fail-fast，不能降级为非事务写入。
+func sqlDBFromQueries(q *sqlc.Queries) (*sql.DB, error) {
+	if q == nil {
+		return nil, errors.New("cron: sqlc queries is nil")
+	}
+	value := reflect.ValueOf(q)
+	if value.Kind() != reflect.Pointer || value.IsNil() {
+		return nil, fmt.Errorf("cron: sqlc queries has unexpected type %T", q)
+	}
+	field := value.Elem().FieldByName("db")
+	if !field.IsValid() || !field.CanAddr() {
+		return nil, errors.New("cron: sqlc queries does not expose db field")
+	}
+	dbtx := reflect.NewAt(field.Type(), unsafe.Pointer(field.UnsafeAddr())).Elem().Interface()
+	db, ok := dbtx.(*sql.DB)
+	if !ok || db == nil {
+		return nil, fmt.Errorf("cron: sqlc queries db has type %T, want *sql.DB", dbtx)
+	}
+	return db, nil
 }
 
 // ----- 任务 -----
@@ -479,6 +524,109 @@ func (s *store) SetActiveTurn(ctx context.Context, p SetActiveTurnParams) error 
 	return nil
 }
 
+// SubmitRunWithActiveTurn 在 IMMEDIATE 事务内绑定 run turn、job active turn 和 submitted 状态。
+func (s *submitStore) SubmitRunWithActiveTurn(ctx context.Context, p SubmitRunWithActiveTurnParams) error {
+	runID, jobID, token, turnID, err := submitRunWithActiveTurnFields(p)
+	if err != nil {
+		return wrap(err, "submit_run_with_active_turn")
+	}
+	if s.dbErr != nil {
+		return wrap(s.dbErr, "submit_run_with_active_turn")
+	}
+	err = platformdb.BoundedWriteRetry(ctx, cronClaimBusyRetryAttempts, func() error {
+		return platformdb.WithImmediateTx(ctx, s.db, func(tx *sql.Tx) error {
+			txq := sqlc.New(tx)
+			if err := setSubmittedRunTurn(ctx, txq, runID, p); err != nil {
+				return err
+			}
+			if err := setSubmittedActiveTurn(ctx, txq, jobID, token, turnID, p); err != nil {
+				return err
+			}
+			return casSubmittedRunStatus(ctx, txq, runID, p.Now)
+		})
+	})
+	return wrap(err, "submit_run_with_active_turn")
+}
+
+// submitRunWithActiveTurnFields 校验事务写入的必需 fence 字段。
+func submitRunWithActiveTurnFields(p SubmitRunWithActiveTurnParams) (string, string, string, string, error) {
+	runID, err := requireRunID(p.RunID)
+	if err != nil {
+		return "", "", "", "", err
+	}
+	jobID, token, err := requireClaim(p.JobID, p.ClaimToken)
+	if err != nil {
+		return "", "", "", "", err
+	}
+	turnID := strings.TrimSpace(p.ActiveTurnID)
+	if turnID == "" {
+		return "", "", "", "", errors.New("cron: active_turn_id is required")
+	}
+	return runID, jobID, token, turnID, nil
+}
+
+// setSubmittedRunTurn writes the provider turn metadata for a submitting run.
+func setSubmittedRunTurn(ctx context.Context, q *sqlc.Queries, runID string, p SubmitRunWithActiveTurnParams) error {
+	rows, err := q.SetCronJobRunTurn(ctx, sqlc.SetCronJobRunTurnParams{
+		TurnID:      strings.TrimSpace(p.ActiveTurnID),
+		ThreadID:    p.ThreadID,
+		AgentID:     p.AgentID,
+		SubmittedAt: tsPtr(p.SubmittedAt),
+		UpdatedAt:   ts(p.Now),
+		ID:          runID,
+	})
+	if err != nil {
+		return err
+	}
+	if rows == 0 {
+		return ErrJobRunNotFound
+	}
+	return nil
+}
+
+// setSubmittedActiveTurn binds the claimed job to the same turn within the transaction.
+func setSubmittedActiveTurn(
+	ctx context.Context,
+	q *sqlc.Queries,
+	jobID string,
+	claimToken string,
+	turnID string,
+	p SubmitRunWithActiveTurnParams,
+) error {
+	rows, err := q.SetCronJobActiveTurn(ctx, sqlc.SetCronJobActiveTurnParams{
+		ActiveTurnID: turnID,
+		ThreadID:     p.ThreadID,
+		AgentID:      p.AgentID,
+		Now:          ts(p.Now),
+		ID:           jobID,
+		ClaimToken:   claimToken,
+	})
+	if err != nil {
+		return err
+	}
+	if rows == 0 {
+		return ErrClaimTokenMismatch
+	}
+	return nil
+}
+
+// casSubmittedRunStatus advances the run from submitting to submitted as the final transactional step.
+func casSubmittedRunStatus(ctx context.Context, q *sqlc.Queries, runID string, now time.Time) error {
+	rows, err := q.CASCronJobRunStatus(ctx, sqlc.CASCronJobRunStatusParams{
+		NextStatus:     StatusSubmitted,
+		UpdatedAt:      ts(now),
+		ID:             runID,
+		ExpectedStatus: StatusSubmitting,
+	})
+	if err != nil {
+		return err
+	}
+	if rows == 0 {
+		return ErrStatusTransitionRefused
+	}
+	return nil
+}
+
 // ----- 运行记录 -----
 
 // InsertRun 创建一次 cron job run 记录，空状态按 pending 写入。
@@ -620,6 +768,29 @@ func (s *store) ListUnresolvedRuns(ctx context.Context) ([]Run, error) {
 	return out, nil
 }
 
+// ListUnresolvedRunsPage 列出一页仍需调度器收尾处理的运行记录。
+func (s *submitStore) ListUnresolvedRunsPage(ctx context.Context, limit int32, cursor string) ([]Run, error) {
+	if limit <= 0 {
+		return nil, wrap(errors.New("cron: unresolved run page limit must be positive"), "list_unresolved_runs_page")
+	}
+	q, ok := s.q.(unresolvedRunsPageQuerier)
+	if !ok {
+		return nil, wrap(errors.New("cron: querier does not implement paged unresolved run lookup"), "list_unresolved_runs_page")
+	}
+	rows, err := q.ListUnresolvedCronJobRunsPage(ctx, sqlc.ListUnresolvedCronJobRunsPageParams{
+		Cursor: strings.TrimSpace(cursor),
+		Limit:  int64(limit),
+	})
+	if err != nil {
+		return nil, wrap(err, "list_unresolved_runs_page")
+	}
+	out := make([]Run, len(rows))
+	for i, r := range rows {
+		out[i] = fromCronJobRun(r)
+	}
+	return out, nil
+}
+
 // firstNonEmpty 返回第一个非空字符串，用于保留调用方显式传入的调度类型。
 func firstNonEmpty(a, b string) string {
 	if strings.TrimSpace(a) != "" {
@@ -640,6 +811,26 @@ func (s *store) GetRunningRunByTurnID(ctx context.Context, turnID string) (Run, 
 			return Run{}, wrap(ErrJobRunNotFound, "get_running_run_by_turn_id")
 		}
 		return Run{}, wrap(err, "get_running_run_by_turn_id")
+	}
+	return fromCronJobRun(row), nil
+}
+
+// GetSubmittedOrRunningRunByTurnID 按 turn ID 查找 submitted/running Run，供终态事件抢先到达时收尾。
+func (s *submitStore) GetSubmittedOrRunningRunByTurnID(ctx context.Context, turnID string) (Run, error) {
+	turnID = strings.TrimSpace(turnID)
+	if turnID == "" {
+		return Run{}, wrap(ErrJobRunNotFound, "get_submitted_or_running_run_by_turn_id")
+	}
+	q, ok := s.q.(submittedOrRunningTurnQuerier)
+	if !ok {
+		return Run{}, wrap(errors.New("cron: querier does not implement submitted/running turn lookup"), "get_submitted_or_running_run_by_turn_id")
+	}
+	row, err := q.GetSubmittedOrRunningCronJobRunByTurnID(ctx, sqlc.GetSubmittedOrRunningCronJobRunByTurnIDParams{TurnID: turnID})
+	if err != nil {
+		if platformdb.IsNotFound(err) {
+			return Run{}, wrap(ErrJobRunNotFound, "get_submitted_or_running_run_by_turn_id")
+		}
+		return Run{}, wrap(err, "get_submitted_or_running_run_by_turn_id")
 	}
 	return fromCronJobRun(row), nil
 }

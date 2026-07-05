@@ -93,6 +93,9 @@ type Querier interface {
 	GetRunningCronJobRunByTurnID(ctx context.Context, arg GetRunningCronJobRunByTurnIDParams) (CronJobRun, error)
 	GetSessionInsightByLocalTurn(ctx context.Context, arg GetSessionInsightByLocalTurnParams) (GetSessionInsightByLocalTurnRow, error)
 	GetSharedFile(ctx context.Context, arg GetSharedFileParams) (SharedFile, error)
+	// Used by CompleteTurn to locate early terminal events that arrive while a run
+	// is still submitted, without falling back to the unresolved recovery scan.
+	GetSubmittedOrRunningCronJobRunByTurnID(ctx context.Context, arg GetSubmittedOrRunningCronJobRunByTurnIDParams) (CronJobRun, error)
 	GetThreadByAgent(ctx context.Context, arg GetThreadByAgentParams) (string, error)
 	GetUIPreferenceValue(ctx context.Context, arg GetUIPreferenceValueParams) (json.RawMessage, error)
 	GetWorkspaceRun(ctx context.Context, arg GetWorkspaceRunParams) (WorkspaceRun, error)
@@ -166,6 +169,9 @@ type Querier interface {
 	// submitted / running must be re-entered through Observe / LookupByDedupeKey
 	// instead of StartTurn, per the three-phase protocol.
 	ListUnresolvedCronJobRuns(ctx context.Context) ([]CronJobRun, error)
+	// Bounded scheduler boot recovery page. The caller advances cursor with the
+	// last returned id so startup recovery never materializes every unresolved row.
+	ListUnresolvedCronJobRunsPage(ctx context.Context, arg ListUnresolvedCronJobRunsPageParams) ([]CronJobRun, error)
 	ListWorkspaceRunFiles(ctx context.Context, arg ListWorkspaceRunFilesParams) ([]WorkspaceRunFile, error)
 	ListWorkspaceRuns(ctx context.Context, arg ListWorkspaceRunsParams) ([]WorkspaceRun, error)
 	LoadAgentThreadPromptSnapshot(ctx context.Context, arg LoadAgentThreadPromptSnapshotParams) (json.RawMessage, error)
