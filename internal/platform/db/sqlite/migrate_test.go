@@ -202,6 +202,28 @@ func TestRunMigrationsAddsCronJobRunsTurnStatusIndex(t *testing.T) {
 	assertIndex(t, db, "cron_job_runs", "idx_cron_job_runs_turn_status", false, "turn_id <> '' AND status IN ('submitted', 'running')")
 }
 
+// TestDatasourceDocumentsTableComesFromMigration verifies migration 116 owns datasource_documents.
+func TestDatasourceDocumentsTableComesFromMigration(t *testing.T) {
+	ctx := context.Background()
+	db := openMigrationTestDB(t)
+	createMigrationMarkerTable(t, db)
+	markBaselineApplied(t, db)
+	dir := t.TempDir()
+	writeMigrationTestFile(t, dir, "116_datasource_documents.sql", readMigrationTestFile(t, "116_datasource_documents.sql"))
+
+	if err := RunMigrations(ctx, db, dir); err != nil {
+		t.Fatalf("RunMigrations() error = %v", err)
+	}
+	if !sqliteTables(t, db)["datasource_documents"] {
+		t.Fatal("datasource_documents table missing after migration 116")
+	}
+	assertMigrationMarkerCount(t, db, "116_datasource_documents.sql", 1)
+	assertPrimaryKey(t, db, "datasource_documents", []string{"workspace_root", "name"})
+	assertNotNullColumns(t, db, "datasource_documents", []string{"workspace_root", "name", "extension", "size_bytes", "stored_path", "content", "created_at", "updated_at"})
+	assertTableSQLContains(t, db, "datasource_documents", []string{"size_bytes >= 0", "content <> ''"})
+	assertIndex(t, db, "datasource_documents", "idx_datasource_documents_workspace_name", false, "")
+}
+
 func TestRunMigrationsSystemLogsTraceSpanRejectsLegacyShape(t *testing.T) {
 	ctx := context.Background()
 	db := openMigrationTestDB(t)

@@ -84,9 +84,72 @@ func TestPromptProviderRendersPersistedDatasourceText(t *testing.T) {
 	}
 }
 
+// TestDatasourcePromptRejectsOversizedWorkspaceDocuments 固定 workspace 文档总量超限时阻断 prompt。
+func TestDatasourcePromptRejectsOversizedWorkspaceDocuments(t *testing.T) {
+	project := t.TempDir()
+	store := &recordingDatasourceStore{
+		documents: make([]DatasourceDocument, 0, 21),
+	}
+	for i := range 21 {
+		store.documents = append(store.documents, DatasourceDocument{
+			WorkspaceRoot: project,
+			Name:          "doc-" + string(rune('a'+i)) + ".txt",
+			Extension:     ".txt",
+			Content:       strings.Repeat("x", 4096),
+		})
+	}
+	provider := NewPromptProvider(NewServiceWithStore(store))
+
+	got, err := provider.Resolve(context.Background(), contract.SectionContext{
+		BuildCtx: contract.BuildCtx{CWD: project},
+		Start:    &contract.StartInput{CWD: project},
+	})
+
+	if err == nil || !contract.IsCriticalPromptSectionError(err) {
+		t.Fatalf("Resolve() error = %v, want critical prompt section error", err)
+	}
+	if got != nil {
+		t.Fatalf("Resolve() text = %q, want nil on oversized datasource documents", *got)
+	}
+}
+
+// TestDatasourcePromptUsesBoundedSummaries 固定 prompt 只渲染每个文档的有界摘要。
+func TestDatasourcePromptUsesBoundedSummaries(t *testing.T) {
+	project := t.TempDir()
+	store := &recordingDatasourceStore{
+		documents: []DatasourceDocument{
+			{
+				WorkspaceRoot: project,
+				Name:          "large.txt",
+				Extension:     ".txt",
+				Content:       strings.Repeat("a", 5000) + "TAIL_MARKER",
+			},
+		},
+	}
+	provider := NewPromptProvider(NewServiceWithStore(store))
+
+	got, err := provider.Resolve(context.Background(), contract.SectionContext{
+		BuildCtx: contract.BuildCtx{CWD: project},
+		Start:    &contract.StartInput{CWD: project},
+	})
+
+	if err != nil {
+		t.Fatalf("Resolve() error = %v", err)
+	}
+	if got == nil {
+		t.Fatal("Resolve() = nil, want bounded datasource prompt text")
+	}
+	if strings.Contains(*got, "TAIL_MARKER") {
+		t.Fatalf("Resolve() rendered unbounded document tail:\n%s", *got)
+	}
+	if !strings.Contains(*got, "truncated") {
+		t.Fatalf("Resolve() missing truncation marker:\n%s", *got)
+	}
+}
+
 func firstDatasourcePromptLine(text string) string {
-	if idx := strings.IndexByte(text, '\n'); idx >= 0 {
-		return text[:idx]
+	if line, _, ok := strings.Cut(text, "\n"); ok {
+		return line
 	}
 	return text
 }

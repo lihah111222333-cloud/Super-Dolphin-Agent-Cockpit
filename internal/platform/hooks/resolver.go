@@ -221,15 +221,49 @@ func (r *HookResolver) CancelByAgent(ctx context.Context, agentID string) (int, 
 
 // ListPendingReviews 按 store 顺序读取指定 agent 的 pending review。
 func (r *HookResolver) ListPendingReviews(ctx context.Context, agentID string) ([]mcp.PendingHookReview, error) {
-	if err := r.validate(); err != nil {
+	page, err := r.ListPendingReviewsPage(ctx, contract.HookPendingReviewPageParams{
+		AgentID: agentID,
+		Limit:   contract.HookPendingReviewMaxPageLimit,
+	})
+	if err != nil {
 		return nil, err
 	}
+	return page.Reviews, nil
+}
 
-	agentID = strings.TrimSpace(agentID)
-	if agentID == "" {
-		return nil, fmt.Errorf("hooks resolver: agentID is required")
+// ListPendingReviewsPage 按 agent 显式分页读取 pending review。
+func (r *HookResolver) ListPendingReviewsPage(ctx context.Context, params contract.HookPendingReviewPageParams) (contract.HookPendingReviewPage, error) {
+	if err := r.validate(); err != nil {
+		return contract.HookPendingReviewPage{}, err
 	}
-	return r.store.ListPendingReviews(contextOrBackground(ctx), agentID)
+	params.AgentID = strings.TrimSpace(params.AgentID)
+	params.CursorHookCallID = strings.TrimSpace(params.CursorHookCallID)
+	if params.AgentID == "" {
+		return contract.HookPendingReviewPage{}, fmt.Errorf("hooks resolver: agentID is required")
+	}
+	if params.Limit <= 0 {
+		return contract.HookPendingReviewPage{}, fmt.Errorf("hooks resolver: limit is required")
+	}
+	if params.Limit > contract.HookPendingReviewMaxPageLimit {
+		params.Limit = contract.HookPendingReviewMaxPageLimit
+	}
+	pager, err := r.pendingReviewPager()
+	if err != nil {
+		return contract.HookPendingReviewPage{}, err
+	}
+	return pager.ListPendingReviewsPage(contextOrBackground(ctx), params)
+}
+
+// CountPendingReviews 统计启动恢复时仍待处理的 hook review 数量。
+func (r *HookResolver) CountPendingReviews(ctx context.Context) (int64, error) {
+	if err := r.validate(); err != nil {
+		return 0, err
+	}
+	pager, err := r.pendingReviewPager()
+	if err != nil {
+		return 0, err
+	}
+	return pager.CountPendingReviews(contextOrBackground(ctx))
 }
 
 // RecoverOnStartup 在进程启动时重载未完成的 pending review。
@@ -248,6 +282,14 @@ func (r *HookResolver) validate() error {
 		return errNilHookReviewStore
 	}
 	return nil
+}
+
+func (r *HookResolver) pendingReviewPager() (contract.HookPendingReviewPager, error) {
+	pager, ok := r.store.(contract.HookPendingReviewPager)
+	if !ok {
+		return nil, fmt.Errorf("hooks resolver: pending review pager is required")
+	}
+	return pager, nil
 }
 
 // newPendingReview 构造需要人工复核的 hook 记录，并把线程、轮次和原始 payload 一起落库。
@@ -338,20 +380,6 @@ func normalizeResolveDecision(decision string) (string, error) {
 	default:
 		return "", fmt.Errorf("hook resolve decision must be approve or reject")
 	}
-}
-
-func (r *HookResolver) loadResolvedReview(ctx context.Context, hookCallID, _ string) (string, time.Time) {
-	decision, resolvedAt, _, err := r.readResolvedReview(ctx, hookCallID)
-	if err != nil {
-		return "", time.Time{}
-	}
-	if strings.TrimSpace(decision) == "" {
-		return "", time.Time{}
-	}
-	if resolvedAt.IsZero() {
-		return decision, time.Time{}
-	}
-	return decision, resolvedAt
 }
 
 func (r *HookResolver) readResolvedReview(ctx context.Context, hookCallID string) (string, time.Time, string, error) {

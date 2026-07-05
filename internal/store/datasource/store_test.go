@@ -10,9 +10,10 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 )
 
-func TestDocumentStoreUpsertLazilyCreatesTable(t *testing.T) {
+// TestDocumentStoreDoesNotCreateDatasourceTable 固定 datasource store 不能在运行时自建表。
+func TestDocumentStoreDoesNotCreateDatasourceTable(t *testing.T) {
 	db := &recordingDocumentDB{}
-	store := &documentStore{db: db}
+	store := NewDocumentStore(db)
 	params := contract.UpsertDatasourceDocumentParams{
 		WorkspaceRoot: "D:\\project",
 		Name:          "notes.txt",
@@ -23,20 +24,16 @@ func TestDocumentStoreUpsertLazilyCreatesTable(t *testing.T) {
 	}
 
 	if err := store.UpsertDocument(context.Background(), params); err != nil {
-		t.Fatalf("first UpsertDocument() error = %v", err)
-	}
-	if err := store.UpsertDocument(context.Background(), params); err != nil {
-		t.Fatalf("second UpsertDocument() error = %v", err)
+		t.Fatalf("UpsertDocument() error = %v", err)
 	}
 
-	if len(db.execSQL) != 3 {
-		t.Fatalf("Exec calls = %d, want create + two upserts", len(db.execSQL))
+	if len(db.execSQL) != 1 {
+		t.Fatalf("Exec calls = %d, want only upsert SQL", len(db.execSQL))
 	}
-	if !strings.Contains(db.execSQL[0], "CREATE TABLE IF NOT EXISTS datasource_documents") {
-		t.Fatalf("first Exec SQL = %q, want datasource table creation", db.execSQL[0])
-	}
-	if strings.Contains(db.execSQL[1], "CREATE TABLE") || strings.Contains(db.execSQL[2], "CREATE TABLE") {
-		t.Fatalf("table creation repeated after first successful ensure: %#v", db.execSQL)
+	for _, sql := range db.execSQL {
+		if strings.Contains(strings.ToUpper(sql), "CREATE TABLE") {
+			t.Fatalf("document store executed runtime DDL: %q", sql)
+		}
 	}
 }
 
@@ -47,6 +44,11 @@ type recordingDocumentDB struct {
 func (db *recordingDocumentDB) ExecContext(_ context.Context, sql string, _ ...any) (sql.Result, error) {
 	db.execSQL = append(db.execSQL, sql)
 	return recordingSQLResult(1), nil
+}
+
+// PrepareContext satisfies sqlc.DBTX; datasource queries should execute without prepared statements.
+func (db *recordingDocumentDB) PrepareContext(context.Context, string) (*sql.Stmt, error) {
+	return nil, errors.New("unexpected Prepare call")
 }
 
 func (db *recordingDocumentDB) QueryContext(context.Context, string, ...any) (*sql.Rows, error) {

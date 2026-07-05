@@ -31,14 +31,21 @@ type hookStoreQuerierStub struct {
 	beforeCancelExpired func(now time.Time)
 }
 
-func newTestStore(records ...testRecord) (*store, *hookStoreQuerierStub) {
+// hookStorePagedQuerierStub adds bounded list/count queries to the base stub.
+type hookStorePagedQuerierStub struct {
+	*hookStoreQuerierStub
+	listPageLimits []int
+}
+
+func newTestStore(records ...testRecord) (*pagedStore, *hookStorePagedQuerierStub) {
 	db := &hookStoreQuerierStub{records: make(map[string]*testRecord, len(records))}
 	for i := range records {
 		record := records[i]
 		recordCopy := record
 		db.records[record.review.HookCallID] = &recordCopy
 	}
-	return newStoreForTest(db), db
+	pages := &hookStorePagedQuerierStub{hookStoreQuerierStub: db}
+	return newStoreForTest(db, pages), pages
 }
 
 func (db *hookStoreQuerierStub) SaveHookPendingReview(_ context.Context, arg sqlc.SaveHookPendingReviewParams) (int64, error) {
@@ -104,14 +111,24 @@ func (db *hookStoreQuerierStub) GetHookPendingReview(_ context.Context, arg sqlc
 	}, nil
 }
 
-func (db *hookStoreQuerierStub) ListHookPendingReviewsByAgent(_ context.Context, arg sqlc.ListHookPendingReviewsByAgentParams) ([]sqlc.ListHookPendingReviewsByAgentRow, error) {
+// ListHookPendingReviewsByAgentPage returns pending rows after the supplied keyset cursor.
+func (db *hookStorePagedQuerierStub) ListHookPendingReviewsByAgentPage(_ context.Context, arg sqlc.ListHookPendingReviewsByAgentPageParams) ([]sqlc.ListHookPendingReviewsByAgentPageRow, error) {
+	limit := sqlIntArg(arg.Limit)
+	db.listPageLimits = append(db.listPageLimits, limit)
+	cursorCreatedAt := fromMS(sqlInt64Arg(arg.CursorCreatedAt))
 	rows := db.pendingReviewsByAgent(arg.AgentID)
 	sort.Slice(rows, func(i, j int) bool {
+		if rows[i].review.CreatedAt.Equal(rows[j].review.CreatedAt) {
+			return rows[i].review.HookCallID < rows[j].review.HookCallID
+		}
 		return rows[i].review.CreatedAt.Before(rows[j].review.CreatedAt)
 	})
-	result := make([]sqlc.ListHookPendingReviewsByAgentRow, 0, len(rows))
+	result := make([]sqlc.ListHookPendingReviewsByAgentPageRow, 0, limit+1)
 	for _, record := range rows {
-		result = append(result, sqlc.ListHookPendingReviewsByAgentRow{
+		if !hookReviewAfterCursor(record.review, cursorCreatedAt, arg.CursorHookCallID) {
+			continue
+		}
+		result = append(result, sqlc.ListHookPendingReviewsByAgentPageRow{
 			HookCallID:      record.review.HookCallID,
 			Topic:           record.review.Topic,
 			AgentID:         record.review.AgentID,
@@ -124,8 +141,16 @@ func (db *hookStoreQuerierStub) ListHookPendingReviewsByAgent(_ context.Context,
 			CreatedAt:       toMS(record.review.CreatedAt),
 			DeadlineAt:      toMS(record.review.DeadlineAt),
 		})
+		if len(result) >= limit+1 {
+			break
+		}
 	}
 	return result, nil
+}
+
+// CountHookPendingReviews returns the current pending row count from the in-memory stub.
+func (db *hookStorePagedQuerierStub) CountHookPendingReviews(_ context.Context) (int64, error) {
+	return int64(len(db.pendingReviews())), nil
 }
 
 func (db *hookStoreQuerierStub) CheckHookReviewIdempotency(_ context.Context, arg sqlc.CheckHookReviewIdempotencyParams) (int64, error) {
@@ -261,6 +286,42 @@ func (db *hookStoreQuerierStub) execCount(op string) int {
 		}
 	}
 	return count
+}
+
+func hookReviewAfterCursor(review mcp.PendingHookReview, cursorCreatedAt time.Time, cursorHookCallID string) bool {
+	if cursorCreatedAt.IsZero() {
+		return true
+	}
+	if review.CreatedAt.After(cursorCreatedAt) {
+		return true
+	}
+	return review.CreatedAt.Equal(cursorCreatedAt) && review.HookCallID > cursorHookCallID
+}
+
+func sqlIntArg(v any) int {
+	switch n := v.(type) {
+	case int:
+		return n
+	case int64:
+		return int(n)
+	case int32:
+		return int(n)
+	default:
+		return 0
+	}
+}
+
+func sqlInt64Arg(v any) int64 {
+	switch n := v.(type) {
+	case int64:
+		return n
+	case int:
+		return int64(n)
+	case int32:
+		return int64(n)
+	default:
+		return 0
+	}
 }
 
 func (db *hookStoreQuerierStub) mustRecord(t *testing.T, hookCallID string) testRecord {

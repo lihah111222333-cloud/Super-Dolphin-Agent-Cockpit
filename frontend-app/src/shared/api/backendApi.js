@@ -143,6 +143,7 @@ export const RPC_METHODS = Object.freeze({
   DATASOURCE_V2_IMPORT_LOCAL_FILE: 'datasourceV2/importLocalFile',
   DATASOURCE_V2_LIST: 'datasourceV2/list',
   DATASOURCE_V2_GET: 'datasourceV2/get',
+  DATASOURCE_V2_LIST_CHUNKS: 'datasourceV2/list_chunks',
   DATASOURCE_V2_UPDATE: 'datasourceV2/update',
   DATASOURCE_V2_DELETE: 'datasourceV2/delete',
 
@@ -156,6 +157,8 @@ export const RPC_METHODS = Object.freeze({
   MCP_TOOL_LIFECYCLE_EXPORT: 'mcpServer/toolLifecycle/export',
 
   THREAD_START: 'thread/start',
+  THREAD_LIST_PAGE: 'thread/listPage',
+  THREAD_LOADED_LIST_PAGE: 'thread/loaded/listPage',
   THREAD_MESSAGES: 'thread/messages',
   THREAD_RESOLVE: 'thread/resolve',
   THREAD_ARCHIVE: 'thread/archive',
@@ -310,6 +313,14 @@ function normalizeOptionalLimit(method, payload) {
   const limit = Number(payload.limit);
   if (!Number.isInteger(limit) || limit <= 0) throw new Error(`${method}: limit must be a positive integer`);
   return limit;
+}
+
+function normalizeOptionalCursorInteger(method, payload, camelKey, snakeKey) {
+  const raw = payload[camelKey] ?? payload[snakeKey];
+  if (raw === undefined || raw === null || raw === '') return undefined;
+  const value = Number(raw);
+  if (!Number.isInteger(value) || value < 0) throw new Error(`${method}: ${camelKey} must be a non-negative integer`);
+  return value;
 }
 
 function observabilityTracePayload(method, params) {
@@ -1242,6 +1253,20 @@ function datasourceDocumentIDPayload(method, params) {
   return { documentId: documentID };
 }
 
+function datasourceChunksPayload(params) {
+  const method = RPC_METHODS.DATASOURCE_V2_LIST_CHUNKS;
+  const payload = assertPlainObject(method, params);
+  const { documentId } = datasourceDocumentIDPayload(method, payload);
+  const limit = normalizeOptionalLimit(method, payload);
+  if (!limit) throw new Error(`${method}: limit must be a positive integer`);
+  if (!hasOwn(payload, 'cursor')) throw new Error(`${method}: cursor is required`);
+  const cursor = Number(payload.cursor);
+  if (!Number.isInteger(cursor) || cursor < -1) {
+    throw new Error(`${method}: cursor must be -1 or greater`);
+  }
+  return { documentId, limit, cursor };
+}
+
 function datasourceUpdatePayload(params) {
   const method = RPC_METHODS.DATASOURCE_V2_UPDATE;
   const payload = assertPlainObject(method, params);
@@ -1283,6 +1308,10 @@ function createDatasourceApi(callBackend) {
     getDatasourceDocument: (params) => callBackend(
       RPC_METHODS.DATASOURCE_V2_GET,
       datasourceDocumentIDPayload(RPC_METHODS.DATASOURCE_V2_GET, params),
+    ),
+    listDatasourceChunks: (params) => callBackend(
+      RPC_METHODS.DATASOURCE_V2_LIST_CHUNKS,
+      datasourceChunksPayload(params),
     ),
     updateDatasourceDocument: (params) => callBackend(
       RPC_METHODS.DATASOURCE_V2_UPDATE,
@@ -1781,6 +1810,8 @@ function createMCPServerApi(callBackend) {
 
 function createThreadApi(callBackend) {
   return {
+    listThreadsPage: (params) => callBackend(RPC_METHODS.THREAD_LIST_PAGE, threadListPagePayload(RPC_METHODS.THREAD_LIST_PAGE, params)),
+    listLoadedThreadsPage: (params) => callBackend(RPC_METHODS.THREAD_LOADED_LIST_PAGE, threadListPagePayload(RPC_METHODS.THREAD_LOADED_LIST_PAGE, params)),
     getThreadMessages: (params) => callBackend(RPC_METHODS.THREAD_MESSAGES, threadMessagesPayload(params)),
     resolveThreadIdentity: (params) => callBackend(RPC_METHODS.THREAD_RESOLVE, threadIdOnlyPayload(RPC_METHODS.THREAD_RESOLVE, params)),
     archiveThread: (params) => callBackend(RPC_METHODS.THREAD_ARCHIVE, threadIdOnlyPayload(RPC_METHODS.THREAD_ARCHIVE, params)),
@@ -1797,6 +1828,17 @@ function createThreadApi(callBackend) {
     recoverThread: (params) => callBackend(RPC_METHODS.THREAD_RECOVER, threadIdOnlyPayload(RPC_METHODS.THREAD_RECOVER, requireCwd(RPC_METHODS.THREAD_RECOVER, params))),
     renameThread: (params) => callBackend(RPC_METHODS.THREAD_NAME_SET, legacyThreadNamePayload(RPC_METHODS.THREAD_NAME_SET, params)),
   };
+}
+
+function threadListPagePayload(method, params = {}) {
+  const payload = assertPlainObject(method, params);
+  const limit = normalizeOptionalLimit(method, payload);
+  if (!limit) throw new Error(`${method}: limit is required`);
+  return cleanObject({
+    limit,
+    cursor_created_at: normalizeOptionalCursorInteger(method, payload, 'cursorCreatedAt', 'cursor_created_at'),
+    cursor_thread_id: normalizeString(payload.cursorThreadId || payload.cursor_thread_id),
+  });
 }
 
 function threadIdOnlyPayload(method, params) {
@@ -2159,6 +2201,7 @@ export const createDatasourceDocument = backendApi.createDatasourceDocument;
 export const importDatasourceLocalFile = backendApi.importDatasourceLocalFile;
 export const listDatasourceDocuments = backendApi.listDatasourceDocuments;
 export const getDatasourceDocument = backendApi.getDatasourceDocument;
+export const listDatasourceChunks = backendApi.listDatasourceChunks;
 export const updateDatasourceDocument = backendApi.updateDatasourceDocument;
 export const deleteDatasourceDocument = backendApi.deleteDatasourceDocument;
 export const listMCPServers = backendApi.listMCPServers;
@@ -2169,6 +2212,8 @@ export const stopPlaywrightMCPServer = backendApi.stopPlaywrightMCPServer;
 export const setMCPToolLifecycle = backendApi.setMCPToolLifecycle;
 export const listMCPToolLifecycle = backendApi.listMCPToolLifecycle;
 export const exportMCPToolLifecycle = backendApi.exportMCPToolLifecycle;
+export const listThreadsPage = backendApi.listThreadsPage;
+export const listLoadedThreadsPage = backendApi.listLoadedThreadsPage;
 export const getThreadMessages = backendApi.getThreadMessages;
 export const resolveThreadIdentity = backendApi.resolveThreadIdentity;
 export const archiveThread = backendApi.archiveThread;

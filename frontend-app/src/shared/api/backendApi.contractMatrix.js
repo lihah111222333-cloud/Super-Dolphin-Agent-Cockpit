@@ -168,6 +168,7 @@ export const RPC_CONTRACT_REGISTRY = Object.freeze({
   DATASOURCE_V2_IMPORT_LOCAL_FILE: contract('DATASOURCE_V2_IMPORT_LOCAL_FILE', 'importDatasourceLocalFile', 'P0', 'datasourceV2', [TESTS.API, TESTS.SKILLS], ['user-selected local file import mutation']),
   DATASOURCE_V2_LIST: contract('DATASOURCE_V2_LIST', 'listDatasourceDocuments', 'P1', 'datasourceV2', [TESTS.API, TESTS.SKILLS], ['datasource read']),
   DATASOURCE_V2_GET: contract('DATASOURCE_V2_GET', 'getDatasourceDocument', 'P1', 'datasourceV2', [TESTS.API, TESTS.SKILLS], ['datasource read']),
+  DATASOURCE_V2_LIST_CHUNKS: contract('DATASOURCE_V2_LIST_CHUNKS', 'listDatasourceChunks', 'P1', 'datasourceV2', [TESTS.API, TESTS.SKILLS], ['datasource read']),
   DATASOURCE_V2_UPDATE: contract('DATASOURCE_V2_UPDATE', 'updateDatasourceDocument', 'P0', 'datasourceV2', [TESTS.API, TESTS.SKILLS], ['datasource metadata mutation']),
   DATASOURCE_V2_DELETE: contract('DATASOURCE_V2_DELETE', 'deleteDatasourceDocument', 'P0', 'datasourceV2', [TESTS.API, TESTS.SKILLS], ['datasource mutation']),
 
@@ -181,6 +182,8 @@ export const RPC_CONTRACT_REGISTRY = Object.freeze({
   MCP_TOOL_LIFECYCLE_EXPORT: contract('MCP_TOOL_LIFECYCLE_EXPORT', 'exportMCPToolLifecycle', 'P1', 'mcpServer', [TESTS.API, TESTS.SURFACE, TESTS.SKILLS], ['MCP tool lifecycle export', 'strict payload']),
 
   THREAD_START: contract('THREAD_START', 'startThread', 'P0', 'thread', [TESTS.API, TESTS.APP], ['runtime lifecycle start'], false, { responseValidator: 'threadStartResponse' }),
+  THREAD_LIST_PAGE: contract('THREAD_LIST_PAGE', 'listThreadsPage', 'P1', 'thread', [TESTS.API, TESTS.APP], ['thread bounded list page']),
+  THREAD_LOADED_LIST_PAGE: contract('THREAD_LOADED_LIST_PAGE', 'listLoadedThreadsPage', 'P1', 'thread', [TESTS.API, TESTS.APP], ['thread bounded loaded list page']),
   THREAD_MESSAGES: contract('THREAD_MESSAGES', 'getThreadMessages', 'P1', 'thread', [TESTS.API, TESTS.APP], ['thread read'], false, { responseValidator: 'threadMessagesResponse' }),
   THREAD_RESOLVE: contract('THREAD_RESOLVE', 'resolveThreadIdentity', 'P1', 'thread', [TESTS.API, TESTS.APP], ['thread read'], false, { responseValidator: 'threadResolveResponse' }),
   THREAD_ARCHIVE: contract('THREAD_ARCHIVE', 'archiveThread', 'P0', 'thread', [TESTS.API, TESTS.APP], ['thread mutation']),

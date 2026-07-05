@@ -4,13 +4,21 @@ package datasource
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sort"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 )
 
 var _ contract.DynamicSectionProvider = (*PromptProvider)(nil)
+
+const (
+	datasourcePromptMaxDocuments      = 20
+	datasourcePromptMaxWorkspaceBytes = 64 * 1024
+	datasourcePromptMaxDocumentBytes  = 4 * 1024
+)
 
 // PromptProvider 把 datasource 工作区的文件列表或文档正文接入 prompt 动态段。
 type PromptProvider struct {
@@ -38,14 +46,18 @@ func (p *PromptProvider) Resolve(ctx context.Context, input contract.SectionCont
 	if err != nil {
 		return nil, contract.NewCriticalPromptSectionError(contract.DynamicSectionDatasource, err)
 	}
-	if text := renderDatasourceDocumentPromptSection(documents.Documents); text != "" {
+	text, err := renderDatasourceDocumentPromptSection(documents.Documents)
+	if err != nil {
+		return nil, contract.NewCriticalPromptSectionError(contract.DynamicSectionDatasource, err)
+	}
+	if text != "" {
 		return &text, nil
 	}
 	result, err := p.svc.ListFiles(ctx)
 	if err != nil {
 		return nil, contract.NewCriticalPromptSectionError(contract.DynamicSectionDatasource, err)
 	}
-	text := renderDatasourcePromptSection(result.FileNames)
+	text = renderDatasourcePromptSection(result.FileNames)
 	if text == "" {
 		return nil, nil
 	}
@@ -77,12 +89,15 @@ func renderDatasourcePromptSection(fileNames []string) string {
 	return strings.Join(lines, "\n")
 }
 
-// renderDatasourceDocumentPromptSection 将文档正文渲染为 prompt 段落。
-// 文档先规范化排序，保证相同 workspace 的 prompt 输入稳定。
-func renderDatasourceDocumentPromptSection(documents []DatasourceDocument) string {
+// renderDatasourceDocumentPromptSection 将文档正文摘要渲染为 prompt 段落。
+// 文档先规范化排序并检查 workspace 总量，保证 prompt 输入稳定且有界。
+func renderDatasourceDocumentPromptSection(documents []DatasourceDocument) (string, error) {
 	documents = normalizeDatasourceDocuments(documents)
 	if len(documents) == 0 {
-		return ""
+		return "", nil
+	}
+	if err := validateDatasourcePromptBounds(documents); err != nil {
+		return "", err
 	}
 	lines := make([]string, 0, len(documents)*5+3)
 	lines = append(lines,
@@ -94,10 +109,10 @@ func renderDatasourceDocumentPromptSection(documents []DatasourceDocument) strin
 		lines = append(lines,
 			"",
 			"### "+document.Name,
-			strings.TrimSpace(document.Content),
+			boundedDatasourceDocumentSummary(document.Content),
 		)
 	}
-	return strings.Join(lines, "\n")
+	return strings.Join(lines, "\n"), nil
 }
 
 // normalizeDatasourceDocuments 过滤空名称或空内容的文档并按名称升序排序。
@@ -114,4 +129,38 @@ func normalizeDatasourceDocuments(documents []DatasourceDocument) []DatasourceDo
 		return normalized[i].Name < normalized[j].Name
 	})
 	return normalized
+}
+
+func validateDatasourcePromptBounds(documents []DatasourceDocument) error {
+	if len(documents) > datasourcePromptMaxDocuments {
+		return fmt.Errorf("datasource prompt documents exceed count cap: %d > %d", len(documents), datasourcePromptMaxDocuments)
+	}
+	totalBytes := 0
+	for _, document := range documents {
+		totalBytes += len([]byte(document.Content))
+		if totalBytes > datasourcePromptMaxWorkspaceBytes {
+			return fmt.Errorf("datasource prompt documents exceed byte cap: %d > %d", totalBytes, datasourcePromptMaxWorkspaceBytes)
+		}
+	}
+	return nil
+}
+
+func boundedDatasourceDocumentSummary(content string) string {
+	content = strings.TrimSpace(content)
+	if len([]byte(content)) <= datasourcePromptMaxDocumentBytes {
+		return content
+	}
+	summary := trimStringToValidUTF8Bytes(content, datasourcePromptMaxDocumentBytes)
+	return fmt.Sprintf("%s\n\n[truncated: showing first %d bytes of %d bytes]", summary, len([]byte(summary)), len([]byte(content)))
+}
+
+func trimStringToValidUTF8Bytes(s string, maxBytes int) string {
+	if len([]byte(s)) <= maxBytes {
+		return s
+	}
+	end := maxBytes
+	for end > 0 && !utf8.ValidString(s[:end]) {
+		end--
+	}
+	return strings.TrimSpace(s[:end])
 }

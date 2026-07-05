@@ -514,8 +514,33 @@ func (s *recordingDatasourceV2Store) GetDocument(context.Context, int64) (*datas
 	return &doc, nil
 }
 
-func (s *recordingDatasourceV2Store) ListChunks(context.Context, int64) ([]datasourcev2store.TextChunk, error) {
-	return append([]datasourcev2store.TextChunk(nil), s.chunks...), nil
+func (s *recordingDatasourceV2Store) ListChunksPage(
+	_ context.Context,
+	params datasourcev2store.ListChunksParams,
+) (datasourcev2store.TextChunkPage, error) {
+	limit := int(params.Limit)
+	pageChunks := make([]datasourcev2store.TextChunk, 0, limit+1)
+	for _, chunk := range s.chunks {
+		if chunk.DocumentID == params.DocumentID && chunk.ChunkIndex > params.Cursor {
+			pageChunks = append(pageChunks, chunk)
+		}
+		if len(pageChunks) >= limit+1 {
+			break
+		}
+	}
+	hasMore := len(pageChunks) > limit
+	if hasMore {
+		pageChunks = pageChunks[:limit]
+	}
+	nextCursor := int32(0)
+	if hasMore && len(pageChunks) > 0 {
+		nextCursor = pageChunks[len(pageChunks)-1].ChunkIndex
+	}
+	return datasourcev2store.TextChunkPage{
+		Chunks:     append([]datasourcev2store.TextChunk(nil), pageChunks...),
+		HasMore:    hasMore,
+		NextCursor: nextCursor,
+	}, nil
 }
 
 func (s *recordingDatasourceV2Store) SearchChunks(

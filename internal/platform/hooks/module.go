@@ -58,12 +58,12 @@ func registerRecoveryLifecycle(lc fx.Lifecycle, in recoveryLifecycleIn) {
 	}
 	lc.Append(fx.Hook{
 		OnStart: func(ctx context.Context) error {
-			reviews, err := in.Resolver.RecoverOnStartup(ctx)
+			count, err := in.Resolver.CountPendingReviews(ctx)
 			if err != nil {
 				return err
 			}
-			if len(reviews) > 0 {
-				logger.Info("hooks recovered pending reviews", "count", len(reviews))
+			if count > 0 {
+				logger.Info("hooks recovered pending reviews", "count", count)
 			}
 			return nil
 		},
