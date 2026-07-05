@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/mcpserver/common"
+	"github.com/anthropic-ai/super-agent-v3/internal/util/safego"
 )
 
 const (
@@ -46,11 +47,11 @@ func timeoutWithWorkerLimit(limit time.Duration, workerLimit int) Middleware {
 				return nil, err
 			}
 			resultC := make(chan timeoutResult, 1)
-			go func() {
+			safego.Go(timeoutCtx, nil, "mcp-lsp.timeout.handler", func(context.Context) {
 				defer releaseTimeoutWorker(workerSem)
 				result, err := callWithRecover(next, timeoutCtx, params)
 				resultC <- timeoutResult{value: result, err: err}
-			}()
+			})
 			select {
 			case result := <-resultC:
 				return result.value, result.err

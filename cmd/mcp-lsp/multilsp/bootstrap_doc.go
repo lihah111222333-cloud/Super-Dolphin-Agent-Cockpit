@@ -12,6 +12,7 @@ import (
 
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-lsp/protocol"
 	platformshared "github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
+	"github.com/anthropic-ai/super-agent-v3/internal/util/safego"
 )
 
 const (
@@ -446,16 +447,17 @@ func runRefreshTasks(ctx context.Context, width, count int, fn func(int)) {
 		default:
 		}
 		wg.Add(1)
-		go func(i int) {
+		currentIndex := index
+		safego.Go(ctx, nil, "mcp-lsp.bootstrap.refresh", func(runCtx context.Context) {
 			defer wg.Done()
 			select {
 			case sem <- struct{}{}:
-			case <-ctx.Done():
+			case <-runCtx.Done():
 				return
 			}
 			defer func() { <-sem }()
-			fn(i)
-		}(index)
+			fn(currentIndex)
+		})
 	}
 	wg.Wait()
 }
