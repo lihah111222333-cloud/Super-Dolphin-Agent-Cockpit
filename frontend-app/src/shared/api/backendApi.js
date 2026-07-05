@@ -1049,6 +1049,19 @@ function validateTurnForceCompleteResponse(method, response) {
   return value;
 }
 
+function validateDashboardDagStartResponse(method, response) {
+  const value = assertBackendResponseObject(method, response);
+  requireResponseKey(method, value, ['runKey', 'run_key']);
+  return value;
+}
+
+function validateDashboardDagCreateAndStartResponse(method, response) {
+  const value = assertBackendResponseObject(method, response);
+  requireResponseKey(method, value, ['dagKey', 'dag_key']);
+  requireResponseKey(method, value, ['runKey', 'run_key']);
+  return value;
+}
+
 function validateSkillReadResponse(method, response) {
   const value = assertBackendResponseObject(method, response);
   const skill = value.skill;
@@ -1156,6 +1169,8 @@ const BACKEND_RESPONSE_VALIDATORS = Object.freeze({
   [RPC_METHODS.THREAD_RESOLVE]: validateThreadResolveResponse,
   [RPC_METHODS.TURN_START]: validateTurnStartResponse,
   [RPC_METHODS.TURN_FORCE_COMPLETE]: validateTurnForceCompleteResponse,
+  [RPC_METHODS.DASHBOARD_DAG_START]: validateDashboardDagStartResponse,
+  [RPC_METHODS.DASHBOARD_DAG_CREATE_AND_START]: validateDashboardDagCreateAndStartResponse,
 });
 
 /** @type {ReadonlyArray<readonly [string, (...args: any[]) => any]>} */

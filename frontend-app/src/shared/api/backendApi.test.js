@@ -45,6 +45,8 @@ function guardedBackendResponse(method) {
   if (method === RPC_METHODS.THREAD_START) return { threadId: 'thread-123', status: 'running' };
   if (method === RPC_METHODS.TURN_START) return { turn_id: 'turn-1' };
   if (method === RPC_METHODS.TURN_FORCE_COMPLETE) return { ok: true, forceCompleted: true };
+  if (method === RPC_METHODS.DASHBOARD_DAG_START) return { runKey: 'run-1' };
+  if (method === RPC_METHODS.DASHBOARD_DAG_CREATE_AND_START) return { dagKey: 'dag-created', runKey: 'run-created' };
   return { ok: true };
 }
 
@@ -720,6 +722,29 @@ function guardedBackendResponse(method) {
         message: 'turn/forceComplete response forceCompleted must be a boolean',
       },
       {
+        call: (api) => api.startDag({ dagKey: 'dag-1', triggerSource: 'manual' }),
+        response: { ok: true },
+        message: 'dashboard/dagStart response missing runKey or run_key',
+      },
+      {
+        call: (api) => api.createAndStartDag({
+          dagKey: 'dag-created',
+          title: 'Created DAG',
+          nodes: [{ nodeKey: 'draft', title: 'Draft', nodeType: 'agent', dependsOn: [] }],
+        }),
+        response: { dagKey: 'dag-created' },
+        message: 'dashboard/dagCreateAndStart response missing runKey or run_key',
+      },
+      {
+        call: (api) => api.createAndStartDag({
+          dagKey: 'dag-created',
+          title: 'Created DAG',
+          nodes: [{ nodeKey: 'draft', title: 'Draft', nodeType: 'agent', dependsOn: [] }],
+        }),
+        response: { runKey: 'run-created' },
+        message: 'dashboard/dagCreateAndStart response missing dagKey or dag_key',
+      },
+      {
         call: (api) => api.readSkill({ cwd: '/repo/app', path: '.agents/skills/demo/SKILL.md' }),
         response: {},
         message: 'skills/local/read response skill must be an object',
@@ -1223,7 +1248,7 @@ function expectSkillEditorCalls(callAPI) {
   });
 
   it('wraps DAG dashboard RPCs with the legacy payload shapes', async () => {
-    const callAPI = vi.fn().mockResolvedValue({ ok: true });
+    const callAPI = vi.fn((method) => Promise.resolve(guardedBackendResponse(method)));
     const api = createBackendApi({ callAPI });
 
     await callDagDashboardApis(api);
