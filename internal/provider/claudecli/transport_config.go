@@ -35,7 +35,6 @@ func sanitizeResumeID(id string) string {
 
 const (
 	defaultClaudeCLIBin = "claude"
-	managedMCPPrefix    = "mcp-"
 	systemPromptDumpEnv = "SUPER_DOLPHIN_CLAUDE_SYSTEM_PROMPT_DUMP"
 )
 
@@ -551,7 +550,7 @@ func buildStdioServer(bin dto.MCPBinary, cwd string) (map[string]any, error) {
 	if command == "" {
 		return nil, errors.New("empty stdio command")
 	}
-	if !allowedStdioMCPCommand(command, bin.Command[1:]) {
+	if !allowedStdioMCPCommand(bin.Name, command, bin.Command[1:]) {
 		return nil, fmt.Errorf("stdio command %q is not allowed", command)
 	}
 	server := map[string]any{"command": command}
@@ -569,14 +568,19 @@ func buildStdioServer(bin dto.MCPBinary, cwd string) (map[string]any, error) {
 }
 
 // allowedStdioMCPCommand 控制 Claude MCP 配置里可被拉起的 stdio 命令范围。
-// 托管 sidecar 按 mcp-* 放行；npx 只允许明确列出的 MCP 包，避免任意 npm 包被配置启动。
-func allowedStdioMCPCommand(command string, args []string) bool {
+// 托管 sidecar 必须绑定内置 server name；npx 只允许明确列出的 MCP 包，避免任意 npm 包被配置启动。
+func allowedStdioMCPCommand(serverName, command string, args []string) bool {
 	base := strings.ToLower(strings.TrimSpace(filepath.Base(command)))
 	base = strings.TrimSuffix(strings.TrimSuffix(base, ".exe"), ".cmd")
-	if strings.HasPrefix(base, managedMCPPrefix) {
+	switch base {
+	case "mcp-lsp":
+		return strings.TrimSpace(serverName) == string(dto.FamilyLSP)
+	case "mcp-orch":
+		return strings.TrimSpace(serverName) == string(dto.FamilyOrch)
+	case "mcp-server-postgres":
 		return true
-	}
-	if base != "npx" {
+	case "npx":
+	default:
 		return false
 	}
 	for _, arg := range args {

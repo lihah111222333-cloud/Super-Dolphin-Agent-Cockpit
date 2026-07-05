@@ -107,12 +107,12 @@ func assertClaudeMCPManifest(t *testing.T, raw []byte, doc claudeManifestFile) {
 func TestClaudeMCPManifest_RejectsUnmanagedStdioServer_E2E(t *testing.T) {
 	manifest := dto.MCPManifest{Binaries: []dto.MCPBinary{
 		{
-			Name:    "mcp-lsp",
+			Name:    "lsp",
 			Command: []string{"/tmp/claude-e2e/bin/mcp-lsp"},
 		},
 		{
 			Name:    "third-party",
-			Command: []string{"/tmp/claude-e2e/bin/third-party"},
+			Command: []string{"/tmp/claude-e2e/bin/mcp-evil"},
 		},
 	}}
 

@@ -350,20 +350,35 @@ func TestWriteManifestConfigIncludesAllowedNPXPlaywrightStdioServer(t *testing.T
 func TestWriteManifestConfigFailsFastForRejectedStdioServer(t *testing.T) {
 	t.Parallel()
 
-	manifest := dto.MCPManifest{Binaries: []dto.MCPBinary{{
-		Name:    "unsafe",
-		Command: []string{"run-anything"},
-	}}}
+	for _, tc := range []struct {
+		name    string
+		command string
+	}{
+		{name: "unknown command", command: "run-anything"},
+		{name: "mcp prefix", command: filepath.Join(t.TempDir(), "mcp-evil")},
+		{name: "mcp prefix exe", command: filepath.Join(t.TempDir(), "mcp-evil.exe")},
+		{name: "mcp prefix cmd", command: filepath.Join(t.TempDir(), "mcp-evil.cmd")},
+		{name: "managed basename with untrusted server name", command: filepath.Join(t.TempDir(), "mcp-lsp")},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 
-	path, cleanup, err := writeManifestConfig(manifest, "/tmp/work")
-	if err == nil {
-		if cleanup != nil {
-			cleanup()
-		}
-		t.Fatalf("writeManifestConfig() = (%q, cleanup, nil), want rejected server error", path)
-	}
-	if !strings.Contains(strings.ToLower(err.Error()), "rejected") {
-		t.Fatalf("writeManifestConfig() error = %v, want rejected server context", err)
+			manifest := dto.MCPManifest{Binaries: []dto.MCPBinary{{
+				Name:    "unsafe",
+				Command: []string{tc.command},
+			}}}
+
+			path, cleanup, err := writeManifestConfig(manifest, "/tmp/work")
+			if err == nil {
+				if cleanup != nil {
+					cleanup()
+				}
+				t.Fatalf("writeManifestConfig() = (%q, cleanup, nil), want rejected server error", path)
+			}
+			if !strings.Contains(strings.ToLower(err.Error()), "rejected") {
+				t.Fatalf("writeManifestConfig() error = %v, want rejected server context", err)
+			}
+		})
 	}
 }
 
