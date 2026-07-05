@@ -70,6 +70,40 @@ export function createRuntimeResultHelpers(deps = {}) {
     return { preview };
   };
 
+  const safeRuntimeRPCFieldValue = (value) => {
+    if (typeof value === 'string') {
+      const normalized = normalizeString(value);
+      return normalized || undefined;
+    }
+    if (typeof value === 'number') return Number.isFinite(value) ? value : undefined;
+    if (typeof value === 'boolean') return value;
+    return undefined;
+  };
+
+  const safeRuntimeRPCResultFields = (fields = {}, detail = '') => {
+    const out = {};
+    for (const [source, target = source] of [
+      ['method'],
+      ['rpcMethod', 'method'],
+      ['rpc_method', 'method'],
+      ['threadId'],
+      ['thread_id', 'threadId'],
+      ['req_id'],
+      ['reqId', 'req_id'],
+      ['trace_id'],
+      ['traceId', 'trace_id'],
+      ['span_id'],
+      ['spanId', 'span_id'],
+      ['status'],
+    ]) {
+      const value = safeRuntimeRPCFieldValue(fields[source]);
+      if (value !== undefined && out[target] === undefined) out[target] = value;
+    }
+    const preview = safeRuntimeToolResultFieldObject(detail);
+    if (Object.keys(preview).length > 0) out.preview = preview;
+    return out;
+  };
+
   const normalizeRuntimeToolName = (name) => {
     const raw = normalizeString(name);
     if (!raw) return '';
@@ -144,7 +178,7 @@ export function createRuntimeResultHelpers(deps = {}) {
       threadId,
       message: `${method} 返回 · ${summary}`,
       detail,
-      fields,
+      fields: safeRuntimeRPCResultFields(fields, detail),
       signature: `${event}|${threadId}|${method}|${detail}`,
     };
   };

@@ -99,6 +99,40 @@ describe('RuntimeActivityPanel', () => {
     expect(screen.getByTestId('warning-log-popover')).toHaveTextContent('missing permission');
   });
 
+  it('redacts runtime result popover fields before display', () => {
+    renderRuntimeActivityPanel({
+      runtimeResults: [{
+        id: 'result-1',
+        timestamp: '2026-06-11T06:00:00.123456Z',
+        event: 'api.rpc.done',
+        message: 'thread/messages 返回 · {"total":1}',
+        fields: {
+          method: 'thread/messages',
+          req_id: 9,
+          result_preview: JSON.stringify({
+            messages: [{
+              id: 1,
+              content: 'private prompt body',
+              path: '/home/l4place/private-project/secret.txt',
+              api_key: 'sk-live-secret',
+              count: 2,
+            }],
+            total: 1,
+          }),
+        },
+      }],
+    });
+
+    fireEvent.click(screen.getByText('thread/messages 返回').closest('button'));
+    const popover = screen.getByTestId('warning-log-popover');
+    expect(popover).toHaveTextContent('thread/messages');
+    expect(popover).toHaveTextContent('"req_id":9');
+    expect(popover).not.toHaveTextContent('private prompt body');
+    expect(popover).not.toHaveTextContent('/home/l4place');
+    expect(popover).not.toHaveTextContent('sk-live-secret');
+    expect(popover).not.toHaveTextContent('secret.txt');
+  });
+
   it('hides runtime log lines when the activity panel is collapsed', () => {
     renderRuntimeActivityPanel({
       activityPanelHeight: 64,

@@ -5349,17 +5349,27 @@ function registerBridgeEventHandlersForTest() {
   });
 
   it('coalesces repeated backend RPC return entries while preserving occurrence count', () => {
+    const resultPreview = JSON.stringify({
+      messages: [{
+        id: 1,
+        content: 'private prompt body',
+        path: '/home/l4place/private-project/secret.txt',
+        api_key: 'sk-live-secret',
+        count: 2,
+      }],
+      total: 1,
+    });
     useClientStore.getState().addLog('debug', 'api.rpc.done', {
       method: 'thread/messages',
       threadId: 'thread-1',
       req_id: 1,
-      result_preview: '{"messages":[{"id":1}]}',
+      result_preview: resultPreview,
     });
     useClientStore.getState().addLog('debug', 'api.rpc.done', {
       method: 'thread/messages',
       threadId: 'thread-1',
       req_id: 2,
-      result_preview: '{"messages":[{"id":1}]}',
+      result_preview: resultPreview,
     });
 
     const results = useClientStore.getState().runtimeResultEntries;
@@ -5371,6 +5381,11 @@ function registerBridgeEventHandlersForTest() {
         req_id: 2,
       }),
     }));
+    const serializedFields = JSON.stringify(results[0].fields);
+    expect(serializedFields).not.toContain('private prompt body');
+    expect(serializedFields).not.toContain('/home/l4place');
+    expect(serializedFields).not.toContain('sk-live-secret');
+    expect(serializedFields).not.toContain('secret.txt');
   });
 
   it('connects conversation card actions to backend RPCs with explicit cwd', async () => {

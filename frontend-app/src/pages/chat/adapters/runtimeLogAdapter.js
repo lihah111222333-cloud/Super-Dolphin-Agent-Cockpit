@@ -1,6 +1,14 @@
+import { compactSafeDiagnosticPreview } from '../../../shared/api/safeDiagnosticPreview.js';
+
+const RUNTIME_LOG_DETAIL_LIMIT = 1600;
+
+function safeRuntimeLogDetail(value) {
+  return compactSafeDiagnosticPreview(value, RUNTIME_LOG_DETAIL_LIMIT, { parseJsonStrings: true });
+}
+
 function warningDetailText(entry) {
   if (entry?.runtimeKind === 'result' && entry?.fields && typeof entry.fields === 'object') {
-    return JSON.stringify(entry.fields, null, 2);
+    return safeRuntimeLogDetail(entry.fields);
   }
   return entry?.detail || JSON.stringify(entry?.fields ?? {}, null, 2);
 }

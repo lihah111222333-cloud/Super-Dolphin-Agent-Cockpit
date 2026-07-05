@@ -114,6 +114,10 @@ describe('runtime result helpers', () => {
     expect(entry.detail).not.toContain('real-message-secret');
     expect(entry.detail).not.toContain('/home/l4place');
     expect(entry.message).not.toContain('real-message-secret');
+    const serializedFields = JSON.stringify(entry.fields);
+    expect(serializedFields).not.toContain('real-message-secret');
+    expect(serializedFields).not.toContain('/home/l4place');
+    expect(serializedFields).not.toContain('secret.txt');
   });
 
   it('redacts sensitive tool timeline result details before display', () => {
