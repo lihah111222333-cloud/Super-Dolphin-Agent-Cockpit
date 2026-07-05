@@ -15,6 +15,7 @@ import (
 const DefaultPath = "cmd/mcp-orch/tools/modelregistry/models.yaml"
 const EnvRegistryPath = "SUPER_DOLPHIN_MODEL_REGISTRY"
 
+// ProviderModels 描述单个 provider 可用模型及运行时可用性。
 type ProviderModels struct {
 	Provider          string   `json:"provider" yaml:"provider"`
 	Models            []string `json:"models" yaml:"models"`
@@ -22,11 +23,13 @@ type ProviderModels struct {
 	UnavailableReason string   `json:"unavailable_reason,omitempty" yaml:"-"`
 }
 
+// Registry 定义模型注册表读取合同，文件和静态实现都需返回防修改快照。
 type Registry interface {
 	ListProviders() ([]ProviderModels, error)
 	LookupProvider(name string) (ProviderModels, bool, error)
 }
 
+// FileRegistry 从 YAML 文件加载 provider 模型列表，并在每次查询前重新加载。
 type FileRegistry struct {
 	path   string
 	logger *slog.Logger
@@ -35,6 +38,7 @@ type FileRegistry struct {
 	providers []ProviderModels
 }
 
+// StaticRegistry 是测试和内存场景使用的只读模型注册表。
 type StaticRegistry struct {
 	providers []ProviderModels
 }
@@ -43,6 +47,7 @@ type fileConfig struct {
 	Providers []ProviderModels `yaml:"providers"`
 }
 
+// FileRegistryOption 调整文件注册表构造参数。
 type FileRegistryOption func(*fileRegistryConfig)
 
 type fileRegistryConfig struct {

@@ -40,6 +40,7 @@ type ListModelsResult struct {
 	Hint      string           `json:"hint,omitempty"`
 }
 
+// ListModelsOption 调整 list_models handler 的依赖注入，测试可替换模型注册表。
 type ListModelsOption func(*listModelsConfig)
 
 type listModelsConfig struct {

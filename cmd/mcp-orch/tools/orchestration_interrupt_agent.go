@@ -10,6 +10,7 @@ import (
 	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
 )
 
+// InterruptAgentInput 是 interrupt_agent 工具入参，兼容 agent_id 与 pos 定位。
 type InterruptAgentInput struct {
 	AgentID   string `json:"agent_id"`
 	Pos       string `json:"pos,omitempty"`

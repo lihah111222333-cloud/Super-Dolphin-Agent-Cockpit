@@ -13,6 +13,7 @@ import (
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 )
 
+// Dependencies 汇总 mcp-orch 工具注册所需的服务和 store 依赖。
 type Dependencies struct {
 	Orchestration  contract.OrchestrationService
 	Workspace      workspace.Service
@@ -23,6 +24,7 @@ type Dependencies struct {
 	ModelRegistry  modelregistry.Registry
 }
 
+// Registry 持有 MCP 工具定义快照和名称索引，Lookup 负责旧工具名兼容。
 type Registry struct {
 	tools   []ToolDefinition
 	byName  map[string]ToolDefinition
