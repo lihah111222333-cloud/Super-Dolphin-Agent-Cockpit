@@ -45,6 +45,8 @@ type initializeRPCResult struct {
 	CodexHome string `json:"codexHome"`
 }
 
+// RawMessage 是 Codex app-server 推给 toolbridge 的 JSON-RPC 消息视图。
+// 它只暴露 id、method、params，避免工具层依赖 transport 内部响应和错误帧。
 type RawMessage struct {
 	ID     json.RawMessage
 	Method string

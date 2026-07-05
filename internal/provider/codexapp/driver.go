@@ -24,6 +24,8 @@ import (
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
+// DriverFactory 持有创建 Codex provider driver 所需的运行时依赖。
+// tool surface 回调可在 fx 装配后注入，Create 会读取当前回调并隔离到新 driver。
 type DriverFactory struct {
 	contract.DriverFactory
 	mu              sync.RWMutex
