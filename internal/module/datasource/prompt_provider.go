@@ -24,6 +24,10 @@ type PromptProvider struct {
 	svc Service
 }
 
+type boundedPromptDocumentService interface {
+	ListPromptDocuments(context.Context, string, int, int64, int64) (ListDocumentsResult, error)
+}
+
 // NewPromptProvider 创建 datasource 动态 prompt provider。
 // svc 可在 Resolve 时再检查，缺失会作为 critical prompt section error 暴露。
 func NewPromptProvider(svc Service) *PromptProvider {
@@ -41,7 +45,18 @@ func (p *PromptProvider) Resolve(ctx context.Context, input contract.SectionCont
 		err := errors.New("datasource service is not configured")
 		return nil, contract.NewCriticalPromptSectionError(contract.DynamicSectionDatasource, err)
 	}
-	documents, err := p.svc.ListDocuments(ctx, contract.SectionContextCWD(input))
+	documentSvc, ok := p.svc.(boundedPromptDocumentService)
+	if !ok {
+		err := errors.New("datasource service does not support bounded prompt reads")
+		return nil, contract.NewCriticalPromptSectionError(contract.DynamicSectionDatasource, err)
+	}
+	documents, err := documentSvc.ListPromptDocuments(
+		ctx,
+		contract.SectionContextCWD(input),
+		datasourcePromptMaxDocuments,
+		int64(datasourcePromptMaxWorkspaceBytes),
+		int64(datasourcePromptMaxDocumentBytes),
+	)
 	if err != nil {
 		return nil, contract.NewCriticalPromptSectionError(contract.DynamicSectionDatasource, err)
 	}

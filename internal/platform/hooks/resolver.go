@@ -245,7 +245,7 @@ func (r *HookResolver) ListPendingReviewsPage(ctx context.Context, params contra
 		return contract.HookPendingReviewPage{}, fmt.Errorf("hooks resolver: limit is required")
 	}
 	if params.Limit > contract.HookPendingReviewMaxPageLimit {
-		params.Limit = contract.HookPendingReviewMaxPageLimit
+		return contract.HookPendingReviewPage{}, fmt.Errorf("hooks resolver: limit exceeds maximum: %d > %d", params.Limit, contract.HookPendingReviewMaxPageLimit)
 	}
 	pager, err := r.pendingReviewPager()
 	if err != nil {

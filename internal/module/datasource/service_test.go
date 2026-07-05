@@ -5,6 +5,7 @@ import (
 	"compress/zlib"
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
@@ -402,6 +403,8 @@ type recordingDatasourceStore struct {
 	upsertCalls int
 	upserted    UpsertDatasourceDocumentParams
 	documents   []DatasourceDocument
+
+	listPromptCalls int
 }
 
 func (s *recordingDatasourceStore) UpsertDocument(_ context.Context, params UpsertDatasourceDocumentParams) error {
@@ -411,6 +414,26 @@ func (s *recordingDatasourceStore) UpsertDocument(_ context.Context, params Upse
 }
 
 func (s *recordingDatasourceStore) ListDocuments(context.Context, string) ([]DatasourceDocument, error) {
+	return s.documents, nil
+}
+
+// ListPromptDocuments 在测试 fake 中复刻 prompt 上限，证明 provider 不再走全量 ListDocuments。
+func (s *recordingDatasourceStore) ListPromptDocuments(_ context.Context, _ string, maxDocuments int, maxWorkspaceBytes int64, maxDocumentBytes int64) ([]DatasourceDocument, error) {
+	s.listPromptCalls++
+	if len(s.documents) > maxDocuments {
+		return nil, fmt.Errorf("datasource prompt documents exceed count cap: %d > %d", len(s.documents), maxDocuments)
+	}
+	var totalBytes int64
+	for _, document := range s.documents {
+		documentBytes := int64(len([]byte(document.Content)))
+		if documentBytes > maxDocumentBytes {
+			return nil, fmt.Errorf("datasource prompt document %q exceeds byte cap: %d > %d", document.Name, documentBytes, maxDocumentBytes)
+		}
+		totalBytes += documentBytes
+		if totalBytes > maxWorkspaceBytes {
+			return nil, fmt.Errorf("datasource prompt documents exceed byte cap: %d > %d", totalBytes, maxWorkspaceBytes)
+		}
+	}
 	return s.documents, nil
 }
 

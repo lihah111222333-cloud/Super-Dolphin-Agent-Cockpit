@@ -57,6 +57,7 @@ type UpsertDatasourceDocumentParams struct {
 type DatasourceDocumentStore interface {
 	UpsertDocument(context.Context, UpsertDatasourceDocumentParams) error
 	ListDocuments(context.Context, string) ([]DatasourceDocument, error)
+	ListPromptDocuments(context.Context, string, int, int64, int64) ([]DatasourceDocument, error)
 	DeleteDocument(context.Context, string, string) error
 }
 

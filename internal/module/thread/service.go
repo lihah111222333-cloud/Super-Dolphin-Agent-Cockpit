@@ -3,6 +3,7 @@ package thread
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"strings"
 	"sync"
@@ -428,9 +429,11 @@ func normalizeThreadListPage(req ListPageRequest) (contract.ThreadListPageParams
 	if req.Limit <= 0 {
 		return contract.ThreadListPageParams{}, errors.New("thread list limit is required")
 	}
-	limit := min(req.Limit, maxThreadListLimit)
+	if req.Limit > maxThreadListLimit {
+		return contract.ThreadListPageParams{}, fmt.Errorf("thread list limit exceeds maximum: %d > %d", req.Limit, maxThreadListLimit)
+	}
 	return contract.ThreadListPageParams{
-		Limit:           limit,
+		Limit:           req.Limit,
 		CursorCreatedAt: req.CursorCreatedAt,
 		CursorThreadID:  strings.TrimSpace(req.CursorThreadID),
 	}, nil

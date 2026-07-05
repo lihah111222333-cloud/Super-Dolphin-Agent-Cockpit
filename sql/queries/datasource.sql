@@ -20,6 +20,21 @@ FROM datasource_documents
 WHERE workspace_root = ?
 ORDER BY name ASC;
 
+-- name: ListDatasourceDocumentPromptMetadata :many
+SELECT workspace_root, name, extension, size_bytes, stored_path,
+       length(CAST(content AS BLOB)) AS content_bytes
+FROM datasource_documents
+WHERE workspace_root = sqlc.arg(workspace_root)
+ORDER BY name ASC
+LIMIT sqlc.arg(limit_count);
+
+-- name: ListDatasourcePromptDocuments :many
+SELECT workspace_root, name, extension, size_bytes, stored_path, content
+FROM datasource_documents
+WHERE workspace_root = sqlc.arg(workspace_root)
+ORDER BY name ASC
+LIMIT sqlc.arg(limit_count);
+
 -- name: DeleteDatasourceDocument :execrows
 DELETE FROM datasource_documents
 WHERE workspace_root = ? AND name = ?;

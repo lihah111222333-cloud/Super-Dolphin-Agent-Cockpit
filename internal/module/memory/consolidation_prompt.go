@@ -102,7 +102,7 @@ func loadConsolidationPromptInput(root string, cfg *Config, ctxOpt ...context.Co
 			Content: strings.TrimSpace(entry.Content),
 		})
 	}
-	indexDoc, err := loadConsolidationIndexDocument(normalizedRoot, cfg)
+	indexDoc, err := loadConsolidationIndexDocument(ctx, normalizedRoot, cfg, budget)
 	if err != nil {
 		return consolidationPromptInput{}, err
 	}
@@ -182,30 +182,52 @@ func buildConsolidationPrompt(input consolidationPromptInput) string {
 
 // loadConsolidationIndexDocument 读取 MEMORY.md 作为 consolidation 的索引输入。
 // 缺失或非法路径会返回错误；空文件会显式渲染为 `(empty)`，避免 prompt 丢上下文位置。
-func loadConsolidationIndexDocument(root string, cfg *Config) (consolidationDocument, error) {
-	path := memoryIndexPath(root)
-	if err := rejectConsolidationPath(cfg, path); err != nil {
+func loadConsolidationIndexDocument(ctx context.Context, root string, cfg *Config, budget *uiMemoryScanBudget) (consolidationDocument, error) {
+	if err := consolidationContextDiagnostic(ctx); err != nil {
 		return consolidationDocument{}, err
 	}
-	validatedPath, err := ValidateMemoryReadPath(root, path)
-	switch {
-	case errors.Is(err, ErrInvalidMemoryReadPath), errors.Is(err, os.ErrNotExist):
+	validatedPath, err := consolidationIndexReadPath(root, cfg)
+	if err != nil {
 		return consolidationDocument{}, err
-	case err != nil:
+	}
+	if err := reserveConsolidationIndexDocument(validatedPath, budget); err != nil {
+		return consolidationDocument{}, err
+	}
+	if err := consolidationContextDiagnostic(ctx); err != nil {
 		return consolidationDocument{}, err
 	}
 	raw, err := os.ReadFile(validatedPath)
 	if err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			return consolidationDocument{}, err
-		}
 		return consolidationDocument{}, err
 	}
+	if err := consolidationContextDiagnostic(ctx); err != nil {
+		return consolidationDocument{}, err
+	}
+	budget.recordEntry()
 	content := strings.TrimSpace(parse.StripUTF8BOM(string(raw)))
 	if content == "" {
 		content = "(empty)"
 	}
 	return consolidationDocument{Path: memoryIndexFileName, Content: content}, nil
+}
+
+func consolidationIndexReadPath(root string, cfg *Config) (string, error) {
+	path := memoryIndexPath(root)
+	if err := rejectConsolidationPath(cfg, path); err != nil {
+		return "", err
+	}
+	return ValidateMemoryReadPath(root, path)
+}
+
+func reserveConsolidationIndexDocument(path string, budget *uiMemoryScanBudget) error {
+	info, err := os.Stat(path)
+	if err != nil {
+		return err
+	}
+	if !budget.reserveFile(info.Size()) {
+		return consolidationBudgetDiagnostic("memory index", path, budget)
+	}
+	return nil
 }
 
 // scanConsolidationLogDocuments 扫描 logs 目录中的 markdown 日志输入。

@@ -27,6 +27,59 @@ func (q *Queries) DeleteDatasourceDocument(ctx context.Context, arg DeleteDataso
 	return result.RowsAffected()
 }
 
+const listDatasourceDocumentPromptMetadata = `-- name: ListDatasourceDocumentPromptMetadata :many
+SELECT workspace_root, name, extension, size_bytes, stored_path,
+       length(CAST(content AS BLOB)) AS content_bytes
+FROM datasource_documents
+WHERE workspace_root = ?1
+ORDER BY name ASC
+LIMIT ?2
+`
+
+type ListDatasourceDocumentPromptMetadataParams struct {
+	WorkspaceRoot string `db:"workspace_root" json:"workspace_root"`
+	LimitCount    int64  `db:"limit_count" json:"limit_count"`
+}
+
+type ListDatasourceDocumentPromptMetadataRow struct {
+	WorkspaceRoot string `db:"workspace_root" json:"workspace_root"`
+	Name          string `db:"name" json:"name"`
+	Extension     string `db:"extension" json:"extension"`
+	SizeBytes     int64  `db:"size_bytes" json:"size_bytes"`
+	StoredPath    string `db:"stored_path" json:"stored_path"`
+	ContentBytes  *int64 `db:"content_bytes" json:"content_bytes"`
+}
+
+func (q *Queries) ListDatasourceDocumentPromptMetadata(ctx context.Context, arg ListDatasourceDocumentPromptMetadataParams) ([]ListDatasourceDocumentPromptMetadataRow, error) {
+	rows, err := q.db.QueryContext(ctx, listDatasourceDocumentPromptMetadata, arg.WorkspaceRoot, arg.LimitCount)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListDatasourceDocumentPromptMetadataRow{}
+	for rows.Next() {
+		var i ListDatasourceDocumentPromptMetadataRow
+		if err := rows.Scan(
+			&i.WorkspaceRoot,
+			&i.Name,
+			&i.Extension,
+			&i.SizeBytes,
+			&i.StoredPath,
+			&i.ContentBytes,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listDatasourceDocuments = `-- name: ListDatasourceDocuments :many
 SELECT workspace_root, name, extension, size_bytes, stored_path, content
 FROM datasource_documents
@@ -56,6 +109,58 @@ func (q *Queries) ListDatasourceDocuments(ctx context.Context, arg ListDatasourc
 	items := []ListDatasourceDocumentsRow{}
 	for rows.Next() {
 		var i ListDatasourceDocumentsRow
+		if err := rows.Scan(
+			&i.WorkspaceRoot,
+			&i.Name,
+			&i.Extension,
+			&i.SizeBytes,
+			&i.StoredPath,
+			&i.Content,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listDatasourcePromptDocuments = `-- name: ListDatasourcePromptDocuments :many
+SELECT workspace_root, name, extension, size_bytes, stored_path, content
+FROM datasource_documents
+WHERE workspace_root = ?1
+ORDER BY name ASC
+LIMIT ?2
+`
+
+type ListDatasourcePromptDocumentsParams struct {
+	WorkspaceRoot string `db:"workspace_root" json:"workspace_root"`
+	LimitCount    int64  `db:"limit_count" json:"limit_count"`
+}
+
+type ListDatasourcePromptDocumentsRow struct {
+	WorkspaceRoot string `db:"workspace_root" json:"workspace_root"`
+	Name          string `db:"name" json:"name"`
+	Extension     string `db:"extension" json:"extension"`
+	SizeBytes     int64  `db:"size_bytes" json:"size_bytes"`
+	StoredPath    string `db:"stored_path" json:"stored_path"`
+	Content       string `db:"content" json:"content"`
+}
+
+func (q *Queries) ListDatasourcePromptDocuments(ctx context.Context, arg ListDatasourcePromptDocumentsParams) ([]ListDatasourcePromptDocumentsRow, error) {
+	rows, err := q.db.QueryContext(ctx, listDatasourcePromptDocuments, arg.WorkspaceRoot, arg.LimitCount)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListDatasourcePromptDocumentsRow{}
+	for rows.Next() {
+		var i ListDatasourcePromptDocumentsRow
 		if err := rows.Scan(
 			&i.WorkspaceRoot,
 			&i.Name,
