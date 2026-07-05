@@ -1346,6 +1346,8 @@ const composerActionDeps = {
     promotedDraftThreadState,
     resolveLaunchPreferences,
     rollbackSendDraftState,
+    saveFailedSendDraftSnapshot,
+    sendRollbackRestoresVisibleComposer,
     startNewDraftThread,
     startTurnWithStoppedThreadRecovery,
   },
@@ -1616,6 +1618,30 @@ function createdThreadIdForSendRollback(state, request, threadId) {
   return backendThreadIdForState(state, threadId);
 }
 
+function sendRollbackRestoresVisibleComposer(state, request, createdThreadId = '') {
+  const activeThreadId = normalizeString(state.activeThreadId);
+  return [
+    request.previousThreadId,
+    request.provisionalThreadId,
+    createdThreadId,
+  ].map(normalizeString).filter(Boolean).includes(activeThreadId);
+}
+
+function saveFailedSendDraftSnapshot(runtime, request) {
+  runtime.saveComposerDraftSnapshot(
+    {
+      ...runtime.get(),
+      cwd: request.cwd,
+      activeProject: request.cwd,
+    },
+    request.previousActiveThreadId,
+    {
+      draft: request.previousDraft,
+      attachments: request.previousAttachments,
+    },
+  );
+}
+
 async function deleteProvisionalThreadAfterSendFailure(threadId, addWarning) {
   if (!threadId) return;
   try {
@@ -1879,6 +1905,16 @@ function attachComposerDraftRuntime(runtime) {
     composerDrafts.set(key, snapshot);
   };
 
+  const saveComposerDraftSnapshot = (state = get(), threadId = state.activeThreadId, snapshot = {}) => {
+    const key = composerDraftKey(state, threadId);
+    const normalized = normalizeComposerDraftSnapshot(snapshot);
+    if (isEmptyComposerDraftSnapshot(normalized)) {
+      composerDrafts.delete(key);
+      return;
+    }
+    composerDrafts.set(key, normalized);
+  };
+
   const restoreComposerDraft = (state, threadId) => {
     const key = composerDraftKey(state, threadId);
     return normalizeComposerDraftSnapshot(composerDrafts.get(key));
@@ -1889,7 +1925,7 @@ function attachComposerDraftRuntime(runtime) {
   };
 
 
-  Object.assign(runtime, { saveActiveComposerDraft, restoreComposerDraft, clearComposerDraft });
+  Object.assign(runtime, { saveActiveComposerDraft, saveComposerDraftSnapshot, restoreComposerDraft, clearComposerDraft });
 }
 
 function attachLogRuntime(runtime) {
@@ -3061,11 +3097,14 @@ function createDashboardCommandActions(runtime) {
         return true;
       }
       catch (error) {
-        const createdThreadId = createdThreadIdForSendRollback(runtime.get(), request, threadId);
+        const rollbackState = runtime.get();
+        const createdThreadId = createdThreadIdForSendRollback(rollbackState, request, threadId);
+        const shouldCacheFailedDraft = !sendRollbackRestoresVisibleComposer(rollbackState, request, createdThreadId);
         runtime.set((state) => ({
           ...rollbackSendDraftState(state, request, error, { createdThreadId }),
           activePage: 'commands',
         }));
+        if (shouldCacheFailedDraft) saveFailedSendDraftSnapshot(runtime, request);
         await deleteProvisionalThreadAfterSendFailure(createdThreadId, runtime.addWarning);
         runtime.addWarning('error', 'dashboard.command.send.failed', { error: error.message });
         throw error;
