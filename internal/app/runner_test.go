@@ -50,25 +50,78 @@ func (r runtimeBlockRunner) Run(ctx context.Context) error {
 	return ctx.Err()
 }
 
-func TestRegisterRuntimePreDrainPanicsOnDuplicate(t *testing.T) {
+func TestRegisterRuntimePreDrainReturnsErrorOnDuplicate(t *testing.T) {
 	owner := newAppOwnerContext(context.Background())
 	drain := func(context.Context) error { return nil }
-	owner.RegisterRuntimePreDrain(drain)
+	requireRuntimeNoError(t, "RegisterRuntimePreDrain()", owner.RegisterRuntimePreDrain(drain))
 
-	defer func() {
-		recovered := recover()
-		if recovered == nil {
-			t.Fatal("second RegisterRuntimePreDrain() did not panic")
-		}
-		if recovered != "app: runtime pre-drain already registered" {
-			t.Fatalf("panic = %v, want app: runtime pre-drain already registered", recovered)
-		}
-	}()
-	owner.RegisterRuntimePreDrain(drain)
+	err := owner.RegisterRuntimePreDrain(drain)
+	if err == nil {
+		t.Fatal("second RegisterRuntimePreDrain() error = nil, want duplicate registration error")
+	}
+	if got, want := err.Error(), "app: runtime pre-drain already registered"; got != want {
+		t.Fatalf("second RegisterRuntimePreDrain() error = %q, want %q", got, want)
+	}
+}
+
+func TestRegisterRuntimePreDrainRejectsNilOwner(t *testing.T) {
+	var owner *appOwnerContext
+	err := owner.RegisterRuntimePreDrain(func(context.Context) error { return nil })
+	if err == nil {
+		t.Fatal("nil owner RegisterRuntimePreDrain() error = nil, want owner error")
+	}
+	if got, want := err.Error(), "app: runtime pre-drain owner is nil"; got != want {
+		t.Fatalf("nil owner RegisterRuntimePreDrain() error = %q, want %q", got, want)
+	}
+}
+
+func TestRegisterRuntimePreDrainRejectsNilFunction(t *testing.T) {
+	owner := newAppOwnerContext(context.Background())
+	err := owner.RegisterRuntimePreDrain(nil)
+	if err == nil {
+		t.Fatal("nil function RegisterRuntimePreDrain() error = nil, want function error")
+	}
+	if got, want := err.Error(), "app: runtime pre-drain function is nil"; got != want {
+		t.Fatalf("nil function RegisterRuntimePreDrain() error = %q, want %q", got, want)
+	}
+}
+
+func TestBindRuntimeRequiresRuntimePreDrainRegistrar(t *testing.T) {
+	drainer := runtimeDrainStub{
+		started: make(chan struct{}),
+		release: make(chan struct{}),
+	}
+	err := BindRuntime(&runtimeTestLifecycle{}, runtimeParams{
+		Logger:            slog.New(slog.NewTextHandler(io.Discard, nil)),
+		Shutdowner:        runtimeTestShutdowner{},
+		ExtractionDrainer: drainer,
+	})
+	if err == nil {
+		t.Fatal("BindRuntime() without registrar error = nil, want registrar error")
+	}
+	if got, want := err.Error(), "app: runtime pre-drain registrar is required"; got != want {
+		t.Fatalf("BindRuntime() without registrar error = %q, want %q", got, want)
+	}
+}
+
+func TestBindRuntimeRequiresExtractionDrainer(t *testing.T) {
+	owner := newAppOwnerContext(context.Background())
+	err := BindRuntime(&runtimeTestLifecycle{}, runtimeParams{
+		Logger:     slog.New(slog.NewTextHandler(io.Discard, nil)),
+		Shutdowner: runtimeTestShutdowner{},
+		RootCtx:    owner,
+	})
+	if err == nil {
+		t.Fatal("BindRuntime() without extraction drainer error = nil, want drainer error")
+	}
+	if got, want := err.Error(), "app: extraction drainer is required"; got != want {
+		t.Fatalf("BindRuntime() without extraction drainer error = %q, want %q", got, want)
+	}
 }
 
 func TestBindRuntimeWaitsRunGroupBeforeDrain(t *testing.T) {
 	lifecycle := &runtimeTestLifecycle{}
+	owner := newAppOwnerContext(context.Background())
 	drainer := runtimeDrainStub{
 		started: make(chan struct{}),
 		release: make(chan struct{}),
@@ -78,12 +131,13 @@ func TestBindRuntimeWaitsRunGroupBeforeDrain(t *testing.T) {
 		release:  make(chan struct{}),
 	}
 
-	BindRuntime(lifecycle, runtimeParams{
+	requireRuntimeNoError(t, "BindRuntime()", BindRuntime(lifecycle, runtimeParams{
 		Logger:            slog.New(slog.NewTextHandler(io.Discard, nil)),
 		Runners:           []platformrunner.Runner{runner},
 		Shutdowner:        runtimeTestShutdowner{},
+		RootCtx:           owner,
 		ExtractionDrainer: drainer,
-	})
+	}))
 	hook := singleRuntimeHook(t, lifecycle)
 	requireRuntimeNoError(t, "OnStart()", hook.OnStart(context.Background()))
 
@@ -149,14 +203,20 @@ func waitRuntimeStop(t *testing.T, stopDone <-chan error) {
 func TestBindRuntimeInheritsRootContext(t *testing.T) {
 	lifecycle := &runtimeTestLifecycle{}
 	owner := newAppOwnerContext(context.Background())
+	drainer := runtimeDrainStub{
+		started: make(chan struct{}),
+		release: make(chan struct{}),
+	}
+	close(drainer.release)
 	runner := runtimeBlockRunner{canceled: make(chan struct{})}
 
-	BindRuntime(lifecycle, runtimeParams{
-		Logger:     slog.New(slog.NewTextHandler(io.Discard, nil)),
-		Runners:    []platformrunner.Runner{runner},
-		Shutdowner: runtimeTestShutdowner{},
-		RootCtx:    owner,
-	})
+	requireRuntimeNoError(t, "BindRuntime()", BindRuntime(lifecycle, runtimeParams{
+		Logger:            slog.New(slog.NewTextHandler(io.Discard, nil)),
+		Runners:           []platformrunner.Runner{runner},
+		Shutdowner:        runtimeTestShutdowner{},
+		RootCtx:           owner,
+		ExtractionDrainer: drainer,
+	}))
 	if len(lifecycle.hooks) != 1 {
 		t.Fatalf("len(hooks) = %d, want 1", len(lifecycle.hooks))
 	}

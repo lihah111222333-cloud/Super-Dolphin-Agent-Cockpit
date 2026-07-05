@@ -17,14 +17,22 @@ import (
 	sqliteruntime "github.com/anthropic-ai/super-agent-v3/internal/platform/db/sqlite"
 )
 
-// nowFunc 允许测试固定包烟测写入的线程时间戳。
-var nowFunc = time.Now
-
 // smokeEnv 保存包烟测必须由外部脚本注入的环境路径。
 type smokeEnv struct {
 	packageRoot string // 待验证的解包后项目根目录。
 	home        string // 包运行时使用的隔离 HOME。
 	oldPGData   string // 旧 PostgreSQL 数据目录，用于验证不会被当作运行时状态。
+}
+
+// smokeRunConfig 保存一次包烟测运行的显式依赖。
+type smokeRunConfig struct {
+	now func() time.Time // 生成最小写入证据使用的时钟。
+}
+
+// sqliteCheckConfig 保存 SQLite 校验链路的显式运行配置。
+type sqliteCheckConfig struct {
+	packageRoot string
+	now         func() time.Time
 }
 
 // main 在固定超时内运行 SQLite 包烟测，失败时用非零退出码阻断发布脚本。
@@ -39,12 +47,20 @@ func main() {
 
 // run 准备包运行时、执行 SQLite 迁移校验，并把证据写到 stdout。
 func run(ctx context.Context) error {
+	return runWithConfig(ctx, smokeRunConfig{now: time.Now})
+}
+
+// runWithConfig 使用显式运行配置执行包烟测。
+func runWithConfig(ctx context.Context, runCfg smokeRunConfig) error {
+	if runCfg.now == nil {
+		return fmt.Errorf("smoke clock is required")
+	}
 	env, cfg, db, err := prepareSmokeRuntime()
 	if err != nil {
 		return err
 	}
 	defer db.Close()
-	if err := migrateAndVerifySQLite(ctx, db, env.packageRoot); err != nil {
+	if err := migrateAndVerifySQLite(ctx, db, sqliteCheckConfig{packageRoot: env.packageRoot, now: runCfg.now}); err != nil {
 		return err
 	}
 	return writeEvidence(cfg)
@@ -128,13 +144,19 @@ func resolveSmokeConfig(env smokeEnv) (*platformconfig.Config, error) {
 }
 
 // migrateAndVerifySQLite 使用包内迁移目录推进 SQLite schema 并执行运行时校验。
-func migrateAndVerifySQLite(ctx context.Context, db *sql.DB, packageRoot string) error {
-	migrations := filepath.Join(packageRoot, "internal", "platform", "db", "sqlite", "migrations")
-	return runSQLiteChecks(ctx, db, migrations, packageRoot)
+func migrateAndVerifySQLite(ctx context.Context, db *sql.DB, checkCfg sqliteCheckConfig) error {
+	if checkCfg.packageRoot == "" {
+		return fmt.Errorf("package root is required")
+	}
+	if checkCfg.now == nil {
+		return fmt.Errorf("smoke clock is required")
+	}
+	migrations := filepath.Join(checkCfg.packageRoot, "internal", "platform", "db", "sqlite", "migrations")
+	return runSQLiteChecks(ctx, db, migrations, checkCfg)
 }
 
 // runSQLiteChecks 验证 packaged SQLite 迁移、schema floor、关键 PRAGMA 和最小写入路径。
-func runSQLiteChecks(ctx context.Context, db *sql.DB, migrations, packageRoot string) error {
+func runSQLiteChecks(ctx context.Context, db *sql.DB, migrations string, checkCfg sqliteCheckConfig) error {
 	if err := sqliteruntime.RunMigrations(ctx, db, migrations); err != nil {
 		return fmt.Errorf("run packaged SQLite migrations: %w", err)
 	}
@@ -147,7 +169,7 @@ func runSQLiteChecks(ctx context.Context, db *sql.DB, migrations, packageRoot st
 	if err := verifyPragma(ctx, db, "foreign_keys", "1"); err != nil {
 		return err
 	}
-	return insertSmokeThread(ctx, db, packageRoot)
+	return insertSmokeThread(ctx, db, checkCfg)
 }
 
 // writeEvidence 输出包烟测证据，供发布脚本记录实际平台和 SQLite 路径。
@@ -207,12 +229,15 @@ func verifyPragma(ctx context.Context, db *sql.DB, name, want string) error {
 }
 
 // insertSmokeThread 写入一条最小 agent_threads 记录，锁定 packaged schema 的基础写路径。
-func insertSmokeThread(ctx context.Context, db *sql.DB, packageRoot string) error {
-	now := nowFunc().UTC().UnixMilli()
+func insertSmokeThread(ctx context.Context, db *sql.DB, checkCfg sqliteCheckConfig) error {
+	if checkCfg.now == nil {
+		return fmt.Errorf("smoke clock is required")
+	}
+	now := checkCfg.now().UTC().UnixMilli()
 	_, err := db.ExecContext(ctx, `
 INSERT INTO agent_threads (thread_id, name, prompt, model, cwd, status, created_at, updated_at, config_override, prompt_snapshot, agent_key)
 VALUES (?, 'Package Smoke', 'sqlite package smoke', 'gpt-5', ?, 'running', ?, ?, '{}', '{}', 'package-smoke')`,
-		fmt.Sprintf("package-smoke-%d", now), packageRoot, now, now)
+		fmt.Sprintf("package-smoke-%d", now), checkCfg.packageRoot, now, now)
 	if err != nil {
 		return fmt.Errorf("insert packaged SQLite smoke thread: %w", err)
 	}
