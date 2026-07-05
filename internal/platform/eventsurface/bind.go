@@ -360,6 +360,10 @@ func toolCallEndPayload(ev tooldto.ToolCallEnd) map[string]any {
 	setString(payload, "error", ev.Error)
 	setString(payload, "result", ev.Result)
 	setString(payload, "persistedPath", ev.PersistedPath)
+	if ev.PersistFailed {
+		payload["persistFailed"] = true
+	}
+	setString(payload, "persistError", ev.PersistError)
 	if ev.Truncated {
 		payload["truncated"] = true
 	}

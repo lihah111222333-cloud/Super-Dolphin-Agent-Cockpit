@@ -261,11 +261,7 @@ func (s *service) Recover(ctx context.Context, threadID string) (RecoverResult, 
 	); err != nil {
 		return RecoverResult{}, err
 	}
-	mode, err = s.ensureRecoveredSession(ctx, binding.AgentID, provider, agentID, publicThreadID, providerThreadID)
-	if err != nil {
-		return RecoverResult{}, err
-	}
-	session, err := s.lookupSession(agentID)
+	mode, session, err := s.ensureRecoveredSession(ctx, binding.AgentID, provider, agentID, publicThreadID, providerThreadID)
 	if err != nil {
 		return RecoverResult{}, err
 	}
@@ -287,11 +283,12 @@ func (s *service) Recover(ctx context.Context, threadID string) (RecoverResult, 
 		ConfigOverride:    clone.RawMessage(meta.ConfigOverride),
 		CreatedAt:         meta.CreatedAt,
 	}), true); err != nil {
-		return RecoverResult{}, err
+		return RecoverResult{}, s.recoverPostResumeFailure(ctx, mode, agentID, err)
 	}
+	s.activateRecoveredSession(mode, agentID)
 	if promptResumeRestoreRequiresInvalidation(recoverCWD, recoverCWD, s.cfg) {
 		if err := s.invalidatePromptAssembly(ctx, contract.InvalidateResumeRestore); err != nil {
-			return RecoverResult{}, err
+			return RecoverResult{}, s.recoverPostResumeFailure(ctx, mode, agentID, err)
 		}
 	}
 	return RecoverResult{
@@ -328,23 +325,37 @@ func (s *service) ensureRecoveredSession(
 	ctx context.Context,
 	bindingAgentID string,
 	provider, agentID, publicThreadID, providerThreadID string,
-) (string, error) {
-	if _, err := s.lookupSession(agentID); err == nil {
-		return "restore_launch", nil
+) (string, contract.Session, error) {
+	if session, err := s.lookupSession(agentID); err == nil {
+		return "restore_launch", session, nil
 	}
-	if _, err := s.resumeSession(ctx, ResumeRequest{
+	var session contract.Session
+	session, err := s.resumeSession(ctx, ResumeRequest{
 		Provider:         provider,
 		AgentID:          agentID,
 		ThreadID:         publicThreadID,
 		ProviderThreadID: providerThreadID,
-	}); err != nil {
-		return "", err
+	})
+	if err != nil {
+		return "", nil, err
 	}
 	if err := s.bindSessionGeneration(ctx, bindingAgentID); err != nil {
-		s.stopAgent(ctx, bindingAgentID)
-		return "", err
+		return "", nil, s.resumePersistFailure(ctx, agentID, err)
 	}
-	return "relaunch_resume", nil
+	return "relaunch_resume", session, nil
+}
+
+func (s *service) activateRecoveredSession(mode, agentID string) {
+	if mode == "relaunch_resume" {
+		s.activateResumedSession(agentID)
+	}
+}
+
+func (s *service) recoverPostResumeFailure(ctx context.Context, mode, agentID string, err error) error {
+	if mode != "relaunch_resume" {
+		return err
+	}
+	return s.resumePersistFailure(ctx, agentID, err)
 }
 
 func resolveForkCWD(metaCWD, bindingCWD string) (string, error) {

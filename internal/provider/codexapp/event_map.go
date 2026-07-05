@@ -501,6 +501,8 @@ func translateToolEvent(eventType string, payload map[string]any) (any, bool) {
 			Error:          errorText,
 			Result:         result.Preview,
 			PersistedPath:  result.PersistedPath,
+			PersistFailed:  result.PersistFailed,
+			PersistError:   result.PersistError,
 			Truncated:      result.Truncated,
 			OriginalSize:   result.OriginalSize,
 			ElapsedMS:      int64Value(payload, "elapsedMs", "elapsed_ms"),

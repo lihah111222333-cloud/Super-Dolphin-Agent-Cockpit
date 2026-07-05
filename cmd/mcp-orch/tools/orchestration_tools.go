@@ -8,6 +8,7 @@ import (
 	"strings"
 	"sync"
 
+	orch "github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/orchestration"
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
 	mcpcommon "github.com/anthropic-ai/super-agent-v3/internal/mcpserver/common"
 	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
@@ -97,7 +98,7 @@ type launchAgentSnapshotter interface {
 
 // agentArchiver 是支持 ArchiveAgent 的 orchestration service 可选接口。
 type agentArchiver interface {
-	ArchiveAgent(context.Context, string) error
+	ArchiveAgent(context.Context, string) (orch.ArchiveOutcome, error)
 }
 
 // 下列包级 enum 切片是 schema 与 handler 层 requireEnum 的单一真源。
@@ -408,10 +409,14 @@ func HandleStopAgent(svc contract.OrchestrationService) ToolHandler {
 		if archiver, ok := svc.(agentArchiver); ok {
 			pkglogger.Info("orchestration_stop_agent: dispatching to ArchiveAgent (recycle path)",
 				"agent_id", agentID)
-			if err := archiver.ArchiveAgent(ctx, agentID); err != nil {
+			outcome, err := archiver.ArchiveAgent(ctx, agentID)
+			if err != nil {
 				return nil, err
 			}
-			archived = true
+			archived = outcome.Archived()
+			if !archived {
+				return nil, fmt.Errorf("%w: %s", contract.ErrAgentNotFound, agentID)
+			}
 		} else {
 			pkglogger.Warn("orchestration_stop_agent: service does not implement agentArchiver; falling back to bare StopAgent (NO recycle-bin marking)",
 				"agent_id", agentID,

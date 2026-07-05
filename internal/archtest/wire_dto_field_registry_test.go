@@ -1,6 +1,7 @@
 package archtest
 
 import (
+	"maps"
 	"reflect"
 	"sort"
 	"strings"
@@ -33,6 +34,17 @@ func TestWireDTORegistryCoversSelectedSurfaceFields(t *testing.T) {
 	}
 }
 
+// TestWireDTOFieldRegistryRequiresToolCallEndPersistFailure 锁定工具结果持久化失败字段必须进入 wire registry。
+func TestWireDTOFieldRegistryRequiresToolCallEndPersistFailure(t *testing.T) {
+	t.Parallel()
+	registered := registeredWireDTOFields(toolCallEndWireDTOFieldRule())
+	for _, field := range []string{"persist_failed", "persist_error"} {
+		if registered[field] != "mapped" {
+			t.Fatalf("ToolCallEnd field %q = %q, want mapped", field, registered[field])
+		}
+	}
+}
+
 func wireDTOFieldRules() []wireDTOFieldRule {
 	return []wireDTOFieldRule{
 		threadStartedWireDTOFieldRule(),
@@ -56,7 +68,7 @@ func assertWireDTOFieldRule(t *testing.T, rule wireDTOFieldRule) {
 func threadStartedWireDTOFieldRule() wireDTOFieldRule {
 	return wireDTOFieldRule{
 		Name:   "internal/dto/thread.Started -> eventsurface.threadStartedPayload",
-		Type:   reflect.TypeOf(threaddto.Started{}),
+		Type:   reflect.TypeFor[threaddto.Started](),
 		Mapped: []string{"thread_id", "agent_id", "provider", "provider_thread_id", "cwd", "model"},
 		Exempt: map[string]string{
 			"timestamp":      "eventsurface 当前通知不下发事件时间，UI 投影负责排序时间线",
@@ -69,7 +81,7 @@ func threadStartedWireDTOFieldRule() wireDTOFieldRule {
 func turnOutputDeltaWireDTOFieldRule() wireDTOFieldRule {
 	return wireDTOFieldRule{
 		Name:   "internal/dto/turn.TurnOutputDelta -> eventsurface.turnOutputDeltaPayload",
-		Type:   reflect.TypeOf(turndto.TurnOutputDelta{}),
+		Type:   reflect.TypeFor[turndto.TurnOutputDelta](),
 		Mapped: []string{"thread_id", "agent_id", "turn_id", "stream", "delta"},
 		Exempt: map[string]string{
 			"timestamp": "streaming delta 不带事件时间，客户端按接收顺序和 thread patch sequence 排序",
@@ -80,10 +92,10 @@ func turnOutputDeltaWireDTOFieldRule() wireDTOFieldRule {
 func toolCallEndWireDTOFieldRule() wireDTOFieldRule {
 	return wireDTOFieldRule{
 		Name: "internal/dto/tool.ToolCallEnd -> eventsurface.toolCallEndPayload",
-		Type: reflect.TypeOf(tooldto.ToolCallEnd{}),
+		Type: reflect.TypeFor[tooldto.ToolCallEnd](),
 		Mapped: []string{
 			"thread_id", "agent_id", "turn_id", "call_id", "tool_name", "success",
-			"error", "result", "persisted_path", "truncated", "original_size", "elapsed_ms",
+			"error", "result", "persisted_path", "persist_failed", "persist_error", "truncated", "original_size", "elapsed_ms",
 		},
 		Exempt: map[string]string{
 			"timestamp": "工具时间线使用 UI patch/event order，tool call end payload 不重复携带 EventHeader 时间",
@@ -94,7 +106,7 @@ func toolCallEndWireDTOFieldRule() wireDTOFieldRule {
 func agentRuntimeReportedWireDTOFieldRule() wireDTOFieldRule {
 	return wireDTOFieldRule{
 		Name:   "internal/dto/agent.AgentRuntimeReported -> eventsurface.agentRuntimeReportedPayload",
-		Type:   reflect.TypeOf(agentdto.AgentRuntimeReported{}),
+		Type:   reflect.TypeFor[agentdto.AgentRuntimeReported](),
 		Mapped: []string{"thread_id", "agent_id", "session_id", "port", "provider"},
 		Exempt: map[string]string{
 			"timestamp": "runtime report 只表示当前运行端口快照，UI 不按该事件时间排序",
@@ -105,7 +117,7 @@ func agentRuntimeReportedWireDTOFieldRule() wireDTOFieldRule {
 func skillMirrorReportItemWireDTOFieldRule() wireDTOFieldRule {
 	return wireDTOFieldRule{
 		Name: "internal/contract.SkillMirrorReportItem -> provider mirror report JSON",
-		Type: reflect.TypeOf(contract.SkillMirrorReportItem{}),
+		Type: reflect.TypeFor[contract.SkillMirrorReportItem](),
 		Mapped: []string{
 			"target_id", "provider", "scope", "relative_mirror_path", "canonical_id",
 			"old_hash", "new_hash", "conflict_kind", "error",
@@ -117,7 +129,7 @@ func skillMirrorReportItemWireDTOFieldRule() wireDTOFieldRule {
 func skillProviderMirrorTargetWireDTOFieldRule() wireDTOFieldRule {
 	return wireDTOFieldRule{
 		Name:   "internal/contract.SkillProviderMirrorTarget -> provider mirror reconcile input",
-		Type:   reflect.TypeOf(contract.SkillProviderMirrorTarget{}),
+		Type:   reflect.TypeFor[contract.SkillProviderMirrorTarget](),
 		Mapped: []string{"provider", "home_root", "skills_root", "allow_explicit_home"},
 		Exempt: map[string]string{},
 	}
@@ -128,9 +140,7 @@ func registeredWireDTOFields(rule wireDTOFieldRule) map[string]string {
 	for _, field := range rule.Mapped {
 		registered[field] = "mapped"
 	}
-	for field, reason := range rule.Exempt {
-		registered[field] = reason
-	}
+	maps.Copy(registered, rule.Exempt)
 	return registered
 }
 
