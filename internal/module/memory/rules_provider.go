@@ -29,14 +29,9 @@ type transcriptSnippet = retrievalpkg.TranscriptSnippet
 
 // memory 检索默认值和 prefetch 状态常量。
 const (
-	defaultManifestFileLimit         = retrievalpkg.DefaultManifestFileLimit
 	defaultRelevantMemoryBudgetBytes = retrievalpkg.DefaultRelevantMemoryBudgetBytes
-	defaultRelevantMemoryLimit       = retrievalpkg.DefaultRelevantMemoryLimit
-	defaultRelevantMemoryCandidates  = retrievalpkg.DefaultRelevantMemoryCandidates
 	prefetchStatePending             = retrievalpkg.PrefetchStatePending
 	prefetchStateReady               = retrievalpkg.PrefetchStateReady
-	prefetchStateConsumed            = retrievalpkg.PrefetchStateConsumed
-	prefetchStateDiscarded           = retrievalpkg.PrefetchStateDiscarded
 )
 
 // NewManifestBuilder 创建记忆规则 manifest 构建器。
@@ -57,6 +52,11 @@ func NewPrefetchManager(memoryRoot string) *PrefetchManager {
 // freezeRelevantMemoryAttachments 将相关记忆条目渲染为 provider attachment。
 func freezeRelevantMemoryAttachments(entries []MemoryEntry, now time.Time) []dto.AttachmentEnvelope {
 	return retrievalpkg.FreezeRelevantMemoryAttachments(entries, now)
+}
+
+// freezeRelevantMemoryAttachmentsFromRoot 将相关记忆条目渲染为 provider attachment，并隐藏 memory root 绝对路径。
+func freezeRelevantMemoryAttachmentsFromRoot(memoryRoot string, entries []MemoryEntry, now time.Time) []dto.AttachmentEnvelope {
+	return retrievalpkg.FreezeRelevantMemoryAttachmentsFromRoot(memoryRoot, entries, now)
 }
 
 // freezeTranscriptInputs 将历史片段渲染为本轮 turn input。
@@ -97,7 +97,7 @@ func searchTerms(query string) (string, []string) {
 	}
 	seen := map[string]struct{}{normalized: {}}
 	terms := []string{normalized}
-	for _, part := range strings.Fields(normalized) {
+	for part := range strings.FieldsSeq(normalized) {
 		if part == "" {
 			continue
 		}
@@ -361,7 +361,7 @@ func (p *MemoryContextProvider) PrepareTurnContext(
 	p.rememberTurnGate(threadID, gate)
 	surfacedState := p.surfacedState(threadID)
 	entries, ready, attemptPrefetch, prefetchErr := p.prepareTurnAttachments(ctx, threadID, query, gate, surfacedState)
-	payload := TurnContextPayload{Attachments: freezeRelevantMemoryAttachments(entries, p.now())}
+	payload := TurnContextPayload{Attachments: freezeRelevantMemoryAttachmentsFromRoot(p.memoryRoot, entries, p.now())}
 	payload.Attachments = p.appendKairosDateChangeAttachment(threadID, gate, payload.Attachments)
 	if prefetchErr != nil {
 		payload.Inputs = memoryPrefetchErrorInputs(prefetchErr)

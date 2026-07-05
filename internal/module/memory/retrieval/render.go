@@ -89,9 +89,14 @@ type scoredTranscriptSnippet struct {
 // FreezeRelevantMemoryAttachments 将相关记忆冻结成 provider 附件。
 // 每条记忆会先按正文预算截断，再加不可信 fence；无有效附件时返回 nil。
 func FreezeRelevantMemoryAttachments(entries []MemoryEntry, now time.Time) []dto.AttachmentEnvelope {
+	return FreezeRelevantMemoryAttachmentsFromRoot("", entries, now)
+}
+
+// FreezeRelevantMemoryAttachmentsFromRoot 将相关记忆冻结成 provider 附件，并按 memory root 生成展示路径。
+func FreezeRelevantMemoryAttachmentsFromRoot(memoryRoot string, entries []MemoryEntry, now time.Time) []dto.AttachmentEnvelope {
 	attachments := make([]dto.AttachmentEnvelope, 0, len(entries))
 	for _, entry := range entries {
-		attachment, ok := relevantMemoryAttachment(entry, now)
+		attachment, ok := relevantMemoryAttachment(memoryRoot, entry, now)
 		if ok {
 			attachments = append(attachments, attachment)
 		}
@@ -125,15 +130,15 @@ func FreezeTranscriptInputs(snippets []TranscriptSnippet) []shareddto.InputItem 
 
 // relevantMemoryAttachment 渲染单条记忆附件并做契约校验。
 // 校验失败返回 false，调用方会跳过该条，避免把格式不完整的附件交给 provider。
-func relevantMemoryAttachment(entry MemoryEntry, now time.Time) (dto.AttachmentEnvelope, bool) {
+func relevantMemoryAttachment(memoryRoot string, entry MemoryEntry, now time.Time) (dto.AttachmentEnvelope, bool) {
 	body, truncated := truncateRenderedTextWithFlag(MemoryRenderBody(entry), MaxRenderedMemoryRunes)
 	if body == "" {
 		return dto.AttachmentEnvelope{}, false
 	}
 	// 先截断原始记忆正文，再加不可信 fence，确保预算约束的是可检索内容本身。
 	attachment := contract.NewRelevantMemoryAttachment(
-		memoryDisplayPath(entry),
-		MemoryHeader(now, entry),
+		MemoryDisplayPath(memoryRoot, entry),
+		MemoryHeaderFromRoot(memoryRoot, now, entry),
 		wrapRelevantMemoryFence(body),
 		entry.UpdatedAt,
 		MaxRenderedMemoryRunes,
@@ -193,7 +198,12 @@ func memoryFreshnessText(now, updatedAt time.Time) string {
 // MemoryHeader 生成记忆附件头部。
 // 新近记忆只标注保存时间；较旧记忆会附加 freshness 警告，提醒调用方先验证当前状态。
 func MemoryHeader(now time.Time, entry MemoryEntry) string {
-	path := memoryDisplayPath(entry)
+	return MemoryHeaderFromRoot("", now, entry)
+}
+
+// MemoryHeaderFromRoot 生成记忆附件头部，并按 memory root 隐藏本机绝对路径。
+func MemoryHeaderFromRoot(memoryRoot string, now time.Time, entry MemoryEntry) string {
+	path := MemoryDisplayPath(memoryRoot, entry)
 	switch memoryAgeDays(now, entry.UpdatedAt) {
 	case 0:
 		return "Memory (saved today): " + path + ":"
@@ -207,22 +217,53 @@ func MemoryHeader(now time.Time, entry MemoryEntry) string {
 	return warning + "\n\nMemory: " + path + ":"
 }
 
-// memoryDisplayPath 选择记忆在附件头中展示的来源标识。
-// 优先使用文件路径；缺失时退回 frontmatter name 或文件名，避免输出空来源。
-func memoryDisplayPath(entry MemoryEntry) string {
-	path := strings.TrimSpace(filepath.ToSlash(entry.FilePath))
+// MemoryDisplayPath 选择记忆在附件头中展示的来源标识。
+// 有 memory root 时优先展示 root-relative path；缺失时绝对路径降级为文件名，避免输出本机目录。
+func MemoryDisplayPath(memoryRoot string, entry MemoryEntry) string {
+	path := strings.TrimSpace(entry.FilePath)
 	if path == "" {
-		name := strings.TrimSpace(entry.Frontmatter.Name)
-		if name == "" {
-			base := strings.TrimSpace(strings.TrimSuffix(filepath.Base(entry.FilePath), filepath.Ext(entry.FilePath)))
-			if base == "" {
-				return "memory note"
-			}
-			return base
+		return fallbackMemoryDisplayName(entry)
+	}
+	if rel, ok := relativeMemoryDisplayPath(memoryRoot, path); ok {
+		return rel
+	}
+	if filepath.IsAbs(path) || filepath.IsAbs(filepath.FromSlash(path)) {
+		base := strings.TrimSpace(filepath.Base(path))
+		if base != "" && base != "." && base != string(filepath.Separator) {
+			return filepath.ToSlash(base)
 		}
+		return fallbackMemoryDisplayName(entry)
+	}
+	return filepath.ToSlash(path)
+}
+
+// relativeMemoryDisplayPath 只在文件确实位于 memory root 下时返回相对路径。
+// 调用方依赖 bool 区分“不属于当前记忆根”与空文件名，避免把绝对目录写入 provider prompt。
+func relativeMemoryDisplayPath(memoryRoot, path string) (string, bool) {
+	memoryRoot = strings.TrimSpace(memoryRoot)
+	path = strings.TrimSpace(path)
+	if memoryRoot == "" || path == "" {
+		return "", false
+	}
+	rootPath := filepath.Clean(filepath.FromSlash(memoryRoot))
+	filePath := filepath.Clean(filepath.FromSlash(path))
+	rel, err := filepath.Rel(rootPath, filePath)
+	if err != nil || rel == "." || rel == "" || strings.HasPrefix(rel, "..") || filepath.IsAbs(rel) {
+		return "", false
+	}
+	return filepath.ToSlash(rel), true
+}
+
+func fallbackMemoryDisplayName(entry MemoryEntry) string {
+	name := strings.TrimSpace(entry.Frontmatter.Name)
+	if name != "" {
 		return name
 	}
-	return path
+	base := strings.TrimSpace(strings.TrimSuffix(filepath.Base(entry.FilePath), filepath.Ext(entry.FilePath)))
+	if base == "" || base == "." {
+		return "memory note"
+	}
+	return filepath.ToSlash(base)
 }
 
 // MemoryRenderBody 渲染要进入相关记忆附件的正文。
