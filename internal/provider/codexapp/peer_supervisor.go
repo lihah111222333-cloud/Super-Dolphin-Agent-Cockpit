@@ -219,16 +219,7 @@ func (s *PeerSupervisor) Run(ctx context.Context) error {
 			s.abortUnregisteredPeer(h)
 			return s.stopAfterPeerError(err, cancelSupervise, &wg)
 		}
-		wg.Add(1)
-		go func() {
-			defer func() {
-				if rec := recover(); rec != nil {
-					s.logger.Error("peer_supervisor: recovered superviseOne panic", "peer", name, "panic", rec)
-					wg.Done()
-				}
-			}()
-			s.superviseOneWithCancel(superviseCtx, name, h, &wg, cancelSupervise)
-		}()
+		s.startSuperviseOne(superviseCtx, name, h, &wg, cancelSupervise)
 	}
 
 	<-superviseCtx.Done()
@@ -295,9 +286,16 @@ func (s *PeerSupervisor) superviseOne(ctx context.Context, name string, initial 
 	s.superviseOneWithCancel(ctx, name, initial, wg, func(error) {})
 }
 
+func (s *PeerSupervisor) startSuperviseOne(ctx context.Context, name string, h peerHandle, wg *sync.WaitGroup, cancel context.CancelCauseFunc) {
+	wg.Add(1)
+	safego.Go(ctx, nil, "codexapp.peerSupervisor.superviseOne."+name, func(context.Context) {
+		s.superviseOneWithCancel(ctx, name, h, wg, cancel)
+	})
+}
+
 // waitPeerAsync 在独立 goroutine 里调用 h.Wait()，panic 时将错误写入 ch 并记录日志，保证 ch 必然收到值。
 func (s *PeerSupervisor) waitPeerAsync(name string, h peerHandle, ch chan<- error) {
-	go func() {
+	safego.Go(context.Background(), nil, "codexapp.peerSupervisor.waitPeer."+name, func(context.Context) {
 		defer func() {
 			if r := recover(); r != nil {
 				s.logger.Error("peer_supervisor: panic in Wait goroutine", "peer", name, "panic", r)
@@ -305,7 +303,7 @@ func (s *PeerSupervisor) waitPeerAsync(name string, h peerHandle, ch chan<- erro
 			}
 		}()
 		ch <- h.Wait()
-	}()
+	})
 }
 
 // superviseOneWithCancel 在重启注册失败时取消 supervisor，让 Run 统一关闭已托管 peer 并返回错误。
@@ -453,16 +451,7 @@ func (s *PeerSupervisor) closePeerPipe(h peerHandle) {
 // 三段等待后仍未汇合会返回 timeout，调用方据此保留 PID registry 供下次启动清理。
 func (s *PeerSupervisor) drainOrEscalate(peers []peerHandle, wg *sync.WaitGroup) error {
 	done := make(chan struct{})
-	go func() {
-		defer func() {
-			if r := recover(); r != nil {
-				s.logger.Error("peer_supervisor: panic in drainOrEscalate goroutine", "panic", r)
-				close(done)
-			}
-		}()
-		wg.Wait()
-		close(done)
-	}()
+	s.waitSupervisorsAsync(wg, done)
 	select {
 	case <-done:
 		return nil
@@ -481,6 +470,19 @@ func (s *PeerSupervisor) drainOrEscalate(peers []peerHandle, wg *sync.WaitGroup)
 	case <-time.After(s.killGrace):
 		return fmt.Errorf("peer_supervisor shutdown timeout: %d peer(s) did not exit after EOF, SIGTERM, and SIGKILL", len(peers))
 	}
+}
+
+func (s *PeerSupervisor) waitSupervisorsAsync(wg *sync.WaitGroup, done chan<- struct{}) {
+	safego.Go(context.Background(), nil, "codexapp.peerSupervisor.drain", func(context.Context) {
+		defer func() {
+			if r := recover(); r != nil {
+				s.logger.Error("peer_supervisor: panic in drainOrEscalate goroutine", "panic", r)
+				close(done)
+			}
+		}()
+		wg.Wait()
+		close(done)
+	})
 }
 
 func (s *PeerSupervisor) signalAllPeers(peers []peerHandle, sig processSig) {

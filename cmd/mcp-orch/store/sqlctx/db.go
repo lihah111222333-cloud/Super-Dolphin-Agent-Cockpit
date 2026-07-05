@@ -7,6 +7,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"runtime/debug"
 
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/store/sqlc"
 	platformdb "github.com/anthropic-ai/super-agent-v3/internal/platform/db"
@@ -22,7 +23,7 @@ type immediateConnTx struct {
 }
 
 // ExecContext 在当前连接上执行 SQL 语句。
-func (tx *immediateConnTx) ExecContext(ctx context.Context, query string, args ...interface{}) (sql.Result, error) {
+func (tx *immediateConnTx) ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error) {
 	return tx.conn.ExecContext(ctx, query, args...)
 }
 
@@ -32,12 +33,12 @@ func (tx *immediateConnTx) PrepareContext(ctx context.Context, query string) (*s
 }
 
 // QueryContext 在当前连接上执行查询并返回多行结果。
-func (tx *immediateConnTx) QueryContext(ctx context.Context, query string, args ...interface{}) (*sql.Rows, error) {
+func (tx *immediateConnTx) QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error) {
 	return tx.conn.QueryContext(ctx, query, args...)
 }
 
 // QueryRowContext 在当前连接上执行查询并返回单行结果。
-func (tx *immediateConnTx) QueryRowContext(ctx context.Context, query string, args ...interface{}) *sql.Row {
+func (tx *immediateConnTx) QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row {
 	return tx.conn.QueryRowContext(ctx, query, args...)
 }
 
@@ -123,10 +124,12 @@ func withBeginImmediate(ctx context.Context, db *sql.DB, fn func(tx *immediateCo
 	txOpen := true
 	defer func() {
 		if r := recover(); r != nil {
+			panicErr := fmt.Errorf("immediate tx callback panic: %v\n%s", r, string(debug.Stack()))
 			if txOpen {
-				_ = rollbackImmediateTx(context.WithoutCancel(ctx), tx)
+				panicErr = rollbackImmediateTxWithError(context.WithoutCancel(ctx), tx, panicErr)
+				txOpen = false
 			}
-			panic(r)
+			retErr = panicErr
 		}
 		if txOpen && retErr != nil {
 			retErr = rollbackImmediateTxWithError(context.WithoutCancel(ctx), tx, retErr)

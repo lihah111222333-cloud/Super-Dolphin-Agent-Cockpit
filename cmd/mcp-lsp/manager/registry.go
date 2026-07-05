@@ -120,6 +120,8 @@ type dynamicRegistry struct {
 	installer Installer
 }
 
+type registryResolver = dynamicRegistry
+
 // UnsupportedDiagnosticsFilesError 标记显式诊断请求里无法路由到 LSP 的文件。
 // 它保留 ErrUnsupportedLanguage 作为 unwrap，工具层可据此组装 error envelope。
 type UnsupportedDiagnosticsFilesError struct {
@@ -191,7 +193,7 @@ func (r *dynamicRegistry) GetManagerForFile(ctx context.Context, filePath string
 
 // ResolveManagerForFile 根据文件名推断语言并解析 scoped manager。
 // scoped 结果会携带 ManagerPool 解析出的缓存和诊断作用域。
-func (r *dynamicRegistry) ResolveManagerForFile(ctx context.Context, filePath string) (ScopedManager, error) {
+func (r *registryResolver) ResolveManagerForFile(ctx context.Context, filePath string) (ScopedManager, error) {
 	return r.resolveManagerForTarget(ctx, DetectLanguageID(filePath), filePath, "")
 }
 
@@ -207,7 +209,7 @@ func (r *dynamicRegistry) GetManagerForFileWithLanguage(ctx context.Context, fil
 
 // ResolveManagerForFileWithLanguage 返回显式语言下的 scoped manager。
 // 它会在返回前执行安装校验和 ManagerPool scope 解析。
-func (r *dynamicRegistry) ResolveManagerForFileWithLanguage(ctx context.Context, filePath string, languageID string) (ScopedManager, error) {
+func (r *registryResolver) ResolveManagerForFileWithLanguage(ctx context.Context, filePath string, languageID string) (ScopedManager, error) {
 	lang := strings.ToLower(strings.TrimSpace(languageID))
 	if lang == "" {
 		lang = DetectLanguageID(filePath)
@@ -245,7 +247,7 @@ func (r *dynamicRegistry) GetManagerForLanguage(ctx context.Context, languageID 
 
 // ResolveManagerForLanguage 按 language id 解析 scoped manager。
 // 没有目标文件时仍会构造可信工具 scope，用于诊断和缓存审计。
-func (r *dynamicRegistry) ResolveManagerForLanguage(ctx context.Context, languageID string) (ScopedManager, error) {
+func (r *registryResolver) ResolveManagerForLanguage(ctx context.Context, languageID string) (ScopedManager, error) {
 	lang := strings.ToLower(strings.TrimSpace(languageID))
 
 	r.mu.RLock()

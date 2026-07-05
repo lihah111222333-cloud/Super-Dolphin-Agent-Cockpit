@@ -40,13 +40,14 @@ func main() {
 		os.Exit(2)
 	}
 	if os.Getenv(updaterDetachedEnv) != "1" {
-		if err := startDetachedUpdater(req.LogPath); err != nil {
+		updater := defaultUpdaterApp()
+		if err := updater.startDetachedUpdater(req.LogPath); err != nil {
 			pkglogger.Get().Error("super-dolphin-updater detach failed", "error", err)
 			os.Exit(1)
 		}
 		return
 	}
-	if err := install(req); err != nil {
+	if err := defaultUpdaterApp().install(req); err != nil {
 		pkglogger.Get().Error("super-dolphin-updater install failed", "error", err)
 		os.Exit(1)
 	}
@@ -84,83 +85,33 @@ var runCommand = func(ctx context.Context, timeout time.Duration, name string, a
 	commandCtx, cancel := ctxutil.WithTimeout(ctx, timeout)
 	defer cancel()
 
-	cmd := exec.Command(name, args...)
+	cmd := exec.CommandContext(commandCtx, name, args...)
+	cmd.Cancel = func() error {
+		return killCommandProcessGroup(cmd)
+	}
+	cmd.WaitDelay = updaterCommandKillWait
 	configureCommandProcessGroup(cmd)
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
-	if err := cmd.Start(); err != nil {
-		return commandResult{
-			stdout: stdout.String(),
-			stderr: stderr.String(),
-		}, err
+	err := cmd.Run()
+	result := commandResult{
+		stdout: stdout.String(),
+		stderr: stderr.String(),
 	}
-
-	waitCh := make(chan error, 1)
-	go func() {
-		waitCh <- cmd.Wait()
-	}()
-
-	select {
-	case err := <-waitCh:
-		return commandResult{
-			stdout: stdout.String(),
-			stderr: stderr.String(),
-		}, err
-	case <-commandCtx.Done():
-		err := killTimedOutCommand(cmd, commandCtx.Err(), waitCh)
-		return commandResult{
-			stdout: stdout.String(),
-			stderr: stderr.String(),
-		}, err
+	if ctxErr := commandCtx.Err(); ctxErr != nil {
+		if err != nil {
+			return result, errors.Join(ctxErr, err)
+		}
+		return result, ctxErr
 	}
+	return result, err
 }
 
 // runUpdaterCommand 用默认 timeout 执行 updater 外部命令。
 func runUpdaterCommand(name string, args ...string) (commandResult, error) {
-	return runCommand(context.Background(), updaterCommandTimeout, name, args...)
-}
-
-// configureCommandProcessGroup 为外部命令设置独立进程组。
-// 用反射写平台字段，避免在非 Unix 构建中直接引用不存在的 SysProcAttr 字段。
-func configureCommandProcessGroup(cmd *exec.Cmd) {
-	if cmd == nil {
-		return
-	}
-	attr := &syscall.SysProcAttr{}
-	setSysProcBool(attr, "Setpgid", true)
-	setSysProcBool(attr, "HideWindow", true)
-	setSysProcUint(attr, "CreationFlags", windowsCreateNewProcessGroup)
-	cmd.SysProcAttr = attr
-}
-
-func setSysProcBool(attr *syscall.SysProcAttr, field string, value bool) {
-	target := reflect.ValueOf(attr).Elem().FieldByName(field)
-	if target.IsValid() && target.CanSet() && target.Kind() == reflect.Bool {
-		target.SetBool(value)
-	}
-}
-
-func setSysProcUint(attr *syscall.SysProcAttr, field string, value uint64) {
-	target := reflect.ValueOf(attr).Elem().FieldByName(field)
-	if target.IsValid() && target.CanSet() && target.CanUint() {
-		target.SetUint(value)
-	}
-}
-
-// killTimedOutCommand 在 deadline 后强制结束命令树，并保留 timeout 作为根因。
-func killTimedOutCommand(cmd *exec.Cmd, cause error, waitCh <-chan error) error {
-	killErr := killCommandProcessGroup(cmd)
-	select {
-	case waitErr := <-waitCh:
-		if killErr != nil {
-			return errors.Join(cause, fmt.Errorf("kill command process group: %w", killErr), waitErr)
-		}
-		return cause
-	case <-time.After(updaterCommandKillWait):
-		return errors.Join(cause, fmt.Errorf("wait for killed command: %w", killErr))
-	}
+	return defaultUpdaterApp().runUpdaterCommand(name, args...)
 }
 
 // killCommandProcessGroup 优先终止整棵命令树，失败时回退到当前进程。
@@ -216,8 +167,66 @@ func commandProcessGone(err error) bool {
 	return strings.Contains(text, "no such process") || strings.Contains(text, "process already finished")
 }
 
+// runRestartCommand 调用 open 重启目标 app，并清理会污染桌面进程的开发环境变量。
+var runRestartCommand = func(args ...string) (commandResult, error) {
+	cmd := exec.Command("open", args...)
+	cmd.Env = sanitizedRestartEnv(os.Environ())
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	err := cmd.Run()
+	return commandResult{
+		stdout: stdout.String(),
+		stderr: stderr.String(),
+	}, err
+}
+
+// waitForProcessExit 等待旧 app 进程退出，测试会替换它避免真实等待。
+var waitForProcessExit = func(pid int, timeout time.Duration) error {
+	return waitForProcessExitImpl(pid, timeout)
+}
+
+func (app updaterApp) runUpdaterCommand(name string, args ...string) (commandResult, error) {
+	if app.runCommand == nil {
+		return commandResult{}, errors.New("updater command runner is required")
+	}
+	return app.runCommand(context.Background(), updaterCommandTimeout, name, args...)
+}
+
+// configureCommandProcessGroup 为外部命令设置独立进程组。
+// 用反射写平台字段，避免在非 Unix 构建中直接引用不存在的 SysProcAttr 字段。
+func configureCommandProcessGroup(cmd *exec.Cmd) {
+	if cmd == nil {
+		return
+	}
+	attr := &syscall.SysProcAttr{}
+	setSysProcBool(attr, "Setpgid", true)
+	setSysProcBool(attr, "HideWindow", true)
+	setSysProcUint(attr, "CreationFlags", windowsCreateNewProcessGroup)
+	cmd.SysProcAttr = attr
+}
+
+func setSysProcBool(attr *syscall.SysProcAttr, field string, value bool) {
+	target := reflect.ValueOf(attr).Elem().FieldByName(field)
+	if target.IsValid() && target.CanSet() && target.Kind() == reflect.Bool {
+		target.SetBool(value)
+	}
+}
+
+func setSysProcUint(attr *syscall.SysProcAttr, field string, value uint64) {
+	target := reflect.ValueOf(attr).Elem().FieldByName(field)
+	if target.IsValid() && target.CanSet() && target.CanUint() {
+		target.SetUint(value)
+	}
+}
+
 // startDetachedUpdater 重新启动一个脱离当前进程组的 updater 子进程。
 func startDetachedUpdater(logPath string) error {
+	return defaultUpdaterApp().startDetachedUpdater(logPath)
+}
+
+func (app updaterApp) startDetachedUpdater(logPath string) error {
 	output, closeOutput, err := openDetachedOutput(logPath)
 	if err != nil {
 		return err

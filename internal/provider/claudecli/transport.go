@@ -3,6 +3,7 @@ package claudecli
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"errors"
 	"io"
 	"os"
@@ -12,6 +13,8 @@ import (
 	"time"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
+	dto "github.com/anthropic-ai/super-agent-v3/internal/dto/provider"
+	"github.com/anthropic-ai/super-agent-v3/internal/util/safego"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
@@ -86,7 +89,12 @@ func newTransport(binary string, args []string, cwd string, env []string) (*tran
 		stderr:  stderr,
 		done:    make(chan struct{}),
 	}
-	go func() {
+	startTransportWait(tr)
+	return tr, nil
+}
+
+func startTransportWait(tr *transport) {
+	safego.Go(context.Background(), nil, "claudecli.transport.wait", func(context.Context) {
 		defer func() {
 			if rec := recover(); rec != nil {
 				pkglogger.Get().Error("claudecli: transport wait panic", "recovered", rec)
@@ -98,8 +106,7 @@ func newTransport(binary string, args []string, cwd string, env []string) (*tran
 			}
 		}()
 		tr.wait()
-	}()
-	return tr, nil
+	})
 }
 
 // ensureLoopbackNoProxy 确保本地 MCP endpoint 不会被 HTTP 代理接管。
@@ -126,7 +133,7 @@ func mergeCSV(parts ...string) string {
 	seen := make(map[string]struct{}, 8)
 	out := make([]string, 0, 8)
 	for _, group := range parts {
-		for _, item := range strings.Split(group, ",") {
+		for item := range strings.SplitSeq(group, ",") {
 			trimmed := strings.TrimSpace(item)
 			if trimmed == "" {
 				continue
@@ -289,6 +296,73 @@ func (t *transport) waitForExit(timeout time.Duration) {
 		case <-ticker.C:
 		}
 	}
+}
+
+// Close 按优雅路径关闭 Claude session。
+func (s *session) Close(context.Context) error {
+	return s.stop(false)
+}
+
+// ForceStop 按强制路径停止 Claude session。
+func (s *session) ForceStop() error {
+	return s.stop(true)
+}
+
+// stop 停止 Claude session 并释放 transport、watcher 和 PID 注册。
+// force=true 时使用强杀路径；无论是否有 transport，都要向事件总线发布停止状态。
+func (s *session) stop(force bool) error {
+	s.mu.Lock()
+	tr := s.transport
+	cleanup := s.cleanup
+	handle := s.takeActiveTurnLocked()
+	reg := s.pidRegistry
+	watcher := s.detachLogWatcherLocked()
+	s.transport = nil
+	s.transportConfig = cliLaunchConfig{}
+	s.transportManifest = dto.MCPManifest{}
+	s.cleanup = nil
+	s.sessionContextWindow = 0
+	s.activeToolCalls = nil
+	s.mu.Unlock()
+
+	if watcher != nil {
+		watcher.stopAndWait()
+	}
+	unregisterTransportPID(reg, tr)
+	if handle != nil {
+		handle.finish(errors.New("claudecli: session stopped"))
+	}
+	var err error
+	if tr != nil {
+		err = stopTransport(tr, force)
+	}
+	if cleanup != nil {
+		cleanup()
+	}
+	s.dispatch(s.buildStopEvent(tr, force))
+	return err
+}
+
+// buildStopEvent 构造 session 停止或失败事件。
+// 强制停止时附带 stderr 尾部，便于 UI 展示 provider 退出原因。
+func (s *session) buildStopEvent(tr *transport, force bool) dto.RawProviderEvent {
+	eventType := "agent:stopped"
+	data := map[string]any{
+		"agent_id":   s.agentID,
+		"thread_id":  s.EventThreadID(),
+		"session_id": s.sessionID,
+		"timestamp":  time.Now().Format(time.RFC3339Nano),
+	}
+	if force {
+		eventType = "agent:failed"
+		data["error"] = "session stopped"
+		if tr != nil {
+			if stderr := tr.stderr.String(); stderr != "" {
+				data["stderr"] = stderr
+			}
+		}
+	}
+	return dto.RawProviderEvent{EventType: eventType, Data: data}
 }
 
 func (t *transport) signalProcess(sig processSig) error {

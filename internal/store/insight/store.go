@@ -2,6 +2,7 @@ package insight
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"time"
 
@@ -13,6 +14,8 @@ const (
 	defaultListLimit int32 = 100
 	maxListLimit     int32 = 500
 )
+
+var errUnsupportedInsightRowType = errors.New("session insight: unsupported row type")
 
 type querier interface {
 	UpsertSessionInsight(ctx context.Context, arg sqlc.UpsertSessionInsightParams) (sqlc.UpsertSessionInsightRow, error)
@@ -163,7 +166,11 @@ func (s *store) Upsert(ctx context.Context, p UpsertParams) (Insight, error) {
 	if err != nil {
 		return Insight{}, wrap(err, "upsert")
 	}
-	return fromRow(row), nil
+	insight, err := fromRow(row)
+	if err != nil {
+		return Insight{}, wrap(err, "upsert")
+	}
+	return insight, nil
 }
 
 // GetByLocalTurn 通过线程 ID 和本地 turn ID 读取单条 insight。
@@ -184,7 +191,11 @@ func (s *store) GetByLocalTurn(ctx context.Context, threadID, localTurnID string
 		}
 		return Insight{}, wrap(err, "get_by_local_turn")
 	}
-	return fromRow(row), nil
+	insight, err := fromRow(row)
+	if err != nil {
+		return Insight{}, wrap(err, "get_by_local_turn")
+	}
+	return insight, nil
 }
 
 // ListByThread 列出指定线程的 insight。
@@ -207,7 +218,11 @@ func (s *store) ListByThread(ctx context.Context, threadID string, limit int32) 
 	}
 	out := make([]Insight, len(rows))
 	for i, r := range rows {
-		out[i] = fromRow(r)
+		insight, err := fromRow(r)
+		if err != nil {
+			return nil, wrap(err, "list_by_thread")
+		}
+		out[i] = insight
 	}
 	return out, nil
 }
@@ -225,7 +240,11 @@ func (s *store) ListRecent(ctx context.Context, limit int32) ([]Insight, error) 
 	}
 	out := make([]Insight, len(rows))
 	for i, r := range rows {
-		out[i] = fromRow(r)
+		insight, err := fromRow(r)
+		if err != nil {
+			return nil, wrap(err, "list_recent")
+		}
+		out[i] = insight
 	}
 	return out, nil
 }
@@ -292,35 +311,35 @@ func (s *store) ListObservedTokenTurns(ctx context.Context, threadID string, lim
 }
 
 // fromRow 将不同 sqlc 查询返回的 session insight 行统一映射为领域对象。
-// 不支持的行类型直接 panic，避免新增查询结果时静默丢字段。
-func fromRow(row any) Insight {
+// 不支持的行类型返回错误，避免新增查询结果时静默丢字段。
+func fromRow(row any) (Insight, error) {
 	switch r := row.(type) {
 	case sqlc.UpsertSessionInsightRow:
 		return insightFromFields(r.ID, r.ThreadID, r.AgentID, r.SessionID, r.Provider, r.LocalTurnID,
 			r.ProviderTurnID, r.StartedAt, r.CompletedAt, r.DurationMs, r.Success, r.Status, r.StopReason,
 			r.ToolCalls, r.ToolCallsObserved, r.ToolFailures, r.ToolFailuresObserved, r.ApprovalRequests,
 			r.ApprovalRequestsObserved, r.TokenInput, r.TokenOutput, r.TokenTotal, r.TokenSnapshotObserved,
-			r.ContextWindowTokens, r.UIProjection, r.SkillsSelected, r.CreatedAt, r.UpdatedAt)
+			r.ContextWindowTokens, r.UIProjection, r.SkillsSelected, r.CreatedAt, r.UpdatedAt), nil
 	case sqlc.GetSessionInsightByLocalTurnRow:
 		return insightFromFields(r.ID, r.ThreadID, r.AgentID, r.SessionID, r.Provider, r.LocalTurnID,
 			r.ProviderTurnID, r.StartedAt, r.CompletedAt, r.DurationMs, r.Success, r.Status, r.StopReason,
 			r.ToolCalls, r.ToolCallsObserved, r.ToolFailures, r.ToolFailuresObserved, r.ApprovalRequests,
 			r.ApprovalRequestsObserved, r.TokenInput, r.TokenOutput, r.TokenTotal, r.TokenSnapshotObserved,
-			r.ContextWindowTokens, r.UIProjection, r.SkillsSelected, r.CreatedAt, r.UpdatedAt)
+			r.ContextWindowTokens, r.UIProjection, r.SkillsSelected, r.CreatedAt, r.UpdatedAt), nil
 	case sqlc.ListSessionInsightsByThreadRow:
 		return insightFromFields(r.ID, r.ThreadID, r.AgentID, r.SessionID, r.Provider, r.LocalTurnID,
 			r.ProviderTurnID, r.StartedAt, r.CompletedAt, r.DurationMs, r.Success, r.Status, r.StopReason,
 			r.ToolCalls, r.ToolCallsObserved, r.ToolFailures, r.ToolFailuresObserved, r.ApprovalRequests,
 			r.ApprovalRequestsObserved, r.TokenInput, r.TokenOutput, r.TokenTotal, r.TokenSnapshotObserved,
-			r.ContextWindowTokens, r.UIProjection, r.SkillsSelected, r.CreatedAt, r.UpdatedAt)
+			r.ContextWindowTokens, r.UIProjection, r.SkillsSelected, r.CreatedAt, r.UpdatedAt), nil
 	case sqlc.ListRecentSessionInsightsRow:
 		return insightFromFields(r.ID, r.ThreadID, r.AgentID, r.SessionID, r.Provider, r.LocalTurnID,
 			r.ProviderTurnID, r.StartedAt, r.CompletedAt, r.DurationMs, r.Success, r.Status, r.StopReason,
 			r.ToolCalls, r.ToolCallsObserved, r.ToolFailures, r.ToolFailuresObserved, r.ApprovalRequests,
 			r.ApprovalRequestsObserved, r.TokenInput, r.TokenOutput, r.TokenTotal, r.TokenSnapshotObserved,
-			r.ContextWindowTokens, r.UIProjection, r.SkillsSelected, r.CreatedAt, r.UpdatedAt)
+			r.ContextWindowTokens, r.UIProjection, r.SkillsSelected, r.CreatedAt, r.UpdatedAt), nil
 	default:
-		panic("unsupported session insight row type")
+		return Insight{}, errUnsupportedInsightRowType
 	}
 }
 

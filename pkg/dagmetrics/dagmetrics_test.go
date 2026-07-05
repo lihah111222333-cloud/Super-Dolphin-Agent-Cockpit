@@ -6,13 +6,12 @@ import (
 )
 
 func TestRecordRetryCapsTrackedNodeSeries(t *testing.T) {
-	ResetForTesting()
-	t.Cleanup(ResetForTesting)
+	registry := NewRegistry()
 
-	for i := 0; i < maxTrackedRetryNodes+2; i++ {
-		RecordRetry("dag-"+strconv.Itoa(i), "node", 1)
+	for i := range maxTrackedRetryNodes + 2 {
+		registry.RecordRetry("dag-"+strconv.Itoa(i), "node", 1)
 	}
-	snap := Read()
+	snap := registry.Read()
 	if got := len(snap.RetryCountPerNode); got != maxTrackedRetryNodes {
 		t.Fatalf("tracked retry nodes = %d, want cap %d", got, maxTrackedRetryNodes)
 	}
@@ -22,15 +21,14 @@ func TestRecordRetryCapsTrackedNodeSeries(t *testing.T) {
 }
 
 func TestRecordRetryAlertIsNotSuppressedAcrossWakeups(t *testing.T) {
-	ResetForTesting()
-	t.Cleanup(ResetForTesting)
+	registry := NewRegistry()
 
-	first := RecordRetry("dag", "node", 3)
-	second := RecordRetry("dag", "node", 3)
+	first := registry.RecordRetry("dag", "node", 3)
+	second := registry.RecordRetry("dag", "node", 3)
 	if !first.ShouldAlert || !second.ShouldAlert {
 		t.Fatalf("threshold alerts = first:%v second:%v, want both true", first.ShouldAlert, second.ShouldAlert)
 	}
-	if got := Read().RetryAlertTotal; got != 2 {
+	if got := registry.Read().RetryAlertTotal; got != 2 {
 		t.Fatalf("retry alert total = %d, want 2", got)
 	}
 }

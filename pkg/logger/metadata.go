@@ -17,7 +17,12 @@ const (
 
 // ConfigureServiceFromEnv 从环境变量读取 service metadata，并用 defaultVersion 兜住版本缺失。
 func ConfigureServiceFromEnv(defaultVersion string) {
-	SetServiceMetadata(
+	currentRuntime().ConfigureServiceFromEnv(defaultVersion)
+}
+
+// ConfigureServiceFromEnv 从环境变量读取 service metadata，并更新 runtime。
+func (r *Runtime) ConfigureServiceFromEnv(defaultVersion string) {
+	r.SetServiceMetadata(
 		firstLogValue(os.Getenv(serviceNameEnv), "super-dolphin"),
 		firstLogValue(os.Getenv(serviceVersionEnv), os.Getenv(updateVersionEnv), defaultVersion, "dev"),
 		normalizeLogEnv(firstLogValue(os.Getenv(serviceEnvEnv), os.Getenv(appEnvEnv), os.Getenv(runtimeModeEnv), "dev")),
@@ -26,39 +31,42 @@ func ConfigureServiceFromEnv(defaultVersion string) {
 
 // SetServiceMetadata 更新全局 service metadata，并重建当前日志器让后续日志带上新字段。
 func SetServiceMetadata(name, version, env string) {
+	currentRuntime().SetServiceMetadata(name, version, env)
+}
+
+// SetServiceMetadata 更新 runtime service metadata，并重建当前日志器让后续日志带上新字段。
+func (r *Runtime) SetServiceMetadata(name, version, env string) {
 	name = firstLogValue(name, "super-dolphin")
 	version = firstLogValue(version, "dev")
 	env = normalizeLogEnv(firstLogValue(env, "dev"))
 
-	logFileMu.Lock()
-	globalServiceName = name
-	globalServiceVersion = version
-	globalEnv = env
-	logFileMu.Unlock()
+	r.mu.Lock()
+	r.serviceName = name
+	r.serviceVersion = version
+	r.env = env
+	r.mu.Unlock()
 
-	rebuildActiveLogger()
+	r.rebuildActiveLogger()
 }
 
-// applyGlobalAttrs 为新建日志器绑定当前 service/env/project 字段。
-func applyGlobalAttrs(logger *slog.Logger) *slog.Logger {
+func (r *Runtime) applyGlobalAttrs(logger *slog.Logger) *slog.Logger {
 	if logger == nil {
 		return nil
 	}
-	attrs := currentGlobalAttrs()
+	attrs := r.currentGlobalAttrs()
 	if len(attrs) == 0 {
 		return logger
 	}
 	return logger.With(attrs...)
 }
 
-// currentGlobalAttrs 在锁内复制全局 metadata，避免 logger 重建时读到半更新状态。
-func currentGlobalAttrs() []any {
-	logFileMu.Lock()
-	project := strings.TrimSpace(globalProject)
-	serviceName := strings.TrimSpace(globalServiceName)
-	serviceVersion := strings.TrimSpace(globalServiceVersion)
-	env := strings.TrimSpace(globalEnv)
-	logFileMu.Unlock()
+func (r *Runtime) currentGlobalAttrs() []any {
+	r.mu.Lock()
+	project := strings.TrimSpace(r.project)
+	serviceName := strings.TrimSpace(r.serviceName)
+	serviceVersion := strings.TrimSpace(r.serviceVersion)
+	env := strings.TrimSpace(r.env)
+	r.mu.Unlock()
 
 	attrs := make([]any, 0, 8)
 	if serviceName != "" {
@@ -76,18 +84,17 @@ func currentGlobalAttrs() []any {
 	return attrs
 }
 
-// rebuildActiveLogger 使用当前模式、级别和文件状态重建全局日志器。
-func rebuildActiveLogger() {
-	logFileMu.Lock()
-	f := logFile
-	mode := activeMode
-	level := activeLevel
-	logFileMu.Unlock()
+func (r *Runtime) rebuildActiveLogger() {
+	r.mu.Lock()
+	f := r.logFile
+	mode := r.activeMode
+	level := r.activeLevel
+	r.mu.Unlock()
 	if f != nil {
-		rebuildLoggerWithFile(f)
+		r.rebuildLoggerWithFile(f)
 		return
 	}
-	storeLogger(newLogger(mode, level))
+	r.storeLogger(r.newLogger(mode, level))
 }
 
 // normalizeLogEnv 将常见环境别名收敛为 dev/test/prod，其余值保持小写透传。

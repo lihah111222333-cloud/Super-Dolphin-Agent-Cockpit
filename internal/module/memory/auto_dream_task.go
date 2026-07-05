@@ -507,14 +507,14 @@ func startConsolidateAllHandler(_ context.Context, p memoryHandlerDeps, req uiSi
 	if p.Service == nil {
 		return uiSimilarityConsolidateAllStartResult{}, errors.New("memory service is not configured")
 	}
-	return uiMemoryConsolidationJobs.start(p, req)
+	return uiMemoryConsolidationJobs().start(p, req)
 }
 
 func statusConsolidateAllHandler(_ context.Context, p memoryHandlerDeps, req uiSimilarityConsolidateAllStatusParams) (uiSimilarityConsolidateAllStatusResult, error) {
 	if p.Service == nil {
 		return uiSimilarityConsolidateAllStatusResult{}, errors.New("memory service is not configured")
 	}
-	return uiMemoryConsolidationJobs.status(req)
+	return uiMemoryConsolidationJobs().status(req)
 }
 
 const (
@@ -543,12 +543,11 @@ type uiMemoryConsolidationJobStore struct {
 	now     func() time.Time
 }
 
-var uiMemoryConsolidationJobs = newUIMemoryConsolidationJobStore(runConsolidateAll, ctxutil.DreamConsolidationTimeout)
+var uiMemoryConsolidationJobs = sync.OnceValue(func() *uiMemoryConsolidationJobStore {
+	return newUIMemoryConsolidationJobStore(runConsolidateAll, ctxutil.DreamConsolidationTimeout)
+})
 
 func newUIMemoryConsolidationJobStore(run uiMemoryConsolidationRunner, timeout time.Duration) *uiMemoryConsolidationJobStore {
-	if run == nil {
-		panic("memory consolidation runner is required")
-	}
 	if timeout <= 0 {
 		timeout = ctxutil.DreamConsolidationTimeout
 	}
@@ -563,6 +562,9 @@ func newUIMemoryConsolidationJobStore(run uiMemoryConsolidationRunner, timeout t
 }
 
 func (s *uiMemoryConsolidationJobStore) start(deps memoryHandlerDeps, req uiSimilarityConsolidateAllParams) (uiSimilarityConsolidateAllStartResult, error) {
+	if s == nil || s.run == nil {
+		return uiSimilarityConsolidateAllStartResult{}, errors.New("memory consolidation runner is not configured")
+	}
 	cwdKey := uiMemoryConsolidationCWDKey(deps, req.CWD)
 	now := s.now()
 
@@ -580,11 +582,17 @@ func (s *uiMemoryConsolidationJobStore) start(deps memoryHandlerDeps, req uiSimi
 	out := s.snapshotLocked(job)
 	s.mu.Unlock()
 
-	go s.runJob(jobID, deps, req)
+	safego.Go(context.Background(), nil, "memory.ui_consolidation.job", func(context.Context) {
+		s.runJob(jobID, deps, req)
+	})
 	return out, nil
 }
 
+// status 返回指定 UI consolidation job 的当前快照，并按 cwdKey 隔离不同工作区查询。
 func (s *uiMemoryConsolidationJobStore) status(req uiSimilarityConsolidateAllStatusParams) (uiSimilarityConsolidateAllStatusResult, error) {
+	if s == nil {
+		return uiSimilarityConsolidateAllStatusResult{}, errors.New("memory consolidation job store is not configured")
+	}
 	jobID := strings.TrimSpace(req.JobID)
 	if jobID == "" {
 		return uiSimilarityConsolidateAllStatusResult{}, publicValidationErr("jobId is required")

@@ -7,6 +7,8 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/anthropic-ai/super-agent-v3/internal/util/safego"
 )
 
 // prefetch 状态常量描述单个 PrefetchHandle 从启动、可消费到终止的状态机。
@@ -121,7 +123,9 @@ func (m *PrefetchManager) StartRelevantMemoryPrefetch(ctx context.Context, query
 		return handle
 	}
 
-	go m.runPrefetch(childCtx, handle)
+	safego.Go(childCtx, nil, "memory.retrieval.prefetch", func(context.Context) {
+		m.runPrefetch(childCtx, handle)
+	})
 	return handle
 }
 

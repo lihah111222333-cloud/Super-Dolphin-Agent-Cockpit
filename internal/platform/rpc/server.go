@@ -536,15 +536,16 @@ func (s *Server) reserveUIWebSocketSlot() error {
 	return nil
 }
 
-// releaseUIWebSocketSlot 释放 UI WebSocket 并发槽位，重复释放会 panic 暴露生命周期错误。
-func (s *Server) releaseUIWebSocketSlot() {
+// releaseUIWebSocketSlot 释放 UI WebSocket 并发槽位，重复释放返回显式生命周期错误。
+func (s *Server) releaseUIWebSocketSlot() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	if s.activeUIWS <= 0 {
-		panic("rpc UI websocket slot released without a reservation")
+		return ErrInvalidState("rpc UI websocket slot released without a reservation")
 	}
 	s.activeUIWS--
+	return nil
 }
 
 // OnConnect 注册连接建立回调，并立即回放当前活跃连接。

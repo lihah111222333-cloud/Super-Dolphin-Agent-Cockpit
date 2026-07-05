@@ -26,9 +26,11 @@ type updateIntentDraftStatusQuerier interface {
 	UpdatePromptIntentDraftStatus(ctx context.Context, arg sqlc.UpdatePromptIntentDraftStatusParams) (sqlc.UpdatePromptIntentDraftStatusRow, error)
 }
 
+var errUnsupportedPromptIntentDraftRowType = errors.New("prompt intent draft: unsupported row type")
+
 // UpsertIntentDraft 写入或更新 prompt intent 草稿。
 // GeneratedCard 和 Issues 会先规范化为合法 JSON，避免草稿保存后读取端才发现格式错误。
-func (s *store) UpsertIntentDraft(ctx context.Context, draft PromptIntentDraft) (*PromptIntentDraft, error) {
+func (s *promptIntentDraftStore) UpsertIntentDraft(ctx context.Context, draft PromptIntentDraft) (*PromptIntentDraft, error) {
 	if err := validatePromptIntentDraft(draft); err != nil {
 		return nil, wrapPromptError(err, "upsert", "prompt_intent_drafts")
 	}
@@ -62,13 +64,16 @@ func (s *store) UpsertIntentDraft(ctx context.Context, draft PromptIntentDraft) 
 	if err != nil {
 		return nil, wrapPromptError(err, "upsert", "prompt_intent_drafts")
 	}
-	mapped := fromSQLCPromptIntentDraft(row)
+	mapped, err := fromSQLCPromptIntentDraft(row)
+	if err != nil {
+		return nil, wrapPromptError(err, "upsert", "prompt_intent_drafts")
+	}
 	return &mapped, nil
 }
 
 // GetIntentDraft 按 cwd 和 draftKey 读取单个 intent 草稿。
 // 两个字段共同限定作用域，缺失任意一项都会在查询前失败。
-func (s *store) GetIntentDraft(ctx context.Context, cwd, draftKey string) (*PromptIntentDraft, error) {
+func (s *promptIntentDraftStore) GetIntentDraft(ctx context.Context, cwd, draftKey string) (*PromptIntentDraft, error) {
 	cwd, draftKey, err := requireIntentDraftScope(cwd, draftKey)
 	if err != nil {
 		return nil, wrapPromptError(err, "get", "prompt_intent_drafts")
@@ -81,13 +86,16 @@ func (s *store) GetIntentDraft(ctx context.Context, cwd, draftKey string) (*Prom
 	if err != nil {
 		return nil, wrapPromptError(err, "get", "prompt_intent_drafts")
 	}
-	mapped := fromSQLCPromptIntentDraft(row)
+	mapped, err := fromSQLCPromptIntentDraft(row)
+	if err != nil {
+		return nil, wrapPromptError(err, "get", "prompt_intent_drafts")
+	}
 	return &mapped, nil
 }
 
 // ListIntentDrafts 列出指定 cwd 下的 intent 草稿。
 // Limit 必须显式提供，status 非空时会先校验枚举值再进入 SQL。
-func (s *store) ListIntentDrafts(ctx context.Context, filter PromptIntentDraftListFilter) ([]PromptIntentDraft, error) {
+func (s *promptIntentDraftStore) ListIntentDrafts(ctx context.Context, filter PromptIntentDraftListFilter) ([]PromptIntentDraft, error) {
 	cwd := strings.TrimSpace(filter.CWD)
 	if cwd == "" {
 		return nil, wrapPromptError(errors.New("prompt intent cwd is required"), "list", "prompt_intent_drafts")
@@ -115,14 +123,18 @@ func (s *store) ListIntentDrafts(ctx context.Context, filter PromptIntentDraftLi
 	}
 	drafts := make([]PromptIntentDraft, 0, len(rows))
 	for _, row := range rows {
-		drafts = append(drafts, fromSQLCPromptIntentDraft(row))
+		draft, err := fromSQLCPromptIntentDraft(row)
+		if err != nil {
+			return nil, wrapPromptError(err, "list", "prompt_intent_drafts")
+		}
+		drafts = append(drafts, draft)
 	}
 	return drafts, nil
 }
 
 // UpdateIntentDraftStatus 更新指定 intent 草稿的状态。
 // 状态只允许在约定枚举内切换，避免 UI 或导入流程写入无法识别的草稿阶段。
-func (s *store) UpdateIntentDraftStatus(ctx context.Context, cwd, draftKey, status string) (*PromptIntentDraft, error) {
+func (s *promptIntentDraftStore) UpdateIntentDraftStatus(ctx context.Context, cwd, draftKey, status string) (*PromptIntentDraft, error) {
 	cwd, draftKey, err := requireIntentDraftScope(cwd, draftKey)
 	if err != nil {
 		return nil, wrapPromptError(err, "update_status", "prompt_intent_drafts")
@@ -143,7 +155,10 @@ func (s *store) UpdateIntentDraftStatus(ctx context.Context, cwd, draftKey, stat
 	if err != nil {
 		return nil, wrapPromptError(err, "update_status", "prompt_intent_drafts")
 	}
-	mapped := fromSQLCPromptIntentDraft(row)
+	mapped, err := fromSQLCPromptIntentDraft(row)
+	if err != nil {
+		return nil, wrapPromptError(err, "update_status", "prompt_intent_drafts")
+	}
 	return &mapped, nil
 }
 
@@ -221,22 +236,22 @@ func normalizePromptIntentJSON(raw json.RawMessage, defaultValue string) ([]byte
 	return []byte(trimmed), nil
 }
 
-func fromSQLCPromptIntentDraft(row any) PromptIntentDraft {
+func fromSQLCPromptIntentDraft(row any) (PromptIntentDraft, error) {
 	switch r := row.(type) {
 	case sqlc.UpsertPromptIntentDraftRow:
 		return promptIntentDraftFromFields(r.ID, r.DraftKey, r.CWD, r.Kind, r.RawInput, r.SourceType, r.SourceUrl,
-			r.OriginHash, r.LicenseHint, r.GeneratedCard, r.Confidence, r.Status, r.Scope, r.Issues, r.CreatedAt, r.UpdatedAt)
+			r.OriginHash, r.LicenseHint, r.GeneratedCard, r.Confidence, r.Status, r.Scope, r.Issues, r.CreatedAt, r.UpdatedAt), nil
 	case sqlc.GetPromptIntentDraftRow:
 		return promptIntentDraftFromFields(r.ID, r.DraftKey, r.CWD, r.Kind, r.RawInput, r.SourceType, r.SourceUrl,
-			r.OriginHash, r.LicenseHint, r.GeneratedCard, r.Confidence, r.Status, r.Scope, r.Issues, r.CreatedAt, r.UpdatedAt)
+			r.OriginHash, r.LicenseHint, r.GeneratedCard, r.Confidence, r.Status, r.Scope, r.Issues, r.CreatedAt, r.UpdatedAt), nil
 	case sqlc.ListPromptIntentDraftsRow:
 		return promptIntentDraftFromFields(r.ID, r.DraftKey, r.CWD, r.Kind, r.RawInput, r.SourceType, r.SourceUrl,
-			r.OriginHash, r.LicenseHint, r.GeneratedCard, r.Confidence, r.Status, r.Scope, r.Issues, r.CreatedAt, r.UpdatedAt)
+			r.OriginHash, r.LicenseHint, r.GeneratedCard, r.Confidence, r.Status, r.Scope, r.Issues, r.CreatedAt, r.UpdatedAt), nil
 	case sqlc.UpdatePromptIntentDraftStatusRow:
 		return promptIntentDraftFromFields(r.ID, r.DraftKey, r.CWD, r.Kind, r.RawInput, r.SourceType, r.SourceUrl,
-			r.OriginHash, r.LicenseHint, r.GeneratedCard, r.Confidence, r.Status, r.Scope, r.Issues, r.CreatedAt, r.UpdatedAt)
+			r.OriginHash, r.LicenseHint, r.GeneratedCard, r.Confidence, r.Status, r.Scope, r.Issues, r.CreatedAt, r.UpdatedAt), nil
 	default:
-		panic("unsupported prompt intent draft row type")
+		return PromptIntentDraft{}, errUnsupportedPromptIntentDraftRowType
 	}
 }
 

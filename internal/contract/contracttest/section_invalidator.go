@@ -29,16 +29,21 @@ func SectionInvalidatorConcurrent(t *testing.T, factory func() contract.SectionI
 		contract.DynamicSectionMemoryContext,
 	}
 
+	ctx := t.Context()
 	var wg sync.WaitGroup
-	wg.Add(writers)
-	for i := 0; i < writers; i++ {
-		go func(seed int) {
-			defer wg.Done()
-			for j := 0; j < perWriter; j++ {
+	for i := range writers {
+		seed := i
+		wg.Go(func() {
+			for j := range perWriter {
+				select {
+				case <-ctx.Done():
+					return
+				default:
+				}
 				name := sectionNames[(seed+j)%len(sectionNames)]
 				_ = inv.InvalidateSections(contract.InvalidateMemoryWrite, name)
 			}
-		}(i)
+		})
 	}
 	wg.Wait()
 

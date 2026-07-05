@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/xml"
 	"errors"
 	"fmt"
@@ -38,36 +39,59 @@ type commandResult struct {
 	stderr string
 }
 
-// runRestartCommand 调用 open 重启目标 app，并清理会污染桌面进程的开发环境变量。
-var runRestartCommand = func(args ...string) (commandResult, error) {
-	cmd := exec.Command("open", args...)
-	cmd.Env = sanitizedRestartEnv(os.Environ())
-	var stdout bytes.Buffer
-	var stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-	err := cmd.Run()
-	return commandResult{
-		stdout: stdout.String(),
-		stderr: stderr.String(),
-	}, err
+type commandRunner func(context.Context, time.Duration, string, ...string) (commandResult, error)
+
+type restartCommandRunner func(...string) (commandResult, error)
+
+type processExitWaiter func(int, time.Duration) error
+
+// updaterApp 显式携带 updater 的可替换系统依赖，避免安装流程依赖隐式全局状态。
+type updaterApp struct {
+	runCommand         commandRunner
+	runRestartCommand  restartCommandRunner
+	waitForProcessExit processExitWaiter
 }
 
-// waitForProcessExit 等待旧 app 进程退出，测试会替换它避免真实等待。
-var waitForProcessExit = waitForProcessExitImpl
+func defaultUpdaterApp() updaterApp {
+	return updaterApp{
+		runCommand:         runCommand,
+		runRestartCommand:  runRestartCommand,
+		waitForProcessExit: waitForProcessExit,
+	}
+}
+
+func (app updaterApp) validate() error {
+	if app.runCommand == nil {
+		return errors.New("updater command runner is required")
+	}
+	if app.runRestartCommand == nil {
+		return errors.New("updater restart command runner is required")
+	}
+	if app.waitForProcessExit == nil {
+		return errors.New("updater process waiter is required")
+	}
+	return nil
+}
 
 // install 挂载 DMG、执行安装并尽力卸载临时挂载点。
 // 安装和清理错误会合并返回，避免清理失败被静默吞掉。
 func install(req installRequest) error {
+	return defaultUpdaterApp().install(req)
+}
+
+func (app updaterApp) install(req installRequest) error {
+	if err := app.validate(); err != nil {
+		return err
+	}
 	if err := validateInstallRequest(req); err != nil {
 		return err
 	}
-	mountPoint, err := mountDMG(req.DMGPath)
+	mountPoint, err := app.mountDMG(req.DMGPath)
 	if err != nil {
 		return err
 	}
-	installErr := installFromMount(req, mountPoint)
-	detachErr := detachDMG(mountPoint)
+	installErr := app.installFromMount(req, mountPoint)
+	detachErr := app.detachDMG(mountPoint)
 	removeErr := os.Remove(mountPoint)
 	return errors.Join(installErr, detachErr, removeErr)
 }
@@ -75,6 +99,15 @@ func install(req installRequest) error {
 // installFromMount 从已挂载 DMG 安装 app。
 // 复制前后都做结构和签名校验，任一步失败都不会继续重启目标 app。
 func installFromMount(req installRequest, mountPoint string) error {
+	return defaultUpdaterApp().installFromMount(req, mountPoint)
+}
+
+// installFromMount 使用显式 updaterApp 依赖执行已挂载 DMG 的安装流程。
+// 等待旧进程、签名校验、复制替换和重启都必须在同一个依赖上下文里完成，避免测试钩子或生产命令来源混用。
+func (app updaterApp) installFromMount(req installRequest, mountPoint string) error {
+	if err := app.validate(); err != nil {
+		return err
+	}
 	stagedApp, err := findMountedApp(mountPoint)
 	if err != nil {
 		return err
@@ -82,34 +115,51 @@ func installFromMount(req installRequest, mountPoint string) error {
 	if err := validateMountedApp(stagedApp); err != nil {
 		return err
 	}
-	if req.WaitPID > 0 {
-		if err := waitForProcessExit(req.WaitPID, 30*time.Second); err != nil {
-			return err
-		}
+	if err := app.waitForRequestedProcess(req); err != nil {
+		return err
 	}
 	teamID := ""
 	if !req.AllowUnsigned {
 		var err error
-		teamID, err = expectedTeamID(req.TargetAppPath)
+		teamID, err = app.expectedTeamID(req.TargetAppPath)
 		if err != nil {
 			return err
 		}
 	}
-	if err := verifyAppSignature(stagedApp, teamID, req.AllowUnsigned); err != nil {
+	if err := app.verifyAppSignature(stagedApp, teamID, req.AllowUnsigned); err != nil {
 		return fmt.Errorf("verify staged app: %w", err)
 	}
-	if err := replaceTargetApp(stagedApp, req.TargetAppPath, teamID, req.AllowUnsigned); err != nil {
+	if err := app.replaceTargetApp(stagedApp, req.TargetAppPath, teamID, req.AllowUnsigned); err != nil {
 		return err
 	}
 	if req.Restart {
-		return restartTargetApp(req.TargetAppPath)
+		return app.restartTargetApp(req.TargetAppPath)
 	}
 	return nil
 }
 
+// waitForRequestedProcess 在替换 app 前等待旧进程退出。
+// nil waiter 表示 updater 依赖装配错误，必须 fail-fast，不能跳过等待直接替换。
+func (app updaterApp) waitForRequestedProcess(req installRequest) error {
+	if req.WaitPID <= 0 {
+		return nil
+	}
+	if app.waitForProcessExit == nil {
+		return errors.New("updater process waiter is required")
+	}
+	return app.waitForProcessExit(req.WaitPID, 30*time.Second)
+}
+
 // restartTargetApp 使用 open -n 重启目标 app。
 func restartTargetApp(targetApp string) error {
-	if _, err := runRestartCommand("-n", targetApp); err != nil {
+	return defaultUpdaterApp().restartTargetApp(targetApp)
+}
+
+func (app updaterApp) restartTargetApp(targetApp string) error {
+	if app.runRestartCommand == nil {
+		return errors.New("updater restart command runner is required")
+	}
+	if _, err := app.runRestartCommand("-n", targetApp); err != nil {
 		return fmt.Errorf("restart target app: %w", commandError(err))
 	}
 	return nil
@@ -333,11 +383,15 @@ func nextPlistString(decoder *xml.Decoder) (string, error) {
 
 // mountDMG 只读挂载 DMG 到临时目录。
 func mountDMG(dmgPath string) (string, error) {
+	return defaultUpdaterApp().mountDMG(dmgPath)
+}
+
+func (app updaterApp) mountDMG(dmgPath string) (string, error) {
 	mountPoint, err := os.MkdirTemp("", "super-dolphin-updater-mount-*")
 	if err != nil {
 		return "", fmt.Errorf("create mount point: %w", err)
 	}
-	if _, err := runUpdaterCommand("hdiutil", "attach", dmgPath, "-nobrowse", "-readonly", "-mountpoint", mountPoint); err != nil {
+	if _, err := app.runUpdaterCommand("hdiutil", "attach", dmgPath, "-nobrowse", "-readonly", "-mountpoint", mountPoint); err != nil {
 		removeErr := os.Remove(mountPoint)
 		return "", errors.Join(fmt.Errorf("mount dmg: %w", commandError(err)), removeErr)
 	}
@@ -346,10 +400,14 @@ func mountDMG(dmgPath string) (string, error) {
 
 // detachDMG 卸载 DMG，普通卸载失败后再尝试 force。
 func detachDMG(mountPoint string) error {
-	if _, err := runUpdaterCommand("hdiutil", "detach", mountPoint); err == nil {
+	return defaultUpdaterApp().detachDMG(mountPoint)
+}
+
+func (app updaterApp) detachDMG(mountPoint string) error {
+	if _, err := app.runUpdaterCommand("hdiutil", "detach", mountPoint); err == nil {
 		return nil
 	}
-	if _, err := runUpdaterCommand("hdiutil", "detach", "-force", mountPoint); err != nil {
+	if _, err := app.runUpdaterCommand("hdiutil", "detach", "-force", mountPoint); err != nil {
 		return fmt.Errorf("detach dmg with force: %w", commandError(err))
 	}
 	return nil
@@ -373,13 +431,17 @@ func findMountedApp(mountPoint string) (string, error) {
 // expectedTeamID 解析安装时应匹配的 Developer Team ID。
 // 目标 app 不存在时必须通过环境显式提供，避免首次安装信任未知签名。
 func expectedTeamID(targetApp string) (string, error) {
+	return defaultUpdaterApp().expectedTeamID(targetApp)
+}
+
+func (app updaterApp) expectedTeamID(targetApp string) (string, error) {
 	if teamID := strings.TrimSpace(os.Getenv("SUPER_DOLPHIN_EXPECTED_TEAM_ID")); teamID != "" {
 		return teamID, nil
 	}
 	if _, err := os.Stat(targetApp); err != nil {
 		return "", fmt.Errorf("SUPER_DOLPHIN_EXPECTED_TEAM_ID is required when target app is unavailable: %w", err)
 	}
-	teamID, err := appTeamID(targetApp)
+	teamID, err := app.appTeamID(targetApp)
 	if err != nil {
 		return "", fmt.Errorf("read installed app Team ID: %w", err)
 	}
@@ -389,8 +451,14 @@ func expectedTeamID(targetApp string) (string, error) {
 // verifyAppSignature 校验 app 的 codesign、Team ID 和 Gatekeeper 评估。
 // allowUnsigned 只允许灰度测试跳过 Team ID/Gatekeeper，codesign 仍必须通过。
 func verifyAppSignature(appPath string, expectedTeamID string, allowUnsigned bool) error {
+	return defaultUpdaterApp().verifyAppSignature(appPath, expectedTeamID, allowUnsigned)
+}
+
+// verifyAppSignature 使用 updaterApp 的命令 runner 校验签名和 Gatekeeper。
+// allowUnsigned 只放宽 Team ID/Gatekeeper，codesign 失败仍然阻断安装。
+func (app updaterApp) verifyAppSignature(appPath string, expectedTeamID string, allowUnsigned bool) error {
 	if allowUnsigned {
-		if _, err := runUpdaterCommand("codesign", "--verify", "--deep", "--strict", "--verbose=4", appPath); err != nil {
+		if _, err := app.runUpdaterCommand("codesign", "--verify", "--deep", "--strict", "--verbose=4", appPath); err != nil {
 			return fmt.Errorf("codesign verify failed: %w", commandError(err))
 		}
 		return nil
@@ -398,10 +466,10 @@ func verifyAppSignature(appPath string, expectedTeamID string, allowUnsigned boo
 	if expectedTeamID == "" {
 		return errors.New("expected Team ID is required")
 	}
-	if _, err := runUpdaterCommand("codesign", "--verify", "--deep", "--strict", "--verbose=4", appPath); err != nil {
+	if _, err := app.runUpdaterCommand("codesign", "--verify", "--deep", "--strict", "--verbose=4", appPath); err != nil {
 		return fmt.Errorf("codesign verify failed: %w", commandError(err))
 	}
-	details, err := signingDetails(appPath)
+	details, err := app.signingDetails(appPath)
 	if err != nil {
 		return err
 	}
@@ -415,7 +483,7 @@ func verifyAppSignature(appPath string, expectedTeamID string, allowUnsigned boo
 	if !strings.Contains(details, "Authority=Developer ID Application:") {
 		return errors.New("codesign details missing Developer ID Application authority")
 	}
-	if _, err := runUpdaterCommand("spctl", "-a", "-vv", "-t", "execute", appPath); err != nil {
+	if _, err := app.runUpdaterCommand("spctl", "-a", "-vv", "-t", "execute", appPath); err != nil {
 		return fmt.Errorf("spctl execute assessment failed: %w", commandError(err))
 	}
 	return nil
@@ -423,7 +491,11 @@ func verifyAppSignature(appPath string, expectedTeamID string, allowUnsigned boo
 
 // appTeamID 从已安装 app 的签名详情读取 Team ID。
 func appTeamID(appPath string) (string, error) {
-	details, err := signingDetails(appPath)
+	return defaultUpdaterApp().appTeamID(appPath)
+}
+
+func (app updaterApp) appTeamID(appPath string) (string, error) {
+	details, err := app.signingDetails(appPath)
 	if err != nil {
 		return "", err
 	}
@@ -436,7 +508,11 @@ func appTeamID(appPath string) (string, error) {
 
 // signingDetails 调用 codesign 读取签名详情。
 func signingDetails(appPath string) (string, error) {
-	result, err := runUpdaterCommand("codesign", "-dv", "--verbose=4", appPath)
+	return defaultUpdaterApp().signingDetails(appPath)
+}
+
+func (app updaterApp) signingDetails(appPath string) (string, error) {
+	result, err := app.runUpdaterCommand("codesign", "-dv", "--verbose=4", appPath)
 	if err != nil {
 		return "", fmt.Errorf("codesign details failed: %w", commandError(err))
 	}
@@ -458,6 +534,12 @@ func parseSigningValue(details string, key string) string {
 // replaceTargetApp 用已校验的 staged app 替换目标 app。
 // 复制后再次验证结构和签名；失败会尽力恢复原 app。
 func replaceTargetApp(stagedApp string, targetApp string, expectedTeamID string, allowUnsigned bool) error {
+	return defaultUpdaterApp().replaceTargetApp(stagedApp, targetApp, expectedTeamID, allowUnsigned)
+}
+
+// replaceTargetApp 先备份目标 app，再复制、复验并原子替换目标路径。
+// 任一步失败都必须走 rollback，避免留下半替换状态或未清理的 staging 目录。
+func (app updaterApp) replaceTargetApp(stagedApp string, targetApp string, expectedTeamID string, allowUnsigned bool) error {
 	backupApp := backupPath(targetApp)
 	stagedCopyApp := stagedCopyPath(targetApp)
 	backupCreated, err := backupTargetApp(targetApp, backupApp)
@@ -465,7 +547,7 @@ func replaceTargetApp(stagedApp string, targetApp string, expectedTeamID string,
 		return err
 	}
 
-	if err := copyApp(stagedApp, stagedCopyApp); err != nil {
+	if err := app.copyApp(stagedApp, stagedCopyApp); err != nil {
 		return rollbackInstallFailure(targetApp, backupApp, stagedCopyApp, backupCreated, fmt.Errorf("copy app: %w", err))
 	}
 	if err := validateMountedApp(stagedCopyApp); err != nil {
@@ -477,10 +559,10 @@ func replaceTargetApp(stagedApp string, targetApp string, expectedTeamID string,
 			fmt.Errorf("verify copied app structure: %w", err),
 		)
 	}
-	if err := verifyAppSignature(stagedCopyApp, expectedTeamID, allowUnsigned); err != nil {
+	if err := app.verifyAppSignature(stagedCopyApp, expectedTeamID, allowUnsigned); err != nil {
 		return rollbackInstallFailure(targetApp, backupApp, stagedCopyApp, backupCreated, fmt.Errorf("verify copied app: %w", err))
 	}
-	if err := clearQuarantine(stagedCopyApp); err != nil {
+	if err := app.clearQuarantine(stagedCopyApp); err != nil {
 		return rollbackInstallFailure(targetApp, backupApp, stagedCopyApp, backupCreated, fmt.Errorf("clear quarantine: %w", err))
 	}
 	if err := os.Rename(stagedCopyApp, targetApp); err != nil {
@@ -522,7 +604,11 @@ func stagedCopyPath(targetApp string) string {
 
 // copyApp 使用 ditto 复制 app bundle，保留 macOS bundle 元数据。
 func copyApp(stagedApp string, targetApp string) error {
-	if _, err := runUpdaterCommand("ditto", stagedApp, targetApp); err != nil {
+	return defaultUpdaterApp().copyApp(stagedApp, targetApp)
+}
+
+func (app updaterApp) copyApp(stagedApp string, targetApp string) error {
+	if _, err := app.runUpdaterCommand("ditto", stagedApp, targetApp); err != nil {
 		return commandError(err)
 	}
 	return nil
@@ -531,7 +617,13 @@ func copyApp(stagedApp string, targetApp string) error {
 // clearQuarantine 清理 app bundle 上的 quarantine xattr。
 // 权限错误会再检查属性是否仍存在，避免把“已清理但有噪音”误判为失败。
 func clearQuarantine(appPath string) error {
-	result, err := runUpdaterCommand("xattr", "-dr", "com.apple.quarantine", appPath)
+	return defaultUpdaterApp().clearQuarantine(appPath)
+}
+
+// clearQuarantine 清理 app bundle 的 quarantine 属性，并在权限噪音后复查真实状态。
+// 属性仍存在时返回原始 xattr 错误；属性已消失时允许继续安装。
+func (app updaterApp) clearQuarantine(appPath string) error {
+	result, err := app.runUpdaterCommand("xattr", "-dr", "com.apple.quarantine", appPath)
 	if err == nil {
 		return nil
 	}
@@ -540,7 +632,7 @@ func clearQuarantine(appPath string) error {
 		return nil
 	}
 	if strings.Contains(output, "Permission denied") {
-		remains, inspectErr := quarantineAttributeRemains(appPath)
+		remains, inspectErr := app.quarantineAttributeRemains(appPath)
 		if inspectErr != nil {
 			return errors.Join(commandError(err), inspectErr)
 		}
@@ -553,7 +645,11 @@ func clearQuarantine(appPath string) error {
 
 // quarantineAttributeRemains 检查 quarantine 属性是否仍存在。
 func quarantineAttributeRemains(appPath string) (bool, error) {
-	result, err := runUpdaterCommand("xattr", "-lr", appPath)
+	return defaultUpdaterApp().quarantineAttributeRemains(appPath)
+}
+
+func (app updaterApp) quarantineAttributeRemains(appPath string) (bool, error) {
+	result, err := app.runUpdaterCommand("xattr", "-lr", appPath)
 	output := result.stdout + result.stderr
 	if err != nil {
 		return false, fmt.Errorf("inspect quarantine attributes: %w", commandError(err))

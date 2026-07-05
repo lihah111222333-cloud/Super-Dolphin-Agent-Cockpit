@@ -4,16 +4,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
 	"log/slog"
-	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
 	"time"
 
 	skillidentity "github.com/anthropic-ai/super-agent-v3/internal/module/skill/identity"
-	"github.com/anthropic-ai/super-agent-v3/internal/platform/httpegress"
 )
 
 type skillNotFoundError string
@@ -448,78 +445,4 @@ func (s *service) deletePersonalLocal(ctx context.Context, name, dir, scope, per
 	s.publishSkillsChanged(ctx, "delete_local", name, scope)
 	result := map[string]any{"ok": true, "name": name, "dir": dir, "archive_dir": archiveDir, "removed_agent_bindings": 0}
 	return attachMirrorPublish(result, s.publishWriteTimeMirrors(ctx, requireCWDOrLog(ctx, "DeleteLocal"), scope, personalType, name)), nil
-}
-
-// ReadRemote 从公开 URL 读取远程 skill 文本。
-// URL 必须通过 egress 白名单校验，响应体会多读 1 字节用于识别超限并显式报错。
-func (s *service) ReadRemote(ctx context.Context, url string) (any, error) {
-	targetURL, err := httpegress.ValidatePublicURL(url)
-	if err != nil {
-		return nil, err
-	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, targetURL, nil)
-	if err != nil {
-		return nil, err
-	}
-	resp, err := s.http.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
-		return nil, fmt.Errorf("fetch remote skill failed status=%d", resp.StatusCode)
-	}
-	body, err := io.ReadAll(io.LimitReader(resp.Body, maxSkillFileBytes+1))
-	if err != nil {
-		return nil, err
-	}
-	if len(body) > maxSkillFileBytes {
-		return nil, fmt.Errorf("remote skill too large: exceeds %d bytes", maxSkillFileBytes)
-	}
-	return map[string]any{"skill": map[string]any{"url": targetURL, "content": string(body)}}, nil
-}
-
-// WriteRemote 保留旧 RPC 入口但拒绝远程写入。
-// 当前实现不允许 system scope 通过该路径落盘，调用方会收到显式错误。
-func (s *service) WriteRemote(ctx context.Context, name, content string) (any, error) {
-	if strings.TrimSpace(name) == "" {
-		return nil, errors.New("name is required")
-	}
-	return nil, ErrSkillSystemScopeRemoved
-}
-
-// ReadConfig 读取 agent 级 skill 配置。
-// 当前 agent 级持久化契约尚未配置，因此返回显式的空绑定状态而不是伪造技能列表。
-func (s *service) ReadConfig(_ context.Context, agentID string) (any, error) {
-	// agent 级 skill 绑定还没有持久化存储契约，调用方必须看到未绑定状态。
-	agentID = strings.TrimSpace(agentID)
-	if agentID == "" {
-		return nil, errors.New("agent_id is required")
-	}
-	return map[string]any{
-		"agent_id":       agentID,
-		"skills":         []string{},
-		"session_bound":  false,
-		"configured":     false,
-		"binding_count":  0,
-		"binding_source": "stub",
-	}, nil
-}
-
-// WriteSkillContent 保留旧 RPC 名称但拒绝 system scope 内容写入。
-// 真实写入必须走 WriteLocal/CreateSkill，并携带当前 scope 的路径和审批边界。
-func (s *service) WriteSkillContent(ctx context.Context, name, content string) (any, error) {
-	if strings.TrimSpace(name) == "" {
-		return nil, errors.New("name is required")
-	}
-	return nil, ErrSkillSystemScopeRemoved
-}
-
-// WriteSummary 保留旧摘要写入入口但不再直接改 skill。
-// 摘要治理必须走当前 skill 元数据路径，避免绕过审批和 mirror 同步。
-func (s *service) WriteSummary(ctx context.Context, name, summary string) (any, error) {
-	if strings.TrimSpace(name) == "" {
-		return nil, errors.New("name is required")
-	}
-	return nil, ErrSkillSystemScopeRemoved
 }

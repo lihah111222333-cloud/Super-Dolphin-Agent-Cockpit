@@ -647,15 +647,6 @@ func (s *session) ReadConfig(ctx context.Context, _ string) (dto.ThreadConfig, e
 	}, nil
 }
 
-// Close 关闭 Codex app 会话并执行优雅清理。
-func (s *session) Close(context.Context) error { return s.shutdownSession(true) }
-
-// ForceStop 强制停止 Codex app 会话。
-func (s *session) ForceStop() error { return s.shutdownSession(false) }
-
-// SessionRuntime 返回会话运行时状态。
-func (s *session) SessionRuntime() *SessionRuntime { return s.runtime }
-
 func (s *session) shutdownSessionCleanup() error {
 	if s == nil {
 		return nil

@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
-	"sync/atomic"
 	"time"
 )
 
@@ -28,25 +27,28 @@ type relayHookHolder struct {
 // relayDisabledKey 是 context 中禁用 relay 的私有 key。
 type relayDisabledKey struct{}
 
-var relayHookState atomic.Value
-
-func init() {
-	relayHookState.Store(relayHookHolder{})
-}
-
 // SetRelayHook 安装全局 relay hook；后续日志写入本地后会同步调用它。
 func SetRelayHook(h RelayHook) {
-	relayHookState.Store(relayHookHolder{hook: h})
+	currentRuntime().SetRelayHook(h)
+}
+
+// SetRelayHook 安装 runtime relay hook；后续日志写入本地后会同步调用它。
+func (r *Runtime) SetRelayHook(h RelayHook) {
+	r.relayHookState.Store(relayHookHolder{hook: h})
 }
 
 // ClearRelayHook 清空全局 relay hook。
 func ClearRelayHook() {
-	relayHookState.Store(relayHookHolder{})
+	currentRuntime().ClearRelayHook()
 }
 
-// currentRelayHook 返回当前安装的 relay hook。
-func currentRelayHook() RelayHook {
-	holder, _ := relayHookState.Load().(relayHookHolder)
+// ClearRelayHook 清空 runtime relay hook。
+func (r *Runtime) ClearRelayHook() {
+	r.relayHookState.Store(relayHookHolder{})
+}
+
+func (r *Runtime) currentRelayHook() RelayHook {
+	holder, _ := r.relayHookState.Load().(relayHookHolder)
 	return holder.hook
 }
 
@@ -69,17 +71,17 @@ func relayDisabled(ctx context.Context) bool {
 
 // relayHandler 在底层 handler 写入后把日志记录同步给 relay hook。
 type relayHandler struct {
-	next   slog.Handler
-	attrs  []slog.Attr
-	groups []string
+	runtime *Runtime
+	next    slog.Handler
+	attrs   []slog.Attr
+	groups  []string
 }
 
-// wrapRelayHandler 为 handler 增加 relay 能力；nil handler 保持 nil。
-func wrapRelayHandler(next slog.Handler) slog.Handler {
+func (r *Runtime) wrapRelayHandler(next slog.Handler) slog.Handler {
 	if next == nil {
 		return next
 	}
-	return &relayHandler{next: next}
+	return &relayHandler{runtime: r, next: next}
 }
 
 // Enabled 透传到底层 handler，保持 slog 级别判断一致。
@@ -93,7 +95,7 @@ func (h *relayHandler) Handle(ctx context.Context, rec slog.Record) error {
 	if relayDisabled(ctx) {
 		return err
 	}
-	hook := currentRelayHook()
+	hook := h.runtime.currentRelayHook()
 	if hook == nil {
 		return err
 	}
@@ -111,7 +113,7 @@ func (h *relayHandler) WithAttrs(attrs []slog.Attr) slog.Handler {
 	cloned := append([]slog.Attr{}, h.attrs...)
 	cloned = append(cloned, attrs...)
 	groups := append([]string{}, h.groups...)
-	return &relayHandler{next: h.next.WithAttrs(attrs), attrs: cloned, groups: groups}
+	return &relayHandler{runtime: h.runtime, next: h.next.WithAttrs(attrs), attrs: cloned, groups: groups}
 }
 
 // WithGroup 记录分组路径，确保 relay payload 的字段 key 与 slog group 对齐。
@@ -121,7 +123,7 @@ func (h *relayHandler) WithGroup(name string) slog.Handler {
 		groups = append(groups, trimmed)
 	}
 	attrs := append([]slog.Attr{}, h.attrs...)
-	return &relayHandler{next: h.next.WithGroup(name), attrs: attrs, groups: groups}
+	return &relayHandler{runtime: h.runtime, next: h.next.WithGroup(name), attrs: attrs, groups: groups}
 }
 
 // relayLevelString 将 slog level 映射成 relay 约定的大写级别。

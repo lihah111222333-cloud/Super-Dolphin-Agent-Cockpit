@@ -76,6 +76,13 @@ type store struct {
 	runInTx txRunner
 }
 
+type promptQueryStore = store
+type promptCommandStore = store
+type promptSectionStore = store
+type promptRecallStore = store
+type promptIntentDraftStore = store
+type promptTransactionStore = store
+
 var recallTopicNamePattern = regexp.MustCompile(`^[a-z0-9]+(?:-[a-z0-9]+)*$`)
 
 // NewStore 创建基于 sqlc 的 prompt 存储。
@@ -90,7 +97,7 @@ func newStore(q *sqlc.Queries, runInTx txRunner) Store {
 
 // Get 按 prompt_key 读取单个 prompt template。
 // 底层错误统一包装为 prompt_template store 错误，调用方不依赖 sqlc 错误细节。
-func (s *store) Get(ctx context.Context, promptKey string) (*PromptTemplate, error) {
+func (s *promptQueryStore) Get(ctx context.Context, promptKey string) (*PromptTemplate, error) {
 	q, ok := s.q.(getQuerier)
 	if !ok {
 		return nil, wrapPromptError(errors.New("prompt store does not support get"), "get", "prompt_template")
@@ -105,7 +112,7 @@ func (s *store) Get(ctx context.Context, promptKey string) (*PromptTemplate, err
 
 // List 按 agent、关键词和 cwd 列出 prompt template。
 // cwd 必填，避免不同工作区的动态模板和 recall 规则互相泄露。
-func (s *store) List(ctx context.Context, filter ListFilter) ([]PromptTemplate, error) {
+func (s *promptQueryStore) List(ctx context.Context, filter ListFilter) ([]PromptTemplate, error) {
 	cwd := strings.TrimSpace(filter.CWD)
 	if cwd == "" {
 		return nil, errors.New("cwd is required for prompt template list")
@@ -128,7 +135,7 @@ func (s *store) List(ctx context.Context, filter ListFilter) ([]PromptTemplate, 
 
 // WithTx 在同一事务内执行 prompt 写操作。
 // 未配置事务 runner 时直接复用当前 store 执行，便于窄测试覆盖无数据库事务的路径。
-func (s *store) WithTx(ctx context.Context, fn func(txStore Store) error) error {
+func (s *promptTransactionStore) WithTx(ctx context.Context, fn func(txStore Store) error) error {
 	if s.runInTx == nil || s.queries == nil {
 		return wrapPromptError(fn(s), "with_tx", "prompt_template")
 	}
@@ -140,7 +147,7 @@ func (s *store) WithTx(ctx context.Context, fn func(txStore Store) error) error 
 
 // Delete 按 prompt_key 删除模板。
 // 删除 0 行时返回 platformdb.ErrNotFound，调用方可区分未命中和数据库错误。
-func (s *store) Delete(ctx context.Context, promptKey string) error {
+func (s *promptCommandStore) Delete(ctx context.Context, promptKey string) error {
 	q, ok := s.q.(deleteQuerier)
 	if !ok {
 		return wrapPromptError(errors.New("prompt store does not support delete"), "delete", "prompt_template")
@@ -157,7 +164,7 @@ func (s *store) Delete(ctx context.Context, promptKey string) error {
 
 // ListSectionsByTemplateID 读取单个模板的全部 section。
 // 结果包含 disabled 行，UI 可用它恢复被关闭的段落。
-func (s *store) ListSectionsByTemplateID(ctx context.Context, templateID int64) ([]PromptTemplateSection, error) {
+func (s *promptQueryStore) ListSectionsByTemplateID(ctx context.Context, templateID int64) ([]PromptTemplateSection, error) {
 	q, ok := s.q.(listSectionsQuerier)
 	if !ok {
 		return nil, wrapPromptError(errors.New("prompt store does not support list_sections"), "list_sections", "prompt_template_sections")
@@ -177,7 +184,7 @@ func (s *store) ListSectionsByTemplateID(ctx context.Context, templateID int64) 
 
 // ListSectionsByTemplateIDs 批量读取多个模板的 section。
 // 空输入直接返回空切片，避免构造无意义的 SQL IN 条件。
-func (s *store) ListSectionsByTemplateIDs(ctx context.Context, templateIDs []int64) ([]PromptTemplateSection, error) {
+func (s *promptQueryStore) ListSectionsByTemplateIDs(ctx context.Context, templateIDs []int64) ([]PromptTemplateSection, error) {
 	if len(templateIDs) == 0 {
 		return []PromptTemplateSection{}, nil
 	}
@@ -200,7 +207,7 @@ func (s *store) ListSectionsByTemplateIDs(ctx context.Context, templateIDs []int
 
 // ListRecallSections 读取当前 cwd 下启用的 recall section。
 // cwd 必填，确保动态召回内容不会跨工作区共享。
-func (s *store) ListRecallSections(ctx context.Context, cwd string) ([]PromptTemplateSection, error) {
+func (s *promptQueryStore) ListRecallSections(ctx context.Context, cwd string) ([]PromptTemplateSection, error) {
 	cwd, err := requirePromptSectionCWD(cwd)
 	if err != nil {
 		return nil, wrapPromptError(err, "list_recall_sections", "prompt_template_sections")
@@ -222,7 +229,7 @@ func (s *store) ListRecallSections(ctx context.Context, cwd string) ([]PromptTem
 
 // ListDefaultRuleSections 读取当前 cwd 下启用的 default_rule section。
 // 该查询只服务运行时默认规则注入，缺失 cwd 时立即失败。
-func (s *store) ListDefaultRuleSections(ctx context.Context, cwd string) ([]PromptTemplateSection, error) {
+func (s *promptQueryStore) ListDefaultRuleSections(ctx context.Context, cwd string) ([]PromptTemplateSection, error) {
 	cwd, err := requirePromptSectionCWD(cwd)
 	if err != nil {
 		return nil, wrapPromptError(err, "list_default_rule_sections", "prompt_template_sections")
@@ -244,7 +251,7 @@ func (s *store) ListDefaultRuleSections(ctx context.Context, cwd string) ([]Prom
 
 // InsertVersion 归档一条 prompt template 版本。
 // 调用方负责在模板写入前传入源更新时间，store 只保留版本快照和审计字段。
-func (s *store) InsertVersion(ctx context.Context, version PromptTemplateVersion) (int64, error) {
+func (s *promptCommandStore) InsertVersion(ctx context.Context, version PromptTemplateVersion) (int64, error) {
 	q, ok := s.q.(insertVersionQuerier)
 	if !ok {
 		return 0, wrapPromptError(errors.New("prompt store does not support insert_version"), "insert_version", "prompt_template_version")
@@ -271,7 +278,7 @@ func (s *store) InsertVersion(ctx context.Context, version PromptTemplateVersion
 
 // CreatePromptTemplate 新建 prompt template。
 // 唯一键冲突会映射为 platformdb.ErrConflict，便于 UI 提示用户改名或改 key。
-func (s *store) CreatePromptTemplate(ctx context.Context, template PromptTemplate) (*PromptTemplate, error) {
+func (s *promptCommandStore) CreatePromptTemplate(ctx context.Context, template PromptTemplate) (*PromptTemplate, error) {
 	q, ok := s.q.(createPromptTemplateQuerier)
 	if !ok {
 		return nil, wrapPromptError(errors.New("prompt store does not support create"), "create", "prompt_template")
@@ -309,7 +316,7 @@ func (s *store) CreatePromptTemplate(ctx context.Context, template PromptTemplat
 
 // Upsert 新增或更新 prompt template。
 // MatchWhen 和 Priority 会随模板一同落库，确保自动路由使用最新配置。
-func (s *store) Upsert(ctx context.Context, template PromptTemplate) (*PromptTemplate, error) {
+func (s *promptCommandStore) Upsert(ctx context.Context, template PromptTemplate) (*PromptTemplate, error) {
 	q, ok := s.q.(upsertQuerier)
 	if !ok {
 		return nil, wrapPromptError(errors.New("prompt store does not support upsert"), "upsert", "prompt_template")
@@ -415,7 +422,7 @@ func promptTemplateFromFields(
 
 // UpsertSection 写入或更新一个 prompt template section。
 // region、trigger_type、recall_topic 和 enable_when 在入库前校验，失败时不会留下部分配置。
-func (s *store) UpsertSection(ctx context.Context, section PromptTemplateSection) (*PromptTemplateSection, error) {
+func (s *promptSectionStore) UpsertSection(ctx context.Context, section PromptTemplateSection) (*PromptTemplateSection, error) {
 	q, ok := s.q.(upsertSectionQuerier)
 	if !ok {
 		return nil, wrapPromptError(errors.New("prompt store does not support upsert_section"), "upsert_section", "prompt_template_sections")
@@ -510,7 +517,7 @@ func requirePromptSectionCWD(cwd string) (string, error) {
 
 // LockRecallTopicInCWD 在指定 cwd 内锁定 recall topic。
 // 该方法用于事务内重复检查，确保同一工作区不会并发提交同名 recall 规则。
-func (s *store) LockRecallTopicInCWD(ctx context.Context, cwd, topic string) error {
+func (s *promptRecallStore) LockRecallTopicInCWD(ctx context.Context, cwd, topic string) error {
 	cwd, err := requirePromptSectionCWD(cwd)
 	if err != nil {
 		return wrapPromptError(err, "lock_recall_topic", "prompt_template_sections")
@@ -531,7 +538,7 @@ func (s *store) LockRecallTopicInCWD(ctx context.Context, cwd, topic string) err
 
 // UpsertRecallTopicTargetInCWD 在指定工作目录内绑定 recall topic 到模板分区。
 // CWD、topic、templateID 和 sectionKey 都必须显式有效，防止跨项目复用动态召回规则。
-func (s *store) UpsertRecallTopicTargetInCWD(ctx context.Context, cwd, topic string, templateID int64, sectionKey string) error {
+func (s *promptRecallStore) UpsertRecallTopicTargetInCWD(ctx context.Context, cwd, topic string, templateID int64, sectionKey string) error {
 	cwd, err := requirePromptSectionCWD(cwd)
 	if err != nil {
 		return wrapPromptError(err, "upsert_recall_topic_target", "prompt_recall_topics")
@@ -565,7 +572,7 @@ func validRecallTopicName(topic string) bool {
 
 // DeleteSection 删除指定模板的一个 section。
 // templateID 和 sectionKey 必须同时有效；未删除任何行时返回 not found。
-func (s *store) DeleteSection(ctx context.Context, templateID int64, sectionKey string) error {
+func (s *promptSectionStore) DeleteSection(ctx context.Context, templateID int64, sectionKey string) error {
 	q, ok := s.q.(deleteSectionQuerier)
 	if !ok {
 		return wrapPromptError(errors.New("prompt store does not support delete_section"), "delete_section", "prompt_template_sections")

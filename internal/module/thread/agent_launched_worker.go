@@ -10,6 +10,7 @@ import (
 
 	agentdto "github.com/anthropic-ai/super-agent-v3/internal/dto/agent"
 	"github.com/anthropic-ai/super-agent-v3/internal/util/ctxutil"
+	"github.com/anthropic-ai/super-agent-v3/internal/util/safego"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 )
 
@@ -58,14 +59,9 @@ func (w *agentLaunchedWorker) Start() {
 			close(w.doneCh)
 			return
 		}
-		go func() {
-			defer func() {
-				if rec := recover(); rec != nil {
-					pkglogger.Error("thread: recovered agent_launched_worker panic", "panic", rec)
-				}
-			}()
+		safego.Go(context.Background(), pkglogger.Get(), "thread.agent_launched.worker", func(context.Context) {
 			w.runWorker()
-		}()
+		})
 	})
 }
 

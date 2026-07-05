@@ -9,7 +9,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"sync"
 	"unicode/utf16"
 
 	"github.com/anthropic-ai/super-agent-v3/cmd/mcp-orch/orchestration/nodeexec"
@@ -20,8 +19,6 @@ const (
 	documentContentTypeDOCX = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
 	documentContentTypePDF  = "application/pdf"
 )
-
-var cleanupRegistry sync.Map
 
 // BuildImportParams 把结构化正文渲染成临时真实文件，并返回可交给 sharedfile importer 的参数。
 func BuildImportParams(plan nodeexec.ArtifactTextPlan, updatedBy string) (sharedfilestore.ImportLocalFileParams, func(), error) {
@@ -64,18 +61,47 @@ func BuildImportParamsFromTarget(target *nodeexec.ArtifactTarget, rawResult stri
 	if err != nil {
 		return sharedfilestore.ImportLocalFileParams{}, err
 	}
-	params, cleanup, err := BuildImportParams(plan, updatedBy)
+	params, _, err := BuildImportParams(plan, updatedBy)
 	if err != nil {
 		return sharedfilestore.ImportLocalFileParams{}, err
 	}
-	cleanupRegistry.Store(params.SourcePath, cleanup)
 	return params, nil
 }
 
 // CleanupSource 清理本包为文本 artifact 生成的临时源文件；普通本地文件 artifact 不会被删除。
 func CleanupSource(sourcePath string) {
-	if cleanup, ok := cleanupRegistry.LoadAndDelete(sourcePath); ok {
-		cleanup.(func())()
+	if isGeneratedDocumentTempPath(sourcePath) {
+		_ = os.Remove(sourcePath)
+	}
+}
+
+// isGeneratedDocumentTempPath 判断路径是否为本包生成的文档临时文件，避免误删用户传入的本地 artifact。
+func isGeneratedDocumentTempPath(sourcePath string) bool {
+	trimmed := strings.TrimSpace(sourcePath)
+	if trimmed == "" {
+		return false
+	}
+	abs, err := filepath.Abs(filepath.Clean(trimmed))
+	if err != nil {
+		return false
+	}
+	tmpRoot, err := filepath.Abs(os.TempDir())
+	if err != nil {
+		return false
+	}
+	rel, err := filepath.Rel(tmpRoot, abs)
+	if err != nil || rel == "." || strings.HasPrefix(rel, "..") || filepath.IsAbs(rel) {
+		return false
+	}
+	base := filepath.Base(abs)
+	if !strings.HasPrefix(base, "super-dolphin-document-") {
+		return false
+	}
+	switch strings.ToLower(filepath.Ext(base)) {
+	case ".docx", ".pdf":
+		return true
+	default:
+		return false
 	}
 }
 
@@ -277,9 +303,7 @@ func paginateLines(lines []string, pageSize int) [][]string {
 	var pages [][]string
 	for start := 0; start < len(lines); start += pageSize {
 		end := start + pageSize
-		if end > len(lines) {
-			end = len(lines)
-		}
+		end = min(end, len(lines))
 		pages = append(pages, lines[start:end])
 	}
 	return pages

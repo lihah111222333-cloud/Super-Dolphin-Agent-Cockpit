@@ -191,7 +191,8 @@ func (m *Manager) Shutdown(ctx context.Context) error {
 		_ = deadline
 	}
 	done := make(chan struct{})
-	go func() {
+	var drainWG sync.WaitGroup
+	drainWG.Go(func() {
 		defer func() {
 			if r := recover(); r != nil {
 				m.logger.Warn("cachekeepalive: recovered shutdown drain panic", "panic", r)
@@ -199,7 +200,7 @@ func (m *Manager) Shutdown(ctx context.Context) error {
 		}()
 		m.pingInflight.Wait()
 		close(done)
-	}()
+	})
 	select {
 	case <-done:
 		return nil

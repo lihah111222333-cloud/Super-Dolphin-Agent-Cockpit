@@ -12,6 +12,7 @@ import (
 	platformconfig "github.com/anthropic-ai/super-agent-v3/internal/platform/config"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/eventsurface"
 	"github.com/anthropic-ai/super-agent-v3/internal/platform/shared"
+	"github.com/anthropic-ai/super-agent-v3/internal/util/safego"
 	pkglogger "github.com/anthropic-ai/super-agent-v3/pkg/logger"
 	"github.com/creachadair/jrpc2"
 	"github.com/creachadair/jrpc2/channel"
@@ -216,7 +217,9 @@ func (r *remoteLauncher) startHeartbeatLocked(client *jrpc2.Client, reg mcpdto.R
 	if interval <= 0 {
 		interval = remoteLauncherInterval
 	}
-	go remoteLauncherHeartbeat(ctx, client, lease, interval)
+	safego.Go(ctx, nil, "mcp-orch.remoteLauncher.heartbeat", func(runCtx context.Context) {
+		remoteLauncherHeartbeat(runCtx, client, lease, interval)
+	})
 }
 func (r *remoteLauncher) stopHeartbeatLocked() {
 	if r.heartbeatCancel != nil {

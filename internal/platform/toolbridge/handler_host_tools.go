@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/anthropic-ai/super-agent-v3/internal/contract"
@@ -38,8 +39,9 @@ func (h *Handler) listPeerToolsForCodex(ctx context.Context, kinds ...string) []
 		outcome peerToolsListOutcome
 	}
 	ch := make(chan indexedOutcome, len(kinds))
+	var toolsWG sync.WaitGroup
 	for index, kind := range kinds {
-		go func() {
+		toolsWG.Go(func() {
 			defer func() {
 				if recovered := recover(); recovered != nil {
 					ch <- indexedOutcome{
@@ -60,13 +62,14 @@ func (h *Handler) listPeerToolsForCodex(ctx context.Context, kinds ...string) []
 					err:        err,
 				},
 			}
-		}()
+		})
 	}
 	out := make([]peerToolsListOutcome, len(kinds))
 	for range kinds {
 		result := <-ch
 		out[result.index] = result.outcome
 	}
+	toolsWG.Wait()
 	return out
 }
 

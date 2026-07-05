@@ -167,12 +167,12 @@ func TestPoolRecyclerIdleWorkspaceWinsOverRSSRecycle(t *testing.T) {
 	}
 	forceWorkspaceLastActivity(t, scoped, client, time.Now().Add(-idleTimeout-time.Minute))
 
-	originalProbe := clientRSSBytesForRecycler
-	clientRSSBytesForRecycler = func(Client) (uint64, int, error) {
+	originalProbe := mgr.pool.recycler.rssProbe
+	mgr.pool.recycler.rssProbe = func(Client) (uint64, int, error) {
 		return defaultGoRSSLimitBytes + 1, 4242, nil
 	}
 	t.Cleanup(func() {
-		clientRSSBytesForRecycler = originalProbe
+		mgr.pool.recycler.rssProbe = originalProbe
 	})
 
 	mgr.pool.recycler.check()
