@@ -87,7 +87,7 @@ func reserveWailsWSConnectionSlot(server *Server) (func(), error) {
 
 // noopWailsWSConnectionSlot 是无 server 场景的空释放函数。
 func noopWailsWSConnectionSlot() {
-	return
+	_ = struct{}{}
 }
 
 // wsDispatchAssigner 把 WebSocket RPC 调用转给 Server.Dispatch。
