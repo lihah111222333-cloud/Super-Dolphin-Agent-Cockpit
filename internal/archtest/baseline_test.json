@@ -313,22 +313,6 @@
     "raw_goroutines": 1,
     "max_struct_methods": 1
   },
-  "internal/module/dashboard/dag_snapshot_test.go": {
-    "lines": 599,
-    "max_func_len": 102,
-    "max_nesting": 2,
-    "max_complexity": 33,
-    "max_params": 4,
-    "max_returns": 2,
-    "max_underscore": 0,
-    "global_vars": 0,
-    "panic_count": 0,
-    "naked_returns": 0,
-    "empty_funcs": 0,
-    "todo_count": 0,
-    "max_struct_fields": 4,
-    "max_struct_methods": 1
-  },
   "internal/module/memory/bus_runner_test.go": {
     "lines": 123,
     "max_func_len": 28,
